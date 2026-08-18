@@ -1,11 +1,11 @@
 // Package config 提供 bald 的配置加载层。
 //
 // 设计来源与核心思想见 docs/config-center-design.md：
-//   - 本地文件 + 环境变量 + 命令行 flag（onexstack 风格，基于 viper）
+//   - 本地文件 + 环境变量 + 命令行 flag（面向 K8s/容器部署，基于 viper）
 //   - 远程配置中心（基于自研 RemoteSource 抽象，绕开 viper 标准 remote 的缺陷）
 //
-// 加载优先级（高 → 低）：
-//   flag > 本地文件 > 环境变量 > 远程配置（远程作为基准，本地覆盖远程）
+// 加载优先级（高 → 低，viper 默认语义）：
+//   flag > 环境变量 > 本地文件 > 远程配置（远程作为基准）
 package config
 
 import (
@@ -42,16 +42,21 @@ type Options struct {
 	OnChange func(v *viper.Viper)
 }
 
-// Load 加载配置：本地 + 远程 + env + flag，并可选地监听热更新。
+// Load 加载配置：远程 + 本地 + env + flag，并可选地监听热更新。
 //
-// 优先级（高 → 低）：flag > 本地文件 > 环境变量 > 远程（底层基准）。
-// 设计要点（符合决策①「远程基准 + 本地覆盖」）：
-//   - 远程与本地都落在 viper 的"底层 config"（低于 flag/env 层），但加载顺序上
-//     远程先 ReadConfig、本地后 MergeConfigMap，同名 key 本地赢，从而本地覆盖远程。
-//   - flag（BindPFlags）与 env（AutomaticEnv）位于更上层，天然压过底层，
-//     优先级正确：flag > 本地 > env > 远程。
-//   - 远程 watch 时只 Reset 底层并重新拉远程，再叠加缓存的本地 map，因此本地不会被污染；
-//     本地 watch 时重新解析本地文件并 MergeConfigMap，远程基准保持不变。
+// 优先级（高 → 低，viper 默认语义，符合 K8s/容器部署运维预期）：
+//   flag > 环境变量 > 本地文件 > 远程（远程作为最底层基准）。
+//
+// 设计要点：
+//   - viper 有「override 层」（flag/env 等显式覆盖）与「底层 config map」两层。
+//     flag（BindPFlags）与 env（AutomaticEnv，NAME_ 前缀）位于 override 层，
+//     天然压过底层 config；其中 flag 优先级高于 env（viper 默认）。
+//   - 远程与本地都落在 viper 的「底层 config」：远程先 ReadConfig（基准），
+//     本地后 MergeConfigMap（后写赢），同名 key 本地覆盖远程。
+//     因此底层内部顺序为「本地 > 远程」，再叠加更上层的 env/flag，
+//     最终优先级为：flag > env > 本地 > 远程。
+//   - 远程 watch 时 Reset 底层重新拉远程，再叠加缓存的本地 map，本地不被污染；
+//     本地 watch 时同样 Reset 底层、重注入远程、再合并本地 map，远程基准也不丢。
 func Load(opts Options) (*viper.Viper, error) {
 	if opts.Name == "" {
 		return nil, fmt.Errorf("config: Name is required")
@@ -69,12 +74,15 @@ func Load(opts Options) (*viper.Viper, error) {
 
 	ctx := context.Background()
 
-	// 1) 远程基准：写入底层 config（低优先级）。
+	// 1) 远程基准：写入底层 config（低优先级），并缓存供 watch 复用。
+	var remoteData []byte
+	var remoteFormat string
 	if opts.Remote != nil {
 		data, format, err := opts.Remote.Read(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("config: read remote: %w", err)
 		}
+		remoteData, remoteFormat = data, format
 		vMu.Lock()
 		if err := injectRemote(v, data, format); err != nil {
 			vMu.Unlock()
@@ -98,7 +106,7 @@ func Load(opts Options) (*viper.Viper, error) {
 	}
 
 	// 3) 热更新监听。
-	if err := setupWatch(v, vMu, opts, localMap); err != nil {
+	if err := setupWatch(v, vMu, opts, remoteData, remoteFormat, localMap); err != nil {
 		return nil, err
 	}
 
@@ -146,8 +154,9 @@ func readLocalFile(v *viper.Viper, opts Options) error {
 }
 
 // setupWatch 配置热更新监听。localMap 为已解析的本地配置（可能为 nil），
-// 用于远程 watch 重新叠加，保证本地覆盖不被污染。vMu 保护 viper 并发读写。
-func setupWatch(v *viper.Viper, vMu *sync.RWMutex, opts Options, localMap map[string]any) error {
+// remoteData/remoteFormat 为已拉取的远程基准（无远程时为空），用于 watch 时
+// 重新叠加，保证本地覆盖与远程基准互不污染。vMu 保护 viper 并发读写。
+func setupWatch(v *viper.Viper, vMu *sync.RWMutex, opts Options, remoteData []byte, remoteFormat string, localMap map[string]any) error {
 	if !opts.WatchLocalFile && opts.Remote == nil {
 		return nil
 	}
@@ -155,14 +164,33 @@ func setupWatch(v *viper.Viper, vMu *sync.RWMutex, opts Options, localMap map[st
 	if opts.OnChange != nil {
 		v.OnConfigChange(func(e fsnotify.Event) {
 			_ = e
-			// 本地文件变更：重新解析并整体刷新底层（而非 MergeConfigMap 累积合并），
-			// 避免磁盘已删除的 key 在 viper 中残留旧值。
+			// 本地文件变更：先重置底层，再依次重注入远程基准 + 合并本地 map。
+			// 必须整体重建底层（而非仅 MergeConfigMap），否则：① 磁盘已删除的
+			// key 会在 viper 中残留旧值；② 远程基准会在 ReadConfig 时被清掉。
 			if _, statErr := os.Stat(v.ConfigFileUsed()); statErr == nil {
-				if m, perr := parseLocal(opts); perr == nil && m != nil {
-					vMu.Lock()
-					_ = v.ReadConfig(bytes.NewReader(mustMarshalYAML(m)))
-					vMu.Unlock()
+				m, perr := parseLocal(opts)
+				if perr != nil {
+					opts.OnChange(v)
+					return
 				}
+				vMu.Lock()
+				if remoteData != nil {
+					// 重置底层为远程基准，再叠加本地覆盖。
+					if err := injectRemote(v, remoteData, remoteFormat); err != nil {
+						vMu.Unlock()
+						opts.OnChange(v)
+						return
+					}
+				} else {
+					// 无远程：用空文档清空底层（viper v1 无 Reset 方法），
+					// 仅保留即将合并的本地 map。
+					v.SetConfigType("yaml")
+					_ = v.ReadConfig(bytes.NewReader([]byte("{}")))
+				}
+				if m != nil {
+					_ = v.MergeConfigMap(m)
+				}
+				vMu.Unlock()
 			}
 			opts.OnChange(v)
 		})
@@ -184,6 +212,8 @@ func setupWatch(v *viper.Viper, vMu *sync.RWMutex, opts Options, localMap map[st
 			vMu.Lock()
 			if err := injectRemote(v, data, format); err != nil {
 				vMu.Unlock()
+				// 远程注入失败：保留旧底层，仍通知业务以便观测（与本地 watch 行为一致）。
+				onChange(v)
 				return
 			}
 			if localMap != nil {
@@ -196,17 +226,6 @@ func setupWatch(v *viper.Viper, vMu *sync.RWMutex, opts Options, localMap map[st
 		}
 	}
 	return nil
-}
-
-// mustMarshalYAML 将 map 序列化回 yaml 字节，供 ReadConfig 整体刷新底层 config。
-// 解析失败直接 panic：仅在热更新回调内部使用，且 map 来自已成功解析的本地文件，
-// 不会失败；若失败属编程错误，应尽早暴露。
-func mustMarshalYAML(m map[string]any) []byte {
-	buf := &bytes.Buffer{}
-	if err := newEncoder("yaml", buf).Encode(m); err != nil {
-		panic(fmt.Sprintf("config: marshal local map: %v", err))
-	}
-	return buf.Bytes()
 }
 
 // parseLocal 把本地文件解析为 map（供合并进底层 config）。

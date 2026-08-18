@@ -1,15 +1,15 @@
 // Package config 文档
 //
-// # 配置加载优先级（高 -> 低）
+// # 配置加载优先级（高 -> 低，viper 默认语义，面向 K8s/容器部署）
 //
-//  1. 命令行 flag（--config 之外的业务 flag，通过 BindPFlags 绑定）
-//  2. 本地配置文件（--config 显式指定，或 ./{name}.yaml / ./{name}-{env}.yaml）
-//  3. 环境变量（前缀 NAME_，如 BALD_HTTP_ADDR）
-//  4. 远程配置中心（远程作为基准，本地文件覆盖远程）
+//  1. 命令行 flag（--config 之外的业务 flag，通过 BindPFlags 绑定，最高优先级）
+//  2. 环境变量（前缀 NAME_，如 BALD_HTTP_ADDR，容器化部署下运维最常用来覆盖配置）
+//  3. 本地配置文件（--config 显式指定，或 ./{name}.yaml / ./{name}-{env}.yaml）
+//  4. 远程配置中心（远程作为最底层基准）
 //
-// 注意：viper 的合并策略是“后读取的覆盖先读取的”，而 BindPFlags 绑定的是
-// 引用，flag 一旦被设置就永远最高。因此上面优先级成立。远程先注入（基准），
-// 本地文件后注入（覆盖），从而实现“远程基准 + 本地覆盖”。
+// viper 的 override 层（flag / env）压过底层 config（远程 + 本地），
+// 其中 flag 优先级高于 env；底层内部远程先写、本地后写（后写赢），
+// 因此本地覆盖远程。最终顺序：flag > env > 本地文件 > 远程。
 //
 // # 远程配置中心接入
 //

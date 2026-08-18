@@ -130,7 +130,8 @@ func publishRemote(t *testing.T, client config_client.IConfigClient, dataID, gro
 
 // TestIntegration_Nacos_RemoteBaselineThenLocalOverride：真实 nacos 作基准，
 // 本地文件覆盖远程。验证 FromKratosSource 桥接、nacos 格式识别（dataID 扩展名）、
-// 以及「本地 > 远程」优先级在真实后端下成立。
+// 以及「本地 > 远程」（底层内部优先级）在真实后端下成立。
+// 注：完整优先级链为 flag > env > 本地 > 远程。
 func TestIntegration_Nacos_RemoteBaselineThenLocalOverride(t *testing.T) {
 	_, _, group, dataID := nacosEnv()
 	client, ok := newNacosClient(t)

@@ -234,7 +234,7 @@ func (s *watchableKratosSource) Watch() (kratosconfig.Watcher, error) { return s
 
 // --- 以下为补充的单元测试场景 ---
 
-// TestLoad_FlagHighestPriority：flag 应压过本地文件与远程（优先级 高→低：flag>本地>env>远程）。
+// TestLoad_FlagHighestPriority：flag 应压过本地文件与远程（优先级 高→低：flag>env>本地>远程）。
 func TestLoad_FlagHighestPriority(t *testing.T) {
 	remote := newMemSource(`http:
   addr: ":8080"`, "yaml")
@@ -275,6 +275,53 @@ func TestLoad_EnvOverridesRemote(t *testing.T) {
 	}
 	if got := v.GetString("http.addr"); got != ":6060" {
 		t.Fatalf("http.addr = %q, want :6060 (env overrides remote)", got)
+	}
+}
+
+// TestLoad_EnvVsLocalFile：环境变量应压过本地文件（优先级 flag > env > 本地 > 远程）。
+// 这是面向 K8s/容器部署的核心语义——运维通过 ConfigMap 注入的环境变量覆盖镜像内配置。
+func TestLoad_EnvVsLocalFile(t *testing.T) {
+	// 本地文件给出 :9090，env 给出 :6060，env 必须赢。
+	localPath := writeTemp(t, "config.yaml", `http:
+  addr: ":9090"`)
+
+	t.Setenv("BALD_DEMO_HTTP_ADDR", ":6060")
+	v, err := Load(Options{Name: "bald-demo", ConfigFile: localPath})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got := v.GetString("http.addr"); got != ":6060" {
+		t.Fatalf("http.addr = %q, want :6060 (env overrides local file)", got)
+	}
+}
+
+// TestLoad_FullPriorityChain：单测覆盖完整优先级链 flag > env > 本地 > 远程，
+// 同名 key 在四个来源分别给出不同值，断言最终取最高优先级的 flag。
+func TestLoad_FullPriorityChain(t *testing.T) {
+	remote := newMemSource(`http:
+  addr: ":8080"`, "yaml") // 远程 :8080（最低）
+	localPath := writeTemp(t, "config.yaml", `http:
+  addr: ":9090"`) // 本地 :9090（压远程）
+
+	t.Setenv("BALD_DEMO_HTTP_ADDR", ":6060") // env :6060（压本地）
+
+	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+	fs.String("http.addr", ":7070", "")
+	if err := fs.Parse([]string{"--http.addr=:7000"}); err != nil { // flag :7000（最高）
+		t.Fatalf("parse flags: %v", err)
+	}
+
+	v, err := Load(Options{
+		Name:       "bald-demo",
+		ConfigFile: localPath,
+		Remote:     remote,
+		Flags:      fs,
+	})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got := v.GetString("http.addr"); got != ":7000" {
+		t.Fatalf("http.addr = %q, want :7000 (flag highest in chain)", got)
 	}
 }
 
@@ -335,6 +382,72 @@ func TestLoad_LocalFileWatchTriggersOnChange(t *testing.T) {
 	}
 }
 
+// TestLoad_LocalWatchPreservesRemoteBaseline：本地文件变更触发 watch 后，
+// 远程基准不应被 ReadConfig 清掉（回归本地 watch bug：整体刷新底层会丢掉远程）。
+func TestLoad_LocalWatchPreservesRemoteBaseline(t *testing.T) {
+	remote := newMemSource(`name: remote
+grpc:
+  addr: ":9090"`, "yaml") // 远程独有 key：name / grpc.addr
+	dir := t.TempDir()
+	localPath := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(localPath, []byte("http:\n  addr: \":9090\""), 0o644); err != nil {
+		t.Fatalf("write local: %v", err)
+	}
+
+	var mu sync.Mutex
+	var changed int
+
+	// 持有主 v 实例：回归点是本地 watch 后「同一实例」的底层是否被重建且保留远程基准。
+	v, err := Load(Options{
+		Name:           "bald-demo",
+		ConfigFile:     localPath,
+		Remote:         remote,
+		WatchLocalFile: true,
+		OnChange: func(vv *viper.Viper) {
+			mu.Lock()
+			defer mu.Unlock()
+			changed++
+		},
+	})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	// 修改本地文件（只改 http.addr），触发 fsnotify。
+	if err := os.WriteFile(localPath, []byte("http:\n  addr: \":9091\""), 0o644); err != nil {
+		t.Fatalf("rewrite local: %v", err)
+	}
+
+	deadline := time.After(3 * time.Second)
+	for {
+		mu.Lock()
+		c := changed
+		mu.Unlock()
+		if c > 0 {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("local file OnChange not triggered within timeout")
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+
+	// 关键回归点：直接断言触发热更新的「主 v 实例」（而非重新 Load），
+	// 验证本地 watch 重建底层后仍保留远程基准。
+	mu.Lock()
+	defer mu.Unlock()
+	if got := v.GetString("name"); got != "remote" {
+		t.Fatalf("after local watch, name = %q, want remote (remote baseline preserved)", got)
+	}
+	if got := v.GetString("grpc.addr"); got != ":9090" {
+		t.Fatalf("after local watch, grpc.addr = %q, want :9090 (remote baseline preserved)", got)
+	}
+	if got := v.GetString("http.addr"); got != ":9091" {
+		t.Fatalf("after local watch, http.addr = %q, want :9091 (local new value)", got)
+	}
+}
+
 // TestLoad_RemoteWatchKeepsLocalOverride：远程 watch 更新后只 Reset 底层，
 // 本地 override 层不被污染（回归 Issue#1 核心防护）。
 func TestLoad_RemoteWatchKeepsLocalOverride(t *testing.T) {
@@ -381,6 +494,11 @@ func TestLoad_RemoteWatchKeepsLocalOverride(t *testing.T) {
 	// 直接断言主 v 实例：远程更新后重新注入了远程基准，但本地覆盖层应保留。
 	if got := v.GetString("http.addr"); got != ":9090" {
 		t.Fatalf("after remote watch, http.addr = %q, want :9090 (local override preserved)", got)
+	}
+	// 回归：远程 watch 后 env 仍压过底层（override 层动态查询不被 watch 影响）。
+	t.Setenv("BALD_DEMO_HTTP_ADDR", ":6060")
+	if got := v.GetString("http.addr"); got != ":6060" {
+		t.Fatalf("after remote watch, http.addr = %q, want :6060 (env still overrides after remote watch)", got)
 	}
 }
 

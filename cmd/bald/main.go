@@ -51,9 +51,9 @@ func main() {
 		appkit.Version("v0.1.0"),
 		appkit.StopTimeout(15*time.Second),
 
-		// --- 启动期配置（onexstack 风格 --config + env + flag + 可选远程配置中心）---
+		// --- 启动期配置（面向 K8s/容器部署：--config + env + flag + 可选远程配置中心）---
 		//
-		// 优先级（高 → 低）：flag > 本地文件 > 环境变量 > 远程配置。
+		// 优先级（高 → 低，viper 默认语义）：flag > 环境变量 > 本地文件 > 远程配置。
 		// 本地文件缺失不报错，因此可只用远程/flag 配置。
 
 		// 2.1 本地配置文件：等价 --config=configs/bald-demo.yaml；
