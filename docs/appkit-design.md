@@ -1,0 +1,328 @@
+# bald AppKit 启动器设计文档
+
+> 状态：设计中（用于后续迭代）
+> 最后更新：2026-08-18
+> 包路径：`pkg/appkit`（组合层 / App 层）
+
+---
+
+## 1. 定位
+
+`AppKit` 是 bald 框架的**自研应用编排层（App 层）**，负责把多个协议服务器、服务注册中心、
+配置源与生命周期钩子编排成一个可启动、可优雅停机、可观测的进程。
+
+它不是 `kratos.App` 的薄包装，而是融合三方优点的自研实现，因此保留全部精细控制权，
+且仅**可选依赖** kratos 的 `registry.Registrar` 接口。
+
+---
+
+## 2. 设计来源
+
+| 来源 | 吸收的要点 |
+|---|---|
+| `onexstack/pkg/app` | Options 风格注入；启动期注入 `--config`/viper 理念（ bald 扩展为远程配置中心）|
+| `Kratos` | `transport.Server` 契约（`Start`/`Stop`）+ `registry.Registrar` 接口（可插拔 etcd/consul 后端）|
+| `go-lulu/wind` | 自研精髓：errgroup 并发编排、优雅停机防坑、崩溃级联停止、Run 防重入、可观察通道、Endpoint 动态端口 |
+
+---
+
+## 3. 自研实现与三方框架对比
+
+> 标注：**自研** = bald 独立实现、非直接复用；**借鉴** = 取自某框架并改造；**复用/对齐** = 直接桥接或对齐对方接口；`❌` = 该框架无此能力。
+
+### 3.1 生命周期编排
+
+| 能力 | bald | onexstack | Kratos | go-lulu(wind) |
+|---|---|---|---|---|
+| 多 server 并发启停 | ✅ errgroup（**自研**）| ❌ 单一 RunFunc | ✅ errgroup | ✅ errgroup（**借鉴**）|
+| 崩溃级联停止 | ✅（**自研** BUG-3 修复）| ❌ | ✅ | ✅（**借鉴**）|
+| `Run(ctx)` 签名 | ✅（**自研**）| ❌ `Run()` 无 ctx | ❌ `Run()` 无 ctx | ✅ `Run(ctx)`（**借鉴**）|
+| Run 防重入 | ✅ atomic.Bool（**自研**）| ❌ | ❌ | ✅ atomic（**借鉴**）|
+| Stop 用未取消 ctx（防 BUG-1）| ✅（**自研**防护）| ❌ | ⚠️ 部分 | ✅（**借鉴**）|
+| signal 驱动停机 | ✅（**自研**）| ⚠️ 依赖 cli | ⚠️ 内置 | ✅ |
+| 先注销后停机 | ✅（**自研**时序）| ❌ | ✅ | ⚠️ 取决于用户 |
+| `Done()` / `Err()` 可观察 | ✅（**自研**）| ❌ | ❌ | ✅（借鉴）|
+
+### 3.2 Server 契约
+
+| 能力 | bald | onexstack | Kratos | go-lulu |
+|---|---|---|---|---|
+| `Start`/`Stop` 契约 | ✅（**复用/对齐 kratos**）| ❌ 无统一接口 | ✅ `transport.Server` | ✅ `transport.Server` |
+| `Endpoint()` 动态端口 | ✅（**自研扩展**）| ❌ | ❌ | ✅（**借鉴**）|
+| `:0` 注册真实地址 | ✅（**自研**）| ❌ | ❌ | ✅ |
+| Endpoint TLS scheme 判定 | ✅（**自研**）| ❌ | ❌ | ❌ |
+
+### 3.3 注册中心
+
+| 能力 | bald | onexstack | Kratos | go-lulu |
+|---|---|---|---|---|
+| `Registrar` 接口 | ✅ 自研 `pkg/registry`（**自研**）| ✅ 但无 `Endpoint` 动态端口 | ✅ `registry.Registrar` | ✅ `Registry` 接口（`bootstrap/registry` + `plugins/registry`）|
+| 后端实现数量 | 自研 1 种（`inmemory`）+ 桥接 kratos | ❌ 仅接口 | ✅ etcd/consul/nacos 等（官方插件）| ✅ 8 种（consul/etcd/eureka/kubernetes/nacos/polaris/servicecomb/zookeeper，插件化）|
+| `inmemory` 实现 | ✅（**自研**，测试/本地）| ❌ | ❌ | ❌ |
+| 桥接 kratos 后端 | ✅ `FromKratos`（**复用**）| ❌ | — | ❌ |
+| 动态端口注册 | ✅（**自研**）| ❌ | ⚠️ 需手动 | ✅（`Endpoint()` + `plugins/registry` 注册真实地址）|
+
+#### 3.3.1 bald 注册中心的优点
+
+相对 onexstack / Kratos / go-lulu，bald 的注册中心设计在「解耦」与「务实复用」上做了明确取舍：
+
+1. **零依赖的核心契约**（`pkg/registry/registry.go`）
+   只有 `Registrar` 接口 + `ServiceInstance` 结构体，不绑定任何后端 SDK。业务与 AppKit 只依赖这一层接口，后端可随时替换而不影响编排逻辑。
+
+2. **单层适配、单向依赖**
+   所有后端接入都收敛在 `kratos.go` 一个文件里，通过 `FromKratos(r)` 适配器桥接 Kratos 的 `registry.Registrar`，转换逻辑（`toKratos`）局部可见。无反向依赖（不要求 kratos 知道 bald 的存在）。
+
+3. **白嫖成熟生态，避免重写客户端**
+   直接复用 Kratos 官方已实现的 etcd / consul / nacos 等后端，而不是像 go-lulu 那样为每个后端各写一套 `plugins/registry/*`（含 watcher、reRegister 心跳等）。在当前阶段用最小成本获得多后端能力，符合 YAGNI。
+
+4. **自带 `inmemory` 实现（测试/本地零依赖）**
+   onexstack、Kratos、go-lulu 都**没有** inmemory 注册器；bald 自研 `inmemory` 使单测与本地联调无需起 etcd/consul，开箱即用。
+
+5. **与动态端口（`Endpoint()`）天然契合**
+   `AppKit.buildInstance()` 在启动后聚合各 server 的真实监听地址（`http://`/`grpc://` + `:0` 解析结果）再注册，解决了 Kratos「需手动传地址、不感知动态端口」的短板，使 `:0` 随机端口场景可正确注册。
+
+6. **时序契约明确（先注销后停机）**
+   注册/反注册时机由 AppKit 统一编排：`Register` 在全部 server 启动后、`Deregister` 在 `stopAll` 之前，避免流量打到已停服务。该时序不依赖任何后端特性，跨后端行为一致。
+
+> **设计取舍（决策记录）**：暂**不**引入 go-lulu 那种 `bootstrap/registry` 插件自注册 + 类型字符串装配框架。原因：当前仅 1 个 `inmemory` + 桥接 kratos，重型插件框架属过度设计；且其 `newAction` 与 `v1.App`/`v1.Registry` 配置 schema 强绑定，反而不如 bald 的 `Option` 注入轻量解耦。待将来原生支持 3+ 个非 kratos 后端时，再引入轻量 `registry.Register(name, factory)` 类型注册表即可，不照搬 `bootstrap` 整套配置绑定。
+
+### 3.4 配置加载
+
+| 能力 | bald | onexstack | Kratos | go-lulu |
+|---|---|---|---|---|
+| 本地 `--config` | ✅ onexstack 风格（**对齐/扩展**）| ✅ `AddConfigFlag` | ⚠️ 需自接 | ❌ |
+| 环境变量 | ✅（**对齐**）| ✅ | ❌ | ❌ |
+| flag 绑定 | ✅（**自研**白名单解析）| ✅ cobra | ❌ | ❌ |
+| **远程配置中心** | ✅ `RemoteSource` 抽象（**自研扩展**，详见[配置中心设计](config-center-design.md)）| ❌ **仅本地文件+env** | ❌ | ❌ |
+| 热更新统一回调 | ✅ `OnConfigChange`（**自研**）| ❌ | ❌ | ❌ |
+
+### 3.5 服务器实现
+
+| 能力 | bald | onexstack | Kratos | go-lulu |
+|---|---|---|---|---|
+| `HTTPServer`（TLS scheme）| ✅（**自研**）| ✅ | ✅ | ✅ |
+| `GRPCServer`（health+reflection）| ✅（**自研**，嵌入提升）| ✅ | ✅ | ✅ |
+| `GatewayServer` | ✅（**自研**，conn 自动关闭）| ❌ | ⚠️ 需手动 | ❌ |
+| `Serve()` 独立入口 | ✅（**自研**）| ❌ | ❌ | ❌ |
+
+### 3.6 自研 / 借鉴 / 复用 小结
+
+**真正自研（三方都没有或不全）：**
+1. `pkg/registry` 自研 `Registrar` + **`inmemory`** + `FromKratos` 桥接 + 动态端口注册（go-lulu 注册后端齐全但无 inmemory；onexstack 仅接口无动态端口；Kratos 无 inmemory）
+2. 远程配置中心接入（`config.RemoteSource` 抽象 + 统一 `OnConfigChange`）——详见[配置中心设计](config-center-design.md)；onexstack 缺、Kratos/go-lulu 不关心
+3. `HTTPServer.Endpoint()` 的 TLS scheme 判定、`GatewayServer` 的 conn 生命周期管理、`Serve()` 独立入口
+4. 启动期配置加载与 `Run` 的时序编排细节（`loadConfig` 放 CAS 之前防重入窗口）
+
+**借鉴改造（取自 go-lulu/wind，已重写）：**
+- errgroup 并发编排、崩溃级联、Run(ctx)、atomic 防重入、Stop 未取消 ctx（BUG-1）、`Endpoint()` 概念
+
+**复用对齐：**
+- `Server` 契约对齐 Kratos `transport.Server`；`FromKratos` 直接复用 Kratos 的 etcd/consul 后端
+
+---
+
+## 4. 已实现功能列表
+
+> 与第 9 节「后续迭代清单」互补：此处是**已完成**能力，便于快速核对当前进度。
+
+| 类别 | 功能 | 状态 | 说明 |
+|---|---|---|---|
+| 编排 | 多 server 并发启停（errgroup）| ✅ | 任一崩溃级联停止其余 server |
+| 编排 | Run 防重入（atomic.Bool）| ✅ | 重复 `Run` 返回 `ErrAlreadyRunning` |
+| 编排 | 优雅停机（Stop 未取消 ctx + stopTimeout）| ✅ | 修复 go-lulu BUG-1，默认 10s |
+| 编排 | signal 驱动停机（SIGINT/SIGTERM）| ✅ | 监听系统信号触发 cancel |
+| 编排 | 先注销后停机 | ✅ | 避免流量打到已停服务 |
+| 生命周期钩子 | BeforeStart / AfterStart / BeforeStop / AfterStop | ✅ | 全部支持 |
+| 注册中心 | 自研 `Registrar` 接口 | ✅ | `Register`/`Deregister` |
+| 注册中心 | `inmemory` 实现 | ✅ | 测试/本地开发用 |
+| 注册中心 | `FromKratos` 桥接 | ✅ | 复用 kratos etcd/consul 后端 |
+| 注册中心 | `:0` 动态端口注册（`Endpoint()`）| ✅ | 聚合各 server 实际地址 |
+| 服务器 | `HTTPServer`（含 TLS scheme 判断）| ✅ | `http://`/`https://` |
+| 服务器 | `GRPCServer`（嵌入 `*grpc.Server` 做方法提升）| ✅ | 默认 health + reflection |
+| 服务器 | `GatewayServer`（grpc-gateway 反向代理）| ✅ | 自动关闭后端 conn |
+| 服务器 | `Serve(server, timeout)` 独立运行入口 | ✅ | 不依赖 AppKit |
+| 配置 | `--config` 本地文件（onexstack 风格）| ✅ | 缺失不报错（与 onexstack 一致）|
+| 配置 | 环境变量（前缀 `NAME_`）| ✅ | `.`/`-` → `_` |
+| 配置 | 命令行 flag 绑定（最高优先级）| ✅ | `BindPFlags` + 白名单解析 `--config` |
+| 配置 | 远程配置中心（`RemoteSource`）| ✅ | etcd/consul/nacos/apollo/firestore（接口已预留，详见[配置中心设计](config-center-design.md)）|
+| 配置 | 本地文件热更新（fsnotify）| ✅ | `WatchConfigFile` |
+| 配置 | 统一 `OnConfigChange` 回调 | ✅ | 本地 + 远程变更 |
+| 可观察性 | `Done()` / `Err()` | ✅ | 测试/嵌入感知结束 |
+| 可观察性 | `Viper()` 配置访问 | ✅ | `BeforeStart` 内 `Unmarshal` |
+| 质量 | 回归测试（BUG-1/BUG-3/防重入/可观察/注册）| ✅ | `appkit_test.go` |
+| 质量 | `go build`/`go vet`/`go test` 全通过 | ✅ | 持续验证 |
+
+---
+
+## 5. 核心契约
+
+### 3.1 Server 接口（`pkg/server`）
+
+```go
+type Server interface {
+    Start(ctx context.Context) error
+    Stop(ctx context.Context) error
+    Endpoint() string // 扩展自 kratos：支持 :0 动态端口注册
+}
+```
+
+- `Endpoint()` 返回实际监听地址（HTTP 带 `http://`/`https://`，gRPC 带 `grpc://`）。
+- 现有实现：`HTTPServer`、`GRPCServer`（嵌入 `*grpc.Server` 做方法提升）、`GatewayServer`（复用 HTTPServer）。
+- `Serve(server, timeout)` 提供单服务器独立运行入口（不依赖 AppKit）。
+
+### 3.2 Registrar 接口（`pkg/registry`，自研）
+
+```go
+type Registrar interface {
+    Register(ctx context.Context, instance *ServiceInstance) error
+    Deregister(ctx context.Context, instance *ServiceInstance) error
+}
+```
+
+- `ServiceInstance{ ID, Name, Version, Kind, Metadata, Endpoints }`。
+- 实现：`inmemory`（测试/本地）、`FromKratos(r)`（桥接 kratos 的 `registry.Registrar`，复用 etcd/consul 后端）。
+- 注意：onexstack 的 registry 与 kratos 的 registrar 都未实现 `Endpoint` 动态端口；bald 用自研 `pkg/registry` 补齐。
+
+### 3.3 AppKit 字段（`pkg/appkit/appkit.go`）
+
+```go
+type AppKit struct {
+    id, name, version string
+    registrar   registry.Registrar
+    servers     []server.Server
+    stopTimeout time.Duration
+
+    beforeStart, afterStart, beforeStop, afterStop []func(context.Context) error
+
+    // 配置（onexstack 风格 + 远程）
+    cfgFile       string
+    remote        config.RemoteSource
+    watchFile     bool
+    onConfigChange func(*viper.Viper)
+    v             *viper.Viper
+
+    running atomic.Bool
+    done    chan struct{}
+    runErr  atomic.Value // error
+}
+```
+
+---
+
+## 6. 启动 Options
+
+| Option | 作用 |
+|---|---|
+| `ID(id)` / `Name(name)` / `Version(v)` | 实例标识与服务名（注册中心用）|
+| `Registrar(r)` | 注入自研 `registry.Registrar` |
+| `KratosRegistrar(r)` | 桥接 kratos `registry.Registrar`（etcd/consul 等）|
+| `Servers(...)` | 注册多个 `server.Server` |
+| `StopTimeout(d)` | 优雅停机超时（默认 `10s`）|
+| `ConfigFile(f)` | 指定 `--config` 文件（onexstack 风格）|
+| `RemoteConfig(rp)` | 接入远程配置中心（etcd/consul/nacos/apollo/firestore）|
+| `WatchConfigFile(b)` | 本地文件热更新（fsnotify）|
+| `OnConfigChange(fn)` | 配置热更新回调（本地 + 远程）|
+
+---
+
+## 7. 生命周期（Run 流程）
+
+```
+Run(ctx)
+  └─ 1. loadConfig()              // 防重入 CAS 之前：避免失败路径占用 running/done
+  └─ 2. CAS(running: false→true)  // 失败返回 ErrAlreadyRunning
+        defer running=false / close(done)
+  └─ 3. ctx,cancel = WithCancel(ctx)   // 未取消 ctx 传入 Stop，使 stopTimeout 生效
+  └─ 4. beforeStart 钩子
+  └─ 5. buildInstance(): 聚合各 server.Endpoint()
+        → registrar.Register(instance)   // 若配置了 Registrar
+  └─ 6. errgroup 并发 Start 所有 server
+        │  任一 server 崩溃 → gctx 取消 → 级联停止其余 server
+  └─ 7. afterStart 钩子
+  └─ 8. 阻塞等待 gctx.Done()（signal 或 server 崩溃）
+  └─ 9. 停机顺序：
+        Deregister（先注销再停）→ beforeStop → stopAll(带 stopTimeout) → afterStop
+  └─10. 存 runErr（atomic.Value；成功路径不 Store(nil)，避免 panic）
+```
+
+### 关键时序
+
+- **先注销后停机**：`Deregister` 在 `stopAll` 之前，避免流量打到已停服务。
+- **Stop 用未取消 ctx**：`stopAll` 内 `WithTimeout(stopTimeout)`，再传未取消 ctx 给 `server.Stop`。
+- **Signal → cancel()**：监听 `SIGINT`/`SIGTERM`，触发 `cancel()` 进入停机分支。
+
+---
+
+## 8. 配置加载（onexstack 风格 + 远程配置中心）
+
+详细设计见 **[配置中心设计文档](config-center-design.md)**。要点总结：
+
+- **本地部分**：由 `pkg/config.Load(Options)` 实现，支持 `--config` 本地文件（onexstack 风格，缺失不报错）、
+  环境变量（`NAME_` 前缀）、命令行 flag 绑定（白名单解析）。业务在 `BeforeStart` 钩子里 `app.Viper().Unmarshal(&options)` 读取。
+- **远程部分**：采用 `RemoteSource` 接口抽象（借鉴 Kratos 的 `Source`），每个后端（etcd/consul/nacos/apollo）自声明字节格式（json/yaml），
+  远程字节经 `v.SetConfigType(format)` + `v.ReadConfig(bytes)` **手动注入 viper**，绕开 viper 标准 remote 的「强制 JSON / watch 不可靠 / 无鉴权」缺陷。
+- **多环境**：`--env` 拼入远程 path/namespace 或选择对应源（设计文档第 5 节）。
+- **热更新**：本地保留 viper `WatchConfig`（fsnotify）；远程由 `RemoteSource.Watch` 回调重新注入并触发统一的 `OnConfigChange` 回调。
+
+> 注意：**onexstack 原 `AddConfigFlag` 仅支持本地文件 + 环境变量，不支持远程配置中心**；
+> bald 通过 `RemoteSource` 抽象补齐，且兼容 json/yaml 与多环境。
+
+---
+
+## 9. 可观察性
+
+- `Done() <-chan struct{}`：Run 结束后关闭，供测试/嵌入感知。
+- `Err() error`：返回退出错误（成功为 nil）。
+- `Viper() *viper.Viper`：启动后返回加载的配置实例。
+
+---
+
+## 10. 防坑要点（已有回归测试覆盖，`appkit_test.go`）
+
+| 编号 | 问题 | 处理 |
+|---|---|---|
+| BUG-1 | `Stop` 用已取消 ctx → `stopTimeout` 永远立即返回 | 始终传入未取消 ctx |
+| BUG-3 | 非阻塞 `select default` 导致级联死锁 | 改用 errgroup，崩溃自动取消 gctx → 级联停止 |
+| 防重入 | 重复 `Run` 导致多实例并发编排 | `atomic.Bool` 守卫，返回 `ErrAlreadyRunning` |
+| 配置失败 | 失败路径若占用 `running/done` 会打开重入窗口 → double close | `loadConfig` 放在 CAS 之前 |
+| 配置 nil | `atomic.Value.Store(nil)` panic | 成功路径不 Store |
+
+---
+
+## 11. 已知技术债 / 后续迭代清单
+
+- [x] **真实配置中心适配器**：已实现 `RemoteSource` 抽象 + `FromKratosSource` 桥接 kratos contrib 的 etcd/consul/nacos/apollo 后端（详见[配置中心设计](config-center-design.md)，决策已拍板 2026-08-18）；旧 `AddRemoteProvider` 用法已删除。
+- [x] **远程 watch 可靠化**：已采用 `RemoteSource.Watch` 回调（push 模式）注入 viper 并触发 `OnConfigChange`，替代不可靠的 `WatchRemoteConfigOnChannel`（原 `WatchRemoteOnce` 空壳已删除）；`pkg/config` 已补单测。
+- [ ] **测试覆盖**：`inmemory` 注册器、各 `server.Serve()`、`Endpoint()` 动态端口、`GatewayServer` conn 关闭尚未有单测。
+- [ ] **多实例/集群**：当前 `ID` 默认 hostname，未处理同机多实例冲突（建议加随机后缀或允许显式注入）。
+- [ ] **健康检查对齐**：gRPC 已默认注册 health + reflection；HTTP 暂无统一健康检查端点。
+- [ ] **配置热更新透传**：`OnConfigChange` 当前仅回调 viper，业务需自行重新 Unmarshal；可考虑 hook 到 AppKit 内部 options 重载。
+- [ ] **优雅停机日志**：停机各阶段（Deregister / 各 server Stop）缺少结构化日志与超时告警。
+- [ ] **命令行集成**：当前 `loadConfig` 仅白名单解析 `--config`，业务 flag（如 `--http.addr`）由调用方自行绑定，缺统一的 flag 集合并入口。
+
+---
+
+## 12. 最小用法
+
+```go
+app := appkit.New(
+    appkit.Name("bald-demo"),
+    appkit.Version("v0.1.0"),
+    appkit.StopTimeout(15*time.Second),
+    appkit.ConfigFile("config.yaml"),
+    appkit.WatchConfigFile(true),
+    // appkit.RemoteConfig(etcdSource), // 传入实现 config.RemoteSource 的后端，详见配置中心设计
+    // appkit.Registrar(registrar), // 可选 etcd/consul/nacos 注册
+    appkit.Servers(grpcSrv, httpSrv),
+    appkit.BeforeStart(func(ctx context.Context) error {
+        if v := app.Viper(); v != nil {
+            _ = v.Unmarshal(httpOpts)
+            _ = v.Unmarshal(grpcOpts)
+        }
+        return nil
+    }),
+)
+if err := app.Run(context.Background()); err != nil {
+    log.Fatalf("bald app exited: %v", err)
+}
+```
