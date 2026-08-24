@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"fmt"
 	"net"
@@ -17,11 +16,12 @@ import (
 type ReadinessFunc func(ctx context.Context) error
 
 // HTTPServer 封装标准库 net/http，实现 Server 契约。
-// 支持纯 HTTP 或 HTTPS（基于 options.TLSOptions），并自动挂载
+// 基于 SecureServingOptions：Enabled=false 时为纯 HTTP，Enabled=true 时为 HTTPS
+// （TLS 采用 Smart Mode，见 options.TLSOptions）。自动挂载
 // /healthz（存活探针，进程在即 200）与 /readyz（就绪探针，由 readiness 回调决定）。
 type HTTPServer struct {
 	*http.Server
-	opts *baldoptions.HTTPOptions
+	opts *baldoptions.SecureServingOptions
 
 	readiness ReadinessFunc // 可为 nil（nil 时 /readyz 等同 /healthz）
 
@@ -29,10 +29,11 @@ type HTTPServer struct {
 }
 
 // NewHTTPServer 基于 http.Handler 构造一个 HTTPServer。
+// opts 内嵌 TLSOptions：Enabled=true 时启用 HTTPS，否则纯 HTTP。
 // readiness 为可选的就绪探针回调：传 nil 时 /readyz 恒返回 200（仅作存活）。
 // 框架会把 /healthz、/readyz 注册到内部 mux，业务 handler 挂载在其余路径；
 // 若业务 handler 自身也注册了同名路径，则业务优先（框架 probe 不覆盖）。
-func NewHTTPServer(opts *baldoptions.HTTPOptions, handler http.Handler, readiness ReadinessFunc) *HTTPServer {
+func NewHTTPServer(opts *baldoptions.SecureServingOptions, handler http.Handler, readiness ReadinessFunc) *HTTPServer {
 	mux := http.NewServeMux()
 	// 业务路由优先：先挂业务 handler，框架 probe 仅当路径未被占用时兜底。
 	if handler != nil {
@@ -80,9 +81,13 @@ func (s *HTTPServer) Start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("http listen %s: %w", s.opts.Addr, err)
 	}
-	if s.opts.TLS != nil && s.opts.TLS.Enabled {
-		s.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
-		err = s.ServeTLS(s.ln, s.opts.TLS.CertFile, s.opts.TLS.KeyFile)
+	if s.opts.Enabled {
+		tlsConfig, terr := s.opts.TLSConfig()
+		if terr != nil {
+			return fmt.Errorf("build http tls config: %w", terr)
+		}
+		s.TLSConfig = tlsConfig
+		err = s.ServeTLS(s.ln, "", "")
 	} else {
 		err = s.Serve(s.ln)
 	}
@@ -100,7 +105,7 @@ func (s *HTTPServer) Stop(ctx context.Context) error {
 // Endpoint 返回实际监听地址（支持 ":0" 动态端口）。
 func (s *HTTPServer) Endpoint() string {
 	scheme := "http"
-	if s.opts.TLS != nil && s.opts.TLS.Enabled {
+	if s.opts.Enabled {
 		scheme = "https"
 	}
 	if s.ln != nil {

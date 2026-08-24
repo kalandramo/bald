@@ -1,78 +1,28 @@
 // Package options 提供 bald 框架各协议服务器所需的配置选项。
-// 采用与 onexstack/pkg/options 一致的指针字段风格，便于 viper 配置绑定。
+// 设计对齐 onexstack/pkg/options：统一的 IOptions 接口、AddFlags(fs, fullPrefix)
+// 前缀式 flag 注册、Validate() []error 校验，以及可复用的地址校验/监听工具。
+//
+// 文件组织（与 onexstack 对称）：
+//   - options.go            ：本文件，仅定义 IOptions 接口契约
+//   - insecure_serving.go   ：InsecureServingOptions（明文 HTTP）
+//   - secure_serving.go     ：SecureServingOptions（HTTPS，内嵌 TLSOptions）
+//   - tls_options.go        ：TLSOptions（Smart Mode：路径/PEM/Base64）
+//   - grpc_options.go       ：GRPCOptions（gRPC 监听与超时）
+//   - helper.go             ：Join / ValidateAddress / CreateListener
 package options
 
-import (
-	"fmt"
+import "github.com/spf13/pflag"
 
-	"github.com/spf13/pflag"
-)
+// IOptions 定义通用 options 的方法契约。
+// 任何业务 options 结构体实现 Validate + AddFlags 即可被统一编排
+// （如 appkit 遍历 options 注册 flag、启动前统一校验）。
+type IOptions interface {
+	// Validate 校验所有必填项，必要时可补全默认值。
+	// 返回 error 切片（而非单个 error），便于一次暴露全部问题。
+	Validate() []error
 
-// HTTPOptions 持有 HTTP 服务器配置。
-type HTTPOptions struct {
-	// Addr 是监听地址，如 ":8080"。
-	Addr string `json:"addr" mapstructure:"addr"`
-	// TLS 相关配置（可选）。留空则使用纯 HTTP。
-	TLS *TLSOptions `json:"tls,omitempty" mapstructure:"tls"`
-}
-
-func NewHTTPOptions() *HTTPOptions {
-	return &HTTPOptions{Addr: ":8080"}
-}
-
-// Flags 注册 HTTP 相关命令行参数。
-func (o *HTTPOptions) Flags() *pflag.FlagSet {
-	if o.TLS == nil {
-		o.TLS = &TLSOptions{}
-	}
-	fs := pflag.NewFlagSet("http", pflag.ExitOnError)
-	fs.StringVar(&o.Addr, "http.addr", o.Addr, "HTTP server listen address.")
-	fs.BoolVar(&o.TLS.Enabled, "http.tls.enabled", false, "Enable HTTPS.")
-	fs.StringVar(&o.TLS.CertFile, "http.tls.cert-file", "", "HTTPS cert file path.")
-	fs.StringVar(&o.TLS.KeyFile, "http.tls.key-file", "", "HTTPS key file path.")
-	return fs
-}
-
-// GRPCOptions 持有 gRPC 服务器配置。
-type GRPCOptions struct {
-	Addr string `json:"addr" mapstructure:"addr"`
-}
-
-func NewGRPCOptions() *GRPCOptions {
-	return &GRPCOptions{Addr: ":9090"}
-}
-
-func (o *GRPCOptions) Flags() *pflag.FlagSet {
-	fs := pflag.NewFlagSet("grpc", pflag.ExitOnError)
-	fs.StringVar(&o.Addr, "grpc.addr", o.Addr, "gRPC server listen address.")
-	return fs
-}
-
-// TLSOptions 持有 TLS 配置。
-type TLSOptions struct {
-	Enabled  bool   `json:"enabled" mapstructure:"enabled"`
-	CertFile string `json:"cert-file" mapstructure:"cert-file"`
-	KeyFile  string `json:"key-file" mapstructure:"key-file"`
-}
-
-// Validate 校验 TLS 配置一致性。
-func (o *TLSOptions) Validate() error {
-	if !o.Enabled {
-		return nil
-	}
-	if o.CertFile == "" || o.KeyFile == "" {
-		return fmt.Errorf("tls enabled but cert-file/key-file not set")
-	}
-	return nil
-}
-
-// Validate 校验 HTTP 配置一致性。
-func (o *HTTPOptions) Validate() error {
-	if o.Addr == "" {
-		return fmt.Errorf("http addr must not be empty")
-	}
-	if o.TLS != nil {
-		return o.TLS.Validate()
-	}
-	return nil
+	// AddFlags 将字段注册为命令行 flag。
+	// fullPrefix 是完整前缀（如 "bald-demo.http"），实现体在其后追加自身字段名，
+	// 形成 --bald-demo.http.addr 这类嵌套 flag，支持同一 options 类型被多组件复用。
+	AddFlags(fs *pflag.FlagSet, fullPrefix string)
 }

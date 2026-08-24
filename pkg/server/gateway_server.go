@@ -19,12 +19,12 @@ type GatewayServer struct {
 }
 
 // NewGatewayServer 构造网关服务器。
-//   - httpOpts: 网关监听地址
+//   - httpOpts: 网关监听地址与 TLS 配置（SecureServingOptions，Enabled=false 为明文）
 //   - grpcAddr: 被代理的 gRPC 服务地址（如 ":9090"）
 //   - register: 将 grpc-gateway 的 HTTP handler 注册到 mux 的回调
 //   - readiness: 复用与 HTTP 对称的就绪探针；nil 时 /readyz 恒 200
 func NewGatewayServer(
-	httpOpts *baldoptions.HTTPOptions,
+	httpOpts *baldoptions.SecureServingOptions,
 	grpcAddr string,
 	register func(ctx context.Context, mux *http.ServeMux, conn *grpc.ClientConn) error,
 	readiness ReadinessFunc,

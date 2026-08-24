@@ -46,7 +46,7 @@ func startAndWait(t *testing.T, srv Server) func() {
 
 // TestHTTPServer_DynamicPort：绑定 ":0" 时 Endpoint 应解析为真实随机端口。
 func TestHTTPServer_DynamicPort(t *testing.T) {
-	opts := &baldoptions.HTTPOptions{Addr: ":0"}
+	opts := &baldoptions.SecureServingOptions{Addr: ":0"}
 	srv := NewHTTPServer(opts, http.NewServeMux(), nil)
 	stop := startAndWait(t, srv)
 	defer stop()
@@ -77,17 +77,14 @@ func TestHTTPServer_DynamicPort(t *testing.T) {
 func TestHTTPServer_HTTPS_Scheme(t *testing.T) {
 	// 仅验证 scheme 判定逻辑（无需有效证书）：构造 TLS 选项，Endpoint 在未 Start 时
 	// 也应返回 https:// 前缀。
-	opts := &baldoptions.HTTPOptions{
-		Addr: ":0",
-		TLS:  &baldoptions.TLSOptions{Enabled: true, CertFile: "x", KeyFile: "y"},
-	}
+	opts := &baldoptions.SecureServingOptions{Addr: ":0", TLSOptions: baldoptions.TLSOptions{Enabled: true}}
 	srv := NewHTTPServer(opts, http.NewServeMux(), nil)
 	if ep := srv.Endpoint(); !strings.HasPrefix(ep, "https://") {
 		t.Fatalf("with TLS enabled, scheme = %q, want https://", ep)
 	}
 
 	// 对照组：无 TLS 应为 http://
-	plain := NewHTTPServer(&baldoptions.HTTPOptions{Addr: ":0"}, http.NewServeMux(), nil)
+	plain := NewHTTPServer(&baldoptions.SecureServingOptions{Addr: ":0"}, http.NewServeMux(), nil)
 	if ep := plain.Endpoint(); !strings.HasPrefix(ep, "http://") {
 		t.Fatalf("without TLS, scheme = %q, want http://", ep)
 	}
@@ -131,7 +128,7 @@ func TestGatewayServer_ClosesBackendConn(t *testing.T) {
 	defer backendStop()
 
 	// 网关指向后端地址。
-	gwOpts := &baldoptions.HTTPOptions{Addr: ":0"}
+	gwOpts := &baldoptions.SecureServingOptions{Addr: ":0"}
 	gw, err := NewGatewayServer(gwOpts, backend.Endpoint(), nil, nil)
 	if err != nil {
 		t.Fatalf("NewGatewayServer: %v", err)
@@ -159,7 +156,7 @@ func TestGatewayServer_ClosesBackendConn(t *testing.T) {
 
 // TestServer_Serve_SignalDriven：Serve 在独立 ctx 取消时应优雅停机返回。
 func TestServer_Serve_SignalDriven(t *testing.T) {
-	opts := &baldoptions.HTTPOptions{Addr: ":0"}
+	opts := &baldoptions.SecureServingOptions{Addr: ":0"}
 	srv := NewHTTPServer(opts, http.NewServeMux(), nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -198,7 +195,7 @@ func getProbe(t *testing.T, srv Server, path string) int {
 // TestHTTPServer_HealthAndReadyz：/healthz 恒 200；/readyz 随 readiness 回调变化。
 func TestHTTPServer_HealthAndReadyz(t *testing.T) {
 	// readiness 默认 nil：/readyz 等同 /healthz，均 200。
-	srv := NewHTTPServer(&baldoptions.HTTPOptions{Addr: ":0"}, http.NewServeMux(), nil)
+	srv := NewHTTPServer(&baldoptions.SecureServingOptions{Addr: ":0"}, http.NewServeMux(), nil)
 	stop := startAndWait(t, srv)
 	defer stop()
 
@@ -213,7 +210,7 @@ func TestHTTPServer_HealthAndReadyz(t *testing.T) {
 // TestHTTPServer_Readyz_UnreadyReturns503：readiness 返回 error 时 /readyz 返回 503。
 func TestHTTPServer_Readyz_UnreadyReturns503(t *testing.T) {
 	ready := func(ctx context.Context) error { return fmt.Errorf("db not connected") }
-	srv := NewHTTPServer(&baldoptions.HTTPOptions{Addr: ":0"}, http.NewServeMux(), ready)
+	srv := NewHTTPServer(&baldoptions.SecureServingOptions{Addr: ":0"}, http.NewServeMux(), ready)
 	stop := startAndWait(t, srv)
 	defer stop()
 
@@ -256,7 +253,7 @@ func TestGatewayServer_ProbesRouted(t *testing.T) {
 	backendStop := startAndWait(t, backend)
 	defer backendStop()
 
-	gwOpts := &baldoptions.HTTPOptions{Addr: ":0"}
+	gwOpts := &baldoptions.SecureServingOptions{Addr: ":0"}
 	gw, err := NewGatewayServer(gwOpts, backend.Endpoint(), nil, nil)
 	if err != nil {
 		t.Fatalf("NewGatewayServer: %v", err)

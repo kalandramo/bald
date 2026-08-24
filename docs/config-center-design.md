@@ -1,36 +1,39 @@
 # bald 配置中心设计文档
 
-> 状态：设计中（核心抽象与 5 项决策已落地到 `pkg/config`，见第 7 节）
-> 最后更新：2026-08-18
-> 包路径：`pkg/config`（配置加载层）
+> 状态：**核心实现已落地**（配置加载层 `pkg/config` + 业务配置层 `pkg/options`），本档沉淀决策与取舍。
+> 最后更新：2026-08-24
+> 包路径：
+> - `pkg/config`（配置加载层：本地文件 + env + flag + 远程中心，四源合并）
+> - `pkg/options`（业务配置结构体：对齐 onexstack 的 `IOptions` / `AddFlags` / `SecureServingOptions`）
 
 ---
 
 ## 1. 背景与问题
 
-bald 当前（`pkg/config`）基于 viper 标准机制实现了「本地文件 + 环境变量 + flag + 远程配置中心」，
-但 viper 的远程配置（remote）能力存在硬性缺陷，无法直接用于生产级配置中心：
+bald 的配置加载层（`pkg/config`）基于 viper 实现了「本地文件 + 环境变量 + flag + 远程配置中心」，
+但 viper 的**标准 remote 机制**存在硬性缺陷，无法直接用于生产级配置中心：
 
 | 问题 | 说明 |
 |---|---|
 | 强制 JSON | viper remote 内部用 `json.Unmarshal` 解析远程字节，etcd/consul 里存 yaml 会直接报错 |
-| watch 不可靠 | `WatchRemoteConfigOnChannel` 依赖各 provider 自行实现 `Watcher`，官方只 coverage etcd/consul/firestore，且经全局 channel 推送、无法精确区分 key，常丢事件 |
+| watch 不可靠 | `WatchRemoteConfigOnChannel` 依赖各 provider 自行实现 `Watcher`，且经全局 channel 推送、无法精确区分 key，常丢事件 |
 | 无鉴权/TLS 透传 | `AddRemoteProvider` 注册时拿不到 client 配置（证书、token），复杂环境不可用 |
 | 格式单一、合并弱 | 远程只覆盖不叠加，缺少多源优先级与多环境 |
 
 > 结论：**viper remote 机制不可靠，业界框架（Kratos 等）均绕开它、自建 Source 抽象。**
 > 因此本设计采用「Kratos 的 Source 抽象」+「viper 作为壳」的混合方案：既解决 viper remote 的全部痛点，
-> 又满足「配置加载与热更新仍使用 viper」的诉求。
+> 又满足「配置加载与热更新仍基于 viper」的诉求，业务继续用 `app.Viper().Unmarshal` 取配置。
 
 ---
 
 ## 2. 设计目标
 
 1. 支持**本地配置 + 远程配置中心**混合。
-2. 配置文件格式支持 **json / yaml**（远程字节格式由后端自声明，不强制 JSON）。
+2. 配置文件格式支持 **json / yaml / toml**（远程字节格式由后端自声明，不强制 JSON）。
 3. 支持**多环境**（dev/test/prod 等）。
-4. 配置加载与热更新**仍基于 viper**（业务继续用 `app.Viper().Unmarshal`）。
+4. 配置加载与热更新**仍基于 viper**。
 5. 远程 watch 可靠，变更能稳定触发 `OnConfigChange`。
+6. 业务配置结构体与加载层解耦，但能无缝回填（本轮补充 `pkg/options` 对齐 onexstack）。
 
 ---
 
@@ -40,65 +43,51 @@ bald 当前（`pkg/config`）基于 viper 标准机制实现了「本地文件 +
 适配成「原始字节 + 格式」。格式不再由 viper 决定，而由后端声明，从而绕开强制 JSON。
 
 ```go
-// pkg/config/source.go（设计）
+// pkg/config/source.go（当前实现）
 
 // RemoteSource 表示一个远程配置源。
 // 每个后端（etcd/consul/nacos/apollo...）实现该接口，自行声明字节格式。
+// 鉴权/TLS 等凭据由各后端在构造时自行持有（接口本身不携带），不污染抽象。
 type RemoteSource interface {
-    // Read 拉取一次远程配置，返回原始字节与格式（"json"/"yaml"）。
+    // Read 拉取一次远程配置，返回原始字节与格式（"json"/"yaml"/"toml"...）。
     Read(ctx context.Context) (data []byte, format string, err error)
 
     // Watch 监听远程变更，每次变更通过 onChange 推送最新字节与格式。
-    // ctx 取消即停止监听。
+    // ctx 取消即停止监听（实现方应在内部退出监听 goroutine）。
     Watch(ctx context.Context, onChange func(data []byte, format string)) error
 }
 ```
 
-与 Kratos 的差异：Kratos 的 `Source.Watch()` 返回 `Watcher`，由 reader 主循环 `Next()` 重新 `Load`；
-本设计改为 **直接回调 `onChange`（push 模式）**，更省一次 IO，且与 viper 注入流程衔接更自然
-（对齐 go-lulu 的 `ValueWatcher.WatchValue` 推值思路）。
+> 与 Kratos 的差异：Kratos 的 `Source.Watch()` 返回 `Watcher`，由 reader 主循环 `Next()` 重新 `Load`；
+> 本设计改为**直接回调 `onChange`（push 模式）**，省一次 IO，且与 viper 注入流程衔接更自然。
+> `Read(ctx)` 的 `ctx` 参数在 Kratos 桥接场景下透传给 `src.Load()`（Kratos v1.5+ 的 `Load(ctx)`），
+> 纯内存源可忽略。
 
-### 3.1 后端示例：etcd
+### 3.1 桥接 Kratos 后端（不重复造轮子）
+
+bald **不**手写 etcd/consul/nacos 适配器，而是提供 `FromKratosSource` 桥接 kratos contrib 已实现的后端：
 
 ```go
-type etcdSource struct {
-    client *clientv3.Client
-    path   string
-    prefix bool
-}
+import (
+    "github.com/kalandramo/bald/pkg/config"
+    etcdconfig "github.com/go-kratos/kratos/v3/contrib/config/etcd/v3"
+)
 
-func (s *etcdSource) Read(ctx context.Context) ([]byte, string, error) {
-    rsp, err := s.client.Get(ctx, s.path, clientv3Op(s.prefix))
-    if err != nil {
-        return nil, "", err
-    }
-    // 格式由 path 后缀声明：/config/demo.yaml → yaml
-    return rsp.Kvs[0].Value, formatOf(s.path), nil
-}
-
-func (s *etcdSource) Watch(ctx context.Context, onChange func([]byte, string)) error {
-    ch := s.client.Watch(ctx, s.path, clientv3Op(s.prefix))
-    go func() {
-        for resp := range ch {
-            if resp.Err() != nil {
-                return
-            }
-            for _, ev := range resp.Events {
-                if ev.Type == clientv3.EventTypePut {
-                    onChange(ev.Kv.Value, formatOf(s.path))
-                }
-            }
-        }
-    }()
-    return nil
-}
+// 用户自行引入具体 contrib 后端模块，bald 核心仅依赖 kratos 核心库 config 接口。
+src := config.FromKratosSource(
+    etcdconfig.New(client, etcdconfig.WithPath("/config/demo/prod.yaml")),
+)
+appkit.RemoteConfig(src)
 ```
 
-nacos/apollo 类似，只是 `Read` 用其 SDK 的 `GetConfig(DataId, Group)`，`Watch` 用 SDK 的 `ListenConfig` 回调。
-具体桥接写法见 `cmd/bald/main.go` 与 `pkg/config/integration_test.go`（nacos 真实 API：
-先 `nacosclients.NewConfigClient(vo.NacosClientParam{...})` 得到 `IConfigClient`，
-再 `nacosconfig.NewConfigSource(client, WithDataID(...), WithGroup(...))`；
-`dataID` 带扩展名（如 `.yaml`）以便 contrib 正确识别格式）。
+桥接器 `kratosSourceAdapter` 的关键行为：
+- `Read`：调 `src.Load()`，取 `kvs[0].Value` 与 `kvs[0].Format`；多 KV（如目录型 file source）
+  合并为单一文档并加 `# key=...` 注释，避免静默丢配置。
+- `Watch`：调 `src.Watch()` 拿到 `Watcher`，起 goroutine `Next()` 循环；`ctx` 取消后 `defer w.Stop()`
+  退出，避免独立 goroutine 泄漏；监听出错（连接中断）退避 1s 后继续，对齐 Kratos 主循环韧性。
+
+> 取舍：桥接层只依赖 kratos **核心** config 接口，具体后端 SDK 由业务 `go get` 引入——
+> 保证 bald 核心零后端耦合，也避免把 kratos 整个生态锁死进框架。
 
 ---
 
@@ -107,14 +96,20 @@ nacos/apollo 类似，只是 `Read` 用其 SDK 的 `GetConfig(DataId, Group)`，
 关键技巧：**远程字节不经过 viper 的 `AddRemoteProvider`，而是手动注入 viper**。
 
 ```go
-// 远程字节 → viper（绕开 viper 强制 JSON 的限制）
+// pkg/config/config.go
+
+// injectRemote 将远程字节手动注入 viper。
+// 先 SetConfigType 声明格式，再 ReadConfig 解析，
+// 因此 etcd/consul 里存 yaml 也能正确解析（绕过 viper 强制 JSON 的限制）。
 func injectRemote(v *viper.Viper, data []byte, format string) error {
-    v.SetConfigType(format)                  // "yaml" / "json"
-    return v.ReadConfig(bytes.NewReader(data)) // 按声明格式解析
+    v.SetConfigType(format)
+    return v.ReadConfig(bytes.NewReader(data))
 }
 ```
 
-多源合并顺序（优先级：高 → 低，viper 默认语义，面向 K8s/容器部署运维预期）：
+### 4.1 优先级模型（核心决策）
+
+四源合并优先级（高 → 低），符合 K8s/容器部署运维预期：
 
 ```
 命令行 flag（--config / 业务 flag）
@@ -123,57 +118,47 @@ func injectRemote(v *viper.Viper, data []byte, format string) error {
          > 远程配置中心（基准源）
 ```
 
-即：**远程配置作为最底层基准，本地文件覆盖远程；env 高于本地文件（符合 K8s 把 ConfigMap/Secret 注入为环境变量的运维习惯）；flag 最高优先级**。
+viper 内部有「override 层」与「底层 config map」两层。实现要点：
 
-### 4.1 `Load` 流程
+- **远程与本地同处底层 config**：远程先 `ReadConfig`（基准），本地后 `MergeConfigMap`（后写赢），
+  同名 key 本地覆盖远程 → 底层内部「本地 > 远程」。
+- **flag（`BindPFlags`）与 env（`AutomaticEnv`，`NAME_` 前缀）在 override 层**，天然压过底层 config；
+  其中 flag 优先级高于 env（viper 默认语义）。
+- 最终优先级：**flag > env > 本地 > 远程**。
 
-> 关键实现细节：viper 有 **override 层（最高优先级）** 与 **底层 config map** 两层。
-> 为满足「flag > env > 本地 > 远程」且不被 watch 污染，采用：
->   - **远程** 与 **本地** 都落在 viper 的**底层 config**（低于 flag / env 层），加载顺序上
->     远程先 `ReadConfig`、本地后 `MergeConfigMap`，同名 key **本地后写赢**，从而本地覆盖远程；
->   - **flag**（`BindPFlags`）位于 override 层最高位；**env**（`AutomaticEnv`，`NAME_` 前缀）
->     同样在 override 层（动态查询），天然压过底层（含本地文件与远程），
->     因此优先级正确：**flag > env > 本地 > 远程**；
->   - 远程 watch 重新 `injectRemote`（Reset 底层）后**重新叠加本地 map**，本地不被污染；
->   - 本地 watch 同样 Reset 底层、重注入远程基准、再 `MergeConfigMap` 本地 map，远程基准确保留。
-> 这样本地覆盖远程、env 压本地、flag 压 env，且两者热更新互不污染。
+`bindViperBasics` 的环境变量约定：前缀 `strings.ToUpper(Name)`（如 `BALD_DEMO_`），
+key 替换 `.`→`_`、`-`→`_`（即 `http.addr` → `BALD_DEMO_HTTP_ADDR`）。
 
-```
-Load(Options):
-  1. 初始化 viper；绑定 flag / 环境变量（NAME_ 前缀）；主 v SetConfigFile（仅设路径）
-  2. 若配置了 RemoteSource：data, format, _ := src.Read(ctx); injectRemote(v, data, format)  // 远程写入底层（基准）
-  3. 本地覆盖：localMap := parseLocal(opts); v.MergeConfigMap(localMap)  // 本地在底层后写赢 > 远程
-  4. 若 Watch：
-       本地：v.WatchConfig（仅当本地文件存在），变更回调内重新 parseLocal + MergeConfigMap
-       远程：src.Watch(ctx, func(d, f){
-               injectRemote(v, d, f)        // 重置底层
-               v.MergeConfigMap(localMap)   // 重新叠加本地覆盖（缓存的 localMap）
-               OnChange(v) })
-```
+### 4.2 watch 互不污染
 
-### 4.2 踩坑记录：本地覆盖远程的层级选择与 flag 优先级（CR Issue#1 及回归测试补充）
+| 触发源 | 重建方式 |
+|---|---|
+| 远程变更 | `injectRemote`（Reset 底层为远程基准）→ 重新 `MergeConfigMap(localMap)` 叠加本地覆盖 |
+| 本地变更 | 重置底层（远程基准重注入 / 无远程则注入空 `{}`）→ 重新合并本地 map |
 
-> 来自 `@command://cr` 审查发现的 🔴 功能正确性 bug，并在后续补充单元测试时进一步修正（flag 必须高于本地）。此处沉淀为经验。
+两者都整体重建底层，避免：① 磁盘已删的 key 在 viper 残留；② 远程基准被 `ReadConfig` 清掉。
+并发由 `sync.RWMutex`（`vMu`）保护 viper 底层读写（viper 本身非并发安全，本地/远程回调可能并发）。
 
-**版本一（初版，错误）**：把远程放进 override 层、本地放进底层——两层装反，违背决策①「远程基准 + 本地覆盖」，测试 `TestLoad_RemoteBaselineThenLocalOverride` 抓到回归（远程 `:8080` 压住本地 `:9090`）。
+### 4.3 踩坑记录：层级选择与 flag 优先级
 
-**版本二（第一版修复，仍错误）**：改为本地进 override 层、远程进底层。本地确实覆盖远程了，但**漏掉了 flag**。viper 中 `v.Set`（override 层）优先级高于 `BindPFlags` 的 flag 层，导致 `--http.addr` 无法压过本地文件——违反「flag > 本地」。补充测试 `TestLoad_FlagHighestPriority` 抓到此回归。
+> 来自 `@command://cr` 审查发现的 🔴 功能正确性 bug，并在补充单测时进一步修正（flag 必须高于本地）。
 
-**版本三（最终正确）**：远程与本地**都落在底层 config**，靠加载顺序决定胜负——远程先 `ReadConfig`、本地后 `MergeConfigMap`，同名 key 本地后写赢。flag（`BindPFlags`）与 env（`AutomaticEnv`）在 override 层，自然压过底层**且 env 高于本地文件**（`AutomaticEnv` 动态查询位于底层之上）：
+- **版本一（错误）**：远程进 override 层、本地进底层——两层装反，远程 `:8080` 压住本地 `:9090`。
+  测试 `TestLoad_RemoteBaselineThenLocalOverride` 抓到回归。
+- **版本二（仍错误）**：本地进 override、远程进底层——本地覆盖远程了，但漏掉 flag：
+  `v.Set`（override 层）优先级高于 `BindPFlags` 的 flag 层，`--http.addr` 无法压过本地文件。
+  测试 `TestLoad_FlagHighestPriority` 抓到回归。
+- **版本三（最终正确）**：远程与本地都落底层、靠加载顺序定胜负（远程先写、本地后写赢）；
+  flag/env 在 override 层自然压底层。
 
-| 层（高 → 低） | 内容 | 结果（同 key：flag `:7000` / env `:6060` / 本地 `:9090` / 远程 `:8080`） |
-|---|---|---|
-| flag 层 | `BindPFlags` | `:7000`（最高业务优先级） |
-| env 层 | `AutomaticEnv`（`NAME_` 前缀） | `:6060`（压过底层，但低于 flag） |
-| 底层 config | 远程先写 + 本地后 `MergeConfigMap` | `:9090`（本地赢远程，作为基准兜底） |
+**被测试揭示的硬约束**：
+1. viper 的 flag **只有显式 Parse 且有值才生效**，默认值不覆盖 config 层。
+2. 远程 watch 必须 `injectRemote` 后**重新叠加缓存的 `localMap`**，否则本地被清。
+3. 本地 watch 回调内必须 Reset 重建底层（重注入远程基准 + 合并本地），否则删 key 残留、远程基准丢失。
+4. env 经 `AutomaticEnv` 在 override 层动态查询，**始终压过底层**（含本地文件与远程）—— 正是 K8s 下运维预期。
 
-**关键约束（被测试揭示）**：
-1. viper 的 flag **只有显式 Parse 且有值才生效**，默认值不覆盖 config 层。因此测试必须 `fs.Parse([]string{"--http.addr=:7000"})`，真实运行依赖 `pflag.Parse()`。
-2. 远程 watch 必须 `injectRemote`（Reset 底层）后**重新叠加缓存的 `localMap`**，否则本地会被清掉。
-3. 本地 watch 的 `OnConfigChange` 回调内必须 `Reset`/`injectRemote` 重建底层（重注入远程基准）+ `MergeConfigMap` 本地，否则①文件删除的 key 会残留；②远程基准会被 `ReadConfig` 清掉。
-4. env 通过 `AutomaticEnv` 在 override 层动态查询，**始终压过底层**（含本地文件与远程），因此 `BALD_DEMO_HTTP_ADDR` 会覆盖 `config.yaml` 中的同名 key——这正是 K8s/容器部署下运维的预期。
-
-**一句话经验**：viper 里「覆盖远程 / 压本地」的硬优先级交给 override 层（flag > env），远程与本地同处底层、**本地后写赢**即可；watch 各自重建底层、互不污染。
+> **一句话经验**：「覆盖远程 / 压本地」交给 override 层（flag > env）；远程与本地同处底层、**本地后写赢**；
+> watch 各自重建底层、互不污染。
 
 ---
 
@@ -182,61 +167,151 @@ Load(Options):
 > ✅ 已拍板：**路线 1（env 进入 path/namespace）**。
 
 - **本地**：`Options.Env` 非空时按 `{Name}-{Env}.yaml/json` 选择默认文件（如 `bald-demo-prod.yaml`）；
-  也可经 `appkit.Env("prod")` 在 AppKit 层设置。
-- **远程**：`--env` 由用户在构造后端 path 时拼接（如 `/config/demo/prod.yaml`），Load 不感知远程 path；
+  也可经 `appkit.Env("prod")` 在 AppKit 层设置。查找顺序：显式 `ConfigFile` > `Name-Env` > `Name`，
+  搜索路径含 `.` / `./configs` / `$HOME/.config/<Name>`。
+- **远程**：`--env` 由用户在构造后端 path 时拼接（如 `/config/demo/prod.yaml`），`Load` 不感知远程 path；
   鉴权/TLS 等凭据由后端构造时持有（`RemoteSource` 接口不携带，避免过度耦合）。
+- 本地文件缺失**不报错**（对齐 onexstack 行为）：允许纯远程 / 纯 flag 配置。
 
 | 路线 | 做法 | 优点 | 缺点 |
 |---|---|---|---|
-| **路线 1：env 进入 path/namespace** ✅ | `--env=prod` 拼到远程路径/namespace，如 `/config/demo/prod.yaml`；本地按 `config-prod.yaml` 选择 | 环境隔离清晰、远程一套存储多环境 | 需约定路径规范 |
-| 路线 2：env 仅选 source | `--env` 只决定用哪套 Sources（如 prod 用远程、dev 用本地）| 实现简单 | 环境切换不灵活 |
+| **路线 1：env 进入 path/namespace** ✅ | `--env=prod` 拼到远程路径/namespace；本地按 `config-prod.yaml` | 环境隔离清晰、远程一套存储多环境 | 需约定路径规范 |
+| 路线 2：env 仅选 source | `--env` 只决定用哪套 Sources | 实现简单 | 环境切换不灵活 |
 
 ---
 
 ## 6. 热更新
 
 - **本地**：保留 viper `WatchConfig`（fsnotify），变更触发 `OnConfigChange`。
-- **远程**：`RemoteSource.Watch` 回调拿到新字节 → `injectRemote` 重新注入 viper → 手动触发 `OnConfigChange(v)`。
-- 业务在 `OnConfigChange` 内重新 `v.Unmarshal(&opts)` 完成热重载（后续可进一步 hook 到 AppKit 内部 options 重载）。
+- **远程**：`RemoteSource.Watch` 回调拿到新字节 → `injectRemote` 重新注入 viper → 触发 `OnChange(v)`。
+- 业务在 `OnChange` 内重新 `v.Unmarshal(&opts)` 完成热重载。
+- `OnChange` 形参为**裸 viper**（粒度由业务自定，决策见第 7 节），且本地/远程变更走同一回调，
+  业务无需区分来源。
 
 ---
 
-## 7. 决策记录（已拍板，2026-08-18）
+## 7. 业务配置层对接（pkg/options，本轮新增）
+
+配置加载（`pkg/config`）与业务配置（服务器地址、TLS 等）解耦：加载层只产出 `*viper.Viper`，
+业务负责把 viper 内容回填到 `options` 结构体。本轮对齐 onexstack 补齐了 `pkg/options`：
+
+### 7.1 接口契约
+
+```go
+// pkg/options/options.go
+
+type IOptions interface {
+    Validate() []error                          // 返回错误切片，一次暴露全部问题
+    AddFlags(fs *pflag.FlagSet, fullPrefix string) // 注册命令行参数（带前缀）
+}
+```
+
+实现类型：`InsecureServingOptions`（明文 HTTP）、`GRPCOptions`、`SecureServingOptions`（HTTPS，内嵌 `TLSOptions`）、`TLSOptions`（Smart Mode）。
+
+### 7.2 注册与回填闭环
+
+```
+业务构造 options（NewXxxOptions）
+   │
+   ├─ options.AddFlags(pflag.CommandLine, options.Join("bald-demo","http"))
+   │     → 注册 --bald-demo.http.addr / --bald-demo.http.tls.cert 等
+   │
+   ├─ appkit.Run → config.Load（四源合并）→ 得到 *viper.Viper
+   │
+   └─ appkit.OnConfigChange / BeforeStart 内：
+         app.Viper().Unmarshal(&opts)   // viper key（http.addr）→ options 字段
+```
+
+`mapstructure` tag 决定键路径（如 `Addr` 配 `mapstructure:"addr"`，则键为 `http.addr`），
+与 flag 前缀 `bald-demo.http.` 天然对齐——**命令行、env、文件、远程用同一套键路径**。
+
+### 7.3 flag 前缀约定（取舍点）
+
+`AddFlags(fs, fullPrefix)` 的实现体用 `fullPrefix + 字段名`（**不带点**），调用方用
+`options.Join(prefix...)` 提供**带点**前缀（如 `Join("bald-demo","http")` → `bald-demo.http.`），
+最终 flag 为 `--bald-demo.http.addr`（单点嵌套）。
+
+> **取舍说明**：onexstack 的实现体用 `fullPrefix + ".addr"`（带点），依赖「调用方传裸前缀（无末尾点）」
+> 的软约定来避免双点（`bald-demo.http..addr`）。bald 把约束反过来（调用方用 `Join` 直传带点前缀），
+> 使 `Join` 可以**安全地直接作为 `AddFlags` 入参**，从机制上消除双点隐患。代价是与 onexstack 的
+> `AddFlags` 字面语义不同——但 bald 的 `IOptions` 接口形状与 onexstack 完全一致，仅前缀拼接细节不同。
+
+### 7.4 TLS Smart Mode（pkg/options/tls_options.go）
+
+`TLSOptions` 的 `CA/Cert/Key` 字段支持三种输入形式，自动识别：
+1. 含 `-----BEGIN` 的原始 PEM 字符串；
+2. 文件路径（磁盘存在则读取）；
+3. Base64 编码的 PEM（K8s Secret 常以 Base64 注入）。
+
+`TLSConfig()` 输出 `*tls.Config`，`Scheme()` 返回 `http/https`，`Validate()` 校验 Cert/Key 对称性。
+`NewTLSOptions()` 返回**值类型**（对齐 onexstack）。
+
+---
+
+## 8. 决策记录（已拍板）
 
 | # | 决策点 | 结论 |
 |---|---|---|
-| 1 | 配置优先级 | ✅ **flag > env > 本地文件 > 远程**（viper 默认语义，面向 K8s/容器部署：远程与本地同处底层 config、本地后写赢，flag/env 在 override 层压本地，其中 env 高于本地文件，watch 互不污染，详见 4.1/4.2）|
+| 1 | 配置优先级 | ✅ **flag > env > 本地文件 > 远程**（远程与本地同处底层 config、本地后写赢；flag/env 在 override 层压本地，其中 env 高于本地文件；watch 互不污染，详见 4.2/4.3）|
 | 2 | 多环境路线 | ✅ **路线 1**（env 进入 path/namespace；本地按 `Name-Env.yaml`，远程 path 用户构造时拼接）|
-| 3 | 远程后端范围 | ✅ **接入 Kratos 实现**：通过 `config.FromKratosSource(kratosconfig.Source)` 桥接 kratos contrib 的 etcd/consul/nacos/apollo 等后端，**不重复造轮子**（与 `registry.FromKratos` 思路一致）；bald 仅依赖 kratos 核心 config 接口 |
-| 4 | 热更新回调粒度 | ✅ **裸 viper**（`OnConfigChange(*viper.Viper)`），业务自 Unmarshal |
-| 5 | 鉴权字段 | ✅ **预留**：鉴权/TLS 由后端构造时持有，`RemoteSource` 接口不携带，避免过度耦合 |
+| 3 | 远程后端范围 | ✅ **接入 Kratos 实现**：`config.FromKratosSource(kratosconfig.Source)` 桥接 etcd/consul/nacos/apollo，bald 核心仅依赖 kratos 核心 config 接口，零后端耦合 |
+| 4 | 热更新回调粒度 | ✅ **裸 viper**（`OnConfigChange(*viper.Viper)`），业务自 Unmarshal；本地/远程走同一回调 |
+| 5 | 鉴权字段 | ✅ **预留**：鉴权/TLS 由后端构造时持有，`RemoteSource` 接口不携带 |
+| 6 | options 接口 | ✅ 对齐 onexstack：`IOptions{Validate() []error; AddFlags(fs, prefix)}`；`var _ IOptions = (*T)(nil)` 编译期断言 |
+| 7 | flag 前缀拼接 | ✅ 实现体 `fullPrefix+字段名`（无点），调用方用 `Join` 提供带点前缀，机制防双点（取舍见 7.3）|
+| 8 | TLS 形态 | ✅ `SecureServingOptions` 内嵌 `TLSOptions`（Smart Mode），`NewHTTPServer` 收 `*SecureServingOptions`，`Enabled` 控制明文/HTTPS |
 
 ---
 
-## 8. 与现有 `pkg/config` 的关系
+## 9. 取舍与未做项（诚实记录）
+
+1. **业务 flag 接入 viper override 层的桥接尚未闭环**：
+   当前 `appkit.loadConfig` 传给 `config.Load` 的 `Flags` 仅含内部 `--config` 解析用的 FlagSet，
+   业务 flag（`--bald-demo.http.addr` 等）由调用方用 `options.AddFlags(pflag.CommandLine, ...)` 注册到
+   **全局** flagset，但**未传入 `config.Load.Options.Flags`**。
+   后果：优先级链中的「flag 层」目前只绑了 `--config`，业务 flag 暂未进入 viper override 层，
+   无法直接压过本地文件 / 远程基准（env 与本地/远程仍正确）。
+   **推荐桥接**：新增 `appkit.WithOptions(...opts IOptions)` 之类 Option，在 `loadConfig` 中把各
+   `opts.AddFlags` 收集进同一个 FlagSet 并赋给 `config.Options.Flags`，使「业务 flag > env > 本地 > 远程」
+   完整生效。此为已知待办，不阻塞当前运行（env / 本地文件 / 远程已可用）。
+
+2. **远程多 KV 合并为单文档**：桥接器对目录型 source 的多 KV 用 `# key=` 注释拼接，适合扁平配置；
+   若远程存的是多文件独立命名空间，建议业务自行实现 `RemoteSource` 而非依赖合并。
+
+3. **`AutomaticEnv` 全局生效**：env 会动态覆盖所有底层 key，包括嵌套键（如 `BALD_DEMO_HTTP_ADDR` 覆盖
+   `http.addr`）。这是设计预期，但业务若用 `.` 之外的分隔符需注意 replacer 规则。
+
+4. **未做**：配置变更的结构化 diff 日志、变更审计、灰度下发。当前 `OnChange` 仅透传 viper，业务自定。
+
+---
+
+## 10. 与现有 `pkg/config` 的关系
 
 - 保留：viper 作为内存配置中心、`OnConfigChange` 回调、`ConfigFile` / `WatchConfigFile` / flag / env 解析。
 - 替换：已删除 `RemoteProvider{AddRemoteProvider/ReadRemoteConfig}` 的 viper remote 用法，
   改为 `RemoteSource` 接口 + `injectRemote` 手动注入（见 `pkg/config/source.go`）。
-- 兼容：对外 Option 形态尽量稳定（`RemoteConfig(src RemoteSource)` 取代旧 `RemoteConfig(rp *RemoteProvider)`）。
+- 兼容：对外 Option 形态稳定（`RemoteConfig(src RemoteSource)` 取代旧 `RemoteConfig(rp *RemoteProvider)`）。
+- 新增：`pkg/options`（业务配置结构体，对齐 onexstack）。
 
 ---
 
-## 9. 参考实现
+## 11. 参考实现
 
 | 框架 | 方案 | 借鉴点 |
 |---|---|---|
 | **Kratos** | `Source`/`Watcher` 接口 + `Reader` 深度合并；后端自带 `Format`；watch 由各 SDK 保证 | Source 抽象、格式自声明、多源合并 |
 | **go-lulu** | `Reader`/`ValueWatcher`/`Decoder` 正交拆分；etcd `WatchValue` 直接推新字节 | 推值模式（省一次重新 Get）、连接探活 |
+| **onexstack** | `IOptions{Validate()[]error; AddFlags(fs,prefix)}` + `SecureServingOptions` + TLS Smart Mode | 业务配置结构体契约、HTTPS serving 形态 |
 | **viper（仅本地）** | `SetConfigFile`/`ReadInConfig`/`WatchConfig` | 本地加载与热更新壳 |
 
 ---
 
-## 10. 可运行示例
+## 12. 可运行示例
 
-完整的「本地 + 远程 + 多环境 + 热更新」可运行示例见 [`cmd/bald/main.go`](cmd/bald/main.go)：
+完整的「本地 + 远程 + 多环境 + 热更新 + options 回填」可运行示例见 [`cmd/bald/main.go`](cmd/bald/main.go)：
 
-- 通过 `appkit.ConfigFile` / `appkit.Env` / `appkit.WatchConfigFile` / `appkit.RemoteConfig` / `appkit.OnConfigChange` 演示了本文全部决策点的落地方式；
+- 通过 `appkit.ConfigFile` / `appkit.Env` / `appkit.WatchConfigFile` / `appkit.RemoteConfig` / `appkit.OnConfigChange` 演示本文全部决策点；
 - 远程后端给出 **etcd** 与 **nacos** 两种 `config.FromKratosSource` 桥接写法（含 `go get` 提示）；
-- 本地配置样例见 [`configs/bald-demo.yaml`](configs/bald-demo.yaml)，并说明远程同名 key 作基准、本地覆盖的语义。
-
+- 业务 options（`SecureServingOptions` / `GRPCOptions`）用 `AddFlags` 注册到全局 flagset，
+  并在 `OnConfigChange` / `BeforeStart` 内 `app.Viper().Unmarshal(&opts)` 回填；
+- 本地配置样例见 [`configs/bald-demo.yaml`](configs/bald-demo.yaml)，说明远程同名 key 作基准、本地覆盖的语义。

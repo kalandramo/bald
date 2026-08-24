@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 	"google.golang.org/grpc"
 
@@ -31,8 +32,16 @@ import (
 )
 
 func main() {
-	httpOpts := baldoptions.NewHTTPOptions()
+	httpOpts := baldoptions.NewSecureServingOptions()
+	httpOpts.Addr = ":8080" // 明文 HTTP（Enabled 默认 false）；启用 HTTPS 时设 Enabled=true 并提供 tls 字段
 	grpcOpts := baldoptions.NewGRPCOptions()
+
+	// 业务 flag 注册（带前缀，支持多组件复用同一 options 类型）。
+	// 优先级：命令行 flag > 环境变量 > 本地文件 > 远程配置。
+	// SecureServingOptions 内嵌 TLSOptions，TLS 子字段自动展开为 --bald-demo.http.tls.*。
+	appPrefix := "bald-demo"
+	httpOpts.AddFlags(pflag.CommandLine, baldoptions.Join(appPrefix, "http"))
+	grpcOpts.AddFlags(pflag.CommandLine, baldoptions.Join(appPrefix, "grpc"))
 
 	// 1. 构造协议服务器（均实现 server.Server 契约，含 Endpoint）。
 	//    共享同一个 readiness 探针，使 HTTP /readyz 与 gRPC health 状态对称联动。
