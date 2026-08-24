@@ -38,6 +38,7 @@ import (
 
 	kratosRegistry "github.com/go-kratos/kratos/v3/registry"
 	"github.com/kalandramo/bald/pkg/config"
+	"github.com/kalandramo/bald/pkg/log"
 	"github.com/kalandramo/bald/pkg/registry"
 	"github.com/kalandramo/bald/pkg/server"
 )
@@ -56,6 +57,9 @@ type AppKit struct {
 	registrar   registry.Registrar
 	servers     []server.Server
 	stopTimeout time.Duration
+
+	// logger 是框架运行期日志句柄。默认取全局 log.GetLogger()（未注入时为静默 nop）。
+	logger log.Logger
 
 	// 钩子（可选）。
 	beforeStart []func(context.Context) error
@@ -84,6 +88,16 @@ func ID(id string) Option            { return func(a *AppKit) { a.id = id } }
 func Name(name string) Option        { return func(a *AppKit) { a.name = name } }
 func Version(v string) Option        { return func(a *AppKit) { a.version = v } }
 func Registrar(r registry.Registrar) Option { return func(a *AppKit) { a.registrar = r } }
+
+// Logger 注入日志后端。传入 nil 时回退到默认全局句柄（log.GetLogger）。
+// Run 启动时会将其设为全局 log，使子模块经 log.GetLogger() 取到同一实例。
+func Logger(l log.Logger) Option {
+	return func(a *AppKit) {
+		if l != nil {
+			a.logger = l
+		}
+	}
+}
 
 // KratosRegistrar 桥接 go-kratos 的 registry.Registrar（etcd/consul 等后端）。
 func KratosRegistrar(r kratosRegistry.Registrar) Option {
@@ -150,6 +164,7 @@ func New(opts ...Option) *AppKit {
 		version:     "v0.0.0",
 		stopTimeout: defaultStopTimeout,
 		done:        make(chan struct{}),
+		logger:      log.GetLogger(),
 	}
 	for _, o := range opts {
 		o(a)
@@ -223,8 +238,17 @@ func (a *AppKit) Run(ctx context.Context) error {
 	defer a.running.Store(false)
 	defer close(a.done)
 
+	// 将本实例 logger 注入全局句柄，使子模块经 log.GetLogger() 取到同一实例；
+	// Run 结束后恢复原全局值，避免影响后续（测试）环境。
+	prevLogger := log.GetLogger()
+	log.SetLogger(a.logger)
+	defer log.SetLogger(prevLogger)
+
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+
+	a.logger.Info(ctx, "appkit starting",
+		"name", a.name, "version", a.version, "servers", len(a.servers))
 
 	// beforeStart 钩子。
 	for _, fn := range a.beforeStart {
@@ -250,6 +274,7 @@ func (a *AppKit) Run(ctx context.Context) error {
 		cancel()
 		a.stopAll(context.Background())
 		a.runErr.Store(err)
+		a.logger.Error(ctx, "appkit wait for endpoints failed", "error", err)
 		return err
 	}
 
@@ -258,7 +283,12 @@ func (a *AppKit) Run(ctx context.Context) error {
 		cancel()
 		a.stopAll(context.Background())
 		a.runErr.Store(err)
+		a.logger.Error(ctx, "appkit register failed", "error", err)
 		return err
+	}
+	if a.registrar != nil {
+		a.logger.Info(ctx, "appkit registered",
+			"name", a.name, "id", a.id, "endpoints", a.buildInstance().Endpoints)
 	}
 
 	// afterStart 钩子。
@@ -268,9 +298,12 @@ func (a *AppKit) Run(ctx context.Context) error {
 			_ = a.deregister(context.Background())
 			a.stopAll(context.Background())
 			a.runErr.Store(err)
+			a.logger.Error(ctx, "appkit afterStart hook failed", "error", err)
 			return err
 		}
 	}
+
+	a.logger.Info(ctx, "appkit started", "servers", len(a.servers))
 
 	// 主等待：任一服务器崩溃（gctx 取消）、外部 ctx 取消、或系统信号。
 	sig := make(chan os.Signal, 1)
@@ -279,11 +312,15 @@ func (a *AppKit) Run(ctx context.Context) error {
 
 	select {
 	case <-gctx.Done(): // 服务器崩溃或外部 ctx 取消
-	case <-sig:
+	case s := <-sig:
+		a.logger.Info(ctx, "appkit received signal, shutting down", "signal", s.String())
 		cancel() // 收到信号，主动取消
 	}
 
 	// 先反注册（避免流量打到已停服务），再优雅停机。
+	if a.registrar != nil {
+		a.logger.Info(ctx, "appkit deregistering", "name", a.name, "id", a.id)
+	}
 	_ = a.deregister(context.Background())
 
 	// 优雅停机：传入未取消的新 ctx（带 stopTimeout），这是 BUG-1 防坑点。
@@ -292,8 +329,10 @@ func (a *AppKit) Run(ctx context.Context) error {
 	// 收集启动错误：仅非 ctx 取消的错误视为致命，返回给调用方。
 	if err := g.Wait(); err != nil && !errors.Is(err, context.Canceled) {
 		a.runErr.Store(err)
+		a.logger.Error(ctx, "appkit exited with error", "error", err)
 		return err
 	}
+	a.logger.Info(ctx, "appkit stopped")
 	return nil
 }
 

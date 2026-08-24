@@ -6,3 +6,4 @@
 - [配置中心设计](./配置中心设计.md)：配置四源优先级、业务配置层与 options 体系。
 - [服务端设计](./服务端设计.md)：HTTP / gRPC / Gateway Server 抽象与端口模型。
 - [服务注册设计](./服务注册设计.md)：registry.Registrar 抽象、内存实现与 kratos 桥接。
+- [日志设计](./日志设计.md)：pkg/log 极简契约、全局句柄、slog 后端与 OTel 可选桥接。
