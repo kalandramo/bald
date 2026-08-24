@@ -35,14 +35,20 @@ func main() {
 	grpcOpts := baldoptions.NewGRPCOptions()
 
 	// 1. 构造协议服务器（均实现 server.Server 契约，含 Endpoint）。
+	//    共享同一个 readiness 探针，使 HTTP /readyz 与 gRPC health 状态对称联动。
+	ready := func(ctx context.Context) error {
+		// TODO: 在此检查业务依赖（如 DB ping、下游连通性）。返回 nil=就绪，error=未就绪。
+		// 未就绪时：HTTP /readyz 返回 503，gRPC health 置 NOT_SERVING（K8s 摘流量）。
+		return nil
+	}
 	httpSrv := server.NewHTTPServer(httpOpts, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("hello from bald http\n"))
-	}))
+	}), ready)
 
 	grpcSrv := server.NewGRPCServerWithRegister(grpcOpts, nil, func(s *grpc.Server) {
 		// 在此注册你的 gRPC service 实现，例如：
 		// pb.RegisterYourServer(s, yourImpl)
-	})
+	}, ready)
 
 	// 2. 用 appkit 组合层运行（自研编排：并发启停 + 优雅停机 + 防重入 + 可观察）。
 	var app *appkit.AppKit

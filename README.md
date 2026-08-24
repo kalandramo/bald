@@ -36,6 +36,8 @@ import (
     "net/http"
     "time"
 
+    "context"
+
     "google.golang.org/grpc"
 
     "github.com/kalandramo/bald/pkg/appkit"
@@ -47,12 +49,15 @@ func main() {
     httpOpts := options.NewHTTPOptions()
     grpcOpts := options.NewGRPCOptions()
 
+    // 共享 readiness 探针：HTTP /readyz 与 gRPC health 状态对称联动。
+    ready := func(ctx context.Context) error { return nil /* 检查 DB/依赖 */ }
+
     httpSrv := server.NewHTTPServer(httpOpts, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
         _, _ = w.Write([]byte("hello from bald\n"))
-    }))
+    }), ready)
     grpcSrv := server.NewGRPCServerWithRegister(grpcOpts, nil, func(s *grpc.Server) {
         // pb.RegisterYourServer(s, impl)
-    })
+    }, ready)
 
     app := appkit.New(
         appkit.Name("bald-demo"),

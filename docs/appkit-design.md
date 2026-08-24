@@ -296,7 +296,12 @@ Run(ctx)
 - [x] **测试覆盖（P0，2026-08-24 完成）**：`inmemory` 注册器单测（`inmemory_test.go`：注册/覆盖/注销/List/并发）、`server` 包单测（`server_test.go`：HTTP/gRPC `:0` 动态端口解析、HTTPS scheme 判定、优雅停机、`GatewayServer` 后端 conn 关闭 + `Serve` 信号驱动）、`appkit_test.go` 新增多 server 动态端口聚合注册（`TestAppKit_MultiServerEndpointAggregation`）。
 - [x] **动态端口注册时序修复（BUG-4，2026-08-24）**：原 `Run` 在 errgroup 并发 `Start` 之后**立即** `register`，对绑定 `:0` 的 server，`Start` goroutine 尚未完成监听器绑定，`Endpoint()` 仍返回 `xxx://:0`，会把无效地址注册到服务发现。新增 `waitForEndpoints(gctx)`：注册前轮询等待各 server `Endpoint()` 解析出真实端口（非 `:0`），超时 5s 报错；固定端口 server 立即通过。修复后 `TestAppKit_MultiServerEndpointAggregation` 从失败转为通过。
 - [ ] **多实例/集群**：当前 `ID` 默认 hostname，未处理同机多实例冲突（建议加随机后缀或允许显式注入）。
-- [ ] **健康检查对齐**：gRPC 已默认注册 health + reflection；HTTP 暂无统一健康检查端点。
+- [x] **健康检查对齐 + 对称 readiness（P1，2026-08-24 完成）**：
+  - HTTP：`NewHTTPServer` 自动挂载 `/healthz`（存活，进程在即 200）与 `/readyz`（就绪，由 `ReadinessFunc` 回调决定：nil 或返回 nil→200，否则 503）。业务 handler 挂 `/` 根路径，框架探针为精确路径优先匹配，不冲突（业务若重复注册同名精确路径则以其为准）。
+  - gRPC：原 `health.NewServer()` 匿名丢弃引用，现**保存 `*health.Server`**；`NewGRPCServer(WithRegister)` 新增 `readiness ReadinessFunc` 参数。非 nil 时 `Start` 内启动后台 goroutine 周期（`readinessPollInterval=2s`）调用 readiness 并 `SetServingStatus("")` 同步到 gRPC health 协议（SERVING/NOT_SERVING），使 K8s `grpc` 探针可见；`Stop` 时 `readinessCancel` 取消轮询。
+  - Gateway：复用 `HTTPServer`，`NewGatewayServer` 透传 `readiness`，自动带 `/healthz` `/readyz`。
+  - 对称语义：HTTP `/readyz` 与 gRPC health 由**同一个 `ReadinessFunc`** 驱动；`cmd/bald/main.go` 演示共享 `ready` 闭包（TODO 处填 DB/依赖检查）。
+  - 测试：`server_test.go` 新增 `TestHTTPServer_HealthAndReadyz`、`TestHTTPServer_Readyz_UnreadyReturns503`、`TestGRPCServer_ReadinessDrivesHealth`（grpc health client 验 SERVING）、`TestGatewayServer_ProbesRouted`（全部 PASS）。
 - [ ] **配置热更新透传**：`OnConfigChange` 当前仅回调 viper，业务需自行重新 Unmarshal；可考虑 hook 到 AppKit 内部 options 重载。
 - [ ] **优雅停机日志**：停机各阶段（Deregister / 各 server Stop）缺少结构化日志与超时告警。
 - [ ] **命令行集成**：当前 `loadConfig` 仅白名单解析 `--config`，业务 flag（如 `--http.addr`）由调用方自行绑定，缺统一的 flag 集合并入口。

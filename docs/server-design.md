@@ -1,0 +1,170 @@
+# Bald Server 包设计文档
+
+> 适用包：`pkg/server`、`pkg/server/gateway`（*gateway 子目录当前内联在 `gateway_server.go`，未独立成包*）
+> 关联文档：`appkit-design.md`（编排层）、`config-center-design.md`（配置层）
+
+`server` 包提供**统一的服务器生命周期抽象**，融合 onexstack 的协议层封装与 Kratos 的运行期治理，使 HTTP / gRPC / Gateway 三种服务器可被同一套编排逻辑（`AppKit` 或 `Serve`）驱动。
+
+---
+
+## 1. 设计目标
+
+1. **协议无关的统一契约**：HTTP、gRPC、Gateway 三种服务器对外暴露同一接口，编排层无需关心协议差异。
+2. **与 Kratos 兼容**：接口方法集是 `kratos/transport.Server` 的超集，因此既能由本框架 `AppKit` 编排，也能直接塞进 Kratos `App`。
+3. **动态端口友好**：绑定 `:0` 时能解析出真实端口，供服务发现注册（见 BUG-4）。
+4. **生产就绪探针**：开箱即有的存活/就绪探针，对称覆盖 HTTP 与 gRPC，满足 K8s `livenessProbe` / `readinessProbe`。
+5. **优雅停机**：每个服务器自带超时保护，绝不无限阻塞。
+
+---
+
+## 2. 核心抽象：`Server` 接口
+
+```go
+type Server interface {
+    Start(ctx context.Context) error   // 启动（阻塞直到 ctx 取消或出错）
+    Stop(ctx context.Context) error    // 优雅停止（ctx 携带停机超时，且必须未被取消）
+    Endpoint() string                  // 实际监听地址，支持 ":0" 动态端口解析
+}
+```
+
+**决策 ①：为什么扩展 `Endpoint()`？**
+Kratos 的 `transport.Server` 只有 `Start/Stop`，不含 `Endpoint()`。但服务注册（写进 Nacos/etcd）需要"实际地址"——尤其绑定 `:0` 时，配置里写的是 `:0`，注册出去必须是解析后的 `127.0.0.1:54321`。因此把 `Endpoint()` 提为接口一等公民，让编排层在 `register` 前就能拿到真实地址。**代价**：无法把 `*http.Server` 等标准类型直接当 `Server` 用，必须包一层——可接受，包一层也顺带实现了探针挂载。
+
+**决策 ②：`Start` 用 `ctx` 控制生命周期，而非返回值**
+`Start` 阻塞运行，`ctx` 取消即触发停机信号（如 `SIGINT` → `signal.NotifyContext` 取消 → `Serve` 调 `Stop`）。这与 Kratos 一致，且支持 `AppKit` 用 `errgroup` 统一取消所有服务器。`Stop` 的 `ctx` **必须是未取消的新 ctx**（携带超时），否则 `GracefulStop` 拿不到超时控制——这是 Kratos 的约定，文档与注释均强调。
+
+---
+
+## 3. 三种服务器实现与决策点
+
+### 3.1 HTTPServer（封装标准库 `net/http`）
+
+**决策 ③：用标准库还是 `httprouter`/gin？**
+选标准库 `net/http` + `http.ServeMux`。理由：bald 定位"框架底座"，不应绑定具体 Web 框架；业务可传入任意 `http.Handler`（包括 gin/fiber 的 handler 适配），零耦合。牺牲的是路由性能与参数解析便利性，但这是底座的正确取舍。
+
+**决策 ④：探针路由挂载策略（框架优先 vs 业务优先）**
+`NewHTTPServer(opts, handler, readiness)` 内部建 `mux`：先挂业务 `handler` 到 `/`（兜底匹配），再注册 `/healthz` `/readyz` 为精确路径。
+- 精确路径优先于 `/` 根匹配，因此框架探针**不会**被业务 `/` 覆盖。
+- 若业务**显式** `mux.HandleFunc("/healthz", ...)` 注册同名精确路径，标准库 `ServeMux` 会因重复注册而 panic（标准库不允许两个同名精确 pattern）。当前框架先于业务注册探针，故业务后注册会直接失败——**业务不应复用 `/healthz` `/readyz` 这两个路径**；如需自定义探针，应改用其他路径（如 `/internal/healthz`），或后续通过 Option 关闭框架探针。
+- 不做"按 pattern 查重再决定是否注册"：标准库 `*http.ServeMux` 没有 `Handler(pattern)` 查询方法（只有 `Handler(*http.Request)`），无法实现优雅降级，故直接注册精确路径。
+
+### 3.2 GRPCServer（封装 `google.golang.org/grpc`）
+
+**决策 ⑤：默认注册 health + reflection**
+`NewGRPCServerWithRegister` 总是 `RegisterHealthServer` + `reflection.Register`。health 是 K8s `grpc` 探针的协议基础；reflection 方便 `grpcurl`/调试。**代价**：多注册两个服务，开销可忽略。
+
+**决策 ⑥：保存 `*health.Server` 引用（曾丢失）**
+早期实现 `healthpb.RegisterHealthServer(s, health.NewServer())` 把实例**匿名丢弃**，导致无法 `SetServingStatus` 做 readiness 降级。P1 改为保存 `healthSrv` 字段，使 readiness 联动成为可能。这是"对称性"的前提。
+
+**决策 ⑦：gRPC readiness 用"后台轮询"而非"业务主动推"**
+gRPC health 是**拉模型**——探针主动发 `Check` RPC，服务端无法"事件驱动"地通知状态变更（不像 HTTP `/readyz` 每次请求即时调用回调）。因此：
+- HTTP `/readyz`：每次请求时**同步**调 `readiness(ctx)`，实时反映依赖状态。
+- gRPC health：启动后台 goroutine，周期（`readinessPollInterval=2s`）调用 `readiness` 并 `SetServingStatus("")` 把结果**预写**进 health 状态，探针来查时读到的是最近一次轮询结果。
+- **时滞权衡**：gRPC 探针看到的状态最多落后一个轮询周期（2s）。K8s 探针本身也有 `periodSeconds`（通常 ≥2s），该延迟在容忍范围内。若业务要求更灵敏，可缩短 `readinessPollInterval`（当前为未导出常量，后续可提为 Option）。
+
+### 3.3 GatewayServer（grpc-gateway 反向代理）
+
+**决策 ⑧：复用 HTTPServer，不独立实现**
+Gateway 本质是"把 REST 转给本地 gRPC"的 HTTP 服务，因此**嵌入 `HTTPServer`** 而非重新实现 `Server` 接口。直接获得 `/healthz` `/readyz` 与 TLS 能力，`NewGatewayServer` 仅透传 `readiness`。`Stop` 时通过 `closeOnce` 关闭到后端的 `*grpc.ClientConn`，防连接泄漏（见 BUG 文档）。
+
+---
+
+## 4. 健康探针对称设计（P1）
+
+### 4.1 统一类型
+
+```go
+// 就绪探针回调：nil=就绪(可接受流量)；非 nil error=未就绪(应被摘流量)
+type ReadinessFunc func(ctx context.Context) error
+```
+
+HTTP 与 gRPC **共用同一个 `ReadinessFunc` 实例**（如 `cmd/bald/main.go` 中的共享 `ready` 闭包），保证两端健康语义一致。
+
+### 4.2 行为对照表
+
+| 探针 | HTTP `/healthz` | HTTP `/readyz` | gRPC health (`Check`) |
+|---|---|---|---|
+| 触发方式 | 每次请求即时 | 每次请求即时调 `readiness` | 探针主动 `Check`，读轮询预写状态 |
+| `readiness=nil` | 200 | 200 | SERVING |
+| `readiness` 返回 nil | 200 | 200 | SERVING |
+| `readiness` 返回 error | 200（存活独立于就绪）| **503** | **NOT_SERVING** |
+| K8s 用途 | `livenessProbe` | `readinessProbe` | `grpc` 探针（liveness 或 readiness）|
+
+**关键约束**：`/healthz`（存活）**不**调用 `readiness`——进程在即存活，即使依赖未就绪也应让 liveness 通过（由 `readinessProbe` 负责摘流量，而非杀容器）。这是 K8s 探针分离的核心原则。
+
+#### 4.2.1 逐项讲解
+
+**① 存活与就绪必须分离（liveness ≠ readiness）**
+K8s 对两种探针的处置截然不同：
+- `livenessProbe` 失败 → **杀容器重启**。若把依赖检查放进 liveness，一旦 DB 抖动容器就被反复重启，雪崩。
+- `readinessProbe` 失败 → **从 Service 端点摘掉**，不再接新流量，但容器继续活着，待依赖恢复自动回归。
+
+因此 `/healthz` 只回答"进程还活着吗"（恒 200，除非进程已死），`/readyz` 才回答"现在能服务吗"（依赖 OK→200，否则 503）。表中 `/healthz` 在 `readiness` 返回 error 时仍为 200，正是这一原则的落地。
+
+**② 为什么 readiness 用 503 而非 200 + body 标记**
+HTTP 语义上，5xx 表示"服务端当前无法处理请求"。K8s `readinessProbe` 的判定逻辑是：**返回码落在 `successThreshold` 配置的区间（默认 2xx）才算就绪**，非 2xx 即未就绪。用 503 能直接复用 K8s 默认的 2xx=成功判定，无需业务额外配 `httpGet.httpHeaders` 或自定义成功码；若返回 200 + `{"ready":false}` 体，K8s 仍视为成功，摘流失效。故 503 是"零配置即可被 K8s 识别"的正确选择。
+
+**③ gRPC health 为何是"读轮询预写状态"而非实时**
+gRPC health 协议是**拉模型**：探针（K8s `grpc` 探针或 `grpcurl`）主动发 `Check` RPC，服务端在当前调用里返回**已存储**的状态，没有"每次 Check 都现跑 readiness"的机制（health service 不持有 readiness 回调）。为让 readiness 结果对 gRPC 探针可见，框架在 `Start` 时启动后台 goroutine，周期性（2s）运行 `readiness` 并把结果 `SetServingStatus` 预写到 health server；探针来查时读到的是最近一次轮询结果。这是 gRPC 阵营的通用做法（envoy/grpc-go 均如此）。代价是 ≤2s 状态时滞（见 §4.3 与决策 ⑦）。
+
+**④ readiness=nil 与返回 nil 为何等价**
+`readiness=nil` 表示"本服务没有额外的依赖检查需求"，即默认永远就绪，等价于回调永远返回 nil。两者在表中都落 200/SERVING。区别仅在于：传 nil 时框架根本不启动 gRPC 轮询 goroutine（无谓开销），而传"永远返回 nil"的闭包会启动轮询——**若确实无依赖，优先传 nil**。
+
+**⑤ gRPC `grpc` 探针既能当 liveness 也能当 readiness**
+表中 gRPC 列标"（liveness 或 readiness）"：同一个 `Check` RPC 返回的 SERVING/NOT_SERVING 可同时配给 `livenessProbe` 与 `readinessProbe`。但需注意——若把 `readiness` 接了 DB 检查，而 gRPC 探针又同时配给 liveness，则 DB 抖动会经 gRPC health 触发容器重启（因为 NOT_SERVING 既让 readiness 摘流，也让 liveness 杀容器）。**推荐做法**：gRPC 侧 `readiness=nil`（health 恒 SERVING）用于 liveness；若需 gRPC readiness 摘流，应明确只配给 `readinessProbe`，且接受"此时 liveness 应改用进程级探活（如同一服务的 `/healthz`）"的分离。这与 HTTP 侧 `/healthz` 恒 200 的设计一致：两端都让 liveness 脱离业务依赖。
+
+**⑥ 为什么 K8s 用途列把 gRPC 标成单一列**
+HTTP 侧天然有两个端点（`/healthz` `/readyz`）可分别绑 liveness/readiness；gRPC 侧 health 协议只有一个 `Check` 方法，靠返回的 SERVING/NOT_SERVING 表达"是否就绪"，无法像 HTTP 那样拆两个端点。这是协议层面的固有差异，框架用"共享同一 `ReadinessFunc`"在语义层抹平，但**运维配置时仍需按 ⑤ 的边界小心区分 liveness/readiness 的挂载**，不能简单把 gRPC `Check` 同时塞给两个探针又接了重依赖。
+
+### 4.3 对称性的边界
+
+- gRPC 侧 status 用 `SetServingStatus("")` 表示**整体服务**（空 service 名），不区分子服务——与 HTTP 单一 `/readyz` 语义对齐。
+- gRPC 轮询间隔固定 2s；HTTP 实时。两端"最终一致"，但 gRPC 有 ≤2s 时滞（见决策 ⑦）。
+
+---
+
+## 5. 优雅停机决策
+
+**决策 ⑨：每个 `Stop` 自带超时保护**
+`HTTPServer.Stop` / `GRPCServer.Stop` 都用 `ctx` 超时 + `select`：正常走 `GracefulStop`/`Shutdown`，超时则强制 `Stop`/`Close` 并返回 `ctx.Err()`。编排层（`AppKit.StopAll`）传入 `StopTimeout`（默认 15s），与 `Serve` 的 `grace`（默认 `GracefulTimeout=10s`）解耦——**双重超时以较小者先触发**，但各自都不会无限阻塞。
+
+**决策 ⑩：Gateway 后端 conn 用 `sync.Once` 关闭**
+`Stop` 中 `defer closeOnce.Do(func(){ _ = s.conn.Close() })`，保证幂等：多次 `Stop`/`Serve` 退出路径重复调用不 panic，且连接只关一次（防泄漏，见 `TestGatewayServer_ClosesBackendConn`）。
+
+---
+
+## 6. 动态端口与 BUG-4
+
+**决策 ⑪：`Endpoint()` 必须在 `Start` 真正 listen 后才有效**
+原 `AppKit.Run` 在 errgroup 并发 `Start` 之后**立即** `register`，对 `:0` 服务器，`Start` goroutine 尚未 `listen`，`Endpoint()` 仍返回 `xxx://:0`，把无效地址注册到服务发现（流量全丢）。修复（`appkit.go` 的 `waitForEndpoints`）：注册前轮询等待所有 `Endpoint()` 解析为非 `:0`，超时 5s 报错。详见 `appkit-design.md` BUG-4。
+
+---
+
+## 7. 已知技术债 / 后续迭代
+
+| # | 项 | 状态 | 说明 |
+|---|---|---|---|
+| 1 | 探针路径常量化 | ☐ | `/healthz` `/readyz` 当前为字符串字面量，建议提为 `const` 并允许前缀注入（如 `/metrics` 共存）|
+| 2 | `readinessPollInterval` 可配置 | ☐ | 当前为未导出常量 2s，后续可提为 `GRPCOptions` 字段 |
+| 3 | 子服务级 gRPC health | ☐ | 当前 `SetServingStatus("")` 只管整体；若业务需按子服务上报，需扩展 API |
+| 4 | 就绪依赖聚合 | ☐ | 多依赖（DB+缓存+下游）的"全部就绪"聚合目前需业务在闭包内自行 `errors.Join` |
+| 5 | 优雅停机结构化日志 | ☐ | `Stop` 各阶段目前无日志，出问题时不可观测（与 appkit-design 同名项一致）|
+
+---
+
+## 8. 测试覆盖（P0+P1）
+
+| 文件 | 用例 | 验证点 |
+|---|---|---|
+| `server_test.go` | `TestHTTPServer_DynamicPort` | `:0` 解析真实端口且可连通 |
+| | `TestHTTPServer_HTTPS_Scheme` | TLS 启用 → `https://` 前缀 |
+| | `TestHTTPServer_HealthAndReadyz` | `/healthz`、`/readyz` 均 200（nil readiness）|
+| | `TestHTTPServer_Readyz_UnreadyReturns503` | 依赖失败 → 503，存活不受影响 |
+| | `TestGRPCServer_DynamicPort` | gRPC `:0` 解析 `grpc://真实端口` |
+| | `TestGRPCServer_HealthRegistered` | 默认注册 health 服务 |
+| | `TestGRPCServer_ReadinessDrivesHealth` | readiness→SERVING（grpc health client 验证）|
+| | `TestGatewayServer_ClosesBackendConn` | Stop 关闭后端 conn 且幂等 |
+| | `TestGatewayServer_ProbesRouted` | 网关自动带 `/healthz` |
+| | `TestServer_Serve_SignalDriven` | `Serve` 在 ctx 取消后优雅返回 |
+
+> 注：Windows 开发机无 gcc，未跑 `-race`；`TestRegistrar_ConcurrentAccess`（registry 包）建议在 CI（Linux）开 `-race` 验证。

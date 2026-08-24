@@ -2,12 +2,15 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 
 	baldoptions "github.com/kalandramo/bald/pkg/options"
 )
@@ -44,7 +47,7 @@ func startAndWait(t *testing.T, srv Server) func() {
 // TestHTTPServer_DynamicPort：绑定 ":0" 时 Endpoint 应解析为真实随机端口。
 func TestHTTPServer_DynamicPort(t *testing.T) {
 	opts := &baldoptions.HTTPOptions{Addr: ":0"}
-	srv := NewHTTPServer(opts, http.NewServeMux())
+	srv := NewHTTPServer(opts, http.NewServeMux(), nil)
 	stop := startAndWait(t, srv)
 	defer stop()
 
@@ -78,13 +81,13 @@ func TestHTTPServer_HTTPS_Scheme(t *testing.T) {
 		Addr: ":0",
 		TLS:  &baldoptions.TLSOptions{Enabled: true, CertFile: "x", KeyFile: "y"},
 	}
-	srv := NewHTTPServer(opts, http.NewServeMux())
+	srv := NewHTTPServer(opts, http.NewServeMux(), nil)
 	if ep := srv.Endpoint(); !strings.HasPrefix(ep, "https://") {
 		t.Fatalf("with TLS enabled, scheme = %q, want https://", ep)
 	}
 
 	// 对照组：无 TLS 应为 http://
-	plain := NewHTTPServer(&baldoptions.HTTPOptions{Addr: ":0"}, http.NewServeMux())
+	plain := NewHTTPServer(&baldoptions.HTTPOptions{Addr: ":0"}, http.NewServeMux(), nil)
 	if ep := plain.Endpoint(); !strings.HasPrefix(ep, "http://") {
 		t.Fatalf("without TLS, scheme = %q, want http://", ep)
 	}
@@ -93,7 +96,7 @@ func TestHTTPServer_HTTPS_Scheme(t *testing.T) {
 // TestGRPCServer_DynamicPort：绑定 ":0" 时 Endpoint 解析为 grpc://真实端口。
 func TestGRPCServer_DynamicPort(t *testing.T) {
 	opts := &baldoptions.GRPCOptions{Addr: ":0"}
-	srv := NewGRPCServerWithRegister(opts, nil, nil)
+	srv := NewGRPCServerWithRegister(opts, nil, nil, nil)
 	stop := startAndWait(t, srv)
 	defer stop()
 
@@ -109,7 +112,7 @@ func TestGRPCServer_DynamicPort(t *testing.T) {
 // TestGRPCServer_HealthRegistered：默认应注册 health 服务（grpc_health_v1）。
 func TestGRPCServer_HealthRegistered(t *testing.T) {
 	opts := &baldoptions.GRPCOptions{Addr: ":0"}
-	srv := NewGRPCServerWithRegister(opts, nil, nil)
+	srv := NewGRPCServerWithRegister(opts, nil, nil, nil)
 	// grpc.Server 内部已 RegisterService health；这里仅确认结构体构造正确且可启动。
 	stop := startAndWait(t, srv)
 	defer stop()
@@ -123,13 +126,13 @@ func TestGRPCServer_HealthRegistered(t *testing.T) {
 func TestGatewayServer_ClosesBackendConn(t *testing.T) {
 	// 先起一个真实 gRPC 后端（:0）。
 	backendOpts := &baldoptions.GRPCOptions{Addr: ":0"}
-	backend := NewGRPCServerWithRegister(backendOpts, nil, nil)
+	backend := NewGRPCServerWithRegister(backendOpts, nil, nil, nil)
 	backendStop := startAndWait(t, backend)
 	defer backendStop()
 
 	// 网关指向后端地址。
 	gwOpts := &baldoptions.HTTPOptions{Addr: ":0"}
-	gw, err := NewGatewayServer(gwOpts, backend.Endpoint(), nil)
+	gw, err := NewGatewayServer(gwOpts, backend.Endpoint(), nil, nil)
 	if err != nil {
 		t.Fatalf("NewGatewayServer: %v", err)
 	}
@@ -157,7 +160,7 @@ func TestGatewayServer_ClosesBackendConn(t *testing.T) {
 // TestServer_Serve_SignalDriven：Serve 在独立 ctx 取消时应优雅停机返回。
 func TestServer_Serve_SignalDriven(t *testing.T) {
 	opts := &baldoptions.HTTPOptions{Addr: ":0"}
-	srv := NewHTTPServer(opts, http.NewServeMux())
+	srv := NewHTTPServer(opts, http.NewServeMux(), nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
@@ -179,3 +182,89 @@ func TestServer_Serve_SignalDriven(t *testing.T) {
 
 // 确保 grpc 包被使用（NewGRPCServer 用到 *grpc.Server）。
 var _ = grpc.NewServer
+
+// getProbe 对运行中 HTTP server 的探针路径发起 GET，返回状态码。
+func getProbe(t *testing.T, srv Server, path string) int {
+	t.Helper()
+	addr := strings.TrimPrefix(srv.Endpoint(), "http://")
+	resp, err := http.Get("http://" + addr + path) //nolint:gosec // 测试内本地地址
+	if err != nil {
+		t.Fatalf("GET %s: %v", path, err)
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode
+}
+
+// TestHTTPServer_HealthAndReadyz：/healthz 恒 200；/readyz 随 readiness 回调变化。
+func TestHTTPServer_HealthAndReadyz(t *testing.T) {
+	// readiness 默认 nil：/readyz 等同 /healthz，均 200。
+	srv := NewHTTPServer(&baldoptions.HTTPOptions{Addr: ":0"}, http.NewServeMux(), nil)
+	stop := startAndWait(t, srv)
+	defer stop()
+
+	if code := getProbe(t, srv, "/healthz"); code != http.StatusOK {
+		t.Fatalf("/healthz = %d, want 200", code)
+	}
+	if code := getProbe(t, srv, "/readyz"); code != http.StatusOK {
+		t.Fatalf("/readyz (nil readiness) = %d, want 200", code)
+	}
+}
+
+// TestHTTPServer_Readyz_UnreadyReturns503：readiness 返回 error 时 /readyz 返回 503。
+func TestHTTPServer_Readyz_UnreadyReturns503(t *testing.T) {
+	ready := func(ctx context.Context) error { return fmt.Errorf("db not connected") }
+	srv := NewHTTPServer(&baldoptions.HTTPOptions{Addr: ":0"}, http.NewServeMux(), ready)
+	stop := startAndWait(t, srv)
+	defer stop()
+
+	// /healthz 不受影响（存活探针）。
+	if code := getProbe(t, srv, "/healthz"); code != http.StatusOK {
+		t.Fatalf("/healthz = %d, want 200 (liveness independent)", code)
+	}
+	if code := getProbe(t, srv, "/readyz"); code != http.StatusServiceUnavailable {
+		t.Fatalf("/readyz (unready) = %d, want 503", code)
+	}
+}
+
+// TestGRPCServer_ReadinessDrivesHealth：readiness 联动 gRPC health SetServingStatus。
+func TestGRPCServer_ReadinessDrivesHealth(t *testing.T) {
+	ready := func(ctx context.Context) error { return nil } // 就绪
+	srv := NewGRPCServerWithRegister(&baldoptions.GRPCOptions{Addr: ":0"}, nil, nil, ready)
+	stop := startAndWait(t, srv)
+	defer stop()
+
+	// 建立 grpc 连接并查询 health。
+	addr := strings.TrimPrefix(srv.Endpoint(), "grpc://")
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatalf("grpc.NewClient: %v", err)
+	}
+	defer conn.Close()
+	hc := healthpb.NewHealthClient(conn)
+	resp, err := hc.Check(context.Background(), &healthpb.HealthCheckRequest{Service: ""})
+	if err != nil {
+		t.Fatalf("health Check: %v", err)
+	}
+	if resp.Status != healthpb.HealthCheckResponse_SERVING {
+		t.Fatalf("health status = %v, want SERVING", resp.Status)
+	}
+}
+
+// TestGatewayServer_ProbesRouted：网关复用 HTTPServer，自动带 /healthz /readyz。
+func TestGatewayServer_ProbesRouted(t *testing.T) {
+	backend := NewGRPCServerWithRegister(&baldoptions.GRPCOptions{Addr: ":0"}, nil, nil, nil)
+	backendStop := startAndWait(t, backend)
+	defer backendStop()
+
+	gwOpts := &baldoptions.HTTPOptions{Addr: ":0"}
+	gw, err := NewGatewayServer(gwOpts, backend.Endpoint(), nil, nil)
+	if err != nil {
+		t.Fatalf("NewGatewayServer: %v", err)
+	}
+	gwStop := startAndWait(t, gw)
+	defer gwStop()
+
+	if code := getProbe(t, gw, "/healthz"); code != http.StatusOK {
+		t.Fatalf("gateway /healthz = %d, want 200", code)
+	}
+}

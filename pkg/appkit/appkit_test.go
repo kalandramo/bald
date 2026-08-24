@@ -313,8 +313,8 @@ func TestAppKit_ConfigMissingFileNoError(t *testing.T) {
 // 验证 buildInstance 正确聚合多个 :0 动态端口后的 Endpoint。
 func TestAppKit_MultiServerEndpointAggregation(t *testing.T) {
 	reg := &recordingRegistrar{}
-	httpSrv := server.NewHTTPServer(&baldoptions.HTTPOptions{Addr: ":0"}, http.NewServeMux())
-	grpcSrv := server.NewGRPCServerWithRegister(&baldoptions.GRPCOptions{Addr: ":0"}, nil, nil)
+	httpSrv := server.NewHTTPServer(&baldoptions.HTTPOptions{Addr: ":0"}, http.NewServeMux(), nil)
+	grpcSrv := server.NewGRPCServerWithRegister(&baldoptions.GRPCOptions{Addr: ":0"}, nil, nil, nil)
 
 	app := New(
 		ID("node-multi"),
