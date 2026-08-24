@@ -130,9 +130,15 @@ func (s *GRPCServer) Stop(ctx context.Context) error {
 }
 
 // Endpoint 返回实际监听地址（支持 ":0" 动态端口）。
+// 通配符 / 仅端口绑定会被解析为本机可达 IP，确保注册到服务发现的 endpoint 可直连。
 func (s *GRPCServer) Endpoint() string {
 	if s.ln != nil {
+		hostPort, err := Extract(s.addr, s.ln)
+		if err == nil {
+			return "grpc://" + hostPort
+		}
 		return "grpc://" + s.ln.Addr().String()
 	}
-	return "grpc://" + s.addr
+	// 未监听时返回空字符串，供 appkit.waitForEndpoints 正确等待 Start 真正执行。
+	return ""
 }

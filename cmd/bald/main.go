@@ -12,22 +12,28 @@
 //	# 多环境（本地按 bald-demo-prod.yaml 选择默认文件）
 //	go run ./cmd/bald --env=prod
 //
+//	# 切换日志格式 / 级别（--log.* 由 pkg/log 提供）
+//	go run ./cmd/bald --log.format=json --log.level=debug
+//
 //	# 远程配置中心（etcd）：先 go get github.com/go-kratos/kratos/v3/contrib/config/etcd/v3
 //	go run ./cmd/bald --config=configs/bald-demo.yaml   # 远程作基准，本地覆盖
 package main
 
 import (
 	"context"
-	"log"
+	"log/slog" // 仅用于 ContextWithAttrs 的 slog.Attr 构造（如 log.String）。
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 	"google.golang.org/grpc"
 
+	baldlog "github.com/kalandramo/bald/pkg/log"
 	"github.com/kalandramo/bald/pkg/appkit"
 	baldoptions "github.com/kalandramo/bald/pkg/options"
+	"github.com/kalandramo/bald/pkg/registry/inmemory"
 	"github.com/kalandramo/bald/pkg/server"
 )
 
@@ -35,6 +41,19 @@ func main() {
 	httpOpts := baldoptions.NewSecureServingOptions()
 	httpOpts.Addr = ":8080" // 明文 HTTP（Enabled 默认 false）；启用 HTTPS 时设 Enabled=true 并提供 tls 字段
 	grpcOpts := baldoptions.NewGRPCOptions()
+
+	// 0. 日志系统接入（方案 A：进程入口 bootstrap 初始化全局 Logger）。
+	//    通过 --log.level / --log.format / --log.output-paths 多源配置；
+	//    注册 FilterKey 脱敏装饰器，敏感字段（如 password/token）自动替换为 ***。
+	logOpts := baldlog.NewOptions()
+	logOpts.AddFlags(pflag.CommandLine)
+	baldlog.SetLogger(baldlog.NewSlogLogger(logOpts,
+		baldlog.WithFilter(baldlog.FilterKey("password")),
+		baldlog.WithFilter(baldlog.FilterKey("token")),
+		baldlog.WithAttrs(slog.String("service.name", "bald-demo")),
+	))
+	// 框架内部与业务统一经由 log.GetLogger() 取同一份实例。
+	logger := baldlog.GetLogger()
 
 	// 业务 flag 注册（带前缀，支持多组件复用同一 options 类型）。
 	// 优先级：命令行 flag > 环境变量 > 本地文件 > 远程配置。
@@ -121,14 +140,18 @@ func main() {
 		//     裸 viper 粒度，业务自行 Unmarshal。注意回调内应重新读取最新值，
 		//     不要持有已 Unmarshal 的结构体副本。
 		appkit.OnConfigChange(func(v *viper.Viper) {
-			log.Printf("config changed: http.addr=%s grpc.addr=%s",
-				v.GetString("http.addr"), v.GetString("grpc.addr"))
+			logger.Info(context.Background(), "config changed",
+				"http.addr", v.GetString("http.addr"), "grpc.addr", v.GetString("grpc.addr"))
 			// 热重载业务 options（示例：仅日志，真实场景可在此重绑端口等）。
 			_ = v.Unmarshal(httpOpts)
 			_ = v.Unmarshal(grpcOpts)
 		}),
 
-		// appkit.Registrar(registrar), // 可选：注入 etcd/consul/nacos 注册中心
+		// 2.6 服务注册中心（可选）。
+		//     生产用 etcd/consul/nacos：appkit.KratosRegistrar(kratosReg) 桥接 kratos contrib。
+		//     此处用 inmemory 实现端到端演示（零外部依赖、可真跑），
+		//     覆盖 register -> 运行 -> deregister 全流程，且能验证 :0 动态端口聚合注册。
+		appkit.Registrar(inmemory.New()),
 		appkit.Servers(grpcSrv, httpSrv),
 
 		// 3. 启动前从合并后的配置反序列化业务 options。
@@ -144,26 +167,33 @@ func main() {
 			if err := v.Unmarshal(grpcOpts); err != nil {
 				return err
 			}
-			log.Printf("loaded config: http.addr=%s grpc.addr=%s",
-				httpOpts.Addr, grpcOpts.Addr)
+			logger.Info(ctx, "loaded config",
+				"http.addr", httpOpts.Addr, "grpc.addr", grpcOpts.Addr)
 			return nil
 		}),
 		appkit.AfterStart(func(ctx context.Context) error {
-			log.Printf("bald-demo started: grpc=%s http=%s", grpcSrv.Endpoint(), httpSrv.Endpoint())
+			// 通过 ContextWithAttrs 把请求范围属性挂到 ctx，该 ctx 内的日志自动携带。
+			ctx = baldlog.ContextWithAttrs(ctx,
+				slog.String("stage", "started"), slog.String("grpc", grpcSrv.Endpoint()))
+			logger.Info(ctx, "bald-demo started", "http", httpSrv.Endpoint())
 			return nil
 		}),
 
 		// 4. 停机钩子（可选）。
 		appkit.BeforeStop(func(ctx context.Context) error {
-			log.Printf("bald-demo stopping...")
+			logger.Info(ctx, "bald-demo stopping")
 			return nil
 		}),
 	)
 
 	if err := app.Run(context.Background()); err != nil {
-		log.Fatalf("bald app exited: %v", err)
+		logger.Error(context.Background(), "bald app exited", "error", err)
+		osExit(1)
 	}
 }
+
+// osExit 抽离以便后续测试替换；默认调用 os.Exit。
+var osExit = func(code int) { os.Exit(code) }
 
 // 附：configs/bald-demo.yaml 示例
 //

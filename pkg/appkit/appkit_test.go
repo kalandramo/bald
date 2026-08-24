@@ -3,7 +3,9 @@ package appkit
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -325,7 +327,9 @@ func TestAppKit_MultiServerEndpointAggregation(t *testing.T) {
 	)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	go func() { time.Sleep(20 * time.Millisecond); cancel() }()
+	// 等待 server 真正监听并注册完成后再取消，验证优雅退出路径。
+	// 取消过早会撞在 waitForEndpoints 阶段，导致 Run 返回 context 错误。
+	go func() { time.Sleep(300 * time.Millisecond); cancel() }()
 	if err := app.Run(ctx); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -341,6 +345,20 @@ func TestAppKit_MultiServerEndpointAggregation(t *testing.T) {
 	for _, ep := range inst.Endpoints {
 		if strings.HasSuffix(ep, ":0") {
 			t.Fatalf("endpoint still :0, dynamic port not resolved: %q", ep)
+		}
+		// 注册地址必须对调用方可达：host 不能是通配符 / 空 / 环回地址。
+		// 此前直接返回 ln.Addr()（=0.0.0.0:port），其他节点无法直连——此断言固化修复。
+		u, err := url.Parse(ep)
+		if err != nil {
+			t.Fatalf("parse endpoint %q: %v", ep, err)
+		}
+		host := u.Hostname()
+		ip := net.ParseIP(host)
+		if ip == nil {
+			t.Fatalf("endpoint %q host %q is not an IP (unreachable wildcard?)", ep, host)
+		}
+		if ip.IsUnspecified() || ip.IsLoopback() {
+			t.Fatalf("endpoint %q host %q is unspecified/loopback, not reachable by peers", ep, host)
 		}
 	}
 	// 多 server 时 Kind 应为 mixed。

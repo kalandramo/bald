@@ -135,15 +135,26 @@ appkit.New(appkit.KratosRegistrar(kr), appkit.Servers(srv))
 
 ### 6. 完整示例
 
-仓库内置最小可运行示例 [`cmd/bald/main.go`](https://github.com/kalandramo/bald/blob/main/cmd/bald/main.go)，
-演示了本地配置、环境变量、命令行 flag 与远程配置中心的接入方式。直接运行：
+仓库内置完整可运行示例 [`cmd/bald/main.go`](https://github.com/kalandramo/bald/blob/main/cmd/bald/main.go)，
+覆盖框架的核心能力：
+
+- **多协议编排**：并发启停 HTTP + gRPC 两个 `server.Server`，共享同一个 `ReadinessFunc` 使 `/readyz` 与 gRPC health 对称联动。
+- **配置四源合并**：本地文件（`--config`）+ 环境变量 + 命令行 flag + 可选远程配置中心，优先级 `flag > 环境变量 > 本地文件 > 远程`；并演示 `WatchConfigFile` 热更新与 `OnConfigChange` 回调回填业务 options。
+- **日志系统接入**：进程入口用 `baldlog.SetLogger(baldlog.NewSlogLogger(...))` 初始化全局 `Logger`，经 `--log.level` / `--log.format` / `--log.output-paths` 多源配置；内置 `FilterKey` 脱敏（如 `password`/`token` 自动替换为 `***`）；框架与业务统一通过 `log.GetLogger()` 取同一实例。
+- **服务注册中心**：通过 `appkit.Registrar(inmemory.New())` 端到端演示 register → 运行 → deregister 全流程（零外部依赖），并验证 `:0` 动态端口聚合注册（真实 Endpoint 解析后才注册，避免注册 `xxx://:0`）。生产环境改用 `appkit.KratosRegistrar(kr)` 桥接 etcd/consul/nacos。
+- **上下文属性流**：`AfterStart` 中 `log.ContextWithAttrs(ctx, ...)` 挂载的属性，会在该 ctx 范围内的日志自动携带。
+
+直接运行：
 
 ```bash
 go run ./cmd/bald --config=configs/bald-demo.yaml
 BALD_DEMO_HTTP_ADDR=:18080 go run ./cmd/bald        # 环境变量覆盖 http.addr
 go run ./cmd/bald --http.addr=:18080                # flag 优先级最高
 go run ./cmd/bald --env=prod                        # 多环境（按 bald-demo-prod.yaml）
+go run ./cmd/bald --log.format=json --log.level=debug   # 切换日志格式 / 级别
 ```
+
+> 注：`cmd/bald/main.go` 顶部注释还给出了 etcd/nacos 远程配置中心与 GatewayServer、单 server `Serve()` 的接入片段，可按需启用。
 
 ### 下一步
 

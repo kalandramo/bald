@@ -103,13 +103,21 @@ func (s *HTTPServer) Stop(ctx context.Context) error {
 }
 
 // Endpoint 返回实际监听地址（支持 ":0" 动态端口）。
+// 通配符 / 仅端口绑定（如 ":8080"）会被解析为本机可达 IP，确保注册到服务发现的
+// endpoint 对其他节点可直连，而非 "0.0.0.0:8080" 这类不可达通配符。
 func (s *HTTPServer) Endpoint() string {
 	scheme := "http"
 	if s.opts.Enabled {
 		scheme = "https"
 	}
 	if s.ln != nil {
+		hostPort, err := Extract(s.opts.Addr, s.ln)
+		if err == nil {
+			return scheme + "://" + hostPort
+		}
 		return scheme + "://" + s.ln.Addr().String()
 	}
-	return scheme + "://" + s.opts.Addr
+	// 未监听（Start 尚未执行）时返回空字符串，供 appkit.waitForEndpoints 正确等待，
+	// 避免把未就绪的地址注册到服务发现。
+	return ""
 }

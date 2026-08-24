@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"testing"
@@ -75,16 +76,18 @@ func TestHTTPServer_DynamicPort(t *testing.T) {
 
 // TestHTTPServer_HTTPS_Scheme：启用 TLS 时 Endpoint scheme 应为 https。
 func TestHTTPServer_HTTPS_Scheme(t *testing.T) {
-	// 仅验证 scheme 判定逻辑（无需有效证书）：构造 TLS 选项，Endpoint 在未 Start 时
-	// 也应返回 https:// 前缀。
-	opts := &baldoptions.SecureServingOptions{Addr: ":0", TLSOptions: baldoptions.TLSOptions{Enabled: true}}
-	srv := NewHTTPServer(opts, http.NewServeMux(), nil)
-	if ep := srv.Endpoint(); !strings.HasPrefix(ep, "https://") {
+	// 验证 scheme 判定逻辑：TLS 启用 → https://，否则 http://。
+	// Endpoint 在未监听（Start 前）返回空字符串，故需先启动再校验前缀。
+	tlsSrv := NewHTTPServer(&baldoptions.SecureServingOptions{Addr: ":0", TLSOptions: baldoptions.TLSOptions{Enabled: true}}, http.NewServeMux(), nil)
+	tlsStop := startAndWait(t, tlsSrv)
+	defer tlsStop()
+	if ep := tlsSrv.Endpoint(); !strings.HasPrefix(ep, "https://") {
 		t.Fatalf("with TLS enabled, scheme = %q, want https://", ep)
 	}
 
-	// 对照组：无 TLS 应为 http://
 	plain := NewHTTPServer(&baldoptions.SecureServingOptions{Addr: ":0"}, http.NewServeMux(), nil)
+	plainStop := startAndWait(t, plain)
+	defer plainStop()
 	if ep := plain.Endpoint(); !strings.HasPrefix(ep, "http://") {
 		t.Fatalf("without TLS, scheme = %q, want http://", ep)
 	}
@@ -263,5 +266,61 @@ func TestGatewayServer_ProbesRouted(t *testing.T) {
 
 	if code := getProbe(t, gw, "/healthz"); code != http.StatusOK {
 		t.Fatalf("gateway /healthz = %d, want 200", code)
+	}
+}
+
+// TestEndpoint_ResolvesReachableHost：通配符 / 仅端口绑定（如 ":0"、":8080"）时，
+// Endpoint 必须返回对调用方「可达」的本机 IP，而非 "0.0.0.0"/"[::]"/"" 这类通配符。
+// 这是服务注册可达性的关键修复点：之前直接返回 ln.Addr().String()（=0.0.0.0:port），
+// 其他节点拿到后无法直连。
+func TestEndpoint_ResolvesReachableHost(t *testing.T) {
+	cases := []struct {
+		name string
+		http *baldoptions.SecureServingOptions
+		grpc *baldoptions.GRPCOptions
+	}{
+		// 两种写法都只指定端口、未指定 IP（通配符绑定），等价于用户「只配端口」的场景。
+		{"dynamic-port", &baldoptions.SecureServingOptions{Addr: ":0"}, &baldoptions.GRPCOptions{Addr: ":0"}},
+		{"port-only", &baldoptions.SecureServingOptions{Addr: ":0"}, &baldoptions.GRPCOptions{Addr: ":0"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			httpSrv := NewHTTPServer(tc.http, http.NewServeMux(), nil)
+			grpcSrv := NewGRPCServerWithRegister(tc.grpc, nil, nil, nil)
+			httpStop := startAndWait(t, httpSrv)
+			defer httpStop()
+			grpcStop := startAndWait(t, grpcSrv)
+			defer grpcStop()
+
+			for _, ep := range []string{httpSrv.Endpoint(), grpcSrv.Endpoint()} {
+				host, _, err := net.SplitHostPort(strings.TrimPrefix(strings.TrimPrefix(ep, "grpc://"), "http://"))
+				if err != nil {
+					t.Fatalf("endpoint %q: split host:port: %v", ep, err)
+				}
+				ip := net.ParseIP(host)
+				if ip == nil {
+					t.Fatalf("endpoint %q: host %q is not an IP (unreachable wildcard?)", ep, host)
+				}
+				if ip.IsUnspecified() || ip.IsLoopback() {
+					t.Fatalf("endpoint %q: host %q is unspecified/loopback, not reachable by peers", ep, host)
+				}
+			}
+		})
+	}
+}
+
+// TestExtract_ExplicitIPKept：显式指定 IP 时 Extract 应原样保留，不被覆盖。
+func TestExtract_ExplicitIPKept(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer ln.Close()
+	got, err := Extract("10.0.0.5:8080", ln)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	if got != "10.0.0.5:8080" {
+		t.Fatalf("Extract = %q, want 10.0.0.5:8080 (explicit IP kept)", got)
 	}
 }
