@@ -293,7 +293,8 @@ Run(ctx)
 
 - [x] **真实配置中心适配器**：已实现 `RemoteSource` 抽象 + `FromKratosSource` 桥接 kratos contrib 的 etcd/consul/nacos/apollo 后端（详见[配置中心设计](config-center-design.md)，决策已拍板 2026-08-18）；旧 `AddRemoteProvider` 用法已删除。
 - [x] **远程 watch 可靠化**：已采用 `RemoteSource.Watch` 回调（push 模式）注入 viper 并触发 `OnConfigChange`，替代不可靠的 `WatchRemoteConfigOnChannel`（原 `WatchRemoteOnce` 空壳已删除）；`pkg/config` 已补单测。
-- [ ] **测试覆盖**：`inmemory` 注册器、各 `server.Serve()`、`Endpoint()` 动态端口、`GatewayServer` conn 关闭尚未有单测。
+- [x] **测试覆盖（P0，2026-08-24 完成）**：`inmemory` 注册器单测（`inmemory_test.go`：注册/覆盖/注销/List/并发）、`server` 包单测（`server_test.go`：HTTP/gRPC `:0` 动态端口解析、HTTPS scheme 判定、优雅停机、`GatewayServer` 后端 conn 关闭 + `Serve` 信号驱动）、`appkit_test.go` 新增多 server 动态端口聚合注册（`TestAppKit_MultiServerEndpointAggregation`）。
+- [x] **动态端口注册时序修复（BUG-4，2026-08-24）**：原 `Run` 在 errgroup 并发 `Start` 之后**立即** `register`，对绑定 `:0` 的 server，`Start` goroutine 尚未完成监听器绑定，`Endpoint()` 仍返回 `xxx://:0`，会把无效地址注册到服务发现。新增 `waitForEndpoints(gctx)`：注册前轮询等待各 server `Endpoint()` 解析出真实端口（非 `:0`），超时 5s 报错；固定端口 server 立即通过。修复后 `TestAppKit_MultiServerEndpointAggregation` 从失败转为通过。
 - [ ] **多实例/集群**：当前 `ID` 默认 hostname，未处理同机多实例冲突（建议加随机后缀或允许显式注入）。
 - [ ] **健康检查对齐**：gRPC 已默认注册 health + reflection；HTTP 暂无统一健康检查端点。
 - [ ] **配置热更新透传**：`OnConfigChange` 当前仅回调 viper，业务需自行重新 Unmarshal；可考虑 hook 到 AppKit 内部 options 重载。

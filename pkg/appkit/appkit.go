@@ -23,8 +23,10 @@ package appkit
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -242,6 +244,15 @@ func (a *AppKit) Run(ctx context.Context) error {
 		})
 	}
 
+	// 服务注册前，必须等待所有 server 真正完成监听（Endpoint 解析出真实端口），
+	// 否则绑定 ":0" 的 server 会把 "xxx://:0" 注册出去，导致服务发现拿到无效地址。
+	if err := a.waitForEndpoints(gctx); err != nil {
+		cancel()
+		a.stopAll(context.Background())
+		a.runErr.Store(err)
+		return err
+	}
+
 	// 服务注册（使用 Endpoint 解析后的真实地址，支持 :0 动态端口）。
 	if err := a.register(gctx); err != nil {
 		cancel()
@@ -329,6 +340,39 @@ func (a *AppKit) buildInstance() *registry.ServiceInstance {
 		Kind:      kind,
 		Metadata:  map[string]string{"scheme": kind},
 		Endpoints: eps,
+	}
+}
+
+// waitForEndpoints 轮询直到所有 server 的 Endpoint 解析出真实端口（非 ":0"），
+// 或 ctx 取消/超时。这避免了把 ":0" 这样的未绑定地址注册到服务发现。
+// 对于显式绑定固定端口的 server，Endpoint 一开始就非 ":0"，会立即通过。
+func (a *AppKit) waitForEndpoints(ctx context.Context) error {
+	const (
+		pollInterval = 10 * time.Millisecond
+		timeout      = 5 * time.Second // 单个 server 监听准备上限
+	)
+	deadline := time.Now().Add(timeout)
+	for {
+		ready := true
+		for _, s := range a.servers {
+			ep := s.Endpoint()
+			// 未启动的 server 返回 "scheme://:0" 或空，视为未就绪。
+			if ep == "" || strings.HasSuffix(ep, ":0") {
+				ready = false
+				break
+			}
+		}
+		if ready {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("appkit: servers not ready within %s (dynamic port not bound)", timeout)
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("appkit: wait for endpoints canceled: %w", ctx.Err())
+		case <-time.After(pollInterval):
+		}
 	}
 }
 

@@ -3,14 +3,18 @@ package appkit
 import (
 	"context"
 	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	baldoptions "github.com/kalandramo/bald/pkg/options"
 	"github.com/kalandramo/bald/pkg/registry"
+	"github.com/kalandramo/bald/pkg/server"
 )
 
 // mockServer 是一个可控的测试服务器，满足 server.Server 接口。
@@ -300,5 +304,53 @@ func TestAppKit_ConfigMissingFileNoError(t *testing.T) {
 	}
 	if loadedAddr != ":7070" {
 		t.Fatalf("http.addr=%q, want :7070 (remote baseline)", loadedAddr)
+	}
+}
+
+// --- 多 server Endpoint 聚合（动态端口 :0）注册 ---
+
+// realHTTPServer / realGRPCServer 包装真实 server，供 appkit 端到端编排测试，
+// 验证 buildInstance 正确聚合多个 :0 动态端口后的 Endpoint。
+func TestAppKit_MultiServerEndpointAggregation(t *testing.T) {
+	reg := &recordingRegistrar{}
+	httpSrv := server.NewHTTPServer(&baldoptions.HTTPOptions{Addr: ":0"}, http.NewServeMux())
+	grpcSrv := server.NewGRPCServerWithRegister(&baldoptions.GRPCOptions{Addr: ":0"}, nil, nil)
+
+	app := New(
+		ID("node-multi"),
+		Name("multi-svc"),
+		Version("v1.2.3"),
+		Registrar(reg),
+		Servers(grpcSrv, httpSrv),
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() { time.Sleep(20 * time.Millisecond); cancel() }()
+	if err := app.Run(ctx); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	// 注册实例应含两个 Endpoint（grpc + http），均为真实解析端口，非 :0。
+	inst := reg.instance
+	if inst == nil {
+		t.Fatal("instance not recorded")
+	}
+	if len(inst.Endpoints) != 2 {
+		t.Fatalf("endpoints len = %d, want 2 (grpc + http)", len(inst.Endpoints))
+	}
+	for _, ep := range inst.Endpoints {
+		if strings.HasSuffix(ep, ":0") {
+			t.Fatalf("endpoint still :0, dynamic port not resolved: %q", ep)
+		}
+	}
+	// 多 server 时 Kind 应为 mixed。
+	if inst.Kind != "mixed" {
+		t.Fatalf("kind = %q, want mixed", inst.Kind)
+	}
+	if inst.Metadata["scheme"] != "mixed" {
+		t.Fatalf("metadata scheme = %q, want mixed", inst.Metadata["scheme"])
+	}
+	if inst.Version != "v1.2.3" || inst.ID != "node-multi" || inst.Name != "multi-svc" {
+		t.Fatalf("unexpected instance meta: %+v", inst)
 	}
 }
