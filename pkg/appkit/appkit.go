@@ -64,18 +64,24 @@ type AppKit struct {
 	beforeStop  []func(context.Context) error
 	afterStop   []func(context.Context) error
 
-	// 配置（onexstack 风格 --config + 可选远程配置中心）。
-	cfgFile   string
-	remote    config.RemoteSource
-	env       string
-	watchFile bool
-	onConfigChange func(*viper.Viper)
-	v       *viper.Viper
+	// 配置（onexstack 风格 --config + 可选远程配置中心），收敛为一个配置对象。
+	cfg appConfig
 
 	// 可观察性。
 	running atomic.Bool
 	done    chan struct{}
 	runErr  atomic.Value // error
+}
+
+// appConfig 收敛 AppKit 的配置装配输入与加载结果。
+// 装配期输入：cfgFile / remote / env / watchFile / onChange；加载结果：v。
+type appConfig struct {
+	cfgFile   string
+	remote    config.RemoteSource
+	env       string
+	watchFile bool
+	onChange  func(*viper.Viper)
+	v         *viper.Viper
 }
 
 // Option 配置 AppKit。
@@ -92,7 +98,7 @@ func KratosRegistrar(r kratosRegistry.Registrar) Option {
 }
 
 // ConfigFile 指定 --config 配置文件路径（onexstack 风格）。
-func ConfigFile(f string) Option { return func(a *AppKit) { a.cfgFile = f } }
+func ConfigFile(f string) Option { return func(a *AppKit) { a.cfg.cfgFile = f } }
 
 // RemoteConfig 接入远程配置中心（etcd/consul/nacos/apollo/firestore 等）。
 // 传入实现 config.RemoteSource 的后端，推荐用 config.FromKratosSource 桥接
@@ -101,19 +107,19 @@ func ConfigFile(f string) Option { return func(a *AppKit) { a.cfgFile = f } }
 //	src := config.FromKratosSource(etcdconfig.New(client, etcdconfig.WithPath("/config/demo/prod.yaml")))
 //	appkit.New(..., appkit.RemoteConfig(src))
 func RemoteConfig(src config.RemoteSource) Option {
-	return func(a *AppKit) { a.remote = src }
+	return func(a *AppKit) { a.cfg.remote = src }
 }
 
 // Env 设置运行环境（dev/test/prod...）。非空时本地按 Name-Env.yaml 选择默认文件，
 // 远程 path 由后端构造时拼接（多环境路线 1，详见 docs/config-center-design.md）。
-func Env(env string) Option { return func(a *AppKit) { a.env = env } }
+func Env(env string) Option { return func(a *AppKit) { a.cfg.env = env } }
 
 // WatchConfigFile 启用本地配置文件热更新（fsnotify）。
-func WatchConfigFile(watch bool) Option { return func(a *AppKit) { a.watchFile = watch } }
+func WatchConfigFile(watch bool) Option { return func(a *AppKit) { a.cfg.watchFile = watch } }
 
 // OnConfigChange 注册配置热更新回调（本地文件或远程变更均触发）。
 func OnConfigChange(fn func(*viper.Viper)) Option {
-	return func(a *AppKit) { a.onConfigChange = fn }
+	return func(a *AppKit) { a.cfg.onChange = fn }
 }
 
 func Servers(servers ...server.Server) Option {
@@ -159,10 +165,10 @@ func New(opts ...Option) *AppKit {
 }
 
 // loadConfig 在启动期加载配置：本地 --config 文件 + 环境变量 + 可选远程配置中心。
-// 结果是 a.v（*viper.Viper），调用方通过 Viper() 读取并 Unmarshal 到业务 options。
+// 结果是 a.cfg.v（*viper.Viper），调用方通过 Viper() 读取并 Unmarshal 到业务 options。
 func (a *AppKit) loadConfig() error {
 	fs := pflag.NewFlagSet("config", pflag.ContinueOnError)
-	fs.StringVar(&a.cfgFile, "config", a.cfgFile,
+	fs.StringVar(&a.cfg.cfgFile, "config", a.cfg.cfgFile,
 		"Read configuration from specified FILE (JSON/TOML/YAML/HCL/properties); "+
 			"also supports remote provider if RemoteConfig is set.")
 	// 解析命令行 --config（其余业务 flag 如 --http.addr 由调用方自行绑定/解析，
@@ -172,17 +178,17 @@ func (a *AppKit) loadConfig() error {
 
 	v, err := config.Load(config.Options{
 		Name:           a.name,
-		Env:            a.env,
-		ConfigFile:     a.cfgFile,
+		Env:            a.cfg.env,
+		ConfigFile:     a.cfg.cfgFile,
 		Flags:          fs,
-		Remote:         a.remote,
-		WatchLocalFile: a.watchFile,
-		OnChange:       a.onConfigChange,
+		Remote:         a.cfg.remote,
+		WatchLocalFile: a.cfg.watchFile,
+		OnChange:       a.cfg.onChange,
 	})
 	if err != nil {
 		return err
 	}
-	a.v = v
+	a.cfg.v = v
 	return nil
 }
 
@@ -191,7 +197,7 @@ func (a *AppKit) Done() <-chan struct{} { return a.done }
 
 // Viper 返回加载后的配置实例，供调用方 Unmarshal 到业务 options 结构体。
 // 仅在 Run 触发配置加载后才有有效内容；未配置加载时为 nil。
-func (a *AppKit) Viper() *viper.Viper { return a.v }
+func (a *AppKit) Viper() *viper.Viper { return a.cfg.v }
 
 // Err 返回 Run 的退出错误（Run 返回后有效）。
 func (a *AppKit) Err() error {
