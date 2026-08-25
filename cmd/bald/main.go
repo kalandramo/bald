@@ -15,6 +15,11 @@
 //	# 切换日志格式 / 级别（--log.* 由 pkg/log 提供）
 //	go run ./cmd/bald --log.format=json --log.level=debug
 //
+//	# 验证 HTTP 示例路由（server.NewHTTPServer 挂载 web.Router）：
+//	curl -i http://127.0.0.1:8080/v1/ping
+//	curl -i -XPOST http://127.0.0.1:8080/v1/greet -d '{"name":"bald"}'
+//	curl -i -XPOST 'http://127.0.0.1:8080/v1/articles/42?lang=zh' -d '{"title":"hi"}'
+//
 //	# 远程配置中心（etcd）：先 go get github.com/go-kratos/kratos/v3/contrib/config/etcd/v3
 //	go run ./cmd/bald --config=configs/bald-demo.yaml   # 远程作基准，本地覆盖
 package main
@@ -201,21 +206,23 @@ var osExit = func(code int) { os.Exit(code) }
 
 // exampleHandler 演示 bald 的 HTTP 路由约定：业务模块通过 ApplyTo 把路由挂载
 // 到版本组（/v1），路由归属模块、认证等中间件由装配层注入。handler 内部用泛型
-// 流水线（HandleJSONRequest）完成绑定→校验→响应，错误统一由 web.WriteResponse
-// 按 pkg/errors.StatusCoder 映射 HTTP 状态码。
+// 流水线（HandleAllRequest / HandleJSONRequest / HandleUriRequest）完成
+// 绑定→校验→响应，错误统一由 web.WriteResponse 按 pkg/errors.StatusCoder 映射
+// HTTP 状态码（被 %w 包裹的错误也会正确拆链映射，不会误落 500）。
 type exampleHandler struct{}
 
 func (exampleHandler) Name() string { return "example" }
 
 func (exampleHandler) ApplyTo(r *web.Router, middlewares ...web.Middleware) error {
-	v1 := r.Group("/v1", middlewares...)
+	// 子组可再叠加中间件（如 CORS），与根/路由级中间件组成由外到内链。
+	v1 := r.Group("/v1", append([]web.Middleware{web.CORS(web.DefaultCORS())}, middlewares...)...)
 
 	// 健康检查：直接回字符串，不经过结构化响应。
 	v1.HandleFunc("GET", "/ping", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("pong\n"))
 	})
 
-	// 结构化示例：JSON 绑定 + 业务错误（返回 400 + ErrorResponse）。
+	// 结构化示例①：纯 JSON 绑定 + 业务错误（返回 400 + ErrorResponse）。
 	type greetReq struct {
 		Name string `json:"name"`
 	}
@@ -226,6 +233,8 @@ func (exampleHandler) ApplyTo(r *web.Router, middlewares ...web.Middleware) erro
 		web.HandleJSONRequest[greetReq, greetResp](w, req,
 			func(_ context.Context, g *greetReq) (greetResp, error) {
 				if g.Name == "" {
+					// BadRequest 的代码-原因-消息三者分离：Reason 稳定可枚举（客户端可匹配），
+					// Message 给人看，二者经统一 ErrorResponse 返回。
 					return greetResp{}, berrors.BadRequest("EMPTY_NAME").
 						WithMessage("name 不能为空")
 				}
@@ -233,7 +242,7 @@ func (exampleHandler) ApplyTo(r *web.Router, middlewares ...web.Middleware) erro
 			})
 	})
 
-	// URI 通配符示例：/v1/users/{id} 自动绑定到 req.ID。
+	// URI 通配符示例：/v1/users/{id} 自动绑定到 req.ID（字段名需与路径变量一致）。
 	type userReq struct {
 		ID string `json:"id"`
 	}
@@ -242,6 +251,35 @@ func (exampleHandler) ApplyTo(r *web.Router, middlewares ...web.Middleware) erro
 			func(_ context.Context, u *userReq) (map[string]string, error) {
 				return map[string]string{"id": u.ID}, nil
 			})
+	})
+
+	// 结构化示例②：多源绑定（URI > Query > JSON 后者覆盖）+ 校验器。
+	// GET /v1/articles/{id}?lang=zh   body: {"title":"hello"}
+	type articleReq struct {
+		ID    string `json:"id"`    // 来自 URI 路径变量
+		Lang  string `json:"lang"`  // 来自 Query（?lang=zh）
+		Title string `json:"title"` // 来自 JSON body
+	}
+	type articleResp struct {
+		ID    string `json:"id"`
+		Lang  string `json:"lang"`
+		Title string `json:"title"`
+	}
+	validateArticle := func(_ context.Context, a *articleReq) error {
+		if a.Title == "" {
+			return berrors.BadRequest("EMPTY_TITLE").WithMessage("title 不能为空")
+		}
+		if a.Lang == "" {
+			a.Lang = "en" // 默认值：校验阶段修正，绑定阶段已结束
+		}
+		return nil
+	}
+	v1.HandleFunc("POST", "/articles/{id}", func(w http.ResponseWriter, req *http.Request) {
+		web.HandleAllRequest[articleReq, articleResp](w, req,
+			func(_ context.Context, a *articleReq) (articleResp, error) {
+				return articleResp{ID: a.ID, Lang: a.Lang, Title: a.Title}, nil
+			},
+			validateArticle)
 	})
 
 	return nil

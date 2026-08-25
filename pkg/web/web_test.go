@@ -87,6 +87,75 @@ func TestHandleJSONRequestBindsAndErrors(t *testing.T) {
 	}
 }
 
+// TestHandleJSONRequestRejectsMissingContentType 回归：curl -d 默认不设
+// Content-Type（实为 application/x-www-form-urlencoded），但 body 是裸 JSON。
+// 依"非法请求即拒绝"原则，JSON 绑定器应显式返回 400，而非静默跳过把锅甩给业务校验。
+func TestHandleJSONRequestRejectsMissingContentType(t *testing.T) {
+	type reqBody struct {
+		Name string `json:"name"`
+	}
+	h := func(_ context.Context, r *reqBody) (map[string]string, error) {
+		return map[string]string{"name": r.Name}, nil
+	}
+	mux := NewRouter()
+	mux.HandleFunc(http.MethodPost, "/greet", func(w http.ResponseWriter, req *http.Request) {
+		HandleJSONRequest(w, req, h)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	// 不传 Content-Type，模拟 curl -d '{"name":"bald"}'（默认 form-urlencoded）。
+	resp, err := http.Post(srv.URL+"/greet", "", strings.NewReader(`{"name":"bald"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 (illegal request), got %d", resp.StatusCode)
+	}
+	// 必须返回结构化绑定错误，明确指出 Content-Type 问题。
+	var got ErrorResponse
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.Reason != "BIND_ERROR" {
+		t.Fatalf("expected reason BIND_ERROR, got %q", got.Reason)
+	}
+}
+
+// TestHandleJSONRequestBindsWithJSONContentType 正面用例：显式带
+// Content-Type: application/json 时正常绑定。
+func TestHandleJSONRequestBindsWithJSONContentType(t *testing.T) {
+	type reqBody struct {
+		Name string `json:"name"`
+	}
+	h := func(_ context.Context, r *reqBody) (map[string]string, error) {
+		return map[string]string{"name": r.Name}, nil
+	}
+	mux := NewRouter()
+	mux.HandleFunc(http.MethodPost, "/greet", func(w http.ResponseWriter, req *http.Request) {
+		HandleJSONRequest(w, req, h)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	resp, err := http.Post(srv.URL+"/greet", "application/json", strings.NewReader(`{"name":"bald"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var got map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got["name"] != "bald" {
+		t.Fatalf("expected name=bald, got %q", got["name"])
+	}
+}
+
 func TestMiddlewareOrder(t *testing.T) {
 	var order []string
 	mw := func(name string) Middleware {

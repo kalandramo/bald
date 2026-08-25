@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+
+	berrors "github.com/kalandramo/bald/pkg/errors"
 )
 
 // bindErr 包装绑定阶段的错误，携带来源便于调用方定位（如 "invalid query value for 'page': not an integer"）。
@@ -20,8 +22,11 @@ func (e *bindErr) Error() string {
 
 func (e *bindErr) Unwrap() error { return e.err }
 
+// newBindErr 把绑定错误封装为 berrors.BadRequest（HTTP 400）。绑定失败属于非法请求，
+// 按"非法即拒绝"原则显式返回 400 + 结构化 ErrorResponse，而不是落到 500 明文。
 func newBindErr(source string, err error) error {
-	return &bindErr{source: source, err: err}
+	return berrors.BadRequest("BIND_ERROR").
+		WithMessage("bind %s: %v", source, err)
 }
 
 // fieldSetter 把字符串值按字段类型写入结构体（支持 int/uint/bool/string）。

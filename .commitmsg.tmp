@@ -1,0 +1,14 @@
+fix(web): JSON 绑定非法即拒绝，并完善示例与文档
+
+- pkg/web/binding.go: JSON binder 改为硬契约——仅 application/json 解码；
+  缺省/非 JSON Content-Type 且携带 body 时显式报错（errInvalidContentType），
+  不再静默跳过把错误甩给业务校验（非法即拒绝，不兼容误用）
+- pkg/web/fields.go: newBindErr 封装为 berrors.BadRequest("BIND_ERROR")，
+  绑定失败返回 400 + 结构化 ErrorResponse，而非落到 500 明文
+- cmd/bald/main.go: 扩展 exampleHandler，演示多源绑定（URI>Query>JSON）+
+  校验器 + CORS 中间件 + berrors 结构化错误
+- pkg/web/web_test.go: 新增 TestHandleJSONRequestRejectsMissingContentType
+  （期望 400 BIND_ERROR）与 TestHandleJSONRequestBindsWithJSONContentType
+  （期望 200），锁定非法即拒绝语义
+- README.md: 补充 pkg/web、pkg/errors 章节与架构图；示例 curl 统一带
+  Content-Type 头，并新增 Windows PowerShell 等效命令（curl.exe + 反引号续行）
