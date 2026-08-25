@@ -30,11 +30,13 @@ import (
 	"github.com/spf13/viper"
 	"google.golang.org/grpc"
 
+	berrors "github.com/kalandramo/bald/pkg/errors"
 	baldlog "github.com/kalandramo/bald/pkg/log"
 	"github.com/kalandramo/bald/pkg/appkit"
 	baldoptions "github.com/kalandramo/bald/pkg/options"
 	"github.com/kalandramo/bald/pkg/registry/inmemory"
 	"github.com/kalandramo/bald/pkg/server"
+	"github.com/kalandramo/bald/pkg/web"
 )
 
 func main() {
@@ -69,9 +71,11 @@ func main() {
 		// 未就绪时：HTTP /readyz 返回 503，gRPC health 置 NOT_SERVING（K8s 摘流量）。
 		return nil
 	}
-	httpSrv := server.NewHTTPServer(httpOpts, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte("hello from bald http\n"))
-	}), ready)
+	// 业务 HTTP 路由：用 web.Router（实现 http.Handler）组织，业务模块通过
+	// ApplyTo 把自己的路由挂载到版本组，服务器层 NewHTTPServer 签名不变。
+	router := web.NewRouter(web.Recovery(), web.RequestID(), web.Logging())
+	_ = exampleHandler{}.ApplyTo(router)
+	httpSrv := server.NewHTTPServer(httpOpts, router, ready)
 
 	grpcSrv := server.NewGRPCServerWithRegister(grpcOpts, nil, func(s *grpc.Server) {
 		// 在此注册你的 gRPC service 实现，例如：
@@ -194,6 +198,54 @@ func main() {
 
 // osExit 抽离以便后续测试替换；默认调用 os.Exit。
 var osExit = func(code int) { os.Exit(code) }
+
+// exampleHandler 演示 bald 的 HTTP 路由约定：业务模块通过 ApplyTo 把路由挂载
+// 到版本组（/v1），路由归属模块、认证等中间件由装配层注入。handler 内部用泛型
+// 流水线（HandleJSONRequest）完成绑定→校验→响应，错误统一由 web.WriteResponse
+// 按 pkg/errors.StatusCoder 映射 HTTP 状态码。
+type exampleHandler struct{}
+
+func (exampleHandler) Name() string { return "example" }
+
+func (exampleHandler) ApplyTo(r *web.Router, middlewares ...web.Middleware) error {
+	v1 := r.Group("/v1", middlewares...)
+
+	// 健康检查：直接回字符串，不经过结构化响应。
+	v1.HandleFunc("GET", "/ping", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("pong\n"))
+	})
+
+	// 结构化示例：JSON 绑定 + 业务错误（返回 400 + ErrorResponse）。
+	type greetReq struct {
+		Name string `json:"name"`
+	}
+	type greetResp struct {
+		Greet string `json:"greet"`
+	}
+	v1.HandleFunc("POST", "/greet", func(w http.ResponseWriter, req *http.Request) {
+		web.HandleJSONRequest[greetReq, greetResp](w, req,
+			func(_ context.Context, g *greetReq) (greetResp, error) {
+				if g.Name == "" {
+					return greetResp{}, berrors.BadRequest("EMPTY_NAME").
+						WithMessage("name 不能为空")
+				}
+				return greetResp{Greet: "hello, " + g.Name}, nil
+			})
+	})
+
+	// URI 通配符示例：/v1/users/{id} 自动绑定到 req.ID。
+	type userReq struct {
+		ID string `json:"id"`
+	}
+	v1.HandleFunc("GET", "/users/{id}", func(w http.ResponseWriter, req *http.Request) {
+		web.HandleUriRequest[userReq, map[string]string](w, req,
+			func(_ context.Context, u *userReq) (map[string]string, error) {
+				return map[string]string{"id": u.ID}, nil
+			})
+	})
+
+	return nil
+}
 
 // 附：configs/bald-demo.yaml 示例
 //

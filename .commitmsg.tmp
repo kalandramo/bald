@@ -1,0 +1,17 @@
+feat(pkg): 新增 errors/web 包并修复 CR 发现的问题
+
+- 新增 pkg/errors：零依赖 WindError 错误模型，按 Reason 匹配（Is），
+  不可变 builder（WithMessage/WithCause/WithDetails），统一 code.go 常量，
+  可选 gRPC 桥接（grpcerr.ToStatus/FromStatus）
+- 新增 pkg/web：标准库 net/http 轻量框架（Router 实现 http.Handler，
+  多源绑定 URI>Query>JSON，泛型流水线 HandleAllRequest，统一响应，
+  CORS/Recovery/RequestID/Trace 中间件）
+- 新增 pkg/web/response_test.go 锁定错误状态码回归
+- 修复 CR 问题：
+  - 写错误响应时优先 FromError 拆链决定状态码，避免被 %w 包裹的
+    *Error 错误回落到 500
+  - 修正 binding.go JSON 绑定器缩进（gofmt）
+  - middleware 删除自实现 joinCSV/itoa/intToStr，改用 strings.Join/strconv
+  - Recovery 补 Content-Type 并 guard 已写头场景
+  - 修正 captureStack 注释（跳过 3 帧）
+- 文档：应用框架设计、路由注册与绑定设计、错误处理对比
