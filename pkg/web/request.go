@@ -2,73 +2,84 @@ package web
 
 import (
 	"context"
-	"net/http"
+
+	"github.com/gin-gonic/gin"
 )
 
-// HandlerFunc 是业务处理函数：输入请求、输出响应与错误。
-type HandlerFunc[T any, R any] func(ctx context.Context, req *T) (R, error)
+// HandlerFunc 是一个 HTTP 处理器：接收已绑定请求的泛型对象，返回响应数据与错误。
+// 第一个参数为 context.Context（业务不应依赖 gin），请求绑定已由 Handle* 完成。
+type HandlerFunc[T any, R any] func(ctx context.Context, req T) (R, error)
 
-// Validator 是校验函数，在绑定完成后统一执行，首个错误即返回。
-type Validator[T any] func(ctx context.Context, obj *T) error
-
-// HandleAllRequest 是把"绑定 → 默认值 → 校验 → 业务 → 响应"焊成一条流水线的
-// 泛型入口：URI + Query + JSON 全部绑定，统一校验后交给 handler，最后用
-// WriteResponse 写出。对应 onexstack core.HandleAllRequest。
-func HandleAllRequest[T any, R any](
-	w http.ResponseWriter, r *http.Request,
-	handler HandlerFunc[T, R],
-	validators ...Validator[T],
-) {
+// HandleJSONRequest 仅从 JSON body 绑定请求，适合纯 JSON 接口。
+func HandleJSONRequest[T any, R any](c *gin.Context, handler HandlerFunc[T, R]) {
 	var req T
-	if err := Bind(r, &req, []Binder{URI, Query, JSON}, validators...); err != nil {
-		WriteResponse(w, nil, err)
+	simple := []Binder{JSON}
+	if err := Bind(c, &req, simple); err != nil {
+		resp := AsError(err)
+		ErrorResponse(c, resp)
 		return
 	}
-	response, err := handler(r.Context(), &req)
-	WriteResponse(w, response, err)
+	data, err := handler(c, req)
+	if err != nil {
+		resp := AsError(err)
+		ErrorResponse(c, resp)
+		return
+	}
+	WriteResponse(c, data)
 }
 
-// HandleJSONRequest 是单源（仅 JSON body）的快捷函数。
-func HandleJSONRequest[T any, R any](
-	w http.ResponseWriter, r *http.Request,
-	handler HandlerFunc[T, R],
-	validators ...Validator[T],
-) {
+// HandleUriRequest 仅从 URI 路径变量绑定请求，适合路径即全部参数的接口。
+func HandleUriRequest[T any, R any](c *gin.Context, handler HandlerFunc[T, R]) {
 	var req T
-	if err := Bind(r, &req, []Binder{JSON}, validators...); err != nil {
-		WriteResponse(w, nil, err)
+	binders := []Binder{URI}
+	if err := Bind(c, &req, binders); err != nil {
+		resp := AsError(err)
+		ErrorResponse(c, resp)
 		return
 	}
-	response, err := handler(r.Context(), &req)
-	WriteResponse(w, response, err)
+	data, err := handler(c, req)
+	if err != nil {
+		resp := AsError(err)
+		ErrorResponse(c, resp)
+		return
+	}
+	WriteResponse(c, data)
 }
 
-// HandleQueryRequest 是单源（仅 Query）的快捷函数。
-func HandleQueryRequest[T any, R any](
-	w http.ResponseWriter, r *http.Request,
-	handler HandlerFunc[T, R],
-	validators ...Validator[T],
-) {
+// HandleQueryRequest 仅从 URL 查询参数绑定请求，适合过滤/分页接口。
+func HandleQueryRequest[T any, R any](c *gin.Context, handler HandlerFunc[T, R]) {
 	var req T
-	if err := Bind(r, &req, []Binder{Query}, validators...); err != nil {
-		WriteResponse(w, nil, err)
+	binders := []Binder{Query}
+	if err := Bind(c, &req, binders); err != nil {
+		resp := AsError(err)
+		ErrorResponse(c, resp)
 		return
 	}
-	response, err := handler(r.Context(), &req)
-	WriteResponse(w, response, err)
+	data, err := handler(c, req)
+	if err != nil {
+		resp := AsError(err)
+		ErrorResponse(c, resp)
+		return
+	}
+	WriteResponse(c, data)
 }
 
-// HandleUriRequest 是单源（仅 URI path 变量）的快捷函数。
-func HandleUriRequest[T any, R any](
-	w http.ResponseWriter, r *http.Request,
-	handler HandlerFunc[T, R],
-	validators ...Validator[T],
-) {
+// HandleAllRequest 组合 URI → Query → JSON 多源绑定（URI 优先级最低，JSON 最高），
+// 并在全部绑定完成后执行 validators（若提供）。完整覆盖 onexstack 的
+// server.HandlerWrapper 动机，但避免了其"先 Validate 再 Bind"的顺序陷阱。
+func HandleAllRequest[T any, R any](c *gin.Context, handler HandlerFunc[T, R], validators ...Validator[T]) {
 	var req T
-	if err := Bind(r, &req, []Binder{URI}, validators...); err != nil {
-		WriteResponse(w, nil, err)
+	all := []Binder{URI, Query, JSON}
+	if err := Bind(c, &req, all, validators...); err != nil {
+		resp := AsError(err)
+		ErrorResponse(c, resp)
 		return
 	}
-	response, err := handler(r.Context(), &req)
-	WriteResponse(w, response, err)
+	data, err := handler(c, req)
+	if err != nil {
+		resp := AsError(err)
+		ErrorResponse(c, resp)
+		return
+	}
+	WriteResponse(c, data)
 }

@@ -127,22 +127,24 @@ type Server interface {
 
 ## Web 框架（pkg/web）
 
-基于标准库 `net/http` 的极薄封装：`Router` 实现 `http.Handler`，可直接传给 `server.NewHTTPServer`，**服务器层零改动**。只额外提供两样 `http.ServeMux` 没有的东西：分组（Group）与中间件链。
+基于 gin 的极薄封装：`Router` 是对 `gin.Engine` 的包裹，自身实现 `http.Handler`，可直接传给 `server.NewHTTPServer`，**服务器层零改动**。只额外提供两样 gin 没有的东西：分组（Group）与中间件链。
 
 ### 路由与中间件
 
 ```go
-router := web.NewRouter(web.Recovery(), web.RequestID(), web.Logging())
+import mid "github.com/kalandramo/bald/pkg/middleware/gin"
+
+router := web.NewRouter(mid.Recovery(), mid.RequestID(), mid.Logging())
 
 // 业务模块自挂载：认证等中间件由装配层注入，路由归属模块。
 type articleHandler struct{}
 func (articleHandler) Name() string { return "article" }
 func (articleHandler) ApplyTo(r *web.Router, mw ...web.Middleware) error {
-    v1 := r.Group("/v1", append([]web.Middleware{web.CORS(web.DefaultCORS())}, mw...)...)
-    v1.HandleFunc("GET", "/articles/{id}", func(w http.ResponseWriter, req *http.Request) {
+    v1 := r.Group("/v1", append([]web.Middleware{mid.CORS(mid.DefaultCORS())}, mw...)...)
+    v1.HandleFunc("GET", "/articles/:id", func(c *gin.Context) {
         web.HandleUriRequest[struct{ ID string `json:"id"` }, map[string]string](
-            w, req,
-            func(_ context.Context, a *struct{ ID string `json:"id"` }) (map[string]string, error) {
+            c,
+            func(_ context.Context, a struct{ ID string `json:"id"` }) (map[string]string, error) {
                 return map[string]string{"id": a.ID}, nil
             })
     })
@@ -153,7 +155,7 @@ _ = articleHandler{}.ApplyTo(router)
 httpSrv := server.NewHTTPServer(httpOpts, router, ready)
 ```
 
-中间件顺序（由外到内）：根路由器 → 子组（Group）→ 路由级。内置 `Recovery` / `RequestID` / `CORS` / `Secure` / `Logging` 可直接组合。
+HTTP 中间件（Recovery/RequestID/CORS/Secure/Logging/Authn/Authz/Observability）统一放在 `pkg/middleware/gin` 与 `pkg/middleware/grpc`，由业务装配层注入，web 包不再承担中间件职责。中间件顺序（由外到内）：根路由器 → 子组（Group）→ 路由级。
 
 ### 请求绑定与响应
 

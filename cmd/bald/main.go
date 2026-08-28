@@ -27,10 +27,10 @@ package main
 import (
 	"context"
 	"log/slog" // 仅用于 ContextWithAttrs 的 slog.Attr 构造（如 log.String）。
-	"net/http"
 	"os"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 	"google.golang.org/grpc"
@@ -42,6 +42,7 @@ import (
 	"github.com/kalandramo/bald/pkg/registry/inmemory"
 	"github.com/kalandramo/bald/pkg/server"
 	"github.com/kalandramo/bald/pkg/web"
+	mid "github.com/kalandramo/bald/pkg/middleware/gin"
 )
 
 func main() {
@@ -78,7 +79,7 @@ func main() {
 	}
 	// 业务 HTTP 路由：用 web.Router（实现 http.Handler）组织，业务模块通过
 	// ApplyTo 把自己的路由挂载到版本组，服务器层 NewHTTPServer 签名不变。
-	router := web.NewRouter(web.Recovery(), web.RequestID(), web.Logging())
+	router := web.NewRouter(mid.Recovery(), mid.RequestID(), mid.Logging())
 	_ = exampleHandler{}.ApplyTo(router)
 	httpSrv := server.NewHTTPServer(httpOpts, router, ready)
 
@@ -215,11 +216,11 @@ func (exampleHandler) Name() string { return "example" }
 
 func (exampleHandler) ApplyTo(r *web.Router, middlewares ...web.Middleware) error {
 	// 子组可再叠加中间件（如 CORS），与根/路由级中间件组成由外到内链。
-	v1 := r.Group("/v1", append([]web.Middleware{web.CORS(web.DefaultCORS())}, middlewares...)...)
+	v1 := r.Group("/v1", append([]web.Middleware{mid.CORS(mid.DefaultCORS())}, middlewares...)...)
 
 	// 健康检查：直接回字符串，不经过结构化响应。
-	v1.HandleFunc("GET", "/ping", func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte("pong\n"))
+	v1.HandleFunc("GET", "/ping", func(c *gin.Context) {
+		_, _ = c.Writer.Write([]byte("pong\n"))
 	})
 
 	// 结构化示例①：纯 JSON 绑定 + 业务错误（返回 400 + ErrorResponse）。
@@ -229,9 +230,9 @@ func (exampleHandler) ApplyTo(r *web.Router, middlewares ...web.Middleware) erro
 	type greetResp struct {
 		Greet string `json:"greet"`
 	}
-	v1.HandleFunc("POST", "/greet", func(w http.ResponseWriter, req *http.Request) {
-		web.HandleJSONRequest[greetReq, greetResp](w, req,
-			func(_ context.Context, g *greetReq) (greetResp, error) {
+	v1.HandleFunc("POST", "/greet", func(c *gin.Context) {
+		web.HandleJSONRequest[greetReq, greetResp](c,
+			func(_ context.Context, g greetReq) (greetResp,  error) {
 				if g.Name == "" {
 					// BadRequest 的代码-原因-消息三者分离：Reason 稳定可枚举（客户端可匹配），
 					// Message 给人看，二者经统一 ErrorResponse 返回。
@@ -242,19 +243,19 @@ func (exampleHandler) ApplyTo(r *web.Router, middlewares ...web.Middleware) erro
 			})
 	})
 
-	// URI 通配符示例：/v1/users/{id} 自动绑定到 req.ID（字段名需与路径变量一致）。
+	// URI 通配符示例：/v1/users/:id 自动绑定到 req.ID（字段名需与路径变量一致）。
 	type userReq struct {
 		ID string `json:"id"`
 	}
-	v1.HandleFunc("GET", "/users/{id}", func(w http.ResponseWriter, req *http.Request) {
-		web.HandleUriRequest[userReq, map[string]string](w, req,
-			func(_ context.Context, u *userReq) (map[string]string, error) {
+	v1.HandleFunc("GET", "/users/:id", func(c *gin.Context) {
+		web.HandleUriRequest[userReq, map[string]string](c,
+			func(_ context.Context, u userReq) (map[string]string, error) {
 				return map[string]string{"id": u.ID}, nil
 			})
 	})
 
 	// 结构化示例②：多源绑定（URI > Query > JSON 后者覆盖）+ 校验器。
-	// GET /v1/articles/{id}?lang=zh   body: {"title":"hello"}
+	// GET /v1/articles/:id?lang=zh   body: {"title":"hello"}
 	type articleReq struct {
 		ID    string `json:"id"`    // 来自 URI 路径变量
 		Lang  string `json:"lang"`  // 来自 Query（?lang=zh）
@@ -274,10 +275,10 @@ func (exampleHandler) ApplyTo(r *web.Router, middlewares ...web.Middleware) erro
 		}
 		return nil
 	}
-	v1.HandleFunc("POST", "/articles/{id}", func(w http.ResponseWriter, req *http.Request) {
-		web.HandleAllRequest[articleReq, articleResp](w, req,
-			func(_ context.Context, a *articleReq) (articleResp, error) {
-				return articleResp{ID: a.ID, Lang: a.Lang, Title: a.Title}, nil
+	v1.HandleFunc("POST", "/articles/:id", func(c *gin.Context) {
+		web.HandleAllRequest[articleReq, articleResp](c,
+			func(_ context.Context, a articleReq) (articleResp, error) {
+				return articleResp{ID:  a.ID, Lang: a.Lang, Title: a.Title}, nil
 			},
 			validateArticle)
 	})

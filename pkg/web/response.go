@@ -1,65 +1,104 @@
 package web
 
 import (
-	"encoding/json"
+	"errors"
 	"net/http"
+
+	"github.com/gin-gonic/gin"
 
 	berrors "github.com/kalandramo/bald/pkg/errors"
 )
 
-// StatusCoder 是 web 层与错误模型的唯一契约：实现了 StatusCode() 的错误自己
-// 决定 HTTP 状态码，未实现的统一 500。pkg/errors.Error 已实现该方法。
+// StatusCoder 表示对象可声明语义 HTTP 状态码（如 xerrors.Error）。
 type StatusCoder interface {
 	StatusCode() int
 }
 
-// ErrorResponse 是统一错误响应体，对齐 onexstack 的错误结构。
-type ErrorResponse struct {
-	Reason   string            `json:"reason,omitempty"`
-	Message  string            `json:"message,omitempty"`
-	Metadata map[string]string `json:"metadata,omitempty"`
+// errorBody 是统一的错误响应体。
+type errorBody struct {
+	Error struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	} `json:"error"`
 }
 
-// WriteResponse 写出成功或失败响应：成功直接写 data（JSON）；失败写统一
-// ErrorResponse 并映射 HTTP 状态码。错误状态码的优先级：实现了 StatusCoder
-// 的取 StatusCode()，否则 500。
-func WriteResponse(w http.ResponseWriter, data any, err error) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	if err != nil {
-		writeError(w, err)
-		return
+// withStatus 同时携带状态码与错误信息。pkg/errors 的 Error 已实现 StatusCoder。
+type withStatus struct {
+	status int
+	err    error
+}
+
+func (w *withStatus) Error() string { return w.err.Error() }
+func (w *withStatus) Unwrap() error { return w.err }
+func (w *withStatus) StatusCode() int { return w.status }
+
+// WrapStatus 把普通 error 包裹上自定义状态码（不会覆盖已有的 StatusCoder）。
+func WrapStatus(status int, err error) error {
+	if err == nil {
+		return nil
 	}
-	w.WriteHeader(http.StatusOK)
+	return &withStatus{status: status, err: err}
+}
+
+// AsError 把任意 error 规范为带状态码的错误。
+//   - 已实现 StatusCoder → 直接复用语义状态码（pkg/errors 错误在此自然生效）；
+//   - 否则按 go 1.20+ errors.As 兼容旧式 wrapped httpError；
+//   - 兜底 500。
+func AsError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var sc StatusCoder
+	if errors.As(err, &sc) {
+		return err
+	}
+	return &withStatus{status: http.StatusInternalServerError, err: err}
+}
+
+// WriteResponse 写统一响应：成功写 data，失败写 ErrorResponse（自动映射状态码）。
+// 当 data 为 nil 时不写 body（用于 204/head 等场景）。
+func WriteResponse(c *gin.Context, data any) {
 	if data == nil {
-		_, _ = w.Write([]byte("{}"))
+		c.Status(http.StatusOK)
 		return
 	}
-	_ = json.NewEncoder(w).Encode(data)
+	c.JSON(http.StatusOK, data)
 }
 
-// writeError 把错误映射成统一错误响应。状态码与结构化字段统一以
-// *errors.Error 为准（FromError 内部 errors.As 会拆链，包裹错误也能命中）。
-// 仅当错误链中完全找不到 *errors.Error 时，才退回 500 + 原始 Error()。
-func writeError(w http.ResponseWriter, err error) {
-	resp := ErrorResponse{}
-
-	if wErr, ok := berrors.FromError(err); ok {
-		resp.Reason = wErr.Reason
-		resp.Message = wErr.Message
-		resp.Metadata = wErr.Details
-		w.WriteHeader(wErr.StatusCode())
-		_ = json.NewEncoder(w).Encode(resp)
+// ErrorResponse 写统一错误响应。err 经 AsError 归一，状态码取自 StatusCoder，
+// 兜底 500；校验错误（ValidationError）固定 400。Code 填稳定的 reason，Message
+// 填业务消息，对应 pkg/errors 的 Reason/Message 语义。
+func ErrorResponse(c *gin.Context, err error) {
+	if err == nil {
 		return
 	}
-
-	// 其他错误：理由留空，消息用原始 Error()（如标准库错误、gRPC 透传）。
-	resp.Message = err.Error()
-	w.WriteHeader(http.StatusInternalServerError)
-	_ = json.NewEncoder(w).Encode(resp)
+	resp := AsError(err)
+	status := http.StatusInternalServerError
+	if sc, ok := resp.(StatusCoder); ok {
+		status = sc.StatusCode()
+	}
+	if isValidation(resp) {
+		status = http.StatusBadRequest
+	}
+	code := http.StatusText(status)
+	message := ""
+	if e, ok := berrors.FromError(resp); ok {
+		code = e.Reason
+		message = e.Message
+	} else if resp != nil {
+		message = resp.Error()
+	}
+	c.JSON(status, errorBody{
+		Error: struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		}{Code: code, Message: message},
+	})
 }
 
-// AsError 是便捷断言：从 err 链中提取 *berrors.Error（若存在）。
-// 等价于 berrors.FromError，放在 web 包便于 handler 内联使用。
-func AsError(err error) (*berrors.Error, bool) {
-	return berrors.FromError(err)
+// isValidation 判断是否为校验错误（pkg/errors 的 ValidationError 等）。
+func isValidation(err error) bool {
+	type validator interface{ IsValidation() bool }
+	var v validator
+	return errors.As(err, &v) && v.IsValidation()
 }

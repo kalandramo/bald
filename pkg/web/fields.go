@@ -2,7 +2,6 @@ package web
 
 import (
 	"fmt"
-	"net/http"
 	"reflect"
 	"strconv"
 	"strings"
@@ -101,8 +100,8 @@ func (s *fieldSetter) set(key, value string) {
 	}
 }
 
-// pathValueKeys 返回当前请求的 pattern 通配符变量名（由 Router 注入 ctx），
-// 供 URI 绑定器按字段名自动绑定。若未注入（如直接调用 ServeMux），返回空。
-func pathValueKeys(r *http.Request) []string {
-	return pathVarsFromContext(r.Context())
-}
+// pathValueKeys 返回当前请求的 pattern 通配符变量名。
+// 新版 gin 路由直接使用 c.Params，此函数保留为历史兼容占位（当前未使用）。
+// func pathValueKeys(r *http.Request) []string {
+// 	return pathVarsFromContext(r.Context())
+// }

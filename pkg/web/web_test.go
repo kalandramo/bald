@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gin-gonic/gin"
+
 	"github.com/kalandramo/bald/pkg/errors"
 )
 
@@ -18,9 +20,9 @@ func (userHandler) Name() string { return "user" }
 
 func (userHandler) ApplyTo(r *Router, mws ...Middleware) error {
 	v1 := r.Group("/v1/users", mws...)
-	v1.HandleFunc(http.MethodGet, "/{id}", func(w http.ResponseWriter, req *http.Request) {
-		id := req.PathValue("id")
-		HandleQueryRequest(w, req, func(_ context.Context, req *struct {
+	v1.HandleFunc(http.MethodGet, "/:id", func(c *gin.Context) {
+		id := c.Param("id")
+		HandleQueryRequest(c, func(_ context.Context, req *struct {
 			ID string `json:"id"`
 		}) (any, error) {
 			return map[string]string{"id": id}, nil
@@ -30,7 +32,7 @@ func (userHandler) ApplyTo(r *Router, mws ...Middleware) error {
 }
 
 func TestRouterGroupAndMiddleware(t *testing.T) {
-	router := NewRouter(Recovery())
+	router := NewRouter(gin.Recovery())
 	_ = userHandler{}.ApplyTo(router)
 
 	srv := httptest.NewServer(router)
@@ -62,8 +64,8 @@ func TestHandleJSONRequestBindsAndErrors(t *testing.T) {
 	}
 
 	mux := NewRouter()
-	mux.HandleFunc(http.MethodPost, "/greet", func(w http.ResponseWriter, req *http.Request) {
-		HandleJSONRequest(w, req, h)
+	mux.HandleFunc(http.MethodPost, "/greet", func(c *gin.Context) {
+		HandleJSONRequest(c, h)
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
@@ -80,9 +82,9 @@ func TestHandleJSONRequestBindsAndErrors(t *testing.T) {
 	if resp2.StatusCode != 400 {
 		t.Fatalf("error: expected 400, got %d", resp2.StatusCode)
 	}
-	var er ErrorResponse
+	var er errorBody
 	_ = json.NewDecoder(resp2.Body).Decode(&er)
-	if er.Reason != "EMPTY_NAME" || er.Message != "name 不能为空" {
+	if er.Error.Code != "EMPTY_NAME" || er.Error.Message != "name 不能为空" {
 		t.Fatalf("error response wrong: %+v", er)
 	}
 }
@@ -98,8 +100,8 @@ func TestHandleJSONRequestRejectsMissingContentType(t *testing.T) {
 		return map[string]string{"name": r.Name}, nil
 	}
 	mux := NewRouter()
-	mux.HandleFunc(http.MethodPost, "/greet", func(w http.ResponseWriter, req *http.Request) {
-		HandleJSONRequest(w, req, h)
+	mux.HandleFunc(http.MethodPost, "/greet", func(c *gin.Context) {
+		HandleJSONRequest(c, h)
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
@@ -113,13 +115,12 @@ func TestHandleJSONRequestRejectsMissingContentType(t *testing.T) {
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("expected 400 (illegal request), got %d", resp.StatusCode)
 	}
-	// 必须返回结构化绑定错误，明确指出 Content-Type 问题。
-	var got ErrorResponse
+	var got errorBody
 	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if got.Reason != "BIND_ERROR" {
-		t.Fatalf("expected reason BIND_ERROR, got %q", got.Reason)
+	if got.Error.Code != "BIND_ERROR" {
+		t.Fatalf("expected reason BIND_ERROR, got %q", got.Error.Code)
 	}
 }
 
@@ -133,8 +134,8 @@ func TestHandleJSONRequestBindsWithJSONContentType(t *testing.T) {
 		return map[string]string{"name": r.Name}, nil
 	}
 	mux := NewRouter()
-	mux.HandleFunc(http.MethodPost, "/greet", func(w http.ResponseWriter, req *http.Request) {
-		HandleJSONRequest(w, req, h)
+	mux.HandleFunc(http.MethodPost, "/greet", func(c *gin.Context) {
+		HandleJSONRequest(c, h)
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
@@ -159,18 +160,15 @@ func TestHandleJSONRequestBindsWithJSONContentType(t *testing.T) {
 func TestMiddlewareOrder(t *testing.T) {
 	var order []string
 	mw := func(name string) Middleware {
-		return func(next http.Handler) http.Handler {
-			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				order = append(order, name)
-				next.ServeHTTP(w, r)
-			})
+		return func(c *gin.Context) {
+			order = append(order, name)
+			c.Next()
 		}
 	}
 	router := NewRouter(mw("root"))
 	g := router.Group("/x", mw("group"))
-	g.HandleFunc(http.MethodGet, "/y", func(w http.ResponseWriter, r *http.Request) {
+	g.HandleFunc(http.MethodGet, "/y", func(c *gin.Context) {
 		order = append(order, "handler")
-		w.WriteHeader(200)
 	}, mw("route"))
 
 	srv := httptest.NewServer(router)

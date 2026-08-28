@@ -2,61 +2,82 @@ package web
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	stderrors "errors"
 	"testing"
 
+	"github.com/gin-gonic/gin"
+
 	berrors "github.com/kalandramo/bald/pkg/errors"
 )
 
-func TestWriteResponseDirectErrorStatus(t *testing.T) {
+func newCtx() (*gin.Context, *httptest.ResponseRecorder) {
 	w := httptest.NewRecorder()
-	WriteResponse(w, nil, berrors.NotFound("ORDER_NOT_FOUND"))
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d", w.Code)
+	c, _ := gin.CreateTestContext(w)
+	return c, w
+}
+
+func TestWriteResponseDirectErrorStatus(t *testing.T) {
+	c, w := newCtx()
+	ErrorResponse(c, berrors.NotFound("ORDER_NOT_FOUND"))
+	if c.Writer.Status() != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", c.Writer.Status())
 	}
-	var body ErrorResponse
+	var body errorBody
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if body.Reason != "ORDER_NOT_FOUND" {
-		t.Fatalf("expected reason ORDER_NOT_FOUND, got %q", body.Reason)
+	if body.Error.Code != "ORDER_NOT_FOUND" {
+		t.Fatalf("expected code ORDER_NOT_FOUND, got %q", body.Error.Code)
 	}
 }
 
 func TestWriteResponseWrappedErrorStatus(t *testing.T) {
 	// 关键回归：被 fmt.Errorf("%w") 包裹的 *Error 必须仍映射到正确状态码，
 	// 而非兜底 500（WriteResponse 改写前会丢失状态码）。
-	w := httptest.NewRecorder()
+	c, w := newCtx()
 	wrapped := stderrors.New("db timeout")
 	err := berrors.NotFound("ORDER_NOT_FOUND").WithCause(wrapped)
-	WriteResponse(w, nil, err)
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("wrapped error should map to 404, got %d", w.Code)
+	ErrorResponse(c, err)
+	if c.Writer.Status() != http.StatusNotFound {
+		t.Fatalf("wrapped error should map to 404, got %d", c.Writer.Status())
 	}
-	var body ErrorResponse
+	var body errorBody
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if body.Reason != "ORDER_NOT_FOUND" {
-		t.Fatalf("expected reason ORDER_NOT_FOUND, got %q", body.Reason)
+	if body.Error.Code != "ORDER_NOT_FOUND" {
+		t.Fatalf("expected code ORDER_NOT_FOUND, got %q", body.Error.Code)
 	}
 }
 
 func TestWriteResponsePlainErrorDefaultsTo500(t *testing.T) {
-	w := httptest.NewRecorder()
-	WriteResponse(w, nil, errors.New("boom"))
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d", w.Code)
+	c, _ := newCtx()
+	ErrorResponse(c, stderrors.New("boom"))
+	if c.Writer.Status() != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d", c.Writer.Status())
 	}
 }
 
 func TestWriteResponseSuccess(t *testing.T) {
-	w := httptest.NewRecorder()
-	WriteResponse(w, map[string]string{"k": "v"}, nil)
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
+	c, w := newCtx()
+	WriteResponse(c, map[string]string{"k": "v"})
+	if c.Writer.Status() != http.StatusOK {
+		t.Fatalf("expected 200, got %d", c.Writer.Status())
+	}
+	if w.Body.String() == "" {
+		t.Fatalf("expected non-empty body")
+	}
+}
+
+func TestWriteResponseNilDataNoBody(t *testing.T)  {
+	c, w := newCtx()
+	WriteResponse(c, nil)
+	if c.Writer.Status() != http.StatusOK {
+		t.Fatalf("expected 200, got %d", c.Writer.Status())
+	}
+	if w.Body.Len() != 0 {
+		t.Fatalf("expected empty body, got %q", w.Body.String())
 	}
 }
