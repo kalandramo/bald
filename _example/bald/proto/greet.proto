@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package bald.v1;
+
+option go_package = "github.com/kalandramo/bald/_example/bald/gen/baldv1;baldv1";
+
+import "google/api/annotations.proto";
+
+// GreetService 演示 grpc-gateway transcoding：同一个 Greet RPC 同时暴露
+// 为 gRPC 接口与 REST/JSON 接口，无需业务写两遍。
+service GreetService {
+  // Greet 既可通过 gRPC 调用，也可通过以下 REST 映射访问：
+  //   POST /v1/greet        body: {"name": "bald"}
+  //   GET  /v1/greet/{name}
+  rpc Greet(GreetRequest) returns (GreetResponse) {
+    option (google.api.http) = {
+      post: "/v1/greet"
+      body: "*"
+    };
+  }
+
+  // GreetGet 演示路径变量 transcoding（GET /v1/greet/{name}）。
+  rpc GreetGet(GreetGetRequest) returns (GreetResponse) {
+    option (google.api.http) = {
+      get: "/v1/greet/{name}"
+    };
+  }
+}
+
+message GreetRequest {
+  string name = 1;
+}
+
+message GreetGetRequest {
+  string name = 1;
+}
+
+message GreetResponse {
+  string greet = 1;
+}

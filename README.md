@@ -16,24 +16,33 @@ bald/
 │   │   ├── http_server.go    # net/http（支持 HTTP/HTTPS，动态端口+可达 IP 解析）
 │   │   ├── grpc_server.go    # google.golang.org/grpc（自带 health + reflection）
 │   │   └── gateway_server.go # grpc-gateway 反向代理
-│   ├── web/                  # 标准库 net/http 之上的轻量 Web 框架
-│   │   ├── router.go         # Router（实现 http.Handler）+ 分组 + 中间件链
-│   │   ├── binding.go        # 多源绑定 URI > Query > JSON，统一校验后返回
-│   │   ├── request.go        # 泛型流水线 HandleAllRequest / JSON / Query / URI
-│   │   ├── response.go       # 统一响应 + 错误→HTTP 状态码映射（StatusCoder）
-│   │   └── middleware.go     # Recovery / RequestID / CORS / Secure / Logging
+│   ├── web/                 # 强绑定 gin 的「绑定/校验/响应」流水线（依赖 gin + pkg/errors）
+│   │   ├── handler.go        # 泛型 HandleJSON/URI/Query/AllRequest：绑定→校验→响应（吃 *gin.Context）
+│   │   ├── binder.go         # ShouldBindAll：URI>Query>JSON 依次覆盖 + Defaulter 默认填充
+│   │   └── response.go       # 统一响应 + 错误→HTTP 状态码映射（pkg/errors）+ ErrorBody
+│   ├── middleware/           # HTTP/gRPC 中间件（统一由装配层注入；业务侧直接用 pkg/middleware/gin）
+│   │   ├── gin/              # Recovery / RequestID / CORS / Secure / Logging / Authn / Authz / Observability
+│   │   └── grpc/             # gRPC 拦截器（对应 gin 中间件能力）
+│   ├── validation/           # 类型化校验（反射式 Validate<ReqType> 按类型名分发；也支持 Rules）
+│   │   ├── validation.go     # Validator 注册与按请求类型分发
+│   │   └── validator.go      # 字段级 Rules 校验工具
 │   ├── errors/               # 零依赖错误模型（WindError）
 │   │   ├── errors.go         # Error + Is/As/Unwrap + 不可变 builder
 │   │   ├── code.go           # 与 gRPC codes 1:1 的 HTTP 状态码常量
 │   │   ├── http.go           # 业务错误构造器（BadRequest/NotFound/...）
 │   │   └── grpcerr/          # 可选 gRPC 桥接 ToStatus/FromStatus
+│   ├── config/               # 配置抽象（RemoteSource / 编码器 / 多源合并）
+│   │   ├── config.go         # 配置中心核心
+│   │   ├── source.go         # RemoteSource 抽象（etcd/nacos 桥接）
+│   │   └── log/              # 配置相关日志辅助
+│   ├── contextx/             # 上下文辅助（请求属性注入/提取）
 │   ├── options/              # HTTP/GRPC/TLS 配置 + pflag
 │   ├── registry/             # 服务注册中心抽象
 │   │   ├── registry.go       # Registrar 接口 + ServiceInstance
 │   │   ├── inmemory/         # 内存实现（开发/测试）
 │   │   └── kratos.go         # 桥接 kratos registry（etcd/consul/nacos）
 │   └── appkit/               # App 组合层（多 server 编排 + 注册/反注册）
-└── cmd/bald/                 # 最小示例
+└── _example/bald/            # 最小示例（含 bald-gin 纯 gin 引擎对照、appkit 编排 HTTP/gRPC 双协议）
 ```
 
 ## 快速开始
@@ -125,47 +134,44 @@ type Server interface {
 
 `Endpoint()` 在 `Start` 之后返回真实地址，便于注册到服务发现（如绑定 `:0` 时获取系统分配端口）。
 
-## Web 框架（pkg/web）
+## Web 框架（pkg/web 强绑定 gin）
 
-基于 gin 的极薄封装：`Router` 是对 `gin.Engine` 的包裹，自身实现 `http.Handler`，可直接传给 `server.NewHTTPServer`，**服务器层零改动**。只额外提供两样 gin 没有的东西：分组（Group）与中间件链。
+**分层原则**：路由注册由业务直接用 gin 编写；「绑定 / 校验 / 响应」流水线集中在 `pkg/web`——它**强绑定 gin**（直接消费 `*gin.Context`），因此 bald 仅支持 **gin（HTTP）与 grpc-gateway（复用同一 biz 层）**。这与 onexstack 的 `pkg/core` 思路一致，但错误语义复用 bald 自有的 `pkg/errors`（不引入 onexstack 外部依赖）。
+
+`gin.Engine`（或任意 `http.Handler`）可直接传给 `server.NewHTTPServer`，**服务器层零改动**。
 
 ### 路由与中间件
 
 ```go
-import mid "github.com/kalandramo/bald/pkg/middleware/gin"
+// 常用中间件直接用 pkg/middleware/gin（实现就在此包，无再导出层）。
+router := gin.New()
+router.Use(mid.Recovery(), mid.RequestID(), mid.Logging())
 
-router := web.NewRouter(mid.Recovery(), mid.RequestID(), mid.Logging())
+// 业务自行注册路由（路由归属模块，认证等中间件由装配层注入）：
+router.GET("/v1/articles/:id", func(c *gin.Context) {
+    web.HandleUriRequest[struct{ ID string `json:"id" uri:"id"` }, map[string]string](
+        c,
+        func(_ context.Context, a *struct{ ID string `json:"id" uri:"id"` }) (map[string]string, error) {
+            return map[string]string{"id": a.ID}, nil
+        })
+})
 
-// 业务模块自挂载：认证等中间件由装配层注入，路由归属模块。
-type articleHandler struct{}
-func (articleHandler) Name() string { return "article" }
-func (articleHandler) ApplyTo(r *web.Router, mw ...web.Middleware) error {
-    v1 := r.Group("/v1", append([]web.Middleware{mid.CORS(mid.DefaultCORS())}, mw...)...)
-    v1.HandleFunc("GET", "/articles/:id", func(c *gin.Context) {
-        web.HandleUriRequest[struct{ ID string `json:"id"` }, map[string]string](
-            c,
-            func(_ context.Context, a struct{ ID string `json:"id"` }) (map[string]string, error) {
-                return map[string]string{"id": a.ID}, nil
-            })
-    })
-    return nil
-}
-
-_ = articleHandler{}.ApplyTo(router)
 httpSrv := server.NewHTTPServer(httpOpts, router, ready)
 ```
 
-HTTP 中间件（Recovery/RequestID/CORS/Secure/Logging/Authn/Authz/Observability）统一放在 `pkg/middleware/gin` 与 `pkg/middleware/grpc`，由业务装配层注入，web 包不再承担中间件职责。中间件顺序（由外到内）：根路由器 → 子组（Group）→ 路由级。
+路径参数由 gin 原生 `ShouldBindUri` 解析，结构体字段用 `uri` tag 标注（与路径变量名一致），**无需任何桥接层**。
 
-### 请求绑定与响应
+HTTP 中间件（Recovery/RequestID/CORS/Secure/Logging/Authn/Authz/Observability）统一放在 `pkg/middleware/gin` 与 `pkg/middleware/grpc`，由业务装配层注入。
 
-泛型流水线把"绑定 → 默认值 → 校验 → 业务 → 响应"焊成一条：`HandleAllRequest`（URI > Query > JSON，后者覆盖）、`HandleJSONRequest`、`HandleQueryRequest`、`HandleUriRequest`。
+### 请求绑定与响应（pkg/web）
+
+强绑定 gin 的泛型流水线把"绑定 → 默认值 → 校验 → 业务 → 响应"焊成一条，实现位于 `pkg/web`：`HandleAllRequest`（URI > Query > JSON，后者覆盖）、`HandleJSONRequest`、`HandleQueryRequest`、`HandleUriRequest`。入口函数直接吃 `*gin.Context`，Handler 签名为指针风格 `func(ctx, *T) (R, error)`，与 onexstack 完全一致。
 
 ```go
 type articleReq struct {
-    ID    string `json:"id"`    // URI 路径变量
-    Lang  string `json:"lang"`  // Query（?lang=zh）
-    Title string `json:"title"` // JSON body
+    ID    string `json:"id" uri:"id"` // URI 路径变量
+    Lang  string `json:"lang"`        // Query（?lang=zh）
+    Title string `json:"title"`       // JSON body
 }
 type articleResp struct {
     ID    string `json:"id"`
@@ -178,31 +184,33 @@ validate := func(_ context.Context, a *articleReq) error {
         return berrors.BadRequest("EMPTY_TITLE").WithMessage("title 不能为空")
     }
     if a.Lang == "" {
-        a.Lang = "en" // 默认值在校验阶段修正
+        a.Lang = "en" // 默认值：建议在 Defaulter.Default() 中填充，这里只做校验
     }
     return nil
 }
 
-web.HandleAllRequest[articleReq, articleResp](w, req,
+web.HandleAllRequest[articleReq, articleResp](c,
     func(_ context.Context, a *articleReq) (articleResp, error) {
         return articleResp{ID: a.ID, Lang: a.Lang, Title: a.Title}, nil
     },
     validate)
 ```
 
-- **绑定源**：URI（路径变量，字段名需与 `{var}` 一致）→ Query → JSON body，按顺序覆盖，最后统一校验，避免部分填充误报必填。
-- **统一响应**：成功写 `data`（JSON），失败写 `ErrorResponse{reason, message, metadata}`。
+- **绑定源**：URI（路径变量，需 `uri` tag）→ Query → JSON body，按顺序覆盖，最后统一校验，避免部分填充误报必填。
+- **统一响应**：成功写 `data`（JSON），失败写 `ErrorBody{error:{code, message}}`。
 
 ### 错误 → HTTP 状态码映射
 
-`web.WriteResponse` 与错误模型的唯一契约是 `StatusCoder`：
+`web.ErrorResponse` 与错误模型通过 `pkg/errors` 衔接：
 
 ```go
-type StatusCoder interface { StatusCode() int }
+// pkg/errors 的错误 *Error 自带状态码，web 直接还原：
+werr, ok := errors.FromError(err)   // 拆链还原为 *errors.Error
+status := werr.StatusCode()         // 由 Reason（gRPC code）映射到 HTTP 状态码
 ```
 
-- 实现了 `StatusCoder` 的错误取 `StatusCode()`；未实现的统一 `500`。
-- `pkg/errors.Error` 已实现该方法，且 `writeError` 通过 `errors.As` **拆链**——被 `fmt.Errorf("wrap: %w", err)` 包裹的错误也能命中正确状态码，不会误落 500。
+- 能被 `errors.FromError` 还原的错误取 `StatusCode()`；无法还原的统一 `500`。
+- `pkg/errors.Error` 通过 `WithCause` 包装底层错误，`FromError` 会**拆链**命中正确状态码，被 `fmt.Errorf("wrap: %w", err)` 包裹的错误也不会误落 500。
 
 ## 错误模型（pkg/errors）
 
@@ -286,22 +294,22 @@ go test ./...
   [`docs/config-center-design.md`](docs/config-center-design.md)。
 - 日志设计（Options 多源配置、FilterKey 脱敏、ContextWithAttrs 日志属性）：
   [`docs/log-design.md`](docs/log-design.md)。
-- 路由注册与绑定设计（Router 分组/中间件链、多源绑定顺序、泛型流水线、统一响应、StatusCoder 契约）：
+- 路由注册与绑定设计（Router 分组/中间件链、多源绑定顺序、泛型流水线、统一响应、pkg/errors 契约）：
   [`docs/devel/zh-CN/路由注册与绑定设计.md`](docs/devel/zh-CN/路由注册与绑定设计.md)。
 - 错误模型设计（WindError 字段、代码-原因分离、不可变 builder、HTTP/gRPC 双栈桥接）：
   [`docs/devel/zh-CN/错误模型设计.md`](docs/devel/zh-CN/错误模型设计.md)。
 
 ## 可运行示例
 
-最小可运行示例见 [`cmd/bald/main.go`](cmd/bald/main.go)，演示了：
+最小可运行示例见 [`example/bald/main.go`](example/bald/main.go)，演示了：
 
 - 本地 `--config` 文件 + 环境变量 + 命令行 flag 的优先级合并；
 - 多环境（`--env=prod` 按 `bald-demo-prod.yaml` 选默认文件）；
 - 本地文件热更新（`WatchConfigFile`）；
 - 远程配置中心接入（etcd / nacos，通过 `config.FromKratosSource` 桥接，远程作基准、本地覆盖）；
 - `OnConfigChange` 内热重载与 `BeforeStart` 取配置反序列化；
-- **`pkg/web` 路由**：`web.Router` 经 `server.NewHTTPServer` 挂载，业务模块用 `ApplyTo` 自挂载路由（含 CORS 中间件、URI/JSON/多源绑定、`HandleAllRequest` 校验器）；
-- **`pkg/errors` 错误**：业务 handler 用 `berrors.BadRequest(...).WithMessage(...)` 返回结构化错误，由 `web.WriteResponse` 自动映射 HTTP 状态码与 `ErrorResponse`。
+- **路由**：业务直接用 `gin.Engine` 经 `server.NewHTTPServer` 挂载，自行注册路由（含 CORS 中间件、URI/JSON/多源绑定、`HandleAllRequest` 校验器）；
+- **`pkg/errors` 错误**：业务 handler 用 `berrors.BadRequest(...).WithMessage(...)` 返回结构化错误，由 `web` 的 `ErrorResponse` 自动映射 HTTP 状态码与 `ErrorBody`。
 
 示例路由（服务起来后可直接 curl 验证）：
 
@@ -313,29 +321,30 @@ curl -i -XPOST 'http://127.0.0.1:8080/v1/articles/42?lang=zh' \
   -H "Content-Type: application/json" -d '{"title":"hi"}'
 ```
 
-> **Windows PowerShell 等效命令**（直接可复制执行）：
+> **Windows PowerShell 等效命令**（已验证可用，直接复制执行）：
 
 ```powershell
 curl.exe -i http://127.0.0.1:8080/v1/ping
 
-curl.exe -i -XPOST http://127.0.0.1:8080/v1/greet `
-  -H "Content-Type: application/json" -d '{"name":"bald"}'
+curl.exe --% -i -XPOST http://127.0.0.1:8080/v1/greet -H "Content-Type: application/json" -d "{\"name\":\"bald\"}"
 
-curl.exe -i -XPOST 'http://127.0.0.1:8080/v1/articles/42?lang=zh' `
-  -H "Content-Type: application/json" -d '{"title":"hi"}'
+curl.exe --% -XPOST "http://127.0.0.1:8080/v1/articles/42?lang=zh" -H "Content-Type: application/json" -d "{\"title\":\"hi\"}"
 ```
 
-> 说明：PowerShell 下用 `curl.exe` 避开 `curl` 别名指向 `Invoke-WebRequest`；多行续行符是
-> 反引号 `` ` ``（行尾）；`-d` 的 JSON 用单引号包裹（PowerShell 单引号是合法字面量定界符且不
-> 展开变量）。务必带 `-H "Content-Type: application/json"`，否则触发 400 `BIND_ERROR`。
+> 说明：PowerShell 下用 `curl.exe` 避开 `curl` 别名指向 `Invoke-WebRequest`。**关键是 `--%`
+> （stop-parsing 标记）**：`--%` 之后的内容 PowerShell 完全不再解析、原样传给 `curl.exe`，
+> 否则 PowerShell 会把单引号里的 `{` 当作脚本块/元字符处理掉，导致 JSON 首字符丢失，触发
+> 若 JSON 体非法，会返回 `400` 且 Reason 为绑定错误信息（如 `invalid character 'n' looking for beginning of object key string`）。`--%`
+> 之后 JSON 内双引号以 `\"` 转义（Windows curl 标准写法）。**务必带
+> `-H "Content-Type: application/json"`**，否则同样触发 400（bind 错误）。
 
 > **发送 JSON body 必须带 `-H "Content-Type: application/json"`**：`curl -d` 默认把
 > Content-Type 设为 `application/x-www-form-urlencoded`。`pkg/web` 的 JSON 绑定器**只解析
 > `application/json` 类型**，对缺失/非 JSON 的 Content-Type 且携带 body 的请求，按"非法即
-> 拒绝"原则**直接返回 400 + 结构化 `ErrorResponse{reason:"BIND_ERROR"}`**，而不是静默跳过把
-> 锅甩给业务校验。因此发 JSON 时务必显式带该头。上述命令在 Git Bash / WSL / PowerShell /
-> cmd 下均可用。Windows 若用 PowerShell 原生 curl，注意用 `curl.exe` 避开 `curl` 别名指向
-> `Invoke-WebRequest`；单引号在 PowerShell 中是合法字符串定界符。
+> 拒绝"原则**直接返回 400 + 结构化 `ErrorBody{error:{code, message}}`**（code 为绑定错误信息），而不是静默跳过把
+> 锅甩给业务校验。因此发 JSON 时务必显式带该头。上述命令在 Git Bash / WSL / macOS / cmd 下均
+> 可用；**Windows PowerShell 必须用 `--%` 写法**（见上），单引号包裹 JSON 在 PowerShell 调用
+> 外部 exe 时会因 `{}` 被当脚本块解析而失败。
 
 
 本地配置示例见 [`configs/bald-demo.yaml`](configs/bald-demo.yaml)。

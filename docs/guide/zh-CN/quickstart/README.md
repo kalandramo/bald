@@ -135,7 +135,7 @@ appkit.New(appkit.KratosRegistrar(kr), appkit.Servers(srv))
 
 ### 6. 完整示例
 
-仓库内置完整可运行示例 [`cmd/bald/main.go`](https://github.com/kalandramo/bald/blob/main/cmd/bald/main.go)，
+仓库内置完整可运行示例 [`example/bald/main.go`](https://github.com/kalandramo/bald/blob/main/example/bald/main.go)，
 覆盖框架的核心能力：
 
 - **多协议编排**：并发启停 HTTP + gRPC 两个 `server.Server`，共享同一个 `ReadinessFunc` 使 `/readyz` 与 gRPC health 对称联动。
@@ -147,14 +147,14 @@ appkit.New(appkit.KratosRegistrar(kr), appkit.Servers(srv))
 直接运行：
 
 ```bash
-go run ./cmd/bald --config=configs/bald-demo.yaml
-BALD_DEMO_HTTP_ADDR=:18080 go run ./cmd/bald        # 环境变量覆盖 http.addr
-go run ./cmd/bald --http.addr=:18080                # flag 优先级最高
-go run ./cmd/bald --env=prod                        # 多环境（按 bald-demo-prod.yaml）
-go run ./cmd/bald --log.format=json --log.level=debug   # 切换日志格式 / 级别
+go run ./_example/bald --config=configs/bald-demo.yaml
+BALD_DEMO_HTTP_ADDR=:18080 go run ./_example/bald        # 环境变量覆盖 http.addr
+go run ./_example/bald --http.addr=:18080                # flag 优先级最高
+go run ./_example/bald --env=prod                        # 多环境（按 bald-demo-prod.yaml）
+go run ./_example/bald --log.format=json --log.level=debug   # 切换日志格式 / 级别
 ```
 
-> 注：`cmd/bald/main.go` 顶部注释还给出了 etcd/nacos 远程配置中心与 GatewayServer、单 server `Serve()` 的接入片段，可按需启用。
+> 注：`example/bald/main.go` 顶部注释还给出了 etcd/nacos 远程配置中心与 GatewayServer、单 server `Serve()` 的接入片段，可按需启用。
 
 ### 下一步
 

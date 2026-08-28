@@ -1,0 +1,23 @@
+version: v1
+managed:
+  enabled: true
+  go_package_prefix:
+    # 生成的 .pb.go / .gw.go 的 import path 前缀，与 proto 里 go_package 对齐。
+    default: github.com/kalandramo/bald/_example/bald/gen
+plugins:
+  # protoc-gen-go：生成 message + gRPC service 接口（pb.go / grpc.pb.go）
+  - plugin: go
+    out: .
+    opt:
+      - paths=source_relative
+  # protoc-gen-go-grpc：生成 *_grpc.pb.go（RegisterXxxServer / ServiceDesc）
+  - plugin: go-grpc
+    out: .
+    opt:
+      - paths=source_relative
+  # protoc-gen-grpc-gateway：生成 *_pb.gw.go（RegisterXxxHandler）
+  - plugin: grpc-gateway
+    out: .
+    opt:
+      - paths=source_relative
+      - generate_unbound_methods=true

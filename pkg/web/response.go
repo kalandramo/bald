@@ -1,104 +1,66 @@
 package web
 
 import (
-	"errors"
 	"net/http"
+	"reflect"
 
 	"github.com/gin-gonic/gin"
 
-	berrors "github.com/kalandramo/bald/pkg/errors"
+	"github.com/kalandramo/bald/pkg/errors"
 )
 
-// StatusCoder 表示对象可声明语义 HTTP 状态码（如 xerrors.Error）。
-type StatusCoder interface {
-	StatusCode() int
+// ErrorBody 是统一的 JSON 错误响应体，对齐 onexstack core.ErrorBody。
+type ErrorBody struct {
+	Error ErrorDetail `json:"error"`
 }
 
-// errorBody 是统一的错误响应体。
-type errorBody struct {
-	Error struct {
-		Code    string `json:"code"`
-		Message string `json:"message"`
-	} `json:"error"`
+// ErrorDetail 是错误体的内层结构。
+type ErrorDetail struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
 }
 
-// withStatus 同时携带状态码与错误信息。pkg/errors 的 Error 已实现 StatusCoder。
-type withStatus struct {
-	status int
-	err    error
-}
-
-func (w *withStatus) Error() string { return w.err.Error() }
-func (w *withStatus) Unwrap() error { return w.err }
-func (w *withStatus) StatusCode() int { return w.status }
-
-// WrapStatus 把普通 error 包裹上自定义状态码（不会覆盖已有的 StatusCoder）。
-func WrapStatus(status int, err error) error {
-	if err == nil {
-		return nil
+// WriteResponse 写入统一 JSON 响应：若 err 非 nil 则转写错误响应，否则写入 data。
+// data 为 nil（或零值引用）时仅置 200，不写 body，对齐 onexstack core.WriteResponse。
+func WriteResponse[T any](c *gin.Context, data T, err error) {
+	if err != nil {
+		ErrorResponse(c, err)
+		return
 	}
-	return &withStatus{status: status, err: err}
-}
-
-// AsError 把任意 error 规范为带状态码的错误。
-//   - 已实现 StatusCoder → 直接复用语义状态码（pkg/errors 错误在此自然生效）；
-//   - 否则按 go 1.20+ errors.As 兼容旧式 wrapped httpError；
-//   - 兜底 500。
-func AsError(err error) error {
-	if err == nil {
-		return nil
-	}
-	var sc StatusCoder
-	if errors.As(err, &sc) {
-		return err
-	}
-	return &withStatus{status: http.StatusInternalServerError, err: err}
-}
-
-// WriteResponse 写统一响应：成功写 data，失败写 ErrorResponse（自动映射状态码）。
-// 当 data 为 nil 时不写 body（用于 204/head 等场景）。
-func WriteResponse(c *gin.Context, data any) {
-	if data == nil {
+	if isEmpty(data) {
 		c.Status(http.StatusOK)
 		return
 	}
 	c.JSON(http.StatusOK, data)
 }
 
-// ErrorResponse 写统一错误响应。err 经 AsError 归一，状态码取自 StatusCoder，
-// 兜底 500；校验错误（ValidationError）固定 400。Code 填稳定的 reason，Message
-// 填业务消息，对应 pkg/errors 的 Reason/Message 语义。
+// ErrorResponse 把任意 error 统一写成 {error:{code,message}} JSON。
+//
+// 语义来源：若 err 可经 errors.FromError 还原为 *errors.Error，则取其 StatusCode
+// 与 Reason/Message；否则兜底为 errors.Unknown（HTTP 500）。校验错误（由
+// errors.BadRequest 等构造）自然映射为 400。
 func ErrorResponse(c *gin.Context, err error) {
-	if err == nil {
-		return
+	var werr *errors.Error
+	if e, ok := errors.FromError(err); ok {
+		werr = e
+	} else {
+		werr = errors.Internal(err.Error())
 	}
-	resp := AsError(err)
-	status := http.StatusInternalServerError
-	if sc, ok := resp.(StatusCoder); ok {
-		status = sc.StatusCode()
-	}
-	if isValidation(resp) {
-		status = http.StatusBadRequest
-	}
-	code := http.StatusText(status)
-	message := ""
-	if e, ok := berrors.FromError(resp); ok {
-		code = e.Reason
-		message = e.Message
-	} else if resp != nil {
-		message = resp.Error()
-	}
-	c.JSON(status, errorBody{
-		Error: struct {
-			Code    string `json:"code"`
-			Message string `json:"message"`
-		}{Code: code, Message: message},
+	c.JSON(werr.StatusCode(), ErrorBody{
+		Error: ErrorDetail{
+			Code:    werr.Reason,
+			Message: werr.Message,
+		},
 	})
 }
 
-// isValidation 判断是否为校验错误（pkg/errors 的 ValidationError 等）。
-func isValidation(err error) bool {
-	type validator interface{ IsValidation() bool }
-	var v validator
-	return errors.As(err, &v) && v.IsValidation()
+// isEmpty 判断响应数据是否为 nil 或零值引用（map/slice/ptr/func/chan 的 nil）。
+func isEmpty[T any](data T) bool {
+	v := reflect.ValueOf(data)
+	switch v.Kind() {
+	case reflect.Ptr, reflect.Slice, reflect.Map, reflect.Func, reflect.Chan, reflect.Interface:
+		return v.IsNil()
+	default:
+		return false
+	}
 }

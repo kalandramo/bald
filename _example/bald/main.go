@@ -5,23 +5,34 @@
 // 运行：
 //
 //	# 本地文件 + 环境变量 + flag（无需远程配置中心即可运行）
-//	go run ./cmd/bald --config=configs/bald-demo.yaml
-//	BALD_DEMO_HTTP_ADDR=:18080 go run ./cmd/bald        # 环境变量覆盖 http.addr
-//	go run ./cmd/bald --http.addr=:18080                # flag 优先级最高
+//	go run ./_example/bald --config=configs/bald-demo.yaml
+//	BALD_DEMO_HTTP_ADDR=:18080 go run ./_example/bald        # 环境变量覆盖 http.addr
+//	go run ./_example/bald --http.addr=:18080                # flag 优先级最高
 //
 //	# 多环境（本地按 bald-demo-prod.yaml 选择默认文件）
-//	go run ./cmd/bald --env=prod
+//	go run ./_example/bald --env=prod
 //
 //	# 切换日志格式 / 级别（--log.* 由 pkg/log 提供）
-//	go run ./cmd/bald --log.format=json --log.level=debug
+//	go run ./_example/bald --log.format=json --log.level=debug
 //
-//	# 验证 HTTP 示例路由（server.NewHTTPServer 挂载 web.Router）：
+//	# 验证 HTTP 示例路由（server.NewHTTPServer 挂载 gin.Engine）：
 //	curl -i http://127.0.0.1:8080/v1/ping
 //	curl -i -XPOST http://127.0.0.1:8080/v1/greet -d '{"name":"bald"}'
 //	curl -i -XPOST 'http://127.0.0.1:8080/v1/articles/42?lang=zh' -d '{"title":"hi"}'
 //
+//	# grpc-gateway transcoding 示例（需本地 protoc 工具链生成代码后启用）：
+//	#   见 docs/devel/zh-CN/grpc-gateway 配置与 transcoding.md
+//	#   生成：cd _example/bald && make proto && cd ../..
+//	#   运行：go run -tags grpcgw ./_example/bald --config=_example/bald/configs/bald-demo.yaml
+//	#   验证：curl -i -XPOST http://127.0.0.1:<gateway>/v1/greet -d '{"name":"bald"}'
+//
+//	# Windows (PowerShell)：用 --% 关闭 PowerShell 解析，JSON 内双引号以 \ 转义
+//	curl.exe -i http://127.0.0.1:8080/v1/ping
+//	curl.exe --% -i -XPOST http://127.0.0.1:8080/v1/greet -H "Content-Type: application/json" -d "{\"name\":\"bald\"}"
+//	curl.exe --% -XPOST "http://127.0.0.1:8080/v1/articles/42?lang=zh" -H "Content-Type: application/json" -d "{\"title\":\"hi\"}"
+//
 //	# 远程配置中心（etcd）：先 go get github.com/go-kratos/kratos/v3/contrib/config/etcd/v3
-//	go run ./cmd/bald --config=configs/bald-demo.yaml   # 远程作基准，本地覆盖
+//	go run ./_example/bald --config=configs/bald-demo.yaml   # 远程作基准，本地覆盖
 package main
 
 import (
@@ -43,6 +54,8 @@ import (
 	"github.com/kalandramo/bald/pkg/server"
 	"github.com/kalandramo/bald/pkg/web"
 	mid "github.com/kalandramo/bald/pkg/middleware/gin"
+	grpcmw "github.com/kalandramo/bald/pkg/middleware/grpc"
+	"github.com/kalandramo/bald/pkg/validation"
 )
 
 func main() {
@@ -77,16 +90,37 @@ func main() {
 		// 未就绪时：HTTP /readyz 返回 503，gRPC health 置 NOT_SERVING（K8s 摘流量）。
 		return nil
 	}
-	// 业务 HTTP 路由：用 web.Router（实现 http.Handler）组织，业务模块通过
-	// ApplyTo 把自己的路由挂载到版本组，服务器层 NewHTTPServer 签名不变。
-	router := web.NewRouter(mid.Recovery(), mid.RequestID(), mid.Logging())
-	_ = exampleHandler{}.ApplyTo(router)
+	// 业务 HTTP 路由：直接用 gin 引擎组织（gin.Engine 实现 http.Handler），
+	// 路由注册由业务自己完成，服务器层 NewHTTPServer 签名不变（*gin.Engine 即 http.Handler）。
+	router := gin.New()
+	router.Use(mid.Recovery(), mid.RequestID(), mid.Logging())
+	exampleRoutes(router)
 	httpSrv := server.NewHTTPServer(httpOpts, router, ready)
 
-	grpcSrv := server.NewGRPCServerWithRegister(grpcOpts, nil, func(s *grpc.Server) {
-		// 在此注册你的 gRPC service 实现，例如：
-		// pb.RegisterYourServer(s, yourImpl)
-	}, ready)
+	// gRPC 拦截器链（由外到内）：请求 ID → 可观测性 → 默认值填充 → 校验。
+	// 认证/授权（Authn/Authz）在 babel 接入用户系统后，通过注入 TokenExtractor /
+	// UserRetriever / Authorizer 串到此链即可（详见 pkg/middleware/grpc/authn.go、
+	// authz.go 预留接口）。
+	unaryInterceptors := []grpc.UnaryServerInterceptor{
+		grpcmw.RequestIDInterceptor(),
+		grpcmw.UnaryObservability(),
+		grpcmw.DefaulterInterceptor(),
+		grpcmw.ValidatorInterceptor(validation.NewValidator(nil)),
+	}
+
+	grpcSrv := server.NewGRPCServerWithRegister(
+		grpcOpts,
+		[]grpc.ServerOption{grpc.ChainUnaryInterceptor(unaryInterceptors...)},
+		func(s *grpc.Server) {
+			// 在此注册你的 gRPC service 实现，例如：
+			// pb.RegisterYourServer(s, yourImpl)
+			//
+			// grpc-gateway transcoding 示例见 register_grpcgw.go（build tag `grpcgw`）：
+			// 本地 `make proto` 生成代码后，把本回调替换为 registerGRPCService，
+			// 并用 server.NewGatewayServer + registerGateway 挂一个网关服务器。
+		},
+		ready,
+	)
 
 	// 2. 用 appkit 组合层运行（自研编排：并发启停 + 优雅停机 + 防重入 + 可观察）。
 	var app *appkit.AppKit
@@ -126,7 +160,7 @@ func main() {
 		//         etcdconfig.New(cli, etcdconfig.WithPath("/config/bald-demo/prod.yaml")))
 		//     appkit.RemoteConfig(src),
 		//
-		//     (b) nacos 后端（先：go get github.com/go-kratos/kratos/contrib/config/nacos/v3）
+		//     (b) nacos 后端（先：go get github.com/go-kratos/kratos contrib/config/nacos/v3）
 		//     import (
 		//         "github.com/kalandramo/bald/pkg/config"
 		//         nacosclients "github.com/nacos-group/nacos-sdk-go/clients"
@@ -205,21 +239,19 @@ func main() {
 // osExit 抽离以便后续测试替换；默认调用 os.Exit。
 var osExit = func(code int) { os.Exit(code) }
 
-// exampleHandler 演示 bald 的 HTTP 路由约定：业务模块通过 ApplyTo 把路由挂载
-// 到版本组（/v1），路由归属模块、认证等中间件由装配层注入。handler 内部用泛型
-// 流水线（HandleAllRequest / HandleJSONRequest / HandleUriRequest）完成
-// 绑定→校验→响应，错误统一由 web.WriteResponse 按 pkg/errors.StatusCoder 映射
-// HTTP 状态码（被 %w 包裹的错误也会正确拆链映射，不会误落 500）。
-type exampleHandler struct{}
-
-func (exampleHandler) Name() string { return "example" }
-
-func (exampleHandler) ApplyTo(r *web.Router, middlewares ...web.Middleware) error {
-	// 子组可再叠加中间件（如 CORS），与根/路由级中间件组成由外到内链。
-	v1 := r.Group("/v1", append([]web.Middleware{mid.CORS(mid.DefaultCORS())}, middlewares...)...)
+// exampleRoutes 演示 bald 的 HTTP 路由约定：路由注册直接由业务完成（使用 gin 引擎），
+// handler 内部用强绑定 gin 的泛型流水线（web.HandleAllRequest / HandleJSONRequest /
+// HandleUriRequest）完成绑定→校验→响应，错误统一由 web 按 pkg/errors 映射 HTTP 状态
+// 码（被 %w 包裹的错误也会正确拆链映射，不会误落 500）。
+//
+// web 强绑定 gin，路径参数由 gin 原生 ShouldBindUri 处理（结构体用 uri tag），
+// 无需额外的上下文桥接。
+func exampleRoutes(e *gin.Engine) {
+	// 版本组：在根中间件（Recovery/RequestID/Logging）之后叠加 CORS 子链。
+	v1 := e.Group("/v1", mid.CORS(mid.DefaultCORS()))
 
 	// 健康检查：直接回字符串，不经过结构化响应。
-	v1.HandleFunc("GET", "/ping", func(c *gin.Context) {
+	v1.GET("/ping", func(c *gin.Context) {
 		_, _ = c.Writer.Write([]byte("pong\n"))
 	})
 
@@ -230,9 +262,9 @@ func (exampleHandler) ApplyTo(r *web.Router, middlewares ...web.Middleware) erro
 	type greetResp struct {
 		Greet string `json:"greet"`
 	}
-	v1.HandleFunc("POST", "/greet", func(c *gin.Context) {
+	v1.POST("/greet", func(c *gin.Context) {
 		web.HandleJSONRequest[greetReq, greetResp](c,
-			func(_ context.Context, g greetReq) (greetResp,  error) {
+			func(_ context.Context, g *greetReq) (greetResp, error) {
 				if g.Name == "" {
 					// BadRequest 的代码-原因-消息三者分离：Reason 稳定可枚举（客户端可匹配），
 					// Message 给人看，二者经统一 ErrorResponse 返回。
@@ -243,13 +275,14 @@ func (exampleHandler) ApplyTo(r *web.Router, middlewares ...web.Middleware) erro
 			})
 	})
 
-	// URI 通配符示例：/v1/users/:id 自动绑定到 req.ID（字段名需与路径变量一致）。
+	// URI 通配符示例：/v1/users/:id 经 gin 原生 ShouldBindUri 绑定到 req.ID
+	// （需 uri:"id" tag，与路径变量名一致）。
 	type userReq struct {
-		ID string `json:"id"`
+		ID string `json:"id" uri:"id"`
 	}
-	v1.HandleFunc("GET", "/users/:id", func(c *gin.Context) {
+	v1.GET("/users/:id", func(c *gin.Context) {
 		web.HandleUriRequest[userReq, map[string]string](c,
-			func(_ context.Context, u userReq) (map[string]string, error) {
+			func(_ context.Context, u *userReq) (map[string]string, error) {
 				return map[string]string{"id": u.ID}, nil
 			})
 	})
@@ -257,9 +290,9 @@ func (exampleHandler) ApplyTo(r *web.Router, middlewares ...web.Middleware) erro
 	// 结构化示例②：多源绑定（URI > Query > JSON 后者覆盖）+ 校验器。
 	// GET /v1/articles/:id?lang=zh   body: {"title":"hello"}
 	type articleReq struct {
-		ID    string `json:"id"`    // 来自 URI 路径变量
-		Lang  string `json:"lang"`  // 来自 Query（?lang=zh）
-		Title string `json:"title"` // 来自 JSON body
+		ID    string `json:"id" uri:"id"` // 来自 URI 路径变量
+		Lang  string `json:"lang"`        // 来自 Query（?lang=zh）
+		Title string `json:"title"`       // 来自 JSON body
 	}
 	type articleResp struct {
 		ID    string `json:"id"`
@@ -270,20 +303,20 @@ func (exampleHandler) ApplyTo(r *web.Router, middlewares ...web.Middleware) erro
 		if a.Title == "" {
 			return berrors.BadRequest("EMPTY_TITLE").WithMessage("title 不能为空")
 		}
+		// 注意：绑定阶段已结束，默认值应在 Defaulter.Default() 中填充
+		// （见下方 articleReq 的 Default 方法），这里只做校验。
 		if a.Lang == "" {
-			a.Lang = "en" // 默认值：校验阶段修正，绑定阶段已结束
+			a.Lang = "en"
 		}
 		return nil
 	}
-	v1.HandleFunc("POST", "/articles/:id", func(c *gin.Context) {
+	v1.POST("/articles/:id", func(c *gin.Context) {
 		web.HandleAllRequest[articleReq, articleResp](c,
-			func(_ context.Context, a articleReq) (articleResp, error) {
-				return articleResp{ID:  a.ID, Lang: a.Lang, Title: a.Title}, nil
+			func(_ context.Context, a *articleReq) (articleResp, error) {
+				return articleResp{ID: a.ID, Lang: a.Lang, Title: a.Title}, nil
 			},
 			validateArticle)
 	})
-
-	return nil
 }
 
 // 附：configs/bald-demo.yaml 示例
