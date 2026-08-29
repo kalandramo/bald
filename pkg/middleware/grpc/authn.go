@@ -2,45 +2,70 @@ package grpc
 
 import (
 	"context"
+	"strings"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 
-	"github.com/kalandramo/bald/pkg/contextx"
-	"github.com/kalandramo/bald/pkg/berrors"
+	"github.com/kalandramo/bald/pkg/authn"
+	berrors "github.com/kalandramo/bald/pkg/berrors"
 	"github.com/kalandramo/bald/pkg/log"
 )
 
-// TokenExtractor 从 gRPC metadata 中解析出用户 ID。具体 token 形态由调用方实现。
-type TokenExtractor interface {
-	Extract(ctx context.Context, md metadata.MD) (userID string, err error)
-}
-
-// UserRetriever 根据用户 ID 获取用户名，用于把身份注入 context。
-type UserRetriever interface {
-	GetUser(ctx context.Context, userID string) (username string, err error)
-}
-
-// AuthnInterceptor 是 gRPC 认证拦截器：解析 token 并将用户信息注入 context。
-func AuthnInterceptor(extractor TokenExtractor, retriever UserRetriever) grpc.UnaryServerInterceptor {
+// AuthnInterceptor 是 gRPC 认证拦截器：从 metadata 抽取 Bearer token 存入 ctx，
+// 交由注入的 Authenticator 校验并把 AuthClaims 写入 ctx（含租户/用户键，供下游
+// pkg/store 多租户自动隔离）。
+//
+// authenticator 为 nil 时拦截器退化为空操作（不认证，等同于公开服务）。
+func AuthnInterceptor(authenticator authn.Authenticator) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-		md, _ := metadata.FromIncomingContext(ctx)
-
-		userID, err := extractor.Extract(ctx, md)
+		if authenticator == nil {
+			return handler(ctx, req)
+		}
+		token, err := bearerFromMetadata(ctx)
 		if err != nil {
-			e := errors.Unauthenticated("TOKEN_INVALID").WithMessage("%s", err.Error())
-			log.GetLogger().Error(ctx, "failed to parse token", "error", err)
+			e := berrors.Unauthenticated("MISSING_TOKEN").WithMessage("%s", err.Error())
+			log.GetLogger().Error(ctx, "authentication failed", "error", err)
+			return nil, e
+		}
+		ctx = authn.ContextWithToken(ctx, token)
+
+		claims, err := authenticator.Authenticate(ctx)
+		if err != nil {
+			e := berrors.Unauthenticated("UNAUTHENTICATED").WithMessage("%s", err.Error())
+			log.GetLogger().Error(ctx, "authentication failed", "error", err)
+			return nil, e
+		}
+		if claims.Expired() {
+			e := berrors.Unauthenticated("TOKEN_EXPIRED")
 			return nil, e
 		}
 
-		username, err := retriever.GetUser(ctx, userID)
-		if err != nil {
-			e := errors.Unauthenticated("USER_NOT_FOUND").WithMessage("%s", err.Error())
-			return nil, e
-		}
-
-		ctx = contextx.WithUserID(ctx, userID)
-		ctx = contextx.WithUsername(ctx, username)
+		ctx = authn.ContextWithAuthClaims(ctx, claims)
 		return handler(ctx, req)
 	}
 }
+
+// bearerFromMetadata 从 gRPC incoming metadata 的 Authorization 头取 Bearer token。
+func bearerFromMetadata(ctx context.Context) (string, error) {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return "", errNoToken
+	}
+	vals := md.Get("authorization")
+	if len(vals) == 0 {
+		return "", errNoToken
+	}
+	const prefix = "Bearer "
+	t := vals[0]
+	if !strings.HasPrefix(t, prefix) {
+		return "", errNoToken
+	}
+	return strings.TrimPrefix(t, prefix), nil
+}
+
+type tokenErr struct{ s string }
+
+func (e tokenErr) Error() string { return e.s }
+
+var errNoToken = tokenErr{"missing or malformed Authorization bearer token"}

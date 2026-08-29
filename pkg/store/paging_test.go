@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"testing"
 
 	storev1 "github.com/kalandramo/bald/pkg/conf/gen/go/bald/store/v1"
@@ -112,7 +113,7 @@ func TestFlatten_RejectsOR(t *testing.T) {
 func TestPaging_TranslateMetadata(t *testing.T) {
 	s := NewStore[int](nil) // provider 不参与分页元数据计算，传 nil 不影响 translate
 	// 页码分页元数据
-	where, meta, err := s.translate(&storev1.PagingRequest{Page: u32p(2), PageSize: u32p(10)})
+	where, meta, err := s.translate(context.Background(), &storev1.PagingRequest{Page: u32p(2), PageSize: u32p(10)})
 	require.NoError(t, err)
 	assert.Equal(t, uint32(2), meta.GetCurrentPage().GetValue())
 	assert.Equal(t, uint32(10), meta.GetPageSize())
@@ -120,7 +121,7 @@ func TestPaging_TranslateMetadata(t *testing.T) {
 	assert.Empty(t, meta.GetNextToken())
 
 	// 偏移分页元数据
-	where, meta, err = s.translate(&storev1.PagingRequest{Offset: u64p(20), Limit: u32p(5)})
+	where, meta, err = s.translate(context.Background(), &storev1.PagingRequest{Offset: u64p(20), Limit: u32p(5)})
 	require.NoError(t, err)
 	assert.Equal(t, uint64(20), meta.GetCurrentOffset().GetValue())
 	assert.Equal(t, uint32(5), meta.GetPageSize())
@@ -132,13 +133,13 @@ func TestPaging_TranslateMetadata(t *testing.T) {
 	assert.Equal(t, uint64(100), meta.GetTotal().GetValue())
 	assert.NotEmpty(t, meta.GetNextToken()) // 20+5 < 100 → 有下一页
 
-	lastWhere, lastMeta, err := s.translate(&storev1.PagingRequest{Offset: u64p(95), Limit: u32p(10)})
+	lastWhere, lastMeta, err := s.translate(context.Background(), &storev1.PagingRequest{Offset: u64p(95), Limit: u32p(10)})
 	require.NoError(t, err)
 	fillTotal(lastMeta, 100, lastWhere, opts)
 	assert.Empty(t, lastMeta.GetNextToken()) // 95+10 >= 100 → 末页，不下发
 
 	// 不分页无元数据
-	_, meta, err = s.translate(&storev1.PagingRequest{NoPaging: boolp(true)})
+	_, meta, err = s.translate(context.Background(), &storev1.PagingRequest{NoPaging: boolp(true)})
 	require.NoError(t, err)
 	assert.Nil(t, meta.GetCurrentPage())
 }

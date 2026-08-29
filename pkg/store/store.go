@@ -154,7 +154,7 @@ type PagingResult[T any] struct {
 // ListWithPaging 按 PagingRequest 翻译分页/过滤/排序后列出。
 // 返回 items 与分页元数据（total / current_page / next_token 等）。
 func (s *Store[T]) ListWithPaging(ctx context.Context, req *storev1.PagingRequest) (*PagingResult[T], error) {
-	where, meta, err := s.translate(req)
+	where, meta, err := s.translate(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -173,7 +173,7 @@ func (s *Store[T]) ListWithPaging(ctx context.Context, req *storev1.PagingReques
 // translate 把 PagingRequest 翻译成 Where + 分页元数据骨架。
 // 分页 offset/limit 的解析交由分页策略（pkg/store/paging.go）完成，
 // 与具体策略解耦；本函数仅负责按所选策略填充对应元数据字段。
-func (s *Store[T]) translate(req *storev1.PagingRequest) (*Where, *storev1.PaginationResponseMeta, error) {
+func (s *Store[T]) translate(ctx context.Context, req *storev1.PagingRequest) (*Where, *storev1.PaginationResponseMeta, error) {
 	where := &Where{Sorting: req.GetSorting()}
 	if fe := req.GetFilterExpr(); fe != nil {
 		filters, err := flatten(fe)
@@ -183,6 +183,12 @@ func (s *Store[T]) translate(req *storev1.PagingRequest) (*Where, *storev1.Pagin
 		where.Filters = filters
 	}
 	meta := &storev1.PaginationResponseMeta{}
+
+	// 多租户隔离：租户条件下沉 DAL，自动注入（优先于业务条件，不可被覆盖）。
+	// 即使 NoPaging 全量列出也必须隔离，防止跨租户数据泄漏。
+	mergeTenant(where, ctx)
+	// 数据权限范围：在租户隔离基础上进一步收窄可见行（P9，Viewer 五级范围）。
+	mergeDataScope(where, ctx)
 
 	if req.GetNoPaging() {
 		// 不分页：全量列出，不填页元数据。

@@ -10,6 +10,7 @@ type ctxKeyUserID struct{}
 type ctxKeyUsername struct{}
 type ctxKeyTraceID struct{}
 type ctxKeyRequestID struct{}
+type ctxKeyTenantID struct{}
 
 // WithUserID 将用户 ID 注入 context。
 func WithUserID(ctx context.Context, userID string) context.Context {
@@ -44,7 +45,7 @@ func WithUsername(ctx context.Context, username string) context.Context {
 
 // UsernameFromContext 从 context 读取用户名，缺失返回空串。
 func UsernameFromContext(ctx context.Context) string {
-	if v, ok := ctx.Value(ctxKeyUsername{}).(  string); ok {
+	if v, ok := ctx.Value(ctxKeyUsername{}).(string); ok {
 		return v
 	}
 	return ""
@@ -58,6 +59,19 @@ func WithTraceID(ctx context.Context, traceID string) context.Context {
 // TraceIDFromContext 从 context 读取 TraceID，缺失返回空串。
 func TraceIDFromContext(ctx context.Context) string {
 	if v, ok := ctx.Value(ctxKeyTraceID{}).(string); ok {
+		return v
+	}
+	return ""
+}
+
+// WithTenantID 将租户 ID 注入 context（多租户隔离由 pkg/store 在查询时自动读取）。
+func WithTenantID(ctx context.Context, tenantID string) context.Context {
+	return context.WithValue(ctx, ctxKeyTenantID{}, tenantID)
+}
+
+// TenantIDFromContext 从 context 读取租户 ID，缺失返回空串。
+func TenantIDFromContext(ctx context.Context) string {
+	if v, ok := ctx.Value(ctxKeyTenantID{}).(string); ok {
 		return v
 	}
 	return ""
