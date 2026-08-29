@@ -21,17 +21,14 @@ var (
 	tenantExtractors = map[string]TenantValueFunc{}
 )
 
-// defaultTenantFunc 默认租户维度：读取认证阶段注入的 TenantID（见 pkg/authn）。
-func defaultTenantFunc(ctx context.Context) (string, bool) {
+// DefaultTenantFunc 默认租户维度：读取认证阶段注入的 TenantID（见 pkg/authn）。
+// 多租户应用需显式调用 store.RegisterTenant("tenant_id", store.DefaultTenantFunc)
+// 开启隔离；不在 init 中隐式注册，避免对存量非多租户业务静默注入隔离条件。
+func DefaultTenantFunc(ctx context.Context) (string, bool) {
 	if id := contextx.TenantIDFromContext(ctx); id != "" {
 		return id, true
 	}
 	return "", false
-}
-
-func init() {
-	// 内置默认维度 "tenant_id"，业务可 RegisterTenant 覆盖列名或追加更多维度。
-	tenantExtractors["tenant_id"] = defaultTenantFunc
 }
 
 // RegisterTenant 注册一个租户维度：key 为租户列名，valueFunc 从 context 解析其值。
@@ -52,10 +49,13 @@ func RegisterTenant(key string, valueFunc TenantValueFunc) {
 // 也会对非 NoPaging 列表默认尝试注入（见 mergeTenant）。若 ctx 中无租户值，则该
 // 维度被跳过（等效于"无租户约束"）。
 func (w *Where) T(ctx context.Context) *Where {
-	out := *w
-	out.Filters = append([]*storev1.FilterCondition(nil), w.Filters...)
-	out.Filters = append(out.Filters, tenantConditions(ctx)...)
-	return &out
+	out := &Where{
+		Sorting: w.Sorting,
+		Offset:  w.Offset,
+		Limit:   w.Limit,
+		Filters: append(append([]*storev1.FilterCondition(nil), w.Filters...), tenantConditions(ctx)...),
+	}
+	return out
 }
 
 // tenantConditions 依据全局注册表为当前 ctx 生成所有可用的租户等值条件。
@@ -75,10 +75,11 @@ func tenantConditions(ctx context.Context) []*storev1.FilterCondition {
 // 业务条件不得覆盖隔离列）。
 func mergeTenant(dst *Where, ctx context.Context) {
 	for _, tc := range tenantConditions(ctx) {
-		// 业务已显式写该租户列时，跳过注入（避免重复条件；隔离语义已由业务保证）。
+		// 业务已显式写该租户列（任一操作符）即视为自行承担隔离语义，系统不再
+		// 注入，避免 EQ + 其他 Op（如 NEQ/范围）叠加产生恒假或歧义条件。
 		dup := false
 		for _, f := range dst.Filters {
-			if f.GetField() == tc.GetField() && f.GetOp() == storev1.Operator_EQ {
+			if f.GetField() == tc.GetField() {
 				dup = true
 				break
 			}

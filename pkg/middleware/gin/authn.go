@@ -8,6 +8,7 @@ import (
 	"github.com/kalandramo/bald/pkg/authn"
 	berrors "github.com/kalandramo/bald/pkg/berrors"
 	"github.com/kalandramo/bald/pkg/berrors/httperr"
+	"github.com/kalandramo/bald/pkg/log"
 )
 
 // AuthnMiddleware 是 gin 认证中间件：从 Authorization 头抽取 Bearer token 存入 ctx，
@@ -24,6 +25,7 @@ func AuthnMiddleware(authenticator authn.Authenticator) gin.HandlerFunc {
 		token, err := bearerFromHeader(c.GetHeader("Authorization"))
 		if err != nil {
 			e := berrors.Unauthenticated("MISSING_TOKEN").WithMessage("%s", err.Error())
+			log.GetLogger().Error(c.Request.Context(), "authentication failed", "error", err)
 			c.AbortWithStatusJSON(httperr.StatusCode(e), gin.H{
 				"reason":  e.Reason,
 				"message": e.Message,
@@ -35,20 +37,15 @@ func AuthnMiddleware(authenticator authn.Authenticator) gin.HandlerFunc {
 		claims, err := authenticator.Authenticate(ctx)
 		if err != nil {
 			e := berrors.Unauthenticated("UNAUTHENTICATED").WithMessage("%s", err.Error())
+			log.GetLogger().Error(c.Request.Context(), "authentication failed", "error", err)
 			c.AbortWithStatusJSON(httperr.StatusCode(e), gin.H{
 				"reason":  e.Reason,
 				"message": e.Message,
 			})
 			return
 		}
-		if claims.Expired() {
-			e := berrors.Unauthenticated("TOKEN_EXPIRED")
-			c.AbortWithStatusJSON(httperr.StatusCode(e), gin.H{
-				"reason":  e.Reason,
-				"message": e.Message,
-			})
-			return
-		}
+		// 过期校验已下沉至 Authenticator.Authenticate（实现契约必须校验 ExpiresAt），
+		// 中间件不再重复判断。
 
 		ctx = authn.ContextWithAuthClaims(ctx, claims)
 		c.Request = c.Request.WithContext(ctx)

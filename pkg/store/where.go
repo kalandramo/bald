@@ -27,6 +27,11 @@ func Eq(field, value string) *storev1.FilterCondition {
 	return Cond(field, storev1.Operator_EQ, value)
 }
 
+// Ne 构造一条不等（!=）过滤条件。
+func Ne(field, value string) *storev1.FilterCondition {
+	return Cond(field, storev1.Operator_NEQ, value)
+}
+
 // Gt / Gte / Lt / Lte 构造比较条件。
 func Gt(field, value string) *storev1.FilterCondition {
 	return Cond(field, storev1.Operator_GT, value)

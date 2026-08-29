@@ -141,7 +141,7 @@ require (
 // 注意：tests/integration 是两级目录（tests/integration/），它才用 ../..。
 replace github.com/kalandramo/bald => ..
 
-replace github.com/kalandramo/bald-store-gorm => ../../bald-store-gorm
+replace github.com/kalandramo/bald-store-gorm => ../contrib/store-gorm
 
 replace github.com/go-kratos/kratos/v3/contrib/registry/nacos/v3 => ../../kratos/contrib/registry/nacos
 

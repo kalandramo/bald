@@ -38,12 +38,16 @@ type AuthClaims struct {
 
 // Authenticator 是认证器接口。具体实现（JWT / OIDC / API Key / Basic）外置为
 // 桥接子模块，通过 pkg/registry.RegisterAuthenticator 注册，业务 import _ 即插即用。
+//
+// 实现契约：必须校验凭证过期（AuthClaims.ExpiresAt 非零且早于当前时间时返回 error），
+// 过期判定下沉到本接口，传输层拦截器不应再重复判断 Expired()。
 type Authenticator interface {
 	// Authenticate 从请求 context（含传输层元数据，如 gRPC metadata / gin header）中
-	// 抽取凭证并校验，返回 AuthClaims。失败返回 error（由拦截器映射为 401）。
+	// 抽取凭证并校验（含过期），返回 AuthClaims。失败返回 error（由拦截器映射为 401）。
 	Authenticate(ctx context.Context) (*AuthClaims, error)
 
 	// AuthenticateToken 直接校验一个 token 字符串（用于非 HTTP/gRPC 场景或测试）。
+	// 同样必须校验过期。
 	AuthenticateToken(token string) (*AuthClaims, error)
 }
 

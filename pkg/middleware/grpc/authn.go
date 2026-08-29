@@ -36,10 +36,8 @@ func AuthnInterceptor(authenticator authn.Authenticator) grpc.UnaryServerInterce
 			log.GetLogger().Error(ctx, "authentication failed", "error", err)
 			return nil, e
 		}
-		if claims.Expired() {
-			e := berrors.Unauthenticated("TOKEN_EXPIRED")
-			return nil, e
-		}
+		// 过期校验已下沉至 Authenticator.Authenticate（实现契约必须校验 ExpiresAt），
+		// 拦截器不再重复判断。
 
 		ctx = authn.ContextWithAuthClaims(ctx, claims)
 		return handler(ctx, req)

@@ -36,6 +36,11 @@ func mergeDataScope(dst *Where, ctx context.Context) {
 	fns := append([]DataScopeFunc(nil), dataScopes...)
 	scopeMu.RUnlock()
 	for _, fn := range fns {
-		dst.Filters = append(dst.Filters, fn(ctx, claims)...)
+		for _, c := range fn(ctx, claims) {
+			if c == nil || c.GetField() == "" {
+				continue // 跳过无效条件，避免翻译期拼出非法过滤
+			}
+			dst.Filters = append(dst.Filters, c)
+		}
 	}
 }
