@@ -3,21 +3,39 @@ managed:
   enabled: true
   go_package_prefix:
     # 生成的 .pb.go / .gw.go 的 import path 前缀，与 proto 里 go_package 对齐。
-    default: github.com/kalandramo/bald/_example/bald/gen
+    #
+    # 必须与 _example/go.mod 的 module 名一致：
+    # _example 是独立 module `github.com/kalandramo/bald/example`（P5 依赖治理），
+    # 所以生成代码的 import 路径是 .../example/bald/gen，
+    # 不是 .../bald/_example/bald/gen（后者属核心 module，且 gen/ 已 gitignore）。
+    default: github.com/kalandramo/bald/example/bald/gen
+    # except：列出的 BSR 模块**不套用**上面的前缀，保留其官方 go_package，
+    # 从而由官方 Go 包提供代码，buf 不为它们生成本地副本。
+    #
+    # 这是关键：若把 buf/validate 生成本地副本（gen/buf/validate），会与
+    # protovalidate 官方库注册的同一 proto 文件冲突，运行时直接 panic：
+    #   proto: file "buf/validate/validate.proto" is already registered
+    # googleapis 同理：其 Go 代码由 google.golang.org/genproto 提供。
+    except:
+      - buf.build/googleapis/googleapis
+      - buf.build/bufbuild/protovalidate
 plugins:
+  # out 必须是 gen（与 go_package_prefix 的 default 对齐）。
+  # 曾为 "."，配合 paths=source_relative 会把 greet.pb.go 生成到 _example/bald/ 根目录，
+  # 其 package 为 baldv1，与 main.go 的 package main 冲突，直接破坏 go build ./...。
   # protoc-gen-go：生成 message + gRPC service 接口（pb.go / grpc.pb.go）
   - plugin: go
-    out: .
+    out: gen
     opt:
       - paths=source_relative
   # protoc-gen-go-grpc：生成 *_grpc.pb.go（RegisterXxxServer / ServiceDesc）
   - plugin: go-grpc
-    out: .
+    out: gen
     opt:
       - paths=source_relative
   # protoc-gen-grpc-gateway：生成 *_pb.gw.go（RegisterXxxHandler）
   - plugin: grpc-gateway
-    out: .
+    out: gen
     opt:
       - paths=source_relative
       - generate_unbound_methods=true

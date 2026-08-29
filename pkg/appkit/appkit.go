@@ -35,8 +35,10 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 	"golang.org/x/sync/errgroup"
+	"google.golang.org/protobuf/proto"
 
 	kratosRegistry "github.com/go-kratos/kratos/v3/registry"
+	"github.com/kalandramo/bald/pkg/conf"
 	"github.com/kalandramo/bald/pkg/config"
 	"github.com/kalandramo/bald/pkg/log"
 	"github.com/kalandramo/bald/pkg/registry"
@@ -45,6 +47,9 @@ import (
 
 // 默认优雅停机超时。
 const defaultStopTimeout = 10 * time.Second
+
+// 钩子阶段默认超时为 stopTimeout 的一半，避免总停机时间线性膨胀。
+const defaultHookTimeout = 5 * time.Second
 
 // ErrAlreadyRunning 在重复调用 Run 时返回。
 var ErrAlreadyRunning = errors.New("appkit: Run already in progress")
@@ -57,6 +62,11 @@ type AppKit struct {
 	registrar   registry.Registrar
 	servers     []server.Server
 	stopTimeout time.Duration
+	// 各生命周期阶段独立超时（对照 go-lulu 分阶段停机骨架）。
+	// stopTimeout 用于服务器 Stop 阶段；before/afterStop 钩子各有独立超时，
+	// 避免单个钩子阻塞拖垮整机停机。
+	beforeStopTimeout time.Duration
+	afterStopTimeout  time.Duration
 
 	// 钩子（可选）。
 	beforeStart []func(context.Context) error
@@ -74,14 +84,81 @@ type AppKit struct {
 }
 
 // appConfig 收敛 AppKit 的配置装配输入与加载结果。
-// 装配期输入：cfgFile / remote / env / watchFile / onChange；加载结果：v。
+// 装配期输入：cfgFile / remote / env / watchFile / onChange / bindings；加载结果：v。
 type appConfig struct {
 	cfgFile   string
 	remote    config.RemoteSource
 	env       string
 	watchFile bool
 	onChange  func(*viper.Viper)
+	bindings  []flagBinding
 	v         *viper.Viper
+}
+
+// flagBinding 记录一个待注册进 viper override 层的配置对象及其配置键前缀。
+type flagBinding struct {
+	prefix string
+	opt    any
+}
+
+// PlainBinder 支持"无前缀"注册 flag 的配置对象，键前缀由实现体内置。
+// 例如 log.Options 固定注册 --log.*。
+type PlainBinder interface {
+	AddFlags(fs *pflag.FlagSet)
+}
+
+// Bind 把业务配置对象的 flag 注册进 AppKit 的 FlagSet，从而接入 viper 的
+// override 层，使「业务 flag > env > 本地文件 > 远程」这条优先级链完整生效。
+//
+// 背景：仅调用 AddFlags(pflag.CommandLine, ...) 只把 flag 注册到全局 flagset，
+// config.Load 拿不到它们，flag 层实际只有 --config 生效
+// （见 docs/devel/zh-CN/配置中心设计.md 第 9.1 节）。Bind 即为此缺口的修复。
+//
+// 两种 opt：
+//  1. proto.Message（全栈 proto 驱动推荐）：Bind("http", &bootstrap.Http)。
+//     conf.BindFlags 会遍历 proto 字段描述符生成带前缀的 flag（--http.addr 等），
+//     与 viper 键路径（http.addr）、环境变量（NAME_HTTP_ADDR）、配置文件一致。
+//  2. PlainBinder：opt 自行注册无前缀 flag（键前缀由实现体内置，如 log.Options
+//     的 --log.*），此时 prefix 必须传空字符串。
+//
+// prefix 是配置键前缀（不带末尾点，如 "http"），最终 flag 名为 --http.addr，
+// viper 键为 http.addr，环境变量为 NAME_HTTP_ADDR，配置文件为：
+//
+//	http:
+//	  addr: ":8080"
+//
+// 四者键路径一致，这是 flag 能压过文件与远程的前提。
+//
+// 用法：
+//
+//	appkit.Bind("http", &bootstrap.Http),
+//	appkit.Bind("grpc", &bootstrap.Grpc),
+//	appkit.Bind("", logOpts), // 内置 --log.* 前缀
+//
+// 注意：用了 Bind 之后不要再自行 AddFlags 到 pflag.CommandLine，否则同一配置
+// 有两处注册源（虽然值一致，但语义重复）。
+func Bind(prefix string, opt any) Option {
+	return func(a *AppKit) {
+		a.cfg.bindings = append(a.cfg.bindings, flagBinding{prefix: prefix, opt: opt})
+	}
+}
+
+// bindFlags 把一个 flagBinding 注册进给定 FlagSet。
+func bindFlags(fs *pflag.FlagSet, b flagBinding) error {
+	switch opt := b.opt.(type) {
+	case proto.Message:
+		conf.BindFlags(fs, opt, b.prefix)
+	case PlainBinder:
+		if b.prefix != "" {
+			return fmt.Errorf("appkit: Bind(%q): opt registers its own flag prefix, prefix must be empty", b.prefix)
+		}
+		opt.AddFlags(fs)
+	case nil:
+		return fmt.Errorf("appkit: Bind(%q): opt is nil", b.prefix)
+	default:
+		return fmt.Errorf("appkit: Bind(%q): opt %T is neither a proto.Message (BindFlags) nor a PlainBinder (AddFlags)", b.prefix, b.opt)
+	}
+	return nil
 }
 
 // Option 配置 AppKit。
@@ -127,6 +204,16 @@ func Servers(servers ...server.Server) Option {
 }
 func StopTimeout(d time.Duration) Option { return func(a *AppKit) { a.stopTimeout = d } }
 
+// BeforeStopTimeout / AfterStopTimeout 设置对应钩子阶段的独立超时（默认 defaultHookTimeout）。
+// 与 StopTimeout（服务器 Stop 阶段）分离，避免某个钩子阻塞拖垮整机停机。
+func BeforeStopTimeout(d time.Duration) Option {
+	return func(a *AppKit) { a.beforeStopTimeout = d }
+}
+
+func AfterStopTimeout(d time.Duration) Option {
+	return func(a *AppKit) { a.afterStopTimeout = d }
+}
+
 // BeforeStart / AfterStart / BeforeStop / AfterStop 注册生命周期钩子。
 func BeforeStart(fn func(context.Context) error) Option {
 	return func(a *AppKit) { a.beforeStart = append(a.beforeStart, fn) }
@@ -155,7 +242,9 @@ func New(opts ...Option) *AppKit {
 		id:          hostname(),
 		name:        "bald-app",
 		version:     "v0.0.0",
-		stopTimeout: defaultStopTimeout,
+		stopTimeout:        defaultStopTimeout,
+		beforeStopTimeout: defaultHookTimeout,
+		afterStopTimeout:  defaultHookTimeout,
 		done:        make(chan struct{}),
 	}
 	for _, o := range opts {
@@ -164,16 +253,25 @@ func New(opts ...Option) *AppKit {
 	return a
 }
 
-// loadConfig 在启动期加载配置：本地 --config 文件 + 环境变量 + 可选远程配置中心。
+// loadConfig 在启动期加载配置：本地 --config 文件 + 环境变量 + 业务 flag + 可选远程配置中心。
 // 结果是 a.cfg.v（*viper.Viper），调用方通过 Viper() 读取并 Unmarshal 到业务 options。
 func (a *AppKit) loadConfig() error {
-	fs := pflag.NewFlagSet("config", pflag.ContinueOnError)
+	fs := pflag.NewFlagSet("bald", pflag.ContinueOnError)
 	fs.StringVar(&a.cfg.cfgFile, "config", a.cfg.cfgFile,
 		"Read configuration from specified FILE (JSON/TOML/YAML/HCL/properties); "+
 			"also supports remote provider if RemoteConfig is set.")
-	// 解析命令行 --config（其余业务 flag 如 --http.addr 由调用方自行绑定/解析，
-	// 这里白名单忽略未知 flag，避免因未注册 flag 中断解析）。
+	// 白名单忽略未知 flag，避免未注册的 flag 中断解析。
 	fs.ParseErrorsWhitelist.UnknownFlags = true
+
+	// 注册业务 flag：必须进入本 FlagSet（而非仅 pflag.CommandLine），
+	// 它才会被 config.Options.Flags 传给 viper.BindPFlags 落到 override 层，
+	// 从而压过环境变量、本地文件与远程基准。
+	for _, b := range a.cfg.bindings {
+		if err := bindFlags(fs, b); err != nil {
+			return err
+		}
+	}
+
 	_ = fs.Parse(os.Args[1:])
 
 	v, err := config.Load(config.Options{
@@ -216,17 +314,26 @@ func (a *AppKit) Err() error {
 //   - Stop 传入的 ctx 是未取消的新 ctx（带 stopTimeout），stopTimeout 才有效；
 //   - 信号（SIGINT/SIGTERM）或 ctx 取消触发优雅停机。
 func (a *AppKit) Run(ctx context.Context) error {
-	// 启动期：加载配置（onexstack 风格 --config + 可选远程配置中心）。
-	// 放在防重入 CAS 之前：配置失败不属于"运行中"状态，不应占用 running/done，
-	// 否则失败即重置 running 会打开重入窗口（可能 double close(done)）。
+	// 先占坑（防重入），再加载配置——顺序重要，不可调换。
+	//
+	// 曾把 loadConfig 放在 CAS 之前，理由是「配置失败不属于运行中状态，不应占用
+	// running/done」。但那样做有数据竞争：两个并发 Run 会同时执行 loadConfig，
+	// 并发写 a.cfg.cfgFile（pflag 绑定了其地址）与 a.cfg.v（go test -race 可复现）。
+	// loadConfig 是 Run 的一部分，理应受防重入保护。
+	if !a.running.CompareAndSwap(false, true) {
+		return ErrAlreadyRunning
+	}
+
+	// 配置加载失败：归还 running 以便重试，但**不** close done。
+	// 此时 done 尚未被"认领"（defer close 还没注册），不 close 就不会出现
+	// double close，也就守住了原设计想避免的重入窗口。
 	if err := a.loadConfig(); err != nil {
+		a.running.Store(false)
 		a.runErr.Store(err)
 		return err
 	}
 
-	if !a.running.CompareAndSwap(false, true) {
-		return ErrAlreadyRunning
-	}
+	// 以下两个 defer 必须在 loadConfig 成功之后注册：确保失败路径不 close done。
 	defer a.running.Store(false)
 	defer close(a.done)
 
@@ -322,28 +429,53 @@ func (a *AppKit) Run(ctx context.Context) error {
 	return nil
 }
 
-// stopAll 优雅停止所有服务器。stopCtx 必须是未取消的 ctx，确保 stopTimeout 生效。
+// stopAll 分三阶段优雅停机（对照 go-lulu 分阶段停机骨架）：
+//  1. BeforeStop 钩子（独立超时 beforeStopTimeout，panic 安全不拖垮整机）
+//  2. 各 Server.Stop 并发（独立超时 stopTimeout）
+//  3. AfterStop 钩子（独立超时 afterStopTimeout，panic 安全）
+//
+// 每个阶段使用各自独立的 WithTimeout ctx，互不影响；parent 取消会级联缩短各阶段。
 func (a *AppKit) stopAll(parent context.Context) {
+	// 阶段 1：BeforeStop 钩子。
 	for _, fn := range a.beforeStop {
-		_ = fn(parent)
+		if err := a.runHook(parent, a.beforeStopTimeout, "beforeStop", fn); err != nil {
+			log.GetLogger().Error(parent, "appkit beforeStop hook failed", "error", err)
+		}
 	}
 
+	// 阶段 2：并发停止所有服务器（各自共享 stopTimeout ctx）。
 	stopCtx, cancel := context.WithTimeout(parent, a.stopTimeout)
 	defer cancel()
-
 	var wg sync.WaitGroup
 	for _, s := range a.servers {
 		wg.Add(1)
 		go func(s server.Server) {
 			defer wg.Done()
-			_ = s.Stop(stopCtx)
+			if err := s.Stop(stopCtx); err != nil {
+				log.GetLogger().Error(stopCtx, "appkit server stop failed", "error", err)
+			}
 		}(s)
 	}
 	wg.Wait()
 
+	// 阶段 3：AfterStop 钩子。
 	for _, fn := range a.afterStop {
-		_ = fn(parent)
+		if err := a.runHook(parent, a.afterStopTimeout, "afterStop", fn); err != nil {
+			log.GetLogger().Error(parent, "appkit afterStop hook failed", "error", err)
+		}
 	}
+}
+
+// runHook 在独立超时 ctx 中执行生命周期钩子，并 recover 防止单个钩子 panic 拖垮整机。
+func (a *AppKit) runHook(parent context.Context, timeout time.Duration, name string, fn func(context.Context) error) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("appkit %s hook panicked: %v", name, r)
+		}
+	}()
+	ctx, cancel := context.WithTimeout(parent, timeout)
+	defer cancel()
+	return fn(ctx)
 }
 
 // buildInstance 聚合所有 Server 的 Endpoint 构造 ServiceInstance。

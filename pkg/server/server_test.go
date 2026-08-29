@@ -2,9 +2,11 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -13,8 +15,22 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 
-	baldoptions "github.com/kalandramo/bald/pkg/options"
+	confv1 "github.com/kalandramo/bald/pkg/conf/gen/go/bald/config/v1"
 )
+
+// freeAddr 分配一个当前空闲的 TCP 端口，返回 "127.0.0.1:port"。
+// 网关后端地址必须是「可连接」的（不能是 :0，否则转发时无从得知真实端口），
+// 故测试用本函数取确定端口，而非让后端监听 :0 后再反查。
+func freeAddr(t *testing.T) string {
+	t.Helper()
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("freeAddr: %v", err)
+	}
+	addr := lis.Addr().String()
+	_ = lis.Close()
+	return addr
+}
 
 // 启动一个 server 并等待其 Endpoint 就绪，返回 stop 函数。
 func startAndWait(t *testing.T, srv Server) func() {
@@ -47,7 +63,7 @@ func startAndWait(t *testing.T, srv Server) func() {
 
 // TestHTTPServer_DynamicPort：绑定 ":0" 时 Endpoint 应解析为真实随机端口。
 func TestHTTPServer_DynamicPort(t *testing.T) {
-	opts := &baldoptions.SecureServingOptions{Addr: ":0"}
+	opts := &confv1.Http{Addr: ":0"}
 	srv := NewHTTPServer(opts, http.NewServeMux(), nil)
 	stop := startAndWait(t, srv)
 	defer stop()
@@ -78,14 +94,14 @@ func TestHTTPServer_DynamicPort(t *testing.T) {
 func TestHTTPServer_HTTPS_Scheme(t *testing.T) {
 	// 验证 scheme 判定逻辑：TLS 启用 → https://，否则 http://。
 	// Endpoint 在未监听（Start 前）返回空字符串，故需先启动再校验前缀。
-	tlsSrv := NewHTTPServer(&baldoptions.SecureServingOptions{Addr: ":0", TLSOptions: baldoptions.TLSOptions{Enabled: true}}, http.NewServeMux(), nil)
+	tlsSrv := NewHTTPServer(&confv1.Http{Addr: ":0", Tls: &confv1.Tls{Enabled: true}}, http.NewServeMux(), nil)
 	tlsStop := startAndWait(t, tlsSrv)
 	defer tlsStop()
 	if ep := tlsSrv.Endpoint(); !strings.HasPrefix(ep, "https://") {
 		t.Fatalf("with TLS enabled, scheme = %q, want https://", ep)
 	}
 
-	plain := NewHTTPServer(&baldoptions.SecureServingOptions{Addr: ":0"}, http.NewServeMux(), nil)
+	plain := NewHTTPServer(&confv1.Http{Addr: ":0"}, http.NewServeMux(), nil)
 	plainStop := startAndWait(t, plain)
 	defer plainStop()
 	if ep := plain.Endpoint(); !strings.HasPrefix(ep, "http://") {
@@ -95,7 +111,7 @@ func TestHTTPServer_HTTPS_Scheme(t *testing.T) {
 
 // TestGRPCServer_DynamicPort：绑定 ":0" 时 Endpoint 解析为 grpc://真实端口。
 func TestGRPCServer_DynamicPort(t *testing.T) {
-	opts := &baldoptions.GRPCOptions{Addr: ":0"}
+	opts := &confv1.Grpc{Addr: ":0"}
 	srv := NewGRPCServerWithRegister(opts, nil, nil, nil)
 	stop := startAndWait(t, srv)
 	defer stop()
@@ -111,7 +127,7 @@ func TestGRPCServer_DynamicPort(t *testing.T) {
 
 // TestGRPCServer_HealthRegistered：默认应注册 health 服务（grpc_health_v1）。
 func TestGRPCServer_HealthRegistered(t *testing.T) {
-	opts := &baldoptions.GRPCOptions{Addr: ":0"}
+	opts := &confv1.Grpc{Addr: ":0"}
 	srv := NewGRPCServerWithRegister(opts, nil, nil, nil)
 	// grpc.Server 内部已 RegisterService health；这里仅确认结构体构造正确且可启动。
 	stop := startAndWait(t, srv)
@@ -124,15 +140,16 @@ func TestGRPCServer_HealthRegistered(t *testing.T) {
 // TestGatewayServer_ClosesBackendConn：Stop 网关时应关闭到后端 gRPC 的连接，
 // 防止连接泄漏（文档第 3.5 节标注的自研亮点，必须有回归锁）。
 func TestGatewayServer_ClosesBackendConn(t *testing.T) {
-	// 先起一个真实 gRPC 后端（:0）。
-	backendOpts := &baldoptions.GRPCOptions{Addr: ":0"}
+	// 先起一个真实 gRPC 后端（确定端口，网关才能连上）。
+	backendOpts := &confv1.Grpc{Addr: freeAddr(t)}
 	backend := NewGRPCServerWithRegister(backendOpts, nil, nil, nil)
 	backendStop := startAndWait(t, backend)
 	defer backendStop()
 
-	// 网关指向后端地址。
-	gwOpts := &baldoptions.SecureServingOptions{Addr: ":0"}
-	gw, err := NewGatewayServer(gwOpts, backend.Endpoint(), nil, nil)
+	// 网关指向后端地址（传 *confv1.Grpc 指针，Start 时实时读 addr，
+	// 这样 env/flag 对 grpc.addr 的覆盖也能生效）。
+	gwOpts := &confv1.Http{Addr: freeAddr(t)}
+	gw, err := NewGatewayServer(gwOpts, backendOpts, nil, nil)
 	if err != nil {
 		t.Fatalf("NewGatewayServer: %v", err)
 	}
@@ -159,7 +176,7 @@ func TestGatewayServer_ClosesBackendConn(t *testing.T) {
 
 // TestServer_Serve_SignalDriven：Serve 在独立 ctx 取消时应优雅停机返回。
 func TestServer_Serve_SignalDriven(t *testing.T) {
-	opts := &baldoptions.SecureServingOptions{Addr: ":0"}
+	opts := &confv1.Http{Addr: ":0"}
 	srv := NewHTTPServer(opts, http.NewServeMux(), nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -198,7 +215,7 @@ func getProbe(t *testing.T, srv Server, path string) int {
 // TestHTTPServer_HealthAndReadyz：/healthz 恒 200；/readyz 随 readiness 回调变化。
 func TestHTTPServer_HealthAndReadyz(t *testing.T) {
 	// readiness 默认 nil：/readyz 等同 /healthz，均 200。
-	srv := NewHTTPServer(&baldoptions.SecureServingOptions{Addr: ":0"}, http.NewServeMux(), nil)
+	srv := NewHTTPServer(&confv1.Http{Addr: ":0"}, http.NewServeMux(), nil)
 	stop := startAndWait(t, srv)
 	defer stop()
 
@@ -213,7 +230,7 @@ func TestHTTPServer_HealthAndReadyz(t *testing.T) {
 // TestHTTPServer_Readyz_UnreadyReturns503：readiness 返回 error 时 /readyz 返回 503。
 func TestHTTPServer_Readyz_UnreadyReturns503(t *testing.T) {
 	ready := func(ctx context.Context) error { return fmt.Errorf("db not connected") }
-	srv := NewHTTPServer(&baldoptions.SecureServingOptions{Addr: ":0"}, http.NewServeMux(), ready)
+	srv := NewHTTPServer(&confv1.Http{Addr: ":0"}, http.NewServeMux(), ready)
 	stop := startAndWait(t, srv)
 	defer stop()
 
@@ -229,7 +246,7 @@ func TestHTTPServer_Readyz_UnreadyReturns503(t *testing.T) {
 // TestGRPCServer_ReadinessDrivesHealth：readiness 联动 gRPC health SetServingStatus。
 func TestGRPCServer_ReadinessDrivesHealth(t *testing.T) {
 	ready := func(ctx context.Context) error { return nil } // 就绪
-	srv := NewGRPCServerWithRegister(&baldoptions.GRPCOptions{Addr: ":0"}, nil, nil, ready)
+	srv := NewGRPCServerWithRegister(&confv1.Grpc{Addr: ":0"}, nil, nil, ready)
 	stop := startAndWait(t, srv)
 	defer stop()
 
@@ -252,12 +269,13 @@ func TestGRPCServer_ReadinessDrivesHealth(t *testing.T) {
 
 // TestGatewayServer_ProbesRouted：网关复用 HTTPServer，自动带 /healthz /readyz。
 func TestGatewayServer_ProbesRouted(t *testing.T) {
-	backend := NewGRPCServerWithRegister(&baldoptions.GRPCOptions{Addr: ":0"}, nil, nil, nil)
+	backendOpts := &confv1.Grpc{Addr: freeAddr(t)}
+	backend := NewGRPCServerWithRegister(backendOpts, nil, nil, nil)
 	backendStop := startAndWait(t, backend)
 	defer backendStop()
 
-	gwOpts := &baldoptions.SecureServingOptions{Addr: ":0"}
-	gw, err := NewGatewayServer(gwOpts, backend.Endpoint(), nil, nil)
+	gwOpts := &confv1.Http{Addr: freeAddr(t)}
+	gw, err := NewGatewayServer(gwOpts, backendOpts, nil, nil)
 	if err != nil {
 		t.Fatalf("NewGatewayServer: %v", err)
 	}
@@ -276,12 +294,12 @@ func TestGatewayServer_ProbesRouted(t *testing.T) {
 func TestEndpoint_ResolvesReachableHost(t *testing.T) {
 	cases := []struct {
 		name string
-		http *baldoptions.SecureServingOptions
-		grpc *baldoptions.GRPCOptions
+		http *confv1.Http
+		grpc *confv1.Grpc
 	}{
 		// 两种写法都只指定端口、未指定 IP（通配符绑定），等价于用户「只配端口」的场景。
-		{"dynamic-port", &baldoptions.SecureServingOptions{Addr: ":0"}, &baldoptions.GRPCOptions{Addr: ":0"}},
-		{"port-only", &baldoptions.SecureServingOptions{Addr: ":0"}, &baldoptions.GRPCOptions{Addr: ":0"}},
+		{"dynamic-port", &confv1.Http{Addr: ":0"}, &confv1.Grpc{Addr: ":0"}},
+		{"port-only", &confv1.Http{Addr: ":0"}, &confv1.Grpc{Addr: ":0"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -322,5 +340,125 @@ func TestExtract_ExplicitIPKept(t *testing.T) {
 	}
 	if got != "10.0.0.5:8080" {
 		t.Fatalf("Extract = %q, want 10.0.0.5:8080 (explicit IP kept)", got)
+	}
+}
+
+// TestServer_ConcurrentEndpointDuringStart 回归防护：Start 与 Endpoint 必须并发安全。
+//
+// 场景来自 appkit：Start 在 errgroup goroutine 中执行（写 s.ln），
+// 而 waitForEndpoints 在另一个 goroutine 里以 10ms 间隔轮询 Endpoint()（读 s.ln）。
+// 修复前二者构成数据竞争，go test -race 可稳定复现。
+//
+// 注意：仅靠 -race 还不够，这个测试保证的是「并发调用不 panic 且结果自洽」，
+// 竞争本身由 -race 检测。
+func TestServer_ConcurrentEndpointDuringStart(t *testing.T) {
+	servers := map[string]Server{
+		"http": NewHTTPServer(&confv1.Http{Addr: ":0"}, http.NewServeMux(), nil),
+		"grpc": NewGRPCServerWithRegister(&confv1.Grpc{Addr: ":0"}, nil, nil, nil),
+	}
+
+	for name, srv := range servers {
+		t.Run(name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			started := make(chan error, 1)
+			go func() { started <- srv.Start(ctx) }()
+
+			// 并发轮询 Endpoint，模拟 appkit.waitForEndpoints 的行为。
+			// 抢在 Start 写入 ln 之前就开始读，才可能撞上竞争窗口。
+			pollerDone := make(chan struct{})
+			go func() {
+				defer close(pollerDone)
+				for i := 0; i < 200; i++ {
+					_ = srv.Endpoint()
+					time.Sleep(time.Millisecond)
+				}
+			}()
+
+			// 等待 Endpoint 就绪（Start 已写入 ln）。
+			deadline := time.After(2 * time.Second)
+			for {
+				ep := srv.Endpoint()
+				if ep != "" && !strings.HasSuffix(ep, ":0") {
+					break
+				}
+				select {
+				case <-deadline:
+					cancel()
+					t.Fatal("Endpoint not ready in time")
+				case <-time.After(5 * time.Millisecond):
+				}
+			}
+
+			// Stop 与 Endpoint 同样并发（停机 goroutine vs 注册 goroutine）。
+			stopDone := make(chan struct{})
+			go func() {
+				defer close(stopDone)
+				stopCtx, stopCancel := context.WithTimeout(context.Background(), 2*time.Second)
+				defer stopCancel()
+				_ = srv.Stop(stopCtx)
+			}()
+			for i := 0; i < 20; i++ {
+				_ = srv.Endpoint()
+			}
+
+			<-stopDone
+			cancel()
+			<-started
+			<-pollerDone
+		})
+	}
+}
+
+// TestGRPCServer_StopConcurrentWithStart 回归防护：Stop 读 readinessCancel，
+// Start 写它，二者并发（崩溃级联场景下 errgroup 可能在 Start 完成前触发 Stop）。
+func TestGRPCServer_StopConcurrentWithStart(t *testing.T) {
+	ready := func(context.Context) error { return nil }
+	srv := NewGRPCServerWithRegister(&confv1.Grpc{Addr: ":0"}, nil, nil, ready)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	started := make(chan error, 1)
+	go func() { started <- srv.Start(ctx) }()
+
+	// 不等 Endpoint 就绪就立刻 Stop，制造 Stop 与 Start 的重叠窗口。
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer stopCancel()
+	if err := srv.Stop(stopCtx); err != nil && !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Stop: %v", err)
+	}
+
+	cancel()
+
+	// Start 在本场景下可能返回 grpc.ErrServerStopped：若 Stop 抢在 Serve 真正
+	// 开始接受连接之前执行，GracefulStop 会先关掉 server，随后 Serve 立即返回该错误。
+	// 这是 gRPC 的正常语义，不是缺陷——本测试关心的是并发不 panic 且无数据竞争。
+	if err := <-started; err != nil && !errors.Is(err, grpc.ErrServerStopped) {
+		t.Fatalf("Start: %v", err)
+	}
+}
+
+// TestGRPCServer_StartErrorLeavesNoGoroutine 验证 listen 失败时不会泄漏
+// readiness 轮询 goroutine：轮询改为在 listen 成功之后才启动。
+func TestGRPCServer_StartErrorLeavesNoGoroutine(t *testing.T) {
+	before := runtime.NumGoroutine()
+
+	// 占用一个端口，再让 server 用已被占用的地址启动（Unix 上监听已绑定端口会失败）。
+	occupied, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer occupied.Close()
+
+	ready := func(context.Context) error { return nil }
+	srv := NewGRPCServerWithRegister(
+		&confv1.Grpc{Addr: occupied.Addr().String()}, nil, nil, ready)
+
+	if err := srv.Start(context.Background()); err == nil {
+		t.Fatal("Start succeeded on occupied address, want error")
+	}
+
+	// 给残留 goroutine（若存在）一点时间被调度。
+	time.Sleep(50 * time.Millisecond)
+	if after := runtime.NumGoroutine(); after > before+2 {
+		t.Errorf("goroutine count grew from %d to %d, readiness poller may leak", before, after)
 	}
 }

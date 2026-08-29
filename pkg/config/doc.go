@@ -25,6 +25,19 @@
 // 远程字节经 v.SetConfigType + v.ReadConfig 注入 viper，绕开 viper 标准
 // remote 的「强制 JSON / watch 不可靠 / 无鉴权」缺陷。
 //
+// # Protobuf 配置契约
+//
+// 本包是「加载器」，负责多源合并与热更新；配置的形状（schema）由
+// pkg/conf 的 Protobuf 契约定义。二者通过本包的 Unmarshal 衔接：
+//
+//	cfg := conf.NewBootstrap()          // 默认值 + 强类型
+//	_ = config.Unmarshal(app.Viper(), cfg)  // viper 合并结果 → proto
+//	_ = conf.Validate(cfg)
+//
+// 相比直接 v.Unmarshal(&struct)，收益是字段名与类型编译期可查，
+// 消除 mapstructure tag 字符串匹配导致的静默失效。
+// 详见 docs/devel/zh-CN/proto 配置契约设计.md。
+//
 // # 为什么不用 viper 标准 remote
 //
 // viper 的 AddRemoteProvider / WatchRemoteConfigOnChannel 强制 JSON、watch 不可靠、

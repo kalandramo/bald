@@ -7,9 +7,12 @@ package grpc
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
@@ -17,6 +20,10 @@ import (
 
 	"github.com/kalandramo/bald/pkg/log"
 )
+
+// tracer 是 bald gRPC 层使用的 OpenTelemetry tracer。
+// 未设置全局 TracerProvider 时，otel.Tracer 返回 no-op tracer，零配置也能运行。
+var tracer = otel.Tracer("bald/grpc")
 
 // Standard trace header keys
 const (
@@ -145,6 +152,16 @@ func UnaryObservability(opts ...Option) grpc.UnaryServerInterceptor {
 			return handler(ctx, req)
 		}
 
+		// 真正起一个 span：上游已有 span 则作为 child，否则新建 root。
+		ctx, span := tracer.Start(ctx, info.FullMethod)
+		defer span.End()
+
+		// 把 trace_id/span_id 挂到 ctx 属性流，使本请求范围所有日志自动携带。
+		ctx = log.ContextWithAttrs(ctx,
+			slog.String("trace_id", trace.SpanContextFromContext(ctx).TraceID().String()),
+			slog.String("span_id", trace.SpanContextFromContext(ctx).SpanID().String()),
+		)
+
 		// Extract trace information early
 		spanCtx := trace.SpanContextFromContext(ctx)
 
@@ -171,6 +188,9 @@ func UnaryObservability(opts ...Option) grpc.UnaryServerInterceptor {
 
 		duration := time.Since(start).Seconds()
 
+		// 把状态码作为 span 属性，便于链路追踪侧按状态过滤。
+		span.SetAttributes(attribute.String("grpc.code", status.Code(err).String()))
+
 		// Build structured log
 		event := map[string]any{"duration": duration}
 		source := map[string]any{"id": spanCtx.TraceID().String()}
@@ -183,6 +203,7 @@ func UnaryObservability(opts ...Option) grpc.UnaryServerInterceptor {
 			grpcData["response"] = responseInfo
 		}
 
+		// ctx 已携带 trace_id/span_id 属性，日志自动附带。
 		if isDebugLevel {
 			config.Logger.Debug(ctx, "gRPC request completed",
 				"event", event,
@@ -227,8 +248,16 @@ func StreamObservability(opts ...Option) grpc.StreamServerInterceptor {
 			return handler(srv, ss)
 		}
 
-		// Extract trace information early
+		// 真正起一个 span，并把 trace_id/span_id 挂到 ctx 属性流。
 		ctx := ss.Context()
+		ctx, span := tracer.Start(ctx, info.FullMethod)
+		defer span.End()
+		ctx = log.ContextWithAttrs(ctx,
+			slog.String("trace_id", trace.SpanContextFromContext(ctx).TraceID().String()),
+			slog.String("span_id", trace.SpanContextFromContext(ctx).SpanID().String()),
+		)
+
+		// Extract trace information early
 		spanCtx := trace.SpanContextFromContext(ctx)
 
 		// Inject trace headers into outgoing metadata
@@ -242,6 +271,9 @@ func StreamObservability(opts ...Option) grpc.StreamServerInterceptor {
 
 		duration := time.Since(start).Seconds()
 
+		// 把状态码作为 span 属性。
+		span.SetAttributes(attribute.String("grpc.code", status.Code(err).String()))
+
 		event := map[string]any{"duration": duration}
 		source := map[string]any{"id": spanCtx.TraceID().String()}
 		grpcData := map[string]any{
@@ -249,6 +281,7 @@ func StreamObservability(opts ...Option) grpc.StreamServerInterceptor {
 			"code":    status.Code(err).String(),
 		}
 
+		// ctx 已携带 trace_id/span_id 属性，日志自动附带。
 		if config.Logger.Enabled(log.LevelDebug) {
 			config.Logger.Debug(ctx, "gRPC stream completed",
 				"event", event,

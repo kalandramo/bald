@@ -3,7 +3,7 @@
 // 设计取舍：本包强绑定 gin（直接消费 *gin.Context），因此只支持 gin 与
 // grpc-gateway（后者复用同一套 biz/handler 逻辑，经 grpc-gateway 的 HTTP
 // transcoding 落到 gin 之外的标准库 http）。这与 onexstack 的 pkg/core 思路一致，
-// 但错误语义复用 bald 自有的 pkg/errors（传输中立的 Code/Reason）。
+// 但错误语义复用 bald 自有的 pkg/berrors（传输中立的 Code/Reason）。
 //
 // 业务只需实现一个 Handler：
 //
@@ -23,14 +23,14 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/kalandramo/bald/pkg/errors"
+	"github.com/kalandramo/bald/pkg/berrors"
 )
 
 // Handler 是业务处理函数：接收已绑定并校验的请求指针 *T，返回响应 R 或 error。
 // 与 onexstack core.Handler 完全一致。
 type Handler[T any, R any] func(ctx context.Context, req *T) (R, error)
 
-// Validator 是请求校验器。校验错误应返回 pkg/errors 中标识为校验错误的错误
+// Validator 是请求校验器。校验错误应返回 pkg/berrors 中标识为校验错误的错误
 // （如 errors.BadRequest），从而被 ErrorResponse 统一映射为 HTTP 400。
 type Validator[T any] func(ctx context.Context, req *T) error
 

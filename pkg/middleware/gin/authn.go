@@ -6,7 +6,8 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/kalandramo/bald/pkg/contextx"
-	"github.com/kalandramo/bald/pkg/errors"
+	"github.com/kalandramo/bald/pkg/berrors"
+	"github.com/kalandramo/bald/pkg/berrors/httperr"
 )
 
 // TokenExtractor 从 gin.Context 中解析出用户 ID。具体 token 形态（JWT / session
@@ -26,7 +27,7 @@ func AuthnMiddleware(extractor TokenExtractor, retriever UserRetriever) gin.Hand
 		userID, err := extractor.Extract(c.Request.Context(), c)
 		if err != nil {
 			e := errors.Unauthenticated("TOKEN_INVALID").WithMessage("%s", err.Error())
-			c.AbortWithStatusJSON(e.StatusCode(), gin.H{
+			c.AbortWithStatusJSON(httperr.StatusCode(e), gin.H{
 				"reason":  e.Reason,
 				"message": e.Message,
 			})
@@ -36,7 +37,7 @@ func AuthnMiddleware(extractor TokenExtractor, retriever UserRetriever) gin.Hand
 		username, err := retriever.GetUser(c.Request.Context(), userID)
 		if err != nil {
 			e := errors.Unauthenticated("USER_NOT_FOUND").WithMessage("%s", err.Error())
-			c.AbortWithStatusJSON(e.StatusCode(), gin.H{
+			c.AbortWithStatusJSON(httperr.StatusCode(e), gin.H{
 				"reason":  e.Reason,
 				"message": e.Message,
 			})

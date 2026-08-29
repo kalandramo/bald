@@ -5,6 +5,7 @@ package bald.v1;
 option go_package = "github.com/kalandramo/bald/_example/bald/gen/baldv1;baldv1";
 
 import "google/api/annotations.proto";
+import "buf/validate/validate.proto";
 
 // GreetService 演示 grpc-gateway transcoding：同一个 Greet RPC 同时暴露
 // 为 gRPC 接口与 REST/JSON 接口，无需业务写两遍。
@@ -27,12 +28,28 @@ service GreetService {
   }
 }
 
+// GreetRequest 演示「声明式校验规则写在 proto 注解里」。
+//
+// 这些 buf.validate 注解是**契约的一部分**：前后端、gRPC/HTTP 多入口共享同一份规则，
+// 由 protovalidate 在运行时读取执行（无需代码生成插件，普通 protoc-gen-go 即可）。
+//
+// 注解表达不了的复杂逻辑（查库、权限比对、跨字段动态判断）才用手写 Go，
+// 见 _example/bald/register_grpcgw.go 的 greetRequestValidator。
 message GreetRequest {
-  string name = 1;
+  // name 必填、长度 1-32、仅允许字母数字下划线与连字符。
+  string name = 1 [(buf.validate.field).string = {
+    min_len: 1,
+    max_len: 32,
+    pattern: "^[A-Za-z0-9_-]+$"
+  }];
 }
 
 message GreetGetRequest {
-  string name = 1;
+  string name = 1 [(buf.validate.field).string = {
+    min_len: 1,
+    max_len: 32,
+    pattern: "^[A-Za-z0-9_-]+$"
+  }];
 }
 
 message GreetResponse {

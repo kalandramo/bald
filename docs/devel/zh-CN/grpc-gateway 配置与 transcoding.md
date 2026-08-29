@@ -16,7 +16,7 @@ _example/bald/
 │   ├── greet.proto         # 真实 proto + google.api.http 注解
 │   ├── buf.yaml            # buf 模块配置（依赖 googleapis）
 │   └── buf.gen.yaml        # 生成器配置（go / go-grpc / grpc-gateway）
-├── Makefile                # `make proto` 触发 buf generate
+├── Taskfile.yml            # `task proto` 触发 buf generate（跨平台，Windows 亦可用）
 └── gen/baldv1/             # buf generate 产物（.pb.go / _grpc.pb.go / _pb.gw.go）
 ```
 
@@ -65,7 +65,7 @@ go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-grpc-gateway@lat
 
 ```bash
 cd _example/bald
-make proto        # buf generate proto --template proto/buf.gen.yaml
+task proto        # buf generate proto --template proto/buf.gen.yaml
 go mod tidy       # 首次会把 grpc-gateway/v2 等写入 go.mod
 ```
 
@@ -81,7 +81,12 @@ go mod tidy       # 首次会把 grpc-gateway/v2 等写入 go.mod
 bald 的 `pkg/server` 已预留两个载体：
 
 - **gRPC**：`server.NewGRPCServerWithRegister(opts, unary, func(s *grpc.Server){ pb.RegisterXxxServer(s, impl) }, ready)`
-- **gateway**：`server.NewGatewayServer(httpOpts, grpcAddr, func(ctx, mux, conn){ gw.RegisterXxxHandler(ctx, mux, conn) }, ready)`
+- **gateway**：`server.NewGatewayServer(httpOpts, grpcBackend, func(ctx, conn){ mux := runtime.NewServeMux(); gw.RegisterXxxHandler(ctx, mux, conn); return mux, nil }, ready)`
+
+  其中 `grpcBackend` 是 `*confv1.Grpc` 指针（**不是**固化字符串）：网关在 `Start`
+  时才读 `grpcBackend.GetAddr()`，因此 env/flag 对 `grpc.addr` 的覆盖能正确生效；
+  若传构造期快照字符串，会锁死默认端口（如 `:9090`），导致测试用 `t.Setenv`
+  覆盖地址无效。
 
 `register_grpcgw.go`（build tag `grpcgw`）即此接线示例：
 

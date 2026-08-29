@@ -5,7 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/kalandramo/bald/pkg/errors"
+	"github.com/kalandramo/bald/pkg/berrors"
 )
 
 // Defaulter 由请求结构体可选实现，在所有绑定完成后填充默认值。

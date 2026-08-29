@@ -6,7 +6,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/kalandramo/bald/pkg/errors"
+	"github.com/kalandramo/bald/pkg/berrors"
+	"github.com/kalandramo/bald/pkg/berrors/httperr"
 )
 
 // ErrorBody 是统一的 JSON 错误响应体，对齐 onexstack core.ErrorBody。
@@ -46,7 +47,7 @@ func ErrorResponse(c *gin.Context, err error) {
 	} else {
 		werr = errors.Internal(err.Error())
 	}
-	c.JSON(werr.StatusCode(), ErrorBody{
+	c.JSON(httperr.StatusCode(werr), ErrorBody{
 		Error: ErrorDetail{
 			Code:    werr.Reason,
 			Message: werr.Message,

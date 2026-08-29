@@ -23,19 +23,18 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/pflag"
 
-	baldlog "github.com/kalandramo/bald/pkg/log"
 	"github.com/kalandramo/bald/pkg/appkit"
-	baldoptions "github.com/kalandramo/bald/pkg/options"
+	baldconf "github.com/kalandramo/bald/pkg/conf"
+	baldlog "github.com/kalandramo/bald/pkg/log"
 	"github.com/kalandramo/bald/pkg/registry/inmemory"
 	"github.com/kalandramo/bald/pkg/server"
 	"github.com/kalandramo/bald/pkg/web"
-	mid "github.com/kalandramo/bald/pkg/middleware/gin"
 )
 
 func main() {
-	httpOpts := baldoptions.NewSecureServingOptions()
-	httpOpts.Addr = ":8080"
-	grpcOpts := baldoptions.NewGRPCOptions()
+	// 框架级配置：proto 是唯一真相源。server 直接消费 Bootstrap 子消息。
+	bootstrap := baldconf.NewBootstrap()
+	bootstrap.Http.Addr = ":8080"
 
 	// 日志系统接入（进程入口 bootstrap 全局 Logger）。
 	logOpts := baldlog.NewOptions()
@@ -43,8 +42,9 @@ func main() {
 	baldlog.SetLogger(baldlog.NewSlogLogger(logOpts))
 	logger := baldlog.GetLogger()
 
-	httpOpts.AddFlags(pflag.CommandLine, baldoptions.Join("bald-gin", "http"))
-	grpcOpts.AddFlags(pflag.CommandLine, baldoptions.Join("bald-gin", "grpc"))
+	// 框架级 flag 注册（直接到 pflag.CommandLine，接入 viper override 层）。
+	baldconf.BindFlags(pflag.CommandLine, bootstrap.GetHttp(), "bald-gin.http")
+	baldconf.BindFlags(pflag.CommandLine, bootstrap.GetGrpc(), "bald-gin.grpc")
 
 	ready := func(ctx context.Context) error { return nil }
 
@@ -81,7 +81,7 @@ func main() {
 	})
 
 	// 直接把 gin.Engine 作为 http.Handler 交给 bald 服务器层。
-	httpSrv := server.NewHTTPServer(httpOpts, engine, ready)
+	httpSrv := server.NewHTTPServer(bootstrap.GetHttp(), engine, ready)
 
 	app := appkit.New(
 		appkit.Name("bald-gin"),

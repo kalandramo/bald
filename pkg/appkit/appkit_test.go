@@ -3,6 +3,7 @@ package appkit
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"net/url"
@@ -14,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	baldoptions "github.com/kalandramo/bald/pkg/options"
+	confv1 "github.com/kalandramo/bald/pkg/conf/gen/go/bald/config/v1"
 	"github.com/kalandramo/bald/pkg/registry"
 	"github.com/kalandramo/bald/pkg/server"
 )
@@ -118,27 +119,22 @@ func TestRun_NoReentrant(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	var firstErr, secondErr error
-	done1 := make(chan struct{})
-	go func() {
-		defer close(done1)
-		firstErr = app.Run(ctx)
-	}()
+	// 用 channel 传递结果：直接读写共享变量并与轮询并发会构成数据竞争
+	// （go test -race 可复现），必须经 channel 建立 happens-before。
+	done1 := make(chan error, 1)
+	done2 := make(chan error, 1)
+	go func() { done1 <- app.Run(ctx) }()
 	go func() {
 		time.Sleep(5 * time.Millisecond)
-		secondErr = app.Run(ctx)
+		done2 <- app.Run(ctx)
 	}()
 
 	// 等待第二个 Run 返回后，让第一个 Run 正常退出。
-	for secondErr == nil {
-		time.Sleep(2 * time.Millisecond)
-	}
-	if secondErr != ErrAlreadyRunning {
-		t.Fatalf("expected ErrAlreadyRunning, got %v", secondErr)
+	if err := <-done2; err != ErrAlreadyRunning {
+		t.Fatalf("expected ErrAlreadyRunning, got %v", err)
 	}
 	cancel() // 让首个 Run 通过 ctx 取消退出（模拟停机信号）
-	<-done1
-	_ = firstErr
+	_ = <-done1
 }
 
 // 可观察性：Run 结束后 Done() 应关闭。
@@ -162,6 +158,86 @@ func TestObservability_DoneAndErr(t *testing.T) {
 	}
 	if app.Err() != nil {
 		t.Fatalf("expected nil err, got %v", app.Err())
+	}
+}
+
+// TestRun_ConfigLoadFailureAllowsRetry 验证配置加载失败可回收重入槽：
+// 失败时归还 running 但不 close done，因此后续仍可重试 Run。
+//
+// 这是 loadConfig 移到防重入 CAS 之后时必须保住的语义：原实现把 loadConfig
+// 放在 CAS 之前正是为了「配置失败不占用 running/done」，改顺序后需用
+// 「显式归还 running + 不注册 defer close」来等价实现。
+func TestRun_ConfigLoadFailureAllowsRetry(t *testing.T) {
+	withArgs(t, []string{})
+
+	// 用一个必然失败的 Bind 让 loadConfig 返回错误。
+	a := New(Name("retry"), Bind("http", struct{}{}))
+
+	if err := a.Run(context.Background()); err == nil {
+		t.Fatal("Run succeeded, want config load error")
+	}
+
+	// done 不应被关闭：本次 Run 从未真正进入运行态。
+	select {
+	case <-a.Done():
+		t.Fatal("Done() closed after config load failure, should stay open")
+	default:
+	}
+
+	// running 已归还，仍可再次尝试（此处仍会因同样的配置错误失败，但不应
+	// 返回 ErrAlreadyRunning，否则说明重入槽泄漏）。
+	secondErr := a.Run(context.Background())
+	if secondErr == nil {
+		t.Fatal("second Run succeeded, want config load error")
+	}
+	if errors.Is(secondErr, ErrAlreadyRunning) {
+		t.Fatal("second Run returned ErrAlreadyRunning: running slot leaked after config failure")
+	}
+}
+
+// TestRun_ConcurrentLoadConfigSafe 回归防护：并发 Run 不得并发执行 loadConfig。
+//
+// 修复前 loadConfig 位于防重入 CAS 之前，两个并发 Run 会同时执行它，
+// 并发写 a.cfg.cfgFile（pflag 绑定了该字段的地址）与 a.cfg.v，
+// go test -race 可稳定复现。
+func TestRun_ConcurrentLoadConfigSafe(t *testing.T) {
+	withArgs(t, []string{})
+
+	srv := newMock("concurrent")
+	a := New(Name("concurrent"), Servers(srv))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	const total = 4
+	results := make(chan error, total)
+	for i := 0; i < total; i++ {
+		go func() { results <- a.Run(ctx) }()
+	}
+
+	// 恰好一个 Run 成功进入运行态，其余立即返回 ErrAlreadyRunning。
+	// 注意：成功的那个会一直阻塞在 mock 的 startBlock 上，
+	// 所以先收 total-1 个 ErrAlreadyRunning，再取消 ctx 收尾。
+	for i := 0; i < total-1; i++ {
+		select {
+		case err := <-results:
+			if !errors.Is(err, ErrAlreadyRunning) {
+				t.Fatalf("Run #%d = %v, want ErrAlreadyRunning", i+1, err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("Run #%d did not return in time", i+1)
+		}
+	}
+
+	// 收尾：取消 ctx，让仍在运行态的那个 Run 退出。
+	cancel()
+	select {
+	case err := <-results:
+		if err != nil {
+			t.Fatalf("the running Run returned %v after cancel, want nil", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the running Run did not exit after cancel")
 	}
 }
 
@@ -199,6 +275,151 @@ func TestRegistry_RegisterDeregister(t *testing.T) {
 	}
 	if reg.instance.ID != "node-1" || reg.instance.Name != "svc" {
 		t.Fatalf("unexpected instance meta: %+v", reg.instance)
+	}
+}
+
+// P0：分阶段停机顺序与独立超时。
+// 验证顺序为 beforeStop -> server.Stop -> afterStop，且各阶段用各自独立超时 ctx。
+func TestP0_StopPhasesOrderAndTimeout(t *testing.T) {
+	var mu sync.Mutex
+	var order []string
+	record := func(s string) {
+		mu.Lock()
+		order = append(order, s)
+		mu.Unlock()
+	}
+
+	srv := newMock("phased")
+	srv.stopDelay = 5 * time.Millisecond
+
+	app := New(
+		Name("phased"),
+		StopTimeout(50*time.Millisecond),
+		BeforeStopTimeout(20*time.Millisecond),
+		AfterStopTimeout(20*time.Millisecond),
+		Servers(srv),
+		BeforeStop(func(ctx context.Context) error {
+			record("beforeStop")
+			// 阶段1 应拿到的 ctx 有自己的 deadline（独立超时）。
+			if _, ok := ctx.Deadline(); !ok {
+				t.Error("beforeStop ctx has no deadline")
+			}
+			return nil
+		}),
+		AfterStop(func(ctx context.Context) error {
+			record("afterStop")
+			if _, ok := ctx.Deadline(); !ok {
+				t.Error("afterStop ctx has no deadline")
+			}
+			return nil
+		}),
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		cancel()
+	}()
+
+	if err := app.Run(ctx); err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+
+	mu.Lock()
+	got := append([]string(nil), order...)
+	mu.Unlock()
+	want := []string{"beforeStop", "afterStop"}
+	if len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("stop phase order = %v, want %v", got, want)
+	}
+	if !srv.stopped.Load() {
+		t.Fatal("expected server stopped between phases")
+	}
+}
+
+// P0：生命周期钩子 panic 不应拖垮整机停机（recover 隔离）。
+func TestP0_HookPanicIsolated(t *testing.T) {
+	srv := newMock("panichook")
+	srv.stopDelay = 2 * time.Millisecond
+
+	app := New(
+		Name("panichook"),
+		Servers(srv),
+		BeforeStop(func(ctx context.Context) error {
+			panic("boom in beforeStop")
+		}),
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		cancel()
+	}()
+
+	// Run 应正常返回（panic 被 recover 隔离），且服务器仍被停止。
+	if err := app.Run(ctx); err != nil {
+		t.Fatalf("Run should not fail on hook panic, got: %v", err)
+	}
+	if !srv.stopped.Load() {
+		t.Fatal("expected server stopped despite hook panic")
+	}
+}
+
+// P1：泛型注册表 + 重名防护 + 并发安全。
+func TestP1_Registry(t *testing.T) {
+	r := NewRegistry[string]()
+	if err := r.Register("a", "1"); err != nil {
+		t.Fatalf("register a: %v", err)
+	}
+	if err := r.Register("a", "x"); err == nil {
+		t.Fatal("expected duplicate register error")
+	}
+	if err := r.Register("b", "2"); err != nil {
+		t.Fatalf("register b: %v", err)
+	}
+	if v, ok := r.Get("a"); !ok || v != "1" {
+		t.Fatalf("get a = %q,%v", v, ok)
+	}
+	if _, ok := r.Get("missing"); ok {
+		t.Fatal("get missing should be false")
+	}
+	if got := r.List(); len(got) != 2 || got[0] != "a" || got[1] != "b" {
+		t.Fatalf("list = %v, want [a b]", got)
+	}
+
+	// 并发注册不 panic / 不数据竞争。
+	var wg sync.WaitGroup
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_ = r.Register(fmt.Sprintf("c%d", i), "v")
+		}(i)
+	}
+	wg.Wait()
+	if len(r.List()) != 52 {
+		t.Fatalf("after concurrent register list len = %d, want 52", len(r.List()))
+	}
+}
+
+// P1：存储 Provider 注册点可被桥接子模块经 init 自注册后按名获取。
+func TestP1_StoreProviderRegistry(t *testing.T) {
+	// 模拟 bald-store-gorm/register 的 init() 自注册。
+	RegisterStoreProvider("gorm", func() string { return "gorm-provider" })
+
+	factory, ok := ProviderRegistry.Get("gorm")
+	if !ok {
+		t.Fatal("gorm provider not registered")
+	}
+	fn, ok := factory.(func() string)
+	if !ok {
+		t.Fatalf("factory type = %T, want func() string", factory)
+	}
+	if fn() != "gorm-provider" {
+		t.Fatal("unexpected factory result")
+	}
+	if names := ProviderRegistry.List(); len(names) != 1 || names[0] != "gorm" {
+		t.Fatalf("provider list = %v, want [gorm]", names)
 	}
 }
 
@@ -315,8 +536,8 @@ func TestAppKit_ConfigMissingFileNoError(t *testing.T) {
 // 验证 buildInstance 正确聚合多个 :0 动态端口后的 Endpoint。
 func TestAppKit_MultiServerEndpointAggregation(t *testing.T) {
 	reg := &recordingRegistrar{}
-	httpSrv := server.NewHTTPServer(&baldoptions.SecureServingOptions{Addr: ":0"}, http.NewServeMux(), nil)
-	grpcSrv := server.NewGRPCServerWithRegister(&baldoptions.GRPCOptions{Addr: ":0"}, nil, nil, nil)
+	httpSrv := server.NewHTTPServer(&confv1.Http{Addr: ":0"}, http.NewServeMux(), nil)
+	grpcSrv := server.NewGRPCServerWithRegister(&confv1.Grpc{Addr: ":0"}, nil, nil, nil)
 
 	app := New(
 		ID("node-multi"),

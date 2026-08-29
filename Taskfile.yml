@@ -1,0 +1,124 @@
+# bald 顶层构建入口（Taskfile 版，跨平台兼容 Windows/macOS/Linux）
+#
+# 替代原 Makefile，使用 go-task（https://taskfile.dev）。安装：
+#   go install github.com/go-task/task/v3/cmd/task@latest
+# 用法：
+#   task help            列出全部任务
+#   task verify          CI 全量验证
+#   task example-e2e     运行 _example 的 REST+gRPC e2e 回归
+#
+# 说明：
+# - 所有跨目录命令改用 `dir:` 字段而非 `cd`，避免 Windows cmd/pwsh 的 cd/shell 差异。
+# - 平台相关检测（如「命令是否在 PATH」）用 `task` 内置的 `sh`/`bash` 平台判定，
+#   而非 Make 的 `@command -v`，从而 Windows 下也能跑。
+# - protoc-gen-defaults 的 pin 版本，须与 .bingo/protoc-gen-defaults.mod 保持一致。
+
+version: "3"
+
+vars:
+  PROTOC_GEN_DEFAULTS_VERSION: v0.0.0-20260626125723-668db92c2c00
+
+# Windows 下用 pwsh，其余用 bash；命令缺省走 bash 即可，需 shell 特性时显式指定。
+tasks:
+  help:
+    desc: 显示帮助
+    cmds:
+      - task --list
+
+  tools-protoc-gen-defaults:
+    desc: 确保 protoc-gen-defaults 在 PATH；缺失则按 pin 版本安装到 GOBIN
+    cmds:
+      - cmd: command -v protoc-gen-defaults >/dev/null 2>&1 || go install github.com/onexstack/protoc-gen-defaults@{{.PROTOC_GEN_DEFAULTS_VERSION}}
+        platforms: [linux, darwin]
+      - cmd: where protoc-gen-defaults >nul 2>nul || go install github.com/onexstack/protoc-gen-defaults@{{.PROTOC_GEN_DEFAULTS_VERSION}}
+        platforms: [windows]
+
+  tools:
+    desc: 安装生成期工具链（protoc-gen-defaults 等）
+    deps: [tools-protoc-gen-defaults]
+
+  proto:
+    desc: 生成全部 Protobuf 代码
+    deps: [proto-config]
+
+  proto-config:
+    desc: 生成框架级配置契约（api/proto → pkg/conf/gen/go）
+    deps: [tools-protoc-gen-defaults]
+    dir: api/proto
+    cmds:
+      - buf generate
+
+  # 生成示例的 gRPC 服务代码（需 protoc-gen-go-grpc / protoc-gen-grpc-gateway 等）。
+  # 直接调 _example/bald 目录下的等效生成命令，不再递归调用子 Makefile。
+  proto-example:
+    desc: 生成示例的 gRPC/gRPC-Gateway 服务代码（需 protoc-gen-go-grpc 等）
+    dir: _example/bald
+    cmds:
+      - cmd: cd proto && buf dep update || true
+        platforms: [linux, darwin]
+      - cmd: pushd proto && (buf dep update || exit /b 0) && popd
+        platforms: [windows]
+      - buf generate proto --template proto/buf.gen.yaml
+
+  # ---------------------------------------------------------------------------
+  # _example 是独立 module（module github.com/kalandramo/bald/example，见 P5 治理），
+  # 且目录以下划线开头 —— Go 工具链会忽略它，因此默认的 `go build ./...` /
+  # `go test ./...` / `go mod tidy` 都**不会**覆盖 example。
+  # 这是它的编译错误曾长期被掩盖的根因，故这里提供显式任务供 CI 使用。
+  # ---------------------------------------------------------------------------
+
+  example-tidy:
+    desc: 整理 _example 模块依赖（重依赖只进该模块，不进核心）
+    dir: _example
+    cmds:
+      - go mod tidy
+
+  example-build:
+    desc: 编译 _example（默认 tag）
+    dir: _example
+    cmds:
+      - go build ./...
+
+  # grpcgw 路径需要 protoc 生成产物（gen/，已 gitignore），故先生成再编译。
+  # 这是唯一能验证 register_grpcgw.go 的任务 —— 该文件带 build tag，平时不参与编译。
+  example-build-grpcgw:
+    desc: 编译 _example（grpcgw tag，需 buf + 生成产物）
+    deps: [proto-example]
+    dir: _example
+    cmds:
+      - go build -tags grpcgw ./...
+
+  example-vet:
+    desc: 静态检查 _example（默认 tag）
+    dir: _example
+    cmds:
+      - go vet ./...
+
+  # e2e：启动**真实的** AppKit（HTTP + gRPC + 校验链路），用 gRPC 客户端调用，
+  # 验证请求校验的两层机制都生效（proto 注解 + 手写 Go）。
+  # 这是长期保留的回归测试，改校验链路/proto 注解/拦截器接线后都应重跑。
+  # 依赖 proto 生成产物，故 depend on proto-example。
+  example-e2e:
+    desc: 运行 _example 的 e2e 回归测试（grpcgw）
+    deps: [proto-example]
+    dir: _example
+    cmds:
+      - go test -tags grpcgw ./bald/ -v
+
+  test:
+    desc: 运行核心模块全部测试（不含 _example，见 example-* 任务）
+    cmds:
+      - go test ./...
+
+  build:
+    desc: 编译核心模块全部包（不含 _example，见 example-build）
+    cmds:
+      - go build ./...
+
+  # 全量验证：核心 + example（默认 tag 与 grpcgw tag）。
+  # CI 建议跑这个，而不是只跑 `go build ./...`。
+  verify:
+    desc: 全量验证（核心 + example）
+    deps: [build, test, example-build, example-vet]
+    cmds:
+      - cmd: 'echo "verify: core + example OK（grpcgw 需 buf，见 example-build-grpcgw）"'

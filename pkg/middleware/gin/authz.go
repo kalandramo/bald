@@ -4,7 +4,8 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/kalandramo/bald/pkg/contextx"
-	"github.com/kalandramo/bald/pkg/errors"
+	"github.com/kalandramo/bald/pkg/berrors"
+	"github.com/kalandramo/bald/pkg/berrors/httperr"
 	"github.com/kalandramo/bald/pkg/log"
 )
 
@@ -29,7 +30,7 @@ func AuthzMiddleware(authorizer Authorizer) gin.HandlerFunc {
 				"access denied: subject=%s, object=%s, action=%s, reason=%v",
 				subject, object, action, err,
 			)
-			c.AbortWithStatusJSON(e.StatusCode(), gin.H{
+			c.AbortWithStatusJSON(httperr.StatusCode(e), gin.H{
 				"reason":  e.Reason,
 				"message": e.Message,
 			})

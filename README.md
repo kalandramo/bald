@@ -16,10 +16,10 @@ bald/
 │   │   ├── http_server.go    # net/http（支持 HTTP/HTTPS，动态端口+可达 IP 解析）
 │   │   ├── grpc_server.go    # google.golang.org/grpc（自带 health + reflection）
 │   │   └── gateway_server.go # grpc-gateway 反向代理
-│   ├── web/                 # 强绑定 gin 的「绑定/校验/响应」流水线（依赖 gin + pkg/errors）
+│   ├── web/                 # 强绑定 gin 的「绑定/校验/响应」流水线（依赖 gin + pkg/berrors）
 │   │   ├── handler.go        # 泛型 HandleJSON/URI/Query/AllRequest：绑定→校验→响应（吃 *gin.Context）
 │   │   ├── binder.go         # ShouldBindAll：URI>Query>JSON 依次覆盖 + Defaulter 默认填充
-│   │   └── response.go       # 统一响应 + 错误→HTTP 状态码映射（pkg/errors）+ ErrorBody
+│   │   └── response.go       # 统一响应 + 错误→HTTP 状态码映射（pkg/berrors）+ ErrorBody
 │   ├── middleware/           # HTTP/gRPC 中间件（统一由装配层注入；业务侧直接用 pkg/middleware/gin）
 │   │   ├── gin/              # Recovery / RequestID / CORS / Secure / Logging / Authn / Authz / Observability
 │   │   └── grpc/             # gRPC 拦截器（对应 gin 中间件能力）
@@ -62,7 +62,7 @@ import (
 
     baldlog "github.com/kalandramo/bald/pkg/log"
     "github.com/kalandramo/bald/pkg/appkit"
-    baldoptions "github.com/kalandramo/bald/pkg/options"
+    baldconf "github.com/kalandramo/bald/pkg/conf"
     "github.com/kalandramo/bald/pkg/registry/inmemory"
     "github.com/kalandramo/bald/pkg/server"
 )
@@ -80,21 +80,20 @@ func main() {
     ))
     logger := baldlog.GetLogger()
 
-    // 2. 业务 options（SecureServing 内嵌 TLSOptions，Enabled=false 即明文 HTTP）。
-    httpOpts := baldoptions.NewSecureServingOptions()
-    httpOpts.Addr = ":8080"
-    grpcOpts := baldoptions.NewGRPCOptions()
-    // 注册 --bald-demo.http.addr / --bald-demo.http.tls.* 等 flag。
-    httpOpts.AddFlags(pflag.CommandLine, baldoptions.Join("bald-demo", "http"))
-    grpcOpts.AddFlags(pflag.CommandLine, baldoptions.Join("bald-demo", "grpc"))
+    // 2. 框架级配置：proto 是唯一真相源，server 直接消费 Bootstrap 子消息。
+    bootstrap := baldconf.NewBootstrap()
+    bootstrap.Http.Addr = ":8080"
+    // 注册 --bald-demo.http.addr / --bald-demo.http.tls.* 等 flag（BindFlags 遍历 proto 字段）。
+    baldconf.BindFlags(pflag.CommandLine, bootstrap.GetHttp(), "bald-demo.http")
+    baldconf.BindFlags(pflag.CommandLine, bootstrap.GetGrpc(), "bald-demo.grpc")
 
     // 3. 共享 readiness 探针：HTTP /readyz 与 gRPC health 状态对称联动。
     ready := func(ctx context.Context) error { return nil /* 检查 DB/依赖 */ }
 
-    httpSrv := server.NewHTTPServer(httpOpts, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+    httpSrv := server.NewHTTPServer(bootstrap.GetHttp(), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
         _, _ = w.Write([]byte("hello from bald\n"))
     }), ready)
-    grpcSrv := server.NewGRPCServerWithRegister(grpcOpts, nil, func(s *grpc.Server) {
+    grpcSrv := server.NewGRPCServerWithRegister(bootstrap.GetGrpc(), nil, func(s *grpc.Server) {
         // pb.RegisterYourServer(s, impl)
     }, ready)
 
@@ -136,7 +135,7 @@ type Server interface {
 
 ## Web 框架（pkg/web 强绑定 gin）
 
-**分层原则**：路由注册由业务直接用 gin 编写；「绑定 / 校验 / 响应」流水线集中在 `pkg/web`——它**强绑定 gin**（直接消费 `*gin.Context`），因此 bald 仅支持 **gin（HTTP）与 grpc-gateway（复用同一 biz 层）**。这与 onexstack 的 `pkg/core` 思路一致，但错误语义复用 bald 自有的 `pkg/errors`（不引入 onexstack 外部依赖）。
+**分层原则**：路由注册由业务直接用 gin 编写；「绑定 / 校验 / 响应」流水线集中在 `pkg/web`——它**强绑定 gin**（直接消费 `*gin.Context`），因此 bald 仅支持 **gin（HTTP）与 grpc-gateway（复用同一 biz 层）**。这与 onexstack 的 `pkg/core` 思路一致，但错误语义复用 bald 自有的 `pkg/berrors`（不引入 onexstack 外部依赖）。
 
 `gin.Engine`（或任意 `http.Handler`）可直接传给 `server.NewHTTPServer`，**服务器层零改动**。
 
@@ -201,20 +200,20 @@ web.HandleAllRequest[articleReq, articleResp](c,
 
 ### 错误 → HTTP 状态码映射
 
-`web.ErrorResponse` 与错误模型通过 `pkg/errors` 衔接：
+`web.ErrorResponse` 与错误模型通过 `pkg/berrors` 衔接：
 
 ```go
-// pkg/errors 的错误 *Error 自带状态码，web 直接还原：
+// pkg/berrors 的错误经 httperr 子包还原状态码（核心包不挂 StatusCode 方法，避免循环依赖）：
 werr, ok := errors.FromError(err)   // 拆链还原为 *errors.Error
-status := werr.StatusCode()         // 由 Reason（gRPC code）映射到 HTTP 状态码
+status := httperr.StatusCode(werr)  // 由 Code（gRPC code）映射到 HTTP 状态码
 ```
 
-- 能被 `errors.FromError` 还原的错误取 `StatusCode()`；无法还原的统一 `500`。
-- `pkg/errors.Error` 通过 `WithCause` 包装底层错误，`FromError` 会**拆链**命中正确状态码，被 `fmt.Errorf("wrap: %w", err)` 包裹的错误也不会误落 500。
+- 能被 `errors.FromError` 还原的错误取 `httperr.StatusCode()`；无法还原的统一 `500`。
+- `pkg/berrors.Error` 通过 `WithCause` 包装底层错误，`FromError` 会**拆链**命中正确状态码，被 `fmt.Errorf("wrap: %w", err)` 包裹的错误也不会误落 500。
 
-## 错误模型（pkg/errors）
+## 错误模型（pkg/berrors）
 
-零依赖（仅标准库）的 `WindError`：传输中立的错误模型，跨服务边界只做"转换"，不绑定具体协议。
+零依赖（仅标准库）的 `berrors.Error`：传输中立的错误模型，跨服务边界只做"转换"，不绑定具体协议（gRPC 映射在 `grpcerr`、HTTP 映射在 `httperr` 两个边界子包）。
 
 ```go
 // 业务错误：代码-原因-消息三者分离。
@@ -240,7 +239,7 @@ back := grpcerr.FromStatus(st)         // *berrors.Error
 | **错误链完整** | 内嵌 `cause` + 调用栈，`errors.Is/As/Unwrap` 原生可用 |
 | **HTTP/gRPC 双栈** | `http.go` 提供 `BadRequest/Unauthorized/NotFound/...` 构造器；`grpcerr` 子包做 `ToStatus/FromStatus` 桥接 |
 
-状态码常量见 `pkg/errors/code.go`（如 `CodeBadRequest=400`、`CodeNotFound=404`、`CodeInternal=500`），与 gRPC `codes.Code` 一一对应。
+状态码常量见 `pkg/berrors/code.go`（如 `CodeBadRequest=400`、`CodeNotFound=404`、`CodeInternal=500`），与 gRPC `codes.Code` 一一对应。
 
 ## 生命周期与关键契约
 
@@ -294,7 +293,7 @@ go test ./...
   [`docs/config-center-design.md`](docs/config-center-design.md)。
 - 日志设计（Options 多源配置、FilterKey 脱敏、ContextWithAttrs 日志属性）：
   [`docs/log-design.md`](docs/log-design.md)。
-- 路由注册与绑定设计（Router 分组/中间件链、多源绑定顺序、泛型流水线、统一响应、pkg/errors 契约）：
+- 路由注册与绑定设计（Router 分组/中间件链、多源绑定顺序、泛型流水线、统一响应、pkg/berrors 契约）：
   [`docs/devel/zh-CN/路由注册与绑定设计.md`](docs/devel/zh-CN/路由注册与绑定设计.md)。
 - 错误模型设计（WindError 字段、代码-原因分离、不可变 builder、HTTP/gRPC 双栈桥接）：
   [`docs/devel/zh-CN/错误模型设计.md`](docs/devel/zh-CN/错误模型设计.md)。
@@ -309,7 +308,7 @@ go test ./...
 - 远程配置中心接入（etcd / nacos，通过 `config.FromKratosSource` 桥接，远程作基准、本地覆盖）；
 - `OnConfigChange` 内热重载与 `BeforeStart` 取配置反序列化；
 - **路由**：业务直接用 `gin.Engine` 经 `server.NewHTTPServer` 挂载，自行注册路由（含 CORS 中间件、URI/JSON/多源绑定、`HandleAllRequest` 校验器）；
-- **`pkg/errors` 错误**：业务 handler 用 `berrors.BadRequest(...).WithMessage(...)` 返回结构化错误，由 `web` 的 `ErrorResponse` 自动映射 HTTP 状态码与 `ErrorBody`。
+- **`pkg/berrors` 错误**：业务 handler 用 `berrors.BadRequest(...).WithMessage(...)` 返回结构化错误，由 `web` 的 `ErrorResponse` 自动映射 HTTP 状态码与 `ErrorBody`。
 
 示例路由（服务起来后可直接 curl 验证）：
 

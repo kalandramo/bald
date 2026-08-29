@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package bald.config.v1;
+
+option go_package = "github.com/kalandramo/bald/pkg/conf/gen/go/bald/config/v1";
+
+// App 描述应用自身的元数据。
+//
+// 对应配置文件中的 app 段。该段是可选的：不配置时沿用 appkit.Name() /
+// appkit.Version() / appkit.Env() 的入参值。
+message App {
+  // 应用名。同时作为环境变量前缀（大写、. 与 - 转为 _）。
+  string name = 1;
+
+  // 应用版本，通常来自构建期 -ldflags 注入。
+  string version = 2;
+
+  // 运行环境（dev/test/prod...）。非空时本地按 {name}-{env}.yaml 选默认文件。
+  string env = 3;
+
+  // 实例 ID，服务注册使用。默认取主机名。
+  string id = 4;
+}

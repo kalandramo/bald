@@ -2,6 +2,11 @@ version: v1
 name: buf.build/kalandramo/bald
 deps:
   - buf.build/googleapis/googleapis
+  # protovalidate：声明式字段校验规则（buf.validate 注解）。
+  # 注意：这里只引入 proto 定义（用于注解的编译期解析），
+  # Go 运行时库 protovalidate-go 需业务按需 `go get buf.build/go/protovalidate`
+  # ——框架核心刻意不依赖它，避免 cel-go 进入核心 go.mod（见 P5 依赖治理原则）。
+  - buf.build/bufbuild/protovalidate
 breaking:
   use:
     - FILE

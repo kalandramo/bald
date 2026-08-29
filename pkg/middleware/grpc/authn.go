@@ -7,7 +7,7 @@ import (
 	"google.golang.org/grpc/metadata"
 
 	"github.com/kalandramo/bald/pkg/contextx"
-	"github.com/kalandramo/bald/pkg/errors"
+	"github.com/kalandramo/bald/pkg/berrors"
 	"github.com/kalandramo/bald/pkg/log"
 )
 

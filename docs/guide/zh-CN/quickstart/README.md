@@ -31,22 +31,22 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/kalandramo/bald/pkg/appkit"
-	baldoptions "github.com/kalandramo/bald/pkg/options"
+	baldconf "github.com/kalandramo/bald/pkg/conf"
 	"github.com/kalandramo/bald/pkg/server"
 )
 
 func main() {
-	httpOpts := baldoptions.NewSecureServingOptions()
-	httpOpts.Addr = ":8080" // 明文 HTTP（Enabled 默认 false）
-	grpcOpts := baldoptions.NewGRPCOptions()
+	// 框架级配置：proto 是唯一真相源，server 直接消费 Bootstrap 子消息。
+	bootstrap := baldconf.NewBootstrap()
+	bootstrap.Http.Addr = ":8080" // 明文 HTTP（Tls.Enabled 默认 false）
 
 	// 共享 readiness 探针：HTTP /readyz 与 gRPC health 状态对称联动。
 	ready := func(ctx context.Context) error { return nil /* 检查 DB/依赖 */ }
 
-	httpSrv := server.NewHTTPServer(httpOpts, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	httpSrv := server.NewHTTPServer(bootstrap.GetHttp(), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("hello from bald http\n"))
 	}), ready)
-	grpcSrv := server.NewGRPCServerWithRegister(grpcOpts, nil, func(s *grpc.Server) {
+	grpcSrv := server.NewGRPCServerWithRegister(bootstrap.GetGrpc(), nil, func(s *grpc.Server) {
 		// pb.RegisterYourServer(s, impl)
 	}, ready)
 

@@ -5,3 +5,12 @@
 # 编译生成的可执行文件
 bin/
 bald.exe
+
+# proto 生成产物（由 buf generate 生成，不入库）。
+# 含 protovalidate 的 validate.pb.go（约 313K），体积较大且可随时重建。
+/_example/bald/gen/
+/pkg/conf/gen/
+
+# 示例运行时产生的本地 SQLite 数据库
+_example/*.db
+_example/bald/*.db

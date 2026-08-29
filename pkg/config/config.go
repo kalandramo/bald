@@ -114,9 +114,19 @@ func Load(opts Options) (*viper.Viper, error) {
 }
 
 // bindViperBasics 绑定命令行 flag 与环境变量（NAME_ 前缀）。
+//
+// 关键：命令行 flag 只绑定「用户显式传过」的（flags.Changed == true），
+// 未传的 flag 不进 viper override 层。否则 BindPFlags 会把所有 flag 的
+// 零值写入 override 层，按 viper 语义（flag > env > 文件 > 远程）压过
+// 环境变量与本地文件，导致「只设了 env 却读不到」的反直觉行为。
+// 仅当 flag 被显式设置时才覆盖 env/文件，符合运维预期且对测试（t.Setenv）友好。
 func bindViperBasics(v *viper.Viper, opts Options) {
 	if opts.Flags != nil {
-		v.BindPFlags(opts.Flags)
+		opts.Flags.VisitAll(func(f *pflag.Flag) {
+			if f.Changed {
+				_ = v.BindPFlag(f.Name, f)
+			}
+		})
 	}
 	v.SetEnvPrefix(strings.ToUpper(opts.Name))
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_", "-", "_"))

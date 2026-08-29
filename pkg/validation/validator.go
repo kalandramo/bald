@@ -1,6 +1,6 @@
 // 规则式字段校验工具：当无法用「按类型分发」的 ValidateXxx 方法、只想对单个字段做
 // 轻量非空/范围检查时使用。它与 Validator（按类型分发）互补，二者都返回 error（建议
-// 封装为 pkg/errors 的语义错误）。
+// 封装为 pkg/berrors 的语义错误）。
 package validation
 
 import (

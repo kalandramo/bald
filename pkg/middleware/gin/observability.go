@@ -8,14 +8,22 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/kalandramo/bald/pkg/log"
 )
+
+// tracer 是 bald HTTP 层使用的 OpenTelemetry tracer。
+// 未设置全局 TracerProvider 时，otel.Tracer 返回 no-op tracer（起 span 不报错、不采样），
+// 保证框架在零配置下也能运行——这与"核心零依赖、可观测性由调用方装配"的设计一致。
+var tracer = otel.Tracer("bald/gin")
 
 // Standard trace header keys
 const (
@@ -147,8 +155,24 @@ func Observability(opts ...Option) gin.HandlerFunc {
 			return
 		}
 
-		// Extract trace information early
+		// 真正起一个 span：若上游已有 span（如网关/客户端注入）则作为 child，
+		// 否则新建 root。未配置全局 TracerProvider 时为 no-op，零配置也能跑。
+		ctx, span := tracer.Start(ctx, c.Request.Method+" "+c.Request.URL.Path)
+		defer span.End()
+
+		// 把 span 写入请求 ctx，使后续 handler 与日志处于同一 trace 上下文。
+		c.Request = c.Request.WithContext(ctx)
+
+		// Extract trace information from the (now live) span context.
 		spanCtx := trace.SpanContextFromContext(ctx)
+
+		// 把 trace_id/span_id 挂到 ctx 属性流，使本请求范围内所有经
+		// log.GetLogger() 输出的日志自动携带（slog 后端消费 ContextWithAttrs）。
+		ctx = log.ContextWithAttrs(ctx,
+			slog.String("trace_id", spanCtx.TraceID().String()),
+			slog.String("span_id", spanCtx.SpanID().String()),
+		)
+		c.Request = c.Request.WithContext(ctx)
 
 		// Inject trace headers based on configuration (unless skipping tracing)
 		injectTraceHeaders(c, spanCtx, config)
@@ -176,6 +200,9 @@ func Observability(opts ...Option) gin.HandlerFunc {
 
 		duration := time.Since(start).Seconds()
 
+		// 把状态码作为 span 属性，便于链路追踪侧按状态过滤。
+		span.SetAttributes(attribute.Int("http.status_code", c.Writer.Status()))
+
 		// Build structured log
 		event := map[string]any{"duration": duration}
 		source := map[string]any{"ip": c.ClientIP()}
@@ -202,7 +229,8 @@ func Observability(opts ...Option) gin.HandlerFunc {
 			}
 		}
 
-		// Use the configured logger instance
+		// Use the configured logger instance. ctx 已携带 trace_id/span_id 属性，
+		// 日志自动附带（无需在每条日志手动传 trace_id）。
 		if isDebugLevel {
 			config.Logger.Debug(ctx, "HTTP request completed",
 				"event", event,

@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"net"
+	"sync"
 	"time"
 
 	"google.golang.org/grpc"
@@ -10,7 +11,7 @@ import (
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/reflection"
 
-	baldoptions "github.com/kalandramo/bald/pkg/options"
+	confv1 "github.com/kalandramo/bald/pkg/conf/gen/go/bald/config/v1"
 )
 
 // readinessPollInterval 是 gRPC 侧后台轮询 readiness 回调的间隔。
@@ -21,24 +22,30 @@ const readinessPollInterval = 2 * time.Second
 // GRPCServer 封装 google.golang.org/grpc，实现 Server 契约。
 // 默认注册 health check 与 reflection，方便运维探测与调试。
 // 嵌入 *grpc.Server 提升其方法（如 RegisterService），内部统一经嵌入字段操作。
+//
+// 并发安全：ln 与 readinessCancel 由 mu 保护。
+// Start 在 AppKit 的 errgroup goroutine 中执行，而 Endpoint() 由 appkit 主
+// goroutine 轮询（waitForEndpoints）、Stop 由停机 goroutine 调用，三者并发，
+// 无保护时构成数据竞争（go test -race 可复现）。
 type GRPCServer struct {
 	*grpc.Server
-	opts *baldoptions.GRPCOptions
-	addr string
-	ln   net.Listener // 实际监听器，用于解析 Endpoint
+	cfg *confv1.Grpc
 
-	healthSrv       *health.Server // 保存引用，用于 readiness 联动（SetServingStatus）
-	readiness       ReadinessFunc  // 可为 nil（nil 时 health 恒 SERVING）
+	// mu 保护下方 ln 与 readinessCancel 的并发读写。
+	mu              sync.RWMutex
+	ln              net.Listener // 实际监听器，用于解析 Endpoint
 	readinessCancel context.CancelFunc
+
+	healthSrv *health.Server // 保存引用，用于 readiness 联动（SetServingStatus）
+	readiness ReadinessFunc  // 可为 nil（nil 时 health 恒 SERVING）
 }
 
 // NewGRPCServer 基于已构建的 *grpc.Server 构造一个 GRPCServer。
 // readiness 为可选的就绪探针回调：传 nil 时 health 状态恒 SERVING（仅作存活）。
-func NewGRPCServer(opts *baldoptions.GRPCOptions, srv *grpc.Server, readiness ReadinessFunc) *GRPCServer {
+func NewGRPCServer(cfg *confv1.Grpc, srv *grpc.Server, readiness ReadinessFunc) *GRPCServer {
 	return &GRPCServer{
 		Server:    srv,
-		opts:      opts,
-		addr:      opts.Addr,
+		cfg:       cfg,
 		readiness: readiness,
 	}
 }
@@ -48,7 +55,7 @@ func NewGRPCServer(opts *baldoptions.GRPCOptions, srv *grpc.Server, readiness Re
 // readiness 为可选的就绪探针回调（与 HTTP /readyz 对称）；非 nil 时启动后台轮询，
 // 将结果通过 health.SetServingStatus 同步给 gRPC health 协议，使 K8s grpc 探针可见。
 func NewGRPCServerWithRegister(
-	opts *baldoptions.GRPCOptions,
+	cfg *confv1.Grpc,
 	unary []grpc.ServerOption,
 	register func(s *grpc.Server),
 	readiness ReadinessFunc,
@@ -62,26 +69,37 @@ func NewGRPCServerWithRegister(
 	}
 	return &GRPCServer{
 		Server:    s,
-		opts:      opts,
-		addr:      opts.Addr,
+		cfg:       cfg,
 		healthSrv: hs,
 		readiness: readiness,
 	}
 }
 
+// Options 返回该 server 直消费的 proto 配置（实现 server.Server 契约的 Options()）。
+func (s *GRPCServer) Options() any { return s.cfg }
+
 // Start 启动 gRPC 服务器（阻塞）。若配置了 readiness，同时启动后台轮询，
 // 周期性把 readiness 结果同步到 health 状态（SERVING / NOT_SERVING）。
 func (s *GRPCServer) Start(ctx context.Context) error {
-	if s.readiness != nil && s.healthSrv != nil {
-		rctx, cancel := context.WithCancel(context.Background())
-		s.readinessCancel = cancel
-		go s.pollReadiness(rctx)
-	}
-	lis, err := listen(s.addr)
+	lis, err := listen(s.cfg.GetAddr())
 	if err != nil {
 		return err
 	}
+
+	s.mu.Lock()
 	s.ln = lis
+	s.mu.Unlock()
+
+	// readiness 轮询放在 listen 成功之后：否则 listen 失败时 goroutine 已启动却
+	// 无人负责取消（Start 返回错误后调用方未必再调 Stop），造成 goroutine 泄漏。
+	if s.readiness != nil && s.healthSrv != nil {
+		rctx, cancel := context.WithCancel(context.Background())
+		s.mu.Lock()
+		s.readinessCancel = cancel
+		s.mu.Unlock()
+		go s.pollReadiness(rctx)
+	}
+
 	return s.Server.Serve(lis)
 }
 
@@ -112,8 +130,11 @@ func (s *GRPCServer) syncHealth(ctx context.Context) {
 
 // Stop 优雅停止 gRPC 服务器（GracefulStop），并取消 readiness 轮询 goroutine。
 func (s *GRPCServer) Stop(ctx context.Context) error {
-	if s.readinessCancel != nil {
-		s.readinessCancel()
+	s.mu.RLock()
+	cancel := s.readinessCancel
+	s.mu.RUnlock()
+	if cancel != nil {
+		cancel()
 	}
 	stopped := make(chan struct{})
 	go func() {
@@ -132,12 +153,18 @@ func (s *GRPCServer) Stop(ctx context.Context) error {
 // Endpoint 返回实际监听地址（支持 ":0" 动态端口）。
 // 通配符 / 仅端口绑定会被解析为本机可达 IP，确保注册到服务发现的 endpoint 可直连。
 func (s *GRPCServer) Endpoint() string {
-	if s.ln != nil {
-		hostPort, err := Extract(s.addr, s.ln)
+	// 先取出快照再解锁：Extract 内部会枚举网卡（net.Interfaces），
+	// 是相对耗时的系统调用，不能在持锁期间执行。
+	s.mu.RLock()
+	ln := s.ln
+	s.mu.RUnlock()
+
+	if ln != nil {
+		hostPort, err := Extract(s.cfg.GetAddr(), ln)
 		if err == nil {
 			return "grpc://" + hostPort
 		}
-		return "grpc://" + s.ln.Addr().String()
+		return "grpc://" + ln.Addr().String()
 	}
 	// 未监听时返回空字符串，供 appkit.waitForEndpoints 正确等待 Start 真正执行。
 	return ""
