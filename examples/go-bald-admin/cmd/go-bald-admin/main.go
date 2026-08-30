@@ -44,8 +44,10 @@ import (
 	mid "github.com/kalandramo/bald/pkg/middleware/gin"
 	grpcmw "github.com/kalandramo/bald/pkg/middleware/grpc"
 	"github.com/kalandramo/bald/pkg/authz"
+	"github.com/kalandramo/bald/pkg/audit"
 	"github.com/kalandramo/bald/pkg/registry/inmemory"
 	"github.com/kalandramo/bald/pkg/server"
+	securityaudit "github.com/kalandramo/bald/examples/go-bald-admin/internal/security/audit"
 )
 
 func serveRunE(_ *cobra.Command, _ []string) error {
@@ -66,6 +68,12 @@ func serveRunE(_ *cobra.Command, _ []string) error {
 	ready := func(ctx context.Context) error { return nil }
 	router := gin.New()
 	router.Use(mid.Recovery(), mid.RequestID(), mid.Logging())
+	// M7 审计：旁路记录 REST 访问（subject/object/action/result）。复用 P9 归一化原语，
+	// 与 gRPC 同源；置于业务路由之前，c.Next 后记录最终响应状态。
+	router.Use(mid.AuditMiddleware(nil,
+		mid.AuditWithObjectResolver(authz.DefaultHTTPObject),
+		mid.AuditWithActionResolver(authz.DefaultHTTPAction),
+	))
 	apiserver.RegisterRoutes(router, bizSet.Auth, bizSet.Secret) // gin handler 路由
 	httpSrv := server.NewHTTPServer(bootstrap.GetHttp(), router, ready)
 
@@ -227,6 +235,12 @@ func newGRPCServerOptions() []grpc.ServerOption {
 		grpcmw.RequestIDInterceptor(),
 		grpcmw.UnaryObservability(),
 		authnInterceptor, // 认证：无 token / 伪造 token -> Unauthenticated
+		// M7 审计：置于 Authn 内侧（可读 subject/tenant）、Authz 外侧（捕获最终 result），
+		// 旁路不阻断业务。复用 P9 归一化原语，与 REST 同源。
+		grpcmw.AuditInterceptor(nil,
+			grpcmw.AuditWithObjectResolver(authz.DefaultGRPCObject),
+			grpcmw.AuditWithActionResolver(authz.DefaultGRPCAction),
+		),
 		authzInterceptor, // 授权：角色无权限 -> PermissionDenied
 	}
 	return []grpc.ServerOption{
@@ -292,4 +306,6 @@ func setLogger(opts *baldlog.Options) {
 		baldlog.WithFilter(baldlog.FilterKey("token")),
 		baldlog.WithAttrs(slog.String("service.name", "go-bald-admin")),
 	))
+	// M7 审计后端注入：与 logger 同步设置，使审计事件经同一 slog 后端输出。
+	audit.SetAuditor(securityaudit.New())
 }
