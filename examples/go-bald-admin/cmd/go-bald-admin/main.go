@@ -220,6 +220,9 @@ func newApp(
 			if err := bootstrappkg.InitBridges(ctx); err != nil {
 				return fmt.Errorf("init bridges: %w", err)
 			}
+			// M7 审计后端注入（落库 + 日志双写）：须置于 InitBridges 之后，此时 bootstrap.DB
+			// 已建立并 AutoMigrate 审计表。StoreAuditor 落库失败仅降级到 LoggerAuditor，不阻断业务。
+			audit.SetAuditor(securityaudit.NewStore(bootstrappkg.DB))
 			return nil
 		}),
 		appkit.AfterStart(func(ctx context.Context) error {
@@ -345,6 +348,6 @@ func setLogger(opts *baldlog.Options) {
 		baldlog.WithFilter(baldlog.FilterKey("token")),
 		baldlog.WithAttrs(slog.String("service.name", "go-bald-admin")),
 	))
-	// M7 审计后端注入：与 logger 同步设置，使审计事件经同一 slog 后端输出。
-	audit.SetAuditor(securityaudit.New())
+	// M7 审计后端注入（落库版）在 InitBridges 之后装配（见 appkit.BeforeStart），
+	// 因需 bootstrap.DB 已建立；此处仅设 Logger，不再提前注入 Auditor。
 }
