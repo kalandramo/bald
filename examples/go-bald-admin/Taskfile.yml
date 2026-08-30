@@ -1,0 +1,81 @@
+# go-bald-admin Taskfile（跨平台，替代已删除的 Makefile）
+# 运行：task <task>   （需安装 go-task: https://taskfile.dev）
+#
+# 本目录是独立 go module，所有命令以本目录为工作目录。
+
+version: "3"
+
+vars:
+  MOD: .
+  TEST_FLAGS: -shuffle=on -count=1
+
+tasks:
+  default:
+    desc: 列出可用任务
+    cmds:
+      - task --list
+
+  build:
+    desc: 编译全部包
+    dir: "{{.MOD}}"
+    cmds:
+      - go build ./...
+
+  vet:
+    desc: go vet 全部包
+    dir: "{{.MOD}}"
+    cmds:
+      - go vet ./...
+
+  fmt:
+    desc: gofmt 本范例新建/改动文件（仅格式化，不扫整个核心）
+    dir: "{{.MOD}}"
+    cmds:
+      - gofmt -w $(git diff --name-only -- '*.go' 2>/dev/null || echo '')
+
+  tidy:
+    desc: go mod tidy
+    dir: "{{.MOD}}"
+    cmds:
+      - go mod tidy
+
+  test:
+    desc: 跑全部测试（随机顺序，检测全局态耦合）
+    dir: "{{.MOD}}"
+    cmds:
+      - go test {{.TEST_FLAGS}} ./...
+
+  test:metrics:
+    desc: 仅跑可观测性(指标)包
+    dir: "{{.MOD}}"
+    cmds:
+      - go test {{.TEST_FLAGS}} ./internal/observability/...
+
+  test:audit:
+    desc: 仅跑审计 e2e（Authn+Audit+Authz 串联）
+    dir: "{{.MOD}}"
+    cmds:
+      - go test {{.TEST_FLAGS}} ./internal/apiserver/... -run 'Audit|Auth'
+
+  run:
+    desc: 本地起服务（默认配置）
+    dir: "{{.MOD}}"
+    cmds:
+      - go run ./cmd/go-bald-admin --config=configs/go-bald-admin.yaml
+
+  run:otlp:
+    desc: 起服务并直推 OTLP 远端（需本地 collector :4318）
+    dir: "{{.MOD}}"
+    env:
+      BALD_ADMIN_OTLP_ADDR: http://localhost:4318
+      BALD_ADMIN_METRICS_ADDR: ":9091"
+    cmds:
+      - go run ./cmd/go-bald-admin --config=configs/go-bald-admin.yaml
+
+  verify:
+    desc: CI 式全量校验（build + vet + test）
+    dir: "{{.MOD}}"
+    cmds:
+      - go build ./...
+      - go vet ./...
+      - go test {{.TEST_FLAGS}} ./...
