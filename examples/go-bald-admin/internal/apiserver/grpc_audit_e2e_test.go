@@ -63,6 +63,9 @@ func invokeWithAudit(t *testing.T, a *memAuditor, token, fullMethod string) erro
 
 // TestGRPCAudit_Allow 授权通过的 gRPC 调用应产生一条 allow 审计事件，含归一化三元组。
 func TestGRPCAudit_Allow(t *testing.T) {
+	if err := bootstrappkg.InitBridges(context.Background()); err != nil {
+		t.Fatalf("InitBridges: %v", err)
+	}
 	a := &memAuditor{}
 	tok := issueToken(t, "admin", "u-admin", "admin")
 	if err := invokeWithAudit(t, a, tok, "/go.bald.admin.v1.SecretService/GetSecret"); err != nil {
@@ -86,6 +89,9 @@ func TestGRPCAudit_Allow(t *testing.T) {
 
 // TestGRPCAudit_Deny 授权拒绝的 gRPC 调用应产生一条 deny 审计事件，旁路不阻断。
 func TestGRPCAudit_Deny(t *testing.T) {
+	if err := bootstrappkg.InitBridges(context.Background()); err != nil {
+		t.Fatalf("InitBridges: %v", err)
+	}
 	a := &memAuditor{}
 	tok := issueToken(t, "alice", "u-alice", "viewer")
 	if err := invokeWithAudit(t, a, tok, "/go.bald.admin.v1.SecretService/DeleteSecret"); err == nil {

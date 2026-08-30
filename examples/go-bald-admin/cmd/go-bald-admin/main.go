@@ -48,6 +48,7 @@ import (
 	"github.com/kalandramo/bald/pkg/registry/inmemory"
 	"github.com/kalandramo/bald/pkg/server"
 	securityaudit "github.com/kalandramo/bald/examples/go-bald-admin/internal/security/audit"
+	obmetrics "github.com/kalandramo/bald/examples/go-bald-admin/internal/observability/metrics"
 )
 
 func serveRunE(_ *cobra.Command, _ []string) error {
@@ -58,6 +59,23 @@ func serveRunE(_ *cobra.Command, _ []string) error {
 	// 日志系统接入（两阶段：先默认，配置加载后重建）。
 	logOpts := baldlog.NewOptions()
 	setLogger(logOpts)
+
+	// M8 可观测性：初始化 Prometheus MeterProvider 并启动 /metrics 端点（独立端口，
+	// 供 Prometheus 抓取）。须在拦截器构建前 Setup，使 Recorder 接入 exporter。
+	metricsAddr := os.Getenv("BALD_ADMIN_METRICS_ADDR")
+	if metricsAddr == "" {
+		metricsAddr = ":9090"
+	}
+	metricsHandler, err := obmetrics.Setup()
+	if err != nil {
+		return fmt.Errorf("setup metrics: %w", err)
+	}
+	go func() {
+		mSrv := &http.Server{Addr: metricsAddr, Handler: metricsHandler}
+		if serveErr := mSrv.ListenAndServe(); serveErr != nil && serveErr != http.ErrServerClosed {
+			baldlog.GetLogger().Error(context.Background(), "metrics server stopped", "error", serveErr.Error())
+		}
+	}()
 
 	// 1. 业务装配（分层见 internal/apiserver）。M6.4 起由 wire 显式拼装业务对象
 	//    （cache / auth biz / secret biz），编译期依赖图校验；框架桥接仍在 appkit.BeforeStart 注入。
@@ -70,9 +88,11 @@ func serveRunE(_ *cobra.Command, _ []string) error {
 	router.Use(mid.Recovery(), mid.RequestID(), mid.Logging())
 	// M7 审计：旁路记录 REST 访问（subject/object/action/result）。复用 P9 归一化原语，
 	// 与 gRPC 同源；置于业务路由之前，c.Next 后记录最终响应状态。
+	// M8 指标：审计同源 emit 指标。
 	router.Use(mid.AuditMiddleware(nil,
 		mid.AuditWithObjectResolver(authz.DefaultHTTPObject),
 		mid.AuditWithActionResolver(authz.DefaultHTTPAction),
+		mid.AuditWithMetrics(obmetrics.Recorder()),
 	))
 	apiserver.RegisterRoutes(router, bizSet.Auth, bizSet.Secret) // gin handler 路由
 	httpSrv := server.NewHTTPServer(bootstrap.GetHttp(), router, ready)
@@ -237,9 +257,11 @@ func newGRPCServerOptions() []grpc.ServerOption {
 		authnInterceptor, // 认证：无 token / 伪造 token -> Unauthenticated
 		// M7 审计：置于 Authn 内侧（可读 subject/tenant）、Authz 外侧（捕获最终 result），
 		// 旁路不阻断业务。复用 P9 归一化原语，与 REST 同源。
+		// M8 指标：审计同源 emit 指标（bald_requests_total/bald_request_duration_seconds）。
 		grpcmw.AuditInterceptor(nil,
 			grpcmw.AuditWithObjectResolver(authz.DefaultGRPCObject),
 			grpcmw.AuditWithActionResolver(authz.DefaultGRPCAction),
+			grpcmw.AuditWithMetrics(obmetrics.Recorder()),
 		),
 		authzInterceptor, // 授权：角色无权限 -> PermissionDenied
 	}
