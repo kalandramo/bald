@@ -13,6 +13,8 @@ package store
 import (
 	"context"
 	"fmt"
+	"reflect"
+	"strings"
 
 	storev1 "github.com/kalandramo/bald/pkg/conf/gen/go/bald/store/v1"
 )
@@ -93,6 +95,7 @@ func (s *Store[T]) Provider() DBProvider[T] { return s.provider }
 
 // Create 插入一条记录。
 func (s *Store[T]) Create(ctx context.Context, obj *T) error {
+	injectWriteTenant(ctx, obj) // 写路径多租户：自动写入当前租户，避免误建到他租户
 	q, err := s.provider.DB(ctx)
 	if err != nil {
 		return err
@@ -102,11 +105,121 @@ func (s *Store[T]) Create(ctx context.Context, obj *T) error {
 
 // Update 更新一条记录。
 func (s *Store[T]) Update(ctx context.Context, obj *T) error {
+	injectWriteTenant(ctx, obj) // 写路径多租户：自动覆写租户，防止越权更新改租户归属
 	q, err := s.provider.DB(ctx)
 	if err != nil {
 		return err
 	}
 	return q.Update(ctx, obj)
+}
+
+// injectWriteTenant 写路径多租户注入：依据全局租户注册表，把 ctx 中解析到的各租户
+// 维度值反射写回实体对应字段。列名 key（如 "tenant_id"）按 gorm column/json 约定
+// 解析为字段（snake_case → CamelCase，如 TenantID）。业务无需手写，避免漏写租户列
+// 导致写入他租户归属（与读路径 mergeTenant 对称，闭环隔离）。
+//
+// 仅在 ctx 提供该维度值时注入；非多租户应用未注册维度则无操作。反射写入已跳过非导出
+// 字段与已有非空值之外的全部维度；若实体无对应字段（如非租户实体）则静默跳过该维度。
+func injectWriteTenant(ctx context.Context, obj any) {
+	tenantMu.RLock()
+	extractors := make(map[string]TenantValueFunc, len(tenantExtractors))
+	for k, v := range tenantExtractors {
+		extractors[k] = v
+	}
+	tenantMu.RUnlock()
+	if len(extractors) == 0 {
+		return
+	}
+	rv := reflect.ValueOf(obj)
+	if rv.Kind() != reflect.Ptr || rv.IsNil() {
+		return
+	}
+	rv = rv.Elem()
+	if rv.Kind() != reflect.Struct {
+		return
+	}
+	rt := rv.Type()
+	for key, fn := range extractors {
+		val, ok := fn(ctx)
+		if !ok || val == "" {
+			continue
+		}
+		idx := tenantFieldIndex(rt, key)
+		if idx < 0 {
+			continue
+		}
+		fd := rv.Field(idx)
+		if !fd.CanSet() || fd.Kind() != reflect.String {
+			continue
+		}
+		fd.SetString(val)
+	}
+}
+
+// tenantFieldIndex 按租户列名（snake_case，如 "tenant_id"）找到实体字段索引。
+// 匹配优先级：gorm column tag > json tag > 字段名转 snake_case 与 key 直接相等
+// （如 User.TenantID → "tenant_id" == key）。找不到返回 -1。
+func tenantFieldIndex(rt reflect.Type, key string) int {
+	for i := 0; i < rt.NumField(); i++ {
+		f := rt.Field(i)
+		// gorm:"column:tenant_id"
+		if tag := f.Tag.Get("gorm"); tag != "" {
+			for _, part := range splitTag(tag) {
+				if v, ok := cutPrefix(part, "column:"); ok && v == key {
+					return i
+				}
+			}
+		}
+		// json:"tenant_id"
+		if j := f.Tag.Get("json"); j != "" {
+			if name, _, _ := strings.Cut(j, ","); name == key {
+				return i
+			}
+		}
+		// 字段名 CamelCase → snake_case 与 key 比对（如 TenantID → tenant_id）。
+		if fieldToSnake(f.Name) == key {
+			return i
+		}
+	}
+	return -1
+}
+
+// fieldToSnake 把 CamelCase 字段名转为 snake_case 列名（如 TenantID → tenant_id、
+// UserName → user_name）。连续大写缩写按整体处理（ID 末尾不拆成 i_d）。
+func fieldToSnake(name string) string {
+	var b strings.Builder
+	var prevLower, prevDigit bool
+	for i, r := range name {
+		switch {
+		case r >= 'A' && r <= 'Z':
+			if i > 0 && (prevLower || prevDigit || (i+1 < len(name) && name[i+1] >= 'a' && name[i+1] <= 'z')) {
+				b.WriteByte('_')
+			}
+			b.WriteByte(byte(r - 'A' + 'a'))
+			prevLower, prevDigit = false, false
+		case r >= '0' && r <= '9':
+			if i > 0 && prevLower {
+				b.WriteByte('_')
+			}
+			b.WriteByte(byte(r))
+			prevLower, prevDigit = false, true
+		default:
+			b.WriteByte(byte(r))
+			prevLower, prevDigit = true, false
+		}
+	}
+	return b.String()
+}
+
+func splitTag(tag string) []string {
+	return strings.Split(tag, ";")
+}
+
+func cutPrefix(s, prefix string) (string, bool) {
+	if strings.HasPrefix(s, prefix) {
+		return s[len(prefix):], true
+	}
+	return s, false
 }
 
 // Delete 按条件删除（建议 where 至少含主键）。
