@@ -2,6 +2,7 @@ package audit
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -13,10 +14,10 @@ import (
 	authmodel "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/model"
 )
 
-// newTestDB 建内存 SQLite 并迁移审计表（真实 GORM + DAL，符合 §0）。
+// newTestDB 建临时文件 SQLite 并迁移审计表（真实 GORM + DAL，符合 §0；文件库隔离各测试）。
 func newTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "audit_test.db")), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}

@@ -220,9 +220,13 @@ func newApp(
 			if err := bootstrappkg.InitBridges(ctx); err != nil {
 				return fmt.Errorf("init bridges: %w", err)
 			}
-			// M7 审计后端注入（落库 + 日志双写）：须置于 InitBridges 之后，此时 bootstrap.DB
-			// 已建立并 AutoMigrate 审计表。StoreAuditor 落库失败仅降级到 LoggerAuditor，不阻断业务。
-			audit.SetAuditor(securityaudit.NewStore(bootstrappkg.DB))
+			// M7 审计后端注入（组合器，多后端逐一落库/入流，任一失败仅降级不阻断）。
+			// 须置于 InitBridges 之后：DB 已建立并迁移审计表；Redis 可选（无则仅落库+日志）。
+			auditors := []audit.Auditor{securityaudit.NewStore(bootstrappkg.DB)}
+			if bootstrappkg.RedisCache != nil && bootstrappkg.RedisCache.Client() != nil {
+				auditors = append(auditors, securityaudit.NewStream(bootstrappkg.RedisCache.Client()))
+			}
+			audit.SetAuditor(securityaudit.NewMulti(auditors...))
 			return nil
 		}),
 		appkit.AfterStart(func(ctx context.Context) error {

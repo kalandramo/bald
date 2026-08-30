@@ -71,3 +71,9 @@ func (c *Cache) Delete(ctx context.Context, key string) error {
 func SecretKey(tenant, id string) string {
 	return "secret:" + tenant + ":" + id
 }
+
+// Client 暴露底层 *redis.Client；rdb 为 nil 表示缓存禁用（无 Redis 环境），调用方应降级。
+// 供审计消息总线等复用同一真实 Redis 连接（避免重复建连）。
+func (c *Cache) Client() *redis.Client {
+	return c.rdb
+}

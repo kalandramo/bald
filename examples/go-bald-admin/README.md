@@ -17,7 +17,7 @@
 - 多租户：`bald-store-gorm` SQLite 内存库 + P8 自动注入 `tenant_id`（M3/M4）。
 - 缓存：`internal/cache/redis` Cache-Aside（Redis 空则直连 store，M6.2）。
 - 装配：`google/wire` 接管业务对象，appkit 负责框架发现（M6.4）。
-- 审计：`pkg/audit` 核心 + `internal/security/audit.StoreAuditor`（M7 落库 + 日志双写，真实 GORM 后端）。
+- 审计：`pkg/audit` 核心 + `internal/security/audit.MultiAuditor`（M7 落库 + M9 消息总线 Redis Stream 异步 + 日志降级，三重真实后端）。
 - 指标：`pkg/metrics` 核心 + `internal/observability/metrics`（Prometheus/OTLP，M8/M9）。
 
 ## 运行
@@ -104,7 +104,7 @@ go test -shuffle=on ./...
 | M5 | grpc-gateway REST 转码（buf 生成） | ✅ |
 | M6 | 成熟库接入（casbin/redis/wire/JWT非对称/外部DB/gateway生产化/CR闭环） | ✅ |
 | P9 | 核心授权归一化（反哺核心，根治双命名空间） | ✅ |
-| M7 | 审计日志（传输中立 + 旁路不阻断；M9 延伸 `StoreAuditor` 落库+日志双写） | ✅ |
+| M7 | 审计日志（传输中立 + 旁路不阻断；M9 延伸 `StoreAuditor` 落库 + `StreamAuditor` Redis Stream 异步 + `MultiAuditor` 组合，三重真实后端） | ✅ |
 | M8 | 可观测性指标（Prometheus） | ✅ |
 | M9 | OTLP 远端直推（指标 Prometheus+OTLP 双通道；trace OTLP 直推，核心埋点零改动） | ✅ |
 

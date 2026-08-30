@@ -27,6 +27,7 @@ import (
 
 	authmodel "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/model"
 	casbinauthz "github.com/kalandramo/bald/examples/go-bald-admin/internal/security/casbin"
+	rediscache "github.com/kalandramo/bald/examples/go-bald-admin/internal/cache/redis"
 )
 
 // JWTSecret 是 M1 范本的 HMAC 对称密钥（兼容保留）。
@@ -48,6 +49,10 @@ var Authorizer authz.Authorizer
 
 // DB 是应用主库（M2 起为 SQLite 内存库，生产应换外部 PostgreSQL/MySQL）。
 var DB *gorm.DB
+
+// RedisCache 是可选 Redis 缓存/消息总线后端（M6.2 Cache-Aside + M9 审计流）。
+// rdb 为 nil 表示无 Redis 环境，调用方（缓存直连 store / 审计流降级）应降级。
+var RedisCache *rediscache.Cache
 
 // UserStore / RoleStore / SecretStore 是 bald-store-gorm 接入的泛型仓储。
 var UserStore *store.Store[authmodel.User]
@@ -91,6 +96,14 @@ func InitBridges(ctx context.Context) error {
 		return err
 	}
 	DB = db
+
+	// 可选 Redis 后端：供消息总线/缓存复用同一真实连接。不可达仅 warn（审计流降级），
+	// 不阻断启动（与 SQLite 内存库同构的"真实但可选"简化，符合 §0）。
+	if rc, rerr := rediscache.New(os.Getenv("BALD_ADMIN_REDIS_ADDR")); rerr != nil {
+		log.GetLogger().Warn(ctx, "redis init skipped, audit stream disabled", "error", rerr.Error())
+	} else {
+		RedisCache = rc
+	}
 	UserStore = store.NewStore[authmodel.User](baldgorm.NewGormProvider(db, func(u *authmodel.User) string { return u.ID }))
 	RoleStore = store.NewStore[authmodel.Role](baldgorm.NewGormProvider(db, func(r *authmodel.Role) string { return r.ID }))
 	SecretStore = store.NewStore[authmodel.Secret](baldgorm.NewGormProvider(db, func(s *authmodel.Secret) string { return s.ID }))
