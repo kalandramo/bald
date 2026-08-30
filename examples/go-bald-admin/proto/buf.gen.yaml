@@ -1,0 +1,23 @@
+version: v1
+managed:
+  enabled: true
+  go_package_prefix:
+    default: github.com/kalandramo/bald/examples/go-bald-admin/gen
+    # except：BSR 模块不套用前缀，保留官方 go_package，避免与
+    # protovalidate / genproto 提供的同一 proto 文件冲突（运行时 panic）。
+    except:
+      - buf.build/googleapis/googleapis
+plugins:
+  - plugin: go
+    out: ../gen/secretv1
+    opt:
+      - paths=source_relative
+  - plugin: go-grpc
+    out: ../gen/secretv1
+    opt:
+      - paths=source_relative
+  - plugin: grpc-gateway
+    out: ../gen/secretv1
+    opt:
+      - paths=source_relative
+      - generate_unbound_methods=true

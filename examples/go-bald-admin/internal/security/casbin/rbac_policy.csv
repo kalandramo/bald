@@ -1,0 +1,10 @@
+p, admin, secret, get
+p, admin, secret, delete
+p, admin, secret, list
+p, admin, auth, get
+p, viewer, secret, get
+p, viewer, secret, list
+p, viewer, auth, get
+g, u-admin, admin
+g, u-alice, viewer
+g, u-bob, viewer
