@@ -49,6 +49,7 @@ import (
 	"github.com/kalandramo/bald/pkg/server"
 	securityaudit "github.com/kalandramo/bald/examples/go-bald-admin/internal/security/audit"
 	obmetrics "github.com/kalandramo/bald/examples/go-bald-admin/internal/observability/metrics"
+	obtrace "github.com/kalandramo/bald/examples/go-bald-admin/internal/observability/trace"
 )
 
 func serveRunE(_ *cobra.Command, _ []string) error {
@@ -61,8 +62,14 @@ func serveRunE(_ *cobra.Command, _ []string) error {
 	setLogger(logOpts)
 
 	// M8/M9 可观测性：初始化 MeterProvider 并启动 /metrics 端点（独立端口，供 Prometheus 抓取）。
-	// 默认仅 Prometheus；若设 BALD_ADMIN_OTLP_ADDR 则额外直推远端 APM（多 Reader 共用 Provider）。
-	// 须在拦截器构建前 Setup，使 Recorder 接入 exporter。
+	// M9 延伸 trace OTLP 直推：先设全局 TracerProvider（核心 span 已埋点但默认 no-op，需本步接线）。
+	// 两者均按 BALD_ADMIN_OTLP_ADDR 开关；须在拦截器构建前 Setup，使埋点接入 exporter。
+	traceShutdown, err := obtrace.Setup()
+	if err != nil {
+		return fmt.Errorf("setup trace: %w", err)
+	}
+	traceShutdownFn = traceShutdown // 供 BeforeStop flush（进程退出前导出缓冲 span）
+
 	metricsAddr := os.Getenv("BALD_ADMIN_METRICS_ADDR")
 	if metricsAddr == "" {
 		metricsAddr = ":9090"
@@ -223,6 +230,11 @@ func newApp(
 		}),
 		appkit.BeforeStop(func(ctx context.Context) error {
 			baldlog.GetLogger().Info(ctx, "go-bald-admin stopping")
+			if traceShutdownFn != nil {
+				if shutErr := traceShutdownFn(ctx); shutErr != nil {
+					baldlog.GetLogger().Warn(ctx, "trace provider shutdown", "error", shutErr.Error())
+				}
+			}
 			return nil
 		}),
 	)
@@ -230,6 +242,10 @@ func newApp(
 }
 
 var osExit = func(code int) { os.Exit(code) }
+
+// traceShutdownFn 是 obtrace.Setup 返回的全局 TracerProvider shutdown（flush 缓冲 span），
+// 在 appkit.BeforeStop 调用，确保进程退出前导出未发送的 trace。未开 OTLP 时为 no-op。
+var traceShutdownFn func(context.Context) error
 
 // registerGRPCService 是 gRPC service 注册回调（M5 用 proto 生成的 SecretServiceServer）。
 var registerGRPCService = func(s *grpc.Server) {

@@ -45,9 +45,11 @@ BALD_HTTP_ADDR=:18080 go run ./cmd/go-bald-admin
 > 注：metrics 端口默认与 gRPC 同值 `:9090` 仅巧合；通过 `BALD_ADMIN_METRICS_ADDR`
 > 显式分开（如 `:9091`）以避免冲突。
 
-### 远端指标（M9 OTLP）
+### 远端遥测（M9 OTLP 直推）
 
-设 `BALD_ADMIN_OTLP_ADDR` 即额外直推远端 APM（OTel Collector / VictoriaMetrics / Grafana Cloud）：
+设 `BALD_ADMIN_OTLP_ADDR` 即同时把**指标（Prometheus/OTLP 双通道）**与 **trace（OTLP）**
+直推远端 APM（OTel Collector / VictoriaMetrics / Grafana Cloud）。核心埋点（grpc/gin Observability
+起 span、AuditWithMetrics emit）零改动，仅范例装配全局 Provider。
 
 ```bash
 BALD_ADMIN_OTLP_ADDR=http://localhost:4318 \
@@ -56,6 +58,7 @@ go run ./cmd/go-bald-admin --config=configs/go-bald-admin.yaml
 ```
 
 裸 `host:port` 走 `WithInsecure`（内网 collector）；`http(s)://` 前缀按完整 URL 解析。
+未设该变量时：指标仅 Prometheus 本地抓取，trace 走 no-op（核心默认），零配置可运行。
 
 ## 验证接口
 
@@ -103,7 +106,7 @@ go test -shuffle=on ./...
 | P9 | 核心授权归一化（反哺核心，根治双命名空间） | ✅ |
 | M7 | 审计日志（传输中立 + 旁路不阻断） | ✅ |
 | M8 | 可观测性指标（Prometheus） | ✅ |
-| M9 | OTLP 远端直推（与 Prometheus 并存） | ✅ |
+| M9 | OTLP 远端直推（指标 Prometheus+OTLP 双通道；trace OTLP 直推，核心埋点零改动） | ✅ |
 
 ## 目录
 
