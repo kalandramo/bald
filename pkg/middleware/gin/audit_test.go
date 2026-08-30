@@ -12,6 +12,7 @@ import (
 	"github.com/kalandramo/bald/pkg/audit"
 	"github.com/kalandramo/bald/pkg/authn"
 	"github.com/kalandramo/bald/pkg/authz"
+	"github.com/kalandramo/bald/pkg/metrics"
 )
 
 type auditMem struct {
@@ -119,3 +120,59 @@ func TestAuditMiddleware_PanickingAuditorSafe(t *testing.T) {
 type panicAuditor struct{}
 
 func (panicAuditor) Record(context.Context, audit.AuditEvent) { panic("boom") }
+
+// metricsMem 是测试用内存 metrics.Recorder。
+type metricsMem struct {
+	mu      sync.Mutex
+	records []metricsCall
+}
+
+type metricsCall struct {
+	ev        metrics.Event
+	transport metrics.Transport
+	dur       float64
+}
+
+func (m *metricsMem) Record(_ context.Context, ev metrics.Event, tr metrics.Transport, dur float64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.records = append(m.records, metricsCall{ev: ev, transport: tr, dur: dur})
+}
+
+func (m *metricsMem) all() []metricsCall {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]metricsCall, len(m.records))
+	copy(out, m.records)
+	return out
+}
+
+// TestAuditMiddleware_MetricsEmitted 验证 M8：REST 审计同源 emit 指标。
+func TestAuditMiddleware_MetricsEmitted(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	a := &auditMem{}
+	m := &metricsMem{}
+	mw := AuditMiddleware(nil, AuditWithAuditor(a), AuditWithMetrics(m),
+		AuditWithObjectResolver(authz.DefaultHTTPObject),
+		AuditWithActionResolver(authz.DefaultHTTPAction),
+	)
+	r := gin.New()
+	r.Use(mw)
+	r.GET("/v1/secret/:id", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/secret/s1", nil)
+	r.ServeHTTP(w, req)
+
+	calls := m.all()
+	if len(calls) != 1 {
+		t.Fatalf("want 1 metric record, got %d", len(calls))
+	}
+	c := calls[0]
+	if c.transport != metrics.TransportHTTP {
+		t.Errorf("transport should be http, got %q", c.transport)
+	}
+	if c.ev.Object != "secret" || c.ev.Action != "get" || c.ev.Result != "allow" {
+		t.Errorf("metric dims mismatch: %+v", c.ev)
+	}
+}

@@ -14,6 +14,7 @@ import (
 	berrors "github.com/kalandramo/bald/pkg/berrors"
 	"github.com/kalandramo/bald/pkg/contextx"
 	"github.com/kalandramo/bald/pkg/log"
+	"github.com/kalandramo/bald/pkg/metrics"
 )
 
 // AuditOption 配置 AuditInterceptor 的请求→审计三元组提取方式（与 AuthzInterceptor 对称）。
@@ -26,6 +27,8 @@ type auditOptions struct {
 	subjectResolver func(ctx context.Context, info *grpc.UnaryServerInfo) string
 	// auditor 指定审计后端；nil 时使用 audit.GetAuditor() 全局实例。
 	auditor audit.Auditor
+	// metricsRecorder 同步 emit 指标（与审计同源）；nil 时 no-op。
+	metricsRecorder metrics.Recorder
 }
 
 // AuditWithObjectResolver 自定义 object 推导；常用 authz.DefaultGRPCObject。
@@ -46,6 +49,12 @@ func AuditWithSubjectResolver(fn func(ctx context.Context, info *grpc.UnaryServe
 // AuditWithAuditor 指定审计后端；缺省用全局 audit.GetAuditor()。
 func AuditWithAuditor(a audit.Auditor) AuditOption {
 	return func(o *auditOptions) { o.auditor = a }
+}
+
+// AuditWithMetrics 同步 emit 指标（与审计同源，复用 object/action/result 维度）；
+// nil 时使用 metrics.NopRecorder()。旁路副作用，失败不影响业务。
+func AuditWithMetrics(rec metrics.Recorder) AuditOption {
+	return func(o *auditOptions) { o.metricsRecorder = rec }
 }
 
 // AuditInterceptor 是 gRPC 审计拦截器（旁路，不阻断业务）。
@@ -71,12 +80,17 @@ func AuditInterceptor(_ audit.Auditor, opts ...AuditOption) grpc.UnaryServerInte
 		auditor = audit.GetAuditor()
 	}
 	resolver := newAuditResolver(cfg)
+	rec := cfg.metricsRecorder
+	if rec == nil {
+		rec = metrics.NopRecorder()
+	}
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp any, err error) {
+		start := time.Now()
 		subject, tenant := resolver.subjectTenant(ctx, info)
 		object, action := resolver.objectAction(info)
 		resp, err = handler(ctx, req)
 		ev := audit.AuditEvent{
-			Time:     time.Now(),
+			Time:     start,
 			Subject:  subject,
 			TenantID: tenant,
 			Object:   object,
@@ -98,6 +112,8 @@ func AuditInterceptor(_ audit.Auditor, opts ...AuditOption) grpc.UnaryServerInte
 			ev.Error = err.Error()
 		}
 		recordSafely(auditor, ctx, ev)
+		// M8 指标埋点：与审计同源，复用 object/action/result 维度，旁路不阻断。
+		rec.Record(ctx, metrics.Event{Object: object, Action: action, Result: string(ev.Result), Error: ev.Error}, metrics.TransportGRPC, time.Since(start).Seconds())
 		return resp, err
 	}
 }

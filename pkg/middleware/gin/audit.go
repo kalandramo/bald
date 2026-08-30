@@ -11,6 +11,7 @@ import (
 	"github.com/kalandramo/bald/pkg/authz"
 	"github.com/kalandramo/bald/pkg/contextx"
 	"github.com/kalandramo/bald/pkg/log"
+	"github.com/kalandramo/bald/pkg/metrics"
 )
 
 // AuditOption 配置 AuditMiddleware 的请求→审计三元组提取方式（与 AuthzMiddleware 对称）。
@@ -22,6 +23,7 @@ type auditOptions struct {
 	actionResolver authz.ActionResolver
 	subjectResolver func(c *gin.Context) string
 	auditor        audit.Auditor
+	metricsRecorder metrics.Recorder
 }
 
 // AuditWithObjectResolver 自定义 object 推导；常用 authz.DefaultHTTPObject。
@@ -42,6 +44,12 @@ func AuditWithSubjectResolver(fn func(c *gin.Context) string) AuditOption {
 // AuditWithAuditor 指定审计后端；缺省用全局 audit.GetAuditor()。
 func AuditWithAuditor(a audit.Auditor) AuditOption {
 	return func(o *auditOptions) { o.auditor = a }
+}
+
+// AuditWithMetrics 同步 emit 指标（与审计同源，复用 object/action/result 维度）；
+// nil 时使用 metrics.NopRecorder()。旁路副作用，失败不影响业务。
+func AuditWithMetrics(rec metrics.Recorder) AuditOption {
+	return func(o *auditOptions) { o.metricsRecorder = rec }
 }
 
 // AuditMiddleware 是 gin 审计中间件（旁路，不阻断业务）。
@@ -66,7 +74,12 @@ func AuditMiddleware(_ audit.Auditor, opts ...AuditOption) gin.HandlerFunc {
 	if auditor == nil {
 		auditor = audit.GetAuditor()
 	}
+	rec := cfg.metricsRecorder
+	if rec == nil {
+		rec = metrics.NopRecorder()
+	}
 	return func(c *gin.Context) {
+		start := time.Now()
 		c.Next()
 		subject, tenant := subjectTenant(c, cfg)
 		object, action := objectAction(c, cfg)
@@ -78,7 +91,7 @@ func AuditMiddleware(_ audit.Auditor, opts ...AuditOption) gin.HandlerFunc {
 			result = audit.ResultError
 		}
 		ev := audit.AuditEvent{
-			Time:     time.Now(),
+			Time:     start,
 			Subject:  subject,
 			TenantID: tenant,
 			Object:   object,
@@ -96,6 +109,8 @@ func AuditMiddleware(_ audit.Auditor, opts ...AuditOption) gin.HandlerFunc {
 			ev.Error = c.Errors.ByType(gin.ErrorTypePrivate).String()
 		}
 		recordSafely(auditor, c.Request.Context(), ev)
+		// M8 指标埋点：与审计同源，复用 object/action/result 维度，旁路不阻断。
+		rec.Record(c.Request.Context(), metrics.Event{Object: object, Action: action, Result: string(ev.Result), Error: ev.Error}, metrics.TransportHTTP, time.Since(start).Seconds())
 	}
 }
 

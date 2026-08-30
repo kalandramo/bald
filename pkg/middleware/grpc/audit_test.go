@@ -13,6 +13,7 @@ import (
 	"github.com/kalandramo/bald/pkg/authz"
 	berrors "github.com/kalandramo/bald/pkg/berrors"
 	"github.com/kalandramo/bald/pkg/contextx"
+	"github.com/kalandramo/bald/pkg/metrics"
 )
 
 // auditMem 是测试用内存 Auditor。
@@ -39,6 +40,32 @@ func (m *auditMem) all() []audit.AuditEvent {
 type panicAuditor struct{}
 
 func (panicAuditor) Record(context.Context, audit.AuditEvent) { panic("boom") }
+
+// metricsMem 是测试用内存 metrics.Recorder。
+type metricsMem struct {
+	mu      sync.Mutex
+	records []metricsCall
+}
+
+type metricsCall struct {
+	ev        metrics.Event
+	transport metrics.Transport
+	dur       float64
+}
+
+func (m *metricsMem) Record(_ context.Context, ev metrics.Event, tr metrics.Transport, dur float64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.records = append(m.records, metricsCall{ev: ev, transport: tr, dur: dur})
+}
+
+func (m *metricsMem) all() []metricsCall {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]metricsCall, len(m.records))
+	copy(out, m.records)
+	return out
+}
 
 func withClaims(ctx context.Context, subject, tenant string) context.Context {
 	return authn.ContextWithAuthClaims(ctx, &authn.AuthClaims{Subject: subject, TenantID: tenant})
@@ -133,5 +160,37 @@ func TestAuditInterceptor_PanickingAuditorSafe(t *testing.T) {
 	})
 	if err != nil || resp != "ok" {
 		t.Fatalf("panicking auditor must not block handler, got resp=%v err=%v", resp, err)
+	}
+}
+
+// TestAuditInterceptor_MetricsEmitted 验证 M8：审计同源 emit 指标（计数+维度）。
+func TestAuditInterceptor_MetricsEmitted(t *testing.T) {
+	a := &auditMem{}
+	m := &metricsMem{}
+	info := &grpc.UnaryServerInfo{FullMethod: "/admin.v1.SecretService/DeleteSecret"}
+	inter := AuditInterceptor(nil, AuditWithAuditor(a),
+		AuditWithMetrics(m),
+		AuditWithObjectResolver(authz.DefaultGRPCObject),
+		AuditWithActionResolver(authz.DefaultGRPCAction),
+	)
+	// 核心单测不涉及 Authz，handler 成功返回 → 审计 allow + 指标 result=allow。
+	if _, err := inter(context.Background(), nil, info, func(context.Context, any) (any, error) {
+		return "ok", nil
+	}); err != nil {
+		t.Fatalf("handler should pass through, got %v", err)
+	}
+	calls := m.all()
+	if len(calls) != 1 {
+		t.Fatalf("want 1 metric record, got %d", len(calls))
+	}
+	c := calls[0]
+	if c.transport != metrics.TransportGRPC {
+		t.Errorf("transport should be grpc, got %q", c.transport)
+	}
+	if c.ev.Object != "secret" || c.ev.Action != "delete" || c.ev.Result != "allow" {
+		t.Errorf("metric dims mismatch: %+v", c.ev)
+	}
+	if c.dur <= 0 {
+		t.Errorf("duration should be positive, got %v", c.dur)
 	}
 }
