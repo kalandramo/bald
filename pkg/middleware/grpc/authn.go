@@ -9,6 +9,7 @@ import (
 
 	"github.com/kalandramo/bald/pkg/authn"
 	berrors "github.com/kalandramo/bald/pkg/berrors"
+	"github.com/kalandramo/bald/pkg/contextx"
 	"github.com/kalandramo/bald/pkg/log"
 )
 
@@ -40,6 +41,11 @@ func AuthnInterceptor(authenticator authn.Authenticator) grpc.UnaryServerInterce
 		// 拦截器不再重复判断。
 
 		ctx = authn.ContextWithAuthClaims(ctx, claims)
+		// 把租户 ID 写入 contextx，供 pkg/store 多租户隔离（Where.T(ctx)）自动读取。
+		// 认证层是唯一可信的租户来源，业务 handler 无需手写租户过滤条件。
+		if claims.TenantID != "" {
+			ctx = contextx.WithTenantID(ctx, claims.TenantID)
+		}
 		return handler(ctx, req)
 	}
 }

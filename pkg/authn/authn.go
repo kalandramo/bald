@@ -37,7 +37,10 @@ type AuthClaims struct {
 }
 
 // Authenticator 是认证器接口。具体实现（JWT / OIDC / API Key / Basic）外置为
-// 桥接子模块，通过 pkg/registry.RegisterAuthenticator 注册，业务 import _ 即插即用。
+// 桥接子模块；业务侧（如 bootstrap 包）构造实例并注入到
+// middleware/gin.AuthnMiddleware / middleware/grpc.AuthnInterceptor。核心不持有
+// Authenticator 实例——认证器属业务策略，不进 appkit 通用 Registry（注册表仅收纳
+// 传输/存储插件），故不存在 pkg/registry.RegisterAuthenticator。
 //
 // 实现契约：必须校验凭证过期（AuthClaims.ExpiresAt 非零且早于当前时间时返回 error），
 // 过期判定下沉到本接口，传输层拦截器不应再重复判断 Expired()。

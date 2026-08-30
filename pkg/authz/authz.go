@@ -10,7 +10,8 @@ package authz
 import "context"
 
 // Authorizer 授权判定接口。具体实现（Casbin、RBAC 表、硬编码规则）外置为桥接子模块，
-// 通过 pkg/registry.RegisterAuthorizer 注册。
+// 由业务侧构造并注入 middleware/gin.AuthzMiddleware / middleware/grpc.AuthzInterceptor。
+// 核心不持有 Authorizer 实例，授权器属业务策略，不进 appkit 通用 Registry。
 type Authorizer interface {
 	// Authorize 判定 subject 是否可对 object 执行 action。返回 (allowed, error)：
 	//   - allowed=false 且无 error：明确拒绝（拦截器映射为 403）。
