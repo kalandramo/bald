@@ -60,8 +60,9 @@ func serveRunE(_ *cobra.Command, _ []string) error {
 	logOpts := baldlog.NewOptions()
 	setLogger(logOpts)
 
-	// M8 可观测性：初始化 Prometheus MeterProvider 并启动 /metrics 端点（独立端口，
-	// 供 Prometheus 抓取）。须在拦截器构建前 Setup，使 Recorder 接入 exporter。
+	// M8/M9 可观测性：初始化 MeterProvider 并启动 /metrics 端点（独立端口，供 Prometheus 抓取）。
+	// 默认仅 Prometheus；若设 BALD_ADMIN_OTLP_ADDR 则额外直推远端 APM（多 Reader 共用 Provider）。
+	// 须在拦截器构建前 Setup，使 Recorder 接入 exporter。
 	metricsAddr := os.Getenv("BALD_ADMIN_METRICS_ADDR")
 	if metricsAddr == "" {
 		metricsAddr = ":9090"
