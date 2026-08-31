@@ -19,11 +19,13 @@
 | --- | --- |
 | 统一 Server 契约 | `Server = Start / Stop / Endpoint`，HTTP / gRPC / Gateway 共用一份契约。 |
 | 多协议同进程 | 一个 `AppKit` 可并发编排多个 Server，共享生命周期。 |
-| 优雅停机 | 收到 SIGINT/SIGTERM 或 ctx 取消时，先反注册再优雅停机，避免流量打到已停服务。 |
+| 优雅停机 | 收到 SIGINT/SIGTERM 或 ctx 取消时，先反注册再五阶段优雅停机（效应回放→BeforeStop→Server.Stop→AfterStop→组件 Dispose），避免流量打到已停服务。 |
 | 动态端口注册 | `Endpoint()` 在 `Start` 后返回真实地址，`:0` 动态端口也能正确注册到服务发现。 |
 | 可插拔注册中心 | 内置内存实现（开发/测试），通过桥接复用 kratos 生态的 etcd / consul / nacos。 |
-| 多源配置 | 命令行 flag > 环境变量 > 本地文件 > 远程配置中心，支持热更新。 |
+| 多源配置 | 命令行 flag > 环境变量 > 本地文件 > 远程配置中心，支持热更新（含 key 级细粒度订阅）。 |
 | 生命周期钩子 | `BeforeStart` / `AfterStart` / `BeforeStop` / `AfterStop` 精细控制。 |
+| 可组合性 | 效应账本（T1 可逆撤销）、能力声明（S1 fail-fast）、组件生命周期（C1）、运行期热插拔（A1）——对照 Cordis 时空可组合性论文。 |
+| 五支柱可观测 | 认证 + 授权 + 审计 + 指标 + trace，核心定抽象、contrib 桥接后端（Prometheus/OTLP/casbin/Redis）。 |
 
 ### 适用场景
 
@@ -35,10 +37,14 @@
 ### 架构概览
 
 ```
-AppKit（组合层）
-  ├── Server 契约：HTTP / gRPC / Gateway（并发启停 + 优雅停机）
+AppKit（编排层）
+  ├── Server 契约：HTTP / gRPC / Gateway（并发启停 + 五阶段优雅停机）
   ├── Registrar 抽象：内存 / kratos(etcd|consul|nacos)
-  └── 配置加载：flag > env > 本地文件 > 远程配置中心（热更新）
+  ├── Component 抽象：trace/metrics/审计等进程内组件统一生命周期
+  ├── Effect 账本：全局注册的可逆撤销（停机回放）
+  ├── Capability 校验：Provides/Requires 启动期 fail-fast
+  ├── 配置加载：flag > env > 本地文件 > 远程配置中心（热更新 + key 级订阅）
+  └── contrib 桥接：authn-jwt / store-gorm / cache-redis / authz-casbin / observability-otlp
 ```
 
 更详细的设计文档见 [开发手册](../devel/zh-CN/README.md)。

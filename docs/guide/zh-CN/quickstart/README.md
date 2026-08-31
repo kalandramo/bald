@@ -92,16 +92,18 @@ appkit.OnConfigChange(func(v *viper.Viper) { /* 热重载 */ }),
 // appkit.RemoteConfig(src),                // 可选：etcd/consul/nacos 远程配置
 ```
 
-`BeforeStart` 钩子中从合并后的 `app.Viper()` 反序列化业务 options：
+`BeforeStart` 钩子中按 proto 契约解析（proto 是唯一真相源，`pkg/options` 中间层已废弃删除）：
 
 ```go
 appkit.BeforeStart(func(ctx context.Context) error {
-	v := app.Viper()
-	if v != nil {
-		_ = v.Unmarshal(httpOpts)
-		_ = v.Unmarshal(grpcOpts)
-	}
-	return nil
+    if err := baldconfig.Unmarshal(app.Viper(), bootstrap); err != nil {
+        return fmt.Errorf("unmarshal config: %w", err)
+    }
+    if err := baldconf.Validate(bootstrap); err != nil {
+        return fmt.Errorf("invalid config: %w", err)
+    }
+    // server 已持有 bootstrap.GetHttp()/GetGrpc() 指针，无需回填。
+    return nil
 }),
 ```
 
@@ -135,7 +137,7 @@ appkit.New(appkit.KratosRegistrar(kr), appkit.Servers(srv))
 
 ### 6. 完整示例
 
-仓库内置完整可运行示例 [`example/bald/main.go`](https://github.com/kalandramo/bald/blob/main/example/bald/main.go)，
+仓库内置完整可运行示例 [`_example/bald/main.go`](https://github.com/kalandramo/bald/blob/main/_example/bald/main.go)，
 覆盖框架的核心能力：
 
 - **多协议编排**：并发启停 HTTP + gRPC 两个 `server.Server`，共享同一个 `ReadinessFunc` 使 `/readyz` 与 gRPC health 对称联动。
@@ -154,7 +156,7 @@ go run ./_example/bald --env=prod                        # 多环境（按 bald-
 go run ./_example/bald --log.format=json --log.level=debug   # 切换日志格式 / 级别
 ```
 
-> 注：`example/bald/main.go` 顶部注释还给出了 etcd/nacos 远程配置中心与 GatewayServer、单 server `Serve()` 的接入片段，可按需启用。
+> 注：`_example/bald/main.go` 顶部注释还给出了 etcd/nacos 远程配置中心与 GatewayServer、单 server `Serve()` 的接入片段，可按需启用。
 
 ### 下一步
 
