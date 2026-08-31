@@ -12,12 +12,12 @@ import (
 )
 
 func TestSetup_ExposesBaldMetrics(t *testing.T) {
-	handler, err := Setup()
+	handler, err := Setup(WithServiceName("bald-otlp-test"))
 	if err != nil {
 		t.Fatalf("Setup: %v", err)
 	}
 	// 通过真实 Recorder（接入 prometheus exporter）记一条指标。
-	rec := Recorder()
+	rec := Recorder("bald/test")
 	rec.Record(context.Background(),
 		metrics.Event{Object: "secret", Action: "get", Result: "allow"},
 		metrics.TransportGRPC, 0.012)

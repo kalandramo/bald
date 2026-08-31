@@ -14,7 +14,7 @@ import (
 
 	authmodel "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/model"
 	bootstrappkg "github.com/kalandramo/bald/examples/go-bald-admin/internal/bootstrap"
-	rediscache "github.com/kalandramo/bald/examples/go-bald-admin/internal/cache/redis"
+	rediscache "github.com/kalandramo/bald-cache-redis"
 )
 
 // SecretBiz Secret 业务服务。
@@ -58,7 +58,7 @@ func (b *SecretBiz) Get(ctx context.Context, id string) (*Item, error) {
 	var raw string
 	var err error
 	if b.cache != nil {
-		raw, err = b.cache.Get(ctx, rediscache.SecretKey(tenant, id), loader)
+		raw, err = b.cache.Get(ctx, rediscache.Key("secret", tenant, id), loader)
 	} else {
 		raw, err = loader(ctx)
 	}
@@ -101,7 +101,7 @@ func (b *SecretBiz) Delete(ctx context.Context, id string) (bool, error) {
 	}
 	if b.cache != nil {
 		tenant := contextx.TenantIDFromContext(ctx)
-		_ = b.cache.Delete(ctx, rediscache.SecretKey(tenant, id))
+		_ = b.cache.Delete(ctx, rediscache.Key("secret", tenant, id))
 	}
 	return true, nil
 }

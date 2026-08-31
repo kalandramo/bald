@@ -46,10 +46,10 @@ tasks:
       - go test {{.TEST_FLAGS}} ./...
 
   test:metrics:
-    desc: 仅跑可观测性(指标)包
-    dir: "{{.MOD}}"
+    desc: 仅跑可观测性包（P11 起晋升 contrib/bald-observability-otlp 独立 module）
+    dir: "{{.MOD}}/../../contrib/observability-otlp"
     cmds:
-      - go test {{.TEST_FLAGS}} ./internal/observability/...
+      - go test {{.TEST_FLAGS}} ./...
 
   test:audit:
     desc: 仅跑审计 e2e（Authn+Audit+Authz 串联）

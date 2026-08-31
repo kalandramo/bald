@@ -13,6 +13,7 @@ import (
 	"os"
 
 	authnjwt "github.com/kalandramo/bald-authn-jwt"
+	rediscache "github.com/kalandramo/bald-cache-redis"
 	"github.com/kalandramo/bald/pkg/authn"
 	"github.com/kalandramo/bald/pkg/authz"
 	"github.com/kalandramo/bald/pkg/log"
@@ -27,7 +28,6 @@ import (
 
 	authmodel "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/model"
 	casbinauthz "github.com/kalandramo/bald/examples/go-bald-admin/internal/security/casbin"
-	rediscache "github.com/kalandramo/bald/examples/go-bald-admin/internal/cache/redis"
 )
 
 // JWTSecret 是 M1 范本的 HMAC 对称密钥（兼容保留）。
@@ -116,9 +116,9 @@ func InitBridges(ctx context.Context) error {
 	// 认证后注入 contextx 的 TenantID。
 	store.RegisterTenant("tenant_id", store.DefaultTenantFunc)
 
-	// 3) Authorizer：M6.1 起由 casbin 桥接 authz.Authorizer 实现（策略见
-	//    internal/security/casbin/rbac_*.conf/csv，角色→权限、subject→角色均声明于策略文件）。
-	//    替换 M1 手写 RBAC 内存表，命中 §0「禁止手写假实现」契约。
+	// 3) Authorizer：M6.1 起由 casbin 桥接 authz.Authorizer 实现（P11 起实现晋升 contrib
+	//    bald-authz-casbin，内嵌通用 RBAC 模型；业务策略见 internal/security/casbin/rbac_policy.csv，
+	//    角色→权限、subject→角色均声明于策略文件）。替换 M1 手写 RBAC 内存表，命中 §0「禁止手写假实现」契约。
 	az, err := casbinauthz.New()
 	if err != nil {
 		return err

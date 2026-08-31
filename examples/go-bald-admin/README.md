@@ -13,12 +13,12 @@
 
 - 双协议：`gin` HTTP(`:8080`) + `gRPC`(`:9090`)，可选 `grpc-gateway` REST 转码(`:8081`)。
 - 认证：`bald-authn-jwt`（RS256/ES256/HMAC，M6.5 非对称）。
-- 授权：`internal/security/casbin` 桥接 casbin（RBAC 策略即数据，M6.1）。
+- 授权：`bald-authz-casbin`（contrib，P11 晋升）桥接 casbin；本仓库仅保留业务策略数据（`internal/security/casbin/rbac_policy.csv`，RBAC 策略即数据，M6.1）。
 - 多租户：`bald-store-gorm` SQLite 内存库 + P8 自动注入 `tenant_id`（M3/M4）。
-- 缓存：`internal/cache/redis` Cache-Aside（Redis 空则直连 store，M6.2）。
+- 缓存：`bald-cache-redis`（contrib，P11 晋升）Cache-Aside（Redis 空则直连 store，M6.2）。
 - 装配：`google/wire` 接管业务对象，appkit 负责框架发现（M6.4）。
 - 审计：`pkg/audit` 核心 + `internal/security/audit.MultiAuditor`（M7 落库 + M9 消息总线 Redis Stream 异步 + 日志降级，三重真实后端）。
-- 指标：`pkg/metrics` 核心 + `internal/observability/metrics`（Prometheus/OTLP，M8/M9）。
+- 指标/trace：`pkg/metrics` 核心 + `bald-observability-otlp`（contrib，P11 晋升；Prometheus/OTLP 双通道，M8/M9）。
 
 ## 运行
 

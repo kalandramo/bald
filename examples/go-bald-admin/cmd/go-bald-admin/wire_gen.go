@@ -8,10 +8,10 @@ package main
 
 import (
 	authnjwt "github.com/kalandramo/bald-authn-jwt"
+	rediscache "github.com/kalandramo/bald-cache-redis"
 	"github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/auth"
 	"github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/secret"
 	"github.com/kalandramo/bald/examples/go-bald-admin/internal/bootstrap"
-	"github.com/kalandramo/bald/examples/go-bald-admin/internal/cache/redis"
 	"os"
 )
 
@@ -41,7 +41,7 @@ func InitializeBiz() (*BizSet, error) {
 type BizSet struct {
 	Auth   *auth.Biz
 	Secret *secret.SecretBiz
-	Cache  *redis.Cache
+	Cache  *rediscache.Cache
 }
 
 // redisAddr 是 wire 的命名类型别名，区分 string 依赖（避免多重绑定冲突）。
@@ -54,6 +54,6 @@ func provideRedisAddr() redisAddr { return redisAddr(os.Getenv("BALD_ADMIN_REDIS
 func provideSigner() authnjwt.Signer { return bootstrap.Signer }
 
 // newRedisCache 适配 redisAddr→rediscache.New（保留错误，Redis 不可达即启动失败）。
-func newRedisCache(addr redisAddr) (*redis.Cache, error) {
-	return redis.New(string(addr))
+func newRedisCache(addr redisAddr) (*rediscache.Cache, error) {
+	return rediscache.New(string(addr))
 }

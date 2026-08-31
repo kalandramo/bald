@@ -31,25 +31,25 @@ import (
 	"github.com/spf13/viper"
 	"google.golang.org/grpc"
 
+	adminv1 "github.com/kalandramo/bald/examples/go-bald-admin/gen/secretv1"
 	"github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver"
 	secretgrpc "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/grpc"
-	adminv1 "github.com/kalandramo/bald/examples/go-bald-admin/gen/secretv1"
 	bootstrappkg "github.com/kalandramo/bald/examples/go-bald-admin/internal/bootstrap"
 
+	obmetrics "github.com/kalandramo/bald-observability-otlp/metrics"
+	obtrace "github.com/kalandramo/bald-observability-otlp/trace"
+	securityaudit "github.com/kalandramo/bald/examples/go-bald-admin/internal/security/audit"
 	"github.com/kalandramo/bald/pkg/appkit"
+	"github.com/kalandramo/bald/pkg/audit"
+	"github.com/kalandramo/bald/pkg/authz"
 	baldconf "github.com/kalandramo/bald/pkg/conf"
 	confv1 "github.com/kalandramo/bald/pkg/conf/gen/go/bald/config/v1"
 	baldconfig "github.com/kalandramo/bald/pkg/config"
 	baldlog "github.com/kalandramo/bald/pkg/log"
 	mid "github.com/kalandramo/bald/pkg/middleware/gin"
 	grpcmw "github.com/kalandramo/bald/pkg/middleware/grpc"
-	"github.com/kalandramo/bald/pkg/authz"
-	"github.com/kalandramo/bald/pkg/audit"
 	"github.com/kalandramo/bald/pkg/registry/inmemory"
 	"github.com/kalandramo/bald/pkg/server"
-	securityaudit "github.com/kalandramo/bald/examples/go-bald-admin/internal/security/audit"
-	obmetrics "github.com/kalandramo/bald/examples/go-bald-admin/internal/observability/metrics"
-	obtrace "github.com/kalandramo/bald/examples/go-bald-admin/internal/observability/trace"
 )
 
 func serveRunE(_ *cobra.Command, _ []string) error {
@@ -63,18 +63,29 @@ func serveRunE(_ *cobra.Command, _ []string) error {
 
 	// M8/M9 可观测性：初始化 MeterProvider 并启动 /metrics 端点（独立端口，供 Prometheus 抓取）。
 	// M9 延伸 trace OTLP 直推：先设全局 TracerProvider（核心 span 已埋点但默认 no-op，需本步接线）。
-	// 两者均按 BALD_ADMIN_OTLP_ADDR 开关；须在拦截器构建前 Setup，使埋点接入 exporter。
-	traceShutdown, err := obtrace.Setup()
+	// 两者均按 BALD_ADMIN_OTLP_ADDR 开关（P11 起实现晋升 contrib bald-observability-otlp，
+	// 环境变量读取上移到本入口）；须在拦截器构建前 Setup，使埋点接入 exporter。
+	otlpAddr := os.Getenv("BALD_ADMIN_OTLP_ADDR")
+	traceShutdown, err := obtrace.Setup(
+		obtrace.WithOTLPAddr(otlpAddr),
+		obtrace.WithServiceName("go-bald-admin"),
+	)
 	if err != nil {
 		return fmt.Errorf("setup trace: %w", err)
 	}
-	traceShutdownFn = traceShutdown // 供 BeforeStop flush（进程退出前导出缓冲 span）
+	// C1：trace provider 注册为进程内组件（退出时由 appkit 统一逆序 Dispose flush
+	// 尾批 span——此前手工塞 BeforeStop 的 traceShutdownFn 已删除，「忘 flush 丢批」
+	// 从文档知识变成结构保证）。
+	traceComp := appkit.ComponentFunc("trace.provider", traceShutdown)
 
 	metricsAddr := os.Getenv("BALD_ADMIN_METRICS_ADDR")
 	if metricsAddr == "" {
 		metricsAddr = ":9090"
 	}
-	metricsHandler, err := obmetrics.Setup()
+	metricsHandler, err := obmetrics.Setup(
+		obmetrics.WithOTLPAddr(otlpAddr),
+		obmetrics.WithServiceName("go-bald-admin"),
+	)
 	if err != nil {
 		return fmt.Errorf("setup metrics: %w", err)
 	}
@@ -100,7 +111,7 @@ func serveRunE(_ *cobra.Command, _ []string) error {
 	router.Use(mid.AuditMiddleware(nil,
 		mid.AuditWithObjectResolver(authz.DefaultHTTPObject),
 		mid.AuditWithActionResolver(authz.DefaultHTTPAction),
-		mid.AuditWithMetrics(obmetrics.Recorder()),
+		mid.AuditWithMetrics(obmetrics.Recorder("bald/example")),
 	))
 	apiserver.RegisterRoutes(router, bizSet.Auth, bizSet.Secret) // gin handler 路由
 	httpSrv := server.NewHTTPServer(bootstrap.GetHttp(), router, ready)
@@ -113,7 +124,7 @@ func serveRunE(_ *cobra.Command, _ []string) error {
 	)
 
 	// 2. 组装 AppKit（含可选 grpc-gateway，见 buildServers）。
-	app := newApp(bootstrap, logOpts, httpSrv, grpcSrv, ready)
+	app := newApp(bootstrap, logOpts, httpSrv, grpcSrv, ready, traceComp)
 
 	// 3. 运行。
 	if err := app.Run(context.Background()); err != nil {
@@ -175,6 +186,7 @@ func newApp(
 	httpSrv *server.HTTPServer,
 	grpcSrv *server.GRPCServer,
 	ready server.ReadinessFunc,
+	traceComp appkit.Component,
 ) *appkit.AppKit {
 	var app *appkit.AppKit
 	app = appkit.New(
@@ -184,6 +196,16 @@ func newApp(
 
 		appkit.ConfigFile("configs/go-bald-admin.yaml"),
 		appkit.WatchConfigFile(true),
+
+		// S1 能力声明（启动期 fail-fast）：BeforeStart 的 InitBridges 将建立真实 DB
+		// 连接（BALD_ADMIN_DB_DSN，缺省 SQLite 内存），审计落库（StoreAuditor）依赖它。
+		// 此前「审计后端须在 InitBridges 之后装配」只活在注释里（M8 曾因顺序反了
+		// nil panic）；现在漏掉 Provides("db") 会在 Run 启动期直接报错，而非运行时炸弹。
+		appkit.Provides("db"),
+		appkit.Requires("audit.store", "db"),
+
+		// C1 进程内组件：trace provider 纳入统一生命周期（停机末段逆序 Dispose）。
+		appkit.Components(traceComp),
 
 		// 业务 flag 接入：前缀与配置键一致（--http.addr ⇔ http.addr ⇔ BALD_HTTP_ADDR）。
 		appkit.Bind("http", bootstrap.GetHttp()),
@@ -197,6 +219,14 @@ func newApp(
 			if err := baldconfig.Unmarshal(v, bootstrap); err != nil {
 				logger.Error(context.Background(), "reload config failed", "error", err)
 			}
+		}),
+
+		// R1 增量协调（key 级订阅）：仅当 http.addr 实际变化才触发（同值刷新、
+		// 其他 key 变更均不波及），与全量 reload 互补——全量做 Unmarshal 重建，
+		// key 级做定点观测/定点重载。
+		appkit.OnKeyChange("http.addr", func(old, new string) {
+			baldlog.GetLogger().Info(context.Background(), "http.addr changed",
+				"old", old, "new", new)
 		}),
 
 		appkit.Registrar(inmemory.New()),
@@ -237,11 +267,6 @@ func newApp(
 		}),
 		appkit.BeforeStop(func(ctx context.Context) error {
 			baldlog.GetLogger().Info(ctx, "go-bald-admin stopping")
-			if traceShutdownFn != nil {
-				if shutErr := traceShutdownFn(ctx); shutErr != nil {
-					baldlog.GetLogger().Warn(ctx, "trace provider shutdown", "error", shutErr.Error())
-				}
-			}
 			return nil
 		}),
 	)
@@ -249,10 +274,6 @@ func newApp(
 }
 
 var osExit = func(code int) { os.Exit(code) }
-
-// traceShutdownFn 是 obtrace.Setup 返回的全局 TracerProvider shutdown（flush 缓冲 span），
-// 在 appkit.BeforeStop 调用，确保进程退出前导出未发送的 trace。未开 OTLP 时为 no-op。
-var traceShutdownFn func(context.Context) error
 
 // registerGRPCService 是 gRPC service 注册回调（M5 用 proto 生成的 SecretServiceServer）。
 var registerGRPCService = func(s *grpc.Server) {
@@ -285,7 +306,7 @@ func newGRPCServerOptions() []grpc.ServerOption {
 		grpcmw.AuditInterceptor(nil,
 			grpcmw.AuditWithObjectResolver(authz.DefaultGRPCObject),
 			grpcmw.AuditWithActionResolver(authz.DefaultGRPCAction),
-			grpcmw.AuditWithMetrics(obmetrics.Recorder()),
+			grpcmw.AuditWithMetrics(obmetrics.Recorder("bald/example")),
 		),
 		authzInterceptor, // 授权：角色无权限 -> PermissionDenied
 	}

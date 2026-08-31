@@ -2,13 +2,11 @@ package trace
 
 import (
 	"context"
-	"os"
 	"testing"
 )
 
-// TestSetup_NoOTLP_ReturnsNoop 未设 BALD_ADMIN_OTLP_ADDR 时返回 no-op shutdown，不挂全局 Provider。
+// TestSetup_NoOTLP_ReturnsNoop 未提供 OTLP 地址时返回 no-op shutdown，不挂全局 Provider。
 func TestSetup_NoOTLP_ReturnsNoop(t *testing.T) {
-	os.Unsetenv("BALD_ADMIN_OTLP_ADDR")
 	shutdown, err := Setup()
 	if err != nil {
 		t.Fatalf("Setup() err = %v", err)
@@ -23,8 +21,7 @@ func TestSetup_NoOTLP_ReturnsNoop(t *testing.T) {
 
 // TestSetup_OTLP_BareAddr 裸 host:port 应成功构造 exporter + shutdown（不真正连网）。
 func TestSetup_OTLP_BareAddr(t *testing.T) {
-	t.Setenv("BALD_ADMIN_OTLP_ADDR", "localhost:4318")
-	shutdown, err := Setup()
+	shutdown, err := Setup(WithOTLPAddr("localhost:4318"), WithServiceName("bald-otlp-test"))
 	if err != nil {
 		t.Fatalf("Setup() err = %v", err)
 	}
@@ -35,8 +32,7 @@ func TestSetup_OTLP_BareAddr(t *testing.T) {
 
 // TestSetup_OTLP_URL 带 http:// 前缀应按完整 EndpointURL 解析。
 func TestSetup_OTLP_URL(t *testing.T) {
-	t.Setenv("BALD_ADMIN_OTLP_ADDR", "http://otel-collector:4318")
-	shutdown, err := Setup()
+	shutdown, err := Setup(WithOTLPAddr("http://otel-collector:4318"))
 	if err != nil {
 		t.Fatalf("Setup() err = %v", err)
 	}

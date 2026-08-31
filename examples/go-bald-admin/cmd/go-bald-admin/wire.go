@@ -16,9 +16,9 @@ import (
 	"github.com/google/wire"
 
 	authnjwt "github.com/kalandramo/bald-authn-jwt"
+	rediscache "github.com/kalandramo/bald-cache-redis"
 	authbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/auth"
 	secretbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/secret"
-	rediscache "github.com/kalandramo/bald/examples/go-bald-admin/internal/cache/redis"
 	bootstrappkg "github.com/kalandramo/bald/examples/go-bald-admin/internal/bootstrap"
 )
 

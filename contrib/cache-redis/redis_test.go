@@ -1,4 +1,4 @@
-package redis
+package rediscache
 
 import (
 	"context"
@@ -29,7 +29,7 @@ func TestCache_Get_MissThenHit(t *testing.T) {
 	}
 
 	// 第一次：未命中，经 loader 加载。
-	got, err := c.Get(ctx, SecretKey("t-default", "s-1"), loader)
+	got, err := c.Get(ctx, Key("secret", "t-default", "s-1"), loader)
 	if err != nil {
 		t.Fatalf("Get#1: %v", err)
 	}
@@ -37,7 +37,7 @@ func TestCache_Get_MissThenHit(t *testing.T) {
 		t.Fatalf("Get#1: got=%q calls=%d want v1/1", got, calls)
 	}
 	// 第二次：命中缓存，loader 不再调用。
-	got, err = c.Get(ctx, SecretKey("t-default", "s-1"), loader)
+	got, err = c.Get(ctx, Key("secret", "t-default", "s-1"), loader)
 	if err != nil {
 		t.Fatalf("Get#2: %v", err)
 	}
@@ -63,7 +63,41 @@ func TestCache_DisabledDirectLoader(t *testing.T) {
 
 // TestCache_TenantIsolationKey 缓存键含租户，避免跨租户泄漏。
 func TestCache_TenantIsolationKey(t *testing.T) {
-	if SecretKey("t-a", "s1") == SecretKey("t-b", "s1") {
+	if Key("secret", "t-a", "s1") == Key("secret", "t-b", "s1") {
 		t.Fatalf("tenant must be part of key")
+	}
+}
+
+// TestCache_Delete 失效指定 key：删除后再次读取重新经 loader 加载。
+func TestCache_Delete(t *testing.T) {
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis: %v", err)
+	}
+	defer mr.Close()
+
+	c, err := New(mr.Addr())
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	ctx := context.Background()
+	key := Key("secret", "t-default", "s-1")
+	calls := 0
+	loader := func(context.Context) (string, error) {
+		calls++
+		return "v1", nil
+	}
+
+	if _, err := c.Get(ctx, key, loader); err != nil {
+		t.Fatalf("Get#1: %v", err)
+	}
+	if err := c.Delete(ctx, key); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if _, err := c.Get(ctx, key, loader); err != nil {
+		t.Fatalf("Get#2 after delete: %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("loader calls = %d, want 2 (delete must invalidate)", calls)
 	}
 }
