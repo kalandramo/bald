@@ -43,6 +43,24 @@ func RegisterTenant(key string, valueFunc TenantValueFunc) {
 	tenantExtractors[key] = valueFunc
 }
 
+// UnregisterTenant 注销一个租户维度（幂等：不存在时无操作）。
+//
+// 与 RegisterTenant 对偶，是全局注册点第一个补齐「逆操作」的成员（T1 效应账本，
+// 见 docs/devel/zh-CN/架构优化路线.md）。典型用法：
+//
+//	store.RegisterTenant("tenant_id", store.DefaultTenantFunc)
+//	appkit.Effect("tenant-registration", func(ctx context.Context) error {
+//	    store.UnregisterTenant("tenant_id")
+//	    return nil
+//	})
+//
+// 或 e2e 测试隔离：t.Cleanup(func() { store.UnregisterTenant("tenant_id") })。
+func UnregisterTenant(key string) {
+	tenantMu.Lock()
+	defer tenantMu.Unlock()
+	delete(tenantExtractors, key)
+}
+
 // T 标记本 Where 需注入全部已注册租户维度条件，返回副本（不修改原对象）。
 //
 // 业务可在构造 Where 时调用 w.T(ctx) 显式声明"本查询需租户隔离"；Store.translate

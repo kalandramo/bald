@@ -16,20 +16,12 @@ import (
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 
 	confv1 "github.com/kalandramo/bald/pkg/conf/gen/go/bald/config/v1"
+	"github.com/kalandramo/bald/pkg/testkit"
 )
 
-// freeAddr 分配一个当前空闲的 TCP 端口，返回 "127.0.0.1:port"。
-// 网关后端地址必须是「可连接」的（不能是 :0，否则转发时无从得知真实端口），
-// 故测试用本函数取确定端口，而非让后端监听 :0 后再反查。
+// freeAddr 已收编至 pkg/testkit（P13），此处转发以保持本包测试可读。
 func freeAddr(t *testing.T) string {
-	t.Helper()
-	lis, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("freeAddr: %v", err)
-	}
-	addr := lis.Addr().String()
-	_ = lis.Close()
-	return addr
+	return testkit.FreeAddr(t)
 }
 
 // 启动一个 server 并等待其 Endpoint 就绪，返回 stop 函数。

@@ -74,6 +74,26 @@ type AppKit struct {
 	beforeStop  []func(context.Context) error
 	afterStop   []func(context.Context) error
 
+	// T1 效应账本：全局注册的逆操作登记处，停机/失败回滚时逆序回放（见 effect.go）。
+	effects       []effectEntry
+	effectsMu     sync.Mutex
+	effectTimeout time.Duration
+
+	// S1 能力声明：Provides/Requires 装配声明，Run 启动早期 Resolve 校验（见 capability.go）。
+	provides []string
+	requires []requirement
+
+	// R1 key 级配置订阅：细粒度变更分发（见 keywatch.go）。
+	keyWatchers []keyWatcher
+	keyWatchMu  sync.Mutex
+
+	// C1 进程内组件：统一生命周期的基础设施（见 component.go）。
+	components       []Component
+	componentTimeout time.Duration
+	started          []Component // 已成功 Start 的组件（Dispose 幂等跟踪）
+	startedMu        sync.Mutex
+	disposed         bool // 组件系统已销毁（A1：置位后拒绝运行期挂载，见 mount.go）
+
 	// 配置（onexstack 风格 --config + 可选远程配置中心），收敛为一个配置对象。
 	cfg appConfig
 
@@ -164,9 +184,9 @@ func bindFlags(fs *pflag.FlagSet, b flagBinding) error {
 // Option 配置 AppKit。
 type Option func(*AppKit)
 
-func ID(id string) Option            { return func(a *AppKit) { a.id = id } }
-func Name(name string) Option        { return func(a *AppKit) { a.name = name } }
-func Version(v string) Option        { return func(a *AppKit) { a.version = v } }
+func ID(id string) Option                   { return func(a *AppKit) { a.id = id } }
+func Name(name string) Option               { return func(a *AppKit) { a.name = name } }
+func Version(v string) Option               { return func(a *AppKit) { a.version = v } }
 func Registrar(r registry.Registrar) Option { return func(a *AppKit) { a.registrar = r } }
 
 // KratosRegistrar 桥接 go-kratos 的 registry.Registrar（etcd/consul 等后端）。
@@ -239,13 +259,15 @@ func hostname() string {
 // New 构造 AppKit。
 func New(opts ...Option) *AppKit {
 	a := &AppKit{
-		id:          hostname(),
-		name:        "bald-app",
-		version:     "v0.0.0",
-		stopTimeout:        defaultStopTimeout,
+		id:                hostname(),
+		name:              "bald-app",
+		version:           "v0.0.0",
+		stopTimeout:       defaultStopTimeout,
 		beforeStopTimeout: defaultHookTimeout,
 		afterStopTimeout:  defaultHookTimeout,
-		done:        make(chan struct{}),
+		effectTimeout:     defaultHookTimeout,
+		componentTimeout:  defaultHookTimeout,
+		done:              make(chan struct{}),
 	}
 	for _, o := range opts {
 		o(a)
@@ -281,12 +303,13 @@ func (a *AppKit) loadConfig() error {
 		Flags:          fs,
 		Remote:         a.cfg.remote,
 		WatchLocalFile: a.cfg.watchFile,
-		OnChange:       a.cfg.onChange,
+		OnChange:       a.wrapKeyWatch(a.cfg.onChange), // R1：包装全量回调，追加 key 级分发
 	})
 	if err != nil {
 		return err
 	}
 	a.cfg.v = v
+	a.armKeyWatchers() // R1：以首次加载值为基线
 	return nil
 }
 
@@ -330,6 +353,7 @@ func (a *AppKit) Run(ctx context.Context) error {
 	if err := a.loadConfig(); err != nil {
 		a.running.Store(false)
 		a.runErr.Store(err)
+		a.UndoEffects(context.Background()) // T1：装配期全局写入须回滚
 		return err
 	}
 
@@ -340,6 +364,14 @@ func (a *AppKit) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	// S1：能力解析 fail-fast（装配一致性检查，紧随配置加载；缺失依赖在启动期
+	// 报清晰错误，而非运行时 nil panic）。
+	if err := a.Resolve(); err != nil {
+		a.runErr.Store(err)
+		a.UndoEffects(context.Background())
+		return err
+	}
+
 	log.GetLogger().Info(ctx, "appkit starting",
 		"name", a.name, "version", a.version, "servers", len(a.servers))
 
@@ -347,8 +379,19 @@ func (a *AppKit) Run(ctx context.Context) error {
 	for _, fn := range a.beforeStart {
 		if err := fn(ctx); err != nil {
 			a.runErr.Store(err)
+			a.UndoEffects(context.Background()) // T1：未到 stopAll 的失败路径也要回滚账本
 			return err
 		}
+	}
+
+	// C1：顺序启动进程内组件（注册序=依赖建立序；servers 之前——组件是
+	// 基础设施）。失败经 stopAll 逆序 Dispose 已启动组件。
+	if err := a.startComponents(ctx); err != nil {
+		cancel()
+		a.stopAll(context.Background())
+		a.runErr.Store(err)
+		log.GetLogger().Error(ctx, "appkit component start failed", "error", err)
+		return err
 	}
 
 	// 用 errgroup 并发启动所有服务器：任一 Start 返回非 nil 错误会自动取消
@@ -429,13 +472,20 @@ func (a *AppKit) Run(ctx context.Context) error {
 	return nil
 }
 
-// stopAll 分三阶段优雅停机（对照 go-lulu 分阶段停机骨架）：
+// stopAll 分五阶段优雅停机（对照 go-lulu 分阶段停机骨架）：
+//  0. 效应账本逆序回放（T1：撤销装配期全局写入，先于一切停机钩子）
 //  1. BeforeStop 钩子（独立超时 beforeStopTimeout，panic 安全不拖垮整机）
 //  2. 各 Server.Stop 并发（独立超时 stopTimeout）
 //  3. AfterStop 钩子（独立超时 afterStopTimeout，panic 安全）
+//  4. 组件 Dispose 逆序（C1：AfterStop 之后——钩子期间组件仍可用，最后收尾）
 //
 // 每个阶段使用各自独立的 WithTimeout ctx，互不影响；parent 取消会级联缩短各阶段。
+// waitForEndpoints / register / afterStart / 组件启动失败路径也经本函数回滚
+// （含效应回放与组件 Dispose）。
 func (a *AppKit) stopAll(parent context.Context) {
+	// 阶段 0：效应账本逆序回放（幂等，已回放过则无操作）。
+	a.UndoEffects(parent)
+
 	// 阶段 1：BeforeStop 钩子。
 	for _, fn := range a.beforeStop {
 		if err := a.runHook(parent, a.beforeStopTimeout, "beforeStop", fn); err != nil {
@@ -464,6 +514,9 @@ func (a *AppKit) stopAll(parent context.Context) {
 			log.GetLogger().Error(parent, "appkit afterStop hook failed", "error", err)
 		}
 	}
+
+	// 阶段 4：组件 Dispose（C1，逆序、幂等；AfterStop 之后——钩子期间组件仍可用）。
+	a.disposeComponents(parent)
 }
 
 // runHook 在独立超时 ctx 中执行生命周期钩子，并 recover 防止单个钩子 panic 拖垮整机。

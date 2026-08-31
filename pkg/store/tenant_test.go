@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	storev1 "github.com/kalandramo/bald/pkg/conf/gen/go/bald/store/v1"
 	"github.com/kalandramo/bald/pkg/authn"
+	storev1 "github.com/kalandramo/bald/pkg/conf/gen/go/bald/store/v1"
 	"github.com/kalandramo/bald/pkg/contextx"
 	"github.com/stretchr/testify/assert"
 )
@@ -13,7 +13,7 @@ import (
 func TestMergeTenant(t *testing.T) {
 	// 多租户需显式开启：注册 tenant_id 维度（业务真实用法）。
 	RegisterTenant("tenant_id", DefaultTenantFunc)
-	t.Cleanup(func() { RegisterTenant("tenant_id", nil) })
+	t.Cleanup(func() { UnregisterTenant("tenant_id") })
 
 	ctx := contextx.WithTenantID(context.Background(), "t-42")
 
@@ -38,7 +38,7 @@ func TestMergeTenant(t *testing.T) {
 func TestMergeDataScope(t *testing.T) {
 	// 显式开启租户维度。
 	RegisterTenant("tenant_id", DefaultTenantFunc)
-	t.Cleanup(func() { RegisterTenant("tenant_id", nil) })
+	t.Cleanup(func() { UnregisterTenant("tenant_id") })
 
 	// 注册一个"仅本人"数据范围策略。
 	RegisterDataScope(func(_ context.Context, c *authn.AuthClaims) []*storev1.FilterCondition {
@@ -61,4 +61,26 @@ func TestMergeDataScope(t *testing.T) {
 	}
 	assert.Equal(t, "t-9", fields["tenant_id"])
 	assert.Equal(t, "u-1", fields["owner"])
+}
+
+// TestUnregisterTenant 验证逆操作契约（T1 效应账本的对偶成员）：
+// 注册→隔离生效；注销→维度消失；重复注销幂等。
+func TestUnregisterTenant(t *testing.T) {
+	ctx := contextx.WithTenantID(context.Background(), "t-42")
+
+	RegisterTenant("tenant_id", DefaultTenantFunc)
+	w := &Where{}
+	mergeTenant(w, ctx)
+	assert.Len(t, w.Filters, 1, "注册后租户条件应注入")
+	assert.Equal(t, "tenant_id", w.Filters[0].GetField())
+
+	UnregisterTenant("tenant_id")
+	w2 := &Where{}
+	mergeTenant(w2, ctx)
+	assert.Empty(t, w2.Filters, "注销后不应再注入租户条件")
+
+	UnregisterTenant("tenant_id") // 幂等：重复注销不 panic
+	w3 := &Where{}
+	mergeTenant(w3, ctx)
+	assert.Empty(t, w3.Filters)
 }
