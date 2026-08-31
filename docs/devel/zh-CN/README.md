@@ -14,3 +14,4 @@
 - [框架契约总览](./框架契约总览.md)：所有公开契约（接口/类型/函数/常量）速查表，按包分节，附桥接与依赖倒置接入说明。
 - [数据存储设计](./数据存储设计.md)：数据访问层（DAL）设计——对比 go-crud（多引擎库）与 onexstack/store（GORM 封装）的取舍，给出 bald「核心定契约、引擎实现留独立子模块桥接」的方案与核心接口草案。
 - [架构演进路线](./架构演进路线.md)：横向对比 bald/go-lulu/onexstack/go-crud/osbuilder 五个项目，提炼共识与差距，给出按优先级的架构演进路线（P0 生命周期 → P1 注册表 → P2 存储增强 → P3 横切 → P4 脚手架）。
+- [架构优化路线](./架构优化路线.md)：第二轮优化（P0–P9 之后）——基于 GoWind 设计哲学对比与 Cordis 论文《A Programming Paradigm for Spatiotemporal Composability》（时空可组合性）的诊断，提出 P10 bundle 门面 / P11 contrib 晋升 / T1 效应账本 / S1 能力解析 / C1 Component 统一 / P12+R1 装配 codegen 与增量协调，附防漂移清单与 agent-native 远期方向。

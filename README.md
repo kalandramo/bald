@@ -12,38 +12,40 @@
 bald/
 ├── pkg/
 │   ├── server/               # 协议层：统一 Server 契约 + 协议适配器
-│   │   ├── server.go         # Server = Start/Stop/Endpoint；Serve() 独立生命周期
 │   │   ├── http_server.go    # net/http（支持 HTTP/HTTPS，动态端口+可达 IP 解析）
 │   │   ├── grpc_server.go    # google.golang.org/grpc（自带 health + reflection）
-│   │   └── gateway_server.go # grpc-gateway 反向代理
-│   ├── web/                 # 强绑定 gin 的「绑定/校验/响应」流水线（依赖 gin + pkg/berrors）
-│   │   ├── handler.go        # 泛型 HandleJSON/URI/Query/AllRequest：绑定→校验→响应（吃 *gin.Context）
-│   │   ├── binder.go         # ShouldBindAll：URI>Query>JSON 依次覆盖 + Defaulter 默认填充
-│   │   └── response.go       # 统一响应 + 错误→HTTP 状态码映射（pkg/berrors）+ ErrorBody
-│   ├── middleware/           # HTTP/gRPC 中间件（统一由装配层注入；业务侧直接用 pkg/middleware/gin）
-│   │   ├── gin/              # Recovery / RequestID / CORS / Secure / Logging / Authn / Authz / Observability
-│   │   └── grpc/             # gRPC 拦截器（对应 gin 中间件能力）
-│   ├── validation/           # 类型化校验（反射式 Validate<ReqType> 按类型名分发；也支持 Rules）
-│   │   ├── validation.go     # Validator 注册与按请求类型分发
-│   │   └── validator.go      # 字段级 Rules 校验工具
-│   ├── errors/               # 零依赖错误模型（WindError）
-│   │   ├── errors.go         # Error + Is/As/Unwrap + 不可变 builder
-│   │   ├── code.go           # 与 gRPC codes 1:1 的 HTTP 状态码常量
-│   │   ├── http.go           # 业务错误构造器（BadRequest/NotFound/...）
-│   │   └── grpcerr/          # 可选 gRPC 桥接 ToStatus/FromStatus
-│   ├── config/               # 配置抽象（RemoteSource / 编码器 / 多源合并）
-│   │   ├── config.go         # 配置中心核心
-│   │   ├── source.go         # RemoteSource 抽象（etcd/nacos 桥接）
-│   │   └── log/              # 配置相关日志辅助
-│   ├── contextx/             # 上下文辅助（请求属性注入/提取）
-│   ├── options/              # HTTP/GRPC/TLS 配置 + pflag
-│   ├── registry/             # 服务注册中心抽象
-│   │   ├── registry.go       # Registrar 接口 + ServiceInstance
-│   │   ├── inmemory/         # 内存实现（开发/测试）
-│   │   └── kratos.go         # 桥接 kratos registry（etcd/consul/nacos）
-│   └── appkit/               # App 组合层（多 server 编排 + 注册/反注册）
-└── _example/bald/            # 最小示例（含 bald-gin 纯 gin 引擎对照、appkit 编排 HTTP/gRPC 双协议）
+│   │   └── gateway_server.go # grpc-gateway 反向代理（核心不依赖 gateway，业务注入 handler）
+│   ├── web/                  # 强绑定 gin 的「绑定/校验/响应」流水线
+│   ├── middleware/           # HTTP/gRPC 中间件（链序契约由测试固化）
+│   │   ├── gin/              # Recovery/RequestID/CORS/Secure/Logging/Authn/Authz/Audit/Observability
+│   │   ├── grpc/             # 对应拦截器（Error 最外层收口 berrors→status）
+│   │   └── bundle/           # 横切关注点门面：一次构造双传输产出、链序固化（P10）
+│   ├── berrors/              # 零依赖传输中立错误模型（grpcerr/httperr 边界子包）
+│   ├── authn/                # 认证抽象（Authenticator/AuthClaims/ctx 注取）
+│   ├── authz/                # 授权抽象（Authorizer + P9 传输中立归一化 normalize.go）
+│   ├── audit/                # 审计抽象（Auditor/AuditEvent，旁路不阻断）
+│   ├── metrics/              # 指标抽象（Recorder/Event，otel API 封装，默认 no-op）
+│   ├── store/                # 泛型数据访问层（零引擎依赖 + P8 多租户 RegisterTenant/Where.T）
+│   ├── validation/           # 类型化校验（反射式按请求类型分发）
+│   ├── config/               # 配置加载器（四源合并 + RemoteSource 抽象 + kratos 桥接）
+│   ├── conf/                 # proto 配置契约（NewBootstrap/Validate/BindFlags + 生成代码）
+│   ├── log/                  # 结构化日志（slog 门面 + FilterKey 脱敏）
+│   ├── contextx/             # 上下文键（trace_id/user/vars/tenant_id）
+│   ├── registry/             # 服务注册抽象（inmemory + kratos 桥接 etcd/consul/nacos）
+│   ├── testkit/              # 测试工具（FreeAddr 等，P13）
+│   └── appkit/               # App 编排层：启停 + 配置 + 能力解析（S1）+ 组件生命周期（C1）
+│                             #   + 效应账本（T1）+ key 级热更新订阅（R1）+ 运行期挂载（A1）
+├── contrib/                  # 独立 module 桥接（按需引入，单向依赖核心）
+│   ├── authn-jwt/            # JWT 认证器（HMAC/RS256/ES256）
+│   ├── store-gorm/           # GORM 存储引擎（DSN scheme 路由 + 多租户）
+│   ├── cache-redis/          # Redis 旁路缓存（Cache-Aside）
+│   ├── authz-casbin/         # casbin 授权器（内嵌通用 RBAC 模型，策略调用方注入）
+│   └── observability-otlp/   # Prometheus + OTLP 双通道（metrics/trace）
+├── examples/go-bald-admin/   # 官方 reference example（五支柱可观测 + 多租户 + wire，见其 docs/设计文档.md）
+└── _example/bald/            # 最小示例（appkit 编排 HTTP/gRPC 双协议）
 ```
+
+公开契约速查见 [`docs/devel/zh-CN/框架契约总览.md`](docs/devel/zh-CN/框架契约总览.md)；架构演进与第二轮优化（P10–A1，时空可组合性）见 [`docs/devel/zh-CN/架构演进路线.md`](docs/devel/zh-CN/架构演进路线.md) 与 [`docs/devel/zh-CN/架构优化路线.md`](docs/devel/zh-CN/架构优化路线.md)。
 
 ## 快速开始
 
@@ -254,7 +256,8 @@ back := grpcerr.FromStatus(st)         // *berrors.Error
 | **Endpoint 可达性** | `Endpoint()` 经 `Extract` 把通配符/`0.0.0.0`/`::` 空 host 替换为首个全局单播 IP，显式 IP 原样保留；端口 `:0` 取 listener 实际端口，否则保留配置端口。仅配端口（`http://:8080`）时注册地址变为可达 IP（如 `http://10.66.50.21:8080`），其他节点可直连 |
 | **防重入** | 重复 `Run` 返回 `ErrAlreadyRunning` |
 | **可观察** | `Run` 结束后 `Done()` 关闭，`Err()` 返回退出错误 |
-| **优雅停机顺序** | 先 `Deregister` 反注册，再 `stopAll` 优雅停机，避免流量打到已停服务 |
+| **优雅停机顺序** | 先 `Deregister` 反注册，再 `stopAll` 五阶段停机：0 效应账本逆序回放 → 1 BeforeStop → 2 Server.Stop 并发 → 3 AfterStop → 4 组件逆序 Dispose，避免流量打到已停服务 |
+| **启动期校验** | 配置加载后 `Resolve()` 校验 `Provides/Requires` 能力声明，缺失 fail-fast（S1）；全局写入经 `Effect` 登记逆操作（T1）；进程内基础设施以 `Component` 纳入生命周期（C1）；运行期可用 `MountComponent/UnmountComponent` 热插拔（A1） |
 
 ## 服务注册
 
