@@ -16,7 +16,7 @@
 version: "3"
 
 vars:
-  PROTOC_GEN_DEFAULTS_VERSION: v0.0.0-20260626125723-668db92c2c00
+  PROTOC_GEN_DEFAULTS_VERSION: latest
 
 # Windows 下用 pwsh，其余用 bash；命令缺省走 bash 即可，需 shell 特性时显式指定。
 tasks:

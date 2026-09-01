@@ -166,6 +166,21 @@ func LogOptions(l *confv1.Logger) *log.Options {
 	if len(l.GetOutputPaths()) > 0 {
 		o.OutputPaths = l.GetOutputPaths()
 	}
+	if r := l.GetRotate(); r != nil {
+		o.Rotate.Enabled = r.GetEnabled()
+		// proto3 标量字段无 presence：配置未显式写 max_size/max_backups/max_age 时
+		// 为零值，此处回退到 log.NewOptions() 的默认，避免触发 Rotate.MaxSize<=0 校验失败。
+		if r.GetMaxSize() > 0 {
+			o.Rotate.MaxSize = int(r.GetMaxSize())
+		}
+		if r.GetMaxBackups() > 0 {
+			o.Rotate.MaxBackups = int(r.GetMaxBackups())
+		}
+		if r.GetMaxAge() > 0 {
+			o.Rotate.MaxAge = int(r.GetMaxAge())
+		}
+		o.Rotate.Compress = r.GetCompress()
+	}
 	return o
 }
 

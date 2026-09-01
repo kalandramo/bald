@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"os"
 
+	lumberjack "gopkg.in/natefinch/lumberjack.v2"
+
 	"golang.org/x/sync/errgroup"
 )
 
@@ -69,7 +71,7 @@ func NewSlogLogger(o *Options, opts ...Option) Logger {
 		}
 		w := cfg.writer
 		if w == nil {
-			w = openWriter(o.OutputPaths)
+			w = openWriter(o)
 		}
 		handlerOpts := &slog.HandlerOptions{Level: level}
 		if o.Format == "json" {
@@ -91,17 +93,23 @@ func NewSlogLogger(o *Options, opts ...Option) Logger {
 	return &slogLogger{slog: slog.New(h)}
 }
 
-// openWriter 按 OutputPaths 选择写入目标。多目标时全部写入；
+// openWriter 按 Options 的 OutputPaths 与 Rotate 选择写入目标。多目标时全部写入；
 // 任一路径非法不影响其余目标（首个文件打开失败时回退 stdout）。
-func openWriter(paths []string) io.Writer {
+// 当某路径为文件路径且 Rotate.Enabled 时，用 lumberjack 接管轮转（切割/清理/gzip）。
+func openWriter(o *Options) io.Writer {
 	var ws []io.Writer
-	for _, p := range paths {
+	for _, p := range o.OutputPaths {
 		switch p {
 		case "stdout":
 			ws = append(ws, os.Stdout)
 		case "stderr":
 			ws = append(ws, os.Stderr)
 		default:
+			// 文件路径：启用轮转时用 lumberjack，否则 os.OpenFile 直写。
+			if o.Rotate != nil && o.Rotate.Enabled {
+				ws = append(ws, newRotateWriter(p, o.Rotate))
+				continue
+			}
 			f, err := os.OpenFile(p, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 			if err != nil {
 				// 打开失败回退 stdout，保证可观测性不丢。
@@ -119,6 +127,19 @@ func openWriter(paths []string) io.Writer {
 	}
 	// 多目标：并发写入，任一失败不影响其余。
 	return multiWriter(ws)
+}
+
+// newRotateWriter 基于 lumberjack 构造支持轮转的文件 writer。
+// lumberjack.Logger 实现 io.Writer，可被 slog 的 Handler 直接消费；
+// 切割/备份/清理/压缩由 lumberjack 在写入时按需触发。
+func newRotateWriter(path string, r *RotateOptions) io.Writer {
+	return &lumberjack.Logger{
+		Filename:   path,
+		MaxSize:    r.MaxSize,    // MB
+		MaxBackups: r.MaxBackups,
+		MaxAge:     r.MaxAge,     // 天
+		Compress:   r.Compress,
+	}
 }
 
 // multiWriter 向多个 writer 复制写入。

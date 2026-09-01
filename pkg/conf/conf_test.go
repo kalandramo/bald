@@ -389,3 +389,57 @@ func mustGenTestPEM(t *testing.T) (caPEM, certPEM, keyPEM []byte) {
 	keyPEM = pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyBytes})
 	return caPEM, certPEM, keyPEM
 }
+
+// TestLogOptions_RotateRoundTrip 验证 proto Logger.rotate 段正确映射到
+// pkg/log.Options.Rotate（即 proto 契约与 log.Options 对齐）。
+func TestLogOptions_RotateRoundTrip(t *testing.T) {
+	// 1. 显式配置 rotate：所有字段都应被搬运。
+	l := &confv1.Logger{
+		Level:       "debug",
+		Format:      "json",
+		OutputPaths: []string{"/var/log/bald.log"},
+		Rotate: &confv1.RotateOptions{
+			Enabled:    true,
+			MaxSize:    50,
+			MaxBackups: 3,
+			MaxAge:     14,
+			Compress:   false,
+		},
+	}
+	o := LogOptions(l)
+	if !o.Rotate.Enabled {
+		t.Fatal("Rotate.Enabled = false, want true")
+	}
+	if o.Rotate.MaxSize != 50 {
+		t.Errorf("Rotate.MaxSize = %d, want 50", o.Rotate.MaxSize)
+	}
+	if o.Rotate.MaxBackups != 3 {
+		t.Errorf("Rotate.MaxBackups = %d, want 3", o.Rotate.MaxBackups)
+	}
+	if o.Rotate.MaxAge != 14 {
+		t.Errorf("Rotate.MaxAge = %d, want 14", o.Rotate.MaxAge)
+	}
+	if o.Rotate.Compress {
+		t.Error("Rotate.Compress = true, want false")
+	}
+	if o.Level != "debug" || o.Format != "json" {
+		t.Errorf("level/format not mapped: %q/%q", o.Level, o.Format)
+	}
+
+	// 2. rotate 段存在但未写标量子字段：应回退到 log.NewOptions 的默认值，
+	//    避免 proto3 标量零值（MaxSize=0）触发 log.Options.Validate 失败。
+	l2 := &confv1.Logger{Rotate: &confv1.RotateOptions{Enabled: true}}
+	o2 := LogOptions(l2)
+	if !o2.Rotate.Enabled {
+		t.Fatal("case2 Rotate.Enabled = false, want true")
+	}
+	if o2.Rotate.MaxSize != 100 {
+		t.Errorf("case2 Rotate.MaxSize = %d, want 100 (zero-value fallback)", o2.Rotate.MaxSize)
+	}
+
+	// 3. 无 rotate 段：保留 NewOptions 默认（Enabled=false）。
+	o3 := LogOptions(&confv1.Logger{})
+	if o3.Rotate.Enabled {
+		t.Error("case3 Rotate.Enabled = true, want false")
+	}
+}
