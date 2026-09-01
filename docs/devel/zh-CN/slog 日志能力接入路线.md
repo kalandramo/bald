@@ -9,7 +9,8 @@
 
 | gookit/slog 能力 | 是否在 slog.go 落地 | 方式 | 优先级 |
 |---|---|---|---|
-| 文件轮转（按大小/时间 + 清理 + gzip） | ✅ 应落地 | 用 bald 已引用的 **lumberjack** 替换 `openWriter` 的文件分支 | 高 |
+| 文件轮转（按大小 + 清理 + gzip） | ✅ 已落地 | 用 bald 已引用的 **lumberjack** 替换 `openWriter` 的文件分支 | 高 |
+| 文件轮转（按**时间**切割，RotateTime 按天/小时） | ⏸️ 未迁移 | lumberjack 不支持按时间切割；确有需求时引入 `github.com/gookit/rotatefile`（可独立 io.Writer 接 slog）或系统级 logrotate | 按需 |
 | 彩色 / 模板化控制台 | ✅ 可选落地 | 引入 `tint` 替换 console 的 `slog.NewTextHandler` | 中 |
 | Processor（字段注入，如 hostname） | ❌ 不迁移 | bald 已有等价物 `ContextWithAttrs` + `WithAttrs` | — |
 | Filter / 脱敏 | ❌ 不迁移 | bald 已有等价物 `FilterKey` | — |
@@ -60,6 +61,10 @@
 ## 4. 分阶段实现路线
 
 ### 阶段 1：文件轮转（lumberjack 接入 `openWriter`）—— 高优先级 ✅ 已实现（2026-09-01，含 proto 契约对齐）
+
+> 能力边界：lumberjack 仅支持**按大小**（MaxSize）触发切割；MaxAge/MaxBackups 只控制
+> 历史备份的保留时限与份数，**不是**按时间（每日/每小时）切割。gookit rotatefile 的
+> `RotateTime` 能力未迁移，确有按天切割需求时再评估引入。
 
 **改动点**：`pkg/log/slog.go` 的 `openWriter` + `pkg/log/options.go` 的 `Options`。
 
@@ -118,7 +123,7 @@ h = tint.NewHandler(w, &tint.Options{
 
 ### 阶段 3：（可选）高级能力对齐
 
-- **分级 Handler**：gookit 的「error→err.log / info→info.log」由 lumberjack + 两个 `OutputPaths` 已能实现（各自配 `Rotate`）。无需额外代码。
+- **分级 Handler（error→err.log / info→info.log）**：⚠️ 现有 `OutputPaths` 多目标是**复制分流**（每个目标收到全部日志，经 `multiWriter`），**不是**按级别分流。确需按级别落不同文件时，须构造多个不同 Level 的 handler 各挂独立 lumberjack writer（`WithHandler` 注入点已支持），或在框架层新增 `LevelWriters` 配置——按需再做。
 - **hostname / 环境字段注入**：gookit 的 `AddHostname` Processor 等价于在进程入口 `log.SetLogger(log.NewSlogLogger(o, log.WithAttrs(slog.String("hostname", ...))))`，已有 `WithAttrs` 支持，不必新增机制。
 - **Fatal/Panic 级别**：标准库 slog 无此级，业务可用 `Error` + `os.Exit` 替代；不在框架层补。
 

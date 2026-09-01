@@ -20,7 +20,8 @@ type Options struct {
 }
 
 // RotateOptions 控制日志文件轮转（基于 lumberjack）。
-// 仅当 OutputPaths 含文件路径且 Enabled=true 时，对应文件按大小/时间切割、清理并可选 gzip 压缩。
+// 仅当 OutputPaths 含文件路径且 Enabled=true 时，对应文件按大小切割（MaxSize）、
+// 清理（MaxAge/MaxBackups）并可选 gzip 压缩；不支持按时间（每日/每小时）切割。
 type RotateOptions struct {
 	// Enabled 是否启用文件轮转；关闭时文件路径按 os.OpenFile 直写（不切割）。
 	Enabled bool `json:"enabled,omitempty" yaml:"enabled,omitempty"`

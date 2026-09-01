@@ -24,8 +24,9 @@ const (
 
 // RotateOptions 描述日志文件轮转配置（基于 lumberjack）。
 //
-// 仅当 OutputPaths 含文件路径且 Enabled=true 时，对应文件按大小/时间切割、
-// 清理并可选 gzip 压缩。对应 pkg/log.Options.Rotate。
+// 仅当 OutputPaths 含文件路径且 Enabled=true 时，对应文件按大小切割（MaxSize）、
+// 清理（MaxAge/MaxBackups）并可选 gzip 压缩；不支持按时间（每日/每小时）切割。
+// 对应 pkg/log.Options.Rotate。
 type RotateOptions struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// 是否启用文件轮转；关闭时文件路径按 os.OpenFile 直写（不切割）。
