@@ -1,8 +1,9 @@
 // Package codegen 是 bald 的轻量代码生成脚手架（对照 osbuilder 的嵌入模板范式）。
 //
-// 提供两个子命令，演示「配置驱动 + 嵌入模板」生成骨架：
+// 提供三个子命令，演示「配置驱动 + 嵌入模板」生成骨架：
 //   - gen proto  <name>  生成 api/proto/bald/<name>/v1/<name>.proto（含 PagingRequest 引用）
 //   - gen store  <name>  生成 <name>.go 实体骨架（gorm tag + keyOf 提取函数）
+//   - gen app    <name>  生成 cmd/<name>/main.go 应用装配骨架（P12：appkit 全原语 + bundle）
 //
 // 这是 P4 工程化的最小可用集：不一次性铺开完整脚手架，仅验证「框架可生成 starter 骨架」的能力。
 package codegen
@@ -68,9 +69,9 @@ func KeyOf{{.Name | title}}(u *{{.Name | title}}) string { return u.ID }
 func NewCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "gen",
-		Short: "轻量代码生成脚手架（proto / store 骨架）",
+		Short: "轻量代码生成脚手架（proto / store / app 骨架）",
 	}
-	cmd.AddCommand(genProtoCmd(), genStoreCmd())
+	cmd.AddCommand(genProtoCmd(), genStoreCmd(), genAppCmd())
 	return cmd
 }
 
