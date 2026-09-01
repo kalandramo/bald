@@ -16,3 +16,10 @@ gateway:
 logger:
   level: "info"
   format: "json"
+
+# R1-2 期望态协调：声明审计后端「期望集合」（逗号/空格分隔，取值 log|store|stream）。
+# 框架读取该键作为期望态，与当前生效后端 diff，自动 Mount/Unmount 收敛（幂等）。
+# 运行时改此键经 WatchConfigFile 触发 OnConfigChange→reconcile，无需重启即可热切换
+# 审计后端组合（如从 [store] 变更为 [store,stream] 实时加流）。
+audit:
+  backends: "store,stream"

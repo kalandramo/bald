@@ -264,15 +264,16 @@ func newApp(
 			if err := bootstrappkg.InitBridges(ctx); err != nil {
 				return fmt.Errorf("init bridges: %w", err)
 			}
-			// M7 审计后端注入（组合器，多后端逐一落库/入流，任一失败仅降级不阻断）。
-			// 须置于 InitBridges 之后：DB 已建立并迁移审计表；Redis 可选（无则仅落库+日志）。
-			auditors := []audit.Auditor{securityaudit.NewStore(bootstrappkg.DB)}
-			if bootstrappkg.RedisCache != nil && bootstrappkg.RedisCache.Client() != nil {
-				auditors = append(auditors, securityaudit.NewStream(bootstrappkg.RedisCache.Client()))
-			}
-			audit.SetAuditor(securityaudit.NewMulti(auditors...))
+			// 审计后端注入（R1-2 期望态协调）改由 appkit.Reconcile 驱动：声明期望集合
+			// （audit.backends）后，框架在启动收敛期与每次配置变更时自动 diff-apply，
+			// 此处不再静态装配——单一事实来源收敛到配置键，避免“配置与代码两处声明”。
 			return nil
 		}),
+		// R1-2 期望态协调：以 audit.backends 为期望态，与当前生效后端集合 diff，
+		// 自动重建 MultiAuditor 收敛（幂等）。首次收敛在 AfterStart 前（runReconcilers
+		// 于基线 loadConfig 后、BeforeStart 链之后触发）；后续 OnConfigChange 携带新
+		// viper 再次触发，实现运行期热切换而无需重启。
+		appkit.Reconcile("audit.backends", reconcileAudit),
 		appkit.AfterStart(func(ctx context.Context) error {
 			ctx = baldlog.ContextWithAttrs(ctx,
 				slog.String("stage", "started"), slog.String("grpc", grpcSrv.Endpoint()))
@@ -285,6 +286,84 @@ func newApp(
 		}),
 	)
 	return app
+}
+
+// currentAuditBackends 记录当前生效的审计后端集合（R1-2 实际态），供 reconcileAudit
+// 与期望态（audit.backends）diff；加锁保护（reconcile 可能并发于配置热变更触发）。
+var (
+	auditMu              sync.Mutex
+	currentAuditBackends []string
+)
+
+// reconcileAudit 是 R1-2 期望态协调函数：配置键 audit.backends 声明「期望的审计后端集合」，
+// 此处把它收敛为实际生效的 MultiAuditor。语义对齐 Kubernetes controller：
+//   - 读取期望态（ctx.Viper.GetString("audit.backends")，逗号/空格分隔 log|store|stream）；
+//   - 与 currentAuditBackends（实际态）diff，仅在实际变化时才重建，幂等且不抖动；
+//   - 后端构造依赖已就绪的桥接（DB/Redis，InitBridges 在 BeforeStart 已完成）；
+//   - 任一后端构造失败仅记日志并跳过该后端，其余后端继续生效（旁路语义，绝不阻断启动）。
+//
+// 框架负责触发时机：首次在 loadConfig 基线后、AfterStart 前的启动收敛期；其后每次
+// OnConfigChange 携带新 viper 再次调用，实现运行期热切换（如 [store]→[store,stream]）。
+func reconcileAudit(ctx context.Context, rctx *appkit.ReconcileCtx) error {
+	want := parseAuditBackends(rctx.Viper.GetString("audit.backends"))
+	have := func() []string {
+		auditMu.Lock()
+		defer auditMu.Unlock()
+		return append([]string(nil), currentAuditBackends...)
+	}()
+
+	// diff-apply：期望==实际时直接返回（幂等，避免无谓重建与审计事件抖动）。
+	add, remove := appkit.DiffStrings(want, have)
+	if len(add) == 0 && len(remove) == 0 {
+		return nil
+	}
+
+	logger := baldlog.GetLogger()
+	logger.Info(ctx, "reconcile audit.backends",
+		"add", strings.Join(add, ","), "remove", strings.Join(remove, ","))
+
+	// 重新构造期望集合对应的后端（log 始终内嵌，store/stream 依赖桥接）。
+	auditors := []audit.Auditor{securityaudit.New()}
+	if contains(want, "store") && bootstrappkg.DB != nil {
+		auditors = append(auditors, securityaudit.NewStore(bootstrappkg.DB))
+	}
+	if contains(want, "stream") && bootstrappkg.RedisCache != nil && bootstrappkg.RedisCache.Client() != nil {
+		auditors = append(auditors, securityaudit.NewStream(bootstrappkg.RedisCache.Client()))
+	}
+	audit.SetAuditor(securityaudit.NewMulti(auditors...))
+
+	auditMu.Lock()
+	currentAuditBackends = want
+	auditMu.Unlock()
+	return nil
+}
+
+// parseAuditBackends 解析逗号/空格分隔的后端列表，过滤非法取值，去重保序。
+func parseAuditBackends(s string) []string {
+	seen := make(map[string]struct{})
+	var out []string
+	for _, raw := range strings.FieldsFunc(s, func(r rune) bool { return r == ',' || r == ' ' }) {
+		b := strings.TrimSpace(raw)
+		if b == "" || (b != "log" && b != "store" && b != "stream") {
+			continue
+		}
+		if _, ok := seen[b]; ok {
+			continue
+		}
+		seen[b] = struct{}{}
+		out = append(out, b)
+	}
+	return out
+}
+
+// contains 判断切片是否含某元素。
+func contains(s []string, v string) bool {
+	for _, x := range s {
+		if x == v {
+			return true
+		}
+	}
+	return false
 }
 
 var osExit = func(code int) { os.Exit(code) }

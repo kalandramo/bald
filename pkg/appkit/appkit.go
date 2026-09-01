@@ -87,6 +87,11 @@ type AppKit struct {
 	keyWatchers []keyWatcher
 	keyWatchMu  sync.Mutex
 
+	// R1-2 期望态协调器：配置声明期望态，框架 diff 实际态后收敛（见 reconcile.go）。
+	reconcilers []reconciler
+	reconItems  map[string][]reconItem // reconciler 名 → 其管理的组件（实际态）
+	reconMu     sync.Mutex
+
 	// C1 进程内组件：统一生命周期的基础设施（见 component.go）。
 	components       []Component
 	componentTimeout time.Duration
@@ -267,6 +272,7 @@ func New(opts ...Option) *AppKit {
 		afterStopTimeout:  defaultHookTimeout,
 		effectTimeout:     defaultHookTimeout,
 		componentTimeout:  defaultHookTimeout,
+		reconItems:        make(map[string][]reconItem),
 		done:              make(chan struct{}),
 	}
 	for _, o := range opts {
@@ -438,6 +444,10 @@ func (a *AppKit) Run(ctx context.Context) error {
 			return err
 		}
 	}
+
+	// R1-2：启动后首次协调——让初始配置的期望态立即生效（此后由配置变更触发）。
+	// 挂在 afterStart 之后：此时 bridges/组件已就绪，协调可安全调 Start/Dispose。
+	a.runReconcilers(gctx, a.cfg.v)
 
 	log.GetLogger().Info(ctx, "appkit started", "servers", len(a.servers))
 

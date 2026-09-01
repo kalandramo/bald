@@ -26,6 +26,8 @@
 package appkit
 
 import (
+	"context"
+
 	"github.com/spf13/viper"
 )
 
@@ -58,13 +60,15 @@ func (a *AppKit) armKeyWatchers() {
 	}
 }
 
-// wrapKeyWatch 包装用户全量回调：先跑全量（保留既有行为），再分发 key 订阅。
+// wrapKeyWatch 包装用户全量回调：先跑全量（保留既有行为），再分发 key 订阅，
+// 最后跑 R1-2 期望态协调（配置变更是协调的主要触发源）。
 func (a *AppKit) wrapKeyWatch(user func(*viper.Viper)) func(*viper.Viper) {
 	return func(v *viper.Viper) {
 		if user != nil {
 			user(v)
 		}
 		a.dispatchKeyWatch(v)
+		a.runReconcilers(context.Background(), v)
 	}
 }
 
