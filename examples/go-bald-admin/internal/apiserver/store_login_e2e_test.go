@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
+	storev1 "github.com/kalandramo/bald/pkg/conf/gen/go/bald/store/v1"
 	"github.com/kalandramo/bald/pkg/contextx"
 	"github.com/kalandramo/bald/pkg/store"
-	storev1 "github.com/kalandramo/bald/pkg/conf/gen/go/bald/store/v1"
 	"golang.org/x/crypto/bcrypt"
 
 	authbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/auth"

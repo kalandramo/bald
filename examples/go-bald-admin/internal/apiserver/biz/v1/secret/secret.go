@@ -12,9 +12,9 @@ import (
 	"github.com/kalandramo/bald/pkg/contextx"
 	"github.com/kalandramo/bald/pkg/store"
 
+	rediscache "github.com/kalandramo/bald-cache-redis"
 	authmodel "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/model"
 	bootstrappkg "github.com/kalandramo/bald/examples/go-bald-admin/internal/bootstrap"
-	rediscache "github.com/kalandramo/bald-cache-redis"
 )
 
 // SecretBiz Secret 业务服务。
@@ -30,9 +30,9 @@ func New(cache *rediscache.Cache) *SecretBiz {
 
 // Item 是单个 Secret 的展示结构（供 handler 序列化）。
 type Item struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Content string `json:"content"`
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Content  string `json:"content"`
 	TenantID string `json:"tenant_id"`
 }
 

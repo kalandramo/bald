@@ -18,11 +18,11 @@ import (
 // stream；chan 满或发布失败降级到 fallback（默认 LoggerAuditor），绝不阻塞请求链路——
 // 强化 M7「审计旁路不阻断」原则。
 type StreamAuditor struct {
-	rdb     *redis.Client
-	stream  string
+	rdb      *redis.Client
+	stream   string
 	fallback audit.Auditor
-	ch      chan audit.AuditEvent
-	stop    chan struct{}
+	ch       chan audit.AuditEvent
+	stop     chan struct{}
 }
 
 // NewStream 构造 Redis Stream 审计后端并启动后台发布 goroutine；rdb 为 nil 返回 nil（调用方跳过）。
@@ -31,11 +31,11 @@ func NewStream(rdb *redis.Client) *StreamAuditor {
 		return nil
 	}
 	a := &StreamAuditor{
-		rdb:     rdb,
-		stream:  "audit.events",
+		rdb:      rdb,
+		stream:   "audit.events",
 		fallback: New(),
-		ch:      make(chan audit.AuditEvent, 1024),
-		stop:    make(chan struct{}),
+		ch:       make(chan audit.AuditEvent, 1024),
+		stop:     make(chan struct{}),
 	}
 	go a.run()
 	return a

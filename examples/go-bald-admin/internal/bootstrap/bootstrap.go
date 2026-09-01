@@ -4,6 +4,7 @@
 //   - Authenticator：来自 bald-authn-jwt（HMAC 对称，MVP）；
 //   - Authorizer：RBAC，角色→权限为静态策略，subject→角色从 store(User) 加载；
 //   - DB / UserStore / RoleStore：bald-store-gorm 接入（M2，SQLite 内存库）。
+//
 // server 层装配中间件/gRPC service 时引用这些包级变量。
 package bootstrap
 
@@ -14,11 +15,11 @@ import (
 
 	authnjwt "github.com/kalandramo/bald-authn-jwt"
 	rediscache "github.com/kalandramo/bald-cache-redis"
+	baldgorm "github.com/kalandramo/bald-store-gorm"
 	"github.com/kalandramo/bald/pkg/authn"
 	"github.com/kalandramo/bald/pkg/authz"
 	"github.com/kalandramo/bald/pkg/log"
 	"github.com/kalandramo/bald/pkg/store"
-	baldgorm "github.com/kalandramo/bald-store-gorm"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
@@ -46,6 +47,35 @@ var Signer authnjwt.Signer
 
 // Authorizer 授权器（M6.1 起由 casbin 桥接 authz.Authorizer 实现）。
 var Authorizer authz.Authorizer
+
+// lazyAuthn / lazyAuthz 把上面的包级桥接变量适配为接口——路由/服务在 main 装配期
+// 注册（此时 Authenticator/Authorizer 尚为 nil，InitBridges 在 appkit.BeforeStart
+// 才赋值），而认证/授权中间件在请求期才真正调用。请求期经本适配器读取最新值。
+//
+// 背景（M10.1 修复的真实 bug）：此前 RegisterRoutes 直接传 bootstrappkg.Authenticator
+// （构造期 nil），gin AuthnMiddleware 对 nil 退化为空操作——main 进程的 HTTP 认证
+// 实际一直未生效（e2e 未经过 main 装配路径故未暴露）。lazy 适配器根治该时序错位。
+type lazyAuthn struct{}
+
+func (lazyAuthn) Authenticate(ctx context.Context) (*authn.AuthClaims, error) {
+	return Authenticator.Authenticate(ctx)
+}
+
+func (lazyAuthn) AuthenticateToken(token string) (*authn.AuthClaims, error) {
+	return Authenticator.AuthenticateToken(token)
+}
+
+type lazyAuthz struct{}
+
+func (lazyAuthz) Authorize(ctx context.Context, subject, object, action string) (bool, error) {
+	return Authorizer.Authorize(ctx, subject, object, action)
+}
+
+// LazyAuthenticator 返回延迟解析的认证器（请求期读 bootstrappkg.Authenticator 最新值）。
+func LazyAuthenticator() authn.Authenticator { return lazyAuthn{} }
+
+// LazyAuthorizer 返回延迟解析的授权器（请求期读 bootstrappkg.Authorizer 最新值）。
+func LazyAuthorizer() authz.Authorizer { return lazyAuthz{} }
 
 // DB 是应用主库（M2 起为 SQLite 内存库，生产应换外部 PostgreSQL/MySQL）。
 var DB *gorm.DB

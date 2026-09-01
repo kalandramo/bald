@@ -9,12 +9,12 @@ import (
 // TestDSNScheme 验证 M6 外部 DB 分流的 scheme 解析（postgres/mysql/其他/空）。
 func TestDSNScheme(t *testing.T) {
 	cases := map[string]string{
-		"postgres://u:p@h:5432/db":            "postgres",
-		"postgresql://u:p@h:5432/db":          "postgresql",
-		"mysql://u:p@h:3306/db":               "mysql",
-		"file::memory:?cache=shared":          "file",
-		"dbname=test sslmode=disable":         "dbname",
-		"":                                    "",
+		"postgres://u:p@h:5432/db":    "postgres",
+		"postgresql://u:p@h:5432/db":  "postgresql",
+		"mysql://u:p@h:3306/db":       "mysql",
+		"file::memory:?cache=shared":  "file",
+		"dbname=test sslmode=disable": "dbname",
+		"":                            "",
 	}
 	for dsn, want := range cases {
 		assert.Equal(t, want, dsnScheme(dsn), "dsn=%q", dsn)

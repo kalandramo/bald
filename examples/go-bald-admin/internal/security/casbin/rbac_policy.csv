@@ -2,6 +2,9 @@ p, admin, secret, get
 p, admin, secret, delete
 p, admin, secret, list
 p, admin, auth, get
+p, admin, admin, get
+p, admin, admin, post
+p, admin, admin, delete
 p, viewer, secret, get
 p, viewer, secret, list
 p, viewer, auth, get

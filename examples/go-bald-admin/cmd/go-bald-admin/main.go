@@ -23,6 +23,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -41,13 +42,12 @@ import (
 	securityaudit "github.com/kalandramo/bald/examples/go-bald-admin/internal/security/audit"
 	"github.com/kalandramo/bald/pkg/appkit"
 	"github.com/kalandramo/bald/pkg/audit"
-	"github.com/kalandramo/bald/pkg/authz"
+	"github.com/kalandramo/bald/pkg/authn"
 	baldconf "github.com/kalandramo/bald/pkg/conf"
 	confv1 "github.com/kalandramo/bald/pkg/conf/gen/go/bald/config/v1"
 	baldconfig "github.com/kalandramo/bald/pkg/config"
 	baldlog "github.com/kalandramo/bald/pkg/log"
-	mid "github.com/kalandramo/bald/pkg/middleware/gin"
-	grpcmw "github.com/kalandramo/bald/pkg/middleware/grpc"
+	"github.com/kalandramo/bald/pkg/middleware/bundle"
 	"github.com/kalandramo/bald/pkg/registry/inmemory"
 	"github.com/kalandramo/bald/pkg/server"
 )
@@ -103,17 +103,30 @@ func serveRunE(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("initialize biz (wire): %w", err)
 	}
 	ready := func(ctx context.Context) error { return nil }
+
+	// M10.2 管理面：运行期组件观测与热插拔（工厂目录由业务定义——核心只管挂载原语）。
+	// demo.heartbeat 演示带 goroutine 的组件生命周期（Start 起心跳、Dispose 收），与
+	// StreamAuditor 同构；admin 角色经 /admin/components 端点挂载/卸载。
+	appRef := &appRefT{}
+	componentFactories := map[string]apiserver.ComponentFactory{
+		"demo.heartbeat": func() appkit.Component { return newHeartbeatComponent(appRef.get) },
+	}
+
+	// M10.1（P10 验证）：横切关注点切 bundle 门面。
+	//   - gin 全局层：Recovery→RequestID→Logging→Audit（bundle 链序固化）。
+	//     Authn/Authz 不进全局 bundle——范例用「路由级分组保护」语义（/v1/login 必须公开），
+	//     分组链见 internal/apiserver/handler/gin/auth.go；bundle 的全局链模式与
+	//     分组保护模式是两种合法模式，范例各保其一（gRPC 侧为全 bundle 链）。
+	//   - 增强点：切 bundle 后 /v1/login 也进入审计（此前散装手挂仅审计受保护路由）——
+	//     登录失败同样应留审计痕迹。
+	ginBundle := bundle.New(
+		bundle.Metrics(obmetrics.Recorder("bald/example")),
+		bundle.Normalized(), // P9 归一化：审计 object/action 与 gRPC 同源
+	)
 	router := gin.New()
-	router.Use(mid.Recovery(), mid.RequestID(), mid.Logging())
-	// M7 审计：旁路记录 REST 访问（subject/object/action/result）。复用 P9 归一化原语，
-	// 与 gRPC 同源；置于业务路由之前，c.Next 后记录最终响应状态。
-	// M8 指标：审计同源 emit 指标。
-	router.Use(mid.AuditMiddleware(nil,
-		mid.AuditWithObjectResolver(authz.DefaultHTTPObject),
-		mid.AuditWithActionResolver(authz.DefaultHTTPAction),
-		mid.AuditWithMetrics(obmetrics.Recorder("bald/example")),
-	))
+	router.Use(ginBundle.Gin()...)
 	apiserver.RegisterRoutes(router, bizSet.Auth, bizSet.Secret) // gin handler 路由
+	registerAdminRoutes(router, appRef, componentFactories)      // M10.2 管理面（appRef 迟到绑定）
 	httpSrv := server.NewHTTPServer(bootstrap.GetHttp(), router, ready)
 
 	grpcSrv := server.NewGRPCServerWithRegister(
@@ -125,6 +138,7 @@ func serveRunE(_ *cobra.Command, _ []string) error {
 
 	// 2. 组装 AppKit（含可选 grpc-gateway，见 buildServers）。
 	app := newApp(bootstrap, logOpts, httpSrv, grpcSrv, ready, traceComp)
+	appRef.set(app) // M10.2：管理面 handler 经 appRef 请求期取 AppKit（规避装配时序）
 
 	// 3. 运行。
 	if err := app.Run(context.Background()); err != nil {
@@ -275,45 +289,111 @@ func newApp(
 
 var osExit = func(code int) { os.Exit(code) }
 
+// appRefT 是 AppKit 的线程安全迟到绑定句柄：管理面路由在 appkit.New 之前注册
+// （gin 装配先于 app 构造），handler 闭包捕获 appRef、请求期读取最新 App 实例。
+type appRefT struct {
+	mu  sync.RWMutex
+	app *appkit.AppKit
+}
+
+func (r *appRefT) set(a *appkit.AppKit) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.app = a
+}
+
+func (r *appRefT) get() *appkit.AppKit {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.app
+}
+
+// heartbeatComp 是 M10.2 的演示组件：Start 起周期心跳 goroutine，Dispose 停止并
+// 等待退出——与 StreamAuditor 同构的「有 goroutine 要收」组件生命周期范本，
+// 经管理面挂载/卸载可端到端观察 A1 的 Start/Dispose 与重组审计。
+type heartbeatComp struct {
+	name  string
+	stop  chan struct{}
+	done  chan struct{}
+	appFn func() *appkit.AppKit
+}
+
+func newHeartbeatComponent(appFn func() *appkit.AppKit) appkit.Component {
+	return &heartbeatComp{
+		name:  "demo.heartbeat",
+		stop:  make(chan struct{}),
+		done:  make(chan struct{}),
+		appFn: appFn,
+	}
+}
+
+func (h *heartbeatComp) Name() string { return h.name }
+
+func (h *heartbeatComp) Start(_ context.Context) error {
+	go func() {
+		defer close(h.done)
+		t := time.NewTicker(5 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-h.stop:
+				return
+			case <-t.C:
+				baldlog.GetLogger().Info(context.Background(), "component heartbeat",
+					"component", h.name, "components", len(h.appFn().ListComponents()))
+			}
+		}
+	}()
+	return nil
+}
+
+func (h *heartbeatComp) Dispose(_ context.Context) error {
+	close(h.stop)
+	<-h.done // 等 goroutine 退出：Dispose 后组件对进程无残留影响（时间可组合性）
+	return nil
+}
+
+// registerAdminRoutes 把管理面路由挂到 router（appRef 迟到绑定见 appRefT）。
+func registerAdminRoutes(router *gin.Engine, ref *appRefT, factories map[string]apiserver.ComponentFactory) {
+	apiserver.RegisterAdmin(router, ref.get, factories)
+}
+
 // registerGRPCService 是 gRPC service 注册回调（M5 用 proto 生成的 SecretServiceServer）。
 var registerGRPCService = func(s *grpc.Server) {
 	adminv1.RegisterSecretServiceServer(s, secretgrpc.NewServer())
 }
 
+// lazyAuthn / lazyAuthz 把 bootstrap 包级桥接变量（InitBridges 在 appkit.BeforeStart
+// 才赋值）适配为 authn/authz 接口，供 bundle 构造期注入——bundle 是构造期依赖注入，
+// 而桥接是运行期装配，lazy 适配器衔接两者时序（请求期读取最新值）。
+type lazyAuthn struct{}
+
+func (lazyAuthn) Authenticate(ctx context.Context) (*authn.AuthClaims, error) {
+	return bootstrappkg.Authenticator.Authenticate(ctx)
+}
+
+func (lazyAuthn) AuthenticateToken(token string) (*authn.AuthClaims, error) {
+	return bootstrappkg.Authenticator.AuthenticateToken(token)
+}
+
+type lazyAuthz struct{}
+
+func (lazyAuthz) Authorize(ctx context.Context, subject, object, action string) (bool, error) {
+	return bootstrappkg.Authorizer.Authorize(ctx, subject, object, action)
+}
+
 func newGRPCServerOptions() []grpc.ServerOption {
-	// Authn/Authz 拦截器延迟读取 bootstrap 包级变量：grpc server 在 main 构造时
-	// Authenticator 尚为 nil（InitBridges 在 appkit.BeforeStart 才赋值），但拦截器
-	// 在请求期执行，此时 bridge 已就绪，闭包读取最新值即可。
-	authnInterceptor := func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-		return grpcmw.AuthnInterceptor(bootstrappkg.Authenticator)(ctx, req, info, handler)
-	}
-	authzInterceptor := func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-		// P9 反哺：gRPC 侧经核心归一化把 FullMethod 翻译为与 HTTP 同源的权限点
-		// （object=secret/auth 资源名、action=get/delete/list/write），casbin 桥接不再重复归一化。
-		return grpcmw.AuthzInterceptor(bootstrappkg.Authorizer,
-			grpcmw.WithObjectResolver(authz.DefaultGRPCObject),
-			grpcmw.WithActionResolver(authz.DefaultGRPCAction),
-		)(ctx, req, info, handler)
-	}
-	unaryInterceptors := []grpc.UnaryServerInterceptor{
-		grpcmw.ErrorInterceptor(),
-		grpcmw.RequestIDInterceptor(),
-		grpcmw.UnaryObservability(),
-		authnInterceptor, // 认证：无 token / 伪造 token -> Unauthenticated
-		// M7 审计：置于 Authn 内侧（可读 subject/tenant）、Authz 外侧（捕获最终 result），
-		// 旁路不阻断业务。复用 P9 归一化原语，与 REST 同源。
-		// M8 指标：审计同源 emit 指标（bald_requests_total/bald_request_duration_seconds）。
-		grpcmw.AuditInterceptor(nil,
-			grpcmw.AuditWithObjectResolver(authz.DefaultGRPCObject),
-			grpcmw.AuditWithActionResolver(authz.DefaultGRPCAction),
-			grpcmw.AuditWithMetrics(obmetrics.Recorder("bald/example")),
-		),
-		authzInterceptor, // 授权：角色无权限 -> PermissionDenied
-	}
-	return []grpc.ServerOption{
-		// M5 起用标准 proto codec（grpc-gateway 以 protobuf 转发到本后端，需一致）。
-		grpc.ChainUnaryInterceptor(unaryInterceptors...),
-	}
+	// M10.1（P10 验证）：gRPC 无公开方法（全部需认证），整条链切 bundle——
+	// Error→RequestID→Observability→Authn→Audit→Authz 链序由 bundle 固化，
+	// 替代此前手写的 7 段拦截器组装（authnInterceptor/authzInterceptor 闭包删除）。
+	// P9 归一化经 bundle.Normalized() 内置于 Authz 与 Audit 两层。
+	grpcBundle := bundle.New(
+		bundle.Authn(lazyAuthn{}),
+		bundle.Authz(lazyAuthz{}),
+		bundle.Metrics(obmetrics.Recorder("bald/example")),
+		bundle.Normalized(), // P9：FullMethod → 与 HTTP 同源的权限点
+	)
+	return grpcBundle.GRPCChain()
 }
 
 // buildServers 组装运行服务器集合：gRPC + HTTP，可选 grpc-gateway。

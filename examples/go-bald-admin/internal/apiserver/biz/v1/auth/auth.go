@@ -13,8 +13,8 @@ import (
 
 	authnjwt "github.com/kalandramo/bald-authn-jwt"
 	"github.com/kalandramo/bald/pkg/authn"
-	"github.com/kalandramo/bald/pkg/store"
 	storev1 "github.com/kalandramo/bald/pkg/conf/gen/go/bald/store/v1"
+	"github.com/kalandramo/bald/pkg/store"
 	"golang.org/x/crypto/bcrypt"
 
 	bootstrappkg "github.com/kalandramo/bald/examples/go-bald-admin/internal/bootstrap"

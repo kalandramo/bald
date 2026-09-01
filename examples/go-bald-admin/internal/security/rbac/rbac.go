@@ -12,9 +12,10 @@
 // 权限点约定：gin/grpc Authz 中间件传入 subject=用户 ID、object=请求路径、
 // action=HTTP 方法（小写）。本 Authorizer 把路径归一化为「资源名」（去掉 /v1
 // 前缀与动态 id 段），例如
-//   GET  /v1/secret/123   -> object="secret", action="get"  -> 权限点 "secret:get"
-//   DEL  /v1/secret/123   -> object="secret", action="delete"
-//   GET  /v1/auth/whoami  -> object="auth",   action="get"   -> 权限点 "auth:get"
+//
+//	GET  /v1/secret/123   -> object="secret", action="get"  -> 权限点 "secret:get"
+//	DEL  /v1/secret/123   -> object="secret", action="delete"
+//	GET  /v1/auth/whoami  -> object="auth",   action="get"   -> 权限点 "auth:get"
 //
 // 角色由业务侧从 token 解析后注入 subject 之外——本实现从 subject 无法取得角色，
 // 因此改用「subject -> roles」映射表（M1 范本：admin/u-admin、viewer/u-alice）。
@@ -53,9 +54,10 @@ func New(rolePerms map[string][]string, subjectRoles map[string][]string) *Autho
 
 // normObject 把请求对象归一化为资源名，同时兼容两种传输形态：
 //   - HTTP 路径："/v1/secret/123" -> "secret"（去 /v1 前缀，取首段资源）
-//                "/v1/auth/whoami" -> "auth"
+//     "/v1/auth/whoami" -> "auth"
 //   - gRPC FullMethod："/go.bald.admin.v1.SecretService/GetSecret" -> "SecretService"
 //     （取 '/' 前的 Service 全名，再取最后一个 '.' 之后的服务段）
+//
 // 归一化后权限点 = "资源名:action"，与业务规则表匹配，实现传输中立的 RBAC。
 func normObject(raw string) string {
 	s := strings.Trim(raw, "/")
