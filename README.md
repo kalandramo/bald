@@ -35,6 +35,8 @@ bald/
 │   ├── testkit/              # 测试工具（FreeAddr 等，P13）
 │   └── appkit/               # App 编排层：启停 + 配置 + 能力解析（S1）+ 组件生命周期（C1）
 │                             #   + 效应账本（T1）+ key 级热更新订阅（R1）+ 运行期挂载（A1）
+├── cmd/bald/                 # 官方开发工具 CLI：`bald gen proto/store/app`（go install .../cmd/bald@latest）
+├── internal/codegen/         # 代码生成脚手架实现（供 cmd/bald，模板质量以消费者模块端到端测试固化）
 ├── contrib/                  # 独立 module 桥接（按需引入，单向依赖核心）
 │   ├── authn-jwt/            # JWT 认证器（HMAC/RS256/ES256）
 │   ├── store-gorm/           # GORM 存储引擎（DSN scheme 路由 + 多租户）
@@ -307,10 +309,18 @@ go test ./...
 
 | 目录 | 定位 | 内容 |
 |---|---|---|
-| [`_example/bald`](_example/bald)（含 `_example/bald-gin`） | **最小能力示例 + 脚手架工具开发场** | 框架能力点逐个跑通：HTTP/gRPC/grpc-gateway、配置四源（文件/env/flag/远程 nacos）、内存↔GORM 切换（`user` demo）、`pkg/web` 流水线；并承载 codegen CLI（`gen proto`/`store`/`app`）的开发与验证。`_example` 以下划线开头，核心 `go build ./...` 不扫——grpc-gateway/cel/nacos 等重依赖隔离在独立 module |
+| [`_example/bald`](_example/bald)（含 `_example/bald-gin`） | **最小能力示例** | 框架能力点逐个跑通：HTTP/gRPC/grpc-gateway、配置四源（文件/env/flag/远程 nacos）、内存↔GORM 切换（`user` demo）、`pkg/web` 流水线。`_example` 以下划线开头，核心 `go build ./...` 不扫——grpc-gateway/cel/nacos 等重依赖隔离在独立 module |
 | [`examples/go-bald-admin`](examples/go-bald-admin) | **官方参考范例（reference app）** | 用真实业务（用户/角色/机密、JWT+casbin RBAC、多租户、三重审计、metrics/trace、wire 装配、管理面）端到端验证 P0–P9，是「真实项目长什么样」的完整范本（见其 `docs/设计文档.md`） |
 
 **怎么选**：想快速体验框架单个能力 → 跑 `_example/bald`；想照着一个真实项目的完整分层抄作业 → 看 `examples/go-bald-admin`。
+
+官方代码生成工具（`bald gen proto/store/app`，生成 starter 骨架，详见 [架构优化路线 §P12](docs/devel/zh-CN/架构优化路线.md)）：
+
+```bash
+go install github.com/kalandramo/bald/cmd/bald@latest
+bald gen app my-service          # 生成 cmd/my-service/main.go 装配骨架
+bald gen app my-service --spec appspec.json   # AppSpec 方言驱动（P12 第二步）
+```
 
 ### 最小示例（`_example/bald`）
 

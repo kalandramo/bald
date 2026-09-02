@@ -48,7 +48,6 @@ import (
 	"github.com/spf13/viper"
 	"google.golang.org/grpc"
 
-	gencmd "github.com/kalandramo/bald/example/bald/codegen"
 	usercmd "github.com/kalandramo/bald/example/bald/user"
 
 	"github.com/kalandramo/bald/pkg/appkit"
@@ -151,8 +150,9 @@ func serveRunE(_ *cobra.Command, _ []string) error {
 }
 
 // main 是进程入口：构造 cobra root 命令，默认子命令即原 serve 行为；
-// 挂载 `user`（存储后端切换演示）与 `gen`（轻量代码生成脚手架）子命令；
-// 未知子命令走 kubectl 风格 PATH 插件发现（bald-<name> 可执行文件）。
+// 挂载 `user`（存储后端切换演示）子命令；未知子命令走 kubectl 风格
+// PATH 插件发现（bald-<name> 可执行文件）。代码生成脚手架已提升为核心
+// cmd/bald（`go install github.com/kalandramo/bald/cmd/bald`），见 internal/codegen。
 func main() {
 	root := &cobra.Command{
 		Use:   "bald",
@@ -160,7 +160,6 @@ func main() {
 		RunE:  serveRunE,
 	}
 	root.AddCommand(usercmd.NewUserCommand())
-	root.AddCommand(gencmd.NewCommand())
 
 	// kubectl 风格插件发现：若首参不是已知子命令，转发到 PATH 中的 bald-<name>。
 	if len(os.Args) > 1 {

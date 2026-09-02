@@ -14,6 +14,19 @@ import (
 	appspecv1 "github.com/kalandramo/bald/pkg/conf/gen/go/bald/appspec/v1"
 )
 
+// exampleModule 返回 _example/bald 消费者 module 的绝对路径——生成物编译/运行以它
+// 作模块上下文（其 go.mod 含 cobra/gin/grpc，replace 指向核心当前工作树，闭环验证）。
+// go test 的进程 cwd 恒为包目录（本包位于 <root>/internal/codegen），上溯两级即仓库根。
+func exampleModule(t *testing.T) string {
+	t.Helper()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	root := filepath.Clean(filepath.Join(wd, "..", ".."))
+	return filepath.Join(root, "_example", "bald")
+}
+
 // TestGenApp_TemplateFormats 渲染 + go/format 必须成功（否则生成物不可编译）。
 func TestGenApp_TemplateFormats(t *testing.T) {
 	var buf bytes.Buffer
@@ -59,7 +72,7 @@ func TestGenApp_GeneratedCodeCompiles(t *testing.T) {
 	// 在 _example/bald 模块内编译生成物：它是 bald 核心的真实消费者模块
 	// （依赖 cobra/gin/grpc，replace 指向根模块）——生成物即面向该形态的模块。
 	cmd := exec.Command("go", "build", "-o", filepath.Join(dir, "demoapp.bin"), path)
-	cmd.Dir = ".." // _example/bald module root
+	cmd.Dir = exampleModule(t)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("generated main.go does not compile: %v\n%s", err, out)
 	}
@@ -139,7 +152,7 @@ func TestGenAppSpec_GeneratedCompiles(t *testing.T) {
 			t.Fatalf("%s render: %v", name, err)
 		}
 		cmd := exec.Command("go", "build", "-o", filepath.Join(dir, "bin"), path)
-		cmd.Dir = ".." // _example/bald module root（真实消费者模块）
+		cmd.Dir = exampleModule(t)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("%s generated main.go does not compile: %v\n%s", name, err, out)
 		}
@@ -176,7 +189,7 @@ func TestGenAppSpec_GeneratedRuns(t *testing.T) {
 
 	bin := filepath.Join(dir, "smoke.bin")
 	build := exec.Command("go", "build", "-o", bin, path)
-	build.Dir = ".." // _example/bald module root（真实消费者模块）
+	build.Dir = exampleModule(t)
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("generated main.go does not compile: %v\n%s", err, out)
 	}

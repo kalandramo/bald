@@ -1,11 +1,13 @@
-// Package codegen 是 bald 的轻量代码生成脚手架（对照 osbuilder 的嵌入模板范式）。
+// Package codegen 是 bald CLI（cmd/bald）的轻量代码生成脚手架（对照 osbuilder 的嵌入模板范式）。
 //
 // 提供三个子命令，演示「配置驱动 + 嵌入模板」生成骨架：
-//   - gen proto  <name>  生成 api/proto/bald/<name>/v1/<name>.proto（含 PagingRequest 引用）
-//   - gen store  <name>  生成 <name>.go 实体骨架（gorm tag + keyOf 提取函数）
-//   - gen app    <name>  生成 cmd/<name>/main.go 应用装配骨架（P12：appkit 全原语 + bundle）
+//   - bald gen proto  <name>  生成 api/proto/bald/<name>/v1/<name>.proto（含 PagingRequest 引用）
+//   - bald gen store  <name>  生成 <name>.go 实体骨架（gorm tag + keyOf 提取函数）
+//   - bald gen app    <name>  生成 cmd/<name>/main.go 应用装配骨架（P12：appkit 全原语 + bundle）
 //
-// 这是 P4 工程化的最小可用集：不一次性铺开完整脚手架，仅验证「框架可生成 starter 骨架」的能力。
+// 工具链归属（2026-09-02）：自 _example/bald 示例模块提升为核心 cmd/bald 子命令
+// （P12 落地记录标注的「工具链归属」评估落地）。生成物以 _example/bald 消费者模块为
+// 编译/运行上下文做端到端验证（见 app_test.go），核心 go.mod 不引入 gin/grpc。
 package codegen
 
 import (
@@ -26,7 +28,9 @@ package bald.{{.Name}}.v1;
 import "google/protobuf/empty.proto";
 import "bald/store/v1/store.proto";
 
-option go_package = "github.com/kalandramo/bald/example/bald/api/gen/go/bald/{{.Name}}/v1;{{.Name}}v1";
+{{- if .GoPackage }}
+option go_package = "{{.GoPackage}}";
+{{- end }}
 
 // {{.Name | title}}Service 示例服务。
 service {{.Name | title}}Service {
@@ -77,6 +81,7 @@ func NewCommand() *cobra.Command {
 
 func genProtoCmd() *cobra.Command {
 	var out string
+	var goPackage string
 	cmd := &cobra.Command{
 		Use:   "proto <name>",
 		Short: "生成 protobuf 服务骨架",
@@ -86,7 +91,7 @@ func genProtoCmd() *cobra.Command {
 			if out == "" {
 				out = filepath.Join("api", "proto", "bald", name, "v1")
 			}
-			if err := render(protoTmpl, map[string]string{"Name": name},
+			if err := render(protoTmpl, map[string]string{"Name": name, "GoPackage": goPackage},
 				filepath.Join(out, name+".proto")); err != nil {
 				return err
 			}
@@ -95,6 +100,8 @@ func genProtoCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&out, "out", "", "输出目录（默认 api/proto/bald/<name>/v1）")
+	cmd.Flags().StringVar(&goPackage, "go-package", "",
+		"proto 的 go_package option（默认不写；bald 生态经 buf managed mode 补充）")
 	return cmd
 }
 
