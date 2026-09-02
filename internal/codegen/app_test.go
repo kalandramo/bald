@@ -216,3 +216,39 @@ func TestGenAppSpec_GeneratedRuns(t *testing.T) {
 	_ = cmd.Process.Kill()
 	<-done
 }
+
+// TestGenAppSpec_CommandOmitsName CLI 参数层（P12 UX 修复）：spec 方言模式下 <name>
+// 可省略——应用名与默认输出路径 cmd/<AppSpec.meta.name>/main.go 以 AppSpec 为准；
+// 模板模式（无 --spec）缺 <name> 仍须报错。
+func TestGenAppSpec_CommandOmitsName(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir) // 默认相对输出落在临时目录
+	specPath := filepath.Join(dir, "appspec.json")
+	if err := os.WriteFile(specPath, []byte(`{
+  "meta": {"name": "cli-demo", "module": "example.com/demo", "desc": "d"},
+  "server": {"http": true},
+  "auditBackends": ["log"]
+}`), 0o644); err != nil {
+		t.Fatalf("write spec: %v", err)
+	}
+
+	// spec 模式：不带 <name> 应成功，默认输出 cmd/cli-demo/main.go。
+	cmd := genAppCmd()
+	cmd.SetArgs([]string{"--spec", specPath})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("gen app --spec without <name> should succeed: %v", err)
+	}
+	want := filepath.Join("cmd", "cli-demo", "main.go")
+	if _, err := os.Stat(want); err != nil {
+		t.Fatalf("default out %q not created: %v", want, err)
+	}
+
+	// 模板模式（无 --spec）：缺 <name> 仍报错。
+	cmd2 := genAppCmd()
+	cmd2.SetArgs(nil)
+	if err := cmd2.Execute(); err == nil {
+		t.Fatalf("template mode without <name> must fail")
+	} else if !strings.Contains(err.Error(), "accepts 1 arg(s)") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}

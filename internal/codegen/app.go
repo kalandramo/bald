@@ -131,7 +131,7 @@ func genAppCmd() *cobra.Command {
 		spec   string
 	)
 	cmd := &cobra.Command{
-		Use:   "app <name>",
+		Use:   "app [name]",
 		Short: "生成应用装配骨架 main.go（appkit 全原语 + bundle 接线）",
 		Long: `生成可编译的 cmd/<name>/main.go 装配骨架，覆盖 appkit 第二轮全部原语的推荐用法：
 
@@ -144,19 +144,29 @@ func genAppCmd() *cobra.Command {
 填充点标记为 [FILL]。素材对照 examples/go-bald-admin M10 装配形状。
 
 指定 --spec <AppSpec.json> 时切换为 P12 第二步：以 AppSpec 方言（proto 单一真相源）
-驱动装配，取代本模板的硬编码字段。`,
-		Args: cobra.ExactArgs(1),
+驱动装配，取代本模板的硬编码字段；此时 <name> 可省略——应用名与默认输出路径
+（cmd/<AppSpec.meta.name>/main.go）均以 AppSpec 为准。`,
+		Args: func(_ *cobra.Command, args []string) error {
+			if spec == "" && len(args) != 1 {
+				// 模板模式必须给应用名（决定 cmd/<name>/main.go）。
+				return fmt.Errorf("accepts 1 arg(s) (the app name), received %d", len(args))
+			}
+			if len(args) > 1 {
+				return fmt.Errorf("accepts at most 1 arg(s), received %d", len(args))
+			}
+			return nil
+		},
 		RunE: func(_ *cobra.Command, args []string) error {
+			if spec != "" {
+				// P12 第二步：AppSpec 方言驱动（name 可省略，见 Args）。
+				return runGenAppSpec(spec, out)
+			}
 			name := args[0]
 			if out == "" {
 				out = filepath.Join("cmd", name, "main.go")
 			}
 			if module == "" {
 				module = "github.com/kalandramo/bald"
-			}
-			if spec != "" {
-				// P12 第二步：AppSpec 方言驱动。
-				return runGenAppSpec(spec, out)
 			}
 			_ = module // 模板 import 固定为 bald 核心路径；业务 module 替换留给 go mod edit
 			data := map[string]string{"Name": name}
@@ -195,6 +205,11 @@ func runGenAppSpec(spec, out string) error {
 	as := &appspecv1.AppSpec{}
 	if err := protojson.Unmarshal(raw, as); err != nil {
 		return fmt.Errorf("parse AppSpec (protojson): %w", err)
+	}
+	if out == "" {
+		// 未显式给 --out：默认 cmd/<AppSpec.meta.name>/main.go（与 spec 内命名一致，
+		// 不取 CLI 位置参数——spec 方言下应用名由 AppSpec 决定）。
+		out = filepath.Join("cmd", as.Meta.GetName(), "main.go")
 	}
 	data := appspecData{
 		Meta:             as.Meta,

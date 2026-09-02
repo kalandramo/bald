@@ -35,8 +35,8 @@ go mod init example.com/my-service
 # 2) 声明装配（AppSpec，见 §4）
 vim appspec.json
 
-# 3) 用 CLI 生成装配骨架
-bald gen app my-service --spec appspec.json
+# 3) 用 CLI 生成装配骨架（spec 模式下 <name> 可省略，应用名/输出路径由 AppSpec meta.name 决定）
+bald gen app --spec appspec.json
 # => generated app (spec-driven): cmd/my-service/main.go
 
 # 4) 拉取依赖并编译
@@ -174,7 +174,7 @@ time=... level=INFO msg="appkit started" servers=2
 
 | 命令 | 作用 | 常用 flag |
 |---|---|---|
-| `bald gen app <name> [--spec spec.json]` | 生成应用装配骨架 main.go（无 `--spec` 时为第一版模板模式，含 `[FILL]` 填充点） | `--out`、`--module`（提示用）、`--spec` |
+| `bald gen app [name] [--spec spec.json]` | 生成应用装配骨架 main.go（无 `--spec` 时为第一版模板模式，需提供 `<name>`，含 `[FILL]` 填充点；spec 模式下 `<name>` 可省略） | `--out`、`--module`（提示用）、`--spec` |
 | `bald gen proto <name>` | 生成 protobuf 服务骨架到 `api/proto/bald/<name>/v1` | `--out`、`--go-package`（默认不写，bald 生态由 buf managed mode 补充） |
 | `bald gen store <name>` | 生成实体骨架（gorm tag + keyOf） | `--out`、`--out-pkg` |
 

@@ -321,7 +321,7 @@ go test ./...
 ```bash
 go install github.com/kalandramo/bald/cmd/bald@latest
 bald gen app my-service          # 生成 cmd/my-service/main.go 装配骨架
-bald gen app my-service --spec appspec.json   # AppSpec 方言驱动（P12 第二步）
+bald gen app --spec appspec.json   # AppSpec 方言驱动（P12 第二步，name 由 spec meta.name 决定）
 ```
 
 从零起步新项目（安装 CLI → 写 AppSpec → 生成骨架 → 配置 → 运行）的分步指南见 [`docs/guide/zh-CN/用 bald CLI 起步新服务.md`](docs/guide/zh-CN/用%20bald%20CLI%20起步新服务.md)。
