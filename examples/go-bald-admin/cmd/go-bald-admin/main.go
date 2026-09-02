@@ -288,53 +288,116 @@ func newApp(
 	return app
 }
 
-// currentAuditBackends 记录当前生效的审计后端集合（R1-2 实际态），供 reconcileAudit
-// 与期望态（audit.backends）diff；加锁保护（reconcile 可能并发于配置热变更触发）。
-var (
-	auditMu              sync.Mutex
-	currentAuditBackends []string
-)
+// reconAuditors 是 R1-2 协调的「实际态」载体：协调器逐后端 Mount/Unmount，
+// 每个后端组件在 Start 时把自己塞入此表、Dispose 时移除，并刷新全局 MultiAuditor。
+// 由 ReconcileCtx.Mount/Unmount（底层 A1 组件生命周期 + reconItems 归属表）串行化，
+// 自身无需额外加锁——协调器单次执行是串行的，且框架对多协调器按注册序串行。
+var reconAuditors = struct {
+	mu  sync.Mutex
+	set map[string]audit.Auditor
+}{set: make(map[string]audit.Auditor)}
 
-// reconcileAudit 是 R1-2 期望态协调函数：配置键 audit.backends 声明「期望的审计后端集合」，
-// 此处把它收敛为实际生效的 MultiAuditor。语义对齐 Kubernetes controller：
-//   - 读取期望态（ctx.Viper.GetString("audit.backends")，逗号/空格分隔 log|store|stream）；
-//   - 与 currentAuditBackends（实际态）diff，仅在实际变化时才重建，幂等且不抖动；
-//   - 后端构造依赖已就绪的桥接（DB/Redis，InitBridges 在 BeforeStart 已完成）；
-//   - 任一后端构造失败仅记日志并跳过该后端，其余后端继续生效（旁路语义，绝不阻断启动）。
+// applyAuditors 根据当前后端表重建全局 MultiAuditor（空则退化为 Nop，绝不阻断审计旁路）。
+func applyAuditors() {
+	reconAuditors.mu.Lock()
+	list := make([]audit.Auditor, 0, len(reconAuditors.set))
+	for _, a := range reconAuditors.set {
+		list = append(list, a)
+	}
+	reconAuditors.mu.Unlock()
+	if len(list) == 0 {
+		audit.SetAuditor(audit.NopAuditor())
+		return
+	}
+	audit.SetAuditor(securityaudit.NewMulti(list...))
+}
+
+// auditBackendComponent 是一个后端审计器组件：Mount 即把自身审计器注册进全局
+// MultiAuditor，Unmount 即注销。其名 == 后端名（log/store/stream），正是协调器
+// 用于 diff 的标识，与 ReconcileCtx.Mounted() 一一对应。
+type auditBackendComponent struct {
+	name string
+	build func() audit.Auditor // 延迟构造：依赖 InitBridges 后的 DB/Redis
+}
+
+func (c *auditBackendComponent) Name() string { return c.name }
+
+func (c *auditBackendComponent) Start(ctx context.Context) error {
+	a := c.build()
+	if a == nil {
+		return fmt.Errorf("audit backend %q unavailable", c.name)
+	}
+	reconAuditors.mu.Lock()
+	reconAuditors.set[c.name] = a
+	reconAuditors.mu.Unlock()
+	applyAuditors()
+	baldlog.GetLogger().Info(ctx, "audit backend mounted", "backend", c.name)
+	return nil
+}
+
+func (c *auditBackendComponent) Dispose(ctx context.Context) error {
+	reconAuditors.mu.Lock()
+	delete(reconAuditors.set, c.name)
+	reconAuditors.mu.Unlock()
+	applyAuditors()
+	baldlog.GetLogger().Info(ctx, "audit backend unmounted", "backend", c.name)
+	return nil
+}
+
+// buildAuditBackend 构造某后端的审计器（log 始终可用；store/stream 依赖桥接就绪）。
+// 桥接未就绪时返回 nil，协调器会跳过该后端（旁路语义，绝不阻断启动）。
+func buildAuditBackend(name string) audit.Auditor {
+	switch name {
+	case "log":
+		return securityaudit.New()
+	case "store":
+		if bootstrappkg.DB != nil {
+			return securityaudit.NewStore(bootstrappkg.DB)
+		}
+	case "stream":
+		if bootstrappkg.RedisCache != nil && bootstrappkg.RedisCache.Client() != nil {
+			return securityaudit.NewStream(bootstrappkg.RedisCache.Client())
+		}
+	}
+	return nil
+}
+
+// reconcileAudit 是 R1-2 期望态协调函数（逐后端粒度，非整体重建）：配置键
+// audit.backends 声明「期望的审计后端集合」，框架用 ReconcileCtx 暴露的实际态
+// （r.Mounted()，即本协调器已挂载的后端名）做 diff，仅 Mount 新增、Unmount 移除——
+// 完整兑现「只更新变动部分」的 K8s controller 语义。部分失败不回滚，下次协调补齐。
 //
-// 框架负责触发时机：首次在 loadConfig 基线后、AfterStart 前的启动收敛期；其后每次
-// OnConfigChange 携带新 viper 再次调用，实现运行期热切换（如 [store]→[store,stream]）。
+// 触发时机由框架负责：首次在 loadConfig 基线后、AfterStart 前的启动收敛期；其后
+// 每次 OnConfigChange 携带新 viper 再次调用，实现运行期热切换（如 [store]→[store,stream]）。
 func reconcileAudit(ctx context.Context, rctx *appkit.ReconcileCtx) error {
 	want := parseAuditBackends(rctx.Viper.GetString("audit.backends"))
-	have := func() []string {
-		auditMu.Lock()
-		defer auditMu.Unlock()
-		return append([]string(nil), currentAuditBackends...)
-	}()
+	have := rctx.Mounted() // 实际态：本协调器名下已挂载的后端（Mount/Unmount 维护）
 
-	// diff-apply：期望==实际时直接返回（幂等，避免无谓重建与审计事件抖动）。
+	// diff-apply：期望==实际时直接返回（幂等，不抖动、不发多余审计）。
 	add, remove := appkit.DiffStrings(want, have)
 	if len(add) == 0 && len(remove) == 0 {
 		return nil
 	}
 
-	logger := baldlog.GetLogger()
-	logger.Info(ctx, "reconcile audit.backends",
+	baldlog.GetLogger().Info(ctx, "reconcile audit.backends",
 		"add", strings.Join(add, ","), "remove", strings.Join(remove, ","))
 
-	// 重新构造期望集合对应的后端（log 始终内嵌，store/stream 依赖桥接）。
-	auditors := []audit.Auditor{securityaudit.New()}
-	if contains(want, "store") && bootstrappkg.DB != nil {
-		auditors = append(auditors, securityaudit.NewStore(bootstrappkg.DB))
+	// 新增：期望有、实际无 → 逐后端 Mount（底层 A1 组件生命周期 + 重组审计）。
+	for _, name := range add {
+		comp := &auditBackendComponent{name: name, build: func() audit.Auditor { return buildAuditBackend(name) }}
+		if err := rctx.Mount(ctx, comp.Name(), comp); err != nil {
+			// 失败不回滚，下次协调按实际态（reconItems）重新 diff 补齐。
+			baldlog.GetLogger().Error(ctx, "reconcile mount audit backend failed",
+				"backend", name, "error", err)
+		}
 	}
-	if contains(want, "stream") && bootstrappkg.RedisCache != nil && bootstrappkg.RedisCache.Client() != nil {
-		auditors = append(auditors, securityaudit.NewStream(bootstrappkg.RedisCache.Client()))
+	// 移除：实际有、期望无 → 逐后端 Unmount。
+	for _, name := range remove {
+		if err := rctx.Unmount(ctx, name); err != nil {
+			baldlog.GetLogger().Error(ctx, "reconcile unmount audit backend failed",
+				"backend", name, "error", err)
+		}
 	}
-	audit.SetAuditor(securityaudit.NewMulti(auditors...))
-
-	auditMu.Lock()
-	currentAuditBackends = want
-	auditMu.Unlock()
 	return nil
 }
 

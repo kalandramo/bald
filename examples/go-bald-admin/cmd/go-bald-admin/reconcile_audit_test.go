@@ -17,14 +17,34 @@ func newAuditViper(backends string) *viper.Viper {
 	return v
 }
 
+// newReconcileApp 造一个最小 AppKit 并标记运行态（测试内直置，免去启动 server）。
+// reconcileAudit 走 ReconcileCtx.Mount/Unmount → AppKit.MountComponent，后者要求
+// running==true，故此处直接置位（同包可访问未导出字段）。
+func newReconcileApp() *appkit.AppKit {
+	app := appkit.New()
+	app.SetRunningForTest() // 仅测试用：标记运行态
+	return app
+}
+
+// capturedAuditor 记录是否接收到事件，用于断言收敛后全局审计后端已非 nop。
+type capturedAuditor struct {
+	audit.Auditor
+	got int
+}
+
+func (c *capturedAuditor) Record(ctx context.Context, ev audit.AuditEvent) {
+	c.got++
+	c.Auditor.Record(ctx, ev)
+}
+
 // TestReconcileAudit_ParseBackends 验证后端列表解析：去重、过滤非法、空格/逗号分隔。
 func TestReconcileAudit_ParseBackends(t *testing.T) {
 	cases := map[string][]string{
-		"store,stream":         {"store", "stream"},
-		"log store":            {"log", "store"},
-		"store,store,stream":   {"store", "stream"},
-		"bad,store,evil":       {"store"},
-		"":                     nil,
+		"store,stream":       {"store", "stream"},
+		"log store":          {"log", "store"},
+		"store,store,stream": {"store", "stream"},
+		"bad,store,evil":     {"store"},
+		"":                   nil,
 	}
 	for in, want := range cases {
 		got := parseAuditBackends(in)
@@ -39,24 +59,17 @@ func TestReconcileAudit_ParseBackends(t *testing.T) {
 	}
 }
 
-// capturedAuditor 记录是否接收到事件，用于断言 reconcile 后全局审计后端已非 nop。
-type capturedAuditor struct {
-	audit.Auditor
-	got int
-}
-
-func (c *capturedAuditor) Record(ctx context.Context, ev audit.AuditEvent) {
-	c.got++
-	c.Auditor.Record(ctx, ev)
-}
-
-// TestReconcileAudit_LogOnly 期望态仅 log：收敛为只含 LoggerAuditor 的 MultiAuditor，
-// 不依赖 DB/Redis（bootstrappkg.DB 为 nil 时 store/stream 自动跳过）。
-func TestReconcileAudit_LogOnly(t *testing.T) {
+// TestReconcileAudit_MountLog 期望态 log：收敛出 log 组件，全局审计器生效（非 nop）。
+func TestReconcileAudit_MountLog(t *testing.T) {
 	audit.SetAuditor(audit.NopAuditor())
-	rctx := &appkit.ReconcileCtx{Viper: newAuditViper("log")}
+	app := newReconcileApp()
+	rctx := appkit.NewReconcileCtx(app, "audit.backends", newAuditViper("log"))
+
 	if err := reconcileAudit(context.Background(), rctx); err != nil {
 		t.Fatalf("reconcile: %v", err)
+	}
+	if !contains(app.ListComponents(), "log") {
+		t.Fatalf("expected log mounted, got %v", app.ListComponents())
 	}
 	cap := &capturedAuditor{Auditor: audit.GetAuditor()}
 	cap.Record(context.Background(), audit.AuditEvent{Object: "test", Action: "get"})
@@ -65,14 +78,48 @@ func TestReconcileAudit_LogOnly(t *testing.T) {
 	}
 }
 
-// TestReconcileAudit_Idempotent 二次收敛同期望态：diff 为空，不产生副作用抖动
-// （此处仅验证不报错、仍是 MultiAuditor；实际「无 diff 早退」由 appkit 在调用方保证）。
+// TestReconcileAudit_Idempotent 二次收敛同期望态：diff 为空，不重复挂载、不抖动。
 func TestReconcileAudit_Idempotent(t *testing.T) {
-	rctx := &appkit.ReconcileCtx{Viper: newAuditViper("log")}
+	audit.SetAuditor(audit.NopAuditor())
+	app := newReconcileApp()
+	rctx := appkit.NewReconcileCtx(app, "audit.backends", newAuditViper("log"))
+
 	if err := reconcileAudit(context.Background(), rctx); err != nil {
 		t.Fatalf("first reconcile: %v", err)
 	}
 	if err := reconcileAudit(context.Background(), rctx); err != nil {
 		t.Fatalf("second reconcile: %v", err)
+	}
+	if got := app.ListComponents(); len(got) != 1 || got[0] != "log" {
+		t.Fatalf("idempotent reconcile should keep exactly [log], got %v", got)
+	}
+}
+
+// TestReconcileAudit_RemoveOnEmpty 期望态置空：移除已挂载后端，全局审计器退化为 nop。
+func TestReconcileAudit_RemoveOnEmpty(t *testing.T) {
+	audit.SetAuditor(audit.NopAuditor())
+	app := newReconcileApp()
+	rctx := appkit.NewReconcileCtx(app, "audit.backends", newAuditViper("log"))
+	if err := reconcileAudit(context.Background(), rctx); err != nil {
+		t.Fatalf("mount reconcile: %v", err)
+	}
+	if !contains(app.ListComponents(), "log") {
+		t.Fatal("precondition: log should be mounted")
+	}
+
+	// 期望态置空 → 应卸载 log。
+	rctx2 := appkit.NewReconcileCtx(app, "audit.backends", newAuditViper(""))
+	if err := reconcileAudit(context.Background(), rctx2); err != nil {
+		t.Fatalf("remove reconcile: %v", err)
+	}
+	if contains(app.ListComponents(), "log") {
+		t.Fatalf("expected log removed, got %v", app.ListComponents())
+	}
+	// 全局审计器退回 nop：实际态表清空即代表已无生效后端。
+	reconAuditors.mu.Lock()
+	n := len(reconAuditors.set)
+	reconAuditors.mu.Unlock()
+	if n != 0 {
+		t.Fatalf("expected all audit backends unmounted, got %d", n)
 	}
 }
