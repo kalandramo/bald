@@ -1,5 +1,7 @@
 # bald
 
+[![release](https://img.shields.io/github/v/tag/kalandramo/bald?sort=semver&label=latest%20tag)](https://github.com/kalandramo/bald/releases)
+
 一个融合三方设计精华的 Go 服务框架：
 
 - **onexstack/pkg/app**：启动期 Options + 配置理念（`--config`/viper 由调用方注入）。
