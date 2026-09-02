@@ -75,7 +75,7 @@ func Validate(cfg *confv1.Bootstrap) error {
 	errs = append(errs, validateHTTP(cfg.GetHttp())...)
 	errs = append(errs, validateGRPC(cfg.GetGrpc())...)
 	errs = append(errs, validateLogger(cfg.GetLogger())...)
-	if err := cfgToLogOptions(cfg.GetLogger()).Validate(); err != nil {
+	if err := LogOptions(cfg.GetLogger()).Validate(); err != nil {
 		errs = append(errs, err)
 	}
 	return joinErrors(errs)
@@ -144,11 +144,6 @@ func validateLogger(l *confv1.Logger) []error {
 		errs = append(errs, fmt.Errorf("log.output-paths: must not be empty"))
 	}
 	return errs
-}
-
-// cfgToLogOptions 把 proto 的 Logger 转为 pkg/log.Options 供其校验复用。
-func cfgToLogOptions(l *confv1.Logger) *log.Options {
-	return LogOptions(l)
 }
 
 // LogOptions 把 proto 的 Logger 配置转为 pkg/log.Options（供日志系统重建使用）。

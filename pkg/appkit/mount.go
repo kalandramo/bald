@@ -160,24 +160,35 @@ func (a *AppKit) ListComponents() []string {
 	return names
 }
 
+// resolveAuditor 返回 appkit 自身审计事件的接收后端：显式注入（Auditor Option）
+// 优先，否则回退全局（其默认即 nop，永不返回 nil）。D4：单一解析顺序，消除
+// bundle 注入与 appkit 全局各走一边的 split-brain sink。
+func (a *AppKit) resolveAuditor() audit.Auditor {
+	if a.auditor != nil {
+		return a.auditor
+	}
+	return audit.GetAuditor()
+}
+
 // auditComponent 旁路发出一条运行时重组审计事件（§6.2 自修改审计原语）：
-// Subject 取 ctx 中的 AuthClaims（可为空）；Auditor panic/错误仅记日志，绝不
-// 阻断挂载/卸载本身（与审计中间件 recordSafely 同一纪律）。
+// Subject/TenantID 取 ctx 中的 AuthClaims（可为空）；Auditor panic/错误仅记日志，
+// 绝不阻断挂载/卸载本身（与审计中间件 recordSafely 同一纪律）。
 func (a *AppKit) auditComponent(ctx context.Context, action, name string) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.GetLogger().Error(ctx, "appkit component audit panicked", "panic", r)
 		}
 	}()
-	subject := ""
+	subject, tenant := "", ""
 	if claims := authn.AuthClaimsFromContext(ctx); claims != nil {
-		subject = claims.Subject
+		subject, tenant = claims.Subject, claims.TenantID
 	}
-	audit.GetAuditor().Record(ctx, audit.AuditEvent{
-		Subject: subject,
-		Object:  "component",
-		Action:  action,
-		Result:  audit.ResultAllow,
-		Meta:    map[string]any{"component": name},
+	a.resolveAuditor().Record(ctx, audit.AuditEvent{
+		Subject:  subject,
+		TenantID: tenant,
+		Object:   "component",
+		Action:   action,
+		Result:   audit.ResultAllow,
+		Meta:     map[string]any{"component": name},
 	})
 }

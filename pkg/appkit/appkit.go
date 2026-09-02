@@ -39,6 +39,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	kratosRegistry "github.com/go-kratos/kratos/v3/registry"
+	"github.com/kalandramo/bald/pkg/audit"
 	"github.com/kalandramo/bald/pkg/conf"
 	"github.com/kalandramo/bald/pkg/config"
 	"github.com/kalandramo/bald/pkg/log"
@@ -99,6 +100,11 @@ type AppKit struct {
 	started          []Component // 已成功 Start 的组件（Dispose 幂等跟踪）
 	startedMu        sync.Mutex
 	disposed         bool // 组件系统已销毁（A1：置位后拒绝运行期挂载，见 mount.go）
+
+	// D4 审计后端：运行期重组/协调审计事件（mount/reconcile）的显式注入点。
+	// nil 时回退 audit.GetAuditor() 全局（其默认即 nop）——消除「bundle 注入 a、
+	// appkit 走全局」的审计 sink 分裂。
+	auditor audit.Auditor
 
 	// 配置（onexstack 风格 --config + 可选远程配置中心），收敛为一个配置对象。
 	cfg appConfig
@@ -228,6 +234,12 @@ func OnConfigChange(fn func(*viper.Viper)) Option {
 func Servers(servers ...server.Server) Option {
 	return func(a *AppKit) { a.servers = append(a.servers, servers...) }
 }
+
+// Auditor 注入运行期审计后端：appkit 自身发出的审计事件（A1 组件挂载/卸载、
+// R1-2 协调收敛/错误）写入该实例，与业务经 bundle.Audit 注入的请求级审计
+// 同源，消除 split-brain sink（D4）。未注入时回退全局 audit.GetAuditor()。
+func Auditor(a audit.Auditor) Option { return func(a2 *AppKit) { a2.auditor = a } }
+
 func StopTimeout(d time.Duration) Option { return func(a *AppKit) { a.stopTimeout = d } }
 
 // BeforeStopTimeout / AfterStopTimeout 设置对应钩子阶段的独立超时（默认 defaultHookTimeout）。

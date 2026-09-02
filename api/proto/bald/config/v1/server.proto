@@ -8,7 +8,7 @@ import "defaults/defaults.proto";
 option go_package = "github.com/kalandramo/bald/pkg/conf/gen/go/bald/config/v1";
 
 // Tls 描述 TLS 传输配置，采用 Smart Mode：
-// ca / cert / key 均可为文件路径、原始 PEM 或 Base64 编码的 PEM。
+// root_ca / client_ca / cert / key 均可为文件路径、原始 PEM 或 Base64 编码的 PEM。
 //
 // 对应配置文件中的 http.tls 段。
 message Tls {
@@ -18,7 +18,16 @@ message Tls {
   // 是否跳过服务端证书链与主机名校验（仅客户端场景，不安全）。
   bool skip_verify = 2;
 
-  // CA 证书：文件路径 | 原始 PEM | Base64(PEM)。
+  // 信任的 CA 证书（验证对端证书链）：文件路径 | 原始 PEM | Base64(PEM)。
+  // 服务端用它校验出站/对端链，客户端用它校验服务端——仅设置本字段不强制 mTLS。
+  string root_ca = 6;
+
+  // mTLS 专用：要求客户端出示由本 CA 签发的证书（ClientAuth=
+  // RequireAndVerifyClientCert）。与服务端校验对端链的 root_ca 语义分离，
+  // 不再由 ca 非空隐式触发 mTLS（D10 评审修正）。
+  string client_ca = 7;
+
+  // 弃用（D10）：旧字段，语义等同 root_ca，仅作向后兼容别名，后续版本移除。
   string ca = 3;
 
   // 服务端证书：文件路径 | 原始 PEM | Base64(PEM)。

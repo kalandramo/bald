@@ -196,29 +196,31 @@ func (a *AppKit) reconUnmount(ctx context.Context, recon, name string) error {
 	return a.UnmountComponent(ctx, name)
 }
 
-// auditReconcile 旁路发出协调审计事件（与 A1 挂载/卸载同源，Object="reconciler"）。
+// auditReconcile 旁路发出协调审计事件（与 A1 挂载/卸载同源，Object="reconciler"；
+// 后端经 D4 resolveAuditor 单一解析，与请求级审计同源）。
 func (a *AppKit) auditReconcile(ctx context.Context, action, name string, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.GetLogger().Error(ctx, "appkit reconcile audit panicked", "panic", r)
 		}
 	}()
-	subject := ""
+	subject, tenant := "", ""
 	if claims := authn.AuthClaimsFromContext(ctx); claims != nil {
-		subject = claims.Subject
+		subject, tenant = claims.Subject, claims.TenantID
 	}
 	ev := audit.AuditEvent{
-		Subject: subject,
-		Object:  "reconciler",
-		Action:  action,
-		Result:  audit.ResultAllow,
-		Meta:    map[string]any{"reconciler": name},
+		Subject:  subject,
+		TenantID: tenant,
+		Object:   "reconciler",
+		Action:   action,
+		Result:   audit.ResultAllow,
+		Meta:     map[string]any{"reconciler": name},
 	}
 	if err != nil {
 		ev.Result = audit.ResultError
 		ev.Error = err.Error()
 	}
-	audit.GetAuditor().Record(ctx, ev)
+	a.resolveAuditor().Record(ctx, ev)
 }
 
 // DiffStrings 是协调常用工具：返回期望集与实际集的差集（新增 / 移除，均有序）。

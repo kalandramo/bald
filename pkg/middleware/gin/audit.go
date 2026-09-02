@@ -19,10 +19,10 @@ import (
 type AuditOption func(*auditOptions)
 
 type auditOptions struct {
-	objectResolver authz.ObjectResolver
-	actionResolver authz.ActionResolver
+	objectResolver  authz.ObjectResolver
+	actionResolver  authz.ActionResolver
 	subjectResolver func(c *gin.Context) string
-	auditor        audit.Auditor
+	auditor         audit.Auditor
 	metricsRecorder metrics.Recorder
 }
 
@@ -61,11 +61,11 @@ func AuditWithMetrics(rec metrics.Recorder) AuditOption {
 //
 // 典型用法（与 AuthzMiddleware 归一化对称）：
 //
-//	ginmw.AuditMiddleware(nil,
+//	ginmw.AuditMiddleware(
 //	    ginmw.AuditWithObjectResolver(authz.DefaultHTTPObject),
 //	    ginmw.AuditWithActionResolver(authz.DefaultHTTPAction),
 //	)
-func AuditMiddleware(_ audit.Auditor, opts ...AuditOption) gin.HandlerFunc {
+func AuditMiddleware(opts ...AuditOption) gin.HandlerFunc {
 	cfg := &auditOptions{}
 	for _, opt := range opts {
 		opt(cfg)
@@ -110,8 +110,22 @@ func AuditMiddleware(_ audit.Auditor, opts ...AuditOption) gin.HandlerFunc {
 		}
 		recordSafely(auditor, c.Request.Context(), ev)
 		// M8 指标埋点：与审计同源，复用 object/action/result 维度，旁路不阻断。
-		rec.Record(c.Request.Context(), metrics.Event{Object: object, Action: action, Result: string(ev.Result), Error: ev.Error}, metrics.TransportHTTP, time.Since(start).Seconds())
+		emitMetricsSafely(rec, c.Request.Context(), metrics.Event{Object: object, Action: action, Result: string(ev.Result), Error: ev.Error}, metrics.TransportHTTP, time.Since(start).Seconds())
 	}
+}
+
+// emitMetricsSafely 指标旁路记录：Recorder panic 仅降级记日志，绝不影响响应
+// （D5：与 auditor 的 recordSafely 同一纪律，此前 metrics.Record 未被保护）。
+func emitMetricsSafely(rec metrics.Recorder, ctx context.Context, ev metrics.Event, transport metrics.Transport, seconds float64) {
+	if rec == nil {
+		return
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			log.GetLogger().Error(ctx, "metrics recorder panicked", "panic", r)
+		}
+	}()
+	rec.Record(ctx, ev, transport, seconds)
 }
 
 func subjectTenant(c *gin.Context, cfg *auditOptions) (string, string) {

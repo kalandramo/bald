@@ -88,7 +88,7 @@ func serveRunE(_ *cobra.Command, _ []string) error {
 	// 业务 HTTP 路由：直接用 gin 引擎组织（gin.Engine 实现 http.Handler），
 	// 路由注册由业务自己完成，服务器层 NewHTTPServer 签名不变（*gin.Engine 即 http.Handler）。
 	router := gin.New()
-	router.Use(mid.Recovery(), mid.RequestID(), mid.Logging())
+	router.Use(mid.Recovery(), mid.RequestIDMiddleware(), mid.Logging())
 	exampleRoutes(router)
 	httpSrv := server.NewHTTPServer(bootstrap.GetHttp(), router, ready)
 

@@ -37,7 +37,7 @@ func (m *auditMem) all() []audit.AuditEvent {
 func TestAuditMiddleware_Allow(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	a := &auditMem{}
-	mw := AuditMiddleware(nil, AuditWithAuditor(a),
+	mw := AuditMiddleware(AuditWithAuditor(a),
 		AuditWithObjectResolver(authz.DefaultHTTPObject),
 		AuditWithActionResolver(authz.DefaultHTTPAction),
 	)
@@ -76,7 +76,7 @@ func TestAuditMiddleware_Allow(t *testing.T) {
 func TestAuditMiddleware_Deny(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	a := &auditMem{}
-	mw := AuditMiddleware(nil, AuditWithAuditor(a),
+	mw := AuditMiddleware(AuditWithAuditor(a),
 		AuditWithObjectResolver(authz.DefaultHTTPObject),
 		AuditWithActionResolver(authz.DefaultHTTPAction),
 	)
@@ -104,7 +104,7 @@ func TestAuditMiddleware_Deny(t *testing.T) {
 
 func TestAuditMiddleware_PanickingAuditorSafe(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	mw := AuditMiddleware(nil, AuditWithAuditor(panicAuditor{}))
+	mw := AuditMiddleware(AuditWithAuditor(panicAuditor{}))
 	r := gin.New()
 	r.Use(mw)
 	r.GET("/v1/ping", func(c *gin.Context) { c.Status(http.StatusOK) })
@@ -152,7 +152,7 @@ func TestAuditMiddleware_MetricsEmitted(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	a := &auditMem{}
 	m := &metricsMem{}
-	mw := AuditMiddleware(nil, AuditWithAuditor(a), AuditWithMetrics(m),
+	mw := AuditMiddleware(AuditWithAuditor(a), AuditWithMetrics(m),
 		AuditWithObjectResolver(authz.DefaultHTTPObject),
 		AuditWithActionResolver(authz.DefaultHTTPAction),
 	)

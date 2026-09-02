@@ -5,7 +5,8 @@
 //   - 远程配置中心（基于自研 RemoteSource 抽象，绕开 viper 标准 remote 的缺陷）
 //
 // 加载优先级（高 → 低，viper 默认语义）：
-//   flag > 环境变量 > 本地文件 > 远程配置（远程作为基准）
+//
+//	flag > 环境变量 > 本地文件 > 远程配置（远程作为基准）
 package config
 
 import (
@@ -45,7 +46,8 @@ type Options struct {
 // Load 加载配置：远程 + 本地 + env + flag，并可选地监听热更新。
 //
 // 优先级（高 → 低，viper 默认语义，符合 K8s/容器部署运维预期）：
-//   flag > 环境变量 > 本地文件 > 远程（远程作为最底层基准）。
+//
+//	flag > 环境变量 > 本地文件 > 远程（远程作为最底层基准）。
 //
 // 设计要点：
 //   - viper 有「override 层」（flag/env 等显式覆盖）与「底层 config map」两层。
@@ -254,17 +256,4 @@ func parseLocal(opts Options) (map[string]any, error) {
 		return nil, nil
 	}
 	return settings, nil
-}
-
-// Marshal 将当前 viper 配置序列化为指定格式（用于调试/落盘）。
-func Marshal(v *viper.Viper, format string) ([]byte, error) {
-	buf := &bytes.Buffer{}
-	enc := newEncoder(format, buf)
-	if enc == nil {
-		return nil, fmt.Errorf("config: unsupported format %q", format)
-	}
-	if err := enc.Encode(v.AllSettings()); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
 }

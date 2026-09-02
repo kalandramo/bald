@@ -198,7 +198,7 @@ func TestGinRawDefaults_WithoutNormalization(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	log := &callLog{}
 	az := &stubAuthz{log: log, allow: true}
-	b := New(Authn(&stubAuthn{log: log}), Authz(az)) // 未开 Normalized
+	b := New(Authn(&stubAuthn{log: log}), Authz(az), Raw()) // 显式 opt-out 原始语义（D7 起默认归一化）
 
 	r := gin.New()
 	r.Use(b.Gin()...)
@@ -336,9 +336,9 @@ func TestEmpty_NoOverhead(t *testing.T) {
 		t.Fatalf("gin chain len = %d, want 3", len(ginChain))
 	}
 	grpcChain := b.GRPCInterceptors()
-	// Error + RequestID + Observability。
-	if len(grpcChain) != 3 {
-		t.Fatalf("grpc chain len = %d, want 3", len(grpcChain))
+	// Error + Recovery + RequestID + Observability。
+	if len(grpcChain) != 4 {
+		t.Fatalf("grpc chain len = %d, want 4", len(grpcChain))
 	}
 
 	gin.SetMode(gin.TestMode)
@@ -373,4 +373,141 @@ func equal(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// ---- D3 契约：认证失败（authn abort）必产生审计事件 ----
+
+// failingAuthn 认证失败桩：始终拒绝。
+type failingAuthn struct{}
+
+func (failingAuthn) Authenticate(context.Context) (*authn.AuthClaims, error) {
+	return nil, context.Canceled
+}
+
+func (failingAuthn) AuthenticateToken(string) (*authn.AuthClaims, error) {
+	return nil, context.Canceled
+}
+
+// TestDefaultNormalized 契约（D7）：New() 不显式传 Normalized() 也默认归一化——
+// P9 的双命名空间根治不应依赖调用方记得 opt-in；Raw() 显式关闭。
+func TestDefaultNormalized(t *testing.T) {
+	log := &callLog{}
+	az := &stubAuthz{log: log, allow: true}
+	b := New(Authn(&stubAuthn{log: log}), Authz(az)) // 未传 Normalized()
+
+	r := gin.New()
+	r.Use(b.Gin()...)
+	r.GET("/v1/secret/42", func(c *gin.Context) { c.JSON(http.StatusOK, nil) })
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/secret/42", nil)
+	req.Header.Set("Authorization", "Bearer tk")
+	r.ServeHTTP(w, req)
+
+	// 默认即归一化：object=secret、action=get（非原始路径/方法）。
+	if az.last.object != "secret" || az.last.action != "get" {
+		t.Fatalf("normalized by default: object=%q action=%q", az.last.object, az.last.action)
+	}
+
+	// Raw() 关闭归一化。
+	az2 := &stubAuthz{log: log, allow: true}
+	b2 := New(Authn(&stubAuthn{log: log}), Authz(az2), Raw())
+	r2 := gin.New()
+	r2.Use(b2.Gin()...)
+	r2.GET("/v1/secret/42", func(c *gin.Context) { c.JSON(http.StatusOK, nil) })
+	w2 := httptest.NewRecorder()
+	req2 := httptest.NewRequest(http.MethodGet, "/v1/secret/42", nil)
+	req2.Header.Set("Authorization", "Bearer tk")
+	r2.ServeHTTP(w2, req2)
+
+	if az2.last.object != "/v1/secret/42" || az2.last.action != http.MethodGet {
+		t.Fatalf("Raw() should restore raw semantics: object=%q action=%q", az2.last.object, az2.last.action)
+	}
+}
+
+// TestGRPCRecovery_PanicContained 契约（D5）：handler panic 被 Recovery 拦截器
+// 捕获并转为 *berrors.Internal，由最外层 Error 收口为 Internal status，不打穿进程。
+func TestGRPCRecovery_PanicContained(t *testing.T) {
+	b := New()
+	info := &grpc.UnaryServerInfo{FullMethod: "/pkg.Svc/Method"}
+	resp, err := chainInvoke(b.GRPCInterceptors(), info,
+		func(context.Context, any) (any, error) {
+			panic("boom")
+		}, context.Background(), nil)
+
+	if resp != nil {
+		t.Fatalf("resp should be nil on panic, got %v", resp)
+	}
+	if status.Code(err) != codes.Internal {
+		t.Fatalf("code = %v, want Internal (err=%v)", status.Code(err), err)
+	}
+	if !strings.Contains(status.Convert(err).Message(), "boom") {
+		t.Fatalf("status message should carry panic value, got %q", status.Convert(err).Message())
+	}
+}
+
+// TestGinAuthnFailureAudited 契约：受保护路由认证失败（401 abort）时，审计事件
+// 必须由 authn 层显式发出——审计中间件注册在 Authn 内侧，abort 后不会执行。
+func TestGinAuthnFailureAudited(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	log := &callLog{}
+	aud := &stubAuditor{log: log}
+	b := New(
+		Authn(failingAuthn{}),
+		Audit(aud),
+		Normalized(),
+	)
+
+	r := gin.New()
+	r.Use(b.Gin()...)
+	r.GET("/protected", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"ok": true}) })
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/protected", nil)) // 无 Authorization 头
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", w.Code)
+	}
+	// 契约核心：authn abort 路径留痕。
+	if len(aud.events) != 1 {
+		t.Fatalf("authn failure must emit exactly 1 audit event, got %+v", aud.events)
+	}
+	ev := aud.events[0]
+	if ev.Object != "authn" || ev.Action != "authenticate" || ev.Result != audit.ResultDeny {
+		t.Fatalf("audit event = %+v, want {Object:authn, Action:authenticate, Result:deny}", ev)
+	}
+	if ev.Meta["reason"] == nil || ev.Meta["path"] != "/protected" {
+		t.Fatalf("audit event meta should carry reason and path, got %+v", ev.Meta)
+	}
+}
+
+// TestGRPCAuthnFailureAudited 契约：gRPC 认证失败（Unauthenticated）时同样由
+// authn 层显式发审计事件（内侧 Audit 拦截器不会执行）。
+func TestGRPCAuthnFailureAudited(t *testing.T) {
+	log := &callLog{}
+	aud := &stubAuditor{log: log}
+	b := New(
+		Authn(failingAuthn{}),
+		Audit(aud),
+		Normalized(),
+	)
+
+	info := &grpc.UnaryServerInfo{FullMethod: "/admin.v1.SecretService/GetSecret"}
+	_, err := chainInvoke(b.GRPCInterceptors(), info,
+		func(context.Context, any) (any, error) {
+			t.Fatal("handler must not run on authn failure")
+			return "ok", nil
+		}, context.Background(), nil) // 无 authorization metadata
+
+	if status.Code(err) != codes.Unauthenticated {
+		t.Fatalf("code = %v, want Unauthenticated (err=%v)", status.Code(err), err)
+	}
+	if len(aud.events) != 1 {
+		t.Fatalf("authn failure must emit exactly 1 audit event, got %+v", aud.events)
+	}
+	ev := aud.events[0]
+	if ev.Object != "authn" || ev.Action != "authenticate" || ev.Result != audit.ResultDeny {
+		t.Fatalf("audit event = %+v, want {Object:authn, Action:authenticate, Result:deny}", ev)
+	}
+	if ev.Meta["full_method"] != info.FullMethod {
+		t.Fatalf("audit event meta should carry full_method, got %+v", ev.Meta)
+	}
 }

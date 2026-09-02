@@ -74,7 +74,7 @@ func withClaims(ctx context.Context, subject, tenant string) context.Context {
 func TestAuditInterceptor_Allow(t *testing.T) {
 	a := &auditMem{}
 	info := &grpc.UnaryServerInfo{FullMethod: "/admin.v1.SecretService/GetSecret"}
-	inter := AuditInterceptor(nil, AuditWithAuditor(a),
+	inter := AuditInterceptor(AuditWithAuditor(a),
 		AuditWithObjectResolver(authz.DefaultGRPCObject),
 		AuditWithActionResolver(authz.DefaultGRPCAction),
 	)
@@ -107,7 +107,7 @@ func TestAuditInterceptor_Allow(t *testing.T) {
 func TestAuditInterceptor_Deny(t *testing.T) {
 	a := &auditMem{}
 	info := &grpc.UnaryServerInfo{FullMethod: "/admin.v1.SecretService/DeleteSecret"}
-	inter := AuditInterceptor(nil, AuditWithAuditor(a),
+	inter := AuditInterceptor(AuditWithAuditor(a),
 		AuditWithObjectResolver(authz.DefaultGRPCObject),
 		AuditWithActionResolver(authz.DefaultGRPCAction),
 	)
@@ -130,7 +130,7 @@ func TestAuditInterceptor_Deny(t *testing.T) {
 func TestAuditInterceptor_Error(t *testing.T) {
 	a := &auditMem{}
 	info := &grpc.UnaryServerInfo{FullMethod: "/admin.v1.SecretService/ListSecrets"}
-	inter := AuditInterceptor(nil, AuditWithAuditor(a),
+	inter := AuditInterceptor(AuditWithAuditor(a),
 		AuditWithObjectResolver(authz.DefaultGRPCObject),
 		AuditWithActionResolver(authz.DefaultGRPCAction),
 	)
@@ -151,7 +151,10 @@ func TestAuditInterceptor_PanickingAuditorSafe(t *testing.T) {
 	// Auditor panic 不应影响业务响应。
 	bad := &panicAuditor{}
 	info := &grpc.UnaryServerInfo{FullMethod: "/admin.v1.SecretService/GetSecret"}
-	inter := AuditInterceptor(bad,
+	// D6 修正：panicAuditor 经 AuditWithAuditor 真实注入（此前传给被丢弃的首参，
+	// 实际执行全局 nop，本测试对 recover 逻辑零覆盖而"假通过"）。
+	inter := AuditInterceptor(
+		AuditWithAuditor(bad),
 		AuditWithObjectResolver(authz.DefaultGRPCObject),
 		AuditWithActionResolver(authz.DefaultGRPCAction),
 	)
@@ -168,7 +171,7 @@ func TestAuditInterceptor_MetricsEmitted(t *testing.T) {
 	a := &auditMem{}
 	m := &metricsMem{}
 	info := &grpc.UnaryServerInfo{FullMethod: "/admin.v1.SecretService/DeleteSecret"}
-	inter := AuditInterceptor(nil, AuditWithAuditor(a),
+	inter := AuditInterceptor(AuditWithAuditor(a),
 		AuditWithMetrics(m),
 		AuditWithObjectResolver(authz.DefaultGRPCObject),
 		AuditWithActionResolver(authz.DefaultGRPCAction),

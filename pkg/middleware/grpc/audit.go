@@ -22,8 +22,8 @@ import (
 type AuditOption func(*auditOptions)
 
 type auditOptions struct {
-	objectResolver authz.ObjectResolver
-	actionResolver authz.ActionResolver
+	objectResolver  authz.ObjectResolver
+	actionResolver  authz.ActionResolver
 	subjectResolver func(ctx context.Context, info *grpc.UnaryServerInfo) string
 	// auditor 指定审计后端；nil 时使用 audit.GetAuditor() 全局实例。
 	auditor audit.Auditor
@@ -66,11 +66,11 @@ func AuditWithMetrics(rec metrics.Recorder) AuditOption {
 //
 // 典型用法（与 AuthzInterceptor 归一化对称）：
 //
-//	grpcmw.AuditInterceptor(nil,
+//	grpcmw.AuditInterceptor(
 //	    grpcmw.AuditWithObjectResolver(authz.DefaultGRPCObject),
 //	    grpcmw.AuditWithActionResolver(authz.DefaultGRPCAction),
 //	)
-func AuditInterceptor(_ audit.Auditor, opts ...AuditOption) grpc.UnaryServerInterceptor {
+func AuditInterceptor(opts ...AuditOption) grpc.UnaryServerInterceptor {
 	cfg := &auditOptions{}
 	for _, opt := range opts {
 		opt(cfg)
@@ -113,9 +113,24 @@ func AuditInterceptor(_ audit.Auditor, opts ...AuditOption) grpc.UnaryServerInte
 		}
 		recordSafely(auditor, ctx, ev)
 		// M8 指标埋点：与审计同源，复用 object/action/result 维度，旁路不阻断。
-		rec.Record(ctx, metrics.Event{Object: object, Action: action, Result: string(ev.Result), Error: ev.Error}, metrics.TransportGRPC, time.Since(start).Seconds())
+		emitMetricsSafely(rec, ctx, metrics.Event{Object: object, Action: action, Result: string(ev.Result), Error: ev.Error}, metrics.TransportGRPC, time.Since(start).Seconds())
 		return resp, err
 	}
+}
+
+// emitMetricsSafely 指标旁路记录：Recorder panic 仅降级记日志，绝不影响响应
+// （D5：与 auditor 的 recordSafely 同一纪律，此前 metrics.Record 未被保护，
+// panic 会打穿 gRPC 链——gRPC 此前也没有 Recovery 兜底）。
+func emitMetricsSafely(rec metrics.Recorder, ctx context.Context, ev metrics.Event, transport metrics.Transport, seconds float64) {
+	if rec == nil {
+		return
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			log.GetLogger().Error(ctx, "metrics recorder panicked", "panic", r)
+		}
+	}()
+	rec.Record(ctx, ev, transport, seconds)
 }
 
 // auditResolver 缓存解析函数，避免每次请求重建闭包。

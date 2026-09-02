@@ -38,8 +38,15 @@ func (h *filterHandler) Handle(ctx context.Context, r slog.Record) error {
 	return h.next.Handle(ctx, out)
 }
 
+// WithAttrs 对将要固化的属性先过 filter 再下沉——否则这些属性绕过本层 Handle
+// （slog 把 WithAttrs 的属性由内层 handler 在 Handle 阶段直接合并），导致
+// FilterKey 脱敏对 logger.With("password", ...) / 构造期 WithAttrs Option 失效。
 func (h *filterHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
-	return &filterHandler{next: h.next.WithAttrs(attrs), filter: h.filter}
+	filtered := make([]slog.Attr, 0, len(attrs))
+	for _, a := range attrs {
+		filtered = append(filtered, h.filter(a))
+	}
+	return &filterHandler{next: h.next.WithAttrs(filtered), filter: h.filter}
 }
 
 func (h *filterHandler) WithGroup(name string) slog.Handler {

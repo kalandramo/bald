@@ -57,51 +57,22 @@ const (
 // ObservabilityOptions holds configuration for trace injection and logging
 type ObservabilityOptions struct {
 	TraceInjectionMode TraceInjectionMode
-	CustomTraceHeader  string   // Custom header name for trace ID
-	SkipPaths          []string // Paths to skip logging (supports wildcards)
+	CustomTraceHeader  string     // Custom header name for trace ID
+	SkipPaths          []string   // Paths to skip logging (supports wildcards)
 	Logger             log.Logger // Custom logger instance
-	DisableBodyLog     bool     // Force disable logging of request/response body
+	DisableBodyLog     bool       // Force disable logging of request/response body
 }
 
 // Option is a functional option for configuring the middleware
 type Option func(*ObservabilityOptions)
 
-// WithTraceInjection configures trace injection mode
-func WithTraceInjection(mode TraceInjectionMode) Option {
-	return func(o *ObservabilityOptions) {
-		o.TraceInjectionMode = mode
-	}
-}
-
-// WithCustomTraceHeader sets a custom header name for trace ID
-func WithCustomTraceHeader(headerName string) Option {
-	return func(o *ObservabilityOptions) {
-		o.CustomTraceHeader = headerName
-	}
-}
-
-// WithSkipPaths configures paths to skip (supports exact match and wildcards)
-func WithSkipPaths(paths ...string) Option {
-	return func(o *ObservabilityOptions) {
-		o.SkipPaths = append(o.SkipPaths, paths...)
-	}
-}
-
-// WithLogger configures a custom log.Logger.
-// If not provided, log.GetLogger() will be used.
+// WithLogger 显式注入自定义 log.Logger（D8：优先于全局惰性解析——注入后运行期
+// SetLogger 重建不影响本中间件，需要该隔离语义时使用）。
 func WithLogger(logger log.Logger) Option {
 	return func(o *ObservabilityOptions) {
 		if logger != nil {
 			o.Logger = logger
 		}
-	}
-}
-
-// WithDisableBodyLog forces the middleware NOT to log request and response bodies,
-// even if the log level is Debug.
-func WithDisableBodyLog() Option {
-	return func(o *ObservabilityOptions) {
-		o.DisableBodyLog = true
 	}
 }
 
@@ -129,6 +100,16 @@ func WithSkipMetrics() Option {
 	}
 }
 
+// resolveLogger 返回生效 Logger：显式 WithLogger 注入优先，否则每次请求惰性取
+// 全局（D8：构造期快照会让运行期 SetLogger 重建对请求日志永久失效——示例先默认
+// logger 构造中间件、BeforeStart 再按最终配置重建，快照即分裂）。
+func (o *ObservabilityOptions) resolveLogger() log.Logger {
+	if o.Logger != nil {
+		return o.Logger
+	}
+	return log.GetLogger()
+}
+
 // Observability middleware with configurable trace injection
 func Observability(opts ...Option) gin.HandlerFunc {
 	// Default configuration
@@ -136,7 +117,6 @@ func Observability(opts ...Option) gin.HandlerFunc {
 		TraceInjectionMode: InjectTraceIDOnly,
 		SkipPaths:          []string{"/metrics"}, // Default skip /metrics
 		DisableBodyLog:     false,
-		Logger:             log.GetLogger(),
 	}
 
 	// Apply options
@@ -182,7 +162,7 @@ func Observability(opts ...Option) gin.HandlerFunc {
 
 		// Only capture body if Debug is enabled for the logger and body logging
 		// is NOT explicitly disabled.
-		isDebugLevel := config.Logger.Enabled(log.LevelDebug)
+		isDebugLevel := config.resolveLogger().Enabled(log.LevelDebug)
 		shouldLogBody := isDebugLevel && !config.DisableBodyLog
 
 		if shouldLogBody && c.Request.Body != nil {
@@ -232,14 +212,14 @@ func Observability(opts ...Option) gin.HandlerFunc {
 		// Use the configured logger instance. ctx 已携带 trace_id/span_id 属性，
 		// 日志自动附带（无需在每条日志手动传 trace_id）。
 		if isDebugLevel {
-			config.Logger.Debug(ctx, "HTTP request completed",
+			config.resolveLogger().Debug(ctx, "HTTP request completed",
 				"event", event,
 				"source", source,
 				"http", httpData,
 				"user_agent", userAgent,
 			)
 		} else {
-			config.Logger.Info(ctx, "HTTP request completed",
+			config.resolveLogger().Info(ctx, "HTTP request completed",
 				"event", event,
 				"source", source,
 				"http", httpData,
@@ -369,36 +349,6 @@ func injectTraceHeaders(c *gin.Context, spanCtx trace.SpanContext, config *Obser
 	case InjectNone:
 		// Do nothing
 	}
-}
-
-// Convenience functions for common configurations
-
-// ObservabilityWithW3CTraceContext creates middleware with W3C trace context
-func ObservabilityWithW3CTraceContext() gin.HandlerFunc {
-	return Observability(WithTraceInjection(InjectW3CTraceContext))
-}
-
-// ObservabilityWithTraceID creates middleware with simple trace ID
-func ObservabilityWithTraceID() gin.HandlerFunc {
-	return Observability(WithTraceInjection(InjectTraceIDOnly))
-}
-
-// ObservabilityWithCustomHeader creates middleware with custom header
-func ObservabilityWithCustomHeader(headerName string) gin.HandlerFunc {
-	return Observability(
-		WithTraceInjection(InjectTraceIDOnly),
-		WithCustomTraceHeader(headerName),
-	)
-}
-
-// ObservabilitySkipMetrics creates middleware that skips common metrics endpoints
-func ObservabilitySkipMetrics() gin.HandlerFunc {
-	return Observability(WithSkipMetrics())
-}
-
-// ObservabilityWithSkipPaths creates middleware with custom skip paths
-func ObservabilityWithSkipPaths(paths ...string) gin.HandlerFunc {
-	return Observability(WithSkipPaths(paths...))
 }
 
 // bodyCaptureWriter captures and duplicates written response body

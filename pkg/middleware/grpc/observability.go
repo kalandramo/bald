@@ -57,38 +57,17 @@ const (
 // ObservabilityOptions holds configuration for trace injection and logging
 type ObservabilityOptions struct {
 	TraceInjectionMode TraceInjectionMode
-	CustomTraceHeader  string   // Custom header name for trace ID
-	SkipMethods        []string // Methods to skip logging (supports wildcards)
+	CustomTraceHeader  string     // Custom header name for trace ID
+	SkipMethods        []string   // Methods to skip logging (supports wildcards)
 	Logger             log.Logger // Custom logger instance
-	DisableBodyLog     bool     // Force disable logging of request/response
+	DisableBodyLog     bool       // Force disable logging of request/response
 }
 
 // Option is a functional option for configuring the middleware
 type Option func(*ObservabilityOptions)
 
-// WithTraceInjection configures trace injection mode
-func WithTraceInjection(mode TraceInjectionMode) Option {
-	return func(o *ObservabilityOptions) {
-		o.TraceInjectionMode = mode
-	}
-}
-
-// WithCustomTraceHeader sets a custom header name for trace ID
-func WithCustomTraceHeader(headerName string) Option {
-	return func(o *ObservabilityOptions) {
-		o.CustomTraceHeader = headerName
-	}
-}
-
-// WithSkipMethods configures methods to skip (supports exact match and wildcards)
-func WithSkipMethods(methods ...string) Option {
-	return func(o *ObservabilityOptions) {
-		o.SkipMethods = append(o.SkipMethods, methods...)
-	}
-}
-
-// WithLogger configures a custom log.Logger.
-// If not provided, log.GetLogger() will be used.
+// WithLogger 显式注入自定义 log.Logger（D8：优先于全局惰性解析——注入后运行期
+// SetLogger 重建不影响本拦截器，需要该隔离语义时使用）。
 func WithLogger(logger log.Logger) Option {
 	return func(o *ObservabilityOptions) {
 		if logger != nil {
@@ -97,33 +76,13 @@ func WithLogger(logger log.Logger) Option {
 	}
 }
 
-// WithDisableBodyLog forces the middleware NOT to log request and response,
-// even if the log level is Debug.
-func WithDisableBodyLog() Option {
-	return func(o *ObservabilityOptions) {
-		o.DisableBodyLog = true
+// resolveLogger 返回生效 Logger：显式 WithLogger 注入优先，否则每次调用惰性取
+// 全局（D8：构造期快照会让运行期 SetLogger 重建对请求日志永久失效）。
+func (o *ObservabilityOptions) resolveLogger() log.Logger {
+	if o.Logger != nil {
+		return o.Logger
 	}
-}
-
-// WithSkipMetrics is a convenience function to skip common health/metrics RPCs
-func WithSkipMetrics() Option {
-	return func(o *ObservabilityOptions) {
-		commonMethods := []string{
-			"/health",
-			"/healthz",
-			"/ready",
-			"/readiness",
-			"/live",
-			"/liveness",
-			"/metrics",
-			"/prometheus",
-			"/status",
-			"/ping",
-			"/version",
-			"/info",
-		}
-		o.SkipMethods = append(o.SkipMethods, commonMethods...)
-	}
+	return log.GetLogger()
 }
 
 // UnaryObservability is the gRPC unary interceptor with trace injection
@@ -132,7 +91,6 @@ func UnaryObservability(opts ...Option) grpc.UnaryServerInterceptor {
 		TraceInjectionMode: InjectTraceIDOnly,
 		SkipMethods:        []string{"/metrics"},
 		DisableBodyLog:     false,
-		Logger:             log.GetLogger(),
 	}
 
 	for _, opt := range opts {
@@ -171,7 +129,7 @@ func UnaryObservability(opts ...Option) grpc.UnaryServerInterceptor {
 			ctx = metadata.NewIncomingContext(ctx, newMD)
 		}
 
-		isDebugLevel := config.Logger.Enabled(log.LevelDebug)
+		isDebugLevel := config.resolveLogger().Enabled(log.LevelDebug)
 		shouldLogBody := isDebugLevel && !config.DisableBodyLog
 
 		var requestInfo any
@@ -205,13 +163,13 @@ func UnaryObservability(opts ...Option) grpc.UnaryServerInterceptor {
 
 		// ctx 已携带 trace_id/span_id 属性，日志自动附带。
 		if isDebugLevel {
-			config.Logger.Debug(ctx, "gRPC request completed",
+			config.resolveLogger().Debug(ctx, "gRPC request completed",
 				"event", event,
 				"source", source,
 				"grpc", grpcData,
 			)
 		} else {
-			config.Logger.Info(ctx, "gRPC request completed",
+			config.resolveLogger().Info(ctx, "gRPC request completed",
 				"event", event,
 				"source", source,
 				"grpc", grpcData,
@@ -228,7 +186,6 @@ func StreamObservability(opts ...Option) grpc.StreamServerInterceptor {
 		TraceInjectionMode: InjectTraceIDOnly,
 		SkipMethods:        []string{"/metrics"},
 		DisableBodyLog:     false,
-		Logger:             log.GetLogger(),
 	}
 
 	for _, opt := range opts {
@@ -282,14 +239,14 @@ func StreamObservability(opts ...Option) grpc.StreamServerInterceptor {
 		}
 
 		// ctx 已携带 trace_id/span_id 属性，日志自动附带。
-		if config.Logger.Enabled(log.LevelDebug) {
-			config.Logger.Debug(ctx, "gRPC stream completed",
+		if config.resolveLogger().Enabled(log.LevelDebug) {
+			config.resolveLogger().Debug(ctx, "gRPC stream completed",
 				"event", event,
 				"source", source,
 				"grpc", grpcData,
 			)
 		} else {
-			config.Logger.Info(ctx, "gRPC stream completed",
+			config.resolveLogger().Info(ctx, "gRPC stream completed",
 				"event", event,
 				"source", source,
 				"grpc", grpcData,
@@ -397,63 +354,4 @@ type traceStream struct {
 
 func (s *traceStream) Context() context.Context {
 	return s.ctx
-}
-
-// Convenience functions for common configurations
-
-// UnaryObservabilityWithW3CTraceContext creates unary interceptor with W3C context
-func UnaryObservabilityWithW3CTraceContext() grpc.UnaryServerInterceptor {
-	config := &ObservabilityOptions{TraceInjectionMode: InjectW3CTraceContext}
-	return UnaryObservability(WithTraceInjection(config.TraceInjectionMode))
-}
-
-// UnaryObservabilityWithTraceID creates unary interceptor with simple trace ID
-func UnaryObservabilityWithTraceID() grpc.UnaryServerInterceptor {
-	return UnaryObservability(WithTraceInjection(InjectTraceIDOnly))
-}
-
-// UnaryObservabilityWithCustomHeader creates unary interceptor with custom header
-func UnaryObservabilityWithCustomHeader(headerName string) grpc.UnaryServerInterceptor {
-	return UnaryObservability(
-		WithTraceInjection(InjectTraceIDOnly),
-		WithCustomTraceHeader(headerName),
-	)
-}
-
-// UnaryObservabilitySkipMetrics creates unary interceptor that skips metrics RPCs
-func UnaryObservabilitySkipMetrics() grpc.UnaryServerInterceptor {
-	return UnaryObservability(WithSkipMetrics())
-}
-
-// UnaryObservabilityWithSkipMethods creates unary interceptor with custom skip methods
-func UnaryObservabilityWithSkipMethods(methods ...string) grpc.UnaryServerInterceptor {
-	return UnaryObservability(WithSkipMethods(methods...))
-}
-
-// StreamObservabilityWithW3CTraceContext creates stream interceptor with W3C context
-func StreamObservabilityWithW3CTraceContext() grpc.StreamServerInterceptor {
-	return StreamObservability(WithTraceInjection(InjectW3CTraceContext))
-}
-
-// StreamObservabilityWithTraceID creates stream interceptor with simple trace ID
-func StreamObservabilityWithTraceID() grpc.StreamServerInterceptor {
-	return StreamObservability(WithTraceInjection(InjectTraceIDOnly))
-}
-
-// StreamObservabilityWithCustomHeader creates stream interceptor with custom header
-func StreamObservabilityWithCustomHeader(headerName string) grpc.StreamServerInterceptor {
-	return StreamObservability(
-		WithTraceInjection(InjectTraceIDOnly),
-		WithCustomTraceHeader(headerName),
-	)
-}
-
-// StreamObservabilitySkipMetrics creates stream interceptor that skips metrics RPCs
-func StreamObservabilitySkipMetrics() grpc.StreamServerInterceptor {
-	return StreamObservability(WithSkipMetrics())
-}
-
-// StreamObservabilityWithSkipMethods creates stream interceptor with custom skip methods
-func StreamObservabilityWithSkipMethods(methods ...string) grpc.StreamServerInterceptor {
-	return StreamObservability(WithSkipMethods(methods...))
 }

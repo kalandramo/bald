@@ -24,7 +24,7 @@ const (
 )
 
 // Tls 描述 TLS 传输配置，采用 Smart Mode：
-// ca / cert / key 均可为文件路径、原始 PEM 或 Base64 编码的 PEM。
+// root_ca / client_ca / cert / key 均可为文件路径、原始 PEM 或 Base64 编码的 PEM。
 //
 // 对应配置文件中的 http.tls 段。
 type Tls struct {
@@ -33,7 +33,14 @@ type Tls struct {
 	Enabled bool `protobuf:"varint,1,opt,name=enabled,proto3" json:"enabled,omitempty"`
 	// 是否跳过服务端证书链与主机名校验（仅客户端场景，不安全）。
 	SkipVerify bool `protobuf:"varint,2,opt,name=skip_verify,json=skipVerify,proto3" json:"skip_verify,omitempty"`
-	// CA 证书：文件路径 | 原始 PEM | Base64(PEM)。
+	// 信任的 CA 证书（验证对端证书链）：文件路径 | 原始 PEM | Base64(PEM)。
+	// 服务端用它校验出站/对端链，客户端用它校验服务端——仅设置本字段不强制 mTLS。
+	RootCa string `protobuf:"bytes,6,opt,name=root_ca,json=rootCa,proto3" json:"root_ca,omitempty"`
+	// mTLS 专用：要求客户端出示由本 CA 签发的证书（ClientAuth=
+	// RequireAndVerifyClientCert）。与服务端校验对端链的 root_ca 语义分离，
+	// 不再由 ca 非空隐式触发 mTLS（D10 评审修正）。
+	ClientCa string `protobuf:"bytes,7,opt,name=client_ca,json=clientCa,proto3" json:"client_ca,omitempty"`
+	// 弃用（D10）：旧字段，语义等同 root_ca，仅作向后兼容别名，后续版本移除。
 	Ca string `protobuf:"bytes,3,opt,name=ca,proto3" json:"ca,omitempty"`
 	// 服务端证书：文件路径 | 原始 PEM | Base64(PEM)。
 	Cert string `protobuf:"bytes,4,opt,name=cert,proto3" json:"cert,omitempty"`
@@ -85,6 +92,20 @@ func (x *Tls) GetSkipVerify() bool {
 		return x.SkipVerify
 	}
 	return false
+}
+
+func (x *Tls) GetRootCa() string {
+	if x != nil {
+		return x.RootCa
+	}
+	return ""
+}
+
+func (x *Tls) GetClientCa() string {
+	if x != nil {
+		return x.ClientCa
+	}
+	return ""
 }
 
 func (x *Tls) GetCa() string {
@@ -244,11 +265,13 @@ var File_bald_config_v1_server_proto protoreflect.FileDescriptor
 
 const file_bald_config_v1_server_proto_rawDesc = "" +
 	"\n" +
-	"\x1bbald/config/v1/server.proto\x12\x0ebald.config.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x17defaults/defaults.proto\"v\n" +
+	"\x1bbald/config/v1/server.proto\x12\x0ebald.config.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x17defaults/defaults.proto\"\xac\x01\n" +
 	"\x03Tls\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\x12\x1f\n" +
 	"\vskip_verify\x18\x02 \x01(\bR\n" +
-	"skipVerify\x12\x0e\n" +
+	"skipVerify\x12\x17\n" +
+	"\aroot_ca\x18\x06 \x01(\tR\x06rootCa\x12\x1b\n" +
+	"\tclient_ca\x18\a \x01(\tR\bclientCa\x12\x0e\n" +
 	"\x02ca\x18\x03 \x01(\tR\x02ca\x12\x12\n" +
 	"\x04cert\x18\x04 \x01(\tR\x04cert\x12\x10\n" +
 	"\x03key\x18\x05 \x01(\tR\x03key\"\x98\x01\n" +

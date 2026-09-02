@@ -84,6 +84,41 @@ func TestFilterRedactsSensitiveKey(t *testing.T) {
 	}
 }
 
+// TestFilterRedactsViaWith 验证 D2：logger.With 固化的敏感属性同样被脱敏
+// （修复前 filterHandler.WithAttrs 不过滤，属性绕过 Handle 直接落盘）。
+func TestFilterRedactsViaWith(t *testing.T) {
+	buf := &bytes.Buffer{}
+	l := NewSlogLogger(NewOptions(), withWriter(buf), WithFilter(FilterKey("password")))
+	l.With("password", "secret").Info(context.Background(), "login", "user", "alice")
+
+	out := buf.String()
+	if strings.Contains(out, "secret") {
+		t.Fatalf("password fixed via With must be redacted: %s", out)
+	}
+	if !strings.Contains(out, "alice") {
+		t.Fatalf("non-sensitive field must remain: %s", out)
+	}
+}
+
+// TestFilterRedactsViaWithAttrsOption 验证 D2：构造期 WithAttrs Option 固化的
+// 敏感属性同样被脱敏。
+func TestFilterRedactsViaWithAttrsOption(t *testing.T) {
+	buf := &bytes.Buffer{}
+	l := NewSlogLogger(NewOptions(), withWriter(buf),
+		WithFilter(FilterKey("password")),
+		WithAttrs(slog.String("password", "secret")),
+	)
+	l.Info(context.Background(), "login", "user", "alice")
+
+	out := buf.String()
+	if strings.Contains(out, "secret") {
+		t.Fatalf("password fixed via WithAttrs option must be redacted: %s", out)
+	}
+	if !strings.Contains(out, "alice") {
+		t.Fatalf("non-sensitive field must remain: %s", out)
+	}
+}
+
 func TestContextAttrsPropagated(t *testing.T) {
 	buf := &bytes.Buffer{}
 	l := NewSlogLogger(NewOptions(), withWriter(buf))

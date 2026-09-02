@@ -7,8 +7,3 @@ import "github.com/gin-gonic/gin"
 func Logging() gin.HandlerFunc {
 	return Observability(WithSkipMetrics())
 }
-
-// RequestID 是 gin 请求 ID 中间件（转发 RequestIDMiddleware）。
-func RequestID() gin.HandlerFunc {
-	return RequestIDMiddleware()
-}

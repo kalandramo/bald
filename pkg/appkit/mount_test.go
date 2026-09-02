@@ -207,3 +207,36 @@ func TestAuditComponent_PanicIsolated(t *testing.T) {
 type auditorFunc func(context.Context, audit.AuditEvent)
 
 func (f auditorFunc) Record(ctx context.Context, ev audit.AuditEvent) { f(ctx, ev) }
+
+// TestResolveAuditor_InjectedOverridesGlobal 契约（D4）：Auditor Option 注入后，
+// 重组审计事件写入注入实例而非全局——bundle 注入 a、appkit 走全局的 split-brain
+// sink 从结构上消除。未注入时回退全局。
+func TestResolveAuditor_InjectedOverridesGlobal(t *testing.T) {
+	old := audit.GetAuditor()
+	globalMem := &mountAuditMem{}
+	audit.SetAuditor(globalMem)
+	t.Cleanup(func() { audit.SetAuditor(old) })
+
+	injected := &mountAuditMem{}
+	app := New(Auditor(injected))
+	ctx := authn.ContextWithAuthClaims(context.Background(),
+		&authn.AuthClaims{Subject: "u-admin", TenantID: "t-9"})
+	app.auditComponent(ctx, "mount", "tool.echo")
+
+	if len(injected.events) != 1 {
+		t.Fatalf("injected auditor should receive the event, got %+v", injected.events)
+	}
+	if injected.events[0].TenantID != "t-9" {
+		t.Fatalf("event TenantID = %q, want t-9", injected.events[0].TenantID)
+	}
+	if len(globalMem.events) != 0 {
+		t.Fatalf("global auditor must NOT receive events when injection exists, got %+v", globalMem.events)
+	}
+
+	// 未注入：回退全局。
+	fallback := New()
+	fallback.auditComponent(ctx, "mount", "tool.echo")
+	if len(globalMem.events) != 1 {
+		t.Fatalf("without injection, events go to global auditor, got %+v", globalMem.events)
+	}
+}

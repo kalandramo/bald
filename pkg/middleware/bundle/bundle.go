@@ -19,7 +19,7 @@
 // 链序契约（由测试固化，见 bundle_test.go）：
 //   - gin（注册序即外→内）：Recovery → RequestID → Logging → CORS → Secure →
 //     Authn → Audit → Authz
-//   - gRPC（slice 序即外→内）：Error → RequestID → Observability →
+//   - gRPC（slice 序即外→内）：Error → Recovery → RequestID → Observability →
 //     Authn → Audit → Authz
 //
 // 为什么 Audit 夹在 Authn 与 Authz 之间：
@@ -80,9 +80,14 @@ func Audit(a audit.Auditor) Option { return func(b *Bundle) { b.auditor = a } }
 // （审计中间件是指标埋点的载体，两者同源 emit）。
 func Metrics(r metrics.Recorder) Option { return func(b *Bundle) { b.recorder = r } }
 
-// Normalized 开启 P9 归一化默认（authz.Default{HTTP,GRPC}{Object,Action}），
-// 使 REST/gRPC 共用同一份策略与审计语义。
+// Normalized 显式开启 P9 归一化默认（authz.Default{HTTP,GRPC}{Object,Action}）。
+// D7 起归一化默认开启（P9 的核心收益——根治 REST/gRPC 双命名空间 RBAC——不应
+// 依赖调用方记得 opt-in），本 Option 保留为显式声明（幂等）。
 func Normalized() Option { return func(b *Bundle) { b.normalized = true } }
+
+// Raw 关闭归一化，回到 P7 原始语义（HTTP object=path、gRPC object=FullMethod），
+// 供依赖旧双命名空间语义的存量部署 opt-out（D7 配套）。
+func Raw() Option { return func(b *Bundle) { b.normalized = false } }
 
 // CORS 附加 gin 跨域中间件（gRPC 链无对应层）。传 nil 等同不设置。
 func CORS(cfg *ginmw.CORSConfig) Option { return func(b *Bundle) { b.corsCfg = cfg } }
@@ -93,9 +98,10 @@ func Secure() Option { return func(b *Bundle) { b.secure = true } }
 // NoLogging 关闭请求日志/可观测中间件（默认开启）。
 func NoLogging() Option { return func(b *Bundle) { b.logging = false } }
 
-// New 构造 Bundle。
+// New 构造 Bundle。归一化默认开启（D7）——REST/gRPC 共用同一份 RBAC 语义是
+// 默认正确行为；需旧原始语义时显式 Raw() opt-out。
 func New(opts ...Option) *Bundle {
-	b := &Bundle{logging: true}
+	b := &Bundle{logging: true, normalized: true}
 	for _, o := range opts {
 		o(b)
 	}
@@ -108,7 +114,7 @@ func New(opts ...Option) *Bundle {
 //
 // 未注入的依赖对应层直接省略（零开销），如未设 Authn 则链中无认证层。
 func (b *Bundle) Gin() []gin.HandlerFunc {
-	chain := []gin.HandlerFunc{ginmw.Recovery(), ginmw.RequestID()}
+	chain := []gin.HandlerFunc{ginmw.Recovery(), ginmw.RequestIDMiddleware()}
 	if b.logging {
 		chain = append(chain, ginmw.Logging())
 	}
@@ -119,7 +125,7 @@ func (b *Bundle) Gin() []gin.HandlerFunc {
 		chain = append(chain, ginmw.Secure())
 	}
 	if b.authenticator != nil {
-		chain = append(chain, ginmw.AuthnMiddleware(b.authenticator))
+		chain = append(chain, b.ginAuthn())
 	}
 	if b.auditor != nil || b.recorder != nil {
 		chain = append(chain, b.ginAudit())
@@ -132,19 +138,24 @@ func (b *Bundle) Gin() []gin.HandlerFunc {
 
 // GRPCInterceptors 返回链序固化的 unary 拦截器链（slice 序即外→内）：
 //
-//	Error → RequestID → Observability → Authn → Audit → Authz
+//	Error → Recovery → RequestID → Observability → Authn → Audit → Authz
+//
+// Recovery 紧随 Error（第二外层）：handler/内层拦截器 panic 被捕获并转为
+// *berrors.Internal，由最外层 Error 收口为 gRPC status（与 gin 链首道
+// Recovery 对称，D5）。
 //
 // 需自行组装 *grpc.Server 时用：
 //
 //	grpc.NewServer(grpc.ChainUnaryInterceptor(b.GRPCInterceptors()...))
 func (b *Bundle) GRPCInterceptors() []grpc.UnaryServerInterceptor {
 	chain := []grpc.UnaryServerInterceptor{grpcmw.ErrorInterceptor()} // 必须最外层
+	chain = append(chain, grpcmw.RecoveryInterceptor())               // 第二外层：panic 兜底
 	chain = append(chain, grpcmw.RequestIDInterceptor())
 	if b.logging {
 		chain = append(chain, grpcmw.UnaryObservability())
 	}
 	if b.authenticator != nil {
-		chain = append(chain, grpcmw.AuthnInterceptor(b.authenticator))
+		chain = append(chain, b.grpcAuthn())
 	}
 	if b.auditor != nil || b.recorder != nil {
 		chain = append(chain, b.grpcAudit())
@@ -159,6 +170,26 @@ func (b *Bundle) GRPCInterceptors() []grpc.UnaryServerInterceptor {
 // （内含 ChainUnaryInterceptor 装配的整条链）。
 func (b *Bundle) GRPCChain() []grpc.ServerOption {
 	return []grpc.ServerOption{grpc.ChainUnaryInterceptor(b.GRPCInterceptors()...)}
+}
+
+// ginAuthn 组装 gin 认证中间件：把 bundle 的 auditor 注入 authn 层——审计中间件
+// 注册在 Authn 内侧，认证失败 abort 后不再执行，authn abort 路径的审计事件由
+// authn 层显式发出（与请求审计同一后端，D3）。
+func (b *Bundle) ginAuthn() gin.HandlerFunc {
+	var opts []ginmw.AuthnOption
+	if b.auditor != nil {
+		opts = append(opts, ginmw.AuthnWithAuditor(b.auditor))
+	}
+	return ginmw.AuthnMiddleware(b.authenticator, opts...)
+}
+
+// grpcAuthn 组装 gRPC 认证拦截器（auditor 注入语义同 ginAuthn）。
+func (b *Bundle) grpcAuthn() grpc.UnaryServerInterceptor {
+	var opts []grpcmw.AuthnOption
+	if b.auditor != nil {
+		opts = append(opts, grpcmw.AuthnWithAuditor(b.auditor))
+	}
+	return grpcmw.AuthnInterceptor(b.authenticator, opts...)
 }
 
 // ginAuthz 组装 gin 授权中间件（按需注入 P9 归一化 resolver）。
@@ -191,7 +222,7 @@ func (b *Bundle) ginAudit() gin.HandlerFunc {
 	if b.recorder != nil {
 		opts = append(opts, ginmw.AuditWithMetrics(b.recorder))
 	}
-	return ginmw.AuditMiddleware(nil, opts...)
+	return ginmw.AuditMiddleware(opts...)
 }
 
 // grpcAuthz 组装 gRPC 授权拦截器（按需注入 P9 归一化 resolver）。
@@ -223,5 +254,5 @@ func (b *Bundle) grpcAudit() grpc.UnaryServerInterceptor {
 	if b.recorder != nil {
 		opts = append(opts, grpcmw.AuditWithMetrics(b.recorder))
 	}
-	return grpcmw.AuditInterceptor(nil, opts...)
+	return grpcmw.AuditInterceptor(opts...)
 }

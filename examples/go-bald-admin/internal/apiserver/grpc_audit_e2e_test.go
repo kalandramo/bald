@@ -46,7 +46,7 @@ func invokeWithAudit(t *testing.T, a *memAuditor, token, fullMethod string) erro
 		grpcmw.WithObjectResolver(authz.DefaultGRPCObject),
 		grpcmw.WithActionResolver(authz.DefaultGRPCAction))
 	authnWrapped := grpcmw.AuthnInterceptor(bootstrappkg.Authenticator)
-	auditWrapped := grpcmw.AuditInterceptor(nil, grpcmw.AuditWithAuditor(a),
+	auditWrapped := grpcmw.AuditInterceptor(grpcmw.AuditWithAuditor(a),
 		grpcmw.AuditWithObjectResolver(authz.DefaultGRPCObject),
 		grpcmw.AuditWithActionResolver(authz.DefaultGRPCAction))
 	ctx := grpcAuthCtx(token)

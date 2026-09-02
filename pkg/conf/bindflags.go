@@ -5,7 +5,6 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"fmt"
-	"log/slog"
 	"os"
 	"strings"
 
@@ -19,28 +18,16 @@ import (
 
 // BindFlags 把一个 proto message 的字段注册为带前缀的命令行 flag。
 //
-// 这是 options.AddFlags 的 proto 原生替代：不再依赖 pkg/options 的 Go struct 层，
-// 而是直接遍历 proto 字段描述符生成 flag，与 viper 的键路径一致，从而接入
-// config.Load 的 override 层（flag > env > 文件 > 远程）。
-//
-// prefix 是配置键前缀（不带末尾点，如 "http"），最终 flag 名为 --http.addr、
-// 嵌套 message 递归为 --http.tls.enabled。支持标量（string/bool/int32/int64/
-// uint32/uint64/float/double）、duration（proto Duration → 形如 "10s" 的字符串）
-// 与嵌套 message（递归）。repeated/map/enum 等暂不支持自动绑定，需业务自行处理。
-// BindFlags 把一个 proto message 的字段注册为带前缀的命令行 flag。
-//
 // fs 为目标 FlagSet（通常传 appkit 自有的 FlagSet，或 pflag.CommandLine 用于简单场景），
 // 这样 flag 注册作用域可控，避免重复 loadConfig 时污染全局 pflag.CommandLine 造成
 // "flag redefined" panic。
 //
-// 这是 options.AddFlags 的 proto 原生替代：不再依赖 pkg/options 的 Go struct 层，
-// 而是直接遍历 proto 字段描述符生成 flag，与 viper 的键路径一致，从而接入
-// config.Load 的 override 层（flag > env > 文件 > 远程）。
-//
 // prefix 是配置键前缀（不带末尾点，如 "http"），最终 flag 名为 --http.addr、
 // 嵌套 message 递归为 --http.tls.enabled。支持标量（string/bool/int32/int64/
 // uint32/uint64/float/double）、duration（proto Duration → 形如 "10s" 的字符串）
 // 与嵌套 message（递归）。repeated/map/enum 等暂不支持自动绑定，需业务自行处理。
+// 生成的 flag 与 viper 的键路径一致，从而接入 config.Load 的 override 层
+// （flag > env > 文件 > 远程）。
 func BindFlags(fs *pflag.FlagSet, msg proto.Message, prefix string) {
 	bindMessageFlags(fs, msg.ProtoReflect(), prefix)
 }
@@ -108,9 +95,8 @@ func usageOf(fd protoreflect.FieldDescriptor) string {
 func bindDurationFlag(fs *pflag.FlagSet, m protoreflect.Message, fd protoreflect.FieldDescriptor, key string) {
 	v := m.Get(fd)
 	if dm, ok := v.Interface().(protoreflect.Message); ok {
-		if d, ok := dm.Interface().(*durationpb.Duration); ok {
+		if _, ok := dm.Interface().(*durationpb.Duration); ok {
 			fs.Var(&bindDurationSetter{m, fd}, key, usageOf(fd))
-			_ = d
 		}
 	}
 }
@@ -300,18 +286,39 @@ func ResolveTLS(cfg *confv1.Tls) (*tls.Config, error) {
 		tlsConfig.Certificates = []tls.Certificate{cert}
 	}
 
-	if cfg.GetCa() != "" {
-		caBytes, err := loadResource(cfg.GetCa())
+	// root_ca（或弃用别名 ca）：验证对端证书链（服务端校验出站/对端、客户端校验
+	// 服务端）。仅设置它**不**强制 mTLS（D10：不再由 ca 非空隐式触发
+	// RequireAndVerifyClientCert，那会让只想做链校验的服务拒绝所有普通客户端）。
+	rootCA := cfg.GetRootCa()
+	if rootCA == "" {
+		rootCA = cfg.GetCa() // 弃用别名向后兼容
+	}
+	if rootCA != "" {
+		caBytes, err := loadResource(rootCA)
 		if err != nil {
-			return nil, fmt.Errorf("failed to load ca: %w", err)
+			return nil, fmt.Errorf("failed to load root_ca: %w", err)
 		}
 		if len(caBytes) > 0 {
 			capool := x509.NewCertPool()
 			if !capool.AppendCertsFromPEM(caBytes) {
-				return nil, fmt.Errorf("failed to append ca certs from pem")
+				return nil, fmt.Errorf("failed to append root_ca certs from pem")
+			}
+			tlsConfig.RootCAs = capool
+		}
+	}
+
+	// client_ca：mTLS 专用——显式要求并校验客户端证书。
+	if clientCA := cfg.GetClientCa(); clientCA != "" {
+		caBytes, err := loadResource(clientCA)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load client_ca: %w", err)
+		}
+		if len(caBytes) > 0 {
+			capool := x509.NewCertPool()
+			if !capool.AppendCertsFromPEM(caBytes) {
+				return nil, fmt.Errorf("failed to append client_ca certs from pem")
 			}
 			tlsConfig.ClientCAs = capool
-			tlsConfig.RootCAs = capool
 			tlsConfig.ClientAuth = tls.RequireAndVerifyClientCert
 		}
 	}
@@ -345,25 +352,10 @@ func loadResource(input string) ([]byte, error) {
 	return nil, fmt.Errorf("input is neither a valid file path, nor raw PEM data, nor base64 encoded PEM")
 }
 
-// MustTLSConfig 返回 *tls.Config，出错时记日志并返回非安全默认配置（fail-safe）。
-func MustTLSConfig(cfg *confv1.Tls) *tls.Config {
-	tlsConf, err := ResolveTLS(cfg)
-	if err != nil {
-		slog.Error("Failed to build tls config", "error", err)
-		return &tls.Config{InsecureSkipVerify: true}
-	}
-	return tlsConf
-}
-
 // Scheme 根据 TLS 配置返回 URL scheme（https / http）。
 func Scheme(cfg *confv1.Tls) string {
 	if cfg != nil && cfg.GetEnabled() {
 		return "https"
 	}
 	return "http"
-}
-
-// ValidateAddress 校验地址是否为合法的 :port 或 ip:port 格式。
-func ValidateAddress(addr string) error {
-	return validateAddress(addr)
 }
