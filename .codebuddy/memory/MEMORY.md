@@ -54,3 +54,10 @@
 - macOS 无 `timeout`，冒烟用 `cmd & PID=$!; sleep N; kill -INT $PID`。
 - `gofmt -l` 既有未过文件：只格式化自己新建/改的文件，避免无关 diff。
 - `golang-jwt/v5` ParseWithClaims 默认校验 exp。
+
+## proto 生成 & 模块约定（易踩坑，务必遵守）
+- **proto 生成只能走 Taskfile**：`task proto-config`（核心契约 api/proto → pkg/conf/gen/go）、`task proto-example`（_example gRPC/gateway）。**勿手敲 `buf generate --path`**——部分子包会静默不生成（config/store 曾踩过）。改任何 .proto 后必须重跑再提交。
+- **生成代码进仓库**：`pkg/conf/gen/go/**`（config/store/appspec）**提交进 git，非 gitignore**（与 onexstack 不同）。`api/proto/bald/appspec/v1/appspec.proto` 是 P12 第二步的 AppSpec 方言。
+- **_example 是独立 module**：目录 `_example/bald`，模块路径 `github.com/kalandramo/bald/example/bald`（与代码 import 前缀一致！），`replace github.com/kalandramo/bald => ../..`。下划线目录被 Go 工具链忽略，验证须 `cd _example/bald && GOFLAGS=-mod=mod go build/test`（或 `task example-build`）。
+- **appkit 关键 API 形状**（生成模板曾错）：① `appkit.New(opts...)` 的 variadic 展开 `capOpts...` 必须在末位；② `MountComponent(ctx, comp)` 双参（名取自 `comp.Name()`）；③ `Servers(servers ...server.Server)` 是 **Option** 非方法；④ 日志 `baldlog.SetLogger(baldlog.NewSlogLogger(baldlog.NewOptions()))`。
+- **P12 codegen 入口**：`_example/bald/codegen` 的 `gen app <name>`（模板骨架，P12 第一步）+ `gen app <name> --spec <AppSpec.json>`（AppSpec 方言驱动，P12 第二步）；生成物验收标准=在 bald module 内 `go build` 通过（测试已覆盖 http+grpc / grpc-only 两分支）。
