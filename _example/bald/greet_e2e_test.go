@@ -26,8 +26,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -60,12 +58,8 @@ func startApp(t *testing.T) (target string, stop func()) {
 	pflag.CommandLine = pflag.NewFlagSet("e2e", pflag.ContinueOnError)
 	defer func() { pflag.CommandLine = oldFlags }()
 
-	// 不加载配置文件：本测试验证的是校验链路，不是配置加载。
-	// newApp 里写死了 appkit.ConfigFile("configs/bald-demo.yaml")，该路径相对**仓库根**，
-	// 而 go test 的工作目录是 _example/bald/，因此这里把工作目录切到仓库根再启动，
-	// 使配置文件能被找到（否则 BeforeStart 报 no such file，服务起不来）。
-	restoreWd := chdirRepoRoot(t)
-	defer restoreWd()
+	// 配置文件由示例自带（_example/bald/configs/bald-demo.yaml），而 go test 的工作
+	// 目录就是包目录 _example/bald/，因此 newApp 里的相对路径可直接命中，无需切目录。
 
 	// 端口分配有两个约束：
 	// ① 不能用 :0 —— grpc-gateway 需要连到 gRPC 服务，而 :0 是「监听时由内核
@@ -127,29 +121,6 @@ func startApp(t *testing.T) (target string, stop func()) {
 		t.Fatalf("gateway server not ready at %s", gatewayAddr)
 	}
 	return grpcAddr, stop
-}
-
-// chdirRepoRoot 把工作目录切到 bald 仓库根（_example 的上两级），返回还原函数。
-//
-// 原因：newApp 的 appkit.ConfigFile("configs/bald-demo.yaml") 是相对路径，
-// 而配置文件位于仓库根的 configs/。go test 的工作目录是包所在目录
-// （_example/bald/），不切换会导致配置加载失败、服务起不来。
-func chdirRepoRoot(t *testing.T) func() {
-	t.Helper()
-	old, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("getwd: %v", err)
-	}
-	// 本文件在 <repo>/_example/bald/greet_e2e_test.go，向上两级即仓库根。
-	root := filepath.Join("..", "..")
-	if err := os.Chdir(root); err != nil {
-		t.Fatalf("chdir %s: %v", root, err)
-	}
-	return func() {
-		if err := os.Chdir(old); err != nil {
-			t.Errorf("restore wd: %v", err)
-		}
-	}
 }
 
 // freeAddr 申请一个当前空闲的地址（形如 "127.0.0.1:45678"）。

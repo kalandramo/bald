@@ -131,7 +131,7 @@ func registerGateway(ctx context.Context, mux *http.ServeMux, conn *grpc.ClientC
 3. 用 `-tags grpcgw` 编译运行：
 
 ```bash
-go run -tags grpcgw ./_example/bald --config=_example/bald/configs/bald-demo.yaml
+go run -tags grpcgw ./_example/bald            # 配置随示例自带，自动加载
 ```
 
 ---

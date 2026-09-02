@@ -6,7 +6,7 @@
 // server 才能跑起来；用 build tag 隔开后，默认 `go run ./_example/bald` 不引入
 // 这些依赖、无需 nacos 进程即可演示，而需要真实 nacos 时再显式开启：
 //
-//	go run -tags nacos ./_example/bald --config=_example/bald/configs/bald-demo.yaml
+//	go run -tags nacos ./_example/bald            # 配置随示例自带，自动加载
 //
 // 设计关键（保持桥接、不移植代码）：
 //   - 注册中心：registry.FromKratos(nacos.New(cli)) 把 kratos contrib 的 nacos

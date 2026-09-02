@@ -149,7 +149,7 @@ appkit.New(appkit.KratosRegistrar(kr), appkit.Servers(srv))
 直接运行：
 
 ```bash
-go run ./_example/bald --config=configs/bald-demo.yaml
+cd _example/bald && go run .                    # 自动加载示例自带配置
 BALD_DEMO_HTTP_ADDR=:18080 go run ./_example/bald        # 环境变量覆盖 http.addr
 go run ./_example/bald --http.addr=:18080                # flag 优先级最高
 go run ./_example/bald --env=prod                        # 多环境（按 bald-demo-prod.yaml）

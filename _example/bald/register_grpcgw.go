@@ -9,7 +9,7 @@
 //	cd _example/bald
 //	make proto          # buf generate 生成 gen/baldv1/*.go
 //	cd ../..
-//	go run -tags grpcgw ./_example/bald --config=_example/bald/configs/bald-demo.yaml
+//	go run -tags grpcgw ./_example/bald            # 配置随示例自带，自动加载
 //
 // 此时 GreetService 同时可通过 gRPC 与 REST 访问（见 proto 的 google.api.http 注解）。
 package main

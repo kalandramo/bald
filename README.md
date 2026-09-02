@@ -374,4 +374,4 @@ curl.exe --% -XPOST "http://127.0.0.1:8080/v1/articles/42?lang=zh" -H "Content-T
 > 外部 exe 时会因 `{}` 被当脚本块解析而失败。
 
 
-本地配置示例见 [`configs/bald-demo.yaml`](configs/bald-demo.yaml)。
+本地配置示例见 [`_example/bald/configs/bald-demo.yaml`](_example/bald/configs/bald-demo.yaml)（示例自带，路径相对运行目录）。

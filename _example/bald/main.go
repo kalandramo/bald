@@ -5,7 +5,8 @@
 // 运行：
 //
 //	# 本地文件 + 环境变量 + flag（无需远程配置中心即可运行）
-//	go run ./_example/bald --config=configs/bald-demo.yaml
+//	# 配置文件随示例自带：_example/bald/configs/bald-demo.yaml（路径相对运行目录）
+//	cd _example/bald && go run .                    # 自动加载 configs/bald-demo.yaml
 //	BALD_DEMO_HTTP_ADDR=:18080 go run ./_example/bald        # 环境变量覆盖 http.addr
 //	go run ./_example/bald --http.addr=:18080                # flag 优先级最高
 //
@@ -23,7 +24,7 @@
 //	# grpc-gateway transcoding 示例（需本地 protoc 工具链生成代码后启用）：
 //	#   见 docs/devel/zh-CN/grpc-gateway 配置与 transcoding.md
 //	#   生成：cd _example/bald && make proto && cd ../..
-//	#   运行：go run -tags grpcgw ./_example/bald --config=_example/bald/configs/bald-demo.yaml
+//	#   运行：cd _example/bald && go run -tags grpcgw .
 //	#   验证：curl -i -XPOST http://127.0.0.1:<gateway>/v1/greet -d '{"name":"bald"}'
 //
 //	# Windows (PowerShell)：用 --% 关闭 PowerShell 解析，JSON 内双引号以 \ 转义
@@ -32,7 +33,7 @@
 //	curl.exe --% -XPOST "http://127.0.0.1:8080/v1/articles/42?lang=zh" -H "Content-Type: application/json" -d "{\"title\":\"hi\"}"
 //
 //	# 远程配置中心（etcd）：先 go get github.com/go-kratos/kratos/v3/contrib/config/etcd/v3
-//	go run ./_example/bald --config=configs/bald-demo.yaml   # 远程作基准，本地覆盖
+//	go run ./_example/bald   # 远程作基准，本地覆盖（配置随示例自带，自动加载）
 package main
 
 import (
@@ -222,12 +223,12 @@ func newApp(
 		appkit.Version("v0.1.0"),
 		appkit.StopTimeout(15*time.Second),
 
-		// --- 启动期配置（面向 K8s/容器部署：--config + env + flag + 可选远程配置中心）---
+		// --- 启动期配置（面向 K8s/容器部署：本地文件 + 环境变量 + flag + 可选远程配置中心）---
 		//
 		// 优先级（高 → 低，viper 默认语义）：flag > 环境变量 > 本地文件 > 远程配置。
 		// 本地文件缺失不报错，因此可只用远程/flag 配置。
 
-		// 2.1 本地配置文件：等价 --config=configs/bald-demo.yaml；
+		// 2.1 本地配置文件：appkit.ConfigFile 直接指定（示例自带，路径相对运行目录）；
 		//     也可不传，改为按 Name/Env 自动查找（见 2.2）。
 		appkit.ConfigFile("configs/bald-demo.yaml"),
 
