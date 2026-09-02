@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package bald.appspec.v1;
 
-option go_package = "github.com/kalandramo/bald/pkg/appspec/gen/go/bald/appspec/v1;appspecv1";
+option go_package = "github.com/kalandramo/bald/pkg/conf/gen/go/bald/appspec/v1;appspecv1";
 
 // AppSpec 是 bald 应用的「声明式拓扑方言」（P12 第二步）：用一个 proto message
 // 描述一个微服务的装配形态——开通哪些 server、挂载哪些组件、声明哪些能力依赖、

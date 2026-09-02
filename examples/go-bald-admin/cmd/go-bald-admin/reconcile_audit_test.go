@@ -17,13 +17,11 @@ func newAuditViper(backends string) *viper.Viper {
 	return v
 }
 
-// newReconcileApp 造一个最小 AppKit 并标记运行态（测试内直置，免去启动 server）。
+// newReconcileApp 造一个最小 AppKit 测试装置并标记运行态（免去启动 server）。
 // reconcileAudit 走 ReconcileCtx.Mount/Unmount → AppKit.MountComponent，后者要求
-// running==true，故此处直接置位（同包可访问未导出字段）。
+// running==true；跨 module 测试用框架提供的 NewHarness 装置直接进入运行态。
 func newReconcileApp() *appkit.AppKit {
-	app := appkit.New()
-	app.SetRunningForTest() // 仅测试用：标记运行态
-	return app
+	return appkit.NewHarness()
 }
 
 // capturedAuditor 记录是否接收到事件，用于断言收敛后全局审计后端已非 nop。

@@ -96,7 +96,8 @@ func (r *ReconcileCtx) Unmount(ctx context.Context, name string) error {
 }
 
 // NewReconcileCtx 构造一个协调上下文，供测试或「手动触发协调」使用（正常路径下
-// 由 runReconcilers 内部构造，无需调用方关心）。
+// 由 runReconcilers 内部构造，无需调用方关心）。测试装置用 NewHarness 构造
+// 运行态 AppKit 后，配合本函数显式注入 Viper 驱动协调逻辑（见 harness.go）。
 func NewReconcileCtx(app *AppKit, name string, v *viper.Viper) *ReconcileCtx {
 	return &ReconcileCtx{Viper: v, Name: name, app: app}
 }
@@ -114,12 +115,6 @@ func Reconcile(name string, fn ReconcileFunc) Option {
 // 使用；配置 watch 触发路径见 runReconcilers（经 OnConfigChange 包裹）。
 func (a *AppKit) ReconcileNow(ctx context.Context) {
 	a.runReconcilers(ctx, a.cfg.v)
-}
-
-// SetRunningForTest 仅供测试：标记 AppKit 处于运行态（MountComponent/UnmountComponent
-// 要求 running==true）。生产路径由 Run 内部置位，不应调用本方法。
-func (a *AppKit) SetRunningForTest() {
-	a.running.Store(true)
 }
 
 // runReconcilers 顺序执行全部协调器，单个失败仅记日志（收敛语义：下次补齐）。

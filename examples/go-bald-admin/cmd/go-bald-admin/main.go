@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -297,12 +298,18 @@ var reconAuditors = struct {
 	set map[string]audit.Auditor
 }{set: make(map[string]audit.Auditor)}
 
-// applyAuditors 根据当前后端表重建全局 MultiAuditor（空则退化为 Nop，绝不阻断审计旁路）。
+// applyAuditors 根据当前后端表重建全局 MultiAuditor（按后端名排序，顺序确定、
+// 便于测试与排查；空则退化为 Nop，绝不阻断审计旁路）。
 func applyAuditors() {
 	reconAuditors.mu.Lock()
-	list := make([]audit.Auditor, 0, len(reconAuditors.set))
-	for _, a := range reconAuditors.set {
-		list = append(list, a)
+	names := make([]string, 0, len(reconAuditors.set))
+	for n := range reconAuditors.set {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	list := make([]audit.Auditor, 0, len(names))
+	for _, n := range names {
+		list = append(list, reconAuditors.set[n])
 	}
 	reconAuditors.mu.Unlock()
 	if len(list) == 0 {

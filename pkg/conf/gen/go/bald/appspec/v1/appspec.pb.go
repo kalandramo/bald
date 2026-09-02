@@ -418,7 +418,7 @@ const file_bald_appspec_v1_appspec_proto_rawDesc = "" +
 	"\rconfig_prefix\x18\x03 \x01(\tR\fconfigPrefix\"H\n" +
 	"\x0eCapabilitySpec\x12\x1a\n" +
 	"\bprovides\x18\x01 \x03(\tR\bprovides\x12\x1a\n" +
-	"\brequires\x18\x02 \x03(\tR\brequiresBIZGgithub.com/kalandramo/bald/pkg/appspec/gen/go/bald/appspec/v1;appspecv1b\x06proto3"
+	"\brequires\x18\x02 \x03(\tR\brequiresBFZDgithub.com/kalandramo/bald/pkg/conf/gen/go/bald/appspec/v1;appspecv1b\x06proto3"
 
 var (
 	file_bald_appspec_v1_appspec_proto_rawDescOnce sync.Once

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 	"text/template"
+	"time"
 
 	appspecv1 "github.com/kalandramo/bald/pkg/conf/gen/go/bald/appspec/v1"
 )
@@ -55,16 +56,18 @@ func TestGenApp_GeneratedCodeCompiles(t *testing.T) {
 	if err := os.WriteFile(path, formatted, 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	// 在 bald module 内编译生成物（import 均指向核心包，bald module 即可解析）。
+	// 在 _example/bald 模块内编译生成物：它是 bald 核心的真实消费者模块
+	// （依赖 cobra/gin/grpc，replace 指向根模块）——生成物即面向该形态的模块。
 	cmd := exec.Command("go", "build", "-o", filepath.Join(dir, "demoapp.bin"), path)
-	cmd.Dir = "../../.." // bald module root
+	cmd.Dir = ".." // _example/bald module root
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("generated main.go does not compile: %v\n%s", err, out)
 	}
 }
 
 // TestGenAppSpec_TemplateFormats P12 第二步：AppSpec 方言模板渲染 + gofmt 必须成功，
-// 且关键原语锚点齐备（Reconcile/R1-2、MountComponent/C1+A1、Servers/P10 bundle）。
+// 关键原语锚点齐备（Reconcile/R1-2、Components/C1、Servers/P10 bundle），且装配
+// 顺序正确（审查修复的防回归断言）。
 func TestGenAppSpec_TemplateFormats(t *testing.T) {
 	data := appspecData{
 		Meta:             &appspecv1.AppMeta{Name: "demo", Desc: "d"},
@@ -84,12 +87,30 @@ func TestGenAppSpec_TemplateFormats(t *testing.T) {
 		t.Fatalf("read: %v", err)
 	}
 	for _, want := range []string{
-		"appkit.Reconcile", "app.MountComponent", "appkit.Servers",
+		"appkit.Reconcile", "appkit.Components", "appkit.Servers",
 		"bundle.Normalized", "appkit.Provides", "reconcileAudit",
 	} {
 		if !strings.Contains(string(src), want) {
 			t.Errorf("spec template missing anchor %q", want)
 		}
+	}
+
+	// ---- 装配纪律防回归（P12 审查修复的两个 P0）----
+	srcStr := string(src)
+	// P0-1：Option 只有 New 消费——New 调用必须出现在最后一次 capOpts append 之后。
+	newIdx := strings.Index(srcStr, "app := appkit.New(capOpts...)")
+	lastAppend := strings.LastIndex(srcStr, "capOpts = append")
+	if newIdx < 0 || lastAppend < 0 {
+		t.Fatalf("template lost New/append anchors (newIdx=%d lastAppend=%d)", newIdx, lastAppend)
+	}
+	if newIdx < lastAppend {
+		t.Errorf("appkit.New must come AFTER the last capOpts append: New@%d < append@%d", newIdx, lastAppend)
+	}
+	// P0-2：Run 之前不可调 MountComponent（要求运行态，Run 内才置位）——
+	// 模板生成物不应出现 MountComponent 调用（组件一律走 Components Option；
+	// 匹配调用形式 ".MountComponent("，注释中的提及不算）。
+	if strings.Contains(srcStr, ".MountComponent(") {
+		t.Errorf("spec template must not emit MountComponent calls (components go through appkit.Components Option)")
 	}
 }
 
@@ -118,9 +139,65 @@ func TestGenAppSpec_GeneratedCompiles(t *testing.T) {
 			t.Fatalf("%s render: %v", name, err)
 		}
 		cmd := exec.Command("go", "build", "-o", filepath.Join(dir, "bin"), path)
-		cmd.Dir = "../../.."
+		cmd.Dir = ".." // _example/bald module root（真实消费者模块）
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("%s generated main.go does not compile: %v\n%s", name, err, out)
 		}
 	}
+}
+
+// TestGenAppSpec_GeneratedRuns P12 运行时冒烟（审查修复新增）：编译并真实运行
+// 生成物（无传输 server，避免端口占用），断言其在宽限期内保持存活——即装配
+// 正确（servers/组件经 Option 传入、无 Run 前 MountComponent 崩溃）、Run 阻塞在
+// 信号等待。编译通过但运行即崩（两个 P0 的病状）会被本测试捕获。
+func TestGenAppSpec_GeneratedRuns(t *testing.T) {
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go toolchain not in PATH")
+	}
+	data := appspecData{
+		Meta:          &appspecv1.AppMeta{Name: "smoke", Desc: "smoke"},
+		Server:        &appspecv1.ServerSpec{}, // 无传输：Run 阻塞在信号等待
+		Components:    []*appspecv1.ComponentSpec{{Kind: "heartbeat", Name: "smoke.hb"}},
+		AuditBackends: []string{"log"},
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "main.go")
+	if err := renderAppSpec(data, path); err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	// 提供最小配置文件（ConfigFile + WatchConfigFile 均指向它）。
+	if err := os.MkdirAll(filepath.Join(dir, "configs"), 0o755); err != nil {
+		t.Fatalf("mkdir configs: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "configs", "smoke.yaml"),
+		[]byte("audit.backends: log\n"), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	bin := filepath.Join(dir, "smoke.bin")
+	build := exec.Command("go", "build", "-o", bin, path)
+	build.Dir = ".." // _example/bald module root（真实消费者模块）
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("generated main.go does not compile: %v\n%s", err, out)
+	}
+
+	cmd := exec.Command(bin)
+	cmd.Dir = dir
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start generated app: %v", err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+
+	select {
+	case err := <-done:
+		t.Fatalf("generated app exited prematurely (err=%v):\n%s", err, out.String())
+	case <-time.After(3 * time.Second):
+		// 3s 仍存活：装配正确，Run 正常阻塞在信号等待。清理并结束。
+	}
+	_ = cmd.Process.Kill()
+	<-done
 }
