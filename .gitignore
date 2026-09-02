@@ -15,3 +15,4 @@ bald.exe
 # 示例运行时产生的本地 SQLite 数据库
 _example/*.db
 _example/bald/*.db
+examples/**/go-bald-admin
