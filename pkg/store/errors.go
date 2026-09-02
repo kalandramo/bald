@@ -21,5 +21,5 @@ var (
 // 而 NextToken/PageSize/CurrentSize 为原生指针（proto3 optional scalar），故分别提供。
 func uint32Ptr(v uint32) *wrapperspb.UInt32Value { return wrapperspb.UInt32(v) }
 func uint64Ptr(v uint64) *wrapperspb.UInt64Value { return wrapperspb.UInt64(v) }
-func uint32p(v uint32) *uint32                  { return &v }
-func strp(v string) *string                     { return &v }
+func uint32p(v uint32) *uint32                   { return &v }
+func strp(v string) *string                      { return &v }

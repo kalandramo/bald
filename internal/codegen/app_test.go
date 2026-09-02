@@ -102,7 +102,7 @@ func TestGenAppSpec_TemplateFormats(t *testing.T) {
 	for _, want := range []string{
 		"appkit.Reconcile", "appkit.Components", "appkit.Servers",
 		"bundle.Normalized", "appkit.Provides", "reconcileAudit",
-		"appkit.OnKeyChange", // R1 热更新骨架
+		"appkit.OnKeyChange",            // R1 热更新骨架
 		`appkit.Requires("audit.store"`, // 结构化 requires：component + caps
 	} {
 		if !strings.Contains(string(src), want) {
@@ -138,12 +138,12 @@ func TestGenAppSpec_GeneratedCompiles(t *testing.T) {
 	cases := map[string]appspecData{
 		"httpgrpc": {
 			Meta: &appspecv1.AppMeta{Name: "a"}, Server: &appspecv1.ServerSpec{Http: true, Grpc: true},
-			Components: []*appspecv1.ComponentSpec{{Kind: "heartbeat", Name: "a.hb"}},
+			Components:    []*appspecv1.ComponentSpec{{Kind: "heartbeat", Name: "a.hb"}},
 			AuditBackends: []string{"log"}, BundleNormalized: true,
 		},
 		"grpconly": {
 			Meta: &appspecv1.AppMeta{Name: "b"}, Server: &appspecv1.ServerSpec{Grpc: true},
-			Capability: &appspecv1.CapabilitySpec{Requires: []*appspecv1.Requirement{{Component: "audit.store", Caps: []string{"db"}}}},
+			Capability:    &appspecv1.CapabilitySpec{Requires: []*appspecv1.Requirement{{Component: "audit.store", Caps: []string{"db"}}}},
 			AuditBackends: []string{"log"}, BundleNormalized: false,
 		},
 	}

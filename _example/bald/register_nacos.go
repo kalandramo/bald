@@ -21,7 +21,7 @@
 //     依赖 nacos-sdk-go/v2（naming_client.INamingClient）。
 //   - 配置中心后端：github.com/go-kratos/kratos/v3/contrib/config/nacos/v3
 //     依赖 nacos-sdk-go（旧版 v1，config_client.IConfigClient）。
-//   两个 SDK 共存于 example module 的 go.sum，互不冲突。
+//     两个 SDK 共存于 example module 的 go.sum，互不冲突。
 package main
 
 import (
@@ -31,11 +31,11 @@ import (
 	"github.com/nacos-group/nacos-sdk-go/common/constant"
 	"github.com/nacos-group/nacos-sdk-go/vo"
 
+	nacosconfig "github.com/go-kratos/kratos/v3/contrib/config/nacos/v3"
+	nacosreg "github.com/go-kratos/kratos/v3/contrib/registry/nacos/v3"
 	"github.com/kalandramo/bald/pkg/appkit"
 	"github.com/kalandramo/bald/pkg/config"
 	"github.com/kalandramo/bald/pkg/registry"
-	nacosreg "github.com/go-kratos/kratos/v3/contrib/registry/nacos/v3"
-	nacosconfig "github.com/go-kratos/kratos/v3/contrib/config/nacos/v3"
 )
 
 // nacosServerConfigs 是 nacos server 地址（按需改成本地/生产地址）。

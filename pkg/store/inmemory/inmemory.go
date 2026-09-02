@@ -17,8 +17,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/kalandramo/bald/pkg/store"
 	storev1 "github.com/kalandramo/bald/pkg/conf/gen/go/bald/store/v1"
+	"github.com/kalandramo/bald/pkg/store"
 )
 
 // KeyFunc 从实体提取索引键（通常为业务主键）。

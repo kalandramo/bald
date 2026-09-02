@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
+	storev1 "github.com/kalandramo/bald/pkg/conf/gen/go/bald/store/v1"
 	"github.com/kalandramo/bald/pkg/store"
 	"github.com/kalandramo/bald/pkg/store/inmemory"
-	storev1 "github.com/kalandramo/bald/pkg/conf/gen/go/bald/store/v1"
 )
 
 // user 是测试实体。
@@ -50,7 +50,7 @@ func TestStore_CRUDAndPaging(t *testing.T) {
 
 	// 多插入用于列表/分页/过滤。
 	for i := 2; i <= 15; i++ {
-		_ = s.Create(ctx, &user{ID: string(rune('0'+i)), Name: "u", Age: 20 + i})
+		_ = s.Create(ctx, &user{ID: string(rune('0' + i)), Name: "u", Age: 20 + i})
 	}
 
 	// 过滤 + 排序 + 分页（第 1 页，每页 10）。

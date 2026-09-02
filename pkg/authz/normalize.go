@@ -21,8 +21,9 @@ type ObjectResolver func(request string) string
 type ActionResolver func(request string) string
 
 // DefaultGRPCObject 把 gRPC FullMethod 归一化为传输中立的资源名，与 HTTP 路由同源：
-//   "/go.bald.admin.v1.SecretService/GetSecret" -> "secret"
-//   "/go.bald.admin.v1.AuthService/WhoAmI"      -> "auth"
+//
+//	"/go.bald.admin.v1.SecretService/GetSecret" -> "secret"
+//	"/go.bald.admin.v1.AuthService/WhoAmI"      -> "auth"
 //
 // 规则：取 FullMethod 的 Service 段（最后一个 '.' 之前、首个 '/' 之后），
 // 去除 "Service" 后缀并转小写。这样同一业务资源在 REST（/v1/secret/*）与
@@ -41,10 +42,11 @@ func DefaultGRPCObject(fullMethod string) string {
 }
 
 // DefaultGRPCAction 把 gRPC FullMethod 归一化为传输中立的动作，与 HTTP 动词同源：
-//   SecretService/GetSecret    -> "get"
-//   SecretService/DeleteSecret -> "delete"
-//   SecretService/ListUsers    -> "list"
-//   SecretService/CreateX      -> "write"
+//
+//	SecretService/GetSecret    -> "get"
+//	SecretService/DeleteSecret -> "delete"
+//	SecretService/ListUsers    -> "list"
+//	SecretService/CreateX      -> "write"
 //
 // 规则：取 FullMethod 方法段（最后一个 '/' 之后），按前缀推导动作。
 // 与 HTTP 侧动作空间（get/delete/list/write）对齐，使同一策略可同时约束 REST 与 gRPC。
@@ -69,8 +71,9 @@ func DefaultGRPCAction(fullMethod string) string {
 }
 
 // DefaultHTTPObject 把 HTTP 路径归一化为资源名（去 /v1 前缀，取首个资源段）：
-//   "/v1/secret/123" -> "secret"
-//   "/v1/auth/whoami" -> "auth"
+//
+//	"/v1/secret/123" -> "secret"
+//	"/v1/auth/whoami" -> "auth"
 func DefaultHTTPObject(path string) string {
 	s := strings.Trim(path, "/")
 	if s == "" {

@@ -323,7 +323,7 @@ func applyAuditors() {
 // MultiAuditor，Unmount 即注销。其名 == 后端名（log/store/stream），正是协调器
 // 用于 diff 的标识，与 ReconcileCtx.Mounted() 一一对应。
 type auditBackendComponent struct {
-	name string
+	name  string
 	build func() audit.Auditor // 延迟构造：依赖 InitBridges 后的 DB/Redis
 }
 

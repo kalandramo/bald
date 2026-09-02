@@ -22,12 +22,12 @@ import (
 
 // mockServer 是一个可控的测试服务器，满足 server.Server 接口。
 type mockServer struct {
-	addr         string
-	started      atomic.Bool
-	stopped      atomic.Bool
-	startBlock   chan struct{} // 关闭后 Start 才返回 nil
-	startErr     error         // 若非 nil，Start 立即返回该错误（模拟崩溃）
-	stopDelay    time.Duration // 模拟 Stop 耗时
+	addr       string
+	started    atomic.Bool
+	stopped    atomic.Bool
+	startBlock chan struct{} // 关闭后 Start 才返回 nil
+	startErr   error         // 若非 nil，Start 立即返回该错误（模拟崩溃）
+	stopDelay  time.Duration // 模拟 Stop 耗时
 }
 
 func newMock(addr string) *mockServer {

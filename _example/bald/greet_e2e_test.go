@@ -36,9 +36,9 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 
-	baldconf "github.com/kalandramo/bald/pkg/conf"
 	berrors "github.com/kalandramo/bald/pkg/berrors"
 	"github.com/kalandramo/bald/pkg/berrors/grpcerr"
+	baldconf "github.com/kalandramo/bald/pkg/conf"
 	baldlog "github.com/kalandramo/bald/pkg/log"
 	"github.com/kalandramo/bald/pkg/server"
 

@@ -6,8 +6,8 @@ import (
 
 	"github.com/spf13/viper"
 
-	"github.com/kalandramo/bald/pkg/audit"
 	"github.com/kalandramo/bald/pkg/appkit"
+	"github.com/kalandramo/bald/pkg/audit"
 )
 
 // newAuditViper 构造只含 audit.backends 的最小 viper（无需真实 DB/Redis）。

@@ -15,8 +15,8 @@
 package user
 
 import (
-	"github.com/kalandramo/bald/pkg/store"
 	storev1 "github.com/kalandramo/bald/pkg/conf/gen/go/bald/store/v1"
+	"github.com/kalandramo/bald/pkg/store"
 )
 
 // User 是示例业务实体，同时充当 GORM 模型（含 gorm tag）。

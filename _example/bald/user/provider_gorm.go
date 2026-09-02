@@ -3,8 +3,8 @@
 package user
 
 import (
-	"github.com/kalandramo/bald/pkg/store"
 	baldgorm "github.com/kalandramo/bald-store-gorm"
+	"github.com/kalandramo/bald/pkg/store"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"

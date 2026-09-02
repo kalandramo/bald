@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"sync"
 
-	confv1 "github.com/kalandramo/bald/pkg/conf/gen/go/bald/config/v1"
 	"github.com/kalandramo/bald/pkg/conf"
+	confv1 "github.com/kalandramo/bald/pkg/conf/gen/go/bald/config/v1"
 )
 
 // ReadinessFunc 是就绪探针回调：返回 nil 表示依赖就绪（可接受流量），

@@ -4,10 +4,10 @@ import "testing"
 
 func TestDefaultGRPCObject(t *testing.T) {
 	cases := map[string]string{
-		"/go.bald.admin.v1.SecretService/GetSecret": "secret",
+		"/go.bald.admin.v1.SecretService/GetSecret":    "secret",
 		"/go.bald.admin.v1.SecretService/DeleteSecret": "secret",
-		"/go.bald.admin.v1.SecretService/ListUsers":   "secret",
-		"/go.bald.admin.v1.AuthService/WhoAmI":        "auth",
+		"/go.bald.admin.v1.SecretService/ListUsers":    "secret",
+		"/go.bald.admin.v1.AuthService/WhoAmI":         "auth",
 	}
 	for in, want := range cases {
 		if got := DefaultGRPCObject(in); got != want {
@@ -36,10 +36,10 @@ func TestDefaultGRPCAction(t *testing.T) {
 
 func TestDefaultHTTPObject(t *testing.T) {
 	cases := map[string]string{
-		"/v1/secret/123":   "secret",
-		"/v1/auth/whoami":  "auth",
-		"/v1":              "",
-		"/":                "",
+		"/v1/secret/123":  "secret",
+		"/v1/auth/whoami": "auth",
+		"/v1":             "",
+		"/":               "",
 	}
 	for in, want := range cases {
 		if got := DefaultHTTPObject(in); got != want {

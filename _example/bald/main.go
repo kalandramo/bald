@@ -52,10 +52,10 @@ import (
 	usercmd "github.com/kalandramo/bald/example/bald/user"
 
 	"github.com/kalandramo/bald/pkg/appkit"
+	berrors "github.com/kalandramo/bald/pkg/berrors"
 	baldconf "github.com/kalandramo/bald/pkg/conf"
 	confv1 "github.com/kalandramo/bald/pkg/conf/gen/go/bald/config/v1"
 	baldconfig "github.com/kalandramo/bald/pkg/config"
-	berrors "github.com/kalandramo/bald/pkg/berrors"
 	baldlog "github.com/kalandramo/bald/pkg/log"
 	mid "github.com/kalandramo/bald/pkg/middleware/gin"
 	grpcmw "github.com/kalandramo/bald/pkg/middleware/grpc"

@@ -21,10 +21,10 @@ const (
 
 // config 收集 NewSlogLogger 的可选项。
 type config struct {
-	handler slog.Handler  // 外部注入的 handler（如 OTel），优先级最高
-	filters []Filter      // 脱敏/过滤装饰器
-	attrs   []slog.Attr   // 附加固定属性
-	writer  io.Writer     // 仅测试用，覆盖 OutputPaths 的写入目标
+	handler slog.Handler // 外部注入的 handler（如 OTel），优先级最高
+	filters []Filter     // 脱敏/过滤装饰器
+	attrs   []slog.Attr  // 附加固定属性
+	writer  io.Writer    // 仅测试用，覆盖 OutputPaths 的写入目标
 }
 
 // Option 用于定制 NewSlogLogger 的行为。
@@ -135,9 +135,9 @@ func openWriter(o *Options) io.Writer {
 func newRotateWriter(path string, r *RotateOptions) io.Writer {
 	return &lumberjack.Logger{
 		Filename:   path,
-		MaxSize:    r.MaxSize,    // MB
+		MaxSize:    r.MaxSize, // MB
 		MaxBackups: r.MaxBackups,
-		MaxAge:     r.MaxAge,     // 天
+		MaxAge:     r.MaxAge, // 天
 		Compress:   r.Compress,
 	}
 }

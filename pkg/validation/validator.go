@@ -64,7 +64,7 @@ func ValidPattern(field, value string, rules ...string) error {
 			}
 		case "contains":
 			if !strings.Contains(value, arg) {
-				return fmt.Errorf("field %q must contain %q",  field, arg)
+				return fmt.Errorf("field %q must contain %q", field, arg)
 			}
 		case "len":
 			b := strings.SplitN(arg, ",", 2)
