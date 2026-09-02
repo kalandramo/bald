@@ -32,6 +32,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 	"golang.org/x/sync/errgroup"
@@ -261,10 +262,19 @@ func hostname() string {
 	return h
 }
 
+// defaultInstanceID 返回默认实例 ID：hostname + 短随机后缀。
+//
+// 纯 hostname 会让同机多实例（本地并发多个服务）或同进程多 AppKit 的注册 ID 相同，
+// 后注册实例会覆盖前者——服务发现拿到错误端点。随机后缀保证每次启动都是唯一新实例。
+// 需要稳定标识（如 K8s 固定 pod 名、跨重启一致）时用 ID() Option 显式注入。
+func defaultInstanceID() string {
+	return hostname() + "-" + uuid.NewString()[:8]
+}
+
 // New 构造 AppKit。
 func New(opts ...Option) *AppKit {
 	a := &AppKit{
-		id:                hostname(),
+		id:                defaultInstanceID(),
 		name:              "bald-app",
 		version:           "v0.0.0",
 		stopTimeout:       defaultStopTimeout,

@@ -1,0 +1,25 @@
+{
+  "meta": {
+    "name": "go-bald-admin",
+    "module": "github.com/kalandramo/bald/examples/go-bald-admin",
+    "desc": "P12 反向生成对照：go-bald-admin 的框架装配形状（biz/wire/管理面属填充点）"
+  },
+  "server": {
+    "http": true,
+    "grpc": true,
+    "gateway": true,
+    "httpAddr": ":8080",
+    "grpcAddr": ":9090"
+  },
+  "components": [
+    {"kind": "heartbeat", "name": "go-bald-admin.heartbeat", "configPrefix": "go-bald-admin"}
+  ],
+  "capability": {
+    "provides": ["db"],
+    "requires": [
+      {"component": "audit.store", "caps": ["db"]}
+    ]
+  },
+  "auditBackends": ["log"],
+  "bundleNormalized": true
+}

@@ -17,6 +17,7 @@
 - [校验设计](./校验设计.md)：pkg/validation 按请求类型名分发的 Validate 方法约定 + 规则式轻量校验，与 proto buf.validate 注解互补。
 - [上下文契约设计](./上下文契约设计.md)：pkg/contextx 请求级元信息五个标准键（user/username/trace_id/request_id/tenant_id）的统一存取。
 - [测试工具设计](./测试工具设计.md)：pkg/testkit e2e 复用工具的收编（P13），如 FreeAddr。
+- [代码生成工具设计](./代码生成工具设计.md)：cmd/bald 官方开发工具 CLI（gen proto/store/app）、AppSpec 方言与 Requirement 结构化、模板装配纪律（P0）、生成物骨架边界、消费者 module 测试策略。
 - [框架契约总览](./框架契约总览.md)：所有公开契约（接口/类型/函数/常量）速查表，按包分节，附桥接与依赖倒置接入说明。
 - [数据存储设计](./数据存储设计.md)：数据访问层（DAL）设计——对比 go-crud（多引擎库）与 onexstack/store（GORM 封装）的取舍，给出 bald「核心定契约、引擎实现留独立子模块桥接」的方案与核心接口草案。
 - [架构演进路线](./架构演进路线.md)：横向对比 bald/go-lulu/onexstack/go-crud/osbuilder 五个项目，提炼共识与差距，给出按优先级的架构演进路线（P0-P9 第一轮，均已完成）。

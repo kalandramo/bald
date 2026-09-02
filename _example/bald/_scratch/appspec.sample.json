@@ -15,8 +15,10 @@
     {"kind": "heartbeat", "name": "demo.heartbeat", "configPrefix": "demo"}
   ],
   "capability": {
-    "provides": ["demo.api"],
-    "requires": ["db"]
+    "provides": ["demo.api", "db"],
+    "requires": [
+      {"component": "audit.store", "caps": ["db"]}
+    ]
   },
   "auditBackends": ["log", "store"],
   "bundleNormalized": true

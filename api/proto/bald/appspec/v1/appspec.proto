@@ -69,8 +69,18 @@ message ComponentSpec {
 
 // CapabilitySpec 声明能力依赖（S1 Provides/Requires 校验源）。
 message CapabilitySpec {
-  // 应用对外提供的能力。
+  // 应用对外提供的能力（Provides）。
   repeated string provides = 1;
-  // 应用启动期必须就绪的能力（缺失则 fail-fast）。
-  repeated string requires = 2;
+  // 组件对能力的依赖声明（Requires(component, caps...) 的 proto 对应）。
+  // 注意：requires 是「组件声明依赖」，不是扁平能力名——否则无法表达
+  // 「audit.store 需要 db」的归属关系（P12 反向生成 go-bald-admin 时暴露的缺口）。
+  repeated Requirement requires = 2;
+}
+
+// Requirement 一个组件对能力的依赖声明。
+message Requirement {
+  // 依赖方组件标识（如 "audit.store"），用于缺失时定位。
+  string component = 1;
+  // 依赖的能力列表（须被 Provides 覆盖，否则启动 fail-fast）。
+  repeated string caps = 2;
 }

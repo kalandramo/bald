@@ -333,10 +333,12 @@ func (x *ComponentSpec) GetConfigPrefix() string {
 // CapabilitySpec 声明能力依赖（S1 Provides/Requires 校验源）。
 type CapabilitySpec struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// 应用对外提供的能力。
+	// 应用对外提供的能力（Provides）。
 	Provides []string `protobuf:"bytes,1,rep,name=provides,proto3" json:"provides,omitempty"`
-	// 应用启动期必须就绪的能力（缺失则 fail-fast）。
-	Requires      []string `protobuf:"bytes,2,rep,name=requires,proto3" json:"requires,omitempty"`
+	// 组件对能力的依赖声明（Requires(component, caps...) 的 proto 对应）。
+	// 注意：requires 是「组件声明依赖」，不是扁平能力名——否则无法表达
+	// 「audit.store 需要 db」的归属关系（P12 反向生成 go-bald-admin 时暴露的缺口）。
+	Requires      []*Requirement `protobuf:"bytes,2,rep,name=requires,proto3" json:"requires,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -378,9 +380,64 @@ func (x *CapabilitySpec) GetProvides() []string {
 	return nil
 }
 
-func (x *CapabilitySpec) GetRequires() []string {
+func (x *CapabilitySpec) GetRequires() []*Requirement {
 	if x != nil {
 		return x.Requires
+	}
+	return nil
+}
+
+// Requirement 一个组件对能力的依赖声明。
+type Requirement struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 依赖方组件标识（如 "audit.store"），用于缺失时定位。
+	Component string `protobuf:"bytes,1,opt,name=component,proto3" json:"component,omitempty"`
+	// 依赖的能力列表（须被 Provides 覆盖，否则启动 fail-fast）。
+	Caps          []string `protobuf:"bytes,2,rep,name=caps,proto3" json:"caps,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Requirement) Reset() {
+	*x = Requirement{}
+	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Requirement) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Requirement) ProtoMessage() {}
+
+func (x *Requirement) ProtoReflect() protoreflect.Message {
+	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Requirement.ProtoReflect.Descriptor instead.
+func (*Requirement) Descriptor() ([]byte, []int) {
+	return file_bald_appspec_v1_appspec_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *Requirement) GetComponent() string {
+	if x != nil {
+		return x.Component
+	}
+	return ""
+}
+
+func (x *Requirement) GetCaps() []string {
+	if x != nil {
+		return x.Caps
 	}
 	return nil
 }
@@ -415,10 +472,13 @@ const file_bald_appspec_v1_appspec_proto_rawDesc = "" +
 	"\rComponentSpec\x12\x12\n" +
 	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12#\n" +
-	"\rconfig_prefix\x18\x03 \x01(\tR\fconfigPrefix\"H\n" +
+	"\rconfig_prefix\x18\x03 \x01(\tR\fconfigPrefix\"f\n" +
 	"\x0eCapabilitySpec\x12\x1a\n" +
-	"\bprovides\x18\x01 \x03(\tR\bprovides\x12\x1a\n" +
-	"\brequires\x18\x02 \x03(\tR\brequiresBFZDgithub.com/kalandramo/bald/pkg/conf/gen/go/bald/appspec/v1;appspecv1b\x06proto3"
+	"\bprovides\x18\x01 \x03(\tR\bprovides\x128\n" +
+	"\brequires\x18\x02 \x03(\v2\x1c.bald.appspec.v1.RequirementR\brequires\"?\n" +
+	"\vRequirement\x12\x1c\n" +
+	"\tcomponent\x18\x01 \x01(\tR\tcomponent\x12\x12\n" +
+	"\x04caps\x18\x02 \x03(\tR\x04capsBFZDgithub.com/kalandramo/bald/pkg/conf/gen/go/bald/appspec/v1;appspecv1b\x06proto3"
 
 var (
 	file_bald_appspec_v1_appspec_proto_rawDescOnce sync.Once
@@ -432,24 +492,26 @@ func file_bald_appspec_v1_appspec_proto_rawDescGZIP() []byte {
 	return file_bald_appspec_v1_appspec_proto_rawDescData
 }
 
-var file_bald_appspec_v1_appspec_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_bald_appspec_v1_appspec_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_bald_appspec_v1_appspec_proto_goTypes = []any{
 	(*AppSpec)(nil),        // 0: bald.appspec.v1.AppSpec
 	(*AppMeta)(nil),        // 1: bald.appspec.v1.AppMeta
 	(*ServerSpec)(nil),     // 2: bald.appspec.v1.ServerSpec
 	(*ComponentSpec)(nil),  // 3: bald.appspec.v1.ComponentSpec
 	(*CapabilitySpec)(nil), // 4: bald.appspec.v1.CapabilitySpec
+	(*Requirement)(nil),    // 5: bald.appspec.v1.Requirement
 }
 var file_bald_appspec_v1_appspec_proto_depIdxs = []int32{
 	1, // 0: bald.appspec.v1.AppSpec.meta:type_name -> bald.appspec.v1.AppMeta
 	2, // 1: bald.appspec.v1.AppSpec.server:type_name -> bald.appspec.v1.ServerSpec
 	3, // 2: bald.appspec.v1.AppSpec.components:type_name -> bald.appspec.v1.ComponentSpec
 	4, // 3: bald.appspec.v1.AppSpec.capability:type_name -> bald.appspec.v1.CapabilitySpec
-	4, // [4:4] is the sub-list for method output_type
-	4, // [4:4] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	5, // 4: bald.appspec.v1.CapabilitySpec.requires:type_name -> bald.appspec.v1.Requirement
+	5, // [5:5] is the sub-list for method output_type
+	5, // [5:5] is the sub-list for method input_type
+	5, // [5:5] is the sub-list for extension type_name
+	5, // [5:5] is the sub-list for extension extendee
+	0, // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_bald_appspec_v1_appspec_proto_init() }
@@ -463,7 +525,7 @@ func file_bald_appspec_v1_appspec_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bald_appspec_v1_appspec_proto_rawDesc), len(file_bald_appspec_v1_appspec_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   5,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

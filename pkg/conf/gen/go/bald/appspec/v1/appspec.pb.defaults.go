@@ -28,3 +28,6 @@ func (x *ComponentSpec) Default() {
 
 func (x *CapabilitySpec) Default() {
 }
+
+func (x *Requirement) Default() {
+}

@@ -80,8 +80,9 @@ func serveRunE(_ *cobra.Command, _ []string) error {
 {{- end }}
 {{- end }}
 
-	// 全局日志后端（slog 门面），可经 config 的 logger.* 重载。
-	baldlog.SetLogger(baldlog.NewSlogLogger(baldlog.NewOptions()))
+	// 日志后端（slog 门面）：logOpts 可被 --log.* flag 覆盖（含 rotate，见 --log.rotate.*）。
+	logOpts := baldlog.NewOptions()
+	baldlog.SetLogger(baldlog.NewSlogLogger(logOpts))
 {{- if or .Server.Http .Server.Grpc }}
 
 	// bundle：横切关注点链序固化（P10）；HTTP/gRPC 双传输共用同一套链。
@@ -89,6 +90,8 @@ func serveRunE(_ *cobra.Command, _ []string) error {
 		{{- if .BundleNormalized }}
 		bundle.Normalized(), // P9 归一化：审计 object/action 双传输同源
 		{{- end }}
+		// TODO: 业务依赖注入（bundle.Authn(authn) / bundle.Authz(authz) / bundle.Metrics(rec)），
+		// 未注入的层自动省略（零开销）。
 	)
 {{- end }}
 {{- if .Server.Http }}
@@ -109,12 +112,23 @@ func serveRunE(_ *cobra.Command, _ []string) error {
 		// R1-2 期望态协调：以 audit.backends 为期望态，运行期热切审计后端。
 		appkit.Reconcile("audit.backends", reconcileAudit),
 	}
+{{- if or .Server.Http .Server.Grpc }}
+	// 配置 flag 覆盖（四源优先级 flag > env > 文件 > 远程）：--http.addr / --grpc.addr。
+	capOpts = append(capOpts, appkit.Bind("http", bootstrap.GetHttp()))
+	capOpts = append(capOpts, appkit.Bind("grpc", bootstrap.GetGrpc()))
+{{- end }}
+	capOpts = append(capOpts, appkit.Bind("", logOpts)) // 日志配置 --log.*（含 rotate）
 {{- if .Capability }}
 {{- range .Capability.Provides }}
 	capOpts = append(capOpts, appkit.Provides("{{ . }}")) // S1：本进程提供的能力
 {{- end }}
 {{- range .Capability.Requires }}
-	capOpts = append(capOpts, appkit.Requires("{{ . }}")) // S1：启动期必须就绪的依赖（缺失 fail-fast）
+	// S1：{{ .Component }} 声明对下列能力的依赖（缺失则启动 fail-fast）。
+	capOpts = append(capOpts, appkit.Requires("{{ .Component }}",
+{{- range .Caps }}
+		"{{ . }}",
+{{- end }}
+	))
 {{- end }}
 {{- end }}
 {{- if .Components }}

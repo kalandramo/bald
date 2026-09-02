@@ -8,6 +8,11 @@
 
 > 设计见 [`docs/设计文档.md`](docs/设计文档.md)；需求见 [`docs/需求文档.md`](docs/需求文档.md)。
 > 实现契约（外部依赖禁止 fake/mock/stub）见设计文档 §0。
+>
+> **与 bald codegen 的关系**：本应用的框架装配骨架（servers / capability / 审计协调 / 配置 flag 覆盖）
+> 可由 `bald gen app --spec <AppSpec>` 起步生成同形骨架（样本见 [`_example/bald/_scratch/go-bald-admin.appspec.json`](../../_example/bald/_scratch/go-bald-admin.appspec.json)）；
+> 业务层（`internal/` 分层、wire 注入、组件工厂、管理面）为手写扩展——生成器只做装配不做业务。
+> 安装生成工具：`go install github.com/kalandramo/bald/cmd/bald@latest`
 
 ## 架构
 

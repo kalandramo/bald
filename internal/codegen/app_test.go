@@ -85,7 +85,7 @@ func TestGenAppSpec_TemplateFormats(t *testing.T) {
 	data := appspecData{
 		Meta:             &appspecv1.AppMeta{Name: "demo", Desc: "d"},
 		Server:           &appspecv1.ServerSpec{Http: true, Grpc: true},
-		Capability:       &appspecv1.CapabilitySpec{Provides: []string{"api"}, Requires: []string{"db"}},
+		Capability:       &appspecv1.CapabilitySpec{Provides: []string{"api"}, Requires: []*appspecv1.Requirement{{Component: "audit.store", Caps: []string{"db"}}}},
 		Components:       []*appspecv1.ComponentSpec{{Kind: "heartbeat", Name: "demo.hb", ConfigPrefix: "demo"}},
 		AuditBackends:    []string{"log", "store"},
 		BundleNormalized: true,
@@ -102,6 +102,7 @@ func TestGenAppSpec_TemplateFormats(t *testing.T) {
 	for _, want := range []string{
 		"appkit.Reconcile", "appkit.Components", "appkit.Servers",
 		"bundle.Normalized", "appkit.Provides", "reconcileAudit",
+		`appkit.Requires("audit.store"`, // 结构化 requires：component + caps
 	} {
 		if !strings.Contains(string(src), want) {
 			t.Errorf("spec template missing anchor %q", want)
@@ -141,7 +142,7 @@ func TestGenAppSpec_GeneratedCompiles(t *testing.T) {
 		},
 		"grpconly": {
 			Meta: &appspecv1.AppMeta{Name: "b"}, Server: &appspecv1.ServerSpec{Grpc: true},
-			Capability: &appspecv1.CapabilitySpec{Requires: []string{"db"}},
+			Capability: &appspecv1.CapabilitySpec{Requires: []*appspecv1.Requirement{{Component: "audit.store", Caps: []string{"db"}}}},
 			AuditBackends: []string{"log"}, BundleNormalized: false,
 		},
 	}
