@@ -6,9 +6,6 @@
 //   - go-lulu 的自研 App 层精髓：自管 errgroup、优雅停机防坑（Stop 传入未取消 ctx）、
 //     崩溃级联停止、Run 防重入、可观察通道、Endpoint 动态端口注册。
 //
-// 与初版不同，本实现不再"薄包装 kratos.App"，而是自研编排逻辑，
-// 因此保留全部精细控制，且仅可选依赖 kratos 的 registry 接口。
-//
 // 用法：
 //
 //	app := appkit.New(
@@ -47,28 +44,24 @@ import (
 	"github.com/kalandramo/bald/pkg/server"
 )
 
-// 默认优雅停机超时。
-const defaultStopTimeout = 10 * time.Second
-
-// 钩子阶段默认超时为 stopTimeout 的一半，避免总停机时间线性膨胀。
-const defaultHookTimeout = 5 * time.Second
-
 // ErrAlreadyRunning 在重复调用 Run 时返回。
 var ErrAlreadyRunning = errors.New("appkit: Run already in progress")
 
 // AppKit 自研应用编排层。
 type AppKit struct {
-	id          string
-	name        string
-	version     string
-	registrar   registry.Registrar
-	servers     []server.Server
-	stopTimeout time.Duration
-	// 各生命周期阶段独立超时（对照 go-lulu 分阶段停机骨架）。
+	id      string
+	name    string
+	version string
+
+	// 各生命周期阶段独立超时。
 	// stopTimeout 用于服务器 Stop 阶段；before/afterStop 钩子各有独立超时，
 	// 避免单个钩子阻塞拖垮整机停机。
+	stopTimeout       time.Duration
 	beforeStopTimeout time.Duration
 	afterStopTimeout  time.Duration
+
+	registrar registry.Registrar // 注册中心
+	servers   []server.Server    // 服务协议
 
 	// 钩子（可选）。
 	beforeStart []func(context.Context) error
@@ -77,24 +70,29 @@ type AppKit struct {
 	afterStop   []func(context.Context) error
 
 	// T1 效应账本：全局注册的逆操作登记处，停机/失败回滚时逆序回放（见 effect.go）。
+	// TODO 和钩子区别，能否合并？
 	effects       []effectEntry
 	effectsMu     sync.Mutex
 	effectTimeout time.Duration
 
 	// S1 能力声明：Provides/Requires 装配声明，Run 启动早期 Resolve 校验（见 capability.go）。
+	// TODO 和服务协议区别，能否合并？
 	provides []string
 	requires []requirement
 
 	// R1 key 级配置订阅：细粒度变更分发（见 keywatch.go）。
+	// TODO 合并到配置管理？
 	keyWatchers []keyWatcher
 	keyWatchMu  sync.Mutex
 
 	// R1-2 期望态协调器：配置声明期望态，框架 diff 实际态后收敛（见 reconcile.go）。
+	// TODO 使用场景列举
 	reconcilers []reconciler
 	reconItems  map[string][]reconItem // reconciler 名 → 其管理的组件（实际态）
 	reconMu     sync.Mutex
 
 	// C1 进程内组件：统一生命周期的基础设施（见 component.go）。
+	// TODO 和钩子的区别，使用场景列举
 	components       []Component
 	componentTimeout time.Duration
 	started          []Component // 已成功 Start 的组件（Dispose 幂等跟踪）
@@ -106,10 +104,11 @@ type AppKit struct {
 	// appkit 走全局」的审计 sink 分裂。
 	auditor audit.Auditor
 
-	// 配置（onexstack 风格 --config + 可选远程配置中心），收敛为一个配置对象。
+	// 配置对象
 	cfg appConfig
 
 	// 可观察性。
+	// TODO 使用场景列举
 	running atomic.Bool
 	done    chan struct{}
 	runErr  atomic.Value // error
@@ -128,6 +127,7 @@ type appConfig struct {
 }
 
 // flagBinding 记录一个待注册进 viper override 层的配置对象及其配置键前缀。
+// TODO 属于配置管理？
 type flagBinding struct {
 	prefix string
 	opt    any
@@ -135,6 +135,7 @@ type flagBinding struct {
 
 // PlainBinder 支持"无前缀"注册 flag 的配置对象，键前缀由实现体内置。
 // 例如 log.Options 固定注册 --log.*。
+// TODO 属于配置管理？
 type PlainBinder interface {
 	AddFlags(fs *pflag.FlagSet)
 }
@@ -169,6 +170,7 @@ type PlainBinder interface {
 //
 // 注意：用了 Bind 之后不要再自行 AddFlags 到 pflag.CommandLine，否则同一配置
 // 有两处注册源（虽然值一致，但语义重复）。
+// TODO 和配置管理区别，能否合并？
 func Bind(prefix string, opt any) Option {
 	return func(a *AppKit) {
 		a.cfg.bindings = append(a.cfg.bindings, flagBinding{prefix: prefix, opt: opt})
@@ -176,6 +178,7 @@ func Bind(prefix string, opt any) Option {
 }
 
 // bindFlags 把一个 flagBinding 注册进给定 FlagSet。
+// TODO 和配置管理区别，能否合并？
 func bindFlags(fs *pflag.FlagSet, b flagBinding) error {
 	switch opt := b.opt.(type) {
 	case proto.Message:
@@ -202,11 +205,13 @@ func Version(v string) Option               { return func(a *AppKit) { a.version
 func Registrar(r registry.Registrar) Option { return func(a *AppKit) { a.registrar = r } }
 
 // KratosRegistrar 桥接 go-kratos 的 registry.Registrar（etcd/consul 等后端）。
+// TODO 合并到注册中心？
 func KratosRegistrar(r kratosRegistry.Registrar) Option {
 	return func(a *AppKit) { a.registrar = registry.FromKratos(r) }
 }
 
 // ConfigFile 指定 --config 配置文件路径（onexstack 风格）。
+// TODO 合并到配置管理？
 func ConfigFile(f string) Option { return func(a *AppKit) { a.cfg.cfgFile = f } }
 
 // RemoteConfig 接入远程配置中心（etcd/consul/nacos/apollo/firestore 等）。
@@ -215,6 +220,8 @@ func ConfigFile(f string) Option { return func(a *AppKit) { a.cfg.cfgFile = f } 
 //
 //	src := config.FromKratosSource(etcdconfig.New(client, etcdconfig.WithPath("/config/demo/prod.yaml")))
 //	appkit.New(..., appkit.RemoteConfig(src))
+//
+// TODO 合并到配置管理？
 func RemoteConfig(src config.RemoteSource) Option {
 	return func(a *AppKit) { a.cfg.remote = src }
 }
