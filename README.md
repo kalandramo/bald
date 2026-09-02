@@ -301,9 +301,20 @@ go test ./...
 - 错误模型设计（WindError 字段、代码-原因分离、不可变 builder、HTTP/gRPC 双栈桥接）：
   [`docs/devel/zh-CN/错误模型设计.md`](docs/devel/zh-CN/错误模型设计.md)。
 
-## 可运行示例
+## 可运行示例与目录分工
 
-最小可运行示例见 [`example/bald/main.go`](example/bald/main.go)，演示了：
+仓库有两个示例目录，定位不同：
+
+| 目录 | 定位 | 内容 |
+|---|---|---|
+| [`_example/bald`](_example/bald)（含 `_example/bald-gin`） | **最小能力示例 + 脚手架工具开发场** | 框架能力点逐个跑通：HTTP/gRPC/grpc-gateway、配置四源（文件/env/flag/远程 nacos）、内存↔GORM 切换（`user` demo）、`pkg/web` 流水线；并承载 codegen CLI（`gen proto`/`store`/`app`）的开发与验证。`_example` 以下划线开头，核心 `go build ./...` 不扫——grpc-gateway/cel/nacos 等重依赖隔离在独立 module |
+| [`examples/go-bald-admin`](examples/go-bald-admin) | **官方参考范例（reference app）** | 用真实业务（用户/角色/机密、JWT+casbin RBAC、多租户、三重审计、metrics/trace、wire 装配、管理面）端到端验证 P0–P9，是「真实项目长什么样」的完整范本（见其 `docs/设计文档.md`） |
+
+**怎么选**：想快速体验框架单个能力 → 跑 `_example/bald`；想照着一个真实项目的完整分层抄作业 → 看 `examples/go-bald-admin`。
+
+### 最小示例（`_example/bald`）
+
+最小可运行示例见 [`_example/bald/main.go`](_example/bald/main.go)，演示了：
 
 - 本地 `--config` 文件 + 环境变量 + 命令行 flag 的优先级合并；
 - 多环境（`--env=prod` 按 `bald-demo-prod.yaml` 选默认文件）；
