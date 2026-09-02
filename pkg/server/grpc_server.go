@@ -14,10 +14,24 @@ import (
 	confv1 "github.com/kalandramo/bald/pkg/conf/gen/go/bald/config/v1"
 )
 
-// readinessPollInterval 是 gRPC 侧后台轮询 readiness 回调的间隔。
+// defaultReadinessPollInterval 是 gRPC 侧后台轮询 readiness 回调的默认间隔。
 // gRPC health 是拉模型（探针主动 Check），无法由业务主动推状态，
 // 因此由本 goroutine 周期性运行 readiness 并 SetServingStatus 同步健康状态。
-const readinessPollInterval = 2 * time.Second
+// 可用 WithReadinessPollInterval 覆盖（服务端设计 §7.2 技术债落地）。
+const defaultReadinessPollInterval = 2 * time.Second
+
+// GRPCServerOption 配置 GRPCServer。
+type GRPCServerOption func(*GRPCServer)
+
+// WithReadinessPollInterval 覆盖 gRPC 侧 readiness 后台轮询间隔（默认 2s）。
+// 业务依赖检测较慢（如健康检查需打到外部系统）时可调大，降低探测频率。
+func WithReadinessPollInterval(d time.Duration) GRPCServerOption {
+	return func(s *GRPCServer) {
+		if d > 0 {
+			s.readinessInterval = d
+		}
+	}
+}
 
 // GRPCServer 封装 google.golang.org/grpc，实现 Server 契约。
 // 默认注册 health check 与 reflection，方便运维探测与调试。
@@ -36,18 +50,31 @@ type GRPCServer struct {
 	ln              net.Listener // 实际监听器，用于解析 Endpoint
 	readinessCancel context.CancelFunc
 
-	healthSrv *health.Server // 保存引用，用于 readiness 联动（SetServingStatus）
-	readiness ReadinessFunc  // 可为 nil（nil 时 health 恒 SERVING）
+	healthSrv         *health.Server // 保存引用，用于 readiness 联动（SetServingStatus）
+	readiness         ReadinessFunc  // 可为 nil（nil 时 health 恒 SERVING）
+	readinessInterval time.Duration  // readiness 轮询间隔（默认 defaultReadinessPollInterval）
 }
 
 // NewGRPCServer 基于已构建的 *grpc.Server 构造一个 GRPCServer。
 // readiness 为可选的就绪探针回调：传 nil 时 health 状态恒 SERVING（仅作存活）。
-func NewGRPCServer(cfg *confv1.Grpc, srv *grpc.Server, readiness ReadinessFunc) *GRPCServer {
-	return &GRPCServer{
-		Server:    srv,
-		cfg:       cfg,
-		readiness: readiness,
+// opts 可覆盖 readiness 轮询间隔（WithReadinessPollInterval）。
+// 注意：本构造不入 health/reflection（业务自建 *grpc.Server 时自行注册）。
+func NewGRPCServer(
+	cfg *confv1.Grpc,
+	srv *grpc.Server,
+	readiness ReadinessFunc,
+	opts ...GRPCServerOption,
+) *GRPCServer {
+	g := &GRPCServer{
+		Server:            srv,
+		cfg:               cfg,
+		readiness:         readiness,
+		readinessInterval: defaultReadinessPollInterval,
 	}
+	for _, o := range opts {
+		o(g)
+	}
+	return g
 }
 
 // NewGRPCServerWithRegister 构造 gRPC 服务器并注册一个业务实现。
@@ -59,6 +86,7 @@ func NewGRPCServerWithRegister(
 	unary []grpc.ServerOption,
 	register func(s *grpc.Server),
 	readiness ReadinessFunc,
+	opts ...GRPCServerOption,
 ) *GRPCServer {
 	s := grpc.NewServer(unary...)
 	hs := health.NewServer()
@@ -67,12 +95,17 @@ func NewGRPCServerWithRegister(
 	if register != nil {
 		register(s)
 	}
-	return &GRPCServer{
-		Server:    s,
-		cfg:       cfg,
-		healthSrv: hs,
-		readiness: readiness,
+	g := &GRPCServer{
+		Server:            s,
+		cfg:               cfg,
+		healthSrv:         hs,
+		readiness:         readiness,
+		readinessInterval: defaultReadinessPollInterval,
 	}
+	for _, o := range opts {
+		o(g)
+	}
+	return g
 }
 
 // Options 返回该 server 直消费的 proto 配置（实现 server.Server 契约的 Options()）。
@@ -107,7 +140,7 @@ func (s *GRPCServer) Start(ctx context.Context) error {
 // 启动时立即探一次（尽快暴露未就绪），之后按间隔轮询。
 func (s *GRPCServer) pollReadiness(ctx context.Context) {
 	s.syncHealth(ctx) // 立即探一次
-	ticker := time.NewTicker(readinessPollInterval)
+	ticker := time.NewTicker(s.readinessInterval)
 	defer ticker.Stop()
 	for {
 		select {
