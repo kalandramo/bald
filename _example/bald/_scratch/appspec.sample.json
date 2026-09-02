@@ -1,0 +1,23 @@
+{
+  "meta": {
+    "name": "demo-svc",
+    "module": "github.com/you/demo-svc",
+    "desc": "AppSpec 方言驱动生成的演示服务"
+  },
+  "server": {
+    "http": true,
+    "grpc": true,
+    "gateway": false,
+    "httpAddr": ":8080",
+    "grpcAddr": ":9090"
+  },
+  "components": [
+    {"kind": "heartbeat", "name": "demo.heartbeat", "configPrefix": "demo"}
+  ],
+  "capability": {
+    "provides": ["demo.api"],
+    "requires": ["db"]
+  },
+  "auditBackends": ["log", "store"],
+  "bundleNormalized": true
+}

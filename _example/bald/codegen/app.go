@@ -2,12 +2,16 @@ package codegen
 
 import (
 	"bytes"
+	"fmt"
 	"go/format"
 	"os"
 	"path/filepath"
 	"text/template"
 
 	"github.com/spf13/cobra"
+	"google.golang.org/protobuf/encoding/protojson"
+
+	appspecv1 "github.com/kalandramo/bald/pkg/conf/gen/go/bald/appspec/v1"
 )
 
 // appTmpl 是应用装配骨架模板（P12 第一步，见 docs/devel/zh-CN/架构优化路线.md §3）。
@@ -114,11 +118,17 @@ func buildServers() []server.Server {
 }
 `
 
-// genAppCmd 生成应用装配骨架 main.go（P12 第一步：模板生成器）。
+// genAppCmd 生成应用装配骨架 main.go（P12：第一步模板生成 + 第二步 AppSpec 方言驱动）。
+//
+// 两种模式：
+//   - gen app <name>                       → 第一版硬编码模板骨架（含 [FILL] 填充点）
+//   - gen app <name> --spec <AppSpec.json> → 第二版方言驱动：AppSpec 单一真相源，
+//     依 ServerSpec/ComponentSpec/CapabilitySpec/audit_backends 装配 appkit 全原语。
 func genAppCmd() *cobra.Command {
 	var (
 		out    string
 		module string
+		spec   string
 	)
 	cmd := &cobra.Command{
 		Use:   "app <name>",
@@ -131,15 +141,22 @@ func genAppCmd() *cobra.Command {
   - R1 配置 key 级热更新订阅（OnKeyChange）
   - P10 bundle 横切接线示例（buildBundle/buildServers）
 
-填充点标记为 [FILL]。素材对照 examples/go-bald-admin M10 装配形状。`,
+填充点标记为 [FILL]。素材对照 examples/go-bald-admin M10 装配形状。
+
+指定 --spec <AppSpec.json> 时切换为 P12 第二步：以 AppSpec 方言（proto 单一真相源）
+驱动装配，取代本模板的硬编码字段。`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
 			name := args[0]
 			if out == "" {
-				out = filepath.Join("cmd", name)
+				out = filepath.Join("cmd", name, "main.go")
 			}
 			if module == "" {
 				module = "github.com/kalandramo/bald"
+			}
+			if spec != "" {
+				// P12 第二步：AppSpec 方言驱动。
+				return runGenAppSpec(spec, out)
 			}
 			_ = module // 模板 import 固定为 bald 核心路径；业务 module 替换留给 go mod edit
 			data := map[string]string{"Name": name}
@@ -152,19 +169,40 @@ func genAppCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := os.MkdirAll(out, 0o755); err != nil {
+			if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
 				return err
 			}
-			path := filepath.Join(out, "main.go")
-			if err := os.WriteFile(path, formatted, 0o644); err != nil {
+			if err := os.WriteFile(out, formatted, 0o644); err != nil {
 				return err
 			}
-			println("generated app scaffold:", path)
+			println("generated app scaffold:", out)
 			println("next: fill [FILL] points, then `go mod edit` your module imports if needed")
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&out, "out", "", "输出目录（默认 cmd/<name>）")
+	cmd.Flags().StringVar(&out, "out", "", "输出文件（默认 cmd/<name>/main.go）")
 	cmd.Flags().StringVar(&module, "module", "", "业务 module 路径（提示用）")
+	cmd.Flags().StringVar(&spec, "spec", "", "AppSpec JSON 路径（protojson），开启 P12 第二步方言生成")
 	return cmd
+}
+
+// runGenAppSpec 读取 AppSpec 并用 appspec 模板渲染（P12 第二步）。
+func runGenAppSpec(spec, out string) error {
+	raw, err := os.ReadFile(spec)
+	if err != nil {
+		return fmt.Errorf("read spec: %w", err)
+	}
+	as := &appspecv1.AppSpec{}
+	if err := protojson.Unmarshal(raw, as); err != nil {
+		return fmt.Errorf("parse AppSpec (protojson): %w", err)
+	}
+	data := appspecData{
+		Meta:             as.Meta,
+		Server:           as.Server,
+		Capability:       as.Capability,
+		Components:       as.Components,
+		AuditBackends:    as.AuditBackends,
+		BundleNormalized: as.BundleNormalized,
+	}
+	return renderAppSpec(data, out)
 }
