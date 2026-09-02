@@ -95,7 +95,11 @@ func genProtoCmd() *cobra.Command {
 				filepath.Join(out, name+".proto")); err != nil {
 				return err
 			}
-			println("generated proto:", filepath.Join(out, name+".proto"))
+			path := filepath.Join(out, name+".proto")
+			println("generated proto:", path)
+			// A2：buf 生态联动——bald 仓库的 proto 生成统一走 buf（api/proto/buf.gen.yaml，
+			// `task proto` 触发），生成物需纳入 buf 模块后运行 `buf generate` 才有 Go 代码。
+			println("next: add the file to your buf module, then run `buf generate` (bald repo: `task proto`) to produce Go code")
 			return nil
 		},
 	}

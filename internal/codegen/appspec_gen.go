@@ -118,6 +118,12 @@ func serveRunE(_ *cobra.Command, _ []string) error {
 	capOpts = append(capOpts, appkit.Bind("grpc", bootstrap.GetGrpc()))
 {{- end }}
 	capOpts = append(capOpts, appkit.Bind("", logOpts)) // 日志配置 --log.*（含 rotate）
+{{- if .Server.Http }}
+	// R1 key 级热更新示例：仅当 http.addr 值确实变化才触发（与 OnConfigChange 全量互补）。
+	capOpts = append(capOpts, appkit.OnKeyChange("http.addr", func(old, new string) {
+		baldlog.GetLogger().Info(context.Background(), "http.addr changed", "old", old, "new", new)
+	}))
+{{- end }}
 {{- if .Capability }}
 {{- range .Capability.Provides }}
 	capOpts = append(capOpts, appkit.Provides("{{ . }}")) // S1：本进程提供的能力

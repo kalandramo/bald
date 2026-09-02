@@ -102,6 +102,7 @@ func TestGenAppSpec_TemplateFormats(t *testing.T) {
 	for _, want := range []string{
 		"appkit.Reconcile", "appkit.Components", "appkit.Servers",
 		"bundle.Normalized", "appkit.Provides", "reconcileAudit",
+		"appkit.OnKeyChange", // R1 热更新骨架
 		`appkit.Requires("audit.store"`, // 结构化 requires：component + caps
 	} {
 		if !strings.Contains(string(src), want) {
