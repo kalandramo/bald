@@ -11,12 +11,13 @@
 # - 所有跨目录命令改用 `dir:` 字段而非 `cd`，避免 Windows cmd/pwsh 的 cd/shell 差异。
 # - 平台相关检测（如「命令是否在 PATH」）用 `task` 内置的 `sh`/`bash` 平台判定，
 #   而非 Make 的 `@command -v`，从而 Windows 下也能跑。
-# - protoc-gen-defaults 的 pin 版本，须与 .bingo/protoc-gen-defaults.mod 保持一致。
+# - protoc-gen-defaults 的版本 pin 在下方 vars.PROTOC_GEN_DEFAULTS_VERSION（唯一真相源；
+#   升级时改这里，勿再散落 .bingo 之类的旁支文件）。
 
 version: "3"
 
 vars:
-  PROTOC_GEN_DEFAULTS_VERSION: latest
+  PROTOC_GEN_DEFAULTS_VERSION: v0.0.2 # protoc-gen-defaults pin（原 .bingo 记录的 commit pin 无效，已核实取 v0.0.2）
 
 # Windows 下用 pwsh，其余用 bash；命令缺省走 bash 即可，需 shell 特性时显式指定。
 tasks:
