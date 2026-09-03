@@ -6,7 +6,7 @@ import (
 	"github.com/nacos-group/nacos-sdk-go/v2/clients/config_client"
 	"github.com/nacos-group/nacos-sdk-go/v2/vo"
 
-	"github.com/kalandramo/bald/pkg/bconfig"
+	"github.com/kalandramo/bald/bconfig"
 )
 
 var (

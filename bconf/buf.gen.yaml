@@ -1,0 +1,10 @@
+version: v2
+managed:
+  enabled: true
+  override:
+    - file_option: go_package_prefix
+      value: github.com/kalandramo/bald/bconf/gen/go
+plugins:
+  - remote: buf.build/protocolbuffers/go
+    out: gen/go
+    opt: paths=source_relative

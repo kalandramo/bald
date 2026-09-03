@@ -1,6 +1,8 @@
 # Bald 配置系统设计
 
-## 1. 定位
+## 1. 配置源
+
+### 1.1 定位
 
 `bconfig` 包定义的是 **配置源抽象层 + 组合器**，自身不含任何具体后端实现——后端分布在同级 14 个子目录（file / env / fs / http / etcd / consul / nacos / apollo / polaris / redis / zookeeper / oss / kubernetes / vault），每个子目录是独立 Go module。
 
@@ -14,7 +16,7 @@
   14 个 provider              上层框架 / 业务
 ```
 
-## 2. 能力轴与接口契约（`bconfig.go`）
+### 1.2 能力轴与接口契约（`bconfig.go`）
 
 | 轴 | 接口 | 方法 | 可选性 |
 |---|---|---|---|
@@ -26,7 +28,7 @@
 
 预定义的组合名只有两个：`ReadCloser = Reader + Closer`、`ReadWatcher = Reader + Watcher`。
 
-### 2.1 设计要点
+#### 1.2.1 设计要点
 
 1. **接口最小化 + 能力可选发现**。没有 `Provider` 这类大而全的接口，后端按需实现，调用方用**类型断言**在运行期探测能力（见 `fallback.go` 的 `r.(Closer)`、`r.(ValueWatcher)`）。`ValueWatcher` 的注释明确声明它是 *optional*。
 2. **两种 watch 语义并存**。
@@ -37,7 +39,7 @@
 
 ---
 
-## 3. 契约的形状定义（`bconfig_test.go`）
+### 1.3 契约的形状定义（`bconfig_test.go`）
 
 该文件**不是功能测试**，它定义的是「每个接口的最小方法集」，做两件事：
 
@@ -48,7 +50,7 @@
 
 ---
 
-## 4. 级联组合器 `FallbackReader`（`fallback.go`）
+### 1.4 级联组合器 `FallbackReader`（`fallback.go`）
 
 这是本包唯一有真实行为的组件。用途是多配置源级联回退：比如高优先级的 `env` 覆盖低优先级的 `fs`，或「远程配置中心 + 本地默认值文件」按优先级兜底。
 
@@ -66,7 +68,7 @@
 | ctx 取消即关 channel | `cancel()` 后输出 channel 被 close | `WatchValue_ContextCancel` |
 
 
-### 4.1 最关键的一条语义
+#### 1.4.1 最关键的一条语义
 
 `fallback.go` 的 `WatchValue`：任一子源推送变更时，**丢弃推送来的值，重新走一遍 `Load` 全链路**，再把「重算后的有效值」转发。
 
@@ -77,7 +79,7 @@
 这条可推广为一个通用原则：
 **永远不要把「事件里带着的值」当真值，只把事件当作「该重算了」的触发器。**
 
-### 4.2 工程细节
+#### 1.4.2 工程细节
 
 - **防 goroutine 泄漏**：先收集齐所有 sub channel 再起 goroutine（`fallback.go` 注释明写），中途某个 `WatchValue` 失败即整体返回错误。
 - **构造即校验**：`NewFallbackReader()` 无参返回 error，而不是造出一个「永远失败」的对象。
@@ -85,9 +87,9 @@
 
 ---
 
-## 5. 接口组合矩阵与缺口
+### 1.5 接口组合矩阵与缺口
 
-### 5.1 矩阵
+#### 1.5.1 矩阵
 
 含 `Reader` 的组合空间为 `2 × 2 × 2 = 8` 格（Closer / Watcher / ValueWatcher 各有或无）：
 
@@ -104,7 +106,7 @@
 
 8 格只命名了 2 格。`FallbackReader` 落在第 6 格，因此 `fallback.go` 的编译期断言只能拆成三行核心声明（`Reader` / `Closer` / `ValueWatcher`）+ 一行冗余的 `ReadCloser`——后者已由 `Reader`+`Closer` 保证，写它纯为声明意图。
 
-### 5.2 缺口的真实代价
+#### 1.5.2 缺口的真实代价
 
 **先明确：代价不是「不能用」。** Go 的接口是隐式满足 + 结构化类型，组合接口名只是**类型别名**，零运行时成本、零语义贡献。`FallbackReader` 该有的能力一个不少。
 
@@ -118,7 +120,7 @@
 
 （Go 生态先例支持「按需命名」：`io` 包命名了 `ReadCloser`/`ReadWriteCloser`/`ReadSeekCloser`/`ReadWriteSeekCloser` 等一大串，缺失的组合就地用匿名接口。补名不违背惯例，但也非必须。）
 
-### 5.3 比命名缺口更值得关注：signal 源被静默丢弃，以及落地方式
+#### 1.5.3 比命名缺口更值得关注：signal 源被静默丢弃，以及落地方式
 
 只支持信号通知的后端无法直接被组合层监听——由 **provider 内部自行回读**（收到信号后调一次 `Load`，再以 `ValueWatcher` 形式暴露）。能力转换下沉到后端，框架只认一种契约。
 
@@ -129,9 +131,9 @@
 - `bconfig.go` 的 `ValueWatcher`：把「仅支持信号模式的通知者实现 `Watcher` 即可」改为「本接口才是组合层唯一识别的监听契约」。
 - `fallback.go` 的 `WatchValue`：补一句「只合并 `ValueWatcher`，不引入适配器去兼容信号源，转换责任下沉到 provider」。
 
-这同样贴合 §4.1 的结论：既然信号与推值最终都要「重新 `Load` 才敢用」，就不在框架层为统一两种模式引入额外抽象，转换交给 provider 自己完成。
+这同样贴合 §1.4.1 的结论：既然信号与推值最终都要「重新 `Load` 才敢用」，就不在框架层为统一两种模式引入额外抽象，转换交给 provider 自己完成。
 
-### 5.4 抗组合爆炸的真正手段：组合器嵌套
+#### 1.5.4 抗组合爆炸的真正手段：组合器嵌套
 
 `_ Reader = (*FallbackReader)(nil)` 这条断言意味着：
 
@@ -147,7 +149,7 @@ all, _ := NewFallbackReader(fileSrc, remote)
 这才是「组合矩阵爆炸」的标准答案：**不为每种组合命名，而是让组合器自己实现接口，用嵌套表达任意组合。**
 
 
-## 6. 后端实现矩阵
+### 1.6 后端实现矩阵
 
 | 能力组合 | provider |
 |---|---|
@@ -158,3 +160,56 @@ all, _ := NewFallbackReader(fileSrc, remote)
 注：vault 在此体系中只是**一个普通配置源**，不是特殊通道——「敏感配置」被降维成「换个后端」。
 
 ---
+
+## 2. 配置契约
+
+配置契约层（`bald/bconf`）是**配置形状的单一真相源**：用 Protobuf 声明「一个应用长什么样」，`buf` 把它生成强类型的 Go 包，上层（配置源 `bconfig`、配置初始化层）只消费这份契约，不各自定义结构。
+
+### 2.1 模块与生成物
+
+```text
+bald/bconf/                       module github.com/kalandramo/bald/bconf
+├── go.mod / go.sum               仅依赖 google.golang.org/protobuf
+├── buf.yaml                      buf v2 模块定义（path: proto）
+├── buf.gen.yaml                  managed mode：go_package_prefix 决定生成路径
+├── proto/bootstrap/v1/           *.proto 源（15 个，package bootstrap.v1）
+│   ├── bootstrap.proto           顶层 BootstrapConfig
+│   ├── config.proto / server.proto / registry.proto / database.proto
+│   ├── cache.proto / log.proto / metrics.proto / tracer.proto
+│   └── ...（ai / app / broker / storage / script / workflow 共 15 个）
+└── gen/go/bootstrap/v1/          *.pb.go 生成物（15 个，package bootstrapv1）
+```
+
+- **Go 导入路径**：`github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1`，包名 `bootstrapv1`。
+- **生成方式**：`buf` managed mode（`buf.gen.yaml` 的 `go_package_prefix` 是生成路径的真相源，`.proto` 里的 `option go_package` 会被覆盖）。改完 proto / buf 配置后跑 `buf generate` 重新生成 `.pb.go`——**不要直接手改 `.pb.go`**，`rawDesc` 内嵌描述符带 protobuf 长度前缀，改长字符串会让长度错位、运行时 panic。
+
+### 2.2 契约形状
+
+顶层消息 `BootstrapConfig` 声明式描述一个应用的完整拓扑，字段用 `optional` 支持「同时配置多种传输/配置源」的混合模式：
+
+| 字段 | 含义 |
+|---|---|
+| `app` | 应用元数据 |
+| `server` | 传输层（HTTP/gRPC/…可同时配置多种） |
+| `config` | 配置中心来源（file / fs / etcd / nacos / consul / apollo …可混合） |
+| `registry` | 服务注册发现 |
+| `logger` | 日志系统 |
+| `tracer` | 链路追踪 |
+| `metrics` | 指标 |
+| `broker` / `storage` / `cache` / `ai` / `workflow` / `script` | 其余能力域 |
+
+其中 `Config` 消息（对应 1.6 后端矩阵）把每种配置源声明为独立内嵌 message（`File` / `Fs` / `Etcd` / `Nacos` / `Consul` / `Apollo` …），多个源可在同一 `Config` 中并存，由配置初始化层解析为 1.2 的级联组合器。
+
+### 2.3 三层定位
+
+```text
+conf（契约）  ← 谁都不依赖，声明形状
+   ↑              ↑
+bconfig（源）  bconf-init（初始化，待建，对应 go-wind-bootstrap/config）
+（读取能力）   （读契约 → 建 provider → 注册/装配）
+```
+
+`bconf` 只定义「有什么配置」，不关心「怎么读」「怎么装配」。这与 1.x 的 `bconfig`（能力轴 + 14 个 provider）形成契约/实现分离：契约是稳定的接口，provider 可独立演进。
+
+
+## 3. 配置初始化

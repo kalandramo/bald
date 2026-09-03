@@ -9,7 +9,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 
-	"github.com/kalandramo/bald/pkg/bconfig"
+	"github.com/kalandramo/bald/bconfig"
 	"github.com/kalandramo/bald/pkg/log"
 )
 

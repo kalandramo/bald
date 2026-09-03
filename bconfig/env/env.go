@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/kalandramo/bald/pkg/bconfig"
+	"github.com/kalandramo/bald/bconfig"
 )
 
 var _ bconfig.Reader = (*source)(nil)

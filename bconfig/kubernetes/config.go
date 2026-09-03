@@ -13,7 +13,7 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 
-	"github.com/kalandramo/bald/pkg/bconfig"
+	"github.com/kalandramo/bald/bconfig"
 )
 
 var (

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kalandramo/bald/pkg/bconfig"
+	"github.com/kalandramo/bald/bconfig"
 )
 
 func TestNew_EmptyPath(t *testing.T) {
