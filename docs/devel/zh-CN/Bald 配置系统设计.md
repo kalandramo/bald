@@ -205,7 +205,7 @@ bald/bconf/                       module github.com/kalandramo/bald/bconf
 ```text
 conf（契约）  ← 谁都不依赖，声明形状
    ↑              ↑
-bconfig（源）  bconf-init（初始化，待建，对应 go-wind-bootstrap/config）
+bconfig（源）  bconfinit（初始化）
 （读取能力）   （读契约 → 建 provider → 注册/装配）
 ```
 
@@ -213,3 +213,212 @@ bconfig（源）  bconf-init（初始化，待建，对应 go-wind-bootstrap/con
 
 
 ## 3. 配置初始化
+
+配置初始化层负责把**契约**（`bconf` 的 `*v1.BootstrapConfig`）翻译成**可运行的配置源**（`bconfig` 的 `Reader`），并按优先级装配成 `FallbackReader`。它是「读契约 → 建源 → 注册/装配」的桥梁。
+
+本层的核心设计原则：**不用 `init()` + blank import 的隐式全局副作用**，使用显式 `Registry` + 工厂函数 `Provider`。
+
+### 3.1 定位
+
+| 层 | 包（module） | 职责 | 依赖方向 |
+|---|---|---|---|
+| 契约 | `bconf` | 声明「应用长什么样」（proto 生成） | 谁都不依赖 |
+| 源 | `bconfig` + 子包 | 单后端的读取能力（`Reader`/`Watcher`/…） | 只依赖抽象层，不依赖契约 |
+| **初始化** | **`bconfinit`** | 读契约 → 建 provider → 按注册序装配成 `FallbackReader` | 依赖 `bconf`（契约）+ `bconfig/*`（源） |
+
+依赖方向反转保持干净：`bconfinit → bconf`、`bconfinit → bconfig/*`，而 `bconfig/* → 零契约依赖`。源层（file/env/…）保持「只读字节的纯实现」，不认识 protobuf 契约——契约字段到 provider `Option` 的翻译职责全部收口在 `bconfinit`。
+
+### 3.2 为什么不用 blank import + init()
+
+每个 provider 一个薄 module，在其 `init()` 里调 `bootstrap.MustRegisterConfigAction(ConfigTypeXxx, newAction)`；主程序靠 `_ "bootstrap/config/apollo"` 触发 `init()`，把 apollo 装配进来。
+
+这种「全局 map + init 副作用」模式有三个真实代价，与 bald 既有哲学冲突：
+
+1. **依赖不透明**：`import _ "x/apollo"` 读代码看不出 apollo 被装配了，IDE/重构工具也跳不到、追不到。
+2. **装配顺序失控**：多个 provider 的 `init()` 执行序由 Go 导入图决定，无法表达「先 file 后 etcd」这种级联优先级（而级联优先级恰恰是 `FallbackReader` 的语义核心）。
+3. **与 appkit 体系冲突**：bald 已有 `Provides/Requires/Resolve`（capability.go 的显式能力声明）、`Registry.Mount/Unmount`（mount.go 的显式运行期装配）、`Component` 五阶段生命周期（component.go 的显式生命周期）——全是**显式装配**哲学。再造一个全局 `map[string]ConfigAction` + `init()`，是在显式体系里塞一个隐式全局态的异类。
+
+取舍判定：便利（少写几行 import）换不来确定性的依赖图与可重构性，不划算。
+
+### 3.3 模块布局
+
+```text
+bald/bconfinit/                  module github.com/kalandramo/bald/bconfinit
+├── go.mod                       依赖 bconf（契约）+ bconfig（源）+ 各 provider 子包
+├── registry.go                  Registry + Provider 类型 + Register/MustRegister
+├── build.go                     Build：按注册序装配成 FallbackReader
+├── env.go                       EnvProvider：契约 Env 字段 → bconfig/env 的 Option
+├── file.go                      FileProvider：契约 File 字段 → bconfig/file 的 Option
+└── ...（etcd.go / nacos.go / consul.go / ... 按需补）
+```
+
+### 3.4 核心类型：`Provider` 与 `Registry`
+
+```go
+// Provider 是配置源工厂：从契约顶层结构读一个子配置，
+// 构造并返回一个 bconfig.Reader。返回值为 (reader, cleanup, error)：
+//   - reader 为 nil 表示「该源未在契约中配置」，Build 阶段跳过（非错误）；
+//   - cleanup 为释放 provider 资源的函数（可 nil，如 env 无资源）；
+//   - 出错返回 error，Build 短路并回滚已构造的源。
+type Provider func(ctx context.Context, cfg *v1.BootstrapConfig) (bconfig.Reader, func(), error)
+
+type Registry struct {
+    mu        sync.RWMutex
+    providers map[string]Provider // key = "file" / "env" / "etcd" ...
+    order     []string            // 注册序 = 默认级联优先级（高优先级在前）
+}
+
+func NewRegistry() *Registry { ... }
+
+// Register 注册一个配置源工厂。重名报错（不覆盖，fail-fast）。
+func (r *Registry) Register(name string, p Provider) error { ... }
+
+// MustRegister 是 Register 的 panic 版本，仅用于主程序 main() 内显式注册，
+func (r *Registry) MustRegister(name string, p Provider) { ... }
+```
+
+与 `ConfigAction`（返回无参 `func()` 清理闭包）的关键差异：
+
+- 本设计的 `Provider` 返回可见的 `bconfig.Reader`，`Build` 把它喂给 `FallbackReader`；每次调用构造一个新实例（多实例可行）；`cleanup` 语义清晰（file 的 `cleanup` 即 `src.Close()`），与 `bconfig.Closer` 对齐。
+
+### 3.5 适配器：契约字段 → provider Option（放 bconfinit 内部）
+
+适配器示例（file）：
+
+```go
+// bald/bconfinit/file.go
+package bconfinit
+
+import (
+    "fmt"
+
+    bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
+    "github.com/kalandramo/bald/bconfig"
+    "github.com/kalandramo/bald/bconfig/file"
+)
+
+// FileProvider 是 file 配置源的初始化器。
+// 它知道「契约里 GetFile() 返回什么字段」+「file.New 接受什么 Option」，
+// 因此 bconfig/file 包无需 import bconf，保持源层零契约依赖。
+func FileProvider() Provider {
+    return func(_ context.Context, cfg *v1.BootstrapConfig) (bconfig.Reader, func(), error) {
+        c := cfg.GetFile()
+        if c == nil {
+            return nil, nil, nil // 未配置 file 源，跳过
+        }
+        var opts []file.Option
+        if p := c.GetPath(); p != "" {
+            opts = append(opts, file.WithPath(p))
+        }
+        if c.GetWatch() {
+            opts = append(opts, file.WithWatch(true))
+        }
+        src, err := file.New(opts...)
+        if err != nil {
+            return nil, nil, fmt.Errorf("bconfinit: build file source: %w", err)
+        }
+        return src, func() { _ = src.Close() }, nil
+    }
+}
+```
+
+env 适配器同理：
+
+```go
+// bald/bconfinit/env.go
+func EnvProvider() Provider {
+    return func(_ context.Context, cfg *v1.BootstrapConfig) (bconfig.Reader, func(), error) {
+        c := cfg.GetEnv()
+        if c == nil {
+            return nil, nil, nil
+        }
+        var opts []env.Option
+        if p := c.GetPrefix(); p != "" {
+            opts = append(opts, env.WithPrefix(p))
+        }
+        if k := c.GetKey(); k != "" {
+            opts = append(opts, env.WithKey(k))
+        }
+        src, err := env.New(opts...)
+        if err != nil {
+            return nil, nil, fmt.Errorf("bconfinit: build env source: %w", err)
+        }
+        return src, nil, nil // env 无资源需释放
+    }
+}
+```
+
+**为什么适配器不放 provider 子包**：若放进 `bconfig/file`，`file` 包就要 `import bconf`，「只读文件系统的配置源」被迫依赖 protobuf 契约——分层崩塌。翻译职责归 `bconfinit`（它本就是「读契约→建源」层），依赖方向保持 `bconfinit → bconf` / `bconfinit → bconfig/*`，源层纯净。
+
+### 3.6 级联优先级 = 注册序
+
+`order` 切片即级联优先级：**先注册的源优先级高**（排在 `FallbackReader` 入参前列）。这与 §1.4 的「按序降级」语义天然一致——`FallbackReader.Load` 按传入顺序取第一个成功源。
+
+选注册序而非给 `Provider` 加 `Priority int` 字段的理由：注册序已能表达全部场景（主程序按想要的顺序 `MustRegister` 即可），引入 `Priority` 字段只会在「同优先级又需排第二序」时再加一层规则，徒增复杂度。
+
+### 3.7 装配：Build 出 FallbackReader
+
+```go
+// bald/bconfinit/build.go
+func (r *Registry) Build(ctx context.Context, cfg *v1.BootstrapConfig) (*bconfig.FallbackReader, func(), error) {
+    var (
+        readers []bconfig.Reader
+        closers []func()
+    )
+    for _, name := range r.order {          // 注册序 = 级联序
+        p := r.providers[name]
+        rd, closer, err := p(ctx, cfg)
+        if err != nil {
+            for _, c := range closers { c() } // 失败回滚已构造的源
+            return nil, nil, fmt.Errorf("bconfinit: provider %s: %w", name, err)
+        }
+        if rd == nil {
+            continue // 该源未在契约中配置，跳过
+        }
+        readers = append(readers, rd)
+        if closer != nil {
+            closers = append(closers, closer)
+        }
+    }
+    if len(readers) == 0 {
+        return nil, nil, errors.New("bconfinit: no config source configured")
+    }
+    fr, err := bconfig.NewFallbackReader(readers...)
+    if err != nil {
+        for _, c := range closers { c() }
+        return nil, nil, fmt.Errorf("bconfinit: build fallback: %w", err)
+    }
+    return fr, func() { // 逆序释放（与装配相反）
+        for _, c := range closers { c() }
+    }, nil
+}
+```
+
+`Build` 失败会回滚已构造的 provider（关闭已开的资源），保证半装配失败不留泄漏。
+
+### 3.8 主程序用法（无 blank import）
+
+```go
+func main() {
+    reg := bconfinit.NewRegistry()
+    // 显式注册：读代码即知装了什么；注册序即级联优先级（env 覆盖 file）
+    reg.MustRegister("env", bconfinit.EnvProvider())
+    reg.MustRegister("file", bconfinit.FileProvider())
+    // reg.MustRegister("etcd", bconfinit.EtcdProvider()) // 按需追加
+
+    var cfg bootstrapv1.BootstrapConfig
+    // ... 从 yaml / flag / 默认文件装载 cfg ...
+
+    reader, cleanup, err := reg.Build(ctx, &cfg)
+    if err != nil { log.Fatal(err) }
+    defer cleanup() // 逆序释放各 provider 资源
+
+    // reader 是 *bconfig.FallbackReader，可作 Reader / ValueWatcher / Closer
+    data, err := reader.Load(ctx, "app.yaml")
+    // ...
+}
+```
+
+依赖图全程可见：谁被装配、以什么优先级级联、失败时如何回滚——都写在 `main()` 里，无需追踪 `init()` 副作用。
+
+> 注：本层暂无「启动期 fail-fast 能力校验」——若需要，可复用 `appkit` 的 `Provides/Requires/Resolve`（capability.go）在 `Build` 阶段断言「契约要求的能力都有对应 provider 注册」。待与 appkit 集成时再补。
