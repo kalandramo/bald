@@ -11,6 +11,7 @@ import (
 	berrors "github.com/kalandramo/bald/berrors"
 	"github.com/kalandramo/bald/berrors/httperr"
 	"github.com/kalandramo/bald/pkg/contextx"
+	"github.com/kalandramo/bald/pkg/crudbridge"
 	"github.com/kalandramo/bald/transport/web"
 )
 
@@ -76,6 +77,16 @@ func AuthnMiddleware(authenticator authn.Authenticator, opts ...AuthnOption) gin
 		// 中间件不再重复判断。
 
 		ctx = authn.ContextWithAuthClaims(ctx, claims)
+		// 把租户 ID 写入 contextx，供 pkg/store 多租户隔离（Where.T(ctx)）自动读取
+		// （与 gRPC 版 AuthnInterceptor 对称；认证层是唯一可信的租户来源）。
+		if claims.TenantID != "" {
+			ctx = contextx.WithTenantID(ctx, claims.TenantID)
+		}
+		// 内置注入 viewer.Context（bald-crud EnforceTenant / DataScope 的身份来源）：
+		// scopes 映射为权限（"user:read" 格式对上 HasPermission），业务零配置。
+		ctx = crudbridge.InjectViewerFromIdentity(ctx,
+			claims.Subject, claims.TenantID, contextx.TraceIDFromContext(ctx),
+			claims.Scopes, claims.Roles)
 		c.Request = c.Request.WithContext(ctx)
 		c.Next()
 	}

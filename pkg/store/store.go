@@ -12,7 +12,6 @@ package store
 
 import (
 	"context"
-	"fmt"
 	"reflect"
 	"strings"
 
@@ -287,21 +286,19 @@ func (s *Store[T]) ListWithPaging(ctx context.Context, req *storev1.PagingReques
 // 分页 offset/limit 的解析交由分页策略（pkg/store/paging.go）完成，
 // 与具体策略解耦；本函数仅负责按所选策略填充对应元数据字段。
 func (s *Store[T]) translate(ctx context.Context, req *storev1.PagingRequest) (*Where, *storev1.PaginationResponseMeta, error) {
-	where := &Where{Sorting: req.GetSorting()}
-	if fe := req.GetFilterExpr(); fe != nil {
-		filters, err := flatten(fe)
-		if err != nil {
-			return nil, nil, err
-		}
-		where.Filters = filters
+	where := &Where{
+		Sorting: req.GetSorting(),
+		Expr:    req.GetFilterExpr(), // 布尔树整体下推（AND/OR 嵌套），由后端递归翻译
 	}
 	meta := &storev1.PaginationResponseMeta{}
 
 	// 多租户隔离：租户条件下沉 DAL，自动注入（优先于业务条件，不可被覆盖）。
 	// 即使 NoPaging 全量列出也必须隔离，防止跨租户数据泄漏。
 	mergeTenant(where, ctx)
-	// 数据权限范围：在租户隔离基础上进一步收窄可见行（P9，Viewer 五级范围）。
+	// 数据权限范围：在租户隔离基础上进一步收窄可见行（P9，Viewer 五级范围；
+	// 布尔树版支持多范围 OR 组合，如「本人 OR 本部门」）。
 	mergeDataScope(where, ctx)
+	mergeDataScopeExpr(where, ctx)
 
 	if req.GetNoPaging() {
 		// 不分页：全量列出，不填页元数据。
@@ -340,29 +337,6 @@ func (s *Store[T]) translate(ctx context.Context, req *storev1.PagingRequest) (*
 	// NextToken 必须等 fillTotal 拿到 total 后才能判定是否还有下一页，
 	// 改到 fillTotal 末尾统一填充，避免最后一页产生空翻页。
 	return where, meta, nil
-}
-
-// flatten 把嵌套 FilterExpr 展平为条件列表。
-//
-// 每个 FilterExpr 节点自带 Type（AND/OR），下辖 Conditions 与 Groups。
-// 当前 inmemory / gorm 后端仅支持扁平 AND 过滤；一旦出现 OR 节点（顶层或
-// 任意嵌套），直接报错，提示后端需支持组级逻辑，而非静默降级为 AND
-// （避免组合查询语义被悄悄改写，返回错误结果且不报错）。
-func flatten(fe *storev1.FilterExpr) ([]*storev1.FilterCondition, error) {
-	if fe.GetType() == storev1.FilterExpr_OR {
-		return nil, fmt.Errorf("store: OR filter not supported by flat translate; " +
-			"use a backend with group-aware Where")
-	}
-	var out []*storev1.FilterCondition
-	out = append(out, fe.GetConditions()...)
-	for _, g := range fe.GetGroups() {
-		sub, err := flatten(g)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, sub...)
-	}
-	return out, nil
 }
 
 func clampPageSize(v, def, max int) int {

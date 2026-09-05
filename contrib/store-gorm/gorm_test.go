@@ -84,12 +84,12 @@ func TestGormFilterSortPaging(t *testing.T) {
 
 	// 过滤：age >= 25 且 name LIKE %a%
 	res, err := repo.ListWithPaging(ctx, &storev1.PagingRequest{
-		FilterExpr: &storev1.FilterExpr{
+		FilteringType: &storev1.PagingRequest_FilterExpr{FilterExpr: &storev1.FilterExpr{
 			Conditions: []*storev1.FilterCondition{
 				store.Gte("age", "25"),
 				store.Contains("name", "a"),
 			},
-		},
+		}},
 		Sorting: []*storev1.Sorting{store.SortDesc("age")},
 	})
 	require.NoError(t, err)
@@ -117,3 +117,50 @@ func TestGormFilterSortPaging(t *testing.T) {
 }
 
 func protoUint32(v uint32) *uint32 { return &v }
+
+// TestGormProvider_OrExpr 锁定布尔树 SQL 分组翻译：OR 分支正确组合且不吞扁平条件。
+func TestGormProvider_OrExpr(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file::memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&User{}))
+
+	p := NewGormProvider[User](db, func(u *User) string { return u.ID })
+	repo := store.NewStore[User](p)
+	ctx := context.Background()
+	for _, u := range []User{
+		{ID: "1", Name: "alice", Age: 30},
+		{ID: "2", Name: "bob", Age: 16},
+		{ID: "3", Name: "carol", Age: 70},
+	} {
+		require.NoError(t, repo.Create(ctx, &u))
+	}
+
+	// WHERE (age > 18) AND (name = 'alice' OR name = 'carol') → alice, carol
+	res, err := repo.ListWithPaging(ctx, &storev1.PagingRequest{
+		FilteringType: &storev1.PagingRequest_FilterExpr{FilterExpr: store.Or([]*storev1.FilterCondition{
+			store.Eq("name", "alice"),
+			store.Eq("name", "carol"),
+		})},
+	})
+	require.NoError(t, err)
+	// 树外无扁平条件时注意：无 Where.Filters 时租户等注入也不存在，仅树生效
+	require.Len(t, res.Items, 2)
+
+	// 嵌套：OR( name=bob, age>60 ) → bob, carol
+	res, err = repo.ListWithPaging(ctx, &storev1.PagingRequest{
+		FilteringType: &storev1.PagingRequest_FilterExpr{FilterExpr: store.Or(nil,
+			store.Or([]*storev1.FilterCondition{store.Eq("name", "bob")}),
+			store.Or([]*storev1.FilterCondition{store.Gt("age", "60")}),
+		)},
+	})
+	require.NoError(t, err)
+	require.Len(t, res.Items, 2)
+
+	// 空 OR 恒假：查不到任何行
+	res, err = repo.ListWithPaging(ctx, &storev1.PagingRequest{
+		FilteringType: &storev1.PagingRequest_FilterExpr{FilterExpr: store.Or(nil)},
+	})
+	require.NoError(t, err)
+	require.Len(t, res.Items, 0)
+	assert.Equal(t, uint64(0), res.Meta.GetTotal().GetValue())
+}

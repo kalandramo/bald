@@ -60,12 +60,12 @@ func runDemo(p store.DBProvider[User]) error {
 
 	// 过滤 + 排序 + 分页：age>=25 且 name 含 'a'，按 age 降序
 	res, err := repo.ListWithPaging(ctx, &storev1.PagingRequest{
-		FilterExpr: &storev1.FilterExpr{
+		FilteringType: &storev1.PagingRequest_FilterExpr{FilterExpr: &storev1.FilterExpr{
 			Conditions: []*storev1.FilterCondition{
 				store.Gte("age", "25"),
 				store.Contains("name", "a"),
 			},
-		},
+		}},
 		Sorting:  []*storev1.Sorting{store.SortDesc("age")},
 		Page:     uint32Ptr(1),
 		PageSize: uint32Ptr(10),

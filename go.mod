@@ -14,10 +14,13 @@ replace github.com/kalandramo/bald/log => ./log
 
 replace github.com/kalandramo/bald/transport => ./transport
 
+replace github.com/kalandramo/bald-crud/viewer => ../bald-crud/viewer
+
 require (
 	github.com/gin-gonic/gin v1.12.0
 	github.com/go-kratos/kratos/v3 v3.0.0
 	github.com/google/uuid v1.6.0
+	github.com/kalandramo/bald-crud/viewer v0.0.0-00010101000000-000000000000
 	github.com/kalandramo/bald/bconf v0.0.0-00010101000000-000000000000
 	github.com/kalandramo/bald/berrors v0.0.0
 	github.com/kalandramo/bald/bootstrap v0.0.0-00010101000000-000000000000

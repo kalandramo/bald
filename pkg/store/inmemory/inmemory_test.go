@@ -58,10 +58,10 @@ func TestStore_CRUDAndPaging(t *testing.T) {
 		Page:     storev1p(1),
 		PageSize: storev1p(10),
 		Sorting:  []*storev1.Sorting{store.SortDesc("age")},
-		FilterExpr: &storev1.FilterExpr{
-			Type:       storev1.FilterExpr_AND,
+		FilteringType: &storev1.PagingRequest_FilterExpr{FilterExpr: &storev1.FilterExpr{
+			Type:       storev1.ExprType_AND,
 			Conditions: []*storev1.FilterCondition{store.Gt("age", "25")},
-		},
+		}},
 	}
 	res, err := s.ListWithPaging(ctx, req)
 	if err != nil {
@@ -89,3 +89,55 @@ func TestStore_CRUDAndPaging(t *testing.T) {
 
 // storev1p 构造 *uint32（PagingRequest 的 page/page_size 为 proto3 optional，即 *uint32）。
 func storev1p(v uint32) *uint32 { return &v }
+
+// TestStore_OrExpr 锁定 OR 树执行语义：AND(Filters, Expr) 下 OR 分支正确组合。
+func TestStore_OrExpr(t *testing.T) {
+	ctx := context.Background()
+	s := newStore()
+	_ = s.Create(ctx, &user{ID: "1", Name: "alice", Age: 30})
+	_ = s.Create(ctx, &user{ID: "2", Name: "bob", Age: 16})
+	_ = s.Create(ctx, &user{ID: "3", Name: "carol", Age: 70})
+
+	// alice OR carol（扁平 Filters 与 Expr 树 AND 连接：Filters 限定 age>18，树内 OR 命中两个名字）。
+	where := &store.Where{
+		Filters: []*storev1.FilterCondition{store.Gt("age", "18")},
+		Expr: store.Or([]*storev1.FilterCondition{
+			store.Eq("name", "alice"),
+			store.Eq("name", "carol"),
+		}),
+	}
+	got, total, err := s.List(ctx, where)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if total != 2 || len(got) != 2 {
+		t.Fatalf("expected 2 (alice OR carol, both >18), got %d", total)
+	}
+
+	// OR 组合嵌套组：(name=bob OR age>60) AND age>18 → 仅 carol。
+	where = &store.Where{
+		Expr: store.And(nil,
+			store.Or([]*storev1.FilterCondition{store.Eq("name", "bob")}, store.Or([]*storev1.FilterCondition{store.Gt("age", "60")})),
+			store.Or([]*storev1.FilterCondition{store.Gt("age", "18")}),
+		),
+	}
+	got, total, err = s.List(ctx, where)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if total != 1 || len(got) != 1 || got[0].Name != "carol" {
+		t.Fatalf("expected only carol, got %d items", total)
+	}
+
+	// 空 OR 节点恒假：一律查不到。
+	where = &store.Where{Expr: store.Or(nil)}
+	if _, total, _ = s.List(ctx, where); total != 0 {
+		t.Fatalf("empty OR must match nothing, got %d", total)
+	}
+
+	// 空 AND 节点恒真。
+	where = &store.Where{Expr: store.And(nil)}
+	if _, total, _ = s.List(ctx, where); total != 3 {
+		t.Fatalf("empty AND must match all, got %d", total)
+	}
+}

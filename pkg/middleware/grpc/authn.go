@@ -12,6 +12,7 @@ import (
 	"github.com/kalandramo/bald/pkg/authn"
 	berrors "github.com/kalandramo/bald/berrors"
 	"github.com/kalandramo/bald/pkg/contextx"
+	"github.com/kalandramo/bald/pkg/crudbridge"
 )
 
 // AuthnOption 配置 AuthnInterceptor。
@@ -74,6 +75,11 @@ func AuthnInterceptor(authenticator authn.Authenticator, opts ...AuthnOption) gr
 		if claims.TenantID != "" {
 			ctx = contextx.WithTenantID(ctx, claims.TenantID)
 		}
+		// 内置注入 viewer.Context（bald-crud EnforceTenant / DataScope 的身份来源）：
+		// scopes 映射为权限（"user:read" 格式对上 HasPermission），业务零配置。
+		ctx = crudbridge.InjectViewerFromIdentity(ctx,
+			claims.Subject, claims.TenantID, contextx.TraceIDFromContext(ctx),
+			claims.Scopes, claims.Roles)
 		return handler(ctx, req)
 	}
 }

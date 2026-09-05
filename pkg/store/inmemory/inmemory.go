@@ -12,6 +12,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -109,21 +110,28 @@ func (q *memQuery[T]) List(_ context.Context, where *store.Where) ([]*T, int64, 
 	matched := q.matchAll(where)
 	total := int64(len(matched))
 
+	// where 可为 nil（无条件全列），先解引用保护。
+	var offset, limit int
+	var sorting []*storev1.Sorting
+	if where != nil {
+		offset, limit, sorting = where.Offset, where.Limit, where.Sorting
+	}
+
 	// 排序。
-	if len(where.Sorting) > 0 {
+	if len(sorting) > 0 {
 		sort.SliceStable(matched, func(i, j int) bool {
-			return lessBy(matched[i], matched[j], where.Sorting)
+			return lessBy(matched[i], matched[j], sorting)
 		})
 	}
 
 	// 分页。
-	if where.Offset > 0 && where.Offset < len(matched) {
-		matched = matched[where.Offset:]
-	} else if where.Offset >= len(matched) {
+	if offset > 0 && offset < len(matched) {
+		matched = matched[offset:]
+	} else if offset >= len(matched) && offset > 0 {
 		matched = nil
 	}
-	if where.Limit > 0 && len(matched) > where.Limit {
-		matched = matched[:where.Limit]
+	if limit > 0 && len(matched) > limit {
+		matched = matched[:limit]
 	}
 	return matched, total, nil
 }
@@ -134,22 +142,25 @@ func (q *memQuery[T]) Count(_ context.Context, where *store.Where) (int64, error
 	return int64(len(q.matchAll(where))), nil
 }
 
-// matchAll 返回满足 where.Filters 的全部记录（按插入顺序）。
+// matchAll 返回满足 where 条件的全部记录（按插入顺序）。
+// 语义：AND(Filters..., Expr)，与 store.Where 的契约一致。
 func (q *memQuery[T]) matchAll(where *store.Where) []*T {
 	out := make([]*T, 0, len(q.p.data))
 	var conds []*storev1.FilterCondition
+	var expr *storev1.FilterExpr
 	if where != nil {
 		conds = where.Filters
+		expr = where.Expr
 	}
 	for _, v := range q.p.data {
-		if matchFilters(v, conds) {
+		if matchFilters(v, conds) && matchExpr(v, expr) {
 			out = append(out, v)
 		}
 	}
 	return out
 }
 
-// matchFilters 对单条记录评估全部过滤条件（AND 语义）。
+// matchFilters 对单条记录评估全部扁平过滤条件（AND 语义）。
 func matchFilters[T any](obj *T, conds []*storev1.FilterCondition) bool {
 	for _, c := range conds {
 		if !matchOne(obj, c) {
@@ -159,13 +170,54 @@ func matchFilters[T any](obj *T, conds []*storev1.FilterCondition) bool {
 	return true
 }
 
+// matchExpr 递归评估布尔树：AND 节点全真才真，OR 节点任一真即真。
+// 空 AND 节点恒真，空 OR 节点恒假（布尔代数，用于「禁止访问」语义）。
+func matchExpr[T any](obj *T, fe *storev1.FilterExpr) bool {
+	if fe == nil {
+		return true
+	}
+	isOr := fe.GetType() == storev1.ExprType_OR
+	if isOr && len(fe.GetConditions()) == 0 && len(fe.GetGroups()) == 0 {
+		return false // 空 OR = 恒假
+	}
+	for _, c := range fe.GetConditions() {
+		ok := matchOne(obj, c)
+		if isOr && ok {
+			return true
+		}
+		if !isOr && !ok {
+			return false
+		}
+	}
+	for _, g := range fe.GetGroups() {
+		ok := matchExpr(obj, g)
+		if isOr && ok {
+			return true
+		}
+		if !isOr && !ok {
+			return false
+		}
+	}
+	return !isOr // AND 全部通过为真；OR 全部未命中为假
+}
+
+// condValue 返回条件比较值：优先 json_value（非字符串类型按 JSON 文本比较），
+// 否则取字符串 value。
+func condValue(c *storev1.FilterCondition) string {
+	if jv := c.GetJsonValue(); jv != nil {
+		return jv.String()
+	}
+	return c.GetValue()
+}
+
 func matchOne[T any](obj *T, c *storev1.FilterCondition) bool {
 	got := fieldString(obj, c.GetField())
+	want := condValue(c)
 	switch c.GetOp() {
-	case storev1.Operator_EQ:
-		return got == c.GetValue()
+	case storev1.Operator_EQ, storev1.Operator_EXACT:
+		return got == want
 	case storev1.Operator_NEQ:
-		return got != c.GetValue()
+		return got != want
 	case storev1.Operator_IN:
 		for _, v := range c.GetValues() {
 			if got == v {
@@ -181,28 +233,74 @@ func matchOne[T any](obj *T, c *storev1.FilterCondition) bool {
 		}
 		return true
 	case storev1.Operator_LIKE, storev1.Operator_CONTAINS:
-		return strings.Contains(got, c.GetValue())
-	case storev1.Operator_ILIKE:
-		return strings.Contains(strings.ToLower(got), strings.ToLower(c.GetValue()))
+		return strings.Contains(got, want)
+	case storev1.Operator_ILIKE, storev1.Operator_ICONTAINS:
+		return strings.Contains(strings.ToLower(got), strings.ToLower(want))
+	case storev1.Operator_IEXACT:
+		return strings.EqualFold(got, want)
+	case storev1.Operator_NOT_LIKE:
+		return !strings.Contains(got, want)
 	case storev1.Operator_STARTS_WITH:
-		return strings.HasPrefix(got, c.GetValue())
+		return strings.HasPrefix(got, want)
 	case storev1.Operator_ENDS_WITH:
-		return strings.HasSuffix(got, c.GetValue())
+		return strings.HasSuffix(got, want)
+	case storev1.Operator_ISTARTS_WITH:
+		return strings.HasPrefix(strings.ToLower(got), strings.ToLower(want))
+	case storev1.Operator_IENDS_WITH:
+		return strings.HasSuffix(strings.ToLower(got), strings.ToLower(want))
 	case storev1.Operator_GT:
-		return cmpNum(got, c.GetValue()) > 0
+		return cmpNum(got, want) > 0
 	case storev1.Operator_GTE:
-		return cmpNum(got, c.GetValue()) >= 0
+		return cmpNum(got, want) >= 0
 	case storev1.Operator_LT:
-		return cmpNum(got, c.GetValue()) < 0
+		return cmpNum(got, want) < 0
 	case storev1.Operator_LTE:
-		return cmpNum(got, c.GetValue()) <= 0
+		return cmpNum(got, want) <= 0
 	case storev1.Operator_IS_NULL:
 		return got == ""
 	case storev1.Operator_IS_NOT_NULL:
 		return got != ""
+	case storev1.Operator_BETWEEN:
+		vals := c.GetValues()
+		if len(vals) != 2 {
+			return false
+		}
+		return cmpNum(got, vals[0]) >= 0 && cmpNum(got, vals[1]) <= 0
+	case storev1.Operator_REGEXP, storev1.Operator_IREGEXP:
+		pattern := want
+		if c.GetOp() == storev1.Operator_IREGEXP {
+			pattern = "(?i)" + pattern
+		}
+		re, err := regexp.Compile(pattern)
+		if err != nil {
+			return false
+		}
+		return re.MatchString(got)
+	// JSON_CONTAINS / ARRAY_CONTAINS / EXISTS / SEARCH 依赖引擎能力，
+	// 内存实现不支持（default 返回 false，宁缺勿假）。
 	default:
 		return false
 	}
+}
+
+// snake 把 Go 字段名归一为 snake_case（UserID→user_id），与 gorm 桥接的列名
+// 约定一致，使同一 Where 语义跨后端表现相同。
+func snake(name string) string {
+	runes := []rune(name)
+	var b strings.Builder
+	for i, r := range runes {
+		if r >= 'A' && r <= 'Z' {
+			prevLower := i > 0 && runes[i-1] >= 'a' && runes[i-1] <= 'z'
+			nextLower := i+1 < len(runes) && runes[i+1] >= 'a' && runes[i+1] <= 'z'
+			if i > 0 && (prevLower || (runes[i-1] >= 'A' && runes[i-1] <= 'Z' && nextLower)) {
+				b.WriteByte('_')
+			}
+			b.WriteRune(r - 'A' + 'a')
+		} else {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 // fieldString 经反射读取 obj 的导出字段值并格式化为字符串（大小写不敏感匹配字段名）。
@@ -224,7 +322,9 @@ func fieldString[T any](obj *T, field string) string {
 		if !f.IsExported() {
 			continue
 		}
-		if strings.EqualFold(f.Name, field) {
+		// 双向归一：Go 字段名（UserID）与 DTO/列名（user_id）都能命中，
+		// 保证同一 Where 语义在 inmemory 与 gorm 后端行为一致。
+		if strings.EqualFold(snake(f.Name), field) {
 			return fmt.Sprintf("%v", v.Field(i).Interface())
 		}
 	}
@@ -240,7 +340,7 @@ func lessBy[T any](a, b *T, sorting []*storev1.Sorting) bool {
 		if c == 0 {
 			continue
 		}
-		if s.GetDirection() == storev1.Direction_DESC {
+		if s.GetDirection() == storev1.Sorting_DESC {
 			return c > 0
 		}
 		return c < 0

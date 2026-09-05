@@ -81,33 +81,26 @@ func TestPaging_DetectStrategy(t *testing.T) {
 	assert.Equal(t, "page", detectStrategy(&storev1.PagingRequest{}).Name()) // 默认页码
 }
 
-func TestFlatten_RejectsOR(t *testing.T) {
-	// 顶层 OR：扁平 translate 不支持，应报错而非静默降级为 AND。
-	_, err := flatten(&storev1.FilterExpr{
-		Type:       storev1.FilterExpr_OR,
-		Conditions: []*storev1.FilterCondition{{Field: "name", Op: storev1.Operator_EQ, Value: "a"}},
-	})
-	assert.Error(t, err)
+func TestTranslate_ExprTreePassThrough(t *testing.T) {
+	// FilterExpr 树整体下推 Where.Expr，不再展平；OR 不再报错。
+	orTree := &storev1.FilterExpr{
+		Type:       storev1.ExprType_OR,
+		Conditions: []*storev1.FilterCondition{{Field: "name", Op: storev1.Operator_EQ, ValueOneof: &storev1.FilterCondition_Value{Value: "a"}}},
+	}
+	andRoot := &storev1.FilterExpr{
+		Type:   storev1.ExprType_AND,
+		Groups: []*storev1.FilterExpr{orTree},
+	}
 
-	// 嵌套 OR 同样应报错。
-	_, err = flatten(&storev1.FilterExpr{
-		Type: storev1.FilterExpr_AND,
-		Groups: []*storev1.FilterExpr{
-			{Type: storev1.FilterExpr_OR, Conditions: []*storev1.FilterCondition{{Field: "x", Op: storev1.Operator_EQ, Value: "1"}}},
-		},
-	})
-	assert.Error(t, err)
-
-	// 纯 AND 可正常展平。
-	out, err := flatten(&storev1.FilterExpr{
-		Type:       storev1.FilterExpr_AND,
-		Conditions: []*storev1.FilterCondition{{Field: "a", Op: storev1.Operator_EQ, Value: "1"}},
-		Groups: []*storev1.FilterExpr{
-			{Type: storev1.FilterExpr_AND, Conditions: []*storev1.FilterCondition{{Field: "b", Op: storev1.Operator_EQ, Value: "2"}}},
-		},
-	})
+	s := NewStore[int](nil)
+	where, _, err := s.translate(context.Background(), &storev1.PagingRequest{FilteringType: &storev1.PagingRequest_FilterExpr{FilterExpr: andRoot}})
 	require.NoError(t, err)
-	assert.Len(t, out, 2)
+	assert.Same(t, andRoot, where.Expr) // 树原样下推，由后端递归翻译
+
+	// 扁平条件与新树并存：Filters 承载框架注入（租户/数据范围），Expr 承载业务树。
+	where.Filters = []*storev1.FilterCondition{Eq("tenant_id", "1")}
+	assert.Len(t, where.Filters, 1)
+	assert.NotNil(t, where.Expr)
 }
 
 func TestPaging_TranslateMetadata(t *testing.T) {

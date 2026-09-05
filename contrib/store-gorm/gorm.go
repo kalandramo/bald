@@ -172,6 +172,7 @@ func (q *gormQuery[T]) Count(_ context.Context, where *store.Where) (int64, erro
 }
 
 // applyWhere 把 Where 的所有过滤条件翻译为 GORM 查询作用域。
+// 语义：AND(Filters..., Expr)——扁平条件与布尔树（Where.Expr）按 AND 连接。
 func (q *gormQuery[T]) applyWhere(where *store.Where) *gorm.DB {
 	tx := q.db
 	if where == nil {
@@ -180,58 +181,124 @@ func (q *gormQuery[T]) applyWhere(where *store.Where) *gorm.DB {
 	for _, c := range where.Filters {
 		tx = q.applyFilter(tx, c)
 	}
+	if fe := where.Expr; fe != nil {
+		sql, args := q.buildExpr(fe)
+		tx = tx.Where("("+sql+")", args...)
+	}
 	return tx
 }
 
-// applyFilter 翻译单条过滤条件。
-func (q *gormQuery[T]) applyFilter(tx *gorm.DB, c *storev1.FilterCondition) *gorm.DB {
+// buildExpr 递归把 FilterExpr 布尔树翻译为参数化 SQL 片段（AND/OR 嵌套）。
+// 空 AND 节点恒真（1 = 1），空 OR 节点恒假（1 = 0）——布尔代数语义，
+// 与 inmemory 后端一致；恒假用于「禁止访问」类数据范围。
+func (q *gormQuery[T]) buildExpr(fe *storev1.FilterExpr) (string, []any) {
+	isOr := fe.GetType() == storev1.ExprType_OR
+	parts := make([]string, 0, len(fe.GetConditions())+len(fe.GetGroups()))
+	var args []any
+	for _, c := range fe.GetConditions() {
+		sql, cargs := condSQL(c)
+		parts = append(parts, sql)
+		args = append(args, cargs...)
+	}
+	for _, g := range fe.GetGroups() {
+		sql, gargs := q.buildExpr(g)
+		parts = append(parts, "("+sql+")")
+		args = append(args, gargs...)
+	}
+	if len(parts) == 0 {
+		if isOr {
+			return "1 = 0", nil
+		}
+		return "1 = 1", nil
+	}
+	sep := " AND "
+	if isOr {
+		sep = " OR "
+	}
+	return strings.Join(parts, sep), args
+}
+
+// condArg 返回条件的绑定值：优先 json_value（任意 JSON 类型按驱动绑定），
+// 否则取字符串 value。
+func condArg(c *storev1.FilterCondition) any {
+	if jv := c.GetJsonValue(); jv != nil {
+		return jv.AsInterface()
+	}
+	return c.GetValue()
+}
+
+// condSQL 翻译单条过滤条件为 SQL 片段（占位符参数化，杜绝字符串拼接值）。
+func condSQL(c *storev1.FilterCondition) (string, []any) {
 	col := toColumn(c.GetField())
+	v := condArg(c)
 	switch c.GetOp() {
-	case storev1.Operator_EQ:
-		return tx.Where(col+" = ?", c.GetValue())
+	case storev1.Operator_EQ, storev1.Operator_EXACT:
+		return col + " = ?", []any{v}
 	case storev1.Operator_NEQ:
-		return tx.Where(col+" <> ?", c.GetValue())
+		return col + " <> ?", []any{v}
 	case storev1.Operator_GT:
-		return tx.Where(col+" > ?", c.GetValue())
+		return col + " > ?", []any{v}
 	case storev1.Operator_GTE:
-		return tx.Where(col+" >= ?", c.GetValue())
+		return col + " >= ?", []any{v}
 	case storev1.Operator_LT:
-		return tx.Where(col+" < ?", c.GetValue())
+		return col + " < ?", []any{v}
 	case storev1.Operator_LTE:
-		return tx.Where(col+" <= ?", c.GetValue())
+		return col + " <= ?", []any{v}
 	case storev1.Operator_LIKE:
-		return tx.Where(col+" LIKE ?", c.GetValue())
+		return col + " LIKE ?", []any{v}
 	case storev1.Operator_ILIKE:
 		// 仅对字符串类型列安全；非字符串列的 ILIKE 由调用方自行保证。
 		// 优先用数据库原生不区分大小写匹配（MySQL 8 / PG 支持），
 		// 退化为 lower() 仅作 SQLite 兼容兜底。
-		return tx.Where("LOWER("+col+") LIKE LOWER(?)", c.GetValue())
+		return "LOWER(" + col + ") LIKE LOWER(?)", []any{v}
 	case storev1.Operator_NOT_LIKE:
-		return tx.Where(col+" NOT LIKE ?", c.GetValue())
+		return col + " NOT LIKE ?", []any{v}
 	case storev1.Operator_IN:
-		return tx.Where(col+" IN ?", c.GetValues())
+		return col + " IN ?", []any{c.GetValues()}
 	case storev1.Operator_NIN:
-		return tx.Where(col+" NOT IN ?", c.GetValues())
+		return col + " NOT IN ?", []any{c.GetValues()}
 	case storev1.Operator_IS_NULL:
-		return tx.Where(col + " IS NULL")
+		return col + " IS NULL", nil
 	case storev1.Operator_IS_NOT_NULL:
-		return tx.Where(col + " IS NOT NULL")
+		return col + " IS NOT NULL", nil
 	case storev1.Operator_CONTAINS:
-		return tx.Where(col+" LIKE ?", "%"+c.GetValue()+"%")
+		return col + " LIKE ?", []any{"%" + c.GetValue() + "%"}
 	case storev1.Operator_STARTS_WITH:
-		return tx.Where(col+" LIKE ?", c.GetValue()+"%")
+		return col + " LIKE ?", []any{c.GetValue() + "%"}
 	case storev1.Operator_ENDS_WITH:
-		return tx.Where(col+" LIKE ?", "%"+c.GetValue())
+		return col + " LIKE ?", []any{"%" + c.GetValue()}
+	case storev1.Operator_ICONTAINS:
+		return "LOWER(" + col + ") LIKE LOWER(?)", []any{"%" + c.GetValue() + "%"}
+	case storev1.Operator_ISTARTS_WITH:
+		return "LOWER(" + col + ") LIKE LOWER(?)", []any{c.GetValue() + "%"}
+	case storev1.Operator_IENDS_WITH:
+		return "LOWER(" + col + ") LIKE LOWER(?)", []any{"%" + c.GetValue()}
+	case storev1.Operator_IEXACT:
+		return "LOWER(" + col + ") = LOWER(?)", []any{v}
 	case storev1.Operator_BETWEEN:
 		vals := c.GetValues()
 		if len(vals) == 2 {
-			return tx.Where(col+" BETWEEN ? AND ?", vals[0], vals[1])
+			return col + " BETWEEN ? AND ?", []any{vals[0], vals[1]}
 		}
-		return tx
+		return "1 = 1", nil
+	case storev1.Operator_REGEXP, storev1.Operator_IREGEXP:
+		// 依赖驱动方言：MySQL 原生 REGEXP（默认大小写不敏感）；
+		// PostgreSQL 需 pg_trgm/正则扩展；SQLite 不支持（会报错，属预期）。
+		return col + " REGEXP ?", []any{v}
+	// JSON_CONTAINS / ARRAY_CONTAINS / EXISTS / SEARCH 依赖引擎方言，
+	// 通用桥接不做猜测式翻译（安全忽略，宁缺勿假）。
 	default:
-		// 未知操作符：安全忽略（不拼非法 SQL）。
-		return tx
+		return "1 = 1", nil
 	}
+}
+
+// applyFilter 翻译单条过滤条件（扁平 AND 路径复用 condSQL）。
+func (q *gormQuery[T]) applyFilter(tx *gorm.DB, c *storev1.FilterCondition) *gorm.DB {
+	sql, args := condSQL(c)
+	if len(args) == 0 {
+		return tx.Where(sql)
+	}
+	return tx.Where(sql, args...)
 }
 
 // applySorting 翻译排序规则。
@@ -239,7 +306,7 @@ func (q *gormQuery[T]) applySorting(tx *gorm.DB, sorting []*storev1.Sorting) *go
 	for _, s := range sorting {
 		col := toColumn(s.GetField())
 		dir := "ASC"
-		if s.GetDirection() == storev1.Direction_DESC {
+		if s.GetDirection() == storev1.Sorting_DESC {
 			dir = "DESC"
 		}
 		tx = tx.Order(col + " " + dir)
@@ -247,8 +314,11 @@ func (q *gormQuery[T]) applySorting(tx *gorm.DB, sorting []*storev1.Sorting) *go
 	return tx
 }
 
-// applyPaging 翻译偏移/限制分页。
+// applyPaging 翻译偏移/限制分页（where 可为 nil，无条件全列）。
 func (q *gormQuery[T]) applyPaging(tx *gorm.DB, where *store.Where) *gorm.DB {
+	if where == nil {
+		return tx
+	}
 	if where.Offset > 0 {
 		tx = tx.Offset(where.Offset)
 	}
