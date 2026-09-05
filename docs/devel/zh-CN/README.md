@@ -4,10 +4,10 @@
 
 - [应用框架设计](./应用框架设计.md)：AppKit 生命周期（五阶段停机）、Server/Registrar/Component 契约、效应账本/能力声明/运行期挂载。
 - [配置中心设计](./配置中心设计.md)：配置四源优先级、proto 配置契约层（`pkg/options` 已废弃）。
-- [proto 配置契约设计](./proto 配置契约设计.md)：框架级配置用 Protobuf 作 schema（viper 仍是加载器）、渐进迁移路线与坑位记录。
+- [Bald 配置系统设计](./Bald%20配置系统设计.md)：配置源抽象（Reader/ValueWatcher/FallbackReader + 9 provider）、proto 配置契约（为什么用 proto、契约形状、UnmarshalMap 桥接坑位）、bootstrap 装配（Registry/层优先级/Build 回滚）。
 - [服务端设计](./服务端设计.md)：HTTP / gRPC / Gateway Server 抽象与端口模型。
 - [服务注册设计](./服务注册设计.md)：registry.Registrar 抽象、内存实现与 kratos 桥接。
-- [日志设计](./日志设计.md)：pkg/log 极简契约、全局句柄、slog 后端与 OTel 可选桥接；§9 含能力边界与已否决选项（lumberjack 轮转已落地）。
+- [Bald 日志平面接口设计](./Bald%20日志平面接口设计.md)：log 契约（极简接口/全局句柄/nop 默认）、log/slog 适配器（slog 后端/脱敏/lumberjack 轮转/OTel 桥接）、bootstrap 装配链；§2.4 含能力边界与已否决选项（gookit/slog 评估决策记录）。
 - [路由注册与绑定设计](./路由注册与绑定设计.md)：路由注册由业务用 gin 编写，pkg/web 提供强绑定 gin 的泛型绑定/校验/响应流水线，路径变量用 uri tag。
 - [grpc-gateway 配置与 transcoding](./grpc-gateway%20配置与%20transcoding.md)：proto + google.api.http 注解、buf generate 生成、接线到 server.NewGRPCServerWithRegister / NewGatewayServer，gin 与 grpc-gateway 复用同一 biz 层。
 - [错误模型设计](./错误模型设计.md)：pkg/berrors 零依赖核心错误类型，grpcerr（gRPC）/httperr（HTTP）两个对等桥接子包，不可变 builder 与双向传输闭环。
