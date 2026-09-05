@@ -11,7 +11,7 @@ import (
 	"text/template"
 	"time"
 
-	appspecv1 "github.com/kalandramo/bald/pkg/conf/gen/go/bald/appspec/v1"
+	appspecv1 "github.com/kalandramo/bald/bconf/gen/go/bald/appspec/v1"
 )
 
 // exampleModule 返回 _example/bald 消费者 module 的绝对路径——生成物编译/运行以它

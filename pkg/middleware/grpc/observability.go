@@ -18,7 +18,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
-	"github.com/kalandramo/bald/pkg/log"
+	"github.com/kalandramo/bald/log"
 )
 
 // tracer 是 bald gRPC 层使用的 OpenTelemetry tracer。

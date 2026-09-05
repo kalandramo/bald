@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/cobra"
 	"google.golang.org/protobuf/encoding/protojson"
 
-	appspecv1 "github.com/kalandramo/bald/pkg/conf/gen/go/bald/appspec/v1"
+	appspecv1 "github.com/kalandramo/bald/bconf/gen/go/bald/appspec/v1"
 )
 
 // appTmpl 是应用装配骨架模板（P12 第一步，见 docs/devel/zh-CN/架构优化路线.md §3）。
@@ -39,7 +39,7 @@ import (
 
 	"github.com/kalandramo/bald/pkg/appkit"
 	"github.com/kalandramo/bald/pkg/middleware/bundle"
-	"github.com/kalandramo/bald/pkg/server"
+	"github.com/kalandramo/bald/transport"
 )
 
 func main() {
@@ -97,7 +97,7 @@ func newApp() *appkit.AppKit {
 }
 
 // buildBundle 演示横切关注点接线（P10）：一次构造、双传输产出、链序由框架固化。
-// gin 侧 router.Use(b.Gin()...)；gRPC 侧 server.NewGRPCServerWithRegister(cfg, b.GRPCChain(), ...).
+// gin 侧 router.Use(b.Gin()...)；gRPC 侧 grpcserver.NewGRPCServerWithRegister(cfg, b.GRPCChain(), ...).
 // 依赖用构造器注入（替代全局 Set*）；Normalized() 一键启用 P9 归一化。
 func buildBundle() *bundle.Bundle {
 	return bundle.New(
@@ -110,11 +110,11 @@ func buildBundle() *bundle.Bundle {
 }
 
 // buildServers 演示 server 装配（[FILL] 业务 handler 后启用）。
-func buildServers() []server.Server {
+func buildServers() []transport.Server {
 	b := buildBundle()
 	_ = b.Gin()        // gin 中间件链
 	_ = b.GRPCChain()  // gRPC ServerOption
-	return nil // [FILL] return []server.Server{httpSrv, grpcSrv}
+	return nil // [FILL] return []transport.Server{httpSrv, grpcSrv}
 }
 `
 

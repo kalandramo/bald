@@ -10,7 +10,6 @@ import (
 	"github.com/fsnotify/fsnotify"
 
 	"github.com/kalandramo/bald/bconfig"
-	"github.com/kalandramo/bald/pkg/log"
 )
 
 var (
@@ -61,8 +60,6 @@ func New(opts ...Option) (*source, error) {
 			_ = w.Close()
 			return nil, fmt.Errorf("watch directory %s: %w", dir, err)
 		}
-
-		log.GetLogger().Debug(context.Background(), "[file] watching", "dir", dir, "file", o.path)
 	}
 
 	return s, nil
@@ -136,7 +133,8 @@ func (s *source) WatchValue(ctx context.Context, key string) (<-chan []byte, err
 				}
 				data, err := os.ReadFile(path)
 				if err != nil {
-					log.GetLogger().Debug(context.Background(), "[file] read after event failed", "path", path, "error", err)
+					// Transient failure (editors often write atomically and briefly
+					// remove the target) — skip this event; the next one will re-read.
 					continue
 				}
 				select {
@@ -148,7 +146,9 @@ func (s *source) WatchValue(ctx context.Context, key string) (<-chan []byte, err
 				if !ok {
 					return
 				}
-				log.GetLogger().Error(context.Background(), "[file] watcher error", "error", err)
+				// Watcher is fatally broken — terminate the loop so the output
+				// channel is closed and the caller observes the watcher has stopped.
+				_ = err
 				return
 			}
 		}

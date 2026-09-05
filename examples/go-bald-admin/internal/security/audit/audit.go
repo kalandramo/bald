@@ -9,7 +9,7 @@ import (
 	"context"
 
 	"github.com/kalandramo/bald/pkg/audit"
-	"github.com/kalandramo/bald/pkg/log"
+	"github.com/kalandramo/bald/log"
 )
 
 // LoggerAuditor 把审计事件写进框架日志（info/error 按结果分级）。

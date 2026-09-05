@@ -13,7 +13,7 @@ import (
 	"encoding/base64"
 	"strconv"
 
-	storev1 "github.com/kalandramo/bald/pkg/conf/gen/go/bald/store/v1"
+	storev1 "github.com/kalandramo/bald/bconf/gen/go/bald/store/v1"
 )
 
 // Paginator 把 PagingRequest 解析为后端可用的 offset/limit。

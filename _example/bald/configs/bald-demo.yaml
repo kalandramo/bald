@@ -3,50 +3,40 @@
 # 优先级（高 → 低，viper 默认语义）：
 #   命令行 flag > 环境变量 > 本地文件(本文件) > 远程配置中心
 #
-# 键名即 Protobuf 配置契约（api/proto/bald/config/v1/）中的字段路径：
-#   - http   : confv1.Http   （明文 + TLS 一体）
-#   - grpc   : confv1.Grpc
-#   - log    : confv1.Logger （proto 字段名为 logger，json_name = "log"）
+# 键名即 Protobuf 配置契约（bconf/proto/bootstrap/v1/）中的字段路径：
+#   - server.http : bootstrapv1.Server_Http
+#   - server.grpc : bootstrapv1.Server_Grpc
+#   - logger      : bootstrapv1.Logger（type 选后端，slog 段给参数）
 #
 # 同一套键路径同时适用于四种配置源：
-#   --http.addr  ⇔  http.addr  ⇔  BALD_DEMO_HTTP_ADDR  ⇔  本文件的 http.addr
+#   --server.http.addr  ⇔  server.http.addr  ⇔  BALD_DEMO_SERVER_HTTP_ADDR  ⇔  本文件的 server.http.addr
 
 # ---------------------------------------------------------------------------
-# HTTP 服务（SecureServingOptions，默认明文；Enabled=true 时切换为 HTTPS）
+# HTTP 服务（bootstrapv1.Server_Http，默认明文；Http.Tls 非 nil 即启用 HTTPS）
 # ---------------------------------------------------------------------------
-http:
-  addr: ":8080"          # 监听地址；":0" 可让系统分配空闲端口
-  timeout: 10s           # 连接超时（如 ReadHeaderTimeout）
-  # TLS（Smart Mode）：ca/cert/key 可为 文件路径 / 原始 PEM / Base64(PEM)
-  # 三者都支持，框架自动识别。仅客户端 mTLS 可只配 ca。
-  tls:
-    enabled: false       # true → 启用 HTTPS（同时需提供 cert + key）
-    skip-verify: false   # 仅客户端场景跳过校验（不安全，慎用）
-    ca: ""               # CA 路径 | PEM | Base64(PEM)；mTLS 校验客户端证书用
-    cert: ""             # 服务端证书 路径 | PEM | Base64(PEM)
-    key: ""              # 服务端私钥 路径 | PEM | Base64(PEM)
-    # 示例（任选一种写法）：
-    #   cert: /etc/certs/tls.crt            # 1) 文件路径
-    #   cert: |                             # 2) 原始 PEM（含 -----BEGIN CERTIFICATE-----）
-    #     -----BEGIN CERTIFICATE-----
-    #     MIIC...
-    #     -----END CERTIFICATE-----
-    #   cert: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0t...   # 3) Base64(PEM)
+server:
+  http:
+    addr: ":8080"        # 监听地址；":0" 可让系统分配空闲端口
+    # TLS（bootstrapv1.Server_TLS）：file（证书路径）或 config（原始 PEM）二选一，
+    # 二者都提供时以 file 为准。
+    # tls:
+    #   file:
+    #     cert_path: /etc/certs/tls.crt
+    #     key_path: /etc/certs/tls.key
+
+  # -----------------------------------------------------------------------
+  # gRPC 服务（bootstrapv1.Server_Grpc）
+  # -----------------------------------------------------------------------
+  grpc:
+    addr: ":9090"        # 监听地址；":0" 可让系统分配空闲端口
+    reflection: false    # gRPC Server Reflection（调试工具 grpcurl 需要）
 
 # ---------------------------------------------------------------------------
-# gRPC 服务（GRPCOptions）
+# 日志（bootstrapv1.Logger：type 选后端 + 各后端参数段）
 # ---------------------------------------------------------------------------
-grpc:
-  network: "tcp"         # 网络类型，默认 tcp
-  addr: ":9090"          # 监听地址；":0" 可让系统分配空闲端口
-  timeout: 30s           # 连接超时（客户端侧使用）
-
-# ---------------------------------------------------------------------------
-# 日志（pkg/log.Options）
-# ---------------------------------------------------------------------------
-log:
-  level: "info"          # debug | info | warn | error
-  format: "console"      # console | json
-  output-paths:          # 输出目标，支持 stdout / stderr 或文件路径，可多目标
-    - "stdout"
-    # - "/var/log/bald.log"   # 追加文件目标时取消注释
+logger:
+  type: "slog"
+  slog:
+    level: "info"        # debug | info | warn | error
+    format: "console"    # console | json
+    output_path: "stdout"  # stdout / stderr 或文件路径

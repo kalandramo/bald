@@ -9,8 +9,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	berrors "github.com/kalandramo/bald/pkg/berrors"
-	"github.com/kalandramo/bald/pkg/berrors/grpcerr"
+	berrors "github.com/kalandramo/bald/berrors"
+	"github.com/kalandramo/bald/berrors/grpcerr"
 )
 
 // TestErrorInterceptor_ConvertsBizError 验证 *berrors.Error 被转成带

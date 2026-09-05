@@ -16,7 +16,7 @@
 //	# 切换日志格式 / 级别（--log.* 由 pkg/log 提供）
 //	go run ./_example/bald --log.format=json --log.level=debug
 //
-//	# 验证 HTTP 示例路由（server.NewHTTPServer 挂载 gin.Engine）：
+//	# 验证 HTTP 示例路由（httpserver.NewHTTPServer 挂载 gin.Engine）：
 //	curl -i http://127.0.0.1:8080/v1/ping
 //	curl -i -XPOST http://127.0.0.1:8080/v1/greet -d '{"name":"bald"}'
 //	curl -i -XPOST 'http://127.0.0.1:8080/v1/articles/42?lang=zh' -d '{"title":"hi"}'
@@ -46,39 +46,44 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 	"google.golang.org/grpc"
 
 	usercmd "github.com/kalandramo/bald/example/bald/user"
 
+	bconf "github.com/kalandramo/bald/bconf"
+	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
+	berrors "github.com/kalandramo/bald/berrors"
+	baldbootstrap "github.com/kalandramo/bald/bootstrap"
+	baldconfig "github.com/kalandramo/bald/bootstrap/config"
+	baldlog "github.com/kalandramo/bald/log"
+	baldlogadapter "github.com/kalandramo/bald/log/slog"
 	"github.com/kalandramo/bald/pkg/appkit"
-	berrors "github.com/kalandramo/bald/pkg/berrors"
-	baldconf "github.com/kalandramo/bald/pkg/conf"
-	confv1 "github.com/kalandramo/bald/pkg/conf/gen/go/bald/config/v1"
-	baldconfig "github.com/kalandramo/bald/pkg/config"
-	baldlog "github.com/kalandramo/bald/pkg/log"
 	mid "github.com/kalandramo/bald/pkg/middleware/gin"
 	grpcmw "github.com/kalandramo/bald/pkg/middleware/grpc"
 	"github.com/kalandramo/bald/pkg/registry/inmemory"
-	"github.com/kalandramo/bald/pkg/server"
-	"github.com/kalandramo/bald/pkg/web"
+	"github.com/kalandramo/bald/transport"
+	gateway "github.com/kalandramo/bald/transport/gateway"
+	grpcserver "github.com/kalandramo/bald/transport/grpc"
+	httpserver "github.com/kalandramo/bald/transport/http"
+	"github.com/kalandramo/bald/transport/web"
 )
 
 func serveRunE(_ *cobra.Command, _ []string) error {
-	// 0. 框架级配置：proto 是唯一真相源，直接持有 Bootstrap 指针。
-	//    server 层（http/grpc）直接消费其中的 confv1.Http / confv1.Grpc 子消息，
-	//    不再经由 pkg/options 中间层（P1 阶段 2 已废弃 options）。
-	bootstrap := baldconf.NewBootstrap()
-	bootstrap.Http.Addr = ":8080" // 明文 HTTP；启用 HTTPS 时设 Tls.Enabled=true 并提供 tls 字段
+	// 0. 框架级配置：proto 是唯一真相源，直接持有 BootstrapConfig 指针。
+	//    server 层（http/grpc）直接消费其中的 bootstrapv1.Server_Http / Server_Grpc
+	//    子消息（指针直通：flag 写入与 Unmarshal 合并都作用在同一对象上，
+	//    Start 时读到最终值——legacy confv1 时代的值快照桥接已随契约切换消失）。
+	bootstrap := bconf.NewBootstrap()
+	bootstrap.GetServer().GetHttp().Addr = ":8080" // 明文 HTTP；启用 HTTPS 时给 Http.Tls 挂证书段
 
 	// 0. 日志系统接入（两阶段）。
 	//    阶段 A：先用默认配置装一个 Logger，保证启动期有日志可用。
 	//    阶段 B：在 appkit.BeforeStart 里按最终配置重建（见下方），
 	//           因为 --log.* 的真实取值要等配置加载完才知道。
-	logOpts := baldlog.NewOptions()
+	logOpts := baldlogadapter.NewOptions()
 	setLogger(logOpts)
 
-	// 1. 构造协议服务器（均实现 server.Server 契约，含 Endpoint）。
+	// 1. 构造协议服务器（均实现 transport.Server 契约，含 Endpoint）。
 	//    共享同一个 readiness 探针，使 HTTP /readyz 与 gRPC health 状态对称联动。
 	ready := func(ctx context.Context) error {
 		// TODO: 在此检查业务依赖（如 DB ping、下游连通性）。返回 nil=就绪，error=未就绪。
@@ -90,7 +95,7 @@ func serveRunE(_ *cobra.Command, _ []string) error {
 	router := gin.New()
 	router.Use(mid.Recovery(), mid.RequestIDMiddleware(), mid.Logging())
 	exampleRoutes(router)
-	httpSrv := server.NewHTTPServer(bootstrap.GetHttp(), router, ready)
+	httpSrv := httpserver.NewHTTPServer(bootstrap.GetServer().GetHttp(), router, ready)
 
 	// gRPC 拦截器链（由外到内）：请求 ID → 可观测性 → 默认值填充 → 校验。
 	// 认证/授权（Authn/Authz）在 babel 接入用户系统后，通过注入 TokenExtractor /
@@ -125,8 +130,8 @@ func serveRunE(_ *cobra.Command, _ []string) error {
 	//     （针对 baldv1.GreetRequest，见该文件）。
 	// 注意 NewValidator 现在返回 error —— 方法名与请求类型名不符时会明确报错，
 	// 不会像旧实现那样静默跳过导致「以为有校验其实没有」。
-	grpcSrv := server.NewGRPCServerWithRegister(
-		bootstrap.GetGrpc(),
+	grpcSrv := grpcserver.NewGRPCServerWithRegister(
+		bootstrap.GetServer().GetGrpc(),
 		newGRPCServerOptions(),
 		registerGRPCService,
 		ready,
@@ -210,11 +215,11 @@ func isKnownCommand(root *cobra.Command, name string) bool {
 // 注意 main() 里的 osExit / setLogger 等进程级副作用保持在 main 中，
 // 不在 newApp 内，以便测试安全调用。
 func newApp(
-	bootstrap *confv1.Bootstrap,
-	logOpts *baldlog.Options,
-	httpSrv *server.HTTPServer,
-	grpcSrv *server.GRPCServer,
-	ready server.ReadinessFunc,
+	bootstrap *bootstrapv1.BootstrapConfig,
+	logOpts *baldlogadapter.Options,
+	httpSrv *httpserver.HTTPServer,
+	grpcSrv *grpcserver.GRPCServer,
+	ready transport.ReadinessFunc,
 ) *appkit.AppKit {
 	// 先声明再赋值：BeforeStart 闭包需要在构造参数中引用 app 自身（取 app.Viper()）。
 	var app *appkit.AppKit
@@ -225,7 +230,7 @@ func newApp(
 
 		// --- 启动期配置（面向 K8s/容器部署：本地文件 + 环境变量 + flag + 可选远程配置中心）---
 		//
-		// 优先级（高 → 低，viper 默认语义）：flag > 环境变量 > 本地文件 > 远程配置。
+		// 优先级（高 → 低）：flag > 环境变量 > 本地文件 > 远程配置。
 		// 本地文件缺失不报错，因此可只用远程/flag 配置。
 
 		// 2.1 本地配置文件：appkit.ConfigFile 直接指定（示例自带，路径相对运行目录）；
@@ -245,7 +250,7 @@ func newApp(
 		//
 		//     etcd 后端示例（先：go get github.com/go-kratos/kratos/v3/contrib/config/etcd/v3）：
 		//     import (
-		//         "github.com/kalandramo/bald/pkg/config"
+		//         "github.com/kalandramo/bald/bootstrap/config"
 		//         etcdclient "go.etcd.io/etcd/client/v3"
 		//         etcdconfig "github.com/go-kratos/kratos/v3/contrib/config/etcd/v3"
 		//     )
@@ -258,24 +263,25 @@ func newApp(
 		//     + github.com/go-kratos/kratos/v3/contrib/registry/nacos/v3），
 		//     用 -tags nacos 构建即自动接入注册中心 + 配置中心。
 
-		// 2.5 业务 flag 接入（关键）：把配置对象的 flag 注册进 viper override 层。
-		//     prefix 即配置键前缀，四源路径由此统一：
-		//       --http.addr ⇔ http.addr ⇔ BALD_DEMO_HTTP_ADDR ⇔ 配置文件 http.addr
+		// 2.5 业务 flag 接入（关键）：把配置对象的 flag 注册进配置装载的 flag 层。
+		//     prefix 即配置键前缀，四源路径由此统一（与契约字段路径一致）：
+		//       --server.http.addr ⇔ server.http.addr ⇔ BALD_DEMO_SERVER_HTTP_ADDR ⇔ 配置文件 server.http.addr
 		//     log.Options 自带 --log.* 前缀，因此 prefix 传空串。
-		//     http/grpc 直接绑定 Bootstrap 的 proto 子消息，flag 改的是同一个对象，
+		//     http/grpc 直接绑定 BootstrapConfig 的 proto 子消息，flag 改的是同一个对象，
 		//     server 层在 Start 时直接读它（无需回填）。
-		appkit.Bind("http", bootstrap.GetHttp()),
-		appkit.Bind("grpc", bootstrap.GetGrpc()),
+		appkit.Bind("server.http", bootstrap.GetServer().GetHttp()),
+		appkit.Bind("server.grpc", bootstrap.GetServer().GetGrpc()),
 		appkit.Bind("", logOpts),
 
 		// 2.6 配置热更新回调：本地文件或远程变更均触发。
 		//     proto 契约（Bootstrap）是唯一持有对象，server 层直接消费其指针，
 		//     热更新时重新 Unmarshal 即生效。
-		appkit.OnConfigChange(func(v *viper.Viper) {
+		appkit.OnConfigChange(func(m map[string]any) {
 			logger := baldlog.GetLogger()
 			logger.Info(context.Background(), "config changed",
-				"http.addr", v.GetString("http.addr"), "grpc.addr", v.GetString("grpc.addr"))
-			if err := baldconfig.Unmarshal(v, bootstrap); err != nil {
+				"server.http.addr", app.Config().GetString("server.http.addr"),
+				"server.grpc.addr", app.Config().GetString("server.grpc.addr"))
+			if err := baldconfig.Unmarshal(m, bootstrap); err != nil {
 				logger.Error(context.Background(), "reload config failed", "error", err)
 				return
 			}
@@ -292,33 +298,33 @@ func newApp(
 		appkit.Servers(buildServers(bootstrap, httpSrv, grpcSrv, ready)...),
 
 		// 3. 启动前按 proto 契约解析配置。
-		//    flag / 远程 / 本地文件 / 环境变量 的合并结果都在 app.Viper() 中；
+		//    flag / 远程 / 本地文件 / 环境变量 的合并结果都在 app.Settings() 中；
 		//    用 conf.Bootstrap（Protobuf）接收，字段名与类型是编译期可查的，
 		//    而非依赖 mapstructure tag 的字符串匹配（写错键名会静默落到零值）。
 		appkit.BeforeStart(func(ctx context.Context) error {
-			v := app.Viper()
-			if v == nil {
+			m := app.Settings()
+			if m == nil {
 				return nil
 			}
 
-			// bootstrap 已被 flag 注册指向同一对象，此处 Unmarshal 把 viper 合并结果写回；
+			// bootstrap 已被 flag 注册指向同一对象，此处 Unmarshal 把合并结果写回；
 			// 由于是同一个指针，server 层 Start 时直接读到最终值。
-			if err := baldconfig.Unmarshal(v, bootstrap); err != nil {
+			if err := baldconfig.Unmarshal(m, bootstrap); err != nil {
 				return fmt.Errorf("unmarshal config: %w", err)
 			}
-			if err := baldconf.Validate(bootstrap); err != nil {
+			if err := bconf.Validate(bootstrap); err != nil {
 				return fmt.Errorf("invalid config: %w", err)
 			}
 
 			// 日志阶段 B：按最终配置重建全局 Logger。
-			setLogger(baldconf.LogOptions(bootstrap.GetLogger()))
+			setLogger(baldbootstrap.LogOptions(bootstrap.GetLogger()))
 			logger := baldlog.GetLogger()
 
 			logger.Info(ctx, "loaded config",
-				"http.addr", bootstrap.GetHttp().GetAddr(),
-				"http.tls.enabled", bootstrap.GetHttp().GetTls().GetEnabled(),
-				"grpc.addr", bootstrap.GetGrpc().GetAddr(),
-				"log.level", bootstrap.GetLogger().GetLevel())
+				"server.http.addr", bootstrap.GetServer().GetHttp().GetAddr(),
+				"server.http.tls", bootstrap.GetServer().GetHttp().GetTls() != nil,
+				"server.grpc.addr", bootstrap.GetServer().GetGrpc().GetAddr(),
+				"log.level", bootstrap.GetLogger().GetSlog().GetLevel())
 			return nil
 		}),
 		appkit.AfterStart(func(ctx context.Context) error {
@@ -352,7 +358,7 @@ var osExit = func(code int) { os.Exit(code) }
 // （针对 baldv1.GreetRequest 的 ValidateGreetRequest）。
 var greetValidator grpcmw.MessageValidator
 
-// registerGRPCService 是 gRPC service 注册回调，供 server.NewGRPCServerWithRegister 使用。
+// registerGRPCService 是 gRPC service 注册回调，供 grpcserver.NewGRPCServerWithRegister 使用。
 //
 // 默认编译（无 grpcgw tag）下它是空实现——业务在此注册自己的实现即可
 // （pb.RegisterYourServer(s, yourImpl)）。
@@ -402,12 +408,12 @@ func newGRPCServerOptions() []grpc.ServerOption {
 // 抽成函数是为了让 main 与 e2e 测试共用（见 greet_e2e_test.go），
 // 避免测试里另写一份导致「测得的东西和跑的不一样」。
 func buildServers(
-	bootstrap *confv1.Bootstrap,
-	httpSrv *server.HTTPServer,
-	grpcSrv *server.GRPCServer,
-	ready server.ReadinessFunc,
-) []server.Server {
-	servers := []server.Server{grpcSrv, httpSrv}
+	bootstrap *bootstrapv1.BootstrapConfig,
+	httpSrv *httpserver.HTTPServer,
+	grpcSrv *grpcserver.GRPCServer,
+	ready transport.ReadinessFunc,
+) []transport.Server {
+	servers := []transport.Server{grpcSrv, httpSrv}
 	if gatewayFactory == nil {
 		return servers
 	}
@@ -415,8 +421,8 @@ func buildServers(
 	// gateway 需要连到 gRPC 服务，故用其监听地址。
 	// 注意：地址必须是**可连接**的（如 :9090），不能是 :0
 	// （:0 是监听语义，转发时无从得知实际端口）—— e2e 测试会显式分配空闲端口。
-	gwCfg := &confv1.Http{Addr: gatewayAddr}
-	gw, err := gatewayFactory(gwCfg, bootstrap.GetGrpc(), ready)
+	gwCfg := &bootstrapv1.Server_Http{Addr: gatewayAddr}
+	gw, err := gatewayFactory(gwCfg, bootstrap.GetServer().GetGrpc(), ready)
 	if err != nil {
 		// 网关构造失败不应静默降级（否则 REST 路由凭空消失、无人知晓），
 		// 直接 panic 让问题在启动期暴露；也符合 appkit 的 fail-fast 风格。
@@ -432,7 +438,7 @@ func buildServers(
 //
 // 用工厂函数而非直接构造，是因为 GatewayServer 依赖 grpc-gateway（较重），
 // 默认构建不该引入它（与 P5「核心零重依赖」、P6「依赖倒置」一致）。
-var gatewayFactory func(httpCfg *confv1.Http, grpcBackend *confv1.Grpc, ready server.ReadinessFunc) (*server.GatewayServer, error)
+var gatewayFactory func(httpCfg *bootstrapv1.Server_Http, grpcBackend *bootstrapv1.Server_Grpc, ready transport.ReadinessFunc) (*gateway.GatewayServer, error)
 
 // gatewayAddr 是 grpc-gateway 的监听地址，与 HTTP 主服务（http.addr）分开，
 // 避免端口冲突。e2e 测试会覆盖它（用空闲端口）。
@@ -444,11 +450,11 @@ var gatewayAddr = ":8081"
 
 // setLogger 按给定配置重建全局 Logger，并保留脱敏装饰器。
 // 启动期先按默认配置装一次（阶段 A），配置加载完成后再按最终配置重建（阶段 B）。
-func setLogger(opts *baldlog.Options) {
-	baldlog.SetLogger(baldlog.NewSlogLogger(opts,
-		baldlog.WithFilter(baldlog.FilterKey("password")),
-		baldlog.WithFilter(baldlog.FilterKey("token")),
-		baldlog.WithAttrs(slog.String("service.name", "bald-demo")),
+func setLogger(opts *baldlogadapter.Options) {
+	baldlog.SetLogger(baldlogadapter.NewSlogLogger(opts,
+		baldlogadapter.WithFilter(baldlogadapter.FilterKey("password")),
+		baldlogadapter.WithFilter(baldlogadapter.FilterKey("token")),
+		baldlogadapter.WithAttrs(slog.String("service.name", "bald-demo")),
 	))
 }
 
@@ -532,13 +538,18 @@ func exampleRoutes(e *gin.Engine) {
 	})
 }
 
-// 附：configs/bald-demo.yaml 示例
+// 附：configs/bald-demo.yaml 示例（键路径与契约字段一致）
 //
-//	http:
-//	  addr: ":8080"
-//	grpc:
-//	  addr: ":9090"
+//	server:
+//	  http:
+//	    addr: ":8080"
+//	  grpc:
+//	    addr: ":9090"
+//	logger:
+//	  type: "slog"
+//	  slog:
+//	    level: "info"
 //
 // 远程 etcd 中 /config/bald-demo/prod.yaml 可存同样结构（yaml/json 均可），
-// 作为基准；本地文件中的同名 key 会覆盖它。例如远程 http.addr=:8080、
-// 本地 http.addr=:18080，最终生效 :18080。
+// 作为基准；本地文件中的同名 key 会覆盖它。例如远程 server.http.addr=:8080、
+// 本地 server.http.addr=:18080，最终生效 :18080。

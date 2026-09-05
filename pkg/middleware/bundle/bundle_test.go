@@ -16,7 +16,7 @@ import (
 
 	"github.com/kalandramo/bald/pkg/audit"
 	"github.com/kalandramo/bald/pkg/authn"
-	berrors "github.com/kalandramo/bald/pkg/berrors"
+	berrors "github.com/kalandramo/bald/berrors"
 	"github.com/kalandramo/bald/pkg/metrics"
 )
 

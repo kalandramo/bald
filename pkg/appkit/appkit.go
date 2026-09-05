@@ -1,7 +1,7 @@
 // Package appkit 是 bald 框架的组合层（App 层）。
 //
 // 设计融合三方之长：
-//   - onexstack/pkg/app 的 Options + 配置理念（启动期由调用方注入 --config/viper）；
+//   - onexstack/pkg/app 的 Options + 配置理念（启动期由调用方注入 --config/配置装载器）；
 //   - Kratos 的 transport.Server 契约与 registry.Registrar 接口（可插拔复用）；
 //   - go-lulu 的自研 App 层精髓：自管 errgroup、优雅停机防坑（Stop 传入未取消 ctx）、
 //     崩溃级联停止、Run 防重入、可观察通道、Endpoint 动态端口注册。
@@ -31,17 +31,16 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/spf13/pflag"
-	"github.com/spf13/viper"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/proto"
 
 	kratosRegistry "github.com/go-kratos/kratos/v3/registry"
+	bconf "github.com/kalandramo/bald/bconf"
+	"github.com/kalandramo/bald/bootstrap/config"
+	"github.com/kalandramo/bald/log"
 	"github.com/kalandramo/bald/pkg/audit"
-	"github.com/kalandramo/bald/pkg/conf"
-	"github.com/kalandramo/bald/pkg/config"
-	"github.com/kalandramo/bald/pkg/log"
 	"github.com/kalandramo/bald/pkg/registry"
-	"github.com/kalandramo/bald/pkg/server"
+	"github.com/kalandramo/bald/transport"
 )
 
 // ErrAlreadyRunning 在重复调用 Run 时返回。
@@ -61,7 +60,7 @@ type AppKit struct {
 	afterStopTimeout  time.Duration
 
 	registrar registry.Registrar // 注册中心
-	servers   []server.Server    // 服务协议
+	servers   []transport.Server // 服务协议
 
 	// 钩子（可选）。
 	beforeStart []func(context.Context) error
@@ -115,18 +114,26 @@ type AppKit struct {
 }
 
 // appConfig 收敛 AppKit 的配置装配输入与加载结果。
-// 装配期输入：cfgFile / remote / env / watchFile / onChange / bindings；加载结果：v。
+// 装配输入：cfgFile / remote / layers（契约源层） / env / watchFile / onChange / bindings；加载结果：store。
 type appConfig struct {
 	cfgFile   string
 	remote    config.RemoteSource
+	layers    []config.Layer
 	env       string
 	watchFile bool
-	onChange  func(*viper.Viper)
+	onChange  func(map[string]any)
 	bindings  []flagBinding
-	v         *viper.Viper
+	store     *config.Store
 }
 
-// flagBinding 记录一个待注册进 viper override 层的配置对象及其配置键前缀。
+// closeStore 释放配置仓库的监听资源（fsnotify watcher）；未加载时 no-op。
+func (c *appConfig) closeStore() {
+	if c.store != nil {
+		_ = c.store.Close()
+	}
+}
+
+// flagBinding 记录一个待绑定进配置装载 FlagSet 的配置对象及其配置键前缀。
 // TODO 属于配置管理？
 type flagBinding struct {
 	prefix string
@@ -140,8 +147,8 @@ type PlainBinder interface {
 	AddFlags(fs *pflag.FlagSet)
 }
 
-// Bind 把业务配置对象的 flag 注册进 AppKit 的 FlagSet，从而接入 viper 的
-// override 层，使「业务 flag > env > 本地文件 > 远程」这条优先级链完整生效。
+// Bind 把业务配置对象的 flag 注册进 AppKit 的 FlagSet，从而接入配置装载的
+// flag 层，使「业务 flag > env > 本地文件 > 远程」这条优先级链完整生效。
 //
 // 背景：仅调用 AddFlags(pflag.CommandLine, ...) 只把 flag 注册到全局 flagset，
 // config.Load 拿不到它们，flag 层实际只有 --config 生效
@@ -149,13 +156,13 @@ type PlainBinder interface {
 //
 // 两种 opt：
 //  1. proto.Message（全栈 proto 驱动推荐）：Bind("http", &bootstrap.Http)。
-//     conf.BindFlags 会遍历 proto 字段描述符生成带前缀的 flag（--http.addr 等），
-//     与 viper 键路径（http.addr）、环境变量（NAME_HTTP_ADDR）、配置文件一致。
+//     bconf.BindFlags 会遍历 proto 字段描述符生成带前缀的 flag（--http.addr 等），
+//     与配置键路径（http.addr）、环境变量（NAME_HTTP_ADDR）、配置文件一致。
 //  2. PlainBinder：opt 自行注册无前缀 flag（键前缀由实现体内置，如 log.Options
 //     的 --log.*），此时 prefix 必须传空字符串。
 //
 // prefix 是配置键前缀（不带末尾点，如 "http"），最终 flag 名为 --http.addr，
-// viper 键为 http.addr，环境变量为 NAME_HTTP_ADDR，配置文件为：
+// 配置键为 http.addr，环境变量为 NAME_HTTP_ADDR，配置文件为：
 //
 //	http:
 //	  addr: ":8080"
@@ -182,7 +189,7 @@ func Bind(prefix string, opt any) Option {
 func bindFlags(fs *pflag.FlagSet, b flagBinding) error {
 	switch opt := b.opt.(type) {
 	case proto.Message:
-		conf.BindFlags(fs, opt, b.prefix)
+		bconf.BindFlags(fs, opt, b.prefix)
 	case PlainBinder:
 		if b.prefix != "" {
 			return fmt.Errorf("appkit: Bind(%q): opt registers its own flag prefix, prefix must be empty", b.prefix)
@@ -211,7 +218,6 @@ func KratosRegistrar(r kratosRegistry.Registrar) Option {
 }
 
 // ConfigFile 指定 --config 配置文件路径（onexstack 风格）。
-// TODO 合并到配置管理？
 func ConfigFile(f string) Option { return func(a *AppKit) { a.cfg.cfgFile = f } }
 
 // RemoteConfig 接入远程配置中心（etcd/consul/nacos/apollo/firestore 等）。
@@ -221,9 +227,23 @@ func ConfigFile(f string) Option { return func(a *AppKit) { a.cfg.cfgFile = f } 
 //	src := config.FromKratosSource(etcdconfig.New(client, etcdconfig.WithPath("/config/demo/prod.yaml")))
 //	appkit.New(..., appkit.RemoteConfig(src))
 //
-// TODO 合并到配置管理？
+// 语义：远程桥内部被适配为最低优先级的基准层；契约源层推荐用 ConfigLayers
+// （由 bootstrap Registry 装配，Registry 注册序即优先级）。
 func RemoteConfig(src config.RemoteSource) Option {
 	return func(a *AppKit) { a.cfg.remote = src }
+}
+
+// ConfigLayers 接入命名配置源层（契约 Config 段 → bconfig 源，bootstrap
+// Registry.Build 产出）。列表首元素优先级最高（对齐 Registry 注册序）；
+// 整体位于本地文件/env/flag 之下、RemoteConfig 远程桥之上：
+//
+//	layers, cleanup, err := registry.Build(ctx, bootCfg)
+//	defer cleanup()
+//	appkit.New(name, appkit.ConfigLayers(layers...))
+//
+// 任一层 reader 实现 bconfig.ValueWatcher 即参与热更新（变更 → 全量重合并）。
+func ConfigLayers(ls ...config.Layer) Option {
+	return func(a *AppKit) { a.cfg.layers = append(a.cfg.layers, ls...) }
 }
 
 // Env 设置运行环境（dev/test/prod...）。非空时本地按 Name-Env.yaml 选择默认文件，
@@ -234,11 +254,13 @@ func Env(env string) Option { return func(a *AppKit) { a.cfg.env = env } }
 func WatchConfigFile(watch bool) Option { return func(a *AppKit) { a.cfg.watchFile = watch } }
 
 // OnConfigChange 注册配置热更新回调（本地文件或远程变更均触发）。
-func OnConfigChange(fn func(*viper.Viper)) Option {
+// 形参为变更后重新合并的配置快照（map），业务在其中重新 Unmarshal 完成热重载。
+// 回调应轻量（改状态、切引用、记日志），不要阻塞——它串行阻塞后续变更分发。
+func OnConfigChange(fn func(map[string]any)) Option {
 	return func(a *AppKit) { a.cfg.onChange = fn }
 }
 
-func Servers(servers ...server.Server) Option {
+func Servers(servers ...transport.Server) Option {
 	return func(a *AppKit) { a.servers = append(a.servers, servers...) }
 }
 
@@ -311,18 +333,19 @@ func New(opts ...Option) *AppKit {
 }
 
 // loadConfig 在启动期加载配置：本地 --config 文件 + 环境变量 + 业务 flag + 可选远程配置中心。
-// 结果是 a.cfg.v（*viper.Viper），调用方通过 Viper() 读取并 Unmarshal 到业务 options。
+// 结果是 a.cfg.store（*config.Store），调用方通过 Settings()/Config() 读取并
+// Unmarshal 到业务 options。
 func (a *AppKit) loadConfig() error {
 	fs := pflag.NewFlagSet("bald", pflag.ContinueOnError)
 	fs.StringVar(&a.cfg.cfgFile, "config", a.cfg.cfgFile,
-		"Read configuration from specified FILE (JSON/TOML/YAML/HCL/properties); "+
+		"Read configuration from specified FILE (JSON/YAML); "+
 			"also supports remote provider if RemoteConfig is set.")
 	// 白名单忽略未知 flag，避免未注册的 flag 中断解析。
 	fs.ParseErrorsWhitelist.UnknownFlags = true
 
 	// 注册业务 flag：必须进入本 FlagSet（而非仅 pflag.CommandLine），
-	// 它才会被 config.Options.Flags 传给 viper.BindPFlags 落到 override 层，
-	// 从而压过环境变量、本地文件与远程基准。
+	// 它才会被 config.Options.Flags 传入装载器落到 flag 层（仅 Changed 的 flag
+	// 参与合并），从而压过环境变量、本地文件与远程基准。
 	for _, b := range a.cfg.bindings {
 		if err := bindFlags(fs, b); err != nil {
 			return err
@@ -331,11 +354,12 @@ func (a *AppKit) loadConfig() error {
 
 	_ = fs.Parse(os.Args[1:])
 
-	v, err := config.Load(config.Options{
+	s, err := config.Load(config.Options{
 		Name:           a.name,
 		Env:            a.cfg.env,
 		ConfigFile:     a.cfg.cfgFile,
 		Flags:          fs,
+		Layers:         a.cfg.layers,
 		Remote:         a.cfg.remote,
 		WatchLocalFile: a.cfg.watchFile,
 		OnChange:       a.wrapKeyWatch(a.cfg.onChange), // R1：包装全量回调，追加 key 级分发
@@ -343,7 +367,7 @@ func (a *AppKit) loadConfig() error {
 	if err != nil {
 		return err
 	}
-	a.cfg.v = v
+	a.cfg.store = s
 	a.armKeyWatchers() // R1：以首次加载值为基线
 	return nil
 }
@@ -351,9 +375,19 @@ func (a *AppKit) loadConfig() error {
 // Done 返回应用结束信号通道，便于测试与嵌入。
 func (a *AppKit) Done() <-chan struct{} { return a.done }
 
-// Viper 返回加载后的配置实例，供调用方 Unmarshal 到业务 options 结构体。
-// 仅在 Run 触发配置加载后才有有效内容；未配置加载时为 nil。
-func (a *AppKit) Viper() *viper.Viper { return a.cfg.v }
+// Settings 返回加载后的配置快照（深拷贝 map），供 bconf.UnmarshalMap /
+// baldconfig.Unmarshal 填充契约。仅在 Run 触发配置加载后才有有效内容；
+// 未加载时为 nil。热更新不影响已取出的快照（发布语义：快照稳定）。
+func (a *AppKit) Settings() map[string]any {
+	if a.cfg.store == nil {
+		return nil
+	}
+	return a.cfg.store.Settings()
+}
+
+// Config 返回配置仓库（*config.Store），供点路径实时读取（GetString/
+// GetStringSlice/Get）与一站式 Unmarshal。仅在 Run 触发配置加载后非 nil。
+func (a *AppKit) Config() *config.Store { return a.cfg.store }
 
 // Err 返回 Run 的退出错误（Run 返回后有效）。
 func (a *AppKit) Err() error {
@@ -376,7 +410,7 @@ func (a *AppKit) Run(ctx context.Context) error {
 	//
 	// 曾把 loadConfig 放在 CAS 之前，理由是「配置失败不属于运行中状态，不应占用
 	// running/done」。但那样做有数据竞争：两个并发 Run 会同时执行 loadConfig，
-	// 并发写 a.cfg.cfgFile（pflag 绑定了其地址）与 a.cfg.v（go test -race 可复现）。
+	// 并发写 a.cfg.cfgFile（pflag 绑定了其地址）与 a.cfg.store（go test -race 可复现）。
 	// loadConfig 是 Run 的一部分，理应受防重入保护。
 	if !a.running.CompareAndSwap(false, true) {
 		return ErrAlreadyRunning
@@ -392,9 +426,10 @@ func (a *AppKit) Run(ctx context.Context) error {
 		return err
 	}
 
-	// 以下两个 defer 必须在 loadConfig 成功之后注册：确保失败路径不 close done。
+	// 以下 defer 必须在 loadConfig 成功之后注册：确保失败路径不 close done。
 	defer a.running.Store(false)
 	defer close(a.done)
+	defer a.cfg.closeStore() // 释放配置监听资源（fsnotify watcher）
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -476,7 +511,7 @@ func (a *AppKit) Run(ctx context.Context) error {
 
 	// R1-2：启动后首次协调——让初始配置的期望态立即生效（此后由配置变更触发）。
 	// 挂在 afterStart 之后：此时 bridges/组件已就绪，协调可安全调 Start/Dispose。
-	a.runReconcilers(gctx, a.cfg.v)
+	a.runReconcilers(gctx)
 
 	log.GetLogger().Info(ctx, "appkit started", "servers", len(a.servers))
 
@@ -538,7 +573,7 @@ func (a *AppKit) stopAll(parent context.Context) {
 	var wg sync.WaitGroup
 	for _, s := range a.servers {
 		wg.Add(1)
-		go func(s server.Server) {
+		go func(s transport.Server) {
 			defer wg.Done()
 			if err := s.Stop(stopCtx); err != nil {
 				log.GetLogger().Error(stopCtx, "appkit server stop failed", "error", err)

@@ -11,7 +11,7 @@ import (
 	"github.com/kalandramo/bald/pkg/audit"
 	"github.com/kalandramo/bald/pkg/authn"
 	"github.com/kalandramo/bald/pkg/authz"
-	berrors "github.com/kalandramo/bald/pkg/berrors"
+	berrors "github.com/kalandramo/bald/berrors"
 	"github.com/kalandramo/bald/pkg/contextx"
 	"github.com/kalandramo/bald/pkg/metrics"
 )

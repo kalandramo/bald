@@ -8,9 +8,9 @@ package appkit
 
 // NewHarness 构造一个测试装置：跳过配置加载与服务器启动，直接进入运行态
 // （MountComponent/ReconcileCtx.Mount 可用），供跨 module 的集成测试驱动
-// 协调器逻辑（配合 NewReconcileCtx 显式注入 Viper 后手动调用协调函数）。
+// 协调器逻辑（配合 NewReconcileCtx 显式注入期望态快照后手动调用协调函数）。
 //
-// 装置不监听端口、不加载配置（Viper 为 nil）；组件挂载/卸载与停机 Dispose
+// 装置不监听端口、不加载配置（配置仓库为 nil）；组件挂载/卸载与停机 Dispose
 // 语义与真实 AppKit 一致。
 func NewHarness() *AppKit {
 	a := New()

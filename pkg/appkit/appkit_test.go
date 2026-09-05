@@ -15,12 +15,13 @@ import (
 	"testing"
 	"time"
 
-	confv1 "github.com/kalandramo/bald/pkg/conf/gen/go/bald/config/v1"
+	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
 	"github.com/kalandramo/bald/pkg/registry"
-	"github.com/kalandramo/bald/pkg/server"
+	grpcserver "github.com/kalandramo/bald/transport/grpc"
+	httpserver "github.com/kalandramo/bald/transport/http"
 )
 
-// mockServer 是一个可控的测试服务器，满足 server.Server 接口。
+// mockServer 是一个可控的测试服务器，满足 transport.Server 接口。
 type mockServer struct {
 	addr       string
 	started    atomic.Bool
@@ -279,7 +280,7 @@ func TestRegistry_RegisterDeregister(t *testing.T) {
 }
 
 // P0：分阶段停机顺序与独立超时。
-// 验证顺序为 beforeStop -> server.Stop -> afterStop，且各阶段用各自独立超时 ctx。
+// 验证顺序为 beforeStop -> transport.Stop -> afterStop，且各阶段用各自独立超时 ctx。
 func TestP0_StopPhasesOrderAndTimeout(t *testing.T) {
 	var mu sync.Mutex
 	var order []string
@@ -462,7 +463,7 @@ func (s *memRemoteSource) Watch(_ context.Context, _ func([]byte, string)) error
 }
 
 // TestAppKit_ConfigLoadedAndExposed：WithConfig + RemoteConfig 注入后，
-// Run 启动期把合并结果放入 a.Viper()，BeforeStart 可读到正确值。
+// Run 启动期把合并结果放入 a.Settings()/Config()，BeforeStart 可读到正确值。
 func TestAppKit_ConfigLoadedAndExposed(t *testing.T) {
 	// 远程基准：http.addr=:8080
 	remote := &memRemoteSource{data: []byte("http:\n  addr: \":8080\""), format: "yaml"}
@@ -482,11 +483,11 @@ func TestAppKit_ConfigLoadedAndExposed(t *testing.T) {
 		RemoteConfig(remote),
 		Servers(srv),
 		BeforeStart(func(_ context.Context) error {
-			v := app.Viper()
-			if v == nil {
-				t.Fatal("Viper() is nil in BeforeStart")
+			m := app.Settings()
+			if m == nil {
+				t.Fatal("Settings() is nil in BeforeStart")
 			}
-			loadedAddr = v.GetString("http.addr")
+			loadedAddr = app.Config().GetString("http.addr")
 			return nil
 		}),
 	)
@@ -515,7 +516,7 @@ func TestAppKit_ConfigMissingFileNoError(t *testing.T) {
 		RemoteConfig(remote),
 		Servers(srv),
 		BeforeStart(func(_ context.Context) error {
-			loadedAddr = app.Viper().GetString("http.addr")
+			loadedAddr = app.Config().GetString("http.addr")
 			return nil
 		}),
 	)
@@ -536,8 +537,8 @@ func TestAppKit_ConfigMissingFileNoError(t *testing.T) {
 // 验证 buildInstance 正确聚合多个 :0 动态端口后的 Endpoint。
 func TestAppKit_MultiServerEndpointAggregation(t *testing.T) {
 	reg := &recordingRegistrar{}
-	httpSrv := server.NewHTTPServer(&confv1.Http{Addr: ":0"}, http.NewServeMux(), nil)
-	grpcSrv := server.NewGRPCServerWithRegister(&confv1.Grpc{Addr: ":0"}, nil, nil, nil)
+	httpSrv := httpserver.NewHTTPServer(&bootstrapv1.Server_Http{Addr: ":0"}, http.NewServeMux(), nil)
+	grpcSrv := grpcserver.NewGRPCServerWithRegister(&bootstrapv1.Server_Grpc{Addr: ":0"}, nil, nil, nil)
 
 	app := New(
 		ID("node-multi"),

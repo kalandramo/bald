@@ -22,7 +22,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/kalandramo/bald/pkg/log"
+	"github.com/kalandramo/bald/log"
 )
 
 // Component 是带生命周期的进程内基础设施（对照 server.Server 的广义化：

@@ -1,9 +1,12 @@
 // Command bald-gin 演示用原生 gin 作为 HTTP 引擎，路由直接用 gin 编写，
-// 「绑定/校验/响应」复用强绑定 gin 的 pkg/web 流水线。
+// 「绑定/校验/响应」复用强绑定 gin 的 transport/web 流水线。
 //
 // 关键点：web 包直接消费 *gin.Context，因此只支持 gin 与 grpc-gateway
 // （后者经 grpc-gateway 的 HTTP transcoding 落到标准库 http）。这与 onexstack
 // 的 pkg/core 思路一致，业务 handler 与传输层解耦（参考 miniblog handler 分层）。
+//
+// 配置契约：bootstrapv1（bconf.NewBootstrap），协议实现与其同源——
+// server 直接消费 BootstrapConfig 的 Server_Http 子消息，无桥接层。
 //
 // 运行：
 //
@@ -23,32 +26,33 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/pflag"
 
+	bconf "github.com/kalandramo/bald/bconf"
+	baldlog "github.com/kalandramo/bald/log"
+	baldlogadapter "github.com/kalandramo/bald/log/slog"
 	"github.com/kalandramo/bald/pkg/appkit"
-	baldconf "github.com/kalandramo/bald/pkg/conf"
-	baldlog "github.com/kalandramo/bald/pkg/log"
 	"github.com/kalandramo/bald/pkg/registry/inmemory"
-	"github.com/kalandramo/bald/pkg/server"
-	"github.com/kalandramo/bald/pkg/web"
+	httpserver "github.com/kalandramo/bald/transport/http"
+	"github.com/kalandramo/bald/transport/web"
 )
 
 func main() {
 	// 框架级配置：proto 是唯一真相源。server 直接消费 Bootstrap 子消息。
-	bootstrap := baldconf.NewBootstrap()
-	bootstrap.Http.Addr = ":8080"
+	bootstrap := bconf.NewBootstrap()
+	bootstrap.GetServer().GetHttp().Addr = ":8080"
 
 	// 日志系统接入（进程入口 bootstrap 全局 Logger）。
-	logOpts := baldlog.NewOptions()
+	logOpts := baldlogadapter.NewOptions()
 	logOpts.AddFlags(pflag.CommandLine)
-	baldlog.SetLogger(baldlog.NewSlogLogger(logOpts))
+	baldlog.SetLogger(baldlogadapter.NewSlogLogger(logOpts))
 	logger := baldlog.GetLogger()
 
 	// 框架级 flag 注册（直接到 pflag.CommandLine，接入 viper override 层）。
-	baldconf.BindFlags(pflag.CommandLine, bootstrap.GetHttp(), "bald-gin.http")
-	baldconf.BindFlags(pflag.CommandLine, bootstrap.GetGrpc(), "bald-gin.grpc")
+	bconf.BindFlags(pflag.CommandLine, bootstrap.GetServer().GetHttp(), "bald-gin.server.http")
+	bconf.BindFlags(pflag.CommandLine, bootstrap.GetServer().GetGrpc(), "bald-gin.server.grpc")
 
 	ready := func(ctx context.Context) error { return nil }
 
-	// 用原生 gin 构造路由，「绑定/校验/响应」全部走强绑定 gin 的 pkg/web。
+	// 用原生 gin 构造路由，「绑定/校验/响应」全部走强绑定 gin 的 transport/web。
 	// 路径参数由 gin 原生 ShouldBindUri 处理，无需额外桥接中间件。
 	engine := gin.New()
 	engine.Use(gin.Recovery())
@@ -81,7 +85,7 @@ func main() {
 	})
 
 	// 直接把 gin.Engine 作为 http.Handler 交给 bald 服务器层。
-	httpSrv := server.NewHTTPServer(bootstrap.GetHttp(), engine, ready)
+	httpSrv := httpserver.NewHTTPServer(bootstrap.GetServer().GetHttp(), engine, ready)
 
 	app := appkit.New(
 		appkit.Name("bald-gin"),

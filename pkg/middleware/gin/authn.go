@@ -5,13 +5,13 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/kalandramo/bald/log"
 	"github.com/kalandramo/bald/pkg/audit"
 	"github.com/kalandramo/bald/pkg/authn"
-	berrors "github.com/kalandramo/bald/pkg/berrors"
-	"github.com/kalandramo/bald/pkg/berrors/httperr"
+	berrors "github.com/kalandramo/bald/berrors"
+	"github.com/kalandramo/bald/berrors/httperr"
 	"github.com/kalandramo/bald/pkg/contextx"
-	"github.com/kalandramo/bald/pkg/log"
-	"github.com/kalandramo/bald/pkg/web"
+	"github.com/kalandramo/bald/transport/web"
 )
 
 // AuthnOption 配置 AuthnMiddleware。

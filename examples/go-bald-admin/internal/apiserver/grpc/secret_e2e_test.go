@@ -17,12 +17,13 @@ import (
 	"github.com/kalandramo/bald/pkg/authz"
 
 	"github.com/kalandramo/bald/pkg/authn"
+	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
 	grpcmw "github.com/kalandramo/bald/pkg/middleware/grpc"
-	"github.com/kalandramo/bald/pkg/server"
+	grpcserver "github.com/kalandramo/bald/transport/grpc"
+	gateway "github.com/kalandramo/bald/transport/gateway"
 
 	adminv1 "github.com/kalandramo/bald/examples/go-bald-admin/gen/secretv1"
 	bootstrappkg "github.com/kalandramo/bald/examples/go-bald-admin/internal/bootstrap"
-	confv1 "github.com/kalandramo/bald/pkg/conf/gen/go/bald/config/v1"
 )
 
 func listenLocal() (net.Listener, error) { return net.Listen("tcp", ":0") }
@@ -36,7 +37,7 @@ func statusCode(t *testing.T, err error) string {
 }
 
 // startServer 构造受 Authn+Authz 保护的真实 gRPC server（:0 动态端口，标准 proto codec）。
-func startServer(t *testing.T) (*server.GRPCServer, string) {
+func startServer(t *testing.T) (*grpcserver.GRPCServer, string) {
 	t.Helper()
 	if err := bootstrappkg.InitBridges(context.Background()); err != nil {
 		t.Fatalf("InitBridges: %v", err)
@@ -49,8 +50,8 @@ func startServer(t *testing.T) (*server.GRPCServer, string) {
 			grpcmw.WithObjectResolver(authz.DefaultGRPCObject),
 			grpcmw.WithActionResolver(authz.DefaultGRPCAction))(ctx, req, info, handler)
 	}
-	srv := server.NewGRPCServerWithRegister(
-		&confv1.Grpc{Addr: ":0"},
+	srv := grpcserver.NewGRPCServerWithRegister(
+		&bootstrapv1.Server_Grpc{Addr: ":0"},
 		[]grpc.ServerOption{
 			// ErrorInterceptor 必须最外层，收口 authn/authz 返回的 berrors -> gRPC status。
 			grpc.ChainUnaryInterceptor(grpcmw.ErrorInterceptor(), authnI, authzI),
@@ -218,8 +219,8 @@ func TestRESTGateway_MultiTenant_Isolation(t *testing.T) {
 			grpcmw.WithObjectResolver(authz.DefaultGRPCObject),
 			grpcmw.WithActionResolver(authz.DefaultGRPCAction))(ctx, req, info, handler)
 	}
-	grpcSrv := server.NewGRPCServerWithRegister(
-		&confv1.Grpc{Addr: grpcAddr},
+	grpcSrv := grpcserver.NewGRPCServerWithRegister(
+		&bootstrapv1.Server_Grpc{Addr: grpcAddr},
 		[]grpc.ServerOption{grpc.ChainUnaryInterceptor(grpcmw.ErrorInterceptor(), authnI, authzI)},
 		func(s *grpc.Server) { adminv1.RegisterSecretServiceServer(s, NewServer()) },
 		nil,
@@ -229,9 +230,9 @@ func TestRESTGateway_MultiTenant_Isolation(t *testing.T) {
 
 	// 网关：指向真实 grpc 地址，转发 REST 到 gRPC。监听地址用 :0 由框架分配，
 	// 真实端口经 Endpoint() 取（不可自行预监听，否则与 HTTPServer 内部监听冲突）。
-	gwSrv, gwErr := server.NewGatewayServer(
-		&confv1.Http{Addr: ":0"},
-		&confv1.Grpc{Addr: grpcAddr},
+	gwSrv, gwErr := gateway.NewGatewayServer(
+		&bootstrapv1.Server_Http{Addr: ":0"},
+		&bootstrapv1.Server_Grpc{Addr: grpcAddr},
 		func(ctx context.Context, conn *grpc.ClientConn) (http.Handler, error) {
 			mux := runtime.NewServeMux()
 			if err := adminv1.RegisterSecretServiceHandler(ctx, mux, conn); err != nil {

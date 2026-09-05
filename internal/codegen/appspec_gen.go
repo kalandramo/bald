@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"text/template"
 
-	appspecv1 "github.com/kalandramo/bald/pkg/conf/gen/go/bald/appspec/v1"
+	appspecv1 "github.com/kalandramo/bald/bconf/gen/go/bald/appspec/v1"
 )
 
 // appspecTmpl 是 P12 第二步「方言驱动生成」的 main.go 模板：消费 AppSpec，
@@ -55,11 +55,17 @@ import (
 
 	"github.com/kalandramo/bald/pkg/appkit"
 	"github.com/kalandramo/bald/pkg/audit"
-	baldlog "github.com/kalandramo/bald/pkg/log"
+	baldlog "github.com/kalandramo/bald/log"
+	baldlogadapter "github.com/kalandramo/bald/log/slog"
 {{- if or .Server.Http .Server.Grpc }}
-	baldconf "github.com/kalandramo/bald/pkg/conf"
+	bconf "github.com/kalandramo/bald/bconf"
 	"github.com/kalandramo/bald/pkg/middleware/bundle"
-	"github.com/kalandramo/bald/pkg/server"
+{{- if .Server.Grpc }}
+	grpcserver "github.com/kalandramo/bald/transport/grpc"
+{{- end }}
+{{- if .Server.Http }}
+	httpserver "github.com/kalandramo/bald/transport/http"
+{{- end }}
 {{- end }}
 )
 
@@ -71,18 +77,18 @@ var defaultAuditBackends = []string{ {{- range .AuditBackends }}
 
 func serveRunE(_ *cobra.Command, _ []string) error {
 {{- if or .Server.Http .Server.Grpc .Server.HttpAddr .Server.GrpcAddr }}
-	bootstrap := baldconf.NewBootstrap()
+	bootstrap := bconf.NewBootstrap()
 {{- if .Server.HttpAddr }}
-	bootstrap.GetHttp().Addr = "{{ .Server.HttpAddr }}" // ServerSpec.http_addr
+	bootstrap.GetServer().GetHttp().Addr = "{{ .Server.HttpAddr }}" // ServerSpec.http_addr
 {{- end }}
 {{- if .Server.GrpcAddr }}
-	bootstrap.GetGrpc().Addr = "{{ .Server.GrpcAddr }}" // ServerSpec.grpc_addr
+	bootstrap.GetServer().GetGrpc().Addr = "{{ .Server.GrpcAddr }}" // ServerSpec.grpc_addr
 {{- end }}
 {{- end }}
 
 	// 日志后端（slog 门面）：logOpts 可被 --log.* flag 覆盖（含 rotate，见 --log.rotate.*）。
-	logOpts := baldlog.NewOptions()
-	baldlog.SetLogger(baldlog.NewSlogLogger(logOpts))
+	logOpts := baldlogadapter.NewOptions()
+	baldlog.SetLogger(baldlogadapter.NewSlogLogger(logOpts))
 {{- if or .Server.Http .Server.Grpc }}
 
 	// bundle：横切关注点链序固化（P10）；HTTP/gRPC 双传输共用同一套链。
@@ -113,15 +119,15 @@ func serveRunE(_ *cobra.Command, _ []string) error {
 		appkit.Reconcile("audit.backends", reconcileAudit),
 	}
 {{- if or .Server.Http .Server.Grpc }}
-	// 配置 flag 覆盖（四源优先级 flag > env > 文件 > 远程）：--http.addr / --grpc.addr。
-	capOpts = append(capOpts, appkit.Bind("http", bootstrap.GetHttp()))
-	capOpts = append(capOpts, appkit.Bind("grpc", bootstrap.GetGrpc()))
+	// 配置 flag 覆盖（四源优先级 flag > env > 文件 > 远程）：--server.http.addr / --server.grpc.addr。
+	capOpts = append(capOpts, appkit.Bind("server.http", bootstrap.GetServer().GetHttp()))
+	capOpts = append(capOpts, appkit.Bind("server.grpc", bootstrap.GetServer().GetGrpc()))
 {{- end }}
 	capOpts = append(capOpts, appkit.Bind("", logOpts)) // 日志配置 --log.*（含 rotate）
 {{- if .Server.Http }}
-	// R1 key 级热更新示例：仅当 http.addr 值确实变化才触发（与 OnConfigChange 全量互补）。
-	capOpts = append(capOpts, appkit.OnKeyChange("http.addr", func(old, new string) {
-		baldlog.GetLogger().Info(context.Background(), "http.addr changed", "old", old, "new", new)
+	// R1 key 级热更新示例：仅当 server.http.addr 值确实变化才触发（与 OnConfigChange 全量互补）。
+	capOpts = append(capOpts, appkit.OnKeyChange("server.http.addr", func(old, new string) {
+		baldlog.GetLogger().Info(context.Background(), "server.http.addr changed", "old", old, "new", new)
 	}))
 {{- end }}
 {{- if .Capability }}
@@ -152,11 +158,11 @@ func serveRunE(_ *cobra.Command, _ []string) error {
 {{- if or .Server.Http .Server.Grpc }}
 	capOpts = append(capOpts, appkit.Servers(
 	{{- if .Server.Grpc }}
-		server.NewGRPCServerWithRegister(bootstrap.GetGrpc(),
+		grpcserver.NewGRPCServerWithRegister(bootstrap.GetServer().GetGrpc(),
 			append(newGRPCServerOptions(), b.GRPCChain()...), registerGRPCService, ready),
 	{{- end }}
 	{{- if .Server.Http }}
-		server.NewHTTPServer(bootstrap.GetHttp(), router, ready),
+		httpserver.NewHTTPServer(bootstrap.GetServer().GetHttp(), router, ready),
 	{{- end }}
 	))
 {{- end }}
@@ -168,6 +174,7 @@ func serveRunE(_ *cobra.Command, _ []string) error {
 	}
 	return nil
 }
+
 
 // ready 探针：业务就绪检查（P0 优雅停机前须就绪）。
 func ready(ctx context.Context) error { return nil }
@@ -203,7 +210,7 @@ func newGRPCServerOptions() []grpc.ServerOption {
 // 集合」，与实际态（rctx.Mounted()）做 diff，逐后端 Mount/Unmount——只更新变动
 // 部分，失败不回滚、下次协调补齐。触发时机由框架负责：启动收敛期与配置热变更。
 func reconcileAudit(ctx context.Context, rctx *appkit.ReconcileCtx) error {
-	want := appkit.ParseStringList(rctx.Viper.Get("audit.backends"))
+	want := rctx.StringSlice("audit.backends")
 	if len(want) == 0 {
 		want = defaultAuditBackends // config 未设置时回退 AppSpec 声明
 	}

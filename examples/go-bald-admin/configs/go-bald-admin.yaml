@@ -1,19 +1,20 @@
-http:
-  addr: ":8080"
-  # M6 生产化：TLS 采用 Smart Mode。enabled=true 时 http 段切换为 HTTPS，
-  # ca/cert/key 可为文件路径 | 原始 PEM | Base64(PEM)。gateway 共用同一 tls 段。
-  tls:
-    enabled: false
-    # ca: ""            # 可选：校验客户端证书的 CA
-    # cert: ""          # 服务端证书（与 http/gateway 共用）
-    # key: ""           # 服务端私钥
-grpc:
-  addr: ":9090"
-# M6 生产化：gateway（REST→gRPC 转码）监听地址，与 http.addr 分开避免端口冲突。
+server:
+  http:
+    addr: ":8080"
+    # M6 生产化：TLS 段（bootstrapv1.Server_TLS）非 nil 即启用 HTTPS；
+    # file（证书路径）或 config（原始 PEM）二选一，gateway 共用同一 tls 段。
+    # tls:
+    #   file:
+    #     cert_path: /etc/certs/tls.crt
+    #     key_path: /etc/certs/tls.key
+  grpc:
+    addr: ":9090"
+# M6 生产化：gateway（REST→gRPC 转码）监听地址，与 server.http.addr 分开避免端口冲突。
 # 也可用 env BALD_GATEWAY_ADDR 覆盖。
 gateway:
   addr: ":8081"
-logger:
+# log.Options（CLI Options 层，Bind("", logOpts)）的键路径。
+log:
   level: "info"
   format: "json"
 

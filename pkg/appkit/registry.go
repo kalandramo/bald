@@ -16,7 +16,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/kalandramo/bald/pkg/server"
+	"github.com/kalandramo/bald/transport"
 )
 
 // Registry 是并发安全的按名注册表。T 为被注册的实现类型。
@@ -70,8 +70,8 @@ func (r *Registry[T]) List() []string {
 
 // 三类预置注册点（插件协议对齐 go-lulu 的 RegisterXxxBuilder）：
 var (
-	// ServerRegistry 存放传输层插件（实现 server.Server 接口）。
-	ServerRegistry = NewRegistry[server.Server]()
+	// ServerRegistry 存放传输层插件（实现 transport.Server 接口）。
+	ServerRegistry = NewRegistry[transport.Server]()
 
 	// MiddlewareRegistry 存放 gin/grpc 中间件工厂；gin 与 grpc 中间件签名不同，
 	// 故以 any 存放，调用方按实际类型断言后装配。

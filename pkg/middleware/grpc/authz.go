@@ -5,10 +5,10 @@ import (
 
 	"google.golang.org/grpc"
 
+	"github.com/kalandramo/bald/log"
 	"github.com/kalandramo/bald/pkg/authn"
 	"github.com/kalandramo/bald/pkg/authz"
-	berrors "github.com/kalandramo/bald/pkg/berrors"
-	"github.com/kalandramo/bald/pkg/log"
+	berrors "github.com/kalandramo/bald/berrors"
 )
 
 // Option 配置 AuthzInterceptor 的请求→授权三元组（subject/object/action）提取方式。

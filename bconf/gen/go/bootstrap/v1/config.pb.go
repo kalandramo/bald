@@ -23,22 +23,22 @@ const (
 
 // Config 描述配置中心来源。
 // 配置可以混合使用，同一 Config 中可同时设置多种配置源。
+//
+// 2026-09-05 瘦身：移除未实现 provider 的死源（fs/redis/zookeeper/vault/
+// oss/polaris，字段号 2/8/9/10/13/14 已 reserved 防复用）。fs 源的 fsys 是
+// 编译期资源无法经契约表达（bconfig/fs 走代码 API）；redis/zookeeper/vault/
+// oss/polaris 后续按需实现时以新字段号追加。
 type Config struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	File          *Config_File           `protobuf:"bytes,1,opt,name=file,proto3,oneof" json:"file,omitempty"`
-	Fs            *Config_Fs             `protobuf:"bytes,2,opt,name=fs,proto3,oneof" json:"fs,omitempty"`
 	Etcd          *Config_Etcd           `protobuf:"bytes,3,opt,name=etcd,proto3,oneof" json:"etcd,omitempty"`
 	Nacos         *Config_Nacos          `protobuf:"bytes,4,opt,name=nacos,proto3,oneof" json:"nacos,omitempty"`
 	Consul        *Config_Consul         `protobuf:"bytes,5,opt,name=consul,proto3,oneof" json:"consul,omitempty"`
 	Apollo        *Config_Apollo         `protobuf:"bytes,6,opt,name=apollo,proto3,oneof" json:"apollo,omitempty"`
 	Kubernetes    *Config_Kubernetes     `protobuf:"bytes,7,opt,name=kubernetes,proto3,oneof" json:"kubernetes,omitempty"`
-	Redis         *Config_Redis          `protobuf:"bytes,8,opt,name=redis,proto3,oneof" json:"redis,omitempty"`
-	Zookeeper     *Config_Zookeeper      `protobuf:"bytes,9,opt,name=zookeeper,proto3,oneof" json:"zookeeper,omitempty"`
 	Vault         *Config_Vault          `protobuf:"bytes,10,opt,name=vault,proto3,oneof" json:"vault,omitempty"`
 	Http          *Config_Http           `protobuf:"bytes,11,opt,name=http,proto3,oneof" json:"http,omitempty"`
 	Env           *Config_Env            `protobuf:"bytes,12,opt,name=env,proto3,oneof" json:"env,omitempty"`
-	Oss           *Config_Oss            `protobuf:"bytes,13,opt,name=oss,proto3,oneof" json:"oss,omitempty"`
-	Polaris       *Config_Polaris        `protobuf:"bytes,14,opt,name=polaris,proto3,oneof" json:"polaris,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -80,13 +80,6 @@ func (x *Config) GetFile() *Config_File {
 	return nil
 }
 
-func (x *Config) GetFs() *Config_Fs {
-	if x != nil {
-		return x.Fs
-	}
-	return nil
-}
-
 func (x *Config) GetEtcd() *Config_Etcd {
 	if x != nil {
 		return x.Etcd
@@ -122,20 +115,6 @@ func (x *Config) GetKubernetes() *Config_Kubernetes {
 	return nil
 }
 
-func (x *Config) GetRedis() *Config_Redis {
-	if x != nil {
-		return x.Redis
-	}
-	return nil
-}
-
-func (x *Config) GetZookeeper() *Config_Zookeeper {
-	if x != nil {
-		return x.Zookeeper
-	}
-	return nil
-}
-
 func (x *Config) GetVault() *Config_Vault {
 	if x != nil {
 		return x.Vault
@@ -153,20 +132,6 @@ func (x *Config) GetHttp() *Config_Http {
 func (x *Config) GetEnv() *Config_Env {
 	if x != nil {
 		return x.Env
-	}
-	return nil
-}
-
-func (x *Config) GetOss() *Config_Oss {
-	if x != nil {
-		return x.Oss
-	}
-	return nil
-}
-
-func (x *Config) GetPolaris() *Config_Polaris {
-	if x != nil {
-		return x.Polaris
 	}
 	return nil
 }
@@ -235,53 +200,6 @@ func (x *Config_File) GetWatch() bool {
 	return false
 }
 
-// 嵌入文件系统配置源（如 go:embed）。
-// 适用于将配置文件嵌入二进制的场景。
-type Config_Fs struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// 嵌入文件系统内的文件路径。
-	Path          string `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *Config_Fs) Reset() {
-	*x = Config_Fs{}
-	mi := &file_bootstrap_v1_config_proto_msgTypes[2]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *Config_Fs) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*Config_Fs) ProtoMessage() {}
-
-func (x *Config_Fs) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_config_proto_msgTypes[2]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use Config_Fs.ProtoReflect.Descriptor instead.
-func (*Config_Fs) Descriptor() ([]byte, []int) {
-	return file_bootstrap_v1_config_proto_rawDescGZIP(), []int{0, 1}
-}
-
-func (x *Config_Fs) GetPath() string {
-	if x != nil {
-		return x.Path
-	}
-	return ""
-}
-
 // Etcd 配置源。
 type Config_Etcd struct {
 	state     protoimpl.MessageState `protogen:"open.v1"`
@@ -298,7 +216,7 @@ type Config_Etcd struct {
 
 func (x *Config_Etcd) Reset() {
 	*x = Config_Etcd{}
-	mi := &file_bootstrap_v1_config_proto_msgTypes[3]
+	mi := &file_bootstrap_v1_config_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -310,7 +228,7 @@ func (x *Config_Etcd) String() string {
 func (*Config_Etcd) ProtoMessage() {}
 
 func (x *Config_Etcd) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_config_proto_msgTypes[3]
+	mi := &file_bootstrap_v1_config_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -323,7 +241,7 @@ func (x *Config_Etcd) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Config_Etcd.ProtoReflect.Descriptor instead.
 func (*Config_Etcd) Descriptor() ([]byte, []int) {
-	return file_bootstrap_v1_config_proto_rawDescGZIP(), []int{0, 2}
+	return file_bootstrap_v1_config_proto_rawDescGZIP(), []int{0, 1}
 }
 
 func (x *Config_Etcd) GetEndpoints() []string {
@@ -375,7 +293,7 @@ type Config_Nacos struct {
 
 func (x *Config_Nacos) Reset() {
 	*x = Config_Nacos{}
-	mi := &file_bootstrap_v1_config_proto_msgTypes[4]
+	mi := &file_bootstrap_v1_config_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -387,7 +305,7 @@ func (x *Config_Nacos) String() string {
 func (*Config_Nacos) ProtoMessage() {}
 
 func (x *Config_Nacos) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_config_proto_msgTypes[4]
+	mi := &file_bootstrap_v1_config_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -400,7 +318,7 @@ func (x *Config_Nacos) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Config_Nacos.ProtoReflect.Descriptor instead.
 func (*Config_Nacos) Descriptor() ([]byte, []int) {
-	return file_bootstrap_v1_config_proto_rawDescGZIP(), []int{0, 3}
+	return file_bootstrap_v1_config_proto_rawDescGZIP(), []int{0, 2}
 }
 
 func (x *Config_Nacos) GetServerAddrs() []string {
@@ -452,7 +370,7 @@ type Config_Consul struct {
 
 func (x *Config_Consul) Reset() {
 	*x = Config_Consul{}
-	mi := &file_bootstrap_v1_config_proto_msgTypes[5]
+	mi := &file_bootstrap_v1_config_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -464,7 +382,7 @@ func (x *Config_Consul) String() string {
 func (*Config_Consul) ProtoMessage() {}
 
 func (x *Config_Consul) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_config_proto_msgTypes[5]
+	mi := &file_bootstrap_v1_config_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -477,7 +395,7 @@ func (x *Config_Consul) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Config_Consul.ProtoReflect.Descriptor instead.
 func (*Config_Consul) Descriptor() ([]byte, []int) {
-	return file_bootstrap_v1_config_proto_rawDescGZIP(), []int{0, 4}
+	return file_bootstrap_v1_config_proto_rawDescGZIP(), []int{0, 3}
 }
 
 func (x *Config_Consul) GetAddress() string {
@@ -515,7 +433,8 @@ type Config_Apollo struct {
 	Cluster string                 `protobuf:"bytes,2,opt,name=cluster,proto3" json:"cluster,omitempty"`
 	// Apollo 命名空间名称。
 	Namespace string `protobuf:"bytes,3,opt,name=namespace,proto3" json:"namespace,omitempty"`
-	Ip        string `protobuf:"bytes,4,opt,name=ip,proto3" json:"ip,omitempty"`
+	// 预留： Apollo 配置中心 IP（endpoint 优先）。
+	Ip string `protobuf:"bytes,4,opt,name=ip,proto3" json:"ip,omitempty"`
 	// Apollo 配置中心地址。
 	Endpoint string `protobuf:"bytes,5,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
 	// 应用密钥。
@@ -523,14 +442,16 @@ type Config_Apollo struct {
 	// 是否备份配置到本地。
 	IsBackupConfig bool `protobuf:"varint,7,opt,name=is_backup_config,json=isBackupConfig,proto3" json:"is_backup_config,omitempty"`
 	// 本地备份路径。
-	BackupPath    string `protobuf:"bytes,8,opt,name=backup_path,json=backupPath,proto3" json:"backup_path,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	BackupPath string `protobuf:"bytes,8,opt,name=backup_path,json=backupPath,proto3" json:"backup_path,omitempty"`
+	// 结构化命名空间（yaml/yml/json）返回原始文档（推荐整文档消费开启）。
+	OriginalConfig bool `protobuf:"varint,9,opt,name=original_config,json=originalConfig,proto3" json:"original_config,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *Config_Apollo) Reset() {
 	*x = Config_Apollo{}
-	mi := &file_bootstrap_v1_config_proto_msgTypes[6]
+	mi := &file_bootstrap_v1_config_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -542,7 +463,7 @@ func (x *Config_Apollo) String() string {
 func (*Config_Apollo) ProtoMessage() {}
 
 func (x *Config_Apollo) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_config_proto_msgTypes[6]
+	mi := &file_bootstrap_v1_config_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -555,7 +476,7 @@ func (x *Config_Apollo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Config_Apollo.ProtoReflect.Descriptor instead.
 func (*Config_Apollo) Descriptor() ([]byte, []int) {
-	return file_bootstrap_v1_config_proto_rawDescGZIP(), []int{0, 5}
+	return file_bootstrap_v1_config_proto_rawDescGZIP(), []int{0, 4}
 }
 
 func (x *Config_Apollo) GetAppId() string {
@@ -614,6 +535,13 @@ func (x *Config_Apollo) GetBackupPath() string {
 	return ""
 }
 
+func (x *Config_Apollo) GetOriginalConfig() bool {
+	if x != nil {
+		return x.OriginalConfig
+	}
+	return false
+}
+
 // Kubernetes ConfigMap 配置源。
 type Config_Kubernetes struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -634,7 +562,7 @@ type Config_Kubernetes struct {
 
 func (x *Config_Kubernetes) Reset() {
 	*x = Config_Kubernetes{}
-	mi := &file_bootstrap_v1_config_proto_msgTypes[7]
+	mi := &file_bootstrap_v1_config_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -646,7 +574,7 @@ func (x *Config_Kubernetes) String() string {
 func (*Config_Kubernetes) ProtoMessage() {}
 
 func (x *Config_Kubernetes) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_config_proto_msgTypes[7]
+	mi := &file_bootstrap_v1_config_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -659,7 +587,7 @@ func (x *Config_Kubernetes) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Config_Kubernetes.ProtoReflect.Descriptor instead.
 func (*Config_Kubernetes) Descriptor() ([]byte, []int) {
-	return file_bootstrap_v1_config_proto_rawDescGZIP(), []int{0, 6}
+	return file_bootstrap_v1_config_proto_rawDescGZIP(), []int{0, 5}
 }
 
 func (x *Config_Kubernetes) GetNamespace() string {
@@ -711,218 +639,6 @@ func (x *Config_Kubernetes) GetMaster() string {
 	return ""
 }
 
-// Redis 配置源。
-type Config_Redis struct {
-	state   protoimpl.MessageState `protogen:"open.v1"`
-	Address string                 `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`
-	// Redis 键路径。
-	Path          string `protobuf:"bytes,2,opt,name=path,proto3" json:"path,omitempty"`
-	Password      string `protobuf:"bytes,3,opt,name=password,proto3" json:"password,omitempty"`
-	Db            int32  `protobuf:"varint,4,opt,name=db,proto3" json:"db,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *Config_Redis) Reset() {
-	*x = Config_Redis{}
-	mi := &file_bootstrap_v1_config_proto_msgTypes[8]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *Config_Redis) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*Config_Redis) ProtoMessage() {}
-
-func (x *Config_Redis) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_config_proto_msgTypes[8]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use Config_Redis.ProtoReflect.Descriptor instead.
-func (*Config_Redis) Descriptor() ([]byte, []int) {
-	return file_bootstrap_v1_config_proto_rawDescGZIP(), []int{0, 7}
-}
-
-func (x *Config_Redis) GetAddress() string {
-	if x != nil {
-		return x.Address
-	}
-	return ""
-}
-
-func (x *Config_Redis) GetPath() string {
-	if x != nil {
-		return x.Path
-	}
-	return ""
-}
-
-func (x *Config_Redis) GetPassword() string {
-	if x != nil {
-		return x.Password
-	}
-	return ""
-}
-
-func (x *Config_Redis) GetDb() int32 {
-	if x != nil {
-		return x.Db
-	}
-	return 0
-}
-
-// Zookeeper 配置源。
-type Config_Zookeeper struct {
-	state     protoimpl.MessageState `protogen:"open.v1"`
-	Endpoints []string               `protobuf:"bytes,1,rep,name=endpoints,proto3" json:"endpoints,omitempty"`
-	// ZNode 路径。
-	Path          string `protobuf:"bytes,2,opt,name=path,proto3" json:"path,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *Config_Zookeeper) Reset() {
-	*x = Config_Zookeeper{}
-	mi := &file_bootstrap_v1_config_proto_msgTypes[9]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *Config_Zookeeper) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*Config_Zookeeper) ProtoMessage() {}
-
-func (x *Config_Zookeeper) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_config_proto_msgTypes[9]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use Config_Zookeeper.ProtoReflect.Descriptor instead.
-func (*Config_Zookeeper) Descriptor() ([]byte, []int) {
-	return file_bootstrap_v1_config_proto_rawDescGZIP(), []int{0, 8}
-}
-
-func (x *Config_Zookeeper) GetEndpoints() []string {
-	if x != nil {
-		return x.Endpoints
-	}
-	return nil
-}
-
-func (x *Config_Zookeeper) GetPath() string {
-	if x != nil {
-		return x.Path
-	}
-	return ""
-}
-
-// HashiCorp Vault 配置源。
-type Config_Vault struct {
-	state   protoimpl.MessageState `protogen:"open.v1"`
-	Address string                 `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`
-	Token   string                 `protobuf:"bytes,2,opt,name=token,proto3" json:"token,omitempty"`
-	// Vault secret 路径，如 secret/data/myapp/config。
-	Path      string `protobuf:"bytes,3,opt,name=path,proto3" json:"path,omitempty"`
-	MountPath string `protobuf:"bytes,4,opt,name=mount_path,json=mountPath,proto3" json:"mount_path,omitempty"`
-	// Secret Data 中的键名，默认 "content"。
-	DataKey string `protobuf:"bytes,5,opt,name=data_key,json=dataKey,proto3" json:"data_key,omitempty"`
-	// 轮询间隔（毫秒）。默认 30000。Vault 不支持推送通知。
-	PollInterval  int32 `protobuf:"varint,6,opt,name=poll_interval,json=pollInterval,proto3" json:"poll_interval,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *Config_Vault) Reset() {
-	*x = Config_Vault{}
-	mi := &file_bootstrap_v1_config_proto_msgTypes[10]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *Config_Vault) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*Config_Vault) ProtoMessage() {}
-
-func (x *Config_Vault) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_config_proto_msgTypes[10]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use Config_Vault.ProtoReflect.Descriptor instead.
-func (*Config_Vault) Descriptor() ([]byte, []int) {
-	return file_bootstrap_v1_config_proto_rawDescGZIP(), []int{0, 9}
-}
-
-func (x *Config_Vault) GetAddress() string {
-	if x != nil {
-		return x.Address
-	}
-	return ""
-}
-
-func (x *Config_Vault) GetToken() string {
-	if x != nil {
-		return x.Token
-	}
-	return ""
-}
-
-func (x *Config_Vault) GetPath() string {
-	if x != nil {
-		return x.Path
-	}
-	return ""
-}
-
-func (x *Config_Vault) GetMountPath() string {
-	if x != nil {
-		return x.MountPath
-	}
-	return ""
-}
-
-func (x *Config_Vault) GetDataKey() string {
-	if x != nil {
-		return x.DataKey
-	}
-	return ""
-}
-
-func (x *Config_Vault) GetPollInterval() int32 {
-	if x != nil {
-		return x.PollInterval
-	}
-	return 0
-}
-
 // HTTP 配置源。
 type Config_Http struct {
 	state   protoimpl.MessageState `protogen:"open.v1"`
@@ -938,7 +654,7 @@ type Config_Http struct {
 
 func (x *Config_Http) Reset() {
 	*x = Config_Http{}
-	mi := &file_bootstrap_v1_config_proto_msgTypes[11]
+	mi := &file_bootstrap_v1_config_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -950,7 +666,7 @@ func (x *Config_Http) String() string {
 func (*Config_Http) ProtoMessage() {}
 
 func (x *Config_Http) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_config_proto_msgTypes[11]
+	mi := &file_bootstrap_v1_config_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -963,7 +679,7 @@ func (x *Config_Http) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Config_Http.ProtoReflect.Descriptor instead.
 func (*Config_Http) Descriptor() ([]byte, []int) {
-	return file_bootstrap_v1_config_proto_rawDescGZIP(), []int{0, 10}
+	return file_bootstrap_v1_config_proto_rawDescGZIP(), []int{0, 6}
 }
 
 func (x *Config_Http) GetUrl() string {
@@ -1001,6 +717,88 @@ func (x *Config_Http) GetPollInterval() int32 {
 	return 0
 }
 
+// Vault 配置源（KV v1/v2）。
+type Config_Vault struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 服务地址；空则回退 VAULT_ADDR 环境变量或本机默认。
+	Address string `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`
+	// 认证 token；空则回退 VAULT_TOKEN 环境变量。
+	Token string `protobuf:"bytes,2,opt,name=token,proto3" json:"token,omitempty"`
+	// secret 路径（如 secret/data/myapp/config）。
+	Path string `protobuf:"bytes,3,opt,name=path,proto3" json:"path,omitempty"`
+	// secret Data 中承载原始配置的字段名（默认 content）。
+	DataKey string `protobuf:"bytes,4,opt,name=data_key,json=dataKey,proto3" json:"data_key,omitempty"`
+	// 轮询间隔（毫秒）。Vault 无原生推送，默认 30000。
+	PollInterval  int32 `protobuf:"varint,5,opt,name=poll_interval,json=pollInterval,proto3" json:"poll_interval,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Config_Vault) Reset() {
+	*x = Config_Vault{}
+	mi := &file_bootstrap_v1_config_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Config_Vault) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Config_Vault) ProtoMessage() {}
+
+func (x *Config_Vault) ProtoReflect() protoreflect.Message {
+	mi := &file_bootstrap_v1_config_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Config_Vault.ProtoReflect.Descriptor instead.
+func (*Config_Vault) Descriptor() ([]byte, []int) {
+	return file_bootstrap_v1_config_proto_rawDescGZIP(), []int{0, 7}
+}
+
+func (x *Config_Vault) GetAddress() string {
+	if x != nil {
+		return x.Address
+	}
+	return ""
+}
+
+func (x *Config_Vault) GetToken() string {
+	if x != nil {
+		return x.Token
+	}
+	return ""
+}
+
+func (x *Config_Vault) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *Config_Vault) GetDataKey() string {
+	if x != nil {
+		return x.DataKey
+	}
+	return ""
+}
+
+func (x *Config_Vault) GetPollInterval() int32 {
+	if x != nil {
+		return x.PollInterval
+	}
+	return 0
+}
+
 // 环境变量配置源。
 type Config_Env struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -1016,7 +814,7 @@ type Config_Env struct {
 
 func (x *Config_Env) Reset() {
 	*x = Config_Env{}
-	mi := &file_bootstrap_v1_config_proto_msgTypes[12]
+	mi := &file_bootstrap_v1_config_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1028,7 +826,7 @@ func (x *Config_Env) String() string {
 func (*Config_Env) ProtoMessage() {}
 
 func (x *Config_Env) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_config_proto_msgTypes[12]
+	mi := &file_bootstrap_v1_config_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1041,7 +839,7 @@ func (x *Config_Env) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Config_Env.ProtoReflect.Descriptor instead.
 func (*Config_Env) Descriptor() ([]byte, []int) {
-	return file_bootstrap_v1_config_proto_rawDescGZIP(), []int{0, 11}
+	return file_bootstrap_v1_config_proto_rawDescGZIP(), []int{0, 8}
 }
 
 func (x *Config_Env) GetPrefix() string {
@@ -1065,192 +863,28 @@ func (x *Config_Env) GetKey() string {
 	return ""
 }
 
-// 对象存储配置源（S3 兼容）。
-type Config_Oss struct {
-	state    protoimpl.MessageState `protogen:"open.v1"`
-	Endpoint string                 `protobuf:"bytes,1,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
-	Bucket   string                 `protobuf:"bytes,2,opt,name=bucket,proto3" json:"bucket,omitempty"`
-	// 对象键（文件路径）。
-	Key             string `protobuf:"bytes,3,opt,name=key,proto3" json:"key,omitempty"`
-	AccessKeyId     string `protobuf:"bytes,4,opt,name=access_key_id,json=accessKeyId,proto3" json:"access_key_id,omitempty"`
-	AccessKeySecret string `protobuf:"bytes,5,opt,name=access_key_secret,json=accessKeySecret,proto3" json:"access_key_secret,omitempty"`
-	// 轮询间隔（毫秒）。默认 30000。通过 ETag 检测变更。
-	PollInterval  int32 `protobuf:"varint,6,opt,name=poll_interval,json=pollInterval,proto3" json:"poll_interval,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *Config_Oss) Reset() {
-	*x = Config_Oss{}
-	mi := &file_bootstrap_v1_config_proto_msgTypes[13]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *Config_Oss) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*Config_Oss) ProtoMessage() {}
-
-func (x *Config_Oss) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_config_proto_msgTypes[13]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use Config_Oss.ProtoReflect.Descriptor instead.
-func (*Config_Oss) Descriptor() ([]byte, []int) {
-	return file_bootstrap_v1_config_proto_rawDescGZIP(), []int{0, 12}
-}
-
-func (x *Config_Oss) GetEndpoint() string {
-	if x != nil {
-		return x.Endpoint
-	}
-	return ""
-}
-
-func (x *Config_Oss) GetBucket() string {
-	if x != nil {
-		return x.Bucket
-	}
-	return ""
-}
-
-func (x *Config_Oss) GetKey() string {
-	if x != nil {
-		return x.Key
-	}
-	return ""
-}
-
-func (x *Config_Oss) GetAccessKeyId() string {
-	if x != nil {
-		return x.AccessKeyId
-	}
-	return ""
-}
-
-func (x *Config_Oss) GetAccessKeySecret() string {
-	if x != nil {
-		return x.AccessKeySecret
-	}
-	return ""
-}
-
-func (x *Config_Oss) GetPollInterval() int32 {
-	if x != nil {
-		return x.PollInterval
-	}
-	return 0
-}
-
-// Polaris 配置源。
-type Config_Polaris struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Address       string                 `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`
-	Namespace     string                 `protobuf:"bytes,2,opt,name=namespace,proto3" json:"namespace,omitempty"`
-	Group         string                 `protobuf:"bytes,3,opt,name=group,proto3" json:"group,omitempty"`
-	FileName      string                 `protobuf:"bytes,4,opt,name=file_name,json=fileName,proto3" json:"file_name,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *Config_Polaris) Reset() {
-	*x = Config_Polaris{}
-	mi := &file_bootstrap_v1_config_proto_msgTypes[14]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *Config_Polaris) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*Config_Polaris) ProtoMessage() {}
-
-func (x *Config_Polaris) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_config_proto_msgTypes[14]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use Config_Polaris.ProtoReflect.Descriptor instead.
-func (*Config_Polaris) Descriptor() ([]byte, []int) {
-	return file_bootstrap_v1_config_proto_rawDescGZIP(), []int{0, 13}
-}
-
-func (x *Config_Polaris) GetAddress() string {
-	if x != nil {
-		return x.Address
-	}
-	return ""
-}
-
-func (x *Config_Polaris) GetNamespace() string {
-	if x != nil {
-		return x.Namespace
-	}
-	return ""
-}
-
-func (x *Config_Polaris) GetGroup() string {
-	if x != nil {
-		return x.Group
-	}
-	return ""
-}
-
-func (x *Config_Polaris) GetFileName() string {
-	if x != nil {
-		return x.FileName
-	}
-	return ""
-}
-
 var File_bootstrap_v1_config_proto protoreflect.FileDescriptor
 
 const file_bootstrap_v1_config_proto_rawDesc = "" +
 	"\n" +
-	"\x19bootstrap/v1/config.proto\x12\fbootstrap.v1\"\xa5\x16\n" +
+	"\x19bootstrap/v1/config.proto\x12\fbootstrap.v1\"\xb3\x10\n" +
 	"\x06Config\x122\n" +
-	"\x04file\x18\x01 \x01(\v2\x19.bootstrap.v1.Config.FileH\x00R\x04file\x88\x01\x01\x12,\n" +
-	"\x02fs\x18\x02 \x01(\v2\x17.bootstrap.v1.Config.FsH\x01R\x02fs\x88\x01\x01\x122\n" +
-	"\x04etcd\x18\x03 \x01(\v2\x19.bootstrap.v1.Config.EtcdH\x02R\x04etcd\x88\x01\x01\x125\n" +
-	"\x05nacos\x18\x04 \x01(\v2\x1a.bootstrap.v1.Config.NacosH\x03R\x05nacos\x88\x01\x01\x128\n" +
-	"\x06consul\x18\x05 \x01(\v2\x1b.bootstrap.v1.Config.ConsulH\x04R\x06consul\x88\x01\x01\x128\n" +
-	"\x06apollo\x18\x06 \x01(\v2\x1b.bootstrap.v1.Config.ApolloH\x05R\x06apollo\x88\x01\x01\x12D\n" +
+	"\x04file\x18\x01 \x01(\v2\x19.bootstrap.v1.Config.FileH\x00R\x04file\x88\x01\x01\x122\n" +
+	"\x04etcd\x18\x03 \x01(\v2\x19.bootstrap.v1.Config.EtcdH\x01R\x04etcd\x88\x01\x01\x125\n" +
+	"\x05nacos\x18\x04 \x01(\v2\x1a.bootstrap.v1.Config.NacosH\x02R\x05nacos\x88\x01\x01\x128\n" +
+	"\x06consul\x18\x05 \x01(\v2\x1b.bootstrap.v1.Config.ConsulH\x03R\x06consul\x88\x01\x01\x128\n" +
+	"\x06apollo\x18\x06 \x01(\v2\x1b.bootstrap.v1.Config.ApolloH\x04R\x06apollo\x88\x01\x01\x12D\n" +
 	"\n" +
-	"kubernetes\x18\a \x01(\v2\x1f.bootstrap.v1.Config.KubernetesH\x06R\n" +
+	"kubernetes\x18\a \x01(\v2\x1f.bootstrap.v1.Config.KubernetesH\x05R\n" +
 	"kubernetes\x88\x01\x01\x125\n" +
-	"\x05redis\x18\b \x01(\v2\x1a.bootstrap.v1.Config.RedisH\aR\x05redis\x88\x01\x01\x12A\n" +
-	"\tzookeeper\x18\t \x01(\v2\x1e.bootstrap.v1.Config.ZookeeperH\bR\tzookeeper\x88\x01\x01\x125\n" +
 	"\x05vault\x18\n" +
-	" \x01(\v2\x1a.bootstrap.v1.Config.VaultH\tR\x05vault\x88\x01\x01\x122\n" +
-	"\x04http\x18\v \x01(\v2\x19.bootstrap.v1.Config.HttpH\n" +
-	"R\x04http\x88\x01\x01\x12/\n" +
-	"\x03env\x18\f \x01(\v2\x18.bootstrap.v1.Config.EnvH\vR\x03env\x88\x01\x01\x12/\n" +
-	"\x03oss\x18\r \x01(\v2\x18.bootstrap.v1.Config.OssH\fR\x03oss\x88\x01\x01\x12;\n" +
-	"\apolaris\x18\x0e \x01(\v2\x1c.bootstrap.v1.Config.PolarisH\rR\apolaris\x88\x01\x01\x1aH\n" +
+	" \x01(\v2\x1a.bootstrap.v1.Config.VaultH\x06R\x05vault\x88\x01\x01\x122\n" +
+	"\x04http\x18\v \x01(\v2\x19.bootstrap.v1.Config.HttpH\aR\x04http\x88\x01\x01\x12/\n" +
+	"\x03env\x18\f \x01(\v2\x18.bootstrap.v1.Config.EnvH\bR\x03env\x88\x01\x01\x1aH\n" +
 	"\x04File\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x16\n" +
 	"\x06format\x18\x02 \x01(\tR\x06format\x12\x14\n" +
-	"\x05watch\x18\x03 \x01(\bR\x05watch\x1a\x18\n" +
-	"\x02Fs\x12\x12\n" +
-	"\x04path\x18\x01 \x01(\tR\x04path\x1a\x88\x01\n" +
+	"\x05watch\x18\x03 \x01(\bR\x05watch\x1a\x88\x01\n" +
 	"\x04Etcd\x12\x1c\n" +
 	"\tendpoints\x18\x01 \x03(\tR\tendpoints\x12\x12\n" +
 	"\x04path\x18\x02 \x01(\tR\x04path\x12\x1a\n" +
@@ -1267,7 +901,7 @@ const file_bootstrap_v1_config_proto_rawDesc = "" +
 	"\aaddress\x18\x01 \x01(\tR\aaddress\x12\x12\n" +
 	"\x04path\x18\x02 \x01(\tR\x04path\x12\x14\n" +
 	"\x05token\x18\x03 \x01(\tR\x05token\x12\x16\n" +
-	"\x06scheme\x18\x04 \x01(\tR\x06scheme\x1a\xe6\x01\n" +
+	"\x06scheme\x18\x04 \x01(\tR\x06scheme\x1a\x8f\x02\n" +
 	"\x06Apollo\x12\x15\n" +
 	"\x06app_id\x18\x01 \x01(\tR\x05appId\x12\x18\n" +
 	"\acluster\x18\x02 \x01(\tR\acluster\x12\x1c\n" +
@@ -1277,7 +911,8 @@ const file_bootstrap_v1_config_proto_rawDesc = "" +
 	"\x06secret\x18\x06 \x01(\tR\x06secret\x12(\n" +
 	"\x10is_backup_config\x18\a \x01(\bR\x0eisBackupConfig\x12\x1f\n" +
 	"\vbackup_path\x18\b \x01(\tR\n" +
-	"backupPath\x1a\xeb\x01\n" +
+	"backupPath\x12'\n" +
+	"\x0foriginal_config\x18\t \x01(\bR\x0eoriginalConfig\x1a\xeb\x01\n" +
 	"\n" +
 	"Kubernetes\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12&\n" +
@@ -1287,23 +922,7 @@ const file_bootstrap_v1_config_proto_rawDesc = "" +
 	"\x0efield_selector\x18\x05 \x01(\tR\rfieldSelector\x12\x1f\n" +
 	"\vkube_config\x18\x06 \x01(\tR\n" +
 	"kubeConfig\x12\x16\n" +
-	"\x06master\x18\a \x01(\tR\x06master\x1aa\n" +
-	"\x05Redis\x12\x18\n" +
-	"\aaddress\x18\x01 \x01(\tR\aaddress\x12\x12\n" +
-	"\x04path\x18\x02 \x01(\tR\x04path\x12\x1a\n" +
-	"\bpassword\x18\x03 \x01(\tR\bpassword\x12\x0e\n" +
-	"\x02db\x18\x04 \x01(\x05R\x02db\x1a=\n" +
-	"\tZookeeper\x12\x1c\n" +
-	"\tendpoints\x18\x01 \x03(\tR\tendpoints\x12\x12\n" +
-	"\x04path\x18\x02 \x01(\tR\x04path\x1a\xaa\x01\n" +
-	"\x05Vault\x12\x18\n" +
-	"\aaddress\x18\x01 \x01(\tR\aaddress\x12\x14\n" +
-	"\x05token\x18\x02 \x01(\tR\x05token\x12\x12\n" +
-	"\x04path\x18\x03 \x01(\tR\x04path\x12\x1d\n" +
-	"\n" +
-	"mount_path\x18\x04 \x01(\tR\tmountPath\x12\x19\n" +
-	"\bdata_key\x18\x05 \x01(\tR\adataKey\x12#\n" +
-	"\rpoll_interval\x18\x06 \x01(\x05R\fpollInterval\x1a\xeb\x01\n" +
+	"\x06master\x18\a \x01(\tR\x06master\x1a\xeb\x01\n" +
 	"\x04Http\x12\x10\n" +
 	"\x03url\x18\x01 \x01(\tR\x03url\x12\x16\n" +
 	"\x06method\x18\x02 \x01(\tR\x06method\x12@\n" +
@@ -1312,39 +931,27 @@ const file_bootstrap_v1_config_proto_rawDesc = "" +
 	"\rpoll_interval\x18\x05 \x01(\x05R\fpollInterval\x1a:\n" +
 	"\fHeadersEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1aM\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a\x8b\x01\n" +
+	"\x05Vault\x12\x18\n" +
+	"\aaddress\x18\x01 \x01(\tR\aaddress\x12\x14\n" +
+	"\x05token\x18\x02 \x01(\tR\x05token\x12\x12\n" +
+	"\x04path\x18\x03 \x01(\tR\x04path\x12\x19\n" +
+	"\bdata_key\x18\x04 \x01(\tR\adataKey\x12#\n" +
+	"\rpoll_interval\x18\x05 \x01(\x05R\fpollInterval\x1aM\n" +
 	"\x03Env\x12\x16\n" +
 	"\x06prefix\x18\x01 \x01(\tR\x06prefix\x12\x1c\n" +
 	"\tseparator\x18\x02 \x01(\tR\tseparator\x12\x10\n" +
-	"\x03key\x18\x03 \x01(\tR\x03key\x1a\xc0\x01\n" +
-	"\x03Oss\x12\x1a\n" +
-	"\bendpoint\x18\x01 \x01(\tR\bendpoint\x12\x16\n" +
-	"\x06bucket\x18\x02 \x01(\tR\x06bucket\x12\x10\n" +
-	"\x03key\x18\x03 \x01(\tR\x03key\x12\"\n" +
-	"\raccess_key_id\x18\x04 \x01(\tR\vaccessKeyId\x12*\n" +
-	"\x11access_key_secret\x18\x05 \x01(\tR\x0faccessKeySecret\x12#\n" +
-	"\rpoll_interval\x18\x06 \x01(\x05R\fpollInterval\x1at\n" +
-	"\aPolaris\x12\x18\n" +
-	"\aaddress\x18\x01 \x01(\tR\aaddress\x12\x1c\n" +
-	"\tnamespace\x18\x02 \x01(\tR\tnamespace\x12\x14\n" +
-	"\x05group\x18\x03 \x01(\tR\x05group\x12\x1b\n" +
-	"\tfile_name\x18\x04 \x01(\tR\bfileNameB\a\n" +
-	"\x05_fileB\x05\n" +
-	"\x03_fsB\a\n" +
+	"\x03key\x18\x03 \x01(\tR\x03keyB\a\n" +
+	"\x05_fileB\a\n" +
 	"\x05_etcdB\b\n" +
 	"\x06_nacosB\t\n" +
 	"\a_consulB\t\n" +
 	"\a_apolloB\r\n" +
 	"\v_kubernetesB\b\n" +
-	"\x06_redisB\f\n" +
-	"\n" +
-	"_zookeeperB\b\n" +
 	"\x06_vaultB\a\n" +
 	"\x05_httpB\x06\n" +
-	"\x04_envB\x06\n" +
-	"\x04_ossB\n" +
-	"\n" +
-	"\b_polarisB\xb2\x01\n" +
+	"\x04_envJ\x04\b\x02\x10\x03J\x04\b\b\x10\tJ\x04\b\t\x10\n" +
+	"J\x04\b\r\x10\x0eJ\x04\b\x0e\x10\x0fR\x02fsR\x05redisR\tzookeeperR\x03ossR\apolarisB\xb2\x01\n" +
 	"\x10com.bootstrap.v1B\vConfigProtoP\x01Z@github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1;bootstrapv1\xa2\x02\x03BXX\xaa\x02\fBootstrap.V1\xca\x02\fBootstrap\\V1\xe2\x02\x18Bootstrap\\V1\\GPBMetadata\xea\x02\rBootstrap::V1b\x06proto3"
 
 var (
@@ -1359,46 +966,36 @@ func file_bootstrap_v1_config_proto_rawDescGZIP() []byte {
 	return file_bootstrap_v1_config_proto_rawDescData
 }
 
-var file_bootstrap_v1_config_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
+var file_bootstrap_v1_config_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
 var file_bootstrap_v1_config_proto_goTypes = []any{
 	(*Config)(nil),            // 0: bootstrap.v1.Config
 	(*Config_File)(nil),       // 1: bootstrap.v1.Config.File
-	(*Config_Fs)(nil),         // 2: bootstrap.v1.Config.Fs
-	(*Config_Etcd)(nil),       // 3: bootstrap.v1.Config.Etcd
-	(*Config_Nacos)(nil),      // 4: bootstrap.v1.Config.Nacos
-	(*Config_Consul)(nil),     // 5: bootstrap.v1.Config.Consul
-	(*Config_Apollo)(nil),     // 6: bootstrap.v1.Config.Apollo
-	(*Config_Kubernetes)(nil), // 7: bootstrap.v1.Config.Kubernetes
-	(*Config_Redis)(nil),      // 8: bootstrap.v1.Config.Redis
-	(*Config_Zookeeper)(nil),  // 9: bootstrap.v1.Config.Zookeeper
-	(*Config_Vault)(nil),      // 10: bootstrap.v1.Config.Vault
-	(*Config_Http)(nil),       // 11: bootstrap.v1.Config.Http
-	(*Config_Env)(nil),        // 12: bootstrap.v1.Config.Env
-	(*Config_Oss)(nil),        // 13: bootstrap.v1.Config.Oss
-	(*Config_Polaris)(nil),    // 14: bootstrap.v1.Config.Polaris
-	nil,                       // 15: bootstrap.v1.Config.Http.HeadersEntry
+	(*Config_Etcd)(nil),       // 2: bootstrap.v1.Config.Etcd
+	(*Config_Nacos)(nil),      // 3: bootstrap.v1.Config.Nacos
+	(*Config_Consul)(nil),     // 4: bootstrap.v1.Config.Consul
+	(*Config_Apollo)(nil),     // 5: bootstrap.v1.Config.Apollo
+	(*Config_Kubernetes)(nil), // 6: bootstrap.v1.Config.Kubernetes
+	(*Config_Http)(nil),       // 7: bootstrap.v1.Config.Http
+	(*Config_Vault)(nil),      // 8: bootstrap.v1.Config.Vault
+	(*Config_Env)(nil),        // 9: bootstrap.v1.Config.Env
+	nil,                       // 10: bootstrap.v1.Config.Http.HeadersEntry
 }
 var file_bootstrap_v1_config_proto_depIdxs = []int32{
 	1,  // 0: bootstrap.v1.Config.file:type_name -> bootstrap.v1.Config.File
-	2,  // 1: bootstrap.v1.Config.fs:type_name -> bootstrap.v1.Config.Fs
-	3,  // 2: bootstrap.v1.Config.etcd:type_name -> bootstrap.v1.Config.Etcd
-	4,  // 3: bootstrap.v1.Config.nacos:type_name -> bootstrap.v1.Config.Nacos
-	5,  // 4: bootstrap.v1.Config.consul:type_name -> bootstrap.v1.Config.Consul
-	6,  // 5: bootstrap.v1.Config.apollo:type_name -> bootstrap.v1.Config.Apollo
-	7,  // 6: bootstrap.v1.Config.kubernetes:type_name -> bootstrap.v1.Config.Kubernetes
-	8,  // 7: bootstrap.v1.Config.redis:type_name -> bootstrap.v1.Config.Redis
-	9,  // 8: bootstrap.v1.Config.zookeeper:type_name -> bootstrap.v1.Config.Zookeeper
-	10, // 9: bootstrap.v1.Config.vault:type_name -> bootstrap.v1.Config.Vault
-	11, // 10: bootstrap.v1.Config.http:type_name -> bootstrap.v1.Config.Http
-	12, // 11: bootstrap.v1.Config.env:type_name -> bootstrap.v1.Config.Env
-	13, // 12: bootstrap.v1.Config.oss:type_name -> bootstrap.v1.Config.Oss
-	14, // 13: bootstrap.v1.Config.polaris:type_name -> bootstrap.v1.Config.Polaris
-	15, // 14: bootstrap.v1.Config.Http.headers:type_name -> bootstrap.v1.Config.Http.HeadersEntry
-	15, // [15:15] is the sub-list for method output_type
-	15, // [15:15] is the sub-list for method input_type
-	15, // [15:15] is the sub-list for extension type_name
-	15, // [15:15] is the sub-list for extension extendee
-	0,  // [0:15] is the sub-list for field type_name
+	2,  // 1: bootstrap.v1.Config.etcd:type_name -> bootstrap.v1.Config.Etcd
+	3,  // 2: bootstrap.v1.Config.nacos:type_name -> bootstrap.v1.Config.Nacos
+	4,  // 3: bootstrap.v1.Config.consul:type_name -> bootstrap.v1.Config.Consul
+	5,  // 4: bootstrap.v1.Config.apollo:type_name -> bootstrap.v1.Config.Apollo
+	6,  // 5: bootstrap.v1.Config.kubernetes:type_name -> bootstrap.v1.Config.Kubernetes
+	8,  // 6: bootstrap.v1.Config.vault:type_name -> bootstrap.v1.Config.Vault
+	7,  // 7: bootstrap.v1.Config.http:type_name -> bootstrap.v1.Config.Http
+	9,  // 8: bootstrap.v1.Config.env:type_name -> bootstrap.v1.Config.Env
+	10, // 9: bootstrap.v1.Config.Http.headers:type_name -> bootstrap.v1.Config.Http.HeadersEntry
+	10, // [10:10] is the sub-list for method output_type
+	10, // [10:10] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_bootstrap_v1_config_proto_init() }
@@ -1413,7 +1010,7 @@ func file_bootstrap_v1_config_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bootstrap_v1_config_proto_rawDesc), len(file_bootstrap_v1_config_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   16,
+			NumMessages:   11,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

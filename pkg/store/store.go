@@ -16,7 +16,7 @@ import (
 	"reflect"
 	"strings"
 
-	storev1 "github.com/kalandramo/bald/pkg/conf/gen/go/bald/store/v1"
+	storev1 "github.com/kalandramo/bald/bconf/gen/go/bald/store/v1"
 )
 
 // DefaultPageSize 是分页默认每页条数。

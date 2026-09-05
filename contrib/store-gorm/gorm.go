@@ -21,7 +21,7 @@ import (
 	"strings"
 
 	"github.com/kalandramo/bald/pkg/store"
-	storev1 "github.com/kalandramo/bald/pkg/conf/gen/go/bald/store/v1"
+	storev1 "github.com/kalandramo/bald/bconf/gen/go/bald/store/v1"
 	"gorm.io/gorm"
 )
 

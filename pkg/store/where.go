@@ -1,6 +1,6 @@
 package store
 
-import storev1 "github.com/kalandramo/bald/pkg/conf/gen/go/bald/store/v1"
+import storev1 "github.com/kalandramo/bald/bconf/gen/go/bald/store/v1"
 
 // Where 是引擎无关的查询条件。
 //

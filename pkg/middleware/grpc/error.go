@@ -5,7 +5,7 @@ import (
 
 	"google.golang.org/grpc"
 
-	"github.com/kalandramo/bald/pkg/berrors/grpcerr"
+	"github.com/kalandramo/bald/berrors/grpcerr"
 )
 
 // ErrorInterceptor 把业务错误转成 gRPC status，保证错误语义跨服务完整透传。

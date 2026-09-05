@@ -34,7 +34,7 @@ import (
 	nacosconfig "github.com/go-kratos/kratos/v3/contrib/config/nacos/v3"
 	nacosreg "github.com/go-kratos/kratos/v3/contrib/registry/nacos/v3"
 	"github.com/kalandramo/bald/pkg/appkit"
-	"github.com/kalandramo/bald/pkg/config"
+	"github.com/kalandramo/bald/bootstrap/config"
 	"github.com/kalandramo/bald/pkg/registry"
 )
 

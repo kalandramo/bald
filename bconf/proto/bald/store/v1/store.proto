@@ -1,0 +1,97 @@
+syntax = "proto3";
+
+package bald.store.v1;
+
+import "google/protobuf/field_mask.proto";
+import "google/protobuf/wrappers.proto";
+
+option go_package = "github.com/kalandramo/bald/bconf/gen/go/bald/store/v1";
+
+// ---------------------------------------------------------------------------
+// 存储层契约：分页 / 过滤 / 排序（单一真相源）。
+//
+// 设计对齐参考项目 go-crud 的 pagination/v1，但精简掉 gnostic OpenAPI 注解
+// 与 field_mask 之外的非必要项，以便框架离线生成（仅依赖 protobuf WKT）。
+// 列表请求/响应用本契约生成，与 gRPC / HTTP 共享同一类型（bald 全栈 proto 化主线）。
+// ---------------------------------------------------------------------------
+
+// 排序方向。
+enum Direction {
+  ASC = 0;  // 升序（默认）
+  DESC = 1; // 降序
+}
+
+// 过滤操作符（覆盖常见 SQL / NoSQL 语义）。
+enum Operator {
+  OPERATOR_UNSPECIFIED = 0;
+  EQ = 1;       // =
+  NEQ = 2;      // !=
+  GT = 3;       // >
+  GTE = 4;      // >=
+  LT = 5;       // <
+  LTE = 6;      // <=
+  LIKE = 7;     // SQL LIKE
+  ILIKE = 8;    // 大小写不敏感 LIKE
+  NOT_LIKE = 9; // NOT LIKE
+  IN = 10;      // IN (v1, v2, ...)
+  NIN = 11;     // NOT IN
+  IS_NULL = 12;     // IS NULL
+  IS_NOT_NULL = 13; // IS NOT NULL
+  BETWEEN = 14;  // BETWEEN a AND b
+  CONTAINS = 15;     // 包含（LIKE %v%）
+  STARTS_WITH = 16; // 前缀（LIKE v%）
+  ENDS_WITH = 17;   // 后缀（LIKE %v）
+}
+
+// 排序规则。
+message Sorting {
+  string field = 1;       // 排序字段，如 "id"、"create_time"
+  Direction direction = 2; // 方向，默认 ASC
+}
+
+// 单条过滤条件。
+message FilterCondition {
+  string field = 1;        // 字段名（DTO 字段名）
+  Operator op = 2;         // 操作符
+  string value = 3;        // 单值（字符串表达，引擎按需做类型转换）
+  repeated string values = 4; // 多值（IN / NIN / BETWEEN 用）
+}
+
+// 过滤表达式（AND / OR 组合，可嵌套）。
+message FilterExpr {
+  enum Type {
+    TYPE_UNSPECIFIED = 0;
+    AND = 1;
+    OR = 2;
+  }
+  Type type = 1;
+  repeated FilterCondition conditions = 2;
+  repeated FilterExpr groups = 3;
+}
+
+// 分页通用请求。
+message PagingRequest {
+  optional uint32 page = 1;        // 页码（从 1 开始），与 page_size 配合
+  optional uint32 page_size = 2;   // 每页条数（默认 10，建议上限 100）
+  optional uint64 offset = 3;      // 偏移量（从 0 开始），与 limit 配合
+  optional uint32 limit = 4;       // 最多返回条数
+  optional string token = 5;       // 令牌分页游标（首次为空）
+  optional bool no_paging = 6;     // true 时不分页
+
+  FilterExpr filter_expr = 10;     // 复杂过滤表达式（优先）
+  repeated Sorting sorting = 21;   // 排序规则
+
+  // 字段掩码（SELECT 字段，逗号分隔）。空表示选中全部字段。
+  optional google.protobuf.FieldMask field_mask = 30;
+}
+
+// 分页响应元数据。
+message PaginationResponseMeta {
+  optional google.protobuf.UInt64Value total = 1;        // 总记录数（Page/Offset 分页）
+  optional google.protobuf.UInt32Value total_pages = 2;  // 总页数（Page 分页）
+  optional google.protobuf.UInt32Value current_page = 3; // 当前页码
+  optional google.protobuf.UInt64Value current_offset = 4; // 当前偏移量
+  optional string next_token = 5;                        // 下一页令牌（Token 分页）
+  optional uint32 page_size = 6;                         // 每页实际条数
+  optional uint32 current_size = 7;                      // 当前页实际返回条数
+}

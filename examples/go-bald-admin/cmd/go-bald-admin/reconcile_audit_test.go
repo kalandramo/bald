@@ -4,17 +4,13 @@ import (
 	"context"
 	"testing"
 
-	"github.com/spf13/viper"
-
 	"github.com/kalandramo/bald/pkg/appkit"
 	"github.com/kalandramo/bald/pkg/audit"
 )
 
-// newAuditViper 构造只含 audit.backends 的最小 viper（无需真实 DB/Redis）。
-func newAuditViper(backends string) *viper.Viper {
-	v := viper.New()
-	v.Set("audit.backends", backends)
-	return v
+// newAuditSettings 构造只含 audit.backends 的最小期望态快照（无需真实 DB/Redis）。
+func newAuditSettings(backends string) map[string]any {
+	return map[string]any{"audit": map[string]any{"backends": backends}}
 }
 
 // newReconcileApp 造一个最小 AppKit 测试装置并标记运行态（免去启动 server）。
@@ -61,7 +57,7 @@ func TestReconcileAudit_ParseBackends(t *testing.T) {
 func TestReconcileAudit_MountLog(t *testing.T) {
 	audit.SetAuditor(audit.NopAuditor())
 	app := newReconcileApp()
-	rctx := appkit.NewReconcileCtx(app, "audit.backends", newAuditViper("log"))
+	rctx := appkit.NewReconcileCtx(app, "audit.backends", newAuditSettings("log"))
 
 	if err := reconcileAudit(context.Background(), rctx); err != nil {
 		t.Fatalf("reconcile: %v", err)
@@ -80,7 +76,7 @@ func TestReconcileAudit_MountLog(t *testing.T) {
 func TestReconcileAudit_Idempotent(t *testing.T) {
 	audit.SetAuditor(audit.NopAuditor())
 	app := newReconcileApp()
-	rctx := appkit.NewReconcileCtx(app, "audit.backends", newAuditViper("log"))
+	rctx := appkit.NewReconcileCtx(app, "audit.backends", newAuditSettings("log"))
 
 	if err := reconcileAudit(context.Background(), rctx); err != nil {
 		t.Fatalf("first reconcile: %v", err)
@@ -97,7 +93,7 @@ func TestReconcileAudit_Idempotent(t *testing.T) {
 func TestReconcileAudit_RemoveOnEmpty(t *testing.T) {
 	audit.SetAuditor(audit.NopAuditor())
 	app := newReconcileApp()
-	rctx := appkit.NewReconcileCtx(app, "audit.backends", newAuditViper("log"))
+	rctx := appkit.NewReconcileCtx(app, "audit.backends", newAuditSettings("log"))
 	if err := reconcileAudit(context.Background(), rctx); err != nil {
 		t.Fatalf("mount reconcile: %v", err)
 	}
@@ -106,7 +102,7 @@ func TestReconcileAudit_RemoveOnEmpty(t *testing.T) {
 	}
 
 	// 期望态置空 → 应卸载 log。
-	rctx2 := appkit.NewReconcileCtx(app, "audit.backends", newAuditViper(""))
+	rctx2 := appkit.NewReconcileCtx(app, "audit.backends", newAuditSettings(""))
 	if err := reconcileAudit(context.Background(), rctx2); err != nil {
 		t.Fatalf("remove reconcile: %v", err)
 	}

@@ -6,11 +6,11 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/kalandramo/bald/log"
 	"github.com/kalandramo/bald/pkg/audit"
 	"github.com/kalandramo/bald/pkg/authn"
 	"github.com/kalandramo/bald/pkg/authz"
 	"github.com/kalandramo/bald/pkg/contextx"
-	"github.com/kalandramo/bald/pkg/log"
 	"github.com/kalandramo/bald/pkg/metrics"
 )
 

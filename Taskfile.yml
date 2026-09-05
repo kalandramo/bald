@@ -40,12 +40,11 @@ tasks:
 
   proto:
     desc: 生成全部 Protobuf 代码
-    deps: [proto-config]
+    deps: [proto-contract]
 
-  proto-config:
-    desc: 生成框架级配置契约（api/proto → pkg/conf/gen/go）
-    deps: [tools-protoc-gen-defaults]
-    dir: api/proto
+  proto-contract:
+    desc: 生成契约层代码（bconf/proto → bconf/gen/go；bootstrap 配置 + appspec + store 契约）
+    dir: bconf
     cmds:
       - buf generate
 
@@ -102,9 +101,9 @@ tasks:
   example-e2e:
     desc: 运行 _example 的 e2e 回归测试（grpcgw）
     deps: [proto-example]
-    dir: _example
+    dir: _example/bald
     cmds:
-      - go test -tags grpcgw ./bald/ -v
+      - go test -tags grpcgw ./... -v
 
   test:
     desc: 运行核心模块全部测试（不含 _example，见 example-* 任务）

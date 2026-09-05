@@ -18,7 +18,7 @@ import (
 	baldgorm "github.com/kalandramo/bald-store-gorm"
 	"github.com/kalandramo/bald/pkg/authn"
 	"github.com/kalandramo/bald/pkg/authz"
-	"github.com/kalandramo/bald/pkg/log"
+	"github.com/kalandramo/bald/log"
 	"github.com/kalandramo/bald/pkg/store"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/driver/mysql"

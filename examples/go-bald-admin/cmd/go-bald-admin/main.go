@@ -30,7 +30,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 	"google.golang.org/grpc"
 
 	adminv1 "github.com/kalandramo/bald/examples/go-bald-admin/gen/secretv1"
@@ -40,26 +39,31 @@ import (
 
 	obmetrics "github.com/kalandramo/bald-observability-otlp/metrics"
 	obtrace "github.com/kalandramo/bald-observability-otlp/trace"
+	bconf "github.com/kalandramo/bald/bconf"
+	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
+	baldbootstrap "github.com/kalandramo/bald/bootstrap"
+	baldconfig "github.com/kalandramo/bald/bootstrap/config"
 	securityaudit "github.com/kalandramo/bald/examples/go-bald-admin/internal/security/audit"
+	baldlog "github.com/kalandramo/bald/log"
+	baldlogadapter "github.com/kalandramo/bald/log/slog"
 	"github.com/kalandramo/bald/pkg/appkit"
 	"github.com/kalandramo/bald/pkg/audit"
 	"github.com/kalandramo/bald/pkg/authn"
-	baldconf "github.com/kalandramo/bald/pkg/conf"
-	confv1 "github.com/kalandramo/bald/pkg/conf/gen/go/bald/config/v1"
-	baldconfig "github.com/kalandramo/bald/pkg/config"
-	baldlog "github.com/kalandramo/bald/pkg/log"
 	"github.com/kalandramo/bald/pkg/middleware/bundle"
 	"github.com/kalandramo/bald/pkg/registry/inmemory"
-	"github.com/kalandramo/bald/pkg/server"
+	"github.com/kalandramo/bald/transport"
+	gateway "github.com/kalandramo/bald/transport/gateway"
+	grpcserver "github.com/kalandramo/bald/transport/grpc"
+	httpserver "github.com/kalandramo/bald/transport/http"
 )
 
 func serveRunE(_ *cobra.Command, _ []string) error {
 	// 0. 框架级配置：proto 是唯一真相源，直接持有 Bootstrap 指针。
-	bootstrap := baldconf.NewBootstrap()
-	bootstrap.Http.Addr = ":8080"
+	bootstrap := bconf.NewBootstrap()
+	bootstrap.GetServer().GetHttp().Addr = ":8080"
 
 	// 日志系统接入（两阶段：先默认，配置加载后重建）。
-	logOpts := baldlog.NewOptions()
+	logOpts := baldlogadapter.NewOptions()
 	setLogger(logOpts)
 
 	// M8/M9 可观测性：初始化 MeterProvider 并启动 /metrics 端点（独立端口，供 Prometheus 抓取）。
@@ -128,10 +132,10 @@ func serveRunE(_ *cobra.Command, _ []string) error {
 	router.Use(ginBundle.Gin()...)
 	apiserver.RegisterRoutes(router, bizSet.Auth, bizSet.Secret) // gin handler 路由
 	registerAdminRoutes(router, appRef, componentFactories)      // M10.2 管理面（appRef 迟到绑定）
-	httpSrv := server.NewHTTPServer(bootstrap.GetHttp(), router, ready)
+	httpSrv := httpserver.NewHTTPServer(bootstrap.GetServer().GetHttp(), router, ready)
 
-	grpcSrv := server.NewGRPCServerWithRegister(
-		bootstrap.GetGrpc(),
+	grpcSrv := grpcserver.NewGRPCServerWithRegister(
+		bootstrap.GetServer().GetGrpc(),
 		newGRPCServerOptions(),
 		registerGRPCService,
 		ready,
@@ -196,11 +200,11 @@ func isKnownCommand(root *cobra.Command, name string) bool {
 }
 
 func newApp(
-	bootstrap *confv1.Bootstrap,
-	logOpts *baldlog.Options,
-	httpSrv *server.HTTPServer,
-	grpcSrv *server.GRPCServer,
-	ready server.ReadinessFunc,
+	bootstrap *bootstrapv1.BootstrapConfig,
+	logOpts *baldlogadapter.Options,
+	httpSrv *httpserver.HTTPServer,
+	grpcSrv *grpcserver.GRPCServer,
+	ready transport.ReadinessFunc,
 	traceComp appkit.Component,
 ) *appkit.AppKit {
 	var app *appkit.AppKit
@@ -222,16 +226,17 @@ func newApp(
 		// C1 进程内组件：trace provider 纳入统一生命周期（停机末段逆序 Dispose）。
 		appkit.Components(traceComp),
 
-		// 业务 flag 接入：前缀与配置键一致（--http.addr ⇔ http.addr ⇔ BALD_HTTP_ADDR）。
-		appkit.Bind("http", bootstrap.GetHttp()),
-		appkit.Bind("grpc", bootstrap.GetGrpc()),
+		// 业务 flag 接入：前缀与配置键一致（--server.http.addr ⇔ server.http.addr ⇔ BALD_SERVER_HTTP_ADDR）。
+		appkit.Bind("server.http", bootstrap.GetServer().GetHttp()),
+		appkit.Bind("server.grpc", bootstrap.GetServer().GetGrpc()),
 		appkit.Bind("", logOpts),
 
-		appkit.OnConfigChange(func(v *viper.Viper) {
+		appkit.OnConfigChange(func(m map[string]any) {
 			logger := baldlog.GetLogger()
 			logger.Info(context.Background(), "config changed",
-				"http.addr", v.GetString("http.addr"), "grpc.addr", v.GetString("grpc.addr"))
-			if err := baldconfig.Unmarshal(v, bootstrap); err != nil {
+				"server.http.addr", app.Config().GetString("server.http.addr"),
+				"server.grpc.addr", app.Config().GetString("server.grpc.addr"))
+			if err := baldconfig.Unmarshal(m, bootstrap); err != nil {
 				logger.Error(context.Background(), "reload config failed", "error", err)
 			}
 		}),
@@ -239,8 +244,8 @@ func newApp(
 		// R1 增量协调（key 级订阅）：仅当 http.addr 实际变化才触发（同值刷新、
 		// 其他 key 变更均不波及），与全量 reload 互补——全量做 Unmarshal 重建，
 		// key 级做定点观测/定点重载。
-		appkit.OnKeyChange("http.addr", func(old, new string) {
-			baldlog.GetLogger().Info(context.Background(), "http.addr changed",
+		appkit.OnKeyChange("server.http.addr", func(old, new string) {
+			baldlog.GetLogger().Info(context.Background(), "server.http.addr changed",
 				"old", old, "new", new)
 		}),
 
@@ -248,18 +253,18 @@ func newApp(
 		appkit.Servers(buildServers(bootstrap, httpSrv, grpcSrv, ready)...),
 
 		appkit.BeforeStart(func(ctx context.Context) error {
-			v := app.Viper()
-			if v == nil {
+			m := app.Settings()
+			if m == nil {
 				return nil
 			}
-			if err := baldconfig.Unmarshal(v, bootstrap); err != nil {
+			if err := baldconfig.Unmarshal(m, bootstrap); err != nil {
 				return fmt.Errorf("unmarshal config: %w", err)
 			}
-			if err := baldconf.Validate(bootstrap); err != nil {
+			if err := bconf.Validate(bootstrap); err != nil {
 				return fmt.Errorf("invalid config: %w", err)
 			}
 			// 阶段 B：按最终配置重建 Logger，并装配 bald 桥接（P7/P8/P9 注册点）。
-			setLogger(baldconf.LogOptions(bootstrap.GetLogger()))
+			setLogger(baldbootstrap.LogOptions(bootstrap.GetLogger()))
 			// 在 bootstrap 包内装配 bald 桥接（P7/P8/P9 注册点）：M1+ 注入
 			// Authenticator / Authorizer / store.RegisterTenant / store.RegisterDataScope。
 			if err := bootstrappkg.InitBridges(ctx); err != nil {
@@ -273,7 +278,7 @@ func newApp(
 		// R1-2 期望态协调：以 audit.backends 为期望态，与当前生效后端集合 diff，
 		// 自动重建 MultiAuditor 收敛（幂等）。首次收敛在 AfterStart 前（runReconcilers
 		// 于基线 loadConfig 后、BeforeStart 链之后触发）；后续 OnConfigChange 携带新
-		// viper 再次触发，实现运行期热切换而无需重启。
+		// 快照再次触发，实现运行期热切换而无需重启。
 		appkit.Reconcile("audit.backends", reconcileAudit),
 		appkit.AfterStart(func(ctx context.Context) error {
 			ctx = baldlog.ContextWithAttrs(ctx,
@@ -375,9 +380,9 @@ func buildAuditBackend(name string) audit.Auditor {
 // 完整兑现「只更新变动部分」的 K8s controller 语义。部分失败不回滚，下次协调补齐。
 //
 // 触发时机由框架负责：首次在 loadConfig 基线后、AfterStart 前的启动收敛期；其后
-// 每次 OnConfigChange 携带新 viper 再次调用，实现运行期热切换（如 [store]→[store,stream]）。
+// 每次 OnConfigChange 携带新快照再次调用，实现运行期热切换（如 [store]→[store,stream]）。
 func reconcileAudit(ctx context.Context, rctx *appkit.ReconcileCtx) error {
-	want := parseAuditBackends(rctx.Viper.GetString("audit.backends"))
+	want := parseAuditBackends(rctx.String("audit.backends"))
 	have := rctx.Mounted() // 实际态：本协调器名下已挂载的后端（Mount/Unmount 维护）
 
 	// diff-apply：期望==实际时直接返回（幂等，不抖动、不发多余审计）。
@@ -548,20 +553,23 @@ func newGRPCServerOptions() []grpc.ServerOption {
 // buildServers 组装运行服务器集合：gRPC + HTTP，可选 grpc-gateway。
 // gateway 仅在注入 gatewayFactory 时挂载（默认构建即挂载，由 init 注入）。
 func buildServers(
-	bootstrap *confv1.Bootstrap,
-	httpSrv *server.HTTPServer,
-	grpcSrv *server.GRPCServer,
-	ready server.ReadinessFunc,
-) []server.Server {
-	servers := []server.Server{grpcSrv, httpSrv}
+	bootstrap *bootstrapv1.BootstrapConfig,
+	httpSrv *httpserver.HTTPServer,
+	grpcSrv *grpcserver.GRPCServer,
+	ready transport.ReadinessFunc,
+) []transport.Server {
+	servers := []transport.Server{grpcSrv, httpSrv}
 	if gatewayFactory == nil {
 		return servers
 	}
 	// gateway 需连到 gRPC 服务（用其监听地址，须可连接，不能是 :0）。
 	// gateway 配置在构造期即与 HTTP 同源绑定：地址走 gatewayAddr()，TLS 直接取主 HTTP 的 http.tls 段，
 	// 不再依赖 BeforeStart 运行时回填（消除全局可变态 + 时序耦合）。
-	gwHttpCfg := &confv1.Http{Addr: gatewayAddr(), Tls: bootstrap.GetHttp().GetTls()}
-	gw, err := gatewayFactory(gwHttpCfg, bootstrap.GetGrpc(), ready)
+	gwHttpCfg := &bootstrapv1.Server_Http{Addr: gatewayAddr()}
+	if t := bootstrap.GetServer().GetHttp(); t.GetTls() != nil {
+		gwHttpCfg.Tls = t.GetTls()
+	}
+	gw, err := gatewayFactory(gwHttpCfg, bootstrap.GetServer().GetGrpc(), ready)
 	if err != nil {
 		// 网关构造失败不应静默降级（否则 REST 路由凭空消失），直接 panic（fail-fast）。
 		panic("build gateway server: " + err.Error())
@@ -572,8 +580,9 @@ func buildServers(
 // gatewayFactory 构造 grpc-gateway 服务器（REST → gRPC 转码）。M5 默认挂载：
 // REST 请求经 registerGateway 转码进入 SecretService，复用同一 gRPC 拦截器链
 // （认证/授权/多租户）。
-var gatewayFactory = func(httpCfg *confv1.Http, grpcBackend *confv1.Grpc, ready server.ReadinessFunc) (*server.GatewayServer, error) {
-	return server.NewGatewayServer(httpCfg, grpcBackend, registerGateway, ready)
+
+var gatewayFactory = func(httpCfg *bootstrapv1.Server_Http, grpcBackend *bootstrapv1.Server_Grpc, ready transport.ReadinessFunc) (*gateway.GatewayServer, error) {
+	return gateway.NewGatewayServer(httpCfg, grpcBackend, registerGateway, ready)
 }
 
 // gatewayAddr 读取 gateway 监听地址：env BALD_GATEWAY_ADDR 优先，缺省 :8081，
@@ -586,7 +595,7 @@ func gatewayAddr() string {
 }
 
 // registerGateway 把 grpc-gateway 的 HTTP handler 注册到 runtime.ServeMux 并交回
-// http.Handler（server.NewGatewayServer 依赖倒置，核心不依赖 grpc-gateway）。
+// http.Handler（transport.NewGatewayServer 依赖倒置，核心不依赖 grpc-gateway）。
 // conn 由 GatewayServer 内部建立（指向本进程 gRPC 服务）。
 func registerGateway(ctx context.Context, conn *grpc.ClientConn) (http.Handler, error) {
 	mux := runtime.NewServeMux()
@@ -596,11 +605,11 @@ func registerGateway(ctx context.Context, conn *grpc.ClientConn) (http.Handler, 
 	return mux, nil
 }
 
-func setLogger(opts *baldlog.Options) {
-	baldlog.SetLogger(baldlog.NewSlogLogger(opts,
-		baldlog.WithFilter(baldlog.FilterKey("password")),
-		baldlog.WithFilter(baldlog.FilterKey("token")),
-		baldlog.WithAttrs(slog.String("service.name", "go-bald-admin")),
+func setLogger(opts *baldlogadapter.Options) {
+	baldlog.SetLogger(baldlogadapter.NewSlogLogger(opts,
+		baldlogadapter.WithFilter(baldlogadapter.FilterKey("password")),
+		baldlogadapter.WithFilter(baldlogadapter.FilterKey("token")),
+		baldlogadapter.WithAttrs(slog.String("service.name", "go-bald-admin")),
 	))
 	// M7 审计后端注入（落库版）在 InitBridges 之后装配（见 appkit.BeforeStart），
 	// 因需 bootstrap.DB 已建立；此处仅设 Logger，不再提前注入 Auditor。

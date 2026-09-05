@@ -30,9 +30,9 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/kalandramo/bald/log"
 	"github.com/kalandramo/bald/pkg/audit"
 	"github.com/kalandramo/bald/pkg/authn"
-	"github.com/kalandramo/bald/pkg/log"
 )
 
 // ErrNotRunning 表示 App 尚未运行（Run 之前）或已退出——运行期原语仅可在

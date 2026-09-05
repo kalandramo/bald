@@ -7,7 +7,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/kalandramo/bald/pkg/audit"
-	"github.com/kalandramo/bald/pkg/log"
+	"github.com/kalandramo/bald/log"
 )
 
 // StreamAuditor 把审计事件发布到 Redis Stream（消息总线语义，M9 延伸异步后端）。

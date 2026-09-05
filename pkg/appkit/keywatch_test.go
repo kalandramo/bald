@@ -5,11 +5,9 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/spf13/viper"
 )
 
-// kwMemSource 内存 RemoteSource（同 pkg/config 测试模式），用于驱动远程变更。
+// kwMemSource 内存 RemoteSource（同 config module 测试模式），用于驱动远程变更。
 type kwMemSource struct {
 	mu      sync.Mutex
 	data    []byte
@@ -152,7 +150,7 @@ func TestOnKeyChange_WithUserOnChange(t *testing.T) {
 	app := New(
 		RemoteConfig(src),
 		OnKeyChange("http.addr", col.record),
-		OnConfigChange(func(*viper.Viper) {
+		OnConfigChange(func(map[string]any) {
 			mu.Lock()
 			fullRuns++
 			mu.Unlock()

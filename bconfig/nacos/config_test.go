@@ -5,124 +5,131 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nacos-group/nacos-sdk-go/v2/clients"
-	"github.com/nacos-group/nacos-sdk-go/v2/common/constant"
+	"github.com/nacos-group/nacos-sdk-go/v2/clients/config_client"
 	"github.com/nacos-group/nacos-sdk-go/v2/vo"
 )
 
-func TestConfig_Load(t *testing.T) {
-	sc := []constant.ServerConfig{
-		*constant.NewServerConfig("127.0.0.1", 8848),
+// TestNew_ParameterValidation 自建模式参数校验（不触网）。
+func TestNew_ParameterValidation(t *testing.T) {
+	if _, err := New(); err == nil {
+		t.Error("New() without server addrs should fail")
 	}
-
-	cc := constant.ClientConfig{
-		TimeoutMs:           5000,
-		NotLoadCacheAtStart: true,
-		LogDir:              "/tmp/nacos/log",
-		CacheDir:            "/tmp/nacos/cache",
-		LogLevel:            "debug",
-	}
-
-	client, err := clients.NewConfigClient(
-		vo.NacosClientParam{
-			ClientConfig:  &cc,
-			ServerConfigs: sc,
-		},
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	source := New(client, WithGroup("test"), WithDataID("test.yaml"))
-
-	tests := []struct {
-		name      string
-		wantErr   bool
-		wantData  string
-		preFunc   func(t *testing.T)
-		deferFunc func(t *testing.T)
-	}{
-		{
-			name:     "normal",
-			wantErr:  false,
-			wantData: "test: test",
-			preFunc: func(t *testing.T) {
-				_, err = client.PublishConfig(vo.ConfigParam{DataId: "test.yaml", Group: "test", Content: "test: test"})
-				if err != nil {
-					t.Error(err)
-				}
-				time.Sleep(time.Second * 1)
-			},
-			deferFunc: func(t *testing.T) {
-				_, dErr := client.DeleteConfig(vo.ConfigParam{DataId: "test.yaml", Group: "test"})
-				if dErr != nil {
-					t.Error(dErr)
-				}
-			},
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			if test.preFunc != nil {
-				test.preFunc(t)
-			}
-			if test.deferFunc != nil {
-				defer test.deferFunc(t)
-			}
-			data, lErr := source.Load(context.Background(), "")
-			if (lErr != nil) != test.wantErr {
-				t.Errorf("Load error = %v, wantErr %v", lErr, test.wantErr)
-				return
-			}
-			if string(data) != test.wantData {
-				t.Errorf("Load data = %q, want %q", string(data), test.wantData)
-			}
-		})
+	if _, err := New(WithServerAddrs("127.0.0.1:8848")); err == nil {
+		t.Error("New() without data id should fail")
 	}
 }
 
-func TestConfig_WatchValue(t *testing.T) {
-	sc := []constant.ServerConfig{
-		*constant.NewServerConfig("127.0.0.1", 8848),
+// TestNewWithClient_ParameterValidation 注入模式参数校验。
+func TestNewWithClient_ParameterValidation(t *testing.T) {
+	if _, err := NewWithClient(nil, WithDataID("cfg")); err == nil {
+		t.Error("NewWithClient(nil) should fail")
 	}
-
-	cc := constant.ClientConfig{
-		TimeoutMs:           5000,
-		NotLoadCacheAtStart: true,
-		LogDir:              "/tmp/nacos/log",
-		CacheDir:            "/tmp/nacos/cache",
-		LogLevel:            "debug",
+	if _, err := NewWithClient(&stubClient{}); err == nil {
+		t.Error("NewWithClient without data id should fail")
 	}
+}
 
-	client, err := clients.NewConfigClient(
-		vo.NacosClientParam{
-			ClientConfig:  &cc,
-			ServerConfigs: sc,
-		},
-	)
+// TestResolveDataID key 覆盖默认 dataID。
+func TestResolveDataID(t *testing.T) {
+	c := &Config{opts: options{dataID: "default.yaml"}}
+	if got := c.resolveDataID(""); got != "default.yaml" {
+		t.Errorf("resolveDataID(\"\") = %q", got)
+	}
+	if got := c.resolveDataID("explicit.yaml"); got != "explicit.yaml" {
+		t.Errorf("resolveDataID(explicit) = %q", got)
+	}
+}
+
+// TestLoad_WithStub 桩注入：Load 拉取与默认 group/dataID 透传。
+func TestLoad_WithStub(t *testing.T) {
+	stub := &stubClient{content: "log:\n  level: debug"}
+	src, err := NewWithClient(stub, WithGroup("g1"), WithDataID("app.yaml"))
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("NewWithClient: %v", err)
 	}
 
-	source := New(client, WithGroup("test"), WithDataID("test.yaml"))
+	data, err := src.Load(context.Background(), "")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if string(data) != "log:\n  level: debug" {
+		t.Errorf("Load() = %q", data)
+	}
+	if stub.lastParam.DataId != "app.yaml" || stub.lastParam.Group != "g1" {
+		t.Errorf("GetConfig param = %+v", stub.lastParam)
+	}
+}
+
+// TestWatchValue_WithStub 桩注入：ListenConfig 注册 + ctx 取消反注册。
+func TestWatchValue_WithStub(t *testing.T) {
+	stub := &stubClient{}
+	src, err := NewWithClient(stub, WithDataID("app.yaml"))
+	if err != nil {
+		t.Fatalf("NewWithClient: %v", err)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	ch, wErr := source.WatchValue(ctx, "")
-	if wErr != nil {
-		t.Fatal(wErr)
+	ch, err := src.WatchValue(ctx, "")
+	if err != nil {
+		t.Fatalf("WatchValue: %v", err)
 	}
 
-	_, pErr := client.PublishConfig(vo.ConfigParam{DataId: "test.yaml", Group: "test", Content: "test: test"})
-	if pErr != nil {
-		t.Fatal(pErr)
+	// ListenConfig 已同步注册，模拟服务端推送。
+	stub.push([]byte("changed"))
+	select {
+	case data := <-ch:
+		if string(data) != "changed" {
+			t.Errorf("watch got %q", data)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("no push received")
 	}
-	defer func() {
-		_, _ = client.DeleteConfig(vo.ConfigParam{DataId: "test.yaml", Group: "test"})
-	}()
 
-	val := <-ch
-	if string(val) != "test: test" {
-		t.Errorf("WatchValue got %q, want %q", string(val), "test: test")
+	cancel()
+	select {
+	case <-stub.cancelled:
+	case <-time.After(time.Second):
+		t.Fatal("CancelListenConfig not called after ctx cancel")
+	}
+}
+
+// stubClient 接口嵌入桩：仅覆写 GetConfig/ListenConfig/CancelListenConfig。
+type stubClient struct {
+	config_client.IConfigClient
+	content   string
+	listen    chan struct{}
+	cancelled chan struct{}
+	lastParam vo.ConfigParam
+}
+
+func newStubClient() *stubClient {
+	return &stubClient{listen: make(chan struct{}, 1), cancelled: make(chan struct{}, 1)}
+}
+
+func (s *stubClient) GetConfig(param vo.ConfigParam) (string, error) {
+	s.lastParam = param
+	return s.content, nil
+}
+
+func (s *stubClient) ListenConfig(param vo.ConfigParam) error {
+	s.lastParam = param
+	select {
+	case s.listen <- struct{}{}:
+	default:
+	}
+	return nil
+}
+
+func (s *stubClient) CancelListenConfig(_ vo.ConfigParam) error {
+	select {
+	case s.cancelled <- struct{}{}:
+	default:
+	}
+	return nil
+}
+
+func (s *stubClient) push(data []byte) {
+	if s.lastParam.OnChange != nil {
+		s.lastParam.OnChange("ns", s.lastParam.Group, s.lastParam.DataId, string(data))
 	}
 }

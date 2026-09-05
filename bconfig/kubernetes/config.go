@@ -57,6 +57,8 @@ func (k *kube) init() (err error) {
 // resolveKey parses a key of the form "namespace/name/dataKey" and returns the
 // parts. If the key does not contain slashes, the configured namespace is used
 // and the key is treated as the ConfigMap name (returning all data merged).
+// An empty key falls back to the configured defaults (契约装配路径：
+// WithNamespace/WithConfigMapName/WithDataKey).
 func (k *kube) resolveKey(key string) (namespace, name, dataKey string) {
 	parts := strings.SplitN(key, "/", 3)
 	switch len(parts) {
@@ -65,7 +67,11 @@ func (k *kube) resolveKey(key string) (namespace, name, dataKey string) {
 	case 2:
 		return parts[0], parts[1], ""
 	default:
-		return k.opts.Namespace, key, ""
+		name, dataKey := key, ""
+		if name == "" {
+			name, dataKey = k.opts.ConfigMapName, k.opts.DataKey
+		}
+		return k.opts.Namespace, name, dataKey
 	}
 }
 

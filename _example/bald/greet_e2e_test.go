@@ -13,7 +13,7 @@
 //
 // 运行方式：
 //
-//	cd _example && go test -tags grpcgw ./bald/ -v
+//	cd _example/bald && go test -tags grpcgw ./... -v
 //
 // 前置：`make proto-example` 生成 proto 产物（本测试依赖 gen 包）。
 //
@@ -36,11 +36,12 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 
-	berrors "github.com/kalandramo/bald/pkg/berrors"
-	"github.com/kalandramo/bald/pkg/berrors/grpcerr"
-	baldconf "github.com/kalandramo/bald/pkg/conf"
-	baldlog "github.com/kalandramo/bald/pkg/log"
-	"github.com/kalandramo/bald/pkg/server"
+	berrors "github.com/kalandramo/bald/berrors"
+	"github.com/kalandramo/bald/berrors/grpcerr"
+	baldlogadapter "github.com/kalandramo/bald/log/slog"
+	bconf "github.com/kalandramo/bald/bconf"
+	grpcserver "github.com/kalandramo/bald/transport/grpc"
+	httpserver "github.com/kalandramo/bald/transport/http"
 
 	baldv1 "github.com/kalandramo/bald/example/bald/gen"
 )
@@ -71,23 +72,33 @@ func startApp(t *testing.T) (target string, stop func()) {
 	// grpc.addr: :9090），BeforeStart 的 Unmarshal 会覆盖掉这里设在
 	// bootstrap 上的值。appkit 优先级是 flag > env > 文件，用 env 才能压过文件。
 	grpcAddr := freeAddr(t)
-	t.Setenv("BALD_DEMO_GRPC_ADDR", grpcAddr)
-	t.Setenv("BALD_DEMO_HTTP_ADDR", freeAddr(t))
+	httpAddr := freeAddr(t)
+	t.Setenv("BALD_DEMO_SERVER_GRPC_ADDR", grpcAddr)
+	t.Setenv("BALD_DEMO_SERVER_HTTP_ADDR", httpAddr)
 	gatewayAddr = freeAddr(t)
 	t.Cleanup(func() { gatewayAddr = ":8081" }) // 还原，避免影响其他测试
 
-	bootstrap := baldconf.NewBootstrap()
+	bootstrap := bconf.NewBootstrap()
+	// ③ bootstrapv1 契约下 server 直接持有 BootstrapConfig 的子消息指针
+	//    （legacy confv1 时代的 adapt 值快照桥接已删除）——env/flag 覆盖与
+	//    Unmarshal 合并作用在同一对象上，这里直接改对象即可与 env 同值，
+	//    Unmarshal 覆盖后语义不变。指针直通让「New 期构造的 server 读到
+	//    最终配置」成为结构保证，不再依赖时序。
+	bootstrap.GetServer().GetGrpc().Addr = grpcAddr
+	bootstrap.GetServer().GetHttp().Addr = httpAddr
 
 	ready := func(ctx context.Context) error { return nil }
 
-	httpSrv := server.NewHTTPServer(bootstrap.GetHttp(), http.NewServeMux(), ready)
+	// 与 serveRunE 构造 httpSrv/grpcSrv 完全同构：直接传契约子消息指针，
+	// 保证测的是生产同一条链路。
+	httpSrv := httpserver.NewHTTPServer(bootstrap.GetServer().GetHttp(), http.NewServeMux(), ready)
 	// 复用 main 的拦截器链构造（newGRPCServerOptions），确保测的就是生产那条链路：
 	// 曾在这里传 nil 导致漏掉 ValidatorInterceptor，非法请求居然通过，
 	// 测试却「看起来在跑」——这类不一致会让回归测试完全失去价值。
-	grpcSrv := server.NewGRPCServerWithRegister(
-		bootstrap.GetGrpc(), newGRPCServerOptions(), registerGRPCService, ready)
+	grpcSrv := grpcserver.NewGRPCServerWithRegister(
+		bootstrap.GetServer().GetGrpc(), newGRPCServerOptions(), registerGRPCService, ready)
 
-	logOpts := baldlog.NewOptions()
+	logOpts := baldlogadapter.NewOptions()
 	app := newApp(bootstrap, logOpts, httpSrv, grpcSrv, ready)
 
 	ctx, cancel := context.WithCancel(context.Background())

@@ -10,7 +10,7 @@
 //	    appkit.OnKeyChange("http.addr", func(old, new string) {
 //	        log.Info(ctx, "http.addr changed", "old", old, "new", new)
 //	    }),
-//	    appkit.OnConfigChange(func(v *viper.Viper) { /* 全量重载，仍可用 */ }),
+//	    appkit.OnConfigChange(func(m map[string]any) { /* 全量重载，仍可用 */ }),
 //	    ...
 //	)
 //
@@ -20,15 +20,13 @@
 //   - fn 与 OnConfigChange 共存：先跑全量回调，再分发 key 订阅；
 //   - 未开启 watch（WatchLocalFile/Remote 均未配置）时永不触发。
 //
-// 并发语义与 OnConfigChange 相同：分发发生在 pkg/config 的变更回调内（其 viper
-// 注入已完成）。fn 应轻量（改状态、切引用、记日志），不要在其中调用 config
-// 重载/注入类操作或长时间阻塞。
+// 并发语义与 OnConfigChange 相同：分发发生在 config.Load 的变更回调内（其
+// 合并树已重建完毕）。fn 应轻量（改状态、切引用、记日志），不要在其中调用
+// config 重载/注入类操作或长时间阻塞。
 package appkit
 
 import (
 	"context"
-
-	"github.com/spf13/viper"
 )
 
 // keyWatcher 记录一个 key 级订阅：fn 是回调，last 是上次观测值，armed 表示
@@ -42,7 +40,7 @@ type keyWatcher struct {
 
 // OnKeyChange 订阅单个配置 key 的变更（R1 增量协调）。仅当该 key 的新值与
 // 上次观测值不同才触发 fn(old, new)——同值刷新不触发，未订阅的 key 变更
-// 不波及。可与 OnConfigChange 叠加使用。key 语法同 viper（"http.addr"）。
+// 不波及。可与 OnConfigChange 叠加使用。key 为点路径（"http.addr"）。
 func OnKeyChange(key string, fn func(old, new string)) Option {
 	return func(a *AppKit) {
 		a.keyWatchers = append(a.keyWatchers, keyWatcher{key: key, fn: fn})
@@ -55,26 +53,26 @@ func (a *AppKit) armKeyWatchers() {
 	defer a.keyWatchMu.Unlock()
 	for i := range a.keyWatchers {
 		w := &a.keyWatchers[i]
-		w.last = a.cfg.v.GetString(w.key)
+		w.last = a.cfg.store.GetString(w.key)
 		w.armed = true
 	}
 }
 
 // wrapKeyWatch 包装用户全量回调：先跑全量（保留既有行为），再分发 key 订阅，
 // 最后跑 R1-2 期望态协调（配置变更是协调的主要触发源）。
-func (a *AppKit) wrapKeyWatch(user func(*viper.Viper)) func(*viper.Viper) {
-	return func(v *viper.Viper) {
+func (a *AppKit) wrapKeyWatch(user func(map[string]any)) func(map[string]any) {
+	return func(m map[string]any) {
 		if user != nil {
-			user(v)
+			user(m)
 		}
-		a.dispatchKeyWatch(v)
-		a.runReconcilers(context.Background(), v)
+		a.dispatchKeyWatch()
+		a.runReconcilers(context.Background())
 	}
 }
 
 // dispatchKeyWatch 逐 key 比对新值，仅对确实变化的订阅触发 fn。
 // 锁内串行分发：保证同一 watcher 的 fn 不并发、观测顺序与变更顺序一致。
-func (a *AppKit) dispatchKeyWatch(v *viper.Viper) {
+func (a *AppKit) dispatchKeyWatch() {
 	a.keyWatchMu.Lock()
 	defer a.keyWatchMu.Unlock()
 	for i := range a.keyWatchers {
@@ -82,7 +80,7 @@ func (a *AppKit) dispatchKeyWatch(v *viper.Viper) {
 		if !w.armed {
 			continue // 未武装（loadConfig 未完成）不触发
 		}
-		cur := v.GetString(w.key)
+		cur := a.cfg.store.GetString(w.key)
 		if cur == w.last {
 			continue
 		}

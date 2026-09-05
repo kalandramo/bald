@@ -4,7 +4,7 @@
 
 一个融合三方设计精华的 Go 服务框架：
 
-- **onexstack/pkg/app**：启动期 Options + 配置理念（`--config`/viper 由调用方注入）。
+- **onexstack/pkg/app**：启动期 Options + 配置理念（`--config` 由调用方注入）。
 - **Kratos**：`transport.Server` 契约与 `registry.Registrar` 接口（可插拔复用）。
 - **go-lulu (`wind`)**：自研 App 层精髓——errgroup 并发启停、优雅停机防坑、崩溃级联停止、Run 防重入、可观察通道、`Endpoint()` 动态端口注册。
 
@@ -12,26 +12,27 @@
 
 ```
 bald/
+├── log/                      # 日志（契约层：Logger 接口 + 全局表 + nop 默认 + ctx 属性流 + MultiLogger；零依赖）
+│   └── slog/                 # slog 后端子包（Options/CLI + FilterKey 脱敏 + lumberjack 轮转；对齐 transport 契约+子包模式）
+├── berrors/                  # 错误契约（传输中立 Error + httperr/grpcerr 桥接；2026-09-05 由 pkg/berrors 提升）
+├── transport/                # 协议层（Server 契约 + grpc/http/gateway 实现子包 + web 流水线；吃 bconf 契约）
+├── bconf/                    # 契约层（proto 单一真相源：bootstrap 配置 + appspec + store；含 NewBootstrap/Validate/BindFlags/UnmarshalMap 工具；独立 module）
+├── bconfig/                  # 配置源（Reader 抽象 + env/file/kubernetes/nacos provider；独立 module）
+├── bootstrap/                # 启动装配 + 配置装载（契约 → 配置源/日志/服务器三 Registry；config/ 子包 = 统一层模型装载器内核：Layer 命名源层 + env/flag 深合并，viper 已退役；独立 module）
 ├── pkg/
-│   ├── server/               # 协议层：统一 Server 契约 + 协议适配器
 │   │   ├── http_server.go    # net/http（支持 HTTP/HTTPS，动态端口+可达 IP 解析）
 │   │   ├── grpc_server.go    # google.golang.org/grpc（自带 health + reflection）
 │   │   └── gateway_server.go # grpc-gateway 反向代理（核心不依赖 gateway，业务注入 handler）
-│   ├── web/                  # 强绑定 gin 的「绑定/校验/响应」流水线
 │   ├── middleware/           # HTTP/gRPC 中间件（链序契约由测试固化）
 │   │   ├── gin/              # Recovery/RequestID/CORS/Secure/Logging/Authn/Authz/Audit/Observability
 │   │   ├── grpc/             # 对应拦截器（Error 最外层收口 berrors→status）
 │   │   └── bundle/           # 横切关注点门面：一次构造双传输产出、链序固化（P10）
-│   ├── berrors/              # 零依赖传输中立错误模型（grpcerr/httperr 边界子包）
 │   ├── authn/                # 认证抽象（Authenticator/AuthClaims/ctx 注取）
 │   ├── authz/                # 授权抽象（Authorizer + P9 传输中立归一化 normalize.go）
 │   ├── audit/                # 审计抽象（Auditor/AuditEvent，旁路不阻断）
 │   ├── metrics/              # 指标抽象（Recorder/Event，otel API 封装，默认 no-op）
 │   ├── store/                # 泛型数据访问层（零引擎依赖 + P8 多租户 RegisterTenant/Where.T）
 │   ├── validation/           # 类型化校验（反射式按请求类型分发）
-│   ├── config/               # 配置加载器（四源合并 + RemoteSource 抽象 + kratos 桥接）
-│   ├── conf/                 # proto 配置契约（NewBootstrap/Validate/BindFlags + 生成代码）
-│   ├── log/                  # 结构化日志（slog 门面 + FilterKey 脱敏）
 │   ├── contextx/             # 上下文键（trace_id/user/vars/tenant_id）
 │   ├── registry/             # 服务注册抽象（inmemory + kratos 桥接 etcd/consul/nacos）
 │   ├── testkit/              # 测试工具（FreeAddr 等，P13）
@@ -58,7 +59,6 @@ package main
 
 import (
     "context"
-    "log/slog"
     "net/http"
     "os"
     "time"
@@ -66,40 +66,44 @@ import (
     "github.com/spf13/pflag"
     "google.golang.org/grpc"
 
-    baldlog "github.com/kalandramo/bald/pkg/log"
+    bconf "github.com/kalandramo/bald/bconf"
+    baldbootstrap "github.com/kalandramo/bald/bootstrap"
+    baldlog "github.com/kalandramo/bald/log"
+    baldlogadapter "github.com/kalandramo/bald/log/slog"
     "github.com/kalandramo/bald/pkg/appkit"
-    baldconf "github.com/kalandramo/bald/pkg/conf"
     "github.com/kalandramo/bald/pkg/registry/inmemory"
-    "github.com/kalandramo/bald/pkg/server"
+    grpcserver "github.com/kalandramo/bald/transport/grpc"
+    httpserver "github.com/kalandramo/bald/transport/http"
 )
 
 func main() {
     // 1. 日志系统接入（进程入口 bootstrap 初始化全局 Logger）。
     //    通过 --log.level / --log.format / --log.output-paths 多源配置；
     //    FilterKey 脱敏：password/token 自动替换为 ***。
-    logOpts := baldlog.NewOptions()
+    logOpts := baldlogadapter.NewOptions()
     logOpts.AddFlags(pflag.CommandLine)
-    baldlog.SetLogger(baldlog.NewSlogLogger(logOpts,
-        baldlog.WithFilter(baldlog.FilterKey("password")),
-        baldlog.WithFilter(baldlog.FilterKey("token")),
-        baldlog.WithAttrs(slog.String("service.name", "bald-demo")),
+    baldlog.SetLogger(baldlogadapter.NewSlogLogger(logOpts,
+        baldlogadapter.WithFilter(baldlogadapter.FilterKey("password")),
+        baldlogadapter.WithFilter(baldlogadapter.FilterKey("token")),
     ))
     logger := baldlog.GetLogger()
 
-    // 2. 框架级配置：proto 是唯一真相源，server 直接消费 Bootstrap 子消息。
-    bootstrap := baldconf.NewBootstrap()
-    bootstrap.Http.Addr = ":8080"
-    // 注册 --bald-demo.http.addr / --bald-demo.http.tls.* 等 flag（BindFlags 遍历 proto 字段）。
-    baldconf.BindFlags(pflag.CommandLine, bootstrap.GetHttp(), "bald-demo.http")
-    baldconf.BindFlags(pflag.CommandLine, bootstrap.GetGrpc(), "bald-demo.grpc")
+    // 2. 框架级配置：proto 是唯一真相源（bconf 契约），server 直接消费
+    //    BootstrapConfig 的子消息指针（指针直通：flag/配置覆盖与 server 读值同源）。
+    bootstrap := bconf.NewBootstrap()
+    bootstrap.GetServer().GetHttp().Addr = ":8080"
+    // 注册 --bald-demo.server.http.addr 等 flag（BindFlags 遍历 proto 字段）。
+    bconf.BindFlags(pflag.CommandLine, bootstrap.GetServer().GetHttp(), "bald-demo.server.http")
+    bconf.BindFlags(pflag.CommandLine, bootstrap.GetServer().GetGrpc(), "bald-demo.server.grpc")
 
     // 3. 共享 readiness 探针：HTTP /readyz 与 gRPC health 状态对称联动。
     ready := func(ctx context.Context) error { return nil /* 检查 DB/依赖 */ }
 
-    httpSrv := server.NewHTTPServer(bootstrap.GetHttp(), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        _, _ = w.Write([]byte("hello from bald\n"))
-    }), ready)
-    grpcSrv := server.NewGRPCServerWithRegister(bootstrap.GetGrpc(), nil, func(s *grpc.Server) {
+    httpSrv := httpserver.NewHTTPServer(bootstrap.GetServer().GetHttp(),
+        http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+            _, _ = w.Write([]byte("hello from bald\n"))
+        }), ready)
+    grpcSrv := grpcserver.NewGRPCServerWithRegister(bootstrap.GetServer().GetGrpc(), nil, func(s *grpc.Server) {
         // pb.RegisterYourServer(s, impl)
     }, ready)
 
@@ -141,9 +145,9 @@ type Server interface {
 
 ## Web 框架（pkg/web 强绑定 gin）
 
-**分层原则**：路由注册由业务直接用 gin 编写；「绑定 / 校验 / 响应」流水线集中在 `pkg/web`——它**强绑定 gin**（直接消费 `*gin.Context`），因此 bald 仅支持 **gin（HTTP）与 grpc-gateway（复用同一 biz 层）**。这与 onexstack 的 `pkg/core` 思路一致，但错误语义复用 bald 自有的 `pkg/berrors`（不引入 onexstack 外部依赖）。
+**分层原则**：路由注册由业务直接用 gin 编写；「绑定 / 校验 / 响应」流水线集中在 `transport/web`——它**强绑定 gin**（直接消费 `*gin.Context`），因此 bald 仅支持 **gin（HTTP）与 grpc-gateway（复用同一 biz 层）**。这与 onexstack 的 `pkg/core` 思路一致，但错误语义复用 bald 自有的 `berrors`（不引入 onexstack 外部依赖）。
 
-`gin.Engine`（或任意 `http.Handler`）可直接传给 `server.NewHTTPServer`，**服务器层零改动**。
+`gin.Engine`（或任意 `http.Handler`）可直接传给 `httpserver.NewHTTPServer`，**服务器层零改动**。
 
 ### 路由与中间件
 
@@ -206,7 +210,7 @@ web.HandleAllRequest[articleReq, articleResp](c,
 
 ### 错误 → HTTP 状态码映射
 
-`web.ErrorResponse` 与错误模型通过 `pkg/berrors` 衔接：
+`web.ErrorResponse` 与错误模型通过 `berrors` 衔接：
 
 ```go
 // pkg/berrors 的错误经 httperr 子包还原状态码（核心包不挂 StatusCode 方法，避免循环依赖）：
@@ -296,7 +300,7 @@ go test ./...
   [`docs/server-design.md`](docs/server-design.md)。
 - 服务注册设计（Registrar 抽象、ServiceInstance 字段约束、注册/反注册时序）：
   [`docs/registry-design.md`](docs/registry-design.md)。
-- 配置中心设计（远程配置、多环境、`RemoteSource` 抽象、与 viper 集成）：
+- 配置中心设计（远程配置、多环境、`RemoteSource` 抽象）：
   [`docs/config-center-design.md`](docs/config-center-design.md)。
 - 日志设计（Options 多源配置、FilterKey 脱敏、ContextWithAttrs 日志属性）：
   [`docs/log-design.md`](docs/log-design.md)。

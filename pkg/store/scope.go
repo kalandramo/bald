@@ -5,7 +5,7 @@ import (
 	"sync"
 
 	"github.com/kalandramo/bald/pkg/authn"
-	storev1 "github.com/kalandramo/bald/pkg/conf/gen/go/bald/store/v1"
+	storev1 "github.com/kalandramo/bald/bconf/gen/go/bald/store/v1"
 )
 
 // DataScopeFunc 依据当前请求身份（AuthClaims）计算额外的数据范围过滤条件。

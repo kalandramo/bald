@@ -29,7 +29,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/kalandramo/bald/pkg/log"
+	"github.com/kalandramo/bald/log"
 )
 
 // effectEntry 是账本中的一条可逆效应：name 用于日志定位，undo 是逆操作。

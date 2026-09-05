@@ -27,11 +27,12 @@ import (
 	"buf.build/go/protovalidate"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 
-	berrors "github.com/kalandramo/bald/pkg/berrors"
-	confv1 "github.com/kalandramo/bald/pkg/conf/gen/go/bald/config/v1"
+	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
+	berrors "github.com/kalandramo/bald/berrors"
 	grpcmw "github.com/kalandramo/bald/pkg/middleware/grpc"
-	"github.com/kalandramo/bald/pkg/server"
 	"github.com/kalandramo/bald/pkg/validation"
+	"github.com/kalandramo/bald/transport"
+	gateway "github.com/kalandramo/bald/transport/gateway"
 
 	// 以下包由 `make proto` 生成（protoc-gen-go / protoc-gen-go-grpc /
 	// protoc-gen-grpc-gateway）。未生成前本文件因 build tag 不参与编译。
@@ -193,7 +194,7 @@ func registerGRPCServiceFn(s *grpc.Server) {
 
 // registerGateway 把 grpc-gateway 的 HTTP handler 注册到一个
 // runtime.ServeMux（grpc-gateway v2 的 mux，非标准库 http.ServeMux），
-// 并把它作为 http.Handler 交回给 server.NewGatewayServer。
+// 并把它作为 http.Handler 交回给 transport.NewGatewayServer。
 //
 // conn 是到本进程 gRPC 服务（grpcCfg.Addr）的连接，由 GatewayServer 内部建立。
 // 返回 http.Handler 而非在入参 mux 上注册，是为了让 pkg/server 不必依赖
@@ -212,9 +213,9 @@ func registerGateway(ctx context.Context, conn *grpc.ClientConn) (http.Handler, 
 // gRPC service 的注册不需要构造新 server —— init 已把 registerGRPCService
 // 注入为真实的 baldv1.RegisterGreetServiceServer。
 func newGatewayWithGreet(
-	httpCfg *confv1.Http,
-	grpcBackend *confv1.Grpc,
-	ready server.ReadinessFunc,
-) (*server.GatewayServer, error) {
-	return server.NewGatewayServer(httpCfg, grpcBackend, registerGateway, ready)
+	httpCfg *bootstrapv1.Server_Http,
+	grpcBackend *bootstrapv1.Server_Grpc,
+	ready transport.ReadinessFunc,
+) (*gateway.GatewayServer, error) {
+	return gateway.NewGatewayServer(httpCfg, grpcBackend, registerGateway, ready)
 }

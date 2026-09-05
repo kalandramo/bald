@@ -6,7 +6,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/kalandramo/bald/pkg/audit"
-	"github.com/kalandramo/bald/pkg/log"
+	"github.com/kalandramo/bald/log"
 
 	authmodel "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/model"
 )

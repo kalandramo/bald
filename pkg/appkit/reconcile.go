@@ -14,7 +14,7 @@
 //
 //	app := appkit.New(
 //	    appkit.Reconcile("audit.backends", func(ctx context.Context, r *appkit.ReconcileCtx) error {
-//	        want := parseBackends(r.Viper.GetStringSlice("audit.backends")) // 期望态
+//	        want := parseBackends(r.StringSlice("audit.backends")) // 期望态
 //	        // 新增：期望有、实际无
 //	        for _, name := range want {
 //	            if !r.Has(name) {
@@ -43,11 +43,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/spf13/viper"
-
+	"github.com/kalandramo/bald/log"
 	"github.com/kalandramo/bald/pkg/audit"
 	"github.com/kalandramo/bald/pkg/authn"
-	"github.com/kalandramo/bald/pkg/log"
 )
 
 // ReconcileFunc 执行一次协调：读期望态（经 r.Viper）、比对实际态（r.Mounted/r.Has）、
@@ -61,15 +59,76 @@ type reconciler struct {
 	fn   ReconcileFunc
 }
 
-// ReconcileCtx 是协调函数的上下文：暴露期望态读取（Viper）与实际态操作（挂载集合）。
+// ReconcileCtx 是协调函数的上下文：暴露期望态读取（Settings）与实际态操作（挂载集合）。
 type ReconcileCtx struct {
-	// Viper 读取期望态（配置）；只读，且为当前已合并的最新配置实例。
-	Viper *viper.Viper
+	// Settings 是期望态（配置）：本次协调开始时的配置快照（深拷贝，只读）。
+	// 一次协调内取值一致；跨协调由框架取最新快照。
+	Settings map[string]any
 
 	// Name 是本协调器的注册名（日志/审计定位用）。
 	Name string
 
 	app *AppKit
+}
+
+// String 读取期望态中点路径的字符串值（缺失/nil → ""，标量 → 字符串化）。
+func (r *ReconcileCtx) String(key string) string {
+	v, ok := settingAtPath(r.Settings, key)
+	if !ok {
+		return ""
+	}
+	return settingString(v)
+}
+
+// StringSlice 读取期望态中点路径的字符串列表：支持 []string、[]any（yaml 列表）
+// 与逗号分隔的字符串；缺失/空值返回 nil。语义与 ParseStringList 一致。
+func (r *ReconcileCtx) StringSlice(key string) []string {
+	v, ok := settingAtPath(r.Settings, key)
+	if !ok {
+		return nil
+	}
+	return ParseStringList(v)
+}
+
+// settingAtPath 按点路径在配置快照中查找值（"server.http.addr"）。
+func settingAtPath(m map[string]any, key string) (any, bool) {
+	if m == nil || key == "" {
+		return nil, false
+	}
+	parts := strings.Split(key, ".")
+	cur := m
+	for i, p := range parts {
+		v, ok := cur[p]
+		if !ok {
+			return nil, false
+		}
+		if i == len(parts)-1 {
+			return v, true
+		}
+		cur, ok = v.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+	}
+	return nil, false
+}
+
+// settingString 标量转字符串（nil → ""，bool/int/float → 十进制文本，
+// 与配置装载器的 GetString 语义一致）。
+func settingString(v any) string {
+	switch val := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return val
+	case bool:
+		if val {
+			return "true"
+		}
+		return "false"
+	default:
+		return fmt.Sprint(val)
+	}
 }
 
 // Mounted 返回当前实际已挂载、由本协调器管理的组件名（有序，与挂载序一致）。
@@ -97,9 +156,9 @@ func (r *ReconcileCtx) Unmount(ctx context.Context, name string) error {
 
 // NewReconcileCtx 构造一个协调上下文，供测试或「手动触发协调」使用（正常路径下
 // 由 runReconcilers 内部构造，无需调用方关心）。测试装置用 NewHarness 构造
-// 运行态 AppKit 后，配合本函数显式注入 Viper 驱动协调逻辑（见 harness.go）。
-func NewReconcileCtx(app *AppKit, name string, v *viper.Viper) *ReconcileCtx {
-	return &ReconcileCtx{Viper: v, Name: name, app: app}
+// 运行态 AppKit 后，配合本函数显式注入期望态快照驱动协调逻辑（见 harness.go）。
+func NewReconcileCtx(app *AppKit, name string, settings map[string]any) *ReconcileCtx {
+	return &ReconcileCtx{Settings: settings, Name: name, app: app}
 }
 
 // Reconcile 注册一个期望态协调器（R1-2）。多个协调器按注册序依次执行；
@@ -114,17 +173,28 @@ func Reconcile(name string, fn ReconcileFunc) Option {
 // ReconcileNow 立即执行一次全量协调（按注册序）。供测试与「配置变更后手动触发」
 // 使用；配置 watch 触发路径见 runReconcilers（经 OnConfigChange 包裹）。
 func (a *AppKit) ReconcileNow(ctx context.Context) {
-	a.runReconcilers(ctx, a.cfg.v)
+	a.runReconcilers(ctx)
 }
 
 // runReconcilers 顺序执行全部协调器，单个失败仅记日志（收敛语义：下次补齐）。
-func (a *AppKit) runReconcilers(ctx context.Context, v *viper.Viper) {
+// 每次协调整体取一次配置快照，保证单个协调内期望态一致。
+func (a *AppKit) runReconcilers(ctx context.Context) {
+	var settings map[string]any
+	if a.cfg.store != nil {
+		settings = a.cfg.store.Settings()
+	}
+	a.runReconcilersWith(ctx, settings)
+}
+
+// runReconcilersWith 以给定期望态快照执行协调（测试/手动注入用；正常路径走
+// runReconcilers 由配置仓库取快照）。
+func (a *AppKit) runReconcilersWith(ctx context.Context, settings map[string]any) {
 	a.reconMu.Lock()
 	rs := append([]reconciler(nil), a.reconcilers...)
 	a.reconMu.Unlock()
 
 	for _, rc := range rs {
-		r := &ReconcileCtx{Viper: v, Name: rc.name, app: a}
+		r := &ReconcileCtx{Settings: settings, Name: rc.name, app: a}
 		err := rc.fn(ctx, r)
 		if err != nil {
 			log.GetLogger().Error(ctx, "appkit reconcile failed", "reconciler", rc.name, "error", err)
@@ -251,8 +321,8 @@ func DiffStrings(want, have []string) (add, remove []string) {
 	return add, remove
 }
 
-// ParseStringList 把配置值解析为字符串列表：支持 viper 原生 []string，以及
-// 逗号分隔的字符串（"log,store,stream"）；空值返回 nil。
+// ParseStringList 把配置值解析为字符串列表：支持 []string、[]any（yaml 列表）
+// 以及逗号分隔的字符串（"log,store,stream"）；空值返回 nil。
 func ParseStringList(v any) []string {
 	switch val := v.(type) {
 	case nil:

@@ -9,8 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spf13/viper"
-
 	"github.com/kalandramo/bald/pkg/audit"
 )
 
@@ -61,18 +59,16 @@ func (c *reconComp) state() (started, disposed bool) {
 	return c.started, c.disposed
 }
 
-// newReconViper 构造带期望态配置的 viper（key = 后端列表，逗号分隔）。
-func newReconViper(want string) *viper.Viper {
-	v := viper.New()
-	v.Set("audit.backends", want)
-	return v
+// newReconSettings 构造期望态配置快照（audit.backends = 逗号分隔后端列表）。
+func newReconSettings(want string) map[string]any {
+	return map[string]any{"audit": map[string]any{"backends": want}}
 }
 
 // convergeFn 是通用协调逻辑：期望列表 vs 已挂载列表，增/删到收敛。
 // 工厂按名构造组件（failOn 指定哪个名字构造出的组件 Start 必然失败）。
 func convergeFn(failOn string, comps *map[string]*reconComp) ReconcileFunc {
 	return func(ctx context.Context, r *ReconcileCtx) error {
-		want := ParseStringList(r.Viper.GetString("audit.backends"))
+		want := r.StringSlice("audit.backends")
 		add, remove := DiffStrings(want, r.Mounted())
 		for _, name := range add {
 			c := &reconComp{name: name, log: &compLog{}}
@@ -125,7 +121,7 @@ func setupReconApp(t *testing.T, failOn string) (*AppKit, *map[string]*reconComp
 // 三个组件全部挂载并 Start。
 func TestReconcile_ConvergesToDesiredState(t *testing.T) {
 	app, comps, _ := setupReconApp(t, "")
-	app.runReconcilers(context.Background(), newReconViper("log,store,stream"))
+	app.runReconcilersWith(context.Background(), newReconSettings("log,store,stream"))
 
 	mounted := app.reconMounted("audit.backends")
 	if len(mounted) != 3 {
@@ -142,10 +138,10 @@ func TestReconcile_ConvergesToDesiredState(t *testing.T) {
 // TestReconcile_Idempotent 幂等契约：重复协调不产生重复挂载/重复启停。
 func TestReconcile_Idempotent(t *testing.T) {
 	app, comps, _ := setupReconApp(t, "")
-	want := newReconViper("log,store")
-	app.runReconcilers(context.Background(), want)
-	app.runReconcilers(context.Background(), want) // 二次协调应为 no-op
-	app.runReconcilers(context.Background(), want)
+	want := newReconSettings("log,store")
+	app.runReconcilersWith(context.Background(), want)
+	app.runReconcilersWith(context.Background(), want) // 二次协调应为 no-op
+	app.runReconcilersWith(context.Background(), want)
 
 	if got := app.reconMounted("audit.backends"); len(got) != 2 {
 		t.Fatalf("after 3 reconciles mounted = %v, want 2", got)
@@ -162,11 +158,11 @@ func TestReconcile_Idempotent(t *testing.T) {
 // TestReconcile_RemovesExtra 移除契约：期望态缩小 → 多余组件被卸载并 Dispose。
 func TestReconcile_RemovesExtra(t *testing.T) {
 	app, comps, _ := setupReconApp(t, "")
-	app.runReconcilers(context.Background(), newReconViper("log,store,stream"))
+	app.runReconcilersWith(context.Background(), newReconSettings("log,store,stream"))
 	stream := (*comps)["stream"]
 
-	app.runReconcilers(context.Background(), newReconViper("log")) // 期望态缩小
-	app.runReconcilers(context.Background(), newReconViper("log")) // 重复协调应幂等
+	app.runReconcilersWith(context.Background(), newReconSettings("log")) // 期望态缩小
+	app.runReconcilersWith(context.Background(), newReconSettings("log")) // 重复协调应幂等
 
 	if got := app.reconMounted("audit.backends"); len(got) != 1 || got[0] != "log" {
 		t.Fatalf("after shrink mounted = %v, want [log]", got)
@@ -180,10 +176,10 @@ func TestReconcile_RemovesExtra(t *testing.T) {
 // 中间态，故障消失后再次协调能继续补齐（不要求单次成功）。
 func TestReconcile_PartialFailureThenConverges(t *testing.T) {
 	app, comps, _ := setupReconApp(t, "stream") // stream 构造即失败
-	desired := newReconViper("log,store,stream")
+	desired := newReconSettings("log,store,stream")
 
 	// 第一次：log/store 成功，stream 失败（停在中间态）。
-	app.runReconcilers(context.Background(), desired)
+	app.runReconcilersWith(context.Background(), desired)
 	if got := app.reconMounted("audit.backends"); len(got) != 2 {
 		t.Fatalf("partial: mounted = %v, want [log store]", got)
 	}
@@ -193,7 +189,7 @@ func TestReconcile_PartialFailureThenConverges(t *testing.T) {
 	app.reconMu.Lock()
 	app.reconcilers = []reconciler{{name: "audit.backends", fn: convergeFn("", comps)}}
 	app.reconMu.Unlock()
-	app.runReconcilers(context.Background(), desired)
+	app.runReconcilersWith(context.Background(), desired)
 
 	if got := app.reconMounted("audit.backends"); len(got) != 3 {
 		t.Fatalf("after recovery mounted = %v, want 3", got)
@@ -261,7 +257,7 @@ func TestReconcile_AuditEvent(t *testing.T) {
 	t.Cleanup(func() { audit.SetAuditor(old) })
 
 	app, _, _ := setupReconApp(t, "")
-	app.runReconcilers(context.Background(), newReconViper("log"))
+	app.runReconcilersWith(context.Background(), newReconSettings("log"))
 
 	found := false
 	for _, ev := range am.snapshot() {

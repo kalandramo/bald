@@ -11,8 +11,8 @@ import (
 
 	"google.golang.org/grpc"
 
-	berrors "github.com/kalandramo/bald/pkg/berrors"
-	"github.com/kalandramo/bald/pkg/log"
+	"github.com/kalandramo/bald/log"
+	berrors "github.com/kalandramo/bald/berrors"
 )
 
 // RecoveryInterceptor 恢复 handler/内层拦截器的 panic 并返回 Internal 错误。
