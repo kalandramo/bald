@@ -298,6 +298,11 @@ func coerceInt(raw any, kind protoreflect.Kind) (any, error) {
 		if f != math.Trunc(f) {
 			return nil, fmt.Errorf("expect integer, got %v", f)
 		}
+		// float64 精度高于 int64：超界值 int64(f) 会静默回绕，须显式拒绝。
+		// 边界用 2^63 精确常量（float64(math.MaxInt64) 恰为 2^63，">" 会放过它）。
+		if f >= 1<<63 || f < math.MinInt64 {
+			return nil, fmt.Errorf("value %v overflows int64", f)
+		}
 		return int64(f), nil
 	case string:
 		n, err := strconv.ParseInt(v, 10, bits)
@@ -331,6 +336,21 @@ func coerceUint(raw any) (any, error) {
 			return nil, fmt.Errorf("expect unsigned integer, got %q", v)
 		}
 		return n, nil
+	case float32, float64:
+		// JSON 解码后数字为 float64：整数值应放行（与 coerceInt 对称），
+		// 否则 JSON 配置文档中的 uint 字段必然报错。
+		f := toFloat(v)
+		if f != math.Trunc(f) {
+			return nil, fmt.Errorf("expect unsigned integer, got %v", f)
+		}
+		if f < 0 {
+			return nil, fmt.Errorf("expect unsigned integer, got %v", f)
+		}
+		// 边界用 2^64 精确常量：float64(math.MaxUint64) 会舍入到 2^64。
+		if f >= 1<<64 {
+			return nil, fmt.Errorf("value %v overflows uint64", f)
+		}
+		return uint64(f), nil
 	}
 	return nil, fmt.Errorf("expect unsigned integer, got %T", raw)
 }

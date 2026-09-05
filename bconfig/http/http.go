@@ -2,11 +2,13 @@
 package http
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/kalandramo/bald/bconfig"
@@ -103,7 +105,7 @@ func (c *Config) Load(ctx context.Context, key string) ([]byte, error) {
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("http: request %s: %w", url, err)
+		return nil, fmt.Errorf("http: request %s: %w", redactURL(url), err)
 	}
 	defer resp.Body.Close()
 
@@ -111,7 +113,7 @@ func (c *Config) Load(ctx context.Context, key string) ([]byte, error) {
 		return nil, nil
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("http: %s: %s", url, resp.Status)
+		return nil, fmt.Errorf("http: %s: %s", redactURL(url), resp.Status)
 	}
 
 	data, err := io.ReadAll(resp.Body)
@@ -136,12 +138,14 @@ func (c *Config) WatchValue(ctx context.Context, key string) (<-chan []byte, err
 		defer ticker.Stop()
 
 		var lastETag string
+		var lastBody []byte
 
 		// 初始拉取：立即推送当前值（失败静默，等下个轮询周期重试）。
 		data, etag, err := c.fetchWithETag(ctx, url, "")
 		if err == nil {
 			lastETag = etag
 			if data != nil {
+				lastBody = data
 				select {
 				case out <- data:
 				case <-ctx.Done():
@@ -165,6 +169,12 @@ func (c *Config) WatchValue(ctx context.Context, key string) (<-chan []byte, err
 				if data == nil {
 					continue // 304，无变化
 				}
+				if bytes.Equal(data, lastBody) {
+					// 服务器无 ETag：内容未变化不重复推送，
+					// 避免下游周期性空转重合并 + OnChange。
+					continue
+				}
+				lastBody = data
 				select {
 				case out <- data:
 				case <-ctx.Done():
@@ -196,7 +206,7 @@ func (c *Config) fetchWithETag(ctx context.Context, url, etag string) (data []by
 		return nil, respETag, nil
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, respETag, fmt.Errorf("http: %s: %s", url, resp.Status)
+		return nil, respETag, fmt.Errorf("http: %s: %s", redactURL(url), resp.Status)
 	}
 
 	data, err = io.ReadAll(resp.Body)
@@ -204,6 +214,17 @@ func (c *Config) fetchWithETag(ctx context.Context, url, etag string) (data []by
 		return nil, respETag, fmt.Errorf("http: read response body: %w", err)
 	}
 	return data, respETag, nil
+}
+
+// redactURL 剥离 URL 中的 userinfo（配置 URL 可能携带 token 凭据，
+// 不出现在错误信息/日志里）。
+func redactURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.User == nil {
+		return raw
+	}
+	u.User = url.User("REDACTED")
+	return u.String()
 }
 
 // Close 关闭自建 client 的空闲连接；注入模式为空操作。

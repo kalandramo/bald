@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/kalandramo/bald/bconf"
 	"github.com/kalandramo/bald/bconfig"
@@ -51,6 +52,16 @@ type Layer struct {
 // formatAware 允许源动态声明文档格式（远程桥适配器每次 Read/Watch 返回格式）。
 type formatAware interface{ currentFormat() string }
 
+const (
+	// DefaultLoadTimeout 单层初始装配的默认超时：远端配置中心不可达时
+	// 快速失败，而非无限阻塞启动。源自身已有超时的（如 etcd dial timeout）
+	// 不受影响；设为负值可禁用本超时（信任源自身控制）。
+	DefaultLoadTimeout = 10 * time.Second
+
+	// watchReconnectInterval 层 watch 通道断开后的重连退避间隔。
+	watchReconnectInterval = time.Second
+)
+
 // Options 配置加载参数。
 type Options struct {
 	// Name 应用配置名，用于按规则查找本地文件（如 config.yaml / config-prod.yaml）
@@ -76,6 +87,10 @@ type Options struct {
 	// OnChange 配置变更回调（任一层变更均触发）。形参为合并后的最新配置
 	// 快照（各层重新合并后的整体树），业务在其中重新 Unmarshal 完成热重载。
 	OnChange func(map[string]any)
+	// LoadTimeout 单层初始装配（Reader.Load）的超时；零值用
+	// [DefaultLoadTimeout]，负值禁用（信任源自身超时控制）。
+	// 远端配置中心不可达时快速失败，避免启动无限阻塞。
+	LoadTimeout time.Duration
 }
 
 // layerState 一个层的运行期状态：声明 + 当前文档缓存。
@@ -125,9 +140,25 @@ func Load(opts Options) (*Store, error) {
 
 	s := &Store{onChange: opts.OnChange}
 
+	// 每层初始装配单独带超时：配置中心不可达时快速失败而非无限阻塞
+	//（LoadTimeout < 0 信任源自身超时控制）。
+	assemble := func(l Layer) (*layerState, error) {
+		ctx := context.Background()
+		if opts.LoadTimeout >= 0 {
+			timeout := opts.LoadTimeout
+			if timeout == 0 {
+				timeout = DefaultLoadTimeout
+			}
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, timeout)
+			defer cancel()
+		}
+		return assembleLayer(ctx, l)
+	}
+
 	// 1) 远程桥（kratos 桥便捷入口）→ 最低优先级基准层。
 	if opts.Remote != nil {
-		ls, err := assembleLayer(context.Background(), Layer{
+		ls, err := assemble(Layer{
 			Name:   "remote",
 			Reader: newRemoteLayer(opts.Remote),
 			Watch:  true,
@@ -152,7 +183,7 @@ func Load(opts Options) (*Store, error) {
 				return nil, fmt.Errorf("config: layer %q: Watch=true but Reader does not implement bconfig.ValueWatcher", l.Name)
 			}
 		}
-		ls, err := assembleLayer(context.Background(), l)
+		ls, err := assemble(l)
 		if err != nil {
 			return nil, err
 		}
@@ -166,7 +197,7 @@ func Load(opts Options) (*Store, error) {
 		if err != nil {
 			return nil, fmt.Errorf("config: open local %s: %w", localPath, err)
 		}
-		ls, err := assembleLayer(context.Background(), Layer{
+		ls, err := assemble(Layer{
 			Name:   "local:" + localPath,
 			Reader: src,
 			Format: FormatOf(localPath),
@@ -273,24 +304,49 @@ func (s *Store) setupWatch(opts Options) error {
 		s.watchWG.Add(1)
 		go func() {
 			defer s.watchWG.Done()
+
+			// apply 处理一次推送/补偿拉取：decode → 更新层缓存 → 全量重合并 + OnChange。
+			// 解析失败（如编辑中途半写状态）：保留旧层缓存，仍通知以便观测。
+			apply := func(data []byte) {
+				m, derr := decodeDocument(data, layerFormat(ls))
+				s.mu.Lock()
+				if derr == nil {
+					ls.m = m // 解析成功：更新该层缓存（其余层覆盖保留——重合并叠加）
+				}
+				s.merged = s.remerge()
+				snapshot := deepCopyMap(s.merged)
+				s.mu.Unlock()
+				s.onChange(snapshot)
+			}
+
 			for {
 				select {
 				case <-ctx.Done():
 					return
 				case data, ok := <-ch:
 					if !ok {
-						return // 源关闭通道（监听器致命错误）
+						// 源关闭通道（监听器致命错误，如 fsnotify 故障、watch 流断开）。
+						// 退避后重建监听，避免热更新永久停更；Store 关闭（ctx 取消）时退出。
+						if ctx.Err() != nil {
+							return
+						}
+						select {
+						case <-ctx.Done():
+							return
+						case <-time.After(watchReconnectInterval):
+						}
+						next, err := vw.WatchValue(ctx, "")
+						if err != nil {
+							continue // 重试（外层退避兜底）
+						}
+						ch = next
+						// 重连后主动拉一次全量，弥补断连期间可能丢失的变更。
+						if data, lerr := ls.spec.Reader.Load(ctx, ""); lerr == nil {
+							apply(data)
+						}
+						continue
 					}
-					m, derr := decodeDocument(data, layerFormat(ls))
-					s.mu.Lock()
-					if derr == nil {
-						ls.m = m // 解析成功：更新该层缓存（其余层覆盖保留——重合并叠加）
-					}
-					// 解析失败（如编辑中途半写状态）：保留旧层缓存，仍通知以便观测。
-					s.merged = s.remerge()
-					snapshot := deepCopyMap(s.merged)
-					s.mu.Unlock()
-					s.onChange(snapshot)
+					apply(data)
 				}
 			}
 		}()

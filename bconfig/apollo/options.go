@@ -1,8 +1,19 @@
 package apollo
 
 import (
+	"time"
+
 	"github.com/apolloconfig/agollo/v4/constant"
 	"github.com/apolloconfig/agollo/v4/extension"
+)
+
+// Apollo 同步等待默认值：StartWithConfig 的首轮拉取在后台 goroutine 执行，
+// New 返回后立即 Load 可能读到空缓存。
+const (
+	// DefaultSyncWaitRetries 空文档重试次数（总等待 ≈ retries × interval）。
+	DefaultSyncWaitRetries = 10
+	// DefaultSyncWaitInterval 重试间隔。
+	DefaultSyncWaitInterval = 200 * time.Millisecond
 )
 
 // Option 是 Apollo 配置源选项。
@@ -17,6 +28,11 @@ type options struct {
 	isBackupConfig bool
 	backupPath     string
 	originConfig   bool
+	// syncWaitRetries/syncWaitInterval 首轮同步等待：Load 读到空文档时
+	// 按间隔重试至多 retries 次，避免启动竞态下远程配置静默缺失。
+	// 负值禁用等待；零值用默认。
+	syncWaitRetries  int
+	syncWaitInterval time.Duration
 }
 
 // WithAppID 设置 Apollo 应用 ID（自建模式必填）。
@@ -83,5 +99,26 @@ func WithOriginalConfig() Option {
 		extension.AddFormatParser(constant.YAML, &yamlExtParser{})
 		extension.AddFormatParser(constant.YML, &yamlExtParser{})
 		o.originConfig = true
+	}
+}
+
+// WithSyncWait 定制首轮同步等待（retries<0 禁用等待；间隔须为正）。
+// 默认 [DefaultSyncWaitRetries] × [DefaultSyncWaitInterval]。
+func WithSyncWait(retries int, interval time.Duration) Option {
+	return func(o *options) {
+		o.syncWaitRetries = retries
+		if interval > 0 {
+			o.syncWaitInterval = interval
+		}
+	}
+}
+
+// applySyncWaitDefaults 填充零值默认（构造器调用）。
+func (o *options) applySyncWaitDefaults() {
+	if o.syncWaitRetries == 0 {
+		o.syncWaitRetries = DefaultSyncWaitRetries
+	}
+	if o.syncWaitInterval == 0 {
+		o.syncWaitInterval = DefaultSyncWaitInterval
 	}
 }

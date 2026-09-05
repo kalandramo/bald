@@ -85,8 +85,12 @@ func (c *Config) resolveKey(key string) string {
 
 // Load 实现 [bconfig.Reader]：返回 key（或默认 path）下的原始值；
 // 键不存在时返回 nil, nil。
-func (c *Config) Load(_ context.Context, key string) ([]byte, error) {
-	kv, _, err := c.client.KV().Get(c.resolveKey(key), nil)
+//
+// ctx 必须透传给底层 HTTP 请求：否则 Store 层级超时/取消对该源无效
+// （配置中心不可达时启动将无限阻塞）。
+func (c *Config) Load(ctx context.Context, key string) ([]byte, error) {
+	q := (*api.QueryOptions)(nil).WithContext(ctx)
+	kv, _, err := c.client.KV().Get(c.resolveKey(key), q)
 	if err != nil {
 		return nil, err
 	}
@@ -108,7 +112,13 @@ func (c *Config) WatchValue(ctx context.Context, key string) (<-chan []byte, err
 
 	out := make(chan []byte, 1)
 	wp.Handler = func(_ uint64, data any) {
+		// 键删除：watch plan 以 nil 回调。推送空文档让层清空、
+		// 回退低优先级层/默认值，而非静默保留最后一次值。
 		if data == nil {
+			select {
+			case out <- nil:
+			case <-ctx.Done():
+			}
 			return
 		}
 		kvPair, ok := data.(*api.KVPair)

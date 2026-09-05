@@ -3,6 +3,7 @@ package etcd
 
 import (
 	"context"
+	stdjson "encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -94,6 +95,9 @@ func (c *Config) resolveKey(key string) string {
 
 // Load 实现 [bconfig.Reader]：返回 key（或默认 path）下的原始值；
 // 键不存在时返回 nil, nil。
+//
+// prefix 模式：聚合前缀下全部 KV 为一份嵌套文档（键剥前缀后按点路径展开，
+// "/" 亦视作层级分隔），而非字典序首键——单文档源语义要求整份文档。
 func (c *Config) Load(ctx context.Context, key string) ([]byte, error) {
 	if err := c.init(); err != nil {
 		return nil, err
@@ -101,12 +105,11 @@ func (c *Config) Load(ctx context.Context, key string) ([]byte, error) {
 
 	path := c.resolveKey(key)
 
-	var opts []clientv3.OpOption
 	if c.opts.prefix {
-		opts = append(opts, clientv3.WithPrefix())
+		return c.loadPrefix(ctx, path)
 	}
 
-	rsp, err := c.client.Get(ctx, path, opts...)
+	rsp, err := c.client.Get(ctx, path)
 	if err != nil {
 		return nil, wrapConnError("get key", path, err)
 	}
@@ -116,8 +119,50 @@ func (c *Config) Load(ctx context.Context, key string) ([]byte, error) {
 	return rsp.Kvs[0].Value, nil
 }
 
+// loadPrefix 聚合前缀下全部 KV 为嵌套 JSON 文档：相对键按点路径展开
+// （与框架点路径键约定一致，"/" 先归一为 "."）；值一律为字符串，
+// 类型规范化交由下游 bconf.UnmarshalMap。
+func (c *Config) loadPrefix(ctx context.Context, path string) ([]byte, error) {
+	rsp, err := c.client.Get(ctx, path, clientv3.WithPrefix())
+	if err != nil {
+		return nil, wrapConnError("get prefix", path, err)
+	}
+	doc := map[string]any{}
+	for _, kv := range rsp.Kvs {
+		rel := strings.TrimPrefix(string(kv.Key), path)
+		rel = strings.TrimPrefix(rel, "/")
+		expandKey(strings.ReplaceAll(rel, "/", "."), string(kv.Value), doc)
+	}
+	return stdjson.Marshal(doc)
+}
+
+// expandKey 把点路径值写入嵌套 map（"server.http.addr" → {"server":{"http":{"addr":...}}}）。
+func expandKey(path string, value any, m map[string]any) {
+	parts := strings.Split(path, ".")
+	cur := m
+	for i, p := range parts {
+		if p == "" {
+			continue // 防御空段（前缀尾部分隔符）
+		}
+		if i == len(parts)-1 {
+			cur[p] = value
+			return
+		}
+		sub, ok := cur[p].(map[string]any)
+		if !ok {
+			sub = map[string]any{}
+			cur[p] = sub
+		}
+		cur = sub
+	}
+}
+
 // WatchValue 实现 [bconfig.ValueWatcher]：键（或默认 path）下数据变更时
 // 推送新值；ctx 取消或 watch 流结束后通道关闭。
+//
+// 单键模式：PUT 推新值；DELETE 推 nil（层清空，回退低优先级层/默认值）。
+// prefix 模式：任一 KV 变更（含 DELETE）后回读前缀全量文档再推送——
+// 整文档语义下增量推送无意义，回读天然覆盖删除。
 func (c *Config) WatchValue(ctx context.Context, key string) (<-chan []byte, error) {
 	if err := c.init(); err != nil {
 		return nil, err
@@ -133,13 +178,42 @@ func (c *Config) WatchValue(ctx context.Context, key string) (<-chan []byte, err
 	}
 
 	watchCtx, cancel := context.WithCancel(ctx)
-	var opts []clientv3.OpOption
-	if c.opts.prefix {
-		opts = append(opts, clientv3.WithPrefix())
-	}
-	etcdCh := c.client.Watch(watchCtx, path, opts...)
 
 	out := make(chan []byte, 1)
+
+	if c.opts.prefix {
+		etcdCh := c.client.Watch(watchCtx, path, clientv3.WithPrefix())
+		go func() {
+			defer close(out)
+			defer cancel()
+			// 初始全量推送一次（对齐 http 源语义；Store 已 Load 过则幂等）。
+			if doc, err := c.loadPrefix(watchCtx, path); err == nil {
+				select {
+				case out <- doc:
+				case <-watchCtx.Done():
+					return
+				}
+			}
+			for resp := range etcdCh {
+				if err := resp.Err(); err != nil {
+					return
+				}
+				// 任意 PUT/DELETE：回读前缀全量（天然覆盖删除语义）。
+				doc, err := c.loadPrefix(watchCtx, path)
+				if err != nil {
+					continue
+				}
+				select {
+				case out <- doc:
+				case <-watchCtx.Done():
+					return
+				}
+			}
+		}()
+		return out, nil
+	}
+
+	etcdCh := c.client.Watch(watchCtx, path)
 	go func() {
 		defer close(out)
 		defer cancel()
@@ -148,12 +222,17 @@ func (c *Config) WatchValue(ctx context.Context, key string) (<-chan []byte, err
 				return
 			}
 			for _, ev := range resp.Events {
-				if ev.Type == clientv3.EventTypePut {
-					select {
-					case out <- ev.Kv.Value:
-					case <-watchCtx.Done():
-						return
-					}
+				var data []byte
+				switch ev.Type {
+				case clientv3.EventTypePut:
+					data = ev.Kv.Value
+				case clientv3.EventTypeDelete:
+					data = nil // 键删除：推送空文档让层清空、回退低优先级层
+				}
+				select {
+				case out <- data:
+				case <-watchCtx.Done():
+					return
 				}
 			}
 		}

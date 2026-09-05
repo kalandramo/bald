@@ -2,7 +2,6 @@ package apollo
 
 import (
 	"context"
-	stdjson "encoding/json"
 	"strings"
 
 	"github.com/apolloconfig/agollo/v4/storage"
@@ -13,6 +12,7 @@ type valueChangeListener struct {
 	out       chan<- []byte
 	ctx       context.Context // 推送阻塞时的退出通道（与 WatchValue 的 ctx 同生命周期）
 	namespace string
+	conf      *Config // 回读全量文档用（缓存先于 listener 更新，此刻即最新值）
 }
 
 func (c *valueChangeListener) onChange(namespace string, changes map[string]*storage.ConfigChange) []byte {
@@ -26,16 +26,17 @@ func (c *valueChangeListener) onChange(namespace string, changes map[string]*sto
 		}
 	}
 
-	// 其余（properties 等）：展开为嵌套 JSON。
-	next := make(map[string]any)
-	for key, change := range changes {
-		resolve(genKey(namespace, key), change.NewValue, next)
-	}
-	val, err := stdjson.Marshal(next)
-	if err != nil {
+	// 其余（properties 等）：回读整份命名空间文档（与 Load 语义一致）。
+	// 不能只推变更增量：消费方（bootstrap/config Store）把推送当作该层的
+	// 新整文档替换层缓存，增量会让命名空间其余键从合并树消失。
+	if c.conf == nil {
 		return nil
 	}
-	return val
+	data, ok := c.conf.fullDocument(namespace)
+	if !ok {
+		return nil
+	}
+	return data
 }
 
 func (c *valueChangeListener) OnChange(changeEvent *storage.ChangeEvent) {
@@ -61,6 +62,7 @@ func newWatchValueChannel(ctx context.Context, a *Config, namespace string) (<-c
 		out:       out,
 		ctx:       ctx,
 		namespace: namespace,
+		conf:      a,
 	}
 	a.client.AddChangeListener(listener)
 
