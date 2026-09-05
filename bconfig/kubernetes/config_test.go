@@ -2,6 +2,7 @@ package kubernetes
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -29,7 +30,17 @@ var (
 	}
 )
 
+// skipWithoutCluster 集成测试门控：需要 BALD_KUBE_INTEGRATION=1 与可达集群
+// （默认跳过，保证无集群环境下 go test ./... 全绿；同 watcher_test.go 的 TestKube）。
+func skipWithoutCluster(t *testing.T) {
+	t.Helper()
+	if os.Getenv("BALD_KUBE_INTEGRATION") == "" {
+		t.Skip("set BALD_KUBE_INTEGRATION=1 to run kubernetes integration test (requires reachable cluster)")
+	}
+}
+
 func TestSource(t *testing.T) {
+	skipWithoutCluster(t)
 	home := homedir.HomeDir()
 	s := New(
 		WithNamespace(testNS),
@@ -38,12 +49,13 @@ func TestSource(t *testing.T) {
 	)
 	data, err := s.Load(context.Background(), testNS+"/"+testName+"/"+testKey)
 	if err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
 	t.Log(string(data))
 }
 
 func TestConfig(t *testing.T) {
+	skipWithoutCluster(t)
 	restConfig, err := rest.InClusterConfig()
 	home := homedir.HomeDir()
 

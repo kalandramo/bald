@@ -62,7 +62,10 @@ func TestLoad_WithStub(t *testing.T) {
 
 // TestWatchValue_WithStub 桩注入：ListenConfig 注册 + ctx 取消反注册。
 func TestWatchValue_WithStub(t *testing.T) {
-	stub := &stubClient{}
+	// 必须经 newStubClient 初始化 listen/cancelled 通道：
+	// 零值桩的 nil channel 会让 CancelListenConfig 的 select 发送永不就绪，
+	// 反注册信号发不出来（曾导致本测试超时误报）。
+	stub := newStubClient()
 	src, err := NewWithClient(stub, WithDataID("app.yaml"))
 	if err != nil {
 		t.Fatalf("NewWithClient: %v", err)
