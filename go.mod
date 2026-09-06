@@ -14,11 +14,18 @@ replace github.com/kalandramo/bald/log => ./log
 
 replace github.com/kalandramo/bald/transport => ./transport
 
+replace github.com/kalandramo/bald/transport/gateway => ./transport/gateway
+
+replace github.com/kalandramo/bald/transport/grpc => ./transport/grpc
+
+replace github.com/kalandramo/bald/transport/http => ./transport/http
+
+replace github.com/kalandramo/bald/transport/web => ./transport/web
+
 replace github.com/kalandramo/bald-crud/viewer => ../bald-crud/viewer
 
 require (
 	github.com/gin-gonic/gin v1.12.0
-	github.com/go-kratos/kratos/v3 v3.0.0
 	github.com/google/uuid v1.6.0
 	github.com/kalandramo/bald-crud/viewer v0.0.0-00010101000000-000000000000
 	github.com/kalandramo/bald/bconf v0.0.0-00010101000000-000000000000
@@ -26,6 +33,10 @@ require (
 	github.com/kalandramo/bald/bootstrap v0.0.0-00010101000000-000000000000
 	github.com/kalandramo/bald/log v0.0.0
 	github.com/kalandramo/bald/transport v0.0.0-00010101000000-000000000000
+	github.com/kalandramo/bald/transport/gateway v0.0.0-00010101000000-000000000000
+	github.com/kalandramo/bald/transport/grpc v0.0.0-00010101000000-000000000000
+	github.com/kalandramo/bald/transport/http v0.0.0-00010101000000-000000000000
+	github.com/kalandramo/bald/transport/web v0.0.0-00010101000000-000000000000
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
 	github.com/stretchr/testify v1.12.1
@@ -82,6 +93,7 @@ require (
 	github.com/gabriel-vasile/mimetype v1.4.12 // indirect
 	github.com/gin-contrib/sse v1.1.0 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
+	github.com/go-kratos/kratos/v3 v3.0.0 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-openapi/jsonpointer v1.0.0 // indirect

@@ -15,6 +15,7 @@ require (
 	github.com/kalandramo/bald/bootstrap v0.0.0-00010101000000-000000000000
 	github.com/kalandramo/bald/log v0.0.0
 	github.com/kalandramo/bald/transport v0.0.0
+	github.com/kalandramo/bald/transport/web v0.0.0-00010101000000-000000000000
 	github.com/nacos-group/nacos-sdk-go v1.1.6
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
@@ -25,7 +26,12 @@ require (
 	gorm.io/gorm v1.31.2
 )
 
-require github.com/nacos-group/nacos-sdk-go/v2 v2.3.5 // indirect
+require (
+	github.com/kalandramo/bald/transport/gateway v0.0.0-00010101000000-000000000000 // indirect
+	github.com/kalandramo/bald/transport/grpc v0.0.0-00010101000000-000000000000 // indirect
+	github.com/kalandramo/bald/transport/http v0.0.0-00010101000000-000000000000 // indirect
+	github.com/nacos-group/nacos-sdk-go/v2 v2.3.5 // indirect
+)
 
 require (
 	cel.dev/cel-go v0.32.0 // indirect
@@ -211,6 +217,14 @@ replace github.com/kalandramo/bald/berrors => ../../berrors
 replace github.com/kalandramo/bald/log => ../../log
 
 replace github.com/kalandramo/bald/transport => ../../transport
+
+replace github.com/kalandramo/bald/transport/gateway => ../../transport/gateway
+
+replace github.com/kalandramo/bald/transport/grpc => ../../transport/grpc
+
+replace github.com/kalandramo/bald/transport/http => ../../transport/http
+
+replace github.com/kalandramo/bald/transport/web => ../../transport/web
 
 replace github.com/kalandramo/bald-store-gorm => ../../contrib/store-gorm
 

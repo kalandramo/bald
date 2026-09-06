@@ -21,7 +21,8 @@ require (
 	github.com/kalandramo/bald v0.0.0
 	github.com/kalandramo/bald/bconf v0.0.0-00010101000000-000000000000
 	github.com/kalandramo/bald/log v0.0.0
-	github.com/kalandramo/bald/transport v0.0.0
+	github.com/kalandramo/bald/transport/http v0.0.0-00010101000000-000000000000
+	github.com/kalandramo/bald/transport/web v0.0.0-00010101000000-000000000000
 	github.com/spf13/pflag v1.0.10
 )
 
@@ -119,6 +120,9 @@ require (
 	github.com/kalandramo/bald/bconfig v0.0.0-00010101000000-000000000000 // indirect
 	github.com/kalandramo/bald/berrors v0.0.0 // indirect
 	github.com/kalandramo/bald/bootstrap v0.0.0-00010101000000-000000000000 // indirect
+	github.com/kalandramo/bald/transport v0.0.0 // indirect
+	github.com/kalandramo/bald/transport/gateway v0.0.0-00010101000000-000000000000 // indirect
+	github.com/kalandramo/bald/transport/grpc v0.0.0-00010101000000-000000000000 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect
@@ -202,6 +206,14 @@ replace github.com/kalandramo/bald/berrors => ../berrors
 replace github.com/kalandramo/bald/log => ../log
 
 replace github.com/kalandramo/bald/transport => ../transport
+
+replace github.com/kalandramo/bald/transport/web => ../transport/web
+
+replace github.com/kalandramo/bald/transport/http => ../transport/http
+
+replace github.com/kalandramo/bald/transport/grpc => ../transport/grpc
+
+replace github.com/kalandramo/bald/transport/gateway => ../transport/gateway
 
 replace github.com/kalandramo/bald-store-gorm => ../contrib/store-gorm
 
