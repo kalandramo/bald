@@ -63,13 +63,47 @@ app, err := appkit.FromBootstrap(bootstrap,
     appkit.WithRemoteConfig(src),                  // kratos 桥远程源
     appkit.WithLoggerFactory(f),                   // 换日志后端（默认 slog）
     appkit.WithLogRegistry(reg),                   // 契约驱动日志后端（logger.type 查表；log/<backend>/contract 注册）
+    appkit.WithDatabaseRegistry(dbReg),            // 契约驱动数据库客户端（database.<engine> 段查表；contrib/database/<engine>/contract 注册）
 )
+
+// 数据库客户端（阶段 B 装配，Run 后取用；类型安全在消费侧恢复）：
+//   dr := appkit.NewDatabaseRegistry()
+//   dr.MustRegister(gormcontract.Type, gormcontract.Provider)    // "sql"
+//   dr.MustRegister(mongocontract.Type, mongocontract.Provider)  // "mongodb"
+//   cli := app.Database(gormcontract.Type).(*gormcrud.Client)    // ← 业务断言
 ```
 
 失败语义：`cfg=nil` / 能力声明与契约段缺失不匹配 → 构造期 fail-fast 返回 error；
 `WithGatewayRegister` 与 `server.http.driver` 冲突（非 grpc-gateway 值，或与
 WithHTTP 同时声明且留空）→ 构造期 fail-fast（显式 > 隐式）；ConfigRegistry
-Build / BuildServers 失败 → 回滚阶段 A Logger 与配置层后返回 error。
+Build / BuildServers 失败 → 回滚阶段 A Logger 与配置层后返回 error；
+`database.<engine>` 段存在但 Provider 未注册（或未接 DatabaseRegistry）→
+阶段 B fail-fast——未 import 的引擎启动期报错，不静默无数据库。
+
+### 数据库客户端（DatabaseRegistry 模式）
+
+与 RegistrarRegistry 同模式（显式注册、段存在未注册 fail-fast、cleanup 挂
+停机 Effect），两点差异要清楚：
+
+- **多段并存**：database 是 optional 段集合（sql/mongodb/clickhouse/doris/
+  elasticsearch/opensearch/influxdb/cassandra），主库+检索库可同时配置；
+  装配语义是「每段各自构建、全部返回」（键=契约段名），与 registry 的
+  type 单选不同。
+- **any 边界**：引擎客户端异构，Provider 返回 any 是装配层的必然；appkit
+  只保存与转发（`Database(typ)` / `Databases()`），不做断言。类型安全在
+  消费侧恢复——SQL 客户端接 contrib/store-gorm 变 `store.DBProvider[T]`。
+  分工：`contrib/database/<engine>` 管连接生命周期，store-* 管 CRUD 语义。
+
+- **生命周期**：阶段 B（BeforeStart，契约装载校验后）构建；停机 Effect
+  注册在 servers 之前——逆序回放保证「服务器先 drain、数据库连接最后关」；
+  失败回滚已建实例 cleanup（逆序）。database 段不支持热更新（连接池重建
+  侵入性大，变更需重启）。
+- **分批落地**：首批 sql（bald-database-gorm）与 mongodb
+  （bald-database-mongodb）；其余 6 段契约形状已定、后端按需补——未配置段
+  未使用，不违反「契约字段须全有消费者」。
+- **migrate 语义**：迁移模型是代码声明（`WithAutoMigrate` / mixin），契约
+  不承载模型清单；契约 `migrate` 开关经 `WithEnableMigrate` 生效。go-wind
+  的 `RegisterMigrateModel` 全局注册表 hack 不移植。
 
 ### 网关转码面（gateway as driver 模式）
 

@@ -81,6 +81,8 @@ type bootstrapSpec struct {
 	logDeco     []slogadapter.Option
 	logFac      LoggerFactory
 	logRegistry *baldbootstrap.LogRegistry
+
+	dbRegistry *DatabaseRegistry
 }
 
 // BootstrapOption 声明 FromBootstrap 的业务能力（与 New 的 Option 分属两个
@@ -307,6 +309,11 @@ func FromBootstrap(cfg *bootstrapv1.BootstrapConfig, opts ...BootstrapOption) (*
 	// Deregister 先于 stopAll 执行，Effect 回放在 stopAll 内——顺序安全。
 	var regCleanup atomic.Pointer[func()]
 
+	// dbCleanup 跟踪契约装配数据库客户端的连接池释放钩子（阶段 B 构建时
+	// 填入）。Effect 注册在 servers 之前——停机逆序回放保证服务器先 drain、
+	// 数据库连接最后关。
+	var dbCleanup func()
+
 	// a 先声明再进闭包：BeforeStart 在 Run 期才执行，届时 a 已赋值。
 	var a *AppKit
 	kitOpts := []Option{
@@ -321,7 +328,17 @@ func FromBootstrap(cfg *bootstrapv1.BootstrapConfig, opts ...BootstrapOption) (*
 		ConfigLayers(layers...),
 		Servers(servers...),
 		BeforeStart(func(context.Context) error {
-			return syncBootstrap(a, cfg, spec, &curCleanup, &regCleanup)
+			if err := syncBootstrap(a, cfg, spec, &curCleanup, &regCleanup); err != nil {
+				return err
+			}
+			// 数据库客户端构建在注册中心之后：任一步失败走 Run 失败路径
+			// 回滚 Effect 账本（registrar-client / database-clients 各自释放）。
+			cleanup, err := buildDatabases(a, cfg, spec)
+			if err != nil {
+				return err
+			}
+			dbCleanup = cleanup
+			return nil
 		}),
 		OnConfigChange(func(m map[string]any) {
 			hotReload(cfg, spec, &curCleanup, m)
@@ -336,6 +353,12 @@ func FromBootstrap(cfg *bootstrapv1.BootstrapConfig, opts ...BootstrapOption) (*
 		Effect("appkit:registrar-client", func(context.Context) error {
 			if c := regCleanup.Load(); c != nil {
 				(*c)()
+			}
+			return nil
+		}),
+		Effect("appkit:database-clients", func(context.Context) error {
+			if dbCleanup != nil {
+				dbCleanup()
 			}
 			return nil
 		}),

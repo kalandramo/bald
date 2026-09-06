@@ -58,6 +58,10 @@ type AppKit struct {
 	registrar registry.Registrar // 注册中心
 	servers   []transport.Server // 服务协议
 
+	// 契约装配的数据库客户端（阶段 B buildDatabases 填充，段名→实例；
+	// Run 前为空。见 database.go）。
+	databases map[string]any
+
 	// 钩子（可选）。
 	beforeStart []func(context.Context) error
 	afterStart  []func(context.Context) error
