@@ -13,6 +13,7 @@
 >
 > - 全部框架代码只 import 契约层；后端经进程入口显式注入：`bootstrap.BuildLogger` 产出实例 → `log.SetLogger`。
 > - 新后端接入：注册新 `LoggerProvider`（如 zap，新建 `log/zap/` 子包），框架核心零改动；将来契约扩展多输出源（本地 + 远程）后，装配层循环产出并经 `log.NewMultiLogger` 合并——注册表形状已就绪。
+> - **远端/终端后端已落地（2026-09-06，移植 go-wind-plugins/log）**：`log/{aliyun,tencent,loki,sentry,charm}` 各自独立 module（直连 SDK、根包零契约依赖），契约映射在其 `contract` 子包（唯一 import bconf 处，导出 `Type` 常量 + `Provider`）；业务对 `bootstrap.LogRegistry` 显式 `MustRegister(contract.Type, contract.Provider)`，经 `appkit.WithLogRegistry` 装配（appkit 工厂三级分发：显式工厂 > 注册表 > 默认 slog）。契约 `logger.{aliyun,tencent,loki,sentry,charm}` 段自起全部有消费者。
 > - 已知差异：契约 `Slog.output_path` 为单值、不含轮转段；Options 的 `OutputPaths []string` + `Rotate` 仅 CLI/Options 路径可用，待契约补字段后装配层跟进。
 >
 > 关联文档：`Bald 配置系统设计.md`（多源配置加载）、`应用框架设计.md`（AppKit 生命周期与注入）、`指标抽象设计.md`（可观测性闭环）
@@ -241,3 +242,4 @@ AppKit 定位是**应用编排层**，职责限于 Server 启停、注册、配�
 - [x] OTel Logs 后端：经 `WithOTelHandler` 注入，无需把 otel 依赖钉进核心（2026-08-29）。
 - [x] 可观测性闭环（`pkg/middleware/{gin,grpc}/observability.go`）：gin/grpc 中间件真正起 span，并把 `trace_id`/`span_id` 经 `log.ContextWithAttrs` 挂到请求 ctx——slog 后端消费 ctx 属性流，使请求范围内所有日志自动携带 trace_id。未配置全局 TracerProvider 时 no-op，零配置可跑（2026-08-29）。
 - [x] 子模块日志契约统一：各子模块均经 `log.GetLogger()` 取共享实例（`moduleLog := log.GetLogger().With("module","xxx")`）。纯桥接子包（如 `pkg/registry`/`pkg/registry/kratos`）不打日志；凡需打日志的扩展点一律走 `log.GetLogger()`（2026-08-29 巡检确认）。
+- [x] 远端/终端后端 ×5（`log/{aliyun,tencent,loki,sentry,charm}`，2026-09-06 移植 go-wind-plugins/log）：独立 module + contract 子包显式注册；appkit `WithLogRegistry` 三级工厂分发（显式 > 注册表 > 默认 slog），阶段 A 无契约回退 slog。契约后端段全部有消费者。

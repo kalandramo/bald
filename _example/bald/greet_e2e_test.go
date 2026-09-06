@@ -6,8 +6,8 @@
 // 才能直接调用 newApp / registerGRPCService，从而复用**真实的**应用构造逻辑
 // —— 而不是在测试里另抄一份（复制出来的应用与真实运行的不一致，测试就失去回归价值）。
 //
-// 它启动真实的 AppKit（HTTP + gRPC + 校验链路），用 gRPC 客户端发起调用，
-// 验证请求参数校验的两层机制都真实生效：
+// 它启动真实的 AppKit（gRPC + REST 网关转码面 + 校验链路），用 gRPC 客户端
+// 与 REST 请求发起调用，验证请求参数校验的两层机制都真实生效：
 //   - 第 1 层：proto 的 buf.validate 注解（protovalidate 运行时从描述符读取）
 //   - 第 2 层：手写 Go（pkg/validation 分发器，承载注解表达不了的逻辑）
 //
@@ -36,21 +36,19 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 
+	bconf "github.com/kalandramo/bald/bconf"
 	berrors "github.com/kalandramo/bald/berrors"
 	"github.com/kalandramo/bald/berrors/grpcerr"
-	baldlogadapter "github.com/kalandramo/bald/log/slog"
-	bconf "github.com/kalandramo/bald/bconf"
-	grpcserver "github.com/kalandramo/bald/transport/grpc"
-	httpserver "github.com/kalandramo/bald/transport/http"
 
 	baldv1 "github.com/kalandramo/bald/example/bald/gen"
 )
 
-// startApp 启动一个真实的应用实例，返回 gRPC 目标地址与停止函数。
+// startApp 启动一个真实的应用实例，返回 gRPC 目标地址、REST（网关转码面）
+// 地址与停止函数。
 //
 // 地址用 :0（内核分配空闲端口）：避免测试间端口冲突，
 // 也避免与开发机上已运行的服务抢占端口。
-func startApp(t *testing.T) (target string, stop func()) {
+func startApp(t *testing.T) (grpcAddr, httpAddr string, stop func()) {
 	t.Helper()
 
 	// pflag.CommandLine 是全局的，appkit.Bind 会往里注册 flag（http.addr 等）。
@@ -63,7 +61,7 @@ func startApp(t *testing.T) (target string, stop func()) {
 	// 目录就是包目录 _example/bald/，因此 newApp 里的相对路径可直接命中，无需切目录。
 
 	// 端口分配有两个约束：
-	// ① 不能用 :0 —— grpc-gateway 需要连到 gRPC 服务，而 :0 是「监听时由内核
+	// ① 不能用 :0 —— 网关转码面需连到 gRPC 服务，而 :0 是「监听时由内核
 	//    分配」的语义，转发方无从得知实际端口。故显式申请空闲端口。
 	// ② 必须带 127.0.0.1 —— 否则 ":9090" 会被客户端解析成 [::1]:9090（IPv6），
 	//    而服务监听在 IPv4，出现 "connection refused"。
@@ -71,12 +69,10 @@ func startApp(t *testing.T) (target string, stop func()) {
 	// 另外必须用 env 覆盖：newApp 会加载 configs/bald-demo.yaml（其中写死
 	// grpc.addr: :9090），BeforeStart 的 Unmarshal 会覆盖掉这里设在
 	// bootstrap 上的值。appkit 优先级是 flag > env > 文件，用 env 才能压过文件。
-	grpcAddr := freeAddr(t)
-	httpAddr := freeAddr(t)
+	grpcAddr = freeAddr(t)
+	httpAddr = freeAddr(t)
 	t.Setenv("BALD_DEMO_SERVER_GRPC_ADDR", grpcAddr)
 	t.Setenv("BALD_DEMO_SERVER_HTTP_ADDR", httpAddr)
-	gatewayAddr = freeAddr(t)
-	t.Cleanup(func() { gatewayAddr = ":8081" }) // 还原，避免影响其他测试
 
 	bootstrap := bconf.NewBootstrap()
 	// ③ bootstrapv1 契约下 server 直接持有 BootstrapConfig 的子消息指针
@@ -89,17 +85,11 @@ func startApp(t *testing.T) (target string, stop func()) {
 
 	ready := func(ctx context.Context) error { return nil }
 
-	// 与 serveRunE 构造 httpSrv/grpcSrv 完全同构：直接传契约子消息指针，
-	// 保证测的是生产同一条链路。
-	httpSrv := httpserver.NewHTTPServer(bootstrap.GetServer().GetHttp(), http.NewServeMux(), ready)
-	// 复用 main 的拦截器链构造（newGRPCServerOptions），确保测的就是生产那条链路：
-	// 曾在这里传 nil 导致漏掉 ValidatorInterceptor，非法请求居然通过，
+	// 与 serveRunE 完全同构：newApp 内部经 FromBootstrap 复用同一份拦截器链
+	// 构造（newGRPCServerOptions），确保测的就是生产那条链路：
+	// 曾在这里另写构造导致漏掉 ValidatorInterceptor，非法请求居然通过，
 	// 测试却「看起来在跑」——这类不一致会让回归测试完全失去价值。
-	grpcSrv := grpcserver.NewGRPCServerWithRegister(
-		bootstrap.GetServer().GetGrpc(), newGRPCServerOptions(), registerGRPCService, ready)
-
-	logOpts := baldlogadapter.NewOptions()
-	app := newApp(bootstrap, logOpts, httpSrv, grpcSrv, ready)
+	app := newApp(bootstrap, ready)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
@@ -127,11 +117,11 @@ func startApp(t *testing.T) (target string, stop func()) {
 		stop()
 		t.Fatalf("gRPC server not ready at %s; app.Run err = %v", grpcAddr, runErr)
 	}
-	if !waitForReady(t, gatewayAddr, 5*time.Second) {
+	if !waitForReady(t, httpAddr, 5*time.Second) {
 		stop()
-		t.Fatalf("gateway server not ready at %s", gatewayAddr)
+		t.Fatalf("REST face (gateway transcoding) not ready at %s", httpAddr)
 	}
-	return grpcAddr, stop
+	return grpcAddr, httpAddr, stop
 }
 
 // freeAddr 申请一个当前空闲的地址（形如 "127.0.0.1:45678"）。
@@ -185,7 +175,7 @@ func newClient(t *testing.T, target string) baldv1.GreetServiceClient {
 
 // TestGreet_ValidRequest 合法请求应正常返回（happy path 回归）。
 func TestGreet_ValidRequest(t *testing.T) {
-	target, stop := startApp(t)
+	target, _, stop := startApp(t)
 	defer stop()
 
 	cli := newClient(t, target)
@@ -205,7 +195,7 @@ func TestGreet_ValidRequest(t *testing.T) {
 // 「注解真的被执行」的地方。若注解没被读取（proto 未重新生成、
 // 或拦截器没接 protovalidate），这些用例会失败。
 func TestGreet_ProtoAnnotationRules(t *testing.T) {
-	target, stop := startApp(t)
+	target, _, stop := startApp(t)
 	defer stop()
 	cli := newClient(t, target)
 
@@ -243,7 +233,7 @@ func TestGreet_ProtoAnnotationRules(t *testing.T) {
 // register_grpcgw.go 的 reservedNames 含 "root"，该判断依赖外部状态、
 // 无法写进 proto 注解。用它证明「两层串联」都通，而非只有注解那层。
 func TestGreet_CustomValidator(t *testing.T) {
-	target, stop := startApp(t)
+	target, _, stop := startApp(t)
 	defer stop()
 
 	cli := newClient(t, target)
@@ -274,10 +264,10 @@ func TestGreet_CustomValidator(t *testing.T) {
 // 因此 buf.validate 注解与手写校验器都无需为 HTTP 侧重写一遍。
 // 若本用例失败而 gRPC 用例通过，说明网关的转码或校验链路接线有问题。
 func TestGreet_REST_SharesSameRules(t *testing.T) {
-	_, stop := startApp(t)
+	_, restAddr, stop := startApp(t)
 	defer stop()
 
-	base := "http://" + gatewayAddr // gatewayAddr 形如 127.0.0.1:45678
+	base := "http://" + restAddr // restAddr 形如 127.0.0.1:45678（契约 server.http 端口即网关转码面）
 
 	// happy path：REST 正常返回。
 	resp, err := http.Post(base+"/v1/greet", "application/json", strings.NewReader(`{"name":"world"}`))
@@ -311,7 +301,7 @@ func TestGreet_REST_SharesSameRules(t *testing.T) {
 // TestGreet_ErrorMessageIsStructured protovalidate 默认累积全部违规，
 // 映射后应是一条聚合消息（而非只报第一个字段）。
 func TestGreet_ErrorMessageIsStructured(t *testing.T) {
-	target, stop := startApp(t)
+	target, _, stop := startApp(t)
 	defer stop()
 
 	cli := newClient(t, target)

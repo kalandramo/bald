@@ -34,7 +34,6 @@ import (
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/proto"
 
-	kratosRegistry "github.com/go-kratos/kratos/v3/registry"
 	bconf "github.com/kalandramo/bald/bconf"
 	"github.com/kalandramo/bald/bootstrap/config"
 	"github.com/kalandramo/bald/log"
@@ -52,12 +51,9 @@ type AppKit struct {
 	name    string
 	version string
 
-	// 各生命周期阶段独立超时。
-	// stopTimeout 用于服务器 Stop 阶段；before/afterStop 钩子各有独立超时，
-	// 避免单个钩子阻塞拖垮整机停机。
-	stopTimeout       time.Duration
-	beforeStopTimeout time.Duration
-	afterStopTimeout  time.Duration
+	// 服务器 Stop 阶段超时（before/afterStop 钩子固定 defaultHookTimeout：
+	// runHook 独立超时安全网保留、不再可配置——慢钩子应在钩子内自控 ctx）。
+	stopTimeout time.Duration
 
 	registrar registry.Registrar // 注册中心
 	servers   []transport.Server // 服务协议
@@ -211,12 +207,6 @@ func Name(name string) Option               { return func(a *AppKit) { a.name = 
 func Version(v string) Option               { return func(a *AppKit) { a.version = v } }
 func Registrar(r registry.Registrar) Option { return func(a *AppKit) { a.registrar = r } }
 
-// KratosRegistrar 桥接 go-kratos 的 registry.Registrar（etcd/consul 等后端）。
-// TODO 合并到注册中心？
-func KratosRegistrar(r kratosRegistry.Registrar) Option {
-	return func(a *AppKit) { a.registrar = registry.FromKratos(r) }
-}
-
 // ConfigFile 指定 --config 配置文件路径（onexstack 风格）。
 func ConfigFile(f string) Option { return func(a *AppKit) { a.cfg.cfgFile = f } }
 
@@ -271,16 +261,6 @@ func Auditor(a audit.Auditor) Option { return func(a2 *AppKit) { a2.auditor = a 
 
 func StopTimeout(d time.Duration) Option { return func(a *AppKit) { a.stopTimeout = d } }
 
-// BeforeStopTimeout / AfterStopTimeout 设置对应钩子阶段的独立超时（默认 defaultHookTimeout）。
-// 与 StopTimeout（服务器 Stop 阶段）分离，避免某个钩子阻塞拖垮整机停机。
-func BeforeStopTimeout(d time.Duration) Option {
-	return func(a *AppKit) { a.beforeStopTimeout = d }
-}
-
-func AfterStopTimeout(d time.Duration) Option {
-	return func(a *AppKit) { a.afterStopTimeout = d }
-}
-
 // BeforeStart / AfterStart / BeforeStop / AfterStop 注册生命周期钩子。
 func BeforeStart(fn func(context.Context) error) Option {
 	return func(a *AppKit) { a.beforeStart = append(a.beforeStart, fn) }
@@ -315,16 +295,14 @@ func defaultInstanceID() string {
 // New 构造 AppKit。
 func New(opts ...Option) *AppKit {
 	a := &AppKit{
-		id:                defaultInstanceID(),
-		name:              "bald-app",
-		version:           "v0.0.0",
-		stopTimeout:       defaultStopTimeout,
-		beforeStopTimeout: defaultHookTimeout,
-		afterStopTimeout:  defaultHookTimeout,
-		effectTimeout:     defaultHookTimeout,
-		componentTimeout:  defaultHookTimeout,
-		reconItems:        make(map[string][]reconItem),
-		done:              make(chan struct{}),
+		id:               defaultInstanceID(),
+		name:             "bald-app",
+		version:          "v0.0.0",
+		stopTimeout:      defaultStopTimeout,
+		effectTimeout:    defaultHookTimeout,
+		componentTimeout: defaultHookTimeout,
+		reconItems:       make(map[string][]reconItem),
+		done:             make(chan struct{}),
 	}
 	for _, o := range opts {
 		o(a)
@@ -548,9 +526,9 @@ func (a *AppKit) Run(ctx context.Context) error {
 
 // stopAll 分五阶段优雅停机（对照 go-lulu 分阶段停机骨架）：
 //  0. 效应账本逆序回放（T1：撤销装配期全局写入，先于一切停机钩子）
-//  1. BeforeStop 钩子（独立超时 beforeStopTimeout，panic 安全不拖垮整机）
+//  1. BeforeStop 钩子（独立超时 defaultHookTimeout，panic 安全不拖垮整机）
 //  2. 各 Server.Stop 并发（独立超时 stopTimeout）
-//  3. AfterStop 钩子（独立超时 afterStopTimeout，panic 安全）
+//  3. AfterStop 钩子（独立超时 defaultHookTimeout，panic 安全）
 //  4. 组件 Dispose 逆序（C1：AfterStop 之后——钩子期间组件仍可用，最后收尾）
 //
 // 每个阶段使用各自独立的 WithTimeout ctx，互不影响；parent 取消会级联缩短各阶段。
@@ -562,7 +540,7 @@ func (a *AppKit) stopAll(parent context.Context) {
 
 	// 阶段 1：BeforeStop 钩子。
 	for _, fn := range a.beforeStop {
-		if err := a.runHook(parent, a.beforeStopTimeout, "beforeStop", fn); err != nil {
+		if err := a.runHook(parent, defaultHookTimeout, "beforeStop", fn); err != nil {
 			log.GetLogger().Error(parent, "appkit beforeStop hook failed", "error", err)
 		}
 	}
@@ -584,7 +562,7 @@ func (a *AppKit) stopAll(parent context.Context) {
 
 	// 阶段 3：AfterStop 钩子。
 	for _, fn := range a.afterStop {
-		if err := a.runHook(parent, a.afterStopTimeout, "afterStop", fn); err != nil {
+		if err := a.runHook(parent, defaultHookTimeout, "afterStop", fn); err != nil {
 			log.GetLogger().Error(parent, "appkit afterStop hook failed", "error", err)
 		}
 	}

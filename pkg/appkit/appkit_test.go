@@ -296,8 +296,6 @@ func TestP0_StopPhasesOrderAndTimeout(t *testing.T) {
 	app := New(
 		Name("phased"),
 		StopTimeout(50*time.Millisecond),
-		BeforeStopTimeout(20*time.Millisecond),
-		AfterStopTimeout(20*time.Millisecond),
 		Servers(srv),
 		BeforeStop(func(ctx context.Context) error {
 			record("beforeStop")

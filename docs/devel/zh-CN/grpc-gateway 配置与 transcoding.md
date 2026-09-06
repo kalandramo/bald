@@ -1,6 +1,6 @@
 # grpc-gateway 配置与 transcoding
 
-本文给出 bald 接入 **grpc-gateway** 的完整示例：用一份 proto 同时定义 gRPC 接口与 REST/JSON 映射（transcoding），业务只实现一次，gin 与 grpc-gateway 复用同一 biz 层。
+本文给出 bald 接入 **grpc-gateway** 的完整示例：用一份 proto 同时定义 gRPC 接口与 REST/JSON 映射（transcoding），业务只实现一次。网关不是独立服务器：契约 `server.http.driver=grpc-gateway` 时，`server.http` 端口即网关转码面（gin 演示路由让位），由 `appkit.WithGatewayRegister` 声明能力。
 
 > 前置：本仓库**不内置 protoc 工具链与 grpc-gateway 依赖**。`_example/bald` 下的示例代码用 `//go:build grpcgw` build tag 保护，默认 `go build` 不编译它。请在本机安装工具链后生成代码并启用（见下文）。
 
@@ -10,7 +10,7 @@
 
 ```
 _example/bald/
-├── main.go                 # 示例入口（bootstrap 装配 + HTTP + gRPC + AppKit 编排；gatewayFactory 默认 nil）
+├── main.go                 # 示例入口（bootstrap 装配 + HTTP + gRPC + AppKit 编排；gatewayRegister 默认 nil）
 ├── register_grpcgw.go      # build tag `grpcgw`：init 注入 gRPC/gateway 接线 + biz 实现
 ├── proto/
 │   ├── greet.proto         # 真实 proto + google.api.http 注解
@@ -94,7 +94,7 @@ transport module（2026-09-05 自 pkg/server 迁入）提供两个载体：
 `register_grpcgw.go`（build tag `grpcgw`）即此接线示例：
 
 ```go
-// biz 层：被 gin（web.HandleJSONRequest）与 gRPC（GreetService）共用。
+// biz 层：gRPC（GreetService）与 gateway 转码面（REST）共用。
 func Greet(ctx context.Context, name string) (string, error) {
     if name == "" {
         name = "world"
@@ -139,13 +139,14 @@ func registerGateway(ctx context.Context, conn *grpc.ClientConn) (http.Handler, 
 
 ## 5. 启用示例
 
-main.go 默认以空实现接线（`registerGRPCService` 空回调、`gatewayFactory == nil` 不挂网关），保证无 protoc 环境下 `go build ./...` 可编译。启用完整 transcoding：
+main.go 默认以空实现接线（`registerGRPCService` 空回调、`gatewayRegister == nil` 走 gin 演示路由），保证无 protoc 环境下 `go build ./...` 可编译。启用完整 transcoding：
 
 1. 完成第 3 步生成代码（`gen/*.go` 存在）。
 2. 用 `-tags grpcgw` 编译运行——`register_grpcgw.go` 的 `init()` 会把真实的
-   `registerGRPCServiceFn` 注入 `registerGRPCService`、把 `newGatewayWithGreet` 注入
-   `gatewayFactory`，`buildServers` 即挂上网关服务器（独立 `gatewayAddr`，默认 `:8081`，
-   与 HTTP 主服务 `http.addr` 端口错开）：
+   `registerGRPCServiceFn` 注入 `registerGRPCService`、把 `registerGateway` 注入
+   `gatewayRegister`；`newApp` 检测到非 nil 即改走 `appkit.WithGatewayRegister`，
+   配合 yaml `server.http.driver: grpc-gateway`（configs/bald-demo.yaml），
+   server.http 端口装配为网关转码面（gin 演示路由让位，同一端口只跑一个面）：
 
 ```bash
 go run -tags grpcgw ./_example/bald            # 配置随示例自带，自动加载
@@ -159,15 +160,15 @@ go run -tags grpcgw ./_example/bald            # 配置随示例自带，自动�
 # gRPC（需 grpcurl / 客户端）
 grpcurl -plaintext -d '{"name":"bald"}' localhost:9090 bald.v1.GreetService/Greet
 
-# REST / JSON（transcoding，由 gateway 暴露）
-curl -i -XPOST http://127.0.0.1:<gateway-addr>/v1/greet -H "Content-Type: application/json" -d '{"name":"bald"}'
+# REST / JSON（transcoding；driver=grpc-gateway 时 server.http 端口即转码面）
+curl -i -XPOST http://127.0.0.1:8080/v1/greet -H "Content-Type: application/json" -d '{"name":"bald"}'
 # => {"greet":"hello, bald"}
 
-curl -i http://127.0.0.1:<gateway-addr>/v1/greet/bald
+curl -i http://127.0.0.1:8080/v1/greet/bald
 # => {"greet":"hello, bald"}
 ```
 
-同一份 biz 函数 `Greet`，既服务于 gin 的 `web.HandleJSONRequest`（HTTP 直连），又服务于 grpc-gateway transcoding（REST→gRPC），印证 **gin 与 grpc-gateway 复用同一 biz 层 Handler**。
+同一份 biz 函数 `Greet`，既服务于 grpc-gateway transcoding（REST→gRPC），也可被 gin 的 `web.HandleJSONRequest`（默认构建的 HTTP 直连）调用——**传输面可切换，biz 层不变**。
 
 ---
 
@@ -175,5 +176,6 @@ curl -i http://127.0.0.1:<gateway-addr>/v1/greet/bald
 
 1. **transcoding 规则写在 proto 的 `google.api.http` 注解里**，不要手写 REST handler。
 2. **biz 函数与传输层解耦**：gRPC 实现层只做"取字段 → 调 biz → 组装响应"的薄适配。
-3. **gateway 与 gRPC 同进程**：`GatewayServer` 实时读 `grpcBackend.GetAddr()` 连本进程 gRPC，无需独立部署。
-4. **启用需 build tag**：示例接线文件用 `//go:build grpcgw` 保护，避免无 protoc 环境编译失败。
+3. **gateway 与 gRPC 同进程**：`GatewayServer` 在 `Start` 时读 `grpcBackend.GetAddr()` 连本进程 gRPC，无需独立部署。
+4. **网关由契约 driver 驱动**：`WithGatewayRegister` 声明能力 + `server.http.driver=grpc-gateway` 选择模式；与 `WithHTTP` 同时声明时 driver 必须显式（构造期 fail-fast），`WithExtraServers` 是契约形状表达不了的服务器的通用逃生舱。
+5. **启用需 build tag**：示例接线文件用 `//go:build grpcgw` 保护，避免无 protoc 环境编译失败。

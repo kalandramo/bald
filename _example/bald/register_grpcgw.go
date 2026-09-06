@@ -11,7 +11,9 @@
 //	cd ../..
 //	go run -tags grpcgw ./_example/bald            # 配置随示例自带，自动加载
 //
-// 此时 GreetService 同时可通过 gRPC 与 REST 访问（见 proto 的 google.api.http 注解）。
+// 此时 GreetService 同时可通过 gRPC 与 REST 访问（见 proto 的 google.api.http
+// 注解）。REST 面由契约 server.http.driver=grpc-gateway 选择（gatewayRegister
+// 回调声明网关能力），占用 server.http 端口，gin 演示路由让位。
 package main
 
 import (
@@ -27,12 +29,9 @@ import (
 	"buf.build/go/protovalidate"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 
-	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
 	berrors "github.com/kalandramo/bald/berrors"
 	grpcmw "github.com/kalandramo/bald/pkg/middleware/grpc"
 	"github.com/kalandramo/bald/pkg/validation"
-	"github.com/kalandramo/bald/transport"
-	gateway "github.com/kalandramo/bald/transport/gateway"
 
 	// 以下包由 `make proto` 生成（protoc-gen-go / protoc-gen-go-grpc /
 	// protoc-gen-grpc-gateway）。未生成前本文件因 build tag 不参与编译。
@@ -71,9 +70,10 @@ func init() {
 	// 注入 gRPC service 注册函数，main.go 的 registerGRPCService 变量指向这里。
 	registerGRPCService = registerGRPCServiceFn
 
-	// 注入 grpc-gateway 工厂，main.go 的 buildServers 会挂上这个服务器。
-	// 挂上后 REST 请求经转码进入 gRPC service，自动复用 proto 注解校验。
-	gatewayFactory = newGatewayWithGreet
+	// 注入 grpc-gateway 转码注册回调，main.go 经 WithGatewayRegister 声明网关
+	// 能力，配合契约 server.http.driver=grpc-gateway 接入网关转码面。
+	// 接上后 REST 请求经转码进入 gRPC service，自动复用 proto 注解校验。
+	gatewayRegister = registerGateway
 
 	// protovalidate 实例：注解编译错误在此暴露（进程启动即失败，fail fast）。
 	pv, err := protovalidate.New()
@@ -149,8 +149,8 @@ func (greetRequestValidator) ValidateGreetRequest(_ context.Context, rq *baldv1.
 // greetValidator 的类型来自 grpcmw，确保该 import 有效。
 var _ grpcmw.MessageValidator = greetValidator
 
-// Greet 是 biz 层业务函数：被 gin 的 web.HandleJSONRequest 与 gRPC 的
-// GreetService 同时调用，实证「gin 与 grpc-gateway 复用同一 biz 层」。
+// Greet 是 biz 层业务函数：gRPC 面与 gateway 转码面（REST）同时进入，
+// 实证「gRPC 与 grpc-gateway 复用同一 biz 层」。
 // 若要彻底统一，可把 exampleRoutes 里的内联 greet 闭包也改为调用本函数。
 func Greet(ctx context.Context, name string) (string, error) {
 	if name == "" {
@@ -192,30 +192,22 @@ func registerGRPCServiceFn(s *grpc.Server) {
 	baldv1.RegisterGreetServiceServer(s, &greetService{})
 }
 
-// registerGateway 把 grpc-gateway 的 HTTP handler 注册到一个
-// runtime.ServeMux（grpc-gateway v2 的 mux，非标准库 http.ServeMux），
-// 并把它作为 http.Handler 交回给 transport.NewGatewayServer。
+// registerGateway 是 grpc-gateway 转码注册回调（main.go 的 gatewayRegister，
+// 经 appkit.WithGatewayRegister 声明网关能力）：把 GreetService 的 REST 面
+// 注册到 runtime.ServeMux（grpc-gateway v2 的 mux，非标准库 http.ServeMux），
+// 并把它作为 http.Handler 交回给 GatewayServer。
 //
-// conn 是到本进程 gRPC 服务（grpcCfg.Addr）的连接，由 GatewayServer 内部建立。
-// 返回 http.Handler 而非在入参 mux 上注册，是为了让 pkg/server 不必依赖
-// grpc-gateway（见 NewGatewayServer 的注释）。
+// conn 是到本进程 gRPC 服务的连接（契约 server.grpc.addr），由 GatewayServer
+// 在 Start 时建立。返回 http.Handler 而非在入参 mux 上注册，是为了让
+// transport 不必依赖 grpc-gateway（见 NewGatewayServer 的注释）。
+//
+// 网关不是独立服务器：driver=grpc-gateway 时 server.http 端口即转码面，
+// gin 演示路由让位（同一 server.http 段只跑一个面）。要混合业务路由时，
+// 在本回调里返回组合 handler（如 gin 包一层 NoRoute 落 mux）。
 func registerGateway(ctx context.Context, conn *grpc.ClientConn) (http.Handler, error) {
 	mux := runtime.NewServeMux()
 	if err := baldv1.RegisterGreetServiceHandler(ctx, mux, conn); err != nil {
 		return nil, err
 	}
 	return mux, nil
-}
-
-// newGatewayWithGreet 构造 grpc-gateway 服务器：把 REST 请求转发到本地 gRPC 服务。
-// 由主程序在启用 grpcgw tag 时调用（HTTP 服务旁再挂一个网关服务器）。
-//
-// gRPC service 的注册不需要构造新 server —— init 已把 registerGRPCService
-// 注入为真实的 baldv1.RegisterGreetServiceServer。
-func newGatewayWithGreet(
-	httpCfg *bootstrapv1.Server_Http,
-	grpcBackend *bootstrapv1.Server_Grpc,
-	ready transport.ReadinessFunc,
-) (*gateway.GatewayServer, error) {
-	return gateway.NewGatewayServer(httpCfg, grpcBackend, registerGateway, ready)
 }

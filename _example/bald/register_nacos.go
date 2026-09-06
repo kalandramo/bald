@@ -2,84 +2,64 @@
 
 // Command bald 的 nacos 后端接线示例（建在独立 build tag 下，默认不参与编译）。
 //
-// 为什么要隔离：nacos SDK（nacos-sdk-go v2 / v1）较重，且默认构建用一个 nacos
-// server 才能跑起来；用 build tag 隔开后，默认 `go run ./_example/bald` 不引入
-// 这些依赖、无需 nacos 进程即可演示，而需要真实 nacos 时再显式开启：
+// 为什么要隔离：nacos SDK 较重，且默认构建用一个 nacos server 才能跑起来；
+// 用 build tag 隔开后，默认 `go run ./_example/bald` 不引入这些依赖、
+// 无需 nacos 进程即可演示，而需要真实 nacos 时再显式开启：
 //
 //	go run -tags nacos ./_example/bald            # 配置随示例自带，自动加载
 //
-// 设计关键（保持桥接、不移植代码）：
-//   - 注册中心：registry.FromKratos(nacos.New(cli)) 把 kratos contrib 的 nacos
-//     后端（实现 kratos registry.Registrar）适配成 bald 的 registry.Registrar，
-//     appkit.Registrar 直接消费，零核心改动。
-//   - 配置中心：config.FromKratosSource(nacosconfig.NewConfigSource(cli)) 同理，
-//     把 kratos contrib 的 nacos config（实现 kratos config.Source）适配成
-//     bald 的 config.RemoteSource，由 appkit.RemoteConfig 接入四源合并。
+// 注册中心（已迁移契约装配）：本文件只做两件事——把 nacos 契约 provider
+// 显式注册进 RegistrarRegistry + 交 WithRegistrarRegistry；具体连接参数
+// 全部来自 configs/bald-demo.yaml 的 registry 段（契约驱动，零硬编码）。
 //
-// 注意版本分裂（移植到核心才需要担心，桥接模式下由 example 各自 go get 解决）：
-//   - 注册中心后端：github.com/go-kratos/kratos/v3/contrib/registry/nacos/v3
-//     依赖 nacos-sdk-go/v2（naming_client.INamingClient）。
-//   - 配置中心后端：github.com/go-kratos/kratos/v3/contrib/config/nacos/v3
-//     依赖 nacos-sdk-go（旧版 v1，config_client.IConfigClient）。
-//     两个 SDK 共存于 example module 的 go.sum，互不冲突。
+// 配置中心（仍是桥接）：config.FromKratosSource(nacosconfig.NewConfigSource(cli))
+// 把 kratos contrib 的 nacos config（实现 kratos config.Source）适配成
+// bald 的 config.RemoteSource，由 WithRemoteConfig 接入四源合并。
+//
+// 注意版本分裂（仅配置中心桥接涉及）：contrib config/nacos/v3 依赖
+// nacos-sdk-go 旧版 v1；注册中心已走直连 SDK v2 provider，无 v1 依赖。
 package main
 
 import (
 	"github.com/nacos-group/nacos-sdk-go/clients"
-	"github.com/nacos-group/nacos-sdk-go/clients/config_client"
-	"github.com/nacos-group/nacos-sdk-go/clients/naming_client"
-	"github.com/nacos-group/nacos-sdk-go/common/constant"
-	"github.com/nacos-group/nacos-sdk-go/vo"
+	config_client "github.com/nacos-group/nacos-sdk-go/clients/config_client"
+	v1constant "github.com/nacos-group/nacos-sdk-go/common/constant"
+	v1vo "github.com/nacos-group/nacos-sdk-go/vo"
 
 	nacosconfig "github.com/go-kratos/kratos/v3/contrib/config/nacos/v3"
-	nacosreg "github.com/go-kratos/kratos/v3/contrib/registry/nacos/v3"
-	"github.com/kalandramo/bald/pkg/appkit"
 	"github.com/kalandramo/bald/bootstrap/config"
-	"github.com/kalandramo/bald/pkg/registry"
+	"github.com/kalandramo/bald/pkg/appkit"
+
+	nacoscontract "github.com/kalandramo/bald-registry-nacos/contract"
 )
 
-// nacosServerConfigs 是 nacos server 地址（按需改成本地/生产地址）。
-var nacosServerConfigs = []constant.ServerConfig{
-	*constant.NewServerConfig("127.0.0.1", 8848),
+// nacosHost/nacosPort 是配置中心（桥接路径）的 nacos server 地址。
+// 注册中心的地址已契约化：见 configs/bald-demo.yaml registry.nacos 段。
+var nacosHost, nacosPort = "127.0.0.1", uint64(8848)
+
+// registrarRegistry 显式注册 nacos 契约 provider。
+//
+// 未 import 的后端（etcd/consul/kubernetes）零依赖零编译成本；
+// 契约 registry.type 指向未注册后端时构造期 fail-fast。
+func registrarRegistry() *appkit.RegistrarRegistry {
+	rr := appkit.NewRegistrarRegistry()
+	rr.MustRegister(nacoscontract.Type, nacoscontract.Provider)
+	return rr
 }
 
-// nacosClientConfig 是 nacos 客户端配置（NamespaceId 区分环境，如 prod/dev）。
-var nacosClientConfig = constant.ClientConfig{
-	NamespaceId: "public", // 生产通常改成具体命名空间 ID
-	TimeoutMs:   5000,
-	LogDir:      "/tmp/nacos/log",
-	CacheDir:    "/tmp/nacos/cache",
-	LogLevel:    "info",
-}
-
-// newNacosNamingClient 构造注册中心用的 naming client（nacos-sdk-go/v2）。
-func newNacosNamingClient() (naming_client.INamingClient, error) {
-	return clients.NewNamingClient(vo.NacosClientParam{
-		ClientConfig:  &nacosClientConfig,
-		ServerConfigs: nacosServerConfigs,
-	})
-}
-
-// newNacosConfigClient 构造配置中心用的 config client（nacos-sdk-go v1）。
+// newNacosConfigClient 构造配置中心用的 config client（nacos-sdk-go v1，
+// contrib config/nacos/v3 消费 v1 接口）。
 func newNacosConfigClient() (config_client.IConfigClient, error) {
-	return clients.NewConfigClient(vo.NacosClientParam{
-		ClientConfig:  &nacosClientConfig,
-		ServerConfigs: nacosServerConfigs,
+	return clients.NewConfigClient(v1vo.NacosClientParam{
+		ClientConfig: &v1constant.ClientConfig{
+			NamespaceId: "public",
+			TimeoutMs:   5000,
+			LogDir:      "/tmp/nacos/log",
+			CacheDir:    "/tmp/nacos/cache",
+			LogLevel:    "info",
+		},
+		ServerConfigs: []v1constant.ServerConfig{*v1constant.NewServerConfig(nacosHost, nacosPort)},
 	})
-}
-
-// nacosRegistrar 返回桥接后的 bald 注册中心；失败时 panic（fail-fast，启动期暴露）。
-func nacosRegistrar() registry.Registrar {
-	cli, err := newNacosNamingClient()
-	if err != nil {
-		panic("nacos naming client: " + err.Error())
-	}
-	// nacosreg.New 接收 naming_client.INamingClient；WithGroup/WithCluster 等
-	// 选项对齐 kratos nacos 语义（默认 group=DEFAULT_GROUP，cluster=DEFAULT）。
-	return registry.FromKratos(nacosreg.New(cli,
-		nacosreg.WithGroup("DEFAULT_GROUP"),
-		nacosreg.WithCluster("DEFAULT"),
-	))
 }
 
 // nacosConfigSource 返回桥接后的 bald 远程配置源；失败时 panic。
@@ -95,11 +75,12 @@ func nacosConfigSource() config.RemoteSource {
 	))
 }
 
-// applyNacosBackends 把 nacos 的注册中心 + 配置中心注入 AppKit。
+// nacosBootstrapOptions 返回 nacos 的注册中心 + 配置中心装配选项。
 //
-// AppKit 的 Registrar 与 RemoteConfig 都接受（经桥接的）bald 抽象，
-// 因此这里只是把具体后端交进去，核心无需感知 nacos 的存在。
-func applyNacosBackends(app *appkit.AppKit) {
-	appkit.Registrar(nacosRegistrar())(app)
-	appkit.RemoteConfig(nacosConfigSource())(app)
+// 注册中心走契约装配（registry 段驱动）；配置中心仍是运行时桥接注入。
+func nacosBootstrapOptions() []appkit.BootstrapOption {
+	return []appkit.BootstrapOption{
+		appkit.WithRegistrarRegistry(registrarRegistry()),
+		appkit.WithRemoteConfig(nacosConfigSource()),
+	}
 }

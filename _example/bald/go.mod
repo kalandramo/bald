@@ -7,7 +7,6 @@ require (
 	buf.build/go/protovalidate v1.4.0
 	github.com/gin-gonic/gin v1.12.0
 	github.com/go-kratos/kratos/v3/contrib/config/nacos/v3 v3.0.0-00010101000000-000000000000
-	github.com/go-kratos/kratos/v3/contrib/registry/nacos/v3 v3.0.0-00010101000000-000000000000
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.29.0
 	github.com/kalandramo/bald v0.0.0
 	github.com/kalandramo/bald-store-gorm v0.0.0-00010101000000-000000000000
@@ -25,6 +24,8 @@ require (
 	gorm.io/driver/sqlite v1.6.0
 	gorm.io/gorm v1.31.2
 )
+
+require github.com/nacos-group/nacos-sdk-go/v2 v2.3.5 // indirect
 
 require (
 	cel.dev/cel-go v0.32.0 // indirect
@@ -121,6 +122,8 @@ require (
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
+	github.com/kalandramo/bald-crud/viewer v0.0.0-00010101000000-000000000000 // indirect
+	github.com/kalandramo/bald-registry-nacos v0.0.0-00010101000000-000000000000
 	github.com/kalandramo/bald/bconfig v0.0.0-00010101000000-000000000000 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
@@ -133,7 +136,6 @@ require (
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
-	github.com/nacos-group/nacos-sdk-go/v2 v2.3.5 // indirect
 	github.com/opentracing/opentracing-go v1.2.1-0.20220228012449-10b1cf09e00b // indirect
 	github.com/orcaman/concurrent-map v1.0.0 // indirect
 	github.com/pelletier/go-toml v1.9.3 // indirect
@@ -215,3 +217,7 @@ replace github.com/kalandramo/bald-store-gorm => ../../contrib/store-gorm
 replace github.com/go-kratos/kratos/v3/contrib/config/nacos/v3 => ../../../kratos/contrib/config/nacos
 
 replace github.com/go-kratos/kratos/v3/contrib/registry/nacos/v3 => ../../../kratos/contrib/registry/nacos
+
+replace github.com/kalandramo/bald-crud/viewer => ../../../bald-crud/viewer
+
+replace github.com/kalandramo/bald-registry-nacos => ../../contrib/registry/nacos
