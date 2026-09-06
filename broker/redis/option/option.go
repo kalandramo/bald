@@ -1,0 +1,195 @@
+package option
+
+import (
+	"context"
+	"time"
+
+	"github.com/kalandramo/bald/broker"
+)
+
+type OptionsKeyType struct{}
+
+type DriverType string
+
+const (
+	DriverTypePubSub DriverType = "pubsub"
+	DriverTypeStream DriverType = "stream"
+)
+
+const (
+	DefaultMaxActive         = 0
+	DefaultMaxIdle           = 256
+	DefaultIdleTimeout       = time.Duration(0)
+	DefaultConnectTimeout    = 30 * time.Second
+	DefaultReadTimeout       = 30 * time.Second
+	DefaultWriteTimeout      = 30 * time.Second
+	DefaultHealthCheckPeriod = time.Minute
+
+	// Stream 默认配置
+	DefaultStreamGroup     = "wind-group"
+	DefaultStreamConsumer  = "wind-consumer"
+	DefaultStreamBlockTime = 5 * time.Second
+	DefaultStreamCount     = 10
+	DefaultStreamMaxLen    = 0
+)
+
+var OptionsKey = OptionsKeyType{}
+
+// CommonOptions Redis连接池共享配置
+// 子包（pubsub/stream）通过此类型读取连接池配置
+type CommonOptions struct {
+	MaxIdle        int
+	MaxActive      int
+	IdleTimeout    time.Duration
+	ConnectTimeout time.Duration
+	ReadTimeout    time.Duration
+	WriteTimeout   time.Duration
+}
+
+///
+/// Option
+///
+
+// WithConnectTimeout 连接Redis超时时间
+func WithConnectTimeout(d time.Duration) broker.Option {
+	return func(o *broker.Options) {
+		if o.Context == nil {
+			o.Context = context.Background()
+		}
+		x := o.Context.Value(OptionsKey)
+		if x != nil {
+			x.(*CommonOptions).ConnectTimeout = d
+		} else {
+			o.Context = context.WithValue(o.Context, OptionsKey, &CommonOptions{ConnectTimeout: d})
+		}
+	}
+}
+
+// WithReadTimeout 从Redis读取数据超时时间
+func WithReadTimeout(d time.Duration) broker.Option {
+	return func(o *broker.Options) {
+		if o.Context == nil {
+			o.Context = context.Background()
+		}
+		x := o.Context.Value(OptionsKey)
+		if x != nil {
+			x.(*CommonOptions).ReadTimeout = d
+		} else {
+			o.Context = context.WithValue(o.Context, OptionsKey, &CommonOptions{ReadTimeout: d})
+		}
+	}
+}
+
+// WithWriteTimeout 向Redis写入数据超时时间
+func WithWriteTimeout(d time.Duration) broker.Option {
+	return func(o *broker.Options) {
+		if o.Context == nil {
+			o.Context = context.Background()
+		}
+		x := o.Context.Value(OptionsKey)
+		if x != nil {
+			x.(*CommonOptions).WriteTimeout = d
+		} else {
+			o.Context = context.WithValue(o.Context, OptionsKey, &CommonOptions{WriteTimeout: d})
+		}
+	}
+}
+
+// WithIdleTimeout 最大的空闲连接等待时间，超过此时间后，空闲连接将被关闭。如果设置成0，空闲连接将不会被关闭。应该设置一个比redis服务端超时时间更短的时间。
+func WithIdleTimeout(d time.Duration) broker.Option {
+	return func(o *broker.Options) {
+		if o.Context == nil {
+			o.Context = context.Background()
+		}
+		x := o.Context.Value(OptionsKey)
+		if x != nil {
+			x.(*CommonOptions).IdleTimeout = d
+		} else {
+			o.Context = context.WithValue(o.Context, OptionsKey, &CommonOptions{IdleTimeout: d})
+		}
+	}
+}
+
+// WithMaxIdle 最大的空闲连接数，表示即使没有redis连接时依然可以保持N个空闲的连接，而不被清除，随时处于待命状态。
+func WithMaxIdle(n int) broker.Option {
+	return func(o *broker.Options) {
+		if o.Context == nil {
+			o.Context = context.Background()
+		}
+		x := o.Context.Value(OptionsKey)
+		if x != nil {
+			x.(*CommonOptions).MaxIdle = n
+		} else {
+			o.Context = context.WithValue(o.Context, OptionsKey, &CommonOptions{MaxIdle: n})
+		}
+	}
+}
+
+// WithMaxActive 最大的连接数，表示同时最多有N个连接。0表示不限制。
+func WithMaxActive(n int) broker.Option {
+	return func(o *broker.Options) {
+		if o.Context == nil {
+			o.Context = context.Background()
+		}
+		x := o.Context.Value(OptionsKey)
+		if x != nil {
+			x.(*CommonOptions).MaxActive = n
+		} else {
+			o.Context = context.WithValue(o.Context, OptionsKey, &CommonOptions{MaxActive: n})
+		}
+	}
+}
+
+// WithDefaultOptions 全部置为默认的配置
+func WithDefaultOptions() broker.Option {
+	return func(o *broker.Options) {
+		if o.Context == nil {
+			o.Context = context.Background()
+		}
+		opts := &CommonOptions{
+			MaxIdle:        DefaultMaxIdle,
+			MaxActive:      DefaultMaxActive,
+			IdleTimeout:    DefaultIdleTimeout,
+			ConnectTimeout: DefaultConnectTimeout,
+			ReadTimeout:    DefaultReadTimeout,
+			WriteTimeout:   DefaultWriteTimeout,
+		}
+
+		o.Context = context.WithValue(o.Context, OptionsKey, opts)
+	}
+}
+
+///
+/// Stream SubscribeOption
+///
+
+type StreamGroupKey struct{}
+type StreamConsumerKey struct{}
+type StreamBlockTimeKey struct{}
+type StreamCountKey struct{}
+type StreamMaxLenKey struct{}
+
+// WithStreamGroup Redis Stream 消费组名称
+func WithStreamGroup(group string) broker.SubscribeOption {
+	return broker.SubscribeContextWithValue(StreamGroupKey{}, group)
+}
+
+// WithStreamConsumer Redis Stream 消费者名称
+func WithStreamConsumer(consumer string) broker.SubscribeOption {
+	return broker.SubscribeContextWithValue(StreamConsumerKey{}, consumer)
+}
+
+// WithStreamBlockTime Redis Stream XREADGROUP 阻塞等待时间
+func WithStreamBlockTime(d time.Duration) broker.SubscribeOption {
+	return broker.SubscribeContextWithValue(StreamBlockTimeKey{}, d)
+}
+
+// WithStreamCount Redis Stream 每次读取的最大消息数
+func WithStreamCount(n int) broker.SubscribeOption {
+	return broker.SubscribeContextWithValue(StreamCountKey{}, n)
+}
+
+// WithStreamMaxLen Redis Stream XADD 时的 MAXLEN 限制，0 表示不限制
+func WithStreamMaxLen(n int64) broker.PublishOption {
+	return broker.PublishContextWithValue(StreamMaxLenKey{}, n)
+}

@@ -62,6 +62,26 @@ type AppKit struct {
 	// Run 前为空。见 database.go）。
 	databases map[string]any
 
+	// 契约装配的缓存实例（阶段 B buildCaches 填充，段名→实例；
+	// Run 前为空。见 cache.go）。
+	caches map[string]any
+
+	// 契约装配的对象存储客户端（阶段 B buildStorages 填充，段名→实例；
+	// Run 前为空。见 storage.go）。
+	storages map[string]any
+
+	// 契约装配的 AI 模型客户端（阶段 B buildAis 填充，段名→实例；
+	// Run 前为空。见 ai.go）。
+	ais map[string]any
+
+	// 契约装配的工作流引擎客户端（阶段 B buildWorkflows 填充，段名→实例；
+	// Run 前为空。见 workflow.go）。
+	workflows map[string]any
+
+	// 契约装配的消息代理实例（阶段 B buildBrokers 填充，段名→实例；
+	// Run 前为空。见 broker.go）。
+	brokers map[string]any
+
 	// 钩子（可选）。
 	beforeStart []func(context.Context) error
 	afterStart  []func(context.Context) error

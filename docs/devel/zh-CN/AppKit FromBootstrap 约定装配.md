@@ -64,6 +64,9 @@ app, err := appkit.FromBootstrap(bootstrap,
     appkit.WithLoggerFactory(f),                   // 换日志后端（默认 slog）
     appkit.WithLogRegistry(reg),                   // 契约驱动日志后端（logger.type 查表；log/<backend>/contract 注册）
     appkit.WithDatabaseRegistry(dbReg),            // 契约驱动数据库客户端（database.<engine> 段查表；contrib/database/<engine>/contract 注册）
+    appkit.WithCacheRegistry(cacheReg),            // 契约驱动缓存实例（cache.<backend> 段查表；cache/<backend>/contract 注册）
+    appkit.WithStorageRegistry(storageReg),        // 契约驱动对象存储（storage.<backend> 段查表；oss/<backend>/contract 注册）
+    appkit.WithAiRegistry(aiReg),                  // 契约驱动 AI 客户端（ai.<backend> 段查表；ai/<backend>/contract 注册）
 )
 
 // 数据库客户端（阶段 B 装配，Run 后取用；类型安全在消费侧恢复）：
@@ -71,6 +74,12 @@ app, err := appkit.FromBootstrap(bootstrap,
 //   dr.MustRegister(gormcontract.Type, gormcontract.Provider)    // "sql"
 //   dr.MustRegister(mongocontract.Type, mongocontract.Provider)  // "mongodb"
 //   cli := app.Database(gormcontract.Type).(*gormcrud.Client)    // ← 业务断言
+
+// 缓存实例（与 DatabaseRegistry 同模式）：
+//   cr := appkit.NewCacheRegistry()
+//   cr.MustRegister(localcontract.Type, localcontract.Provider)  // "local"（freecache）
+//   cr.MustRegister(rediscontract.Type, rediscontract.Provider)  // "redis"（自建 client，cleanup 关连接池）
+//   c := app.Cache(rediscontract.Type).(cache.Cache)             // ← 业务断言
 ```
 
 失败语义：`cfg=nil` / 能力声明与契约段缺失不匹配 → 构造期 fail-fast 返回 error；
@@ -105,6 +114,23 @@ Build / BuildServers 失败 → 回滚阶段 A Logger 与配置层后返回 erro
   不承载模型清单；契约 `migrate` 开关经 `WithEnableMigrate` 生效。go-wind
   的 `RegisterMigrateModel` 全局注册表 hack 不移植。
 
+### 缓存实例（CacheRegistry 模式）
+
+与 DatabaseRegistry 完全同模式（显式注册、段存在未注册 fail-fast、多段
+并存、失败回滚逆序 cleanup、阶段 B 构建、段不支持热更新），差异仅两点：
+
+- **停机顺序**：cache-clients Effect 注册在 database-clients **之后**——
+  逆序回放 = 服务器 drain → **缓存先关**（加速层，关了不影响正确性）→
+  数据库连接最后关。
+- **redis 契约段自建 client**：`cache.redis` 段含 addr/password/db，contract
+  Provider 自建 go-redis client（Ping 失败即 fail-fast，不产半成品），cleanup
+  关连接池；复用注入场景绕过 contract 直接用 `cache/redis` 包的 `New(client)`。
+
+- **与 `contrib/cache-redis` 的边界**：`bald/cache` 是通用 KV 缓存抽象
+  （Get/Set/SetNX/Multi，进程内 freecache / 分布式 redis）；cache-redis 是
+  带 loader 回填的 **Cache-Aside 旁路缓存组件**（P11 晋升，键须含租户）。
+  关注点不同，互不替代——cache-redis 未来可长在 `bald/cache` 抽象之上。
+
 ### 网关转码面（gateway as driver 模式）
 
 gateway 不是独立服务器，而是 `server.http` 段的一种模式，由契约
@@ -117,6 +143,21 @@ gateway 不是独立服务器，而是 `server.http` 段的一种模式，由契
 - 业务要混合路由时在 fn 里返回组合 handler（如 gin 主面 + NoRoute 落转码 mux）；
 - `WithExtraServers` 保留为通用逃生舱（契约形状表达不了的服务器），
   gateway 不再走它。
+
+### 工作流引擎与消息代理（WorkflowRegistry / BrokerRegistry 模式）
+
+与 AiRegistry 完全同模式（显式注册、段存在未注册 fail-fast、多段并存、
+失败回滚逆序 cleanup、阶段 B 构建、段不支持热更新），差异要点：
+
+- **workflow.argo**：REST 客户端消费 `server_url/namespace/token/
+  insecure_skip_verify`；`app.Workflow("argo")` 取 `*argo.WorkflowClient`。
+- **broker 多段并存**：`broker.{kafka,rabbitmq,redis,rocketmq}` 四段独立
+  构建并 `Init`→`Connect`（contract 封装），`app.Broker(typ)/Brokers()` 取用；
+  消息体经 `bald/encoding` 序列化（默认 json）。binder 类型化依赖
+  `broker.Unmarshal` 的 any 解引用修复（契约总览 §16）。
+- **停机链序扩至 8 段**：servers→registrar→database→cache→storage→ai→
+  workflow→broker——逆序回放时服务器先 drain，broker 最后关（in-flight
+  消息处理完再断），数据库仍保持最后关闭之外的最晚次序。
 
 ## 示例改造结果（_example/bald）
 

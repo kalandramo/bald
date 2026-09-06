@@ -82,7 +82,12 @@ type bootstrapSpec struct {
 	logFac      LoggerFactory
 	logRegistry *baldbootstrap.LogRegistry
 
-	dbRegistry *DatabaseRegistry
+	dbRegistry       *DatabaseRegistry
+	cacheRegistry    *CacheRegistry
+	storageRegistry  *StorageRegistry
+	aiRegistry       *AiRegistry
+	workflowRegistry *WorkflowRegistry
+	brokerRegistry   *BrokerRegistry
 }
 
 // BootstrapOption 声明 FromBootstrap 的业务能力（与 New 的 Option 分属两个
@@ -313,6 +318,20 @@ func FromBootstrap(cfg *bootstrapv1.BootstrapConfig, opts ...BootstrapOption) (*
 	// 填入）。Effect 注册在 servers 之前——停机逆序回放保证服务器先 drain、
 	// 数据库连接最后关。
 	var dbCleanup func()
+	// cacheCleanup 同理跟踪缓存实例释放钩子；Effect 注册在 database-clients
+	// 之后——逆序回放保证缓存先关（加速层，关了不影响正确性）、数据库最后关。
+	var cacheCleanup func()
+	// storageCleanup 跟踪对象存储客户端释放钩子；Effect 注册在 cache-clients
+	// 之后——停机逆序：storage 先关（暂无长连接）、缓存次之、数据库最后关。
+	var storageCleanup func()
+	// aiCleanup 跟踪 AI 客户端释放钩子；Effect 注册在 storage-clients 之后
+	// （当前三后端均无连接池，cleanup 为 nil，Effect 预留）。
+	var aiCleanup func()
+	// workflowCleanup/brokerCleanup 跟踪工作流客户端与消息代理断连钩子；
+	// Effect 注册在 ai-clients 之后——停机逆序：broker（in-flight 消息）→
+	// workflow → ai → storage → cache → database。
+	var workflowCleanup func()
+	var brokerCleanup func()
 
 	// a 先声明再进闭包：BeforeStart 在 Run 期才执行，届时 a 已赋值。
 	var a *AppKit
@@ -331,13 +350,34 @@ func FromBootstrap(cfg *bootstrapv1.BootstrapConfig, opts ...BootstrapOption) (*
 			if err := syncBootstrap(a, cfg, spec, &curCleanup, &regCleanup); err != nil {
 				return err
 			}
-			// 数据库客户端构建在注册中心之后：任一步失败走 Run 失败路径
-			// 回滚 Effect 账本（registrar-client / database-clients 各自释放）。
+			// 数据库/缓存客户端构建在注册中心之后：任一步失败走 Run 失败路径
+			// 回滚 Effect 账本（各 Effect 自行释放）。赋值外层变量（勿用 :=，
+			// 否则遮蔽导致 Effect 回放拿到 nil）。
 			cleanup, err := buildDatabases(a, cfg, spec)
 			if err != nil {
 				return err
 			}
 			dbCleanup = cleanup
+			if cleanup, err = buildCaches(a, cfg, spec); err != nil {
+				return err
+			}
+			cacheCleanup = cleanup
+			if cleanup, err = buildStorages(a, cfg, spec); err != nil {
+				return err
+			}
+			storageCleanup = cleanup
+			if cleanup, err = buildAis(a, cfg, spec); err != nil {
+				return err
+			}
+			aiCleanup = cleanup
+			if cleanup, err = buildWorkflows(a, cfg, spec); err != nil {
+				return err
+			}
+			workflowCleanup = cleanup
+			if cleanup, err = buildBrokers(a, cfg, spec); err != nil {
+				return err
+			}
+			brokerCleanup = cleanup
 			return nil
 		}),
 		OnConfigChange(func(m map[string]any) {
@@ -359,6 +399,36 @@ func FromBootstrap(cfg *bootstrapv1.BootstrapConfig, opts ...BootstrapOption) (*
 		Effect("appkit:database-clients", func(context.Context) error {
 			if dbCleanup != nil {
 				dbCleanup()
+			}
+			return nil
+		}),
+		Effect("appkit:cache-clients", func(context.Context) error {
+			if cacheCleanup != nil {
+				cacheCleanup()
+			}
+			return nil
+		}),
+		Effect("appkit:storage-clients", func(context.Context) error {
+			if storageCleanup != nil {
+				storageCleanup()
+			}
+			return nil
+		}),
+		Effect("appkit:ai-clients", func(context.Context) error {
+			if aiCleanup != nil {
+				aiCleanup()
+			}
+			return nil
+		}),
+		Effect("appkit:workflow-clients", func(context.Context) error {
+			if workflowCleanup != nil {
+				workflowCleanup()
+			}
+			return nil
+		}),
+		Effect("appkit:broker-clients", func(context.Context) error {
+			if brokerCleanup != nil {
+				brokerCleanup()
 			}
 			return nil
 		}),
