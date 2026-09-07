@@ -101,3 +101,31 @@ func TestCache_Delete(t *testing.T) {
 		t.Fatalf("loader calls = %d, want 2 (delete must invalidate)", calls)
 	}
 }
+
+// TestCache_Get_DegradedOnRedisDown T4 降级语义：Redis 停机（连接故障，非 Nil）
+// 时 Get 降级直连 loader 而非报错——缓存故障不放大为业务故障。
+func TestCache_Get_DegradedOnRedisDown(t *testing.T) {
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis: %v", err)
+	}
+	c, err := New(mr.Addr())
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	mr.Close() // 模拟 Redis 停机：此后 GET/Set 均连接失败
+
+	calls := 0
+	loader := func(context.Context) (string, error) {
+		calls++
+		return "fallback", nil
+	}
+	got, err := c.Get(context.Background(), Key("dict", "t-default", "gender"), loader)
+	if err != nil {
+		t.Fatalf("Get must degrade to loader on redis down, got err=%v", err)
+	}
+	if got != "fallback" || calls != 1 {
+		t.Fatalf("degraded Get: got=%q calls=%d want fallback/1", got, calls)
+	}
+}

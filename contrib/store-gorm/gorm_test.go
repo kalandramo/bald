@@ -9,19 +9,25 @@ import (
 	storev1 "github.com/kalandramo/bald/bconf/gen/go/bald/store/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/sqlite"
+	// SQLite 用纯 Go driver（glebarez）：本机/CI 无 gcc 时 cgo 版 go-sqlite3 整体失效
+	//（与 go-bald-admin T0 的切换同因）。
+	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
 
-// User 是测试实体（gorm 模型）。
+// User 是测试实体（gorm 模型）。Transient 是 `gorm:"-"` 内存态字段（非表列）——
+// 回归锁：Update 的反射 map 不得把它当列（否则生成 no such column）。
 type User struct {
-	ID   string `gorm:"primaryKey"`
-	Name string
-	Age  int
+	ID        string `gorm:"primaryKey"`
+	Name      string
+	Age       int
+	Transient string `gorm:"-"`
 }
 
 // newTestProvider 每个测试用独立临时数据库文件，避免内存库跨测试串扰。
+// 显式 t.Cleanup 关闭连接池：Windows 下 TempDir RemoveAll 会因未释放的
+// sqlite 文件句柄失败（"being used by another process"，与 go-bald-admin 同款坑）。
 func newTestProvider(t *testing.T) *Provider[User] {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "test.db")
@@ -29,6 +35,9 @@ func newTestProvider(t *testing.T) *Provider[User] {
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
 	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sqlDB.Close() })
 	p := NewGormProvider[User](db, func(u *User) string { return u.ID })
 	require.NoError(t, p.Migrate(context.Background()))
 	return p
@@ -40,7 +49,7 @@ func TestGormCRUD(t *testing.T) {
 	repo := store.NewStore[User](p)
 
 	// Create
-	require.NoError(t, repo.Create(ctx, &User{ID: "1", Name: "alice", Age: 30}))
+	require.NoError(t, repo.Create(ctx, &User{ID: "1", Name: "alice", Age: 30, Transient: "kept"}))
 	require.NoError(t, repo.Create(ctx, &User{ID: "2", Name: "bob", Age: 25}))
 	// 冲突
 	assert.ErrorIs(t, repo.Create(ctx, &User{ID: "1", Name: "dup", Age: 1}), store.ErrConflict)
@@ -50,11 +59,13 @@ func TestGormCRUD(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "alice", got.Name)
 
-	// Update
-	require.NoError(t, repo.Update(ctx, &User{ID: "1", Name: "alice2", Age: 31}))
+	// Update（含 gorm:"-" 内存态字段：不得被当作表列，否则 no such column）
+	require.NoError(t, repo.Update(ctx, &User{ID: "1", Name: "alice2", Age: 31, Transient: "ignored"}))
 	got, _ = repo.Get(ctx, &store.Where{Filters: []*storev1.FilterCondition{store.Eq("id", "1")}})
 	assert.Equal(t, "alice2", got.Name)
 	assert.Equal(t, 31, got.Age)
+	// "-" 字段不落库：Update 不写、Get 读回零值（回归锁：Update 反射 map 跳过它）。
+	assert.Empty(t, got.Transient)
 
 	// Count
 	n, err := repo.Count(ctx, nil)

@@ -106,6 +106,8 @@ func (q *gormQuery[T]) Update(_ context.Context, obj *T) error {
 
 // toMapExcludeKey 将对象反射为更新用的字段映射（列名→值），剔除主键列 id。
 // 这样 Updates(map) 会写入所有导出字段（含零值），且不会误改主键。
+// `gorm:"-"`（及 "-:..."）字段是内存态/关联态（如树形 Children），非表列，跳过——
+// 否则 Updates(map) 会生成不存在的列（SQLite/PG 直接报 no such column）。
 func toMapExcludeKey(obj any) map[string]any {
 	m := make(map[string]any)
 	v := reflect.ValueOf(obj).Elem()
@@ -113,6 +115,9 @@ func toMapExcludeKey(obj any) map[string]any {
 	for i := 0; i < t.NumField(); i++ {
 		f := t.Field(i)
 		if !f.IsExported() {
+			continue
+		}
+		if name := strings.TrimSpace(strings.SplitN(f.Tag.Get("gorm"), ",", 2)[0]); name == "-" {
 			continue
 		}
 		col := toColumn(f.Name)

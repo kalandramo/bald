@@ -50,15 +50,21 @@ func New(policyCSV string) (*Authorizer, error) {
 }
 
 // NewWithModel 用自定义模型与策略构造授权器（默认模型不满足时使用，如 ABAC/域模型）。
+// 空策略文本是合法输入（fail-closed 初始态：无任何 p/g 行时 Enforce 一律拒绝）——
+// 此时不喂 stringadapter（其 LoadPolicy 对空文本报 invalid line），构造无策略 enforcer。
 func NewWithModel(modelConf, policyCSV string) (*Authorizer, error) {
 	m, err := casbinmodel.NewModelFromString(modelConf)
 	if err != nil {
 		return nil, fmt.Errorf("casbin: parse model: %w", err)
 	}
-	enf, err := casbin.NewEnforcer(
-		m,
-		stringadapter.NewAdapter(policyCSV),
+	var (
+		enf *casbin.Enforcer
 	)
+	if strings.TrimSpace(policyCSV) == "" {
+		enf, err = casbin.NewEnforcer(m)
+	} else {
+		enf, err = casbin.NewEnforcer(m, stringadapter.NewAdapter(policyCSV))
+	}
 	if err != nil {
 		return nil, fmt.Errorf("casbin: new enforcer: %w", err)
 	}

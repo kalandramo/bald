@@ -9,6 +9,25 @@ import (
 //go:embed testdata/rbac_policy_test.csv
 var testPolicy string
 
+// TestEmptyPolicy_FailClosed 空策略是合法初始态：构造成功且对一切请求拒绝
+//（fail-closed——授权不因缺数据而放开；此前 stringadapter 对空文本报
+// invalid line，框架层容错为无策略 enforcer）。
+func TestEmptyPolicy_FailClosed(t *testing.T) {
+	for name, csv := range map[string]string{"empty": "", "blank": "  \n  "} {
+		az, err := New(csv)
+		if err != nil {
+			t.Fatalf("%s: New: %v", name, err)
+		}
+		allow, err := az.Authorize(context.Background(), "anyone", "secret", "get")
+		if err != nil {
+			t.Fatalf("%s: Authorize: %v", name, err)
+		}
+		if allow {
+			t.Fatalf("%s: empty policy must deny (fail-closed)", name)
+		}
+	}
+}
+
 // TestAuthorizer_RBAC 锁定 casbin 桥接的授权语义（真实策略引擎，非内存假表）。
 func TestAuthorizer_RBAC(t *testing.T) {
 	az, err := New(testPolicy)

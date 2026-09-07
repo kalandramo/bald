@@ -25,39 +25,74 @@ type Cache struct {
 	ttl time.Duration
 }
 
+// options 聚合 New 的可选参数（零值即原行为）。
+type options struct {
+	password string
+	db       int
+	ttl      time.Duration
+}
+
+// Option 是 New 的可选参数。
+type Option func(*options)
+
+// WithPassword 设置 Redis 密码（云端带认证实例必需）。
+func WithPassword(password string) Option {
+	return func(o *options) { o.password = password }
+}
+
+// WithDB 设置 Redis 逻辑库编号（默认 0）。
+func WithDB(db int) Option {
+	return func(o *options) { o.db = db }
+}
+
+// WithTTL 覆盖回填缓存 TTL（默认 5 分钟）。
+func WithTTL(ttl time.Duration) Option {
+	return func(o *options) { o.ttl = ttl }
+}
+
 // New 用给定 Redis 地址构造缓存；addr 为空返回禁用态（nil rdb），调用方退化为直连。
-func New(addr string) (*Cache, error) {
-	if addr == "" {
-		return &Cache{rdb: nil, ttl: 5 * time.Minute}, nil
+// 可选参数注入密码/逻辑库/TTL；不传时与旧行为完全一致（兼容既有调用方）。
+func New(addr string, opts ...Option) (*Cache, error) {
+	o := &options{ttl: 5 * time.Minute}
+	for _, opt := range opts {
+		opt(o)
 	}
-	rdb := redis.NewClient(&redis.Options{Addr: addr})
+	if addr == "" {
+		return &Cache{rdb: nil, ttl: o.ttl}, nil
+	}
+	rdb := redis.NewClient(&redis.Options{Addr: addr, Password: o.password, DB: o.db})
 	// 探活：确认 Redis 真实可达，避免假连接。
 	if err := rdb.Ping(context.Background()).Err(); err != nil {
 		return nil, fmt.Errorf("redis: ping %s: %w", addr, err)
 	}
-	return &Cache{rdb: rdb, ttl: 5 * time.Minute}, nil
+	return &Cache{rdb: rdb, ttl: o.ttl}, nil
 }
 
-// Get 缓存读取：命中返缓存值；未命中经 loader 加载并回填 ttl。cache 禁用时直接 loader。
+// Get 缓存读取：命中返缓存值；未命中或 Redis 故障时经 loader 加载并回填 ttl。
+// cache 禁用时直接 loader。
+//
+// T4 起降级语义：Redis 故障（非 Nil 错误，连接失败/超时等）时降级直连 loader——
+// 缓存故障不放大为业务故障（T4 字典验收「Redis 停机降级直连 store」由此兑现；
+// 此前故障直接报错，会把缓存层问题变成业务 5xx）。降级路径回填尽力而为：Set
+// 失败静默（缓存是优化非职责），代价是停机期间每次读都先承受一次 GET 超时开销。
 func (c *Cache) Get(ctx context.Context, key string, loader func(ctx context.Context) (string, error)) (string, error) {
 	if c.rdb == nil {
 		return loader(ctx)
 	}
-	val, err := c.rdb.Get(ctx, key).Result()
-	if err == nil {
+	if val, err := c.rdb.Get(ctx, key).Result(); err == nil {
 		return val, nil
 	}
-	if err != redis.Nil {
-		return "", fmt.Errorf("redis: get %s: %w", key, err)
-	}
-	// 未命中：加载并回填。
+	// 未命中（Nil）与故障（非 Nil）统一走 loadAndBackfill。
+	return c.loadAndBackfill(ctx, key, loader)
+}
+
+// loadAndBackfill 经 loader 加载并尽力回填：Set 失败静默返回（降级容错）。
+func (c *Cache) loadAndBackfill(ctx context.Context, key string, loader func(ctx context.Context) (string, error)) (string, error) {
 	v, err := loader(ctx)
 	if err != nil {
 		return "", err
 	}
-	if err := c.rdb.Set(ctx, key, v, c.ttl).Err(); err != nil {
-		return "", fmt.Errorf("redis: set %s: %w", key, err)
-	}
+	_ = c.rdb.Set(ctx, key, v, c.ttl).Err() // 回填是优化，失败不阻塞读
 	return v, nil
 }
 
