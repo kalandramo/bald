@@ -11,11 +11,13 @@ import (
 	gingonic "github.com/gin-gonic/gin"
 
 	authbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/auth"
-	secretbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/secret"
-	tenantbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/tenant"
+	auditlogbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/auditlog"
+	dictbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/dict"
+	filebiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/file"
 	menubiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/menu"
 	permissionbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/permission"
-	dictbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/dict"
+	secretbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/secret"
+	tenantbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/tenant"
 	userbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/user"
 	authmodel "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/model"
 	bootstrappkg "github.com/kalandramo/bald/examples/go-bald-admin/internal/bootstrap"
@@ -29,7 +31,7 @@ func setup(t *testing.T) *gingonic.Engine {
 		t.Fatalf("InitBridges: %v", err)
 	}
 	e := gingonic.New()
-	RegisterRoutes(e, authbiz.New(bootstrappkg.Signer), secretbiz.New(nil), tenantbiz.New(), userbiz.New(), menubiz.New(), permissionbiz.New(), dictbiz.New(nil))
+	RegisterRoutes(e, authbiz.New(bootstrappkg.Signer), secretbiz.New(nil), tenantbiz.New(), userbiz.New(), menubiz.New(), permissionbiz.New(), dictbiz.New(nil), filebiz.New(nil, ""), auditlogbiz.New())
 	return e
 }
 

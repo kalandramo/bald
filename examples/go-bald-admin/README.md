@@ -16,14 +16,17 @@
 
 ## 架构
 
-- 双协议：`gin` HTTP(`:8080`) + `gRPC`(`:9090`)，可选 `grpc-gateway` REST 转码(`:8081`)。
+- 双协议：`gin` HTTP(`:8080`) + `gRPC`(`:9090`)，`grpc-gateway` REST 转码(`:8081`)。
 - 认证：`bald-authn-jwt`（RS256/ES256/HMAC，M6.5 非对称）。
-- 授权：`bald-authz-casbin`（contrib，P11 晋升）桥接 casbin；本仓库仅保留业务策略数据（`internal/security/casbin/rbac_policy.csv`，RBAC 策略即数据，M6.1）。
-- 多租户：`bald-store-gorm` SQLite 内存库 + P8 自动注入 `tenant_id`（M3/M4）。
-- 缓存：`bald-cache-redis`（contrib，P11 晋升）Cache-Aside（Redis 空则直连 store，M6.2）。
-- 装配：`google/wire` 接管业务对象，appkit 负责框架发现（M6.4）。
-- 审计：`pkg/audit` 核心 + `internal/security/audit.MultiAuditor`（M7 落库 + M9 消息总线 Redis Stream 异步 + 日志降级，三重真实后端）。
-- 指标/trace：`pkg/metrics` 核心 + `bald-observability-otlp`（contrib，P11 晋升；Prometheus/OTLP 双通道，M8/M9）。
+- 授权：`bald-authz-casbin`（contrib，P11 晋升）桥接 casbin；T3 起策略数据化——p 行落 `RolePolicy` 表、g 行由 `User.Roles` 装载，启动期从 PG 读取（改库重启生效），REST/gRPC 同源归一化（P9）。
+- 存储：`bald-store-gorm` 云端 PostgreSQL（T1；无外部 DB 时回退 SQLite 内存库），AutoMigrate 自建表。
+- 多租户：P8 自动注入 `tenant_id`（M3/M4）+ T2 租户 CRUD 业务双层语义。
+- 缓存：`bald-cache-redis`（contrib，P11 晋升）Cache-Aside（T4 字典真实 Redis；Redis 停机/空配置自动降级直连 store）。
+- 对象存储：`bald/oss/minio`（T5 文件上传/下载，MIME 白名单 + SHA256 + 50MiB 上限 + 分桶）。
+- 注册发现：`bald-registry-nacos`（T7 契约装配 `RegistrarRegistry`，服务名带协议后缀）。
+- 审计：`pkg/audit` 核心 + `internal/security/audit.MultiAuditor`（M7 落库 + M9 Redis Stream 异步 + 日志降级，`audit.backends` 期望态热切换；T6 登录/操作分类 + 分页查询）。
+- 指标/trace：`pkg/metrics` 核心 + `bald-observability-otlp`（Prometheus(`:9091`) + OTLP 双通道，M8/M9）。
+- 装配：`google/wire` 接管业务对象，appkit 负责框架发现与契约驱动配置（bconf proto 为唯一真相源，M6.4）。
 
 ## 运行
 
@@ -31,24 +34,29 @@
 # 从仓库根（bald 独立 module，replace 指向本地核心）
 cd bald/examples/go-bald-admin
 
-# 起服务（默认 :8080 HTTP / :9091? 见下；metrics :9090）
+# 真实配置不入库（含云端凭证）：首次使用先从模板复制并填入连接参数
+cp configs/go-bald-admin.yaml.example configs/go-bald-admin.yaml
+
+# 起服务（:8080 HTTP / :9090 gRPC / :8081 gateway / :9091 metrics）
 go run ./cmd/go-bald-admin --config=configs/go-bald-admin.yaml
 
-# 或覆盖地址
-BALD_HTTP_ADDR=:18080 go run ./cmd/go-bald-admin
+# 覆盖地址（三种等价手段，优先级 flag > env > yaml）
+go run ./cmd/go-bald-admin --server.http.addr=:18080
+GO_BALD_ADMIN_SERVER_HTTP_ADDR=:18080 go run ./cmd/go-bald-admin
 ```
 
 ### 端口
 
-| 端口 | 用途 | 覆盖 env |
+| 端口 | 用途 | 覆盖手段 |
 |------|------|----------|
-| `:8080` | HTTP(gin) 主服务 | `BALD_HTTP_ADDR` / `--http.addr` / yaml `http.addr` |
-| `:9090` | gRPC | `BALD_GRPC_ADDR` / yaml `grpc.addr` |
-| `:8081` | grpc-gateway REST 转码 | `BALD_GATEWAY_ADDR` / yaml `gateway.addr` |
-| `:9090` | `/metrics` Prometheus 抓取 | `BALD_ADMIN_METRICS_ADDR` |
+| `:8080` | HTTP(gin) 主服务 | `--server.http.addr` / `GO_BALD_ADMIN_SERVER_HTTP_ADDR` / yaml `server.http.addr` |
+| `:9090` | gRPC | `--server.grpc.addr` / `GO_BALD_ADMIN_SERVER_GRPC_ADDR` / yaml `server.grpc.addr` |
+| `:8081` | grpc-gateway REST 转码 | `BALD_GATEWAY_ADDR`（独立 env） / yaml `gateway.addr` |
+| `:9091` | `/metrics` Prometheus 抓取 | `BALD_ADMIN_METRICS_ADDR` |
 
-> 注：metrics 端口默认与 gRPC 同值 `:9090` 仅巧合；通过 `BALD_ADMIN_METRICS_ADDR`
-> 显式分开（如 `:9091`）以避免冲突。
+> env 键名由 app name 规范化派生（`go-bald-admin` → `GO_BALD_ADMIN_` 前缀，
+> 下划线即点路径分隔：`GO_BALD_ADMIN_SERVER_HTTP_ADDR` ⇔ `server.http.addr`）。
+> T8 起 metrics 缺省端口已与 gRPC 错开（`:9091`），无需再手动避让。
 
 ### 远端遥测（M9 OTLP 直推）
 
@@ -58,7 +66,6 @@ BALD_HTTP_ADDR=:18080 go run ./cmd/go-bald-admin
 
 ```bash
 BALD_ADMIN_OTLP_ADDR=http://localhost:4318 \
-BALD_ADMIN_METRICS_ADDR=:9091 \
 go run ./cmd/go-bald-admin --config=configs/go-bald-admin.yaml
 ```
 
@@ -112,20 +119,29 @@ go test -shuffle=on ./...
 | M7 | 审计日志（传输中立 + 旁路不阻断；M9 延伸 `StoreAuditor` 落库 + `StreamAuditor` Redis Stream 异步 + `MultiAuditor` 组合，三重真实后端） | ✅ |
 | M8 | 可观测性指标（Prometheus） | ✅ |
 | M9 | OTLP 远端直推（指标 Prometheus+OTLP 双通道；trace OTLP 直推，核心埋点零改动） | ✅ |
+| T0-T1 | 云端 PG 接入（含 SQLite 回退）+ 存量时序 bug 处置 | ✅ |
+| T2 | 租户 + 用户（identity 域 proto 精简、跨租户隔离） | ✅ |
+| T3 | 角色/权限/菜单（D3 策略数据化、P9 归一化落 RBAC） | ✅ |
+| T4 | 字典（Cache-Aside 真实 Redis、停机降级） | ✅ |
+| T5 | 文件（真实 MinIO：MIME 白名单/SHA256/50MiB 上限/分桶） | ✅ |
+| T6 | 审计增强 + 查询（Category 分类/登录审计/分页查询） | ✅ |
+| T7 | Nacos 注册发现（契约装配 RegistrarRegistry，凭据/namespace 语义踩坑修复） | ✅ |
+| T8 | 端到端验证 + 收尾（§9 全序列、metrics 端口根治、文档同步） | ✅ |
 
 ## 目录
 
 ```
 examples/go-bald-admin/                 (独立 go module)
-├── cmd/go-bald-admin/main.go          入口：appkit.Run + 拦截器链序 + metrics/audit 接线
-├── configs/go-bald-admin.yaml         四源配置（viper）
-├── proto/ gen/                        业务契约（buf 生成）
+├── cmd/go-bald-admin/main.go          入口：appkit.Run + 拦截器链序 + metrics/audit/nacos 接线
+├── cmd/probe/main.go                  T7 冒烟探针（契约路径注册→心跳→注销，task smoke:nacos）
+├── configs/go-bald-admin.yaml         契约驱动配置（bconf BootstrapConfig，proto 为唯一真相源）
+├── api/                               业务契约（T2 收敛：proto + buf 生成物 api/gen/）
 ├── internal/
-│   ├── apiserver/                     业务（auth/secret biz + gin/gRPC handler）
-│   ├── bootstrap/                     InitBridges（注入 Authenticator/Authorizer/store）
-│   ├── security/{casbin,audit}/       授权/审计后端桥接
+│   ├── apiserver/                     业务（auth/secret/tenant/user/menu/permission/dict/file/auditlog）
+│   ├── bootstrap/                     InitBridges + Configure（PG/Redis/MinIO/策略装载）
+│   ├── security/{casbin,audit}/       授权（策略数据化）/审计后端桥接
 │   ├── cache/redis/                   Cache-Aside
 │   ├── observability/metrics/         metrics 桥接（Prometheus/OTLP）
 │   └── grpcutil/                      传输工具
-└── docs/                              设计/需求文档
+└── docs/                              设计/需求/移植计划文档
 ```

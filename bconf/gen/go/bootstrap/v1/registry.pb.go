@@ -407,7 +407,11 @@ type Registry_Nacos struct {
 	// 配置前缀路径。
 	Prefix string `protobuf:"bytes,6,opt,name=prefix,proto3" json:"prefix,omitempty"`
 	// 默认服务类型。
-	DefaultKind   string `protobuf:"bytes,7,opt,name=default_kind,json=defaultKind,proto3" json:"default_kind,omitempty"`
+	DefaultKind string `protobuf:"bytes,7,opt,name=default_kind,json=defaultKind,proto3" json:"default_kind,omitempty"`
+	// 鉴权用户名（Nacos 开启 auth 时必填；namespace 须填 namespace ID 而非显示名）。
+	Username string `protobuf:"bytes,8,opt,name=username,proto3" json:"username,omitempty"`
+	// 鉴权密码。
+	Password      string `protobuf:"bytes,9,opt,name=password,proto3" json:"password,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -487,6 +491,20 @@ func (x *Registry_Nacos) GetPrefix() string {
 func (x *Registry_Nacos) GetDefaultKind() string {
 	if x != nil {
 		return x.DefaultKind
+	}
+	return ""
+}
+
+func (x *Registry_Nacos) GetUsername() string {
+	if x != nil {
+		return x.Username
+	}
+	return ""
+}
+
+func (x *Registry_Nacos) GetPassword() string {
+	if x != nil {
+		return x.Password
 	}
 	return ""
 }
@@ -914,7 +932,7 @@ var File_bootstrap_v1_registry_proto protoreflect.FileDescriptor
 
 const file_bootstrap_v1_registry_proto_rawDesc = "" +
 	"\n" +
-	"\x1bbootstrap/v1/registry.proto\x12\fbootstrap.v1\"\xf2\x12\n" +
+	"\x1bbootstrap/v1/registry.proto\x12\fbootstrap.v1\"\xaa\x13\n" +
 	"\bRegistry\x12\x12\n" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x12:\n" +
 	"\x06consul\x18\x02 \x01(\v2\x1d.bootstrap.v1.Registry.ConsulH\x00R\x06consul\x88\x01\x01\x124\n" +
@@ -945,7 +963,7 @@ const file_bootstrap_v1_registry_proto_rawDesc = "" +
 	"\bpassword\x18\x03 \x01(\tR\bpassword\x12\x16\n" +
 	"\x06prefix\x18\x04 \x01(\tR\x06prefix\x12\x10\n" +
 	"\x03ttl\x18\x05 \x01(\x05R\x03ttl\x12\x1b\n" +
-	"\tmax_retry\x18\x06 \x01(\x05R\bmaxRetry\x1a\xd4\x01\n" +
+	"\tmax_retry\x18\x06 \x01(\x05R\bmaxRetry\x1a\x8c\x02\n" +
 	"\x05Nacos\x12!\n" +
 	"\fserver_addrs\x18\x01 \x03(\tR\vserverAddrs\x12\x1c\n" +
 	"\tnamespace\x18\x02 \x01(\tR\tnamespace\x12\x14\n" +
@@ -953,7 +971,9 @@ const file_bootstrap_v1_registry_proto_rawDesc = "" +
 	"\fcluster_name\x18\x04 \x01(\tR\vclusterName\x12\x16\n" +
 	"\x06weight\x18\x05 \x01(\x01R\x06weight\x12\x16\n" +
 	"\x06prefix\x18\x06 \x01(\tR\x06prefix\x12!\n" +
-	"\fdefault_kind\x18\a \x01(\tR\vdefaultKind\x1a\xa7\x01\n" +
+	"\fdefault_kind\x18\a \x01(\tR\vdefaultKind\x12\x1a\n" +
+	"\busername\x18\b \x01(\tR\busername\x12\x1a\n" +
+	"\bpassword\x18\t \x01(\tR\bpassword\x1a\xa7\x01\n" +
 	"\tZookeeper\x12\x1c\n" +
 	"\tendpoints\x18\x01 \x03(\tR\tendpoints\x12\x1b\n" +
 	"\troot_path\x18\x02 \x01(\tR\brootPath\x12'\n" +

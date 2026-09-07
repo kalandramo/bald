@@ -11,8 +11,10 @@ import (
 
 	authnjwt "github.com/kalandramo/bald-authn-jwt"
 	rediscache "github.com/kalandramo/bald-cache-redis"
+	"github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/auditlog"
 	"github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/auth"
 	"github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/dict"
+	"github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/file"
 	"github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/menu"
 	"github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/permission"
 	"github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/secret"
@@ -38,6 +40,13 @@ func InitializeBiz() (*BizSet, error) {
 	menuBiz := menu.New()
 	permissionBiz := permission.New()
 	dictBiz := dict.New(cache)
+	// T5：文件 biz——MinIO 桥接与 file.bucket 兜底桶名来自 bootstrap。构造期值
+	// 拷贝必为 nil（InitBridges 在 BeforeStart 才赋值），main.go 在 InitBridges
+	// 之后经 SetStorage 补注；未配置 storage.minio 段时保持 nil，biz 内判 nil
+	// 返回明确错误。
+	fileBiz := file.New(bootstrap.MinioStorage, bootstrap.FileBucket)
+	// T6：审计查询 biz（只读，数据由写路径审计落库）。
+	auditLogBiz := auditlog.New()
 	bizSet := &BizSet{
 		Auth:       biz,
 		Secret:     secretBiz,
@@ -46,6 +55,8 @@ func InitializeBiz() (*BizSet, error) {
 		Menu:       menuBiz,
 		Permission: permissionBiz,
 		Dict:       dictBiz,
+		File:       fileBiz,
+		AuditLog:   auditLogBiz,
 		Cache:      cache,
 	}
 	return bizSet, nil
@@ -62,6 +73,8 @@ type BizSet struct {
 	Menu       *menu.Biz
 	Permission *permission.Biz
 	Dict       *dict.Biz
+	File       *file.Biz
+	AuditLog   *auditlog.Biz
 	Cache      *rediscache.Cache
 }
 

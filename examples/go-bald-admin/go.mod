@@ -17,6 +17,7 @@ require (
 	github.com/alicebob/miniredis/v2 v2.39.0
 	github.com/gin-gonic/gin v1.12.0
 	github.com/glebarez/sqlite v1.11.0
+	github.com/google/uuid v1.6.0
 	github.com/google/wire v0.7.0
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.30.0
 	github.com/kalandramo/bald v0.0.0
@@ -24,6 +25,7 @@ require (
 	github.com/kalandramo/bald-authz-casbin v0.0.0
 	github.com/kalandramo/bald-cache-redis v0.0.0
 	github.com/kalandramo/bald-observability-otlp v0.0.0
+	github.com/kalandramo/bald-registry-nacos v0.0.0
 	github.com/kalandramo/bald-store-gorm v0.0.0
 	github.com/kalandramo/bald/bconf v0.0.0
 	github.com/kalandramo/bald/berrors v0.0.0
@@ -34,6 +36,8 @@ require (
 	github.com/kalandramo/bald/transport/gateway v0.0.0-00010101000000-000000000000
 	github.com/kalandramo/bald/transport/grpc v0.0.0-00010101000000-000000000000
 	github.com/kalandramo/bald/transport/http v0.0.0-00010101000000-000000000000
+	github.com/minio/minio-go/v7 v7.3.0
+	github.com/nacos-group/nacos-sdk-go/v2 v2.3.5
 	github.com/redis/go-redis/v9 v9.7.0
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.12.1
@@ -126,7 +130,6 @@ require (
 	github.com/golang/mock v1.6.0 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/gnostic-models v0.7.0 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/hashicorp/consul/api v1.34.4 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
@@ -164,13 +167,11 @@ require (
 	github.com/mattn/go-isatty v0.0.22 // indirect
 	github.com/minio/crc64nvme v1.1.1 // indirect
 	github.com/minio/md5-simd v1.1.2 // indirect
-	github.com/minio/minio-go/v7 v7.3.0 // indirect
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
-	github.com/nacos-group/nacos-sdk-go/v2 v2.3.5 // indirect
 	github.com/orcaman/concurrent-map v0.0.0-20210501183033-44dafcb38ecc // indirect
 	github.com/pelletier/go-toml v1.9.5 // indirect
 	github.com/pelletier/go-toml/v2 v2.3.1 // indirect
@@ -269,6 +270,8 @@ replace github.com/kalandramo/bald-authn-jwt => ../../contrib/authn-jwt
 replace github.com/kalandramo/bald-authz-casbin => ../../contrib/authz-casbin
 
 replace github.com/kalandramo/bald-cache-redis => ../../contrib/cache-redis
+
+replace github.com/kalandramo/bald-registry-nacos => ../../contrib/registry/nacos
 
 replace github.com/kalandramo/bald-observability-otlp => ../../contrib/observability-otlp
 

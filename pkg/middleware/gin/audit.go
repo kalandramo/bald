@@ -102,6 +102,7 @@ func AuditMiddleware(opts ...AuditOption) gin.HandlerFunc {
 				"trace_id":   contextx.TraceIDFromContext(c.Request.Context()),
 				"status":     c.Writer.Status(),
 				"client_ip":  c.ClientIP(),
+				"user_agent": c.Request.UserAgent(),
 			},
 		}
 		if len(c.Errors) > 0 {

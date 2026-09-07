@@ -110,11 +110,11 @@ func TestMenuREST_TreeAndLifecycle(t *testing.T) {
 			sys = r
 		}
 	}
-	if sys == nil || len(sys.GetChildren()) != 6 {
-		t.Fatalf("menu-system should have 6 children, got %+v", sys)
+	if sys == nil || len(sys.GetChildren()) != 8 {
+		t.Fatalf("menu-system should have 8 children, got %+v", sys)
 	}
-	// children 按 order 排序：tenant/user/menu/permission/secret/dict。
-	wantOrder := []string{"menu-tenant", "menu-user", "menu-menu", "menu-permission", "menu-secret", "menu-dict"}
+	// children 按 order 排序：tenant/user/menu/permission/secret/dict/file/audit（T5 加 file，T6 加 audit）。
+	wantOrder := []string{"menu-tenant", "menu-user", "menu-menu", "menu-permission", "menu-secret", "menu-dict", "menu-file", "menu-audit"}
 	for i, id := range wantOrder {
 		if sys.GetChildren()[i].GetId() != id {
 			t.Fatalf("child[%d]=%s, want %s", i, sys.GetChildren()[i].GetId(), id)
@@ -261,4 +261,9 @@ func TestT3Authz_DataDrivenPolicy(t *testing.T) {
 		map[string]any{"id": "menu-x", "type": "TYPE_MENU", "name": "X", "path": "/x"}); code != http.StatusCreated {
 		t.Fatalf("admin create menu status=%d, want 201", code)
 	}
+	// 清理根菜单：本套件共享单例 store，残留会污染 TestMenuREST_TreeAndLifecycle
+	// 的 roots 计数（-shuffle=on 顺序不定时偶发 "expect 2 roots, got 3"）。
+	t.Cleanup(func() {
+		_, _ = callMenu(t, base, admin, http.MethodDelete, "/v1/menu/menu-x", nil)
+	})
 }

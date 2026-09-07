@@ -26,8 +26,13 @@ registry:
   type: "nacos"
   nacos:
     server_addrs: ["<NACOS_HOST>:8848"]
-    namespace: "<NAMESPACE>"       # 可留空
-    group: "<GROUP>"               # 可留空
+    # namespace 必须填 Nacos「命名空间 ID」（UUID）而非显示名——ID 不匹配时注册
+    # 会被服务端拒绝/落孤儿空间（nacos-sdk-go v2 静默吞 403，仅 WARN）。
+    namespace: "<NAMESPACE_ID>"
+    group: "<GROUP>"               # 留空走 SDK 默认 DEFAULT_GROUP
+    # 服务端开启鉴权时必填（gRPC 连接 setup 时登录；未开启可留空）。
+    username: "<NACOS_USERNAME>"
+    password: "<NACOS_PASSWORD>"
 
 # ---- 业务自持段（storage.minio 契约无 bucket 字段，file 模块自持）----
 file:

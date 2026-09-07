@@ -35,6 +35,9 @@ func RegisterAuth(
 			c.JSON(http.StatusBadRequest, gingonic.H{"error": err.Error()})
 			return
 		}
+		// T6 登录审计：客户端信息 handler 层提取（biz 保持协议无关）。
+		cred.ClientIP = c.ClientIP()
+		cred.UserAgent = c.Request.UserAgent()
 		pair, err := biz.Login(c.Request.Context(), cred)
 		if err != nil {
 			c.JSON(http.StatusUnauthorized, gingonic.H{"error": err.Error()})

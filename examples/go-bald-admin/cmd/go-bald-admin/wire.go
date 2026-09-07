@@ -8,8 +8,10 @@ import (
 
 	rediscache "github.com/kalandramo/bald-cache-redis"
 
+	auditlogbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/auditlog"
 	authbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/auth"
 	dictbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/dict"
+	filebiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/file"
 	menubiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/menu"
 	permissionbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/permission"
 	secretbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/secret"
@@ -26,6 +28,8 @@ type BizSet struct {
 	Menu       *menubiz.Biz
 	Permission *permissionbiz.Biz
 	Dict       *dictbiz.Biz
+	File       *filebiz.Biz
+	AuditLog   *auditlogbiz.Biz
 	Cache      *rediscache.Cache
 }
 

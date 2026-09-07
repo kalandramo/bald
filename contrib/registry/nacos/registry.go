@@ -51,6 +51,8 @@ func New(opts ...Option) (*Registry, error) {
 		NamespaceId:         op.namespace,
 		TimeoutMs:           uint64(op.timeout.Milliseconds()),
 		NotLoadCacheAtStart: true,
+		Username:            op.username,
+		Password:            op.password,
 	}
 	serverConfigs := make([]constant.ServerConfig, 0, len(op.serverAddrs))
 	for _, addr := range op.serverAddrs {

@@ -13,3 +13,4 @@ _example/*.db
 _example/bald/*.db
 
 # go-bald-admin 真实运行配置含云端凭证，不入库（模板见 configs/go-bald-admin.yaml.example）
+/examples/go-bald-admin/configs/go-bald-admin.yaml

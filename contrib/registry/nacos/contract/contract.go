@@ -49,6 +49,12 @@ func Provider(ctx context.Context, cfg *bootstrapv1.Registry) (registry.Registra
 	if k := c.GetDefaultKind(); k != "" {
 		opts = append(opts, nacos.WithDefaultKind(k))
 	}
+	if u := c.GetUsername(); u != "" {
+		opts = append(opts, nacos.WithUsername(u))
+	}
+	if p := c.GetPassword(); p != "" {
+		opts = append(opts, nacos.WithPassword(p))
+	}
 
 	r, err := nacos.New(opts...)
 	if err != nil {

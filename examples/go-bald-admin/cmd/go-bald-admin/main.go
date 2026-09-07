@@ -6,7 +6,8 @@
 //
 //	go run ./examples/go-bald-admin --config=examples/go-bald-admin/configs/go-bald-admin.yaml
 //	go run ./examples/go-bald-admin --http.addr=:18080
-//	BALD_HTTP_ADDR=:18080 go run ./examples/go-bald-admin
+//	GO_BALD_ADMIN_SERVER_HTTP_ADDR=:18080 go run ./examples/go-bald-admin
+//	（env 前缀由 app name 规范化派生：go-bald-admin → GO_BALD_ADMIN_，下划线即点路径分隔）
 //
 //	# 验证 HTTP 路由
 //	curl -i http://127.0.0.1:8080/v1/ping
@@ -32,10 +33,12 @@ import (
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
 
-	adminv1 "github.com/kalandramo/bald/examples/go-bald-admin/api/gen/secret/v1"
+	auditv1 "github.com/kalandramo/bald/examples/go-bald-admin/api/gen/audit/v1"
 	dictv1 "github.com/kalandramo/bald/examples/go-bald-admin/api/gen/dict/v1"
+	filev1 "github.com/kalandramo/bald/examples/go-bald-admin/api/gen/file/v1"
 	menuv1 "github.com/kalandramo/bald/examples/go-bald-admin/api/gen/menu/v1"
 	permissionv1 "github.com/kalandramo/bald/examples/go-bald-admin/api/gen/permission/v1"
+	adminv1 "github.com/kalandramo/bald/examples/go-bald-admin/api/gen/secret/v1"
 	tenantv1 "github.com/kalandramo/bald/examples/go-bald-admin/api/gen/tenant/v1"
 	userv1 "github.com/kalandramo/bald/examples/go-bald-admin/api/gen/user/v1"
 	"github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver"
@@ -44,6 +47,7 @@ import (
 
 	obmetrics "github.com/kalandramo/bald-observability-otlp/metrics"
 	obtrace "github.com/kalandramo/bald-observability-otlp/trace"
+	nacoscontract "github.com/kalandramo/bald-registry-nacos/contract"
 	bconf "github.com/kalandramo/bald/bconf"
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
 	baldbootstrap "github.com/kalandramo/bald/bootstrap"
@@ -54,8 +58,9 @@ import (
 	"github.com/kalandramo/bald/pkg/appkit"
 	"github.com/kalandramo/bald/pkg/audit"
 	"github.com/kalandramo/bald/pkg/authn"
+	"github.com/kalandramo/bald/pkg/authz"
 	"github.com/kalandramo/bald/pkg/middleware/bundle"
-	"github.com/kalandramo/bald/pkg/registry/inmemory"
+	ginmw "github.com/kalandramo/bald/pkg/middleware/gin"
 	"github.com/kalandramo/bald/transport"
 	gateway "github.com/kalandramo/bald/transport/gateway"
 	grpcserver "github.com/kalandramo/bald/transport/grpc"
@@ -90,7 +95,9 @@ func serveRunE(_ *cobra.Command, _ []string) error {
 
 	metricsAddr := os.Getenv("BALD_ADMIN_METRICS_ADDR")
 	if metricsAddr == "" {
-		metricsAddr = ":9090"
+		// T8 根治：缺省 :9091 与 gRPC(:9090) 错开——此前两者同值仅"巧合"可运行，
+		// gRPC 先抢到 :9090 时 metrics goroutine 只打一条 error 日志（指标静默丢失）。
+		metricsAddr = ":9091"
 	}
 	metricsHandler, err := obmetrics.Setup(
 		obmetrics.WithOTLPAddr(otlpAddr),
@@ -135,8 +142,16 @@ func serveRunE(_ *cobra.Command, _ []string) error {
 	)
 	router := gin.New()
 	router.Use(ginBundle.Gin()...)
-	apiserver.RegisterRoutes(router, bizSet.Auth, bizSet.Secret, bizSet.Tenant, bizSet.User, bizSet.Menu, bizSet.Permission, bizSet.Dict) // gin handler 路由
-	registerAdminRoutes(router, appRef, componentFactories)      // M10.2 管理面（appRef 迟到绑定）
+	// T6：gin 审计中间件（写路径审计落库，与 gRPC AuditInterceptor 对称）。
+	// wrap 型旁路：c.Next() 后记录，subject 由链内 AuthnMiddleware 注入后可读；
+	// object/action 走 P9 归一化（path→"secret" 等，与 casbin 策略同源），
+	// 审计后端经 audit.backends 热切换统一入口。
+	router.Use(ginmw.AuditMiddleware(
+		ginmw.AuditWithObjectResolver(authz.DefaultHTTPObject),
+		ginmw.AuditWithActionResolver(authz.DefaultHTTPAction),
+	))
+	apiserver.RegisterRoutes(router, bizSet.Auth, bizSet.Secret, bizSet.Tenant, bizSet.User, bizSet.Menu, bizSet.Permission, bizSet.Dict, bizSet.File, bizSet.AuditLog) // gin handler 路由
+	registerAdminRoutes(router, appRef, componentFactories)                                                                                                             // M10.2 管理面（appRef 迟到绑定）
 	httpSrv := httpserver.NewHTTPServer(bootstrap.GetServer().GetHttp(), router, ready)
 
 	// T2：gRPC service 注册回调捕获 wire 装配的 biz（tenant/user handler 需 biz 注入；
@@ -149,6 +164,8 @@ func serveRunE(_ *cobra.Command, _ []string) error {
 		permissionv1.RegisterPermissionServiceServer(s, secretgrpc.NewPermissionServer(bizSet.Permission))
 		dictv1.RegisterDictTypeServiceServer(s, secretgrpc.NewDictTypeServer(bizSet.Dict))
 		dictv1.RegisterDictEntryServiceServer(s, secretgrpc.NewDictEntryServer(bizSet.Dict))
+		filev1.RegisterFileServiceServer(s, secretgrpc.NewFileServer(bizSet.File))        // T5
+		auditv1.RegisterAuditServiceServer(s, secretgrpc.NewAuditServer(bizSet.AuditLog)) // T6
 	}
 	grpcSrv := grpcserver.NewGRPCServerWithRegister(
 		bootstrap.GetServer().GetGrpc(),
@@ -158,7 +175,7 @@ func serveRunE(_ *cobra.Command, _ []string) error {
 	)
 
 	// 2. 组装 AppKit（含可选 grpc-gateway，见 buildServers）。
-	app := newApp(bootstrap, logOpts, httpSrv, grpcSrv, ready, traceComp)
+	app := newApp(bootstrap, logOpts, httpSrv, grpcSrv, ready, traceComp, bizSet)
 	appRef.set(app) // M10.2：管理面 handler 经 appRef 请求期取 AppKit（规避装配时序）
 
 	// 3. 运行。
@@ -222,8 +239,15 @@ func newApp(
 	grpcSrv *grpcserver.GRPCServer,
 	ready transport.ReadinessFunc,
 	traceComp appkit.Component,
+	bizSet *BizSet,
 ) *appkit.AppKit {
 	var app *appkit.AppKit
+	// T7：注册中心契约装配（New 构造路径等价于 FromBootstrap 的 buildRegistrar）：
+	// 显式注册表声明可用后端（未 import 的后端零依赖），BeforeStart 配置装载后
+	// 按 registry 段构造真实 registrar；cleanup 挂停机 Effect（Deregister 先于
+	// Effect 回放，顺序安全）。registry 段不支持热更新（client 重建侵入性大）。
+	regRegistry := registrarRegistry()
+	var regCleanup func()
 	app = appkit.New(
 		appkit.Name("go-bald-admin"),
 		appkit.Version("v0.1.0"),
@@ -242,7 +266,16 @@ func newApp(
 		// C1 进程内组件：trace provider 纳入统一生命周期（停机末段逆序 Dispose）。
 		appkit.Components(traceComp),
 
-		// 业务 flag 接入：前缀与配置键一致（--server.http.addr ⇔ server.http.addr ⇔ BALD_SERVER_HTTP_ADDR）。
+		// T7：nacos client 关闭效应（BeforeStart 契约装配时经 regCleanup 激活，
+		// 未配置 registry 段则为空操作）。
+		appkit.Effect("appkit:registrar-client", func(context.Context) error {
+			if regCleanup != nil {
+				regCleanup()
+			}
+			return nil
+		}),
+
+		// 业务 flag 接入：前缀与配置键一致（--server.http.addr ⇔ server.http.addr ⇔ GO_BALD_ADMIN_SERVER_HTTP_ADDR）。
 		appkit.Bind("server.http", bootstrap.GetServer().GetHttp()),
 		appkit.Bind("server.grpc", bootstrap.GetServer().GetGrpc()),
 		appkit.Bind("", logOpts),
@@ -265,7 +298,6 @@ func newApp(
 				"old", old, "new", new)
 		}),
 
-		appkit.Registrar(inmemory.New()),
 		appkit.Servers(buildServers(bootstrap, httpSrv, grpcSrv, ready)...),
 
 		appkit.BeforeStart(func(ctx context.Context) error {
@@ -289,9 +321,22 @@ func newApp(
 			if err := bootstrappkg.InitBridges(ctx); err != nil {
 				return fmt.Errorf("init bridges: %w", err)
 			}
+			// T8：文件存储运行期接线——InitializeBiz 构造期值拷贝 bootstrap.MinioStorage
+			// 拿到 nil（InitBridges 尚未执行，§9 真调暴露的 e2e 盲区），桥接装配后补注。
+			bizSet.File.SetStorage(bootstrappkg.MinioStorage, bootstrappkg.FileBucket)
+			// T7：契约驱动注册中心——registry 段为真相源，type 为空/未注册均
+			// fail-fast（与 FromBootstrap 的 buildRegistrar 同语义），Nacos 不可达
+			// 在此显式报错而非静默降级。注意 cleanup 必须 `=` 赋外层变量，
+			// 闭包内 `:=` 会遮蔽导致停机 Effect 拿 nil。
+			reg, cleanup, err := regRegistry.Build(ctx, bootstrap.GetRegistry())
+			if err != nil {
+				return fmt.Errorf("build registrar: %w", err)
+			}
+			app.SetRegistrar(reg)
+			regCleanup = cleanup
 			// 审计后端注入（R1-2 期望态协调）改由 appkit.Reconcile 驱动：声明期望集合
 			// （audit.backends）后，框架在启动收敛期与每次配置变更时自动 diff-apply，
-			// 此处不再静态装配——单一事实来源收敛到配置键，避免“配置与代码两处声明”。
+			// 此处不再静态装配——单一事实来源收敛到配置键，避免"配置与代码两处声明"。
 			return nil
 		}),
 		// R1-2 期望态协调：以 audit.backends 为期望态，与当前生效后端集合 diff，
@@ -311,6 +356,15 @@ func newApp(
 		}),
 	)
 	return app
+}
+
+// registrarRegistry 显式注册注册中心契约 provider（业务按需 import 各后端
+// contract 包，未 import 的后端零依赖；registry.type 指向未注册后端时 Build
+// fail-fast，而不是静默无注册）。
+func registrarRegistry() *appkit.RegistrarRegistry {
+	rr := appkit.NewRegistrarRegistry()
+	rr.MustRegister(nacoscontract.Type, nacoscontract.Provider)
+	return rr
 }
 
 // reconAuditors 是 R1-2 协调的「实际态」载体：协调器逐后端 Mount/Unmount，
@@ -632,6 +686,12 @@ func registerGateway(ctx context.Context, conn *grpc.ClientConn) (http.Handler, 
 		return nil, err
 	}
 	if err := dictv1.RegisterDictEntryServiceHandler(ctx, mux, conn); err != nil {
+		return nil, err
+	}
+	if err := filev1.RegisterFileServiceHandler(ctx, mux, conn); err != nil {
+		return nil, err
+	}
+	if err := auditv1.RegisterAuditServiceHandler(ctx, mux, conn); err != nil {
 		return nil, err
 	}
 	return mux, nil

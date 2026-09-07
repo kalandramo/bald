@@ -58,6 +58,10 @@ message Registry {
     string prefix = 6;
     // 默认服务类型。
     string default_kind = 7;
+    // 鉴权用户名（Nacos 开启 auth 时必填；namespace 须填 namespace ID 而非显示名）。
+    string username = 8;
+    // 鉴权密码。
+    string password = 9;
   }
 
   message Zookeeper {

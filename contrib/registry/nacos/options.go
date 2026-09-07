@@ -11,6 +11,8 @@ type options struct {
 	group       string
 	kind        string
 	timeout     time.Duration
+	username    string
+	password    string
 }
 
 // Option 是 nacos Registry 的函数式选项。
@@ -69,4 +71,14 @@ func WithDefaultKind(kind string) Option {
 // WithTimeout 设置 client 请求超时。
 func WithTimeout(d time.Duration) Option {
 	return func(o *options) { o.timeout = d }
+}
+
+// WithUsername 设置鉴权用户名（服务端开启 auth 时必填）。
+func WithUsername(username string) Option {
+	return func(o *options) { o.username = username }
+}
+
+// WithPassword 设置鉴权密码。
+func WithPassword(password string) Option {
+	return func(o *options) { o.password = password }
 }

@@ -21,12 +21,14 @@ import (
 
 	tenantv1 "github.com/kalandramo/bald/examples/go-bald-admin/api/gen/tenant/v1"
 	authbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/auth"
+	auditlogbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/auditlog"
 	dictbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/dict"
+	filebiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/file"
+	menubiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/menu"
+	permissionbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/permission"
 	secretbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/secret"
 	tenantbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/tenant"
 	userbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/user"
-	menubiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/menu"
-	permissionbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/permission"
 	bootstrappkg "github.com/kalandramo/bald/examples/go-bald-admin/internal/bootstrap"
 	"github.com/kalandramo/bald/pkg/authn"
 )
@@ -38,7 +40,7 @@ func startTenantREST(t *testing.T) string {
 		t.Fatalf("InitBridges: %v", err)
 	}
 	e := gingonic.New()
-	RegisterRoutes(e, authbiz.New(bootstrappkg.Signer), secretbiz.New(nil), tenantbiz.New(), userbiz.New(), menubiz.New(), permissionbiz.New(), dictbiz.New(nil))
+	RegisterRoutes(e, authbiz.New(bootstrappkg.Signer), secretbiz.New(nil), tenantbiz.New(), userbiz.New(), menubiz.New(), permissionbiz.New(), dictbiz.New(nil), filebiz.New(nil, ""), auditlogbiz.New())
 	srv := httptest.NewServer(e)
 	t.Cleanup(srv.Close)
 	return srv.URL

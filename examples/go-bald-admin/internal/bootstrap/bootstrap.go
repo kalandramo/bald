@@ -12,15 +12,16 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	authnjwt "github.com/kalandramo/bald-authn-jwt"
 	rediscache "github.com/kalandramo/bald-cache-redis"
 	baldgorm "github.com/kalandramo/bald-store-gorm"
+	"github.com/kalandramo/bald/log"
 	"github.com/kalandramo/bald/pkg/authn"
 	"github.com/kalandramo/bald/pkg/authz"
-	"github.com/kalandramo/bald/log"
 	"github.com/kalandramo/bald/pkg/store"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/driver/mysql"
@@ -140,6 +141,13 @@ var RolePolicyStore *store.Store[authmodel.RolePolicy]
 var DictTypeStore *store.Store[authmodel.DictType]
 var DictEntryStore *store.Store[authmodel.DictEntry]
 
+// FileStore 文件元数据仓储（T5；MinIO 对象经 MinioStorage 桥接，元数据落本库）。
+var FileStore *store.Store[authmodel.File]
+
+// AuditStore 审计日志仓储（T6 查询面；写路径经 security/audit.StoreAuditor 落库，
+// 同表双通道：写走审计后端、读走本仓储）。
+var AuditStore *store.Store[authmodel.AuditRecord]
+
 // InitBridges 初始化认证/授权/存储桥接。
 // 幂等：已初始化（Authenticator 非 nil）则直接返回，避免重复生成 RSA 密钥对
 // 导致签发方与验签方密钥不一致（非对称下每次生成新密钥对，重复初始化会破坏闭环）。
@@ -175,7 +183,7 @@ func InitBridges(ctx context.Context) error {
 	}
 	if err := db.AutoMigrate(&authmodel.User{}, &authmodel.Role{}, &authmodel.Secret{}, &authmodel.AuditRecord{}, &authmodel.Tenant{},
 		&authmodel.Menu{}, &authmodel.Permission{}, &authmodel.RolePolicy{},
-		&authmodel.DictType{}, &authmodel.DictEntry{}); err != nil {
+		&authmodel.DictType{}, &authmodel.DictEntry{}, &authmodel.File{}); err != nil {
 		return err
 	}
 	DB = db
@@ -219,6 +227,11 @@ func InitBridges(ctx context.Context) error {
 		func(p *authmodel.RolePolicy) string { return p.ID }))
 	DictTypeStore = store.NewStore[authmodel.DictType](baldgorm.NewGormProvider(db, func(t *authmodel.DictType) string { return t.ID }))
 	DictEntryStore = store.NewStore[authmodel.DictEntry](baldgorm.NewGormProvider(db, func(e *authmodel.DictEntry) string { return e.ID }))
+	FileStore = store.NewStore[authmodel.File](baldgorm.NewGormProvider(db, func(f *authmodel.File) string { return f.ID }))
+	// T6：审计查询仓储（自增主键；审计表全量记录不走租户读隔离，ID 提取器照常）。
+	AuditStore = store.NewStore[authmodel.AuditRecord](baldgorm.NewGormProvider(db, func(r *authmodel.AuditRecord) string {
+		return strconv.FormatUint(uint64(r.ID), 10)
+	}))
 	if err := seed(ctx); err != nil {
 		return err
 	}
@@ -313,6 +326,8 @@ func seed(ctx context.Context) error {
 		{ID: "menu-permission", ParentID: "menu-system", Type: "MENU", Name: "Permission", Path: "/permission", Title: "权限管理", Order: 4},
 		{ID: "menu-secret", ParentID: "menu-system", Type: "MENU", Name: "Secret", Path: "/secret", Title: "机密管理", Order: 5},
 		{ID: "menu-dict", ParentID: "menu-system", Type: "MENU", Name: "Dict", Path: "/dict", Title: "字典管理", Order: 6},
+		{ID: "menu-file", ParentID: "menu-system", Type: "MENU", Name: "File", Path: "/file", Title: "文件管理", Order: 7},
+		{ID: "menu-audit", ParentID: "menu-system", Type: "MENU", Name: "Audit", Path: "/audit", Title: "审计日志", Order: 8},
 		{ID: "menu-secret-delete", ParentID: "menu-secret", Type: "BUTTON", Name: "DeleteSecret", Path: "secret:delete", Title: "删除机密", Order: 1},
 	}
 	for _, m := range menus {
@@ -332,6 +347,8 @@ func seed(ctx context.Context) error {
 		{ID: "permission:list", Name: "列出权限", MenuIDs: "menu-permission"},
 		{ID: "dict_type:list", Name: "列出字典类型", MenuIDs: "menu-dict"},
 		{ID: "dict_entry:list", Name: "列出字典项", MenuIDs: "menu-dict"},
+		{ID: "file:list", Name: "列出文件", MenuIDs: "menu-file"},
+		{ID: "audit:list", Name: "查询审计日志", MenuIDs: "menu-audit"},
 	}
 	for _, p := range perms {
 		if err := PermissionStore.Create(ctx, p); err != nil && err != store.ErrConflict {
@@ -445,6 +462,20 @@ func seedPolicies(ctx context.Context) error {
 		{Role: "viewer", Object: "dict_type", Action: "list"},
 		{Role: "viewer", Object: "dict_entry", Action: "get"},
 		{Role: "viewer", Object: "dict_entry", Action: "list"},
+		// admin：文件管理（T5）。同款六元组（REST HTTP 动词小写 + gRPC
+		// get/list/write 双协议全放行；DefaultGRPCObject("FileService/...")="file"）。
+		{Role: "admin", Object: "file", Action: "get"},
+		{Role: "admin", Object: "file", Action: "post"},
+		{Role: "admin", Object: "file", Action: "delete"},
+		{Role: "admin", Object: "file", Action: "list"},
+		{Role: "admin", Object: "file", Action: "write"},
+		// viewer：文件只读（T5；上传/删除仅 admin）。
+		{Role: "viewer", Object: "file", Action: "get"},
+		{Role: "viewer", Object: "file", Action: "list"},
+		// admin：审计查询（T6，审计数据敏感仅 admin；REST /v1/audit 与 gRPC
+		// AuditService 同源归一化 "audit"）。
+		{Role: "admin", Object: "audit", Action: "get"},
+		{Role: "admin", Object: "audit", Action: "list"},
 	}
 	for i := range policies {
 		p := policies[i]

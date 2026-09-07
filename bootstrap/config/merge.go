@@ -59,13 +59,17 @@ func setPath(m map[string]any, path string, value any) {
 // 对齐 viper BindPFlags 语义：未传的 flag 不参与合并（零值 flag 压过 env/文件的
 // 反直觉行为）。值取 Value.String()（bindflags.go 的 setter 均返回字符串形式），
 // 类型规范化交由下游 bconf.UnmarshalMap 的 coerce 处理。
+//
+// 引导 flag（--config）不落树：它由 loadConfig 自己消费（指定配置文件路径），
+// 且 bconf 契约顶层存在同名 message 字段（Config *Config），string 值落树会在
+// Unmarshal 时触发 coerce 报错（T7 冒烟暴露：go-bald-admin serve --config=... 无法启动）。
 func flattenFlags(fs *pflag.FlagSet) map[string]any {
 	if fs == nil {
 		return nil
 	}
 	m := map[string]any{}
 	fs.VisitAll(func(f *pflag.Flag) {
-		if f.Changed {
+		if f.Changed && f.Name != "config" {
 			setPath(m, f.Name, f.Value.String())
 		}
 	})

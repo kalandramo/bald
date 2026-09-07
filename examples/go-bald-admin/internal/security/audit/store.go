@@ -5,8 +5,8 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/kalandramo/bald/pkg/audit"
 	"github.com/kalandramo/bald/log"
+	"github.com/kalandramo/bald/pkg/audit"
 
 	authmodel "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/model"
 )
@@ -50,6 +50,13 @@ func (a *StoreAuditor) Record(ctx context.Context, ev audit.AuditEvent) {
 		Result:   string(ev.Result),
 		Error:    ev.Error,
 	}
+	// T6 增强：从 Meta 提取扩展字段（客户端信息/关联 ID/分类），缺省零值。
+	// Category 由事件来源标记：拦截器链未标记时按 "operation" 兜底。
+	rec.Category = metaString(ev.Meta, "category", "operation")
+	rec.IPAddress = metaString(ev.Meta, "client_ip", "")
+	rec.UserAgent = metaString(ev.Meta, "user_agent", "")
+	rec.RequestID = metaString(ev.Meta, "request_id", "")
+	rec.TraceID = metaString(ev.Meta, "trace_id", "")
 	if err := a.DB.WithContext(ctx).Create(rec).Error; err != nil {
 		log.GetLogger().Warn(ctx, "StoreAuditor create failed", "error", err.Error())
 		if a.fallback != nil {
@@ -60,3 +67,14 @@ func (a *StoreAuditor) Record(ctx context.Context, ev audit.AuditEvent) {
 
 // compile-time 断言 StoreAuditor 实现 audit.Auditor。
 var _ audit.Auditor = (*StoreAuditor)(nil)
+
+// metaString 从 Meta 取字符串值；缺键/类型不符返回 def。
+func metaString(meta map[string]any, key, def string) string {
+	if meta == nil {
+		return def
+	}
+	if v, ok := meta[key].(string); ok && v != "" {
+		return v
+	}
+	return def
+}

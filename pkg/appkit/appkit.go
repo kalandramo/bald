@@ -231,6 +231,13 @@ func Name(name string) Option               { return func(a *AppKit) { a.name = 
 func Version(v string) Option               { return func(a *AppKit) { a.version = v } }
 func Registrar(r registry.Registrar) Option { return func(a *AppKit) { a.registrar = r } }
 
+// SetRegistrar 运行期设置注册中心，供 New 构造路径在配置装载后按契约构造
+// （FromBootstrap 路径由 buildRegistrar 内部赋值，无需此方法）。
+// 时序约束：须在 Run 进入 register 之前调用（BeforeStart 是安全窗口）——
+// register/deregister 每次都读 a.registrar，不做缓存，赋值即时生效。
+// client cleanup 由调用方挂停机 Effect 回放（Deregister 先于 Effect，顺序安全）。
+func (a *AppKit) SetRegistrar(r registry.Registrar) { a.registrar = r }
+
 // ConfigFile 指定 --config 配置文件路径（onexstack 风格）。
 func ConfigFile(f string) Option { return func(a *AppKit) { a.cfg.cfgFile = f } }
 

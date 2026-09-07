@@ -25,7 +25,9 @@ import (
 	rediscache "github.com/kalandramo/bald-cache-redis"
 	dictv1 "github.com/kalandramo/bald/examples/go-bald-admin/api/gen/dict/v1"
 	authbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/auth"
+	auditlogbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/auditlog"
 	dictbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/dict"
+	filebiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/file"
 	menubiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/menu"
 	permissionbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/permission"
 	secretbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/secret"
@@ -52,7 +54,7 @@ func startDictREST(t *testing.T) (string, *rediscache.Cache) {
 	}
 	e := gingonic.New()
 	RegisterRoutes(e, authbiz.New(bootstrappkg.Signer), secretbiz.New(nil), tenantbiz.New(),
-		userbiz.New(), menubiz.New(), permissionbiz.New(), dictbiz.New(cache))
+		userbiz.New(), menubiz.New(), permissionbiz.New(), dictbiz.New(cache), filebiz.New(nil, ""), auditlogbiz.New())
 	srv := httptest.NewServer(e)
 	t.Cleanup(srv.Close)
 	return srv.URL, cache

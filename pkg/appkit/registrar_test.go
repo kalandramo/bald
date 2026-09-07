@@ -220,3 +220,69 @@ func TestFromBootstrap_RegistrySectionWithoutTable(t *testing.T) {
 		t.Fatalf("expected RegistrarRegistry missing error, got %v", err)
 	}
 }
+
+// --- New 构造路径：SetRegistrar 运行期注入（go-bald-admin T7 装配模式） ---
+
+// BeforeStart 里按契约 Build + SetRegistrar（New 路径等价于 FromBootstrap 的
+// buildRegistrar），cleanup 挂停机 Effect：断言 register 发生（SetRegistrar
+// 在 register 窗口之前即时生效）、停机 Deregister + cleanup 恰好各一次。
+func TestNew_SetRegistrarLifecycle(t *testing.T) {
+	old := log.GetLogger()
+	t.Cleanup(func() { log.SetLogger(old) })
+
+	stub := &stubRegistrar{}
+	var mu sync.Mutex
+	cleaned := 0
+	var cleanup func()
+	rr := NewRegistrarRegistry()
+	rr.MustRegister("fake", func(context.Context, *bootstrapv1.Registry) (registry.Registrar, func(), error) {
+		return stub, func() {
+			mu.Lock()
+			cleaned++
+			mu.Unlock()
+		}, nil
+	})
+
+	srv := newMock("setreg")
+	var app *AppKit
+	app = New(
+		Name("setreg"),
+		Servers(srv),
+		Effect("appkit:registrar-client", func(context.Context) error {
+			if cleanup != nil {
+				cleanup()
+			}
+			return nil
+		}),
+		BeforeStart(func(ctx context.Context) error {
+			reg, cl, err := rr.Build(ctx, &bootstrapv1.Registry{Type: "fake"})
+			if err != nil {
+				return err
+			}
+			app.SetRegistrar(reg)
+			cleanup = cl
+			return nil
+		}),
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+	if err := app.Run(ctx); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if n, _ := stub.snapshot(); n != 1 {
+		t.Fatalf("registered = %d, want 1 (SetRegistrar before register window)", n)
+	}
+	if _, n := stub.snapshot(); n != 1 {
+		t.Fatalf("deregistered = %d, want 1", n)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if cleaned != 1 {
+		t.Fatalf("cleanup called %d times, want 1", cleaned)
+	}
+}

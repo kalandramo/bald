@@ -1,0 +1,80 @@
+syntax = "proto3";
+
+package go.bald.admin.audit.v1;
+
+option go_package = "github.com/kalandramo/bald/examples/go-bald-admin/api/gen/audit/v1;auditv1";
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+
+// AuditService 审计日志查询服务（T6，自 go-wind-admin audit 域精简移植）。
+//
+// 只读查询：审计事件由写路径自动落库（gin/gRPC 拦截器链 → category=operation；
+// 登录动作 → category=login），本服务不提供写入（源 Create rpc 是内部补录口，
+// 精简省略——伪造审计记录违背审计不可抵赖语义）。
+//
+// 数据来自 AuditRecord 单表（源 Operation/LoginAuditLog 双表 + Category 分类
+// 精简合并）；P9 归一化对象 "audit"（REST /v1/audit 与 gRPC AuditService 同源）。
+service AuditService {
+  // ListAuditRecords 分页查询审计日志（category/subject/object/action/result/ip 过滤）。
+  //   REST: GET /v1/audit
+  rpc ListAuditRecords(ListAuditRecordsRequest) returns (ListAuditRecordsResponse) {
+    option (google.api.http) = {
+      get: "/v1/audit"
+    };
+  }
+
+  // GetAuditRecord 取单条审计日志详情。
+  //   REST: GET /v1/audit/{id}
+  rpc GetAuditRecord(GetAuditRecordRequest) returns (GetAuditRecordResponse) {
+    option (google.api.http) = {
+      get: "/v1/audit/{id}"
+    };
+  }
+}
+
+// AuditRecord 审计日志条目。字段对齐 model.AuditRecord（源
+// OperationAuditLog/LoginAuditLog 共有核心字段精简；
+// Success 由 Result 推导，LogHash/Signature 合规链后续迭代）。
+message AuditRecord {
+  string id = 1;              // 自增主键（字符串化）
+  string tenant_id = 2;       // 租户
+  string category = 3;        // 分类："operation" / "login"
+  string subject = 4;         // 操作主体（操作者 UserID 或登录账号名）
+  string object = 5;          // 资源对象（P9 归一化，如 "secret" "auth"）
+  string action = 6;          // 动作（P9 归一化，如 "get" "delete" "login"）
+  string result = 7;          // allow / deny / error
+  string error = 8;           // 错误/拒绝原因（空为成功）
+  string ip_address = 9;      // 客户端 IP
+  string user_agent = 10;     // 客户端 UA
+  string request_id = 11;     // 全局请求 ID
+  string trace_id = 12;       // W3C 链路 ID
+
+  google.protobuf.Timestamp time = 100; // 事件时间
+}
+
+message ListAuditRecordsRequest {
+  string category = 1; // 非空 = 分类精确过滤（operation/login）
+  string subject = 2;  // 非空 = 主体精确过滤
+  string object = 3;   // 非空 = 资源对象精确过滤
+  string action = 4;   // 非空 = 动作精确过滤
+  string result = 5;   // 非空 = 结果精确过滤（allow/deny/error）
+  string ip = 6;       // 非空 = 客户端 IP 精确过滤
+
+  uint32 page_size = 20;   // 页大小（默认 50，上限 200）
+  string page_token = 21;  // 翻页令牌（上页响应 next_page_token；offset 编码）
+}
+
+message ListAuditRecordsResponse {
+  repeated AuditRecord items = 1;
+  uint32 total = 2;           // 当前过滤条件下的总条数
+  string next_page_token = 3; // 空串 = 已到末页
+}
+
+message GetAuditRecordRequest {
+  string id = 1; // 审计记录 ID（自增主键字符串化）
+}
+
+message GetAuditRecordResponse {
+  AuditRecord record = 1;
+}

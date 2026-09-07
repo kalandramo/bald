@@ -12,11 +12,13 @@ import (
 	gingonic "github.com/gin-gonic/gin"
 
 	authbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/auth"
-	secretbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/secret"
-	tenantbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/tenant"
+	auditlogbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/auditlog"
+	dictbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/dict"
+	filebiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/file"
 	menubiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/menu"
 	permissionbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/permission"
-	dictbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/dict"
+	secretbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/secret"
+	tenantbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/tenant"
 	userbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/user"
 	bootstrappkg "github.com/kalandramo/bald/examples/go-bald-admin/internal/bootstrap"
 	"github.com/kalandramo/bald/pkg/appkit"
@@ -69,7 +71,7 @@ func setupAdmin(t *testing.T) (*gingonic.Engine, *stubComp) {
 	comp := &stubComp{name: "e2e.comp"}
 
 	e := gingonic.New()
-	RegisterRoutes(e, authbiz.New(bootstrappkg.Signer), secretbiz.New(nil), tenantbiz.New(), userbiz.New(), menubiz.New(), permissionbiz.New(), dictbiz.New(nil))
+	RegisterRoutes(e, authbiz.New(bootstrappkg.Signer), secretbiz.New(nil), tenantbiz.New(), userbiz.New(), menubiz.New(), permissionbiz.New(), dictbiz.New(nil), filebiz.New(nil, ""), auditlogbiz.New())
 	RegisterAdmin(e, func() *appkit.AppKit { return app }, map[string]ComponentFactory{
 		"e2e.comp": func() appkit.Component { return comp },
 	})

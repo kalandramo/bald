@@ -12,8 +12,10 @@ import (
 	"time"
 
 	authnjwt "github.com/kalandramo/bald-authn-jwt"
-	"github.com/kalandramo/bald/pkg/authn"
 	storev1 "github.com/kalandramo/bald/bconf/gen/go/bald/store/v1"
+	"github.com/kalandramo/bald/log"
+	"github.com/kalandramo/bald/pkg/audit"
+	"github.com/kalandramo/bald/pkg/authn"
 	"github.com/kalandramo/bald/pkg/store"
 	"golang.org/x/crypto/bcrypt"
 
@@ -23,10 +25,13 @@ import (
 // ErrBadCredential 凭据错误。
 var ErrBadCredential = errors.New("auth: invalid username or password")
 
-// Credential 登录凭据。
+// Credential 登录凭据。ClientIP/UserAgent 由 handler 层从协议请求提取传入
+// （T6 登录审计落库用；biz 层保持协议无关）。
 type Credential struct {
-	Username string
-	Password string
+	Username  string
+	Password  string
+	ClientIP  string // 客户端 IP（gin: c.ClientIP()）
+	UserAgent string // 客户端 UA（gin: c.Request.UserAgent()）
 }
 
 // TokenPair 登录成功后签发的令牌对。
@@ -55,17 +60,23 @@ func New(signer authnjwt.Signer) *Biz {
 }
 
 // Login 校验凭据（查 store）并签发 JWT。
+// T6 登录审计：成功/失败/内部错误均记一条 category=login 审计事件（源
+// login_audit_log 语义精简：IP/UA/结果/失败原因；风险评分/MFA/设备指纹后续迭代）。
+// 经全局 audit.GetAuditor()（bootstrap audit.backends 热切换同一入口），旁路不阻断。
 func (b *Biz) Login(ctx context.Context, c Credential) (*TokenPair, error) {
 	u, err := bootstrappkg.UserStore.Get(ctx, &store.Where{
 		Filters: []*storev1.FilterCondition{store.Eq("username", c.Username)},
 	})
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
+			auditLogin(ctx, c, "", audit.ResultDeny, "invalid credentials")
 			return nil, ErrBadCredential
 		}
+		auditLogin(ctx, c, "", audit.ResultError, err.Error())
 		return nil, fmt.Errorf("auth: query user: %w", err)
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(c.Password)); err != nil {
+		auditLogin(ctx, c, u.TenantID, audit.ResultDeny, "invalid credentials")
 		return nil, ErrBadCredential
 	}
 
@@ -81,9 +92,41 @@ func (b *Biz) Login(ctx context.Context, c Credential) (*TokenPair, error) {
 	// 签发由 Signer 完成（非对称：仅持私钥的签发实例，验证方只持公钥）。
 	token, err := b.signer.IssueToken(claims, ttl)
 	if err != nil {
+		auditLogin(ctx, c, u.TenantID, audit.ResultError, err.Error())
 		return nil, fmt.Errorf("auth: issue token: %w", err)
 	}
+	auditLogin(ctx, c, u.TenantID, audit.ResultAllow, "")
 	return &TokenPair{AccessToken: token, ExpiresAt: now.Add(ttl).Unix()}, nil
+}
+
+// auditLogin 记录登录审计事件（category=login，Object/Action 用 P9 归一化
+// "auth"/"login"；IP/UA 经 Meta 传递由落库后端提取为独立列）。
+func auditLogin(ctx context.Context, c Credential, tenantID string, result audit.Result, errMsg string) {
+	ev := audit.AuditEvent{
+		Time:     time.Now(),
+		Subject:  c.Username, // 登录场景以账号名为主体（用户不存在时也是有效线索）
+		TenantID: tenantID,
+		Object:   "auth",
+		Action:   "login",
+		Result:   result,
+		Error:    errMsg,
+		Meta: map[string]any{
+			"category":   "login",
+			"client_ip":  c.ClientIP,
+			"user_agent": c.UserAgent,
+		},
+	}
+	recordSafely(ctx, ev)
+}
+
+// recordSafely 旁路记录：审计失败仅降级记日志，绝不影响登录主流程。
+func recordSafely(ctx context.Context, ev audit.AuditEvent) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.GetLogger().Warn(ctx, "login audit panic recovered", "panic", r)
+		}
+	}()
+	audit.GetAuditor().Record(ctx, ev)
 }
 
 // WhoAmI 从已认证上下文解析当前用户（subject 由 authn 中间件注入）。

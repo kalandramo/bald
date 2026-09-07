@@ -57,6 +57,24 @@ tasks:
     cmds:
       - go test {{.TEST_FLAGS}} ./internal/apiserver/... -run 'Audit|Auth'
 
+  test:file:
+    desc: 仅跑文件模块 e2e（T5，真实 MinIO；凭证经 MINIO_TEST_* env 注入，缺省自动 Skip）
+    dir: "{{.MOD}}"
+    env:
+      BALD_ADMIN_TEST_MINIO_ENDPOINT: "{{.MINIO_TEST_ENDPOINT}}"
+      BALD_ADMIN_TEST_MINIO_ACCESS_KEY: "{{.MINIO_TEST_ACCESS_KEY}}"
+      BALD_ADMIN_TEST_MINIO_SECRET_KEY: "{{.MINIO_TEST_SECRET_KEY}}"
+      BALD_ADMIN_TEST_MINIO_USE_SSL: "false"
+      BALD_ADMIN_TEST_MINIO_BUCKET: "go-bald-admin-test"
+    cmds:
+      - go test {{.TEST_FLAGS}} ./internal/apiserver/... -run 'TestFileREST'
+
+  smoke:nacos:
+    desc: T7 冒烟：契约路径注册→12s 心跳窗口→注销（真实云端 Nacos，秒级完成）
+    dir: "{{.MOD}}"
+    cmds:
+      - go run ./cmd/probe
+
   run:
     desc: 本地起服务（默认配置）
     dir: "{{.MOD}}"
