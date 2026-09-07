@@ -1,6 +1,6 @@
 module github.com/kalandramo/bald-database-gorm
 
-go 1.26.5
+go 1.27.1
 
 require (
 	github.com/kalandramo/bald-crud/gorm v0.0.0
@@ -50,6 +50,11 @@ require (
 	github.com/kalandramo/bald-crud/cache v0.0.1 // indirect
 	github.com/kalandramo/bald-crud/pagination v0.0.15 // indirect
 	github.com/kalandramo/bald-crud/viewer v0.0.6 // indirect
+	github.com/kalandramo/bald-utils v1.1.38 // indirect
+	github.com/kalandramo/bald-utils/mapper v0.0.0-00010101000000-000000000000 // indirect
+	github.com/kalandramo/bald/encoding v0.0.0 // indirect
+	github.com/kalandramo/bald/encoding/json v0.0.0-00010101000000-000000000000 // indirect
+	github.com/kalandramo/bald/log v0.0.0-00010101000000-000000000000 // indirect
 	github.com/klauspost/compress v1.19.2 // indirect
 	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
@@ -69,11 +74,6 @@ require (
 	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/sirupsen/logrus v1.10.0 // indirect
 	github.com/tjfoc/gmsm v1.4.1 // indirect
-	github.com/tx7do/go-utils v1.1.40 // indirect
-	github.com/tx7do/go-utils/mapper v0.0.3 // indirect
-	github.com/tx7do/go-wind v0.0.2 // indirect
-	github.com/tx7do/go-wind-plugins/encoding v0.0.1 // indirect
-	github.com/tx7do/go-wind-plugins/encoding/json v0.0.1 // indirect
 	github.com/zeebo/xxh3 v1.1.0 // indirect
 	go.einride.tech/aip v0.86.3 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
@@ -131,3 +131,17 @@ replace github.com/kalandramo/bald-crud/cache => ../../../../bald-crud/cache
 replace github.com/kalandramo/bald-crud => ../../../../bald-crud
 
 replace github.com/kalandramo/bald/bconf => ../../../bconf
+
+replace github.com/kalandramo/bald/log => ../../../log
+
+replace github.com/kalandramo/bald/berrors => ../../../berrors
+
+replace github.com/kalandramo/bald/encoding => ../../../encoding
+
+replace github.com/kalandramo/bald/encoding/json => ../../../encoding/json
+
+replace github.com/kalandramo/bald-utils => ../../../../bald-utils
+
+replace github.com/kalandramo/bald-utils/id => ../../../../bald-utils/id
+
+replace github.com/kalandramo/bald-utils/mapper => ../../../../bald-utils/mapper

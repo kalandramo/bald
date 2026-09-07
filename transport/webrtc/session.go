@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/pion/webrtc/v4"
-	"github.com/tx7do/go-utils/id"
+	"github.com/kalandramo/bald-utils/id"
 )
 
 var channelBufSize = 256

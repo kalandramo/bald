@@ -1,6 +1,6 @@
 module github.com/kalandramo/bald/ai/eino
 
-go 1.26.5
+go 1.27.1
 
 require (
 	github.com/cloudwego/eino v0.9.5

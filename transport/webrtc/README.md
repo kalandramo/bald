@@ -18,7 +18,7 @@ WebRTC（Web Real‑Time Communication）是 Google 开源的实时通信技术�
 ## 安装
 
 ```bash
-go get github.com/tx7do/go-wind-plugins/transport/webrtc
+go get github.com/kalandramo/bald-plugins/transport/webrtc
 ```
 
 ## 快速开始
@@ -32,7 +32,7 @@ import (
     "context"
     "log"
 
-    webrtc "github.com/tx7do/go-wind-plugins/transport/webrtc"
+    webrtc "github.com/kalandramo/bald-plugins/transport/webrtc"
 )
 
 type ChatMessage struct {

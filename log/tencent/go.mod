@@ -1,6 +1,6 @@
 module github.com/kalandramo/bald/log/tencent
 
-go 1.26.5
+go 1.27.1
 
 require (
 	github.com/kalandramo/bald/bconf v0.0.0

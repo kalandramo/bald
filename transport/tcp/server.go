@@ -33,7 +33,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tx7do/go-utils/id"
+	"github.com/kalandramo/bald-utils/id"
 
 	"github.com/kalandramo/bald/encoding"
 	"github.com/kalandramo/bald/metrics"

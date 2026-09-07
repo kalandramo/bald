@@ -1,6 +1,6 @@
 module github.com/kalandramo/bald/transport/web
 
-go 1.26.5
+go 1.27.1
 
 replace github.com/kalandramo/bald/berrors => ../../berrors
 

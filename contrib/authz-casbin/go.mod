@@ -1,6 +1,6 @@
 module github.com/kalandramo/bald-authz-casbin
 
-go 1.26.5
+go 1.27.1
 
 require (
 	github.com/casbin/casbin/v2 v2.128.0

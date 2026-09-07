@@ -1,6 +1,6 @@
 module github.com/kalandramo/bald/transport/webrtc
 
-go 1.26.5
+go 1.27.1
 
 replace github.com/kalandramo/bald/broker => ../../broker
 
@@ -16,22 +16,23 @@ replace github.com/kalandramo/bald/metrics => ../../metrics
 
 replace github.com/kalandramo/bald/transport => ..
 
-replace github.com/tx7do/go-utils => ../../../go-utils
+replace github.com/kalandramo/bald-utils/id => ../../../bald-utils/id
 
-replace github.com/tx7do/go-utils/id => ../../../go-utils/id
+replace github.com/kalandramo/bald-utils => ../../../bald-utils
 
 require (
+	github.com/kalandramo/bald-utils/id v0.0.0-00010101000000-000000000000
 	github.com/kalandramo/bald/broker v0.0.0-00010101000000-000000000000
 	github.com/kalandramo/bald/encoding v0.0.1
 	github.com/kalandramo/bald/log v0.0.0-00010101000000-000000000000
 	github.com/kalandramo/bald/metrics v0.0.1
 	github.com/pion/webrtc/v4 v4.2.12
-	github.com/tx7do/go-utils/id v0.0.6
 )
 
 require (
 	github.com/bwmarrin/snowflake v0.3.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
+	github.com/kalandramo/bald-utils v1.1.38 // indirect
 	github.com/kalandramo/bald/encoding/json v0.0.1 // indirect
 	github.com/kalandramo/bald/encoding/proto v0.0.1 // indirect
 	github.com/lithammer/shortuuid/v4 v4.2.0 // indirect
@@ -54,7 +55,6 @@ require (
 	github.com/segmentio/ksuid v1.0.4 // indirect
 	github.com/sony/sonyflake v1.3.0 // indirect
 	github.com/stretchr/testify v1.12.1 // indirect
-	github.com/tx7do/go-utils v1.1.40 // indirect
 	github.com/wlynxg/anet v0.0.5 // indirect
 	go.mongodb.org/mongo-driver/v2 v2.6.0 // indirect
 	golang.org/x/crypto v0.51.0 // indirect

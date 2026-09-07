@@ -1,6 +1,6 @@
 module github.com/kalandramo/bald/encoding/flatbuffers
 
-go 1.26.5
+go 1.27.1
 
 require (
 	github.com/google/flatbuffers v25.12.19+incompatible

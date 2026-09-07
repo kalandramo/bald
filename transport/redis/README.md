@@ -14,7 +14,7 @@
 ## 安装
 
 ```bash
-go get github.com/tx7do/go-wind-plugins/transport/redis
+go get github.com/kalandramo/bald-plugins/transport/redis
 ```
 
 ## 快速开始
@@ -29,8 +29,8 @@ import (
     "os/signal"
     "syscall"
 
-    "github.com/tx7do/go-wind-plugins/transport/redis"
-    "github.com/tx7do/go-wind-plugins/broker"
+    "github.com/kalandramo/bald-plugins/transport/redis"
+    "github.com/kalandramo/bald-plugins/broker"
 )
 
 // MyMessage 示例消息。

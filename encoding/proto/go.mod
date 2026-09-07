@@ -1,6 +1,6 @@
 module github.com/kalandramo/bald/encoding/proto
 
-go 1.26.5
+go 1.27.1
 
 require (
 	github.com/kalandramo/bald/encoding v0.0.0

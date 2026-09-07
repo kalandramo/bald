@@ -17,7 +17,7 @@
 ## 安装
 
 ```bash
-go get github.com/tx7do/go-wind-plugins/transport/asynq
+go get github.com/kalandramo/bald-plugins/transport/asynq
 ```
 
 ## 前置依赖
@@ -48,7 +48,7 @@ import (
     "os/signal"
     "syscall"
 
-    asynqServer "github.com/tx7do/go-wind-plugins/transport/asynq"
+    asynqServer "github.com/kalandramo/bald-plugins/transport/asynq"
 )
 
 // EmailPayload 是邮件任务的载荷。

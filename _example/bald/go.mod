@@ -1,6 +1,6 @@
 module github.com/kalandramo/bald/example/bald
 
-go 1.26.5
+go 1.27.1
 
 require (
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.12-20260825204119-511051f7f437.1
@@ -9,6 +9,7 @@ require (
 	github.com/go-kratos/kratos/v3/contrib/config/nacos/v3 v3.0.0-00010101000000-000000000000
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.29.0
 	github.com/kalandramo/bald v0.0.0
+	github.com/kalandramo/bald-registry-nacos v0.0.0-00010101000000-000000000000
 	github.com/kalandramo/bald-store-gorm v0.0.0-00010101000000-000000000000
 	github.com/kalandramo/bald/bconf v0.0.0
 	github.com/kalandramo/bald/berrors v0.0.0
@@ -24,13 +25,6 @@ require (
 	google.golang.org/protobuf v1.36.12
 	gorm.io/driver/sqlite v1.6.0
 	gorm.io/gorm v1.31.2
-)
-
-require (
-	github.com/kalandramo/bald/transport/gateway v0.0.0-00010101000000-000000000000 // indirect
-	github.com/kalandramo/bald/transport/grpc v0.0.0-00010101000000-000000000000 // indirect
-	github.com/kalandramo/bald/transport/http v0.0.0-00010101000000-000000000000 // indirect
-	github.com/nacos-group/nacos-sdk-go/v2 v2.3.5 // indirect
 )
 
 require (
@@ -129,8 +123,10 @@ require (
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/kalandramo/bald-crud/viewer v0.0.0-00010101000000-000000000000 // indirect
-	github.com/kalandramo/bald-registry-nacos v0.0.0-00010101000000-000000000000
 	github.com/kalandramo/bald/bconfig v0.0.0-00010101000000-000000000000 // indirect
+	github.com/kalandramo/bald/transport/gateway v0.0.0-00010101000000-000000000000 // indirect
+	github.com/kalandramo/bald/transport/grpc v0.0.0-00010101000000-000000000000 // indirect
+	github.com/kalandramo/bald/transport/http v0.0.0-00010101000000-000000000000 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/magiconair/properties v1.8.5 // indirect
@@ -142,6 +138,7 @@ require (
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
+	github.com/nacos-group/nacos-sdk-go/v2 v2.3.5 // indirect
 	github.com/opentracing/opentracing-go v1.2.1-0.20220228012449-10b1cf09e00b // indirect
 	github.com/orcaman/concurrent-map v1.0.0 // indirect
 	github.com/pelletier/go-toml v1.9.3 // indirect

@@ -1,6 +1,6 @@
 module github.com/kalandramo/bald/metrics/datadog
 
-go 1.26.5
+go 1.27.1
 
 require (
 	github.com/DataDog/datadog-go/v5 v5.8.2

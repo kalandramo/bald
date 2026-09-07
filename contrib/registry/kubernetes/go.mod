@@ -1,6 +1,6 @@
 module github.com/kalandramo/bald-registry-kubernetes
 
-go 1.26.5
+go 1.27.1
 
 require (
 	github.com/json-iterator/go v1.1.12

@@ -1,6 +1,6 @@
 module github.com/kalandramo/bald/encoding/cbor
 
-go 1.26.5
+go 1.27.1
 
 require (
 	github.com/fxamacker/cbor/v2 v2.9.1

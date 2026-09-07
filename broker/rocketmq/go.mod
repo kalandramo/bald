@@ -1,6 +1,6 @@
 module github.com/kalandramo/bald/broker/rocketmq
 
-go 1.26.5
+go 1.27.1
 
 require (
 	github.com/apache/rocketmq-client-go/v2 v2.1.2

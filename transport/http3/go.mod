@@ -1,6 +1,6 @@
 module github.com/kalandramo/bald/transport/http3
 
-go 1.26.5
+go 1.27.1
 
 replace github.com/kalandramo/bald/log => ../../log
 

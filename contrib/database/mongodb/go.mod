@@ -1,6 +1,6 @@
 module github.com/kalandramo/bald-database-mongodb
 
-go 1.26.5
+go 1.27.1
 
 require (
 	github.com/kalandramo/bald-crud/mongodb v0.0.0
@@ -11,12 +11,13 @@ require (
 	github.com/jinzhu/copier v0.4.0 // indirect
 	github.com/kalandramo/bald-crud/pagination v0.0.15 // indirect
 	github.com/kalandramo/bald-crud/viewer v0.0.6 // indirect
+	github.com/kalandramo/bald-utils v0.0.0-00010101000000-000000000000 // indirect
+	github.com/kalandramo/bald-utils/mapper v0.0.0-00010101000000-000000000000 // indirect
+	github.com/kalandramo/bald/berrors v0.0.0-00010101000000-000000000000 // indirect
+	github.com/kalandramo/bald/encoding v0.0.0 // indirect
+	github.com/kalandramo/bald/encoding/json v0.0.0-00010101000000-000000000000 // indirect
+	github.com/kalandramo/bald/log v0.0.0-00010101000000-000000000000 // indirect
 	github.com/klauspost/compress v1.19.2 // indirect
-	github.com/tx7do/go-utils v1.1.40 // indirect
-	github.com/tx7do/go-utils/mapper v0.0.3 // indirect
-	github.com/tx7do/go-wind v0.0.2 // indirect
-	github.com/tx7do/go-wind-plugins/encoding v0.0.1 // indirect
-	github.com/tx7do/go-wind-plugins/encoding/json v0.0.1 // indirect
 	github.com/xdg-go/pbkdf2 v1.0.0 // indirect
 	github.com/xdg-go/scram v1.2.0 // indirect
 	github.com/xdg-go/stringprep v1.0.4 // indirect
@@ -27,7 +28,7 @@ require (
 	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/text v0.41.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260810153831-ec0a7760b754 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260810153831-ec0a7760b754 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260904194346-d0f1323225a4 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 )
 
@@ -42,3 +43,17 @@ replace github.com/kalandramo/bald-crud/viewer => ../../../../bald-crud/viewer
 replace github.com/kalandramo/bald-crud => ../../../../bald-crud
 
 replace github.com/kalandramo/bald/bconf => ../../../bconf
+
+replace github.com/kalandramo/bald/log => ../../../log
+
+replace github.com/kalandramo/bald/berrors => ../../../berrors
+
+replace github.com/kalandramo/bald/encoding => ../../../encoding
+
+replace github.com/kalandramo/bald/encoding/json => ../../../encoding/json
+
+replace github.com/kalandramo/bald-utils => ../../../../bald-utils
+
+replace github.com/kalandramo/bald-utils/id => ../../../../bald-utils/id
+
+replace github.com/kalandramo/bald-utils/mapper => ../../../../bald-utils/mapper

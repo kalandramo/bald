@@ -1,6 +1,6 @@
 module github.com/kalandramo/bald/log/aliyun
 
-go 1.26.5
+go 1.27.1
 
 require (
 	github.com/aliyun/aliyun-log-go-sdk v0.1.117

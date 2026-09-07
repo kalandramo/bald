@@ -40,9 +40,9 @@ broker:
 
 ```go
 import (
-    httpPlugin "github.com/tx7do/go-wind-plugins/transport/http"
-    redisPlugin "github.com/tx7do/go-wind-plugins/cache/redis"
-    zapPlugin "github.com/tx7do/go-wind-plugins/log/zap"
+    httpPlugin "github.com/kalandramo/bald-plugins/transport/http"
+    redisPlugin "github.com/kalandramo/bald-plugins/cache/redis"
+    zapPlugin "github.com/kalandramo/bald-plugins/log/zap"
 )
 
 // 手动构建
@@ -72,10 +72,10 @@ logger := zapPlugin.NewLogger(
 
 ```go
 import (
-    _ "github.com/tx7do/go-wind-plugins/transport/http"     // blank import
-    _ "github.com/tx7do/go-wind-plugins/cache/redis"
-    _ "github.com/tx7do/go-wind-plugins/log/zap"
-    _ "github.com/tx7do/go-wind-plugins/database/mysql"
+    _ "github.com/kalandramo/bald-plugins/transport/http"     // blank import
+    _ "github.com/kalandramo/bald-plugins/cache/redis"
+    _ "github.com/kalandramo/bald-plugins/log/zap"
+    _ "github.com/kalandramo/bald-plugins/database/mysql"
 )
 
 func main() {

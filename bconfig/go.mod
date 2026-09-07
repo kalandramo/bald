@@ -1,6 +1,6 @@
 module github.com/kalandramo/bald/bconfig
 
-go 1.26.5
+go 1.27.1
 
 require (
 	github.com/apolloconfig/agollo/v4 v4.4.0

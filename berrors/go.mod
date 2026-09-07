@@ -1,6 +1,6 @@
 module github.com/kalandramo/bald/berrors
 
-go 1.26.5
+go 1.27.1
 
 require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260904194346-d0f1323225a4
