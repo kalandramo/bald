@@ -8,17 +8,28 @@ import (
 	gingonic "github.com/gin-gonic/gin"
 
 	authbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/auth"
+	dictbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/dict"
+	menubiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/menu"
+	permissionbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/permission"
 	secretbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/secret"
+	tenantbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/tenant"
+	userbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/user"
 	hgin "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/handler/gin"
 	bootstrappkg "github.com/kalandramo/bald/examples/go-bald-admin/internal/bootstrap"
 	"github.com/kalandramo/bald/pkg/appkit"
 )
 
 // RegisterRoutes 把本应用所有路由挂到 e。认证/授权依赖从 bootstrap 注入；
-// 业务对象（auth/secret biz）由 M6.4 wire 装配后传入（InitializeBiz）。
-func RegisterRoutes(e *gingonic.Engine, auth *authbiz.Biz, secret *secretbiz.SecretBiz) {
+// 业务对象（auth/secret/tenant/user/menu/permission/dict biz）由 wire 装配后
+// 传入（InitializeBiz）。
+func RegisterRoutes(e *gingonic.Engine, auth *authbiz.Biz, secret *secretbiz.SecretBiz, tenant *tenantbiz.Biz, user *userbiz.Biz, menu *menubiz.Biz, permission *permissionbiz.Biz, dict *dictbiz.Biz) {
 	hgin.RegisterHealth(e)
 	hgin.RegisterAuth(e, bootstrappkg.LazyAuthenticator(), bootstrappkg.LazyAuthorizer(), auth, secret)
+	hgin.RegisterTenant(e, bootstrappkg.LazyAuthenticator(), bootstrappkg.LazyAuthorizer(), tenant)
+	hgin.RegisterUser(e, bootstrappkg.LazyAuthenticator(), bootstrappkg.LazyAuthorizer(), user)
+	hgin.RegisterMenu(e, bootstrappkg.LazyAuthenticator(), bootstrappkg.LazyAuthorizer(), menu)
+	hgin.RegisterPermission(e, bootstrappkg.LazyAuthenticator(), bootstrappkg.LazyAuthorizer(), permission)
+	hgin.RegisterDict(e, bootstrappkg.LazyAuthenticator(), bootstrappkg.LazyAuthorizer(), dict)
 }
 
 // ComponentFactory 是管理面组件工厂的包级别名（re-export，供 cmd 层构造工厂目录）。

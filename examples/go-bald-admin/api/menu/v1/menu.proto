@@ -1,0 +1,153 @@
+syntax = "proto3";
+
+package go.bald.admin.menu.v1;
+
+option go_package = "github.com/kalandramo/bald/examples/go-bald-admin/api/gen/menu/v1;menuv1";
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+
+// MenuService 菜单管理服务（T3，自 go-wind-admin permission 域 sys_menus 精简移植）。
+//
+// 菜单是前端导航树的数据源（自引用树，parent_id），同时是权限点可见性的挂载面
+// （Permission.MenuIDs）。管理面操作仅授予 admin 角色（casbin 策略数据化装载）。
+service MenuService {
+  // GetMenu 取菜单节点。
+  //   REST: GET /v1/menu/{id}
+  // 单数路径段与 DefaultGRPCObject("MenuService/...")="menu" 同源（P9 策略单写）。
+  rpc GetMenu(GetMenuRequest) returns (GetMenuResponse) {
+    option (google.api.http) = {
+      get: "/v1/menu/{id}"
+    };
+  }
+
+  // ListMenus 列出菜单树（根节点数组，children 递归嵌套；孤儿节点跳过——
+  // 源项目 pagination.BuildTree 同语义）。
+  //   REST: GET /v1/menu
+  rpc ListMenus(ListMenusRequest) returns (ListMenusResponse) {
+    option (google.api.http) = {
+      get: "/v1/menu"
+    };
+  }
+
+  // CreateMenu 创建菜单节点（parent_id 空 = 根节点；源 parent_id=0 语义）。
+  //   REST: POST /v1/menu
+  rpc CreateMenu(CreateMenuRequest) returns (CreateMenuResponse) {
+    option (google.api.http) = {
+      post: "/v1/menu"
+      body: "*"
+    };
+  }
+
+  // UpdateMenu 更新菜单节点（空值/UNSPECIFIED 字段不改）。
+  //   REST: PUT /v1/menu/{id}
+  rpc UpdateMenu(UpdateMenuRequest) returns (UpdateMenuResponse) {
+    option (google.api.http) = {
+      put: "/v1/menu/{id}"
+      body: "*"
+    };
+  }
+
+  // DeleteMenu 删除菜单节点（递归级联删除子树——源 QueryAllChildrenIds 语义）。
+  //   REST: DELETE /v1/menu/{id}
+  rpc DeleteMenu(DeleteMenuRequest) returns (DeleteMenuResponse) {
+    option (google.api.http) = {
+      delete: "/v1/menu/{id}"
+    };
+  }
+}
+
+// Menu 菜单节点（自引用树）。
+message Menu {
+  enum Type {
+    TYPE_UNSPECIFIED = 0; // 未指定
+    TYPE_CATALOG = 1;     // 目录（分组节点，源 CATALOG）
+    TYPE_MENU = 2;        // 菜单页面（源 MENU）
+    TYPE_BUTTON = 3;      // 按钮/操作权限点（源 BUTTON，path 存动作名）
+  }
+
+  enum Status {
+    STATUS_UNSPECIFIED = 0; // 未指定
+    STATUS_ON = 1;          // 启用（源 SwitchStatus.ON）
+    STATUS_OFF = 2;         // 禁用
+  }
+
+  string id = 1;        // 菜单 ID（语义编码，如 "menu-system"）
+  string parent_id = 2; // 父节点 ID（空 = 根节点）
+  Type type = 3;        // 节点类型
+  string name = 4;      // 路由名（vue router name）
+  string path = 5;      // 路由路径（BUTTON 类型时存数据操作名）
+  string component = 6; // 前端组件
+  string title = 7;     // 展示标题（源 meta.title）
+  string icon = 8;      // 图标（源 meta.icon）
+  int32 order = 9;      // 展示顺序（源 meta.order，越小越前）
+  Status status = 10;   // 状态
+  string remark = 11;   // 备注
+
+  repeated Menu children = 12; // 子节点（ListMenus 树形态填充）
+
+  google.protobuf.Timestamp created_at = 100; // 创建时间
+  google.protobuf.Timestamp updated_at = 101; // 更新时间
+}
+
+message GetMenuRequest {
+  string id = 1; // 菜单 ID
+}
+
+message GetMenuResponse {
+  Menu menu = 1;
+}
+
+message ListMenusRequest {
+  // 精简为全量树；源项目支持 pagination + treeTravel 开关，列入后续迭代。
+}
+
+message ListMenusResponse {
+  repeated Menu items = 1; // 树根数组（children 递归嵌套）
+  // 全部节点数（含子孙，非根数）；uint32 避免 proto3 JSON int64 字符串化。
+  uint32 total = 2;
+}
+
+message CreateMenuRequest {
+  string id = 1;        // 菜单 ID（客户端指定，唯一键）
+  string parent_id = 2; // 父节点 ID（空 = 根）
+  Menu.Type type = 3;
+  string name = 4;
+  string path = 5;
+  string component = 6;
+  string title = 7;
+  string icon = 8;
+  int32 order = 9;
+  string remark = 10;
+}
+
+message CreateMenuResponse {
+  Menu menu = 1;
+}
+
+message UpdateMenuRequest {
+  string id = 1;          // 菜单 ID（定位）
+  string parent_id = 2;   // 新父节点（空 = 不改；源不支持移动？支持——Tree mixin 边可改）
+  Menu.Type type = 3;     // UNSPECIFIED = 不改
+  string name = 4;        // 空 = 不改
+  string path = 5;        // 空 = 不改
+  string component = 6;   // 空 = 不改
+  string title = 7;       // 空 = 不改
+  string icon = 8;        // 空 = 不改
+  int32 order = 9;        // 见 order_set
+  bool order_set = 10;    // true 时才改 order（int32 零值 0 是合法序号，不能当"未指定"）
+  Menu.Status status = 11; // UNSPECIFIED = 不改
+  string remark = 12;     // 空 = 不改
+}
+
+message UpdateMenuResponse {
+  Menu menu = 1;
+}
+
+message DeleteMenuRequest {
+  string id = 1; // 菜单 ID
+}
+
+message DeleteMenuResponse {
+  string deleted = 1; // 被删除的菜单 ID
+}

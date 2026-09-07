@@ -9,7 +9,7 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
-	"gorm.io/driver/sqlite"
+	"github.com/glebarez/sqlite" // 纯 Go driver：无 gcc 环境零 CGO（与 gorm.io/driver/sqlite 同签名）
 	"gorm.io/gorm"
 
 	"github.com/kalandramo/bald/pkg/audit"
@@ -89,6 +89,12 @@ func TestMultiAuditor_CombinesStoreAndStream(t *testing.T) {
 	if err := db.AutoMigrate(&authmodel.AuditRecord{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
+	// 测试结束显式 Close：Windows 下打开中的文件无法被 TempDir 清理删除。
+	t.Cleanup(func() {
+		if sqlDB, cerr := db.DB(); cerr == nil {
+			_ = sqlDB.Close()
+		}
+	})
 
 	mr, err := miniredis.Run()
 	if err != nil {

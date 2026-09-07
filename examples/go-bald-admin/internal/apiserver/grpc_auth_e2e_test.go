@@ -46,6 +46,11 @@ func invoke(t *testing.T, token, fullMethod string) error {
 // issueToken 签发一个 gRPC 调用可用的 Bearer token（模拟登录后下发）。
 func issueToken(t *testing.T, username, userID, role string) string {
 	t.Helper()
+	// 幂等初始化：本函数可能先于包内其他测试执行（go test -shuffle=on 随机顺序），
+	// 不能假设 Signer 已由别的测试经 invoke→InitBridges 就绪。
+	if err := bootstrappkg.InitBridges(context.Background()); err != nil {
+		t.Fatalf("InitBridges: %v", err)
+	}
 	claims := authn.AuthClaims{
 		Issuer:   "go-bald-admin",
 		Subject:  userID,

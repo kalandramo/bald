@@ -1,0 +1,116 @@
+syntax = "proto3";
+
+package go.bald.admin.user.v1;
+
+option go_package = "github.com/kalandramo/bald/examples/go-bald-admin/api/gen/user/v1;userv1";
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+
+// UserService 用户管理服务（T2，自 go-wind-admin identity/user.proto + user_profile.proto
+// 精简搬运）。列表/读写天然按当前租户过滤（bald P8 pkg/store 自动注入 tenant_id），
+// 跨租户用户不可见（隔离验证点）。
+//
+// 注意：原 SecretService.ListUsers（string 列表演示 RPC，M3）自本版本起由本服务
+// ListUsers 接管 GET /v1/users（对象列表，语义延续且增强），避免 gateway 路由重复注册。
+service UserService {
+  // GetUser 取用户。
+  //   REST: GET /v1/user/{id}
+  // REST 单数段与 gRPC DefaultGRPCObject("UserService/...")="user" 同源（P9）。
+  rpc GetUser(GetUserRequest) returns (GetUserResponse) {
+    option (google.api.http) = {
+      get: "/v1/user/{id}"
+    };
+  }
+
+  // ListUsers 列出当前租户用户（M3 多租户隔离验证点，对象列表版本）。
+  //   REST: GET /v1/user
+  rpc ListUsers(ListUsersRequest) returns (ListUsersResponse) {
+    option (google.api.http) = {
+      get: "/v1/user"
+    };
+  }
+
+  // CreateUser 创建用户（租户内）。
+  //   REST: POST /v1/user
+  rpc CreateUser(CreateUserRequest) returns (CreateUserResponse) {
+    option (google.api.http) = {
+      post: "/v1/user"
+      body: "*"
+    };
+  }
+
+  // UpdateUser 更新用户。
+  //   REST: PUT /v1/user/{id}
+  rpc UpdateUser(UpdateUserRequest) returns (UpdateUserResponse) {
+    option (google.api.http) = {
+      put: "/v1/user/{id}"
+      body: "*"
+    };
+  }
+
+  // DeleteUser 删除用户。
+  //   REST: DELETE /v1/user/{id}
+  rpc DeleteUser(DeleteUserRequest) returns (DeleteUserResponse) {
+    option (google.api.http) = {
+      delete: "/v1/user/{id}"
+    };
+  }
+}
+
+// User 用户。ID 为业务编码（如 "u-admin"）；tenant_id 不在此消息中——
+// 由 bald P8 从上下文注入（写）与过滤（读），客户端不可指定。
+message User {
+  string id = 1;                   // 用户 ID（业务编码）
+  string username = 2;             // 登录名
+  repeated string roles = 3;       // 角色名列表（如 "admin"、"viewer"）
+
+  google.protobuf.Timestamp created_at = 100; // 创建时间
+  google.protobuf.Timestamp updated_at = 101; // 更新时间
+}
+
+message GetUserRequest {
+  string id = 1; // 用户 ID
+}
+
+message GetUserResponse {
+  User user = 1;
+}
+
+message ListUsersRequest {}
+
+message ListUsersResponse {
+  repeated User users = 1; // 仅当前租户可见（tenant_id 由 pkg/store 自动过滤）
+  // 注意用 uint32：proto3 JSON 把 int64/uint64 编码为字符串，会破坏常规 JSON 客户端。
+  uint32 total = 2;
+}
+
+message CreateUserRequest {
+  string id = 1;          // 用户 ID（客户端指定，租户内唯一）
+  string username = 2;    // 登录名
+  repeated string roles = 3; // 角色名列表
+  string password = 4;    // 初始密码（服务端 bcrypt 存储；不回显）
+}
+
+message CreateUserResponse {
+  User user = 1;
+}
+
+message UpdateUserRequest {
+  string id = 1;             // 用户 ID（定位）
+  string username = 2;       // 新登录名（空=不改）
+  repeated string roles = 3; // 新角色列表（nil=不改，空=清空）
+  string password = 4;       // 新密码（空=不改；服务端 bcrypt 存储）
+}
+
+message UpdateUserResponse {
+  User user = 1;
+}
+
+message DeleteUserRequest {
+  string id = 1; // 用户 ID
+}
+
+message DeleteUserResponse {
+  string deleted = 1; // 被删除的用户 ID
+}

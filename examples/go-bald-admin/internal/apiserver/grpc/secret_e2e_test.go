@@ -22,7 +22,9 @@ import (
 	grpcserver "github.com/kalandramo/bald/transport/grpc"
 	gateway "github.com/kalandramo/bald/transport/gateway"
 
-	adminv1 "github.com/kalandramo/bald/examples/go-bald-admin/gen/secretv1"
+	adminv1 "github.com/kalandramo/bald/examples/go-bald-admin/api/gen/secret/v1"
+	userv1 "github.com/kalandramo/bald/examples/go-bald-admin/api/gen/user/v1"
+	userbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/user"
 	bootstrappkg "github.com/kalandramo/bald/examples/go-bald-admin/internal/bootstrap"
 )
 
@@ -56,7 +58,10 @@ func startServer(t *testing.T) (*grpcserver.GRPCServer, string) {
 			// ErrorInterceptor 必须最外层，收口 authn/authz 返回的 berrors -> gRPC status。
 			grpc.ChainUnaryInterceptor(grpcmw.ErrorInterceptor(), authnI, authzI),
 		},
-		func(s *grpc.Server) { adminv1.RegisterSecretServiceServer(s, NewServer()) },
+		func(s *grpc.Server) {
+			adminv1.RegisterSecretServiceServer(s, NewServer())
+			userv1.RegisterUserServiceServer(s, NewUserServer(userbiz.New()))
+		},
 		nil,
 	)
 	lis, err := listenLocal()
@@ -151,15 +156,24 @@ func TestGRPCTransport_Viewer_DeleteForbidden(t *testing.T) {
 	}
 }
 
-func callListUsers(t *testing.T, conn *grpc.ClientConn, tok string) (*adminv1.ListUsersResponse, error) {
+func callListUsers(t *testing.T, conn *grpc.ClientConn, tok string) (*userv1.ListUsersResponse, error) {
 	t.Helper()
 	ctx := context.Background()
 	if tok != "" {
 		ctx = metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+tok)
 	}
-	resp := new(adminv1.ListUsersResponse)
-	err := conn.Invoke(ctx, "/go.bald.admin.v1.SecretService/ListUsers", &adminv1.ListUsersRequest{}, resp)
+	resp := new(userv1.ListUsersResponse)
+	err := conn.Invoke(ctx, "/go.bald.admin.user.v1.UserService/ListUsers", &userv1.ListUsersRequest{}, resp)
 	return resp, err
+}
+
+// userIDs 提取 ListUsersResponse 的用户 ID 列表（T2 起为对象列表，原为 string 列表）。
+func userIDs(resp *userv1.ListUsersResponse) []string {
+	ids := make([]string, 0, len(resp.GetUsers()))
+	for _, u := range resp.GetUsers() {
+		ids = append(ids, u.GetId())
+	}
+	return ids
 }
 
 // TestGRPCTransport_MultiTenant_Isolation 真实传输：多租户隔离（P8 自动注入 tenant_id）。
@@ -178,11 +192,12 @@ func TestGRPCTransport_MultiTenant_Isolation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("admin ListUsers: %v", err)
 	}
-	if !contains(adminResp.GetUsers(), "u-admin") || !contains(adminResp.GetUsers(), "u-alice") {
-		t.Fatalf("t-default admin should see u-admin/u-alice, got %v", adminResp.GetUsers())
+	adminIDs := userIDs(adminResp)
+	if !contains(adminIDs, "u-admin") || !contains(adminIDs, "u-alice") {
+		t.Fatalf("t-default admin should see u-admin/u-alice, got %v", adminIDs)
 	}
-	if contains(adminResp.GetUsers(), "u-bob") {
-		t.Fatalf("t-default admin must NOT see t-other's u-bob, got %v", adminResp.GetUsers())
+	if contains(adminIDs, "u-bob") {
+		t.Fatalf("t-default admin must NOT see t-other's u-bob, got %v", adminIDs)
 	}
 
 	bobTok := token(t, "bob", "u-bob", "viewer", "t-other")
@@ -190,16 +205,17 @@ func TestGRPCTransport_MultiTenant_Isolation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("bob ListUsers: %v", err)
 	}
-	if !contains(bobResp.GetUsers(), "u-bob") {
-		t.Fatalf("t-other bob should see itself, got %v", bobResp.GetUsers())
+	bobIDs := userIDs(bobResp)
+	if !contains(bobIDs, "u-bob") {
+		t.Fatalf("t-other bob should see itself, got %v", bobIDs)
 	}
-	if contains(bobResp.GetUsers(), "u-admin") || contains(bobResp.GetUsers(), "u-alice") {
-		t.Fatalf("t-other bob must NOT see t-default users, got %v", bobResp.GetUsers())
+	if contains(bobIDs, "u-admin") || contains(bobIDs, "u-alice") {
+		t.Fatalf("t-other bob must NOT see t-default users, got %v", bobIDs)
 	}
 }
 
 // TestRESTGateway_MultiTenant_Isolation M5：grpc-gateway REST 转码，复用同一 gRPC 拦截器
-// 链（认证/授权/多租户）。REST GET /v1/users 经转码进入 SecretService.ListUsers，
+// 链（认证/授权/多租户）。T2 起 REST GET /v1/user 经转码进入 UserService.ListUsers，
 // 跨租户隔离同样生效。
 func TestRESTGateway_MultiTenant_Isolation(t *testing.T) {
 	if err := bootstrappkg.InitBridges(context.Background()); err != nil {
@@ -222,7 +238,10 @@ func TestRESTGateway_MultiTenant_Isolation(t *testing.T) {
 	grpcSrv := grpcserver.NewGRPCServerWithRegister(
 		&bootstrapv1.Server_Grpc{Addr: grpcAddr},
 		[]grpc.ServerOption{grpc.ChainUnaryInterceptor(grpcmw.ErrorInterceptor(), authnI, authzI)},
-		func(s *grpc.Server) { adminv1.RegisterSecretServiceServer(s, NewServer()) },
+		func(s *grpc.Server) {
+			adminv1.RegisterSecretServiceServer(s, NewServer())
+			userv1.RegisterUserServiceServer(s, NewUserServer(userbiz.New()))
+		},
 		nil,
 	)
 	go func() { _ = grpcSrv.Serve(grpcLis) }()
@@ -238,6 +257,9 @@ func TestRESTGateway_MultiTenant_Isolation(t *testing.T) {
 			if err := adminv1.RegisterSecretServiceHandler(ctx, mux, conn); err != nil {
 				return nil, err
 			}
+			if err := userv1.RegisterUserServiceHandler(ctx, mux, conn); err != nil {
+				return nil, err
+			}
 			return mux, nil
 		},
 		nil,
@@ -251,9 +273,9 @@ func TestRESTGateway_MultiTenant_Isolation(t *testing.T) {
 	gwAddr := gwSrv.Endpoint()
 
 	// callRESTUsers 经 grpc-gateway 转发 REST → gRPC，返回状态码与解析后的用户列表。
-	callRESTUsers := func(tok string) (int, *adminv1.ListUsersResponse) {
+	callRESTUsers := func(tok string) (int, *userv1.ListUsersResponse) {
 		t.Helper()
-		req, _ := http.NewRequest(http.MethodGet, gwAddr+"/v1/users", nil)
+		req, _ := http.NewRequest(http.MethodGet, gwAddr+"/v1/user", nil)
 		if tok != "" {
 			req.Header.Set("Authorization", "Bearer "+tok)
 		}
@@ -262,7 +284,7 @@ func TestRESTGateway_MultiTenant_Isolation(t *testing.T) {
 			t.Fatalf("rest call: %v", err)
 		}
 		defer resp.Body.Close()
-		out := new(adminv1.ListUsersResponse)
+		out := new(userv1.ListUsersResponse)
 		if resp.StatusCode == http.StatusOK {
 			if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
 				t.Fatalf("unmarshal: %v", err)
@@ -276,14 +298,16 @@ func TestRESTGateway_MultiTenant_Isolation(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("REST admin status=%d", code)
 	}
-	if !contains(admin.GetUsers(), "u-admin") || !contains(admin.GetUsers(), "u-alice") || contains(admin.GetUsers(), "u-bob") {
-		t.Fatalf("REST admin tenant leak: %v", admin.GetUsers())
+	adminIDs := userIDs(admin)
+	if !contains(adminIDs, "u-admin") || !contains(adminIDs, "u-alice") || contains(adminIDs, "u-bob") {
+		t.Fatalf("REST admin tenant leak: %v", adminIDs)
 	}
 
 	bobTok := token(t, "bob", "u-bob", "viewer", "t-other")
 	_, bob := callRESTUsers(bobTok)
-	if !contains(bob.GetUsers(), "u-bob") || contains(bob.GetUsers(), "u-admin") || contains(bob.GetUsers(), "u-alice") {
-		t.Fatalf("REST bob tenant leak: %v", bob.GetUsers())
+	bobIDs := userIDs(bob)
+	if !contains(bobIDs, "u-bob") || contains(bobIDs, "u-admin") || contains(bobIDs, "u-alice") {
+		t.Fatalf("REST bob tenant leak: %v", bobIDs)
 	}
 
 	// 无 token 经 REST 应 401（认证拦截器对转码请求同样生效）。

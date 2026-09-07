@@ -1,66 +1,34 @@
 package casbin
 
+// casbin_test.go T3 验收点「无策略时拒绝默认生效」（fail-closed）：
+// 空 csv 构造的授权器对任何 subject/object/action 一律拒绝——
+// 授权不因缺数据而放开（DB 策略清空 + 重启 = 全 403）。
+//
+// DB 数据化装载的正向行为（p 行放行 / g 行 subject→角色）由
+// apiserver 包 e2e 覆盖（TestT3Authz_DataDrivenPolicy）。
+
 import (
 	"context"
 	"testing"
 )
 
-// TestAuthorizer_RBAC 锁定 casbin 桥接的授权语义（命中 §0 真实实现契约，非内存假表）。
-func TestAuthorizer_RBAC(t *testing.T) {
-	az, err := New()
+func TestEmptyPolicy_FailClosed(t *testing.T) {
+	az, err := New("")
 	if err != nil {
-		t.Fatalf("casbin.New: %v", err)
+		t.Fatalf("New(empty csv): %v", err)
 	}
 	ctx := context.Background()
-
-	cases := []struct {
-		name   string
-		sub    string
-		object string // 归一化后的资源名（拦截器层已翻译，见 P9 反哺）
-		action string // 归一化后的动作（get/delete/list/write）
-		want   bool
-	}{
-		// admin：全权限（HTTP/gRPC 归一化后同源，桥接只做纯 Enforce）
-		{"admin get secret(http)", "u-admin", "secret", "get", true},
-		{"admin delete secret(http)", "u-admin", "secret", "delete", true},
-		{"admin get secret(grpc)", "u-admin", "secret", "get", true},
-		{"admin delete secret(grpc)", "u-admin", "secret", "delete", true},
-		{"admin list users(grpc)", "u-admin", "secret", "list", true},
-		{"admin whoami(grpc)", "u-admin", "auth", "get", true},
-		{"admin whoami(http)", "u-admin", "auth", "get", true},
-
-		// viewer：只读 secret + whoami，无 delete
-		{"viewer get secret(http)", "u-alice", "secret", "get", true},
-		{"viewer get secret(grpc)", "u-alice", "secret", "get", true},
-		{"viewer list users(grpc)", "u-alice", "secret", "list", true},
-		{"viewer delete secret(http) denied", "u-alice", "secret", "delete", false},
-		{"viewer delete secret(grpc) denied", "u-alice", "secret", "delete", false},
-
-		// bob：t-other 租户 viewer，与 alice 同权限（无 delete）
-		{"bob get secret(http)", "u-bob", "secret", "get", true},
-		{"bob delete secret(http) denied", "u-bob", "secret", "delete", false},
-
-		// 未知 subject：默认拒绝
-		{"unknown denied", "u-unknown", "/v1/secret/123", "GET", false},
-		// 空 subject：明确报错
-		{"empty subject error", "", "/v1/secret/123", "GET", false},
-	}
-
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			got, err := az.Authorize(ctx, c.sub, c.object, c.action)
-			if c.sub == "" {
-				if err == nil {
-					t.Fatalf("empty subject: want error, got nil")
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("Authorize: %v", err)
-			}
-			if got != c.want {
-				t.Fatalf("Authorize(sub=%q,obj=%q,act=%q)=%v want %v", c.sub, c.object, c.action, got, c.want)
-			}
-		})
+	for _, tc := range []struct{ subject, object, action string }{
+		{"admin", "secret", "get"},
+		{"admin", "tenant", "delete"},
+		{"u-admin", "menu", "write"}, // g 行也没有：subject 未经绑定
+	} {
+		allow, err := az.Authorize(ctx, tc.subject, tc.object, tc.action)
+		if err != nil {
+			t.Fatalf("Authorize(%v): %v", tc, err)
+		}
+		if allow {
+			t.Fatalf("empty policy must deny %s/%s/%s (fail-closed)", tc.subject, tc.object, tc.action)
+		}
 	}
 }

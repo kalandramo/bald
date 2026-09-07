@@ -1,0 +1,14 @@
+version: v1
+name: buf.build/kalandramo/go-bald-admin
+deps:
+  - buf.build/googleapis/googleapis
+breaking:
+  use:
+    - FILE
+lint:
+  use:
+    - STANDARD
+  except:
+    # 本仓库目录按「域/v1」组织（secret/v1、tenant/v1），包名用语义命名空间
+    # （go.bald.admin.v1 / go.bald.admin.<域>.v1），不强求目录逐级对应。
+    - PACKAGE_DIRECTORY_MATCH

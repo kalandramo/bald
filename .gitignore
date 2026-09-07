@@ -11,4 +11,5 @@ bald.exe
 # 示例运行时产生的本地 SQLite 数据库
 _example/*.db
 _example/bald/*.db
-examples/**/go-bald-admin
+
+# go-bald-admin 真实运行配置含云端凭证，不入库（模板见 configs/go-bald-admin.yaml.example）

@@ -32,7 +32,12 @@ import (
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
 
-	adminv1 "github.com/kalandramo/bald/examples/go-bald-admin/gen/secretv1"
+	adminv1 "github.com/kalandramo/bald/examples/go-bald-admin/api/gen/secret/v1"
+	dictv1 "github.com/kalandramo/bald/examples/go-bald-admin/api/gen/dict/v1"
+	menuv1 "github.com/kalandramo/bald/examples/go-bald-admin/api/gen/menu/v1"
+	permissionv1 "github.com/kalandramo/bald/examples/go-bald-admin/api/gen/permission/v1"
+	tenantv1 "github.com/kalandramo/bald/examples/go-bald-admin/api/gen/tenant/v1"
+	userv1 "github.com/kalandramo/bald/examples/go-bald-admin/api/gen/user/v1"
 	"github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver"
 	secretgrpc "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/grpc"
 	bootstrappkg "github.com/kalandramo/bald/examples/go-bald-admin/internal/bootstrap"
@@ -130,14 +135,25 @@ func serveRunE(_ *cobra.Command, _ []string) error {
 	)
 	router := gin.New()
 	router.Use(ginBundle.Gin()...)
-	apiserver.RegisterRoutes(router, bizSet.Auth, bizSet.Secret) // gin handler 路由
+	apiserver.RegisterRoutes(router, bizSet.Auth, bizSet.Secret, bizSet.Tenant, bizSet.User, bizSet.Menu, bizSet.Permission, bizSet.Dict) // gin handler 路由
 	registerAdminRoutes(router, appRef, componentFactories)      // M10.2 管理面（appRef 迟到绑定）
 	httpSrv := httpserver.NewHTTPServer(bootstrap.GetServer().GetHttp(), router, ready)
 
+	// T2：gRPC service 注册回调捕获 wire 装配的 biz（tenant/user handler 需 biz 注入；
+	// secret handler 无 biz 依赖保持独立构造）。闭包取代原包级 var（bizSet 是局部变量）。
+	registerGRPC := func(s *grpc.Server) {
+		adminv1.RegisterSecretServiceServer(s, secretgrpc.NewServer())
+		tenantv1.RegisterTenantServiceServer(s, secretgrpc.NewTenantServer(bizSet.Tenant))
+		userv1.RegisterUserServiceServer(s, secretgrpc.NewUserServer(bizSet.User))
+		menuv1.RegisterMenuServiceServer(s, secretgrpc.NewMenuServer(bizSet.Menu))
+		permissionv1.RegisterPermissionServiceServer(s, secretgrpc.NewPermissionServer(bizSet.Permission))
+		dictv1.RegisterDictTypeServiceServer(s, secretgrpc.NewDictTypeServer(bizSet.Dict))
+		dictv1.RegisterDictEntryServiceServer(s, secretgrpc.NewDictEntryServer(bizSet.Dict))
+	}
 	grpcSrv := grpcserver.NewGRPCServerWithRegister(
 		bootstrap.GetServer().GetGrpc(),
 		newGRPCServerOptions(),
-		registerGRPCService,
+		registerGRPC,
 		ready,
 	)
 
@@ -265,6 +281,9 @@ func newApp(
 			}
 			// 阶段 B：按最终配置重建 Logger，并装配 bald 桥接（P7/P8/P9 注册点）。
 			setLogger(baldbootstrap.LogOptions(bootstrap.GetLogger()))
+			// T0：注入真实依赖配置（database.sql / cache.redis / storage.minio 段 +
+			// 业务自持 file.bucket），openDB/Redis/MinIO 构造据此分流；须在 InitBridges 之前。
+			bootstrappkg.Configure(bootstrap, app.Config().GetString("file.bucket"))
 			// 在 bootstrap 包内装配 bald 桥接（P7/P8/P9 注册点）：M1+ 注入
 			// Authenticator / Authorizer / store.RegisterTenant / store.RegisterDataScope。
 			if err := bootstrappkg.InitBridges(ctx); err != nil {
@@ -512,11 +531,6 @@ func registerAdminRoutes(router *gin.Engine, ref *appRefT, factories map[string]
 	apiserver.RegisterAdmin(router, ref.get, factories)
 }
 
-// registerGRPCService 是 gRPC service 注册回调（M5 用 proto 生成的 SecretServiceServer）。
-var registerGRPCService = func(s *grpc.Server) {
-	adminv1.RegisterSecretServiceServer(s, secretgrpc.NewServer())
-}
-
 // lazyAuthn / lazyAuthz 把 bootstrap 包级桥接变量（InitBridges 在 appkit.BeforeStart
 // 才赋值）适配为 authn/authz 接口，供 bundle 构造期注入——bundle 是构造期依赖注入，
 // 而桥接是运行期装配，lazy 适配器衔接两者时序（请求期读取最新值）。
@@ -596,10 +610,28 @@ func gatewayAddr() string {
 
 // registerGateway 把 grpc-gateway 的 HTTP handler 注册到 runtime.ServeMux 并交回
 // http.Handler（transport.NewGatewayServer 依赖倒置，核心不依赖 grpc-gateway）。
-// conn 由 GatewayServer 内部建立（指向本进程 gRPC 服务）。
+// conn 由 GatewayServer 内部建立（指向本进程 gRPC 服务）。T2 起挂载 tenant/user 网关。
 func registerGateway(ctx context.Context, conn *grpc.ClientConn) (http.Handler, error) {
 	mux := runtime.NewServeMux()
 	if err := adminv1.RegisterSecretServiceHandler(ctx, mux, conn); err != nil {
+		return nil, err
+	}
+	if err := tenantv1.RegisterTenantServiceHandler(ctx, mux, conn); err != nil {
+		return nil, err
+	}
+	if err := userv1.RegisterUserServiceHandler(ctx, mux, conn); err != nil {
+		return nil, err
+	}
+	if err := menuv1.RegisterMenuServiceHandler(ctx, mux, conn); err != nil {
+		return nil, err
+	}
+	if err := permissionv1.RegisterPermissionServiceHandler(ctx, mux, conn); err != nil {
+		return nil, err
+	}
+	if err := dictv1.RegisterDictTypeServiceHandler(ctx, mux, conn); err != nil {
+		return nil, err
+	}
+	if err := dictv1.RegisterDictEntryServiceHandler(ctx, mux, conn); err != nil {
 		return nil, err
 	}
 	return mux, nil

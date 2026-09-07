@@ -7,17 +7,23 @@
 package main
 
 import (
+	"os"
+
 	authnjwt "github.com/kalandramo/bald-authn-jwt"
 	rediscache "github.com/kalandramo/bald-cache-redis"
 	"github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/auth"
+	"github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/dict"
+	"github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/menu"
+	"github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/permission"
 	"github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/secret"
+	"github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/tenant"
+	"github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/user"
 	"github.com/kalandramo/bald/examples/go-bald-admin/internal/bootstrap"
-	"os"
 )
 
 // Injectors from wire.go:
 
-// InitializeBiz 由 wire 生成实现：显式拼装 cache + 两个 biz，依赖图编译期校验。
+// InitializeBiz 由 wire 生成实现：显式拼装 cache + 各 biz，依赖图编译期校验。
 func InitializeBiz() (*BizSet, error) {
 	mainSigner := provideSigner()
 	biz := auth.New(mainSigner)
@@ -27,10 +33,20 @@ func InitializeBiz() (*BizSet, error) {
 		return nil, err
 	}
 	secretBiz := secret.New(cache)
+	tenantBiz := tenant.New()
+	userBiz := user.New()
+	menuBiz := menu.New()
+	permissionBiz := permission.New()
+	dictBiz := dict.New(cache)
 	bizSet := &BizSet{
-		Auth:   biz,
-		Secret: secretBiz,
-		Cache:  cache,
+		Auth:       biz,
+		Secret:     secretBiz,
+		Tenant:     tenantBiz,
+		User:       userBiz,
+		Menu:       menuBiz,
+		Permission: permissionBiz,
+		Dict:       dictBiz,
+		Cache:      cache,
 	}
 	return bizSet, nil
 }
@@ -39,19 +55,28 @@ func InitializeBiz() (*BizSet, error) {
 
 // BizSet 是 wire 装配出的业务对象集合，供 main 注册路由/服务。
 type BizSet struct {
-	Auth   *auth.Biz
-	Secret *secret.SecretBiz
-	Cache  *rediscache.Cache
+	Auth       *auth.Biz
+	Secret     *secret.SecretBiz
+	Tenant     *tenant.Biz
+	User       *user.Biz
+	Menu       *menu.Biz
+	Permission *permission.Biz
+	Dict       *dict.Biz
+	Cache      *rediscache.Cache
 }
 
 // redisAddr 是 wire 的命名类型别名，区分 string 依赖（避免多重绑定冲突）。
 type redisAddr string
 
 // provideRedisAddr 从 env 提供 Redis 地址（空=禁用缓存，直连 store）。
+// T0 起完整 Redis 参数（addr/password/db）经 bootstrap.Configure 由配置段注入，
+// 此处仅保留 secret 缓存的 env 兼容通道。
 func provideRedisAddr() redisAddr { return redisAddr(os.Getenv("BALD_ADMIN_REDIS_ADDR")) }
 
 // provideSigner 从 bootstrap 提供 RSA 私钥签发器（auth biz 依赖 Signer 接口）。
-func provideSigner() authnjwt.Signer { return bootstrap.Signer }
+// 必须走 LazySigner：本函数在 main 构造期求值，彼时 InitBridges 尚未生成 Signer，
+// 直接传包级变量会把 nil 快照固化进 Biz（login 签发即 panic）。
+func provideSigner() authnjwt.Signer { return bootstrap.LazySigner() }
 
 // newRedisCache 适配 redisAddr→rediscache.New（保留错误，Redis 不可达即启动失败）。
 func newRedisCache(addr redisAddr) (*rediscache.Cache, error) {

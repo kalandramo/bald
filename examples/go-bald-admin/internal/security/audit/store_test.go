@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"gorm.io/driver/sqlite"
+	"github.com/glebarez/sqlite" // 纯 Go driver：无 gcc 环境零 CGO（与 gorm.io/driver/sqlite 同签名）
 	"gorm.io/gorm"
 
 	"github.com/kalandramo/bald/pkg/audit"
@@ -15,6 +15,7 @@ import (
 )
 
 // newTestDB 建临时文件 SQLite 并迁移审计表（真实 GORM + DAL，符合 §0；文件库隔离各测试）。
+// 测试结束显式 Close：Windows 下打开中的文件无法被 TempDir 清理删除。
 func newTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "audit_test.db")), &gorm.Config{})
@@ -24,6 +25,11 @@ func newTestDB(t *testing.T) *gorm.DB {
 	if err := db.AutoMigrate(&authmodel.AuditRecord{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
+	t.Cleanup(func() {
+		if sqlDB, cerr := db.DB(); cerr == nil {
+			_ = sqlDB.Close()
+		}
+	})
 	return db
 }
 

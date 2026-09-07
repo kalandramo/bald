@@ -12,6 +12,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
+	"time"
 
 	authnjwt "github.com/kalandramo/bald-authn-jwt"
 	rediscache "github.com/kalandramo/bald-cache-redis"
@@ -23,9 +25,15 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+
+	// SQLite 用纯 Go driver（glebarez，modernc 内核）：本机/CI 无 gcc 环境零 CGO 依赖；
+	// 与 gorm.io/driver/sqlite（cgo）API 兼容，Open 签名一致。
+	"github.com/glebarez/sqlite"
+
+	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
+	miniooss "github.com/kalandramo/bald/oss/minio"
 
 	authmodel "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/model"
 	casbinauthz "github.com/kalandramo/bald/examples/go-bald-admin/internal/security/casbin"
@@ -77,17 +85,60 @@ func LazyAuthenticator() authn.Authenticator { return lazyAuthn{} }
 // LazyAuthorizer 返回延迟解析的授权器（请求期读 bootstrappkg.Authorizer 最新值）。
 func LazyAuthorizer() authz.Authorizer { return lazyAuthz{} }
 
-// DB 是应用主库（M2 起为 SQLite 内存库，生产应换外部 PostgreSQL/MySQL）。
+// lazySigner 把包级 Signer 桥接变量适配为 authnjwt.Signer。wire 的 provideSigner
+// 在 main 构造期求值（InitializeBiz 先于 BeforeStart 的 InitBridges），直接传包级
+// 变量会把 nil 快照固化进 auth Biz——login 签发即 nil panic（与 M10.1 修复的
+// Authenticator 构造期 nil 同款时序错位，e2e 不走 main 装配路径故未暴露）。
+// 本适配器在请求期读取最新值（与 lazyAuthn/lazyAuthz 同构）。
+type lazySigner struct{}
+
+func (lazySigner) IssueToken(claims authn.AuthClaims, ttl time.Duration) (string, error) {
+	return Signer.IssueToken(claims, ttl)
+}
+
+// LazySigner 返回延迟解析的签发器（请求期读 bootstrappkg.Signer 最新值）。
+func LazySigner() authnjwt.Signer { return lazySigner{} }
+
+// DB 是应用主库（M2 起为 SQLite 内存库，T0 起默认经配置 database.sql 切外部 PostgreSQL）。
 var DB *gorm.DB
 
 // RedisCache 是可选 Redis 缓存/消息总线后端（M6.2 Cache-Aside + M9 审计流）。
 // rdb 为 nil 表示无 Redis 环境，调用方（缓存直连 store / 审计流降级）应降级。
 var RedisCache *rediscache.Cache
 
-// UserStore / RoleStore / SecretStore 是 bald-store-gorm 接入的泛型仓储。
+// MinioStorage 是可选 MinIO 对象存储后端（T0 起由 storage.minio 配置段构造，
+// T5 文件模块消费）。SDK() 为 nil 表示未配置或构造失败，调用方应降级。
+var MinioStorage *miniooss.Storage
+
+// FileBucket 是文件模块使用的对象存储桶（业务自持配置段 file.bucket；
+// bconf storage.minio 契约无 bucket 字段，见移植计划 §5）。
+var FileBucket string
+
+// depsBootstrap 是 Configure 注入的框架契约配置（T0 真实依赖段）。
+// BeforeStart 完成配置 Unmarshal 后调用 Configure，InitBridges 消费；
+// 未调用时保持既有行为（env 变量 + SQLite 内存库），既有测试零改动。
+var depsBootstrap *bootstrapv1.BootstrapConfig
+
+// Configure 注入真实依赖配置：框架契约段（database.sql / cache.redis / storage.minio /
+// registry.nacos，经 baldconfig.Unmarshal 填充）与业务自持段 fileBucket（file.bucket）。
+// 幂等覆盖，须在 InitBridges 之前调用。
+func Configure(cfg *bootstrapv1.BootstrapConfig, fileBucket string) {
+	depsBootstrap = cfg
+	FileBucket = fileBucket
+}
+
+// UserStore / RoleStore / SecretStore / TenantStore 是 bald-store-gorm 接入的泛型仓储。
+// T3 新增 MenuStore（菜单树）/ PermissionStore（权限点注册表）/ RolePolicyStore
+// （casbin p 行数据化，D3 策略装载真源）。
 var UserStore *store.Store[authmodel.User]
 var RoleStore *store.Store[authmodel.Role]
 var SecretStore *store.Store[authmodel.Secret]
+var TenantStore *store.Store[authmodel.Tenant]
+var MenuStore *store.Store[authmodel.Menu]
+var PermissionStore *store.Store[authmodel.Permission]
+var RolePolicyStore *store.Store[authmodel.RolePolicy]
+var DictTypeStore *store.Store[authmodel.DictType]
+var DictEntryStore *store.Store[authmodel.DictEntry]
 
 // InitBridges 初始化认证/授权/存储桥接。
 // 幂等：已初始化（Authenticator 非 nil）则直接返回，避免重复生成 RSA 密钥对
@@ -122,21 +173,52 @@ func InitBridges(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := db.AutoMigrate(&authmodel.User{}, &authmodel.Role{}, &authmodel.Secret{}, &authmodel.AuditRecord{}); err != nil {
+	if err := db.AutoMigrate(&authmodel.User{}, &authmodel.Role{}, &authmodel.Secret{}, &authmodel.AuditRecord{}, &authmodel.Tenant{},
+		&authmodel.Menu{}, &authmodel.Permission{}, &authmodel.RolePolicy{},
+		&authmodel.DictType{}, &authmodel.DictEntry{}); err != nil {
 		return err
 	}
 	DB = db
 
 	// 可选 Redis 后端：供消息总线/缓存复用同一真实连接。不可达仅 warn（审计流降级），
 	// 不阻断启动（与 SQLite 内存库同构的"真实但可选"简化，符合 §0）。
-	if rc, rerr := rediscache.New(os.Getenv("BALD_ADMIN_REDIS_ADDR")); rerr != nil {
+	// T0 起：地址/密码/逻辑库经 resolveRedis 解析（env BALD_ADMIN_REDIS_ADDR 优先，
+	// 其次配置段 cache.redis），云端带认证实例由此接通。
+	redisAddr, redisOpts := resolveRedis()
+	if rc, rerr := rediscache.New(redisAddr, redisOpts...); rerr != nil {
 		log.GetLogger().Warn(ctx, "redis init skipped, audit stream disabled", "error", rerr.Error())
 	} else {
 		RedisCache = rc
 	}
+
+	// T0：MinIO 对象存储后端（storage.minio 配置段）。minio.New 仅本地构造不联网，
+	// 失败时 SDK() 为 nil + 日志；真实可达性与建桶由 T5 文件模块 EnsureBucket 兜底，
+	// 此处失败不阻断启动（与 Redis 同构的"真实但可选"）。
+	if mc := depsBootstrap.GetStorage().GetMinio(); mc != nil && mc.GetEndpoint() != "" {
+		MinioStorage = miniooss.NewStorage(&miniooss.Config{
+			Endpoint:  mc.GetEndpoint(),
+			AccessKey: mc.GetAccessKey(),
+			SecretKey: mc.GetSecretKey(),
+			Token:     mc.GetToken(),
+			UseSsl:    mc.GetUseSsl(),
+		})
+		if MinioStorage == nil || MinioStorage.SDK() == nil {
+			MinioStorage = nil
+			log.GetLogger().Warn(ctx, "minio init failed, file module degraded", "endpoint", mc.GetEndpoint())
+		} else {
+			log.GetLogger().Info(ctx, "minio storage constructed", "endpoint", mc.GetEndpoint())
+		}
+	}
 	UserStore = store.NewStore[authmodel.User](baldgorm.NewGormProvider(db, func(u *authmodel.User) string { return u.ID }))
 	RoleStore = store.NewStore[authmodel.Role](baldgorm.NewGormProvider(db, func(r *authmodel.Role) string { return r.ID }))
 	SecretStore = store.NewStore[authmodel.Secret](baldgorm.NewGormProvider(db, func(s *authmodel.Secret) string { return s.ID }))
+	TenantStore = store.NewStore[authmodel.Tenant](baldgorm.NewGormProvider(db, func(t *authmodel.Tenant) string { return t.ID }))
+	MenuStore = store.NewStore[authmodel.Menu](baldgorm.NewGormProvider(db, func(m *authmodel.Menu) string { return m.ID }))
+	PermissionStore = store.NewStore[authmodel.Permission](baldgorm.NewGormProvider(db, func(p *authmodel.Permission) string { return p.ID }))
+	RolePolicyStore = store.NewStore[authmodel.RolePolicy](baldgorm.NewGormProvider(db,
+		func(p *authmodel.RolePolicy) string { return p.ID }))
+	DictTypeStore = store.NewStore[authmodel.DictType](baldgorm.NewGormProvider(db, func(t *authmodel.DictType) string { return t.ID }))
+	DictEntryStore = store.NewStore[authmodel.DictEntry](baldgorm.NewGormProvider(db, func(e *authmodel.DictEntry) string { return e.ID }))
 	if err := seed(ctx); err != nil {
 		return err
 	}
@@ -147,24 +229,41 @@ func InitBridges(ctx context.Context) error {
 	store.RegisterTenant("tenant_id", store.DefaultTenantFunc)
 
 	// 3) Authorizer：M6.1 起由 casbin 桥接 authz.Authorizer 实现（P11 起实现晋升 contrib
-	//    bald-authz-casbin，内嵌通用 RBAC 模型；业务策略见 internal/security/casbin/rbac_policy.csv，
-	//    角色→权限、subject→角色均声明于策略文件）。替换 M1 手写 RBAC 内存表，命中 §0「禁止手写假实现」契约。
-	az, err := casbinauthz.New()
+	//    bald-authz-casbin，内嵌通用 RBAC 模型）。T3 起策略数据化装载（D3）：p 行读
+	//    RolePolicy 表、g 行读 User.Roles——静态 rbac_policy.csv 已删除，策略单一真源
+	//    收敛到 DB（改库重启即生效；无策略行时 casbin 默认拒绝，fail-closed）。
+	policyCSV, err := loadPolicyCSV(ctx)
+	if err != nil {
+		return err
+	}
+	az, err := casbinauthz.New(policyCSV)
 	if err != nil {
 		return err
 	}
 	Authorizer = az
 
 	log.GetLogger().Info(ctx, "bridges initialized",
-		"authenticator", "bald-authn-jwt", "authorizer", "casbin", "store", "bald-store-gorm/sqlite")
+		"authenticator", "bald-authn-jwt", "authorizer", "casbin", "store", "bald-store-gorm")
 	return nil
 }
 
 // seed 写入 MVP 初始用户与角色（生产应走迁移脚本/初始化任务）。
 func seed(ctx context.Context) error {
+	// T2 租户种子：platform（平台租户，源 PlatformTenantID=0 等价物）、
+	// t-default/t-other 与存量 users/secrets 的租户维度对齐。
+	tenants := []*authmodel.Tenant{
+		{ID: "platform", Name: "平台租户", Status: "ON", Remark: "平台管理上下文（源 PlatformTenantID=0 等价物）"},
+		{ID: "t-default", Name: "默认租户", Status: "ON"},
+		{ID: "t-other", Name: "第二租户", Status: "ON", Remark: "多租户隔离验证用"},
+	}
+	for _, t := range tenants {
+		if err := TenantStore.Create(ctx, t); err != nil && err != store.ErrConflict {
+			return err
+		}
+	}
 	roles := []*authmodel.Role{
-		{ID: "admin", Perms: "secret:get,secret:delete,auth:get,SecretService.GetSecret:call,SecretService.DeleteSecret:call,SecretService.ListUsers:call,AuthService.WhoAmI:call"},
-		{ID: "viewer", Perms: "secret:get,auth:get,SecretService.GetSecret:call,SecretService.ListUsers:call"},
+		{ID: "admin", Perms: "secret:get,secret:delete,auth:get,SecretService.GetSecret:call,SecretService.DeleteSecret:call,UserService.ListUsers:call,AuthService.WhoAmI:call"},
+		{ID: "viewer", Perms: "secret:get,auth:get,SecretService.GetSecret:call,UserService.ListUsers:call"},
 	}
 	for _, r := range roles {
 		if err := RoleStore.Create(ctx, r); err != nil && err != store.ErrConflict {
@@ -202,19 +301,180 @@ func seed(ctx context.Context) error {
 			return err
 		}
 	}
+	// T3 菜单种子（自 go-wind-admin DefaultMenus 形态精简：2 目录 + 6 页面 + 1 按钮，
+	// 树形 ParentID 显式编死，Order 控制展示顺序——源 meta.order 语义）。
+	menus := []*authmodel.Menu{
+		{ID: "menu-dashboard", Type: "CATALOG", Name: "Dashboard", Path: "/dashboard", Title: "仪表盘", Icon: "lucide:layout-dashboard", Order: -1},
+		{ID: "menu-dashboard-overview", ParentID: "menu-dashboard", Type: "MENU", Name: "Overview", Path: "/dashboard/overview", Title: "总览", Order: 1},
+		{ID: "menu-system", Type: "CATALOG", Name: "System", Path: "/system", Title: "系统管理", Icon: "lucide:settings", Order: 2000},
+		{ID: "menu-tenant", ParentID: "menu-system", Type: "MENU", Name: "Tenant", Path: "/tenant", Title: "租户管理", Order: 1},
+		{ID: "menu-user", ParentID: "menu-system", Type: "MENU", Name: "User", Path: "/user", Title: "用户管理", Order: 2},
+		{ID: "menu-menu", ParentID: "menu-system", Type: "MENU", Name: "Menu", Path: "/menu", Title: "菜单管理", Order: 3},
+		{ID: "menu-permission", ParentID: "menu-system", Type: "MENU", Name: "Permission", Path: "/permission", Title: "权限管理", Order: 4},
+		{ID: "menu-secret", ParentID: "menu-system", Type: "MENU", Name: "Secret", Path: "/secret", Title: "机密管理", Order: 5},
+		{ID: "menu-dict", ParentID: "menu-system", Type: "MENU", Name: "Dict", Path: "/dict", Title: "字典管理", Order: 6},
+		{ID: "menu-secret-delete", ParentID: "menu-secret", Type: "BUTTON", Name: "DeleteSecret", Path: "secret:delete", Title: "删除机密", Order: 1},
+	}
+	for _, m := range menus {
+		if err := MenuStore.Create(ctx, m); err != nil && err != store.ErrConflict {
+			return err
+		}
+	}
+	// T3 权限点种子（注册表 + 菜单可见性关联；未注册的权限码仍可被 Role.Perms
+	// 引用——本表是元数据，非授权判定依据）。
+	perms := []*authmodel.Permission{
+		{ID: "auth:get", Name: "访问认证接口"},
+		{ID: "secret:list", Name: "列出机密", MenuIDs: "menu-secret"},
+		{ID: "secret:delete", Name: "删除机密", MenuIDs: "menu-secret-delete"},
+		{ID: "tenant:list", Name: "列出租户", MenuIDs: "menu-tenant"},
+		{ID: "user:list", Name: "列出用户", MenuIDs: "menu-user"},
+		{ID: "menu:list", Name: "列出菜单", MenuIDs: "menu-menu"},
+		{ID: "permission:list", Name: "列出权限", MenuIDs: "menu-permission"},
+		{ID: "dict_type:list", Name: "列出字典类型", MenuIDs: "menu-dict"},
+		{ID: "dict_entry:list", Name: "列出字典项", MenuIDs: "menu-dict"},
+	}
+	for _, p := range perms {
+		if err := PermissionStore.Create(ctx, p); err != nil && err != store.ErrConflict {
+			return err
+		}
+	}
+	// T4 字典种子（自 go-wind-admin demo 数据形态精简：3 组类型 + 8 条条目）。
+	// 字典是租户级业务数据（源 mixin TenantID），种子归属 t-default——租户字段
+	// 由实体显式携带（启动 ctx 无租户 claims，injectWriteTenant 跳过注入，与
+	// Secret 种子同构）。
+	dictTypes := []*authmodel.DictType{
+		{ID: "gender", TenantID: "t-default", TypeName: "性别", SortOrder: 1},
+		{ID: "status", TenantID: "t-default", TypeName: "状态", SortOrder: 2},
+		{ID: "yes_no", TenantID: "t-default", TypeName: "是否", SortOrder: 3},
+	}
+	for _, t := range dictTypes {
+		if err := DictTypeStore.Create(ctx, t); err != nil && err != store.ErrConflict {
+			return err
+		}
+	}
+	num1, num2, num3 := int32(1), int32(2), int32(3)
+	dictEntries := []*authmodel.DictEntry{
+		{ID: "gender:male", TenantID: "t-default", TypeCode: "gender", Value: "male", Label: "男", SortOrder: 1},
+		{ID: "gender:female", TenantID: "t-default", TypeCode: "gender", Value: "female", Label: "女", SortOrder: 2},
+		{ID: "gender:unknown", TenantID: "t-default", TypeCode: "gender", Value: "unknown", Label: "未知", Numeric: &num3, SortOrder: 3},
+		{ID: "status:on", TenantID: "t-default", TypeCode: "status", Value: "on", Label: "启用", Numeric: &num1, SortOrder: 1},
+		{ID: "status:off", TenantID: "t-default", TypeCode: "status", Value: "off", Label: "禁用", Numeric: &num2, SortOrder: 2},
+		{ID: "status:frozen", TenantID: "t-default", TypeCode: "status", Value: "frozen", Label: "冻结", Numeric: &num3, SortOrder: 3},
+		{ID: "yes_no:y", TenantID: "t-default", TypeCode: "yes_no", Value: "y", Label: "是", Numeric: &num1, SortOrder: 1},
+		{ID: "yes_no:n", TenantID: "t-default", TypeCode: "yes_no", Value: "n", Label: "否", Numeric: &num2, SortOrder: 2},
+	}
+	for _, e := range dictEntries {
+		if err := DictEntryStore.Create(ctx, e); err != nil && err != store.ErrConflict {
+			return err
+		}
+	}
+	// T3 角色策略种子（casbin p 行数据化，D3）：内容与被删除的静态 rbac_policy.csv
+	// 等价（存量授权行为零回归）+ menu/permission 管理域（仅 admin 写，viewer 只读）。
+	// RolePolicy 自增主键无业务唯一键，防重复种子用「非空即跳过」。
+	return seedPolicies(ctx)
+}
+
+// seedPolicies 种子化 casbin p 行（角色策略）。等价旧静态 rbac_policy.csv 的
+// 全部授权语义；g 行（subject→角色）不落表，装载时从 User.Roles 生成。
+// 主键 role:object:action 冲突即重复策略，防重与其他种子同构（ErrConflict 容忍）。
+func seedPolicies(ctx context.Context) error {
+	policies := []authmodel.RolePolicy{
+		// admin：机密/认证/管理面（M6.1 起存量）。
+		{Role: "admin", Object: "secret", Action: "get"},
+		{Role: "admin", Object: "secret", Action: "delete"},
+		{Role: "admin", Object: "secret", Action: "list"},
+		{Role: "admin", Object: "auth", Action: "get"},
+		{Role: "admin", Object: "admin", Action: "get"},
+		{Role: "admin", Object: "admin", Action: "post"},
+		{Role: "admin", Object: "admin", Action: "delete"},
+		// admin：租户/用户管理（T2）。
+		{Role: "admin", Object: "tenant", Action: "get"},
+		{Role: "admin", Object: "tenant", Action: "post"},
+		{Role: "admin", Object: "tenant", Action: "put"},
+		{Role: "admin", Object: "tenant", Action: "delete"},
+		{Role: "admin", Object: "tenant", Action: "list"},
+		{Role: "admin", Object: "tenant", Action: "write"},
+		{Role: "admin", Object: "user", Action: "get"},
+		{Role: "admin", Object: "user", Action: "post"},
+		{Role: "admin", Object: "user", Action: "put"},
+		{Role: "admin", Object: "user", Action: "delete"},
+		{Role: "admin", Object: "user", Action: "list"},
+		{Role: "admin", Object: "user", Action: "write"},
+		// admin：菜单/权限管理（T3 新增管理域）。动作六元组（get/post/put/delete/
+		// list/write）：REST 归一化为 HTTP 动词小写（DefaultHTTPAction），gRPC 归一化为
+		// get/list/write（DefaultGRPCAction，Create/Update→write）——双协议同源全放行。
+		{Role: "admin", Object: "menu", Action: "get"},
+		{Role: "admin", Object: "menu", Action: "post"},
+		{Role: "admin", Object: "menu", Action: "put"},
+		{Role: "admin", Object: "menu", Action: "delete"},
+		{Role: "admin", Object: "menu", Action: "list"},
+		{Role: "admin", Object: "menu", Action: "write"},
+		{Role: "admin", Object: "permission", Action: "get"},
+		{Role: "admin", Object: "permission", Action: "post"},
+		{Role: "admin", Object: "permission", Action: "put"},
+		{Role: "admin", Object: "permission", Action: "delete"},
+		{Role: "admin", Object: "permission", Action: "list"},
+		{Role: "admin", Object: "permission", Action: "write"},
+		// viewer：只读（存量）。
+		{Role: "viewer", Object: "secret", Action: "get"},
+		{Role: "viewer", Object: "secret", Action: "list"},
+		{Role: "viewer", Object: "auth", Action: "get"},
+		{Role: "viewer", Object: "user", Action: "get"},
+		{Role: "viewer", Object: "user", Action: "list"},
+		// viewer：菜单/权限只读（T3，前端渲染可见性；不持有写动作）。
+		{Role: "viewer", Object: "menu", Action: "get"},
+		{Role: "viewer", Object: "menu", Action: "list"},
+		{Role: "viewer", Object: "permission", Action: "get"},
+		{Role: "viewer", Object: "permission", Action: "list"},
+		// admin：字典管理（T4）。dict_type/dict_entry 同款六元组（REST HTTP 动词
+		// 小写 + gRPC get/list/write 双协议全放行）。
+		{Role: "admin", Object: "dict_type", Action: "get"},
+		{Role: "admin", Object: "dict_type", Action: "post"},
+		{Role: "admin", Object: "dict_type", Action: "put"},
+		{Role: "admin", Object: "dict_type", Action: "delete"},
+		{Role: "admin", Object: "dict_type", Action: "list"},
+		{Role: "admin", Object: "dict_type", Action: "write"},
+		{Role: "admin", Object: "dict_entry", Action: "get"},
+		{Role: "admin", Object: "dict_entry", Action: "post"},
+		{Role: "admin", Object: "dict_entry", Action: "put"},
+		{Role: "admin", Object: "dict_entry", Action: "delete"},
+		{Role: "admin", Object: "dict_entry", Action: "list"},
+		{Role: "admin", Object: "dict_entry", Action: "write"},
+		// viewer：字典只读（T4，业务数据读取开放给登录用户）。
+		{Role: "viewer", Object: "dict_type", Action: "get"},
+		{Role: "viewer", Object: "dict_type", Action: "list"},
+		{Role: "viewer", Object: "dict_entry", Action: "get"},
+		{Role: "viewer", Object: "dict_entry", Action: "list"},
+	}
+	for i := range policies {
+		p := policies[i]
+		p.ID = p.Role + ":" + p.Object + ":" + p.Action
+		if err := RolePolicyStore.Create(ctx, &p); err != nil && err != store.ErrConflict {
+			return err
+		}
+	}
 	return nil
 }
 
-// openDB 打开应用主库。M4 起支持 env BALD_ADMIN_DB_DSN 切换到外部 PostgreSQL/MySQL；
-// 默认 SQLite 内存库（M2，零外部依赖，便于 e2e）。DSN 按 scheme 分流到对应 gorm driver：
-//   - postgres:// / postgresql:// → gorm.io/driver/postgres
-//   - mysql://                      → gorm.io/driver/mysql
-//   - 空 / 其他                      → SQLite 内存库（M2）
+// openDB 打开应用主库。DSN 来源优先级：
+//  1. env BALD_ADMIN_DB_DSN（CI/运维覆盖手段，URL 形式按 scheme 分流）；
+//  2. 配置段 database.sql（driver 字段显式分流——key=value 形式 DSN 无 scheme）；
+//  3. 皆空 → SQLite 内存库（M2，零外部依赖，便于 e2e）。
+//
+// driver/scheme 分流：postgres(/ql) → gorm.io/driver/postgres；mysql → gorm.io/driver/mysql；
+// sqlite(3)/file → SQLite。
 //
 // 注意：本函数返回的连接用于 AutoMigrate + seed；多连接场景 SQLite 内存库须用
 // cache=shared 且 keep 一个引用，否则其他连接读到空库。
 func openDB() (*gorm.DB, error) {
 	dsn := os.Getenv("BALD_ADMIN_DB_DSN")
+	driver := ""
+	if dsn == "" {
+		if sqlCfg := depsBootstrap.GetDatabase().GetSql(); sqlCfg != nil && sqlCfg.GetSource() != "" {
+			dsn = sqlCfg.GetSource()
+			driver = sqlCfg.GetDriver()
+		}
+	}
 	if dsn == "" {
 		return gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{
 			Logger: logger.Default.LogMode(logger.Silent),
@@ -222,17 +482,40 @@ func openDB() (*gorm.DB, error) {
 	}
 
 	gormCfg := &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)}
-	switch dsnScheme(dsn) {
+	// driver 字段优先（key=value 形式 DSN 无 scheme，须显式 driver）；
+	// driver 为空回退 DSN scheme 识别（URL 形式 postgres://... 兼容既有 env 行为）。
+	scheme := driver
+	if scheme == "" {
+		scheme = dsnScheme(dsn)
+	}
+	switch scheme {
 	case "postgres", "postgresql":
 		return gorm.Open(postgres.Open(dsn), gormCfg)
 	case "mysql":
 		return gorm.Open(mysql.Open(dsn), gormCfg)
-	case "file", "sqlite":
+	case "file", "sqlite", "sqlite3":
 		// 显式 SQLite DSN（如 file::memory:?cache=shared）与默认同形态。
 		return gorm.Open(sqlite.Open(dsn), gormCfg)
 	default:
-		return nil, fmt.Errorf("unsupported BALD_ADMIN_DB_DSN scheme %q: "+
-			"only postgres://, postgresql:// and mysql:// are wired", dsnScheme(dsn))
+		return nil, fmt.Errorf("unsupported database driver %q (dsn scheme %q): "+
+			"only postgres, mysql and sqlite are wired", driver, dsnScheme(dsn))
+	}
+}
+
+// resolveRedis 解析 Redis 连接参数：env BALD_ADMIN_REDIS_ADDR 优先（覆盖手段），
+// 其次配置段 cache.redis（addr/password/db）；两者皆空返回禁用态
+// （New 对空 addr 返回 nil rdb 的 Cache，调用方降级直连）。
+func resolveRedis() (string, []rediscache.Option) {
+	if addr := os.Getenv("BALD_ADMIN_REDIS_ADDR"); addr != "" {
+		return addr, nil
+	}
+	rc := depsBootstrap.GetCache().GetRedis()
+	if rc == nil || rc.GetAddr() == "" {
+		return "", nil
+	}
+	return rc.GetAddr(), []rediscache.Option{
+		rediscache.WithPassword(rc.GetPassword()),
+		rediscache.WithDB(int(rc.GetDb())),
 	}
 }
 
@@ -251,5 +534,32 @@ func dsnScheme(dsn string) string {
 	return dsn
 }
 
-// loadRBACMaps 已从 bootstrap 移除（M6.1）：RBAC 策略改由 casbin 桥接加载，
-// 角色→权限、subject→角色声明于 internal/security/casbin/rbac_policy.csv。
+// loadPolicyCSV 从 DB 装载 casbin 策略（D3 策略数据化）：
+//   - p 行：RolePolicy 表全量（role,object,action 三元组）；
+//   - g 行：UserStore 全量用户的 Roles 字段展开（subject→角色绑定）。
+//
+// 返回 csv 文本注入 contrib casbin。空库 → 空 csv → casbin 默认拒绝（fail-closed），
+// 即「无策略时全部请求 403」——授权不因缺数据而放开。
+func loadPolicyCSV(ctx context.Context) (string, error) {
+	policies, _, err := RolePolicyStore.List(ctx, &store.Where{})
+	if err != nil {
+		return "", fmt.Errorf("bootstrap: load role policies: %w", err)
+	}
+	users, _, err := UserStore.List(ctx, &store.Where{})
+	if err != nil {
+		return "", fmt.Errorf("bootstrap: load users for policy: %w", err)
+	}
+	var sb strings.Builder
+	for _, p := range policies {
+		fmt.Fprintf(&sb, "p, %s, %s, %s\n", p.Role, p.Object, p.Action)
+	}
+	for _, u := range users {
+		for _, r := range u.RolesList() {
+			fmt.Fprintf(&sb, "g, %s, %s\n", u.ID, r)
+		}
+	}
+	return sb.String(), nil
+}
+
+// loadRBACMaps 已从 bootstrap 移除（M6.1）：RBAC 策略改由 casbin 桥接加载；
+// T3 起进一步数据化——p 行 RolePolicy 表、g 行 User.Roles（见 loadPolicyCSV）。

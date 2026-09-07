@@ -1,0 +1,238 @@
+syntax = "proto3";
+
+package go.bald.admin.dict.v1;
+
+option go_package = "github.com/kalandramo/bald/examples/go-bald-admin/api/gen/dict/v1;dictv1";
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+
+// DictTypeService 字典类型管理（T4，自 go-wind-admin dict 域 sys_dict_types 精简移植）。
+//
+// 字典是租户级业务数据（源 mixin TenantID）：查询自动经 P8 隔离，ListEntries 的
+// Cache-Aside 键含租户维度（dict biz）。type_code 即主键（源 immutable），仅
+// 展示属性可更新；删除类型级联删除其全部条目并失效对应缓存。
+service DictTypeService {
+  // GetDictType 取字典类型。
+  //   REST: GET /v1/dict_type/{id}
+  // 单数路径段与 DefaultGRPCObject("DictTypeService/...")="dict_type" 同源（P9）。
+  rpc GetDictType(GetDictTypeRequest) returns (GetDictTypeResponse) {
+    option (google.api.http) = {
+      get: "/v1/dict_type/{id}"
+    };
+  }
+
+  // ListDictTypes 列出调用方租户的字典类型（SortOrder 升序）。
+  //   REST: GET /v1/dict_type
+  rpc ListDictTypes(ListDictTypesRequest) returns (ListDictTypesResponse) {
+    option (google.api.http) = {
+      get: "/v1/dict_type"
+    };
+  }
+
+  // CreateDictType 创建字典类型（ID 即类型编码；默认启用）。
+  //   REST: POST /v1/dict_type
+  rpc CreateDictType(CreateDictTypeRequest) returns (CreateDictTypeResponse) {
+    option (google.api.http) = {
+      post: "/v1/dict_type"
+      body: "*"
+    };
+  }
+
+  // UpdateDictType 更新字典类型（空值字段不改；type_code 不可变）。
+  //   REST: PUT /v1/dict_type/{id}
+  rpc UpdateDictType(UpdateDictTypeRequest) returns (UpdateDictTypeResponse) {
+    option (google.api.http) = {
+      put: "/v1/dict_type/{id}"
+      body: "*"
+    };
+  }
+
+  // DeleteDictType 删除字典类型（级联删除其全部条目 + 失效缓存）。
+  //   REST: DELETE /v1/dict_type/{id}
+  rpc DeleteDictType(DeleteDictTypeRequest) returns (DeleteDictTypeResponse) {
+    option (google.api.http) = {
+      delete: "/v1/dict_type/{id}"
+    };
+  }
+}
+
+// DictEntryService 字典项管理。条目挂在类型下（type_code 引用），业务键
+// "<type_code>:<entry_value>"；ListEntries 是 Cache-Aside 的消费点。
+service DictEntryService {
+  // GetDictEntry 取字典项。
+  //   REST: GET /v1/dict_entry/{id}
+  rpc GetDictEntry(GetDictEntryRequest) returns (GetDictEntryResponse) {
+    option (google.api.http) = {
+      get: "/v1/dict_entry/{id}"
+    };
+  }
+
+  // ListDictEntries 列出字典项（SortOrder 升序）。type_code 非空时走 Cache-Aside
+  // （键含租户，未命中回填）；空则全量直连（跨类型聚合不缓存）。
+  //   REST: GET /v1/dict_entry?type_code=gender
+  rpc ListDictEntries(ListDictEntriesRequest) returns (ListDictEntriesResponse) {
+    option (google.api.http) = {
+      get: "/v1/dict_entry"
+    };
+  }
+
+  // CreateDictEntry 创建字典项（校验类型存在；type_code:value 组合唯一）。
+  //   REST: POST /v1/dict_entry
+  rpc CreateDictEntry(CreateDictEntryRequest) returns (CreateDictEntryResponse) {
+    option (google.api.http) = {
+      post: "/v1/dict_entry"
+      body: "*"
+    };
+  }
+
+  // UpdateDictEntry 更新字典项展示属性（type_code/value 业务键不可变）。
+  //   REST: PUT /v1/dict_entry/{id}
+  rpc UpdateDictEntry(UpdateDictEntryRequest) returns (UpdateDictEntryResponse) {
+    option (google.api.http) = {
+      put: "/v1/dict_entry/{id}"
+      body: "*"
+    };
+  }
+
+  // DeleteDictEntry 删除字典项。
+  //   REST: DELETE /v1/dict_entry/{id}
+  rpc DeleteDictEntry(DeleteDictEntryRequest) returns (DeleteDictEntryResponse) {
+    option (google.api.http) = {
+      delete: "/v1/dict_entry/{id}"
+    };
+  }
+}
+
+// DictType 字典类型。ID 即类型编码（如 "gender"）。
+message DictType {
+  string id = 1;        // 类型编码（主键，源 type_code）
+  string type_name = 2; // 显示名称
+  int32 sort_order = 3; // 展示顺序（源 sort_order）
+  bool enabled = 4;     // 启用（源 IsEnabled）
+  string remark = 5;
+
+  google.protobuf.Timestamp created_at = 100;
+  google.protobuf.Timestamp updated_at = 101;
+}
+
+// DictEntry 字典项。Label 内联源 sys_dict_entry_i18n 的 zh 条目（i18n 表按
+// 移植计划 §2.2 多语言后续迭代不移植）。
+message DictEntry {
+  string id = 1;               // 业务键 "<type_code>:<entry_value>"
+  string type_code = 2;        // 所属类型编码（源 type_id FK 精简为编码引用）
+  string value = 3;            // 条目实际值（源 entry_value）
+  string label = 4;            // 显示标签
+  optional int32 numeric = 5;  // 数值型值（可空，源 numeric_value）
+  int32 sort_order = 6;
+  bool enabled = 7;
+  string remark = 8;
+
+  google.protobuf.Timestamp created_at = 100;
+  google.protobuf.Timestamp updated_at = 101;
+}
+
+message GetDictTypeRequest {
+  string id = 1; // 类型编码
+}
+
+message GetDictTypeResponse {
+  DictType dict_type = 1;
+}
+
+message ListDictTypesRequest {
+  // 精简为全量列表（租户过滤自动），分页列入后续迭代。
+}
+
+message ListDictTypesResponse {
+  repeated DictType items = 1;
+  uint32 total = 2; // uint32 避免 proto3 JSON int64 字符串化
+}
+
+message CreateDictTypeRequest {
+  string id = 1;        // 类型编码（客户端指定，租户内唯一）
+  string type_name = 2;
+  int32 sort_order = 3;
+  string remark = 4;
+}
+
+message CreateDictTypeResponse {
+  DictType dict_type = 1;
+}
+
+message UpdateDictTypeRequest {
+  string id = 1;                 // 类型编码（定位）
+  string type_name = 2;          // 空 = 不改
+  int32 sort_order = 3;          // 见 sort_order_set
+  bool sort_order_set = 4;       // true 时才改（0 是合法序号）
+  bool enabled = 5;              // 见 enabled_set
+  bool enabled_set = 6;          // true 时才改（false 是合法状态）
+  string remark = 7;             // 空 = 不改
+}
+
+message UpdateDictTypeResponse {
+  DictType dict_type = 1;
+}
+
+message DeleteDictTypeRequest {
+  string id = 1; // 类型编码
+}
+
+message DeleteDictTypeResponse {
+  string deleted = 1; // 被删除的类型编码
+}
+
+message GetDictEntryRequest {
+  string id = 1; // 业务键 "<type_code>:<entry_value>"
+}
+
+message GetDictEntryResponse {
+  DictEntry dict_entry = 1;
+}
+
+message ListDictEntriesRequest {
+  // 非空 = 该类型下的条目（Cache-Aside）；空 = 全量直连。
+  string type_code = 1;
+}
+
+message ListDictEntriesResponse {
+  repeated DictEntry items = 1;
+  uint32 total = 2;
+}
+
+message CreateDictEntryRequest {
+  string type_code = 1; // 所属类型（须已存在）
+  string value = 2;     // 条目实际值（同类型内唯一）
+  string label = 3;     // 显示标签
+  optional int32 numeric = 4; // 数值型值（可空）
+  int32 sort_order = 5;
+  string remark = 6;
+}
+
+message CreateDictEntryResponse {
+  DictEntry dict_entry = 1;
+}
+
+message UpdateDictEntryRequest {
+  string id = 1;               // 业务键（定位）
+  string label = 2;            // 空 = 不改
+  optional int32 numeric = 3;  // 见 numeric_set
+  bool numeric_set = 4;        // true 时才改（含「改回空值」）
+  int32 sort_order = 5;
+  bool sort_order_set = 6;
+  bool enabled = 7;
+  bool enabled_set = 8;
+  string remark = 9;           // 空 = 不改
+}
+
+message UpdateDictEntryResponse {
+  DictEntry dict_entry = 1;
+}
+
+message DeleteDictEntryRequest {
+  string id = 1; // 业务键 "<type_code>:<entry_value>"
+}
+
+message DeleteDictEntryResponse {
+  string deleted = 1; // 被删除的业务键
+}

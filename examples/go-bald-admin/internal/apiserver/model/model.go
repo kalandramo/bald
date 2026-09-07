@@ -5,7 +5,10 @@
 // baldgorm.toColumn 默认 snake_case 映射为列名（ID->id, TenantID->tenant_id）。
 package model
 
-import "strings"
+import (
+	"strings"
+	"time"
+)
 
 // User 系统用户。Roles 以逗号分隔存储角色名（MVP 简化，避免独立关联表）。
 type User struct {
@@ -14,6 +17,25 @@ type User struct {
 	PasswordHash string // bcrypt 哈希（M3 起，MVP 明文阶段已废弃）
 	TenantID     string `gorm:"index"`
 	Roles        string // 逗号分隔角色名，如 "admin" 或 "viewer"
+	// 时间戳由 GORM 约定自动维护（CreatedAt 插入、UpdatedAt 每次更新）；T2 起对外暴露。
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+// Tenant 业务租户（T2，自 go-wind-admin sys_tenants 精简移植，见移植计划 §6 D2）。
+// ID 即租户编码（如 "platform"、"t-acme"），与 bald P8 的 tenant_id 同一命名空间：
+// 业务租户创建后即可作为 users/secrets 等业务表的隔离维度值使用。
+//
+// 刻意不设 TenantID 字段——本表是「租户即业务实体」的平台侧管理面：P8 的写注入
+// （injectWriteTenant 对无 TenantID 字段实体静默跳过）与读过滤（查询不调 Where.T）
+// 都天然不作用于它；全量读写即平台语义（源项目 PlatformTenantID=0 等价物）。
+type Tenant struct {
+	ID        string `gorm:"primaryKey"` // 租户编码（= P8 tenant_id）
+	Name      string // 展示名
+	Status    string // "ON"/"OFF"/"FREEZE"（源 sys_tenants.status 精简）
+	Remark    string
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // Role 角色到权限点的映射。Perms 以逗号分隔存储 "object:action" 权限点。
@@ -29,6 +51,88 @@ type Secret struct {
 	Name     string // 展示名（如 "数据库口令"）
 	Content  string // 机密内容（明文存储于演示库；生产应加密/KMS）
 	TenantID string `gorm:"index"`
+}
+
+// Menu 菜单节点（T3，自 go-wind-admin sys_menus 精简移植）。自引用树：ParentID
+// 空串 = 根节点（源 parent_id=0 语义——uint32 零值做不了"未设置"，string 空
+// 串天然区分）。本表是平台侧管理面（无 TenantID 字段，P8 不作用于它，全量读写
+// 即平台语义，同 Tenant 表）。
+type Menu struct {
+	ID        string `gorm:"primaryKey"` // 菜单 ID（语义编码，如 "menu-system"）
+	ParentID  string `gorm:"index"`      // 父节点 ID（空 = 根）
+	Type      string // "CATALOG"/"MENU"/"BUTTON"（源 menu.type 精简）
+	Name      string // 路由名
+	Path      string // 路由路径（BUTTON 时存数据操作名）
+	Component string // 前端组件
+	Title     string // 展示标题（源 meta.title）
+	Icon      string // 图标（源 meta.icon）
+	Order     int32  // 展示顺序（源 meta.order，越小越前）
+	Status    string // "ON"/"OFF"（源 SwitchStatus 精简）
+	Remark    string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+
+	// Children 是树构建的内存嵌套（ListMenus 树形态）；非列，GORM 忽略。
+	Children []*Menu `gorm:"-"`
+}
+
+// Permission 权限点注册表（T3，源 sys_permissions + sys_permission_menus 精简）。
+// ID 即权限码（P9 归一化 "object:action"，与 Role.Perms 同命名空间）；MenuIDs
+// 内联权限点→菜单可见性关联（源独立关联表，CSV 精简——同 User.Roles 简化范式）。
+type Permission struct {
+	ID        string `gorm:"primaryKey"` // 权限码（如 "tenant:list"）
+	Name      string // 权限名称
+	MenuIDs   string // 逗号分隔菜单 ID（源 permission_menu 关联内联）
+	Remark    string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+// RolePolicy 角色策略行（T3，casbin p 行的数据化持久层）。替代 M6.1 静态
+// rbac_policy.csv（D3 策略数据化装载）：装载时全表读出拼 csv 注入 contrib
+// casbin，行格式 `p, <role>, <object>, <action>`；g 行（subject→角色）由
+// User.Roles 装载，不落本表。主键 = "role:object:action" 业务键（仓库统一
+// string 主键范式，Create 冲突即重复策略天然防重）。源 sys_role_permissions
+// 的 effect/priority 未消费（源项目同样未用），精简掉。
+type RolePolicy struct {
+	ID     string `gorm:"primaryKey"` // 业务键 "role:object:action"
+	Role   string `gorm:"index"`      // 角色（casbin subject）
+	Object string // P9 归一化资源名（如 "tenant"）
+	Action string // 动作（get/list/write/delete）
+}
+
+// DictType 字典类型（T4，自 go-wind-admin sys_dict_types 精简移植）。ID 即类型
+// 编码（源 type_code，immutable 语义——业务键做主键，同 Menu/Permission 范式）。
+// 带 TenantID 字段：字典是租户级业务数据（源 mixin TenantID），P8 自动隔离；
+// Cache-Aside 键亦含租户维度（dict biz）。
+type DictType struct {
+	ID        string `gorm:"primaryKey"` // 类型编码（如 "gender"）
+	TenantID  string `gorm:"index"`
+	TypeName  string // 显示名称（源 type_name）
+	SortOrder int32  // 展示顺序（源 sort_order）
+	Enabled   bool   // 启用（源 IsEnabled mixin）
+	Remark    string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+// DictEntry 字典项（T4，自 go-wind-admin sys_dict_entries 精简移植）。主键 =
+// "<type_code>:<entry_value>" 业务键（同 RolePolicy 范式：Create 冲突即条目重复，
+// 源「同租户同类型 entry_value 唯一」约束的等价实现——type_code/value 不可变，
+// Update 仅改展示属性）。Label 内联源 sys_dict_entry_i18n 的 zh 条目（i18n 表按
+// §2.2 多语言后续迭代不移植）；Numeric 对应源 numeric_value 可空数值。
+type DictEntry struct {
+	ID        string `gorm:"primaryKey"` // 业务键 "<type_code>:<entry_value>"
+	TenantID  string `gorm:"index"`
+	TypeCode  string `gorm:"index"` // 所属类型编码（源 type_id FK 精简为编码引用）
+	Value     string // 条目实际值（源 entry_value）
+	Label     string // 显示标签（源 i18n zh 内联）
+	Numeric   *int32 // 数值型值（可空，源 numeric_value）
+	SortOrder int32
+	Enabled   bool
+	Remark    string
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // RolesList 解析 Roles 字段为角色名切片。

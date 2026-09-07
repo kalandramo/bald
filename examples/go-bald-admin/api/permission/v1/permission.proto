@@ -1,0 +1,184 @@
+syntax = "proto3";
+
+package go.bald.admin.permission.v1;
+
+option go_package = "github.com/kalandramo/bald/examples/go-bald-admin/api/gen/permission/v1;permissionv1";
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+
+// PermissionService 权限管理服务（T3，自 go-wind-admin permission 域精简移植）。
+//
+// 两块职责：
+//   1. 权限点注册表（Permission）：权限码 → 名称/菜单可见性关联
+//      （源 sys_permissions + sys_permission_menus 精简——关联内联为 MenuIDs CSV）；
+//   2. 角色策略（RolePolicy）：casbin p 行（role,object,action）的数据化持久层，
+//      替代 M6.1 的静态 rbac_policy.csv（D3 策略数据化装载，重启生效）。
+// 管理面操作仅授予 admin 角色（策略本身也数据化于 RolePolicy 表）。
+service PermissionService {
+  // GetPermission 取权限点。
+  //   REST: GET /v1/permission/{id}
+  // 单数路径段与 DefaultGRPCObject("PermissionService/...")="permission" 同源（P9）。
+  rpc GetPermission(GetPermissionRequest) returns (GetPermissionResponse) {
+    option (google.api.http) = {
+      get: "/v1/permission/{id}"
+    };
+  }
+
+  // ListPermissions 列出权限点。
+  //   REST: GET /v1/permission
+  rpc ListPermissions(ListPermissionsRequest) returns (ListPermissionsResponse) {
+    option (google.api.http) = {
+      get: "/v1/permission"
+    };
+  }
+
+  // CreatePermission 创建权限点（ID 即权限码，如 "tenant:list"）。
+  //   REST: POST /v1/permission
+  rpc CreatePermission(CreatePermissionRequest) returns (CreatePermissionResponse) {
+    option (google.api.http) = {
+      post: "/v1/permission"
+      body: "*"
+    };
+  }
+
+  // UpdatePermission 更新权限点（空值字段不改）。
+  //   REST: PUT /v1/permission/{id}
+  rpc UpdatePermission(UpdatePermissionRequest) returns (UpdatePermissionResponse) {
+    option (google.api.http) = {
+      put: "/v1/permission/{id}"
+      body: "*"
+    };
+  }
+
+  // DeletePermission 删除权限点（仅元数据；不联动 Role.Perms/RolePolicy）。
+  //   REST: DELETE /v1/permission/{id}
+  rpc DeletePermission(DeletePermissionRequest) returns (DeletePermissionResponse) {
+    option (google.api.http) = {
+      delete: "/v1/permission/{id}"
+    };
+  }
+
+  // ListRolePolicies 列出角色策略（casbin p 行全量）。
+  //   REST: GET /v1/permission/policy
+  rpc ListRolePolicies(ListRolePoliciesRequest) returns (ListRolePoliciesResponse) {
+    option (google.api.http) = {
+      get: "/v1/permission/policy"
+    };
+  }
+
+  // CreateRolePolicy 新增角色策略行（重启后经数据化装载生效；本子集不做运行期热重载）。
+  //   REST: POST /v1/permission/policy
+  rpc CreateRolePolicy(CreateRolePolicyRequest) returns (CreateRolePolicyResponse) {
+    option (google.api.http) = {
+      post: "/v1/permission/policy"
+      body: "*"
+    };
+  }
+
+  // DeleteRolePolicy 删除角色策略行（同上，重启生效）。
+  //   REST: DELETE /v1/permission/policy/{id}
+  rpc DeleteRolePolicy(DeleteRolePolicyRequest) returns (DeleteRolePolicyResponse) {
+    option (google.api.http) = {
+      delete: "/v1/permission/policy/{id}"
+    };
+  }
+}
+
+// Permission 权限点（注册表）。ID 即权限码（P9 归一化的 "object:action"，如
+// "tenant:list"），与 Role.Perms（CSV 角色权限绑定）同命名空间；MenuIDs 是该
+// 权限点对应的可见菜单（源 sys_permission_menus 关联表的内联精简）。
+message Permission {
+  string id = 1;        // 权限码（主键，如 "tenant:list"）
+  string name = 2;      // 权限名称（如 "列出租户"）
+  repeated string menu_ids = 3; // 可见菜单 ID（源 permission_menu 关联）
+  string remark = 4;
+
+  google.protobuf.Timestamp created_at = 100; // 创建时间
+  google.protobuf.Timestamp updated_at = 101; // 更新时间
+}
+
+message GetPermissionRequest {
+  string id = 1; // 权限码
+}
+
+message GetPermissionResponse {
+  Permission permission = 1;
+}
+
+message ListPermissionsRequest {
+  // 精简为全量列表，分页列入后续迭代。
+}
+
+message ListPermissionsResponse {
+  repeated Permission items = 1;
+  uint32 total = 2; // uint32 避免 proto3 JSON int64 字符串化
+}
+
+message CreatePermissionRequest {
+  string id = 1;                // 权限码（客户端指定，唯一键）
+  string name = 2;
+  repeated string menu_ids = 3;
+  string remark = 4;
+}
+
+message CreatePermissionResponse {
+  Permission permission = 1;
+}
+
+message UpdatePermissionRequest {
+  string id = 1;                       // 权限码（定位）
+  string name = 2;                     // 空 = 不改
+  repeated string menu_ids = 3;        // 见 menu_ids_set
+  bool menu_ids_set = 4;               // true 时才改（空数组是合法值=清空关联）
+  string remark = 5;                   // 空 = 不改
+}
+
+message UpdatePermissionResponse {
+  Permission permission = 1;
+}
+
+message DeletePermissionRequest {
+  string id = 1; // 权限码
+}
+
+message DeletePermissionResponse {
+  string deleted = 1; // 被删除的权限码
+}
+
+// RolePolicy 角色策略行（casbin p 行的数据化形态，源 sys_role_permissions 的
+// 精简等价物——bald 用 P9 归一化 object:action 而非源 path/method/domain）。
+message RolePolicy {
+  string id = 1;     // 行 ID（业务键 "role:object:action"）
+  string role = 2;   // 角色（casbin subject，如 "admin"）
+  string object = 3; // 资源对象（P9 归一化，如 "tenant"）
+  string action = 4; // 动作（get/list/write/delete）
+}
+
+message ListRolePoliciesRequest {
+  // 可按 role 过滤（空 = 全量）。
+  string role = 1;
+}
+
+message ListRolePoliciesResponse {
+  repeated RolePolicy items = 1;
+  uint32 total = 2;
+}
+
+message CreateRolePolicyRequest {
+  string role = 1;
+  string object = 2;
+  string action = 3;
+}
+
+message CreateRolePolicyResponse {
+  RolePolicy policy = 1;
+}
+
+message DeleteRolePolicyRequest {
+  string id = 1; // 策略行 ID（业务键 "role:object:action"）
+}
+
+message DeleteRolePolicyResponse {
+  string deleted = 1; // 被删除的策略行 ID
+}

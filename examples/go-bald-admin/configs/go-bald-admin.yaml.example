@@ -1,0 +1,34 @@
+server:
+  http: { addr: ":8080" }
+  grpc:  { addr: ":9090" }
+gateway: { addr: ":8081" }
+log: { level: "info", format: "json" }
+audit: { backends: "store,stream" }   # Redis 可用才含 stream
+
+# ---- T0 新增：真实服务依赖（云端地址由用户填写）----
+database:
+  sql:
+    driver: "postgres"
+    source: "host=<PG_HOST> port=5432 user=<PG_USER> password=<PG_PASSWORD> dbname=<PG_DB> sslmode=disable"
+    migrate: true
+cache:
+  redis:
+    addr: "<REDIS_HOST>:6379"
+    password: "<REDIS_PASSWORD>"   # 无密码留空
+    db: 0
+storage:
+  minio:
+    endpoint: "<MINIO_HOST>:9000"
+    access_key: "<MINIO_ACCESS_KEY>"
+    secret_key: "<MINIO_SECRET_KEY>"
+    use_ssl: false
+registry:
+  type: "nacos"
+  nacos:
+    server_addrs: ["<NACOS_HOST>:8848"]
+    namespace: "<NAMESPACE>"       # 可留空
+    group: "<GROUP>"               # 可留空
+
+# ---- 业务自持段（storage.minio 契约无 bucket 字段，file 模块自持）----
+file:
+  bucket: "bald-admin"

@@ -19,14 +19,19 @@ import (
 
 // SecretBiz Secret 业务服务。
 type SecretBiz struct {
-	store *store.Store[authmodel.Secret]
 	cache *rediscache.Cache // 可选；nil/禁用时直连 store（M6.2 Cache-Aside）
 }
 
-// New 构造 SecretBiz。注意：依赖经参数注入（M6.4 将由 wire 生成装配图）。
+// New 构造 SecretBiz。注意：store 依赖不在构造期快照——wire 的 InitializeBiz 在
+// main 构造期执行，彼时 InitBridges 尚未赋值 bootstrappkg.SecretStore，构造期快照
+// 会把 nil 固化进 Biz（Get/Delete 即 nil panic，与 Signer 时序错位同款）；仓储改由
+// 请求期经 store() 读取最新值（与 auth biz 直读包级变量同范式）。
 func New(cache *rediscache.Cache) *SecretBiz {
-	return &SecretBiz{store: bootstrappkg.SecretStore, cache: cache}
+	return &SecretBiz{cache: cache}
 }
+
+// store 请求期解析仓储（读 bootstrap 包级桥接最新值）。
+func (b *SecretBiz) store() *store.Store[authmodel.Secret] { return bootstrappkg.SecretStore }
 
 // Item 是单个 Secret 的展示结构（供 handler 序列化）。
 type Item struct {
@@ -44,7 +49,7 @@ func (b *SecretBiz) Get(ctx context.Context, id string) (*Item, error) {
 	tenant := contextx.TenantIDFromContext(ctx)
 
 	loader := func(c context.Context) (string, error) {
-		s, err := b.store.Get(c, w.T(c))
+		s, err := b.store().Get(c, w.T(c))
 		if err != nil {
 			return "", fmt.Errorf("secret.Get(%s): %w", id, err)
 		}
@@ -74,7 +79,7 @@ func (b *SecretBiz) Get(ctx context.Context, id string) (*Item, error) {
 
 // List 列出调用方租户下的全部 Secret。
 func (b *SecretBiz) List(ctx context.Context) ([]*Item, error) {
-	ss, _, err := b.store.List(ctx, (&store.Where{}).T(ctx))
+	ss, _, err := b.store().List(ctx, (&store.Where{}).T(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("secret.List: %w", err)
 	}
@@ -93,10 +98,10 @@ func (b *SecretBiz) Delete(ctx context.Context, id string) (bool, error) {
 	w = w.T(ctx)
 
 	// 先确认存在（命中租户隔离），不存在按 NotFound 处理。
-	if _, err := b.store.Get(ctx, w); err != nil {
+	if _, err := b.store().Get(ctx, w); err != nil {
 		return false, fmt.Errorf("secret.Delete(%s): %w", id, err)
 	}
-	if err := b.store.Delete(ctx, w); err != nil {
+	if err := b.store().Delete(ctx, w); err != nil {
 		return false, fmt.Errorf("secret.Delete(%s): %w", id, err)
 	}
 	if b.cache != nil {
