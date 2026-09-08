@@ -29,8 +29,10 @@ func bindPB(c *gingonic.Context, req proto.Message) error {
 }
 
 // writePB 按 proto3 JSON 规范写出响应（与 grpc-gateway 转码结果一致）。
+// UseProtoNames 输出 proto 字段原名（snake_case，如 created_at）：前端 types/api.ts
+// 全部按 snake_case 建模，protojson 默认 camelCase（createdAt）会导致字段静默错位。
 func writePB(c *gingonic.Context, code int, msg proto.Message) {
-	b, err := protojson.Marshal(msg)
+	b, err := protojson.MarshalOptions{UseProtoNames: true}.Marshal(msg)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gingonic.H{"error": err.Error()})
 		return

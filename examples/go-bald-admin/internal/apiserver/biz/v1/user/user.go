@@ -7,6 +7,7 @@ package user
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"golang.org/x/crypto/bcrypt"
@@ -17,6 +18,11 @@ import (
 	bootstrappkg "github.com/kalandramo/bald/examples/go-bald-admin/internal/bootstrap"
 	"github.com/kalandramo/bald/pkg/store"
 )
+
+// usernamePattern 用户名格式约束：3-32 位英文字母/数字/下划线。设计约定：用户名
+// 是登录标识符，仅允许英文字符（中文展示名场景后续由昵称承载）；前端表单同规则
+// 双重拦截，后端为准（绕过前端直调 API 仍被拒）。
+var usernamePattern = regexp.MustCompile(`^[a-zA-Z0-9_]{3,32}$`)
 
 // Biz 用户管理业务。仓储经 store() 请求期读取（wire 构造期 bootstrap.UserStore
 // 尚未初始化——构造期快照会把 nil 固化进来，见 SecretBiz 同款时序约定）。
@@ -52,6 +58,9 @@ func (b *Biz) Create(ctx context.Context, id, username string, roles []string, p
 	if id == "" || username == "" || password == "" {
 		return nil, berrors.BadRequest("user.Create: id, username and password are required")
 	}
+	if !usernamePattern.MatchString(username) {
+		return nil, berrors.BadRequest("user.Create: username must be 3-32 characters of letters, digits or underscore")
+	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return nil, fmt.Errorf("user.Create(%s): %w", id, err)
@@ -78,6 +87,9 @@ func (b *Biz) Update(ctx context.Context, id, username string, roles []string, p
 		return nil, fmt.Errorf("user.Update(%s): %w", id, err)
 	}
 	if username != "" {
+		if !usernamePattern.MatchString(username) {
+			return nil, berrors.BadRequest("user.Update: username must be 3-32 characters of letters, digits or underscore")
+		}
 		u.Username = username
 	}
 	if roles != nil {

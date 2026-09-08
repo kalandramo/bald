@@ -40,18 +40,21 @@ type Credential struct {
 }
 
 // TokenPair 登录成功后签发的令牌对。
+// json tag 必备：HTTP handler 直接 c.JSON 序列化本结构（非 proto 消息不走
+// writePB），无 tag 会按 Go 导出名输出（{"AccessToken":...}），前端取
+// access_token 得 undefined，后续请求携带 "Bearer undefined" 触发 JWT 解析错。
 type TokenPair struct {
-	AccessToken string
-	ExpiresAt   int64 // unix 秒
+	AccessToken string `json:"access_token"`
+	ExpiresAt   int64  `json:"expires_at"` // unix 秒
 }
 
 // UserInfo 当前登录用户信息（WhoAmI 返回）。
 type UserInfo struct {
-	Username  string
-	UserID    string
-	TenantID  string
-	Roles     []string
-	TokenType string // 如 "Bearer"
+	Username  string   `json:"username"`
+	UserID    string   `json:"user_id"`
+	TenantID  string   `json:"tenant_id"`
+	Roles     []string `json:"roles"`
+	TokenType string   `json:"token_type"` // 如 "Bearer"
 }
 
 // Biz 认证业务。
