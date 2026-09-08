@@ -10,11 +10,12 @@ package grpc
 import (
 	"context"
 
-	"github.com/kalandramo/bald/pkg/authn"
 	berrors "github.com/kalandramo/bald/berrors"
+	"github.com/kalandramo/bald/pkg/authn"
 	"github.com/kalandramo/bald/pkg/store"
 
 	adminv1 "github.com/kalandramo/bald/examples/go-bald-admin/api/gen/secret/v1"
+	secretbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/secret"
 
 	bootstrappkg "github.com/kalandramo/bald/examples/go-bald-admin/internal/bootstrap"
 )
@@ -25,10 +26,13 @@ import (
 // missing method mustEmbedUnimplementedSecretServiceServer）。
 type secretService struct {
 	adminv1.UnimplementedSecretServiceServer
+	biz *secretbiz.SecretBiz // 删除经 biz 落 store（§0：禁止占位式桥接）
 }
 
-// NewServer 构造 SecretServiceServer 实现（供 register 回调使用）。
-func NewServer() adminv1.SecretServiceServer { return &secretService{} }
+// NewServer 构造 SecretServiceServer 实现（biz 由 wire 装配注入）。
+func NewServer(biz *secretbiz.SecretBiz) adminv1.SecretServiceServer {
+	return &secretService{biz: biz}
+}
 
 func (s *secretService) GetSecret(ctx context.Context, req *adminv1.GetSecretRequest) (*adminv1.GetSecretResponse, error) {
 	claims := authn.AuthClaimsFromContext(ctx)
@@ -47,5 +51,13 @@ func (s *secretService) GetSecret(ctx context.Context, req *adminv1.GetSecretReq
 }
 
 func (s *secretService) DeleteSecret(ctx context.Context, req *adminv1.DeleteSecretRequest) (*adminv1.DeleteSecretResponse, error) {
+	// 真实删除（与 gin 侧 DELETE /v1/secret/:id 同一 biz 语义）：存在性确认 +
+	// store 删除 + Cache-Aside 失效，租户隔离由 Where.T 自动完成。此前此处是
+	// 占位返回（CR 审查 §0 违例）：gateway 转码的 DELETE /v1/secrets/{id} 曾
+	// 全部假成功——数据原封不动却返回 200。
+	ok, err := s.biz.Delete(ctx, req.GetId())
+	if err != nil || !ok {
+		return nil, berrors.NotFound("secret")
+	}
 	return &adminv1.DeleteSecretResponse{Deleted: req.GetId()}, nil
 }

@@ -9,6 +9,8 @@ import (
 	"context"
 	"fmt"
 
+	berrors "github.com/kalandramo/bald/berrors"
+
 	authmodel "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/model"
 	bootstrappkg "github.com/kalandramo/bald/examples/go-bald-admin/internal/bootstrap"
 	"github.com/kalandramo/bald/pkg/store"
@@ -46,7 +48,7 @@ func (b *Biz) List(ctx context.Context) ([]*authmodel.Tenant, error) {
 // Create 创建租户。编码即主键（客户端指定），冲突返回 ErrConflict。
 func (b *Biz) Create(ctx context.Context, id, name, remark string) (*authmodel.Tenant, error) {
 	if id == "" || name == "" {
-		return nil, fmt.Errorf("tenant.Create: id and name are required")
+		return nil, berrors.BadRequest("tenant.Create: id and name are required")
 	}
 	t := &authmodel.Tenant{ID: id, Name: name, Status: "ON", Remark: remark}
 	if err := b.store().Create(ctx, t); err != nil {
@@ -72,7 +74,7 @@ func (b *Biz) Update(ctx context.Context, id, name, status, remark string) (*aut
 		case "ON", "OFF", "FREEZE":
 			t.Status = status
 		default:
-			return nil, fmt.Errorf("tenant.Update(%s): invalid status %q", id, status)
+			return nil, berrors.BadRequest(fmt.Sprintf("tenant.Update(%s): invalid status %q", id, status))
 		}
 	}
 	if remark != "" {
@@ -88,7 +90,7 @@ func (b *Biz) Update(ctx context.Context, id, name, status, remark string) (*aut
 // 平台租户（platform）为保护对象，拒绝删除。
 func (b *Biz) Delete(ctx context.Context, id string) (bool, error) {
 	if id == "platform" {
-		return false, fmt.Errorf("tenant.Delete(%s): platform tenant is protected", id)
+		return false, berrors.FailedPrecondition("tenant.Delete: platform tenant is protected")
 	}
 	w := &store.Where{}
 	w.Filters = append(w.Filters, store.Eq("id", id))

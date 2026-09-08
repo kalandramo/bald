@@ -16,15 +16,17 @@ import (
 
 	"github.com/kalandramo/bald/pkg/authz"
 
-	"github.com/kalandramo/bald/pkg/authn"
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
+	"github.com/kalandramo/bald/pkg/authn"
 	grpcmw "github.com/kalandramo/bald/pkg/middleware/grpc"
-	grpcserver "github.com/kalandramo/bald/transport/grpc"
 	gateway "github.com/kalandramo/bald/transport/gateway"
+	grpcserver "github.com/kalandramo/bald/transport/grpc"
 
 	adminv1 "github.com/kalandramo/bald/examples/go-bald-admin/api/gen/secret/v1"
 	userv1 "github.com/kalandramo/bald/examples/go-bald-admin/api/gen/user/v1"
+	secretbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/secret"
 	userbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/user"
+	authmodel "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/model"
 	bootstrappkg "github.com/kalandramo/bald/examples/go-bald-admin/internal/bootstrap"
 )
 
@@ -59,7 +61,7 @@ func startServer(t *testing.T) (*grpcserver.GRPCServer, string) {
 			grpc.ChainUnaryInterceptor(grpcmw.ErrorInterceptor(), authnI, authzI),
 		},
 		func(s *grpc.Server) {
-			adminv1.RegisterSecretServiceServer(s, NewServer())
+			adminv1.RegisterSecretServiceServer(s, NewServer(secretbiz.New(nil)))
 			userv1.RegisterUserServiceServer(s, NewUserServer(userbiz.New()))
 		},
 		nil,
@@ -92,24 +94,24 @@ func token(t *testing.T, username, userID, role, tenantID string) string {
 	return tok
 }
 
-func callGet(t *testing.T, conn *grpc.ClientConn, tok string) error {
+func callGet(t *testing.T, conn *grpc.ClientConn, tok, id string) error {
 	t.Helper()
 	ctx := context.Background()
 	if tok != "" {
 		ctx = metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+tok)
 	}
 	resp := new(adminv1.GetSecretResponse)
-	return conn.Invoke(ctx, "/go.bald.admin.v1.SecretService/GetSecret", &adminv1.GetSecretRequest{Id: "s-db-pwd"}, resp)
+	return conn.Invoke(ctx, "/go.bald.admin.v1.SecretService/GetSecret", &adminv1.GetSecretRequest{Id: id}, resp)
 }
 
-func callDelete(t *testing.T, conn *grpc.ClientConn, tok string) error {
+func callDelete(t *testing.T, conn *grpc.ClientConn, tok, id string) error {
 	t.Helper()
 	ctx := context.Background()
 	if tok != "" {
 		ctx = metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+tok)
 	}
 	resp := new(adminv1.DeleteSecretResponse)
-	return conn.Invoke(ctx, "/go.bald.admin.v1.SecretService/DeleteSecret", &adminv1.DeleteSecretRequest{Id: "s-db-pwd"}, resp)
+	return conn.Invoke(ctx, "/go.bald.admin.v1.SecretService/DeleteSecret", &adminv1.DeleteSecretRequest{Id: id}, resp)
 }
 
 // TestGRPCTransport_NoToken 真实传输：无 token 调 GetSecret 应 Unauthenticated。
@@ -119,24 +121,39 @@ func TestGRPCTransport_NoToken(t *testing.T) {
 	conn := dial(t, addr)
 	defer conn.Close()
 
-	if err := callGet(t, conn, ""); statusCode(t, err) != "Unauthenticated" {
+	if err := callGet(t, conn, "", "s-db-pwd"); statusCode(t, err) != "Unauthenticated" {
 		t.Fatalf("want Unauthenticated, got %v", err)
 	}
 }
 
-// TestGRPCTransport_Admin_OK 真实传输：admin 调 Get/Delete 均成功。
+// TestGRPCTransport_Admin_OK 真实传输：admin 删除后 secret 真正从 store 消失。
+// 自建专属资源（与 gin 侧 TestDeleteSecret_RealDelete 同范式，shuffle 无共享写污染），
+// 锁定 gRPC DeleteSecret 不再是占位返回（CR 修复：gateway 转码删除曾全部假成功）。
 func TestGRPCTransport_Admin_OK(t *testing.T) {
 	srv, addr := startServer(t)
 	defer srv.Stop(context.Background())
 	conn := dial(t, addr)
 	defer conn.Close()
 
+	own := &authmodel.Secret{ID: "s-grpc-del-temp", Name: "待删资源", Content: "x", TenantID: "t-default"}
+	if err := bootstrappkg.SecretStore.Create(context.Background(), own); err != nil {
+		t.Fatalf("seed temp secret: %v", err)
+	}
+
 	tok := token(t, "admin", "u-admin", "admin", "t-default")
-	if err := callGet(t, conn, tok); err != nil {
+	if err := callGet(t, conn, tok, "s-grpc-del-temp"); err != nil {
 		t.Fatalf("admin GetSecret: want ok, got %v", err)
 	}
-	if err := callDelete(t, conn, tok); err != nil {
+	if err := callDelete(t, conn, tok, "s-grpc-del-temp"); err != nil {
 		t.Fatalf("admin DeleteSecret: want ok, got %v", err)
+	}
+	// 删除后 Get 应 NotFound（真实落库删除，而非占位成功）。
+	if err := callGet(t, conn, tok, "s-grpc-del-temp"); statusCode(t, err) != "NotFound" {
+		t.Fatalf("admin GetSecret after delete: want NotFound, got %v", err)
+	}
+	// 幂等：再删同一条应 NotFound。
+	if err := callDelete(t, conn, tok, "s-grpc-del-temp"); statusCode(t, err) != "NotFound" {
+		t.Fatalf("admin DeleteSecret again: want NotFound, got %v", err)
 	}
 }
 
@@ -148,10 +165,10 @@ func TestGRPCTransport_Viewer_DeleteForbidden(t *testing.T) {
 	defer conn.Close()
 
 	tok := token(t, "alice", "u-alice", "viewer", "t-default")
-	if err := callGet(t, conn, tok); err != nil {
+	if err := callGet(t, conn, tok, "s-db-pwd"); err != nil {
 		t.Fatalf("viewer GetSecret: want ok, got %v", err)
 	}
-	if err := callDelete(t, conn, tok); statusCode(t, err) != "PermissionDenied" {
+	if err := callDelete(t, conn, tok, "s-db-pwd"); statusCode(t, err) != "PermissionDenied" {
 		t.Fatalf("viewer DeleteSecret: want PermissionDenied, got %v", err)
 	}
 }
@@ -239,7 +256,7 @@ func TestRESTGateway_MultiTenant_Isolation(t *testing.T) {
 		&bootstrapv1.Server_Grpc{Addr: grpcAddr},
 		[]grpc.ServerOption{grpc.ChainUnaryInterceptor(grpcmw.ErrorInterceptor(), authnI, authzI)},
 		func(s *grpc.Server) {
-			adminv1.RegisterSecretServiceServer(s, NewServer())
+			adminv1.RegisterSecretServiceServer(s, NewServer(secretbiz.New(nil)))
 			userv1.RegisterUserServiceServer(s, NewUserServer(userbiz.New()))
 		},
 		nil,

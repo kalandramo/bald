@@ -75,7 +75,7 @@ func RegisterDict(
 		}
 		t, err := biz.CreateType(c.Request.Context(), req.GetId(), req.GetTypeName(), req.GetSortOrder(), req.GetRemark())
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gingonic.H{"error": err.Error()})
+			writeBizErr(c, err) // 校验→400、业务键冲突→409、内部→500
 			return
 		}
 		writePB(c, http.StatusCreated, &dictv1.CreateDictTypeResponse{DictType: toDictTypePB(t)})
@@ -100,7 +100,11 @@ func RegisterDict(
 
 	authed.DELETE("/dict_type/:id", authzMW, func(c *gingonic.Context) {
 		deleted, err := biz.DeleteType(c.Request.Context(), c.Param("id"))
-		if err != nil || deleted == 0 {
+		if err != nil {
+			writeBizErr(c, err) // NotFound→404、级联/内部→500
+			return
+		}
+		if deleted == 0 {
 			c.JSON(http.StatusNotFound, gingonic.H{"error": "dict type not found"})
 			return
 		}
@@ -110,7 +114,7 @@ func RegisterDict(
 	authed.GET("/dict_entry", authzMW, func(c *gingonic.Context) {
 		es, total, err := biz.ListEntries(c.Request.Context(), c.Query("type_code"))
 		if err != nil {
-			c.JSON(http.StatusNotFound, gingonic.H{"error": err.Error()})
+			writeBizErr(c, err) // 类型不存在→404、内部→500（此前一刀切折叠 404）
 			return
 		}
 		items := make([]*dictv1.DictEntry, 0, len(es))
@@ -138,7 +142,7 @@ func RegisterDict(
 		e, err := biz.CreateEntry(c.Request.Context(), req.GetTypeCode(), req.GetValue(),
 			req.GetLabel(), req.Numeric, req.GetSortOrder(), req.GetRemark())
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gingonic.H{"error": err.Error()})
+			writeBizErr(c, err) // 校验/类型不存在→400/404、业务键冲突→409
 			return
 		}
 		writePB(c, http.StatusCreated, &dictv1.CreateDictEntryResponse{DictEntry: toDictEntryPB(e)})
@@ -156,7 +160,7 @@ func RegisterDict(
 			req.GetSortOrder(), req.GetSortOrderSet(),
 			req.GetEnabled(), req.GetEnabledSet(), req.GetRemark())
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gingonic.H{"error": err.Error()})
+			writeBizErr(c, err) // NotFound→404、内部→500（不再折叠 400）
 			return
 		}
 		writePB(c, http.StatusOK, &dictv1.UpdateDictEntryResponse{DictEntry: toDictEntryPB(e)})
@@ -164,7 +168,11 @@ func RegisterDict(
 
 	authed.DELETE("/dict_entry/:id", authzMW, func(c *gingonic.Context) {
 		ok, err := biz.DeleteEntry(c.Request.Context(), c.Param("id"))
-		if err != nil || !ok {
+		if err != nil {
+			writeBizErr(c, err) // NotFound→404、内部→500
+			return
+		}
+		if !ok {
 			c.JSON(http.StatusNotFound, gingonic.H{"error": "dict entry not found"})
 			return
 		}

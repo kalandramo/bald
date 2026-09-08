@@ -55,14 +55,18 @@ func (s *userService) CreateUser(ctx context.Context, req *userv1.CreateUserRequ
 func (s *userService) UpdateUser(ctx context.Context, req *userv1.UpdateUserRequest) (*userv1.UpdateUserResponse, error) {
 	u, err := s.biz.Update(ctx, req.GetId(), req.GetUsername(), req.GetRoles(), req.GetPassword())
 	if err != nil {
-		return nil, berrors.NotFound("user")
+		// 此前一刀切折叠 NotFound，掩盖内部错误——仅 store 未命中归 NotFound。
+		return nil, notFoundOr(err, "user")
 	}
 	return &userv1.UpdateUserResponse{User: toUserPBGRPC(u)}, nil
 }
 
 func (s *userService) DeleteUser(ctx context.Context, req *userv1.DeleteUserRequest) (*userv1.DeleteUserResponse, error) {
 	ok, err := s.biz.Delete(ctx, req.GetId())
-	if err != nil || !ok {
+	if err != nil {
+		return nil, notFoundOr(err, "user")
+	}
+	if !ok {
 		return nil, berrors.NotFound("user")
 	}
 	return &userv1.DeleteUserResponse{Deleted: req.GetId()}, nil

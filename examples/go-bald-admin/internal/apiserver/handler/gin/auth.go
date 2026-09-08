@@ -6,6 +6,7 @@
 package gin
 
 import (
+	"errors"
 	"net/http"
 
 	gingonic "github.com/gin-gonic/gin"
@@ -40,7 +41,13 @@ func RegisterAuth(
 		cred.UserAgent = c.Request.UserAgent()
 		pair, err := biz.Login(c.Request.Context(), cred)
 		if err != nil {
-			c.JSON(http.StatusUnauthorized, gingonic.H{"error": err.Error()})
+			// 仅凭据错误归 401；查询/签发等内部错误归 500——此前一刀切 401 会把
+			// DB 故障伪装成"密码错误"，误导排障与前端提示。
+			if errors.Is(err, authbiz.ErrBadCredential) {
+				c.JSON(http.StatusUnauthorized, gingonic.H{"error": err.Error()})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gingonic.H{"error": err.Error()})
 			return
 		}
 		c.JSON(http.StatusOK, pair)
@@ -69,7 +76,7 @@ func RegisterAuth(
 		// M6.3：经真实 DAL 读取，自动受 ctx 租户隔离约束；越权跨租户检索被 store 拦为 404。
 		item, err := secretBiz.Get(c.Request.Context(), c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusNotFound, gingonic.H{"error": "secret not found"})
+			writeBizErr(c, err) // NotFound→404（含跨租户）、缓存/内部→500
 			return
 		}
 		c.JSON(http.StatusOK, item)
@@ -80,7 +87,7 @@ func RegisterAuth(
 		// 跨租户/不存在返回 404（与 Get 一致）。
 		ok, err := secretBiz.Delete(c.Request.Context(), c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusNotFound, gingonic.H{"error": "secret not found"})
+			writeBizErr(c, err) // NotFound→404、内部→500
 			return
 		}
 		if !ok {

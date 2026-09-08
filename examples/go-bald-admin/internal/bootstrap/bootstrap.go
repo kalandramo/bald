@@ -40,12 +40,6 @@ import (
 	casbinauthz "github.com/kalandramo/bald/examples/go-bald-admin/internal/security/casbin"
 )
 
-// JWTSecret 是 M1 范本的 HMAC 对称密钥（兼容保留）。
-// 生产应走非对称（私钥签发 / 公钥验签）或 KMS，不应保存在进程内存常量。
-// 自 M6.5 起范例默认采用 RSA 非对称：签发方持私钥、验证方只持公钥，
-// 见 Signer / Authenticator 两个独立实例。
-const JWTSecret = "demo-secret-change-me-in-prod"
-
 // Authenticator 登录令牌校验器（来自 bald-authn-jwt，公钥验签实例）。
 // 注入 gin/grpc 认证拦截器，仅持 RSA 公钥——无法伪造 token。
 var Authenticator authn.Authenticator
@@ -149,10 +143,14 @@ var FileStore *store.Store[authmodel.File]
 var AuditStore *store.Store[authmodel.AuditRecord]
 
 // InitBridges 初始化认证/授权/存储桥接。
-// 幂等：已初始化（Authenticator 非 nil）则直接返回，避免重复生成 RSA 密钥对
-// 导致签发方与验签方密钥不一致（非对称下每次生成新密钥对，重复初始化会破坏闭环）。
+// 幂等：已完整初始化（DB 与 Authenticator 均非 nil）则直接返回，避免重复生成
+// RSA 密钥对导致签发方与验签方密钥不一致（非对称下每次生成新密钥对，重复初始化
+// 会破坏闭环）。判据必须是「装配完成」而非「步骤 1 已执行」：Authenticator 在
+// openDB/seed 之前置位，若中途失败（如 DB 不可达）后重入，旧判据会直接返回 nil，
+// 而 DB/stores 仍为 nil——下游 NPE；失败路径重入重新生成密钥对无害（彼时未对外
+// 服务过任何 token）。
 func InitBridges(ctx context.Context) error {
-	if Authenticator != nil {
+	if DB != nil && Authenticator != nil {
 		return nil
 	}
 	// 1) Authenticator（bald-authn-jwt，RSA 非对称）。

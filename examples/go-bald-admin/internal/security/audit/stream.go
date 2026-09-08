@@ -3,11 +3,12 @@ package audit
 import (
 	"context"
 	"encoding/json"
+	"sync"
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/kalandramo/bald/pkg/audit"
 	"github.com/kalandramo/bald/log"
+	"github.com/kalandramo/bald/pkg/audit"
 )
 
 // StreamAuditor 把审计事件发布到 Redis Stream（消息总线语义，M9 延伸异步后端）。
@@ -18,11 +19,12 @@ import (
 // stream；chan 满或发布失败降级到 fallback（默认 LoggerAuditor），绝不阻塞请求链路——
 // 强化 M7「审计旁路不阻断」原则。
 type StreamAuditor struct {
-	rdb      *redis.Client
-	stream   string
-	fallback audit.Auditor
-	ch       chan audit.AuditEvent
-	stop     chan struct{}
+	rdb       *redis.Client
+	stream    string
+	fallback  audit.Auditor
+	ch        chan audit.AuditEvent
+	stop      chan struct{}
+	closeOnce sync.Once
 }
 
 // NewStream 构造 Redis Stream 审计后端并启动后台发布 goroutine；rdb 为 nil 返回 nil（调用方跳过）。
@@ -89,7 +91,31 @@ func (a *StreamAuditor) Record(ctx context.Context, ev audit.AuditEvent) {
 
 // Stop 停止后台 goroutine（进程退出时调用，flush 剩余缓冲由调用方保证已 drain，此处仅退出）。
 func (a *StreamAuditor) Stop() {
-	close(a.stop)
+	a.closeOnce.Do(func() {
+		close(a.stop)
+	})
+}
+
+// Close 停止后台 goroutine 并尽力 drain 剩余缓冲事件（发布失败的降级 fallback，
+// 语义与后台消费一致）。供审计后端组件的 Dispose 调用——audit.backends 热切换
+// unmount 时不再泄漏 goroutine，也不丢弃已入队事件（此前全仓库仅测试调过 Stop，
+// 缓冲内事件被静默丢弃，违背审计留痕初衷）。幂等（sync.Once 防重复 close panic）。
+func (a *StreamAuditor) Close() {
+	a.Stop()
+	// 与后台 goroutine 并发取 chan 安全：每条事件至多被一方取出，不丢不重。
+	for {
+		select {
+		case ev := <-a.ch:
+			if err := a.publish(context.Background(), ev); err != nil {
+				log.GetLogger().Warn(context.Background(), "audit stream drain publish failed", "error", err.Error())
+				if a.fallback != nil {
+					a.fallback.Record(context.Background(), ev)
+				}
+			}
+		default:
+			return
+		}
+	}
 }
 
 // compile-time 断言 StreamAuditor 实现 audit.Auditor。

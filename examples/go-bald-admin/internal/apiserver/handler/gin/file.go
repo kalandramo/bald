@@ -20,6 +20,7 @@ import (
 	"github.com/kalandramo/bald/pkg/authn"
 	"github.com/kalandramo/bald/pkg/authz"
 	mid "github.com/kalandramo/bald/pkg/middleware/gin"
+	"github.com/kalandramo/bald/pkg/store"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	filev1 "github.com/kalandramo/bald/examples/go-bald-admin/api/gen/file/v1"
@@ -48,9 +49,18 @@ func RegisterFile(
 	)
 
 	authed.POST("/file/upload", authzMW, func(c *gingonic.Context) {
+		// 请求体硬上限（含 chunked 传输）：biz 的 MaxUploadSize 校验在整包读入
+		// 之后，恶意大包会先吃满内存/临时盘；multipart 头声明的 part 大小经
+		// fh.Size 预检提前拒绝，MaxBytesReader 兜底无 Content-Length 的流式场景
+		//（余量容纳 multipart boundary 等框架开销）。
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, filebiz.MaxUploadSize+1<<20)
 		fh, err := c.FormFile("file")
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gingonic.H{"error": "missing multipart form field \"file\""})
+			return
+		}
+		if fh.Size > filebiz.MaxUploadSize {
+			c.JSON(http.StatusRequestEntityTooLarge, gingonic.H{"error": "file exceeds 50MiB limit"})
 			return
 		}
 		f, err := fh.Open()
@@ -120,14 +130,23 @@ func RegisterFile(
 	})
 }
 
-// writeBizErr 统一 biz 错误 → HTTP 状态码（berrors code 与 gRPC 侧同语义）。
+// writeBizErr 统一 biz 错误 → HTTP 状态码（三层判定）：
+//   - berrors.Error → httperr.CodeToHTTP（code 语义与 gRPC 侧一致）；
+//   - store.ErrNotFound / ErrConflict 哨兵（biz 经 fmt.Errorf %w 包装，errors.Is
+//     可穿透多层）→ 404 / 409；
+//   - 其余 → 500（内部错误不得吞成 4xx，误导排障）。
 func writeBizErr(c *gingonic.Context, err error) {
-	code := http.StatusInternalServerError
 	var be *berrors.Error
-	if errors.As(err, &be) {
-		code = httperr.CodeToHTTP(be.Code)
+	switch {
+	case errors.As(err, &be):
+		c.JSON(httperr.CodeToHTTP(be.Code), gingonic.H{"error": err.Error()})
+	case errors.Is(err, store.ErrNotFound):
+		c.JSON(http.StatusNotFound, gingonic.H{"error": err.Error()})
+	case errors.Is(err, store.ErrConflict):
+		c.JSON(http.StatusConflict, gingonic.H{"error": err.Error()})
+	default:
+		c.JSON(http.StatusInternalServerError, gingonic.H{"error": err.Error()})
 	}
-	c.JSON(code, gingonic.H{"error": err.Error()})
 }
 
 // toFilePB 模型 → proto（gin 侧；Size 用 uint32 直传避免 JSON 字符串化）。

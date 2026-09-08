@@ -61,14 +61,19 @@ func (s *tenantService) UpdateTenant(ctx context.Context, req *tenantv1.UpdateTe
 	}
 	t, err := s.biz.Update(ctx, req.GetId(), req.GetName(), status, req.GetRemark())
 	if err != nil {
-		return nil, berrors.NotFound("tenant")
+		// 此前一刀切折叠 NotFound，掩盖校验（InvalidArgument）与内部错误——
+		// 仅 store 未命中归 NotFound，其余透传（berrors 由 ErrorInterceptor 收口）。
+		return nil, notFoundOr(err, "tenant")
 	}
 	return &tenantv1.UpdateTenantResponse{Tenant: toTenantPBGRPC(t)}, nil
 }
 
 func (s *tenantService) DeleteTenant(ctx context.Context, req *tenantv1.DeleteTenantRequest) (*tenantv1.DeleteTenantResponse, error) {
 	ok, err := s.biz.Delete(ctx, req.GetId())
-	if err != nil || !ok {
+	if err != nil {
+		return nil, notFoundOr(err, "tenant") // platform 保护（FailedPrecondition）等不再伪装 NotFound
+	}
+	if !ok {
 		return nil, berrors.NotFound("tenant")
 	}
 	return &tenantv1.DeleteTenantResponse{Deleted: req.GetId()}, nil

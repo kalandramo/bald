@@ -89,6 +89,22 @@ func (b *Biz) Update(ctx context.Context, id, parentID, typ, name, path, compone
 		if _, err := b.Get(ctx, parentID); err != nil {
 			return nil, fmt.Errorf("menu.Update(%s): parent %s: %w", id, parentID, err)
 		}
+		// 环检测：沿候选父节点的祖先链上溯，回到自身即拒绝（此前仅防 self-parent，
+		// menu-a→menu-b→menu-a 成环后两节点从 buildTree 的根可达集中静默消失——
+		// 数据在库而 API 不可达）。全表读出建索引后 O(链长) 判定。
+		all, _, err := b.store().List(ctx, &store.Where{})
+		if err != nil {
+			return nil, fmt.Errorf("menu.Update(%s): %w", id, err)
+		}
+		byID := make(map[string]*authmodel.Menu, len(all))
+		for _, n := range all {
+			byID[n.ID] = n
+		}
+		for cur := byID[parentID]; cur != nil && cur.ParentID != ""; cur = byID[cur.ParentID] {
+			if cur.ParentID == id {
+				return nil, fmt.Errorf("menu.Update(%s): parent %s would form a cycle", id, parentID)
+			}
+		}
 		m.ParentID = parentID
 	}
 	if typ != "" {

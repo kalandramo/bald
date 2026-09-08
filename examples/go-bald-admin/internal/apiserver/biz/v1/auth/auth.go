@@ -25,6 +25,11 @@ import (
 // ErrBadCredential 凭据错误。
 var ErrBadCredential = errors.New("auth: invalid username or password")
 
+// dummyHash 进程启动时预生成一次的 bcrypt 哈希：用户不存在路径做等代价比较，
+// 抹平「用户存在与否」的响应时序差（防用户名枚举侧信道）——存在路径每次都跑
+// bcrypt 比较，不存在路径若直接返回会快出数量级。
+var dummyHash, _ = bcrypt.GenerateFromPassword([]byte("timing-equalizer"), bcrypt.DefaultCost)
+
 // Credential 登录凭据。ClientIP/UserAgent 由 handler 层从协议请求提取传入
 // （T6 登录审计落库用；biz 层保持协议无关）。
 type Credential struct {
@@ -69,6 +74,7 @@ func (b *Biz) Login(ctx context.Context, c Credential) (*TokenPair, error) {
 	})
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
+			_ = bcrypt.CompareHashAndPassword(dummyHash, []byte(c.Password)) // 等代价比较，见 dummyHash 注释
 			auditLogin(ctx, c, "", audit.ResultDeny, "invalid credentials")
 			return nil, ErrBadCredential
 		}

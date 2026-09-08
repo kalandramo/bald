@@ -154,10 +154,11 @@ func serveRunE(_ *cobra.Command, _ []string) error {
 	registerAdminRoutes(router, appRef, componentFactories)                                                                                                             // M10.2 管理面（appRef 迟到绑定）
 	httpSrv := httpserver.NewHTTPServer(bootstrap.GetServer().GetHttp(), router, ready)
 
-	// T2：gRPC service 注册回调捕获 wire 装配的 biz（tenant/user handler 需 biz 注入；
-	// secret handler 无 biz 依赖保持独立构造）。闭包取代原包级 var（bizSet 是局部变量）。
+	// T2：gRPC service 注册回调捕获 wire 装配的 biz（全部 service 需 biz 注入）。
+	// 闭包取代原包级 var（bizSet 是局部变量）。secret 的 DeleteSecret 同经 biz
+	// 真实删除（gRPC 直连与 gateway 转码共用），不再是占位返回。
 	registerGRPC := func(s *grpc.Server) {
-		adminv1.RegisterSecretServiceServer(s, secretgrpc.NewServer())
+		adminv1.RegisterSecretServiceServer(s, secretgrpc.NewServer(bizSet.Secret))
 		tenantv1.RegisterTenantServiceServer(s, secretgrpc.NewTenantServer(bizSet.Tenant))
 		userv1.RegisterUserServiceServer(s, secretgrpc.NewUserServer(bizSet.User))
 		menuv1.RegisterMenuServiceServer(s, secretgrpc.NewMenuServer(bizSet.Menu))
@@ -324,6 +325,15 @@ func newApp(
 			// T8：文件存储运行期接线——InitializeBiz 构造期值拷贝 bootstrap.MinioStorage
 			// 拿到 nil（InitBridges 尚未执行，§9 真调暴露的 e2e 盲区），桥接装配后补注。
 			bizSet.File.SetStorage(bootstrappkg.MinioStorage, bootstrappkg.FileBucket)
+			// 同款时序：secret/dict 的 Cache-Aside 接入配置驱动的 RedisCache——
+			// cache.redis 段（含 password/db）只流向 bootstrap.RedisCache，wire 的
+			// env 通道（BALD_ADMIN_REDIS_ADDR）拿不到完整参数、对带密码实例 ping
+			// 即失败；不接线则配置驱动运行下缓存静默失效。未配置段时 RedisCache
+			// 为 nil，SetCache 不覆盖，保留 wire env 通道（CI 覆盖手段）。
+			if bootstrappkg.RedisCache != nil {
+				bizSet.Secret.SetCache(bootstrappkg.RedisCache)
+				bizSet.Dict.SetCache(bootstrappkg.RedisCache)
+			}
 			// T7：契约驱动注册中心——registry 段为真相源，type 为空/未注册均
 			// fail-fast（与 FromBootstrap 的 buildRegistrar 同语义），Nacos 不可达
 			// 在此显式报错而非静默降级。注意 cleanup 必须 `=` 赋外层变量，
@@ -398,11 +408,12 @@ func applyAuditors() {
 }
 
 // auditBackendComponent 是一个后端审计器组件：Mount 即把自身审计器注册进全局
-// MultiAuditor，Unmount 即注销。其名 == 后端名（log/store/stream），正是协调器
-// 用于 diff 的标识，与 ReconcileCtx.Mounted() 一一对应。
+// MultiAuditor，Unmount 即注销并收尾后端自身生命周期。其名 == 后端名
+// （log/store/stream），正是协调器用于 diff 的标识，与 ReconcileCtx.Mounted() 一一对应。
 type auditBackendComponent struct {
 	name  string
 	build func() audit.Auditor // 延迟构造：依赖 InitBridges 后的 DB/Redis
+	aud   audit.Auditor        // Start 期构造的实例，Dispose 时按需收尾
 }
 
 func (c *auditBackendComponent) Name() string { return c.name }
@@ -412,6 +423,7 @@ func (c *auditBackendComponent) Start(ctx context.Context) error {
 	if a == nil {
 		return fmt.Errorf("audit backend %q unavailable", c.name)
 	}
+	c.aud = a
 	reconAuditors.mu.Lock()
 	reconAuditors.set[c.name] = a
 	reconAuditors.mu.Unlock()
@@ -425,6 +437,15 @@ func (c *auditBackendComponent) Dispose(ctx context.Context) error {
 	delete(reconAuditors.set, c.name)
 	reconAuditors.mu.Unlock()
 	applyAuditors()
+	// 后端自身生命周期收尾：StreamAuditor 停后台 goroutine 并 drain 剩余缓冲
+	// （Mount/Unmount 由 ReconcileCtx 串行化，无并发写 c.aud；log/store 无
+	// Close 方法则零副作用）。否则 audit.backends 热切换每次泄漏一个 goroutine
+	// + 1024 容量 chan，且已入队事件被静默丢弃。
+	if c.aud != nil {
+		if closer, ok := c.aud.(interface{ Close() }); ok {
+			closer.Close()
+		}
+	}
 	baldlog.GetLogger().Info(ctx, "audit backend unmounted", "backend", c.name)
 	return nil
 }

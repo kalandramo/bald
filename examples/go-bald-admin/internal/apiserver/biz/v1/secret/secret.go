@@ -30,6 +30,16 @@ func New(cache *rediscache.Cache) *SecretBiz {
 	return &SecretBiz{cache: cache}
 }
 
+// SetCache 运行期注入缓存（main.go BeforeStart 在 InitBridges 之后调用）：
+// 配置驱动的 cache.redis 段（含 password/db）只流向 bootstrap.RedisCache，
+// wire 的 env 通道（BALD_ADMIN_REDIS_ADDR）拿不到完整参数；构造期值拷贝又会把
+// nil/禁用态固化（与 file Biz 的 SetStorage 同款时序）。nil 不覆盖（保留 env 通道）。
+func (b *SecretBiz) SetCache(c *rediscache.Cache) {
+	if c != nil {
+		b.cache = c
+	}
+}
+
 // store 请求期解析仓储（读 bootstrap 包级桥接最新值）。
 func (b *SecretBiz) store() *store.Store[authmodel.Secret] { return bootstrappkg.SecretStore }
 

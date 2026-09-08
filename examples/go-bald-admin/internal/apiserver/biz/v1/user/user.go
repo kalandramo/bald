@@ -11,6 +11,8 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
+	berrors "github.com/kalandramo/bald/berrors"
+
 	authmodel "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/model"
 	bootstrappkg "github.com/kalandramo/bald/examples/go-bald-admin/internal/bootstrap"
 	"github.com/kalandramo/bald/pkg/store"
@@ -48,7 +50,7 @@ func (b *Biz) List(ctx context.Context) ([]*authmodel.User, error) {
 // Create 创建用户（自动归属 ctx 租户）。密码 bcrypt 存储，不回显。
 func (b *Biz) Create(ctx context.Context, id, username string, roles []string, password string) (*authmodel.User, error) {
 	if id == "" || username == "" || password == "" {
-		return nil, fmt.Errorf("user.Create: id, username and password are required")
+		return nil, berrors.BadRequest("user.Create: id, username and password are required")
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {

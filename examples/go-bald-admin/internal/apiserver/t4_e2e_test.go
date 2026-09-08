@@ -24,8 +24,8 @@ import (
 
 	rediscache "github.com/kalandramo/bald-cache-redis"
 	dictv1 "github.com/kalandramo/bald/examples/go-bald-admin/api/gen/dict/v1"
-	authbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/auth"
 	auditlogbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/auditlog"
+	authbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/auth"
 	dictbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/dict"
 	filebiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/file"
 	menubiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/menu"
@@ -96,14 +96,15 @@ func TestDictREST_TypeLifecycle(t *testing.T) {
 		}
 	}
 
-	// 2. 创建 → 重复创建 400（业务键租户内唯一）。
+	// 2. 创建 → 重复创建 409（业务键租户内唯一；store.ErrConflict → Conflict，
+	//    此前 handler 一刀切 400，错误映射统一后回归 REST 惯例语义）。
 	if code, _ = callDictType(t, base, tok, http.MethodPost, "/v1/dict_type",
 		map[string]any{"id": "priority", "type_name": "优先级", "sort_order": 4}); code != http.StatusCreated {
 		t.Fatalf("create type status=%d", code)
 	}
 	if code, _ = callDictType(t, base, tok, http.MethodPost, "/v1/dict_type",
-		map[string]any{"id": "priority"}); code != http.StatusBadRequest {
-		t.Fatalf("duplicate type must 400, got %d", code)
+		map[string]any{"id": "priority"}); code != http.StatusConflict {
+		t.Fatalf("duplicate type must 409, got %d", code)
 	}
 
 	// 3. 更新：改名称 + 显式停用（enabled_set 位语义）。
@@ -143,15 +144,16 @@ func TestDictREST_EntryLifecycleAndCache(t *testing.T) {
 	ctx := context.Background()
 	ck := rediscache.Key("dict:entries", "t-default", "gender") // 租户维度键
 
-	// 1. 创建条目（numeric 演示，sort_order=4 落尾）→ 重复 400（type_code:value 业务键唯一）。
+	// 1. 创建条目（numeric 演示，sort_order=4 落尾）→ 重复 409（type_code:value 业务键唯一，
+	//    错误映射统一后 store.ErrConflict → 409）。
 	num := 9
 	if code, _ := callDictEntry(t, base, tok, http.MethodPost, "/v1/dict_entry",
 		map[string]any{"type_code": "gender", "value": "custom", "label": "自定义", "numeric": num, "sort_order": 4}); code != http.StatusCreated {
 		t.Fatalf("create entry status=%d", code)
 	}
 	if code, _ := callDictEntry(t, base, tok, http.MethodPost, "/v1/dict_entry",
-		map[string]any{"type_code": "gender", "value": "custom", "label": "dup"}); code != http.StatusBadRequest {
-		t.Fatalf("duplicate entry must 400, got %d", code)
+		map[string]any{"type_code": "gender", "value": "custom", "label": "dup"}); code != http.StatusConflict {
+		t.Fatalf("duplicate entry must 409, got %d", code)
 	}
 
 	// 2. 首次读：未命中经 loader 回填 → 4 条（3 种子 + 1 新建）且排序正确。

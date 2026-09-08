@@ -52,7 +52,7 @@ func RegisterUser(
 	authed.GET("/user/:id", authzMW, func(c *gingonic.Context) {
 		u, err := biz.Get(c.Request.Context(), c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusNotFound, gingonic.H{"error": "user not found"})
+			writeBizErr(c, err) // NotFound→404、内部→500
 			return
 		}
 		writePB(c, http.StatusOK, &userv1.GetUserResponse{User: toUserPB(u)})
@@ -66,7 +66,7 @@ func RegisterUser(
 		}
 		u, err := biz.Create(c.Request.Context(), req.GetId(), req.GetUsername(), req.GetRoles(), req.GetPassword())
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gingonic.H{"error": err.Error()})
+			writeBizErr(c, err) // 校验→400、ID 冲突→409、内部→500
 			return
 		}
 		writePB(c, http.StatusCreated, &userv1.CreateUserResponse{User: toUserPB(u)})
@@ -80,7 +80,7 @@ func RegisterUser(
 		}
 		u, err := biz.Update(c.Request.Context(), c.Param("id"), req.GetUsername(), req.GetRoles(), req.GetPassword())
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gingonic.H{"error": err.Error()})
+			writeBizErr(c, err) // 此前 NotFound/内部错误一律折叠 400
 			return
 		}
 		writePB(c, http.StatusOK, &userv1.UpdateUserResponse{User: toUserPB(u)})
@@ -89,7 +89,7 @@ func RegisterUser(
 	authed.DELETE("/user/:id", authzMW, func(c *gingonic.Context) {
 		ok, err := biz.Delete(c.Request.Context(), c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusNotFound, gingonic.H{"error": "user not found"})
+			writeBizErr(c, err) // NotFound→404、内部→500
 			return
 		}
 		if !ok {

@@ -54,7 +54,7 @@ func RegisterTenant(
 	authed.GET("/tenant/:id", authzMW, func(c *gingonic.Context) {
 		t, err := biz.Get(c.Request.Context(), c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusNotFound, gingonic.H{"error": "tenant not found"})
+			writeBizErr(c, err) // NotFound→404、内部→500（不再一刀切折叠）
 			return
 		}
 		writePB(c, http.StatusOK, &tenantv1.GetTenantResponse{Tenant: toTenantPB(t)})
@@ -68,7 +68,7 @@ func RegisterTenant(
 		}
 		t, err := biz.Create(c.Request.Context(), req.GetId(), req.GetName(), req.GetRemark())
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gingonic.H{"error": err.Error()})
+			writeBizErr(c, err) // 校验→400、编码冲突→409、内部→500
 			return
 		}
 		writePB(c, http.StatusCreated, &tenantv1.CreateTenantResponse{Tenant: toTenantPB(t)})
@@ -88,7 +88,7 @@ func RegisterTenant(
 		t, err := biz.Update(c.Request.Context(), c.Param("id"),
 			req.GetName(), status, req.GetRemark())
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gingonic.H{"error": err.Error()})
+			writeBizErr(c, err) // 此前 NotFound/冲突/内部错误一律折叠 400
 			return
 		}
 		writePB(c, http.StatusOK, &tenantv1.UpdateTenantResponse{Tenant: toTenantPB(t)})
@@ -97,7 +97,7 @@ func RegisterTenant(
 	authed.DELETE("/tenant/:id", authzMW, func(c *gingonic.Context) {
 		ok, err := biz.Delete(c.Request.Context(), c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gingonic.H{"error": err.Error()})
+			writeBizErr(c, err) // platform 保护→400、NotFound→404、内部→500
 			return
 		}
 		if !ok {
