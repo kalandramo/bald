@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"google.golang.org/grpc"
 
@@ -177,7 +178,10 @@ func TestAuditInterceptor_MetricsEmitted(t *testing.T) {
 		AuditWithActionResolver(authz.DefaultGRPCAction),
 	)
 	// 核心单测不涉及 Authz，handler 成功返回 → 审计 allow + 指标 result=allow。
+	// handler 睡 1ms：duration 正性断言在 Windows 粗粒度时钟下，零耗时 handler 的
+	// time.Since 可能取整为 0（存量 flaky，本机全包跑必现、单跑偶现）。
 	if _, err := inter(context.Background(), nil, info, func(context.Context, any) (any, error) {
+		time.Sleep(time.Millisecond)
 		return "ok", nil
 	}); err != nil {
 		t.Fatalf("handler should pass through, got %v", err)
