@@ -27,11 +27,6 @@ import (
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
-
-	// SQLite 用纯 Go driver（glebarez，modernc 内核）：本机/CI 无 gcc 环境零 CGO 依赖；
-	// 与 gorm.io/driver/sqlite（cgo）API 兼容，Open 签名一致。
-	"github.com/glebarez/sqlite"
 
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
 	miniooss "github.com/kalandramo/bald/oss/minio"
@@ -485,50 +480,30 @@ func seedPolicies(ctx context.Context) error {
 	return nil
 }
 
-// openDB 打开应用主库。DSN 来源优先级：
-//  1. env BALD_ADMIN_DB_DSN（CI/运维覆盖手段，URL 形式按 scheme 分流）；
-//  2. 配置段 database.sql（driver 字段显式分流——key=value 形式 DSN 无 scheme）；
-//  3. 皆空 → SQLite 内存库（M2，零外部依赖，便于 e2e）。
-//
-// driver/scheme 分流：postgres(/ql) → gorm.io/driver/postgres；mysql → gorm.io/driver/mysql；
-// sqlite(3)/file → SQLite。
+// 注册外部 SQL 后端的 gorm dialector（注册制：未 import 的后端不进依赖树，
+// 与 contrib/registry 同模式；sqlite 由 contrib/store-gorm 预注册为缺省引擎，
+// 纯 Go driver 零 CGO——本机/CI 无 gcc 环境可跑）。
+func init() {
+	baldgorm.RegisterDialector("postgres", postgres.Open)
+	baldgorm.RegisterDialector("postgresql", postgres.Open)
+	baldgorm.RegisterDialector("mysql", mysql.Open)
+}
+
+// openDB 打开应用主库（装配逻辑上提 contrib/store-gorm 的 Open，本函数只保留
+// 应用特有的来源约定）：
+//   - DSN 优先级：env BALD_ADMIN_DB_DSN > 契约段 database.sql > SQLite 内存库
+//     （零外部依赖，便于快速开发与 e2e）；
+//   - 驱动优先级：契约段 driver 字段 > DSN scheme 推断；未注册驱动 fail-fast；
+//   - 契约段连接池参数（max_idle/max_open/lifetime）一并消费。
 //
 // 注意：本函数返回的连接用于 AutoMigrate + seed；多连接场景 SQLite 内存库须用
 // cache=shared 且 keep 一个引用，否则其他连接读到空库。
 func openDB() (*gorm.DB, error) {
-	dsn := os.Getenv("BALD_ADMIN_DB_DSN")
-	driver := ""
-	if dsn == "" {
-		if sqlCfg := depsBootstrap.GetDatabase().GetSql(); sqlCfg != nil && sqlCfg.GetSource() != "" {
-			dsn = sqlCfg.GetSource()
-			driver = sqlCfg.GetDriver()
-		}
+	opts := []baldgorm.Option{baldgorm.WithEnv("BALD_ADMIN_DB_DSN")}
+	if sqlCfg := depsBootstrap.GetDatabase().GetSql(); sqlCfg != nil && sqlCfg.GetSource() != "" {
+		opts = append(opts, baldgorm.WithConfig(sqlCfg))
 	}
-	if dsn == "" {
-		return gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{
-			Logger: logger.Default.LogMode(logger.Silent),
-		})
-	}
-
-	gormCfg := &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)}
-	// driver 字段优先（key=value 形式 DSN 无 scheme，须显式 driver）；
-	// driver 为空回退 DSN scheme 识别（URL 形式 postgres://... 兼容既有 env 行为）。
-	scheme := driver
-	if scheme == "" {
-		scheme = dsnScheme(dsn)
-	}
-	switch scheme {
-	case "postgres", "postgresql":
-		return gorm.Open(postgres.Open(dsn), gormCfg)
-	case "mysql":
-		return gorm.Open(mysql.Open(dsn), gormCfg)
-	case "file", "sqlite", "sqlite3":
-		// 显式 SQLite DSN（如 file::memory:?cache=shared）与默认同形态。
-		return gorm.Open(sqlite.Open(dsn), gormCfg)
-	default:
-		return nil, fmt.Errorf("unsupported database driver %q (dsn scheme %q): "+
-			"only postgres, mysql and sqlite are wired", driver, dsnScheme(dsn))
-	}
+	return baldgorm.Open(opts...)
 }
 
 // resolveRedis 解析 Redis 连接参数：env BALD_ADMIN_REDIS_ADDR 优先（覆盖手段），
@@ -548,20 +523,7 @@ func resolveRedis() (string, []rediscache.Option) {
 	}
 }
 
-// dsnScheme 返回 DSN 的驱动 scheme（用于 openDB 分流）：
-//   - "postgres://..." / "mysql://..." → "postgres" / "mysql"
-//   - "file::memory:?cache=shared"（SQLite）→ "file"
-//   - 裸 "dbname=test sslmode=disable"          → "dbname"
-//
-// 规则：取开头到首个 ':' / ' ' / '=' 之前的片段（最短前缀即 scheme）。
-func dsnScheme(dsn string) string {
-	for i, r := range dsn {
-		if r == ':' || r == ' ' || r == '=' {
-			return dsn[:i]
-		}
-	}
-	return dsn
-}
+// dsnScheme 的解析逻辑已上提 contrib/store-gorm（Open 的 scheme 推断）。
 
 // loadPolicyCSV 从 DB 装载 casbin 策略（D3 策略数据化）：
 //   - p 行：RolePolicy 表全量（role,object,action 三元组）；
