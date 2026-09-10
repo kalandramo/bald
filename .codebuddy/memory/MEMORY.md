@@ -28,7 +28,7 @@ workspace 根是多独立 Go module 集合（非单仓库）：`bald`、`go-lulu
 ## bald 核心设计终态（决策记录）
 - **bconfig**（09-03）：5 能力轴 Reader/Closer/Watcher/ValueWatcher/Decoder；`FallbackReader.WatchValue` 只认 ValueWatcher——注释已诚实声明，见《Bald 配置系统设计.md》§5。
 - **路由/绑定**（08-28 终稿）：pkg/web 强绑 gin（`HandleJSON/Query/Uri/AllRequest[T,R]`，bindPB/writePB protojson）；引擎无关 `pkg/core` 已删；校验用 onexstack `pkg/validation`。文档《路由注册与绑定设计.md》。
-- **错误模型**：`pkg/berrors`（零依赖不可变 Error）+ `berrors/grpcerr`（ToStatus/FromStatus）+ `berrors/httperr`（Code↔HTTP 双向映射）。已 Accepted。**决策⑧（09-10）**：HTTP 错误体 = google.rpc.Status JSON `{"code","message","details":[{reason,metadata}]}` + `httperr.CodeToHTTP` 状态码，与 gateway 转码字节级同形；成功体裸 protojson（UseProtoNames snake_case）；否决 Kratos `{code,data,message}` 信封。落地待办：writeBizErr 提升为 transport/web 框架契约。
+- **错误模型**：`pkg/berrors`（零依赖不可变 Error）+ `berrors/grpcerr`（ToStatus/FromStatus）+ `berrors/httperr`（Code↔HTTP 双向映射）。已 Accepted。**决策⑧（09-10 已落地 `b37ce86`）**：HTTP 错误体 = google.rpc.Status JSON `{"code","message","details":[{"@type","reason","domain","metadata"}]}`，框架出口 `transport/web.ErrorResponse`（+`StatusOf` 单源构造器），与 gateway 转码**字节级同形**（空值语义对齐 protojson ""/{}/[]）；成功体裸 protojson（UseProtoNames snake_case）；否决 Kratos `{code,data,message}` 信封。**规则**：错误串只进 message 不进 reason；gin 面错误一律走 ErrorResponse/bindErr/writeBizErr，禁 c.JSON 直写。遗留：各域 reason 值风格统一、前端 axios 读 message+details[0].reason。
 - **文档体系**：devel=`docs/devel/zh-CN/`（内部设计，决策式）；guide=`docs/guide/zh-CN/`（用户手册）。README.md 维护索引。
 - **日志**：pkg/log 是 slog 适配层；轮转用 lumberjack。slog 路线并入《日志设计.md》§9。observability 中间件用 `pkg/middleware/tracing.go` 的 `LogTraceIDs(ctx)`（SpanContext 无效时随机 hex ID，no-op tracer 不再全零）。
 - **布局判别**：bald 顶层目录（有独立 go.mod）=可独立发布的桥接/插件模块；`pkg/`=根模块核心包；pkg/{audit,authn,authz} 不移根目录。**transport/ 下 17 个子目录各自独立 module**（改依赖要动各自 go.mod）。
