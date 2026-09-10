@@ -55,13 +55,14 @@ workspace 根是多独立 Go module 集合（非单仓库）：`bald`、`go-lulu
 
 ## go-wind-admin 业务移植（示例 go-bald-admin，主计划 T0–T10）
 - 计划文档：`bald/docs/devel/zh-CN/go-wind-admin 业务移植计划.md`（README 已索引）。范围=精选子集 9 项，里程碑 T0–T8 + F1/T10 扩展。**§0 硬性契约：外部依赖禁止 fake/mock/stub、禁止硬编码返回值**。
-- **进度（09-10）**：T0–T4（依赖接通/租户用户/角色权限菜单/字典）、F1（store-gorm Open 装配上提）、T10（目录架构对齐：grpc→handler/grpc、e2e 独立包、BizSet 直传）均已落地；前端 go-bald-admin-web F0–F7 验证完成。T7 Nacos 接线需用户提供 group。
+- **进度（09-10 收官）**：T0–T10 全部落地。T5 buf+REST、T6 成熟库、T7 Nacos（registry 09-08 + config 双通道认证 09-10）、T8 审计+指标（缺省 :9091 根治抢端口）、T9 OTLP 终验（trace Jaeger 闭环 `b8488ab`/`589ada9`；metrics VictoriaMetrics 命中 `3afb0bc`）；F1 store-gorm Open 上提、T10 目录对齐；前端 go-bald-admin-web F0–F7 验证完成。
 - **T2 决策（必守）**：① proto 全收敛 api/（buf 根=api/，生成物 api/gen/<域>/v1/）；② REST 路径单数与 gRPC 归一同源；③ gin handler 用 bindPB/writePB（protojson），禁 c.JSON 直序列化 proto；④ 列表 total 用 uint32。
 - **T3 决策（必守）**：D3 策略数据化（RolePolicy 表，主键 `role:object:action`）；动作六元组 get/post/put/delete/list/write；Menu.ParentID 空串=根；contrib/store-gorm toMapExcludeKey 已修 `gorm:"-"`；contrib/authz-casbin 容错空策略（fail-closed）；e2e 解码 writePB 输出必须用 protojson。
 - **T4 决策（必守）**：DictType.ID=type_code、DictEntry.ID=`<type_code>:<entry_value>`；字典=租户级实体，缓存键 `dict:entries:<tenant>:<typeCode>`；contrib/cache-redis Get 降级语义（Redis 非 Nil 错误→直连 loader）。
 - **时序约定（必守）**：biz 层引用 bootstrap 包级桥接一律请求期读取，禁止 wire 构造期快照（InitializeBiz 先于 InitBridges，快照必 nil）。
 - **git 结构**：示例项目纳入 bald 根仓库（.gitignore 忽略规则已删）；真实凭证 `configs/go-bald-admin.yaml` 不入库，占位模板入库；**go-bald-admin-web 是独立 git 仓库**（根仓库 .gitignore 忽略，提交需进该目录单独做）。
-- **环境事实**：云端 PG 10.82.138.249:31068/db=go-bald-admin、Redis :30967 db8、MinIO 10.82.69.251:30658、Nacos 10.82.130.200:30000；共享 PG 跑 e2e 时数据敏感断言会因历史数据失败（先清库或 stash 对照证明非回归）；metrics 与 gRPC 默认同抢 :9090（运行须 BALD_ADMIN_METRICS_ADDR=:9091）。
+- **环境事实**：云端 PG 10.82.138.249:31068/db=go-bald-admin、Redis :30967 db8、MinIO 10.82.69.251:30658、Nacos 10.82.130.200:30000（config 通道强制鉴权，凭据在 registry/config 契约段，namespace 填命名空间 UUID）；共享 PG 跑 e2e 时数据敏感断言会因历史数据失败（先清库或 stash 对照证明非回归）。
+- **Insight 可观测（09-10 实测）**：collector 入口 10.82.138.249:32414（NodePort 4318 HTTP，trace/metrics 同端口）；traces→collector `otlp/global` 10.82.49.246:4317（Jaeger UI 可查）；metrics→collector `prometheusremotewrite`→insight-agent Prometheus（缓冲）→全局 **VictoriaMetrics**（UI 指标查询数据源）。**查询按 `job` 标签过滤**（OTLP service.name→Prometheus job 转换，按 service_name 过滤=假阴性）；metrics 无 k8s 来源标签（resource processor 只挂 traces）；OTel 指标首次记录才有数据点（不压流量 bald_* 恒空）。
 - 源项目事实：38 service、Ent schema 唯一真源、种子 admin/Abcd@1234（示例项目自定 admin/admin123、alice|bob/alice123）、casbin 从 DB 装载。
 
 ## go-bald-admin（reference example 五支柱闭环，已终态）
