@@ -76,42 +76,20 @@ func serveRunE(_ *cobra.Command, _ []string) error {
 	logOpts := baldlogadapter.NewOptions()
 	setLogger(logOpts)
 
-	// M8/M9 可观测性：初始化 MeterProvider 并启动 /metrics 端点（独立端口，供 Prometheus 抓取）。
-	// M9 延伸 trace OTLP 直推：先设全局 TracerProvider（核心 span 已埋点但默认 no-op，需本步接线）。
-	// 两者均按 BALD_ADMIN_OTLP_ADDR 开关（P11 起实现晋升 contrib bald-observability-otlp，
-	// 环境变量读取上移到本入口）；须在拦截器构建前 Setup，使埋点接入 exporter。
-	otlpAddr := os.Getenv("BALD_ADMIN_OTLP_ADDR")
-	traceShutdown, err := obtrace.Setup(
-		obtrace.WithOTLPAddr(otlpAddr),
-		obtrace.WithServiceName("go-bald-admin"),
-	)
-	if err != nil {
-		return fmt.Errorf("setup trace: %w", err)
-	}
+	// T9 可观测性契约化：OTLP trace + 指标双通道改由 bconf 契约 tracer/metrics 段驱动，
+	// 装配挪至 BeforeStart（配置装载 Unmarshal 之后，见 setupObservability）。
+	// Recorder/span 经 otel 全局 Provider lazy 解析——中间件先行构建不漏采：
+	// Setup 设置全局 Provider 后新请求的埋点即走真后端，且 Servers 监听晚于
+	// BeforeStart，无采样窗口损失。与 T7 registrar 同款「构造期 nil + 运行期接线」模式。
+	obs := &observabilityWiring{}
 	// C1：trace provider 注册为进程内组件（退出时由 appkit 统一逆序 Dispose flush
-	// 尾批 span——此前手工塞 BeforeStop 的 traceShutdownFn 已删除，「忘 flush 丢批」
-	// 从文档知识变成结构保证）。
-	traceComp := appkit.ComponentFunc("trace.provider", traceShutdown)
-
-	metricsAddr := os.Getenv("BALD_ADMIN_METRICS_ADDR")
-	if metricsAddr == "" {
-		// T8 根治：缺省 :9091 与 gRPC(:9090) 错开——此前两者同值仅"巧合"可运行，
-		// gRPC 先抢到 :9090 时 metrics goroutine 只打一条 error 日志（指标静默丢失）。
-		metricsAddr = ":9091"
-	}
-	metricsHandler, err := obmetrics.Setup(
-		obmetrics.WithOTLPAddr(otlpAddr),
-		obmetrics.WithServiceName("go-bald-admin"),
-	)
-	if err != nil {
-		return fmt.Errorf("setup metrics: %w", err)
-	}
-	go func() {
-		mSrv := &http.Server{Addr: metricsAddr, Handler: metricsHandler}
-		if serveErr := mSrv.ListenAndServe(); serveErr != nil && serveErr != http.ErrServerClosed {
-			baldlog.GetLogger().Error(context.Background(), "metrics server stopped", "error", serveErr.Error())
+	// 尾批 span；obs.traceShutdown 在 BeforeStart 装配后才非 nil，未配置段时为 no-op）。
+	traceComp := appkit.ComponentFunc("trace.provider", func(ctx context.Context) error {
+		if obs.traceShutdown != nil {
+			return obs.traceShutdown(ctx)
 		}
-	}()
+		return nil
+	})
 
 	// 1. 业务装配（分层见 internal/apiserver）。M6.4 起由 wire 显式拼装业务对象
 	//    （cache / auth biz / secret biz），编译期依赖图校验；框架桥接仍在 appkit.BeforeStart 注入。
@@ -176,7 +154,7 @@ func serveRunE(_ *cobra.Command, _ []string) error {
 	)
 
 	// 2. 组装 AppKit（含可选 grpc-gateway，见 buildServers）。
-	app := newApp(bootstrap, logOpts, httpSrv, grpcSrv, ready, traceComp, bizSet)
+	app := newApp(bootstrap, logOpts, httpSrv, grpcSrv, ready, traceComp, bizSet, obs)
 	appRef.set(app) // M10.2：管理面 handler 经 appRef 请求期取 AppKit（规避装配时序）
 
 	// 3. 运行。
@@ -241,6 +219,7 @@ func newApp(
 	ready transport.ReadinessFunc,
 	traceComp appkit.Component,
 	bizSet *apiserver.BizSet,
+	obs *observabilityWiring,
 ) *appkit.AppKit {
 	var app *appkit.AppKit
 	// T7：注册中心契约装配（New 构造路径等价于 FromBootstrap 的 buildRegistrar）：
@@ -272,6 +251,15 @@ func newApp(
 		appkit.Effect("appkit:registrar-client", func(context.Context) error {
 			if regCleanup != nil {
 				regCleanup()
+			}
+			return nil
+		}),
+
+		// T9：metrics 暴露端点优雅关闭（BeforeStart setupObservability 装配后激活；
+		// Shutdown 让 in-flight 抓取完成，避免连接被硬切）。
+		appkit.Effect("metrics:server", func(ctx context.Context) error {
+			if obs.metricsSrv != nil {
+				return obs.metricsSrv.Shutdown(ctx)
 			}
 			return nil
 		}),
@@ -314,6 +302,13 @@ func newApp(
 			}
 			// 阶段 B：按最终配置重建 Logger，并装配 bald 桥接（P7/P8/P9 注册点）。
 			setLogger(baldbootstrap.LogOptions(bootstrap.GetLogger()))
+			// T9：契约驱动可观测性（tracer / metrics 段）——trace OTLP 直推 +
+			// 指标双通道（Prometheus 暴露端点 + 可选 OTLP 直推）。须在 Servers
+			// 监听前（BeforeStart 语义保证），段不支持热更新（exporter/Provider
+			// 重建侵入大，与 registry 段同款决策）。
+			if err := setupObservability(bootstrap, obs); err != nil {
+				return fmt.Errorf("setup observability: %w", err)
+			}
 			// T0：注入真实依赖配置（database.sql / cache.redis / storage.minio 段 +
 			// 业务自持 file.bucket），openDB/Redis/MinIO 构造据此分流；须在 InitBridges 之前。
 			bootstrappkg.Configure(bootstrap, app.Config().GetString("file.bucket"))
@@ -366,6 +361,118 @@ func newApp(
 		}),
 	)
 	return app
+}
+
+// observabilityWiring 承载 BeforeStart 装配、停机期消费的可观测性句柄
+// （构造期 nil + 运行期接线，T7 regCleanup / T8 SetStorage 同模式）。
+type observabilityWiring struct {
+	traceShutdown func(context.Context) error
+	metricsSrv    *http.Server
+}
+
+// setupObservability 按 bconf 契约 tracer/metrics 段装配可观测性（显式主开关契约）：
+//   - 段缺省（yaml 无 tracer:/metrics: 段）→ 默认行为：no-op trace + 仅 Prometheus
+//     暴露（addr 缺省 :9091，T8 根治与 gRPC 错峰）——零配置可运行，冒烟/CI 不破；
+//   - 段存在 → type 必须显式声明，空串/未知值启动期报错（行为由声明决定，
+//     不靠 endpoint 非空反推意图）：
+//       tracer.type  仅支持 "otlp"（endpoint 必填）；
+//       metrics.type "prometheus"=仅本地暴露 / "otlp"=暴露+OTLP 直推双通道
+//                    （endpoint 必填）；type=prometheus 而 otlp endpoint（含 env）
+//                    非空 → 矛盾配置报错。
+//
+// env 覆盖通道（优先级 env > yaml，与 flag>env>本地文件一致）：BALD_ADMIN_OTLP_ADDR
+// 覆盖双通道 endpoint、BALD_ADMIN_METRICS_ADDR 覆盖暴露端口——只提供地址，不改变
+// type 声明的语义（配 prometheus 不会因 env 翻转成推送）。
+func setupObservability(bootstrap *bootstrapv1.BootstrapConfig, obs *observabilityWiring) error {
+	// ---- trace：契约 tracer 段（缺省=no-op；存在则 type 必须显式 "otlp"）----
+	tr := bootstrap.GetTracer()
+	totlp := tr.GetOtlp()
+	traceEndpoint := ""
+	if tr != nil {
+		switch tr.GetType() {
+		case "otlp":
+			traceEndpoint = totlp.GetEndpoint()
+			if v := os.Getenv("BALD_ADMIN_OTLP_ADDR"); v != "" {
+				traceEndpoint = v
+			}
+			if traceEndpoint == "" {
+				return fmt.Errorf("tracer.type=otlp requires tracer.otlp.endpoint (or env BALD_ADMIN_OTLP_ADDR)")
+			}
+		case "":
+			return fmt.Errorf("tracer.type is required when tracer section is present (expect \"otlp\")")
+		default:
+			return fmt.Errorf("tracer.type %q unsupported (expect \"otlp\")", tr.GetType())
+		}
+	}
+	traceShutdown, err := obtrace.Setup(
+		obtrace.WithOTLPAddr(traceEndpoint),
+		obtrace.WithServiceName("go-bald-admin"),
+		obtrace.WithInsecure(totlp.GetInsecure()),
+		obtrace.WithHeaders(totlp.GetHeaders()),
+		obtrace.WithSampler(totlp.GetSampler()),
+		obtrace.WithSampleRatio(totlp.GetSampleRatio()),
+	)
+	if err != nil {
+		return fmt.Errorf("setup trace: %w", err)
+	}
+	obs.traceShutdown = traceShutdown // `=` 赋值（T7 教训：闭包内 `:=` 遮蔽致停机拿 nil）
+
+	// ---- metrics：契约 metrics 段（缺省=仅暴露；存在则 type 必须显式）----
+	m := bootstrap.GetMetrics()
+	prom := m.GetPrometheus()
+	motlp := m.GetOtlp()
+	metricsAddr := prom.GetAddr()
+	if metricsAddr == "" {
+		metricsAddr = ":9091" // T8 根治缺省：与 gRPC(:9090) 错开
+	}
+	if v := os.Getenv("BALD_ADMIN_METRICS_ADDR"); v != "" {
+		metricsAddr = v
+	}
+	metricsPath := prom.GetPath()
+	if metricsPath == "" {
+		metricsPath = "/metrics"
+	}
+	metricsEndpoint := ""
+	if m != nil {
+		switch m.GetType() {
+		case "otlp":
+			metricsEndpoint = motlp.GetEndpoint()
+			if v := os.Getenv("BALD_ADMIN_OTLP_ADDR"); v != "" {
+				metricsEndpoint = v
+			}
+			if metricsEndpoint == "" {
+				return fmt.Errorf("metrics.type=otlp requires metrics.otlp.endpoint (or env BALD_ADMIN_OTLP_ADDR)")
+			}
+		case "prometheus":
+			if motlp.GetEndpoint() != "" || os.Getenv("BALD_ADMIN_OTLP_ADDR") != "" {
+				return fmt.Errorf("metrics.type=prometheus conflicts with otlp endpoint configured (use type \"otlp\" to enable push)")
+			}
+		case "":
+			return fmt.Errorf("metrics.type is required when metrics section is present (expect \"prometheus\" or \"otlp\")")
+		default:
+			return fmt.Errorf("metrics.type %q unsupported (expect \"prometheus\" or \"otlp\")", m.GetType())
+		}
+	}
+	metricsHandler, err := obmetrics.Setup(
+		obmetrics.WithOTLPAddr(metricsEndpoint),
+		obmetrics.WithServiceName("go-bald-admin"),
+		obmetrics.WithInsecure(motlp.GetInsecure()),
+		obmetrics.WithHeaders(motlp.GetHeaders()),
+		obmetrics.WithInterval(time.Duration(motlp.GetPushInterval())*time.Second),
+	)
+	if err != nil {
+		return fmt.Errorf("setup metrics: %w", err)
+	}
+	mux := http.NewServeMux()
+	mux.Handle(metricsPath, metricsHandler)
+	srv := &http.Server{Addr: metricsAddr, Handler: mux}
+	go func() {
+		if serveErr := srv.ListenAndServe(); serveErr != nil && serveErr != http.ErrServerClosed {
+			baldlog.GetLogger().Error(context.Background(), "metrics server stopped", "error", serveErr.Error())
+		}
+	}()
+	obs.metricsSrv = srv
+	return nil
 }
 
 // registrarRegistry 显式注册注册中心契约 provider（业务按需 import 各后端

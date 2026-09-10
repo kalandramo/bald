@@ -34,6 +34,26 @@ registry:
     username: "<NACOS_USERNAME>"
     password: "<NACOS_PASSWORD>"
 
+# ---- T9 新增：可观测性（tracer/metrics 契约段）----
+# tracer.otlp.endpoint 空则 trace 走核心 no-op（零配置可运行）。
+tracer:
+  type: "otlp"
+  otlp:
+    endpoint: "<OTLP_HOST>:4318"   # 裸地址默认 insecure；https:// 前缀走 TLS
+    insecure: true
+    # headers:                     # 远端 APM 鉴权（如 Grafana Cloud）
+    #   Authorization: "Bearer <token>"
+    sampler: "always_on"           # always_on / always_off / trace_id_ratio / parent_based
+    sample_ratio: 1.0              # 仅 trace_id_ratio 生效
+metrics:
+  # prometheus 暴露端点总是挂载（供本地抓取），otlp 段非空则叠加直推。
+  type: "otlp"
+  prometheus: { addr: ":9091", path: "/metrics" }
+  otlp:
+    endpoint: "<OTLP_HOST>:4318"
+    insecure: true
+    push_interval: 15              # 秒
+
 # ---- 业务自持段（storage.minio 契约无 bucket 字段，file 模块自持）----
 file:
   bucket: "bald-admin"

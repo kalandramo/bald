@@ -36,6 +36,10 @@ type options struct {
 	otlpAddr    string
 	serviceName string
 	interval    time.Duration
+	// insecure 为三态：nil=按地址前缀推断，true=强制 insecure，false=强制 TLS。
+	// 对应 bconf 契约 Metrics.Otlp.insecure 字段。
+	insecure *bool
+	headers  map[string]string
 }
 
 // Option 配置 Setup。
@@ -49,8 +53,25 @@ func WithOTLPAddr(addr string) Option { return func(o *options) { o.otlpAddr = a
 // WithServiceName 设置 resource 的 service.name（默认 "bald-app"）。
 func WithServiceName(name string) Option { return func(o *options) { o.serviceName = name } }
 
-// WithInterval 设置 OTLP periodic reader 上报间隔（默认 15s）。
-func WithInterval(d time.Duration) Option { return func(o *options) { o.interval = d } }
+// WithInterval 设置 OTLP periodic reader 上报间隔（默认 15s；非正值忽略，保留默认）。
+func WithInterval(d time.Duration) Option {
+	return func(o *options) {
+		if d > 0 {
+			o.interval = d
+		}
+	}
+}
+
+// WithInsecure 显式指定是否 insecure 连接，覆盖按地址前缀的推断。
+func WithInsecure(insecure bool) Option {
+	return func(o *options) { o.insecure = &insecure }
+}
+
+// WithHeaders 设置 OTLP exporter 请求头（远端 APM 鉴权场景）。
+// 对应 bconf 契约 Metrics.Otlp.headers 字段。
+func WithHeaders(headers map[string]string) Option {
+	return func(o *options) { o.headers = headers }
+}
 
 // Setup 初始化 MeterProvider 并设为全局，返回 /metrics HTTP handler（Prometheus 抓取端点）。
 // 应在拦截器构建**之前**调用一次（使埋点接入 exporter）；返回的 handler 挂到独立端口或路由。
@@ -71,7 +92,7 @@ func Setup(opts ...Option) (http.Handler, error) {
 
 	// 2) OTLP：远端 APM（可选，按 WithOTLPAddr 开启）。
 	if cfg.otlpAddr != "" {
-		otlpExporter, err := newOTLPExporter(cfg.otlpAddr)
+		otlpExporter, err := newOTLPExporter(cfg.otlpAddr, cfg.insecure, cfg.headers)
 		if err != nil {
 			return nil, err
 		}
@@ -99,14 +120,26 @@ func Setup(opts ...Option) (http.Handler, error) {
 	return promhttp.Handler(), nil
 }
 
-// newOTLPExporter 按地址构造 OTLP metric HTTP exporter。
-// http(s):// 前缀按完整 EndpointURL 解析；裸 host:port 走 WithEndpoint+WithInsecure。
-func newOTLPExporter(addr string) (*otlpmetrichttp.Exporter, error) {
+// newOTLPExporter 按地址与可选参数构造 OTLP metric HTTP exporter。
+// http(s):// 前缀按完整 EndpointURL 解析；裸 host:port 走 WithEndpoint。
+// insecure 三态与 trace 包一致：显式设置优先，未显式时裸地址默认 insecure。
+func newOTLPExporter(addr string, insecure *bool, headers map[string]string) (*otlpmetrichttp.Exporter, error) {
+	isURL := len(addr) > 7 && (addr[:7] == "http://" || (len(addr) > 8 && addr[:8] == "https://"))
 	opts := []otlpmetrichttp.Option{}
-	if len(addr) > 7 && (addr[:7] == "http://" || (len(addr) > 8 && addr[:8] == "https://")) {
+	if isURL {
 		opts = append(opts, otlpmetrichttp.WithEndpointURL(addr))
 	} else {
-		opts = append(opts, otlpmetrichttp.WithEndpoint(addr), otlpmetrichttp.WithInsecure())
+		opts = append(opts, otlpmetrichttp.WithEndpoint(addr))
+	}
+	insecureFlag := insecure != nil && *insecure
+	if insecure == nil && !isURL {
+		insecureFlag = true
+	}
+	if insecureFlag {
+		opts = append(opts, otlpmetrichttp.WithInsecure())
+	}
+	if len(headers) > 0 {
+		opts = append(opts, otlpmetrichttp.WithHeaders(headers))
 	}
 	return otlpmetrichttp.New(context.Background(), opts...)
 }

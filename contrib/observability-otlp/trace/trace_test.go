@@ -2,6 +2,7 @@ package trace
 
 import (
 	"context"
+	"fmt"
 	"testing"
 )
 
@@ -38,5 +39,63 @@ func TestSetup_OTLP_URL(t *testing.T) {
 	}
 	if err := shutdown(context.Background()); err != nil {
 		t.Fatalf("shutdown err = %v", err)
+	}
+}
+
+// TestSetup_OTLP_FullOptions 契约全字段（insecure/headers/sampler/ratio）应成功构造。
+func TestSetup_OTLP_FullOptions(t *testing.T) {
+	shutdown, err := Setup(
+		WithOTLPAddr("localhost:4318"),
+		WithServiceName("bald-otlp-test"),
+		WithInsecure(true),
+		WithHeaders(map[string]string{"Authorization": "Bearer test-token"}),
+		WithSampler("trace_id_ratio"),
+		WithSampleRatio(0.5),
+	)
+	if err != nil {
+		t.Fatalf("Setup() err = %v", err)
+	}
+	if err := shutdown(context.Background()); err != nil {
+		t.Fatalf("shutdown err = %v", err)
+	}
+}
+
+// TestSetup_OTLP_ExplicitTLS 显式 insecure=false 时裸地址也走 TLS（不追加 WithInsecure）。
+func TestSetup_OTLP_ExplicitTLS(t *testing.T) {
+	shutdown, err := Setup(WithOTLPAddr("collector.internal:4318"), WithInsecure(false))
+	if err != nil {
+		t.Fatalf("Setup() err = %v", err)
+	}
+	if err := shutdown(context.Background()); err != nil {
+		t.Fatalf("shutdown err = %v", err)
+	}
+}
+
+// TestBuildSampler 采样策略名→采样器映射与退化语义。
+func TestBuildSampler(t *testing.T) {
+	tests := []struct {
+		name    string
+		ratio   float64
+		wantErr bool
+	}{
+		{name: ""},                           // 缺省 parent_based
+		{name: "parent_based"},               // 显式 parent_based
+		{name: "always_on"},                  // 全采样
+		{name: "always_off"},                 // 全不采样
+		{name: "trace_id_ratio", ratio: 0.5}, // 比率采样
+		{name: "trace_id_ratio", ratio: 0},   // 非正比率 → 1.0
+		{name: "bogus", wantErr: false},      // 未知值 → 退化 + WARN，不 panic
+	}
+	for _, tt := range tests {
+		t.Run(tt.name+"/"+fmt.Sprintf("%v", tt.ratio), func(t *testing.T) {
+			s := buildSampler(tt.name, tt.ratio)
+			if s == nil {
+				t.Fatal("buildSampler returned nil")
+			}
+			// 采样器可被 SDK 接受的最弱验证：Description 非空。
+			if s.Description() == "" {
+				t.Fatalf("sampler description empty for %q", tt.name)
+			}
+		})
 	}
 }
