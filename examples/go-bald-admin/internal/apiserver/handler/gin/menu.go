@@ -10,7 +10,7 @@ import (
 
 	gingonic "github.com/gin-gonic/gin"
 
-	berrors "github.com/kalandramo/bald/berrors"
+	"github.com/kalandramo/bald/berrors"
 	"github.com/kalandramo/bald/pkg/authn"
 	"github.com/kalandramo/bald/pkg/authz"
 	mid "github.com/kalandramo/bald/pkg/middleware/gin"

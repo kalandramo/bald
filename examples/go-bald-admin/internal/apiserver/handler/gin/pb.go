@@ -19,7 +19,7 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
-	berrors "github.com/kalandramo/bald/berrors"
+	"github.com/kalandramo/bald/berrors"
 	"github.com/kalandramo/bald/pkg/store"
 	web "github.com/kalandramo/bald/transport/web"
 )

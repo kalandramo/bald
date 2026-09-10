@@ -6,7 +6,7 @@ package grpc
 import (
 	"context"
 
-	berrors "github.com/kalandramo/bald/berrors"
+	"github.com/kalandramo/bald/berrors"
 	userv1 "github.com/kalandramo/bald/examples/go-bald-admin/api/gen/user/v1"
 	userbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/user"
 	authmodel "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/model"

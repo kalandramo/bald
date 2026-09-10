@@ -1,4 +1,4 @@
-package errors
+package berrors
 
 import (
 	stderrors "errors"

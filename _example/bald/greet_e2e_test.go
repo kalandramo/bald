@@ -37,7 +37,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	bconf "github.com/kalandramo/bald/bconf"
-	berrors "github.com/kalandramo/bald/berrors"
+	"github.com/kalandramo/bald/berrors"
 	"github.com/kalandramo/bald/berrors/grpcerr"
 
 	baldv1 "github.com/kalandramo/bald/example/bald/gen"

@@ -9,7 +9,7 @@ package grpc
 import (
 	"errors"
 
-	berrors "github.com/kalandramo/bald/berrors"
+	"github.com/kalandramo/bald/berrors"
 	"github.com/kalandramo/bald/pkg/store"
 )
 

@@ -1,4 +1,4 @@
-package errors
+package berrors
 
 // Code 是传输级别的误差类别；取值与 gRPC codes.Code 一一对应。
 // 用 uint32 而非直接依赖 codes.Code，使错误核心包保持零 gRPC 依赖。

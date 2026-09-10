@@ -14,7 +14,7 @@ import (
 	"fmt"
 	"sort"
 
-	berrors "github.com/kalandramo/bald/berrors"
+	"github.com/kalandramo/bald/berrors"
 	"github.com/kalandramo/bald/pkg/contextx"
 	"github.com/kalandramo/bald/pkg/store"
 

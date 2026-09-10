@@ -10,7 +10,7 @@ package grpc
 import (
 	"context"
 
-	berrors "github.com/kalandramo/bald/berrors"
+	"github.com/kalandramo/bald/berrors"
 	"github.com/kalandramo/bald/pkg/authn"
 
 	adminv1 "github.com/kalandramo/bald/examples/go-bald-admin/api/gen/secret/v1"

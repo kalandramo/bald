@@ -7,7 +7,7 @@ package grpc
 import (
 	"context"
 
-	berrors "github.com/kalandramo/bald/berrors"
+	"github.com/kalandramo/bald/berrors"
 	permissionv1 "github.com/kalandramo/bald/examples/go-bald-admin/api/gen/permission/v1"
 	permissionbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/permission"
 	authmodel "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/model"
@@ -97,7 +97,6 @@ func (s *permissionService) DeleteRolePolicy(ctx context.Context, req *permissio
 	}
 	return &permissionv1.DeleteRolePolicyResponse{Deleted: req.GetId()}, nil
 }
-
 
 // toPermissionPBGRPC 模型 → proto（MenuIDs CSV → 列表）。
 func toPermissionPBGRPC(p *authmodel.Permission) *permissionv1.Permission {

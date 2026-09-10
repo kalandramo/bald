@@ -1,4 +1,4 @@
-// Package grpcerr 提供 pkg/berrors.Error 与 gRPC status 的双向转换，并携带
+// Package grpcerr 提供 berrors.Error 与 gRPC status 的双向转换，并携带
 // errdetails.ErrorInfo（Reason + Details），保证跨服务错误语义透传。
 //
 // 该子包是核心包 pkg/berrors 的"可选桥接"：仅在用 gRPC 传输的项目里 import，
@@ -18,17 +18,17 @@ import (
 	"github.com/kalandramo/bald/berrors"
 )
 
-// ToStatus 把错误（链中任意 *errors.Error）转成 gRPC status，并附
+// ToStatus 把错误（链中任意 *berrors.Error）转成 gRPC status，并附
 // errdetails.ErrorInfo{Reason, Details}。
 //
-//   - 命中 *errors.Error：用其 Code（→ gRPC codes）、Message、Reason、Details 构造。
+//   - 命中 *berrors.Error：用其 Code（→ gRPC codes）、Message、Reason、Details 构造。
 //   - 未命中（原生 error 或 gRPC status）：退回 Unknown + err.Error()，语义不丢。
 func ToStatus(err error) *status.Status {
 	if err == nil {
 		return status.New(codes.OK, "")
 	}
 
-	if wErr, ok := errors.FromError(err); ok {
+	if wErr, ok := berrors.FromError(err); ok {
 		st := status.New(codes.Code(wErr.Code), wErr.Message)
 		if wErr.Reason != "" || len(wErr.Details) > 0 {
 			details := errdetails.ErrorInfo{Reason: wErr.Reason, Metadata: wErr.Details}
@@ -42,14 +42,14 @@ func ToStatus(err error) *status.Status {
 	return status.Convert(err)
 }
 
-// FromStatus 把 gRPC status 解析回 *errors.Error：从 ErrorInfo 恢复 Reason 与
+// FromStatus 把 gRPC status 解析回 *berrors.Error：从 ErrorInfo 恢复 Reason 与
 // Details，HTTP/gRPC 双栈语义在接收端闭环。无法解析时退回 Unknown。
 func FromStatus(st *status.Status) error {
 	if st == nil {
 		return nil
 	}
 
-	ret := errors.New(uint32(st.Code()), st.Message())
+	ret := berrors.New(uint32(st.Code()), st.Message())
 	for _, detail := range st.Details() {
 		if typed, ok := detail.(*errdetails.ErrorInfo); ok {
 			if typed.Reason != "" {

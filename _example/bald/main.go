@@ -64,7 +64,7 @@ import (
 
 	bconf "github.com/kalandramo/bald/bconf"
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
-	berrors "github.com/kalandramo/bald/berrors"
+	"github.com/kalandramo/bald/berrors"
 	baldlog "github.com/kalandramo/bald/log"
 	baldlogadapter "github.com/kalandramo/bald/log/slog"
 	"github.com/kalandramo/bald/pkg/appkit"

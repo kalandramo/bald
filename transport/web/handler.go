@@ -31,7 +31,7 @@ import (
 type Handler[T any, R any] func(ctx context.Context, req *T) (R, error)
 
 // Validator 是请求校验器。校验错误应返回 pkg/berrors 中标识为校验错误的错误
-// （如 errors.BadRequest），从而被 ErrorResponse 统一映射为 HTTP 400。
+// （如 berrors.BadRequest），从而被 ErrorResponse 统一映射为 HTTP 400。
 type Validator[T any] func(ctx context.Context, req *T) error
 
 // HandleJSONRequest 仅从 JSON 请求体绑定，并调用 handler。用于 POST/PUT 等。
@@ -40,7 +40,7 @@ func HandleJSONRequest[T any, R any](
 ) {
 	var req T
 	if err := c.ShouldBindJSON(&req); err != nil {
-		ErrorResponse(c, errors.BadRequest("").WithMessage("%s", err))
+		ErrorResponse(c, berrors.BadRequest("").WithMessage("%s", err))
 		return
 	}
 	if err := runValidators(c, &req, validators...); err != nil {
@@ -57,7 +57,7 @@ func HandleQueryRequest[T any, R any](
 ) {
 	var req T
 	if err := c.ShouldBindQuery(&req); err != nil {
-		ErrorResponse(c, errors.BadRequest("").WithMessage("%s", err))
+		ErrorResponse(c, berrors.BadRequest("").WithMessage("%s", err))
 		return
 	}
 	if err := runValidators(c, &req, validators...); err != nil {
@@ -74,7 +74,7 @@ func HandleUriRequest[T any, R any](
 ) {
 	var req T
 	if err := c.ShouldBindUri(&req); err != nil {
-		ErrorResponse(c, errors.BadRequest("").WithMessage("%s", err))
+		ErrorResponse(c, berrors.BadRequest("").WithMessage("%s", err))
 		return
 	}
 	if err := runValidators(c, &req, validators...); err != nil {

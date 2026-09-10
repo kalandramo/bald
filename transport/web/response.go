@@ -6,7 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	berrors "github.com/kalandramo/bald/berrors"
+	"github.com/kalandramo/bald/berrors"
 	"github.com/kalandramo/bald/berrors/httperr"
 )
 

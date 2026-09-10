@@ -29,7 +29,7 @@ import (
 	"buf.build/go/protovalidate"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 
-	berrors "github.com/kalandramo/bald/berrors"
+	"github.com/kalandramo/bald/berrors"
 	grpcmw "github.com/kalandramo/bald/pkg/middleware/grpc"
 	"github.com/kalandramo/bald/pkg/validation"
 

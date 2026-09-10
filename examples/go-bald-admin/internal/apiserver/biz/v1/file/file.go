@@ -22,7 +22,7 @@ import (
 	"github.com/google/uuid"
 	miniov7 "github.com/minio/minio-go/v7"
 
-	berrors "github.com/kalandramo/bald/berrors"
+	"github.com/kalandramo/bald/berrors"
 	miniooss "github.com/kalandramo/bald/oss/minio"
 	"github.com/kalandramo/bald/pkg/contextx"
 	"github.com/kalandramo/bald/pkg/store"

@@ -11,7 +11,7 @@ import (
 )
 
 func TestToStatusAndFromStatusRoundTrip(t *testing.T) {
-	wErr := errors.NotFound("ORDER_NOT_FOUND").
+	wErr := berrors.NotFound("ORDER_NOT_FOUND").
 		WithMessage("订单不存在").
 		WithDetails(map[string]string{"id": "42"})
 
@@ -21,14 +21,14 @@ func TestToStatusAndFromStatusRoundTrip(t *testing.T) {
 	}
 
 	back := FromStatus(st)
-	got, ok := errors.FromError(back)
+	got, ok := berrors.FromError(back)
 	if !ok {
-		t.Fatalf("FromStatus result should be a *errors.Error, got %T", back)
+		t.Fatalf("FromStatus result should be a *berrors.Error, got %T", back)
 	}
 	if got.Reason != "ORDER_NOT_FOUND" || got.Details["id"] != "42" {
 		t.Fatalf("round trip lost fields: %+v", got)
 	}
-	if !errors.Is(back, wErr) {
+	if !berrors.Is(back, wErr) {
 		t.Fatal("Is should match across gRPC boundary by Reason")
 	}
 }
@@ -44,7 +44,7 @@ func TestFromStatusWithKratosLikeErrorInfo(t *testing.T) {
 	st, _ := status.New(codes.PermissionDenied, "no").
 		WithDetails(&errdetails.ErrorInfo{Reason: "FORBIDDEN", Metadata: map[string]string{"k": "v"}})
 	back := FromStatus(st)
-	got, ok := errors.FromError(back)
+	got, ok := berrors.FromError(back)
 	if !ok || got.Reason != "FORBIDDEN" || got.Details["k"] != "v" {
 		t.Fatalf("ErrorInfo not parsed: %+v", got)
 	}

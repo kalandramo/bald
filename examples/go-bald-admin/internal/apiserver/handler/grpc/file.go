@@ -10,7 +10,7 @@ import (
 	"context"
 	"errors"
 
-	berrors "github.com/kalandramo/bald/berrors"
+	"github.com/kalandramo/bald/berrors"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	filev1 "github.com/kalandramo/bald/examples/go-bald-admin/api/gen/file/v1"

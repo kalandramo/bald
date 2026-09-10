@@ -8,7 +8,7 @@
 package httperr
 
 import (
-	berrors "github.com/kalandramo/bald/berrors"
+	"github.com/kalandramo/bald/berrors"
 )
 
 // 设计决策——为何用 int 而非 http.StatusCode：错误核心包保持零 net/http 依赖，

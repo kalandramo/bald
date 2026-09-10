@@ -11,7 +11,7 @@
 // 标准库桥接：本包名为 errors，遮蔽标准库 errors，故重导出最常用的
 // Is/As/Unwrap/Join。注意 New 不重导出（项目 New(code, reason) 与标准库
 // New(string) 签名冲突）；需要标准库 New 时别名 import。
-package errors
+package berrors
 
 import (
 	"bytes"

@@ -3,7 +3,7 @@ package httperr
 import (
 	"testing"
 
-	berrors "github.com/kalandramo/bald/berrors"
+	"github.com/kalandramo/bald/berrors"
 )
 
 func TestCodeToHTTP(t *testing.T) {

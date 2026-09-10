@@ -8,7 +8,7 @@ package grpc
 import (
 	"context"
 
-	berrors "github.com/kalandramo/bald/berrors"
+	"github.com/kalandramo/bald/berrors"
 	dictv1 "github.com/kalandramo/bald/examples/go-bald-admin/api/gen/dict/v1"
 	dictbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/dict"
 	authmodel "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/model"

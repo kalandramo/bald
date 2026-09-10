@@ -23,14 +23,14 @@ type Defaulter interface {
 // 仅当请求体非空时才尝试 JSON 绑定，避免无 body 时的 EOF 错误。
 func ShouldBindAll(c *gin.Context, obj any) error {
 	if err := c.ShouldBindUri(obj); err != nil {
-		return errors.BadRequest(err.Error())
+		return berrors.BadRequest(err.Error())
 	}
 	if err := c.ShouldBindQuery(obj); err != nil {
-		return errors.BadRequest(err.Error())
+		return berrors.BadRequest(err.Error())
 	}
 	if hasBody(c) {
 		if err := c.ShouldBindJSON(obj); err != nil {
-			return errors.BadRequest(err.Error())
+			return berrors.BadRequest(err.Error())
 		}
 	}
 	if d, ok := obj.(Defaulter); ok {
