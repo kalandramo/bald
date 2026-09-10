@@ -5,7 +5,7 @@ import (
 	"net"
 	"sync"
 
-	"github.com/kalandramo/bald-utils/id"
+	"github.com/kalandramo/bald/pkg/id"
 )
 
 var channelBufSize = 256

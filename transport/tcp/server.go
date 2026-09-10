@@ -33,10 +33,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kalandramo/bald-utils/id"
-
 	"github.com/kalandramo/bald/encoding"
 	"github.com/kalandramo/bald/metrics"
+	"github.com/kalandramo/bald/pkg/id"
 	"github.com/kalandramo/bald/transport"
 
 	"go.opentelemetry.io/otel/attribute"

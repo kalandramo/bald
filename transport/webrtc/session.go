@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kalandramo/bald/pkg/id"
 	"github.com/pion/webrtc/v4"
-	"github.com/kalandramo/bald-utils/id"
 )
 
 var channelBufSize = 256

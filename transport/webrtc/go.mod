@@ -14,28 +14,23 @@ replace github.com/kalandramo/bald/log => ../../log
 
 replace github.com/kalandramo/bald/metrics => ../../metrics
 
+replace github.com/kalandramo/bald => ../../
+
 replace github.com/kalandramo/bald/transport => ..
 
-replace github.com/kalandramo/bald-utils/id => ../../../bald-utils/id
-
-replace github.com/kalandramo/bald-utils => ../../../bald-utils
-
 require (
-	github.com/kalandramo/bald-utils/id v0.0.0-00010101000000-000000000000
+	github.com/kalandramo/bald v0.0.0-00010101000000-000000000000
 	github.com/kalandramo/bald/broker v0.0.0-00010101000000-000000000000
 	github.com/kalandramo/bald/encoding v0.0.1
-	github.com/kalandramo/bald/log v0.0.0-00010101000000-000000000000
+	github.com/kalandramo/bald/log v0.0.0
 	github.com/kalandramo/bald/metrics v0.0.1
 	github.com/pion/webrtc/v4 v4.2.12
 )
 
 require (
-	github.com/bwmarrin/snowflake v0.3.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/kalandramo/bald-utils v1.1.38 // indirect
 	github.com/kalandramo/bald/encoding/json v0.0.1 // indirect
 	github.com/kalandramo/bald/encoding/proto v0.0.1 // indirect
-	github.com/lithammer/shortuuid/v4 v4.2.0 // indirect
 	github.com/pion/datachannel v1.6.0 // indirect
 	github.com/pion/dtls/v3 v3.1.4 // indirect
 	github.com/pion/ice/v4 v4.2.5 // indirect
@@ -51,15 +46,10 @@ require (
 	github.com/pion/stun/v3 v3.1.5 // indirect
 	github.com/pion/transport/v4 v4.0.2 // indirect
 	github.com/pion/turn/v5 v5.0.10 // indirect
-	github.com/rs/xid v1.6.0 // indirect
-	github.com/segmentio/ksuid v1.0.4 // indirect
-	github.com/sony/sonyflake v1.3.0 // indirect
-	github.com/stretchr/testify v1.12.1 // indirect
 	github.com/wlynxg/anet v0.0.5 // indirect
-	go.mongodb.org/mongo-driver/v2 v2.6.0 // indirect
-	golang.org/x/crypto v0.51.0 // indirect
-	golang.org/x/net v0.54.0 // indirect
-	golang.org/x/sys v0.44.0 // indirect
+	golang.org/x/crypto v0.55.0 // indirect
+	golang.org/x/net v0.58.0 // indirect
+	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
-	google.golang.org/protobuf v1.36.11 // indirect
+	google.golang.org/protobuf v1.36.12 // indirect
 )
