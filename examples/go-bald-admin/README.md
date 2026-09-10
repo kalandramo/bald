@@ -58,19 +58,37 @@ GO_BALD_ADMIN_SERVER_HTTP_ADDR=:18080 go run ./cmd/go-bald-admin
 > 下划线即点路径分隔：`GO_BALD_ADMIN_SERVER_HTTP_ADDR` ⇔ `server.http.addr`）。
 > T8 起 metrics 缺省端口已与 gRPC 错开（`:9091`），无需再手动避让。
 
-### 远端遥测（M9 OTLP 直推）
+### 远端遥测（T9 契约化：tracer/metrics 段驱动）
 
-设 `BALD_ADMIN_OTLP_ADDR` 即同时把**指标（Prometheus/OTLP 双通道）**与 **trace（OTLP）**
-直推远端 APM（OTel Collector / VictoriaMetrics / Grafana Cloud）。核心埋点（grpc/gin Observability
-起 span、AuditWithMetrics emit）零改动，仅范例装配全局 Provider。
+`configs/go-bald-admin.yaml` 的 `tracer` / `metrics` 段是远端 APM
+（OTel Collector / VictoriaMetrics / Grafana Cloud）直推的**主配置渠道**——指标
+（Prometheus 暴露端点 + OTLP 直推双通道）与 trace（OTLP 直推）一并驱动，核心埋点
+（grpc/gin Observability 起 span、AuditWithMetrics emit）零改动：
 
-```bash
-BALD_ADMIN_OTLP_ADDR=http://localhost:4318 \
-go run ./cmd/go-bald-admin --config=configs/go-bald-admin.yaml
+```yaml
+tracer:
+  type: "otlp"                        # 段存在则 type 必填（空串启动期报错）
+  otlp: { endpoint: "10.x.x.x:4318", insecure: true, sampler: "always_on" }
+metrics:
+  type: "otlp"                        # "prometheus"=仅本地抓取 / "otlp"=双通道
+  prometheus: { addr: ":9091", path: "/metrics" }
+  otlp: { endpoint: "10.x.x.x:4318", insecure: true, push_interval: 15 }
 ```
 
-裸 `host:port` 走 `WithInsecure`（内网 collector）；`http(s)://` 前缀按完整 URL 解析。
-未设该变量时：指标仅 Prometheus 本地抓取，trace 走 no-op（核心默认），零配置可运行。
+**显式主开关契约**（行为由 type 声明决定，不靠 endpoint 反推）：
+
+- 段整体缺省 → 零配置默认：trace no-op + 仅 Prometheus `:9091` 本地抓取；
+- 段存在 → `type` 必须显式声明：`tracer.type` 仅支持 `"otlp"`；`metrics.type`
+  支持 `"prometheus"`（仅暴露）/ `"otlp"`（暴露+直推）——空串或未知值启动期报错；
+- `type=otlp` 而 endpoint 空（含 env）→ 启动报错；`type=prometheus` 而 otlp
+  endpoint（含 env）非空 → 矛盾配置启动报错。
+
+裸 `host:port` 默认 insecure（内网 collector）；`insecure: false` 走 TLS；`http(s)://`
+前缀按完整 URL 解析；`headers` 支持远端鉴权（如 Grafana Cloud Bearer token）。
+
+env 覆盖通道保留（优先级 env > yaml，只提供地址、不改变 type 语义）：
+`BALD_ADMIN_OTLP_ADDR` 覆盖双通道 endpoint、`BALD_ADMIN_METRICS_ADDR` 覆盖暴露
+端口——Taskfile 冒烟与 CI 既有用法不破。
 
 ## 验证接口
 
@@ -127,6 +145,7 @@ go test -shuffle=on ./...
 | T6 | 审计增强 + 查询（Category 分类/登录审计/分页查询） | ✅ |
 | T7 | Nacos 注册发现（契约装配 RegistrarRegistry，凭据/namespace 语义踩坑修复） | ✅ |
 | T8 | 端到端验证 + 收尾（§9 全序列、metrics 端口根治、文档同步） | ✅ |
+| T9 | 可观测性契约化（tracer/metrics 段驱动 OTLP 直推，显式主开关契约；trace 云端 Jaeger 终验闭环，metrics 云端核对待平台管线） | ✅ |
 
 ## 目录
 

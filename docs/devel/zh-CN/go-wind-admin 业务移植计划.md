@@ -454,6 +454,53 @@ proto/<域>.proto（从源项目精简搬运）→ buf generate → gen/
   下载内容一致）；Nacos 生命周期完整（注册 healthy=true → SIGINT 优雅停机 →
   双协议实例列表清空，停机链 "stopping → 审计后端 unmount → appkit stopped"）。
 
+### 8.8 T9 实施记录（2026-09-10，可观测性契约化完成；远端终验待 collector 地址）
+
+- **契约化改造（替代 §5 的 env-only 决策）**：`tracer`/`metrics` 契约段
+  （bconf proto 既有）从无消费者转为唯一主配置渠道。main.go 新增
+  `setupObservability(bootstrap, obs)`，装配点从 serveRunE 顶部（env 读取）挪到
+  **BeforeStart**（`baldconfig.Unmarshal` 之后）——Recorder/span 经 otel 全局
+  Provider lazy 解析，中间件先行构建不漏采（Servers 监听晚于 BeforeStart，无采样
+  窗口损失）；与 T7 registrar 同款「构造期 nil + 运行期接线」模式
+  （`observabilityWiring{traceShutdown, metricsSrv}` 容器 + Effect/Component 闭包消费）。
+- **contrib 增强（`bald-observability-otlp`，契约字段全有消费者）**：trace 包
+  +`WithInsecure`（三态：nil=按地址推断/true=强制/false=强制 TLS）+`WithHeaders`
+  （远端 APM 鉴权）+`WithSampler`/`WithSampleRatio`（always_on/always_off/
+  trace_id_ratio/parent_based，未知值退化 ParentBased(AlwaysSample)+WARN）；
+  metrics 包 +`WithInsecure`/`WithHeaders`，`WithInterval` 非正值忽略。
+- **fail-fast 校验（T8 metrics 静默丢失教训的结构化）**：`type=otlp` 而 endpoint
+  空 → 启动报错（`tracer.type=otlp requires tracer.otlp.endpoint`）；type 非法值
+  同理。段缺省/endpoint 空保持零配置可运行（Prometheus 单通道 + no-op trace）。
+- **契约收紧：显式主开关（2026-09-10，用户反馈"太灵活看不懂"）**：废除
+  "type 空=宽容、endpoint 非空反推直推"的隐式行为。新语义：段整体缺省=零配置
+  默认（no-op trace + 仅 `:9091` 暴露）；段存在则 `type` **必填显式声明**（空串
+  启动报错 `tracer.type is required when tracer section is present`）；行为由
+  声明决定——`tracer.type` 仅 `"otlp"`；`metrics.type` `"prometheus"`=仅暴露 /
+  `"otlp"`=双通道（endpoint 必填）；`type=prometheus` 而 otlp endpoint（含 env）
+  非空 → 矛盾配置报错。env 覆盖只提供地址、不改变 type 语义（配 prometheus
+  不会因 env 翻转成推送）。contrib 层零改动（收紧只发生在 example 装配层）。
+- **env 覆盖通道保留**（优先级 env > yaml，与 flag>env>本地文件一致）：
+  `BALD_ADMIN_OTLP_ADDR` 覆盖双通道 endpoint、`BALD_ADMIN_METRICS_ADDR` 覆盖暴露
+  端口——Taskfile 冒烟与 CI 既有用法不破。
+- **metrics 暴露端点生命周期补全**：`/metrics` server（契约 `metrics.prometheus.addr`
+  缺省 `:9091`、`path` 缺省 `/metrics`）从裸 goroutine 升为挂 `Effect("metrics:server")`
+  优雅关闭；trace provider 维持 `Components(trace.provider)` 停机 flush。
+- **冒烟验证（本地全真）**：契约段装载 → `:9091/metrics` 200 +
+  `bald_requests_total{object="ping"}` 计数；SIGINT 停机链完整（deregister →
+  stopping → 审计 unmount → stopped）；fail-fast 触发如预期；env 覆盖
+  （`BALD_ADMIN_METRICS_ADDR=:19091` 监听+200）。`task verify` 全绿、contrib 两包
+  测试全绿。
+- **终验结果（2026-09-10 晚，云端真实 collector `10.82.138.249:32414`）**：
+  - **trace ✅ 端到端闭环**——云端查询面（Jaeger，`msc-dce5.was.ink/tracing/search`）
+    查到 service=go-bald-admin 三条 trace（`GET /v1/ping`×2 + `GET /v1/info`×1），
+    时间戳与冒烟流量秒级吻合（21:45:55），各 1 span（gin 入口，无下游出站，符合预期）。
+  - **metrics ⚠️ 客户端侧完成，云端核对顺延**——本地 `:9091` 抓取有数（全维度标签）
+    + OTLP 推送跨 15s 周期 0 错误 + 探针 metric（`probe_otlp_metrics_pipeline`/
+    service `otlp-probe`）推送 200 `partialSuccess`。平台仅有 Jaeger trace 查询面、
+    无 metrics 查询入口，疑似 collector 未配 metrics exporter（接收 200 ≠ 入库）；
+    待平台侧补 metrics 管线后核对 `bald_requests_total{service_name="go-bald-admin"}`。
+  - **T0-T9 移植计划就此收官**（metrics 云端核对属平台配置事项，不阻塞范例交付）。
+
 ### 8.1 T2 实施记录（2026-09-07，租户+用户完成）
 
 - **proto 全部收敛 `api/`**（用户指令）：buf 模块根= `api/`（原 `proto/`+`gen/` 删除），源 `api/{secret,tenant,user}/v1/*.proto`、生成物 `api/gen/<域>/v1/`；`protoc-gen-go-grpc`/`protoc-gen-grpc-gateway` 已 go install。lint 放行 `PACKAGE_DIRECTORY_MATCH`（语义包名不逐级对应目录）。
