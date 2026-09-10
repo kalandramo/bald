@@ -5,10 +5,12 @@ import (
 
 	gingonic "github.com/gin-gonic/gin"
 
+	berrors "github.com/kalandramo/bald/berrors"
 	"github.com/kalandramo/bald/examples/go-bald-admin/internal/bootstrap"
 	"github.com/kalandramo/bald/pkg/appkit"
 	"github.com/kalandramo/bald/pkg/authz"
 	mid "github.com/kalandramo/bald/pkg/middleware/gin"
+	web "github.com/kalandramo/bald/transport/web"
 )
 
 // ComponentFactory 按名构造组件实例（管理面挂载请求经工厂创建，再交 appkit 挂载）。
@@ -50,17 +52,18 @@ func RegisterAdmin(
 			Name string `json:"name"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil || req.Name == "" {
-			c.JSON(http.StatusBadRequest, gingonic.H{"error": "body must be {\"name\":\"<factory>\"}"})
+			bindErr(c, berrors.BadRequest("").WithMessage("%s", `body must be {"name":"<factory>"}`))
 			return
 		}
 		factory, ok := factories[req.Name]
 		if !ok {
-			c.JSON(http.StatusNotFound, gingonic.H{"error": "unknown component factory: " + req.Name})
+			web.ErrorResponse(c, berrors.NotFound("COMPONENT_FACTORY_NOT_FOUND").
+				WithMessage("unknown component factory: %s", req.Name))
 			return
 		}
 		comp := factory()
 		if err := appFn().MountComponent(c.Request.Context(), comp); err != nil {
-			c.JSON(http.StatusInternalServerError, gingonic.H{"error": err.Error()})
+			writeBizErr(c, err)
 			return
 		}
 		c.JSON(http.StatusCreated, gingonic.H{"mounted": comp.Name()})
@@ -70,7 +73,8 @@ func RegisterAdmin(
 	authed.DELETE("/components/:name", authzMW, func(c *gingonic.Context) {
 		name := c.Param("name")
 		if err := appFn().UnmountComponent(c.Request.Context(), name); err != nil {
-			c.JSON(http.StatusNotFound, gingonic.H{"error": err.Error()})
+			web.ErrorResponse(c, berrors.NotFound("COMPONENT_NOT_FOUND").
+				WithMessage("component %s not found", name))
 			return
 		}
 		c.JSON(http.StatusOK, gingonic.H{"unmounted": name})

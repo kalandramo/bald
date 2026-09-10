@@ -132,10 +132,10 @@ func TestMenuREST_TreeAndLifecycle(t *testing.T) {
 	if code != http.StatusCreated {
 		t.Fatalf("create child status=%d", code)
 	}
-	// 父不存在 → 400。
+	// 父不存在 → 404（决策⑧：父资源不存在即 NotFound，三面一致语义）。
 	if code, _ := callMenu(t, base, tok, http.MethodPost, "/v1/menu",
-		map[string]any{"id": "menu-orphan", "parent_id": "menu-nope", "type": "TYPE_MENU"}); code != http.StatusBadRequest {
-		t.Fatalf("create with missing parent must 400, got %d", code)
+		map[string]any{"id": "menu-orphan", "parent_id": "menu-nope", "type": "TYPE_MENU"}); code != http.StatusNotFound {
+		t.Fatalf("create with missing parent must 404, got %d", code)
 	}
 
 	// 3. 更新：改标题 + 显式改 order 为 0（order_set 位语义）。
@@ -182,15 +182,15 @@ func TestPermissionREST_RegistryAndPolicies(t *testing.T) {
 		t.Fatalf("seed permission secret:list missing")
 	}
 
-	// 2. 创建 → 重复创建冲突 400 → 删除。
+	// 2. 创建 → 重复创建冲突 409（决策⑧统一冲突语义，与 user/tenant 域一致）→ 删除。
 	code, _ = callPermission(t, base, tok, http.MethodPost, "/v1/permission",
 		map[string]any{"id": "dict:list", "name": "列出字典", "menu_ids": []string{"menu-system"}})
 	if code != http.StatusCreated {
 		t.Fatalf("create permission status=%d", code)
 	}
 	if code, _ = callPermission(t, base, tok, http.MethodPost, "/v1/permission",
-		map[string]any{"id": "dict:list", "name": "dup"}); code != http.StatusBadRequest {
-		t.Fatalf("duplicate permission must 400, got %d", code)
+		map[string]any{"id": "dict:list", "name": "dup"}); code != http.StatusConflict {
+		t.Fatalf("duplicate permission must 409, got %d", code)
 	}
 	if code, _ = callPermission(t, base, tok, http.MethodDelete, "/v1/permission/dict:list", nil); code != http.StatusOK {
 		t.Fatalf("delete permission status=%d", code)
@@ -221,8 +221,8 @@ func TestPermissionREST_RegistryAndPolicies(t *testing.T) {
 		t.Fatalf("create policy status=%d", code)
 	}
 	if code, _ = callPermissionPolicy(t, base, tok, http.MethodPost, "/v1/permission/policy",
-		map[string]any{"role": "viewer", "object": "dict", "action": "list"}); code != http.StatusBadRequest {
-		t.Fatalf("duplicate policy must 400 (unique role:object:action), got %d", code)
+		map[string]any{"role": "viewer", "object": "dict", "action": "list"}); code != http.StatusConflict {
+		t.Fatalf("duplicate policy must 409 (unique role:object:action), got %d", code)
 	}
 	if code, _ = callPermissionPolicy(t, base, tok, http.MethodDelete, "/v1/permission/policy/viewer:dict:list", nil); code != http.StatusOK {
 		t.Fatalf("delete policy status=%d", code)

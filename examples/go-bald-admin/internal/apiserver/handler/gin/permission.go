@@ -9,9 +9,12 @@ import (
 	"net/http"
 
 	gingonic "github.com/gin-gonic/gin"
+
+	berrors "github.com/kalandramo/bald/berrors"
 	"github.com/kalandramo/bald/pkg/authn"
 	"github.com/kalandramo/bald/pkg/authz"
 	mid "github.com/kalandramo/bald/pkg/middleware/gin"
+	web "github.com/kalandramo/bald/transport/web"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	permissionv1 "github.com/kalandramo/bald/examples/go-bald-admin/api/gen/permission/v1"
@@ -49,7 +52,7 @@ func RegisterPermission(
 	authed.GET("/permission", authzMW, func(c *gingonic.Context) {
 		ps, err := biz.ListPermissions(c.Request.Context())
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gingonic.H{"error": err.Error()})
+			writeBizErr(c, err)
 			return
 		}
 		items := make([]*permissionv1.Permission, 0, len(ps))
@@ -62,7 +65,7 @@ func RegisterPermission(
 	authed.GET("/permission/:id", authzMW, func(c *gingonic.Context) {
 		p, err := biz.GetPermission(c.Request.Context(), c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusNotFound, gingonic.H{"error": "permission not found"})
+			writeBizErr(c, err) // NotFound→404、内部→500
 			return
 		}
 		writePB(c, http.StatusOK, &permissionv1.GetPermissionResponse{Permission: toPermissionPB(p)})
@@ -71,13 +74,13 @@ func RegisterPermission(
 	authed.POST("/permission", authzMW, func(c *gingonic.Context) {
 		var req permissionv1.CreatePermissionRequest
 		if err := bindPB(c, &req); err != nil {
-			c.JSON(http.StatusBadRequest, gingonic.H{"error": err.Error()})
+			bindErr(c, err)
 			return
 		}
 		p, err := biz.CreatePermission(c.Request.Context(),
 			req.GetId(), req.GetName(), req.GetMenuIds(), req.GetRemark())
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gingonic.H{"error": err.Error()})
+			writeBizErr(c, err) // 校验→400（biz 产 berrors）、NotFound→404、内部→500
 			return
 		}
 		writePB(c, http.StatusCreated, &permissionv1.CreatePermissionResponse{Permission: toPermissionPB(p)})
@@ -86,13 +89,13 @@ func RegisterPermission(
 	authed.PUT("/permission/:id", authzMW, func(c *gingonic.Context) {
 		var req permissionv1.UpdatePermissionRequest
 		if err := bindPB(c, &req); err != nil {
-			c.JSON(http.StatusBadRequest, gingonic.H{"error": err.Error()})
+			bindErr(c, err)
 			return
 		}
 		p, err := biz.UpdatePermission(c.Request.Context(), c.Param("id"),
 			req.GetName(), req.GetMenuIds(), req.GetMenuIdsSet(), req.GetRemark())
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gingonic.H{"error": err.Error()})
+			writeBizErr(c, err) // 校验→400（biz 产 berrors）、NotFound→404、内部→500
 			return
 		}
 		writePB(c, http.StatusOK, &permissionv1.UpdatePermissionResponse{Permission: toPermissionPB(p)})
@@ -101,11 +104,11 @@ func RegisterPermission(
 	authed.DELETE("/permission/:id", authzMW, func(c *gingonic.Context) {
 		ok, err := biz.DeletePermission(c.Request.Context(), c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gingonic.H{"error": err.Error()})
+			writeBizErr(c, err) // 校验→400（biz 产 berrors）、NotFound→404、内部→500
 			return
 		}
 		if !ok {
-			c.JSON(http.StatusNotFound, gingonic.H{"error": "permission not found"})
+			web.ErrorResponse(c, berrors.NotFound("NOT_FOUND").WithMessage("permission not found"))
 			return
 		}
 		writePB(c, http.StatusOK, &permissionv1.DeletePermissionResponse{Deleted: c.Param("id")})
@@ -116,7 +119,7 @@ func RegisterPermission(
 	authed.GET("/permission/policy", authzMW, func(c *gingonic.Context) {
 		ps, err := biz.ListRolePolicies(c.Request.Context(), c.Query("role"))
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gingonic.H{"error": err.Error()})
+			writeBizErr(c, err)
 			return
 		}
 		items := make([]*permissionv1.RolePolicy, 0, len(ps))
@@ -129,13 +132,13 @@ func RegisterPermission(
 	authed.POST("/permission/policy", authzMW, func(c *gingonic.Context) {
 		var req permissionv1.CreateRolePolicyRequest
 		if err := bindPB(c, &req); err != nil {
-			c.JSON(http.StatusBadRequest, gingonic.H{"error": err.Error()})
+			bindErr(c, err)
 			return
 		}
 		p, err := biz.CreateRolePolicy(c.Request.Context(),
 			req.GetRole(), req.GetObject(), req.GetAction())
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gingonic.H{"error": err.Error()})
+			writeBizErr(c, err) // 校验→400（biz 产 berrors）、NotFound→404、内部→500
 			return
 		}
 		writePB(c, http.StatusCreated, &permissionv1.CreateRolePolicyResponse{Policy: toRolePolicyPB(p)})
@@ -144,11 +147,11 @@ func RegisterPermission(
 	authed.DELETE("/permission/policy/:id", authzMW, func(c *gingonic.Context) {
 		ok, err := biz.DeleteRolePolicy(c.Request.Context(), c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gingonic.H{"error": err.Error()})
+			writeBizErr(c, err) // 校验→400（biz 产 berrors）、NotFound→404、内部→500
 			return
 		}
 		if !ok {
-			c.JSON(http.StatusNotFound, gingonic.H{"error": "role policy not found"})
+			web.ErrorResponse(c, berrors.NotFound("NOT_FOUND").WithMessage("role policy not found"))
 			return
 		}
 		writePB(c, http.StatusOK, &permissionv1.DeleteRolePolicyResponse{Deleted: c.Param("id")})

@@ -8,7 +8,6 @@ package gin
 // 双协议。错误映射走 berrors → httperr（code 语义与 gRPC 侧一致）。
 
 import (
-	"errors"
 	"io"
 	"net/http"
 	"net/url"
@@ -16,11 +15,10 @@ import (
 	gingonic "github.com/gin-gonic/gin"
 
 	berrors "github.com/kalandramo/bald/berrors"
-	"github.com/kalandramo/bald/berrors/httperr"
 	"github.com/kalandramo/bald/pkg/authn"
 	"github.com/kalandramo/bald/pkg/authz"
 	mid "github.com/kalandramo/bald/pkg/middleware/gin"
-	"github.com/kalandramo/bald/pkg/store"
+	web "github.com/kalandramo/bald/transport/web"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	filev1 "github.com/kalandramo/bald/examples/go-bald-admin/api/gen/file/v1"
@@ -56,23 +54,25 @@ func RegisterFile(
 		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, filebiz.MaxUploadSize+1<<20)
 		fh, err := c.FormFile("file")
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gingonic.H{"error": "missing multipart form field \"file\""})
+			bindErr(c, err)
 			return
 		}
 		if fh.Size > filebiz.MaxUploadSize {
-			c.JSON(http.StatusRequestEntityTooLarge, gingonic.H{"error": "file exceeds 50MiB limit"})
+			// 与 biz.Upload 的超限校验同 reason（file/upload_too_large），预检与
+			// 落地校验对外一个稳定标识。
+			web.ErrorResponse(c, berrors.BadRequest(filebiz.ReasonUploadTooLarge))
 			return
 		}
 		f, err := fh.Open()
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gingonic.H{"error": err.Error()})
+			bindErr(c, err)
 			return
 		}
 		defer f.Close()
 
 		content, err := io.ReadAll(f)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gingonic.H{"error": err.Error()})
+			bindErr(c, err)
 			return
 		}
 
@@ -130,24 +130,8 @@ func RegisterFile(
 	})
 }
 
-// writeBizErr 统一 biz 错误 → HTTP 状态码（三层判定）：
-//   - berrors.Error → httperr.CodeToHTTP（code 语义与 gRPC 侧一致）；
-//   - store.ErrNotFound / ErrConflict 哨兵（biz 经 fmt.Errorf %w 包装，errors.Is
-//     可穿透多层）→ 404 / 409；
-//   - 其余 → 500（内部错误不得吞成 4xx，误导排障）。
-func writeBizErr(c *gingonic.Context, err error) {
-	var be *berrors.Error
-	switch {
-	case errors.As(err, &be):
-		c.JSON(httperr.CodeToHTTP(be.Code), gingonic.H{"error": err.Error()})
-	case errors.Is(err, store.ErrNotFound):
-		c.JSON(http.StatusNotFound, gingonic.H{"error": err.Error()})
-	case errors.Is(err, store.ErrConflict):
-		c.JSON(http.StatusConflict, gingonic.H{"error": err.Error()})
-	default:
-		c.JSON(http.StatusInternalServerError, gingonic.H{"error": err.Error()})
-	}
-}
+// writeBizErr 见 pb.go（决策⑧统一错误出口：berrors 主路径 + store 哨兵转换 +
+// 框架兜底，与 grpc-gateway 转码的 google.rpc.Status JSON 结构同形）。
 
 // toFilePB 模型 → proto（gin 侧；Size 用 uint32 直传避免 JSON 字符串化）。
 func toFilePB(m *authmodel.File) *filev1.File {

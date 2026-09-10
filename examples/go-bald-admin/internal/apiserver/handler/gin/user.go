@@ -7,9 +7,12 @@ import (
 	"net/http"
 
 	gingonic "github.com/gin-gonic/gin"
+
+	berrors "github.com/kalandramo/bald/berrors"
 	"github.com/kalandramo/bald/pkg/authn"
 	"github.com/kalandramo/bald/pkg/authz"
 	mid "github.com/kalandramo/bald/pkg/middleware/gin"
+	web "github.com/kalandramo/bald/transport/web"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	userv1 "github.com/kalandramo/bald/examples/go-bald-admin/api/gen/user/v1"
@@ -39,7 +42,7 @@ func RegisterUser(
 	authed.GET("/user", authzMW, func(c *gingonic.Context) {
 		users, err := biz.List(c.Request.Context())
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gingonic.H{"error": err.Error()})
+			writeBizErr(c, err)
 			return
 		}
 		items := make([]*userv1.User, 0, len(users))
@@ -61,7 +64,7 @@ func RegisterUser(
 	authed.POST("/user", authzMW, func(c *gingonic.Context) {
 		var req userv1.CreateUserRequest
 		if err := bindPB(c, &req); err != nil {
-			c.JSON(http.StatusBadRequest, gingonic.H{"error": err.Error()})
+			bindErr(c, err)
 			return
 		}
 		u, err := biz.Create(c.Request.Context(), req.GetId(), req.GetUsername(), req.GetRoles(), req.GetPassword())
@@ -75,7 +78,7 @@ func RegisterUser(
 	authed.PUT("/user/:id", authzMW, func(c *gingonic.Context) {
 		var req userv1.UpdateUserRequest
 		if err := bindPB(c, &req); err != nil {
-			c.JSON(http.StatusBadRequest, gingonic.H{"error": err.Error()})
+			bindErr(c, err)
 			return
 		}
 		u, err := biz.Update(c.Request.Context(), c.Param("id"), req.GetUsername(), req.GetRoles(), req.GetPassword())
@@ -93,7 +96,7 @@ func RegisterUser(
 			return
 		}
 		if !ok {
-			c.JSON(http.StatusNotFound, gingonic.H{"error": "user not found"})
+			web.ErrorResponse(c, berrors.NotFound("NOT_FOUND").WithMessage("user not found"))
 			return
 		}
 		writePB(c, http.StatusOK, &userv1.DeleteUserResponse{Deleted: c.Param("id")})

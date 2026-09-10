@@ -56,9 +56,7 @@ func AuthnMiddleware(authenticator authn.Authenticator, opts ...AuthnOption) gin
 			e := berrors.Unauthenticated("MISSING_TOKEN").WithMessage("%s", err.Error())
 			log.GetLogger().Error(c.Request.Context(), "authentication failed", "error", err)
 			auditAuthnFailure(c, auditor, e.Reason)
-			c.AbortWithStatusJSON(httperr.StatusCode(e), web.ErrorBody{
-				Error: web.ErrorDetail{Code: e.Reason, Message: e.Message},
-			})
+			c.AbortWithStatusJSON(httperr.StatusCode(e), web.StatusOf(e))
 			return
 		}
 		ctx := authn.ContextWithToken(c.Request.Context(), token)
@@ -68,9 +66,7 @@ func AuthnMiddleware(authenticator authn.Authenticator, opts ...AuthnOption) gin
 			e := berrors.Unauthenticated("UNAUTHENTICATED").WithMessage("%s", err.Error())
 			log.GetLogger().Error(c.Request.Context(), "authentication failed", "error", err)
 			auditAuthnFailure(c, auditor, e.Reason)
-			c.AbortWithStatusJSON(httperr.StatusCode(e), web.ErrorBody{
-				Error: web.ErrorDetail{Code: e.Reason, Message: e.Message},
-			})
+			c.AbortWithStatusJSON(httperr.StatusCode(e), web.StatusOf(e))
 			return
 		}
 		// 过期校验已下沉至 Authenticator.Authenticate（实现契约必须校验 ExpiresAt），

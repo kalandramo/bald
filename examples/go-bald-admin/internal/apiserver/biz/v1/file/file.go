@@ -31,6 +31,11 @@ import (
 	bootstrappkg "github.com/kalandramo/bald/examples/go-bald-admin/internal/bootstrap"
 )
 
+// 错误 reason 稳定标识（handler 预检与 biz 校验共用，前端按此程序化消费）。
+const (
+	ReasonUploadTooLarge = "file/upload_too_large"
+)
+
 // Biz 文件业务：MinIO 客户端 + 兜底桶名。FileStore 经 bootstrap 包级引用。
 type Biz struct {
 	mc            *miniooss.Storage
@@ -70,7 +75,7 @@ func (b *Biz) Upload(ctx context.Context, fileName, fileDirectory string, conten
 		return nil, berrors.BadRequest("file/upload_empty")
 	}
 	if int64(len(content)) > MaxUploadSize {
-		return nil, berrors.BadRequest("file/upload_too_large")
+		return nil, berrors.BadRequest(ReasonUploadTooLarge)
 	}
 	// 以嗅探结果为准（扩展名可伪装），白名单外一律拒绝
 	mimeType, _ := DetectFileType(content)

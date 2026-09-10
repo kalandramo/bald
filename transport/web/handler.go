@@ -40,7 +40,7 @@ func HandleJSONRequest[T any, R any](
 ) {
 	var req T
 	if err := c.ShouldBindJSON(&req); err != nil {
-		ErrorResponse(c, errors.BadRequest(err.Error()))
+		ErrorResponse(c, errors.BadRequest("").WithMessage("%s", err))
 		return
 	}
 	if err := runValidators(c, &req, validators...); err != nil {
@@ -57,7 +57,7 @@ func HandleQueryRequest[T any, R any](
 ) {
 	var req T
 	if err := c.ShouldBindQuery(&req); err != nil {
-		ErrorResponse(c, errors.BadRequest(err.Error()))
+		ErrorResponse(c, errors.BadRequest("").WithMessage("%s", err))
 		return
 	}
 	if err := runValidators(c, &req, validators...); err != nil {
@@ -74,7 +74,7 @@ func HandleUriRequest[T any, R any](
 ) {
 	var req T
 	if err := c.ShouldBindUri(&req); err != nil {
-		ErrorResponse(c, errors.BadRequest(err.Error()))
+		ErrorResponse(c, errors.BadRequest("").WithMessage("%s", err))
 		return
 	}
 	if err := runValidators(c, &req, validators...); err != nil {

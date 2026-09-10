@@ -12,12 +12,9 @@ import (
 
 	berrors "github.com/kalandramo/bald/berrors"
 	"github.com/kalandramo/bald/pkg/authn"
-	"github.com/kalandramo/bald/pkg/store"
 
 	adminv1 "github.com/kalandramo/bald/examples/go-bald-admin/api/gen/secret/v1"
 	secretbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/secret"
-
-	bootstrappkg "github.com/kalandramo/bald/examples/go-bald-admin/internal/bootstrap"
 )
 
 // secretService 实现生成的 adminv1.SecretServiceServer（M5）。
@@ -40,14 +37,14 @@ func (s *secretService) GetSecret(ctx context.Context, req *adminv1.GetSecretReq
 	if claims != nil {
 		viewer = claims.Name
 	}
-	// M6.3：经真实 DAL 读取，自动受 ctx 租户隔离约束（M3/M4）。越权跨租户检索被 store 拦为 NotFound。
-	w := &store.Where{}
-	w.Filters = append(w.Filters, store.Eq("id", req.GetId()))
-	sec, err := bootstrappkg.SecretStore.Get(ctx, w.T(ctx))
+	// 与 gin 侧 GET /v1/secret/:id 同一 biz 路径（cache-aside + 租户隔离），
+	// 错误同源：NotFound 哨兵经 grpc 拦截器/gateway 转码后与 gin 面同形（决策⑧）。
+	// 此前直连 store 绕过缓存且自构 NotFound("secret")，与 gin 面 reason 分裂。
+	item, err := s.biz.Get(ctx, req.GetId())
 	if err != nil {
-		return nil, berrors.NotFound("secret")
+		return nil, err
 	}
-	return &adminv1.GetSecretResponse{Id: sec.ID, Content: sec.Content, Viewer: viewer}, nil
+	return &adminv1.GetSecretResponse{Id: item.ID, Content: item.Content, Viewer: viewer}, nil
 }
 
 func (s *secretService) DeleteSecret(ctx context.Context, req *adminv1.DeleteSecretRequest) (*adminv1.DeleteSecretResponse, error) {

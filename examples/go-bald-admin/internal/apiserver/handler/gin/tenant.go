@@ -9,9 +9,12 @@ import (
 	"net/http"
 
 	gingonic "github.com/gin-gonic/gin"
+
+	berrors "github.com/kalandramo/bald/berrors"
 	"github.com/kalandramo/bald/pkg/authn"
 	"github.com/kalandramo/bald/pkg/authz"
 	mid "github.com/kalandramo/bald/pkg/middleware/gin"
+	web "github.com/kalandramo/bald/transport/web"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	tenantv1 "github.com/kalandramo/bald/examples/go-bald-admin/api/gen/tenant/v1"
@@ -41,7 +44,7 @@ func RegisterTenant(
 	authed.GET("/tenant", authzMW, func(c *gingonic.Context) {
 		ts, err := biz.List(c.Request.Context())
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gingonic.H{"error": err.Error()})
+			writeBizErr(c, err)
 			return
 		}
 		items := make([]*tenantv1.Tenant, 0, len(ts))
@@ -63,7 +66,7 @@ func RegisterTenant(
 	authed.POST("/tenant", authzMW, func(c *gingonic.Context) {
 		var req tenantv1.CreateTenantRequest
 		if err := bindPB(c, &req); err != nil {
-			c.JSON(http.StatusBadRequest, gingonic.H{"error": err.Error()})
+			bindErr(c, err)
 			return
 		}
 		t, err := biz.Create(c.Request.Context(), req.GetId(), req.GetName(), req.GetRemark())
@@ -77,7 +80,7 @@ func RegisterTenant(
 	authed.PUT("/tenant/:id", authzMW, func(c *gingonic.Context) {
 		var req tenantv1.UpdateTenantRequest
 		if err := bindPB(c, &req); err != nil {
-			c.JSON(http.StatusBadRequest, gingonic.H{"error": err.Error()})
+			bindErr(c, err)
 			return
 		}
 		// STATUS_UNSPECIFIED 表示「不改」，映射为空串交给 biz 跳过校验。
@@ -101,7 +104,7 @@ func RegisterTenant(
 			return
 		}
 		if !ok {
-			c.JSON(http.StatusNotFound, gingonic.H{"error": "tenant not found"})
+			web.ErrorResponse(c, berrors.NotFound("NOT_FOUND").WithMessage("tenant not found"))
 			return
 		}
 		writePB(c, http.StatusOK, &tenantv1.DeleteTenantResponse{Deleted: c.Param("id")})

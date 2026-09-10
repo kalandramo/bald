@@ -10,9 +10,12 @@ import (
 	"net/http"
 
 	gingonic "github.com/gin-gonic/gin"
+
+	berrors "github.com/kalandramo/bald/berrors"
 	"github.com/kalandramo/bald/pkg/authn"
 	"github.com/kalandramo/bald/pkg/authz"
 	mid "github.com/kalandramo/bald/pkg/middleware/gin"
+	web "github.com/kalandramo/bald/transport/web"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	dictv1 "github.com/kalandramo/bald/examples/go-bald-admin/api/gen/dict/v1"
@@ -48,7 +51,7 @@ func RegisterDict(
 	authed.GET("/dict_type", authzMW, func(c *gingonic.Context) {
 		ts, total, err := biz.ListTypes(c.Request.Context())
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gingonic.H{"error": err.Error()})
+			writeBizErr(c, err)
 			return
 		}
 		items := make([]*dictv1.DictType, 0, len(ts))
@@ -61,7 +64,7 @@ func RegisterDict(
 	authed.GET("/dict_type/:id", authzMW, func(c *gingonic.Context) {
 		t, err := biz.GetType(c.Request.Context(), c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusNotFound, gingonic.H{"error": "dict type not found"})
+			writeBizErr(c, err) // NotFound→404、内部→500
 			return
 		}
 		writePB(c, http.StatusOK, &dictv1.GetDictTypeResponse{DictType: toDictTypePB(t)})
@@ -70,7 +73,7 @@ func RegisterDict(
 	authed.POST("/dict_type", authzMW, func(c *gingonic.Context) {
 		var req dictv1.CreateDictTypeRequest
 		if err := bindPB(c, &req); err != nil {
-			c.JSON(http.StatusBadRequest, gingonic.H{"error": err.Error()})
+			bindErr(c, err)
 			return
 		}
 		t, err := biz.CreateType(c.Request.Context(), req.GetId(), req.GetTypeName(), req.GetSortOrder(), req.GetRemark())
@@ -84,7 +87,7 @@ func RegisterDict(
 	authed.PUT("/dict_type/:id", authzMW, func(c *gingonic.Context) {
 		var req dictv1.UpdateDictTypeRequest
 		if err := bindPB(c, &req); err != nil {
-			c.JSON(http.StatusBadRequest, gingonic.H{"error": err.Error()})
+			bindErr(c, err)
 			return
 		}
 		// 空值字段不改；sort_order/enabled 用显式 *_set 位（0/false 是合法值）。
@@ -92,7 +95,7 @@ func RegisterDict(
 			req.GetTypeName(), req.GetSortOrder(), req.GetSortOrderSet(),
 			req.GetEnabled(), req.GetEnabledSet(), req.GetRemark())
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gingonic.H{"error": err.Error()})
+			writeBizErr(c, err) // 校验→400、NotFound→404、内部→500
 			return
 		}
 		writePB(c, http.StatusOK, &dictv1.UpdateDictTypeResponse{DictType: toDictTypePB(t)})
@@ -105,7 +108,7 @@ func RegisterDict(
 			return
 		}
 		if deleted == 0 {
-			c.JSON(http.StatusNotFound, gingonic.H{"error": "dict type not found"})
+			web.ErrorResponse(c, berrors.NotFound("NOT_FOUND").WithMessage("dict type not found"))
 			return
 		}
 		writePB(c, http.StatusOK, &dictv1.DeleteDictTypeResponse{Deleted: c.Param("id")})
@@ -127,7 +130,7 @@ func RegisterDict(
 	authed.GET("/dict_entry/:id", authzMW, func(c *gingonic.Context) {
 		e, err := biz.GetEntry(c.Request.Context(), c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusNotFound, gingonic.H{"error": "dict entry not found"})
+			writeBizErr(c, err) // NotFound→404、内部→500
 			return
 		}
 		writePB(c, http.StatusOK, &dictv1.GetDictEntryResponse{DictEntry: toDictEntryPB(e)})
@@ -136,7 +139,7 @@ func RegisterDict(
 	authed.POST("/dict_entry", authzMW, func(c *gingonic.Context) {
 		var req dictv1.CreateDictEntryRequest
 		if err := bindPB(c, &req); err != nil {
-			c.JSON(http.StatusBadRequest, gingonic.H{"error": err.Error()})
+			bindErr(c, err)
 			return
 		}
 		e, err := biz.CreateEntry(c.Request.Context(), req.GetTypeCode(), req.GetValue(),
@@ -151,7 +154,7 @@ func RegisterDict(
 	authed.PUT("/dict_entry/:id", authzMW, func(c *gingonic.Context) {
 		var req dictv1.UpdateDictEntryRequest
 		if err := bindPB(c, &req); err != nil {
-			c.JSON(http.StatusBadRequest, gingonic.H{"error": err.Error()})
+			bindErr(c, err)
 			return
 		}
 		// numeric 用 numeric_set 位区分「改回空值」与「不改」。
@@ -173,7 +176,7 @@ func RegisterDict(
 			return
 		}
 		if !ok {
-			c.JSON(http.StatusNotFound, gingonic.H{"error": "dict entry not found"})
+			web.ErrorResponse(c, berrors.NotFound("NOT_FOUND").WithMessage("dict entry not found"))
 			return
 		}
 		writePB(c, http.StatusOK, &dictv1.DeleteDictEntryResponse{Deleted: c.Param("id")})

@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"sort"
 
+	berrors "github.com/kalandramo/bald/berrors"
+
 	authmodel "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/model"
 	bootstrappkg "github.com/kalandramo/bald/examples/go-bald-admin/internal/bootstrap"
 	"github.com/kalandramo/bald/pkg/store"
@@ -50,12 +52,14 @@ func (b *Biz) ListTree(ctx context.Context) ([]*authmodel.Menu, int, error) {
 // Create 创建菜单节点。ID 客户端指定（语义编码）；ParentID 非空时校验父存在。
 func (b *Biz) Create(ctx context.Context, id, parentID, typ, name, path, component, title, icon string, order int32, remark string) (*authmodel.Menu, error) {
 	if id == "" || typ == "" {
-		return nil, fmt.Errorf("menu.Create: id and type are required")
+		return nil, berrors.BadRequest("menu/missing_required_fields").
+			WithMessage("menu.Create: id and type are required")
 	}
 	switch typ {
 	case "CATALOG", "MENU", "BUTTON":
 	default:
-		return nil, fmt.Errorf("menu.Create(%s): invalid type %q", id, typ)
+		return nil, berrors.BadRequest("menu/invalid_type").
+			WithMessage("menu.Create(%s): invalid type %q", id, typ)
 	}
 	if parentID != "" {
 		if _, err := b.Get(ctx, parentID); err != nil {
@@ -84,7 +88,8 @@ func (b *Biz) Update(ctx context.Context, id, parentID, typ, name, path, compone
 	}
 	if parentID != "" {
 		if parentID == id {
-			return nil, fmt.Errorf("menu.Update(%s): parent cannot be self", id)
+			return nil, berrors.BadRequest("menu/parent_is_self").
+				WithMessage("menu.Update(%s): parent cannot be self", id)
 		}
 		if _, err := b.Get(ctx, parentID); err != nil {
 			return nil, fmt.Errorf("menu.Update(%s): parent %s: %w", id, parentID, err)
@@ -102,7 +107,8 @@ func (b *Biz) Update(ctx context.Context, id, parentID, typ, name, path, compone
 		}
 		for cur := byID[parentID]; cur != nil && cur.ParentID != ""; cur = byID[cur.ParentID] {
 			if cur.ParentID == id {
-				return nil, fmt.Errorf("menu.Update(%s): parent %s would form a cycle", id, parentID)
+				return nil, berrors.BadRequest("menu/parent_cycle").
+					WithMessage("menu.Update(%s): parent %s would form a cycle", id, parentID)
 			}
 		}
 		m.ParentID = parentID
@@ -112,7 +118,8 @@ func (b *Biz) Update(ctx context.Context, id, parentID, typ, name, path, compone
 		case "CATALOG", "MENU", "BUTTON":
 			m.Type = typ
 		default:
-			return nil, fmt.Errorf("menu.Update(%s): invalid type %q", id, typ)
+			return nil, berrors.BadRequest("menu/invalid_type").
+				WithMessage("menu.Update(%s): invalid type %q", id, typ)
 		}
 	}
 	if name != "" {
@@ -138,7 +145,8 @@ func (b *Biz) Update(ctx context.Context, id, parentID, typ, name, path, compone
 		case "ON", "OFF":
 			m.Status = status
 		default:
-			return nil, fmt.Errorf("menu.Update(%s): invalid status %q", id, status)
+			return nil, berrors.BadRequest("menu/invalid_status").
+				WithMessage("menu.Update(%s): invalid status %q", id, status)
 		}
 	}
 	if remark != "" {

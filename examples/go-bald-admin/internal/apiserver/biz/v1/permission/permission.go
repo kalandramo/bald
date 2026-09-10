@@ -1,8 +1,9 @@
 // Package permission 是权限管理业务（T3，自 go-wind-admin permission 域精简移植）。
 //
 // 两块职责（与 proto 对应）：
-//   1. 权限点注册表（model.Permission）：权限码 → 名称/菜单可见性；
-//   2. 角色策略（model.RolePolicy）：casbin p 行的数据化持久层（D3 策略数据化）。
+//  1. 权限点注册表（model.Permission）：权限码 → 名称/菜单可见性；
+//  2. 角色策略（model.RolePolicy）：casbin p 行的数据化持久层（D3 策略数据化）。
+//
 // 平台侧管理面（无 TenantID 字段，同 Tenant/Menu Biz）；授权在中间件层完成。
 package permission
 
@@ -10,6 +11,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+
+	berrors "github.com/kalandramo/bald/berrors"
 
 	authmodel "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/model"
 	bootstrappkg "github.com/kalandramo/bald/examples/go-bald-admin/internal/bootstrap"
@@ -53,7 +56,8 @@ func (b *Biz) ListPermissions(ctx context.Context) ([]*authmodel.Permission, err
 // CreatePermission 创建权限点（ID 即权限码）。
 func (b *Biz) CreatePermission(ctx context.Context, code, name string, menuIDs []string, remark string) (*authmodel.Permission, error) {
 	if code == "" {
-		return nil, fmt.Errorf("permission.Create: code is required")
+		return nil, berrors.BadRequest("permission/missing_required_fields").
+			WithMessage("permission.Create: code is required")
 	}
 	p := &authmodel.Permission{ID: code, Name: name, MenuIDs: joinCSV(menuIDs), Remark: remark}
 	if err := b.permStore().Create(ctx, p); err != nil {
@@ -123,7 +127,8 @@ func (b *Biz) ListRolePolicies(ctx context.Context, role string) ([]*authmodel.R
 // ID 即业务键 role:object:action——重复策略 Create 冲突（ErrConflict）天然防重。
 func (b *Biz) CreateRolePolicy(ctx context.Context, role, object, action string) (*authmodel.RolePolicy, error) {
 	if role == "" || object == "" || action == "" {
-		return nil, fmt.Errorf("permission.CreateRolePolicy: role/object/action are required")
+		return nil, berrors.BadRequest("permission/missing_required_fields").
+			WithMessage("permission.CreateRolePolicy: role/object/action are required")
 	}
 	p := &authmodel.RolePolicy{ID: role + ":" + object + ":" + action, Role: role, Object: object, Action: action}
 	if err := b.policyStore().Create(ctx, p); err != nil {

@@ -9,9 +9,12 @@ import (
 	"net/http"
 
 	gingonic "github.com/gin-gonic/gin"
+
+	berrors "github.com/kalandramo/bald/berrors"
 	"github.com/kalandramo/bald/pkg/authn"
 	"github.com/kalandramo/bald/pkg/authz"
 	mid "github.com/kalandramo/bald/pkg/middleware/gin"
+	web "github.com/kalandramo/bald/transport/web"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	menuv1 "github.com/kalandramo/bald/examples/go-bald-admin/api/gen/menu/v1"
@@ -41,7 +44,7 @@ func RegisterMenu(
 	authed.GET("/menu", authzMW, func(c *gingonic.Context) {
 		roots, total, err := biz.ListTree(c.Request.Context())
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gingonic.H{"error": err.Error()})
+			writeBizErr(c, err)
 			return
 		}
 		items := make([]*menuv1.Menu, 0, len(roots))
@@ -54,7 +57,7 @@ func RegisterMenu(
 	authed.GET("/menu/:id", authzMW, func(c *gingonic.Context) {
 		m, err := biz.Get(c.Request.Context(), c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusNotFound, gingonic.H{"error": "menu not found"})
+			writeBizErr(c, err) // NotFound→404、内部→500
 			return
 		}
 		writePB(c, http.StatusOK, &menuv1.GetMenuResponse{Menu: toMenuPB(m)})
@@ -63,14 +66,14 @@ func RegisterMenu(
 	authed.POST("/menu", authzMW, func(c *gingonic.Context) {
 		var req menuv1.CreateMenuRequest
 		if err := bindPB(c, &req); err != nil {
-			c.JSON(http.StatusBadRequest, gingonic.H{"error": err.Error()})
+			bindErr(c, err)
 			return
 		}
 		m, err := biz.Create(c.Request.Context(), req.GetId(), req.GetParentId(),
 			menuTypeString(req.GetType()), req.GetName(), req.GetPath(),
 			req.GetComponent(), req.GetTitle(), req.GetIcon(), req.GetOrder(), req.GetRemark())
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gingonic.H{"error": err.Error()})
+			writeBizErr(c, err) // 校验→400（biz 产 berrors）、NotFound→404、内部→500
 			return
 		}
 		writePB(c, http.StatusCreated, &menuv1.CreateMenuResponse{Menu: toMenuPB(m)})
@@ -79,7 +82,7 @@ func RegisterMenu(
 	authed.PUT("/menu/:id", authzMW, func(c *gingonic.Context) {
 		var req menuv1.UpdateMenuRequest
 		if err := bindPB(c, &req); err != nil {
-			c.JSON(http.StatusBadRequest, gingonic.H{"error": err.Error()})
+			bindErr(c, err)
 			return
 		}
 		// UNSPECIFIED 表示「不改」，映射空串交给 biz 跳过；order 用显式 order_set 位。
@@ -88,7 +91,7 @@ func RegisterMenu(
 			req.GetComponent(), req.GetTitle(), req.GetIcon(), req.GetOrder(), req.GetOrderSet(),
 			menuStatusString(req.GetStatus()), req.GetRemark())
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gingonic.H{"error": err.Error()})
+			writeBizErr(c, err) // 校验→400（biz 产 berrors）、NotFound→404、内部→500
 			return
 		}
 		writePB(c, http.StatusOK, &menuv1.UpdateMenuResponse{Menu: toMenuPB(m)})
@@ -97,11 +100,11 @@ func RegisterMenu(
 	authed.DELETE("/menu/:id", authzMW, func(c *gingonic.Context) {
 		deleted, err := biz.Delete(c.Request.Context(), c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gingonic.H{"error": err.Error()})
+			writeBizErr(c, err) // 校验→400（biz 产 berrors）、NotFound→404、内部→500
 			return
 		}
 		if deleted == 0 {
-			c.JSON(http.StatusNotFound, gingonic.H{"error": "menu not found"})
+			web.ErrorResponse(c, berrors.NotFound("NOT_FOUND").WithMessage("menu not found"))
 			return
 		}
 		writePB(c, http.StatusOK, &menuv1.DeleteMenuResponse{Deleted: c.Param("id")})

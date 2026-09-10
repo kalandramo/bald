@@ -10,9 +10,12 @@ import (
 	"net/http"
 
 	gingonic "github.com/gin-gonic/gin"
+
+	berrors "github.com/kalandramo/bald/berrors"
 	"github.com/kalandramo/bald/pkg/authn"
 	"github.com/kalandramo/bald/pkg/authz"
 	mid "github.com/kalandramo/bald/pkg/middleware/gin"
+	web "github.com/kalandramo/bald/transport/web"
 
 	authbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/auth"
 	secretbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/secret"
@@ -33,7 +36,7 @@ func RegisterAuth(
 	e.POST("/v1/login", func(c *gingonic.Context) {
 		var cred authbiz.Credential
 		if err := c.ShouldBindJSON(&cred); err != nil {
-			c.JSON(http.StatusBadRequest, gingonic.H{"error": err.Error()})
+			bindErr(c, err)
 			return
 		}
 		// T6 登录审计：客户端信息 handler 层提取（biz 保持协议无关）。
@@ -41,13 +44,13 @@ func RegisterAuth(
 		cred.UserAgent = c.Request.UserAgent()
 		pair, err := biz.Login(c.Request.Context(), cred)
 		if err != nil {
-			// 仅凭据错误归 401；查询/签发等内部错误归 500——此前一刀切 401 会把
-			// DB 故障伪装成"密码错误"，误导排障与前端提示。
+			// 仅凭据错误归 401（reason=BAD_CREDENTIAL 供前端程序化识别）；查询/签发等
+			// 内部错误归 500——此前一刀切 401 会把 DB 故障伪装成"密码错误"。
 			if errors.Is(err, authbiz.ErrBadCredential) {
-				c.JSON(http.StatusUnauthorized, gingonic.H{"error": err.Error()})
+				web.ErrorResponse(c, berrors.Unauthenticated("BAD_CREDENTIAL").WithMessage("%s", err))
 				return
 			}
-			c.JSON(http.StatusInternalServerError, gingonic.H{"error": err.Error()})
+			writeBizErr(c, err)
 			return
 		}
 		c.JSON(http.StatusOK, pair)
@@ -66,7 +69,7 @@ func RegisterAuth(
 	authed.GET("/auth/whoami", authzMW, func(c *gingonic.Context) {
 		info, err := biz.WhoAmI(c.Request.Context())
 		if err != nil {
-			c.JSON(http.StatusUnauthorized, gingonic.H{"error": err.Error()})
+			writeBizErr(c, err) // NotFound（认证后用户被删/停用）→404、内部→500
 			return
 		}
 		c.JSON(http.StatusOK, info)
@@ -91,7 +94,7 @@ func RegisterAuth(
 			return
 		}
 		if !ok {
-			c.JSON(http.StatusNotFound, gingonic.H{"error": "secret not found"})
+			web.ErrorResponse(c, berrors.NotFound("NOT_FOUND").WithMessage("secret not found"))
 			return
 		}
 		c.JSON(http.StatusOK, gingonic.H{"deleted": c.Param("id")})

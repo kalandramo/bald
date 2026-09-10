@@ -12,6 +12,8 @@ import (
 	"github.com/kalandramo/bald/pkg/contextx"
 	"github.com/kalandramo/bald/pkg/store"
 
+	berrs "github.com/kalandramo/bald/berrors"
+
 	rediscache "github.com/kalandramo/bald-cache-redis"
 	authmodel "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/model"
 	bootstrappkg "github.com/kalandramo/bald/examples/go-bald-admin/internal/bootstrap"
@@ -78,6 +80,11 @@ func (b *SecretBiz) Get(ctx context.Context, id string) (*Item, error) {
 		raw, err = loader(ctx)
 	}
 	if err != nil {
+		// NotFound 哨兵升级为 berrors（决策⑧：gin/gRPC/gateway 三面直达同一
+		// code/reason，无需各面再转换）；其余错误原样上抛（内部错误归 500）。
+		if berrs.Is(err, store.ErrNotFound) {
+			return nil, berrs.NotFound("secret/not_found").WithCause(err)
+		}
 		return nil, err
 	}
 	var s authmodel.Secret
