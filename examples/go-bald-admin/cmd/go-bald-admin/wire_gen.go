@@ -11,6 +11,7 @@ import (
 
 	authnjwt "github.com/kalandramo/bald-authn-jwt"
 	rediscache "github.com/kalandramo/bald-cache-redis"
+	"github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver"
 	"github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/auditlog"
 	"github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/auth"
 	"github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/dict"
@@ -26,7 +27,7 @@ import (
 // Injectors from wire.go:
 
 // InitializeBiz 由 wire 生成实现：显式拼装 cache + 各 biz，依赖图编译期校验。
-func InitializeBiz() (*BizSet, error) {
+func InitializeBiz() (*apiserver.BizSet, error) {
 	mainSigner := provideSigner()
 	biz := auth.New(mainSigner)
 	mainRedisAddr := provideRedisAddr()
@@ -47,7 +48,9 @@ func InitializeBiz() (*BizSet, error) {
 	fileBiz := file.New(bootstrap.MinioStorage, bootstrap.FileBucket)
 	// T6：审计查询 biz（只读，数据由写路径审计落库）。
 	auditLogBiz := auditlog.New()
-	bizSet := &BizSet{
+	// T10：BizSet 收敛到 apiserver 包（bizset.go）；cache 留在装配局部
+	// （仅 secret/dict 消费，server 层不知缓存实现）。
+	bizSet := &apiserver.BizSet{
 		Auth:       biz,
 		Secret:     secretBiz,
 		Tenant:     tenantBiz,
@@ -57,26 +60,11 @@ func InitializeBiz() (*BizSet, error) {
 		Dict:       dictBiz,
 		File:       fileBiz,
 		AuditLog:   auditLogBiz,
-		Cache:      cache,
 	}
 	return bizSet, nil
 }
 
 // wire.go:
-
-// BizSet 是 wire 装配出的业务对象集合，供 main 注册路由/服务。
-type BizSet struct {
-	Auth       *auth.Biz
-	Secret     *secret.SecretBiz
-	Tenant     *tenant.Biz
-	User       *user.Biz
-	Menu       *menu.Biz
-	Permission *permission.Biz
-	Dict       *dict.Biz
-	File       *file.Biz
-	AuditLog   *auditlog.Biz
-	Cache      *rediscache.Cache
-}
 
 // redisAddr 是 wire 的命名类型别名，区分 string 依赖（避免多重绑定冲突）。
 type redisAddr string

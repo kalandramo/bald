@@ -1,4 +1,4 @@
-package apiserver
+package e2e
 
 // t4_e2e_test.go 字典管理 REST e2e（T4 验收）：真实 gin 引擎 + httptest +
 // miniredis 真实 Redis（dict biz 注入 Cache-Aside）。
@@ -24,6 +24,7 @@ import (
 
 	rediscache "github.com/kalandramo/bald-cache-redis"
 	dictv1 "github.com/kalandramo/bald/examples/go-bald-admin/api/gen/dict/v1"
+	"github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver"
 	auditlogbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/auditlog"
 	authbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/auth"
 	dictbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/dict"
@@ -53,8 +54,11 @@ func startDictREST(t *testing.T) (string, *rediscache.Cache) {
 		t.Fatalf("rediscache.New: %v", err)
 	}
 	e := gingonic.New()
-	RegisterRoutes(e, authbiz.New(bootstrappkg.Signer), secretbiz.New(nil), tenantbiz.New(),
-		userbiz.New(), menubiz.New(), permissionbiz.New(), dictbiz.New(cache), filebiz.New(nil, ""), auditlogbiz.New())
+	apiserver.RegisterRoutes(e, &apiserver.BizSet{
+		Auth: authbiz.New(bootstrappkg.Signer), Secret: secretbiz.New(nil), Tenant: tenantbiz.New(),
+		User: userbiz.New(), Menu: menubiz.New(), Permission: permissionbiz.New(),
+		Dict: dictbiz.New(cache), File: filebiz.New(nil, ""), AuditLog: auditlogbiz.New(),
+	})
 	srv := httptest.NewServer(e)
 	t.Cleanup(srv.Close)
 	return srv.URL, cache

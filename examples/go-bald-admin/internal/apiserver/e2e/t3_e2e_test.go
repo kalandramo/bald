@@ -1,4 +1,4 @@
-package apiserver
+package e2e
 
 // t3_e2e_test.go 菜单/权限管理 REST e2e（T3 验收）：真实 gin 引擎 + httptest，
 // 完整中间件链（分组 Authn/Authz）+ biz/store/DB + 数据化 casbin 策略。

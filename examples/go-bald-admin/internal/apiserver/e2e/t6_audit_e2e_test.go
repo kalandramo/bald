@@ -1,4 +1,4 @@
-package apiserver
+package e2e
 
 // t6_audit_e2e_test.go 审计增强+查询 REST e2e（T6 验收）：真实 gin 引擎 +
 // httptest + 真实 SQLite 内存库（StoreAuditor 落库 → AuditStore 查询，§0 禁 fake）。
@@ -25,6 +25,7 @@ import (
 	gingonic "github.com/gin-gonic/gin"
 
 	auditv1 "github.com/kalandramo/bald/examples/go-bald-admin/api/gen/audit/v1"
+	"github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver"
 	auditlogbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/auditlog"
 	authbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/auth"
 	dictbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/dict"
@@ -59,8 +60,11 @@ func startAuditREST(t *testing.T) string {
 		ginmw.AuditWithObjectResolver(authz.DefaultHTTPObject),
 		ginmw.AuditWithActionResolver(authz.DefaultHTTPAction),
 	))
-	RegisterRoutes(e, authbiz.New(bootstrappkg.Signer), secretbiz.New(nil), tenantbiz.New(),
-		userbiz.New(), menubiz.New(), permissionbiz.New(), dictbiz.New(nil), filebiz.New(nil, ""), auditlogbiz.New())
+	apiserver.RegisterRoutes(e, &apiserver.BizSet{
+		Auth: authbiz.New(bootstrappkg.Signer), Secret: secretbiz.New(nil), Tenant: tenantbiz.New(),
+		User: userbiz.New(), Menu: menubiz.New(), Permission: permissionbiz.New(),
+		Dict: dictbiz.New(nil), File: filebiz.New(nil, ""), AuditLog: auditlogbiz.New(),
+	})
 	srv := httptest.NewServer(e)
 	t.Cleanup(srv.Close)
 	return srv.URL

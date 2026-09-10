@@ -42,7 +42,7 @@ import (
 	tenantv1 "github.com/kalandramo/bald/examples/go-bald-admin/api/gen/tenant/v1"
 	userv1 "github.com/kalandramo/bald/examples/go-bald-admin/api/gen/user/v1"
 	"github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver"
-	secretgrpc "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/grpc"
+	secretgrpc "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/handler/grpc"
 	bootstrappkg "github.com/kalandramo/bald/examples/go-bald-admin/internal/bootstrap"
 
 	obmetrics "github.com/kalandramo/bald-observability-otlp/metrics"
@@ -150,8 +150,8 @@ func serveRunE(_ *cobra.Command, _ []string) error {
 		ginmw.AuditWithObjectResolver(authz.DefaultHTTPObject),
 		ginmw.AuditWithActionResolver(authz.DefaultHTTPAction),
 	))
-	apiserver.RegisterRoutes(router, bizSet.Auth, bizSet.Secret, bizSet.Tenant, bizSet.User, bizSet.Menu, bizSet.Permission, bizSet.Dict, bizSet.File, bizSet.AuditLog) // gin handler 路由
-	registerAdminRoutes(router, appRef, componentFactories)                                                                                                             // M10.2 管理面（appRef 迟到绑定）
+	apiserver.RegisterRoutes(router, bizSet)                // gin handler 路由（T10：BizSet 直传）
+	registerAdminRoutes(router, appRef, componentFactories) // M10.2 管理面（appRef 迟到绑定）
 	httpSrv := httpserver.NewHTTPServer(bootstrap.GetServer().GetHttp(), router, ready)
 
 	// T2：gRPC service 注册回调捕获 wire 装配的 biz（全部 service 需 biz 注入）。
@@ -240,7 +240,7 @@ func newApp(
 	grpcSrv *grpcserver.GRPCServer,
 	ready transport.ReadinessFunc,
 	traceComp appkit.Component,
-	bizSet *BizSet,
+	bizSet *apiserver.BizSet,
 ) *appkit.AppKit {
 	var app *appkit.AppKit
 	// T7：注册中心契约装配（New 构造路径等价于 FromBootstrap 的 buildRegistrar）：

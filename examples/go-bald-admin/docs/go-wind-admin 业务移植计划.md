@@ -47,7 +47,10 @@ Prometheus/OTLP），但数据层仍以 **SQLite 内存库**为主、未接对�
 > 数据模型按源 Ent schema（`app/admin/service/internal/data/ent/schema/` 为唯一真源，`sql/` 目录无 DDL）
 > 手工映射，禁止引入 Ent。
 
-### 2.2 后续迭代清单（本次不做，防范围蔓延）
+### 2.2 后续迭代清单（T8 冻结）
+
+> **T8 起冻结**：以下清单为 T0-T8 移植范围之外的功能扩展项，随 bald 能力演进按需启动，
+> 不在本移植计划验收范围。
 
 MFA、登录策略（login_policy）、组织单元/岗位（org_unit/position/membership）、
 套餐与配额（plan/plan_module/plan_quota）、内部消息（internal_message 3 类）、
@@ -197,10 +200,13 @@ proto/<域>.proto（从源项目精简搬运）→ buf generate → gen/
 | **T2** ✅ 租户+用户 | proto 精简（identity 域）→ `model.Tenant` + User 字段扩展（tenant_id/nickname 等）→ biz/handler → 种子（平台租户+默认租户+admin） | `api/{tenant,user}/v1/*.proto`、`model/`、`biz/v1/{tenant,user}/`、`handler/gin/{tenant,user}.go`、`apiserver/grpc/{tenant,user}.go`、wire.go | 租户 CRUD e2e；跨租户用户隔离 404（复用存量隔离测试形态）；存量 secret/多租户测试不回归 | ① |
 | **T3** ✅ 角色/权限/菜单 | `model.{Permission,Menu,RolePolicy}` + D3 策略数据化装载 + 菜单树 CRUD + RBAC 行为验证（viewer 删资源 403） | `api/{menu,permission}/v1/*.proto`、`model/`、`biz/v1/`、`internal/security/casbin/casbin.go`（装载入口） | 策略从 DB 装载（loadPolicyCSV）；REST/gRPC 同源授权 e2e（P9）；无策略时拒绝默认生效（fail-closed 单测） | ① |
 | **T4** ✅ 字典 | `model.{DictType,DictEntry}` + Cache-Aside（键 `rediscache.Key("dict", tenant, type)`，写穿透失效） | `proto/dict.proto`、`biz/v1/dict/`、`handler/` | 缓存命中/失效 e2e（真实 Redis）；Redis 停机降级直连 store 验证 | ①② |
-| **T5** 文件 | `model.File` + oss/minio 上传/下载（MIME 白名单、SHA256、大小上限 50MiB，语义对齐源 `file_transfer_service.go`）+ bucket 兜底创建 | `proto/file.proto`、`biz/v1/file/`、`handler/`、`internal/bootstrap`（MinIO 构造判 nil） | 上传→下载内容一致 e2e（真实 MinIO）；非白名单 MIME 拒绝；对象落桶可查 | ①③ |
-| **T6** 审计增强+查询 | AuditRecord 扩展（IP/UA/ActionType）+ 操作/登录分类落库 + 分页查询接口 | `model/`、`internal/security/audit/store.go`、`biz/v1/auditlog/` | 写路径触发审计落 PG（含新字段）；查询 e2e；`audit.backends` 热切换回归 | ①（②可选） |
-| **T7** Nacos | 契约装配：`RegistrarRegistry` + `registry.nacos` 段 → 替换 `appkit.Registrar` | `cmd/go-bald-admin/main.go`、`internal/bootstrap` | Nacos 控制台可见服务注册/注销；不可达时启动明确报错（不静默） | ④ |
-| **T8** 端到端验证+收尾 | §9 全序列跑通；README/设计文档更新；后续迭代清单冻结 | `README.md`、`docs/设计文档.md`、本文档状态列 | 全部验证序列通过；`task verify` 全绿 | 全部 |
+| **T5** ✅ 文件 | `model.File` + oss/minio 上传/下载（MIME 白名单、SHA256、大小上限 50MiB，语义对齐源 `file_transfer_service.go`）+ bucket 兜底创建 | `proto/file.proto`、`biz/v1/file/`、`handler/`、`internal/bootstrap`（MinIO 构造判 nil） | 上传→下载内容一致 e2e（真实 MinIO）；非白名单 MIME 拒绝；对象落桶可查 | ①③ |
+| **T6** ✅ 审计增强+查询 | AuditRecord 扩展（IP/UA/RequestID/TraceID/Category）+ 操作/登录分类落库 + 分页查询接口 | `model/`、`internal/security/audit/store.go`、`biz/v1/auditlog/`、`api/audit/v1` | 写路径触发审计落 PG（含新字段）；查询 e2e；`audit.backends` 热切换回归 | ①（②可选） |
+| **T7** ✅ Nacos | 契约装配：`RegistrarRegistry` + `registry.nacos` 段 → 替换 `appkit.Registrar` | `cmd/go-bald-admin/main.go`、`internal/bootstrap` | Nacos 控制台可见服务注册/注销；不可达时启动明确报错（不静默） | ④ |
+| **T8** ✅ 端到端验证+收尾 | §9 全序列跑通（揪出 2 个 e2e 盲区 bug）；README 全面修正（env/端口/架构/目录）；metrics 端口根治；后续迭代清单冻结 | `README.md`、`main.go`、`t3_e2e_test.go`、`file.go`、本文档状态列 | §9 验证序列通过（OTLP 云上报留 T9，collector 不可达）；`task verify` 全绿 | 全部 |
+| **T9** OTLP 云上报（预留） | §9 第 11 步完整验证：指标 + trace 直推云端 collector（`:4318` 就绪后启动，见 §8.7 遗留） | `cmd/go-bald-admin/main.go`（如需接线调整） | 云端 backend 可见 go-bald-admin 的 metrics 与 trace；`task verify` 全绿 | ⑤ |
+| **T10** ✅ 目录架构对齐（分层参考 miniblog，2026-09-10 完成） | ① `internal/apiserver/grpc/` → `internal/apiserver/handler/grpc/`：gRPC service 归位协议接入层，与 `handler/gin` 对称，清空目录残留（含 `secret_e2e_test.go` 随迁；Go 代码仅 `main.go` 一处 import）；② 包根 9 个 `*_e2e_test.go` → `internal/apiserver/e2e/` 独立测试包：仅依赖导出符号（`RegisterRoutes`/`bootstrap.*`/`biz.New` 均已导出），测试间共享 helper（tinyServer/stubComp/issueToken 等）随包同迁；③ `RegisterRoutes` 10 个 biz 参数收敛为 `*BizSet` 直传：吸收 miniblog IBiz 聚合门面思路但不引入接口层/mockgen（与 §0 契约一致），新增域改动点 3→2，与 ② 联动改测试内调用点 | `internal/apiserver/{server.go, handler/, e2e/}`、`cmd/go-bald-admin/{main.go, wire.go, wire_gen.go}`、`docs/设计文档.md` 与本文档的 grpc 路径引用、README 目录段 | 纯重构零行为变化；`task verify` 全绿（存量 e2e 不回归）；gRPC 直连 + gateway 转码抽查通过；Taskfile `test:audit`/`test:file` 路径核对（`./internal/apiserver/...` 通配已自动覆盖新目录） | 无 |
+| **F1** ✅ store-gorm Open 装配上提（框架演进，2026-09-10） | contrib/store-gorm 新增 `Open()` 装配函数 + `DialectorFactory` 注册表（sqlite 预注册为缺省引擎——glebarez 纯 Go 零 CGO；postgres/mysql 由业务侧 import driver 后显式 `RegisterDialector`，未 import 的后端零依赖，与 T7 nacos 注册制同模式，未注册 fail-fast）+ 五 Option（`WithEnv`/`WithDSN`/`WithDriver`/`WithConfig`/`WithGormConfig`）+ `NewTestDB` 测试助手（t.Cleanup 关连接池，防 Windows 句柄坑）；契约段连接池参数（max_idle/max_open/lifetime）由框架消费。示例 `openDB` 收敛为薄封装（仅保留 env `BALD_ADMIN_DB_DSN` + 契约段来源约定），`dsnScheme` 与 driver 分流逻辑上提框架。动机：快速开发不引真实依赖＝换轻量真后端（SQLite 内存库）而非 mock，与 §0 契约一致；「零依赖 clone 即跑」从示例手工逻辑升为框架缺省能力（与 cache-redis 空 addr 禁用、MinIO nil 降级同构的"真实但可选"） | `contrib/store-gorm/{conn.go, conn_test.go, testutil.go}`、`examples/go-bald-admin/internal/bootstrap/{bootstrap.go, db_e2e_test.go}` | contrib 单测 11 例全绿（缺省内存库/env 覆盖/DSN 优先级/注册制别名/fail-fast/空 Source 忽略）；示例 `task verify` 全绿；真实云端 PG e2e 回归（`TestDictREST` 等失败经 stash 对照实验证明为共享库存量数据问题非本次回归，T8 演示残留 `t8_probe` 已清理，其余审计/租户注入失败在原代码同样复现） | 无 |
 
 ## 8. 风险与决策记录
 
@@ -241,7 +247,99 @@ proto/<域>.proto（从源项目精简搬运）→ buf generate → gen/
 - **顺带**：菜单种子加 `menu-dict`（menu-system 第 6 子节点，T3 e2e 树断言
   5→6 同步）；miniredis 升 v2.39.0；gateway 注册 dict 双 service handler。
 
-### 8.2 T3 实施记录（2026-09-07，角色/权限/菜单完成）
+### 8.4 T5 实施记录（2026-09-07，文件完成）
+
+- **实体精简映射**：`File.ID` = 独立 uuid（带横线 `uuid.NewString()`，源 recordFile
+  同款——与保存名 uuid 各自独立生成）；`SaveFileName` = 对象键去扩展名的**去横线**
+  uuid32 + 扩展名（对象键重建用 `FileDirectory + "/" + SaveFileName`）；
+  `FileName` 保留**原始上传名**（下载 `Content-Disposition` 友好，优于源用 uuid 名）；
+  源 `FileGuid` 字段省略（ID 即其等价物）。UUID 用 `google/uuid` 替代 tx7do
+  `id.NewGUIDv4`（tx7do 已解耦）。
+- **ossutil.go 自源 `pkg/oss` 精简移植**（D4 只留上传链路）：`MaxUploadSize=50MiB`、
+  MIME 白名单（`image/` `video/` `audio/` 前缀 + pdf/zip/office 等 exact）、
+  `DetectFileType`（http.DetectContentType + 10 组魔术头优先，**嗅探结果为准，
+  扩展名伪装无效**）、`ContentTypeToBucketName`（image/video/audio→同名桶，
+  text+文档→docs，其余→files）、`IsFileDirectorySafe`（白名单字符 + 拒 `..`/绝对路径）。
+  不移植：URL 拉取链路（`MaxDownloadSize`/SSRF 防护）、HMAC/时间戳文件名策略、
+  预签名 URL 工具（`JoinObjectUrl`/`ReplaceEndpointHost`，随预签名功能后续迭代）。
+- **坑 1——EnsureFileExtension 返回格式不统一导致丢点**：`ExtractFileExtension`
+  返回不含点（源语义）而 `ContentTypeToFileExtension` 返回含点，`SaveFileName =
+  base + ext` 拼出 `uuidpng`。统一为 **EnsureFileExtension 恒返回含前导点**
+  （`".png"`），兜底 `".bin"`；e2e 断言 `save_file_name` 为 `<uuid32>.png` 格式锁定。
+- **坑 2——tenantToken 直接签 claims 与 casbin subject=userID 的组合约束**：
+  e2e 里 t-other 想要 admin 权限时不能凭空签 `u-admin2`（casbin g 分组来自
+  **seed users 的 Roles 字段**，非 claims.Roles），必须用真实种子用户（t-other
+  只有 u-bob/viewer）。T5 隔离测试改为读方向验证：t-default admin 上传 →
+  t-other u-bob Get 404 + 前缀列表 total=0。
+- **坑 3——REST 下载是流式端点（原始字节）非 JSON**：e2e 断言不能用
+  protojson 解码（得空 content），直接字节级比对 + `Content-Type` /
+  `Content-Disposition` 头检查。
+- **上传 REST 双通道**：gin 主服务 `POST /v1/file/upload` 走 **multipart form**
+  （file + directory 字段）；gateway 转码通道（:8081）走 proto `bytes`（base64
+  JSON）。gRPC 直连同样 bytes 承载。桶兜底创建：`SDK().BucketExists` →
+  `MakeBucket(minio.MakeBucketOptions{})`（R4 处置落地）；`file.bucket` 配置
+  消费为 **files 类兜底桶名**（空 = 源默认 `"files"`），image/video/audio 类仍按
+  源分桶。
+- **MinIO 桥接判 nil**（T5 计划要求）：`storage.minio` 段缺失时
+  `MinioStorage=nil`，biz 三个对象方法开头判 nil 返回
+  `berrors.Internal("file/storage_unavailable")`——服务可启动、错误语义明确
+  （不 panic、不静默）。文件是租户级业务数据：P8 自动注入/隔离 TenantID，
+  `CreatedBy` 取 `contextx.UserIDFromContext`。
+- **e2e 验收**（`t5_file_e2e_test.go`，真实 MinIO env 注入 `BALD_ADMIN_TEST_MINIO_*`，
+  无 env 整组 Skip 不引入 fake）：PNG（真实字节流）上传→元数据（images 桶/
+  image/png/SHA256/大小）→SDK StatObject 落桶可查→下载字节一致→删除后对象与
+  元数据一并消失；exe 魔术头 400、目录穿越 400、50MiB+1 400；P8 隔离（读方向）；
+  viewer 下载 200/上传删除 403。Taskfile 增 `test:file`（云端 MinIO env 预置）。
+- **顺带**：T3 菜单树断言 6→7（`menu-file` 入树）；gateway 注册 file handler；
+  存量 e2e 的 `RegisterRoutes` 调用补第 9 参 `filebiz.New(nil, "")`。
+
+### 8.5 T6 实施记录（2026-09-07，审计增强+查询完成）
+
+- **单表 + Category 分类**（源双表精简）：源 OperationAuditLog/LoginAuditLog
+  两张表合并为 `AuditRecord` 单表 + `Category` 列（`operation`=拦截器链事件 /
+  `login`=登录动作）。Success 由 Result 推导不冗余存储；`device_info` 深度解析、
+  BeforeData/AfterData 变更快照、LogHash 合规链、风险评分/MFA 精简省略（后续迭代）。
+- **AuditRecord 新列**：`Category`（兜底 operation）、`IPAddress`、`UserAgent`、
+  `RequestID`、`TraceID`——`StoreAuditor.Record` 从 `ev.Meta` 提取（metaString
+  安全取值）；gin 审计中间件（bald 公共包）Meta 补 `user_agent`（client_ip 原有）。
+- **登录审计**（源 login_audit_log 语义）：`Credential` 加 `ClientIP/UserAgent`
+  （handler 层 `c.ClientIP()`/`c.Request.UserAgent()` 提取，biz 保持协议无关）；
+  Login 三分支（成功 allow / 凭据错 deny+原因 / 内部错 error）显式记
+  `category=login` 事件，Object/Action 用 P9 归一化 `"auth"/"login"`；失败分支
+  主体记账号名（用户不存在时也是有效线索），TenantID 留空。经全局
+  `audit.GetAuditor()`（audit.backends 热切换同一入口），旁路不阻断（recordSafely
+  recover 兜底）。
+- **坑——e2e 解码**：protojson 输出 Timestamp 为 RFC3339 字符串，标准
+  `encoding/json` 解码 `timestamppb.Timestamp` 字段直接报错，必须用项目
+  `decodePB`（protojson）helper。审计查询 e2e 一开始用 json.Unmarshal 全线
+  build-fail 级失败，换 decodePB 即过。
+- **坑——审计查询不做租户读隔离**：审计是跨租户留痕（P8 的 `Where.T` 刻意
+  不注入），查询侧访问控制由 casbin 策略承担（audit 对象 admin 专属）。这与
+  文件/字典等租户业务数据形成对照。
+- **坑——gRPC service 命名须对齐 P9 归一化**：REST 路径定 `/v1/audit`（对象
+  "audit"），gRPC service 相应命名 `AuditService`（`DefaultGRPCObject` 去掉
+  Service 后缀小写 → "audit"，若叫 AuditLogService 会归一化成 "auditlog" 导致
+  casbin 策略双写）。
+- **主服务挂载 gin AuditMiddleware**（T6 补缺口）：此前审计只在 gRPC 拦截器链
+  生效，gin 侧 REST 写路径无审计。main.go 在 `ginBundle.Gin()` 后全局
+  `Use(ginmw.AuditMiddleware(P9 归一化选项))`（wrap 型旁路，subject 由链内
+  AuthnMiddleware 注入后可读）。与 biz 层 login 审计并存：login 请求本身产生
+  operation 审计（access 语义）+ biz 显式 login 审计（业务语义），不冲突。
+- **查询接口**：`AuditService`（ListAuditRecords/GetAuditRecord）只读——源
+  Create rpc 是内部补录口，精简省略（伪造审计违背不可抵赖语义）。过滤
+  category/subject/object/action/result/ip 精确匹配 + `time` 降序；分页
+  page_size（默认 50 上限 200）+ page_token（offset 十进制编码，非法 400），
+  `next_page_token` 空串即末页。复用 `store.Where` 的 Offset/Limit/Sorting。
+- **e2e**（`t6_audit_e2e_test.go`，真实 SQLite 内存库 + StoreAuditor 落库，
+  零外部依赖）：登录 deny/allow 双分支字段断言（IP/UA 独立列 + 失败原因）；
+  operation 审计（object=tenant action=post 归一化）；分页三页翻完 + 非法
+  token 400；单条详情 + 404；viewer 403。数据隔离技巧：各用例用唯一
+  username 作过滤条件，规避全局 auditor/SQLite 跨用例累计。
+- **热切换回归**：登录审计走全局 `audit.GetAuditor()` 与 `audit.backends`
+  同源；reconcile_audit_test 既有热切换测试全绿；bald 公共包
+  `pkg/middleware`/`pkg/audit` 回归全绿（gin 中间件加 user_agent 向后兼容）。
+
+
 
 - **D3 策略数据化落地**：静态 `rbac_policy.csv` 删除，p 行落 `RolePolicy` 表
   （主键=业务键 `role:object:action`，Create 冲突天然防重）、g 行由 `User.Roles`
@@ -265,6 +363,96 @@ proto/<域>.proto（从源项目精简搬运）→ buf generate → gen/
 - **RolePolicy 主键决策**：放弃 uint 自增（store.Eq 仅 string 值，且 PG bigint
   列对 string 参数有类型转换风险），改 string 业务键 `role:object:action`——与
   仓库「全实体 string 主键」范式一致，防重/删除语义更清晰。
+
+### 8.6 T7 实施记录（2026-09-08，Nacos 注册发现接线完成）
+
+- **装配形态（New 构造路径等价 buildRegistrar）**：main.go 删
+  `appkit.Registrar(inmemory.New())`，改 `registrarRegistry()` 显式注册
+  `nacoscontract.Type → nacoscontract.Provider`（未 import 的后端零依赖）；
+  BeforeStart 在配置装载后 `regRegistry.Build(ctx, bootstrap.GetRegistry())`
+  → `app.SetRegistrar(reg)`，cleanup 挂停机 Effect
+  `appkit:registrar-client`（Deregister 先于 Effect 回放，顺序安全）。
+  registry 段 nil/type 空/未注册均 fail-fast（与 FromBootstrap 同语义）；
+  不支持热更新（client 重建侵入性大），变更需重启。
+- **框架增量（bald/pkg/appkit）**：新增导出方法 `SetRegistrar`——New 构造
+  路径在配置装载后按契约设置 registrar 的最小通道（FromBootstrap 由内部
+  buildRegistrar 赋值，无需此方法）。register/deregister 每次读
+  `a.registrar` 不做缓存，BeforeStart 赋值即时生效。单测
+  `TestNew_SetRegistrarLifecycle` 锁定生命周期（register/deregister/cleanup
+  恰好各一次）。
+- **契约扩展（bconf registry.proto）**：`Registry_Nacos` 加 `username`/`password`
+  （8/9 号字段）——云端 Nacos 开启 auth，gRPC 注册请求被 403 拒绝。
+  contrib nacos 三层接线：options（WithUsername/WithPassword）→
+  registry.New（ClientConfig 直填，gRPC 连接 setup 时登录）→
+  contract.Provider（从契约段映射）。
+- **坑①——namespace 必须填「命名空间 ID」而非显示名**：Nacos 控制台的
+  "go-bald-admin" 是显示名，真实 ID 是 UUID；namespaceId 填显示名时注册
+  落孤儿空间（服务定义可见、临时实例被清理机制剔除，控制台永远空）。
+- **坑②——nacos-sdk-go v2 静默吞注册失败**：InstanceRequest 收到
+  `{"errorCode":403,"message":"user not found!"}` 仅打 WARN（SDK 默认日志
+  关闭，WARN 也看不到），`RegisterInstance` 向上层返回 nil——appkit 打出
+  "appkit registered" 但服务端无实例。排查靠显式开 SDK debug 日志
+  （ClientConfig.LogDir/LogLevel）看请求响应。**开 SDK 日志后的现状**：
+  契约加凭据后注册真实落库（instance/list 返回 healthy=true 实例）。
+- **坑③——`--config` flag 撞契约字段（存量 bug，T7 冒烟暴露）**：
+  bootstrap/config `flattenFlags` 把所有 Changed flag 落树，而 bconf 契约
+  顶层有 `Config *Config` message 字段——`--config=xxx`（string）落树后
+  Unmarshal 触发 coerce 报错 `expect object for message field, got string`，
+  服务无法用 --config 启动。修复：flattenFlags 排除引导 flag `config`
+  （它由 loadConfig 自己消费，落树本就不合理）。
+- **坑④——服务名带协议后缀（既有设计，对齐 go-wind）**：Register 按
+  endpoint 逐个注册，服务名 = `name.scheme`（`go-bald-admin.grpc` /
+  `go-bald-admin.http`，gateway 与 REST 同入 http 名）。验证/查询时按带
+  后缀的服务名查，裸 `go-bald-admin` 恒为空（Nacos 对查询自动建空视图，
+  勿被骗）。
+- **验证（真实云端 Nacos 10.82.130.200:30000，HTTP 30000 / gRPC 31000）**：
+  `task smoke:nacos`（cmd/probe 探针，跳过 main.go 完整启动链秒级完成）——
+  契约路径注册 → 12s 心跳窗口（API 核对 grpc/http 双实例
+  healthy=true/ephemeral=true/metadata kind+version）→ Deregister；
+  main.go 装配路径 "appkit registered" 日志含三 endpoint；appkit/bootstrap
+  /bconf/nacos 全模块 build+test 回归绿。
+- **遗留（T8 已清）**：遗留实例与 T7 冒烟临时副本进程已清理，端口释放；
+  README env/端口/架构/目录段已在 T8 全面修正（env 前缀实为 `GO_BALD_ADMIN_`，
+  app.name 驱动：`GO_BALD_ADMIN_SERVER_HTTP_ADDR` ⇔ `server.http.addr`）。
+
+### 8.7 T8 实施记录（2026-09-08，端到端验证+收尾完成）
+
+- **§9 全序列执行结果（11 步）**：①ping 200（gateway `/v1/ping` 不在转码表属正常，
+  转码面以业务路由为准）②登录 `admin/admin123` ✅（protojson 输出 `AccessToken` 非
+  `token`）③secret 回归 ✅（种子 ID 实为 `s-db-pwd`/`s-api-key`/`s-other-pwd`，非文档
+  示例 `secret-1`）④租户列表 + bob 跨租户 404 ✅ ⑤alice(viewer) 删资源 403 ✅
+  ⑥字典 Cache-Aside 201/201/200 ✅ ⑦文件：**发现主链路 bug（见下 ②③），修复后
+  终验闭环（上传→分桶→SHA256→下载一致）**
+  ⑧审计新字段落库 ✅（`category=login`/`ipAddress=127.0.0.1`/`userAgent=curl`——
+  jq 用 snake_case `ip_address` 查出 null 是 protojson lowerCamel 假阴性，非 bug）
+  ⑨gRPC：`grpc` 包真调 e2e 绿 + gateway 转码 200（proto bind 为复数
+  `/v1/secrets/{id}`，与 gin 自定义路由单数 `/v1/secret/:id` 并存是既定决策）⑩Nacos
+  双实例（`go-bald-admin.grpc:9090`/`go-bald-admin.http:8081`）healthy=true ✅，停机
+  注销待服务重启后终验 ⑪OTLP：云端 collector `:4318` 不可达（curl 000），按 §0
+  不做假验证，完整上报验证留 T9。
+- **T8 揪出的两个 e2e 盲区 bug（§9 全序列真调的价值）**：
+  ① **t3 menu-x shuffle flaky**：`TestT3Authz_DataDrivenPolicy` 创建根菜单
+  `menu-x` 不清理，与 `TestMenuREST_TreeAndLifecycle` 共享单例 store，`-shuffle=on`
+  顺序不定时偶发 "expect 2 roots, got 3" → 加 `t.Cleanup` 删除修复；
+  ② **file Biz 构造期快照 nil（违反 §8.0 约定的第三例）**：`InitializeBiz` 在 main
+  早期值拷贝 `bootstrap.MinioStorage`/`FileBucket`（InitBridges 在 BeforeStart 才赋值）
+  → 主链路上传必报 `file/storage_unavailable`；e2e 测试因 InitBridges 先行测不出。
+  修复：file Biz 新增 `SetStorage`（对齐 appkit.SetRegistrar 的"构造期 nil + 运行期
+  接线"模式），main.go 在 InitBridges 之后补注。**约定重申：biz 引用 bootstrap 包级
+  桥接一律请求期读取或运行期 setter，禁止构造期快照**。
+- **metrics 端口根治**：缺省 `:9090`（与 gRPC 同值仅"巧合"可运行，gRPC 先抢端口时
+  metrics goroutine 只打一条 error 日志、指标静默丢失）→ 改 `:9091`，README 端口表
+  同步。
+- **README 全面修正**：运行段 env（`GO_BALD_ADMIN_` 三覆盖手段）、端口表、架构段
+  （PG/策略数据化/文件/Nacos/审计热切换）、目录段（`api/` 收敛 + cmd/probe +
+  契约驱动配置）。
+- **§9 序列同步修正**：登录字段/种子 ID/路径风格按实测校正（见上）。
+- **`task verify` 全绿**（apiserver/bootstrap/audit/casbin 全 ok）；main.go doc 注释
+  中 viper 时代 `BALD_HTTP_ADDR`/`BALD_SERVER_HTTP_ADDR` 陈旧残留一并清理。
+- **T8 收尾后剩余**：OTLP 云上报（T9，collector `:4318` 就绪后）。终验已闭环
+  （2026-09-08）：文件链完整跑通（上传→`docs` 桶分桶→`contentHash` SHA256 一致→
+  下载内容一致）；Nacos 生命周期完整（注册 healthy=true → SIGINT 优雅停机 →
+  双协议实例列表清空，停机链 "stopping → 审计后端 unmount → appkit stopped"）。
 
 ### 8.1 T2 实施记录（2026-09-07，租户+用户完成）
 
@@ -294,20 +482,20 @@ proto/<域>.proto（从源项目精简搬运）→ buf generate → gen/
 # 1. 健康/公开接口
 curl -i http://127.0.0.1:8080/v1/ping
 
-# 2. 登录（真实用户表 + JWT）→ 取 token
+# 2. 登录（真实用户表 + JWT）→ 取 token（protojson 字段名为 AccessToken）
 TOKEN=$(curl -s -X POST http://127.0.0.1:8080/v1/login -H 'Content-Type: application/json' \
-  -d '{"username":"admin","password":"<种子密码>"}' | jq -r .token)
+  -d '{"username":"admin","password":"admin123"}' | jq -r .AccessToken)
 
-# 3. 存量回归：secret CRUD（PG）
-curl -i http://127.0.0.1:8080/v1/secret/secret-1 -H "Authorization: Bearer $TOKEN"
+# 3. 存量回归：secret CRUD（PG；种子 ID：s-db-pwd/s-api-key/s-other-pwd）
+curl -i http://127.0.0.1:8080/v1/secret/s-db-pwd -H "Authorization: Bearer $TOKEN"
 
-# 4. 租户 CRUD（平台上下文）+ 跨租户隔离（bob 租户 → 404）
-# 5. 用户 CRUD；viewer 角色删资源 → 403（RBAC 策略数据化验证）
-# 6. 字典：写 → 读（缓存命中，二次读 Redis 命中可观测）→ 改 → 失效验证
-# 7. 文件：multipart 上传 → 预签名/下载 → MinIO 控制台核对对象与 SHA256
-# 8. 审计：执行一次写操作 → 查询接口核对新字段（IP/UA/action_type）落库
-# 9. gRPC 侧抽查 2~3 个服务（P9 归一化：REST 与 gRPC 同策略）
-# 10. Nacos 控制台核对注册信息；kill 服务核对注销
+# 4. 租户 CRUD（平台上下文）+ 跨租户隔离（bob 读 t-default 资源 → 404）
+# 5. 用户 CRUD；alice(viewer) 删资源 → 403（RBAC 策略数据化验证）
+# 6. 字典：POST /v1/dict_type → /v1/dict_entry → GET /v1/dict_entry?type_code=（缓存命中）
+# 7. 文件：POST /v1/file/upload（multipart file+directory）→ GET /v1/file/:id/download → SHA256 核对
+# 8. 审计：GET /v1/audit?category=login → 核对 category/ipAddress/userAgent（protojson lowerCamel 字段名）
+# 9. gRPC 侧抽查 2~3 个服务（P9 归一化：REST 与 gRPC 同策略；gateway 转码面路径为 proto bind 复数 /v1/secrets/{id}）
+# 10. Nacos 核对注册（服务名带协议后缀 go-bald-admin.grpc/.http）；kill 服务核对注销
 # 11. 遥测：BALD_ADMIN_OTLP_ADDR 指向云端 collector，核对指标+trace 上报
 ```
 

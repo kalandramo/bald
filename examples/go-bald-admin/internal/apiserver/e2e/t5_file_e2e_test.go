@@ -1,4 +1,4 @@
-package apiserver
+package e2e
 
 // t5_file_e2e_test.go 文件管理 REST e2e（T5 验收）：真实 gin 引擎 + httptest +
 // 真实 MinIO（§0 硬性：外部依赖禁止 fake/mock/stub）。MinIO 连接经 env 注入：
@@ -34,8 +34,9 @@ import (
 	gingonic "github.com/gin-gonic/gin"
 
 	filev1 "github.com/kalandramo/bald/examples/go-bald-admin/api/gen/file/v1"
-	authbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/auth"
+	"github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver"
 	auditlogbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/auditlog"
+	authbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/auth"
 	dictbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/dict"
 	filebiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/file"
 	menubiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/menu"
@@ -91,8 +92,11 @@ func startFileREST(t *testing.T) (string, *filebiz.Biz, *miniooss.Storage) {
 
 	fb := filebiz.New(mc, bucket)
 	e := gingonic.New()
-	RegisterRoutes(e, authbiz.New(bootstrappkg.Signer), secretbiz.New(nil), tenantbiz.New(),
-		userbiz.New(), menubiz.New(), permissionbiz.New(), dictbiz.New(nil), fb, auditlogbiz.New())
+	apiserver.RegisterRoutes(e, &apiserver.BizSet{
+		Auth: authbiz.New(bootstrappkg.Signer), Secret: secretbiz.New(nil), Tenant: tenantbiz.New(),
+		User: userbiz.New(), Menu: menubiz.New(), Permission: permissionbiz.New(),
+		Dict: dictbiz.New(nil), File: fb, AuditLog: auditlogbiz.New(),
+	})
 	srv := httptest.NewServer(e)
 	t.Cleanup(srv.Close)
 	return srv.URL, fb, mc

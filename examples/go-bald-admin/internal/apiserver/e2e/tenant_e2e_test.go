@@ -1,4 +1,4 @@
-package apiserver
+package e2e
 
 // tenant_e2e_test.go 租户管理 REST e2e（T2 验收）：真实 gin 引擎 + httptest，
 // 走完整中间件链（分组 Authn/Authz）与 biz/store/DB。
@@ -20,8 +20,9 @@ import (
 	gingonic "github.com/gin-gonic/gin"
 
 	tenantv1 "github.com/kalandramo/bald/examples/go-bald-admin/api/gen/tenant/v1"
-	authbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/auth"
+	"github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver"
 	auditlogbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/auditlog"
+	authbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/auth"
 	dictbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/dict"
 	filebiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/file"
 	menubiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/menu"
@@ -40,7 +41,11 @@ func startTenantREST(t *testing.T) string {
 		t.Fatalf("InitBridges: %v", err)
 	}
 	e := gingonic.New()
-	RegisterRoutes(e, authbiz.New(bootstrappkg.Signer), secretbiz.New(nil), tenantbiz.New(), userbiz.New(), menubiz.New(), permissionbiz.New(), dictbiz.New(nil), filebiz.New(nil, ""), auditlogbiz.New())
+	apiserver.RegisterRoutes(e, &apiserver.BizSet{
+		Auth: authbiz.New(bootstrappkg.Signer), Secret: secretbiz.New(nil), Tenant: tenantbiz.New(),
+		User: userbiz.New(), Menu: menubiz.New(), Permission: permissionbiz.New(),
+		Dict: dictbiz.New(nil), File: filebiz.New(nil, ""), AuditLog: auditlogbiz.New(),
+	})
 	srv := httptest.NewServer(e)
 	t.Cleanup(srv.Close)
 	return srv.URL

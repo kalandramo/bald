@@ -7,33 +7,23 @@ package apiserver
 import (
 	gingonic "github.com/gin-gonic/gin"
 
-	auditlogbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/auditlog"
-	authbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/auth"
-	dictbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/dict"
-	filebiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/file"
-	menubiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/menu"
-	permissionbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/permission"
-	secretbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/secret"
-	tenantbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/tenant"
-	userbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/user"
 	hgin "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/handler/gin"
 	bootstrappkg "github.com/kalandramo/bald/examples/go-bald-admin/internal/bootstrap"
 	"github.com/kalandramo/bald/pkg/appkit"
 )
 
 // RegisterRoutes 把本应用所有路由挂到 e。认证/授权依赖从 bootstrap 注入；
-// 业务对象（auth/secret/tenant/user/menu/permission/dict/file biz）由 wire
-// 装配后传入（InitializeBiz）。
-func RegisterRoutes(e *gingonic.Engine, auth *authbiz.Biz, secret *secretbiz.SecretBiz, tenant *tenantbiz.Biz, user *userbiz.Biz, menu *menubiz.Biz, permission *permissionbiz.Biz, dict *dictbiz.Biz, file *filebiz.Biz, auditlog *auditlogbiz.Biz) {
+// 业务对象经 BizSet 聚合传入（wire 装配，见 bizset.go）。
+func RegisterRoutes(e *gingonic.Engine, biz *BizSet) {
 	hgin.RegisterHealth(e)
-	hgin.RegisterAuth(e, bootstrappkg.LazyAuthenticator(), bootstrappkg.LazyAuthorizer(), auth, secret)
-	hgin.RegisterTenant(e, bootstrappkg.LazyAuthenticator(), bootstrappkg.LazyAuthorizer(), tenant)
-	hgin.RegisterUser(e, bootstrappkg.LazyAuthenticator(), bootstrappkg.LazyAuthorizer(), user)
-	hgin.RegisterMenu(e, bootstrappkg.LazyAuthenticator(), bootstrappkg.LazyAuthorizer(), menu)
-	hgin.RegisterPermission(e, bootstrappkg.LazyAuthenticator(), bootstrappkg.LazyAuthorizer(), permission)
-	hgin.RegisterDict(e, bootstrappkg.LazyAuthenticator(), bootstrappkg.LazyAuthorizer(), dict)
-	hgin.RegisterFile(e, bootstrappkg.LazyAuthenticator(), bootstrappkg.LazyAuthorizer(), file)
-	hgin.RegisterAudit(e, bootstrappkg.LazyAuthenticator(), bootstrappkg.LazyAuthorizer(), auditlog)
+	hgin.RegisterAuth(e, bootstrappkg.LazyAuthenticator(), bootstrappkg.LazyAuthorizer(), biz.Auth, biz.Secret)
+	hgin.RegisterTenant(e, bootstrappkg.LazyAuthenticator(), bootstrappkg.LazyAuthorizer(), biz.Tenant)
+	hgin.RegisterUser(e, bootstrappkg.LazyAuthenticator(), bootstrappkg.LazyAuthorizer(), biz.User)
+	hgin.RegisterMenu(e, bootstrappkg.LazyAuthenticator(), bootstrappkg.LazyAuthorizer(), biz.Menu)
+	hgin.RegisterPermission(e, bootstrappkg.LazyAuthenticator(), bootstrappkg.LazyAuthorizer(), biz.Permission)
+	hgin.RegisterDict(e, bootstrappkg.LazyAuthenticator(), bootstrappkg.LazyAuthorizer(), biz.Dict)
+	hgin.RegisterFile(e, bootstrappkg.LazyAuthenticator(), bootstrappkg.LazyAuthorizer(), biz.File)
+	hgin.RegisterAudit(e, bootstrappkg.LazyAuthenticator(), bootstrappkg.LazyAuthorizer(), biz.AuditLog)
 }
 
 // ComponentFactory 是管理面组件工厂的包级别名（re-export，供 cmd 层构造工厂目录）。

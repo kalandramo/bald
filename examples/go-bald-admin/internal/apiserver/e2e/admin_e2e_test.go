@@ -1,4 +1,4 @@
-package apiserver
+package e2e
 
 import (
 	"bytes"
@@ -11,8 +11,9 @@ import (
 
 	gingonic "github.com/gin-gonic/gin"
 
-	authbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/auth"
+	"github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver"
 	auditlogbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/auditlog"
+	authbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/auth"
 	dictbiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/dict"
 	filebiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/file"
 	menubiz "github.com/kalandramo/bald/examples/go-bald-admin/internal/apiserver/biz/v1/menu"
@@ -71,8 +72,12 @@ func setupAdmin(t *testing.T) (*gingonic.Engine, *stubComp) {
 	comp := &stubComp{name: "e2e.comp"}
 
 	e := gingonic.New()
-	RegisterRoutes(e, authbiz.New(bootstrappkg.Signer), secretbiz.New(nil), tenantbiz.New(), userbiz.New(), menubiz.New(), permissionbiz.New(), dictbiz.New(nil), filebiz.New(nil, ""), auditlogbiz.New())
-	RegisterAdmin(e, func() *appkit.AppKit { return app }, map[string]ComponentFactory{
+	apiserver.RegisterRoutes(e, &apiserver.BizSet{
+		Auth: authbiz.New(bootstrappkg.Signer), Secret: secretbiz.New(nil), Tenant: tenantbiz.New(),
+		User: userbiz.New(), Menu: menubiz.New(), Permission: permissionbiz.New(),
+		Dict: dictbiz.New(nil), File: filebiz.New(nil, ""), AuditLog: auditlogbiz.New(),
+	})
+	apiserver.RegisterAdmin(e, func() *appkit.AppKit { return app }, map[string]apiserver.ComponentFactory{
 		"e2e.comp": func() appkit.Component { return comp },
 	})
 

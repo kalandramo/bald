@@ -133,15 +133,18 @@ go test -shuffle=on ./...
 ```
 examples/go-bald-admin/                 (独立 go module)
 ├── cmd/go-bald-admin/main.go          入口：appkit.Run + 拦截器链序 + metrics/audit/nacos 接线
+├── cmd/go-bald-admin/wire*.go         业务装配（wire 声明 + 生成实现；BizSet 定义在 apiserver/bizset.go）
 ├── cmd/probe/main.go                  T7 冒烟探针（契约路径注册→心跳→注销，task smoke:nacos）
 ├── configs/go-bald-admin.yaml         契约驱动配置（bconf BootstrapConfig，proto 为唯一真相源）
 ├── api/                               业务契约（T2 收敛：proto + buf 生成物 api/gen/）
 ├── internal/
-│   ├── apiserver/                     业务（auth/secret/tenant/user/menu/permission/dict/file/auditlog）
-│   ├── bootstrap/                     InitBridges + Configure（PG/Redis/MinIO/策略装载）
-│   ├── security/{casbin,audit}/       授权（策略数据化）/审计后端桥接
-│   ├── cache/redis/                   Cache-Aside
-│   ├── observability/metrics/         metrics 桥接（Prometheus/OTLP）
-│   └── grpcutil/                      传输工具
+│   ├── apiserver/
+│   │   ├── biz/v1/<域>/               业务逻辑（auth/secret/tenant/user/menu/permission/dict/file/auditlog）
+│   │   ├── handler/gin/ + grpc/       协议接入层（HTTP 路由 / gRPC service，T10 对称归位）
+│   │   ├── model/                     gorm 模型
+│   │   ├── e2e/                       端到端测试（T10 独立测试包，真实 gin+store+拦截器链）
+│   │   └── server.go + bizset.go      路由装配（RegisterRoutes(*BizSet) 直传）
+│   ├── bootstrap/                     InitBridges + Configure（PG/Redis/MinIO/策略装载；openDB 为 baldgorm.Open 薄封装）
+│   └── security/{casbin,audit}/       授权（策略数据化）/审计后端桥接
 └── docs/                              设计/需求/移植计划文档
 ```
