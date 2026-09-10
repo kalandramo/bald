@@ -240,6 +240,6 @@ AppKit 定位是**应用编排层**，职责限于 Server 启停、注册、配�
 - [x] 迁移 AppKit Run 生命周期日志为结构化输出（经 `log.GetLogger()`）；**不**经 AppKit 注入/持有（方案 A：日志归进程入口 bootstrap 统一初始化，2026-08-24）。
 - [x] 补充单测（nop 静默、Set/Get、级别、脱敏、ctx 属性、并发 6 项）。
 - [x] OTel Logs 后端：经 `WithOTelHandler` 注入，无需把 otel 依赖钉进核心（2026-08-29）。
-- [x] 可观测性闭环（`pkg/middleware/{gin,grpc}/observability.go`）：gin/grpc 中间件真正起 span，并把 `trace_id`/`span_id` 经 `log.ContextWithAttrs` 挂到请求 ctx——slog 后端消费 ctx 属性流，使请求范围内所有日志自动携带 trace_id。未配置全局 TracerProvider 时 no-op，零配置可跑（2026-08-29）。
+- [x] 可观测性闭环（`pkg/middleware/{gin,grpc}/observability.go`）：gin/grpc 中间件真正起 span，并把 `trace_id`/`span_id` 经 `log.ContextWithAttrs` 挂到请求 ctx——slog 后端消费 ctx 属性流，使请求范围内所有日志自动携带 trace_id。未配置全局 TracerProvider 时 no-op，零配置可跑（2026-08-29）。no-op 下 SpanContext 恒全零，2026-09-10 补兜底：`middleware.LogTraceIDs` 在 SpanContext 无效时生成随机 ID 仅作日志关联（不导出、不注入协议头），零配置也有可按请求关联的日志链路。
 - [x] 子模块日志契约统一：各子模块均经 `log.GetLogger()` 取共享实例（`moduleLog := log.GetLogger().With("module","xxx")`）。纯桥接子包（如 `pkg/registry`/`pkg/registry/kratos`）不打日志；凡需打日志的扩展点一律走 `log.GetLogger()`（2026-08-29 巡检确认）。
 - [x] 远端/终端后端 ×5（`log/{aliyun,tencent,loki,sentry,charm}`，2026-09-06 移植 go-wind-plugins/log）：独立 module + contract 子包显式注册；appkit `WithLogRegistry` 三级工厂分发（显式 > 注册表 > 默认 slog），阶段 A 无契约回退 slog。契约后端段全部有消费者。

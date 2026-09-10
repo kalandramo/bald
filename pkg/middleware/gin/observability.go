@@ -18,6 +18,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/kalandramo/bald/log"
+	"github.com/kalandramo/bald/pkg/middleware"
 )
 
 // tracer 是 bald HTTP 层使用的 OpenTelemetry tracer。
@@ -148,9 +149,12 @@ func Observability(opts ...Option) gin.HandlerFunc {
 
 		// 把 trace_id/span_id 挂到 ctx 属性流，使本请求范围内所有经
 		// log.GetLogger() 输出的日志自动携带（slog 后端消费 ContextWithAttrs）。
+		// no-op tracer（未装配全局 TracerProvider）下 SpanContext 恒全零，
+		// LogTraceIDs 兜底随机 ID 作日志关联；真实 tracer 在跑时透传真实值。
+		logTraceID, logSpanID := middleware.LogTraceIDs(ctx)
 		ctx = log.ContextWithAttrs(ctx,
-			slog.String("trace_id", spanCtx.TraceID().String()),
-			slog.String("span_id", spanCtx.SpanID().String()),
+			slog.String("trace_id", logTraceID),
+			slog.String("span_id", logSpanID),
 		)
 		c.Request = c.Request.WithContext(ctx)
 
@@ -190,7 +194,7 @@ func Observability(opts ...Option) gin.HandlerFunc {
 			"request": map[string]any{
 				"method": c.Request.Method,
 				"path":   c.Request.URL.Path,
-				"id":     spanCtx.TraceID().String(),
+				"id":     logTraceID,
 			},
 			"response": map[string]any{
 				"status_code": c.Writer.Status(),

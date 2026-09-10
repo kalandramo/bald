@@ -19,6 +19,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/kalandramo/bald/log"
+	"github.com/kalandramo/bald/pkg/middleware"
 )
 
 // tracer 是 bald gRPC 层使用的 OpenTelemetry tracer。
@@ -115,9 +116,12 @@ func UnaryObservability(opts ...Option) grpc.UnaryServerInterceptor {
 		defer span.End()
 
 		// 把 trace_id/span_id 挂到 ctx 属性流，使本请求范围所有日志自动携带。
+		// no-op tracer（未装配全局 TracerProvider）下 SpanContext 恒全零，
+		// LogTraceIDs 兜底随机 ID 作日志关联；真实 tracer 在跑时透传真实值。
+		logTraceID, logSpanID := middleware.LogTraceIDs(ctx)
 		ctx = log.ContextWithAttrs(ctx,
-			slog.String("trace_id", trace.SpanContextFromContext(ctx).TraceID().String()),
-			slog.String("span_id", trace.SpanContextFromContext(ctx).SpanID().String()),
+			slog.String("trace_id", logTraceID),
+			slog.String("span_id", logSpanID),
 		)
 
 		// Extract trace information early
@@ -151,7 +155,7 @@ func UnaryObservability(opts ...Option) grpc.UnaryServerInterceptor {
 
 		// Build structured log
 		event := map[string]any{"duration": duration}
-		source := map[string]any{"id": spanCtx.TraceID().String()}
+		source := map[string]any{"id": logTraceID}
 		grpcData := map[string]any{
 			"service": info.FullMethod,
 			"code":    status.Code(err).String(),
@@ -209,9 +213,12 @@ func StreamObservability(opts ...Option) grpc.StreamServerInterceptor {
 		ctx := ss.Context()
 		ctx, span := tracer.Start(ctx, info.FullMethod)
 		defer span.End()
+		// no-op tracer（未装配全局 TracerProvider）下 SpanContext 恒全零，
+		// LogTraceIDs 兜底随机 ID 作日志关联；真实 tracer 在跑时透传真实值。
+		logTraceID, logSpanID := middleware.LogTraceIDs(ctx)
 		ctx = log.ContextWithAttrs(ctx,
-			slog.String("trace_id", trace.SpanContextFromContext(ctx).TraceID().String()),
-			slog.String("span_id", trace.SpanContextFromContext(ctx).SpanID().String()),
+			slog.String("trace_id", logTraceID),
+			slog.String("span_id", logSpanID),
 		)
 
 		// Extract trace information early
@@ -232,7 +239,7 @@ func StreamObservability(opts ...Option) grpc.StreamServerInterceptor {
 		span.SetAttributes(attribute.String("grpc.code", status.Code(err).String()))
 
 		event := map[string]any{"duration": duration}
-		source := map[string]any{"id": spanCtx.TraceID().String()}
+		source := map[string]any{"id": logTraceID}
 		grpcData := map[string]any{
 			"service": info.FullMethod,
 			"code":    status.Code(err).String(),
