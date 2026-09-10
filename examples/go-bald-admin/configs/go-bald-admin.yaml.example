@@ -34,6 +34,19 @@ registry:
     username: "<NACOS_USERNAME>"
     password: "<NACOS_PASSWORD>"
 
+# ---- 配置中心（契约 config 段 → appkit 配置层）----
+# 层优先级低于本地文件/env/flag：远程只补充本地未定义的键（本地值始终胜出）；
+# dataId 内容变更经 nacos ListenConfig 推送热更新（Watch=true）。
+config:
+  nacos:
+    server_addrs: ["<NACOS_ADDR>:8848"]
+    namespace: "<NAMESPACE_ID>"
+    group: "DEFAULT_GROUP"
+    data_id: "go-bald-admin.yaml"
+    format: "yaml"
+    username: "<NACOS_USERNAME>"   # 服务端开启鉴权时必填
+    password: "<NACOS_PASSWORD>"
+
 # ---- T9 新增：可观测性（tracer/metrics 契约段）----
 # tracer.otlp.endpoint 空则 trace 走核心 no-op（零配置可运行）。
 tracer:

@@ -37,6 +37,12 @@ func NacosProvider() Provider {
 		if id := c.GetDataId(); id != "" {
 			opts = append(opts, nacos.WithDataID(id))
 		}
+		if u := c.GetUsername(); u != "" {
+			opts = append(opts, nacos.WithUsername(u))
+		}
+		if p := c.GetPassword(); p != "" {
+			opts = append(opts, nacos.WithPassword(p))
+		}
 		src, err := nacos.New(opts...)
 		if err != nil {
 			return nil, nil, fmt.Errorf("bootstrap: build nacos source: %w", err)

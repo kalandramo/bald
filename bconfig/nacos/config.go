@@ -83,6 +83,8 @@ func (c *Config) init() error {
 		NamespaceId: c.opts.namespace,
 		TimeoutMs:   5000,
 		LogLevel:    "warn",
+		Username:    c.opts.username,
+		Password:    c.opts.password,
 	}
 	client, err := clients.NewConfigClient(vo.NacosClientParam{
 		ClientConfig:  &cc,

@@ -40,6 +40,10 @@ message Config {
     string group = 3;
     string data_id = 4;
     string format = 5;
+    // 服务端开启鉴权时的登录用户名（与 registry.nacos 契约对齐）。
+    string username = 6;
+    // 服务端开启鉴权时的登录密码。
+    string password = 7;
   }
 
   // Consul 配置源。

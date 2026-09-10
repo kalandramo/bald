@@ -13,6 +13,8 @@ type options struct {
 	namespace   string
 	group       string
 	dataID      string
+	username    string
+	password    string
 }
 
 // WithServerAddrs 设置 nacos 集群地址（自建模式必填），如 "nacos:8848"。
@@ -41,4 +43,14 @@ func WithDataID(dataID string) Option {
 	return func(o *options) {
 		o.dataID = dataID
 	}
+}
+
+// WithUsername 设置服务端鉴权用户名（服务端开启鉴权时必填）。
+func WithUsername(username string) Option {
+	return func(o *options) { o.username = username }
+}
+
+// WithPassword 设置服务端鉴权密码（服务端开启鉴权时必填）。
+func WithPassword(password string) Option {
+	return func(o *options) { o.password = password }
 }

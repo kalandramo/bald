@@ -31,6 +31,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"google.golang.org/grpc"
 
 	auditv1 "github.com/kalandramo/bald/examples/go-bald-admin/api/gen/audit/v1"
@@ -75,6 +76,19 @@ func serveRunE(_ *cobra.Command, _ []string) error {
 	// 日志系统接入（两阶段：先默认，配置加载后重建）。
 	logOpts := baldlogadapter.NewOptions()
 	setLogger(logOpts)
+
+	// 配置源层预装配（两阶段装载的第一阶段）：契约 config 段（nacos/kubernetes
+	// 的地址/凭据/dataId）是引导信息，必须本地可得——先装载本地配置文件填
+	// 契约 config 段，经 bootstrap.Registry Build 出配置层；层在 appkit Run
+	// 期 loadConfig 参与合并（优先级低于本地文件/env/flag：远程只补本地未
+	// 定义的键）并支持热更新（nacos ListenConfig 推送）。
+	cfgLayers, cfgLayersCleanup, err := buildConfigLayers(bootstrap)
+	if err != nil {
+		return fmt.Errorf("bootstrap config sources: %w", err)
+	}
+	if cfgLayersCleanup != nil {
+		defer cfgLayersCleanup() // Run 返回（进程退出路径）时释放层 reader 资源
+	}
 
 	// T9 可观测性契约化：OTLP trace + 指标双通道改由 bconf 契约 tracer/metrics 段驱动，
 	// 装配挪至 BeforeStart（配置装载 Unmarshal 之后，见 setupObservability）。
@@ -154,7 +168,7 @@ func serveRunE(_ *cobra.Command, _ []string) error {
 	)
 
 	// 2. 组装 AppKit（含可选 grpc-gateway，见 buildServers）。
-	app := newApp(bootstrap, logOpts, httpSrv, grpcSrv, ready, traceComp, bizSet, obs)
+	app := newApp(bootstrap, logOpts, httpSrv, grpcSrv, ready, traceComp, bizSet, obs, cfgLayers)
 	appRef.set(app) // M10.2：管理面 handler 经 appRef 请求期取 AppKit（规避装配时序）
 
 	// 3. 运行。
@@ -220,6 +234,7 @@ func newApp(
 	traceComp appkit.Component,
 	bizSet *apiserver.BizSet,
 	obs *observabilityWiring,
+	cfgLayers []baldconfig.Layer,
 ) *appkit.AppKit {
 	var app *appkit.AppKit
 	// T7：注册中心契约装配（New 构造路径等价于 FromBootstrap 的 buildRegistrar）：
@@ -235,6 +250,9 @@ func newApp(
 
 		appkit.ConfigFile("configs/go-bald-admin.yaml"),
 		appkit.WatchConfigFile(true),
+
+		// 契约 config 段装配出的配置源层（见 serveRunE 预装载）。
+		appkit.ConfigLayers(cfgLayers...),
 
 		// S1 能力声明（启动期 fail-fast）：BeforeStart 的 InitBridges 将建立真实 DB
 		// 连接（BALD_ADMIN_DB_DSN，缺省 SQLite 内存），审计落库（StoreAuditor）依赖它。
@@ -473,6 +491,49 @@ func setupObservability(bootstrap *bootstrapv1.BootstrapConfig, obs *observabili
 	}()
 	obs.metricsSrv = srv
 	return nil
+}
+
+// configRegistry 显式注册配置源契约 provider（bootstrap.Registry：契约 config
+// 段 → 配置层，注册序即层优先级，先注册者优先）。go-bald-admin 消费 nacos 配置
+// 中心与 kubernetes ConfigMap 两种远程源；file/env 源已由 appkit 自身装配链
+// （--config flag / GO_BALD_ADMIN_* env）覆盖，不重复注册。未 import 的后端
+// （etcd/consul/apollo/vault/http）零依赖——其契约段无消费者，静默跳过。
+func configRegistry() *baldbootstrap.Registry {
+	reg := baldbootstrap.NewRegistry()
+	reg.MustRegister("nacos", baldbootstrap.NacosProvider())
+	reg.MustRegister("kubernetes", baldbootstrap.KubernetesProvider())
+	return reg
+}
+
+// configFileDefault 与 appkit.ConfigFile 的缺省一致（两处必须同步改）。
+const configFileDefault = "configs/go-bald-admin.yaml"
+
+// buildConfigLayers 预装载本地配置文件（--config flag 优先，解析行为与 appkit
+// loadConfig 同源：pflag + 未知 flag 白名单），把契约 config 段经 Registry
+// Build 为配置层。两阶段装载的第一阶段——引导信息（远程源地址/凭据/dataId）
+// 必须本地可得；层内容（dataId 下的配置文档）在 Run 期 loadConfig 参与合并。
+//
+// 预装载是无层的基线装载（本地文件 + env，不含 flag/远程），仅用于读取 config
+// 段引导信息；完整契约装载仍由 BeforeStart 的 Unmarshal 负责（appkit store
+// 合并结果覆盖同一契约指针），两阶段无冲突。
+func buildConfigLayers(dst *bootstrapv1.BootstrapConfig) ([]baldconfig.Layer, func(), error) {
+	// 与 appkit 同款解析 --config（appkit 在 Run 期 loadConfig 内解析，预装载
+	// 发生在其前，须自行扫描 os.Args）。
+	cfgFile := configFileDefault
+	fs := pflag.NewFlagSet("pre-config", pflag.ContinueOnError)
+	fs.ParseErrorsWhitelist.UnknownFlags = true
+	fs.StringVar(&cfgFile, "config", configFileDefault, "config file")
+	_ = fs.Parse(os.Args[1:])
+
+	s, err := baldconfig.Load(baldconfig.Options{Name: "go-bald-admin", ConfigFile: cfgFile})
+	if err != nil {
+		return nil, nil, err
+	}
+	defer s.Close() // 预装载 store 无 watch，Close 释放即可
+	if err := s.Unmarshal(dst); err != nil {
+		return nil, nil, err
+	}
+	return configRegistry().Build(context.Background(), dst)
 }
 
 // registrarRegistry 显式注册注册中心契约 provider（业务按需 import 各后端

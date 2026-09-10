@@ -281,12 +281,16 @@ func (x *Config_Etcd) GetPrefix() bool {
 
 // Nacos 配置源。
 type Config_Nacos struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ServerAddrs   []string               `protobuf:"bytes,1,rep,name=server_addrs,json=serverAddrs,proto3" json:"server_addrs,omitempty"`
-	Namespace     string                 `protobuf:"bytes,2,opt,name=namespace,proto3" json:"namespace,omitempty"`
-	Group         string                 `protobuf:"bytes,3,opt,name=group,proto3" json:"group,omitempty"`
-	DataId        string                 `protobuf:"bytes,4,opt,name=data_id,json=dataId,proto3" json:"data_id,omitempty"`
-	Format        string                 `protobuf:"bytes,5,opt,name=format,proto3" json:"format,omitempty"`
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	ServerAddrs []string               `protobuf:"bytes,1,rep,name=server_addrs,json=serverAddrs,proto3" json:"server_addrs,omitempty"`
+	Namespace   string                 `protobuf:"bytes,2,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	Group       string                 `protobuf:"bytes,3,opt,name=group,proto3" json:"group,omitempty"`
+	DataId      string                 `protobuf:"bytes,4,opt,name=data_id,json=dataId,proto3" json:"data_id,omitempty"`
+	Format      string                 `protobuf:"bytes,5,opt,name=format,proto3" json:"format,omitempty"`
+	// 服务端开启鉴权时的登录用户名（与 registry.nacos 契约对齐）。
+	Username string `protobuf:"bytes,6,opt,name=username,proto3" json:"username,omitempty"`
+	// 服务端开启鉴权时的登录密码。
+	Password      string `protobuf:"bytes,7,opt,name=password,proto3" json:"password,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -352,6 +356,20 @@ func (x *Config_Nacos) GetDataId() string {
 func (x *Config_Nacos) GetFormat() string {
 	if x != nil {
 		return x.Format
+	}
+	return ""
+}
+
+func (x *Config_Nacos) GetUsername() string {
+	if x != nil {
+		return x.Username
+	}
+	return ""
+}
+
+func (x *Config_Nacos) GetPassword() string {
+	if x != nil {
+		return x.Password
 	}
 	return ""
 }
@@ -867,7 +885,7 @@ var File_bootstrap_v1_config_proto protoreflect.FileDescriptor
 
 const file_bootstrap_v1_config_proto_rawDesc = "" +
 	"\n" +
-	"\x19bootstrap/v1/config.proto\x12\fbootstrap.v1\"\xb3\x10\n" +
+	"\x19bootstrap/v1/config.proto\x12\fbootstrap.v1\"\xeb\x10\n" +
 	"\x06Config\x122\n" +
 	"\x04file\x18\x01 \x01(\v2\x19.bootstrap.v1.Config.FileH\x00R\x04file\x88\x01\x01\x122\n" +
 	"\x04etcd\x18\x03 \x01(\v2\x19.bootstrap.v1.Config.EtcdH\x01R\x04etcd\x88\x01\x01\x125\n" +
@@ -890,13 +908,15 @@ const file_bootstrap_v1_config_proto_rawDesc = "" +
 	"\x04path\x18\x02 \x01(\tR\x04path\x12\x1a\n" +
 	"\busername\x18\x03 \x01(\tR\busername\x12\x1a\n" +
 	"\bpassword\x18\x04 \x01(\tR\bpassword\x12\x16\n" +
-	"\x06prefix\x18\x05 \x01(\bR\x06prefix\x1a\x8f\x01\n" +
+	"\x06prefix\x18\x05 \x01(\bR\x06prefix\x1a\xc7\x01\n" +
 	"\x05Nacos\x12!\n" +
 	"\fserver_addrs\x18\x01 \x03(\tR\vserverAddrs\x12\x1c\n" +
 	"\tnamespace\x18\x02 \x01(\tR\tnamespace\x12\x14\n" +
 	"\x05group\x18\x03 \x01(\tR\x05group\x12\x17\n" +
 	"\adata_id\x18\x04 \x01(\tR\x06dataId\x12\x16\n" +
-	"\x06format\x18\x05 \x01(\tR\x06format\x1ad\n" +
+	"\x06format\x18\x05 \x01(\tR\x06format\x12\x1a\n" +
+	"\busername\x18\x06 \x01(\tR\busername\x12\x1a\n" +
+	"\bpassword\x18\a \x01(\tR\bpassword\x1ad\n" +
 	"\x06Consul\x12\x18\n" +
 	"\aaddress\x18\x01 \x01(\tR\aaddress\x12\x12\n" +
 	"\x04path\x18\x02 \x01(\tR\x04path\x12\x14\n" +
