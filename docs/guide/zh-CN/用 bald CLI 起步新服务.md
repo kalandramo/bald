@@ -174,9 +174,11 @@ time=... level=INFO msg="appkit started" servers=2
 
 | 命令 | 作用 | 常用 flag |
 |---|---|---|
-| `bald gen app [name] [--spec spec.json]` | 生成应用装配骨架 main.go（无 `--spec` 时为第一版模板模式，需提供 `<name>`，含 `[FILL]` 填充点；spec 模式下 `<name>` 可省略） | `--out`、`--module`（提示用）、`--spec` |
-| `bald gen proto <name>` | 生成 protobuf 服务骨架到 `api/proto/bald/<name>/v1` | `--out`、`--go-package`（默认不写，bald 生态由 buf managed mode 补充） |
-| `bald gen store <name>` | 生成实体骨架（gorm tag + keyOf） | `--out`、`--out-pkg` |
+| `bald gen app [name] [--spec spec.json]` | 生成应用装配骨架 main.go（无 `--spec` 时为第一版模板模式，需提供 `<name>`，含 `[FILL]` 填充点；spec 模式下 `<name>` 可省略） | `--out`、`--module`（提示用）、`--spec`、`--force` |
+| `bald gen proto <name>` | 生成 protobuf 服务骨架到 `api/proto/bald/<name>/v1` | `--out`、`--go-package`（默认不写，bald 生态由 buf managed mode 补充）、`--force` |
+| `bald gen store <name>` | 生成实体骨架（gorm tag + keyOf） | `--out`、`--out-pkg`、`--force` |
+
+三个子命令均遵守**不静默覆盖**：目标文件已存在时拒绝生成并提示（防止冲掉手改过的生成物），`--force` 显式放行覆盖。
 
 ```bash
 bald gen proto user        # 产出 api/proto/bald/user/v1/user.proto 骨架
@@ -188,5 +190,5 @@ bald gen store user        # 产出 ./user.go（gorm tag + keyOf）
 - **启动报 `config: merge local ... no such file`** → 未创建 `configs/<name>.yaml`（§5.1）。
 - **启动报 `unresolved capabilities: ... (required by ...)`** → 能力声明不匹配：为 `requires` 中组件补齐对应 `Provides`（§4.1）。
 - **`go get`/`go install` 报 sumdb 404** → 新 tag 收录延迟，数小时后重试（§2）。
-- **想改装配形态** → 改 AppSpec 再 `bald gen app --spec` 重新生成，手改生成文件会被下次生成覆盖。
+- **想改装配形态** → 改 AppSpec 再 `bald gen app --spec` 重新生成；生成文件若已被手改，重新生成会被拒绝，需 `--force` 显式覆盖（先备份手改内容）。
 - **`heartbeat` 之外组件启动报 `unknown component kind`** → 该 kind 工厂未实现（§7 边界），返回错误使装配失败属预期，提示业务补工厂。

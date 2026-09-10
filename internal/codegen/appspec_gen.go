@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"go/format"
 	"os"
-	"path/filepath"
 	"text/template"
 
 	appspecv1 "github.com/kalandramo/bald/bconf/gen/go/bald/appspec/v1"
@@ -350,10 +349,7 @@ type appspecData struct {
 	BundleNormalized bool
 }
 
-func renderAppSpec(data appspecData, path string) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
+func renderAppSpec(data appspecData, path string, force bool, streams IOStreams) error {
 	t := template.Must(template.New("appspec").Parse(appspecTmpl))
 	var buf bytes.Buffer
 	if err := t.Execute(&buf, data); err != nil {
@@ -362,12 +358,12 @@ func renderAppSpec(data appspecData, path string) error {
 	formatted, err := format.Source(buf.Bytes())
 	if err != nil {
 		// 格式化失败也落盘（便于排查模板语法），但回显原始错误。
+		// 诊断性落盘不设防覆盖：紧接着返回错误退出，不会静默替换用户文件。
 		_ = os.WriteFile(path, buf.Bytes(), 0o644)
 		return fmt.Errorf("gofmt generated main.go: %w", err)
 	}
-	if err := os.WriteFile(path, formatted, 0o644); err != nil {
+	if err := writeFileGuarded(path, formatted, force, streams); err != nil {
 		return err
 	}
-	fmt.Println("generated app (spec-driven):", path)
 	return nil
 }

@@ -1,12 +1,10 @@
 package codegen
 
 import (
-	"bytes"
 	"fmt"
 	"go/format"
 	"os"
 	"path/filepath"
-	"text/template"
 
 	"github.com/spf13/cobra"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -118,18 +116,66 @@ func buildServers() []transport.Server {
 }
 `
 
+// appOptions 是 gen app 叶子命令的领域配置（模板模式 / AppSpec 方言模式共用）。
+type appOptions struct {
+	Name    string // 位置参数：应用名（spec 模式可省，以 AppSpec.meta.name 为准）
+	OutFile string // --out（不可命名 Out，避免遮蔽 IOStreams.Out）
+	Module  string // --module
+	Spec    string // --spec：AppSpec JSON 路径，开启 P12 第二步方言生成
+	Force   bool   // --force：覆盖已存在的目标文件（默认拒绝）
+
+	IOStreams
+}
+
+// Complete 回填位置参数与派生默认值。spec 模式下输出路径以 AppSpec.meta.name
+// 为准（runGenAppSpec 内决定），此处不预填。
+func (o *appOptions) Complete(args []string) error {
+	if len(args) > 0 {
+		o.Name = args[0]
+	}
+	if o.Spec == "" && o.OutFile == "" && o.Name != "" {
+		o.OutFile = filepath.Join("cmd", o.Name, "main.go")
+	}
+	_ = o.Module // 模板 import 固定为 bald 核心路径；业务 module 替换留给 go mod edit
+	return nil
+}
+
+// Validate 校验必填项（模板模式必须给应用名；spec 模式由 cobra Args 放行）。
+func (o *appOptions) Validate() error {
+	if o.Spec == "" && o.Name == "" {
+		return fmt.Errorf("the app name is required (or pass --spec <AppSpec.json>)")
+	}
+	return nil
+}
+
+// Run 纯执行：spec 非空走 P12 第二步方言生成，否则渲染硬编码模板骨架。
+func (o *appOptions) Run() error {
+	if o.Spec != "" {
+		return runGenAppSpec(o.Spec, o.OutFile, o.Force, o.IOStreams)
+	}
+	raw, err := renderTmpl("app", appTmpl, map[string]string{"Name": o.Name})
+	if err != nil {
+		return err
+	}
+	formatted, err := format.Source(raw)
+	if err != nil {
+		return err
+	}
+	if err := writeFileGuarded(o.OutFile, formatted, o.Force, o.IOStreams); err != nil {
+		return err
+	}
+	fmt.Fprintln(o.Out, "next: fill [FILL] points, then `go mod edit` your module imports if needed")
+	return nil
+}
+
 // genAppCmd 生成应用装配骨架 main.go（P12：第一步模板生成 + 第二步 AppSpec 方言驱动）。
 //
 // 两种模式：
 //   - gen app <name>                       → 第一版硬编码模板骨架（含 [FILL] 填充点）
 //   - gen app <name> --spec <AppSpec.json> → 第二版方言驱动：AppSpec 单一真相源，
 //     依 ServerSpec/ComponentSpec/CapabilitySpec/audit_backends 装配 appkit 全原语。
-func genAppCmd() *cobra.Command {
-	var (
-		out    string
-		module string
-		spec   string
-	)
+func genAppCmd(streams IOStreams) *cobra.Command {
+	o := &appOptions{IOStreams: streams}
 	cmd := &cobra.Command{
 		Use:   "app [name]",
 		Short: "生成应用装配骨架 main.go（appkit 全原语 + bundle 接线）",
@@ -147,7 +193,7 @@ func genAppCmd() *cobra.Command {
 驱动装配，取代本模板的硬编码字段；此时 <name> 可省略——应用名与默认输出路径
 （cmd/<AppSpec.meta.name>/main.go）均以 AppSpec 为准。`,
 		Args: func(_ *cobra.Command, args []string) error {
-			if spec == "" && len(args) != 1 {
+			if o.Spec == "" && len(args) != 1 {
 				// 模板模式必须给应用名（决定 cmd/<name>/main.go）。
 				return fmt.Errorf("accepts 1 arg(s) (the app name), received %d", len(args))
 			}
@@ -156,48 +202,26 @@ func genAppCmd() *cobra.Command {
 			}
 			return nil
 		},
+		SilenceUsage: true,
 		RunE: func(_ *cobra.Command, args []string) error {
-			if spec != "" {
-				// P12 第二步：AppSpec 方言驱动（name 可省略，见 Args）。
-				return runGenAppSpec(spec, out)
-			}
-			name := args[0]
-			if out == "" {
-				out = filepath.Join("cmd", name, "main.go")
-			}
-			if module == "" {
-				module = "github.com/kalandramo/bald"
-			}
-			_ = module // 模板 import 固定为 bald 核心路径；业务 module 替换留给 go mod edit
-			data := map[string]string{"Name": name}
-			var buf bytes.Buffer
-			t := template.Must(template.New("app").Parse(appTmpl))
-			if err := t.Execute(&buf, data); err != nil {
+			if err := o.Complete(args); err != nil {
 				return err
 			}
-			formatted, err := format.Source(buf.Bytes())
-			if err != nil {
+			if err := o.Validate(); err != nil {
 				return err
 			}
-			if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
-				return err
-			}
-			if err := os.WriteFile(out, formatted, 0o644); err != nil {
-				return err
-			}
-			println("generated app scaffold:", out)
-			println("next: fill [FILL] points, then `go mod edit` your module imports if needed")
-			return nil
+			return o.Run()
 		},
 	}
-	cmd.Flags().StringVar(&out, "out", "", "输出文件（默认 cmd/<name>/main.go）")
-	cmd.Flags().StringVar(&module, "module", "", "业务 module 路径（提示用）")
-	cmd.Flags().StringVar(&spec, "spec", "", "AppSpec JSON 路径（protojson），开启 P12 第二步方言生成")
+	cmd.Flags().StringVar(&o.OutFile, "out", "", "输出文件（默认 cmd/<name>/main.go）")
+	cmd.Flags().StringVar(&o.Module, "module", "", "业务 module 路径（提示用）")
+	cmd.Flags().StringVar(&o.Spec, "spec", "", "AppSpec JSON 路径（protojson），开启 P12 第二步方言生成")
+	cmd.Flags().BoolVar(&o.Force, "force", false, "覆盖已存在的目标文件（默认拒绝）")
 	return cmd
 }
 
 // runGenAppSpec 读取 AppSpec 并用 appspec 模板渲染（P12 第二步）。
-func runGenAppSpec(spec, out string) error {
+func runGenAppSpec(spec, out string, force bool, streams IOStreams) error {
 	raw, err := os.ReadFile(spec)
 	if err != nil {
 		return fmt.Errorf("read spec: %w", err)
@@ -219,5 +243,5 @@ func runGenAppSpec(spec, out string) error {
 		AuditBackends:    as.AuditBackends,
 		BundleNormalized: as.BundleNormalized,
 	}
-	return renderAppSpec(data, out)
+	return renderAppSpec(data, out, force, streams)
 }

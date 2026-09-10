@@ -92,7 +92,7 @@ func TestGenAppSpec_TemplateFormats(t *testing.T) {
 	}
 	dir := t.TempDir()
 	path := filepath.Join(dir, "main.go")
-	if err := renderAppSpec(data, path); err != nil {
+	if err := renderAppSpec(data, path, false, NewDefaultIOStreams()); err != nil {
 		t.Fatalf("renderAppSpec: %v", err)
 	}
 	src, err := os.ReadFile(path)
@@ -150,7 +150,7 @@ func TestGenAppSpec_GeneratedCompiles(t *testing.T) {
 	for name, data := range cases {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "main.go")
-		if err := renderAppSpec(data, path); err != nil {
+		if err := renderAppSpec(data, path, false, NewDefaultIOStreams()); err != nil {
 			t.Fatalf("%s render: %v", name, err)
 		}
 		cmd := exec.Command("go", "build", "-o", filepath.Join(dir, "bin"), path)
@@ -177,7 +177,7 @@ func TestGenAppSpec_GeneratedRuns(t *testing.T) {
 	}
 	dir := t.TempDir()
 	path := filepath.Join(dir, "main.go")
-	if err := renderAppSpec(data, path); err != nil {
+	if err := renderAppSpec(data, path, false, NewDefaultIOStreams()); err != nil {
 		t.Fatalf("render: %v", err)
 	}
 	// 提供最小配置文件（ConfigFile + WatchConfigFile 均指向它）。
@@ -233,7 +233,7 @@ func TestGenAppSpec_CommandOmitsName(t *testing.T) {
 	}
 
 	// spec 模式：不带 <name> 应成功，默认输出 cmd/cli-demo/main.go。
-	cmd := genAppCmd()
+	cmd := genAppCmd(NewDefaultIOStreams())
 	cmd.SetArgs([]string{"--spec", specPath})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("gen app --spec without <name> should succeed: %v", err)
@@ -244,7 +244,7 @@ func TestGenAppSpec_CommandOmitsName(t *testing.T) {
 	}
 
 	// 模板模式（无 --spec）：缺 <name> 仍报错。
-	cmd2 := genAppCmd()
+	cmd2 := genAppCmd(NewDefaultIOStreams())
 	cmd2.SetArgs(nil)
 	if err := cmd2.Execute(); err == nil {
 		t.Fatalf("template mode without <name> must fail")
