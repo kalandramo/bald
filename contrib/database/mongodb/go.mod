@@ -38,8 +38,6 @@ replace github.com/kalandramo/bald-crud/mongodb => ../../../../bald-crud/mongodb
 
 replace github.com/kalandramo/bald-crud/pagination => ../../../../bald-crud/pagination
 
-replace github.com/kalandramo/bald-crud/viewer => ../../../../bald-crud/viewer
-
 replace github.com/kalandramo/bald-crud => ../../../../bald-crud
 
 replace github.com/kalandramo/bald/bconf => ../../../bconf
