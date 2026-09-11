@@ -10,6 +10,10 @@
 # - 依赖预下载 + 3 次重试：proxy.golang.org 偶发 HTTP/2 瞬断
 #   （stream INTERNAL_ERROR，2026-09-12 log/aliyun 即此挂掉），
 #   下载完成后 build/vet/test 全程离线稳定。
+# - GOPROXY 管道故障转移（| 语义：任一错误即切下一源）：
+#   aliyun-log-go-sdk v0.1.117.zip 经 proxy.golang.org 在 GitHub
+#   runner 网络上持续拉取失败（两轮 CI 同点位复现，重试 3 次无效），
+#   切 goproxy.io 镜像解决；sumdb 校验不受 proxy 切换影响。
 # - 已知红模块（go-wind 迁移遗留，build+vet 仍跑、仅跳过 test，
 #   修复后从此列表移除）：
 #   asynq   TestNewTaskOnly nil panic
@@ -35,6 +39,9 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      # | = 任一错误切下一源：proxy.golang.org 拉不动的 zip 落到 goproxy.io
+      GOPROXY: "https://proxy.golang.org|https://goproxy.io,direct"
     steps:
       - uses: actions/checkout@v4
 
