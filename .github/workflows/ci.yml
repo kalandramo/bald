@@ -7,6 +7,9 @@
 #   注释），MessageState 含 Mutex 属 vet 误报区。
 # - go test -short + -timeout 5m：-short 跳过集成测试（各模块
 #   testing.Short() 惯例）；超时防挂死测试拖垮整个 job。
+# - 依赖预下载 + 3 次重试：proxy.golang.org 偶发 HTTP/2 瞬断
+#   （stream INTERNAL_ERROR，2026-09-12 log/aliyun 即此挂掉），
+#   下载完成后 build/vet/test 全程离线稳定。
 # - 已知红模块（go-wind 迁移遗留，build+vet 仍跑、仅跳过 test，
 #   修复后从此列表移除）：
 #   asynq   TestNewTaskOnly nil panic
@@ -47,6 +50,15 @@ jobs:
           for mod in $(find . -name go.mod -not -path "./.git/*" -not -path "./_example*" | xargs -n1 dirname | sort); do
             echo "=== $mod ==="
             rel="${mod#./}"
+            # 预下载依赖（重试 3 次防 proxy 瞬断），之后构建/测试离线稳定
+            n=0
+            while true; do
+              if (cd "$mod" && go mod download); then break; fi
+              n=$((n+1))
+              if [ $n -ge 3 ]; then echo "::error::$mod 依赖下载失败"; exit 1; fi
+              echo "::warning::$mod 依赖下载瞬断，15s 后重试（第 $n/2 次）"
+              sleep 15
+            done
             if [ "$mod" = "." ]; then
               (cd . && go build ./... && go vet -copylocks=false ./... && go test -short -timeout 5m ./...)
             elif echo "$KNOWN_RED_TEST" | grep -qw "$rel"; then
