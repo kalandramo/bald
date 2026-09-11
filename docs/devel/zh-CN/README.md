@@ -23,4 +23,4 @@
 - [架构演进路线](./架构演进路线.md)：横向对比 bald/go-lulu/onexstack/go-crud/osbuilder 五个项目，提炼共识与差距，给出按优先级的架构演进路线（P0-P9 第一轮，均已完成）。
 - [架构优化路线](./架构优化路线.md)：第二轮优化（P0–P9 之后）——基于 GoWind 设计哲学对比与 Cordis 论文《A Programming Paradigm for Spatiotemporal Composability》（时空可组合性）的诊断，提出 P10 bundle 门面 / P11 contrib 晋升 / T1 效应账本 / S1 能力解析 / C1 Component 统一 / A1 运行期挂载 / R1 key 级订阅，附防漂移清单与 agent-native 远期方向。
 - [go-wind-admin 业务移植计划](./go-wind-admin%20业务移植计划.md)：将 go-wind-admin 精选业务子集（租户/用户/角色权限/菜单/字典/审计日志/文件/认证扩展 + Nacos）移植到独立仓库 [kalandramo/bald-admin](https://github.com/kalandramo/bald-admin)（前后端 monorepo），接入云端真实依赖（PostgreSQL/Redis/MinIO/Nacos/OTLP），含业务→bald 能力验证点映射、云端依赖确认清单、配置结构与里程碑 T0–T9（含 T9 可观测性契约化收官）。
-- [示例前后端契约同步设计](./示例前后端契约同步设计.md)：proto 单一真相源 + buf v2 按消费者扇出（Go/TS/OpenAPI 各一份 gen 配置）——TS 客户端生成替换手写 API 层，消灭契约双写；含与 go-wind-admin 的差异点（响应信封/transport 保留）、独立时合 monorepo 的前置约束与两步落地计划。
+- [示例前后端契约同步设计](./示例前后端契约同步设计.md)：proto 单一真相源 + buf v2 按消费者扇出（Go/TS/OpenAPI 各一份 gen 配置）——TS 客户端生成替换手写 API 层，消灭契约双写；含与 go-wind-admin 的差异点（响应信封/transport 保留）、独立时合 monorepo 的前置约束。已落地（2026-09-11，实施差异见文首状态行）。
