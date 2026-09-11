@@ -3,7 +3,7 @@ module github.com/kalandramo/bald-database-mongodb
 go 1.27.1
 
 require (
-	github.com/kalandramo/bald-crud/mongodb v0.0.0
+	github.com/kalandramo/bald-crud/mongodb v0.1.0
 	github.com/kalandramo/bald/bconf v0.1.0
 )
 
@@ -32,14 +32,6 @@ require (
 	google.golang.org/protobuf v1.36.12 // indirect
 )
 
-// bald-crud 子包是嵌套 module，其内部 replace（=> ../pagination 等）对
-// 消费方不生效——此处镜像整条本地 replace 链，否则 tidy 走网络拉不存在的 tag。
-replace github.com/kalandramo/bald-crud/mongodb => ../../../../bald-crud/mongodb
-
-replace github.com/kalandramo/bald-crud/pagination => ../../../../bald-crud/pagination
-
-replace github.com/kalandramo/bald-crud => ../../../../bald-crud
-
 replace github.com/kalandramo/bald/bconf => ../../../bconf
 
 replace github.com/kalandramo/bald/log => ../../../log
@@ -49,9 +41,3 @@ replace github.com/kalandramo/bald/berrors => ../../../berrors
 replace github.com/kalandramo/bald/encoding => ../../../encoding
 
 replace github.com/kalandramo/bald/encoding/json => ../../../encoding/json
-
-replace github.com/kalandramo/bald-utils => ../../../../bald-utils
-
-replace github.com/kalandramo/bald-utils/id => ../../../../bald-utils/id
-
-replace github.com/kalandramo/bald-utils/mapper => ../../../../bald-utils/mapper

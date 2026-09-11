@@ -3,7 +3,7 @@ module github.com/kalandramo/bald-database-gorm
 go 1.27.1
 
 require (
-	github.com/kalandramo/bald-crud/gorm v0.0.0
+	github.com/kalandramo/bald-crud/gorm v0.1.0
 	github.com/kalandramo/bald/bconf v0.1.0
 )
 
@@ -50,7 +50,7 @@ require (
 	github.com/kalandramo/bald-crud/cache v0.1.0 // indirect
 	github.com/kalandramo/bald-crud/pagination v0.1.0 // indirect
 	github.com/kalandramo/bald-crud/viewer v0.1.0 // indirect
-	github.com/kalandramo/bald-utils v1.1.38 // indirect
+	github.com/kalandramo/bald-utils v0.1.0 // indirect
 	github.com/kalandramo/bald-utils/mapper v0.1.0 // indirect
 	github.com/kalandramo/bald/encoding v0.1.0 // indirect
 	github.com/kalandramo/bald/encoding/json v0.1.0 // indirect
@@ -118,16 +118,6 @@ require (
 	modernc.org/sqlite v1.56.0 // indirect
 )
 
-// bald-crud 子包是嵌套 module，其内部 replace（=> ../cache 等）对消费方
-// 不生效——此处镜像整条本地 replace 链，否则 tidy 走网络拉不存在的 tag。
-replace github.com/kalandramo/bald-crud/gorm => ../../../../bald-crud/gorm
-
-replace github.com/kalandramo/bald-crud/pagination => ../../../../bald-crud/pagination
-
-replace github.com/kalandramo/bald-crud/cache => ../../../../bald-crud/cache
-
-replace github.com/kalandramo/bald-crud => ../../../../bald-crud
-
 replace github.com/kalandramo/bald/bconf => ../../../bconf
 
 replace github.com/kalandramo/bald/log => ../../../log
@@ -137,9 +127,3 @@ replace github.com/kalandramo/bald/berrors => ../../../berrors
 replace github.com/kalandramo/bald/encoding => ../../../encoding
 
 replace github.com/kalandramo/bald/encoding/json => ../../../encoding/json
-
-replace github.com/kalandramo/bald-utils => ../../../../bald-utils
-
-replace github.com/kalandramo/bald-utils/id => ../../../../bald-utils/id
-
-replace github.com/kalandramo/bald-utils/mapper => ../../../../bald-utils/mapper
