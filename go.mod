@@ -22,8 +22,6 @@ replace github.com/kalandramo/bald/transport/http => ./transport/http
 
 replace github.com/kalandramo/bald/transport/web => ./transport/web
 
-replace github.com/kalandramo/bald-crud/viewer => ../bald-crud/viewer
-
 require (
 	github.com/gin-gonic/gin v1.12.0
 	github.com/google/uuid v1.6.0
