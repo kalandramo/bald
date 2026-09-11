@@ -28,6 +28,9 @@ func handleHygrothermograph(_ context.Context, topic string, headers broker.Head
 }
 
 func TestServer(t *testing.T) {
+	if testing.Short() {
+		t.Skip("manual test: blocks on signal, requires live broker")
+	}
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 
@@ -62,6 +65,9 @@ func TestServer(t *testing.T) {
 }
 
 func TestClient(t *testing.T) {
+	if testing.Short() {
+		t.Skip("manual test: blocks on signal, requires live broker")
+	}
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 

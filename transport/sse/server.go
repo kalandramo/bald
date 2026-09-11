@@ -358,6 +358,9 @@ func (s *Server) process(event *Event) *Event {
 func (s *Server) marshalEvent(data MessagePayload) (*Event, error) {
 	event := &Event{}
 	if data != nil {
+		if s.codec == nil {
+			return nil, fmt.Errorf("sse: codec is nil (nothing registered); register one via encoding.MustRegister, e.g. encoding.MustRegister(json.New())")
+		}
 		var err error
 		event.Data, err = s.codec.Marshal(data)
 		if err != nil {

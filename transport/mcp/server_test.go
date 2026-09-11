@@ -17,6 +17,9 @@ import (
 )
 
 func TestServer(t *testing.T) {
+	if testing.Short() {
+		t.Skip("manual test: blocks on signal")
+	}
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 
@@ -101,6 +104,9 @@ func TestServer(t *testing.T) {
 }
 
 func TestClient(t *testing.T) {
+	if testing.Short() {
+		t.Skip("manual test: requires running MCP server on :8080")
+	}
 	ctx := context.Background()
 
 	httpTransport, err := transport.NewStreamableHTTP("http://localhost:8080/mcp")
@@ -157,6 +163,9 @@ func TestClient(t *testing.T) {
 }
 
 func TestServer_RegisterHandlerWithJsonString(t *testing.T) {
+	if testing.Short() {
+		t.Skip("manual test: blocks on signal")
+	}
 	jsonStr := `{
   "name": "echo",
   "description": "Echoes the input string",
@@ -214,6 +223,9 @@ func TestServer_RegisterHandlerWithJsonString(t *testing.T) {
 }
 
 func TestServer_RegisterHandlerWithJsonSchema(t *testing.T) {
+	if testing.Short() {
+		t.Skip("manual test: blocks on signal")
+	}
 	jsonSchemaStr := `{
 	"type": "object",
 	"properties": {
