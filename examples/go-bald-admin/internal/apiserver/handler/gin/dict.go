@@ -108,7 +108,7 @@ func RegisterDict(
 			return
 		}
 		if deleted == 0 {
-			web.ErrorResponse(c, berrors.NotFound("NOT_FOUND").WithMessage("dict type not found"))
+			web.ErrorResponse(c, berrors.NotFound("dict/type_not_found").WithMessage("dict type not found"))
 			return
 		}
 		writePB(c, http.StatusOK, &dictv1.DeleteDictTypeResponse{Deleted: c.Param("id")})
@@ -176,7 +176,7 @@ func RegisterDict(
 			return
 		}
 		if !ok {
-			web.ErrorResponse(c, berrors.NotFound("NOT_FOUND").WithMessage("dict entry not found"))
+			web.ErrorResponse(c, berrors.NotFound("dict/entry_not_found").WithMessage("dict entry not found"))
 			return
 		}
 		writePB(c, http.StatusOK, &dictv1.DeleteDictEntryResponse{Deleted: c.Param("id")})

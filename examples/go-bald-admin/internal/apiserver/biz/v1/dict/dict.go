@@ -71,7 +71,8 @@ func (b *Biz) GetType(ctx context.Context, id string) (*authmodel.DictType, erro
 // Create 创建字典类型（默认启用）。ID 即类型编码，租户内唯一（同编码重复返回冲突）。
 func (b *Biz) CreateType(ctx context.Context, id, typeName string, sortOrder int32, remark string) (*authmodel.DictType, error) {
 	if id == "" {
-		return nil, berrors.BadRequest("dict.CreateType: id is required")
+		return nil, berrors.BadRequest("dict/type_missing_required_fields").
+			WithMessage("dict.CreateType: id is required")
 	}
 	t := &authmodel.DictType{
 		ID: id, TypeName: typeName, SortOrder: sortOrder, Enabled: true, Remark: remark,
@@ -195,7 +196,8 @@ func (b *Biz) GetEntry(ctx context.Context, id string) (*authmodel.DictEntry, er
 // 冲突即重复条目）。写穿透：失效该类型缓存键。
 func (b *Biz) CreateEntry(ctx context.Context, typeCode, value, label string, numeric *int32, sortOrder int32, remark string) (*authmodel.DictEntry, error) {
 	if typeCode == "" || value == "" {
-		return nil, berrors.BadRequest("dict.CreateEntry: type_code and value are required")
+		return nil, berrors.BadRequest("dict/entry_missing_required_fields").
+			WithMessage("dict.CreateEntry: type_code and value are required")
 	}
 	if _, err := b.GetType(ctx, typeCode); err != nil {
 		return nil, fmt.Errorf("dict.CreateEntry: type %s: %w", typeCode, err)

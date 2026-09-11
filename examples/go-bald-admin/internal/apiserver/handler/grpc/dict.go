@@ -29,7 +29,7 @@ func NewDictTypeServer(biz *dictbiz.Biz) dictv1.DictTypeServiceServer {
 func (s *dictTypeService) GetDictType(ctx context.Context, req *dictv1.GetDictTypeRequest) (*dictv1.GetDictTypeResponse, error) {
 	t, err := s.biz.GetType(ctx, req.GetId())
 	if err != nil {
-		return nil, berrors.NotFound("dict type")
+		return nil, berrors.NotFound("dict/type_not_found").WithMessage("dict type not found")
 	}
 	return &dictv1.GetDictTypeResponse{DictType: toDictTypePBGRPC(t)}, nil
 }
@@ -67,7 +67,7 @@ func (s *dictTypeService) UpdateDictType(ctx context.Context, req *dictv1.Update
 func (s *dictTypeService) DeleteDictType(ctx context.Context, req *dictv1.DeleteDictTypeRequest) (*dictv1.DeleteDictTypeResponse, error) {
 	deleted, err := s.biz.DeleteType(ctx, req.GetId())
 	if err != nil || deleted == 0 {
-		return nil, berrors.NotFound("dict type")
+		return nil, berrors.NotFound("dict/type_not_found").WithMessage("dict type not found")
 	}
 	return &dictv1.DeleteDictTypeResponse{Deleted: req.GetId()}, nil
 }
@@ -86,7 +86,7 @@ func NewDictEntryServer(biz *dictbiz.Biz) dictv1.DictEntryServiceServer {
 func (s *dictEntryService) GetDictEntry(ctx context.Context, req *dictv1.GetDictEntryRequest) (*dictv1.GetDictEntryResponse, error) {
 	e, err := s.biz.GetEntry(ctx, req.GetId())
 	if err != nil {
-		return nil, berrors.NotFound("dict entry")
+		return nil, berrors.NotFound("dict/entry_not_found").WithMessage("dict entry not found")
 	}
 	return &dictv1.GetDictEntryResponse{DictEntry: toDictEntryPBGRPC(e)}, nil
 }
@@ -126,7 +126,7 @@ func (s *dictEntryService) UpdateDictEntry(ctx context.Context, req *dictv1.Upda
 func (s *dictEntryService) DeleteDictEntry(ctx context.Context, req *dictv1.DeleteDictEntryRequest) (*dictv1.DeleteDictEntryResponse, error) {
 	ok, err := s.biz.DeleteEntry(ctx, req.GetId())
 	if err != nil || !ok {
-		return nil, berrors.NotFound("dict entry")
+		return nil, berrors.NotFound("dict/entry_not_found").WithMessage("dict entry not found")
 	}
 	return &dictv1.DeleteDictEntryResponse{Deleted: req.GetId()}, nil
 }

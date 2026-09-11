@@ -28,7 +28,7 @@ func NewMenuServer(biz *menubiz.Biz) menuv1.MenuServiceServer {
 func (s *menuService) GetMenu(ctx context.Context, req *menuv1.GetMenuRequest) (*menuv1.GetMenuResponse, error) {
 	m, err := s.biz.Get(ctx, req.GetId())
 	if err != nil {
-		return nil, berrors.NotFound("menu")
+		return nil, berrors.NotFound("menu/not_found").WithMessage("menu not found")
 	}
 	return &menuv1.GetMenuResponse{Menu: toMenuPBGRPC(m)}, nil
 }
@@ -69,7 +69,7 @@ func (s *menuService) UpdateMenu(ctx context.Context, req *menuv1.UpdateMenuRequ
 func (s *menuService) DeleteMenu(ctx context.Context, req *menuv1.DeleteMenuRequest) (*menuv1.DeleteMenuResponse, error) {
 	deleted, err := s.biz.Delete(ctx, req.GetId())
 	if err != nil || deleted == 0 {
-		return nil, berrors.NotFound("menu")
+		return nil, berrors.NotFound("menu/not_found").WithMessage("menu not found")
 	}
 	return &menuv1.DeleteMenuResponse{Deleted: req.GetId()}, nil
 }

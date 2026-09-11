@@ -65,9 +65,9 @@ func writeBizErr(c *gingonic.Context, err error) {
 	if _, ok := berrors.FromError(err); !ok {
 		switch {
 		case errors.Is(err, store.ErrNotFound):
-			err = berrors.NotFound("NOT_FOUND").WithCause(err)
+			err = berrors.NotFound("not_found").WithCause(err)
 		case errors.Is(err, store.ErrConflict):
-			err = berrors.AlreadyExists("ALREADY_EXISTS").WithCause(err)
+			err = berrors.AlreadyExists("already_exists").WithCause(err)
 		}
 	}
 	web.ErrorResponse(c, err)

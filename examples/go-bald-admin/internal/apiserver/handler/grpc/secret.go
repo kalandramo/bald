@@ -54,7 +54,7 @@ func (s *secretService) DeleteSecret(ctx context.Context, req *adminv1.DeleteSec
 	// 全部假成功——数据原封不动却返回 200。
 	ok, err := s.biz.Delete(ctx, req.GetId())
 	if err != nil || !ok {
-		return nil, berrors.NotFound("secret")
+		return nil, berrors.NotFound("secret/not_found").WithMessage("secret not found")
 	}
 	return &adminv1.DeleteSecretResponse{Deleted: req.GetId()}, nil
 }

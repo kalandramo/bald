@@ -57,7 +57,7 @@ func RegisterAdmin(
 		}
 		factory, ok := factories[req.Name]
 		if !ok {
-			web.ErrorResponse(c, berrors.NotFound("COMPONENT_FACTORY_NOT_FOUND").
+			web.ErrorResponse(c, berrors.NotFound("admin/component_factory_not_found").
 				WithMessage("unknown component factory: %s", req.Name))
 			return
 		}
@@ -73,7 +73,7 @@ func RegisterAdmin(
 	authed.DELETE("/components/:name", authzMW, func(c *gingonic.Context) {
 		name := c.Param("name")
 		if err := appFn().UnmountComponent(c.Request.Context(), name); err != nil {
-			web.ErrorResponse(c, berrors.NotFound("COMPONENT_NOT_FOUND").
+			web.ErrorResponse(c, berrors.NotFound("admin/component_not_found").
 				WithMessage("component %s not found", name))
 			return
 		}

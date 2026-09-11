@@ -27,7 +27,7 @@ func NewUserServer(biz *userbiz.Biz) userv1.UserServiceServer {
 func (s *userService) GetUser(ctx context.Context, req *userv1.GetUserRequest) (*userv1.GetUserResponse, error) {
 	u, err := s.biz.Get(ctx, req.GetId())
 	if err != nil {
-		return nil, berrors.NotFound("user")
+		return nil, berrors.NotFound("user/not_found").WithMessage("user not found")
 	}
 	return &userv1.GetUserResponse{User: toUserPBGRPC(u)}, nil
 }
@@ -56,7 +56,7 @@ func (s *userService) UpdateUser(ctx context.Context, req *userv1.UpdateUserRequ
 	u, err := s.biz.Update(ctx, req.GetId(), req.GetUsername(), req.GetRoles(), req.GetPassword())
 	if err != nil {
 		// 此前一刀切折叠 NotFound，掩盖内部错误——仅 store 未命中归 NotFound。
-		return nil, notFoundOr(err, "user")
+		return nil, notFoundOr(err, "user/not_found", "user")
 	}
 	return &userv1.UpdateUserResponse{User: toUserPBGRPC(u)}, nil
 }
@@ -64,10 +64,10 @@ func (s *userService) UpdateUser(ctx context.Context, req *userv1.UpdateUserRequ
 func (s *userService) DeleteUser(ctx context.Context, req *userv1.DeleteUserRequest) (*userv1.DeleteUserResponse, error) {
 	ok, err := s.biz.Delete(ctx, req.GetId())
 	if err != nil {
-		return nil, notFoundOr(err, "user")
+		return nil, notFoundOr(err, "user/not_found", "user")
 	}
 	if !ok {
-		return nil, berrors.NotFound("user")
+		return nil, berrors.NotFound("user/not_found").WithMessage("user not found")
 	}
 	return &userv1.DeleteUserResponse{Deleted: req.GetId()}, nil
 }

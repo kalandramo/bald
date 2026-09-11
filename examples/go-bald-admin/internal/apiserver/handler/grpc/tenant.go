@@ -28,7 +28,7 @@ func NewTenantServer(biz *tenantbiz.Biz) tenantv1.TenantServiceServer {
 func (s *tenantService) GetTenant(ctx context.Context, req *tenantv1.GetTenantRequest) (*tenantv1.GetTenantResponse, error) {
 	t, err := s.biz.Get(ctx, req.GetId())
 	if err != nil {
-		return nil, berrors.NotFound("tenant")
+		return nil, berrors.NotFound("tenant/not_found").WithMessage("tenant not found")
 	}
 	return &tenantv1.GetTenantResponse{Tenant: toTenantPBGRPC(t)}, nil
 }
@@ -63,7 +63,7 @@ func (s *tenantService) UpdateTenant(ctx context.Context, req *tenantv1.UpdateTe
 	if err != nil {
 		// 此前一刀切折叠 NotFound，掩盖校验（InvalidArgument）与内部错误——
 		// 仅 store 未命中归 NotFound，其余透传（berrors 由 ErrorInterceptor 收口）。
-		return nil, notFoundOr(err, "tenant")
+		return nil, notFoundOr(err, "tenant/not_found", "tenant")
 	}
 	return &tenantv1.UpdateTenantResponse{Tenant: toTenantPBGRPC(t)}, nil
 }
@@ -71,10 +71,10 @@ func (s *tenantService) UpdateTenant(ctx context.Context, req *tenantv1.UpdateTe
 func (s *tenantService) DeleteTenant(ctx context.Context, req *tenantv1.DeleteTenantRequest) (*tenantv1.DeleteTenantResponse, error) {
 	ok, err := s.biz.Delete(ctx, req.GetId())
 	if err != nil {
-		return nil, notFoundOr(err, "tenant") // platform 保护（FailedPrecondition）等不再伪装 NotFound
+		return nil, notFoundOr(err, "tenant/not_found", "tenant") // platform 保护（FailedPrecondition）等不再伪装 NotFound
 	}
 	if !ok {
-		return nil, berrors.NotFound("tenant")
+		return nil, berrors.NotFound("tenant/not_found").WithMessage("tenant not found")
 	}
 	return &tenantv1.DeleteTenantResponse{Deleted: req.GetId()}, nil
 }

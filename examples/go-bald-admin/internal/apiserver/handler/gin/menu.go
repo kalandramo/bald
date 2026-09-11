@@ -104,7 +104,7 @@ func RegisterMenu(
 			return
 		}
 		if deleted == 0 {
-			web.ErrorResponse(c, berrors.NotFound("NOT_FOUND").WithMessage("menu not found"))
+			web.ErrorResponse(c, berrors.NotFound("menu/not_found").WithMessage("menu not found"))
 			return
 		}
 		writePB(c, http.StatusOK, &menuv1.DeleteMenuResponse{Deleted: c.Param("id")})

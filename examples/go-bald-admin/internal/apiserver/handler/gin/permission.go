@@ -108,7 +108,7 @@ func RegisterPermission(
 			return
 		}
 		if !ok {
-			web.ErrorResponse(c, berrors.NotFound("NOT_FOUND").WithMessage("permission not found"))
+			web.ErrorResponse(c, berrors.NotFound("permission/not_found").WithMessage("permission not found"))
 			return
 		}
 		writePB(c, http.StatusOK, &permissionv1.DeletePermissionResponse{Deleted: c.Param("id")})
@@ -151,7 +151,7 @@ func RegisterPermission(
 			return
 		}
 		if !ok {
-			web.ErrorResponse(c, berrors.NotFound("NOT_FOUND").WithMessage("role policy not found"))
+			web.ErrorResponse(c, berrors.NotFound("permission/policy_not_found").WithMessage("role policy not found"))
 			return
 		}
 		writePB(c, http.StatusOK, &permissionv1.DeleteRolePolicyResponse{Deleted: c.Param("id")})

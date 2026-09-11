@@ -47,7 +47,7 @@ func RegisterAuth(
 			// 仅凭据错误归 401（reason=BAD_CREDENTIAL 供前端程序化识别）；查询/签发等
 			// 内部错误归 500——此前一刀切 401 会把 DB 故障伪装成"密码错误"。
 			if errors.Is(err, authbiz.ErrBadCredential) {
-				web.ErrorResponse(c, berrors.Unauthenticated("BAD_CREDENTIAL").WithMessage("%s", err))
+				web.ErrorResponse(c, berrors.Unauthenticated("auth/bad_credential").WithMessage("%s", err))
 				return
 			}
 			writeBizErr(c, err)
@@ -94,7 +94,7 @@ func RegisterAuth(
 			return
 		}
 		if !ok {
-			web.ErrorResponse(c, berrors.NotFound("NOT_FOUND").WithMessage("secret not found"))
+			web.ErrorResponse(c, berrors.NotFound("secret/not_found").WithMessage("secret not found"))
 			return
 		}
 		c.JSON(http.StatusOK, gingonic.H{"deleted": c.Param("id")})

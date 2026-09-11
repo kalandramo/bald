@@ -28,7 +28,7 @@ func NewPermissionServer(biz *permissionbiz.Biz) permissionv1.PermissionServiceS
 func (s *permissionService) GetPermission(ctx context.Context, req *permissionv1.GetPermissionRequest) (*permissionv1.GetPermissionResponse, error) {
 	p, err := s.biz.GetPermission(ctx, req.GetId())
 	if err != nil {
-		return nil, berrors.NotFound("permission")
+		return nil, berrors.NotFound("permission/not_found").WithMessage("permission not found")
 	}
 	return &permissionv1.GetPermissionResponse{Permission: toPermissionPBGRPC(p)}, nil
 }
@@ -65,7 +65,7 @@ func (s *permissionService) UpdatePermission(ctx context.Context, req *permissio
 func (s *permissionService) DeletePermission(ctx context.Context, req *permissionv1.DeletePermissionRequest) (*permissionv1.DeletePermissionResponse, error) {
 	ok, err := s.biz.DeletePermission(ctx, req.GetId())
 	if err != nil || !ok {
-		return nil, berrors.NotFound("permission")
+		return nil, berrors.NotFound("permission/not_found").WithMessage("permission not found")
 	}
 	return &permissionv1.DeletePermissionResponse{Deleted: req.GetId()}, nil
 }
@@ -93,7 +93,7 @@ func (s *permissionService) CreateRolePolicy(ctx context.Context, req *permissio
 func (s *permissionService) DeleteRolePolicy(ctx context.Context, req *permissionv1.DeleteRolePolicyRequest) (*permissionv1.DeleteRolePolicyResponse, error) {
 	ok, err := s.biz.DeleteRolePolicy(ctx, req.GetId())
 	if err != nil || !ok {
-		return nil, berrors.NotFound("role policy")
+		return nil, berrors.NotFound("permission/policy_not_found").WithMessage("role policy not found")
 	}
 	return &permissionv1.DeleteRolePolicyResponse{Deleted: req.GetId()}, nil
 }

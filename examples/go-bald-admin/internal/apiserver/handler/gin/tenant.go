@@ -104,7 +104,7 @@ func RegisterTenant(
 			return
 		}
 		if !ok {
-			web.ErrorResponse(c, berrors.NotFound("NOT_FOUND").WithMessage("tenant not found"))
+			web.ErrorResponse(c, berrors.NotFound("tenant/not_found").WithMessage("tenant not found"))
 			return
 		}
 		writePB(c, http.StatusOK, &tenantv1.DeleteTenantResponse{Deleted: c.Param("id")})

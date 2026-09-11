@@ -96,7 +96,7 @@ func RegisterUser(
 			return
 		}
 		if !ok {
-			web.ErrorResponse(c, berrors.NotFound("NOT_FOUND").WithMessage("user not found"))
+			web.ErrorResponse(c, berrors.NotFound("user/not_found").WithMessage("user not found"))
 			return
 		}
 		writePB(c, http.StatusOK, &userv1.DeleteUserResponse{Deleted: c.Param("id")})

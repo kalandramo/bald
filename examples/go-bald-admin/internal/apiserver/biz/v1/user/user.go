@@ -56,10 +56,12 @@ func (b *Biz) List(ctx context.Context) ([]*authmodel.User, error) {
 // Create 创建用户（自动归属 ctx 租户）。密码 bcrypt 存储，不回显。
 func (b *Biz) Create(ctx context.Context, id, username string, roles []string, password string) (*authmodel.User, error) {
 	if id == "" || username == "" || password == "" {
-		return nil, berrors.BadRequest("user.Create: id, username and password are required")
+		return nil, berrors.BadRequest("user/missing_required_fields").
+			WithMessage("user.Create: id, username and password are required")
 	}
 	if !usernamePattern.MatchString(username) {
-		return nil, berrors.BadRequest("user.Create: username must be 3-32 characters of letters, digits or underscore")
+		return nil, berrors.BadRequest("user/invalid_username").
+			WithMessage("user.Create: username must be 3-32 characters of letters, digits or underscore")
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
@@ -88,7 +90,8 @@ func (b *Biz) Update(ctx context.Context, id, username string, roles []string, p
 	}
 	if username != "" {
 		if !usernamePattern.MatchString(username) {
-			return nil, berrors.BadRequest("user.Update: username must be 3-32 characters of letters, digits or underscore")
+			return nil, berrors.BadRequest("user/invalid_username").
+				WithMessage("user.Update: username must be 3-32 characters of letters, digits or underscore")
 		}
 		u.Username = username
 	}

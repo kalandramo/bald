@@ -13,11 +13,13 @@ import (
 	"github.com/kalandramo/bald/pkg/store"
 )
 
-// notFoundOr 把 store.ErrNotFound 归一化为 berrors.NotFound(what)，
+// notFoundOr 把 store.ErrNotFound 归一化为 berrors.NotFound(reason)——
+// reason 用「域/稳定标识」风格（如 "user/not_found"），message 与 gin 面
+// 同形（"%s not found"，readable 为人读资源名），三面一份契约。
 // 其余错误透传（berrors 保持原 code；未知错误由 ErrorInterceptor 兜底 Unknown）。
-func notFoundOr(err error, what string) error {
+func notFoundOr(err error, reason, readable string) error {
 	if errors.Is(err, store.ErrNotFound) {
-		return berrors.NotFound(what)
+		return berrors.NotFound(reason).WithMessage("%s not found", readable)
 	}
 	return err
 }

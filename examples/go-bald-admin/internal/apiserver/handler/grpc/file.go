@@ -75,7 +75,7 @@ func (s *fileService) DeleteFile(ctx context.Context, req *filev1.DeleteFileRequ
 		// 对象缺失但元数据存在的场景已由 biz 先查元数据兜底；此处仅区分未找到
 		var be *berrors.Error
 		if errors.As(err, &be) && be.Code == berrors.CodeNotFound {
-			return nil, berrors.NotFound("file")
+			return nil, berrors.NotFound("file/not_found").WithMessage("file not found")
 		}
 		return nil, err
 	}
