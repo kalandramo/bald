@@ -4,7 +4,7 @@ go 1.27.1
 
 require (
 	github.com/kalandramo/bald-crud/gorm v0.0.0
-	github.com/kalandramo/bald/bconf v0.0.0
+	github.com/kalandramo/bald/bconf v0.1.0
 )
 
 require (
@@ -47,14 +47,14 @@ require (
 	github.com/jinzhu/copier v0.4.0 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
-	github.com/kalandramo/bald-crud/cache v0.0.1 // indirect
-	github.com/kalandramo/bald-crud/pagination v0.0.15 // indirect
-	github.com/kalandramo/bald-crud/viewer v0.0.6 // indirect
+	github.com/kalandramo/bald-crud/cache v0.1.0 // indirect
+	github.com/kalandramo/bald-crud/pagination v0.1.0 // indirect
+	github.com/kalandramo/bald-crud/viewer v0.1.0 // indirect
 	github.com/kalandramo/bald-utils v1.1.38 // indirect
-	github.com/kalandramo/bald-utils/mapper v0.0.0-00010101000000-000000000000 // indirect
-	github.com/kalandramo/bald/encoding v0.0.0 // indirect
-	github.com/kalandramo/bald/encoding/json v0.0.0-00010101000000-000000000000 // indirect
-	github.com/kalandramo/bald/log v0.0.0-00010101000000-000000000000 // indirect
+	github.com/kalandramo/bald-utils/mapper v0.1.0 // indirect
+	github.com/kalandramo/bald/encoding v0.1.0 // indirect
+	github.com/kalandramo/bald/encoding/json v0.1.0 // indirect
+	github.com/kalandramo/bald/log v0.1.0 // indirect
 	github.com/klauspost/compress v1.19.2 // indirect
 	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect

@@ -4,7 +4,7 @@ go 1.27.1
 
 require (
 	github.com/kalandramo/bald v0.0.0
-	github.com/kalandramo/bald/bconf v0.0.0
+	github.com/kalandramo/bald/bconf v0.1.0
 	go.etcd.io/etcd/client/v3 v3.7.1
 )
 
