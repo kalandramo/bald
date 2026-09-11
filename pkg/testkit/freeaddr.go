@@ -1,6 +1,6 @@
 // Package testkit 收编跨项目复用的测试工具（P13，见 docs/devel/zh-CN/架构优化路线.md）。
 //
-// 此前 freeAddr 在 pkg/server/server_test.go、_example/bald、examples/go-bald-admin
+// 此前 freeAddr 在 pkg/server/server_test.go、_example/bald、go-bald-admin（现独立仓库 bald-admin）
 // 等处各自复制，收编于此供新 e2e 直接 import。
 package testkit
 

@@ -46,7 +46,6 @@ bald/
 │   ├── cache-redis/          # Redis 旁路缓存（Cache-Aside）
 │   ├── authz-casbin/         # casbin 授权器（内嵌通用 RBAC 模型，策略调用方注入）
 │   └── observability-otlp/   # Prometheus + OTLP 双通道（metrics/trace）
-├── examples/go-bald-admin/   # 官方 reference example（五支柱可观测 + 多租户 + wire，见其 docs/设计文档.md）
 └── _example/bald/            # 最小示例（appkit 编排 HTTP/gRPC 双协议）
 ```
 
@@ -316,9 +315,9 @@ go test ./...
 | 目录 | 定位 | 内容 |
 |---|---|---|
 | [`_example/bald`](_example/bald)（含 `_example/bald-gin`） | **最小能力示例** | 框架能力点逐个跑通：HTTP/gRPC/grpc-gateway、配置四源（文件/env/flag/远程 nacos）、内存↔GORM 切换（`user` demo）、`pkg/web` 流水线。`_example` 以下划线开头，核心 `go build ./...` 不扫——grpc-gateway/cel/nacos 等重依赖隔离在独立 module |
-| [`examples/go-bald-admin`](examples/go-bald-admin) | **官方参考范例（reference app）** | 用真实业务（用户/角色/机密、JWT+casbin RBAC、多租户、三重审计、metrics/trace、wire 装配、管理面）端到端验证 P0–P9，是「真实项目长什么样」的完整范本（见其 `docs/设计文档.md`） |
+| [`kalandramo/bald-admin`](https://github.com/kalandramo/bald-admin) | **官方参考范例（reference app，独立前后端 monorepo 仓库）** | 用真实业务（用户/角色/机密、JWT+casbin RBAC、多租户、三重审计、metrics/trace、wire 装配、管理面）端到端验证 P0–P9，是「真实项目长什么样」的完整范本（见其 `backend/docs/设计文档.md`） |
 
-**怎么选**：想快速体验框架单个能力 → 跑 `_example/bald`；想照着一个真实项目的完整分层抄作业 → 看 `examples/go-bald-admin`。
+**怎么选**：想快速体验框架单个能力 → 跑 `_example/bald`；想照着一个真实项目的完整分层抄作业 → clone [`kalandramo/bald-admin`](https://github.com/kalandramo/bald-admin)。
 
 官方代码生成工具（`bald gen proto/store/app`，生成 starter 骨架，详见 [架构优化路线 §P12](docs/devel/zh-CN/架构优化路线.md)）：
 

@@ -168,7 +168,7 @@ time=... level=INFO msg="appkit started" servers=2
 | bundle `TODO` 注释 | 业务依赖注入：`bundle.Authn(authn)` / `bundle.Authz(authz)` / `bundle.Metrics(rec)` |
 | `gateway` | grpc-gateway 装配（模板未接线，属业务层） |
 
-> 一个直接可抄的「真实项目完整分层范本」是官方范例 `examples/go-bald-admin`（业务路由/biz/wire/管理面齐全），生成骨架与之同形，业务层手写填充即可。
+> 一个直接可抄的「真实项目完整分层范本」是官方范例 [kalandramo/bald-admin](https://github.com/kalandramo/bald-admin)（业务路由/biz/wire/管理面齐全），生成骨架与之同形，业务层手写填充即可。
 
 ## 8. 其他生成命令
 

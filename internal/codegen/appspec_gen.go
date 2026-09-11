@@ -16,7 +16,7 @@ import (
 // 注册位留 TODO，但框架装配（server/component/capability/reconcile）按 AppSpec
 // 真实接线，生成物 go build 通过且 Run 不会因装配顺序问题失败。
 //
-// 装配纪律（对照 examples/go-bald-admin M10 形状，P12 审查修正）：
+// 装配纪律（对照 kalandramo/bald-admin M10 形状，P12 审查修正）：
 //   - servers 与组件一律经 appkit.Servers/appkit.Components Option 传给 New——
 //     Option 只有 New 消费，New 之后再 append 无效；Run 之前也不可调
 //     MountComponent（要求运行态，Run 内才置位）。
@@ -278,7 +278,7 @@ func buildAuditBackend(name string) audit.Auditor {
 	switch name {
 	case "log":
 		return logAuditor{}
-	// TODO: 接入 store/stream 后端（参考 examples/go-bald-admin 的
+	// TODO: 接入 store/stream 后端（参考 kalandramo/bald-admin 的
 	// buildAuditBackend：依赖 bootstrappkg.DB / RedisCache.Client()）。
 	}
 	return nil

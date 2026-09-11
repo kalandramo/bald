@@ -14,7 +14,7 @@ import (
 
 // appTmpl 是应用装配骨架模板（P12 第一步，见 docs/devel/zh-CN/架构优化路线.md §3）。
 //
-// 素材来源：examples/go-bald-admin M10 落地后的真实装配形状——覆盖 appkit 全部
+// 素材来源：kalandramo/bald-admin M10 落地后的真实装配形状——覆盖 appkit 全部
 // 第二轮原语的推荐用法：S1 能力声明、T1 效应账本、C1 组件生命周期、R1 key 级
 // 热更新订阅、bundle 横切接线注释。生成物为可编译的单文件 main.go，业务在
 // 「填充点」注释处填入自己的 server/biz 即可。
@@ -23,7 +23,7 @@ import (
 // 生成的代码就是最佳实践文档。
 var appTmpl = `// {{.Name}} 应用装配骨架（bald gen app 生成）。
 //
-// 装配约定（对照 examples/go-bald-admin M10 形状）：
+// 装配约定（对照 kalandramo/bald-admin M10 形状）：
 //   - 填充点标记为 [FILL]：servers / 业务 biz / 组件实现，其余保持默认即合法。
 //   - 停机五阶段由 appkit 自动编排：效应回放→BeforeStop→Server.Stop→AfterStop→
 //     组件逆序 Dispose，无需手写任何清理顺序逻辑。
@@ -187,7 +187,7 @@ func genAppCmd(streams IOStreams) *cobra.Command {
   - R1 配置 key 级热更新订阅（OnKeyChange）
   - P10 bundle 横切接线示例（buildBundle/buildServers）
 
-填充点标记为 [FILL]。素材对照 examples/go-bald-admin M10 装配形状。
+填充点标记为 [FILL]。素材对照 kalandramo/bald-admin M10 装配形状。
 
 指定 --spec <AppSpec.json> 时切换为 P12 第二步：以 AppSpec 方言（proto 单一真相源）
 驱动装配，取代本模板的硬编码字段；此时 <name> 可省略——应用名与默认输出路径
