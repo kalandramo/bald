@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	rocketmqOption "github.com/kalandramo/bald/broker/rocketmq/option"
+	"github.com/kalandramo/bald/broker/rocketmq/option"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -14,7 +14,7 @@ func TestKind(t *testing.T) {
 
 func TestNewServer(t *testing.T) {
 	srv := NewServer(
-		rocketmqOption.DriverTypeV2, WithNameServer([]string{"127.0.0.1:9876"}), WithCodec("json"),
+		option.DriverTypeV2, WithNameServer([]string{"127.0.0.1:9876"}), WithCodec("json"),
 	)
 	assert.NotNil(t, srv)
 	assert.Equal(t, "rocketmq", srv.Name())
@@ -23,14 +23,14 @@ func TestNewServer(t *testing.T) {
 
 func TestEndpoint(t *testing.T) {
 	srv := NewServer(
-		rocketmqOption.DriverTypeV2, WithNameServer([]string{"127.0.0.1:9876"}), WithCodec("json"),
+		option.DriverTypeV2, WithNameServer([]string{"127.0.0.1:9876"}), WithCodec("json"),
 	)
 	assert.Equal(t, "", srv.Endpoint())
 }
 
 func TestStopBeforeStart(t *testing.T) {
 	srv := NewServer(
-		rocketmqOption.DriverTypeV2, WithNameServer([]string{"127.0.0.1:9876"}), WithCodec("json"),
+		option.DriverTypeV2, WithNameServer([]string{"127.0.0.1:9876"}), WithCodec("json"),
 	)
 	err := srv.Stop(context.Background())
 	assert.Nil(t, err)

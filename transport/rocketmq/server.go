@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/kalandramo/bald/broker"
-	rocketmqOption "github.com/kalandramo/bald/broker/rocketmq/option"
-	rocketmq "github.com/kalandramo/bald/broker/rocketmq/v2"
+	"github.com/kalandramo/bald/broker/rocketmq/option"
+	"github.com/kalandramo/bald/broker/rocketmq/v2"
 	"github.com/kalandramo/bald/metrics"
 
 	"github.com/kalandramo/bald/transport/subscribe"
@@ -20,7 +20,7 @@ type Server struct {
 	broker.Broker
 	brokerOpts []broker.Option
 	m          metrics.Metrics
-	driverType rocketmqOption.DriverType
+	driverType option.DriverType
 
 	subscribers    broker.SubscriberMap
 	subscriberOpts subscribe.SubscribeOptionMap
@@ -32,7 +32,7 @@ type Server struct {
 	err     error
 }
 
-func NewServer(driverType rocketmqOption.DriverType, opts ...ServerOption) *Server {
+func NewServer(driverType option.DriverType, opts ...ServerOption) *Server {
 	srv := &Server{
 		baseCtx:        context.Background(),
 		subscribers:    make(broker.SubscriberMap),

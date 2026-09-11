@@ -1,4 +1,4 @@
-package rocketmqOption
+package option
 
 import (
 	"time"

@@ -1,4 +1,4 @@
-package rocketmqClientGo
+package rocketmq
 
 import (
 	"sync"

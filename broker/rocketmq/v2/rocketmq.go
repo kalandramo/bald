@@ -1,4 +1,4 @@
-package rocketmqClientGo
+package rocketmq
 
 import (
 	"context"
@@ -14,7 +14,7 @@ import (
 	"github.com/kalandramo/bald/log"
 
 	"github.com/kalandramo/bald/broker"
-	rocketmqOption "github.com/kalandramo/bald/broker/rocketmq/option"
+	"github.com/kalandramo/bald/broker/rocketmq/option"
 )
 
 type rocketmqBroker struct {
@@ -23,7 +23,7 @@ type rocketmqBroker struct {
 	nameServers   []string
 	nameServerUrl string
 
-	credentials rocketmqOption.Credentials
+	credentials option.Credentials
 
 	retryCount int
 
@@ -66,7 +66,7 @@ func (b *rocketmqBroker) Address() string {
 	} else if b.nameServerUrl != "" {
 		return b.nameServerUrl
 	}
-	return rocketmqOption.DefaultAddr
+	return option.DefaultAddr
 }
 
 func (b *rocketmqBroker) Options() broker.Options {
@@ -78,41 +78,41 @@ func (b *rocketmqBroker) Init(opts ...broker.Option) error {
 
 	rlog.SetLogger(b.logger)
 
-	if v, ok := b.options.Context.Value(rocketmqOption.NameServersKey{}).([]string); ok {
+	if v, ok := b.options.Context.Value(option.NameServersKey{}).([]string); ok {
 		b.nameServers = v
 	}
-	if v, ok := b.options.Context.Value(rocketmqOption.NameServerUrlKey{}).(string); ok {
+	if v, ok := b.options.Context.Value(option.NameServerUrlKey{}).(string); ok {
 		b.nameServerUrl = v
 	}
-	if v, ok := b.options.Context.Value(rocketmqOption.AccessKey{}).(string); ok {
+	if v, ok := b.options.Context.Value(option.AccessKey{}).(string); ok {
 		b.credentials.AccessKey = v
 	}
-	if v, ok := b.options.Context.Value(rocketmqOption.SecretKey{}).(string); ok {
+	if v, ok := b.options.Context.Value(option.SecretKey{}).(string); ok {
 		b.credentials.AccessSecret = v
 	}
-	if v, ok := b.options.Context.Value(rocketmqOption.SecurityTokenKey{}).(string); ok {
+	if v, ok := b.options.Context.Value(option.SecurityTokenKey{}).(string); ok {
 		b.credentials.SecurityToken = v
 	}
-	if v, ok := b.options.Context.Value(rocketmqOption.CredentialsKey{}).(*rocketmqOption.Credentials); ok {
+	if v, ok := b.options.Context.Value(option.CredentialsKey{}).(*option.Credentials); ok {
 		b.credentials = *v
 	}
-	if v, ok := b.options.Context.Value(rocketmqOption.RetryCountKey{}).(int); ok {
+	if v, ok := b.options.Context.Value(option.RetryCountKey{}).(int); ok {
 		b.retryCount = v
 	}
-	if v, ok := b.options.Context.Value(rocketmqOption.NamespaceKey{}).(string); ok {
+	if v, ok := b.options.Context.Value(option.NamespaceKey{}).(string); ok {
 		b.namespace = v
 	}
-	if v, ok := b.options.Context.Value(rocketmqOption.InstanceNameKey{}).(string); ok {
+	if v, ok := b.options.Context.Value(option.InstanceNameKey{}).(string); ok {
 		b.instanceName = v
 	}
-	if v, ok := b.options.Context.Value(rocketmqOption.GroupNameKey{}).(string); ok {
+	if v, ok := b.options.Context.Value(option.GroupNameKey{}).(string); ok {
 		b.groupName = v
 	}
-	if v, ok := b.options.Context.Value(rocketmqOption.EnableTraceKey{}).(bool); ok {
+	if v, ok := b.options.Context.Value(option.EnableTraceKey{}).(bool); ok {
 		b.enableTrace = v
 	}
 
-	if v, ok := b.options.Context.Value(rocketmqOption.LoggerLevelKey{}).(log.Level); ok {
+	if v, ok := b.options.Context.Value(option.LoggerLevelKey{}).(log.Level); ok {
 		b.logger.level = v
 	}
 
@@ -161,7 +161,7 @@ func (b *rocketmqBroker) createNsResolver() primitive.NsResolver {
 	} else if b.nameServerUrl != "" {
 		return primitive.NewHttpResolver("DEFAULT", b.nameServerUrl)
 	} else {
-		return primitive.NewHttpResolver("DEFAULT", rocketmqOption.DefaultAddr)
+		return primitive.NewHttpResolver("DEFAULT", option.DefaultAddr)
 	}
 }
 
@@ -244,12 +244,12 @@ func (b *rocketmqBroker) createConsumer(options *broker.SubscribeOptions) (rocke
 	resolver := b.createNsResolver()
 	consumerOptions = append(consumerOptions, consumer.WithNsResolver(resolver))
 
-	if v, ok := options.Context.Value(rocketmqOption.ConsumerModelKey{}).(rocketmqOption.MessageModel); ok {
+	if v, ok := options.Context.Value(option.ConsumerModelKey{}).(option.MessageModel); ok {
 		var m consumer.MessageModel
 		switch v {
-		case rocketmqOption.MessageModelClustering:
+		case option.MessageModelClustering:
 			m = consumer.Clustering
-		case rocketmqOption.MessageModelBroadCasting:
+		case option.MessageModelBroadCasting:
 			m = consumer.BroadCasting
 		}
 		consumerOptions = append(consumerOptions, consumer.WithConsumerModel(m))
@@ -337,25 +337,25 @@ func (b *rocketmqBroker) publish(ctx context.Context, topic string, msg *broker.
 		rMsg.WithProperties(msg.Headers)
 	}
 
-	if v, ok := options.Context.Value(rocketmqOption.CompressKey{}).(bool); ok {
+	if v, ok := options.Context.Value(option.CompressKey{}).(bool); ok {
 		rMsg.Compress = v
 	}
-	if v, ok := options.Context.Value(rocketmqOption.BatchKey{}).(bool); ok {
+	if v, ok := options.Context.Value(option.BatchKey{}).(bool); ok {
 		rMsg.Batch = v
 	}
-	if v, ok := options.Context.Value(rocketmqOption.PropertiesKey{}).(map[string]string); ok {
+	if v, ok := options.Context.Value(option.PropertiesKey{}).(map[string]string); ok {
 		rMsg.WithProperties(v)
 	}
-	if v, ok := options.Context.Value(rocketmqOption.DelayTimeLevelKey{}).(int); ok {
+	if v, ok := options.Context.Value(option.DelayTimeLevelKey{}).(int); ok {
 		rMsg.WithDelayTimeLevel(v)
 	}
-	if v, ok := options.Context.Value(rocketmqOption.TagsKey{}).(string); ok {
+	if v, ok := options.Context.Value(option.TagsKey{}).(string); ok {
 		rMsg.WithTag(v)
 	}
-	if v, ok := options.Context.Value(rocketmqOption.KeysKey{}).([]string); ok {
+	if v, ok := options.Context.Value(option.KeysKey{}).([]string); ok {
 		rMsg.WithKeys(v)
 	}
-	if v, ok := options.Context.Value(rocketmqOption.ShardingKeyKey{}).(string); ok {
+	if v, ok := options.Context.Value(option.ShardingKeyKey{}).(string); ok {
 		rMsg.WithShardingKey(v)
 	}
 
@@ -394,7 +394,7 @@ func (b *rocketmqBroker) publish(ctx context.Context, topic string, msg *broker.
 
 func (b *rocketmqBroker) Subscribe(topic string, handler broker.Handler, binder broker.Binder, opts ...broker.SubscribeOption) (broker.Subscriber, error) {
 	if topic == "" {
-		if v, ok := b.options.Context.Value(rocketmqOption.DefaultTopicKey{}).(string); ok {
+		if v, ok := b.options.Context.Value(option.DefaultTopicKey{}).(string); ok {
 			topic = v
 		}
 	}

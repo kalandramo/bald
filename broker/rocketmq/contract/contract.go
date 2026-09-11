@@ -16,7 +16,7 @@ import (
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
 
 	"github.com/kalandramo/bald/broker"
-	rocketmqOption "github.com/kalandramo/bald/broker/rocketmq/option"
+	"github.com/kalandramo/bald/broker/rocketmq/option"
 	v2 "github.com/kalandramo/bald/broker/rocketmq/v2"
 )
 
@@ -42,28 +42,28 @@ func Provider(ctx context.Context, cfg *bootstrapv1.Broker) (any, func(), error)
 
 	var opts []broker.Option
 	if len(nameServers) > 0 {
-		opts = append(opts, rocketmqOption.WithNameServer(nameServers))
+		opts = append(opts, option.WithNameServer(nameServers))
 	}
 	if uri := sec.GetNameServerUrl(); uri != "" {
-		opts = append(opts, rocketmqOption.WithNameServerDomain(uri))
+		opts = append(opts, option.WithNameServerDomain(uri))
 	}
 	if v := sec.GetAccessKey(); v != "" {
-		opts = append(opts, rocketmqOption.WithCredentials(v, sec.GetSecretKey(), sec.GetSecurityToken()))
+		opts = append(opts, option.WithCredentials(v, sec.GetSecretKey(), sec.GetSecurityToken()))
 	}
 	if v := sec.GetGroupName(); v != "" {
-		opts = append(opts, rocketmqOption.WithGroupName(v))
+		opts = append(opts, option.WithGroupName(v))
 	}
 	if v := sec.GetNamespace(); v != "" {
-		opts = append(opts, rocketmqOption.WithNamespace(v))
+		opts = append(opts, option.WithNamespace(v))
 	}
 	if v := sec.GetInstanceName(); v != "" {
-		opts = append(opts, rocketmqOption.WithInstanceName(v))
+		opts = append(opts, option.WithInstanceName(v))
 	}
 	if v := sec.GetRetryCount(); v != 0 {
-		opts = append(opts, rocketmqOption.WithRetryCount(int(v)))
+		opts = append(opts, option.WithRetryCount(int(v)))
 	}
 	if v := sec.GetTopic(); v != "" {
-		opts = append(opts, rocketmqOption.WithDefaultTopic(v))
+		opts = append(opts, option.WithDefaultTopic(v))
 	}
 
 	b := v2.NewBroker(opts...)

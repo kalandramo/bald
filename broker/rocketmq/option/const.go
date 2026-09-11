@@ -1,4 +1,4 @@
-package rocketmqOption
+package option
 
 const (
 	DefaultAddr = "127.0.0.1:9876"

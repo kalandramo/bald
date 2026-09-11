@@ -15,8 +15,8 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/kalandramo/bald/broker"
-	rocketmqOption "github.com/kalandramo/bald/broker/rocketmq/option"
-	rocketmq "github.com/kalandramo/bald/broker/rocketmq/v2"
+	"github.com/kalandramo/bald/broker/rocketmq/option"
+	"github.com/kalandramo/bald/broker/rocketmq/v2"
 )
 
 const (
@@ -39,7 +39,7 @@ func TestServer(t *testing.T) {
 	ctx := context.Background()
 
 	srv := NewServer(
-		rocketmqOption.DriverTypeV2,
+		option.DriverTypeV2,
 		WithNameServer([]string{testBroker}),
 		//WithNameServerDomain("http://nsaddr.rmq.cloud.tencent.com"),
 		WithCodec("json"),
@@ -68,8 +68,8 @@ func TestClient(t *testing.T) {
 	ctx := context.Background()
 
 	b := rocketmq.NewBroker(broker.WithCodec("json"),
-		rocketmqOption.WithEnableTrace(),
-		rocketmqOption.WithNameServer([]string{testBroker}),
+		option.WithEnableTrace(),
+		option.WithNameServer([]string{testBroker}),
 		//rocketmq.WithNameServerDomain(testBroker),
 	)
 
@@ -112,7 +112,7 @@ func TestAliyunServer(t *testing.T) {
 	groupName := "GID_DEFAULT"
 
 	srv := NewServer(
-		rocketmqOption.DriverTypeAliyun,
+		option.DriverTypeAliyun,
 		WithCodec("json"),
 		WithEnableTrace(),
 		WithNameServerDomain(endpoint),
@@ -151,11 +151,11 @@ func TestAliyunClient(t *testing.T) {
 
 	b := rocketmq.NewBroker(broker.WithOptionContext(ctx),
 		broker.WithCodec("json"),
-		rocketmqOption.WithEnableTrace(),
-		rocketmqOption.WithNameServerDomain(endpoint),
-		rocketmqOption.WithAccessKey(accessKey),
-		rocketmqOption.WithSecretKey(secretKey),
-		rocketmqOption.WithInstanceName(instanceId),
+		option.WithEnableTrace(),
+		option.WithNameServerDomain(endpoint),
+		option.WithAccessKey(accessKey),
+		option.WithSecretKey(secretKey),
+		option.WithInstanceName(instanceId),
 	)
 
 	_ = b.Init()

@@ -3,7 +3,7 @@ package rocketmq
 import (
 	"crypto/tls"
 
-	rocketmqOption "github.com/kalandramo/bald/broker/rocketmq/option"
+	"github.com/kalandramo/bald/broker/rocketmq/option"
 
 	"github.com/kalandramo/bald/broker"
 	"github.com/kalandramo/bald/metrics"
@@ -29,49 +29,49 @@ func WithTLSConfig(c *tls.Config) ServerOption {
 
 func WithEnableTrace() ServerOption {
 	return func(s *Server) {
-		s.brokerOpts = append(s.brokerOpts, rocketmqOption.WithEnableTrace())
+		s.brokerOpts = append(s.brokerOpts, option.WithEnableTrace())
 	}
 }
 
 func WithNameServer(addrs []string) ServerOption {
 	return func(s *Server) {
-		s.brokerOpts = append(s.brokerOpts, rocketmqOption.WithNameServer(addrs))
+		s.brokerOpts = append(s.brokerOpts, option.WithNameServer(addrs))
 	}
 }
 
 func WithNameServerDomain(uri string) ServerOption {
 	return func(s *Server) {
-		s.brokerOpts = append(s.brokerOpts, rocketmqOption.WithNameServerDomain(uri))
+		s.brokerOpts = append(s.brokerOpts, option.WithNameServerDomain(uri))
 	}
 }
 
 func WithCredentials(accessKey, secretKey, securityToken string) ServerOption {
 	return func(s *Server) {
-		s.brokerOpts = append(s.brokerOpts, rocketmqOption.WithCredentials(accessKey, secretKey, securityToken))
+		s.brokerOpts = append(s.brokerOpts, option.WithCredentials(accessKey, secretKey, securityToken))
 	}
 }
 
 func WithNamespace(ns string) ServerOption {
 	return func(s *Server) {
-		s.brokerOpts = append(s.brokerOpts, rocketmqOption.WithNamespace(ns))
+		s.brokerOpts = append(s.brokerOpts, option.WithNamespace(ns))
 	}
 }
 
 func WithInstanceName(name string) ServerOption {
 	return func(s *Server) {
-		s.brokerOpts = append(s.brokerOpts, rocketmqOption.WithInstanceName(name))
+		s.brokerOpts = append(s.brokerOpts, option.WithInstanceName(name))
 	}
 }
 
 func WithGroupName(name string) ServerOption {
 	return func(s *Server) {
-		s.brokerOpts = append(s.brokerOpts, rocketmqOption.WithGroupName(name))
+		s.brokerOpts = append(s.brokerOpts, option.WithGroupName(name))
 	}
 }
 
 func WithRetryCount(count int) ServerOption {
 	return func(s *Server) {
-		s.brokerOpts = append(s.brokerOpts, rocketmqOption.WithRetryCount(count))
+		s.brokerOpts = append(s.brokerOpts, option.WithRetryCount(count))
 	}
 }
 
