@@ -237,6 +237,4 @@ replace github.com/go-kratos/kratos/v3/contrib/config/nacos/v3 => ../../../krato
 
 replace github.com/go-kratos/kratos/v3/contrib/registry/nacos/v3 => ../../../kratos/contrib/registry/nacos
 
-replace github.com/kalandramo/bald-crud/viewer => ../../../bald-crud/viewer
-
 replace github.com/kalandramo/bald/contrib/registry/nacos => ../../contrib/registry/nacos
