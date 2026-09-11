@@ -1,4 +1,4 @@
-module github.com/kalandramo/bald-cache-redis
+module github.com/kalandramo/bald/contrib/cache-redis
 
 go 1.27.1
 

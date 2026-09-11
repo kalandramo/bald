@@ -1,4 +1,4 @@
-module github.com/kalandramo/bald-observability-otlp
+module github.com/kalandramo/bald/contrib/observability-otlp
 
 go 1.27.1
 

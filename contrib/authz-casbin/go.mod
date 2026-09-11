@@ -1,4 +1,4 @@
-module github.com/kalandramo/bald-authz-casbin
+module github.com/kalandramo/bald/contrib/authz-casbin
 
 go 1.27.1
 

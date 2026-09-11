@@ -27,16 +27,16 @@ replace github.com/kalandramo/bald-crud/viewer => ../bald-crud/viewer
 require (
 	github.com/gin-gonic/gin v1.12.0
 	github.com/google/uuid v1.6.0
-	github.com/kalandramo/bald-crud/viewer v0.0.0-00010101000000-000000000000
-	github.com/kalandramo/bald/bconf v0.0.0-00010101000000-000000000000
-	github.com/kalandramo/bald/berrors v0.0.0
-	github.com/kalandramo/bald/bootstrap v0.0.0-00010101000000-000000000000
-	github.com/kalandramo/bald/log v0.0.0
-	github.com/kalandramo/bald/transport v0.0.0-00010101000000-000000000000
-	github.com/kalandramo/bald/transport/gateway v0.0.0-00010101000000-000000000000
-	github.com/kalandramo/bald/transport/grpc v0.0.0-00010101000000-000000000000
-	github.com/kalandramo/bald/transport/http v0.0.0-00010101000000-000000000000
-	github.com/kalandramo/bald/transport/web v0.0.0-00010101000000-000000000000
+	github.com/kalandramo/bald-crud/viewer v0.1.0
+	github.com/kalandramo/bald/bconf v0.1.0
+	github.com/kalandramo/bald/berrors v0.1.0
+	github.com/kalandramo/bald/bootstrap v0.1.0
+	github.com/kalandramo/bald/log v0.1.0
+	github.com/kalandramo/bald/transport v0.1.0
+	github.com/kalandramo/bald/transport/gateway v0.1.0
+	github.com/kalandramo/bald/transport/grpc v0.1.0
+	github.com/kalandramo/bald/transport/http v0.1.0
+	github.com/kalandramo/bald/transport/web v0.1.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
 	github.com/stretchr/testify v1.12.1
@@ -139,7 +139,7 @@ require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jmespath/go-jmespath v0.0.0-20180206201540-c2b33e8439af // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
-	github.com/kalandramo/bald/bconfig v0.0.0-00010101000000-000000000000 // indirect
+	github.com/kalandramo/bald/bconfig v0.1.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/magiconair/properties v1.8.5 // indirect

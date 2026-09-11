@@ -19,10 +19,10 @@ go 1.27.1
 require (
 	github.com/gin-gonic/gin v1.12.0
 	github.com/kalandramo/bald v0.0.0
-	github.com/kalandramo/bald/bconf v0.0.0-00010101000000-000000000000
-	github.com/kalandramo/bald/log v0.0.0
-	github.com/kalandramo/bald/transport/http v0.0.0-00010101000000-000000000000
-	github.com/kalandramo/bald/transport/web v0.0.0-00010101000000-000000000000
+	github.com/kalandramo/bald/bconf v0.1.0
+	github.com/kalandramo/bald/log v0.1.0
+	github.com/kalandramo/bald/transport/http v0.1.0
+	github.com/kalandramo/bald/transport/web v0.1.0
 	github.com/spf13/pflag v1.0.10
 )
 
@@ -115,12 +115,12 @@ require (
 	github.com/hashicorp/vault/api v1.23.0 // indirect
 	github.com/jmespath/go-jmespath v0.0.0-20180206201540-c2b33e8439af // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
-	github.com/kalandramo/bald/bconfig v0.0.0-00010101000000-000000000000 // indirect
-	github.com/kalandramo/bald/berrors v0.0.0 // indirect
-	github.com/kalandramo/bald/bootstrap v0.0.0-00010101000000-000000000000 // indirect
-	github.com/kalandramo/bald/transport v0.0.0 // indirect
-	github.com/kalandramo/bald/transport/gateway v0.0.0-00010101000000-000000000000 // indirect
-	github.com/kalandramo/bald/transport/grpc v0.0.0-00010101000000-000000000000 // indirect
+	github.com/kalandramo/bald/bconfig v0.1.0 // indirect
+	github.com/kalandramo/bald/berrors v0.1.0 // indirect
+	github.com/kalandramo/bald/bootstrap v0.1.0 // indirect
+	github.com/kalandramo/bald/transport v0.1.0 // indirect
+	github.com/kalandramo/bald/transport/gateway v0.1.0 // indirect
+	github.com/kalandramo/bald/transport/grpc v0.1.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect
@@ -214,7 +214,7 @@ replace github.com/kalandramo/bald/transport/grpc => ../transport/grpc
 
 replace github.com/kalandramo/bald/transport/gateway => ../transport/gateway
 
-replace github.com/kalandramo/bald-store-gorm => ../contrib/store-gorm
+replace github.com/kalandramo/bald/contrib/store-gorm => ../contrib/store-gorm
 
 replace github.com/go-kratos/kratos/v3/contrib/registry/nacos/v3 => ../../kratos/contrib/registry/nacos
 

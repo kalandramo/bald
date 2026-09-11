@@ -8,15 +8,15 @@ require (
 	github.com/gin-gonic/gin v1.12.0
 	github.com/go-kratos/kratos/v3/contrib/config/nacos/v3 v3.0.0-00010101000000-000000000000
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.29.0
-	github.com/kalandramo/bald v0.0.0
-	github.com/kalandramo/bald-registry-nacos v0.0.0-00010101000000-000000000000
-	github.com/kalandramo/bald-store-gorm v0.0.0-00010101000000-000000000000
-	github.com/kalandramo/bald/bconf v0.0.0
-	github.com/kalandramo/bald/berrors v0.0.0
-	github.com/kalandramo/bald/bootstrap v0.0.0-00010101000000-000000000000
-	github.com/kalandramo/bald/log v0.0.0
-	github.com/kalandramo/bald/transport v0.0.0
-	github.com/kalandramo/bald/transport/web v0.0.0-00010101000000-000000000000
+	github.com/kalandramo/bald v0.2.0
+	github.com/kalandramo/bald/bconf v0.1.0
+	github.com/kalandramo/bald/berrors v0.1.0
+	github.com/kalandramo/bald/bootstrap v0.1.0
+	github.com/kalandramo/bald/contrib/registry/nacos v0.0.0-00010101000000-000000000000
+	github.com/kalandramo/bald/contrib/store-gorm v0.0.0-00010101000000-000000000000
+	github.com/kalandramo/bald/log v0.1.0
+	github.com/kalandramo/bald/transport v0.1.0
+	github.com/kalandramo/bald/transport/web v0.1.0
 	github.com/nacos-group/nacos-sdk-go v1.1.6
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
@@ -66,12 +66,15 @@ require (
 	github.com/coreos/go-systemd/v22 v22.7.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/deckarep/golang-set v1.8.0 // indirect
+	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/emicklei/go-restful/v3 v3.13.0 // indirect
 	github.com/fatih/color v1.19.0 // indirect
 	github.com/fsnotify/fsnotify v1.10.1 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.1 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.12 // indirect
 	github.com/gin-contrib/sse v1.1.0 // indirect
+	github.com/glebarez/go-sqlite v1.21.2 // indirect
+	github.com/glebarez/sqlite v1.11.0 // indirect
 	github.com/go-errors/errors v1.5.1 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
 	github.com/go-kratos/kratos/v3 v3.0.0 // indirect
@@ -122,11 +125,11 @@ require (
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
-	github.com/kalandramo/bald-crud/viewer v0.0.0-00010101000000-000000000000 // indirect
-	github.com/kalandramo/bald/bconfig v0.0.0-00010101000000-000000000000 // indirect
-	github.com/kalandramo/bald/transport/gateway v0.0.0-00010101000000-000000000000 // indirect
-	github.com/kalandramo/bald/transport/grpc v0.0.0-00010101000000-000000000000 // indirect
-	github.com/kalandramo/bald/transport/http v0.0.0-00010101000000-000000000000 // indirect
+	github.com/kalandramo/bald-crud/viewer v0.1.0 // indirect
+	github.com/kalandramo/bald/bconfig v0.1.0 // indirect
+	github.com/kalandramo/bald/transport/gateway v0.1.0 // indirect
+	github.com/kalandramo/bald/transport/grpc v0.1.0 // indirect
+	github.com/kalandramo/bald/transport/http v0.1.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/magiconair/properties v1.8.5 // indirect
@@ -150,6 +153,7 @@ require (
 	github.com/prometheus/procfs v0.20.1 // indirect
 	github.com/quic-go/qpack v0.6.0 // indirect
 	github.com/quic-go/quic-go v0.59.0 // indirect
+	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/ryanuber/go-glob v1.0.0 // indirect
 	github.com/spf13/afero v1.6.0 // indirect
 	github.com/spf13/cast v1.3.1 // indirect
@@ -195,6 +199,10 @@ require (
 	k8s.io/klog/v2 v2.140.0 // indirect
 	k8s.io/kube-openapi v0.0.0-20260721132016-d427ff9ee9ad // indirect
 	k8s.io/utils v0.0.0-20260626114624-be93311217bd // indirect
+	modernc.org/libc v1.22.5 // indirect
+	modernc.org/mathutil v1.5.0 // indirect
+	modernc.org/memory v1.5.0 // indirect
+	modernc.org/sqlite v1.23.1 // indirect
 	sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730 // indirect
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v6 v6.4.2 // indirect
@@ -223,7 +231,7 @@ replace github.com/kalandramo/bald/transport/http => ../../transport/http
 
 replace github.com/kalandramo/bald/transport/web => ../../transport/web
 
-replace github.com/kalandramo/bald-store-gorm => ../../contrib/store-gorm
+replace github.com/kalandramo/bald/contrib/store-gorm => ../../contrib/store-gorm
 
 replace github.com/go-kratos/kratos/v3/contrib/config/nacos/v3 => ../../../kratos/contrib/config/nacos
 
@@ -231,4 +239,4 @@ replace github.com/go-kratos/kratos/v3/contrib/registry/nacos/v3 => ../../../kra
 
 replace github.com/kalandramo/bald-crud/viewer => ../../../bald-crud/viewer
 
-replace github.com/kalandramo/bald-registry-nacos => ../../contrib/registry/nacos
+replace github.com/kalandramo/bald/contrib/registry/nacos => ../../contrib/registry/nacos

@@ -1,4 +1,4 @@
-module github.com/kalandramo/bald-authn-jwt
+module github.com/kalandramo/bald/contrib/authn-jwt
 
 go 1.27.1
 

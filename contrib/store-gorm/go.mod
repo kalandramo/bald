@@ -1,11 +1,11 @@
-module github.com/kalandramo/bald-store-gorm
+module github.com/kalandramo/bald/contrib/store-gorm
 
 go 1.27.1
 
 require (
 	github.com/glebarez/sqlite v1.11.0
-	github.com/kalandramo/bald v0.0.0
-	github.com/kalandramo/bald/bconf v0.0.0-00010101000000-000000000000
+	github.com/kalandramo/bald v0.2.0
+	github.com/kalandramo/bald/bconf v0.1.0
 	github.com/stretchr/testify v1.12.1
 	gorm.io/gorm v1.25.12
 )

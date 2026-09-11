@@ -2,7 +2,7 @@
 //
 // 设计意图：核心只定义最小接口与契约（P5 零后端耦合），所有引擎/传输/中间件
 // 具体实现作为独立子模块，经 init() 自注册进对应 Registry，业务侧
-// `import _ "github.com/kalandramo/bald-store-gorm/register"` 即插即用，无需
+// `import _ "github.com/kalandramo/bald/contrib/store-gorm/register"` 即插即用，无需
 // 在 main 里手写接线。
 //
 // 注册表是并发安全的通用泛型容器；框架预置三类实例：

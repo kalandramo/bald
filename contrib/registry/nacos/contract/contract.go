@@ -12,7 +12,7 @@ import (
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
 	registry "github.com/kalandramo/bald/pkg/registry"
 
-	nacos "github.com/kalandramo/bald-registry-nacos"
+	nacos "github.com/kalandramo/bald/contrib/registry/nacos"
 )
 
 // Type 是契约 registry.type 字段中 nacos 后端的取值。
