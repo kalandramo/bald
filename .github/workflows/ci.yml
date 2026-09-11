@@ -10,10 +10,12 @@
 # - 依赖预下载 + 3 次重试：proxy.golang.org 偶发 HTTP/2 瞬断
 #   （stream INTERNAL_ERROR，2026-09-12 log/aliyun 即此挂掉），
 #   下载完成后 build/vet/test 全程离线稳定。
-# - GOPROXY 管道故障转移（| 语义：任一错误即切下一源）：
-#   aliyun-log-go-sdk v0.1.117.zip 经 proxy.golang.org 在 GitHub
-#   runner 网络上持续拉取失败（两轮 CI 同点位复现，重试 3 次无效），
-#   切 goproxy.io 镜像解决；sumdb 校验不受 proxy 切换影响。
+# - GOPROXY 主源 goproxy.io：aliyun-log-go-sdk v0.1.117.zip 经
+#   proxy.golang.org 在 GitHub runner（Azure US）网络上中流 HTTP/2
+#   INTERNAL_ERROR 持续失败（三轮同点位复现）；| 故障转移对该错误
+#   类不生效（本地容器实测连接级错误可转移，故保留 proxy.golang.org
+#   为备源）。goproxy.io 全球 CDN，容器内实测可完整服务本仓依赖；
+#   sumdb 校验不受 proxy 切换影响。
 # - 已知红模块（go-wind 迁移遗留，build+vet 仍跑、仅跳过 test，
 #   修复后从此列表移除）：
 #   asynq   TestNewTaskOnly nil panic
@@ -40,8 +42,9 @@ jobs:
   test:
     runs-on: ubuntu-latest
     env:
-      # | = 任一错误切下一源：proxy.golang.org 拉不动的 zip 落到 goproxy.io
-      GOPROXY: "https://proxy.golang.org|https://goproxy.io,direct"
+      # goproxy.io 主源（proxy.golang.org 对 aliyun sdk zip 在 runner
+      # 网络上持续中流失败且 | 转移不覆盖该错误类），| 后接备源
+      GOPROXY: "https://goproxy.io|https://proxy.golang.org,direct"
     steps:
       - uses: actions/checkout@v4
 
@@ -52,6 +55,8 @@ jobs:
       - name: build + vet + test all modules
         run: |
           set -e
+          # 失败时在日志中打出所在模块（自诊断）
+          trap 'echo "### FAILED AT MODULE: $mod"; echo "::error::FAILED AT MODULE: $mod"' ERR
           # test 已知红（见文件头注释）：build+vet 执行、test 跳过
           KNOWN_RED_TEST="transport/asynq transport/cron transport/http3 transport/tcp transport/webrtc transport/websocket"
           for mod in $(find . -name go.mod -not -path "./.git/*" -not -path "./_example*" | xargs -n1 dirname | sort); do
