@@ -6,7 +6,6 @@ package gin
 
 import (
 	"bytes"
-	"fmt"
 	"io"
 	"log/slog"
 	"strings"
@@ -20,6 +19,7 @@ import (
 	"github.com/kalandramo/bald/log"
 	"github.com/kalandramo/bald/pkg/contextx"
 	"github.com/kalandramo/bald/pkg/middleware"
+	"github.com/kalandramo/bald/pkg/middleware/shared"
 )
 
 // tracer 是 bald HTTP 层使用的 OpenTelemetry tracer。
@@ -27,33 +27,34 @@ import (
 // 保证框架在零配置下也能运行——这与"核心零依赖、可观测性由调用方装配"的设计一致。
 var tracer = otel.Tracer("bald/gin")
 
-// Standard trace header keys
+// Standard trace header keys（R1 合并：定义收敛至 middleware/shared，此处
+// 别名维持既有导出 API 稳定）
 const (
 	// W3C Trace Context standard (most recommended)
-	TraceParentHeaderKey = "traceparent"
+	TraceParentHeaderKey = shared.TraceParentHeaderKey
 
 	// Simple trace ID (most widely used)
-	TraceIDHeaderKey = "X-Trace-Id"
+	TraceIDHeaderKey = shared.TraceIDHeaderKey
 
 	// Generic request ID (universal compatibility)
-	RequestIDHeaderKey = "X-Request-Id"
+	RequestIDHeaderKey = shared.RequestIDHeaderKey
 
 	// Tracestate for additional context
-	TraceStateHeaderKey = "tracestate"
+	TraceStateHeaderKey = shared.TraceStateHeaderKey
 )
 
-// TraceInjectionMode defines how trace information is injected
-type TraceInjectionMode int
+// TraceInjectionMode defines how trace information is injected（R1 合并：定义收敛至 middleware/shared）
+type TraceInjectionMode = shared.TraceInjectionMode
 
 const (
 	// InjectW3CTraceContext injects full W3C trace context (recommended)
-	InjectW3CTraceContext TraceInjectionMode = iota
+	InjectW3CTraceContext = shared.InjectW3CTraceContext
 	// InjectTraceIDOnly injects only trace ID
-	InjectTraceIDOnly
+	InjectTraceIDOnly = shared.InjectTraceIDOnly
 	// InjectBoth injects both W3C format and simple trace ID
-	InjectBoth
+	InjectBoth = shared.InjectBoth
 	// InjectNone disables trace injection
-	InjectNone
+	InjectNone = shared.InjectNone
 )
 
 // ObservabilityOptions holds configuration for trace injection and logging
@@ -279,9 +280,9 @@ func matchPathPattern(path, pattern string) bool {
 		return true
 	}
 
-	// Wildcard support
+	// Wildcard support（R1 合并：通配匹配收敛至 shared.MatchWildcard）
 	if strings.Contains(pattern, "*") {
-		return matchWildcard(path, pattern)
+		return shared.MatchWildcard(path, pattern)
 	}
 
 	// Prefix match (if pattern ends with /)
@@ -292,76 +293,10 @@ func matchPathPattern(path, pattern string) bool {
 	return false
 }
 
-// matchWildcard performs simple wildcard matching
-func matchWildcard(text, pattern string) bool {
-	if pattern == "*" {
-		return true
-	}
-
-	// Simple prefix/suffix wildcard matching
-	if strings.HasPrefix(pattern, "*") && strings.HasSuffix(pattern, "*") {
-		substr := pattern[1 : len(pattern)-1]
-		return strings.Contains(text, substr)
-	}
-
-	if strings.HasPrefix(pattern, "*") {
-		suffix := pattern[1:]
-		return strings.HasSuffix(text, suffix)
-	}
-
-	if strings.HasSuffix(pattern, "*") {
-		prefix := pattern[:len(pattern)-1]
-		return strings.HasPrefix(text, prefix)
-	}
-
-	return text == pattern
-}
-
-// injectTraceHeaders injects trace headers based on configuration
+// injectTraceHeaders injects trace headers based on configuration（R1 合并：
+// header 计算收敛至 shared.InjectTrace，本函数仅剩 gin Header 落点）
 func injectTraceHeaders(c *gin.Context, spanCtx trace.SpanContext, config *ObservabilityOptions) {
-	if !spanCtx.IsValid() {
-		return
-	}
-
-	traceID := spanCtx.TraceID().String()
-	spanID := spanCtx.SpanID().String()
-
-	switch config.TraceInjectionMode {
-	case InjectW3CTraceContext:
-		// W3C Trace Context format: version-trace_id-parent_id-trace_flags
-		traceFlags := "01" // sampled
-		if !spanCtx.IsSampled() {
-			traceFlags = "00" // not sampled
-		}
-		traceparent := fmt.Sprintf("00-%s-%s-%s", traceID, spanID, traceFlags)
-		c.Header(TraceParentHeaderKey, traceparent)
-
-	case InjectTraceIDOnly:
-		headerKey := TraceIDHeaderKey
-		if config.CustomTraceHeader != "" {
-			headerKey = config.CustomTraceHeader
-		}
-		c.Header(headerKey, traceID)
-
-	case InjectBoth:
-		// W3C format
-		traceFlags := "01"
-		if !spanCtx.IsSampled() {
-			traceFlags = "00"
-		}
-		traceparent := fmt.Sprintf("00-%s-%s-%s", traceID, spanID, traceFlags)
-		c.Header(TraceParentHeaderKey, traceparent)
-
-		// Simple trace ID
-		headerKey := TraceIDHeaderKey
-		if config.CustomTraceHeader != "" {
-			headerKey = config.CustomTraceHeader
-		}
-		c.Header(headerKey, traceID)
-
-	case InjectNone:
-		// Do nothing
-	}
+	shared.InjectTrace(config.TraceInjectionMode, config.CustomTraceHeader, spanCtx, c.Header)
 }
 
 // bodyCaptureWriter captures and duplicates written response body

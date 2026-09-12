@@ -6,7 +6,6 @@ package grpc
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"strings"
 	"time"
@@ -21,39 +20,41 @@ import (
 	"github.com/kalandramo/bald/log"
 	"github.com/kalandramo/bald/pkg/contextx"
 	"github.com/kalandramo/bald/pkg/middleware"
+	"github.com/kalandramo/bald/pkg/middleware/shared"
 )
 
 // tracer 是 bald gRPC 层使用的 OpenTelemetry tracer。
 // 未设置全局 TracerProvider 时，otel.Tracer 返回 no-op tracer，零配置也能运行。
 var tracer = otel.Tracer("bald/grpc")
 
-// Standard trace header keys
+// Standard trace header keys（R1 合并：定义收敛至 middleware/shared，此处
+// 别名维持既有导出 API 稳定）
 const (
 	// W3C Trace Context standard
-	TraceParentHeaderKey = "traceparent"
+	TraceParentHeaderKey = shared.TraceParentHeaderKey
 
 	// Simple trace ID
-	TraceIDHeaderKey = "X-Trace-Id"
+	TraceIDHeaderKey = shared.TraceIDHeaderKey
 
 	// Generic request ID
-	RequestIDHeaderKey = "X-Request-Id"
+	RequestIDHeaderKey = shared.RequestIDHeaderKey
 
 	// Tracestate
-	TraceStateHeaderKey = "tracestate"
+	TraceStateHeaderKey = shared.TraceStateHeaderKey
 )
 
-// TraceInjectionMode defines how trace information is injected
-type TraceInjectionMode int
+// TraceInjectionMode defines how trace information is injected（R1 合并：定义收敛至 middleware/shared）
+type TraceInjectionMode = shared.TraceInjectionMode
 
 const (
 	// InjectW3CTraceContext injects full W3C trace context (recommended)
-	InjectW3CTraceContext TraceInjectionMode = iota
+	InjectW3CTraceContext = shared.InjectW3CTraceContext
 	// InjectTraceIDOnly injects only trace ID
-	InjectTraceIDOnly
+	InjectTraceIDOnly = shared.InjectTraceIDOnly
 	// InjectBoth injects both W3C format and simple trace ID
-	InjectBoth
+	InjectBoth = shared.InjectBoth
 	// InjectNone disables trace injection
-	InjectNone
+	InjectNone = shared.InjectNone
 )
 
 // ObservabilityOptions holds configuration for trace injection and logging
@@ -296,75 +297,20 @@ func matchMethod(method, pattern string) bool {
 		return true
 	}
 
-	// Wildcard support
+	// Wildcard support（R1 合并：通配匹配收敛至 shared.MatchWildcard）
 	if strings.Contains(pattern, "*") {
-		return matchWildcard(method, pattern)
+		return shared.MatchWildcard(method, pattern)
 	}
 
 	return false
 }
 
-// matchWildcard performs simple wildcard matching
-func matchWildcard(text, pattern string) bool {
-	if pattern == "*" {
-		return true
-	}
-	if strings.HasPrefix(pattern, "*") && strings.HasSuffix(pattern, "*") {
-		substr := pattern[1 : len(pattern)-1]
-		return strings.Contains(text, substr)
-	}
-	if strings.HasPrefix(pattern, "*") {
-		return strings.HasSuffix(text, pattern[1:])
-	}
-	if strings.HasSuffix(pattern, "*") {
-		return strings.HasPrefix(text, pattern[:len(pattern)-1])
-	}
-	return text == pattern
-}
-
-// injectTraceMetadata injects trace headers into gRPC metadata
+// injectTraceMetadata injects trace headers into gRPC metadata（R1 合并：
+// header 计算收敛至 shared.InjectTrace，本函数仅剩 md.Set 落点——Set 为
+// 变参签名，闭包适配）
 func injectTraceMetadata(md metadata.MD, spanCtx trace.SpanContext, config *ObservabilityOptions) metadata.MD {
-	if !spanCtx.IsValid() {
-		return md
-	}
-
-	traceID := spanCtx.TraceID().String()
-	spanID := spanCtx.SpanID().String()
-
-	switch config.TraceInjectionMode {
-	case InjectW3CTraceContext:
-		traceFlags := "01"
-		if !spanCtx.IsSampled() {
-			traceFlags = "00"
-		}
-		traceparent := fmt.Sprintf("00-%s-%s-%s", traceID, spanID, traceFlags)
-		md.Set(TraceParentHeaderKey, traceparent)
-
-	case InjectTraceIDOnly:
-		headerKey := TraceIDHeaderKey
-		if config.CustomTraceHeader != "" {
-			headerKey = config.CustomTraceHeader
-		}
-		md.Set(headerKey, traceID)
-
-	case InjectBoth:
-		traceFlags := "01"
-		if !spanCtx.IsSampled() {
-			traceFlags = "00"
-		}
-		traceparent := fmt.Sprintf("00-%s-%s-%s", traceID, spanID, traceFlags)
-		md.Set(TraceParentHeaderKey, traceparent)
-
-		headerKey := TraceIDHeaderKey
-		if config.CustomTraceHeader != "" {
-			headerKey = config.CustomTraceHeader
-		}
-		md.Set(headerKey, traceID)
-
-	case InjectNone:
-		// Do nothing
-	}
-
+	shared.InjectTrace(config.TraceInjectionMode, config.CustomTraceHeader, spanCtx,
+		func(key, value string) { md.Set(key, value) })
 	return md
 }
 
