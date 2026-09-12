@@ -19,6 +19,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/kalandramo/bald/log"
+	"github.com/kalandramo/bald/pkg/contextx"
 	"github.com/kalandramo/bald/pkg/middleware"
 )
 
@@ -121,6 +122,10 @@ func UnaryObservability(opts ...Option) grpc.UnaryServerInterceptor {
 		// no-op tracer（未装配全局 TracerProvider）下 SpanContext 恒全零，
 		// LogTraceIDs 兜底随机 ID 作日志关联；真实 tracer 在跑时透传真实值。
 		logTraceID, logSpanID := middleware.LogTraceIDs(ctx)
+		// 审计-链路关联（R4 复审连带修复）：trace_id 同时进 ctx 属性流与
+		// contextx（audit/authn/crudbridge 的 TraceIDFromContext 消费）——
+		// 此前只进前者，审计事件 trace_id 字段恒空。与日志同源。
+		ctx = contextx.WithTraceID(ctx, logTraceID)
 		ctx = log.ContextWithAttrs(ctx,
 			slog.String("trace_id", logTraceID),
 			slog.String("span_id", logSpanID),
@@ -220,6 +225,9 @@ func StreamObservability(opts ...Option) grpc.StreamServerInterceptor {
 		// no-op tracer（未装配全局 TracerProvider）下 SpanContext 恒全零，
 		// LogTraceIDs 兜底随机 ID 作日志关联；真实 tracer 在跑时透传真实值。
 		logTraceID, logSpanID := middleware.LogTraceIDs(ctx)
+		// 审计-链路关联（R4 复审连带修复）：同 unary 侧——trace_id 进
+		// contextx 供 TraceIDFromContext 消费。
+		ctx = contextx.WithTraceID(ctx, logTraceID)
 		ctx = log.ContextWithAttrs(ctx,
 			slog.String("trace_id", logTraceID),
 			slog.String("span_id", logSpanID),
@@ -232,8 +240,11 @@ func StreamObservability(opts ...Option) grpc.StreamServerInterceptor {
 		if md, ok := metadata.FromIncomingContext(ctx); ok {
 			newMD := injectTraceMetadata(md, spanCtx, config)
 			ctx = metadata.NewIncomingContext(ctx, newMD)
-			ss = &traceStream{ServerStream: ss, ctx: ctx}
 		}
+		// 无论有无 incoming metadata 都包装流（修正：此前仅在含 metadata 时
+		// 包装，无 metadata 流的 handler 读不到 enriched ctx——trace_id 与
+		// 日志属性注入对整类流失效）。
+		ss = &traceStream{ServerStream: ss, ctx: ctx}
 
 		err := handler(srv, ss)
 

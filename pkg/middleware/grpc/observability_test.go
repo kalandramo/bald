@@ -7,6 +7,8 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
+
+	"github.com/kalandramo/bald/pkg/contextx"
 )
 
 // spanKindRecorder 拦截 Start 的 SpanKind（纯 otel API，不引入 sdk）。
@@ -63,5 +65,41 @@ func TestObservability_SpanKindServer(t *testing.T) {
 		if k != trace.SpanKindServer {
 			t.Errorf("span[%d] kind = %v, want SpanKindServer", i, k)
 		}
+	}
+}
+
+// TestObservability_TraceIDInContext：unary 与 stream 的 handler ctx 内
+// contextx.TraceIDFromContext 必须非空非全零（审计-链路关联修复防回归
+// 锚点——audit/authn/crudbridge 的 TraceIDFromContext 消费依赖）。
+// stream 用例刻意不带 incoming metadata：回归此前「仅含 metadata 才包装
+// 流」导致整类流的 enriched ctx（trace_id/日志属性）丢失。
+func TestObservability_TraceIDInContext(t *testing.T) {
+	// unary
+	var unaryTID string
+	un := UnaryObservability()
+	_, err := un(context.Background(), nil,
+		&grpc.UnaryServerInfo{FullMethod: "/svc/Get"},
+		func(ctx context.Context, req any) (any, error) {
+			unaryTID = contextx.TraceIDFromContext(ctx)
+			return nil, nil
+		})
+	if err != nil {
+		t.Fatalf("unary handler error: %v", err)
+	}
+	if unaryTID == "" || unaryTID == "00000000000000000000000000000000" {
+		t.Errorf("unary handler ctx TraceID 应为兜底随机 ID, got %q", unaryTID)
+	}
+
+	// stream（无 incoming metadata——包装修正的回归锚点）
+	var streamTID string
+	st := StreamObservability()
+	_ = st(nil, &fakeServerStream{ctx: context.Background()},
+		&grpc.StreamServerInfo{FullMethod: "/svc/Watch"},
+		func(srv any, ss grpc.ServerStream) error {
+			streamTID = contextx.TraceIDFromContext(ss.Context())
+			return nil
+		})
+	if streamTID == "" || streamTID == "00000000000000000000000000000000" {
+		t.Errorf("stream handler ctx TraceID 应为兜底随机 ID（无 metadata 流也必须包装）, got %q", streamTID)
 	}
 }

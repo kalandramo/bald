@@ -10,6 +10,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/kalandramo/bald/log"
+	"github.com/kalandramo/bald/pkg/contextx"
 )
 
 // TestObservability_NoOpTraceIDs：未装配全局 TracerProvider（no-op tracer）时，
@@ -86,5 +87,35 @@ func TestObservability_SpanKindServer(t *testing.T) {
 	}
 	if rec.kinds[0] != trace.SpanKindServer {
 		t.Errorf("inbound HTTP span kind = %v, want SpanKindServer", rec.kinds[0])
+	}
+}
+
+// TestObservability_TraceIDInContext：Observability 必须把 trace_id 注入
+// contextx（审计-链路关联修复的防回归锚点）——handler 内
+// contextx.TraceIDFromContext 必须非空且与日志属性流的 trace_id 同值。
+// R4 复审连带发现：此前 trace_id 只进日志属性流，audit/authn/crudbridge
+// 五处 TraceIDFromContext 消费恒读空，审计事件 trace_id 字段恒空。
+func TestObservability_TraceIDInContext(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(Observability())
+
+	var ctxTID, attrTID string
+	r.GET("/v1/ping", func(c *gin.Context) {
+		ctxTID = contextx.TraceIDFromContext(c.Request.Context())
+		for _, a := range log.ContextAttrs(c.Request.Context()) {
+			if a.Key == "trace_id" {
+				attrTID = a.Value.String()
+			}
+		}
+		c.Status(http.StatusOK)
+	})
+	r.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/v1/ping", nil))
+
+	if ctxTID == "" || ctxTID == "00000000000000000000000000000000" {
+		t.Errorf("handler 内 TraceIDFromContext 应非空非全零（no-op 兜底随机 ID）, got %q", ctxTID)
+	}
+	if ctxTID != attrTID {
+		t.Errorf("contextx 注入值 %q 应与日志属性 trace_id %q 同源同值（审计关联一致性）", ctxTID, attrTID)
 	}
 }

@@ -18,6 +18,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/kalandramo/bald/log"
+	"github.com/kalandramo/bald/pkg/contextx"
 	"github.com/kalandramo/bald/pkg/middleware"
 )
 
@@ -155,6 +156,11 @@ func Observability(opts ...Option) gin.HandlerFunc {
 		// no-op tracer（未装配全局 TracerProvider）下 SpanContext 恒全零，
 		// LogTraceIDs 兜底随机 ID 作日志关联；真实 tracer 在跑时透传真实值。
 		logTraceID, logSpanID := middleware.LogTraceIDs(ctx)
+		// 审计-链路关联（R4 复审连带修复）：trace_id 同时进 ctx 属性流（日志
+		// 自动携带）与 contextx（audit/authn/crudbridge 的 TraceIDFromContext
+		// 消费）——此前只进前者，审计事件 trace_id 字段恒空。与日志同源
+		// （LogTraceIDs 产物，no-op tracer 时同为兜底随机 ID）。
+		ctx = contextx.WithTraceID(ctx, logTraceID)
 		ctx = log.ContextWithAttrs(ctx,
 			slog.String("trace_id", logTraceID),
 			slog.String("span_id", logSpanID),
