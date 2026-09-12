@@ -29,7 +29,7 @@
 |---|---|---|
 | 适合 | **绝大多数业务**：契约驱动，Bind/装载/校验/Registry/热更新全部内化 | 需要精细控制组件生命周期、自定义装配时序、契约形状表达不了的组装 |
 | 用户侧样板 | ~30-60 行（Option 声明 + handler 注册） | ~200+ 行（Bind×3、BeforeStart 装载、Registry 手动 Build、Effect 手动挂） |
-| 典型消费者 | `_example/bald`（quickstart，433 行/13 包） | go-bald-admin（T7 时代 reference，882 行/31 包——早于 FromBootstrap 完善，未回头切换） |
+| 典型消费者 | `_example/bald`（quickstart，433 行/13 包）；go-bald-admin（reference，U1 已切，630 行——数据段经透传 provider 消费） | （无——业务自有桥接/数据段透传场景经 With*Registry 表达，见下「透传 provider」） |
 
 **默认走 FromBootstrap**。选 New 的判定信号：需要把 Registry.Build 拆到
 BeforeStart 的自定义时序点、组件间有 FromBootstrap 表达不了的依赖编排、
@@ -37,6 +37,16 @@ BeforeStart 的自定义时序点、组件间有 FromBootstrap 表达不了的�
 内化）：serviceName 闭包须 Bind 时取值（构造期取值有时序问题）、Effect
 注册顺序决定停机逆序、BeforeStart 闭包内 `:=` 会遮蔽外层 cleanup 变量
 （必须 `=`）。
+
+**重业务透传（U1，v0.2.6）**：生命周期面经 `WithBeforeStart/WithBeforeStop/
+WithEffect/WithReconcile/WithOnKeyChange/WithProvides/WithRequires/
+WithComponents` 转发给 New 的同名 Option（钩子在框架装载链之后执行、
+Effect 逆序回放先于框架 Effect——业务资源先收）。**业务自管数据段**经
+`WithDatabaseRegistry/WithCacheRegistry/WithStorageRegistry` 注册透传
+provider 消费（构造语义保留业务 env 优先级与降级，连接生命周期上挂框架
+Effect；实例经 `app.Database/Cache/Storage` 取回注入）——go-bald-admin
+的 DB/Redis/MinIO 桥接即此路径，与 contrib contract 官方 provider 并存
+（两条合法路径，代码声明能力）。
 
 原则：**能力声明在代码**。契约有 server.grpc 段但业务未 `WithGRPC` 时，对应 flag
 变更不产生效果（没有 server 消费）——这是刻意的，避免「配置说开了、没人实现」
