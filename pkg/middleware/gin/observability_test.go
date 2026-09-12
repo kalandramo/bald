@@ -1,11 +1,13 @@
 package gin
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/kalandramo/bald/log"
 )
@@ -47,5 +49,42 @@ func TestObservability_NoOpTraceIDs(t *testing.T) {
 
 	if firstTraceID == "" || firstTraceID == "00000000000000000000000000000000" {
 		t.Fatalf("trace_id should be random under no-op tracer, got %q", firstTraceID)
+	}
+}
+
+// spanKindRecorder 拦截 Start 的 SpanKind（纯 otel API 实现，不引入 sdk——
+// 核心模块零 exporter 依赖的纪律不破）。嵌入 trace.Tracer 接口携带未导出
+// 标记方法 tracer()（中间件只调 Start，嵌入方法永不触达）。
+type spanKindRecorder struct {
+	trace.Tracer
+	kinds []trace.SpanKind
+}
+
+func (r *spanKindRecorder) Start(ctx context.Context, name string, opts ...trace.SpanStartOption) (context.Context, trace.Span) {
+	cfg := trace.NewSpanStartConfig(opts...)
+	r.kinds = append(r.kinds, cfg.SpanKind())
+	return ctx, trace.SpanFromContext(ctx)
+}
+
+// TestObservability_SpanKindServer：inbound HTTP span 必须 SpanKindServer
+// （OTel 语义；spanmetrics 服务端聚合与服务拓扑图依赖该值——回归：曾缺省
+// internal 被漏计）。同包测试直接替换包级 tracer，零全局 provider 污染。
+func TestObservability_SpanKindServer(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := &spanKindRecorder{}
+	prev := tracer
+	tracer = rec
+	defer func() { tracer = prev }()
+
+	r := gin.New()
+	r.Use(Observability())
+	r.POST("/v1/login", func(c *gin.Context) { c.Status(http.StatusUnauthorized) })
+	r.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/login", nil))
+
+	if len(rec.kinds) != 1 {
+		t.Fatalf("expected exactly 1 span, got %d", len(rec.kinds))
+	}
+	if rec.kinds[0] != trace.SpanKindServer {
+		t.Errorf("inbound HTTP span kind = %v, want SpanKindServer", rec.kinds[0])
 	}
 }

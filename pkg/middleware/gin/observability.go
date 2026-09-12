@@ -138,7 +138,10 @@ func Observability(opts ...Option) gin.HandlerFunc {
 
 		// 真正起一个 span：若上游已有 span（如网关/客户端注入）则作为 child，
 		// 否则新建 root。未配置全局 TracerProvider 时为 no-op，零配置也能跑。
-		ctx, span := tracer.Start(ctx, c.Request.Method+" "+c.Request.URL.Path)
+		// SpanKindServer：inbound HTTP 的 OTel 语义（spanmetrics 服务端聚合
+		// 与服务拓扑图依赖该值，缺省 internal 会被漏计）。
+		ctx, span := tracer.Start(ctx, c.Request.Method+" "+c.Request.URL.Path,
+			trace.WithSpanKind(trace.SpanKindServer))
 		defer span.End()
 
 		// 把 span 写入请求 ctx，使后续 handler 与日志处于同一 trace 上下文。

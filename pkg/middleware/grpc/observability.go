@@ -112,7 +112,9 @@ func UnaryObservability(opts ...Option) grpc.UnaryServerInterceptor {
 		}
 
 		// 真正起一个 span：上游已有 span 则作为 child，否则新建 root。
-		ctx, span := tracer.Start(ctx, info.FullMethod)
+		// SpanKindServer：inbound gRPC 的 OTel 语义（spanmetrics/拓扑图依赖）。
+		ctx, span := tracer.Start(ctx, info.FullMethod,
+			trace.WithSpanKind(trace.SpanKindServer))
 		defer span.End()
 
 		// 把 trace_id/span_id 挂到 ctx 属性流，使本请求范围所有日志自动携带。
@@ -211,7 +213,9 @@ func StreamObservability(opts ...Option) grpc.StreamServerInterceptor {
 
 		// 真正起一个 span，并把 trace_id/span_id 挂到 ctx 属性流。
 		ctx := ss.Context()
-		ctx, span := tracer.Start(ctx, info.FullMethod)
+		// SpanKindServer：inbound gRPC 的 OTel 语义（spanmetrics/拓扑图依赖）。
+		ctx, span := tracer.Start(ctx, info.FullMethod,
+			trace.WithSpanKind(trace.SpanKindServer))
 		defer span.End()
 		// no-op tracer（未装配全局 TracerProvider）下 SpanContext 恒全零，
 		// LogTraceIDs 兜底随机 ID 作日志关联；真实 tracer 在跑时透传真实值。
