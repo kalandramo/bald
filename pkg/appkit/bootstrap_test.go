@@ -9,6 +9,8 @@ package appkit
 import (
 	"context"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -456,4 +458,212 @@ func TestHotReload_BadConfigKeepsOld(t *testing.T) {
 	if got := cfg.GetLogger().GetSlog().GetLevel(); got != "info" {
 		t.Fatalf("contract logger.level = %q, want info (old value kept)", got)
 	}
+}
+
+// ---------------------------------------------------------------------------
+// 业务透传（U1）：WithBeforeStart/WithBeforeStop/WithEffect/WithReconcile/
+// WithProvides/WithRequires/WithOnKeyChange 的转发语义。
+// ---------------------------------------------------------------------------
+
+// 钩子顺序：WithBeforeStart 在 FromBootstrap 内部装载链之后执行（钩子里
+// 契约已是配置终值）；停机时 WithBeforeStop 先于 Effect 回放、业务 Effect
+// 逆序回放先于框架 Effect（业务资源先收）。
+func TestFromBootstrap_PassthroughOrder(t *testing.T) {
+	old := log.GetLogger()
+	t.Cleanup(func() { log.SetLogger(old) })
+
+	// 配置文件提供 app.name 终值（钩子里读契约验证「装载后执行」）。
+	dir := t.TempDir()
+	yaml := filepath.Join(dir, "u1.yaml")
+	if err := os.WriteFile(yaml, []byte("app:\n  name: u1-order\n  version: v9.9.9\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := bconf.NewBootstrap()
+	cfg.GetServer().GetHttp().Addr = "127.0.0.1:0"
+
+	var order []string
+	var mu sync.Mutex
+	record := func(s string) { mu.Lock(); order = append(order, s); mu.Unlock() }
+
+	var nameInHook atomic.Value
+	a, err := FromBootstrap(cfg,
+		WithConfigFile(yaml),
+		WithHTTP(new(http.ServeMux)),
+		WithBeforeStart(func(context.Context) error {
+			// 契约终值验证：装载链（Unmarshal→Validate→Logger）已跑完。
+			nameInHook.Store(cfg.GetApp().GetName())
+			record("beforeStart")
+			return nil
+		}),
+		WithEffect("biz:one", func(context.Context) error { record("effect:one"); return nil }),
+		WithEffect("biz:two", func(context.Context) error { record("effect:two"); return nil }),
+		WithBeforeStop(func(context.Context) error { record("beforeStop"); return nil }),
+	)
+	if err != nil {
+		t.Fatalf("FromBootstrap: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- a.Run(ctx) }()
+	time.Sleep(300 * time.Millisecond)
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not return")
+	}
+
+	if got := nameInHook.Load(); got != "u1-order" {
+		t.Fatalf("beforeStart saw app.name = %v, want u1-order (hook must run after config load)", got)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	// 停机五阶段（AppKit 既有语义）：阶段 0 Effect 逆序回放 → 阶段 1 BeforeStop。
+	// 业务 Effect（biz:two/biz:one）注册在框架 Effect 之后 → 逆序回放先执行。
+	want := []string{"beforeStart", "effect:two", "effect:one", "beforeStop"}
+	if len(order) != len(want) {
+		t.Fatalf("order = %v, want %v", order, want)
+	}
+	for i := range want {
+		if order[i] != want[i] {
+			t.Fatalf("order = %v, want %v", order, want)
+		}
+	}
+}
+
+// WithReconcile 声明经透传注册：启动收敛期首次触发（Run 内 loadConfig 基线后）。
+func TestFromBootstrap_PassthroughReconcile(t *testing.T) {
+	old := log.GetLogger()
+	t.Cleanup(func() { log.SetLogger(old) })
+
+	cfg := bconf.NewBootstrap()
+	cfg.GetServer().GetHttp().Addr = "127.0.0.1:0"
+
+	var triggered atomic.Bool
+	a, err := FromBootstrap(cfg,
+		WithHTTP(new(http.ServeMux)),
+		WithReconcile("test.passthrough", func(context.Context, *ReconcileCtx) error {
+			triggered.Store(true)
+			return nil
+		}),
+	)
+	if err != nil {
+		t.Fatalf("FromBootstrap: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- a.Run(ctx) }()
+	time.Sleep(400 * time.Millisecond)
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not return")
+	}
+	if !triggered.Load() {
+		t.Fatal("reconciler not triggered during startup convergence")
+	}
+}
+
+// WithRequires 的 S1 fail-fast 经透传生效：声明依赖但未 Provide → 启动期报错。
+func TestFromBootstrap_PassthroughCapabilityFailFast(t *testing.T) {
+	old := log.GetLogger()
+	t.Cleanup(func() { log.SetLogger(old) })
+
+	cfg := bconf.NewBootstrap()
+	cfg.GetServer().GetHttp().Addr = "127.0.0.1:0"
+
+	a, err := FromBootstrap(cfg,
+		WithHTTP(new(http.ServeMux)),
+		WithProvides("db"),
+		WithRequires("audit.store", "db", "cache"),
+	)
+	if err != nil {
+		t.Fatalf("FromBootstrap: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- a.Run(ctx) }()
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "cache") {
+			t.Fatalf("Run err = %v, want capability error mentioning cache", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not return")
+	}
+	cancel()
+}
+
+// WithComponents 透传：C1 生命周期经 FromBootstrap 声明（Start 于监听前、
+// Dispose 于停机末段）。
+func TestFromBootstrap_PassthroughComponents(t *testing.T) {
+	old := log.GetLogger()
+	t.Cleanup(func() { log.SetLogger(old) })
+
+	cfg := bconf.NewBootstrap()
+	cfg.GetServer().GetHttp().Addr = "127.0.0.1:0"
+
+	var started, disposed atomic.Bool
+	a, err := FromBootstrap(cfg,
+		WithHTTP(new(http.ServeMux)),
+		WithComponents(ComponentFunc("test.comp", func(context.Context) error {
+			started.Store(true)
+			return nil
+		})),
+	)
+	if err != nil {
+		t.Fatalf("FromBootstrap: %v", err)
+	}
+	// Dispose 观测：包一层组件捕获。
+	a, err = FromBootstrap(cfg,
+		WithHTTP(new(http.ServeMux)),
+		WithComponents(&disposeProbe{disposed: &disposed}, ComponentFunc("test.comp2", func(context.Context) error {
+			started.Store(true)
+			return nil
+		})),
+	)
+	if err != nil {
+		t.Fatalf("FromBootstrap (2nd): %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- a.Run(ctx) }()
+	time.Sleep(300 * time.Millisecond)
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not return")
+	}
+	if !started.Load() {
+		t.Fatal("component not started")
+	}
+	if !disposed.Load() {
+		t.Fatal("component not disposed")
+	}
+}
+
+// disposeProbe 仅观测 Dispose 的最小组件。
+type disposeProbe struct{ disposed *atomic.Bool }
+
+func (p *disposeProbe) Name() string                { return "test.dispose-probe" }
+func (p *disposeProbe) Start(context.Context) error { return nil }
+func (p *disposeProbe) Dispose(context.Context) error {
+	p.disposed.Store(true)
+	return nil
 }

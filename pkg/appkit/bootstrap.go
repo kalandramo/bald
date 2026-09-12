@@ -91,6 +91,39 @@ type bootstrapSpec struct {
 
 	tracerRegistry  *TracerRegistry
 	metricsRegistry *MetricsRegistry
+
+	// 业务透传声明（U1：重业务走 FromBootstrap 的逃生面——钩子/协调器/
+	// 能力声明/订阅/效果账本/组件，转发给 New 的同名 Option）。
+	beforeStart []func(context.Context) error
+	beforeStop  []func(context.Context) error
+	effects     []effectDecl
+	reconciles  []reconcileDecl
+	keyWatches  []keyWatchDecl
+	provides    []string
+	requires    []requireDecl
+	components  []Component
+}
+
+// effectDecl / reconcileDecl / keyWatchDecl / requireDecl 是透传声明的
+// 载体（与 New 的 Option 参数一一对应，仅用于 spec 暂存）。
+type effectDecl struct {
+	name string
+	undo func(context.Context) error
+}
+
+type reconcileDecl struct {
+	name string
+	fn   ReconcileFunc
+}
+
+type keyWatchDecl struct {
+	key string
+	fn  func(old, new string)
+}
+
+type requireDecl struct {
+	component string
+	caps      []string
 }
 
 // BootstrapOption 声明 FromBootstrap 的业务能力（与 New 的 Option 分属两个
@@ -220,6 +253,62 @@ func WithTracerRegistry(r *TracerRegistry) BootstrapOption {
 // 关闭挂停机 Effect。metrics 段不支持热更新。
 func WithMetricsRegistry(r *MetricsRegistry) BootstrapOption {
 	return func(s *bootstrapSpec) { s.metricsRegistry = r }
+}
+
+// ---------------------------------------------------------------------------
+// 业务透传（U1）：FromBootstrap 表达不了、但重业务需要的生命周期面——转发
+// 给 New 的同名 Option。语义与直用 New 完全一致，仅注册顺序有约定：
+//   - WithBeforeStart 追加在 FromBootstrap 内部装载链之后（契约装载/校验/
+//     Logger 重建/各 Registry Build 完成后执行——业务钩子里可直接读终值）；
+//   - WithEffect 注册在框架 Effect 之后——停机逆序回放时业务效果先执行
+//     （业务资源先收，框架底座后收）。
+// ---------------------------------------------------------------------------
+
+// WithBeforeStart 追加业务启动钩子：在 FromBootstrap 内部的装载链（配置装载
+// →校验→Logger 重建→registrar/可观测性/数据客户端装配）之后执行。业务在此
+// 读契约终值装配桥接（DB 连接、Authn/Authz 桥等）。
+func WithBeforeStart(fn func(context.Context) error) BootstrapOption {
+	return func(s *bootstrapSpec) { s.beforeStart = append(s.beforeStart, fn) }
+}
+
+// WithBeforeStop 追加业务停机前钩子（与 New 的 BeforeStop 语义一致）。
+func WithBeforeStop(fn func(context.Context) error) BootstrapOption {
+	return func(s *bootstrapSpec) { s.beforeStop = append(s.beforeStop, fn) }
+}
+
+// WithEffect 声明业务停机效果（逆序回放；与 New 的 Effect 语义一致，见上
+// 方顺序约定）。
+func WithEffect(name string, undo func(ctx context.Context) error) BootstrapOption {
+	return func(s *bootstrapSpec) { s.effects = append(s.effects, effectDecl{name: name, undo: undo}) }
+}
+
+// WithReconcile 声明期望态协调器（与 New 的 Reconcile 语义一致：首次收敛在
+// 配置基线装载后、AfterStart 前触发，其后每次配置变更再次触发）。
+func WithReconcile(name string, fn ReconcileFunc) BootstrapOption {
+	return func(s *bootstrapSpec) { s.reconciles = append(s.reconciles, reconcileDecl{name: name, fn: fn}) }
+}
+
+// WithOnKeyChange 订阅单个配置 key 的变更（与 New 的 OnKeyChange 语义一致，
+// key 级增量协调）。
+func WithOnKeyChange(key string, fn func(old, new string)) BootstrapOption {
+	return func(s *bootstrapSpec) { s.keyWatches = append(s.keyWatches, keyWatchDecl{key: key, fn: fn}) }
+}
+
+// WithProvides 声明本进程提供的能力（S1 启动期 fail-fast，与 New 的 Provides
+// 语义一致）。
+func WithProvides(caps ...string) BootstrapOption {
+	return func(s *bootstrapSpec) { s.provides = append(s.provides, caps...) }
+}
+
+// WithRequires 声明组件依赖的能力（与 New 的 Requires 语义一致）。
+func WithRequires(component string, caps ...string) BootstrapOption {
+	return func(s *bootstrapSpec) { s.requires = append(s.requires, requireDecl{component: component, caps: caps}) }
+}
+
+// WithComponents 声明进程内组件（C1 生命周期：Start 于服务器监听前、
+// Dispose 于停机末段逆序，与 New 的 Components 语义一致）。
+func WithComponents(comps ...Component) BootstrapOption {
+	return func(s *bootstrapSpec) { s.components = append(s.components, comps...) }
 }
 
 // FromBootstrap 按契约约定装配 AppKit。
@@ -520,6 +609,34 @@ func FromBootstrap(cfg *bootstrapv1.BootstrapConfig, opts ...BootstrapOption) (*
 			serversCleanup()
 			return nil
 		}))
+	}
+
+	// 业务透传（U1）：钩子/协调器/能力声明/订阅/效果——追加在框架装配之后
+	//（beforeStart 在内部装载链后执行，可读契约终值；Effect 逆序回放先于
+	// 框架 Effect——业务资源先收）。
+	for _, fn := range spec.beforeStart {
+		kitOpts = append(kitOpts, BeforeStart(fn))
+	}
+	for _, fn := range spec.beforeStop {
+		kitOpts = append(kitOpts, BeforeStop(fn))
+	}
+	for _, e := range spec.effects {
+		kitOpts = append(kitOpts, Effect(e.name, e.undo))
+	}
+	for _, r := range spec.reconciles {
+		kitOpts = append(kitOpts, Reconcile(r.name, r.fn))
+	}
+	for _, k := range spec.keyWatches {
+		kitOpts = append(kitOpts, OnKeyChange(k.key, k.fn))
+	}
+	if len(spec.provides) > 0 {
+		kitOpts = append(kitOpts, Provides(spec.provides...))
+	}
+	for _, r := range spec.requires {
+		kitOpts = append(kitOpts, Requires(r.component, r.caps...))
+	}
+	if len(spec.components) > 0 {
+		kitOpts = append(kitOpts, Components(spec.components...))
 	}
 
 	a = New(kitOpts...) // BeforeStart 闭包引用 a，执行时已赋值（Run 期才回调）
