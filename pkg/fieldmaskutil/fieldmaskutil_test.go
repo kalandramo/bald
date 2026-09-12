@@ -98,4 +98,24 @@ func Test_PathsFromFieldNumbers(t *testing.T) {
 	assert.Empty(t, PathsFromFieldNumbers(msg, 999))
 }
 
+// Test_NilValuePaths 验证 paths 中「Has 为 false」子集的拣出（消费语义：
+// bald-crud/entgo update 链据此区分「mask 覆盖但未设值 → 显式置 NULL」与
+// 「未出现在 mask → 不动」；bald-crud 消费的是 bald-utils 孪生实现，本测试
+// 钉住主模块副本同契约）。
+func Test_NilValuePaths(t *testing.T) {
+	msg := &storev1.PagingRequest{Token: strp("cursor-1")}
+
+	// 空 paths 直接 nil
+	assert.Nil(t, NilValuePaths(msg, nil))
+
+	// 已设置（token）不返回；未设置（order_by/page）返回，顺序保持输入序
+	assert.Equal(t, []string{"order_by", "page"}, NilValuePaths(msg, []string{"token", "order_by", "page"}))
+
+	// 全部已设置 → nil
+	assert.Nil(t, NilValuePaths(msg, []string{"token"}))
+
+	// 未知字段名跳过（不 panic、不出现在结果）
+	assert.Nil(t, NilValuePaths(msg, []string{"not_exist"}))
+}
+
 func strp(s string) *string { return &s }
