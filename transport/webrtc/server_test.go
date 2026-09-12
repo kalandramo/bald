@@ -46,7 +46,9 @@ func startServerAsync(t *testing.T, srv *Server) chan error {
 }
 
 func TestServer(t *testing.T) {
-	//t.Skip("manual smoke test: starts a fixed-port server and waits for OS signal")
+	if testing.Short() {
+		t.Skip("manual test: starts a fixed-port server and blocks on signal")
+	}
 
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/quic-go/quic-go"
 	"github.com/quic-go/quic-go/http3"
@@ -36,9 +37,12 @@ func HygrothermographHandler(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(&out)
 }
 
-func TestServer(t *testing.T) {
+// TestServerAndClient 端到端：本地起 HTTP/3 server → QUIC 客户端 GET/POST。
+// 原实现拆成 TestServer/TestClient 两个用例跨用例连接——server 随 TestServer
+// 结束（defer cancel）已停，TestClient 必然 IdleTimeout，已合并为单用例内起停。
+func TestServerAndClient(t *testing.T) {
 	srv := NewServer(
-		WithAddress(":8800"),
+		WithAddress("127.0.0.1:8800"),
 	)
 
 	srv.HandleFunc("/hygrothermograph", HygrothermographHandler)
@@ -48,7 +52,7 @@ func TestServer(t *testing.T) {
 
 	go func() {
 		if err := srv.Start(ctx); err != nil {
-			panic(err)
+			t.Errorf("server start failed: %v", err)
 		}
 	}()
 
@@ -58,9 +62,7 @@ func TestServer(t *testing.T) {
 			t.Errorf("expected nil got %v", err)
 		}
 	}()
-}
 
-func TestClient(t *testing.T) {
 	transport := &http3.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 		QUICConfig:      &quic.Config{},
@@ -68,20 +70,33 @@ func TestClient(t *testing.T) {
 	cli := &http.Client{Transport: transport}
 	defer transport.Close()
 
-	req := map[string]string{
-		"Humidity":    strconv.FormatInt(int64(rand.Intn(100)), 10),
-		"Temperature": strconv.FormatInt(int64(rand.Intn(100)), 10),
+	// server 异步启动，QUIC 握手就绪轮询（最多 10s）
+	var resp *http.Response
+	var err error
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		resp, err = cli.Get("https://127.0.0.1:8800/hygrothermograph")
+		if err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("http3 server not ready within 10s: %v", err)
+		}
+		time.Sleep(200 * time.Millisecond)
 	}
 
 	// GET
-	resp, err := cli.Get("https://127.0.0.1:8800/hygrothermograph")
-	assert.Nil(t, err)
-	assert.NotNil(t, resp)
-	if resp != nil {
+	{
 		defer resp.Body.Close()
 		var result map[string]string
-		_ = json.NewDecoder(resp.Body).Decode(&result)
+		assert.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
 		t.Logf("GET response: %v", result)
+		assert.Equal(t, 2, len(result))
+	}
+
+	req := map[string]string{
+		"Humidity":    strconv.FormatInt(int64(rand.Intn(100)), 10),
+		"Temperature": strconv.FormatInt(int64(rand.Intn(100)), 10),
 	}
 
 	// POST

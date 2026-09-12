@@ -44,6 +44,10 @@ func handlePeriodicTask(taskType string, taskData *TaskPayload) error {
 }
 
 func TestNewTaskOnly(t *testing.T) {
+	if testing.Short() {
+		t.Skip("manual test: requires Redis and blocks on signal")
+	}
+
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 
@@ -76,6 +80,10 @@ func TestNewTaskOnly(t *testing.T) {
 }
 
 func TestNewPeriodicTaskOnly(t *testing.T) {
+	if testing.Short() {
+		t.Skip("manual test: requires Redis and blocks on signal")
+	}
+
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 
@@ -109,6 +117,10 @@ func TestNewPeriodicTaskOnly(t *testing.T) {
 }
 
 func TestDelayTask(t *testing.T) {
+	if testing.Short() {
+		t.Skip("manual test: requires Redis and blocks on signal")
+	}
+
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 
@@ -154,6 +166,10 @@ func TestDelayTask(t *testing.T) {
 }
 
 func TestPeriodicTask(t *testing.T) {
+	if testing.Short() {
+		t.Skip("manual test: requires Redis and blocks on signal")
+	}
+
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 
@@ -189,6 +205,10 @@ func TestPeriodicTask(t *testing.T) {
 }
 
 func TestTaskSubscribe(t *testing.T) {
+	if testing.Short() {
+		t.Skip("manual test: requires Redis and blocks on signal")
+	}
+
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 
@@ -222,6 +242,10 @@ func TestTaskSubscribe(t *testing.T) {
 }
 
 func TestAllInOne(t *testing.T) {
+	if testing.Short() {
+		t.Skip("manual test: requires Redis and blocks on signal")
+	}
+
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 
@@ -279,6 +303,10 @@ func TestAllInOne(t *testing.T) {
 }
 
 func TestWaitResultTask(t *testing.T) {
+	if testing.Short() {
+		t.Skip("manual test: requires Redis and blocks on signal")
+	}
+
 	var err error
 
 	srv := NewServer(

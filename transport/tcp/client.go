@@ -157,6 +157,9 @@ func (c *Client) SendMessage(messageType int, message any) error {
 	var msg NetPacket
 	msg.Type = NetMessageType(messageType)
 	var err error
+	if c.codec == nil {
+		return errors.New("codec is nil (nothing registered); register one via encoding.MustRegister, e.g. encoding.MustRegister(json.New())")
+	}
 	msg.Payload, err = c.codec.Marshal(message)
 	if err != nil {
 		return err

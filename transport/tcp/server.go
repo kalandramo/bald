@@ -307,6 +307,9 @@ func (s *Server) defaultMarshalNetPacket(messageType NetMessageType, message Net
 	var msg NetPacket
 	msg.Type = messageType
 	var err error
+	if s.codec == nil {
+		return nil, errors.New("codec is nil (nothing registered); register one via encoding.MustRegister, e.g. encoding.MustRegister(json.New())")
+	}
 	msg.Payload, err = s.codec.Marshal(message)
 	if err != nil {
 		return nil, err
@@ -332,6 +335,9 @@ func (s *Server) defaultUnmarshalNetPacket(buf []byte) (handler *MessageHandlerD
 	if payload = handler.Create(); payload == nil {
 		payload = msg.Payload
 	} else {
+		if s.codec == nil {
+			return nil, nil, errors.New("codec is nil (nothing registered); register one via encoding.MustRegister, e.g. encoding.MustRegister(json.New())")
+		}
 		if err = s.codec.Unmarshal(msg.Payload, payload); err != nil {
 			log.Printf("[tcp] unmarshal message exception: %s", err)
 			return

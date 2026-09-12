@@ -2,7 +2,15 @@ package webrtc
 
 import (
 	"testing"
+
+	"github.com/kalandramo/bald/encoding"
+	jsoncodec "github.com/kalandramo/bald/encoding/json"
 )
+
+// 按仓内惯例显式注册 JSON codec（encoding/json 设计为不做 init 自注册）。
+func init() {
+	encoding.MustRegister(jsoncodec.New())
+}
 
 // TestSFUIntegration_BasicFlow 测试 SFU 基本工作流程
 func TestSFUIntegration_BasicFlow(t *testing.T) {
@@ -137,7 +145,10 @@ func TestSFUIntegration_MessageMarshalUnmarshal(t *testing.T) {
 		t.Fatal("marshaled buffer should not be empty")
 	}
 
-	// 反序列化
+	// 反序列化（需先注册对应消息类型的 handler）
+	RegisterServerMessageHandler(server, messageTypeChat, func(_ SessionID, _ *chatMessage) error {
+		return nil
+	})
 	handler, payload, err := server.defaultUnmarshalNetPacket(buf)
 	if err != nil {
 		t.Fatalf("unmarshal error: %v", err)

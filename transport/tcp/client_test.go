@@ -17,6 +17,9 @@ func handleClientChatMessage(message *ChatMessage) error {
 }
 
 func TestClient(t *testing.T) {
+	if testing.Short() {
+		t.Skip("manual test: blocks on signal, requires live server")
+	}
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 

@@ -539,6 +539,14 @@ func (s *Server) GetRegisteredTaskTypes() []string {
 // 任务发布
 // ---------------------------------------------------------------------------
 
+// marshalPayload 编码任务 payload；codec 未注册时给出可行动的错误而非 panic。
+func (s *Server) marshalPayload(msg any) ([]byte, error) {
+	if s.codec == nil {
+		return nil, errors.New("codec is nil (nothing registered); register one via encoding.MustRegister, e.g. encoding.MustRegister(json.New())")
+	}
+	return s.codec.Marshal(msg)
+}
+
 // NewTask 将一个新任务入队。
 func (s *Server) NewTask(typeName string, msg any, opts ...asynq.Option) error {
 	if typeName == "" {
@@ -551,7 +559,7 @@ func (s *Server) NewTask(typeName string, msg any, opts ...asynq.Option) error {
 		}
 	}
 
-	payload, err := s.codec.Marshal(msg)
+	payload, err := s.marshalPayload(msg)
 	if err != nil {
 		return err
 	}
@@ -582,7 +590,7 @@ func (s *Server) NewWaitResultTask(typeName string, msg any, opts ...asynq.Optio
 		}
 	}
 
-	payload, err := s.codec.Marshal(msg)
+	payload, err := s.marshalPayload(msg)
 	if err != nil {
 		return err
 	}
@@ -630,7 +638,7 @@ func (s *Server) NewPeriodicTask(cronSpec, typeName string, msg any, opts ...asy
 		}
 	}
 
-	payload, err := s.codec.Marshal(msg)
+	payload, err := s.marshalPayload(msg)
 	if err != nil {
 		return "", err
 	}

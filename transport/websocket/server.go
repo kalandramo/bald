@@ -400,6 +400,9 @@ func (s *Server) marshalMessage(messageType NetMessageType, message MessagePaylo
 }
 
 func (s *Server) defaultMarshalNetPacket(messageType NetMessageType, message MessagePayload) ([]byte, error) {
+	if s.codec == nil {
+		return nil, errors.New("codec is nil (nothing registered); register one via encoding.MustRegister, e.g. encoding.MustRegister(json.New())")
+	}
 	payload, err := s.codec.Marshal(message)
 	if err != nil {
 		return nil, err
@@ -453,6 +456,9 @@ func (s *Server) defaultUnmarshalNetPacket(buf []byte) (*MessageHandlerData, Mes
 	if payload = handler.Create(); payload == nil {
 		payload = rawPayload
 	} else {
+		if s.codec == nil {
+			return nil, nil, errors.New("codec is nil (nothing registered); register one via encoding.MustRegister, e.g. encoding.MustRegister(json.New())")
+		}
 		if err := s.codec.Unmarshal(rawPayload, payload); err != nil {
 			return nil, nil, err
 		}

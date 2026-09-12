@@ -38,6 +38,9 @@ func handleChatMessage(sessionId SessionID, message *ChatMessage) error {
 }
 
 func TestServer(t *testing.T) {
+	if testing.Short() {
+		t.Skip("manual test: blocks on signal")
+	}
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 

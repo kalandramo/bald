@@ -16,14 +16,6 @@
 #   类不生效（本地容器实测连接级错误可转移，故保留 proxy.golang.org
 #   为备源）。goproxy.io 全球 CDN，容器内实测可完整服务本仓依赖；
 #   sumdb 校验不受 proxy 切换影响。
-# - 已知红模块（go-wind 迁移遗留，build+vet 仍跑、仅跳过 test，
-#   修复后从此列表移除）：
-#   asynq   TestNewTaskOnly nil panic
-#   cron    测试挂死（goroutine 阻塞，本地复现 10m 超时）
-#   http3   TestClient 需 UDP/网络环境
-#   tcp     TestClient nil panic
-#   webrtc  测试挂死（60s 超时）
-#   websocket 测试 panic
 name: ci
 
 on:
@@ -57,11 +49,10 @@ jobs:
           set -e
           # 失败时在日志中打出所在模块（自诊断）
           trap 'echo "### FAILED AT MODULE: $mod"; echo "::error::FAILED AT MODULE: $mod"' ERR
-          # test 已知红（见文件头注释）：build+vet 执行、test 跳过
-          KNOWN_RED_TEST="transport/asynq transport/cron transport/http3 transport/tcp transport/webrtc transport/websocket"
+          # test 已知红清零（2026-09-12 六模块修复：手工测试加 Short 守卫、
+          # codec nil 显式报错、http3 跨用例连接合并），全部恢复 test
           for mod in $(find . -name go.mod -not -path "./.git/*" -not -path "./_example*" | xargs -n1 dirname | sort); do
             echo "=== $mod ==="
-            rel="${mod#./}"
             # 预下载依赖（重试 3 次防 proxy 瞬断），之后构建/测试离线稳定
             n=0
             while true; do
@@ -73,8 +64,6 @@ jobs:
             done
             if [ "$mod" = "." ]; then
               (cd . && go build ./... && go vet -copylocks=false ./... && go test -short -timeout 5m ./...)
-            elif echo "$KNOWN_RED_TEST" | grep -qw "$rel"; then
-              (cd "$mod" && go build ./... && go vet ./... && echo "test skipped: known-red module")
             else
               (cd "$mod" && go build ./... && go vet ./... && go test -short -timeout 5m ./...)
             fi

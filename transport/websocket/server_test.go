@@ -13,8 +13,14 @@ import (
 
 	ws "github.com/gorilla/websocket"
 
-	_ "github.com/kalandramo/bald/encoding/json"
+	"github.com/kalandramo/bald/encoding"
+	jsoncodec "github.com/kalandramo/bald/encoding/json"
 )
+
+// 按仓内惯例显式注册 JSON codec（encoding/json 设计为不做 init 自注册）。
+func init() {
+	encoding.MustRegister(jsoncodec.New())
+}
 
 // ---------------------------------------------------------------------------
 // NewServer + defaults
