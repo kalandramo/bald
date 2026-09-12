@@ -73,9 +73,12 @@ func WithHeaders(headers map[string]string) Option {
 	return func(o *options) { o.headers = headers }
 }
 
-// Setup 初始化 MeterProvider 并设为全局，返回 /metrics HTTP handler（Prometheus 抓取端点）。
-// 应在拦截器构建**之前**调用一次（使埋点接入 exporter）；返回的 handler 挂到独立端口或路由。
-func Setup(opts ...Option) (http.Handler, error) {
+// Setup 初始化 MeterProvider 并设为全局，返回 /metrics HTTP handler（Prometheus
+// 抓取端点）与 shutdown（flush OTLP 直推缓冲并释放 Provider，进程退出前调用）。
+// 应在拦截器构建**之前**调用一次（使埋点接入 exporter；Recorder 惰性创建
+// instruments，晚创建亦不丢数据）；handler 挂到独立端口或路由（appkit.
+// StartMetricsServer / FromBootstrap 可代劳）。
+func Setup(opts ...Option) (http.Handler, func(context.Context) error, error) {
 	cfg := options{serviceName: defaultServiceName, interval: defaultInterval}
 	for _, opt := range opts {
 		opt(&cfg)
@@ -86,7 +89,7 @@ func Setup(opts ...Option) (http.Handler, error) {
 	// 1) Prometheus：本地抓取端点（必需）。
 	promExporter, err := prometheus.New()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	readers = append(readers, promExporter)
 
@@ -94,7 +97,7 @@ func Setup(opts ...Option) (http.Handler, error) {
 	if cfg.otlpAddr != "" {
 		otlpExporter, err := newOTLPExporter(cfg.otlpAddr, cfg.insecure, cfg.headers)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		readers = append(readers, metric.NewPeriodicReader(otlpExporter,
 			metric.WithInterval(cfg.interval)))
@@ -105,7 +108,7 @@ func Setup(opts ...Option) (http.Handler, error) {
 		semconv.ServiceName(cfg.serviceName),
 	))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	mopts := []metric.Option{
 		metric.WithResource(res),
@@ -116,8 +119,8 @@ func Setup(opts ...Option) (http.Handler, error) {
 	}
 	provider := metric.NewMeterProvider(mopts...)
 	otel.SetMeterProvider(provider)
-	// 返回 Prometheus 标准暴露端点（/metrics）。
-	return promhttp.Handler(), nil
+	// 返回 Prometheus 标准暴露端点（/metrics）与 Provider shutdown。
+	return promhttp.Handler(), provider.Shutdown, nil
 }
 
 // newOTLPExporter 按地址与可选参数构造 OTLP metric HTTP exporter。

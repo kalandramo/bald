@@ -88,6 +88,9 @@ type bootstrapSpec struct {
 	aiRegistry       *AiRegistry
 	workflowRegistry *WorkflowRegistry
 	brokerRegistry   *BrokerRegistry
+
+	tracerRegistry  *TracerRegistry
+	metricsRegistry *MetricsRegistry
 }
 
 // BootstrapOption 声明 FromBootstrap 的业务能力（与 New 的 Option 分属两个
@@ -201,6 +204,22 @@ func WithLoggerFactory(f LoggerFactory) BootstrapOption {
 // WithLogDecorators 仅对默认 slog 工厂与阶段 A 回退生效。
 func WithLogRegistry(r *baldbootstrap.LogRegistry) BootstrapOption {
 	return func(s *bootstrapSpec) { s.logRegistry = r }
+}
+
+// WithTracerRegistry 注入 trace 后端的契约装配注册表（显式注册 provider，
+// 见 TracerRegistry）。契约 tracer 段存在时，阶段 B 按 tracer.type 构造
+// 全局 TracerProvider，shutdown 挂停机 Effect 最后回放（收集尾批 span）。
+// tracer 段不支持热更新。
+func WithTracerRegistry(r *TracerRegistry) BootstrapOption {
+	return func(s *bootstrapSpec) { s.tracerRegistry = r }
+}
+
+// WithMetricsRegistry 注入指标后端的契约装配注册表（显式注册 provider，
+// 见 MetricsRegistry）。契约 metrics 段存在时，阶段 B 按 metrics.type 装配
+// 双通道（prometheus 抓取端独立端口 + 可选 OTLP 直推），flush 与暴露端
+// 关闭挂停机 Effect。metrics 段不支持热更新。
+func WithMetricsRegistry(r *MetricsRegistry) BootstrapOption {
+	return func(s *bootstrapSpec) { s.metricsRegistry = r }
 }
 
 // FromBootstrap 按契约约定装配 AppKit。
@@ -332,6 +351,10 @@ func FromBootstrap(cfg *bootstrapv1.BootstrapConfig, opts ...BootstrapOption) (*
 	// workflow → ai → storage → cache → database。
 	var workflowCleanup func()
 	var brokerCleanup func()
+	// obs 跟踪阶段 B 装配的可观测性句柄（tracer shutdown / metrics 暴露端 +
+	// flush）。Effect 注册在 bootstrap-logger 之前——停机逆序回放最后执行：
+	// 所有组件 cleanup 完成、Logger 恢复后，再停暴露端、flush 尾批指标与 span。
+	var obs *observabilityState
 
 	// a 先声明再进闭包：BeforeStart 在 Run 期才执行，届时 a 已赋值。
 	var a *AppKit
@@ -350,6 +373,15 @@ func FromBootstrap(cfg *bootstrapv1.BootstrapConfig, opts ...BootstrapOption) (*
 			if err := syncBootstrap(a, cfg, spec, &curCleanup, &regCleanup); err != nil {
 				return err
 			}
+			// 可观测性（tracer/metrics 段）在注册中心之后、数据/缓存客户端
+			// 之前装配：使 Recorder / tracer 在首个请求与后续组件初始化 span
+			// 前接入全局 Provider（`=` 赋值外层，T7 教训：闭包内 `:=` 遮蔽
+			// 致停机 Effect 拿 nil）。
+			o, err := buildObservability(cfg, spec)
+			if err != nil {
+				return err
+			}
+			obs = o
 			// 数据库/缓存客户端构建在注册中心之后：任一步失败走 Run 失败路径
 			// 回滚 Effect 账本（各 Effect 自行释放）。赋值外层变量（勿用 :=，
 			// 否则遮蔽导致 Effect 回放拿到 nil）。
@@ -382,6 +414,29 @@ func FromBootstrap(cfg *bootstrapv1.BootstrapConfig, opts ...BootstrapOption) (*
 		}),
 		OnConfigChange(func(m map[string]any) {
 			hotReload(cfg, spec, &curCleanup, m)
+		}),
+		// 可观测性 Effect 注册在 bootstrap-logger 之前：逆序回放时最后执行
+		// （所有组件 cleanup、Logger 恢复之后）——先停 metrics 暴露端 +
+		// flush 指标，再 flush trace（收集全部尾批 span）。
+		Effect("appkit:tracer-shutdown", func(ctx context.Context) error {
+			if obs == nil || obs.traceShutdown == nil {
+				return nil
+			}
+			return obs.traceShutdown(ctx)
+		}),
+		Effect("appkit:metrics-server", func(ctx context.Context) error {
+			if obs == nil {
+				return nil
+			}
+			if obs.metricsSrv != nil {
+				if err := obs.metricsSrv.Shutdown(ctx); err != nil {
+					log.GetLogger().Error(ctx, "appkit metrics server shutdown failed", "error", err.Error())
+				}
+			}
+			if obs.metricsFlush != nil {
+				return obs.metricsFlush(ctx)
+			}
+			return nil
 		}),
 		Effect("appkit:bootstrap-logger", func(context.Context) error {
 			log.SetLogger(oldLogger)

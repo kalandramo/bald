@@ -13,10 +13,14 @@ import (
 )
 
 func TestSetup_ExposesBaldMetrics(t *testing.T) {
-	handler, err := Setup(WithServiceName("bald-otlp-test"))
+	handler, shutdown, err := Setup(WithServiceName("bald-otlp-test"))
 	if err != nil {
 		t.Fatalf("Setup: %v", err)
 	}
+	if shutdown == nil {
+		t.Fatal("shutdown should not be nil")
+	}
+	defer func() { _ = shutdown(context.Background()) }()
 	// 通过真实 Recorder（接入 prometheus exporter）记一条指标。
 	rec := Recorder("bald/test")
 	rec.Record(context.Background(),
@@ -50,7 +54,7 @@ func min(a, b int) int {
 
 // TestSetup_OTLP_FullOptions 契约全字段（insecure/headers/interval）应成功构造双通道。
 func TestSetup_OTLP_FullOptions(t *testing.T) {
-	handler, err := Setup(
+	handler, _, err := Setup(
 		WithServiceName("bald-otlp-test"),
 		WithOTLPAddr("localhost:4318"),
 		WithInsecure(true),
@@ -67,7 +71,7 @@ func TestSetup_OTLP_FullOptions(t *testing.T) {
 
 // TestSetup_OTLP_ExplicitTLS 显式 insecure=false 时裸地址走 TLS。
 func TestSetup_OTLP_ExplicitTLS(t *testing.T) {
-	handler, err := Setup(
+	handler, _, err := Setup(
 		WithServiceName("bald-otlp-test"),
 		WithOTLPAddr("collector.internal:4318"),
 		WithInsecure(false),

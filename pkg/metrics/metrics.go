@@ -11,6 +11,7 @@ package metrics
 
 import (
 	"context"
+	"sync"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -55,29 +56,41 @@ func (nopRecorder) Record(context.Context, Event, Transport, float64) {}
 func NopRecorder() Recorder { return nopRecorder{} }
 
 // otelRecorder 是基于 otel/metric 的真实 Recorder。
+//
+// instruments 惰性创建（首次 Record 时）：otel 全局 MeterProvider 语义下，
+// SetMeterProvider 之前创建的 instrument 永久 no-op（global 包的 delegating
+// meter 只转发后续创建）。Recorder 常在 main 构造期创建（如 bundle.Metrics
+// 接线），而 Provider 在 BeforeStart 装配——惰性一跳消除创建顺序耦合。
 type otelRecorder struct {
-	requests metric.Int64Counter
-	latency  metric.Float64Histogram
+	meterName string
+	once      sync.Once
+	requests  metric.Int64Counter
+	latency   metric.Float64Histogram
 }
 
 // New 用全局 MeterProvider 构建真实 Recorder。meterName 通常为 "bald/<transport>"。
 // 若 MeterProvider 为 no-op，instrument 退化为 no-op，Record 不产生副作用。
 func New(meterName string) Recorder {
-	m := otel.Meter(meterName)
-	requests, _ := m.Int64Counter(
+	return &otelRecorder{meterName: meterName}
+}
+
+// instruments 首次使用时创建（见 otelRecorder 文档：创建顺序无关性）。
+func (r *otelRecorder) init() {
+	m := otel.Meter(r.meterName)
+	r.requests, _ = m.Int64Counter(
 		"bald_requests_total",
 		metric.WithDescription("Total bald handled requests, labeled by transport/object/action/result"),
 	)
-	latency, _ := m.Float64Histogram(
+	r.latency, _ = m.Float64Histogram(
 		"bald_request_duration_seconds",
 		metric.WithDescription("bald request latency in seconds, labeled by transport/object/action"),
 		metric.WithUnit("s"),
 	)
-	return &otelRecorder{requests: requests, latency: latency}
 }
 
 // Record 实现 Recorder：emit 计数与延迟（带上 transport/object/action/result 维度）。
 func (r *otelRecorder) Record(ctx context.Context, ev Event, transport Transport, dur float64) {
+	r.once.Do(r.init)
 	attrs := metric.WithAttributes(
 		attribute.String("transport", string(transport)),
 		attribute.String("object", ev.Object),
