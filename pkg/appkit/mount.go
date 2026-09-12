@@ -99,7 +99,7 @@ func (a *AppKit) MountComponent(ctx context.Context, c Component) error {
 		return errors.New("appkit: MountComponent: nil component")
 	}
 	if err := a.runHook(ctx, a.componentTimeout, "component:"+c.Name()+":start", c.Start); err != nil {
-		return fmt.Errorf("appkit: component %q start: %w", c.Name(), err)
+		return wrapComponentStartErr(c.Name(), err)
 	}
 
 	a.startedMu.Lock()

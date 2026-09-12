@@ -35,7 +35,6 @@ import (
 
 	"github.com/kalandramo/bald/encoding"
 	"github.com/kalandramo/bald/metrics"
-	"github.com/kalandramo/bald/pkg/id"
 	"github.com/kalandramo/bald/transport"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -468,6 +467,3 @@ func (s *Server) OnSessionRemoved(session *Session) {
 func (s *Server) SessionCount() int {
 	return s.sessionManager.count()
 }
-
-// 新增：供 session.go 使用
-var _ = id.NewGUIDv4

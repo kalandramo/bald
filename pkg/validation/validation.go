@@ -113,6 +113,18 @@ func (v *Validator) Validate(ctx context.Context, request any) error {
 }
 
 // RequestTypeName 返回请求类型的名字（去掉指针）。
+// 值类型/nil 入参返回空串（fail-fast 哲学：请求链路上的反射工具不 panic，
+// 调用方拿到空串走自己的缺省分支——CR5 修复）。
 func RequestTypeName(request any) string {
-	return reflect.TypeOf(request).Elem().Name()
+	if request == nil {
+		return ""
+	}
+	t := reflect.TypeOf(request)
+	if t == nil {
+		return ""
+	}
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	return t.Name()
 }

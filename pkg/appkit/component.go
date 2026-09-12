@@ -69,12 +69,18 @@ func ComponentTimeout(d time.Duration) Option {
 	return func(a *AppKit) { a.componentTimeout = d }
 }
 
+// wrapComponentStartErr 统一组件启动失败的错误包裹（startComponents 与
+// MountComponent 共用——E11 收敛，错误文案单一真相源）。
+func wrapComponentStartErr(name string, err error) error {
+	return fmt.Errorf("appkit: component %q start: %w", name, err)
+}
+
 // startComponents 顺序启动全部组件；任一失败则由调用方经 stopAll 逆序 Dispose
 // 已启动组件（started 跟踪保证只处理成功 Start 过的，幂等）。
 func (a *AppKit) startComponents(ctx context.Context) error {
 	for _, c := range a.components {
 		if err := a.runHook(ctx, a.componentTimeout, "component:"+c.Name()+":start", c.Start); err != nil {
-			return fmt.Errorf("appkit: component %q start: %w", c.Name(), err)
+			return wrapComponentStartErr(c.Name(), err)
 		}
 		a.startedMu.Lock()
 		a.started = append(a.started, c)
