@@ -20,6 +20,24 @@
 | 注册中心实例 / 配置源层 | 就绪探针的下游依赖 |
 | 热更新开关 | 日志装饰器（脱敏）、gateway 转码注册回调 |
 
+## 装配路径选择（何时用 FromBootstrap，何时用 New）
+
+框架提供两条语义等价的装配入口（`buildRegistrar` 等 builder 两侧同实现，
+无双真相源）：
+
+| | `FromBootstrap(cfg, opts...)` | `appkit.New(opts...)` + 手动装配 |
+|---|---|---|
+| 适合 | **绝大多数业务**：契约驱动，Bind/装载/校验/Registry/热更新全部内化 | 需要精细控制组件生命周期、自定义装配时序、契约形状表达不了的组装 |
+| 用户侧样板 | ~30-60 行（Option 声明 + handler 注册） | ~200+ 行（Bind×3、BeforeStart 装载、Registry 手动 Build、Effect 手动挂） |
+| 典型消费者 | `_example/bald`（quickstart，433 行/13 包） | go-bald-admin（T7 时代 reference，882 行/31 包——早于 FromBootstrap 完善，未回头切换） |
+
+**默认走 FromBootstrap**。选 New 的判定信号：需要把 Registry.Build 拆到
+BeforeStart 的自定义时序点、组件间有 FromBootstrap 表达不了的依赖编排、
+或需要多个 app 实例共存。走 New 时注意三个已知泄漏点（FromBootstrap 已
+内化）：serviceName 闭包须 Bind 时取值（构造期取值有时序问题）、Effect
+注册顺序决定停机逆序、BeforeStart 闭包内 `:=` 会遮蔽外层 cleanup 变量
+（必须 `=`）。
+
 原则：**能力声明在代码**。契约有 server.grpc 段但业务未 `WithGRPC` 时，对应 flag
 变更不产生效果（没有 server 消费）——这是刻意的，避免「配置说开了、没人实现」
 的静默失效（与 S1 能力声明 fail-fast 同哲学）。
@@ -162,9 +180,15 @@ gateway 不是独立服务器，而是 `server.http` 段的一种模式，由契
   构建并 `Init`→`Connect`（contract 封装），`app.Broker(typ)/Brokers()` 取用；
   消息体经 `bald/encoding` 序列化（默认 json）。binder 类型化依赖
   `broker.Unmarshal` 的 any 解引用修复（契约总览 §16）。
-- **停机链序扩至 8 段**：servers→registrar→database→cache→storage→ai→
-  workflow→broker——逆序回放时服务器先 drain，broker 最后关（in-flight
-  消息处理完再断），数据库仍保持最后关闭之外的最晚次序。
+- **停机链序扩至 12 段**（注册序，逆序回放 = 后注册先撤销）：
+  tracer-shutdown→metrics-server→bootstrap-logger→registrar→database→
+  cache→storage→ai→workflow→broker→config-layers→servers。
+  回放（关闭）序即其精确倒序：**servers 先 drain → config 层释放 →
+  broker → workflow → ai → storage → cache → database → registrar →
+  logger → metrics → tracer 最后 flush**。语义：依赖对称拆除（broker 等
+  database 的消费方先关，database 后关）；tracer/metrics 的 Effect 注册在
+  bootstrap-logger 之前——回放时**最后**执行（所有组件 cleanup 后再 flush
+  尾批指标与 span）。
 
 ### 可观测性（TracerRegistry / MetricsRegistry 模式，2026-09-12）
 

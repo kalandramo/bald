@@ -2,8 +2,10 @@
 
 > 目标：将 `go-wind-admin/backend` 的**精选业务子集**移植到 `bald/examples/go-bald-admin`，
 > 接入**云端真实服务依赖**（PostgreSQL / Redis / MinIO / Nacos / OTLP），用真实业务全面验证 bald 框架能力。
-> 本计划延续 [`examples/go-bald-admin/docs/设计文档.md`](../../examples/go-bald-admin/docs/设计文档.md) §0
-> 「外部依赖禁止 fake/mock/stub」硬契约；所有模块映射、配置键、文件路径均来自已核实的代码事实。
+> 本计划延续原 `examples/go-bald-admin/docs/设计文档.md` §0
+> 「外部依赖禁止 fake/mock/stub」硬契约（该目录 2026-09-11 已迁出为独立仓库
+> `kalandramo/bald-admin`，文内 `examples/go-bald-admin` 路径均指迁移前历史位置）；
+> 所有模块映射、配置键、文件路径均来自已核实的代码事实。
 
 ## 1. 背景与目标
 
