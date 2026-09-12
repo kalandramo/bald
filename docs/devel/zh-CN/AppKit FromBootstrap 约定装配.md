@@ -45,6 +45,11 @@
    重建 Logger。坏配置降级记日志、保留旧契约（与审计旁路同哲学）。
    ——Unmarshal 只做结构转换不校验取值，坏值必须由 Validate 拦在落盘之前
    （单测 TestHotReload_BadConfigKeepsOld 钉死该语义）。
+8. **可观测性双 Registry**（2026-09-12）：契约 `tracer`/`metrics` 段经
+   `TracerRegistry`/`MetricsRegistry` 装配（BeforeStart 在 registrar 之后、
+   database 之前）；metrics 暴露端独立于业务 server（缺省 `:9091`）；停机
+   flush Effect 注册在 bootstrap-logger 之前——逆序回放**最后**执行，
+   所有组件 cleanup 后再 flush 尾批指标与 span。
 
 ## API 速查
 
@@ -67,6 +72,8 @@ app, err := appkit.FromBootstrap(bootstrap,
     appkit.WithCacheRegistry(cacheReg),            // 契约驱动缓存实例（cache.<backend> 段查表；cache/<backend>/contract 注册）
     appkit.WithStorageRegistry(storageReg),        // 契约驱动对象存储（storage.<backend> 段查表；oss/<backend>/contract 注册）
     appkit.WithAiRegistry(aiReg),                  // 契约驱动 AI 客户端（ai.<backend> 段查表；ai/<backend>/contract 注册）
+    appkit.WithTracerRegistry(trReg),              // 契约驱动 tracer（tracer 段查表；observability-otlp/contract 注册）
+    appkit.WithMetricsRegistry(mReg),              // 契约驱动 metrics（metrics 段查表；含独立暴露端缺省 :9091）
 )
 
 // 数据库客户端（阶段 B 装配，Run 后取用；类型安全在消费侧恢复）：
@@ -158,6 +165,34 @@ gateway 不是独立服务器，而是 `server.http` 段的一种模式，由契
 - **停机链序扩至 8 段**：servers→registrar→database→cache→storage→ai→
   workflow→broker——逆序回放时服务器先 drain，broker 最后关（in-flight
   消息处理完再断），数据库仍保持最后关闭之外的最晚次序。
+
+### 可观测性（TracerRegistry / MetricsRegistry 模式，2026-09-12）
+
+与 RegistrarRegistry 单选模式同款（`tracer.type`/`metrics.type` 单选查表、
+显式 MustRegister、type 空/未注册 fail-fast、段缺省 no-op），差异要点：
+
+- **serviceName 闭包绑定**：contract Provider 构造器收 `func() string` 而非
+  裸字符串——OTLP resource 属性在 Build 时才取契约 app.name，避免构造期
+  取值时序问题。
+- **metrics 双通道**：`metrics.type` 为 `prometheus`（仅本地抓取）或
+  `otlp`（抓取+直推双通道，endpoint 必填）；暴露端独立于业务 server
+  （`appkit.StartMetricsServer`，缺省 `:9091` `/metrics`，生命周期解耦——
+  业务 server drain 时指标端仍在产出尾批数据）。
+- **停机次序最晚**：tracer/metrics 的 flush Effect 注册在 bootstrap-logger
+  之前——逆序回放时**最后**执行（所有组件 cleanup 后再 flush 尾批指标
+  与 span）。
+- **Provider 包**：`contrib/observability-otlp/contract`（`NewTracerProvider`/
+  `NewPrometheusProvider`/`NewOTLPProvider`），只 import bconf；
+  `obmetrics.Setup` 返回值扩为 `(recorder, shutdown, error)`（v0.2.0 签名
+  变更，shutdown 挂 Effect）。
+- **配套修复（v0.2.1）**：`pkg/metrics` instruments 改惰性创建（首次
+  Record 时绑 meter）——根治 OTel global 语义下 SetMeterProvider 前构造
+  的 instrument 永久 noop（详见《指标抽象设计》§6）。
+- **云端终验（2026-09-12，Insight DCE 5.0）**：collector
+  `10.82.138.249:32414` 直推双通道全通——VictoriaMetrics 见
+  `bald_requests_total{job="go-bald-admin"}`（OTLP→Prometheus 的
+  `service.name`→`job` 标签映射），Jaeger 见 `POST /v1/login` span
+  （`http.status_code=401` 完整保留）。export 零错误。
 
 ## 示例改造结果（_example/bald）
 
