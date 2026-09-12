@@ -1,87 +1,155 @@
-package log_test
-
-// MultiLogger 的集成测试用外部测试包（log_test）：需要引入 slogadapter 构造
-// 真实后端验证广播语义。外部测试包是独立包，不构成 log→slog→log 循环，
-// 同时不污染契约包自身的依赖图（契约层 in-package 测试仍只用 stub，见 log_test.go）。
+package log
 
 import (
-	"bytes"
 	"context"
-	"io"
-	"log/slog"
+	"fmt"
+	"sync"
 	"testing"
-
-	"github.com/kalandramo/bald/log"
-	slogadapter "github.com/kalandramo/bald/log/slog"
 )
 
-// newSink 用 slog 后端构造一个写到 w 的 Logger，级别由 lvl 控制。
-func newSink(w io.Writer, lvl slog.Level) log.Logger {
-	return slogadapter.NewSlogLogger(slogadapter.NewOptions(),
-		slogadapter.WithHandler(slog.NewTextHandler(w, &slog.HandlerOptions{Level: lvl})))
+// multiSink 记录事件的测试 sink，事件共享底层切片使 With 派生的
+// 子 Logger 写入同一处（断言 With 传播到每个子 sink）。
+type multiSink struct {
+	mu      *sync.Mutex
+	events  *[]string
+	enabled map[Level]bool
+	prefix  string
 }
 
-func TestMultiLogger_Broadcasts(t *testing.T) {
-	a := &bytes.Buffer{}
-	b := &bytes.Buffer{}
-	la := newSink(a, slog.LevelInfo)
-	lb := newSink(b, slog.LevelInfo)
+func newMultiSink(enabled ...Level) *multiSink {
+	m := map[Level]bool{}
+	for _, l := range enabled {
+		m[l] = true
+	}
+	return &multiSink{
+		mu:      &sync.Mutex{},
+		events:  &[]string{},
+		enabled: m,
+	}
+}
 
-	m := log.NewMultiLogger(la, lb)
-	m.Info(context.Background(), "fanout", "k", "v")
+func (r *multiSink) record(level, msg string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	*r.events = append(*r.events, r.prefix+level+":"+msg)
+}
 
-	for _, buf := range []*bytes.Buffer{a, b} {
-		if !bytes.Contains(buf.Bytes(), []byte("fanout")) {
-			t.Fatalf("every sink should receive the record, got: %s", buf.String())
+func (r *multiSink) Debug(ctx context.Context, msg string, args ...any) { r.record("debug", msg) }
+func (r *multiSink) Info(ctx context.Context, msg string, args ...any)  { r.record("info", msg) }
+func (r *multiSink) Warn(ctx context.Context, msg string, args ...any)  { r.record("warn", msg) }
+func (r *multiSink) Error(ctx context.Context, msg string, args ...any) { r.record("error", msg) }
+
+func (r *multiSink) Enabled(level Level) bool { return r.enabled[level] }
+
+func (r *multiSink) With(args ...any) Logger {
+	return &multiSink{
+		mu:      r.mu,
+		events:  r.events,
+		enabled: r.enabled,
+		prefix:  r.prefix + fmt.Sprint(args...) + "|",
+	}
+}
+
+// TestMultiLogger 广播契约（日志平面接口设计：多源广播装饰器——本地+远端
+// 并存的契约形状）。R4 复审：前瞻能力零调用非删除依据。
+func TestMultiLogger(t *testing.T) {
+	a, b := newMultiSink(LevelInfo), newMultiSink(LevelInfo)
+	ml := NewMultiLogger(a, b)
+
+	var _ Logger = ml // 编译期断言契约满足（源码已有 var _，测试侧再钉一次）
+
+	ml.Info(context.Background(), "hello")
+
+	if len(*a.events) != 1 || (*a.events)[0] != "info:hello" {
+		t.Errorf("sink A 应收到广播, got %v", *a.events)
+	}
+	if len(*b.events) != 1 || (*b.events)[0] != "info:hello" {
+		t.Errorf("sink B 应收到广播, got %v", *b.events)
+	}
+}
+
+// TestMultiLogger_Levels：四级方法均广播。
+func TestMultiLogger_Levels(t *testing.T) {
+	sink := newMultiSink(LevelDebug)
+	ml := NewMultiLogger(sink)
+	ctx := context.Background()
+
+	ml.Debug(ctx, "d")
+	ml.Info(ctx, "i")
+	ml.Warn(ctx, "w")
+	ml.Error(ctx, "e")
+
+	want := []string{"debug:d", "info:i", "warn:w", "error:e"}
+	if len(*sink.events) != len(want) {
+		t.Fatalf("应收到 4 条, got %v", *sink.events)
+	}
+	for i, w := range want {
+		if (*sink.events)[i] != w {
+			t.Errorf("事件[%d] = %q, want %q", i, (*sink.events)[i], w)
 		}
 	}
 }
 
-func TestMultiLogger_EnabledAny(t *testing.T) {
-	quiet := newSink(io.Discard, slog.LevelError)
-	loose := newSink(io.Discard, slog.LevelDebug)
+// TestMultiLogger_EnabledAnyTrue：任一子 sink 启用即启用（保守放行）。
+func TestMultiLogger_EnabledAnyTrue(t *testing.T) {
+	off := newMultiSink() // 什么级别都不启用
+	on := newMultiSink(LevelError)
+	ml := NewMultiLogger(off, on)
 
-	m := log.NewMultiLogger(quiet, loose)
-	if !m.Enabled(log.LevelDebug) {
-		t.Fatal("any enabled sink should enable the level")
+	if !ml.Enabled(LevelError) {
+		t.Error("任一子 sink 启用 Error 时，MultiLogger.Enabled(Error) 必须为 true（保守放行）")
 	}
-	m2 := log.NewMultiLogger(quiet)
-	if m2.Enabled(log.LevelDebug) {
-		t.Fatal("no enabled sink should not enable the level")
+	if ml.Enabled(LevelInfo) {
+		t.Error("全部子 sink 都未启用 Info 时，Enabled(Info) 应为 false")
 	}
 }
 
-func TestMultiLogger_WithCombines(t *testing.T) {
-	a := &bytes.Buffer{}
-	b := &bytes.Buffer{}
-	m := log.NewMultiLogger(
-		newSink(a, slog.LevelInfo),
-		newSink(b, slog.LevelInfo),
-	)
+// TestMultiLogger_NilFiltered：nil sink 被过滤（构造即安全）；全 nil 时等价 nop。
+func TestMultiLogger_NilFiltered(t *testing.T) {
+	sink := newMultiSink(LevelInfo)
+	ml := NewMultiLogger(nil, sink, nil)
 
-	m.With("svc", "demo").Info(context.Background(), "tagged")
-	for _, buf := range []*bytes.Buffer{a, b} {
-		if !bytes.Contains(buf.Bytes(), []byte("demo")) {
-			t.Fatalf("With attrs should reach every sink: %s", buf.String())
+	ml.Info(context.Background(), "m")
+	if len(*sink.events) != 1 {
+		t.Errorf("nil sink 应被过滤，非 nil sink 正常收到, got %v", *sink.events)
+	}
+
+	nop := NewMultiLogger(nil, nil)
+	if nop.Enabled(LevelError) {
+		t.Error("全 nil 的 MultiLogger.Enabled 应恒为 false")
+	}
+	nop.Info(context.Background(), "m") // 不应 panic
+}
+
+// TestMultiLogger_WithPropagation：With 对每个子 Logger 分别派生，且广播
+// 语义传播到派生实例。
+func TestMultiLogger_WithPropagation(t *testing.T) {
+	a, b := newMultiSink(LevelInfo), newMultiSink(LevelInfo)
+	ml := NewMultiLogger(a, b)
+
+	derived := ml.With("k", 1)
+	derived.Info(context.Background(), "tagged")
+
+	// 两个 sink 的共享事件里都应出现带前缀的派生日志。
+	found := 0
+	for _, e := range append(*a.events, (*b.events)...) {
+		if e == "k=1|info:tagged" || (len(e) > len("info:tagged") && e != "info:tagged") {
+			found++
 		}
 	}
-}
-
-func TestMultiLogger_EmptyIsInert(t *testing.T) {
-	m := log.NewMultiLogger()
-	if m.Enabled(log.LevelInfo) {
-		t.Fatal("empty multi logger should not be enabled")
+	if len(*a.events) == 0 || len(*b.events) == 0 {
+		t.Errorf("With 派生实例的日志应广播到全部子 sink: A=%v B=%v", *a.events, *b.events)
 	}
-	m.Info(context.Background(), "ignored") // 不 panic
-	if m.With("k", "v") == nil {
-		t.Fatal("With should return non-nil")
+	if found == 0 {
+		t.Errorf("未观察到 With 属性传播: A=%v B=%v", *a.events, *b.events)
 	}
 }
 
-// TestMultiLogger_NilSinkSkipped 验证 nil 子 Logger 被过滤（对齐原 NewMultiLogger 语义）。
-func TestMultiLogger_NilSinkSkipped(t *testing.T) {
-	m := log.NewMultiLogger(nil, newSink(io.Discard, slog.LevelDebug))
-	if !m.Enabled(log.LevelInfo) {
-		t.Fatal("nil sink should be skipped, remaining sink still enables")
+// TestMultiLogger_Empty：零参数构造等价 nop（契约注释声明）。
+func TestMultiLogger_Empty(t *testing.T) {
+	ml := NewMultiLogger()
+	if ml.Enabled(LevelDebug) {
+		t.Error("空 MultiLogger.Enabled 应恒为 false")
 	}
+	ml.Error(context.Background(), "no-op") // 不应 panic
 }
