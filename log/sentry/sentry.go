@@ -52,22 +52,22 @@ func (s *sentryLog) Close() error {
 
 // Debug 输出 DEBUG 级别日志（记录为 breadcrumb）。
 func (s *sentryLog) Debug(ctx context.Context, msg string, keyvals ...any) {
-	s.hub.AddBreadcrumb(s.breadcrumb(sentry.LevelDebug, msg, keyvals), nil)
+	s.hub.AddBreadcrumb(s.breadcrumb(ctx, sentry.LevelDebug, msg, keyvals), nil)
 }
 
 // Info 输出 INFO 级别日志（记录为 breadcrumb）。
 func (s *sentryLog) Info(ctx context.Context, msg string, keyvals ...any) {
-	s.hub.AddBreadcrumb(s.breadcrumb(sentry.LevelInfo, msg, keyvals), nil)
+	s.hub.AddBreadcrumb(s.breadcrumb(ctx, sentry.LevelInfo, msg, keyvals), nil)
 }
 
 // Warn 输出 WARN 级别日志（记录为 breadcrumb）。
 func (s *sentryLog) Warn(ctx context.Context, msg string, keyvals ...any) {
-	s.hub.AddBreadcrumb(s.breadcrumb(sentry.LevelWarning, msg, keyvals), nil)
+	s.hub.AddBreadcrumb(s.breadcrumb(ctx, sentry.LevelWarning, msg, keyvals), nil)
 }
 
 // Error 输出 ERROR 级别日志（作为事件上报到 Sentry）。
 func (s *sentryLog) Error(ctx context.Context, msg string, keyvals ...any) {
-	s.hub.CaptureEvent(s.event(sentry.LevelError, msg, keyvals))
+	s.hub.CaptureEvent(s.event(ctx, sentry.LevelError, msg, keyvals))
 }
 
 // With 返回附加了指定 key-value 对的新 Logger 实例。
@@ -84,7 +84,8 @@ func (s *sentryLog) Enabled(_ log.Level) bool {
 }
 
 // breadcrumb 构建 Sentry Breadcrumb。
-func (s *sentryLog) breadcrumb(level sentry.Level, msg string, keyvals []any) *sentry.Breadcrumb {
+// ctx 属性流（log.ContextWithAttrs）在构建时同步提取并合并。
+func (s *sentryLog) breadcrumb(ctx context.Context, level sentry.Level, msg string, keyvals []any) *sentry.Breadcrumb {
 	bc := &sentry.Breadcrumb{
 		Type:    "default",
 		Level:   level,
@@ -92,7 +93,8 @@ func (s *sentryLog) breadcrumb(level sentry.Level, msg string, keyvals []any) *s
 		Data:    make(map[string]any),
 	}
 
-	all := append(append([]any{}, s.extra...), keyvals...)
+	all := append(append([]any{}, s.extra...), log.ContextAttrsToArgs(ctx)...)
+	all = append(all, keyvals...)
 	for i := 0; i+1 < len(all); i += 2 {
 		bc.Data[fmt.Sprint(all[i])] = all[i+1]
 	}
@@ -101,13 +103,15 @@ func (s *sentryLog) breadcrumb(level sentry.Level, msg string, keyvals []any) *s
 }
 
 // event 构建 Sentry Event。
-func (s *sentryLog) event(level sentry.Level, msg string, keyvals []any) *sentry.Event {
+// ctx 属性流（log.ContextWithAttrs）在构建时同步提取并合并。
+func (s *sentryLog) event(ctx context.Context, level sentry.Level, msg string, keyvals []any) *sentry.Event {
 	evt := sentry.NewEvent()
 	evt.Level = level
 	evt.Message = msg
 
-	// 将 key-value 对放入 Contexts 字段
-	all := append(append([]any{}, s.extra...), keyvals...)
+	// 将 key-value 对放入 Contexts 字段（extra → ctx attrs → 调用参数，后者覆盖前者）
+	all := append(append([]any{}, s.extra...), log.ContextAttrsToArgs(ctx)...)
+	all = append(all, keyvals...)
 	for i := 0; i+1 < len(all); i += 2 {
 		if evt.Contexts == nil {
 			evt.Contexts = make(map[string]sentry.Context)

@@ -47,23 +47,36 @@ func NewLoggerWith(l *charmlog.Logger) *Logger {
 }
 
 // Debug 输出 DEBUG 级别日志。
-func (l *Logger) Debug(_ context.Context, msg string, keyvals ...any) {
-	l.log.Debug(msg, keyvals...)
+func (l *Logger) Debug(ctx context.Context, msg string, keyvals ...any) {
+	l.log.Debug(msg, withContextAttrs(ctx, keyvals)...)
 }
 
 // Info 输出 INFO 级别日志。
-func (l *Logger) Info(_ context.Context, msg string, keyvals ...any) {
-	l.log.Info(msg, keyvals...)
+func (l *Logger) Info(ctx context.Context, msg string, keyvals ...any) {
+	l.log.Info(msg, withContextAttrs(ctx, keyvals)...)
 }
 
 // Warn 输出 WARN 级别日志。
-func (l *Logger) Warn(_ context.Context, msg string, keyvals ...any) {
-	l.log.Warn(msg, keyvals...)
+func (l *Logger) Warn(ctx context.Context, msg string, keyvals ...any) {
+	l.log.Warn(msg, withContextAttrs(ctx, keyvals)...)
 }
 
 // Error 输出 ERROR 级别日志。
-func (l *Logger) Error(_ context.Context, msg string, keyvals ...any) {
-	l.log.Error(msg, keyvals...)
+func (l *Logger) Error(ctx context.Context, msg string, keyvals ...any) {
+	l.log.Error(msg, withContextAttrs(ctx, keyvals)...)
+}
+
+// withContextAttrs 把 ctx 属性流（log.ContextWithAttrs）拍平并前置于调用参数，
+// 同名 key 时调用参数覆盖 ctx 属性（与 bslog 语义一致）。
+func withContextAttrs(ctx context.Context, keyvals []any) []any {
+	attrs := log.ContextAttrsToArgs(ctx)
+	if len(attrs) == 0 {
+		return keyvals
+	}
+	merged := make([]any, 0, len(attrs)+len(keyvals))
+	merged = append(merged, attrs...)
+	merged = append(merged, keyvals...)
+	return merged
 }
 
 // With 返回附加了指定 key-value 对的新 Logger 实例。

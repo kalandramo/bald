@@ -37,23 +37,23 @@ func (l *tencentLog) Close() error {
 }
 
 // Debug 输出 DEBUG 级别日志。
-func (l *tencentLog) Debug(_ context.Context, msg string, keyvals ...any) {
-	l.post("DEBUG", msg, keyvals)
+func (l *tencentLog) Debug(ctx context.Context, msg string, keyvals ...any) {
+	l.post(ctx, "DEBUG", msg, keyvals)
 }
 
 // Info 输出 INFO 级别日志。
-func (l *tencentLog) Info(_ context.Context, msg string, keyvals ...any) {
-	l.post("INFO", msg, keyvals)
+func (l *tencentLog) Info(ctx context.Context, msg string, keyvals ...any) {
+	l.post(ctx, "INFO", msg, keyvals)
 }
 
 // Warn 输出 WARN 级别日志。
-func (l *tencentLog) Warn(_ context.Context, msg string, keyvals ...any) {
-	l.post("WARN", msg, keyvals)
+func (l *tencentLog) Warn(ctx context.Context, msg string, keyvals ...any) {
+	l.post(ctx, "WARN", msg, keyvals)
 }
 
 // Error 输出 ERROR 级别日志。
-func (l *tencentLog) Error(_ context.Context, msg string, keyvals ...any) {
-	l.post("ERROR", msg, keyvals)
+func (l *tencentLog) Error(ctx context.Context, msg string, keyvals ...any) {
+	l.post(ctx, "ERROR", msg, keyvals)
 }
 
 // With 返回附加了指定 key-value 对的新 Logger 实例。
@@ -71,7 +71,9 @@ func (l *tencentLog) Enabled(_ log.Level) bool {
 }
 
 // post 发送日志到 Tencent CLS。
-func (l *tencentLog) post(level, msg string, keyvals []any) {
+// ctx 属性流（log.ContextWithAttrs）在构造条目时同步提取并合并，
+// 之后 producer 异步发送不再依赖 ctx。
+func (l *tencentLog) post(ctx context.Context, level, msg string, keyvals []any) {
 	contents := make([]*cls.Log_Content, 0, 3+len(l.extra)/2+len(keyvals)/2)
 	contents = append(contents, &cls.Log_Content{
 		Key:   newString("level"),
@@ -83,7 +85,8 @@ func (l *tencentLog) post(level, msg string, keyvals []any) {
 			Value: newString(msg),
 		})
 	}
-	all := append(append([]any{}, l.extra...), keyvals...)
+	all := append(append([]any{}, l.extra...), log.ContextAttrsToArgs(ctx)...)
+	all = append(all, keyvals...)
 	for i := 0; i+1 < len(all); i += 2 {
 		contents = append(contents, &cls.Log_Content{
 			Key:   newString(toString(all[i])),

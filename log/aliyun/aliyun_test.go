@@ -1,9 +1,13 @@
 package aliyun
 
 import (
+	"context"
+	"log/slog"
 	"math"
 	"reflect"
 	"testing"
+
+	log "github.com/kalandramo/bald/log"
 )
 
 func TestWithEndpoint(t *testing.T) {
@@ -86,8 +90,28 @@ func TestLog(t *testing.T) {
 	logger.Debug(nil, "test", "a", true, "b", 0)
 }
 
-func TestNewString(t *testing.T) {
-	ptr := newString("")
+// 带 ctx 属性流的调用应在构造条目时同步合并属性，且 nil ctx 不 panic。
+func TestContextAttrs(t *testing.T) {
+	logger, err := NewAliyunLogger(WithProject("foo"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer logger.Close()
+
+	ctx := log.ContextWithAttrs(context.Background(),
+		slog.String("trace_id", "t-ctx-1"),
+	)
+	logger.Debug(ctx, "with attrs")
+	logger.Info(ctx, "with attrs")
+	logger.Warn(ctx, "with attrs")
+	logger.Error(ctx, "with attrs")
+
+	// nil ctx 与空 ctx：ContextAttrsToArgs 返回 nil，不应 panic。
+	logger.Debug(nil, "nil ctx")
+	logger.Info(context.Background(), "empty ctx")
+}
+
+func TestNewString(t *testing.T) {	ptr := newString("")
 	if kind := reflect.TypeOf(ptr).Kind(); kind != reflect.Ptr {
 		t.Errorf("want type: %v, got type: %v", reflect.Ptr, kind)
 	}

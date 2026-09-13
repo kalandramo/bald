@@ -28,6 +28,10 @@ type Logger interface {
 // Loki 是 Grafana Labs 的水平可扩展、高可用、多租户日志聚合系统。
 // 日志通过 HTTP POST 发送到 Loki 的 /loki/api/v1/push 端点。
 //
+// 缓冲与发送配置（shared）在 With 派生的所有实例间共享：
+// 派生实例与原实例写入同一缓冲，任一实例 Close 都会冲刷全部待发日志，
+// 不会形成派生实例的孤岛缓冲。
+//
 // Example:
 //
 //	logger, _ := loki.NewLogger(
@@ -37,10 +41,15 @@ type Logger interface {
 //	)
 //	defer logger.Close()
 type lokiLog struct {
+	s     *shared
+	extra []any
+}
+
+// shared 汇集 With 派生实例间共享的缓冲与发送配置。
+type shared struct {
 	client       *http.Client
 	endpoint     string
 	labels       map[string]string
-	extra        []any
 	mu           sync.Mutex
 	buffer       []logEntry
 	batchSize    int
@@ -69,43 +78,42 @@ func NewLogger(opts ...Option) (Logger, error) {
 	}
 
 	return &lokiLog{
-		client:       client,
-		endpoint:     cfg.endpoint,
-		labels:       cfg.labels,
-		batchSize:    cfg.batchSize,
-		flushTimeout: cfg.flushInterval,
+		s: &shared{
+			client:       client,
+			endpoint:     cfg.endpoint,
+			labels:       cfg.labels,
+			batchSize:    cfg.batchSize,
+			flushTimeout: cfg.flushInterval,
+		},
 	}, nil
 }
 
 // Debug 输出 DEBUG 级别日志。
-func (l *lokiLog) Debug(_ context.Context, msg string, keyvals ...any) {
-	l.post("DEBUG", msg, keyvals)
+func (l *lokiLog) Debug(ctx context.Context, msg string, keyvals ...any) {
+	l.post(ctx, "DEBUG", msg, keyvals)
 }
 
 // Info 输出 INFO 级别日志。
-func (l *lokiLog) Info(_ context.Context, msg string, keyvals ...any) {
-	l.post("INFO", msg, keyvals)
+func (l *lokiLog) Info(ctx context.Context, msg string, keyvals ...any) {
+	l.post(ctx, "INFO", msg, keyvals)
 }
 
 // Warn 输出 WARN 级别日志。
-func (l *lokiLog) Warn(_ context.Context, msg string, keyvals ...any) {
-	l.post("WARN", msg, keyvals)
+func (l *lokiLog) Warn(ctx context.Context, msg string, keyvals ...any) {
+	l.post(ctx, "WARN", msg, keyvals)
 }
 
 // Error 输出 ERROR 级别日志。
-func (l *lokiLog) Error(_ context.Context, msg string, keyvals ...any) {
-	l.post("ERROR", msg, keyvals)
+func (l *lokiLog) Error(ctx context.Context, msg string, keyvals ...any) {
+	l.post(ctx, "ERROR", msg, keyvals)
 }
 
 // With 返回附加了指定 key-value 对的新 Logger 实例。
+// 派生实例与原实例共享缓冲（shared）：写入同一缓冲，任一 Close 全量冲刷。
 func (l *lokiLog) With(keyvals ...any) log.Logger {
 	return &lokiLog{
-		client:       l.client,
-		endpoint:     l.endpoint,
-		labels:       l.labels,
-		extra:        append(append([]any{}, l.extra...), keyvals...),
-		batchSize:    l.batchSize,
-		flushTimeout: l.flushTimeout,
+		s:     l.s,
+		extra: append(append([]any{}, l.extra...), keyvals...),
 	}
 }
 
@@ -120,12 +128,15 @@ func (l *lokiLog) Close() error {
 }
 
 // post 将日志条目加入缓冲区，达到阈值后刷新到 Loki。
-func (l *lokiLog) post(level, msg string, keyvals []any) {
+// ctx 属性流（log.ContextWithAttrs）在构建 JSON 行时同步提取并合并，
+// 之后缓冲与异步 flush 不再依赖 ctx。
+func (l *lokiLog) post(ctx context.Context, level, msg string, keyvals []any) {
 	data := make(map[string]string, 3+len(l.extra)/2+len(keyvals)/2)
 	data["level"] = level
 	data["msg"] = msg
 
-	all := append(append([]any{}, l.extra...), keyvals...)
+	all := append(append([]any{}, l.extra...), log.ContextAttrsToArgs(ctx)...)
+	all = append(all, keyvals...)
 	for i := 0; i+1 < len(all); i += 2 {
 		data[toString(all[i])] = toString(all[i+1])
 	}
@@ -137,26 +148,28 @@ func (l *lokiLog) post(level, msg string, keyvals []any) {
 		line: string(line),
 	}
 
-	l.mu.Lock()
-	l.buffer = append(l.buffer, entry)
-	shouldFlush := len(l.buffer) >= l.batchSize
-	l.mu.Unlock()
+	l.s.mu.Lock()
+	l.s.buffer = append(l.s.buffer, entry)
+	shouldFlush := len(l.s.buffer) >= l.s.batchSize
+	l.s.mu.Unlock()
 
 	if shouldFlush {
 		_ = l.flush()
 	}
 }
 
-// flush 将缓冲区中的日志批量推送到 Loki。
+// flush 将共享缓冲区中的日志批量推送到 Loki。
+// 所有派生实例共享缓冲，任一实例调用 flush 都会冲刷全部待发日志。
 func (l *lokiLog) flush() error {
-	l.mu.Lock()
-	if len(l.buffer) == 0 {
-		l.mu.Unlock()
+	s := l.s
+	s.mu.Lock()
+	if len(s.buffer) == 0 {
+		s.mu.Unlock()
 		return nil
 	}
-	entries := l.buffer
-	l.buffer = nil
-	l.mu.Unlock()
+	entries := s.buffer
+	s.buffer = nil
+	s.mu.Unlock()
 
 	// 构建 Loki push payload
 	// {"streams":[{"stream":{"label":"value"},"values":[["ts","line"], ...]}]}
@@ -168,7 +181,7 @@ func (l *lokiLog) flush() error {
 	payload := map[string]any{
 		"streams": []map[string]any{
 			{
-				"stream": l.labels,
+				"stream": s.labels,
 				"values": values,
 			},
 		},
@@ -179,16 +192,16 @@ func (l *lokiLog) flush() error {
 		return fmt.Errorf("loki: marshal payload: %w", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), l.flushTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), s.flushTimeout)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, l.endpoint, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.endpoint, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("loki: create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := l.client.Do(req)
+	resp, err := s.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("loki: push: %w", err)
 	}

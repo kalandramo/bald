@@ -33,3 +33,19 @@ func ContextAttrs(ctx context.Context) []slog.Attr {
 	}
 	return nil
 }
+
+// ContextAttrsToArgs 将 ctx 属性流拍平为 key, value, key, value ... 参数序列，
+// 便于非 slog 系后端（aliyun/tencent/loki/sentry/charm）以最低成本合并属性：
+// 后端在构造日志条目时同步调用，之后即可安全丢弃 ctx（异步 flush 不受影响）。
+// 无属性时返回 nil，调用方零开销。
+func ContextAttrsToArgs(ctx context.Context) []any {
+	attrs := ContextAttrs(ctx)
+	if len(attrs) == 0 {
+		return nil
+	}
+	args := make([]any, 0, len(attrs)*2)
+	for _, a := range attrs {
+		args = append(args, a.Key, a.Value.Any())
+	}
+	return args
+}

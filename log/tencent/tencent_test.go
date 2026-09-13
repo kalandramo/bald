@@ -1,9 +1,13 @@
 package tencent
 
 import (
+	"context"
+	"log/slog"
 	"math"
 	"reflect"
 	"testing"
+
+	log "github.com/kalandramo/bald/log"
 )
 
 func TestWithEndpoint(t *testing.T) {
@@ -90,6 +94,32 @@ func TestNewString(t *testing.T) {
 	if kind := reflect.TypeOf(ptr).Kind(); kind != reflect.Ptr {
 		t.Errorf("want type: %v, got type: %v", reflect.Ptr, kind)
 	}
+}
+
+// 带 ctx 属性流的调用应在构造条目时同步合并属性，且 nil ctx 不 panic。
+func TestContextAttrs(t *testing.T) {
+	logger, err := NewTencentLogger(
+		WithTopicID("foo"),
+		WithEndpoint("ap-shanghai.cls.tencentcs.com"),
+		WithAccessKey("a"),
+		WithAccessSecret("b"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer logger.Close()
+
+	ctx := log.ContextWithAttrs(context.Background(),
+		slog.String("trace_id", "t-ctx-1"),
+	)
+	logger.Debug(ctx, "with attrs")
+	logger.Info(ctx, "with attrs")
+	logger.Warn(ctx, "with attrs")
+	logger.Error(ctx, "with attrs")
+
+	// nil ctx 与空 ctx：ContextAttrsToArgs 返回 nil，不应 panic。
+	logger.Debug(nil, "nil ctx")
+	logger.Info(context.Background(), "empty ctx")
 }
 
 func TestToString(t *testing.T) {

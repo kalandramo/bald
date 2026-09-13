@@ -37,23 +37,23 @@ func (a *aliyunLog) Close() error {
 }
 
 // Debug 输出 DEBUG 级别日志。
-func (a *aliyunLog) Debug(_ context.Context, msg string, keyvals ...any) {
-	a.post("DEBUG", msg, keyvals)
+func (a *aliyunLog) Debug(ctx context.Context, msg string, keyvals ...any) {
+	a.post(ctx, "DEBUG", msg, keyvals)
 }
 
 // Info 输出 INFO 级别日志。
-func (a *aliyunLog) Info(_ context.Context, msg string, keyvals ...any) {
-	a.post("INFO", msg, keyvals)
+func (a *aliyunLog) Info(ctx context.Context, msg string, keyvals ...any) {
+	a.post(ctx, "INFO", msg, keyvals)
 }
 
 // Warn 输出 WARN 级别日志。
-func (a *aliyunLog) Warn(_ context.Context, msg string, keyvals ...any) {
-	a.post("WARN", msg, keyvals)
+func (a *aliyunLog) Warn(ctx context.Context, msg string, keyvals ...any) {
+	a.post(ctx, "WARN", msg, keyvals)
 }
 
 // Error 输出 ERROR 级别日志。
-func (a *aliyunLog) Error(_ context.Context, msg string, keyvals ...any) {
-	a.post("ERROR", msg, keyvals)
+func (a *aliyunLog) Error(ctx context.Context, msg string, keyvals ...any) {
+	a.post(ctx, "ERROR", msg, keyvals)
 }
 
 // With 返回附加了指定 key-value 对的新 Logger 实例。
@@ -71,7 +71,9 @@ func (a *aliyunLog) Enabled(_ log.Level) bool {
 }
 
 // post 发送日志到 Aliyun SLS。
-func (a *aliyunLog) post(level, msg string, keyvals []any) {
+// ctx 属性流（log.ContextWithAttrs）在构造条目时同步提取并合并，
+// 之后 producer 异步发送不再依赖 ctx。
+func (a *aliyunLog) post(ctx context.Context, level, msg string, keyvals []any) {
 	contents := make([]*sls.LogContent, 0, 3+len(a.extra)/2+len(keyvals)/2)
 	contents = append(contents, &sls.LogContent{
 		Key:   newString("level"),
@@ -83,7 +85,8 @@ func (a *aliyunLog) post(level, msg string, keyvals []any) {
 			Value: newString(msg),
 		})
 	}
-	all := append(append([]any{}, a.extra...), keyvals...)
+	all := append(append([]any{}, a.extra...), log.ContextAttrsToArgs(ctx)...)
+	all = append(all, keyvals...)
 	for i := 0; i+1 < len(all); i += 2 {
 		contents = append(contents, &sls.LogContent{
 			Key:   newString(toString(all[i])),
