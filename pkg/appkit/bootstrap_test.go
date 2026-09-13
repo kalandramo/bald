@@ -8,6 +8,7 @@ package appkit
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -38,7 +39,7 @@ func stubLogger() log.Logger {
 	return bslog.New(bslog.NewOptions())
 }
 
-// 日志工厂三级分发：显式 WithLoggerFactory > 契约注册表（WithLogRegistry）> 默认 slog。
+// 日志工厂三级分发：显式 WithLoggerFactory > 契约注册表（WithLogRegistry）> 默认 bslog。
 func TestResolveLoggerFactory(t *testing.T) {
 	// ① 显式工厂优先（即使同时声明了注册表）。
 	calls := 0
@@ -57,7 +58,7 @@ func TestResolveLoggerFactory(t *testing.T) {
 		t.Fatalf("explicit factory calls = %d, want 1", calls)
 	}
 
-	// ② 注册表：阶段 A（cfg=nil）回退默认 slog（不触发表）；阶段 B 按 type 查表。
+	// ② 注册表：阶段 A（cfg=nil）回退默认 bslog（不触发表）；阶段 B 按 type 查表。
 	hits := 0
 	lr := baldbootstrap.NewLogRegistry()
 	lr.MustRegister("fake", func(_ context.Context, cfg *bootstrapv1.Logger) (log.Logger, func(), error) {
@@ -92,11 +93,71 @@ func TestResolveLoggerFactory(t *testing.T) {
 		t.Fatal("expected unknown logger type fail-fast")
 	}
 
-	// ④ 都不声明 → 默认 slog 工厂。
+	// ④ 都不声明 → 默认 bslog 工厂。
 	defFac := resolveLoggerFactory(&bootstrapSpec{})
 	lg2, _, err := defFac(context.Background(), nil)
 	if err != nil || lg2 == nil {
 		t.Fatalf("default slog factory: %v", err)
+	}
+}
+
+// 内置全量注册表为默认路径（修复此前静默忽略 logger.type 的缺陷）：
+// 阶段 A 回退不变；type=slog 保留装饰器特例；其余 type 按声明构造或 fail-fast。
+func TestBuiltinDefaultPath(t *testing.T) {
+	fac := resolveLoggerFactory(&bootstrapSpec{})
+
+	// 阶段 A（l==nil）：回退默认 bslog。
+	if lg, _, err := fac(context.Background(), nil); err != nil || lg == nil {
+		t.Fatalf("phase A fallback: (%v, %v)", lg, err)
+	}
+
+	// type=loki：按声明构造真实 loki 后端（假 endpoint，构造期零网络）。
+	ll, cleanup, err := fac(context.Background(), &bootstrapv1.Logger{
+		Type: "loki",
+		Loki: &bootstrapv1.Logger_Loki{Endpoint: "http://127.0.0.1:1/loki/api/v1/push"},
+	})
+	if err != nil || ll == nil {
+		t.Fatalf("type=loki should build real backend, got (%v, %v)", ll, err)
+	}
+	cleanup()
+
+	// type=nop：静默后端。
+	nl, ncleanup, err := fac(context.Background(), &bootstrapv1.Logger{Type: "nop"})
+	if err != nil || nl == nil {
+		t.Fatalf("type=nop: (%v, %v)", nl, err)
+	}
+	ncleanup()
+	if nl.Enabled(log.LevelError) {
+		t.Fatal("nop backend should never be enabled")
+	}
+
+	// type=zap（未实现）：fail-fast 列出可用项，不再静默替换为 bslog。
+	if _, _, err := fac(context.Background(), &bootstrapv1.Logger{Type: "zap"}); err == nil {
+		t.Fatal("unimplemented type should fail-fast, not silently fall back")
+	}
+}
+
+// TestBuiltinDefaultPath_SlogDecorators type=slog 在内置路径保留装饰器语义。
+func TestBuiltinDefaultPath_SlogDecorators(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "deco.log")
+	fac := resolveLoggerFactory(&bootstrapSpec{
+		logDeco: []bslog.Option{bslog.WithAttrs(slog.String("deco", "yes"))},
+	})
+
+	l, cleanup, err := fac(context.Background(), &bootstrapv1.Logger{
+		Type: "slog",
+		Slog: &bootstrapv1.Logger_Slog{Level: "debug", Format: "json", OutputPath: path},
+	})
+	if err != nil || l == nil {
+		t.Fatalf("type=slog with deco: (%v, %v)", l, err)
+	}
+	if cleanup != nil {
+		defer cleanup()
+	}
+	l.Info(context.Background(), "msg")
+	data, err := os.ReadFile(path)
+	if err != nil || !strings.Contains(string(data), `"deco":"yes"`) {
+		t.Fatalf("decorator should apply on builtin slog path: (%s, %v)", data, err)
 	}
 }
 

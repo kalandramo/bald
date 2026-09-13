@@ -210,13 +210,15 @@ func WithConfigRegistry(r *baldbootstrap.Registry) BootstrapOption {
 	return func(s *bootstrapSpec) { s.cfgRegistry = r }
 }
 
-// WithLogDecorators 附加 slog 日志装饰器（脱敏、业务字段等），阶段 A/B
+// WithLogDecorators 附加 bslog 日志装饰器（脱敏、业务字段等），阶段 A/B
 // 构造 Logger 时统一生效。使用自定义 LoggerFactory 时由工厂自行消费。
+// 注意：装饰器是 bslog.Option，仅对默认路径的 type=slog 与阶段 A 回退生效，
+// 其余后端（loki/aliyun 等）不消费装饰器。
 func WithLogDecorators(deco ...bslog.Option) BootstrapOption {
 	return func(s *bootstrapSpec) { s.logDeco = append(s.logDeco, deco...) }
 }
 
-// WithLoggerFactory 替换日志后端工厂（默认 slog）。cleanup 会在停机或
+// WithLoggerFactory 替换日志后端工厂（默认 bslog）。cleanup 会在停机或
 // Logger 重建时被调用（可 nil，框架按 noop 处理）。
 func WithLoggerFactory(f LoggerFactory) BootstrapOption {
 	return func(s *bootstrapSpec) { s.logFac = f }
@@ -225,16 +227,20 @@ func WithLoggerFactory(f LoggerFactory) BootstrapOption {
 // WithLogRegistry 声明契约驱动的日志后端注册表：按契约 logger.type 查表
 // 构造后端。与 WithLoggerFactory 互斥，显式工厂优先。
 //
-// 后端经 log/<backend>/contract 包显式注册（不用 init()+blank import）：
+// 不声明本 Option 时默认走内置全量注册表（baldbootstrap.NewBuiltinLogRegistry，
+// 覆盖 slog/nop/loki/aliyun/tencent/sentry/charm）——业务侧纯配置声明即生效。
+// 仅当需要精选子集（控制二进制体积）或追加自定义后端时才使用本 Option：
 //
 //	reg := baldbootstrap.NewLogRegistry()
 //	reg.MustRegister(aliyuncontract.Type, aliyuncontract.Provider)
-//	reg.MustRegister(slogcontract.Type, ...) // 可选；type=slog 不注册则 fail-fast
+//	reg.MustRegister("slog", baldbootstrap.BslogLoggerProvider()) // 可选；type=slog 不注册则 fail-fast
 //	appkit.FromBootstrap(cfg, appkit.WithLogRegistry(reg))
 //
-// 两阶段语义：阶段 A（契约装载前）回退默认 slog 保证启动日志可见；
+// 也可先用 RegisterBuiltinLogProviders 全量内置再追加自定义（重名 fail-fast）。
+//
+// 两阶段语义：阶段 A（契约装载前）回退默认 bslog 保证启动日志可见；
 // 阶段 B 按 logger.type 查表重建，未注册的 type 构造期 fail-fast。
-// WithLogDecorators 仅对默认 slog 工厂与阶段 A 回退生效。
+// WithLogDecorators 仅对内置路径的 type=slog 与阶段 A 回退生效。
 func WithLogRegistry(r *baldbootstrap.LogRegistry) BootstrapOption {
 	return func(s *bootstrapSpec) { s.logRegistry = r }
 }
@@ -326,8 +332,8 @@ func FromBootstrap(cfg *bootstrapv1.BootstrapConfig, opts ...BootstrapOption) (*
 		}
 	}
 	// 日志后端工厂：显式 WithLoggerFactory 优先；其次契约驱动注册表
-	// （WithLogRegistry：阶段 A 无契约回退默认 slog，阶段 B 按 logger.type
-	// 查表构造后端）；都不声明时默认 slog 工厂。
+	// （WithLogRegistry：阶段 A 无契约回退默认 bslog，阶段 B 按 logger.type
+	// 查表构造后端）；都不声明时默认 bslog 工厂。
 	spec.logFac = resolveLoggerFactory(spec)
 
 	httpCfg := cfg.GetServer().GetHttp()
@@ -737,8 +743,8 @@ func rebuildLogger(l *bootstrapv1.Logger, spec *bootstrapSpec, curCleanup *atomi
 }
 
 // resolveLoggerFactory 按 spec 解析日志后端工厂（三级分发）：
-// 显式 WithLoggerFactory > 契约驱动 LogRegistry（WithLogRegistry）> 默认 slog。
-// 注册表路径在阶段 A（cfg=nil，契约装载前）回退默认 slog，阶段 B 查表。
+// 显式 WithLoggerFactory > 契约驱动 LogRegistry（WithLogRegistry）> 内置全量注册表。
+// 两条注册表路径均在阶段 A（cfg=nil，契约装载前）回退默认 bslog，阶段 B 查表。
 func resolveLoggerFactory(s *bootstrapSpec) LoggerFactory {
 	switch {
 	case s.logFac != nil:
@@ -747,20 +753,36 @@ func resolveLoggerFactory(s *bootstrapSpec) LoggerFactory {
 		reg, deco := s.logRegistry, s.logDeco
 		return func(ctx context.Context, l *bootstrapv1.Logger) (log.Logger, func(), error) {
 			if l == nil {
-				// 阶段 A（契约装载前）：回退默认 slog，保证启动日志可见。
+				// 阶段 A（契约装载前）：回退默认 bslog，保证启动日志可见。
 				return bslog.New(baldbootstrap.LogOptions(nil), deco...), nil, nil
 			}
 			return reg.BuildLogger(ctx, l)
 		}
 	default:
-		return defaultLoggerFactory(s.logDeco)
+		return builtinLoggerFactory(s.logDeco)
 	}
 }
 
-// defaultLoggerFactory 返回默认 slog 工厂：LogOptions 逐字段映射 + 业务装饰器。
-func defaultLoggerFactory(deco []bslog.Option) LoggerFactory {
-	return func(_ context.Context, l *bootstrapv1.Logger) (log.Logger, func(), error) {
-		return bslog.New(baldbootstrap.LogOptions(l), deco...), nil, nil
+// builtinLoggerFactory 返回内置全量注册表工厂（slog/nop/loki/aliyun/tencent/
+// sentry/charm）：业务侧纯配置声明 logger.type 即生效，零注册代码。
+//
+// 三分派：
+//   - 阶段 A（l==nil，契约装载前）：回退默认 bslog，保证启动日志可见；
+//   - type=slog：LogOptions 逐字段映射 + 业务装饰器（deco 是 bslog.Option，
+//     仅 bslog 后端可消费——特例保留 WithLogDecorators 在默认路径的既有语义）；
+//   - 其余 type：查内置表构造；未实现的 type fail-fast 并列出可用项。
+//     （修复此前默认路径静默忽略 logger.type、一律产出 bslog 的缺陷。）
+func builtinLoggerFactory(deco []bslog.Option) LoggerFactory {
+	reg := baldbootstrap.NewBuiltinLogRegistry()
+	return func(ctx context.Context, l *bootstrapv1.Logger) (log.Logger, func(), error) {
+		if l == nil {
+			// 阶段 A（契约装载前）：回退默认 bslog，保证启动日志可见。
+			return bslog.New(baldbootstrap.LogOptions(nil), deco...), nil, nil
+		}
+		if l.GetType() == "slog" {
+			return bslog.New(baldbootstrap.LogOptions(l), deco...), nil, nil
+		}
+		return reg.BuildLogger(ctx, l)
 	}
 }
 
