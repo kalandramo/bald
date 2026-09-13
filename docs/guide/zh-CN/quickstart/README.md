@@ -147,7 +147,7 @@ appkit.FromBootstrap(cfg, appkit.WithRegistrarRegistry(rr), appkit.Servers(srv..
 
 - **多协议编排**：并发启停 HTTP + gRPC 两个 `server.Server`，共享同一个 `ReadinessFunc` 使 `/readyz` 与 gRPC health 对称联动。
 - **配置四源合并**：本地文件（`--config`）+ 环境变量 + 命令行 flag + 可选远程配置中心，优先级 `flag > 环境变量 > 本地文件 > 远程`；并演示 `WatchConfigFile` 热更新与 `OnConfigChange` 回调回填业务 options。
-- **日志系统接入**：进程入口用 `baldlog.SetLogger(baldlog.NewSlogLogger(...))` 初始化全局 `Logger`，经 `--log.level` / `--log.format` / `--log.output-paths` 多源配置；内置 `FilterKey` 脱敏（如 `password`/`token` 自动替换为 `***`）；框架与业务统一通过 `log.GetLogger()` 取同一实例。
+- **日志系统接入**：进程入口用 `baldlog.SetLogger(bslog.New(...))` 初始化全局 `Logger`，经 `--log.level` / `--log.format` / `--log.output-paths` 多源配置；内置 `FilterKey` 脱敏（如 `password`/`token` 自动替换为 `***`）；框架与业务统一经 `log` 包级函数输出（同一全局后端）。
 - **服务注册中心**：通过 `appkit.Registrar(inmemory.New())` 端到端演示 register → 运行 → deregister 全流程（零外部依赖），并验证 `:0` 动态端口聚合注册（真实 Endpoint 解析后才注册，避免注册 `xxx://:0`）。生产环境走**契约装配**：yaml `registry` 段 + `appkit.WithRegistrarRegistry(rr)` 显式注册直连 provider（etcd/nacos/consul/kubernetes，见《服务注册设计》）。
 - **上下文属性流**：`AfterStart` 中 `log.ContextWithAttrs(ctx, ...)` 挂载的属性，会在该 ctx 范围内的日志自动携带。
 

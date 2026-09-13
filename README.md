@@ -68,7 +68,7 @@ import (
     bconf "github.com/kalandramo/bald/bconf"
     baldbootstrap "github.com/kalandramo/bald/bootstrap"
     baldlog "github.com/kalandramo/bald/log"
-    baldlogadapter "github.com/kalandramo/bald/log/slog"
+    "github.com/kalandramo/bald/log/bslog"
     "github.com/kalandramo/bald/pkg/appkit"
     "github.com/kalandramo/bald/pkg/registry/inmemory"
     grpcserver "github.com/kalandramo/bald/transport/grpc"
@@ -79,9 +79,9 @@ func main() {
     // 1. 日志系统接入（进程入口 bootstrap 初始化全局 Logger）。
     //    通过 --log.level / --log.format / --log.output-paths 多源配置；
     //    FilterKey 脱敏：password/token 自动替换为 ***。
-    logOpts := baldlogadapter.NewOptions()
+    logOpts := bslog.NewOptions()
     logOpts.AddFlags(pflag.CommandLine)
-    baldlog.SetLogger(baldlogadapter.NewSlogLogger(logOpts,
+    baldlog.SetLogger(bslog.NewSlogLogger(logOpts,
         baldlogadapter.WithFilter(baldlogadapter.FilterKey("password")),
         baldlogadapter.WithFilter(baldlogadapter.FilterKey("token")),
     ))

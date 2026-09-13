@@ -1,5 +1,7 @@
 # Bald 日志平面接口设计
 
+> **2026-09-13 更名注记**：适配器子包 `log/slog` 已更名为 `log/bslog`（包名 `slogadapter`→`bslog`，`NewSlogLogger`→`New`）。本文为演进决策日志，正文旧名按当时名称保留；现状见《Bald 日志设计.md》。
+>
 > 本文由《日志设计.md》全文并入（2026-09-05），是 bald 日志体系的**单一设计文档**。
 > 适用包：`log`（契约层，独立 module `github.com/kalandramo/bald/log`）+ `log/slog`（适配器子包，包名 `slogadapter`）+ `bootstrap`（装配层）。
 >
