@@ -365,6 +365,11 @@ func FromBootstrap(cfg *bootstrapv1.BootstrapConfig, opts ...BootstrapOption) (*
 	if err != nil {
 		return nil, fmt.Errorf("appkit: bootstrap logger: %w", err)
 	}
+	// cleanup 归一化：阶段 A 工厂可返回 nil（bslog 无资源），后续错误回滚、
+	// rebuildLogger 兑现旧钩子、停机 Effect 释放均直接调用，不逐处判 nil。
+	if bootCleanup == nil {
+		bootCleanup = func() {}
+	}
 	log.SetLogger(bootLogger)
 
 	// 契约 Config 段 → 配置层（注册序=层优先级）。失败回滚阶段 A。
@@ -420,7 +425,8 @@ func FromBootstrap(cfg *bootstrapv1.BootstrapConfig, opts ...BootstrapOption) (*
 	servers = append(servers, spec.extraServers...)
 
 	// curCleanup 跟踪当前生效 Logger 的后端释放钩子：阶段 B 与热更新重建时
-	// 原子替换，停机 Effect 里释放最新一个（旧后端已被替换覆盖，无需重放）。
+	// 原子替换（替换前旧钩子被同步兑现——带缓冲后端的尾批不因热切换丢失，
+	// 见 rebuildLogger），停机 Effect 里释放最新一个。
 	var curCleanup atomic.Pointer[func()]
 	curCleanup.Store(&bootCleanup)
 
@@ -729,6 +735,10 @@ func hotReload(cfg *bootstrapv1.BootstrapConfig, spec *bootstrapSpec, curCleanup
 }
 
 // rebuildLogger 按契约 logger 段重建全局 Logger，并原子替换释放钩子。
+//
+// 换后端时旧 cleanup 被同步兑现（先切全局句柄、再冲刷旧后端）：带缓冲的
+// 后端（loki batchSize 未满的尾批）在热更新切换时不丢日志。旧 cleanup 若
+// 阻塞（远端不可达）由后端自身的 flush 超时上界保护。
 func rebuildLogger(l *bootstrapv1.Logger, spec *bootstrapSpec, curCleanup *atomic.Pointer[func()]) error {
 	lg, cleanup, err := spec.logFac(context.Background(), l)
 	if err != nil {
@@ -737,7 +747,12 @@ func rebuildLogger(l *bootstrapv1.Logger, spec *bootstrapSpec, curCleanup *atomi
 	if cleanup == nil {
 		cleanup = func() {}
 	}
+	// 先切换全局句柄：新日志直接进新后端，旧后端缓冲就此封闭。
 	log.SetLogger(lg)
+	// 再兑现旧后端 cleanup（阶段 A 钩子为 noop，首次调用无害）。
+	if c := curCleanup.Load(); c != nil {
+		(*c)()
+	}
 	curCleanup.Store(&cleanup)
 	return nil
 }

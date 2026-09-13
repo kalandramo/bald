@@ -169,7 +169,7 @@ WithLoggerFactory（显式工厂） > WithLogRegistry（契约查表） > 内置
 
 内置路径三分派：阶段 A（契约装载前）回退默认 bslog；`type=slog` 走 `LogOptions` + 业务装饰器（`WithLogDecorators` 是 `bslog.Option`，仅 bslog 后端可消费）；其余 type 查内置表构造。此改造同时修复一个缺陷：此前默认路径**静默忽略 `logger.type`**（配 `type: loki` 不报错却产出 bslog），现在未实现的 type fail-fast 并列出可用项——诚实报错优于静默降级。
 
-两阶段语义解决"契约装载过程的日志往哪打"：**阶段 A（契约装载前）回退默认 slog 保证启动日志可见；阶段 B 装载校验后按 `logger.type` 重建。** 契约热更新时 `rebuildLogger` 重建后端并原子替换 cleanup 钩子，失败只记错误不中断（换后端失败不应杀死正在服务的进程）。
+两阶段语义解决"契约装载过程的日志往哪打"：**阶段 A（契约装载前）回退默认 slog 保证启动日志可见；阶段 B 装载校验后按 `logger.type` 重建。** 契约热更新时 `rebuildLogger` 重建后端并原子替换 cleanup 钩子，失败只记错误不中断（换后端失败不应杀死正在服务的进程）。换后端时旧钩子被同步兑现（先切全局句柄再冲刷旧后端）——带缓冲后端（loki 尾批）不因热切换丢日志；停机 Effect 链同样释放最新钩子。
 
 ### 业务接入示例：零代码装配
 

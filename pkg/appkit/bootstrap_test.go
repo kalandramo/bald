@@ -437,6 +437,9 @@ func TestHotReload_RebuildsLogger(t *testing.T) {
 	if err != nil {
 		t.Fatalf("phase A: %v", err)
 	}
+	if cleanup == nil { // 镜像 FromBootstrap 的归一化（curCleanup 钩子恒非 nil）。
+		cleanup = func() {}
+	}
 	log.SetLogger(lg)
 	cc.Store(&cleanup)
 
@@ -455,6 +458,42 @@ func TestHotReload_RebuildsLogger(t *testing.T) {
 	}
 	if cf.args[1].GetSlog().GetLevel() != "warn" {
 		t.Fatal("rebuild should receive updated logger segment")
+	}
+}
+
+// 热更新换后端：旧后端 cleanup 必须被兑现（带缓冲后端如 loki 的尾批冲刷），
+// 而非被 Store 覆盖丢弃。
+func TestRebuildLogger_FlushesOldBackend(t *testing.T) {
+	old := log.GetLogger()
+	t.Cleanup(func() { log.SetLogger(old) })
+
+	flushed := make(chan struct{}, 1)
+	first := true
+	spec := &bootstrapSpec{logFac: func(context.Context, *bootstrapv1.Logger) (log.Logger, func(), error) {
+		if first {
+			first = false
+			return stubLogger(), func() { flushed <- struct{}{} }, nil
+		}
+		return stubLogger(), nil, nil
+	}}
+
+	var cc atomic.Pointer[func()]
+	// 阶段 A：初始后端 + cleanup 入表。
+	lg, cleanup, err := spec.logFac(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("phase A: %v", err)
+	}
+	log.SetLogger(lg)
+	cc.Store(&cleanup)
+
+	// 阶段 B：换后端——旧 cleanup 应被同步调用。
+	if err := rebuildLogger(&bootstrapv1.Logger{Type: "slog"}, spec, &cc); err != nil {
+		t.Fatalf("rebuildLogger: %v", err)
+	}
+	select {
+	case <-flushed:
+	default:
+		t.Fatal("old backend cleanup should be invoked on backend swap (buffered tail loss)")
 	}
 }
 
@@ -507,6 +546,9 @@ func TestHotReload_BadConfigKeepsOld(t *testing.T) {
 	lg, cleanup, err := spec.logFac(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("phase A: %v", err)
+	}
+	if cleanup == nil { // 镜像 FromBootstrap 的归一化（curCleanup 钩子恒非 nil）。
+		cleanup = func() {}
 	}
 	log.SetLogger(lg)
 	cc.Store(&cleanup)
