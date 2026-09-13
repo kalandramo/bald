@@ -69,6 +69,10 @@ func (r *LogRegistry) MustRegister(name string, p LoggerProvider) {
 // 后走单选构造路径，全部成功后用 log.NewMultiLogger 广播合并（每条日志复制
 // 分流到全部后端）；任一项失败 fail-fast 并回滚已构造项的 cleanup。
 //
+// 全局脱敏（filter_keys 非空）：出口对最终 Logger（单后端或 backends 合并后
+// 的 MultiLogger）统一包 log.NewFilterLogger——子项递归经 LoggerView 视图不
+// 携带 filter_keys，天然只在顶层包一次，全部后端共享同一份过滤。
+//
 // 由 main 显式调用并经 log.SetLogger 注入全局表：
 //
 //	lr := bootstrap.NewLogRegistry()
@@ -80,6 +84,15 @@ func (r *LogRegistry) BuildLogger(ctx context.Context, cfg *bootstrapv1.Logger) 
 	if cfg == nil {
 		return nil, nil, fmt.Errorf("bootstrap: logger config is nil")
 	}
+	l, cleanup, err := r.build(ctx, cfg)
+	if err != nil {
+		return nil, nil, err
+	}
+	return log.NewFilterLogger(l, cfg.GetFilterKeys()...), cleanup, nil
+}
+
+// build 按 backends/单 type 分派构造，脱敏包装由 BuildLogger 出口统一负责。
+func (r *LogRegistry) build(ctx context.Context, cfg *bootstrapv1.Logger) (log.Logger, func(), error) {
 	if bs := cfg.GetBackends(); len(bs) > 0 {
 		return r.buildBackends(ctx, bs)
 	}

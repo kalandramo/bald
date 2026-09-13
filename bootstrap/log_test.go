@@ -393,3 +393,75 @@ func TestBslogLoggerProvider_MultiOutputRotate(t *testing.T) {
 		t.Fatalf("文件目标应收到全量日志流: (%s, %v)", data, err)
 	}
 }
+
+// recordingLogger 记录调用参数的 sink，供脱敏断言。
+type recordingLogger struct {
+	args []any
+}
+
+func (r *recordingLogger) Debug(_ context.Context, _ string, args ...any) { r.args = args }
+func (r *recordingLogger) Info(_ context.Context, _ string, args ...any)  { r.args = args }
+func (r *recordingLogger) Warn(_ context.Context, _ string, args ...any)  { r.args = args }
+func (r *recordingLogger) Error(_ context.Context, _ string, args ...any) { r.args = args }
+func (r *recordingLogger) Enabled(log.Level) bool                         { return true }
+func (r *recordingLogger) With(args ...any) log.Logger {
+	return &recordingLogger{args: args}
+}
+
+func argsHas(args []any, k, v string) bool {
+	for i := 0; i+1 < len(args); i += 2 {
+		if ks, ok := args[i].(string); ok && ks == k {
+			vs, ok2 := args[i+1].(string)
+			return ok2 && vs == v
+		}
+	}
+	return false
+}
+
+// TestBuildLogger_FilterKeys 全局脱敏出口包装：单选与 backends 两路径下
+// filter_keys 均生效（命中掩码、未命中保留），空清单直通不包装。
+func TestBuildLogger_FilterKeys(t *testing.T) {
+	sink := &recordingLogger{}
+	r := NewLogRegistry()
+	r.MustRegister("stub", stubLogProvider(sink, nil, nil))
+
+	// 单选路径。
+	l, _, err := r.BuildLogger(context.Background(), &bootstrapv1.Logger{
+		Type:       "stub",
+		FilterKeys: []string{"password"},
+	})
+	if err != nil {
+		t.Fatalf("BuildLogger: %v", err)
+	}
+	l.Info(context.Background(), "m", "password", "secret", "user", "u")
+	if !argsHas(sink.args, "password", "***") || !argsHas(sink.args, "user", "u") {
+		t.Fatalf("单选路径脱敏应生效: %v", sink.args)
+	}
+
+	// backends 路径：顶层 filter_keys 对合并后的 MultiLogger 包装。
+	sink2 := &recordingLogger{}
+	r2 := NewLogRegistry()
+	r2.MustRegister("stub", stubLogProvider(sink2, nil, nil))
+	l2, _, err := r2.BuildLogger(context.Background(), &bootstrapv1.Logger{
+		FilterKeys: []string{"password"},
+		Backends: []*bootstrapv1.Logger_Backend{
+			{Type: "stub"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("BuildLogger(backends): %v", err)
+	}
+	l2.Info(context.Background(), "m", "password", "secret", "token", "t")
+	if !argsHas(sink2.args, "password", "***") || !argsHas(sink2.args, "token", "t") {
+		t.Fatalf("backends 路径脱敏应生效: %v", sink2.args)
+	}
+
+	// 空清单：直通不包装（返回原实例可由类型断言验证——不包 filterLogger）。
+	sink3 := &recordingLogger{}
+	r3 := NewLogRegistry()
+	r3.MustRegister("stub", stubLogProvider(sink3, nil, nil))
+	l3, _, _ := r3.BuildLogger(context.Background(), &bootstrapv1.Logger{Type: "stub"})
+	if _, isFiltered := l3.(*recordingLogger); !isFiltered {
+		t.Fatalf("空 filter_keys 应直通原实例, got %T", l3)
+	}
+}
