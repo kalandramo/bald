@@ -32,7 +32,7 @@ replace github.com/kalandramo/bald/transport/web => ../transport/web
 
 require (
 	github.com/go-kratos/kratos/v3 v3.0.0
-	github.com/kalandramo/bald/bconf v0.2.1
+	github.com/kalandramo/bald/bconf v0.2.2
 	github.com/kalandramo/bald/bconfig v0.1.0
 	github.com/kalandramo/bald/log v0.3.0
 	github.com/kalandramo/bald/log/aliyun v0.1.0
