@@ -3,11 +3,11 @@
 Author(s): bald 团队
 Last updated: 2026-09-13
 Discussion at: `Bald 日志平面接口设计.md`（历史决策记录）、`设计评审-第三轮-2026-09-12.md`
-Status: Accepted（已实现，随 bald v0.2.x 发布）
+Status: Accepted（已实现，随 bald v0.3.x 发布）
 
 ## 摘要
 
-`bald/log` 为整个框架提供**唯一的日志抽象**：6 方法的 `Logger` 接口、并发安全的全局句柄、零成本的 nop 默认。契约层零第三方依赖；标准库 `log/slog` 适配器（`log/bslog` 子包，包名 `bslog`）开箱即用；五个远端/终端后端（loki / aliyun / tencent / sentry / charm）各自独立成 module，经 `contract` 子包接入契约装配。本文回答三个问题：为什么契约这么瘦、为什么后端独立成 module、为什么装配保持显式注册（反 init 纪律）而业务侧又能零注册代码（内置全量注册表，2026-09-13）。最重要的承诺：**框架核心永远不 import 任何具体日志库，新后端接入对框架零改动。**
+`bald/log` 为整个框架提供**唯一的日志抽象**：6 方法的 `Logger` 接口、并发安全的全局句柄、零成本的 nop 默认。契约层零第三方依赖；标准库 `log/slog` 适配器（`log/bslog` 子包，包名 `bslog`）开箱即用；五个远端/终端后端（loki / aliyun / tencent / sentry / charm）各自独立成 module，经 `contract` 子包接入契约装配；`logger.backends` 声明即多后端广播（本地 + 远程双写，2026-09-13）。本文回答三个问题：为什么契约这么瘦、为什么后端独立成 module、为什么装配保持显式注册（反 init 纪律）而业务侧又能零注册代码（内置全量注册表，2026-09-13）。最重要的承诺：**框架核心永远不 import 任何具体日志库，新后端接入对框架零改动。**
 
 > 本文是按当前代码（v0.2.x）整理的设计文档，与《Bald 日志平面接口设计.md》（演进决策日志）互补：那篇记录"当时为什么这么改"，本文记录"现在是什么、为什么是这样"。
 
@@ -32,7 +32,7 @@ bald 的需求一句话定性：**日志后端的选择是横切关注点，归�
 ```mermaid
 flowchart TB
     subgraph BOOT["bootstrap · 装配层【独立 module】"]
-        REG["LogRegistry + BuildLogger<br/>+ BslogLoggerProvider / NopLoggerProvider<br/>+ 内置全量注册表 ×7 + LogOptions"]
+        REG["LogRegistry + BuildLogger + LoggerView<br/>+ BslogLoggerProvider / NopLoggerProvider<br/>+ 内置全量注册表 ×7 + LogOptions"]
     end
 
     subgraph BACKEND["log/{loki, aliyun, tencent, sentry, charm} · 后端层【各自独立 module】"]
@@ -123,7 +123,7 @@ type Options struct {
 三条行为边界，均为实测踩坑后确定：
 
 1. **配置非法回退 info，不 panic**（与 onexstack 相反）——级别写错不值得崩进程；
-2. **文件打开失败回退 stdout**——可观测性不因一个路径问题全丢；
+2. **文件路径先自动创建缺失父目录，打开仍失败才回退 stdout**——直写与轮转两路径行为对称（轮转的 lumberjack 首写本就 MkdirAll；2026-09-13 `log/v0.3.1` 修复直写路径不对称：此前嵌套目录缺失时静默回退 stdout，配置错误被掩盖——文件无产出、json 行混进控制台）；可观测性不因一个路径问题全丢；
 3. **多目标 errgroup 并发写**，但为**复制分流**（每个目标收全量日志），不支持按级别分流到不同文件。
 
 扩展点收在 `Option`：`WithFilter(FilterKey("password"))` 脱敏、`WithAttrs` 固定属性、`WithHandler`/`WithOTelHandler` 换底层 handler。脱敏的实现细节：slog 把 `WithAttrs` 固化的属性交给内层 handler 在 `Handle` 阶段直接合并，会绕过外层装饰器——`filterHandler.WithAttrs` 必须**先过滤再下沉**，否则 `logger.With("password", ...)` 的脱敏静默失效。
@@ -167,9 +167,9 @@ defer cleanup()
 WithLoggerFactory（显式工厂） > WithLogRegistry（契约查表） > 内置全量注册表
 ```
 
-**内置全量注册表（2026-09-13）**：默认路径不再固定为 bslog 工厂，改走 `bootstrap.NewBuiltinLogRegistry()`——slog / nop / loki / aliyun / tencent / sentry / charm 七后端全量预注册，**业务侧纯配置声明 `logger.type` 即生效、零注册代码**。内置名单为编译期常量（`RegisterBuiltinLogProviders` 亦可对自定义注册表组合调用，重名 fail-fast）；`NewLogRegistry()` 保持空表语义不变。依赖账本裁定：bootstrap 经 bconfig 已捆绑全部配置源 SDK（consul/vault/nacos/etcd/apollo/k8s），日志后端「多选一、全捆绑」与之同模式。逃生口保留：介意二进制体积或需自定义后端时，显式 `WithLogRegistry` 精选注册，行为与此前完全一致。
+**内置全量注册表（2026-09-13）**：默认路径不再固定为 bslog 工厂，改走 `bootstrap.NewBuiltinLogRegistry()`——slog / nop / loki / aliyun / tencent / sentry / charm 七后端全量预注册，**业务侧纯配置声明 `logger.type` 即生效、零注册代码**。内置名单为编译期固定的包级名单（Go 切片无法 `const`，`var` 固定内容等效编译期确定；`RegisterBuiltinLogProviders` 亦可对自定义注册表组合调用，重名 fail-fast）；`NewLogRegistry()` 保持空表语义不变。依赖账本裁定：bootstrap 经 bconfig 已捆绑全部配置源 SDK（consul/vault/nacos/etcd/apollo/k8s），日志后端「多选一、全捆绑」与之同模式。逃生口保留：介意二进制体积或需自定义后端时，显式 `WithLogRegistry` 精选注册，行为与此前完全一致。
 
-内置路径三分派：阶段 A（契约装载前）回退默认 bslog；`type=slog` 走 `LogOptions` + 业务装饰器（`WithLogDecorators` 是 `bslog.Option`，仅 bslog 后端可消费）；其余 type 查内置表构造。此改造同时修复一个缺陷：此前默认路径**静默忽略 `logger.type`**（配 `type: loki` 不报错却产出 bslog），现在未实现的 type fail-fast 并列出可用项——诚实报错优于静默降级。
+内置路径四分派：阶段 A（契约装载前）回退默认 bslog；`backends` 非空走多后端广播（逐项构造 + MultiLogger 合并，slog 项同样走 deco 特例——与单选对称）；`type=slog` 走 `LogOptions` + 业务装饰器（`WithLogDecorators` 是 `bslog.Option`，仅 bslog 后端可消费）；其余 type 查内置表构造。此改造同时修复一个缺陷：此前默认路径**静默忽略 `logger.type`**（配 `type: loki` 不报错却产出 bslog），现在未实现的 type fail-fast 并列出可用项——诚实报错优于静默降级。
 
 两阶段语义解决"契约装载过程的日志往哪打"：**阶段 A（契约装载前）回退默认 slog 保证启动日志可见；阶段 B 装载校验后按 `logger.type` 重建。** 契约热更新时 `rebuildLogger` 重建后端并原子替换 cleanup 钩子，失败只记错误不中断（换后端失败不应杀死正在服务的进程）。换后端时旧钩子被同步兑现（先切全局句柄再冲刷旧后端）——带缓冲后端（loki 尾批）不因热切换丢日志；停机 Effect 链同样释放最新钩子。
 
@@ -277,6 +277,6 @@ logger:
 - [x] trace 关联闭环：observability 中间件经 `ContextWithAttrs` 挂 `trace_id`，零 TracerProvider 时随机 ID 兜底。
 - [x] 框架内包级函数惯例全量替换（192 处）。
 
-验证：`log` module 及各后端、`bootstrap` 均随 bald CI（build + vet + test -short）全绿。
+验证：`log` module 及各后端、`bootstrap` 均随 bald CI（build + vet + test -short）全绿；backends 多后端广播另经 `_example/bald` e2e 冒烟（双后端独立 level/format、坏值 fail-fast 带 `backends[i]` 定位、文件路径父目录自动创建）。
 
 关联文档：`Bald 配置系统设计.md`（四源配置）、`应用框架设计.md`（AppKit 生命周期）、`AppKit FromBootstrap 约定装配.md`（装配全景）、`指标抽象设计.md`（可观测性闭环）。
