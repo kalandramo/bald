@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
 
 	log "github.com/kalandramo/bald/log"
 	lumberjack "gopkg.in/natefinch/lumberjack.v2"
@@ -115,6 +116,12 @@ func openWriter(o *Options) io.Writer {
 			if o.Rotate != nil && o.Rotate.Enabled {
 				ws = append(ws, newRotateWriter(p, o.Rotate))
 				continue
+			}
+			// 先建父目录：lumberjack 首写时会 MkdirAll，直写路径对齐
+			//（否则嵌套目录缺失时 OpenFile 失败静默回退 stdout，配置错误
+			// 被掩盖——文件目标既无产出、json 行又混进控制台）。
+			if dir := filepath.Dir(p); dir != "" && dir != "." {
+				_ = os.MkdirAll(dir, 0o755)
 			}
 			f, err := os.OpenFile(p, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 			if err != nil {

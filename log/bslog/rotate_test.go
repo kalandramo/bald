@@ -71,3 +71,31 @@ func TestOpenWriterDirectFileWhenRotationDisabled(t *testing.T) {
 	}
 	defer f.Close()
 }
+
+// TestOpenWriterCreatesMissingParentDir 验证直写路径自动创建缺失的嵌套父目录
+// （对齐 lumberjack 轮转路径的首写 MkdirAll 行为——否则目录缺失时静默回退
+// stdout，配置错误被掩盖）。
+func TestOpenWriterCreatesMissingParentDir(t *testing.T) {
+	dir := t.TempDir()
+	// 嵌套两级目录均不存在。
+	nested := filepath.Join(dir, "var", "log", "app")
+	path := filepath.Join(nested, "app.log")
+
+	o := NewOptions()
+	o.OutputPaths = []string{path}
+
+	w := openWriter(o)
+	if _, err := w.Write([]byte("hello\n")); err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+	if c, ok := w.(io.Closer); ok {
+		_ = c.Close()
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("log file should be created under missing parent dir: %v", err)
+	}
+	if !strings.Contains(string(data), "hello") {
+		t.Fatalf("unexpected content: %q", data)
+	}
+}
