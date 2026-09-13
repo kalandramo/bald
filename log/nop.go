@@ -16,3 +16,8 @@ func (nopLogger) Enabled(Level) bool { return false }
 
 // With 返回自身（不可变）。
 func (nopLogger) With(...any) Logger { return nopLogger{} }
+
+// NewNop 返回 nop 后端实例：零输出、零依赖、Enabled 恒 false。
+// 供装配层（bootstrap NopLoggerProvider）按契约 type=nop 显式选择静默，
+// 也适合测试与只需业务指标的场景直接使用。
+func NewNop() Logger { return nopLogger{} }

@@ -32,6 +32,24 @@ func TestNopLoggerIsSilent(t *testing.T) {
 	}
 }
 
+func TestNewNop(t *testing.T) {
+	// 导出构造：供装配层按契约 type=nop 显式选择静默。
+	l := NewNop()
+	if l == nil {
+		t.Fatal("NewNop() should return non-nil")
+	}
+	if l.Enabled(LevelError) {
+		t.Fatal("nop logger should never be enabled")
+	}
+	// 全方法调用不 panic；With 派生实例同样可用。
+	derived := l.With("k", "v")
+	derived.Debug(context.Background(), "x")
+	derived.Error(context.Background(), "x")
+	if derived.Enabled(LevelDebug) {
+		t.Fatal("derived nop logger should never be enabled")
+	}
+}
+
 func TestSetGetLogger(t *testing.T) {
 	defer SetLogger(nil) // 清理为默认 nop
 
