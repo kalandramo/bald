@@ -4,8 +4,8 @@ go 1.27.1
 
 require (
 	github.com/charmbracelet/log v1.0.0
-	github.com/kalandramo/bald/bconf v0.0.0
-	github.com/kalandramo/bald/log v0.0.0
+	github.com/kalandramo/bald/bconf v0.1.0
+	github.com/kalandramo/bald/log v0.3.0
 )
 
 require (
