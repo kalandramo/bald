@@ -85,7 +85,7 @@ func (a *AppKit) startComponents(ctx context.Context) error {
 		a.startedMu.Lock()
 		a.started = append(a.started, c)
 		a.startedMu.Unlock()
-		log.GetLogger().Info(ctx, "appkit component started", "component", c.Name())
+		log.Info(ctx, "appkit component started", "component", c.Name())
 	}
 	return nil
 }
@@ -110,7 +110,7 @@ func (a *AppKit) disposeComponents(parent context.Context) {
 	for i := len(started) - 1; i >= 0; i-- {
 		c := started[i]
 		if err := a.runHook(parent, a.componentTimeout, "component:"+c.Name()+":dispose", c.Dispose); err != nil {
-			log.GetLogger().Error(parent, "appkit component dispose failed", "component", c.Name(), "error", err)
+			log.Error(parent, "appkit component dispose failed", "component", c.Name(), "error", err)
 		}
 	}
 }

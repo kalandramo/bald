@@ -15,23 +15,23 @@ const (
 ///
 
 func LogDebug(args ...any) {
-	log.GetLogger().Debug(nil, fmt.Sprintf("%s %s", logKey, fmt.Sprint(args...)))
+	log.Debug(nil, fmt.Sprintf("%s %s", logKey, fmt.Sprint(args...)))
 }
 
 func LogInfo(args ...any) {
-	log.GetLogger().Info(nil, fmt.Sprintf("%s %s", logKey, fmt.Sprint(args...)))
+	log.Info(nil, fmt.Sprintf("%s %s", logKey, fmt.Sprint(args...)))
 }
 
 func LogWarn(args ...any) {
-	log.GetLogger().Warn(nil, fmt.Sprintf("%s %s", logKey, fmt.Sprint(args...)))
+	log.Warn(nil, fmt.Sprintf("%s %s", logKey, fmt.Sprint(args...)))
 }
 
 func LogError(args ...any) {
-	log.GetLogger().Error(nil, fmt.Sprintf("%s %s", logKey, fmt.Sprint(args...)))
+	log.Error(nil, fmt.Sprintf("%s %s", logKey, fmt.Sprint(args...)))
 }
 
 func LogFatal(args ...any) {
-	log.GetLogger().Error(nil, fmt.Sprintf("%s %s", logKey, fmt.Sprint(args...)))
+	log.Error(nil, fmt.Sprintf("%s %s", logKey, fmt.Sprint(args...)))
 }
 
 ///
@@ -39,21 +39,21 @@ func LogFatal(args ...any) {
 ///
 
 func LogDebugf(format string, args ...any) {
-	log.GetLogger().Debug(nil, fmt.Sprintf("%s %s", logKey, fmt.Sprintf(format, args...)))
+	log.Debug(nil, fmt.Sprintf("%s %s", logKey, fmt.Sprintf(format, args...)))
 }
 
 func LogInfof(format string, args ...any) {
-	log.GetLogger().Info(nil, fmt.Sprintf("%s %s", logKey, fmt.Sprintf(format, args...)))
+	log.Info(nil, fmt.Sprintf("%s %s", logKey, fmt.Sprintf(format, args...)))
 }
 
 func LogWarnf(format string, args ...any) {
-	log.GetLogger().Warn(nil, fmt.Sprintf("%s %s", logKey, fmt.Sprintf(format, args...)))
+	log.Warn(nil, fmt.Sprintf("%s %s", logKey, fmt.Sprintf(format, args...)))
 }
 
 func LogErrorf(format string, args ...any) {
-	log.GetLogger().Error(nil, fmt.Sprintf("%s %s", logKey, fmt.Sprintf(format, args...)))
+	log.Error(nil, fmt.Sprintf("%s %s", logKey, fmt.Sprintf(format, args...)))
 }
 
 func LogFatalf(format string, args ...any) {
-	log.GetLogger().Error(nil, fmt.Sprintf("%s %s", logKey, fmt.Sprintf(format, args...)))
+	log.Error(nil, fmt.Sprintf("%s %s", logKey, fmt.Sprintf(format, args...)))
 }

@@ -53,7 +53,7 @@ func AuthnInterceptor(authenticator authn.Authenticator, opts ...AuthnOption) gr
 		token, err := bearerFromMetadata(ctx)
 		if err != nil {
 			e := berrors.Unauthenticated("MISSING_TOKEN").WithMessage("%s", err.Error())
-			log.GetLogger().Error(ctx, "authentication failed", "error", err)
+			log.Error(ctx, "authentication failed", "error", err)
 			auditAuthnFailure(ctx, info, auditor, e.Reason)
 			return nil, e
 		}
@@ -62,7 +62,7 @@ func AuthnInterceptor(authenticator authn.Authenticator, opts ...AuthnOption) gr
 		claims, err := authenticator.Authenticate(ctx)
 		if err != nil {
 			e := berrors.Unauthenticated("UNAUTHENTICATED").WithMessage("%s", err.Error())
-			log.GetLogger().Error(ctx, "authentication failed", "error", err)
+			log.Error(ctx, "authentication failed", "error", err)
 			auditAuthnFailure(ctx, info, auditor, e.Reason)
 			return nil, e
 		}

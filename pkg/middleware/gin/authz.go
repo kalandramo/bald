@@ -76,7 +76,7 @@ func AuthzMiddleware(authorizer authz.Authorizer, opts ...AuthzOption) gin.Handl
 			action = cfg.actionResolver(c.Request.Method)
 		}
 
-		log.GetLogger().Info(c.Request.Context(), "authorize",
+		log.Info(c.Request.Context(), "authorize",
 			"subject", subject, "object", object, "action", action)
 
 		allowed, err := authorizer.Authorize(c.Request.Context(), subject, object, action)

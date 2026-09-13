@@ -171,7 +171,7 @@ func TestBuildLogger_Integration(t *testing.T) {
 	defer cleanup()
 
 	log.SetLogger(l)
-	log.GetLogger().Info(context.Background(), "e2e", "tenant", "t1")
+	log.Info(context.Background(), "e2e", "tenant", "t1")
 
 	data, err := os.ReadFile(path)
 	if err != nil || !strings.Contains(string(data), "e2e") {

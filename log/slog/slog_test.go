@@ -101,7 +101,7 @@ func TestSlogLoggerWithContractGlobal(t *testing.T) {
 	if log.GetLogger() != l {
 		t.Fatal("GetLogger should return the injected slog logger")
 	}
-	log.GetLogger().Info(context.Background(), "hello", "k", "v")
+	log.Info(context.Background(), "hello", "k", "v")
 	out := buf.String()
 	if !strings.Contains(out, "hello") || !strings.Contains(out, "k") {
 		t.Fatalf("unexpected output: %s", out)

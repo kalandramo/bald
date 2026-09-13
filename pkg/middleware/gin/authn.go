@@ -54,7 +54,7 @@ func AuthnMiddleware(authenticator authn.Authenticator, opts ...AuthnOption) gin
 		token, err := bearerFromHeader(c.GetHeader("Authorization"))
 		if err != nil {
 			e := berrors.Unauthenticated("MISSING_TOKEN").WithMessage("%s", err.Error())
-			log.GetLogger().Error(c.Request.Context(), "authentication failed", "error", err)
+			log.Error(c.Request.Context(), "authentication failed", "error", err)
 			auditAuthnFailure(c, auditor, e.Reason)
 			c.AbortWithStatusJSON(httperr.StatusCode(e), web.StatusOf(e))
 			return
@@ -64,7 +64,7 @@ func AuthnMiddleware(authenticator authn.Authenticator, opts ...AuthnOption) gin
 		claims, err := authenticator.Authenticate(ctx)
 		if err != nil {
 			e := berrors.Unauthenticated("UNAUTHENTICATED").WithMessage("%s", err.Error())
-			log.GetLogger().Error(c.Request.Context(), "authentication failed", "error", err)
+			log.Error(c.Request.Context(), "authentication failed", "error", err)
 			auditAuthnFailure(c, auditor, e.Reason)
 			c.AbortWithStatusJSON(httperr.StatusCode(e), web.StatusOf(e))
 			return

@@ -451,7 +451,7 @@ func (a *AppKit) Run(ctx context.Context) error {
 		return err
 	}
 
-	log.GetLogger().Info(ctx, "appkit starting",
+	log.Info(ctx, "appkit starting",
 		"name", a.name, "version", a.version, "servers", len(a.servers))
 
 	// beforeStart 钩子。
@@ -469,7 +469,7 @@ func (a *AppKit) Run(ctx context.Context) error {
 		cancel()
 		a.stopAll(context.Background())
 		a.runErr.Store(err)
-		log.GetLogger().Error(ctx, "appkit component start failed", "error", err)
+		log.Error(ctx, "appkit component start failed", "error", err)
 		return err
 	}
 
@@ -489,7 +489,7 @@ func (a *AppKit) Run(ctx context.Context) error {
 		cancel()
 		a.stopAll(context.Background())
 		a.runErr.Store(err)
-		log.GetLogger().Error(ctx, "appkit wait for endpoints failed", "error", err)
+		log.Error(ctx, "appkit wait for endpoints failed", "error", err)
 		return err
 	}
 
@@ -498,11 +498,11 @@ func (a *AppKit) Run(ctx context.Context) error {
 		cancel()
 		a.stopAll(context.Background())
 		a.runErr.Store(err)
-		log.GetLogger().Error(ctx, "appkit register failed", "error", err)
+		log.Error(ctx, "appkit register failed", "error", err)
 		return err
 	}
 	if a.registrar != nil {
-		log.GetLogger().Info(ctx, "appkit registered",
+		log.Info(ctx, "appkit registered",
 			"name", a.name, "id", a.id, "endpoints", a.buildInstance().Endpoints)
 	}
 
@@ -513,7 +513,7 @@ func (a *AppKit) Run(ctx context.Context) error {
 			_ = a.deregister(context.Background())
 			a.stopAll(context.Background())
 			a.runErr.Store(err)
-			log.GetLogger().Error(ctx, "appkit afterStart hook failed", "error", err)
+			log.Error(ctx, "appkit afterStart hook failed", "error", err)
 			return err
 		}
 	}
@@ -522,7 +522,7 @@ func (a *AppKit) Run(ctx context.Context) error {
 	// 挂在 afterStart 之后：此时 bridges/组件已就绪，协调可安全调 Start/Dispose。
 	a.runReconcilers(gctx)
 
-	log.GetLogger().Info(ctx, "appkit started", "servers", len(a.servers))
+	log.Info(ctx, "appkit started", "servers", len(a.servers))
 
 	// 主等待：任一服务器崩溃（gctx 取消）、外部 ctx 取消、或系统信号。
 	sig := make(chan os.Signal, 1)
@@ -532,13 +532,13 @@ func (a *AppKit) Run(ctx context.Context) error {
 	select {
 	case <-gctx.Done(): // 服务器崩溃或外部 ctx 取消
 	case s := <-sig:
-		log.GetLogger().Info(ctx, "appkit received signal, shutting down", "signal", s.String())
+		log.Info(ctx, "appkit received signal, shutting down", "signal", s.String())
 		cancel() // 收到信号，主动取消
 	}
 
 	// 先反注册（避免流量打到已停服务），再优雅停机。
 	if a.registrar != nil {
-		log.GetLogger().Info(ctx, "appkit deregistering", "name", a.name, "id", a.id)
+		log.Info(ctx, "appkit deregistering", "name", a.name, "id", a.id)
 	}
 	_ = a.deregister(context.Background())
 
@@ -548,10 +548,10 @@ func (a *AppKit) Run(ctx context.Context) error {
 	// 收集启动错误：仅非 ctx 取消的错误视为致命，返回给调用方。
 	if err := g.Wait(); err != nil && !errors.Is(err, context.Canceled) {
 		a.runErr.Store(err)
-		log.GetLogger().Error(ctx, "appkit exited with error", "error", err)
+		log.Error(ctx, "appkit exited with error", "error", err)
 		return err
 	}
-	log.GetLogger().Info(ctx, "appkit stopped")
+	log.Info(ctx, "appkit stopped")
 	return nil
 }
 
@@ -572,7 +572,7 @@ func (a *AppKit) stopAll(parent context.Context) {
 	// 阶段 1：BeforeStop 钩子。
 	for _, fn := range a.beforeStop {
 		if err := a.runHook(parent, defaultHookTimeout, "beforeStop", fn); err != nil {
-			log.GetLogger().Error(parent, "appkit beforeStop hook failed", "error", err)
+			log.Error(parent, "appkit beforeStop hook failed", "error", err)
 		}
 	}
 
@@ -585,7 +585,7 @@ func (a *AppKit) stopAll(parent context.Context) {
 		go func(s transport.Server) {
 			defer wg.Done()
 			if err := s.Stop(stopCtx); err != nil {
-				log.GetLogger().Error(stopCtx, "appkit server stop failed", "error", err)
+				log.Error(stopCtx, "appkit server stop failed", "error", err)
 			}
 		}(s)
 	}
@@ -594,7 +594,7 @@ func (a *AppKit) stopAll(parent context.Context) {
 	// 阶段 3：AfterStop 钩子。
 	for _, fn := range a.afterStop {
 		if err := a.runHook(parent, defaultHookTimeout, "afterStop", fn); err != nil {
-			log.GetLogger().Error(parent, "appkit afterStop hook failed", "error", err)
+			log.Error(parent, "appkit afterStop hook failed", "error", err)
 		}
 	}
 

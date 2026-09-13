@@ -126,7 +126,7 @@ func serveRunE(_ *cobra.Command, _ []string) error {
 {{- if .Server.Http }}
 	// R1 key 级热更新示例：仅当 server.http.addr 值确实变化才触发（与 OnConfigChange 全量互补）。
 	capOpts = append(capOpts, appkit.OnKeyChange("server.http.addr", func(old, new string) {
-		baldlog.GetLogger().Info(context.Background(), "server.http.addr changed", "old", old, "new", new)
+		baldlog.Info(context.Background(), "server.http.addr changed", "old", old, "new", new)
 	}))
 {{- end }}
 {{- if .Capability }}
@@ -168,7 +168,7 @@ func serveRunE(_ *cobra.Command, _ []string) error {
 
 	app := appkit.New(capOpts...)
 	if err := app.Run(context.Background()); err != nil {
-		baldlog.GetLogger().Error(context.Background(), "{{ .Meta.Name }} exited", "error", err)
+		baldlog.Error(context.Background(), "{{ .Meta.Name }} exited", "error", err)
 		return err
 	}
 	return nil
@@ -184,7 +184,7 @@ func buildComponent(kind, name, prefix string) (appkit.Component, error) {
 	// TODO: 为各 kind 接入真实组件工厂（db/redis/otlp/casbin/...）。
 	case "heartbeat":
 		return appkit.ComponentFunc(name, func(ctx context.Context) error {
-			baldlog.GetLogger().Info(ctx, "heartbeat component started", "name", name)
+			baldlog.Info(ctx, "heartbeat component started", "name", name)
 			_ = prefix // 组件配置键前缀（config 读取 TODO）
 			return nil
 		}), nil
@@ -218,18 +218,18 @@ func reconcileAudit(ctx context.Context, rctx *appkit.ReconcileCtx) error {
 		return nil // 幂等：期望==实际，不抖动
 	}
 
-	baldlog.GetLogger().Info(ctx, "reconcile audit.backends",
+	baldlog.Info(ctx, "reconcile audit.backends",
 		"add", strings.Join(add, ","), "remove", strings.Join(remove, ","))
 
 	for _, name := range add {
 		if err := rctx.Mount(ctx, name, &auditBackendComponent{name: name}); err != nil {
-			baldlog.GetLogger().Error(ctx, "reconcile mount audit backend failed",
+			baldlog.Error(ctx, "reconcile mount audit backend failed",
 				"backend", name, "error", err) // 失败不回滚，下次协调补齐
 		}
 	}
 	for _, name := range remove {
 		if err := rctx.Unmount(ctx, name); err != nil {
-			baldlog.GetLogger().Error(ctx, "reconcile unmount audit backend failed",
+			baldlog.Error(ctx, "reconcile unmount audit backend failed",
 				"backend", name, "error", err)
 		}
 	}
@@ -259,7 +259,7 @@ func (c *auditBackendComponent) Start(ctx context.Context) error {
 	auditors.set[c.name] = a
 	auditors.mu.Unlock()
 	applyAuditors()
-	baldlog.GetLogger().Info(ctx, "audit backend mounted", "backend", c.name)
+	baldlog.Info(ctx, "audit backend mounted", "backend", c.name)
 	return nil
 }
 
@@ -268,7 +268,7 @@ func (c *auditBackendComponent) Dispose(ctx context.Context) error {
 	delete(auditors.set, c.name)
 	auditors.mu.Unlock()
 	applyAuditors()
-	baldlog.GetLogger().Info(ctx, "audit backend unmounted", "backend", c.name)
+	baldlog.Info(ctx, "audit backend unmounted", "backend", c.name)
 	return nil
 }
 
@@ -310,7 +310,7 @@ func applyAuditors() {
 type logAuditor struct{}
 
 func (logAuditor) Record(ctx context.Context, ev audit.AuditEvent) {
-	baldlog.GetLogger().Info(ctx, "audit event",
+	baldlog.Info(ctx, "audit event",
 		"object", ev.Object, "action", ev.Action, "result", string(ev.Result))
 }
 

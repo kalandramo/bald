@@ -26,7 +26,7 @@ type Storage struct {
 
 func NewClient(cfg *Config) *minio.Client {
 	if cfg == nil {
-		log.GetLogger().Error(context.Background(), "missing minio configuration")
+		log.Error(context.Background(), "missing minio configuration")
 		return nil
 	}
 
@@ -37,7 +37,7 @@ func NewClient(cfg *Config) *minio.Client {
 		},
 	)
 	if err != nil {
-		log.GetLogger().Error(context.Background(), "failed opening connection to minio", "error", err)
+		log.Error(context.Background(), "failed opening connection to minio", "error", err)
 		return nil
 	}
 

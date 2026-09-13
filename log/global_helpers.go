@@ -2,8 +2,8 @@ package log
 
 import "context"
 
-// 本文件提供基于全局 Logger 的包级便捷函数，
-// 供不愿显式持有 Logger 实例的调用方（如各驱动子模块）直接使用。
+// 本文件提供基于全局 Logger 的包级便捷函数，是框架内输出日志的统一入口
+// （appkit/中间件/transport/broker/oss 等一律经此调用，不再写 log.GetLogger().Xxx）。
 // 全部转发到 SetLogger 注入的当前后端；未注入时为 nop（零输出、零成本）。
 
 // Debug 经由全局 Logger 输出 Debug 级日志。

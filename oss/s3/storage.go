@@ -17,7 +17,7 @@ type Storage struct {
 
 func NewStorage(cfg *Config) *Storage {
 	if cfg == nil {
-		log.GetLogger().Error(context.Background(), "missing s3 configuration")
+		log.Error(context.Background(), "missing s3 configuration")
 		return nil
 	}
 

@@ -92,7 +92,7 @@ func AuthzInterceptor(authorizer authz.Authorizer, opts ...AuthzOption) grpc.Una
 		allowed, err := authorizer.Authorize(ctx, subject, object, action)
 		if err != nil {
 			e := berrors.Internal("AUTHZ_ENGINE_ERROR").WithMessage("%s", err.Error())
-			log.GetLogger().Error(ctx, "authorization engine error", "error", err)
+			log.Error(ctx, "authorization engine error", "error", err)
 			return nil, e
 		}
 		if !allowed {

@@ -205,7 +205,7 @@ func StartMetricsServer(addr, path string, h http.Handler) *http.Server {
 	srv := &http.Server{Addr: addr, Handler: mux}
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.GetLogger().Error(context.Background(), "metrics server stopped", "addr", addr, "error", err.Error())
+			log.Error(context.Background(), "metrics server stopped", "addr", addr, "error", err.Error())
 		}
 	}()
 	return srv

@@ -27,7 +27,7 @@ func RecoveryInterceptor() grpc.UnaryServerInterceptor {
 				if info != nil {
 					method = info.FullMethod
 				}
-				log.GetLogger().Error(ctx, "grpc handler panicked",
+				log.Error(ctx, "grpc handler panicked",
 					"panic", r, "method", method, "stack", fmt.Sprintf("%+v", r))
 				err = berrors.Internal("PANIC").WithMessage("internal panic: %v", r)
 				resp = nil

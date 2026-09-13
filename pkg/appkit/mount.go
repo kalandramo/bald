@@ -112,7 +112,7 @@ func (a *AppKit) MountComponent(ctx context.Context, c Component) error {
 	a.started = append(a.started, c)
 	a.startedMu.Unlock()
 
-	log.GetLogger().Info(ctx, "appkit component mounted", "component", c.Name())
+	log.Info(ctx, "appkit component mounted", "component", c.Name())
 	a.auditComponent(ctx, "mount", c.Name())
 	return nil
 }
@@ -141,9 +141,9 @@ func (a *AppKit) UnmountComponent(ctx context.Context, name string) error {
 	a.startedMu.Unlock()
 
 	if err := a.runHook(ctx, a.componentTimeout, "component:"+name+":dispose", c.Dispose); err != nil {
-		log.GetLogger().Error(ctx, "appkit component unmount dispose failed", "component", name, "error", err)
+		log.Error(ctx, "appkit component unmount dispose failed", "component", name, "error", err)
 	}
-	log.GetLogger().Info(ctx, "appkit component unmounted", "component", name)
+	log.Info(ctx, "appkit component unmounted", "component", name)
 	a.auditComponent(ctx, "unmount", name)
 	return nil
 }
@@ -176,7 +176,7 @@ func (a *AppKit) resolveAuditor() audit.Auditor {
 func (a *AppKit) auditComponent(ctx context.Context, action, name string) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.GetLogger().Error(ctx, "appkit component audit panicked", "panic", r)
+			log.Error(ctx, "appkit component audit panicked", "panic", r)
 		}
 	}()
 	subject, tenant := "", ""

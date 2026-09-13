@@ -519,7 +519,7 @@ func FromBootstrap(cfg *bootstrapv1.BootstrapConfig, opts ...BootstrapOption) (*
 			}
 			if obs.metricsSrv != nil {
 				if err := obs.metricsSrv.Shutdown(ctx); err != nil {
-					log.GetLogger().Error(ctx, "appkit metrics server shutdown failed", "error", err.Error())
+					log.Error(ctx, "appkit metrics server shutdown failed", "error", err.Error())
 				}
 			}
 			if obs.metricsFlush != nil {

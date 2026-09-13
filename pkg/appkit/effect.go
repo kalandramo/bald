@@ -74,7 +74,7 @@ func (a *AppKit) UndoEffects(parent context.Context) {
 			continue
 		}
 		if err := a.runHook(parent, a.effectTimeout, "effect:"+e.name, e.undo); err != nil {
-			log.GetLogger().Error(parent, "appkit effect undo failed", "effect", e.name, "error", err)
+			log.Error(parent, "appkit effect undo failed", "effect", e.name, "error", err)
 		}
 	}
 }

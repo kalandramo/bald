@@ -197,7 +197,7 @@ func (a *AppKit) runReconcilersWith(ctx context.Context, settings map[string]any
 		r := &ReconcileCtx{Settings: settings, Name: rc.name, app: a}
 		err := rc.fn(ctx, r)
 		if err != nil {
-			log.GetLogger().Error(ctx, "appkit reconcile failed", "reconciler", rc.name, "error", err)
+			log.Error(ctx, "appkit reconcile failed", "reconciler", rc.name, "error", err)
 		}
 		// 成功与失败都留审计痕迹（收敛语义：失败也是可观测状态，下次补齐）。
 		a.auditReconcile(ctx, "reconcile", rc.name, err)
@@ -271,7 +271,7 @@ func (a *AppKit) reconUnmount(ctx context.Context, recon, name string) error {
 func (a *AppKit) auditReconcile(ctx context.Context, action, name string, err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.GetLogger().Error(ctx, "appkit reconcile audit panicked", "panic", r)
+			log.Error(ctx, "appkit reconcile audit panicked", "panic", r)
 		}
 	}()
 	subject, tenant := "", ""

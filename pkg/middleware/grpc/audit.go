@@ -127,7 +127,7 @@ func emitMetricsSafely(rec metrics.Recorder, ctx context.Context, ev metrics.Eve
 	}
 	defer func() {
 		if r := recover(); r != nil {
-			log.GetLogger().Error(ctx, "metrics recorder panicked", "panic", r)
+			log.Error(ctx, "metrics recorder panicked", "panic", r)
 		}
 	}()
 	rec.Record(ctx, ev, transport, seconds)
@@ -171,7 +171,7 @@ func recordSafely(auditor audit.Auditor, ctx context.Context, ev audit.AuditEven
 	}
 	defer func() {
 		if rec := recover(); rec != nil {
-			log.GetLogger().Error(ctx, "auditor panicked", "panic", rec)
+			log.Error(ctx, "auditor panicked", "panic", rec)
 		}
 	}()
 	auditor.Record(ctx, ev)

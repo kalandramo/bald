@@ -98,7 +98,7 @@ func serveRunE(_ *cobra.Command, _ []string) error {
 
 	// 3. 运行：阻塞直到收到信号或任一服务器退出。
 	if err := app.Run(context.Background()); err != nil {
-		baldlog.GetLogger().Error(context.Background(), "bald app exited", "error", err)
+		baldlog.Error(context.Background(), "bald app exited", "error", err)
 		return err
 	}
 	return nil
@@ -199,7 +199,7 @@ func newApp(bootstrap *bootstrapv1.BootstrapConfig, ready transport.ReadinessFun
 			// 地址为契约最终值（BeforeStart 装载后写回）；
 			// :0 动态端口场景显示契约值，真实端口见注册中心聚合结果。
 			ctx = baldlog.ContextWithAttrs(ctx, slog.String("stage", "started"))
-			baldlog.GetLogger().Info(ctx, "bald-demo started",
+			baldlog.Info(ctx, "bald-demo started",
 				"http", bootstrap.GetServer().GetHttp().GetAddr(),
 				"grpc", bootstrap.GetServer().GetGrpc().GetAddr())
 			return nil
