@@ -53,12 +53,9 @@ import (
 	"github.com/kalandramo/bald/transport"
 )
 
-// LoggerFactory 从契约 Logger 段构造日志后端。
-//
-// 默认实现为 bslog（LogOptions 逐字段映射 + 业务装饰器）；业务可替换
-// 为 zap 等后端，或包一层 bootstrap.LogRegistry 做契约驱动的后端切换
-// （契约 logger.type 查表）。l 为 nil 表示启动期默认 Logger（契约未装载前）。
-type LoggerFactory func(ctx context.Context, l *bootstrapv1.Logger) (lg log.Logger, cleanup func(), err error)
+// loggerFactory 是解析后的日志后端工厂（私有类型：不进入公开 API，
+// 由 resolveLoggerFactory 产出、FromBootstrap 装载链与 rebuildLogger 消费）。
+type loggerFactory = func(ctx context.Context, l *bootstrapv1.Logger) (lg log.Logger, cleanup func(), err error)
 
 // bootstrapSpec 汇集 FromBootstrap 的业务能力声明。
 type bootstrapSpec struct {
@@ -79,8 +76,8 @@ type bootstrapSpec struct {
 	afterStart   []func(context.Context) error
 
 	logDeco     []bslog.Option
-	logFac      LoggerFactory
 	logRegistry *baldbootstrap.LogRegistry
+	logFac      loggerFactory // resolveLoggerFactory 的解析结果（非用户 Option）。
 
 	dbRegistry       *DatabaseRegistry
 	cacheRegistry    *CacheRegistry
@@ -211,36 +208,29 @@ func WithConfigRegistry(r *baldbootstrap.Registry) BootstrapOption {
 }
 
 // WithLogDecorators 附加 bslog 日志装饰器（脱敏、业务字段等），阶段 A/B
-// 构造 Logger 时统一生效。使用自定义 LoggerFactory 时由工厂自行消费。
-// 注意：装饰器是 bslog.Option，仅对默认路径的 type=slog 与阶段 A 回退生效，
-// 其余后端（loki/aliyun 等）不消费装饰器。
+// 构造 Logger 时统一生效。注意：装饰器是 bslog.Option，仅对默认路径的
+// type=slog 与阶段 A 回退生效，其余后端（loki/aliyun 等）不消费装饰器。
 func WithLogDecorators(deco ...bslog.Option) BootstrapOption {
 	return func(s *bootstrapSpec) { s.logDeco = append(s.logDeco, deco...) }
 }
 
-// WithLoggerFactory 替换日志后端工厂（默认 bslog）。cleanup 会在停机或
-// Logger 重建时被调用（可 nil，框架按 noop 处理）。
-func WithLoggerFactory(f LoggerFactory) BootstrapOption {
-	return func(s *bootstrapSpec) { s.logFac = f }
-}
-
 // WithLogRegistry 声明契约驱动的日志后端注册表：按契约 logger.type 查表
-// 构造后端。与 WithLoggerFactory 互斥，显式工厂优先。
+// 构造后端（查表 / backends 合并 / 出口脱敏 / 未注册 fail-fast 均由
+// bootstrap.LogRegistry 全权负责）。
 //
-// 不声明本 Option 时默认走内置全量注册表（baldbootstrap.NewBuiltinLogRegistry，
-// 覆盖 slog/nop/loki/aliyun/tencent/sentry/charm）——业务侧纯配置声明即生效。
-// 仅当需要精选子集（控制二进制体积）或追加自定义后端时才使用本 Option：
+// 不声明本 Option 时默认路径为纯函数分派（无注册表、依赖增量为零）：
+// 仅支持 type=slog（+业务装饰器）与阶段 A 回退，其余 type fail-fast
+// 并给出本 Option 的用法示例。远端/自定义后端必须经本 Option 注册：
 //
 //	reg := baldbootstrap.NewLogRegistry()
-//	reg.MustRegister(aliyuncontract.Type, aliyuncontract.Provider)
-//	reg.MustRegister("slog", baldbootstrap.BslogLoggerProvider()) // 可选；type=slog 不注册则 fail-fast
+//	reg.MustRegister(lokicontract.Type, lokicontract.Provider) // log/loki/contract
+//	reg.MustRegister("slog", baldbootstrap.BslogLoggerProvider()) // 可选；不注册则 type=slog fail-fast
 //	appkit.FromBootstrap(cfg, appkit.WithLogRegistry(reg))
-//
-// 也可先用 RegisterBuiltinLogProviders 全量内置再追加自定义（重名 fail-fast）。
 //
 // 两阶段语义：阶段 A（契约装载前）回退默认 bslog 保证启动日志可见；
 // 阶段 B 按 logger.type 查表重建，未注册的 type 构造期 fail-fast。
-// WithLogDecorators 仅对内置路径的 type=slog 与阶段 A 回退生效。
+// WithLogDecorators 仅对默认路径的 type=slog 与阶段 A 回退生效；注册表
+// 路径要消费装饰器，注册一个 deco-aware 的 slog provider 即可。
 func WithLogRegistry(r *baldbootstrap.LogRegistry) BootstrapOption {
 	return func(s *bootstrapSpec) { s.logRegistry = r }
 }
@@ -757,14 +747,11 @@ func rebuildLogger(l *bootstrapv1.Logger, spec *bootstrapSpec, curCleanup *atomi
 	return nil
 }
 
-// resolveLoggerFactory 按 spec 解析日志后端工厂（三级分发）：
-// 显式 WithLoggerFactory > 契约驱动 LogRegistry（WithLogRegistry）> 内置全量注册表。
-// 两条注册表路径均在阶段 A（cfg=nil，契约装载前）回退默认 bslog，阶段 B 查表。
-func resolveLoggerFactory(s *bootstrapSpec) LoggerFactory {
-	switch {
-	case s.logFac != nil:
-		return s.logFac
-	case s.logRegistry != nil:
+// resolveLoggerFactory 按 spec 解析日志后端工厂（两级分发）：
+// 契约驱动 LogRegistry（WithLogRegistry）> 默认纯函数路径。
+// 两条路径均在阶段 A（cfg=nil，契约装载前）回退默认 bslog，阶段 B 分派。
+func resolveLoggerFactory(s *bootstrapSpec) loggerFactory {
+	if s.logRegistry != nil {
 		reg, deco := s.logRegistry, s.logDeco
 		return func(ctx context.Context, l *bootstrapv1.Logger) (log.Logger, func(), error) {
 			if l == nil {
@@ -773,65 +760,53 @@ func resolveLoggerFactory(s *bootstrapSpec) LoggerFactory {
 			}
 			return reg.BuildLogger(ctx, l)
 		}
-	default:
-		return builtinLoggerFactory(s.logDeco)
 	}
+	return defaultLoggerFactory(s.logDeco)
 }
 
-// builtinLoggerFactory 返回内置全量注册表工厂（slog/nop/loki/aliyun/tencent/
-// sentry/charm）：业务侧纯配置声明 logger.type 即生效，零注册代码。
+// defaultLoggerFactory 返回默认路径日志工厂（零 Option 时生效）：
+// 无注册表的纯函数分派，依赖增量严格为零（bslog 本就是 bootstrap 直接依赖）。
 //
 // 四分派：
 //   - 阶段 A（l==nil，契约装载前）：回退默认 bslog，保证启动日志可见；
-//   - backends 非空（多后端广播）：逐项构造后 MultiLogger 合并——type=slog
-//     项走 deco 特例（与单选对称），其余查内置表；任一项失败回滚已构造项；
+//   - backends 非空（多后端广播）：type=slog 项直构（走 deco 特例，与单选
+//     对称）后 MultiLogger 合并；非 slog 项 fail-fast 教学报错；
 //   - type=slog：LogOptions 逐字段映射 + 业务装饰器（deco 是 bslog.Option，
-//     仅 bslog 后端可消费——特例保留 WithLogDecorators 在默认路径的既有语义）；
-//   - 其余 type：查内置表构造；未实现的 type fail-fast 并列出可用项。
-//     （修复此前默认路径静默忽略 logger.type、一律产出 bslog 的缺陷。）
+//     仅 bslog 后端可消费——保留 WithLogDecorators 在默认路径的既有语义）；
+//   - 其余 type：fail-fast 教学报错——远端/自定义后端经 WithLogRegistry
+//     显式注册（错误信息直接给出用法），绝不静默降级为 bslog。
 //
 // 全局脱敏（filter_keys 非空）：backends 合并与 type=slog 两条直构路径在出口
-// 包 log.NewFilterLogger；其余 type 路径经 reg.BuildLogger 已在其出口包装
-//（视图递归不携带 filter_keys，不会双层）——四条路径脱敏语义一致。
-func builtinLoggerFactory(deco []bslog.Option) LoggerFactory {
-	reg := baldbootstrap.NewBuiltinLogRegistry()
-	return func(ctx context.Context, l *bootstrapv1.Logger) (log.Logger, func(), error) {
+// 包 log.NewFilterLogger——与注册表路径（BuildLogger 出口包装）语义一致。
+func defaultLoggerFactory(deco []bslog.Option) loggerFactory {
+	return func(_ context.Context, l *bootstrapv1.Logger) (log.Logger, func(), error) {
 		if l == nil {
 			// 阶段 A（契约装载前）：回退默认 bslog，保证启动日志可见。
 			return bslog.New(baldbootstrap.LogOptions(nil), deco...), nil, nil
 		}
-		// 多后端广播：逐项构造后 MultiLogger 合并；type=slog 项走 deco
-		// 特例（与单选模式对称——WithLogDecorators 对 bslog 后端始终生效）。
+		// 多后端广播：仅 slog 项直构（WithLogDecorators 对 bslog 后端始终生效）；
+		// 非 slog 项默认路径无法构造，fail-fast 并定位到具体项。
 		if bs := l.GetBackends(); len(bs) > 0 {
 			loggers := make([]log.Logger, 0, len(bs))
-			var cleanups []func()
-			for _, b := range bs {
+			for i, b := range bs {
 				v := baldbootstrap.LoggerView(b)
 				if v.GetType() == "slog" {
 					loggers = append(loggers, bslog.New(baldbootstrap.LogOptions(v), deco...))
 					continue
 				}
-				lg, c, err := reg.BuildLogger(ctx, v)
-				if err != nil {
-					for i := len(cleanups) - 1; i >= 0; i-- {
-						cleanups[i]()
-					}
-					return nil, nil, fmt.Errorf("appkit: build logger backend[%d]: %w", len(loggers), err)
-				}
-				loggers = append(loggers, lg)
-				cleanups = append(cleanups, c)
+				return nil, nil, fmt.Errorf("appkit: logger.backends[%d] type %q: default path supports only \"slog\"; use WithLogRegistry (see logger.type error for usage)", i, v.GetType())
 			}
-			merged := func() {
-				for _, c := range cleanups {
-					c()
-				}
-			}
-			return log.NewFilterLogger(log.NewMultiLogger(loggers...), l.GetFilterKeys()...), merged, nil
+			// slog 无需清理，noop 保持 cleanup 恒非 nil 契约（与 BuildLogger 对齐）。
+			return log.NewFilterLogger(log.NewMultiLogger(loggers...), l.GetFilterKeys()...), func() {}, nil
 		}
 		if l.GetType() == "slog" {
 			return log.NewFilterLogger(bslog.New(baldbootstrap.LogOptions(l), deco...), l.GetFilterKeys()...), nil, nil
 		}
-		return reg.BuildLogger(ctx, l)
+		return nil, nil, fmt.Errorf("appkit: logger.type %q: default path supports only \"slog\";\n"+
+			"  remote/custom backends need explicit registration:\n"+
+			"    reg := bootstrap.NewLogRegistry()\n"+
+			"    reg.MustRegister(lokicontract.Type, lokicontract.Provider) // log/loki/contract\n"+
+			"    appkit.FromBootstrap(cfg, appkit.WithLogRegistry(reg))", l.GetType())
 	}
 }
 

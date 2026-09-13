@@ -197,16 +197,6 @@ func BslogLoggerProvider() LoggerProvider {
 	}
 }
 
-// NopLoggerProvider 返回 nop 后端工厂（契约 Type="nop"，注册名 "nop"）。
-//
-// 显式选择 bald 默认的静默日志能力：零输出、零清理、Enabled 恒 false。
-// nop 无配置段，契约校验天然放行；适合测试与只需业务指标的场景。
-func NopLoggerProvider() LoggerProvider {
-	return func(_ context.Context, _ *bootstrapv1.Logger) (log.Logger, func(), error) {
-		return log.NewNop(), nil, nil
-	}
-}
-
 // LogOptions 把契约的 Logger 配置转为 bslog.Options。
 //
 // 原属 pkg/conf（LogOptions，confv1 版），legacy 契约退役后迁入装配层：

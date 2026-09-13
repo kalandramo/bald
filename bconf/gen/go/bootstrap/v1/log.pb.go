@@ -39,7 +39,6 @@ const (
 	Logger_ALIYUN           Logger_Type = 12
 	Logger_TENCENT          Logger_Type = 13
 	Logger_CLOUDWATCH       Logger_Type = 14
-	Logger_NOP              Logger_Type = 15
 )
 
 // Enum value maps for Logger_Type.
@@ -60,7 +59,6 @@ var (
 		12: "ALIYUN",
 		13: "TENCENT",
 		14: "CLOUDWATCH",
-		15: "NOP",
 	}
 	Logger_Type_value = map[string]int32{
 		"TYPE_UNSPECIFIED": 0,
@@ -78,7 +76,6 @@ var (
 		"ALIYUN":           12,
 		"TENCENT":          13,
 		"CLOUDWATCH":       14,
-		"NOP":              15,
 	}
 )
 
@@ -1606,7 +1603,7 @@ var File_bootstrap_v1_log_proto protoreflect.FileDescriptor
 
 const file_bootstrap_v1_log_proto_rawDesc = "" +
 	"\n" +
-	"\x16bootstrap/v1/log.proto\x12\fbootstrap.v1\"\x9a#\n" +
+	"\x16bootstrap/v1/log.proto\x12\fbootstrap.v1\"\x91#\n" +
 	"\x06Logger\x12\x12\n" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x12/\n" +
 	"\x03zap\x18\x02 \x01(\v2\x18.bootstrap.v1.Logger.ZapH\x00R\x03zap\x88\x01\x01\x12;\n" +
@@ -1769,7 +1766,7 @@ const file_bootstrap_v1_log_proto_rawDesc = "" +
 	"\a_aliyunB\n" +
 	"\n" +
 	"\b_tencentB\r\n" +
-	"\v_cloudwatch\"\xc8\x01\n" +
+	"\v_cloudwatch\"\xbf\x01\n" +
 	"\x04Type\x12\x14\n" +
 	"\x10TYPE_UNSPECIFIED\x10\x00\x12\a\n" +
 	"\x03ZAP\x10\x01\x12\v\n" +
@@ -1792,8 +1789,7 @@ const file_bootstrap_v1_log_proto_rawDesc = "" +
 	"\x06ALIYUN\x10\f\x12\v\n" +
 	"\aTENCENT\x10\r\x12\x0e\n" +
 	"\n" +
-	"CLOUDWATCH\x10\x0e\x12\a\n" +
-	"\x03NOP\x10\x0fB\x06\n" +
+	"CLOUDWATCH\x10\x0eB\x06\n" +
 	"\x04_zapB\n" +
 	"\n" +
 	"\b_zerologB\a\n" +

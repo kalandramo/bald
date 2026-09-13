@@ -7,7 +7,7 @@ Status: Accepted（已实现，随 bald v0.3.x 发布）
 
 ## 摘要
 
-`bald/log` 为整个框架提供**唯一的日志抽象**：6 方法的 `Logger` 接口、并发安全的全局句柄、零成本的 nop 默认。契约层零第三方依赖；标准库 `log/slog` 适配器（`log/bslog` 子包，包名 `bslog`）开箱即用；五个远端/终端后端（loki / aliyun / tencent / sentry / charm）各自独立成 module，经 `contract` 子包接入契约装配；`logger.backends` 声明即多后端广播（本地 + 远程双写，2026-09-13）。本文回答三个问题：为什么契约这么瘦、为什么后端独立成 module、为什么装配保持显式注册（反 init 纪律）而业务侧又能零注册代码（内置全量注册表，2026-09-13）。最重要的承诺：**框架核心永远不 import 任何具体日志库，新后端接入对框架零改动。**
+`bald/log` 为整个框架提供**唯一的日志抽象**：6 方法的 `Logger` 接口、并发安全的全局句柄、零成本的 nop 默认。契约层零第三方依赖；标准库 `log/slog` 适配器（`log/bslog` 子包，包名 `bslog`）开箱即用；五个远端/终端后端（loki / aliyun / tencent / sentry / charm）各自独立成 module，经 `contract` 子包接入契约装配；`logger.backends` 声明即多后端广播（本地 + 远程双写）。本文回答三个问题：为什么契约这么瘦、为什么后端独立成 module、为什么装配保持显式注册（反 init 纪律）而默认路径零依赖零代码（纯函数分派 + 教学报错，2026-09-13 同日两轮收敛）。最重要的承诺：**框架核心永远不 import 任何具体日志库，新后端接入对框架零改动、不进默认依赖树。**
 
 > 本文是按当前代码（v0.3.x）整理的设计文档。
 
@@ -26,7 +26,7 @@ bald 的需求一句话定性：**日志后端的选择是横切关注点，归�
 ```mermaid
 flowchart TB
     subgraph BOOT["bootstrap · 装配层【独立 module】"]
-        REG["LogRegistry + BuildLogger + LoggerView<br/>+ BslogLoggerProvider / NopLoggerProvider<br/>+ 内置全量注册表 ×7 + LogOptions"]
+        REG["LogRegistry + BuildLogger + LoggerView<br/>+ BslogLoggerProvider + LogOptions"]
     end
 
     subgraph BACKEND["log/{loki, aliyun, tencent, sentry, charm} · 后端层【各自独立 module】"]
@@ -49,7 +49,7 @@ flowchart TB
     BCONF -.->|"logger.type 驱动查表装配"| BOOT
 ```
 
-依赖方向单一向上：后端 → 契约；装配 → 契约 + 后端 + bconf；框架核心 → 仅契约。远端后端独立 module 是有意的——阿里云 SLS SDK 一个 import 就拖进 prometheus 全家桶（见 `log/aliyun/go.mod` 的 indirect 列表），module 边界让这份代价只由真正使用该后端的项目承担；bootstrap 的内置全量注册是该边界外的**聚合点**付费（同 bconfig 捆绑配置源），不改变纯契约层/适配器层的零依赖承诺。
+依赖方向单一向上：后端 → 契约；装配 → 契约 + bconf + bslog；框架核心 → 仅契约。远端后端独立 module 是有意的——阿里云 SLS SDK 一个 import 就拖进 prometheus 全家桶（见 `log/aliyun/go.mod` 的 indirect 列表），module 边界让这份代价只由真正使用该后端的项目承担；装配层只 import bslog（默认路径依赖增量为零），后端接入与否完全由用户注册决定。
 
 ### 契约层：`Logger` 接口（log/log.go）
 
@@ -90,7 +90,7 @@ moduleLog := log.With("module", "registry")               // 可长期持有的�
 
 ### nop 默认与 ctx 属性流
 
-- 未注入时全局句柄为 `nopLogger{}`：全部空实现、`Enabled` 恒 false。`import log` 零副作用，bald-crud 这类库可放心引用契约而不强迫宿主初始化日志。`NewNop()` 导出该实现，供装配层按契约 `type: nop` 显式选择静默。
+- 未注入时全局句柄为 `nopLogger{}`：全部空实现、`Enabled` 恒 false。`import log` 零副作用，bald-crud 这类库可放心引用契约而不强迫宿主初始化日志。nop 是内部实现不导出构造——契约层曾提供 `type: nop` 显式静默入口（2026-09-13 同日删除）：全工作区零业务消费，"完全静默"场景经论证虚无（`level: error` 覆盖且保留 Error 线索；真零日志场景裸用契约层默认即 nop）。
 - `ContextWithAttrs(ctx, attrs...)` / `ContextAttrs(ctx)`（context.go）：中间件在请求入口挂 `trace_id` 等字段，请求范围内日志自动携带。契约层只挂载/读取（私有 key，重复挂载合并），**不解释属性**——slog 适配器在落盘前合并进参数列表。observability 中间件经此路让每条请求日志带 `trace_id`；SpanContext 无效时 `middleware.LogTraceIDs` 生成随机兜底 ID，零配置也有可关联的日志链路。
 
 ### MultiLogger：多源广播（log/multi.go）
@@ -140,7 +140,7 @@ OTel 桥接刻意零依赖：核心不 import otel，`WithOTelHandler` 只是 `W
 
 **ctx 属性流的跨后端能力（六后端语义一致）**：请求入口经 `ContextWithAttrs` 挂载的属性（如 `trace_id`），由全部六后端在**构造日志条目时同步合并**——bslog 在 handler 层合并，其余五后端经契约 helper `ContextAttrsToArgs(ctx)`（拍平为 kv 序列，无属性返回 nil）在入队/构建事件时提取；同步提取不受异步 flush 的 ctx 失效影响。合并顺序统一为 `With 属性 → ctx 属性 → 调用参数`，同名 key 后者覆盖前者（与 slog 语义一致）。设计边界：**取值用 ctx、IO 不绑 ctx**——日志发送不随请求 ctx 取消而丢弃（loki flush 自建 `Background+timeout`，producer 型后端由 SDK 管理重试）。
 
-### 装配层：注册表 + 三级工厂 + 两阶段
+### 装配层：注册表 + 两级工厂 + 两阶段
 
 `bootstrap.LogRegistry` 按名注册后端工厂，**显式 `MustRegister`，无 `init()` 自注册**（blank import 是 no-op，bald 全框架反 init 纪律）：
 
@@ -155,21 +155,29 @@ defer cleanup()
 
 `BuildLogger` 全 fail-fast：cfg 为 nil、type 为空、type 未注册（错误列出全部已注册名）、provider 返回 nil Logger 均报错——日志是必需品，与配置源"nil=跳过"语义刻意不同。cleanup 恒非 nil，可直接 `defer`。
 
-更常用的是 AppKit（`appkit.FromBootstrap`）三级工厂分发：
+更常用的是 AppKit（`appkit.FromBootstrap`）两级工厂分发：
 
 ```text
-WithLoggerFactory（显式工厂） > WithLogRegistry（契约查表） > 内置全量注册表
+WithLogRegistry（契约查表，注册名单自控） > 默认纯函数路径（零 Option 零依赖）
 ```
 
-**内置全量注册表（2026-09-13）**：默认路径不再固定为 bslog 工厂，改走 `bootstrap.NewBuiltinLogRegistry()`——slog / nop / loki / aliyun / tencent / sentry / charm 七后端全量预注册，**业务侧纯配置声明 `logger.type` 即生效、零注册代码**。内置名单为编译期固定的包级名单（Go 切片无法 `const`，`var` 固定内容等效编译期确定；`RegisterBuiltinLogProviders` 亦可对自定义注册表组合调用，重名 fail-fast）；`NewLogRegistry()` 保持空表语义不变。依赖账本裁定：bootstrap 经 bconfig 已捆绑全部配置源 SDK（consul/vault/nacos/etcd/apollo/k8s），日志后端「多选一、全捆绑」与之同模式。逃生口保留：介意二进制体积或需自定义后端时，显式 `WithLogRegistry` 精选注册，行为与此前完全一致。
+注册表路径机制全权（查表 / backends 合并 / 出口脱敏 / fail-fast）；默认路径无注册表——阶段 A 回退 bslog、`type: slog` 直构带 deco、其余 type fail-fast 教学报错（错误信息直接给出 `WithLogRegistry` 三行用法）。两条路径的使用场景、nil 双语义与装饰器（deco）分级的设计论证，独立成篇见 **`AppKit 日志装配设计.md`**（含同日"三级工厂 + 七后端内置全量 → 两级"的收缩记录）——AppKit 只持有装配策略（生命周期、用户 Options、兜底语义），查表构造/backends 合并/出口脱敏等机制全部委托本文所述 `LogRegistry`。
 
-内置路径四分派：阶段 A（契约装载前）回退默认 bslog；`backends` 非空走多后端广播（逐项构造 + MultiLogger 合并，slog 项同样走 deco 特例——与单选对称）；`type=slog` 走 `LogOptions` + 业务装饰器（`WithLogDecorators` 是 `bslog.Option`，仅 bslog 后端可消费）；其余 type 查内置表构造。此改造同时修复一个缺陷：此前默认路径**静默忽略 `logger.type`**（配 `type: loki` 不报错却产出 bslog），现在未实现的 type fail-fast 并列出可用项——诚实报错优于静默降级。
+默认路径依赖增量严格为零：bslog 本就是 bootstrap 的直接依赖，不注册就不 import 后端包，SDK 不进依赖树。远端/自定义后端三行注册即契约可达：
+
+```go
+reg := bootstrap.NewLogRegistry()
+reg.MustRegister(lokicontract.Type, lokicontract.Provider) // log/loki/contract
+appkit.FromBootstrap(cfg, appkit.WithLogRegistry(reg))
+```
+
+默认路径四分派：阶段 A（契约装载前）回退默认 bslog；`backends` 非空走多后端广播（slog 子项直构 + deco 特例后 MultiLogger 合并，非 slog 子项 fail-fast 定位报错）；`type=slog` 走 `LogOptions` + 业务装饰器（`WithLogDecorators` 是 `bslog.Option`，仅 bslog 后端可消费）；其余 type fail-fast 教学——**绝不静默降级**。此形态同时修复历史缺陷：默认路径曾**静默忽略 `logger.type`**（配 `type: loki` 不报错却产出 bslog），现在任何配置错误都 fail-fast 且可行动。
 
 两阶段语义解决"契约装载过程的日志往哪打"：**阶段 A（契约装载前）回退默认 slog 保证启动日志可见；阶段 B 装载校验后按 `logger.type` 重建。** 契约热更新时 `rebuildLogger` 重建后端并原子替换 cleanup 钩子，失败只记错误不中断（换后端失败不应杀死正在服务的进程）。换后端时旧钩子被同步兑现（先切全局句柄再冲刷旧后端）——带缓冲后端（loki 尾批）不因热切换丢日志；停机 Effect 链同样释放最新钩子。
 
 ### 业务接入示例：零代码装配
 
-业务 `main.go` 不写任何日志代码——FromBootstrap 默认路径已内置全量注册表，`logger.type` 是唯一开关：
+业务 `main.go` 不写任何日志代码——默认路径开箱即用（slog），`logger.type: slog` 是唯一开关：
 
 ```go
 // main.go 全部日志相关代码：没有。
@@ -193,7 +201,13 @@ logger:
       compress: true
 ```
 
-切远端 Loki 只换 `type`（同仓可运行示例见 `_example/bald`）：
+切远端 Loki 换 `type` + 三行注册（同仓可运行示例见 `_example/bald`）：
+
+```go
+reg := baldbootstrap.NewLogRegistry()
+reg.MustRegister(lokicontract.Type, lokicontract.Provider)
+app := appkit.FromBootstrap(cfg, appkit.WithLogRegistry(reg))
+```
 
 ```yaml
 logger:
@@ -203,7 +217,7 @@ logger:
     labels: { app: myapp }
 ```
 
-本地 + 远程双写用 `backends`（非空时优先于单 `type`，逐项独立 level/format）：
+本地 + 远程双写用 `backends`（非空时优先于单 `type`，逐项独立 level/format；**含远端子项需 `WithLogRegistry` 注册路径**——默认路径仅接受 slog 子项）：
 
 ```yaml
 logger:
@@ -217,7 +231,7 @@ logger:
 
 `filter_keys` 是 Logger 顶层全局字段（与单选/`backends` 正交）：单选与多后端模式均生效，装配层在最终 Logger（单后端或合并后的 MultiLogger）出口统一包装 `log.NewFilterLogger`——覆盖调用参数、`With` 派生、ctx 属性流三类来源，全部后端共享同一份过滤。
 
-热更新：`WithWatchConfig(true)` 下改 yaml 即重建后端（副本试装载 + 校验 + 原子替换），改坏只记错不杀进程。唯一仍需代码的场景是业务装饰器（脱敏/固定属性，`WithLogDecorators`）与自定义后端（`WithLogRegistry` 精选注册）。
+热更新：`WithWatchConfig(true)` 下改 yaml 即重建后端（副本试装载 + 校验 + 原子替换），改坏只记错不杀进程。仍需代码的场景：业务装饰器（脱敏/固定属性，`WithLogDecorators`）与远端/自定义后端注册（`WithLogRegistry`）。
 
 契约形状差异已收口（2026-09-13）：`Slog` 段补齐 `output_paths`（多输出，优先于单值 `output_path`）与 `rotate` 段（enabled / max_size / max_backups / max_age / compress，零值字段回退 bslog 默认 100MB/7 份/30 天/gzip），`LogOptions` 全量映射——契约装配与 CLI/Options 直构路径能力对齐，多目标复制分流 + lumberjack 轮转纯配置声明即生效。单值 `output_path` 保留（与 Zap/Zerolog 家族同形），既有配置零迁移。
 
@@ -266,13 +280,14 @@ logger:
 - [x] 远端/终端后端 ×5（2026-09-06 移植 go-wind-plugins/log）：独立 module + contract 子包，契约各后端段全部有消费者。
 - [x] ctx 属性流六后端全量落地（2026-09-13）：契约 `ContextAttrsToArgs` helper + aliyun/tencent/loki/sentry/charm 入队时同步合并，含 key 覆盖顺序与 nil ctx 单测。
 - [x] loki With 派生实例缓冲共享修复（2026-09-13）：`shared` 状态结构体重构，派生实例写入同一缓冲、任一实例 `Close` 全量冲刷（httptest 端到端回归测试）。
-- [x] 装配层：LogRegistry（显式注册、fail-fast、cleanup 恒非 nil）+ BslogLoggerProvider + NopLoggerProvider + LogOptions + 内置全量注册表（`NewBuiltinLogRegistry` / `RegisterBuiltinLogProviders`，七后端预注册，2026-09-13）。
-- [x] 契约 nop 类型（2026-09-13）：proto Type 枚举 `NOP = 15` + 契约层 `NewNop()` 导出构造——配置 `type: nop` 显式选择静默后端（测试、只需业务指标的场景）。
-- [x] AppKit 集成：三级工厂（默认路径升级为内置全量注册表，修复 `logger.type` 静默忽略缺陷）、两阶段装载、热更新 `rebuildLogger` 原子换后端。
+- [x] 装配层：LogRegistry（显式注册、fail-fast、cleanup 恒非 nil）+ BslogLoggerProvider + LogOptions。内置全量注册表（`NewBuiltinLogRegistry` / `RegisterBuiltinLogProviders`）2026-09-13 同日撤销——依赖膨胀不成比例，五后端 SDK 依赖从 bootstrap 退场。
+- [x] 契约 nop 类型（2026-09-13 加、同日撤）：零业务消费，`NewNop()` 导出与 proto `NOP = 15` 一并删除；`nopLogger{}` 内部实现保留为全局默认。
+- [x] AppKit 集成：两级工厂（`WithLogRegistry` 机制全权 > 默认纯函数四分派 + 教学报错，修复 `logger.type` 静默忽略缺陷；`WithLoggerFactory` 全接管工厂同日删除——与 LoggerProvider 签名重复）、两阶段装载、热更新 `rebuildLogger` 原子换后端。
 - [x] Slog 契约补齐多输出 + 轮转（2026-09-13）：proto `output_paths` + `Rotate` 段，`LogOptions` 全量映射（output_paths 优先 / 零值回退默认），bconf 校验（空串项 / 负值 fail-fast）——契约装配与 CLI/Options 直构路径能力对齐。
 - [x] 多后端广播契约接入（2026-09-13）：proto `Logger.backends`（repeated Backend，项形状与单选平行，非空优先于单 type）+ `bootstrap.LoggerView` 视图归一化 + `BuildLogger` 多后端分支（逐项构造、MultiLogger 合并、失败回滚）+ appkit 内置路径四分派（slog 项 deco 对称）——MultiLogger 从纯装饰器升级为契约可达能力，本地 + 远程双写纯配置声明。
 - [x] bslog 直写文件路径自动创建父目录（2026-09-13，`log/v0.3.1`）：对齐 lumberjack 轮转路径的首写 MkdirAll——修复嵌套目录缺失时静默回退 stdout 的不对称。
 - [x] 全后端脱敏 `NewFilterLogger` + `logger.filter_keys` 契约（2026-09-13）：契约层通用装饰器（调用参数/With 派生/ctx 属性流三级来源全覆盖、空清单零开销直通）+ proto `filter_keys=17`（bconf 空串项 fail-fast）+ `BuildLogger`/appkit 出口统一包装（单选、backends、type=slog 特例三路径一致）——远端可检索平台（loki/SLS/CLS/sentry）纯配置声明即脱敏；WithHandler/OTel 明确不下沉五后端（互斥后端选择 + 无统一 handler 层可抽象）。
+- [x] 默认路径收缩为纯函数 + 教学报错（2026-09-13 二轮）：删除 `WithLoggerFactory` / 内置全量注册表 / `type: nop` 入口三件套（`log.NewNop` 导出、`NopLoggerProvider`、proto `NOP=15`）——默认路径依赖增量归零，远端后端经 `WithLogRegistry` 三行注册；收缩论证与绕圈记录见《AppKit 日志装配设计.md》。
 - [x] trace 关联闭环：observability 中间件经 `ContextWithAttrs` 挂 `trace_id`，零 TracerProvider 时随机 ID 兜底。
 - [x] 框架内包级函数惯例全量替换（192 处）。
 
@@ -313,6 +328,6 @@ logger:
 
 ### 历史锚点
 
-关键拍板时间线（详见 git 记录）：2026-08-24 日志归 bootstrap、AppKit 零副作用；08-29 OTel 桥接 + observability 中间件闭环；09-01 lumberjack 轮转落地 + gookit 评估；09-05 契约+子包布局（后演进为独立 module）；09-06 五远端/终端后端移植；09-13 bslog 更名、内置全量注册表、ctx 属性流六后端、多输出/轮转契约、backends 广播、父目录自动创建。
+关键拍板时间线（详见 git 记录）：2026-08-24 日志归 bootstrap、AppKit 零副作用；08-29 OTel 桥接 + observability 中间件闭环；09-01 lumberjack 轮转落地 + gookit 评估；09-05 契约+子包布局（后演进为独立 module）；09-06 五远端/终端后端移植；09-13 bslog 更名、内置全量注册表落地与同日收缩（两级工厂 + 删 nop + 默认纯函数）、ctx 属性流六后端、多输出/轮转契约、backends 广播、父目录自动创建。
 
-关联文档：`Bald 配置系统设计.md`（四源配置）、`应用框架设计.md`（AppKit 生命周期）、`AppKit FromBootstrap 约定装配.md`（装配全景）、`指标抽象设计.md`（可观测性闭环）。
+关联文档：`AppKit 日志装配设计.md`（AppKit 侧两级工厂与 deco 分级——本文装配策略的展开篇）、`Bald 配置系统设计.md`（四源配置）、`应用框架设计.md`（AppKit 生命周期）、`AppKit FromBootstrap 约定装配.md`（装配全景）、`指标抽象设计.md`（可观测性闭环）。

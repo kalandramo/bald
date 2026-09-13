@@ -23,7 +23,6 @@ message Logger {
     ALIYUN = 12;
     TENCENT = 13;
     CLOUDWATCH = 14;
-    NOP = 15;
   }
 
   // Zap 日志配置。

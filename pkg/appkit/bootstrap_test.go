@@ -39,26 +39,9 @@ func stubLogger() log.Logger {
 	return bslog.New(bslog.NewOptions())
 }
 
-// 日志工厂三级分发：显式 WithLoggerFactory > 契约注册表（WithLogRegistry）> 默认 bslog。
+// 日志工厂两级分发：契约注册表（WithLogRegistry）> 默认纯函数路径。
 func TestResolveLoggerFactory(t *testing.T) {
-	// ① 显式工厂优先（即使同时声明了注册表）。
-	calls := 0
-	explicit := LoggerFactory(func(context.Context, *bootstrapv1.Logger) (log.Logger, func(), error) {
-		calls++
-		return stubLogger(), nil, nil
-	})
-	fac := resolveLoggerFactory(&bootstrapSpec{
-		logFac:      explicit,
-		logRegistry: baldbootstrap.NewLogRegistry(),
-	})
-	if _, _, err := fac(context.Background(), nil); err != nil {
-		t.Fatalf("explicit factory: %v", err)
-	}
-	if calls != 1 {
-		t.Fatalf("explicit factory calls = %d, want 1", calls)
-	}
-
-	// ② 注册表：阶段 A（cfg=nil）回退默认 bslog（不触发表）；阶段 B 按 type 查表。
+	// ① 注册表：阶段 A（cfg=nil）回退默认 bslog（不触发表）；阶段 B 按 type 查表。
 	hits := 0
 	lr := baldbootstrap.NewLogRegistry()
 	lr.MustRegister("fake", func(_ context.Context, cfg *bootstrapv1.Logger) (log.Logger, func(), error) {
@@ -88,22 +71,22 @@ func TestResolveLoggerFactory(t *testing.T) {
 		t.Fatalf("registry hits = %d, want 1", hits)
 	}
 
-	// ③ 注册表未覆盖的契约 type → fail-fast（列出已注册项）。
+	// ② 注册表未覆盖的契约 type → fail-fast（列出已注册项）。
 	if _, _, err := regFac(context.Background(), &bootstrapv1.Logger{Type: "nope"}); err == nil {
 		t.Fatal("expected unknown logger type fail-fast")
 	}
 
-	// ④ 都不声明 → 默认 bslog 工厂。
+	// ③ 都不声明 → 默认纯函数路径：阶段 A 回退可用。
 	defFac := resolveLoggerFactory(&bootstrapSpec{})
 	lg2, _, err := defFac(context.Background(), nil)
 	if err != nil || lg2 == nil {
-		t.Fatalf("default slog factory: %v", err)
+		t.Fatalf("default path phase A: (%v, %v)", lg2, err)
 	}
 }
 
-// 内置全量注册表为默认路径（修复此前静默忽略 logger.type 的缺陷）：
-// 阶段 A 回退不变；type=slog 保留装饰器特例；其余 type 按声明构造或 fail-fast。
-func TestBuiltinDefaultPath(t *testing.T) {
+// 默认路径纯函数分派：阶段 A 回退；type=slog 直构；其余 type（含远端后端与
+// 已删除的 nop）fail-fast 教学报错（错误给出 WithLogRegistry 用法），绝不静默降级。
+func TestDefaultPath(t *testing.T) {
 	fac := resolveLoggerFactory(&bootstrapSpec{})
 
 	// 阶段 A（l==nil）：回退默认 bslog。
@@ -111,54 +94,53 @@ func TestBuiltinDefaultPath(t *testing.T) {
 		t.Fatalf("phase A fallback: (%v, %v)", lg, err)
 	}
 
-	// type=loki：按声明构造真实 loki 后端（假 endpoint，构造期零网络）。
-	ll, cleanup, err := fac(context.Background(), &bootstrapv1.Logger{
+	// type=loki：默认路径不查表，fail-fast 教学报错（不静默替换为 bslog）。
+	_, _, err := fac(context.Background(), &bootstrapv1.Logger{
 		Type: "loki",
 		Loki: &bootstrapv1.Logger_Loki{Endpoint: "http://127.0.0.1:1/loki/api/v1/push"},
 	})
-	if err != nil || ll == nil {
-		t.Fatalf("type=loki should build real backend, got (%v, %v)", ll, err)
-	}
-	cleanup()
-
-	// type=nop：静默后端。
-	nl, ncleanup, err := fac(context.Background(), &bootstrapv1.Logger{Type: "nop"})
-	if err != nil || nl == nil {
-		t.Fatalf("type=nop: (%v, %v)", nl, err)
-	}
-	ncleanup()
-	if nl.Enabled(log.LevelError) {
-		t.Fatal("nop backend should never be enabled")
+	if err == nil || !strings.Contains(err.Error(), "WithLogRegistry") {
+		t.Fatalf("type=loki should fail-fast with usage, got: %v", err)
 	}
 
-	// type=zap（未实现）：fail-fast 列出可用项，不再静默替换为 bslog。
-	if _, _, err := fac(context.Background(), &bootstrapv1.Logger{Type: "zap"}); err == nil {
-		t.Fatal("unimplemented type should fail-fast, not silently fall back")
+	// type=zap：同样 fail-fast 教学。
+	if _, _, err := fac(context.Background(), &bootstrapv1.Logger{Type: "zap"}); err == nil ||
+		!strings.Contains(err.Error(), "WithLogRegistry") {
+		t.Fatalf("type=zap should fail-fast with usage, got: %v", err)
 	}
 
-	// ④ backends 多后端广播：slog（deco 特例）+ loki（查表）合并为 MultiLogger。
-	ml, mcleanup, err := fac(context.Background(), &bootstrapv1.Logger{
+	// backends 含非 slog 子项：fail-fast 并定位到具体项。
+	_, _, err = fac(context.Background(), &bootstrapv1.Logger{
 		Backends: []*bootstrapv1.Logger_Backend{
 			{Type: "slog", Slog: &bootstrapv1.Logger_Slog{Level: "info", Format: "console", OutputPath: "stdout"}},
 			{Type: "loki", Loki: &bootstrapv1.Logger_Loki{Endpoint: "http://127.0.0.1:1/loki/api/v1/push"}},
 		},
 	})
+	if err == nil || !strings.Contains(err.Error(), "backends[1]") {
+		t.Fatalf("backends with non-slog item should fail-fast with index, got: %v", err)
+	}
+
+	// backends 全 slog 项：直构合并 MultiLogger。
+	ml, mcleanup, err := fac(context.Background(), &bootstrapv1.Logger{
+		Backends: []*bootstrapv1.Logger_Backend{
+			{Type: "slog", Slog: &bootstrapv1.Logger_Slog{Level: "info", Format: "console", OutputPath: "stdout"}},
+		},
+	})
 	if err != nil || ml == nil {
-		t.Fatalf("backends should build MultiLogger, got (%v, %v)", ml, err)
+		t.Fatalf("all-slog backends should build MultiLogger, got (%v, %v)", ml, err)
 	}
-	if mcleanup == nil {
-		t.Fatal("backends cleanup must be non-nil")
+	if mcleanup != nil {
+		mcleanup()
 	}
-	mcleanup()
 	// Enabled 语义：slog(info) 启用 Info——MultiLogger 任一子启用即启用。
 	if !ml.Enabled(log.LevelInfo) {
 		t.Fatal("MultiLogger should enable Info via slog child")
 	}
 }
 
-// TestBuiltinDefaultPath_FilterKeys 全局脱敏在内置路径生效：type=slog 特例
+// TestDefaultPath_FilterKeys 全局脱敏在默认路径生效：type=slog 特例
 // 与 backends 直构路径出口包 FilterLogger（filter_keys 与 deco 可叠加）。
-func TestBuiltinDefaultPath_FilterKeys(t *testing.T) {
+func TestDefaultPath_FilterKeys(t *testing.T) {
 	fac := resolveLoggerFactory(&bootstrapSpec{})
 
 	// type=slog 直构路径。
@@ -205,8 +187,8 @@ func TestBuiltinDefaultPath_FilterKeys(t *testing.T) {
 	}
 }
 
-// TestBuiltinDefaultPath_SlogDecorators type=slog 在内置路径保留装饰器语义。
-func TestBuiltinDefaultPath_SlogDecorators(t *testing.T) {
+// TestDefaultPath_SlogDecorators type=slog 在默认路径保留装饰器语义。
+func TestDefaultPath_SlogDecorators(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "deco.log")
 	fac := resolveLoggerFactory(&bootstrapSpec{
 		logDeco: []bslog.Option{bslog.WithAttrs(slog.String("deco", "yes"))},
@@ -421,27 +403,33 @@ func TestFromBootstrap_LoggerLifecycle(t *testing.T) {
 	cfg := bconf.NewBootstrap()
 	dynamicAddr(cfg)
 
-	cf := &countingFactory{}
-	a, err := FromBootstrap(cfg, WithHTTP(new(http.ServeMux)), WithLoggerFactory(cf.factory))
+	// 注册表 stub provider：记录阶段 B 查表收到的契约段。
+	var got []*bootstrapv1.Logger
+	lr := baldbootstrap.NewLogRegistry()
+	lr.MustRegister("slog", func(_ context.Context, l *bootstrapv1.Logger) (log.Logger, func(), error) {
+		got = append(got, l) // 构造与 BeforeStart 均主 goroutine，无需锁。
+		return stubLogger(), nil, nil
+	})
+	a, err := FromBootstrap(cfg, WithHTTP(new(http.ServeMux)), WithLogRegistry(lr))
 	if err != nil {
 		t.Fatalf("FromBootstrap: %v", err)
 	}
 
-	// 阶段 A 已发生：构造期恰好一次，入参为 nil 段。
-	if n := cf.calls(); n != 1 {
-		t.Fatalf("factory calls after construct = %d, want 1", n)
+	// 阶段 A 已发生：全局句柄已是回退 bslog（非 old），且未查表。
+	if log.GetLogger() == old {
+		t.Fatal("phase A should install fallback logger, global still old")
 	}
-	if cf.args[0] != nil {
-		t.Fatal("phase A should receive nil logger segment")
+	if len(got) != 0 {
+		t.Fatalf("phase A must not consult registry, hits = %d", len(got))
 	}
 
 	runBriefly(t, a, 30*time.Millisecond)
 
-	// 阶段 B：BeforeStart 按契约段重建，恰好再一次。
-	if n := cf.calls(); n != 2 {
-		t.Fatalf("factory calls after run = %d, want 2", n)
+	// 阶段 B：BeforeStart 按契约段查表重建，恰好一次，入参为契约终值。
+	if len(got) != 1 {
+		t.Fatalf("registry hits after run = %d, want 1", len(got))
 	}
-	if cf.args[1] == nil || cf.args[1].GetSlog().GetLevel() != cfg.GetLogger().GetSlog().GetLevel() {
+	if got[0] == nil || got[0].GetSlog().GetLevel() != cfg.GetLogger().GetSlog().GetLevel() {
 		t.Fatal("phase B should receive contract logger segment")
 	}
 

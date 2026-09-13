@@ -61,6 +61,7 @@ Effect；实例经 `app.Database/Cache/Storage` 取回注入）——go-bald-adm
 3. **日志两阶段**：阶段 A（构造期，默认 Logger，保证契约装载前有日志）→
    阶段 B（BeforeStart 装载+校验后按契约 logger 段重建）→ 停机经 Effect 恢复
    原 Logger 并释放后端。业务装饰器（脱敏）阶段 A/B 统一生效。
+   （两级工厂分发与 deco 分级的设计论证见《AppKit 日志装配设计.md》。）
 4. **ConfigRegistry**：契约 Config 段经 `bootstrap.Registry.Build` 产出配置层
    （注册序=层优先级），cleanup 挂 Effect 停机释放。
 5. **BeforeStart**：Settings→Unmarshal→Validate→rebuildLogger。
@@ -94,8 +95,7 @@ app, err := appkit.FromBootstrap(bootstrap,
     appkit.WithGatewayRegister(fn),                // gateway 转码能力（driver=grpc-gateway 选网关面）
     appkit.WithConfigRegistry(reg),                // 契约 Config 段层装配
     appkit.WithRemoteConfig(src),                  // kratos 桥远程源
-    appkit.WithLoggerFactory(f),                   // 换日志后端（默认 slog）
-    appkit.WithLogRegistry(reg),                   // 契约驱动日志后端（logger.type 查表；log/<backend>/contract 注册）
+    appkit.WithLogRegistry(reg),                   // 契约驱动日志后端（logger.type 查表；log/<backend>/contract 注册；不声明时默认路径仅 type=slog + 教学报错）
     appkit.WithDatabaseRegistry(dbReg),            // 契约驱动数据库客户端（database.<engine> 段查表；contrib/database/<engine>/contract 注册）
     appkit.WithCacheRegistry(cacheReg),            // 契约驱动缓存实例（cache.<backend> 段查表；cache/<backend>/contract 注册）
     appkit.WithStorageRegistry(storageReg),        // 契约驱动对象存储（storage.<backend> 段查表；oss/<backend>/contract 注册）

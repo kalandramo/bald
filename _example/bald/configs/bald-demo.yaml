@@ -38,15 +38,14 @@ server:
 
 # ---------------------------------------------------------------------------
 # 日志（bootstrapv1.Logger：type 选后端 + 各后端参数段）
-# 内置全量注册表：type 纯配置声明即生效（slog/nop/loki/aliyun/tencent/
-# sentry/charm 七后端预注册），业务 main 零注册代码；仅自定义后端或精选子集
-# （控制二进制体积）才需 WithLogRegistry 显式注册。
+# 默认路径零注册代码：type=slog（标准库适配器）开箱即用。
+# 远端/自定义后端（loki/aliyun/tencent/sentry/charm/自有）需 main 里三行注册：
+#   reg := bootstrap.NewLogRegistry()
+#   reg.MustRegister(lokicontract.Type, lokicontract.Provider)
+#   appkit.FromBootstrap(cfg, appkit.WithLogRegistry(reg))
 # ---------------------------------------------------------------------------
 logger:
   type: "slog"
-  # 全局脱敏（可选）：命中 key 的属性值在全部后端统一掩码为 ***（含调用参数、
-  # With 派生、ctx 属性流三类来源；单选与 backends 模式均生效，留空零开销）：
-  # filter_keys: ["password", "access_token"]
   # 全局脱敏（可选）：命中 key 的属性值在全部后端统一掩码为 ***（含调用参数、
   # With 派生、ctx 属性流三类来源；单选与 backends 模式均生效，留空零开销）：
   # filter_keys: ["password", "access_token"]
@@ -68,7 +67,7 @@ logger:
     #   max_backups: 7   # 保留份数（不含当前）；0 = 保留全部
     #   max_age: 30      # 天；0 = 不按时间清理
     #   compress: true
-  # 其它后端段示例（内置注册，type 声明即生效）：
+  # 其它后端段示例（需 WithLogRegistry 注册对应后端后，type 声明即生效）：
   # charm:
   #   level: "info"      # 与 slog 段同形状；终端彩色输出（本地开发）
   # loki:

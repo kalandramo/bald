@@ -7,7 +7,8 @@
 - [Bald 配置系统设计](./Bald%20配置系统设计.md)：配置源抽象（Reader/ValueWatcher/FallbackReader + 9 provider）、proto 配置契约（为什么用 proto、契约形状、UnmarshalMap 桥接坑位）、bootstrap 装配（Registry/层优先级/Build 回滚）。
 - [服务端设计](./服务端设计.md)：HTTP / gRPC / Gateway Server 抽象与端口模型。
 - [服务注册设计](./服务注册设计.md)：registry.Registrar 抽象、内存实现与 kratos 桥接。
-- [Bald 日志设计](./Bald%20日志设计.md)：log 契约（6 方法接口/全局句柄/nop 默认/ctx 属性流/MultiLogger）、bslog 适配器（多输出/lumberjack 轮转/脱敏/OTel 桥接）、五远端后端独立 module + contract 模式、装配层（内置全量注册表/三级工厂/两阶段/热更新）、`logger.backends` 多后端广播；附录含 gookit/slog 评估决策与桥接适配器预留（并入自原《日志平面接口设计》）。
+- [Bald 日志设计](./Bald%20日志设计.md)：log 契约（6 方法接口/全局句柄/nop 默认/ctx 属性流/MultiLogger）、bslog 适配器（多输出/lumberjack 轮转/脱敏/OTel 桥接）、五远端后端独立 module + contract 模式、装配层（两级工厂/默认纯函数 + 教学报错/两阶段/热更新）、`logger.backends` 多后端广播；附录含 gookit/slog 评估决策与桥接适配器预留（并入自原《日志平面接口设计》）。
+- [AppKit 日志装配设计](./AppKit%20日志装配设计.md)：AppKit 侧日志装配策略——两级工厂分发（WithLogRegistry 机制全权 / 默认纯函数零依赖）的使用场景、nil 双语义（机制层 fail-fast vs 阶段 A 回退）、装饰器 deco 生效范围分级、四分派、脱敏单层保证的结构性机制；附录含同日"三级工厂 + 七后端内置全量 → 两级"的收缩记录与教训。
 - [路由注册与绑定设计](./路由注册与绑定设计.md)：路由注册由业务用 gin 编写，pkg/web 提供强绑定 gin 的泛型绑定/校验/响应流水线，路径变量用 uri tag。
 - [grpc-gateway 配置与 transcoding](./grpc-gateway%20配置与%20transcoding.md)：proto + google.api.http 注解、buf generate 生成、接线到 server.NewGRPCServerWithRegister / NewGatewayServer，gin 与 grpc-gateway 复用同一 biz 层。
 - [错误模型设计](./错误模型设计.md)：pkg/berrors 零依赖核心错误类型，grpcerr（gRPC）/httperr（HTTP）两个对等桥接子包，不可变 builder 与双向传输闭环。
