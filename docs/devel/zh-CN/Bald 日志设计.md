@@ -9,17 +9,11 @@ Status: Accepted（已实现，随 bald v0.3.x 发布）
 
 `bald/log` 为整个框架提供**唯一的日志抽象**：6 方法的 `Logger` 接口、并发安全的全局句柄、零成本的 nop 默认。契约层零第三方依赖；标准库 `log/slog` 适配器（`log/bslog` 子包，包名 `bslog`）开箱即用；五个远端/终端后端（loki / aliyun / tencent / sentry / charm）各自独立成 module，经 `contract` 子包接入契约装配；`logger.backends` 声明即多后端广播（本地 + 远程双写，2026-09-13）。本文回答三个问题：为什么契约这么瘦、为什么后端独立成 module、为什么装配保持显式注册（反 init 纪律）而业务侧又能零注册代码（内置全量注册表，2026-09-13）。最重要的承诺：**框架核心永远不 import 任何具体日志库，新后端接入对框架零改动。**
 
-> 本文是按当前代码（v0.3.x）整理的设计文档，已并入并取代《Bald 日志平面接口设计.md》（演进决策日志，2026-09-13 删除以收敛文档入口，git 历史可溯）——历史时间线与更名前的 API 名以 git 记录为准，独有决策记录见文末附录。
+> 本文是按当前代码（v0.3.x）整理的设计文档。
 
 ---
 
 ## 背景与动机
-
-bald 融合的三个上游项目对日志的处理各不相同，其中一家的做法我们明确不想要。
-
-**onexstack/pkg/log 是反面教材**：zap 胖封装成 14+ 方法接口，内嵌 kratos 与 gorm 日志接口，配置非法时 `NewLogger` 直接 panic。接口胖到只能由自己的实现满足，换后端等于换框架。onexstack 还同时存在三套日志抽象（`pkg/log`、`pkg/logger`、`pkg/otelslog`），业务不知道该用哪个。
-
-**go-lulu/log 与 kratos/log 是正面的**：前者证明了"极简接口 + 全局注册 + 零后端默认"足以撑起一个框架；后者证明了薄封装标准库 `log/slog` 干净可行，其 `ContextWithAttrs` 上下文属性流值得保留。
 
 bald 的需求一句话定性：**日志后端的选择是横切关注点，归进程入口（bootstrap）管，不归框架核心管。** 框架核心要打日志，但不能绑死任何日志库。
 
@@ -91,7 +85,7 @@ moduleLog := log.With("module", "registry")               // 可长期持有的�
 ### 全局句柄与包级函数
 
 - `SetLogger(l)`：注入后端，nil 回退 nop，RWMutex 保护并发安全；`GetLogger()`：取当前后端。
-- 包级函数 `Debug/Info/Warn/Error/Enabled/With`（global_helpers.go）转发到当前全局后端。**框架内一律用包级函数，`log.GetLogger().Xxx` 链式写法已全量替换并禁止**（2026-09-13 惯例，192 处，bald `e1819d5` + bald-admin `de64f00`）。
+- 包级函数 `Debug/Info/Warn/Error/Enabled/With`（global_helpers.go）转发到当前全局后端。**框架内一律用包级函数，`log.GetLogger().Xxx` 链式写法已全量替换并禁止**。
 - 语义差异注意：`log.With(...)` 每次基于**当前**全局后端派生，热更新后自然切到新后端；先 `GetLogger()` 捕获的旧实例不会切换。
 
 ### nop 默认与 ctx 属性流
@@ -103,11 +97,11 @@ moduleLog := log.With("module", "registry")               // 可长期持有的�
 
 `NewMultiLogger(loggers ...Logger) Logger`——每条日志广播到全部子 Logger（本地 + 远程并存）。四级方法顺序广播、单个失败不影响其余；`Enabled` 任一子启用即启用（保守放行，多投的代价是带宽、漏投的代价是排障缺失证据）；`With` 对每个子 Logger 派生后重新组合；nil 构造期过滤，零参数等价 nop。它是纯 `Logger` 装饰器，故放契约层顶层。
 
-契约装配已接入（2026-09-13）：`logger.backends` 声明多项后端（每项自带 `type` 与参数段，形状与单选模式平行），**非空时优先于单 `type`**——与 `output_paths` 优先于 `output_path` 同一优先级模式。装配层逐项构造后经 MultiLogger 广播合并，任一项失败 fail-fast 并回滚已构造项；`Enabled` 语义即 MultiLogger 的保守放行（任一后端启用该级别即写）。热更新/停机链路同样生效：重建时逐项重造并合并 cleanup，停机顺序释放全部后端。
+契约装配已接入：`logger.backends` 声明多项后端（每项自带 `type` 与参数段，形状与单选模式平行），**非空时优先于单 `type`**——与 `output_paths` 优先于 `output_path` 同一优先级模式。装配层逐项构造后经 MultiLogger 广播合并，任一项失败 fail-fast 并回滚已构造项；`Enabled` 语义即 MultiLogger 的保守放行（任一后端启用该级别即写）。热更新/停机链路同样生效：重建时逐项重造并合并 cleanup，停机顺序释放全部后端。
 
 ### 默认后端：slog 适配器（log/bslog，包名 bslog）
 
-包名 `bslog` 取 bald+slog 之意，目录=包名（2026-09-13 由 `slog`/`slogadapter` 改名——旧名目录≠包名导致全部消费点被 goimports 强制加别名），既避标准库冲突又免别名。pflag / lumberjack / errgroup 收敛在此子包，契约使用者二进制不受影响。
+包名 `bslog` 取 bald+slog 之意，目录=包名，既避标准库冲突又免别名。pflag / lumberjack / errgroup 收敛在此子包，契约使用者二进制不受影响。
 
 ```go
 type Options struct {
@@ -122,8 +116,8 @@ type Options struct {
 
 三条行为边界，均为实测踩坑后确定：
 
-1. **配置非法回退 info，不 panic**（与 onexstack 相反）——级别写错不值得崩进程；
-2. **文件路径先自动创建缺失父目录，打开仍失败才回退 stdout**——直写与轮转两路径行为对称（轮转的 lumberjack 首写本就 MkdirAll；2026-09-13 `log/v0.3.1` 修复直写路径不对称：此前嵌套目录缺失时静默回退 stdout，配置错误被掩盖——文件无产出、json 行混进控制台）；可观测性不因一个路径问题全丢；
+1. **配置非法回退 info，不 panic**——级别写错不值得崩进程；
+2. **文件路径先自动创建缺失父目录，打开仍失败才回退 stdout**——直写与轮转两路径行为对称；可观测性不因一个路径问题全丢；
 3. **多目标 errgroup 并发写**，但为**复制分流**（每个目标收全量日志），不支持按级别分流到不同文件。
 
 扩展点收在 `Option`：`WithFilter(FilterKey("password"))` 脱敏、`WithAttrs` 固定属性、`WithHandler`/`WithOTelHandler` 换底层 handler。脱敏的实现细节：slog 把 `WithAttrs` 固化的属性交给内层 handler 在 `Handle` 阶段直接合并，会绕过外层装饰器——`filterHandler.WithAttrs` 必须**先过滤再下沉**，否则 `logger.With("password", ...)` 的脱敏静默失效。
@@ -142,9 +136,9 @@ OTel 桥接刻意零依赖：核心不 import otel，`WithOTelHandler` 只是 `W
 | `sentry` | 错误追踪 | `Error` 上报事件（带堆栈），其余级别记 breadcrumb；必填 DSN |
 | `charm` | 本地开发终端 | Charmbracelet 彩色输出，默认 stderr + Info + 时间戳 |
 
-诚实记录一个限制：**loki 无后台定时冲刷**，缓冲未满且不 `Close` 时日志停留在内存——停机 Effect 链对带缓冲的后端是必须兑现的。（历史上还有第二个限制：`With` 派生实例曾各自持有独立缓冲，派生日志不进原实例缓冲、原实例 `Close` 无法冲刷——2026-09-13 由 ctx 属性流测试暴露并同日修复：缓冲与发送配置抽为 `shared` 结构体，派生实例经指针共享，任一实例 `Close` 全量冲刷，含 httptest 端到端回归测试。）
+诚实记录一个限制：**loki 无后台定时冲刷**，缓冲未满且不 `Close` 时日志停留在内存——停机 Effect 链对带缓冲的后端是必须兑现的。
 
-ctx 属性流的跨后端落地（2026-09-13）：**全部六后端已在构造日志条目时同步合并 ctx 属性**。契约层新增 `ContextAttrsToArgs(ctx)` 导出 helper（把属性流拍平为 kv 序列，无属性返回 nil）；bslog 原有 `ContextAttrs` 合并保留，其余五后端（aliyun/tencent/loki/sentry/charm）经 helper 在**入队/构建事件时**提取——此时刻同步执行，不受异步 flush 的 ctx 失效影响。合并顺序统一为 `With 属性 → ctx 属性 → 调用参数`，同名 key 时调用参数覆盖 ctx 属性（与 bslog/slog 语义一致）。设计边界保持：**取值用 ctx、IO 不绑 ctx**——日志发送不随请求 ctx 取消而丢弃，loki flush 自建 `Background+timeout`，producer 型后端由 SDK 管理重试。
+**ctx 属性流的跨后端能力（六后端语义一致）**：请求入口经 `ContextWithAttrs` 挂载的属性（如 `trace_id`），由全部六后端在**构造日志条目时同步合并**——bslog 在 handler 层合并，其余五后端经契约 helper `ContextAttrsToArgs(ctx)`（拍平为 kv 序列，无属性返回 nil）在入队/构建事件时提取；同步提取不受异步 flush 的 ctx 失效影响。合并顺序统一为 `With 属性 → ctx 属性 → 调用参数`，同名 key 后者覆盖前者（与 slog 语义一致）。设计边界：**取值用 ctx、IO 不绑 ctx**——日志发送不随请求 ctx 取消而丢弃（loki flush 自建 `Background+timeout`，producer 型后端由 SDK 管理重试）。
 
 ### 装配层：注册表 + 三级工厂 + 两阶段
 
