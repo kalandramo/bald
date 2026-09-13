@@ -21,8 +21,8 @@ import (
 //
 // provider 按 cfg.Type 字符串查表调用；注册名约定为小写（"slog"/"zap"/...）。
 // 与配置源 Registry 的差异：日志是单选（type 指定一种后端），无级联序；
-// 将来契约扩展多输出源（本地 + 远程并存）后，可在此层循环产出并用
-// log.NewMultiLogger 合并——注册表形状已为此就绪。
+// 多输出源（本地 + 远程并存）由 [LogRegistry.BuildLogger] 的 backends 分支
+// 循环产出并用 log.NewMultiLogger 合并——provider 自身始终只见单后端视图。
 type LoggerProvider func(ctx context.Context, cfg *bootstrapv1.Logger) (log.Logger, func(), error)
 
 // LogRegistry 按名字注册日志后端工厂（显式注册，无 init() 副作用）。
@@ -65,6 +65,10 @@ func (r *LogRegistry) MustRegister(name string, p LoggerProvider) {
 // 返回 (Logger, cleanup, error)。cfg 为 nil 或 type 为空视为配置错误（fail-fast，
 // 与配置源 Build 的语义一致）；type 未注册时报错并列出可用项。
 //
+// 多后端模式（backends 非空时优先于单 type）：逐项经 [LoggerView] 视图归一化
+// 后走单选构造路径，全部成功后用 log.NewMultiLogger 广播合并（每条日志复制
+// 分流到全部后端）；任一项失败 fail-fast 并回滚已构造项的 cleanup。
+//
 // 由 main 显式调用并经 log.SetLogger 注入全局表：
 //
 //	lr := bootstrap.NewLogRegistry()
@@ -75,6 +79,9 @@ func (r *LogRegistry) MustRegister(name string, p LoggerProvider) {
 func (r *LogRegistry) BuildLogger(ctx context.Context, cfg *bootstrapv1.Logger) (log.Logger, func(), error) {
 	if cfg == nil {
 		return nil, nil, fmt.Errorf("bootstrap: logger config is nil")
+	}
+	if bs := cfg.GetBackends(); len(bs) > 0 {
+		return r.buildBackends(ctx, bs)
 	}
 	name := cfg.GetType()
 	if name == "" {
@@ -100,6 +107,53 @@ func (r *LogRegistry) BuildLogger(ctx context.Context, cfg *bootstrapv1.Logger) 
 		cleanup = func() {}
 	}
 	return l, cleanup, nil
+}
+
+// buildBackends 逐项构造多后端并广播合并。任一项失败回滚已构造项的
+// cleanup（构造序正放释放），全部成功后合并 cleanup（同样构造序正放）。
+func (r *LogRegistry) buildBackends(ctx context.Context, bs []*bootstrapv1.Logger_Backend) (log.Logger, func(), error) {
+	loggers := make([]log.Logger, 0, len(bs))
+	var cleanups []func()
+	for _, b := range bs {
+		l, cleanup, err := r.BuildLogger(ctx, LoggerView(b))
+		if err != nil {
+			for i := len(cleanups) - 1; i >= 0; i-- { // 逆序回滚已构造项。
+				cleanups[i]()
+			}
+			return nil, nil, fmt.Errorf("bootstrap: backend[%d]: %w", len(loggers), err)
+		}
+		loggers = append(loggers, l)
+		cleanups = append(cleanups, cleanup)
+	}
+	merged := func() {
+		for _, c := range cleanups { // 构造序正放，与单后端「先关先开」一致。
+			c()
+		}
+	}
+	return log.NewMultiLogger(loggers...), merged, nil
+}
+
+// LoggerView 把多后端声明中的一项提升为单后端 Logger 视图：段字段平移到
+// 顶层，provider 签名（吃 *Logger）零改动即可复用单选构造路径。
+// 返回的视图是新建消息，与 Backend 原字段共享段指针（只读构造场景安全）。
+func LoggerView(b *bootstrapv1.Logger_Backend) *bootstrapv1.Logger {
+	return &bootstrapv1.Logger{
+		Type:       b.GetType(),
+		Zap:        b.GetZap(),
+		Zerolog:    b.GetZerolog(),
+		Slog:       b.GetSlog(),
+		Logrus:     b.GetLogrus(),
+		Charm:      b.GetCharm(),
+		Phuslu:     b.GetPhuslu(),
+		Glog:       b.GetGlog(),
+		Hclog:      b.GetHclog(),
+		Fluent:     b.GetFluent(),
+		Loki:       b.GetLoki(),
+		Sentry:     b.GetSentry(),
+		Aliyun:     b.GetAliyun(),
+		Tencent:    b.GetTencent(),
+		Cloudwatch: b.GetCloudwatch(),
+	}
 }
 
 // names 返回已注册 provider 名的排序快照（错误信息用）。

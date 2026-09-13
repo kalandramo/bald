@@ -244,6 +244,84 @@ func TestRegisterBuiltinLogProviders(t *testing.T) {
 	}
 }
 
+// TestBuildLogger_MultiBackends 多后端广播：backends 非空优先于单 type，
+// 逐项构造后 MultiLogger 合并（Enabled 任一子启用即启用），cleanup 合并
+// 释放全部子后端。
+func TestBuildLogger_MultiBackends(t *testing.T) {
+	dir := t.TempDir()
+	fileA := filepath.Join(dir, "a.log")
+	fileB := filepath.Join(dir, "b.log")
+
+	r := NewLogRegistry()
+	r.MustRegister("slog", BslogLoggerProvider())
+
+	l, cleanup, err := r.BuildLogger(context.Background(), &bootstrapv1.Logger{
+		Type: "slog", // 应被 backends 优先覆盖
+		Backends: []*bootstrapv1.Logger_Backend{
+			{Type: "slog", Slog: &bootstrapv1.Logger_Slog{Level: "debug", Format: "json", OutputPath: fileA}},
+			{Type: "slog", Slog: &bootstrapv1.Logger_Slog{Level: "error", Format: "json", OutputPath: fileB}},
+		},
+	})
+	if err != nil || l == nil {
+		t.Fatalf("BuildLogger(backends) = (%v, %v)", l, err)
+	}
+	defer cleanup()
+
+	// 广播：Error 级日志进全部后端（A=debug 级、B=error 级都放行 Error；
+	// 后端各自 level 独立过滤——Info 只进 A 不进 B 是正确语义）。
+	l.Error(context.Background(), "broadcast", "k", "v")
+	for _, f := range []string{fileA, fileB} {
+		data, err := os.ReadFile(f)
+		if err != nil || !strings.Contains(string(data), "broadcast") {
+			t.Fatalf("%s should receive broadcast: (%s, %v)", f, data, err)
+		}
+	}
+
+	// Enabled 任一子启用即启用（A=debug 启用 Info；单 B=error 不启用）。
+	if !l.Enabled(log.LevelInfo) {
+		t.Fatal("MultiLogger.Enabled should be true if any child enables")
+	}
+}
+
+// TestBuildLogger_MultiBackends_FailFastRollback 多后端中一项失败：
+// fail-fast 并回滚已构造项的 cleanup（带缓冲后端不泄漏）。
+func TestBuildLogger_MultiBackends_FailFastRollback(t *testing.T) {
+	released := make(chan struct{}, 1)
+	r := NewLogRegistry()
+	r.MustRegister("ok", stubLogProvider(&stubLogger{}, func() { released <- struct{}{} }, nil))
+	r.MustRegister("bad", stubLogProvider(nil, nil, errors.New("boom")))
+
+	_, _, err := r.BuildLogger(context.Background(), &bootstrapv1.Logger{
+		Backends: []*bootstrapv1.Logger_Backend{
+			{Type: "ok"},
+			{Type: "bad"},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "boom") {
+		t.Fatalf("expect fail-fast with boom, got: %v", err)
+	}
+	select {
+	case <-released:
+	default:
+		t.Fatal("first backend cleanup should be rolled back on second failure")
+	}
+}
+
+// TestLoggerView Backend 段平移为单后端 Logger 视图：type 与各段字段一一对应。
+func TestLoggerView(t *testing.T) {
+	b := &bootstrapv1.Logger_Backend{
+		Type: "loki",
+		Loki: &bootstrapv1.Logger_Loki{Endpoint: "http://x", Labels: map[string]string{"a": "1"}},
+	}
+	v := LoggerView(b)
+	if v.GetType() != "loki" || v.GetLoki().GetEndpoint() != "http://x" || v.GetLoki().GetLabels()["a"] != "1" {
+		t.Fatalf("LoggerView = %v", v)
+	}
+	if v.GetBackends() != nil {
+		t.Fatal("view must not carry backends (single-backend shape)")
+	}
+}
+
 // TestLogOptions_MultiOutputAndRotate 契约多输出 + 轮转段 → Options 映射：
 // output_paths 优先于 output_path；rotate 零值字段回退 bslog 默认（100/7/30/gzip）。
 func TestLogOptions_MultiOutputAndRotate(t *testing.T) {
