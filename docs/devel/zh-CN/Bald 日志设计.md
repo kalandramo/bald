@@ -7,7 +7,7 @@ Status: Accepted（已实现，随 bald v0.2.x 发布）
 
 ## 摘要
 
-`bald/log` 为整个框架提供**唯一的日志抽象**：6 方法的 `Logger` 接口、并发安全的全局句柄、零成本的 nop 默认。契约层零第三方依赖；标准库 `log/slog` 适配器（`log/bslog` 子包，包名 `bslog`）开箱即用；五个远端/终端后端（loki / aliyun / tencent / sentry / charm）各自独立成 module，经 `contract` 子包接入契约装配。本文回答三个问题：为什么契约这么瘦、为什么后端独立成 module、为什么装配必须显式注册。最重要的承诺：**框架核心永远不 import 任何具体日志库，新后端接入对框架零改动。**
+`bald/log` 为整个框架提供**唯一的日志抽象**：6 方法的 `Logger` 接口、并发安全的全局句柄、零成本的 nop 默认。契约层零第三方依赖；标准库 `log/slog` 适配器（`log/bslog` 子包，包名 `bslog`）开箱即用；五个远端/终端后端（loki / aliyun / tencent / sentry / charm）各自独立成 module，经 `contract` 子包接入契约装配。本文回答三个问题：为什么契约这么瘦、为什么后端独立成 module、为什么装配保持显式注册（反 init 纪律）而业务侧又能零注册代码（内置全量注册表，2026-09-13）。最重要的承诺：**框架核心永远不 import 任何具体日志库，新后端接入对框架零改动。**
 
 > 本文是按当前代码（v0.2.x）整理的设计文档，与《Bald 日志平面接口设计.md》（演进决策日志）互补：那篇记录"当时为什么这么改"，本文记录"现在是什么、为什么是这样"。
 
@@ -36,11 +36,12 @@ log/bslog              适配器层  slog 后端 + Options/--log.* flags
                                  + FilterKey 脱敏 + lumberjack 轮转      【同 module 子包，包名 bslog】
 log/{loki,aliyun,      后端层    直连各家 SDK 的实现                     【各自独立 module，
  tencent,sentry,charm}            根包零契约依赖                          根包 + contract/ 子包】
-bootstrap              装配层    LogRegistry + BuildLogger               【另一个 module，消费 bconf】
-                                 + SlogLoggerProvider + LogOptions
+bootstrap              装配层    LogRegistry + BuildLogger               【另一个 module，消费 bconf
+                                 + BslogLoggerProvider + NopLoggerProvider  + 五后端 contract】
+                                 + 内置全量注册表 + LogOptions
 ```
 
-依赖方向单一向上：后端 → 契约；装配 → 契约 + 后端 + bconf；框架核心 → 仅契约。远端后端独立 module 是有意的——阿里云 SLS SDK 一个 import 就拖进 prometheus 全家桶（见 `log/aliyun/go.mod` 的 indirect 列表），module 边界让这份代价只由真正使用该后端的项目承担。
+依赖方向单一向上：后端 → 契约；装配 → 契约 + 后端 + bconf；框架核心 → 仅契约。远端后端独立 module 是有意的——阿里云 SLS SDK 一个 import 就拖进 prometheus 全家桶（见 `log/aliyun/go.mod` 的 indirect 列表），module 边界让这份代价只由真正使用该后端的项目承担；bootstrap 的内置全量注册是该边界外的**聚合点**付费（同 bconfig 捆绑配置源），不改变纯契约层/适配器层的零依赖承诺。
 
 ### 契约层：`Logger` 接口（log/log.go）
 
@@ -81,7 +82,7 @@ moduleLog := log.With("module", "registry")               // 可长期持有的�
 
 ### nop 默认与 ctx 属性流
 
-- 未注入时全局句柄为 `nopLogger{}`：全部空实现、`Enabled` 恒 false。`import log` 零副作用，bald-crud 这类库可放心引用契约而不强迫宿主初始化日志。
+- 未注入时全局句柄为 `nopLogger{}`：全部空实现、`Enabled` 恒 false。`import log` 零副作用，bald-crud 这类库可放心引用契约而不强迫宿主初始化日志。`NewNop()` 导出该实现，供装配层按契约 `type: nop` 显式选择静默。
 - `ContextWithAttrs(ctx, attrs...)` / `ContextAttrs(ctx)`（context.go）：中间件在请求入口挂 `trace_id` 等字段，请求范围内日志自动携带。契约层只挂载/读取（私有 key，重复挂载合并），**不解释属性**——slog 适配器在落盘前合并进参数列表。observability 中间件经此路让每条请求日志带 `trace_id`；SpanContext 无效时 `middleware.LogTraceIDs` 生成随机兜底 ID，零配置也有可关联的日志链路。
 
 ### MultiLogger：多源广播（log/multi.go）
@@ -119,13 +120,15 @@ OTel 桥接刻意零依赖：核心不 import otel，`WithOTelHandler` 只是 `W
 
 | 后端 | 定位 | 关键语义 |
 | --- | --- | --- |
-| `loki` | Grafana Loki 直推 | HTTP Push API；内存缓冲 batchSize=100 触发冲刷；`Close` 冲刷剩余缓冲；必填 endpoint |
+| `loki` | Grafana Loki 直推 | HTTP Push API；内存缓冲 batchSize=100 触发冲刷；`Close` 冲刷剩余缓冲；`With` 派生实例共享缓冲（任一 `Close` 全量冲刷）；必填 endpoint |
 | `aliyun` | 阿里云 SLS | 官方 producer 异步聚合；`Close(5000ms)` 关停 |
 | `tencent` | 腾讯云 CLS | 官方 AsyncProducerClient；`Close(5000ms)` |
 | `sentry` | 错误追踪 | `Error` 上报事件（带堆栈），其余级别记 breadcrumb；必填 DSN |
 | `charm` | 本地开发终端 | Charmbracelet 彩色输出，默认 stderr + Info + 时间戳 |
 
-诚实记录两个限制：**五后端目前都忽略 ctx**（`_ context.Context`），ctx 属性流只在 slog 适配器落地；**loki 无后台定时冲刷**，缓冲未满且不 `Close` 时日志停留在内存——停机 Effect 链对带缓冲的后端是必须兑现的。
+诚实记录一个限制：**loki 无后台定时冲刷**，缓冲未满且不 `Close` 时日志停留在内存——停机 Effect 链对带缓冲的后端是必须兑现的。（历史上还有第二个限制：`With` 派生实例曾各自持有独立缓冲，派生日志不进原实例缓冲、原实例 `Close` 无法冲刷——2026-09-13 由 ctx 属性流测试暴露并同日修复：缓冲与发送配置抽为 `shared` 结构体，派生实例经指针共享，任一实例 `Close` 全量冲刷，含 httptest 端到端回归测试。）
+
+ctx 属性流的跨后端落地（2026-09-13）：**全部六后端已在构造日志条目时同步合并 ctx 属性**。契约层新增 `ContextAttrsToArgs(ctx)` 导出 helper（把属性流拍平为 kv 序列，无属性返回 nil）；bslog 原有 `ContextAttrs` 合并保留，其余五后端（aliyun/tencent/loki/sentry/charm）经 helper 在**入队/构建事件时**提取——此时刻同步执行，不受异步 flush 的 ctx 失效影响。合并顺序统一为 `With 属性 → ctx 属性 → 调用参数`，同名 key 时调用参数覆盖 ctx 属性（与 bslog/slog 语义一致）。设计边界保持：**取值用 ctx、IO 不绑 ctx**——日志发送不随请求 ctx 取消而丢弃，loki flush 自建 `Background+timeout`，producer 型后端由 SDK 管理重试。
 
 ### 装配层：注册表 + 三级工厂 + 两阶段
 
@@ -145,8 +148,12 @@ defer cleanup()
 更常用的是 AppKit（`appkit.FromBootstrap`）三级工厂分发：
 
 ```text
-WithLoggerFactory（显式工厂） > WithLogRegistry（契约查表） > 默认 slog 工厂
+WithLoggerFactory（显式工厂） > WithLogRegistry（契约查表） > 内置全量注册表
 ```
+
+**内置全量注册表（2026-09-13）**：默认路径不再固定为 bslog 工厂，改走 `bootstrap.NewBuiltinLogRegistry()`——slog / nop / loki / aliyun / tencent / sentry / charm 七后端全量预注册，**业务侧纯配置声明 `logger.type` 即生效、零注册代码**。内置名单为编译期常量（`RegisterBuiltinLogProviders` 亦可对自定义注册表组合调用，重名 fail-fast）；`NewLogRegistry()` 保持空表语义不变。依赖账本裁定：bootstrap 经 bconfig 已捆绑全部配置源 SDK（consul/vault/nacos/etcd/apollo/k8s），日志后端「多选一、全捆绑」与之同模式。逃生口保留：介意二进制体积或需自定义后端时，显式 `WithLogRegistry` 精选注册，行为与此前完全一致。
+
+内置路径三分派：阶段 A（契约装载前）回退默认 bslog；`type=slog` 走 `LogOptions` + 业务装饰器（`WithLogDecorators` 是 `bslog.Option`，仅 bslog 后端可消费）；其余 type 查内置表构造。此改造同时修复一个缺陷：此前默认路径**静默忽略 `logger.type`**（配 `type: loki` 不报错却产出 bslog），现在未实现的 type fail-fast 并列出可用项——诚实报错优于静默降级。
 
 两阶段语义解决"契约装载过程的日志往哪打"：**阶段 A（契约装载前）回退默认 slog 保证启动日志可见；阶段 B 装载校验后按 `logger.type` 重建。** 契约热更新时 `rebuildLogger` 重建后端并原子替换 cleanup 钩子，失败只记错误不中断（换后端失败不应杀死正在服务的进程）。
 
@@ -162,11 +169,11 @@ WithLoggerFactory（显式工厂） > WithLogRegistry（契约查表） > 默认
 
 **为什么 nop 默认而非 panic？** 库不该强迫宿主先初始化日志，更不该因此崩溃。忘记注入的最坏结果是没日志，不是进程死掉。这与"配置非法回退 info"是同一条原则：**日志系统的问题用日志系统的方式兜底，不用崩溃解决。**
 
-**为什么远端后端独立 module 而 slog 是子包？** slog 的依赖轻且人人要用；云端 SDK 重且仅特定部署形态用。Go module 是依赖隔离的唯一硬边界（同 module 子包的依赖仍进 go.mod），用 module 边界把依赖代价精确到"用的人付"。
+**为什么远端后端独立 module 而 slog 是子包？** slog 的依赖轻且人人要用；云端 SDK 重且仅特定部署形态用。Go module 是依赖隔离的唯一硬边界（同 module 子包的依赖仍进 go.mod），用 module 边界把依赖代价精确到"用的人付"。2026-09-13 内置注册落地后此边界依然成立：只 import 契约层或 slog 的库零新增依赖；全量捆绑的代价由 bootstrap 这个聚合点支付——与 bconfig 捆绑全部配置源 SDK 同一裁定，介意者经 `WithLogRegistry` 精选。
 
 **为什么 contract 子包模式？** 后端根包保持纯 Logger 实现，不 import bconf 就能被直构/测试场景单独使用；把 proto 契约耦合压缩到几十行的 `contract` 包，后端实现与契约演进互不拖累。与全框架 registry 家族纪律一致。
 
-**为什么显式注册而非 init() 自注册？** init 自注册让依赖关系不可见、重名冲突运行期随机爆发；显式注册把"支持哪些后端"变成 main 里可 grep 的一行行代码。go-wind 大量 init 自注册，bald 迁移时一律改造。
+**为什么显式注册而非 init() 自注册？** init 自注册让依赖关系不可见、重名冲突运行期随机爆发；显式注册把"支持哪些后端"变成可 grep 的代码——内置注册后这张名单收敛到 `bootstrap/log_builtin.go` 一处编译期常量表（仍无任何 init 副作用），自定义后端仍在 main 里显式注册。go-wind 大量 init 自注册，bald 迁移时一律改造。
 
 **被放弃的方案：**
 
@@ -195,8 +202,11 @@ WithLoggerFactory（显式工厂） > WithLogRegistry（契约查表） > 默认
 - [x] 契约层：接口 / 全局句柄 / nop / ctx 属性流 / MultiLogger / 包级函数（含并发与广播语义单测）。
 - [x] slog 适配器：Options + flags + Validate、console/json、lumberjack 按大小轮转、FilterKey 脱敏（含 WithAttrs 预过滤修复）、多目标并发写、OTel 别名。
 - [x] 远端/终端后端 ×5（2026-09-06 移植 go-wind-plugins/log）：独立 module + contract 子包，契约各后端段全部有消费者。
-- [x] 装配层：LogRegistry（显式注册、fail-fast、cleanup 恒非 nil）+ SlogLoggerProvider + LogOptions。
-- [x] AppKit 集成：三级工厂、两阶段装载、热更新 `rebuildLogger` 原子换后端。
+- [x] ctx 属性流六后端全量落地（2026-09-13）：契约 `ContextAttrsToArgs` helper + aliyun/tencent/loki/sentry/charm 入队时同步合并，含 key 覆盖顺序与 nil ctx 单测。
+- [x] loki With 派生实例缓冲共享修复（2026-09-13）：`shared` 状态结构体重构，派生实例写入同一缓冲、任一实例 `Close` 全量冲刷（httptest 端到端回归测试）。
+- [x] 装配层：LogRegistry（显式注册、fail-fast、cleanup 恒非 nil）+ BslogLoggerProvider + NopLoggerProvider + LogOptions + 内置全量注册表（`NewBuiltinLogRegistry` / `RegisterBuiltinLogProviders`，七后端预注册，2026-09-13）。
+- [x] 契约 nop 类型（2026-09-13）：proto Type 枚举 `NOP = 15` + 契约层 `NewNop()` 导出构造——配置 `type: nop` 显式选择静默后端（测试、只需业务指标的场景）。
+- [x] AppKit 集成：三级工厂（默认路径升级为内置全量注册表，修复 `logger.type` 静默忽略缺陷）、两阶段装载、热更新 `rebuildLogger` 原子换后端。
 - [x] trace 关联闭环：observability 中间件经 `ContextWithAttrs` 挂 `trace_id`，零 TracerProvider 时随机 ID 兜底。
 - [x] 框架内包级函数惯例全量替换（192 处）。
 

@@ -10,7 +10,7 @@
 > ```text
 > log         契约层   Logger 接口 + SetLogger/GetLogger 全局表 + nop 默认 + ctx 属性流 + MultiLogger   【零依赖】
 > log/slog    适配器层 slog 后端 + Options/CLI flags + FilterKey 脱敏 + lumberjack 轮转                【依赖 log + pflag/lumberjack/errgroup】
-> bootstrap   装配层   LogRegistry + SlogLoggerProvider + BuildLogger（契约 → 后端）                    【依赖 log + log/slog + bconf】
+> bootstrap   装配层   LogRegistry + BslogLoggerProvider + BuildLogger（契约 → 后端）                    【依赖 log + log/bslog + bconf】
 > ```
 >
 > - 全部框架代码只 import 契约层；后端经进程入口显式注入：`bootstrap.BuildLogger` 产出实例 → `log.SetLogger`。
@@ -184,7 +184,7 @@ slogadapter.WithOTelHandler(h slog.Handler) Option
 
 ### 3.1 装配链（bootstrap，2026-09-05 起契约驱动）
 
-装配层 `bootstrap` 提供 `LogRegistry` + `SlogLoggerProvider` + `BuildLogger`：读契约 `Logger` 段（bconf `bootstrapv1`）→ 构造后端 → 产出实例。进程入口在创建 AppKit 前完成初始化：
+装配层 `bootstrap` 提供 `LogRegistry` + `BslogLoggerProvider` + `BuildLogger`：读契约 `Logger` 段（bconf `bootstrapv1`）→ 构造后端 → 产出实例。进程入口在创建 AppKit 前完成初始化：
 
 ```go
 // 进程入口（main）：契约驱动装配（推荐）。
