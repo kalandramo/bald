@@ -29,16 +29,30 @@ bald 的需求一句话定性：**日志后端的选择是横切关注点，归�
 
 ### 三层架构与 module 布局
 
-```text
-log                    契约层    Logger 接口 + 全局句柄 + nop 默认 + ctx 属性流
-                                 + MultiLogger + 包级便捷函数            【零三方依赖，独立 module】
-log/bslog              适配器层  slog 后端 + Options/--log.* flags
-                                 + FilterKey 脱敏 + lumberjack 轮转      【同 module 子包，包名 bslog】
-log/{loki,aliyun,      后端层    直连各家 SDK 的实现                     【各自独立 module，
- tencent,sentry,charm}            根包零契约依赖                          根包 + contract/ 子包】
-bootstrap              装配层    LogRegistry + BuildLogger               【另一个 module，消费 bconf
-                                 + BslogLoggerProvider + NopLoggerProvider  + 五后端 contract】
-                                 + 内置全量注册表 + LogOptions
+```mermaid
+flowchart TB
+    subgraph BOOT["bootstrap · 装配层【独立 module】"]
+        REG["LogRegistry + BuildLogger<br/>+ BslogLoggerProvider / NopLoggerProvider<br/>+ 内置全量注册表 ×7 + LogOptions"]
+    end
+
+    subgraph BACKEND["log/{loki, aliyun, tencent, sentry, charm} · 后端层【各自独立 module】"]
+        BK["根包直连各家 SDK，零契约依赖<br/>contract/ 子包：Type + Provider(ctx, *Logger)"]
+    end
+
+    subgraph ADAPT["log/bslog · 适配器层【log module 子包，包名 bslog】"]
+        BS["slog 后端 + Options/--log.* flags<br/>+ FilterKey 脱敏 + lumberjack 轮转"]
+    end
+
+    subgraph CORE["log · 契约层【零三方依赖，独立 module】"]
+        LC["6 方法 Logger 接口 + 全局句柄 + nop 默认<br/>+ ctx 属性流 + MultiLogger + 包级便捷函数"]
+    end
+
+    BCONF["bconf 契约（proto）"]
+
+    BOOT -->|"装配层消费：契约 + 五后端 contract + bslog"| LC
+    BACKEND -->|"实现 Logger 契约"| LC
+    ADAPT -->|"实现 Logger 契约"| LC
+    BCONF -.->|"logger.type 驱动查表装配"| BOOT
 ```
 
 依赖方向单一向上：后端 → 契约；装配 → 契约 + 后端 + bconf；框架核心 → 仅契约。远端后端独立 module 是有意的——阿里云 SLS SDK 一个 import 就拖进 prometheus 全家桶（见 `log/aliyun/go.mod` 的 indirect 列表），module 边界让这份代价只由真正使用该后端的项目承担；bootstrap 的内置全量注册是该边界外的**聚合点**付费（同 bconfig 捆绑配置源），不改变纯契约层/适配器层的零依赖承诺。
@@ -157,7 +171,45 @@ WithLoggerFactory（显式工厂） > WithLogRegistry（契约查表） > 内置
 
 两阶段语义解决"契约装载过程的日志往哪打"：**阶段 A（契约装载前）回退默认 slog 保证启动日志可见；阶段 B 装载校验后按 `logger.type` 重建。** 契约热更新时 `rebuildLogger` 重建后端并原子替换 cleanup 钩子，失败只记错误不中断（换后端失败不应杀死正在服务的进程）。
 
-已记录的形状差异：契约 `Slog.output_path` 为单值且无轮转段；`Options` 的多 `OutputPaths` + `Rotate` 目前仅 CLI/Options 直构路径可用，待契约补字段后装配层跟进。
+### 业务接入示例：零代码装配
+
+业务 `main.go` 不写任何日志代码——FromBootstrap 默认路径已内置全量注册表，`logger.type` 是唯一开关：
+
+```go
+// main.go 全部日志相关代码：没有。
+app := appkit.FromBootstrap(cfg) // Bind/装载/校验/两阶段日志/热更新全内化
+```
+
+本地多输出 + 轮转（`configs/app.yaml`，flag > env > 本地文件 > 远程四源同构）：
+
+```yaml
+logger:
+  type: slog
+  slog:
+    level: info
+    format: json
+    output_paths: ["stdout", "/var/log/myapp/app.log"] # 控制台 + 文件双写（复制分流）
+    rotate:            # 仅对文件目标生效（lumberjack）
+      enabled: true
+      max_size: 100    # MB；只写关心的字段，缺省回退默认（100/7/30/gzip）
+      max_backups: 7
+      max_age: 30      # 天
+      compress: true
+```
+
+切远端 Loki 只换 `type`（同仓可运行示例见 `_example/bald`）：
+
+```yaml
+logger:
+  type: loki
+  loki:
+    endpoint: http://loki:3100/loki/api/v1/push
+    labels: { app: myapp }
+```
+
+热更新：`WithWatchConfig(true)` 下改 yaml 即重建后端（副本试装载 + 校验 + 原子替换），改坏只记错不杀进程。唯一仍需代码的场景是业务装饰器（脱敏/固定属性，`WithLogDecorators`）与自定义后端（`WithLogRegistry` 精选注册）。
+
+契约形状差异已收口（2026-09-13）：`Slog` 段补齐 `output_paths`（多输出，优先于单值 `output_path`）与 `rotate` 段（enabled / max_size / max_backups / max_age / compress，零值字段回退 bslog 默认 100MB/7 份/30 天/gzip），`LogOptions` 全量映射——契约装配与 CLI/Options 直构路径能力对齐，多目标复制分流 + lumberjack 轮转纯配置声明即生效。单值 `output_path` 保留（与 Zap/Zerolog 家族同形），既有配置零迁移。
 
 ---
 
@@ -207,6 +259,7 @@ WithLoggerFactory（显式工厂） > WithLogRegistry（契约查表） > 内置
 - [x] 装配层：LogRegistry（显式注册、fail-fast、cleanup 恒非 nil）+ BslogLoggerProvider + NopLoggerProvider + LogOptions + 内置全量注册表（`NewBuiltinLogRegistry` / `RegisterBuiltinLogProviders`，七后端预注册，2026-09-13）。
 - [x] 契约 nop 类型（2026-09-13）：proto Type 枚举 `NOP = 15` + 契约层 `NewNop()` 导出构造——配置 `type: nop` 显式选择静默后端（测试、只需业务指标的场景）。
 - [x] AppKit 集成：三级工厂（默认路径升级为内置全量注册表，修复 `logger.type` 静默忽略缺陷）、两阶段装载、热更新 `rebuildLogger` 原子换后端。
+- [x] Slog 契约补齐多输出 + 轮转（2026-09-13）：proto `output_paths` + `Rotate` 段，`LogOptions` 全量映射（output_paths 优先 / 零值回退默认），bconf 校验（空串项 / 负值 fail-fast）——契约装配与 CLI/Options 直构路径能力对齐。
 - [x] trace 关联闭环：observability 中间件经 `ContextWithAttrs` 挂 `trace_id`，零 TracerProvider 时随机 ID 兜底。
 - [x] 框架内包级函数惯例全量替换（192 处）。
 
