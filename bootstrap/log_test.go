@@ -243,3 +243,75 @@ func TestRegisterBuiltinLogProviders(t *testing.T) {
 		t.Fatal("duplicate builtin registration should fail")
 	}
 }
+
+// TestLogOptions_MultiOutputAndRotate 契约多输出 + 轮转段 → Options 映射：
+// output_paths 优先于 output_path；rotate 零值字段回退 bslog 默认（100/7/30/gzip）。
+func TestLogOptions_MultiOutputAndRotate(t *testing.T) {
+	o := LogOptions(&bootstrapv1.Logger{
+		Type: "slog",
+		Slog: &bootstrapv1.Logger_Slog{
+			OutputPath:  "/should/be/ignored.log",
+			OutputPaths: []string{"stdout", "/var/log/app.log"},
+			Rotate: &bootstrapv1.Logger_Slog_Rotate{
+				Enabled:  true,
+				MaxSize:  50,
+				Compress: true,
+				// MaxBackups/MaxAge 零值 → 回退默认 7/30。
+			},
+		},
+	})
+	if want := []string{"stdout", "/var/log/app.log"}; !reflect.DeepEqual(o.OutputPaths, want) {
+		t.Fatalf("OutputPaths = %v, want %v（output_paths 应优先于单值）", o.OutputPaths, want)
+	}
+	if !o.Rotate.Enabled || o.Rotate.MaxSize != 50 || !o.Rotate.Compress {
+		t.Fatalf("rotate 显式字段映射: %+v", o.Rotate)
+	}
+	if o.Rotate.MaxBackups != 7 || o.Rotate.MaxAge != 30 {
+		t.Fatalf("rotate 零值应回退默认（7 份/30 天）, got %+v", o.Rotate)
+	}
+}
+
+// TestLogOptions_OutputPathBackwardCompat 单值 output_path 仍映射为单元素，
+// 既有配置零迁移。
+func TestLogOptions_OutputPathBackwardCompat(t *testing.T) {
+	o := LogOptions(&bootstrapv1.Logger{
+		Type: "slog",
+		Slog: &bootstrapv1.Logger_Slog{OutputPath: "stderr"},
+	})
+	if !reflect.DeepEqual(o.OutputPaths, []string{"stderr"}) {
+		t.Fatalf("OutputPaths = %v, want [stderr]", o.OutputPaths)
+	}
+}
+
+// TestBslogLoggerProvider_MultiOutputRotate 端到端：契约多输出 + 轮转 →
+// 文件目标收到全量日志流（复制分流），lumberjack 轮转开启时正常写入。
+func TestBslogLoggerProvider_MultiOutputRotate(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "app.log")
+	cfg := &bootstrapv1.Logger{
+		Type: "slog",
+		Slog: &bootstrapv1.Logger_Slog{
+			Level:       "info",
+			Format:      "json",
+			OutputPaths: []string{path, "stderr"},
+			Rotate:      &bootstrapv1.Logger_Slog_Rotate{Enabled: true, MaxSize: 1},
+		},
+	}
+
+	l, cleanup, err := BslogLoggerProvider()(context.Background(), cfg)
+	if err != nil || l == nil {
+		t.Fatalf("BslogLoggerProvider() = (%v, %v), want non-nil logger", l, err)
+	}
+	defer func() {
+		if cleanup != nil {
+			cleanup()
+		}
+	}()
+
+	l.Info(context.Background(), "multi-output", "k", "v")
+
+	data, err := os.ReadFile(path)
+	if err != nil || !strings.Contains(string(data), "multi-output") {
+		t.Fatalf("文件目标应收到全量日志流: (%s, %v)", data, err)
+	}
+}

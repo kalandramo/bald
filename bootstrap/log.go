@@ -120,9 +120,10 @@ func (r *LogRegistry) names() []string {
 // 它知道「契约里 Logger.GetSlog() 返回什么字段」与「bslog.NewOptions 的形状」，
 // 因此 bslog 包无需 import bconf，保持适配器层零契约依赖。
 //
-// 映射规则：level/format/output_path 逐字段透传；契约 output_path 为单值，
-// 契约装配暂不含轮转（Options 的 Rotate/多路径仅 CLI/Options 路径可用）——
-// 差异已记录于设计文档 §3。Slog 段缺失时回退 Options 默认值（stdout + info）。
+// 映射规则：level/format/output_path 逐字段透传；多输出与轮转（2026-09-13
+// 契约补齐）：output_paths 非空优先生效，为空回退单值 output_path，都空保留
+// 默认 stdout；rotate 段零值字段回退 bslog 默认（100MB/7 份/30 天/gzip）。
+// Slog 段缺失时回退 Options 默认值（stdout + info）。
 func BslogLoggerProvider() LoggerProvider {
 	return func(_ context.Context, cfg *bootstrapv1.Logger) (log.Logger, func(), error) {
 		return bslog.New(LogOptions(cfg)), nil, nil
@@ -157,8 +158,31 @@ func LogOptions(l *bootstrapv1.Logger) *bslog.Options {
 	if c.GetFormat() != "" {
 		o.Format = c.GetFormat()
 	}
-	if p := c.GetOutputPath(); p != "" {
+	// 多输出优先：output_paths 非空优先生效，为空回退单值 output_path，
+	// 两者都空保留默认 stdout（与契约校验的回退序一致）。
+	if ps := c.GetOutputPaths(); len(ps) > 0 {
+		o.OutputPaths = ps
+	} else if p := c.GetOutputPath(); p != "" {
 		o.OutputPaths = []string{p}
+	}
+	// 轮转：零值字段回退 bslog 默认（100MB / 7 份 / 30 天 / gzip）——
+	// 契约 0 = 默认的语义在此兑现，用户只写关心的字段即可。
+	if r := c.GetRotate(); r != nil {
+		if r.GetEnabled() {
+			o.Rotate.Enabled = true
+		}
+		if v := int(r.GetMaxSize()); v > 0 {
+			o.Rotate.MaxSize = v
+		}
+		if v := int(r.GetMaxBackups()); v > 0 {
+			o.Rotate.MaxBackups = v
+		}
+		if v := int(r.GetMaxAge()); v > 0 {
+			o.Rotate.MaxAge = v
+		}
+		if r.GetCompress() {
+			o.Rotate.Compress = true
+		}
 	}
 	return o
 }
