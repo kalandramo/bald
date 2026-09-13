@@ -38,17 +38,25 @@ server:
 
 # ---------------------------------------------------------------------------
 # 日志（bootstrapv1.Logger：type 选后端 + 各后端参数段）
-# type 需与代码里注册的后端一致：默认构建只有 slog；要接 charm/loki/sentry/
-# aliyun/tencent 需在 main 里对 LogRegistry 显式注册对应 contract.Provider
-# （bald/log/<backend>/contract），再经 appkit.WithLogRegistry 装配。
+# 内置全量注册表：type 纯配置声明即生效（slog/nop/loki/aliyun/tencent/
+# sentry/charm 七后端预注册），业务 main 零注册代码；仅自定义后端或精选子集
+# （控制二进制体积）才需 WithLogRegistry 显式注册。
 # ---------------------------------------------------------------------------
 logger:
   type: "slog"
   slog:
     level: "info"        # debug | info | warn | error
     format: "console"    # console | json
-    output_path: "stdout"  # stdout / stderr 或文件路径
-  # 其它后端段示例（仅注册了对应 contract 后才会被消费）：
+    output_path: "stdout"  # 单值输出目标：stdout / stderr 或文件路径
+    # 多输出 + 轮转（output_paths 非空时优先生效，单值字段被忽略）：
+    # output_paths: ["stdout", "/var/log/bald-demo/app.log"]  # 复制分流（每目标收全量）
+    # rotate:            # 仅对文件目标生效（lumberjack 按大小切割）
+    #   enabled: true    # 零值字段回退默认：100MB / 7 份 / 30 天 / gzip
+    #   max_size: 100    # MB
+    #   max_backups: 7   # 保留份数（不含当前）；0 = 保留全部
+    #   max_age: 30      # 天；0 = 不按时间清理
+    #   compress: true
+  # 其它后端段示例（内置注册，type 声明即生效）：
   # charm:
   #   level: "info"      # 与 slog 段同形状；终端彩色输出（本地开发）
   # loki:
