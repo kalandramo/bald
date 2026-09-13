@@ -223,4 +223,33 @@ message Logger {
   optional Aliyun aliyun = 13;
   optional Tencent tencent = 14;
   optional Cloudwatch cloudwatch = 15;
+
+  // 多后端广播：声明多个后端并存（如本地 slog + 远程 loki 双写），装配层
+  // 逐项构造后经 log.MultiLogger 广播合并（每条日志复制分流到全部后端）。
+  // 非空时优先于单 type——与 Slog.output_paths 优先于 output_path 同一
+  // 优先级模式；单 type 保留向后兼容，两者都配时以 backends 为准。
+  repeated Backend backends = 16;
+
+  // Backend 是多后端声明中的一项：形状与 Logger 单选模式平行
+  //（type 选后端 + 各后端参数段，字段号一一对应）。
+  message Backend {
+    string type = 1;
+
+    // 本地日志库。
+    optional Zap zap = 2;
+    optional Zerolog zerolog = 3;
+    optional Slog slog = 4;
+    optional Logrus logrus = 5;
+    optional Charm charm = 6;
+    optional Phuslu phuslu = 7;
+    optional Glog glog = 8;
+    optional Hclog hclog = 9;
+    // 远程/云端日志服务。
+    optional Fluent fluent = 10;
+    optional Loki loki = 11;
+    optional Sentry sentry = 12;
+    optional Aliyun aliyun = 13;
+    optional Tencent tencent = 14;
+    optional Cloudwatch cloudwatch = 15;
+  }
 }

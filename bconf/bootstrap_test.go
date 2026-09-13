@@ -99,6 +99,22 @@ func TestValidateErrors(t *testing.T) {
 			wantSub: "slog.rotate.max_size",
 		},
 		{
+			name: "backends item without type",
+			mutate: func(c *bootstrapv1.BootstrapConfig) {
+				c.GetLogger().Backends = []*bootstrapv1.Logger_Backend{{Type: "slog", Slog: &bootstrapv1.Logger_Slog{Level: "info", Format: "console", OutputPath: "stdout"}}, {}}
+			},
+			wantSub: "backends[1].type",
+		},
+		{
+			name: "backends item bad slog level",
+			mutate: func(c *bootstrapv1.BootstrapConfig) {
+				c.GetLogger().Backends = []*bootstrapv1.Logger_Backend{
+					{Type: "slog", Slog: &bootstrapv1.Logger_Slog{Level: "verbose", Format: "console", OutputPath: "stdout"}},
+				}
+			},
+			wantSub: "backends[0].slog.level",
+		},
+		{
 			name:    "empty app id",
 			mutate:  func(c *bootstrapv1.BootstrapConfig) { c.GetApp().Id = "" },
 			wantSub: "id",
@@ -168,5 +184,35 @@ func TestValidateSlogOutputPaths(t *testing.T) {
 	}
 	if err := Validate(cfg2); err != nil {
 		t.Fatalf("merged config should pass Validate: %v", err)
+	}
+}
+
+// TestUnmarshalMapBackends 多后端声明经配置装载：列表项平移进 repeated Backends，
+// 每项自带 type 与参数段。
+func TestUnmarshalMapBackends(t *testing.T) {
+	m := map[string]any{
+		"logger": map[string]any{
+			"backends": []any{
+				map[string]any{"type": "slog", "slog": map[string]any{"level": "info", "output_path": "stdout"}},
+				map[string]any{"type": "loki", "loki": map[string]any{"endpoint": "http://loki:3100/loki/api/v1/push"}},
+			},
+		},
+	}
+	cfg := NewBootstrap()
+	if err := UnmarshalMap(m, cfg); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	bs := cfg.GetLogger().GetBackends()
+	if len(bs) != 2 {
+		t.Fatalf("backends = %d, want 2", len(bs))
+	}
+	if bs[0].GetType() != "slog" || bs[0].GetSlog().GetLevel() != "info" {
+		t.Fatalf("backends[0] = %+v", bs[0])
+	}
+	if bs[1].GetType() != "loki" || bs[1].GetLoki().GetEndpoint() == "" {
+		t.Fatalf("backends[1] = %+v", bs[1])
+	}
+	if err := Validate(cfg); err != nil {
+		t.Fatalf("backends config should pass Validate: %v", err)
 	}
 }

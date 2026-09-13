@@ -91,49 +91,80 @@ func validateApp(a *bootstrapv1.App) error {
 	return nil
 }
 
-// validateLogger 校验日志契约段。当前仅 slog 后端已实现，
+// validateLogger 校验日志契约段。当前仅 slog 后端已实现深校验，
 // 其余 type 先放行（装配层 bootstrap.LogRegistry 查表时才会 fail-fast），
 // 避免契约层硬编码后端清单。
+//
+// 多后端模式：backends 非空时优先于单 type——逐项校验 type 非空与
+// slog 项的段级规则（与单选对称）。
 func validateLogger(l *bootstrapv1.Logger) error {
 	if l == nil {
+		return nil
+	}
+	if bs := l.GetBackends(); len(bs) > 0 {
+		for i, b := range bs {
+			if b.GetType() == "" {
+				return fmt.Errorf("backends[%d].type must not be empty", i)
+			}
+			if s := b.GetSlog(); s != nil {
+				if err := validateSlogSection(s, fmt.Sprintf("backends[%d].slog", i)); err != nil {
+					return err
+				}
+			}
+		}
 		return nil
 	}
 	if l.GetType() == "" {
 		return fmt.Errorf("type must not be empty")
 	}
 	if s := l.GetSlog(); s != nil {
-		switch s.GetLevel() {
+		return validateSlogSection(s, "slog")
+	}
+	return nil
+}
+
+// validateSlogSection 校验单后端模式与多后端项共用的 slog 段规则。
+// prefix 用于错误定位（"slog" 或 "backends[i].slog"）。
+//
+// level/format 空串放行（装配层 LogOptions 对空值回退默认 info/console——
+// 多后端项是 repeated 新元素，不继承 NewBootstrap 默认值，字段缺省是
+// 常态）；非空才校验取值。与 Validate 总则「缺省字段视为未启用，跳过」一致。
+func validateSlogSection(s *bootstrapv1.Logger_Slog, prefix string) error {
+	if v := s.GetLevel(); v != "" {
+		switch v {
 		case "debug", "info", "warn", "error":
 		default:
-			return fmt.Errorf("slog.level %q, want debug|info|warn|error", s.GetLevel())
+			return fmt.Errorf("%s.level %q, want debug|info|warn|error", prefix, v)
 		}
-		switch s.GetFormat() {
+	}
+	if v := s.GetFormat(); v != "" {
+		switch v {
 		case "console", "json":
 		default:
-			return fmt.Errorf("slog.format %q, want console|json", s.GetFormat())
+			return fmt.Errorf("%s.format %q, want console|json", prefix, v)
 		}
-		// 输出目标：output_paths 非空时逐项非空；为空时回退要求 output_path
-		//（都空时装配层会默认 stdout，但显式给了 Slog 段却不给输出目标，
-		// 更可能是漏配——fail-fast 暴露）。
-		if ps := s.GetOutputPaths(); len(ps) > 0 {
-			for i, p := range ps {
-				if p == "" {
-					return fmt.Errorf("slog.output_paths[%d] must not be empty", i)
-				}
+	}
+	// 输出目标：output_paths 非空时逐项非空；为空时回退要求 output_path
+	//（都空时装配层会默认 stdout，但显式给了 Slog 段却不给输出目标，
+	// 更可能是漏配——fail-fast 暴露）。
+	if ps := s.GetOutputPaths(); len(ps) > 0 {
+		for i, p := range ps {
+			if p == "" {
+				return fmt.Errorf("%s.output_paths[%d] must not be empty", prefix, i)
 			}
-		} else if s.GetOutputPath() == "" {
-			return fmt.Errorf("slog.output_path must not be empty")
 		}
-		if r := s.GetRotate(); r != nil {
-			if r.GetMaxSize() < 0 {
-				return fmt.Errorf("slog.rotate.max_size must be >= 0")
-			}
-			if r.GetMaxBackups() < 0 {
-				return fmt.Errorf("slog.rotate.max_backups must be >= 0")
-			}
-			if r.GetMaxAge() < 0 {
-				return fmt.Errorf("slog.rotate.max_age must be >= 0")
-			}
+	} else if s.GetOutputPath() == "" {
+		return fmt.Errorf("%s.output_path must not be empty", prefix)
+	}
+	if r := s.GetRotate(); r != nil {
+		if r.GetMaxSize() < 0 {
+			return fmt.Errorf("%s.rotate.max_size must be >= 0", prefix)
+		}
+		if r.GetMaxBackups() < 0 {
+			return fmt.Errorf("%s.rotate.max_backups must be >= 0", prefix)
+		}
+		if r.GetMaxAge() < 0 {
+			return fmt.Errorf("%s.rotate.max_age must be >= 0", prefix)
 		}
 	}
 	return nil
