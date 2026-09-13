@@ -1,9 +1,9 @@
-// Package slogadapter 基于标准库 log/slog 实现 bald 日志契约（log.Logger）。
+// Package bslog 基于标准库 log/slog 实现 bald 日志契约（log.Logger）。
 //
-// 目录对齐 transport 的命名法：目录 slog/、包名 slogadapter（规避与标准库
-// log/slog 的名字冲突，同 transport/http→httpserver、transport/grpc→grpcserver）。
+// 包名 bslog 取 bald+slog 之意，目录与包名一致（2026-09-13 由 slog/slogadapter
+// 改名而来），既规避与标准库 log/slog 的名字冲突，又免去了消费点的强制导入别名。
 // 本包可携带 slog 生态依赖（lumberjack/errgroup 等）；契约核心 log 包保持零三方依赖。
-package slogadapter
+package bslog
 
 import (
 	"context"
@@ -25,7 +25,7 @@ const (
 	slogLevelError = slog.LevelError
 )
 
-// config 收集 NewSlogLogger 的可选项。
+// config 收集 New 的可选项。
 type config struct {
 	handler slog.Handler // 外部注入的 handler（如 OTel），优先级最高
 	filters []Filter     // 脱敏/过滤装饰器
@@ -33,7 +33,7 @@ type config struct {
 	writer  io.Writer    // 仅测试用，覆盖 OutputPaths 的写入目标
 }
 
-// Option 用于定制 NewSlogLogger 的行为。
+// Option 用于定制 New 的行为。
 type Option func(*config)
 
 // WithHandler 注入自定义 slog.Handler，覆盖默认构造（console/json）的 handler。
@@ -57,10 +57,10 @@ func withWriter(w io.Writer) Option {
 	return func(c *config) { c.writer = w }
 }
 
-// NewSlogLogger 基于标准库 log/slog 构造一个开箱即用的 Logger 后端。
+// New 基于标准库 log/slog 构造一个开箱即用的 Logger 后端。
 // 当 opts 未提供 WithHandler 时，按 Options 的 Level/Format/OutputPaths 构造
 // console 或 json handler 并输出到 stdout（或文件）。
-func NewSlogLogger(o *Options, opts ...Option) log.Logger {
+func New(o *Options, opts ...Option) log.Logger {
 	cfg := &config{}
 	for _, opt := range opts {
 		opt(cfg)

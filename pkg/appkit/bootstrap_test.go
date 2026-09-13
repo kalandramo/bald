@@ -24,7 +24,7 @@ import (
 	baldbootstrap "github.com/kalandramo/bald/bootstrap"
 	baldconfig "github.com/kalandramo/bald/bootstrap/config"
 	log "github.com/kalandramo/bald/log"
-	slogadapter "github.com/kalandramo/bald/log/slog"
+	"github.com/kalandramo/bald/log/bslog"
 	gateway "github.com/kalandramo/bald/transport/gateway"
 )
 
@@ -35,7 +35,7 @@ func (f *fakeReader) Load(context.Context, string) ([]byte, error) { return f.da
 
 // stubLogger 供测试桩返回的轻量 logger（slog 默认输出，不受契约段影响）。
 func stubLogger() log.Logger {
-	return slogadapter.NewSlogLogger(slogadapter.NewOptions())
+	return bslog.New(bslog.NewOptions())
 }
 
 // 日志工厂三级分发：显式 WithLoggerFactory > 契约注册表（WithLogRegistry）> 默认 slog。
@@ -104,7 +104,7 @@ func TestResolveLoggerFactory(t *testing.T) {
 type countingFactory struct {
 	mu   sync.Mutex
 	args []*bootstrapv1.Logger
-	dec  []slogadapter.Option
+	dec  []bslog.Option
 }
 
 func (c *countingFactory) factory(_ context.Context, l *bootstrapv1.Logger) (log.Logger, func(), error) {
@@ -112,7 +112,7 @@ func (c *countingFactory) factory(_ context.Context, l *bootstrapv1.Logger) (log
 	c.args = append(c.args, l)
 	c.mu.Unlock()
 	// 用默认 Options（stdout+info）而非 LogOptions(l)：避免契约段值（如输出到文件）影响测试输出。
-	return slogadapter.NewSlogLogger(slogadapter.NewOptions(), c.dec...), nil, nil
+	return bslog.New(bslog.NewOptions(), c.dec...), nil, nil
 }
 
 func (c *countingFactory) calls() int {

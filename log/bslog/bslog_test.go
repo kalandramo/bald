@@ -1,4 +1,4 @@
-package slogadapter
+package bslog
 
 import (
 	"bytes"
@@ -10,9 +10,9 @@ import (
 	log "github.com/kalandramo/bald/log"
 )
 
-func TestSlogLoggerLevels(t *testing.T) {
+func TestBslogLevels(t *testing.T) {
 	buf := &bytes.Buffer{}
-	l := NewSlogLogger(NewOptions(), withWriter(buf))
+	l := New(NewOptions(), withWriter(buf))
 	if !l.Enabled(log.LevelInfo) {
 		t.Fatal("info should be enabled by default")
 	}
@@ -32,7 +32,7 @@ func TestSlogLoggerLevels(t *testing.T) {
 
 func TestFilterRedactsSensitiveKey(t *testing.T) {
 	buf := &bytes.Buffer{}
-	l := NewSlogLogger(NewOptions(), withWriter(buf), WithFilter(FilterKey("password")))
+	l := New(NewOptions(), withWriter(buf), WithFilter(FilterKey("password")))
 	l.Info(context.Background(), "login", "user", "alice", "password", "secret")
 
 	out := buf.String()
@@ -48,7 +48,7 @@ func TestFilterRedactsSensitiveKey(t *testing.T) {
 // （修复前 filterHandler.WithAttrs 不过滤，属性绕过 Handle 直接落盘）。
 func TestFilterRedactsViaWith(t *testing.T) {
 	buf := &bytes.Buffer{}
-	l := NewSlogLogger(NewOptions(), withWriter(buf), WithFilter(FilterKey("password")))
+	l := New(NewOptions(), withWriter(buf), WithFilter(FilterKey("password")))
 	l.With("password", "secret").Info(context.Background(), "login", "user", "alice")
 
 	out := buf.String()
@@ -64,7 +64,7 @@ func TestFilterRedactsViaWith(t *testing.T) {
 // 敏感属性同样被脱敏。
 func TestFilterRedactsViaWithAttrsOption(t *testing.T) {
 	buf := &bytes.Buffer{}
-	l := NewSlogLogger(NewOptions(), withWriter(buf),
+	l := New(NewOptions(), withWriter(buf),
 		WithFilter(FilterKey("password")),
 		WithAttrs(slog.String("password", "secret")),
 	)
@@ -81,7 +81,7 @@ func TestFilterRedactsViaWithAttrsOption(t *testing.T) {
 
 func TestContextAttrsPropagated(t *testing.T) {
 	buf := &bytes.Buffer{}
-	l := NewSlogLogger(NewOptions(), withWriter(buf))
+	l := New(NewOptions(), withWriter(buf))
 	ctx := log.ContextWithAttrs(context.Background(), slog.String("request_id", "req-123"))
 	l.Info(ctx, "handled")
 	out := buf.String()
@@ -90,12 +90,12 @@ func TestContextAttrsPropagated(t *testing.T) {
 	}
 }
 
-// TestSlogLoggerWithContractGlobal 集成验证：适配器实例可注入契约层全局表。
-func TestSlogLoggerWithContractGlobal(t *testing.T) {
+// TestBslogWithContractGlobal 集成验证：适配器实例可注入契约层全局表。
+func TestBslogWithContractGlobal(t *testing.T) {
 	defer log.SetLogger(nil)
 
 	buf := &bytes.Buffer{}
-	l := NewSlogLogger(NewOptions(), withWriter(buf))
+	l := New(NewOptions(), withWriter(buf))
 	log.SetLogger(l)
 
 	if log.GetLogger() != l {

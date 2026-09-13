@@ -66,7 +66,7 @@ import (
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
 	"github.com/kalandramo/bald/berrors"
 	baldlog "github.com/kalandramo/bald/log"
-	baldlogadapter "github.com/kalandramo/bald/log/slog"
+	"github.com/kalandramo/bald/log/bslog"
 	"github.com/kalandramo/bald/pkg/appkit"
 	mid "github.com/kalandramo/bald/pkg/middleware/gin"
 	grpcmw "github.com/kalandramo/bald/pkg/middleware/grpc"
@@ -190,9 +190,9 @@ func newApp(bootstrap *bootstrapv1.BootstrapConfig, ready transport.ReadinessFun
 
 		// 日志脱敏装饰：阶段 A（启动默认）/ 阶段 B（契约重建）构造 Logger 时统一生效。
 		appkit.WithLogDecorators(
-			baldlogadapter.WithFilter(baldlogadapter.FilterKey("password")),
-			baldlogadapter.WithFilter(baldlogadapter.FilterKey("token")),
-			baldlogadapter.WithAttrs(slog.String("service.name", "bald-demo")),
+			bslog.WithFilter(bslog.FilterKey("password")),
+			bslog.WithFilter(bslog.FilterKey("token")),
+			bslog.WithAttrs(slog.String("service.name", "bald-demo")),
 		),
 
 		appkit.WithAfterStart(func(ctx context.Context) error {

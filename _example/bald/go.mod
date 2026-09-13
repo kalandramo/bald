@@ -14,7 +14,7 @@ require (
 	github.com/kalandramo/bald/bootstrap v0.1.0
 	github.com/kalandramo/bald/contrib/registry/nacos v0.0.0-00010101000000-000000000000
 	github.com/kalandramo/bald/contrib/store-gorm v0.0.0-00010101000000-000000000000
-	github.com/kalandramo/bald/log v0.1.0
+	github.com/kalandramo/bald/log v0.2.0
 	github.com/kalandramo/bald/transport v0.1.0
 	github.com/kalandramo/bald/transport/web v0.1.0
 	github.com/nacos-group/nacos-sdk-go v1.1.6

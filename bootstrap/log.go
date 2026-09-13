@@ -8,7 +8,7 @@ import (
 
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
 	log "github.com/kalandramo/bald/log"
-	slogadapter "github.com/kalandramo/bald/log/slog"
+	"github.com/kalandramo/bald/log/bslog"
 )
 
 // LoggerProvider 是日志后端工厂：从契约的 Logger 配置构造一个 log.Logger。
@@ -116,7 +116,7 @@ func (r *LogRegistry) names() []string {
 
 // SlogLoggerProvider 返回标准库 slog 后端的工厂（契约 Type="slog"）。
 //
-// 它知道「契约里 Logger.GetSlog() 返回什么字段」与「slogadapter.NewOptions 的形状」，
+// 它知道「契约里 Logger.GetSlog() 返回什么字段」与「bslog.NewOptions 的形状」，
 // 因此 slog 包无需 import bconf，保持适配器层零契约依赖。
 //
 // 映射规则：level/format/output_path 逐字段透传；契约 output_path 为单值，
@@ -124,22 +124,22 @@ func (r *LogRegistry) names() []string {
 // 差异已记录于设计文档 §3。Slog 段缺失时回退 Options 默认值（stdout + info）。
 func SlogLoggerProvider() LoggerProvider {
 	return func(_ context.Context, cfg *bootstrapv1.Logger) (log.Logger, func(), error) {
-		return slogadapter.NewSlogLogger(LogOptions(cfg)), nil, nil
+		return bslog.New(LogOptions(cfg)), nil, nil
 	}
 }
 
-// LogOptions 把契约的 Logger 配置转为 slogadapter.Options。
+// LogOptions 把契约的 Logger 配置转为 bslog.Options。
 //
 // 原属 pkg/conf（LogOptions，confv1 版），legacy 契约退役后迁入装配层：
 // 这里已同时依赖 bconf（契约类型）与 log/slog（Options 形状），放此处零新增依赖。
 // Slog 段缺失时回退 Options 默认值（stdout + info）。
-func LogOptions(l *bootstrapv1.Logger) *slogadapter.Options {
+func LogOptions(l *bootstrapv1.Logger) *bslog.Options {
 	c := l.GetSlog()
 	if c == nil {
 		// type=slog 但未携带 Slog 段：使用默认配置，保证日志开箱即用。
-		return slogadapter.NewOptions()
+		return bslog.NewOptions()
 	}
-	o := slogadapter.NewOptions()
+	o := bslog.NewOptions()
 	if c.GetLevel() != "" {
 		o.Level = c.GetLevel()
 	}

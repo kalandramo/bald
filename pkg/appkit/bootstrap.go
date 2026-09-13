@@ -48,14 +48,14 @@ import (
 	baldbootstrap "github.com/kalandramo/bald/bootstrap"
 	baldconfig "github.com/kalandramo/bald/bootstrap/config"
 	log "github.com/kalandramo/bald/log"
-	slogadapter "github.com/kalandramo/bald/log/slog"
+	"github.com/kalandramo/bald/log/bslog"
 	"github.com/kalandramo/bald/pkg/registry"
 	"github.com/kalandramo/bald/transport"
 )
 
 // LoggerFactory 从契约 Logger 段构造日志后端。
 //
-// 默认实现为 slogadapter（LogOptions 逐字段映射 + 业务装饰器）；业务可替换
+// 默认实现为 bslog（LogOptions 逐字段映射 + 业务装饰器）；业务可替换
 // 为 zap 等后端，或包一层 bootstrap.LogRegistry 做契约驱动的后端切换
 // （契约 logger.type 查表）。l 为 nil 表示启动期默认 Logger（契约未装载前）。
 type LoggerFactory func(ctx context.Context, l *bootstrapv1.Logger) (lg log.Logger, cleanup func(), err error)
@@ -78,7 +78,7 @@ type bootstrapSpec struct {
 	extraServers []transport.Server
 	afterStart   []func(context.Context) error
 
-	logDeco     []slogadapter.Option
+	logDeco     []bslog.Option
 	logFac      LoggerFactory
 	logRegistry *baldbootstrap.LogRegistry
 
@@ -212,7 +212,7 @@ func WithConfigRegistry(r *baldbootstrap.Registry) BootstrapOption {
 
 // WithLogDecorators 附加 slog 日志装饰器（脱敏、业务字段等），阶段 A/B
 // 构造 Logger 时统一生效。使用自定义 LoggerFactory 时由工厂自行消费。
-func WithLogDecorators(deco ...slogadapter.Option) BootstrapOption {
+func WithLogDecorators(deco ...bslog.Option) BootstrapOption {
 	return func(s *bootstrapSpec) { s.logDeco = append(s.logDeco, deco...) }
 }
 
@@ -748,7 +748,7 @@ func resolveLoggerFactory(s *bootstrapSpec) LoggerFactory {
 		return func(ctx context.Context, l *bootstrapv1.Logger) (log.Logger, func(), error) {
 			if l == nil {
 				// 阶段 A（契约装载前）：回退默认 slog，保证启动日志可见。
-				return slogadapter.NewSlogLogger(baldbootstrap.LogOptions(nil), deco...), nil, nil
+				return bslog.New(baldbootstrap.LogOptions(nil), deco...), nil, nil
 			}
 			return reg.BuildLogger(ctx, l)
 		}
@@ -758,9 +758,9 @@ func resolveLoggerFactory(s *bootstrapSpec) LoggerFactory {
 }
 
 // defaultLoggerFactory 返回默认 slog 工厂：LogOptions 逐字段映射 + 业务装饰器。
-func defaultLoggerFactory(deco []slogadapter.Option) LoggerFactory {
+func defaultLoggerFactory(deco []bslog.Option) LoggerFactory {
 	return func(_ context.Context, l *bootstrapv1.Logger) (log.Logger, func(), error) {
-		return slogadapter.NewSlogLogger(baldbootstrap.LogOptions(l), deco...), nil, nil
+		return bslog.New(baldbootstrap.LogOptions(l), deco...), nil, nil
 	}
 }
 

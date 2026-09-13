@@ -22,14 +22,14 @@ require (
 	github.com/kalandramo/bald v0.0.0-00010101000000-000000000000
 	github.com/kalandramo/bald/broker v0.0.0-00010101000000-000000000000
 	github.com/kalandramo/bald/encoding v0.0.1
-	github.com/kalandramo/bald/log v0.1.0
+	github.com/kalandramo/bald/encoding/json v0.0.1
+	github.com/kalandramo/bald/log v0.2.0
 	github.com/kalandramo/bald/metrics v0.0.1
 	github.com/pion/webrtc/v4 v4.2.12
 )
 
 require (
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/kalandramo/bald/encoding/json v0.0.1 // indirect
 	github.com/kalandramo/bald/encoding/proto v0.0.1 // indirect
 	github.com/pion/datachannel v1.6.0 // indirect
 	github.com/pion/dtls/v3 v3.1.4 // indirect

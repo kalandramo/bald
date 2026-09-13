@@ -1,4 +1,4 @@
-package slogadapter
+package bslog
 
 import (
 	"fmt"

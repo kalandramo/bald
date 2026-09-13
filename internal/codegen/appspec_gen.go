@@ -55,7 +55,7 @@ import (
 	"github.com/kalandramo/bald/pkg/appkit"
 	"github.com/kalandramo/bald/pkg/audit"
 	baldlog "github.com/kalandramo/bald/log"
-	baldlogadapter "github.com/kalandramo/bald/log/slog"
+	"github.com/kalandramo/bald/log/bslog"
 {{- if or .Server.Http .Server.Grpc }}
 	bconf "github.com/kalandramo/bald/bconf"
 	"github.com/kalandramo/bald/pkg/middleware/bundle"
@@ -86,8 +86,8 @@ func serveRunE(_ *cobra.Command, _ []string) error {
 {{- end }}
 
 	// 日志后端（slog 门面）：logOpts 可被 --log.* flag 覆盖（含 rotate，见 --log.rotate.*）。
-	logOpts := baldlogadapter.NewOptions()
-	baldlog.SetLogger(baldlogadapter.NewSlogLogger(logOpts))
+	logOpts := bslog.NewOptions()
+	baldlog.SetLogger(bslog.New(logOpts))
 {{- if or .Server.Http .Server.Grpc }}
 
 	// bundle：横切关注点链序固化（P10）；HTTP/gRPC 双传输共用同一套链。

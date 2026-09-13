@@ -1,6 +1,6 @@
 package log_test
 
-// MultiLogger 的集成测试用外部测试包（log_test）：需要引入 slogadapter 构造
+// MultiLogger 的集成测试用外部测试包（log_test）：需要引入 bslog 构造
 // 真实后端验证广播语义。外部测试包是独立包，不构成 log→slog→log 循环，
 // 同时不污染契约包自身的依赖图（契约层 in-package 测试仍只用 stub，见 log_test.go）。
 
@@ -12,13 +12,13 @@ import (
 	"testing"
 
 	"github.com/kalandramo/bald/log"
-	slogadapter "github.com/kalandramo/bald/log/slog"
+	"github.com/kalandramo/bald/log/bslog"
 )
 
 // newSink 用 slog 后端构造一个写到 w 的 Logger，级别由 lvl 控制。
 func newSink(w io.Writer, lvl slog.Level) log.Logger {
-	return slogadapter.NewSlogLogger(slogadapter.NewOptions(),
-		slogadapter.WithHandler(slog.NewTextHandler(w, &slog.HandlerOptions{Level: lvl})))
+	return bslog.New(bslog.NewOptions(),
+		bslog.WithHandler(slog.NewTextHandler(w, &slog.HandlerOptions{Level: lvl})))
 }
 
 func TestMultiLogger_Broadcasts(t *testing.T) {

@@ -28,7 +28,7 @@ import (
 
 	bconf "github.com/kalandramo/bald/bconf"
 	baldlog "github.com/kalandramo/bald/log"
-	baldlogadapter "github.com/kalandramo/bald/log/slog"
+	"github.com/kalandramo/bald/log/bslog"
 	"github.com/kalandramo/bald/pkg/appkit"
 	"github.com/kalandramo/bald/pkg/registry/inmemory"
 	httpserver "github.com/kalandramo/bald/transport/http"
@@ -41,9 +41,9 @@ func main() {
 	bootstrap.GetServer().GetHttp().Addr = ":8080"
 
 	// 日志系统接入（进程入口 bootstrap 全局 Logger）。
-	logOpts := baldlogadapter.NewOptions()
+	logOpts := bslog.NewOptions()
 	logOpts.AddFlags(pflag.CommandLine)
-	baldlog.SetLogger(baldlogadapter.NewSlogLogger(logOpts))
+	baldlog.SetLogger(bslog.New(logOpts))
 	logger := baldlog.GetLogger()
 
 	// 框架级 flag 注册（直接到 pflag.CommandLine，接入 viper override 层）。

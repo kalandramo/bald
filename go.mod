@@ -29,7 +29,7 @@ require (
 	github.com/kalandramo/bald/bconf v0.1.0
 	github.com/kalandramo/bald/berrors v0.1.0
 	github.com/kalandramo/bald/bootstrap v0.1.0
-	github.com/kalandramo/bald/log v0.1.0
+	github.com/kalandramo/bald/log v0.2.0
 	github.com/kalandramo/bald/transport v0.1.0
 	github.com/kalandramo/bald/transport/gateway v0.1.0
 	github.com/kalandramo/bald/transport/grpc v0.1.0

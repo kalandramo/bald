@@ -1,4 +1,4 @@
-package slogadapter
+package bslog
 
 import "log/slog"
 
@@ -18,7 +18,7 @@ import "log/slog"
 //
 //	provider := log-sdk.NewLoggerProvider(log-sdk.WithProcessor(...))
 //	h := otelslog.NewHandler("bald", otelslog.WithLoggerProvider(provider))
-//	logger := slogadapter.NewSlogLogger(opts, slogadapter.WithOTelHandler(h))
+//	logger := bslog.New(opts, bslog.WithOTelHandler(h))
 //
 // 级别与属性映射复用 onexstack/pkg/otelslog 的 convert 逻辑（slog.Record → OTel log.Record）。
 func WithOTelHandler(h slog.Handler) Option {
