@@ -789,6 +789,10 @@ func resolveLoggerFactory(s *bootstrapSpec) LoggerFactory {
 //     仅 bslog 后端可消费——特例保留 WithLogDecorators 在默认路径的既有语义）；
 //   - 其余 type：查内置表构造；未实现的 type fail-fast 并列出可用项。
 //     （修复此前默认路径静默忽略 logger.type、一律产出 bslog 的缺陷。）
+//
+// 全局脱敏（filter_keys 非空）：backends 合并与 type=slog 两条直构路径在出口
+// 包 log.NewFilterLogger；其余 type 路径经 reg.BuildLogger 已在其出口包装
+//（视图递归不携带 filter_keys，不会双层）——四条路径脱敏语义一致。
 func builtinLoggerFactory(deco []bslog.Option) LoggerFactory {
 	reg := baldbootstrap.NewBuiltinLogRegistry()
 	return func(ctx context.Context, l *bootstrapv1.Logger) (log.Logger, func(), error) {
@@ -822,10 +826,10 @@ func builtinLoggerFactory(deco []bslog.Option) LoggerFactory {
 					c()
 				}
 			}
-			return log.NewMultiLogger(loggers...), merged, nil
+			return log.NewFilterLogger(log.NewMultiLogger(loggers...), l.GetFilterKeys()...), merged, nil
 		}
 		if l.GetType() == "slog" {
-			return bslog.New(baldbootstrap.LogOptions(l), deco...), nil, nil
+			return log.NewFilterLogger(bslog.New(baldbootstrap.LogOptions(l), deco...), l.GetFilterKeys()...), nil, nil
 		}
 		return reg.BuildLogger(ctx, l)
 	}

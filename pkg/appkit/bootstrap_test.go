@@ -156,6 +156,55 @@ func TestBuiltinDefaultPath(t *testing.T) {
 	}
 }
 
+// TestBuiltinDefaultPath_FilterKeys 全局脱敏在内置路径生效：type=slog 特例
+// 与 backends 直构路径出口包 FilterLogger（filter_keys 与 deco 可叠加）。
+func TestBuiltinDefaultPath_FilterKeys(t *testing.T) {
+	fac := resolveLoggerFactory(&bootstrapSpec{})
+
+	// type=slog 直构路径。
+	path := filepath.Join(t.TempDir(), "filter-slog.log")
+	l, cleanup, err := fac(context.Background(), &bootstrapv1.Logger{
+		Type:       "slog",
+		FilterKeys: []string{"password"},
+		Slog:       &bootstrapv1.Logger_Slog{Level: "info", Format: "json", OutputPath: path},
+	})
+	if err != nil || l == nil {
+		t.Fatalf("type=slog with filter_keys: (%v, %v)", l, err)
+	}
+	l.Info(context.Background(), "login", "password", "secret", "user", "alice")
+	if cleanup != nil {
+		cleanup()
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read log: %v", err)
+	}
+	if !strings.Contains(string(data), `"password":"***"`) || !strings.Contains(string(data), `"user":"alice"`) {
+		t.Fatalf("type=slog 路径脱敏应生效: %s", data)
+	}
+
+	// backends 直构路径（slog 项 + filter_keys）。
+	path2 := filepath.Join(t.TempDir(), "filter-backends.log")
+	ml, mcleanup, err := fac(context.Background(), &bootstrapv1.Logger{
+		FilterKeys: []string{"password"},
+		Backends: []*bootstrapv1.Logger_Backend{
+			{Type: "slog", Slog: &bootstrapv1.Logger_Slog{Level: "info", Format: "json", OutputPath: path2}},
+		},
+	})
+	if err != nil || ml == nil {
+		t.Fatalf("backends with filter_keys: (%v, %v)", ml, err)
+	}
+	ml.Info(context.Background(), "login", "password", "secret")
+	mcleanup()
+	data2, err := os.ReadFile(path2)
+	if err != nil {
+		t.Fatalf("read log: %v", err)
+	}
+	if !strings.Contains(string(data2), `"password":"***"`) {
+		t.Fatalf("backends 路径脱敏应生效: %s", data2)
+	}
+}
+
 // TestBuiltinDefaultPath_SlogDecorators type=slog 在内置路径保留装饰器语义。
 func TestBuiltinDefaultPath_SlogDecorators(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "deco.log")

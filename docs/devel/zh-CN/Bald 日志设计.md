@@ -120,9 +120,9 @@ type Options struct {
 2. **文件路径先自动创建缺失父目录，打开仍失败才回退 stdout**——直写与轮转两路径行为对称；可观测性不因一个路径问题全丢；
 3. **多目标 errgroup 并发写**，但为**复制分流**（每个目标收全量日志），不支持按级别分流到不同文件。
 
-扩展点收在 `Option`：`WithFilter(FilterKey("password"))` 脱敏、`WithAttrs` 固定属性、`WithHandler`/`WithOTelHandler` 换底层 handler。脱敏的实现细节：slog 把 `WithAttrs` 固化的属性交给内层 handler 在 `Handle` 阶段直接合并，会绕过外层装饰器——`filterHandler.WithAttrs` 必须**先过滤再下沉**，否则 `logger.With("password", ...)` 的脱敏静默失效。
+扩展点分两层。**bslog 的 `Option`**：`WithFilter(FilterKey("password"))` 精细脱敏（任意 `slog.Attr→slog.Attr` 变换函数）、`WithAttrs` 固定属性、`WithHandler`/`WithOTelHandler` 换底层 handler——均为 bslog 特有，其余五后端无对应（条目结构由各家 SDK 决定，无中间 handler 层可插）。**契约层 `NewFilterLogger(l, keys...)`**（2026-09-13）：全后端通用的脱敏装饰器，命中 key 的值统一掩码为 `***`（属性保留不丢弃），覆盖调用参数、`With` 派生属性、ctx 属性流三类来源；配置驱动（契约 `logger.filter_keys`，单选与 backends 全部后端统一生效，宁全勿漏——远端可检索平台恰是外泄风险最高处），留空零开销直通。两套并存按需选择：配置驱动全后端用 filter_keys，代码驱动仅 slog 的精细变换用 `WithFilter`。bslog 脱敏的实现细节：slog 把 `WithAttrs` 固化的属性交给内层 handler 在 `Handle` 阶段直接合并，会绕过外层装饰器——`filterHandler.WithAttrs` 必须**先过滤再下沉**，否则 `logger.With("password", ...)` 的脱敏静默失效。
 
-OTel 桥接刻意零依赖：核心不 import otel，`WithOTelHandler` 只是 `WithHandler` 的语义别名，调用方自带 `otelslog.NewHandler` 注入，otel 依赖树谁用谁背。
+OTel 桥接刻意零依赖：核心不 import otel，`WithOTelHandler` 只是 `WithHandler` 的语义别名，调用方自带 `otelslog.NewHandler` 注入，otel 依赖树谁用谁背。**OTel 不下沉到五后端**（有意裁定）：OTel Logs 与五后端是"后端选择"互斥关系而非叠加——要 OTel 管道用 bslog+`WithOTelHandler` 即可；选了 loki/SLS/sentry 已选定日志平台，双管道冗余；要经 collector 转发的场景由 collector 完成，后端无需感知。同理 **`WithHandler` 也不下沉**：它抽象的是 slog 的 handler 层，五后端条目构造即各家 SDK API 调用（SLS `LogContent`、CLS `Log_Content`、sentry Event、loki JSON、charm 原生），强行抽象等于重造一层适配器。
 
 ### 远端/终端后端 ×5 与 contract 子包模式
 
@@ -207,12 +207,15 @@ logger:
 
 ```yaml
 logger:
+  filter_keys: ["password", "access_token"]   # 全局脱敏：全部后端统一掩码 ***
   backends:
     - type: slog          # 本地：stdout 全量排障
       slog: { level: debug, format: console, output_path: stdout }
     - type: loki          # 远程：生产级采集（level 独立过滤）
       loki: { endpoint: http://loki:3100/loki/api/v1/push, labels: { app: myapp } }
 ```
+
+`filter_keys` 是 Logger 顶层全局字段（与单选/`backends` 正交）：单选与多后端模式均生效，装配层在最终 Logger（单后端或合并后的 MultiLogger）出口统一包装 `log.NewFilterLogger`——覆盖调用参数、`With` 派生、ctx 属性流三类来源，全部后端共享同一份过滤。
 
 热更新：`WithWatchConfig(true)` 下改 yaml 即重建后端（副本试装载 + 校验 + 原子替换），改坏只记错不杀进程。唯一仍需代码的场景是业务装饰器（脱敏/固定属性，`WithLogDecorators`）与自定义后端（`WithLogRegistry` 精选注册）。
 
@@ -268,6 +271,8 @@ logger:
 - [x] AppKit 集成：三级工厂（默认路径升级为内置全量注册表，修复 `logger.type` 静默忽略缺陷）、两阶段装载、热更新 `rebuildLogger` 原子换后端。
 - [x] Slog 契约补齐多输出 + 轮转（2026-09-13）：proto `output_paths` + `Rotate` 段，`LogOptions` 全量映射（output_paths 优先 / 零值回退默认），bconf 校验（空串项 / 负值 fail-fast）——契约装配与 CLI/Options 直构路径能力对齐。
 - [x] 多后端广播契约接入（2026-09-13）：proto `Logger.backends`（repeated Backend，项形状与单选平行，非空优先于单 type）+ `bootstrap.LoggerView` 视图归一化 + `BuildLogger` 多后端分支（逐项构造、MultiLogger 合并、失败回滚）+ appkit 内置路径四分派（slog 项 deco 对称）——MultiLogger 从纯装饰器升级为契约可达能力，本地 + 远程双写纯配置声明。
+- [x] bslog 直写文件路径自动创建父目录（2026-09-13，`log/v0.3.1`）：对齐 lumberjack 轮转路径的首写 MkdirAll——修复嵌套目录缺失时静默回退 stdout 的不对称。
+- [x] 全后端脱敏 `NewFilterLogger` + `logger.filter_keys` 契约（2026-09-13）：契约层通用装饰器（调用参数/With 派生/ctx 属性流三级来源全覆盖、空清单零开销直通）+ proto `filter_keys=17`（bconf 空串项 fail-fast）+ `BuildLogger`/appkit 出口统一包装（单选、backends、type=slog 特例三路径一致）——远端可检索平台（loki/SLS/CLS/sentry）纯配置声明即脱敏；WithHandler/OTel 明确不下沉五后端（互斥后端选择 + 无统一 handler 层可抽象）。
 - [x] trace 关联闭环：observability 中间件经 `ContextWithAttrs` 挂 `trace_id`，零 TracerProvider 时随机 ID 兜底。
 - [x] 框架内包级函数惯例全量替换（192 处）。
 
