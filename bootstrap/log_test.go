@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -97,7 +98,7 @@ func TestBuildLogger_Errors(t *testing.T) {
 	}
 }
 
-func TestSlogLoggerProvider(t *testing.T) {
+func TestBslogLoggerProvider(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "app.log")
 	cfg := &bootstrapv1.Logger{
@@ -109,9 +110,9 @@ func TestSlogLoggerProvider(t *testing.T) {
 		},
 	}
 
-	l, cleanup, err := SlogLoggerProvider()(context.Background(), cfg)
+	l, cleanup, err := BslogLoggerProvider()(context.Background(), cfg)
 	if err != nil {
-		t.Fatalf("SlogLoggerProvider() = %v, want nil", err)
+		t.Fatalf("BslogLoggerProvider() = %v, want nil", err)
 	}
 	if l == nil {
 		t.Fatal("logger should not be nil")
@@ -137,9 +138,9 @@ func TestSlogLoggerProvider(t *testing.T) {
 	}
 }
 
-func TestSlogLoggerProvider_DefaultFallback(t *testing.T) {
+func TestBslogLoggerProvider_DefaultFallback(t *testing.T) {
 	// type=slog 但 Slog 段缺失 → 默认配置（stdout + info），不报错。
-	l, cleanup, err := SlogLoggerProvider()(context.Background(), &bootstrapv1.Logger{Type: "slog"})
+	l, cleanup, err := BslogLoggerProvider()(context.Background(), &bootstrapv1.Logger{Type: "slog"})
 	if err != nil || l == nil {
 		t.Fatalf("missing slog section should fall back to defaults, got (%v, %v)", l, err)
 	}
@@ -159,7 +160,7 @@ func TestBuildLogger_Integration(t *testing.T) {
 	path := filepath.Join(dir, "app.log")
 
 	lr := NewLogRegistry()
-	lr.MustRegister("slog", SlogLoggerProvider())
+	lr.MustRegister("slog", BslogLoggerProvider())
 
 	l, cleanup, err := lr.BuildLogger(context.Background(), &bootstrapv1.Logger{
 		Type: "slog",
@@ -176,5 +177,69 @@ func TestBuildLogger_Integration(t *testing.T) {
 	data, err := os.ReadFile(path)
 	if err != nil || !strings.Contains(string(data), "e2e") {
 		t.Fatalf("global logger should write through provider backend: (%s, %v)", data, err)
+	}
+}
+
+// TestNopLoggerProvider nop 后端工厂：静默、零配置段、cleanup noop。
+func TestNopLoggerProvider(t *testing.T) {
+	l, cleanup, err := NopLoggerProvider()(context.Background(), &bootstrapv1.Logger{Type: "nop"})
+	if err != nil || l == nil {
+		t.Fatalf("NopLoggerProvider() = (%v, %v), want non-nil logger", l, err)
+	}
+	if cleanup != nil {
+		cleanup() // noop，不 panic 即可。
+	}
+	if l.Enabled(log.LevelError) {
+		t.Fatal("nop logger should never be enabled")
+	}
+	l.Info(context.Background(), "silent", "k", "v") // 不输出、不 panic。
+}
+
+// TestBuiltinLogRegistry 内置全量注册表：7 名齐备、查表构造、未实现 type fail-fast。
+func TestBuiltinLogRegistry(t *testing.T) {
+	r := NewBuiltinLogRegistry()
+
+	want := []string{"aliyun", "charm", "loki", "nop", "sentry", "slog", "tencent"}
+	if got := r.names(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("builtin names = %v, want %v", got, want)
+	}
+
+	// type=nop：静默后端。
+	l, cleanup, err := r.BuildLogger(context.Background(), &bootstrapv1.Logger{Type: "nop"})
+	if err != nil || l == nil {
+		t.Fatalf("type=nop: (%v, %v)", l, err)
+	}
+	cleanup()
+	if l.Enabled(log.LevelDebug) {
+		t.Fatal("nop backend should never be enabled")
+	}
+
+	// type=loki：假 endpoint 构造成功（构造期零网络；零日志写入，cleanup 空缓冲不推送）。
+	ll, lcleanup, err := r.BuildLogger(context.Background(), &bootstrapv1.Logger{
+		Type: "loki",
+		Loki: &bootstrapv1.Logger_Loki{Endpoint: "http://127.0.0.1:1/loki/api/v1/push"},
+	})
+	if err != nil || ll == nil {
+		t.Fatalf("type=loki: (%v, %v)", ll, err)
+	}
+	lcleanup()
+
+	// 未实现的 type：fail-fast 并列出可用项。
+	if _, _, err := r.BuildLogger(context.Background(), &bootstrapv1.Logger{Type: "zap"}); err == nil ||
+		!strings.Contains(err.Error(), "registered") {
+		t.Fatalf("type=zap should fail-fast listing available, got: %v", err)
+	}
+}
+
+// TestRegisterBuiltinLogProviders 组合语义：自定义 + 内置可混注；重复内置 fail-fast。
+func TestRegisterBuiltinLogProviders(t *testing.T) {
+	r := NewLogRegistry()
+	r.MustRegister("mylog", stubLogProvider(&stubLogger{}, nil, nil))
+	if err := RegisterBuiltinLogProviders(r); err != nil {
+		t.Fatalf("builtin after custom: %v", err)
+	}
+	// 再次内置：重名 fail-fast。
+	if err := RegisterBuiltinLogProviders(r); err == nil {
+		t.Fatal("duplicate builtin registration should fail")
 	}
 }

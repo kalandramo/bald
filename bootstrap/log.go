@@ -7,7 +7,7 @@ import (
 	"sync"
 
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
-	log "github.com/kalandramo/bald/log"
+	"github.com/kalandramo/bald/log"
 	"github.com/kalandramo/bald/log/bslog"
 )
 
@@ -68,7 +68,7 @@ func (r *LogRegistry) MustRegister(name string, p LoggerProvider) {
 // 由 main 显式调用并经 log.SetLogger 注入全局表：
 //
 //	lr := bootstrap.NewLogRegistry()
-//	lr.MustRegister("slog", bootstrap.SlogLoggerProvider())
+//	lr.MustRegister("slog", bootstrap.BslogLoggerProvider())
 //	logger, cleanup, err := lr.BuildLogger(ctx, cfg.GetLogger())
 //	log.SetLogger(logger)
 //	defer cleanup()
@@ -114,24 +114,35 @@ func (r *LogRegistry) names() []string {
 	return names
 }
 
-// SlogLoggerProvider 返回标准库 slog 后端的工厂（契约 Type="slog"）。
+// BslogLoggerProvider 返回 bslog 后端（基于标准库 log/slog）的工厂
+// （契约 Type="slog"，注册名随契约值保持 "slog"）。
 //
 // 它知道「契约里 Logger.GetSlog() 返回什么字段」与「bslog.NewOptions 的形状」，
-// 因此 slog 包无需 import bconf，保持适配器层零契约依赖。
+// 因此 bslog 包无需 import bconf，保持适配器层零契约依赖。
 //
 // 映射规则：level/format/output_path 逐字段透传；契约 output_path 为单值，
 // 契约装配暂不含轮转（Options 的 Rotate/多路径仅 CLI/Options 路径可用）——
 // 差异已记录于设计文档 §3。Slog 段缺失时回退 Options 默认值（stdout + info）。
-func SlogLoggerProvider() LoggerProvider {
+func BslogLoggerProvider() LoggerProvider {
 	return func(_ context.Context, cfg *bootstrapv1.Logger) (log.Logger, func(), error) {
 		return bslog.New(LogOptions(cfg)), nil, nil
+	}
+}
+
+// NopLoggerProvider 返回 nop 后端工厂（契约 Type="nop"，注册名 "nop"）。
+//
+// 显式选择 bald 默认的静默日志能力：零输出、零清理、Enabled 恒 false。
+// nop 无配置段，契约校验天然放行；适合测试与只需业务指标的场景。
+func NopLoggerProvider() LoggerProvider {
+	return func(_ context.Context, _ *bootstrapv1.Logger) (log.Logger, func(), error) {
+		return log.NewNop(), nil, nil
 	}
 }
 
 // LogOptions 把契约的 Logger 配置转为 bslog.Options。
 //
 // 原属 pkg/conf（LogOptions，confv1 版），legacy 契约退役后迁入装配层：
-// 这里已同时依赖 bconf（契约类型）与 log/slog（Options 形状），放此处零新增依赖。
+// 这里已同时依赖 bconf（契约类型）与 log/bslog（Options 形状），放此处零新增依赖。
 // Slog 段缺失时回退 Options 默认值（stdout + info）。
 func LogOptions(l *bootstrapv1.Logger) *bslog.Options {
 	c := l.GetSlog()
