@@ -2,14 +2,14 @@
 
 Author(s): bald 团队
 Last updated: 2026-09-13
-Discussion at: `Bald 日志平面接口设计.md`（历史决策记录）、`设计评审-第三轮-2026-09-12.md`
+Discussion at: `设计评审-第三轮-2026-09-12.md`
 Status: Accepted（已实现，随 bald v0.3.x 发布）
 
 ## 摘要
 
 `bald/log` 为整个框架提供**唯一的日志抽象**：6 方法的 `Logger` 接口、并发安全的全局句柄、零成本的 nop 默认。契约层零第三方依赖；标准库 `log/slog` 适配器（`log/bslog` 子包，包名 `bslog`）开箱即用；五个远端/终端后端（loki / aliyun / tencent / sentry / charm）各自独立成 module，经 `contract` 子包接入契约装配；`logger.backends` 声明即多后端广播（本地 + 远程双写，2026-09-13）。本文回答三个问题：为什么契约这么瘦、为什么后端独立成 module、为什么装配保持显式注册（反 init 纪律）而业务侧又能零注册代码（内置全量注册表，2026-09-13）。最重要的承诺：**框架核心永远不 import 任何具体日志库，新后端接入对框架零改动。**
 
-> 本文是按当前代码（v0.2.x）整理的设计文档，与《Bald 日志平面接口设计.md》（演进决策日志）互补：那篇记录"当时为什么这么改"，本文记录"现在是什么、为什么是这样"。
+> 本文是按当前代码（v0.3.x）整理的设计文档，已并入并取代《Bald 日志平面接口设计.md》（演进决策日志，2026-09-13 删除以收敛文档入口，git 历史可溯）——历史时间线与更名前的 API 名以 git 记录为准，独有决策记录见文末附录。
 
 ---
 
@@ -278,5 +278,42 @@ logger:
 - [x] 框架内包级函数惯例全量替换（192 处）。
 
 验证：`log` module 及各后端、`bootstrap` 均随 bald CI（build + vet + test -short）全绿；backends 多后端广播另经 `_example/bald` e2e 冒烟（双后端独立 level/format、坏值 fail-fast 带 `backends[i]` 定位、文件路径父目录自动创建）。
+
+---
+
+## 附录：演进决策记录（并入自《日志平面接口设计.md》，该文档已删除）
+
+### AppKit 为什么不持有日志（2026-08-24 拍板）
+
+日志是横切关注点，后端选择属于进程入口（bootstrap）职责，AppKit 只消费全局句柄、不做全局副作用。若由 AppKit 注入并临时改动全局句柄：① 编排层带全局副作用；② 与 AppKit 字段边界分叉；③ 多个 AppKit 实例互相干扰。（FromBootstrap 装配路径是"进程入口委托"形态——main 把装配权交给 FromBootstrap，副作用归属入口而非编排层，边界仍成立。）
+
+### gookit/slog 能力评估（2026-09-01，为什么不搬运自研日志栈）
+
+它与 bald「标准库 `log/slog` 适配层」的定位是替代 vs 适配关系，且拖入 `gookit/color`/`goutil`/`rotatefile` 全家桶。取其**能力意图**，用已有依赖等价实现：
+
+| gookit/slog 能力 | 落地状态 | 方式 |
+|---|---|---|
+| 文件轮转（按大小 + 清理 + gzip） | 已落地 | **lumberjack** + `Options.Rotate` |
+| 文件轮转（按**时间**切割） | 未迁移 | lumberjack 不支持；确需时引 `gookit/rotatefile` 或系统 logrotate |
+| 彩色 / 模板化控制台 | 可选（阶段 2） | 引入 `tint`（仅标准库依赖）；charm 后端已覆盖彩色终端场景 |
+| Processor（字段注入） | 已有等价 | `ContextWithAttrs` / `WithAttrs` |
+| Filter / 脱敏 | 已有等价 | `FilterKey` |
+| 多 Handler 同时输出 | 已有等价 | `multiWriter`（复制分流） |
+| Fatal/Panic 8 级 | 不迁移 | slog 4 级；业务用 `Error` + `os.Exit` |
+| 整套自研 Handler/Formatter/Record | 不引入 | 违背「标准库 slog 适配层」定位 |
+
+能力边界（诚实记录）：lumberjack 仅按 `MaxSize` 触发切割，`MaxAge`/`MaxBackups` 只控制历史备份保留，**不是**按天/小时切割；多目标输出是**复制分流**，不是按级别分流——确需按级别落不同文件时，用 `logger.backends` 声明多个不同 level 的后端。
+
+### 桥接适配器预留（未实现，按需新建子包，不污染核心契约）
+
+| 预留位置 | 作用 |
+|---|---|
+| `log/zap/zap.go` | `NewZapAdapter(*zap.Logger) log.Logger`（对齐后端独立 module 模式） |
+| `log/kratos/kratos.go` | `ToKratos(log.Logger) kratoslog.Logger`（把 bald logger 喂给 kratos 组件） |
+| `log/gorm/gorm.go` | `NewGormAdapter(log.Logger) gormlogger.Interface`（gorm 日志接入） |
+
+### 历史锚点
+
+关键拍板时间线（详见 git 记录）：2026-08-24 日志归 bootstrap、AppKit 零副作用；08-29 OTel 桥接 + observability 中间件闭环；09-01 lumberjack 轮转落地 + gookit 评估；09-05 契约+子包布局（后演进为独立 module）；09-06 五远端/终端后端移植；09-13 bslog 更名、内置全量注册表、ctx 属性流六后端、多输出/轮转契约、backends 广播、父目录自动创建。
 
 关联文档：`Bald 配置系统设计.md`（四源配置）、`应用框架设计.md`（AppKit 生命周期）、`AppKit FromBootstrap 约定装配.md`（装配全景）、`指标抽象设计.md`（可观测性闭环）。
