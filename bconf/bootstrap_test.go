@@ -119,6 +119,13 @@ func TestValidateErrors(t *testing.T) {
 			mutate:  func(c *bootstrapv1.BootstrapConfig) { c.GetApp().Id = "" },
 			wantSub: "id",
 		},
+		{
+			name: "filter_keys empty item",
+			mutate: func(c *bootstrapv1.BootstrapConfig) {
+				c.GetLogger().FilterKeys = []string{"password", ""}
+			},
+			wantSub: "filter_keys[1]",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -214,5 +221,29 @@ func TestUnmarshalMapBackends(t *testing.T) {
 	}
 	if err := Validate(cfg); err != nil {
 		t.Fatalf("backends config should pass Validate: %v", err)
+	}
+}
+
+// TestValidateLoggerFilterKeys 全局脱敏契约段：filter_keys 合法清单通过校验，
+// UnmarshalMap 能装载 snake_case 字段（四源同构）。
+func TestValidateLoggerFilterKeys(t *testing.T) {
+	cfg := NewBootstrap()
+	cfg.GetLogger().FilterKeys = []string{"password", "access_token"}
+	if err := Validate(cfg); err != nil {
+		t.Fatalf("filter_keys 合法清单应通过: %v", err)
+	}
+
+	m := map[string]any{
+		"logger": map[string]any{
+			"filter_keys": []any{"password", "id_card"},
+		},
+	}
+	cfg2 := NewBootstrap()
+	if err := UnmarshalMap(m, cfg2); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	got := cfg2.GetLogger().GetFilterKeys()
+	if len(got) != 2 || got[0] != "password" || got[1] != "id_card" {
+		t.Fatalf("filter_keys 装载 = %v", got)
 	}
 }

@@ -230,6 +230,12 @@ message Logger {
   // 优先级模式；单 type 保留向后兼容，两者都配时以 backends 为准。
   repeated Backend backends = 16;
 
+  // 全局脱敏 key 清单：命中 key 的属性值统一替换为 ***（属性保留不丢弃）。
+  // 覆盖调用参数、With 派生属性、ctx 属性流三类来源；单选与 backends
+  // 全部后端统一生效（合规需求宁全勿漏，不做按后端差异化——远端可检索
+  // 平台恰是外泄风险最高处）。留空零开销直通。
+  repeated string filter_keys = 17;
+
   // Backend 是多后端声明中的一项：形状与 Logger 单选模式平行
   //（type 选后端 + 各后端参数段，字段号一一对应）。
   message Backend {

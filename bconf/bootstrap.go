@@ -96,10 +96,18 @@ func validateApp(a *bootstrapv1.App) error {
 // 避免契约层硬编码后端清单。
 //
 // 多后端模式：backends 非空时优先于单 type——逐项校验 type 非空与
-// slog 项的段级规则（与单选对称）。
+// slog 项的段级规则（与单选对称）。filter_keys 全局校验在两分支之前
+// （脱敏对全部后端生效，与单选/多选无关）。
 func validateLogger(l *bootstrapv1.Logger) error {
 	if l == nil {
 		return nil
+	}
+	// 全局脱敏清单：空串项 fail-fast（对齐 output_paths 先例）——空 key
+	// 永不命中任何属性，配置错误应显式暴露而非静默吞掉。
+	for i, k := range l.GetFilterKeys() {
+		if k == "" {
+			return fmt.Errorf("filter_keys[%d] must not be empty", i)
+		}
 	}
 	if bs := l.GetBackends(); len(bs) > 0 {
 		for i, b := range bs {

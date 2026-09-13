@@ -133,7 +133,12 @@ type Logger struct {
 	// 逐项构造后经 log.MultiLogger 广播合并（每条日志复制分流到全部后端）。
 	// 非空时优先于单 type——与 Slog.output_paths 优先于 output_path 同一
 	// 优先级模式；单 type 保留向后兼容，两者都配时以 backends 为准。
-	Backends      []*Logger_Backend `protobuf:"bytes,16,rep,name=backends,proto3" json:"backends,omitempty"`
+	Backends []*Logger_Backend `protobuf:"bytes,16,rep,name=backends,proto3" json:"backends,omitempty"`
+	// 全局脱敏 key 清单：命中 key 的属性值统一替换为 ***（属性保留不丢弃）。
+	// 覆盖调用参数、With 派生属性、ctx 属性流三类来源；单选与 backends
+	// 全部后端统一生效（合规需求宁全勿漏，不做按后端差异化——远端可检索
+	// 平台恰是外泄风险最高处）。留空零开销直通。
+	FilterKeys    []string `protobuf:"bytes,17,rep,name=filter_keys,json=filterKeys,proto3" json:"filter_keys,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -276,6 +281,13 @@ func (x *Logger) GetCloudwatch() *Logger_Cloudwatch {
 func (x *Logger) GetBackends() []*Logger_Backend {
 	if x != nil {
 		return x.Backends
+	}
+	return nil
+}
+
+func (x *Logger) GetFilterKeys() []string {
+	if x != nil {
+		return x.FilterKeys
 	}
 	return nil
 }
@@ -1594,7 +1606,7 @@ var File_bootstrap_v1_log_proto protoreflect.FileDescriptor
 
 const file_bootstrap_v1_log_proto_rawDesc = "" +
 	"\n" +
-	"\x16bootstrap/v1/log.proto\x12\fbootstrap.v1\"\xf9\"\n" +
+	"\x16bootstrap/v1/log.proto\x12\fbootstrap.v1\"\x9a#\n" +
 	"\x06Logger\x12\x12\n" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x12/\n" +
 	"\x03zap\x18\x02 \x01(\v2\x18.bootstrap.v1.Logger.ZapH\x00R\x03zap\x88\x01\x01\x12;\n" +
@@ -1615,7 +1627,9 @@ const file_bootstrap_v1_log_proto_rawDesc = "" +
 	"\n" +
 	"cloudwatch\x18\x0f \x01(\v2\x1f.bootstrap.v1.Logger.CloudwatchH\rR\n" +
 	"cloudwatch\x88\x01\x01\x128\n" +
-	"\bbackends\x18\x10 \x03(\v2\x1c.bootstrap.v1.Logger.BackendR\bbackends\x1a\x80\x01\n" +
+	"\bbackends\x18\x10 \x03(\v2\x1c.bootstrap.v1.Logger.BackendR\bbackends\x12\x1f\n" +
+	"\vfilter_keys\x18\x11 \x03(\tR\n" +
+	"filterKeys\x1a\x80\x01\n" +
 	"\x03Zap\x12\x14\n" +
 	"\x05level\x18\x01 \x01(\tR\x05level\x12\x16\n" +
 	"\x06format\x18\x02 \x01(\tR\x06format\x12\x1f\n" +
