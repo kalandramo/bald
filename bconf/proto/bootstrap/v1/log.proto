@@ -45,7 +45,28 @@ message Logger {
   message Slog {
     string level = 1;
     string format = 2;
+    // 输出目标（单值便捷字段）：stdout / stderr 或文件路径。
+    // output_paths 非空时优先生效；两者都空时装配层回退默认 stdout。
     string output_path = 3;
+    // 多输出目标：同时写多个目标（如 stdout + 文件），复制分流（每目标收全量）。
+    repeated string output_paths = 4;
+    // 文件轮转配置（仅对文件路径目标生效）。
+    Rotate rotate = 5;
+
+    // Rotate 日志文件轮转配置（lumberjack）：按大小切割，按份数/天数清理，
+    // 可选 gzip 压缩；不支持按时间（每日/每小时）切割。
+    message Rotate {
+      // 是否启用轮转；关闭时文件路径按 os.OpenFile 直写（不切割）。
+      bool enabled = 1;
+      // 单个日志文件最大体积（MB），超过即触发切割。默认 100；0 = 默认。
+      int32 max_size = 2;
+      // 保留的历史文件份数（不含当前）。默认 7；0 = 保留全部。
+      int32 max_backups = 3;
+      // 历史文件最长保留天数。默认 30；0 = 不按时间清理。
+      int32 max_age = 4;
+      // 是否对历史文件 gzip 压缩。默认 true。
+      bool compress = 5;
+    }
   }
 
   // Logrus 日志配置。

@@ -85,6 +85,20 @@ func TestValidateErrors(t *testing.T) {
 			wantSub: "slog.format",
 		},
 		{
+			name: "empty item in slog output_paths",
+			mutate: func(c *bootstrapv1.BootstrapConfig) {
+				c.GetLogger().GetSlog().OutputPaths = []string{"stdout", ""}
+			},
+			wantSub: "slog.output_paths[1]",
+		},
+		{
+			name: "negative slog rotate max_size",
+			mutate: func(c *bootstrapv1.BootstrapConfig) {
+				c.GetLogger().GetSlog().Rotate = &bootstrapv1.Logger_Slog_Rotate{Enabled: true, MaxSize: -1}
+			},
+			wantSub: "slog.rotate.max_size",
+		},
+		{
 			name:    "empty app id",
 			mutate:  func(c *bootstrapv1.BootstrapConfig) { c.GetApp().Id = "" },
 			wantSub: "id",
@@ -118,5 +132,41 @@ func TestUnmarshalMapCoercesScalars(t *testing.T) {
 	}
 	if err := Validate(cfg); err != nil {
 		t.Fatalf("validate: %v", err)
+	}
+}
+
+// TestValidateSlogOutputPaths 多输出 + 轮转契约段：output_paths 提供时不再
+// 要求单值 output_path；UnmarshalMap 能装载 snake_case 新字段。
+func TestValidateSlogOutputPaths(t *testing.T) {
+	cfg := NewBootstrap()
+	cfg.GetLogger().GetSlog().OutputPath = "" // 单值让位，多值接管
+	cfg.GetLogger().GetSlog().OutputPaths = []string{"stdout", "/var/log/app.log"}
+	if err := Validate(cfg); err != nil {
+		t.Fatalf("output_paths 应满足输出目标要求: %v", err)
+	}
+
+	// UnmarshalMap 装载路径（配置文件/env/flag 四源同构）。
+	m := map[string]any{
+		"logger": map[string]any{
+			"slog": map[string]any{
+				"output_paths": []any{"stdout", "/var/log/x.log"},
+				"rotate":       map[string]any{"enabled": true, "max_size": 50},
+			},
+		},
+	}
+	cfg2 := NewBootstrap()
+	if err := UnmarshalMap(m, cfg2); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	ps := cfg2.GetLogger().GetSlog().GetOutputPaths()
+	if len(ps) != 2 || ps[0] != "stdout" || ps[1] != "/var/log/x.log" {
+		t.Fatalf("output_paths = %v", ps)
+	}
+	r := cfg2.GetLogger().GetSlog().GetRotate()
+	if r == nil || !r.GetEnabled() || r.GetMaxSize() != 50 {
+		t.Fatalf("rotate = %+v", r)
+	}
+	if err := Validate(cfg2); err != nil {
+		t.Fatalf("merged config should pass Validate: %v", err)
 	}
 }

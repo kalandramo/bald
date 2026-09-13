@@ -51,7 +51,8 @@ func NewBootstrap() *bootstrapv1.BootstrapConfig {
 // 校验范围（缺省字段视为未启用，跳过）：
 //   - app.id / app.name 非空；
 //   - server.http.addr / server.grpc.addr 为合法 :port 或 ip:port；
-//   - logger.type 非空；选 slog 时校验 level / format / output_path。
+//   - logger.type 非空；选 slog 时校验 level / format / 输出目标
+//     （output_paths 优先，回退 output_path）与 rotate 数值非负。
 func Validate(cfg *bootstrapv1.BootstrapConfig) error {
 	if cfg == nil {
 		return fmt.Errorf("bconf: bootstrap config is nil")
@@ -111,8 +112,28 @@ func validateLogger(l *bootstrapv1.Logger) error {
 		default:
 			return fmt.Errorf("slog.format %q, want console|json", s.GetFormat())
 		}
-		if s.GetOutputPath() == "" {
+		// 输出目标：output_paths 非空时逐项非空；为空时回退要求 output_path
+		//（都空时装配层会默认 stdout，但显式给了 Slog 段却不给输出目标，
+		// 更可能是漏配——fail-fast 暴露）。
+		if ps := s.GetOutputPaths(); len(ps) > 0 {
+			for i, p := range ps {
+				if p == "" {
+					return fmt.Errorf("slog.output_paths[%d] must not be empty", i)
+				}
+			}
+		} else if s.GetOutputPath() == "" {
 			return fmt.Errorf("slog.output_path must not be empty")
+		}
+		if r := s.GetRotate(); r != nil {
+			if r.GetMaxSize() < 0 {
+				return fmt.Errorf("slog.rotate.max_size must be >= 0")
+			}
+			if r.GetMaxBackups() < 0 {
+				return fmt.Errorf("slog.rotate.max_backups must be >= 0")
+			}
+			if r.GetMaxAge() < 0 {
+				return fmt.Errorf("slog.rotate.max_age must be >= 0")
+			}
 		}
 	}
 	return nil

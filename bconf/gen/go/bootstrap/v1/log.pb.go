@@ -400,10 +400,16 @@ func (x *Logger_Zerolog) GetOutputPath() string {
 
 // Slog（Go 标准库）日志配置。
 type Logger_Slog struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Level         string                 `protobuf:"bytes,1,opt,name=level,proto3" json:"level,omitempty"`
-	Format        string                 `protobuf:"bytes,2,opt,name=format,proto3" json:"format,omitempty"`
-	OutputPath    string                 `protobuf:"bytes,3,opt,name=output_path,json=outputPath,proto3" json:"output_path,omitempty"`
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Level  string                 `protobuf:"bytes,1,opt,name=level,proto3" json:"level,omitempty"`
+	Format string                 `protobuf:"bytes,2,opt,name=format,proto3" json:"format,omitempty"`
+	// 输出目标（单值便捷字段）：stdout / stderr 或文件路径。
+	// output_paths 非空时优先生效；两者都空时装配层回退默认 stdout。
+	OutputPath string `protobuf:"bytes,3,opt,name=output_path,json=outputPath,proto3" json:"output_path,omitempty"`
+	// 多输出目标：同时写多个目标（如 stdout + 文件），复制分流（每目标收全量）。
+	OutputPaths []string `protobuf:"bytes,4,rep,name=output_paths,json=outputPaths,proto3" json:"output_paths,omitempty"`
+	// 文件轮转配置（仅对文件路径目标生效）。
+	Rotate        *Logger_Slog_Rotate `protobuf:"bytes,5,opt,name=rotate,proto3" json:"rotate,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -457,6 +463,20 @@ func (x *Logger_Slog) GetOutputPath() string {
 		return x.OutputPath
 	}
 	return ""
+}
+
+func (x *Logger_Slog) GetOutputPaths() []string {
+	if x != nil {
+		return x.OutputPaths
+	}
+	return nil
+}
+
+func (x *Logger_Slog) GetRotate() *Logger_Slog_Rotate {
+	if x != nil {
+		return x.Rotate
+	}
+	return nil
 }
 
 // Logrus 日志配置。
@@ -1315,11 +1335,94 @@ func (x *Logger_Cloudwatch) GetFlushInterval() int32 {
 	return 0
 }
 
+// Rotate 日志文件轮转配置（lumberjack）：按大小切割，按份数/天数清理，
+// 可选 gzip 压缩；不支持按时间（每日/每小时）切割。
+type Logger_Slog_Rotate struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 是否启用轮转；关闭时文件路径按 os.OpenFile 直写（不切割）。
+	Enabled bool `protobuf:"varint,1,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	// 单个日志文件最大体积（MB），超过即触发切割。默认 100；0 = 默认。
+	MaxSize int32 `protobuf:"varint,2,opt,name=max_size,json=maxSize,proto3" json:"max_size,omitempty"`
+	// 保留的历史文件份数（不含当前）。默认 7；0 = 保留全部。
+	MaxBackups int32 `protobuf:"varint,3,opt,name=max_backups,json=maxBackups,proto3" json:"max_backups,omitempty"`
+	// 历史文件最长保留天数。默认 30；0 = 不按时间清理。
+	MaxAge int32 `protobuf:"varint,4,opt,name=max_age,json=maxAge,proto3" json:"max_age,omitempty"`
+	// 是否对历史文件 gzip 压缩。默认 true。
+	Compress      bool `protobuf:"varint,5,opt,name=compress,proto3" json:"compress,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Logger_Slog_Rotate) Reset() {
+	*x = Logger_Slog_Rotate{}
+	mi := &file_bootstrap_v1_log_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Logger_Slog_Rotate) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Logger_Slog_Rotate) ProtoMessage() {}
+
+func (x *Logger_Slog_Rotate) ProtoReflect() protoreflect.Message {
+	mi := &file_bootstrap_v1_log_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Logger_Slog_Rotate.ProtoReflect.Descriptor instead.
+func (*Logger_Slog_Rotate) Descriptor() ([]byte, []int) {
+	return file_bootstrap_v1_log_proto_rawDescGZIP(), []int{0, 2, 0}
+}
+
+func (x *Logger_Slog_Rotate) GetEnabled() bool {
+	if x != nil {
+		return x.Enabled
+	}
+	return false
+}
+
+func (x *Logger_Slog_Rotate) GetMaxSize() int32 {
+	if x != nil {
+		return x.MaxSize
+	}
+	return 0
+}
+
+func (x *Logger_Slog_Rotate) GetMaxBackups() int32 {
+	if x != nil {
+		return x.MaxBackups
+	}
+	return 0
+}
+
+func (x *Logger_Slog_Rotate) GetMaxAge() int32 {
+	if x != nil {
+		return x.MaxAge
+	}
+	return 0
+}
+
+func (x *Logger_Slog_Rotate) GetCompress() bool {
+	if x != nil {
+		return x.Compress
+	}
+	return false
+}
+
 var File_bootstrap_v1_log_proto protoreflect.FileDescriptor
 
 const file_bootstrap_v1_log_proto_rawDesc = "" +
 	"\n" +
-	"\x16bootstrap/v1/log.proto\x12\fbootstrap.v1\"\xf9\x18\n" +
+	"\x16bootstrap/v1/log.proto\x12\fbootstrap.v1\"\xed\x1a\n" +
 	"\x06Logger\x12\x12\n" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x12/\n" +
 	"\x03zap\x18\x02 \x01(\v2\x18.bootstrap.v1.Logger.ZapH\x00R\x03zap\x88\x01\x01\x12;\n" +
@@ -1350,12 +1453,21 @@ const file_bootstrap_v1_log_proto_rawDesc = "" +
 	"\x05level\x18\x01 \x01(\tR\x05level\x12\x16\n" +
 	"\x06format\x18\x02 \x01(\tR\x06format\x12\x1f\n" +
 	"\voutput_path\x18\x03 \x01(\tR\n" +
-	"outputPath\x1aU\n" +
+	"outputPath\x1a\xc8\x02\n" +
 	"\x04Slog\x12\x14\n" +
 	"\x05level\x18\x01 \x01(\tR\x05level\x12\x16\n" +
 	"\x06format\x18\x02 \x01(\tR\x06format\x12\x1f\n" +
 	"\voutput_path\x18\x03 \x01(\tR\n" +
-	"outputPath\x1aW\n" +
+	"outputPath\x12!\n" +
+	"\foutput_paths\x18\x04 \x03(\tR\voutputPaths\x128\n" +
+	"\x06rotate\x18\x05 \x01(\v2 .bootstrap.v1.Logger.Slog.RotateR\x06rotate\x1a\x93\x01\n" +
+	"\x06Rotate\x12\x18\n" +
+	"\aenabled\x18\x01 \x01(\bR\aenabled\x12\x19\n" +
+	"\bmax_size\x18\x02 \x01(\x05R\amaxSize\x12\x1f\n" +
+	"\vmax_backups\x18\x03 \x01(\x05R\n" +
+	"maxBackups\x12\x17\n" +
+	"\amax_age\x18\x04 \x01(\x05R\x06maxAge\x12\x1a\n" +
+	"\bcompress\x18\x05 \x01(\bR\bcompress\x1aW\n" +
 	"\x06Logrus\x12\x14\n" +
 	"\x05level\x18\x01 \x01(\tR\x05level\x12\x16\n" +
 	"\x06format\x18\x02 \x01(\tR\x06format\x12\x1f\n" +
@@ -1490,25 +1602,26 @@ func file_bootstrap_v1_log_proto_rawDescGZIP() []byte {
 }
 
 var file_bootstrap_v1_log_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_bootstrap_v1_log_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
+var file_bootstrap_v1_log_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
 var file_bootstrap_v1_log_proto_goTypes = []any{
-	(Logger_Type)(0),          // 0: bootstrap.v1.Logger.Type
-	(*Logger)(nil),            // 1: bootstrap.v1.Logger
-	(*Logger_Zap)(nil),        // 2: bootstrap.v1.Logger.Zap
-	(*Logger_Zerolog)(nil),    // 3: bootstrap.v1.Logger.Zerolog
-	(*Logger_Slog)(nil),       // 4: bootstrap.v1.Logger.Slog
-	(*Logger_Logrus)(nil),     // 5: bootstrap.v1.Logger.Logrus
-	(*Logger_Charm)(nil),      // 6: bootstrap.v1.Logger.Charm
-	(*Logger_Phuslu)(nil),     // 7: bootstrap.v1.Logger.Phuslu
-	(*Logger_Glog)(nil),       // 8: bootstrap.v1.Logger.Glog
-	(*Logger_Hclog)(nil),      // 9: bootstrap.v1.Logger.Hclog
-	(*Logger_Fluent)(nil),     // 10: bootstrap.v1.Logger.Fluent
-	(*Logger_Loki)(nil),       // 11: bootstrap.v1.Logger.Loki
-	(*Logger_Sentry)(nil),     // 12: bootstrap.v1.Logger.Sentry
-	(*Logger_Aliyun)(nil),     // 13: bootstrap.v1.Logger.Aliyun
-	(*Logger_Tencent)(nil),    // 14: bootstrap.v1.Logger.Tencent
-	(*Logger_Cloudwatch)(nil), // 15: bootstrap.v1.Logger.Cloudwatch
-	nil,                       // 16: bootstrap.v1.Logger.Loki.LabelsEntry
+	(Logger_Type)(0),           // 0: bootstrap.v1.Logger.Type
+	(*Logger)(nil),             // 1: bootstrap.v1.Logger
+	(*Logger_Zap)(nil),         // 2: bootstrap.v1.Logger.Zap
+	(*Logger_Zerolog)(nil),     // 3: bootstrap.v1.Logger.Zerolog
+	(*Logger_Slog)(nil),        // 4: bootstrap.v1.Logger.Slog
+	(*Logger_Logrus)(nil),      // 5: bootstrap.v1.Logger.Logrus
+	(*Logger_Charm)(nil),       // 6: bootstrap.v1.Logger.Charm
+	(*Logger_Phuslu)(nil),      // 7: bootstrap.v1.Logger.Phuslu
+	(*Logger_Glog)(nil),        // 8: bootstrap.v1.Logger.Glog
+	(*Logger_Hclog)(nil),       // 9: bootstrap.v1.Logger.Hclog
+	(*Logger_Fluent)(nil),      // 10: bootstrap.v1.Logger.Fluent
+	(*Logger_Loki)(nil),        // 11: bootstrap.v1.Logger.Loki
+	(*Logger_Sentry)(nil),      // 12: bootstrap.v1.Logger.Sentry
+	(*Logger_Aliyun)(nil),      // 13: bootstrap.v1.Logger.Aliyun
+	(*Logger_Tencent)(nil),     // 14: bootstrap.v1.Logger.Tencent
+	(*Logger_Cloudwatch)(nil),  // 15: bootstrap.v1.Logger.Cloudwatch
+	(*Logger_Slog_Rotate)(nil), // 16: bootstrap.v1.Logger.Slog.Rotate
+	nil,                        // 17: bootstrap.v1.Logger.Loki.LabelsEntry
 }
 var file_bootstrap_v1_log_proto_depIdxs = []int32{
 	2,  // 0: bootstrap.v1.Logger.zap:type_name -> bootstrap.v1.Logger.Zap
@@ -1525,12 +1638,13 @@ var file_bootstrap_v1_log_proto_depIdxs = []int32{
 	13, // 11: bootstrap.v1.Logger.aliyun:type_name -> bootstrap.v1.Logger.Aliyun
 	14, // 12: bootstrap.v1.Logger.tencent:type_name -> bootstrap.v1.Logger.Tencent
 	15, // 13: bootstrap.v1.Logger.cloudwatch:type_name -> bootstrap.v1.Logger.Cloudwatch
-	16, // 14: bootstrap.v1.Logger.Loki.labels:type_name -> bootstrap.v1.Logger.Loki.LabelsEntry
-	15, // [15:15] is the sub-list for method output_type
-	15, // [15:15] is the sub-list for method input_type
-	15, // [15:15] is the sub-list for extension type_name
-	15, // [15:15] is the sub-list for extension extendee
-	0,  // [0:15] is the sub-list for field type_name
+	16, // 14: bootstrap.v1.Logger.Slog.rotate:type_name -> bootstrap.v1.Logger.Slog.Rotate
+	17, // 15: bootstrap.v1.Logger.Loki.labels:type_name -> bootstrap.v1.Logger.Loki.LabelsEntry
+	16, // [16:16] is the sub-list for method output_type
+	16, // [16:16] is the sub-list for method input_type
+	16, // [16:16] is the sub-list for extension type_name
+	16, // [16:16] is the sub-list for extension extendee
+	0,  // [0:16] is the sub-list for field type_name
 }
 
 func init() { file_bootstrap_v1_log_proto_init() }
@@ -1545,7 +1659,7 @@ func file_bootstrap_v1_log_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bootstrap_v1_log_proto_rawDesc), len(file_bootstrap_v1_log_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   16,
+			NumMessages:   17,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
