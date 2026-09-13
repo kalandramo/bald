@@ -135,6 +135,25 @@ func TestBuiltinDefaultPath(t *testing.T) {
 	if _, _, err := fac(context.Background(), &bootstrapv1.Logger{Type: "zap"}); err == nil {
 		t.Fatal("unimplemented type should fail-fast, not silently fall back")
 	}
+
+	// ④ backends 多后端广播：slog（deco 特例）+ loki（查表）合并为 MultiLogger。
+	ml, mcleanup, err := fac(context.Background(), &bootstrapv1.Logger{
+		Backends: []*bootstrapv1.Logger_Backend{
+			{Type: "slog", Slog: &bootstrapv1.Logger_Slog{Level: "info", Format: "console", OutputPath: "stdout"}},
+			{Type: "loki", Loki: &bootstrapv1.Logger_Loki{Endpoint: "http://127.0.0.1:1/loki/api/v1/push"}},
+		},
+	})
+	if err != nil || ml == nil {
+		t.Fatalf("backends should build MultiLogger, got (%v, %v)", ml, err)
+	}
+	if mcleanup == nil {
+		t.Fatal("backends cleanup must be non-nil")
+	}
+	mcleanup()
+	// Enabled 语义：slog(info) 启用 Info——MultiLogger 任一子启用即启用。
+	if !ml.Enabled(log.LevelInfo) {
+		t.Fatal("MultiLogger should enable Info via slog child")
+	}
 }
 
 // TestBuiltinDefaultPath_SlogDecorators type=slog 在内置路径保留装饰器语义。

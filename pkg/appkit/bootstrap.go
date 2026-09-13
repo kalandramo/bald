@@ -781,8 +781,10 @@ func resolveLoggerFactory(s *bootstrapSpec) LoggerFactory {
 // builtinLoggerFactory 返回内置全量注册表工厂（slog/nop/loki/aliyun/tencent/
 // sentry/charm）：业务侧纯配置声明 logger.type 即生效，零注册代码。
 //
-// 三分派：
+// 四分派：
 //   - 阶段 A（l==nil，契约装载前）：回退默认 bslog，保证启动日志可见；
+//   - backends 非空（多后端广播）：逐项构造后 MultiLogger 合并——type=slog
+//     项走 deco 特例（与单选对称），其余查内置表；任一项失败回滚已构造项；
 //   - type=slog：LogOptions 逐字段映射 + 业务装饰器（deco 是 bslog.Option，
 //     仅 bslog 后端可消费——特例保留 WithLogDecorators 在默认路径的既有语义）；
 //   - 其余 type：查内置表构造；未实现的 type fail-fast 并列出可用项。
@@ -793,6 +795,34 @@ func builtinLoggerFactory(deco []bslog.Option) LoggerFactory {
 		if l == nil {
 			// 阶段 A（契约装载前）：回退默认 bslog，保证启动日志可见。
 			return bslog.New(baldbootstrap.LogOptions(nil), deco...), nil, nil
+		}
+		// 多后端广播：逐项构造后 MultiLogger 合并；type=slog 项走 deco
+		// 特例（与单选模式对称——WithLogDecorators 对 bslog 后端始终生效）。
+		if bs := l.GetBackends(); len(bs) > 0 {
+			loggers := make([]log.Logger, 0, len(bs))
+			var cleanups []func()
+			for _, b := range bs {
+				v := baldbootstrap.LoggerView(b)
+				if v.GetType() == "slog" {
+					loggers = append(loggers, bslog.New(baldbootstrap.LogOptions(v), deco...))
+					continue
+				}
+				lg, c, err := reg.BuildLogger(ctx, v)
+				if err != nil {
+					for i := len(cleanups) - 1; i >= 0; i-- {
+						cleanups[i]()
+					}
+					return nil, nil, fmt.Errorf("appkit: build logger backend[%d]: %w", len(loggers), err)
+				}
+				loggers = append(loggers, lg)
+				cleanups = append(cleanups, c)
+			}
+			merged := func() {
+				for _, c := range cleanups {
+					c()
+				}
+			}
+			return log.NewMultiLogger(loggers...), merged, nil
 		}
 		if l.GetType() == "slog" {
 			return bslog.New(baldbootstrap.LogOptions(l), deco...), nil, nil

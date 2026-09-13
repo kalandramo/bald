@@ -44,6 +44,12 @@ server:
 # ---------------------------------------------------------------------------
 logger:
   type: "slog"
+  # 多后端广播（backends 非空时优先于单 type；每条日志复制分流到全部后端）：
+  # backends:
+  #   - type: slog                        # 本地：控制台/文件
+  #     slog: {level: info, format: console, output_path: stdout}
+  #   - type: loki                        # 远程：Grafana Loki 双写
+  #     loki: {endpoint: "http://loki:3100/loki/api/v1/push", labels: {app: bald-demo}}
   slog:
     level: "info"        # debug | info | warn | error
     format: "console"    # console | json

@@ -103,6 +103,8 @@ moduleLog := log.With("module", "registry")               // 可长期持有的�
 
 `NewMultiLogger(loggers ...Logger) Logger`——每条日志广播到全部子 Logger（本地 + 远程并存）。四级方法顺序广播、单个失败不影响其余；`Enabled` 任一子启用即启用（保守放行，多投的代价是带宽、漏投的代价是排障缺失证据）；`With` 对每个子 Logger 派生后重新组合；nil 构造期过滤，零参数等价 nop。它是纯 `Logger` 装饰器，故放契约层顶层。
 
+契约装配已接入（2026-09-13）：`logger.backends` 声明多项后端（每项自带 `type` 与参数段，形状与单选模式平行），**非空时优先于单 `type`**——与 `output_paths` 优先于 `output_path` 同一优先级模式。装配层逐项构造后经 MultiLogger 广播合并，任一项失败 fail-fast 并回滚已构造项；`Enabled` 语义即 MultiLogger 的保守放行（任一后端启用该级别即写）。热更新/停机链路同样生效：重建时逐项重造并合并 cleanup，停机顺序释放全部后端。
+
 ### 默认后端：slog 适配器（log/bslog，包名 bslog）
 
 包名 `bslog` 取 bald+slog 之意，目录=包名（2026-09-13 由 `slog`/`slogadapter` 改名——旧名目录≠包名导致全部消费点被 goimports 强制加别名），既避标准库冲突又免别名。pflag / lumberjack / errgroup 收敛在此子包，契约使用者二进制不受影响。
@@ -207,6 +209,17 @@ logger:
     labels: { app: myapp }
 ```
 
+本地 + 远程双写用 `backends`（非空时优先于单 `type`，逐项独立 level/format）：
+
+```yaml
+logger:
+  backends:
+    - type: slog          # 本地：stdout 全量排障
+      slog: { level: debug, format: console, output_path: stdout }
+    - type: loki          # 远程：生产级采集（level 独立过滤）
+      loki: { endpoint: http://loki:3100/loki/api/v1/push, labels: { app: myapp } }
+```
+
 热更新：`WithWatchConfig(true)` 下改 yaml 即重建后端（副本试装载 + 校验 + 原子替换），改坏只记错不杀进程。唯一仍需代码的场景是业务装饰器（脱敏/固定属性，`WithLogDecorators`）与自定义后端（`WithLogRegistry` 精选注册）。
 
 契约形状差异已收口（2026-09-13）：`Slog` 段补齐 `output_paths`（多输出，优先于单值 `output_path`）与 `rotate` 段（enabled / max_size / max_backups / max_age / compress，零值字段回退 bslog 默认 100MB/7 份/30 天/gzip），`LogOptions` 全量映射——契约装配与 CLI/Options 直构路径能力对齐，多目标复制分流 + lumberjack 轮转纯配置声明即生效。单值 `output_path` 保留（与 Zap/Zerolog 家族同形），既有配置零迁移。
@@ -260,6 +273,7 @@ logger:
 - [x] 契约 nop 类型（2026-09-13）：proto Type 枚举 `NOP = 15` + 契约层 `NewNop()` 导出构造——配置 `type: nop` 显式选择静默后端（测试、只需业务指标的场景）。
 - [x] AppKit 集成：三级工厂（默认路径升级为内置全量注册表，修复 `logger.type` 静默忽略缺陷）、两阶段装载、热更新 `rebuildLogger` 原子换后端。
 - [x] Slog 契约补齐多输出 + 轮转（2026-09-13）：proto `output_paths` + `Rotate` 段，`LogOptions` 全量映射（output_paths 优先 / 零值回退默认），bconf 校验（空串项 / 负值 fail-fast）——契约装配与 CLI/Options 直构路径能力对齐。
+- [x] 多后端广播契约接入（2026-09-13）：proto `Logger.backends`（repeated Backend，项形状与单选平行，非空优先于单 type）+ `bootstrap.LoggerView` 视图归一化 + `BuildLogger` 多后端分支（逐项构造、MultiLogger 合并、失败回滚）+ appkit 内置路径四分派（slog 项 deco 对称）——MultiLogger 从纯装饰器升级为契约可达能力，本地 + 远程双写纯配置声明。
 - [x] trace 关联闭环：observability 中间件经 `ContextWithAttrs` 挂 `trace_id`，零 TracerProvider 时随机 ID 兜底。
 - [x] 框架内包级函数惯例全量替换（192 处）。
 
