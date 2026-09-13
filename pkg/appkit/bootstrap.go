@@ -710,9 +710,12 @@ func hotReload(cfg *bootstrapv1.BootstrapConfig, spec *bootstrapSpec, curCleanup
 		lg.Error(context.Background(), msg, "err", err)
 		return
 	}
-	// 原子落盘：顶层 struct 浅拷贝即可——各字段是子消息指针，整体替换后
-	// cfg 引用全新段集合，旧段对象不再被引用（无浅拷贝别名问题）。
-	*cfg = *candidate
+	// 原子落盘：整体替换 cfg 内容。禁止 `*cfg = *candidate`——proto 消息
+	// 内嵌 MessageState（含 sync.Mutex），按值赋值会复制锁（vet copylocks）
+	// 且破坏其 lazy 状态。Reset+Merge 是 protobuf 规范的整体替换写法；
+	// candidate 为本函数私有副本（落盘后即弃），深拷贝成本可忽略。
+	cfg.Reset()
+	proto.Merge(cfg, candidate)
 
 	if err := rebuildLogger(cfg.GetLogger(), spec, curCleanup); err != nil {
 		lg.Error(context.Background(), msg, "err", err)
