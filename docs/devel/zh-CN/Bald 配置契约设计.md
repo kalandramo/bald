@@ -10,7 +10,7 @@
 
 ## 摘要
 
-`bconf` 是配置形状的单一真相源：用 Protobuf 声明「一个应用长什么样」（17 个 proto、14 个顶层配置域），`buf` 生成强类型 Go 包，四个 Go API（`NewBootstrap` 默认值 / `UnmarshalMap` 合并桥接 / `Validate` 启动校验 / `BindFlags` flag 绑定）全部按 proto 描述符工作——新增一个配置项，默认值、校验、`--http.addr` 这类层级 flag 一份声明全吃到，零样板。模块仅依赖 protobuf 与 pflag，不含任何后端 SDK，不读配置（bconfig 的事）、不装配（bootstrap 的事）。本文回答三个问题：为什么用 proto 作契约而不是 Go struct、为什么桥接层要自建类型规范化与合并语义、为什么校验只到形状层不认后端。最重要的承诺：**写错配置键名在启动期报错，而不是静默落到零值——配置错误永远显式暴露。**
+`bconf` 是配置形状的单一真相源：用 Protobuf 声明「一个应用长什么样」（17 个 proto、14 个顶层配置域），`buf` 生成强类型 Go 包，四个 Go API（`NewBootstrap` 默认值 / `UnmarshalMap` 合并桥接 / `Validate` 启动校验 / `BindFlags` flag 绑定）中，`UnmarshalMap` 与 `BindFlags` 按 proto 描述符自动工作——`--http.addr` 这类层级 flag 真零样板；默认值集中在 `NewBootstrap`、校验规则集中在 `Validate` 各一处维护——新增一个配置项 = 声明形状 + 两处各补内容，无需 interface/struct/flag 多处同步。模块仅依赖 protobuf 与 pflag，不含任何后端 SDK，不读配置（bconfig 的事）、不装配（bootstrap 的事）。本文回答三个问题：为什么用 proto 作契约而不是 Go struct、为什么桥接层要自建类型规范化与合并语义、为什么校验只到形状层不认后端。最重要的承诺：**已知键写错类型、取值越域或枚举名非法，在启动期报错，而不是静默落到零值——配置错误显式暴露。**边界同样如实：拼错的未知键名（`https` 而非 `http`）会像业务自定义段一样被 `DiscardUnknown` 静默放行、落默认值——键名级防呆未实现，代价见 §API 二。
 
 > 本文按当前代码整理；五后端段级校验（§API 三）为随本文补齐的增量，超出 v0.5.0 已发布内容，下次发版随附。
 
@@ -105,7 +105,7 @@ map → coerce 类型规范化 → json.Marshal
     → clearPresentLists → proto.Merge（合并进带默认值的 msg）
 ```
 
-**合并而非替换**是刻意的：不能直接 `protojson.Unmarshal(data, msg)`——它的语义是替换，会先重置整个 msg，把 `NewBootstrap()` 填的默认值一并清掉。`DiscardUnknown` 放行业务自定义配置段：proto 只约束框架级配置，业务段自行解析。
+**合并而非替换**是刻意的：不能直接 `protojson.Unmarshal(data, msg)`——它的语义是替换，会先重置整个 msg，把 `NewBootstrap()` 填的默认值一并清掉。`DiscardUnknown` 放行业务自定义配置段：proto 只约束框架级配置，业务段自行解析。代价是拼错的框架级键名与业务段无法区分、同样被静默丢弃落默认值——显式报错的如实边界是「已知键的类型错误（coerce）、值域错误（Validate）、非法枚举名（coerceEnum）」三类，不含键名级防呆。
 
 三个坑，实现内建防御，业务侧须知其存在：
 
@@ -162,7 +162,7 @@ bconf.BindFlags(fs, cfg, "server")   // 递归注册 --server.http.addr 等层�
 
 ## 理由与取舍
 
-**为什么 proto 作契约而非 Go struct + tag？** 契约要同时喂四个消费者（默认值/校验/flag/文档），Go struct 的 tag 只有反射期能读且无标准格式；proto 描述符是机器可读的标准元数据，四个消费者共享同一份。写错键名从「静默零值」变成「protojson 报错」，这是本文最重要的承诺。
+**为什么 proto 作契约而非 Go struct + tag？** 契约要同时喂四个消费者（默认值/校验/flag/文档），Go struct 的 tag 只有反射期能读且无标准格式；proto 描述符是机器可读的标准元数据，四个消费者共享同一份。已知键写错类型或取值，从「静默零值」变成启动期报错（coerce 与 Validate 两道闸）；未知键名因 `DiscardUnknown` 放行业务段的需要无法报错——键名级防呆未实现，边界如实声明。
 
 **为什么默认值在 Go 而不是 proto 注解？** protoc-gen-go 不物化 default 注解，读它需要运行期反射再一层缓存——复杂度买不回任何能力。`NewBootstrap()` 直接、可测、可断点。
 
@@ -231,7 +231,7 @@ NOP 枚举加了又删是诚实的记录：v0.2.x 为「契约层可声明静默
 
 ### 域级契约为什么住在 bconf
 
-`store.v1`（分页/过滤/排序）与 `appspec.v1`（应用规格）不是配置，但与配置共享同一诉求：**形状单一真相源 + 强类型生成物 + 跨模块消费**。放 bconf module 里复用 buf 工具链与发布通道，不为两个 proto 单开 module；`pkg/store` 与代码生成器只 require bconf 一个轻依赖（protobuf-only）。
+`store.v1`（分页/过滤/排序）与 `appspec.v1`（应用规格）不是配置，但与配置共享同一诉求：**形状单一真相源 + 强类型生成物 + 跨模块消费**。放 bconf module 里复用 buf 工具链与发布通道，不为两个 proto 单开 module；`pkg/store` 与代码生成器只 require bconf 一个轻依赖（直接依赖仅 protobuf 与 pflag）。
 
 ### FAQ
 
