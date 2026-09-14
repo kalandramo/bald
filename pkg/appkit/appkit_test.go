@@ -401,27 +401,6 @@ func TestP1_Registry(t *testing.T) {
 	}
 }
 
-// P1：存储 Provider 注册点可被桥接子模块经 init 自注册后按名获取。
-func TestP1_StoreProviderRegistry(t *testing.T) {
-	// 模拟 bald-store-gorm/register 的 init() 自注册。
-	RegisterStoreProvider("gorm", func() string { return "gorm-provider" })
-
-	factory, ok := ProviderRegistry.Get("gorm")
-	if !ok {
-		t.Fatal("gorm provider not registered")
-	}
-	fn, ok := factory.(func() string)
-	if !ok {
-		t.Fatalf("factory type = %T, want func() string", factory)
-	}
-	if fn() != "gorm-provider" {
-		t.Fatal("unexpected factory result")
-	}
-	if names := ProviderRegistry.List(); len(names) != 1 || names[0] != "gorm" {
-		t.Fatalf("provider list = %v, want [gorm]", names)
-	}
-}
-
 // recordingRegistrar 记录注册/反注册调用。
 type recordingRegistrar struct {
 	mu           sync.Mutex

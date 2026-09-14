@@ -20,6 +20,15 @@
 | 注册中心实例 / 配置源层 | 就绪探针的下游依赖 |
 | 热更新开关 | 日志装饰器（脱敏）、gateway 转码注册回调 |
 
+上表切的是「参数 vs 能力」；另一刀切在**模块归属**：启动必需品归 bootstrap，
+业务运行期资源归 appkit。bootstrap 只装 Config/Logger/Server 三段——进程
+站起来的前提（缺配置拿不到参数、缺日志无法观测启动期、缺服务器进程没有
+存在意义）；appkit 的九类 Registry（Database/Cache/Storage/Ai/Broker/
+Workflow/Tracer/Metrics/Registrar）管业务运行期的资源接线，经
+`With*Registry` 显式装配、生命周期挂 Effect。判定口诀：问「进程能不能没有
+它起来」——能，归 appkit；不能，才进 bootstrap。细节见《Bald Bootstrap
+设计.md》「与 appkit 的协作」。
+
 ## 装配路径选择（何时用 FromBootstrap，何时用 New）
 
 框架提供两条语义等价的装配入口（`buildRegistrar` 等 builder 两侧同实现，

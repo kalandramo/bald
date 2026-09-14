@@ -1,7 +1,7 @@
 // effect.go 实现 T1 效应账本（见 docs/devel/zh-CN/架构优化路线.md）。
 //
 // 背景（对照 Cordis 论文的时间可组合性）：bald 的全局注册点
-// （store.RegisterTenant / audit.SetAuditor / log.SetLogger / appkit.RegisterStoreProvider）
+// （store.RegisterTenant / audit.SetAuditor / log.SetLogger）
 // 此前都是不可逆效应——对共享环境的写入没有逆操作记录，覆盖即丢弃旧值。
 // 进程级优雅停机（P0 三阶段）已经落地，但组件级（进程内）的「卸载零残骸」
 // 完全缺失，导致：e2e 测试全局污染、重复注册语义靠约定（InitBridges 幂等）。

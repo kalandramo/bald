@@ -1,22 +1,17 @@
-// Package appkit 的插件注册表（对照 go-lulu 的 builder 注册表范式）。
+// Package appkit 的泛型注册表：装配期 Register 与运行期 Mount/Unmount
+// （mount.go，A1 运行期可逆挂载）的公共基座。
 //
-// 设计意图：核心只定义最小接口与契约（P5 零后端耦合），所有引擎/传输/中间件
-// 具体实现作为独立子模块，经 init() 自注册进对应 Registry，业务侧
-// `import _ "github.com/kalandramo/bald/contrib/store-gorm/register"` 即插即用，无需
-// 在 main 里手写接线。
-//
-// 注册表是并发安全的通用泛型容器；框架预置三类实例：
-//   - ServerRegistry：传输层插件（grpc / http / gateway 变体）
-//   - MiddlewareRegistry：gin/grpc 中间件工厂（any，调用方按类型断言）
-//   - ProviderRegistry：存储后端工厂（any，因 DBProvider[T] 泛型无法静态存放）
+// 设计意图（显式装配哲学）：注册表实例由调用方显式构造（NewRegistry），
+// 装配期 Register 冲突报错 fail-fast，运行期变更走 Mount/Unmount 可逆语义
+// （效应账本）。不做全局预置实例、不做 init() 自注册——引擎/传输/中间件的
+// 接线由业务侧在装配代码里显式完成（参见 bootstrap 三 Registry 与本包
+// 各 XxxRegistry 的手写装配）。
 package appkit
 
 import (
 	"fmt"
 	"sort"
 	"sync"
-
-	"github.com/kalandramo/bald/transport"
 )
 
 // Registry 是并发安全的按名注册表。T 为被注册的实现类型。
@@ -41,7 +36,7 @@ func (r *Registry[T]) Register(name string, impl T) error {
 	return nil
 }
 
-// MustRegister 同 Register，重名直接 panic（适合 init() 自注册场景）。
+// MustRegister 同 Register，重名直接 panic（适合装配期显式注册场景）。
 func (r *Registry[T]) MustRegister(name string, impl T) {
 	if err := r.Register(name, impl); err != nil {
 		panic(err)
@@ -66,28 +61,4 @@ func (r *Registry[T]) List() []string {
 	}
 	sort.Strings(names)
 	return names
-}
-
-// 三类预置注册点（插件协议对齐 go-lulu 的 RegisterXxxBuilder）：
-var (
-	// ServerRegistry 存放传输层插件（实现 transport.Server 接口）。
-	ServerRegistry = NewRegistry[transport.Server]()
-
-	// MiddlewareRegistry 存放 gin/grpc 中间件工厂；gin 与 grpc 中间件签名不同，
-	// 故以 any 存放，调用方按实际类型断言后装配。
-	MiddlewareRegistry = NewRegistry[any]()
-
-	// ProviderRegistry 存放存储后端工厂。因 store.DBProvider[T] 是泛型、无法
-	// 静态作为注册表值类型，故以 any 存放，业务获取后断言回具体 store.DBProvider[T]。
-	ProviderRegistry = NewRegistry[any]()
-)
-
-// RegisterStoreProvider 是 ProviderRegistry 的便捷封装，供桥接子模块的
-// register 包 init() 调用，例如：
-//
-//	func init() { appkit.RegisterStoreProvider("gorm", gormFactory) }
-//
-// factory 通常形如 func() (store.DBProvider[T], error)，调用方 Get 后断言。
-func RegisterStoreProvider(name string, factory any) {
-	ProviderRegistry.MustRegister(name, factory)
 }

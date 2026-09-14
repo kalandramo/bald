@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// TestRegistry：泛型注册表契约（R4 复审——A1 里程碑声明的预置注册点基座）。
+// TestRegistry：泛型注册表契约（R4 复审——mount.go 运行期可逆挂载的基座）。
 // 钉住：Register 重名报错不覆盖（防静默踩踏）、MustRegister 重名 panic、
 // Get 未命中返回 (零值, false)、List 升序稳定输出。
 func TestRegistry(t *testing.T) {
@@ -38,7 +38,7 @@ func TestRegistry(t *testing.T) {
 	func() {
 		defer func() {
 			if recover() == nil {
-				t.Error("MustRegister 重名必须 panic（init() 自注册场景快速失败）")
+				t.Error("MustRegister 重名必须 panic（装配期场景快速失败）")
 			}
 		}()
 		r.MustRegister("beta", "x")
@@ -69,15 +69,5 @@ func TestRegistryConcurrent(t *testing.T) {
 
 	if got := r.List(); len(got) != 8 {
 		t.Errorf("并发注册后应有 8 个唯一名字, got %d: %v", len(got), got)
-	}
-}
-
-// TestPresetRegistries：三类预置注册点已初始化且互相独立。
-func TestPresetRegistries(t *testing.T) {
-	if ServerRegistry == nil || MiddlewareRegistry == nil || ProviderRegistry == nil {
-		t.Fatal("预置注册点必须非 nil（包初始化即绪）")
-	}
-	if v, ok := ServerRegistry.Get("__never_registered__"); ok {
-		t.Errorf("预置注册表不应含幽灵项: %v", v)
 	}
 }

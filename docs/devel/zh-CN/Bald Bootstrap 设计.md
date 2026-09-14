@@ -335,6 +335,16 @@ bootstrap 不感知 appkit。appkit 的 `FromBootstrap` 是本模块的第一个
 真相源）」。分工细节与停机链序（12 段 Effect 逆序回放）见
 《[AppKit FromBootstrap 约定装配.md](AppKit FromBootstrap 约定装配.md)》。
 
+**模块归属分界：启动必需品归 bootstrap，业务运行期资源归 appkit。** 本模块
+只装 Config/Logger/Server 三段，不是能力不够，是分界使然：没有配置拿不到
+参数、没有日志无法观测启动期、没有服务器进程没有存在意义——三者缺一，
+Build 就该失败。appkit 侧的九类业务 Registry（Database/Cache/Storage/Ai/
+Broker/Workflow/Tracer/Metrics/Registrar）管业务运行期的资源接线，经
+`With*Registry` 显式装配、生命周期挂 Effect 逆序回放。判定口诀：**问「进程
+能不能没有它起来」**——能，就归 appkit；不能，才考虑进 bootstrap。
+（appkit 曾预置全局插件注册表 + `init()` 自注册范式，与本模块的显式装配
+哲学矛盾且产品代码零消费，已删除，见 `pkg/appkit/registry.go` 包注释。）
+
 ## 理由与取舍
 
 ### 放弃 blank import + init() 自注册

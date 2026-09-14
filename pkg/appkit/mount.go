@@ -2,8 +2,8 @@
 // agent-native 最小前置，同时是 R1 期望态 diff-apply 的底层支撑）。
 //
 // 设计（对照论文时间可组合性在运行期的延伸）：
-//   - Registry[T].Mount/Unmount：装配期 Register（不可逆、冲突报错，init() 自注册
-//     语义）的**运行期对偶**——可逆挂载、undo 幂等。两个语义必须分开：装配期错误
+//   - Registry[T].Mount/Unmount：装配期 Register（不可逆、冲突报错）的
+//     **运行期对偶**——可逆挂载、undo 幂等。两个语义必须分开：装配期错误
 //     应 fail-fast（panic 合理），运行期变更必须可回滚（效应账本语义）。
 //   - AppKit.MountComponent/UnmountComponent：把 C1 组件生命周期扩展到运行期——
 //     挂载即 Start 并纳入停机序列（stopAll 阶段 4 逆序 Dispose），卸载即移除并

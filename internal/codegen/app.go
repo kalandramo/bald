@@ -64,7 +64,7 @@ func newApp() *appkit.AppKit {
 		appkit.Requires("audit.store", "db"),
 
 		// ---- T1 效应账本：全局写入配套逆操作 ----
-		// 任何全局注册（RegisterTenant/SetAuditor/RegisterStoreProvider...）都应
+		// 任何全局注册（RegisterTenant/SetAuditor...）都应
 		// 配一条 Effect；停机阶段 0 逆序回放，e2e 测试用 UndoEffects 隔离全局状态。
 		appkit.Effect("tenant-registration", func(ctx context.Context) error {
 			// store.UnregisterTenant("tenant_id") // 与 RegisterTenant 配对的逆操作
