@@ -10,16 +10,6 @@ replace github.com/kalandramo/bald/berrors => ../berrors
 
 replace github.com/kalandramo/bald/log => ../log
 
-replace github.com/kalandramo/bald/log/aliyun => ../log/aliyun
-
-replace github.com/kalandramo/bald/log/charm => ../log/charm
-
-replace github.com/kalandramo/bald/log/loki => ../log/loki
-
-replace github.com/kalandramo/bald/log/sentry => ../log/sentry
-
-replace github.com/kalandramo/bald/log/tencent => ../log/tencent
-
 replace github.com/kalandramo/bald/transport => ../transport
 
 replace github.com/kalandramo/bald/transport/gateway => ../transport/gateway

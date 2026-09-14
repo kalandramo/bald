@@ -16,15 +16,15 @@ import (
 	tencent "github.com/kalandramo/bald/log/tencent"
 )
 
-// Type 是契约 logger.type 的注册名（小写约定）。
+// Type 是契约后端项 type 的注册名（小写约定）。
 const Type = "tencent"
 
 // Provider 按契约 tencent 段构造腾讯云 CLS 日志后端。
 // 返回的 cleanup 负责冲刷并关闭 producer。
-func Provider(ctx context.Context, cfg *bootstrapv1.Logger) (log.Logger, func(), error) {
-	c := cfg.GetTencent()
+func Provider(ctx context.Context, b *bootstrapv1.Logger_Backend) (log.Logger, func(), error) {
+	c := b.GetTencent()
 	if c == nil {
-		return nil, nil, fmt.Errorf("log/tencent/contract: bootstrap.logger.tencent is nil")
+		return nil, nil, fmt.Errorf("log/tencent/contract: tencent segment is nil")
 	}
 
 	var opts []tencent.Option

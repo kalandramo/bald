@@ -44,10 +44,10 @@ func TestResolveLoggerFactory(t *testing.T) {
 	// ① 注册表：阶段 A（cfg=nil）回退默认 bslog（不触发表）；阶段 B 按 type 查表。
 	hits := 0
 	lr := baldbootstrap.NewLogRegistry()
-	lr.MustRegister("fake", func(_ context.Context, cfg *bootstrapv1.Logger) (log.Logger, func(), error) {
+	lr.MustRegister("fake", func(_ context.Context, b *bootstrapv1.Logger_Backend) (log.Logger, func(), error) {
 		hits++
-		if cfg.GetType() != "fake" {
-			t.Errorf("provider got type %q, want fake", cfg.GetType())
+		if b.GetType() != "fake" {
+			t.Errorf("provider got type %q, want fake", b.GetType())
 		}
 		return stubLogger(), nil, nil
 	})
@@ -64,7 +64,9 @@ func TestResolveLoggerFactory(t *testing.T) {
 		t.Fatalf("phase A must not consult registry, hits = %d", hits)
 	}
 
-	if _, _, err := regFac(context.Background(), &bootstrapv1.Logger{Type: "fake"}); err != nil {
+	if _, _, err := regFac(context.Background(), &bootstrapv1.Logger{
+		Backends: []*bootstrapv1.Logger_Backend{{Type: "fake"}},
+	}); err != nil {
 		t.Fatalf("phase B: %v", err)
 	}
 	if hits != 1 {
@@ -72,7 +74,9 @@ func TestResolveLoggerFactory(t *testing.T) {
 	}
 
 	// ② 注册表未覆盖的契约 type → fail-fast（列出已注册项）。
-	if _, _, err := regFac(context.Background(), &bootstrapv1.Logger{Type: "nope"}); err == nil {
+	if _, _, err := regFac(context.Background(), &bootstrapv1.Logger{
+		Backends: []*bootstrapv1.Logger_Backend{{Type: "nope"}},
+	}); err == nil {
 		t.Fatal("expected unknown logger type fail-fast")
 	}
 
@@ -94,19 +98,27 @@ func TestDefaultPath(t *testing.T) {
 		t.Fatalf("phase A fallback: (%v, %v)", lg, err)
 	}
 
-	// type=loki：默认路径不查表，fail-fast 教学报错（不静默替换为 bslog）。
+	// type=loki 项：默认路径不查表，fail-fast 教学报错（不静默替换为 bslog）。
 	_, _, err := fac(context.Background(), &bootstrapv1.Logger{
-		Type: "loki",
-		Loki: &bootstrapv1.Logger_Loki{Endpoint: "http://127.0.0.1:1/loki/api/v1/push"},
+		Backends: []*bootstrapv1.Logger_Backend{{
+			Type: "loki",
+			Loki: &bootstrapv1.Logger_Loki{Endpoint: "http://127.0.0.1:1/loki/api/v1/push"},
+		}},
 	})
 	if err == nil || !strings.Contains(err.Error(), "WithLogRegistry") {
 		t.Fatalf("type=loki should fail-fast with usage, got: %v", err)
 	}
 
-	// type=zap：同样 fail-fast 教学。
-	if _, _, err := fac(context.Background(), &bootstrapv1.Logger{Type: "zap"}); err == nil ||
-		!strings.Contains(err.Error(), "WithLogRegistry") {
+	// 未实现 type：同样 fail-fast 教学。
+	if _, _, err := fac(context.Background(), &bootstrapv1.Logger{
+		Backends: []*bootstrapv1.Logger_Backend{{Type: "zap"}},
+	}); err == nil || !strings.Contains(err.Error(), "WithLogRegistry") {
 		t.Fatalf("type=zap should fail-fast with usage, got: %v", err)
+	}
+
+	// backends 为空：fail-fast（契约至少声明一项）。
+	if _, _, err := fac(context.Background(), &bootstrapv1.Logger{}); err == nil {
+		t.Fatal("empty backends should fail-fast")
 	}
 
 	// backends 含非 slog 子项：fail-fast 并定位到具体项。
@@ -143,15 +155,16 @@ func TestDefaultPath(t *testing.T) {
 func TestDefaultPath_FilterKeys(t *testing.T) {
 	fac := resolveLoggerFactory(&bootstrapSpec{})
 
-	// type=slog 直构路径。
+	// 单 slog 项直构路径。
 	path := filepath.Join(t.TempDir(), "filter-slog.log")
 	l, cleanup, err := fac(context.Background(), &bootstrapv1.Logger{
-		Type:       "slog",
 		FilterKeys: []string{"password"},
-		Slog:       &bootstrapv1.Logger_Slog{Level: "info", Format: "json", OutputPath: path},
+		Backends: []*bootstrapv1.Logger_Backend{
+			{Type: "slog", Slog: &bootstrapv1.Logger_Slog{Level: "info", Format: "json", OutputPath: path}},
+		},
 	})
 	if err != nil || l == nil {
-		t.Fatalf("type=slog with filter_keys: (%v, %v)", l, err)
+		t.Fatalf("slog item with filter_keys: (%v, %v)", l, err)
 	}
 	l.Info(context.Background(), "login", "password", "secret", "user", "alice")
 	if cleanup != nil {
@@ -162,7 +175,7 @@ func TestDefaultPath_FilterKeys(t *testing.T) {
 		t.Fatalf("read log: %v", err)
 	}
 	if !strings.Contains(string(data), `"password":"***"`) || !strings.Contains(string(data), `"user":"alice"`) {
-		t.Fatalf("type=slog 路径脱敏应生效: %s", data)
+		t.Fatalf("单 slog 项路径脱敏应生效: %s", data)
 	}
 
 	// backends 直构路径（slog 项 + filter_keys）。
@@ -195,11 +208,12 @@ func TestDefaultPath_SlogDecorators(t *testing.T) {
 	})
 
 	l, cleanup, err := fac(context.Background(), &bootstrapv1.Logger{
-		Type: "slog",
-		Slog: &bootstrapv1.Logger_Slog{Level: "debug", Format: "json", OutputPath: path},
+		Backends: []*bootstrapv1.Logger_Backend{
+			{Type: "slog", Slog: &bootstrapv1.Logger_Slog{Level: "debug", Format: "json", OutputPath: path}},
+		},
 	})
 	if err != nil || l == nil {
-		t.Fatalf("type=slog with deco: (%v, %v)", l, err)
+		t.Fatalf("slog item with deco: (%v, %v)", l, err)
 	}
 	if cleanup != nil {
 		defer cleanup()
@@ -403,11 +417,11 @@ func TestFromBootstrap_LoggerLifecycle(t *testing.T) {
 	cfg := bconf.NewBootstrap()
 	dynamicAddr(cfg)
 
-	// 注册表 stub provider：记录阶段 B 查表收到的契约段。
-	var got []*bootstrapv1.Logger
+	// 注册表 stub provider：记录阶段 B 查表收到的后端声明项。
+	var got []*bootstrapv1.Logger_Backend
 	lr := baldbootstrap.NewLogRegistry()
-	lr.MustRegister("slog", func(_ context.Context, l *bootstrapv1.Logger) (log.Logger, func(), error) {
-		got = append(got, l) // 构造与 BeforeStart 均主 goroutine，无需锁。
+	lr.MustRegister("slog", func(_ context.Context, b *bootstrapv1.Logger_Backend) (log.Logger, func(), error) {
+		got = append(got, b) // 构造与 BeforeStart 均主 goroutine，无需锁。
 		return stubLogger(), nil, nil
 	})
 	a, err := FromBootstrap(cfg, WithHTTP(new(http.ServeMux)), WithLogRegistry(lr))
@@ -429,7 +443,7 @@ func TestFromBootstrap_LoggerLifecycle(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("registry hits after run = %d, want 1", len(got))
 	}
-	if got[0] == nil || got[0].GetSlog().GetLevel() != cfg.GetLogger().GetSlog().GetLevel() {
+	if got[0] == nil || got[0].GetSlog().GetLevel() != cfg.GetLogger().GetBackends()[0].GetSlog().GetLevel() {
 		t.Fatal("phase B should receive contract logger segment")
 	}
 
@@ -450,7 +464,7 @@ func TestFromBootstrap_ConfigRegistry(t *testing.T) {
 	reg.MustRegister("fake", func(context.Context, *bootstrapv1.BootstrapConfig) (*baldconfig.Layer, func(), error) {
 		l := &baldconfig.Layer{
 			Name:   "fake",
-			Reader: &fakeReader{data: []byte("logger:\n  type: slog\n  slog:\n    level: debug\n    format: console\n    output_path: stdout\n")},
+			Reader: &fakeReader{data: []byte("logger:\n  backends:\n    - type: slog\n      slog:\n        level: debug\n        format: console\n        output_path: stdout\n")},
 		}
 		return l, func() { close(closed) }, nil
 	})
@@ -469,8 +483,8 @@ func TestFromBootstrap_ConfigRegistry(t *testing.T) {
 	runBriefly(t, a, 30*time.Millisecond)
 
 	// fake 层内容经 Store 合并→BeforeStart 装载→写回契约。
-	if got := cfg.GetLogger().GetSlog().GetLevel(); got != "debug" {
-		t.Fatalf("logger.level after load = %q, want debug (layer content not merged)", got)
+	if got := cfg.GetLogger().GetBackends()[0].GetSlog().GetLevel(); got != "debug" {
+		t.Fatalf("logger.backends[0].slog.level after load = %q, want debug (layer content not merged)", got)
 	}
 	select {
 	case <-closed:
@@ -501,18 +515,19 @@ func TestHotReload_RebuildsLogger(t *testing.T) {
 
 	hotReload(cfg, spec, &cc, map[string]any{
 		"logger": map[string]any{
-			"type": "slog",
-			"slog": map[string]any{"level": "warn", "format": "json", "output_path": "stdout"},
+			"backends": []any{
+				map[string]any{"type": "slog", "slog": map[string]any{"level": "warn", "format": "json", "output_path": "stdout"}},
+			},
 		},
 	})
 
-	if got := cfg.GetLogger().GetSlog().GetLevel(); got != "warn" {
-		t.Fatalf("contract logger.level = %q, want warn", got)
+	if got := cfg.GetLogger().GetBackends()[0].GetSlog().GetLevel(); got != "warn" {
+		t.Fatalf("contract logger.backends[0].slog.level = %q, want warn", got)
 	}
 	if n := cf.calls(); n != 2 {
 		t.Fatalf("factory calls = %d, want 2", n)
 	}
-	if cf.args[1].GetSlog().GetLevel() != "warn" {
+	if cf.args[1].GetBackends()[0].GetSlog().GetLevel() != "warn" {
 		t.Fatal("rebuild should receive updated logger segment")
 	}
 }
@@ -543,7 +558,9 @@ func TestRebuildLogger_FlushesOldBackend(t *testing.T) {
 	cc.Store(&cleanup)
 
 	// 阶段 B：换后端——旧 cleanup 应被同步调用。
-	if err := rebuildLogger(&bootstrapv1.Logger{Type: "slog"}, spec, &cc); err != nil {
+	if err := rebuildLogger(&bootstrapv1.Logger{
+		Backends: []*bootstrapv1.Logger_Backend{{Type: "slog"}},
+	}, spec, &cc); err != nil {
 		t.Fatalf("rebuildLogger: %v", err)
 	}
 	select {
@@ -610,12 +627,16 @@ func TestHotReload_BadConfigKeepsOld(t *testing.T) {
 	cc.Store(&cleanup)
 
 	hotReload(cfg, spec, &cc, map[string]any{
-		"logger": map[string]any{"type": "slog", "slog": map[string]any{"level": "not-a-level"}},
+		"logger": map[string]any{
+			"backends": []any{
+				map[string]any{"type": "slog", "slog": map[string]any{"level": "not-a-level"}},
+			},
+		},
 	})
 
 	// 契约保留旧 level（Unmarshal 失败即整体跳过）。
-	if got := cfg.GetLogger().GetSlog().GetLevel(); got != "info" {
-		t.Fatalf("contract logger.level = %q, want info (old value kept)", got)
+	if got := cfg.GetLogger().GetBackends()[0].GetSlog().GetLevel(); got != "info" {
+		t.Fatalf("contract logger.backends[0].slog.level = %q, want info (old value kept)", got)
 	}
 }
 

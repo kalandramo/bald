@@ -11,7 +11,7 @@ import (
 
 // Provider 把契约 charm 段映射为终端后端；level/format/output_path 与 slog 段同形状。
 func TestProvider_Defaults(t *testing.T) {
-	cfg := &bootstrapv1.Logger{Type: "charm", Charm: &bootstrapv1.Logger_Charm{}}
+	cfg := &bootstrapv1.Logger_Backend{Type: "charm", Charm: &bootstrapv1.Logger_Charm{}}
 	l, cleanup, err := Provider(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("Provider: %v", err)
@@ -32,7 +32,7 @@ func TestProvider_Defaults(t *testing.T) {
 
 func TestProvider_LevelAndFileOutput(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "charm.log")
-	cfg := &bootstrapv1.Logger{
+	cfg := &bootstrapv1.Logger_Backend{
 		Type: "charm",
 		Charm: &bootstrapv1.Logger_Charm{
 			Level:      "debug",
@@ -53,7 +53,7 @@ func TestProvider_LevelAndFileOutput(t *testing.T) {
 }
 
 func TestProvider_NilSegment(t *testing.T) {
-	cfg := &bootstrapv1.Logger{Type: "charm"}
+	cfg := &bootstrapv1.Logger_Backend{Type: "charm"}
 	if _, _, err := Provider(context.Background(), cfg); err == nil {
 		t.Fatal("expected fail-fast on nil charm segment")
 	}

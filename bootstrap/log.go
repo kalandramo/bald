@@ -11,7 +11,7 @@ import (
 	"github.com/kalandramo/bald/log/bslog"
 )
 
-// LoggerProvider 是日志后端工厂：从契约的 Logger 配置构造一个 log.Logger。
+// LoggerProvider 是日志后端工厂：从契约的后端声明项构造一个 log.Logger。
 //
 // 返回值语义：
 //   - 出错返回 error，BuildLogger 短路并包装错误；
@@ -19,11 +19,11 @@ import (
 //     （日志是必需品，与配置源「nil=跳过」的级联语义不同）；
 //   - cleanup 释放后端资源（Sync/关连接等），可为 nil。
 //
-// provider 按 cfg.Type 字符串查表调用；注册名约定为小写（"slog"/"zap"/...）。
-// 与配置源 Registry 的差异：日志是单选（type 指定一种后端），无级联序；
-// 多输出源（本地 + 远程并存）由 [LogRegistry.BuildLogger] 的 backends 分支
-// 循环产出并用 log.NewMultiLogger 合并——provider 自身始终只见单后端视图。
-type LoggerProvider func(ctx context.Context, cfg *bootstrapv1.Logger) (log.Logger, func(), error)
+// provider 按项内 type 字符串查表调用；注册名约定为小写（"slog"/"loki"/...）。
+// 契约里日志只有 backends 一个多值配置项，provider 自身始终只见单后端项，
+// 多后端广播（本地 + 远程并存）由 [LogRegistry.BuildLogger] 循环产出并用
+// log.NewMultiLogger 合并。
+type LoggerProvider func(ctx context.Context, b *bootstrapv1.Logger_Backend) (log.Logger, func(), error)
 
 // LogRegistry 按名字注册日志后端工厂（显式注册，无 init() 副作用）。
 type LogRegistry struct {
@@ -60,18 +60,18 @@ func (r *LogRegistry) MustRegister(name string, p LoggerProvider) {
 	}
 }
 
-// BuildLogger 按契约的 Logger.Type 查表构造日志后端。
+// BuildLogger 按契约的 backends 清单逐项查表构造并广播合并。
 //
-// 返回 (Logger, cleanup, error)。cfg 为 nil 或 type 为空视为配置错误（fail-fast，
-// 与配置源 Build 的语义一致）；type 未注册时报错并列出可用项。
+// 返回 (Logger, cleanup, error)。cfg 为 nil、backends 为空或任一项 type
+// 未注册均视为配置错误（fail-fast，与配置源 Build 的语义一致）；type 未注册
+// 时报错并列出可用项。
 //
-// 多后端模式（backends 非空时优先于单 type）：逐项经 [LoggerView] 视图归一化
-// 后走单选构造路径，全部成功后用 log.NewMultiLogger 广播合并（每条日志复制
-// 分流到全部后端）；任一项失败 fail-fast 并回滚已构造项的 cleanup。
+// 逐项构造（每项 = 一个后端），全部成功后用 log.NewMultiLogger 广播合并
+// （每条日志复制分流到全部后端）；任一项失败 fail-fast 并回滚已构造项的
+// cleanup。
 //
-// 全局脱敏（filter_keys 非空）：出口对最终 Logger（单后端或 backends 合并后
-// 的 MultiLogger）统一包 log.NewFilterLogger——子项递归经 LoggerView 视图不
-// 携带 filter_keys，天然只在顶层包一次，全部后端共享同一份过滤。
+// 全局脱敏（filter_keys 非空）：出口对合并后的 MultiLogger 统一包
+// log.NewFilterLogger——全部后端共享同一份过滤，天然只包一次。
 //
 // 由 main 显式调用并经 log.SetLogger 注入全局表：
 //
@@ -84,21 +84,43 @@ func (r *LogRegistry) BuildLogger(ctx context.Context, cfg *bootstrapv1.Logger) 
 	if cfg == nil {
 		return nil, nil, fmt.Errorf("bootstrap: logger config is nil")
 	}
-	l, cleanup, err := r.build(ctx, cfg)
-	if err != nil {
-		return nil, nil, err
+	bs := cfg.GetBackends()
+	if len(bs) == 0 {
+		return nil, nil, fmt.Errorf("bootstrap: logger.backends is empty")
 	}
-	return log.NewFilterLogger(l, cfg.GetFilterKeys()...), cleanup, nil
+
+	loggers := make([]log.Logger, 0, len(bs))
+	var cleanups []func()
+	for _, b := range bs {
+		l, cleanup, err := r.buildBackend(ctx, b)
+		if err != nil {
+			for i := len(cleanups) - 1; i >= 0; i-- { // 逆序回滚已构造项。
+				cleanups[i]()
+			}
+			return nil, nil, fmt.Errorf("bootstrap: backends[%d]: %w", len(loggers), err)
+		}
+		loggers = append(loggers, l)
+		cleanups = append(cleanups, cleanup)
+	}
+	// 单项直通：不包 MultiLogger 广播层（provider 返回什么就是什么），
+	// 空脱敏清单下整个出口零包装。
+	var out log.Logger = loggers[0]
+	if len(loggers) > 1 {
+		out = log.NewMultiLogger(loggers...)
+	}
+	merged := func() {
+		for _, c := range cleanups { // 构造序正放，与单后端「先关先开」一致。
+			c()
+		}
+	}
+	return log.NewFilterLogger(out, cfg.GetFilterKeys()...), merged, nil
 }
 
-// build 按 backends/单 type 分派构造，脱敏包装由 BuildLogger 出口统一负责。
-func (r *LogRegistry) build(ctx context.Context, cfg *bootstrapv1.Logger) (log.Logger, func(), error) {
-	if bs := cfg.GetBackends(); len(bs) > 0 {
-		return r.buildBackends(ctx, bs)
-	}
-	name := cfg.GetType()
+// buildBackend 按 Backend.Type 查表构造单后端，脱敏包装由 BuildLogger 出口统一负责。
+func (r *LogRegistry) buildBackend(ctx context.Context, b *bootstrapv1.Logger_Backend) (log.Logger, func(), error) {
+	name := b.GetType()
 	if name == "" {
-		return nil, nil, fmt.Errorf("bootstrap: logger type is empty")
+		return nil, nil, fmt.Errorf("bootstrap: logger.backends type is empty")
 	}
 
 	r.mu.RLock()
@@ -108,7 +130,7 @@ func (r *LogRegistry) build(ctx context.Context, cfg *bootstrapv1.Logger) (log.L
 		return nil, nil, fmt.Errorf("bootstrap: log provider %q not registered (registered: %v)", name, r.names())
 	}
 
-	l, cleanup, err := p(ctx, cfg)
+	l, cleanup, err := p(ctx, b)
 	if err != nil {
 		return nil, nil, fmt.Errorf("bootstrap: log provider %s: %w", name, err)
 	}
@@ -120,53 +142,6 @@ func (r *LogRegistry) build(ctx context.Context, cfg *bootstrapv1.Logger) (log.L
 		cleanup = func() {}
 	}
 	return l, cleanup, nil
-}
-
-// buildBackends 逐项构造多后端并广播合并。任一项失败回滚已构造项的
-// cleanup（构造序正放释放），全部成功后合并 cleanup（同样构造序正放）。
-func (r *LogRegistry) buildBackends(ctx context.Context, bs []*bootstrapv1.Logger_Backend) (log.Logger, func(), error) {
-	loggers := make([]log.Logger, 0, len(bs))
-	var cleanups []func()
-	for _, b := range bs {
-		l, cleanup, err := r.BuildLogger(ctx, LoggerView(b))
-		if err != nil {
-			for i := len(cleanups) - 1; i >= 0; i-- { // 逆序回滚已构造项。
-				cleanups[i]()
-			}
-			return nil, nil, fmt.Errorf("bootstrap: backend[%d]: %w", len(loggers), err)
-		}
-		loggers = append(loggers, l)
-		cleanups = append(cleanups, cleanup)
-	}
-	merged := func() {
-		for _, c := range cleanups { // 构造序正放，与单后端「先关先开」一致。
-			c()
-		}
-	}
-	return log.NewMultiLogger(loggers...), merged, nil
-}
-
-// LoggerView 把多后端声明中的一项提升为单后端 Logger 视图：段字段平移到
-// 顶层，provider 签名（吃 *Logger）零改动即可复用单选构造路径。
-// 返回的视图是新建消息，与 Backend 原字段共享段指针（只读构造场景安全）。
-func LoggerView(b *bootstrapv1.Logger_Backend) *bootstrapv1.Logger {
-	return &bootstrapv1.Logger{
-		Type:       b.GetType(),
-		Zap:        b.GetZap(),
-		Zerolog:    b.GetZerolog(),
-		Slog:       b.GetSlog(),
-		Logrus:     b.GetLogrus(),
-		Charm:      b.GetCharm(),
-		Phuslu:     b.GetPhuslu(),
-		Glog:       b.GetGlog(),
-		Hclog:      b.GetHclog(),
-		Fluent:     b.GetFluent(),
-		Loki:       b.GetLoki(),
-		Sentry:     b.GetSentry(),
-		Aliyun:     b.GetAliyun(),
-		Tencent:    b.GetTencent(),
-		Cloudwatch: b.GetCloudwatch(),
-	}
 }
 
 // names 返回已注册 provider 名的排序快照（错误信息用）。
@@ -184,7 +159,7 @@ func (r *LogRegistry) names() []string {
 // BslogLoggerProvider 返回 bslog 后端（基于标准库 log/slog）的工厂
 // （契约 Type="slog"，注册名随契约值保持 "slog"）。
 //
-// 它知道「契约里 Logger.GetSlog() 返回什么字段」与「bslog.NewOptions 的形状」，
+// 它知道「契约里 Backend.GetSlog() 返回什么字段」与「bslog.NewOptions 的形状」，
 // 因此 bslog 包无需 import bconf，保持适配器层零契约依赖。
 //
 // 映射规则：level/format/output_path 逐字段透传；多输出与轮转（2026-09-13
@@ -192,18 +167,18 @@ func (r *LogRegistry) names() []string {
 // 默认 stdout；rotate 段零值字段回退 bslog 默认（100MB/7 份/30 天/gzip）。
 // Slog 段缺失时回退 Options 默认值（stdout + info）。
 func BslogLoggerProvider() LoggerProvider {
-	return func(_ context.Context, cfg *bootstrapv1.Logger) (log.Logger, func(), error) {
-		return bslog.New(LogOptions(cfg)), nil, nil
+	return func(_ context.Context, b *bootstrapv1.Logger_Backend) (log.Logger, func(), error) {
+		return bslog.New(LogOptions(b)), nil, nil
 	}
 }
 
-// LogOptions 把契约的 Logger 配置转为 bslog.Options。
+// LogOptions 把契约的后端声明项转为 bslog.Options。
 //
 // 原属 pkg/conf（LogOptions，confv1 版），legacy 契约退役后迁入装配层：
 // 这里已同时依赖 bconf（契约类型）与 log/bslog（Options 形状），放此处零新增依赖。
-// Slog 段缺失时回退 Options 默认值（stdout + info）。
-func LogOptions(l *bootstrapv1.Logger) *bslog.Options {
-	c := l.GetSlog()
+// Slog 段缺失时回退 Options 默认值（stdout + info）；b 为 nil（阶段 A 默认）同。
+func LogOptions(b *bootstrapv1.Logger_Backend) *bslog.Options {
+	c := b.GetSlog()
 	if c == nil {
 		// type=slog 但未携带 Slog 段：使用默认配置，保证日志开箱即用。
 		return bslog.NewOptions()

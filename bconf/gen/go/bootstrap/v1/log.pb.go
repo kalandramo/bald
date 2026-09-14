@@ -21,121 +21,17 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-type Logger_Type int32
-
-const (
-	Logger_TYPE_UNSPECIFIED Logger_Type = 0
-	Logger_ZAP              Logger_Type = 1
-	Logger_ZEROLOG          Logger_Type = 2
-	Logger_SLOG             Logger_Type = 3
-	Logger_LOGRUS           Logger_Type = 4
-	Logger_CHARM            Logger_Type = 5
-	Logger_PHUSLU           Logger_Type = 6
-	Logger_GLOG             Logger_Type = 7
-	Logger_HCLOG            Logger_Type = 8
-	Logger_FLUENT           Logger_Type = 9
-	Logger_LOKI             Logger_Type = 10
-	Logger_SENTRY           Logger_Type = 11
-	Logger_ALIYUN           Logger_Type = 12
-	Logger_TENCENT          Logger_Type = 13
-	Logger_CLOUDWATCH       Logger_Type = 14
-)
-
-// Enum value maps for Logger_Type.
-var (
-	Logger_Type_name = map[int32]string{
-		0:  "TYPE_UNSPECIFIED",
-		1:  "ZAP",
-		2:  "ZEROLOG",
-		3:  "SLOG",
-		4:  "LOGRUS",
-		5:  "CHARM",
-		6:  "PHUSLU",
-		7:  "GLOG",
-		8:  "HCLOG",
-		9:  "FLUENT",
-		10: "LOKI",
-		11: "SENTRY",
-		12: "ALIYUN",
-		13: "TENCENT",
-		14: "CLOUDWATCH",
-	}
-	Logger_Type_value = map[string]int32{
-		"TYPE_UNSPECIFIED": 0,
-		"ZAP":              1,
-		"ZEROLOG":          2,
-		"SLOG":             3,
-		"LOGRUS":           4,
-		"CHARM":            5,
-		"PHUSLU":           6,
-		"GLOG":             7,
-		"HCLOG":            8,
-		"FLUENT":           9,
-		"LOKI":             10,
-		"SENTRY":           11,
-		"ALIYUN":           12,
-		"TENCENT":          13,
-		"CLOUDWATCH":       14,
-	}
-)
-
-func (x Logger_Type) Enum() *Logger_Type {
-	p := new(Logger_Type)
-	*p = x
-	return p
-}
-
-func (x Logger_Type) String() string {
-	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
-}
-
-func (Logger_Type) Descriptor() protoreflect.EnumDescriptor {
-	return file_bootstrap_v1_log_proto_enumTypes[0].Descriptor()
-}
-
-func (Logger_Type) Type() protoreflect.EnumType {
-	return &file_bootstrap_v1_log_proto_enumTypes[0]
-}
-
-func (x Logger_Type) Number() protoreflect.EnumNumber {
-	return protoreflect.EnumNumber(x)
-}
-
-// Deprecated: Use Logger_Type.Descriptor instead.
-func (Logger_Type) EnumDescriptor() ([]byte, []int) {
-	return file_bootstrap_v1_log_proto_rawDescGZIP(), []int{0, 0}
-}
-
 // Logger 描述日志系统配置。
 type Logger struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	Type  string                 `protobuf:"bytes,1,opt,name=type,proto3" json:"type,omitempty"`
-	// 本地日志库。
-	Zap     *Logger_Zap     `protobuf:"bytes,2,opt,name=zap,proto3,oneof" json:"zap,omitempty"`
-	Zerolog *Logger_Zerolog `protobuf:"bytes,3,opt,name=zerolog,proto3,oneof" json:"zerolog,omitempty"`
-	Slog    *Logger_Slog    `protobuf:"bytes,4,opt,name=slog,proto3,oneof" json:"slog,omitempty"`
-	Logrus  *Logger_Logrus  `protobuf:"bytes,5,opt,name=logrus,proto3,oneof" json:"logrus,omitempty"`
-	Charm   *Logger_Charm   `protobuf:"bytes,6,opt,name=charm,proto3,oneof" json:"charm,omitempty"`
-	Phuslu  *Logger_Phuslu  `protobuf:"bytes,7,opt,name=phuslu,proto3,oneof" json:"phuslu,omitempty"`
-	Glog    *Logger_Glog    `protobuf:"bytes,8,opt,name=glog,proto3,oneof" json:"glog,omitempty"`
-	Hclog   *Logger_Hclog   `protobuf:"bytes,9,opt,name=hclog,proto3,oneof" json:"hclog,omitempty"`
-	// 远程/云端日志服务。
-	Fluent     *Logger_Fluent     `protobuf:"bytes,10,opt,name=fluent,proto3,oneof" json:"fluent,omitempty"`
-	Loki       *Logger_Loki       `protobuf:"bytes,11,opt,name=loki,proto3,oneof" json:"loki,omitempty"`
-	Sentry     *Logger_Sentry     `protobuf:"bytes,12,opt,name=sentry,proto3,oneof" json:"sentry,omitempty"`
-	Aliyun     *Logger_Aliyun     `protobuf:"bytes,13,opt,name=aliyun,proto3,oneof" json:"aliyun,omitempty"`
-	Tencent    *Logger_Tencent    `protobuf:"bytes,14,opt,name=tencent,proto3,oneof" json:"tencent,omitempty"`
-	Cloudwatch *Logger_Cloudwatch `protobuf:"bytes,15,opt,name=cloudwatch,proto3,oneof" json:"cloudwatch,omitempty"`
-	// 多后端广播：声明多个后端并存（如本地 slog + 远程 loki 双写），装配层
-	// 逐项构造后经 log.MultiLogger 广播合并（每条日志复制分流到全部后端）。
-	// 非空时优先于单 type——与 Slog.output_paths 优先于 output_path 同一
-	// 优先级模式；单 type 保留向后兼容，两者都配时以 backends 为准。
-	Backends []*Logger_Backend `protobuf:"bytes,16,rep,name=backends,proto3" json:"backends,omitempty"`
+	// 后端清单：至少一项。装配层逐项构造后经 log.MultiLogger 广播合并
+	// （每条日志复制分流到全部后端）；任一项失败 fail-fast 并回滚已构造项。
+	Backends []*Logger_Backend `protobuf:"bytes,1,rep,name=backends,proto3" json:"backends,omitempty"`
 	// 全局脱敏 key 清单：命中 key 的属性值统一替换为 ***（属性保留不丢弃）。
-	// 覆盖调用参数、With 派生属性、ctx 属性流三类来源；单选与 backends
-	// 全部后端统一生效（合规需求宁全勿漏，不做按后端差异化——远端可检索
-	// 平台恰是外泄风险最高处）。留空零开销直通。
-	FilterKeys    []string `protobuf:"bytes,17,rep,name=filter_keys,json=filterKeys,proto3" json:"filter_keys,omitempty"`
+	// 覆盖调用参数、With 派生属性、ctx 属性流三类来源；全部后端统一生效
+	// （合规需求宁全勿漏，不做按后端差异化——远端可检索平台恰是外泄风险
+	// 最高处）。留空零开销直通。
+	FilterKeys    []string `protobuf:"bytes,2,rep,name=filter_keys,json=filterKeys,proto3" json:"filter_keys,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -170,111 +66,6 @@ func (*Logger) Descriptor() ([]byte, []int) {
 	return file_bootstrap_v1_log_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *Logger) GetType() string {
-	if x != nil {
-		return x.Type
-	}
-	return ""
-}
-
-func (x *Logger) GetZap() *Logger_Zap {
-	if x != nil {
-		return x.Zap
-	}
-	return nil
-}
-
-func (x *Logger) GetZerolog() *Logger_Zerolog {
-	if x != nil {
-		return x.Zerolog
-	}
-	return nil
-}
-
-func (x *Logger) GetSlog() *Logger_Slog {
-	if x != nil {
-		return x.Slog
-	}
-	return nil
-}
-
-func (x *Logger) GetLogrus() *Logger_Logrus {
-	if x != nil {
-		return x.Logrus
-	}
-	return nil
-}
-
-func (x *Logger) GetCharm() *Logger_Charm {
-	if x != nil {
-		return x.Charm
-	}
-	return nil
-}
-
-func (x *Logger) GetPhuslu() *Logger_Phuslu {
-	if x != nil {
-		return x.Phuslu
-	}
-	return nil
-}
-
-func (x *Logger) GetGlog() *Logger_Glog {
-	if x != nil {
-		return x.Glog
-	}
-	return nil
-}
-
-func (x *Logger) GetHclog() *Logger_Hclog {
-	if x != nil {
-		return x.Hclog
-	}
-	return nil
-}
-
-func (x *Logger) GetFluent() *Logger_Fluent {
-	if x != nil {
-		return x.Fluent
-	}
-	return nil
-}
-
-func (x *Logger) GetLoki() *Logger_Loki {
-	if x != nil {
-		return x.Loki
-	}
-	return nil
-}
-
-func (x *Logger) GetSentry() *Logger_Sentry {
-	if x != nil {
-		return x.Sentry
-	}
-	return nil
-}
-
-func (x *Logger) GetAliyun() *Logger_Aliyun {
-	if x != nil {
-		return x.Aliyun
-	}
-	return nil
-}
-
-func (x *Logger) GetTencent() *Logger_Tencent {
-	if x != nil {
-		return x.Tencent
-	}
-	return nil
-}
-
-func (x *Logger) GetCloudwatch() *Logger_Cloudwatch {
-	if x != nil {
-		return x.Cloudwatch
-	}
-	return nil
-}
-
 func (x *Logger) GetBackends() []*Logger_Backend {
 	if x != nil {
 		return x.Backends
@@ -289,100 +80,37 @@ func (x *Logger) GetFilterKeys() []string {
 	return nil
 }
 
-// Zap 日志配置。
-type Logger_Zap struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	Level           string                 `protobuf:"bytes,1,opt,name=level,proto3" json:"level,omitempty"`
-	Format          string                 `protobuf:"bytes,2,opt,name=format,proto3" json:"format,omitempty"`
-	OutputPath      string                 `protobuf:"bytes,3,opt,name=output_path,json=outputPath,proto3" json:"output_path,omitempty"`
-	ErrorOutputPath string                 `protobuf:"bytes,4,opt,name=error_output_path,json=errorOutputPath,proto3" json:"error_output_path,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
-}
-
-func (x *Logger_Zap) Reset() {
-	*x = Logger_Zap{}
-	mi := &file_bootstrap_v1_log_proto_msgTypes[1]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *Logger_Zap) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*Logger_Zap) ProtoMessage() {}
-
-func (x *Logger_Zap) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_log_proto_msgTypes[1]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use Logger_Zap.ProtoReflect.Descriptor instead.
-func (*Logger_Zap) Descriptor() ([]byte, []int) {
-	return file_bootstrap_v1_log_proto_rawDescGZIP(), []int{0, 0}
-}
-
-func (x *Logger_Zap) GetLevel() string {
-	if x != nil {
-		return x.Level
-	}
-	return ""
-}
-
-func (x *Logger_Zap) GetFormat() string {
-	if x != nil {
-		return x.Format
-	}
-	return ""
-}
-
-func (x *Logger_Zap) GetOutputPath() string {
-	if x != nil {
-		return x.OutputPath
-	}
-	return ""
-}
-
-func (x *Logger_Zap) GetErrorOutputPath() string {
-	if x != nil {
-		return x.ErrorOutputPath
-	}
-	return ""
-}
-
-// Zerolog 日志配置。
-type Logger_Zerolog struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Level         string                 `protobuf:"bytes,1,opt,name=level,proto3" json:"level,omitempty"`
-	Format        string                 `protobuf:"bytes,2,opt,name=format,proto3" json:"format,omitempty"`
-	OutputPath    string                 `protobuf:"bytes,3,opt,name=output_path,json=outputPath,proto3" json:"output_path,omitempty"`
+// Backend 是一个后端声明：type 选后端 + 对应参数段。
+type Logger_Backend struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Type  string                 `protobuf:"bytes,1,opt,name=type,proto3" json:"type,omitempty"`
+	// 本地日志库。
+	Slog  *Logger_Slog  `protobuf:"bytes,2,opt,name=slog,proto3,oneof" json:"slog,omitempty"`
+	Charm *Logger_Charm `protobuf:"bytes,3,opt,name=charm,proto3,oneof" json:"charm,omitempty"`
+	// 远程/云端日志服务。
+	Loki          *Logger_Loki    `protobuf:"bytes,4,opt,name=loki,proto3,oneof" json:"loki,omitempty"`
+	Sentry        *Logger_Sentry  `protobuf:"bytes,5,opt,name=sentry,proto3,oneof" json:"sentry,omitempty"`
+	Aliyun        *Logger_Aliyun  `protobuf:"bytes,6,opt,name=aliyun,proto3,oneof" json:"aliyun,omitempty"`
+	Tencent       *Logger_Tencent `protobuf:"bytes,7,opt,name=tencent,proto3,oneof" json:"tencent,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *Logger_Zerolog) Reset() {
-	*x = Logger_Zerolog{}
-	mi := &file_bootstrap_v1_log_proto_msgTypes[2]
+func (x *Logger_Backend) Reset() {
+	*x = Logger_Backend{}
+	mi := &file_bootstrap_v1_log_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *Logger_Zerolog) String() string {
+func (x *Logger_Backend) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*Logger_Zerolog) ProtoMessage() {}
+func (*Logger_Backend) ProtoMessage() {}
 
-func (x *Logger_Zerolog) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_log_proto_msgTypes[2]
+func (x *Logger_Backend) ProtoReflect() protoreflect.Message {
+	mi := &file_bootstrap_v1_log_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -393,30 +121,58 @@ func (x *Logger_Zerolog) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use Logger_Zerolog.ProtoReflect.Descriptor instead.
-func (*Logger_Zerolog) Descriptor() ([]byte, []int) {
-	return file_bootstrap_v1_log_proto_rawDescGZIP(), []int{0, 1}
+// Deprecated: Use Logger_Backend.ProtoReflect.Descriptor instead.
+func (*Logger_Backend) Descriptor() ([]byte, []int) {
+	return file_bootstrap_v1_log_proto_rawDescGZIP(), []int{0, 0}
 }
 
-func (x *Logger_Zerolog) GetLevel() string {
+func (x *Logger_Backend) GetType() string {
 	if x != nil {
-		return x.Level
+		return x.Type
 	}
 	return ""
 }
 
-func (x *Logger_Zerolog) GetFormat() string {
+func (x *Logger_Backend) GetSlog() *Logger_Slog {
 	if x != nil {
-		return x.Format
+		return x.Slog
 	}
-	return ""
+	return nil
 }
 
-func (x *Logger_Zerolog) GetOutputPath() string {
+func (x *Logger_Backend) GetCharm() *Logger_Charm {
 	if x != nil {
-		return x.OutputPath
+		return x.Charm
 	}
-	return ""
+	return nil
+}
+
+func (x *Logger_Backend) GetLoki() *Logger_Loki {
+	if x != nil {
+		return x.Loki
+	}
+	return nil
+}
+
+func (x *Logger_Backend) GetSentry() *Logger_Sentry {
+	if x != nil {
+		return x.Sentry
+	}
+	return nil
+}
+
+func (x *Logger_Backend) GetAliyun() *Logger_Aliyun {
+	if x != nil {
+		return x.Aliyun
+	}
+	return nil
+}
+
+func (x *Logger_Backend) GetTencent() *Logger_Tencent {
+	if x != nil {
+		return x.Tencent
+	}
+	return nil
 }
 
 // Slog（Go 标准库）日志配置。
@@ -437,7 +193,7 @@ type Logger_Slog struct {
 
 func (x *Logger_Slog) Reset() {
 	*x = Logger_Slog{}
-	mi := &file_bootstrap_v1_log_proto_msgTypes[3]
+	mi := &file_bootstrap_v1_log_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -449,7 +205,7 @@ func (x *Logger_Slog) String() string {
 func (*Logger_Slog) ProtoMessage() {}
 
 func (x *Logger_Slog) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_log_proto_msgTypes[3]
+	mi := &file_bootstrap_v1_log_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -462,7 +218,7 @@ func (x *Logger_Slog) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Logger_Slog.ProtoReflect.Descriptor instead.
 func (*Logger_Slog) Descriptor() ([]byte, []int) {
-	return file_bootstrap_v1_log_proto_rawDescGZIP(), []int{0, 2}
+	return file_bootstrap_v1_log_proto_rawDescGZIP(), []int{0, 1}
 }
 
 func (x *Logger_Slog) GetLevel() string {
@@ -500,67 +256,6 @@ func (x *Logger_Slog) GetRotate() *Logger_Slog_Rotate {
 	return nil
 }
 
-// Logrus 日志配置。
-type Logger_Logrus struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Level         string                 `protobuf:"bytes,1,opt,name=level,proto3" json:"level,omitempty"`
-	Format        string                 `protobuf:"bytes,2,opt,name=format,proto3" json:"format,omitempty"`
-	OutputPath    string                 `protobuf:"bytes,3,opt,name=output_path,json=outputPath,proto3" json:"output_path,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *Logger_Logrus) Reset() {
-	*x = Logger_Logrus{}
-	mi := &file_bootstrap_v1_log_proto_msgTypes[4]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *Logger_Logrus) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*Logger_Logrus) ProtoMessage() {}
-
-func (x *Logger_Logrus) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_log_proto_msgTypes[4]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use Logger_Logrus.ProtoReflect.Descriptor instead.
-func (*Logger_Logrus) Descriptor() ([]byte, []int) {
-	return file_bootstrap_v1_log_proto_rawDescGZIP(), []int{0, 3}
-}
-
-func (x *Logger_Logrus) GetLevel() string {
-	if x != nil {
-		return x.Level
-	}
-	return ""
-}
-
-func (x *Logger_Logrus) GetFormat() string {
-	if x != nil {
-		return x.Format
-	}
-	return ""
-}
-
-func (x *Logger_Logrus) GetOutputPath() string {
-	if x != nil {
-		return x.OutputPath
-	}
-	return ""
-}
-
 // Charm（Charmbracelet）日志配置。
 type Logger_Charm struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -573,7 +268,7 @@ type Logger_Charm struct {
 
 func (x *Logger_Charm) Reset() {
 	*x = Logger_Charm{}
-	mi := &file_bootstrap_v1_log_proto_msgTypes[5]
+	mi := &file_bootstrap_v1_log_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -585,7 +280,7 @@ func (x *Logger_Charm) String() string {
 func (*Logger_Charm) ProtoMessage() {}
 
 func (x *Logger_Charm) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_log_proto_msgTypes[5]
+	mi := &file_bootstrap_v1_log_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -598,7 +293,7 @@ func (x *Logger_Charm) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Logger_Charm.ProtoReflect.Descriptor instead.
 func (*Logger_Charm) Descriptor() ([]byte, []int) {
-	return file_bootstrap_v1_log_proto_rawDescGZIP(), []int{0, 4}
+	return file_bootstrap_v1_log_proto_rawDescGZIP(), []int{0, 2}
 }
 
 func (x *Logger_Charm) GetLevel() string {
@@ -622,348 +317,6 @@ func (x *Logger_Charm) GetOutputPath() string {
 	return ""
 }
 
-// Phuslu 日志配置。
-type Logger_Phuslu struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Level         string                 `protobuf:"bytes,1,opt,name=level,proto3" json:"level,omitempty"`
-	Format        string                 `protobuf:"bytes,2,opt,name=format,proto3" json:"format,omitempty"`
-	OutputPath    string                 `protobuf:"bytes,3,opt,name=output_path,json=outputPath,proto3" json:"output_path,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *Logger_Phuslu) Reset() {
-	*x = Logger_Phuslu{}
-	mi := &file_bootstrap_v1_log_proto_msgTypes[6]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *Logger_Phuslu) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*Logger_Phuslu) ProtoMessage() {}
-
-func (x *Logger_Phuslu) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_log_proto_msgTypes[6]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use Logger_Phuslu.ProtoReflect.Descriptor instead.
-func (*Logger_Phuslu) Descriptor() ([]byte, []int) {
-	return file_bootstrap_v1_log_proto_rawDescGZIP(), []int{0, 5}
-}
-
-func (x *Logger_Phuslu) GetLevel() string {
-	if x != nil {
-		return x.Level
-	}
-	return ""
-}
-
-func (x *Logger_Phuslu) GetFormat() string {
-	if x != nil {
-		return x.Format
-	}
-	return ""
-}
-
-func (x *Logger_Phuslu) GetOutputPath() string {
-	if x != nil {
-		return x.OutputPath
-	}
-	return ""
-}
-
-// Glog（Google glog）日志配置。
-// glog 的级别由命令行 flag（-v, -stderrthreshold）控制。
-type Logger_Glog struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// 日志目录，留空使用系统临时目录。
-	LogDir string `protobuf:"bytes,1,opt,name=log_dir,json=logDir,proto3" json:"log_dir,omitempty"`
-	// 是否同时输出到 stderr。
-	Logtostderr bool `protobuf:"varint,2,opt,name=logtostderr,proto3" json:"logtostderr,omitempty"`
-	// stderr 最低输出级别（INFO=0, WARNING=1, ERROR=2, FATAL=3）。
-	Stderrthreshold int32 `protobuf:"varint,3,opt,name=stderrthreshold,proto3" json:"stderrthreshold,omitempty"`
-	// V 级别详细度（对应 -v flag）。
-	V             int32 `protobuf:"varint,4,opt,name=v,proto3" json:"v,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *Logger_Glog) Reset() {
-	*x = Logger_Glog{}
-	mi := &file_bootstrap_v1_log_proto_msgTypes[7]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *Logger_Glog) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*Logger_Glog) ProtoMessage() {}
-
-func (x *Logger_Glog) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_log_proto_msgTypes[7]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use Logger_Glog.ProtoReflect.Descriptor instead.
-func (*Logger_Glog) Descriptor() ([]byte, []int) {
-	return file_bootstrap_v1_log_proto_rawDescGZIP(), []int{0, 6}
-}
-
-func (x *Logger_Glog) GetLogDir() string {
-	if x != nil {
-		return x.LogDir
-	}
-	return ""
-}
-
-func (x *Logger_Glog) GetLogtostderr() bool {
-	if x != nil {
-		return x.Logtostderr
-	}
-	return false
-}
-
-func (x *Logger_Glog) GetStderrthreshold() int32 {
-	if x != nil {
-		return x.Stderrthreshold
-	}
-	return 0
-}
-
-func (x *Logger_Glog) GetV() int32 {
-	if x != nil {
-		return x.V
-	}
-	return 0
-}
-
-// Hclog（HashiCorp hclog）日志配置。
-type Logger_Hclog struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	Level string                 `protobuf:"bytes,1,opt,name=level,proto3" json:"level,omitempty"`
-	// 日志格式：json / text。
-	Format     string `protobuf:"bytes,2,opt,name=format,proto3" json:"format,omitempty"`
-	OutputPath string `protobuf:"bytes,3,opt,name=output_path,json=outputPath,proto3" json:"output_path,omitempty"`
-	// Logger 名称。
-	Name string `protobuf:"bytes,4,opt,name=name,proto3" json:"name,omitempty"`
-	// 是否包含时间戳。
-	IncludeLocation bool `protobuf:"varint,5,opt,name=include_location,json=includeLocation,proto3" json:"include_location,omitempty"`
-	// 时间格式。
-	TimeFormat    string `protobuf:"bytes,6,opt,name=time_format,json=timeFormat,proto3" json:"time_format,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *Logger_Hclog) Reset() {
-	*x = Logger_Hclog{}
-	mi := &file_bootstrap_v1_log_proto_msgTypes[8]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *Logger_Hclog) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*Logger_Hclog) ProtoMessage() {}
-
-func (x *Logger_Hclog) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_log_proto_msgTypes[8]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use Logger_Hclog.ProtoReflect.Descriptor instead.
-func (*Logger_Hclog) Descriptor() ([]byte, []int) {
-	return file_bootstrap_v1_log_proto_rawDescGZIP(), []int{0, 7}
-}
-
-func (x *Logger_Hclog) GetLevel() string {
-	if x != nil {
-		return x.Level
-	}
-	return ""
-}
-
-func (x *Logger_Hclog) GetFormat() string {
-	if x != nil {
-		return x.Format
-	}
-	return ""
-}
-
-func (x *Logger_Hclog) GetOutputPath() string {
-	if x != nil {
-		return x.OutputPath
-	}
-	return ""
-}
-
-func (x *Logger_Hclog) GetName() string {
-	if x != nil {
-		return x.Name
-	}
-	return ""
-}
-
-func (x *Logger_Hclog) GetIncludeLocation() bool {
-	if x != nil {
-		return x.IncludeLocation
-	}
-	return false
-}
-
-func (x *Logger_Hclog) GetTimeFormat() string {
-	if x != nil {
-		return x.TimeFormat
-	}
-	return ""
-}
-
-// Fluentd 日志配置。
-type Logger_Fluent struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Fluentd 地址，如 tcp://127.0.0.1:24224 或 unix://var/run/fluent/fluent.sock。
-	Addr string `protobuf:"bytes,1,opt,name=addr,proto3" json:"addr,omitempty"`
-	// 连接超时（毫秒）。
-	Timeout int32 `protobuf:"varint,2,opt,name=timeout,proto3" json:"timeout,omitempty"`
-	// 写入超时（毫秒）。
-	WriteTimeout int32 `protobuf:"varint,3,opt,name=write_timeout,json=writeTimeout,proto3" json:"write_timeout,omitempty"`
-	// 缓冲区大小限制（字节）。
-	BufferLimit int32 `protobuf:"varint,4,opt,name=buffer_limit,json=bufferLimit,proto3" json:"buffer_limit,omitempty"`
-	// 重试等待时间（毫秒）。
-	RetryWait int32 `protobuf:"varint,5,opt,name=retry_wait,json=retryWait,proto3" json:"retry_wait,omitempty"`
-	// 最大重试次数。
-	MaxRetry int32 `protobuf:"varint,6,opt,name=max_retry,json=maxRetry,proto3" json:"max_retry,omitempty"`
-	// 最大重试等待时间（毫秒）。
-	MaxRetryWait int32 `protobuf:"varint,7,opt,name=max_retry_wait,json=maxRetryWait,proto3" json:"max_retry_wait,omitempty"`
-	// Tag 前缀。
-	TagPrefix string `protobuf:"bytes,8,opt,name=tag_prefix,json=tagPrefix,proto3" json:"tag_prefix,omitempty"`
-	// 是否异步发送。
-	Async         bool `protobuf:"varint,9,opt,name=async,proto3" json:"async,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *Logger_Fluent) Reset() {
-	*x = Logger_Fluent{}
-	mi := &file_bootstrap_v1_log_proto_msgTypes[9]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *Logger_Fluent) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*Logger_Fluent) ProtoMessage() {}
-
-func (x *Logger_Fluent) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_log_proto_msgTypes[9]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use Logger_Fluent.ProtoReflect.Descriptor instead.
-func (*Logger_Fluent) Descriptor() ([]byte, []int) {
-	return file_bootstrap_v1_log_proto_rawDescGZIP(), []int{0, 8}
-}
-
-func (x *Logger_Fluent) GetAddr() string {
-	if x != nil {
-		return x.Addr
-	}
-	return ""
-}
-
-func (x *Logger_Fluent) GetTimeout() int32 {
-	if x != nil {
-		return x.Timeout
-	}
-	return 0
-}
-
-func (x *Logger_Fluent) GetWriteTimeout() int32 {
-	if x != nil {
-		return x.WriteTimeout
-	}
-	return 0
-}
-
-func (x *Logger_Fluent) GetBufferLimit() int32 {
-	if x != nil {
-		return x.BufferLimit
-	}
-	return 0
-}
-
-func (x *Logger_Fluent) GetRetryWait() int32 {
-	if x != nil {
-		return x.RetryWait
-	}
-	return 0
-}
-
-func (x *Logger_Fluent) GetMaxRetry() int32 {
-	if x != nil {
-		return x.MaxRetry
-	}
-	return 0
-}
-
-func (x *Logger_Fluent) GetMaxRetryWait() int32 {
-	if x != nil {
-		return x.MaxRetryWait
-	}
-	return 0
-}
-
-func (x *Logger_Fluent) GetTagPrefix() string {
-	if x != nil {
-		return x.TagPrefix
-	}
-	return ""
-}
-
-func (x *Logger_Fluent) GetAsync() bool {
-	if x != nil {
-		return x.Async
-	}
-	return false
-}
-
 // Grafana Loki 日志配置。
 type Logger_Loki struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -973,7 +326,8 @@ type Logger_Loki struct {
 	Labels map[string]string `protobuf:"bytes,2,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// 批量推送阈值（条数）。默认 100。
 	BatchSize int32 `protobuf:"varint,3,opt,name=batch_size,json=batchSize,proto3" json:"batch_size,omitempty"`
-	// 刷新间隔（毫秒）。默认 5000。
+	// HTTP 推送请求超时（毫秒），非定时冲刷间隔——缓冲仅按 batch_size
+	// 触发冲刷与 Close 兑现尾批，无后台定时器。默认 5000。
 	FlushInterval int32 `protobuf:"varint,4,opt,name=flush_interval,json=flushInterval,proto3" json:"flush_interval,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -981,7 +335,7 @@ type Logger_Loki struct {
 
 func (x *Logger_Loki) Reset() {
 	*x = Logger_Loki{}
-	mi := &file_bootstrap_v1_log_proto_msgTypes[10]
+	mi := &file_bootstrap_v1_log_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -993,7 +347,7 @@ func (x *Logger_Loki) String() string {
 func (*Logger_Loki) ProtoMessage() {}
 
 func (x *Logger_Loki) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_log_proto_msgTypes[10]
+	mi := &file_bootstrap_v1_log_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1006,7 +360,7 @@ func (x *Logger_Loki) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Logger_Loki.ProtoReflect.Descriptor instead.
 func (*Logger_Loki) Descriptor() ([]byte, []int) {
-	return file_bootstrap_v1_log_proto_rawDescGZIP(), []int{0, 9}
+	return file_bootstrap_v1_log_proto_rawDescGZIP(), []int{0, 3}
 }
 
 func (x *Logger_Loki) GetEndpoint() string {
@@ -1054,7 +408,7 @@ type Logger_Sentry struct {
 
 func (x *Logger_Sentry) Reset() {
 	*x = Logger_Sentry{}
-	mi := &file_bootstrap_v1_log_proto_msgTypes[11]
+	mi := &file_bootstrap_v1_log_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1066,7 +420,7 @@ func (x *Logger_Sentry) String() string {
 func (*Logger_Sentry) ProtoMessage() {}
 
 func (x *Logger_Sentry) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_log_proto_msgTypes[11]
+	mi := &file_bootstrap_v1_log_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1079,7 +433,7 @@ func (x *Logger_Sentry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Logger_Sentry.ProtoReflect.Descriptor instead.
 func (*Logger_Sentry) Descriptor() ([]byte, []int) {
-	return file_bootstrap_v1_log_proto_rawDescGZIP(), []int{0, 10}
+	return file_bootstrap_v1_log_proto_rawDescGZIP(), []int{0, 4}
 }
 
 func (x *Logger_Sentry) GetDsn() string {
@@ -1131,7 +485,7 @@ type Logger_Aliyun struct {
 
 func (x *Logger_Aliyun) Reset() {
 	*x = Logger_Aliyun{}
-	mi := &file_bootstrap_v1_log_proto_msgTypes[12]
+	mi := &file_bootstrap_v1_log_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1143,7 +497,7 @@ func (x *Logger_Aliyun) String() string {
 func (*Logger_Aliyun) ProtoMessage() {}
 
 func (x *Logger_Aliyun) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_log_proto_msgTypes[12]
+	mi := &file_bootstrap_v1_log_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1156,7 +510,7 @@ func (x *Logger_Aliyun) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Logger_Aliyun.ProtoReflect.Descriptor instead.
 func (*Logger_Aliyun) Descriptor() ([]byte, []int) {
-	return file_bootstrap_v1_log_proto_rawDescGZIP(), []int{0, 11}
+	return file_bootstrap_v1_log_proto_rawDescGZIP(), []int{0, 5}
 }
 
 func (x *Logger_Aliyun) GetEndpoint() string {
@@ -1218,7 +572,7 @@ type Logger_Tencent struct {
 
 func (x *Logger_Tencent) Reset() {
 	*x = Logger_Tencent{}
-	mi := &file_bootstrap_v1_log_proto_msgTypes[13]
+	mi := &file_bootstrap_v1_log_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1230,7 +584,7 @@ func (x *Logger_Tencent) String() string {
 func (*Logger_Tencent) ProtoMessage() {}
 
 func (x *Logger_Tencent) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_log_proto_msgTypes[13]
+	mi := &file_bootstrap_v1_log_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1243,7 +597,7 @@ func (x *Logger_Tencent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Logger_Tencent.ProtoReflect.Descriptor instead.
 func (*Logger_Tencent) Descriptor() ([]byte, []int) {
-	return file_bootstrap_v1_log_proto_rawDescGZIP(), []int{0, 12}
+	return file_bootstrap_v1_log_proto_rawDescGZIP(), []int{0, 6}
 }
 
 func (x *Logger_Tencent) GetEndpoint() string {
@@ -1274,248 +628,6 @@ func (x *Logger_Tencent) GetAccessSecret() string {
 	return ""
 }
 
-// AWS CloudWatch Logs 日志配置。
-type Logger_Cloudwatch struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// AWS 区域，如 us-east-1。
-	Region string `protobuf:"bytes,1,opt,name=region,proto3" json:"region,omitempty"`
-	// 日志组名称。
-	LogGroup string `protobuf:"bytes,2,opt,name=log_group,json=logGroup,proto3" json:"log_group,omitempty"`
-	// 日志流名称。
-	LogStream string `protobuf:"bytes,3,opt,name=log_stream,json=logStream,proto3" json:"log_stream,omitempty"`
-	// 批量刷新阈值（条数）。默认 100。
-	BatchSize int32 `protobuf:"varint,4,opt,name=batch_size,json=batchSize,proto3" json:"batch_size,omitempty"`
-	// 定时刷新间隔（毫秒）。默认 5000。设为 0 禁用定时刷新。
-	FlushInterval int32 `protobuf:"varint,5,opt,name=flush_interval,json=flushInterval,proto3" json:"flush_interval,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *Logger_Cloudwatch) Reset() {
-	*x = Logger_Cloudwatch{}
-	mi := &file_bootstrap_v1_log_proto_msgTypes[14]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *Logger_Cloudwatch) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*Logger_Cloudwatch) ProtoMessage() {}
-
-func (x *Logger_Cloudwatch) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_log_proto_msgTypes[14]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use Logger_Cloudwatch.ProtoReflect.Descriptor instead.
-func (*Logger_Cloudwatch) Descriptor() ([]byte, []int) {
-	return file_bootstrap_v1_log_proto_rawDescGZIP(), []int{0, 13}
-}
-
-func (x *Logger_Cloudwatch) GetRegion() string {
-	if x != nil {
-		return x.Region
-	}
-	return ""
-}
-
-func (x *Logger_Cloudwatch) GetLogGroup() string {
-	if x != nil {
-		return x.LogGroup
-	}
-	return ""
-}
-
-func (x *Logger_Cloudwatch) GetLogStream() string {
-	if x != nil {
-		return x.LogStream
-	}
-	return ""
-}
-
-func (x *Logger_Cloudwatch) GetBatchSize() int32 {
-	if x != nil {
-		return x.BatchSize
-	}
-	return 0
-}
-
-func (x *Logger_Cloudwatch) GetFlushInterval() int32 {
-	if x != nil {
-		return x.FlushInterval
-	}
-	return 0
-}
-
-// Backend 是多后端声明中的一项：形状与 Logger 单选模式平行
-// （type 选后端 + 各后端参数段，字段号一一对应）。
-type Logger_Backend struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	Type  string                 `protobuf:"bytes,1,opt,name=type,proto3" json:"type,omitempty"`
-	// 本地日志库。
-	Zap     *Logger_Zap     `protobuf:"bytes,2,opt,name=zap,proto3,oneof" json:"zap,omitempty"`
-	Zerolog *Logger_Zerolog `protobuf:"bytes,3,opt,name=zerolog,proto3,oneof" json:"zerolog,omitempty"`
-	Slog    *Logger_Slog    `protobuf:"bytes,4,opt,name=slog,proto3,oneof" json:"slog,omitempty"`
-	Logrus  *Logger_Logrus  `protobuf:"bytes,5,opt,name=logrus,proto3,oneof" json:"logrus,omitempty"`
-	Charm   *Logger_Charm   `protobuf:"bytes,6,opt,name=charm,proto3,oneof" json:"charm,omitempty"`
-	Phuslu  *Logger_Phuslu  `protobuf:"bytes,7,opt,name=phuslu,proto3,oneof" json:"phuslu,omitempty"`
-	Glog    *Logger_Glog    `protobuf:"bytes,8,opt,name=glog,proto3,oneof" json:"glog,omitempty"`
-	Hclog   *Logger_Hclog   `protobuf:"bytes,9,opt,name=hclog,proto3,oneof" json:"hclog,omitempty"`
-	// 远程/云端日志服务。
-	Fluent        *Logger_Fluent     `protobuf:"bytes,10,opt,name=fluent,proto3,oneof" json:"fluent,omitempty"`
-	Loki          *Logger_Loki       `protobuf:"bytes,11,opt,name=loki,proto3,oneof" json:"loki,omitempty"`
-	Sentry        *Logger_Sentry     `protobuf:"bytes,12,opt,name=sentry,proto3,oneof" json:"sentry,omitempty"`
-	Aliyun        *Logger_Aliyun     `protobuf:"bytes,13,opt,name=aliyun,proto3,oneof" json:"aliyun,omitempty"`
-	Tencent       *Logger_Tencent    `protobuf:"bytes,14,opt,name=tencent,proto3,oneof" json:"tencent,omitempty"`
-	Cloudwatch    *Logger_Cloudwatch `protobuf:"bytes,15,opt,name=cloudwatch,proto3,oneof" json:"cloudwatch,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *Logger_Backend) Reset() {
-	*x = Logger_Backend{}
-	mi := &file_bootstrap_v1_log_proto_msgTypes[15]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *Logger_Backend) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*Logger_Backend) ProtoMessage() {}
-
-func (x *Logger_Backend) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_log_proto_msgTypes[15]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use Logger_Backend.ProtoReflect.Descriptor instead.
-func (*Logger_Backend) Descriptor() ([]byte, []int) {
-	return file_bootstrap_v1_log_proto_rawDescGZIP(), []int{0, 14}
-}
-
-func (x *Logger_Backend) GetType() string {
-	if x != nil {
-		return x.Type
-	}
-	return ""
-}
-
-func (x *Logger_Backend) GetZap() *Logger_Zap {
-	if x != nil {
-		return x.Zap
-	}
-	return nil
-}
-
-func (x *Logger_Backend) GetZerolog() *Logger_Zerolog {
-	if x != nil {
-		return x.Zerolog
-	}
-	return nil
-}
-
-func (x *Logger_Backend) GetSlog() *Logger_Slog {
-	if x != nil {
-		return x.Slog
-	}
-	return nil
-}
-
-func (x *Logger_Backend) GetLogrus() *Logger_Logrus {
-	if x != nil {
-		return x.Logrus
-	}
-	return nil
-}
-
-func (x *Logger_Backend) GetCharm() *Logger_Charm {
-	if x != nil {
-		return x.Charm
-	}
-	return nil
-}
-
-func (x *Logger_Backend) GetPhuslu() *Logger_Phuslu {
-	if x != nil {
-		return x.Phuslu
-	}
-	return nil
-}
-
-func (x *Logger_Backend) GetGlog() *Logger_Glog {
-	if x != nil {
-		return x.Glog
-	}
-	return nil
-}
-
-func (x *Logger_Backend) GetHclog() *Logger_Hclog {
-	if x != nil {
-		return x.Hclog
-	}
-	return nil
-}
-
-func (x *Logger_Backend) GetFluent() *Logger_Fluent {
-	if x != nil {
-		return x.Fluent
-	}
-	return nil
-}
-
-func (x *Logger_Backend) GetLoki() *Logger_Loki {
-	if x != nil {
-		return x.Loki
-	}
-	return nil
-}
-
-func (x *Logger_Backend) GetSentry() *Logger_Sentry {
-	if x != nil {
-		return x.Sentry
-	}
-	return nil
-}
-
-func (x *Logger_Backend) GetAliyun() *Logger_Aliyun {
-	if x != nil {
-		return x.Aliyun
-	}
-	return nil
-}
-
-func (x *Logger_Backend) GetTencent() *Logger_Tencent {
-	if x != nil {
-		return x.Tencent
-	}
-	return nil
-}
-
-func (x *Logger_Backend) GetCloudwatch() *Logger_Cloudwatch {
-	if x != nil {
-		return x.Cloudwatch
-	}
-	return nil
-}
-
 // Rotate 日志文件轮转配置（lumberjack）：按大小切割，按份数/天数清理，
 // 可选 gzip 压缩；不支持按时间（每日/每小时）切割。
 type Logger_Slog_Rotate struct {
@@ -1536,7 +648,7 @@ type Logger_Slog_Rotate struct {
 
 func (x *Logger_Slog_Rotate) Reset() {
 	*x = Logger_Slog_Rotate{}
-	mi := &file_bootstrap_v1_log_proto_msgTypes[16]
+	mi := &file_bootstrap_v1_log_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1548,7 +660,7 @@ func (x *Logger_Slog_Rotate) String() string {
 func (*Logger_Slog_Rotate) ProtoMessage() {}
 
 func (x *Logger_Slog_Rotate) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_log_proto_msgTypes[16]
+	mi := &file_bootstrap_v1_log_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1561,7 +673,7 @@ func (x *Logger_Slog_Rotate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Logger_Slog_Rotate.ProtoReflect.Descriptor instead.
 func (*Logger_Slog_Rotate) Descriptor() ([]byte, []int) {
-	return file_bootstrap_v1_log_proto_rawDescGZIP(), []int{0, 2, 0}
+	return file_bootstrap_v1_log_proto_rawDescGZIP(), []int{0, 1, 0}
 }
 
 func (x *Logger_Slog_Rotate) GetEnabled() bool {
@@ -1603,41 +715,26 @@ var File_bootstrap_v1_log_proto protoreflect.FileDescriptor
 
 const file_bootstrap_v1_log_proto_rawDesc = "" +
 	"\n" +
-	"\x16bootstrap/v1/log.proto\x12\fbootstrap.v1\"\x91#\n" +
-	"\x06Logger\x12\x12\n" +
-	"\x04type\x18\x01 \x01(\tR\x04type\x12/\n" +
-	"\x03zap\x18\x02 \x01(\v2\x18.bootstrap.v1.Logger.ZapH\x00R\x03zap\x88\x01\x01\x12;\n" +
-	"\azerolog\x18\x03 \x01(\v2\x1c.bootstrap.v1.Logger.ZerologH\x01R\azerolog\x88\x01\x01\x122\n" +
-	"\x04slog\x18\x04 \x01(\v2\x19.bootstrap.v1.Logger.SlogH\x02R\x04slog\x88\x01\x01\x128\n" +
-	"\x06logrus\x18\x05 \x01(\v2\x1b.bootstrap.v1.Logger.LogrusH\x03R\x06logrus\x88\x01\x01\x125\n" +
-	"\x05charm\x18\x06 \x01(\v2\x1a.bootstrap.v1.Logger.CharmH\x04R\x05charm\x88\x01\x01\x128\n" +
-	"\x06phuslu\x18\a \x01(\v2\x1b.bootstrap.v1.Logger.PhusluH\x05R\x06phuslu\x88\x01\x01\x122\n" +
-	"\x04glog\x18\b \x01(\v2\x19.bootstrap.v1.Logger.GlogH\x06R\x04glog\x88\x01\x01\x125\n" +
-	"\x05hclog\x18\t \x01(\v2\x1a.bootstrap.v1.Logger.HclogH\aR\x05hclog\x88\x01\x01\x128\n" +
-	"\x06fluent\x18\n" +
-	" \x01(\v2\x1b.bootstrap.v1.Logger.FluentH\bR\x06fluent\x88\x01\x01\x122\n" +
-	"\x04loki\x18\v \x01(\v2\x19.bootstrap.v1.Logger.LokiH\tR\x04loki\x88\x01\x01\x128\n" +
-	"\x06sentry\x18\f \x01(\v2\x1b.bootstrap.v1.Logger.SentryH\n" +
-	"R\x06sentry\x88\x01\x01\x128\n" +
-	"\x06aliyun\x18\r \x01(\v2\x1b.bootstrap.v1.Logger.AliyunH\vR\x06aliyun\x88\x01\x01\x12;\n" +
-	"\atencent\x18\x0e \x01(\v2\x1c.bootstrap.v1.Logger.TencentH\fR\atencent\x88\x01\x01\x12D\n" +
+	"\x16bootstrap/v1/log.proto\x12\fbootstrap.v1\"\xe1\f\n" +
+	"\x06Logger\x128\n" +
+	"\bbackends\x18\x01 \x03(\v2\x1c.bootstrap.v1.Logger.BackendR\bbackends\x12\x1f\n" +
+	"\vfilter_keys\x18\x02 \x03(\tR\n" +
+	"filterKeys\x1a\xab\x03\n" +
+	"\aBackend\x12\x12\n" +
+	"\x04type\x18\x01 \x01(\tR\x04type\x122\n" +
+	"\x04slog\x18\x02 \x01(\v2\x19.bootstrap.v1.Logger.SlogH\x00R\x04slog\x88\x01\x01\x125\n" +
+	"\x05charm\x18\x03 \x01(\v2\x1a.bootstrap.v1.Logger.CharmH\x01R\x05charm\x88\x01\x01\x122\n" +
+	"\x04loki\x18\x04 \x01(\v2\x19.bootstrap.v1.Logger.LokiH\x02R\x04loki\x88\x01\x01\x128\n" +
+	"\x06sentry\x18\x05 \x01(\v2\x1b.bootstrap.v1.Logger.SentryH\x03R\x06sentry\x88\x01\x01\x128\n" +
+	"\x06aliyun\x18\x06 \x01(\v2\x1b.bootstrap.v1.Logger.AliyunH\x04R\x06aliyun\x88\x01\x01\x12;\n" +
+	"\atencent\x18\a \x01(\v2\x1c.bootstrap.v1.Logger.TencentH\x05R\atencent\x88\x01\x01B\a\n" +
+	"\x05_slogB\b\n" +
+	"\x06_charmB\a\n" +
+	"\x05_lokiB\t\n" +
+	"\a_sentryB\t\n" +
+	"\a_aliyunB\n" +
 	"\n" +
-	"cloudwatch\x18\x0f \x01(\v2\x1f.bootstrap.v1.Logger.CloudwatchH\rR\n" +
-	"cloudwatch\x88\x01\x01\x128\n" +
-	"\bbackends\x18\x10 \x03(\v2\x1c.bootstrap.v1.Logger.BackendR\bbackends\x12\x1f\n" +
-	"\vfilter_keys\x18\x11 \x03(\tR\n" +
-	"filterKeys\x1a\x80\x01\n" +
-	"\x03Zap\x12\x14\n" +
-	"\x05level\x18\x01 \x01(\tR\x05level\x12\x16\n" +
-	"\x06format\x18\x02 \x01(\tR\x06format\x12\x1f\n" +
-	"\voutput_path\x18\x03 \x01(\tR\n" +
-	"outputPath\x12*\n" +
-	"\x11error_output_path\x18\x04 \x01(\tR\x0ferrorOutputPath\x1aX\n" +
-	"\aZerolog\x12\x14\n" +
-	"\x05level\x18\x01 \x01(\tR\x05level\x12\x16\n" +
-	"\x06format\x18\x02 \x01(\tR\x06format\x12\x1f\n" +
-	"\voutput_path\x18\x03 \x01(\tR\n" +
-	"outputPath\x1a\xc8\x02\n" +
+	"\b_tencent\x1a\xc8\x02\n" +
 	"\x04Slog\x12\x14\n" +
 	"\x05level\x18\x01 \x01(\tR\x05level\x12\x16\n" +
 	"\x06format\x18\x02 \x01(\tR\x06format\x12\x1f\n" +
@@ -1651,48 +748,12 @@ const file_bootstrap_v1_log_proto_rawDesc = "" +
 	"\vmax_backups\x18\x03 \x01(\x05R\n" +
 	"maxBackups\x12\x17\n" +
 	"\amax_age\x18\x04 \x01(\x05R\x06maxAge\x12\x1a\n" +
-	"\bcompress\x18\x05 \x01(\bR\bcompress\x1aW\n" +
-	"\x06Logrus\x12\x14\n" +
-	"\x05level\x18\x01 \x01(\tR\x05level\x12\x16\n" +
-	"\x06format\x18\x02 \x01(\tR\x06format\x12\x1f\n" +
-	"\voutput_path\x18\x03 \x01(\tR\n" +
-	"outputPath\x1aV\n" +
+	"\bcompress\x18\x05 \x01(\bR\bcompress\x1aV\n" +
 	"\x05Charm\x12\x14\n" +
 	"\x05level\x18\x01 \x01(\tR\x05level\x12\x16\n" +
 	"\x06format\x18\x02 \x01(\tR\x06format\x12\x1f\n" +
 	"\voutput_path\x18\x03 \x01(\tR\n" +
-	"outputPath\x1aW\n" +
-	"\x06Phuslu\x12\x14\n" +
-	"\x05level\x18\x01 \x01(\tR\x05level\x12\x16\n" +
-	"\x06format\x18\x02 \x01(\tR\x06format\x12\x1f\n" +
-	"\voutput_path\x18\x03 \x01(\tR\n" +
-	"outputPath\x1ay\n" +
-	"\x04Glog\x12\x17\n" +
-	"\alog_dir\x18\x01 \x01(\tR\x06logDir\x12 \n" +
-	"\vlogtostderr\x18\x02 \x01(\bR\vlogtostderr\x12(\n" +
-	"\x0fstderrthreshold\x18\x03 \x01(\x05R\x0fstderrthreshold\x12\f\n" +
-	"\x01v\x18\x04 \x01(\x05R\x01v\x1a\xb6\x01\n" +
-	"\x05Hclog\x12\x14\n" +
-	"\x05level\x18\x01 \x01(\tR\x05level\x12\x16\n" +
-	"\x06format\x18\x02 \x01(\tR\x06format\x12\x1f\n" +
-	"\voutput_path\x18\x03 \x01(\tR\n" +
-	"outputPath\x12\x12\n" +
-	"\x04name\x18\x04 \x01(\tR\x04name\x12)\n" +
-	"\x10include_location\x18\x05 \x01(\bR\x0fincludeLocation\x12\x1f\n" +
-	"\vtime_format\x18\x06 \x01(\tR\n" +
-	"timeFormat\x1a\x95\x02\n" +
-	"\x06Fluent\x12\x12\n" +
-	"\x04addr\x18\x01 \x01(\tR\x04addr\x12\x18\n" +
-	"\atimeout\x18\x02 \x01(\x05R\atimeout\x12#\n" +
-	"\rwrite_timeout\x18\x03 \x01(\x05R\fwriteTimeout\x12!\n" +
-	"\fbuffer_limit\x18\x04 \x01(\x05R\vbufferLimit\x12\x1d\n" +
-	"\n" +
-	"retry_wait\x18\x05 \x01(\x05R\tretryWait\x12\x1b\n" +
-	"\tmax_retry\x18\x06 \x01(\x05R\bmaxRetry\x12$\n" +
-	"\x0emax_retry_wait\x18\a \x01(\x05R\fmaxRetryWait\x12\x1d\n" +
-	"\n" +
-	"tag_prefix\x18\b \x01(\tR\ttagPrefix\x12\x14\n" +
-	"\x05async\x18\t \x01(\bR\x05async\x1a\xe2\x01\n" +
+	"outputPath\x1a\xe2\x01\n" +
 	"\x04Loki\x12\x1a\n" +
 	"\bendpoint\x18\x01 \x01(\tR\bendpoint\x12=\n" +
 	"\x06labels\x18\x02 \x03(\v2%.bootstrap.v1.Logger.Loki.LabelsEntryR\x06labels\x12\x1d\n" +
@@ -1721,91 +782,7 @@ const file_bootstrap_v1_log_proto_rawDesc = "" +
 	"\btopic_id\x18\x02 \x01(\tR\atopicId\x12\x1d\n" +
 	"\n" +
 	"access_key\x18\x03 \x01(\tR\taccessKey\x12#\n" +
-	"\raccess_secret\x18\x04 \x01(\tR\faccessSecret\x1a\xa6\x01\n" +
-	"\n" +
-	"Cloudwatch\x12\x16\n" +
-	"\x06region\x18\x01 \x01(\tR\x06region\x12\x1b\n" +
-	"\tlog_group\x18\x02 \x01(\tR\blogGroup\x12\x1d\n" +
-	"\n" +
-	"log_stream\x18\x03 \x01(\tR\tlogStream\x12\x1d\n" +
-	"\n" +
-	"batch_size\x18\x04 \x01(\x05R\tbatchSize\x12%\n" +
-	"\x0eflush_interval\x18\x05 \x01(\x05R\rflushInterval\x1a\xcf\a\n" +
-	"\aBackend\x12\x12\n" +
-	"\x04type\x18\x01 \x01(\tR\x04type\x12/\n" +
-	"\x03zap\x18\x02 \x01(\v2\x18.bootstrap.v1.Logger.ZapH\x00R\x03zap\x88\x01\x01\x12;\n" +
-	"\azerolog\x18\x03 \x01(\v2\x1c.bootstrap.v1.Logger.ZerologH\x01R\azerolog\x88\x01\x01\x122\n" +
-	"\x04slog\x18\x04 \x01(\v2\x19.bootstrap.v1.Logger.SlogH\x02R\x04slog\x88\x01\x01\x128\n" +
-	"\x06logrus\x18\x05 \x01(\v2\x1b.bootstrap.v1.Logger.LogrusH\x03R\x06logrus\x88\x01\x01\x125\n" +
-	"\x05charm\x18\x06 \x01(\v2\x1a.bootstrap.v1.Logger.CharmH\x04R\x05charm\x88\x01\x01\x128\n" +
-	"\x06phuslu\x18\a \x01(\v2\x1b.bootstrap.v1.Logger.PhusluH\x05R\x06phuslu\x88\x01\x01\x122\n" +
-	"\x04glog\x18\b \x01(\v2\x19.bootstrap.v1.Logger.GlogH\x06R\x04glog\x88\x01\x01\x125\n" +
-	"\x05hclog\x18\t \x01(\v2\x1a.bootstrap.v1.Logger.HclogH\aR\x05hclog\x88\x01\x01\x128\n" +
-	"\x06fluent\x18\n" +
-	" \x01(\v2\x1b.bootstrap.v1.Logger.FluentH\bR\x06fluent\x88\x01\x01\x122\n" +
-	"\x04loki\x18\v \x01(\v2\x19.bootstrap.v1.Logger.LokiH\tR\x04loki\x88\x01\x01\x128\n" +
-	"\x06sentry\x18\f \x01(\v2\x1b.bootstrap.v1.Logger.SentryH\n" +
-	"R\x06sentry\x88\x01\x01\x128\n" +
-	"\x06aliyun\x18\r \x01(\v2\x1b.bootstrap.v1.Logger.AliyunH\vR\x06aliyun\x88\x01\x01\x12;\n" +
-	"\atencent\x18\x0e \x01(\v2\x1c.bootstrap.v1.Logger.TencentH\fR\atencent\x88\x01\x01\x12D\n" +
-	"\n" +
-	"cloudwatch\x18\x0f \x01(\v2\x1f.bootstrap.v1.Logger.CloudwatchH\rR\n" +
-	"cloudwatch\x88\x01\x01B\x06\n" +
-	"\x04_zapB\n" +
-	"\n" +
-	"\b_zerologB\a\n" +
-	"\x05_slogB\t\n" +
-	"\a_logrusB\b\n" +
-	"\x06_charmB\t\n" +
-	"\a_phusluB\a\n" +
-	"\x05_glogB\b\n" +
-	"\x06_hclogB\t\n" +
-	"\a_fluentB\a\n" +
-	"\x05_lokiB\t\n" +
-	"\a_sentryB\t\n" +
-	"\a_aliyunB\n" +
-	"\n" +
-	"\b_tencentB\r\n" +
-	"\v_cloudwatch\"\xbf\x01\n" +
-	"\x04Type\x12\x14\n" +
-	"\x10TYPE_UNSPECIFIED\x10\x00\x12\a\n" +
-	"\x03ZAP\x10\x01\x12\v\n" +
-	"\aZEROLOG\x10\x02\x12\b\n" +
-	"\x04SLOG\x10\x03\x12\n" +
-	"\n" +
-	"\x06LOGRUS\x10\x04\x12\t\n" +
-	"\x05CHARM\x10\x05\x12\n" +
-	"\n" +
-	"\x06PHUSLU\x10\x06\x12\b\n" +
-	"\x04GLOG\x10\a\x12\t\n" +
-	"\x05HCLOG\x10\b\x12\n" +
-	"\n" +
-	"\x06FLUENT\x10\t\x12\b\n" +
-	"\x04LOKI\x10\n" +
-	"\x12\n" +
-	"\n" +
-	"\x06SENTRY\x10\v\x12\n" +
-	"\n" +
-	"\x06ALIYUN\x10\f\x12\v\n" +
-	"\aTENCENT\x10\r\x12\x0e\n" +
-	"\n" +
-	"CLOUDWATCH\x10\x0eB\x06\n" +
-	"\x04_zapB\n" +
-	"\n" +
-	"\b_zerologB\a\n" +
-	"\x05_slogB\t\n" +
-	"\a_logrusB\b\n" +
-	"\x06_charmB\t\n" +
-	"\a_phusluB\a\n" +
-	"\x05_glogB\b\n" +
-	"\x06_hclogB\t\n" +
-	"\a_fluentB\a\n" +
-	"\x05_lokiB\t\n" +
-	"\a_sentryB\t\n" +
-	"\a_aliyunB\n" +
-	"\n" +
-	"\b_tencentB\r\n" +
-	"\v_cloudwatchB\xaf\x01\n" +
+	"\raccess_secret\x18\x04 \x01(\tR\faccessSecretB\xaf\x01\n" +
 	"\x10com.bootstrap.v1B\bLogProtoP\x01Z@github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1;bootstrapv1\xa2\x02\x03BXX\xaa\x02\fBootstrap.V1\xca\x02\fBootstrap\\V1\xe2\x02\x18Bootstrap\\V1\\GPBMetadata\xea\x02\rBootstrap::V1b\x06proto3"
 
 var (
@@ -1820,66 +797,34 @@ func file_bootstrap_v1_log_proto_rawDescGZIP() []byte {
 	return file_bootstrap_v1_log_proto_rawDescData
 }
 
-var file_bootstrap_v1_log_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_bootstrap_v1_log_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
+var file_bootstrap_v1_log_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
 var file_bootstrap_v1_log_proto_goTypes = []any{
-	(Logger_Type)(0),           // 0: bootstrap.v1.Logger.Type
-	(*Logger)(nil),             // 1: bootstrap.v1.Logger
-	(*Logger_Zap)(nil),         // 2: bootstrap.v1.Logger.Zap
-	(*Logger_Zerolog)(nil),     // 3: bootstrap.v1.Logger.Zerolog
-	(*Logger_Slog)(nil),        // 4: bootstrap.v1.Logger.Slog
-	(*Logger_Logrus)(nil),      // 5: bootstrap.v1.Logger.Logrus
-	(*Logger_Charm)(nil),       // 6: bootstrap.v1.Logger.Charm
-	(*Logger_Phuslu)(nil),      // 7: bootstrap.v1.Logger.Phuslu
-	(*Logger_Glog)(nil),        // 8: bootstrap.v1.Logger.Glog
-	(*Logger_Hclog)(nil),       // 9: bootstrap.v1.Logger.Hclog
-	(*Logger_Fluent)(nil),      // 10: bootstrap.v1.Logger.Fluent
-	(*Logger_Loki)(nil),        // 11: bootstrap.v1.Logger.Loki
-	(*Logger_Sentry)(nil),      // 12: bootstrap.v1.Logger.Sentry
-	(*Logger_Aliyun)(nil),      // 13: bootstrap.v1.Logger.Aliyun
-	(*Logger_Tencent)(nil),     // 14: bootstrap.v1.Logger.Tencent
-	(*Logger_Cloudwatch)(nil),  // 15: bootstrap.v1.Logger.Cloudwatch
-	(*Logger_Backend)(nil),     // 16: bootstrap.v1.Logger.Backend
-	(*Logger_Slog_Rotate)(nil), // 17: bootstrap.v1.Logger.Slog.Rotate
-	nil,                        // 18: bootstrap.v1.Logger.Loki.LabelsEntry
+	(*Logger)(nil),             // 0: bootstrap.v1.Logger
+	(*Logger_Backend)(nil),     // 1: bootstrap.v1.Logger.Backend
+	(*Logger_Slog)(nil),        // 2: bootstrap.v1.Logger.Slog
+	(*Logger_Charm)(nil),       // 3: bootstrap.v1.Logger.Charm
+	(*Logger_Loki)(nil),        // 4: bootstrap.v1.Logger.Loki
+	(*Logger_Sentry)(nil),      // 5: bootstrap.v1.Logger.Sentry
+	(*Logger_Aliyun)(nil),      // 6: bootstrap.v1.Logger.Aliyun
+	(*Logger_Tencent)(nil),     // 7: bootstrap.v1.Logger.Tencent
+	(*Logger_Slog_Rotate)(nil), // 8: bootstrap.v1.Logger.Slog.Rotate
+	nil,                        // 9: bootstrap.v1.Logger.Loki.LabelsEntry
 }
 var file_bootstrap_v1_log_proto_depIdxs = []int32{
-	2,  // 0: bootstrap.v1.Logger.zap:type_name -> bootstrap.v1.Logger.Zap
-	3,  // 1: bootstrap.v1.Logger.zerolog:type_name -> bootstrap.v1.Logger.Zerolog
-	4,  // 2: bootstrap.v1.Logger.slog:type_name -> bootstrap.v1.Logger.Slog
-	5,  // 3: bootstrap.v1.Logger.logrus:type_name -> bootstrap.v1.Logger.Logrus
-	6,  // 4: bootstrap.v1.Logger.charm:type_name -> bootstrap.v1.Logger.Charm
-	7,  // 5: bootstrap.v1.Logger.phuslu:type_name -> bootstrap.v1.Logger.Phuslu
-	8,  // 6: bootstrap.v1.Logger.glog:type_name -> bootstrap.v1.Logger.Glog
-	9,  // 7: bootstrap.v1.Logger.hclog:type_name -> bootstrap.v1.Logger.Hclog
-	10, // 8: bootstrap.v1.Logger.fluent:type_name -> bootstrap.v1.Logger.Fluent
-	11, // 9: bootstrap.v1.Logger.loki:type_name -> bootstrap.v1.Logger.Loki
-	12, // 10: bootstrap.v1.Logger.sentry:type_name -> bootstrap.v1.Logger.Sentry
-	13, // 11: bootstrap.v1.Logger.aliyun:type_name -> bootstrap.v1.Logger.Aliyun
-	14, // 12: bootstrap.v1.Logger.tencent:type_name -> bootstrap.v1.Logger.Tencent
-	15, // 13: bootstrap.v1.Logger.cloudwatch:type_name -> bootstrap.v1.Logger.Cloudwatch
-	16, // 14: bootstrap.v1.Logger.backends:type_name -> bootstrap.v1.Logger.Backend
-	17, // 15: bootstrap.v1.Logger.Slog.rotate:type_name -> bootstrap.v1.Logger.Slog.Rotate
-	18, // 16: bootstrap.v1.Logger.Loki.labels:type_name -> bootstrap.v1.Logger.Loki.LabelsEntry
-	2,  // 17: bootstrap.v1.Logger.Backend.zap:type_name -> bootstrap.v1.Logger.Zap
-	3,  // 18: bootstrap.v1.Logger.Backend.zerolog:type_name -> bootstrap.v1.Logger.Zerolog
-	4,  // 19: bootstrap.v1.Logger.Backend.slog:type_name -> bootstrap.v1.Logger.Slog
-	5,  // 20: bootstrap.v1.Logger.Backend.logrus:type_name -> bootstrap.v1.Logger.Logrus
-	6,  // 21: bootstrap.v1.Logger.Backend.charm:type_name -> bootstrap.v1.Logger.Charm
-	7,  // 22: bootstrap.v1.Logger.Backend.phuslu:type_name -> bootstrap.v1.Logger.Phuslu
-	8,  // 23: bootstrap.v1.Logger.Backend.glog:type_name -> bootstrap.v1.Logger.Glog
-	9,  // 24: bootstrap.v1.Logger.Backend.hclog:type_name -> bootstrap.v1.Logger.Hclog
-	10, // 25: bootstrap.v1.Logger.Backend.fluent:type_name -> bootstrap.v1.Logger.Fluent
-	11, // 26: bootstrap.v1.Logger.Backend.loki:type_name -> bootstrap.v1.Logger.Loki
-	12, // 27: bootstrap.v1.Logger.Backend.sentry:type_name -> bootstrap.v1.Logger.Sentry
-	13, // 28: bootstrap.v1.Logger.Backend.aliyun:type_name -> bootstrap.v1.Logger.Aliyun
-	14, // 29: bootstrap.v1.Logger.Backend.tencent:type_name -> bootstrap.v1.Logger.Tencent
-	15, // 30: bootstrap.v1.Logger.Backend.cloudwatch:type_name -> bootstrap.v1.Logger.Cloudwatch
-	31, // [31:31] is the sub-list for method output_type
-	31, // [31:31] is the sub-list for method input_type
-	31, // [31:31] is the sub-list for extension type_name
-	31, // [31:31] is the sub-list for extension extendee
-	0,  // [0:31] is the sub-list for field type_name
+	1, // 0: bootstrap.v1.Logger.backends:type_name -> bootstrap.v1.Logger.Backend
+	2, // 1: bootstrap.v1.Logger.Backend.slog:type_name -> bootstrap.v1.Logger.Slog
+	3, // 2: bootstrap.v1.Logger.Backend.charm:type_name -> bootstrap.v1.Logger.Charm
+	4, // 3: bootstrap.v1.Logger.Backend.loki:type_name -> bootstrap.v1.Logger.Loki
+	5, // 4: bootstrap.v1.Logger.Backend.sentry:type_name -> bootstrap.v1.Logger.Sentry
+	6, // 5: bootstrap.v1.Logger.Backend.aliyun:type_name -> bootstrap.v1.Logger.Aliyun
+	7, // 6: bootstrap.v1.Logger.Backend.tencent:type_name -> bootstrap.v1.Logger.Tencent
+	8, // 7: bootstrap.v1.Logger.Slog.rotate:type_name -> bootstrap.v1.Logger.Slog.Rotate
+	9, // 8: bootstrap.v1.Logger.Loki.labels:type_name -> bootstrap.v1.Logger.Loki.LabelsEntry
+	9, // [9:9] is the sub-list for method output_type
+	9, // [9:9] is the sub-list for method input_type
+	9, // [9:9] is the sub-list for extension type_name
+	9, // [9:9] is the sub-list for extension extendee
+	0, // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_bootstrap_v1_log_proto_init() }
@@ -1887,21 +832,19 @@ func file_bootstrap_v1_log_proto_init() {
 	if File_bootstrap_v1_log_proto != nil {
 		return
 	}
-	file_bootstrap_v1_log_proto_msgTypes[0].OneofWrappers = []any{}
-	file_bootstrap_v1_log_proto_msgTypes[15].OneofWrappers = []any{}
+	file_bootstrap_v1_log_proto_msgTypes[1].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bootstrap_v1_log_proto_rawDesc), len(file_bootstrap_v1_log_proto_rawDesc)),
-			NumEnums:      1,
-			NumMessages:   18,
+			NumEnums:      0,
+			NumMessages:   10,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
 		GoTypes:           file_bootstrap_v1_log_proto_goTypes,
 		DependencyIndexes: file_bootstrap_v1_log_proto_depIdxs,
-		EnumInfos:         file_bootstrap_v1_log_proto_enumTypes,
 		MessageInfos:      file_bootstrap_v1_log_proto_msgTypes,
 	}.Build()
 	File_bootstrap_v1_log_proto = out.File

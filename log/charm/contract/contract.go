@@ -1,5 +1,5 @@
-// Package contract 把契约 bootstrapv1.Logger 的 charm 段映射为
-// charm 后端的构造选项，供 bootstrap.LogRegistry 显式注册：
+// Package contract 把契约后端声明项（bootstrapv1.Logger_Backend）的 charm 段
+// 映射为 charm 后端的构造选项，供 bootstrap.LogRegistry 显式注册：
 //
 //	reg := bootstrap.NewLogRegistry()
 //	reg.MustRegister(contract.Type, contract.Provider)
@@ -18,16 +18,16 @@ import (
 	charm "github.com/kalandramo/bald/log/charm"
 )
 
-// Type 是契约 logger.type 的注册名（小写约定）。
+// Type 是契约后端项 type 的注册名（小写约定）。
 const Type = "charm"
 
 // Provider 按契约 charm 段构造 Charmbracelet 终端日志后端。
 // level/format/output_path 与 slog 段同形状；output_path 打开文件时
 // 返回的 cleanup 负责关闭。
-func Provider(ctx context.Context, cfg *bootstrapv1.Logger) (log.Logger, func(), error) {
-	c := cfg.GetCharm()
+func Provider(ctx context.Context, b *bootstrapv1.Logger_Backend) (log.Logger, func(), error) {
+	c := b.GetCharm()
 	if c == nil {
-		return nil, nil, fmt.Errorf("log/charm/contract: bootstrap.logger.charm is nil")
+		return nil, nil, fmt.Errorf("log/charm/contract: charm segment is nil")
 	}
 
 	l := charmlog.New(os.Stderr)

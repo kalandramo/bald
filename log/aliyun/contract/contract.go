@@ -1,5 +1,5 @@
-// Package contract 把契约 bootstrapv1.Logger 的 aliyun 段映射为
-// aliyun 后端的构造选项，供 bootstrap.LogRegistry 显式注册：
+// Package contract 把契约后端声明项（bootstrapv1.Logger_Backend）的 aliyun 段
+// 映射为 aliyun 后端的构造选项，供 bootstrap.LogRegistry 显式注册：
 //
 //	reg := bootstrap.NewLogRegistry()
 //	reg.MustRegister(contract.Type, contract.Provider)
@@ -16,15 +16,15 @@ import (
 	aliyun "github.com/kalandramo/bald/log/aliyun"
 )
 
-// Type 是契约 logger.type 的注册名（小写约定）。
+// Type 是契约后端项 type 的注册名（小写约定）。
 const Type = "aliyun"
 
 // Provider 按契约 aliyun 段构造阿里云 SLS 日志后端。
 // 返回的 cleanup 负责冲刷并关闭 producer。
-func Provider(ctx context.Context, cfg *bootstrapv1.Logger) (log.Logger, func(), error) {
-	c := cfg.GetAliyun()
+func Provider(ctx context.Context, b *bootstrapv1.Logger_Backend) (log.Logger, func(), error) {
+	c := b.GetAliyun()
 	if c == nil {
-		return nil, nil, fmt.Errorf("log/aliyun/contract: bootstrap.logger.aliyun is nil")
+		return nil, nil, fmt.Errorf("log/aliyun/contract: aliyun segment is nil")
 	}
 
 	var opts []aliyun.Option

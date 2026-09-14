@@ -95,7 +95,7 @@ app, err := appkit.FromBootstrap(bootstrap,
     appkit.WithGatewayRegister(fn),                // gateway 转码能力（driver=grpc-gateway 选网关面）
     appkit.WithConfigRegistry(reg),                // 契约 Config 段层装配
     appkit.WithRemoteConfig(src),                  // kratos 桥远程源
-    appkit.WithLogRegistry(reg),                   // 契约驱动日志后端（logger.type 查表；log/<backend>/contract 注册；不声明时默认路径仅 type=slog + 教学报错）
+    appkit.WithLogRegistry(reg),                   // 契约驱动日志后端（logger.backends 逐项查表；log/<backend>/contract 注册；不声明时默认路径仅 slog 项 + 教学报错）
     appkit.WithDatabaseRegistry(dbReg),            // 契约驱动数据库客户端（database.<engine> 段查表；contrib/database/<engine>/contract 注册）
     appkit.WithCacheRegistry(cacheReg),            // 契约驱动缓存实例（cache.<backend> 段查表；cache/<backend>/contract 注册）
     appkit.WithStorageRegistry(storageReg),        // 契约驱动对象存储（storage.<backend> 段查表；oss/<backend>/contract 注册）

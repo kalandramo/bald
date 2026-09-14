@@ -7,6 +7,11 @@ import (
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
 )
 
+// defaultSlog 返回默认配置（NewBootstrap）首个后端的 slog 段。
+func defaultSlog(c *bootstrapv1.BootstrapConfig) *bootstrapv1.Logger_Slog {
+	return c.GetLogger().GetBackends()[0].GetSlog()
+}
+
 func TestNewBootstrapDefaults(t *testing.T) {
 	cfg := NewBootstrap()
 	if cfg.GetApp().GetId() == "" {
@@ -18,8 +23,9 @@ func TestNewBootstrapDefaults(t *testing.T) {
 	if cfg.GetServer().GetGrpc().GetAddr() != ":9090" {
 		t.Fatalf("grpc addr default = %q", cfg.GetServer().GetGrpc().GetAddr())
 	}
-	if cfg.GetLogger().GetType() != "slog" {
-		t.Fatalf("logger.type default = %q", cfg.GetLogger().GetType())
+	bs := cfg.GetLogger().GetBackends()
+	if len(bs) != 1 || bs[0].GetType() != "slog" {
+		t.Fatalf("logger.backends default = %+v, want single slog", bs)
 	}
 	if err := Validate(cfg); err != nil {
 		t.Fatalf("defaults should pass Validate: %v", err)
@@ -34,7 +40,11 @@ func TestUnmarshalMapMerges(t *testing.T) {
 			"grpc": map[string]any{"addr": ":19090"},
 		},
 		"logger": map[string]any{
-			"slog": map[string]any{"level": "debug"},
+			// repeated 整体替换：默认 backends 项被此清单替换，
+			// 项内未写字段不继承默认（装配层回退，字段缺省是常态）。
+			"backends": []any{
+				map[string]any{"type": "slog", "slog": map[string]any{"level": "debug", "output_path": "stdout"}},
+			},
 		},
 	}
 	if err := UnmarshalMap(m, cfg); err != nil {
@@ -43,15 +53,13 @@ func TestUnmarshalMapMerges(t *testing.T) {
 	if cfg.GetServer().GetHttp().GetAddr() != ":18080" {
 		t.Fatalf("http addr = %q", cfg.GetServer().GetHttp().GetAddr())
 	}
-	if cfg.GetLogger().GetSlog().GetLevel() != "debug" {
-		t.Fatalf("slog level = %q", cfg.GetLogger().GetSlog().GetLevel())
-	}
 	// 合并语义：未覆盖的默认值保留。
 	if cfg.GetServer().GetGrpc().GetAddr() != ":19090" {
 		t.Fatalf("grpc addr = %q", cfg.GetServer().GetGrpc().GetAddr())
 	}
-	if cfg.GetLogger().GetSlog().GetFormat() != "console" {
-		t.Fatalf("slog format should keep default, got %q", cfg.GetLogger().GetSlog().GetFormat())
+	bs := cfg.GetLogger().GetBackends()
+	if len(bs) != 1 || bs[0].GetSlog().GetLevel() != "debug" {
+		t.Fatalf("backends[0] = %+v, want level=debug", bs[0])
 	}
 	if err := Validate(cfg); err != nil {
 		t.Fatalf("merged config should pass Validate: %v", err)
@@ -76,27 +84,34 @@ func TestValidateErrors(t *testing.T) {
 		},
 		{
 			name:    "bad slog level",
-			mutate:  func(c *bootstrapv1.BootstrapConfig) { c.GetLogger().GetSlog().Level = "verbose" },
-			wantSub: "slog.level",
+			mutate:  func(c *bootstrapv1.BootstrapConfig) { defaultSlog(c).Level = "verbose" },
+			wantSub: "backends[0].slog.level",
 		},
 		{
 			name:    "bad slog format",
-			mutate:  func(c *bootstrapv1.BootstrapConfig) { c.GetLogger().GetSlog().Format = "xml" },
-			wantSub: "slog.format",
+			mutate:  func(c *bootstrapv1.BootstrapConfig) { defaultSlog(c).Format = "xml" },
+			wantSub: "backends[0].slog.format",
 		},
 		{
 			name: "empty item in slog output_paths",
 			mutate: func(c *bootstrapv1.BootstrapConfig) {
-				c.GetLogger().GetSlog().OutputPaths = []string{"stdout", ""}
+				defaultSlog(c).OutputPaths = []string{"stdout", ""}
 			},
 			wantSub: "slog.output_paths[1]",
 		},
 		{
 			name: "negative slog rotate max_size",
 			mutate: func(c *bootstrapv1.BootstrapConfig) {
-				c.GetLogger().GetSlog().Rotate = &bootstrapv1.Logger_Slog_Rotate{Enabled: true, MaxSize: -1}
+				defaultSlog(c).Rotate = &bootstrapv1.Logger_Slog_Rotate{Enabled: true, MaxSize: -1}
 			},
 			wantSub: "slog.rotate.max_size",
+		},
+		{
+			name: "empty backends",
+			mutate: func(c *bootstrapv1.BootstrapConfig) {
+				c.GetLogger().Backends = nil
+			},
+			wantSub: "backends must not be empty",
 		},
 		{
 			name: "backends item without type",
@@ -162,8 +177,8 @@ func TestUnmarshalMapCoercesScalars(t *testing.T) {
 // 要求单值 output_path；UnmarshalMap 能装载 snake_case 新字段。
 func TestValidateSlogOutputPaths(t *testing.T) {
 	cfg := NewBootstrap()
-	cfg.GetLogger().GetSlog().OutputPath = "" // 单值让位，多值接管
-	cfg.GetLogger().GetSlog().OutputPaths = []string{"stdout", "/var/log/app.log"}
+	defaultSlog(cfg).OutputPath = "" // 单值让位，多值接管
+	defaultSlog(cfg).OutputPaths = []string{"stdout", "/var/log/app.log"}
 	if err := Validate(cfg); err != nil {
 		t.Fatalf("output_paths 应满足输出目标要求: %v", err)
 	}
@@ -171,9 +186,14 @@ func TestValidateSlogOutputPaths(t *testing.T) {
 	// UnmarshalMap 装载路径（配置文件/env/flag 四源同构）。
 	m := map[string]any{
 		"logger": map[string]any{
-			"slog": map[string]any{
-				"output_paths": []any{"stdout", "/var/log/x.log"},
-				"rotate":       map[string]any{"enabled": true, "max_size": 50},
+			"backends": []any{
+				map[string]any{
+					"type": "slog",
+					"slog": map[string]any{
+						"output_paths": []any{"stdout", "/var/log/x.log"},
+						"rotate":       map[string]any{"enabled": true, "max_size": 50},
+					},
+				},
 			},
 		},
 	}
@@ -181,11 +201,12 @@ func TestValidateSlogOutputPaths(t *testing.T) {
 	if err := UnmarshalMap(m, cfg2); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	ps := cfg2.GetLogger().GetSlog().GetOutputPaths()
+	s := cfg2.GetLogger().GetBackends()[0].GetSlog()
+	ps := s.GetOutputPaths()
 	if len(ps) != 2 || ps[0] != "stdout" || ps[1] != "/var/log/x.log" {
 		t.Fatalf("output_paths = %v", ps)
 	}
-	r := cfg2.GetLogger().GetSlog().GetRotate()
+	r := s.GetRotate()
 	if r == nil || !r.GetEnabled() || r.GetMaxSize() != 50 {
 		t.Fatalf("rotate = %+v", r)
 	}

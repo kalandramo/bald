@@ -6,38 +6,28 @@ option go_package = "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1";
 
 // Logger 描述日志系统配置。
 message Logger {
-  enum Type {
-    TYPE_UNSPECIFIED = 0;
+  // 后端清单：至少一项。装配层逐项构造后经 log.MultiLogger 广播合并
+  //（每条日志复制分流到全部后端）；任一项失败 fail-fast 并回滚已构造项。
+  repeated Backend backends = 1;
 
-    ZAP = 1;
-    ZEROLOG = 2;
-    SLOG = 3;
-    LOGRUS = 4;
-    CHARM = 5;
-    PHUSLU = 6;
-    GLOG = 7;
-    HCLOG = 8;
-    FLUENT = 9;
-    LOKI = 10;
-    SENTRY = 11;
-    ALIYUN = 12;
-    TENCENT = 13;
-    CLOUDWATCH = 14;
-  }
+  // 全局脱敏 key 清单：命中 key 的属性值统一替换为 ***（属性保留不丢弃）。
+  // 覆盖调用参数、With 派生属性、ctx 属性流三类来源；全部后端统一生效
+  //（合规需求宁全勿漏，不做按后端差异化——远端可检索平台恰是外泄风险
+  // 最高处）。留空零开销直通。
+  repeated string filter_keys = 2;
 
-  // Zap 日志配置。
-  message Zap {
-    string level = 1;
-    string format = 2;
-    string output_path = 3;
-    string error_output_path = 4;
-  }
+  // Backend 是一个后端声明：type 选后端 + 对应参数段。
+  message Backend {
+    string type = 1;
 
-  // Zerolog 日志配置。
-  message Zerolog {
-    string level = 1;
-    string format = 2;
-    string output_path = 3;
+    // 本地日志库。
+    optional Slog slog = 2;
+    optional Charm charm = 3;
+    // 远程/云端日志服务。
+    optional Loki loki = 4;
+    optional Sentry sentry = 5;
+    optional Aliyun aliyun = 6;
+    optional Tencent tencent = 7;
   }
 
   // Slog（Go 标准库）日志配置。
@@ -68,74 +58,11 @@ message Logger {
     }
   }
 
-  // Logrus 日志配置。
-  message Logrus {
-    string level = 1;
-    string format = 2;
-    string output_path = 3;
-  }
-
   // Charm（Charmbracelet）日志配置。
   message Charm {
     string level = 1;
     string format = 2;
     string output_path = 3;
-  }
-
-  // Phuslu 日志配置。
-  message Phuslu {
-    string level = 1;
-    string format = 2;
-    string output_path = 3;
-  }
-
-  // Glog（Google glog）日志配置。
-  // glog 的级别由命令行 flag（-v, -stderrthreshold）控制。
-  message Glog {
-    // 日志目录，留空使用系统临时目录。
-    string log_dir = 1;
-    // 是否同时输出到 stderr。
-    bool logtostderr = 2;
-    // stderr 最低输出级别（INFO=0, WARNING=1, ERROR=2, FATAL=3）。
-    int32 stderrthreshold = 3;
-    // V 级别详细度（对应 -v flag）。
-    int32 v = 4;
-  }
-
-  // Hclog（HashiCorp hclog）日志配置。
-  message Hclog {
-    string level = 1;
-    // 日志格式：json / text。
-    string format = 2;
-    string output_path = 3;
-    // Logger 名称。
-    string name = 4;
-    // 是否包含时间戳。
-    bool include_location = 5;
-    // 时间格式。
-    string time_format = 6;
-  }
-
-  // Fluentd 日志配置。
-  message Fluent {
-    // Fluentd 地址，如 tcp://127.0.0.1:24224 或 unix://var/run/fluent/fluent.sock。
-    string addr = 1;
-    // 连接超时（毫秒）。
-    int32 timeout = 2;
-    // 写入超时（毫秒）。
-    int32 write_timeout = 3;
-    // 缓冲区大小限制（字节）。
-    int32 buffer_limit = 4;
-    // 重试等待时间（毫秒）。
-    int32 retry_wait = 5;
-    // 最大重试次数。
-    int32 max_retry = 6;
-    // 最大重试等待时间（毫秒）。
-    int32 max_retry_wait = 7;
-    // Tag 前缀。
-    string tag_prefix = 8;
-    // 是否异步发送。
-    bool async = 9;
   }
 
   // Grafana Loki 日志配置。
@@ -146,7 +73,8 @@ message Logger {
     map<string, string> labels = 2;
     // 批量推送阈值（条数）。默认 100。
     int32 batch_size = 3;
-    // 刷新间隔（毫秒）。默认 5000。
+    // HTTP 推送请求超时（毫秒），非定时冲刷间隔——缓冲仅按 batch_size
+    // 触发冲刷与 Close 兑现尾批，无后台定时器。默认 5000。
     int32 flush_interval = 4;
   }
 
@@ -188,73 +116,5 @@ message Logger {
     string access_key = 3;
     // AccessKey Secret。
     string access_secret = 4;
-  }
-
-  // AWS CloudWatch Logs 日志配置。
-  message Cloudwatch {
-    // AWS 区域，如 us-east-1。
-    string region = 1;
-    // 日志组名称。
-    string log_group = 2;
-    // 日志流名称。
-    string log_stream = 3;
-    // 批量刷新阈值（条数）。默认 100。
-    int32 batch_size = 4;
-    // 定时刷新间隔（毫秒）。默认 5000。设为 0 禁用定时刷新。
-    int32 flush_interval = 5;
-  }
-
-  string type = 1;
-
-  // 本地日志库。
-  optional Zap zap = 2;
-  optional Zerolog zerolog = 3;
-  optional Slog slog = 4;
-  optional Logrus logrus = 5;
-  optional Charm charm = 6;
-  optional Phuslu phuslu = 7;
-  optional Glog glog = 8;
-  optional Hclog hclog = 9;
-  // 远程/云端日志服务。
-  optional Fluent fluent = 10;
-  optional Loki loki = 11;
-  optional Sentry sentry = 12;
-  optional Aliyun aliyun = 13;
-  optional Tencent tencent = 14;
-  optional Cloudwatch cloudwatch = 15;
-
-  // 多后端广播：声明多个后端并存（如本地 slog + 远程 loki 双写），装配层
-  // 逐项构造后经 log.MultiLogger 广播合并（每条日志复制分流到全部后端）。
-  // 非空时优先于单 type——与 Slog.output_paths 优先于 output_path 同一
-  // 优先级模式；单 type 保留向后兼容，两者都配时以 backends 为准。
-  repeated Backend backends = 16;
-
-  // 全局脱敏 key 清单：命中 key 的属性值统一替换为 ***（属性保留不丢弃）。
-  // 覆盖调用参数、With 派生属性、ctx 属性流三类来源；单选与 backends
-  // 全部后端统一生效（合规需求宁全勿漏，不做按后端差异化——远端可检索
-  // 平台恰是外泄风险最高处）。留空零开销直通。
-  repeated string filter_keys = 17;
-
-  // Backend 是多后端声明中的一项：形状与 Logger 单选模式平行
-  //（type 选后端 + 各后端参数段，字段号一一对应）。
-  message Backend {
-    string type = 1;
-
-    // 本地日志库。
-    optional Zap zap = 2;
-    optional Zerolog zerolog = 3;
-    optional Slog slog = 4;
-    optional Logrus logrus = 5;
-    optional Charm charm = 6;
-    optional Phuslu phuslu = 7;
-    optional Glog glog = 8;
-    optional Hclog hclog = 9;
-    // 远程/云端日志服务。
-    optional Fluent fluent = 10;
-    optional Loki loki = 11;
-    optional Sentry sentry = 12;
-    optional Aliyun aliyun = 13;
-    optional Tencent tencent = 14;
-    optional Cloudwatch cloudwatch = 15;
   }
 }

@@ -15,7 +15,7 @@ import (
 
 // stubLogProvider 返回固定行为的 LoggerProvider。
 func stubLogProvider(l log.Logger, cleanup func(), err error) LoggerProvider {
-	return func(context.Context, *bootstrapv1.Logger) (log.Logger, func(), error) {
+	return func(context.Context, *bootstrapv1.Logger_Backend) (log.Logger, func(), error) {
 		return l, cleanup, err
 	}
 }
@@ -46,16 +46,21 @@ func TestLogRegistry_Register(t *testing.T) {
 	}
 }
 
+// slogBackend 是测试常用的单 slog 项契约。
+func slogBackend(s *bootstrapv1.Logger_Slog) *bootstrapv1.Logger {
+	return &bootstrapv1.Logger{Backends: []*bootstrapv1.Logger_Backend{{Type: "slog", Slog: s}}}
+}
+
 func TestBuildLogger_OK(t *testing.T) {
 	r := NewLogRegistry()
 	want := &stubLogger{enabled: true}
 	called := false
-	r.MustRegister("slog", func(context.Context, *bootstrapv1.Logger) (log.Logger, func(), error) {
+	r.MustRegister("slog", func(context.Context, *bootstrapv1.Logger_Backend) (log.Logger, func(), error) {
 		called = true
 		return want, func() { called = false }, nil
 	})
 
-	l, cleanup, err := r.BuildLogger(context.Background(), &bootstrapv1.Logger{Type: "slog"})
+	l, cleanup, err := r.BuildLogger(context.Background(), slogBackend(nil))
 	if err != nil || l != want {
 		t.Fatalf("BuildLogger() = (%v, %v), want (%v, nil)", l, err, want)
 	}
@@ -76,9 +81,11 @@ func TestBuildLogger_Errors(t *testing.T) {
 		t.Fatal("nil config should error")
 	}
 	if _, _, err := r.BuildLogger(context.Background(), &bootstrapv1.Logger{}); err == nil {
-		t.Fatal("empty type should error")
+		t.Fatal("empty backends should error")
 	}
-	_, _, err := r.BuildLogger(context.Background(), &bootstrapv1.Logger{Type: "zap"})
+	_, _, err := r.BuildLogger(context.Background(), &bootstrapv1.Logger{
+		Backends: []*bootstrapv1.Logger_Backend{{Type: "zap"}},
+	})
 	if err == nil || !strings.Contains(err.Error(), `not registered`) || !strings.Contains(err.Error(), "slog") {
 		t.Fatalf("unregistered type should error with candidates, got: %v", err)
 	}
@@ -86,14 +93,14 @@ func TestBuildLogger_Errors(t *testing.T) {
 	// provider 返回 nil Logger 视为错误。
 	r2 := NewLogRegistry()
 	r2.MustRegister("slog", stubLogProvider(nil, nil, nil))
-	if _, _, err := r2.BuildLogger(context.Background(), &bootstrapv1.Logger{Type: "slog"}); err == nil {
+	if _, _, err := r2.BuildLogger(context.Background(), slogBackend(nil)); err == nil {
 		t.Fatal("nil logger from provider should error")
 	}
 
 	// provider 出错短路并包装。
 	r3 := NewLogRegistry()
 	r3.MustRegister("slog", stubLogProvider(nil, nil, errors.New("boom")))
-	if _, _, err := r3.BuildLogger(context.Background(), &bootstrapv1.Logger{Type: "slog"}); err == nil || !strings.Contains(err.Error(), "boom") {
+	if _, _, err := r3.BuildLogger(context.Background(), slogBackend(nil)); err == nil || !strings.Contains(err.Error(), "boom") {
 		t.Fatalf("provider error should be wrapped, got: %v", err)
 	}
 }
@@ -101,7 +108,7 @@ func TestBuildLogger_Errors(t *testing.T) {
 func TestBslogLoggerProvider(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "app.log")
-	cfg := &bootstrapv1.Logger{
+	cfg := &bootstrapv1.Logger_Backend{
 		Type: "slog",
 		Slog: &bootstrapv1.Logger_Slog{
 			Level:      "debug",
@@ -140,7 +147,7 @@ func TestBslogLoggerProvider(t *testing.T) {
 
 func TestBslogLoggerProvider_DefaultFallback(t *testing.T) {
 	// type=slog 但 Slog 段缺失 → 默认配置（stdout + info），不报错。
-	l, cleanup, err := BslogLoggerProvider()(context.Background(), &bootstrapv1.Logger{Type: "slog"})
+	l, cleanup, err := BslogLoggerProvider()(context.Background(), &bootstrapv1.Logger_Backend{Type: "slog"})
 	if err != nil || l == nil {
 		t.Fatalf("missing slog section should fall back to defaults, got (%v, %v)", l, err)
 	}
@@ -162,10 +169,9 @@ func TestBuildLogger_Integration(t *testing.T) {
 	lr := NewLogRegistry()
 	lr.MustRegister("slog", BslogLoggerProvider())
 
-	l, cleanup, err := lr.BuildLogger(context.Background(), &bootstrapv1.Logger{
-		Type: "slog",
-		Slog: &bootstrapv1.Logger_Slog{Format: "text", OutputPath: path},
-	})
+	l, cleanup, err := lr.BuildLogger(context.Background(), slogBackend(
+		&bootstrapv1.Logger_Slog{Format: "text", OutputPath: path},
+	))
 	if err != nil {
 		t.Fatalf("BuildLogger() = %v, want nil", err)
 	}
@@ -180,9 +186,8 @@ func TestBuildLogger_Integration(t *testing.T) {
 	}
 }
 
-// TestBuildLogger_MultiBackends 多后端广播：backends 非空优先于单 type，
-// 逐项构造后 MultiLogger 合并（Enabled 任一子启用即启用），cleanup 合并
-// 释放全部子后端。
+// TestBuildLogger_MultiBackends 多后端广播：逐项构造后 MultiLogger 合并
+// （Enabled 任一子启用即启用），cleanup 合并释放全部子后端。
 func TestBuildLogger_MultiBackends(t *testing.T) {
 	dir := t.TempDir()
 	fileA := filepath.Join(dir, "a.log")
@@ -192,7 +197,6 @@ func TestBuildLogger_MultiBackends(t *testing.T) {
 	r.MustRegister("slog", BslogLoggerProvider())
 
 	l, cleanup, err := r.BuildLogger(context.Background(), &bootstrapv1.Logger{
-		Type: "slog", // 应被 backends 优先覆盖
 		Backends: []*bootstrapv1.Logger_Backend{
 			{Type: "slog", Slog: &bootstrapv1.Logger_Slog{Level: "debug", Format: "json", OutputPath: fileA}},
 			{Type: "slog", Slog: &bootstrapv1.Logger_Slog{Level: "error", Format: "json", OutputPath: fileB}},
@@ -243,25 +247,10 @@ func TestBuildLogger_MultiBackends_FailFastRollback(t *testing.T) {
 	}
 }
 
-// TestLoggerView Backend 段平移为单后端 Logger 视图：type 与各段字段一一对应。
-func TestLoggerView(t *testing.T) {
-	b := &bootstrapv1.Logger_Backend{
-		Type: "loki",
-		Loki: &bootstrapv1.Logger_Loki{Endpoint: "http://x", Labels: map[string]string{"a": "1"}},
-	}
-	v := LoggerView(b)
-	if v.GetType() != "loki" || v.GetLoki().GetEndpoint() != "http://x" || v.GetLoki().GetLabels()["a"] != "1" {
-		t.Fatalf("LoggerView = %v", v)
-	}
-	if v.GetBackends() != nil {
-		t.Fatal("view must not carry backends (single-backend shape)")
-	}
-}
-
 // TestLogOptions_MultiOutputAndRotate 契约多输出 + 轮转段 → Options 映射：
 // output_paths 优先于 output_path；rotate 零值字段回退 bslog 默认（100/7/30/gzip）。
 func TestLogOptions_MultiOutputAndRotate(t *testing.T) {
-	o := LogOptions(&bootstrapv1.Logger{
+	o := LogOptions(&bootstrapv1.Logger_Backend{
 		Type: "slog",
 		Slog: &bootstrapv1.Logger_Slog{
 			OutputPath:  "/should/be/ignored.log",
@@ -288,7 +277,7 @@ func TestLogOptions_MultiOutputAndRotate(t *testing.T) {
 // TestLogOptions_OutputPathBackwardCompat 单值 output_path 仍映射为单元素，
 // 既有配置零迁移。
 func TestLogOptions_OutputPathBackwardCompat(t *testing.T) {
-	o := LogOptions(&bootstrapv1.Logger{
+	o := LogOptions(&bootstrapv1.Logger_Backend{
 		Type: "slog",
 		Slog: &bootstrapv1.Logger_Slog{OutputPath: "stderr"},
 	})
@@ -302,7 +291,7 @@ func TestLogOptions_OutputPathBackwardCompat(t *testing.T) {
 func TestBslogLoggerProvider_MultiOutputRotate(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "app.log")
-	cfg := &bootstrapv1.Logger{
+	cfg := &bootstrapv1.Logger_Backend{
 		Type: "slog",
 		Slog: &bootstrapv1.Logger_Slog{
 			Level:       "info",
@@ -354,16 +343,16 @@ func argsHas(args []any, k, v string) bool {
 	return false
 }
 
-// TestBuildLogger_FilterKeys 全局脱敏出口包装：单选与 backends 两路径下
+// TestBuildLogger_FilterKeys 全局脱敏出口包装：单项与多项 backends 下
 // filter_keys 均生效（命中掩码、未命中保留），空清单直通不包装。
 func TestBuildLogger_FilterKeys(t *testing.T) {
 	sink := &recordingLogger{}
 	r := NewLogRegistry()
 	r.MustRegister("stub", stubLogProvider(sink, nil, nil))
 
-	// 单选路径。
+	// 单项 backends。
 	l, _, err := r.BuildLogger(context.Background(), &bootstrapv1.Logger{
-		Type:       "stub",
+		Backends:   []*bootstrapv1.Logger_Backend{{Type: "stub"}},
 		FilterKeys: []string{"password"},
 	})
 	if err != nil {
@@ -371,10 +360,10 @@ func TestBuildLogger_FilterKeys(t *testing.T) {
 	}
 	l.Info(context.Background(), "m", "password", "secret", "user", "u")
 	if !argsHas(sink.args, "password", "***") || !argsHas(sink.args, "user", "u") {
-		t.Fatalf("单选路径脱敏应生效: %v", sink.args)
+		t.Fatalf("单项 backends 脱敏应生效: %v", sink.args)
 	}
 
-	// backends 路径：顶层 filter_keys 对合并后的 MultiLogger 包装。
+	// 多项 backends：顶层 filter_keys 对合并后的 MultiLogger 包装。
 	sink2 := &recordingLogger{}
 	r2 := NewLogRegistry()
 	r2.MustRegister("stub", stubLogProvider(sink2, nil, nil))
@@ -389,15 +378,18 @@ func TestBuildLogger_FilterKeys(t *testing.T) {
 	}
 	l2.Info(context.Background(), "m", "password", "secret", "token", "t")
 	if !argsHas(sink2.args, "password", "***") || !argsHas(sink2.args, "token", "t") {
-		t.Fatalf("backends 路径脱敏应生效: %v", sink2.args)
+		t.Fatalf("多项 backends 脱敏应生效: %v", sink2.args)
 	}
 
-	// 空清单：直通不包装（返回原实例可由类型断言验证——不包 filterLogger）。
+	// 空清单：直通不包装——单项 backends 且空 filter_keys 时出口零包装，
+	// 返回 provider 原实例（可由类型断言验证）。
 	sink3 := &recordingLogger{}
 	r3 := NewLogRegistry()
 	r3.MustRegister("stub", stubLogProvider(sink3, nil, nil))
-	l3, _, _ := r3.BuildLogger(context.Background(), &bootstrapv1.Logger{Type: "stub"})
+	l3, _, _ := r3.BuildLogger(context.Background(), &bootstrapv1.Logger{
+		Backends: []*bootstrapv1.Logger_Backend{{Type: "stub"}},
+	})
 	if _, isFiltered := l3.(*recordingLogger); !isFiltered {
-		t.Fatalf("空 filter_keys 应直通原实例, got %T", l3)
+		t.Fatalf("空 filter_keys 单项 backends 应直通原实例, got %T", l3)
 	}
 }

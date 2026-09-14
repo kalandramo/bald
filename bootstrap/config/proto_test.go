@@ -15,8 +15,9 @@ func TestUnmarshal_FromFile(t *testing.T) {
 			"grpc": map[string]any{"addr": ":9090"},
 		},
 		"logger": map[string]any{
-			"type": "slog",
-			"slog": map[string]any{"level": "debug", "format": "json", "output_path": "stdout"},
+			"backends": []any{
+				map[string]any{"type": "slog", "slog": map[string]any{"level": "debug", "format": "json", "output_path": "stdout"}},
+			},
 		},
 	}
 
@@ -31,11 +32,12 @@ func TestUnmarshal_FromFile(t *testing.T) {
 	if got := cfg.GetServer().GetGrpc().GetAddr(); got != ":9090" {
 		t.Errorf("server.grpc.addr = %q, want :9090", got)
 	}
-	if got := cfg.GetLogger().GetSlog().GetLevel(); got != "debug" {
-		t.Errorf("logger.slog.level = %q, want debug", got)
+	s := cfg.GetLogger().GetBackends()[0].GetSlog()
+	if got := s.GetLevel(); got != "debug" {
+		t.Errorf("logger.backends[0].slog.level = %q, want debug", got)
 	}
-	if got := cfg.GetLogger().GetSlog().GetFormat(); got != "json" {
-		t.Errorf("logger.slog.format = %q, want json", got)
+	if got := s.GetFormat(); got != "json" {
+		t.Errorf("logger.backends[0].slog.format = %q, want json", got)
 	}
 }
 

@@ -36,12 +36,14 @@ func NewBootstrap() *bootstrapv1.BootstrapConfig {
 			Grpc: &bootstrapv1.Server_Grpc{Addr: ":9090"},
 		},
 		Logger: &bootstrapv1.Logger{
-			Type: "slog",
-			Slog: &bootstrapv1.Logger_Slog{
-				Level:      "info",
-				Format:     "console",
-				OutputPath: "stdout",
-			},
+			Backends: []*bootstrapv1.Logger_Backend{{
+				Type: "slog",
+				Slog: &bootstrapv1.Logger_Slog{
+					Level:      "info",
+					Format:     "console",
+					OutputPath: "stdout",
+				},
+			}},
 		},
 	}
 }
@@ -51,8 +53,9 @@ func NewBootstrap() *bootstrapv1.BootstrapConfig {
 // 校验范围（缺省字段视为未启用，跳过）：
 //   - app.id / app.name 非空；
 //   - server.http.addr / server.grpc.addr 为合法 :port 或 ip:port；
-//   - logger.type 非空；选 slog 时校验 level / format / 输出目标
-//     （output_paths 优先，回退 output_path）与 rotate 数值非负。
+//   - logger.backends 至少一项；逐项校验 type 非空与 slog 项的段级规则
+//     （level / format / 输出目标 output_paths 优先，回退 output_path，
+//     与 rotate 数值非负）。
 func Validate(cfg *bootstrapv1.BootstrapConfig) error {
 	if cfg == nil {
 		return fmt.Errorf("bconf: bootstrap config is nil")
@@ -95,9 +98,8 @@ func validateApp(a *bootstrapv1.App) error {
 // 其余 type 先放行（装配层 bootstrap.LogRegistry 查表时才会 fail-fast），
 // 避免契约层硬编码后端清单。
 //
-// 多后端模式：backends 非空时优先于单 type——逐项校验 type 非空与
-// slog 项的段级规则（与单选对称）。filter_keys 全局校验在两分支之前
-// （脱敏对全部后端生效，与单选/多选无关）。
+// 契约只有 backends 一个多值配置项：逐项校验 type 非空与 slog 项的段级
+// 规则。filter_keys 全局校验在逐项之前（脱敏对全部后端生效）。
 func validateLogger(l *bootstrapv1.Logger) error {
 	if l == nil {
 		return nil
@@ -109,30 +111,25 @@ func validateLogger(l *bootstrapv1.Logger) error {
 			return fmt.Errorf("filter_keys[%d] must not be empty", i)
 		}
 	}
-	if bs := l.GetBackends(); len(bs) > 0 {
-		for i, b := range bs {
-			if b.GetType() == "" {
-				return fmt.Errorf("backends[%d].type must not be empty", i)
-			}
-			if s := b.GetSlog(); s != nil {
-				if err := validateSlogSection(s, fmt.Sprintf("backends[%d].slog", i)); err != nil {
-					return err
-				}
+	bs := l.GetBackends()
+	if len(bs) == 0 {
+		return fmt.Errorf("backends must not be empty")
+	}
+	for i, b := range bs {
+		if b.GetType() == "" {
+			return fmt.Errorf("backends[%d].type must not be empty", i)
+		}
+		if s := b.GetSlog(); s != nil {
+			if err := validateSlogSection(s, fmt.Sprintf("backends[%d].slog", i)); err != nil {
+				return err
 			}
 		}
-		return nil
-	}
-	if l.GetType() == "" {
-		return fmt.Errorf("type must not be empty")
-	}
-	if s := l.GetSlog(); s != nil {
-		return validateSlogSection(s, "slog")
 	}
 	return nil
 }
 
-// validateSlogSection 校验单后端模式与多后端项共用的 slog 段规则。
-// prefix 用于错误定位（"slog" 或 "backends[i].slog"）。
+// validateSlogSection 校验后端声明项的 slog 段规则。
+// prefix 用于错误定位（"backends[i].slog"）。
 //
 // level/format 空串放行（装配层 LogOptions 对空值回退默认 info/console——
 // 多后端项是 repeated 新元素，不继承 NewBootstrap 默认值，字段缺省是

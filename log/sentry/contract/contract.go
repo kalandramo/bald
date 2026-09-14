@@ -1,5 +1,5 @@
-// Package contract 把契约 bootstrapv1.Logger 的 sentry 段映射为
-// sentry 后端的构造选项，供 bootstrap.LogRegistry 显式注册：
+// Package contract 把契约后端声明项（bootstrapv1.Logger_Backend）的 sentry 段
+// 映射为 sentry 后端的构造选项，供 bootstrap.LogRegistry 显式注册：
 //
 //	reg := bootstrap.NewLogRegistry()
 //	reg.MustRegister(contract.Type, contract.Provider)
@@ -16,15 +16,15 @@ import (
 	sentry "github.com/kalandramo/bald/log/sentry"
 )
 
-// Type 是契约 logger.type 的注册名（小写约定）。
+// Type 是契约后端项 type 的注册名（小写约定）。
 const Type = "sentry"
 
 // Provider 按契约 sentry 段构造 Sentry 错误追踪日志后端。
 // 返回的 cleanup 冲刷事件队列（sentry.Flush）。
-func Provider(ctx context.Context, cfg *bootstrapv1.Logger) (log.Logger, func(), error) {
-	c := cfg.GetSentry()
+func Provider(ctx context.Context, b *bootstrapv1.Logger_Backend) (log.Logger, func(), error) {
+	c := b.GetSentry()
 	if c == nil {
-		return nil, nil, fmt.Errorf("log/sentry/contract: bootstrap.logger.sentry is nil")
+		return nil, nil, fmt.Errorf("log/sentry/contract: sentry segment is nil")
 	}
 	if c.GetDsn() == "" {
 		return nil, nil, fmt.Errorf("log/sentry/contract: dsn is required")
