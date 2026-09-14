@@ -63,17 +63,19 @@ bald/bconfig/                     module github.com/kalandramo/bald/bconfig
 ├── etcd/     原生 watch 推送     consul/   watch plan 推送
 ├── nacos/    ListenConfig 推送   apollo/   变更事件推送
 ├── kubernetes/ ConfigMap watch   vault/    30s 轮询模拟
-└── go.mod                        8 个后端 SDK，全部直依赖（无 indirect 传染）
+└── go.mod                        直依赖 9 条 = 6 个后端 SDK（k8s 生态占 3 条）+ fsnotify
 ```
 
-依赖纪律一条：**每个后端 SDK 关进自己的子包**。主程序只 import 用到的子包，apollo 的阿里云 SDK 链（几十个 indirect）就不会污染纯文件部署的二进制。根包自身零第三方依赖（仅标准库）。
+依赖纪律一条：**每个后端 SDK 关进自己的子包**。十个 provider 中七个引外部依赖（file/etcd/consul/nacos/apollo/kubernetes/vault），env/fs/http 纯标准库。主程序只 import 用到的子包，apollo 的阿里云 SDK 链（几十个 indirect）就不会污染纯文件部署的二进制。根包自身零第三方依赖（仅标准库）。
 
 ### 能力轴：小接口 + 类型断言发现
 
 ```go
 type Reader       interface{ Load(ctx, key) ([]byte, error) }        // 必需
 type Closer       interface{ Close() error }                          // 可选
+type ReadCloser   interface{ Reader; Closer }                         // 组合便利
 type Watcher      interface{ Watch(ctx, key) (<-chan struct{}, error) }      // 信号
+type ReadWatcher  interface{ Reader; Watcher }                        // 组合便利
 type ValueWatcher interface{ WatchValue(ctx, key) (<-chan []byte, error) }   // 推值
 type Decoder      interface{ Decode(data []byte, out any) error }    // 正交
 ```
@@ -98,7 +100,7 @@ all, _    := bconfig.NewFallbackReader(fileSrc, remote)     // 本地 > 远程�
 
 > 永远不要把「事件里带着的值」当真值，只把事件当作「该重算了」的触发器。
 
-工程细节三则（`fallback_test.go` 逐条固化）：先收集齐全部 sub channel 再起 goroutine，杜绝监听器启动失败时的协程泄漏；`NewFallbackReader()` 无参直接返回 error，不造「永远失败」的对象；输出 channel 缓冲为 1，慢消费者下的新值覆盖旧值（合并去重语义）。
+工程细节三则（`fallback_test.go` 逐条固化）：先收集齐全部 sub channel 再起 goroutine，杜绝监听器启动失败时的协程泄漏；`NewFallbackReader()` 无参直接返回 error，不造「永远失败」的对象；输出 channel 缓冲为 1 且发送为阻塞式——慢消费者下组合器背压而非丢值，事件依序送达；事件携带的推送值被丢弃，每次发送时重算当前生效值（合并去重语义）。
 
 **嵌套是抗组合爆炸的标准答案**：`FallbackReader` 自身实现 `Reader`（编译期断言钉死），因此可以塞进另一个 `FallbackReader` 表达任意优先级树——不为每种组合命名接口，而是让组合器自己实现接口。
 
@@ -109,17 +111,17 @@ all, _    := bconfig.NewFallbackReader(fileSrc, remote)     // 本地 > 远程�
 | `env` | `Load` | — | `New(opts...)` |
 | `fs` | `Load` | —（编译期资源，静态） | `New(fsys, opts...)` |
 | `file` | `Load`+`Close`+`ValueWatcher` | fsnotify watch **父目录**（编辑器原子 rename 不丢事件） | `New(opts...)` |
-| `http` | `Load`+`Close`+`ValueWatcher` | ETag 条件轮询（`If-None-Match`） | `New(opts...)` |
+| `http` | `Load`+`Close`+`ValueWatcher` | ETag 条件轮询（`If-None-Match`） | 双模式 |
 | `etcd` | `Load`+`Close`+`ValueWatcher` | 原生 watch 推送 | 双模式 |
-| `consul` | `Load`+`ValueWatcher` | watch plan 推送 | 双模式 |
+| `consul` | `Load`+`Close`+`ValueWatcher` | watch plan 推送 | 双模式 |
 | `nacos` | `Load`+`ValueWatcher` | ListenConfig 推送 | 双模式 |
 | `apollo` | `Load`+`ValueWatcher` | 变更事件推送 | 双模式 |
-| `kubernetes` | `Load`+`ValueWatcher` | ConfigMap watch 推送 | 双模式 |
+| `kubernetes` | `Load`+`ValueWatcher` | ConfigMap watch 推送 | `New(opts...)` 单模式 |
 | `vault` | `Load`+`ValueWatcher` | **30s 轮询模拟**（无原生推送） | 双模式 |
 
 两条横向纪律：
 
-1. **双模式构造**：`New(opts...)` 从连接参数自建 client（契约装配路径，etcd 惰性建连），`NewWithClient(c, opts...)` 注入既有连接（复用注册发现场景，本源不负责关闭）。自建与否用 `owned` 标记，`Close` 只释放自己建的——注入方保有生命周期主权。
+1. **双模式构造**：`New(opts...)` 从连接参数自建 client（契约装配路径，etcd/nacos 惰性建连），`NewWithClient(c, opts...)` 注入既有连接（复用注册发现场景，本源不负责关闭）。自建与否用 `owned` 标记，`Close` 只释放自己建的——注入方保有生命周期主权。两个例外：`kubernetes` 仅有 `New(opts...)`（不返回 error，clientset 由首次 Load/WatchValue 惰性初始化，无注入模式）；`consul` 的 `Close` 为空操作（consul api.Client 无可释放连接池，仅为 owned 语义完整）。
 2. **watch 能力分级诚实**：SDK 本就推送的（etcd/consul/nacos/apollo/kubernetes）直通推送；SDK 不支持的（vault/http）用轮询模拟而不是不实现——调用方拿到的是统一契约，不必关心底下是推送还是轮询。apollo 相比 go-wind 原版修正两点：`New` 连接失败返回 error 而非 panic；watcher 修复了注册后立即反注册的 bug。
 
 ### provider 编写纪律（新增源的五条 checklist）

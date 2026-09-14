@@ -329,6 +329,64 @@ func TestFallbackReader_WatchValue_ContextCancel(t *testing.T) {
 	}
 }
 
+// TestFallbackReader_WatchValue_SlowConsumer 固化输出通道的背压语义：
+// 缓冲 1 且阻塞发送——慢消费者期间事件不丢值、依序送达；事件携带的推送值
+// 被丢弃，每次发送的是处理时刻重算的生效值（最后一事件必见最终值，事件
+// 发生时的旧快照不会冒出）。
+func TestFallbackReader_WatchValue_SlowConsumer(t *testing.T) {
+	r := newSwapReader([]byte("v1"))
+	ch := make(chan []byte, 4)
+	w := &stubValueWatcher{ch: ch}
+	fb, _ := NewFallbackReader(&delegatingReader{r: r, vw: w})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	out, err := fb.WatchValue(ctx, "key")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 同步点：读走 t1 的重算值，确认转发 goroutine 已就绪。
+	r.set([]byte("v2"))
+	ch <- []byte("trigger1")
+	select {
+	case data := <-out:
+		if string(data) != "v2" {
+			t.Fatalf("expected recomputed value %q, got %q", "v2", data)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for first notification")
+	}
+
+	// 慢消费者段：停止读取，两个事件在缓冲内排队、由单协程串行处理。
+	// t2 重算时 r 为 v3 或 v4（取决于处理时机）；t3 重算时 r 必为 v4。
+	r.set([]byte("v3"))
+	ch <- []byte("trigger2")
+	r.set([]byte("v4"))
+	ch <- []byte("trigger3")
+
+	select {
+	case data := <-out:
+		// 事件携带值（trigger2）被丢弃，收到的是 Load 重算结果。
+		if s := string(data); s != "v3" && s != "v4" {
+			t.Fatalf("expected recomputed value %q or %q, got %q", "v3", "v4", s)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for second notification")
+	}
+
+	select {
+	case data := <-out:
+		// 末事件重算必得最终值 v4：背压不丢值，且无陈旧快照冒出。
+		if string(data) != "v4" {
+			t.Fatalf("expected final recomputed value %q, got %q", "v4", data)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for third notification")
+	}
+}
+
 // delegatingReader combines a [Reader] and a [ValueWatcher] for tests
 // where Load should delegate to a mutable reader.
 type delegatingReader struct {
