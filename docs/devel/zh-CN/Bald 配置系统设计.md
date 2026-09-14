@@ -4,7 +4,7 @@
 
 ### 1.1 定位
 
-`bconfig` 包定义的是 **配置源抽象层 + 组合器**，自身不含任何具体后端实现——后端分布在同级 9 个子包（file / env / fs / http / etcd / consul / nacos / apollo / kubernetes），每个子包按需引入自己的后端 SDK（不用的 provider 不进二进制）。
+`bconfig` 包定义的是 **配置源抽象层 + 组合器**，自身不含任何具体后端实现——后端分布在同级 10 个子包（file / env / fs / http / etcd / consul / nacos / apollo / kubernetes / vault），每个子包按需引入自己的后端 SDK（不用的 provider 不进二进制）。
 
 一图概括职责划分：
 
@@ -13,7 +13,7 @@
 │  能力轴（接口）  +  组合器（FallbackReader）        │
 └────────────────────────────────────────────────┘
         ↑ 实现                      ↑ 组装
-   9 个 provider              上层框架 / 业务
+   10 个 provider             上层框架 / 业务
 ```
 
 ### 1.2 能力轴与接口契约（`bconfig.go`）
@@ -56,14 +56,15 @@
 
 `fallback.go` 里 Load 按优先级取第一个成功源、Close 关所有可关闭子源、WatchValue 合并所有可推值子源的变更。
 
-它的能力由 `fallback_test.go` 逐条固化：
+它的能力由 `fallback_test.go` 逐条固化（测试名省略 `TestFallbackReader_` 前缀）：
 
 | 能力 | 语义 | 对应测试 |
 |---|---|---|
+| 构造即校验 | 零 reader 报错；单 reader 直通 | `NewFallbackReader_NoReaders` / `NewFallbackReader_OneReader` |
 | 多源按序降级 | 按传入顺序依次 `Load`，第一个「无 error 且 data 非 nil」者胜出 | `Load_FirstSucceeds` / `Load_FallbackToSecond` / `Load_SkipErrors` |
 | 失败聚合 | 全失败 → `errors.Join` 所有子错误；全返回 nil（无 error）→ 报 `no source could resolve key` | `Load_AllFail` / `Load_AllNil` |
 | 生命周期传递 | `Close()` 遍历子源，只关实现了 `Closer` 的，聚合错误 | `Close_AllClosers` / `Close_SkipsNonClosers` / `Close_JoinErrors` |
-| 多源 watch 合并 | 把所有实现了 `ValueWatcher` 的子源合并为**一个** channel | `WatchValue_*` |
+| 多源 watch 合并 | 把所有实现了 `ValueWatcher` 的子源合并为**一个** channel | `WatchValue_*`（Single / Multiple / WatchErr） |
 | 空能力显式报错 | 无子源实现 `ValueWatcher` → 明确报错，而非静默「永不触发」 | `WatchValue_NoWatchers` |
 | ctx 取消即关 channel | `cancel()` 后输出 channel 被 close | `WatchValue_ContextCancel` |
 
@@ -124,7 +125,7 @@
 
 只支持信号通知的后端无法直接被组合层监听——由 **provider 内部自行回读**（收到信号后调一次 `Load`，再以 `ValueWatcher` 形式暴露）。能力转换下沉到后端，框架只认一种契约。
 
-最终落地即方案：无需任何代码逻辑改动，仅修正以下几处注释：
+已落地（无代码逻辑改动，仅修正以下几处注释）：
 
 - `bconfig.go` 的 `Watcher`：声明能力边界——组合层只合并 `ValueWatcher`，不识别本接口；并给出指引「信号型后端请在 provider 内部 Load 回读后转推值」。
 - `bconfig.go` 的 `ReadWatcher`：补一句「组合层不识别本组合，仅作类型便利」。
@@ -154,10 +155,10 @@ all, _ := NewFallbackReader(fileSrc, remote)
 | 能力组合 | provider |
 |---|---|
 | `Load` + `WatchValue` | etcd / consul / nacos / apollo / kubernetes / vault（轮询） |
-| `Load` + `WatchValue` + `Close` | file、http、etcd（自建 client） |
+| `Load` + `WatchValue` + `Close` | file / http / etcd / consul（etcd 自建 client 才关；consul 为 owned 语义占位——api.Client 无可释放资源，Close 恒 nil） |
 | 仅 `Load` | env、fs |
 
-远程 provider（etcd/consul/nacos/apollo/kubernetes/vault，2026-09-05 补齐）统一 **双模式构造**：`New(opts...)` 从连接参数自建 client（契约装配路径，惰性或启动即连），`NewWithClient(c, opts...)` 注入已有 client（复用注册发现等场景的既有连接，本源不负责关闭）。watch 语义：etcd 原生 watch / consul watch plan / nacos ListenConfig / apollo 变更事件 / kubernetes ConfigMap watch 为**推送**；vault 无推送能力，以轮询模拟（与 http 的 ETag 轮询同型）。apollo 相比 go-wind 原版修正了两点：`New` 连接失败返回 error 而非 panic；watcher 修复了注册后立即反注册的 bug。
+双模式构造 `New(opts...)`（从连接参数自建 client，契约装配路径）+ `NewWithClient(c, opts...)`（注入已有 client 复用既有连接，本源不负责关闭）存在于 etcd / consul / nacos / apollo / vault / http（2026-09-05 补齐远程五家）；kubernetes 是例外——仅 `New`，kubeconfig / master URL 经 Option 注入（集群内 ServiceAccount 零配置直连）。watch 语义：etcd 原生 watch / consul watch plan / nacos ListenConfig / apollo 变更事件 / kubernetes ConfigMap watch 为**推送**；vault 无推送能力，以轮询模拟（与 http 的 ETag 轮询同型）。apollo 相比 go-wind 原版修正了两点：`New` 连接失败返回 error 而非 panic；watcher 修复了注册后立即反注册的 bug。
 
 > 契约瘦身记录（2026-09-05）：`bootstrapv1.Config` 砍掉无 provider 的死源 fs/redis/zookeeper/oss/polaris（字段号 reserved 防复用）。fs 源的 `fsys` 是编译期资源无法经契约表达（`bconfig/fs` 走代码 API）；其余按需实现时以新字段号追加。vault 同日实现（KV v1/v2 + 轮询 watch），恢复字段号 10（原契约从未发布，无历史数据风险），并砍掉原契约中无消费者的 `mount_path` 字段。**契约字段须全有消费者**：nacos 的 namespace/server_addrs、kubernetes 的 config_map_name/key（WithConfigMapName/WithDataKey 回填空 key 装配默认值）均在此原则下补齐实现。
 
@@ -171,7 +172,7 @@ all, _ := NewFallbackReader(fileSrc, remote)
 
 ```text
 bald/bconf/                       module github.com/kalandramo/bald/bconf
-├── go.mod / go.sum               仅依赖 google.golang.org/protobuf
+├── go.mod / go.sum               依赖 google.golang.org/protobuf + spf13/pflag（BindFlags 用）
 ├── buf.yaml                      buf v2 模块定义（path: proto）
 ├── buf.gen.yaml                  managed mode：go_package_prefix 决定生成路径
 ├── proto/bootstrap/v1/           框架级契约（15 个，package bootstrap.v1）
@@ -271,12 +272,12 @@ bconfig（源）  bootstrap（初始化）
 （读取能力）   （读契约 → 建 provider → 注册/装配）
 ```
 
-`bconf` 只定义「有什么配置」，不关心「怎么读」「怎么装配」。这与 1.x 的 `bconfig`（能力轴 + 9 个 provider 子包）形成契约/实现分离：契约是稳定的接口，provider 可独立演进。
+`bconf` 只定义「有什么配置」，不关心「怎么读」「怎么装配」。这与 1.x 的 `bconfig`（能力轴 + 10 个 provider 子包）形成契约/实现分离：契约是稳定的接口，provider 可独立演进。
 
 
 ## 3. 配置初始化
 
-配置初始化层负责把**契约**（`bconf` 的 `*v1.BootstrapConfig`）翻译成**可运行的配置源**（`bconfig` 的 `Reader`），并按优先级装配成 `FallbackReader`。它是「读契约 → 建源 → 注册/装配」的桥梁。
+配置初始化层负责把**契约**（`bconf` 的 `*v1.BootstrapConfig`）翻译成**可运行的配置源**（`bconfig` 的 `Reader`），并按优先级装配成命名层列表。它是「读契约 → 建源 → 注册/装配」的桥梁。
 
 本层的核心设计原则：**不用 `init()` + blank import 的隐式全局副作用**，使用显式 `Registry` + 工厂函数 `Provider`。
 
@@ -286,7 +287,7 @@ bconfig（源）  bootstrap（初始化）
 |---|---|---|---|
 | 契约 | `bconf` | 声明「应用长什么样」（proto 生成） | 谁都不依赖 |
 | 源 | `bconfig` + 子包 | 单后端的读取能力（`Reader`/`Watcher`/…） | 只依赖抽象层，不依赖契约 |
-| **初始化** | **`bootstrap`** | 读契约 → 建 provider → 按注册序装配成 `FallbackReader` | 依赖 `bconf`（契约）+ `bconfig/*`（源） |
+| **初始化** | **`bootstrap`** | 读契约 → 建 provider → 按注册序装配成命名层列表 | 依赖 `bconf`（契约）+ `bconfig/*`（源） |
 
 依赖方向反转保持干净：`bootstrap → bconf`、`bootstrap → bconfig/*`，而 `bconfig/* → 零契约依赖`。源层（file/env/…）保持「只读字节的纯实现」，不认识 protobuf 契约——契约字段到 provider `Option` 的翻译职责全部收口在 `bootstrap`。
 
@@ -297,7 +298,7 @@ bconfig（源）  bootstrap（初始化）
 这种「全局 map + init 副作用」模式有三个真实代价，与 bald 既有哲学冲突：
 
 1. **依赖不透明**：`import _ "x/apollo"` 读代码看不出 apollo 被装配了，IDE/重构工具也跳不到、追不到。
-2. **装配顺序失控**：多个 provider 的 `init()` 执行序由 Go 导入图决定，无法表达「先 file 后 etcd」这种级联优先级（而级联优先级恰恰是 `FallbackReader` 的语义核心）。
+2. **装配顺序失控**：多个 provider 的 `init()` 执行序由 Go 导入图决定，无法表达「先 file 后 etcd」这种优先级叠加（而层优先级恰恰是装配语义的核心）。
 3. **与 appkit 体系冲突**：bald 已有 `Provides/Requires/Resolve`（capability.go 的显式能力声明）、`Registry.Mount/Unmount`（mount.go 的显式运行期装配）、`Component` 五阶段生命周期（component.go 的显式生命周期）——全是**显式装配**哲学。再造一个全局 `map[string]ConfigAction` + `init()`，是在显式体系里塞一个隐式全局态的异类。
 
 取舍判定：便利（少写几行 import）换不来确定性的依赖图与可重构性，不划算。
@@ -307,25 +308,27 @@ bconfig（源）  bootstrap（初始化）
 ```text
 bald/bootstrap/                  module github.com/kalandramo/bald/bootstrap
 ├── go.mod                       依赖 bconf（契约）+ bconfig（源）+ 各 provider 子包
+├── config/                      Store 内核（Layer 定义、层合并、热更新转发）
 ├── registry.go                  Registry + Provider 类型 + Register/MustRegister
-├── build.go                     Build：按注册序装配成 FallbackReader（逆序回滚）
-├── env.go                       EnvProvider：契约 Env 字段 → bconfig/env 的 Option
-├── file.go                      FileProvider：契约 File 字段 → bconfig/file 的 Option
-├── registry_test.go / providers_test.go
-└── ...（etcd.go / nacos.go / consul.go / ... 按需补）
+├── build.go                     Build：按注册序装配成层列表（失败回滚）
+├── env.go / file.go / etcd.go / consul.go / nacos.go
+├── apollo.go / kubernetes.go / vault.go / http.go   ← 9 个契约适配器全部落地
+├── log.go / server.go           日志与服务器装配（另两个 Registry，超出本文范围）
+└── registry_test.go / providers_test.go / providers_remote_test.go
 ```
 
-> 状态：**已落地**（2026-09-05）。env / file 两个适配器已实现并通过全部测试（Registry 机制 9 项 + 真适配器与端到端装配 5 项）；其余后端按需追加。
+> 状态：**全部落地**。9 个契约适配器（env / file / etcd / consul / nacos / apollo / kubernetes / vault / http）+ Registry / Build + `bootstrap/config` Store 内核均已实现（fs 走代码 API，无契约适配器，见 §1.6 瘦身记录）；远程 provider 的构造参数校验与装配由 `providers_remote_test.go` 覆盖。
 
 ### 3.4 核心类型：`Provider` 与 `Registry`
 
 ```go
 // Provider 是配置源工厂：从契约顶层结构读一个子配置，
-// 构造并返回一个 bconfig.Reader。返回值为 (reader, cleanup, error)：
-//   - reader 为 nil 表示「该源未在契约中配置」，Build 阶段跳过（非错误）；
-//   - cleanup 为释放 provider 资源的函数（可 nil，如 env 无资源）；
+// 构造并返回一个命名配置层。返回值为 (layer, cleanup, error)：
+//   - layer 为 nil 表示「该源未在契约中配置」，Build 阶段跳过（非错误）；
+//   - cleanup 释放 provider 持有的资源（含 reader 本身，Store 不重复关闭），
+//     可为 nil（如 env 无资源）；
 //   - 出错返回 error，Build 短路并回滚已构造的源。
-type Provider func(ctx context.Context, cfg *bootstrapv1.BootstrapConfig) (bconfig.Reader, func(), error)
+type Provider func(ctx context.Context, cfg *bootstrapv1.BootstrapConfig) (*config.Layer, func(), error)
 
 type Registry struct {
     mu        sync.RWMutex
@@ -344,30 +347,16 @@ func (r *Registry) MustRegister(name string, p Provider) { ... }
 
 与 `ConfigAction`（返回无参 `func()` 清理闭包）的关键差异：
 
-- 本设计的 `Provider` 返回可见的 `bconfig.Reader`，`Build` 把它喂给 `FallbackReader`；每次调用构造一个新实例（多实例可行）；`cleanup` 语义清晰（file 的 `cleanup` 即 `src.Close()`），与 `bconfig.Closer` 对齐。
+- 本设计的 `Provider` 返回可见的 `*config.Layer`（Reader + Format + Watch），`Build` 按注册序聚合成层列表（§3.7）；每次调用构造一个新实例（多实例可行）；`cleanup` 语义清晰（file 的 `cleanup` 即 `src.Close()`），与 `bconfig.Closer` 对齐。
 
 ### 3.5 适配器：契约字段 → provider Option（放 bootstrap 内部）
 
 适配器示例（file）：
 
 ```go
-// bald/bootstrap/file.go
-package bootstrap
-
-import (
-    "fmt"
-
-    bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
-    "github.com/kalandramo/bald/bconfig"
-    "github.com/kalandramo/bald/bconfig/file"
-)
-
-// FileProvider 是 file 配置源的初始化器。
-// 它知道「契约里 Config.GetFile() 返回什么字段」+「file.New 接受什么 Option」，
-// 因此 bconfig/file 包无需 import bconf，保持源层零契约依赖。
-// 契约 File.format 字段（json/yaml/toml）属于 Decoder 职责（源层只吐原始字节，见 §1.2.1），此处忽略。
+// bald/bootstrap/file.go（节选）
 func FileProvider() Provider {
-    return func(ctx context.Context, cfg *bootstrapv1.BootstrapConfig) (bconfig.Reader, func(), error) {
+    return func(ctx context.Context, cfg *bootstrapv1.BootstrapConfig) (*config.Layer, func(), error) {
         c := cfg.GetConfig().GetFile()   // 源配置在顶层 config 字段下
         if c == nil {
             return nil, nil, nil // 未配置 file 源，跳过
@@ -386,17 +375,27 @@ func FileProvider() Provider {
         if err != nil {
             return nil, nil, fmt.Errorf("bootstrap: build file source: %w", err)
         }
-        return src, func() { _ = src.Close() }, nil
+        format := c.GetFormat()
+        if format == "" {
+            format = config.FormatOf(c.GetPath()) // 契约未声明时按扩展名推断
+        }
+        return &config.Layer{
+            Reader: src,
+            Format: format,
+            Watch:  c.GetWatch(),
+        }, func() { _ = src.Close() }, nil
     }
 }
 ```
 
+> 层职责（§3.7）：`Format` 契约字段优先、扩展名推断兜底，仍为空则由 Store 回退按 yaml 解析——源层只吐原始字节（§1.2.1），格式选择归装配层/Store，解码归 Decoder。
+
 env 适配器同理：
 
 ```go
-// bald/bootstrap/env.go
+// bald/bootstrap/env.go（节选）
 func EnvProvider() Provider {
-    return func(_ context.Context, cfg *bootstrapv1.BootstrapConfig) (bconfig.Reader, func(), error) {
+    return func(_ context.Context, cfg *bootstrapv1.BootstrapConfig) (*config.Layer, func(), error) {
         c := cfg.GetConfig().GetEnv()    // 源配置在顶层 config 字段下
         if c == nil {
             return nil, nil, nil
@@ -412,16 +411,18 @@ func EnvProvider() Provider {
         if err != nil {
             return nil, nil, fmt.Errorf("bootstrap: build env source: %w", err)
         }
-        return src, nil, nil // env 无资源需释放
+        return &config.Layer{Reader: src}, nil, nil // 静态层：无 watch、无资源需释放
     }
 }
 ```
+
+> env 是「单变量装整份文档」的整文档层（变量值须为 yaml/json 文档），无 watch 能力故层为静态；契约 Env 的 `separator` 字段暂无对应 provider Option（env 源只按整变量名读取），留给上层 Decoder/key 归一化。
 
 **为什么适配器不放 provider 子包**：若放进 `bconfig/file`，`file` 包就要 `import bconf`，「只读文件系统的配置源」被迫依赖 protobuf 契约——分层崩塌。翻译职责归 `bootstrap`（它本就是「读契约→建源」层），依赖方向保持 `bootstrap → bconf` / `bootstrap → bconfig/*`，源层纯净。
 
 ### 3.6 层优先级 = 注册序
 
-`order` 切片即层优先级：**先注册的源优先级高**（排在 `[]config.Layer` 列表首位）。这与 `config.Store` 的层合并约定一致——层列表从尾向头叠加（低→高），列表首元素最后合并、覆盖其余层。
+`order` 切片即层优先级：**先注册的源优先级高**（排在 `[]config.Layer` 列表首位）。这与 `bootstrap/config` 子包 `Store`（桥接 kratos config 体系）的层合并约定一致——层列表从尾向头叠加（低→高），列表首元素最后合并、覆盖其余层。
 
 选注册序而非给 `Provider` 加 `Priority int` 字段的理由：注册序已能表达全部场景（主程序按想要的顺序 `MustRegister` 即可），引入 `Priority` 字段只会在「同优先级又需排第二序」时再加一层规则，徒增复杂度。
 
@@ -431,8 +432,6 @@ func EnvProvider() Provider {
 
 ```go
 // bald/bootstrap/build.go
-type Provider func(ctx context.Context, cfg *bootstrapv1.BootstrapConfig) (*config.Layer, func(), error)
-
 func (r *Registry) Build(ctx context.Context, cfg *bootstrapv1.BootstrapConfig) ([]config.Layer, func(), error) {
     if cfg == nil {
         return nil, nil, errors.New("bootstrap: config is nil")

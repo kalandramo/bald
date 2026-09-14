@@ -4,7 +4,8 @@
 
 - [应用框架设计](./应用框架设计.md)：AppKit 生命周期（五阶段停机）、Server/Registrar/Component 契约、效应账本/能力声明/运行期挂载。
 - [配置中心设计](./配置中心设计.md)：配置四源优先级、proto 配置契约层（`pkg/options` 已废弃）。
-- [Bald 配置系统设计](./Bald%20配置系统设计.md)：配置源抽象（Reader/ValueWatcher/FallbackReader + 9 provider）、proto 配置契约（为什么用 proto、契约形状、UnmarshalMap 桥接坑位）、bootstrap 装配（Registry/层优先级/Build 回滚）。
+- [Bald 配置系统设计](./Bald%20配置系统设计.md)：配置系统全景——源抽象（Reader/ValueWatcher/FallbackReader + 10 provider）、proto 配置契约、bootstrap 装配（Registry/层优先级/Build 回滚）；源层与契约层的深展开见各自专属篇。
+- [Bald 配置源层设计](./Bald%20配置源层设计.md)：bconfig module 专属展开——字节进字节出的源层抽象（Reader/ValueWatcher/Decoder 能力轴 + 类型断言发现）、FallbackReader 级联回退与重算语义（事件值不可信）、10 个 provider 矩阵（双模式构造/推送与轮询分级/watch 父目录）、编写纪律 checklist。
 - [Bald 配置契约设计](./Bald%20配置契约设计.md)：bconf module 专属展开——17 proto 契约布局、四 API（NewBootstrap 默认值/UnmarshalMap 合并桥接/Validate 形状校验/BindFlags 描述符 flag 绑定）、coerce 类型缓冲层、三坑防御（Duration/repeated/presence）、契约演进 v0.1.0→v0.5.0（含 v0.5.0 唯一化瘦身）。
 - [服务端设计](./服务端设计.md)：HTTP / gRPC / Gateway Server 抽象与端口模型。
 - [服务注册设计](./服务注册设计.md)：registry.Registrar 抽象、内存实现与 kratos 桥接。

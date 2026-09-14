@@ -334,4 +334,4 @@ logger:
 
 ### 关联文档
 
-`AppKit 日志装配设计.md`（AppKit 侧两级工厂与 deco 分级——本文装配策略的展开篇）、`Bald 配置系统设计.md`（四源配置）、`应用框架设计.md`（AppKit 生命周期）、`AppKit FromBootstrap 约定装配.md`（装配全景）、`指标抽象设计.md`（可观测性闭环）。
+`AppKit 日志装配设计.md`（AppKit 侧两级工厂与 deco 分级——本文装配策略的展开篇）、`Bald 配置源层设计.md`（配置源层：能力轴与 provider）、`应用框架设计.md`（AppKit 生命周期）、`AppKit FromBootstrap 约定装配.md`（装配全景）、`指标抽象设计.md`（可观测性闭环）。

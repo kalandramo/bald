@@ -4,7 +4,7 @@
 >
 > Last updated: 2026-09-14
 >
-> Discussion at: `Bald 配置系统设计.md` §2（本文的前身与收编来源）、`Bald 日志设计.md`（logger 域契约的演进篇）
+> Discussion at: `Bald 配置源层设计.md`（兄弟篇：源层专属展开，本文 §2 内容的前身与收编来源）、`Bald 日志设计.md`（logger 域契约的演进篇）
 >
 > Status: Accepted（已实现，随 bald bconf v0.5.0 发布）
 
@@ -35,7 +35,7 @@
 flowchart TB
     BCONF["bconf · 契约层【独立 module，依赖仅 protobuf + pflag】<br/>proto 声明形状 + NewBootstrap/UnmarshalMap/Validate/BindFlags"]
 
-    BCONFIG["bconfig · 配置源层【9 个 provider 子包】<br/>Reader/Watcher/Decoder 能力轴 + FallbackReader 组合"]
+    BCONFIG["bconfig · 配置源层【10 个 provider 子包】<br/>Reader/Watcher/Decoder 能力轴 + FallbackReader 组合"]
 
     BOOT["bootstrap · 装配层<br/>读契约 → 建 provider → 优先级装配 → 组件构造"]
 
@@ -225,9 +225,9 @@ NOP 枚举加了又删是诚实的记录：v0.2.x 为「契约层可声明静默
 
 ## 附录
 
-### 与《Bald 配置系统设计.md》的分工
+### 与《Bald 配置源层设计.md》的分工
 
-那篇是配置系统**全景**（源层 bconfig + 契约层 bconf + 初始化层三合一），本文是契约层的**专属展开**。演进决策与实现细节以本文为准，全景篇 §2 保持定位摘要不重复展开——与《Bald 日志设计.md》/《AppKit 日志装配设计.md》的分篇模式一致。
+那篇是**源层的专属展开**（配置从哪读、怎么组合、怎么感知变更——能力轴、FallbackReader、10 个 provider），本文是**契约层的专属展开**（形状怎么声明、map 怎么桥接、怎么校验）。两篇在「源吐字节 → `UnmarshalMap` 类型化」的桥接点交接；系统全景（含装配层）见《Bald 配置系统设计.md》——与《Bald 日志设计.md》/《AppKit 日志装配设计.md》的分篇模式一致。
 
 ### 域级契约为什么住在 bconf
 
@@ -243,4 +243,4 @@ NOP 枚举加了又删是诚实的记录：v0.2.x 为「契约层可声明静默
 
 ### 关联文档
 
-`Bald 配置系统设计.md`（配置全景：源层能力轴 + 初始化装配）、`Bald 日志设计.md`（logger 域契约的主要消费者与演进驱动方）、`AppKit 日志装配设计.md`（装配策略）、`应用框架设计.md`（AppKit 生命周期）。
+`Bald 配置源层设计.md`（源层专属：能力轴 + FallbackReader + 10 provider）、`Bald 配置系统设计.md`（系统全景与装配层）、`Bald 日志设计.md`（logger 域契约的主要消费者与演进驱动方）、`AppKit 日志装配设计.md`（装配策略）、`应用框架设计.md`（AppKit 生命周期）。

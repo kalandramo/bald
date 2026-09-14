@@ -26,7 +26,7 @@
 //	配置文件 http.addr 三者键路径一致。
 //
 //	配置契约推荐用 Protobuf：bconf.UnmarshalMap(app.Settings(), bconf.NewBootstrap())，
-//	详见 docs/devel/zh-CN/Bald 配置系统设计.md §2。
+//	详见 docs/devel/zh-CN/Bald 配置契约设计.md。
 //
 //	注意：onexstack 原 AddConfigFlag 仅支持本地文件 + 环境变量，并不支持远程配置中心；
 //	bald 在同样风格上补齐了 RemoteSource 抽象与统一热更新钩子。
