@@ -5,6 +5,7 @@
 - [应用框架设计](./应用框架设计.md)：AppKit 生命周期（五阶段停机）、Server/Registrar/Component 契约、效应账本/能力声明/运行期挂载。
 - [配置中心设计](./配置中心设计.md)：配置四源优先级、proto 配置契约层（`pkg/options` 已废弃）。
 - [Bald 配置系统设计](./Bald%20配置系统设计.md)：配置源抽象（Reader/ValueWatcher/FallbackReader + 9 provider）、proto 配置契约（为什么用 proto、契约形状、UnmarshalMap 桥接坑位）、bootstrap 装配（Registry/层优先级/Build 回滚）。
+- [Bald 配置契约设计](./Bald%20配置契约设计.md)：bconf module 专属展开——17 proto 契约布局、四 API（NewBootstrap 默认值/UnmarshalMap 合并桥接/Validate 形状校验/BindFlags 描述符 flag 绑定）、coerce 类型缓冲层、三坑防御（Duration/repeated/presence）、契约演进 v0.1.0→v0.5.0（含 v0.5.0 唯一化瘦身）。
 - [服务端设计](./服务端设计.md)：HTTP / gRPC / Gateway Server 抽象与端口模型。
 - [服务注册设计](./服务注册设计.md)：registry.Registrar 抽象、内存实现与 kratos 桥接。
 - [Bald 日志设计](./Bald%20日志设计.md)：log 契约（6 方法接口/全局句柄/nop 默认/ctx 属性流/MultiLogger）、bslog 适配器（多输出/lumberjack 轮转/脱敏/OTel 桥接）、五远端后端独立 module + contract 模式、装配层（两级工厂/默认纯函数 + 教学报错/两阶段/热更新）、`logger.backends` 多后端广播；附录含 gookit/slog 评估决策与桥接适配器预留（并入自原《日志平面接口设计》）。

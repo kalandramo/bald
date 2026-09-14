@@ -32,7 +32,7 @@ const (
 //	cfg := bconf.NewBootstrap()              // 先填默认值
 //	if err := bconf.UnmarshalMap(settings, cfg); err != nil { ... }
 //
-// 加载器（viper/config module、bconfig KV 源、测试桩）只需先合并出 map 即可。
+// 加载器（bootstrap/config 的层合并、bconfig KV 源、测试桩）只需先合并出 map 即可。
 //
 // 语义是「合并」而非「替换」：msg 中未被配置覆盖的字段保留原值（通常是
 // bconf.NewBootstrap() 填入的默认值）。其中 repeated 字段表现为「替换」

@@ -18,8 +18,13 @@ import (
 // prefix 是配置键前缀（不带末尾点，如 "http"），最终 flag 名为 --http.addr、
 // 嵌套 message 递归为 --http.tls.enabled。支持标量（string/bool/int32/int64/
 // uint32/uint64/float/double）、duration（proto Duration → 形如 "10s" 的字符串）
-// 与嵌套 message（递归）。repeated/map/enum 等暂不支持自动绑定，需业务自行处理。
-// 生成的 flag 与 viper 的键路径一致，从而接入 config.Load 的 override 层
+// 与嵌套 message（递归）。
+//
+// repeated/map 字段注册为隐藏的「指引 flag」：不传则零感知（--help 不出现），
+// 误传时 Set 返回带指引的错误（怎么改配置）而非 unknown flag（只说不行）。
+// 业务自定义 binder 注册同名 flag 时指引 flag 让位。enum 字段当前契约树
+// 上不可达（type 类字段均为 string），暂不处理。
+// 生成的 flag 与配置装载的键路径一致，从而接入 config.Load 的 override 层
 // （flag > env > 文件 > 远程）。
 func BindFlags(fs *pflag.FlagSet, msg proto.Message, prefix string) {
 	bindMessageFlags(fs, msg.ProtoReflect(), prefix)
@@ -36,6 +41,12 @@ func bindMessageFlags(fs *pflag.FlagSet, m protoreflect.Message, prefix string) 
 		fd := fields.Get(i)
 		key := full + string(fd.Name())
 		switch {
+		case fd.IsList() || fd.IsMap():
+			// repeated / map 暂不支持自动绑定：注册指引 flag（隐藏、误用时报
+			// 「怎么办」）。必须在 MessageKind 判断之前——map 与 repeated
+			// message 的 Kind() 均为 MessageKind，落在后面会被静默跳过。
+			bindGuideFlag(fs, fd, key)
+			continue
 		case fd.Kind() == protoreflect.MessageKind:
 			// 嵌套 message 递归（如 server.http）。Duration 单独处理为 string flag。
 			if fd.Message().FullName() == "google.protobuf.Duration" {
@@ -54,9 +65,6 @@ func bindMessageFlags(fs *pflag.FlagSet, m protoreflect.Message, prefix string) 
 			if msg, ok := sub.Interface().(protoreflect.Message); ok {
 				bindMessageFlags(fs, msg, key)
 			}
-		case fd.IsList() || fd.IsMap():
-			// repeated / map 暂不支持自动绑定，跳过（业务可用自定义 binder）。
-			continue
 		default:
 			bindScalarFlag(fs, m, fd, key)
 		}
@@ -99,6 +107,35 @@ func bindDurationFlag(fs *pflag.FlagSet, m protoreflect.Message, fd protoreflect
 		}
 	}
 }
+
+// bindGuideFlag 为暂不支持自动绑定的字段（repeated/map）注册「指引 flag」：
+// flag 名照常注册（pflag 解析不再报 unknown），但 Set 恒返回带指引的错误——
+// 用户误以为可用时得到「怎么办」而不只是「不行」。MarkHidden 保证 --help
+// 与 flag 列表零噪音；不传则零感知。业务已注册同名 flag（自定义 binder）时
+// 让位，避免 "flag redefined" panic。
+func bindGuideFlag(fs *pflag.FlagSet, fd protoreflect.FieldDescriptor, key string) {
+	if fs.Lookup(key) != nil {
+		return // 自定义 binder 优先
+	}
+	kind := "repeated"
+	if fd.IsMap() {
+		kind = "map"
+	}
+	fs.Var(&guideSetter{key: key, kind: kind}, key, usageOf(fd))
+	_ = fs.MarkHidden(key)
+}
+
+// guideSetter 是指引 flag 的值写入器：任何 Set 都失败并给出路。
+type guideSetter struct {
+	key  string
+	kind string
+}
+
+func (s *guideSetter) Set(string) error {
+	return fmt.Errorf("%s is a %s field, not flag-bindable; set it via config file or env, or register a custom flag binder", s.key, s.kind)
+}
+func (s *guideSetter) Type() string   { return "unsupported" }
+func (s *guideSetter) String() string { return "" }
 
 type bindDurationSetter struct {
 	m  protoreflect.Message

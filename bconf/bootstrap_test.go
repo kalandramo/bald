@@ -268,3 +268,74 @@ func TestValidateLoggerFilterKeys(t *testing.T) {
 		t.Fatalf("filter_keys 装载 = %v", got)
 	}
 }
+
+// TestValidateLoggerBackendSections 五种非 slog 后端段的形状校验：合法配置
+// 通过（凭证留空走 SDK env 凭证链是合法路径，不应被校验挡下），漏配连接
+// 目标与越域取值 fail-fast 且错误带 backends[i].<seg> 定位。
+func TestValidateLoggerBackendSections(t *testing.T) {
+	// 合法：五后端各一项，凭证全部留空。
+	cfg := NewBootstrap()
+	cfg.GetLogger().Backends = []*bootstrapv1.Logger_Backend{
+		{Type: "charm", Charm: &bootstrapv1.Logger_Charm{Level: "debug", Format: "json"}},
+		{Type: "loki", Loki: &bootstrapv1.Logger_Loki{Endpoint: "http://loki:3100/loki/api/v1/push", BatchSize: 100, FlushInterval: 5000}},
+		{Type: "sentry", Sentry: &bootstrapv1.Logger_Sentry{Dsn: "https://k@o.ingest.sentry.io/1"}},
+		{Type: "aliyun", Aliyun: &bootstrapv1.Logger_Aliyun{Endpoint: "cn-hangzhou.log.aliyuncs.com", Project: "proj", Logstore: "store"}},
+		{Type: "tencent", Tencent: &bootstrapv1.Logger_Tencent{Endpoint: "cls.ap-guangzhou.myqcloud.com", TopicId: "topic-1"}},
+	}
+	if err := Validate(cfg); err != nil {
+		t.Fatalf("五后端合法配置（凭证走 env 链）应通过: %v", err)
+	}
+
+	cases := []struct {
+		name string
+		b    *bootstrapv1.Logger_Backend
+		want string
+	}{
+		{
+			"charm level 越域（fatal 会静默落 info）",
+			&bootstrapv1.Logger_Backend{Type: "charm", Charm: &bootstrapv1.Logger_Charm{Level: "fatal"}},
+			"backends[0].charm.level",
+		},
+		{
+			"charm format 越域（console 会静默落 text）",
+			&bootstrapv1.Logger_Backend{Type: "charm", Charm: &bootstrapv1.Logger_Charm{Format: "console"}},
+			"backends[0].charm.format",
+		},
+		{
+			"loki endpoint 漏配",
+			&bootstrapv1.Logger_Backend{Type: "loki", Loki: &bootstrapv1.Logger_Loki{}},
+			"backends[0].loki.endpoint",
+		},
+		{
+			"loki batch_size 负数（会静默用默认）",
+			&bootstrapv1.Logger_Backend{Type: "loki", Loki: &bootstrapv1.Logger_Loki{Endpoint: "http://loki:3100", BatchSize: -1}},
+			"backends[0].loki.batch_size",
+		},
+		{
+			"sentry dsn 漏配",
+			&bootstrapv1.Logger_Backend{Type: "sentry", Sentry: &bootstrapv1.Logger_Sentry{}},
+			"backends[0].sentry.dsn",
+		},
+		{
+			"aliyun project 漏配（会静默发往占位默认）",
+			&bootstrapv1.Logger_Backend{Type: "aliyun", Aliyun: &bootstrapv1.Logger_Aliyun{Endpoint: "cn-hangzhou.log.aliyuncs.com"}},
+			"backends[0].aliyun.project",
+		},
+		{
+			"tencent topic_id 漏配",
+			&bootstrapv1.Logger_Backend{Type: "tencent", Tencent: &bootstrapv1.Logger_Tencent{Endpoint: "cls.ap-guangzhou.myqcloud.com"}},
+			"backends[0].tencent.topic_id",
+		},
+	}
+	for _, tc := range cases {
+		cfg := NewBootstrap()
+		cfg.GetLogger().Backends = []*bootstrapv1.Logger_Backend{tc.b}
+		err := Validate(cfg)
+		if err == nil {
+			t.Fatalf("%s: 期望 fail-fast", tc.name)
+		}
+		if !strings.Contains(err.Error(), tc.want) {
+			t.Fatalf("%s: 错误 %v 应含 %q 定位", tc.name, err, tc.want)
+		}
+	}
+}
