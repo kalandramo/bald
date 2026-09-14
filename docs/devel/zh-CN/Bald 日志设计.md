@@ -10,7 +10,7 @@
 
 ## 摘要
 
-`bald/log` 为整个框架提供**唯一的日志抽象**：6 方法的 `Logger` 接口、并发安全的全局句柄、零成本的 nop 默认。契约层零第三方依赖；标准库 `log/slog` 适配器（`log/bslog` 子包，包名 `bslog`）开箱即用；五个远端/终端后端（loki / aliyun / tencent / sentry / charm）各自独立成 module，经 `contract` 子包接入契约装配；契约只有一个多值配置项 `logger.backends`——多项即多后端广播（本地 + 远程双写），单项即单后端。本文回答三个问题：为什么契约这么瘦、为什么后端独立成 module、为什么装配保持显式注册（反 init 纪律）而默认路径零依赖零代码。最重要的承诺：**框架核心永远不 import 任何具体日志库，新后端接入对框架零改动、不进默认依赖树。**
+`bald/log` 为整个框架提供**唯一的日志抽象**：6 方法的 `Logger` 接口、并发安全的全局句柄、零成本的 nop 默认。契约层根包源码零第三方依赖（bslog 子包的 pflag/lumberjack/errgroup 收敛在 module 内，不进契约使用方依赖树）；标准库 `log/slog` 适配器（`log/bslog` 子包，包名 `bslog`）开箱即用；五个远端/终端后端（loki / aliyun / tencent / sentry / charm）各自独立成 module，经 `contract` 子包接入契约装配；契约只有一个多值配置项 `logger.backends`——多项即多后端广播（本地 + 远程双写），单项即单后端。本文回答三个问题：为什么契约这么瘦、为什么后端独立成 module、为什么装配保持显式注册（反 init 纪律）而默认路径零依赖零代码。最重要的承诺：**框架核心永远不 import 任何具体日志库，新后端接入对框架零改动、不进默认依赖树。**
 
 > 本文是按当前代码（v0.5.0）整理的设计文档。
 
@@ -33,14 +33,14 @@ flowchart TB
     end
 
     subgraph BACKEND["log/{loki, aliyun, tencent, sentry, charm} · 后端层【各自独立 module】"]
-        BK["根包直连各家 SDK，零契约依赖<br/>contract/ 子包：Type + Provider(ctx, *Logger_Backend)<br/>（经用户 MustRegister 接入装配）"]
+        BK["根包直连各家 SDK，零 bconf 依赖<br/>contract/ 子包：Type + Provider(ctx, *Logger_Backend)<br/>（经用户 MustRegister 接入装配）"]
     end
 
     subgraph ADAPT["log/bslog · 适配器层【log module 子包，包名 bslog】"]
         BS["slog 后端 + Options/--log.* flags<br/>+ FilterKey 脱敏 + lumberjack 轮转"]
     end
 
-    subgraph CORE["log · 契约层【零三方依赖，独立 module】"]
+    subgraph CORE["log · 契约层【根包源码零三方依赖，独立 module】"]
         LC["6 方法 Logger 接口 + 全局句柄 + nop 默认<br/>+ ctx 属性流 + MultiLogger + 包级便捷函数"]
     end
 
@@ -129,7 +129,7 @@ OTel 桥接刻意零依赖：核心不 import otel，`WithOTelHandler` 只是 `W
 
 ### 远端/终端后端 ×5 与 contract 子包模式
 
-`log/{loki,aliyun,tencent,sentry,charm}` 各自独立 module，统一两包模式——根包直连 SDK 零契约依赖；`contract/` 子包是唯一 import bconf 处，导出 `Type` 常量 + `Provider(ctx, *bootstrapv1.Logger_Backend) (log.Logger, func(), error)`（吃后端声明项，多后端合并由装配层负责，provider 恒见单后端视图）。
+`log/{loki,aliyun,tencent,sentry,charm}` 各自独立 module，统一两包模式——根包直连 SDK 零 bconf 依赖（只实现 Logger 契约，不感知配置形状）；`contract/` 子包是唯一 import bconf 处，导出 `Type` 常量 + `Provider(ctx, *bootstrapv1.Logger_Backend) (log.Logger, func(), error)`（吃后端声明项，多后端合并由装配层负责，provider 恒见单后端视图）。
 
 | 后端 | 定位 | 关键语义 |
 | --- | --- | --- |
@@ -207,7 +207,7 @@ logger:
           compress: true
 ```
 
-切远端 Loki：`backends` 换 loki 项 + 三行注册（同仓可运行示例见 `_example/bald`）：
+切远端 Loki：`backends` 换 loki 项 + 三行注册（注册写法与 yaml 示例见 `_example/bald/configs/bald-demo.yaml` 内注释及《日志后端启用指南》）：
 
 ```go
 reg := baldbootstrap.NewLogRegistry()

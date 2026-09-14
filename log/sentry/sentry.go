@@ -24,8 +24,8 @@ type Logger interface {
 // sentryLog 是基于 Sentry SDK 的日志适配器。
 //
 // Sentry 是业界领先的错误追踪和日志聚合平台。本适配器将日志事件
-// 通过 Sentry SDK 发送到 Sentry 平台，Error 和 Warn 级别会作为
-// issue 上报，Debug 和 Info 级别作为 breadcrumb 记录。
+// 通过 Sentry SDK 发送到 Sentry 平台，Error 级别作为事件上报
+//（带堆栈），其余级别（Warn/Info/Debug）作为 breadcrumb 记录。
 //
 // Example:
 //
