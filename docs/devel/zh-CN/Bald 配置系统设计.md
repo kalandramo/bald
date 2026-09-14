@@ -64,7 +64,7 @@
 | 多源按序降级 | 按传入顺序依次 `Load`，第一个「无 error 且 data 非 nil」者胜出 | `Load_FirstSucceeds` / `Load_FallbackToSecond` / `Load_SkipErrors` |
 | 失败聚合 | 全失败 → `errors.Join` 所有子错误；全返回 nil（无 error）→ 报 `no source could resolve key` | `Load_AllFail` / `Load_AllNil` |
 | 生命周期传递 | `Close()` 遍历子源，只关实现了 `Closer` 的，聚合错误 | `Close_AllClosers` / `Close_SkipsNonClosers` / `Close_JoinErrors` |
-| 多源 watch 合并 | 把所有实现了 `ValueWatcher` 的子源合并为**一个** channel | `WatchValue_*`（Single / Multiple / WatchErr） |
+| 多源 watch 合并 | 把所有实现了 `ValueWatcher` 的子源合并为**一个** channel | `WatchValue_*`（SingleWatcher / Multiple / WatchErr / SlowConsumer） |
 | 空能力显式报错 | 无子源实现 `ValueWatcher` → 明确报错，而非静默「永不触发」 | `WatchValue_NoWatchers` |
 | ctx 取消即关 channel | `cancel()` 后输出 channel 被 close | `WatchValue_ContextCancel` |
 
@@ -84,7 +84,7 @@
 
 - **防 goroutine 泄漏**：先收集齐所有 sub channel 再起 goroutine（`fallback.go` 注释明写），中途某个 `WatchValue` 失败即整体返回错误。
 - **构造即校验**：`NewFallbackReader()` 无参返回 error，而不是造出一个「永远失败」的对象。
-- 输出 channel 缓冲为 1：合并后不保证每个源事件都一一送达（合并/去重语义），慢消费者下的新值会覆盖旧值。
+- 输出 channel 缓冲为 1 且发送为阻塞式：慢消费者下组合器背压而非丢值，事件依序送达；事件携带的推送值被丢弃，每次发送时重算当前生效值（合并去重语义，见《Bald 配置源层设计.md》）。
 
 ---
 
@@ -299,7 +299,7 @@ bconfig（源）  bootstrap（初始化）
 
 1. **依赖不透明**：`import _ "x/apollo"` 读代码看不出 apollo 被装配了，IDE/重构工具也跳不到、追不到。
 2. **装配顺序失控**：多个 provider 的 `init()` 执行序由 Go 导入图决定，无法表达「先 file 后 etcd」这种优先级叠加（而层优先级恰恰是装配语义的核心）。
-3. **与 appkit 体系冲突**：bald 已有 `Provides/Requires/Resolve`（capability.go 的显式能力声明）、`Registry.Mount/Unmount`（mount.go 的显式运行期装配）、`Component` 五阶段生命周期（component.go 的显式生命周期）——全是**显式装配**哲学。再造一个全局 `map[string]ConfigAction` + `init()`，是在显式体系里塞一个隐式全局态的异类。
+3. **与 appkit 体系冲突**：bald 已有 `Provides/Requires/Resolve`（capability.go 的显式能力声明）、`Registry.Mount/Unmount`（mount.go 的显式运行期装配）、`Component` 显式生命周期（component.go：Start/Dispose，纳入 stopAll 五阶段停机编排）——全是**显式装配**哲学。再造一个全局 `map[string]ConfigAction` + `init()`，是在显式体系里塞一个隐式全局态的异类。
 
 取舍判定：便利（少写几行 import）换不来确定性的依赖图与可重构性，不划算。
 
@@ -455,6 +455,12 @@ func (r *Registry) Build(ctx context.Context, cfg *bootstrapv1.BootstrapConfig) 
             runClosers(closers)
             return nil, nil, fmt.Errorf("bootstrap: provider %s: layer Reader is nil", name)
         }
+        if l.Watch {                     // Watch=true 但 Reader 不实现 ValueWatcher（fail-fast）
+            if _, ok := l.Reader.(bconfig.ValueWatcher); !ok {
+                runClosers(closers)
+                return nil, nil, fmt.Errorf("bootstrap: provider %s: Watch=true but Reader does not implement bconfig.ValueWatcher", name)
+            }
+        }
         if l.Name == "" {
             l.Name = name                // Build 回填注册名（层名用于日志/错误定位）
         }
@@ -499,7 +505,7 @@ func main() {
 }
 ```
 
-Store 侧的完整优先级链（高 → 低）：`flag > env > 本地文件 > 契约源层（列表首最高）> 远程桥（基准）`。任一层实现 `bconfig.ValueWatcher` 即参与热更新：变更 → decode → 层缓存更新 → 全量重合并 → `OnConfigChange`；层 reader 资源归 `Build` 返回的 cleanup 释放，`Store.Close` 只停自己的转发 goroutine（构造方职责分离，不重复关闭）。
+Store 侧的完整优先级链（高 → 低）：`flag > env > 本地文件 > 契约源层（列表首最高）> 远程桥（基准）`。任一层实现 `bconfig.ValueWatcher` 即参与热更新：变更 → decode → 层缓存更新 → 全量重合并 → `OnConfigChange`；层 reader 资源归 `Build` 返回的 cleanup 释放，`Store.Close` 只停自己的转发 goroutine 并释放自建源（本地文件 watch 源；构造方职责分离，不重复关闭契约源）。
 
 依赖图全程可见：谁被装配、以什么优先级叠加、失败时如何回滚——都写在 `main()` 里，无需追踪 `init()` 副作用。
 
