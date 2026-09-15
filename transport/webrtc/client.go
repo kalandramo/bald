@@ -282,11 +282,11 @@ func (c *Client) Disconnect() error {
 func (c *Client) SendMessage(messageType NetMessageType, message any) error {
 	startTime := time.Now()
 	labels := map[string]string{
-		"rpc.system": "webrtc",
+		"rpc_system": "webrtc",
 	}
 
 	if c.m != nil {
-		c.m.Counter(context.Background(), "webrtc.client.messages.sent", 1, labels)
+		c.m.Counter(context.Background(), "webrtc_client_messages_sent_total", 1, labels)
 	}
 
 	buf, err := c.marshalMessage(messageType, message)
@@ -310,8 +310,8 @@ func (c *Client) SendMessage(messageType NetMessageType, message any) error {
 
 	if err != nil {
 		if c.m != nil {
-			c.m.Counter(context.Background(), "webrtc.client.messages.errors", 1, map[string]string{
-				"rpc.system": "webrtc",
+			c.m.Counter(context.Background(), "webrtc_client_messages_errors_total", 1, map[string]string{
+				"rpc_system": "webrtc",
 				"error":      "true",
 			})
 		}
@@ -319,7 +319,7 @@ func (c *Client) SendMessage(messageType NetMessageType, message any) error {
 	}
 
 	if c.m != nil {
-		c.m.Histogram(context.Background(), "webrtc.client.message.send_duration", time.Since(startTime).Seconds(), labels)
+		c.m.Histogram(context.Background(), "webrtc_client_message_send_duration_seconds", time.Since(startTime).Seconds(), labels)
 	}
 
 	return nil
@@ -393,8 +393,8 @@ func (c *Client) unmarshalMessage(buf []byte) (*ClientHandlerData, MessagePayloa
 
 func (c *Client) messageHandler(buf []byte) error {
 	if c.m != nil {
-		c.m.Counter(context.Background(), "webrtc.client.messages.received", 1, map[string]string{
-			"rpc.system": "webrtc",
+		c.m.Counter(context.Background(), "webrtc_client_messages_received_total", 1, map[string]string{
+			"rpc_system": "webrtc",
 		})
 	}
 

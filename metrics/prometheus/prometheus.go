@@ -17,6 +17,7 @@ package prometheus
 
 import (
 	"context"
+	"sync"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -37,7 +38,7 @@ type config struct {
 
 func defaultConfig() *config {
 	return &config{
-		registry: prometheus.DefaultRegisterer,
+		registry: nil, // resolved by the constructor
 	}
 }
 
@@ -52,16 +53,20 @@ func WithSubsystem(sub string) Option {
 }
 
 // WithRegistry sets a custom Prometheus registerer (useful for testing).
+// It applies to both New and NewWithDefaultRegistry.
 func WithRegistry(r prometheus.Registerer) Option {
 	return func(c *config) { c.registry = r }
 }
 
 // Provider implements [metrics.Metrics] using the Prometheus client library.
 // Metrics are created lazily and cached so that subsequent calls with the same
-// name/label-set reuse the existing instrument.
+// name/label-set reuse the existing instrument. All methods are safe for
+// concurrent use.
 type Provider struct {
-	cfg           *config
-	factory       promauto.Factory
+	cfg     *config
+	factory promauto.Factory
+
+	mu            sync.Mutex
 	counters      map[string]prometheus.Counter
 	counterVecs   map[string]*prometheus.CounterVec
 	histograms    map[string]prometheus.Histogram
@@ -71,27 +76,18 @@ type Provider struct {
 	labelNames    map[string][]string
 }
 
-// New creates a Prometheus-backed metrics provider.
+// New creates a Prometheus-backed metrics provider with its own private
+// registry (isolated from prometheus.DefaultRegisterer). Pass WithRegistry to
+// override, e.g. for tests.
 func New(opts ...Option) (*Provider, error) {
 	cfg := defaultConfig()
 	for _, opt := range opts {
 		opt(cfg)
 	}
-
-	reg := prometheus.NewRegistry()
-	cfg.registry = reg
-
-	return &Provider{
-		cfg:           cfg,
-		factory:       promauto.With(reg),
-		counters:      make(map[string]prometheus.Counter),
-		counterVecs:   make(map[string]*prometheus.CounterVec),
-		histograms:    make(map[string]prometheus.Histogram),
-		histogramVecs: make(map[string]*prometheus.HistogramVec),
-		gauges:        make(map[string]prometheus.Gauge),
-		gaugeVecs:     make(map[string]*prometheus.GaugeVec),
-		labelNames:    make(map[string][]string),
-	}, nil
+	if cfg.registry == nil {
+		cfg.registry = prometheus.NewRegistry()
+	}
+	return newProvider(cfg), nil
 }
 
 // NewWithDefaultRegistry creates a provider using the default Prometheus
@@ -102,7 +98,13 @@ func NewWithDefaultRegistry(opts ...Option) (*Provider, error) {
 	for _, opt := range opts {
 		opt(cfg)
 	}
+	if cfg.registry == nil {
+		cfg.registry = prometheus.DefaultRegisterer
+	}
+	return newProvider(cfg), nil
+}
 
+func newProvider(cfg *config) *Provider {
 	return &Provider{
 		cfg:           cfg,
 		factory:       promauto.With(cfg.registry),
@@ -113,7 +115,7 @@ func NewWithDefaultRegistry(opts ...Option) (*Provider, error) {
 		gauges:        make(map[string]prometheus.Gauge),
 		gaugeVecs:     make(map[string]*prometheus.GaugeVec),
 		labelNames:    make(map[string][]string),
-	}, nil
+	}
 }
 
 // Registry returns the Prometheus gatherer used by this provider.
@@ -141,6 +143,12 @@ func (p *Provider) labelValues(labels map[string]string, keys []string) []string
 	return vals
 }
 
+// cachedLabelKeys returns the label keys registered for name. The key set is
+// frozen on first use: Prometheus requires a stable label dimension per metric
+// name, so keys seen later that were absent on first use are silently dropped.
+// Callers must keep label keys constant for a given name.
+//
+// Must be called with p.mu held.
 func (p *Provider) cachedLabelKeys(name string, labels map[string]string) []string {
 	if keys, ok := p.labelNames[name]; ok {
 		return keys
@@ -154,6 +162,7 @@ func (p *Provider) cachedLabelKeys(name string, labels map[string]string) []stri
 func (p *Provider) Counter(ctx context.Context, name string, value float64, labels map[string]string) {
 	_ = ctx
 	if len(labels) == 0 {
+		p.mu.Lock()
 		c, ok := p.counters[name]
 		if !ok {
 			c = p.factory.NewCounter(prometheus.CounterOpts{
@@ -163,10 +172,12 @@ func (p *Provider) Counter(ctx context.Context, name string, value float64, labe
 			})
 			p.counters[name] = c
 		}
+		p.mu.Unlock()
 		c.Add(value)
 		return
 	}
 
+	p.mu.Lock()
 	keys := p.cachedLabelKeys(name, labels)
 	cv, ok := p.counterVecs[name]
 	if !ok {
@@ -177,6 +188,7 @@ func (p *Provider) Counter(ctx context.Context, name string, value float64, labe
 		}, keys)
 		p.counterVecs[name] = cv
 	}
+	p.mu.Unlock()
 	cv.WithLabelValues(p.labelValues(labels, keys)...).Add(value)
 }
 
@@ -184,6 +196,7 @@ func (p *Provider) Counter(ctx context.Context, name string, value float64, labe
 func (p *Provider) Histogram(ctx context.Context, name string, value float64, labels map[string]string) {
 	_ = ctx
 	if len(labels) == 0 {
+		p.mu.Lock()
 		h, ok := p.histograms[name]
 		if !ok {
 			h = p.factory.NewHistogram(prometheus.HistogramOpts{
@@ -193,10 +206,12 @@ func (p *Provider) Histogram(ctx context.Context, name string, value float64, la
 			})
 			p.histograms[name] = h
 		}
+		p.mu.Unlock()
 		h.Observe(value)
 		return
 	}
 
+	p.mu.Lock()
 	keys := p.cachedLabelKeys(name, labels)
 	hv, ok := p.histogramVecs[name]
 	if !ok {
@@ -207,26 +222,31 @@ func (p *Provider) Histogram(ctx context.Context, name string, value float64, la
 		}, keys)
 		p.histogramVecs[name] = hv
 	}
+	p.mu.Unlock()
 	hv.WithLabelValues(p.labelValues(labels, keys)...).Observe(value)
 }
 
-// Gauge implements [metrics.Metrics].
-func (p *Provider) Gauge(ctx context.Context, name string, value float64, labels map[string]string) {
-	_ = ctx
-	if len(labels) == 0 {
-		g, ok := p.gauges[name]
-		if !ok {
-			g = p.factory.NewGauge(prometheus.GaugeOpts{
-				Namespace: p.cfg.namespace,
-				Subsystem: p.cfg.subsystem,
-				Name:      name,
-			})
-			p.gauges[name] = g
-		}
-		g.Set(value)
-		return
+// gauge returns the cached single gauge for name, creating it if needed.
+func (p *Provider) gauge(name string) prometheus.Gauge {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	g, ok := p.gauges[name]
+	if !ok {
+		g = p.factory.NewGauge(prometheus.GaugeOpts{
+			Namespace: p.cfg.namespace,
+			Subsystem: p.cfg.subsystem,
+			Name:      name,
+		})
+		p.gauges[name] = g
 	}
+	return g
+}
 
+// gaugeVecWith returns the cached gauge vec for name together with the frozen
+// label keys, creating the vec if needed.
+func (p *Provider) gaugeVecWith(name string, labels map[string]string) (*prometheus.GaugeVec, []string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	keys := p.cachedLabelKeys(name, labels)
 	gv, ok := p.gaugeVecs[name]
 	if !ok {
@@ -237,5 +257,27 @@ func (p *Provider) Gauge(ctx context.Context, name string, value float64, labels
 		}, keys)
 		p.gaugeVecs[name] = gv
 	}
+	return gv, keys
+}
+
+// Gauge implements [metrics.Metrics]. It sets the absolute value.
+func (p *Provider) Gauge(ctx context.Context, name string, value float64, labels map[string]string) {
+	_ = ctx
+	if len(labels) == 0 {
+		p.gauge(name).Set(value)
+		return
+	}
+	gv, keys := p.gaugeVecWith(name, labels)
 	gv.WithLabelValues(p.labelValues(labels, keys)...).Set(value)
+}
+
+// GaugeAdd implements [metrics.Metrics]. It adds delta to the current value.
+func (p *Provider) GaugeAdd(ctx context.Context, name string, delta float64, labels map[string]string) {
+	_ = ctx
+	if len(labels) == 0 {
+		p.gauge(name).Add(delta)
+		return
+	}
+	gv, keys := p.gaugeVecWith(name, labels)
+	gv.WithLabelValues(p.labelValues(labels, keys)...).Add(delta)
 }

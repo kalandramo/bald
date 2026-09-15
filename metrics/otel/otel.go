@@ -32,7 +32,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
-	semconv "go.opentelemetry.io/otel/semconv/v1.34.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 )
 
 var _ metrics.Metrics = (*Provider)(nil)
@@ -48,6 +48,7 @@ type config struct {
 	insecure       bool
 	useHTTP        bool
 	exportInterval time.Duration
+	reader         sdkmetric.Reader // non-nil only in tests (ManualReader)
 }
 
 func defaultConfig() *config {
@@ -91,6 +92,11 @@ func WithExportInterval(interval time.Duration) Option {
 	return func(c *config) { c.exportInterval = interval }
 }
 
+// withReader overrides the periodic reader (test hook, package-internal).
+func withReader(r sdkmetric.Reader) Option {
+	return func(c *config) { c.reader = r }
+}
+
 // Provider implements [metrics.Metrics] using the OpenTelemetry SDK.
 type Provider struct {
 	meter    metric.Meter
@@ -100,7 +106,8 @@ type Provider struct {
 	mu         sync.Mutex
 	counters   map[string]metric.Float64Counter
 	histograms map[string]metric.Float64Histogram
-	gauges     map[string]metric.Float64UpDownCounter
+	gauges     map[string]metric.Float64Gauge         // Set semantics
+	gaugeAdds  map[string]metric.Float64UpDownCounter // Add semantics
 }
 
 // New creates an OTLP-backed metrics provider.
@@ -148,11 +155,16 @@ func New(opts ...Option) (*Provider, error) {
 		return nil, fmt.Errorf("failed to create resource: %w", err)
 	}
 
-	// Create meter provider with periodic reader
-	reader := sdkmetric.NewPeriodicReader(
-		exporter,
-		sdkmetric.WithInterval(cfg.exportInterval),
-	)
+	// Create meter provider; tests may inject a manual reader.
+	var reader sdkmetric.Reader
+	if cfg.reader != nil {
+		reader = cfg.reader
+	} else {
+		reader = sdkmetric.NewPeriodicReader(
+			exporter,
+			sdkmetric.WithInterval(cfg.exportInterval),
+		)
+	}
 
 	mp := sdkmetric.NewMeterProvider(
 		sdkmetric.WithResource(res),
@@ -166,7 +178,8 @@ func New(opts ...Option) (*Provider, error) {
 		exporter:   exporter,
 		counters:   make(map[string]metric.Float64Counter),
 		histograms: make(map[string]metric.Float64Histogram),
-		gauges:     make(map[string]metric.Float64UpDownCounter),
+		gauges:     make(map[string]metric.Float64Gauge),
+		gaugeAdds:  make(map[string]metric.Float64UpDownCounter),
 	}, nil
 }
 
@@ -206,16 +219,13 @@ func (p *Provider) Histogram(ctx context.Context, name string, value float64, la
 	hist.Record(ctx, value, metric.WithAttributes(toAttrs(labels)...))
 }
 
-// Gauge implements [metrics.Metrics].
-// Note: OpenTelemetry uses observable (callback-based) gauges natively.
-// For simplicity, we use an UpDownCounter which provides set-like behavior
-// when accumulated per unique label set. For true gauge semantics, consider
-// using the raw OTel API directly.
+// Gauge implements [metrics.Metrics]. It records the absolute value using the
+// synchronous gauge instrument (Set semantics).
 func (p *Provider) Gauge(ctx context.Context, name string, value float64, labels map[string]string) {
 	p.mu.Lock()
 	gauge, ok := p.gauges[name]
 	if !ok {
-		g, err := p.meter.Float64UpDownCounter(name)
+		g, err := p.meter.Float64Gauge(name)
 		if err != nil {
 			p.mu.Unlock()
 			return
@@ -225,7 +235,26 @@ func (p *Provider) Gauge(ctx context.Context, name string, value float64, labels
 	}
 	p.mu.Unlock()
 
-	gauge.Add(ctx, value, metric.WithAttributes(toAttrs(labels)...))
+	gauge.Record(ctx, value, metric.WithAttributes(toAttrs(labels)...))
+}
+
+// GaugeAdd implements [metrics.Metrics]. It adds delta using an UpDownCounter
+// (increment semantics).
+func (p *Provider) GaugeAdd(ctx context.Context, name string, delta float64, labels map[string]string) {
+	p.mu.Lock()
+	gauge, ok := p.gaugeAdds[name]
+	if !ok {
+		g, err := p.meter.Float64UpDownCounter(name)
+		if err != nil {
+			p.mu.Unlock()
+			return
+		}
+		p.gaugeAdds[name] = g
+		gauge = g
+	}
+	p.mu.Unlock()
+
+	gauge.Add(ctx, delta, metric.WithAttributes(toAttrs(labels)...))
 }
 
 // Close flushes pending metrics and shuts down the exporter.

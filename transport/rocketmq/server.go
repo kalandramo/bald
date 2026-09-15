@@ -201,13 +201,13 @@ func (s *Server) wrapHandler(topic string, handler broker.Handler) broker.Handle
 			"topic":  topic,
 		}
 
-		s.m.Counter(ctx, "broker.messages.received", 1, labels)
+		s.m.Counter(ctx, "broker_messages_received_total", 1, labels)
 
 		err := handler(ctx, event)
-		s.m.Histogram(ctx, "broker.message.duration", time.Since(startTime).Seconds(), labels)
+		s.m.Histogram(ctx, "broker_message_duration_seconds", time.Since(startTime).Seconds(), labels)
 
 		if err != nil {
-			s.m.Counter(ctx, "broker.messages.errors", 1, map[string]string{
+			s.m.Counter(ctx, "broker_messages_errors_total", 1, map[string]string{
 				"broker": s.Name(),
 				"topic":  topic,
 				"error":  "true",

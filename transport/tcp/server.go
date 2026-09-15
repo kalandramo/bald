@@ -423,7 +423,7 @@ func (s *Server) doAccept() {
 		}
 
 		if s.m != nil {
-			s.m.Gauge(context.Background(), "tcp_connections_in_flight", 1, map[string]string{})
+			s.m.GaugeAdd(context.Background(), "tcp_connections_in_flight", 1, map[string]string{})
 		}
 
 		session := NewSession(conn, s)
@@ -459,7 +459,7 @@ func (s *Server) OnSessionRemoved(session *Session) {
 		s.socketConnectHandler(session.SessionID(), false)
 	}
 	if s.m != nil {
-		s.m.Gauge(context.Background(), "tcp_connections_in_flight", -1, map[string]string{})
+		s.m.GaugeAdd(context.Background(), "tcp_connections_in_flight", -1, map[string]string{})
 	}
 }
 

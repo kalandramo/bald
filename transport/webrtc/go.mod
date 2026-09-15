@@ -23,7 +23,7 @@ require (
 	github.com/kalandramo/bald/broker v0.0.0-00010101000000-000000000000
 	github.com/kalandramo/bald/encoding v0.0.1
 	github.com/kalandramo/bald/encoding/json v0.0.1
-	github.com/kalandramo/bald/log v0.2.0
+	github.com/kalandramo/bald/log v0.5.1
 	github.com/kalandramo/bald/metrics v0.0.1
 	github.com/pion/webrtc/v4 v4.2.12
 )

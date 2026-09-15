@@ -19,6 +19,7 @@ package datadog
 import (
 	"context"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/kalandramo/bald/metrics"
@@ -90,6 +91,7 @@ func New(opts ...Option) (*Provider, error) {
 
 	clientOpts := []statsd.Option{
 		statsd.WithNamespace(cfg.namespace),
+		statsd.WithAggregationInterval(cfg.flushPeriod),
 	}
 	if cfg.bufferSize > 0 {
 		clientOpts = append(clientOpts,
@@ -122,7 +124,7 @@ func toTags(labels map[string]string) []string {
 // Counter implements [metrics.Metrics].
 func (p *Provider) Counter(ctx context.Context, name string, value float64, labels map[string]string) {
 	_ = ctx
-	_ = p.client.Count(name, int64(value), toTags(labels), p.rate)
+	_ = p.client.Count(name, int64(math.Round(value)), toTags(labels), p.rate)
 }
 
 // Histogram implements [metrics.Metrics].
@@ -131,10 +133,17 @@ func (p *Provider) Histogram(ctx context.Context, name string, value float64, la
 	_ = p.client.Histogram(name, value, toTags(labels), p.rate)
 }
 
-// Gauge implements [metrics.Metrics].
+// Gauge implements [metrics.Metrics]. It sets the absolute value.
 func (p *Provider) Gauge(ctx context.Context, name string, value float64, labels map[string]string) {
 	_ = ctx
 	_ = p.client.Gauge(name, value, toTags(labels), p.rate)
+}
+
+// GaugeAdd implements [metrics.Metrics]. It adds delta via the statsd count
+// type (increment semantics).
+func (p *Provider) GaugeAdd(ctx context.Context, name string, delta float64, labels map[string]string) {
+	_ = ctx
+	_ = p.client.Count(name, int64(math.Round(delta)), toTags(labels), p.rate)
 }
 
 // Close flushes pending metrics and closes the statsd connection.

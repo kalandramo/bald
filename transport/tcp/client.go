@@ -129,17 +129,17 @@ func (c *Client) SendRawData(message []byte) error {
 
 	startTime := time.Now()
 	labels := map[string]string{
-		"rpc.system": "tcp",
+		"rpc_system": "tcp",
 	}
 
 	if c.m != nil {
-		c.m.Counter(context.Background(), "tcp.client.messages.sent", 1, labels)
+		c.m.Counter(context.Background(), "tcp_client_messages_sent_total", 1, labels)
 	}
 
 	if _, err := c.conn.Write(message); err != nil {
 		if c.m != nil {
-			c.m.Counter(context.Background(), "tcp.client.messages.errors", 1, map[string]string{
-				"rpc.system": "tcp",
+			c.m.Counter(context.Background(), "tcp_client_messages_errors_total", 1, map[string]string{
+				"rpc_system": "tcp",
 				"error":      "true",
 			})
 		}
@@ -147,7 +147,7 @@ func (c *Client) SendRawData(message []byte) error {
 	}
 
 	if c.m != nil {
-		c.m.Histogram(context.Background(), "tcp.client.message.send_duration", time.Since(startTime).Seconds(), labels)
+		c.m.Histogram(context.Background(), "tcp_client_message_send_duration_seconds", time.Since(startTime).Seconds(), labels)
 	}
 
 	return nil
@@ -198,8 +198,8 @@ func (c *Client) run() {
 		}
 
 		if c.m != nil {
-			c.m.Counter(context.Background(), "tcp.client.messages.received", 1, map[string]string{
-				"rpc.system": "tcp",
+			c.m.Counter(context.Background(), "tcp_client_messages_received_total", 1, map[string]string{
+				"rpc_system": "tcp",
 			})
 		}
 	}
