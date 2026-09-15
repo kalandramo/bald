@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+package bootstrap.v1;
+
+option go_package = "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1";
+
+// Audit 描述审计后端配置（一次性装配，不支持热更新——运行期热切走
+// R1-2 协调器的 audit.backends 期望态，双轨并存）。
+message Audit {
+  enum Type {
+    TYPE_UNSPECIFIED = 0;
+
+    // 结构化日志后端（核心 LoggerAuditor，零依赖开箱即用）。
+    LOG = 1;
+    // 落库后端（contrib/audit-store，需业务注入 gorm 连接）。
+    STORE = 2;
+    // Redis Stream 异步后端（contrib/audit-stream，需业务注入 redis 客户端）。
+    STREAM = 3;
+  }
+
+  message Store {
+    // 是否自动迁移默认审计表（audit_records）。
+    bool migrate = 1;
+  }
+
+  message Stream {
+    // Redis Stream 名，默认 "audit.events"。
+    string stream = 1;
+    // 内存缓冲大小，默认 1024（满则降级 fallback）。
+    int32 buffer = 2;
+  }
+
+  string type = 1;
+
+  // 审计类型：log / store / stream。
+  optional Store store = 2;
+  optional Stream stream = 3;
+}

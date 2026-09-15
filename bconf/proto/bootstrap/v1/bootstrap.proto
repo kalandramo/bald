@@ -16,6 +16,7 @@ import "bootstrap/v1/workflow.proto";
 import "bootstrap/v1/cache.proto";
 import "bootstrap/v1/script.proto";
 import "bootstrap/v1/database.proto";
+import "bootstrap/v1/audit.proto";
 
 option go_package = "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1";
 
@@ -64,4 +65,7 @@ message BootstrapConfig {
 
   // 数据库，支持 GORM / MongoDB / ClickHouse / Doris / ES / OpenSearch / InfluxDB / Cassandra。
   Database database = 14;
+
+  // 审计后端：log（结构化日志）/ store（落库）/ stream（Redis Stream）。
+  Audit audit = 15;
 }

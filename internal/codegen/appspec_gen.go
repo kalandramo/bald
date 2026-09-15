@@ -272,20 +272,24 @@ func (c *auditBackendComponent) Dispose(ctx context.Context) error {
 	return nil
 }
 
-// buildAuditBackend 构造某后端的审计器（log 开箱即用；store/stream 依赖业务
-// 的 DB/Redis 桥接，留 TODO）。返回 nil 表示依赖未就绪（挂载失败，下次重试）。
+// buildAuditBackend 构造某后端的审计器（log 走核心 LoggerAuditor 开箱即用；
+// store/stream 依赖业务的 DB/Redis 连接，留 TODO）。返回 nil 表示依赖未就绪
+// （挂载失败，下次重试）。
 func buildAuditBackend(name string) audit.Auditor {
 	switch name {
 	case "log":
-		return logAuditor{}
-	// TODO: 接入 store/stream 后端（参考 kalandramo/bald-admin 的
-	// buildAuditBackend：依赖 bootstrappkg.DB / RedisCache.Client()）。
+		return audit.NewLoggerAuditor()
+	// TODO: 接入 store/stream 后端（框架已提供 contrib/audit-store 与
+	// contrib/audit-stream：auditstore.New(db) / auditstream.New(rdb)，
+	// 契约装配走 contract.NewStoreProvider(db) / NewStreamProvider(rdb)；
+	// 连接实例来自业务代码，参考 go-bald-admin 的 buildAuditBackend——
+	// 依赖 bootstrappkg.DB / RedisCache.Client()）。
 	}
 	return nil
 }
 
 // applyAuditors 按后端名排序重建全局审计器（顺序确定，便于测试与排查日志）；
-// 空则退化为 Nop，绝不阻断审计旁路。
+// 空则退化为 Nop（NewMultiAuditor 兜底），绝不阻断审计旁路。
 func applyAuditors() {
 	auditors.mu.Lock()
 	names := make([]string, 0, len(auditors.set))
@@ -299,28 +303,7 @@ func applyAuditors() {
 	}
 	auditors.mu.Unlock()
 
-	if len(list) == 0 {
-		audit.SetAuditor(audit.NopAuditor())
-		return
-	}
-	audit.SetAuditor(multiAuditor(list))
-}
-
-// logAuditor 是最小审计后端：事件落应用日志。
-type logAuditor struct{}
-
-func (logAuditor) Record(ctx context.Context, ev audit.AuditEvent) {
-	baldlog.Info(ctx, "audit event",
-		"object", ev.Object, "action", ev.Action, "result", string(ev.Result))
-}
-
-// multiAuditor 顺序广播到全部后端（核心包未提供，骨架内联最小实现）。
-type multiAuditor []audit.Auditor
-
-func (m multiAuditor) Record(ctx context.Context, ev audit.AuditEvent) {
-	for _, a := range m {
-		a.Record(ctx, ev)
-	}
+	audit.SetAuditor(audit.NewMultiAuditor(list...))
 }
 
 func main() {

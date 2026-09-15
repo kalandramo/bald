@@ -49,6 +49,7 @@ import (
 	baldconfig "github.com/kalandramo/bald/bootstrap/config"
 	log "github.com/kalandramo/bald/log"
 	"github.com/kalandramo/bald/log/bslog"
+	"github.com/kalandramo/bald/pkg/audit"
 	"github.com/kalandramo/bald/pkg/registry"
 	"github.com/kalandramo/bald/transport"
 )
@@ -88,6 +89,7 @@ type bootstrapSpec struct {
 
 	tracerRegistry  *TracerRegistry
 	metricsRegistry *MetricsRegistry
+	auditRegistry   *AuditRegistry
 
 	// 业务透传声明（U1：重业务走 FromBootstrap 的逃生面——钩子/协调器/
 	// 能力声明/订阅/效果账本/组件，转发给 New 的同名 Option）。
@@ -249,6 +251,15 @@ func WithTracerRegistry(r *TracerRegistry) BootstrapOption {
 // 关闭挂停机 Effect。metrics 段不支持热更新。
 func WithMetricsRegistry(r *MetricsRegistry) BootstrapOption {
 	return func(s *bootstrapSpec) { s.metricsRegistry = r }
+}
+
+// WithAuditRegistry 注入审计后端的契约装配注册表（显式注册 provider，
+// 见 AuditRegistry）。契约 audit 段存在时，阶段 B 按 audit.type 装配
+// （type=log 内置无需注册；store/stream 走 contract 注册）并 SetAuditor
+// 全局注入，停机 Effect 恢复装配前全局（T1 纪律）+ cleanup（stream
+// flush 尾批）。audit 段不支持热更新（运行期热切走 R1-2 协调器）。
+func WithAuditRegistry(r *AuditRegistry) BootstrapOption {
+	return func(s *bootstrapSpec) { s.auditRegistry = r }
 }
 
 // ---------------------------------------------------------------------------
@@ -446,6 +457,10 @@ func FromBootstrap(cfg *bootstrapv1.BootstrapConfig, opts ...BootstrapOption) (*
 	// flush）。Effect 注册在 bootstrap-logger 之前——停机逆序回放最后执行：
 	// 所有组件 cleanup 完成、Logger 恢复后，再停暴露端、flush 尾批指标与 span。
 	var obs *observabilityState
+	// auditSt 跟踪阶段 B 装配的审计后端句柄（装配前全局 prev + 后端 cleanup）。
+	// Effect 注册在 tracer-shutdown 之前——逆序回放最后执行：stream 尾批审计
+	// 事件在指标/span flush 之后收集（收集面最全），再恢复装配前全局 Auditor。
+	var auditSt *auditState
 
 	// a 先声明再进闭包：BeforeStart 在 Run 期才执行，届时 a 已赋值。
 	var a *AppKit
@@ -473,6 +488,14 @@ func FromBootstrap(cfg *bootstrapv1.BootstrapConfig, opts ...BootstrapOption) (*
 				return err
 			}
 			obs = o
+			// 审计后端（audit 段）在可观测性之后装配：SetAuditor 全局注入，
+			// 使首个请求前中间件/appkit 的审计事件即进契约后端（`=` 赋值外层，
+			// T7 教训同上）。
+			au, err := buildAudit(cfg, spec)
+			if err != nil {
+				return err
+			}
+			auditSt = au
 			// 数据库/缓存客户端构建在注册中心之后：任一步失败走 Run 失败路径
 			// 回滚 Effect 账本（各 Effect 自行释放）。赋值外层变量（勿用 :=，
 			// 否则遮蔽导致 Effect 回放拿到 nil）。
@@ -505,6 +528,21 @@ func FromBootstrap(cfg *bootstrapv1.BootstrapConfig, opts ...BootstrapOption) (*
 		}),
 		OnConfigChange(func(m map[string]any) {
 			hotReload(cfg, spec, &curCleanup, m)
+		}),
+		// 审计 Effect 注册在 tracer-shutdown 之前：逆序回放时最后执行——
+		// 先 cleanup（stream flush 尾批审计事件，在指标/span 之后收集面最全），
+		// 再恢复装配前的全局 Auditor（T1：全局写入配套逆操作）。
+		Effect("appkit:audit-restore", func(ctx context.Context) error {
+			if auditSt == nil {
+				return nil
+			}
+			if auditSt.cleanup != nil {
+				if err := auditSt.cleanup(ctx); err != nil {
+					log.Error(ctx, "appkit audit cleanup failed", "error", err.Error())
+				}
+			}
+			audit.SetAuditor(auditSt.prev)
+			return nil
 		}),
 		// 可观测性 Effect 注册在 bootstrap-logger 之前：逆序回放时最后执行
 		// （所有组件 cleanup、Logger 恢复之后）——先停 metrics 暴露端 +
