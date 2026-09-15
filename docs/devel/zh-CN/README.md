@@ -10,6 +10,7 @@
 - [Bald 配置契约设计](./Bald%20配置契约设计.md)：bconf module 专属展开——17 proto 契约布局、四 API（NewBootstrap 默认值/UnmarshalMap 合并桥接/Validate 形状校验/BindFlags 描述符 flag 绑定）、coerce 类型缓冲层、三坑防御（Duration/repeated/presence）、契约演进 v0.1.0→v0.5.0（含 v0.5.0 唯一化瘦身）。
 - [服务端设计](./服务端设计.md)：HTTP / gRPC / Gateway Server 抽象与端口模型。
 - [服务注册设计](./服务注册设计.md)：registry.Registrar 抽象、内存实现与 kratos 桥接。
+- [Bald 健康检查设计](./Bald%20健康检查设计.md)：health module 专属展开——三态状态机（Unknown/Up/Down）、Checker 接口与 PingFunc 零适配、Health 并发聚合（Down 传染 > Unknown 传染、双层超时兜底）、readiness/liveness 双端点分离（Down→503、liveness 恒 200 不级联重启）、TCP/HTTP/All/Any 内置检查器；零第三方依赖纯标准库（2026-09-06 自 go-wind 移植，tag 未发消费者未接）。
 - [Bald 日志设计](./Bald%20日志设计.md)：log 契约（6 方法接口/全局句柄/nop 默认/ctx 属性流/MultiLogger）、bslog 适配器（多输出/lumberjack 轮转/脱敏/OTel 桥接）、五远端后端独立 module + contract 模式、装配层（两级工厂/默认纯函数 + 教学报错/两阶段/热更新）、`logger.backends` 多后端广播；附录含 gookit/slog 评估决策与桥接适配器预留（并入自原《日志平面接口设计》）。
 - [AppKit 日志装配设计](./AppKit%20日志装配设计.md)：AppKit 侧日志装配策略——两级工厂分发（WithLogRegistry 机制全权 / 默认纯函数零依赖）的使用场景、nil 双语义（机制层 fail-fast vs 阶段 A 回退）、装饰器 deco 生效范围分级、四分派、脱敏单层保证的结构性机制。
 - [路由注册与绑定设计](./路由注册与绑定设计.md)：路由注册由业务用 gin 编写，pkg/web 提供强绑定 gin 的泛型绑定/校验/响应流水线，路径变量用 uri tag。

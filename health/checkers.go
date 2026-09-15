@@ -24,7 +24,7 @@ type TCPChecker struct {
 // TCP 创建一个 TCP 拨号检查器。
 //
 // addr 是目标地址（host:port）。
-// timeout 是单次拨号的超时时间。如果为 0，使用 Health 的全局超时。
+// timeout 是单次拨号的超时时间。如果为 0，使用默认 3 秒。
 func TCP(addr string, timeout time.Duration) *TCPChecker {
 	return &TCPChecker{addr: addr, timeout: timeout}
 }

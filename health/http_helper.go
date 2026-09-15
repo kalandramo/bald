@@ -23,6 +23,6 @@ func newHTTPRequest(ctx context.Context, url string) (*http.Request, error) {
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "go-wind-health-checker")
+	req.Header.Set("User-Agent", "bald-health-checker")
 	return req, nil
 }
