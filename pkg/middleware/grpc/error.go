@@ -15,7 +15,7 @@ import (
 // 结果只有 Error() 的文本被塞进 Unknown，Code/Reason/Details 全丢。
 // 经 grpcerr.ToStatus 转换后，接收端可用 grpcerr.FromStatus 还原完整语义。
 //
-// 转换规则（详见 pkg/berrors/grpcerr）：
+// 转换规则（详见 bald/berrors/grpcerr）：
 //   - 命中 *berrors.Error：用其 Code（→ gRPC codes）、Message、Reason、Details 构造，
 //     并附 errdetails.ErrorInfo；
 //   - 未命中（原生 error 或已是 gRPC status）：原样透传，语义不丢。

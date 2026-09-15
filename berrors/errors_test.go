@@ -10,7 +10,7 @@ func TestNewAndError(t *testing.T) {
 	if e.Error() != "code: 5, reason: ORDER_NOT_FOUND" {
 		t.Fatalf("unexpected Error(): %q", e.Error())
 	}
-	// HTTP 状态码映射已外置到 httperr 子包（见 pkg/berrors/httperr/httperr_test.go）。
+	// HTTP 状态码映射已外置到 httperr 子包（见 httperr/httperr_test.go）。
 }
 
 func TestImmutableBuilder(t *testing.T) {

@@ -1,10 +1,10 @@
-// Package errors 提供 bald 的传输中立错误模型。
+// Package berrors 提供 bald 的传输中立错误模型。
 //
-// 设计要点（详见 docs/devel/zh-CN/错误模型设计.md）：
+// 设计要点（详见 docs/devel/zh-CN/Bald 错误模型设计.md）：
 //   - 核心包零依赖：不 import gRPC、net/http、kratos，任意场景（纯 HTTP、
 //     gRPC、CLI、测试）都可 import 而不拖进一个传输框架。
-//   - Code 是 uint32 而非 gRPC codes.Code，HTTP 映射由子包 pkg/berrors/httperr
-//     在边界提供（CodeToHTTP），gRPC 转换由子包 pkg/berrors/grpcerr 在边界提供。
+//   - Code 是 uint32 而非 gRPC codes.Code，HTTP 映射由子包 httperr
+//     在边界提供（CodeToHTTP），gRPC 转换由子包 grpcerr 在边界提供。
 //   - 所有 With* 构建器不可变：返回新实例，接收者绝不被修改，sentinel 安全。
 //   - Is 按 Reason 匹配（忽略易变的 Code/Message/Details/cause）。
 //

@@ -1,7 +1,7 @@
 // Package grpcerr 提供 berrors.Error 与 gRPC status 的双向转换，并携带
 // errdetails.ErrorInfo（Reason + Details），保证跨服务错误语义透传。
 //
-// 该子包是核心包 pkg/berrors 的"可选桥接"：仅在用 gRPC 传输的项目里 import，
+// 该子包是核心包 berrors 的"可选桥接"：仅在用 gRPC 传输的项目里 import，
 // 调用方在传输边界各写一行——server 拦截器收口用 ToStatus，client 收到错误用
 // FromStatus。核心包因此保持零 gRPC 依赖。
 //

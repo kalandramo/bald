@@ -2,8 +2,8 @@ package berrors
 
 // Code 是传输级别的误差类别；取值与 gRPC codes.Code 一一对应。
 // 用 uint32 而非直接依赖 codes.Code，使错误核心包保持零 gRPC 依赖。
-// HTTP 状态码转换由边界子包 pkg/berrors/httperr 提供（CodeToHTTP/HTTPToCode，
-// 返回 int，无 net/http 依赖）；gRPC 转换由边界子包 pkg/berrors/grpcerr 完成。
+// HTTP 状态码转换由边界子包 httperr 提供（CodeToHTTP/HTTPToCode，
+// 返回 int，无 net/http 依赖）；gRPC 转换由边界子包 grpcerr 完成。
 //
 // 不要改动这些数值：它们与 gRPC 协议、httperr 中的映射表（见 CodeToHTTP）、
 // 以及 errdetails.ErrorInfo 语义一一对应。
