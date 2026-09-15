@@ -8,13 +8,13 @@ require (
 	github.com/gin-gonic/gin v1.12.0
 	github.com/go-kratos/kratos/v3/contrib/config/nacos/v3 v3.0.0-00010101000000-000000000000
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.29.0
-	github.com/kalandramo/bald v0.6.0
+	github.com/kalandramo/bald v0.6.1
 	github.com/kalandramo/bald/bconf v0.5.0
 	github.com/kalandramo/bald/berrors v0.1.0
-	github.com/kalandramo/bald/bootstrap v0.7.0
+	github.com/kalandramo/bald/bootstrap v0.7.1
 	github.com/kalandramo/bald/contrib/registry/nacos v0.0.0-00010101000000-000000000000
 	github.com/kalandramo/bald/contrib/store-gorm v0.0.0-00010101000000-000000000000
-	github.com/kalandramo/bald/log v0.5.0
+	github.com/kalandramo/bald/log v0.5.1
 	github.com/kalandramo/bald/transport v0.1.0
 	github.com/kalandramo/bald/transport/web v0.1.0
 	github.com/nacos-group/nacos-sdk-go v1.1.6

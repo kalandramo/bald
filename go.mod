@@ -38,8 +38,8 @@ require (
 	github.com/kalandramo/bald-crud/viewer v0.1.0
 	github.com/kalandramo/bald/bconf v0.5.0
 	github.com/kalandramo/bald/berrors v0.1.0
-	github.com/kalandramo/bald/bootstrap v0.7.0
-	github.com/kalandramo/bald/log v0.5.0
+	github.com/kalandramo/bald/bootstrap v0.7.1
+	github.com/kalandramo/bald/log v0.5.1
 	github.com/kalandramo/bald/transport v0.1.0
 	github.com/kalandramo/bald/transport/gateway v0.1.0
 	github.com/kalandramo/bald/transport/grpc v0.1.0
