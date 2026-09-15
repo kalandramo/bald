@@ -21,9 +21,9 @@ const Type = "s3"
 // 客户端与 Storage 门面。
 // 返回的 cleanup 为 nil（aws-sdk 客户端无显式 Close 语义）。
 // 仅当 storage.s3 段存在时被 StorageRegistry 调度到。
-// 签名与 appkit.StorageProvider 结构化兼容，直接注册：
+// 签名与 bootstrap.StorageProvider 结构化兼容，直接注册：
 //
-//	sr := appkit.NewStorageRegistry()
+//	sr := bootstrap.NewStorageRegistry()
 //	sr.MustRegister(s3contract.Type, s3contract.Provider)
 func Provider(ctx context.Context, cfg *bootstrapv1.Storage) (any, func(), error) {
 	sec := cfg.GetS3()
@@ -47,5 +47,5 @@ func Provider(ctx context.Context, cfg *bootstrapv1.Storage) (any, func(), error
 	return client, nil, nil
 }
 
-// 类型守卫：Provider 签名与 appkit.StorageProvider 结构化兼容。
+// 类型守卫：Provider 签名与 bootstrap.StorageProvider 结构化兼容。
 var _ func(context.Context, *bootstrapv1.Storage) (any, func(), error) = Provider

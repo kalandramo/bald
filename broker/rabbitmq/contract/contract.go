@@ -22,9 +22,9 @@ const Type = "rabbitmq"
 
 // Provider 按契约 broker.rabbitmq 段构造 RabbitMQ Broker 并建立连接。
 // 返回的 cleanup 断开连接并清理订阅者。仅当 broker.rabbitmq 段存在时被
-// BrokerRegistry 调度到。签名与 appkit.BrokerProvider 结构化兼容，直接注册：
+// BrokerRegistry 调度到。签名与 bootstrap.BrokerProvider 结构化兼容，直接注册：
 //
-//	br := appkit.NewBrokerRegistry()
+//	br := bootstrap.NewBrokerRegistry()
 //	br.MustRegister(rabbitmqcontract.Type, rabbitmqcontract.Provider)
 //
 // 字段消费：url=连接地址（缺 amqp:// 前缀自动补）、username/password=凭证
@@ -87,5 +87,5 @@ func injectCredentials(rawURL, username, password string) (string, error) {
 	return u.String(), nil
 }
 
-// 类型守卫：Provider 签名与 appkit.BrokerProvider 结构化兼容。
+// 类型守卫：Provider 签名与 bootstrap.BrokerProvider 结构化兼容。
 var _ func(context.Context, *bootstrapv1.Broker) (any, func(), error) = Provider

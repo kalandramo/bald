@@ -76,7 +76,7 @@ func TestBuildOptions_MinimalFields(t *testing.T) {
 	}
 }
 
-// 类型守卫：Provider 签名与 appkit.DatabaseProvider 结构化兼容。
+// 类型守卫：Provider 签名与 bootstrap.DatabaseProvider 结构化兼容。
 var _ func(context.Context, *bootstrapv1.Database) (any, func(), error) = Provider
 
 // WithConnMaxLifetime 的秒→Duration 语义（防手滑写错单位）。

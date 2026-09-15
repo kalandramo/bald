@@ -21,9 +21,9 @@ const Type = "kafka"
 
 // Provider 按契约 broker.kafka 段构造 Kafka Broker 并建立连接。
 // 返回的 cleanup 断开连接并清理订阅者。仅当 broker.kafka 段存在时被
-// BrokerRegistry 调度到。签名与 appkit.BrokerProvider 结构化兼容，直接注册：
+// BrokerRegistry 调度到。签名与 bootstrap.BrokerProvider 结构化兼容，直接注册：
 //
-//	br := appkit.NewBrokerRegistry()
+//	br := bootstrap.NewBrokerRegistry()
 //	br.MustRegister(kafkacontract.Type, kafkacontract.Provider)
 //
 // auth_type 取值："none"（默认）、"plain"、"scram-sha256"、"scram-sha512"。
@@ -61,5 +61,5 @@ func Provider(ctx context.Context, cfg *bootstrapv1.Broker) (any, func(), error)
 	return b, func() { _ = b.Disconnect() }, nil
 }
 
-// 类型守卫：Provider 签名与 appkit.BrokerProvider 结构化兼容。
+// 类型守卫：Provider 签名与 bootstrap.BrokerProvider 结构化兼容。
 var _ func(context.Context, *bootstrapv1.Broker) (any, func(), error) = Provider

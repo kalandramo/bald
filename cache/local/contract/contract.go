@@ -22,9 +22,9 @@ const Type = "local"
 // Provider 按契约 cache.local 段构造进程内缓存。
 // 返回的 cleanup 由 appkit 停机 Effect 回放（Close 语义为清空内存）。
 // 仅当 cache.local 段存在时被 CacheRegistry 调度到。
-// 签名与 appkit.CacheProvider 结构化兼容，直接注册：
+// 签名与 bootstrap.CacheProvider 结构化兼容，直接注册：
 //
-//	cr := appkit.NewCacheRegistry()
+//	cr := bootstrap.NewCacheRegistry()
 //	cr.MustRegister(localcontract.Type, localcontract.Provider)
 func Provider(ctx context.Context, cfg *bootstrapv1.Cache) (any, func(), error) {
 	sec := cfg.GetLocal()
@@ -52,5 +52,5 @@ func buildOptions(sec *bootstrapv1.Cache_Local) []local.Option {
 // 接口守卫：Provider 产出满足 Cache 契约。
 var _ baldcache.Cache = (*local.Cache)(nil)
 
-// 类型守卫：Provider 签名与 appkit.CacheProvider 结构化兼容。
+// 类型守卫：Provider 签名与 bootstrap.CacheProvider 结构化兼容。
 var _ func(context.Context, *bootstrapv1.Cache) (any, func(), error) = Provider

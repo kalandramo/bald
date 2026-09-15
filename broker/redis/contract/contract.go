@@ -23,9 +23,9 @@ const Type = "redis"
 
 // Provider 按契约 broker.redis 段构造 Redis Broker（默认 pubsub 驱动）并连接。
 // 返回的 cleanup 断开连接。仅当 broker.redis 段存在时被 BrokerRegistry 调度到。
-// 签名与 appkit.BrokerProvider 结构化兼容，直接注册：
+// 签名与 bootstrap.BrokerProvider 结构化兼容，直接注册：
 //
-//	br := appkit.NewBrokerRegistry()
+//	br := bootstrap.NewBrokerRegistry()
 //	br.MustRegister(rediscontract.Type, rediscontract.Provider)
 //
 // 契约段为 Pub/Sub 形状（address/password/db）；Stream 驱动为能力层，
@@ -74,5 +74,5 @@ func buildDialURL(addr, password string, db int) string {
 	return u.String()
 }
 
-// 类型守卫：Provider 签名与 appkit.BrokerProvider 结构化兼容。
+// 类型守卫：Provider 签名与 bootstrap.BrokerProvider 结构化兼容。
 var _ func(context.Context, *bootstrapv1.Broker) (any, func(), error) = Provider

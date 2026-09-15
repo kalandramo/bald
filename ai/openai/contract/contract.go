@@ -20,9 +20,9 @@ const Type = "openai"
 // Provider 按契约 ai.openai 段构造 OpenAI 兼容客户端。
 // 返回的 cleanup 为 nil（客户端无连接池资源）。
 // 仅当 ai.openai 段存在时被 AiRegistry 调度到。
-// 签名与 appkit.AiProvider 结构化兼容，直接注册：
+// 签名与 bootstrap.AiProvider 结构化兼容，直接注册：
 //
-//	ar := appkit.NewAiRegistry()
+//	ar := bootstrap.NewAiRegistry()
 //	ar.MustRegister(openaicontract.Type, openaicontract.Provider)
 func Provider(ctx context.Context, cfg *bootstrapv1.Ai) (any, func(), error) {
 	sec := cfg.GetOpenai()
@@ -70,5 +70,5 @@ func buildConfig(sec *bootstrapv1.Ai_Openai) (*openai.Config, error) {
 	return cc, nil
 }
 
-// 类型守卫：Provider 签名与 appkit.AiProvider 结构化兼容。
+// 类型守卫：Provider 签名与 bootstrap.AiProvider 结构化兼容。
 var _ func(context.Context, *bootstrapv1.Ai) (any, func(), error) = Provider

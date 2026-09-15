@@ -23,9 +23,9 @@ const Type = "mongodb"
 // Provider 按契约 database.mongodb 段构造 MongoDB 客户端。
 // 返回的 cleanup 由 appkit 停机 Effect 回放（连接最后关）。
 // 仅当 database.mongodb 段存在时被 DatabaseRegistry 调度到。
-// 签名与 appkit.DatabaseProvider 结构化兼容，直接注册：
+// 签名与 bootstrap.DatabaseProvider 结构化兼容，直接注册：
 //
-//	dr := appkit.NewDatabaseRegistry()
+//	dr := bootstrap.NewDatabaseRegistry()
 //	dr.MustRegister(mongocontract.Type, mongocontract.Provider)
 func Provider(ctx context.Context, cfg *bootstrapv1.Database) (any, func(), error) {
 	sec := cfg.GetMongodb()

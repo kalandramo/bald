@@ -19,9 +19,9 @@ const Type = "argo"
 
 // Provider 按契约 workflow.argo 段构造 Argo Workflows 客户端。
 // 返回的 cleanup 关闭客户端（断开空闲连接）。仅当 workflow.argo 段存在时被
-// WorkflowRegistry 调度到。签名与 appkit.WorkflowProvider 结构化兼容，直接注册：
+// WorkflowRegistry 调度到。签名与 bootstrap.WorkflowProvider 结构化兼容，直接注册：
 //
-//	wr := appkit.NewWorkflowRegistry()
+//	wr := bootstrap.NewWorkflowRegistry()
 //	wr.MustRegister(argocontract.Type, argocontract.Provider)
 func Provider(ctx context.Context, cfg *bootstrapv1.Workflow) (any, func(), error) {
 	sec := cfg.GetArgo()
@@ -41,5 +41,5 @@ func Provider(ctx context.Context, cfg *bootstrapv1.Workflow) (any, func(), erro
 	return client, func() { _ = client.Close() }, nil
 }
 
-// 类型守卫：Provider 签名与 appkit.WorkflowProvider 结构化兼容。
+// 类型守卫：Provider 签名与 bootstrap.WorkflowProvider 结构化兼容。
 var _ func(context.Context, *bootstrapv1.Workflow) (any, func(), error) = Provider

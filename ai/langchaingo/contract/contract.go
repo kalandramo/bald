@@ -20,9 +20,9 @@ const Type = "langchaingo"
 // Provider 按契约 ai.langchaingo 段构造 LangChainGo 模型。
 // 返回的 cleanup 为 nil（模型对象无连接池资源）。
 // 仅当 ai.langchaingo 段存在时被 AiRegistry 调度到。
-// 签名与 appkit.AiProvider 结构化兼容，直接注册：
+// 签名与 bootstrap.AiProvider 结构化兼容，直接注册：
 //
-//	ar := appkit.NewAiRegistry()
+//	ar := bootstrap.NewAiRegistry()
 //	ar.MustRegister(langchaincontract.Type, langchaincontract.Provider)
 func Provider(ctx context.Context, cfg *bootstrapv1.Ai) (any, func(), error) {
 	sec := cfg.GetLangchaingo()
@@ -67,5 +67,5 @@ func buildConfig(modelType int32, modelName string, timeoutSec int32, cloud *boo
 	return cc, nil
 }
 
-// 类型守卫：Provider 签名与 appkit.AiProvider 结构化兼容。
+// 类型守卫：Provider 签名与 bootstrap.AiProvider 结构化兼容。
 var _ func(context.Context, *bootstrapv1.Ai) (any, func(), error) = Provider

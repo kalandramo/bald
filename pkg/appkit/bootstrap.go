@@ -79,12 +79,12 @@ type bootstrapSpec struct {
 	logRegistry *baldbootstrap.LogRegistry
 	logFac      loggerFactory // resolveLoggerFactory 的解析结果（非用户 Option）。
 
-	dbRegistry       *DatabaseRegistry
-	cacheRegistry    *CacheRegistry
-	storageRegistry  *StorageRegistry
-	aiRegistry       *AiRegistry
-	workflowRegistry *WorkflowRegistry
-	brokerRegistry   *BrokerRegistry
+	dbRegistry       *baldbootstrap.DatabaseRegistry
+	cacheRegistry    *baldbootstrap.CacheRegistry
+	storageRegistry  *baldbootstrap.StorageRegistry
+	aiRegistry       *baldbootstrap.AiRegistry
+	workflowRegistry *baldbootstrap.WorkflowRegistry
+	brokerRegistry   *baldbootstrap.BrokerRegistry
 
 	tracerRegistry  *TracerRegistry
 	metricsRegistry *MetricsRegistry

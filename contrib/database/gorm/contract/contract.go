@@ -23,9 +23,9 @@ const Type = "sql"
 // Provider 按契约 database.sql 段构造 SQL 客户端。
 // 返回的 cleanup 由 appkit 停机 Effect 回放（数据库连接最后关）。
 // 仅当 database.sql 段存在时被 DatabaseRegistry 调度到。
-// 签名与 appkit.DatabaseProvider 结构化兼容，直接注册：
+// 签名与 bootstrap.DatabaseProvider 结构化兼容，直接注册：
 //
-//	dr := appkit.NewDatabaseRegistry()
+//	dr := bootstrap.NewDatabaseRegistry()
 //	dr.MustRegister(gormcontract.Type, gormcontract.Provider)
 func Provider(ctx context.Context, cfg *bootstrapv1.Database) (any, func(), error) {
 	sec := cfg.GetSql()

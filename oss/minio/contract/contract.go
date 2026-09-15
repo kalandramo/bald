@@ -20,9 +20,9 @@ const Type = "minio"
 // Provider 按契约 storage.minio 段构造 MinIO 客户端与 Storage 门面。
 // 返回的 cleanup 为 nil（minio.Client 无连接池资源，HTTP 传输由 SDK 自管）。
 // 仅当 storage.minio 段存在时被 StorageRegistry 调度到。
-// 签名与 appkit.StorageProvider 结构化兼容，直接注册：
+// 签名与 bootstrap.StorageProvider 结构化兼容，直接注册：
 //
-//	sr := appkit.NewStorageRegistry()
+//	sr := bootstrap.NewStorageRegistry()
 //	sr.MustRegister(miniocontract.Type, miniocontract.Provider)
 func Provider(ctx context.Context, cfg *bootstrapv1.Storage) (any, func(), error) {
 	sec := cfg.GetMinio()
@@ -43,5 +43,5 @@ func Provider(ctx context.Context, cfg *bootstrapv1.Storage) (any, func(), error
 	return client, nil, nil
 }
 
-// 类型守卫：Provider 签名与 appkit.StorageProvider 结构化兼容。
+// 类型守卫：Provider 签名与 bootstrap.StorageProvider 结构化兼容。
 var _ func(context.Context, *bootstrapv1.Storage) (any, func(), error) = Provider

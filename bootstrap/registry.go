@@ -1,10 +1,19 @@
 // Package bootstrap 实现启动装配层：把配置契约（bconf）翻译为可运行组件
-// （配置源、日志、服务器），原名 bconfinit——因实际 scope 覆盖三个 Registry
-// （配置源/日志/服务器）而非仅 conf，2026-09-05 更名 bootstrap。
+// （配置源、日志、服务器、数据/缓存/存储/AI/工作流/消息代理客户端），
+// 原名 bconfinit——因实际 scope 超出 conf，2026-09-05 更名 bootstrap；
+// 2026-09-15 六域客户端 Registry（Database/Cache/Storage/Ai/Workflow/Broker）
+// 自 pkg/appkit 迁入——「契约段 → 实例」的工厂与注册表归装配层（bootstrap），
+// 实例的运行期编排（Option 桥接/Effect/停机序）归组合层（appkit）。
 //
-// 职责：读契约 → 建 provider/组件 → 装配产出（Layer 层列表、Logger、Server）。
+// 职责：读契约 → 建 provider/组件 → 装配产出（Layer 层列表、Logger、Server、
+// 域客户端实例表）。
 // 设计原则：显式注册，不用 init() + blank import——主程序在 main() 里
 // 逐个调用 [Registry.MustRegister]，注册序即层优先级，依赖图全程可见。
+//
+// 归位判别（新插件初始化落点）：产物仅是「契约段 → 实例」的构造（仅依赖
+// bconf/标准库）→ Registry 放本包；产物需进入运行期编排（依赖根模块包、
+// 挂 Effect/Component、存 AppKit 字段）→ 注册表放 pkg/appkit（如
+// RegistrarRegistry 依赖 pkg/registry、Tracer/MetricsRegistry 依赖 otel）。
 //
 // 依赖方向：
 //
