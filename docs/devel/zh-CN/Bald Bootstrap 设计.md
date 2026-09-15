@@ -11,8 +11,14 @@ bootstrap 是 bald 的启动装配层：读取 bconf 契约（`BootstrapConfig`�
 Config/Logger/Server 三段声明翻译为可运行组件——配置源层列表、日志 Logger、
 协议服务器列表。整个模块只有一个核心承诺：**装配的每一步都发生在你自己的代码
 里，依赖图全程可见**。为此我们放弃了 go-wind 的 blank import + `init()` 自注册，
-选择三个显式 Registry（配置源/日志/服务器），注册序即优先级，失败即栈式回滚，
+选择显式 Registry（配置源/日志/服务器 + 六域客户端 Database/Cache/Storage/Ai/
+Workflow/Broker），注册序即优先级，失败即栈式回滚，
 cleanup 责任归构造方。本文论证这套设计及被放弃的备选。
+
+> 2026-09-15 增量：六域客户端 Registry（Database/Cache/Storage/Ai/Workflow/
+> Broker）自 pkg/appkit 迁入本模块——「契约段 → 实例」的工厂与注册表归装配层，
+> 实例的运行期编排（With\* Option 桥接/Effect/停机序/AppKit 字段与访问器）留
+> appkit。判定规则见 §「与 appkit 的协作」与 `registry.go` 包注释。
 
 本文是 bootstrap 模块的完整专文。配置系统的三环总览见
 《[Bald 配置系统设计.md](Bald 配置系统设计.md)》§3，源层接口契约见
@@ -68,6 +74,7 @@ bootstrap 按契约的三个顶层段提供三套独立的 Registry/Provider/Bui
 | `Registry`（config 源） | `Config` | **级联**：注册序即层优先级，列表首最高 | `[]config.Layer` + cleanup |
 | `LogRegistry` | `Logger` | **单选广播**：`backends[]` 逐项查表，MultiLogger 广播 | `log.Logger` + cleanup |
 | `ServerRegistry` | `Server` | **多选**：每个 provider 自查契约段，配了就建 | `[]transport.Server` + cleanup |
+| 六域客户端 Registry（2026-09-15 自 appkit 迁入） | `Database`/`Cache`/`Storage`/`Ai`/`Workflow`/`Broker` | **多段并存**：optional 段集合，每段各自构建、全部返回 | `map[段名]any` 实例表 + cleanup |
 
 三种语义刻意不同，各自对齐组件的本质：配置源是**有序覆盖**关系（apollo 的值
 覆盖 etcd 的值，叠加成一棵树）；日志后端是**并列分流**关系（同一条日志复制到
@@ -336,12 +343,15 @@ bootstrap 不感知 appkit。appkit 的 `FromBootstrap` 是本模块的第一个
 《[AppKit FromBootstrap 约定装配.md](AppKit FromBootstrap 约定装配.md)》。
 
 **模块归属分界：启动必需品归 bootstrap，业务运行期资源归 appkit。** 本模块
-只装 Config/Logger/Server 三段，不是能力不够，是分界使然：没有配置拿不到
+原本只装 Config/Logger/Server 三段，不是能力不够，是分界使然：没有配置拿不到
 参数、没有日志无法观测启动期、没有服务器进程没有存在意义——三者缺一，
-Build 就该失败。appkit 侧的九类业务 Registry（Database/Cache/Storage/Ai/
-Broker/Workflow/Tracer/Metrics/Registrar）管业务运行期的资源接线，经
-`With*Registry` 显式装配、生命周期挂 Effect 逆序回放。判定口诀：**问「进程
-能不能没有它起来」**——能，就归 appkit；不能，才考虑进 bootstrap。
+Build 就该失败。2026-09-15 起，六域客户端 Registry（Database/Cache/Storage/
+Ai/Workflow/Broker，仅依赖 bconf 契约）也归本模块——它们的本质同样是「契约段
+→ 实例」的构造期工厂；appkit 保留 `With*Registry` Option、阶段 B 调 Build、
+实例存 AppKit 字段与访问器、cleanup 挂 Effect 逆序回放。仍留 appkit 的三类
+Registry（Tracer/Metrics/Registrar）因依赖根模块包（otel、pkg/registry），
+迁入会造成循环依赖。判定口诀：**问「产物是不是纯契约段 → 实例的构造」**——
+是且仅依赖 bconf/标准库，归 bootstrap；需要根模块包或运行期编排，归 appkit。
 （appkit 曾预置全局插件注册表 + `init()` 自注册范式，与本模块的显式装配
 哲学矛盾且产品代码零消费，已删除，见 `pkg/appkit/registry.go` 包注释。）
 

@@ -114,13 +114,13 @@ app, err := appkit.FromBootstrap(bootstrap,
 )
 
 // 数据库客户端（阶段 B 装配，Run 后取用；类型安全在消费侧恢复）：
-//   dr := appkit.NewDatabaseRegistry()
+//   dr := bootstrap.NewDatabaseRegistry()            // ← Registry 在 bootstrap（2026-09-15 迁入）
 //   dr.MustRegister(gormcontract.Type, gormcontract.Provider)    // "sql"
 //   dr.MustRegister(mongocontract.Type, mongocontract.Provider)  // "mongodb"
 //   cli := app.Database(gormcontract.Type).(*gormcrud.Client)    // ← 业务断言
 
 // 缓存实例（与 DatabaseRegistry 同模式）：
-//   cr := appkit.NewCacheRegistry()
+//   cr := bootstrap.NewCacheRegistry()
 //   cr.MustRegister(localcontract.Type, localcontract.Provider)  // "local"（freecache）
 //   cr.MustRegister(rediscontract.Type, rediscontract.Provider)  // "redis"（自建 client，cleanup 关连接池）
 //   c := app.Cache(rediscontract.Type).(cache.Cache)             // ← 业务断言
