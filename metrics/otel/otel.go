@@ -53,7 +53,7 @@ type config struct {
 func defaultConfig() *config {
 	return &config{
 		endpoint:       "localhost:4317",
-		serviceName:    "go-wind-service",
+		serviceName:    "bald-app",
 		serviceVersion: "v0.0.1",
 		insecure:       false,
 		useHTTP:        false,

@@ -1,5 +1,5 @@
 // Package metrics defines the metrics-reporting abstractions for the
-// go-wind framework.
+// bald framework.
 //
 // It provides a minimal, engine-agnostic interface for recording application
 // metrics. Concrete implementations (Prometheus, OpenTelemetry, Datadog, etc.)
