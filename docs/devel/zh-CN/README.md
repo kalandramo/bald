@@ -19,6 +19,7 @@
 - [认证与授权抽象设计](./认证与授权抽象设计.md)：P7 双接口——pkg/authn 认证抽象（Authenticator/AuthClaims）+ pkg/authz 授权抽象（Authorizer），零引擎耦合、桥接子模块外置，P9 归一化使 REST/gRPC 共用同一策略空间。
 - [审计抽象设计](./审计抽象设计.md)：pkg/audit 零后端耦合的旁路审计——Auditor/AuditEvent/全局注入点，审计三元组与 P9 归一化同源，永不阻断业务请求。
 - [指标抽象设计](./指标抽象设计.md)：pkg/metrics 可观测性第三支柱——otel 默认 no-op、与审计同源 emit，覆盖量/延迟/错误率三要素。
+- [Bald 指标埋点后端设计](./Bald%20指标埋点后端设计.md)：顶层 metrics/ 子模块（传输级三原语 Metrics 接口 + prometheus/otel/datadog 三后端）——与 pkg/metrics 双体系对照、六传输 WithMetrics 埋点清单、零 tag 未发版事实；含严格代码比对得出的已知缺陷清单（prometheus 无锁 race、Gauge Set/Add 跨后端语义分歧等）与发版 checklist。
 - [校验设计](./校验设计.md)：pkg/validation 按请求类型名分发的 Validate 方法约定 + 规则式轻量校验，与 proto buf.validate 注解互补。
 - [上下文契约设计](./上下文契约设计.md)：pkg/contextx 请求级元信息五个标准键（user/username/trace_id/request_id/tenant_id）的统一存取。
 - [测试工具设计](./测试工具设计.md)：pkg/testkit e2e 复用工具的收编（P13），如 FreeAddr。
