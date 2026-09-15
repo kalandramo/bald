@@ -230,12 +230,14 @@ gateway 不是独立服务器，而是 `server.http` 段的一种模式，由契
   变更，shutdown 挂 Effect）。
 - **配套修复（v0.2.1）**：`pkg/metrics` instruments 改惰性创建（首次
   Record 时绑 meter）——根治 OTel global 语义下 SetMeterProvider 前构造
-  的 instrument 永久 noop（详见《指标抽象设计》§6）。
+  的 instrument 永久 noop（详见《Bald 指标设计》「惰性 instruments」）。
 - **云端终验（2026-09-12，Insight DCE 5.0）**：collector
   `10.82.138.249:32414` 直推双通道全通——VictoriaMetrics 见
   `bald_requests_total{job="go-bald-admin"}`（OTLP→Prometheus 的
-  `service.name`→`job` 标签映射），Jaeger 见 `POST /v1/login` span
-  （`http.status_code=401` 完整保留）。export 零错误。
+  `service.name`→`job` 标签映射；**2026-09-15 semconv 对齐后该指标已退役**，
+  现行查 `bald_audit_events_total` / `http_server_request_duration_seconds`），
+  Jaeger 见 `POST /v1/login` span（`http.status_code=401` 完整保留）。
+  export 零错误。
 
 ## 示例改造结果（_example/bald）
 
