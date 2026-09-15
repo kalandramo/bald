@@ -1,8 +1,11 @@
 # Bald Bootstrap 设计
 
 > Title: bootstrap——把契约翻译为可运行组件的显式装配层
-> Author(s): kalandramo
+>
+> Author(s): bald 团队
+>
 > Last updated: 2026-09-14
+>
 > Status: Accepted（对应实现 `bootstrap` module，tag `bootstrap/v0.6.0`）
 
 ## 摘要

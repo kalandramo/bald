@@ -14,7 +14,7 @@
 - [AppKit 日志装配设计](./AppKit%20日志装配设计.md)：AppKit 侧日志装配策略——两级工厂分发（WithLogRegistry 机制全权 / 默认纯函数零依赖）的使用场景、nil 双语义（机制层 fail-fast vs 阶段 A 回退）、装饰器 deco 生效范围分级、四分派、脱敏单层保证的结构性机制。
 - [路由注册与绑定设计](./路由注册与绑定设计.md)：路由注册由业务用 gin 编写，pkg/web 提供强绑定 gin 的泛型绑定/校验/响应流水线，路径变量用 uri tag。
 - [grpc-gateway 配置与 transcoding](./grpc-gateway%20配置与%20transcoding.md)：proto + google.api.http 注解、buf generate 生成、接线到 server.NewGRPCServerWithRegister / NewGatewayServer，gin 与 grpc-gateway 复用同一 biz 层。
-- [错误模型设计](./错误模型设计.md)：pkg/berrors 零依赖核心错误类型，grpcerr（gRPC）/httperr（HTTP）两个对等桥接子包，不可变 builder 与双向传输闭环。
+- [Bald 错误模型设计](./Bald%20错误模型设计.md)：berrors module 专属展开——传输中立 Error（Code/Reason/Message/Details + cause/栈）、不可变 builder、按 Reason 匹配的 Is、构造即捕获栈；grpcerr（gRPC 双向 + ErrorInfo）/httperr（17 码 HTTP 投影）对等桥接子包；google.rpc.Status JSON 三面一份契约；决策①~⑨ 含 2026-09-15 合并评估否决（并入自原《错误模型设计》）。
 - [认证与授权抽象设计](./认证与授权抽象设计.md)：P7 双接口——pkg/authn 认证抽象（Authenticator/AuthClaims）+ pkg/authz 授权抽象（Authorizer），零引擎耦合、桥接子模块外置，P9 归一化使 REST/gRPC 共用同一策略空间。
 - [审计抽象设计](./审计抽象设计.md)：pkg/audit 零后端耦合的旁路审计——Auditor/AuditEvent/全局注入点，审计三元组与 P9 归一化同源，永不阻断业务请求。
 - [指标抽象设计](./指标抽象设计.md)：pkg/metrics 可观测性第三支柱——otel 默认 no-op、与审计同源 emit，覆盖量/延迟/错误率三要素。

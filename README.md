@@ -212,15 +212,15 @@ web.HandleAllRequest[articleReq, articleResp](c,
 `web.ErrorResponse` 与错误模型通过 `berrors` 衔接：
 
 ```go
-// pkg/berrors 的错误经 httperr 子包还原状态码（核心包不挂 StatusCode 方法，避免循环依赖）：
+// berrors 的错误经 httperr 子包还原状态码（核心包不挂 StatusCode 方法，避免循环依赖）：
 werr, ok := errors.FromError(err)   // 拆链还原为 *errors.Error
 status := httperr.StatusCode(werr)  // 由 Code（gRPC code）映射到 HTTP 状态码
 ```
 
 - 能被 `errors.FromError` 还原的错误取 `httperr.StatusCode()`；无法还原的统一 `500`。
-- `pkg/berrors.Error` 通过 `WithCause` 包装底层错误，`FromError` 会**拆链**命中正确状态码，被 `fmt.Errorf("wrap: %w", err)` 包裹的错误也不会误落 500。
+- `berrors.Error` 通过 `WithCause` 包装底层错误，`FromError` 会**拆链**命中正确状态码，被 `fmt.Errorf("wrap: %w", err)` 包裹的错误也不会误落 500。
 
-## 错误模型（pkg/berrors）
+## 错误模型（berrors module）
 
 零依赖（仅标准库）的 `berrors.Error`：传输中立的错误模型，跨服务边界只做"转换"，不绑定具体协议（gRPC 映射在 `grpcerr`、HTTP 映射在 `httperr` 两个边界子包）。
 
@@ -243,12 +243,12 @@ back := grpcerr.FromStatus(st)         // *berrors.Error
 
 | 特性 | 说明 |
 |------|------|
-| **代码-原因分离** | `Code`（HTTP 状态码，与 gRPC `codes.Code` 1:1，但零 gRPC 依赖）、`Reason`（稳定可枚举标识，如 `ORDER_NOT_FOUND`，`Is` 按它匹配）、`Message`（给人看）、`Details`（i18n 动态变量） |
+| **代码-原因分离** | `Code`（传输中立 `uint32`，与 gRPC `codes.Code` 1:1，零 gRPC 依赖；HTTP 状态码由 `httperr` 子包投影）、`Reason`（稳定可枚举标识，如 `ORDER_NOT_FOUND`，`Is` 按它匹配）、`Message`（给人看）、`Details`（i18n 动态变量） |
 | **不可变 builder** | `WithMessage` / `WithCause` / `WithDetails` 返回新实例，原哨兵（sentinel）不被污染，可安全并发共享 |
 | **错误链完整** | 内嵌 `cause` + 调用栈，`errors.Is/As/Unwrap` 原生可用 |
-| **HTTP/gRPC 双栈** | `http.go` 提供 `BadRequest/Unauthorized/NotFound/...` 构造器；`grpcerr` 子包做 `ToStatus/FromStatus` 桥接 |
+| **HTTP/gRPC 双栈** | `code.go` 提供 `BadRequest/NotFound/Internal/...` 11 个构造器；`grpcerr` 子包做 `ToStatus/FromStatus` 桥接，`httperr` 子包做状态码双向映射 |
 
-状态码常量见 `pkg/berrors/code.go`（如 `CodeBadRequest=400`、`CodeNotFound=404`、`CodeInternal=500`），与 gRPC `codes.Code` 一一对应。
+状态码常量见 `bald/berrors/code.go`（`CodeInvalidArgument=3`、`CodeNotFound=5`、`CodeInternal=13`，与 gRPC `codes.Code` 一一对应；HTTP 投影见 `httperr.CodeToHTTP`，如 5→404）。
 
 ## 生命周期与关键契约
 
@@ -303,10 +303,10 @@ go test ./...
   [`docs/config-center-design.md`](docs/config-center-design.md)。
 - 日志设计（Options 多源配置、FilterKey 脱敏、ContextWithAttrs 日志属性）：
   [`docs/log-design.md`](docs/log-design.md)。
-- 路由注册与绑定设计（Router 分组/中间件链、多源绑定顺序、泛型流水线、统一响应、pkg/berrors 契约）：
+- 路由注册与绑定设计（Router 分组/中间件链、多源绑定顺序、泛型流水线、统一响应、berrors 错误契约）：
   [`docs/devel/zh-CN/路由注册与绑定设计.md`](docs/devel/zh-CN/路由注册与绑定设计.md)。
-- 错误模型设计（WindError 字段、代码-原因分离、不可变 builder、HTTP/gRPC 双栈桥接）：
-  [`docs/devel/zh-CN/错误模型设计.md`](docs/devel/zh-CN/错误模型设计.md)。
+- 错误模型设计（传输中立 Error、不可变 builder、HTTP/gRPC 双栈桥接、三面一份错误契约）：
+  [`docs/devel/zh-CN/Bald 错误模型设计.md`](docs/devel/zh-CN/Bald%20错误模型设计.md)。
 
 ## 可运行示例与目录分工
 
@@ -339,7 +339,7 @@ bald gen app --spec appspec.json   # AppSpec 方言驱动（P12 第二步，name
 - 远程配置中心接入（etcd / nacos，通过 `config.FromKratosSource` 桥接，远程作基准、本地覆盖）；
 - `OnConfigChange` 内热重载与 `BeforeStart` 取配置反序列化；
 - **路由**：业务直接用 `gin.Engine` 经 `server.NewHTTPServer` 挂载，自行注册路由（含 CORS 中间件、URI/JSON/多源绑定、`HandleAllRequest` 校验器）；
-- **`pkg/berrors` 错误**：业务 handler 用 `berrors.BadRequest(...).WithMessage(...)` 返回结构化错误，由 `web` 的 `ErrorResponse` 自动映射 HTTP 状态码与 `ErrorBody`。
+- **`berrors` 错误**：业务 handler 用 `berrors.BadRequest(...).WithMessage(...)` 返回结构化错误，由 `web` 的 `ErrorResponse` 自动映射 HTTP 状态码与统一错误响应体（`StatusBody`）。
 
 示例路由（服务起来后可直接 curl 验证）：
 
