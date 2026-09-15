@@ -166,9 +166,11 @@ func (r *LogRegistry) names() []string {
 // 契约补齐）：output_paths 非空优先生效，为空回退单值 output_path，都空保留
 // 默认 stdout；rotate 段零值字段回退 bslog 默认（100MB/7 份/30 天/gzip）。
 // Slog 段缺失时回退 Options 默认值（stdout + info）。
+// cleanup 关闭文件与 lumberjack 句柄（缓冲冲刷落盘、热更新重建不泄漏）。
 func BslogLoggerProvider() LoggerProvider {
 	return func(_ context.Context, b *bootstrapv1.Logger_Backend) (log.Logger, func(), error) {
-		return bslog.New(LogOptions(b)), nil, nil
+		l, cleanup := bslog.NewWithCleanup(LogOptions(b))
+		return l, cleanup, nil
 	}
 }
 

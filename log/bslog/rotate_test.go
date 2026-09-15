@@ -1,7 +1,7 @@
 package bslog
 
 import (
-	"io"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -30,10 +30,8 @@ func TestNewRotateWriterWritesToFile(t *testing.T) {
 		t.Fatalf("write failed: %v", err)
 	}
 	// lumberjack 缓冲需 Close 触发落盘。
-	if c, ok := w.(io.Closer); ok {
-		if err := c.Close(); err != nil {
-			t.Fatalf("close failed: %v", err)
-		}
+	if err := w.Close(); err != nil {
+		t.Fatalf("close failed: %v", err)
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -51,10 +49,14 @@ func TestOpenWriterUsesRotateForFilePath(t *testing.T) {
 	o.OutputPaths = []string{filepath.Join(dir, "rot.log")}
 	o.Rotate.Enabled = true
 
-	var w io.Writer = openWriter(o)
+	w, closers := openWriter(o)
 	if _, ok := w.(*lumberjack.Logger); !ok {
 		t.Fatalf("expected *lumberjack.Logger for file path with rotation enabled, got %T", w)
 	}
+	if len(closers) != 1 {
+		t.Fatalf("rotation writer should be collected for cleanup, got %d closers", len(closers))
+	}
+	_ = closers[0].Close()
 }
 
 // TestOpenWriterDirectFileWhenRotationDisabled 验证关闭轮转时文件路径仍直写 os.File。
@@ -64,12 +66,14 @@ func TestOpenWriterDirectFileWhenRotationDisabled(t *testing.T) {
 	o.OutputPaths = []string{filepath.Join(dir, "plain.log")}
 	// Rotate 默认 Enabled=false。
 
-	w := openWriter(o)
-	f, ok := w.(*os.File)
-	if !ok {
+	w, closers := openWriter(o)
+	if _, ok := w.(*os.File); !ok {
 		t.Fatalf("expected *os.File for file path without rotation, got %T", w)
 	}
-	defer f.Close()
+	if len(closers) != 1 {
+		t.Fatalf("direct file handle should be collected for cleanup, got %d closers", len(closers))
+	}
+	_ = closers[0].Close()
 }
 
 // TestOpenWriterCreatesMissingParentDir 验证直写路径自动创建缺失的嵌套父目录
@@ -84,11 +88,11 @@ func TestOpenWriterCreatesMissingParentDir(t *testing.T) {
 	o := NewOptions()
 	o.OutputPaths = []string{path}
 
-	w := openWriter(o)
+	w, closers := openWriter(o)
 	if _, err := w.Write([]byte("hello\n")); err != nil {
 		t.Fatalf("write failed: %v", err)
 	}
-	if c, ok := w.(io.Closer); ok {
+	for _, c := range closers {
 		_ = c.Close()
 	}
 	data, err := os.ReadFile(path)
@@ -97,5 +101,31 @@ func TestOpenWriterCreatesMissingParentDir(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "hello") {
 		t.Fatalf("unexpected content: %q", data)
+	}
+}
+
+// TestNewWithCleanupReleasesFileHandles cleanup 关闭自有文件句柄——
+// Windows 上未关句柄会让 TempDir/RemoveAll 删除失败（生产影响：lumberjack
+// 缓冲不落盘、热更新重建后端泄漏句柄）。
+func TestNewWithCleanupReleasesFileHandles(t *testing.T) {
+	dir := t.TempDir()
+	o := NewOptions()
+	o.OutputPaths = []string{filepath.Join(dir, "app.log")}
+	o.Rotate.Enabled = true
+
+	l, cleanup := NewWithCleanup(o)
+	if l == nil || cleanup == nil {
+		t.Fatal("NewWithCleanup() returned nil logger or nil cleanup")
+	}
+	l.Info(context.Background(), "flush-on-close", "k", "v")
+	cleanup()
+
+	data, err := os.ReadFile(filepath.Join(dir, "app.log"))
+	if err != nil || !strings.Contains(string(data), "flush-on-close") {
+		t.Fatalf("cleanup should flush buffered writes: (%s, %v)", data, err)
+	}
+	// 句柄已关：目录可删（Windows 上未关句柄导致 RemoveAll 失败）。
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatalf("RemoveAll after cleanup should succeed: %v", err)
 	}
 }

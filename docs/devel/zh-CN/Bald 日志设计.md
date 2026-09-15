@@ -114,14 +114,16 @@ type Options struct {
 	Rotate      *RotateOptions // lumberjack：MaxSize=100MB, MaxBackups=7, MaxAge=30d, Compress=true
 }
 // NewOptions / AddFlags(--log.level 等全套) / Validate
-// New(o *Options, opts ...Option) log.Logger
+// New(o *Options, opts ...Option) log.Logger            // 丢弃 cleanup（进程退出 OS 兜底）
+// NewWithCleanup(o *Options, opts ...) (log.Logger, func()) // 关闭文件/轮转句柄（装配层用）
 ```
 
-三条行为边界，均为实测踩坑后确定：
+四条行为边界，均为实测踩坑后确定：
 
 1. **配置非法回退 info，不 panic**——级别写错不值得崩进程；
 2. **文件路径先自动创建缺失父目录，打开仍失败才回退 stdout**——直写与轮转两路径行为对称；可观测性不因一个路径问题全丢；
-3. **多目标 errgroup 并发写**，但为**复制分流**（每个目标收全量日志），不支持按级别分流到不同文件。
+3. **多目标 errgroup 并发写**，但为**复制分流**（每个目标收全量日志），不支持按级别分流到不同文件；
+4. **文件与 lumberjack 句柄经 `NewWithCleanup` 返回的 cleanup 释放**（`New` 丢弃它）——lumberjack 缓冲需 Close 触发落盘，不关则停机丢尾批、热更新重建后端泄漏句柄；`BslogLoggerProvider` 与 appkit 默认路径均走 `NewWithCleanup`（Windows 上 `t.TempDir` 对未关句柄删除失败，是该缺陷的暴露面）。
 
 扩展点分两层。**bslog 的 `Option`**：`WithFilter(FilterKey("password"))` 精细脱敏（任意 `slog.Attr→slog.Attr` 变换函数）、`WithAttrs` 固定属性、`WithHandler`/`WithOTelHandler` 换底层 handler——均为 bslog 特有，其余五后端无对应（条目结构由各家 SDK 决定，无中间 handler 层可插）。**契约层 `NewFilterLogger(l, keys...)`**：全后端通用的脱敏装饰器，命中 key 的值统一掩码为 `***`（属性保留不丢弃），覆盖调用参数、`With` 派生属性、ctx 属性流三类来源；配置驱动（契约 `logger.filter_keys`，单选与 backends 全部后端统一生效，宁全勿漏——远端可检索平台恰是外泄风险最高处），留空零开销直通。两套并存按需选择：配置驱动全后端用 filter_keys，代码驱动仅 slog 的精细变换用 `WithFilter`。bslog 脱敏的实现细节：slog 把 `WithAttrs` 固化的属性交给内层 handler 在 `Handle` 阶段直接合并，会绕过外层装饰器——`filterHandler.WithAttrs` 必须**先过滤再下沉**，否则 `logger.With("password", ...)` 的脱敏静默失效。
 

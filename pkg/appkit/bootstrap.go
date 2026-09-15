@@ -756,7 +756,8 @@ func resolveLoggerFactory(s *bootstrapSpec) loggerFactory {
 		return func(ctx context.Context, l *bootstrapv1.Logger) (log.Logger, func(), error) {
 			if l == nil {
 				// 阶段 A（契约装载前）：回退默认 bslog，保证启动日志可见。
-				return bslog.New(baldbootstrap.LogOptions(nil), deco...), nil, nil
+				lg, c := bslog.NewWithCleanup(baldbootstrap.LogOptions(nil), deco...)
+				return lg, c, nil
 			}
 			return reg.BuildLogger(ctx, l)
 		}
@@ -787,9 +788,12 @@ func defaultLoggerFactory(deco []bslog.Option) loggerFactory {
 			return nil, nil, fmt.Errorf("appkit: logger.backends is empty (declare at least one backend, e.g. type \"slog\")")
 		}
 		loggers := make([]log.Logger, 0, len(bs))
+		var cleanups []func()
 		for i, b := range bs {
 			if b.GetType() == "slog" {
-				loggers = append(loggers, bslog.New(baldbootstrap.LogOptions(b), deco...))
+				lg, c := bslog.NewWithCleanup(baldbootstrap.LogOptions(b), deco...)
+				loggers = append(loggers, lg)
+				cleanups = append(cleanups, c)
 				continue
 			}
 			return nil, nil, fmt.Errorf("appkit: logger.backends[%d] type %q: default path supports only \"slog\";\n"+
@@ -804,8 +808,14 @@ func defaultLoggerFactory(deco []bslog.Option) loggerFactory {
 		if len(loggers) > 1 {
 			out = log.NewMultiLogger(loggers...)
 		}
-		// slog 无需清理，noop 保持 cleanup 恒非 nil 契约（与 BuildLogger 对齐）。
-		return log.NewFilterLogger(out, l.GetFilterKeys()...), func() {}, nil
+		// cleanup 按构造序正放释放各 slog 项的文件/轮转句柄（lumberjack 缓冲
+		// 冲刷落盘、热更新重建不泄漏——与 BuildLogger 出口对齐，恒非 nil）。
+		merged := func() {
+			for _, c := range cleanups {
+				c()
+			}
+		}
+		return log.NewFilterLogger(out, l.GetFilterKeys()...), merged, nil
 	}
 }
 

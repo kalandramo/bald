@@ -61,12 +61,28 @@ func withWriter(w io.Writer) Option {
 // New 基于标准库 log/slog 构造一个开箱即用的 Logger 后端。
 // 当 opts 未提供 WithHandler 时，按 Options 的 Level/Format/OutputPaths 构造
 // console 或 json handler 并输出到 stdout（或文件）。
+//
+// 本函数丢弃 cleanup（文件与 lumberjack 句柄不随返回释放，进程退出由 OS
+// 兜底）——需要确定性释放的装配路径（停机冲刷缓冲、热更新重建后端）用
+// [NewWithCleanup]。
 func New(o *Options, opts ...Option) log.Logger {
+	l, _ := NewWithCleanup(o, opts...)
+	return l
+}
+
+// NewWithCleanup 构造 Logger 并返回资源释放函数：按打开序关闭自有文件与
+// lumberjack 句柄（lumberjack 缓冲需 Close 触发落盘——不关则停机丢尾批、
+// 热更新重建后端时泄漏句柄）。
+//
+// cleanup 恒非 nil；外部注入 handler 或 writer（WithHandler / 测试 withWriter）
+// 时无自有句柄，cleanup 为空操作——注入资源的生命周期归注入者。
+func NewWithCleanup(o *Options, opts ...Option) (log.Logger, func()) {
 	cfg := &config{}
 	for _, opt := range opts {
 		opt(cfg)
 	}
 
+	var closers []io.Closer
 	var h slog.Handler
 	if cfg.handler != nil {
 		h = cfg.handler
@@ -78,7 +94,7 @@ func New(o *Options, opts ...Option) log.Logger {
 		}
 		w := cfg.writer
 		if w == nil {
-			w = openWriter(o)
+			w, closers = openWriter(o)
 		}
 		handlerOpts := &slog.HandlerOptions{Level: level}
 		if o.Format == "json" {
@@ -97,14 +113,21 @@ func New(o *Options, opts ...Option) log.Logger {
 		h = h.WithAttrs(cfg.attrs)
 	}
 
-	return &slogLogger{slog: slog.New(h)}
+	cleanup := func() {
+		for _, c := range closers {
+			_ = c.Close()
+		}
+	}
+	return &slogLogger{slog: slog.New(h)}, cleanup
 }
 
-// openWriter 按 Options 的 OutputPaths 与 Rotate 选择写入目标。多目标时全部写入；
-// 任一路径非法不影响其余目标（首个文件打开失败时回退 stdout）。
+// openWriter 按 Options 的 OutputPaths 与 Rotate 选择写入目标，并收集需要
+// 释放的自有句柄（stdout/stderr 是进程生命周期句柄，不收集）。多目标时全部
+// 写入；任一路径非法不影响其余目标（首个文件打开失败时回退 stdout）。
 // 当某路径为文件路径且 Rotate.Enabled 时，用 lumberjack 接管轮转（切割/清理/gzip）。
-func openWriter(o *Options) io.Writer {
+func openWriter(o *Options) (io.Writer, []io.Closer) {
 	var ws []io.Writer
+	var closers []io.Closer
 	for _, p := range o.OutputPaths {
 		switch p {
 		case "stdout":
@@ -114,7 +137,9 @@ func openWriter(o *Options) io.Writer {
 		default:
 			// 文件路径：启用轮转时用 lumberjack，否则 os.OpenFile 直写。
 			if o.Rotate != nil && o.Rotate.Enabled {
-				ws = append(ws, newRotateWriter(p, o.Rotate))
+				lj := newRotateWriter(p, o.Rotate)
+				ws = append(ws, lj)
+				closers = append(closers, lj)
 				continue
 			}
 			// 先建父目录：lumberjack 首写时会 MkdirAll，直写路径对齐
@@ -130,22 +155,24 @@ func openWriter(o *Options) io.Writer {
 				continue
 			}
 			ws = append(ws, f)
+			closers = append(closers, f)
 		}
 	}
 	if len(ws) == 0 {
-		return os.Stdout
+		return os.Stdout, nil
 	}
 	if len(ws) == 1 {
-		return ws[0]
+		return ws[0], closers
 	}
 	// 多目标：并发写入，任一失败不影响其余。
-	return multiWriter(ws)
+	return multiWriter(ws), closers
 }
 
 // newRotateWriter 基于 lumberjack 构造支持轮转的文件 writer。
+// 返回具体类型以暴露 Close（装配层 cleanup 经 io.Closer 收集释放，缓冲落盘）。
 // lumberjack.Logger 实现 io.Writer，可被 slog 的 Handler 直接消费；
 // 切割/备份/清理/压缩由 lumberjack 在写入时按需触发。
-func newRotateWriter(path string, r *RotateOptions) io.Writer {
+func newRotateWriter(path string, r *RotateOptions) *lumberjack.Logger {
 	return &lumberjack.Logger{
 		Filename:   path,
 		MaxSize:    r.MaxSize, // MB
