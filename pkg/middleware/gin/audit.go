@@ -2,6 +2,8 @@ package gin
 
 import (
 	"context"
+	"net"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -80,6 +82,14 @@ func AuditMiddleware(opts ...AuditOption) gin.HandlerFunc {
 	}
 	return func(c *gin.Context) {
 		start := time.Now()
+		// 协议维度（semconv v1.43.0）：请求开始即可得（gin Use 中间件在路由
+		// 匹配后执行，FullPath 非空；404 走 NoRoute 不经此链）。
+		reqInfo := requestInfo(c)
+		// http.server.active_requests：在途数 +1，请求结束 defer -1。
+		emitActiveSafely(rec, c.Request.Context(), metrics.Event{Request: reqInfo}, metrics.TransportHTTP, +1)
+		defer func() {
+			emitActiveSafely(rec, c.Request.Context(), metrics.Event{Request: reqInfo}, metrics.TransportHTTP, -1)
+		}()
 		c.Next()
 		subject, tenant := subjectTenant(c, cfg)
 		object, action := objectAction(c, cfg)
@@ -110,8 +120,16 @@ func AuditMiddleware(opts ...AuditOption) gin.HandlerFunc {
 			ev.Error = c.Errors.ByType(gin.ErrorTypePrivate).String()
 		}
 		recordSafely(auditor, c.Request.Context(), ev)
-		// M8 指标埋点：与审计同源，复用 object/action/result 维度，旁路不阻断。
-		emitMetricsSafely(rec, c.Request.Context(), metrics.Event{Object: object, Action: action, Result: string(ev.Result), Error: ev.Error}, metrics.TransportHTTP, time.Since(start).Seconds())
+		// M8 指标埋点：协议维度走 semconv 指标，审计三元组走 bald_audit_events_total
+		// （正交拆分，见《Bald 指标设计》），旁路不阻断。
+		reqInfo.StatusCode = c.Writer.Status()
+		emitMetricsSafely(rec, c.Request.Context(), metrics.Event{
+			Object:  object,
+			Action:  action,
+			Result:  string(ev.Result),
+			Error:   ev.Error,
+			Request: reqInfo,
+		}, metrics.TransportHTTP, time.Since(start).Seconds())
 	}
 }
 
@@ -127,6 +145,54 @@ func emitMetricsSafely(rec metrics.Recorder, ctx context.Context, ev metrics.Eve
 		}
 	}()
 	rec.Record(ctx, ev, transport, seconds)
+}
+
+// emitActiveSafely 在途请求数旁路维护（http.server.active_requests ±1），
+// panic 防护与 emitMetricsSafely 同一纪律。
+func emitActiveSafely(rec metrics.Recorder, ctx context.Context, ev metrics.Event, transport metrics.Transport, delta int64) {
+	if rec == nil {
+		return
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			log.Error(ctx, "metrics active recorder panicked", "panic", r)
+		}
+	}()
+	rec.RecordActive(ctx, ev, transport, delta)
+}
+
+// requestInfo 从 gin 上下文提取协议维度（semconv v1.43.0 对齐）。
+// scheme 只看 TLS（反代终止 TLS 场景记 http——框架不猜 X-Forwarded-Proto）；
+// server.address/port 从 Host 头拆分（可被伪造，仅作 semconv 合规尽力）。
+func requestInfo(c *gin.Context) metrics.RequestInfo {
+	scheme := "http"
+	if c.Request.TLS != nil {
+		scheme = "https"
+	}
+	addr, port := splitHostPort(c.Request.Host)
+	return metrics.RequestInfo{
+		Method:     c.Request.Method,
+		Scheme:     scheme,
+		Template:   c.FullPath(),
+		ServerAddr: addr,
+		ServerPort: port,
+	}
+}
+
+// splitHostPort 拆 "host:port"；无端口时 port 返回 0（属性省略）。
+func splitHostPort(host string) (string, int) {
+	if host == "" {
+		return "", 0
+	}
+	h, p, err := net.SplitHostPort(host)
+	if err != nil {
+		return host, 0
+	}
+	port, err := strconv.Atoi(p)
+	if err != nil {
+		return h, 0
+	}
+	return h, port
 }
 
 func subjectTenant(c *gin.Context, cfg *auditOptions) (string, string) {

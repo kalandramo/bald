@@ -96,6 +96,8 @@ func (s *stubRecorder) Record(_ context.Context, ev metrics.Event, _ metrics.Tra
 	s.records = append(s.records, ev)
 }
 
+func (s *stubRecorder) RecordActive(context.Context, metrics.Event, metrics.Transport, int64) {}
+
 // newFullBundle 构造四层全开的 Bundle（含归一化）。
 // 注意：所有桩必须带 log（缺 log 会让桩内 nil deref panic 被 recordSafely
 // 静默 recover，表现为「audit 不触发」——曾在此踩坑）。

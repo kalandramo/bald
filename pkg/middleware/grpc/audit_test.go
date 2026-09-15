@@ -60,6 +60,8 @@ func (m *metricsMem) Record(_ context.Context, ev metrics.Event, tr metrics.Tran
 	m.records = append(m.records, metricsCall{ev: ev, transport: tr, dur: dur})
 }
 
+func (m *metricsMem) RecordActive(context.Context, metrics.Event, metrics.Transport, int64) {}
+
 func (m *metricsMem) all() []metricsCall {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -199,5 +201,12 @@ func TestAuditInterceptor_MetricsEmitted(t *testing.T) {
 	}
 	if c.dur <= 0 {
 		t.Errorf("duration should be positive, got %v", c.dur)
+	}
+	// 协议维度（semconv v1.43.0）：rpc.method=FullMethod、status=OK(0)。
+	if c.ev.Request.Method != "/admin.v1.SecretService/DeleteSecret" {
+		t.Errorf("rpc method mismatch: %+v", c.ev.Request)
+	}
+	if c.ev.Request.StatusCode != 0 {
+		t.Errorf("grpc status code should be 0 (OK), got %d", c.ev.Request.StatusCode)
 	}
 }

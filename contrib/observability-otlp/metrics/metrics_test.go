@@ -24,7 +24,10 @@ func TestSetup_ExposesBaldMetrics(t *testing.T) {
 	// 通过真实 Recorder（接入 prometheus exporter）记一条指标。
 	rec := Recorder("bald/test")
 	rec.Record(context.Background(),
-		metrics.Event{Object: "secret", Action: "get", Result: "allow"},
+		metrics.Event{
+			Object: "secret", Action: "get", Result: "allow",
+			Request: metrics.RequestInfo{Method: "/pkg.v1.Svc/Get", StatusCode: 0},
+		},
 		metrics.TransportGRPC, 0.012)
 
 	srv := httptest.NewServer(handler)
@@ -37,8 +40,12 @@ func TestSetup_ExposesBaldMetrics(t *testing.T) {
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 	out := string(body)
-	if !strings.Contains(out, "bald_requests_total") {
-		t.Errorf("/metrics missing bald_requests_total:\n%s", out[:min(len(out), 500)])
+	// semconv 对齐后：协议指标 rpc.server.call.duration + 审计指标 bald_audit_events_total。
+	if !strings.Contains(out, "rpc_server_call_duration") {
+		t.Errorf("/metrics missing rpc_server_call_duration:\n%s", out[:min(len(out), 500)])
+	}
+	if !strings.Contains(out, "bald_audit_events_total") {
+		t.Errorf("/metrics missing bald_audit_events_total:\n%s", out[:min(len(out), 500)])
 	}
 	if !strings.Contains(out, `object="secret"`) {
 		t.Errorf("/metrics missing object=\"secret\" label:\n%s", out[:min(len(out), 500)])

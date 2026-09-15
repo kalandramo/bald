@@ -147,8 +147,10 @@ func newOTLPExporter(addr string, insecure *bool, headers map[string]string) (*o
 	return otlpmetrichttp.New(context.Background(), opts...)
 }
 
-// Recorder 返回基于全局 MeterProvider 的真实指标记录器（监听 bald_requests_total /
-// bald_request_duration_seconds）。scope 为 meter 名（通常 "bald" 或 "<service>"）。
+// Recorder 返回基于全局 MeterProvider 的真实指标记录器（emit semconv v1.43.0
+// 协议指标 http.server.request.duration / rpc.server.call.duration /
+// http.server.active_requests + 审计指标 bald_audit_events_total）。scope 为
+// meter 名（通常 "bald" 或 "<service>"）。
 // 须在 Setup 之后调用以接入 exporter。
 func Recorder(scope string) metrics.Recorder {
 	return metrics.New(scope)

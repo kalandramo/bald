@@ -125,6 +125,7 @@ func (panicAuditor) Record(context.Context, audit.AuditEvent) { panic("boom") }
 type metricsMem struct {
 	mu      sync.Mutex
 	records []metricsCall
+	actives []activeCall
 }
 
 type metricsCall struct {
@@ -137,6 +138,18 @@ func (m *metricsMem) Record(_ context.Context, ev metrics.Event, tr metrics.Tran
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.records = append(m.records, metricsCall{ev: ev, transport: tr, dur: dur})
+}
+
+func (m *metricsMem) RecordActive(_ context.Context, ev metrics.Event, tr metrics.Transport, delta int64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.actives = append(m.actives, activeCall{ev: ev, transport: tr, delta: delta})
+}
+
+type activeCall struct {
+	ev        metrics.Event
+	transport metrics.Transport
+	delta     int64
 }
 
 func (m *metricsMem) all() []metricsCall {
@@ -174,5 +187,28 @@ func TestAuditMiddleware_MetricsEmitted(t *testing.T) {
 	}
 	if c.ev.Object != "secret" || c.ev.Action != "get" || c.ev.Result != "allow" {
 		t.Errorf("metric dims mismatch: %+v", c.ev)
+	}
+	// 协议维度（semconv v1.43.0）：method/scheme/template/status。
+	if c.ev.Request.Method != http.MethodGet {
+		t.Errorf("http method mismatch: %+v", c.ev.Request)
+	}
+	if c.ev.Request.Scheme != "http" {
+		t.Errorf("scheme mismatch: %+v", c.ev.Request)
+	}
+	if c.ev.Request.Template != "/v1/secret/:id" {
+		t.Errorf("url template mismatch: %+v", c.ev.Request)
+	}
+	if c.ev.Request.StatusCode != http.StatusOK {
+		t.Errorf("status code mismatch: %+v", c.ev.Request)
+	}
+	// active_requests：+1 与 -1 各一次（净 0）。
+	m.mu.Lock()
+	actives := append([]activeCall(nil), m.actives...)
+	m.mu.Unlock()
+	if len(actives) != 2 {
+		t.Fatalf("want 2 active calls (+1/-1), got %d", len(actives))
+	}
+	if actives[0].delta != 1 || actives[1].delta != -1 {
+		t.Errorf("active deltas: want +1/-1, got %d/%d", actives[0].delta, actives[1].delta)
 	}
 }

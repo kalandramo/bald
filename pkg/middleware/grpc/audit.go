@@ -112,8 +112,21 @@ func AuditInterceptor(opts ...AuditOption) grpc.UnaryServerInterceptor {
 			ev.Error = err.Error()
 		}
 		recordSafely(auditor, ctx, ev)
-		// M8 指标埋点：与审计同源，复用 object/action/result 维度，旁路不阻断。
-		emitMetricsSafely(rec, ctx, metrics.Event{Object: object, Action: action, Result: string(ev.Result), Error: ev.Error}, metrics.TransportGRPC, time.Since(start).Seconds())
+		// M8 指标埋点：协议维度走 semconv 指标（rpc.server.call.duration，
+		// rpc.method=FullMethod、rpc.response.status_code=codes.Code(err)），
+		// 审计三元组走 bald_audit_events_total（正交拆分，见《Bald 指标
+		// 设计》），旁路不阻断。gRPC 无 active_requests 语义
+		// （semconv 未定义），不调 RecordActive。
+		emitMetricsSafely(rec, ctx, metrics.Event{
+			Object: object,
+			Action: action,
+			Result: string(ev.Result),
+			Error:  ev.Error,
+			Request: metrics.RequestInfo{
+				Method:     info.FullMethod,
+				StatusCode: int(status.Code(err)),
+			},
+		}, metrics.TransportGRPC, time.Since(start).Seconds())
 		return resp, err
 	}
 }
