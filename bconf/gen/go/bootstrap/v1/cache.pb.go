@@ -132,14 +132,18 @@ func (x *Cache_Local) GetDefaultTtlSeconds() int32 {
 // Redis 缓存。
 type Cache_Redis struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Redis 服务地址，如 "localhost:6379"。
+	// Redis 服务地址，如 "localhost:6379"（单节点模式必填；cluster/sentinel 模式须留空）。
 	Addr string `protobuf:"bytes,1,opt,name=addr,proto3" json:"addr,omitempty"`
-	// Redis 密码。
+	// Redis 密码（三种模式通用）。
 	Password string `protobuf:"bytes,2,opt,name=password,proto3" json:"password,omitempty"`
-	// Redis 数据库编号，默认 0。
+	// Redis 数据库编号，默认 0（单节点/哨兵有效；集群不支持）。
 	Db int32 `protobuf:"varint,3,opt,name=db,proto3" json:"db,omitempty"`
 	// 键前缀，用于命名空间隔离。
-	KeyPrefix     string `protobuf:"bytes,4,opt,name=key_prefix,json=keyPrefix,proto3" json:"key_prefix,omitempty"`
+	KeyPrefix string `protobuf:"bytes,4,opt,name=key_prefix,json=keyPrefix,proto3" json:"key_prefix,omitempty"`
+	// 集群模式配置；存在即启用集群（与 sentinel 互斥）。
+	Cluster *Cache_Redis_Cluster `protobuf:"bytes,5,opt,name=cluster,proto3,oneof" json:"cluster,omitempty"`
+	// 哨兵模式配置；存在即启用哨兵（与 cluster 互斥）。
+	Sentinel      *Cache_Redis_Sentinel `protobuf:"bytes,6,opt,name=sentinel,proto3,oneof" json:"sentinel,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -202,23 +206,159 @@ func (x *Cache_Redis) GetKeyPrefix() string {
 	return ""
 }
 
+func (x *Cache_Redis) GetCluster() *Cache_Redis_Cluster {
+	if x != nil {
+		return x.Cluster
+	}
+	return nil
+}
+
+func (x *Cache_Redis) GetSentinel() *Cache_Redis_Sentinel {
+	if x != nil {
+		return x.Sentinel
+	}
+	return nil
+}
+
+// 集群模式（Redis Cluster）。
+type Cache_Redis_Cluster struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 集群种子节点地址，至少一项（客户端自动发现其余节点）。
+	Addrs []string `protobuf:"bytes,1,rep,name=addrs,proto3" json:"addrs,omitempty"`
+	// MOVED/ASK 重定向跟随次数，缺省 0 = go-redis 内置默认。
+	MaxRedirects  int32 `protobuf:"varint,2,opt,name=max_redirects,json=maxRedirects,proto3" json:"max_redirects,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Cache_Redis_Cluster) Reset() {
+	*x = Cache_Redis_Cluster{}
+	mi := &file_bootstrap_v1_cache_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Cache_Redis_Cluster) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Cache_Redis_Cluster) ProtoMessage() {}
+
+func (x *Cache_Redis_Cluster) ProtoReflect() protoreflect.Message {
+	mi := &file_bootstrap_v1_cache_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Cache_Redis_Cluster.ProtoReflect.Descriptor instead.
+func (*Cache_Redis_Cluster) Descriptor() ([]byte, []int) {
+	return file_bootstrap_v1_cache_proto_rawDescGZIP(), []int{0, 1, 0}
+}
+
+func (x *Cache_Redis_Cluster) GetAddrs() []string {
+	if x != nil {
+		return x.Addrs
+	}
+	return nil
+}
+
+func (x *Cache_Redis_Cluster) GetMaxRedirects() int32 {
+	if x != nil {
+		return x.MaxRedirects
+	}
+	return 0
+}
+
+// 哨兵模式（Redis Sentinel）。
+type Cache_Redis_Sentinel struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Sentinel 监视的主节点名，必填。
+	MasterName string `protobuf:"bytes,1,opt,name=master_name,json=masterName,proto3" json:"master_name,omitempty"`
+	// Sentinel 节点地址，至少一项。
+	Addrs         []string `protobuf:"bytes,2,rep,name=addrs,proto3" json:"addrs,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Cache_Redis_Sentinel) Reset() {
+	*x = Cache_Redis_Sentinel{}
+	mi := &file_bootstrap_v1_cache_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Cache_Redis_Sentinel) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Cache_Redis_Sentinel) ProtoMessage() {}
+
+func (x *Cache_Redis_Sentinel) ProtoReflect() protoreflect.Message {
+	mi := &file_bootstrap_v1_cache_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Cache_Redis_Sentinel.ProtoReflect.Descriptor instead.
+func (*Cache_Redis_Sentinel) Descriptor() ([]byte, []int) {
+	return file_bootstrap_v1_cache_proto_rawDescGZIP(), []int{0, 1, 1}
+}
+
+func (x *Cache_Redis_Sentinel) GetMasterName() string {
+	if x != nil {
+		return x.MasterName
+	}
+	return ""
+}
+
+func (x *Cache_Redis_Sentinel) GetAddrs() []string {
+	if x != nil {
+		return x.Addrs
+	}
+	return nil
+}
+
 var File_bootstrap_v1_cache_proto protoreflect.FileDescriptor
 
 const file_bootstrap_v1_cache_proto_rawDesc = "" +
 	"\n" +
-	"\x18bootstrap/v1/cache.proto\x12\fbootstrap.v1\"\xbc\x02\n" +
+	"\x18bootstrap/v1/cache.proto\x12\fbootstrap.v1\"\xe6\x04\n" +
 	"\x05Cache\x124\n" +
 	"\x05local\x18\x01 \x01(\v2\x19.bootstrap.v1.Cache.LocalH\x00R\x05local\x88\x01\x01\x124\n" +
 	"\x05redis\x18\x02 \x01(\v2\x19.bootstrap.v1.Cache.RedisH\x01R\x05redis\x88\x01\x01\x1aK\n" +
 	"\x05Local\x12\x12\n" +
 	"\x04size\x18\x01 \x01(\x05R\x04size\x12.\n" +
-	"\x13default_ttl_seconds\x18\x02 \x01(\x05R\x11defaultTtlSeconds\x1af\n" +
+	"\x13default_ttl_seconds\x18\x02 \x01(\x05R\x11defaultTtlSeconds\x1a\x8f\x03\n" +
 	"\x05Redis\x12\x12\n" +
 	"\x04addr\x18\x01 \x01(\tR\x04addr\x12\x1a\n" +
 	"\bpassword\x18\x02 \x01(\tR\bpassword\x12\x0e\n" +
 	"\x02db\x18\x03 \x01(\x05R\x02db\x12\x1d\n" +
 	"\n" +
-	"key_prefix\x18\x04 \x01(\tR\tkeyPrefixB\b\n" +
+	"key_prefix\x18\x04 \x01(\tR\tkeyPrefix\x12@\n" +
+	"\acluster\x18\x05 \x01(\v2!.bootstrap.v1.Cache.Redis.ClusterH\x00R\acluster\x88\x01\x01\x12C\n" +
+	"\bsentinel\x18\x06 \x01(\v2\".bootstrap.v1.Cache.Redis.SentinelH\x01R\bsentinel\x88\x01\x01\x1aD\n" +
+	"\aCluster\x12\x14\n" +
+	"\x05addrs\x18\x01 \x03(\tR\x05addrs\x12#\n" +
+	"\rmax_redirects\x18\x02 \x01(\x05R\fmaxRedirects\x1aA\n" +
+	"\bSentinel\x12\x1f\n" +
+	"\vmaster_name\x18\x01 \x01(\tR\n" +
+	"masterName\x12\x14\n" +
+	"\x05addrs\x18\x02 \x03(\tR\x05addrsB\n" +
+	"\n" +
+	"\b_clusterB\v\n" +
+	"\t_sentinelB\b\n" +
 	"\x06_localB\b\n" +
 	"\x06_redisB\xb1\x01\n" +
 	"\x10com.bootstrap.v1B\n" +
@@ -236,20 +376,24 @@ func file_bootstrap_v1_cache_proto_rawDescGZIP() []byte {
 	return file_bootstrap_v1_cache_proto_rawDescData
 }
 
-var file_bootstrap_v1_cache_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_bootstrap_v1_cache_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
 var file_bootstrap_v1_cache_proto_goTypes = []any{
-	(*Cache)(nil),       // 0: bootstrap.v1.Cache
-	(*Cache_Local)(nil), // 1: bootstrap.v1.Cache.Local
-	(*Cache_Redis)(nil), // 2: bootstrap.v1.Cache.Redis
+	(*Cache)(nil),                // 0: bootstrap.v1.Cache
+	(*Cache_Local)(nil),          // 1: bootstrap.v1.Cache.Local
+	(*Cache_Redis)(nil),          // 2: bootstrap.v1.Cache.Redis
+	(*Cache_Redis_Cluster)(nil),  // 3: bootstrap.v1.Cache.Redis.Cluster
+	(*Cache_Redis_Sentinel)(nil), // 4: bootstrap.v1.Cache.Redis.Sentinel
 }
 var file_bootstrap_v1_cache_proto_depIdxs = []int32{
 	1, // 0: bootstrap.v1.Cache.local:type_name -> bootstrap.v1.Cache.Local
 	2, // 1: bootstrap.v1.Cache.redis:type_name -> bootstrap.v1.Cache.Redis
-	2, // [2:2] is the sub-list for method output_type
-	2, // [2:2] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	3, // 2: bootstrap.v1.Cache.Redis.cluster:type_name -> bootstrap.v1.Cache.Redis.Cluster
+	4, // 3: bootstrap.v1.Cache.Redis.sentinel:type_name -> bootstrap.v1.Cache.Redis.Sentinel
+	4, // [4:4] is the sub-list for method output_type
+	4, // [4:4] is the sub-list for method input_type
+	4, // [4:4] is the sub-list for extension type_name
+	4, // [4:4] is the sub-list for extension extendee
+	0, // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_bootstrap_v1_cache_proto_init() }
@@ -258,13 +402,14 @@ func file_bootstrap_v1_cache_proto_init() {
 		return
 	}
 	file_bootstrap_v1_cache_proto_msgTypes[0].OneofWrappers = []any{}
+	file_bootstrap_v1_cache_proto_msgTypes[2].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bootstrap_v1_cache_proto_rawDesc), len(file_bootstrap_v1_cache_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

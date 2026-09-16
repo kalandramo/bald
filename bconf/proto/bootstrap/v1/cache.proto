@@ -16,14 +16,34 @@ message Cache {
 
   // Redis 缓存。
   message Redis {
-    // Redis 服务地址，如 "localhost:6379"。
+    // 集群模式（Redis Cluster）。
+    message Cluster {
+      // 集群种子节点地址，至少一项（客户端自动发现其余节点）。
+      repeated string addrs = 1;
+      // MOVED/ASK 重定向跟随次数，缺省 0 = go-redis 内置默认。
+      int32 max_redirects = 2;
+    }
+
+    // 哨兵模式（Redis Sentinel）。
+    message Sentinel {
+      // Sentinel 监视的主节点名，必填。
+      string master_name = 1;
+      // Sentinel 节点地址，至少一项。
+      repeated string addrs = 2;
+    }
+
+    // Redis 服务地址，如 "localhost:6379"（单节点模式必填；cluster/sentinel 模式须留空）。
     string addr = 1;
-    // Redis 密码。
+    // Redis 密码（三种模式通用）。
     string password = 2;
-    // Redis 数据库编号，默认 0。
+    // Redis 数据库编号，默认 0（单节点/哨兵有效；集群不支持）。
     int32 db = 3;
     // 键前缀，用于命名空间隔离。
     string key_prefix = 4;
+    // 集群模式配置；存在即启用集群（与 sentinel 互斥）。
+    optional Cluster cluster = 5;
+    // 哨兵模式配置；存在即启用哨兵（与 cluster 互斥）。
+    optional Sentinel sentinel = 6;
   }
 
   optional Local local = 1;
