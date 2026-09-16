@@ -10,8 +10,8 @@ type config struct {
 }
 
 // WithTTL sets the default TTL used when backfilling the cache after a
-// successful load. Zero (the default) means backfilled entries never
-// expire, matching the [cache.Cache] Set contract.
+// successful load. Zero (the default) follows the backend's Set semantics
+// for a zero TTL (local: configured default TTL; redis: never expires).
 func WithTTL(ttl time.Duration) Option {
 	return func(c *config) { c.ttl = ttl }
 }

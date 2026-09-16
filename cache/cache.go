@@ -31,7 +31,8 @@ type Cache interface {
 	Get(ctx context.Context, key string) ([]byte, error)
 
 	// Set stores the value with the given key and TTL.
-	// A zero TTL means the entry never expires.
+	// A zero TTL is backend-defined: local applies its configured default
+	// TTL (never expires if unset); redis never expires.
 	Set(ctx context.Context, key string, value []byte, ttl time.Duration) error
 
 	// SetNX sets the value only if the key does not already exist.
@@ -57,7 +58,7 @@ type Cache interface {
 	GetMulti(ctx context.Context, keys []string) ([][]byte, error)
 
 	// SetMulti stores multiple key-value entries in a single round-trip.
-	// A zero TTL on an Item means "use the backend's default TTL".
+	// A zero TTL on an Item follows the same backend-defined semantics as Set.
 	//
 	// Backends with native MSET/Pipeline support (e.g. Redis) execute this as
 	// one network I/O; local backends iterate internally.
