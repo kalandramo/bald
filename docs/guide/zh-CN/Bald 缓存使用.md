@@ -39,14 +39,8 @@
 go get github.com/kalandramo/bald/cache/redis
 ```
 
-注：`cache` 与 `cache/loadable` 已发 tag（v0.1.0）；`cache/local`、
-`cache/redis` 尚未发 tag，`go get` 会失败，须在 go.mod 手写 replace
-（§7 有跨 module 引用总则）：
-
-```bash
-go mod edit -replace github.com/kalandramo/bald/cache/redis=<bald 本地路径>/cache/redis
-go mod tidy
-```
+注：`cache`、`cache/loadable`、`cache/local`、`cache/redis` 均已发 tag，
+`go get` 即用。
 
 **步骤 2：main.go 两行注册**：
 
@@ -290,9 +284,9 @@ bootstrap: cache provider "redis" already registered
 ## 7. 边界与注意事项
 
 - **跨 module 引用**：`bald/cache`、`bald/cache/local`、`bald/cache/redis`、
-  `bald/cache/loadable` 是独立 module，外部引用须 require 对应 module 本身
-  （未发 tag 的 module 须 replace 到本地路径）；gopls 对嵌套 module 常报
-  BrokenImport 假阳性，以命令行 build/test 为准。
+  `bald/cache/loadable` 是独立 module 且均已发 tag，外部引用 require 对应
+  module 即可；gopls 对嵌套 module 常报 BrokenImport 假阳性，以命令行
+  build/test 为准。
 - **停机顺序**：缓存 Effect 注册在 database-clients 之后，逆序回放保证
   「缓存先关（加速层，关了不影响正确性）、数据库连接最后关」。
 - **不支持热更新**：cache 段变更不触发重装配（与 database 段同理）。

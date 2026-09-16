@@ -170,9 +170,9 @@ loadable **不进 CacheRegistry**。Registry 装配的是后端实例（配置�
 
 ## 兼容性
 
-纯增量，无破坏。契约层与 local/redis 实现零改动；loadable 是新增独立 module（依赖仅 `golang.org/x/sync`），不进 CacheRegistry。已发布 tag：`cache/v0.1.0` + `cache/loadable/v0.1.0`。2026-09-16 增补：`cache.redis` 契约段新增 `cluster` / `sentinel` optional 子消息（字段 5/6，纯增量），contract 按段选建 `ClusterClient` / `FailoverClient` / 单节点 `Client`——旧配置零影响。
+纯增量，无破坏。契约层与 local/redis 实现零改动；loadable 是新增独立 module（依赖仅 `golang.org/x/sync`），不进 CacheRegistry。已发布 tag：`cache/v0.1.1` + `cache/loadable/v0.1.1` + `cache/local/v0.1.0` + `cache/redis/v0.1.0`。2026-09-16 增补：`cache.redis` 契约段新增 `cluster` / `sentinel` optional 子消息（字段 5/6，纯增量），contract 按段选建 `ClusterClient` / `FailoverClient` / 单节点 `Client`——旧配置零影响。
 
-跨 module 使用者注意（非破坏但易踩）：`bald/cache` 与 `bald/cache/loadable` 是独立 module，外部引用须 require + replace 对应 module 本身；gopls 对嵌套 module 常报 BrokenImport 假阳性，以命令行 build/test 为准。
+跨 module 使用者注意（非破坏但易踩）：`bald/cache` 系四个 module 相互独立，外部引用须 require 对应 module 本身（均已发 tag）；gopls 对嵌套 module 常报 BrokenImport 假阳性，以命令行 build/test 为准。
 
 ---
 
