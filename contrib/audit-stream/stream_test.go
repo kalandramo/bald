@@ -85,6 +85,35 @@ func TestStreamAuditor_PublishesToStream(t *testing.T) {
 	}
 }
 
+// TestStreamAuditor_ZeroTimeBackfillsNow 契约：Time 零值兜底为记录时刻
+// （AuditEvent「缺省时取记录时」），流载荷 JSON 的 Time 邻近 now，
+// 不再出现 "0001-01-01T00:00:00Z"。
+func TestStreamAuditor_ZeroTimeBackfillsNow(t *testing.T) {
+	_, rdb := newTestRedis(t)
+	a := New(rdb, WithFallback(nil))
+
+	before := time.Now().Add(-time.Minute)
+	a.Record(context.Background(), audit.AuditEvent{
+		Subject: "u2", Object: "authn", Action: "authenticate", Result: audit.ResultDeny,
+	})
+	waitFor(t, func() bool {
+		n, _ := rdb.XLen(context.Background(), "audit.events").Result()
+		return n == 1
+	})
+
+	msgs, err := rdb.XRange(context.Background(), "audit.events", "-", "+").Result()
+	if err != nil || len(msgs) != 1 {
+		t.Fatalf("xrange: %v, msgs=%d", err, len(msgs))
+	}
+	var got audit.AuditEvent
+	if err := json.Unmarshal([]byte(msgs[0].Values["event"].(string)), &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got.Time.Before(before) || got.Time.After(time.Now().Add(time.Minute)) {
+		t.Errorf("backfilled time = %v, want near now", got.Time)
+	}
+}
+
 // TestStreamAuditor_BufferFullFallsBack 契约：缓冲满时 Record 降级 fallback（不阻塞、不丢事件）。
 func TestStreamAuditor_BufferFullFallsBack(t *testing.T) {
 	_, rdb := newTestRedis(t)

@@ -21,8 +21,8 @@ func TestNewStreamProvider_Build(t *testing.T) {
 
 	p := NewStreamProvider(rdb)
 	a, cleanup, err := p(context.Background(), &bootstrapv1.Audit{
-		Type:   "stream",
-		Stream: &bootstrapv1.Audit_Stream{Stream: "audit.custom", Buffer: 64},
+		Backends: []string{TypeStream},
+		Stream:   &bootstrapv1.Audit_Stream{Stream: "audit.custom", Buffer: 64},
 	})
 	if err != nil || a == nil || cleanup == nil {
 		t.Fatalf("build: a=%v cleanup-set=%v err=%v", a, cleanup != nil, err)
@@ -50,7 +50,7 @@ func TestNewStreamProvider_Defaults(t *testing.T) {
 	t.Cleanup(func() { _ = rdb.Close() })
 
 	p := NewStreamProvider(rdb)
-	a, cleanup, err := p(context.Background(), &bootstrapv1.Audit{Type: "stream"})
+	a, cleanup, err := p(context.Background(), &bootstrapv1.Audit{Backends: []string{TypeStream}})
 	if err != nil || a == nil || cleanup == nil {
 		t.Fatalf("build: a=%v cleanup-set=%v err=%v", a, cleanup != nil, err)
 	}
@@ -69,7 +69,7 @@ func TestNewStreamProvider_Defaults(t *testing.T) {
 // TestNewStreamProvider_NilClientFails 契约：nil 客户端 Build 时 fail-fast。
 func TestNewStreamProvider_NilClientFails(t *testing.T) {
 	p := NewStreamProvider(nil)
-	if _, _, err := p(context.Background(), &bootstrapv1.Audit{Type: "stream"}); err == nil {
+	if _, _, err := p(context.Background(), &bootstrapv1.Audit{Backends: []string{TypeStream}}); err == nil {
 		t.Fatal("nil client should fail")
 	}
 }
@@ -82,8 +82,8 @@ func TestNewStreamProvider_BufferRespected(t *testing.T) {
 
 	p := NewStreamProvider(rdb)
 	a, cleanup, err := p(context.Background(), &bootstrapv1.Audit{
-		Type:   "stream",
-		Stream: &bootstrapv1.Audit_Stream{Buffer: 1},
+		Backends: []string{TypeStream},
+		Stream:   &bootstrapv1.Audit_Stream{Buffer: 1},
 	})
 	if err != nil {
 		t.Fatalf("build: %v", err)

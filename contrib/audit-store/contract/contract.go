@@ -26,11 +26,11 @@ import (
 	"gorm.io/gorm"
 )
 
-// TypeStore 是 audit.type 中落库后端的取值。
+// TypeStore 是 audit.backends 中落库后端的取值。
 const TypeStore = "store"
 
 // NewStoreProvider 返回绑定 gorm 连接的落库审计 Provider
-// （audit.type=store：store.migrate=true 时自动迁移默认审计表）。
+// （audit.backends 含 store：store.migrate=true 时自动迁移默认审计表）。
 func NewStoreProvider(db *gorm.DB) appkit.AuditProvider {
 	return func(_ context.Context, cfg *bootstrapv1.Audit) (audit.Auditor, func(context.Context) error, error) {
 		if cfg.GetStore().GetMigrate() {

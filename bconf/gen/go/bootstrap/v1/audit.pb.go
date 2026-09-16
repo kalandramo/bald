@@ -21,67 +21,16 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-type Audit_Type int32
-
-const (
-	Audit_TYPE_UNSPECIFIED Audit_Type = 0
-	// 结构化日志后端（核心 LoggerAuditor，零依赖开箱即用）。
-	Audit_LOG Audit_Type = 1
-	// 落库后端（contrib/audit-store，需业务注入 gorm 连接）。
-	Audit_STORE Audit_Type = 2
-	// Redis Stream 异步后端（contrib/audit-stream，需业务注入 redis 客户端）。
-	Audit_STREAM Audit_Type = 3
-)
-
-// Enum value maps for Audit_Type.
-var (
-	Audit_Type_name = map[int32]string{
-		0: "TYPE_UNSPECIFIED",
-		1: "LOG",
-		2: "STORE",
-		3: "STREAM",
-	}
-	Audit_Type_value = map[string]int32{
-		"TYPE_UNSPECIFIED": 0,
-		"LOG":              1,
-		"STORE":            2,
-		"STREAM":           3,
-	}
-)
-
-func (x Audit_Type) Enum() *Audit_Type {
-	p := new(Audit_Type)
-	*p = x
-	return p
-}
-
-func (x Audit_Type) String() string {
-	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
-}
-
-func (Audit_Type) Descriptor() protoreflect.EnumDescriptor {
-	return file_bootstrap_v1_audit_proto_enumTypes[0].Descriptor()
-}
-
-func (Audit_Type) Type() protoreflect.EnumType {
-	return &file_bootstrap_v1_audit_proto_enumTypes[0]
-}
-
-func (x Audit_Type) Number() protoreflect.EnumNumber {
-	return protoreflect.EnumNumber(x)
-}
-
-// Deprecated: Use Audit_Type.Descriptor instead.
-func (Audit_Type) EnumDescriptor() ([]byte, []int) {
-	return file_bootstrap_v1_audit_proto_rawDescGZIP(), []int{0, 0}
-}
-
 // Audit 描述审计后端配置（一次性装配，不支持热更新——运行期热切走
 // R1-2 协调器的 audit.backends 期望态，双轨并存）。
 type Audit struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	Type  string                 `protobuf:"bytes,1,opt,name=type,proto3" json:"type,omitempty"`
-	// 审计类型：log / store / stream。
+	// 审计后端列表（至少一项）：log / store / stream。按列表序组装
+	// MultiAuditor（顺序即广播序）；log 零注册内置开箱即用，store/stream
+	// 走 Registry 显式注册。与 R1-2 协调器期望态键 audit.backends、appspec
+	// audit_backends 同名同值——契约面管启动期一次性装配（fail-fast），
+	// 协调器面管运行期收敛热切，业务选择启用哪个执行器。
+	Backends      []string      `protobuf:"bytes,4,rep,name=backends,proto3" json:"backends,omitempty"`
 	Store         *Audit_Store  `protobuf:"bytes,2,opt,name=store,proto3,oneof" json:"store,omitempty"`
 	Stream        *Audit_Stream `protobuf:"bytes,3,opt,name=stream,proto3,oneof" json:"stream,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -118,11 +67,11 @@ func (*Audit) Descriptor() ([]byte, []int) {
 	return file_bootstrap_v1_audit_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *Audit) GetType() string {
+func (x *Audit) GetBackends() []string {
 	if x != nil {
-		return x.Type
+		return x.Backends
 	}
-	return ""
+	return nil
 }
 
 func (x *Audit) GetStore() *Audit_Store {
@@ -242,24 +191,18 @@ var File_bootstrap_v1_audit_proto protoreflect.FileDescriptor
 
 const file_bootstrap_v1_audit_proto_rawDesc = "" +
 	"\n" +
-	"\x18bootstrap/v1/audit.proto\x12\fbootstrap.v1\"\xba\x02\n" +
-	"\x05Audit\x12\x12\n" +
-	"\x04type\x18\x01 \x01(\tR\x04type\x124\n" +
+	"\x18bootstrap/v1/audit.proto\x12\fbootstrap.v1\"\x90\x02\n" +
+	"\x05Audit\x12\x1a\n" +
+	"\bbackends\x18\x04 \x03(\tR\bbackends\x124\n" +
 	"\x05store\x18\x02 \x01(\v2\x19.bootstrap.v1.Audit.StoreH\x00R\x05store\x88\x01\x01\x127\n" +
 	"\x06stream\x18\x03 \x01(\v2\x1a.bootstrap.v1.Audit.StreamH\x01R\x06stream\x88\x01\x01\x1a!\n" +
 	"\x05Store\x12\x18\n" +
 	"\amigrate\x18\x01 \x01(\bR\amigrate\x1a8\n" +
 	"\x06Stream\x12\x16\n" +
 	"\x06stream\x18\x01 \x01(\tR\x06stream\x12\x16\n" +
-	"\x06buffer\x18\x02 \x01(\x05R\x06buffer\"<\n" +
-	"\x04Type\x12\x14\n" +
-	"\x10TYPE_UNSPECIFIED\x10\x00\x12\a\n" +
-	"\x03LOG\x10\x01\x12\t\n" +
-	"\x05STORE\x10\x02\x12\n" +
-	"\n" +
-	"\x06STREAM\x10\x03B\b\n" +
+	"\x06buffer\x18\x02 \x01(\x05R\x06bufferB\b\n" +
 	"\x06_storeB\t\n" +
-	"\a_streamB\xb1\x01\n" +
+	"\a_streamJ\x04\b\x01\x10\x02R\x04typeB\xb1\x01\n" +
 	"\x10com.bootstrap.v1B\n" +
 	"AuditProtoP\x01Z@github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1;bootstrapv1\xa2\x02\x03BXX\xaa\x02\fBootstrap.V1\xca\x02\fBootstrap\\V1\xe2\x02\x18Bootstrap\\V1\\GPBMetadata\xea\x02\rBootstrap::V1b\x06proto3"
 
@@ -275,17 +218,15 @@ func file_bootstrap_v1_audit_proto_rawDescGZIP() []byte {
 	return file_bootstrap_v1_audit_proto_rawDescData
 }
 
-var file_bootstrap_v1_audit_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
 var file_bootstrap_v1_audit_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
 var file_bootstrap_v1_audit_proto_goTypes = []any{
-	(Audit_Type)(0),      // 0: bootstrap.v1.Audit.Type
-	(*Audit)(nil),        // 1: bootstrap.v1.Audit
-	(*Audit_Store)(nil),  // 2: bootstrap.v1.Audit.Store
-	(*Audit_Stream)(nil), // 3: bootstrap.v1.Audit.Stream
+	(*Audit)(nil),        // 0: bootstrap.v1.Audit
+	(*Audit_Store)(nil),  // 1: bootstrap.v1.Audit.Store
+	(*Audit_Stream)(nil), // 2: bootstrap.v1.Audit.Stream
 }
 var file_bootstrap_v1_audit_proto_depIdxs = []int32{
-	2, // 0: bootstrap.v1.Audit.store:type_name -> bootstrap.v1.Audit.Store
-	3, // 1: bootstrap.v1.Audit.stream:type_name -> bootstrap.v1.Audit.Stream
+	1, // 0: bootstrap.v1.Audit.store:type_name -> bootstrap.v1.Audit.Store
+	2, // 1: bootstrap.v1.Audit.stream:type_name -> bootstrap.v1.Audit.Stream
 	2, // [2:2] is the sub-list for method output_type
 	2, // [2:2] is the sub-list for method input_type
 	2, // [2:2] is the sub-list for extension type_name
@@ -304,14 +245,13 @@ func file_bootstrap_v1_audit_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bootstrap_v1_audit_proto_rawDesc), len(file_bootstrap_v1_audit_proto_rawDesc)),
-			NumEnums:      1,
+			NumEnums:      0,
 			NumMessages:   3,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
 		GoTypes:           file_bootstrap_v1_audit_proto_goTypes,
 		DependencyIndexes: file_bootstrap_v1_audit_proto_depIdxs,
-		EnumInfos:         file_bootstrap_v1_audit_proto_enumTypes,
 		MessageInfos:      file_bootstrap_v1_audit_proto_msgTypes,
 	}.Build()
 	File_bootstrap_v1_audit_proto = out.File

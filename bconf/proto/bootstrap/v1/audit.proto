@@ -7,16 +7,11 @@ option go_package = "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1";
 // Audit 描述审计后端配置（一次性装配，不支持热更新——运行期热切走
 // R1-2 协调器的 audit.backends 期望态，双轨并存）。
 message Audit {
-  enum Type {
-    TYPE_UNSPECIFIED = 0;
-
-    // 结构化日志后端（核心 LoggerAuditor，零依赖开箱即用）。
-    LOG = 1;
-    // 落库后端（contrib/audit-store，需业务注入 gorm 连接）。
-    STORE = 2;
-    // Redis Stream 异步后端（contrib/audit-stream，需业务注入 redis 客户端）。
-    STREAM = 3;
-  }
+  // v0.6.0 起废弃：原 string type = 1（v0.5.0 单选语义）。升级迁移：
+  // type: store → backends: [store]；旧键被装载器 DiscardUnknown 丢弃后
+  // 剩空段，启动显式报错（静默失效变显式迁移提示）。
+  reserved 1;
+  reserved "type";
 
   message Store {
     // 是否自动迁移默认审计表（audit_records）。
@@ -30,9 +25,13 @@ message Audit {
     int32 buffer = 2;
   }
 
-  string type = 1;
+  // 审计后端列表（至少一项）：log / store / stream。按列表序组装
+  // MultiAuditor（顺序即广播序）；log 零注册内置开箱即用，store/stream
+  // 走 Registry 显式注册。与 R1-2 协调器期望态键 audit.backends、appspec
+  // audit_backends 同名同值——契约面管启动期一次性装配（fail-fast），
+  // 协调器面管运行期收敛热切，业务选择启用哪个执行器。
+  repeated string backends = 4;
 
-  // 审计类型：log / store / stream。
   optional Store store = 2;
   optional Stream stream = 3;
 }

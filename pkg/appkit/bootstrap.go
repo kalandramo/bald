@@ -254,10 +254,11 @@ func WithMetricsRegistry(r *MetricsRegistry) BootstrapOption {
 }
 
 // WithAuditRegistry 注入审计后端的契约装配注册表（显式注册 provider，
-// 见 AuditRegistry）。契约 audit 段存在时，阶段 B 按 audit.type 装配
-// （type=log 内置无需注册；store/stream 走 contract 注册）并 SetAuditor
-// 全局注入，停机 Effect 恢复装配前全局（T1 纪律）+ cleanup（stream
-// flush 尾批）。audit 段不支持热更新（运行期热切走 R1-2 协调器）。
+// 见 AuditRegistry）。契约 audit 段存在时，阶段 B 按 audit.backends
+// 列表装配（log 内置无需注册；store/stream 走 contract 注册；多后端
+// 组装 MultiAuditor）并 SetAuditor 全局注入，停机 Effect 恢复装配前
+// 全局（T1 纪律）+ 聚合 cleanup（stream flush 尾批）。audit 段不支持
+// 热更新（运行期热切走 R1-2 协调器）。
 func WithAuditRegistry(r *AuditRegistry) BootstrapOption {
 	return func(s *bootstrapSpec) { s.auditRegistry = r }
 }

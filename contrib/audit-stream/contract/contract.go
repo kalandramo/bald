@@ -30,12 +30,12 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// TypeStream 是 audit.type 中 Redis Stream 后端的取值。
+// TypeStream 是 audit.backends 中 Redis Stream 后端的取值。
 const TypeStream = "stream"
 
 // NewStreamProvider 返回绑定 redis 客户端的 Stream 审计 Provider
-// （audit.type=stream：stream.stream / stream.buffer 段消费，空值走
-// 实现缺省；nil 客户端 Build 时 fail-fast）。
+// （audit.backends 含 stream：stream.stream / stream.buffer 段消费，
+// 空值走实现缺省；nil 客户端 Build 时 fail-fast）。
 func NewStreamProvider(rdb redis.UniversalClient) appkit.AuditProvider {
 	return func(_ context.Context, cfg *bootstrapv1.Audit) (audit.Auditor, func(context.Context) error, error) {
 		scfg := cfg.GetStream()

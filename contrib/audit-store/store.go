@@ -10,6 +10,7 @@ package auditstore
 
 import (
 	"context"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -83,12 +84,17 @@ func New(db *gorm.DB, opts ...Option) *StoreAuditor {
 func DefaultModel() any { return &AuditRecord{} }
 
 // Record 实现 audit.Auditor：事件写库；失败/panic 降级 fallback 双写。
+// Time 零值兜底为记录时刻（AuditEvent 契约「缺省时取记录时」），使
+// authn 失败/协调器/组件等不填 Time 的埋点路径不再落零值 UnixNano 负数。
 func (a *StoreAuditor) Record(ctx context.Context, ev audit.AuditEvent) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Warn(ctx, "audit-store: record panicked", "panic", r)
 		}
 	}()
+	if ev.Time.IsZero() {
+		ev.Time = time.Now()
+	}
 	if a.db == nil {
 		a.recordFallback(ctx, ev)
 		return

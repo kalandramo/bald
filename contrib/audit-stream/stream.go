@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/json"
 	"sync"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 
@@ -124,13 +125,17 @@ func (a *StreamAuditor) publish(ctx context.Context, ev audit.AuditEvent) error 
 }
 
 // Record 实现 audit.Auditor：非阻塞入队；队列满则降级 fallback
-// （不丢事件、不阻断）。
+// （不丢事件、不阻断）。Time 零值兜底为记录时刻（AuditEvent 契约
+// 「缺省时取记录时」），流载荷不再出现 "0001-01-01T00:00:00Z"。
 func (a *StreamAuditor) Record(ctx context.Context, ev audit.AuditEvent) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Warn(ctx, "audit-stream: record panicked", "panic", r)
 		}
 	}()
+	if ev.Time.IsZero() {
+		ev.Time = time.Now()
+	}
 	select {
 	case a.ch <- ev:
 	default:

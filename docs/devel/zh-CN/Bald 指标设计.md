@@ -6,7 +6,7 @@
 >
 > 适用包：`pkg/metrics`、`pkg/middleware/{gin,grpc}`、`metrics/`、`metrics/{prometheus,otel,datadog}`
 >
-> 关联文档：[审计抽象设计](./审计抽象设计.md)（同源纪律与旁路纪律）、[Bald 日志设计](./Bald%20日志设计.md)（可观测性闭环）、[Bald Bootstrap 设计](./Bald%20Bootstrap%20设计.md)（契约装配链）、[框架契约总览](./框架契约总览.md)（§9 中间件表）
+> 关联文档：[Bald 审计设计](./Bald%20审计设计.md)（同源纪律与旁路纪律）、[Bald 日志设计](./Bald%20日志设计.md)（可观测性闭环）、[Bald Bootstrap 设计](./Bald%20Bootstrap%20设计.md)（契约装配链）、[框架契约总览](./框架契约总览.md)（§9 中间件表）
 >
 > Last updated: 2026-09-15
 >

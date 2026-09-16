@@ -17,7 +17,7 @@
 - [grpc-gateway 配置与 transcoding](./grpc-gateway%20配置与%20transcoding.md)：proto + google.api.http 注解、buf generate 生成、接线到 server.NewGRPCServerWithRegister / NewGatewayServer，gin 与 grpc-gateway 复用同一 biz 层。
 - [Bald 错误模型设计](./Bald%20错误模型设计.md)：berrors module 专属展开——传输中立 Error（Code/Reason/Message/Details + cause/栈）、不可变 builder、按 Reason 匹配的 Is、构造即捕获栈；grpcerr（gRPC 双向 + ErrorInfo）/httperr（17 码 HTTP 投影）对等桥接子包；google.rpc.Status JSON 三面一份契约；决策①~⑨ 含 2026-09-15 合并评估否决（并入自原《错误模型设计》）。
 - [认证与授权抽象设计](./认证与授权抽象设计.md)：P7 双接口——pkg/authn 认证抽象（Authenticator/AuthClaims）+ pkg/authz 授权抽象（Authorizer），零引擎耦合、桥接子模块外置，P9 归一化使 REST/gRPC 共用同一策略空间。
-- [审计抽象设计](./审计抽象设计.md)：pkg/audit 零后端耦合的旁路审计——Auditor/AuditEvent/全局注入点，审计三元组与 P9 归一化同源，永不阻断业务请求。
+- [Bald 审计设计](./Bald%20审计设计.md)：审计域统一设计——pkg/audit 旁路契约（Auditor/AuditEvent/三层防线）、四类埋点来源（请求中间件/认证失败 D3 盲区/协调器/组件热插拔）、三后端（log 内置 + contrib/audit-{store,stream} 桥接与 fallback 降级）、契约/协调器双轨装配；并入自原《审计抽象设计》，含严格代码比对发现的 Time 契约缺口（已修复：store/stream 后端记录时兜底）。
 - [Bald 指标设计](./Bald%20指标设计.md)：指标域统一设计——pkg/metrics 请求级 Recorder（semconv v1.43.0 对齐：http.server.request.duration / rpc.server.call.duration / http.server.active_requests + 正交审计指标 bald_audit_events_total，含装配链与惰性 instruments 修复史）+ 顶层 metrics/ 传输级三原语（Metrics 接口 + prometheus/otel/datadog 三后端，六传输埋点清单、零 tag 未发版事实、缺陷清单 D1-D8 与发版 checklist）；「两套体系总览」给入口判断。
 - [校验设计](./校验设计.md)：pkg/validation 按请求类型名分发的 Validate 方法约定 + 规则式轻量校验，与 proto buf.validate 注解互补。
 - [上下文契约设计](./上下文契约设计.md)：pkg/contextx 请求级元信息五个标准键（user/username/trace_id/request_id/tenant_id）的统一存取。

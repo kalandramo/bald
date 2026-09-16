@@ -38,8 +38,8 @@ func TestNewStoreProvider_Migrate(t *testing.T) {
 	p := NewStoreProvider(db)
 
 	a, cleanup, err := p(context.Background(), &bootstrapv1.Audit{
-		Type:  "store",
-		Store: &bootstrapv1.Audit_Store{Migrate: true},
+		Backends: []string{TypeStore},
+		Store:    &bootstrapv1.Audit_Store{Migrate: true},
 	})
 	if err != nil || a == nil || cleanup != nil {
 		t.Fatalf("build: a=%v cleanup-set=%v err=%v", a, cleanup != nil, err)
@@ -62,7 +62,7 @@ func TestNewStoreProvider_NoMigrateByDefault(t *testing.T) {
 	db := newDB(t)
 	p := NewStoreProvider(db)
 
-	a, _, err := p(context.Background(), &bootstrapv1.Audit{Type: "store"})
+	a, _, err := p(context.Background(), &bootstrapv1.Audit{Backends: []string{TypeStore}})
 	if err != nil || a == nil {
 		t.Fatalf("build: a=%v err=%v", a, err)
 	}

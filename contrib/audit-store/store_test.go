@@ -88,6 +88,26 @@ func TestStoreAuditor_PersistsEvent(t *testing.T) {
 	}
 }
 
+// TestStoreAuditor_ZeroTimeBackfillsNow 契约：Time 零值兜底为记录时刻
+// （AuditEvent「缺省时取记录时」），落库 Time 为邻近 now 的 UnixNano，
+// 不再出现零值 UnixNano 负数（authn 失败/协调器/组件埋点路径不填 Time）。
+func TestStoreAuditor_ZeroTimeBackfillsNow(t *testing.T) {
+	db := newTestDB(t)
+	New(db, WithFallback(nil)).Record(context.Background(), audit.AuditEvent{
+		Subject: "u6", Object: "authn", Action: "authenticate", Result: audit.ResultDeny,
+	})
+
+	before := time.Now().Add(-time.Minute).UnixNano()
+	after := time.Now().Add(time.Minute).UnixNano()
+	var rec AuditRecord
+	if err := db.First(&rec).Error; err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	if rec.Time < before || rec.Time > after {
+		t.Errorf("backfilled time = %d, want within [%d, %d]", rec.Time, before, after)
+	}
+}
+
 // TestStoreAuditor_MetaDefaults 契约：Meta 缺键时扩展列兜底（Category=operation，其余空）。
 func TestStoreAuditor_MetaDefaults(t *testing.T) {
 	db := newTestDB(t)
