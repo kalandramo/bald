@@ -1,6 +1,6 @@
 // Package store 定义 bald 框架的数据访问层（DAL）抽象。
 //
-// 设计主线（与 pkg/registry、pkg/config 一致）：核心只定最小接口与契约，
+// 设计主线（与 registry、pkg/config 一致）：核心只定最小接口与契约，
 // 不绑定任何具体存储引擎；GORM / MongoDB 等实现作为独立子模块，经
 // DBProvider 桥接注入。本包零引擎依赖，内置 inmemory 实现（pkg/store/inmemory）
 // 供 e2e 演示与测试零外部依赖使用。

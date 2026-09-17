@@ -70,7 +70,7 @@ import (
 	"github.com/kalandramo/bald/pkg/appkit"
 	mid "github.com/kalandramo/bald/pkg/middleware/gin"
 	grpcmw "github.com/kalandramo/bald/pkg/middleware/grpc"
-	"github.com/kalandramo/bald/pkg/registry/inmemory"
+	"github.com/kalandramo/bald/registry/inmemory"
 	"github.com/kalandramo/bald/transport"
 	"github.com/kalandramo/bald/transport/web"
 )

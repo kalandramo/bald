@@ -14,3 +14,5 @@ require (
 )
 
 replace github.com/kalandramo/bald => ../..
+
+replace github.com/kalandramo/bald/registry => ../../registry

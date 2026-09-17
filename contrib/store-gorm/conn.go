@@ -10,7 +10,7 @@
 //	    baldgorm.WithConfig(cfg.GetDatabase().GetSql()),
 //	)
 //
-// 驱动策略（对齐 contrib/registry 的注册制，未 import 的后端零依赖）：
+// 驱动策略（对齐 registry 模块的注册制，未 import 的后端零依赖）：
 //   - sqlite：预注册（glebarez 纯 Go driver，本模块既有直接依赖），别名 sqlite/sqlite3/file；
 //   - postgres / mysql 等：业务侧 import gorm driver 后显式注册：
 //

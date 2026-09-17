@@ -4,6 +4,8 @@ go 1.27.1
 
 replace github.com/kalandramo/bald => ../../
 
+replace github.com/kalandramo/bald/registry => ../../registry
+
 replace github.com/kalandramo/bald/encoding => ../../encoding
 
 replace github.com/kalandramo/bald/log => ../../log

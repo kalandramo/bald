@@ -16,7 +16,7 @@ import (
 	"time"
 
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
-	"github.com/kalandramo/bald/pkg/registry"
+	"github.com/kalandramo/bald/registry"
 	grpcserver "github.com/kalandramo/bald/transport/grpc"
 	httpserver "github.com/kalandramo/bald/transport/http"
 )

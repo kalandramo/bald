@@ -12,7 +12,7 @@ import (
 	bconf "github.com/kalandramo/bald/bconf"
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
 	"github.com/kalandramo/bald/log"
-	"github.com/kalandramo/bald/pkg/registry"
+	"github.com/kalandramo/bald/registry"
 )
 
 // bconfNewBootstrapWithRegistry 构造带 registry 段的契约（type 指向后端）。

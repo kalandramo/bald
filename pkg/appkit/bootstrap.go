@@ -50,7 +50,7 @@ import (
 	log "github.com/kalandramo/bald/log"
 	"github.com/kalandramo/bald/log/bslog"
 	"github.com/kalandramo/bald/pkg/audit"
-	"github.com/kalandramo/bald/pkg/registry"
+	"github.com/kalandramo/bald/registry"
 	"github.com/kalandramo/bald/transport"
 )
 

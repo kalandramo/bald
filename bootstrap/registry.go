@@ -13,7 +13,8 @@
 // 归位判别（新插件初始化落点）：产物仅是「契约段 → 实例」的构造（仅依赖
 // bconf/标准库）→ Registry 放本包；产物需进入运行期编排（依赖根模块包、
 // 挂 Effect/Component、存 AppKit 字段）→ 注册表放 pkg/appkit（如
-// RegistrarRegistry 依赖 pkg/registry、Tracer/MetricsRegistry 依赖 otel）。
+// Tracer/MetricsRegistry 依赖 otel；RegistrarRegistry 在 registry 契约下放为
+// 独立 module 前也受此约束，2026-09-17 后约束消失，是否迁入待评估）。
 //
 // 依赖方向：
 //

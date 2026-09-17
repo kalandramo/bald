@@ -16,6 +16,8 @@ replace github.com/kalandramo/bald/metrics => ../../metrics
 
 replace github.com/kalandramo/bald => ../../
 
+replace github.com/kalandramo/bald/registry => ../../registry
+
 replace github.com/kalandramo/bald/transport => ..
 
 require (

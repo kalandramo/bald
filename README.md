@@ -5,7 +5,7 @@
 一个融合三方设计精华的 Go 服务框架：
 
 - **onexstack/pkg/app**：启动期 Options + 配置理念（`--config` 由调用方注入）。
-- **Kratos**：`transport.Server` 契约与 `registry.Registrar` 接口（可插拔复用）。
+- **Kratos**：`transport.Server` 契约与 `registry.Registrar` 接口形态（注册后端 2026-09-06 起改直连 SDK provider，不再依赖 kratos）。
 - **go-lulu (`wind`)**：自研 App 层精髓——errgroup 并发启停、优雅停机防坑、崩溃级联停止、Run 防重入、可观察通道、`Endpoint()` 动态端口注册。
 
 ## 架构
@@ -19,6 +19,9 @@ bald/
 ├── bconf/                    # 契约层（proto 单一真相源：bootstrap 配置 + appspec + store；含 NewBootstrap/Validate/BindFlags/UnmarshalMap 工具；独立 module）
 ├── bconfig/                  # 配置源（Reader 抽象 + env/file/kubernetes/nacos provider；独立 module）
 ├── bootstrap/                # 启动装配 + 配置装载（契约 → 配置源/日志/服务器三 Registry；config/ 子包 = 统一层模型装载器内核：Layer 命名源层 + env/flag 深合并，viper 已退役；独立 module）
+├── registry/                 # 服务注册/发现（Registrar/Discovery/Watcher 契约 + inmemory；零依赖独立 module）
+│   ├── inmemory/             # 内存实现（开发/测试零依赖）
+│   └── etcd/ consul/ nacos/ kubernetes/  # 直连 SDK 后端（各自独立 module + contract 子包）
 ├── pkg/
 │   │   ├── http_server.go    # net/http（支持 HTTP/HTTPS，动态端口+可达 IP 解析）
 │   │   ├── grpc_server.go    # google.golang.org/grpc（自带 health + reflection）
@@ -34,7 +37,6 @@ bald/
 │   ├── store/                # 泛型数据访问层（零引擎依赖 + P8 多租户 RegisterTenant/Where.T）
 │   ├── validation/           # 类型化校验（反射式按请求类型分发）
 │   ├── contextx/             # 上下文键（trace_id/user/vars/tenant_id）
-│   ├── registry/             # 服务注册抽象（inmemory + kratos 桥接 etcd/consul/nacos）
 │   ├── testkit/              # 测试工具（FreeAddr 等，P13）
 │   └── appkit/               # App 编排层：启停 + 配置 + 能力解析（S1）+ 组件生命周期（C1）
 │                             #   + 效应账本（T1）+ key 级热更新订阅（R1）+ 运行期挂载（A1）
@@ -70,7 +72,7 @@ import (
     baldlog "github.com/kalandramo/bald/log"
     "github.com/kalandramo/bald/log/bslog"
     "github.com/kalandramo/bald/pkg/appkit"
-    "github.com/kalandramo/bald/pkg/registry/inmemory"
+    "github.com/kalandramo/bald/registry/inmemory"
     grpcserver "github.com/kalandramo/bald/transport/grpc"
     httpserver "github.com/kalandramo/bald/transport/http"
 )
@@ -111,7 +113,7 @@ func main() {
         appkit.Version("v0.1.0"),
         appkit.StopTimeout(15*time.Second),
         // 服务注册中心：开发/测试用 inmemory（零依赖、可真跑），
-        // 生产用 appkit.KratosRegistrar(kr) 桥接 etcd/consul/nacos。
+        // 生产用 registry/<backend> 契约装配（appkit.WithRegistrarRegistry）。
         appkit.Registrar(inmemory.New()),
         appkit.Servers(grpcSrv, httpSrv),
         appkit.AfterStart(func(ctx context.Context) error {
@@ -275,10 +277,11 @@ back := grpcerr.FromStatus(st)         // *berrors.Error
 reg := inmemory.New()
 appkit.New(appkit.Registrar(reg), appkit.Servers(srv))
 
-// kratos 后端（etcd/consul/nacos）
-import kratosEtcd "github.com/go-kratos/kratos/contrib/registry/etcd/v3"
-kr := kratosEtcd.New(cli)
-appkit.New(appkit.KratosRegistrar(kr), appkit.Servers(srv))
+// 直连后端（etcd/consul/nacos/kubernetes）：契约装配 + 显式注册 provider
+import etcdcontract "github.com/kalandramo/bald/registry/etcd/contract"
+rr := appkit.NewRegistrarRegistry()
+rr.MustRegister(etcdcontract.Type, etcdcontract.Provider)
+appkit.New(appkit.WithRegistrarRegistry(rr), appkit.Servers(srv))
 ```
 
 启动时 `Register`，停机时 `Deregister`；`Endpoints` 来自各 Server 的 `Endpoint()`（支持 `:0` 动态端口；通配符/空 host 自动解析为可达 IP）。

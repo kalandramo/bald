@@ -4,7 +4,7 @@
 // 这里定义远程配置源抽象 RemoteSource，并内置一个把 Kratos 的
 // config.Source 适配成 RemoteSource 的桥接器（FromKratosSource），
 // 从而直接复用 kratos contrib 中已实现的 etcd/consul/nacos/apollo 等后端，
-// 避免重复造轮子（注册中心侧已改走 contrib/registry 直连 provider，
+// 避免重复造轮子（注册中心侧已改走 registry/<backend> 直连 provider，
 // 配置侧暂保留桥接复用 kratos contrib 成熟实现）。
 package config
 

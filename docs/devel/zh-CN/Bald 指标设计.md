@@ -293,7 +293,7 @@ bconf 的 `metrics` 段（`type ∈ {"prometheus", "otlp"}`）驱动的是 `pkg/
 
 **决策②：Gauge 与 GaugeAdd 为什么是两个方法？** OTel 的 gauge 历史上只有 observable（回调注册、周期采集）形态，命令式接口接不进——旧实现因此退化为 `Float64UpDownCounter.Add`，与 prometheus/datadog 的 Set 语义分歧（换后端 = 换行为）。OTel Go v1.46 提供同步 gauge 后我们彻底拆开：`Gauge` = Set（otel 用 `Float64Gauge.Record`，prometheus 用 `Gauge.Set`，datadog 用 statsd gauge），`GaugeAdd` = 增量（otel 用 `Float64UpDownCounter.Add`，prometheus 用 `Gauge.Add`，datadog 用 statsd count）。三后端两种语义各自一致，tcp 的在途数 ±1 用法改走 `GaugeAdd`。
 
-**决策③：后端为什么放顶层子模块而不是 contrib/？** 对齐布局判别：独立 go.mod = 可独立发布的桥接模块，且契约（零依赖）与后端（重依赖）必须物理隔离，否则 transport 六模块会被迫传递引入 client_golang/otel/datadog-go。contrib/ 语义是「接根模块运行期框架」，这三者不接任何框架，只是 SDK 桥接。
+**决策③：后端为什么放顶层子模块而不是 contrib/？** 对齐布局判别：独立 go.mod = 可独立发布的桥接模块，且契约（零依赖）与后端（重依赖）必须物理隔离，否则 transport 六模块会被迫传递引入 client_golang/otel/datadog-go。contrib/ 语义是「接根模块运行期框架」，这三者不接任何框架，只是 SDK 桥接。2026-09-17 该判别再落一例：服务注册（registry 契约 + `registry/{etcd,consul,nacos,kubernetes}` 后端）同样按此从 `pkg/registry` + `contrib/registry` 归位到顶层独立 module，见《服务注册模块下放设计.md》。
 
 **决策④：为什么 `New()` 与 `NewWithDefaultRegistry()` 是两个函数？** 私有注册表隔离（`New`）与全局注册表混用（`NewWithDefaultRegistry`）是两种合法策略，用两个构造器区分是清晰的。曾经的矛盾（`New()` 无条件覆盖 `WithRegistry`，三者互相打架）已于 2026-09-15 修复（D2）：`WithRegistry` 对两个构造器都生效，缺省值各自兜底。
 

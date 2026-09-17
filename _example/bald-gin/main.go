@@ -30,7 +30,7 @@ import (
 	baldlog "github.com/kalandramo/bald/log"
 	"github.com/kalandramo/bald/log/bslog"
 	"github.com/kalandramo/bald/pkg/appkit"
-	"github.com/kalandramo/bald/pkg/registry/inmemory"
+	"github.com/kalandramo/bald/registry/inmemory"
 	httpserver "github.com/kalandramo/bald/transport/http"
 	"github.com/kalandramo/bald/transport/web"
 )

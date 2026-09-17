@@ -1,9 +1,10 @@
 // registrar.go 实现服务注册中心的契约装配注册表（bootstrapv1.Registry 段
 // → 具体后端 Registrar 实例）。
 //
-// 位置说明：必须放 appkit（主模块）——Provider 签名引用 pkg/registry 的
-// Registrar（主模块），若放 bootstrap module 会形成
-// bald⇄bald/bootstrap 的模块循环（appkit import bootstrap module）。
+// 位置说明：2026-09-17 之前必须放 appkit——Provider 签名引用主模块的
+// pkg/registry.Registrar，放 bootstrap module 会形成 bald⇄bald/bootstrap
+// 的模块循环（appkit import bootstrap module）。registry 契约下放为独立
+// module（零依赖）后该约束消失，是否迁入 bootstrap 待评估。
 //
 // 设计原则（对齐 bootstrap 包的 config Registry）：**显式注册**——不用
 // init() + blank import，主程序在 main() 里逐个调用 MustRegister；未
@@ -33,13 +34,13 @@ import (
 	"sync"
 
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
-	registry "github.com/kalandramo/bald/pkg/registry"
+	registry "github.com/kalandramo/bald/registry"
 )
 
 // RegistrarProvider 按契约 Registry 段构造具体后端。
 // 返回 (实例, cleanup, error)：cleanup 释放 client/连接资源（可为 nil），
 // 由 FromBootstrap 在停机 Effect 中回放（Deregister 先于它，顺序安全）。
-// 各后端的实现见 contrib/registry/<backend>/contract 包。
+// 各后端的实现见 registry/<backend>/contract 包。
 type RegistrarProvider func(ctx context.Context, cfg *bootstrapv1.Registry) (registry.Registrar, func(), error)
 
 // RegistrarRegistry 是服务注册中心 Provider 的显式注册表。

@@ -30,7 +30,7 @@ import (
 	"github.com/kalandramo/bald/bootstrap/config"
 	"github.com/kalandramo/bald/pkg/appkit"
 
-	nacoscontract "github.com/kalandramo/bald/contrib/registry/nacos/contract"
+	nacoscontract "github.com/kalandramo/bald/registry/nacos/contract"
 )
 
 // nacosHost/nacosPort 是配置中心（桥接路径）的 nacos server 地址。

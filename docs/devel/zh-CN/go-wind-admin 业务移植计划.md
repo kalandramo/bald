@@ -22,7 +22,7 @@ Prometheus/OTLP），但数据层仍以 **SQLite 内存库**为主、未接对�
 | 存储（store-gorm） | SQLite 内存库 | **云端 PostgreSQL**（openDB 的 PG 分支已有，本移植默认走它） |
 | 缓存（cache-redis） | 可选、secret 用 | **云端 Redis**：字典 Cache-Aside + 审计 Stream |
 | 对象存储（oss/minio） | 未接 | **云端 MinIO**：文件上传/下载 |
-| 注册发现（registry/nacos） | `appkit.Registrar(inmemory.New())` | **云端 Nacos**（contrib/registry/nacos 契约装配） |
+| 注册发现（registry/nacos） | `appkit.Registrar(inmemory.New())` | **云端 Nacos**（registry/nacos 契约装配） |
 | 遥测（observability-otlp） | env 可选 | 云端 OTLP Collector 直推（保持 env 机制） |
 | 审计（pkg/audit） | log/store/stream 三后端 | 落 PG + 字段增强 + **查询接口** |
 | 授权（authz-casbin） | 内嵌 CSV 静态策略 | **策略数据化**（角色策略落 PG，启动期装载） |
@@ -72,7 +72,7 @@ MFA、登录策略（login_policy）、组织单元/岗位（org_unit/position/m
 | 角色/权限 | `contrib/authz-casbin`（`New(policyCSV)` / `NewWithModel`，RBAC 模型内嵌） | 策略从 PG 装载、REST/gRPC 同源归一化（P9） |
 | 审计 | `pkg/audit` + `internal/security/audit`（StoreAuditor→PG / StreamAuditor→Redis `XAdd` `audit.events`）+ `audit.backends` 期望态热切换 | 三后端真实落盘、查询 API |
 | 认证 | `contrib/authn-jwt`（存量 RSA 生成 + Signer/Authenticator 双实例） | 对接真实用户表 + 租户 claims |
-| 注册发现 | `contrib/registry/nacos`（`New(WithServerAddrs/WithNamespace/WithGroup/...)`）+ 契约 `contract.Provider(ctx, *bootstrapv1.Registry)` | 服务注册/注销/发现真实生效 |
+| 注册发现 | `registry/nacos`（`New(WithServerAddrs/WithNamespace/WithGroup/...)`）+ 契约 `contract.Provider(ctx, *bootstrapv1.Registry)` | 服务注册/注销/发现真实生效 |
 | 遥测 | `contrib/observability-otlp`（trace `Setup(WithOTLPAddr)` / metrics `Setup`，env `BALD_ADMIN_OTLP_ADDR`） | 指标+trace 直推云端 collector |
 | 横切 | `pkg/middleware/{gin,grpc}`（Authn/Authz/Audit/Observability）、`appkit.Reconcile`、wire | 中间件链对新模块自动生效 |
 

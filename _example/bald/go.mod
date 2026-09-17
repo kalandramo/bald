@@ -9,12 +9,13 @@ require (
 	github.com/go-kratos/kratos/v3/contrib/config/nacos/v3 v3.0.0-00010101000000-000000000000
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.29.0
 	github.com/kalandramo/bald v0.6.1
-	github.com/kalandramo/bald/bconf v0.5.0
+	github.com/kalandramo/bald/bconf v0.7.0
 	github.com/kalandramo/bald/berrors v0.1.0
 	github.com/kalandramo/bald/bootstrap v0.7.1
-	github.com/kalandramo/bald/contrib/registry/nacos v0.0.0-00010101000000-000000000000
 	github.com/kalandramo/bald/contrib/store-gorm v0.0.0-00010101000000-000000000000
 	github.com/kalandramo/bald/log v0.5.1
+	github.com/kalandramo/bald/registry v0.0.0
+	github.com/kalandramo/bald/registry/nacos v0.0.0
 	github.com/kalandramo/bald/transport v0.1.0
 	github.com/kalandramo/bald/transport/web v0.1.0
 	github.com/nacos-group/nacos-sdk-go v1.1.6
@@ -233,8 +234,10 @@ replace github.com/kalandramo/bald/transport/web => ../../transport/web
 
 replace github.com/kalandramo/bald/contrib/store-gorm => ../../contrib/store-gorm
 
+replace github.com/kalandramo/bald/registry => ../../registry
+
+replace github.com/kalandramo/bald/registry/nacos => ../../registry/nacos
+
 replace github.com/go-kratos/kratos/v3/contrib/config/nacos/v3 => ../../../kratos/contrib/config/nacos
 
 replace github.com/go-kratos/kratos/v3/contrib/registry/nacos/v3 => ../../../kratos/contrib/registry/nacos
-
-replace github.com/kalandramo/bald/contrib/registry/nacos => ../../contrib/registry/nacos

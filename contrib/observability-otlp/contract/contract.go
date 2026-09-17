@@ -1,7 +1,7 @@
 // Package contract 提供 observability-otlp 后端的契约装配：bootstrapv1 的
 // tracer / metrics 段 → appkit TracerRegistry / MetricsRegistry Provider。
 //
-// 单独成包的原因（对齐 contrib/registry/nacos/contract 模式）：trace/metrics
+// 单独成包的原因（对齐 registry/nacos/contract 模式）：trace/metrics
 // 根包保持零契约依赖（纯 SDK 实现），只有本包 import bconf + appkit——业务
 // 按需 import，依赖图全程可见。
 //

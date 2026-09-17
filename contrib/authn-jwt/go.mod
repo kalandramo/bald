@@ -11,3 +11,5 @@ require (
 require go.yaml.in/yaml/v3 v3.0.5 // indirect
 
 replace github.com/kalandramo/bald => ../..
+
+replace github.com/kalandramo/bald/registry => ../../registry

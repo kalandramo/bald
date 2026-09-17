@@ -37,7 +37,9 @@
 
 **不迁**（依赖根模块包，迁入即循环依赖）：
 
-- `RegistrarRegistry`（依赖 `pkg/registry`）
+- `RegistrarRegistry`（依赖 `pkg/registry`）——**2026-09-17 起该约束已解除**：
+  registry 契约已下放为顶层独立 module `.../bald/registry`（零依赖），bootstrap
+  可 require 它而不形成循环；是否迁入作为独立议题评估（见《服务注册模块下放设计.md》）
 - `TracerRegistry` / `MetricsRegistry`（依赖 otel）
 
 **新插件初始化归位判别规则**（registry.go 包注释同步登记）：

@@ -122,14 +122,14 @@ grpc:
 
 ```go
 // 内存（开发/测试）
-import "github.com/kalandramo/bald/pkg/registry/inmemory"
+import "github.com/kalandramo/bald/registry/inmemory"
 reg := inmemory.New()
 appkit.New(appkit.Registrar(reg), appkit.Servers(srv))
 
 // 直连后端（etcd/nacos/consul/kubernetes）：契约装配 + 显式注册 provider
 import (
     "github.com/kalandramo/bald/pkg/appkit"
-    etcdcontract "github.com/kalandramo/bald-registry-etcd/contract"
+    etcdcontract "github.com/kalandramo/bald/registry/etcd/contract"
 )
 rr := appkit.NewRegistrarRegistry()
 rr.MustRegister(etcdcontract.Type, etcdcontract.Provider)

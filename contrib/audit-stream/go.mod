@@ -92,6 +92,7 @@ require (
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/kalandramo/bald/bconfig v0.1.0 // indirect
 	github.com/kalandramo/bald/bootstrap v0.7.1 // indirect
+	github.com/kalandramo/bald/registry v0.0.0 // indirect
 	github.com/kalandramo/bald/transport v0.1.0 // indirect
 	github.com/kalandramo/bald/transport/gateway v0.1.0 // indirect
 	github.com/kalandramo/bald/transport/grpc v0.1.0 // indirect
@@ -163,5 +164,7 @@ require (
 replace github.com/kalandramo/bald => ../..
 
 replace github.com/kalandramo/bald/bconf => ../../bconf
+
+replace github.com/kalandramo/bald/registry => ../../registry
 
 replace github.com/kalandramo/bald/log => ../../log

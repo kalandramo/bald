@@ -9,7 +9,7 @@
 设计来源：
 
 - **onexstack/pkg/app**：启动期 Options + 配置理念（`--config` / viper 由调用方注入）。
-- **Kratos**：`transport.Server` 契约与 `registry.Registrar` 接口（可插拔复用）。
+- **Kratos**：`transport.Server` 契约与 `registry.Registrar` 接口形态（注册后端 2026-09-06 起改直连 SDK provider，不再依赖 kratos）。
 - **go-lulu (`wind`)**：自研 App 层精髓——errgroup 并发启停、优雅停机防坑、
   崩溃级联停止、Run 防重入、可观察通道、`Endpoint()` 动态端口注册。
 
@@ -21,7 +21,7 @@
 | 多协议同进程 | 一个 `AppKit` 可并发编排多个 Server，共享生命周期。 |
 | 优雅停机 | 收到 SIGINT/SIGTERM 或 ctx 取消时，先反注册再五阶段优雅停机（效应回放→BeforeStop→Server.Stop→AfterStop→组件 Dispose），避免流量打到已停服务。 |
 | 动态端口注册 | `Endpoint()` 在 `Start` 后返回真实地址，`:0` 动态端口也能正确注册到服务发现。 |
-| 可插拔注册中心 | 内置内存实现（开发/测试），通过桥接复用 kratos 生态的 etcd / consul / nacos。 |
+| 可插拔注册中心 | 内置内存实现（开发/测试），另有 etcd / consul / nacos / kubernetes 直连 SDK provider（`registry/<backend>` 独立 module，契约装配）。 |
 | 多源配置 | 命令行 flag > 环境变量 > 本地文件 > 远程配置中心，支持热更新（含 key 级细粒度订阅）。 |
 | 生命周期钩子 | `BeforeStart` / `AfterStart` / `BeforeStop` / `AfterStop` 精细控制。 |
 | 可组合性 | 效应账本（T1 可逆撤销）、能力声明（S1 fail-fast）、组件生命周期（C1）、运行期热插拔（A1）——对照 Cordis 时空可组合性论文。 |
@@ -39,7 +39,7 @@
 ```
 AppKit（编排层）
   ├── Server 契约：HTTP / gRPC / Gateway（并发启停 + 五阶段优雅停机）
-  ├── Registrar 抽象：内存 / kratos(etcd|consul|nacos)
+  ├── Registrar 抽象：内存 / etcd | consul | nacos | kubernetes（直连 SDK provider）
   ├── Component 抽象：trace/metrics/审计等进程内组件统一生命周期
   ├── Effect 账本：全局注册的可逆撤销（停机回放）
   ├── Capability 校验：Provides/Requires 启动期 fail-fast

@@ -351,9 +351,10 @@ bootstrap 不感知 appkit。appkit 的 `FromBootstrap` 是本模块的第一个
 Build 就该失败。2026-09-15 起，六域客户端 Registry（Database/Cache/Storage/
 Ai/Workflow/Broker，仅依赖 bconf 契约）也归本模块——它们的本质同样是「契约段
 → 实例」的构造期工厂；appkit 保留 `With*Registry` Option、阶段 B 调 Build、
-实例存 AppKit 字段与访问器、cleanup 挂 Effect 逆序回放。仍留 appkit 的三类
-Registry（Tracer/Metrics/Registrar）因依赖根模块包（otel、pkg/registry），
-迁入会造成循环依赖。判定口诀：**问「产物是不是纯契约段 → 实例的构造」**——
+实例存 AppKit 字段与访问器、cleanup 挂 Effect 逆序回放。仍留 appkit 的两类
+Registry（Tracer/Metrics）因依赖根模块包（otel），迁入会造成循环依赖；
+`RegistrarRegistry` 自 2026-09-17 起不再受此约束——registry 契约已下放为
+独立 module `.../bald/registry`（零依赖），是否迁入待评估。判定口诀：**问「产物是不是纯契约段 → 实例的构造」**——
 是且仅依赖 bconf/标准库，归 bootstrap；需要根模块包或运行期编排，归 appkit。
 （appkit 曾预置全局插件注册表 + `init()` 自注册范式，与本模块的显式装配
 哲学矛盾且产品代码零消费，已删除，见 `pkg/appkit/registry.go` 包注释。）
@@ -405,7 +406,8 @@ Server 列表）、nil 语义不同（跳过/错误/跳过但全空报错）、c
 
 被放弃方案：两侧都直连（配置后端也全部自研）或都走桥。配置侧保留桥
 （`source.go` 注释）：kratos contrib 的 etcd/consul/nacos/apollo 后端成熟，
-重写没有增量价值；注册中心侧改走 contrib/registry 直连，因为 naming 语义
+重写没有增量价值；注册中心侧改走 registry/<backend> 直连（2026-09-17 前在
+contrib/registry 下，随契约下放一并上移），因为 naming 语义
 （健康检查、实例订阅）与 config 语义差异大，桥接层反而碍事。这个不对称是
 务实取舍，不是疏漏。
 
