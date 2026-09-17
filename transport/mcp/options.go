@@ -31,6 +31,13 @@ func WithMCPServerOptions(opts ...server.ServerOption) ServerOption {
 	}
 }
 
+// WithSSEOptions 追加 SSE 传输选项（如 server.WithBaseURL 指定对外可见基址）。
+func WithSSEOptions(opts ...server.SSEOption) ServerOption {
+	return func(s *Server) {
+		s.sseOpts = append(s.sseOpts, opts...)
+	}
+}
+
 func WithMCPServeType(serverType ServerType) ServerOption {
 	return func(s *Server) {
 		s.serverType = serverType
