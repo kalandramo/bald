@@ -16,6 +16,8 @@ bald/
 │   └── slog/                 # slog 后端子包（Options/CLI + FilterKey 脱敏 + lumberjack 轮转；对齐 transport 契约+子包模式）
 ├── berrors/                  # 错误契约（传输中立 Error + httperr/grpcerr 桥接；2026-09-05 由 pkg/berrors 提升）
 ├── transport/                # 协议层（Server 契约 + grpc/http/gateway 实现子包 + web 流水线；吃 bconf 契约）
+│   └── mcp/                  # MCP 协议服务端（stdio/SSE/HTTP/in-process；Start 同步绑定 + 真实 Endpoint + 优雅停机；独立 module）
+├── cobramcp/                 # Cobra → MCP 工具桥接（复用 transport/mcp 服务端 + bald/log 契约；含编辑器配置管理 CLI；独立 module）
 ├── bconf/                    # 契约层（proto 单一真相源：bootstrap 配置 + appspec + store；含 NewBootstrap/Validate/BindFlags/UnmarshalMap 工具；独立 module）
 ├── bconfig/                  # 配置源（Reader 抽象 + env/file/kubernetes/nacos provider；独立 module）
 ├── bootstrap/                # 启动装配 + 配置装载（契约 → 配置源/日志/服务器三 Registry；config/ 子包 = 统一层模型装载器内核：Layer 命名源层 + env/flag 深合并，viper 已退役；独立 module）
