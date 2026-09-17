@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"sync"
 	"testing"
 	"time"
 )
@@ -366,5 +367,107 @@ func TestExample_RetryWithBackoff(t *testing.T) {
 	}
 	if attempts != 4 {
 		t.Errorf("attempts = %d, want 4", attempts)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Nil strategies are ignored (regression: they used to panic inside Do)
+// ---------------------------------------------------------------------------
+
+func TestNew_NilStrategiesIgnored(t *testing.T) {
+	r := New(WithBackoff(nil), WithJitter(nil), WithClassifier(nil), WithClock(nil))
+	if r.backoff == nil || r.jitter == nil || r.classifier == nil || r.timer == nil {
+		t.Fatalf("nil strategies must keep the defaults: backoff=%v jitter=%v classifier=%v clock=%v",
+			r.backoff != nil, r.jitter != nil, r.classifier != nil, r.timer != nil)
+	}
+
+	// Do must not panic with the defaults in place.
+	calls := 0
+	r = New(
+		WithMaxAttempts(2),
+		WithBackoff(nil),
+		WithJitter(nil),
+		WithClassifier(nil),
+		WithBackoff(FixedBackoff(time.Millisecond)), // override default to keep the test fast
+	)
+	err := r.Do(context.Background(), func(_ context.Context) error {
+		calls++
+		return errors.New("always fails")
+	})
+	if !errors.Is(err, ErrMaxAttempts) {
+		t.Errorf("err = %v, want ErrMaxAttempts", err)
+	}
+	if calls != 2 {
+		t.Errorf("calls = %d, want 2", calls)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Concurrency: an injected RNG must be shareable across goroutines
+// ---------------------------------------------------------------------------
+
+func TestDo_ConcurrentWithRNG(t *testing.T) {
+	// *rand.Rand is not safe for concurrent use on its own; Retrier serialises
+	// access to it. Run with -race to guard this.
+	r := New(
+		WithMaxAttempts(3),
+		WithBackoff(FixedBackoff(time.Millisecond)),
+		WithJitter(FullJitter),
+		WithRNG(rand.New(rand.NewSource(42))),
+	)
+
+	const goroutines = 16
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+	for i := 0; i < goroutines; i++ {
+		go func() {
+			defer wg.Done()
+			err := r.Do(context.Background(), func(_ context.Context) error {
+				return errors.New("transient")
+			})
+			if !errors.Is(err, ErrMaxAttempts) {
+				t.Errorf("err = %v, want ErrMaxAttempts", err)
+			}
+		}()
+	}
+	wg.Wait()
+}
+
+// ---------------------------------------------------------------------------
+// WithClock: the total-wait budget can be tripped deterministically
+// ---------------------------------------------------------------------------
+
+func TestWithClock_DeterministicTimeout(t *testing.T) {
+	var calls int
+	now := time.Unix(0, 0)
+	r := New(
+		WithMaxAttempts(100),
+		// Long enough that any real sleep would be obvious.
+		WithBackoff(FixedBackoff(30*time.Second)),
+		WithMaxTotalWait(100*time.Millisecond),
+		// Every read jumps 1s ahead, so the budget is already blown when the
+		// first backoff is computed.
+		WithClock(func() time.Time {
+			now = now.Add(time.Second)
+			return now
+		}),
+	)
+
+	start := time.Now()
+	err := r.Do(context.Background(), func(_ context.Context) error {
+		calls++
+		return errors.New("always fails")
+	})
+	elapsed := time.Since(start)
+
+	if !errors.Is(err, ErrTimeout) {
+		t.Errorf("err = %v, want ErrTimeout", err)
+	}
+	if calls != 1 {
+		t.Errorf("calls = %d, want 1 (budget trips before the 2nd attempt)", calls)
+	}
+	// The 30s backoff must never actually be slept.
+	if elapsed > time.Second {
+		t.Errorf("elapsed = %v, want no real waiting", elapsed)
 	}
 }

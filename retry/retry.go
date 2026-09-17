@@ -30,6 +30,7 @@ import (
 	"context"
 	"errors"
 	"math/rand"
+	"sync"
 	"time"
 )
 
@@ -47,9 +48,13 @@ type Retrier struct {
 	jitter       Jitter
 	classifier   Classifier
 	maxTotalWait time.Duration
-	timer        func() time.Time // for testing
-	rng          *rand.Rand
-	rngCh        chan struct{}
+	timer        func() time.Time // see WithClock; defaults to time.Now
+
+	// mu serialises access to rng. The global rand.Float64 used when no
+	// custom RNG is injected is already safe for concurrent use, but
+	// [rand.Rand] is not, and a Retrier is meant to be shareable.
+	mu  sync.Mutex
+	rng *rand.Rand
 }
 
 // Option configures the [Retrier].
@@ -65,25 +70,40 @@ func WithMaxAttempts(n int) Option {
 	}
 }
 
-// WithBackoff sets the backoff strategy.
+// WithBackoff sets the backoff strategy. A nil strategy is ignored, keeping
+// the default.
 // Default: [ExponentialBackoff] with Initial=200ms, Factor=2, Max=10s.
 func WithBackoff(b Backoff) Option {
-	return func(r *Retrier) { r.backoff = b }
+	return func(r *Retrier) {
+		if b != nil {
+			r.backoff = b
+		}
+	}
 }
 
 // WithJitter sets the jitter strategy to randomise backoff intervals and
-// prevent thundering-herd effects.
+// prevent thundering-herd effects. A nil strategy is ignored, keeping the
+// default.
 // Default: [NoJitter].
 func WithJitter(j Jitter) Option {
-	return func(r *Retrier) { r.jitter = j }
+	return func(r *Retrier) {
+		if j != nil {
+			r.jitter = j
+		}
+	}
 }
 
 // WithClassifier sets the error classifier that determines which errors are
 // retryable. Only errors for which the classifier returns true are retried;
-// all others cause immediate failure.
+// all others cause immediate failure. A nil classifier is ignored, keeping the
+// default.
 // Default: [RetryAny] (retry on any non-nil error).
 func WithClassifier(c Classifier) Option {
-	return func(r *Retrier) { r.classifier = c }
+	return func(r *Retrier) {
+		if c != nil {
+			r.classifier = c
+		}
+	}
 }
 
 // WithMaxTotalWait sets the maximum total wall-clock duration across all
@@ -99,6 +119,23 @@ func WithRNG(rng *rand.Rand) Option {
 	return func(r *Retrier) { r.rng = rng }
 }
 
+// WithClock injects the clock used to account elapsed time against
+// [WithMaxTotalWait]. A nil clock is ignored, keeping the default.
+//
+// It affects the elapsed-time accounting only: the wait between attempts still
+// uses a real timer. So a fake clock that advances on every read makes the
+// total-wait budget expire deterministically, which is how tests exercise the
+// [ErrTimeout] branch without actually sleeping. It does not, however, make the
+// sleeps themselves skippable.
+// Default: time.Now.
+func WithClock(clock func() time.Time) Option {
+	return func(r *Retrier) {
+		if clock != nil {
+			r.timer = clock
+		}
+	}
+}
+
 // New creates a [Retrier] with the given options.
 func New(opts ...Option) *Retrier {
 	r := &Retrier{
@@ -110,6 +147,7 @@ func New(opts ...Option) *Retrier {
 		},
 		jitter:     NoJitter,
 		classifier: RetryAny,
+		timer:      time.Now,
 	}
 	for _, opt := range opts {
 		opt(r)
@@ -175,7 +213,7 @@ func (r *Retrier) Do(ctx context.Context, fn func(ctx context.Context) error) er
 	return errors.Join(ErrMaxAttempts, lastErr)
 }
 
-// now returns the current time (overridable for testing).
+// now returns the current time. Overridable via [WithClock].
 func (r *Retrier) now() time.Time {
 	if r.timer != nil {
 		return r.timer()
@@ -183,10 +221,16 @@ func (r *Retrier) now() time.Time {
 	return time.Now()
 }
 
-// random returns a random float64 in [0, 1) (thread-safe).
+// random returns a random float64 in [0, 1).
+//
+// It is safe for concurrent use: an injected [rand.Rand] is not, so access to
+// it is serialised by a mutex. The global rand.Float64 fallback is already
+// safe.
 func (r *Retrier) random() float64 {
 	if r.rng != nil {
 		// Deterministic mode for testing.
+		r.mu.Lock()
+		defer r.mu.Unlock()
 		return r.rng.Float64()
 	}
 	return rand.Float64()
