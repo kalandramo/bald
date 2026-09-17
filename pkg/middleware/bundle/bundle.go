@@ -12,7 +12,7 @@
 //	    bundle.Normalized(),          // 内置 P9 归一化默认（双命名空间回归从结构上杜绝）
 //	)
 //	router.Use(b.Gin()...)
-//	grpcSrv := server.NewGRPCServerWithRegister(grpcCfg, b.GRPCChain(), register, ready)
+//	grpcSrv := server.NewGRPCServerWithRegister(grpcCfg, b.GRPCChain(), register)
 //
 // 零破坏：散装手挂路径完整保留，Bundle 只是预组装。
 //

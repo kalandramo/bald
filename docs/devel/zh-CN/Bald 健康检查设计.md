@@ -6,7 +6,7 @@
 >
 > Last updated: 2026-09-15
 >
-> Status: Accepted（对应实现 `health` module；tag 未发、消费者未接）
+> Status: Accepted（对应实现 `health` module；tag `health/v0.1.0` 已发，探针装配与就绪归属见《Bald 健康检查装配设计》）
 
 ## 摘要
 
@@ -28,8 +28,9 @@ health 是 bald 的健康检查 module：一个接口、三态状态机、两层
 
 ### 移植背景
 
-本 module 是独立 module，`github.com/kalandramo/bald/health`：根模块未 require、无消费者、未发
-tag——一个移植后待收编的纯库。
+本 module 是独立 module，`github.com/kalandramo/bald/health`：tag `health/v0.1.0` 已发；
+2026-09-17 起由 `bootstrap`/`appkit` 依赖做探针与就绪装配（协议层已退出健康检查域），
+见《Bald 健康检查装配设计》。
 
 ## 设计
 

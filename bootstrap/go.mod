@@ -8,6 +8,8 @@ replace github.com/kalandramo/bald/bconf => ../bconf
 
 replace github.com/kalandramo/bald/berrors => ../berrors
 
+replace github.com/kalandramo/bald/health => ../health
+
 replace github.com/kalandramo/bald/log => ../log
 
 replace github.com/kalandramo/bald/registry => ../registry
@@ -26,12 +28,13 @@ require (
 	github.com/go-kratos/kratos/v3 v3.0.0
 	github.com/kalandramo/bald/bconf v0.7.0
 	github.com/kalandramo/bald/bconfig v0.1.0
+	github.com/kalandramo/bald/health v0.1.1
 	github.com/kalandramo/bald/log v0.5.1
 	github.com/kalandramo/bald/registry v0.1.0
-	github.com/kalandramo/bald/transport v0.1.0
-	github.com/kalandramo/bald/transport/gateway v0.1.0
-	github.com/kalandramo/bald/transport/grpc v0.1.0
-	github.com/kalandramo/bald/transport/http v0.1.0
+	github.com/kalandramo/bald/transport v0.2.0
+	github.com/kalandramo/bald/transport/gateway v0.1.1
+	github.com/kalandramo/bald/transport/grpc v0.1.1
+	github.com/kalandramo/bald/transport/http v0.1.1
 	github.com/spf13/pflag v1.0.10
 	google.golang.org/grpc v1.83.2
 	google.golang.org/protobuf v1.36.12

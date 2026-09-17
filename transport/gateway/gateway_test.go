@@ -73,7 +73,6 @@ func TestGatewayServer_StartStop(t *testing.T) {
 		&bootstrapv1.Server_Http{Addr: ":0"},
 		&bootstrapv1.Server_Grpc{Addr: backend},
 		register,
-		nil,
 	)
 	if err != nil {
 		t.Fatalf("NewGatewayServer: %v", err)
@@ -84,7 +83,7 @@ func TestGatewayServer_StartStop(t *testing.T) {
 		t.Fatalf("scheme = %q, want http://", ep)
 	}
 
-	// 探针路径经内部 mux 可用。
+	// 协议层不挂探针：转码 handler 里没有的路径一律 404（探针归装配层/业务）。
 	addr := "http://" + strings.TrimPrefix(gw.Endpoint(), "http://")
 	client := &http.Client{Timeout: time.Second}
 	resp, err := client.Get(addr + "/healthz")
@@ -92,8 +91,8 @@ func TestGatewayServer_StartStop(t *testing.T) {
 		t.Fatalf("GET /healthz: %v", err)
 	}
 	resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("/healthz = %d, want 200", resp.StatusCode)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("/healthz = %d, want 404 (no framework probes in transport)", resp.StatusCode)
 	}
 
 	stop()
@@ -115,7 +114,6 @@ func TestGatewayServer_HTTPS_Scheme(t *testing.T) {
 		&bootstrapv1.Server_Http{Addr: ":0", Tls: &bootstrapv1.Server_TLS{}},
 		&bootstrapv1.Server_Grpc{Addr: backend},
 		register,
-		nil,
 	)
 	if err != nil {
 		t.Fatalf("NewGatewayServer: %v", err)

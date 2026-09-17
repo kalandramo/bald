@@ -8,15 +8,15 @@ require (
 	github.com/gin-gonic/gin v1.12.0
 	github.com/go-kratos/kratos/v3/contrib/config/nacos/v3 v3.0.0-00010101000000-000000000000
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.29.0
-	github.com/kalandramo/bald v0.6.1
-	github.com/kalandramo/bald/bconf v0.7.1
+	github.com/kalandramo/bald v0.8.0
+	github.com/kalandramo/bald/bconf v0.7.2
 	github.com/kalandramo/bald/berrors v0.1.0
-	github.com/kalandramo/bald/bootstrap v0.7.2
+	github.com/kalandramo/bald/bootstrap v0.7.3
 	github.com/kalandramo/bald/contrib/store-gorm v0.0.0-00010101000000-000000000000
+	github.com/kalandramo/bald/health v0.1.1
 	github.com/kalandramo/bald/log v0.5.1
 	github.com/kalandramo/bald/registry v0.1.0
 	github.com/kalandramo/bald/registry/nacos v0.1.0
-	github.com/kalandramo/bald/transport v0.1.0
 	github.com/kalandramo/bald/transport/web v0.1.0
 	github.com/nacos-group/nacos-sdk-go v1.1.6
 	github.com/spf13/cobra v1.10.2
@@ -128,9 +128,10 @@ require (
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/kalandramo/bald-crud/viewer v0.1.0 // indirect
 	github.com/kalandramo/bald/bconfig v0.1.0 // indirect
-	github.com/kalandramo/bald/transport/gateway v0.1.0 // indirect
-	github.com/kalandramo/bald/transport/grpc v0.1.0 // indirect
-	github.com/kalandramo/bald/transport/http v0.1.0 // indirect
+	github.com/kalandramo/bald/transport v0.2.0 // indirect
+	github.com/kalandramo/bald/transport/gateway v0.1.1 // indirect
+	github.com/kalandramo/bald/transport/grpc v0.1.1 // indirect
+	github.com/kalandramo/bald/transport/http v0.1.1 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/magiconair/properties v1.8.5 // indirect
@@ -219,6 +220,8 @@ replace github.com/kalandramo/bald/bconfig => ../../bconfig
 replace github.com/kalandramo/bald/bootstrap => ../../bootstrap
 
 replace github.com/kalandramo/bald/berrors => ../../berrors
+
+replace github.com/kalandramo/bald/health => ../../health
 
 replace github.com/kalandramo/bald/log => ../../log
 

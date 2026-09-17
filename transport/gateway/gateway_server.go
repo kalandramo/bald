@@ -9,7 +9,6 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
-	"github.com/kalandramo/bald/transport"
 	"github.com/kalandramo/bald/transport/http"
 )
 
@@ -30,7 +29,9 @@ type GatewayServer struct {
 //     不能用固化字符串，否则构造期（config 加载前）会锁死默认端口，导致 env 覆盖失效。
 //   - register: 业务自建 mux、注册 gateway handler 并返回一个 http.Handler；
 //     返回 nil 时用默认的空 *http.ServeMux。register 为 nil 同理。
-//   - readiness: 复用与 HTTP 对称的就绪探针；nil 时 /readyz 恒 200
+//
+// 探针不在这里：转码 handler 由业务提供，探针由装配层在其返回值上包一层
+// （appkit.WithHealth）或业务自己在 mux 上挂，见《Bald 健康检查装配设计》。
 //
 // register 的签名刻意是「返回 http.Handler」而不是「传入 *http.ServeMux」：
 // grpc-gateway v2 用的是 runtime.ServeMux（不是标准库 *http.ServeMux），
@@ -54,10 +55,9 @@ func NewGatewayServer(
 	httpCfg *bootstrapv1.Server_Http,
 	backend *bootstrapv1.Server_Grpc,
 	register func(ctx context.Context, conn *grpc.ClientConn) (http.Handler, error),
-	readiness transport.ReadinessFunc,
 ) (*GatewayServer, error) {
 	return &GatewayServer{
-		HTTPServer: httpserver.NewHTTPServer(httpCfg, nil, readiness),
+		HTTPServer: httpserver.NewHTTPServer(httpCfg, nil),
 		backend:    backend,
 		register:   register,
 	}, nil

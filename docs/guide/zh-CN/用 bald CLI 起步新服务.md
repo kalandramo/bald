@@ -142,7 +142,7 @@ go run ./cmd/my-service --http.addr=:18080         # 覆盖监听地址
 - **C1 组件**：`Components(buildComponent(kind, ...)...)`。
 - **R1-2**：`Reconcile("audit.backends", reconcileAudit)` + key 级 `OnKeyChange("http.addr", ...)`。
 - **P10 bundle**：`bundle.New(...)` 一次构造，HTTP 走 `router.Use(b.Gin()...)`、gRPC 走 `b.GRPCChain()`。
-- **servers**：`server.NewHTTPServer` / `server.NewGRPCServerWithRegister`（health + reflection 自带）。
+- **servers**：`server.NewHTTPServer` / `server.NewGRPCServerWithRegister`（gRPC 标准健康服务自带；探针与 reflection 由装配层接线）。
 
 启动日志（实测 v0.1.0 生成物）：
 

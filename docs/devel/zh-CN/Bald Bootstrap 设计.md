@@ -320,7 +320,7 @@ ValueWatcher 实现，只是推送由轮询驱动。
 bootstrap.GrpcServerProvider(
     bootstrap.WithGRPCRegister(registerGRPCService),
     bootstrap.WithGRPCUnary(grpcOpts...),
-    bootstrap.WithGRPCReadiness(ready),
+    bootstrap.WithGRPCHealth(healthChecker, 0),
 )
 ```
 

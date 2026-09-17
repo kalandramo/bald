@@ -30,6 +30,8 @@ import (
 
 	"google.golang.org/grpc"
 
+	baldbootstrap "github.com/kalandramo/bald/bootstrap"
+	"github.com/kalandramo/bald/health"
 	"github.com/kalandramo/bald/pkg/appkit"
 	baldconf "github.com/kalandramo/bald/pkg/conf"
 	"github.com/kalandramo/bald/pkg/server"
@@ -40,15 +42,21 @@ func main() {
 	bootstrap := baldconf.NewBootstrap()
 	bootstrap.Http.Addr = ":8080" // 明文 HTTP（Tls.Enabled 默认 false）
 
-	// 共享 readiness 探针：HTTP /readyz 与 gRPC health 状态对称联动。
-	ready := func(ctx context.Context) error { return nil /* 检查 DB/依赖 */ }
+	// 健康检查：一份数据源同时驱动 HTTP /healthz /readyz 与 gRPC health 状态。
+	// 探针由装配层挂在业务 handler 外层（协议实现不注册框架路由）。
+	healthChecker := health.New()
+	healthChecker.Register("demo", health.PingFunc(func(ctx context.Context) error {
+		return nil /* 检查 DB/依赖 */
+	}))
 
-	httpSrv := server.NewHTTPServer(bootstrap.GetHttp(), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte("hello from bald http\n"))
-	}), ready)
-	grpcSrv := server.NewGRPCServerWithRegister(bootstrap.GetGrpc(), nil, func(s *grpc.Server) {
-		// pb.RegisterYourServer(s, impl)
-	}, ready)
+	httpSrv := server.NewHTTPServer(bootstrap.GetHttp(), appkit.WithProbes(
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte("hello from bald http\n"))
+		}), healthChecker, "", ""))
+	grpcSrv := baldbootstrap.NewGRPCHealthServer(
+		server.NewGRPCServerWithRegister(bootstrap.GetGrpc(), nil, func(s *grpc.Server) {
+			// pb.RegisterYourServer(s, impl)
+		}), healthChecker, 0)
 
 	app := appkit.New(
 		appkit.Name("bald-demo"),
@@ -146,7 +154,7 @@ appkit.FromBootstrap(cfg, appkit.WithRegistrarRegistry(rr), appkit.Servers(srv..
 仓库内置完整可运行示例 [`_example/bald/main.go`](https://github.com/kalandramo/bald/blob/main/_example/bald/main.go)，
 覆盖框架的核心能力：
 
-- **多协议编排**：并发启停 HTTP + gRPC 两个 `server.Server`，共享同一个 `ReadinessFunc` 使 `/readyz` 与 gRPC health 对称联动。
+- **多协议编排**：并发启停 HTTP + gRPC 两个 `server.Server`，共享同一份 `health.Health` 使 `/readyz` 与 gRPC health 对称联动（装配层：`appkit.WithHealth` / `bootstrap.NewGRPCHealthServer`）。
 - **配置四源合并**：本地文件（`--config`）+ 环境变量 + 命令行 flag + 可选远程配置中心，优先级 `flag > 环境变量 > 本地文件 > 远程`；并演示 `WatchConfigFile` 热更新与 `OnConfigChange` 回调回填业务 options。
 - **日志系统接入**：进程入口用 `baldlog.SetLogger(bslog.New(...))` 初始化全局 `Logger`，经 `--log.level` / `--log.format` / `--log.output-paths` 多源配置；内置 `FilterKey` 脱敏（如 `password`/`token` 自动替换为 `***`）；框架与业务统一经 `log` 包级函数输出（同一全局后端）。
 - **服务注册中心**：通过 `appkit.Registrar(inmemory.New())` 端到端演示 register → 运行 → deregister 全流程（零外部依赖），并验证 `:0` 动态端口聚合注册（真实 Endpoint 解析后才注册，避免注册 `xxx://:0`）。生产环境走**契约装配**：yaml `registry` 段 + `appkit.WithRegistrarRegistry(rr)` 显式注册直连 provider（etcd/nacos/consul/kubernetes，见《Bald 注册中心设计》）。

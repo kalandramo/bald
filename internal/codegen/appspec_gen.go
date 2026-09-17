@@ -57,7 +57,9 @@ import (
 	baldlog "github.com/kalandramo/bald/log"
 	"github.com/kalandramo/bald/log/bslog"
 {{- if or .Server.Http .Server.Grpc }}
+	baldbootstrap "github.com/kalandramo/bald/bootstrap"
 	bconf "github.com/kalandramo/bald/bconf"
+	"github.com/kalandramo/bald/health"
 	"github.com/kalandramo/bald/pkg/middleware/bundle"
 {{- if .Server.Grpc }}
 	grpcserver "github.com/kalandramo/bald/transport/grpc"
@@ -155,13 +157,17 @@ func serveRunE(_ *cobra.Command, _ []string) error {
 	capOpts = append(capOpts, appkit.Components(comps...))
 {{- end }}
 {{- if or .Server.Http .Server.Grpc }}
+	// 探针装配（协议实现不注册框架路由）：HTTP 双探针 + gRPC health 状态联动。
 	capOpts = append(capOpts, appkit.Servers(
 	{{- if .Server.Grpc }}
-		grpcserver.NewGRPCServerWithRegister(bootstrap.GetServer().GetGrpc(),
-			append(newGRPCServerOptions(), b.GRPCChain()...), registerGRPCService, ready),
+		baldbootstrap.NewGRPCHealthServer(
+			grpcserver.NewGRPCServerWithRegister(bootstrap.GetServer().GetGrpc(),
+				append(newGRPCServerOptions(), b.GRPCChain()...), registerGRPCService),
+			healthChecker, 0),
 	{{- end }}
 	{{- if .Server.Http }}
-		httpserver.NewHTTPServer(bootstrap.GetServer().GetHttp(), router, ready),
+		httpserver.NewHTTPServer(bootstrap.GetServer().GetHttp(),
+			appkit.WithProbes(router, healthChecker, "", "")),
 	{{- end }}
 	))
 {{- end }}
@@ -174,6 +180,16 @@ func serveRunE(_ *cobra.Command, _ []string) error {
 	return nil
 }
 
+
+{{- if or .Server.Http .Server.Grpc }}
+// healthChecker 是探针数据源：HTTP /healthz /readyz 与 gRPC health 状态同源
+// （未就绪 → /readyz 503、gRPC NOT_SERVING，K8s 摘流量）。
+var healthChecker = func() *health.Health {
+	h := health.New()
+	h.Register("app", health.PingFunc(ready))
+	return h
+}()
+{{- end }}
 
 // ready 探针：业务就绪检查（P0 优雅停机前须就绪）。
 func ready(ctx context.Context) error { return nil }

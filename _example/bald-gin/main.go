@@ -27,6 +27,7 @@ import (
 	"github.com/spf13/pflag"
 
 	bconf "github.com/kalandramo/bald/bconf"
+	"github.com/kalandramo/bald/health"
 	baldlog "github.com/kalandramo/bald/log"
 	"github.com/kalandramo/bald/log/bslog"
 	"github.com/kalandramo/bald/pkg/appkit"
@@ -50,12 +51,18 @@ func main() {
 	bconf.BindFlags(pflag.CommandLine, bootstrap.GetServer().GetHttp(), "bald-gin.server.http")
 	bconf.BindFlags(pflag.CommandLine, bootstrap.GetServer().GetGrpc(), "bald-gin.server.grpc")
 
-	ready := func(ctx context.Context) error { return nil }
+	// 探针由业务自行组装（协议实现不注册任何框架路由）：一个聚合器 + 两个 handler。
+	healthChecker := health.New()
+	healthChecker.Register("demo", health.PingFunc(func(ctx context.Context) error {
+		return nil // TODO: 检查业务依赖（DB ping / 下游连通性）
+	}))
 
 	// 用原生 gin 构造路由，「绑定/校验/响应」全部走强绑定 gin 的 transport/web。
 	// 路径参数由 gin 原生 ShouldBindUri 处理，无需额外桥接中间件。
 	engine := gin.New()
 	engine.Use(gin.Recovery())
+	engine.GET("/healthz", gin.WrapH(health.NewLivenessHandler()))
+	engine.GET("/readyz", gin.WrapH(health.NewHandler(healthChecker)))
 
 	engine.GET("/v1/ping", func(c *gin.Context) {
 		_, _ = c.Writer.Write([]byte("pong"))
@@ -85,7 +92,7 @@ func main() {
 	})
 
 	// 直接把 gin.Engine 作为 http.Handler 交给 bald 服务器层。
-	httpSrv := httpserver.NewHTTPServer(bootstrap.GetServer().GetHttp(), engine, ready)
+	httpSrv := httpserver.NewHTTPServer(bootstrap.GetServer().GetHttp(), engine)
 
 	app := appkit.New(
 		appkit.Name("bald-gin"),

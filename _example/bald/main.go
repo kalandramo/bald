@@ -70,8 +70,8 @@ import (
 	"github.com/kalandramo/bald/pkg/appkit"
 	mid "github.com/kalandramo/bald/pkg/middleware/gin"
 	grpcmw "github.com/kalandramo/bald/pkg/middleware/grpc"
+	"github.com/kalandramo/bald/health"
 	"github.com/kalandramo/bald/registry/inmemory"
-	"github.com/kalandramo/bald/transport"
 	"github.com/kalandramo/bald/transport/web"
 )
 
@@ -85,16 +85,17 @@ func serveRunE(_ *cobra.Command, _ []string) error {
 	bootstrap.GetApp().StopTimeout = durationpb.New(15 * time.Second)
 
 	// 1. 业务能力（配置文件表达不了，只能代码声明）。
-	//    共享 readiness 探针：未就绪时 HTTP /readyz 返回 503，
-	//    gRPC health 置 NOT_SERVING（K8s 摘流量）。
-	ready := func(ctx context.Context) error {
+	//    健康检查：一个聚合器同时驱动 HTTP /healthz /readyz 与 gRPC health
+	//    （未就绪 → /readyz 503、gRPC NOT_SERVING，K8s 摘流量）。
+	healthChecker := health.New()
+	healthChecker.Register("demo", health.PingFunc(func(ctx context.Context) error {
 		// TODO: 在此检查业务依赖（如 DB ping、下游连通性）。返回 nil=就绪。
 		return nil
-	}
+	}))
 
 	// 2. 约定装配（-tags grpcgw 时网关转码面经契约 server.http.driver 接入）+ 运行。
 	//    Bind×3、装载/校验/日志两阶段、热更新、服务器构造全部由框架内化（见 newApp）。
-	app := newApp(bootstrap, ready)
+	app := newApp(bootstrap, healthChecker)
 
 	// 3. 运行：阻塞直到收到信号或任一服务器退出。
 	if err := app.Run(context.Background()); err != nil {
@@ -173,7 +174,7 @@ func isKnownCommand(root *cobra.Command, name string) bool {
 // HTTP 面按构建分叉（同一 server.http 段只跑一个面）：默认构建走 gin 演示
 // 路由；grpcgw 构建走网关转码面（WithGatewayRegister + 契约
 // server.http.driver=grpc-gateway，见 register_grpcgw.go）。
-func newApp(bootstrap *bootstrapv1.BootstrapConfig, ready transport.ReadinessFunc) *appkit.AppKit {
+func newApp(bootstrap *bootstrapv1.BootstrapConfig, healthChecker *health.Health) *appkit.AppKit {
 	// 业务身份默认值：env 前缀（BALD_DEMO_*）与多环境文件名前缀都由 Name 驱动，
 	// 必须在 FromBootstrap 构造期就位（配置四源中以 env 为准的覆盖依赖它）。
 	bootstrap.GetApp().Name = "bald-demo"
@@ -185,8 +186,8 @@ func newApp(bootstrap *bootstrapv1.BootstrapConfig, ready transport.ReadinessFun
 		// ErrorInterceptor 必须最外层；与 e2e 复用同一构造，杜绝「测试与生产不一致」）。
 		appkit.WithGRPC(registerGRPCService, newGRPCServerOptions()...),
 
-		// 共享就绪探针：HTTP /readyz 与 gRPC health 状态对称联动。
-		appkit.WithReadiness(ready),
+		// 健康检查默认装配：HTTP 双探针 + gRPC health 状态对称联动。
+		appkit.WithHealth(healthChecker),
 
 		// 日志脱敏装饰：阶段 A（启动默认）/ 阶段 B（契约重建）构造 Logger 时统一生效。
 		appkit.WithLogDecorators(

@@ -47,6 +47,7 @@ import (
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
 	baldbootstrap "github.com/kalandramo/bald/bootstrap"
 	baldconfig "github.com/kalandramo/bald/bootstrap/config"
+	"github.com/kalandramo/bald/health"
 	log "github.com/kalandramo/bald/log"
 	"github.com/kalandramo/bald/log/bslog"
 	"github.com/kalandramo/bald/pkg/audit"
@@ -64,8 +65,13 @@ type bootstrapSpec struct {
 	gatewayRegister func(context.Context, *grpc.ClientConn) (http.Handler, error)
 	grpcRegister    func(*grpc.Server)
 	grpcUnary       []grpc.ServerOption
-	readiness       transport.ReadinessFunc
 	registrar       registry.Registrar
+
+	// 健康检查默认装配（WithHealth）：数据源、探针路径、gRPC 同步间隔。
+	health         *health.Health
+	probeLivePath  string
+	probeReadyPath string
+	healthInterval time.Duration
 	regRegistry     *baldbootstrap.RegistrarRegistry
 
 	configFile  string
@@ -153,12 +159,6 @@ func WithGatewayRegister(fn func(context.Context, *grpc.ClientConn) (http.Handle
 // 拦截器链（链序是安全策略，归业务：ErrorInterceptor 须挂最外层）。
 func WithGRPC(register func(*grpc.Server), unary ...grpc.ServerOption) BootstrapOption {
 	return func(s *bootstrapSpec) { s.grpcRegister, s.grpcUnary = register, unary }
-}
-
-// WithReadiness 注入共享就绪探针（HTTP /readyz 与 gRPC health 同源）。
-// 缺省时探针恒就绪（/readyz 200、health SERVING）。
-func WithReadiness(fn transport.ReadinessFunc) BootstrapOption {
-	return func(s *bootstrapSpec) { s.readiness = fn }
 }
 
 // WithRegistrar 注入注册中心实例（如 inmemory.New()）。
@@ -349,6 +349,10 @@ func FromBootstrap(cfg *bootstrapv1.BootstrapConfig, opts ...BootstrapOption) (*
 	if spec.grpcRegister != nil && grpcCfg == nil {
 		return nil, errors.New("appkit: WithGRPC declared but bootstrap.server.grpc is nil")
 	}
+	if spec.health != nil && spec.probeLivePath == spec.probeReadyPath {
+		// 探针要挂在同一个 mux 上，同路径注册会 panic——启动期 fail-fast 暴露。
+		return nil, fmt.Errorf("appkit: WithHealth probe paths must differ, got %q twice", spec.probeLivePath)
+	}
 	if spec.gatewayRegister != nil {
 		// 网关面由 server.http.driver 选择：非 grpc-gateway 的显式值 = 转码能力
 		// 无消费面；与 WithHTTP 同时声明且留空 = 两个能力静默竞争同一端口。
@@ -396,21 +400,31 @@ func FromBootstrap(cfg *bootstrapv1.BootstrapConfig, opts ...BootstrapOption) (*
 	if spec.httpHandler != nil || spec.gatewayRegister != nil || spec.grpcRegister != nil {
 		sr := baldbootstrap.NewServerRegistry()
 		if spec.httpHandler != nil || spec.gatewayRegister != nil {
-			httpOpts := []baldbootstrap.HTTPServerOption{
-				baldbootstrap.WithHTTPHandler(spec.httpHandler),
-				baldbootstrap.WithHTTPReadiness(spec.readiness),
+			// 健康检查默认装配在此落地：探针包在业务 handler 外层（协议实现
+			// 不注册任何框架路由），见《Bald 健康检查装配设计》。
+			handler := spec.httpHandler
+			if spec.health != nil && handler != nil {
+				handler = withProbes(handler, spec.health, spec.probeLivePath, spec.probeReadyPath)
 			}
+			httpOpts := []baldbootstrap.HTTPServerOption{baldbootstrap.WithHTTPHandler(handler)}
 			if spec.gatewayRegister != nil {
-				httpOpts = append(httpOpts, baldbootstrap.WithGatewayRegister(spec.gatewayRegister))
+				gatewayRegister := spec.gatewayRegister
+				if spec.health != nil {
+					gatewayRegister = withGatewayProbes(gatewayRegister, spec.health, spec.probeLivePath, spec.probeReadyPath)
+				}
+				httpOpts = append(httpOpts, baldbootstrap.WithGatewayRegister(gatewayRegister))
 			}
 			sr.MustRegister("http", baldbootstrap.HttpServerProvider(httpOpts...))
 		}
 		if spec.grpcRegister != nil {
-			sr.MustRegister("grpc", baldbootstrap.GrpcServerProvider(
+			grpcOpts := []baldbootstrap.GRPCServerOption{
 				baldbootstrap.WithGRPCUnary(spec.grpcUnary...),
 				baldbootstrap.WithGRPCRegister(spec.grpcRegister),
-				baldbootstrap.WithGRPCReadiness(spec.readiness),
-			))
+			}
+			if spec.health != nil {
+				grpcOpts = append(grpcOpts, baldbootstrap.WithGRPCHealth(spec.health, spec.healthInterval))
+			}
+			sr.MustRegister("grpc", baldbootstrap.GrpcServerProvider(grpcOpts...))
 		}
 		built, cleanup, err := sr.BuildServers(context.Background(), cfg.GetServer())
 		if err != nil {

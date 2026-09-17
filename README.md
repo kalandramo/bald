@@ -69,6 +69,7 @@ import (
 
     bconf "github.com/kalandramo/bald/bconf"
     baldbootstrap "github.com/kalandramo/bald/bootstrap"
+    "github.com/kalandramo/bald/health"
     baldlog "github.com/kalandramo/bald/log"
     "github.com/kalandramo/bald/log/bslog"
     "github.com/kalandramo/bald/pkg/appkit"
@@ -97,16 +98,22 @@ func main() {
     bconf.BindFlags(pflag.CommandLine, bootstrap.GetServer().GetHttp(), "bald-demo.server.http")
     bconf.BindFlags(pflag.CommandLine, bootstrap.GetServer().GetGrpc(), "bald-demo.server.grpc")
 
-    // 3. 共享 readiness 探针：HTTP /readyz 与 gRPC health 状态对称联动。
-    ready := func(ctx context.Context) error { return nil /* 检查 DB/依赖 */ }
+    // 3. 健康检查：一份数据源同时驱动 HTTP /healthz /readyz 与 gRPC health 状态。
+    //    协议实现不注册框架路由——探针由装配层包在业务 handler 外层
+    //    （走 FromBootstrap 时用 appkit.WithHealth 一行装配）。
+    healthChecker := health.New()
+    healthChecker.Register("demo", health.PingFunc(func(ctx context.Context) error {
+        return nil // 检查 DB/依赖
+    }))
 
     httpSrv := httpserver.NewHTTPServer(bootstrap.GetServer().GetHttp(),
-        http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        appkit.WithProbes(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
             _, _ = w.Write([]byte("hello from bald\n"))
-        }), ready)
-    grpcSrv := grpcserver.NewGRPCServerWithRegister(bootstrap.GetServer().GetGrpc(), nil, func(s *grpc.Server) {
-        // pb.RegisterYourServer(s, impl)
-    }, ready)
+        }), healthChecker, "", ""))
+    grpcSrv := baldbootstrap.NewGRPCHealthServer(
+        grpcserver.NewGRPCServerWithRegister(bootstrap.GetServer().GetGrpc(), nil, func(s *grpc.Server) {
+            // pb.RegisterYourServer(s, impl)
+        }), healthChecker, 0)
 
     app := appkit.New(
         appkit.Name("bald-demo"),
@@ -166,7 +173,7 @@ router.GET("/v1/articles/:id", func(c *gin.Context) {
         })
 })
 
-httpSrv := server.NewHTTPServer(httpOpts, router, ready)
+httpSrv := server.NewHTTPServer(httpOpts, router)
 ```
 
 路径参数由 gin 原生 `ShouldBindUri` 解析，结构体字段用 `uri` tag 标注（与路径变量名一致），**无需任何桥接层**。

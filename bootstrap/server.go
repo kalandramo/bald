@@ -9,8 +9,10 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/reflection"
 
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
+	"github.com/kalandramo/bald/health"
 	"github.com/kalandramo/bald/transport"
 	gateway "github.com/kalandramo/bald/transport/gateway"
 	grpcserver "github.com/kalandramo/bald/transport/grpc"
@@ -26,8 +28,8 @@ const DriverGrpcGateway = "grpc-gateway"
 // 返回值语义与 LoggerProvider 一致：出错短路；nil server 视为无法处理该配置
 // （服务器是必需品，BuildServers 会报错而非跳过）；cleanup 释放资源，可为 nil。
 //
-// 与 go-wind 的差异：业务依赖（拦截器链、service 注册器、探针路径）经
-// Provider 工厂的 Option 显式注入，不用包级全局变量 + Bootstrap 前副作用调用。
+// 与 go-wind 的差异：业务依赖（拦截器链、service 注册器、健康检查数据源）
+// 经 Provider 工厂的 Option 显式注入，不用包级全局变量 + Bootstrap 前副作用调用。
 type ServerProvider func(ctx context.Context, cfg *bootstrapv1.Server) (transport.Server, func(), error)
 
 // ServerRegistry 按名字注册协议服务器工厂（显式注册，无 init() 副作用）。
@@ -121,10 +123,10 @@ func (r *ServerRegistry) BuildServers(ctx context.Context, cfg *bootstrapv1.Serv
 type GRPCServerOption func(*grpcServerDeps)
 
 type grpcServerDeps struct {
-	unary       []grpc.ServerOption
-	register    func(s *grpc.Server)
-	readiness   transport.ReadinessFunc
-	pollIntervl *int
+	unary          []grpc.ServerOption
+	register       func(s *grpc.Server)
+	health         *health.Health
+	healthInterval time.Duration
 }
 
 // WithGRPCUnary 注入 gRPC 服务端选项（拦截器链、credentials 等）。
@@ -138,35 +140,48 @@ func WithGRPCRegister(register func(s *grpc.Server)) GRPCServerOption {
 	return func(d *grpcServerDeps) { d.register = register }
 }
 
-// WithGRPCReadiness 注入就绪探针回调（联动 gRPC health 状态）。
-func WithGRPCReadiness(fn transport.ReadinessFunc) GRPCServerOption {
-	return func(d *grpcServerDeps) { d.readiness = fn }
-}
-
-// WithGRPCPollInterval 覆盖 readiness 轮询间隔（默认 2s）。
-func WithGRPCPollInterval(d int) GRPCServerOption { //nolint:unparam // 预留
-	return func(d2 *grpcServerDeps) { i := d; d2.pollIntervl = &i }
+// WithGRPCHealth 注入健康检查数据源：非 nil 时框架启动后台轮询，把
+// [health.Health] 的结果同步给 gRPC 标准健康服务（SERVING / NOT_SERVING），
+// 使 K8s grpc 探针可见。interval <= 0 时用默认间隔（2s）。
+//
+// 协议实现不认识"就绪"：注册标准健康服务在 transport/grpc，判断与推送在
+// 装配层，见《Bald 健康检查装配设计》。
+func WithGRPCHealth(h *health.Health, interval time.Duration) GRPCServerOption {
+	return func(d *grpcServerDeps) {
+		d.health = h
+		d.healthInterval = interval
+	}
 }
 
 // GrpcServerProvider 返回 gRPC 协议服务器工厂（契约 Server.Grpc 段）。
-// 契约段缺失时返回 nil server（BuildServers 跳过）；
-// reflection 由契约 Grpc.reflection 字段控制（默认关闭）。
+// 契约段缺失时返回 nil server（BuildServers 跳过）。
+//
+// reflection（契约 Grpc.reflection）属"协议外能力"，在装配层按契约注册——
+// transport/grpc 不再看这个字段；契约 true 时由框架注册，**业务不要在
+// WithGRPCRegister 回调里重复注册**（同一服务重复注册会 panic）。
 func GrpcServerProvider(opts ...GRPCServerOption) ServerProvider {
 	deps := &grpcServerDeps{}
 	for _, o := range opts {
 		o(deps)
-	}
-	serverOpts := make([]grpcserver.GRPCServerOption, 0, 2)
-	if deps.pollIntervl != nil {
-		serverOpts = append(serverOpts, grpcserver.WithReadinessPollInterval(time.Duration(*deps.pollIntervl)))
 	}
 	return func(_ context.Context, cfg *bootstrapv1.Server) (transport.Server, func(), error) {
 		c := cfg.GetGrpc()
 		if c == nil {
 			return nil, nil, nil // 未配置 grpc，跳过
 		}
-		srv := grpcserver.NewGRPCServerWithRegister(c, deps.unary, deps.register, deps.readiness, serverOpts...)
-		return srv, nil, nil
+		register := func(s *grpc.Server) {
+			if c.GetReflection() {
+				reflection.Register(s)
+			}
+			if deps.register != nil {
+				deps.register(s)
+			}
+		}
+		srv := grpcserver.NewGRPCServerWithRegister(c, deps.unary, register)
+		if deps.health == nil {
+			return srv, nil, nil
+		}
+		return NewGRPCHealthServer(srv, deps.health, deps.healthInterval), nil, nil
 	}
 }
 
@@ -176,12 +191,11 @@ type HTTPServerOption func(*httpServerDeps)
 type httpServerDeps struct {
 	handler         http.Handler
 	gatewayRegister func(ctx context.Context, conn *grpc.ClientConn) (http.Handler, error)
-	readiness       transport.ReadinessFunc
-	probeHealthPath string
-	probeReadyPath  string
 }
 
 // WithHTTPHandler 注入业务 HTTP handler（gin.Engine 等，直接作为根 handler）。
+// 探针（/healthz、/readyz）由业务 handler 自己拥有，或由装配层在其外层包装
+// （appkit.WithHealth）——协议实现不注册任何框架路由。
 func WithHTTPHandler(h http.Handler) HTTPServerOption {
 	return func(d *httpServerDeps) { d.handler = h }
 }
@@ -190,16 +204,6 @@ func WithHTTPHandler(h http.Handler) HTTPServerOption {
 // 非 nil 时走 grpc-gateway 反向代理模式（契约 Http.driver 或 provider 选择）。
 func WithGatewayRegister(register func(ctx context.Context, conn *grpc.ClientConn) (http.Handler, error)) HTTPServerOption {
 	return func(d *httpServerDeps) { d.gatewayRegister = register }
-}
-
-// WithHTTPReadiness 注入就绪探针回调（驱动 /readyz）。
-func WithHTTPReadiness(fn transport.ReadinessFunc) HTTPServerOption {
-	return func(d *httpServerDeps) { d.readiness = fn }
-}
-
-// WithProbePaths 覆盖探针路径（默认 /healthz /readyz）。
-func WithProbePaths(health, ready string) HTTPServerOption {
-	return func(d *httpServerDeps) { d.probeHealthPath, d.probeReadyPath = health, ready }
 }
 
 // HttpServerProvider 返回 HTTP 协议服务器工厂（契约 Server.Http 段）。
@@ -212,26 +216,18 @@ func HttpServerProvider(opts ...HTTPServerOption) ServerProvider {
 	for _, o := range opts {
 		o(deps)
 	}
-	serverOpts := make([]httpserver.HTTPServerOption, 0, 2)
-	if deps.probeHealthPath != "" || deps.probeReadyPath != "" {
-		serverOpts = append(serverOpts, httpserver.WithProbePaths(deps.probeHealthPath, deps.probeReadyPath))
-	}
 	return func(_ context.Context, cfg *bootstrapv1.Server) (transport.Server, func(), error) {
 		c := cfg.GetHttp()
 		if c == nil {
 			return nil, nil, nil // 未配置 http，跳过
 		}
 		if deps.gatewayRegister != nil && (c.GetDriver() == "" || c.GetDriver() == DriverGrpcGateway) {
-			gw, err := gateway.NewGatewayServer(c, cfg.GetGrpc(), deps.gatewayRegister, deps.readiness)
+			gw, err := gateway.NewGatewayServer(c, cfg.GetGrpc(), deps.gatewayRegister)
 			if err != nil {
 				return nil, nil, fmt.Errorf("bootstrap: build gateway server: %w", err)
 			}
 			return gw, nil, nil
 		}
-		handler := deps.handler
-		if handler == nil {
-			handler = http.NotFoundHandler()
-		}
-		return httpserver.NewHTTPServer(c, handler, deps.readiness, serverOpts...), nil, nil
+		return httpserver.NewHTTPServer(c, deps.handler), nil, nil
 	}
 }

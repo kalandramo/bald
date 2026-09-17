@@ -2,8 +2,6 @@ package httpserver
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"net"
 	"net/http"
 	"strings"
@@ -57,22 +55,10 @@ func startAndWait(t *testing.T, srv interface {
 	}
 }
 
-// getProbe 对运行中 server 的探针路径发起 GET，返回状态码。
-func getProbe(t *testing.T, ep, path string) int {
-	t.Helper()
-	addr := strings.TrimPrefix(ep, "http://")
-	resp, err := http.Get("http://" + addr + path) //nolint:gosec // 测试内本地地址
-	if err != nil {
-		t.Fatalf("GET %s: %v", path, err)
-	}
-	defer resp.Body.Close()
-	return resp.StatusCode
-}
-
 // TestHTTPServer_DynamicPort：绑定 ":0" 时 Endpoint 应解析为真实随机端口。
 func TestHTTPServer_DynamicPort(t *testing.T) {
 	opts := &bootstrapv1.Server_Http{Addr: ":0"}
-	srv := NewHTTPServer(opts, http.NewServeMux(), nil)
+	srv := NewHTTPServer(opts, http.NewServeMux())
 	stop := startAndWait(t, srv)
 	defer stop()
 
@@ -97,14 +83,14 @@ func TestHTTPServer_DynamicPort(t *testing.T) {
 
 // TestHTTPServer_HTTPS_Scheme：Tls 段非 nil 时 Endpoint scheme 应为 https。
 func TestHTTPServer_HTTPS_Scheme(t *testing.T) {
-	tlsSrv := NewHTTPServer(&bootstrapv1.Server_Http{Addr: ":0", Tls: &bootstrapv1.Server_TLS{}}, http.NewServeMux(), nil)
+	tlsSrv := NewHTTPServer(&bootstrapv1.Server_Http{Addr: ":0", Tls: &bootstrapv1.Server_TLS{}}, http.NewServeMux())
 	tlsStop := startAndWait(t, tlsSrv)
 	defer tlsStop()
 	if ep := tlsSrv.Endpoint(); !strings.HasPrefix(ep, "https://") {
 		t.Fatalf("with TLS, scheme = %q, want https://", ep)
 	}
 
-	plain := NewHTTPServer(&bootstrapv1.Server_Http{Addr: ":0"}, http.NewServeMux(), nil)
+	plain := NewHTTPServer(&bootstrapv1.Server_Http{Addr: ":0"}, http.NewServeMux())
 	plainStop := startAndWait(t, plain)
 	defer plainStop()
 	if ep := plain.Endpoint(); !strings.HasPrefix(ep, "http://") {
@@ -112,66 +98,58 @@ func TestHTTPServer_HTTPS_Scheme(t *testing.T) {
 	}
 }
 
-// TestHTTPServer_HealthAndReadyz：/healthz 恒 200；/readyz 随 readiness 回调变化。
-func TestHTTPServer_HealthAndReadyz(t *testing.T) {
-	srv := NewHTTPServer(&bootstrapv1.Server_Http{Addr: ":0"}, http.NewServeMux(), nil)
+// TestHTTPServer_NoFrameworkRoutes：协议实现不注册任何框架路由——
+// 业务 handler 里没有的路径一律 404（探针归装配层/业务，见设计文档）。
+func TestHTTPServer_NoFrameworkRoutes(t *testing.T) {
+	srv := NewHTTPServer(&bootstrapv1.Server_Http{Addr: ":0"}, http.NewServeMux())
 	stop := startAndWait(t, srv)
 	defer stop()
 
-	if code := getProbe(t, srv.Endpoint(), "/healthz"); code != http.StatusOK {
-		t.Fatalf("/healthz = %d, want 200", code)
-	}
-	if code := getProbe(t, srv.Endpoint(), "/readyz"); code != http.StatusOK {
-		t.Fatalf("/readyz (nil readiness) = %d, want 200", code)
-	}
-}
-
-// TestHTTPServer_Readyz_UnreadyReturns503：readiness 返回 error 时 /readyz 返回 503。
-func TestHTTPServer_Readyz_UnreadyReturns503(t *testing.T) {
-	ready := func(ctx context.Context) error { return fmt.Errorf("db not connected") }
-	srv := NewHTTPServer(&bootstrapv1.Server_Http{Addr: ":0"}, http.NewServeMux(), ready)
-	stop := startAndWait(t, srv)
-	defer stop()
-
-	if code := getProbe(t, srv.Endpoint(), "/healthz"); code != http.StatusOK {
-		t.Fatalf("/healthz = %d, want 200 (liveness independent)", code)
-	}
-	if code := getProbe(t, srv.Endpoint(), "/readyz"); code != http.StatusServiceUnavailable {
-		t.Fatalf("/readyz (unready) = %d, want 503", code)
+	addr := "http://" + strings.TrimPrefix(srv.Endpoint(), "http://")
+	client := &http.Client{Timeout: time.Second}
+	for _, path := range []string{"/healthz", "/readyz"} {
+		resp, err := client.Get(addr + path)
+		if err != nil {
+			t.Fatalf("GET %s: %v", path, err)
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusNotFound {
+			t.Errorf("%s = %d, want 404 (transport registers no probes)", path, resp.StatusCode)
+		}
 	}
 }
 
-// TestHTTPServer_CustomProbePaths WithProbePaths 覆盖探针路径：
-// 自定义路径生效（存活 200 / 就绪 503），默认路径不再注册（404）。
-func TestHTTPServer_CustomProbePaths(t *testing.T) {
-	srv := NewHTTPServer(
-		&bootstrapv1.Server_Http{Addr: ":0"},
-		http.NewServeMux(),
-		func(context.Context) error { return errors.New("not ready") },
-		WithProbePaths("/livez", "/ready"),
-	)
+// TestHTTPServer_AttachHandler：延迟挂载（gateway 路径）应替换根 handler，
+// 且不改变监听地址。
+func TestHTTPServer_AttachHandler(t *testing.T) {
+	srv := NewHTTPServer(&bootstrapv1.Server_Http{Addr: ":0"}, nil)
 	stop := startAndWait(t, srv)
 	defer stop()
 
 	addr := "http://" + strings.TrimPrefix(srv.Endpoint(), "http://")
 	client := &http.Client{Timeout: time.Second}
 
-	status := func(path string) int {
-		t.Helper()
-		resp, err := client.Get(addr + path)
-		if err != nil {
-			t.Fatalf("GET %s: %v", path, err)
-		}
-		defer resp.Body.Close()
-		return resp.StatusCode
+	resp, err := client.Get(addr + "/readyz")
+	if err != nil {
+		t.Fatalf("GET before attach: %v", err)
 	}
-	if got := status("/livez"); got != http.StatusOK {
-		t.Errorf("custom livez path = %d, want 200", got)
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("nil handler should 404, got %d", resp.StatusCode)
 	}
-	if got := status("/ready"); got != http.StatusServiceUnavailable {
-		t.Errorf("custom ready path = %d, want 503 (readiness failing)", got)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/readyz", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	})
+	srv.AttachHandler(mux)
+
+	resp, err = client.Get(addr + "/readyz")
+	if err != nil {
+		t.Fatalf("GET after attach: %v", err)
 	}
-	if got := status("/healthz"); got != http.StatusNotFound {
-		t.Errorf("default /healthz should be unregistered (404), got %d", got)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("attached handler not effective: got %d", resp.StatusCode)
 	}
 }

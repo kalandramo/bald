@@ -10,12 +10,12 @@ replace github.com/kalandramo/bald/transport/http => ../http
 
 require (
 	github.com/kalandramo/bald/bconf v0.1.0
-	github.com/kalandramo/bald/transport v0.1.0
-	github.com/kalandramo/bald/transport/http v0.1.0
+	github.com/kalandramo/bald/transport/http v0.1.1
 	google.golang.org/grpc v1.83.2
 )
 
 require (
+	github.com/kalandramo/bald/transport v0.2.0 // indirect
 	golang.org/x/net v0.58.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.41.0 // indirect

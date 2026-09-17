@@ -82,9 +82,9 @@ go mod tidy       # 首次会把 grpc-gateway/v2 等写入 go.mod
 transport module（2026-09-05 自 pkg/server 迁入）提供两个载体：
 
 - **gRPC**（子包 `transport/grpc`，包名 `grpcserver`）：
-  `grpcserver.NewGRPCServerWithRegister(cfg *bootstrapv1.Server_Grpc, unary []grpc.ServerOption, register func(s *grpc.Server), readiness transport.ReadinessFunc)` —— 包装新建的 `*grpc.Server`，自动注册 health/reflection，`register` 回调里挂业务 service。
+  `grpcserver.NewGRPCServerWithRegister(cfg *bootstrapv1.Server_Grpc, unary []grpc.ServerOption, register func(s *grpc.Server))` —— 包装新建的 `*grpc.Server`，注册 gRPC 标准健康服务（只注册不判断就绪），`register` 回调里挂业务 service；reflection 与就绪推送由装配层接线。
 - **gateway**（子包 `transport/gateway`，包名 `gateway`）：
-  `gateway.NewGatewayServer(httpCfg *bootstrapv1.Server_Http, grpcBackend *bootstrapv1.Server_Grpc, register func(ctx context.Context, conn *grpc.ClientConn) (http.Handler, error), readiness transport.ReadinessFunc)` —— `register` 回调**自建** `runtime.ServeMux` 并作为 `http.Handler` 返回（`transport` 因此不必依赖 grpc-gateway）。
+  `gateway.NewGatewayServer(httpCfg *bootstrapv1.Server_Http, grpcBackend *bootstrapv1.Server_Grpc, register func(ctx context.Context, conn *grpc.ClientConn) (http.Handler, error))` —— `register` 回调**自建** `runtime.ServeMux` 并作为 `http.Handler` 返回（`transport` 因此不必依赖 grpc-gateway）；探针在装配层包在这个返回值外层。
 
   其中 `grpcBackend` 是 `*bootstrapv1.Server_Grpc` 指针（**不是**固化字符串）：网关在 `Start`
   时才读 `grpcBackend.GetAddr()`，因此 env/flag 对 `grpc.addr` 的覆盖能正确生效；

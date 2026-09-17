@@ -95,7 +95,7 @@ Effect；实例经 `app.Database/Cache/Storage` 取回注入）——go-bald-adm
 app, err := appkit.FromBootstrap(bootstrap,
     appkit.WithHTTP(router),                       // 业务 handler 必供
     appkit.WithGRPC(register, serverOpts...),      // service + 完整拦截器链
-    appkit.WithReadiness(ready),                   // 缺省恒就绪
+    appkit.WithHealth(healthChecker),              // 缺省不挂探针（协议层也不再兜底）
     appkit.WithRegistrar(inmemory.New()),
     appkit.WithConfigFile("configs/bald-demo.yaml"),
     appkit.WithWatchConfig(true),

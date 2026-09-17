@@ -10,6 +10,8 @@ replace github.com/kalandramo/bald/bootstrap => ./bootstrap
 
 replace github.com/kalandramo/bald/berrors => ./berrors
 
+replace github.com/kalandramo/bald/health => ./health
+
 replace github.com/kalandramo/bald/log => ./log
 
 replace github.com/kalandramo/bald/log/aliyun => ./log/aliyun
@@ -40,13 +42,14 @@ require (
 	github.com/kalandramo/bald-crud/viewer v0.1.0
 	github.com/kalandramo/bald/bconf v0.7.0
 	github.com/kalandramo/bald/berrors v0.1.0
-	github.com/kalandramo/bald/bootstrap v0.7.2
+	github.com/kalandramo/bald/bootstrap v0.7.3
+	github.com/kalandramo/bald/health v0.1.1
 	github.com/kalandramo/bald/log v0.5.1
 	github.com/kalandramo/bald/registry v0.1.0
-	github.com/kalandramo/bald/transport v0.1.0
-	github.com/kalandramo/bald/transport/gateway v0.1.0
-	github.com/kalandramo/bald/transport/grpc v0.1.0
-	github.com/kalandramo/bald/transport/http v0.1.0
+	github.com/kalandramo/bald/transport v0.2.0
+	github.com/kalandramo/bald/transport/gateway v0.1.1
+	github.com/kalandramo/bald/transport/grpc v0.1.1
+	github.com/kalandramo/bald/transport/http v0.1.1
 	github.com/kalandramo/bald/transport/web v0.1.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10

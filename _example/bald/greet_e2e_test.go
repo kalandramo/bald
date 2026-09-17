@@ -39,6 +39,7 @@ import (
 	bconf "github.com/kalandramo/bald/bconf"
 	"github.com/kalandramo/bald/berrors"
 	"github.com/kalandramo/bald/berrors/grpcerr"
+	"github.com/kalandramo/bald/health"
 
 	baldv1 "github.com/kalandramo/bald/example/bald/gen"
 )
@@ -83,13 +84,13 @@ func startApp(t *testing.T) (grpcAddr, httpAddr string, stop func()) {
 	bootstrap.GetServer().GetGrpc().Addr = grpcAddr
 	bootstrap.GetServer().GetHttp().Addr = httpAddr
 
-	ready := func(ctx context.Context) error { return nil }
+	healthChecker := health.New()
 
 	// 与 serveRunE 完全同构：newApp 内部经 FromBootstrap 复用同一份拦截器链
 	// 构造（newGRPCServerOptions），确保测的就是生产那条链路：
 	// 曾在这里另写构造导致漏掉 ValidatorInterceptor，非法请求居然通过，
 	// 测试却「看起来在跑」——这类不一致会让回归测试完全失去价值。
-	app := newApp(bootstrap, ready)
+	app := newApp(bootstrap, healthChecker)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
@@ -315,5 +316,38 @@ func TestGreet_ErrorMessageIsStructured(t *testing.T) {
 	if !strings.Contains(msg, "at most 32 characters") ||
 		!strings.Contains(msg, "does not match regex pattern") {
 		t.Errorf("error %q should aggregate all violations (max_len + pattern)", msg)
+	}
+}
+
+// TestHealthProbesE2E 验证 appkit.WithHealth 的默认装配在真实应用里生效：
+// HTTP /healthz 恒 200、/readyz 在依赖全 Up 时 200（未就绪则 503）。
+// 探针由装配层在网关转码 handler 外层包一层得到——协议实现不注册框架路由。
+func TestHealthProbesE2E(t *testing.T) {
+	_, restAddr, stop := startApp(t)
+	defer stop()
+
+	base := "http://" + restAddr
+	client := &http.Client{Timeout: 2 * time.Second}
+	for _, path := range []string{"/healthz", "/readyz"} {
+		resp, err := client.Get(base + path)
+		if err != nil {
+			t.Fatalf("GET %s: %v", path, err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("%s = %d, want 200; body = %s", path, resp.StatusCode, body)
+		}
+	}
+
+	// 探针包装不得吞掉业务路由：转码面照常可用（这正是此前框架在协议层
+	// 抢注精确路径会踩的坑，见《Bald 健康检查装配设计》）。
+	resp, err := http.Post(base+"/v1/greet", "application/json", strings.NewReader(`{"name":"probe"}`))
+	if err != nil {
+		t.Fatalf("POST /v1/greet: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("POST /v1/greet = %d, want 200 (probe wrapper must not shadow business routes)", resp.StatusCode)
 	}
 }

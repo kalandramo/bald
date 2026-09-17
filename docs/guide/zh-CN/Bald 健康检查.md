@@ -44,6 +44,16 @@ mux.Handle("/healthz", health.NewLivenessHandler())
 mux.Handle("/readyz",  health.NewHandler(h))
 ```
 
+**协议实现不管探针**：`transport/http` 不注册任何框架路由，路由表归业务。若想少写两行，用装配层的一条开关（走 `FromBootstrap` 时 `appkit.WithHealth(h)`；手工装配用 `appkit.WithProbes` + `bootstrap.NewGRPCHealthServer`）：
+
+```go
+appkit.WithHealth(h)                                             // HTTP 双探针 + gRPC health 状态联动
+appkit.WithHealth(h, appkit.WithProbePaths("/livez", "/readyz"))  // 自定义路径
+```
+
+不声明则不挂探针（K8s 探针会 404 → 容器永不 Ready）；设计论证见
+`docs/devel/zh-CN/Bald 健康检查装配设计.md`。
+
 readiness 的响应映射只有一条：**Down → 503，Up/Unknown → 200**（宁可乐观：
 误摘流量的代价高于故障实例多活一个周期）。响应体带全量明细，排障不用进
 容器看日志：

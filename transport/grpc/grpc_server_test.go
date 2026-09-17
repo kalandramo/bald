@@ -2,7 +2,6 @@ package grpcserver
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -64,7 +63,7 @@ func healthCheck(t *testing.T, ep string) (healthpb.HealthCheckResponse_ServingS
 
 // TestGRPCServer_DynamicPort：绑定 ":0" 时 Endpoint 应解析为真实随机端口且可达。
 func TestGRPCServer_DynamicPort(t *testing.T) {
-	srv := NewGRPCServerWithRegister(&bootstrapv1.Server_Grpc{Addr: ":0"}, nil, nil, nil)
+	srv := NewGRPCServerWithRegister(&bootstrapv1.Server_Grpc{Addr: ":0"}, nil, nil)
 	stop := startAndWait(t, srv)
 	defer stop()
 
@@ -80,9 +79,10 @@ func TestGRPCServer_DynamicPort(t *testing.T) {
 	}
 }
 
-// TestGRPCServer_HealthRegistered：健康检查服务默认注册且初始 SERVING。
+// TestGRPCServer_HealthRegistered：gRPC 标准健康服务默认注册且初始 SERVING
+// （协议标配在位；就绪判断由装配层推，见《Bald 健康检查装配设计》）。
 func TestGRPCServer_HealthRegistered(t *testing.T) {
-	srv := NewGRPCServerWithRegister(&bootstrapv1.Server_Grpc{Addr: ":0"}, nil, nil, nil)
+	srv := NewGRPCServerWithRegister(&bootstrapv1.Server_Grpc{Addr: ":0"}, nil, nil)
 	stop := startAndWait(t, srv)
 	defer stop()
 
@@ -93,75 +93,42 @@ func TestGRPCServer_HealthRegistered(t *testing.T) {
 	if status != healthpb.HealthCheckResponse_SERVING {
 		t.Fatalf("status = %v, want SERVING", status)
 	}
+	if srv.HealthServer() == nil {
+		t.Fatal("HealthServer() must expose the registered health server")
+	}
 }
 
-// TestGRPCServer_ReadinessDrivesHealth：readiness 状态变化应驱动 health 联动。
-func TestGRPCServer_ReadinessDrivesHealth(t *testing.T) {
-	serving := false
-	readiness := func(context.Context) error {
-		if !serving {
-			return errors.New("dep not ready")
-		}
-		return nil
-	}
-	srv := NewGRPCServerWithRegister(&bootstrapv1.Server_Grpc{Addr: ":0"}, nil, nil, readiness,
-		WithReadinessPollInterval(10*time.Millisecond))
+// TestGRPCServer_HealthServerDrivesStatus：外部经 HealthServer() 推状态应生效
+// （这正是装配层同步就绪状态的路径）。
+func TestGRPCServer_HealthServerDrivesStatus(t *testing.T) {
+	srv := NewGRPCServerWithRegister(&bootstrapv1.Server_Grpc{Addr: ":0"}, nil, nil)
 	stop := startAndWait(t, srv)
 	defer stop()
 
-	// 未就绪 → NOT_SERVING
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		status, err := healthCheck(t, srv.Endpoint())
-		if err != nil {
-			t.Fatalf("health check: %v", err)
-		}
-		if status == healthpb.HealthCheckResponse_NOT_SERVING {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("health should be NOT_SERVING before readiness, got %v", status)
-		}
-		time.Sleep(10 * time.Millisecond)
+	srv.HealthServer().SetServingStatus("", healthpb.HealthCheckResponse_NOT_SERVING)
+	status, err := healthCheck(t, srv.Endpoint())
+	if err != nil {
+		t.Fatalf("health check: %v", err)
 	}
-
-	// 恢复就绪 → SERVING
-	serving = true
-	deadline = time.Now().Add(2 * time.Second)
-	for {
-		status, err := healthCheck(t, srv.Endpoint())
-		if err != nil {
-			t.Fatalf("health check: %v", err)
-		}
-		if status == healthpb.HealthCheckResponse_SERVING {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("health should recover to SERVING, got %v", status)
-		}
-		time.Sleep(10 * time.Millisecond)
+	if status != healthpb.HealthCheckResponse_NOT_SERVING {
+		t.Fatalf("status = %v, want NOT_SERVING", status)
 	}
 }
 
-// TestGRPCServer_StartErrorLeavesNoProbe：Start 失败（端口占用）后
-// 不应启动 readiness 轮询 goroutine（readinessCancel 保持 nil）。
-func TestGRPCServer_StartErrorLeavesNoProbe(t *testing.T) {
-	srv := NewGRPCServerWithRegister(&bootstrapv1.Server_Grpc{Addr: "127.0.0.1:1"}, nil, nil,
-		func(context.Context) error { return nil })
-	if err := srv.Start(context.Background()); err == nil {
-		t.Fatal("Start on bad addr should fail")
-	}
-	srv.mu.RLock()
-	cancel := srv.readinessCancel
-	srv.mu.RUnlock()
-	if cancel != nil {
-		t.Fatal("readiness probe should not start when listen fails")
+// TestGRPCServer_NoReflection：协议实现不再按契约注册 reflection
+// （外移到装配层，见设计文档）——默认 Server 上不应有 reflection 服务。
+func TestGRPCServer_NoReflection(t *testing.T) {
+	srv := NewGRPCServerWithRegister(&bootstrapv1.Server_Grpc{Addr: ":0", Reflection: true}, nil, nil)
+	for name := range srv.GetServiceInfo() {
+		if strings.Contains(name, "reflection") {
+			t.Fatalf("reflection service %q should not be registered by transport", name)
+		}
 	}
 }
 
 // TestGRPCServer_StopConcurrentWithStart：Stop 与 Start 并发不应 panic/race。
 func TestGRPCServer_StopConcurrentWithStart(t *testing.T) {
-	srv := NewGRPCServerWithRegister(&bootstrapv1.Server_Grpc{Addr: ":0"}, nil, nil, nil)
+	srv := NewGRPCServerWithRegister(&bootstrapv1.Server_Grpc{Addr: ":0"}, nil, nil)
 	go func() { _ = srv.Start(context.Background()) }()
 	time.Sleep(20 * time.Millisecond)
 	stopCtx, cancel := context.WithTimeout(context.Background(), time.Second)
