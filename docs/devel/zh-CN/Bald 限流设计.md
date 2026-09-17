@@ -117,20 +117,22 @@ type InflightLimiter interface {
 }
 ```
 
-`Done` 是「放行与释放配对」的那一半。`Allow` 成功即占用，`Done` 归还；漏一次 `Done` 就永久少一格容量。
+`Done` 是「放行与释放配对」的那一半。`Allow` 成功即占用，`Done` 归还；漏一次 `Done` 就永久少一格容量。**`Wait` 同样占用**：`bbr.Wait` 内部轮询 `Allow`（`bbr.go:166`），成功返回时已占住一个 inflight 槽——对 `InflightLimiter` 而言，成功的 `Wait` 也必须配一次 `Done`（契约注释已写明）。
 
 调用方通过一次类型断言发现它，而不是靠读文档：
 
 ```go
 if il, ok := limiter.(ratelimit.InflightLimiter); ok {
 	start := time.Now()
-	ok, err := il.Allow()
-	if err != nil || !ok {
+	if ok, err := il.Allow(); err != nil || !ok {
 		// 超限
+		return
 	}
 	defer func() { il.Done(time.Since(start)) }()
 }
 ```
+
+`defer` 必须只挂在放行成功的分支上——`bbr.Done` 无条件 `inflight--`，拒绝路径多调一次 `Done` 就让计数变负，并发限制随之失效。
 
 **为什么 `Done` 带 `rtt` 参数**：这是 `bbr` 唯一需要的额外输入——它的滑动窗口要靠每次请求的耗时来估算可持续放行量。不带参数的话，`bbr` 就得另起一个 `DoneWithRTT(rtt)`，接口本身反而不能表达「bbr 的正确用法」。`rtt` 对不需要它的实现是噪音，所以契约明确写了「不需要就忽略，不知道就传 0」。
 
@@ -195,7 +197,7 @@ if ok, _ := l.Allow(); ok {
 
 **必须说清的口径**：包注释（`bbr.go:9`）说 `maxQPS = windowSize / minRTT`，但 `estimateMaxQPSLocked`（`bbr.go:246`）实际算的是 `min(观测QPS, window/minRTT)`，其中观测 QPS 是 `totalCount / window`。按 Little's law，观测吞吐本来就 ≤ `window/minRTT`，取 min 之后这个值基本等于**观测 QPS**，而不是「最大 QPS」。名字与实现不一致，读代码时以实现为准。
 
-**边界**：`bbr` 的正确用法是「`Allow` 与 `Done` 成对」。只调 `Allow` 不调 `Done` 会把 `inflight` 永久占住，冷启动时 `maxInflight` 被夹到 1，于是**只放行一个请求，之后全是拒绝**。修复后接口能让你调到 `Done` 了，但配对仍然靠调用方自觉——`bbr_test.go` 的 `TestAllow_DoneReleasesInflight` 与 `TestAllow_UnpairedAllowLocksOut` 把这两种行为都钉住了。
+**边界**：`bbr` 的正确用法是「`Allow` 与 `Done` 成对」。只调 `Allow` 不调 `Done` 会把 `inflight` 永久占住，冷启动时 `maxInflight` 被夹到 1，于是**只放行一个请求，之后全是拒绝**。修复后接口能让你调到 `Done` 了，但配对仍然靠调用方自觉——`bbr_test.go` 的 `TestAllow_DoneReleasesInflight` 与 `TestAllow_UnpairedAllowLocksOut` 把这两种行为都钉住了，`TestWait_HoldsSlotUntilDone` 钉住 `Wait` 侧的同一义务（成功的 `Wait` 也占槽，也须配 `Done`）。
 
 ### 实现三：`sentinel`——桥接，不做规则管理
 
@@ -232,7 +234,7 @@ if ok, _ := l.Allow(); !ok {
 | 可注入时钟 | 是（`WithClock`） | 否 | 不涉及 |
 | 释放方式 | 不需要 | `Done(rtt)`，**已进接口** | `ReleaseEntry(e)`，句柄式，未进接口 |
 | 第三方依赖 | 无 | 无 | `sentinel-golang v1.0.4` |
-| 测试 | 11 个 | 3 个 | **0 个** |
+| 测试 | 11 个 | 4 个 | **0 个** |
 
 这张表就是本文档存在的主要理由之一：**同一份契约下的三个实现，使用形状并不一致，而这些不一致必须写在类型上而不是藏在注释里。**
 
@@ -243,7 +245,7 @@ if ok, _ := l.Allow(); !ok {
 `rate.Limiter` 是 Go 生态事实上的标准令牌桶，成熟、有 `Reserve`/`AllowN`/`WaitN`、有 `SetLimit` 动态调速。我们没用它当契约，三个原因：
 
 1. **它是实现，不是契约**。`x/time/rate` 只覆盖「固定速率 + 突发」，`bbr` 的自适应与 `sentinel` 的规则引擎都套不进去。把 `rate.Limiter` 当接口用，等于宣布「限流只能是令牌桶」。
-2. **它的 `Wait` 语义与我们要的不完全一样**。`rate.Limiter.Wait` 在超限时会返回错误而不是无限等；`ratelimit.Wait` 明确承诺「只有永久枯竭才返回 `ErrLimited`，否则一直等到令牌」（`ratelimit.go:31`）。这个差别对「平滑放行」的场景是决定性的。
+2. **它的 `Wait` 语义与我们要的不完全一样**。`rate.Limiter.Wait` 在暂时超限时同样阻塞等待，只在 `n > burst`（永不可能满足）或等待超过 ctx deadline 时返回错误；`ratelimit.Wait` 则把「永久枯竭」表达为 `ErrLimited` 哨兵（`ratelimit.go:31`），不依赖调用方传 deadline 才能感知。此外 `x/time/rate` 没有 `Close` 生命周期，「已关闭」这一状态在它的类型上无法表达。
 3. **它会把零依赖破掉**。`x/time/rate` 自身零依赖，但它属于 `x/` 扩展库；`tokenbucket` 手写 156 行就拿到了同样的语义，且带 `WithClock`。
 
 **代价我们承认**：手写的令牌桶没有 `x/time/rate` 那样的 `SetLimit` 动态调速、`ReserveN` 预占、`AllowN` 批量消耗，也没有它十年积累的边界处理。要这些能力就得自己加扩展点。
@@ -324,7 +326,7 @@ type InflightLimiter interface {
 
 `ratelimit/{go.mod,ratelimit.go,ratelimit_test.go}` + `ratelimit/{tokenbucket,bbr,sentinel}/`，共 4 个 module、8 个 Go 文件。引入于 `da4d533`（六模块批量移植），`1bcebd1` 随全模块升到 go 1.27.1。
 
-测试 18 个：根 module 4 个（哨兵自比较、接口形状、`InflightLimiter` 形状、普通 `Limiter` 不满足 `InflightLimiter`）、`tokenbucket` 11 个、`bbr` 3 个、`sentinel` 0 个。
+测试 19 个：根 module 4 个（哨兵自比较、接口形状、`InflightLimiter` 形状、普通 `Limiter` 不满足 `InflightLimiter`）、`tokenbucket` 11 个、`bbr` 4 个、`sentinel` 0 个。
 
 ### 本轮修复（2026-09-17）：把「释放」写进契约
 
@@ -345,13 +347,24 @@ type InflightLimiter interface {
 ```bash
 cd ratelimit && go vet ./... && go test -count=1 ./...              # 4 个测试
 cd ratelimit/tokenbucket && go vet ./... && go test -count=1 ./...  # 11 个测试
-cd ratelimit/bbr && go vet ./... && go test -count=1 -v ./...       # 3 个测试
+cd ratelimit/bbr && go vet ./... && go test -count=1 -v ./...       # 4 个测试
 cd ratelimit/sentinel && go vet ./... && go build ./...             # 0 个测试，编译验证
 ```
 
+### 二轮评审修复（2026-09-17）：示例配对、`Wait` 配对语义、两处表述
+
+评审发现四件，全部修复：
+
+| 位置 | 改动 |
+|---|---|
+| 「设计」节发现式示例 | `defer` 原先无条件注册——拒绝路径也会调 `Done`，`bbr.Done` 无条件 `inflight--` 会让计数变负、并发限制被击穿。改为早退后注册，并补一句「`defer` 必须只挂在放行成功的分支上」 |
+| `ratelimit.go` 契约注释 + `bbr.Wait` 注释 + `bbr_test.go` | `Wait` 配对语义补全：`bbr.Wait` 内部轮询 `Allow`，成功的 `Wait` 同样占住 inflight 槽，必须配一次 `Done`。契约注释写明，`bbr` 新增 `TestWait_HoldsSlotUntilDone` 钉住（3→4 个） |
+| 「理由与取舍」第 2 条 | `x/time/rate` 的 `Wait` 语义表述纠错：它在暂时超限时同样阻塞等待（只在 `n > burst` 或超过 ctx deadline 时报错），原文「超限时返回错误而不是无限等」不实；真实差异是 `ErrLimited` 哨兵表达永久枯竭、以及无 `Close` 生命周期 |
+| 「没修的两件事」 | `testConcurrentAllow` 处置建议补数据竞争警告：200 个 goroutine 无同步 `++`，直接接 `t.Run` 在 `-race` 下必红，须先改 `atomic.Int64` |
+
 ### 没修的两件事，都不是本轮范围
 
-`tokenbucket_test.go:201` 的 `testConcurrentAllow` 是小写函数、**没有任何调用点**——一个写了一半没接上的并发测试，留着不如删掉或补上 `t.Run` 调用。
+`tokenbucket_test.go:201` 的 `testConcurrentAllow` 是小写函数、**没有任何调用点**——一个写了一半没接上的并发测试。且它自身有数据竞争：200 个 goroutine 无同步地 `allowed++`/`rejected++`（`tokenbucket_test.go:217-221`），内联注释「race-safe increment not needed」不成立，丢失更新会让 `allowed+rejected != 200`。处置：删掉；要保留就先改成 `atomic.Int64` 计数再接 `t.Run`，否则 `-race` 下必红。
 
 `tokenbucket` 的 `notify` 死字段与 `ErrLimited` 语义混用照旧，理由见「兼容性」第 3、4 条。
 
@@ -419,7 +432,7 @@ c.Next()
 
 **`Done` 为什么带一个 `rtt` 参数，而不是空参数？** 因为 `bbr` 需要它来估算可持续放行量。空参数会逼 `bbr` 把 `Done(rtt)` 改名再加一个 `Done()`，接口反而说不清正确用法。不需要 `rtt` 的实现忽略它即可——`tokenbucket` 干脆不实现这个接口。见「理由与取舍」。
 
-**我拿到的是 `ratelimit.Limiter`，怎么知道要不要调 `Done`？** 一次类型断言：`if il, ok := l.(ratelimit.InflightLimiter); ok { defer il.Done(time.Since(start)) }`。断言成立就必须配对，不成立就没有可释放的东西。
+**我拿到的是 `ratelimit.Limiter`，怎么知道要不要调 `Done`？** 一次类型断言：`if il, ok := l.(ratelimit.InflightLimiter); ok { defer il.Done(time.Since(start)) }`。断言成立就必须配对（成功的 `Wait` 同样占用，也须配 `Done`），不成立就没有可释放的东西。
 
 **`bbr` 的 `cpuThreshold` 是 CPU 使用率吗？** 不是。它只是 `maxInflight` 的乘数，代码里没有任何 CPU 采样。见「理由与取舍」。
 

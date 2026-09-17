@@ -161,6 +161,9 @@ func (l *Limiter) Allow() (bool, error) {
 }
 
 // Wait blocks until a request can be admitted or ctx is cancelled.
+// On success the admitted slot is held until Done is called — Wait admits
+// internally via Allow, so the InflightLimiter pairing obligation applies
+// to a successful Wait as well.
 func (l *Limiter) Wait(ctx context.Context) error {
 	for {
 		ok, err := l.Allow()

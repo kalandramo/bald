@@ -1,6 +1,7 @@
 package bbr
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -51,6 +52,30 @@ func TestAllow_UnpairedAllowLocksOut(t *testing.T) {
 		if ok || err == nil {
 			t.Fatalf("Allow() #%d without Done() = (%v, %v), want (false, non-nil)", i, ok, err)
 		}
+	}
+}
+
+// TestWait_HoldsSlotUntilDone pins the Wait-side pairing obligation: Wait
+// admits internally via Allow, so a successful Wait holds an inflight slot
+// until Done is called.
+func TestWait_HoldsSlotUntilDone(t *testing.T) {
+	var l ratelimit.InflightLimiter = New()
+	defer l.Close()
+
+	if err := l.Wait(context.Background()); err != nil {
+		t.Fatalf("first Wait() = %v, want nil", err)
+	}
+
+	// On a cold window maxInflight is clamped to 1, so the slot held by the
+	// successful Wait blocks the next Allow until Done releases it.
+	if ok, _ := l.Allow(); ok {
+		t.Fatal("Allow() after unpaired Wait() = true, want false")
+	}
+
+	l.Done(0)
+
+	if err := l.Wait(context.Background()); err != nil {
+		t.Errorf("Wait() after Done() = %v, want nil", err)
 	}
 }
 

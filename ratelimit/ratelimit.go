@@ -45,6 +45,10 @@ type Limiter interface {
 // single unpaired Allow caps the limiter at one concurrent request, so all
 // later requests are rejected forever.
 //
+// A successful Wait holds a slot as well: implementations that admit
+// internally (e.g. BBR polls Allow inside Wait) count it as in-flight, so a
+// Wait returning nil must also be paired with exactly one Done.
+//
 // Callers that hold a plain [Limiter] discover the capability by type
 // assertion:
 //
