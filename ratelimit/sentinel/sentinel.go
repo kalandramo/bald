@@ -101,9 +101,12 @@ type Limiter struct {
 
 // Allow attempts to enter the Sentinel resource.
 //
-// For QPS-based rules this is a one-shot check (Entry + immediate Exit).
-// For concurrency-based rules the entry is kept open until the request
-// completes — call Done() to release it.
+// The entry handle is discarded, so this is a one-shot check: QPS-based rules
+// are evaluated at Entry time and need nothing else. Concurrency-based rules
+// are NOT supported here — the entry never exits, so Sentinel's concurrency
+// counter only grows. Use [Limiter.AllowEntry] plus [Limiter.ReleaseEntry] for
+// those. For the same reason this type does not implement
+// [ratelimit.InflightLimiter], whose Done carries no handle.
 func (l *Limiter) Allow() (bool, error) {
 	e, b := l.enter()
 	if b != nil {

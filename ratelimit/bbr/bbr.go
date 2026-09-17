@@ -28,7 +28,10 @@ import (
 	"github.com/kalandramo/bald/ratelimit"
 )
 
-var _ ratelimit.Limiter = (*Limiter)(nil)
+var (
+	_ ratelimit.Limiter         = (*Limiter)(nil)
+	_ ratelimit.InflightLimiter = (*Limiter)(nil)
+)
 
 const (
 	defaultCPUThreshold = 0.80
@@ -175,6 +178,11 @@ func (l *Limiter) Wait(ctx context.Context) error {
 
 // Done marks the completion of a previously admitted request.
 // rtt is the end-to-end latency of the request (for RTT estimation).
+//
+// Done is what satisfies [ratelimit.InflightLimiter]. Every successful Allow
+// must be paired with exactly one Done — through the [ratelimit.Limiter]
+// interface the pairing is the caller's responsibility, and an unpaired Allow
+// caps this limiter at one concurrent request.
 func (l *Limiter) Done(rtt time.Duration) {
 	l.mu.Lock()
 	l.inflight--
