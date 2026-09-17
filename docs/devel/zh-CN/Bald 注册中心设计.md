@@ -345,10 +345,10 @@ Discovery / Watcher 没有消费方、注册只在 `_example` 里跑通，这是
 | `.../bald/pkg/registry/inmemory` → `.../bald/registry/inmemory` | breaking（import 路径） | 同上清单内 |
 | `bald-registry-{etcd,consul,kubernetes}` → `.../bald/registry/<backend>` | breaking（module 路径 + 伪版本依赖） | **零消费者**：`v0.0.0` 伪版本靠 replace 兜底，从未发布 |
 | `bald/contrib/registry/nacos v0.1.0` → `.../bald/registry/nacos` | breaking（已发布 module 改路径） | bald-admin 是真实消费者（require v0.1.0）；旧 tag 仍可解析，非强制同步 |
-| `appkit.NewRegistrarRegistry` → `bootstrap.NewRegistrarRegistry`（类型 `*appkit.RegistrarRegistry` → `*bootstrap.RegistrarRegistry`） | breaking（符号搬家，2026-09-17 迁入 bootstrap） | 本仓 3 处（`_example/bald/register_nacos.go`、appkit 测试、`WithRegistrarRegistry` 签名）已同步；跨仓 go-bald-admin 需同步改 |
+| `appkit.NewRegistrarRegistry` → `bootstrap.NewRegistrarRegistry`（类型 `*appkit.RegistrarRegistry` → `*bootstrap.RegistrarRegistry`） | breaking（符号搬家，2026-09-17 迁入 bootstrap） | 本仓 3 处（`_example/bald/register_nacos.go`、appkit 测试、`WithRegistrarRegistry` 签名）已同步；跨仓 bald-admin 已同步（`e9931d1`） |
 | 契约与接口语义 | 无变化 | 零 |
 
-四个后端里只有 nacos 发过 tag（`contrib/registry/nacos/v0.1.0`），且它是 bald-admin 的真实依赖，这是本次唯一跨仓库的**路径**破坏点；**符号搬家同样跨仓**——go-bald-admin 的 T7 装配代码调 `appkit.NewRegistrarRegistry()`，升级 bald 时需一并改为 `bootstrap.NewRegistrarRegistry()`。etcd / consul / kubernetes 从未发版，改名代价仅限本仓内。
+四个后端里只有 nacos 发过 tag（`contrib/registry/nacos/v0.1.0`），且它是 bald-admin 的真实依赖，这是本次唯一跨仓库的**路径**破坏点；**符号搬家同样跨仓**——bald-admin 的 T7 装配代码调 `appkit.NewRegistrarRegistry()`，已在升级 `bald v0.7.0` 时一并改为 `bootstrap.NewRegistrarRegistry()`（提交 `e9931d1`）。etcd / consul / kubernetes 从未发版，改名代价仅限本仓内。
 
 迁移路径不设灰度、不做双写：import 路径要么改要么不改，没有中间态。自家仓库一次改完，比留两套路径更安全。契约处于 0.x：`Discovery` / `Watcher` 的形状还可能随首个消费方调整——独立发版让这类调整有版本号可循，比藏在主模块里更可见。
 
@@ -370,6 +370,9 @@ Discovery / Watcher 没有消费方、注册只在 `_example` 里跑通，这是
 - tag：`registry/v0.1.0`、`registry/{etcd,consul,nacos,kubernetes}/v0.1.0`，均为 lightweight，全部指向 `48bdc70`；`main` 与 5 个 tag 已推送 `origin`。
 - **tag 内容自洽核对**：`git show <tag>:<module>/go.mod` 确认四个后端 tag 内写的是 `require .../bald/registry v0.1.0` 而非 `v0.0.0`。这是步骤二顺序口径的直接收益。
 - **外部可构建性核对**：四个后端仍 `require bconf v0.1.0`（主模块已到 v0.7.1），而本地 replace 会掩盖版本错配。故逐一核对调用点——后端只用 `bconf/gen/go/bootstrap/v1` 的 `Registry` 类型与其子消息访问器，21 个调用点在 v0.1.0 生成代码中全部存在，**已推 tag 外部可构建**，无需重打（重打是 `push -f` 破坏操作）。遗留建议：若要统一 bconf 版本，下次后端有实际改动时一并重打。
+
+- **第二刀发版（同日）**：提交 `e1163a7`（refactor，含 `pkg/appkit/registrar.go` 平移、三个下游模块 replace 补齐与文档整合）；tag `bootstrap/v0.7.2`（内容含 `RegistrarRegistry`，require + replace `bald/registry v0.1.0`）与主模块 `v0.7.0`（`require bootstrap v0.7.2` + `registry v0.1.0`），均为 lightweight、指向同一提交 `e1163a7`；`main` 与 2 个 tag 已推送 `origin`。
+- **外部可构建性核对（第二刀，实证而非推断）**：跨仓消费者 bald-admin **零 replace**（纯 tag 依赖）升级到 `bald v0.7.0` + `bootstrap v0.7.2` 后，`go mod tidy` → `go build ./...` → `go vet ./...` → `go test ./...` 全绿（cmd 5.9s、e2e 8.0s）。这就是「先 bootstrap 后主模块」顺序口径的兑现——顺序倒置时 tidy 会直接报新符号不存在（本地 replace 会掩盖，所以必须拿真消费者验一次）。
 
 ### 第二刀：`RegistrarRegistry` 迁入 bootstrap（2026-09-17 同日完成）
 
@@ -393,6 +396,7 @@ Discovery / Watcher 没有消费方、注册只在 `_example` 里跑通，这是
 | `bootstrap`（第二刀新增） | `go build ./...` + `go vet ./...` + `go test ./...` | 通过（bootstrap 5.6s + config 6.8s） |
 | `_example` / `_example/bald` | `go build ./...` + `go build -tags nacos ./...` | 通过（含 `-tags nacos`） |
 | `transport/{webrtc,tcp}`、`contrib/{store-gorm,observability-otlp,authz-casbin,authn-jwt,audit-stream,audit-store}` | `go build ./...` | 通过（补 replace + require 后） |
+| bald-admin（跨仓消费者，零 replace） | `go build ./...` + `go vet ./...` + `go test ./...` | 通过（cmd 5.9s、e2e 8.0s、handler gin/grpc 5.9s/4.9s） |
 
 ### 最大风险是漏改一处 import，表现为编译错误而非静默问题
 
@@ -402,8 +406,8 @@ Discovery / Watcher 没有消费方、注册只在 `_example` 里跑通，这是
 
 ### 未做（待决定）
 
-- [ ] **bald-admin 适配**：`backend/go.mod` 的 `contrib/registry/nacos v0.1.0` 与 `backend/cmd/probe/main.go` 的 import 需改指新路径；同时 `appkit.NewRegistrarRegistry()` → `bootstrap.NewRegistrarRegistry()`（见《go-wind-admin 业务移植计划》§8.6 附注）。旧 tag 仍可解析，不强制立刻改。
-- [ ] **发布顺序（第二刀新增约束）**：bootstrap 必须先发含 `RegistrarRegistry` 的版本，主模块再发版并升 `require .../bald/bootstrap`。当前主模块仍 `require bootstrap v0.7.1`（本地 replace 掩盖）——该版本无此符号，**主模块若在 bootstrap 之前发版，外部消费者不可构建**。这与 `pkg/registry` 下放的「先升 require 后打 tag」是同一类顺序约束。
+- [x] **bald-admin 适配（2026-09-17 完成，提交 `e9931d1`，已推送）**：`backend/go.mod` 升 `bald v0.7.0` / `bootstrap v0.7.2` / `bconf v0.7.1`，`contrib/registry/nacos v0.1.0` → `registry/nacos v0.1.0`（`registry v0.1.0` 转直接依赖）；`cmd/probe` 的 `pkg/registry` import 与 main.go 的 nacos 契约 import 改指新路径，`registrarRegistry()` 改 `bootstrap.NewRegistrarRegistry()`（Option 名与装配形态不变）。见《go-wind-admin 业务移植计划》§8.6 附注。
+- [x] **发布顺序（第二刀新增约束，已按序执行）**：`bootstrap/v0.7.2` 先打、主模块 `v0.7.0` 后打并升 `require .../bald/bootstrap v0.7.2`，两个 tag 指向同一提交 `e1163a7`；外部可构建性由 bald-admin 零 replace 升级实证（见上「发版记录」）。
 - [ ] **契约预留但无实现**：zookeeper / polaris / eureka / service_comb 四段。
 - [ ] **Discovery / Watcher 无消费方**：provider 已实现，等 client-side LB 需求。
 - [ ] **后端 bconf 版本统一**：需重打 tag，建议随下次后端改动一并做。
