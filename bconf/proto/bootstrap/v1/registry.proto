@@ -12,11 +12,13 @@ message Registry {
     CONSUL = 1;
     ETCD = 2;
     NACOS = 3;
-    ZOOKEEPER = 4;
-    POLARIS = 5;
-    EUREKA = 6;
     KUBERNETES = 7;
-    SERVICE_COMB = 8;
+
+    // 2026-09-17 瘦身：zookeeper/polaris/eureka/service_comb 无 provider
+    // 实现，枚举值直接删除；枚举号与枚举名 reserved 防复用（与
+    // config.proto 死源瘦身同口径：契约只为已实现的后端承诺形状）。
+    reserved 4, 5, 6, 8;
+    reserved "ZOOKEEPER", "POLARIS", "EUREKA", "SERVICE_COMB";
   }
 
   message Consul {
@@ -64,62 +66,8 @@ message Registry {
     string password = 9;
   }
 
-  message Zookeeper {
-    repeated string endpoints = 1;
-    // 根路径/命名空间。
-    string root_path = 2;
-    int32 session_timeout = 3;
-    // Digest ACL 用户名。
-    string username = 4;
-    // Digest ACL 密码。
-    string password = 5;
-  }
-
-  message Polaris {
-    string address = 1;
-    string namespace = 2;
-    string service = 3;
-    string token = 4;
-    // 服务协议。
-    string protocol = 5;
-    // 权重 (0~10000)。
-    int32 weight = 6;
-    // 优先级，值越小优先级越低。
-    int32 priority = 7;
-    // 是否健康。
-    bool healthy = 8;
-    // 是否隔离。
-    bool isolate = 9;
-    // 心跳 TTL（秒）。
-    int32 ttl = 10;
-    // 是否启用心跳。
-    bool heartbeat = 11;
-    // 单次查询超时（毫秒）。
-    int32 timeout = 12;
-    // 重试次数。
-    int32 retry_count = 13;
-  }
-
-  message Eureka {
-    repeated string endpoints = 1;
-    string app_name = 2;
-    // 心跳间隔（秒）。
-    int32 heartbeat_interval = 3;
-    // 服务列表刷新间隔（秒）。
-    int32 refresh_interval = 4;
-    // Eureka 路径前缀。
-    string eureka_path = 5;
-  }
-
   message Kubernetes {
     string namespace = 1;
-  }
-
-  message ServiceComb {
-    repeated string endpoints = 1;
-    string app_id = 2;
-    string service_name = 3;
-    string version = 4;
   }
 
   string type = 1;
@@ -127,9 +75,12 @@ message Registry {
   optional Consul consul = 2;
   optional Etcd etcd = 3;
   optional Nacos nacos = 4;
-  optional Zookeeper zookeeper = 5;
-  optional Polaris polaris = 6;
-  optional Eureka eureka = 7;
   optional Kubernetes kubernetes = 8;
-  optional ServiceComb service_comb = 9;
+
+  // 2026-09-17 瘦身：zookeeper/polaris/eureka/service_comb 四段是契约预留
+  // 但无任何实现（枚举里也无对应 provider），删除；字段号与名字 reserved
+  // 防复用。新增后端时先写 registry/<backend> 实现，需要新配置段再以新
+  // 字段号追加。
+  reserved 5, 6, 7, 9;
+  reserved "zookeeper", "polaris", "eureka", "service_comb";
 }

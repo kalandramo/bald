@@ -28,11 +28,7 @@ const (
 	Registry_CONSUL           Registry_Type = 1
 	Registry_ETCD             Registry_Type = 2
 	Registry_NACOS            Registry_Type = 3
-	Registry_ZOOKEEPER        Registry_Type = 4
-	Registry_POLARIS          Registry_Type = 5
-	Registry_EUREKA           Registry_Type = 6
 	Registry_KUBERNETES       Registry_Type = 7
-	Registry_SERVICE_COMB     Registry_Type = 8
 )
 
 // Enum value maps for Registry_Type.
@@ -42,22 +38,14 @@ var (
 		1: "CONSUL",
 		2: "ETCD",
 		3: "NACOS",
-		4: "ZOOKEEPER",
-		5: "POLARIS",
-		6: "EUREKA",
 		7: "KUBERNETES",
-		8: "SERVICE_COMB",
 	}
 	Registry_Type_value = map[string]int32{
 		"TYPE_UNSPECIFIED": 0,
 		"CONSUL":           1,
 		"ETCD":             2,
 		"NACOS":            3,
-		"ZOOKEEPER":        4,
-		"POLARIS":          5,
-		"EUREKA":           6,
 		"KUBERNETES":       7,
-		"SERVICE_COMB":     8,
 	}
 )
 
@@ -95,11 +83,7 @@ type Registry struct {
 	Consul        *Registry_Consul       `protobuf:"bytes,2,opt,name=consul,proto3,oneof" json:"consul,omitempty"`
 	Etcd          *Registry_Etcd         `protobuf:"bytes,3,opt,name=etcd,proto3,oneof" json:"etcd,omitempty"`
 	Nacos         *Registry_Nacos        `protobuf:"bytes,4,opt,name=nacos,proto3,oneof" json:"nacos,omitempty"`
-	Zookeeper     *Registry_Zookeeper    `protobuf:"bytes,5,opt,name=zookeeper,proto3,oneof" json:"zookeeper,omitempty"`
-	Polaris       *Registry_Polaris      `protobuf:"bytes,6,opt,name=polaris,proto3,oneof" json:"polaris,omitempty"`
-	Eureka        *Registry_Eureka       `protobuf:"bytes,7,opt,name=eureka,proto3,oneof" json:"eureka,omitempty"`
 	Kubernetes    *Registry_Kubernetes   `protobuf:"bytes,8,opt,name=kubernetes,proto3,oneof" json:"kubernetes,omitempty"`
-	ServiceComb   *Registry_ServiceComb  `protobuf:"bytes,9,opt,name=service_comb,json=serviceComb,proto3,oneof" json:"service_comb,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -162,37 +146,9 @@ func (x *Registry) GetNacos() *Registry_Nacos {
 	return nil
 }
 
-func (x *Registry) GetZookeeper() *Registry_Zookeeper {
-	if x != nil {
-		return x.Zookeeper
-	}
-	return nil
-}
-
-func (x *Registry) GetPolaris() *Registry_Polaris {
-	if x != nil {
-		return x.Polaris
-	}
-	return nil
-}
-
-func (x *Registry) GetEureka() *Registry_Eureka {
-	if x != nil {
-		return x.Eureka
-	}
-	return nil
-}
-
 func (x *Registry) GetKubernetes() *Registry_Kubernetes {
 	if x != nil {
 		return x.Kubernetes
-	}
-	return nil
-}
-
-func (x *Registry) GetServiceComb() *Registry_ServiceComb {
-	if x != nil {
-		return x.ServiceComb
 	}
 	return nil
 }
@@ -509,313 +465,6 @@ func (x *Registry_Nacos) GetPassword() string {
 	return ""
 }
 
-type Registry_Zookeeper struct {
-	state     protoimpl.MessageState `protogen:"open.v1"`
-	Endpoints []string               `protobuf:"bytes,1,rep,name=endpoints,proto3" json:"endpoints,omitempty"`
-	// 根路径/命名空间。
-	RootPath       string `protobuf:"bytes,2,opt,name=root_path,json=rootPath,proto3" json:"root_path,omitempty"`
-	SessionTimeout int32  `protobuf:"varint,3,opt,name=session_timeout,json=sessionTimeout,proto3" json:"session_timeout,omitempty"`
-	// Digest ACL 用户名。
-	Username string `protobuf:"bytes,4,opt,name=username,proto3" json:"username,omitempty"`
-	// Digest ACL 密码。
-	Password      string `protobuf:"bytes,5,opt,name=password,proto3" json:"password,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *Registry_Zookeeper) Reset() {
-	*x = Registry_Zookeeper{}
-	mi := &file_bootstrap_v1_registry_proto_msgTypes[4]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *Registry_Zookeeper) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*Registry_Zookeeper) ProtoMessage() {}
-
-func (x *Registry_Zookeeper) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_registry_proto_msgTypes[4]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use Registry_Zookeeper.ProtoReflect.Descriptor instead.
-func (*Registry_Zookeeper) Descriptor() ([]byte, []int) {
-	return file_bootstrap_v1_registry_proto_rawDescGZIP(), []int{0, 3}
-}
-
-func (x *Registry_Zookeeper) GetEndpoints() []string {
-	if x != nil {
-		return x.Endpoints
-	}
-	return nil
-}
-
-func (x *Registry_Zookeeper) GetRootPath() string {
-	if x != nil {
-		return x.RootPath
-	}
-	return ""
-}
-
-func (x *Registry_Zookeeper) GetSessionTimeout() int32 {
-	if x != nil {
-		return x.SessionTimeout
-	}
-	return 0
-}
-
-func (x *Registry_Zookeeper) GetUsername() string {
-	if x != nil {
-		return x.Username
-	}
-	return ""
-}
-
-func (x *Registry_Zookeeper) GetPassword() string {
-	if x != nil {
-		return x.Password
-	}
-	return ""
-}
-
-type Registry_Polaris struct {
-	state     protoimpl.MessageState `protogen:"open.v1"`
-	Address   string                 `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`
-	Namespace string                 `protobuf:"bytes,2,opt,name=namespace,proto3" json:"namespace,omitempty"`
-	Service   string                 `protobuf:"bytes,3,opt,name=service,proto3" json:"service,omitempty"`
-	Token     string                 `protobuf:"bytes,4,opt,name=token,proto3" json:"token,omitempty"`
-	// 服务协议。
-	Protocol string `protobuf:"bytes,5,opt,name=protocol,proto3" json:"protocol,omitempty"`
-	// 权重 (0~10000)。
-	Weight int32 `protobuf:"varint,6,opt,name=weight,proto3" json:"weight,omitempty"`
-	// 优先级，值越小优先级越低。
-	Priority int32 `protobuf:"varint,7,opt,name=priority,proto3" json:"priority,omitempty"`
-	// 是否健康。
-	Healthy bool `protobuf:"varint,8,opt,name=healthy,proto3" json:"healthy,omitempty"`
-	// 是否隔离。
-	Isolate bool `protobuf:"varint,9,opt,name=isolate,proto3" json:"isolate,omitempty"`
-	// 心跳 TTL（秒）。
-	Ttl int32 `protobuf:"varint,10,opt,name=ttl,proto3" json:"ttl,omitempty"`
-	// 是否启用心跳。
-	Heartbeat bool `protobuf:"varint,11,opt,name=heartbeat,proto3" json:"heartbeat,omitempty"`
-	// 单次查询超时（毫秒）。
-	Timeout int32 `protobuf:"varint,12,opt,name=timeout,proto3" json:"timeout,omitempty"`
-	// 重试次数。
-	RetryCount    int32 `protobuf:"varint,13,opt,name=retry_count,json=retryCount,proto3" json:"retry_count,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *Registry_Polaris) Reset() {
-	*x = Registry_Polaris{}
-	mi := &file_bootstrap_v1_registry_proto_msgTypes[5]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *Registry_Polaris) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*Registry_Polaris) ProtoMessage() {}
-
-func (x *Registry_Polaris) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_registry_proto_msgTypes[5]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use Registry_Polaris.ProtoReflect.Descriptor instead.
-func (*Registry_Polaris) Descriptor() ([]byte, []int) {
-	return file_bootstrap_v1_registry_proto_rawDescGZIP(), []int{0, 4}
-}
-
-func (x *Registry_Polaris) GetAddress() string {
-	if x != nil {
-		return x.Address
-	}
-	return ""
-}
-
-func (x *Registry_Polaris) GetNamespace() string {
-	if x != nil {
-		return x.Namespace
-	}
-	return ""
-}
-
-func (x *Registry_Polaris) GetService() string {
-	if x != nil {
-		return x.Service
-	}
-	return ""
-}
-
-func (x *Registry_Polaris) GetToken() string {
-	if x != nil {
-		return x.Token
-	}
-	return ""
-}
-
-func (x *Registry_Polaris) GetProtocol() string {
-	if x != nil {
-		return x.Protocol
-	}
-	return ""
-}
-
-func (x *Registry_Polaris) GetWeight() int32 {
-	if x != nil {
-		return x.Weight
-	}
-	return 0
-}
-
-func (x *Registry_Polaris) GetPriority() int32 {
-	if x != nil {
-		return x.Priority
-	}
-	return 0
-}
-
-func (x *Registry_Polaris) GetHealthy() bool {
-	if x != nil {
-		return x.Healthy
-	}
-	return false
-}
-
-func (x *Registry_Polaris) GetIsolate() bool {
-	if x != nil {
-		return x.Isolate
-	}
-	return false
-}
-
-func (x *Registry_Polaris) GetTtl() int32 {
-	if x != nil {
-		return x.Ttl
-	}
-	return 0
-}
-
-func (x *Registry_Polaris) GetHeartbeat() bool {
-	if x != nil {
-		return x.Heartbeat
-	}
-	return false
-}
-
-func (x *Registry_Polaris) GetTimeout() int32 {
-	if x != nil {
-		return x.Timeout
-	}
-	return 0
-}
-
-func (x *Registry_Polaris) GetRetryCount() int32 {
-	if x != nil {
-		return x.RetryCount
-	}
-	return 0
-}
-
-type Registry_Eureka struct {
-	state     protoimpl.MessageState `protogen:"open.v1"`
-	Endpoints []string               `protobuf:"bytes,1,rep,name=endpoints,proto3" json:"endpoints,omitempty"`
-	AppName   string                 `protobuf:"bytes,2,opt,name=app_name,json=appName,proto3" json:"app_name,omitempty"`
-	// 心跳间隔（秒）。
-	HeartbeatInterval int32 `protobuf:"varint,3,opt,name=heartbeat_interval,json=heartbeatInterval,proto3" json:"heartbeat_interval,omitempty"`
-	// 服务列表刷新间隔（秒）。
-	RefreshInterval int32 `protobuf:"varint,4,opt,name=refresh_interval,json=refreshInterval,proto3" json:"refresh_interval,omitempty"`
-	// Eureka 路径前缀。
-	EurekaPath    string `protobuf:"bytes,5,opt,name=eureka_path,json=eurekaPath,proto3" json:"eureka_path,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *Registry_Eureka) Reset() {
-	*x = Registry_Eureka{}
-	mi := &file_bootstrap_v1_registry_proto_msgTypes[6]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *Registry_Eureka) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*Registry_Eureka) ProtoMessage() {}
-
-func (x *Registry_Eureka) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_registry_proto_msgTypes[6]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use Registry_Eureka.ProtoReflect.Descriptor instead.
-func (*Registry_Eureka) Descriptor() ([]byte, []int) {
-	return file_bootstrap_v1_registry_proto_rawDescGZIP(), []int{0, 5}
-}
-
-func (x *Registry_Eureka) GetEndpoints() []string {
-	if x != nil {
-		return x.Endpoints
-	}
-	return nil
-}
-
-func (x *Registry_Eureka) GetAppName() string {
-	if x != nil {
-		return x.AppName
-	}
-	return ""
-}
-
-func (x *Registry_Eureka) GetHeartbeatInterval() int32 {
-	if x != nil {
-		return x.HeartbeatInterval
-	}
-	return 0
-}
-
-func (x *Registry_Eureka) GetRefreshInterval() int32 {
-	if x != nil {
-		return x.RefreshInterval
-	}
-	return 0
-}
-
-func (x *Registry_Eureka) GetEurekaPath() string {
-	if x != nil {
-		return x.EurekaPath
-	}
-	return ""
-}
-
 type Registry_Kubernetes struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Namespace     string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
@@ -825,7 +474,7 @@ type Registry_Kubernetes struct {
 
 func (x *Registry_Kubernetes) Reset() {
 	*x = Registry_Kubernetes{}
-	mi := &file_bootstrap_v1_registry_proto_msgTypes[7]
+	mi := &file_bootstrap_v1_registry_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -837,7 +486,7 @@ func (x *Registry_Kubernetes) String() string {
 func (*Registry_Kubernetes) ProtoMessage() {}
 
 func (x *Registry_Kubernetes) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_registry_proto_msgTypes[7]
+	mi := &file_bootstrap_v1_registry_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -850,7 +499,7 @@ func (x *Registry_Kubernetes) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Registry_Kubernetes.ProtoReflect.Descriptor instead.
 func (*Registry_Kubernetes) Descriptor() ([]byte, []int) {
-	return file_bootstrap_v1_registry_proto_rawDescGZIP(), []int{0, 6}
+	return file_bootstrap_v1_registry_proto_rawDescGZIP(), []int{0, 3}
 }
 
 func (x *Registry_Kubernetes) GetNamespace() string {
@@ -860,91 +509,20 @@ func (x *Registry_Kubernetes) GetNamespace() string {
 	return ""
 }
 
-type Registry_ServiceComb struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Endpoints     []string               `protobuf:"bytes,1,rep,name=endpoints,proto3" json:"endpoints,omitempty"`
-	AppId         string                 `protobuf:"bytes,2,opt,name=app_id,json=appId,proto3" json:"app_id,omitempty"`
-	ServiceName   string                 `protobuf:"bytes,3,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"`
-	Version       string                 `protobuf:"bytes,4,opt,name=version,proto3" json:"version,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *Registry_ServiceComb) Reset() {
-	*x = Registry_ServiceComb{}
-	mi := &file_bootstrap_v1_registry_proto_msgTypes[8]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *Registry_ServiceComb) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*Registry_ServiceComb) ProtoMessage() {}
-
-func (x *Registry_ServiceComb) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_registry_proto_msgTypes[8]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use Registry_ServiceComb.ProtoReflect.Descriptor instead.
-func (*Registry_ServiceComb) Descriptor() ([]byte, []int) {
-	return file_bootstrap_v1_registry_proto_rawDescGZIP(), []int{0, 7}
-}
-
-func (x *Registry_ServiceComb) GetEndpoints() []string {
-	if x != nil {
-		return x.Endpoints
-	}
-	return nil
-}
-
-func (x *Registry_ServiceComb) GetAppId() string {
-	if x != nil {
-		return x.AppId
-	}
-	return ""
-}
-
-func (x *Registry_ServiceComb) GetServiceName() string {
-	if x != nil {
-		return x.ServiceName
-	}
-	return ""
-}
-
-func (x *Registry_ServiceComb) GetVersion() string {
-	if x != nil {
-		return x.Version
-	}
-	return ""
-}
-
 var File_bootstrap_v1_registry_proto protoreflect.FileDescriptor
 
 const file_bootstrap_v1_registry_proto_rawDesc = "" +
 	"\n" +
-	"\x1bbootstrap/v1/registry.proto\x12\fbootstrap.v1\"\xaa\x13\n" +
+	"\x1bbootstrap/v1/registry.proto\x12\fbootstrap.v1\"\xe5\n" +
+	"\n" +
 	"\bRegistry\x12\x12\n" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x12:\n" +
 	"\x06consul\x18\x02 \x01(\v2\x1d.bootstrap.v1.Registry.ConsulH\x00R\x06consul\x88\x01\x01\x124\n" +
 	"\x04etcd\x18\x03 \x01(\v2\x1b.bootstrap.v1.Registry.EtcdH\x01R\x04etcd\x88\x01\x01\x127\n" +
-	"\x05nacos\x18\x04 \x01(\v2\x1c.bootstrap.v1.Registry.NacosH\x02R\x05nacos\x88\x01\x01\x12C\n" +
-	"\tzookeeper\x18\x05 \x01(\v2 .bootstrap.v1.Registry.ZookeeperH\x03R\tzookeeper\x88\x01\x01\x12=\n" +
-	"\apolaris\x18\x06 \x01(\v2\x1e.bootstrap.v1.Registry.PolarisH\x04R\apolaris\x88\x01\x01\x12:\n" +
-	"\x06eureka\x18\a \x01(\v2\x1d.bootstrap.v1.Registry.EurekaH\x05R\x06eureka\x88\x01\x01\x12F\n" +
+	"\x05nacos\x18\x04 \x01(\v2\x1c.bootstrap.v1.Registry.NacosH\x02R\x05nacos\x88\x01\x01\x12F\n" +
 	"\n" +
-	"kubernetes\x18\b \x01(\v2!.bootstrap.v1.Registry.KubernetesH\x06R\n" +
-	"kubernetes\x88\x01\x01\x12J\n" +
-	"\fservice_comb\x18\t \x01(\v2\".bootstrap.v1.Registry.ServiceCombH\aR\vserviceComb\x88\x01\x01\x1a\xef\x02\n" +
+	"kubernetes\x18\b \x01(\v2!.bootstrap.v1.Registry.KubernetesH\x03R\n" +
+	"kubernetes\x88\x01\x01\x1a\xef\x02\n" +
 	"\x06Consul\x12\x18\n" +
 	"\aaddress\x18\x01 \x01(\tR\aaddress\x12\x16\n" +
 	"\x06scheme\x18\x02 \x01(\tR\x06scheme\x12\x14\n" +
@@ -973,67 +551,23 @@ const file_bootstrap_v1_registry_proto_rawDesc = "" +
 	"\x06prefix\x18\x06 \x01(\tR\x06prefix\x12!\n" +
 	"\fdefault_kind\x18\a \x01(\tR\vdefaultKind\x12\x1a\n" +
 	"\busername\x18\b \x01(\tR\busername\x12\x1a\n" +
-	"\bpassword\x18\t \x01(\tR\bpassword\x1a\xa7\x01\n" +
-	"\tZookeeper\x12\x1c\n" +
-	"\tendpoints\x18\x01 \x03(\tR\tendpoints\x12\x1b\n" +
-	"\troot_path\x18\x02 \x01(\tR\brootPath\x12'\n" +
-	"\x0fsession_timeout\x18\x03 \x01(\x05R\x0esessionTimeout\x12\x1a\n" +
-	"\busername\x18\x04 \x01(\tR\busername\x12\x1a\n" +
-	"\bpassword\x18\x05 \x01(\tR\bpassword\x1a\xe0\x02\n" +
-	"\aPolaris\x12\x18\n" +
-	"\aaddress\x18\x01 \x01(\tR\aaddress\x12\x1c\n" +
-	"\tnamespace\x18\x02 \x01(\tR\tnamespace\x12\x18\n" +
-	"\aservice\x18\x03 \x01(\tR\aservice\x12\x14\n" +
-	"\x05token\x18\x04 \x01(\tR\x05token\x12\x1a\n" +
-	"\bprotocol\x18\x05 \x01(\tR\bprotocol\x12\x16\n" +
-	"\x06weight\x18\x06 \x01(\x05R\x06weight\x12\x1a\n" +
-	"\bpriority\x18\a \x01(\x05R\bpriority\x12\x18\n" +
-	"\ahealthy\x18\b \x01(\bR\ahealthy\x12\x18\n" +
-	"\aisolate\x18\t \x01(\bR\aisolate\x12\x10\n" +
-	"\x03ttl\x18\n" +
-	" \x01(\x05R\x03ttl\x12\x1c\n" +
-	"\theartbeat\x18\v \x01(\bR\theartbeat\x12\x18\n" +
-	"\atimeout\x18\f \x01(\x05R\atimeout\x12\x1f\n" +
-	"\vretry_count\x18\r \x01(\x05R\n" +
-	"retryCount\x1a\xbc\x01\n" +
-	"\x06Eureka\x12\x1c\n" +
-	"\tendpoints\x18\x01 \x03(\tR\tendpoints\x12\x19\n" +
-	"\bapp_name\x18\x02 \x01(\tR\aappName\x12-\n" +
-	"\x12heartbeat_interval\x18\x03 \x01(\x05R\x11heartbeatInterval\x12)\n" +
-	"\x10refresh_interval\x18\x04 \x01(\x05R\x0frefreshInterval\x12\x1f\n" +
-	"\veureka_path\x18\x05 \x01(\tR\n" +
-	"eurekaPath\x1a*\n" +
+	"\bpassword\x18\t \x01(\tR\bpassword\x1a*\n" +
 	"\n" +
 	"Kubernetes\x12\x1c\n" +
-	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x1a\x7f\n" +
-	"\vServiceComb\x12\x1c\n" +
-	"\tendpoints\x18\x01 \x03(\tR\tendpoints\x12\x15\n" +
-	"\x06app_id\x18\x02 \x01(\tR\x05appId\x12!\n" +
-	"\fservice_name\x18\x03 \x01(\tR\vserviceName\x12\x18\n" +
-	"\aversion\x18\x04 \x01(\tR\aversion\"\x87\x01\n" +
+	"\tnamespace\x18\x01 \x01(\tR\tnamespace\"\x8f\x01\n" +
 	"\x04Type\x12\x14\n" +
 	"\x10TYPE_UNSPECIFIED\x10\x00\x12\n" +
 	"\n" +
 	"\x06CONSUL\x10\x01\x12\b\n" +
 	"\x04ETCD\x10\x02\x12\t\n" +
-	"\x05NACOS\x10\x03\x12\r\n" +
-	"\tZOOKEEPER\x10\x04\x12\v\n" +
-	"\aPOLARIS\x10\x05\x12\n" +
+	"\x05NACOS\x10\x03\x12\x0e\n" +
 	"\n" +
-	"\x06EUREKA\x10\x06\x12\x0e\n" +
-	"\n" +
-	"KUBERNETES\x10\a\x12\x10\n" +
-	"\fSERVICE_COMB\x10\bB\t\n" +
+	"KUBERNETES\x10\a\"\x04\b\x04\x10\x04\"\x04\b\x05\x10\x05\"\x04\b\x06\x10\x06\"\x04\b\b\x10\b*\tZOOKEEPER*\aPOLARIS*\x06EUREKA*\fSERVICE_COMBB\t\n" +
 	"\a_consulB\a\n" +
 	"\x05_etcdB\b\n" +
-	"\x06_nacosB\f\n" +
-	"\n" +
-	"_zookeeperB\n" +
-	"\n" +
-	"\b_polarisB\t\n" +
-	"\a_eurekaB\r\n" +
-	"\v_kubernetesB\x0f\n" +
-	"\r_service_combB\xb4\x01\n" +
+	"\x06_nacosB\r\n" +
+	"\v_kubernetesJ\x04\b\x05\x10\x06J\x04\b\x06\x10\aJ\x04\b\a\x10\bJ\x04\b\t\x10\n" +
+	"R\tzookeeperR\apolarisR\x06eurekaR\fservice_combB\xb4\x01\n" +
 	"\x10com.bootstrap.v1B\rRegistryProtoP\x01Z@github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1;bootstrapv1\xa2\x02\x03BXX\xaa\x02\fBootstrap.V1\xca\x02\fBootstrap\\V1\xe2\x02\x18Bootstrap\\V1\\GPBMetadata\xea\x02\rBootstrap::V1b\x06proto3"
 
 var (
@@ -1049,33 +583,25 @@ func file_bootstrap_v1_registry_proto_rawDescGZIP() []byte {
 }
 
 var file_bootstrap_v1_registry_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_bootstrap_v1_registry_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_bootstrap_v1_registry_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
 var file_bootstrap_v1_registry_proto_goTypes = []any{
-	(Registry_Type)(0),           // 0: bootstrap.v1.Registry.Type
-	(*Registry)(nil),             // 1: bootstrap.v1.Registry
-	(*Registry_Consul)(nil),      // 2: bootstrap.v1.Registry.Consul
-	(*Registry_Etcd)(nil),        // 3: bootstrap.v1.Registry.Etcd
-	(*Registry_Nacos)(nil),       // 4: bootstrap.v1.Registry.Nacos
-	(*Registry_Zookeeper)(nil),   // 5: bootstrap.v1.Registry.Zookeeper
-	(*Registry_Polaris)(nil),     // 6: bootstrap.v1.Registry.Polaris
-	(*Registry_Eureka)(nil),      // 7: bootstrap.v1.Registry.Eureka
-	(*Registry_Kubernetes)(nil),  // 8: bootstrap.v1.Registry.Kubernetes
-	(*Registry_ServiceComb)(nil), // 9: bootstrap.v1.Registry.ServiceComb
+	(Registry_Type)(0),          // 0: bootstrap.v1.Registry.Type
+	(*Registry)(nil),            // 1: bootstrap.v1.Registry
+	(*Registry_Consul)(nil),     // 2: bootstrap.v1.Registry.Consul
+	(*Registry_Etcd)(nil),       // 3: bootstrap.v1.Registry.Etcd
+	(*Registry_Nacos)(nil),      // 4: bootstrap.v1.Registry.Nacos
+	(*Registry_Kubernetes)(nil), // 5: bootstrap.v1.Registry.Kubernetes
 }
 var file_bootstrap_v1_registry_proto_depIdxs = []int32{
 	2, // 0: bootstrap.v1.Registry.consul:type_name -> bootstrap.v1.Registry.Consul
 	3, // 1: bootstrap.v1.Registry.etcd:type_name -> bootstrap.v1.Registry.Etcd
 	4, // 2: bootstrap.v1.Registry.nacos:type_name -> bootstrap.v1.Registry.Nacos
-	5, // 3: bootstrap.v1.Registry.zookeeper:type_name -> bootstrap.v1.Registry.Zookeeper
-	6, // 4: bootstrap.v1.Registry.polaris:type_name -> bootstrap.v1.Registry.Polaris
-	7, // 5: bootstrap.v1.Registry.eureka:type_name -> bootstrap.v1.Registry.Eureka
-	8, // 6: bootstrap.v1.Registry.kubernetes:type_name -> bootstrap.v1.Registry.Kubernetes
-	9, // 7: bootstrap.v1.Registry.service_comb:type_name -> bootstrap.v1.Registry.ServiceComb
-	8, // [8:8] is the sub-list for method output_type
-	8, // [8:8] is the sub-list for method input_type
-	8, // [8:8] is the sub-list for extension type_name
-	8, // [8:8] is the sub-list for extension extendee
-	0, // [0:8] is the sub-list for field type_name
+	5, // 3: bootstrap.v1.Registry.kubernetes:type_name -> bootstrap.v1.Registry.Kubernetes
+	4, // [4:4] is the sub-list for method output_type
+	4, // [4:4] is the sub-list for method input_type
+	4, // [4:4] is the sub-list for extension type_name
+	4, // [4:4] is the sub-list for extension extendee
+	0, // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_bootstrap_v1_registry_proto_init() }
@@ -1090,7 +616,7 @@ func file_bootstrap_v1_registry_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bootstrap_v1_registry_proto_rawDesc), len(file_bootstrap_v1_registry_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   9,
+			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

@@ -260,9 +260,9 @@ func (a *AppKit) buildInstance() *registry.ServiceInstance {
 
 动态端口（`:0`）场景下 `waitForEndpoints` 以 10ms 轮询、上限 5s 等端口绑定完成，宁可启动失败也不把 `scheme://:0` 注册出去。**registry 段不支持热更新**——client 重建侵入性大，变更需重启生效。
 
-### 配置契约：type 单选，子段八个，实现四个
+### 配置契约：type 单选，子段四个（全部有实现）
 
-契约形状在 bconf（`bconf/proto/bootstrap/v1/registry.proto`）：一个 `type` 字符串 + 八个 `optional` 子消息。
+契约形状在 bconf（`bconf/proto/bootstrap/v1/registry.proto`）：一个 `type` 字符串 + 四个 `optional` 子消息。
 
 ```proto
   string type = 1;
@@ -270,14 +270,13 @@ func (a *AppKit) buildInstance() *registry.ServiceInstance {
   optional Consul consul = 2;
   optional Etcd etcd = 3;
   optional Nacos nacos = 4;
-  optional Zookeeper zookeeper = 5;
-  optional Polaris polaris = 6;
-  optional Eureka eureka = 7;
   optional Kubernetes kubernetes = 8;
-  optional ServiceComb service_comb = 9;
+  reserved 5, 6, 7, 9;
 ```
 
-`zookeeper` / `polaris` / `eureka` / `service_comb` 四段是契约预留、**没有实现**。新增后端只需在 `registry/<backend>` 写根包 + contract + 一行 `MustRegister`，不动契约、不动装配层。`type` 的取值由 bconf 枚举约束校验，写错在启动时就炸。
+新增后端只需在 `registry/<backend>` 写根包 + contract + 一行 `MustRegister`，不动装配层；要新增配置段则先在 bconf 契约加字段（新字段号）再写实现。**`type` 写错的爆炸点在装配层而非契约层**：`RegistrarRegistry` 查表找不到该 type 的 provider 就 fail-fast（bconf 契约层刻意不硬编码后端清单，与 `LogRegistry` 同口径）。
+
+> 契约瘦身记录（2026-09-17）：删掉预留但**无实现**的 `zookeeper` / `polaris` / `eureka` / `service_comb` 四段（四个 message + 枚举值 + 四个字段；枚举号 4/5/6/8、字段号 5/6/7/9 与对应名字全部 `reserved` 防复用）。与配置契约砍死源（fs/redis/zookeeper/oss/polaris）同口径：**契约只为已实现的后端承诺形状**——未实现的段躺在契约里就是撒谎，删掉比注释掉诚实。删前查证零消费者（Go 侧仅生成代码引用过这些枚举，业务与四个后端均未引用）。
 
 ### 改造前 vs 改造后
 
@@ -408,9 +407,9 @@ Discovery / Watcher 没有消费方、注册只在 `_example` 里跑通，这是
 
 - [x] **bald-admin 适配（2026-09-17 完成，提交 `e9931d1`，已推送）**：`backend/go.mod` 升 `bald v0.7.0` / `bootstrap v0.7.2` / `bconf v0.7.1`，`contrib/registry/nacos v0.1.0` → `registry/nacos v0.1.0`（`registry v0.1.0` 转直接依赖）；`cmd/probe` 的 `pkg/registry` import 与 main.go 的 nacos 契约 import 改指新路径，`registrarRegistry()` 改 `bootstrap.NewRegistrarRegistry()`（Option 名与装配形态不变）。见《go-wind-admin 业务移植计划》§8.6 附注。
 - [x] **发布顺序（第二刀新增约束，已按序执行）**：`bootstrap/v0.7.2` 先打、主模块 `v0.7.0` 后打并升 `require .../bald/bootstrap v0.7.2`，两个 tag 指向同一提交 `e1163a7`；外部可构建性由 bald-admin 零 replace 升级实证（见上「发版记录」）。
-- [ ] **契约预留但无实现**：zookeeper / polaris / eureka / service_comb 四段。
+- [x] **契约预留但无实现（2026-09-17 完成）**：删除 `zookeeper` / `polaris` / `eureka` / `service_comb` 四段（四个 message + 四个枚举值 + 四个字段，号与名字 `reserved`）；`buf generate` 已重出 `registry.pb.go`；bconf / 主模块 / bootstrap / `_example`（含 `-tags nacos`）全绿。
 - [ ] **Discovery / Watcher 无消费方**：provider 已实现，等 client-side LB 需求。
-- [ ] **后端 bconf 版本统一**：需重打 tag，建议随下次后端改动一并做。
+- [x] **后端 bconf 版本统一（2026-09-17 完成）**：四个后端 `require bald/bconf` v0.1.0 → **v0.7.2**（与本轮契约删除同提交发布），随本次改动一并做。旧 `v0.1.0` tag 内仍写 bconf v0.1.0，故四个后端一并重打 `v0.1.1`——**tag 内容自带真实版本**才是外部可构建的前提（本地 replace 会掩盖版本错配，核对口径见上「发版记录」）。`_example` / `_example/bald` 两个 replace 了 `registry/nacos` 的模块随之把 bconf require 升到 v0.7.2。
 
 ---
 

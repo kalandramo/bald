@@ -9,9 +9,9 @@ require (
 	github.com/go-kratos/kratos/v3/contrib/config/nacos/v3 v3.0.0-00010101000000-000000000000
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.29.0
 	github.com/kalandramo/bald v0.6.1
-	github.com/kalandramo/bald/bconf v0.7.0
+	github.com/kalandramo/bald/bconf v0.7.1
 	github.com/kalandramo/bald/berrors v0.1.0
-	github.com/kalandramo/bald/bootstrap v0.7.1
+	github.com/kalandramo/bald/bootstrap v0.7.2
 	github.com/kalandramo/bald/contrib/store-gorm v0.0.0-00010101000000-000000000000
 	github.com/kalandramo/bald/log v0.5.1
 	github.com/kalandramo/bald/registry v0.1.0
