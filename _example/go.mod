@@ -21,8 +21,8 @@ require (
 	github.com/kalandramo/bald v0.0.0
 	github.com/kalandramo/bald/bconf v0.7.0
 	github.com/kalandramo/bald/log v0.5.1
-	github.com/kalandramo/bald/registry v0.0.0
-	github.com/kalandramo/bald/registry/nacos v0.0.0
+	github.com/kalandramo/bald/registry v0.1.0
+	github.com/kalandramo/bald/registry/nacos v0.1.0
 	github.com/kalandramo/bald/transport/http v0.1.0
 	github.com/kalandramo/bald/transport/web v0.1.0
 	github.com/spf13/pflag v1.0.10
