@@ -16,6 +16,7 @@
 //	    retry.WithMaxAttempts(5),
 //	    retry.WithBackoff(retry.ExponentialBackoff{
 //	        Initial: 100 * time.Millisecond,
+//	        Factor:  2,
 //	        Max:     5 * time.Second,
 //	    }),
 //	    retry.WithJitter(retry.FullJitter),
@@ -247,7 +248,8 @@ type Backoff interface {
 // ExponentialBackoff doubles the delay after each failure.
 //
 //   - Initial is the delay before the 2nd attempt (attempt=0).
-//   - Factor is the multiplier (typically 2.0).
+//   - Factor is the multiplier (typically 2.0). Values <= 0 are
+//     normalised to 2, so a struct literal that omits Factor is safe.
 //   - Max caps the delay to prevent unbounded growth.
 //   - The formula is: Initial * Factor^attempt, capped at Max.
 type ExponentialBackoff struct {
@@ -258,9 +260,15 @@ type ExponentialBackoff struct {
 
 // Delay implements [Backoff].
 func (b ExponentialBackoff) Delay(attempt int) time.Duration {
+	factor := b.Factor
+	if factor <= 0 {
+		// Zero-value safety: omitting Factor in a struct literal must not
+		// collapse every delay after the first to zero.
+		factor = 2
+	}
 	d := float64(b.Initial)
 	for i := 0; i < attempt; i++ {
-		d *= b.Factor
+		d *= factor
 		if b.Max > 0 && time.Duration(d) > b.Max {
 			return b.Max
 		}
@@ -279,7 +287,8 @@ func (f FixedBackoff) Delay(_ int) time.Duration {
 	return time.Duration(f)
 }
 
-// LinearBackoff increases the delay linearly: Initial * (attempt + 1).
+// LinearBackoff increases the delay linearly: Initial + Step*attempt,
+// capped at Max.
 type LinearBackoff struct {
 	Initial time.Duration
 	Step    time.Duration // increment per attempt

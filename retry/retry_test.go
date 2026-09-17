@@ -43,6 +43,22 @@ func TestExponentialBackoff_MaxCap(t *testing.T) {
 	}
 }
 
+// Zero-value Factor must not collapse the curve to zero (regression: the
+// design doc and package-comment examples used to omit Factor, which made
+// every delay after the first 0).
+func TestExponentialBackoff_ZeroFactorDefaults(t *testing.T) {
+	b := ExponentialBackoff{Initial: 100 * time.Millisecond, Max: 5 * time.Second}
+	if got := b.Delay(0); got != 100*time.Millisecond {
+		t.Errorf("Delay(0) = %v, want 100ms", got)
+	}
+	if got := b.Delay(1); got != 200*time.Millisecond {
+		t.Errorf("Delay(1) = %v, want 200ms (Factor<=0 normalised to 2)", got)
+	}
+	if got := b.Delay(3); got != 800*time.Millisecond {
+		t.Errorf("Delay(3) = %v, want 800ms", got)
+	}
+}
+
 func TestFixedBackoff(t *testing.T) {
 	b := FixedBackoff(500 * time.Millisecond)
 	for i := 0; i < 5; i++ {

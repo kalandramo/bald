@@ -96,6 +96,7 @@ r := retry.New(
 	retry.WithMaxAttempts(5),
 	retry.WithBackoff(retry.ExponentialBackoff{
 		Initial: 100 * time.Millisecond,
+		Factor:  2,
 		Max:     5 * time.Second,
 	}),
 )
@@ -109,7 +110,7 @@ err := r.Do(ctx, func(ctx context.Context) error {
 
 **为什么 `fn` 要收一个 ctx**：让取消能继续往下传。调用方通常要把 ctx 交给 `http.NewRequestWithContext`、`db.QueryContext`——如果 `fn` 拿不到 ctx，重试虽然能被取消，但**正在执行的那次请求取消不了**，只能等它自己超时。
 
-**边界**：`Retrier` 配置在 `New` 之后不再变化，可以跨 goroutine 共享——**除非**你注入了 `WithRNG`（见「兼容性」第 3 条）。
+**边界**：`Retrier` 配置在 `New` 之后不再变化，可以跨 goroutine 共享——包括注入了 `WithRNG` 的场景（对注入 `*rand.Rand` 的访问已由互斥量串行化，见「兼容性」第 3 条）。
 
 ### 三组策略各自独立，互不知道对方存在
 
@@ -133,11 +134,11 @@ type Classifier func(err error) bool
 | `LinearBackoff{Initial, Step, Max}` | 线性增长 | `Initial + Step*attempt`，封顶 `Max` |
 | `FixedBackoff(d)` | 恒定间隔 | 永远是 `d` |
 
-`Delay(attempt)` 的 `attempt` 是 **0-based 的重试序号**：`attempt=0` 表示「第一次失败之后、第二次尝试之前」要等多久。所以 `ExponentialBackoff{Initial: 100ms}.Delay(0) == 100ms`，`Delay(1) == 200ms`。
+`Delay(attempt)` 的 `attempt` 是 **0-based 的重试序号**：`attempt=0` 表示「第一次失败之后、第二次尝试之前」要等多久。所以 `ExponentialBackoff{Initial: 100ms, Factor: 2}.Delay(0) == 100ms`，`Delay(1) == 200ms`。
 
 这个「差一位」是刻意的：`MaxAttempts` 数的是**尝试次数（含首次）**，`Delay` 描述的是**等待**。两者语义不同，共用一个从 1 开始的计数器反而更容易错。
 
-`Max <= 0` 表示不封顶。
+`Max <= 0` 表示不封顶；`Factor <= 0` 归一为 2（零值安全——省略 `Factor` 的结构体字面量不会把曲线塌缩成 0 间隔）。
 
 #### Jitter：把随机源作为参数传进来，而不是内部偷偷用全局 rand
 
@@ -202,7 +203,7 @@ r := retry.New(
 
 预算还剩多少，就最多睡多少——`wait = min(wait, remaining)`，所以**最后一次等待不会被截断成「睡过头」**，而是刚好用尽预算后返回 `ErrTimeout`。
 
-**边界（口径不一致，如实说明）**：elapsed 用 `r.now()` 计算（可注入），但睡眠是真实的 `time.After(wait)`。注入假时钟做测试时，这两个口径对不上——见「兼容性」第 4 条。
+**边界（口径不一致，如实说明）**：elapsed 用 `r.now()` 计算（可注入），但睡眠是真实的 `time.After(wait)`。注入假时钟做测试时，这两个口径对不上——见「兼容性」第 4 条。另一处口径：预算检查发生在每次尝试**之后**的退避计算处，循环开头只查 ctx——睡眠恰好用尽预算时，下一次 `fn` 仍会启动（其耗时超出预算），随后才在退避处返回 `ErrTimeout`。即「睡眠永不超预算，尝试可能压线多跑一次」。
 
 ### 组合位置由调用方决定，`retry` 不感知熔断与限流
 
@@ -247,7 +248,7 @@ err := r.Do(ctx, func(ctx context.Context) error {
 
 ### 我们没把三组策略合成一个大 `Options` 结构
 
-合成一个结构看起来更「整洁」，但会让「只想换抖动策略」的人被迫碰退避曲线的字段，也让默认值集中膨胀到一处。拆成三个接口后，**每一组都能单独替换、单独测试、单独在文档里讲清**——`retry_test.go` 里 19 个测试正好按这三组分开。
+合成一个结构看起来更「整洁」，但会让「只想换抖动策略」的人被迫碰退避曲线的字段，也让默认值集中膨胀到一处。拆成三个接口后，**每一组都能单独替换、单独测试、单独在文档里讲清**——`retry_test.go` 里 25 个测试正好按这三组分开。
 
 ### 错误包装用 `errors.Join`，而不是自定义 `RetryError` 类型
 
@@ -305,9 +306,11 @@ err := r.Do(ctx, func(ctx context.Context) error {
 
 ### 已落地
 
-`retry/{go.mod,retry.go,retry_test.go}`，三个文件、零依赖。引入于 `da4d533`（六模块批量移植），`1bcebd1` 随全模块升级到 go 1.27.1。24 个测试覆盖三组策略、attempt 上限、ctx 取消、墙钟超限与端到端。
+`retry/{go.mod,retry.go,retry_test.go}`，三个文件、零依赖。引入于 `da4d533`（六模块批量移植），`1bcebd1` 随全模块升级到 go 1.27.1。25 个测试覆盖三组策略、attempt 上限、ctx 取消、墙钟超限与端到端。
 
 **2026-09-17 修复（评审裁定第 2、3、4 条）**：nil 策略改为忽略并保留默认；注入 RNG 的访问由互斥量串行化、`rngCh` 死字段删除；新增导出 `WithClock`（方案 A）。三处都补了回归测试，`go vet` 与 `go test -short` 全绿（`-race` 需 cgo，本机无 gcc）。
+
+**2026-09-17 二轮评审修复（5 项）**：`ExponentialBackoff.Delay` 把 `Factor <= 0` 归一为 2（零值安全，回归测试 `TestExponentialBackoff_ZeroFactorDefaults`）——文档与包注释示例曾三处省略 `Factor`，照抄会得到 0 间隔重试；文档同步修正并发共享的过时「除非」条款、`LinearBackoff` 源码注释公式（`Initial*(attempt+1)` → `Initial+Step*attempt`）、测试计数（19→25）与 `maxTotalWait` 预算检查点的边界披露（检查在尝试之后，睡眠用尽预算后下一次 `fn` 仍会启动）。
 
 ### 登记工作只做了一半：索引已补，Taskfile 与根 README 仍是缺口
 
@@ -326,7 +329,7 @@ err := r.Do(ctx, func(ctx context.Context) error {
 ### 验证方式
 
 ```bash
-cd retry && go test -short ./...     # 24 个测试
+cd retry && go test -short ./...     # 25 个测试
 cd retry && go test -race ./...      # 并发边界（需 cgo；本机无 gcc，交给 CI 或装有 gcc 的机器）
 ```
 
