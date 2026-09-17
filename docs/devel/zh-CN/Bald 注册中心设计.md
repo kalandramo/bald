@@ -373,6 +373,10 @@ Discovery / Watcher 没有消费方、注册只在 `_example` 里跑通，这是
 - **第二刀发版（同日）**：提交 `e1163a7`（refactor，含 `pkg/appkit/registrar.go` 平移、三个下游模块 replace 补齐与文档整合）；tag `bootstrap/v0.7.2`（内容含 `RegistrarRegistry`，require + replace `bald/registry v0.1.0`）与主模块 `v0.7.0`（`require bootstrap v0.7.2` + `registry v0.1.0`），均为 lightweight、指向同一提交 `e1163a7`；`main` 与 2 个 tag 已推送 `origin`。
 - **外部可构建性核对（第二刀，实证而非推断）**：跨仓消费者 bald-admin **零 replace**（纯 tag 依赖）升级到 `bald v0.7.0` + `bootstrap v0.7.2` 后，`go mod tidy` → `go build ./...` → `go vet ./...` → `go test ./...` 全绿（cmd 5.9s、e2e 8.0s）。这就是「先 bootstrap 后主模块」顺序口径的兑现——顺序倒置时 tidy 会直接报新符号不存在（本地 replace 会掩盖，所以必须拿真消费者验一次）。
 
+- **第三刀发版（同日）**：提交 `c272695`（`refactor(bconf)!`，registry 契约删四处无实现预留段 + 四后端 bconf require 统一）；tag `bconf/v0.7.2` 与 `registry/{consul,etcd,kubernetes,nacos}/v0.1.1` 全是 lightweight、指向同一提交；`main` 与 5 个 tag 已推送 `origin`。
+- **tag 内容自洽核对（第三刀）**：`git show bconf/v0.7.2:bconf/go.mod`（叶子模块，只 require pflag + protobuf）；`git show registry/nacos/v0.1.1:registry/nacos/go.mod` 得到 `require bald/bconf v0.7.2` + `bald/registry v0.1.0`，不是 `v0.0.0`。
+- **外部可构建性核对（第三刀，绕代理实证）**：goproxy.cn 对新 tag 尚未收录（`@v/v0.7.2.info` 直接 404），于是临时用 `GOPROXY=direct` + `GIT_CONFIG_*` 环境变量把 `https://github.com/` 重写为 `git@github.com:`（**不落盘全局 git config**）走 SSH 把新 tag 拉进本地缓存，再在工作区建一个临时消费模块、只 require 这两个 tag：`go mod tidy` → `go build ./...` → `go run .` 打印 `NACOS KUBERNETES`，证明发布版契约里死段确已消失、保留枚举号未变、且 nacos 后端能在 v0.7.2 契约下编译（验证完临时模块已删）。**负向核对**：`bconf@v0.7.2` 的 `registry.pb.go` 中 `Registry_ZOOKEEPER` / `GetZookeeper` 等符号 0 处，描述符里保留 `reserved 4,5,6,8` 与四个保留名。
+
 ### 第二刀：`RegistrarRegistry` 迁入 bootstrap（2026-09-17 同日完成）
 
 下放把「是否迁入」的循环约束拆掉了，评估结论是**做，作为独立小步**——归位自洽：产物是"契约段 → 实例"的构造，只依赖 `bconf` + `registry` 两个独立 module，命中 `bootstrap/registry.go` 的归位判别；而运行期编排（start 后 Register、stopAll 前 Deregister、cleanup 挂 Effect）留在 appkit 不变。**这是下放顺带买到的期权**：模块连带为 0——require bootstrap 的 6 个模块在本轮下放中已全部补过 registry replace。
