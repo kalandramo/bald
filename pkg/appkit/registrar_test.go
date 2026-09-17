@@ -2,7 +2,6 @@ package appkit
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"strings"
 	"sync"
@@ -11,6 +10,7 @@ import (
 
 	bconf "github.com/kalandramo/bald/bconf"
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
+	baldbootstrap "github.com/kalandramo/bald/bootstrap"
 	"github.com/kalandramo/bald/log"
 	"github.com/kalandramo/bald/registry"
 )
@@ -49,70 +49,11 @@ func (s *stubRegistrar) snapshot() (int, int) {
 	return s.registered, s.deregistered
 }
 
-// --- RegistrarRegistry：显式注册与 fail-fast ---
-
-func TestRegistrarRegistry_FailFast(t *testing.T) {
-	rr := NewRegistrarRegistry()
-	rr.MustRegister("fake", func(context.Context, *bootstrapv1.Registry) (registry.Registrar, func(), error) {
-		return nil, nil, nil
-	})
-
-	// 重名
-	err := rr.Register("fake", func(context.Context, *bootstrapv1.Registry) (registry.Registrar, func(), error) {
-		return nil, nil, nil
-	})
-	if err == nil || !strings.Contains(err.Error(), "already registered") {
-		t.Fatalf("expected duplicate error, got %v", err)
-	}
-	// 空类型
-	if err := rr.Register("", nil); err == nil {
-		t.Fatal("expected empty type error")
-	}
-	// nil provider
-	if err := rr.Register("other", nil); err == nil {
-		t.Fatal("expected nil provider error")
-	}
-	// Build：段为 nil
-	if _, _, err := rr.Build(context.Background(), nil); err == nil {
-		t.Fatal("expected nil section error")
-	}
-	// Build：type 为空
-	if _, _, err := rr.Build(context.Background(), &bootstrapv1.Registry{}); err == nil {
-		t.Fatal("expected empty type error")
-	}
-	// Build：type 未注册（显式注册的核心收益：未 import 的后端这里报错）
-	_, _, err = rr.Build(context.Background(), &bootstrapv1.Registry{Type: "nope"})
-	if err == nil || !strings.Contains(err.Error(), "not registered") {
-		t.Fatalf("expected not-registered error, got %v", err)
-	}
-}
-
-// Build 按 type 单选分发到对应 provider。
-func TestRegistrarRegistry_BuildDispatch(t *testing.T) {
-	rr := NewRegistrarRegistry()
-	want := &stubRegistrar{}
-	called := false
-	rr.MustRegister("fake", func(_ context.Context, cfg *bootstrapv1.Registry) (registry.Registrar, func(), error) {
-		called = true
-		if cfg.GetType() != "fake" {
-			return nil, nil, errors.New("unexpected type")
-		}
-		return want, func() {}, nil
-	})
-
-	got, cleanup, err := rr.Build(context.Background(), &bootstrapv1.Registry{Type: "fake"})
-	if err != nil {
-		t.Fatalf("Build: %v", err)
-	}
-	if got != registry.Registrar(want) || !called {
-		t.Fatal("provider not dispatched by type")
-	}
-	if cleanup == nil {
-		t.Fatal("cleanup should pass through")
-	}
-}
-
 // --- FromBootstrap 契约装配：全生命周期（阶段 B 构造 → start 注册 → 停机反注册 + cleanup） ---
+//
+// 注：RegistrarRegistry 自身的「显式注册 + fail-fast + 单选分发」单测在
+// bootstrap module（bootstrap/registrar_test.go）——2026-09-17 该注册表迁入
+// bootstrap 装配层，本文件只保留 appkit 侧的生命周期编排断言。
 
 func TestFromBootstrap_ContractRegistrarLifecycle(t *testing.T) {
 	old := log.GetLogger()
@@ -120,7 +61,7 @@ func TestFromBootstrap_ContractRegistrarLifecycle(t *testing.T) {
 
 	stub := &stubRegistrar{}
 	cleaned := 0
-	rr := NewRegistrarRegistry()
+	rr := baldbootstrap.NewRegistrarRegistry()
 	rr.MustRegister("fake", func(context.Context, *bootstrapv1.Registry) (registry.Registrar, func(), error) {
 		return stub, func() { cleaned++ }, nil
 	})
@@ -169,7 +110,7 @@ func TestFromBootstrap_ExplicitRegistrarWins(t *testing.T) {
 	t.Cleanup(func() { log.SetLogger(old) })
 
 	built := 0
-	rr := NewRegistrarRegistry()
+	rr := baldbootstrap.NewRegistrarRegistry()
 	rr.MustRegister("fake", func(context.Context, *bootstrapv1.Registry) (registry.Registrar, func(), error) {
 		built++
 		return &stubRegistrar{}, func() {}, nil
@@ -234,7 +175,7 @@ func TestNew_SetRegistrarLifecycle(t *testing.T) {
 	var mu sync.Mutex
 	cleaned := 0
 	var cleanup func()
-	rr := NewRegistrarRegistry()
+	rr := baldbootstrap.NewRegistrarRegistry()
 	rr.MustRegister("fake", func(context.Context, *bootstrapv1.Registry) (registry.Registrar, func(), error) {
 		return stub, func() {
 			mu.Lock()

@@ -3,7 +3,9 @@
 // 原名 bconfinit——因实际 scope 超出 conf，2026-09-05 更名 bootstrap；
 // 2026-09-15 六域客户端 Registry（Database/Cache/Storage/Ai/Workflow/Broker）
 // 自 pkg/appkit 迁入——「契约段 → 实例」的工厂与注册表归装配层（bootstrap），
-// 实例的运行期编排（Option 桥接/Effect/停机序）归组合层（appkit）。
+// 实例的运行期编排（Option 桥接/Effect/停机序）归组合层（appkit）；
+// 2026-09-17 服务注册 RegistrarRegistry 同因迁入（registry 契约下放为独立
+// module 后，Provider 签名不再引用主模块包，模块循环约束消失）。
 //
 // 职责：读契约 → 建 provider/组件 → 装配产出（Layer 层列表、Logger、Server、
 // 域客户端实例表）。
@@ -11,16 +13,17 @@
 // 逐个调用 [Registry.MustRegister]，注册序即层优先级，依赖图全程可见。
 //
 // 归位判别（新插件初始化落点）：产物仅是「契约段 → 实例」的构造（仅依赖
-// bconf/标准库）→ Registry 放本包；产物需进入运行期编排（依赖根模块包、
-// 挂 Effect/Component、存 AppKit 字段）→ 注册表放 pkg/appkit（如
-// Tracer/MetricsRegistry 依赖 otel；RegistrarRegistry 在 registry 契约下放为
-// 独立 module 前也受此约束，2026-09-17 后约束消失，是否迁入待评估）。
+// bconf/标准库/独立 module）→ Registry 放本包；产物需进入运行期编排（依赖
+// 根模块包、挂 Effect/Component、存 AppKit 字段）→ 注册表放 pkg/appkit（如
+// Tracer/MetricsRegistry 依赖 otel——这条判据正是 RegistrarRegistry 有条件
+// 迁入本包的原因：registry 契约下放为独立 module 后，它对主模块包的依赖消失）。
 //
 // 依赖方向：
 //
 //	bootstrap → bootstrap/config（Store 内核）
 //	bootstrap → bconf（契约）
 //	bootstrap → bconfig/*（源）
+//	bootstrap → registry（服务注册契约，零依赖；仅 registrar.go 引用）
 //	bconfig/* → 零契约依赖（源层保持纯净）
 package bootstrap
 

@@ -1,9 +1,15 @@
 // observability.go 实现可观测性（tracer / metrics 契约段）的装配注册表。
 //
-// 与 RegistrarRegistry 同模式：显式注册（不用 init()+blank import，主程序
-// 在 main() 里逐个 MustRegister）；段存在但未注册 fail-fast；停机句柄挂
-// Effect 逆序回放。tracer / metrics 段均按段内 type **单选**分发（契约语义
-// 就是单选：tracer.type ∈ {"otlp"}，metrics.type ∈ {"prometheus","otlp"}）。
+// 与 bootstrap 各域 Registry（含 2026-09-17 迁入的 bootstrap.RegistrarRegistry）
+// 同模式：显式注册（不用 init()+blank import，主程序在 main() 里逐个
+// MustRegister）；段存在但未注册 fail-fast；停机句柄挂 Effect 逆序回放。
+// tracer / metrics 段均按段内 type **单选**分发（契约语义就是单选：
+// tracer.type ∈ {"otlp"}，metrics.type ∈ {"prometheus","otlp"}）。
+//
+// 留在 appkit 的原因（归位判别）：TracerProvider/MeterProvider 的构造依赖 otel
+// 包（主模块依赖），且产物要进运行期编排（全局 Provider 注入 + Effect 回放），
+// 不满足 bootstrap 的「仅依赖 bconf/独立 module」判据——与 RegistrarRegistry
+// 迁走的原因恰好对称。
 //
 // 段缺省语义（契约级，框架保守缺省）：
 //   - tracer 段缺省 → no-op trace（otel 全局默认，零配置可运行）；

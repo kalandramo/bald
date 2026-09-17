@@ -278,8 +278,11 @@ reg := inmemory.New()
 appkit.New(appkit.Registrar(reg), appkit.Servers(srv))
 
 // 直连后端（etcd/consul/nacos/kubernetes）：契约装配 + 显式注册 provider
-import etcdcontract "github.com/kalandramo/bald/registry/etcd/contract"
-rr := appkit.NewRegistrarRegistry()
+import (
+    baldbootstrap "github.com/kalandramo/bald/bootstrap"
+    etcdcontract "github.com/kalandramo/bald/registry/etcd/contract"
+)
+rr := baldbootstrap.NewRegistrarRegistry()
 rr.MustRegister(etcdcontract.Type, etcdcontract.Provider)
 appkit.New(appkit.WithRegistrarRegistry(rr), appkit.Servers(srv))
 ```
@@ -300,8 +303,8 @@ go test ./...
   [`docs/appkit-design.md`](docs/appkit-design.md)。
 - 服务端设计（Server 契约、协议适配器、探针路由、health/reflection、Endpoint 可达性）：
   [`docs/server-design.md`](docs/server-design.md)。
-- 服务注册设计（Registrar 抽象、ServiceInstance 字段约束、注册/反注册时序）：
-  [`docs/registry-design.md`](docs/registry-design.md)。
+- 注册中心设计（Registrar 抽象、ServiceInstance 字段约束、注册/反注册时序、后端独立 module）：
+  [`docs/devel/zh-CN/Bald 注册中心设计.md`](docs/devel/zh-CN/Bald%20注册中心设计.md)。
 - 配置中心设计（远程配置、多环境、`RemoteSource` 抽象）：
   [`docs/config-center-design.md`](docs/config-center-design.md)。
 - 日志设计（Options 多源配置、FilterKey 脱敏、ContextWithAttrs 日志属性）：

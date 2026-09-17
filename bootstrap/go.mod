@@ -10,6 +10,8 @@ replace github.com/kalandramo/bald/berrors => ../berrors
 
 replace github.com/kalandramo/bald/log => ../log
 
+replace github.com/kalandramo/bald/registry => ../registry
+
 replace github.com/kalandramo/bald/transport => ../transport
 
 replace github.com/kalandramo/bald/transport/gateway => ../transport/gateway
@@ -25,6 +27,7 @@ require (
 	github.com/kalandramo/bald/bconf v0.7.0
 	github.com/kalandramo/bald/bconfig v0.1.0
 	github.com/kalandramo/bald/log v0.5.1
+	github.com/kalandramo/bald/registry v0.1.0
 	github.com/kalandramo/bald/transport v0.1.0
 	github.com/kalandramo/bald/transport/gateway v0.1.0
 	github.com/kalandramo/bald/transport/grpc v0.1.0

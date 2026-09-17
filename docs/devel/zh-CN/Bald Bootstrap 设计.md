@@ -354,8 +354,9 @@ Ai/Workflow/Broker，仅依赖 bconf 契约）也归本模块——它们的本�
 实例存 AppKit 字段与访问器、cleanup 挂 Effect 逆序回放。仍留 appkit 的两类
 Registry（Tracer/Metrics）因依赖根模块包（otel），迁入会造成循环依赖；
 `RegistrarRegistry` 自 2026-09-17 起不再受此约束——registry 契约已下放为
-独立 module `.../bald/registry`（零依赖），是否迁入待评估。判定口诀：**问「产物是不是纯契约段 → 实例的构造」**——
-是且仅依赖 bconf/标准库，归 bootstrap；需要根模块包或运行期编排，归 appkit。
+独立 module `.../bald/registry`（零依赖），注册表随之迁入 bootstrap（appkit
+只留 `WithRegistrarRegistry` Option 与生命周期编排）。判定口诀：**问「产物是不是纯契约段 → 实例的构造」**——
+是且仅依赖 bconf/标准库/独立 module，归 bootstrap；需要根模块包或运行期编排，归 appkit。
 （appkit 曾预置全局插件注册表 + `init()` 自注册范式，与本模块的显式装配
 哲学矛盾且产品代码零消费，已删除，见 `pkg/appkit/registry.go` 包注释。）
 

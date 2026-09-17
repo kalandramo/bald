@@ -39,7 +39,7 @@
 
 - `RegistrarRegistry`（依赖 `pkg/registry`）——**2026-09-17 起该约束已解除**：
   registry 契约已下放为顶层独立 module `.../bald/registry`（零依赖），bootstrap
-  可 require 它而不形成循环；是否迁入作为独立议题评估（见《服务注册模块下放设计.md》）
+  可 require 它而不形成循环；是否迁入作为独立议题评估（见《Bald 注册中心设计.md》）
 - `TracerRegistry` / `MetricsRegistry`（依赖 otel）
 
 **新插件初始化归位判别规则**（registry.go 包注释同步登记）：
@@ -64,7 +64,9 @@
 - 文档定点更新：《框架契约总览.md》（六行表格）、《模块依赖关系.md》（bootstrap
   职责 + 归位规则 + 日期）、《Bald Bootstrap 设计.md》（摘要/总览表格/归属分界
   段）、《AppKit FromBootstrap 约定装配.md》（用法示例）。《数据存储设计.md》
-  核实后仅引用不迁的 `appkit.RegistrarRegistry`，无需修改。
+  核实后当时仅引用不迁的 `appkit.RegistrarRegistry`，无需修改——**2026-09-17 后续：
+  RegistrarRegistry 已同因迁入 `bootstrap`（registry 契约下放为独立 module 后，
+  其 Provider 签名不再引用主模块包），六域变七域。**
 
 ## 依赖与影响
 

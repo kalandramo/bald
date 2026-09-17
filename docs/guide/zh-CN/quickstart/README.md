@@ -129,9 +129,10 @@ appkit.New(appkit.Registrar(reg), appkit.Servers(srv))
 // 直连后端（etcd/nacos/consul/kubernetes）：契约装配 + 显式注册 provider
 import (
     "github.com/kalandramo/bald/pkg/appkit"
+    baldbootstrap "github.com/kalandramo/bald/bootstrap"
     etcdcontract "github.com/kalandramo/bald/registry/etcd/contract"
 )
-rr := appkit.NewRegistrarRegistry()
+rr := baldbootstrap.NewRegistrarRegistry()
 rr.MustRegister(etcdcontract.Type, etcdcontract.Provider)
 appkit.FromBootstrap(cfg, appkit.WithRegistrarRegistry(rr), appkit.Servers(srv...))
 // 连接参数全部来自配置文件 registry 段（type: etcd + etcd: {endpoints: [...]}）
@@ -148,7 +149,7 @@ appkit.FromBootstrap(cfg, appkit.WithRegistrarRegistry(rr), appkit.Servers(srv..
 - **多协议编排**：并发启停 HTTP + gRPC 两个 `server.Server`，共享同一个 `ReadinessFunc` 使 `/readyz` 与 gRPC health 对称联动。
 - **配置四源合并**：本地文件（`--config`）+ 环境变量 + 命令行 flag + 可选远程配置中心，优先级 `flag > 环境变量 > 本地文件 > 远程`；并演示 `WatchConfigFile` 热更新与 `OnConfigChange` 回调回填业务 options。
 - **日志系统接入**：进程入口用 `baldlog.SetLogger(bslog.New(...))` 初始化全局 `Logger`，经 `--log.level` / `--log.format` / `--log.output-paths` 多源配置；内置 `FilterKey` 脱敏（如 `password`/`token` 自动替换为 `***`）；框架与业务统一经 `log` 包级函数输出（同一全局后端）。
-- **服务注册中心**：通过 `appkit.Registrar(inmemory.New())` 端到端演示 register → 运行 → deregister 全流程（零外部依赖），并验证 `:0` 动态端口聚合注册（真实 Endpoint 解析后才注册，避免注册 `xxx://:0`）。生产环境走**契约装配**：yaml `registry` 段 + `appkit.WithRegistrarRegistry(rr)` 显式注册直连 provider（etcd/nacos/consul/kubernetes，见《服务注册设计》）。
+- **服务注册中心**：通过 `appkit.Registrar(inmemory.New())` 端到端演示 register → 运行 → deregister 全流程（零外部依赖），并验证 `:0` 动态端口聚合注册（真实 Endpoint 解析后才注册，避免注册 `xxx://:0`）。生产环境走**契约装配**：yaml `registry` 段 + `appkit.WithRegistrarRegistry(rr)` 显式注册直连 provider（etcd/nacos/consul/kubernetes，见《Bald 注册中心设计》）。
 - **上下文属性流**：`AfterStart` 中 `log.ContextWithAttrs(ctx, ...)` 挂载的属性，会在该 ctx 范围内的日志自动携带。
 
 直接运行：
@@ -166,4 +167,4 @@ go run ./_example/bald --log.format=json --log.level=debug   # 切换日志格�
 ### 下一步
 
 - 阅读 [产品介绍](./introduction/README.md) 了解设计理念。
-- 阅读 [开发手册](../devel/zh-CN/README.md) 深入 Server 契约、配置中心与服务注册设计。
+- 阅读 [开发手册](../devel/zh-CN/README.md) 深入 Server 契约、配置中心与注册中心设计。

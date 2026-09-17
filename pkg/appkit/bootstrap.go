@@ -66,7 +66,7 @@ type bootstrapSpec struct {
 	grpcUnary       []grpc.ServerOption
 	readiness       transport.ReadinessFunc
 	registrar       registry.Registrar
-	regRegistry     *RegistrarRegistry
+	regRegistry     *baldbootstrap.RegistrarRegistry
 
 	configFile  string
 	watchFiles  bool
@@ -168,9 +168,9 @@ func WithRegistrar(r registry.Registrar) BootstrapOption {
 }
 
 // WithRegistrarRegistry 注入服务注册中心的契约装配注册表（显式注册
-// provider，见 RegistrarRegistry）。契约 registry 段存在且未显式
+// provider，见 bootstrap.RegistrarRegistry）。契约 registry 段存在且未显式
 // WithRegistrar 时，阶段 B 按 registry.type 构造注册中心。
-func WithRegistrarRegistry(rr *RegistrarRegistry) BootstrapOption {
+func WithRegistrarRegistry(rr *baldbootstrap.RegistrarRegistry) BootstrapOption {
 	return func(s *bootstrapSpec) { s.regRegistry = rr }
 }
 

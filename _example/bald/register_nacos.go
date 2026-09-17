@@ -27,6 +27,7 @@ import (
 	v1vo "github.com/nacos-group/nacos-sdk-go/vo"
 
 	nacosconfig "github.com/go-kratos/kratos/v3/contrib/config/nacos/v3"
+	baldbootstrap "github.com/kalandramo/bald/bootstrap"
 	"github.com/kalandramo/bald/bootstrap/config"
 	"github.com/kalandramo/bald/pkg/appkit"
 
@@ -41,8 +42,8 @@ var nacosHost, nacosPort = "127.0.0.1", uint64(8848)
 //
 // 未 import 的后端（etcd/consul/kubernetes）零依赖零编译成本；
 // 契约 registry.type 指向未注册后端时构造期 fail-fast。
-func registrarRegistry() *appkit.RegistrarRegistry {
-	rr := appkit.NewRegistrarRegistry()
+func registrarRegistry() *baldbootstrap.RegistrarRegistry {
+	rr := baldbootstrap.NewRegistrarRegistry()
 	rr.MustRegister(nacoscontract.Type, nacoscontract.Provider)
 	return rr
 }

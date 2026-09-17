@@ -135,8 +135,8 @@ Build / BuildServers 失败 → 回滚阶段 A Logger 与配置层后返回 erro
 
 ### 数据库客户端（DatabaseRegistry 模式）
 
-与 RegistrarRegistry 同模式（显式注册、段存在未注册 fail-fast、cleanup 挂
-停机 Effect），两点差异要清楚：
+与 `bootstrap.RegistrarRegistry` 同模式（显式注册、段存在未注册 fail-fast、
+cleanup 挂停机 Effect），两点差异要清楚：
 
 - **多段并存**：database 是 optional 段集合（sql/mongodb/clickhouse/doris/
   elasticsearch/opensearch/influxdb/cassandra），主库+检索库可同时配置；
@@ -211,7 +211,7 @@ gateway 不是独立服务器，而是 `server.http` 段的一种模式，由契
 
 ### 可观测性（TracerRegistry / MetricsRegistry 模式，2026-09-12）
 
-与 RegistrarRegistry 单选模式同款（`tracer.type`/`metrics.type` 单选查表、
+与 `bootstrap.RegistrarRegistry` 单选模式同款（`tracer.type`/`metrics.type` 单选查表、
 显式 MustRegister、type 空/未注册 fail-fast、段缺省 no-op），差异要点：
 
 - **serviceName 闭包绑定**：contract Provider 构造器收 `func() string` 而非

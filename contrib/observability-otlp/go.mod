@@ -175,3 +175,5 @@ replace github.com/kalandramo/bald => ../..
 replace github.com/kalandramo/bald/bconf => ../../bconf
 
 replace github.com/kalandramo/bald/registry => ../../registry
+
+replace github.com/kalandramo/bald/bootstrap => ../../bootstrap

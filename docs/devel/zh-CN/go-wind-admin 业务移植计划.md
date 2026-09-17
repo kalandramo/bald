@@ -368,6 +368,13 @@ proto/<域>.proto（从源项目精简搬运）→ buf generate → gen/
 
 ### 8.6 T7 实施记录（2026-09-08，Nacos 注册发现接线完成）
 
+> **2026-09-17 后续（bald 侧变更）**：`RegistrarRegistry` 已自 `pkg/appkit` 迁入
+> `bootstrap`（bald 侧类型名改 `*bootstrap.RegistrarRegistry`，构造函数改
+> `bootstrap.NewRegistrarRegistry()`；`appkit.WithRegistrarRegistry` Option 名与
+> `appkit.SetRegistrar` / `BeforeStart` 装配形态不变）。go-bald-admin 升级 bald
+> 依赖时需把 `appkit.NewRegistrarRegistry()` 改成 `bootstrap.NewRegistrarRegistry()`。
+
+
 - **装配形态（New 构造路径等价 buildRegistrar）**：main.go 删
   `appkit.Registrar(inmemory.New())`，改 `registrarRegistry()` 显式注册
   `nacoscontract.Type → nacoscontract.Provider`（未 import 的后端零依赖）；
