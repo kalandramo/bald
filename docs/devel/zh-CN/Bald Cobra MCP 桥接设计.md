@@ -148,11 +148,12 @@ serveStdio / serveHTTP                   // start → 等 ctx.Done 或 srv.Done(
 3. `cobramcp` 新增端到端测试：Cobra 命令树 → 工具注册进 transport 服务端 → **SSE** → MCP 客户端可见并可调用 → ctx 取消后 `Start` 返回。
 4. 三个 `examples/` 模块（`make`、`positional-args`、`positional-args-mcp-server`）全部 `go test` 通过。其中 6 + 7 条 schema 断言与 1 处重复声明是**上游既存红灯**（改动前同样失败，已在原始仓库复现确认），本次一并修到扁平 schema 与可编译。
 
-## 发版与遗留
+## 发版（2026-09-17 已完成）
 
-- **`transport/mcp` 尚无 tag**，其 go.mod 现为「真实版本 require + 本地 replace」形态（`bald/log v0.5.1` + `replace => ../../log`），已去掉未使用的 `bald/transport` 依赖。
-- `cobramcp/go.mod` 对 `bald/transport/mcp` 暂写 `v0.0.0` + `replace => ../transport/mcp`。**发版顺序**：① 先给 `transport/mcp` 打 tag（`transport/mcp/v0.1.0`，tag 内容必须带真实版本）→ ② 把 cobramcp 的 require 升为真实版本 → ③ 打 `cobramcp/v0.1.0`。
-- **本地 replace 不跨 module 传递**：`cobramcp/examples/*` 三个子 module 各自补了 `cobramcp`/`log`/`transport/mcp` 三条 replace，否则会去解析不存在的 `v0.0.0`。
+- **两个 lightweight tag 已打并推送 origin**：`transport/mcp/v0.1.0`（指向 `db02942`）、`cobramcp/v0.1.0`（指向 `2811933`）。按既定顺序执行：① 先打 `transport/mcp/v0.1.0` → ② cobramcp 与三个 examples 的 require 升真实版本（`transport/mcp v0.0.0→v0.1.0`、examples 的 `cobramcp v0.0.0→v0.1.0`）→ ③ 再打 `cobramcp/v0.1.0`。
+- **`replace` 保留**（`=> ../transport/mcp`、`=> ../../log` 等）：与仓内已发版 module 惯例一致（`bootstrap`、`transport/http` 同形），仅供本地开发；Go 只认主模块的 replace，**依赖模块内的 replace 对外部消费者无效**，故不损害可构建性。
+- **发版两查结论**：① **tag 自洽**——`git show <tag>:<module>/go.mod` 的 require 全为真实版本（`log v0.5.1` / `transport/mcp v0.1.0` / `cobramcp v0.1.0`），无 `v0.0.0`；② **外部可构建性**——临时消费模块 `require github.com/kalandramo/bald/cobramcp v0.1.0` 后 `go mod tidy` + `go build ./...` 全绿，依赖树解析为 `cobramcp v0.1.0` / `transport/mcp v0.1.0` / `log v0.5.1`，proxy 即刻可取（无需 direct 绕行）。
+- **本地 replace 不跨 module 传递**：`cobramcp/examples/*` 三个子 module 各自补了 `cobramcp`/`log`/`transport/mcp` 三条 replace，否则会去解析不存在的版本。
 - 上游 `cobramcp/docs/mcp-design.md`（对旧实现的分析）保留为参考，正文已标注状态并指向本文。
 
 ## 实施记录（2026-09-17）
