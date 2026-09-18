@@ -107,13 +107,13 @@ tasks:
 
   # ---------------------------------------------------------------------------
   # cobramcp 是独立 module（github.com/kalandramo/bald/cobramcp，与 transport/mcp
-  # 平级），其 examples/ 下另有 3 个独立 module（make / positional-args /
+  # 平级），其 examples/ 下另有 3 个独立 module（task / positional-args /
   # positional-args-mcp-server）。嵌套 module 不在根模块的 `go build ./...` /
   # `go test ./...` 范围内 —— 与 _example 同一个坑（见上），故这里显式列出。
   # CI（.github/workflows/ci.yml 用 find go.mod 自动发现）已覆盖这些 module，
   # 本组任务供本地/手动验证；其余兄弟 module 需要时按同样方式 cd 进去跑。
   # examples 只跑 vet + test、不跑 `go build ./...`：它们全是 package main，
-  # 构建会把 make.exe 之类的可执行文件落到示例目录里（同 _example 的收尾清理问题）。
+  # 构建会把 task.exe 之类的可执行文件落到示例目录里（同 _example 的收尾清理问题）。
   # ---------------------------------------------------------------------------
 
   cobramcp-build:
@@ -149,7 +149,7 @@ tasks:
     desc: 校验 cobramcp 的 3 个示例 module（vet + test；不跑 go build，避免落可执行文件）
     cmds:
       - task: cobramcp-example-check
-        vars: { EXAMPLE: make }
+        vars: { EXAMPLE: task }
       - task: cobramcp-example-check
         vars: { EXAMPLE: positional-args }
       - task: cobramcp-example-check

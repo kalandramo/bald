@@ -1,0 +1,36 @@
+# 示例用的 Taskfile —— 与根目录 Taskfile.yml 同为 go-task 格式。
+#
+# 本文件取代了原先的 makefile：example 演示的是「把构建工具包装成 MCP 工具」，
+# 构建工具改用 task 后，示例也随之演示包装 task（跨平台，Windows/macOS/Linux 一致）。
+#
+# 用法：
+#   task -d cobramcp/examples/task all
+#   task -d cobramcp/examples/task test
+version: "3"
+
+tasks:
+  all:
+    desc: 依次执行 up / lint / test / build
+    deps: [up, lint, test, build]
+
+  up:
+    desc: 升级依赖并整理 go.mod
+    cmds:
+      - go get -u ./...
+      - go mod tidy
+
+  lint:
+    desc: 用 golangci-lint 格式化与检查
+    cmds:
+      - golangci-lint fmt ./...
+      - golangci-lint run --allow-parallel-runners ./...
+
+  test:
+    desc: 运行本示例模块的测试
+    cmds:
+      - go test ./...
+
+  build:
+    desc: 编译本示例模块（输出到仓库根 bin/）
+    cmds:
+      - go build -o ../../bin/ ./...

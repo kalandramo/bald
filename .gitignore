@@ -32,7 +32,7 @@ _example/bald/*.db
 # examples/make 的 build 目标输出到 ../../bin/（已由上面的 bin/ 规则覆盖），
 # 但直接 go build ./... 仍会在包目录内落盘。逐条精确忽略，避免误伤同目录的
 # makefile / 源码等同名文件。
-/cobramcp/examples/make/make
-/cobramcp/examples/make/mcpserver/mcpserver
+/cobramcp/examples/task/task
+/cobramcp/examples/task/mcpserver/mcpserver
 /cobramcp/examples/positional-args/positional-args
 /cobramcp/examples/positional-args-mcp-server/positional-args-mcp-server
