@@ -42,7 +42,8 @@ var codeToHTTP = map[uint32]int{
 }
 
 // httpToCode 是反向 HTTP 状态 → Code 映射。因正向是多对一，每个 HTTP 状态
-// 只能唯一落到一个 Code，这里取语义最贴切者。
+// 只能唯一落到一个 Code，这里取语义最贴切者。正向表里一对一的码（200/401/
+// 403/404/429/499/501/503/504）必须精确往返，其余为多对一的代表。
 var httpToCode = map[int]uint32{
 	200: berrors.CodeOK,
 	400: berrors.CodeInvalidArgument,
@@ -51,6 +52,7 @@ var httpToCode = map[int]uint32{
 	404: berrors.CodeNotFound,
 	409: berrors.CodeAlreadyExists,
 	429: berrors.CodeResourceExhausted,
+	499: berrors.CodeCanceled,
 	500: berrors.CodeInternal,
 	501: berrors.CodeUnimplemented,
 	503: berrors.CodeUnavailable,

@@ -140,9 +140,11 @@ func (e *Error) WithCause(cause error) *Error
 func (e *Error) WithCode(code uint32) *Error   // 逃生舱：覆盖传输类别
 ```
 
-所有 `With*` 返回新实例，接收者绝不被修改。边界：`clone` 对 `Details` 浅
-拷贝，安全前提是 `WithDetails` 整体替换 map——若未来新增就地修改方法必须
-改深拷贝（clone 注释已预警）。
+所有 `With*` 返回新实例，接收者绝不被修改。`Details` 是 `Error` 上**唯一的
+引用类型字段**（`Code`/`Reason`/`Message` 均为值类型，拷贝天然隔离），故
+`clone` 与 `WithDetails` 都对它**深拷贝**——2026-09-18 修复：此前浅拷贝使派生
+实例与源实例共享同一 map，派生实例就地改 `Details` 即污染 sentinel，击穿
+「sentinel 永远安全」的承诺。`nil` 保持 `nil`（大多数错误无 Details，零分配）。
 
 ### 匹配与标准库桥接
 
@@ -176,9 +178,11 @@ func FromStatus(st *status.Status) error  // 从 ErrorInfo 恢复 Reason/Details
 ```
 
 两条诚实声明的边界：
-- 其一，`FromStatus` 对无 `ErrorInfo` 的普通 status 以
-`New(uint32(st.Code()), st.Message())` 构造——status 文本临时落在 `Reason`
-位，语义降级但不丢文本；带 `ErrorInfo` 时闭环完整。
+- 其一，`FromStatus` 对无 `ErrorInfo` 的普通 status：`Code` 与 `Message` 从
+status 取，`Reason` **留空**——刻意不把可变的 status 文本塞进 `Reason`，
+因为 `Reason` 是 `Is` 的匹配键、必须稳定（2026-09-18 修复：此前把文本塞进
+`Reason`，导致两个同类失败因文本不同而无法互相 `Is` 匹配）。带 `ErrorInfo`
+时 `Reason`/`Details` 完整还原。
 - 其二，Kratos 互通是天然的：两边都产/认 `ErrorInfo`，`FromStatus` 能解析 Kratos 错误，`ToStatus` 的
 产出也能被 Kratos 客户端理解——不依赖 Kratos 包。
 
@@ -270,7 +274,7 @@ module 回归零第三方 require——下游几乎必有 grpc，收益有限而
 
 ## 实现与过渡
 
-**全部已落地**，收敛为 4 个源文件 + 3 个测试文件（13 例单测）：
+**全部已落地**，收敛为 4 个源文件 + 3 个测试文件（**20 例单测**；2026-09-18 评审补 8 例回归。此前本文写「13 例」，实测为 12，为笔误）：
 
 | 文件 | 内容 | 测试要点 |
 |---|---|---|
@@ -286,6 +290,21 @@ module 回归零第三方 require——下游几乎必有 grpc，收益有限而
 16 个；下游 bald-admin 后端 25 个（biz 八域 + gin/grpc handler），桥接子包
 0 处。投影被框架收口后业务仓库与桥接天然解耦——这就是决策①零依赖承诺
 的兑现面。
+
+### 2026-09-18 评审修复（四处）
+
+一次架构评审（天权）用探针实测发现四处「设计承诺 vs 实现」的不一致，全部修复并补回归测试。每条都先写 RED（断言「正确行为」）、修复后 GREEN，并做回滚验证（还原修复后测试复红）：
+
+| # | 严重度 | 缺陷 | 修复 | 回归测试 |
+|---|---|---|---|---|
+| 1 | 高 | gRPC roundtrip 丢 `Message`——`ToStatus` 把它放进 status，`FromStatus` 却从未赋回字段 | `FromStatus` 显式 `ret.Message = st.Message()` | `TestRoundTripPreservesMessage` |
+| 2 | 中 | 无 `ErrorInfo` 的普通 status 把可变文本塞进 `Reason`，污染 `Is` 匹配键 | `Reason` 留空，文本归位 `Message` | `TestPlainStatusKeepsReasonClean` |
+| 3 | 中 | `clone` 浅拷贝 + 导出 `Details` → 派生实例就地改 map 污染 sentinel | `clone`/`WithDetails` 深拷贝（`nil` 保持 `nil`） | `TestImmutableBuilder_DetailsNotShared`、`TestWithDetails_CopiesInputMap` |
+| 4 | 低 | `CodeToHTTP(Canceled)=499` 有正向，`HTTPToCode(499)` 反向缺失兜底 `Unknown` | 反向表补 `499: CodeCanceled` | `TestHTTPMappingSymmetry`、`TestCanceledRoundTrip` |
+
+**评审指出的两个测试盲区**（缺陷恰好都落在没断言的地方）：原 `TestToStatusAndFromStatusRoundTrip` 只断言 `Reason`/`Details` 漏了 `Message`；`httperr` 测试没做正反向对称性断言。两者均已补。
+
+**未改的边界（评审确认非缺陷）**：`WithCode` 是唯一不调 `captureStack` 的 `With*`，但它经 `clone` 复用 `New` 构造点的栈，行为正确；`sres` 式「构造签名是否统一」等属其他 module 议题，不在本 module 范围。
 
 ## 附录：FAQ
 

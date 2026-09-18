@@ -82,9 +82,10 @@ func (e *Error) WithMessage(format string, args ...any) *Error {
 }
 
 // WithDetails 返回注入 i18n 变量的新实例。
+// 入参被深拷贝：调用方之后修改自己的 map 不会污染已构造的 error。
 func (e *Error) WithDetails(details map[string]string) *Error {
 	err := e.clone()
-	err.Details = details
+	err.Details = cloneDetails(details)
 	err.captureStack()
 	return err
 }
@@ -105,17 +106,30 @@ func (e *Error) WithCode(code uint32) *Error {
 }
 
 func (e *Error) clone() *Error {
-	// Details 浅拷贝（共享底层 map）：WithDetails 整体替换 map 而非就地改键，
-	// 因此原实例不会被 clone 污染，浅拷贝安全且零分配。若未来新增就地修改
-	// Details 的方法，请改为深拷贝以避免共享 map 的数据竞争。
+	// Details 是 Error 上唯一的引用类型字段（Code/Reason/Message 均为值类型，
+	// 拷贝天然隔离），必须深拷贝：否则派生实例与源实例共享同一 map，任一实例
+	// 就地改 Details 都会污染另一方——「不可变 builder、sentinel 永远安全」
+	// 的承诺即被击穿。nil 保持 nil（大多数错误无 Details，零分配）。
 	return &Error{
 		Code:    e.Code,
 		Reason:  e.Reason,
 		Message: e.Message,
-		Details: e.Details,
+		Details: cloneDetails(e.Details),
 		cause:   e.cause,
 		stack:   e.stack,
 	}
+}
+
+// cloneDetails 深拷贝 Details；nil 入参返回 nil（保持零分配）。
+func cloneDetails(d map[string]string) map[string]string {
+	if d == nil {
+		return nil
+	}
+	cp := make(map[string]string, len(d))
+	for k, v := range d {
+		cp[k] = v
+	}
+	return cp
 }
 
 func (e *Error) captureStack() {

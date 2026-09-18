@@ -44,12 +44,19 @@ func ToStatus(err error) *status.Status {
 
 // FromStatus 把 gRPC status 解析回 *berrors.Error：从 ErrorInfo 恢复 Reason 与
 // Details，HTTP/gRPC 双栈语义在接收端闭环。无法解析时退回 Unknown。
+//
+// 字段归位：status 的 message 是可展示文案，落在 Message（决策⑧：前端展示读
+// message）；Reason 是 Is 的匹配键、必须稳定，只从 ErrorInfo 取，无 ErrorInfo
+// 时留空——刻意不把可变的 status 文本塞进 Reason，否则同类失败（文本不同）无法
+// 互相 Is 匹配。
 func FromStatus(st *status.Status) error {
 	if st == nil {
 		return nil
 	}
 
-	ret := berrors.New(uint32(st.Code()), st.Message())
+	ret := berrors.New(uint32(st.Code()), "")
+	ret.Message = st.Message()
+
 	for _, detail := range st.Details() {
 		if typed, ok := detail.(*errdetails.ErrorInfo); ok {
 			if typed.Reason != "" {

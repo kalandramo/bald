@@ -85,3 +85,39 @@ func containsString(s, sub string) bool {
 	}
 	return false
 }
+
+// 裂缝3 回归：Details 是 Error 上唯一的引用类型字段——clone 必须深拷贝，
+// 否则派生实例就地改 Details 会污染源实例（sentinel），击穿「不可变 builder」承诺。
+func TestImmutableBuilder_DetailsNotShared(t *testing.T) {
+	sentinel := NotFound("ORDER_NOT_FOUND").WithDetails(map[string]string{"id": "1"})
+
+	// 派生实例就地改自己的 Details
+	derived := sentinel.WithMessage("订单不存在")
+	derived.Details["id"] = "HACKED"
+
+	if sentinel.Details["id"] != "1" {
+		t.Errorf("派生实例改 Details 污染了源实例：sentinel.Details[id]=%q, want 1", sentinel.Details["id"])
+	}
+}
+
+// 裂缝3 回归（另一半）：WithDetails 必须深拷贝入参——调用方之后改自己的 map
+// 不应污染已构造的 error。
+func TestWithDetails_CopiesInputMap(t *testing.T) {
+	input := map[string]string{"id": "1"}
+	e := NotFound("ORDER_NOT_FOUND").WithDetails(input)
+
+	input["id"] = "HACKED" // 调用方改自己的 map
+
+	if e.Details["id"] != "1" {
+		t.Errorf("WithDetails 未深拷贝入参：e.Details[id]=%q, want 1", e.Details["id"])
+	}
+}
+
+// nil Details 深拷贝应保持 nil（不引入空 map，保持零分配语义）。
+func TestClone_NilDetailsStaysNil(t *testing.T) {
+	bare := NotFound("ORDER_NOT_FOUND")
+	derived := bare.WithMessage("x")
+	if derived.Details != nil {
+		t.Errorf("nil Details 派生后应仍为 nil，got %v", derived.Details)
+	}
+}
