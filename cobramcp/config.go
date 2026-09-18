@@ -271,6 +271,7 @@ func decodeToolInput(req mcp.CallToolRequest, meta toolMeta) ToolInput {
 	}
 
 	return ToolInput{
+		CmdPath:   meta.cmdPath,
 		FlatInput: flat,
 		FlagNames: meta.flagNames,
 		ArgNames:  argNames,

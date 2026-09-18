@@ -134,14 +134,16 @@ func TestBuildFlagArgs(t *testing.T) {
 	}
 }
 
-// makeFlatInput is a helper to build a ToolInput from a flat map, flag set and
-// ordered arg name list — mirrors what decodeToolInput produces at runtime.
-func makeFlatInput(flat map[string]any, flagNames []string, argNames []string) ToolInput {
+// makeFlatInput is a helper to build a ToolInput from a command path, flat map,
+// flag set and ordered arg name list — mirrors what decodeToolInput produces at
+// runtime (cmdPath recorded at registration time, everything else per call).
+func makeFlatInput(cmdPath []string, flat map[string]any, flagNames []string, argNames []string) ToolInput {
 	fn := make(map[string]struct{}, len(flagNames))
 	for _, n := range flagNames {
 		fn[n] = struct{}{}
 	}
 	return ToolInput{
+		CmdPath:   cmdPath,
 		FlatInput: flat,
 		FlagNames: fn,
 		ArgNames:  argNames,
@@ -151,26 +153,27 @@ func makeFlatInput(flat map[string]any, flagNames []string, argNames []string) T
 func TestBuildCommandArgs(t *testing.T) {
 	tests := []struct {
 		name         string
-		commandName  string
+		cmdPath      []string
 		input        ToolInput
 		expectedArgs []string
 	}{
 		{
 			name:         "Simple command",
-			commandName:  "root_test",
-			input:        makeFlatInput(map[string]any{}, nil, nil),
+			cmdPath:      []string{"test"},
+			input:        makeFlatInput([]string{"test"}, map[string]any{}, nil, nil),
 			expectedArgs: []string{"test"},
 		},
 		{
 			name:         "Nested command",
-			commandName:  "root_sub_command",
-			input:        makeFlatInput(map[string]any{}, nil, nil),
+			cmdPath:      []string{"sub", "command"},
+			input:        makeFlatInput([]string{"sub", "command"}, map[string]any{}, nil, nil),
 			expectedArgs: []string{"sub", "command"},
 		},
 		{
-			name:        "Command with flags",
-			commandName: "root_test",
+			name:    "Command with flags",
+			cmdPath: []string{"test"},
 			input: makeFlatInput(
+				[]string{"test"},
 				map[string]any{"verbose": true, "output": "result.txt"},
 				[]string{"verbose", "output"},
 				nil,
@@ -178,10 +181,11 @@ func TestBuildCommandArgs(t *testing.T) {
 			expectedArgs: []string{"test", "--verbose", "--output", "result.txt"},
 		},
 		{
-			name:        "Command with arguments",
-			commandName: "root_test",
+			name:    "Command with arguments",
+			cmdPath: []string{"test"},
 			// ArgNames determines order: a_file1 then b_file2
 			input: makeFlatInput(
+				[]string{"test"},
 				map[string]any{"a_file1": "file1.txt", "b_file2": "file2.txt"},
 				nil,
 				[]string{"a_file1", "b_file2"},
@@ -189,9 +193,10 @@ func TestBuildCommandArgs(t *testing.T) {
 			expectedArgs: []string{"test", "file1.txt", "file2.txt"},
 		},
 		{
-			name:        "Command with flags and arguments",
-			commandName: "root_deploy",
+			name:    "Command with flags and arguments",
+			cmdPath: []string{"deploy"},
 			input: makeFlatInput(
+				[]string{"deploy"},
 				map[string]any{
 					"namespace": "production",
 					"replicas":  3,
@@ -205,9 +210,10 @@ func TestBuildCommandArgs(t *testing.T) {
 			expectedArgs: []string{"deploy", "--namespace", "production", "--replicas", "3", "--wait", "my-app", "v1.2.3"},
 		},
 		{
-			name:        "Complex nested command",
-			commandName: "root_cluster_node_list",
+			name:    "Complex nested command",
+			cmdPath: []string{"cluster", "node", "list"},
 			input: makeFlatInput(
+				[]string{"cluster", "node", "list"},
 				map[string]any{
 					"output": "json",
 					"label":  []any{"env=prod", "team=backend"},
@@ -218,9 +224,10 @@ func TestBuildCommandArgs(t *testing.T) {
 			expectedArgs: []string{"cluster", "node", "list", "--output", "json", "--label", "env=prod", "--label", "team=backend"},
 		},
 		{
-			name:        "Command with map flags",
-			commandName: "root_deploy",
+			name:    "Command with map flags",
+			cmdPath: []string{"deploy"},
 			input: makeFlatInput(
+				[]string{"deploy"},
 				map[string]any{
 					"labels": map[string]any{
 						"env":     "production",
@@ -235,9 +242,10 @@ func TestBuildCommandArgs(t *testing.T) {
 			expectedArgs: []string{"deploy", "--labels", "env=production", "--labels", "version=v1.2.3", "--wait", "my-app"},
 		},
 		{
-			name:        "Command with quoted arguments",
-			commandName: "root_exec",
+			name:    "Command with quoted arguments",
+			cmdPath: []string{"exec"},
 			input: makeFlatInput(
+				[]string{"exec"},
 				map[string]any{
 					"a": "argument with spaces",
 					"b": "another quoted arg",
@@ -248,11 +256,26 @@ func TestBuildCommandArgs(t *testing.T) {
 			),
 			expectedArgs: []string{"exec", "argument with spaces", "another quoted arg", "normal"},
 		},
+		{
+			// 回归：子命令名本身含下划线时，命令路径必须原样保留。
+			// 该路径来自注册期元数据，不得由工具名（下划线是层级分隔符的假设）反解。
+			name:         "Command name containing underscore",
+			cmdPath:      []string{"get_all"},
+			input:        makeFlatInput([]string{"get_all"}, map[string]any{}, nil, nil),
+			expectedArgs: []string{"get_all"},
+		},
+		{
+			// 回归：root 名与子命令名都含下划线时，路径仍必须原样保留。
+			name:         "Root and sub-command names containing underscore",
+			cmdPath:      []string{"sre", "open"},
+			input:        makeFlatInput([]string{"sre", "open"}, map[string]any{}, nil, nil),
+			expectedArgs: []string{"sre", "open"},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := buildCommandArgs(tt.commandName, tt.input)
+			result := buildCommandArgs(tt.input)
 
 			// Extract command parts for comparison
 			commandParts := len(result) - len(tt.expectedArgs)

@@ -70,7 +70,7 @@ func execute(ctx context.Context, request mcp.CallToolRequest, input ToolInput) 
 	name := request.Params.Name
 	baldlog.Info(ctx, "subprocess MCP tool request received", "tool", name)
 
-	args := buildCommandArgs(name, input)
+	args := buildCommandArgs(input)
 	baldlog.Debug(ctx, "executing subprocess command", "tool", name, "input", input, "args", args)
 
 	output, err := execSubprocess(ctx, args)
@@ -81,37 +81,22 @@ func execute(ctx context.Context, request mcp.CallToolRequest, input ToolInput) 
 	return nil, output, nil
 }
 
-// splitToolName splits a tool name such as "myapp_sub_command" into its
-// underscore-delimited segments: ["myapp", "sub", "command"].
-// It is the inverse of the encoding performed by toolName in selector.go.
-func splitToolName(name string) []string {
-	return splitOn(name, '_')
-}
-
-// splitOn splits s by the given separator rune.
-func splitOn(s string, sep rune) []string {
-	var parts []string
-	start := 0
-	for i, r := range s {
-		if r == sep {
-			parts = append(parts, s[start:i])
-			start = i + 1
-		}
-	}
-	parts = append(parts, s[start:])
-	return parts
-}
-
 // buildCommandArgs constructs CLI arguments from the MCP request.
-// It decodes the tool name back into a command path and appends flags and
-// positional arguments so the resulting slice can be passed directly to
-// exec.Command when re-invoking the binary as a subprocess.
+// It starts from the command path recorded at registration time and appends
+// flags and positional arguments so the resulting slice can be passed directly
+// to exec.Command when re-invoking the binary as a subprocess.
+//
+// The command path comes from input.CmdPath (see toolMeta.cmdPath) and is NOT
+// reverse-engineered from the tool name: tool names encode spaces as
+// underscores, which is not reversible when a command name itself contains an
+// underscore.
 //
 // The flat ToolInput is split into flags (using FlagNames) and positional
 // arguments (using ArgNames, which preserves cmd.Use ordering).
-func buildCommandArgs(name string, input ToolInput) []string {
-	// Decode "root_sub_command" -> ["sub", "command"] by dropping the root prefix.
-	args := splitToolName(name)[1:]
+func buildCommandArgs(input ToolInput) []string {
+	// Start from the registration-time command path.
+	args := make([]string, len(input.CmdPath))
+	copy(args, input.CmdPath)
 
 	// Split flat input into flags and positional args.
 	flagMap, posArgs := splitFlatInput(input)

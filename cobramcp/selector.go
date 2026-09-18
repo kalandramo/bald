@@ -72,6 +72,16 @@ type Selector struct {
 // during execution to split the flat MCP input back into flags and positional
 // arguments for the underlying cobra command.
 type toolMeta struct {
+	// cmdPath is the cobra sub-command path with the root command name stripped,
+	// e.g. ["sre", "open"] for the command path "my_app sre open".
+	//
+	// It is captured at registration time because the tool name is NOT a
+	// reversible encoding of the command path: tool names are produced by
+	// replacing spaces with underscores (see toolName), so a command whose name
+	// already contains an underscore (e.g. "get_all") is indistinguishable from
+	// a nested path ("get all") once encoded. Execution must therefore use this
+	// recorded path rather than splitting the tool name back apart.
+	cmdPath []string
 	// flagNames is the set of flag property names included in the tool schema.
 	flagNames map[string]struct{}
 	// argSpecs is the ordered list of positional argument specs.
@@ -90,6 +100,7 @@ func (s Selector) buildFlatSchema(cmd *cobra.Command) (*jsonschema.Schema, toolM
 	}
 
 	meta := toolMeta{
+		cmdPath:   cmdSubPath(cmd),
 		flagNames: make(map[string]struct{}),
 	}
 

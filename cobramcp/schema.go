@@ -9,6 +9,14 @@ package cobramcp
 // registration and are used at execution time to split the flat map back into
 // flag arguments and positional arguments for the underlying cobra command.
 type ToolInput struct {
+	// CmdPath is the cobra sub-command path (root command name stripped) that
+	// this invocation must execute, e.g. ["sre", "open"]. It is populated at
+	// registration time from the command tree.
+	//
+	// It exists because the tool name is not a reversible encoding of the
+	// command path — see toolMeta.cmdPath for the full rationale.
+	CmdPath []string
+
 	// FlatInput is the complete flat parameter map received from the MCP client.
 	// Both flag values and positional argument values live here, keyed by their
 	// property name (e.g. "output", "verbose", "resource").

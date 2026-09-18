@@ -140,13 +140,14 @@ func restToolHandler(toolName string, meta toolMeta) http.HandlerFunc {
 		}
 
 		input := ToolInput{
+			CmdPath:   meta.cmdPath,
 			FlatInput: flat,
 			FlagNames: meta.flagNames,
 			ArgNames:  argNames,
 		}
 
 		// Reconstruct the cobra CLI argument slice (same path as MCP subprocess).
-		args := buildCommandArgs(toolName, input)
+		args := buildCommandArgs(input)
 		baldlog.Debug(r.Context(), "REST subprocess args", "tool", toolName, "args", args)
 
 		output, err := execSubprocess(r.Context(), args)

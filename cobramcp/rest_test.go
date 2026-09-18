@@ -44,12 +44,13 @@ func buildRESTMux(toolName string, meta toolMeta) (*http.ServeMux, *[][]string) 
 			argNames[i] = spec.Name
 		}
 		input := ToolInput{
+			CmdPath:   meta.cmdPath,
 			FlatInput: flat,
 			FlagNames: meta.flagNames,
 			ArgNames:  argNames,
 		}
 
-		args := buildCommandArgs(toolName, input)
+		args := buildCommandArgs(input)
 		capturedArgs = append(capturedArgs, args)
 
 		output := ToolOutput{StdOut: "ok", StdErr: "", ExitCode: 0}
@@ -67,6 +68,7 @@ func buildRESTMux(toolName string, meta toolMeta) (*http.ServeMux, *[][]string) 
 
 func TestRESTToolHandler_FlagsOnly(t *testing.T) {
 	meta := toolMeta{
+		cmdPath: []string{"get"},
 		flagNames: map[string]struct{}{
 			"namespace": {},
 			"output":    {},
@@ -104,6 +106,7 @@ func TestRESTToolHandler_FlagsOnly(t *testing.T) {
 
 func TestRESTToolHandler_FlagsAndPositionalArgs(t *testing.T) {
 	meta := toolMeta{
+		cmdPath: []string{"oncall"},
 		flagNames: map[string]struct{}{
 			"level": {},
 		},
@@ -144,6 +147,7 @@ func TestRESTToolHandler_FlagsAndPositionalArgs(t *testing.T) {
 
 func TestRESTToolHandler_EmptyBody(t *testing.T) {
 	meta := toolMeta{
+		cmdPath:   []string{"list"},
 		flagNames: map[string]struct{}{"verbose": {}},
 	}
 
@@ -217,6 +221,7 @@ func TestRESTToolHandler_NotFound(t *testing.T) {
 
 func TestRESTToolHandler_BoolFlagFalseOmitted(t *testing.T) {
 	meta := toolMeta{
+		cmdPath: []string{"deploy"},
 		flagNames: map[string]struct{}{
 			"verbose": {},
 			"dry-run": {},
@@ -243,6 +248,7 @@ func TestRESTToolHandler_BoolFlagFalseOmitted(t *testing.T) {
 
 func TestRESTToolHandler_ArrayFlag(t *testing.T) {
 	meta := toolMeta{
+		cmdPath:   []string{"create"},
 		flagNames: map[string]struct{}{"label": {}},
 	}
 
