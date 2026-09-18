@@ -40,6 +40,12 @@ func Provider(ctx context.Context, cfg *bootstrapv1.Storage) (any, func(), error
 		Token:     sec.GetToken(),
 		UseSsl:    sec.GetUseSsl(),
 	})
+	// fail-closed：NewStorage 即使底层 client 构造失败也会返回非 nil 门面
+	// （NewClient 出错时 log 后返回 nil）。装配期在此拦下，避免把「配置错误」
+	// 推迟到首次 PutObject 才以 nil 暴露。
+	if client.SDK() == nil {
+		return nil, nil, fmt.Errorf("storage: minio client construction failed for endpoint %q", sec.GetEndpoint())
+	}
 	return client, nil, nil
 }
 

@@ -2,6 +2,7 @@ package argo
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -217,5 +218,68 @@ func TestPhaseIsTerminal(t *testing.T) {
 		if p.IsTerminal() {
 			t.Errorf("Phase %q should not be terminal", p)
 		}
+	}
+}
+
+// H3 回归：GetWorkflowLogs 此前绕过 doRequest 直接 io.ReadAll，不检查 HTTP
+// 状态码——401/404/500 的错误响应体被当正常日志正文返回且 err=nil。
+// 契约：非 2xx 必须返回 error（与同文件 doRequest 一致）。
+func TestGetWorkflowLogs_RejectsNon2xx(t *testing.T) {
+	cases := []struct {
+		name   string
+		status int
+		body   string
+	}{
+		{"unauthorized", http.StatusUnauthorized, `{"error":"token expired"}`},
+		{"not-found", http.StatusNotFound, `{"error":"workflow not found"}`},
+		{"server-error", http.StatusInternalServerError, `{"error":"boom"}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer srv.Close()
+
+			c, err := NewClient(ClientOptions{ServerURL: srv.URL, Namespace: "ns1"})
+			if err != nil {
+				t.Fatalf("NewClient: %v", err)
+			}
+			defer c.Close()
+
+			logs, err := c.GetWorkflowLogs(context.Background(), "wf1", "ns1", "")
+			if err == nil {
+				t.Fatalf("HTTP %d: GetWorkflowLogs returned nil error, logs=%q（错误体被当正常日志返回）", tc.status, logs)
+			}
+			if logs != "" {
+				t.Errorf("HTTP %d: 失败时不应返回日志正文，实际 %q", tc.status, logs)
+			}
+			if !strings.Contains(err.Error(), fmt.Sprint(tc.status)) {
+				t.Errorf("err = %q，应包含状态码 %d", err.Error(), tc.status)
+			}
+		})
+	}
+}
+
+// 正向对照：2xx 时正常返回日志正文。
+func TestGetWorkflowLogs_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("line1\nline2\n"))
+	}))
+	defer srv.Close()
+
+	c, err := NewClient(ClientOptions{ServerURL: srv.URL, Namespace: "ns1"})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	defer c.Close()
+
+	logs, err := c.GetWorkflowLogs(context.Background(), "wf1", "ns1", "")
+	if err != nil {
+		t.Fatalf("GetWorkflowLogs: %v", err)
+	}
+	if logs != "line1\nline2\n" {
+		t.Errorf("logs = %q, want %q", logs, "line1\nline2\n")
 	}
 }

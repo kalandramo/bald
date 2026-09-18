@@ -79,3 +79,49 @@ func TestWorkflowRegistry_BuildMultiAndRollback(t *testing.T) {
 		t.Fatalf("cleanup order = %v, want [first]", cleaned)
 	}
 }
+
+// H2 回归：proto 声明了 4 个 workflow 段（temporal/argo/conductor/goworkflows），
+// 但 workflowSections 只枚举 argo。配置里写了未实现的段时，Build 此前静默跳过
+// （fail-open）——用户以为已装配，实际没接线。必须 fail-fast 并点名段名。
+func TestWorkflowRegistry_UnimplementedSectionFailsFast(t *testing.T) {
+	wr := NewWorkflowRegistry()
+	// 注册全部 4 个段的 provider，排除「未注册」这一干扰因素：
+	// 报错必须来自「段未实现」，而非「provider 未注册」。
+	for _, typ := range []string{"temporal", "argo", "conductor", "goworkflows"} {
+		wr.MustRegister(typ, func(context.Context, *bootstrapv1.Workflow) (any, func(), error) {
+			return "cli", nil, nil
+		})
+	}
+
+	cases := []struct {
+		name string
+		cfg  *bootstrapv1.Workflow
+		want string
+	}{
+		{"temporal", &bootstrapv1.Workflow{Temporal: &bootstrapv1.Workflow_Temporal{}}, "temporal"},
+		{"conductor", &bootstrapv1.Workflow{Conductor: &bootstrapv1.Workflow_Conductor{}}, "conductor"},
+		{"goworkflows", &bootstrapv1.Workflow{Goworkflows: &bootstrapv1.Workflow_Goworkflows{}}, "goworkflows"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, err := wr.Build(context.Background(), tc.cfg)
+			if err == nil {
+				t.Fatalf("段 %q 已声明但未实现，Build 应 fail-fast，实际静默成功", tc.name)
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("err = %q, 应点名未实现的段 %q", err.Error(), tc.want)
+			}
+		})
+	}
+
+	// argo（已实现）不受影响。
+	clients, _, err := wr.Build(context.Background(), &bootstrapv1.Workflow{
+		Argo: &bootstrapv1.Workflow_Argo{ServerUrl: "http://127.0.0.1:2746"},
+	})
+	if err != nil {
+		t.Fatalf("已实现的 argo 段不应报错: %v", err)
+	}
+	if clients["argo"] != "cli" {
+		t.Fatalf("argo client mismatch: %v", clients)
+	}
+}

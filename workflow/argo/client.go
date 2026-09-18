@@ -97,19 +97,9 @@ func (wc *WorkflowClient) newRequest(ctx context.Context, method, path string, b
 }
 
 func (wc *WorkflowClient) doRequest(req *http.Request, result interface{}) error {
-	resp, err := wc.client.Do(req)
+	data, err := wc.doRawRequest(req)
 	if err != nil {
-		return fmt.Errorf("HTTP request error: %w", err)
-	}
-	defer resp.Body.Close()
-
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("read response error: %w", err)
-	}
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(data))
+		return err
 	}
 
 	if result != nil && len(data) > 0 {
@@ -119,6 +109,28 @@ func (wc *WorkflowClient) doRequest(req *http.Request, result interface{}) error
 	}
 
 	return nil
+}
+
+// doRawRequest 执行请求并返回原始响应体，统一做状态码检查。
+// 非 2xx 返回 error（含状态码与响应体），与 doRequest 同一契约；
+// 供那些响应体不是 JSON 的端点复用（如 GetWorkflowLogs 返回纯文本日志）。
+func (wc *WorkflowClient) doRawRequest(req *http.Request) ([]byte, error) {
+	resp, err := wc.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("HTTP request error: %w", err)
+	}
+	defer resp.Body.Close()
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response error: %w", err)
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(data))
+	}
+
+	return data, nil
 }
 
 func (wc *WorkflowClient) namespace(optsNamespace string) string {
@@ -382,15 +394,9 @@ func (wc *WorkflowClient) GetWorkflowLogs(ctx context.Context, name string, opts
 		return "", err
 	}
 
-	resp, err := wc.client.Do(req)
+	data, err := wc.doRawRequest(req)
 	if err != nil {
 		return "", fmt.Errorf("get workflow logs error: %w", err)
-	}
-	defer resp.Body.Close()
-
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("read logs error: %w", err)
 	}
 
 	return string(data), nil

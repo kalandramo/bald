@@ -44,6 +44,12 @@ func Provider(ctx context.Context, cfg *bootstrapv1.Storage) (any, func(), error
 		ForcePathStyle: sec.GetForcePathStyle(),
 		Bucket:         sec.GetBucket(),
 	})
+	// fail-closed：NewStorage 即使底层 client 构造失败（NewClient 出错时 log 后
+	// 返回 nil）也会返回非 nil 门面。装配期在此拦下，避免把「配置错误」推迟到
+	// 首次 PutObject 才以 nil 暴露。
+	if client == nil || client.SDK() == nil {
+		return nil, nil, fmt.Errorf("storage: s3 client construction failed for region %q", sec.GetRegion())
+	}
 	return client, nil, nil
 }
 

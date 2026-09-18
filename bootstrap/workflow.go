@@ -70,6 +70,21 @@ var workflowSections = []workflowSection{
 	{"argo", func(w *bootstrapv1.Workflow) bool { return w.GetArgo() != nil }},
 }
 
+// declaredWorkflowSections 列出 proto 已声明但尚未实现的段名。
+//
+// bconf 的 Workflow 契约声明了 temporal/argo/conductor/goworkflows 四段，
+// 但当前只有 argo 有实现。若配置里写了未实现的段，Build 必须 fail-fast——
+// 否则用户以为已装配、实际没接线（fail-open）。新后端落地后，把段名从本表
+// 移到 workflowSections 即可。
+var declaredWorkflowSections = []struct {
+	name   string
+	exists func(*bootstrapv1.Workflow) bool
+}{
+	{"temporal", func(w *bootstrapv1.Workflow) bool { return w.GetTemporal() != nil }},
+	{"conductor", func(w *bootstrapv1.Workflow) bool { return w.GetConductor() != nil }},
+	{"goworkflows", func(w *bootstrapv1.Workflow) bool { return w.GetGoworkflows() != nil }},
+}
+
 // Build 按契约段装配全部已配置的工作流客户端：段存在 → 查表构建。
 // 全部段缺失为 no-op；任一段存在但未注册 Provider 均 fail-fast；
 // 构建失败回滚已建实例的 cleanup（逆序）。
@@ -98,6 +113,14 @@ func (r *WorkflowRegistry) Build(ctx context.Context, cfg *bootstrapv1.Workflow)
 			}
 		}
 	)
+
+	// 先检查「契约已声明但未实现」的段：配置写了就必须报错，不能静默跳过。
+	for _, sec := range declaredWorkflowSections {
+		if sec.exists(cfg) {
+			return nil, nil, fmt.Errorf("bootstrap: workflow.%s is declared in the contract but not implemented in this build; remove the section or upgrade bald", sec.name)
+		}
+	}
+
 	for _, sec := range workflowSections {
 		if !sec.exists(cfg) {
 			continue // 段缺失 = 未声明该后端

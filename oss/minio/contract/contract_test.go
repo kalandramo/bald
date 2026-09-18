@@ -62,3 +62,24 @@ func TestProvider_Build(t *testing.T) {
 		t.Fatalf("instance type = %T, want *minio.Storage", cli)
 	}
 }
+
+// fail-closed 回归：endpoint 语法非法时 minio.New 会失败，NewClient 返回 nil，
+// 而 NewStorage 仍包出非 nil 门面。Provider 必须在此拦下，不得返回 (client, nil, nil)。
+// 覆盖 3 个可复现的失败 endpoint（探针实测均为 nil client）。
+func TestProvider_ClientConstructionFailureFailsClosed(t *testing.T) {
+	for _, ep := range []string{"://bad", "a b c", "bad::host"} {
+		cfg := &bootstrapv1.Storage{
+			Minio: &bootstrapv1.Storage_Minio{Endpoint: ep},
+		}
+		cli, cleanup, err := Provider(context.Background(), cfg)
+		if err == nil {
+			t.Errorf("endpoint=%q: Provider returned nil error, want construction failure", ep)
+		}
+		if cli != nil {
+			t.Errorf("endpoint=%q: Provider returned non-nil instance on failure", ep)
+		}
+		if cleanup != nil {
+			t.Errorf("endpoint=%q: cleanup should be nil on failure", ep)
+		}
+	}
+}
