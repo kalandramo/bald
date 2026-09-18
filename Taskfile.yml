@@ -220,6 +220,28 @@ tasks:
       - go vet ./...
       - go test ./...
 
+  circuitbreaker-verify:
+    desc: circuitbreaker 全量验证（根 + hystrix/sentinel/sres/vegas 五 module）
+    cmds:
+      - task: circuitbreaker-module-verify
+        vars: { MOD: . }
+      - task: circuitbreaker-module-verify
+        vars: { MOD: hystrix }
+      - task: circuitbreaker-module-verify
+        vars: { MOD: sentinel }
+      - task: circuitbreaker-module-verify
+        vars: { MOD: sres }
+      - task: circuitbreaker-module-verify
+        vars: { MOD: vegas }
+
+  circuitbreaker-module-verify:
+    internal: true
+    dir: circuitbreaker/{{.MOD}}
+    cmds:
+      - go build ./...
+      - go vet ./...
+      - go test ./...
+
   test:
     desc: 运行核心模块全部测试（不含 _example，见 example-* 任务）
     cmds:
@@ -233,7 +255,7 @@ tasks:
   # 全量验证：核心 + example（默认 tag 与 grpcgw tag）+ 嵌套 module。
   # CI 建议跑这个，而不是只跑 `go build ./...`。
   verify:
-    desc: 全量验证（核心 + example + cobramcp + retry/ratelimit/broker）
-    deps: [build, test, example-build, example-vet, cobramcp-verify, retry-verify, ratelimit-verify, broker-verify]
+    desc: 全量验证（核心 + example + cobramcp + retry/ratelimit/broker/circuitbreaker）
+    deps: [build, test, example-build, example-vet, cobramcp-verify, retry-verify, ratelimit-verify, broker-verify, circuitbreaker-verify]
     cmds:
       - cmd: 'echo "verify: core + example + nested modules OK（grpcgw 需 buf，见 example-build-grpcgw）"'
