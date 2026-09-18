@@ -13,8 +13,11 @@
 //
 //	data, err := codec.Marshal(map[string]any{"name": "Alice"})
 //
-// The default codec returned by New() uses an empty schema and
-// can only handle primitive Avro types. For complex records, always use [NewCodec] with a schema.
+// The default codec returned by New() carries no schema: it exists so the
+// format can be registered under the name "avro". It falls back to the Avro
+// `"null"` schema internally, so it can only encode/decode Avro null values —
+// it is NOT a general-purpose primitive codec. For any real data (including
+// plain strings and ints), always use [NewCodec] with an explicit schema.
 package avro
 
 import (
@@ -31,6 +34,9 @@ const Name = "avro"
 // New returns a fresh avro codec for explicit registration
 // via encoding.MustRegister.
 func New() encoding.Codec { return codec{avroCodec: nil} }
+
+// Compile-time guarantee that codec satisfies the encoding.Codec contract.
+var _ encoding.Codec = codec{}
 
 // codec implements encoding.Codec using linkedin/goavro/v2.
 type codec struct {

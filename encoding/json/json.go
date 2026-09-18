@@ -13,6 +13,9 @@ const Name = "json"
 // via encoding.MustRegister.
 func New() encoding.Codec { return codec{} }
 
+// Compile-time guarantee that codec satisfies the encoding.Codec contract.
+var _ encoding.Codec = codec{}
+
 // codec implements encoding.Codec using encoding/json.
 type codec struct{}
 

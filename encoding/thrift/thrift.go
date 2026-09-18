@@ -28,38 +28,34 @@ const Name = "thrift"
 // via encoding.MustRegister.
 func New() encoding.Codec { return codec{} }
 
+// Compile-time guarantee that codec satisfies the encoding.Codec contract.
+var _ encoding.Codec = codec{}
+
 // codec implements encoding.Codec using Apache Thrift binary protocol.
-type codec struct {
-	serializer   *thrift.TSerializer
-	deserializer *thrift.TDeserializer
-}
+//
+// It is stateless: TSerializer/TDeserializer are created per call. Thrift does
+// not document them as safe for concurrent use, so sharing one instance across
+// calls would be a latent data race once a codec value is held by a transport.
+type codec struct{}
 
 // Marshal encodes v into Thrift binary bytes.
 // v must implement thrift.TStruct (i.e. be a generated Thrift struct).
-func (c codec) Marshal(v any) ([]byte, error) {
+func (codec) Marshal(v any) ([]byte, error) {
 	t, ok := v.(thrift.TStruct)
 	if !ok {
 		return nil, fmt.Errorf("thrift: value %T does not implement thrift.TStruct", v)
 	}
-	s := c.serializer
-	if s == nil {
-		s = thrift.NewTSerializer()
-	}
-	return s.Write(context.Background(), t)
+	return thrift.NewTSerializer().Write(context.Background(), t)
 }
 
 // Unmarshal decodes Thrift binary data into v.
 // v must be a pointer to a type that implements thrift.TStruct.
-func (c codec) Unmarshal(data []byte, v any) error {
+func (codec) Unmarshal(data []byte, v any) error {
 	t, ok := v.(thrift.TStruct)
 	if !ok {
 		return fmt.Errorf("thrift: target %T does not implement thrift.TStruct", v)
 	}
-	d := c.deserializer
-	if d == nil {
-		d = thrift.NewTDeserializer()
-	}
-	return d.Read(context.Background(), t, data)
+	return thrift.NewTDeserializer().Read(context.Background(), t, data)
 }
 
 // Name returns the codec name.

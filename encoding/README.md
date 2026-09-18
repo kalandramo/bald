@@ -110,7 +110,7 @@ encoding.MustRegister(myCodec{})
 
 ### Avro（Schema 驱动）
 
-`New()` 返回的默认编解码器使用空 schema，仅支持原始类型。复杂记录类型需通过 `NewCodec` 创建：
+`New()` 返回的默认编解码器**不带 schema**——它只为让格式能以 `"avro"` 名注册而存在，内部回退到 Avro 的 `"null"` schema，因此只能处理 Avro null 值，**不是**通用的原始类型编解码器。任何真实数据（包括普通 string / int）都必须通过 `NewCodec` 显式提供 schema：
 
 ```go
 import "github.com/kalandramo/bald/encoding/avro"

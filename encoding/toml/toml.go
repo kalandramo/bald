@@ -19,6 +19,9 @@ const Name = "toml"
 // via encoding.MustRegister.
 func New() encoding.Codec { return codec{} }
 
+// Compile-time guarantee that codec satisfies the encoding.Codec contract.
+var _ encoding.Codec = codec{}
+
 // codec implements encoding.Codec using BurntSushi/toml.
 type codec struct{}
 
