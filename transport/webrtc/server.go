@@ -138,10 +138,10 @@ func (s *Server) init(opts ...ServerOption) error {
 	}
 
 	if s.codec == nil {
+		// 兜底用 json；查不到则保持 nil，由编解码入口 fail-fast 报错
+		// （此前还有一层 GetCodec("bytes") 回落，但全仓不存在名为 "bytes"
+		//  的 codec，该行永不命中，属死代码，已删）。
 		s.codec = encoding.GetCodec("json")
-		if s.codec == nil {
-			s.codec = encoding.GetCodec("bytes")
-		}
 	}
 
 	return s.err

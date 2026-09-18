@@ -425,6 +425,9 @@ func (s *Server) RegisterSubscriber(taskType string, handler MessageHandler, cre
 
 		if creator != nil {
 			payload = creator()
+			if s.codec == nil {
+				return errors.New("codec is nil (nothing registered); register one via encoding.MustRegister, e.g. encoding.MustRegister(json.New())")
+			}
 			if err := s.codec.Unmarshal(task.Payload(), payload); err != nil {
 				log.Printf("[asynq] unmarshal payload failed: %v", err)
 				return err
@@ -478,6 +481,9 @@ func (s *Server) RegisterSubscriberWithCtx(
 
 		if creator != nil {
 			payload = creator()
+			if s.codec == nil {
+				return errors.New("codec is nil (nothing registered); register one via encoding.MustRegister, e.g. encoding.MustRegister(json.New())")
+			}
 			if err := s.codec.Unmarshal(task.Payload(), payload); err != nil {
 				log.Printf("[asynq] unmarshal payload failed: %v", err)
 				return err

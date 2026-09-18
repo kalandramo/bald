@@ -18,7 +18,7 @@ require (
 	github.com/kalandramo/bald v0.0.0-00010101000000-000000000000
 	github.com/kalandramo/bald/encoding v0.0.1
 	github.com/kalandramo/bald/metrics v0.0.1
-	github.com/kalandramo/bald/transport v0.1.0
+	github.com/kalandramo/bald/transport v0.2.0
 	go.opentelemetry.io/otel v1.46.0
 	go.opentelemetry.io/otel/trace v1.46.0
 )

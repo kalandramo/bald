@@ -223,6 +223,9 @@ func (c *Client) messageHandler(buf []byte) error {
 	if handlerData.Creator != nil {
 		payload = handlerData.Creator()
 
+		if c.codec == nil {
+			return errors.New("codec is nil (nothing registered); register one via encoding.MustRegister, e.g. encoding.MustRegister(json.New())")
+		}
 		if err := c.codec.Unmarshal(msg.Payload, payload); err != nil {
 			log.Printf("[tcp] unmarshal message exception: %s", err)
 			return err
