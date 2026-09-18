@@ -251,7 +251,9 @@ func (c *Config) cmdFilter(cmd *cobra.Command) bool {
 		return true
 	}
 
-	return AllowCmdsContaining(c.commandName(), "help", "completion")(cmd)
+	// Match built-in commands by exact path segment (not substring) so that
+	// legitimate commands such as "helper" or "mcp-tools" are not dropped.
+	return hasPathSegment(cmd, c.commandName(), "help", "completion")
 }
 
 // decodeToolInput extracts a ToolInput from a mark3labs CallToolRequest.

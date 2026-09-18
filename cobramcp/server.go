@@ -311,8 +311,9 @@ func (s *MCPServer) cmdFilter(cmd *cobra.Command) bool {
 		return true
 	}
 
-	// Exclude built-in utility commands.
-	return AllowCmdsContaining("help", "completion")(cmd)
+	// Exclude built-in utility commands by exact path segment (not substring)
+	// so that legitimate commands such as "helper" are not dropped.
+	return hasPathSegment(cmd, "help", "completion")
 }
 
 // makeInProcessHandler returns a tool handler function that executes a freshly

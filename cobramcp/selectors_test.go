@@ -3,6 +3,7 @@ package cobramcp
 import (
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
 )
@@ -465,5 +466,88 @@ func TestNoFlags(t *testing.T) {
 			result := NoFlags(flag)
 			assert.Equal(t, tt.expected, result)
 		})
+	}
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// hasPathSegment tests — built-in command filtering must match exact path
+// segments, not substrings (regression for commands like "helper").
+// ──────────────────────────────────────────────────────────────────────────────
+
+func TestHasPathSegment_ExactSegmentOnly(t *testing.T) {
+	tests := []struct {
+		name     string
+		path     []string
+		names    []string
+		expected bool
+	}{
+		{
+			name:     "exact segment matches",
+			path:     []string{"myapp", "help"},
+			names:    []string{"help", "completion"},
+			expected: true,
+		},
+		{
+			name:     "nested exact segment matches",
+			path:     []string{"myapp", "sub", "completion"},
+			names:    []string{"help", "completion"},
+			expected: true,
+		},
+		{
+			name:     "substring must not match",
+			path:     []string{"myapp", "helper"},
+			names:    []string{"help", "completion"},
+			expected: false,
+		},
+		{
+			name:     "hyphenated lookalike must not match",
+			path:     []string{"myapp", "completion-status"},
+			names:    []string{"help", "completion"},
+			expected: false,
+		},
+		{
+			name:     "prefixed lookalike must not match",
+			path:     []string{"myapp", "mcp-tools"},
+			names:    []string{"mcp"},
+			expected: false,
+		},
+		{
+			name:     "unrelated path does not match",
+			path:     []string{"myapp", "get", "pods"},
+			names:    []string{"help", "completion"},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := &cobra.Command{Use: tt.path[len(tt.path)-1]}
+			parent := &cobra.Command{Use: tt.path[0]}
+			cur := parent
+			for _, seg := range tt.path[1 : len(tt.path)-1] {
+				child := &cobra.Command{Use: seg}
+				cur.AddCommand(child)
+				cur = child
+			}
+			cur.AddCommand(cmd)
+
+			assert.Equal(t, tt.expected, hasPathSegment(cmd, tt.names...))
+		})
+	}
+}
+
+// cmdFilter 必须放行名字里只是“含有”内置词的命令。
+func TestCmdFilter_DoesNotDropLookalikeCommands(t *testing.T) {
+	parent := &cobra.Command{Use: "myapp"}
+	for _, name := range []string{"helper", "completion-status", "mcp-tools", "status"} {
+		cmd := &cobra.Command{Use: name, Run: func(*cobra.Command, []string) {}}
+		parent.AddCommand(cmd)
+	}
+
+	c := &Config{}
+	for _, name := range []string{"helper", "completion-status", "mcp-tools", "status"} {
+		child, _, err := parent.Find([]string{name})
+		assert.NoError(t, err)
+		assert.False(t, c.cmdFilter(child), "command %q must not be filtered out", name)
 	}
 }

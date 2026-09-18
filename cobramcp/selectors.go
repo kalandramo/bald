@@ -67,3 +67,21 @@ func ExcludeFlags(names ...string) FlagSelector {
 func NoFlags(_ *pflag.Flag) bool {
 	return false
 }
+
+// hasPathSegment reports whether any space-separated segment of cmd's command
+// path equals one of names exactly.
+//
+// This is deliberately stricter than AllowCmdsContaining. Built-in commands
+// (help, completion, and the cobramcp command group) must be matched by exact
+// path segment: a substring match would also exclude legitimate commands whose
+// names merely contain those words, e.g. "helper", "completion-status" or
+// "mcp-tools" — silently dropping them from the tool set.
+func hasPathSegment(cmd *cobra.Command, names ...string) bool {
+	for _, seg := range strings.Fields(cmd.CommandPath()) {
+		if slices.Contains(names, seg) {
+			return true
+		}
+	}
+
+	return false
+}
