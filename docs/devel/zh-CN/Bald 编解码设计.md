@@ -6,7 +6,7 @@
 >
 > Discussion at: 源码 `encoding/{encoding,encoding_test}.go`、12 个格式子包 `encoding/{json,xml,yaml,toml,proto,msgpack,bson,cbor,gob,thrift,avro,flatbuffers}/`；消费面 `transport/{tcp,websocket,sse,asynq,webrtc,redis,kafka,rabbitmq,rocketmq}/`、`broker/`；姊妹篇 [Bald 消息代理设计](./Bald%20消息代理设计.md)
 >
-> Status: Accepted（契约与 12 格式已落地、11/13 module 有测试全绿；**四个已知缺口未修**——见「兼容性」）
+> Status: Accepted（契约与 12 格式已落地、**13/13 module 有测试全绿**；**兼容性列出的五个缺口已于 2026-09-18 全部处理**——§1/§2/§3 修代码与文档，§4 判定为文档缺口并已写入 README，§5 修消费侧守卫，见「兼容性」各条）
 
 ## 摘要
 
@@ -174,7 +174,7 @@ Avro 是 schema 驱动格式——没有 schema 就不知道字节怎么切。`C
 
 本节列出**四个已核实的缺口**。均已用工具独立复核（源码阅读 + `grep` 交叉验证），锚点到 file:line。
 
-### 1. `thrift.serializer`/`deserializer` 是死字段
+### 1. `thrift.serializer`/`deserializer` 是死字段 —— ✅ 已修（2026-09-18）
 
 **现象**：`codec` 结构体声明了两个指针字段（`thrift.go:33-34`），但**全仓无任何赋值点**——`New()` 返回零值 `codec{}`（`:29`），`Marshal`/`Unmarshal` 每次走 `if s == nil` 分支现场新建（`:44-46`、`:58-60`）。
 
@@ -182,7 +182,7 @@ Avro 是 schema 驱动格式——没有 schema 就不知道字节怎么切。`C
 
 **判定**：死代码。修法二选一——删字段（诚实），或补齐复用并加锁（优化但要担并发正确性）。
 
-### 2. `flatbuffers.Unmarshal` 对畸形 buffer 静默成功
+### 2. `flatbuffers.Unmarshal` 对畸形 buffer 静默成功 —— ✅ 已修（2026-09-18）
 
 **现象**（`flatbuffers.go:55-62`）：
 
@@ -201,7 +201,7 @@ func (codec) Unmarshal(data []byte, v any) error {
 
 **判定**：`flatbuffers` 无测试文件，这个缺口没有任何测试拦截。修法：Unmarshal 前做 buffer 合法性校验（至少校验长度与 vtable 偏移），或至少在文档里显式声明「本 codec 不校验 buffer 合法性」。
 
-### 3. 文档高估 avro 默认 codec 的能力
+### 3. 文档高估 avro 默认 codec 的能力 —— ✅ 已修（2026-09-18）
 
 **现象**：`README.md` 与 `avro.go` 包注释都称默认 codec「使用空 schema，仅支持原始类型」。实际实现用的是 `goavro.NewCodec("\"null\"")`（`:58`、`:77`）——这是 **Avro 的 `null` 类型 schema**，不是「空 schema」。它只接受 Avro `null` 值，连 `string`/`int` 都不接受。
 
@@ -209,18 +209,22 @@ func (codec) Unmarshal(data []byte, v any) error {
 
 **判定**：文档-实现偏差。修法：改文档（默认 codec 仅供名字注册占位，实际使用必须 `NewCodec(schema)`），或改实现（若真想让默认 codec 支持原始类型，得重设计）。
 
-### 4. 装配期急切查表 vs 注册时机：`MustRegister` 必须先于构造
+### 4. `MustRegister` 必须先于构造：一条未文档化的使用约束
 
-**现象**：`broker/options.go:13` 的注释明确记录了这个约束——「注册表要求显式注册，包初始化期必然为空」。但消费侧的查表时机**不一致**：
+**现象**：所有消费者（`broker/options.go:66` 的 `NewOptions()`、`transport/tcp/client.go:47` 的 `NewClient()`、`transport/asynq/server.go:122`、`transport/webrtc/client.go:58` …）都在**构造期** `GetCodec(name)` 并**把结果缓存进字段**。构造之后注册的编解码器，这些点永远看不到。
 
-- **惰性查表**（对）：`broker/options.go:66` 的 `NewOptions()` 在构造 options 时查，不是包初始化时查。
-- **急切查表**（脆）：`transport/tcp/client.go:47`、`transport/asynq/server.go:122`、`transport/webrtc/client.go:58` 在 `NewClient`/`NewServer` 构造期就 `GetCodec("json")` 并**缓存进字段**。
+> **修正记录**：本文初稿曾把此处描述为「broker 惰性查表 vs transport 急切查表**不一致**」——该判断有误。broker 注释里的「惰性」是相对**包初始化期**而言（若写成包级 `var DefaultCodec = encoding.GetCodec(...)`，会在 init 期求值、注册表必然为空）；`NewOptions()` 与 `NewClient()` 实际是**同一时机**（构造期）。消费侧的查表时机是**统一的**，不存在不一致。
 
-**影响**：若应用在构造 transport 之后才 `MustRegister`，急切查表的那些点会**永久持有 nil**——运行期首次收发消息才 panic/报错，且错误位置远离根因。惰性查表的点则能赶上后来的注册。
+**这不是缺陷，是使用约束**。理由：codec 为 `nil` 在本框架里**不必然是错误**——asynq（`else { payload = task.Payload() }`）、tcp（`if payload == nil { payload = msg.Payload }`）、broker（`Marshal`/`Unmarshal` 在 `codec == nil` 时对 `[]byte`/`string` 直通）都支持**无 codec 的原始字节透传**。因此：
 
-**判定**：这是**设计债而非缺陷**（有正确的使用顺序，只是没文档化也没强制）。三选一：① 统一改为惰性查表；② 文档化「`MustRegister` 必须先于构造」并在装配层加断言；③ 构造期查不到就 fail-fast 报错（把运行期错误提前到构造期）。第 ③ 条最符合框架的 fail-fast 哲学。
+- **不能**在 `Start`/`Connect` 期对 `codec == nil` fail-fast——那会误伤「全部走透传、根本不需要编解码器」的合法用法；
+- 现有设计（在**真正需要 codec 的那一行**才判空并报错）是**正确的**——错误出现在需要它的位置，且文案已给出注册指引。
 
-### 5. 消费侧的两处 nil 未防护（补充发现）
+**影响**：唯一的实际代价是**时序约束没被文档化也没被强制**。应用若在构造 transport 之后才 `MustRegister`，且随后走了类型化编解码路径，错误会推迟到首次收发消息才暴露（位置远离根因）。按框架的「显式装配」哲学，`MustRegister` 先于构造本就是预期用法，只是此前没有一处把它写清楚。
+
+**判定**：文档缺口，非代码缺陷。修法 = 把约束写进 `README.md`（已在「快速开始」补注），**不改代码**——改成惰性查表会引入每次收发的额外查表或 `sync.Once` 复杂度，收益（容忍错误顺序）不抵成本，且与该框架「装配期显式」的一贯取舍相悖。
+
+### 5. 消费侧的两处 nil 未防护（补充发现）—— ✅ 已修（2026-09-18）
 
 核验过程中发现 transport 层有两处「直接调 `codec.Unmarshal` 未判空」，与其他 transport 的 fail-fast error 语义不一致：
 
@@ -240,21 +244,25 @@ codec 为 nil 时是 nil interface 方法调用，**panic 而非返回 error**�
 | `Codec` 契约 + 注册表 | ✅ 已落地，`encoding_test.go` 覆盖 9 个用例（含 3 个 panic 路径） |
 | 12 个格式 module | ✅ 全部落地，构造器 `New()` / 常量 `Name` 齐备 |
 | 根 module 零三方依赖 | ✅ 已核实（`go.mod` 仅两行） |
-| 编译期接口断言 `var _ encoding.Codec = codec{}` | ❌ 12 个包**均无**（全仓 grep 零匹配），接口满足性仅由各包 `_test.go` 间接保证 |
-| 测试覆盖 | ⚠️ 11/13 module 有测试；`thrift`、`flatbuffers` **无测试文件** |
+| 编译期接口断言 `var _ encoding.Codec = codec{}` | ✅ 12 个包已补（2026-09-18） |
+| 测试覆盖 | ✅ **13/13 module 有测试全绿**；`thrift`、`flatbuffers` 已补（2026-09-18） |
 | 消费侧集成 | ✅ transport 12 处 `WithCodec` + broker 链路，组装完整 |
 | 生产装配注册 | ⚠️ 全仓生产代码**零处** `encoding.MustRegister`；`_example/` 也零处——即默认路径下所有 transport 的 codec 兜底都落空 |
 
-> 最后一行值得展开：这不是缺陷（示例本就不必然覆盖全部能力面），但它意味着**「装配期必须先 MustRegister」这个约束在仓库内没有任何活样本演示**。使用者照 `_example/` 抄，抄不到这一步，会直接撞上「运行期 codec is nil」。
+> 最后一行值得展开：这不是缺陷（示例本就不必然覆盖全部能力面），但它意味着**「装配期必须先 MustRegister」这个约束在仓库内没有任何活样本演示**。使用者照 `_example/` 抄，抄不到这一步，会直接撞上「运行期 codec is nil」。2026-09-18 已在 `encoding/README.md`「快速开始」补注装配顺序约束（兼容性 §4）。
 
-### 建议的修复顺序
+### 修复记录（2026-09-18，全部完成）
 
-1. **文档修正（零风险）**：修 `README.md` 与 `avro.go` 注释中「空 schema/仅支持原始类型」的表述（兼容性 §3）。
-2. **补编译期断言（零风险）**：12 个包各加一行 `var _ encoding.Codec = codec{}`，让「实现了接口」由编译器保证而非靠测试。
-3. **补测试（低风险）**：给 `flatbuffers`、`thrift` 补测试——它们恰好是仅有的两个无测试 module，也恰好是问题集中处（兼容性 §1、§2）。
-4. **flatbuffers buffer 校验或显式声明（中风险）**：取决于是否要担校验开销。
-5. **统一装配期查表时机（中风险，需设计）**：兼容性 §4，建议走「构造期 fail-fast」。
-6. **消费侧 nil 守卫（属 transport 工单）**：兼容性 §5。
+| # | 缺口 | 处置 | 提交 |
+|---|------|------|------|
+| 1 | thrift 死字段 | 删 `serializer`/`deserializer`，改无状态；补 `thrift_test.go` | `8786d2f` |
+| 2 | flatbuffers 静默解码 | 新增 `validateRootBuffer`（长度 + 根偏移校验）；补 `flatbuffers_test.go` 5 例 | `8786d2f` |
+| 3 | avro 文档偏差 | 改 `README.md` 与 `avro.go` 注释为「仅供名字注册占位，实为 null schema」 | `8786d2f` |
+| 4 | 装配顺序约束 | 判定为文档缺口（非代码缺陷）；约束写入 `encoding/README.md` | 本次 |
+| 5 | 消费侧 nil 未防护 | asynq ×2 + tcp client ×1 补 fail-fast 守卫；删 webrtc `"bytes"` 死回落；顺带修 tcp `go.mod` 版本漂移 | `c22f50f` |
+| — | 编译期接口断言 | 12 个格式包各补 `var _ encoding.Codec = codec{}` | `8786d2f` |
+
+> **§4 的方案修正**：本文初稿建议「构造期 fail-fast」，实测核实后推翻——codec 为 `nil` 在本框架支持**原始字节透传**的合法用法（asynq / tcp / broker 均有 `[]byte`/`string` 直通分支），构造期 fail-fast 会误伤它们。现有「在真正需要 codec 的那一行判空」是正确的，改动收敛为补文档。
 
 ## 附录
 

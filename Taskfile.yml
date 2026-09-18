@@ -178,6 +178,51 @@ tasks:
       - go vet ./...
       - go test ./...
 
+  # ---------------------------------------------------------------------------
+  # encoding 是「根 module + 12 个格式 module」结构（json/xml/yaml/toml/proto/
+  # msgpack/bson/cbor/gob/thrift/avro/flatbuffers），与 ratelimit/broker 同一个
+  # 嵌套 module 的坑：子 module 不在根模块 `go build ./...` 范围内，本地
+  # `task verify` 不显式列出就会假绿。CI（find go.mod）已覆盖，本组供本地验证。
+  # ---------------------------------------------------------------------------
+
+  encoding-verify:
+    desc: encoding 全量验证（根 module + 12 个格式 module）
+    cmds:
+      - task: encoding-module-verify
+        vars: { MOD: . }
+      - task: encoding-module-verify
+        vars: { MOD: json }
+      - task: encoding-module-verify
+        vars: { MOD: xml }
+      - task: encoding-module-verify
+        vars: { MOD: yaml }
+      - task: encoding-module-verify
+        vars: { MOD: toml }
+      - task: encoding-module-verify
+        vars: { MOD: proto }
+      - task: encoding-module-verify
+        vars: { MOD: msgpack }
+      - task: encoding-module-verify
+        vars: { MOD: bson }
+      - task: encoding-module-verify
+        vars: { MOD: cbor }
+      - task: encoding-module-verify
+        vars: { MOD: gob }
+      - task: encoding-module-verify
+        vars: { MOD: thrift }
+      - task: encoding-module-verify
+        vars: { MOD: avro }
+      - task: encoding-module-verify
+        vars: { MOD: flatbuffers }
+
+  encoding-module-verify:
+    internal: true
+    dir: encoding/{{.MOD}}
+    cmds:
+      - go build ./...
+      - go vet ./...
+      - go test ./...
+
   ratelimit-verify:
     desc: ratelimit 全量验证（根 + tokenbucket/bbr/sentinel 四 module）
     cmds:
@@ -256,6 +301,6 @@ tasks:
   # CI 建议跑这个，而不是只跑 `go build ./...`。
   verify:
     desc: 全量验证（核心 + example + cobramcp + retry/ratelimit/broker/circuitbreaker）
-    deps: [build, test, example-build, example-vet, cobramcp-verify, retry-verify, ratelimit-verify, broker-verify, circuitbreaker-verify]
+    deps: [build, test, example-build, example-vet, cobramcp-verify, encoding-verify, retry-verify, ratelimit-verify, broker-verify, circuitbreaker-verify]
     cmds:
       - cmd: 'echo "verify: core + example + nested modules OK（grpcgw 需 buf，见 example-build-grpcgw）"'

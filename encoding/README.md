@@ -54,6 +54,22 @@ func main() {
 }
 ```
 
+> **装配顺序约束**：`MustRegister` 必须**先于**构造任何消费它的 transport / broker。
+> 各消费者（`transport/tcp`、`transport/websocket`、`transport/sse`、`transport/asynq`、
+> `transport/webrtc`、`broker`）都在**构造期**按名字查表并把结果缓存进字段——
+> 构造之后再注册，它们看不到，错误会推迟到首次收发消息才暴露。
+>
+> ```go
+> func main() {
+>     encoding.MustRegister(jsoncodec.New())   // ① 先注册
+>     srv := websocket.NewServer(...)          // ② 再构造
+> }
+> ```
+>
+> 注意：codec 为 `nil` **不必然是错误**——asynq / tcp / broker 都支持「无 codec 的
+> 原始字节透传」（`[]byte`/`string` 直通）。只有走类型化编解码路径时才需要 codec，
+> 那些位置会 fail-fast 并给出注册指引。
+
 ### 注册自定义编解码器
 
 ```go
