@@ -24,6 +24,9 @@ bald/
 ├── registry/                 # 服务注册/发现（Registrar/Discovery/Watcher 契约 + inmemory；零依赖独立 module）
 │   ├── inmemory/             # 内存实现（开发/测试零依赖）
 │   └── etcd/ consul/ nacos/ kubernetes/  # 直连 SDK 后端（各自独立 module + contract 子包）
+├── retry/                    # 统一重试契约（Backoff/Jitter/Classifier 三组正交策略 + Retrier.Do 单入口；零依赖独立 module）
+├── ratelimit/                # 限流契约（Limiter 三方法 + InflightLimiter 成对释放；实现各自独立 module：tokenbucket 零依赖默认 / bbr 自适应 / sentinel 桥接）
+├── broker/                   # 消息代理契约（Message.Body 装 any + Binder 落地 + TypedHandler 泛型糖；四后端各自独立 module：kafka/rabbitmq/redis/rocketmq，各带 contract 子包）
 ├── pkg/
 │   │   ├── http_server.go    # net/http（支持 HTTP/HTTPS，动态端口+可达 IP 解析）
 │   │   ├── grpc_server.go    # google.golang.org/grpc（自带 health + reflection）

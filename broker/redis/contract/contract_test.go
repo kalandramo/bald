@@ -2,6 +2,7 @@ package contract
 
 import (
 	"context"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -10,7 +11,21 @@ import (
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
 
 	"github.com/kalandramo/bald/broker"
+	"github.com/kalandramo/bald/encoding"
+	jsoncodec "github.com/kalandramo/bald/encoding/json"
 )
+
+// TestMain 显式注册 json codec。
+//
+// encoding 注册表要求显式注册（框架不用 init() 自注册）；契约装配路径经
+// broker.NewOptions() 惰性查表默认 json，未注册时 broker.Marshal 会 fail-fast
+// （修复自「DefaultCodec 恒 nil → 静默走 gob」）。故测试须先注册。
+func TestMain(m *testing.M) {
+	if encoding.GetCodec("json") == nil {
+		encoding.MustRegister(jsoncodec.New())
+	}
+	os.Exit(m.Run())
+}
 
 func TestBuildDialURL(t *testing.T) {
 	cases := []struct {

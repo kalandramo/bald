@@ -248,7 +248,7 @@ err := r.Do(ctx, func(ctx context.Context) error {
 
 ### 我们没把三组策略合成一个大 `Options` 结构
 
-合成一个结构看起来更「整洁」，但会让「只想换抖动策略」的人被迫碰退避曲线的字段，也让默认值集中膨胀到一处。拆成三个接口后，**每一组都能单独替换、单独测试、单独在文档里讲清**——`retry_test.go` 里 25 个测试正好按这三组分开。
+合成一个结构看起来更「整洁」，但会让「只想换抖动策略」的人被迫碰退避曲线的字段，也让默认值集中膨胀到一处。拆成三个接口后，**每一组都能单独替换、单独测试、单独在文档里讲清**——`retry_test.go` 里 28 个测试正好按这三组分开。
 
 ### 错误包装用 `errors.Join`，而不是自定义 `RetryError` 类型
 
@@ -306,16 +306,25 @@ err := r.Do(ctx, func(ctx context.Context) error {
 
 ### 已落地
 
-`retry/{go.mod,retry.go,retry_test.go}`，三个文件、零依赖。引入于 `da4d533`（六模块批量移植），`1bcebd1` 随全模块升级到 go 1.27.1。25 个测试覆盖三组策略、attempt 上限、ctx 取消、墙钟超限与端到端。
+`retry/{go.mod,retry.go,retry_test.go}`，三个文件、零依赖。引入于 `da4d533`（六模块批量移植），`1bcebd1` 随全模块升级到 go 1.27.1。28 个测试覆盖三组策略、attempt 上限、ctx 取消、墙钟超限、零值防御与端到端。
 
 **2026-09-17 修复（评审裁定第 2、3、4 条）**：nil 策略改为忽略并保留默认；注入 RNG 的访问由互斥量串行化、`rngCh` 死字段删除；新增导出 `WithClock`（方案 A）。三处都补了回归测试，`go vet` 与 `go test -short` 全绿（`-race` 需 cgo，本机无 gcc）。
 
 **2026-09-17 二轮评审修复（5 项）**：`ExponentialBackoff.Delay` 把 `Factor <= 0` 归一为 2（零值安全，回归测试 `TestExponentialBackoff_ZeroFactorDefaults`）——文档与包注释示例曾三处省略 `Factor`，照抄会得到 0 间隔重试；文档同步修正并发共享的过时「除非」条款、`LinearBackoff` 源码注释公式（`Initial*(attempt+1)` → `Initial+Step*attempt`）、测试计数（19→25）与 `maxTotalWait` 预算检查点的边界披露（检查在尝试之后，睡眠用尽预算后下一次 `fn` 仍会启动）。
 
-### 登记工作只做了一半：索引已补，Taskfile 与根 README 仍是缺口
+**2026-09-18 审查轮修复（零值防御补全 + 登记）**：审查（天权）发现 `Factor` 的零值归一**只做了一半**——同款陷阱在 `Initial` 上未处理也未披露：`ExponentialBackoff{Initial: 0}` 的 `Delay` 恒为 0（零基数 × 任意 Factor = 0），即全零间隔热重试。修复：
 
-1. **`Taskfile.yml` 里零处 `retry`**。嵌套 module 不在根 `go build ./...` 的范围内，而 Taskfile 对特例 module 是**手写任务**（`_example`、`cobramcp` 都是这么处理的）。所以本地 `task build` / `task verify` **覆盖不到 `retry/`**，需要补 `retry-{build,vet,test}` 并挂到 `verify` 的 deps。
-2. **根 `README.md` 零处 `retry`**，架构树没登记这个 module。
+| 项 | 处置 | 理由 |
+|---|---|---|
+| `ExponentialBackoff.Initial <= 0` | 归一为 200ms（包默认），与 `Factor` 完全对称 | 零基数的指数曲线在数学上恒为 0，不是有效策略 |
+| `LinearBackoff.Initial` | **刻意不归一** | `Initial=0 + Step>0` 是合法曲线（首次立即重试、随后线性增长），归一化会破坏它 |
+
+新增 3 个回归测试（`TestExponentialBackoff_ZeroInitialDefaults`、`TestExponentialBackoff_NegativeInitialDefaults`、`TestLinearBackoff_ZeroInitialIsValid`），25 → 28 个。Taskfile 补 `retry-verify` 并挂进根 `verify`，根 README 登记。
+
+### 登记工作（2026-09-18 已补齐）
+
+1. ~~**`Taskfile.yml` 里零处 `retry`**。~~ **已补**：新增 `retry-verify`（`dir: retry` 下 build+vet+test），挂进根 `verify` 的 deps。嵌套 module 不在根 `go build ./...` 范围内，故必须显式列出。
+2. ~~**根 `README.md` 零处 `retry`**。~~ **已补**：架构树登记该 module。
 3. **`docs/devel/zh-CN/README.md` 已收录本文**（2026-09-17 随本文补入索引）。
 
 **CI 不需要改**：`.github/workflows/ci.yml:54` 用 `find . -name go.mod` 自动发现全部 module（仅排除 `_example*`），`retry/` 已被自动纳入 build + vet + test。
@@ -329,7 +338,7 @@ err := r.Do(ctx, func(ctx context.Context) error {
 ### 验证方式
 
 ```bash
-cd retry && go test -short ./...     # 25 个测试
+cd retry && go test -short ./...     # 28 个测试
 cd retry && go test -race ./...      # 并发边界（需 cgo；本机无 gcc，交给 CI 或装有 gcc 的机器）
 ```
 

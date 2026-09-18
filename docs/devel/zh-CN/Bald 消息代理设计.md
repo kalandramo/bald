@@ -6,7 +6,7 @@
 >
 > Discussion at: 源码 `broker/{broker,message,event,typed_handler,encoding,options,publish,subscriber}.go` 与四个后端 `broker/{kafka,rabbitmq,redis,rocketmq}/`；装配面 `bootstrap/broker.go`、`pkg/appkit/broker.go`；契约 `bconf/proto/bootstrap/v1/broker.proto`
 >
-> Status: Accepted（契约与四后端已落地、双装配路已通；**三个已知缺口未修**——默认 codec 恒为 nil、`Request` 五后端全部未实现、未实现的契约段静默忽略，见「兼容性」）
+> Status: Accepted（契约与四后端已落地、双装配路已通；**三个已知缺口已于 2026-09-18 全部修复**——默认 codec 惰性查表 + fail-fast、`Request` 从契约删除、未实现段 fail-fast，见「兼容性」与「实现与过渡」）
 
 ## 摘要
 
@@ -18,7 +18,7 @@
 2. **类型化订阅是糖，不是底座**。底层管线只有一种 `Handler func(ctx, Event) error`；`TypedHandler[T]`、`TypedToEventHandler`、泛型 `Subscribe[T]` 是叠在上面的糖——不用糖的人零成本。
 3. **配置驱动装配可选**。手写 `kafka.NewBroker(opts...)` 与 `appkit.FromBootstrap(cfg, WithBrokerRegistry(br))` 两条路并存，后者按 bconf 的 `broker` 段查表构建。
 
-必须先说清现状：这个 module 是 `9ffe811`（2026-09-06，四后端随五注册表与 8 段停机链移植）落地的，移植时修掉了 tracer、统一了 Init→Connect、补了 `derefAnyPointer`。但**三个缺口至今未修**：`DefaultCodec` 在包初始化时求值、恒为 nil（实际序列化静默走 gob 兜底）；`Request` 在全部五个后端实现里返回 `not implemented`；bconf 声明了 13 个后端段、只实现 4 个，配了未实现段会被**静默忽略**。
+这个 module 是 `9ffe811`（2026-09-06，四后端随五注册表与 8 段停机链移植）落地的，移植时修掉了 tracer、统一了 Init→Connect、补了 `derefAnyPointer`。移植时留下三个缺口，**已于 2026-09-18 全部修复**：`DefaultCodec` 在包初始化时求值、恒为 nil（实际序列化静默走 gob 兜底）→ 改惰性查表 + fail-fast；`Request` 在全部五个后端实现里返回 `not implemented` → 从契约删除；bconf 声明了 13 个后端段、只实现 4 个，配了未实现段会被**静默忽略** → 改 fail-fast。
 
 ## 背景与动机
 
@@ -65,11 +65,11 @@ sub, _ := broker.Subscribe(b, "orders",
 
 ### 一句话定性
 
-**契约形状完整、四后端可用、双装配路已通；但默认序列化静默降级为 gob、Request 是空头支票、契约段超集与实现脱节。**
+**契约形状完整、四后端可用、双装配路已通；移植遗留的三个缺口（默认序列化静默降级 gob、Request 空头支票、契约段超集与实现脱节）已于 2026-09-18 修复。**
 
 ## 设计
 
-### 契约：九个方法，两个核心
+### 契约：八个方法，两个核心
 
 ```go
 type Broker interface {
@@ -81,13 +81,12 @@ type Broker interface {
 	Disconnect() error
 	Publish(ctx context.Context, topic string, msg *Message, opts ...PublishOption) error
 	Subscribe(topic string, handler Handler, binder Binder, opts ...SubscribeOption) (Subscriber, error)
-	Request(ctx context.Context, topic string, msg *Message, opts ...RequestOption) (*Message, error)
 }
 ```
 
-（`broker.go:9-36`）
+（`broker.go:9-33`）
 
-日常用到的只有 `Publish` 和 `Subscribe`。`Init`/`Connect`/`Disconnect` 是生命周期（装配层调），`Name`/`Options`/`Address` 是诊断面。`Request` 见「兼容性」第 2 条——它在契约里，但没有任何后端实现它。
+日常用到的只有 `Publish` 和 `Subscribe`。`Init`/`Connect`/`Disconnect` 是生命周期（装配层调），`Name`/`Options`/`Address` 是诊断面。**`Request` 已从契约删除**（原为五后端全部 `not implemented` 的空头支票，零业务调用方时删除是最便宜的破坏窗口），详见「实现与过渡」修复记录。
 
 ### Message：Body 是 any，Key/Partition/Offset 是 Kafka 形状的字段
 
@@ -171,7 +170,7 @@ type PublishMiddleware func(PublishHandler) PublishHandler  // publish.go:9
 | SDK | segmentio/kafka-go v0.4.49 | amqp091-go v1.10.0 | redigo v1.9.2 | rocketmq-client-go/v2 v2.1.2 |
 | 驱动 | 单一 | 单一 | **pubsub / stream 双驱动** | v2 客户端 |
 | `Name()` | `"kafka"` | `"rabbitmq"` | 按驱动 | `"rocketmqV2"` |
-| `Request` | not implemented | not implemented | not implemented（两驱动都是） | not implemented |
+| `Request` | —（已从契约删除） | — | — | — |
 | 测试 | 0 | 0 | contract 3（miniredis 回环） | 0 |
 
 redis 的双驱动（`redis/redis.go:11-20`）值得说明：Pub/Sub 是 fire-and-forget（掉线期间消息丢失），Stream 是持久化消费（有 ACK、有消费组）。`NewBroker(DriverTypeStream, ...)` 显式选择；契约装配默认走 pubsub（`redis/contract/contract.go:47`）。
@@ -236,9 +235,9 @@ kafka 的 batch/linger、rabbitmq 的 prefetch、rocketmq 的 nameServer——�
 
 我们有两个修法可选（见「开放问题」第 1 条）：惰性求值（`NewOptions` 时才查表）或 fail-fast（codec nil 且 Body 非字节时报错，学 `transport/tcp` 的「codec is nil (nothing registered)」）。**不修的选项不存在**——现状是「配了 JSON 心智、跑了 gob 序列化」的静默错配，redis 契约回环测试能过纯粹因为 gob 自回环。
 
-### 我们没删 Request，也没实现它
+### 我们删掉了 Request，而不是让它继续当空头支票（2026-09-18 更新）
 
-`Request` 在五个后端实现里全部返回 `errors.New("not implemented")`（`kafka.go:331-333` 等五处）。留着它是移植时的形状保全——go-wind 有这个方法、调用方签名依赖它。但**契约里躺着一个没人实现的方法，比没有这个方法更糟**：它邀请业务写 `Request` 调用，运行时才炸。要么实现（redis stream 天然合适：请求写 stream、回复走回执 topic），要么从契约里删掉。见「开放问题」第 3 条。
+`Request` 原在五个后端实现里全部返回 `errors.New("not implemented")`（`kafka.go`、`rabbitmq.go`、`redis/{pubsub,stream}/redis.go`、`rocketmq/v2/rocketmq.go` 五处）。移植时留着它是形状保全——go-wind 有这个方法、调用方签名依赖它。但**契约里躺着一个没人实现的方法，比没有这个方法更糟**：它邀请业务写 `Request` 调用，运行时才炸。零业务调用方时删除是最便宜的破坏窗口，故 2026-09-18 从契约、五后端实现与 `request_options.go` 一并删除。若将来需要请求-响应语义，redis stream（请求写 stream、回复走回执 topic）是天然候选，届时按需重新引入。
 
 ### 我们没把 13 个契约段都实现
 
@@ -258,6 +257,8 @@ bconf 是超集契约（先声明、后实现），这个方向本身没问题�
 
 ### 但三件事必须说清
 
+> **2026-09-18 修复**：三条缺口全部关闭，详见「实现与过渡」的修复记录。以下保留原描述作为问题记录。
+
 1. **`DefaultCodec` 恒为 nil，实际序列化是 gob**。`options.go:8-9` 的两个 blank import 自 encoding 改显式注册后就是死代码；`options.go:14` 的包级 var 在 init 期求值，注册表必然为空（已用探针测试实证：`DefaultCodec is nil at init time`）。后果链：`NewOptions()` 的 `Codec` 是 nil → `Marshal`/`Unmarshal` 走 gob 兜底 → **配了「JSON 默认」心智的应用实际跑 gob**。`WithCodec("json")`（`options.go:117-124`）在未注册时也静默返回 nil，同样落 gob。跨语言消费（对端用真 JSON 解）必然炸。**未修**——修法见「开放问题」第 1 条。
 2. **`Request` 五处 `not implemented`**。契约方法、零实现。调用它运行时报错，编译期无任何提示。**未修**——实现或删除，见「开放问题」第 3 条。
 3. **未实现的契约段静默忽略**。bconf 13 段、实现 4 段；`brokerSections` 只枚举 4 段，配 `broker.nats`/`broker.mqtt` 等九段中的任何一个，Build 无声跳过。**未修**——应与「段存在但未注册」同样 fail-fast，见「开放问题」第 2 条。
@@ -274,15 +275,29 @@ bconf 是超集契约（先声明、后实现），这个方向本身没问题�
 
 测试 26 个：根 module 23 个（message 12：Creator×4、Headers/Metadata 操作与拷贝独立性、Clone、BodyBytes、ctx 注入提取、AckSuccess；subscriber 4：SyncMap 基础操作/限时移除/清理族/Foreach；typed_handler 4：nil 防御×2、指针与值分派、不支持类型；event 2：中间件链序与跳 nil；publish 1：发布中间件链序）+ `redis/contract` 3 个（dial URL 组装、miniredis pubsub 回环、段缺失报错）。**kafka/rabbitmq/rocketmq 后端 0 个**——它们需要真实 broker，测试成本与 sentinel 同款。
 
-### 登记工作一件没做
+### 2026-09-18 修复：三条缺口关闭
 
-与 `ratelimit`/`retry` 同款缺口：根 `README.md` 零处 `broker`、`Taskfile.yml` 零处（根 `verify` 的 deps 不含嵌套 module）。CI 不需要改——`ci.yml:54` 的 `find . -name go.mod` 自动发现全部 module。
+审查（天权）核验后逐条修复，均带回归测试：
+
+| 缺口 | 修复 | 验证 |
+|---|---|---|
+| 1. codec 静默降级 gob | `broker/encoding.go` 的 `Marshal`/`Unmarshal` 在 codec==nil 且非 `[]byte`/`string` 时 fail-fast（新增 `errNoCodec`，文案对齐 `transport/tcp`）；`options.go` 删死 blank import 与恒 nil 的包级 `DefaultCodec`，改 `NewOptions()` 惰性查表 `defaultCodecName`；`WithCodec` 注释写明未注册即 fail-fast | `broker/encoding_test.go` 新增 5 个（fail-fast×2、透传×2、惰性查表×1） |
+| 2. `Request` 空头支票 | 契约删 `Request` 方法 + 五后端实现 + `request_options.go`（零业务调用方，编译期可见的窗口） | 五 module build/vet 全绿，全仓 `RequestOption` 零残留 |
+| 3. 未实现段静默跳过 | `brokerSections` 扩为全 13 段（含 `implemented` 标志），未实现段被配置即 fail-fast | `bootstrap/broker_test.go` 新增 2 个（9 段逐一 fail-fast 子测试 + 已实现段回滚） |
+
+**修复中的连带发现**：`broker/{kafka,rabbitmq,redis,rocketmq}/contract` 的 `Provider` 均不注入 codec，而 bconf 的 broker 段没有 codec 字段——契约装配路径只能依赖 `NewOptions()` 的惰性默认。故 `broker/redis/contract/contract_test.go` 补 `TestMain` 显式注册 json（修复前该测试靠 gob 兜底通过，是缺口 1 的受害者而非缺陷）。
+
+### 登记工作（2026-09-18 补齐）
+
+`Taskfile.yml` 新增 `retry-verify` / `ratelimit-verify` / `broker-verify`（`ratelimit` 4 module、`broker` 5 module，逐 module `dir:` 验证），并挂进根 `verify` 的 deps；根 `README.md` 模块树登记三 module。CI 无需改动（`ci.yml` 用 `find . -name go.mod` 自动发现）。
 
 ### 修复顺序：先修静默错配，再谈扩展
 
-1. **`DefaultCodec`**（缺口 1）。两个候选：惰性求值（`NewOptions` 时查表，注册晚于 import 也能生效）或 fail-fast（codec nil 且 Body 非字节时报错）。倾向后者——静默兜底正是这个 bug 的温床，`transport/tcp` 已有同款错误文案先例。
-2. **未实现段 fail-fast**（缺口 3）。`brokerSections` 补全 13 段的存在性检查，未实现段配置即报错。
-3. **`Request` 裁定**（缺口 2）。实现（redis stream 优先）或从契约删除。删除是破坏性变更，但当前零调用方，窗口就在现在。
+> **2026-09-18 状态**：第 1–3 项已全部完成（见「实现与过渡」修复记录）；第 4 项（后端测试）仍开放。
+
+1. ~~**`DefaultCodec`**（缺口 1）。两个候选：惰性求值（`NewOptions` 时查表，注册晚于 import 也能生效）或 fail-fast（codec nil 且 Body 非字节时报错）。倾向后者——静默兜底正是这个 bug 的温床，`transport/tcp` 已有同款错误文案先例。~~ **已修**：两者都做——`NewOptions` 惰性查表 + `Marshal`/`Unmarshal` fail-fast。
+2. ~~**未实现段 fail-fast**（缺口 3）。`brokerSections` 补全 13 段的存在性检查，未实现段配置即报错。~~ **已修**。
+3. ~~**`Request` 裁定**（缺口 2）。实现（redis stream 优先）或从契约删除。删除是破坏性变更，但当前零调用方，窗口就在现在。~~ **已删**。
 4. **后端测试**。kafka/rabbitmq/rocketmq 从 0 起步；redis 的 miniredis 模式（contract 回环测试）是现成范本——kafka 可用 testcontainers 或 CI 里的真 Kafka，取舍见「开放问题」第 5 条。
 
 ## 附录
@@ -291,7 +306,7 @@ bconf 是超集契约（先声明、后实现），这个方向本身没问题�
 
 | 类别 | 导出符号 | 说明 |
 |---|---|---|
-| 接口 | `Broker`（9 方法） | 见「设计」 |
+| 接口 | `Broker`（8 方法） | 见「设计」 |
 | 接口 | `Event{Topic, Message, RawMessage, Ack, Error}` | 订阅端事件视图 |
 | 接口 | `Subscriber{Options, Topic, Unsubscribe(removeFromManager)}` | 退订句柄 |
 | 函数 | `Handler func(ctx, Event) error` | 订阅底座 |
@@ -305,7 +320,6 @@ bconf 是超集契约（先声明、后实现），这个方向本身没问题�
 | Option | `Options`：`WithAddress`/`WithCodec`/`WithErrorHandler`/`WithEnableSecure`/`WithTLSConfig`/`WithOptionContext`/`With{Subscriber,Publish}Middlewares` | Broker 级 |
 | Option | `PublishOptions`：`WithPublishContext`/`WithPublishTimeout`/`WithPublishAsync`/`WithPublishRetries`/`WithPublishRequiredAcks`/`WithPublishBodyCodec` | 发布级 |
 | Option | `SubscribeOptions`：`DisableAutoAck`/`WithSubscribeQueueName`/`WithSubscribeGroupID`/`WithSubscribeConcurrency`/`WithSubscribeRetry`/`WithSubscribeMiddlewares` | 订阅级 |
-| Option | `RequestOptions`：`WithRequestTimeout`（默认 10s）/`WithReplyTopic`/`WithRequestBodyCodec` | 请求级（无实现） |
 
 ### FAQ
 
@@ -325,6 +339,6 @@ bconf 是超集契约（先声明、后实现），这个方向本身没问题�
 
 1. **`DefaultCodec` 怎么修？** 惰性求值（`NewOptions` 时查表）兼容「main 里先注册再构造」的用法；fail-fast（codec nil 且 Body 非字节报错）把错配炸在第一次发布。倾向 fail-fast，但 `[]byte`/`string` 直通路径要保留（透传场景合法）。另需同步裁定：`WithCodec` 查表失败应报错还是静默 nil。
 2. **未实现段要不要 fail-fast？** `brokerSections` 补全 13 段存在性检查即可，但会改变「配了 nats 的存量配置」的行为（从静默跳过变启动报错）。当前零存量调用方，窗口就在现在。
-3. **`Request` 实现还是删除？** 实现的天然候选是 redis stream（请求写 stream、`ReplyTopic` 回执）；kafka/rabbitmq 要自建关联 ID 与临时队列，成本高。删除则契约从 9 方法变 8 方法——零调用方的现在是最便宜的破坏窗口。
+3. ~~**`Request` 实现还是删除？**~~ **已裁定并执行（2026-09-18）：删除**。契约 9 方法 → 8 方法；零调用方窗口已用掉。将来若需请求-响应语义，redis stream（请求写 stream、`ReplyTopic` 回执）是天然候选。
 4. **后端特有 Option 的可发现性要不要补？** `Options.Context` + 类型化 key 的代价是不可发现。候选：各后端导出一份「key 清单」文档注释，或 `Init` 里对未知 key 报 warning。不动也成立——kafka 的 Option 本身就是导出函数，godoc 可查。
 5. **kafka/rabbitmq/rocketmq 的测试从哪起步？** redis 用 miniredis（进程内、零外部依赖）跑通了 contract 回环；kafka 没有等价的进程内实现，候选是 testcontainers（CI 需要 Docker）或 CI service container（GitHub Actions 的 kafka service）。rabbitmq/rocketmq 同理。裁定前，三后端维持「编译验证 + 契约层测试」的现状。

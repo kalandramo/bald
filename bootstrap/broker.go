@@ -60,23 +60,37 @@ func (r *BrokerRegistry) MustRegister(typ string, p BrokerProvider) {
 	}
 }
 
-// brokerSection 契约段枚举：固定顺序即装配顺序（proto 字段序），
-// 新后端在 bconf 加段后在此追加。
+// brokerSection 契约段枚举：固定顺序即装配顺序（proto 字段序）。
+//
+// implemented=false 的段在 bconf 契约里有声明（超集契约：先声明后实现），
+// 但本仓没有对应后端实现。它们**不是**「静默跳过」——配了未实现段会被
+// Build fail-fast 拒绝，否则用户以为消息代理接上了、实际什么都没发生。
+// 新后端实现落地后，把对应段的 implemented 改为 true 并在此登记。
 type brokerSection struct {
-	name   string
-	exists func(*bootstrapv1.Broker) bool
+	name        string
+	implemented bool
+	exists      func(*bootstrapv1.Broker) bool
 }
 
 var brokerSections = []brokerSection{
-	{"kafka", func(b *bootstrapv1.Broker) bool { return b.GetKafka() != nil }},
-	{"rabbitmq", func(b *bootstrapv1.Broker) bool { return b.GetRabbitmq() != nil }},
-	{"redis", func(b *bootstrapv1.Broker) bool { return b.GetRedis() != nil }},
-	{"rocketmq", func(b *bootstrapv1.Broker) bool { return b.GetRocketmq() != nil }},
+	{"kafka", true, func(b *bootstrapv1.Broker) bool { return b.GetKafka() != nil }},
+	{"rabbitmq", true, func(b *bootstrapv1.Broker) bool { return b.GetRabbitmq() != nil }},
+	{"redis", true, func(b *bootstrapv1.Broker) bool { return b.GetRedis() != nil }},
+	{"nats", false, func(b *bootstrapv1.Broker) bool { return b.GetNats() != nil }},
+	{"mqtt", false, func(b *bootstrapv1.Broker) bool { return b.GetMqtt() != nil }},
+	{"pulsar", false, func(b *bootstrapv1.Broker) bool { return b.GetPulsar() != nil }},
+	{"azuresb", false, func(b *bootstrapv1.Broker) bool { return b.GetAzuresb() != nil }},
+	{"gcpubsub", false, func(b *bootstrapv1.Broker) bool { return b.GetGcpubsub() != nil }},
+	{"nsq", false, func(b *bootstrapv1.Broker) bool { return b.GetNsq() != nil }},
+	{"rocketmq", true, func(b *bootstrapv1.Broker) bool { return b.GetRocketmq() != nil }},
+	{"sqs", false, func(b *bootstrapv1.Broker) bool { return b.GetSqs() != nil }},
+	{"stomp", false, func(b *bootstrapv1.Broker) bool { return b.GetStomp() != nil }},
+	{"activemq", false, func(b *bootstrapv1.Broker) bool { return b.GetActivemq() != nil }},
 }
 
 // Build 按契约段装配全部已配置的消息代理：段存在 → 查表构建。
-// 全部段缺失为 no-op；任一段存在但未注册 Provider 均 fail-fast；
-// 构建失败回滚已建实例的 cleanup（逆序）。
+// 全部段缺失为 no-op；任一段存在但未实现（契约超集里声明、本仓无后端）
+// 或未注册 Provider 均 fail-fast；构建失败回滚已建实例的 cleanup（逆序）。
 //
 // 生命周期：由 appkit FromBootstrap 在阶段 B（BeforeStart，契约装载校验后）
 // 调用，先 Init 再 Connect（各后端 contract 已封装）；broker 段不支持热更新
@@ -106,6 +120,10 @@ func (r *BrokerRegistry) Build(ctx context.Context, cfg *bootstrapv1.Broker) (ma
 	for _, sec := range brokerSections {
 		if !sec.exists(cfg) {
 			continue // 段缺失 = 未声明该后端
+		}
+		if !sec.implemented {
+			rollback()
+			return nil, nil, fmt.Errorf("bootstrap: broker.%s is declared in the contract but not implemented by any backend (implement it or remove the section from config)", sec.name)
 		}
 		p, ok := provs[sec.name]
 		if !ok {

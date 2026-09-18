@@ -159,6 +159,67 @@ tasks:
     desc: cobramcp 全量验证（主模块 + 3 个示例 module）
     deps: [cobramcp-build, cobramcp-vet, cobramcp-test, cobramcp-example-verify]
 
+  # ---------------------------------------------------------------------------
+  # retry / ratelimit / broker 是嵌套独立 module，不在根模块 `go build ./...`
+  # 范围内（与 _example、cobramcp 同一个坑），故这里显式列出，否则本地
+  # `task verify` 会假绿。CI（.github/workflows/ci.yml 用 find go.mod 自动发现）
+  # 已覆盖，本组任务供本地/手动验证。
+  # ratelimit 有 4 个 module（根 + tokenbucket/bbr/sentinel）；broker 有 5 个
+  # （根 + kafka/rabbitmq/redis/rocketmq，各带 contract 子包）——用 `...` 通配
+  # 覆盖子目录，但跨 module 边界时 `./...` 只在当前 module 内生效，故逐 module
+  # 列出。注意 Task 3.52：跨目录只能用任务级 `dir:`。
+  # ---------------------------------------------------------------------------
+
+  retry-verify:
+    desc: retry 全量验证（build + vet + test）
+    dir: retry
+    cmds:
+      - go build ./...
+      - go vet ./...
+      - go test ./...
+
+  ratelimit-verify:
+    desc: ratelimit 全量验证（根 + tokenbucket/bbr/sentinel 四 module）
+    cmds:
+      - task: ratelimit-module-verify
+        vars: { MOD: . }
+      - task: ratelimit-module-verify
+        vars: { MOD: tokenbucket }
+      - task: ratelimit-module-verify
+        vars: { MOD: bbr }
+      - task: ratelimit-module-verify
+        vars: { MOD: sentinel }
+
+  ratelimit-module-verify:
+    internal: true
+    dir: ratelimit/{{.MOD}}
+    cmds:
+      - go build ./...
+      - go vet ./...
+      - go test ./...
+
+  broker-verify:
+    desc: broker 全量验证（根 + kafka/rabbitmq/redis/rocketmq 五 module）
+    cmds:
+      - task: broker-module-verify
+        vars: { MOD: . }
+      - task: broker-module-verify
+        vars: { MOD: kafka }
+      - task: broker-module-verify
+        vars: { MOD: rabbitmq }
+      - task: broker-module-verify
+        vars: { MOD: redis }
+      - task: broker-module-verify
+        vars: { MOD: rocketmq }
+
+  broker-module-verify:
+    internal: true
+    dir: broker/{{.MOD}}
+    cmds:
+      - go build ./...
+      - go vet ./...
+      - go test ./...
+
   test:
     desc: 运行核心模块全部测试（不含 _example，见 example-* 任务）
     cmds:
@@ -169,10 +230,10 @@ tasks:
     cmds:
       - go build ./...
 
-  # 全量验证：核心 + example（默认 tag 与 grpcgw tag）。
+  # 全量验证：核心 + example（默认 tag 与 grpcgw tag）+ 嵌套 module。
   # CI 建议跑这个，而不是只跑 `go build ./...`。
   verify:
-    desc: 全量验证（核心 + example + cobramcp）
-    deps: [build, test, example-build, example-vet, cobramcp-verify]
+    desc: 全量验证（核心 + example + cobramcp + retry/ratelimit/broker）
+    deps: [build, test, example-build, example-vet, cobramcp-verify, retry-verify, ratelimit-verify, broker-verify]
     cmds:
-      - cmd: 'echo "verify: core + example OK（grpcgw 需 buf，见 example-build-grpcgw）"'
+      - cmd: 'echo "verify: core + example + nested modules OK（grpcgw 需 buf，见 example-build-grpcgw）"'

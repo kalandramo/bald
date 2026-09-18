@@ -88,3 +88,53 @@ func TestBrokerRegistry_BuildMultiAndRollback(t *testing.T) {
 		t.Fatalf("cleanup order = %v, want [kafka redis kafka2]", cleaned)
 	}
 }
+
+// Build：契约里声明了但本仓无实现的段（13 段超集里的 9 段）必须 fail-fast，
+// 不得静默跳过——否则用户以为消息代理接上了、实际什么都没发生。
+func TestBrokerRegistry_UnimplementedSectionFailsFast(t *testing.T) {
+	cases := []struct {
+		name string
+		cfg  *bootstrapv1.Broker
+	}{
+		{"nats", &bootstrapv1.Broker{Nats: &bootstrapv1.Broker_Nats{Url: "nats://127.0.0.1:4222"}}},
+		{"mqtt", &bootstrapv1.Broker{Mqtt: &bootstrapv1.Broker_Mqtt{Address: "tcp://127.0.0.1:1883"}}},
+		{"pulsar", &bootstrapv1.Broker{Pulsar: &bootstrapv1.Broker_Pulsar{Url: "pulsar://localhost:6650"}}},
+		{"azuresb", &bootstrapv1.Broker{Azuresb: &bootstrapv1.Broker_Azuresb{ConnectionString: "x"}}},
+		{"gcpubsub", &bootstrapv1.Broker{Gcpubsub: &bootstrapv1.Broker_Gcpubsub{ProjectId: "p"}}},
+		{"nsq", &bootstrapv1.Broker{Nsq: &bootstrapv1.Broker_Nsq{Addrs: []string{"127.0.0.1:4150"}}}},
+		{"sqs", &bootstrapv1.Broker{Sqs: &bootstrapv1.Broker_Sqs{Region: "us-east-1"}}},
+		{"stomp", &bootstrapv1.Broker{Stomp: &bootstrapv1.Broker_Stomp{Address: "stomp://127.0.0.1:61613"}}},
+		{"activemq", &bootstrapv1.Broker{Activemq: &bootstrapv1.Broker_Activemq{Address: "stomp://127.0.0.1:61613"}}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			br := NewBrokerRegistry()
+			_, _, err := br.Build(context.Background(), c.cfg)
+			if err == nil {
+				t.Fatalf("broker.%s is unimplemented; Build must fail fast, got nil error", c.name)
+			}
+			if !strings.Contains(err.Error(), "not implemented") {
+				t.Fatalf("error should say not implemented, got: %v", err)
+			}
+		})
+	}
+}
+
+// 未实现段与已实现段并存时，回滚已实现的段（不泄漏连接）。
+func TestBrokerRegistry_UnimplementedSectionRollsBack(t *testing.T) {
+	cleaned := 0
+	br := NewBrokerRegistry()
+	br.MustRegister("kafka", func(context.Context, *bootstrapv1.Broker) (any, func(), error) {
+		return "kafka-broker", func() { cleaned++ }, nil
+	})
+	_, _, err := br.Build(context.Background(), &bootstrapv1.Broker{
+		Kafka: &bootstrapv1.Broker_Kafka{Brokers: []string{"127.0.0.1:9092"}},
+		Nats:  &bootstrapv1.Broker_Nats{Url: "nats://127.0.0.1:4222"},
+	})
+	if err == nil {
+		t.Fatal("expected fail-fast on unimplemented nats section")
+	}
+	if cleaned != 1 {
+		t.Fatalf("kafka should be rolled back exactly once, cleaned=%d", cleaned)
+	}
+}

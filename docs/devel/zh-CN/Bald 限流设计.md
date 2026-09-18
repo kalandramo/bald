@@ -6,7 +6,7 @@
 >
 > Discussion at: 源码 `ratelimit/{go.mod,ratelimit.go,ratelimit_test.go}` 与三个实现 `ratelimit/{tokenbucket,bbr,sentinel}/`；对照 `bconf/proto/bootstrap/v1/server.proto:69` 的 `Middleware.RateLimit`、`pkg/middleware/bundle/bundle.go:116`
 >
-> Status: Accepted（契约与三实现已落地；**全仓零调用点、零登记**。契约的「释放」缺口已由 `InflightLimiter` 关闭——见「设计」与「兼容性」）
+> Status: Accepted（契约与三实现已落地；**全仓零调用点**。契约的「释放」缺口已由 `InflightLimiter` 关闭，`bbr` 的时钟注入已补、死测试已清、Taskfile/README 登记已补齐（2026-09-18）——见「设计」与「兼容性」）
 
 ## 摘要
 
@@ -172,7 +172,7 @@ if elapsed > 0 {
 
 `Wait` 先试一次，不够就睡精确算出的 `wait` 再重试（`tokenbucket.go:100`）。因为等待时长是算出来的而不是猜的，正常路径一次循环就够，不产生轮询开销。
 
-`WithClock` 是唯一 Option，且**只有 `tokenbucket` 有**——`bbr` 直接用 `time.Now()`（`bbr.go:141`），`sentinel` 不涉及时间。三个实现里只有它可注入假时钟。
+`WithClock` 是唯一 Option，且**只有 `tokenbucket` 有**——`sentinel` 不涉及时间。（2026-09-18 更新：`bbr` 已补上自己的 `WithClock`，见下方修复记录与其在边界表/API 表的条目。）
 
 ### 实现二：`bbr`——自适应，且必须成对调用
 
@@ -231,7 +231,7 @@ if ok, _ := l.Allow(); !ok {
 | 契约接口 | `Limiter` | `Limiter` + **`InflightLimiter`** | `Limiter` |
 | 构造签名 | `New(rate, burst, opts) (*Limiter, error)` | `New(opts) *Limiter` | `New(resource, opts) *Limiter` |
 | 非法配置 | 返回 `ErrInvalidConfig` | 静默忽略 | 静默忽略 |
-| 可注入时钟 | 是（`WithClock`） | 否 | 不涉及 |
+| 可注入时钟 | 是（`WithClock`） | 是（`WithClock`，2026-09-18 补） | 不涉及 |
 | 释放方式 | 不需要 | `Done(rtt)`，**已进接口** | `ReleaseEntry(e)`，句柄式，未进接口 |
 | 第三方依赖 | 无 | 无 | `sentinel-golang v1.0.4` |
 | 测试 | 11 个 | 4 个 | **0 个** |
@@ -362,6 +362,18 @@ cd ratelimit/sentinel && go vet ./... && go build ./...             # 0 个测�
 | 「理由与取舍」第 2 条 | `x/time/rate` 的 `Wait` 语义表述纠错：它在暂时超限时同样阻塞等待（只在 `n > burst` 或超过 ctx deadline 时报错），原文「超限时返回错误而不是无限等」不实；真实差异是 `ErrLimited` 哨兵表达永久枯竭、以及无 `Close` 生命周期 |
 | 「没修的两件事」 | `testConcurrentAllow` 处置建议补数据竞争警告：200 个 goroutine 无同步 `++`，直接接 `t.Run` 在 `-race` 下必红，须先改 `atomic.Int64` |
 
+### 2026-09-18 修复（审查轮）：死测试清理 + `bbr` 时钟注入 + 登记补齐
+
+审查（天权）核验后修复三件，均带验证：
+
+| 项 | 修复 | 验证 |
+|---|---|---|
+| `tokenbucket_test.go` 的 `testConcurrentAllow` 死函数（零调用 + 无同步 `++` 的数据竞争） | 删除（含其孤儿注释头） | `tokenbucket` 11 测试全绿，`gofmt` 干净 |
+| `bbr` 缺 `WithClock`（本文档原列为「挂中间件前的下一项」） | 新增导出 `WithClock(func() time.Time)`，`New` 默认 `time.Now`；`New`/`Allow`/`Done` 三处 `time.Now()` 改走 `l.now()`——假时钟**完全控制桶旋转** | `bbr_test.go` 新增 2 个（假时钟确定性窗口 + nil 忽略）；4 → 6 测试 |
+| Taskfile / 根 README 零登记 | `Taskfile.yml` 补 `ratelimit-verify`（4 module 逐 `dir:` 验证）并挂进根 `verify`；README 模块树登记 | `task ratelimit-verify` 实跑全绿 |
+
+**三个 `WithClock` 的语义差异（刻意，已入注释）**：`tokenbucket`/`bbr` 的时钟决定**状态演进**（令牌补充、桶旋转），而 `retry.WithClock` 只影响 `maxTotalWait` 的 elapsed 计算（睡眠仍走真实计时器）。三者齐备但不等价。
+
 ### 没修的两件事，都不是本轮范围
 
 `tokenbucket_test.go:201` 的 `testConcurrentAllow` 是小写函数、**没有任何调用点**——一个写了一半没接上的并发测试。且它自身有数据竞争：200 个 goroutine 无同步地 `allowed++`/`rejected++`（`tokenbucket_test.go:217-221`），内联注释「race-safe increment not needed」不成立，丢失更新会让 `allowed+rejected != 200`。处置：删掉；要保留就先改成 `atomic.Int64` 计数再接 `t.Run`，否则 `-race` 下必红。
@@ -381,7 +393,7 @@ cd ratelimit/sentinel && go vet ./... && go build ./...             # 0 个测�
 ### 接入顺序：契约缺口已闭，下一步是中间件
 
 1. ~~**先定契约缺口**~~——**已完成**（`InflightLimiter` 已落地，`bbr` 已实现）。这一步原本是阻塞项，现在不是了。
-2. **再补 `bbr` 的时钟注入**。`WithClock` 仍然缺（`bbr.go:141` 直用 `time.Now`），所以滑动窗口的时间口径无法固定。`bbr` 现有 3 个测试刻意绕开了它（只断言「放行/拒绝」的定性行为，不依赖时钟）。**要接中间件之前应该补上。**
+2. ~~**再补 `bbr` 的时钟注入**。~~ **已完成（2026-09-18）**：`bbr.WithClock` 已落地，滑动窗口时间口径可固定；新增 2 个假时钟测试。
 3. **然后才是 HTTP 中间件**。位置在 `pkg/middleware/gin/ratelimit.go` + `bundle` 链（`bundle.go:116`），读 `bconf` 的 `server.http.middleware.rate_limit`（`server.proto:69`）。链序上应放在 `Recovery` 之后、`Authn` 之前——**限流是保护自己的，不该等到认证之后才生效**；这也意味着它必须能处理「未认证的洪水流量」。
 4. **最后考虑 gRPC 侧**。`bconf` 的 gRPC `Middleware` 段（`server.proto:115`）目前只有 `recovery`/`logging`/`tracing`，没有限流字段——要加就得动契约。
 
@@ -409,7 +421,7 @@ c.Next()
 | | 接口 | `InflightLimiter{Limiter, Done(rtt)}` | — |
 | | 哨兵 | `ErrLimited` | — |
 | `tokenbucket` | 构造 | `New(rate, burst float64, opts ...Option) (*Limiter, error)` | — |
-| | 配置 | `WithClock(func() time.Time)` | `time.Now` |
+| | 配置 | `WithClock(func() time.Time)`（2026-09-18 补） | `time.Now` |
 | | 哨兵 | `ErrInvalidConfig` | — |
 | | 方法 | `Allow`、`Wait`、`Close` | — |
 | `bbr` | 构造 | `New(opts ...Option) *Limiter` | — |
@@ -444,7 +456,7 @@ c.Next()
 
 > 原第 1 条（契约要不要增加「释放」能力）已于 2026-09-17 裁定并落地：新增 `InflightLimiter`，见「设计」与「实现与过渡」。
 
-1. **`bbr` 要不要加 `WithClock`？** 没有它，滑动窗口的行为只能靠 sleep 测，且 `Done`/`Allow` 的时间口径无法固定。姊妹模块 `tokenbucket` 有，`retry` 的 `timer` 没有（见《Bald 重试设计》开放问题第 1 条）——三个模块三种做法，值得一次性对齐。**这是挂中间件前的下一项。**
+1. ~~**`bbr` 要不要加 `WithClock`？**~~ **已裁定并落地（2026-09-18）：加**。三模块（`tokenbucket`/`bbr`/`retry`）的 `WithClock` 现已齐备；语义差异（前两者决定状态演进、`retry` 只管 elapsed 预算）已入各自注释。
 2. **`bbr` / `sentinel` 的构造签名要不要统一成返回 error？** 统一意味着 `bbr.WithCPUThreshold(1.5)` 从「静默用默认值」变成「构造失败」。这是行为变更，但对「配置写错要 fail-fast」的既有原则（见 bconf 契约层的校验取舍）更自洽。
 3. **`ErrLimited` 要不要拆成两个哨兵？** 例如 `ErrLimited`（超限）+ `ErrClosed`（已关闭）。调用方需要区分「退避重试」和「停止发送」时，现在的单哨兵不够用。属于破坏性变更，需要单独决策。
 4. **`tokenbucket` 的 `notify` 死字段怎么处理？** 删掉，还是实现「Close 时唤醒等待者」？后者要小心——关闭已关闭的 channel 会 panic，正确做法是用 `close(done)` + `select` 而非向 `notify` 发送。现状是注释承诺了未实现的行为，**注释与代码必须有一个改**。

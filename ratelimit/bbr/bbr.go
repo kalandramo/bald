@@ -48,6 +48,7 @@ type config struct {
 	window       time.Duration // sliding-window length
 	bucketCount  int           // number of buckets in the window
 	minQPS       float64       // minimum allowed QPS even under heavy load
+	clock        func() time.Time
 }
 
 // WithCPUThreshold sets the CPU/load threshold (0-1). Default 0.80.
@@ -55,6 +56,23 @@ func WithCPUThreshold(threshold float64) Option {
 	return func(c *config) {
 		if threshold > 0 && threshold < 1 {
 			c.cpuThreshold = threshold
+		}
+	}
+}
+
+// WithClock injects a custom clock, fixing the sliding window's time basis so
+// bucket rotation and expiry become deterministic in tests. A nil clock is
+// ignored, keeping the default.
+//
+// Mirrors [github.com/kalandramo/bald/ratelimit/tokenbucket.WithClock] and
+// [github.com/kalandramo/bald/retry.WithClock]. Unlike retry's, it governs the
+// window arithmetic itself (not just an elapsed-time budget), so a fake clock
+// fully controls rotation — no real sleeping is needed to age the window.
+// Default: time.Now.
+func WithClock(clock func() time.Time) Option {
+	return func(c *config) {
+		if clock != nil {
+			c.clock = clock
 		}
 	}
 }
@@ -93,6 +111,7 @@ func New(opts ...Option) *Limiter {
 		window:       defaultWindow,
 		bucketCount:  defaultBucketCount,
 		minQPS:       defaultMinQPS,
+		clock:        time.Now,
 	}
 	for _, opt := range opts {
 		opt(cfg)
@@ -103,7 +122,7 @@ func New(opts ...Option) *Limiter {
 		cfg:            cfg,
 		bucketDuration: bucketDuration,
 		buckets:        make([]bucket, cfg.bucketCount),
-		lastBucketTime: time.Now(),
+		lastBucketTime: cfg.clock(),
 	}
 
 	return l
@@ -122,6 +141,9 @@ type Limiter struct {
 	closed         bool
 }
 
+// now returns the current time, overridable via [WithClock].
+func (l *Limiter) now() time.Time { return l.cfg.clock() }
+
 type bucket struct {
 	startTime int64
 	count     int64
@@ -138,7 +160,7 @@ func (l *Limiter) Allow() (bool, error) {
 		return false, ratelimit.ErrLimited
 	}
 
-	now := time.Now()
+	now := l.now()
 	l.rotateLocked(now)
 
 	// Estimate max QPS and max inflight.
@@ -190,7 +212,7 @@ func (l *Limiter) Done(rtt time.Duration) {
 	l.mu.Lock()
 	l.inflight--
 
-	now := time.Now()
+	now := l.now()
 	l.rotateLocked(now)
 
 	idx := l.currentBucketIndexLocked(now)

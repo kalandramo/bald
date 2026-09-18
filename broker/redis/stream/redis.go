@@ -126,10 +126,6 @@ func (b *streamBroker) Disconnect() error {
 	return err
 }
 
-func (b *streamBroker) Request(ctx context.Context, topic string, msg *broker.Message, opts ...broker.RequestOption) (*broker.Message, error) {
-	return nil, errors.New("not implemented")
-}
-
 func (b *streamBroker) Publish(ctx context.Context, topic string, msg *broker.Message, opts ...broker.PublishOption) error {
 	var finalTask = b.internalPublish
 

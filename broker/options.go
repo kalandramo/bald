@@ -5,14 +5,15 @@ import (
 	"crypto/tls"
 
 	"github.com/kalandramo/bald/encoding"
-	_ "github.com/kalandramo/bald/encoding/json"
-	_ "github.com/kalandramo/bald/encoding/proto"
 )
 
-var (
-	// DefaultCodec is the default codec for broker
-	DefaultCodec = encoding.GetCodec("json")
-)
+// defaultCodecName 是 broker 的默认编解码器名。
+//
+// 查表刻意是**惰性**的（在 [NewOptions] 调用时，而非包初始化时）：encoding
+// 注册表要求显式注册（[encoding.MustRegister]），包初始化期必然为空，
+// 包级 var 求值只会得到一个恒 nil 的假默认值。未注册时 [encoding.GetCodec]
+// 返回 nil，[Marshal]/[Unmarshal] 随即 fail-fast 并给出注册指引。
+const defaultCodecName = "json"
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -56,10 +57,13 @@ func (o *Options) Apply(opts ...Option) {
 }
 
 // NewOptions creates default Options.
+//
+// Codec 在此处（而非包初始化期）惰性查表，使「main 里先 MustRegister 再构造」
+// 的用法能拿到真实 codec；未注册时为 nil，由 [Marshal]/[Unmarshal] fail-fast。
 func NewOptions() Options {
 	opt := Options{
 		Addrs: []string{},
-		Codec: DefaultCodec,
+		Codec: encoding.GetCodec(defaultCodecName),
 
 		ErrorHandler: nil,
 
@@ -114,6 +118,9 @@ func WithAddress(addressList ...string) Option {
 }
 
 // WithCodec set codec, support: json, proto.
+//
+// 名称查表失败（未注册）时 Codec 保持 nil，随后 [Marshal]/[Unmarshal] 会
+// fail-fast 并给出注册指引——不再静默回落到 gob。
 func WithCodec(name string) Option {
 	return func(o *Options) {
 		if o == nil {

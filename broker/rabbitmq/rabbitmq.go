@@ -102,10 +102,6 @@ func (b *rabbitBroker) Disconnect() error {
 	return ret
 }
 
-func (b *rabbitBroker) Request(ctx context.Context, topic string, msg *broker.Message, opts ...broker.RequestOption) (*broker.Message, error) {
-	return nil, errors.New("not implemented")
-}
-
 func (b *rabbitBroker) Publish(ctx context.Context, routingKey string, msg *broker.Message, opts ...broker.PublishOption) error {
 	var finalTask = b.internalPublish
 

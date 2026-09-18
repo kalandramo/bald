@@ -247,7 +247,10 @@ type Backoff interface {
 
 // ExponentialBackoff doubles the delay after each failure.
 //
-//   - Initial is the delay before the 2nd attempt (attempt=0).
+//   - Initial is the delay before the 2nd attempt (attempt=0). Values <= 0 are
+//     normalised to 200ms (the package default), so a struct literal that omits
+//     Initial is safe — a zero base would make the whole curve collapse to a
+//     zero-delay busy retry loop.
 //   - Factor is the multiplier (typically 2.0). Values <= 0 are
 //     normalised to 2, so a struct literal that omits Factor is safe.
 //   - Max caps the delay to prevent unbounded growth.
@@ -258,6 +261,10 @@ type ExponentialBackoff struct {
 	Max     time.Duration
 }
 
+// defaultExponentialInitial 是 ExponentialBackoff 的零值 Initial 归一目标，
+// 与 [New] 的默认 backoff 保持一致。
+const defaultExponentialInitial = 200 * time.Millisecond
+
 // Delay implements [Backoff].
 func (b ExponentialBackoff) Delay(attempt int) time.Duration {
 	factor := b.Factor
@@ -266,7 +273,14 @@ func (b ExponentialBackoff) Delay(attempt int) time.Duration {
 		// collapse every delay after the first to zero.
 		factor = 2
 	}
-	d := float64(b.Initial)
+	initial := b.Initial
+	if initial <= 0 {
+		// Zero-value safety, symmetric with Factor: a zero or negative base
+		// makes Initial*Factor^attempt zero (or negative) for every attempt,
+		// i.e. a busy retry loop. Fall back to the package default.
+		initial = defaultExponentialInitial
+	}
+	d := float64(initial)
 	for i := 0; i < attempt; i++ {
 		d *= factor
 		if b.Max > 0 && time.Duration(d) > b.Max {
@@ -289,6 +303,11 @@ func (f FixedBackoff) Delay(_ int) time.Duration {
 
 // LinearBackoff increases the delay linearly: Initial + Step*attempt,
 // capped at Max.
+//
+// Initial is deliberately NOT normalised: Initial=0 with a positive Step is a
+// valid curve (retry immediately, then grow linearly), unlike the exponential
+// case where a zero base degenerates the whole curve. A zero Step simply makes
+// this a constant Initial delay.
 type LinearBackoff struct {
 	Initial time.Duration
 	Step    time.Duration // increment per attempt
