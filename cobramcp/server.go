@@ -361,7 +361,13 @@ func (s *MCPServer) runInProcess(ctx context.Context, req mcp.CallToolRequest, i
 	baldlog.Info(ctx, "in-process MCP tool request", "tool", name)
 
 	// Retrieve the pre-computed cobra sub-command path for this tool.
-	cmdPath := s.toolPaths[name]
+	// Fail closed on an unknown tool name: a missing path would otherwise
+	// produce an empty arg list and silently execute the root command instead
+	// of the requested sub-command.
+	cmdPath, ok := s.toolPaths[name]
+	if !ok {
+		return nil, ToolOutput{}, fmt.Errorf("unknown tool %q: no registered command path", name)
+	}
 
 	// Build CLI args from the stored command path and the flat tool input.
 	args := buildInProcessArgsFromPath(cmdPath, input)

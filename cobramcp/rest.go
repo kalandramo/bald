@@ -91,9 +91,14 @@ func (c *Config) serveREST(cmd *cobra.Command, addr, baseURL string) error {
 	}
 
 	// Graceful shutdown when the cobra command context is cancelled.
+	// Use a bounded deadline, consistent with serveStdio/serveHTTP: an
+	// unbounded context.Background() would hang the shutdown forever if a
+	// handler never returns.
 	go func() {
 		<-cmd.Context().Done()
-		if err := srv.Shutdown(context.Background()); err != nil {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancel()
+		if err := srv.Shutdown(shutdownCtx); err != nil {
 			baldlog.Error(context.Background(), "REST server shutdown error", "error", err)
 		}
 	}()

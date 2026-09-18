@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sort"
 
 	"github.com/mark3labs/mcp-go/mcp"
 
@@ -155,7 +156,19 @@ func splitFlatInput(input ToolInput) (flagMap map[string]any, posArgs []string) 
 func buildFlagArgs(flagMap map[string]any) []string {
 	var args []string
 
-	for name, value := range flagMap {
+	// Iterate flag names in sorted order so the generated argument slice is
+	// deterministic. Map iteration order is randomized in Go; without this,
+	// the same input yields different argument orderings across runs, which
+	// makes logs, traces and failure reproductions needlessly hard to compare.
+	// (pflag itself is order-insensitive for distinct flags.)
+	names := make([]string, 0, len(flagMap))
+	for name := range flagMap {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	for _, name := range names {
+		value := flagMap[name]
 		if name == "" || value == nil {
 			continue
 		}
