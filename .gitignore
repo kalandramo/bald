@@ -11,3 +11,10 @@ bald.exe
 # 示例运行时产生的本地 SQLite 数据库
 _example/*.db
 _example/bald/*.db
+
+# 天枢（agent runtime）本地状态与配置。
+# .rivet/ 含活跃 SQLite（meridian.db + WAL）、编辑备份、工具输出缓存、计划草稿，
+# 体积以 MB 计且每次会话都变——入库会污染公开仓库历史且 diff 无休止。
+.rivet/
+.rivet.md
+.rivet-config.json
