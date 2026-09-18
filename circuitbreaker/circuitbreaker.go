@@ -1,9 +1,13 @@
 // Package circuitbreaker defines the circuit-breaker abstraction for the
-// go-wind framework.
+// bald framework.
 //
 // It provides a minimal, algorithm-agnostic interface for circuit breaking.
 // Concrete implementations (SRE, Hystrix, Vegas, Sentinel, etc.) implement
 // this interface so that business code depends only on the contract.
+//
+// Allow and MarkSuccess/MarkFailure form a pair: a successful Allow MUST be
+// followed by exactly one Mark* call. Execute wraps that pairing for callers
+// that do not need to interleave other work.
 package circuitbreaker
 
 import (

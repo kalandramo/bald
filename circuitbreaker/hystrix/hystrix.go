@@ -159,8 +159,11 @@ func (b *Breaker) Allow() error {
 	switch b.state {
 	case circuitbreaker.StateOpen:
 		if now.Sub(b.openedAt) >= b.cfg.sleepWindow {
+			// sleepWindow 已过：转入半开，放行一个探针请求。
+			// 这里**不**预置 halfOpenIn —— 预置后 fallthrough 会立刻读到 true
+			// 并把探针自己拒掉，而 halfOpenIn 只在 Mark* 里复位，于是永久锁死。
+			// 交给下面的 HalfOpen 分支统一决定（它是唯一的 halfOpenIn 置位点）。
 			b.state = circuitbreaker.StateHalfOpen
-			b.halfOpenIn = true
 		} else {
 			return circuitbreaker.ErrCircuitOpen
 		}

@@ -89,11 +89,33 @@ func New(resource string, opts ...Option) *Breaker {
 }
 
 // Breaker wraps a Sentinel resource as a [windcb.CircuitBreaker].
+//
+// pending holds the entries opened by Allow() and not yet closed by a Mark*
+// call. It is a stack, not a single slot: the contract's Allow()/Mark* pair
+// carries no handle, so with concurrent callers a single field would be
+// overwritten and the orphaned entries would never Exit — leaking Sentinel's
+// concurrency counter. The invariant that actually matters is "every Entry is
+// Exited exactly once", and a stack preserves it under any interleaving (the
+// counter is order-independent).
 type Breaker struct {
 	mu       sync.Mutex
 	resource string
 	cfg      *config
-	entry    *base.SentinelEntry // entry from the most recent Allow() call
+	pending  []*base.SentinelEntry
+}
+
+// takeEntry pops one pending entry (LIFO). Returns nil if none.
+func (b *Breaker) takeEntry() *base.SentinelEntry {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	n := len(b.pending)
+	if n == 0 {
+		return nil
+	}
+	e := b.pending[n-1]
+	b.pending[n-1] = nil // avoid retaining a reference
+	b.pending = b.pending[:n-1]
+	return e
 }
 
 // Allow implements [windcb.CircuitBreaker].
@@ -109,7 +131,7 @@ func (b *Breaker) Allow() error {
 	}
 
 	b.mu.Lock()
-	b.entry = e
+	b.pending = append(b.pending, e)
 	b.mu.Unlock()
 	return nil
 }
@@ -118,12 +140,7 @@ func (b *Breaker) Allow() error {
 // It closes the Sentinel entry opened by the preceding Allow() call,
 // recording the request as successful.
 func (b *Breaker) MarkSuccess() {
-	b.mu.Lock()
-	e := b.entry
-	b.entry = nil
-	b.mu.Unlock()
-
-	if e != nil {
+	if e := b.takeEntry(); e != nil {
 		e.Exit()
 	}
 }
@@ -132,12 +149,7 @@ func (b *Breaker) MarkSuccess() {
 // It records the error on the Sentinel entry and closes it, allowing
 // Sentinel's circuit-breaker slot to evaluate the failure.
 func (b *Breaker) MarkFailure() {
-	b.mu.Lock()
-	e := b.entry
-	b.entry = nil
-	b.mu.Unlock()
-
-	if e != nil {
+	if e := b.takeEntry(); e != nil {
 		sentinelapi.TraceError(e, windcb.ErrCircuitOpen)
 		e.Exit()
 	}

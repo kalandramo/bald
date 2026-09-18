@@ -287,3 +287,79 @@ func TestConcurrentRecordLatency(t *testing.T) {
 		<-done
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Open 态探针与恢复（回归：曾因 Open 无条件拒绝而永久不可恢复）
+// ---------------------------------------------------------------------------
+
+// Open 态必须放行单个探针请求——Vegas 靠延迟样本判断恢复，
+// 无条件拒绝会让状态机失去唯一输入通道。
+func TestAllow_OpenAdmitsSingleProbe(t *testing.T) {
+	b := New(WithAlpha(0.5), WithBeta(0.3), WithWarmupSamples(3))
+	defer b.Close()
+
+	// 基线 20ms，再推高到 200ms → Open
+	for i := 0; i < 10; i++ {
+		b.RecordLatency(20 * time.Millisecond)
+	}
+	for i := 0; i < 30; i++ {
+		b.RecordLatency(200 * time.Millisecond)
+	}
+	if b.State() != circuitbreaker.StateOpen {
+		t.Fatalf("setup: State() = %v, want Open", b.State())
+	}
+
+	// Open 必须放行第一个探针
+	if err := b.Allow(); err != nil {
+		t.Fatalf("Open must admit a probe so latency can be re-measured, got %v", err)
+	}
+	// 探针在飞期间，第二个并发请求必须被拒（保护下游）
+	if err := b.Allow(); err == nil {
+		t.Error("second concurrent probe must be rejected while one is in flight")
+	}
+	// 探针完成后槽位释放
+	b.RecordLatency(20 * time.Millisecond)
+	if err := b.Allow(); err != nil {
+		t.Errorf("probe slot must free after the probe completes, got %v", err)
+	}
+}
+
+// 端到端：下游恢复后，仅通过 Execute（不碰接口外的 RecordLatency）应能自愈。
+func TestExecute_RecoversAfterLatencyHeals(t *testing.T) {
+	b := New(WithAlpha(0.5), WithBeta(0.3), WithWarmupSamples(3))
+	defer b.Close()
+	ctx := context.Background()
+
+	// 基线 20ms
+	for i := 0; i < 10; i++ {
+		b.RecordLatency(20 * time.Millisecond)
+	}
+	// 推高到 200ms → Open
+	for i := 0; i < 30; i++ {
+		b.RecordLatency(200 * time.Millisecond)
+	}
+	if b.State() != circuitbreaker.StateOpen {
+		t.Fatalf("setup: State() = %v, want Open", b.State())
+	}
+
+	// 只走 Execute；fn 耗时接近健康基线，模拟下游已恢复。
+	// 注意：单次 Execute 返回 nil 只说明探针被放行并跑通，不等于状态已恢复——
+	// Vegas 靠指数平滑（0.875/0.125）累积样本，需多次低延迟探针才能把
+	// currentRTT 拉回 beta 阈值以下。故循环直到 State() 真正回到 Closed。
+	recovered := false
+	for i := 0; i < 300; i++ {
+		_ = b.Execute(ctx, func() error {
+			time.Sleep(5 * time.Millisecond)
+			return nil
+		})
+		if b.State() == circuitbreaker.StateClosed {
+			recovered = true
+			t.Logf("recovered after %d Execute calls", i+1)
+			break
+		}
+	}
+	if !recovered {
+		t.Fatalf("breaker must self-heal via Execute once latency recovers (final state=%v inflation=%.3f)",
+			b.State(), b.Inflation())
+	}
+}

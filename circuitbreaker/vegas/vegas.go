@@ -114,16 +114,24 @@ func New(opts ...Option) *Breaker {
 
 // Breaker is a Vegas-inspired latency-based circuit breaker.
 type Breaker struct {
-	mu          sync.Mutex
-	cfg         *config
-	baseRTT     time.Duration // minimum observed RTT (healthy baseline)
-	currentRTT  time.Duration // exponentially smoothed RTT
-	sampleCount int
-	state       circuitbreaker.State
-	closed      bool
+	mu            sync.Mutex
+	cfg           *config
+	baseRTT       time.Duration // minimum observed RTT (healthy baseline)
+	currentRTT    time.Duration // exponentially smoothed RTT
+	sampleCount   int
+	state         circuitbreaker.State
+	probeInFlight bool // true while an Open-state probe request is outstanding
+	closed        bool
 }
 
 // Allow implements [circuitbreaker.CircuitBreaker].
+//
+// In the Open and HalfOpen states it admits exactly one probe request at a
+// time. This is not an optimization — it is required for correctness: Vegas
+// decides recovery from latency samples, and latency samples can only come
+// from requests that actually run. Unconditionally rejecting while Open would
+// sever the breaker's only input channel and lock it open forever. The probe
+// is what re-measures the downstream after a degradation.
 func (b *Breaker) Allow() error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -132,8 +140,13 @@ func (b *Breaker) Allow() error {
 		return circuitbreaker.ErrCircuitOpen
 	}
 
-	if b.state == circuitbreaker.StateOpen {
-		return circuitbreaker.ErrCircuitOpen
+	if b.state == circuitbreaker.StateOpen || b.state == circuitbreaker.StateHalfOpen {
+		if b.probeInFlight {
+			// A probe is already outstanding — reject the rest to protect
+			// the downstream while we re-measure it.
+			return circuitbreaker.ErrCircuitOpen
+		}
+		b.probeInFlight = true
 	}
 
 	return nil
@@ -141,7 +154,10 @@ func (b *Breaker) Allow() error {
 
 // MarkSuccess implements [circuitbreaker.CircuitBreaker].
 // Use RecordLatency instead to provide timing data — MarkSuccess alone
-// records a zero latency which is not useful for Vegas.
+// records a zero latency which is filtered out as an outlier and therefore
+// does not feed the Vegas estimator. It still releases an outstanding probe,
+// so the breaker never locks up; recovering from Open requires real latency
+// samples (via Execute or an explicit RecordLatency).
 func (b *Breaker) MarkSuccess() {
 	b.RecordLatency(0)
 }
@@ -150,6 +166,10 @@ func (b *Breaker) MarkSuccess() {
 func (b *Breaker) MarkFailure() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
+	// Release the probe slot on every completion path — an unreleased slot
+	// would re-introduce the permanent lock-out this breaker used to have.
+	b.probeInFlight = false
 
 	if b.state == circuitbreaker.StateHalfOpen {
 		b.state = circuitbreaker.StateOpen
@@ -167,6 +187,9 @@ func (b *Breaker) MarkFailure() {
 func (b *Breaker) RecordLatency(rtt time.Duration) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
+	// Release the probe slot on every completion path (see MarkFailure).
+	b.probeInFlight = false
 
 	if b.state == circuitbreaker.StateHalfOpen {
 		b.state = circuitbreaker.StateClosed
