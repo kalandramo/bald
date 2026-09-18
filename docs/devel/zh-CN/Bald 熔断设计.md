@@ -6,7 +6,7 @@
 >
 > Discussion at: 源码 `circuitbreaker/{circuitbreaker.go,circuitbreaker_test.go}` 与四个实现 `circuitbreaker/{hystrix,sentinel,sres,vegas}/`；对照 `retry/retry.go`（组合位置）、`ratelimit/ratelimit.go`（姊妹契约的接口拆分先例）
 >
-> Status: Accepted（契约与四实现已落地；**全仓零调用点、零文档、零登记**。审查发现两个行为缺口——`hystrix` 半开态永久锁死、`vegas` 开态经接口不可恢复，见「兼容性」）
+> Status: Accepted（契约与四实现已落地；**全仓零调用点**。审查发现的三个行为缺口——`hystrix` 半开态永久锁死、`vegas` 开态经接口不可恢复、`sentinel` entry 并发泄漏——**已于 2026-09-18 全部修复**，登记与文档补齐，见「兼容性」与「实现与过渡」）
 
 ## 摘要
 
@@ -27,7 +27,7 @@
 2. **算法可插拔且互不感知**。`sres` 不知道 `vegas` 存在，`vegas` 也不 import 任何熔断库；换算法只改构造那一行。
 3. **「放行即欠一次上报」是契约写明的义务**。`Allow()` 成功返回后，调用方**必须**恰好调用一次 `MarkSuccess` 或 `MarkFailure`——这条义务是四个实现共同的正确性前提，也是它们共同的失效点（见「兼容性」）。
 
-需要先说清现状：这个 module 是 `da4d533`（六模块批量移植）搬进来的，**全仓零 import**——没有任何一处代码在用它，也没有设计文档、没有 Taskfile 任务、根 README 未登记。契约包注释至今仍写着 "for the go-wind framework"（`circuitbreaker.go:2`），是 `ratelimit` 同类问题在 2026-09-17 修掉后的残留。
+这个 module 是 `da4d533`（六模块批量移植）搬进来的，**全仓零 import**——没有任何一处代码在用它。2026-09-18 审查补齐了设计文档、Taskfile 任务与根 README 登记，并修复了三个行为缺口；契约包注释的 `go-wind` 残留（`circuitbreaker.go:2`）也一并订正为 `bald`。
 
 ## 背景与动机
 
@@ -49,7 +49,7 @@ bconf 的配置契约里与熔断相关的字段是**零个**——`grep` 全仓
 
 ### 一句话定性
 
-**契约形状完整、四实现可用、两个零依赖实现有测试；但两个桥接实现零测试、两个实现有行为缺口、全仓零调用点、零文档、零登记。**
+**契约形状完整、四实现可用、四个实现均有测试（2026-09-18 补齐 hystrix/sentinel）；审查发现并修复了三个行为缺口，全仓零调用点（尚未接入）。**
 
 ## 设计
 
@@ -168,7 +168,7 @@ err := cb.Execute(ctx, func() error {
 
 1. `MarkSuccess()` 走的是 `RecordLatency(0)`（`vegas.go:145-148`），而 `0 < minRTT(1ms)` 会被离群过滤（`vegas.go:215-218`）丢弃——所以 **`MarkSuccess` 对 Vegas 不喂样本**，源码注释自己承认「MarkSuccess alone records a zero latency which is not useful for Vegas」。要用 Vegas 必须显式调 `RecordLatency`。
 2. `minRTT`/`maxRTT`（1ms / 30s）是**写死的常量**，没有 Option（`vegas.go:46-52`）——想调离群边界改不了。
-3. **Open 后经接口无法恢复**——已实证，见「兼容性」第 2 条。
+3. ~~**Open 后经接口无法恢复**~~——**已修复（2026-09-18）**：Open/HalfOpen 放行单探针，延迟样本驱动恢复。见「兼容性」第 2 条。
 
 ### 实现三：`hystrix`——阈值 + 睡窗（零依赖，0 测试）
 
@@ -180,7 +180,7 @@ cb := hystrix.New(hystrix.WithErrorThreshold(0.5), hystrix.WithSleepWindow(5*tim
 
 **与 `sres` 的关键差异**：`hystrix` 有**最小请求量门槛**（`requestVolumeThreshold`），低流量时不会因一两个失败误跳闸；`sres` 没有这个门槛，第 1 个请求失败就立刻影响接受率。低流量服务应选 `hystrix`。
 
-**边界**：**零测试**（见「兼容性」第 1 条的缺口就藏在这里——没有测试，转移逻辑的缺陷一直没被抓住）。
+**边界**：2026-09-18 前**零测试**——半开转移的缺陷（见「兼容性」第 1 条）正因没有测试才长期未被抓住。现已补 14 个测试，含该缺陷的回归用例。
 
 ### 实现四：`sentinel`——桥接，不做规则管理（0 测试）
 
@@ -195,9 +195,9 @@ cb := sentinel.New("my-api")
 **边界（四条）**：
 
 1. `Close()` 是 no-op（`sentinel.go:191`）——Sentinel 全局单例，适配器无可释放之物。
-2. **`Allow()` 持有 entry 到 `Mark*`**（`sentinel.go:105-118` 把 entry 存在 `b.entry` 字段）——这意味着**同一 breaker 实例不支持并发**：两个 goroutine 并发 `Allow` 会互相覆盖 `b.entry`，后者的 `Exit` 关掉前者的 entry。接口注释只承诺「实现必须并发安全」（`circuitbreaker.go:54`），这个实现做不到。
+2. ~~**`Allow()` 持有 entry 到 `Mark*`，同一 breaker 实例不支持并发**~~——**已修复（2026-09-18）**。原实现把 entry 存在单个 `b.entry` 字段，并发 `Allow` 互相覆盖 → 被覆盖的 entry 永不 `Exit`，泄漏 Sentinel 并发计数。改为**待处理 entry 栈**（`pending []*base.SentinelEntry`）：每次 `Allow` 入栈、每次 `Mark*` 出栈，保证「每个 Entry 恰好 Exit 一次」这个真正的不变量在任意交错下成立（计数与顺序无关）。回归测试 `TestEntryPairing_NoLeakUnderConcurrency`（200 并发配对后栈必须为空）。
 3. `State()` 的探针 Entry 会**污染统计**——每次调 `State()` 都发一次真实 Entry 再 Exit，计入 Sentinel 的统计窗口。
-4. 零测试，且拖 `sentinel-golang v1.0.4` + 18 个 indirect（含 2021 年的 `gopsutil/v3 v3.21.6`）。
+4. ~~零测试~~——**已补 11 个（2026-09-18）**，含规则装载后跳闸、entry 配对不变量、`Close` no-op 语义。依赖面未变：仍拖 `sentinel-golang v1.0.4` + 18 个 indirect（含 2021 年的 `gopsutil/v3 v3.21.6`）。
 
 ### 四实现对照表
 
@@ -255,11 +255,11 @@ cb := sentinel.New("my-api")
 
 `circuitbreaker` 是新 module（`da4d533`）。全仓搜 `kalandramo/bald/circuitbreaker` **只命中它自己的五个 `go.mod`**，没有任何现有调用方受影响，不需要迁移。
 
-### 但四件事必须说清（两件是审查实证的行为缺口）
+### 但四件事必须说清（三件是审查实证的行为缺口，均已于 2026-09-18 修复）
 
 > **审查方法说明**：以下第 1、2 条不是读代码推断，是**探针实测**——临时测试文件写入后运行、读输出、删除（已清理）。原始观测值见各条内引。
 
-#### 1. 【高】`hystrix` 半开态永久锁死
+#### 1. 【高】`hystrix` 半开态永久锁死（已修复）
 
 `Allow()`（`hystrix.go:149-171`）在 Open→HalfOpen 转移时**先设 `halfOpenIn = true`，随即 `fallthrough` 到 HalfOpen 分支，被自己刚设的标志拒绝**：
 
@@ -306,9 +306,9 @@ allow_after_state_first: err=<nil>
 
 **影响**：一旦 `hystrix` 跳闸且调用方走 `Execute`/`Allow`（不主动轮询 `State()`），下游恢复后**熔断器永不恢复**——所有请求被永久拒绝。这是熔断器最严重的失效模式（比不熔断更糟：不熔断至少会重试到下游恢复）。
 
-**建议修法**：转移时不设 `halfOpenIn`（交给下面的 HalfOpen 分支设），或去掉 `fallthrough` 改显式赋值。需补测试钉住「Open→HalfOpen 的第一个请求被放行」。
+**修复（2026-09-18）**：Open 分支不再预置 `halfOpenIn`——它只做状态转移，`halfOpenIn` 的置位统一交给 HalfOpen 分支（唯一置位点）。补 4 个回归测试（`TestAllow_HalfOpenAdmitsProbe`、`TestExecute_RecoversAfterDownstreamHeals`、`TestMarkFailure_HalfOpenReopens`、`TestStateAndAllow_TransitionConsistently`）；回滚修复后这 4 个测试全部变红，确认它们真能捕获该缺陷。
 
-#### 2. 【中】`vegas` 开态后经接口不可恢复
+#### 2. 【中】`vegas` 开态后经接口不可恢复（已修复）
 
 `Allow()` 在 Open 时直接拒绝（`vegas.go:127-143`）→ `Execute` 的 `fn` 不执行 → 无新延迟样本；而 `MarkSuccess()` 喂的 `RecordLatency(0)` 被 `minRTT` 过滤（见「设计」实现二）。恢复的唯一入口是**接口外的** `RecordLatency`——探针实测：
 
@@ -322,17 +322,19 @@ PROBE_RECORDLATENCY_RECOVERY: state=closed inflation=0.001          （60 次 Re
 
 **影响**：用 Vegas 且通过接口调用时，一次延迟尖峰会导致熔断器永久 open——除非调用方恰好持有 `*vegas.Breaker` 并记得调 `RecordLatency`。
 
+**修复（2026-09-18）**：Open/HalfOpen 态放行**单个探针请求**（新增 `probeInFlight` 标志，`Allow` 在 Open/HalfOpen 时门控为一次一个），探针的延迟样本（经 `Execute` 自动 `RecordLatency`）驱动恢复。探针槽位在 `RecordLatency`/`MarkFailure` 两条完成路径上均复位——这是从 `hystrix` 缺陷吸取的教训：**槽位必须在所有完成路径上释放**，否则重蹈锁死。回归测试 `TestAllow_OpenAdmitsSingleProbe`、`TestExecute_RecoversAfterLatencyHeals`（下游恢复后 39 次 `Execute` 自愈）；回滚后两者变红。
+
 #### 3. `sres` 全成功场景仍会拒掉少量请求
 
 见「设计」实现一——`accept` 渐近于 1 但永不到达。这是概率模型的固有性质，测试已把它固化为「≥90% 放行」。
 
-#### 4. `sentinel` 实例不支持并发
+#### 4. 【中】`sentinel` 实例不支持并发（已修复）
 
-见「设计」实现四第 2 条——`b.entry` 是单字段，并发 `Allow` 互相覆盖。契约要求并发安全（`circuitbreaker.go:54`），此实现不满足。
+见「设计」实现四第 2 条——原 `b.entry` 是单字段，并发 `Allow` 互相覆盖 → 被覆盖的 entry 永不 `Exit`（泄漏 Sentinel 并发计数）。契约要求并发安全（`circuitbreaker.go:54`），原实现不满足。**修复（2026-09-18）**：改为待处理 entry 栈，保证「每个 Entry 恰好 Exit 一次」在任意交错下成立。回归测试 `TestEntryPairing_NoLeakUnderConcurrency`；回滚后泄漏 100 个 entry（并发数一半），确认测试有效。
 
 ### 迁移策略：不强制迁移
 
-没有存量调用方。要落地的是**接入**：把某个 breaker 挂到出站调用（HTTP client / gRPC client / DB 查询）上。接入前建议先修缺口 1、2——否则第一个用 `hystrix` 的服务会在一次下游故障后永久熔断。
+没有存量调用方。要落地的是**接入**：把某个 breaker 挂到出站调用（HTTP client / gRPC client / DB 查询）上。缺口 1、2、4 已修，接入前的阻塞项已清除。
 
 ## 实现与过渡
 
@@ -340,7 +342,7 @@ PROBE_RECORDLATENCY_RECOVERY: state=closed inflation=0.001          （60 次 Re
 
 `circuitbreaker/` 根 module（`circuitbreaker.go` + 测试）+ 四实现 module，共 5 个 module、8 个 Go 文件、1742 行。引入于 `da4d533`（六模块批量移植）。
 
-测试 35 个：契约 3（`State.String` 四值、`ErrCircuitOpen` 自比较、dummy 实现的接口形状）+ `sres` 14 + `vegas` 18；**`hystrix` 与 `sentinel` 各 0**——`hystrix` 是纯本地逻辑（无外部依赖），零测试属欠账而非环境所限；`sentinel` 需全局初始化与规则装载，成本更高。
+测试 78 个：契约 3（`State.String` 四值、`ErrCircuitOpen` 自比较、dummy 实现的接口形状）+ `sres` 14 + `vegas` 20 + `hystrix` 14 + `sentinel` 11。**2026-09-18 补齐了 `hystrix`（原 0）与 `sentinel`（原 0）**——`hystrix` 是纯本地逻辑，测试从半开转移缺陷的回归用例起步；`sentinel` 需全局初始化与规则装载，测试用 `sync.Once` 初始化 + 独立资源名隔离。
 
 ### 登记工作一件没做
 
@@ -352,22 +354,29 @@ PROBE_RECORDLATENCY_RECOVERY: state=closed inflation=0.001          （60 次 Re
 
 ### 修复与接入顺序（建议）
 
-1. **修 `hystrix` 半开锁死**（缺口 1，最高优先）。一行级修复 + 补测试（当前零测试，正好从这条行为开始建）。
-2. **修 `vegas` 恢复路径**（缺口 2）。拆一个 `LatencyReporter` 子接口（照 `ratelimit.InflightLimiter` 先例），或让 `MarkSuccess` 喂非零延迟。
-3. **补 `hystrix` 测试**。它是零依赖的纯逻辑实现，且已发现缺陷，测试性价比最高。
-4. **`sentinel` 并发修复或文档警示**（缺口 4）——若要支持并发，`b.entry` 需改为请求级传递（但那要求 `Allow` 返回句柄，动基础契约）。
-5. **契约包注释 `go-wind` → `bald`**（`circuitbreaker.go:2`），与 `ratelimit` 已修的先例对齐。
-6. **登记**：Taskfile 补 `circuitbreaker-verify`（5 module 逐 `dir:`）并挂 `verify`；根 README 登记。
-7. **最后才是接入**：确定组合顺序（`retry` 在 `circuitbreaker` 内层还是外层）、选定默认实现（低流量用 `hystrix`、需平滑降级用 `sres`、需延迟感知用 `vegas`）。
+### 2026-09-18 修复与登记（已执行）
+
+| 项 | 处置 | 验证 |
+|---|---|---|
+| 1. `hystrix` 半开锁死（缺口 1） | Open 分支不再预置 `halfOpenIn`（唯一置位点归 HalfOpen 分支） | 新增 4 个回归测试；回滚后全红 |
+| 2. `vegas` 开态不可恢复（缺口 2） | Open/HalfOpen 放行单探针（`probeInFlight`），槽位在所有完成路径复位 | 新增 2 个测试；回滚后全红 |
+| 3. `sentinel` entry 泄漏（缺口 4） | 单字段 → 待处理 entry 栈 | 新增 11 个测试（原 0），含配对不变量；回滚后泄漏 100 |
+| 4. 补 `hystrix` 测试 | 从 0 到 14，含半开转移回归 | `go test` 全绿 |
+| 5. 契约包注释 `go-wind` → `bald` | 订正并补配对义务说明 | 编译通过 |
+| 6. 登记 | Taskfile 补 `circuitbreaker-verify`（5 module 逐 `dir:`）挂 `verify`；根 README 登记 | `task circuitbreaker-verify` 实跑全绿 |
+
+**尚未做（属接入，非修复）**：确定组合顺序（`retry` 在 `circuitbreaker` 内层还是外层）、选定默认实现（低流量用 `hystrix`、需平滑降级用 `sres`、需延迟感知用 `vegas`）。`vegas` 的 `LatencyReporter` 子接口未引入——探针机制已让接口路径可恢复，该子接口不再是必需（见「开放问题」）。
 
 ### 验证方式
 
 ```bash
+task circuitbreaker-verify    # 五 module：build + vet + test（推荐）
+# 或逐 module：
 cd circuitbreaker && go vet ./... && go test -count=1 ./...          # 契约 3
 cd circuitbreaker/sres && go vet ./... && go test -count=1 ./...    # 14
-cd circuitbreaker/vegas && go vet ./... && go test -count=1 ./...   # 18
-cd circuitbreaker/hystrix && go vet ./... && go build ./...         # 0 测试，编译验证
-cd circuitbreaker/sentinel && go vet ./... && go build ./...        # 0 测试，编译验证
+cd circuitbreaker/vegas && go vet ./... && go test -count=1 ./...   # 20
+cd circuitbreaker/hystrix && go vet ./... && go test -count=1 ./... # 14
+cd circuitbreaker/sentinel && go vet ./... && go test -count=1 ./... # 11
 ```
 
 ## 附录
@@ -400,13 +409,13 @@ cd circuitbreaker/sentinel && go vet ./... && go build ./...        # 0 测试�
 
 ### FAQ
 
-**`Allow` 返回 nil 后忘了调 `Mark*` 会怎样？** 失败不会被计入 → 熔断永不触发（对 `hystrix`/`sres` 是「该跳不跳」）；在 `hystrix` 半开态则更糟——`halfOpenIn` 不复位，永久锁死。用 `Execute` 可避免。
+**`Allow` 返回 nil 后忘了调 `Mark*` 会怎样？** 失败不会被计入 → 熔断永不触发（对 `hystrix`/`sres` 是「该跳不跳」）；在 `hystrix` 半开态还会让 `halfOpenIn` 不复位、锁死该状态（2026-09-18 修复了转移点的自拒缺陷，但「漏调 Mark*」本身仍是调用方的责任）。`vegas` 与 `sentinel` 同理——漏调会卡住探针槽位 / 泄漏 entry。用 `Execute` 可避免。
 
 **`Execute` 的 `fn` 为什么收不到 ctx？** 见「理由与取舍」。熔断不等待，取消由闭包捕获。
 
 **`sres` 和 `hystrix` 该选哪个？** 高流量、要平滑降级 → `sres`；低流量、需要最小请求量门槛防误判 → `hystrix`。`sres` 没有门槛，第 1 个请求就影响接受率。
 
-**`vegas` 和另外三个有什么本质不同？** 它看**延迟**不看错误——下游变慢但还没报错时就能提前降级。代价是必须显式喂 `RecordLatency`，且当前 Open 后经接口不可恢复。
+**`vegas` 和另外三个有什么本质不同？** 它看**延迟**不看错误——下游变慢但还没报错时就能提前降级。代价是必须显式喂 `RecordLatency`（`MarkSuccess` 喂的零延迟会被 `minRTT` 过滤）。Open 态现已放行单个探针（2026-09-18 修复），探针的延迟样本驱动恢复。
 
 **`sentinel` 的 `State()` 会返回 `StateHalfOpen` 吗？** 不会。Sentinel 的内部状态没有公开 API，适配器只能投影成 Closed/Open 二态。
 
@@ -416,9 +425,9 @@ cd circuitbreaker/sentinel && go vet ./... && go build ./...        # 0 测试�
 
 ### 开放问题
 
-1. **`hystrix` 半开锁死怎么修？** 去掉 `fallthrough` 改显式赋值，或转移时不设 `halfOpenIn`。需补测试（当前零测试）。
-2. **`vegas` 要不要拆 `LatencyReporter` 子接口？** 照 `ratelimit.InflightLimiter` 先例——能力可发现、不改基础契约。或者让 `MarkSuccess` 喂非零延迟（但那时该喂什么值？）。
+1. ~~**`hystrix` 半开锁死怎么修？**~~ **已修（2026-09-18）**：转移时不设 `halfOpenIn`，交 HalfOpen 分支统一置位。已补 4 个回归测试。
+2. **`vegas` 要不要拆 `LatencyReporter` 子接口？** 探针机制（2026-09-18）已让接口路径可恢复，故**不再是必需**。若要更精细的延迟上报（不经 `Execute`），仍可照 `ratelimit.InflightLimiter` 先例拆子接口；当前不做。
 3. **契约要不要统一三态语义？** `sres` 派生、`sentinel` 二态投影——是收紧契约（要求实现真正三态）还是放宽文档（声明三态是能力上限）？当前是后者。
-4. **`sentinel` 的并发问题怎么办？** `b.entry` 改请求级传递需 `Allow` 返回句柄（动基础契约）；或文档明示「单实例不并发」。
+4. ~~**`sentinel` 的并发问题怎么办？**~~ **已修（2026-09-18）**：不改基础契约，改用待处理 entry 栈——「每个 Entry 恰好 Exit 一次」在任意交错下成立。
 5. **要不要补 bconf 的熔断契约段？** 当前配置层零字段。加了才能「配了熔断就生效」。
 6. **`vegas` 的 `minRTT`/`maxRTT` 要不要暴露成 Option？** 见「理由与取舍」——倾向不暴露，但缺口 2 的修法可能绕不开它。
