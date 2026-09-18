@@ -199,7 +199,7 @@ loadable **不进 CacheRegistry**。Registry 装配的是后端实例（配置�
 
 **修复**：loader 结果在 singleflight flight 内即 `cloneBytes`，回填与返回各用独立拷贝（`nil` 保持 `nil`，不把负缓存条目变成非空切片）。补 2 例回归测试（`TestGet_ReturnedSliceDoesNotAliasCache`、`TestGet_MergedCallersDoNotShareSlice`），回滚修复后两者复红。
 
-**同时披露的现状**：`cache` 系四个 module 当前**全仓零外部消费者**（`_example`/下游仓均未接入，Taskfile 未登记）——与 `retry`/`ratelimit`/`broker`/`circuitbreaker` 同处「已落地、未接入」状态。文档此前未明说，此处补齐。
+**消费现状（中性记录）**：`cache` 系四个 module 当前无仓内调用点——框架能力面不要求有消费者（见《设计评审-第三轮-2026-09-12》R4：「能力已备、消费者未至」是框架常态；零调用本身不是问题，真实风险是无测试覆盖导致静默腐烂，故以契约测试钉住行为）。
 
 ---
 
