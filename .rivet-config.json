@@ -1,0 +1,7 @@
+{
+  "verify": {
+    "test": "go test ./...",
+    "build": "go build ./...",
+    "typecheck": "go vet ./..."
+  }
+}

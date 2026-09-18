@@ -12,9 +12,17 @@ bald.exe
 _example/*.db
 _example/bald/*.db
 
-# 天枢（agent runtime）本地状态与配置。
-# .rivet/ 含活跃 SQLite（meridian.db + WAL）、编辑备份、工具输出缓存、计划草稿，
-# 体积以 MB 计且每次会话都变——入库会污染公开仓库历史且 diff 无休止。
-.rivet/
-.rivet.md
-.rivet-config.json
+# 天枢（agent runtime）状态目录。
+# 整体排除本地/派生成分，只放行跨设备同步有价值的子集：
+#   - skills/   手写方法论资产（SKILL.md），跨设备复用
+#   - knowledge/ 记忆库（*.jsonl），跨设备续用（对应旧 .codebuddy/memory 的定位）
+# 排除：meridian.db*（会话 SQLite 状态）、backups/（编辑快照，内容在 git 历史）、
+#       artifacts/ tmp/（工具缓存）、plans/（计划草稿）。
+# 注：根级 .rivet-config.json（verify 命令）与 .rivet.md（项目说明）是项目级配置，
+#     跨设备开发有用，**不**忽略。
+.rivet/*
+!.rivet/skills/
+!.rivet/knowledge/
+# 但 skills/_drafts 是会话自动草稿，knowledge 下的 sqlite 是索引缓存，不入库。
+.rivet/skills/_drafts/
+.rivet/knowledge/memory-index.sqlite
