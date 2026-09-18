@@ -48,7 +48,7 @@ func buildRootCmd() *cobra.Command {
   kubectl get|logs|exec ...    – 子命令树，每个子命令独立声明参数
 
 通过 "myops mcp tools" 可以查看生成的 MCP Tool JSON Schema，
-验证每个位置参数都被映射为 positional_args 对象中的具名字段。`,
+验证每个位置参数都被映射为扁平 schema 中的顶层具名字段。`,
 	}
 
 	// Pattern 1: required + optional

@@ -96,7 +96,7 @@ config := &cobramcp.Config{
         {
             // Read ops: timeout
             CmdSelector: cobramcp.AllowCmdsContaining("get", "list"),
-            Middleware: func(ctx context.Context, req *mcp.CallToolRequest, in cobramcp.ToolInput, next func(context.Context, *mcp.CallToolRequest, cobramcp.ToolInput) (*mcp.CallToolResult, cobramcp.ToolOutput, error)) (*mcp.CallToolResult, cobramcp.ToolOutput, error) {
+            Middleware: func(ctx context.Context, req mcp.CallToolRequest, in cobramcp.ToolInput, next func(context.Context, mcp.CallToolRequest, cobramcp.ToolInput) (*mcp.CallToolResult, cobramcp.ToolOutput, error)) (*mcp.CallToolResult, cobramcp.ToolOutput, error) {
                 ctx, cancel := context.WithTimeout(ctx, time.Minute)
                 defer cancel()
                 return next(ctx, req, in)
@@ -154,7 +154,7 @@ config := &cobramcp.Config{
 Wrap execution with custom logic:
 
 ```go
-Middleware: func(ctx context.Context, req *mcp.CallToolRequest, in cobramcp.ToolInput, next func(context.Context, *mcp.CallToolRequest, cobramcp.ToolInput) (*mcp.CallToolResult, cobramcp.ToolOutput, error)) (*mcp.CallToolResult, cobramcp.ToolOutput, error) {
+Middleware: func(ctx context.Context, req mcp.CallToolRequest, in cobramcp.ToolInput, next func(context.Context, mcp.CallToolRequest, cobramcp.ToolInput) (*mcp.CallToolResult, cobramcp.ToolOutput, error)) (*mcp.CallToolResult, cobramcp.ToolOutput, error) {
     // Pre-execution: Add timeout
     ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
     defer cancel()

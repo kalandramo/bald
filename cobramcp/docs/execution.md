@@ -1,5 +1,9 @@
 # Tool Execution
 
+> **注意（过时文档）**：本文描述的是嵌套 `flags`/`args` Schema 时代的行为。
+> 当前实现为**扁平 Schema**（所有参数为顶层属性），命令路径由注册期元数据还原
+> 而非从工具名反解。以 mcp-design.md 与代码注释为准。
+
 When an AI assistant calls an MCP tool, cobramcp executes your CLI as a subprocess.
 
 ## Execution Flow

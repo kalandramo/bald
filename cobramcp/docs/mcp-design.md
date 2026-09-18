@@ -362,7 +362,7 @@ POST /myapp_oncall        # 路径 = MCP 工具名
 
 错误码约定：400（JSON 解析失败）、404（未知工具）、405（非 POST）、500（子进程启动失败）。这让同一 CLI 同时服务 AI 与传统自动化。空请求体视为零参数。
 
-SSE/REST 服务器都监听 cobra 命令 context 取消做优雅停机；进程内模型额外监听 SIGINT/SIGTERM。
+SSE/REST 服务器都监听 cobra 命令 context 取消做优雅停机；进程内模型的 `Start` 阻塞至 ctx 取消后返回，**不自行捕获进程信号**——信号与停机编排由宿主（appkit/bootstrap）负责（见 README「与 bald 生态的关系」）。
 
 ## 7. 编辑器配置管理（internal/cfgmgr）
 

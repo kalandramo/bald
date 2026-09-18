@@ -1,5 +1,9 @@
 # Schema Generation
 
+> **注意（过时文档）**：本文描述的是嵌套 `flags`/`args` Schema 时代的行为。
+> 当前实现为**扁平 Schema**——flag 与位置参数都是顶层属性，无嵌套子对象。
+> 以 mcp-design.md 与代码注释为准。
+
 cobramcp automatically generates JSON schemas for MCP tools from Cobra commands.
 
 ## Tool Properties
