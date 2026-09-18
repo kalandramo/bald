@@ -69,6 +69,12 @@ func New(backend cache.Cache, loader LoadFunc, opts ...Option) *Cache {
 // returned — a cache write failure must not fail a read that already has
 // valid data; the next request will simply miss and load again.
 //
+// Slice ownership: the slice returned to the caller never aliases the one
+// stored in the backend, nor the one handed to other callers merged into the
+// same flight. Callers may freely mutate what they get back. Without this
+// isolation a caller writing to the returned slice would corrupt the cached
+// value, and concurrent merged callers would share (and race on) one array.
+//
 // Note on context: the first caller's context drives the merged load. If it
 // is cancelled mid-load, all callers merged into that flight observe the
 // cancellation error.
@@ -81,17 +87,38 @@ func (c *Cache) Get(ctx context.Context, key string) ([]byte, error) {
 		return nil, err
 	}
 
+	// The loader result is copied inside the flight so that (a) the value
+	// handed to merged callers is private to each of them and (b) the value
+	// backfilled into the backend is a third, independent copy.
 	v, err, _ := c.group.Do(key, func() (any, error) {
-		return c.loader(ctx, key)
+		loaded, lerr := c.loader(ctx, key)
+		if lerr != nil {
+			return nil, lerr
+		}
+		return cloneBytes(loaded), nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	val = v.([]byte)
+	loaded := v.([]byte)
 
 	// Best-effort backfill; see method doc.
-	_ = c.backend.Set(ctx, key, val, c.cfg.ttl)
-	return val, nil
+	_ = c.backend.Set(ctx, key, loaded, c.cfg.ttl)
+
+	// Hand the caller its own copy so it cannot mutate what the backend (or
+	// any other merged caller) holds.
+	return cloneBytes(loaded), nil
+}
+
+// cloneBytes returns an independent copy of b; nil stays nil (so a negative
+// cache entry loaded as nil is not turned into a non-nil empty slice).
+func cloneBytes(b []byte) []byte {
+	if b == nil {
+		return nil
+	}
+	cp := make([]byte, len(b))
+	copy(cp, b)
+	return cp
 }
 
 // GetMulti implements [cache.Cache]: each key goes through Get, so misses

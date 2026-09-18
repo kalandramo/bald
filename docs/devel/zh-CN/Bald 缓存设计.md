@@ -99,7 +99,7 @@ type Cache interface {
 
 `cache/local` 基于 freecache：预分配环形缓冲带来零 GC 开销，segment 级锁支撑高并发，容量耗尽时 LRU 淘汰。`WithSize` 控制预分配大小（默认 256MB），`WithDefaultTTL` 兜底 `Set(ttl=0)` 的语义。另暴露 `HitCount`/`MissCount`/`EvacuateCount` 等指标方法，供业务接指标系统。
 
-`cache/redis` 适配 go-redis v9：`MGET` 单次网络往返实现 `GetMulti`，`Pipeline` 批量实现 `SetMulti`；`WithKeyPrefix` 做命名空间隔离。契约装配支持三种部署模式（互斥，fail-fast）：`redis.cluster` 段 → `NewClusterClient`（种子节点自动发现，不支持 db）、`redis.sentinel` 段 → `NewFailoverClient`（经哨兵发现主节点）、均缺 → 单节点 `NewClient`；cluster 模式下 MGET/Pipeline 由 go-redis 按 slot 拆分组执行，「单次往返」退化为按 slot 分组的若干次。两个边界要如实说明。其一，`New(client)` 注入 client，`Close()` **不关闭**底层 client——连接池、TLS、生命周期归调用方管理。其二，local 的 `SetNX` 是进程内 check-then-set，两次调用之间存在极小竞态窗口，**严格互斥场景必须用 redis 后端**（原生 `SET NX` 原子命令）。
+`cache/redis` 适配 go-redis v9：`MGET` 单次网络往返实现 `GetMulti`，`Pipeline` 批量实现 `SetMulti`；`WithKeyPrefix` 做命名空间隔离。契约装配支持三种部署模式（互斥，fail-fast）：`redis.cluster` 段 → `NewClusterClient`（种子节点自动发现，不支持 db）、`redis.sentinel` 段 → `NewFailoverClient`（经哨兵发现主节点）、均缺 → 单节点 `NewClient`；cluster 模式下 MGET/Pipeline 由 go-redis 按 slot 拆分组执行，「单次往返」退化为按 slot 分组的若干次。两个边界要如实说明。其一，`New(client)` 注入 client，`Close()` **不关闭**底层 client——连接池、TLS、生命周期归调用方管理。其二，local 的 `SetNX` 是进程内 check-then-set，两次调用之间存在竞态窗口——**严格互斥场景必须用 redis 后端**（原生 `SET NX` 原子命令）。这个窗口不是理论的：2026-09-18 探针实测 200 goroutine 并发 `SetNX` 同一 key，5 轮中 1 轮出现 **4 个 goroutine 同时返回 true**（正确实现应恒为 1）。
 
 ### 组合层：loadable 用 singleflight 合并并发回源（cache/loadable/loadable.go）
 
@@ -187,7 +187,19 @@ loadable **不进 CacheRegistry**。Registry 装配的是后端实例（配置�
 - [x] 组合层 loadable：`New` + singleflight 回源合并 + best-effort 回填 + 透传族。
 - [ ] L2 两级缓存（须带失效广播）、typed 泛型便利层——按真实需求排期，见不做清单。
 
-验证：`cache`、`cache/local`、`cache/redis`、`cache/loadable` 各 module 随 bald CI（build + vet + test -short）全绿；loadable 14 例单测 `-race` 通过，核心并发合并保证经「50 goroutine 同 key → loader 计数=1」与「4 key × 25 并发 → 计数=4」双用例验证，另含命中不回源 / 失败透传不回填 / 回填失败仍返回值 / `WithTTL` 回填 TTL / GetMulti 混合命中 / 透传族全量语义覆盖。
+验证：`cache`、`cache/local`、`cache/redis`、`cache/loadable` 各 module 随 bald CI（build + vet + test -short）全绿；loadable 16 例单测（2026-09-18 评审补 2 例切片隔离回归），核心并发合并保证经「50 goroutine 同 key → loader 计数=1」与「4 key × 25 并发 → 计数=4」双用例验证，另含命中不回源 / 失败透传不回填 / 回填失败仍返回值 / `WithTTL` 回填 TTL / GetMulti 混合命中 / 透传族全量语义覆盖。原文称单测 `-race` 通过——该声称需 cgo（`-race requires cgo`），在无 gcc 的环境无法复现，本环境的验证以非 race 全绿为准。
+
+### 2026-09-18 评审修复（切片别名）
+
+一次架构评审（天权）用探针实测发现一处数据完整性缺陷：`loadable.Get` 把 loader 返回的 `[]byte` 三处复用——返回给调用方、回填进 backend、经 singleflight 交给所有合并的 caller。后果三条：
+
+1. 调用方改返回值污染缓存（探针：`v[0]='X'` 后 backend 里的值也变）；
+2. 20 个并发合并的 caller 共享同一底层数组（数据竞争，一个改全体看到脏数据）；
+3. 同一 `Get` API 两条路径别名语义相反——命中路径 backend 通常返回拷贝，miss 路径返回共享切片。
+
+**修复**：loader 结果在 singleflight flight 内即 `cloneBytes`，回填与返回各用独立拷贝（`nil` 保持 `nil`，不把负缓存条目变成非空切片）。补 2 例回归测试（`TestGet_ReturnedSliceDoesNotAliasCache`、`TestGet_MergedCallersDoNotShareSlice`），回滚修复后两者复红。
+
+**同时披露的现状**：`cache` 系四个 module 当前**全仓零外部消费者**（`_example`/下游仓均未接入，Taskfile 未登记）——与 `retry`/`ratelimit`/`broker`/`circuitbreaker` 同处「已落地、未接入」状态。文档此前未明说，此处补齐。
 
 ---
 

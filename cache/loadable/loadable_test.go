@@ -499,3 +499,70 @@ func TestClose_PassesThroughToBackend(t *testing.T) {
 		t.Errorf("backend Close() called %d times, want 1", n)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// 裂缝1 回归：Get 返回的切片必须独立于缓存与其它 caller。
+//
+// loadable.Get 曾把 loader 返回的同一 []byte 三处复用——返回给调用方、
+// 回填进 backend、经 singleflight 交给所有合并的 caller。后果：调用方改
+// 返回值污染缓存；并发 caller 共享同一底层数组（数据竞争）；且与命中路径
+// （backend 通常返回拷贝）别名语义相反。
+// ---------------------------------------------------------------------------
+
+// 改返回值不得污染缓存。
+func TestGet_ReturnedSliceDoesNotAliasCache(t *testing.T) {
+	backend := newMemCache()
+	c := New(backend, func(context.Context, string) ([]byte, error) {
+		return []byte("fromDB"), nil
+	})
+	defer c.Close()
+
+	v, err := c.Get(context.Background(), "k")
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	v[0] = 'X' // 调用方改返回值
+
+	again, err := c.Get(context.Background(), "k")
+	if err != nil {
+		t.Fatalf("second Get() error = %v", err)
+	}
+	if string(again) != "fromDB" {
+		t.Errorf("改返回值污染了缓存：second Get() = %q, want %q", again, "fromDB")
+	}
+}
+
+// 并发合并的 caller 之间不得共享同一底层数组。
+func TestGet_MergedCallersDoNotShareSlice(t *testing.T) {
+	backend := newMemCache()
+	c := New(backend, func(context.Context, string) ([]byte, error) {
+		time.Sleep(20 * time.Millisecond) // 制造 singleflight 合并窗口
+		return []byte("shared"), nil
+	})
+	defer c.Close()
+
+	const n = 16
+	results := make([][]byte, n)
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			v, _ := c.Get(context.Background(), "k")
+			results[i] = v
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+
+	for i := 1; i < n; i++ {
+		if len(results[i]) == 0 || len(results[0]) == 0 {
+			t.Fatalf("result %d empty", i)
+		}
+		if &results[i][0] == &results[0][0] {
+			t.Errorf("合并的 caller %d 与 caller 0 共享同一底层数组", i)
+		}
+	}
+}
