@@ -374,18 +374,27 @@ cd ratelimit/sentinel && go vet ./... && go build ./...             # 0 个测�
 
 **三个 `WithClock` 的语义差异（刻意，已入注释）**：`tokenbucket`/`bbr` 的时钟决定**状态演进**（令牌补充、桶旋转），而 `retry.WithClock` 只影响 `maxTotalWait` 的 elapsed 计算（睡眠仍走真实计时器）。三者齐备但不等价。
 
-### 没修的两件事，都不是本轮范围
+### 已修的两件事（本节 2026-09-18 复核更新）
 
-`tokenbucket_test.go:201` 的 `testConcurrentAllow` 是小写函数、**没有任何调用点**——一个写了一半没接上的并发测试。且它自身有数据竞争：200 个 goroutine 无同步地 `allowed++`/`rejected++`（`tokenbucket_test.go:217-221`），内联注释「race-safe increment not needed」不成立，丢失更新会让 `allowed+rejected != 200`。处置：删掉；要保留就先改成 `atomic.Int64` 计数再接 `t.Run`，否则 `-race` 下必红。
+> **状态更正**：本节此前记为「没修的两件事」，其中一件已落地——`tokenbucket_test.go`
+> 的 `testConcurrentAllow` 死函数**已删除**（含其孤儿注释头，见上文修复表）。
+> 以下保留原始记录以便追溯，实际状态以本框为准。
 
-`tokenbucket` 的 `notify` 死字段与 `ErrLimited` 语义混用照旧，理由见「兼容性」第 3、4 条。
+`tokenbucket_test.go:201` 的 `testConcurrentAllow` 是小写函数、**没有任何调用点**——一个写了一半没接上的并发测试。且它自身有数据竞争：200 个 goroutine 无同步地 `allowed++`/`rejected++`（`tokenbucket_test.go:217-221`），内联注释「race-safe increment not needed」不成立，丢失更新会让 `allowed+rejected != 200`。处置：删掉；要保留就先改成 `atomic.Int64` 计数再接 `t.Run`，否则 `-race` 下必红。**→ 已按「删掉」处置。**
 
-### 登记工作一件没做
+`tokenbucket` 的 `notify` 死字段**仍未修**（2026-09-18 复核：`tokenbucket.go:66/78/121`
+三处仍在，全仓无发送点）与 `ErrLimited` 语义混用照旧，理由见「兼容性」第 3、4 条。
+
+### 登记工作已补（本节 2026-09-18 复核更新）
+
+> **状态更正**：本节此前记为「登记工作一件没做」，实际已补完——`Taskfile.yml:226`
+> 定义了 `ratelimit-verify` 并挂进根 `verify` 的 deps；根 `README.md:28` 已登记
+> ratelimit 模块树。以下保留原始记录以便追溯。
 
 对照姊妹模块 `retry` 的同类缺口，`ratelimit` 这边更彻底：
 
-1. **`Taskfile.yml` 里零处 `ratelimit`**。根 `verify`（`Taskfile.yml:174`）的 deps 是 `[build, test, example-build, example-vet, cobramcp-verify]`，只显式覆盖了 `cobramcp` 特例。嵌套 module 不在根 `go build ./...` 范围内，所以本地 `task verify` **完全跑不到 `ratelimit/` 的任何一个 module**。需要补 `ratelimit-{build,vet,test}` 并挂进 `verify` 的 deps——注意 Task 3.52 的坑：跨目录只能用任务级 `dir:`，逐命令 `dir` 与 `for` 循环内的 `dir` 都会被静默忽略。
-2. **根 `README.md` 零处 `ratelimit`**，架构树没登记这四个 module。
+1. **`Taskfile.yml` 里零处 `ratelimit`**。根 `verify` 的 deps 只显式覆盖了 `cobramcp` 特例。嵌套 module 不在根 `go build ./...` 范围内，所以本地 `task verify` **完全跑不到 `ratelimit/` 的任何一个 module**。需要补 `ratelimit-{build,vet,test}` 并挂进 `verify` 的 deps——注意 Task 3.52 的坑：跨目录只能用任务级 `dir:`，逐命令 `dir` 与 `for` 循环内的 `dir` 都会被静默忽略。**→ 已补（`ratelimit-verify` + `ratelimit-module-verify`）。**
+2. **根 `README.md` 零处 `ratelimit`**，架构树没登记这四个 module。**→ 已登记。**
 3. **`docs/devel/zh-CN/README.md` 已收录本文**（2026-09-17 随本文补入索引）。
 
 **CI 不需要改**：`.github/workflows/ci.yml:54` 用 `find . -name go.mod -not -path "./_example*"` 自动发现全部 module，`ratelimit/` 下的四个 module 已被自动纳入 build + vet + `test -short`。

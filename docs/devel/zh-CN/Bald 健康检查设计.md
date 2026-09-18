@@ -6,7 +6,7 @@
 >
 > Last updated: 2026-09-15
 >
-> Status: Accepted（对应实现 `health` module；tag `health/v0.1.0` 已发，探针装配与就绪归属见《Bald 健康检查装配设计》）
+> Status: Accepted（对应实现 `health` module；tag 已发且消费方引 `health/v0.1.1`，探针装配与就绪归属见《Bald 健康检查装配设计》）
 
 ## 摘要
 
@@ -28,7 +28,7 @@ health 是 bald 的健康检查 module：一个接口、三态状态机、两层
 
 ### 移植背景
 
-本 module 是独立 module，`github.com/kalandramo/bald/health`：tag `health/v0.1.0` 已发；
+本 module 是独立 module，`github.com/kalandramo/bald/health`：tag 已发（消费方引 `health/v0.1.1`）；
 2026-09-17 起由 `bootstrap`/`appkit` 依赖做探针与就绪装配（协议层已退出健康检查域），
 见《Bald 健康检查装配设计》。
 
@@ -173,14 +173,18 @@ module 绑上 grpc；gin 专属 handler——省一个适配，绑定框架。
 
 ## 兼容性
 
-独立 module、无消费者，纯增量，无破坏性变更。测试 24 例全绿（状态/三态
+独立 module。**消费者状态（2026-09-18 核实）**：已不再是「无消费者」——根 module、
+`bootstrap`、`_example`、`_example/bald` 四个 go.mod 均 require `health v0.1.1`。
+新增消费者不构成破坏性变更（纯增量），但「无消费者、纯增量」的表述已过时。
+测试 24 例全绿（状态/三态
 适配/注册表/聚合/超时/组合子/双 handler/TCP/HTTP/并发安全）。
 
 已知代价与遗留（诚实列出）：
 
-- `httpClient()` 导出函数名是「未来可注入自定义客户端」的预留，但当前
-  无注入 API——HTTPChecker 只能用默认 5s 客户端（自身 timeout 字段已可
-  覆盖单请求超时）。
+- `httpClient()` 是**未导出**函数（`health/http_helper.go:16`，首字母小写），
+  与文件内注释「函数名导出以便未来可注入自定义客户端」不符——注释描述的意图
+  尚未落地。当前无注入 API，HTTPChecker 只能用默认 5s 客户端（自身 timeout
+  字段已可覆盖单请求超时）。**文档与注释均高估了该函数的可见性。**
 - `Check` 聚合时把检查器 `Details` 展平合并进同一 map——检查器 Details
   若含 `status`/`message` 键会覆盖结构化字段（同名冲突）。当前无内置检
   查器产出这两个键，属约定内边界。
@@ -208,9 +212,9 @@ h.Register("db", health.TCP(cfg.DB.Addr, 2*time.Second))
 srv.GET("/readyz", health.NewHandler(h).ServeHTTP)
 ```
 
-**尚未做**：发 tag、根模块 require、`bootstrapv1` 契约段与 Registry 装配
-（若未来要配置化接入，按六域归位判别规则——「契约段 → 实例」构造期归
-bootstrap——新增 health Registry 即可，本包无需改动）。
+**已完成（2026-09-18 核实）**：发 tag（当前消费方引 `health/v0.1.1`）、根模块
+require、`bootstrapv1` 契约段与 Registry 装配均已完成——见《Bald 健康检查装配
+设计》。本节此前记的「尚未做」已全部落地。
 
 ## 附录：FAQ
 
