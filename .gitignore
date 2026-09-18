@@ -26,3 +26,13 @@ _example/bald/*.db
 # 但 skills/_drafts 是会话自动草稿，knowledge 下的 sqlite 是索引缓存，不入库。
 .rivet/skills/_drafts/
 .rivet/knowledge/memory-index.sqlite
+
+# cobramcp examples 的构建产物。
+# `go build ./...` 会在每个 main 包目录内留下与目录同名的二进制；
+# examples/make 的 build 目标输出到 ../../bin/（已由上面的 bin/ 规则覆盖），
+# 但直接 go build ./... 仍会在包目录内落盘。逐条精确忽略，避免误伤同目录的
+# makefile / 源码等同名文件。
+/cobramcp/examples/make/make
+/cobramcp/examples/make/mcpserver/mcpserver
+/cobramcp/examples/positional-args/positional-args
+/cobramcp/examples/positional-args-mcp-server/positional-args-mcp-server

@@ -54,7 +54,9 @@ import (
 //	{ "error": "..." }
 func (c *Config) serveREST(cmd *cobra.Command, addr, baseURL string) error {
 	// Initialise slogger, walk the command tree, populate c.tools / c.toolMetas.
-	c.registerTools(cmd)
+	if err := c.registerTools(cmd); err != nil {
+		return err
+	}
 
 	mux := http.NewServeMux()
 

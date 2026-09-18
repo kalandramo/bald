@@ -39,7 +39,9 @@ func toolCommand(config *Config) *cobra.Command {
 
 			encoder := json.NewEncoder(file)
 			encoder.SetIndent("", "  ")
-			config.registerTools(cmd)
+			if err := config.registerTools(cmd); err != nil {
+				return err
+			}
 			err = encoder.Encode(config.tools)
 			if err != nil {
 				return fmt.Errorf("failed to encode MCP tools to JSON: %w", err)

@@ -170,7 +170,9 @@ func NewMCPServer(opts MCPOptions, cmdFactory func() *cobra.Command, serverOpts 
 	// Register all commands from the reference tree as MCP tools.
 	// Only schema metadata (tool names, descriptions, flag specs) is read here;
 	// the reference tree is never executed.
-	srv.registerToolsRecursive(schemaCmd)
+	if err := srv.registerToolsRecursive(schemaCmd); err != nil {
+		return nil, err
+	}
 
 	return srv, nil
 }
@@ -232,15 +234,18 @@ func (s *MCPServer) Endpoint() string {
 
 // registerToolsRecursive walks the command tree rooted at cmd and registers
 // every eligible command as an MCP tool on the underlying transport server.
-func (s *MCPServer) registerToolsRecursive(cmd *cobra.Command) {
+// It returns an error if any command cannot be represented as an MCP tool.
+func (s *MCPServer) registerToolsRecursive(cmd *cobra.Command) error {
 	// Recurse into sub-commands first so the tool list is ordered leaf-first.
 	for _, sub := range cmd.Commands() {
-		s.registerToolsRecursive(sub)
+		if err := s.registerToolsRecursive(sub); err != nil {
+			return err
+		}
 	}
 
 	// Apply built-in safety filters.
 	if s.cmdFilter(cmd) {
-		return
+		return nil
 	}
 
 	// Build the cobra sub-command path for this command: the full CommandPath()
@@ -263,7 +268,10 @@ func (s *MCPServer) registerToolsRecursive(cmd *cobra.Command) {
 
 		// Create the MCP tool definition (flat schema, name, description) and
 		// the per-tool metadata (flag names + arg specs).
-		tool, meta := sel.createToolFromCmd(cmd, toolNamePrefix)
+		tool, meta, err := sel.createToolFromCmd(cmd, toolNamePrefix)
+		if err != nil {
+			return err
+		}
 
 		// Store the metadata keyed by tool name for use at call time.
 		s.toolMetas[tool.Name] = meta
@@ -296,6 +304,8 @@ func (s *MCPServer) registerToolsRecursive(cmd *cobra.Command) {
 		// Only the first matching selector is used.
 		break
 	}
+
+	return nil
 }
 
 // cmdFilter returns true when cmd should be excluded from tool registration.

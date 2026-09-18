@@ -93,7 +93,13 @@ type toolMeta struct {
 // object — there are no nested "flags" or "args" sub-objects.
 // The returned toolMeta carries the flag name set and arg spec slice needed at
 // execution time to reconstruct the cobra command arguments from the flat input.
-func (s Selector) buildFlatSchema(cmd *cobra.Command) (*jsonschema.Schema, toolMeta) {
+//
+// It returns an error when a positional argument's normalised name collides with
+// a flag name: the flat schema would then have two sources writing the same
+// property, and the execution-time splitter would consume one input value as
+// both a flag and a positional argument. Such a command cannot be represented
+// faithfully as an MCP tool, so registration is refused rather than degraded.
+func (s Selector) buildFlatSchema(cmd *cobra.Command) (*jsonschema.Schema, toolMeta, error) {
 	schema := &jsonschema.Schema{
 		Type:       "object",
 		Properties: make(map[string]*jsonschema.Schema),
@@ -142,6 +148,16 @@ func (s Selector) buildFlatSchema(cmd *cobra.Command) (*jsonschema.Schema, toolM
 	specs := parseArgSpecs(cmd)
 	meta.argSpecs = specs
 	for _, spec := range specs {
+		// Refuse commands whose positional argument shares a name with a flag:
+		// the flat schema would carry two writers for one property and the
+		// execution-time splitter would consume the same input value twice.
+		if _, isFlag := meta.flagNames[spec.Name]; isFlag {
+			return nil, toolMeta{}, fmt.Errorf(
+				"cobramcp: command %q: positional argument %q collides with a flag of the same name; "+
+					"rename either the argument in cmd.Use or the flag so the flat MCP schema stays unambiguous",
+				cmd.CommandPath(), spec.Name)
+		}
+
 		var propSchema *jsonschema.Schema
 		if spec.Variadic {
 			propSchema = &jsonschema.Schema{
@@ -164,7 +180,7 @@ func (s Selector) buildFlatSchema(cmd *cobra.Command) (*jsonschema.Schema, toolM
 	// Disallow unexpected extra fields.
 	schema.AdditionalProperties = &jsonschema.Schema{Not: &jsonschema.Schema{}}
 
-	return schema, meta
+	return schema, meta, nil
 }
 
 // createToolFromCmd creates an MCP tool from a Cobra command.
@@ -175,8 +191,15 @@ func (s Selector) buildFlatSchema(cmd *cobra.Command) (*jsonschema.Schema, toolM
 //
 // The returned toolMeta carries the information needed at execution time to
 // reconstruct the CLI command from the flat MCP input.
-func (s Selector) createToolFromCmd(cmd *cobra.Command, toolNamePrefix string) (*mcp.Tool, toolMeta) {
-	schema, meta := s.buildFlatSchema(cmd)
+//
+// It returns an error when the command cannot be represented faithfully as a
+// flat MCP tool (see buildFlatSchema), so the caller can refuse registration
+// instead of silently exposing a broken tool.
+func (s Selector) createToolFromCmd(cmd *cobra.Command, toolNamePrefix string) (*mcp.Tool, toolMeta, error) {
+	schema, meta, err := s.buildFlatSchema(cmd)
+	if err != nil {
+		return nil, toolMeta{}, err
+	}
 
 	// Serialize the jsonschema.Schema to json.RawMessage for use with mark3labs/mcp-go.
 	rawSchema, err := json.Marshal(schema)
@@ -196,7 +219,7 @@ func (s Selector) createToolFromCmd(cmd *cobra.Command, toolNamePrefix string) (
 		tool.Annotations = *ann
 	}
 
-	return tool, meta
+	return tool, meta, nil
 }
 
 // toolName creates a tool name from the command path.

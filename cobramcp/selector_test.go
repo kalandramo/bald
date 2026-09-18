@@ -132,7 +132,8 @@ func TestCreateToolFromCmd(t *testing.T) {
 
 	t.Run("Default Selector", func(t *testing.T) {
 		// Create tool from command with a selector that accepts all flags.
-		tool, meta := Selector{}.createToolFromCmd(cmd, "parent")
+		tool, meta, err := Selector{}.createToolFromCmd(cmd, "parent")
+		require.NoError(t, err, "createToolFromCmd must succeed")
 
 		// Verify tool properties
 		assert.Equal(t, "parent_test", tool.Name)
@@ -261,7 +262,8 @@ func TestCreateToolFromCmd(t *testing.T) {
 		}
 
 		// Create tool from command with the restricted selector
-		tool, _ := selector.createToolFromCmd(cmd, "parent")
+		tool, _, err := selector.createToolFromCmd(cmd, "parent")
+		require.NoError(t, err, "createToolFromCmd must succeed")
 
 		// Verify tool properties
 		assert.Equal(t, "parent_test", tool.Name)
@@ -307,7 +309,8 @@ func TestCreateToolFromCmd(t *testing.T) {
 			Short: "No positional args",
 			Run:   func(_ *cobra.Command, _ []string) {},
 		}
-		tool, _ := Selector{}.createToolFromCmd(noArgCmd, "root")
+		tool, _, err := Selector{}.createToolFromCmd(noArgCmd, "root")
+		require.NoError(t, err, "createToolFromCmd must succeed")
 		schema := parseRawInputSchema(t, tool.RawInputSchema)
 		assert.NotContains(t, schema.Properties, "args",
 			"Should not have args property when cmd.Use has no named arg tokens")
@@ -321,7 +324,8 @@ func TestCreateToolFromCmd(t *testing.T) {
 			Short: "Create something",
 			Run:   func(_ *cobra.Command, _ []string) {},
 		}
-		tool, _ := Selector{}.createToolFromCmd(reqArgCmd, "root")
+		tool, _, err := Selector{}.createToolFromCmd(reqArgCmd, "root")
+		require.NoError(t, err, "createToolFromCmd must succeed")
 		schema := parseRawInputSchema(t, tool.RawInputSchema)
 		// In flat schema the positional arg is a direct top-level property.
 		require.Contains(t, schema.Properties, "name")
@@ -335,7 +339,8 @@ func TestCreateToolFromCmd(t *testing.T) {
 			Short: "Run targets",
 			Run:   func(_ *cobra.Command, _ []string) {},
 		}
-		tool, _ := Selector{}.createToolFromCmd(varArgCmd, "root")
+		tool, _, err := Selector{}.createToolFromCmd(varArgCmd, "root")
+		require.NoError(t, err, "createToolFromCmd must succeed")
 		schema := parseRawInputSchema(t, tool.RawInputSchema)
 		// In flat schema the positional arg is a direct top-level property.
 		require.Contains(t, schema.Properties, "targets")
@@ -354,7 +359,8 @@ func TestCreateToolFromCmd(t *testing.T) {
 				AnnotationArgPrefix + "1": "Brief title describing the incident",
 			},
 		}
-		tool, _ := Selector{}.createToolFromCmd(annotCmd, "root")
+		tool, _, err := Selector{}.createToolFromCmd(annotCmd, "root")
+		require.NoError(t, err, "createToolFromCmd must succeed")
 		schema := parseRawInputSchema(t, tool.RawInputSchema)
 		// Both positional args appear as flat top-level properties.
 		require.Contains(t, schema.Properties, "module")

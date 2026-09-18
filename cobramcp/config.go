@@ -86,7 +86,10 @@ func (c *Config) commandName() string {
 
 // serveStdio 以 stdio 传输暴露 CLI 命令，直到客户端断开或 ctx 取消。
 func (c *Config) serveStdio(cmd *cobra.Command) error {
-	srv := c.newTransportServer(cmd, mcptransport.ServerTypeStdio, "")
+	srv, err := c.newTransportServer(cmd, mcptransport.ServerTypeStdio, "")
+	if err != nil {
+		return err
+	}
 
 	if err := srv.Start(cmd.Context()); err != nil {
 		return err
@@ -106,7 +109,10 @@ func (c *Config) serveStdio(cmd *cobra.Command) error {
 
 // serveHTTP 以 SSE 传输暴露 CLI 命令，直到 ctx 取消。
 func (c *Config) serveHTTP(cmd *cobra.Command, addr string) error {
-	srv := c.newTransportServer(cmd, mcptransport.ServerTypeSSE, addr)
+	srv, err := c.newTransportServer(cmd, mcptransport.ServerTypeSSE, addr)
+	if err != nil {
+		return err
+	}
 
 	if err := srv.Start(cmd.Context()); err != nil {
 		return err
@@ -125,9 +131,12 @@ func (c *Config) serveHTTP(cmd *cobra.Command, addr string) error {
 
 // newTransportServer 发现命令树并构造 bald/transport/mcp 服务端：
 // 协议、监听与停机都交给 transport 层，本包只负责把 Cobra 命令注册成工具。
-func (c *Config) newTransportServer(cmd *cobra.Command, serverType mcptransport.ServerType, addr string) *mcptransport.Server {
+// 命令树中若存在无法表示为 MCP 工具的命令，返回错误而不启动服务端。
+func (c *Config) newTransportServer(cmd *cobra.Command, serverType mcptransport.ServerType, addr string) (*mcptransport.Server, error) {
 	// 工具发现：填充 c.tools / c.toolMetas / c.toolSelectors。
-	c.registerTools(cmd)
+	if err := c.registerTools(cmd); err != nil {
+		return nil, err
+	}
 
 	rootCmd := cmd
 	for rootCmd.Parent() != nil {
@@ -161,7 +170,7 @@ func (c *Config) newTransportServer(cmd *cobra.Command, serverType mcptransport.
 		}
 	}
 
-	return srv
+	return srv, nil
 }
 
 // executeTool 用工具注册期命中的 selector 执行一次工具调用
@@ -177,7 +186,8 @@ func (c *Config) executeTool(ctx context.Context, req mcp.CallToolRequest, input
 
 // registerTools 从命令树中发现工具，填充 c.tools / c.toolMetas / c.toolSelectors。
 // 它不再创建 MCP 服务端——服务端由 newTransportServer 按每次 serve 调用的传输类型构造。
-func (c *Config) registerTools(cmd *cobra.Command) {
+// 命令树中存在无法表示为 MCP 工具的命令（如位置参数与 flag 同名）时返回错误。
+func (c *Config) registerTools(cmd *cobra.Command) error {
 	// get root cmd
 	rootCmd := cmd
 	for rootCmd.Parent() != nil {
@@ -202,19 +212,22 @@ func (c *Config) registerTools(cmd *cobra.Command) {
 	}
 
 	// register tools
-	c.registerToolsRecursive(rootCmd)
+	return c.registerToolsRecursive(rootCmd)
 }
 
-// registerToolsRecursive explores a cmd tree, making tools recursively out of the provided cmd and its children
-func (c *Config) registerToolsRecursive(cmd *cobra.Command) {
+// registerToolsRecursive explores a cmd tree, making tools recursively out of the provided cmd and its children.
+// It returns an error if any command in the tree cannot be represented as an MCP tool.
+func (c *Config) registerToolsRecursive(cmd *cobra.Command) error {
 	// register all subcommands
 	for _, subCmd := range cmd.Commands() {
-		c.registerToolsRecursive(subCmd)
+		if err := c.registerToolsRecursive(subCmd); err != nil {
+			return err
+		}
 	}
 
 	// apply basic filters
 	if c.cmdFilter(cmd) {
-		return
+		return nil
 	}
 
 	// cycle through selectors until one matches the cmd
@@ -224,7 +237,10 @@ func (c *Config) registerToolsRecursive(cmd *cobra.Command) {
 		}
 
 		// create tool from cmd — returns flat schema and per-tool metadata
-		tool, meta := s.createToolFromCmd(cmd, c.toolNamePrefix)
+		tool, meta, err := s.createToolFromCmd(cmd, c.toolNamePrefix)
+		if err != nil {
+			return err
+		}
 		baldlog.Debug(nil, "created tool", "tool_name", tool.Name, "selector_index", i)
 
 		// add tool to manager's tool list (for `tools` command)
@@ -237,6 +253,8 @@ func (c *Config) registerToolsRecursive(cmd *cobra.Command) {
 		// only the first matching selector is used
 		break
 	}
+
+	return nil
 }
 
 // cmdFilter returns true if cmd should be filtered out.
