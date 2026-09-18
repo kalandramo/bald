@@ -79,7 +79,7 @@ docker run -itd --name redis \
 | 选项 | 类型 | 说明 |
 |------|------|------|
 | `WithAddress(addr)` | string | Redis 服务器地址 |
-| `WithCodec(c)` | string | 编解码器名称（默认 json） |
+| `WithCodec(c)` | string | 编解码器名称（默认 json，须先用 `encoding.MustRegister(json.New())` 注册；未注册则 fail-fast，不再静默回落 gob） |
 | `WithDriverType(t)` | redis.DriverType | 驱动类型（PubSub / Stream） |
 | `WithConnectTimeout(d)` | time.Duration | 连接超时时间 |
 | `WithReadTimeout(d)` | time.Duration | 读取超时时间 |

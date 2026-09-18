@@ -90,7 +90,7 @@ docker run -itd --name kafka-standalone \
 | 选项 | 类型 | 说明 |
 |------|------|------|
 | `WithAddress(addrs)` | []string | Kafka Broker 地址列表 |
-| `WithCodec(c)` | string | 编解码器名称（默认 json） |
+| `WithCodec(c)` | string | 编解码器名称（默认 json，须先用 `encoding.MustRegister(json.New())` 注册；未注册则 fail-fast，不再静默回落 gob） |
 | `WithTLSConfig(c)` | *tls.Config | TLS 配置 |
 | `WithPlainMechanism(user, pass)` | string, string | PLAIN 认证 |
 | `WithScramMechanism(algo, user, pass)` | string, string, string | SCRAM 认证 |

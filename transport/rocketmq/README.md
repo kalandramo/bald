@@ -95,7 +95,7 @@ docker run -d --name rmqconsole -p 9800:8080 --link rmqnamesrv \
 |------|------|------|
 | `WithNameServer(addrs)` | []string | NameServer 地址列表 |
 | `WithNameServerDomain(uri)` | string | NameServer Domain |
-| `WithCodec(c)` | string | 编解码器名称（默认 json） |
+| `WithCodec(c)` | string | 编解码器名称（默认 json，须先用 `encoding.MustRegister(json.New())` 注册；未注册则 fail-fast，不再静默回落 gob） |
 | `WithCredentials(ak, sk, token)` | string, string, string | ACL 认证凭据 |
 | `WithNamespace(ns)` | string | 命名空间 |
 | `WithInstanceName(name)` | string | 实例名称 |

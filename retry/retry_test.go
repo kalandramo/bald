@@ -487,3 +487,35 @@ func TestWithClock_DeterministicTimeout(t *testing.T) {
 		t.Errorf("elapsed = %v, want no real waiting", elapsed)
 	}
 }
+
+// ExponentialBackoff 的零值安全：省略 Initial（零值）不得塌缩成全零间隔热重试。
+// 与 Factor 的归一化对称——「零基数的指数曲线」在数学上恒为 0，不是有效策略。
+func TestExponentialBackoff_ZeroInitialDefaults(t *testing.T) {
+	b := ExponentialBackoff{Max: time.Hour} // Initial / Factor 均省略
+	d0, d1, d2 := b.Delay(0), b.Delay(1), b.Delay(2)
+	if d0 <= 0 {
+		t.Fatalf("Delay(0) = %v, want > 0 (zero Initial must not produce a busy retry loop)", d0)
+	}
+	if d1 <= d0 || d2 <= d1 {
+		t.Fatalf("delays should grow: d0=%v d1=%v d2=%v", d0, d1, d2)
+	}
+}
+
+// 负 Initial 同样归一（与 Factor 的 <= 0 口径一致）。
+func TestExponentialBackoff_NegativeInitialDefaults(t *testing.T) {
+	if got := (ExponentialBackoff{Initial: -time.Second, Factor: 2, Max: time.Hour}).Delay(0); got <= 0 {
+		t.Fatalf("Delay(0) with negative Initial = %v, want > 0", got)
+	}
+}
+
+// LinearBackoff 刻意**不**归一 Initial：Initial=0 + Step>0 是合法曲线
+// （首次重试立即、随后线性增长），归一化会破坏它。
+func TestLinearBackoff_ZeroInitialIsValid(t *testing.T) {
+	b := LinearBackoff{Step: 100 * time.Millisecond, Max: time.Hour}
+	if got := b.Delay(0); got != 0 {
+		t.Fatalf("LinearBackoff.Delay(0) with Initial=0 = %v, want 0 (valid: immediate first retry)", got)
+	}
+	if got := b.Delay(1); got != 100*time.Millisecond {
+		t.Fatalf("LinearBackoff.Delay(1) = %v, want 100ms", got)
+	}
+}

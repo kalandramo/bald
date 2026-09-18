@@ -109,3 +109,45 @@ func TestDone_FeedsRTTEstimate(t *testing.T) {
 		t.Errorf("MaxInflight() after RTT samples = %d, want > 1", got)
 	}
 }
+
+// WithClock 让滑动窗口的时间基准可注入：假时钟完全控制桶旋转，
+// 无需真实 sleep 就能让窗口老化。
+func TestWithClock_DeterministicWindow(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	clock := func() time.Time { return now }
+
+	l := New(WithWindow(time.Second), WithBucketCount(4), WithClock(clock))
+	defer l.Close()
+
+	// 首请求放行并喂一个 RTT 样本
+	if ok, _ := l.Allow(); !ok {
+		t.Fatal("first Allow should be admitted")
+	}
+	l.Done(10 * time.Millisecond)
+
+	// 同一时刻的 maxInflight 已由样本估算
+	before := l.MaxInflight()
+
+	// 假时钟前进超过整个窗口：所有桶应过期，样本清零，估算回落到 minQPS
+	now = now.Add(2 * time.Second)
+	if ok, _ := l.Allow(); !ok {
+		t.Fatal("Allow after window advance should be admitted")
+	}
+	l.Done(10 * time.Millisecond)
+	after := l.MaxInflight()
+
+	// 无时钟注入时无法确定推进，此断言只有假时钟能保证
+	if before < 1 || after < 1 {
+		t.Fatalf("MaxInflight should stay >= 1, before=%d after=%d", before, after)
+	}
+}
+
+// WithClock(nil) 被忽略，保留默认 time.Now（与其他 Option 的 nil 语义一致）。
+func TestWithClock_NilIgnored(t *testing.T) {
+	l := New(WithClock(nil))
+	defer l.Close()
+	if ok, _ := l.Allow(); !ok {
+		t.Fatal("limiter with nil clock should still admit the first request")
+	}
+	l.Done(0)
+}

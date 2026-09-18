@@ -80,7 +80,7 @@ docker run -itd --name rabbitmq \
 | 选项 | 类型 | 说明 |
 |------|------|------|
 | `WithAddress(addrs)` | []string | RabbitMQ 地址列表 |
-| `WithCodec(c)` | string | 编解码器名称（默认 json） |
+| `WithCodec(c)` | string | 编解码器名称（默认 json，须先用 `encoding.MustRegister(json.New())` 注册；未注册则 fail-fast，不再静默回落 gob） |
 | `WithTLSConfig(c)` | *tls.Config | TLS 配置 |
 | `WithExchange(name, durable)` | string, bool | Exchange 名称和持久化 |
 | `WithBrokerOptions(opts)` | ...broker.Option | 直接传递 broker 选项 |
