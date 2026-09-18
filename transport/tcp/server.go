@@ -270,7 +270,10 @@ func (s *Server) BroadcastRawData(message []byte) {
 	s.sessionManager.rangeSessions(
 		func(id SessionID, session *Session) bool {
 			session.SendMessage(message)
-			return false
+			// return true = 继续遍历（与 rangeSessions 的约定一致）。
+			// 此前此处返回 false 且实现忽略返回值，两者"巧合地"能广播全部；
+			// 实现改为尊重返回值后，必须同步改为 true，否则只广播第一个会话。
+			return true
 		},
 	)
 }

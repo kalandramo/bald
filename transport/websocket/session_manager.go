@@ -13,7 +13,11 @@ type SessionObserver interface {
 // SessionManager 管理所有活跃的 WebSocket 会话。
 type SessionManager struct {
 	sessions sync.Map
-	observer SessionObserver
+
+	// observerMu 保护 observer：RegisterObserver 可能在运行期被调用，
+	// 与并发的 AddSession/RemoveSession 读取构成数据竞争（-race 可检出）。
+	observerMu sync.RWMutex
+	observer   SessionObserver
 }
 
 // NewSessionManager 创建一个 SessionManager 实例。
@@ -26,7 +30,16 @@ func NewSessionManager(observer SessionObserver) *SessionManager {
 
 // RegisterObserver 注册会话观察者。
 func (sm *SessionManager) RegisterObserver(observer SessionObserver) {
+	sm.observerMu.Lock()
+	defer sm.observerMu.Unlock()
 	sm.observer = observer
+}
+
+// getObserver 在锁保护下读取 observer。
+func (sm *SessionManager) getObserver() SessionObserver {
+	sm.observerMu.RLock()
+	defer sm.observerMu.RUnlock()
+	return sm.observer
 }
 
 // Clean 关闭并清空所有会话。
@@ -74,27 +87,33 @@ func (sm *SessionManager) RangeSessions(fn func(SessionID, *Session) bool) {
 }
 
 // AddSession 添加新会话并通知观察者。
+// 幂等：同一 session 重复添加只触发一次 OnSessionAdded。
 func (sm *SessionManager) AddSession(session *Session) {
 	if session == nil {
 		return
 	}
 
-	sm.sessions.Store(session.SessionID(), session)
+	if _, loaded := sm.sessions.LoadOrStore(session.SessionID(), session); loaded {
+		return // 已存在，不重复通知
+	}
 
-	if sm.observer != nil {
-		sm.observer.OnSessionAdded(session)
+	if observer := sm.getObserver(); observer != nil {
+		observer.OnSessionAdded(session)
 	}
 }
 
 // RemoveSession 移除会话并通知观察者。
+// 幂等：仅当确实删除成功时才通知。
 func (sm *SessionManager) RemoveSession(session *Session) {
 	if session == nil {
 		return
 	}
 
-	sm.sessions.Delete(session.SessionID())
+	if _, loaded := sm.sessions.LoadAndDelete(session.SessionID()); !loaded {
+		return // 本就不存在，不通知
+	}
 
-	if sm.observer != nil {
-		sm.observer.OnSessionRemoved(session)
+	if observer := sm.getObserver(); observer != nil {
+		observer.OnSessionRemoved(session)
 	}
 }

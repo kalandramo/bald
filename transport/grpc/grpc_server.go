@@ -71,7 +71,9 @@ func NewGRPCServerWithRegister(
 //	hs.SetServingStatus("", healthpb.HealthCheckResponse_NOT_SERVING)
 func (s *GRPCServer) HealthServer() *health.Server { return s.healthSrv }
 
-// Options 返回该 server 直消费的 proto 配置（实现 server.Server 契约的 Options()）。
+// Options 返回该 server 直消费的 proto 配置，供宿主 introspection。
+// 注意：transport.Server 契约（Start/Stop/Endpoint）不含 Options()，
+// 这是 GRPCServer 的额外访问器。
 func (s *GRPCServer) Options() any { return s.cfg }
 
 // Start 启动 gRPC 服务器（阻塞）。

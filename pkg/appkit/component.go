@@ -25,7 +25,7 @@ import (
 	"github.com/kalandramo/bald/log"
 )
 
-// Component 是带生命周期的进程内基础设施（对照 server.Server 的广义化：
+// Component 是带生命周期的进程内基础设施（对照 transport.Server 的广义化：
 // Server = Component + Endpoint）。实现可为 tracing provider、metrics exporter、
 // 审计后端连接、缓存池等。
 type Component interface {

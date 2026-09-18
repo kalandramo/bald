@@ -14,7 +14,7 @@ import (
 
 // ---- 测试桩：期望态来源与可观测组件 ----
 
-// reconSrv 是满足 server.Server 的最小桩（Endpoint 返回确定地址以过 waitForEndpoints）。
+// reconSrv 是满足 transport.Server 的最小桩（Endpoint 返回确定地址以过 waitForEndpoints）。
 type reconSrv struct{}
 
 func (reconSrv) Start(context.Context) error { return nil }
