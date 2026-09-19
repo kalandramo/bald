@@ -6,13 +6,15 @@
 >
 > Discussion at: `Bald 配置源层设计.md`（兄弟篇：源层专属展开，本文 §2 内容的前身与收编来源）、`Bald 日志设计.md`（logger 域契约的演进篇）
 >
-> Status: Accepted（已实现，随 bald bconf v0.5.0 发布）
+> Status: Accepted（已实现，随 bald bconf v0.6.0 发布）
 
 ## 摘要
 
-`bconf` 是配置形状的单一真相源：用 Protobuf 声明「一个应用长什么样」（17 个 proto、14 个顶层配置域），`buf` 生成强类型 Go 包，四个 Go API（`NewBootstrap` 默认值 / `UnmarshalMap` 合并桥接 / `Validate` 启动校验 / `BindFlags` flag 绑定）中，`UnmarshalMap` 与 `BindFlags` 按 proto 描述符自动工作——`--http.addr` 这类层级 flag 真零样板；默认值集中在 `NewBootstrap`、校验规则集中在 `Validate` 各一处维护——新增一个配置项 = 声明形状 + 两处各补内容，无需 interface/struct/flag 多处同步。模块仅依赖 protobuf 与 pflag，不含任何后端 SDK，不读配置（bconfig 的事）、不装配（bootstrap 的事）。本文回答三个问题：为什么用 proto 作契约而不是 Go struct、为什么桥接层要自建类型规范化与合并语义、为什么校验只到形状层不认后端。最重要的承诺：**已知键写错类型、取值越域或枚举名非法，在启动期报错，而不是静默落到零值——配置错误显式暴露。**边界同样如实：拼错的未知键名（`https` 而非 `http`）会像业务自定义段一样被 `DiscardUnknown` 静默放行、落默认值——键名级防呆未实现，代价见 §API 二。
+`bconf` 是配置形状的单一真相源：用 Protobuf 声明「一个应用长什么样」（18 个 proto、15 个顶层配置域），`buf` 生成强类型 Go 包，四个 Go API（`NewBootstrap` 默认值 / `UnmarshalMap` 合并桥接 / `Validate` 启动校验 / `BindFlags` flag 绑定）中，`UnmarshalMap` 与 `BindFlags` 按 proto 描述符自动工作——`--http.addr` 这类层级 flag 真零样板；默认值集中在 `NewBootstrap`、校验规则集中在 `Validate` 各一处维护——新增一个配置项 = 声明形状 + 两处各补内容，无需 interface/struct/flag 多处同步。模块仅依赖 protobuf 与 pflag，不含任何后端 SDK，不读配置（bconfig 的事）、不装配（bootstrap 的事）。本文回答三个问题：为什么用 proto 作契约而不是 Go struct、为什么桥接层要自建类型规范化与合并语义、为什么校验只到形状层不认后端。最重要的承诺：**已知键写错类型、取值越域或枚举名非法，在启动期报错，而不是静默落到零值——配置错误显式暴露。**边界同样如实：拼错的未知键名（`https` 而非 `http`）会像业务自定义段一样被 `DiscardUnknown` 静默放行、落默认值——键名级防呆未实现，代价见 §API 二。
 
 > 本文按当前代码整理；五后端段级校验（§API 三）为随本文补齐的增量，超出 v0.5.0 已发布内容，下次发版随附。
+>
+> 2026-09-18 更新：补记 v0.6.0 的 `audit` 域（此前本文停留在 v0.5.0 视角，漏记该域导致三处计数偏低一，已修正）。
 
 ---
 
@@ -59,9 +61,9 @@ bald/bconf/                       module github.com/kalandramo/bald/bconf
 ├── buf.yaml                      buf v2 module：buf.build/kalandramo/bald-bconf
 ├── buf.gen.yaml                  managed mode，go_package_prefix 裁决生成路径
 ├── bootstrap.go / unmarshal.go / bindflags.go / util.go
-├── proto/bootstrap/v1/           框架级契约 15 个（package bootstrap.v1）
+├── proto/bootstrap/v1/           框架级契约 16 个（package bootstrap.v1）
 │   └── bootstrap.proto 顶层 BootstrapConfig + app/server/config/registry/
-│       log/tracer/metrics/broker/storage/ai/workflow/cache/script/database
+│       log/tracer/metrics/broker/storage/ai/workflow/cache/script/database/audit
 ├── proto/bald/
 │   ├── store/v1/store.proto      分页/过滤/排序契约（pkg/store 消费）
 │   └── appspec/v1/appspec.proto  应用规格契约（代码生成器消费）
@@ -70,15 +72,17 @@ bald/bconf/                       module github.com/kalandramo/bald/bconf
 
 生成物入库，业务方无需装 buf 工具链即可构建。改 proto 后跑 `buf generate` 重新生成——**不要手改 `.pb.go`**：rawDesc 内嵌描述符带长度前缀，改长字符串会让长度错位、运行期 panic。
 
-### 契约形状：BootstrapConfig 十四个域
+### 契约形状：BootstrapConfig 十五个域
 
-顶层消息声明式描述应用完整拓扑：`app`（元数据，含全契约唯一 Duration 字段 `stop_timeout`）、`server`（HTTP/gRPC 可混合）、`config`（九种配置源可混合）、`registry`、`logger`、`tracer`、`metrics`、`broker`、`storage`、`ai`、`workflow`、`cache`、`script`、`database`。多态域（配置源、日志后端、传输协议）一律 `optional` 子消息 + `repeated`——「同时配多种」是一等公民。
+顶层消息声明式描述应用完整拓扑：`app`（元数据，含全契约唯一 Duration 字段 `stop_timeout`）、`server`（HTTP/gRPC 可混合）、`config`（九种配置源可混合）、`registry`、`logger`、`tracer`、`metrics`、`broker`、`storage`、`ai`、`workflow`、`cache`、`script`、`database`、`audit`（v0.6.0 新增，见下）。多态域（配置源、日志后端、传输协议）一律 `optional` 子消息 + `repeated`——「同时配多种」是一等公民。
 
 三条形状设计纪律，各对应一类真实语义需求：
 
 1. **三态语义用显式子消息**（如 `server.http.tls` → `message TLS`）：启用 TLS 是未配置/禁用/启用+参数三态，标量 bool 表达不了；子消息天然有 presence，`GetTls() == nil` 即未配置。
 2. **Duration 用 `google.protobuf.Duration`**：换类型安全与 protojson 标准序列化，代价见下文坑 1。无跨语言需求的配置项，秒数 int 字段反而省心——全契约目前仅 `app.stop_timeout` 一处用 Duration。
 3. **repeated 是替换语义**：配置中出现列表整体覆盖默认值而非追加（桥接层保证，见下文）——契约层面无需为「覆盖 vs 追加」引入任何标记。
+
+**v0.6.0 新增 `audit` 域**：声明审计后端配置（`Audit` 消息）。与 `logger` 同属「可插拔后端」家族但语义不同——审计是**一次性装配、不支持热更新**（运行期热切走 R1-2 协调器的 `audit.backends` 期望态，双轨并存）。该域自身也经历了一次单选→多选迁移：`string type = 1`（v0.5.0 单选）在 v0.6.0 废弃并 `reserved`，改为 `backends` 列表；旧键被装载器 `DiscardUnknown` 丢弃后剩空段，**启动期显式报错**（静默失效变显式迁移提示，与 §兼容性 的字段号纪律同调）。
 
 ### API 一：NewBootstrap——默认值的单一来源
 
@@ -199,7 +203,7 @@ bconf.BindFlags(fs, cfg, "server")   // 递归注册 --server.http.addr 等层�
 
 全部已落地，无过渡安排：
 
-- [x] 契约 17 proto：bootstrap.v1 框架级 15 个 + 域级 store.v1（分页/过滤/排序，pkg/store 消费）+ appspec.v1（应用规格，`gen app --spec` 消费）。
+- [x] 契约 18 proto：bootstrap.v1 框架级 16 个 + 域级 store.v1（分页/过滤/排序，pkg/store 消费）+ appspec.v1（应用规格，`gen app --spec` 消费）。
 - [x] buf v2 module（`buf.build/kalandramo/bald-bconf`）+ managed mode 生成，生成物入库。
 - [x] `NewBootstrap` 默认值（hostname 作 App.Id，对齐 onexstack AppInfo）。
 - [x] `UnmarshalMap` 合并桥接：coerce 规范化 + DiscardUnknown + clearPresentLists + proto.Merge；Duration/repeated/presence 三坑内建防御。
@@ -207,7 +211,7 @@ bconf.BindFlags(fs, cfg, "server")   // 递归注册 --server.http.addr 等层�
 - [x] `BindFlags` 描述符驱动：八种标量 + Duration 字符串化，nil 子消息跳过防 TLS 误启用，FlagSet 作用域可控；repeated/map 注册隐藏指引 flag（误用报「怎么办」、自定义 binder 让位）。
 - [x] 测试 14 例锁语义：默认值快照、合并语义、标量 coerce、Duration 格式化、backends/filter_keys/output_paths/五后端段级校验、指引 flag 五态（零感知/隐藏/误用指引/map/让位）。
 
-**版本演进（v0.1.0 → v0.5.0，全部随日志体系需求驱动）**：
+**版本演进（v0.1.0 → v0.6.0）**：
 
 | 版本 | 契约变更 | 性质 |
 | --- | --- | --- |
@@ -216,6 +220,7 @@ bconf.BindFlags(fs, cfg, "server")   // 递归注册 --server.http.addr 等层�
 | v0.3.0 | Slog 段补 `output_paths` 多输出 + `rotate` 轮转段 | 增量 |
 | v0.4.0 | `filter_keys` 全局脱敏清单（空串项 fail-fast） | 增量 |
 | v0.5.0 | 契约唯一化瘦身：删单 type 选法、八个未实现后端段、NOP；字段重排 | **破坏性** |
+| v0.6.0 | 新增 `audit` 域（`Audit audit = 15`）；`Audit.type` 单选改 `backends` 列表 | 增量 + 域内破坏性 |
 
 NOP 枚举加了又删是诚实的记录：v0.2.x 为「契约层可声明静默日志」加了 `type: nop`，v0.5.0 收缩时查证零业务消费——nop 是框架内部默认行为（未注入时的全局句柄），不需要配置入口，删。
 

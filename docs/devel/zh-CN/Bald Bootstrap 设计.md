@@ -306,12 +306,12 @@ ValueWatcher 实现，只是推送由轮询驱动。
 
 ### ServerRegistry：服务器是端点，多选且必须至少一个
 
-`ServerProvider`（`server.go:31`）从契约 `Server` 段构造 `transport.Server`。
+`ServerProvider`（`server.go:33`）从契约 `Server` 段构造 `transport.Server`。
 与配置源的第三个差异：**多选语义**——`BuildServers` 遍历全部注册 provider，
 各自判断契约中自己的段是否存在（`GrpcServerProvider` 见 `cfg.GetGrpc() == nil`
 返回 nil server，跳过）。「只配了 http」时 grpc provider 返回 nil 是预期而非
 错误；但**全部 provider 都返回 nil**（一个协议都没配）时报错——进程至少要
-监听一个端口（`server.go:114-116`）。
+监听一个端口（`server.go:116`）。
 
 业务依赖经 **Option 显式注入**，不用包级全局变量（go-wind 的另一个反面教材）：
 
@@ -329,7 +329,7 @@ bootstrap.GrpcServerProvider(
 （地址/TLS/超时），代码声明能力（路由/拦截器/探针），分工与 appkit
 FromBootstrap 的约定完全一致。
 
-**gateway 是模式不是服务器**（`server.go:205-237`）：`HttpServerProvider` 内部
+**gateway 是模式不是服务器**（`server.go:225` 附近 `gateway.NewGatewayServer` 调用）：`HttpServerProvider` 内部
 按「注入了 gatewayRegister 且契约 driver 为 `grpc-gateway`（或留空）」分支
 ——走 `gateway.NewGatewayServer`（REST→gRPC 转码）或纯 `httpserver.NewHTTPServer`
 （业务 handler 直挂）。同一 `server.http` 段只跑一个面，模式由契约驱动。

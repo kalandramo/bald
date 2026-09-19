@@ -4,7 +4,7 @@
 >
 > Last updated: 2026-09-14
 >
-> Discussion at: `Bald 配置契约设计.md`（兄弟篇：契约层专属展开）、`配置中心设计.md`（早期决策记录）
+> Discussion at: `Bald 配置契约设计.md`（兄弟篇：契约层专属展开）、`Bald 配置系统设计.md`（早期四源优先级决策记录的收编处——原《配置中心设计》已并入该篇，该文件已不存在）
 >
 > Status: Accepted（已实现，随 bald bconfig module 演进）
 
@@ -196,7 +196,7 @@ type Layer struct {
 
 - [x] 能力轴 7 接口 + 编译期/可组合性断言（`bconfig_test.go`）。
 - [x] `FallbackReader`：级联回退、错误聚合、多源 watch 合并、重算语义、防协程泄漏（`fallback_test.go` 全语义覆盖）。
-- [x] 10 个 provider 子包全部实现并有测试（module 共 62 个 Test 函数；远程源测试经环境适配可在 CI 离线跑）。
+- [x] 10 个 provider 子包全部实现；**9 个有独立测试文件**（module 共 62 个 Test 函数；远程源测试经环境适配可在 CI 离线跑）——`env` 子包无 `_test.go`（其行为经 `bconfig` 根包与 `bootstrap` 侧 provider 测试间接覆盖），是测试覆盖的已知缺口。
 - [x] 装配层消费链贯通：Registry → 9 个契约适配器（env/file/etcd/consul/nacos/apollo/kubernetes/vault/http；fs 走代码 API 无适配器）→ 命名层 → Store 优先级合并 → 热更新。
 - [x] 实战验证：go-bald-admin（现 bald-admin）已接入 nacos/kubernetes 源跑通（2026-09-10）。
 
@@ -232,4 +232,4 @@ type Layer struct {
 
 ### 关联文档
 
-`Bald 配置系统设计.md`（全景：三层定位与装配层 Registry/Store）、`Bald 配置契约设计.md`（契约层：proto 形状 + UnmarshalMap 桥接）、`配置中心设计.md`（早期四源优先级决策记录）、`应用框架设计.md`（AppKit 生命周期与配置装载）。
+`Bald 配置系统设计.md`（全景：三层定位与装配层 Registry/Store；原《配置中心设计》的早期四源优先级决策记录已并入该篇）、`Bald 配置契约设计.md`（契约层：proto 形状 + UnmarshalMap 桥接）、`应用框架设计.md`（AppKit 生命周期与配置装载）。
