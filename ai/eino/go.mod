@@ -6,7 +6,7 @@ require (
 	github.com/cloudwego/eino v0.9.5
 	github.com/cloudwego/eino-ext/components/model/openai v0.1.13
 	github.com/eino-contrib/jsonschema v1.0.3
-	github.com/kalandramo/bald/bconf v0.0.0
+	github.com/kalandramo/bald/bconf v0.7.2
 )
 
 require (

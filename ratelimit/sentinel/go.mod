@@ -4,7 +4,7 @@ go 1.27.1
 
 require (
 	github.com/alibaba/sentinel-golang v1.0.4
-	github.com/kalandramo/bald/ratelimit v0.0.0
+	github.com/kalandramo/bald/ratelimit v0.1.0
 )
 
 require (

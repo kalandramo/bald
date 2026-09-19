@@ -4,7 +4,7 @@ go 1.27.1
 
 require (
 	github.com/golang-jwt/jwt/v5 v5.2.1
-	github.com/kalandramo/bald v0.0.0
+	github.com/kalandramo/bald v0.8.0
 	github.com/stretchr/testify v1.12.1
 )
 

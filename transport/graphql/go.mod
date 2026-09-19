@@ -6,7 +6,7 @@ replace github.com/kalandramo/bald/transport => ..
 
 require (
 	github.com/99designs/gqlgen v0.17.89
-	github.com/kalandramo/bald/transport v0.0.0-00010101000000-000000000000
+	github.com/kalandramo/bald/transport v0.2.1
 )
 
 require (

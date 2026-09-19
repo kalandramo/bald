@@ -4,7 +4,7 @@ go 1.27.1
 
 require (
 	github.com/kalandramo/bald-crud/gorm v0.1.0
-	github.com/kalandramo/bald/bconf v0.1.0
+	github.com/kalandramo/bald/bconf v0.7.2
 )
 
 require (
@@ -53,8 +53,8 @@ require (
 	github.com/kalandramo/bald-utils v0.1.0 // indirect
 	github.com/kalandramo/bald-utils/mapper v0.1.0 // indirect
 	github.com/kalandramo/bald/encoding v0.1.0 // indirect
-	github.com/kalandramo/bald/encoding/json v0.1.0 // indirect
-	github.com/kalandramo/bald/log v0.1.0 // indirect
+	github.com/kalandramo/bald/encoding/json v0.1.1 // indirect
+	github.com/kalandramo/bald/log v0.5.1 // indirect
 	github.com/klauspost/compress v1.19.2 // indirect
 	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect

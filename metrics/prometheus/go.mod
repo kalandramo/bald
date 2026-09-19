@@ -3,7 +3,7 @@ module github.com/kalandramo/bald/metrics/prometheus
 go 1.27.1
 
 require (
-	github.com/kalandramo/bald/metrics v0.0.0
+	github.com/kalandramo/bald/metrics v0.1.0
 	github.com/prometheus/client_golang v1.23.2
 )
 

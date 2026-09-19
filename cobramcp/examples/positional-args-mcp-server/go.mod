@@ -10,7 +10,7 @@ replace github.com/kalandramo/bald/transport/mcp => ../../../transport/mcp
 
 require (
 	github.com/google/jsonschema-go v0.4.2
-	github.com/kalandramo/bald/cobramcp v0.1.0
+	github.com/kalandramo/bald/cobramcp v0.1.1
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.12.1
 )

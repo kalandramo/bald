@@ -3,8 +3,8 @@ module github.com/kalandramo/bald/contrib/observability-otlp
 go 1.27.1
 
 require (
-	github.com/kalandramo/bald v0.2.0
-	github.com/kalandramo/bald/bconf v0.7.0
+	github.com/kalandramo/bald v0.8.0
+	github.com/kalandramo/bald/bconf v0.7.2
 	github.com/prometheus/client_golang v1.24.1
 	go.opentelemetry.io/otel v1.46.0
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp v1.46.0
@@ -95,11 +95,11 @@ require (
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/kalandramo/bald/bconfig v0.1.0 // indirect
-	github.com/kalandramo/bald/bootstrap v0.7.3 // indirect
+	github.com/kalandramo/bald/bootstrap v0.8.0 // indirect
 	github.com/kalandramo/bald/health v0.1.1 // indirect
 	github.com/kalandramo/bald/log v0.5.1 // indirect
 	github.com/kalandramo/bald/registry v0.1.0 // indirect
-	github.com/kalandramo/bald/transport v0.2.0 // indirect
+	github.com/kalandramo/bald/transport v0.2.1 // indirect
 	github.com/kalandramo/bald/transport/gateway v0.1.1 // indirect
 	github.com/kalandramo/bald/transport/grpc v0.1.1 // indirect
 	github.com/kalandramo/bald/transport/http v0.1.1 // indirect
@@ -178,3 +178,11 @@ replace github.com/kalandramo/bald/bconf => ../../bconf
 replace github.com/kalandramo/bald/registry => ../../registry
 
 replace github.com/kalandramo/bald/bootstrap => ../../bootstrap
+
+replace github.com/kalandramo/bald/bconfig => ../../bconfig
+replace github.com/kalandramo/bald/health => ../../health
+replace github.com/kalandramo/bald/log => ../../log
+replace github.com/kalandramo/bald/transport => ../../transport
+replace github.com/kalandramo/bald/transport/gateway => ../../transport/gateway
+replace github.com/kalandramo/bald/transport/grpc => ../../transport/grpc
+replace github.com/kalandramo/bald/transport/http => ../../transport/http

@@ -12,8 +12,8 @@ replace github.com/kalandramo/bald/transport => ..
 
 require (
 	github.com/hibiken/asynq v0.26.0
-	github.com/kalandramo/bald/encoding v0.0.0-00010101000000-000000000000
-	github.com/kalandramo/bald/transport v0.0.0-00010101000000-000000000000
+	github.com/kalandramo/bald/encoding v0.1.0
+	github.com/kalandramo/bald/transport v0.2.1
 	github.com/stretchr/testify v1.12.1
 )
 

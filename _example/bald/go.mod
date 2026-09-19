@@ -10,8 +10,8 @@ require (
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.29.0
 	github.com/kalandramo/bald v0.8.0
 	github.com/kalandramo/bald/bconf v0.7.2
-	github.com/kalandramo/bald/berrors v0.1.0
-	github.com/kalandramo/bald/bootstrap v0.7.3
+	github.com/kalandramo/bald/berrors v0.1.1
+	github.com/kalandramo/bald/bootstrap v0.8.0
 	github.com/kalandramo/bald/contrib/store-gorm v0.0.0-00010101000000-000000000000
 	github.com/kalandramo/bald/health v0.1.1
 	github.com/kalandramo/bald/log v0.5.1
@@ -128,7 +128,7 @@ require (
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/kalandramo/bald-crud/viewer v0.1.0 // indirect
 	github.com/kalandramo/bald/bconfig v0.1.0 // indirect
-	github.com/kalandramo/bald/transport v0.2.0 // indirect
+	github.com/kalandramo/bald/transport v0.2.1 // indirect
 	github.com/kalandramo/bald/transport/gateway v0.1.1 // indirect
 	github.com/kalandramo/bald/transport/grpc v0.1.1 // indirect
 	github.com/kalandramo/bald/transport/http v0.1.1 // indirect

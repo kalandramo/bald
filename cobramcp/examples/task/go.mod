@@ -9,7 +9,7 @@ replace github.com/kalandramo/bald/log => ../../../log
 replace github.com/kalandramo/bald/transport/mcp => ../../../transport/mcp
 
 require (
-	github.com/kalandramo/bald/cobramcp v0.1.0
+	github.com/kalandramo/bald/cobramcp v0.1.1
 	github.com/spf13/cobra v1.10.2
 )
 

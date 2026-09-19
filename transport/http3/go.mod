@@ -8,7 +8,7 @@ replace github.com/kalandramo/bald/transport => ..
 
 require (
 	github.com/gorilla/mux v1.8.1
-	github.com/kalandramo/bald/log v0.0.0-00010101000000-000000000000
+	github.com/kalandramo/bald/log v0.5.1
 	github.com/quic-go/quic-go v0.59.0
 	github.com/stretchr/testify v1.12.1
 )

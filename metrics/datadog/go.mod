@@ -4,7 +4,7 @@ go 1.27.1
 
 require (
 	github.com/DataDog/datadog-go/v5 v5.8.2
-	github.com/kalandramo/bald/metrics v0.0.0
+	github.com/kalandramo/bald/metrics v0.1.0
 )
 
 require (

@@ -4,16 +4,16 @@ go 1.27.1
 
 require (
 	github.com/google/uuid v1.6.0
-	github.com/kalandramo/bald/bconf v0.0.0
-	github.com/kalandramo/bald/broker v0.0.0
-	github.com/kalandramo/bald/log v0.0.0
+	github.com/kalandramo/bald/bconf v0.7.2
+	github.com/kalandramo/bald/broker v0.1.0
+	github.com/kalandramo/bald/log v0.5.1
 	github.com/rabbitmq/amqp091-go v1.10.0
 )
 
 require (
-	github.com/kalandramo/bald/encoding v0.0.0 // indirect
-	github.com/kalandramo/bald/encoding/json v0.0.0 // indirect
-	github.com/kalandramo/bald/encoding/proto v0.0.0 // indirect
+	github.com/kalandramo/bald/encoding v0.1.0 // indirect
+	github.com/kalandramo/bald/encoding/json v0.1.1 // indirect
+	github.com/kalandramo/bald/encoding/proto v0.1.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 )
 

@@ -7,8 +7,8 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.33.3
 	github.com/aws/aws-sdk-go-v2/credentials v1.20.3
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.111.0
-	github.com/kalandramo/bald/bconf v0.0.0-00010101000000-000000000000
-	github.com/kalandramo/bald/log v0.0.0
+	github.com/kalandramo/bald/bconf v0.7.2
+	github.com/kalandramo/bald/log v0.5.1
 )
 
 require (

@@ -6,7 +6,7 @@ replace github.com/kalandramo/bald/berrors => ../../berrors
 
 require (
 	github.com/gin-gonic/gin v1.12.0
-	github.com/kalandramo/bald/berrors v0.1.0
+	github.com/kalandramo/bald/berrors v0.1.1
 )
 
 require (

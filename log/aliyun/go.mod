@@ -4,8 +4,8 @@ go 1.27.1
 
 require (
 	github.com/aliyun/aliyun-log-go-sdk v0.1.117
-	github.com/kalandramo/bald/bconf v0.5.0
-	github.com/kalandramo/bald/log v0.5.0
+	github.com/kalandramo/bald/bconf v0.7.2
+	github.com/kalandramo/bald/log v0.5.1
 	google.golang.org/protobuf v1.36.11
 )
 
