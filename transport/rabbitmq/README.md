@@ -14,7 +14,7 @@
 ## 安装
 
 ```bash
-go get github.com/kalandramo/bald-plugins/transport/rabbitmq
+go get github.com/kalandramo/bald/transport/rabbitmq
 ```
 
 ## 快速开始
@@ -29,8 +29,8 @@ import (
     "os/signal"
     "syscall"
 
-    "github.com/kalandramo/bald-plugins/transport/rabbitmq"
-    "github.com/kalandramo/bald-plugins/broker"
+    "github.com/kalandramo/bald/transport/rabbitmq"
+    "github.com/kalandramo/bald/broker"
 )
 
 // MyMessage 示例消息。

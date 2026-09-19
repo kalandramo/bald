@@ -29,7 +29,7 @@ Server-Sent Events（SSE）是一种基于 HTTP 协议的服务器推送机制�
 ## 安装
 
 ```bash
-go get github.com/kalandramo/bald-plugins/transport/sse
+go get github.com/kalandramo/bald/transport/sse
 ```
 
 ## 快速开始
@@ -42,7 +42,7 @@ import (
     "log"
     "time"
 
-    sse "github.com/kalandramo/bald-plugins/transport/sse"
+    sse "github.com/kalandramo/bald/transport/sse"
 )
 
 func main() {

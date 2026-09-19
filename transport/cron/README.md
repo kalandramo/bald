@@ -14,7 +14,7 @@
 ## 安装
 
 ```bash
-go get github.com/kalandramo/bald-plugins/transport/cron
+go get github.com/kalandramo/bald/transport/cron
 ```
 
 ## 快速开始
@@ -26,7 +26,7 @@ import (
     "context"
     "log"
 
-    cron "github.com/kalandramo/bald-plugins/transport/cron"
+    cron "github.com/kalandramo/bald/transport/cron"
 )
 
 func main() {

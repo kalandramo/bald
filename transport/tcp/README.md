@@ -15,7 +15,7 @@ TCP（传输控制协议）是一种面向连接的、可靠的、基于字节�
 ## 安装
 
 ```bash
-go get github.com/kalandramo/bald-plugins/transport/tcp
+go get github.com/kalandramo/bald/transport/tcp
 ```
 
 ## 快速开始
@@ -27,7 +27,7 @@ import (
     "context"
     "log"
 
-    tcp "github.com/kalandramo/bald-plugins/transport/tcp"
+    tcp "github.com/kalandramo/bald/transport/tcp"
 )
 
 type ChatMessage struct {
