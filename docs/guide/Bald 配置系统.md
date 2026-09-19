@@ -120,7 +120,9 @@ database:
 > **只支持 yaml / json**。toml / hcl / ini 随 viper 退役，不再支持
 > （`bootstrap/config/merge.go` 的 `decodeDocument` 会明确报错，不静默忽略）。
 
-## 3. 环境变量命名规则
+## 3. 环境变量与多环境
+
+### 3.1 环境变量命名规则
 
 规则在 `bootstrap/config/merge.go` 的 `environMap`：**应用名前缀 + 点路径**。
 
@@ -142,6 +144,63 @@ BALD_DEMO_CACHE_REDIS_ADDR  →  cache.redis.addr
 - **前缀不可省**。没有 `BALD_DEMO_` 前缀的变量根本不会被读（枚举驱动，非查询驱动）。
 - **业务键别用下划线**。`_` 与 `-` 都被解释为路径分隔符，所以业务自定义键请用点路径命名，
   或干脆走 yaml / flag 覆盖——契约字段名都是单词，不受影响。
+
+> **没有 `${VAR}` 插值与 `.env` 自动加载**。配置值不做变量替换，也不读 `.env` 文件——
+> 环境变量经 `os.Environ()` 直接枚举（`merge.go` 的 `environMap`）。
+> 需要给进程注入环境变量请用 shell、容器编排或 secret 挂载。
+
+### 3.2 多环境配置
+
+用「应用名 + 环境」组合选择默认配置文件，无需在代码里写死路径。
+
+**装配方式**（两条路径字段名不同）：
+
+```go
+// 路径 A：FromBootstrap —— 由契约 app.env 驱动
+bootstrap := bconf.NewBootstrap()
+bootstrap.GetApp().Name = "my-app"   // 文件名前缀
+bootstrap.GetApp().Env = "prod"      // 环境名
+app, err := appkit.FromBootstrap(bootstrap, appkit.WithWatchConfig(true))
+
+// 路径 B：appkit.New —— 由 appkit.Env 选项驱动
+app := appkit.New(
+    appkit.Name("my-app"),
+    appkit.Env("prod"),
+    appkit.ConfigFile(""),   // 留空 = 按 Name-Env 规则查找
+    appkit.WatchConfigFile(true),
+)
+```
+
+**查找规则**（`discoverLocalFile`，`bootstrap/config/config.go`）：
+
+| 优先级 | 目标文件名 |
+|---|---|
+| 1 | 显式指定的 `ConfigFile` / `--config` 路径 |
+| 2 | `<Name>-<Env>.yaml`（或 `.yml` / `.json`） |
+| 3 | `<Name>.yaml`（或 `.yml` / `.json`） |
+
+搜索目录为 `.`、`./configs`、`$HOME/.config/<Name>`（依次尝试）；
+扩展名尝试顺序为 `.yaml` → `.yml` → `.json`。
+**扩展名是外层循环**：先把三个目录都试一遍找 `.yaml`，都没命中才换 `.yml`——
+所以 `./configs/app.yml` 会**优先于** `$HOME/.config/app.yaml` 被选中。
+
+**找不到不报错**——允许纯远程或纯 flag 配置（`discoverLocalFile` 返回空串即跳过本地层）。
+
+因此典型布局是：
+
+```
+configs/
+  my-app.yaml         # 公共基线（Env 为空时命中）
+  my-app-dev.yaml     # Env=dev 时优先命中
+  my-app-prod.yaml    # Env=prod 时优先命中
+```
+
+`Env` 非空时命中第 2 项，**不会**与第 3 项叠加——是「择一命中」而非「覆盖合并」。
+需要基线 + 覆盖的组合时，用契约源层（§4.2）显式叠层。
+
+> 契约 `app.env` 的**唯一作用**是本地文件名拼接。远程配置源不读它
+> （7 个远程 provider 均无 `Env` 引用）——远程多环境需在后端连接参数里自带区分，
+> 或经契约源层显式叠层。
 
 ## 4. 主程序怎么接
 
@@ -207,6 +266,24 @@ appkit.Bind("", logOpts),                                     // PlainBinder（�
 > **不要**再自行 `AddFlags(pflag.CommandLine, ...)`。只注册到全局 flagset 的话
 > `config.Load` 拿不到它们，flag 层实际只有 `--config` 生效——`Bind` 正是为此缺口而生。
 
+### 4.4 两条装配路径的选项命名规律
+
+选项名按路径分两套，**不可混用**（传错类型编译期即报错）：
+
+| 用途 | `FromBootstrap` 路径 | `appkit.New` 路径 |
+|---|---|---|
+| 本地配置文件 | `WithConfigFile(path)` | `ConfigFile(path)` |
+| 热更新开关 | `WithWatchConfig(bool)` | `WatchConfigFile(bool)` |
+| 契约源层 | `WithConfigRegistry(reg)` | `ConfigLayers(ls...)` |
+| 单键热更新 | `WithOnKeyChange(key, fn)` | — |
+| 全量热更新 | — | `OnConfigChange(fn)` |
+| 期望态协调 | `WithReconcile(name, fn)` | — |
+| 运行环境 | 契约 `app.env` 字段 | `Env("prod")` |
+
+规律：**`FromBootstrap` 路径用 `With*` 前缀（返回 `BootstrapOption`），
+`appkit.New` 路径无前缀（返回 `Option`）**。`Bind` 是例外——它是 `Option`（属 `New` 路径），
+但 `FromBootstrap` 内部会代为调用它绑定 `server.http`/`server.grpc`/`log` 三组 flag。
+
 ## 5. 读配置
 
 装配后业务侧读的是**强类型契约对象**，不是 `map[string]any`：
@@ -223,8 +300,8 @@ addr := bootstrap.GetServer().GetHttp().GetAddr()   // proto getter，nil-safe
 
 ## 6. 热更新
 
-三层粒度，按需选用。**注意两条装配路径的选项类型不同**（见下表「路径」列）：
-`FromBootstrap` 用 `BootstrapOption`，`appkit.New` 用 `Option`——两者不可混用。
+三层粒度，按需选用。**两条装配路径的选项类型不同**（命名规律见 §4.4）：
+`FromBootstrap` 用 `With*`（`BootstrapOption`），`appkit.New` 无前缀（`Option`）——不可混用。
 
 | API | 路径 | 粒度 | 说明 |
 |---|---|---|---|
@@ -280,10 +357,12 @@ addr := bootstrap.GetServer().GetHttp().GetAddr()   // proto getter，nil-safe
 1. 有没有传 flag？`--server.http.addr` 传了就压过一切（`Changed==true` 才参与）。
 2. 环境变量前缀对不对？必须是 `<APP_NAME>_`（`bald-demo` → `BALD_DEMO_`）。
 3. 本地文件路径对不对？`WithConfigFile("configs/app.yaml")` 是**相对运行目录**的路径。
-4. 键名是不是契约字段路径？下划线会被当路径分隔符。
-5. 配置文件格式是不是 yaml/json？
-6. 契约源层注册序对不对？先注册的优先级高。
-7. 该段是否支持热更新？只有 `config` 源层/本地文件、`logger`、`audit.backends` 支持；
+4. 多环境文件名对不对？设了 `Env=prod` 就找 `<Name>-prod.yaml`，**不会**回退到 `<Name>.yaml`。
+   搜索目录只有 `.`、`./configs`、`$HOME/.config/<Name>` 三处（见 §3.2）。
+5. 键名是不是契约字段路径？下划线会被当路径分隔符。
+6. 配置文件格式是不是 yaml/json？
+7. 契约源层注册序对不对？先注册的优先级高。
+8. 该段是否支持热更新？只有 `config` 源层/本地文件、`logger`、`audit.backends` 支持；
    `database`/`cache`/`registry`/`broker` 等能力段改动需重启。
 
 ## 9. 契约字段速查
