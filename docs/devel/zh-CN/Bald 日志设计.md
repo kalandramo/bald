@@ -182,7 +182,7 @@ appkit.FromBootstrap(cfg, appkit.WithLogRegistry(reg))
 
 ### 业务接入示例：零代码装配
 
-操作手册（启用各后端的三步、五后端字段速查、报错解读）独立成篇见 **`docs/guide/zh-CN/日志后端启用指南.md`**，本节保留设计视角的示例。
+操作手册（启用各后端的三步、五后端字段速查、报错解读）独立成篇见 **`docs/guide/zh-CN/Bald 日志使用.md`**，本节保留设计视角的示例。
 
 业务 `main.go` 不写任何日志代码——默认路径开箱即用（slog），默认配置即 `backends` 单 slog 项：
 
@@ -209,7 +209,7 @@ logger:
           compress: true
 ```
 
-切远端 Loki：`backends` 换 loki 项 + 三行注册（注册写法与 yaml 示例见 `_example/bald/configs/bald-demo.yaml` 内注释及《日志后端启用指南》）：
+切远端 Loki：`backends` 换 loki 项 + 三行注册（注册写法与 yaml 示例见 `_example/bald/configs/bald-demo.yaml` 内注释及《Bald 日志使用》）：
 
 ```go
 reg := baldbootstrap.NewLogRegistry()

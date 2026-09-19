@@ -5,9 +5,9 @@
 
 > 本文是使用指南：怎么配、怎么读、怎么排错。
 > 设计动机与内部机制（为什么用 proto 而非 struct + mapstructure、`UnmarshalMap` 的三个坑、
-> `FallbackReader` 的遮蔽语义）见 [Bald 配置系统设计](../devel/zh-CN/Bald%20配置系统设计.md)、
-> [Bald 配置源层设计](../devel/zh-CN/Bald%20配置源层设计.md)、
-> [Bald 配置契约设计](../devel/zh-CN/Bald%20配置契约设计.md)。
+> `FallbackReader` 的遮蔽语义）见 [Bald 配置系统设计](../../devel/zh-CN/Bald%20配置系统设计.md)、
+> [Bald 配置源层设计](../../devel/zh-CN/Bald%20配置源层设计.md)、
+> [Bald 配置契约设计](../../devel/zh-CN/Bald%20配置契约设计.md)。
 
 ## 0. 什么都不做：默认行为
 
@@ -386,5 +386,5 @@ addr := bootstrap.GetServer().GetHttp().GetAddr()   // proto getter，nil-safe
 | `database` | 数据库（gorm / mongodb 等） |
 | `audit` | 审计后端（log / store / stream） |
 
-各段的具体启用方式见对应指南：[日志使用](./zh-CN/Bald%20日志使用.md)、[缓存使用](./zh-CN/Bald%20缓存使用.md)、
-[指标埋点使用](./zh-CN/Bald%20指标埋点使用.md)、[审计使用](./zh-CN/Bald%20审计使用.md)、[健康检查](./zh-CN/Bald%20健康检查.md)。
+各段的具体启用方式见对应指南：[日志使用](./Bald%20日志使用.md)、[缓存使用](./Bald%20缓存使用.md)、
+[指标埋点使用](./Bald%20指标埋点使用.md)、[审计使用](./Bald%20审计使用.md)、[健康检查](./Bald%20健康检查.md)。
