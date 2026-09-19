@@ -25,7 +25,9 @@ const (
 // 由此获得编译期可查的字段名与类型，而不是依赖 mapstructure tag 的字符串匹配
 // （写错键名会静默落到零值）。
 //
-// 流程：map → json.Marshal → 类型规范化 → protojson.Unmarshal。
+// 流程：map → coerce 类型规范化 → json.Marshal → protojson.Unmarshal（解析到空消息）→ clearPresentLists → proto.Merge（合并进带默认值的 msg）。
+// 注意 coerce 在 json.Marshal 之前——protojson 是严格模式，须先把 env/flag
+// 来的字符串/数值规范化为 proto 可接受形态，否则反序列化报错。
 //
 // 用法：
 //
