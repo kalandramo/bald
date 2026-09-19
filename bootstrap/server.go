@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -68,6 +69,59 @@ func (r *ServerRegistry) MustRegister(name string, p ServerProvider) {
 	}
 }
 
+// serverSection 是契约 Server 段的枚举项（proto 字段序即装配序）。
+//
+// implemented 表示「本仓有该协议的服务端实现、且 appkit 会为其注册 provider」。
+// implemented=false 的段在 bconf 契约里有声明（超集契约：先声明后实现），但框架
+// 不提供其服务端装配。配了这些段必须 fail-fast——否则它们根本不进入 provider
+// 遍历，静默失效，用户以为协议面已监听、实际什么都没发生。此约定与
+// [BrokerRegistry.Build] 的 brokerSections 一致（见 broker.go 同位置注释）。
+type serverSection struct {
+	name        string
+	implemented bool
+	exists      func(*bootstrapv1.Server) bool
+}
+
+// serverSections 覆盖 Server message 的全部 31 个 optional 段。
+// 顺序即 proto 字段序（确定性错误信息与遍历序）。
+var serverSections = []serverSection{
+	{"http", true, func(s *bootstrapv1.Server) bool { return s.GetHttp() != nil }},
+	{"grpc", true, func(s *bootstrapv1.Server) bool { return s.GetGrpc() != nil }},
+
+	{"http3", false, func(s *bootstrapv1.Server) bool { return s.GetHttp3() != nil }},
+	{"graphql", false, func(s *bootstrapv1.Server) bool { return s.GetGraphql() != nil }},
+	{"sse", false, func(s *bootstrapv1.Server) bool { return s.GetSse() != nil }},
+	{"websocket", false, func(s *bootstrapv1.Server) bool { return s.GetWebsocket() != nil }},
+	{"tcp", false, func(s *bootstrapv1.Server) bool { return s.GetTcp() != nil }},
+	{"udp", false, func(s *bootstrapv1.Server) bool { return s.GetUdp() != nil }},
+	{"kcp", false, func(s *bootstrapv1.Server) bool { return s.GetKcp() != nil }},
+	{"thrift", false, func(s *bootstrapv1.Server) bool { return s.GetThrift() != nil }},
+	{"trpc", false, func(s *bootstrapv1.Server) bool { return s.GetTrpc() != nil }},
+	{"webtransport", false, func(s *bootstrapv1.Server) bool { return s.GetWebtransport() != nil }},
+	{"cron", false, func(s *bootstrapv1.Server) bool { return s.GetCron() != nil }},
+	{"hptimer", false, func(s *bootstrapv1.Server) bool { return s.GetHptimer() != nil }},
+	{"mcp", false, func(s *bootstrapv1.Server) bool { return s.GetMcp() != nil }},
+	{"signalr", false, func(s *bootstrapv1.Server) bool { return s.GetSignalr() != nil }},
+	{"socketio", false, func(s *bootstrapv1.Server) bool { return s.GetSocketio() != nil }},
+	{"webrtc", false, func(s *bootstrapv1.Server) bool { return s.GetWebrtc() != nil }},
+	{"asynq", false, func(s *bootstrapv1.Server) bool { return s.GetAsynq() != nil }},
+	{"machinery", false, func(s *bootstrapv1.Server) bool { return s.GetMachinery() != nil }},
+
+	// 以下 11 段是 MQ 服务端，其装配走 broker 契约段（BrokerRegistry），
+	// server 侧不提供 provider——配在 server 下同样 fail-fast 并指向 broker。
+	{"kafka", false, func(s *bootstrapv1.Server) bool { return s.GetKafka() != nil }},
+	{"rabbitmq", false, func(s *bootstrapv1.Server) bool { return s.GetRabbitmq() != nil }},
+	{"redis_server", false, func(s *bootstrapv1.Server) bool { return s.GetRedisServer() != nil }},
+	{"nats", false, func(s *bootstrapv1.Server) bool { return s.GetNats() != nil }},
+	{"mqtt", false, func(s *bootstrapv1.Server) bool { return s.GetMqtt() != nil }},
+	{"pulsar", false, func(s *bootstrapv1.Server) bool { return s.GetPulsar() != nil }},
+	{"activemq", false, func(s *bootstrapv1.Server) bool { return s.GetActivemq() != nil }},
+	{"azuresb", false, func(s *bootstrapv1.Server) bool { return s.GetAzuresb() != nil }},
+	{"nsq", false, func(s *bootstrapv1.Server) bool { return s.GetNsq() != nil }},
+	{"rocketmq", false, func(s *bootstrapv1.Server) bool { return s.GetRocketmq() != nil }},
+	{"sqs", false, func(s *bootstrapv1.Server) bool { return s.GetSqs() != nil }},
+}
+
 // BuildServers 按契约已配置的协议段构造全部服务器（**多选语义**）。
 //
 // 与日志（type 单选）、配置源（级联序）不同：grpc/http 段可同时配置、同时生效，
@@ -95,6 +149,19 @@ func (r *ServerRegistry) BuildServers(ctx context.Context, cfg *bootstrapv1.Serv
 	r.mu.RUnlock()
 	sort.Strings(names) // 确定性顺序（错误信息与遍历序稳定）
 
+	// 前置校验：契约里配了但「本仓无实现」的段必须 fail-fast。
+	//
+	// 为什么不能只靠下面的 provider 遍历兜底：BuildServers 按**已注册 provider**
+	// 枚举，而契约段可能没有任何对应 provider 注册——此时该段根本不进入遍历，
+	// 既不报错也不打日志，进程照常启动却不监听该协议（「配了没效果」的静默失效）。
+	// 故在此按**契约段**补齐校验，与 BrokerRegistry.Build 的语义对齐。
+	//
+	// 注意范围：只查「本仓有无实现」，不查 provider 注册（后者是刻意的能力声明
+	// 机制，见 validateServerSections 注释）。
+	if err := validateServerSections(cfg); err != nil {
+		return nil, nil, err
+	}
+
 	var (
 		servers []transport.Server
 		closers []func()
@@ -117,6 +184,32 @@ func (r *ServerRegistry) BuildServers(ctx context.Context, cfg *bootstrapv1.Serv
 		return nil, nil, fmt.Errorf("bootstrap: no server configured (registered: %v)", names)
 	}
 	return servers, func() { runClosers(closers) }, nil
+}
+
+// validateServerSections 校验契约中已配置的 Server 段是否有实现。
+// 返回聚合错误（一次列全全部问题，免去逐条往返）。
+//
+// 只校验「本仓有无实现」（implemented），**不**校验 provider 是否已注册：
+// 后者是刻意的设计——「能力声明在代码」（appkit 未声明 http/grpc 能力时不注册
+// 对应 provider，契约段存在也不消费），见 pkg/appkit/bootstrap.go 装配注释。
+// 若在此对未注册 provider fail-fast，会误伤「只关心 storage/workflow、不装配
+// 任何服务器」的合法用例。
+func validateServerSections(cfg *bootstrapv1.Server) error {
+	var problems []string
+	for _, sec := range serverSections {
+		if !sec.exists(cfg) {
+			continue // 段未配置，跳过
+		}
+		if !sec.implemented {
+			problems = append(problems, fmt.Sprintf(
+				"server.%s is configured but has no implementation in this repo "+
+					"(remove the section, or use appkit.WithExtraServers to mount it manually)", sec.name))
+		}
+	}
+	if len(problems) > 0 {
+		return fmt.Errorf("bootstrap: invalid server config: %s", strings.Join(problems, "; "))
+	}
+	return nil
 }
 
 // GRPCServerOption 配置 GRPCServerProvider 的业务依赖（显式注入，替代 go-wind 包级变量）。
