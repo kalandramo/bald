@@ -23,10 +23,11 @@ type CacheProvider func(ctx context.Context, cfg *bootstrapv1.Cache) (any, func(
 // 契约 cache 是 optional 段集合（local/redis 可并存），装配语义是
 // 「每段各自构建、全部返回」。
 //
-// 与 contrib/cache-redis（Cache-Aside 旁路缓存，P11 晋升组件）的边界：
-// 本层是通用 KV 缓存抽象（Get/Set/SetNX/Multi，进程内/分布式），面向
-// 任意键值加速；cache-redis 是带 loader 回填的业务旁路缓存组件，长在
-// 具体后端之上。关注点不同，互不替代。
+// 与业务旁路缓存（Cache-Aside）的分工：本层是通用 KV 缓存抽象
+// （Get/Set/SetNX/Multi，进程内/分布式），面向任意键值加速；带 loader
+// 回填的旁路语义由 cache/loadable 在本层之上组合（读穿透 + singleflight
+// 合并并发 miss，WithDegradeOnError 可选降级）。原 contrib/cache-redis
+// 组件已删除（2026-09-18，能力被 cache/redis + cache/loadable 覆盖）。
 type CacheRegistry struct {
 	mu        sync.Mutex
 	providers map[string]CacheProvider
