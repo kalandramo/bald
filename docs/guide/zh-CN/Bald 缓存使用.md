@@ -293,10 +293,12 @@ bootstrap: cache provider "redis" already registered
 - **redis 直用轨的 Close 不关注入 client**：连接池、TLS、生命周期归调用方。
 - **local 的 SetNX 有竞态窗口**：严格互斥场景必须用 redis 后端。
 - **local 的 TTL 秒级精度**：亚秒 duration 向上取整。
-- **与 contrib/cache-redis 的边界**：本层是通用 KV 缓存抽象（Get/Set/
-  SetNX/Multi，进程内/分布式），面向任意键值加速；contrib/cache-redis 是
-  带 loader 回填的业务旁路缓存组件（Cache-Aside），长在具体后端之上——
-  关注点不同，互不替代。
+- **业务旁路缓存（Cache-Aside）用 `cache/loadable`**：本层是通用 KV 缓存
+  抽象（Get/Set/SetNX/Multi，进程内/分布式），面向任意键值加速；
+  `cache/loadable` 在其上组合出读穿透（miss → loader → 回填 + singleflight
+  合并并发 miss）的业务旁路语义。原 `contrib/cache-redis` 已删除（其能力被
+  `cache/redis` + `cache/loadable` 覆盖）——其独有的「Redis 故障降级直连
+  loader」语义已迁入 `cache/loadable` 的 `WithDegradeOnError()` 选项。
 - **显式不做**（防 YAGNI 争议回潮）：L2 两级缓存（无失效广播的 Del 只清
   本节点）、框架级负缓存（哨兵值污染 []byte 语义）、typed 泛型便利层——
   见设计文档不做清单。
@@ -321,5 +323,6 @@ bootstrap: cache provider "redis" already registered
 契约层 `SetNX` 原语自行组合（框架不预设分布式锁语义——租约、续期、活锁
 规避是业务决策）。
 
-**Q：缓存和 contrib/cache-redis 什么关系？** 见 §7 边界——通用 KV 抽象 vs
-业务旁路缓存组件，关注点不同。
+**Q：业务旁路缓存（Cache-Aside）怎么做？** 用 `cache/loadable` 包在通用
+KV 抽象之上组合——miss → loader → 回填，singleflight 合并并发 miss。原
+`contrib/cache-redis` 已删除，其降级语义迁入 `WithDegradeOnError()`。

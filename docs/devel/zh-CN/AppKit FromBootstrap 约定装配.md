@@ -170,10 +170,12 @@ cleanup 挂停机 Effect），两点差异要清楚：
   Provider 自建 go-redis client（Ping 失败即 fail-fast，不产半成品），cleanup
   关连接池；复用注入场景绕过 contract 直接用 `cache/redis` 包的 `New(client)`。
 
-- **与 `contrib/cache-redis` 的边界**：`bald/cache` 是通用 KV 缓存抽象
-  （Get/Set/SetNX/Multi，进程内 freecache / 分布式 redis）；cache-redis 是
-  带 loader 回填的 **Cache-Aside 旁路缓存组件**（P11 晋升，键须含租户）。
-  关注点不同，互不替代——cache-redis 未来可长在 `bald/cache` 抽象之上。
+- **业务旁路缓存（Cache-Aside）用 `cache/loadable`**：`bald/cache` 是通用 KV
+  缓存抽象（Get/Set/SetNX/Multi，进程内 freecache / 分布式 redis）；
+  `cache/loadable` 在其上组合出读穿透（miss → loader → 回填 + singleflight）
+  的旁路语义。原 `contrib/cache-redis` 已删除（2026-09-18，能力被
+  `cache/redis` + `cache/loadable` 覆盖），其独有的「Redis 故障降级直连
+  loader」语义已迁入 `cache/loadable` 的 `WithDegradeOnError()` 选项。
 
 ### 网关转码面（gateway as driver 模式）
 

@@ -44,7 +44,7 @@ AppKit（编排层）
   ├── Effect 账本：全局注册的可逆撤销（停机回放）
   ├── Capability 校验：Provides/Requires 启动期 fail-fast
   ├── 配置加载：flag > env > 本地文件 > 远程配置中心（热更新 + key 级订阅）
-  └── contrib 桥接：authn-jwt / store-gorm / cache-redis / authz-casbin / observability-otlp
+  └── contrib 桥接：authn-jwt / store-gorm / authz-casbin / observability-otlp / audit-store / audit-stream / database
 ```
 
 更详细的设计文档见 [开发手册](../devel/zh-CN/README.md)。
