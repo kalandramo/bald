@@ -112,7 +112,8 @@ defer m.Close()                               // 停机 flush 尾批，别漏
 ```
 
 `New()` 内部调 `otel.SetMeterProvider` 设全局——**与 `observability-otlp`
-互斥**（第 5 节）。
+的 metrics 后端互斥**（第 5 节）。注意这只发生在两个 **metrics** 后端之间；
+trace（`SetTracerProvider`）是另一个独立全局位，不受影响。
 
 ### datadog：DogStatsD UDP，最薄一层
 
@@ -215,6 +216,9 @@ if c, ok := m.(metrics.Closer); ok {
   后设者顶掉先设者，**被顶掉一侧的全部指标静默丢失**。约束：一个进程
   二选一。要同时要 OTLP 直推和 Prometheus 抓取，用 `Setup` 的多 Reader
   （它本来就是为此设计的）。
+  **此约束只在两个 metrics 后端之间成立**——trace 用的是独立的
+  `otel.SetTracerProvider`，与 metrics 的全局 MeterProvider 互不相干，
+  可任意组合（`observability-otlp` 本就同时提供 trace 与 metrics）。
 
 - **label keys 首见冻结（D6，已契约化）**：同一指标名第一次出现的
   label key 集合被缓存为维度，之后传更多 label 会被**静默丢弃**而非

@@ -325,6 +325,16 @@ bconf 的 `metrics` 段（`type ∈ {"prometheus", "otlp"}`）驱动的是 `pkg/
 
 **全局 MeterProvider 单例位：与 observability-otlp 互斥使用。** `metrics/otel.New` 与 `observability-otlp/metrics.Setup` 都调 `otel.SetMeterProvider`。同时使用时后设者生效、先设者的全部指标静默丢失；`pkg/metrics` 的 Recorder 依赖全局位，被 `metrics/otel` 顶掉后请求级指标也会路由错误。约束：**一个进程里二选一**。要同时要 OTLP 直推和 Prometheus 抓取，用 `Setup` 的多 Reader（它本来就是为此设计的）。
 
+**这条约束只在 metrics 内部成立——trace 不受影响，可与 metrics 任意组合。** OTel 的 `MeterProvider` 与 `TracerProvider` 是**两个互相独立的全局单例**（`otel.SetMeterProvider` 与 `otel.SetTracerProvider` 分属不同 API）。全仓的全局设置点证实这一点：
+
+| 设置点 | API | 归属 |
+|---|---|---|
+| `metrics/otel/otel.go` | `SetMeterProvider` | metrics |
+| `observability-otlp/metrics/metrics.go` | `SetMeterProvider` | metrics |
+| `observability-otlp/trace/trace.go` | `SetTracerProvider` | **trace** |
+
+没有任何 trace 代码调 `SetMeterProvider`，也没有任何 metrics 代码调 `SetTracerProvider`。所以「tracer 与 metrics 都走 OTLP 直推」**完全可行**——`observability-otlp` 这个 module 同时提供 `trace/` 与 `metrics/`，其 `contract` 子包的用法示例（`TracerRegistry` + `MetricsRegistry` 同时注册）就是为此设计的。互斥只发生在「`metrics/otel` 与 `observability-otlp/metrics` 两个 metrics 后端之间」，与 trace 无关。
+
 ## 实现与过渡
 
 ### 缺陷清单（按严重度）
