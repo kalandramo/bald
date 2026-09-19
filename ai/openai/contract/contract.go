@@ -40,8 +40,10 @@ func Provider(ctx context.Context, cfg *bootstrapv1.Ai) (any, func(), error) {
 	return client, nil, nil
 }
 
-// buildConfig 契约段字段 → openai Config（纯函数，可测；三后端段同构，
-// 由 openai 版实现，eino/langchaingo 复用同形映射）。
+// buildConfig 契约段字段 → openai Config（纯函数，可测）。
+// 三后端段同形，各自实现一份同形映射（eino/langchaingo/openai 各有独立
+// buildConfig，非复用——三者分属独立 module，共享需引入公共包，与
+// 「实现零契约依赖」取舍冲突）。
 // fail-fast：model_type 必须 1(local)/2(cloud)；cloud 型须带 cloud.api_key；
 // local 型须带 local.host。
 func buildConfig(sec *bootstrapv1.Ai_Openai) (*openai.Config, error) {

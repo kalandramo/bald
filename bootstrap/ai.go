@@ -24,8 +24,8 @@ type AiProvider func(ctx context.Context, cfg *bootstrapv1.Ai) (any, func(), err
 // 「每段各自构建、全部返回」。
 //
 // 契约字段消费注记：ai.*.cloud.organization 仅 openai/langchaingo 消费
-// （SDK 支持）；eino-ext openai 无 organization 概念，eino 段不消费该字段
-// （配置了也无效，文档须提示）。
+// （SDK 支持）；eino-ext openai 无 organization 概念，eino 段配了该字段
+// 会 fail-fast 报错（见 ai/eino/contract.buildConfig），不静默忽略。
 type AiRegistry struct {
 	mu        sync.Mutex
 	providers map[string]AiProvider
