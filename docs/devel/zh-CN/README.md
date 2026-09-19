@@ -23,6 +23,7 @@
 - [上下文契约设计](./上下文契约设计.md)：pkg/contextx 请求级元信息五个标准键（user/username/trace_id/request_id/tenant_id）的统一存取。
 - [Bald 字段掩码设计](./Bald%20字段掩码设计.md)：pkg/fieldmaskutil 专属展开——proto FieldMask 的过滤/剪除/覆写/校验四操作（Filter 与 Prune 对偶）、两层 API（扁平包装 vs `NestedMask` 递归复用）、四类字段形态递归（标量/消息/repeated/map）、路径归一化（snake_case + `id_`/`_id` 特例）；含两处已记录缺陷（`OverwriteByFieldMask` 自我覆写、三个 ByFieldMask 归一化不对称）。
 - [Bald CRUD 桥接设计](./Bald%20CRUD%20桥接设计.md)：pkg/crudbridge 专属展开——bald string 型身份（contextx）到 bald-crud uint64 型 `viewer.Context` 的桥接（`SimpleViewer` + 三条构造路径）、互斥三态视图判定、五级数据范围 → `storev1.FilterExpr` 布尔树翻译（**fail-closed**：身份缺失返回空 OR 恒假）、`RegisterDataScope` 一行接入；含两条安全语义（System 标志须显式、TenantID 须数字字符串）。
+- [Bald 中间件设计](./Bald%20中间件设计.md)：pkg/middleware 专属展开——四子包分工（gin 903/grpc 948/bundle 258/shared 104）、**Bundle 链序固化**（gin 与 gRPC 两条链，Audit 夹在 Authn/Authz 之间的双约束、Error 最外层收口）、显式注入不吃全局兜底（NopAuditor）、认证失败审计盲区 D3 的补偿设计、shared 传输无关核心收敛（`InjectTrace` 回调抽象 + 别名保 API）、`LogTraceIDs` 随机兜底；50 个测试。
 - [测试工具设计](./测试工具设计.md)：pkg/testkit e2e 复用工具的收编（P13），如 FreeAddr。
 - [代码生成工具设计](./代码生成工具设计.md)：cmd/bald 官方开发工具 CLI（gen proto/store/app）、AppSpec 方言与 Requirement 结构化、模板装配纪律（P0）、生成物骨架边界、消费者 module 测试策略。
 - [框架契约总览](./框架契约总览.md)：所有公开契约（接口/类型/函数/常量）速查表，按包分节，附桥接与依赖倒置接入说明。
