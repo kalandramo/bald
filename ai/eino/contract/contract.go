@@ -60,6 +60,11 @@ func buildConfig(modelType int32, modelName string, timeoutSec int32, cloud *boo
 		if cloud == nil || cloud.GetApiKey() == "" {
 			return nil, fmt.Errorf("ai: eino model_type=cloud requires cloud.api_key")
 		}
+		// eino-ext 无 organization 概念，配了必须报错而非静默忽略——
+		// organization 常承载访问隔离/计费域语义，静默失效是安全风险。
+		if cloud.GetOrganization() != "" {
+			return nil, fmt.Errorf("ai: eino does not support cloud.organization (eino-ext has no organization concept); remove the field or use the openai/langchaingo backend")
+		}
 		cc.Cloud = &eino.CloudConfig{ApiKey: cloud.GetApiKey(), BaseUrl: cloud.GetBaseUrl()}
 	default:
 		return nil, fmt.Errorf("ai: eino model_type=%d invalid (1=local, 2=cloud)", modelType)

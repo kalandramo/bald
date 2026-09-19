@@ -62,3 +62,32 @@ func TestBuildConfig_Mapping(t *testing.T) {
 		t.Errorf("local mapping mismatch: %+v", cc)
 	}
 }
+
+// organization 在 eino 段不被支持：配了必须 fail-fast，不能静默忽略。
+//
+// 背景：eino-ext 的 ChatModelConfig 无 organization 概念（全文件 grep 零命中），
+// 但契约共享的 CloudConfig.organization 字段对 eino 段仍可见。静默忽略会让
+// 用户误以为 org 隔离/计费域生效——org 常承载访问隔离语义，静默失效是安全风险。
+// 修法与项目基调一致（bootstrap/workflow.go:117「配置写了就必须报错，不能静默跳过」）。
+func TestBuildConfig_RejectsOrganization(t *testing.T) {
+	_, err := buildConfig(2, "m", 0,
+		&bootstrapv1.Ai_CloudConfig{ApiKey: "sk", Organization: "org-123"}, nil)
+	if err == nil {
+		t.Fatal("eino 段配置 cloud.organization 应 fail-fast，而非静默忽略")
+	}
+	if !strings.Contains(err.Error(), "organization") {
+		t.Errorf("err 应点名 organization，got %q", err.Error())
+	}
+
+	// 不配 organization 时正常通过（不误伤）。
+	if _, err := buildConfig(2, "m", 0,
+		&bootstrapv1.Ai_CloudConfig{ApiKey: "sk"}, nil); err != nil {
+		t.Errorf("不带 organization 应正常：%v", err)
+	}
+
+	// local 路径无 organization 概念，不受影响。
+	if _, err := buildConfig(1, "m", 0, nil,
+		&bootstrapv1.Ai_LocalConfig{Host: "h"}); err != nil {
+		t.Errorf("local 路径不应受影响：%v", err)
+	}
+}
