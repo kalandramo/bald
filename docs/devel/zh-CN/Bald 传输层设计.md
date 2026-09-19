@@ -239,4 +239,4 @@ transport/http3/server.go:87      Endpoint 原样返回 s.Addr（待修）
 | [Bald 消息代理设计](./Bald%20消息代理设计.md) | broker 家族四个后端（kafka/rabbitmq/redis/rocketmq）的详细设计 |
 | [Bald 编解码设计](./Bald%20编解码设计.md) | transport 各后端的 `WithCodec` 消费面 |
 | [Bald 健康检查装配设计](./Bald%20健康检查装配设计.md) | transport 的 `NewHTTPServer`/`NewGRPCServer` 签名 |
-| [不合理设计评审](./不合理设计评审.md) | TR1/TR2/TR3/TR4 记录 transport 域的原始发现 |
+| 不合理设计评审 | TR1/TR2/TR3/TR4 记录 transport 域的原始发现 |

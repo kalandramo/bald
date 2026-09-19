@@ -201,4 +201,4 @@ pkg/appkit/workflow.go:62/68        AppKit.Workflow / Workflows（运行期取�
 | [框架契约总览](./框架契约总览.md) §15 | 本域在契约总览中的登记 |
 | [Bald 对象存储设计](./Bald%20对象存储设计.md) | 同为「独立 module + contract 子包 + 显式注册 + 段枚举」模式 |
 | [Bald 消息代理设计](./Bald%20消息代理设计.md) | 同为「契约段 → Provider 查表装配」，但 broker 是 13 段声明/4 段实现（同类问题的更大规模） |
-| [不合理设计评审](./不合理设计评审.md) | CR4 记录 argo 三缺陷的原始出处 |
+| 不合理设计评审 | CR4 记录 argo 三缺陷的原始出处 |

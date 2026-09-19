@@ -59,7 +59,7 @@ bald/
 └── _example/bald/            # 最小示例（appkit 编排 HTTP/gRPC 双协议）
 ```
 
-公开契约速查见 [`docs/devel/zh-CN/框架契约总览.md`](docs/devel/zh-CN/框架契约总览.md)；架构演进与第二轮优化（P10–A1，时空可组合性）见 [`docs/devel/zh-CN/架构演进路线.md`](docs/devel/zh-CN/架构演进路线.md) 与 [`docs/devel/zh-CN/架构优化路线.md`](docs/devel/zh-CN/架构优化路线.md)。
+公开契约速查见 [`docs/devel/zh-CN/框架契约总览.md`](docs/devel/zh-CN/框架契约总览.md)；架构演进与第二轮优化（P10–A1，时空可组合性）见 `docs/devel/zh-CN/架构演进路线.md` 与 `docs/devel/zh-CN/架构优化路线.md`。
 
 ## 快速开始
 
@@ -315,15 +315,15 @@ go test ./...
 ## 设计文档
 
 - 启动器（AppKit）完整设计（架构、契约、生命周期时序、配置加载、防坑要点、后续迭代清单）：
-  [`docs/appkit-design.md`](docs/appkit-design.md)。
+  [`docs/devel/zh-CN/应用框架设计.md`](docs/devel/zh-CN/应用框架设计.md)。
 - 服务端设计（Server 契约、协议适配器、探针路由、health/reflection、Endpoint 可达性）：
-  [`docs/server-design.md`](docs/server-design.md)。
+  [`docs/devel/zh-CN/服务端设计.md`](docs/devel/zh-CN/服务端设计.md)。
 - 注册中心设计（Registrar 抽象、ServiceInstance 字段约束、注册/反注册时序、后端独立 module）：
   [`docs/devel/zh-CN/Bald 注册中心设计.md`](docs/devel/zh-CN/Bald%20注册中心设计.md)。
-- 配置中心设计（远程配置、多环境、`RemoteSource` 抽象）：
-  [`docs/config-center-design.md`](docs/config-center-design.md)。
+- 配置系统设计（远程配置、多环境、`RemoteSource` 抽象；原《配置中心设计》已并入）：
+  [`docs/devel/zh-CN/Bald 配置系统设计.md`](docs/devel/zh-CN/Bald%20配置系统设计.md)。
 - 日志设计（Options 多源配置、FilterKey 脱敏、ContextWithAttrs 日志属性）：
-  [`docs/log-design.md`](docs/log-design.md)。
+  [`docs/devel/zh-CN/Bald 日志设计.md`](docs/devel/zh-CN/Bald%20日志设计.md)。
 - 路由注册与绑定设计（Router 分组/中间件链、多源绑定顺序、泛型流水线、统一响应、berrors 错误契约）：
   [`docs/devel/zh-CN/路由注册与绑定设计.md`](docs/devel/zh-CN/路由注册与绑定设计.md)。
 - 错误模型设计（传输中立 Error、不可变 builder、HTTP/gRPC 双栈桥接、三面一份错误契约）：
@@ -340,7 +340,7 @@ go test ./...
 
 **怎么选**：想快速体验框架单个能力 → 跑 `_example/bald`；想照着一个真实项目的完整分层抄作业 → clone [`kalandramo/bald-admin`](https://github.com/kalandramo/bald-admin)。
 
-官方代码生成工具（`bald gen proto/store/app`，生成 starter 骨架，详见 [架构优化路线 §P12](docs/devel/zh-CN/架构优化路线.md)）：
+官方代码生成工具（`bald gen proto/store/app`，生成 starter 骨架，详见 架构优化路线 §P12）：
 
 ```bash
 go install github.com/kalandramo/bald/cmd/bald@latest

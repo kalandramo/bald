@@ -236,7 +236,7 @@ bconf/proto/bootstrap/v1/ai.proto:52-54  三段的 proto 声明
 | [框架契约总览](./框架契约总览.md) | ai 域的契约登记 |
 | [Bald 对象存储设计](./Bald%20对象存储设计.md) | 同为「独立 module + contract 子包 + 显式注册」，但 oss 不抽接口的理由是语义冲突，ai 是能力不重叠 |
 | [Bald 工作流设计](./Bald%20工作流设计.md) | 同为「契约段 → Provider 查表装配」；对比点：workflow 4 声明/1 实现（需 fail-fast 保护），ai 3 声明/3 实现（对齐） |
-| [六域 Registry 迁入 bootstrap](./六域%20Registry%20迁入%20bootstrap.md) | AiRegistry 迁入的原始记录 |
+| 六域 Registry 迁入 bootstrap | AiRegistry 迁入的原始记录 |
 
 ### 本次评审的验证记录
 

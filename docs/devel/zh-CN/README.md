@@ -3,7 +3,6 @@
 本目录收录 bald 框架的开发设计文档（中文）。
 
 - [应用框架设计](./应用框架设计.md)：AppKit 生命周期（五阶段停机）、Server/Registrar/Component 契约、效应账本/能力声明/运行期挂载。
-- [六域 Registry 迁入 bootstrap](./六域%20Registry%20迁入%20bootstrap.md)：bootstrap 与 appkit 合并评估（不可行：循环依赖 + 职责正交）与折中落地——Database/Cache/Storage/Ai/Workflow/Broker 六域 Registry 自 appkit 迁 bootstrap（构造期归装配层），With\* Option 与 AppKit 访问器留 appkit（运行期归编排层），含新插件归位判别规则。
 - [Bald 配置系统设计](./Bald%20配置系统设计.md)：配置系统全景——源抽象（Reader/ValueWatcher/FallbackReader + 10 provider）、proto 配置契约、bootstrap 装配（Registry/层优先级/Build 回滚）；源层与契约层的深展开见各自专属篇。**（原《配置中心设计》已并入本篇与《Bald 配置源层设计》——该文件已不存在，旧链接指向此处。）**
 - [Bald 配置源层设计](./Bald%20配置源层设计.md)：bconfig module 专属展开——字节进字节出的源层抽象（Reader/ValueWatcher/Decoder 能力轴 + 类型断言发现）、FallbackReader 级联回退与重算语义（事件值不可信）、10 个 provider 矩阵（双模式构造/推送与轮询分级/watch 父目录）、编写纪律 checklist。
 - [Bald 配置契约设计](./Bald%20配置契约设计.md)：bconf module 专属展开——18 proto 契约布局、四 API（NewBootstrap 默认值/UnmarshalMap 合并桥接/Validate 形状校验/BindFlags 描述符 flag 绑定）、coerce 类型缓冲层、三坑防御（Duration/repeated/presence）、契约演进 v0.1.0→v0.6.0（含 v0.5.0 唯一化瘦身、v0.6.0 audit 域）。
@@ -28,9 +27,6 @@
 - [代码生成工具设计](./代码生成工具设计.md)：cmd/bald 官方开发工具 CLI（gen proto/store/app）、AppSpec 方言与 Requirement 结构化、模板装配纪律（P0）、生成物骨架边界、消费者 module 测试策略。
 - [框架契约总览](./框架契约总览.md)：所有公开契约（接口/类型/函数/常量）速查表，按包分节，附桥接与依赖倒置接入说明。
 - [数据存储设计](./数据存储设计.md)：数据访问层（DAL）设计——对比 go-crud（多引擎库）与 onexstack/store（GORM 封装）的取舍，给出 bald「核心定契约、引擎实现留独立子模块桥接」的方案与核心接口草案。**（§2/§3 的目录树与接口草案为早期设计记录，与现状有偏差——读 API 形状以源码为准，文首有现状对照表。）**
-- [架构演进路线](./架构演进路线.md)：横向对比 bald/go-lulu/onexstack/go-crud/osbuilder 五个项目，提炼共识与差距，给出按优先级的架构演进路线（P0-P9 第一轮，均已完成）。
-- [架构优化路线](./架构优化路线.md)：第二轮优化（P0–P9 之后）——基于 GoWind 设计哲学对比与 Cordis 论文《A Programming Paradigm for Spatiotemporal Composability》（时空可组合性）的诊断，提出 P10 bundle 门面 / P11 contrib 晋升 / T1 效应账本 / S1 能力解析 / C1 Component 统一 / A1 运行期挂载 / R1 key 级订阅，附防漂移清单与 agent-native 远期方向。
-- [go-wind-admin 业务移植计划](./go-wind-admin%20业务移植计划.md)：将 go-wind-admin 精选业务子集（租户/用户/角色权限/菜单/字典/审计日志/文件/认证扩展 + Nacos）移植到独立仓库 [kalandramo/bald-admin](https://github.com/kalandramo/bald-admin)（前后端 monorepo），接入云端真实依赖（PostgreSQL/Redis/MinIO/Nacos/OTLP），含业务→bald 能力验证点映射、云端依赖确认清单、配置结构与里程碑 T0–T9（含 T9 可观测性契约化收官）。
 - [示例前后端契约同步设计](./示例前后端契约同步设计.md)：proto 单一真相源 + buf v2 按消费者扇出（Go/TS/OpenAPI 各一份 gen 配置）——TS 客户端生成替换手写 API 层，消灭契约双写；含与 go-wind-admin 的差异点（响应信封/transport 保留）、独立时合 monorepo 的前置约束。已落地（2026-09-11，实施差异见文首状态行）。
 - [Bald Cobra MCP 桥接设计](./Bald%20Cobra%20MCP%20桥接设计.md)：上游 `onexstack/cobrax` 收编为顶层独立 module `bald/cobramcp`（与 `transport/mcp` 平级，不塞进同一个包）——先修 `transport/mcp` 生命周期（`Start` 同步绑定/`Endpoint` 真实端口/SSE `CloseSessions`+`Shutdown`/`Done()` 通道/`WithSSEOptions`/删死代码），再做 L2 融合（cobramcp 复用 transport 服务端与 `bald/log` 契约、去掉自带信号处理、`SloggerOptions` 删除、mcp-go v0.30.0→v0.54.1 实测零改动）；含落点三候选裁定、破坏面清单与发版顺序（先 `transport/mcp/v0.1.0` 再 `cobramcp/v0.1.0`）。已落地（2026-09-17）。
 - [Bald 重试设计](./Bald%20重试设计.md)：retry module 专属展开——三组正交策略（`Backoff` 曲线 / `Jitter` 抖动 / `Classifier` 判定）+ `Retrier.Do(ctx, fn)` 单入口、三条终止线（attempt 上限 / `maxTotalWait` 墙钟预算 / ctx 取消）与 `errors.Join` 错误包装（`errors.Is` 双向可穿透）；零依赖独立 module（与 health/registry 平级）、拒绝 `cenkalti/backoff` 与 kratos/gRPC 重试的取舍、默认 `NoJitter` 的争议点、四类边界代价（`WithMaxAttempts(0)` 静默忽略、nil 策略 panic、注入 RNG 后不并发安全、`timer` 无导出 Option）、三处就地退避（kafka/etcd/apollo）的接入判据与两件未做的登记工作。已落地但尚未接入（2026-09-17）。
