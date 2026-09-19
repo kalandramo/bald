@@ -6,7 +6,7 @@
 >
 > Discussion at: 源码 `ai/{eino,langchaingo,openai}/`、三个 `contract/` 子包；装配面 `bootstrap/ai.go`、`pkg/appkit/ai.go`；契约 `bconf/proto/bootstrap/v1/ai.proto`
 >
-> Status: Accepted（三后端已落地、契约 3 段与实现对齐；**发现两处后端间行为不一致未修**——见「兼容性」）
+> Status: Accepted（三后端已落地、契约 3 段与实现对齐；**三处后端间不一致已于 2026-09-18 全部修复**——见「兼容性」）
 
 ## 摘要
 
@@ -133,35 +133,48 @@ eino 底层是 `cloudwego/eino-ext/components/model/openai`，其 `ChatModelConf
 
 ## 兼容性
 
-### 1. 三后端默认超时行为不一致 —— 未修（本轮发现）
+### 1. 三后端默认超时行为不一致 —— 已修（2026-09-18）
 
-**现象**：不配置 `timeout_seconds` 时，三后端行为**不同**：
+**现象（修复前）**：不配置 `timeout_seconds` 时，三后端行为**不同**：
 
-| 后端 | 默认超时 | 证据 |
-|------|---------|------|
-| `openai` | **30s** | `client.go:83` `timeout := 30 * time.Second` |
-| `langchaingo` | **30s** | `client.go:54` 同上 |
-| `eino` | **0（永不超时）** | `client.go:46/73` 仅在 `TimeoutSeconds > 0` 时设 `config.Timeout`；eino-ext `chatmodel.go:206` 为 `&http.Client{Timeout: config.Timeout}` |
+| 后端 | 修复前默认 | 修复后 |
+|------|-----------|--------|
+| `openai` | **30s** | 30s（不变） |
+| `langchaingo` | **30s** | 30s（不变） |
+| `eino` | **0（永不超时）** | **30s** |
 
-**影响**：eino 后端在未配超时时，`http.Client{Timeout: 0}` 意味着**请求永不超时**——服务端无响应即永久挂起（除非调用方 ctx 取消）。这是 `workflow` 域 CR4 记录过的同类问题（"无默认超时的 http.Client 会随调用方 ctx 永久挂起"）。
+**根因**：eino 仅在 `cfg.TimeoutSeconds > 0` 时设 `config.Timeout`，未配置时 `Timeout=0`，eino-ext 据此构造 `&http.Client{Timeout: 0}`（`chatmodel.go:206`）——**永不超时**，服务端无响应即永久挂起（除非调用方 ctx 取消）。与 `workflow` 域 CR4 记录的同类问题（"无默认超时的 http.Client 会随调用方 ctx 永久挂起"）。
 
-**为什么未修**：需要决策——是让 eino 对齐 30s 默认（改 `ai/eino/client.go`），还是让另两个后端也接受"无超时=不设"（行为变更）。前者更符合 fail-safe 基调，但会改变 eino 现有部署的语义。
+**修复**：`ai/eino/client.go` 抽出 `resolveTimeout(sec int32) time.Duration`（正值用指定值、`<=0` 回退 `defaultTimeout = 30s`），并抽出纯函数 `newCloudChatModelConfig`/`newLocalChatModelConfig` 承载映射——**顺带解决了原实现无法测的问题**（`ChatModel` 的 `cli` 私有，超时值外部不可读；抽出纯函数后可直接断言）。
 
-**建议**：让 eino 对齐 30s 默认，并在三处统一为一个共享常量或注释交叉引用。
+**验证**：`ai/eino/client_test.go` 的 `TestResolveTimeout`（4 例边界）、`TestCloudConfigCarriesTimeout`、`TestLocalConfigCarriesTimeout`；用户级验收经 `WithConfigModifier` 钩子实测真实 `NewChatModel` 路径——未配置得 `30s`、配置 90 得 `1m30s`。RED（函数未定义编译失败）→ GREEN。
 
-### 2. `organization` 在 eino 段静默无效 —— 已知，仅注释提示
+### 2. `organization` 在 eino 段静默无效 —— 已修（2026-09-18，fail-fast）
 
-见「理由与取舍」。契约字段存在但 eino 不消费，配置了无任何反馈。**建议**：`buildConfig` 检测到 eino 段带 `organization` 时打一条 warn 日志，或在该字段的 proto 注释里标注"eino 不消费"。
+**修复前**：契约共享的 `CloudConfig.organization` 字段对 eino 段可见，但 eino-ext 无 organization 概念，配置后**静默忽略**，仅源码注释提示。
 
-### 3. 契约注释声称"复用"实为"同形复制" —— 文档缺陷
+**修法**：`ai/eino/contract.buildConfig` 检测到 `cloud.organization != ""` 时 **fail-fast 报错**：
 
-`ai/openai/contract/contract.go` 的 `buildConfig` 注释：
+```
+ai: eino does not support cloud.organization (eino-ext has no organization
+concept); remove the field or use the openai/langchaingo backend
+```
 
-> 三后端段同构，由 openai 版实现，eino/langchaingo 复用同形映射
+**为什么是 fail-fast 而非 warn 日志**（设计偏差，记录理由）：本文档初稿建议"打一条 warn 日志"，但取证发现**项目全部 contract 层零日志依赖**，且四处装配代码一致采用 fail-fast 基调——`bootstrap/workflow.go:117`「配置写了就必须报错，不能静默跳过」、`registrar.go:94`、`database.go:22`、`broker.go:66` 同调。打日志会引入 eino 模块对 `bald/log` 的依赖，破坏「实现零契约依赖」；且 organization 常承载**访问隔离/计费域**语义，静默失效是安全风险，fail-fast 更符合 fail-closed 原则。
 
-实际三处**各有独立的 `buildConfig` 函数**（`eino/contract.go:46`、`langchaingo/contract.go:46`、`openai/contract.go:47`），没有任何复用关系。注释的"由 openai 版实现…复用"会被读成"其他两个调 openai 的"。
+**代价**：eino 段此前"能配但无效"的配置现在会导致**启动失败**——这是有意的 breaking（暴露错误好过静默失效）。迁移方式：删掉该字段，或改用 openai/langchaingo 后端。
 
-**判定**：注释措辞误导（"复用"→ 应为"同形复制"）。修法：改注释，或真抽出共享 helper（但三者在**独立 module** 里，共享需引入公共包，与"零契约依赖"取舍冲突）。
+**验证**：`contract_test.go` 的 `TestBuildConfig_RejectsOrganization`（含不误伤反例）；用户级验收经 `Provider` 完整链路实测报错文本。RED→GREEN。
+
+**配套**：`bootstrap/ai.go` 的 organization 注记同步更新（原写"配置了也无效，文档须提示"→ 现"配了该字段会 fail-fast 报错"）。
+
+### 3. 契约注释声称"复用"实为"同形复制" —— 已修（2026-09-18）
+
+**修复前**：`ai/openai/contract/contract.go` 的 `buildConfig` 注释写"三后端段同构，由 openai 版实现，eino/langchaingo 复用同形映射"，但三处**各有独立的 `buildConfig` 函数**（`eino/contract.go:46`、`langchaingo/contract.go:46`、`openai/contract.go:47`），无任何复用关系。
+
+**修复**：注释改为"三后端段同形，各自实现一份同形映射（eino/langchaingo/openai 各有独立 buildConfig，非复用——三者分属独立 module，共享需引入公共包，与「实现零契约依赖」取舍冲突）"，同时说明**为何不抽公共 helper**。
+
+**验证**：`grep -rn "复用同形\|由 openai 版实现" ai/` 零命中。
 
 ### 4. 无生产调用方
 
@@ -182,18 +195,18 @@ eino 底层是 `cloudwego/eino-ext/components/model/openai`，其 `ChatModelConf
 | 契约段对齐 | ✅ proto 3 段 = `aiSections` 3 段（无未实现段） |
 | 装配链 | ✅ `bootstrap.AiRegistry` + `pkg/appkit/ai.go` + 停机 Effect |
 | 测试 | ✅ 三 module 各有 `*_test.go` 与 `contract/*_test.go` |
-| 默认超时一致 | ⚠️ eino 与其他两个不一致（§1） |
-| `organization` 提示 | ⚠️ 仅注释（§2） |
-| 契约注释准确性 | ⚠️ "复用"措辞误导（§3） |
+| 默认超时一致 | ✅ eino 已对齐 30s 默认（§1） |
+| `organization` 提示 | ✅ eino 段 fail-fast 报错（§2） |
+| 契约注释准确性 | ✅ "复用"→"同形复制"（§3） |
 | 生产接入 | ⚠️ 无生产调用方（§4） |
 
-### 建议的修复顺序
+### 修复记录（2026-09-18，全部落地）
 
-1. **eino 默认超时对齐**（低风险，需决策）：改 `ai/eino/client.go` 加 30s 默认。
-2. **`organization` 告警**（低风险）：eino `buildConfig` 检测到该字段时 warn。
-3. **契约注释修正**（零风险）："复用"改"同形复制"。
+1. **eino 默认超时对齐 30s**：`ai/eino/client.go` 加 `defaultTimeout` 常量 + `resolveTimeout` 纯函数，抽 `newCloudChatModelConfig`/`newLocalChatModelConfig` 使映射可测。
+2. **`organization` fail-fast**：`ai/eino/contract.buildConfig` 检测该字段即报错（非初稿建议的 warn——理由见 §2），`bootstrap/ai.go` 注记同步。
+3. **契约注释修正**：`ai/openai/contract/contract.go` 的"复用"→"同形复制"并补不抽 helper 的理由。
 
-> 本轮为**评审 + 生成文档**任务，未改动任何代码。上述三项均为建议。
+> 三项均走 RED→GREEN，含用户级验收。`ai/eino` 此前无包内测试文件，本轮新建 `client_test.go`。
 
 ## 附录
 
@@ -204,8 +217,8 @@ ai/openai/client.go:83        默认 30s 超时（setHTTPClient）
 ai/openai/client.go:32-75     云端/本地客户端构造（newCloudClient:32 / newLocalClient:53）
 ai/langchaingo/client.go:54   默认 30s 超时（newCloudModel 内）
 ai/langchaingo/client.go:34-93 云端/本地模型构造（newCloudModel:34 / newOllamaModel:69）
-ai/eino/client.go:46,73       仅在 TimeoutSeconds>0 时设 Timeout（无默认）
-ai/eino/client.go:15-31       NewChatModel 分派（newCloudChatModel:33 / newOllamaChatModel:54）
+ai/eino/client.go              resolveTimeout / defaultTimeout=30s / newCloud(Local)ChatModelConfig（2026-09-18 重构抽出）
+ai/eino/client.go:15-31       NewChatModel 分派
 ai/*/contract/contract.go:46  buildConfig（eino:46 / langchaingo:46 / openai:47，三处同形独立实现）
 ai/*/contract/contract.go:71/74  签名类型守卫（eino:71 / langchaingo:71 / openai:74）
 bootstrap/ai.go:73-77         aiSections（openai/langchaingo/eino）
@@ -228,6 +241,7 @@ bconf/proto/bootstrap/v1/ai.proto:52-54  三段的 proto 声明
 ### 本次评审的验证记录
 
 - 三 module 的 `go vet` / `go test` 状态：见「现状清单」。
-- 关键断言均以源码行号锚定（`ai/openai/client.go:83`、`ai/eino/client.go:46/73`、eino-ext `chatmodel.go:206`）。
-- **未验证项**：三后端的默认超时差异**未经运行时探针实测**（`go-openai` 的 `ClientConfig.HTTPClient` 是 `HTTPDoer` 接口类型，无法直接读取 `Timeout`）。结论建立在**源码静态证据**上——`openai`/`langchaingo` 显式赋 30s、eino 仅在条件成立时赋值、eino-ext 源码 `&http.Client{Timeout: config.Timeout}` 三处行号均可复核。
+- 关键断言均以源码行号锚定。
+- **超时缺陷的运行时验证（2026-09-18 补）**：修复前结论建立在源码静态证据上（`go-openai` 的 `ClientConfig.HTTPClient` 是 `HTTPDoer` 接口类型，无法直接读 `Timeout`）。修复后经 `WithConfigModifier` 钩子实测**真实 `NewChatModel` 路径**：未配置 → 底层 `config.Timeout=30s`；配置 90 → `1m30s`。
+- `organization` fail-fast 经 `Provider` 完整链路验收：报错文本 `ai: eino does not support cloud.organization ...`。
 - 无生产调用方的结论来自全仓 `grep bald/ai/`（排除 `ai/` 自身与 `.rivet/`）零命中。
