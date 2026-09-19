@@ -65,6 +65,11 @@ func New(backend cache.Cache, loader LoadFunc, opts ...Option) *Cache {
 // Get implements [cache.Cache]. On a backend hit it returns immediately.
 // On a miss (ErrNotFound) it loads via singleflight and backfills.
 //
+// Backend failure: a non-ErrNotFound error (e.g. connection refused)
+// propagates directly by default — cache failures stay visible. With
+// [WithDegradeOnError] enabled it degrades to the loader instead, so a cache
+// outage does not escalate into a business outage.
+//
 // Backfill is best-effort: if backend.Set fails the loaded value is still
 // returned — a cache write failure must not fail a read that already has
 // valid data; the next request will simply miss and load again.
@@ -84,7 +89,12 @@ func (c *Cache) Get(ctx context.Context, key string) ([]byte, error) {
 		return val, nil
 	}
 	if !errors.Is(err, cache.ErrNotFound) {
-		return nil, err
+		// 非 ErrNotFound 是后端故障（连接失败等）。默认上抛，让缓存故障可见；
+		// 开启 WithDegradeOnError 后视同未命中，降级走 loader——缓存故障不
+		// 放大为业务故障（代价：故障期间每次读都先承受一次后端超时开销）。
+		if !c.cfg.degradeOnError {
+			return nil, err
+		}
 	}
 
 	// The loader result is copied inside the flight so that (a) the value
