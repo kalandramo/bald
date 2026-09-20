@@ -442,6 +442,39 @@ graph TB
 | 5.5 | `bald/encoding` 轴压真实业务（asynq 任务载荷编解码用 msgpack/proto 替代 json） | 编解码往返一致 |
 | 5.6 | `bald/contrib/database/mongodb` 验证（如无真实场景则记录为未验证） | 决策记录 |
 
+#### 5.6 决策记录：`contrib/database/mongodb` 记为「未验证轴」
+
+**结论**：**不接入**，记为「未验证轴」。**不因框架提供了就造无消费者**。
+
+**依据（三条独立证据）**：
+
+1. **源项目不使用 MongoDB**：`go-wind-admin/backend/go.mod` 搜 `mongo` **零命中**。
+2. **源 Go 代码零引用**：`grep -rln "mongo" go-wind-admin/backend/app/ --include="*.go"`
+   零命中（仅 `cmd/server/assets/openapi.yaml` 有词形匹配，非代码引用）。
+3. **bald-admin 侧仅 indirect**：`go.mod` 的 `go.mongodb.org/mongo-driver/v2 v2.5.0`
+   标注 `// indirect`——是某个依赖的传递依赖，非本项目直接使用。
+
+**称量的两端**：
+
+- **收益端**：源无该场景 → 复刻无对标物；本项目全部业务域（auth/tenant/user/
+  menu/permission/dict/file/audit/message/task/plan/org）**没有一个**需要
+  文档型数据库——关系模型由 gorm + PostgreSQL 覆盖，审计/日志已落
+  `audit_records` 表。
+- **代价端**：强行接一个无消费者的 MongoDB 客户端，会引入「契约声明但无实现」
+  的反模式（D5 `rate_limit` 零消费者 / D11.2 `cron.seconds` 空实现 / D14
+  provider 未注册即崩——本项目已三次验证该模式的高代价）。造一个假消费者去
+  「验证能力」，验证的是自己造的壳，不是 bald 的能力。
+
+**契约段现状（供后续参考）**：`bald/bconf/proto/bootstrap/v1/database.proto:22`
+有 `MongoDB` 段（`optional MongoDB mongodb = 2`），`contrib/database/mongodb`
+有 `New(opts ...Option)` 构造器——即**能力存在但无业务载体**。若未来出现真实
+文档型存储需求（如非结构化日志、大对象元数据），可直接经该段接入，接入成本
+已知。
+
+**与 5.4 的区别**：5.4 的 `bald/oss/s3` 有真实载体（file 模块的对象存储需求，
+源即用 MinIO/S3），故实现并端到端验证；mongodb 无——这个区别是**称量结果**，
+不是偏好。
+
 ### Wave 6 · 管理面聚合 API（admin 域 162 rpc）
 
 **范围**：源项目 `go-wind-admin/backend/api/protos/admin/` 的 34 个 service / 162 rpc——独立管理面 API（路径前缀 `/admin/v1/*`）。
