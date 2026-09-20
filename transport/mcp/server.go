@@ -38,6 +38,13 @@ type Server struct {
 	mcpOpts []server.ServerOption
 	sseOpts []server.SSEOption
 
+	// middlewares 是 SSE/HTTP 传输层最外层的 HTTP 中间件链
+	// （按注册顺序从外到内包裹）。stdio / in-process 不适用。
+	middlewares []Middleware
+
+	// prmConfig 非 nil 时，在 SSE 形态下启用 RFC 9728 OAuth 资源元数据端点。
+	prmConfig *server.ProtectedResourceMetadataConfig
+
 	serverType ServerType
 	serverAddr string
 
@@ -134,11 +141,22 @@ func (s *Server) Start(ctx context.Context) error {
 			sse     *server.SSEServer
 		)
 		if s.serverType == ServerTypeSSE {
-			sse = server.NewSSEServer(s.mcpServer, s.sseOpts...)
+			sseOpts := s.sseOpts
+			if s.prmConfig != nil {
+				sseOpts = append(sseOpts, server.WithSSEProtectedResourceMetadata(*s.prmConfig))
+			}
+			sse = server.NewSSEServer(s.mcpServer, sseOpts...)
 			handler = sse
 		} else {
 			handler = server.NewStreamableHTTPServer(s.mcpServer)
 		}
+
+		// 应用中间件链：从后往前包裹，使注册顺序 = 执行顺序
+		// （与 transport/http3 的 Use 一致）。stdio/in-process 无 HTTP 层，不适用。
+		for i := len(s.middlewares) - 1; i >= 0; i-- {
+			handler = s.middlewares[i](handler)
+		}
+
 		httpSrv := &http.Server{Handler: handler}
 
 		s.mu.Lock()
