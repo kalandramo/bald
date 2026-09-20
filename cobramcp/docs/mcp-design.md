@@ -2,7 +2,7 @@
 
 > **状态说明（2026-09-17）**：本文分析的是并入 bald 生态**之前**的上游实现（`onexstack/cobrax`）。
 > 并入后的当前设计——模块归位、复用 `bald/transport/mcp` 服务端、日志走 `bald/log`、
-> 去掉自带信号处理、mcp-go 升到 v0.54.1——以
+> 去掉自带信号处理、mcp-go 升到 v1.1.0——以
 > [Bald Cobra MCP 桥接设计](../../docs/devel/zh-CN/Bald%20Cobra%20MCP%20桥接设计.md) 为准。
 > 本文保留作为上游设计的参考分析。
 
@@ -27,7 +27,7 @@ AI 客户端 ──(MCP: stdio/SSE/REST)──> 工具调用 ──(执行期: �
 
 ### 1.2 依赖选型
 
-- `github.com/mark3labs/mcp-go`：MCP 协议实现（Server、stdio/SSE 传输）。上游分析时的版本为 v0.30.0；并入 bald 后统一到 `bald/transport/mcp` 所用的 v0.54.1（实测 API 兼容，零代码改动）
+- `github.com/mark3labs/mcp-go`：MCP 协议实现（Server、stdio/SSE 传输）。上游分析时的版本为 v0.30.0；并入 bald 后统一到 `bald/transport/mcp` 所用的版本（当前 v1.1.0），历次升级实测 API 兼容、零代码改动
 - `github.com/spf13/cobra v1.10.2` + `pflag`：CLI 框架（被转换对象）
 - `github.com/google/jsonschema-go v0.4.2`：JSON Schema 构建与序列化
 

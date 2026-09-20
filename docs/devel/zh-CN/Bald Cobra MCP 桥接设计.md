@@ -128,7 +128,7 @@ serveStdio / serveHTTP                   // start → 等 ctx.Done 或 srv.Done(
 
 - **`MCPOptions.BaseURL` 从死字段变成真能力**：上游算出来只用来打日志，SSE server 从未收到它；现在透传 `mcptransport.WithSSEOptions(mcpserver.WithBaseURL(...))`。
 - **`annotations.go` 去重**：四个布尔注解的解析收敛为「键 → 写入口」表驱动。
-- **mcp-go 对齐**：`v0.30.0` → `v0.54.1`（与 `transport/mcp` 一致）。实测跨 24 个 minor **零代码改动**。
+- **mcp-go 对齐**：收编时 `v0.30.0` → `v0.54.1`（与 `transport/mcp` 一致），实测跨 24 个 minor **零代码改动**；后续升级到 `v1.1.0`（2026-09，`transport/mcp` + `cobramcp` + 3 examples 同步）同样零代码改动。
 - **上游遗留清理**：品牌名 `Ophis`（9 处）、`examples/positional-args-mcp-server/go.mod` 的**重复 module path**、`examples/make` 里 `main.go`/`main2.go` 同包重复声明导致模块根本编译不过（`main2.go` 拆为 `examples/make/mcpserver/` 子包）、`commands.go~` 备份文件。
 
 ### 5. 破坏面清单（cobramcp 作为新 module 首版，可自由取舍）
@@ -143,7 +143,7 @@ serveStdio / serveHTTP                   // start → 等 ctx.Done 或 srv.Done(
 
 ## 已验证事实（实测，非推断）
 
-1. `go build` / `go vet` / `go test` 在 mcp-go **v0.30.0 → v0.54.1** 下全部通过，**零代码改动**（先做临时副本验证，再落到 `cobramcp/go.mod`）。
+1. `go build` / `go vet` / `go test` 在 mcp-go **v0.30.0 → v0.54.1** 下全部通过，**零代码改动**（先做临时副本验证，再落到 `cobramcp/go.mod`）。后续 **v0.54.1 → v1.1.0** 升级同样零代码改动，5 个 module（`transport/mcp`、`cobramcp`、3 个 examples）build/vet/`go test -short` 全绿。
 2. `transport/mcp` 新增可自动回归的测试：`:0` 动态端口 → 同步绑定 → `Endpoint()` 解析出真实端口 → 注册工具 → Streamable HTTP 客户端 `ListTools`/`CallTool` 往返 → `Stop`；端口占用时 `Start` 同步报错。
 3. `cobramcp` 新增端到端测试：Cobra 命令树 → 工具注册进 transport 服务端 → **SSE** → MCP 客户端可见并可调用 → ctx 取消后 `Start` 返回。
 4. 三个 `examples/` 模块（`make`、`positional-args`、`positional-args-mcp-server`）全部 `go test` 通过。其中 6 + 7 条 schema 断言与 1 处重复声明是**上游既存红灯**（改动前同样失败，已在原始仓库复现确认），本次一并修到扁平 schema 与可编译。

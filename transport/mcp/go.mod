@@ -6,7 +6,7 @@ replace github.com/kalandramo/bald/log => ../../log
 
 require (
 	github.com/kalandramo/bald/log v0.5.1
-	github.com/mark3labs/mcp-go v0.54.1
+	github.com/mark3labs/mcp-go v1.1.0
 	github.com/stretchr/testify v1.12.1
 )
 
