@@ -11,6 +11,7 @@ import (
 
 	"github.com/hibiken/asynq"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -67,7 +68,7 @@ func TestNewTaskOnly(t *testing.T) {
 	assert.Nil(t, err)
 
 	if err = srv.Start(t.Context()); err != nil {
-		panic(err)
+		require.NoError(t, err)
 	}
 
 	defer func() {
@@ -104,7 +105,7 @@ func TestNewPeriodicTaskOnly(t *testing.T) {
 	assert.Nil(t, err)
 
 	if err = srv.Start(t.Context()); err != nil {
-		panic(err)
+		require.NoError(t, err)
 	}
 
 	defer func() {
@@ -153,7 +154,7 @@ func TestDelayTask(t *testing.T) {
 	assert.Nil(t, err)
 
 	if err = srv.Start(t.Context()); err != nil {
-		panic(err)
+		require.NoError(t, err)
 	}
 
 	defer func() {
@@ -192,7 +193,7 @@ func TestPeriodicTask(t *testing.T) {
 	assert.Nil(t, err)
 
 	if err = srv.Start(t.Context()); err != nil {
-		panic(err)
+		require.NoError(t, err)
 	}
 
 	defer func() {
@@ -229,7 +230,7 @@ func TestTaskSubscribe(t *testing.T) {
 	assert.Nil(t, err)
 
 	if err = srv.Start(t.Context()); err != nil {
-		panic(err)
+		require.NoError(t, err)
 	}
 
 	defer func() {
@@ -290,7 +291,7 @@ func TestAllInOne(t *testing.T) {
 	assert.Nil(t, err)
 
 	if err = srv.Start(t.Context()); err != nil {
-		panic(err)
+		require.NoError(t, err)
 	}
 
 	defer func() {
@@ -324,7 +325,9 @@ func TestWaitResultTask(t *testing.T) {
 
 	go func() {
 		if err = srv.Start(t.Context()); err != nil {
-			panic(err)
+			// 子 goroutine 内不能调用 t.FailNow（require.*），
+			// 用 t.Errorf 记录失败即可。
+			t.Errorf("srv.Start failed: %v", err)
 		}
 	}()
 

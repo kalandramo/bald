@@ -13,6 +13,7 @@ import (
 	"github.com/kalandramo/bald/log"
 	api "github.com/kalandramo/bald/transport/rocketmq/testapi"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/kalandramo/bald/broker"
 	"github.com/kalandramo/bald/broker/rocketmq/option"
@@ -51,9 +52,7 @@ func TestServer(t *testing.T) {
 	err := RegisterSubscriber(srv, ctx, testTopic, testGroupName, handleHygrothermograph)
 	assert.Nil(t, err)
 
-	if err := srv.Start(ctx); err != nil {
-		panic(err)
-	}
+	require.NoError(t, srv.Start(ctx))
 
 	defer func() {
 		if err := srv.Stop(ctx); err != nil {
@@ -133,9 +132,7 @@ func TestAliyunServer(t *testing.T) {
 	err := RegisterSubscriber(srv, ctx, topicName, groupName, handleHygrothermograph)
 	assert.Nil(t, err)
 
-	if err := srv.Start(ctx); err != nil {
-		panic(err)
-	}
+	require.NoError(t, srv.Start(ctx))
 
 	defer func() {
 		if err := srv.Stop(ctx); err != nil {

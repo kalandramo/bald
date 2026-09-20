@@ -45,7 +45,7 @@ func TestServer(t *testing.T) {
 	}()
 
 	if err := srv.Start(t.Context()); err != nil {
-		panic(err)
+		t.Fatalf("srv.Start failed: %v", err)
 	}
 
 	<-interrupt

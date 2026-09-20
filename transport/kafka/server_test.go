@@ -12,6 +12,7 @@ import (
 
 	api "github.com/kalandramo/bald/transport/kafka/testapi"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/kalandramo/bald/broker"
 	"github.com/kalandramo/bald/broker/kafka"
@@ -76,7 +77,7 @@ func TestServer(t *testing.T) {
 	)
 
 	if err := srv.Start(ctx); err != nil {
-		panic(err)
+		require.NoError(t, err)
 	}
 
 	defer func() {

@@ -12,6 +12,7 @@ import (
 
 	api "github.com/kalandramo/bald/transport/redis/testapi"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/kalandramo/bald/broker"
 	"github.com/kalandramo/bald/broker/redis"
@@ -47,13 +48,8 @@ func TestServer(t *testing.T) {
 	)
 	assert.Nil(t, err)
 
-	if err := srv.Connect(); err != nil {
-		panic(err)
-	}
-
-	if err := srv.Start(ctx); err != nil {
-		panic(err)
-	}
+	require.NoError(t, srv.Connect())
+	require.NoError(t, srv.Start(ctx))
 
 	defer func() {
 		if err := srv.Stop(ctx); err != nil {
