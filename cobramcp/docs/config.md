@@ -1,5 +1,12 @@
 # Configuration
 
+## Authentication
+
+`mcp stream`（SSE）与 `mcp rest`（REST）支持认证：注入自定义 HTTP 中间件
+（`Config.AuthMiddleware`）、内置静态 bearer token（`Config.AuthToken` /
+`--auth-token`）、或暴露 RFC 9728 OAuth 资源元数据端点
+（`Config.OAuthProtectedResource` / `--oauth-resource`）。详见 auth.md。
+
 ## Selectors
 
 Selectors control which commands and flags become MCP tools. cobramcp evaluates selectors in order and uses the **first matching selector** for each command. If no selectors match a command, the command is not exposed as a MCP tool.

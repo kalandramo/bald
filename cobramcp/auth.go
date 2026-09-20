@@ -4,6 +4,8 @@ import (
 	"crypto/subtle"
 	"net/http"
 	"strings"
+
+	mcpserver "github.com/mark3labs/mcp-go/server"
 )
 
 // 说明：本文件提供 cobramcp 的认证中间件构建逻辑。
@@ -93,3 +95,26 @@ func bearerToken(auth string) string {
 // 编译期断言：staticTokenMiddleware 的返回类型可直接传给 transport/mcp 的
 // Middleware 参数（两者底层类型均为 func(http.Handler) http.Handler）。
 var _ func(http.Handler) http.Handler = staticTokenMiddleware("x")
+
+// applyAuthFlags 把 CLI flag 值合并进 Config。
+// 仅在 flag 显式提供（非零值）时覆盖，避免清空代码中已配置的值。
+//
+// oauthResource 非空时启用 OAuth 资源元数据端点；oauthAuthServers 非空时
+// 覆盖 AuthorizationServers。已有 config.OAuthProtectedResource 的其余字段保留。
+func applyAuthFlags(config *Config, authToken, oauthResource string, oauthAuthServers []string) {
+	if config == nil {
+		return
+	}
+	if authToken != "" {
+		config.AuthToken = authToken
+	}
+	if oauthResource != "" {
+		if config.OAuthProtectedResource == nil {
+			config.OAuthProtectedResource = &mcpserver.ProtectedResourceMetadataConfig{}
+		}
+		config.OAuthProtectedResource.Resource = oauthResource
+		if len(oauthAuthServers) > 0 {
+			config.OAuthProtectedResource.AuthorizationServers = oauthAuthServers
+		}
+	}
+}

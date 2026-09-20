@@ -8,9 +8,12 @@ import (
 
 // streamCommand holds flags for the stream command.
 type streamCommandFlags struct {
-	logLevel string
-	host     string
-	port     int
+	logLevel        string
+	host            string
+	port            int
+	authToken       string
+	oauthResource   string
+	oauthAuthServer []string
 }
 
 // startCommand creates the 'mcp start' command.
@@ -24,6 +27,7 @@ func streamCommand(config *Config) *cobra.Command {
 			if config == nil {
 				config = &Config{}
 			}
+			applyAuthFlags(config, f.authToken, f.oauthResource, f.oauthAuthServer)
 
 			// stdio 模式下 stdout 是 MCP 协议通道，日志必须走 stderr。
 			installStderrLogger(parseLogLevel(f.logLevel))
@@ -38,5 +42,8 @@ func streamCommand(config *Config) *cobra.Command {
 	flags.StringVar(&f.logLevel, "log-level", "", "Log level (debug, info, warn, error)")
 	flags.StringVar(&f.host, "host", "", "host to listen on")
 	flags.IntVar(&f.port, "port", 8080, "port number to listen on")
+	flags.StringVar(&f.authToken, "auth-token", "", "Static bearer token required in Authorization header")
+	flags.StringVar(&f.oauthResource, "oauth-resource", "", "Resource identifier URI; enables RFC 9728 OAuth metadata endpoint")
+	flags.StringArrayVar(&f.oauthAuthServer, "oauth-auth-server", nil, "OAuth authorization server issuer (repeatable)")
 	return cmd
 }

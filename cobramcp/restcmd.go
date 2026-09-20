@@ -8,10 +8,13 @@ import (
 
 // restCommandFlags holds flags for the rest command.
 type restCommandFlags struct {
-	logLevel string
-	host     string
-	port     int
-	baseURL  string
+	logLevel        string
+	host            string
+	port            int
+	baseURL         string
+	authToken       string
+	oauthResource   string
+	oauthAuthServer []string
 }
 
 // restCommand creates the 'mcp rest' subcommand.
@@ -67,6 +70,7 @@ Response body:
 			if config == nil {
 				config = &Config{}
 			}
+			applyAuthFlags(config, f.authToken, f.oauthResource, f.oauthAuthServer)
 
 			installStderrLogger(parseLogLevel(f.logLevel))
 
@@ -80,5 +84,8 @@ Response body:
 	flags.StringVar(&f.host, "host", "", "Host address to listen on (default: all interfaces)")
 	flags.IntVar(&f.port, "port", 8080, "Port number to listen on")
 	flags.StringVar(&f.baseURL, "base-url", "", "Externally-visible base URL logged at startup (e.g. https://api.example.com)")
+	flags.StringVar(&f.authToken, "auth-token", "", "Static bearer token required in Authorization header")
+	flags.StringVar(&f.oauthResource, "oauth-resource", "", "Resource identifier URI; enables RFC 9728 OAuth metadata endpoint")
+	flags.StringArrayVar(&f.oauthAuthServer, "oauth-auth-server", nil, "OAuth authorization server issuer (repeatable)")
 	return cmd
 }
