@@ -12,5 +12,5 @@
 - [Bald 指标埋点使用](./Bald%20指标埋点使用.md)：两套指标体系选型（请求级 Recorder vs 传输级三原语）、三后端速查（prometheus/otel/datadog）、transport WithMetrics 注入与既有埋点清单、自定义埋点与跨后端边界（Gauge 语义分歧、MeterProvider 互斥）
 - [Bald 审计使用](./Bald%20审计使用.md)：审计后端三步启用（log 内置零注册 / store、stream 引依赖注册）、自动埋点四类与中间件挂载、auditor 绑定时机（构造快照语义与动态转发器）、运行期热切协调器、报错解读与迁移指引（bconf v0.6.0 type → v0.7.0 backends）
 - [Bald 缓存使用](./Bald%20缓存使用.md)：缓存后端三步启用（local/redis 可并存装配）、8 方法契约语义（[]byte 边界 / GetMulti 对齐规则 / SetNX 锁原语）、loadable 回源组合器（singleflight 合并防击穿 + best-effort 回填 + 业务级负缓存）、取实例时机与报错解读
-- [Bald Cobra MCP 桥接使用](./Bald%20Cobra%20MCP%20桥接使用.md)：把 Cobra CLI 接成 MCP 服务（子进程 / 进程内两种模型选型）、自带 `mcp start/stream/rest/tools` 与编辑器 `claude/vscode/cursor enable` 参数速查、命令变工具的过滤与命名规则、扁平入参 schema（flag 类型映射 + 位置参数注解）、selector 收窄暴露面与 middleware、编辑器配置路径与写入/备份陷阱
+- [Bald Cobra MCP 桥接使用](./Bald%20Cobra%20MCP%20桥接使用.md)：把 Cobra CLI 接成 MCP 服务（子进程 / 进程内两种模型选型）、自带 `mcp start/stream/rest/tools` 与编辑器 `vscode/cursor enable` 参数速查、命令变工具的过滤与命名规则、扁平入参 schema（flag 类型映射 + 位置参数注解）、selector 收窄暴露面与 middleware、编辑器配置路径与写入/备份陷阱
 - 最佳实践（待补充）

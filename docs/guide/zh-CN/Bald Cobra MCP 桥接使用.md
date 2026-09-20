@@ -57,7 +57,6 @@ func main() {
 
 ```bash
 my-cli mcp tools                                   # 导出工具清单到 ./mcp-tools.json
-my-cli mcp claude enable                           # 写 Claude Desktop 配置
 my-cli mcp cursor enable                           # 写 Cursor 配置
 my-cli mcp vscode enable                           # 写 VSCode 配置
 my-cli mcp start                                   # 以 stdio 起 MCP 服务（由编辑器拉起）
@@ -80,9 +79,11 @@ my-cli mcp stream --host 127.0.0.1 --port 8080     # 以 SSE 起服务，便于�
 | `mcp stream` | 以 SSE 暴露，供远端/容器接入 | `--log-level`、`--host`（默认 `""` 全部接口）、`--port`（默认 `8080`） |
 | `mcp rest` | 以普通 HTTP JSON API 暴露（非 MCP 协议） | `--log-level`、`--host`、`--port`（默认 `8080`）、`--base-url`（仅用于启动日志） |
 | `mcp tools` | 导出工具定义为 `./mcp-tools.json` | `--log-level` |
-| `mcp claude enable\|disable\|list` | 管理 Claude Desktop 配置 | 见下表 |
 | `mcp vscode enable\|disable\|list` | 管理 VSCode 配置 | 见下表 |
 | `mcp cursor enable\|disable\|list` | 管理 Cursor 配置 | 见下表 |
+
+> **不支持 Claude Desktop**：cobramcp 不提供 `mcp claude` 子命令，也不读写
+> `claude_desktop_config.json`。需要接入 Claude 时请自行手工编辑其配置。
 
 编辑器三组子命令的参数：
 
@@ -115,7 +116,7 @@ my-cli mcp stream --host 127.0.0.1 --port 8080     # 以 SSE 起服务，便于�
 
 - **子进程模型**工具名 = `<根命令名>_<子命令路径>`，段间空格换下划线，例如
   `my-cli sre open` → `my-cli_sre_open`（连字符原样保留）；`Config.ToolNamePrefix`
-  可替换根命令名那段（应对 Claude 的 64 字符工具名上限等）。
+  可替换根命令名那段（应对 MCP 的 64 字符工具名上限等）。
 - **进程内模型**工具名不含根命令名（`sre_open`），因为根命令名可能含 MCP 工具名
   非法字符（如 `/`）。
 - 工具描述取 `cmd.Long`，为空回退 `cmd.Short`，再回退 `Execute the <name> command`；
@@ -291,10 +292,9 @@ return srv.Start(ctx) // 阻塞至 ctx 取消
 
 ## 8. 编辑器集成：`enable` 写了什么
 
-`enable` 写入的条目形态（下例为 Cursor/VSCode 形态，Claude 不写 `type` 字段；
-`command` 是**当前可执行文件绝对路径**，`args` 是「复用当前调用路径 + `start`」，
-因此 `my-cli mcp claude enable` 与 `my-cli agent claude enable` 写出的 args 前缀
-不同）：
+`enable` 写入的条目形态（`command` 是**当前可执行文件绝对路径**，`args` 是「复用
+当前调用路径 + `start`」，因此 `my-cli mcp cursor enable` 与
+`my-cli agent cursor enable` 写出的 args 前缀不同）：
 
 ```json
 {
@@ -311,9 +311,10 @@ return srv.Start(ctx) // 阻塞至 ctx 取消
 
 | 编辑器 | 用户级配置文件 | 顶层字段 | 备注 |
 | --- | --- | --- | --- |
-| Claude Desktop | macOS `~/Library/Application Support/Claude/claude_desktop_config.json`；Linux `$XDG_CONFIG_HOME/Claude/...`（缺省 `~/.config/Claude/...`）；Windows `%APPDATA%\Claude\claude_desktop_config.json` | `mcpServers` | 无 `type` 字段 |
 | VSCode | macOS `~/Library/Application Support/Code/User/mcp.json`；Linux `~/.config/Code/User/mcp.json`；Windows `%USERPROFILE%\AppData\Roaming\Code\User\mcp.json` | `servers` | `--workspace` 时写 `<cwd>/.vscode/mcp.json`；需 Copilot Agent Mode |
 | Cursor | 各平台 `~/.cursor/mcp.json`（Windows `%USERPROFILE%\.cursor\mcp.json`） | `mcpServers` | `--workspace` 时写 `<cwd>/.cursor/mcp.json` |
+
+> Claude Desktop 不在支持范围——`enable` 不会读写其配置文件，请手工编辑。
 
 `--config-path` 可覆盖上表任一默认路径（推荐在容器/CI/多配置场景显式指定）。
 
@@ -333,7 +334,7 @@ config := &cobramcp.Config{
 写入行为与陷阱（均为代码可证实的边界）：
 
 - **每次保存前会备份**：已存在的配置文件复制为同目录 `<名字>.backup.json`
-  （如 `claude_desktop_config.backup.json`）。同名备份**每次覆盖**，只保留「上一次
+  （如 `mcp.backup.json`）。同名备份**每次覆盖**，只保留「上一次
   保存前」的状态。
 - **文件不存在会被创建**（自动 `MkdirAll` + 写 `0644`）；`disable`/`list` 不会创建。
 - 文件必须是**严格 JSON**：带注释/尾逗号的 JSONC 会直接报

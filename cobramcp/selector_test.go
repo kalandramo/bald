@@ -427,7 +427,7 @@ func TestGenerateToolName(t *testing.T) {
 		shortName := toolName(inProvider, "omctl")
 		assert.Equal(t, "omctl_cost_by-instance-type_in-provider", shortName)
 		assert.Less(t, len(shortName), len(fullName), "Short name should be shorter than full name")
-		assert.Less(t, len(shortName), 64, "Short name should be under Claude's 64-char limit")
+		assert.Less(t, len(shortName), 64, "Short name should be under the 64-char tool name limit")
 	})
 }
 

@@ -6,7 +6,7 @@
 > [Bald Cobra MCP 桥接设计](../../docs/devel/zh-CN/Bald%20Cobra%20MCP%20桥接设计.md) 为准。
 > 本文保留作为上游设计的参考分析。
 
-> cobramcp 将任意 Cobra CLI 自动转换为 MCP（Model Context Protocol）服务器，使 AI 助手（Claude Desktop、VSCode Copilot、Cursor 等）能够直接调用命令行工具。本文基于源码对其设计与实现进行完整分析。
+> cobramcp 将任意 Cobra CLI 自动转换为 MCP（Model Context Protocol）服务器，使 AI 助手（VSCode Copilot、Cursor 等）能够直接调用命令行工具。本文基于源码对其设计与实现进行完整分析。
 
 ## 1. 项目定位与总体架构
 
@@ -262,7 +262,7 @@ cmd.Annotations = map[string]string{
 
 ### 4.4 工具名与描述（`selector.go:195`）
 
-- **名称**：`CommandPath()` 中根命令名替换为 `ToolNamePrefix`（缩短长名以满足 Claude 64 字符限制），空格转下划线。如 `myapp sre open` → `myapp_sre_open`。进程内模型刻意用空前缀，工具名不含根命令名（根名可能含 MCP 工具名非法字符如 `/`）。
+- **名称**：`CommandPath()` 中根命令名替换为 `ToolNamePrefix`（缩短长名以满足 MCP 64 字符工具名限制），空格转下划线。如 `myapp sre open` → `myapp_sre_open`。进程内模型刻意用空前缀，工具名不含根命令名（根名可能含 MCP 工具名非法字符如 `/`）。
 - **描述**：`Long` > `Short` > 兜底 `"Execute the X command"`，追加 `Example`。Long/Example 是向 LLM 传授用法的主要通道。
 
 ### 4.5 MCP 工具注解（`annotations.go`）
@@ -346,7 +346,7 @@ RunE 错误处理：execErr → exitCode=1；若 stderr 为空则把错误信息
 
 | 形态 | 命令/API | 传输 | 场景 |
 |------|----------|------|------|
-| stdio | `myapp mcp start`（`start.go`） | `mcpserver.ServeStdio` | Claude Desktop 等本地 MCP 客户端拉起的子进程 |
+| stdio | `myapp mcp start`（`start.go`） | `mcpserver.ServeStdio` | 本地 MCP 客户端拉起的子进程 |
 | SSE | `myapp mcp stream --host --port`（`stream.go`） | `mcpserver.NewSSEServer` | 远程 HTTP 访问 MCP |
 | REST | `myapp mcp rest --port`（`restcmd.go`/`rest.go`） | 原生 `http.ServeMux` | 非 MCP 消费方（curl、CI、脚本） |
 | 进程内 SSE | `NewMCPServer().Start()`（`server.go:179`） | SSE | 嵌入长驻应用 |

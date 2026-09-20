@@ -4,6 +4,10 @@
 
 cobramcp automatically converts your Cobra commands into MCP tools, and provides CLI commands for integration with VSCode and Cursor.
 
+> **Claude is not supported.** cobramcp does not manage Claude Desktop configuration
+> (`mcp claude enable/disable/list` was removed). Use the `vscode` or `cursor`
+> subcommands, or write your MCP client config manually.
+
 ## Quick Start
 
 ### Install
@@ -41,6 +45,8 @@ func main() {
 # Cursor
 ./my-cli mcp cursor enable
 ```
+
+Claude Desktop is not supported — cobramcp provides no `claude` subcommand.
 
 Your CLI commands are now available as MCP tools!
 

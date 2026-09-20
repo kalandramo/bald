@@ -31,11 +31,11 @@
 
 ### 动机一：上游要自维护，落点必须先定
 
-`onexstack/cobrax` 的职能是「Cobra 命令树 → MCP tools」的桥接，附带编辑器配置管理（`mcp claude/vscode/cursor enable|disable|list`）。要收进 bald 生态，落点有三个候选：
+`onexstack/cobrax` 的职能是「Cobra 命令树 → MCP tools」的桥接，附带编辑器配置管理（`mcp vscode/cursor enable|disable|list`；Claude Desktop 支持已移除）。要收进 bald 生态，落点有三个候选：
 
 | 候选 | 裁定 |
 |---|---|
-| `transport/mcp` 内的一个包 | **否决**。传输实现里出现「Claude Desktop 配置管理」无法自洽；且只想要 MCP 传输的消费者被迫编译 cobra/pflag/jsonschema/cfgmgr |
+| `transport/mcp` 内的一个包 | **否决**。传输实现里出现「编辑器配置管理」无法自洽；且只想要 MCP 传输的消费者被迫编译 cobra/pflag/jsonschema/cfgmgr |
 | `transport/mcp/cobra/`（独立子 module） | 可行但别扭。package 名会被迫叫 `cobra`，与 `spf13/cobra` 抢 import 别名 |
 | **顶层独立 module `bald/cobramcp`** | **采纳**。与 bald 既有惯例一致：顶层目录（独立 go.mod）= 可独立发布的桥接/插件模块 |
 

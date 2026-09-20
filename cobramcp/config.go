@@ -58,7 +58,7 @@ type Config struct {
 	DefaultEnv map[string]string
 
 	// ToolNamePrefix replaces the root command name in tool names.
-	// This is useful for shortening tool names to comply with API limits (e.g., Claude's 64 char limit).
+	// This is useful for shortening tool names to comply with MCP API limits (e.g., a 64-char tool name limit).
 	// For example, if root command is "omnistrate-ctl" and ToolNamePrefix is "omctl",
 	// a command "omnistrate-ctl cost by-cell list" becomes "omctl_cost_by-cell_list" instead of
 	// "omnistrate-ctl_cost_by-cell_list".
