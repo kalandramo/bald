@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 
+	mcpserver "github.com/mark3labs/mcp-go/server"
 	"github.com/spf13/cobra"
 
 	baldlog "github.com/kalandramo/bald/log"
@@ -60,6 +61,15 @@ func (c *Config) serveREST(cmd *cobra.Command, addr, baseURL string) error {
 
 	mux := http.NewServeMux()
 
+	// OAuth 资源元数据端点（RFC 9728）。REST 形态自建 mux，不像 SSE 由
+	// mcp-go 内部按路径分发，故需在此显式挂载。该路径免认证（公开发现端点）。
+	if c.OAuthProtectedResource != nil {
+		mux.Handle(
+			mcpserver.ProtectedResourceMetadataPath(c.OAuthProtectedResource.Resource),
+			mcpserver.NewProtectedResourceMetadataHandler(*c.OAuthProtectedResource),
+		)
+	}
+
 	// Register one POST handler per tool.
 	for _, tool := range c.tools {
 		name := tool.Name
@@ -87,9 +97,16 @@ func (c *Config) serveREST(cmd *cobra.Command, addr, baseURL string) error {
 	cmd.Printf("REST API server listening on %q (base URL: %s)\n", addr, effectiveBaseURL)
 	baldlog.Info(cmd.Context(), "REST API server listening", "addr", addr, "baseURL", effectiveBaseURL)
 
+	// 认证中间件包裹整个 mux（AuthMiddleware 外层 + AuthToken 内层），
+	// well-known 元数据路径免认证。
+	var handler http.Handler = mux
+	if mw := buildAuthMiddleware(c.AuthMiddleware, c.AuthToken, c.publicAuthPaths()...); mw != nil {
+		handler = mw(handler)
+	}
+
 	srv := &http.Server{
 		Addr:    addr,
-		Handler: mux,
+		Handler: handler,
 	}
 
 	// Graceful shutdown when the cobra command context is cancelled.

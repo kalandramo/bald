@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -37,6 +38,20 @@ type MCPOptions struct {
 	// transport so that the message endpoint advertised to clients is correct
 	// when the server sits behind a proxy. If empty, the listen address is used.
 	BaseURL string `json:"baseURL" mapstructure:"baseURL"`
+
+	// AuthMiddleware 是 HTTP 认证中间件（作用于 SSE 形态）。
+	// 认证失败时应返回 401/403 并中断请求。nil 时不启用认证。
+	// 函数类型无法序列化，故不参与配置绑定（json:"-"）。
+	// 若同时配置 OAuthProtectedResource，中间件必须放行其 well-known 路径。
+	AuthMiddleware func(http.Handler) http.Handler `json:"-" mapstructure:"-"`
+
+	// AuthToken 是内置的静态 Bearer token 校验（常数时间比较）。
+	// 非空时自动构造校验 Authorization: Bearer <token> 的中间件。
+	AuthToken string `json:"authToken" mapstructure:"authToken"`
+
+	// OAuthProtectedResource 配置 RFC 9728 OAuth 资源元数据端点（SSE 形态）。
+	// nil 时不暴露该端点；配置后其 well-known 路径始终免认证。
+	OAuthProtectedResource *mcpserver.ProtectedResourceMetadataConfig `json:"oauthProtectedResource" mapstructure:"oauthProtectedResource"`
 }
 
 // MCPServer exposes a Cobra command tree as MCP tools.
@@ -152,6 +167,21 @@ func NewMCPServer(opts MCPOptions, cmdFactory func() *cobra.Command, serverOpts 
 	}
 	if opts.BaseURL != "" {
 		transportOpts = append(transportOpts, mcptransport.WithSSEOptions(mcpserver.WithBaseURL(opts.BaseURL)))
+	}
+
+	// 认证：与 Config 路径一致（AuthMiddleware 外层 + AuthToken 内层），
+	// well-known 元数据路径免认证。
+	publicPaths := []string(nil)
+	if opts.OAuthProtectedResource != nil {
+		publicPaths = append(publicPaths,
+			mcpserver.ProtectedResourceMetadataPath(opts.OAuthProtectedResource.Resource))
+	}
+	if mw := buildAuthMiddleware(opts.AuthMiddleware, opts.AuthToken, publicPaths...); mw != nil {
+		transportOpts = append(transportOpts, mcptransport.WithMiddleware(mw))
+	}
+	if opts.OAuthProtectedResource != nil {
+		transportOpts = append(transportOpts,
+			mcptransport.WithSSEProtectedResourceMetadata(*opts.OAuthProtectedResource))
 	}
 
 	srv := &MCPServer{

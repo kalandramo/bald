@@ -3,6 +3,7 @@ package cobramcp
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -70,6 +71,28 @@ type Config struct {
 	// the listen address is used.
 	BaseURL string
 
+	// AuthMiddleware 是 HTTP 认证中间件，作用于 SSE（mcp stream）与 REST（mcp rest）。
+	// 认证失败时中间件应返回 401/403 并中断请求（不调用 next）。
+	// nil 时不启用认证（保持当前行为）。
+	//
+	// 注意：若同时配置了 OAuthProtectedResource，中间件必须放行
+	// /.well-known/oauth-protected-resource 路径（公开发现端点，客户端未持
+	// token 时也需访问），否则 OAuth 发现流程会死锁。内置的 AuthToken 中间件
+	// 已自动放行；自定义 AuthMiddleware 需自行处理。
+	AuthMiddleware func(http.Handler) http.Handler
+
+	// AuthToken 是内置的静态 Bearer token 校验。
+	// 非空时自动构造一个校验 Authorization: Bearer <token> 的中间件
+	// （常数时间比较防时序攻击）。与 AuthMiddleware 同时配置时，
+	// AuthMiddleware 在外层（先执行）。
+	AuthToken string
+
+	// OAuthProtectedResource 配置 RFC 9728 OAuth 2.0 资源元数据端点
+	// （仅 SSE/REST 形态生效；stdio 无 HTTP 层）。nil 时不暴露该端点。
+	// 端点路径由 ProtectedResourceMetadataPath(Resource) 派生，且该路径
+	// 始终免认证（公开发现端点）。
+	OAuthProtectedResource *mcpserver.ProtectedResourceMetadataConfig
+
 	tools          []*mcp.Tool
 	toolMetas      map[string]toolMeta // tool name → registration-time metadata
 	toolSelectors  map[string]Selector // tool name → selector that owns it
@@ -82,6 +105,16 @@ func (c *Config) commandName() string {
 		return c.CommandName
 	}
 	return "mcp"
+}
+
+// publicAuthPaths 返回免认证路径列表。
+// OAuth 资源元数据端点（RFC 9728 well-known）是公开发现端点——客户端在
+// 未持 token 时也要能取，故必须放行，否则 OAuth 发现流程死锁。
+func (c *Config) publicAuthPaths() []string {
+	if c == nil || c.OAuthProtectedResource == nil {
+		return nil
+	}
+	return []string{mcpserver.ProtectedResourceMetadataPath(c.OAuthProtectedResource.Resource)}
 }
 
 // serveStdio 以 stdio 传输暴露 CLI 命令，直到客户端断开或 ctx 取消。
@@ -151,6 +184,17 @@ func (c *Config) newTransportServer(cmd *cobra.Command, serverType mcptransport.
 	}
 	if c.BaseURL != "" && serverType == mcptransport.ServerTypeSSE {
 		opts = append(opts, mcptransport.WithSSEOptions(mcpserver.WithBaseURL(c.BaseURL)))
+	}
+
+	// 认证：AuthMiddleware（外层）+ AuthToken（内层静态校验）组合成单一中间件。
+	// well-known 元数据路径始终免认证（公开发现端点）。
+	publicPaths := c.publicAuthPaths()
+	if mw := buildAuthMiddleware(c.AuthMiddleware, c.AuthToken, publicPaths...); mw != nil {
+		opts = append(opts, mcptransport.WithMiddleware(mw))
+	}
+	// OAuth 资源元数据端点（仅 SSE 形态，由 mcp-go SSEServer 内部按路径分发）。
+	if c.OAuthProtectedResource != nil && serverType == mcptransport.ServerTypeSSE {
+		opts = append(opts, mcptransport.WithSSEProtectedResourceMetadata(*c.OAuthProtectedResource))
 	}
 
 	srv := mcptransport.NewServer(opts...)
