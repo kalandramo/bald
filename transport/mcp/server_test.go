@@ -13,7 +13,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestServer(t *testing.T) {
@@ -90,9 +90,7 @@ func TestServer(t *testing.T) {
 		return mcp.NewToolResultText(fmt.Sprintf("%.2f", result)), nil
 	})
 
-	if err := srv.Start(ctx); err != nil {
-		panic(err)
-	}
+	require.NoError(t, srv.Start(ctx))
 
 	defer func() {
 		if err := srv.Stop(ctx); err != nil {
@@ -110,17 +108,17 @@ func TestClient(t *testing.T) {
 	ctx := context.Background()
 
 	httpTransport, err := transport.NewStreamableHTTP("http://localhost:8080/mcp")
-	assert.NoError(t, err)
-	assert.NotNil(t, httpTransport)
+	require.NoError(t, err)
+	require.NotNil(t, httpTransport)
 
 	mcpClient := client.NewClient(
 		httpTransport,
 	)
-	assert.NotNil(t, mcpClient)
-	defer mcpClient.Close()
+	require.NotNil(t, mcpClient)
+	defer func() { _ = mcpClient.Close() }()
 
 	err = mcpClient.Start(ctx)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Initialize the MCP session
 	initRequest := mcp.InitializeRequest{
@@ -135,7 +133,7 @@ func TestClient(t *testing.T) {
 	}
 
 	_, err = mcpClient.Initialize(ctx, initRequest)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// 调用计算工具
 	result, err := mcpClient.CallTool(ctx, mcp.CallToolRequest{
@@ -148,16 +146,15 @@ func TestClient(t *testing.T) {
 			},
 		},
 	})
-	assert.NoError(t, err)
-	assert.NotNil(t, result)
-	assert.NotEmpty(t, result.Content)
+	// require 失败即终止，后续对 result 的解引用才安全。
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotEmpty(t, result.Content)
 
-	if len(result.Content) > 0 {
-		textContent, ok := result.Content[0].(mcp.TextContent)
-		assert.True(t, ok, "expected TextContent type")
-		assert.Equal(t, "15.00", textContent.Text)
-		t.Logf("计算结果: %s", textContent.Text)
-	}
+	textContent, ok := result.Content[0].(mcp.TextContent)
+	require.True(t, ok, "expected TextContent type")
+	require.Equal(t, "15.00", textContent.Text)
+	t.Logf("计算结果: %s", textContent.Text)
 
 	t.Logf("完整结果: %#v", result)
 }
@@ -202,11 +199,9 @@ func TestServer_RegisterHandlerWithJsonString(t *testing.T) {
 
 		return mcp.NewToolResultText(msg), nil
 	})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
-	if err := srv.Start(ctx); err != nil {
-		panic(err)
-	}
+	require.NoError(t, srv.Start(ctx))
 
 	defer func() {
 		if err := srv.Stop(ctx); err != nil {
@@ -265,11 +260,9 @@ func TestServer_RegisterHandlerWithJsonSchema(t *testing.T) {
 
 		return mcp.NewToolResultText(reversed), nil
 	})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
-	if err := srv.Start(ctx); err != nil {
-		panic(err)
-	}
+	require.NoError(t, srv.Start(ctx))
 
 	defer func() {
 		if err := srv.Stop(ctx); err != nil {
