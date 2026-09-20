@@ -132,15 +132,17 @@ rootCmd.AddCommand(cobramcp.Command(config))
 
 These are merged into the editor config written by `enable`. User-provided `--env` values take precedence on conflict.
 
-See [docs/config.md](docs/config.md) for detailed configuration options.
+See docs/design.md for the full design and configuration reference.
 
 ## How It Works
 
 cobramcp bridges Cobra commands and the Model Context Protocol:
 
 1. **Command Discovery**: Recursively walks your Cobra command tree
-2. **Schema Generation**: Creates flat JSON schemas from command flags and arguments ([docs/schema.md](docs/schema.md))
-3. **Tool Execution**: Either re-executes your CLI as a subprocess or runs the cobra command in-process ([docs/execution.md](docs/execution.md))
+2. **Schema Generation**: Creates flat JSON schemas from command flags and arguments
+3. **Tool Execution**: Either re-executes your CLI as a subprocess or runs the cobra command in-process
+
+See docs/design.md for the full design.
 
 ## 与 bald 生态的关系
 

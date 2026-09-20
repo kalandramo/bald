@@ -154,7 +154,7 @@ serveStdio / serveHTTP                   // start → 等 ctx.Done 或 srv.Done(
 - **`replace` 保留**（`=> ../transport/mcp`、`=> ../../log` 等）：与仓内已发版 module 惯例一致（`bootstrap`、`transport/http` 同形），仅供本地开发；Go 只认主模块的 replace，**依赖模块内的 replace 对外部消费者无效**，故不损害可构建性。
 - **发版两查结论**：① **tag 自洽**——`git show <tag>:<module>/go.mod` 的 require 全为真实版本（`log v0.5.1` / `transport/mcp v0.1.0` / `cobramcp v0.1.0`），无 `v0.0.0`；② **外部可构建性**——临时消费模块 `require github.com/kalandramo/bald/cobramcp v0.1.0` 后 `go mod tidy` + `go build ./...` 全绿，依赖树解析为 `cobramcp v0.1.0` / `transport/mcp v0.1.0` / `log v0.5.1`，proxy 即刻可取（无需 direct 绕行）。
 - **本地 replace 不跨 module 传递**：`cobramcp/examples/*` 三个子 module 各自补了 `cobramcp`/`log`/`transport/mcp` 三条 replace，否则会去解析不存在的版本。
-- 上游 `cobramcp/docs/mcp-design.md`（对旧实现的分析）保留为参考，正文已标注状态并指向本文。
+- cobramcp 的设计文档为 `cobramcp/docs/design.md`（以当前代码实现为基线，中文）。
 
 ## 实施记录（2026-09-17）
 
