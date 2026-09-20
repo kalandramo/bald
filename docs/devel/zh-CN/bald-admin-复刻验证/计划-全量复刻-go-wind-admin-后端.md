@@ -485,6 +485,60 @@ graph TB
 | 6.2 | `AdminPortalService` / `DashboardService` 等真新增管理面逻辑 | e2e：管理面接口可调 |
 | 6.3 | 其余包装类接口按裁定结果复用 Wave 1–5 的 biz 层 | 零重复实现 |
 
+#### 6.1 范围裁定结果（2026-09-20 实测产出）
+
+**取证方法**（可复现）：对 36 个 proto 文件逐一提取 ① `service` 名 ② `rpc` 名与数量
+③ **业务域 import**（`grep -E '^import "' | grep -v google/pagination/gnostic/redact`），
+再与非 admin 域的同名 proto 逐 rpc 比对。
+
+**总量核实**：`admin/service/v1/` 下 36 个 proto 文件，其中 `admin_doc.proto` /
+`admin_error.proto` **无 service 定义**（文档与错误码），故 **34 service / 162 rpc**
+（与计划记载一致）。
+
+**核心判据（决定性证据）**：admin 域的 `i_*.proto` **import 非 admin 域的业务 proto**
+——如 `i_menu.proto` import `permission/service/v1/menu.proto`、`i_user.proto` import
+`identity/service/v1/user.proto`、`i_dict_type.proto` import `dict/service/v1/dict_type.proto`。
+即 admin 域**复用非 admin 域的消息类型**，只是换了管理面路径与字段裁剪。
+
+**三分类裁定**：
+
+| 类别 | 数量 | service | 判据 |
+|---|---|---|---|
+| **A. 包装类**（复用已实现 biz） | 31 | user/role/tenant/menu/permission/api/dict_type/dict_entry/language/task/org_unit/position/plan/plan_module/plan_quota/permission_group/policy_evaluation_log/mfa/login_policy/user_profile/file/file_transfer/internal_message/internal_message_category/internal_message_recipient/authentication + 4 类 audit_log | import 非 admin 域 proto；rpc 名与已实现域一致（通常去 `Count`/`BatchCreate`） |
+| **B. 真新增**（独立管理面逻辑） | 3 | `AdminPortalService`(3) / `DashboardService`(4) / `RedisCacheMonitorService`(1) | **不 import** 其他业务域 proto（`i_dashboard` 零业务 import）；`i_admin_portal` 仅 import menu.proto 作消息类型，rpc 全为聚合逻辑 |
+| **C. 非 service 文件** | 2 | `admin_doc` / `admin_error` | 无 `service` 定义，不计入 rpc |
+
+**A 类的实证细节（说明「包装」不等于「纯复制」）**：
+
+- `i_user`(7) vs 非 admin `user.proto`(8)：admin 去 `Count`/`BatchCreate`，**多** `EditUserPassword`。
+- `i_tenant`(9) vs 非 admin `tenant.proto`(11)：admin 去 `Count`/`BatchCreate`，
+  `AssignTenantAdmin` 改名为 `CreateTenantWithAdminUser`。
+- `i_menu`(6) vs 非 admin `menu.proto`(7)：仅去 `Count`。
+- `i_language`(6) vs 非 admin `language.proto`(7)：去 `Count`（**已在 Wave 5.3 实现**）。
+
+即 A 类是「同一批业务的不同 API 面」——**复用 biz 层，管理面做字段/动作裁剪**。
+
+**B 类的实质**：
+- `AdminPortalService`：`GetNavigation`（导航菜单树）/ `GetMyPermissionCode`（我的权限码）/
+  `GetInitialContext`（初始上下文聚合）——**跨域聚合**，无单一对标 biz。
+- `DashboardService`：4 rpc 首页统计——**已在 Wave 3.4 实现**（`biz/v1/dashboard`）。
+- `RedisCacheMonitorService`：1 rpc 缓存监控——源用 Redis 原生命令，**未实现**（Wave 5 未覆盖）。
+
+**裁定结论（对 Wave 6 工作量的影响）**：
+
+1. **162 rpc 的实际新增工作量远小于表面数字**——A 类 31 service 的 biz 逻辑
+   **全部已在 Wave 1–5 实现**（`biz/v1/` 下 20 个域），Wave 6 只需为管理面**加路由
+   与 proto 包装**（或按需裁剪字段），**零重复实现**。
+2. **真新增仅 3 个 service / 8 rpc**：`AdminPortalService`(3) + `RedisCacheMonitorService`(1)
+   待实现；`DashboardService`(4) 已完成。
+3. **A 类的落地策略待定**（6.3）：是否值得为「管理面路径」逐条加 proto + handler
+   ——源的 `/admin/v1/*` 与本项目现有 `/v1/*` 是**两套路径面**，若前端只消费一套，
+   逐条复刻 A 类的收益仅是「路径对齐」。
+
+> **称量（不做 A 类的代价）**：若跳过 A 类，「388 rpc 全量对等」的字面目标有缺口；
+> 但 A 类的**业务能力**已 100% 覆盖（同 biz 层），缺口仅在 API 路径面。
+> 这需要在 6.2/6.3 开工前与用户确认（见「下一步」）。
+
 ### Wave 7 · 前端对齐与收尾
 
 | # | 任务 | 验收 |
