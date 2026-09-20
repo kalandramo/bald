@@ -23,7 +23,7 @@ func DeriveServerName(executablePath string) string {
 // It returns the slice of command names from after the root command up to and
 // including the command identified by commandName.
 //
-// Example: for command path "myapp agent claude enable" with commandName "agent",
+// Example: for command path "myapp agent vscode enable" with commandName "agent",
 // returns ["agent"].
 //
 // The returned slice can be used as arguments when invoking the executable.

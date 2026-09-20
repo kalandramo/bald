@@ -128,7 +128,6 @@ func TestCustomCommandName(t *testing.T) {
 	for _, tool := range tools {
 		assert.NotContains(t, tool.Name, "agent", "cobrax subcommand %q should not be exposed as a tool", tool.Name)
 		assert.NotContains(t, tool.Name, "start", "cobrax 'start' should not be exposed as a tool")
-		assert.NotContains(t, tool.Name, "claude", "cobrax 'claude' should not be exposed as a tool")
 		assert.NotContains(t, tool.Name, "cursor", "cobrax 'cursor' should not be exposed as a tool")
 		assert.NotContains(t, tool.Name, "vscode", "cobrax 'vscode' should not be exposed as a tool")
 	}

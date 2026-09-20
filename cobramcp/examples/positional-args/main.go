@@ -58,7 +58,7 @@ func main() {
 	modeCmd.Flags().StringVar(&addr, "addr", ":8090", "MCP HTTP 服务监听地址")
 
 	rootCmd.AddCommand(modeCmd)
-	// Attach the standard "mcp start / mcp tools / mcp claude ..." sub-tree
+	// Attach the standard "mcp start / mcp tools / mcp vscode ..." sub-tree
 	// for the subprocess model.
 	rootCmd.AddCommand(cobramcp.Command(nil))
 

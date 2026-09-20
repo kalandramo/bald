@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/kalandramo/bald/cobramcp/internal/cfgmgr/manager/claude"
 	"github.com/kalandramo/bald/cobramcp/internal/cfgmgr/manager/cursor"
 	"github.com/kalandramo/bald/cobramcp/internal/cfgmgr/manager/vscode"
 )
@@ -60,20 +59,6 @@ func NewCursorManager(configPath string, workspace bool) (*Manager[cursor.Server
 
 	m := &Manager[cursor.Server, *cursor.Config]{
 		config:     &cursor.Config{},
-		configPath: configPath,
-	}
-
-	return m, m.loadConfig()
-}
-
-// NewClaudeManager creates a new Manager configured for Claude Desktop MCP servers.
-func NewClaudeManager(configPath string) (*Manager[claude.Server, *claude.Config], error) {
-	if configPath == "" {
-		configPath = claude.ConfigPath()
-	}
-
-	m := &Manager[claude.Server, *claude.Config]{
-		config:     &claude.Config{},
 		configPath: configPath,
 	}
 

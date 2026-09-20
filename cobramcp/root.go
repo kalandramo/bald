@@ -1,7 +1,6 @@
 package cobramcp
 
 import (
-	"github.com/kalandramo/bald/cobramcp/internal/cfgmgr/cmd/claude"
 	"github.com/kalandramo/bald/cobramcp/internal/cfgmgr/cmd/cursor"
 	"github.com/kalandramo/bald/cobramcp/internal/cfgmgr/cmd/vscode"
 	"github.com/spf13/cobra"
@@ -29,7 +28,6 @@ func Command(config *Config) *cobra.Command {
 		toolCommand(config),
 		streamCommand(config),
 		restCommand(config),
-		claude.Command(name, defaultEnv),
 		vscode.Command(name, defaultEnv),
 		cursor.Command(name, defaultEnv),
 	)

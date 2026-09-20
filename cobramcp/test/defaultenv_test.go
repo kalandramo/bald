@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/kalandramo/bald/cobramcp"
-	"github.com/kalandramo/bald/cobramcp/internal/cfgmgr/manager/claude"
+	"github.com/kalandramo/bald/cobramcp/internal/cfgmgr/manager/vscode"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -15,7 +15,7 @@ import (
 
 // createDefaultEnvCommand creates a command tree with DefaultEnv configured.
 // configPath is passed to the enable command via --config-path so the test
-// doesn't touch the real Claude Desktop config.
+// doesn't touch the real editor config.
 func createDefaultEnvCommand(defaultEnv map[string]string) *cobra.Command {
 	root := &cobra.Command{
 		Use:   "testcli",
@@ -37,14 +37,14 @@ func createDefaultEnvCommand(defaultEnv map[string]string) *cobra.Command {
 	return root
 }
 
-// readClaudeConfig reads and parses a Claude Desktop config file, returning
+// readVSCodeConfig reads and parses a VSCode MCP config file, returning
 // the server entry with the given name.
-func readClaudeConfig(t *testing.T, configPath, serverName string) claude.Server {
+func readVSCodeConfig(t *testing.T, configPath, serverName string) vscode.Server {
 	t.Helper()
 	data, err := os.ReadFile(configPath)
 	require.NoError(t, err, "failed to read config file")
 
-	var cfg claude.Config
+	var cfg vscode.Config
 	err = json.Unmarshal(data, &cfg)
 	require.NoError(t, err, "failed to parse config file")
 
@@ -53,25 +53,25 @@ func readClaudeConfig(t *testing.T, configPath, serverName string) claude.Server
 }
 
 func TestDefaultEnvWrittenToConfig(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "claude_config.json")
+	configPath := filepath.Join(t.TempDir(), "vscode_config.json")
 
 	cmd := createDefaultEnvCommand(map[string]string{
 		"PATH":       "/usr/local/bin:/usr/bin",
 		"KUBECONFIG": "/home/user/.kube/config",
 	})
 
-	cmd.SetArgs([]string{"agent", "claude", "enable", "--config-path", configPath, "--server-name", "testcli"})
+	cmd.SetArgs([]string{"agent", "vscode", "enable", "--config-path", configPath, "--server-name", "testcli"})
 	err := cmd.Execute()
 	require.NoError(t, err)
 
-	server := readClaudeConfig(t, configPath, "testcli")
+	server := readVSCodeConfig(t, configPath, "testcli")
 	require.NotNil(t, server.Env, "server env should not be nil")
 	assert.Equal(t, "/usr/local/bin:/usr/bin", server.Env["PATH"])
 	assert.Equal(t, "/home/user/.kube/config", server.Env["KUBECONFIG"])
 }
 
 func TestDefaultEnvUserOverride(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "claude_config.json")
+	configPath := filepath.Join(t.TempDir(), "vscode_config.json")
 
 	cmd := createDefaultEnvCommand(map[string]string{
 		"PATH": "/default/path",
@@ -79,7 +79,7 @@ func TestDefaultEnvUserOverride(t *testing.T) {
 	})
 
 	cmd.SetArgs([]string{
-		"agent", "claude", "enable",
+		"agent", "vscode", "enable",
 		"--config-path", configPath,
 		"--server-name", "testcli",
 		"--env", "PATH=/user/path",
@@ -88,7 +88,7 @@ func TestDefaultEnvUserOverride(t *testing.T) {
 	err := cmd.Execute()
 	require.NoError(t, err)
 
-	server := readClaudeConfig(t, configPath, "testcli")
+	server := readVSCodeConfig(t, configPath, "testcli")
 	require.NotNil(t, server.Env, "server env should not be nil")
 
 	// User value overrides default.
@@ -100,24 +100,24 @@ func TestDefaultEnvUserOverride(t *testing.T) {
 }
 
 func TestNilDefaultEnvNoEnvBlock(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "claude_config.json")
+	configPath := filepath.Join(t.TempDir(), "vscode_config.json")
 
 	// nil DefaultEnv, no --env flag — should produce no env in config.
 	cmd := createDefaultEnvCommand(nil)
-	cmd.SetArgs([]string{"agent", "claude", "enable", "--config-path", configPath, "--server-name", "testcli"})
+	cmd.SetArgs([]string{"agent", "vscode", "enable", "--config-path", configPath, "--server-name", "testcli"})
 	err := cmd.Execute()
 	require.NoError(t, err)
 
-	server := readClaudeConfig(t, configPath, "testcli")
+	server := readVSCodeConfig(t, configPath, "testcli")
 	assert.Empty(t, server.Env, "no env should be written when DefaultEnv is nil and no --env given")
 }
 
 func TestNilDefaultEnvWithUserEnv(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "claude_config.json")
+	configPath := filepath.Join(t.TempDir(), "vscode_config.json")
 
 	cmd := createDefaultEnvCommand(nil)
 	cmd.SetArgs([]string{
-		"agent", "claude", "enable",
+		"agent", "vscode", "enable",
 		"--config-path", configPath,
 		"--server-name", "testcli",
 		"--env", "FOO=bar",
@@ -125,21 +125,21 @@ func TestNilDefaultEnvWithUserEnv(t *testing.T) {
 	err := cmd.Execute()
 	require.NoError(t, err)
 
-	server := readClaudeConfig(t, configPath, "testcli")
+	server := readVSCodeConfig(t, configPath, "testcli")
 	require.NotNil(t, server.Env)
 	assert.Equal(t, "bar", server.Env["FOO"])
 	assert.Len(t, server.Env, 1, "only user-provided env should be present")
 }
 
 func TestEmptyDefaultEnvNoEnvBlock(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "claude_config.json")
+	configPath := filepath.Join(t.TempDir(), "vscode_config.json")
 
 	// Empty map (not nil) — same behavior as nil: no env written.
 	cmd := createDefaultEnvCommand(map[string]string{})
-	cmd.SetArgs([]string{"agent", "claude", "enable", "--config-path", configPath, "--server-name", "testcli"})
+	cmd.SetArgs([]string{"agent", "vscode", "enable", "--config-path", configPath, "--server-name", "testcli"})
 	err := cmd.Execute()
 	require.NoError(t, err)
 
-	server := readClaudeConfig(t, configPath, "testcli")
+	server := readVSCodeConfig(t, configPath, "testcli")
 	assert.Empty(t, server.Env, "no env should be written when DefaultEnv is empty and no --env given")
 }

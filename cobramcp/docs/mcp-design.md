@@ -23,7 +23,7 @@ AI 客户端 ──(MCP: stdio/SSE/REST)──> 工具调用 ──(执行期: �
 | CLI 命令如何变成 LLM 可理解的工具 | 遍历命令树，把 flag/位置参数/描述转成 JSON Schema |
 | LLM 的 JSON 参数如何变回 CLI 参数 | 扁平输入 + 注册期元数据 `toolMeta` 反切分 |
 | 如何执行命令 | 双执行模型：子进程重入 / 进程内工厂 |
-| 如何接入 AI 编辑器 | 内置 `mcp claude/vscode/cursor enable` 配置管理 |
+| 如何接入 AI 编辑器 | 内置 `mcp vscode/cursor enable` 配置管理 |
 
 ### 1.2 依赖选型
 
@@ -52,8 +52,8 @@ cobramcp/
 │   ├── bridge/flags/      # pflag flag → JSON Schema 映射（flags.go/default.go）
 │   ├── schema/            # JSON Schema 缓存工具
 │   └── cfgmgr/            # 编辑器配置管理
-│       ├── manager/       # 泛型 Manager + claude/cursor/vscode 配置实现
-│       └── cmd/           # claude/cursor/vscode 的 enable/disable/list 命令
+│       ├── manager/       # 泛型 Manager + cursor/vscode 配置实现
+│       └── cmd/           # cursor/vscode 的 enable/disable/list 命令
 └── examples/
     ├── make/                       # 最小示例：make 包装器
     └── positional-args-mcp-server/ # 位置参数四种模式 + 进程内模型示例
@@ -71,7 +71,6 @@ cmd.AddCommand(
     toolCommand(config),               // mcp tools   → 导出工具清单
     streamCommand(config),             // mcp stream  → SSE HTTP 服务器
     restCommand(config),               // mcp rest    → 纯 REST 服务器
-    claude.Command(name, defaultEnv),  // mcp claude enable/disable/list
     vscode.Command(name, defaultEnv),  // mcp vscode enable/disable/list
     cursor.Command(name, defaultEnv),  // mcp cursor enable/disable/list
 )
@@ -375,19 +374,18 @@ type Manager[S Server, C Config[S]] struct { configPath string; config C }
 // C 实现 HasServer/AddServer/RemoveServer/Print
 ```
 
-三个构造器 `NewClaudeManager / NewVSCodeManager / NewCursorManager` 各自绑定目标平台（默认路径均含 darwin/linux/windows 平台特定文件，用 build tag 区分）：
+两个构造器 `NewVSCodeManager / NewCursorManager` 各自绑定目标平台（默认路径均含 darwin/linux/windows 平台特定文件，用 build tag 区分）：
 
 | 编辑器 | 默认路径 | 配置形态 |
 |--------|----------|----------|
-| Claude Desktop | 如 `~/Library/Application Support/Claude/claude_desktop_config.json` | `{"mcpServers": {name: {command, args, env}}}` |
 | VSCode | `.vscode/mcp.json`（workspace）或用户级 `mcp.json` | 支持 stdio/http 类型（`Type`/`URL`/`Headers`） |
-| Cursor | `.cursor/mcp.json` 或用户级 | 同 Claude 结构 |
+| Cursor | `.cursor/mcp.json` 或用户级 | `mcpServers` 键结构 |
 
 安全机制：每次写入前把现有文件备份为 `<name>.backup.json`（`manager.go:163`）；目标目录自动 `MkdirAll`；文件不存在时按空配置初始化。
 
-### 7.2 enable 的装配逻辑（`cmd/claude/enable.go`）
+### 7.2 enable 的装配逻辑（`cmd/cursor/enable.go`）
 
-`myapp mcp claude enable` 写入的条目：
+`myapp mcp cursor enable` 写入的条目：
 
 ```json
 "myapp": {
@@ -434,7 +432,7 @@ err := rootCmd.Execute()
 
 ```bash
 myapp mcp tools                    # 检查生成的工具清单 → mcp-tools.json
-myapp mcp claude enable            # 注册进 Claude Desktop（vscode/cursor 同理）
+myapp mcp vscode enable            # 注册进 VSCode（cursor 同理）
 myapp mcp start                    # stdio 服务器（编辑器拉起）
 myapp mcp stream --port 8080       # 或 SSE 远程暴露
 ```

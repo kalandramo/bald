@@ -2,7 +2,7 @@
 
 **Transform any Cobra CLI into an MCP server**
 
-cobramcp automatically converts your Cobra commands into MCP tools, and provides CLI commands for integration with Claude Desktop, VSCode, and Cursor.
+cobramcp automatically converts your Cobra commands into MCP tools, and provides CLI commands for integration with VSCode and Cursor.
 
 ## Quick Start
 
@@ -32,13 +32,9 @@ func main() {
 }
 ```
 
-### Enable in Claude Desktop, VSCode, or Cursor
+### Enable in VSCode or Cursor
 
 ```bash
-# Claude Desktop
-./my-cli mcp claude enable
-# Restart Claude Desktop
-
 # VSCode (requires Copilot in Agent Mode)
 ./my-cli mcp vscode enable
 
@@ -65,10 +61,6 @@ mcp
 ├── start            # Start MCP server on stdio
 ├── stream           # Stream MCP server over HTTP
 ├── tools            # Export available MCP tools as JSON
-├── claude
-│   ├── enable       # Add server to Claude Desktop config
-│   ├── disable      # Remove server from Claude Desktop config
-│   └── list         # List Claude Desktop MCP servers
 ├── vscode
 │   ├── enable       # Add server to VSCode config
 │   ├── disable      # Remove server from VSCode config

@@ -86,7 +86,7 @@
 //	func main() {
 //	    rootCmd := createMyRootCommand()
 //
-//	    // Adds: mcp start, mcp tools, mcp claude enable/disable/list, etc.
+//	    // Adds: mcp start, mcp tools, mcp vscode enable/disable/list, etc.
 //	    rootCmd.AddCommand(cobramcp.Command(nil))
 //
 //	    if err := rootCmd.Execute(); err != nil {

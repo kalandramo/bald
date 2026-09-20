@@ -96,7 +96,7 @@ func TestGetCmdPath(t *testing.T) {
 		// Custom command name tests
 		{
 			name:         "renamed to agent",
-			cmdPath:      "devenv agent claude enable",
+			cmdPath:      "devenv agent vscode enable",
 			commandName:  "agent",
 			expectedPath: []string{"agent"},
 			expectError:  false,
@@ -110,7 +110,7 @@ func TestGetCmdPath(t *testing.T) {
 		},
 		{
 			name:         "renamed but searching for mcp fails",
-			cmdPath:      "devenv agent claude enable",
+			cmdPath:      "devenv agent vscode enable",
 			commandName:  "mcp",
 			expectedPath: nil,
 			expectError:  true,
