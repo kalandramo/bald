@@ -1,0 +1,71 @@
+# publish-bconf：把 bconf 的 proto 契约发布到 BSR（修复 D17）。
+#
+# 背景（D17）：bald 在 bconf/buf.yaml 声明了模块名 buf.build/kalandramo/bald-bconf，
+# 但仓库从未执行 buf push —— 下游（如 bald-admin）无法经 buf.yaml 的 deps 引入
+# 框架自有的 bald.store.v1 分页契约，只能改引第三方 tx7do/pagination，形成两套
+# 并行分页类型。
+#
+# 触发：bconf 的 Go module tag（沿用仓库既有的 <模块>/vX.Y.Z 约定，见 bconf/v0.7.1）。
+# proto 与 Go 侧同源发布——tag 一打，两者版本一致，不会漂移。
+#
+# 前置（一次性，人工）：
+#   1. 在 https://buf.build 登录并创建/确认 kalandramo 命名空间归属；
+#   2. 生成 BSR API token（Settings → API Tokens），存入仓库 secret：BUF_TOKEN；
+#   3. 首次发布需 --create（模块尚不存在时自动创建）。
+#      本 workflow 的 --create 幂等：模块已存在时该 flag 无副作用。
+#
+# 可见性：public —— 与 github.com/kalandramo/bald 开源仓库一致；
+# 下游无需凭据即可 buf dep update。若改为 private，下游 CI 也须配 BUF_TOKEN。
+name: publish-bconf
+
+on:
+  push:
+    tags:
+      - "bconf/v*"
+  # 支持手动触发（首次创建模块、或 tag 漏发时补发）。
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-bconf-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: bufbuild/buf-setup-action@v1
+        with:
+          github_token: ${{ github.token }}
+
+      # lint 先行：契约不达标不得发布（bconf/buf.yaml 已配 STANDARD +
+      # ENUM_VALUE_PREFIX/ENUM_ZERO_VALUE_SUFFIX 两项 except，见该文件注释）。
+      - name: buf lint
+        working-directory: bconf
+        run: buf lint
+
+      - name: buf build（编译校验）
+        working-directory: bconf
+        run: buf build
+
+      # 发布。--create 幂等；--create-visibility public 与开源仓一致。
+      # --git-metadata 让 BSR 记录源码提交与 tag label，便于溯源。
+      - name: buf push
+        working-directory: bconf
+        env:
+          BUF_TOKEN: ${{ secrets.BUF_TOKEN }}
+        run: |
+          set -e
+          if [ -z "${BUF_TOKEN}" ]; then
+            echo "::error::secret BUF_TOKEN 未配置——见本文件头部「前置」说明"
+            exit 1
+          fi
+          buf push \
+            --create \
+            --create-visibility public \
+            --label "${GITHUB_REF_NAME}" \
+            --git-metadata

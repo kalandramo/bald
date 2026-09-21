@@ -2,3 +2,16 @@ version: v2
 modules:
   - path: proto
     name: buf.build/kalandramo/bald-bconf
+    lint:
+      # 与仓库其他模块（如 bald-admin/backend/api）一致的 STANDARD 基线。
+      use:
+        - STANDARD
+      # except：存储层过滤契约刻意采用无前缀枚举名。
+      # store.proto 的 Operator/Sorting.Direction 建模的是 **SQL 操作符语义**
+      # （EQ/GT/LIKE/ASC/DESC 直接对应查询语法），加前缀（OPERATOR_EQ/
+      # DIRECTION_ASC）反而拉长且无信息增益。零值统一为 *_UNSPECIFIED 会
+      # 与「升序」「等于」的语义默认冲突（升序是合理的默认，而非「未指定」）。
+      # 这两项是发布到 BSR 的必要放宽——否则 76 处告警阻塞 buf push。
+      except:
+        - ENUM_VALUE_PREFIX
+        - ENUM_ZERO_VALUE_SUFFIX
