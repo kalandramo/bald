@@ -21,6 +21,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -615,10 +617,18 @@ func (a *AppKit) runHook(parent context.Context, timeout time.Duration, name str
 }
 
 // buildInstance 聚合所有 Server 的 Endpoint 构造 ServiceInstance。
+//
+// **D16 修复**：只收集**可注册**的 endpoint（有 scheme 且 host 含端口）。
+// 进程内组件（如 cron 定时调度器）的 `Endpoint()` 返回描述性字符串
+// （`cron://scheduler`）——非空但**无端口**，注册中心 `net.SplitHostPort`
+// 会直接报错并致**启动失败**。原先仅判 `ep != ""`，不足以过滤。
+//
+// 与既有过滤意图一致（`ep != ""` 只是想跳过「无端点」的 server），
+// 此处把「非空」收紧为「可注册」。
 func (a *AppKit) buildInstance() *registry.ServiceInstance {
 	var eps []string
 	for _, s := range a.servers {
-		if ep := s.Endpoint(); ep != "" {
+		if ep := s.Endpoint(); ep != "" && registrableEndpoint(ep) {
 			eps = append(eps, ep)
 		}
 	}
@@ -634,6 +644,21 @@ func (a *AppKit) buildInstance() *registry.ServiceInstance {
 		Metadata:  map[string]string{"scheme": kind},
 		Endpoints: eps,
 	}
+}
+
+// registrableEndpoint 判断 endpoint 是否为可注册地址（host 含端口）。
+//
+// 注册中心（nacos/etcd 等）对 endpoint 取 `url.Parse(ep).Host` 后调
+// `net.SplitHostPort`——无端口的地址（如 `cron://scheduler`）会返回
+// "missing port in address" 并中止注册。此处提前过滤，避免把进程内组件的
+// 描述性字符串当作服务地址注册。
+func registrableEndpoint(ep string) bool {
+	u, err := url.Parse(ep)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	_, _, err = net.SplitHostPort(u.Host)
+	return err == nil
 }
 
 // waitForEndpoints 轮询直到所有 server 的 Endpoint 解析出真实端口（非 ":0"），

@@ -59,7 +59,10 @@ func (m *mockServer) Stop(ctx context.Context) error {
 	return nil
 }
 
-func (m *mockServer) Endpoint() string { return "mock://" + m.addr }
+// Endpoint 返回带端口的地址——**真实 server 的 endpoint 必有端口**（这是
+// 可注册的前提，见 D16）。mock 若返回无端口地址（如 `mock://reg1`），
+// 会被 buildInstance 的可注册性过滤剔除，与真实行为不符。
+func (m *mockServer) Endpoint() string { return "mock://" + m.addr + ":9999" }
 
 // BUG-1: Stop 必须接收未取消的 ctx，stopTimeout 才生效。
 // stopTimeout=50ms，server Stop 耗时 30ms，应当正常返回（未触发超时）。
@@ -271,7 +274,7 @@ func TestRegistry_RegisterDeregister(t *testing.T) {
 	if !reg.deregistered {
 		t.Fatal("expected Deregister to be called")
 	}
-	if len(reg.instance.Endpoints) != 1 || reg.instance.Endpoints[0] != "mock://reg1" {
+	if len(reg.instance.Endpoints) != 1 || reg.instance.Endpoints[0] != "mock://reg1:9999" {
 		t.Fatalf("unexpected endpoints: %v", reg.instance.Endpoints)
 	}
 	if reg.instance.ID != "node-1" || reg.instance.Name != "svc" {
@@ -571,3 +574,72 @@ func TestAppKit_MultiServerEndpointAggregation(t *testing.T) {
 		t.Fatalf("unexpected instance meta: %+v", inst)
 	}
 }
+
+// --- D16 回归：不可注册的 endpoint 不得进 ServiceInstance ---
+
+// D16：进程内组件（cron 定时调度器）的 Endpoint() 返回描述性字符串
+// `cron://scheduler`——非空但**无端口**。注册中心对 endpoint 取
+// url.Host 后调 net.SplitHostPort，无端口即报 "missing port in address"
+// 并中止注册 → **启动失败**。
+//
+// 修复：buildInstance 只收集可注册的 endpoint（host 含端口）。
+// 本测试锁住该行为——若回归，注册阶段会重新崩。
+func TestD16_NonRegistrableEndpointFiltered(t *testing.T) {
+	// 直接构造 AppKit（不 Run）：buildInstance 是纯函数，无需启动 server。
+	app := New(
+		ID("node-d16"),
+		Name("d16-svc"),
+		Servers(
+			&stubEndpointServer{ep: "cron://scheduler"},  // 进程内调度器：无端口
+			&stubEndpointServer{ep: "http://127.0.0.1:8080"},
+			&stubEndpointServer{ep: "asynq://10.0.0.1:6379"},
+			&stubEndpointServer{ep: ""},                  // 无端点（既有过滤）
+		),
+	)
+
+	inst := app.buildInstance()
+	if inst == nil {
+		t.Fatal("buildInstance returned nil")
+	}
+	if len(inst.Endpoints) != 2 {
+		t.Fatalf("endpoints = %v (len %d), want 2（cron 与空串被过滤）",
+			inst.Endpoints, len(inst.Endpoints))
+	}
+	for _, ep := range inst.Endpoints {
+		if !registrableEndpoint(ep) {
+			t.Fatalf("不可注册的 endpoint 混入: %q", ep)
+		}
+		if strings.HasPrefix(ep, "cron://") {
+			t.Fatalf("cron endpoint 未被过滤: %q", ep)
+		}
+	}
+}
+
+// TestD16_RegistrableEndpointPredicate 锁住判定函数本身。
+func TestD16_RegistrableEndpointPredicate(t *testing.T) {
+	cases := []struct {
+		ep   string
+		want bool
+	}{
+		{"cron://scheduler", false},        // 无端口 → 注册会崩
+		{"", false},                        // 空
+		{"http://127.0.0.1:8080", true},    // 正常
+		{"asynq://10.0.0.1:6379", true},    // 有端口
+		{"http://:8080", true},             // 仅端口（listen 地址）合法
+		{"://nohost:1", false},             // 无 scheme → url.Parse 失败或 Host 空
+		{"cron://scheduler:1", true},       // 有端口即认为可注册（由注册中心最终校验）
+	}
+	for _, c := range cases {
+		if got := registrableEndpoint(c.ep); got != c.want {
+			t.Errorf("registrableEndpoint(%q) = %v, want %v", c.ep, got, c.want)
+		}
+	}
+}
+
+// stubEndpointServer 是最小 transport.Server 桩，仅提供 Endpoint 值。
+// Start/Stop 不做事——buildInstance 不需要它们。
+type stubEndpointServer struct{ ep string }
+
+func (s *stubEndpointServer) Start(context.Context) error { return nil }
+func (s *stubEndpointServer) Stop(context.Context) error  { return nil }
+func (s *stubEndpointServer) Endpoint() string            { return s.ep }
