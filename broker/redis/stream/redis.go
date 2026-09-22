@@ -25,6 +25,11 @@ type streamBroker struct {
 	subscribers *broker.SubscriberSyncMap
 }
 
+// NewBroker 构造 stream broker（**尚未 Init，addr 为空**）。
+//
+// 生命周期同 pubsub driver：必须 NewBroker → Init → Connect 三步
+// （直接 Connect 会因 addr 为空报误导性的 `invalid redis URL scheme:`）。
+// 见框架缺陷报告 D13.1。
 func NewBroker(opts ...broker.Option) broker.Broker {
 	commonOpts := &redisOption.CommonOptions{
 		MaxIdle:        redisOption.DefaultMaxIdle,
@@ -108,6 +113,17 @@ func (b *streamBroker) Connect() error {
 			}
 			return err
 		},
+	}
+
+	// 探活（D13.2 修复，2026-09-22）：同 pubsub driver——redigo Pool 懒连接，
+	// 不探活则 Redis 不可达时本方法返回 nil（假成功），故障推迟到首次
+	// Publish/Subscribe 才暴露。取一条连接 PING，把失败提前到返回值。
+	conn := b.pool.Get()
+	defer conn.Close()
+	if _, err := conn.Do("PING"); err != nil {
+		_ = b.pool.Close()
+		b.pool = nil
+		return fmt.Errorf("redis: connect: %w", err)
 	}
 
 	return nil

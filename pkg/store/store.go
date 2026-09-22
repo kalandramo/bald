@@ -221,7 +221,17 @@ func cutPrefix(s, prefix string) (string, bool) {
 	return s, false
 }
 
-// Delete 按条件删除（建议 where 至少含主键）。
+// Delete 按条件删除。
+//
+// **对 0 行匹配返回 `ErrNotFound`**（两个 provider 一致：gorm 的
+// `RowsAffected == 0`、inmemory 的 `len(matched) == 0`）。故 where **必须**
+// 唯一确定单条记录——这是**要求**而非建议：把集合条件（如「某用户的全部
+// 收件记录」）传给本方法时，集合本就为空（0 行）是**合法结果**，却会被
+// 报成 not found，调用方若透传该 error 就会把正常操作误报为失败。
+//
+// 集合删除的调用方须自行容忍 `ErrNotFound`
+// （`err != nil && !errors.Is(err, store.ErrNotFound)`）——见 bald-admin 的
+// message/mfa 域两处实例（框架缺陷报告 D12）。
 func (s *Store[T]) Delete(ctx context.Context, where *Where) error {
 	q, err := s.provider.DB(ctx)
 	if err != nil {
@@ -230,7 +240,10 @@ func (s *Store[T]) Delete(ctx context.Context, where *Where) error {
 	return q.Delete(ctx, where)
 }
 
-// Get 按条件取单条；未命中返回 (nil, nil)。
+// Get 按条件取单条。
+//
+// **未命中返回 `ErrNotFound`**（两个 provider 一致：gorm `:149`、inmemory
+// `:104`），**不是** `(nil, nil)`——调用方须判 error 而非只判 nil。
 func (s *Store[T]) Get(ctx context.Context, where *Where) (*T, error) {
 	q, err := s.provider.DB(ctx)
 	if err != nil {

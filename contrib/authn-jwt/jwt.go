@@ -18,8 +18,10 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
+	"encoding/base64"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -205,6 +207,16 @@ type jwtClaims struct {
 }
 
 // toJWT 把核心声明映射到 jwt 桥接类型。
+//
+// **jti（RegisteredClaims.ID）必填**（D6 修复，2026-09-22）：不设 jti 时，
+// 同一秒内对相同 claims 签发会得到**字节完全相同**的 token——因为
+// iat/nbf/exp 均为秒级 NumericDate，且 RS256/HS256 对同一输入签名确定
+// （无随机盐）。后果有两处真实危害：
+//   - 连续刷新拿到的「新」access_token 与旧值相同 → 有效期不延展，
+//     客户端拿到即过期；
+//   - 轮换出的 refresh_token 可能与刚被消费的旧值重合 → 一次性语义失效。
+// jti 的取值只需**唯一**，无需 UUID 格式——故用 crypto/rand 生成随机串，
+// 不为本子 module 引入额外依赖。
 func toJWT(c authn.AuthClaims) jwtClaims {
 	jc := jwtClaims{
 		Subject:  c.Subject,
@@ -214,10 +226,26 @@ func toJWT(c authn.AuthClaims) jwtClaims {
 		Roles:    c.Roles,
 		Issuer:   c.Issuer,
 	}
+	// jti：随机唯一标识（见上方注释）。生成失败时退回时间戳纳秒——
+	// 仍保证同秒内不同（naive 但优于空值导致的 token 重复）。
+	if id, err := newJTI(); err == nil {
+		jc.ID = id
+	} else {
+		jc.ID = strconv.FormatInt(time.Now().UnixNano(), 36)
+	}
 	if !c.ExpiresAt.IsZero() {
 		jc.ExpiresAt = jwt.NewNumericDate(c.ExpiresAt)
 	}
 	return jc
+}
+
+// newJTI 生成一个随机 jti（16 字节 crypto/rand → base64url，22 字符）。
+func newJTI() (string, error) {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(b[:]), nil
 }
 
 // fromJWT 把 jwt 桥接类型映射回核心声明。
