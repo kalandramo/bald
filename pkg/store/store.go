@@ -250,6 +250,33 @@ func cutPrefix(s, prefix string) (string, bool) {
 	return s, false
 }
 
+// applyIsolation 返回注入了多租户/数据范围隔离条件的 Where 副本（不改动入参）。
+//
+// 与 ListWithPaging 的 translate 同源：租户与数据范围条件下沉 DAL 自动注入，
+// 即使调用方未显式 where.T(ctx) 也生效——避免多租户应用用 Get/List/Count/Delete
+// 直查时忘了隔离而读写全租户数据（安全边界，已知边界 1）。
+//
+// 触发条件：仅当 ctx 携带租户值（且维度已注册）或 AuthClaims 时才有条件注入；非多租户
+// 应用（未注册维度、无 claims）零影响——注入是 no-op。where 为 nil 视为空条件。
+//
+// 隔离条件与业务条件按 AND 连接（租户/数据范围进 Filters 或与 Expr 组合），业务
+// 已手写的同名租户条件会被去重（见 mergeTenant），不会产生恒假叠加。
+func applyIsolation(ctx context.Context, where *Where) *Where {
+	out := &Where{}
+	if where != nil {
+		out.Offset = where.Offset
+		out.Limit = where.Limit
+		out.Sorting = where.Sorting
+		out.Expr = where.Expr
+		// 复制 Filters：避免 mergeTenant/mergeDataScope 的 append 修改调用方底层数组。
+		out.Filters = append([]*storev1.FilterCondition(nil), where.Filters...)
+	}
+	mergeTenant(out, ctx)
+	mergeDataScope(out, ctx)
+	mergeDataScopeExpr(out, ctx)
+	return out
+}
+
 // Delete 按条件删除，返回受影响行数。
 //
 // **幂等语义**：对 0 行匹配返回 `(0, nil)`，不报错——删除不存在的资源是合法
@@ -263,43 +290,55 @@ func cutPrefix(s, prefix string) (string, bool) {
 //	if err != nil { return err }
 //	if rows == 0 { return ErrNotFound } // 调用方自定义语义
 //
+// **多租户隔离**：删除条件自动注入租户/数据范围隔离（见 applyIsolation）——多租户
+// 应用删不到他租户记录。ctx 无租户值时行为不变。
+//
 // 注意：`Get` 的未命中语义**不变**（仍返回 `ErrNotFound`），二者是独立契约。
 func (s *Store[T]) Delete(ctx context.Context, where *Where) (int64, error) {
 	q, err := s.provider.DB(ctx)
 	if err != nil {
 		return 0, err
 	}
-	return q.Delete(ctx, where)
+	return q.Delete(ctx, applyIsolation(ctx, where))
 }
 
 // Get 按条件取单条。
 //
 // **未命中返回 `ErrNotFound`**（两个 provider 一致：gorm `:149`、inmemory
 // `:104`），**不是** `(nil, nil)`——调用方须判 error 而非只判 nil。
+//
+// **多租户隔离**：查询条件自动注入租户/数据范围隔离（见 applyIsolation）——多租户
+// 应用取不到他租户记录（返回 `ErrNotFound`）。ctx 无租户值时行为不变。
 func (s *Store[T]) Get(ctx context.Context, where *Where) (*T, error) {
 	q, err := s.provider.DB(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return q.Get(ctx, where)
+	return q.Get(ctx, applyIsolation(ctx, where))
 }
 
-// List 无条件（仅偏移/限制）列出。
+// List 按条件列出（含偏移/限制）。
+//
+// **多租户隔离**：查询条件自动注入租户/数据范围隔离（见 applyIsolation）——多租户
+// 应用列不到他租户记录。ctx 无租户值时行为不变。
 func (s *Store[T]) List(ctx context.Context, where *Where) ([]*T, int64, error) {
 	q, err := s.provider.DB(ctx)
 	if err != nil {
 		return nil, 0, err
 	}
-	return q.List(ctx, where)
+	return q.List(ctx, applyIsolation(ctx, where))
 }
 
 // Count 统计符合条件记录数。
+//
+// **多租户隔离**：统计条件自动注入租户/数据范围隔离（见 applyIsolation）——多租户
+// 应用只数到本租户记录。ctx 无租户值时行为不变。
 func (s *Store[T]) Count(ctx context.Context, where *Where) (int64, error) {
 	q, err := s.provider.DB(ctx)
 	if err != nil {
 		return 0, err
 	}
-	return q.Count(ctx, where)
+	return q.Count(ctx, applyIsolation(ctx, where))
 }
 
 // PagingResult 是带分页元数据的列表结果（Go 层泛型返回）。

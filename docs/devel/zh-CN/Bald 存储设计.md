@@ -160,7 +160,7 @@ store.RegisterTenant("tenant_id", store.DefaultTenantFunc) // 显式开启，不
 
 **为什么不在 `init` 中隐式注册？** 因为对存量非多租户业务静默注入隔离条件会造成"查询突然查不到数据"的诡异故障。显式注册把开启时机交给业务，代价为零（`tenant.go:25`–`tenant.go:26` 注释）。`DefaultTenantFunc`（`tenant.go:27`）从 `contextx.TenantIDFromContext` 取值——认证中间件（`pkg/middleware/{gin,grpc}/authn.go`）在认证通过后写入。
 
-**读路径**：`translate` 在构造 `Where` 后立即调用 `mergeTenant`（`store.go:342`）与 `mergeDataScope`/`mergeDataScopeExpr`（`store.go:345`–`store.go:346`）。`mergeTenant`（`tenant.go:94`）把每个已注册维度的等值条件追加进 `Filters`，并**去重业务已手写的同名条件**——业务若已写该租户列（任一操作符，如 `NEQ`），系统不再叠加 `EQ`，避免 `EQ + NEQ` 叠加产生恒假或歧义（`tenant_test.go:TestMergeTenant` 锁定）。
+**读路径**：`ListWithPaging` 经 `translate` 在构造 `Where` 后立即调用 `mergeTenant`（`store.go:381` 起）与 `mergeDataScope`/`mergeDataScopeExpr`；`Get`/`List`/`Count`/`Delete` 经 `applyIsolation`（`store.go:264`）注入同源隔离条件（2026-09-24 收敛，此前仅 `ListWithPaging` 有隔离）。`mergeTenant`（`tenant.go:94`）把每个已注册维度的等值条件追加进 `Filters`，并**去重业务已手写的同名条件**——业务若已写该租户列（任一操作符，如 `NEQ`），系统不再叠加 `EQ`，避免 `EQ + NEQ` 叠加产生恒假或歧义（`tenant_test.go:TestMergeTenant` 锁定）。**触发条件**：仅当 ctx 携带租户值（维度已注册）或 `AuthClaims` 时注入，非多租户应用/匿名请求零影响。
 
 **写路径**：`Create`/`Update`（`store.go:96`/`store.go:133`）在委托后端前调用 `injectWriteTenant`（`store.go:151`），反射把 ctx 解析到的租户值写回实体字段。字段匹配优先级（`tenantFieldIndex`，`store.go:190`）：`gorm:"column:tenant_id"` tag > `json:"tenant_id"` tag > 字段名 CamelCase→snake_case 直接相等（`fieldToSnake`，`store.go:217`）。**语义是无条件覆写**（`store.go:183` 的 `fd.SetString`）——业务试图写入他租户值（越权改归属）会被 ctx 真实租户覆盖，`write_tenant_test.go:TestInjectWriteTenant` 明确锁定"越权租户值应被 ctx 租户覆盖"。
 
@@ -212,10 +212,11 @@ sequenceDiagram
     Q->>DB: 翻译为引擎查询（SQL / map 遍历）
     DB-->>Q: (items, total)
     Q-->>S: (items, total)
-    S->>S: fillTotal（回填 total/total_pages/next_token）
+    S->>S: fillTotal（回填 total/total_pages/next_token/current_size）
     S-->>Biz: PagingResult{Items, Meta}
 
     Note over Biz,DB: 写路径：Create/Update 先经 injectWriteTenant 回填租户列
+    Note over Biz,DB: Get/List/Count/Delete 经 applyIsolation 注入租户/数据范围隔离
 ```
 
 ---
@@ -242,7 +243,7 @@ sequenceDiagram
 
 以下为**当前实现的事实记录**（均以 file:line 核实），不是设计意图：
 
-1. **隔离仅覆盖 `ListWithPaging`**。`mergeTenant`/`mergeDataScope` 只在 `translate`（`store.go:342`–`store.go:346`）中调用，而 `translate` 只被 `ListWithPaging` 使用。`Get`/`List`/`Count`/`Delete`（`store.go:267`–`store.go:297`）直接透传 `Where`，**不自动注入隔离**——调用方须自行 `where.T(ctx)`（`tenant.go:69`）。这是隔离面上的重要边界：多租户应用若用 `Get`/`List` 直查而忘了 `T(ctx)`，会读到全租户数据。
+1. ~~**隔离仅覆盖 `ListWithPaging`**~~（**已修，2026-09-24——安全边界收敛**）。原缺陷：`mergeTenant`/`mergeDataScope` 只在 `translate`（`store.go:381` 起）中调用，`Get`/`List`/`Count`/`Delete` 直接透传 `Where`——多租户应用若用它们直查而忘了 `where.T(ctx)`，会读到/删到全租户数据。现新增 `applyIsolation`（`store.go:264`），`Get`/`List`/`Count`/`Delete` 委托后端前自动注入租户/数据范围隔离（与 `ListWithPaging` 同源）。**触发条件**：仅当 ctx 携带租户值（维度已注册）或 `AuthClaims` 时注入；非多租户应用/匿名请求零影响。`TestStore_IsolationOnGetListCountDelete` + `TestStore_Isolation_NoTenantCtxUnaffected` 锁定两面。**代价**：多租户应用此前依赖"直查不过滤"的写法会变为按租户过滤（有意变更，属安全修复）。
 
 2. ~~**`Where.T(ctx)` 丢失 `Expr`**~~（**已修，2026-09-24**）。`Where.T`（`tenant.go:72`）构造副本时曾只复制 `Sorting`/`Offset`/`Limit`/`Filters`，**丢弃 `Expr`**——业务用 `where.T(ctx)` 显式隔离时布尔树会被静默吞掉。现已补 `Expr` 复制，`TestWhere_T_PreservesExpr` 锁定。
 
@@ -281,20 +282,21 @@ sequenceDiagram
 - [x] 核心契约：`Queryable[T]` / `DBProvider[T]` / `Store[T]` + Option 族（`store.go`）。
 - [x] 条件表达：`Where` + 便捷构造族（`where.go`）。
 - [x] 分页策略：四 `Paginator` + `detectStrategy` + `fillTotal`（`paging.go` / `store.go`）。
-- [x] 多租户：读路径 `mergeTenant` + 写路径 `injectWriteTenant` + 注册/注销（`tenant.go` / `store.go`）。
+- [x] 多租户：读路径 `mergeTenant`/`applyIsolation` + 写路径 `injectWriteTenant` + 注册/注销（`tenant.go` / `store.go`）。
 - [x] 数据权限：`RegisterDataScope`/`RegisterDataScopeExpr` + 合并（`scope.go`）。
 - [x] 内置 inmemory 实现（`inmemory/`）。
 - [x] 桥接子模块 GORM（`contrib/store-gorm`，独立 module，SQLite 内存库测试）。
-- [ ] 上述「已知边界」1/2/6/8/9 的收敛——按需排期（1 为安全边界，优先级最高；3 已于 2026-09-24 随注释修正消解）。
+- [ ] 上述「已知边界」9 的收敛——按需排期（1/2/6 已于 2026-09-24 收敛；3 随注释修正消解；8 经复核判定保留）。
 - [ ] `contrib/store-mongo`——同构实现 `Queryable[T]` + `DBProvider[T]` 即可，业务代码零改动。
 
-**验证**（2026-09-24，HEAD `b00755b`）：
+**验证**（2026-09-24，HEAD `b51218c` 起）：
 
 - `go test ./pkg/store/...` → `ok github.com/kalandramo/bald/pkg/store` + `ok .../inmemory`（exit 0）。
 - `go vet ./pkg/store/...` → exit 0。
 - `contrib/store-gorm`（独立 module）：`go test ./...` → ok（exit 0），含 `gorm_test.go`（CRUD/过滤/排序/分页/OR 树）、`conn_test.go`（连接配置 12 例）、`delete_idempotent_test.go`、`update_idempotent_test.go`。
-- 测试覆盖：根包 15 例（paging 7 / where 3 / tenant 3 / mapper 1 / write_tenant 1），inmemory 4 例（CRUD+paging、OR 树、Delete 幂等、Update 幂等）；契约行为由 `where_test.go`（构造器形状）、`tenant_test.go`（隔离注入与去重）、`write_tenant_test.go`（越权覆写）、`paging_test.go`（四策略 + 元数据 + NextToken 边界）、`{delete,update}_idempotent_test.go`（0 行幂等契约，两 provider 对称）钉住。
-- **未验证**：「已知边界」各条为静态阅读 + grep 结论（条目 3 已随注释修正消解；第 10/11 条有 `inmemory`/`gorm` 行为锁定外，其余未写复现测试）。
+- 消费方 `pkg/crudbridge`：`go test ./...` → ok。
+- 测试覆盖：根包 16 例（paging 7 / where 3 / tenant 4 / mapper 1 / write_tenant 1），inmemory 7 例（CRUD+paging、OR 树、Delete 幂等、Update 幂等、CurrentSize、隔离×2）；契约行为由 `where_test.go`（构造器形状）、`tenant_test.go`（隔离注入/去重/`Where.T` 保留 Expr）、`write_tenant_test.go`（越权覆写）、`paging_test.go`（四策略 + 元数据 + NextToken/CurrentSize 边界）、`{delete,update}_idempotent_test.go`（0 行幂等契约）、`isolation_test.go`（Get/List/Count/Delete 隔离 + 无租户 ctx 无副作用）钉住。
+- **未验证**：「已知边界」9（NoPaging 分支不可达）、10（字符串数字字典序）、11（rows 跨后端）为静态阅读 + grep 结论或跨后端推断；1/2/6 已有行为锁定，3 已消解，8 为保留判定。
 
 ---
 
