@@ -135,7 +135,16 @@ func (b *pubsubBroker) Connect() error {
 	return nil
 }
 
+// Disconnect 关闭连接池并清理订阅者。
+//
+// **pool 为 nil 时须直接返回**（2026-09-22 修复）：D13.2 让 Connect 在探活
+// 失败时丢弃 pool（`b.pool = nil`），此后调用 Disconnect 会 `(*Pool)(nil).Close()`
+// **panic**——修复「假成功」却让「失败后清理」崩掉，是更糟的回归。
+// stream driver 的 Disconnect 一直有此 nil 防护，本处补齐以保持对称。
 func (b *pubsubBroker) Disconnect() error {
+	if b.pool == nil {
+		return nil
+	}
 	err := b.pool.Close()
 	b.pool = nil
 	b.addr = ""
