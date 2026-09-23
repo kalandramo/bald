@@ -106,10 +106,16 @@ func TestSentinel_FlowRuleRejects(t *testing.T) {
 }
 
 // TestSentinel_WaitBlocksThenAdmits —— Wait 阻塞至窗口过去后放行。
+//
+// ⚠️ 窗口需足够大：本测试断言「Wait 阻塞 ≥100ms」，前提是 `Allow()` 用掉配额后
+// 配额窗口**尚未滚过**。若窗口过短（曾用 300ms），慢 runner 上 `Allow()` 与
+// `Wait()` 之间的调度延迟可能已跨过窗口 → 配额自然恢复 → Wait 立即放行 →
+// 断言失败（CI flaky，实测 ~7% 失败率）。故窗口取 2s，远大于两次调用间的
+// 合理调度延迟，使「用尽配额 → Wait 被拒」稳定成立。
 func TestSentinel_WaitBlocksThenAdmits(t *testing.T) {
 	initSentinel(t)
 	resource := "test-wait-" + t.Name()
-	loadFlowRule(t, resource, 1, 300) // 300ms 窗口，1 QPS
+	loadFlowRule(t, resource, 1, 2000) // 2s 窗口，1 QPS（远大于调度延迟）
 
 	lim := New(resource, WithWaitInterval(20*time.Millisecond))
 	defer lim.Close()
@@ -119,7 +125,7 @@ func TestSentinel_WaitBlocksThenAdmits(t *testing.T) {
 		t.Fatal("首次请求应放行")
 	}
 	// Wait 应阻塞到窗口过去后放行（不报错）。
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	start := time.Now()
 	if err := lim.Wait(ctx); err != nil {
