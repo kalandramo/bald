@@ -269,7 +269,7 @@ sequenceDiagram
 
 ## 兼容性
 
-核心契约稳定。**破坏性变更记录**：`Update`/`Delete` 签名由 `error` 改为 `(int64, error)`（0 行返回 `(0, nil)`，幂等语义，2026-09-23/24 两次决策）——下游调用点须同步为 `rows, err := ...`。已发布 tag：`store` 随主模块（`go.mod` `module github.com/kalandramo/bald`，当前 `v0.10.0`）；桥接子模块 `contrib/store-gorm` 为独立 module（`github.com/kalandramo/bald/contrib/store-gorm`，当前 tag `v0.1.3`，require `bald v0.10.0` + `bconf v0.7.2`）。
+核心契约稳定。**破坏性变更记录**：`Update`/`Delete` 签名由 `error` 改为 `(int64, error)`（0 行返回 `(0, nil)`，幂等语义，2026-09-23/24 两次决策）——下游调用点须同步为 `rows, err := ...`。已发布 tag：`store` 随主模块（`go.mod` `module github.com/kalandramo/bald`，当前 `v0.10.0`）；桥接子模块 `contrib/store-gorm` 为独立 module（`github.com/kalandramo/bald/contrib/store-gorm`，当前 tag `v0.1.3`，require `bald v0.10.0` + `bconf v0.7.2`）；`contrib/store-mongo` 同为独立 module（`github.com/kalandramo/bald/contrib/store-mongo`，待发版，require `bald v0.10.0` + mongo-driver v2）。
 
 跨 module 使用者注意：引用 GORM 桥接须 require `contrib/store-gorm` 本身（非主模块）；`bconf` 契约类型（`storev1.*`）来自 `github.com/kalandramo/bald/bconf`。
 
@@ -286,14 +286,16 @@ sequenceDiagram
 - [x] 数据权限：`RegisterDataScope`/`RegisterDataScopeExpr` + 合并（`scope.go`）。
 - [x] 内置 inmemory 实现（`inmemory/`）。
 - [x] 桥接子模块 GORM（`contrib/store-gorm`，独立 module，SQLite 内存库测试）。
+- [x] 桥接子模块 MongoDB（`contrib/store-mongo`，独立 module，mongo-driver v2，真实 mongod 测试；2026-09-24 落地）。
 - [x] 上述「已知边界」1/2/6/9 的收敛（2026-09-24）；3 随注释修正消解；8 经复核判定保留；10/11 为记录性取舍。
-- [ ] `contrib/store-mongo`——同构实现 `Queryable[T]` + `DBProvider[T]` 即可，业务代码零改动。
+- [ ] `contrib/store-mongo` 的深化——当前覆盖 CRUD/过滤/排序/分页/布尔树/幂等；未支持的操作符（JSON_CONTAINS/ARRAY_CONTAINS/EXISTS/SEARCH）返回恒真条件，待按需补。
 
 **验证**（2026-09-24，HEAD `b51218c` 起）：
 
 - `go test ./pkg/store/...` → `ok github.com/kalandramo/bald/pkg/store` + `ok .../inmemory`（exit 0）。
 - `go vet ./pkg/store/...` → exit 0。
 - `contrib/store-gorm`（独立 module）：`go test ./...` → ok（exit 0），含 `gorm_test.go`（CRUD/过滤/排序/分页/OR 树）、`conn_test.go`（连接配置 12 例）、`delete_idempotent_test.go`、`update_idempotent_test.go`。
+- `contrib/store-mongo`（独立 module，2026-09-24 新增）：`go test ./...` → ok（exit 0，连真实 MongoDB 8.3），含 `mongo_test.go`（CRUD/冲突/过滤/排序/分页/OR 树/嵌套 OR/空 OR 恒假/Update·Delete 幂等）。**测试依赖真实 mongod**（MongoDB 无嵌入式等价物）。
 - 消费方 `pkg/crudbridge`：`go test ./...` → ok。
 - 测试覆盖：根包 16 例（paging 7 / where 3 / tenant 4 / mapper 1 / write_tenant 1），inmemory 7 例（CRUD+paging、OR 树、Delete 幂等、Update 幂等、CurrentSize、隔离×2）；契约行为由 `where_test.go`（构造器形状）、`tenant_test.go`（隔离注入/去重/`Where.T` 保留 Expr）、`write_tenant_test.go`（越权覆写）、`paging_test.go`（四策略 + 元数据 + NextToken/CurrentSize 边界）、`{delete,update}_idempotent_test.go`（0 行幂等契约）、`isolation_test.go`（Get/List/Count/Delete 隔离 + 无租户 ctx 无副作用）钉住。
 - **未验证**：「已知边界」9（NoPaging 分支不可达）、10（字符串数字字典序）、11（rows 跨后端）为静态阅读 + grep 结论或跨后端推断；1/2/6 已有行为锁定，3 已消解，8 为保留判定。
