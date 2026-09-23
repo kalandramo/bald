@@ -132,10 +132,15 @@ func TestPaging_TranslateMetadata(t *testing.T) {
 	fillTotal(lastMeta, 100, 5, lastWhere, opts)
 	assert.Empty(t, lastMeta.GetNextToken()) // 95+10 >= 100 → 末页，不下发
 
-	// 不分页无元数据
-	_, meta, err = s.translate(context.Background(), &storev1.PagingRequest{NoPaging: boolp(true)})
+	// 不分页无元数据（边界 9 收敛：translate 统一走 detectStrategy，noPaginator 分支可达）。
+	noPageWhere, meta, err := s.translate(context.Background(), &storev1.PagingRequest{NoPaging: boolp(true)})
 	require.NoError(t, err)
-	assert.Nil(t, meta.GetCurrentPage())
+	assert.Nil(t, meta.GetCurrentPage())           // 全量不分页：无当前页
+	assert.Nil(t, meta.CurrentPage)                // 字段级：未填
+	assert.Equal(t, uint32(0), meta.GetPageSize()) // 未填页大小 → 零值
+	assert.Equal(t, uint32(0), meta.GetCurrentSize())
+	assert.Equal(t, 0, noPageWhere.Offset) // noPaginator → offset=0
+	assert.Equal(t, 0, noPageWhere.Limit)  // limit<=0 由后端解释为全量
 }
 
 // 小工具

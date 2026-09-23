@@ -259,7 +259,7 @@ sequenceDiagram
 
 8. ~~**`inmemory.Provider.Migrate` 与 `memQuery.Migrate` 重复定义**~~（**判定保留，非缺陷，2026-09-24 复核**）。`Provider.Migrate`（`inmemory.go:52`）看似冗余，但它与 gorm 侧 `Provider.Migrate`（`contrib/store-gorm/gorm.go:57`，**有真实消费者** `_example/bald/user/provider_gorm.go:30`）构成 **Provider 层跨后端对称 API**——业务按 `provider.Migrate()` 写代码后可在内存/GORM 后端间无感切换（本模块核心卖点）。删除它会使下游按 gorm 写法调用后切内存后端编译失败。**保留**。
 
-9. **`detectStrategy` 的 NoPaging 分支不可达**（`paging.go:30`）：`translate` 在 `store.go:348` 已提前 `if req.GetNoPaging()` 返回，从不带 `NoPaging` 请求进入 `detectStrategy`。该分支仅由 `paging_test.go:TestPaging_DetectStrategy` 直接测试覆盖。
+9. ~~**`detectStrategy` 的 NoPaging 分支不可达**~~（**已修，2026-09-24**）。原缺陷：`translate` 提前 `if req.GetNoPaging()` 返回，从不带 `NoPaging` 请求进入 `detectStrategy`——两处重复处理 NoPaging，`paging.go:30` 的分支成死代码。现 `translate` 统一走 `detectStrategy`（单一路径），`noPaginator` 分支可达；NoPaging 时经类型判定跳过元数据填充，语义不变（`paging_test.go:TestPaging_TranslateMetadata` 表征锁定 offset=limit=0、不填页大小）。
 
 10. **字符串型数字列走字典序**：`cmpNum`（`inmemory.go:359`）对无法 `ParseFloat` 的值按字典序比较，`"10" < "9"`。仅影响 inmemory 后端对**字符串存数字**的排序/范围比较；gorm 后端由数据库类型系统决定。
 
@@ -286,7 +286,7 @@ sequenceDiagram
 - [x] 数据权限：`RegisterDataScope`/`RegisterDataScopeExpr` + 合并（`scope.go`）。
 - [x] 内置 inmemory 实现（`inmemory/`）。
 - [x] 桥接子模块 GORM（`contrib/store-gorm`，独立 module，SQLite 内存库测试）。
-- [ ] 上述「已知边界」9 的收敛——按需排期（1/2/6 已于 2026-09-24 收敛；3 随注释修正消解；8 经复核判定保留）。
+- [x] 上述「已知边界」1/2/6/9 的收敛（2026-09-24）；3 随注释修正消解；8 经复核判定保留；10/11 为记录性取舍。
 - [ ] `contrib/store-mongo`——同构实现 `Queryable[T]` + `DBProvider[T]` 即可，业务代码零改动。
 
 **验证**（2026-09-24，HEAD `b51218c` 起）：

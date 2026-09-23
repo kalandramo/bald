@@ -384,23 +384,18 @@ func (s *Store[T]) translate(ctx context.Context, req *storev1.PagingRequest) (*
 	mergeDataScope(where, ctx)
 	mergeDataScopeExpr(where, ctx)
 
-	if req.GetNoPaging() {
-		// 不分页：全量列出，不填页元数据。
-		off, limit, err := noPaginator{}.Resolve(req, s.opts.pageSize, s.opts.maxSize)
-		if err != nil {
-			return nil, nil, err
-		}
-		where.Offset, where.Limit = off, limit
-		return where, meta, nil
-	}
-
-	// 选择并解析分页策略。
+	// 选择并解析分页策略（NoPaging > Token > Page > Offset > 默认页码，单一路径）。
 	p := detectStrategy(req)
 	off, limit, err := p.Resolve(req, s.opts.pageSize, s.opts.maxSize)
 	if err != nil {
 		return nil, nil, err
 	}
 	where.Offset, where.Limit = off, limit
+
+	// 不分页：全量列出，不填页元数据（noPaginator 的 offset=limit=0）。
+	if _, ok := p.(noPaginator); ok {
+		return where, meta, nil
+	}
 
 	// 按策略类型填充元数据。
 	ps := limit
