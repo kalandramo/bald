@@ -276,6 +276,16 @@ sequenceDiagram
 
 **为什么 `Filters` 与 `Expr` 双通道而非统一成布尔树？** 隔离条件必须**不可被业务的 OR 树吞掉**。若统一成单棵布尔树，业务的 OR 根节点会让注入的租户条件变成 OR 的成员——一个 `Or(业务条件)` 就能绕过隔离。双通道按 AND 连接从结构上杜绝了这种绕过。
 
+**为什么 `ErrNotFound`/`ErrConflict`/`ErrInvalidToken` 用 `errors.New` 哨兵而非 `berrors`？**（2026-09-24 明确，此前未记载）
+
+依赖**可用**——主模块 `go.mod:44` 已 `require bald/berrors v0.1.1`，所以这不是"依赖不了"的妥协，而是**分层职责**的取舍。`pkg/store/errors.go:12-16` 的三个哨兵是**引擎错误的规范化信号**：三后端各自把驱动原生错误翻译成统一哨兵（GORM 的 `ErrRecordNotFound`、Mongo 的 `ErrNoDocuments`、内存的 map miss → `ErrNotFound`），供 store 家族内部与业务层做 **`errors.Is` 匹配**（补偿/降级分支、幂等判定）。`pkg/store` 全包**零 `berrors` 引用**，保持对上层错误模型的不绑定。
+
+与之相对，**边界投影**由 `berrors` 承担——`transport/web/response.go:58`、`pkg/middleware/grpc/audit.go:107` 都用 `berrors.FromError(err)` 提取 `Code` 做 HTTP/gRPC 映射。这与《Bald 错误模型设计》§「产生→匹配→投影」三段模型一致（`:97-98`：DAL 层只 import 根包做 `WithCause` 包装，投影段被框架收口）。
+
+**现状与待接链路（诚实标注）**：全仓目前**没有任何地方把 store 哨兵投影成 `berrors`**（grep 零命中），store 家族之外的消费点仅 `_example/bald/user/entity.go:93` 的演示断言。即"store 哨兵 → 边界投影"这条链路**尚无真实业务兑现**——因为 `pkg/store` 目前没有生产级消费者（仅 example）。业务接入时的预期用法是：biz 层用 `berrors.NotFound("user/not_found").WithCause(err)` 包装（`err` 可能来自 `store.Get` 的 `ErrNotFound`），由边界收口层投影出去。
+
+**若改为 `berrors` 投影**：`store.ErrNotFound` 会从 `errors.New` 变为 `*berrors.Error`，属**破坏性变更**（下游 `errors.Is(err, store.ErrNotFound)` 的匹配语义依赖哨兵身份），且让 DAL 内部信号绑上边界错误模型——与"核心零上层耦合"的一贯风格相悖。故**维持现状**。
+
 ---
 
 ## 已知边界与缺口
