@@ -177,6 +177,11 @@ func (b *pubsubBroker) internalPublish(ctx context.Context, topic string, msg *b
 }
 
 func (b *pubsubBroker) publish(_ context.Context, topic string, msg *broker.Message, _ ...broker.PublishOption) error {
+	// pool 为 nil 时 `(*Pool)(nil).Get()` 会 panic。三种情况会置 nil：
+	// 未 Connect、Connect 探活失败（D13.2 起）、已 Disconnect。须前置防护。
+	if b.pool == nil {
+		return errors.New("redis: not connected, call Connect first")
+	}
 	conn := b.pool.Get()
 	_, err := redis.Int(conn.Do("PUBLISH", topic, msg.BodyBytes()))
 	_ = conn.Close()
@@ -193,6 +198,11 @@ func (b *pubsubBroker) Subscribe(topic string, handler broker.Handler, binder br
 
 	if len(b.options.SubscriberMiddlewares) > 0 {
 		handler = broker.ChainSubscriberMiddleware(handler, b.options.SubscriberMiddlewares)
+	}
+
+	// pool 为 nil 时 `(*Pool)(nil).Get()` 会 panic（见 publish 注释）。
+	if b.pool == nil {
+		return nil, errors.New("redis: not connected, call Connect first")
 	}
 
 	sub := &subscriber{

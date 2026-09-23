@@ -173,6 +173,12 @@ func (b *streamBroker) publish(_ context.Context, stream string, msg *broker.Mes
 		o(&publishOpts)
 	}
 
+	// pool 为 nil 时 `(*Pool)(nil).Get()` 会 panic。三种情况会置 nil：
+	// 未 Connect、Connect 探活失败（D13.2 起）、已 Disconnect。须前置防护。
+	if b.pool == nil {
+		return errors.New("redis-stream: not connected, call Connect first")
+	}
+
 	conn := b.pool.Get()
 	defer conn.Close()
 
@@ -209,6 +215,12 @@ func (b *streamBroker) Subscribe(topic string, handler broker.Handler, binder br
 
 	if len(b.options.SubscriberMiddlewares) > 0 {
 		handler = broker.ChainSubscriberMiddleware(handler, b.options.SubscriberMiddlewares)
+	}
+
+	// pool 为 nil 时 `(*Pool)(nil).Get()` 会 panic（见 publish 注释）。
+	// 此处前置防护，同时覆盖后续的 ensureGroup 与 conn 获取。
+	if b.pool == nil {
+		return nil, errors.New("redis-stream: not connected, call Connect first")
 	}
 
 	// 提取 Stream 专属配置
