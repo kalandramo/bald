@@ -87,4 +87,8 @@ cd contrib/store-mongo && go test ./...
 ```
 
 测试用每次调用唯一命名的 database（`baldmongo_test_<TestName>`），结束自动 Drop，
-无跨测试串扰。mongod 不可达时 `t.Fatal` 并提示。
+无跨测试串扰。
+
+**集成测试：`-short` 下跳过**（CI 无 mongod 服务，见 `.github/workflows/ci.yml`，
+`go test -short` 是 CI 与本地快速回归的约定）；非 `-short` 且 mongod 不可达时同样
+`t.Skip`（环境缺失，非实现缺陷）。
