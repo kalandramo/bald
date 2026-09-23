@@ -144,8 +144,10 @@ func (s *Store[T]) Update(ctx context.Context, obj *T) (int64, error) {
 // 解析为字段（snake_case → CamelCase，如 TenantID）。业务无需手写，避免漏写租户列
 // 导致写入他租户归属（与读路径 mergeTenant 对称，闭环隔离）。
 //
-// 仅在 ctx 提供该维度值时注入；非多租户应用未注册维度则无操作。反射写入已跳过非导出
-// 字段与已有非空值之外的全部维度；若实体无对应字段（如非租户实体）则静默跳过该维度。
+// 仅在 ctx 提供该维度值时注入；非多租户应用未注册维度则无操作。反射写入对实体对应
+// 字段是**无条件覆写**（仅检查字段可导出且为 string 类型）——业务试图写入他租户值会被
+// ctx 真实租户覆盖（`write_tenant_test.go` 锁定「越权值被覆盖」）；若实体无对应字段
+// （如非租户实体）则静默跳过该维度。
 func injectWriteTenant(ctx context.Context, obj any) {
 	tenantMu.RLock()
 	extractors := make(map[string]TenantValueFunc, len(tenantExtractors))

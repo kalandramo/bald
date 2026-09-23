@@ -144,9 +144,9 @@ type Where struct {
 | `pagePaginator` | `page` 存在 | `(page-1)*size, size`，`page<1` 归正为 1 | `current_page`/`total_pages` |
 | `offsetPaginator` | `offset`/`limit` 存在 | 直接用；仅给 offset 时按默认页大小限制 | `current_offset` |
 
-`clampPageSize`（`store.go:385`）把页大小归一化到 `[defaultSize, maxSize]`——这是 proto 契约里"服务端必须设置合理上限"那条安全规约的落地。
+`clampPageSize`（`store.go:387`）把页大小归一化到 `[defaultSize, maxSize]`——这是 proto 契约里"服务端必须设置合理上限"那条安全规约的落地。
 
-`ListWithPaging`（`store.go:311`）→ `translate`（`store.go:331`）→ `fillTotal`（`store.go:395`）是分页主链路。**NextToken 的填充被刻意推迟到 `fillTotal`**（`store.go:380`–`store.go:381` 注释）：token 需等拿到 `total` 才能判定是否真有下一页，否则末页会产生"空翻页死循环"。`fillTotal` 里 `hasMore := where.Limit > 0 && total > offset+limit`（`store.go:404`）——只有确实还有下一页才下发 token。
+`ListWithPaging`（`store.go:313`）→ `translate`（`store.go:333`）→ `fillTotal`（`store.go:397`）是分页主链路。**NextToken 的填充被刻意推迟到 `fillTotal`**（`store.go:382`–`store.go:383` 注释）：token 需等拿到 `total` 才能判定是否真有下一页，否则末页会产生"空翻页死循环"。`fillTotal` 里 `hasMore := where.Limit > 0 && total > offset+limit`（`store.go:406`）——只有确实还有下一页才下发 token。
 
 **Token 的当前语义是「偏移游标」不是「真游标」**（`paging.go:7`–`paging.go:9` 文件头自承）：token 是 base64 编码的十进制偏移量（兼容裸十进制，向后兼容），`encodeToken`（`paging.go:109`）产出，解码在 `tokenPaginator.Resolve`（`paging.go:78`）。这与"基于主键/排序键的游标分页"不同——后者需后端配合 last-key 过滤，是未来平滑升级路径，业务调用方无感知。
 
@@ -160,9 +160,9 @@ store.RegisterTenant("tenant_id", store.DefaultTenantFunc) // 显式开启，不
 
 **为什么不在 `init` 中隐式注册？** 因为对存量非多租户业务静默注入隔离条件会造成"查询突然查不到数据"的诡异故障。显式注册把开启时机交给业务，代价为零（`tenant.go:25`–`tenant.go:26` 注释）。`DefaultTenantFunc`（`tenant.go:27`）从 `contextx.TenantIDFromContext` 取值——认证中间件（`pkg/middleware/{gin,grpc}/authn.go`）在认证通过后写入。
 
-**读路径**：`translate` 在构造 `Where` 后立即调用 `mergeTenant`（`store.go:340`）与 `mergeDataScope`/`mergeDataScopeExpr`（`store.go:343`–`store.go:344`）。`mergeTenant`（`tenant.go:94`）把每个已注册维度的等值条件追加进 `Filters`，并**去重业务已手写的同名条件**——业务若已写该租户列（任一操作符，如 `NEQ`），系统不再叠加 `EQ`，避免 `EQ + NEQ` 叠加产生恒假或歧义（`tenant_test.go:TestMergeTenant` 锁定）。
+**读路径**：`translate` 在构造 `Where` 后立即调用 `mergeTenant`（`store.go:342`）与 `mergeDataScope`/`mergeDataScopeExpr`（`store.go:345`–`store.go:346`）。`mergeTenant`（`tenant.go:94`）把每个已注册维度的等值条件追加进 `Filters`，并**去重业务已手写的同名条件**——业务若已写该租户列（任一操作符，如 `NEQ`），系统不再叠加 `EQ`，避免 `EQ + NEQ` 叠加产生恒假或歧义（`tenant_test.go:TestMergeTenant` 锁定）。
 
-**写路径**：`Create`/`Update`（`store.go:96`/`store.go:133`）在委托后端前调用 `injectWriteTenant`（`store.go:149`），反射把 ctx 解析到的租户值写回实体字段。字段匹配优先级（`tenantFieldIndex`，`store.go:188`）：`gorm:"column:tenant_id"` tag > `json:"tenant_id"` tag > 字段名 CamelCase→snake_case 直接相等（`fieldToSnake`，`store.go:215`）。**语义是无条件覆写**（`store.go:181` 的 `fd.SetString`）——业务试图写入他租户值（越权改归属）会被 ctx 真实租户覆盖，`write_tenant_test.go:TestInjectWriteTenant` 明确锁定"越权租户值应被 ctx 租户覆盖"。
+**写路径**：`Create`/`Update`（`store.go:96`/`store.go:133`）在委托后端前调用 `injectWriteTenant`（`store.go:151`），反射把 ctx 解析到的租户值写回实体字段。字段匹配优先级（`tenantFieldIndex`，`store.go:190`）：`gorm:"column:tenant_id"` tag > `json:"tenant_id"` tag > 字段名 CamelCase→snake_case 直接相等（`fieldToSnake`，`store.go:217`）。**语义是无条件覆写**（`store.go:183` 的 `fd.SetString`）——业务试图写入他租户值（越权改归属）会被 ctx 真实租户覆盖，`write_tenant_test.go:TestInjectWriteTenant` 明确锁定"越权租户值应被 ctx 租户覆盖"。
 
 读写两路径**对称闭环**：读不泄漏、写不改归属。这是本模块的核心安全承诺。
 
@@ -181,9 +181,9 @@ type DataScopeExprFunc func(ctx context.Context, claims *authn.AuthClaims) *stor
 
 `inmemory`（`inmemory.go:29`）是零外部依赖的 `Provider[T]`：`map[string]*T` + `sync.RWMutex`，键由调用方注入的 `KeyFunc`（`inmemory.go:26`）提取（典型为业务主键）。`NewProvider[T](keyOf)`（`inmemory.go:36`）在 `keyOf` 为 nil 时 panic——fail-fast 而非静默退化。
 
-`memQuery[T]`（`inmemory.go:58`）实现 `Queryable[T]`，过滤经反射读取导出字段值做字符串比较（`fieldString`，`inmemory.go:307`），`matchOne`（`inmemory.go:213`）以 20 个 case 分支覆盖 24 个操作符常量（含 `EQ/EXACT`、`LIKE/CONTAINS` 等合并分支），从等值/比较到正则/前后缀。**字段名双向归一**（`snake`，`inmemory.go:288`）保证同一 `Where` 语义在 inmemory 与 gorm 后端行为一致——`UserID` 与 `user_id` 都能命中。布尔树求值 `matchExpr`（`inmemory.go:175`）递归实现 AND/OR 语义，**空 AND 恒真、空 OR 恒假**（与 proto 契约一致，`inmemory_test.go:TestStore_OrExpr` 锁定）。数值比较 `cmpNum`（`inmemory.go:352`）先试 `ParseFloat`，失败回退字典序——注意这对字符串型数字列（如 `"10"` vs `"9"`）会走字典序，是已知取舍（见「已知边界」）。
+`memQuery[T]`（`inmemory.go:58`）实现 `Queryable[T]`，过滤经反射读取导出字段值做字符串比较（`fieldString`，`inmemory.go:314`），`matchOne`（`inmemory.go:220`）以 20 个 case 分支覆盖 24 个操作符常量（含 `EQ/EXACT`、`LIKE/CONTAINS` 等合并分支），从等值/比较到正则/前后缀。**字段名双向归一**（`snake`，`inmemory.go:295`）保证同一 `Where` 语义在 inmemory 与 gorm 后端行为一致——`UserID` 与 `user_id` 都能命中。布尔树求值 `matchExpr`（`inmemory.go:182`）递归实现 AND/OR 语义，**空 AND 恒真、空 OR 恒假**（与 proto 契约一致，`inmemory_test.go:TestStore_OrExpr` 锁定）。数值比较 `cmpNum`（`inmemory.go:359`）先试 `ParseFloat`，失败回退字典序——注意这对字符串型数字列（如 `"10"` vs `"9"`）会走字典序，是已知取舍（见「已知边界」）。
 
-不支持的操作符（`JSON_CONTAINS`/`ARRAY_CONTAINS`/`EXISTS`/`SEARCH`）在 `matchOne` 的 default 分支返回 `false`——**宁缺勿假**（`inmemory.go:280` 注释）。
+不支持的操作符（`JSON_CONTAINS`/`ARRAY_CONTAINS`/`EXISTS`/`SEARCH`）在 `matchOne` 的 default 分支返回 `false`——**宁缺勿假**（`inmemory.go:287` 注释）。
 
 ### 可选能力：Mapper 与 Logger
 
@@ -222,9 +222,9 @@ sequenceDiagram
 
 ## 理由与取舍
 
-**为什么 `Get` 未命中返回 `ErrNotFound` 而不是 `(nil, nil)`？** `store.go:277` 明确：两个 provider 一致返回哨兵错误。调用方须判 error 而非只判 nil——这消除了"零值实体 vs 未命中"的歧义。**注意 `Delete`/`Update` 的语义与此不同**（见下两条），三者是独立契约。
+**为什么 `Get` 未命中返回 `ErrNotFound` 而不是 `(nil, nil)`？** `store.go:279` 明确：两个 provider 一致返回哨兵错误。调用方须判 error 而非只判 nil——这消除了"零值实体 vs 未命中"的歧义。**注意 `Delete`/`Update` 的语义与此不同**（见下两条），三者是独立契约。
 
-**`Delete` 是幂等语义：0 行匹配返回 `(0, nil)`**（`store.go:251` 长注释，2026-09-23 决策）。它返回受影响行数，删除不存在的资源是**合法结果**——不再报 `ErrNotFound`。这消除了旧语义的缺陷（框架缺陷报告 D12）：`Delete` 曾对 0 行硬失败，把「集合删除本就为空」误报为 not found，逼得 `bald-admin` 的 message/mfa 两域写容忍样板。需要「必须存在才能删」的调用方，**由上层显式实现**——判 `rows == 0` 即可，无需额外 `Get` 往返。**代价**：无前置 `Get` 的单条删除路径，其「删不存在 → 404」会退化为 200（有意变更）。
+**`Delete` 是幂等语义：0 行匹配返回 `(0, nil)`**（`store.go:253` 长注释，2026-09-23 决策）。它返回受影响行数，删除不存在的资源是**合法结果**——不再报 `ErrNotFound`。这消除了旧语义的缺陷（框架缺陷报告 D12）：`Delete` 曾对 0 行硬失败，把「集合删除本就为空」误报为 not found，逼得 `bald-admin` 的 message/mfa 两域写容忍样板。需要「必须存在才能删」的调用方，**由上层显式实现**——判 `rows == 0` 即可，无需额外 `Get` 往返。**代价**：无前置 `Get` 的单条删除路径，其「删不存在 → 404」会退化为 200（有意变更）。
 
 **`Update` 与 `Delete` 同族：0 行匹配返回 `(0, nil)`**（`store.go:105` 长注释，2026-09-24 决策）。更新对齐 SQL 原生语义——`UPDATE` 影响 0 行是正常执行，ORM 不擅自增加底层没有的错误；「更新到本就是目标值」是成功而非失败（面向最终状态，非过程）。影响行数属**业务状态**，经 `RowsAffected` 通道交业务判断，`Result.Error` 只承载系统错误。**代价**：无前置 `Get` 的单条更新路径，其「更不存在 → 404」退化为 200（与 `Delete` 同性质的有意变更）。两 provider 对称：`inmemory` 返回 `1`/`0`、`gorm` 返回 `RowsAffected`。
 
@@ -242,31 +242,33 @@ sequenceDiagram
 
 以下为**当前实现的事实记录**（均以 file:line 核实），不是设计意图：
 
-1. **隔离仅覆盖 `ListWithPaging`**。`mergeTenant`/`mergeDataScope` 只在 `translate`（`store.go:340`–`store.go:344`）中调用，而 `translate` 只被 `ListWithPaging` 使用。`Get`/`List`/`Count`/`Delete`（`store.go:265`–`store.go:295`）直接透传 `Where`，**不自动注入隔离**——调用方须自行 `where.T(ctx)`（`tenant.go:69`）。这是隔离面上的重要边界：多租户应用若用 `Get`/`List` 直查而忘了 `T(ctx)`，会读到全租户数据。
+1. **隔离仅覆盖 `ListWithPaging`**。`mergeTenant`/`mergeDataScope` 只在 `translate`（`store.go:342`–`store.go:346`）中调用，而 `translate` 只被 `ListWithPaging` 使用。`Get`/`List`/`Count`/`Delete`（`store.go:267`–`store.go:297`）直接透传 `Where`，**不自动注入隔离**——调用方须自行 `where.T(ctx)`（`tenant.go:69`）。这是隔离面上的重要边界：多租户应用若用 `Get`/`List` 直查而忘了 `T(ctx)`，会读到全租户数据。
 
 2. **`Where.T(ctx)` 丢失 `Expr`**。`Where.T`（`tenant.go:69`–`tenant.go:76`）构造副本时只复制 `Sorting`/`Offset`/`Limit`/`Filters`，**不复制 `Expr`**。当前该方法是零生产调用点（仅 `pkg/middleware/{gin,grpc}/authn.go` 注释提及），所以未暴露为实际缺陷；但一旦业务用 `where.T(ctx)` 显式隔离，业务布尔树会被静默丢弃。
 
-3. **`injectWriteTenant` 注释与实现不符**。`store.go:142`–`store.go:143` 注释称"反射写入已跳过非导出字段与已有非空值之外的全部维度"，措辞暗示"跳过已有非空值"；实现（`store.go:179`–`store.go:181`）实际是**无条件覆写**（仅检查 `CanSet` 与 `Kind==String`），`write_tenant_test.go` 也锁定"越权值被覆盖"。注释应改为"无条件覆写"。
+3. ~~**`injectWriteTenant` 注释与实现不符**~~（**已修，2026-09-24**）。原注释措辞暗示"跳过已有非空值"，实现（`store.go:183` 的 `fd.SetString`）实际是**无条件覆写**（仅检查 `CanSet` 与 `Kind==String`）。现已把注释改为"无条件覆写"（`store.go:147`–`store.go:150`），与 `write_tenant_test.go` 锁定的"越权值被覆盖"一致。
 
-4. **proto 的字符串 DSL 与 field_mask 零消费**。`PagingRequest` 声明了 `query`(10)/`filter`(11)/`order_by`(20)/`field_mask`(30)，但 `translate`（`store.go:333`–`store.go:334`）只读取 `GetSorting()` 与 `GetFilterExpr()`。字符串 DSL 与字段掩码在核心层**未接线**——proto 契约的安全规约第 4 条（"字符串 DSL 仅作前端便捷通道，服务端必须严格校验"）目前无对应实现。
+4. **proto 的字符串 DSL 与 field_mask 零消费**。`PagingRequest` 声明了 `query`(10)/`filter`(11)/`order_by`(20)/`field_mask`(30)，但 `translate`（`store.go:335`–`store.go:336`）只读取 `GetSorting()` 与 `GetFilterExpr()`。字符串 DSL 与字段掩码在核心层**未接线**——proto 契约的安全规约第 4 条（"字符串 DSL 仅作前端便捷通道，服务端必须严格校验"）目前无对应实现。
 
 5. **`Mapper`/`CopierMapper` 零生产调用点**（仅 `mapper_test.go`）；**`DBProvider.Close()` 零调用点**，`Store` 也未暴露 `Close`（资源生命周期完全归调用方）。
 
-6. **`PaginationResponseMeta.CurrentSize` 未被填充**。`fillTotal`（`store.go:395`）回填 `Total`/`TotalPages`/`NextToken`，未填 `CurrentSize`（当前页实际返回条数）。
+6. **`PaginationResponseMeta.CurrentSize` 未被填充**。`fillTotal`（`store.go:397`）回填 `Total`/`TotalPages`/`NextToken`，未填 `CurrentSize`（当前页实际返回条数）。
 
 7. **token 是偏移游标不是真游标**（`paging.go:7`–`paging.go:9` 文件头自承），深度翻页时后端的 `OFFSET` 成本仍随页数增长；升级为 last-key 游标的路径已在该注释中预留。
 
 8. **`inmemory.Provider.Migrate` 与 `memQuery.Migrate` 重复定义**（`inmemory.go:52`/`inmemory.go:55`）——`Provider` 上的 `Migrate` 并非 `Queryable` 接口要求（接口方法实现在 `memQuery`），是冗余成员。
 
-9. **`detectStrategy` 的 NoPaging 分支不可达**（`paging.go:30`）：`translate` 在 `store.go:346` 已提前 `if req.GetNoPaging()` 返回，从不带 `NoPaging` 请求进入 `detectStrategy`。该分支仅由 `paging_test.go:TestPaging_DetectStrategy` 直接测试覆盖。
+9. **`detectStrategy` 的 NoPaging 分支不可达**（`paging.go:30`）：`translate` 在 `store.go:348` 已提前 `if req.GetNoPaging()` 返回，从不带 `NoPaging` 请求进入 `detectStrategy`。该分支仅由 `paging_test.go:TestPaging_DetectStrategy` 直接测试覆盖。
 
-10. **字符串型数字列走字典序**：`cmpNum`（`inmemory.go:352`）对无法 `ParseFloat` 的值按字典序比较，`"10" < "9"`。仅影响 inmemory 后端对**字符串存数字**的排序/范围比较；gorm 后端由数据库类型系统决定。
+10. **字符串型数字列走字典序**：`cmpNum`（`inmemory.go:359`）对无法 `ParseFloat` 的值按字典序比较，`"10" < "9"`。仅影响 inmemory 后端对**字符串存数字**的排序/范围比较；gorm 后端由数据库类型系统决定。
+
+11. **`rows == 0` 不能作为「记录不存在」的判据**（`Update`/`Delete` 返回的影响行数）。返回的是**受影响（被改变）行数**而非匹配行数，且**跨后端不一致**：MySQL 默认（未开 `CLIENT_FOUND_ROWS`）对「UPDATE 到与现有值相同」返回 0（行确实存在），SQLite 返回 1（`update_idempotent_test.go` 实测锁定）。故上层若写 `if rows == 0 { return ErrNotFound }`，在 MySQL 下会把「幂等更新到相同值」误判为不存在——需要精确存在性判断时应显式 `Get`（`store.go:105` 的 `Update` 注释已载明正误对照）。
 
 ---
 
 ## 兼容性
 
-核心契约稳定。**破坏性变更记录**：`Update`/`Delete` 签名由 `error` 改为 `(int64, error)`（0 行返回 `(0, nil)`，幂等语义，2026-09-23/24 两次决策）——下游调用点须同步为 `rows, err := ...`。已发布 tag：`store` 随主模块（`go.mod` `module github.com/kalandramo/bald`）；桥接子模块 `contrib/store-gorm` 为独立 module（`github.com/kalandramo/bald/contrib/store-gorm`，当前 require `bald v0.9.0` + `bconf v0.7.2`）。
+核心契约稳定。**破坏性变更记录**：`Update`/`Delete` 签名由 `error` 改为 `(int64, error)`（0 行返回 `(0, nil)`，幂等语义，2026-09-23/24 两次决策）——下游调用点须同步为 `rows, err := ...`。已发布 tag：`store` 随主模块（`go.mod` `module github.com/kalandramo/bald`，当前 `v0.10.0`）；桥接子模块 `contrib/store-gorm` 为独立 module（`github.com/kalandramo/bald/contrib/store-gorm`，当前 tag `v0.1.3`，require `bald v0.10.0` + `bconf v0.7.2`）。
 
 跨 module 使用者注意：引用 GORM 桥接须 require `contrib/store-gorm` 本身（非主模块）；`bconf` 契约类型（`storev1.*`）来自 `github.com/kalandramo/bald/bconf`。
 
@@ -283,15 +285,16 @@ sequenceDiagram
 - [x] 数据权限：`RegisterDataScope`/`RegisterDataScopeExpr` + 合并（`scope.go`）。
 - [x] 内置 inmemory 实现（`inmemory/`）。
 - [x] 桥接子模块 GORM（`contrib/store-gorm`，独立 module，SQLite 内存库测试）。
-- [ ] 上述「已知边界」1/2/3/6/8/9 的收敛——按需排期（1 为安全边界，优先级最高）。
+- [ ] 上述「已知边界」1/2/6/8/9 的收敛——按需排期（1 为安全边界，优先级最高；3 已于 2026-09-24 随注释修正消解）。
 - [ ] `contrib/store-mongo`——同构实现 `Queryable[T]` + `DBProvider[T]` 即可，业务代码零改动。
 
-**验证**（2026-09-23，HEAD `7b53571`）：
+**验证**（2026-09-24，HEAD `b00755b`）：
 
 - `go test ./pkg/store/...` → `ok github.com/kalandramo/bald/pkg/store` + `ok .../inmemory`（exit 0）。
 - `go vet ./pkg/store/...` → exit 0。
-- 测试覆盖：根包 15 例（paging 7 / where 3 / tenant 3 / mapper 1 / write_tenant 1），inmemory 2 例；契约行为由 `where_test.go`（构造器形状）、`tenant_test.go`（隔离注入与去重）、`write_tenant_test.go`（越权覆写）、`paging_test.go`（四策略 + 元数据 + NextToken 边界）钉住。
-- **未验证**：`contrib/store-gorm` 为独立 module，本次未单独跑其测试；「已知边界」各条为静态阅读 + grep 结论，除第 3 条有 `write_tenant_test.go` 的行为锁定外，其余未写复现测试。
+- `contrib/store-gorm`（独立 module）：`go test ./...` → ok（exit 0），含 `gorm_test.go`（CRUD/过滤/排序/分页/OR 树）、`conn_test.go`（连接配置 12 例）、`delete_idempotent_test.go`、`update_idempotent_test.go`。
+- 测试覆盖：根包 15 例（paging 7 / where 3 / tenant 3 / mapper 1 / write_tenant 1），inmemory 4 例（CRUD+paging、OR 树、Delete 幂等、Update 幂等）；契约行为由 `where_test.go`（构造器形状）、`tenant_test.go`（隔离注入与去重）、`write_tenant_test.go`（越权覆写）、`paging_test.go`（四策略 + 元数据 + NextToken 边界）、`{delete,update}_idempotent_test.go`（0 行幂等契约，两 provider 对称）钉住。
+- **未验证**：「已知边界」各条为静态阅读 + grep 结论（条目 3 已随注释修正消解；第 10/11 条有 `inmemory`/`gorm` 行为锁定外，其余未写复现测试）。
 
 ---
 
