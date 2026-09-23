@@ -72,8 +72,11 @@ func (q *memQuery[T]) Create(_ context.Context, obj *T) error {
 
 // Update 更新一条记录，返回受影响行数。
 // **幂等语义**（与 Delete 一致）：键不存在时返回 (0, nil)，不报错——更新的目标
-// 是让数据变成目标值，本来就是目标值，操作本身成功。需要「必须存在才能更新」的
-// 调用方，自行判 rows == 0。
+// 是让数据变成目标值，本来就是目标值，操作本身成功。
+//
+// 注意 `rows == 0` **不能**作为「记录不存在」的判据：本实现返回的是「键是否存在」
+// （0/1），而 gorm 后端返回驱动的受影响行数（MySQL 下「更新到相同值」也返回 0）
+// ——跨后端语义不一致，需要精确存在性判断请显式 `Get`。
 func (q *memQuery[T]) Update(_ context.Context, obj *T) (int64, error) {
 	q.p.mu.Lock()
 	defer q.p.mu.Unlock()

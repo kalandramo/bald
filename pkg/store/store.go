@@ -109,12 +109,27 @@ func (s *Store[T]) Create(ctx context.Context, obj *T) error {
 // `UPDATE` 影响 0 行是正常执行，ORM 不擅自增加底层没有的错误。
 //
 // 影响行数属**业务状态**，交由业务代码判断；`Result.Error` 只承载系统错误
-// （网络、锁冲突等）。需要「必须存在才能更新」的调用方，**由上层显式实现**
-// ——判 `rows == 0` 即可，无需额外的 `Get` 往返：
+// （网络、锁冲突等）。
 //
+// ⚠️ **`rows == 0` 不是「记录不存在」的可靠代理**。返回的是**受影响（被改变）
+// 行数**，不是**匹配行数**，且该语义**跨后端不一致**：MySQL 默认（未开
+// `CLIENT_FOUND_ROWS`）对「UPDATE 到与现有值相同」返回 0（行确实存在），而
+// SQLite 返回 1（本仓 `update_idempotent_test.go` 实测锁定）。故需要精确
+// 「必须存在才能更新」语义时，**不要**用 `if rows == 0` 判定——MySQL 下会把
+// 「幂等更新到相同值」误判为不存在。应显式 `Get` 判存在，或先
+// `SELECT ... FOR UPDATE` 再更新（顺带解决并发）：
+//
+//	// ❌ MySQL 下误判：更新到相同值也会返回 0
 //	rows, err := store.Update(ctx, obj)
 //	if err != nil { return err }
-//	if rows == 0 { return ErrNotFound } // 调用方自定义语义
+//	if rows == 0 { return ErrNotFound }
+//
+//	// ✅ 精确存在性判断（与后端无关）
+//	if _, err := store.Get(ctx, where); err != nil { return err } // ErrNotFound 即不存在
+//	if _, err := store.Update(ctx, obj); err != nil { return err }
+//
+// `rows` 仍适合「本次是否真的改变了数据」这类**观测**用途（如决定要不要触发
+// 下游副作用）——注意该观测同样受上述跨后端差异影响。
 func (s *Store[T]) Update(ctx context.Context, obj *T) (int64, error) {
 	injectWriteTenant(ctx, obj) // 写路径多租户：自动覆写租户，防止越权更新改租户归属
 	q, err := s.provider.DB(ctx)

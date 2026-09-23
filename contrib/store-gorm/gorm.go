@@ -89,8 +89,11 @@ func (q *gormQuery[T]) Create(_ context.Context, obj *T) error {
 
 // Update 更新一条记录，返回受影响行数。
 // **幂等语义**（与 Delete 一致）：0 行匹配返回 (0, nil)，不报错——SQL 原生
-// UPDATE 影响 0 行是正常执行，ORM 不擅自增加底层没有的错误。需要「必须存在
-// 才能更新」的调用方，自行判 rows == 0。
+// UPDATE 影响 0 行是正常执行，ORM 不擅自增加底层没有的错误。
+//
+// 返回的是 GORM `RowsAffected`（**受影响行数**，直接透传驱动），**不是匹配行数**
+// ——MySQL 默认对「UPDATE 到与现有值相同」返回 0，故 `rows == 0` 不能作为
+// 「记录不存在」的判据（详见 `store.Store.Update` 注释）。
 func (q *gormQuery[T]) Update(_ context.Context, obj *T) (int64, error) {
 	k := q.keyOf(obj)
 	// 用 map 形式更新：避免 GORM 对零值字段的"跳过"行为，并把主键列排除，
