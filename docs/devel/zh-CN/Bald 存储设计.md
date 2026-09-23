@@ -133,6 +133,45 @@ type Where struct {
 
 便捷构造族（`where.go:30`–`where.go:103`）覆盖常用操作符：`Eq`/`Ne`/`Gt`/`Gte`/`Lt`/`Lte`（比较）、`In`/`Nin`（集合）、`Like`/`Contains`（模糊）、`And`/`Or`（树）、`Sort`/`SortDesc`（排序）。这些构造器是**形状契约**——`where_test.go:TestWhereConstructors` 用同一断言族钉住全部成员（含零调用的 `Lt`/`Lte`/`Nin`），防翻译层语义漂移时无测试可依。
 
+### 操作符覆盖与跨后端语义差异
+
+`store.proto` 的 `Operator` 枚举共 28 个（另有 `OPERATOR_UNSPECIFIED`）。三后端覆盖情况（**2026-09-24 逐 case 核实**）：
+
+| 操作符 | inmemory | store-gorm | store-mongo |
+|---|---|---|---|
+| EQ/EXACT、NEQ、GT/GTE/LT/LTE | ✅ | ✅ | ✅ |
+| LIKE、ILIKE、NOT_LIKE | ✅ | ✅ | ✅ |
+| IN、NIN、BETWEEN | ✅ | ✅ | ✅ |
+| IS_NULL、IS_NOT_NULL | ✅ | ✅ | ✅ |
+| REGEXP、IREGEXP | ✅ | ✅ | ✅ |
+| CONTAINS、STARTS_WITH、ENDS_WITH | ✅ | ✅ | ✅ |
+| ICONTAINS、ISTARTS_WITH、IENDS_WITH、IEXACT | ✅ | ✅ | ✅ |
+| **ARRAY_CONTAINS** | ❌ 恒假 | ❌ 恒真 | ✅ 原生 |
+| **JSON_CONTAINS** | ❌ 恒假 | ❌ 恒真 | ✅ 原生 |
+| **EXISTS** | ❌ 恒假 | ❌ 恒真 | ✅ 原生 |
+| **SEARCH** | ❌ 恒假 | ❌ 恒真 | ❌ 恒真 |
+
+**差异只落在最后 4 个操作符上**，且三后端行为**互相冲突**：
+
+- `inmemory`（`inmemory.go:288`）default 返回 `false`（**恒假**，"宁缺勿假"——查不到任何行）；
+- `store-gorm`（`gorm.go:309`）default 返回 `"1 = 1"`（**恒真**，条件被安全忽略）；
+- `store-mongo`：`ARRAY_CONTAINS`/`JSON_CONTAINS`/`EXISTS` **有原生实现**（2026-09-24 补），`SEARCH` 恒真。
+
+⚠️ **这是真实隐患**：同一个 `Where` 带 `ARRAY_CONTAINS` 条件时，inmemory 恒假（拦截）、gorm 恒真（放行）——若这类条件被用于 fail-closed 的数据范围（DataScope）场景，两个后端行为**相反**。当前无生产影响（`crudbridge` 的数据范围只用 `Eq` + OR 树，不构造这 4 个操作符），但业务若自行使用需显式注意后端选择。
+
+#### 为什么 store-mongo 补了三个、store-gorm 不补？
+
+**判定依据是「引擎原生能力 + 可验证性」，不是「工作量」**：
+
+- **MongoDB 有直接对应**（mongosh 实测确认）：`ARRAY_CONTAINS` → 数组字段等值匹配（`{tags:"b"}` 命中 `tags:[a,b]`）；`JSON_CONTAINS` → 点号路径匹配嵌套子文档（`{meta.role:"admin"}`）；`EXISTS` → `$exists`。故**补**。
+- **`SEARCH` 三后端都不补**：MongoDB 的 `$text` **需预先建 text 索引**，无索引时查询直接报错（实测 `text index required for $text query`）——盲目映射会把"条件被静默忽略"换成运行期硬错误，是更坏的后果。全文检索应由业务显式建索引 + 原生查询。
+- **store-gorm 不补**：桥接刻意**保持方言无关**——`condSQL`（`gorm.go:240`）生成硬编码 SQL 字符串（如 `col REGEXP ?` 已是 MySQL 语法，注释自承"PostgreSQL 需扩展、SQLite 不支持"），不检测 dialect。补这些操作符需引入「操作符 × 方言」矩阵：
+  - `JSON_CONTAINS`：MySQL `JSON_CONTAINS(col,?)` / PostgreSQL `col @> ?::jsonb` / SQLite 无原生（需 `json_each`）；
+  - `ARRAY_CONTAINS`：PostgreSQL `?` / MySQL 需借 `JSON_CONTAINS` / SQLite 无；
+  - `EXISTS`：proto 语义是"子查询/存在性"，SQL 的 `EXISTS` 是子查询谓词，字段存在性在 SQL 无直接对应——语义本身模糊。
+  
+  技术上**可行**（`gorm.DB` 内嵌 `*Config`，`Config.Dialector.Name()` 返回 `mysql`/`postgres`/`sqlite`，可据此分支），但代价是：方言矩阵 + **当前测试引擎 SQLite 覆盖不了多数分支**（需真实 MySQL/PostgreSQL 环境）+ 这 3 个操作符**全仓零生产调用方**（`crudbridge` 不用）。**成本/收益不成立，判定不做**。若将来有真实需求，路径是：`condSQL` 改方法持有 `*gorm.DB` 取 `Dialector.Name()`，按方言分支，并补真实 MySQL/PostgreSQL 测试。
+
 ### 分页策略：四策略自动识别
 
 分页做成可替换的 `Paginator` 策略（`paging.go:21`），由 `detectStrategy`（`paging.go:29`）按请求字段自动选择，**优先级：NoPaging > Token > Page > Offset > 默认页码**：

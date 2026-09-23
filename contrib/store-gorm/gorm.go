@@ -294,8 +294,17 @@ func condSQL(c *storev1.FilterCondition) (string, []any) {
 		// 依赖驱动方言：MySQL 原生 REGEXP（默认大小写不敏感）；
 		// PostgreSQL 需 pg_trgm/正则扩展；SQLite 不支持（会报错，属预期）。
 		return col + " REGEXP ?", []any{v}
-	// JSON_CONTAINS / ARRAY_CONTAINS / EXISTS / SEARCH 依赖引擎方言，
-	// 通用桥接不做猜测式翻译（安全忽略，宁缺勿假）。
+	// JSON_CONTAINS / ARRAY_CONTAINS / EXISTS / SEARCH 依赖引擎方言，通用桥接
+	// 不做猜测式翻译（安全忽略，恒真）。
+	//
+	// 为何不在本桥接补这三个（2026-09-24 评估，详见《Bald 存储设计》§操作符覆盖）：
+	// 本桥接刻意保持**方言无关**（condSQL 生成硬编码 SQL，不检测 dialect）。补这些
+	// 需引入「操作符 × 方言」矩阵——JSON_CONTAINS 在 MySQL/PG/SQLite 语法各异、
+	// ARRAY_CONTAINS 多数方言无直接对应、EXISTS 的 proto 语义（子查询/存在性）在
+	// SQL 无字段存在性对应。技术上可行（gorm.DB 内嵌 *Config，Config.Dialector.Name()
+	// 可分支），但当前测试引擎 SQLite 覆盖不了多数分支、且这三个操作符全仓零调用方
+	// ——成本/收益不成立。store-mongo 因 MongoDB 有原生能力（数组等值/点号路径/$exists）
+	// 故单独补了三个。SEARCH 三后端均不补：$text 需预建索引否则报错。
 	default:
 		return "1 = 1", nil
 	}
