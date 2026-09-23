@@ -39,13 +39,38 @@ got, _ := repo.Get(ctx, &store.Where{Filters: []*storev1.FilterCondition{store.E
 - **主键字段**：默认 `"id"`（Go 字段 `ID` 的 snake_case）。实体主键字段名非 `ID` 时用
   `baldmongo.WithKeyField[T]("your_key")` 覆盖，避免 Get/Update/Delete 定位到不存在的字段。
 
+## 操作符覆盖
+
+覆盖 `store.proto` 的 `Operator` 枚举绝大部分，含三个 MongoDB 原生扩展（超出
+store-gorm/inmemory 的能力面）：
+
+| 操作符 | 实现 | 说明 |
+|---|---|---|
+| EQ/NEQ/GT/GTE/LT/LTE | 原生比较 | |
+| IN/NIN | `$in`/`$nin` | 值按字段类型转换 |
+| LIKE/CONTAINS/STARTS_WITH/ENDS_WITH | `$regex`（转义元字符） | |
+| ILIKE/ICONTAINS/ISTARTS_WITH/IENDS_WITH/IEXACT | `$regex` + `$options:"i"` | 大小写不敏感 |
+| NOT_LIKE | `$not` + `$regex` | |
+| IS_NULL/IS_NOT_NULL | `$in`/`$nin` [nil,""] | |
+| BETWEEN | `$gte`+`$lte` | |
+| REGEXP/IREGEXP | `$regex` | |
+| **ARRAY_CONTAINS** | 数组字段等值匹配 | MongoDB 原生：`{tags:"b"}` 命中 `tags:[a,b]` |
+| **JSON_CONTAINS** | 点号路径匹配 | MongoDB 原生：`{meta.role:"admin"}` 匹配嵌套子文档 |
+| **EXISTS** | `$exists` | MongoDB 原生，value `"true"/"false"` 控制正反 |
+| SEARCH | **未实现**（恒真） | `$text` 需**预先建 text 索引**，否则查询报错；盲目映射会把"条件被忽略"换成运行期硬错误。需全文检索时业务应显式建索引并用原生查询 |
+
+> ARRAY_CONTAINS / JSON_CONTAINS / EXISTS 三者在 store-gorm 与 inmemory 中**均未实现**
+> （走 default）。本模块提供原生实现，故同一 `Where` 在 mongo 后端下语义更完整。
+> 若业务依赖这三者，注意跨后端行为差异（mongo 精确匹配 vs gorm/inmemory 恒真/恒假）。
+
 ## 与 store-gorm 的语义差异
 
 | 行为 | store-gorm（SQL） | store-mongo |
 |---|---|---|
 | `Update` 返回值 | `RowsAffected`（**受影响**行数）——MySQL 下「更新到相同值」返回 0 | `MatchedCount`（**匹配**行数）——「更新到相同值」返回 1 |
 | `rows == 0` 判「记录不存在」 | 不可靠（MySQL 误判） | **可靠**（匹配即算） |
-| 未支持的操作符 | 生成对应 SQL（或报错） | 返回恒真条件（保守放行，避免"配了条件却查空"） |
+| ARRAY_CONTAINS / JSON_CONTAINS / EXISTS | 未实现（恒真） | **原生实现** |
+| 未支持的操作符（SEARCH） | 恒真 | 恒真 |
 
 > `Update` 返回值的跨后端差异详见 `pkg/store` 的 `Store.Update` 注释。
 

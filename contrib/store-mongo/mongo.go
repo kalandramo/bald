@@ -292,6 +292,17 @@ func (q *mongoQuery[T]) condFilter(c *storev1.FilterCondition) bson.D {
 		return regexFilter(field, sv, "")
 	case storev1.Operator_IREGEXP:
 		return regexFilter(field, sv, "i")
+	// 数组含元素：MongoDB 对数组字段的等值匹配即"含该元素"（无需 $elemMatch，
+	// 因过滤值是标量）。原生能力，实测确认（`{tags:"b"}` 命中 tags:[a,b]）。
+	case storev1.Operator_ARRAY_CONTAINS:
+		return bson.D{{Key: field, Value: q.condArg(c)}}
+	// JSON 包含：MongoDB 用点号路径匹配嵌套子文档字段（如 meta.role）。
+	// proto 注释「如 Postgres/MySQL 的 JSON 包含」；Mongo 的等价表达是路径等值。
+	case storev1.Operator_JSON_CONTAINS:
+		return bson.D{{Key: field, Value: q.condArg(c)}}
+	// 字段存在性：MongoDB 原生 $exists。value 为 "true"/"false" 控制正反。
+	case storev1.Operator_EXISTS:
+		return bson.D{{Key: field, Value: bson.D{{Key: "$exists", Value: truthy(sv)}}}}
 	case storev1.Operator_BETWEEN:
 		vals := c.GetValues()
 		if len(vals) != 2 {
@@ -299,10 +310,23 @@ func (q *mongoQuery[T]) condFilter(c *storev1.FilterCondition) bson.D {
 		}
 		return bson.D{{Key: field, Value: bson.D{{Key: "$gte", Value: vals[0]}, {Key: "$lte", Value: vals[1]}}}}
 	default:
-		// 未支持的操作符（JSON_CONTAINS/ARRAY_CONTAINS/EXISTS/SEARCH）：返回恒真条件，
-		// 保守放行而非静默查空（与 inmemory 的"宁缺勿假"取向不同，此处避免"配了条件
-		// 却查不到"的更坏后果）。已在设计文档标注该差异。
+		// SEARCH（全文检索）未实现：MongoDB 的 $text 需**预先建 text 索引**，否则
+		// 查询直接报错（实测「text index required for $text query」）——盲目映射会把
+		// 静默的"条件被忽略"换成运行期硬错误，故此处保守返回恒真（与 store-gorm
+		// 的 default 取向一致）。需要全文检索时业务应显式建 text 索引并用原生查询。
+		// （JSON_CONTAINS/ARRAY_CONTAINS/EXISTS 已在上方提供原生实现。）
 		return bson.D{}
+	}
+}
+
+// truthy 把字符串值解析为布尔（"true"/"1"/"yes" 为真，其余为假）。
+// 用于 EXISTS 操作符的 value（proto 用字符串表达布尔）。
+func truthy(s string) bool {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "true", "1", "yes", "y", "t":
+		return true
+	default:
+		return false
 	}
 }
 

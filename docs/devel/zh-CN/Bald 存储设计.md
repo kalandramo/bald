@@ -183,7 +183,7 @@ type DataScopeExprFunc func(ctx context.Context, claims *authn.AuthClaims) *stor
 
 `memQuery[T]`（`inmemory.go:58`）实现 `Queryable[T]`，过滤经反射读取导出字段值做字符串比较（`fieldString`，`inmemory.go:314`），`matchOne`（`inmemory.go:220`）以 20 个 case 分支覆盖 24 个操作符常量（含 `EQ/EXACT`、`LIKE/CONTAINS` 等合并分支），从等值/比较到正则/前后缀。**字段名双向归一**（`snake`，`inmemory.go:295`）保证同一 `Where` 语义在 inmemory 与 gorm 后端行为一致——`UserID` 与 `user_id` 都能命中。布尔树求值 `matchExpr`（`inmemory.go:182`）递归实现 AND/OR 语义，**空 AND 恒真、空 OR 恒假**（与 proto 契约一致，`inmemory_test.go:TestStore_OrExpr` 锁定）。数值比较 `cmpNum`（`inmemory.go:359`）先试 `ParseFloat`，失败回退字典序——注意这对字符串型数字列（如 `"10"` vs `"9"`）会走字典序，是已知取舍（见「已知边界」）。
 
-不支持的操作符（`JSON_CONTAINS`/`ARRAY_CONTAINS`/`EXISTS`/`SEARCH`）在 `matchOne` 的 default 分支返回 `false`——**宁缺勿假**（`inmemory.go:287` 注释）。
+不支持的操作符在 `matchOne` 的 default 分支返回 `false`——**宁缺勿假**（`inmemory.go:287` 注释）。⚠️ **跨后端差异**：`ARRAY_CONTAINS`/`JSON_CONTAINS`/`EXISTS` 在 inmemory 恒假、在 `contrib/store-mongo` 有原生实现、在 `contrib/store-gorm` 恒真（`1 = 1`）——同一 `Where` 带这三类条件时三后端行为不同，业务若依赖需注意后端选择。
 
 ### 可选能力：Mapper 与 Logger
 
@@ -288,7 +288,7 @@ sequenceDiagram
 - [x] 桥接子模块 GORM（`contrib/store-gorm`，独立 module，SQLite 内存库测试）。
 - [x] 桥接子模块 MongoDB（`contrib/store-mongo`，独立 module，mongo-driver v2，真实 mongod 测试；2026-09-24 落地）。
 - [x] 上述「已知边界」1/2/6/9 的收敛（2026-09-24）；3 随注释修正消解；8 经复核判定保留；10/11 为记录性取舍。
-- [ ] `contrib/store-mongo` 的深化——当前覆盖 CRUD/过滤/排序/分页/布尔树/幂等；未支持的操作符（JSON_CONTAINS/ARRAY_CONTAINS/EXISTS/SEARCH）返回恒真条件，待按需补。
+- [x] `contrib/store-mongo` 的深化——覆盖 CRUD/过滤/排序/分页/布尔树/幂等；并原生实现 `ARRAY_CONTAINS`/`JSON_CONTAINS`/`EXISTS`（2026-09-24，超出 gorm/inmemory 的能力面）。仅 `SEARCH` 未实现（`$text` 需预建 text 索引，恒真保守放行）。
 
 **验证**（2026-09-24，HEAD `b51218c` 起）：
 
