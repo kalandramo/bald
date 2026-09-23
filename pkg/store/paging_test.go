@@ -122,13 +122,14 @@ func TestPaging_TranslateMetadata(t *testing.T) {
 
 	// fillTotal：还有下一页时下发 NextToken，末页不下发。
 	opts := options{pageSize: testDefSize, maxSize: testMaxSize}
-	fillTotal(meta, 100, where, opts)
+	fillTotal(meta, 100, 5, where, opts)
 	assert.Equal(t, uint64(100), meta.GetTotal().GetValue())
-	assert.NotEmpty(t, meta.GetNextToken()) // 20+5 < 100 → 有下一页
+	assert.Equal(t, uint32(5), meta.GetCurrentSize()) // 当前页实际返回条数
+	assert.NotEmpty(t, meta.GetNextToken())           // 20+5 < 100 → 有下一页
 
 	lastWhere, lastMeta, err := s.translate(context.Background(), &storev1.PagingRequest{Offset: u64p(95), Limit: u32p(10)})
 	require.NoError(t, err)
-	fillTotal(lastMeta, 100, lastWhere, opts)
+	fillTotal(lastMeta, 100, 5, lastWhere, opts)
 	assert.Empty(t, lastMeta.GetNextToken()) // 95+10 >= 100 → 末页，不下发
 
 	// 不分页无元数据

@@ -66,11 +66,15 @@ func UnregisterTenant(key string) {
 // 业务可在构造 Where 时调用 w.T(ctx) 显式声明"本查询需租户隔离"；Store.translate
 // 也会对非 NoPaging 列表默认尝试注入（见 mergeTenant）。若 ctx 中无租户值，则该
 // 维度被跳过（等效于"无租户约束"）。
+//
+// 副本保留原 Where 的全部字段（含 Expr 布尔树）——租户条件追加进 Filters，与 Expr
+// 按 AND 连接，业务 OR 树不被吞掉。
 func (w *Where) T(ctx context.Context) *Where {
 	out := &Where{
 		Sorting: w.Sorting,
 		Offset:  w.Offset,
 		Limit:   w.Limit,
+		Expr:    w.Expr,
 		Filters: append(append([]*storev1.FilterCondition(nil), w.Filters...), tenantConditions(ctx)...),
 	}
 	return out

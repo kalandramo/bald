@@ -244,7 +244,7 @@ sequenceDiagram
 
 1. **隔离仅覆盖 `ListWithPaging`**。`mergeTenant`/`mergeDataScope` 只在 `translate`（`store.go:342`–`store.go:346`）中调用，而 `translate` 只被 `ListWithPaging` 使用。`Get`/`List`/`Count`/`Delete`（`store.go:267`–`store.go:297`）直接透传 `Where`，**不自动注入隔离**——调用方须自行 `where.T(ctx)`（`tenant.go:69`）。这是隔离面上的重要边界：多租户应用若用 `Get`/`List` 直查而忘了 `T(ctx)`，会读到全租户数据。
 
-2. **`Where.T(ctx)` 丢失 `Expr`**。`Where.T`（`tenant.go:69`–`tenant.go:76`）构造副本时只复制 `Sorting`/`Offset`/`Limit`/`Filters`，**不复制 `Expr`**。当前该方法是零生产调用点（仅 `pkg/middleware/{gin,grpc}/authn.go` 注释提及），所以未暴露为实际缺陷；但一旦业务用 `where.T(ctx)` 显式隔离，业务布尔树会被静默丢弃。
+2. ~~**`Where.T(ctx)` 丢失 `Expr`**~~（**已修，2026-09-24**）。`Where.T`（`tenant.go:72`）构造副本时曾只复制 `Sorting`/`Offset`/`Limit`/`Filters`，**丢弃 `Expr`**——业务用 `where.T(ctx)` 显式隔离时布尔树会被静默吞掉。现已补 `Expr` 复制，`TestWhere_T_PreservesExpr` 锁定。
 
 3. ~~**`injectWriteTenant` 注释与实现不符**~~（**已修，2026-09-24**）。原注释措辞暗示"跳过已有非空值"，实现（`store.go:183` 的 `fd.SetString`）实际是**无条件覆写**（仅检查 `CanSet` 与 `Kind==String`）。现已把注释改为"无条件覆写"（`store.go:147`–`store.go:150`），与 `write_tenant_test.go` 锁定的"越权值被覆盖"一致。
 
@@ -252,11 +252,11 @@ sequenceDiagram
 
 5. **`Mapper`/`CopierMapper` 零生产调用点**（仅 `mapper_test.go`）；**`DBProvider.Close()` 零调用点**，`Store` 也未暴露 `Close`（资源生命周期完全归调用方）。
 
-6. **`PaginationResponseMeta.CurrentSize` 未被填充**。`fillTotal`（`store.go:397`）回填 `Total`/`TotalPages`/`NextToken`，未填 `CurrentSize`（当前页实际返回条数）。
+6. ~~**`PaginationResponseMeta.CurrentSize` 未被填充**~~（**已修，2026-09-24**）。`fillTotal`（`store.go:397`）现回填 `Total`/`TotalPages`/`NextToken`/`CurrentSize`（当前页实际返回条数 = `len(items)`），`TestStore_ListWithPaging_CurrentSize` 锁定（满页/末页/空页三态）。
 
 7. **token 是偏移游标不是真游标**（`paging.go:7`–`paging.go:9` 文件头自承），深度翻页时后端的 `OFFSET` 成本仍随页数增长；升级为 last-key 游标的路径已在该注释中预留。
 
-8. **`inmemory.Provider.Migrate` 与 `memQuery.Migrate` 重复定义**（`inmemory.go:52`/`inmemory.go:55`）——`Provider` 上的 `Migrate` 并非 `Queryable` 接口要求（接口方法实现在 `memQuery`），是冗余成员。
+8. ~~**`inmemory.Provider.Migrate` 与 `memQuery.Migrate` 重复定义**~~（**判定保留，非缺陷，2026-09-24 复核**）。`Provider.Migrate`（`inmemory.go:52`）看似冗余，但它与 gorm 侧 `Provider.Migrate`（`contrib/store-gorm/gorm.go:57`，**有真实消费者** `_example/bald/user/provider_gorm.go:30`）构成 **Provider 层跨后端对称 API**——业务按 `provider.Migrate()` 写代码后可在内存/GORM 后端间无感切换（本模块核心卖点）。删除它会使下游按 gorm 写法调用后切内存后端编译失败。**保留**。
 
 9. **`detectStrategy` 的 NoPaging 分支不可达**（`paging.go:30`）：`translate` 在 `store.go:348` 已提前 `if req.GetNoPaging()` 返回，从不带 `NoPaging` 请求进入 `detectStrategy`。该分支仅由 `paging_test.go:TestPaging_DetectStrategy` 直接测试覆盖。
 

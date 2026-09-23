@@ -323,7 +323,7 @@ func (s *Store[T]) ListWithPaging(ctx context.Context, req *storev1.PagingReques
 	if err != nil {
 		return nil, err
 	}
-	fillTotal(meta, total, where, s.opts)
+	fillTotal(meta, total, len(items), where, s.opts)
 	return &PagingResult[T]{Items: items, Meta: meta}, nil
 }
 
@@ -394,9 +394,13 @@ func clampPageSize(v, def, max int) int {
 	return v
 }
 
-func fillTotal(meta *storev1.PaginationResponseMeta, total int64, where *Where, o options) {
+func fillTotal(meta *storev1.PaginationResponseMeta, total int64, currentSize int, where *Where, o options) {
 	if meta.Total == nil {
 		meta.Total = uint64Ptr(uint64(total))
+	}
+	// CurrentSize：当前页实际返回条数（与 len(items) 一致）。
+	if meta.CurrentSize == nil {
+		meta.CurrentSize = uint32p(uint32(currentSize))
 	}
 	if meta.TotalPages == nil && meta.PageSize != nil && *meta.PageSize > 0 {
 		pages := (uint32(total) + *meta.PageSize - 1) / *meta.PageSize
