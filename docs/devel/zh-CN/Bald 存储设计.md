@@ -90,7 +90,7 @@ flowchart TB
 type Queryable[T any] interface {
     Create(ctx context.Context, obj *T) error
     Update(ctx context.Context, obj *T) error
-    Delete(ctx context.Context, where *Where) error
+    Delete(ctx context.Context, where *Where) (rows int64, err error)
     Get(ctx context.Context, where *Where) (*T, error)
     List(ctx context.Context, where *Where) (items []*T, total int64, err error)
     Count(ctx context.Context, where *Where) (int64, error)
@@ -222,9 +222,9 @@ sequenceDiagram
 
 ## 理由与取舍
 
-**为什么 `Get`/`Delete` 未命中返回 `ErrNotFound` 而不是 `(nil, nil)`？** `store.go:247` 与 `store.go:235` 明确：两个 provider（gorm 的 `RowsAffected==0`、inmemory 的 `len(matched)==0`）一致返回哨兵错误。调用方须判 error 而非只判 nil——这消除了"零值实体 vs 未命中"的歧义。
+**为什么 `Get` 未命中返回 `ErrNotFound` 而不是 `(nil, nil)`？** `store.go:247` 明确：两个 provider 一致返回哨兵错误。调用方须判 error 而非只判 nil——这消除了"零值实体 vs 未命中"的歧义。**注意 `Delete` 的语义与此不同**（见下条），二者是独立契约。
 
-**`Delete` 的 0 行语义是「要求唯一确定单条记录」而非建议**（`store.go:235` 长注释）。把集合条件（如"某用户的全部收件记录"）传给 `Delete` 时，集合本就为空是**合法结果**，却会被报成 `ErrNotFound`，调用方若透传该 error 就会把正常操作误报为失败。集合删除的调用方须自行容忍（`err != nil && !errors.Is(err, store.ErrNotFound)`）。这是框架级已知约束，实例见 `bald-admin` 的 message/mfa 两域（框架缺陷报告 D12）。
+**`Delete` 是幂等语义：0 行匹配返回 `(0, nil)`**（`store.go:224` 长注释，2026-09-23 决策）。它返回受影响行数，删除不存在的资源是**合法结果**——不再报 `ErrNotFound`。这消除了旧语义的缺陷（框架缺陷报告 D12）：`Delete` 曾对 0 行硬失败，把「集合删除本就为空」误报为 not found，逼得 `bald-admin` 的 message/mfa 两域写容忍样板。需要「必须存在才能删」的调用方，**由上层显式实现**——判 `rows == 0` 即可，无需额外 `Get` 往返。**代价**：无前置 `Get` 的单条删除路径，其「删不存在 → 404」会退化为 200（有意变更）。
 
 **为什么 Mapper 不进 Store 内部流程？** 泛型 `Store[T]` 一旦内建 `Mapper[T, Entity]`，就需要 `EntityOf[T]` 这类类型级推导（早期草案里出现过，全仓零落地）。代价是核心复杂度暴涨、`T` 的语义变模糊。当前设计把 DTO/Entity 分离留给 Provider 层组合——`Store[T]` 只管 `T`，业务要分离就在构造 Provider 前包一层。**能力面完整，复杂度不进核心。**
 
