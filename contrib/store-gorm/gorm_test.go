@@ -60,7 +60,9 @@ func TestGormCRUD(t *testing.T) {
 	assert.Equal(t, "alice", got.Name)
 
 	// Update（含 gorm:"-" 内存态字段：不得被当作表列，否则 no such column）
-	require.NoError(t, repo.Update(ctx, &User{ID: "1", Name: "alice2", Age: 31, Transient: "ignored"}))
+	rows, err := repo.Update(ctx, &User{ID: "1", Name: "alice2", Age: 31, Transient: "ignored"})
+	require.NoError(t, err)
+	require.Equal(t, int64(1), rows)
 	got, _ = repo.Get(ctx, &store.Where{Filters: []*storev1.FilterCondition{store.Eq("id", "1")}})
 	assert.Equal(t, "alice2", got.Name)
 	assert.Equal(t, 31, got.Age)

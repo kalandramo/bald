@@ -79,7 +79,7 @@ func runDemo(p store.DBProvider[User]) error {
 	}
 
 	// 更新
-	if err := repo.Update(ctx, &User{ID: "1", Name: "alice-updated", Age: 31}); err != nil {
+	if _, err := repo.Update(ctx, &User{ID: "1", Name: "alice-updated", Age: 31}); err != nil {
 		return err
 	}
 	got, _ = repo.Get(ctx, &store.Where{Filters: []*storev1.FilterCondition{store.Eq("id", "1")}})

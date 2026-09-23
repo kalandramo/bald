@@ -29,7 +29,7 @@ const MaxPageSize = 100
 // 各自实现。
 type Queryable[T any] interface {
 	Create(ctx context.Context, obj *T) error
-	Update(ctx context.Context, obj *T) error
+	Update(ctx context.Context, obj *T) (rows int64, err error)
 	Delete(ctx context.Context, where *Where) (rows int64, err error)
 	Get(ctx context.Context, where *Where) (*T, error)
 	List(ctx context.Context, where *Where) (items []*T, total int64, err error)
@@ -102,12 +102,24 @@ func (s *Store[T]) Create(ctx context.Context, obj *T) error {
 	return q.Create(ctx, obj)
 }
 
-// Update 更新一条记录。
-func (s *Store[T]) Update(ctx context.Context, obj *T) error {
+// Update 更新一条记录，返回受影响行数。
+//
+// **幂等语义**（与 Delete 一致）：目标记录不存在时返回 `(0, nil)`，不报错——
+// 更新的目标是让数据变成目标值，本来就是目标值，操作本身成功；SQL 原生
+// `UPDATE` 影响 0 行是正常执行，ORM 不擅自增加底层没有的错误。
+//
+// 影响行数属**业务状态**，交由业务代码判断；`Result.Error` 只承载系统错误
+// （网络、锁冲突等）。需要「必须存在才能更新」的调用方，**由上层显式实现**
+// ——判 `rows == 0` 即可，无需额外的 `Get` 往返：
+//
+//	rows, err := store.Update(ctx, obj)
+//	if err != nil { return err }
+//	if rows == 0 { return ErrNotFound } // 调用方自定义语义
+func (s *Store[T]) Update(ctx context.Context, obj *T) (int64, error) {
 	injectWriteTenant(ctx, obj) // 写路径多租户：自动覆写租户，防止越权更新改租户归属
 	q, err := s.provider.DB(ctx)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	return q.Update(ctx, obj)
 }

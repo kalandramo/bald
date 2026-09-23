@@ -40,8 +40,10 @@ func TestStore_CRUDAndPaging(t *testing.T) {
 	}
 
 	// Update。
-	if err := s.Update(ctx, &user{ID: "1", Name: "alice-x", Age: 32}); err != nil {
+	if rows, err := s.Update(ctx, &user{ID: "1", Name: "alice-x", Age: 32}); err != nil {
 		t.Fatalf("update: %v", err)
+	} else if rows != 1 {
+		t.Fatalf("update: rows=%d, want 1", rows)
 	}
 	got, _ = s.Get(ctx, &store.Where{Filters: []*storev1.FilterCondition{store.Eq("id", "1")}})
 	if got.Name != "alice-x" || got.Age != 32 {

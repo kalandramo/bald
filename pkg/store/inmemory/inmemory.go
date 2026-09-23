@@ -70,15 +70,19 @@ func (q *memQuery[T]) Create(_ context.Context, obj *T) error {
 	return nil
 }
 
-func (q *memQuery[T]) Update(_ context.Context, obj *T) error {
+// Update 更新一条记录，返回受影响行数。
+// **幂等语义**（与 Delete 一致）：键不存在时返回 (0, nil)，不报错——更新的目标
+// 是让数据变成目标值，本来就是目标值，操作本身成功。需要「必须存在才能更新」的
+// 调用方，自行判 rows == 0。
+func (q *memQuery[T]) Update(_ context.Context, obj *T) (int64, error) {
 	q.p.mu.Lock()
 	defer q.p.mu.Unlock()
 	k := q.p.keyOf(obj)
 	if _, ok := q.p.data[k]; !ok {
-		return store.ErrNotFound
+		return 0, nil
 	}
 	q.p.data[k] = obj
-	return nil
+	return 1, nil
 }
 
 // Delete 按条件删除，返回受影响行数。

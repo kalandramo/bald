@@ -87,21 +87,22 @@ func (q *gormQuery[T]) Create(_ context.Context, obj *T) error {
 	return nil
 }
 
-func (q *gormQuery[T]) Update(_ context.Context, obj *T) error {
+// Update 更新一条记录，返回受影响行数。
+// **幂等语义**（与 Delete 一致）：0 行匹配返回 (0, nil)，不报错——SQL 原生
+// UPDATE 影响 0 行是正常执行，ORM 不擅自增加底层没有的错误。需要「必须存在
+// 才能更新」的调用方，自行判 rows == 0。
+func (q *gormQuery[T]) Update(_ context.Context, obj *T) (int64, error) {
 	k := q.keyOf(obj)
 	// 用 map 形式更新：避免 GORM 对零值字段的"跳过"行为，并把主键列排除，
 	// 防止主键被改写导致行错位。语义：主键不可变，零值字段也会被写入。
 	res := q.db.Model(new(T)).Where(toColumn("id")+" = ?", k).Updates(toMapExcludeKey(obj))
 	if res.Error != nil {
 		if isUniqueViolation(res.Error) {
-			return store.ErrConflict
+			return 0, store.ErrConflict
 		}
-		return res.Error
+		return 0, res.Error
 	}
-	if res.RowsAffected == 0 {
-		return store.ErrNotFound
-	}
-	return nil
+	return res.RowsAffected, nil
 }
 
 // toMapExcludeKey 将对象反射为更新用的字段映射（列名→值），剔除主键列 id。
