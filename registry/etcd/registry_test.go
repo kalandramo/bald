@@ -8,11 +8,13 @@ package etcd
 //
 // ## 验证策略
 //
-// **真实 etcd 依赖**（Docker `bald-etcd`，:2379）。不可达时 Skip，
+// **真实 etcd 依赖**（Docker `bald-etcd`，:2379）。**集成测试，-short 下跳过**
+// （CI 无 etcd 服务；`go test -short` 是 CI 与本地快速回归的约定）。
 // 不 mock——注册中心的语义（租约、watch、KV 前缀）无法用 mock 有意义地覆盖。
 //
 // 覆盖：构造校验 / Register→GetService→Deregister 全链路 /
 // namespace 前缀 / Watch 变更通知 / TTL 租约。
+// 其中 `TestNew_RequiresEndpoints` 是纯单元测试，-short 下仍运行。
 
 import (
 	"context"
@@ -30,14 +32,29 @@ func etcdEndpoint() string {
 	return "127.0.0.1:2379"
 }
 
-// newTestRegistry 构造连接到真实 etcd 的 Registry，不可达则 Skip。
+// newTestRegistry 构造连接到真实 etcd 的 Registry。
+//
+// 集成测试：-short 下跳过——CI 无 etcd 服务（见 .github/workflows/ci.yml），
+// `go test -short` 是 CI 与本地快速回归的约定，集成测试须以此守卫。
+// 非 -short 模式下 etcd 不可达同样跳过（环境缺失，非实现缺陷）。
 func newTestRegistry(t *testing.T, opts ...Option) *Registry {
 	t.Helper()
+	if testing.Short() {
+		t.Skip("集成测试：依赖真实 etcd（:2379），-short 下跳过")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	all := append([]Option{WithCtx(ctx), WithEndpoints(etcdEndpoint())}, opts...)
 	r, err := New(all...)
 	if err != nil {
+		t.Skipf("etcd 不可达，跳过（环境缺失）: %v", err)
+	}
+	// 探活：New 惰性建连不触网，真正连接延迟到首次请求——用 context.Background()
+	// 的用例会无限重试挂死。此处短超时探一次，不可达即 Skip。
+	probeCtx, probeCancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer probeCancel()
+	if _, err := r.GetService(probeCtx, "probe-"+time.Now().Format("150405.000000")); err != nil {
+		_ = r.Close()
 		t.Skipf("etcd 不可达，跳过（环境缺失）: %v", err)
 	}
 	t.Cleanup(func() { _ = r.Close() })

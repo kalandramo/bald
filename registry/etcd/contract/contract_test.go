@@ -11,7 +11,10 @@ package contract
 //  3. **fail-fast**：`type=etcd` 但缺 etcd 段 → 明确报错；
 //  4. 正常构造（真实 etcd）返回可用 Registrar + cleanup。
 //
-// 真实 etcd 依赖（:2379），不可达时 Skip——契约装配的「可用性」无法用 mock 证明。
+// 真实 etcd 依赖（:2379）。**集成测试，-short 下跳过**（CI 无 etcd 服务）；
+// 非 -short 且 etcd 不可达时同样 Skip——契约装配的「可用性」无法用 mock 证明。
+// `TestType_Constant` / `TestProvider_MissingSectionFailsFast` / `TestProvider_ConfigMapping`
+// 不连 etcd，-short 下仍运行。
 
 import (
 	"context"
@@ -48,7 +51,12 @@ func TestProvider_MissingSectionFailsFast(t *testing.T) {
 }
 
 // TestProvider_BuildsUsableRegistrar —— 正常构造（真实 etcd）。
+//
+// 集成测试：-short 下跳过（CI 无 etcd 服务，见 .github/workflows/ci.yml）。
 func TestProvider_BuildsUsableRegistrar(t *testing.T) {
+	if testing.Short() {
+		t.Skip("集成测试：依赖真实 etcd（:2379），-short 下跳过")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
@@ -79,7 +87,9 @@ func TestProvider_BuildsUsableRegistrar(t *testing.T) {
 		ID: name + "-1", Name: name, Endpoints: []string{"http://127.0.0.1:9999"},
 	}
 	if err := reg.Register(ctx, inst); err != nil {
-		t.Fatalf("用契约构造的 Registrar 注册失败: %v", err)
+		// etcd 不可达属环境缺失（Provider 惰性建连，连接失败延迟到此处），
+		// 跳过而非失败——与文件头「不可达时 Skip」的意图一致。
+		t.Skipf("etcd 不可达，跳过（环境缺失）: %v", err)
 	}
 	t.Logf("确认：契约配置（endpoints/prefix/ttl/max_retry）构造出可用 Registrar")
 
