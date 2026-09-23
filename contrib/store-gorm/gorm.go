@@ -45,40 +45,45 @@ func NewGormProvider[T any](db *gorm.DB, keyOf func(*T) string) *Provider[T] {
 	return &Provider[T]{db: db, keyOf: keyOf}
 }
 
-// DB 返回 GORM Queryable（会话绑定到 T 的表）。
-func (p *Provider[T]) DB(_ context.Context) (store.Queryable[T], error) {
-	return &gormQuery[T]{db: p.db, keyOf: p.keyOf}, nil
+// DB 返回 GORM Queryable（会话绑定到 T 的表与请求 ctx）。
+//
+// ctx 通过 `WithContext` 绑定到会话——所有后续操作（Create/Get/List/...）自动
+// 继承该 ctx，使请求取消/超时能传播到数据库驱动（原缺陷：ctx 被 `_` 丢弃，
+// 取消的请求仍照常执行 DB 操作）。
+func (p *Provider[T]) DB(ctx context.Context) (store.Queryable[T], error) {
+	return &gormQuery[T]{db: p.db.WithContext(ctx), keyOf: p.keyOf}, nil
 }
 
 // Close 空实现（GORM 连接池由调用方管理生命周期）。
 func (p *Provider[T]) Close() error { return nil }
 
 // Migrate 在数据库侧 AutoMigrate 给定模型（默认用 T）。
-func (p *Provider[T]) Migrate(_ context.Context, models ...any) error {
+func (p *Provider[T]) Migrate(ctx context.Context, models ...any) error {
 	if len(models) == 0 {
 		var zero T
 		models = []any{zero}
 	}
-	return p.db.AutoMigrate(models...)
+	return p.db.WithContext(ctx).AutoMigrate(models...)
 }
 
 // gormQuery 实现 store.Queryable[T]，把 Where 翻译成 GORM 链式调用。
+// db 已由 Provider.DB 经 WithContext 绑定请求 ctx（会话级继承）。
 type gormQuery[T any] struct {
 	db    *gorm.DB
 	keyOf func(*T) string
 }
 
 // Migrate 委托给会话级 AutoMigrate。
-func (q *gormQuery[T]) Migrate(_ context.Context, models ...any) error {
+func (q *gormQuery[T]) Migrate(ctx context.Context, models ...any) error {
 	if len(models) == 0 {
 		var zero T
 		models = []any{zero}
 	}
-	return q.db.AutoMigrate(models...)
+	return q.db.WithContext(ctx).AutoMigrate(models...)
 }
 
-func (q *gormQuery[T]) Create(_ context.Context, obj *T) error {
-	if err := q.db.Create(obj).Error; err != nil {
+func (q *gormQuery[T]) Create(ctx context.Context, obj *T) error {
+	if err := q.db.WithContext(ctx).Create(obj).Error; err != nil {
 		if isUniqueViolation(err) {
 			return store.ErrConflict
 		}
@@ -94,11 +99,11 @@ func (q *gormQuery[T]) Create(_ context.Context, obj *T) error {
 // 返回的是 GORM `RowsAffected`（**受影响行数**，直接透传驱动），**不是匹配行数**
 // ——MySQL 默认对「UPDATE 到与现有值相同」返回 0，故 `rows == 0` 不能作为
 // 「记录不存在」的判据（详见 `store.Store.Update` 注释）。
-func (q *gormQuery[T]) Update(_ context.Context, obj *T) (int64, error) {
+func (q *gormQuery[T]) Update(ctx context.Context, obj *T) (int64, error) {
 	k := q.keyOf(obj)
 	// 用 map 形式更新：避免 GORM 对零值字段的"跳过"行为，并把主键列排除，
 	// 防止主键被改写导致行错位。语义：主键不可变，零值字段也会被写入。
-	res := q.db.Model(new(T)).Where(toColumn("id")+" = ?", k).Updates(toMapExcludeKey(obj))
+	res := q.db.WithContext(ctx).Model(new(T)).Where(toColumn("id")+" = ?", k).Updates(toMapExcludeKey(obj))
 	if res.Error != nil {
 		if isUniqueViolation(res.Error) {
 			return 0, store.ErrConflict
@@ -136,8 +141,8 @@ func toMapExcludeKey(obj any) map[string]any {
 // Delete 按条件删除，返回受影响行数。
 // **幂等语义**：0 行匹配返回 (0, nil)，不报错——删除不存在的资源是合法结果。
 // 需要「必须存在才能删」的调用方，自行判 rows == 0。
-func (q *gormQuery[T]) Delete(_ context.Context, where *store.Where) (int64, error) {
-	tx := q.applyWhere(where)
+func (q *gormQuery[T]) Delete(ctx context.Context, where *store.Where) (int64, error) {
+	tx := q.applyWhere(where).WithContext(ctx)
 	res := tx.Delete(new(T))
 	if res.Error != nil {
 		return 0, res.Error
@@ -145,9 +150,9 @@ func (q *gormQuery[T]) Delete(_ context.Context, where *store.Where) (int64, err
 	return res.RowsAffected, nil
 }
 
-func (q *gormQuery[T]) Get(_ context.Context, where *store.Where) (*T, error) {
+func (q *gormQuery[T]) Get(ctx context.Context, where *store.Where) (*T, error) {
 	var obj T
-	tx := q.applyWhere(where).Limit(1)
+	tx := q.applyWhere(where).WithContext(ctx).Limit(1)
 	if err := tx.First(&obj).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, store.ErrNotFound
@@ -157,12 +162,12 @@ func (q *gormQuery[T]) Get(_ context.Context, where *store.Where) (*T, error) {
 	return &obj, nil
 }
 
-func (q *gormQuery[T]) List(_ context.Context, where *store.Where) ([]*T, int64, error) {
+func (q *gormQuery[T]) List(ctx context.Context, where *store.Where) ([]*T, int64, error) {
 	var total int64
-	if err := q.applyWhere(where).Model(new(T)).Count(&total).Error; err != nil {
+	if err := q.applyWhere(where).WithContext(ctx).Model(new(T)).Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
-	tx := q.applyWhere(where)
+	tx := q.applyWhere(where).WithContext(ctx)
 	tx = q.applySorting(tx, where.Sorting)
 	tx = q.applyPaging(tx, where)
 	var items []*T
@@ -172,9 +177,9 @@ func (q *gormQuery[T]) List(_ context.Context, where *store.Where) ([]*T, int64,
 	return items, total, nil
 }
 
-func (q *gormQuery[T]) Count(_ context.Context, where *store.Where) (int64, error) {
+func (q *gormQuery[T]) Count(ctx context.Context, where *store.Where) (int64, error) {
 	var n int64
-	if err := q.applyWhere(where).Model(new(T)).Count(&n).Error; err != nil {
+	if err := q.applyWhere(where).WithContext(ctx).Model(new(T)).Count(&n).Error; err != nil {
 		return 0, err
 	}
 	return n, nil
