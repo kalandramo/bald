@@ -79,7 +79,7 @@ func TestStore_CRUDAndPaging(t *testing.T) {
 	}
 
 	// Delete。
-	if err := s.Delete(ctx, &store.Where{Filters: []*storev1.FilterCondition{store.Eq("id", "1")}}); err != nil {
+	if _, err := s.Delete(ctx, &store.Where{Filters: []*storev1.FilterCondition{store.Eq("id", "1")}}); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
 	if _, err := s.Get(ctx, &store.Where{Filters: []*storev1.FilterCondition{store.Eq("id", "1")}}); err != store.ErrNotFound {

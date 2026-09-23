@@ -30,7 +30,7 @@ const MaxPageSize = 100
 type Queryable[T any] interface {
 	Create(ctx context.Context, obj *T) error
 	Update(ctx context.Context, obj *T) error
-	Delete(ctx context.Context, where *Where) error
+	Delete(ctx context.Context, where *Where) (rows int64, err error)
 	Get(ctx context.Context, where *Where) (*T, error)
 	List(ctx context.Context, where *Where) (items []*T, total int64, err error)
 	Count(ctx context.Context, where *Where) (int64, error)
@@ -221,21 +221,24 @@ func cutPrefix(s, prefix string) (string, bool) {
 	return s, false
 }
 
-// Delete 按条件删除。
+// Delete 按条件删除，返回受影响行数。
 //
-// **对 0 行匹配返回 `ErrNotFound`**（两个 provider 一致：gorm 的
-// `RowsAffected == 0`、inmemory 的 `len(matched) == 0`）。故 where **必须**
-// 唯一确定单条记录——这是**要求**而非建议：把集合条件（如「某用户的全部
-// 收件记录」）传给本方法时，集合本就为空（0 行）是**合法结果**，却会被
-// 报成 not found，调用方若透传该 error 就会把正常操作误报为失败。
+// **幂等语义**：对 0 行匹配返回 `(0, nil)`，不报错——删除不存在的资源是合法
+// 结果，集合删除本就为空亦然（REST DELETE 幂等标准）。这消除了旧语义下
+// 「集合删除被误报为 not found」的缺陷（框架缺陷报告 D12）。
 //
-// 集合删除的调用方须自行容忍 `ErrNotFound`
-// （`err != nil && !errors.Is(err, store.ErrNotFound)`）——见 bald-admin 的
-// message/mfa 域两处实例（框架缺陷报告 D12）。
-func (s *Store[T]) Delete(ctx context.Context, where *Where) error {
+// 需要「必须存在才能删」的调用方，**由上层显式实现**——判 `rows == 0` 即可，
+// 无需额外的 `Get` 往返：
+//
+//	rows, err := store.Delete(ctx, where)
+//	if err != nil { return err }
+//	if rows == 0 { return ErrNotFound } // 调用方自定义语义
+//
+// 注意：`Get` 的未命中语义**不变**（仍返回 `ErrNotFound`），二者是独立契约。
+func (s *Store[T]) Delete(ctx context.Context, where *Where) (int64, error) {
 	q, err := s.provider.DB(ctx)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	return q.Delete(ctx, where)
 }

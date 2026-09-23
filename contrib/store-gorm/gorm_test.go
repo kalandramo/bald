@@ -73,7 +73,8 @@ func TestGormCRUD(t *testing.T) {
 	assert.Equal(t, int64(2), n)
 
 	// Delete
-	require.NoError(t, repo.Delete(ctx, &store.Where{Filters: []*storev1.FilterCondition{store.Eq("id", "2")}}))
+	_, err = repo.Delete(ctx, &store.Where{Filters: []*storev1.FilterCondition{store.Eq("id", "2")}})
+	require.NoError(t, err)
 	_, err = repo.Get(ctx, &store.Where{Filters: []*storev1.FilterCondition{store.Eq("id", "2")}})
 	assert.ErrorIs(t, err, store.ErrNotFound)
 }

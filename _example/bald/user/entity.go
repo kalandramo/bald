@@ -86,7 +86,7 @@ func runDemo(p store.DBProvider[User]) error {
 	println("  更新后 Get id=1 ->", got.Name, "(age", itoa(got.Age), ")")
 
 	// 删除
-	if err := repo.Delete(ctx, &store.Where{Filters: []*storev1.FilterCondition{store.Eq("id", "2")}}); err != nil {
+	if _, err := repo.Delete(ctx, &store.Where{Filters: []*storev1.FilterCondition{store.Eq("id", "2")}}); err != nil {
 		return err
 	}
 	_, err = repo.Get(ctx, &store.Where{Filters: []*storev1.FilterCondition{store.Eq("id", "2")}})

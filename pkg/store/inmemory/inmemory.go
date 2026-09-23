@@ -81,17 +81,17 @@ func (q *memQuery[T]) Update(_ context.Context, obj *T) error {
 	return nil
 }
 
-func (q *memQuery[T]) Delete(_ context.Context, where *store.Where) error {
+// Delete 按条件删除，返回受影响行数。
+// **幂等语义**：0 行匹配返回 (0, nil)，不报错——删除不存在的资源是合法结果
+// （集合删除本就为空亦然）。需要「必须存在才能删」的调用方，自行判 rows == 0。
+func (q *memQuery[T]) Delete(_ context.Context, where *store.Where) (int64, error) {
 	q.p.mu.Lock()
 	defer q.p.mu.Unlock()
 	matched := q.matchAll(where)
-	if len(matched) == 0 {
-		return store.ErrNotFound
-	}
 	for _, v := range matched {
 		delete(q.p.data, q.p.keyOf(v))
 	}
-	return nil
+	return int64(len(matched)), nil
 }
 
 func (q *memQuery[T]) Get(_ context.Context, where *store.Where) (*T, error) {

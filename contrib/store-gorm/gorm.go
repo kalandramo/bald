@@ -129,16 +129,16 @@ func toMapExcludeKey(obj any) map[string]any {
 	return m
 }
 
-func (q *gormQuery[T]) Delete(_ context.Context, where *store.Where) error {
+// Delete 按条件删除，返回受影响行数。
+// **幂等语义**：0 行匹配返回 (0, nil)，不报错——删除不存在的资源是合法结果。
+// 需要「必须存在才能删」的调用方，自行判 rows == 0。
+func (q *gormQuery[T]) Delete(_ context.Context, where *store.Where) (int64, error) {
 	tx := q.applyWhere(where)
 	res := tx.Delete(new(T))
 	if res.Error != nil {
-		return res.Error
+		return 0, res.Error
 	}
-	if res.RowsAffected == 0 {
-		return store.ErrNotFound
-	}
-	return nil
+	return res.RowsAffected, nil
 }
 
 func (q *gormQuery[T]) Get(_ context.Context, where *store.Where) (*T, error) {
