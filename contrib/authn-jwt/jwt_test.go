@@ -2,6 +2,7 @@ package authnjwt
 
 import (
 	"context"
+	"reflect"
 	"testing"
 	"time"
 
@@ -229,4 +230,107 @@ func TestJWTClaims_AllCoreFieldsRoundTrip(t *testing.T) {
 	assert.Equal(t, c.Scopes, got.Scopes)
 	assert.Equal(t, c.Roles, got.Roles)
 	assert.Equal(t, c.Issuer, got.Issuer)
+}
+
+// ---------------------------------------------------------------------------
+// 字段集自动同步守护（2026-09-24）
+// ---------------------------------------------------------------------------
+
+// claimFieldSyncExempt 是**允许不同步**的字段白名单（键为 AuthClaims 字段名）。
+//
+// 为什么需要豁免：jwtClaims 并非 AuthClaims 的逐字段镜像——时间字段走
+// jwt.RegisteredClaims 的标准注册声明（形态不同）：
+//
+//	AuthClaims.ExpiresAt  time.Time        → jwtClaims 内嵌
+//	                                          RegisteredClaims.ExpiresAt *NumericDate
+//
+// 这类差异是**刻意的桥接设计**（复用 jwt 库的标准声明类型），不是遗漏。
+// 白名单是显式的——新增豁免必须在此登记并写明理由，防止「顺手加白名单」掩盖
+// 真实遗漏。
+var claimFieldSyncExempt = map[string]string{
+	"ExpiresAt": "走 jwt.RegisteredClaims.ExpiresAt（*NumericDate），形态与 time.Time 不同",
+}
+
+// TestJWTClaims_FieldSetSync 用**反射**比对 AuthClaims 与 jwtClaims 的字段集，
+// 核心侧新增字段而未同步到桥接层时**自动失败**。
+//
+// 存在理由（2026-09-24）：本桥接层曾漏同步 Platform 字段（v0.13.0 新增），
+// 导致以 Platform=true 签发的 token 认证后恒为 false——「设置了却不生效」，
+// 极难排查。此前靠类型注释约定「必须同步」，无机制强制；本测试把它变成硬门禁。
+//
+// 规则：
+//  1. AuthClaims 的每个字段，要么在 jwtClaims 中有**同名字段**（含内嵌
+//     RegisteredClaims 的提升字段），要么在 claimFieldSyncExempt 中登记。
+//  2. jwtClaims 自己的字段（非提升）必须能在 AuthClaims 中找到同名者——
+//     防止桥接层出现核心侧没有的「幽灵字段」。
+//
+// 注：Go 的反射无法直接遍历内嵌结构的提升字段，故此处显式展开
+// jwt.RegisteredClaims 的字段名参与比对。
+func TestJWTClaims_FieldSetSync(t *testing.T) {
+	coreFields := map[string]bool{}
+	ct := reflect.TypeOf(authn.AuthClaims{})
+	for i := 0; i < ct.NumField(); i++ {
+		coreFields[ct.Field(i).Name] = true
+	}
+
+	// jwtClaims 的字段集 = 自身字段 + 内嵌 RegisteredClaims 的字段（提升）。
+	jwtFields := map[string]bool{}
+	jt := reflect.TypeOf(jwtClaims{})
+	for i := 0; i < jt.NumField(); i++ {
+		f := jt.Field(i)
+		if f.Anonymous {
+			// 内嵌：展开其字段（提升语义）。
+			for j := 0; j < f.Type.NumField(); j++ {
+				jwtFields[f.Type.Field(j).Name] = true
+			}
+			continue
+		}
+		jwtFields[f.Name] = true
+	}
+
+	// 规则 1：核心字段必须被映射（同名或显式豁免）。
+	for name := range coreFields {
+		if jwtFields[name] {
+			continue
+		}
+		if reason, ok := claimFieldSyncExempt[name]; ok {
+			t.Logf("豁免字段 %s：%s", name, reason)
+			continue
+		}
+		t.Errorf("AuthClaims.%s 未同步到 jwtClaims——"+
+			"新增核心字段必须在此映射（toJWT/fromJWT），"+
+			"否则签发时静默丢弃、解析后无从恢复。"+
+			"若确属刻意不映射，请在 claimFieldSyncExempt 登记理由", name)
+	}
+
+	// 规则 2：桥接层字段必须在核心侧有对应（防幽灵字段）。
+	// 豁免：jwtClaims 顶层重复声明了 sub/iss（shadow RegisteredClaims 的同名
+	// 字段）以控制 json tag，属桥接实现细节。
+	shadowAllowed := map[string]string{
+		"Subject": "shadow RegisteredClaims.Subject（自定义 json tag sub）",
+		"Issuer":  "shadow RegisteredClaims.Issuer（自定义 json tag iss）",
+	}
+	for name := range jwtFields {
+		if coreFields[name] {
+			continue
+		}
+		// 标准注册声明里核心侧不映射的（aud/nbf/iat/jti）是 jwt 库机制所需。
+		if jwtStandardOnly[name] {
+			continue
+		}
+		if _, ok := shadowAllowed[name]; ok {
+			continue
+		}
+		t.Errorf("jwtClaims.%s 在 AuthClaims 中无对应字段——"+
+			"桥接层不应出现核心侧不存在的幽灵字段", name)
+	}
+}
+
+// jwtStandardOnly 是 jwt.RegisteredClaims 中核心侧**刻意不映射**的标准声明
+// （由 jwt 库自身机制维护，非业务声明）。
+var jwtStandardOnly = map[string]bool{
+	"Audience":  true, // aud：本框架不用受众
+	"NotBefore": true, // nbf：由库按签发时刻自动填
+	"IssuedAt":  true, // iat：同上
+	"ID":        true, // jti：toJWT 内部生成（D6 修复），非业务字段
 }
