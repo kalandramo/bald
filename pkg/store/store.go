@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	storev1 "github.com/kalandramo/bald/bconf/gen/go/bald/store/v1"
+	"github.com/kalandramo/bald/pkg/contextx"
 )
 
 // DefaultPageSize 是分页默认每页条数。
@@ -290,6 +291,29 @@ func cutPrefix(s, prefix string) (string, bool) {
 //
 // 隔离条件与业务条件按 AND 连接（租户/数据范围进 Filters 或与 Expr 组合），业务
 // 已手写的同名租户条件会被去重（见 mergeTenant），不会产生恒假叠加。
+// shouldIsolate 是租户隔离的**唯一闸门**——所有读路径（applyIsolation 与
+// translate）必须经它判断是否注入租户条件。
+//
+// 存在意义（2026-09-24 暗雷修复）：此前 applyIsolation 有 platformLevel 守卫，
+// 而 translate 直接调 mergeTenant 无守卫——同一不变量的两个违反点只修了一个，
+// 导致「声明平台级的实体改用 ListWithPaging 仍被注入 tenant_id = ?」
+// （对无该列的表即 `no such column: tenant_id`）。统一到本方法后，
+// 新增读路径只需调用它，不会再出现不对称。
+//
+// 返回 true 表示**应注入**租户隔离（fail-closed 默认）。
+func (s *Store[T]) shouldIsolate(ctx context.Context) bool {
+	// 实体级豁免：表本身无租户维度（WithPlatformLevel 显式声明）。
+	if s.opts.platformLevel {
+		return false
+	}
+	// 身份级豁免：平台级身份（跨租户视图，如平台管理员）。
+	// 与实体级正交——前者问「这张表有没有租户列」，后者问「这个请求要不要按租户切分」。
+	if contextx.PlatformFromContext(ctx) {
+		return false
+	}
+	return true
+}
+
 func (s *Store[T]) applyIsolation(ctx context.Context, where *Where) *Where {
 	out := &Where{}
 	if where != nil {
@@ -300,8 +324,8 @@ func (s *Store[T]) applyIsolation(ctx context.Context, where *Where) *Where {
 		// 复制 Filters：避免 mergeTenant/mergeDataScope 的 append 修改调用方底层数组。
 		out.Filters = append([]*storev1.FilterCondition(nil), where.Filters...)
 	}
-	if !s.opts.platformLevel {
-		mergeTenant(out, ctx) // 平台级表无租户维度：跳过
+	if s.shouldIsolate(ctx) {
+		mergeTenant(out, ctx)
 	}
 	mergeDataScope(out, ctx)
 	mergeDataScopeExpr(out, ctx)
@@ -409,7 +433,11 @@ func (s *Store[T]) translate(ctx context.Context, req *storev1.PagingRequest) (*
 
 	// 多租户隔离：租户条件下沉 DAL，自动注入（优先于业务条件，不可被覆盖）。
 	// 即使 NoPaging 全量列出也必须隔离，防止跨租户数据泄漏。
-	mergeTenant(where, ctx)
+	// 经 shouldIsolate 统一闸门——与 applyIsolation 同源（2026-09-24 暗雷修复：
+	// 此前本处无 platformLevel 守卫，与 applyIsolation 不对称）。
+	if s.shouldIsolate(ctx) {
+		mergeTenant(where, ctx)
+	}
 	// 数据权限范围：在租户隔离基础上进一步收窄可见行（P9，Viewer 五级范围；
 	// 布尔树版支持多范围 OR 组合，如「本人 OR 本部门」）。
 	mergeDataScope(where, ctx)

@@ -24,6 +24,17 @@ type AuthClaims struct {
 	Subject string
 	// TenantID 租户标识；非空时经 pkg/store 多租户机制自动隔离数据。
 	TenantID string
+	// Platform 标记平台级身份（跨租户视图，如平台管理员）。
+	//
+	// 语义（与 crudbridge.SimpleViewer.System 同纪律）：
+	//   - **必须由签发方显式声明**（如 JWT 签发时按账号类型置位），
+	//     绝不基于「TenantID 为空」等隐式条件推断——空租户同时表示
+	//     「匿名」与「平台视图」两种相反语义，推断会 fail-open。
+	//   - 置位后 pkg/store 的租户隔离对该请求整体跳过（跨租户可见）。
+	//     它只回答「是否按租户切分数据」，不是授权判定——细粒度授权
+	//     仍归 pkg/authz（如 bald-admin 的 platform:admin 策略）。
+	//   - 默认 false（fail-closed）：不声明即隔离生效。
+	Platform bool
 	// Name 展示名（可选）。
 	Name string
 	// Scopes 授权范围列表（细粒度能力，如 "user:read"）。
@@ -64,6 +75,9 @@ func AuthClaimsFromContext(ctx context.Context) *AuthClaims {
 
 // ContextWithAuthClaims 将 Claims 注入 context，并同步写入 contextx 的租户/用户键，
 // 供 pkg/store 多租户与业务 handler 读取。
+//
+// Platform 置位时同步写入 contextx 平台标记——pkg/store 据此跳过租户隔离
+// （跨租户视图）。未置位则不写，保持 fail-closed（隔离生效）。
 func ContextWithAuthClaims(ctx context.Context, c *AuthClaims) context.Context {
 	ctx = context.WithValue(ctx, ctxKeyClaims{}, c)
 	if c != nil {
@@ -73,6 +87,9 @@ func ContextWithAuthClaims(ctx context.Context, c *AuthClaims) context.Context {
 		}
 		if c.TenantID != "" {
 			ctx = contextx.WithTenantID(ctx, c.TenantID)
+		}
+		if c.Platform {
+			ctx = contextx.WithPlatform(ctx)
 		}
 	}
 	return ctx

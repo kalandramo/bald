@@ -47,8 +47,8 @@ func TestAuthnInterceptor_InjectsViewer(t *testing.T) {
 	if got == nil {
 		t.Fatal("viewer.Context not injected after authentication")
 	}
-	if got.TenantID() != 1001 || got.UserID() != 7 {
-		t.Fatalf("viewer identity = uid(%d)/tid(%d), want 7/1001", got.UserID(), got.TenantID())
+	if got.TenantID() != "1001" || got.UserID() != 7 {
+		t.Fatalf("viewer identity = uid(%d)/tid(%s), want 7/1001", got.UserID(), got.TenantID())
 	}
 	if !got.HasPermission("read", "user") {
 		t.Fatal("scopes should map to permissions (read:user)")
