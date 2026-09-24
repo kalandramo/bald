@@ -24,6 +24,23 @@
 
 ---
 
+## 名词解释
+
+**DAL（Data Access Layer，数据访问层）**：介于业务逻辑与具体存储引擎之间的抽象层。它对上层以引擎无关的形式暴露数据操作（增删改查、条件过滤、分页、隔离），对下层把统一的条件表达翻译到具体引擎（内存 map / SQL / NoSQL）。在 bald 中，DAL 即 `pkg/store` 模块——核心只定义 `Store[T]` / `Queryable[T]` / `DBProvider[T]` 三层契约与引擎无关的 `Where` 条件表达，具体引擎实现（`inmemory` / `contrib/store-gorm` / `contrib/store-mongo`）留在独立 module 经 `DBProvider` 桥接，核心 `go.mod` 不引入任何引擎。
+
+DAL 的意义在于把横切关注点从业务层收口：没有它时，「漏写租户条件」是安全缺陷、「数据权限推导」散落各 handler 行为漂移、「分页参数三种传法」在每个列表接口重复解析（见「背景与动机」）。隔离与分页下沉到 DAL 后，它们成为框架的默认行为而非开发者的自律项。
+
+本文出现的其余缩写：
+
+| 缩写 | 全称 | 含义 |
+|---|---|---|
+| DAL | Data Access Layer | 数据访问层，见上 |
+| DTO | Data Transfer Object | 数据传输对象；与持久化实体（Entity）分离时经可选 `Mapper` 桥接 |
+| ORM | Object-Relational Mapping | 对象关系映射；本模块的 GORM 桥接（`contrib/store-gorm`）属此 |
+| CRUD | Create / Read / Update / Delete | 增删改查，即 `Queryable[T]` 的契约方法集 |
+
+---
+
 ## 背景与动机
 
 ### 每个业务仓储都在手写同一段样板
