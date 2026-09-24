@@ -192,7 +192,7 @@ func OverwriteByFieldMask(msg *proto.Message, fm *fieldmaskpb.FieldMask) error {
 | 文档 | 关系 |
 |---|---|
 | [框架契约总览](./框架契约总览.md) | 速查表（**此前缺 fieldmaskutil 节**，本文补齐了专文） |
-| [数据存储设计](./数据存储设计.md) | `pkg/store` 的部分更新消费本包 |
+| [Bald 存储设计](./Bald%20存储设计.md) | `pkg/store` 的部分更新消费本包 |
 
 ### FAQ
 

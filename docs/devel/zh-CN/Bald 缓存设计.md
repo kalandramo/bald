@@ -205,4 +205,4 @@ loadable **不进 CacheRegistry**。Registry 装配的是后端实例（配置�
 
 ## 附录：关联文档
 
-`AppKit FromBootstrap 约定装配.md`（CacheRegistry 装配全景）、`数据存储设计.md`（store 层与缓存的关系）、`Bald 日志设计.md`（同为「契约层零依赖 + 实现独立 module + contract 子包接入装配」模式的架构先例）。
+`AppKit FromBootstrap 约定装配.md`（CacheRegistry 装配全景）、`Bald 存储设计.md`（store 层与缓存的关系）、`Bald 日志设计.md`（同为「契约层零依赖 + 实现独立 module + contract 子包接入装配」模式的架构先例）。

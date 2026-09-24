@@ -61,7 +61,7 @@ func (r *UserRepo) ListUsers(ctx context.Context, tenantID string, page, size in
 
 ### 为什么核心不能内置引擎实现
 
-bald 是**框架**，不是 DAL 库。把 8 种引擎实现塞进核心，会违反 `registry` / `config` 已确立的「核心只定接口、实现由调用方桥接」范式，且让 `go build ./...` 拖进 gorm + mongo + redis 全部依赖。因此本模块的取舍是：**契约 + proto 标准化留在核心，具体引擎实现留独立子模块**。这条主线与《数据存储设计》§1 的结论一致，本文不再重复论证，只展开落地形态。
+bald 是**框架**，不是 DAL 库。把 8 种引擎实现塞进核心，会违反 `registry` / `config` 已确立的「核心只定接口、实现由调用方桥接」范式，且让 `go build ./...` 拖进 gorm + mongo + redis 全部依赖。因此本模块的取舍是：**契约 + proto 标准化留在核心，具体引擎实现留独立子模块**。取舍的来路见「决策沿革」，本文不再重复论证，只展开落地形态。
 
 ---
 

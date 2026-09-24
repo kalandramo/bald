@@ -195,4 +195,4 @@ pkg/appkit/storage.go:63/70   AppKit.Storage / Storages（运行期取用）
 |------|------|
 | [框架契约总览](./框架契约总览.md) §14 | 本域在契约总览中的登记 |
 | [Bald 消息代理设计](./Bald%20消息代理设计.md) | 同为「独立 module + contract 子包 + 显式注册」模式 |
-| [数据存储设计](./数据存储设计.md) | database 域——与 oss 的分层对比（前者抽公共接口，后者不抽） |
+| [Bald 存储设计](./Bald%20存储设计.md) | database 域——与 oss 的分层对比（前者抽公共接口，后者不抽） |
