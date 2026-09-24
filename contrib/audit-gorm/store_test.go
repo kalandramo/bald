@@ -1,4 +1,4 @@
-package auditstore
+package auditgorm
 
 import (
 	"context"

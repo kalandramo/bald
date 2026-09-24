@@ -12,7 +12,7 @@
 //	old := audit.GetAuditor()
 //	audit.SetAuditor(storeAuditor)
 //	app := appkit.New(
-//	    appkit.Effect("audit-store", func(ctx context.Context) error {
+//	    appkit.Effect("audit-gorm", func(ctx context.Context) error {
 //	        audit.SetAuditor(old) // 恢复旧值
 //	        return nil
 //	    }),

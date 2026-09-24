@@ -52,7 +52,7 @@ bald/
 │   ├── authn-jwt/            # JWT 认证器（HMAC/RS256/ES256）
 │   ├── store-gorm/           # GORM 存储引擎（DSN scheme 路由 + 多租户）
 │   ├── authz-casbin/         # casbin 授权器（内嵌通用 RBAC 模型，策略调用方注入）
-│   ├── audit-store/          # 审计落库后端（gorm）
+│   ├── audit-gorm/           # 审计落库后端（gorm）
 │   ├── audit-stream/         # 审计流式后端（Redis Stream）
 │   ├── database/             # 数据库客户端契约映射（gorm / mongodb）
 │   └── observability-otlp/   # Prometheus + OTLP 双通道（metrics/trace）

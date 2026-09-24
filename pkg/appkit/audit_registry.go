@@ -51,7 +51,7 @@ const (
 	// AuditTypeLog 是结构化日志后端（核心 LoggerAuditor，零依赖开箱
 	// 即用，无需注册 Registry）。
 	AuditTypeLog = "log"
-	// AuditTypeStore 是落库后端（contrib/audit-store，业务注入 gorm 连接）。
+	// AuditTypeStore 是落库后端（contrib/audit-gorm，业务注入 gorm 连接）。
 	AuditTypeStore = "store"
 	// AuditTypeStream 是 Redis Stream 异步后端（contrib/audit-stream，
 	// 业务注入 redis 客户端）。

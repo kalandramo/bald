@@ -386,7 +386,7 @@ Discovery / Watcher 没有消费方、注册只在 `_example` 里跑通，这是
 - [x] `bootstrap/go.mod` 新增 `require .../bald/registry v0.1.0` + `replace .../bald/registry => ../registry`（bootstrap 依赖列表由 4 个 module 变 5 个）。
 - [x] 调用方改指新家：`WithRegistrarRegistry(rr *bootstrap.RegistrarRegistry)`（appkit 侧唯一签名改动）、`_example/bald/register_nacos.go`、README / quickstart 示例与各设计文档。
 - [x] **不留别名**：`appkit.NewRegistrarRegistry` / `appkit.RegistrarRegistry` 直接消失（0.x 阶段，与 `pkg/registry` 下放同款口径）。appkit 仍 require `registry`——它认识 `registry.Registrar`，是注册生命周期的驱动方。
-- [x] **旧账复现一次**：`contrib/{audit-store,audit-stream,observability-otlp}` 三个编译 appkit 的下游模块补 `replace .../bald/bootstrap => ../../bootstrap`——它们 replace 了主模块却没 replace bootstrap，于是「本地 appkit + 已发布 bootstrap v0.7.1」缺符号、编译失败。这与下放那轮的 replace 不传递是同一个坑，换了个面：**改了子模块的公开面，所有本地 replace 主模块且会编译到它的模块都要补 replace**。19 个 replace 主模块的模块已批量复验全绿。
+- [x] **旧账复现一次**：`contrib/{audit-store,audit-stream,observability-otlp}` 三个编译 appkit 的下游模块补 `replace .../bald/bootstrap => ../../bootstrap`——它们 replace 了主模块却没 replace bootstrap，于是「本地 appkit + 已发布 bootstrap v0.7.1」缺符号、编译失败。这与下放那轮的 replace 不传递是同一个坑，换了个面：**改了子模块的公开面，所有本地 replace 主模块且会编译到它的模块都要补 replace**。19 个 replace 主模块的模块已批量复验全绿。（注：`audit-store` 已于 2026-09-24 更名为 `audit-gorm`，此处保留当时的原名。）
 
 ### 验证（每个 module 都要跑）
 

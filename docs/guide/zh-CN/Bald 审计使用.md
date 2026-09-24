@@ -40,7 +40,7 @@ audit:
 **步骤 1：引依赖**（桥接后端是独立 module，用的人付依赖代价）：
 
 ```bash
-go get github.com/kalandramo/bald/contrib/audit-store
+go get github.com/kalandramo/bald/contrib/audit-gorm
 ```
 
 **步骤 2：main.go 两行注册**（连接实例由业务注入，不进配置——「配置驱动
@@ -49,7 +49,7 @@ go get github.com/kalandramo/bald/contrib/audit-store
 ```go
 import (
     "github.com/kalandramo/bald/pkg/appkit"
-    storecontract "github.com/kalandramo/bald/contrib/audit-store/contract"
+    storecontract "github.com/kalandramo/bald/contrib/audit-gorm/contract"
     streamcontract "github.com/kalandramo/bald/contrib/audit-stream/contract"
 )
 
@@ -78,12 +78,12 @@ audit:
 
 | | `log`（核心内置） | `store`（contrib） | `stream`（contrib） |
 | --- | --- | --- | --- |
-| module | —（根模块内） | `contrib/audit-store` | `contrib/audit-stream` |
+| module | —（根模块内） | `contrib/audit-gorm` | `contrib/audit-stream` |
 | 注册 | 零注册 | `storecontract.NewStoreProvider(db)` | `streamcontract.NewStreamProvider(rdb)` |
 | 参数子段 | 无 | `store.migrate` | `stream.stream` / `stream.buffer` |
 | 降级 | 无需（日志契约无错误返回） | 落库失败/panic → fallback 双写 | 缓冲满/发布失败 → fallback 双写 |
 | 停机 | 无 cleanup | 无 cleanup | `Close()`：停后台 goroutine + drain 尾批（不丢已入队事件） |
-| 直用构造 | `audit.NewLoggerAuditor()` | `auditstore.New(db, opts...)` | `auditstream.New(rdb, opts...)` |
+| 直用构造 | `audit.NewLoggerAuditor()` | `auditgorm.New(db, opts...)` | `auditstream.New(rdb, opts...)` |
 | 表/流 | — | `audit_records` 表（`WithRecordMapper` 换） | `audit.events` 流（`WithStream` 换） |
 
 直用 Option（不经契约时）：store 的 `WithRecordMapper(fn)`（自定义表结构）、
@@ -138,7 +138,7 @@ gin/grpc 审计中间件与 authn 失败审计在**构造时刻**绑定 auditor�
 
 ```go
 // 姿势 1（静态）：已持实例直接注入——生命周期自己管
-bundle.Audit(auditstore.New(db))
+bundle.Audit(auditgorm.New(db))
 
 // 姿势 2（动态转发，契约轨/热切轨通吃，推荐）：每次记录时读全局
 type globalAuditor struct{}

@@ -1,4 +1,4 @@
-// Package contract 提供 audit-store 后端的契约装配：bootstrapv1 的
+// Package contract 提供 audit-gorm 后端的契约装配：bootstrapv1 的
 // audit 段 → appkit AuditRegistry Provider。
 //
 // 单独成包的原因（对齐 observability-otlp/contract 模式）：store 根包
@@ -21,7 +21,7 @@ import (
 	"github.com/kalandramo/bald/pkg/appkit"
 	"github.com/kalandramo/bald/pkg/audit"
 
-	auditstore "github.com/kalandramo/bald/contrib/audit-store"
+	auditgorm "github.com/kalandramo/bald/contrib/audit-gorm"
 
 	"gorm.io/gorm"
 )
@@ -34,10 +34,10 @@ const TypeStore = "store"
 func NewStoreProvider(db *gorm.DB) appkit.AuditProvider {
 	return func(_ context.Context, cfg *bootstrapv1.Audit) (audit.Auditor, func(context.Context) error, error) {
 		if cfg.GetStore().GetMigrate() {
-			if err := db.AutoMigrate(auditstore.DefaultModel()); err != nil {
-				return nil, nil, fmt.Errorf("audit-store: migrate default table: %w", err)
+			if err := db.AutoMigrate(auditgorm.DefaultModel()); err != nil {
+				return nil, nil, fmt.Errorf("audit-gorm: migrate default table: %w", err)
 			}
 		}
-		return auditstore.New(db), nil, nil
+		return auditgorm.New(db), nil, nil
 	}
 }

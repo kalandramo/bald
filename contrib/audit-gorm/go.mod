@@ -1,4 +1,4 @@
-module github.com/kalandramo/bald/contrib/audit-store
+module github.com/kalandramo/bald/contrib/audit-gorm
 
 go 1.27.1
 

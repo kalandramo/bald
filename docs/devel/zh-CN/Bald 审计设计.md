@@ -14,7 +14,7 @@
 
 ## 摘要
 
-bald 的审计域回答一个问题：**谁在何时对什么资源做了什么、结果如何**。`pkg/audit` 用一个单方法接口（`Auditor.Record`）与一条扁平事件（`AuditEvent` 八字段）定义契约，零第三方依赖；埋点来源四类（请求中间件 / 认证失败 / 协调器 / 组件热插拔）；后端三个（核心内置 `LoggerAuditor`、桥接子模块 `audit-store` 落库与 `audit-stream` 异步流）；装配两轨同键（契约面 `audit.backends` **列表多选**启动期一次性装配，多后端组装 MultiAuditor + R1-2 协调器 `audit.backends` 期望态运行期热切——两个执行器读同一份期望，业务选择启用哪个）。
+bald 的审计域回答一个问题：**谁在何时对什么资源做了什么、结果如何**。`pkg/audit` 用一个单方法接口（`Auditor.Record`）与一条扁平事件（`AuditEvent` 八字段）定义契约，零第三方依赖；埋点来源四类（请求中间件 / 认证失败 / 协调器 / 组件热插拔）；后端三个（核心内置 `LoggerAuditor`、桥接子模块 `audit-gorm` 落库与 `audit-stream` 异步流）；装配两轨同键（契约面 `audit.backends` **列表多选**启动期一次性装配，多后端组装 MultiAuditor + R1-2 协调器 `audit.backends` 期望态运行期热切——两个执行器读同一份期望，业务选择启用哪个）。
 
 最重要的承诺：**审计是旁路，永远不阻断业务请求**。这个承诺由三层防线兑现——调用方 `recordSafely` recover 兜底、后端内部 recover、落库/发布失败降级 fallback 双写（见「设计 §4」）。
 
@@ -121,7 +121,7 @@ bundle 的纪律：**显式注入，不吃全局**。`Audit(auditor)` 或 `Metri
 
 ### 5. 后端：一个内置，两个桥接
 
-| | `LoggerAuditor`（核心内置） | `audit-store`（contrib） | `audit-stream`（contrib） |
+| | `LoggerAuditor`（核心内置） | `audit-gorm`（contrib） | `audit-stream`（contrib） |
 |---|---|---|---|
 | 语义 | 结构化日志（同步） | gorm 落库（同步） | Redis Stream XADD（异步） |
 | 依赖 | `bald/log`（根模块内） | gorm | go-redis v9 |

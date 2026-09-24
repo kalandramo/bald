@@ -1,4 +1,4 @@
-// Package auditstore 把审计事件落库（gorm）——bald audit.Auditor 的存储桥接。
+// Package auditgorm 把审计事件落库（gorm）——bald audit.Auditor 的存储桥接。
 //
 // 零后端耦合纪律的落地半边：核心 pkg/audit 只定义抽象，本模块提供真实
 // 落库实现。落库失败或 panic 仅降级（记日志 + 可选 fallback 后端双写），
@@ -6,7 +6,7 @@
 //
 // 审计表刻意「全量记录」：不走读隔离语义（TenantID 自动过滤），TenantID
 // 仅作为列存储，由审计查询方按需过滤。
-package auditstore
+package auditgorm
 
 import (
 	"context"
@@ -89,7 +89,7 @@ func DefaultModel() any { return &AuditRecord{} }
 func (a *StoreAuditor) Record(ctx context.Context, ev audit.AuditEvent) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Warn(ctx, "audit-store: record panicked", "panic", r)
+			log.Warn(ctx, "audit-gorm: record panicked", "panic", r)
 		}
 	}()
 	if ev.Time.IsZero() {
@@ -100,7 +100,7 @@ func (a *StoreAuditor) Record(ctx context.Context, ev audit.AuditEvent) {
 		return
 	}
 	if err := a.db.WithContext(ctx).Create(a.mapper(ev)).Error; err != nil {
-		log.Warn(ctx, "audit-store: create failed", "error", err.Error())
+		log.Warn(ctx, "audit-gorm: create failed", "error", err.Error())
 		a.recordFallback(ctx, ev)
 	}
 }

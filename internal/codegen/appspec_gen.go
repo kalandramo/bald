@@ -295,8 +295,8 @@ func buildAuditBackend(name string) audit.Auditor {
 	switch name {
 	case "log":
 		return audit.NewLoggerAuditor()
-	// TODO: 接入 store/stream 后端（框架已提供 contrib/audit-store 与
-	// contrib/audit-stream：auditstore.New(db) / auditstream.New(rdb)，
+	// TODO: 接入 store/stream 后端（框架已提供 contrib/audit-gorm 与
+	// contrib/audit-stream：auditgorm.New(db) / auditstream.New(rdb)，
 	// 契约装配走 contract.NewStoreProvider(db) / NewStreamProvider(rdb)；
 	// 连接实例来自业务代码，参考 go-bald-admin 的 buildAuditBackend——
 	// 依赖 bootstrappkg.DB / RedisCache.Client()）。
