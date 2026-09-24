@@ -196,10 +196,18 @@ func (a *Authenticator) keyfunc(token *jwt.Token) (any, error) {
 }
 
 // jwtClaims 是 authn.AuthClaims 与 jwt 标准注册的桥接类型，实现 jwt.Claims。
+//
+// ⚠️ **加字段纪律**：本结构是 authn.AuthClaims 的**全量镜像**——核心侧新增
+// 任何字段，此处必须同步（`toJWT`/`fromJWT` 双向映射），否则该字段在签发时
+// 静默丢弃、解析时无从恢复（表现为「设置了却不生效」，极难排查）。
+// `TestJWTClaims_RoundTripAllFields` 锁定这一不变量。
 type jwtClaims struct {
 	Subject  string   `json:"sub"`
 	Name     string   `json:"name,omitempty"`
 	TenantID string   `json:"tid,omitempty"`
+	// Platform 平台级身份（跨租户视图）。与 authn.AuthClaims.Platform 同步；
+	// 缺省 false（fail-closed），故用 omitempty 不污染普通 token 体积。
+	Platform bool     `json:"plt,omitempty"`
 	Scopes   []string `json:"scp,omitempty"`
 	Roles    []string `json:"roles,omitempty"`
 	Issuer   string   `json:"iss,omitempty"`
@@ -222,6 +230,7 @@ func toJWT(c authn.AuthClaims) jwtClaims {
 		Subject:  c.Subject,
 		Name:     c.Name,
 		TenantID: c.TenantID,
+		Platform: c.Platform, // 平台身份必须随签发写入（见 jwtClaims 加字段纪律）
 		Scopes:   c.Scopes,
 		Roles:    c.Roles,
 		Issuer:   c.Issuer,
@@ -254,6 +263,7 @@ func fromJWT(jc jwtClaims) *authn.AuthClaims {
 		Subject:  jc.Subject,
 		Name:     jc.Name,
 		TenantID: jc.TenantID,
+		Platform: jc.Platform, // 与 toJWT 对称——否则平台身份解析后丢失
 		Scopes:   jc.Scopes,
 		Roles:    jc.Roles,
 		Issuer:   jc.Issuer,

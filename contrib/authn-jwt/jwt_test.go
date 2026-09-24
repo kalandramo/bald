@@ -163,3 +163,70 @@ func TestIssueToken_UniqueJTI(t *testing.T) {
 	assert.NotEmpty(t, jc2.ID, "jti（RegisteredClaims.ID）不应为空")
 	assert.NotEqual(t, jc1.ID, jc2.ID, "两次签发的 jti 应互异")
 }
+
+// TestJWTClaims_PlatformRoundTrip 锁定 Platform 字段的双向映射（2026-09-24）。
+//
+// 背景：authn.AuthClaims 新增 Platform 字段（平台级身份）后，本桥接层的
+// jwtClaims **未同步**——签发时静默丢弃、解析时无从恢复，表现为「设置了
+// Platform=true 但认证后恒为 false」。此缺口由 bald-admin 的 e2e 探针
+// 实测暴露（whoami 回显 Platform=false 而 token 是以 true 签发的）。
+//
+// 本测试同时是**加字段纪律**的回归门：jwtClaims 是 AuthClaims 的全量镜像，
+// 核心侧新增字段必须在此同步映射。
+func TestJWTClaims_PlatformRoundTrip(t *testing.T) {
+	a := NewAuthenticator(WithHMACSecret([]byte("test-secret-not-leaked")))
+
+	// 1) Platform=true 必须往返保真。
+	c := sampleClaims()
+	c.Platform = true
+	tok, err := a.IssueToken(c, time.Hour)
+	require.NoError(t, err)
+	got, err := a.AuthenticateToken(tok)
+	require.NoError(t, err)
+	assert.True(t, got.Platform, "Platform=true 经签发→解析后必须仍为 true")
+
+	// 2) Platform=false（默认）不得被误置为 true——fail-closed。
+	c2 := sampleClaims() // Platform 零值 false
+	tok2, err := a.IssueToken(c2, time.Hour)
+	require.NoError(t, err)
+	got2, err := a.AuthenticateToken(tok2)
+	require.NoError(t, err)
+	assert.False(t, got2.Platform, "Platform 缺省必须为 false（fail-closed）")
+
+	// 3) 平台标记经 contextx 贯通：Authenticate 后 ctx 可读出。
+	ctx := authn.ContextWithToken(context.Background(), tok)
+	got3, err := a.Authenticate(ctx)
+	require.NoError(t, err)
+	assert.True(t, got3.Platform)
+}
+
+// TestJWTClaims_AllCoreFieldsRoundTrip 是**加字段纪律**的结构化守护：
+// 逐字段断言 AuthClaims 的所有非零字段都能经 JWT 往返保真。
+//
+// 若将来 AuthClaims 新增字段而 jwtClaims 未同步，本测试不会自动失败
+// （Go 无字段级反射对比），但下方的字段清单注释提示维护者补断言。
+// 当前覆盖：Subject / Name / TenantID / Platform / Scopes / Roles / Issuer。
+func TestJWTClaims_AllCoreFieldsRoundTrip(t *testing.T) {
+	a := NewAuthenticator(WithHMACSecret([]byte("test-secret-not-leaked")))
+	c := authn.AuthClaims{
+		Subject:  "u-all",
+		Name:     "AllFields",
+		TenantID: "t-all",
+		Platform: true,
+		Scopes:   []string{"a:read", "b:write"},
+		Roles:    []string{"admin", "auditor"},
+		Issuer:   "bald-test",
+	}
+	tok, err := a.IssueToken(c, time.Hour)
+	require.NoError(t, err)
+	got, err := a.AuthenticateToken(tok)
+	require.NoError(t, err)
+
+	assert.Equal(t, c.Subject, got.Subject)
+	assert.Equal(t, c.Name, got.Name)
+	assert.Equal(t, c.TenantID, got.TenantID)
+	assert.Equal(t, c.Platform, got.Platform, "Platform 必须往返保真")
+	assert.Equal(t, c.Scopes, got.Scopes)
+	assert.Equal(t, c.Roles, got.Roles)
+	assert.Equal(t, c.Issuer, got.Issuer)
+}
