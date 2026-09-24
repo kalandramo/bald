@@ -57,6 +57,10 @@ type options struct {
 	pageSize int
 	maxSize  int
 	logger   Logger
+	// platformLevel 标记该实体为「平台级」——表本身无租户维度（如 menu /
+	// language / permission / role），租户隔离对其不适用。默认 false（隔离生效），
+	// 必须经 WithPlatformLevel 显式声明才豁免（fail-closed）。
+	platformLevel bool
 }
 
 // Option 配置 Store 的行为。
@@ -76,6 +80,26 @@ func WithMaxPageSize[T any](n int) Option[T] {
 func WithLogger[T any](l Logger) Option[T] {
 	return func(o *options) { o.logger = l }
 }
+
+// WithPlatformLevel 声明该实体为**平台级**——表无租户维度，跳过租户隔离注入。
+//
+// 用途：菜单、语言、权限点、角色这类**全平台共享**的表，数据模型里没有
+// tenant_id 列。若不声明，Get/List/Count/Delete 会注入 `tenant_id = ?` 谓词，
+// 对无此列的表产生 `no such column: tenant_id` 错误（v0.9.0 起 applyIsolation
+// 自动注入引入的行为）。
+//
+// **fail-closed 约定**：默认（不调用本 option）隔离始终生效。豁免必须显式声明，
+// 且声明后该 Store 的所有读/写都不再受租户过滤——误标的后果是隔离静默失效，
+// 故仅对**确实无租户维度**的表使用。
+//
+// 与 `Where.T(ctx)` 的关系：后者是**单次查询**的显式隔离声明；本 option 是
+// **实体级**的豁免声明。两者语义正交。
+func WithPlatformLevel[T any]() Option[T] {
+	return func(o *options) { o.platformLevel = true }
+}
+
+// IsPlatformLevel 报告该 Store 是否被声明为平台级（供 applyIsolation 决策）。
+func (s *Store[T]) IsPlatformLevel() bool { return s.opts.platformLevel }
 
 // NewStore 构造 Store[T]。
 func NewStore[T any](provider DBProvider[T], opts ...Option[T]) *Store[T] {
@@ -256,12 +280,17 @@ func cutPrefix(s, prefix string) (string, bool) {
 // 即使调用方未显式 where.T(ctx) 也生效——避免多租户应用用 Get/List/Count/Delete
 // 直查时忘了隔离而读写全租户数据（安全边界，已知边界 1）。
 //
+// **平台级豁免（2026-09-24）**：若本 Store 经 WithPlatformLevel 显式声明为平台级
+// （表无租户维度），则**跳过租户条件注入**，仅注入数据范围——否则对无 tenant_id
+// 列的表会产生 `no such column: tenant_id`。豁免是显式的、fail-closed 的：未声明
+// 即隔离生效。
+//
 // 触发条件：仅当 ctx 携带租户值（且维度已注册）或 AuthClaims 时才有条件注入；非多租户
 // 应用（未注册维度、无 claims）零影响——注入是 no-op。where 为 nil 视为空条件。
 //
 // 隔离条件与业务条件按 AND 连接（租户/数据范围进 Filters 或与 Expr 组合），业务
 // 已手写的同名租户条件会被去重（见 mergeTenant），不会产生恒假叠加。
-func applyIsolation(ctx context.Context, where *Where) *Where {
+func (s *Store[T]) applyIsolation(ctx context.Context, where *Where) *Where {
 	out := &Where{}
 	if where != nil {
 		out.Offset = where.Offset
@@ -271,7 +300,9 @@ func applyIsolation(ctx context.Context, where *Where) *Where {
 		// 复制 Filters：避免 mergeTenant/mergeDataScope 的 append 修改调用方底层数组。
 		out.Filters = append([]*storev1.FilterCondition(nil), where.Filters...)
 	}
-	mergeTenant(out, ctx)
+	if !s.opts.platformLevel {
+		mergeTenant(out, ctx) // 平台级表无租户维度：跳过
+	}
 	mergeDataScope(out, ctx)
 	mergeDataScopeExpr(out, ctx)
 	return out
@@ -299,7 +330,7 @@ func (s *Store[T]) Delete(ctx context.Context, where *Where) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	return q.Delete(ctx, applyIsolation(ctx, where))
+	return q.Delete(ctx, s.applyIsolation(ctx, where))
 }
 
 // Get 按条件取单条。
@@ -314,7 +345,7 @@ func (s *Store[T]) Get(ctx context.Context, where *Where) (*T, error) {
 	if err != nil {
 		return nil, err
 	}
-	return q.Get(ctx, applyIsolation(ctx, where))
+	return q.Get(ctx, s.applyIsolation(ctx, where))
 }
 
 // List 按条件列出（含偏移/限制）。
@@ -326,7 +357,7 @@ func (s *Store[T]) List(ctx context.Context, where *Where) ([]*T, int64, error) 
 	if err != nil {
 		return nil, 0, err
 	}
-	return q.List(ctx, applyIsolation(ctx, where))
+	return q.List(ctx, s.applyIsolation(ctx, where))
 }
 
 // Count 统计符合条件记录数。
@@ -338,7 +369,7 @@ func (s *Store[T]) Count(ctx context.Context, where *Where) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	return q.Count(ctx, applyIsolation(ctx, where))
+	return q.Count(ctx, s.applyIsolation(ctx, where))
 }
 
 // PagingResult 是带分页元数据的列表结果（Go 层泛型返回）。

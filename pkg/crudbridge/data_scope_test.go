@@ -21,7 +21,7 @@ type doc struct {
 }
 
 func dsView(scopes ...viewer.DataScope) viewer.Context {
-	return &crudbridge.SimpleViewer{UserIDValue: 7, TenantIDValue: 1001, ScopesValue: scopes}
+	return &crudbridge.SimpleViewer{UserIDValue: 7, TenantIDValue: "1001", ScopesValue: scopes}
 }
 
 // noPagingReq 构造不分页请求（ListWithPaging 要求非 nil）。

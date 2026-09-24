@@ -1,8 +1,9 @@
 // Package crudbridge 提供 bald 身份体系（pkg/contextx）到 bald-crud viewer 体系的桥接。
 //
 // bald 的请求级身份是 string 型（contextx.UserID/TenantID），bald-crud 的 viewer.Context
-// 是 uint64 型并承载权限/数据范围/视图判定。本包把两者接通，使 bald-crud 的
-// EnforceTenant（租户强制）、DataScope（行级范围）能在 bald 服务的请求链路里生效。
+// 承载权限/数据范围/视图判定。2026-09-24 起两侧 TenantID 统一为 string——此前
+// viewer 侧为 uint64，桥接需 strconv.ParseUint，非数字租户 ID 解析失败会静默
+// 降级为平台视图（安全缺陷）。统一后转换消失，无失败路径。
 //
 // 推荐接入点：AuthnInterceptor 认证成功后（与 contextx.WithTenantID 同一位置）调用
 // InjectViewerFromContext，或由业务用 JWT claims 显式构造 SimpleViewer 注入。
@@ -11,8 +12,10 @@
 //   - viewer.Context.IsSystemContext() == true 会被 bald-crud 的 EnforceTenant
 //     视为系统视图而跳过租户强制。因此本包的 System 标志必须显式设置，
 //     绝不基于「UserID 为空」等隐式条件推断，防止匿名请求绕过租户隔离。
-//   - TenantID 无法解析为正整数时按平台视图（0）处理——若你的租户 ID 不是
-//     数字字符串，请勿使用默认转换，应自行实现 viewer.Context 或直接构造 SimpleViewer。
+//   - TenantID 原样透传（2026-09-24 起）：viewer.Context.TenantID 已统一为 string，
+//     与 bald 生态（contextx/authn/jwt/audit）一致。此前 uint64 版本对非数字租户 ID
+//     解析失败会静默留 0，被 IsPlatformContext 误判为平台视图而跳过隔离——该有损
+//     转换已移除，不存在「解析失败」这一路径。
 package crudbridge
 
 import (
@@ -27,7 +30,7 @@ import (
 // 供业务用 JWT claims / session 自由构造，避免隐式转换语义。
 type SimpleViewer struct {
 	UserIDValue    uint64
-	TenantIDValue  uint64
+	TenantIDValue  string
 	OrgUnitIDValue uint64
 	PermsValue     []string
 	RolesValue     []string
@@ -44,7 +47,7 @@ type SimpleViewer struct {
 var _ viewer.Context = (*SimpleViewer)(nil)
 
 func (s *SimpleViewer) UserID() uint64                { return s.UserIDValue }
-func (s *SimpleViewer) TenantID() uint64              { return s.TenantIDValue }
+func (s *SimpleViewer) TenantID() string              { return s.TenantIDValue }
 func (s *SimpleViewer) OrgUnitID() uint64             { return s.OrgUnitIDValue }
 func (s *SimpleViewer) Permissions() []string         { return s.PermsValue }
 func (s *SimpleViewer) Roles() []string               { return s.RolesValue }
@@ -64,11 +67,16 @@ func (s *SimpleViewer) HasPermission(action, resource string) bool {
 	return false
 }
 
-// IsPlatformContext 平台管理视图：租户为 0 且非系统任务。
-func (s *SimpleViewer) IsPlatformContext() bool { return !s.System && s.TenantIDValue == 0 }
+// IsPlatformContext 平台管理视图：无租户上下文（TenantID == ""）且非系统任务。
+//
+// 2026-09-24 语义收紧：此前为 `TenantIDValue == 0`，而 ViewerFromIdentity 在
+// 租户 ID 非数字时把解析失败静默留作 0 —— 于是「解析失败」被误判为「平台视图」，
+// 导致 EnforceTenant 放行、租户隔离静默失效（安全缺陷）。改为 string 后无解析
+// 失败路径，空串即显式的「无租户上下文」。
+func (s *SimpleViewer) IsPlatformContext() bool { return !s.System && s.TenantIDValue == "" }
 
-// IsTenantContext 租户业务视图：租户非 0 且非系统任务。
-func (s *SimpleViewer) IsTenantContext() bool { return !s.System && s.TenantIDValue > 0 }
+// IsTenantContext 租户业务视图：TenantID 非空且非系统任务。
+func (s *SimpleViewer) IsTenantContext() bool { return !s.System && s.TenantIDValue != "" }
 
 // IsSystemContext 仅在显式声明 System 时为真。
 func (s *SimpleViewer) IsSystemContext() bool { return s.System }
@@ -79,8 +87,9 @@ func (s *SimpleViewer) ShouldAudit() bool { return s.Auditable }
 //
 // 这是认证中间件的推荐入口：transport 层（gin/gRPC）认证成功拿到 claims 后，
 // 把字段平铺传入（本包不依赖 authn，避免 crudbridge ↔ authn 循环依赖）。
-//   - userID/tenantID 为 string，解析为 uint64；解析失败按 0（平台视图），
-//     语义警告见包注释；
+//   - userID 为 string，解析为 uint64；解析失败按 0；
+//   - tenantID 为 string，**原样透传**（2026-09-24 统一）：此前解析为 uint64，
+//     非数字租户 ID（如 "t-default"）解析失败被静默当作平台视图，导致隔离失效；
 //   - perms 建议传 OAuth scopes（"user:read" 格式，直接对上 HasPermission）；
 //   - 全部字段为空时返回 noop（三视图全 false → EnforceTenant fail-closed）。
 func ViewerFromIdentity(userID, tenantID, traceID string, perms, roles []string) viewer.Context {
@@ -92,9 +101,7 @@ func ViewerFromIdentity(userID, tenantID, traceID string, perms, roles []string)
 	if uid, err := strconv.ParseUint(userID, 10, 64); err == nil {
 		v.UserIDValue = uid
 	}
-	if tid, err := strconv.ParseUint(tenantID, 10, 64); err == nil {
-		v.TenantIDValue = tid
-	}
+	v.TenantIDValue = tenantID // 原样透传，无解析失败路径
 	return v
 }
 
