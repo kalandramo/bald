@@ -132,7 +132,7 @@ type Store[T any] struct {
 
 **为什么拆三层而不是两层？** `Store[T]` 与 `Queryable[T]` 的分离是关键：`Store` 承载**引擎无关的横切逻辑**（租户注入、范围合并、分页翻译、元数据回填），`Queryable` 承载**引擎相关的翻译**（`Where` → SQL/NoSQL）。如果把两者合并，每个后端都要重复实现一遍横切逻辑——租户隔离会在 gorm / mongo / inmemory 里各写一遍，正是我们要消除的样板。`DBProvider` 再退一层，是因为 `Queryable` 的获取可能需要 per-request 的会话/事务（`DB(ctx)` 带 ctx），且生命周期（`Close`）与句柄构造归调用方。
 
-`NewStore[T](provider, opts...)`（`store.go:105`）用函数式 Option 配置。当前 Option 族共 4 个（`store.go:70`/`75`/`80`/`97`）：
+`NewStore[T](provider, opts...)`（`store.go:106`）用函数式 Option 配置。当前 Option 族共 4 个（`store.go:70`/`75`/`80`/`97`）：
 
 | Option | 作用 | 默认 |
 |---|---|---|
@@ -150,10 +150,39 @@ type Store[T any] struct {
 `WithPlatformLevel` 提供显式豁免，设计要点：
 
 - **默认隔离**（fail-closed）：不调用即强制注入。豁免必须**显式声明**，与 `RegisterTenant` 的「不在 `init` 隐式注册」同一取舍——让开启/关闭的时机都由业务掌握。
-- **实例级而非全局**：豁免挂在 `Store` 实例的 `opts.platformLevel`（`store.go:97`），不是包级开关。同一张表用不同 `Store` 构造可有不同行为。
+- **实例级而非全局**：豁免挂在 `Store` 实例的 `opts.platformLevel`（`store.go:98` 的 `WithPlatformLevel`），不是包级开关。同一张表用不同 `Store` 构造可有不同行为。
 - **与「超级管理员」正交**：豁免是「这张表没有租户列」，不是「这个身份能看所有租户」——后者是权限问题（同表不同身份见不同行），应由数据范围（`RegisterDataScope`）承担。二者混淆会导致权限模型漏洞。
 
 `bald-admin` 的 6 个平台级 Store（Role/RolePolicy/Menu/Permission/Language/Tenant）以「模型结构体无 `TenantID` 字段」为判据声明豁免。
+
+#### 隔离闸门：`shouldIsolate` 是唯一判断点
+
+所有读路径注入租户条件前，**必须**经 `shouldIsolate(ctx)`（`store.go:304`）判断——`applyIsolation`（`store.go:317`，服务 `Get`/`List`/`Count`/`Delete`）与 `translate`（`store.go:427`，服务 `ListWithPaging`）共用它。
+
+**为什么要有这个函数**（2026-09-24 暗雷修复）：此前两条路径**各自判断**，而 `applyIsolation` 有 `platformLevel` 守卫、`translate` 没有——同一不变量的两个违反点只修了一个，导致「声明平台级的实体改用 `ListWithPaging` 仍被注入 `tenant_id = ?`」（对无该列的表即 `no such column: tenant_id`）。
+
+统一到单一闸门后，新增读路径只需调用它，**从结构上消除不对称**。测试见 `platform_level_paging_test.go`。
+
+#### 身份级豁免：平台身份（与实体级正交）
+
+除实体级豁免外，还有**身份级豁免**——同一张表，平台身份看全部、租户身份只看本租户。
+
+| | 实体级 `WithPlatformLevel` | 身份级 `Platform` |
+|---|---|---|
+| 回答的问题 | 「**这张表**有没有租户列」 | 「**这个请求**要不要按租户切分」 |
+| 生效时机 | 构造期（`Store` 实例） | 请求期（ctx） |
+| 声明方式 | `store.WithPlatformLevel[T]()` | `AuthClaims.Platform` → `contextx.WithPlatform(ctx)` |
+| 典型场景 | menu / language（表无租户列） | 平台管理员查跨租户审计 |
+
+**二者正交，不可互替**：实体级用于「表结构没有租户维度」，身份级用于「有租户列但该身份跨租户可见」。
+
+**身份级豁免的安全纪律**（`contextx.WithPlatform` 注释载明）：
+
+- **必须显式声明**，绝不基于「`TenantID` 为空」推断——空租户同时表示「匿名/未认证」与「平台视图」两种**相反**语义，推断会 fail-open。
+- 默认 `false`（fail-closed）：不标记即隔离生效，匿名请求不会被误判为平台视图。
+- 它只回答「是否按租户切分数据」，**不是授权判定**——细粒度授权仍归 `pkg/authz`（如 `bald-admin` 的 `platform:admin` 策略）。二者正交。
+
+**与数据范围的关系**：`shouldIsolate` 只控制**租户隔离**；`mergeDataScope`/`mergeDataScopeExpr` 在其守卫**之外**（无条件执行）。即平台身份**仍受数据范围约束**——数据范围是行级权限，与租户切分正交。
 
 ### Where：引擎无关的条件表达
 
@@ -223,9 +252,9 @@ type Where struct {
 | `pagePaginator` | `page` 存在 | `(page-1)*size, size`，`page<1` 归正为 1 | `current_page`/`total_pages` |
 | `offsetPaginator` | `offset`/`limit` 存在 | 直接用；仅给 offset 时按默认页大小限制 | `current_offset` |
 
-`clampPageSize`（`store.go:452`）把页大小归一化到 `[defaultSize, maxSize]`——这是 proto 契约里"服务端必须设置合理上限"那条安全规约的落地。
+`clampPageSize`（`store.go:480`）把页大小归一化到 `[defaultSize, maxSize]`——这是 proto 契约里"服务端必须设置合理上限"那条安全规约的落地。
 
-`ListWithPaging`（`store.go:448`）→ `translate`（`store.go:403`）→ `fillTotal`（`store.go:462`）是分页主链路。**NextToken 的填充被刻意推迟到 `fillTotal`**（`store.go:447`–`store.go:448` 注释）：token 需等拿到 `total` 才能判定是否真有下一页，否则末页会产生"空翻页死循环"。`fillTotal` 里 `hasMore := where.Limit > 0 && total > offset+limit`（`store.go:475`）——只有确实还有下一页才下发 token。
+`ListWithPaging`（`store.go:448`）→ `translate`（`store.go:403`）→ `fillTotal`（`store.go:490`）是分页主链路。**NextToken 的填充被刻意推迟到 `fillTotal`**（`store.go:447`–`store.go:448` 注释）：token 需等拿到 `total` 才能判定是否真有下一页，否则末页会产生"空翻页死循环"。`fillTotal` 里 `hasMore := where.Limit > 0 && total > offset+limit`（`store.go:503`）——只有确实还有下一页才下发 token。
 
 **Token 的当前语义是「偏移游标」不是「真游标」**（`paging.go:7`–`paging.go:9` 文件头自承）：token 是 base64 编码的十进制偏移量（兼容裸十进制，向后兼容），`encodeToken`（`paging.go:109`）产出，解码在 `tokenPaginator.Resolve`（`paging.go:78`）。这与"基于主键/排序键的游标分页"不同——后者需后端配合 last-key 过滤，是未来平滑升级路径，业务调用方无感知。
 
@@ -241,7 +270,7 @@ store.RegisterTenant("tenant_id", store.DefaultTenantFunc) // 显式开启，不
 
 **读路径**：`ListWithPaging` 经 `translate` 在构造 `Where` 后立即调用 `mergeTenant`（`store.go:412` 起）与 `mergeDataScope`/`mergeDataScopeExpr`；`Get`/`List`/`Count`/`Delete` 经 `applyIsolation`（`store.go:293`）注入同源隔离条件（2026-09-24 收敛，此前仅 `ListWithPaging` 有隔离）。`mergeTenant`（`tenant.go:98`）把每个已注册维度的等值条件追加进 `Filters`，并**去重业务已手写的同名条件**——业务若已写该租户列（任一操作符，如 `NEQ`），系统不再叠加 `EQ`，避免 `EQ + NEQ` 叠加产生恒假或歧义（`tenant_test.go:TestMergeTenant` 锁定）。**触发条件**：仅当 ctx 携带租户值（维度已注册）或 `AuthClaims` 时注入，非多租户应用/匿名请求零影响。
 
-**写路径**：`Create`/`Update`（`store.go:120`/`store.go:157`）在委托后端前调用 `injectWriteTenant`（`store.go:175`），反射把 ctx 解析到的租户值写回实体字段。字段匹配优先级（`tenantFieldIndex`，`store.go:214`）：`gorm:"column:tenant_id"` tag > `json:"tenant_id"` tag > 字段名 CamelCase→snake_case 直接相等（`fieldToSnake`，`store.go:241`）。**语义是无条件覆写**（`store.go:207` 的 `fd.SetString`）——业务试图写入他租户值（越权改归属）会被 ctx 真实租户覆盖，`write_tenant_test.go:TestInjectWriteTenant` 明确锁定"越权租户值应被 ctx 租户覆盖"。
+**写路径**：`Create`/`Update`（`store.go:121`/`store.go:158`）在委托后端前调用 `injectWriteTenant`（`store.go:176`），反射把 ctx 解析到的租户值写回实体字段。字段匹配优先级（`tenantFieldIndex`，`store.go:215`）：`gorm:"column:tenant_id"` tag > `json:"tenant_id"` tag > 字段名 CamelCase→snake_case 直接相等（`fieldToSnake`，`store.go:242`）。**语义是无条件覆写**（`store.go:207` 的 `fd.SetString`）——业务试图写入他租户值（越权改归属）会被 ctx 真实租户覆盖，`write_tenant_test.go:TestInjectWriteTenant` 明确锁定"越权租户值应被 ctx 租户覆盖"。
 
 读写两路径**对称闭环**：读不泄漏、写不改归属。这是本模块的核心安全承诺。
 
@@ -304,7 +333,7 @@ sequenceDiagram
 
 **以下三条是「设计哲学 → 写操作面向最终状态」的具体落地**（原则论述见该节，此处只记决策与代价）。
 
-**为什么 `Get` 未命中返回 `ErrNotFound` 而不是 `(nil, nil)`？** `store.go:343` 明确：两个 provider 一致返回哨兵错误。调用方须判 error 而非只判 nil——这消除了"零值实体 vs 未命中"的歧义。**注意 `Delete`/`Update` 的语义与此不同**（见下两条），三者是独立契约。
+**为什么 `Get` 未命中返回 `ErrNotFound` 而不是 `(nil, nil)`？** `store.go:367` 明确：两个 provider 一致返回哨兵错误。调用方须判 error 而非只判 nil——这消除了"零值实体 vs 未命中"的歧义。**注意 `Delete`/`Update` 的语义与此不同**（见下两条），三者是独立契约。
 
 **`Delete` 是幂等语义：0 行匹配返回 `(0, nil)`**（`store.go:311` 长注释，2026-09-23 决策）。它返回受影响行数，删除不存在的资源是**合法结果**——不再报 `ErrNotFound`。这消除了旧语义的缺陷（框架缺陷报告 D12）：`Delete` 曾对 0 行硬失败，把「集合删除本就为空」误报为 not found，逼得 `bald-admin` 的 message/mfa 两域写容忍样板。需要「必须存在才能删」的调用方，**由上层显式实现**——判 `rows == 0` 即可，无需额外 `Get` 往返。**代价**：无前置 `Get` 的单条删除路径，其「删不存在 → 404」会退化为 200（有意变更）。
 
@@ -460,9 +489,9 @@ sequenceDiagram
 
 2. **`Where.T(ctx)` 丢失 `Expr`**（**已修，2026-09-24**）。`Where.T`（`tenant.go:72`）构造副本时曾只复制 `Sorting`/`Offset`/`Limit`/`Filters`，**丢弃 `Expr`**——业务用 `where.T(ctx)` 显式隔离时布尔树会被静默吞掉。现已补 `Expr` 复制，`TestWhere_T_PreservesExpr` 锁定。
 
-3. **`injectWriteTenant` 注释与实现不符**（**已修，2026-09-24**）。原注释措辞暗示"跳过已有非空值"，实现（`store.go:207` 的 `fd.SetString`）实际是**无条件覆写**（仅检查 `CanSet` 与 `Kind==String`）。现已把注释改为"无条件覆写"（`store.go:172`–`store.go:175`），与 `write_tenant_test.go` 锁定的"越权值被覆盖"一致。
+3. **`injectWriteTenant` 注释与实现不符**（**已修，2026-09-24**）。原注释措辞暗示"跳过已有非空值"，实现（`store.go:207` 的 `fd.SetString`）实际是**无条件覆写**（仅检查 `CanSet` 与 `Kind==String`）。现已把注释改为"无条件覆写"（`store.go:172`–`store.go:176`），与 `write_tenant_test.go` 锁定的"越权值被覆盖"一致。
 
-4. **`PaginationResponseMeta.CurrentSize` 未被填充**（**已修，2026-09-24**）。`fillTotal`（`store.go:462`）现回填 `Total`/`TotalPages`/`NextToken`/`CurrentSize`（当前页实际返回条数 = `len(items)`），`TestStore_ListWithPaging_CurrentSize` 锁定（满页/末页/空页三态）。
+4. **`PaginationResponseMeta.CurrentSize` 未被填充**（**已修，2026-09-24**）。`fillTotal`（`store.go:490`）现回填 `Total`/`TotalPages`/`NextToken`/`CurrentSize`（当前页实际返回条数 = `len(items)`），`TestStore_ListWithPaging_CurrentSize` 锁定（满页/末页/空页三态）。
 
 5. **`detectStrategy` 的 NoPaging 分支不可达**（**已修，2026-09-24**）。原缺陷：`translate` 提前 `if req.GetNoPaging()` 返回，从不带 `NoPaging` 请求进入 `detectStrategy`——两处重复处理 NoPaging，`paging.go:30` 的分支成死代码。现 `translate` 统一走 `detectStrategy`（单一路径），`noPaginator` 分支可达；NoPaging 时经类型判定跳过元数据填充，语义不变（`paging_test.go:TestPaging_TranslateMetadata` 表征锁定 offset=limit=0、不填页大小）。
 
