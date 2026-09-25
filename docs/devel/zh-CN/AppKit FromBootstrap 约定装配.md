@@ -151,8 +151,8 @@ cleanup 挂停机 Effect），两点差异要清楚：
   注册在 servers 之前——逆序回放保证「服务器先 drain、数据库连接最后关」；
   失败回滚已建实例 cleanup（逆序）。database 段不支持热更新（连接池重建
   侵入性大，变更需重启）。
-- **分批落地**：首批 sql（bald-database-gorm）与 mongodb
-  （bald-database-mongodb）；其余 6 段契约形状已定、后端按需补——未配置段
+- **分批落地**：首批 sql（`contrib/database/gorm`）与 mongodb
+  （`contrib/database/mongodb`）；其余 6 段契约形状已定、后端按需补——未配置段
   未使用，不违反「契约字段须全有消费者」。
 - **migrate 语义**：迁移模型是代码声明（`WithAutoMigrate` / mixin），契约
   不承载模型清单；契约 `migrate` 开关经 `WithEnableMigrate` 生效。go-wind

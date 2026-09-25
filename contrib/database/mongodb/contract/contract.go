@@ -14,7 +14,7 @@ import (
 
 	mongocrud "github.com/kalandramo/bald-crud/mongodb"
 
-	mongodb "github.com/kalandramo/bald-database-mongodb"
+	mongodb "github.com/kalandramo/bald/contrib/database/mongodb"
 )
 
 // Type 是契约 database 段中 mongodb 后端的段名。

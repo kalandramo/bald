@@ -14,7 +14,7 @@ import (
 
 	gormcrud "github.com/kalandramo/bald-crud/gorm"
 
-	gorm "github.com/kalandramo/bald-database-gorm"
+	gorm "github.com/kalandramo/bald/contrib/database/gorm"
 )
 
 // Type 是契约 database 段中 gorm（通用 SQL）后端的段名。

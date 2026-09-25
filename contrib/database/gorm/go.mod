@@ -1,4 +1,4 @@
-module github.com/kalandramo/bald-database-gorm
+module github.com/kalandramo/bald/contrib/database/gorm
 
 go 1.27.1
 

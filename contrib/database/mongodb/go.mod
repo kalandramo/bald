@@ -1,4 +1,4 @@
-module github.com/kalandramo/bald-database-mongodb
+module github.com/kalandramo/bald/contrib/database/mongodb
 
 go 1.27.1
 
