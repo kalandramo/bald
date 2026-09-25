@@ -95,17 +95,19 @@ flowchart TB
 
 ### 视图判定：三态互斥
 
-`SimpleViewer` 的三个判定方法构成**互斥三态**：
+`SimpleViewer` 的三个判定方法构成**互斥三态**（2026-09-25 起平台身份改为显式字段，见《待处理事项》#2）：
 
 | 方法 | 条件 | 语义 |
 |---|---|---|
-| `IsSystemContext()` | `System == true` | 系统后台任务（**绕过租户强制的唯一开关**） |
-| `IsPlatformContext()` | `!System && TenantID == ""` | 平台管理视图 |
-| `IsTenantContext()` | `!System && TenantID != ""` | 租户业务视图 |
+| `IsSystemContext()` | `System == true` | 系统后台任务（**绕过租户强制的开关之一**） |
+| `IsPlatformContext()` | `!System && Platform` | 平台管理视图（**必须显式声明 `Platform`**） |
+| `IsTenantContext()` | `!System && !Platform && TenantID != ""` | 租户业务视图 |
 
-三者互斥且穷尽（`!System` 时按 `TenantID` 是否为空串二分）。`System` 是显式字段而非推断——这是上面安全语义①的落实。
+`System` 与 `Platform` 都是**显式字段而非推断**——这是上面安全语义①的落实。
 
-> **`""` 的语义重载注意**：`TenantID == ""` 同时表达「平台管理视图」与「匿名/未配置租户」两种情形。`viewer.NewNoopContext()`（匿名上下文）返回 `TenantID() == ""` 但 `IsPlatformContext() == false`，与接口注释定义不一致——见《待处理事项》#2。桥接侧的 `SimpleViewer` 不受影响（它按空串判平台视图，与接口注释一致）。
+> **空租户的语义（2026-09-25 收紧）**：`TenantID == ""` **不再被推断为平台视图**。修复前 `IsPlatformContext() = !System && TenantID == ""`，已认证但租户为空的身份会被当作平台视图 → pass-through → 看全部租户（fail-open）。修复后平台身份必须显式声明 `Platform`；空租户且非平台非系统 → 经 `EnforceTenant` fail-closed（`ErrMissingViewer`）。
+>
+> 认证中间件（gin/grpc `AuthnMiddleware`/`AuthnInterceptor`）从 `claims.Platform` 透传该字段——此前**未传**，平台标记被丢弃。
 
 `HasPermission(action, resource)` 用 `action + ":" + resource` 拼接匹配 `PermsValue`——与 OAuth scope 格式（`user:read`）直接对上，故 `perms` 建议传 scopes。
 
