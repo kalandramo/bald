@@ -39,7 +39,7 @@ replace github.com/kalandramo/bald/transport/web => ./transport/web
 require (
 	github.com/gin-gonic/gin v1.12.0
 	github.com/google/uuid v1.6.0
-	github.com/kalandramo/bald-crud/viewer v0.2.0
+	github.com/kalandramo/bald-crud/viewer v0.3.0
 	github.com/kalandramo/bald/bconf v0.7.2
 	github.com/kalandramo/bald/berrors v0.1.1
 	github.com/kalandramo/bald/bootstrap v0.8.0
