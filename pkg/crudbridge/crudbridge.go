@@ -39,6 +39,13 @@ type SimpleViewer struct {
 
 	// System 显式声明系统后台任务视图（绕过租户强制的唯一开关）。
 	System bool
+	// Platform 显式声明平台级身份（跨租户视图，如平台管理员）。
+	//
+	// 语义（2026-09-25，见《待处理事项》#2）：平台身份**必须显式声明**，
+	// 绝不基于「TenantID 为空」推断——空租户同时表示「匿名/未认证」与
+	// 「平台视图」两种相反语义，靠推断会 fail-open。与 System 同纪律。
+	// 置位后 EnforceTenant 放行（跨租户可见）。
+	Platform bool
 	// Auditable 显式声明是否需要审计记录。
 	Auditable bool
 }
@@ -67,16 +74,20 @@ func (s *SimpleViewer) HasPermission(action, resource string) bool {
 	return false
 }
 
-// IsPlatformContext 平台管理视图：无租户上下文（TenantID == ""）且非系统任务。
+// IsPlatformContext 平台管理视图：**显式声明** Platform 且非系统任务。
 //
-// 2026-09-24 语义收紧：此前为 `TenantIDValue == 0`，而 ViewerFromIdentity 在
-// 租户 ID 非数字时把解析失败静默留作 0 —— 于是「解析失败」被误判为「平台视图」，
-// 导致 EnforceTenant 放行、租户隔离静默失效（安全缺陷）。改为 string 后无解析
-// 失败路径，空串即显式的「无租户上下文」。
-func (s *SimpleViewer) IsPlatformContext() bool { return !s.System && s.TenantIDValue == "" }
+// 2026-09-25 语义收紧（《待处理事项》#2，方案 D）：此前为
+// `!System && TenantIDValue == ""`——把「空租户」**推断**为平台视图。
+// 空租户同时表示「匿名/未认证」与「平台视图」两种相反语义，推断会 fail-open
+// （已认证但租户为空的身份会看到全部租户数据）。改为显式 Platform 字段后，
+// 空租户不再被推断为平台视图——它落入「身份不完整」，经 EnforceTenant
+// fail-closed。与 bald 侧 contextx.WithPlatform 的「显式声明」纪律对齐。
+func (s *SimpleViewer) IsPlatformContext() bool { return !s.System && s.Platform }
 
-// IsTenantContext 租户业务视图：TenantID 非空且非系统任务。
-func (s *SimpleViewer) IsTenantContext() bool { return !s.System && s.TenantIDValue != "" }
+// IsTenantContext 租户业务视图：有租户身份（TenantID 非空）且非系统、非平台。
+func (s *SimpleViewer) IsTenantContext() bool {
+	return !s.System && !s.Platform && s.TenantIDValue != ""
+}
 
 // IsSystemContext 仅在显式声明 System 时为真。
 func (s *SimpleViewer) IsSystemContext() bool { return s.System }
@@ -90,14 +101,17 @@ func (s *SimpleViewer) ShouldAudit() bool { return s.Auditable }
 //   - userID 为 string，解析为 uint64；解析失败按 0；
 //   - tenantID 为 string，**原样透传**（2026-09-24 统一）：此前解析为 uint64，
 //     非数字租户 ID（如 "t-default"）解析失败被静默当作平台视图，导致隔离失效；
+//   - platform 显式声明平台级身份（2026-09-25，见《待处理事项》#2）：由调用方
+//     从 claims.Platform 透传，绝不基于空租户推断——否则已认证但租户为空的
+//     身份会被当作平台视图（fail-open）；
 //   - perms 建议传 OAuth scopes（"user:read" 格式，直接对上 HasPermission）；
-//   - 全部字段为空时返回 noop（三视图全 false → EnforceTenant fail-closed）。
-func ViewerFromIdentity(userID, tenantID, traceID string, perms, roles []string) viewer.Context {
-	if userID == "" && tenantID == "" && traceID == "" && len(perms) == 0 && len(roles) == 0 {
+//   - 全部字段为空且非平台时返回 noop（三视图全 false → EnforceTenant fail-closed）。
+func ViewerFromIdentity(userID, tenantID, traceID string, perms, roles []string, platform bool) viewer.Context {
+	if userID == "" && tenantID == "" && traceID == "" && len(perms) == 0 && len(roles) == 0 && !platform {
 		return viewer.NewNoopContext()
 	}
 
-	v := &SimpleViewer{TraceIDValue: traceID, PermsValue: perms, RolesValue: roles}
+	v := &SimpleViewer{TraceIDValue: traceID, PermsValue: perms, RolesValue: roles, Platform: platform}
 	if uid, err := strconv.ParseUint(userID, 10, 64); err == nil {
 		v.UserIDValue = uid
 	}
@@ -107,14 +121,16 @@ func ViewerFromIdentity(userID, tenantID, traceID string, perms, roles []string)
 
 // InjectViewerFromIdentity 由 ViewerFromIdentity 构造 viewer 并注入 context，
 // 供认证中间件在 contextx.WithTenantID 之后链式调用。
-func InjectViewerFromIdentity(ctx context.Context, userID, tenantID, traceID string, perms, roles []string) context.Context {
-	return viewer.WithContext(ctx, ViewerFromIdentity(userID, tenantID, traceID, perms, roles))
+func InjectViewerFromIdentity(ctx context.Context, userID, tenantID, traceID string, perms, roles []string, platform bool) context.Context {
+	return viewer.WithContext(ctx, ViewerFromIdentity(userID, tenantID, traceID, perms, roles, platform))
 }
 
 // ViewerFromContext 从 bald 的 contextx 身份信息尽力构造 viewer.Context。
 //
 // 仅映射 contextx 已有的信息（UserID/TenantID/TraceID），权限、角色不可得；
 // 认证中间件注入请改走 InjectViewerFromIdentity（可携带 scopes/roles）。
+// platform 取 contextx.PlatformFromContext——与 pkg/store 的隔离豁免同源，
+// 保证同一请求在 viewer 侧与 store 侧对「平台身份」的判定一致。
 func ViewerFromContext(ctx context.Context) viewer.Context {
 	if ctx == nil {
 		return viewer.NewNoopContext()
@@ -124,6 +140,7 @@ func ViewerFromContext(ctx context.Context) viewer.Context {
 		contextx.TenantIDFromContext(ctx),
 		contextx.TraceIDFromContext(ctx),
 		nil, nil,
+		contextx.PlatformFromContext(ctx),
 	)
 }
 

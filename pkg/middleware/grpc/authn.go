@@ -77,9 +77,11 @@ func AuthnInterceptor(authenticator authn.Authenticator, opts ...AuthnOption) gr
 		}
 		// 内置注入 viewer.Context（bald-crud EnforceTenant / DataScope 的身份来源）：
 		// scopes 映射为权限（"user:read" 格式对上 HasPermission），业务零配置。
+		// platform 透传 claims.Platform——平台身份必须显式声明，绝不基于空租户推断
+		// （2026-09-25，见《待处理事项》#2）。
 		ctx = crudbridge.InjectViewerFromIdentity(ctx,
 			claims.Subject, claims.TenantID, contextx.TraceIDFromContext(ctx),
-			claims.Scopes, claims.Roles)
+			claims.Scopes, claims.Roles, claims.Platform)
 		return handler(ctx, req)
 	}
 }
