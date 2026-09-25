@@ -3,7 +3,7 @@ module github.com/kalandramo/bald-database-gorm
 go 1.27.1
 
 require (
-	github.com/kalandramo/bald-crud/gorm v0.1.0
+	github.com/kalandramo/bald-crud/gorm v0.3.0
 	github.com/kalandramo/bald/bconf v0.7.2
 )
 
@@ -49,7 +49,7 @@ require (
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/kalandramo/bald-crud/cache v0.1.0 // indirect
 	github.com/kalandramo/bald-crud/pagination v0.1.0 // indirect
-	github.com/kalandramo/bald-crud/viewer v0.1.0 // indirect
+	github.com/kalandramo/bald-crud/viewer v0.3.0 // indirect
 	github.com/kalandramo/bald-utils v0.1.0 // indirect
 	github.com/kalandramo/bald-utils/mapper v0.1.0 // indirect
 	github.com/kalandramo/bald/encoding v0.1.0 // indirect

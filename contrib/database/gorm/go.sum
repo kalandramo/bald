@@ -284,10 +284,14 @@ github.com/kalandramo/bald-crud/cache v0.1.0 h1:jpjlb+TMJEyccTlDOCtsr0Pt1PS1IbkQ
 github.com/kalandramo/bald-crud/cache v0.1.0/go.mod h1:V4YmOgqpw6MmORsZtUDwkMX4y87K9cb1YVBd3Lld2sA=
 github.com/kalandramo/bald-crud/gorm v0.1.0 h1:V2unMDYdBRhBA6BZFyBaniaGjc2zWyx4XwuFGqDlsCM=
 github.com/kalandramo/bald-crud/gorm v0.1.0/go.mod h1:8UIHyrIfG7qk955zE3oUe7GSwvY4HpqdQh25Qks2JHY=
+github.com/kalandramo/bald-crud/gorm v0.3.0 h1:MiJwa2O5ObbFO3STzz2uRpu4r20h0H2aPoFXG7w6GXY=
+github.com/kalandramo/bald-crud/gorm v0.3.0/go.mod h1:HZ+S7zBoZPvhrlr37PASsL22yvEaTVNNYpj+8WdnI+U=
 github.com/kalandramo/bald-crud/pagination v0.1.0 h1:6TscsGZnBw5+rrm9qP2fQ6iVkKodFBuu/rRGlB2/8K4=
 github.com/kalandramo/bald-crud/pagination v0.1.0/go.mod h1:c2B0pfIF+l/yKn21CipOJnOQEVZBgOycgJkaJsox6XM=
 github.com/kalandramo/bald-crud/viewer v0.1.0 h1:Trtt0xJt88NS1KZQRqbhL094tQA4sFxFWfoJRSFlvK4=
 github.com/kalandramo/bald-crud/viewer v0.1.0/go.mod h1:GOiEuYYRKRgOr4bp4Oww+1d6A9n4McTq9ObPTNjBe5g=
+github.com/kalandramo/bald-crud/viewer v0.3.0 h1:qzFgCqZxxYks6qmtpTnTNYZ0+yM+AvQsnMVdZB+j55g=
+github.com/kalandramo/bald-crud/viewer v0.3.0/go.mod h1:GOiEuYYRKRgOr4bp4Oww+1d6A9n4McTq9ObPTNjBe5g=
 github.com/kalandramo/bald-utils v0.1.0 h1:i6ABFLXVYm24uDhE3yynyaKzcX/fQSMVguHwglsYk6Q=
 github.com/kalandramo/bald-utils v0.1.0/go.mod h1:wic8d3DLxiDMeJHTpSqCrYzTQLBzmuZQXRG6/EPrSW8=
 github.com/kalandramo/bald-utils/id v0.1.0 h1:1ATfxWNcS4dUQC+4QAA5dY27IZcaKntdgj8FaFYnx8A=
