@@ -329,6 +329,27 @@ sequenceDiagram
 
 ---
 
+
+### 契约字段的消费边界（门面层 vs 后端层）
+
+`storev1.PagingRequest` 的字段**分两层消费**——门面层（`pkg/store`）与后端层（`bald-crud/*`）各取所需，不是「全字段在门面层接线」：
+
+| 层 | 入口 | 消费的契约字段 |
+|---|---|---|
+| 门面层 `pkg/store` | `translate`（`store.go:429-430`）→ `Where` 树（`where.go:16`） | `filter_expr` + `sorting` + 分页参数（`page`/`offset`/`token`/`no_paging`） |
+| 后端层 `bald-crud/*` | 各后端 `ListWithPaging`（如 `gorm/repository.go:156`，接收同一 `*storev1.PagingRequest`） | `query` / `filter` / `order_by` / `field_mask` **全部** |
+
+**为什么这样分层**：`Where` 结构（`where.go:16`）只承接结构化条件（`Expr`/`Sorting`/`Filters`），门面层把请求翻译为引擎无关的 `Where` 树后交给后端；字符串 DSL（`query`/`filter`）与 `field_mask` 是**引擎相关的表达**（各自的 SELECT 列拼接、排序字符串解析），下沉后端层由各引擎自行翻译。这是「核心只定契约，实现由调用方桥接」在字段粒度上的体现。
+
+**字符串 DSL 的安全校验**（`store.proto` 文件头安全规约第 1/3/4 条）落地在后端层：
+
+- 第 1 条（字段名白名单）：`bald-crud/gorm/field/utils.go` 的 `NormalizePaths` 有标识符白名单 `^[A-Za-z_][A-Za-z0-9_]*$` + 反引号转义（注释明载防注入）；六后端对齐。
+- 第 4 条（`filter_expr` 优先于字符串 DSL）：`bald-crud/pagination/filter/converter.go:19-31` 的 `convertFilterRequest` 按 `filter_expr > query > filter` 优先级解析；`query_string_converter.go` 为完整实现（JSON 解析、`$and`/`$or`、数组/对象两格式）。
+- 第 3 条（分页上限）：`clampPageSize`（`store.go:480`）落地。
+
+> **调用方需知晓的边界**：走门面层 `Store.ListWithPaging` 时，`query`/`filter`/`order_by`/`field_mask` 会被**静默忽略**（`Where` 不承接）。要用这些字段，须走 `bald-crud/*` 后端的 `ListWithPaging`（直接接收 `PagingRequest`）。这是分层设计而非缺陷——但静默忽略意味着「传了没生效」不会报错。
+
+---
 ## 理由与取舍
 
 **以下三条是「设计哲学 → 写操作面向最终状态」的具体落地**（原则论述见该节，此处只记决策与代价）。
@@ -472,7 +493,6 @@ sequenceDiagram
 
 | # | 条目 | 状态 |
 |---|---|---|
-| #4 | 字符串 DSL 与 `field_mask` 的**消费边界**：门面层 `translate`（`store.go:429-430`）只承接 `filter_expr`/`sorting`；后端层（`bald-crud/*` 的 `ListWithPaging`）消费全部四个字段。原「零消费」为误判，已修正 | 🔵 分层消费说明 |
 | #5 | `Mapper`/`CopierMapper` 零生产调用点（仅 `mapper_test.go`）；`DBProvider.Close()`（`store.go:46`）零调用点 | 🔵 有意设计 |
 | #7 | `Store.logger`（`store.go:52`）存而不用，主链路零日志调用，`WithLogger` 为空接线 | 🟡 待定 |
 | #8 | `Paginator`（`paging.go:21`）无外部注册入口，四实现未导出、`detectStrategy` 硬编码 | 🟡 待定 |
