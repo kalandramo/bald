@@ -291,4 +291,4 @@ appkit 是"契约约定装配"层：可见（`WithHealth` 在 main.go 里）、�
 **gRPC 侧还需要 readiness 参数吗？**
 不需要。状态推送由 `bootstrap` 的组合服务器完成，数据源是 `*health.Health`（`Check` → `SetServingStatus`）；业务若不用 appkit，也可以在 `WithGRPCRegister` 回调里自行注册 health 服务并推状态（那时应断开框架注册，避免同一服务重复注册）。
 
-**相关文档**：《Bald 健康检查设计》（`health` module 内部）、《Bald 注册中心设计》（同族的"契约零依赖 + 装配显式注册"判别）、《模块依赖关系》、《Bald 服务端设计》§7.x、《框架契约总览》。
+**相关文档**：《Bald 健康检查设计》（`health` module 内部）、《Bald 注册中心设计》（同族的"契约零依赖 + 装配显式注册"判别）、《Bald 服务端设计》§7.x、《框架契约总览》§0（模块依赖层级）。

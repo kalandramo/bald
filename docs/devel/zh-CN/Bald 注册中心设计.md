@@ -440,6 +440,6 @@ Discovery / Watcher 没有消费方、注册只在 `_example` 里跑通，这是
 
 - 《Bald 配置契约设计》——`bootstrapv1.Registry` 段所在的 proto 契约层
 - 《Bald Bootstrap 设计》——装配层（阶段 A / B）与停机 Effect 回放
-- 《模块依赖关系》——registry 作为独立 module 的依赖方向实证
+- 《框架契约总览》§0（模块依赖层级）——registry 作为独立 module 的依赖方向实证
 - 《六域 Registry 迁入 bootstrap》——Registry 归位判别规则的来源
 - 《Bald 指标设计》决策③——"契约零依赖 + 后端独立 module"判据的直接出处
