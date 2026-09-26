@@ -6,7 +6,6 @@
 - [Bald 配置系统设计](./Bald%20配置系统设计.md)：配置系统全景——源抽象（Reader/ValueWatcher/FallbackReader + 10 provider）、proto 配置契约、bootstrap 装配（Registry/层优先级/Build 回滚）；源层与契约层的深展开见各自专属篇。**（原《配置中心设计》已并入本篇与《Bald 配置源层设计》——该文件已不存在，旧链接指向此处。）**
 - [Bald 配置源层设计](./Bald%20配置源层设计.md)：bconfig module 专属展开——字节进字节出的源层抽象（Reader/ValueWatcher/Decoder 能力轴 + 类型断言发现）、FallbackReader 级联回退与重算语义（事件值不可信）、10 个 provider 矩阵（双模式构造/推送与轮询分级/watch 父目录）、编写纪律 checklist。
 - [Bald 配置契约设计](./Bald%20配置契约设计.md)：bconf module 专属展开——18 proto 契约布局、四 API（NewBootstrap 默认值/UnmarshalMap 合并桥接/Validate 形状校验/BindFlags 描述符 flag 绑定）、coerce 类型缓冲层、三坑防御（Duration/repeated/presence）、契约演进 v0.1.0→v0.6.0（含 v0.5.0 唯一化瘦身、v0.6.0 audit 域）。
-- [服务端设计](./服务端设计.md)：HTTP / gRPC / Gateway Server 抽象与端口模型。
 - [Bald 注册中心设计](./Bald%20注册中心设计.md)：注册中心域的设计决策与取舍——契约零依赖（Registrar/Discovery/Watcher + inmemory）、后端各自独立 module（`registry/<backend>` 直连 SDK）、`RegistrarRegistry` 显式注册与 `registry.type` 单选分发、注册/反注册生命周期时序；含下放布局论证、breaking 代价、迁移与发版记录。
 - [Bald 健康检查设计](./Bald%20健康检查设计.md)：health module 专属展开——三态状态机（Unknown/Up/Down）、Checker 接口与 PingFunc 零适配、Health 并发聚合（Down 传染 > Unknown 传染、双层超时兜底）、readiness/liveness 双端点分离（Down→503、liveness 恒 200 不级联重启）、TCP/HTTP/All/Any 内置检查器；零第三方依赖纯标准库（2026-09-06 自 go-wind 移植；tag `health/v0.1.0` 已发，装配与归属见下条）。
 - [Bald 健康检查装配设计](./Bald%20健康检查装配设计.md)：探针与就绪的归位——协议实现不含健康/就绪（HTTP 探针注册、gRPC 就绪轮询、`ReadinessFunc` 参数全部移除；gRPC 标准健康服务保留但只注册不判断）、能力落 `health` + 装配层（`bootstrap.NewGRPCHealthServer` / `appkit.WithHealth` 一行默认装配 + 业务自组装两条路）、reflection 外移装配层；含运维风险（默认无探针 → K8s 404）与破坏面清单。

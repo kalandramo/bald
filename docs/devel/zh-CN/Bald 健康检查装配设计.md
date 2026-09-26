@@ -271,7 +271,7 @@ appkit 是"契约约定装配"层：可见（`WithHealth` 在 main.go 里）、�
 - [x] `appkit`：删 `WithReadiness`；新增 `WithHealth(h, opts...)` + 导出 `WithProbes`（`pkg/appkit/health.go`）；HTTP/gateway handler 包装 + gRPC 装配透传；探针路径相同启动期 fail-fast
 - [x] 示例：`_example/bald`（走 `WithHealth` 默认装配）、`_example/bald-gin`（业务自挂 handler，演示路 B）、`internal/codegen` 生成的 app 模板
 - [ ] 跨仓：bald-admin 同步（独立提交，待发版后进行）
-- [x] 文档：本文件 + 《Bald 健康检查设计》Status/背景同步、《Bald 服务端设计》决策④~⑧ 与 §4、契约总览、guide《Bald 健康检查》与 quickstart、README、代码生成/Bootstrap/AppKit 相关篇目
+- [x] 文档：本文件 + 《Bald 健康检查设计》Status/背景同步、《Bald 传输层设计》与《应用框架设计》相关篇目、契约总览、guide《Bald 健康检查》与 quickstart、README、代码生成/Bootstrap/AppKit 相关篇目（原《服务端设计》已删除，其探针/health/reflection 内容归位至本文件与传输层设计）
 
 **验证**（已执行）：`health`、`transport`、`transport/{http,grpc,gateway}`、`bootstrap`、根模块（含 `internal/codegen` 生成物编译/运行用例）、`_example`、`_example/bald` 全部 `go build` + `go vet` + `go test` 通过；新增用例覆盖——协议层无框架路由（http/gateway）、gRPC 标准健康服务在位且状态可由外部推、装配层轮询驱动 SERVING⇄NOT_SERVING、reflection 按契约注册、探针包装不遮蔽业务路由（`_example/bald` e2e：`/healthz`、`/readyz` 200 且 `/v1/greet` 仍 200）。
 
@@ -291,4 +291,4 @@ appkit 是"契约约定装配"层：可见（`WithHealth` 在 main.go 里）、�
 **gRPC 侧还需要 readiness 参数吗？**
 不需要。状态推送由 `bootstrap` 的组合服务器完成，数据源是 `*health.Health`（`Check` → `SetServingStatus`）；业务若不用 appkit，也可以在 `WithGRPCRegister` 回调里自行注册 health 服务并推状态（那时应断开框架注册，避免同一服务重复注册）。
 
-**相关文档**：《Bald 健康检查设计》（`health` module 内部）、《Bald 注册中心设计》（同族的"契约零依赖 + 装配显式注册"判别）、《Bald 服务端设计》§7.x、《框架契约总览》§0（模块依赖层级）。
+**相关文档**：《Bald 健康检查设计》（`health` module 内部）、《Bald 注册中心设计》（同族的"契约零依赖 + 装配显式注册"判别）、《框架契约总览》§0（模块依赖层级）。

@@ -316,8 +316,8 @@ go test ./...
 
 - 启动器（AppKit）完整设计（架构、契约、生命周期时序、配置加载、防坑要点、后续迭代清单）：
   [`docs/devel/zh-CN/应用框架设计.md`](docs/devel/zh-CN/应用框架设计.md)。
-- 服务端设计（Server 契约、协议适配器、探针路由、health/reflection、Endpoint 可达性）：
-  [`docs/devel/zh-CN/服务端设计.md`](docs/devel/zh-CN/服务端设计.md)。
+- 传输层设计（Server 契约、协议适配器、Endpoint 可达性、18 个后端独立 module）：
+  [`docs/devel/zh-CN/Bald 传输层设计.md`](docs/devel/zh-CN/Bald%20传输层设计.md)。
 - 注册中心设计（Registrar 抽象、ServiceInstance 字段约束、注册/反注册时序、后端独立 module）：
   [`docs/devel/zh-CN/Bald 注册中心设计.md`](docs/devel/zh-CN/Bald%20注册中心设计.md)。
 - 配置系统设计（远程配置、多环境、`RemoteSource` 抽象；原《配置中心设计》已并入）：
