@@ -11,7 +11,7 @@
 - [Bald 健康检查装配设计](./Bald%20健康检查装配设计.md)：探针与就绪的归位——协议实现不含健康/就绪（HTTP 探针注册、gRPC 就绪轮询、`ReadinessFunc` 参数全部移除；gRPC 标准健康服务保留但只注册不判断）、能力落 `health` + 装配层（`bootstrap.NewGRPCHealthServer` / `appkit.WithHealth` 一行默认装配 + 业务自组装两条路）、reflection 外移装配层；含运维风险（默认无探针 → K8s 404）与破坏面清单。
 - [Bald 日志设计](./Bald%20日志设计.md)：log 契约（6 方法接口/全局句柄/nop 默认/ctx 属性流/MultiLogger）、bslog 适配器（多输出/lumberjack 轮转/脱敏/OTel 桥接）、五远端后端独立 module + contract 模式、装配层（两级工厂/默认纯函数 + 教学报错/两阶段/热更新）、`logger.backends` 多后端广播；附录含 gookit/slog 评估决策与桥接适配器预留（并入自原《日志平面接口设计》）。
 - [AppKit 日志装配设计](./AppKit%20日志装配设计.md)：AppKit 侧日志装配策略——两级工厂分发（WithLogRegistry 机制全权 / 默认纯函数零依赖）的使用场景、nil 双语义（机制层 fail-fast vs 阶段 A 回退）、装饰器 deco 生效范围分级、四分派、脱敏单层保证的结构性机制。
-- [路由注册与绑定设计](./路由注册与绑定设计.md)：路由注册由业务用 gin 编写，pkg/web 提供强绑定 gin 的泛型绑定/校验/响应流水线，路径变量用 uri tag。
+- [路由注册与绑定设计](./路由注册与绑定设计.md)：路由注册由业务用 gin 编写，transport/web 提供强绑定 gin 的泛型绑定/校验/响应流水线，路径变量用 uri tag。
 - [grpc-gateway 配置与 transcoding](./grpc-gateway%20配置与%20transcoding.md)：proto + google.api.http 注解、buf generate 生成、接线到 server.NewGRPCServerWithRegister / NewGatewayServer，gin 与 grpc-gateway 复用同一 biz 层。
 - [Bald 错误模型设计](./Bald%20错误模型设计.md)：berrors module 专属展开——传输中立 Error（Code/Reason/Message/Details + cause/栈）、不可变 builder、按 Reason 匹配的 Is、构造即捕获栈；grpcerr（gRPC 双向 + ErrorInfo）/httperr（17 码 HTTP 投影）对等桥接子包；google.rpc.Status JSON 三面一份契约；决策①~⑨ 含 2026-09-15 合并评估否决（并入自原《错误模型设计》）。
 - [认证与授权抽象设计](./认证与授权抽象设计.md)：P7 双接口——pkg/authn 认证抽象（Authenticator/AuthClaims）+ pkg/authz 授权抽象（Authorizer），零引擎耦合、桥接子模块外置，P9 归一化使 REST/gRPC 共用同一策略空间。
