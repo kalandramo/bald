@@ -472,7 +472,7 @@ sequenceDiagram
 
 | # | 条目 | 状态 |
 |---|---|---|
-| #4 | proto 字符串 DSL 与 `field_mask` 零消费——`translate`（`store.go:405`–`store.go:406`）只读 `GetSorting()`/`GetFilterExpr()` | 🔵 设计留白 |
+| #4 | 字符串 DSL 与 `field_mask` 的**消费边界**：门面层 `translate`（`store.go:429-430`）只承接 `filter_expr`/`sorting`；后端层（`bald-crud/*` 的 `ListWithPaging`）消费全部四个字段。原「零消费」为误判，已修正 | 🔵 分层消费说明 |
 | #5 | `Mapper`/`CopierMapper` 零生产调用点（仅 `mapper_test.go`）；`DBProvider.Close()`（`store.go:46`）零调用点 | 🔵 有意设计 |
 | #7 | `Store.logger`（`store.go:52`）存而不用，主链路零日志调用，`WithLogger` 为空接线 | 🟡 待定 |
 | #8 | `Paginator`（`paging.go:21`）无外部注册入口，四实现未导出、`detectStrategy` 硬编码 | 🟡 待定 |
