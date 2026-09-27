@@ -126,7 +126,7 @@ require (
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
-	github.com/kalandramo/bald-crud/viewer v0.1.0 // indirect
+	github.com/kalandramo/bald-crud/viewer v0.3.0 // indirect
 	github.com/kalandramo/bald/bconfig v0.1.0 // indirect
 	github.com/kalandramo/bald/transport v0.2.1 // indirect
 	github.com/kalandramo/bald/transport/gateway v0.1.1 // indirect
