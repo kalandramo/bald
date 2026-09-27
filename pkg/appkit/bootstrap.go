@@ -396,7 +396,18 @@ func FromBootstrap(cfg *bootstrapv1.BootstrapConfig, opts ...BootstrapOption) (*
 	// 代码，是刻意的）；零能力声明（纯后台进程）跳过构造，servers 为空合法。
 	// BuildServers 失败回滚阶段 A 与配置层，与 ConfigRegistry 错误路径对称。
 	var servers []transport.Server
-	var serversCleanup func()
+	// 服务器构造**延后到 Run 期**（W1 装配时序根治）。
+	//
+	// 背景：BuildServers 会同步调用业务注册回调（WithGRPC 的 register、
+	// WithHTTP/WithGatewayRegister 的 handler），而消费方依赖 beforeStart
+	// 建立的运行期资源（DB/Redis/仓储）。构造期构建即迫使业务改用请求期
+	// 懒解析（lazyAuthn/lazySigner 适配器族 + 请求期读包级 store）。故此处
+	// 只注册 provider（不触发构造），把 BuildServers 交给 Run 期 beforeStart
+	// 链**末尾**执行（见下方 deferred server build）。
+	//
+	// 能力声明与契约段一致性校验仍在构造期（上方 fail-fast 块）——配置错误
+	// 仍在启动最早暴露，不因时序调整而丢失。
+	var buildServers func(ctx context.Context) ([]transport.Server, func(), error)
 	if spec.httpHandler != nil || spec.gatewayRegister != nil || spec.grpcRegister != nil {
 		sr := baldbootstrap.NewServerRegistry()
 		if spec.httpHandler != nil || spec.gatewayRegister != nil {
@@ -426,17 +437,9 @@ func FromBootstrap(cfg *bootstrapv1.BootstrapConfig, opts ...BootstrapOption) (*
 			}
 			sr.MustRegister("grpc", baldbootstrap.GrpcServerProvider(grpcOpts...))
 		}
-		built, cleanup, err := sr.BuildServers(context.Background(), cfg.GetServer())
-		if err != nil {
-			log.SetLogger(oldLogger)
-			bootCleanup()
-			if layersCleanup != nil {
-				layersCleanup()
-			}
-			return nil, fmt.Errorf("appkit: build servers: %w", err)
+		buildServers = func(ctx context.Context) ([]transport.Server, func(), error) {
+			return sr.BuildServers(ctx, cfg.GetServer())
 		}
-		servers = append(servers, built...)
-		serversCleanup = cleanup
 	}
 	servers = append(servers, spec.extraServers...)
 
@@ -659,18 +662,36 @@ func FromBootstrap(cfg *bootstrapv1.BootstrapConfig, opts ...BootstrapOption) (*
 			return nil
 		}))
 	}
-	if serversCleanup != nil {
-		kitOpts = append(kitOpts, Effect("appkit:servers", func(context.Context) error {
-			serversCleanup()
-			return nil
-		}))
-	}
+	// W1：servers 的 cleanup 不再在此注册——服务器构造已延后到 Run 期
+	// （见下方运行期装配钩子），其 cleanup 在同一阶段经 addEffect 入账，
+	// 保证「构造即入账」不变（否则构造成功而注册失败会泄漏）。
 
 	// 业务透传（U1）：钩子/协调器/能力声明/订阅/效果——追加在框架装配之后
 	//（beforeStart 在内部装载链后执行，可读契约终值；Effect 逆序回放先于
 	// 框架 Effect——业务资源先收）。
 	for _, fn := range spec.beforeStart {
 		kitOpts = append(kitOpts, BeforeStart(fn))
+	}
+	// W1 运行期服务器构造：**追加在业务 beforeStart 之后**——注册序即执行序，
+	// 故本钩子最后执行，此时业务已建成运行期资源（DB/仓储/biz/handler），
+	// register 回调（gRPC service 注册）与 HTTP handler 消费它们即拿到真实依赖。
+	// 构造失败的错误经 Run 的 beforeStart 失败路径回滚（Effect 逆序回放配置层
+	// 与阶段 A Logger），与原先的构造期回滚等价。
+	if buildServers != nil {
+		kitOpts = append(kitOpts, BeforeStart(func(ctx context.Context) error {
+			built, cleanup, err := buildServers(ctx)
+			if err != nil {
+				return fmt.Errorf("appkit: build servers: %w", err)
+			}
+			a.servers = append(a.servers, built...)
+			if cleanup != nil {
+				a.addEffect("appkit:servers", func(context.Context) error {
+					cleanup()
+					return nil
+				})
+			}
+			return nil
+		}))
 	}
 	for _, fn := range spec.beforeStop {
 		kitOpts = append(kitOpts, BeforeStop(fn))

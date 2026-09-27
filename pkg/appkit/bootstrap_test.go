@@ -321,8 +321,15 @@ func TestFromBootstrap_FailFastMissingSegments(t *testing.T) {
 }
 
 // 服务器构造数量随能力声明走：双声明=2，单声明=1，零声明=0。
+//
+// W1：构造延后到 Run 期（beforeStart 链后），故此处必须驱动 Run 才能观察
+// servers——构造期断言的是「尚未构造」（servers==0），运行后才是声明数量。
 func TestFromBootstrap_ServersConstructed(t *testing.T) {
+	old := log.GetLogger()
+	t.Cleanup(func() { log.SetLogger(old) })
+
 	cfg := bconf.NewBootstrap()
+	dynamicAddr(cfg)
 
 	a, err := FromBootstrap(cfg,
 		WithHTTP(new(http.ServeMux)),
@@ -331,14 +338,22 @@ func TestFromBootstrap_ServersConstructed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FromBootstrap: %v", err)
 	}
+	// 构造期未构建（W1 语义：延后到 Run）。
+	if len(a.servers) != 0 {
+		t.Fatalf("servers at construction = %d, want 0 (deferred to Run)", len(a.servers))
+	}
+	runBriefly(t, a, 50*time.Millisecond)
 	if len(a.servers) != 2 {
 		t.Fatalf("servers = %d, want 2", len(a.servers))
 	}
 
-	a2, err := FromBootstrap(bconf.NewBootstrap(), WithHTTP(new(http.ServeMux)))
+	cfg2 := bconf.NewBootstrap()
+	dynamicAddr(cfg2)
+	a2, err := FromBootstrap(cfg2, WithHTTP(new(http.ServeMux)))
 	if err != nil {
 		t.Fatalf("FromBootstrap: %v", err)
 	}
+	runBriefly(t, a2, 50*time.Millisecond)
 	if len(a2.servers) != 1 {
 		t.Fatalf("servers = %d, want 1", len(a2.servers))
 	}
@@ -347,6 +362,8 @@ func TestFromBootstrap_ServersConstructed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FromBootstrap: %v", err)
 	}
+	// 零能力声明：运行前后都无 server（合法：纯后台进程）。
+	runBriefly(t, a3, 30*time.Millisecond)
 	if len(a3.servers) != 0 {
 		t.Fatalf("servers = %d, want 0", len(a3.servers))
 	}
@@ -370,10 +387,14 @@ func TestFromBootstrap_GatewayDriver(t *testing.T) {
 	}
 
 	// ② 单声明 + driver 留空 → 默认转码面（GatewayServer 承载 server.http 段）。
-	a, err := FromBootstrap(bconf.NewBootstrap(), WithGatewayRegister(gwRegister))
+	//    W1：构造延后到 Run，故驱动 Run 后观察 server 类型。
+	cfg2 := bconf.NewBootstrap()
+	dynamicAddr(cfg2)
+	a, err := FromBootstrap(cfg2, WithGatewayRegister(gwRegister))
 	if err != nil {
 		t.Fatalf("FromBootstrap(gateway only): %v", err)
 	}
+	runBriefly(t, a, 50*time.Millisecond)
 	if len(a.servers) != 1 {
 		t.Fatalf("servers = %d, want 1", len(a.servers))
 	}
@@ -391,10 +412,15 @@ func TestFromBootstrap_GatewayDriver(t *testing.T) {
 
 	// ④ 双能力声明 + driver=grpc-gateway → 转码面生效（handler 被显式替代）。
 	cfg4 := bconf.NewBootstrap()
+	dynamicAddr(cfg4)
 	cfg4.GetServer().GetHttp().Driver = baldbootstrap.DriverGrpcGateway
 	a4, err := FromBootstrap(cfg4, WithHTTP(new(http.ServeMux)), WithGatewayRegister(gwRegister))
 	if err != nil {
 		t.Fatalf("FromBootstrap(both + grpc-gateway): %v", err)
+	}
+	runBriefly(t, a4, 50*time.Millisecond)
+	if len(a4.servers) == 0 {
+		t.Fatal("servers = 0, want >=1 after Run")
 	}
 	if _, ok := a4.servers[0].(*gateway.GatewayServer); !ok {
 		t.Fatalf("server type = %T, want *gateway.GatewayServer", a4.servers[0])

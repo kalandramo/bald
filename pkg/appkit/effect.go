@@ -56,6 +56,18 @@ func EffectTimeout(d time.Duration) Option {
 	return func(a *AppKit) { a.effectTimeout = d }
 }
 
+// addEffect 运行期登记一条逆操作（幂等追加，并发安全）。
+//
+// 与 Option 版 Effect 的区别：Effect 在**装配期**（选项遍历时）登记；本方法
+// 供运行期钩子登记——典型场景是 W1 延后到 Run 期的服务器构造：构造产物
+// （cleanup）只能在构造发生的同一时刻入账，否则「构造成功但注册失败」的
+// 窗口会泄漏资源。
+func (a *AppKit) addEffect(name string, undo func(ctx context.Context) error) {
+	a.effectsMu.Lock()
+	a.effects = append(a.effects, effectEntry{name: name, undo: undo})
+	a.effectsMu.Unlock()
+}
+
 // UndoEffects 立即逆序回放全部已登记效应，并清空账本（幂等）。
 // 正常路径无需手动调用（Run 停机时会自动回放）；主要供 e2e 测试隔离使用：
 //
