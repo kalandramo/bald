@@ -107,6 +107,11 @@ type bootstrapSpec struct {
 	provides    []string
 	requires    []requireDecl
 	components  []Component
+
+	// 业务配置 flag 绑定（W2）：与 New 路径的 Bind Option 同语义，转发到
+	// kitOpts。缺此通道时业务 flag 进不了装载 FlagSet，「flag > env > 文件」
+	// 优先级链对业务配置项整条失效（用户显式传参被静默忽略）。
+	bindings []flagBinding
 }
 
 // effectDecl / reconcileDecl / keyWatchDecl / requireDecl 是透传声明的
@@ -317,6 +322,19 @@ func WithRequires(component string, caps ...string) BootstrapOption {
 // Dispose 于停机末段逆序，与 New 的 Components 语义一致）。
 func WithComponents(comps ...Component) BootstrapOption {
 	return func(s *bootstrapSpec) { s.components = append(s.components, comps...) }
+}
+
+// WithBind 注册业务配置对象的 flag（W2），语义与 New 路径的 Bind 完全一致
+// （proto.Message → bconf.BindFlags 遍历描述符；PlainBinder → AddFlags）。
+//
+// 为什么需要：FromBootstrap 内化了 server.http/server.grpc/log 的绑定，但业务
+// 自持配置段（如 login.rate_limit.*）此前没有绑定入口——业务 flag 进不了装载
+// FlagSet，用户显式传的 --login.rate_limit.rate=x 被静默忽略，只能靠文件/env。
+// 本 Option 把该通道补上，使优先级链对业务配置项同样成立。
+func WithBind(prefix string, opt any) BootstrapOption {
+	return func(s *bootstrapSpec) {
+		s.bindings = append(s.bindings, flagBinding{prefix: prefix, opt: opt})
+	}
 }
 
 // FromBootstrap 按契约约定装配 AppKit。
@@ -713,6 +731,11 @@ func FromBootstrap(cfg *bootstrapv1.BootstrapConfig, opts ...BootstrapOption) (*
 	}
 	if len(spec.components) > 0 {
 		kitOpts = append(kitOpts, Components(spec.components...))
+	}
+	// 业务配置 flag 绑定（W2）：与框架自身的 server.http/server.grpc 绑定同层，
+	// 使业务 flag 进入装载 FlagSet 的 flag 层（最高优先级）。
+	for _, b := range spec.bindings {
+		kitOpts = append(kitOpts, Bind(b.prefix, b.opt))
 	}
 
 	a = New(kitOpts...) // BeforeStart 闭包引用 a，执行时已赋值（Run 期才回调）
