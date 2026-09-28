@@ -220,12 +220,26 @@ type grpcServerDeps struct {
 	register       func(s *grpc.Server)
 	health         *health.Health
 	healthInterval time.Duration
+	// unaryFn 是运行期求值的选项工厂（WithGRPCUnaryFunc）。在 provider 闭包内
+	// （Run 期、server 构造时）调用，与静态 unary 累加——静态在前。
+	unaryFn func() []grpc.ServerOption
 }
 
 // WithGRPCUnary 注入 gRPC 服务端选项（拦截器链、credentials 等）。
 // 典型：bundle 归一化链（authn→audit→authz）经 bmiddlewaregrpc.ChainUnary 产出。
+//
+// 注意：opts 在**调用点**即求值（Go 变参语义）。若选项构造依赖运行期资源
+// （认证器/授权器/仓储），请改用 [WithGRPCUnaryFunc]。
 func WithGRPCUnary(opts ...grpc.ServerOption) GRPCServerOption {
 	return func(d *grpcServerDeps) { d.unary = append(d.unary, opts...) }
+}
+
+// WithGRPCUnaryFunc 注入**延迟求值**的 gRPC 服务端选项。fn 在 provider 闭包内
+// （Run 期、server 构造时）调用，故可读 beforeStart 建立的运行期资源——这是
+// 应用层「构造期占位 + 请求期解析」代理的替代品。与 [WithGRPCUnary] 的静态选项
+// 累加（静态在前、本项在后）。
+func WithGRPCUnaryFunc(fn func() []grpc.ServerOption) GRPCServerOption {
+	return func(d *grpcServerDeps) { d.unaryFn = fn }
 }
 
 // WithGRPCRegister 注入业务 service 注册回调（pb.RegisterXxxServer）。
@@ -244,6 +258,19 @@ func WithGRPCHealth(h *health.Health, interval time.Duration) GRPCServerOption {
 		d.health = h
 		d.healthInterval = interval
 	}
+}
+
+// mergeUnary 合并静态与延迟求值的 unary 选项：**静态在前、延迟在后**。
+//
+// 链序是安全策略的一部分（如 ErrorInterceptor 须挂最外层），故顺序不可漂移；
+// 抽成函数以便测试直接断言顺序（provider 的 deps 非导出，外部无法观测）。
+// 拷贝静态切片，避免 append 污染 deps.unary（provider 可能被多次调用）。
+func mergeUnary(deps *grpcServerDeps) []grpc.ServerOption {
+	unary := deps.unary
+	if deps.unaryFn == nil {
+		return unary
+	}
+	return append(append([]grpc.ServerOption(nil), unary...), deps.unaryFn()...)
 }
 
 // GrpcServerProvider 返回 gRPC 协议服务器工厂（契约 Server.Grpc 段）。
@@ -270,7 +297,9 @@ func GrpcServerProvider(opts ...GRPCServerOption) ServerProvider {
 				deps.register(s)
 			}
 		}
-		srv := grpcserver.NewGRPCServerWithRegister(c, deps.unary, register)
+		// 延迟求值的选项（WithGRPCUnaryFunc）在**此处**调用——本闭包即 server
+		// 构造点（Run 期、业务 beforeStart 之后），故可读运行期资源。
+		srv := grpcserver.NewGRPCServerWithRegister(c, mergeUnary(deps), register)
 		if deps.health == nil {
 			return srv, nil, nil
 		}

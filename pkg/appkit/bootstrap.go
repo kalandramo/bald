@@ -65,7 +65,16 @@ type bootstrapSpec struct {
 	gatewayRegister func(context.Context, *grpc.ClientConn) (http.Handler, error)
 	grpcRegister    func(*grpc.Server)
 	grpcUnary       []grpc.ServerOption
-	registrar       registry.Registrar
+	// grpcOptionsFn 是**运行期求值**的 gRPC 选项工厂（WithGRPCOptions）。
+	// 与 grpcUnary 的差别：后者是值切片，在 WithGRPC 调用点即求值（Go 变参语义），
+	// 若其构造依赖 beforeStart 建立的运行期资源（认证器/授权器/仓储），构造期只能
+	// 拿到 nil。本字段存工厂函数，在 Run 期 server 构造钩子内调用——二者累加。
+	grpcOptionsFn func() []grpc.ServerOption
+	// extraServerFns 是**运行期构造**的附加服务器工厂（WithExtraServerFunc）。
+	// 与 extraServers 的差别：后者收已构造实例（调用点即需存在），本字段收工厂，
+	// 在 Run 期 beforeStart 链末尾调用，可消费业务已建的运行期资源。
+	extraServerFns []func(context.Context) (transport.Server, error)
+	registrar      registry.Registrar
 
 	// 健康检查默认装配（WithHealth）：数据源、探针路径、gRPC 同步间隔。
 	health         *health.Health
@@ -164,6 +173,21 @@ func WithGatewayRegister(fn func(context.Context, *grpc.ClientConn) (http.Handle
 // 拦截器链（链序是安全策略，归业务：ErrorInterceptor 须挂最外层）。
 func WithGRPC(register func(*grpc.Server), unary ...grpc.ServerOption) BootstrapOption {
 	return func(s *bootstrapSpec) { s.grpcRegister, s.grpcUnary = register, unary }
+}
+
+// WithGRPCOptions 注册**运行期求值**的 gRPC 服务器选项。
+//
+// 与 WithGRPC 的 unary 参数差别：后者是值切片，在**调用点**即求值（Go 变参语义），
+// 若选项构造依赖 beforeStart 建立的运行期资源（认证器/授权器/仓储），构造期拿到的
+// 是 nil。本 Option 登记一个工厂函数，在 Run 期 server 构造钩子内调用——此时业务
+// beforeStart 已跑完，依赖就绪。可与 WithGRPC 的 unary 并用（二者累加，静态在前）。
+//
+// 典型用法（消除「请求期解析」的认证代理）：
+//
+//	appkit.WithGRPC(registerSvc)                  // 只声明 service 注册
+//	appkit.WithGRPCOptions(newInterceptorChain)   // 拦截器链延到 Run 期构造
+func WithGRPCOptions(fn func() []grpc.ServerOption) BootstrapOption {
+	return func(s *bootstrapSpec) { s.grpcOptionsFn = fn }
 }
 
 // WithRegistrar 注入注册中心实例（如 inmemory.New()）。
@@ -449,6 +473,12 @@ func FromBootstrap(cfg *bootstrapv1.BootstrapConfig, opts ...BootstrapOption) (*
 			grpcOpts := []baldbootstrap.GRPCServerOption{
 				baldbootstrap.WithGRPCUnary(spec.grpcUnary...),
 				baldbootstrap.WithGRPCRegister(spec.grpcRegister),
+			}
+			// WithGRPCOptions：把「运行期求值」的选项工厂透传给 provider——它在
+			// Run 期 server 构造时调用（见 bootstrap.GrpcServerProvider），彼时
+			// 业务 beforeStart 已建好认证器/授权器。
+			if spec.grpcOptionsFn != nil {
+				grpcOpts = append(grpcOpts, baldbootstrap.WithGRPCUnaryFunc(spec.grpcOptionsFn))
 			}
 			if spec.health != nil {
 				grpcOpts = append(grpcOpts, baldbootstrap.WithGRPCHealth(spec.health, spec.healthInterval))
