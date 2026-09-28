@@ -11,7 +11,7 @@ require (
 	github.com/kalandramo/bald v0.11.0
 	github.com/kalandramo/bald/bconf v0.7.2
 	github.com/kalandramo/bald/berrors v0.1.1
-	github.com/kalandramo/bald/bootstrap v0.8.0
+	github.com/kalandramo/bald/bootstrap v0.9.0
 	github.com/kalandramo/bald/contrib/store-gorm v0.0.0-00010101000000-000000000000
 	github.com/kalandramo/bald/health v0.1.1
 	github.com/kalandramo/bald/log v0.5.1
