@@ -216,6 +216,20 @@ func WithExtraServers(servers ...transport.Server) BootstrapOption {
 	return func(s *bootstrapSpec) { s.extraServers = append(s.extraServers, servers...) }
 }
 
+// WithExtraServerFunc 注册**运行期构造**的附加服务器。
+//
+// 与 WithExtraServers 的差别：后者收已构造实例（调用点即需存在）；本 Option 收
+// 工厂函数，在 Run 期 beforeStart 链末尾（业务钩子之后）调用——故可消费业务建立
+// 的运行期资源（如就绪的认证器/授权器）。这是应用层「构造期占位」的替代品。
+//
+// 构造出的 server 并入停机序列，由 appkit 统一 Stop（无需业务登记 Effect）。
+// 工厂返回 nil 表示本次不装配（降级，如依赖未配置）；返回错误则启动失败并回滚。
+//
+// 本钩子**独立于** http/grpc 是否声明——只声明额外服务器（无主协议面）时同样生效。
+func WithExtraServerFunc(fn func(context.Context) (transport.Server, error)) BootstrapOption {
+	return func(s *bootstrapSpec) { s.extraServerFns = append(s.extraServerFns, fn) }
+}
+
 // WithAfterStart 注册启动完成回调（服务已监听、注册已完成，可打 endpoint 日志/预热）。
 func WithAfterStart(fn func(context.Context) error) BootstrapOption {
 	return func(s *bootstrapSpec) { s.afterStart = append(s.afterStart, fn) }
@@ -737,6 +751,24 @@ func FromBootstrap(cfg *bootstrapv1.BootstrapConfig, opts ...BootstrapOption) (*
 					cleanup()
 					return nil
 				})
+			}
+			return nil
+		}))
+	}
+	// 运行期额外服务器（WithExtraServerFunc）：同样追加在业务 beforeStart 之后
+	//（注册序=执行序），故工厂可读业务建立的运行期资源。**独立于 buildServers
+	// 是否存在**——只声明额外服务器（无 http/grpc 主面）时本钩子仍生效。
+	if len(spec.extraServerFns) > 0 {
+		fns := spec.extraServerFns
+		kitOpts = append(kitOpts, BeforeStart(func(ctx context.Context) error {
+			for _, fn := range fns {
+				srv, err := fn(ctx)
+				if err != nil {
+					return fmt.Errorf("appkit: build extra server: %w", err)
+				}
+				if srv != nil {
+					a.servers = append(a.servers, srv)
+				}
 			}
 			return nil
 		}))
