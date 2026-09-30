@@ -37,7 +37,7 @@ const TypeStream = "stream"
 // （audit.backends 含 stream：stream.stream / stream.buffer 段消费，
 // 空值走实现缺省；nil 客户端 Build 时 fail-fast）。
 func NewStreamProvider(rdb redis.UniversalClient) appkit.AuditProvider {
-	return func(_ context.Context, cfg *bootstrapv1.Audit) (audit.Auditor, func(context.Context) error, error) {
+	return func(_ context.Context, cfg *bootstrapv1.Audit, _ *appkit.AppKit) (audit.Auditor, func(context.Context) error, error) {
 		scfg := cfg.GetStream()
 		a := auditstream.New(rdb,
 			auditstream.WithStream(scfg.GetStream()),

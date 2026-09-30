@@ -32,7 +32,7 @@ const TypeStore = "store"
 // NewStoreProvider 返回绑定 gorm 连接的落库审计 Provider
 // （audit.backends 含 store：store.migrate=true 时自动迁移默认审计表）。
 func NewStoreProvider(db *gorm.DB) appkit.AuditProvider {
-	return func(_ context.Context, cfg *bootstrapv1.Audit) (audit.Auditor, func(context.Context) error, error) {
+	return func(_ context.Context, cfg *bootstrapv1.Audit, _ *appkit.AppKit) (audit.Auditor, func(context.Context) error, error) {
 		if cfg.GetStore().GetMigrate() {
 			if err := db.AutoMigrate(auditgorm.DefaultModel()); err != nil {
 				return nil, nil, fmt.Errorf("audit-gorm: migrate default table: %w", err)

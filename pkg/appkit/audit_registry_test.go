@@ -19,7 +19,7 @@ type taggedAuditor struct {
 
 // stubAuditProvider 构造桩 Provider（记录调用）。
 func stubAuditProvider(called *bool) AuditProvider {
-	return func(context.Context, *bootstrapv1.Audit) (audit.Auditor, func(context.Context) error, error) {
+	return func(context.Context, *bootstrapv1.Audit, *AppKit) (audit.Auditor, func(context.Context) error, error) {
 		*called = true
 		return audit.NopAuditor(), nil, nil
 	}
@@ -28,7 +28,7 @@ func stubAuditProvider(called *bool) AuditProvider {
 // backendProvider 构造带 tag 与事件记录的 Provider（顺序/回滚/聚合验证用）。
 // buildErr 非 nil 时构造失败；cleanupErr 成为 cleanup 返回值。
 func backendProvider(tag string, events *[]string, buildErr, cleanupErr error) AuditProvider {
-	return func(context.Context, *bootstrapv1.Audit) (audit.Auditor, func(context.Context) error, error) {
+	return func(context.Context, *bootstrapv1.Audit, *AppKit) (audit.Auditor, func(context.Context) error, error) {
 		*events = append(*events, "build:"+tag)
 		if buildErr != nil {
 			return nil, nil, buildErr
@@ -69,18 +69,18 @@ func TestAuditRegistry_Build(t *testing.T) {
 	r := NewAuditRegistry()
 
 	// 段缺省：不装配。
-	a, cleanup, err := r.Build(context.Background(), nil)
+	a, cleanup, err := r.Build(context.Background(), nil, nil)
 	if a != nil || cleanup != nil || err != nil {
 		t.Fatalf("nil section: a=%v cleanup-set=%v err=%v", a, cleanup != nil, err)
 	}
 
 	// 空列表：fail-fast。
-	if _, _, err := r.Build(context.Background(), &bootstrapv1.Audit{}); err == nil {
+	if _, _, err := r.Build(context.Background(), &bootstrapv1.Audit{}, nil); err == nil {
 		t.Fatal("empty backends should fail")
 	}
 
 	// log 内置：无需注册即得 LoggerAuditor。
-	a, cleanup, err = r.Build(context.Background(), auditCfg("log"))
+	a, cleanup, err = r.Build(context.Background(), auditCfg("log"), nil)
 	if err != nil || a == nil || cleanup != nil {
 		t.Fatalf("log builtin: a=%v cleanup-set=%v err=%v", a, cleanup != nil, err)
 	}
@@ -89,12 +89,12 @@ func TestAuditRegistry_Build(t *testing.T) {
 	}
 
 	// 未注册：fail-fast。
-	if _, _, err := r.Build(context.Background(), auditCfg("store")); err == nil {
+	if _, _, err := r.Build(context.Background(), auditCfg("store"), nil); err == nil {
 		t.Fatal("unregistered store should fail")
 	}
 
 	// 重复项：fail-fast。
-	if _, _, err := r.Build(context.Background(), auditCfg("store", "store")); err == nil {
+	if _, _, err := r.Build(context.Background(), auditCfg("store", "store"), nil); err == nil {
 		t.Fatal("duplicate backend should fail")
 	}
 
@@ -102,7 +102,7 @@ func TestAuditRegistry_Build(t *testing.T) {
 	var events []string
 	r.MustRegister("store", backendProvider("store", &events, nil, nil))
 	r.MustRegister("stream", backendProvider("stream", &events, nil, nil))
-	a, _, err = r.Build(context.Background(), auditCfg("log", "store", "stream"))
+	a, _, err = r.Build(context.Background(), auditCfg("log", "store", "stream"), nil)
 	if err != nil || a == nil {
 		t.Fatalf("multi backends: a=%v err=%v", a, err)
 	}
@@ -133,7 +133,7 @@ func TestAuditRegistry_BuildRollback(t *testing.T) {
 	r.MustRegister("store", backendProvider("store", &events, nil, nil))
 	r.MustRegister("stream", backendProvider("stream", &events, errors.New("boom"), nil))
 
-	a, _, err := r.Build(context.Background(), auditCfg("store", "stream"))
+	a, _, err := r.Build(context.Background(), auditCfg("store", "stream"), nil)
 	if err == nil || a != nil {
 		t.Fatalf("partial failure should fail: a=%v err=%v", a, err)
 	}
@@ -161,7 +161,7 @@ func TestAuditRegistry_BuildCleanupAggregate(t *testing.T) {
 	r.MustRegister("store", backendProvider("store", &events, nil, nil))
 	r.MustRegister("stream", backendProvider("stream", &events, nil, errors.New("flush failed")))
 
-	a, cleanup, err := r.Build(context.Background(), auditCfg("store", "stream"))
+	a, cleanup, err := r.Build(context.Background(), auditCfg("store", "stream"), nil)
 	if err != nil || a == nil || cleanup == nil {
 		t.Fatalf("build: a=%v cleanup=%v err=%v", a, cleanup != nil, err)
 	}
@@ -187,7 +187,7 @@ func TestBuildAudit(t *testing.T) {
 	t.Cleanup(func() { audit.SetAuditor(old) })
 
 	// 段缺省：no-op（全局不动）。
-	st, err := buildAudit(&bootstrapv1.BootstrapConfig{}, &bootstrapSpec{})
+	st, err := buildAudit(nil, &bootstrapv1.BootstrapConfig{}, &bootstrapSpec{})
 	if err != nil || st != nil {
 		t.Fatalf("no section: st=%v err=%v", st, err)
 	}
@@ -195,13 +195,13 @@ func TestBuildAudit(t *testing.T) {
 	// 空列表：fail-fast。
 	cfg := &bootstrapv1.BootstrapConfig{}
 	cfg.Audit = &bootstrapv1.Audit{}
-	if _, err := buildAudit(cfg, &bootstrapSpec{}); err == nil {
+	if _, err := buildAudit(nil, cfg, &bootstrapSpec{}); err == nil {
 		t.Fatal("empty backends should fail")
 	}
 
 	// [log]：无 Registry 也装配（内置）。
 	cfg.Audit = auditCfg("log")
-	st, err = buildAudit(cfg, &bootstrapSpec{})
+	st, err = buildAudit(nil, cfg, &bootstrapSpec{})
 	if err != nil {
 		t.Fatalf("log builtin: %v", err)
 	}
@@ -215,7 +215,7 @@ func TestBuildAudit(t *testing.T) {
 	// [store]：无 Registry fail-fast，错误直指缺失后端（升级前为
 	// 「no AuditRegistry wired」）。
 	cfg.Audit = auditCfg("store")
-	_, err = buildAudit(cfg, &bootstrapSpec{})
+	_, err = buildAudit(nil, cfg, &bootstrapSpec{})
 	if err == nil || !strings.Contains(err.Error(), `provider "store" not registered`) {
 		t.Fatalf("store without registry should fail with provider error, got %v", err)
 	}
@@ -230,7 +230,7 @@ func TestBuildAudit(t *testing.T) {
 	spec.auditRegistry.MustRegister("store", backendProvider("store", &events, nil, nil))
 	spec.auditRegistry.MustRegister("stream", backendProvider("stream", &events, nil, nil))
 	cfg.Audit = auditCfg("store", "stream")
-	st, err = buildAudit(cfg, spec)
+	st, err = buildAudit(nil, cfg, spec)
 	if err != nil || st == nil {
 		t.Fatalf("store+stream: st=%v err=%v", st, err)
 	}

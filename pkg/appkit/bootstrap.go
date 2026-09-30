@@ -568,14 +568,6 @@ func FromBootstrap(cfg *bootstrapv1.BootstrapConfig, opts ...BootstrapOption) (*
 				return err
 			}
 			obs = o
-			// 审计后端（audit 段）在可观测性之后装配：SetAuditor 全局注入，
-			// 使首个请求前中间件/appkit 的审计事件即进契约后端（`=` 赋值外层，
-			// T7 教训同上）。
-			au, err := buildAudit(cfg, spec)
-			if err != nil {
-				return err
-			}
-			auditSt = au
 			// 数据库/缓存客户端构建在注册中心之后：任一步失败走 Run 失败路径
 			// 回滚 Effect 账本（各 Effect 自行释放）。赋值外层变量（勿用 :=，
 			// 否则遮蔽导致 Effect 回放拿到 nil）。
@@ -592,6 +584,17 @@ func FromBootstrap(cfg *bootstrapv1.BootstrapConfig, opts ...BootstrapOption) (*
 				return err
 			}
 			storageCleanup = cleanup
+			// 审计后端（audit 段）在**数据/缓存/存储客户端之后**装配：store 后端
+			// 需 *gorm.DB、stream 后端需 redis 客户端——资源必须先就绪，a 作为
+			// 资源容器透传给 provider（AuditProvider 的 res 参数）。SetAuditor
+			// 全局注入，使后续组件初始化与首个请求的审计事件即进契约后端。
+			// （2026-09-28 修订：此前排在可观测性之后、数据客户端之前——后端
+			// 只能拿到 nil，业务被迫备惰性包装 lazyStoreAuditor。）
+			au, err := buildAudit(a, cfg, spec)
+			if err != nil {
+				return err
+			}
+			auditSt = au
 			if cleanup, err = buildAis(a, cfg, spec); err != nil {
 				return err
 			}

@@ -59,9 +59,21 @@ const (
 )
 
 // AuditProvider 按契约 Audit 段装配审计后端。
+//
+// res 是**已完成前置装配的资源容器**（阶段 B 的 database/cache/storage 等
+// 客户端）：审计后端若需 DB/Redis 连接，经此取用（如 store 后端取
+// `res.Database("sql")` 的 *gorm.DB、stream 后端取 `res.Cache("redis")`）。
+//
+// 为什么显式传 res（2026-09-28 修订）：审计后端与 DB/Redis 是「消费者依赖
+// 生产者」——原实现把 buildAudit 排在 buildDatabases **之前**，后端构造时
+// 资源必为 nil，业务被迫用「构造期捕获取值函数 + 请求期首次解析」的惰性
+// 包装（lazyStoreAuditor）绕开。这与 T11/T12 修的「装配时序倒置」同族。
+// 现 buildAudit 排在数据/缓存客户端之后，且把资源容器显式交给 provider——
+// 构造期即取真实实例，惰性包装失去存在理由。
+//
 // 返回 (auditor, cleanup)：cleanup 承载后端资源释放（如 stream 后台
 // goroutine 停机 flush 尾批），由 FromBootstrap 挂 Effect 逆序回放。
-type AuditProvider func(ctx context.Context, cfg *bootstrapv1.Audit) (audit.Auditor, func(context.Context) error, error)
+type AuditProvider func(ctx context.Context, cfg *bootstrapv1.Audit, res *AppKit) (audit.Auditor, func(context.Context) error, error)
 
 // AuditRegistry 是审计后端 Provider 的显式注册表（audit.backends 多选；
 // log 内置于 Build，无需注册）。
@@ -110,7 +122,11 @@ func (r *AuditRegistry) MustRegister(typ string, p AuditProvider) {
 // 广播序），任一项构造失败逆序回滚已构造项的 cleanup；成功后 cleanup
 // 聚合逆序回放（后构造先释放，对齐 Effect 逆序纪律），无 cleanup 项
 // 则返回 nil。
-func (r *AuditRegistry) Build(ctx context.Context, cfg *bootstrapv1.Audit) (audit.Auditor, func(context.Context) error, error) {
+//
+// res 是已完成前置装配的资源容器（database/cache/storage 客户端），
+// 透传给各 provider——调用方须保证它已填充（buildAudit 排在
+// buildDatabases/buildCaches 之后）。
+func (r *AuditRegistry) Build(ctx context.Context, cfg *bootstrapv1.Audit, res *AppKit) (audit.Auditor, func(context.Context) error, error) {
 	if cfg == nil {
 		return nil, nil, nil // 段缺省：不装配
 	}
@@ -150,7 +166,7 @@ func (r *AuditRegistry) Build(ctx context.Context, cfg *bootstrapv1.Audit) (audi
 			rollback()
 			return nil, nil, fmt.Errorf("appkit: audit provider %q not registered (import the backend contract package and MustRegister it)", typ)
 		}
-		a, cleanup, err := p(ctx, cfg)
+		a, cleanup, err := p(ctx, cfg, res)
 		if err != nil {
 			rollback()
 			return nil, nil, fmt.Errorf("appkit: build audit backend %q: %w", typ, err)
@@ -195,11 +211,16 @@ type auditState struct {
 	cleanup func(context.Context) error
 }
 
-// buildAudit 在阶段 B（契约装载校验后）按 audit 段装配审计后端并注入
-// 全局。段缺失为 no-op（全局保持现状）；backends 全为 log 零注册即得
-// （Build 内置路径），含 store/stream 需对应 Provider 已注册，否则
-// fail-fast（配置意图无法兑现）。返回停机句柄，由 FromBootstrap 挂 Effect。
-func buildAudit(cfg *bootstrapv1.BootstrapConfig, spec *bootstrapSpec) (*auditState, error) {
+// buildAudit 在阶段 B 按 audit 段装配审计后端并注入全局。段缺失为 no-op
+// （全局保持现状）；backends 全为 log 零注册即得（Build 内置路径），含
+// store/stream 需对应 Provider 已注册，否则 fail-fast（配置意图无法兑现）。
+// 返回停机句柄，由 FromBootstrap 挂 Effect。
+//
+// 调用序（2026-09-28 修订）：**排在 buildDatabases/buildCaches 之后**——
+// 审计后端常需 DB（store）或 Redis（stream）连接，资源必须先就绪；a 作为
+// 资源容器透传给各 provider。此前排在数据客户端之前，后端只能拿到 nil，
+// 业务被迫备惰性包装（详见 AuditProvider 文档）。
+func buildAudit(a *AppKit, cfg *bootstrapv1.BootstrapConfig, spec *bootstrapSpec) (*auditState, error) {
 	acfg := cfg.GetAudit()
 	if acfg == nil {
 		return nil, nil // 段缺省：不装配
@@ -211,12 +232,12 @@ func buildAudit(cfg *bootstrapv1.BootstrapConfig, spec *bootstrapSpec) (*auditSt
 	if r == nil {
 		r = NewAuditRegistry()
 	}
-	a, cleanup, err := r.Build(context.Background(), acfg)
+	a2, cleanup, err := r.Build(context.Background(), acfg, a)
 	if err != nil {
 		return nil, fmt.Errorf("appkit: build audit: %w", err)
 	}
 
 	prev := audit.GetAuditor()
-	audit.SetAuditor(a)
+	audit.SetAuditor(a2)
 	return &auditState{prev: prev, cleanup: cleanup}, nil
 }
