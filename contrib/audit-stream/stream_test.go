@@ -189,3 +189,42 @@ func TestNew_NilClientReturnsNil(t *testing.T) {
 		t.Fatalf("New(nil) = %v, want nil", a)
 	}
 }
+
+// TestStreamAuditor_ZeroBufferKeepsDefault —— WithBuffer(0) 不使 stream 静默失效。
+//
+// 背景：契约段 audit.stream.buffer 省略时其值为 0，contract provider 会
+// 无条件经 WithBuffer(int(cfg.GetBuffer())) 传入 0。此场景若造成缓冲为 0，
+// 事件会一入队即"满"、全部降级到 fallback——stream 实际不工作却无报错
+// （静默失效），正是「配置声明了却不生效」的陷阱。
+//
+// 实际保障来自 New 的缺省兜底（`if cfg.buffer <= 0 { cfg.buffer = 1024 }`），
+// 而非 WithBuffer 自身。本测试锁定该行为，防止兜底被移除或挪位时静默回归。
+// （注：本测试在加入时即为 GREEN——它锁的是既有正确行为，不是新修复。）
+func TestStreamAuditor_ZeroBufferKeepsDefault(t *testing.T) {
+	_, rdb := newTestRedis(t)
+	fb := &memAuditor{}
+	a := New(rdb, WithBuffer(0), WithFallback(fb))
+	t.Cleanup(func() { _ = a.Close() })
+
+	a.Record(context.Background(), audit.AuditEvent{Subject: "u-zb", Object: "zero-buffer"})
+
+	// 事件应进 stream（缺省 1024 缓冲容纳得下），而非只走 fallback。
+	waitXLen(t, rdb, "audit.events", 1)
+	if len(fb.all()) != 0 {
+		t.Fatalf("事件走了 fallback（%d 条）——缓冲被误设为 0", len(fb.all()))
+	}
+}
+
+// waitXLen 轮询等待 Redis Stream 长度达标（后台 goroutine 异步发布）。
+func waitXLen(t *testing.T, rdb *redis.Client, stream string, want int64) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if n, err := rdb.XLen(context.Background(), stream).Result(); err == nil && n >= want {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	n, _ := rdb.XLen(context.Background(), stream).Result()
+	t.Fatalf("stream %q length = %d, want >= %d", stream, n, want)
+}
