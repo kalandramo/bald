@@ -4,6 +4,8 @@ go 1.27.1
 
 replace github.com/kalandramo/bald/encoding => ../../encoding
 
+replace github.com/kalandramo/bald/bconf => ../../bconf
+
 replace github.com/kalandramo/bald/encoding/json => ../../encoding/json
 
 replace github.com/kalandramo/bald/encoding/proto => ../../encoding/proto
@@ -12,6 +14,7 @@ replace github.com/kalandramo/bald/transport => ..
 
 require (
 	github.com/hibiken/asynq v0.26.0
+	github.com/kalandramo/bald/bconf v0.7.2
 	github.com/kalandramo/bald/encoding v0.1.0
 	github.com/kalandramo/bald/transport v0.2.1
 	github.com/stretchr/testify v1.12.1
@@ -27,5 +30,5 @@ require (
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/sys v0.37.0 // indirect
 	golang.org/x/time v0.14.0 // indirect
-	google.golang.org/protobuf v1.36.10 // indirect
+	google.golang.org/protobuf v1.36.11 // indirect
 )
