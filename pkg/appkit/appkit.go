@@ -91,29 +91,33 @@ type AppKit struct {
 	afterStop   []func(context.Context) error
 
 	// T1 效应账本：全局注册的逆操作登记处，停机/失败回滚时逆序回放（见 effect.go）。
-	// TODO 和钩子区别，能否合并？
+	// 与钩子的边界：钩子是「时机回调」，账本登记的是「逆操作」——见 doc.go
+	// 「扩展机制的职责边界」。
 	effects       []effectEntry
 	effectsMu     sync.Mutex
 	effectTimeout time.Duration
 
 	// S1 能力声明：Provides/Requires 装配声明，Run 启动早期 Resolve 校验（见 capability.go）。
-	// TODO 和服务协议区别，能否合并？
+	// 与 Server 协议的区别：能力是**依赖声明符号**（校验装配一致性），不建实例、
+	// 不关监听——见 doc.go「扩展机制的职责边界」。
 	provides []string
 	requires []requirement
 
 	// R1 key 级配置订阅：细粒度变更分发（见 keywatch.go）。
-	// TODO 合并到配置管理？
+	// 与配置仓库的分工：Store 管装载与快照，本字段只存「订阅者」——变更分发
+	// 在 wrapKeyWatch 内，见 doc.go「扩展机制的职责边界」。
 	keyWatchers []keyWatcher
 	keyWatchMu  sync.Mutex
 
 	// R1-2 期望态协调器：配置声明期望态，框架 diff 实际态后收敛（见 reconcile.go）。
-	// TODO 使用场景列举
+	// 典型场景：审计后端热切换（见 doc.go「扩展机制的职责边界」与 Reconcile 注释）。
 	reconcilers []reconciler
 	reconItems  map[string][]reconItem // reconciler 名 → 其管理的组件（实际态）
 	reconMu     sync.Mutex
 
 	// C1 进程内组件：统一生命周期的基础设施（见 component.go）。
-	// TODO 和钩子的区别，使用场景列举
+	// 与钩子的区别：组件有 name 与 Start/Dispose 对，进入停机序列、可观测、
+	// 可运行期热插拔；钩子只是一次性时机回调——见 doc.go「扩展机制的职责边界」。
 	components       []Component
 	componentTimeout time.Duration
 	started          []Component // 已成功 Start 的组件（Dispose 幂等跟踪）
@@ -156,7 +160,7 @@ func (c *appConfig) closeStore() {
 }
 
 // flagBinding 记录一个待绑定进配置装载 FlagSet 的配置对象及其配置键前缀。
-// TODO 属于配置管理？
+// 归 appkit 而非配置仓库：绑定时机与 AppKit 的 FlagSet 构造耦合，见 Bind 注释。
 type flagBinding struct {
 	prefix string
 	opt    any
@@ -164,7 +168,7 @@ type flagBinding struct {
 
 // PlainBinder 支持"无前缀"注册 flag 的配置对象，键前缀由实现体内置。
 // 例如 log.Options 固定注册 --log.*。
-// TODO 属于配置管理？
+// 归 appkit 而非配置仓库：与 Bind 的 prefix 规则配套（见 Bind 注释）。
 type PlainBinder interface {
 	AddFlags(fs *pflag.FlagSet)
 }
@@ -199,15 +203,16 @@ type PlainBinder interface {
 //
 // 注意：用了 Bind 之后不要再自行 AddFlags 到 pflag.CommandLine，否则同一配置
 // 有两处注册源（虽然值一致，但语义重复）。
-// TODO 和配置管理区别，能否合并？
+//
+// 归 appkit 而非配置仓库：Bind 注册的 flag 进入 **AppKit 的 FlagSet**，由
+// loadConfig 交给配置装载器合并——绑定动作与 AppKit 生命周期同序。
 func Bind(prefix string, opt any) Option {
 	return func(a *AppKit) {
 		a.cfg.bindings = append(a.cfg.bindings, flagBinding{prefix: prefix, opt: opt})
 	}
 }
 
-// bindFlags 把一个 flagBinding 注册进给定 FlagSet。
-// TODO 和配置管理区别，能否合并？
+// bindFlags 把一个 flagBinding 注册进给定 FlagSet（Bind 的落地步骤）。
 func bindFlags(fs *pflag.FlagSet, b flagBinding) error {
 	switch opt := b.opt.(type) {
 	case proto.Message:
