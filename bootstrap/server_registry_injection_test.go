@@ -95,8 +95,7 @@ func TestBuildServers_UnregisteredUnimplementedSectionStillFailsFast(t *testing.
 
 // TestBuildServers_CronSectionAdmittedAfterProviderRegistration 计划验收项：
 // 外部注册 cron 段后不再 fail-fast。
-func TestBuildServers_CronSectionAdmittedAfterProviderRegistration(t *testing.T) {
-	r := NewServerRegistry()
+func TestBuildServers_CronSectionAdmittedAfterProviderRegistration(t *testing.T) {	r := NewServerRegistry()
 	r.MustRegister("http", func(context.Context, *bootstrapv1.Server) (transport.Server, func(), error) {
 		return newStubSrvServer("http://x"), nil, nil
 	})
@@ -106,7 +105,7 @@ func TestBuildServers_CronSectionAdmittedAfterProviderRegistration(t *testing.T)
 
 	cfg := &bootstrapv1.Server{
 		Http: &bootstrapv1.Server_Http{Addr: ":8080"},
-		Cron: &bootstrapv1.Server_Cron{Seconds: true},
+		Cron: &bootstrapv1.Server_Cron{}, // 段存在即可（字段值为三态 optional，与本测试无关）
 	}
 
 	servers, cleanup, err := r.BuildServers(context.Background(), cfg)
@@ -118,5 +117,52 @@ func TestBuildServers_CronSectionAdmittedAfterProviderRegistration(t *testing.T)
 	}
 	if len(servers) != 2 {
 		t.Fatalf("len(servers) = %d, want 2 (http + cron)", len(servers))
+	}
+}
+
+// TestBuildServers_GatewaySectionFailFastWithoutProvider gateway 段（Wave 2 新增）
+// 配了但无 provider → fail-fast。锁定：新段必须进 serverSections，否则配了既不
+// 校验也不装配（静默失效——正是 D2 防护要拦的情形）。
+func TestBuildServers_GatewaySectionFailFastWithoutProvider(t *testing.T) {
+	r := NewServerRegistry()
+	r.MustRegister("http", func(context.Context, *bootstrapv1.Server) (transport.Server, func(), error) {
+		return newStubSrvServer("http://x"), nil, nil
+	})
+
+	cfg := &bootstrapv1.Server{
+		Http:    &bootstrapv1.Server_Http{Addr: ":8080"},
+		Gateway: &bootstrapv1.Server_Gateway{Addr: ":8081"},
+	}
+
+	_, _, err := r.BuildServers(context.Background(), cfg)
+	if err == nil {
+		t.Fatal("BuildServers() = nil error, want fail-fast (gateway has no registered provider)")
+	}
+	if !strings.Contains(err.Error(), "server.gateway") {
+		t.Fatalf("error %q must name the offending section server.gateway", err)
+	}
+}
+
+// TestBuildServers_GatewaySectionAdmittedAfterProviderRegistration 注册 gateway
+// provider 后该段放行——这是 bald-admin「独立转码面」走契约装配（而非逃生舱）的前提。
+func TestBuildServers_GatewaySectionAdmittedAfterProviderRegistration(t *testing.T) {
+	r := NewServerRegistry()
+	r.MustRegister("gateway", func(context.Context, *bootstrapv1.Server) (transport.Server, func(), error) {
+		return newStubSrvServer("gateway://x"), nil, nil
+	})
+
+	cfg := &bootstrapv1.Server{
+		Gateway: &bootstrapv1.Server_Gateway{Addr: ":8081"},
+	}
+
+	servers, cleanup, err := r.BuildServers(context.Background(), cfg)
+	if cleanup != nil {
+		defer cleanup()
+	}
+	if err != nil {
+		t.Fatalf("BuildServers() = %v, want nil (gateway provider registered)", err)
+	}
+	if len(servers) != 1 {
+		t.Fatalf("len(servers) = %d, want 1 (gateway)", len(servers))
 	}
 }

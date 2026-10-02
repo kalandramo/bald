@@ -95,7 +95,7 @@ type serverSection struct {
 	exists      func(*bootstrapv1.Server) bool
 }
 
-// serverSections 覆盖 Server message 的全部 31 个 optional 段。
+// serverSections 覆盖 Server message 的全部 32 个 optional 段。
 // 顺序即 proto 字段序（确定性错误信息与遍历序）。
 var serverSections = []serverSection{
 	{"http", true, func(s *bootstrapv1.Server) bool { return s.GetHttp() != nil }},
@@ -133,6 +133,11 @@ var serverSections = []serverSection{
 	{"nsq", false, func(s *bootstrapv1.Server) bool { return s.GetNsq() != nil }},
 	{"rocketmq", false, func(s *bootstrapv1.Server) bool { return s.GetRocketmq() != nil }},
 	{"sqs", false, func(s *bootstrapv1.Server) bool { return s.GetSqs() != nil }},
+
+	// gateway：grpc-gateway REST 转码面（独立端口）。框架不内置其 provider
+	// （需 grpc-gateway 重依赖，不进核心依赖图）——配该段须经 WithServerRegistry
+	// 注册 provider（如 bald-admin 经 transport/gateway 桥接），否则 fail-fast。
+	{"gateway", false, func(s *bootstrapv1.Server) bool { return s.GetGateway() != nil }},
 }
 
 // BuildServers 按契约已配置的协议段构造全部服务器（**多选语义**）。
