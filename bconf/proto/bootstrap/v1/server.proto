@@ -224,6 +224,10 @@ message Server {
   message Cron {
     // 是否启用秒级精度。默认 false。
     bool seconds = 1;
+    // 是否启用优雅关闭（Stop 等待运行中任务完成）。默认 false。
+    bool gracefully_shutdown = 2;
+    // 调度器时区（如 "Asia/Shanghai"）。留空使用本地时区。
+    string location = 3;
   }
 
   // 高精度定时器。
@@ -285,6 +289,20 @@ message Server {
     string redis_address = 1;
     string redis_password = 2;
     int32 redis_db = 3;
+    // 并发消费的 worker 数量。0 使用 asynq 内置默认。
+    int32 concurrency = 4;
+    // 消费队列名列表（按优先级从高到低）。为空使用 asynq 默认队列。
+    repeated string queues = 5;
+    // 载荷编解码器名（如 "json"、"msgpack"）。留空默认 json。
+    string codec = 6;
+    // 是否对多队列启用严格优先级。默认 false（加权轮询）。
+    bool strict_priority = 7;
+    // 优雅关闭超时（毫秒）。0 使用 asynq 内置默认。
+    int64 shutdown_timeout_ms = 8;
+    // 是否启用优雅关闭。默认 false。
+    bool gracefully_shutdown = 9;
+    // 是否启用定时调度器（crontab 式周期任务）。默认 false。
+    bool scheduler_enabled = 10;
   }
 
   // Machinery 分布式任务队列。
@@ -427,4 +445,21 @@ message Server {
   optional Nsq nsq = 29;
   optional Rocketmq rocketmq = 30;
   optional Sqs sqs = 31;
+
+  // grpc-gateway REST 转码面（独立端口）。
+  //
+  // 与 server.http.driver = "grpc-gateway" 的区别：后者是「同一端口二选一」
+  // 模式（HTTP 端口即转码面）；本段描述「独立转码面与主 HTTP/gin 面并存」的
+  // 拓扑——gateway 监听自己的 addr，连到 backend_grpc_addr 指向的 gRPC 服务。
+  // 需要独立端口的场景用本段，而非 WithExtraServers 逃生舱。
+  message Gateway {
+    // 网关监听地址，如 ":8081"。
+    string addr = 1;
+    // 后端 gRPC 服务地址（须可连接，不能是 ":0"）。留空使用 server.grpc.addr。
+    string backend_grpc_addr = 2;
+    // TLS 配置。
+    TLS tls = 3;
+  }
+
+  optional Gateway gateway = 32;
 }

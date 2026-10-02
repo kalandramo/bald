@@ -56,6 +56,7 @@ type Server struct {
 	Nsq           *Server_Nsq            `protobuf:"bytes,29,opt,name=nsq,proto3,oneof" json:"nsq,omitempty"`
 	Rocketmq      *Server_Rocketmq       `protobuf:"bytes,30,opt,name=rocketmq,proto3,oneof" json:"rocketmq,omitempty"`
 	Sqs           *Server_Sqs            `protobuf:"bytes,31,opt,name=sqs,proto3,oneof" json:"sqs,omitempty"`
+	Gateway       *Server_Gateway        `protobuf:"bytes,32,opt,name=gateway,proto3,oneof" json:"gateway,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -303,6 +304,13 @@ func (x *Server) GetRocketmq() *Server_Rocketmq {
 func (x *Server) GetSqs() *Server_Sqs {
 	if x != nil {
 		return x.Sqs
+	}
+	return nil
+}
+
+func (x *Server) GetGateway() *Server_Gateway {
+	if x != nil {
+		return x.Gateway
 	}
 	return nil
 }
@@ -1121,7 +1129,11 @@ func (x *Server_Webtransport) GetTls() *Server_TLS {
 type Server_Cron struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// 是否启用秒级精度。默认 false。
-	Seconds       bool `protobuf:"varint,1,opt,name=seconds,proto3" json:"seconds,omitempty"`
+	Seconds bool `protobuf:"varint,1,opt,name=seconds,proto3" json:"seconds,omitempty"`
+	// 是否启用优雅关闭（Stop 等待运行中任务完成）。默认 false。
+	GracefullyShutdown bool `protobuf:"varint,2,opt,name=gracefully_shutdown,json=gracefullyShutdown,proto3" json:"gracefully_shutdown,omitempty"`
+	// 调度器时区（如 "Asia/Shanghai"）。留空使用本地时区。
+	Location      string `protobuf:"bytes,3,opt,name=location,proto3" json:"location,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1161,6 +1173,20 @@ func (x *Server_Cron) GetSeconds() bool {
 		return x.Seconds
 	}
 	return false
+}
+
+func (x *Server_Cron) GetGracefullyShutdown() bool {
+	if x != nil {
+		return x.GracefullyShutdown
+	}
+	return false
+}
+
+func (x *Server_Cron) GetLocation() string {
+	if x != nil {
+		return x.Location
+	}
+	return ""
 }
 
 // 高精度定时器。
@@ -1514,8 +1540,22 @@ type Server_Asynq struct {
 	RedisAddress  string `protobuf:"bytes,1,opt,name=redis_address,json=redisAddress,proto3" json:"redis_address,omitempty"`
 	RedisPassword string `protobuf:"bytes,2,opt,name=redis_password,json=redisPassword,proto3" json:"redis_password,omitempty"`
 	RedisDb       int32  `protobuf:"varint,3,opt,name=redis_db,json=redisDb,proto3" json:"redis_db,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// 并发消费的 worker 数量。0 使用 asynq 内置默认。
+	Concurrency int32 `protobuf:"varint,4,opt,name=concurrency,proto3" json:"concurrency,omitempty"`
+	// 消费队列名列表（按优先级从高到低）。为空使用 asynq 默认队列。
+	Queues []string `protobuf:"bytes,5,rep,name=queues,proto3" json:"queues,omitempty"`
+	// 载荷编解码器名（如 "json"、"msgpack"）。留空默认 json。
+	Codec string `protobuf:"bytes,6,opt,name=codec,proto3" json:"codec,omitempty"`
+	// 是否对多队列启用严格优先级。默认 false（加权轮询）。
+	StrictPriority bool `protobuf:"varint,7,opt,name=strict_priority,json=strictPriority,proto3" json:"strict_priority,omitempty"`
+	// 优雅关闭超时（毫秒）。0 使用 asynq 内置默认。
+	ShutdownTimeoutMs int64 `protobuf:"varint,8,opt,name=shutdown_timeout_ms,json=shutdownTimeoutMs,proto3" json:"shutdown_timeout_ms,omitempty"`
+	// 是否启用优雅关闭。默认 false。
+	GracefullyShutdown bool `protobuf:"varint,9,opt,name=gracefully_shutdown,json=gracefullyShutdown,proto3" json:"gracefully_shutdown,omitempty"`
+	// 是否启用定时调度器（crontab 式周期任务）。默认 false。
+	SchedulerEnabled bool `protobuf:"varint,10,opt,name=scheduler_enabled,json=schedulerEnabled,proto3" json:"scheduler_enabled,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *Server_Asynq) Reset() {
@@ -1567,6 +1607,55 @@ func (x *Server_Asynq) GetRedisDb() int32 {
 		return x.RedisDb
 	}
 	return 0
+}
+
+func (x *Server_Asynq) GetConcurrency() int32 {
+	if x != nil {
+		return x.Concurrency
+	}
+	return 0
+}
+
+func (x *Server_Asynq) GetQueues() []string {
+	if x != nil {
+		return x.Queues
+	}
+	return nil
+}
+
+func (x *Server_Asynq) GetCodec() string {
+	if x != nil {
+		return x.Codec
+	}
+	return ""
+}
+
+func (x *Server_Asynq) GetStrictPriority() bool {
+	if x != nil {
+		return x.StrictPriority
+	}
+	return false
+}
+
+func (x *Server_Asynq) GetShutdownTimeoutMs() int64 {
+	if x != nil {
+		return x.ShutdownTimeoutMs
+	}
+	return 0
+}
+
+func (x *Server_Asynq) GetGracefullyShutdown() bool {
+	if x != nil {
+		return x.GracefullyShutdown
+	}
+	return false
+}
+
+func (x *Server_Asynq) GetSchedulerEnabled() bool {
+	if x != nil {
+		return x.SchedulerEnabled
+	}
+	return false
 }
 
 // Machinery 分布式任务队列。
@@ -2283,6 +2372,75 @@ func (x *Server_Sqs) GetCodec() string {
 	return ""
 }
 
+// grpc-gateway REST 转码面（独立端口）。
+//
+// 与 server.http.driver = "grpc-gateway" 的区别：后者是「同一端口二选一」
+// 模式（HTTP 端口即转码面）；本段描述「独立转码面与主 HTTP/gin 面并存」的
+// 拓扑——gateway 监听自己的 addr，连到 backend_grpc_addr 指向的 gRPC 服务。
+// 需要独立端口的场景用本段，而非 WithExtraServers 逃生舱。
+type Server_Gateway struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 网关监听地址，如 ":8081"。
+	Addr string `protobuf:"bytes,1,opt,name=addr,proto3" json:"addr,omitempty"`
+	// 后端 gRPC 服务地址（须可连接，不能是 ":0"）。留空使用 server.grpc.addr。
+	BackendGrpcAddr string `protobuf:"bytes,2,opt,name=backend_grpc_addr,json=backendGrpcAddr,proto3" json:"backend_grpc_addr,omitempty"`
+	// TLS 配置。
+	Tls           *Server_TLS `protobuf:"bytes,3,opt,name=tls,proto3" json:"tls,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Server_Gateway) Reset() {
+	*x = Server_Gateway{}
+	mi := &file_bootstrap_v1_server_proto_msgTypes[33]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Server_Gateway) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Server_Gateway) ProtoMessage() {}
+
+func (x *Server_Gateway) ProtoReflect() protoreflect.Message {
+	mi := &file_bootstrap_v1_server_proto_msgTypes[33]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Server_Gateway.ProtoReflect.Descriptor instead.
+func (*Server_Gateway) Descriptor() ([]byte, []int) {
+	return file_bootstrap_v1_server_proto_rawDescGZIP(), []int{0, 32}
+}
+
+func (x *Server_Gateway) GetAddr() string {
+	if x != nil {
+		return x.Addr
+	}
+	return ""
+}
+
+func (x *Server_Gateway) GetBackendGrpcAddr() string {
+	if x != nil {
+		return x.BackendGrpcAddr
+	}
+	return ""
+}
+
+func (x *Server_Gateway) GetTls() *Server_TLS {
+	if x != nil {
+		return x.Tls
+	}
+	return nil
+}
+
 type Server_TLS_File struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	CertPath      *string                `protobuf:"bytes,1,opt,name=cert_path,json=certPath,proto3,oneof" json:"cert_path,omitempty"`
@@ -2294,7 +2452,7 @@ type Server_TLS_File struct {
 
 func (x *Server_TLS_File) Reset() {
 	*x = Server_TLS_File{}
-	mi := &file_bootstrap_v1_server_proto_msgTypes[33]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2306,7 +2464,7 @@ func (x *Server_TLS_File) String() string {
 func (*Server_TLS_File) ProtoMessage() {}
 
 func (x *Server_TLS_File) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_server_proto_msgTypes[33]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2354,7 +2512,7 @@ type Server_TLS_Config struct {
 
 func (x *Server_TLS_Config) Reset() {
 	*x = Server_TLS_Config{}
-	mi := &file_bootstrap_v1_server_proto_msgTypes[34]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2366,7 +2524,7 @@ func (x *Server_TLS_Config) String() string {
 func (*Server_TLS_Config) ProtoMessage() {}
 
 func (x *Server_TLS_Config) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_server_proto_msgTypes[34]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2419,7 +2577,7 @@ type Server_Http_Middleware struct {
 
 func (x *Server_Http_Middleware) Reset() {
 	*x = Server_Http_Middleware{}
-	mi := &file_bootstrap_v1_server_proto_msgTypes[35]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2431,7 +2589,7 @@ func (x *Server_Http_Middleware) String() string {
 func (*Server_Http_Middleware) ProtoMessage() {}
 
 func (x *Server_Http_Middleware) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_server_proto_msgTypes[35]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2507,7 +2665,7 @@ type Server_Http_Middleware_Recovery struct {
 
 func (x *Server_Http_Middleware_Recovery) Reset() {
 	*x = Server_Http_Middleware_Recovery{}
-	mi := &file_bootstrap_v1_server_proto_msgTypes[36]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2519,7 +2677,7 @@ func (x *Server_Http_Middleware_Recovery) String() string {
 func (*Server_Http_Middleware_Recovery) ProtoMessage() {}
 
 func (x *Server_Http_Middleware_Recovery) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_server_proto_msgTypes[36]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2563,7 +2721,7 @@ type Server_Http_Middleware_Cors struct {
 
 func (x *Server_Http_Middleware_Cors) Reset() {
 	*x = Server_Http_Middleware_Cors{}
-	mi := &file_bootstrap_v1_server_proto_msgTypes[37]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2575,7 +2733,7 @@ func (x *Server_Http_Middleware_Cors) String() string {
 func (*Server_Http_Middleware_Cors) ProtoMessage() {}
 
 func (x *Server_Http_Middleware_Cors) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_server_proto_msgTypes[37]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2644,7 +2802,7 @@ type Server_Http_Middleware_Logging struct {
 
 func (x *Server_Http_Middleware_Logging) Reset() {
 	*x = Server_Http_Middleware_Logging{}
-	mi := &file_bootstrap_v1_server_proto_msgTypes[38]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2656,7 +2814,7 @@ func (x *Server_Http_Middleware_Logging) String() string {
 func (*Server_Http_Middleware_Logging) ProtoMessage() {}
 
 func (x *Server_Http_Middleware_Logging) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_server_proto_msgTypes[38]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2690,7 +2848,7 @@ type Server_Http_Middleware_RequestId struct {
 
 func (x *Server_Http_Middleware_RequestId) Reset() {
 	*x = Server_Http_Middleware_RequestId{}
-	mi := &file_bootstrap_v1_server_proto_msgTypes[39]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2702,7 +2860,7 @@ func (x *Server_Http_Middleware_RequestId) String() string {
 func (*Server_Http_Middleware_RequestId) ProtoMessage() {}
 
 func (x *Server_Http_Middleware_RequestId) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_server_proto_msgTypes[39]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2734,7 +2892,7 @@ type Server_Http_Middleware_Tracing struct {
 
 func (x *Server_Http_Middleware_Tracing) Reset() {
 	*x = Server_Http_Middleware_Tracing{}
-	mi := &file_bootstrap_v1_server_proto_msgTypes[40]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2746,7 +2904,7 @@ func (x *Server_Http_Middleware_Tracing) String() string {
 func (*Server_Http_Middleware_Tracing) ProtoMessage() {}
 
 func (x *Server_Http_Middleware_Tracing) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_server_proto_msgTypes[40]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2777,7 +2935,7 @@ type Server_Http_Middleware_RateLimit struct {
 
 func (x *Server_Http_Middleware_RateLimit) Reset() {
 	*x = Server_Http_Middleware_RateLimit{}
-	mi := &file_bootstrap_v1_server_proto_msgTypes[41]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2789,7 +2947,7 @@ func (x *Server_Http_Middleware_RateLimit) String() string {
 func (*Server_Http_Middleware_RateLimit) ProtoMessage() {}
 
 func (x *Server_Http_Middleware_RateLimit) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_server_proto_msgTypes[41]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2839,7 +2997,7 @@ type Server_Http_Middleware_Timeout struct {
 
 func (x *Server_Http_Middleware_Timeout) Reset() {
 	*x = Server_Http_Middleware_Timeout{}
-	mi := &file_bootstrap_v1_server_proto_msgTypes[42]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2851,7 +3009,7 @@ func (x *Server_Http_Middleware_Timeout) String() string {
 func (*Server_Http_Middleware_Timeout) ProtoMessage() {}
 
 func (x *Server_Http_Middleware_Timeout) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_server_proto_msgTypes[42]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2894,7 +3052,7 @@ type Server_Grpc_Middleware struct {
 
 func (x *Server_Grpc_Middleware) Reset() {
 	*x = Server_Grpc_Middleware{}
-	mi := &file_bootstrap_v1_server_proto_msgTypes[43]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2906,7 +3064,7 @@ func (x *Server_Grpc_Middleware) String() string {
 func (*Server_Grpc_Middleware) ProtoMessage() {}
 
 func (x *Server_Grpc_Middleware) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_server_proto_msgTypes[43]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2959,7 +3117,7 @@ type Server_Grpc_Middleware_Recovery struct {
 
 func (x *Server_Grpc_Middleware_Recovery) Reset() {
 	*x = Server_Grpc_Middleware_Recovery{}
-	mi := &file_bootstrap_v1_server_proto_msgTypes[44]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2971,7 +3129,7 @@ func (x *Server_Grpc_Middleware_Recovery) String() string {
 func (*Server_Grpc_Middleware_Recovery) ProtoMessage() {}
 
 func (x *Server_Grpc_Middleware_Recovery) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_server_proto_msgTypes[44]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2996,7 +3154,7 @@ type Server_Grpc_Middleware_Logging struct {
 
 func (x *Server_Grpc_Middleware_Logging) Reset() {
 	*x = Server_Grpc_Middleware_Logging{}
-	mi := &file_bootstrap_v1_server_proto_msgTypes[45]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3008,7 +3166,7 @@ func (x *Server_Grpc_Middleware_Logging) String() string {
 func (*Server_Grpc_Middleware_Logging) ProtoMessage() {}
 
 func (x *Server_Grpc_Middleware_Logging) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_server_proto_msgTypes[45]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3033,7 +3191,7 @@ type Server_Grpc_Middleware_Tracing struct {
 
 func (x *Server_Grpc_Middleware_Tracing) Reset() {
 	*x = Server_Grpc_Middleware_Tracing{}
-	mi := &file_bootstrap_v1_server_proto_msgTypes[46]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3045,7 +3203,7 @@ func (x *Server_Grpc_Middleware_Tracing) String() string {
 func (*Server_Grpc_Middleware_Tracing) ProtoMessage() {}
 
 func (x *Server_Grpc_Middleware_Tracing) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_server_proto_msgTypes[46]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3070,7 +3228,7 @@ type Server_Grpc_Middleware_Validate struct {
 
 func (x *Server_Grpc_Middleware_Validate) Reset() {
 	*x = Server_Grpc_Middleware_Validate{}
-	mi := &file_bootstrap_v1_server_proto_msgTypes[47]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3082,7 +3240,7 @@ func (x *Server_Grpc_Middleware_Validate) String() string {
 func (*Server_Grpc_Middleware_Validate) ProtoMessage() {}
 
 func (x *Server_Grpc_Middleware_Validate) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_server_proto_msgTypes[47]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3102,7 +3260,7 @@ var File_bootstrap_v1_server_proto protoreflect.FileDescriptor
 
 const file_bootstrap_v1_server_proto_rawDesc = "" +
 	"\n" +
-	"\x19bootstrap/v1/server.proto\x12\fbootstrap.v1\"\xec7\n" +
+	"\x19bootstrap/v1/server.proto\x12\fbootstrap.v1\"\x81<\n" +
 	"\x06Server\x122\n" +
 	"\x04http\x18\x01 \x01(\v2\x19.bootstrap.v1.Server.HttpH\x00R\x04http\x88\x01\x01\x125\n" +
 	"\x05http3\x18\x02 \x01(\v2\x1a.bootstrap.v1.Server.Http3H\x01R\x05http3\x88\x01\x01\x122\n" +
@@ -3136,7 +3294,8 @@ const file_bootstrap_v1_server_proto_rawDesc = "" +
 	"\aazuresb\x18\x1c \x01(\v2\x1c.bootstrap.v1.Server.AzuresbH\x1bR\aazuresb\x88\x01\x01\x12/\n" +
 	"\x03nsq\x18\x1d \x01(\v2\x18.bootstrap.v1.Server.NsqH\x1cR\x03nsq\x88\x01\x01\x12>\n" +
 	"\brocketmq\x18\x1e \x01(\v2\x1d.bootstrap.v1.Server.RocketmqH\x1dR\brocketmq\x88\x01\x01\x12/\n" +
-	"\x03sqs\x18\x1f \x01(\v2\x18.bootstrap.v1.Server.SqsH\x1eR\x03sqs\x88\x01\x01\x1a\xda\x03\n" +
+	"\x03sqs\x18\x1f \x01(\v2\x18.bootstrap.v1.Server.SqsH\x1eR\x03sqs\x88\x01\x01\x12;\n" +
+	"\agateway\x18  \x01(\v2\x1c.bootstrap.v1.Server.GatewayH\x1fR\agateway\x88\x01\x01\x1a\xda\x03\n" +
 	"\x03TLS\x126\n" +
 	"\x04file\x18\x01 \x01(\v2\x1d.bootstrap.v1.Server.TLS.FileH\x00R\x04file\x88\x01\x01\x12<\n" +
 	"\x06config\x18\x02 \x01(\v2\x1f.bootstrap.v1.Server.TLS.ConfigH\x01R\x06config\x88\x01\x01\x120\n" +
@@ -3280,9 +3439,11 @@ const file_bootstrap_v1_server_proto_rawDesc = "" +
 	"\x04addr\x18\x01 \x01(\tR\x04addr\x1aN\n" +
 	"\fWebtransport\x12\x12\n" +
 	"\x04addr\x18\x01 \x01(\tR\x04addr\x12*\n" +
-	"\x03tls\x18\x02 \x01(\v2\x18.bootstrap.v1.Server.TLSR\x03tls\x1a \n" +
+	"\x03tls\x18\x02 \x01(\v2\x18.bootstrap.v1.Server.TLSR\x03tls\x1am\n" +
 	"\x04Cron\x12\x18\n" +
-	"\aseconds\x18\x01 \x01(\bR\aseconds\x1a:\n" +
+	"\aseconds\x18\x01 \x01(\bR\aseconds\x12/\n" +
+	"\x13gracefully_shutdown\x18\x02 \x01(\bR\x12gracefullyShutdown\x12\x1a\n" +
+	"\blocation\x18\x03 \x01(\tR\blocation\x1a:\n" +
 	"\aHptimer\x12/\n" +
 	"\x13gracefully_shutdown\x18\x01 \x01(\bR\x12gracefullyShutdown\x1aM\n" +
 	"\x03Mcp\x12\x12\n" +
@@ -3305,11 +3466,19 @@ const file_bootstrap_v1_server_proto_rawDesc = "" +
 	"\anetwork\x18\x02 \x01(\tR\anetwork\x12*\n" +
 	"\x03tls\x18\x03 \x01(\v2\x18.bootstrap.v1.Server.TLSR\x03tls\x12\x14\n" +
 	"\x05codec\x18\x04 \x01(\tR\x05codec\x12\x12\n" +
-	"\x04path\x18\x05 \x01(\tR\x04path\x1an\n" +
+	"\x04path\x18\x05 \x01(\tR\x04path\x1a\xf5\x02\n" +
 	"\x05Asynq\x12#\n" +
 	"\rredis_address\x18\x01 \x01(\tR\fredisAddress\x12%\n" +
 	"\x0eredis_password\x18\x02 \x01(\tR\rredisPassword\x12\x19\n" +
-	"\bredis_db\x18\x03 \x01(\x05R\aredisDb\x1a\x99\x01\n" +
+	"\bredis_db\x18\x03 \x01(\x05R\aredisDb\x12 \n" +
+	"\vconcurrency\x18\x04 \x01(\x05R\vconcurrency\x12\x16\n" +
+	"\x06queues\x18\x05 \x03(\tR\x06queues\x12\x14\n" +
+	"\x05codec\x18\x06 \x01(\tR\x05codec\x12'\n" +
+	"\x0fstrict_priority\x18\a \x01(\bR\x0estrictPriority\x12.\n" +
+	"\x13shutdown_timeout_ms\x18\b \x01(\x03R\x11shutdownTimeoutMs\x12/\n" +
+	"\x13gracefully_shutdown\x18\t \x01(\bR\x12gracefullyShutdown\x12+\n" +
+	"\x11scheduler_enabled\x18\n" +
+	" \x01(\bR\x10schedulerEnabled\x1a\x99\x01\n" +
 	"\tMachinery\x12%\n" +
 	"\x0ebroker_address\x18\x01 \x01(\tR\rbrokerAddress\x124\n" +
 	"\x16result_backend_address\x18\x02 \x01(\tR\x14resultBackendAddress\x12\x1f\n" +
@@ -3353,7 +3522,11 @@ const file_bootstrap_v1_server_proto_rawDesc = "" +
 	"\x06region\x18\x01 \x01(\tR\x06region\x12\x1a\n" +
 	"\bendpoint\x18\x02 \x01(\tR\bendpoint\x12\x1b\n" +
 	"\tqueue_url\x18\x03 \x01(\tR\bqueueUrl\x12\x14\n" +
-	"\x05codec\x18\x04 \x01(\tR\x05codecB\a\n" +
+	"\x05codec\x18\x04 \x01(\tR\x05codec\x1au\n" +
+	"\aGateway\x12\x12\n" +
+	"\x04addr\x18\x01 \x01(\tR\x04addr\x12*\n" +
+	"\x11backend_grpc_addr\x18\x02 \x01(\tR\x0fbackendGrpcAddr\x12*\n" +
+	"\x03tls\x18\x03 \x01(\v2\x18.bootstrap.v1.Server.TLSR\x03tlsB\a\n" +
 	"\x05_httpB\b\n" +
 	"\x06_http3B\a\n" +
 	"\x05_grpcB\n" +
@@ -3390,7 +3563,9 @@ const file_bootstrap_v1_server_proto_rawDesc = "" +
 	"\b_azuresbB\x06\n" +
 	"\x04_nsqB\v\n" +
 	"\t_rocketmqB\x06\n" +
-	"\x04_sqsB\xb2\x01\n" +
+	"\x04_sqsB\n" +
+	"\n" +
+	"\b_gatewayB\xb2\x01\n" +
 	"\x10com.bootstrap.v1B\vServerProtoP\x01Z@github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1;bootstrapv1\xa2\x02\x03BXX\xaa\x02\fBootstrap.V1\xca\x02\fBootstrap\\V1\xe2\x02\x18Bootstrap\\V1\\GPBMetadata\xea\x02\rBootstrap::V1b\x06proto3"
 
 var (
@@ -3405,7 +3580,7 @@ func file_bootstrap_v1_server_proto_rawDescGZIP() []byte {
 	return file_bootstrap_v1_server_proto_rawDescData
 }
 
-var file_bootstrap_v1_server_proto_msgTypes = make([]protoimpl.MessageInfo, 48)
+var file_bootstrap_v1_server_proto_msgTypes = make([]protoimpl.MessageInfo, 49)
 var file_bootstrap_v1_server_proto_goTypes = []any{
 	(*Server)(nil),                           // 0: bootstrap.v1.Server
 	(*Server_TLS)(nil),                       // 1: bootstrap.v1.Server.TLS
@@ -3440,21 +3615,22 @@ var file_bootstrap_v1_server_proto_goTypes = []any{
 	(*Server_Nsq)(nil),                       // 30: bootstrap.v1.Server.Nsq
 	(*Server_Rocketmq)(nil),                  // 31: bootstrap.v1.Server.Rocketmq
 	(*Server_Sqs)(nil),                       // 32: bootstrap.v1.Server.Sqs
-	(*Server_TLS_File)(nil),                  // 33: bootstrap.v1.Server.TLS.File
-	(*Server_TLS_Config)(nil),                // 34: bootstrap.v1.Server.TLS.Config
-	(*Server_Http_Middleware)(nil),           // 35: bootstrap.v1.Server.Http.Middleware
-	(*Server_Http_Middleware_Recovery)(nil),  // 36: bootstrap.v1.Server.Http.Middleware.Recovery
-	(*Server_Http_Middleware_Cors)(nil),      // 37: bootstrap.v1.Server.Http.Middleware.Cors
-	(*Server_Http_Middleware_Logging)(nil),   // 38: bootstrap.v1.Server.Http.Middleware.Logging
-	(*Server_Http_Middleware_RequestId)(nil), // 39: bootstrap.v1.Server.Http.Middleware.RequestId
-	(*Server_Http_Middleware_Tracing)(nil),   // 40: bootstrap.v1.Server.Http.Middleware.Tracing
-	(*Server_Http_Middleware_RateLimit)(nil), // 41: bootstrap.v1.Server.Http.Middleware.RateLimit
-	(*Server_Http_Middleware_Timeout)(nil),   // 42: bootstrap.v1.Server.Http.Middleware.Timeout
-	(*Server_Grpc_Middleware)(nil),           // 43: bootstrap.v1.Server.Grpc.Middleware
-	(*Server_Grpc_Middleware_Recovery)(nil),  // 44: bootstrap.v1.Server.Grpc.Middleware.Recovery
-	(*Server_Grpc_Middleware_Logging)(nil),   // 45: bootstrap.v1.Server.Grpc.Middleware.Logging
-	(*Server_Grpc_Middleware_Tracing)(nil),   // 46: bootstrap.v1.Server.Grpc.Middleware.Tracing
-	(*Server_Grpc_Middleware_Validate)(nil),  // 47: bootstrap.v1.Server.Grpc.Middleware.Validate
+	(*Server_Gateway)(nil),                   // 33: bootstrap.v1.Server.Gateway
+	(*Server_TLS_File)(nil),                  // 34: bootstrap.v1.Server.TLS.File
+	(*Server_TLS_Config)(nil),                // 35: bootstrap.v1.Server.TLS.Config
+	(*Server_Http_Middleware)(nil),           // 36: bootstrap.v1.Server.Http.Middleware
+	(*Server_Http_Middleware_Recovery)(nil),  // 37: bootstrap.v1.Server.Http.Middleware.Recovery
+	(*Server_Http_Middleware_Cors)(nil),      // 38: bootstrap.v1.Server.Http.Middleware.Cors
+	(*Server_Http_Middleware_Logging)(nil),   // 39: bootstrap.v1.Server.Http.Middleware.Logging
+	(*Server_Http_Middleware_RequestId)(nil), // 40: bootstrap.v1.Server.Http.Middleware.RequestId
+	(*Server_Http_Middleware_Tracing)(nil),   // 41: bootstrap.v1.Server.Http.Middleware.Tracing
+	(*Server_Http_Middleware_RateLimit)(nil), // 42: bootstrap.v1.Server.Http.Middleware.RateLimit
+	(*Server_Http_Middleware_Timeout)(nil),   // 43: bootstrap.v1.Server.Http.Middleware.Timeout
+	(*Server_Grpc_Middleware)(nil),           // 44: bootstrap.v1.Server.Grpc.Middleware
+	(*Server_Grpc_Middleware_Recovery)(nil),  // 45: bootstrap.v1.Server.Grpc.Middleware.Recovery
+	(*Server_Grpc_Middleware_Logging)(nil),   // 46: bootstrap.v1.Server.Grpc.Middleware.Logging
+	(*Server_Grpc_Middleware_Tracing)(nil),   // 47: bootstrap.v1.Server.Grpc.Middleware.Tracing
+	(*Server_Grpc_Middleware_Validate)(nil),  // 48: bootstrap.v1.Server.Grpc.Middleware.Validate
 }
 var file_bootstrap_v1_server_proto_depIdxs = []int32{
 	2,  // 0: bootstrap.v1.Server.http:type_name -> bootstrap.v1.Server.Http
@@ -3488,38 +3664,40 @@ var file_bootstrap_v1_server_proto_depIdxs = []int32{
 	30, // 28: bootstrap.v1.Server.nsq:type_name -> bootstrap.v1.Server.Nsq
 	31, // 29: bootstrap.v1.Server.rocketmq:type_name -> bootstrap.v1.Server.Rocketmq
 	32, // 30: bootstrap.v1.Server.sqs:type_name -> bootstrap.v1.Server.Sqs
-	33, // 31: bootstrap.v1.Server.TLS.file:type_name -> bootstrap.v1.Server.TLS.File
-	34, // 32: bootstrap.v1.Server.TLS.config:type_name -> bootstrap.v1.Server.TLS.Config
-	1,  // 33: bootstrap.v1.Server.Http.tls:type_name -> bootstrap.v1.Server.TLS
-	35, // 34: bootstrap.v1.Server.Http.middleware:type_name -> bootstrap.v1.Server.Http.Middleware
-	1,  // 35: bootstrap.v1.Server.Http3.tls:type_name -> bootstrap.v1.Server.TLS
-	1,  // 36: bootstrap.v1.Server.Grpc.tls:type_name -> bootstrap.v1.Server.TLS
-	43, // 37: bootstrap.v1.Server.Grpc.middleware:type_name -> bootstrap.v1.Server.Grpc.Middleware
-	1,  // 38: bootstrap.v1.Server.Graphql.tls:type_name -> bootstrap.v1.Server.TLS
-	1,  // 39: bootstrap.v1.Server.Sse.tls:type_name -> bootstrap.v1.Server.TLS
-	1,  // 40: bootstrap.v1.Server.Websocket.tls:type_name -> bootstrap.v1.Server.TLS
-	1,  // 41: bootstrap.v1.Server.Tcp.tls:type_name -> bootstrap.v1.Server.TLS
-	1,  // 42: bootstrap.v1.Server.Thrift.tls:type_name -> bootstrap.v1.Server.TLS
-	1,  // 43: bootstrap.v1.Server.Webtransport.tls:type_name -> bootstrap.v1.Server.TLS
-	1,  // 44: bootstrap.v1.Server.Signalr.tls:type_name -> bootstrap.v1.Server.TLS
-	1,  // 45: bootstrap.v1.Server.Socketio.tls:type_name -> bootstrap.v1.Server.TLS
-	1,  // 46: bootstrap.v1.Server.Webrtc.tls:type_name -> bootstrap.v1.Server.TLS
-	36, // 47: bootstrap.v1.Server.Http.Middleware.recovery:type_name -> bootstrap.v1.Server.Http.Middleware.Recovery
-	37, // 48: bootstrap.v1.Server.Http.Middleware.cors:type_name -> bootstrap.v1.Server.Http.Middleware.Cors
-	38, // 49: bootstrap.v1.Server.Http.Middleware.logging:type_name -> bootstrap.v1.Server.Http.Middleware.Logging
-	39, // 50: bootstrap.v1.Server.Http.Middleware.request_id:type_name -> bootstrap.v1.Server.Http.Middleware.RequestId
-	40, // 51: bootstrap.v1.Server.Http.Middleware.tracing:type_name -> bootstrap.v1.Server.Http.Middleware.Tracing
-	41, // 52: bootstrap.v1.Server.Http.Middleware.rate_limit:type_name -> bootstrap.v1.Server.Http.Middleware.RateLimit
-	42, // 53: bootstrap.v1.Server.Http.Middleware.timeout:type_name -> bootstrap.v1.Server.Http.Middleware.Timeout
-	44, // 54: bootstrap.v1.Server.Grpc.Middleware.recovery:type_name -> bootstrap.v1.Server.Grpc.Middleware.Recovery
-	45, // 55: bootstrap.v1.Server.Grpc.Middleware.logging:type_name -> bootstrap.v1.Server.Grpc.Middleware.Logging
-	46, // 56: bootstrap.v1.Server.Grpc.Middleware.tracing:type_name -> bootstrap.v1.Server.Grpc.Middleware.Tracing
-	47, // 57: bootstrap.v1.Server.Grpc.Middleware.validate:type_name -> bootstrap.v1.Server.Grpc.Middleware.Validate
-	58, // [58:58] is the sub-list for method output_type
-	58, // [58:58] is the sub-list for method input_type
-	58, // [58:58] is the sub-list for extension type_name
-	58, // [58:58] is the sub-list for extension extendee
-	0,  // [0:58] is the sub-list for field type_name
+	33, // 31: bootstrap.v1.Server.gateway:type_name -> bootstrap.v1.Server.Gateway
+	34, // 32: bootstrap.v1.Server.TLS.file:type_name -> bootstrap.v1.Server.TLS.File
+	35, // 33: bootstrap.v1.Server.TLS.config:type_name -> bootstrap.v1.Server.TLS.Config
+	1,  // 34: bootstrap.v1.Server.Http.tls:type_name -> bootstrap.v1.Server.TLS
+	36, // 35: bootstrap.v1.Server.Http.middleware:type_name -> bootstrap.v1.Server.Http.Middleware
+	1,  // 36: bootstrap.v1.Server.Http3.tls:type_name -> bootstrap.v1.Server.TLS
+	1,  // 37: bootstrap.v1.Server.Grpc.tls:type_name -> bootstrap.v1.Server.TLS
+	44, // 38: bootstrap.v1.Server.Grpc.middleware:type_name -> bootstrap.v1.Server.Grpc.Middleware
+	1,  // 39: bootstrap.v1.Server.Graphql.tls:type_name -> bootstrap.v1.Server.TLS
+	1,  // 40: bootstrap.v1.Server.Sse.tls:type_name -> bootstrap.v1.Server.TLS
+	1,  // 41: bootstrap.v1.Server.Websocket.tls:type_name -> bootstrap.v1.Server.TLS
+	1,  // 42: bootstrap.v1.Server.Tcp.tls:type_name -> bootstrap.v1.Server.TLS
+	1,  // 43: bootstrap.v1.Server.Thrift.tls:type_name -> bootstrap.v1.Server.TLS
+	1,  // 44: bootstrap.v1.Server.Webtransport.tls:type_name -> bootstrap.v1.Server.TLS
+	1,  // 45: bootstrap.v1.Server.Signalr.tls:type_name -> bootstrap.v1.Server.TLS
+	1,  // 46: bootstrap.v1.Server.Socketio.tls:type_name -> bootstrap.v1.Server.TLS
+	1,  // 47: bootstrap.v1.Server.Webrtc.tls:type_name -> bootstrap.v1.Server.TLS
+	1,  // 48: bootstrap.v1.Server.Gateway.tls:type_name -> bootstrap.v1.Server.TLS
+	37, // 49: bootstrap.v1.Server.Http.Middleware.recovery:type_name -> bootstrap.v1.Server.Http.Middleware.Recovery
+	38, // 50: bootstrap.v1.Server.Http.Middleware.cors:type_name -> bootstrap.v1.Server.Http.Middleware.Cors
+	39, // 51: bootstrap.v1.Server.Http.Middleware.logging:type_name -> bootstrap.v1.Server.Http.Middleware.Logging
+	40, // 52: bootstrap.v1.Server.Http.Middleware.request_id:type_name -> bootstrap.v1.Server.Http.Middleware.RequestId
+	41, // 53: bootstrap.v1.Server.Http.Middleware.tracing:type_name -> bootstrap.v1.Server.Http.Middleware.Tracing
+	42, // 54: bootstrap.v1.Server.Http.Middleware.rate_limit:type_name -> bootstrap.v1.Server.Http.Middleware.RateLimit
+	43, // 55: bootstrap.v1.Server.Http.Middleware.timeout:type_name -> bootstrap.v1.Server.Http.Middleware.Timeout
+	45, // 56: bootstrap.v1.Server.Grpc.Middleware.recovery:type_name -> bootstrap.v1.Server.Grpc.Middleware.Recovery
+	46, // 57: bootstrap.v1.Server.Grpc.Middleware.logging:type_name -> bootstrap.v1.Server.Grpc.Middleware.Logging
+	47, // 58: bootstrap.v1.Server.Grpc.Middleware.tracing:type_name -> bootstrap.v1.Server.Grpc.Middleware.Tracing
+	48, // 59: bootstrap.v1.Server.Grpc.Middleware.validate:type_name -> bootstrap.v1.Server.Grpc.Middleware.Validate
+	60, // [60:60] is the sub-list for method output_type
+	60, // [60:60] is the sub-list for method input_type
+	60, // [60:60] is the sub-list for extension type_name
+	60, // [60:60] is the sub-list for extension extendee
+	0,  // [0:60] is the sub-list for field type_name
 }
 
 func init() { file_bootstrap_v1_server_proto_init() }
@@ -3529,19 +3707,19 @@ func file_bootstrap_v1_server_proto_init() {
 	}
 	file_bootstrap_v1_server_proto_msgTypes[0].OneofWrappers = []any{}
 	file_bootstrap_v1_server_proto_msgTypes[1].OneofWrappers = []any{}
-	file_bootstrap_v1_server_proto_msgTypes[33].OneofWrappers = []any{}
 	file_bootstrap_v1_server_proto_msgTypes[34].OneofWrappers = []any{}
 	file_bootstrap_v1_server_proto_msgTypes[35].OneofWrappers = []any{}
 	file_bootstrap_v1_server_proto_msgTypes[36].OneofWrappers = []any{}
-	file_bootstrap_v1_server_proto_msgTypes[39].OneofWrappers = []any{}
-	file_bootstrap_v1_server_proto_msgTypes[43].OneofWrappers = []any{}
+	file_bootstrap_v1_server_proto_msgTypes[37].OneofWrappers = []any{}
+	file_bootstrap_v1_server_proto_msgTypes[40].OneofWrappers = []any{}
+	file_bootstrap_v1_server_proto_msgTypes[44].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bootstrap_v1_server_proto_rawDesc), len(file_bootstrap_v1_server_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   48,
+			NumMessages:   49,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
