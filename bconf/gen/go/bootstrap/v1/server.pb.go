@@ -1126,12 +1126,17 @@ func (x *Server_Webtransport) GetTls() *Server_TLS {
 }
 
 // Cron 定时任务调度器。
+//
+// 布尔字段用 optional 表达三态：未设置（nil）→ 用实现默认值；显式
+// false/true → 覆盖。**不能**用普通 bool——proto3 零值为 false，而
+// cron 实现默认启用秒级，空段会导致「配了 cron: {} 反而关掉秒级」的
+// 反向行为（D11 的镜像陷阱：配了无效 → 配了反向生效）。
 type Server_Cron struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// 是否启用秒级精度。默认 false。
-	Seconds bool `protobuf:"varint,1,opt,name=seconds,proto3" json:"seconds,omitempty"`
-	// 是否启用优雅关闭（Stop 等待运行中任务完成）。默认 false。
-	GracefullyShutdown bool `protobuf:"varint,2,opt,name=gracefully_shutdown,json=gracefullyShutdown,proto3" json:"gracefully_shutdown,omitempty"`
+	// 是否启用秒级精度（6 字段表达式）。未设置 → 实现默认（启用）。
+	Seconds *bool `protobuf:"varint,1,opt,name=seconds,proto3,oneof" json:"seconds,omitempty"`
+	// 是否启用优雅关闭（Stop 等待运行中任务完成）。未设置 → 实现默认（启用）。
+	GracefullyShutdown *bool `protobuf:"varint,2,opt,name=gracefully_shutdown,json=gracefullyShutdown,proto3,oneof" json:"gracefully_shutdown,omitempty"`
 	// 调度器时区（如 "Asia/Shanghai"）。留空使用本地时区。
 	Location      string `protobuf:"bytes,3,opt,name=location,proto3" json:"location,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -1169,15 +1174,15 @@ func (*Server_Cron) Descriptor() ([]byte, []int) {
 }
 
 func (x *Server_Cron) GetSeconds() bool {
-	if x != nil {
-		return x.Seconds
+	if x != nil && x.Seconds != nil {
+		return *x.Seconds
 	}
 	return false
 }
 
 func (x *Server_Cron) GetGracefullyShutdown() bool {
-	if x != nil {
-		return x.GracefullyShutdown
+	if x != nil && x.GracefullyShutdown != nil {
+		return *x.GracefullyShutdown
 	}
 	return false
 }
@@ -1534,26 +1539,30 @@ func (x *Server_Webrtc) GetPath() string {
 }
 
 // Asynq 任务队列（基于 Redis）。
+//
+// 布尔字段用 optional 表达三态（同 message Cron 的理由）；concurrency /
+// shutdown_timeout_ms 用 0 表示「未设置 → 用实现默认」（有符号数域内 0
+// 非合法配置值，故可作哨兵）。
 type Server_Asynq struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Redis 连接地址。
 	RedisAddress  string `protobuf:"bytes,1,opt,name=redis_address,json=redisAddress,proto3" json:"redis_address,omitempty"`
 	RedisPassword string `protobuf:"bytes,2,opt,name=redis_password,json=redisPassword,proto3" json:"redis_password,omitempty"`
 	RedisDb       int32  `protobuf:"varint,3,opt,name=redis_db,json=redisDb,proto3" json:"redis_db,omitempty"`
-	// 并发消费的 worker 数量。0 使用 asynq 内置默认。
+	// 并发消费的 worker 数量。0 = 未设置（用 asynq 实现默认）。
 	Concurrency int32 `protobuf:"varint,4,opt,name=concurrency,proto3" json:"concurrency,omitempty"`
 	// 消费队列名列表（按优先级从高到低）。为空使用 asynq 默认队列。
 	Queues []string `protobuf:"bytes,5,rep,name=queues,proto3" json:"queues,omitempty"`
 	// 载荷编解码器名（如 "json"、"msgpack"）。留空默认 json。
 	Codec string `protobuf:"bytes,6,opt,name=codec,proto3" json:"codec,omitempty"`
-	// 是否对多队列启用严格优先级。默认 false（加权轮询）。
-	StrictPriority bool `protobuf:"varint,7,opt,name=strict_priority,json=strictPriority,proto3" json:"strict_priority,omitempty"`
-	// 优雅关闭超时（毫秒）。0 使用 asynq 内置默认。
+	// 是否对多队列启用严格优先级（否则加权轮询）。未设置 → 实现默认。
+	StrictPriority *bool `protobuf:"varint,7,opt,name=strict_priority,json=strictPriority,proto3,oneof" json:"strict_priority,omitempty"`
+	// 优雅关闭超时（毫秒）。0 = 未设置（用实现默认）。
 	ShutdownTimeoutMs int64 `protobuf:"varint,8,opt,name=shutdown_timeout_ms,json=shutdownTimeoutMs,proto3" json:"shutdown_timeout_ms,omitempty"`
-	// 是否启用优雅关闭。默认 false。
-	GracefullyShutdown bool `protobuf:"varint,9,opt,name=gracefully_shutdown,json=gracefullyShutdown,proto3" json:"gracefully_shutdown,omitempty"`
-	// 是否启用定时调度器（crontab 式周期任务）。默认 false。
-	SchedulerEnabled bool `protobuf:"varint,10,opt,name=scheduler_enabled,json=schedulerEnabled,proto3" json:"scheduler_enabled,omitempty"`
+	// 是否启用优雅关闭。未设置 → 实现默认。
+	GracefullyShutdown *bool `protobuf:"varint,9,opt,name=gracefully_shutdown,json=gracefullyShutdown,proto3,oneof" json:"gracefully_shutdown,omitempty"`
+	// 是否启用定时调度器（crontab 式周期任务）。未设置 → 实现默认（启用）。
+	SchedulerEnabled *bool `protobuf:"varint,10,opt,name=scheduler_enabled,json=schedulerEnabled,proto3,oneof" json:"scheduler_enabled,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -1631,8 +1640,8 @@ func (x *Server_Asynq) GetCodec() string {
 }
 
 func (x *Server_Asynq) GetStrictPriority() bool {
-	if x != nil {
-		return x.StrictPriority
+	if x != nil && x.StrictPriority != nil {
+		return *x.StrictPriority
 	}
 	return false
 }
@@ -1645,15 +1654,15 @@ func (x *Server_Asynq) GetShutdownTimeoutMs() int64 {
 }
 
 func (x *Server_Asynq) GetGracefullyShutdown() bool {
-	if x != nil {
-		return x.GracefullyShutdown
+	if x != nil && x.GracefullyShutdown != nil {
+		return *x.GracefullyShutdown
 	}
 	return false
 }
 
 func (x *Server_Asynq) GetSchedulerEnabled() bool {
-	if x != nil {
-		return x.SchedulerEnabled
+	if x != nil && x.SchedulerEnabled != nil {
+		return *x.SchedulerEnabled
 	}
 	return false
 }
@@ -3260,7 +3269,7 @@ var File_bootstrap_v1_server_proto protoreflect.FileDescriptor
 
 const file_bootstrap_v1_server_proto_rawDesc = "" +
 	"\n" +
-	"\x19bootstrap/v1/server.proto\x12\fbootstrap.v1\"\x81<\n" +
+	"\x19bootstrap/v1/server.proto\x12\fbootstrap.v1\"\x81=\n" +
 	"\x06Server\x122\n" +
 	"\x04http\x18\x01 \x01(\v2\x19.bootstrap.v1.Server.HttpH\x00R\x04http\x88\x01\x01\x125\n" +
 	"\x05http3\x18\x02 \x01(\v2\x1a.bootstrap.v1.Server.Http3H\x01R\x05http3\x88\x01\x01\x122\n" +
@@ -3439,11 +3448,14 @@ const file_bootstrap_v1_server_proto_rawDesc = "" +
 	"\x04addr\x18\x01 \x01(\tR\x04addr\x1aN\n" +
 	"\fWebtransport\x12\x12\n" +
 	"\x04addr\x18\x01 \x01(\tR\x04addr\x12*\n" +
-	"\x03tls\x18\x02 \x01(\v2\x18.bootstrap.v1.Server.TLSR\x03tls\x1am\n" +
-	"\x04Cron\x12\x18\n" +
-	"\aseconds\x18\x01 \x01(\bR\aseconds\x12/\n" +
-	"\x13gracefully_shutdown\x18\x02 \x01(\bR\x12gracefullyShutdown\x12\x1a\n" +
-	"\blocation\x18\x03 \x01(\tR\blocation\x1a:\n" +
+	"\x03tls\x18\x02 \x01(\v2\x18.bootstrap.v1.Server.TLSR\x03tls\x1a\x9b\x01\n" +
+	"\x04Cron\x12\x1d\n" +
+	"\aseconds\x18\x01 \x01(\bH\x00R\aseconds\x88\x01\x01\x124\n" +
+	"\x13gracefully_shutdown\x18\x02 \x01(\bH\x01R\x12gracefullyShutdown\x88\x01\x01\x12\x1a\n" +
+	"\blocation\x18\x03 \x01(\tR\blocationB\n" +
+	"\n" +
+	"\b_secondsB\x16\n" +
+	"\x14_gracefully_shutdown\x1a:\n" +
 	"\aHptimer\x12/\n" +
 	"\x13gracefully_shutdown\x18\x01 \x01(\bR\x12gracefullyShutdown\x1aM\n" +
 	"\x03Mcp\x12\x12\n" +
@@ -3466,19 +3478,22 @@ const file_bootstrap_v1_server_proto_rawDesc = "" +
 	"\anetwork\x18\x02 \x01(\tR\anetwork\x12*\n" +
 	"\x03tls\x18\x03 \x01(\v2\x18.bootstrap.v1.Server.TLSR\x03tls\x12\x14\n" +
 	"\x05codec\x18\x04 \x01(\tR\x05codec\x12\x12\n" +
-	"\x04path\x18\x05 \x01(\tR\x04path\x1a\xf5\x02\n" +
+	"\x04path\x18\x05 \x01(\tR\x04path\x1a\xc6\x03\n" +
 	"\x05Asynq\x12#\n" +
 	"\rredis_address\x18\x01 \x01(\tR\fredisAddress\x12%\n" +
 	"\x0eredis_password\x18\x02 \x01(\tR\rredisPassword\x12\x19\n" +
 	"\bredis_db\x18\x03 \x01(\x05R\aredisDb\x12 \n" +
 	"\vconcurrency\x18\x04 \x01(\x05R\vconcurrency\x12\x16\n" +
 	"\x06queues\x18\x05 \x03(\tR\x06queues\x12\x14\n" +
-	"\x05codec\x18\x06 \x01(\tR\x05codec\x12'\n" +
-	"\x0fstrict_priority\x18\a \x01(\bR\x0estrictPriority\x12.\n" +
-	"\x13shutdown_timeout_ms\x18\b \x01(\x03R\x11shutdownTimeoutMs\x12/\n" +
-	"\x13gracefully_shutdown\x18\t \x01(\bR\x12gracefullyShutdown\x12+\n" +
+	"\x05codec\x18\x06 \x01(\tR\x05codec\x12,\n" +
+	"\x0fstrict_priority\x18\a \x01(\bH\x00R\x0estrictPriority\x88\x01\x01\x12.\n" +
+	"\x13shutdown_timeout_ms\x18\b \x01(\x03R\x11shutdownTimeoutMs\x124\n" +
+	"\x13gracefully_shutdown\x18\t \x01(\bH\x01R\x12gracefullyShutdown\x88\x01\x01\x120\n" +
 	"\x11scheduler_enabled\x18\n" +
-	" \x01(\bR\x10schedulerEnabled\x1a\x99\x01\n" +
+	" \x01(\bH\x02R\x10schedulerEnabled\x88\x01\x01B\x12\n" +
+	"\x10_strict_priorityB\x16\n" +
+	"\x14_gracefully_shutdownB\x14\n" +
+	"\x12_scheduler_enabled\x1a\x99\x01\n" +
 	"\tMachinery\x12%\n" +
 	"\x0ebroker_address\x18\x01 \x01(\tR\rbrokerAddress\x124\n" +
 	"\x16result_backend_address\x18\x02 \x01(\tR\x14resultBackendAddress\x12\x1f\n" +
@@ -3707,6 +3722,8 @@ func file_bootstrap_v1_server_proto_init() {
 	}
 	file_bootstrap_v1_server_proto_msgTypes[0].OneofWrappers = []any{}
 	file_bootstrap_v1_server_proto_msgTypes[1].OneofWrappers = []any{}
+	file_bootstrap_v1_server_proto_msgTypes[14].OneofWrappers = []any{}
+	file_bootstrap_v1_server_proto_msgTypes[20].OneofWrappers = []any{}
 	file_bootstrap_v1_server_proto_msgTypes[34].OneofWrappers = []any{}
 	file_bootstrap_v1_server_proto_msgTypes[35].OneofWrappers = []any{}
 	file_bootstrap_v1_server_proto_msgTypes[36].OneofWrappers = []any{}
