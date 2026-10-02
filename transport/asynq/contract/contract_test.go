@@ -100,7 +100,7 @@ func TestBuildOpts_ExplicitFalseAppends(t *testing.T) {
 // TestWithHandlers_CalledAfterConstruct handler 回调在构造后被调用。
 func TestWithHandlers_CalledAfterConstruct(t *testing.T) {
 	called := false
-	p := Provider(WithHandlers(func(s *asynq.Server) error {
+	p := Provider(WithHandlers(func(_ context.Context, s *asynq.Server) error {
 		called = true
 		if s == nil {
 			t.Fatal("handler got nil server")
@@ -120,7 +120,7 @@ func TestWithHandlers_CalledAfterConstruct(t *testing.T) {
 
 // TestProvider_HandlerErrorShortCircuits handler 返回 error → 装配失败。
 func TestProvider_HandlerErrorShortCircuits(t *testing.T) {
-	p := Provider(WithHandlers(func(*asynq.Server) error {
+	p := Provider(WithHandlers(func(context.Context, *asynq.Server) error {
 		return context.DeadlineExceeded
 	}))
 	cfg := &bootstrapv1.Server{
@@ -128,5 +128,45 @@ func TestProvider_HandlerErrorShortCircuits(t *testing.T) {
 	}
 	if _, _, err := p(context.Background(), cfg); err == nil {
 		t.Fatal("Provider() = nil error, want handler error propagated")
+	}
+}
+
+// TestProvider_AddressResolverFallback 段 redis_address 为空 → 用解析器回退地址
+// （保持既有部署兼容：配了 cache.redis 即启用 asynq）。
+func TestProvider_AddressResolverFallback(t *testing.T) {
+	called := false
+	p := Provider(WithAddressResolver(func() string {
+		called = true
+		return "127.0.0.1:6379"
+	}))
+	cfg := &bootstrapv1.Server{Asynq: &bootstrapv1.Server_Asynq{}} // 地址空
+	srv, _, err := p(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("Provider() error = %v", err)
+	}
+	if srv == nil {
+		t.Fatal("srv = nil, want constructed server via resolver fallback")
+	}
+	if !called {
+		t.Fatal("address resolver was not invoked when section address is empty")
+	}
+}
+
+// TestProvider_AddressResolverNotCalledWhenSectionSet 段显式配地址 → 不调解析器
+// （显式配置优先于回退）。
+func TestProvider_AddressResolverNotCalledWhenSectionSet(t *testing.T) {
+	called := false
+	p := Provider(WithAddressResolver(func() string {
+		called = true
+		return "should-not-be-used:6379"
+	}))
+	cfg := &bootstrapv1.Server{
+		Asynq: &bootstrapv1.Server_Asynq{RedisAddress: "127.0.0.1:6379"},
+	}
+	if _, _, err := p(context.Background(), cfg); err != nil {
+		t.Fatalf("Provider() error = %v", err)
+	}
+	if called {
+		t.Fatal("address resolver was invoked despite explicit section address (explicit must win)")
 	}
 }

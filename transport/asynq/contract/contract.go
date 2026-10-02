@@ -44,9 +44,10 @@ type ServerProvider func(ctx context.Context, cfg *bootstrapv1.Server) (transpor
 type Option func(*providerConfig)
 
 type providerConfig struct {
-	handlers    []func(*asynq.Server) error
-	extraOpts   []asynq.Option
-	codecRegist func()
+	handlers     []func(context.Context, *asynq.Server) error
+	extraOpts    []asynq.Option
+	codecRegist  func()
+	addrResolver func() string
 }
 
 // WithHandlers 注册「server 构造后」的处理器挂载回调。
@@ -54,8 +55,19 @@ type providerConfig struct {
 // **时序**：回调在 asynq.NewServer 之后、返回 server 之前执行——早于 appkit 的
 // Start，满足 asynq「handler 须在 Start 前注册」的硬约束（启动后再注册会被判为
 // 无处理器，任务入队后无消费者）。回调返回 error 则装配失败并短路。
-func WithHandlers(fn func(*asynq.Server) error) Option {
+//
+// ctx 为 provider 收到的启动上下文（Run 期），可透传给 handler 内的日志/初始化。
+func WithHandlers(fn func(context.Context, *asynq.Server) error) Option {
 	return func(c *providerConfig) { c.handlers = append(c.handlers, fn) }
+}
+
+// WithAddressResolver 设置「段 redis_address 为空时」的地址解析回调。
+//
+// 用途：契约段未显式配 redis_address 时，业务可回退到其它配置源（如
+// env / cache.redis）——保持既有部署「配了 cache.redis 即启用 asynq」的兼容。
+// 段字段非空时本回调**不**被调用（显式配置优先）。
+func WithAddressResolver(fn func() string) Option {
+	return func(c *providerConfig) { c.addrResolver = fn }
 }
 
 // WithServerOptions 追加 asynq.Option——补齐契约段表达不了的能力（约 46 个
@@ -84,7 +96,7 @@ func Provider(opts ...Option) ServerProvider {
 	for _, o := range opts {
 		o(c)
 	}
-	return func(_ context.Context, cfg *bootstrapv1.Server) (transport.Server, func(), error) {
+	return func(ctx context.Context, cfg *bootstrapv1.Server) (transport.Server, func(), error) {
 		sec := cfg.GetAsynq()
 		if sec == nil {
 			return nil, nil, nil // 未配置 asynq 段，跳过
@@ -95,12 +107,18 @@ func Provider(opts ...Option) ServerProvider {
 		}
 
 		allOpts := buildOpts(sec)
+		// 段未配地址时回退到业务解析器（保持既有部署兼容：配 cache.redis 即启用）。
+		if sec.GetRedisAddress() == "" && c.addrResolver != nil {
+			if addr := c.addrResolver(); addr != "" {
+				allOpts = append(allOpts, asynq.WithRedisAddress(addr))
+			}
+		}
 		allOpts = append(allOpts, c.extraOpts...)
 
 		srv := asynq.NewServer(allOpts...)
 
 		for _, fn := range c.handlers {
-			if err := fn(srv); err != nil {
+			if err := fn(ctx, srv); err != nil {
 				return nil, nil, fmt.Errorf("asynq: register handlers: %w", err)
 			}
 		}
