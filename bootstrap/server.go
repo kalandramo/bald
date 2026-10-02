@@ -69,6 +69,19 @@ func (r *ServerRegistry) MustRegister(name string, p ServerProvider) {
 	}
 }
 
+// Has 报告名字对应的协议服务器工厂是否已注册。
+//
+// 供装配层（appkit）做「补注册」前的存在性判断：用户经 WithServerRegistry 注入
+// 自己的注册表后，框架仍要保证 http/grpc 两个内置协议可用，但不能覆盖用户已
+// 注册的同名 provider（[Register] 对重名 fail-fast）。先 Has 再 MustRegister
+// 即可共存。
+func (r *ServerRegistry) Has(name string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	_, ok := r.providers[name]
+	return ok
+}
+
 // serverSection 是契约 Server 段的枚举项（proto 字段序即装配序）。
 //
 // implemented 表示「本仓有该协议的服务端实现、且 appkit 会为其注册 provider」。
@@ -139,8 +152,10 @@ func (r *ServerRegistry) BuildServers(ctx context.Context, cfg *bootstrapv1.Serv
 
 	r.mu.RLock()
 	names := make([]string, 0, len(r.providers))
+	registered := make(map[string]bool, len(r.providers))
 	for k := range r.providers {
 		names = append(names, k)
+		registered[k] = true
 	}
 	providers := make(map[string]ServerProvider, len(r.providers))
 	for k, v := range r.providers {
@@ -149,16 +164,16 @@ func (r *ServerRegistry) BuildServers(ctx context.Context, cfg *bootstrapv1.Serv
 	r.mu.RUnlock()
 	sort.Strings(names) // 确定性顺序（错误信息与遍历序稳定）
 
-	// 前置校验：契约里配了但「本仓无实现」的段必须 fail-fast。
+	// 前置校验：契约里配了但「本仓无实现、且无注册 provider」的段必须 fail-fast。
 	//
 	// 为什么不能只靠下面的 provider 遍历兜底：BuildServers 按**已注册 provider**
 	// 枚举，而契约段可能没有任何对应 provider 注册——此时该段根本不进入遍历，
 	// 既不报错也不打日志，进程照常启动却不监听该协议（「配了没效果」的静默失效）。
 	// 故在此按**契约段**补齐校验，与 BrokerRegistry.Build 的语义对齐。
 	//
-	// 注意范围：只查「本仓有无实现」，不查 provider 注册（后者是刻意的能力声明
-	// 机制，见 validateServerSections 注释）。
-	if err := validateServerSections(cfg); err != nil {
+	// registered 传入已注册段名：使后端子模块提供的实现（如 transport/asynq/
+	// contract 注册的 "asynq"）被承认——段名与 provider 名一一对应。
+	if err := validateServerSections(cfg, registered); err != nil {
 		return nil, nil, err
 	}
 
@@ -189,22 +204,34 @@ func (r *ServerRegistry) BuildServers(ctx context.Context, cfg *bootstrapv1.Serv
 // validateServerSections 校验契约中已配置的 Server 段是否有实现。
 // 返回聚合错误（一次列全全部问题，免去逐条往返）。
 //
-// 只校验「本仓有无实现」（implemented），**不**校验 provider 是否已注册：
-// 后者是刻意的设计——「能力声明在代码」（appkit 未声明 http/grpc 能力时不注册
-// 对应 provider，契约段存在也不消费），见 pkg/appkit/bootstrap.go 装配注释。
-// 若在此对未注册 provider fail-fast，会误伤「只关心 storage/workflow、不装配
-// 任何服务器」的合法用例。
-func validateServerSections(cfg *bootstrapv1.Server) error {
+// 判据是「**本仓内置实现**（implemented）**或** 该段已有注册 provider
+// （registered）」：
+//   - 内置 implemented=true 的段（http/grpc）永远放行；
+//   - implemented=false 的段（cron/asynq/…）默认 fail-fast——它们在 bconf
+//     定义里存在，但框架本身不提供装配；
+//   - 但若装配层已为该段注册了 provider（如业务经 WithServerRegistry +
+//     transport/asynq/contract 注入），则视为「有实现」，放行——这正是
+//     「协议服务器的实现可来自后端子模块」的语义：段名与 provider 名一一对应。
+//
+// **仍不**因「段配了但 provider 未注册」而 fail-fast：那是刻意的能力声明机制
+// （appkit 未声明 http/grpc 能力时不注册对应 provider，契约段存在也不消费），
+// 若在此对未注册 provider 报错，会误伤「只关心 storage/workflow、不装配任何
+// 服务器」的合法用例。
+//
+// registered 为 nil 时退化为「只按内置 implemented 判据」——保持既有调用方
+// （无注册表上下文）的行为不变。
+func validateServerSections(cfg *bootstrapv1.Server, registered map[string]bool) error {
 	var problems []string
 	for _, sec := range serverSections {
 		if !sec.exists(cfg) {
 			continue // 段未配置，跳过
 		}
-		if !sec.implemented {
-			problems = append(problems, fmt.Sprintf(
-				"server.%s is configured but has no implementation in this repo "+
-					"(remove the section, or use appkit.WithExtraServers to mount it manually)", sec.name))
+		if sec.implemented || registered[sec.name] {
+			continue // 内置实现，或已有外部注册的 provider
 		}
+		problems = append(problems, fmt.Sprintf(
+			"server.%s is configured but has no implementation in this repo "+
+				"(remove the section, register a provider for it, or use appkit.WithExtraServers to mount it manually)", sec.name))
 	}
 	if len(problems) > 0 {
 		return fmt.Errorf("bootstrap: invalid server config: %s", strings.Join(problems, "; "))

@@ -101,6 +101,10 @@ type bootstrapSpec struct {
 	aiRegistry       *baldbootstrap.AiRegistry
 	workflowRegistry *baldbootstrap.WorkflowRegistry
 	brokerRegistry   *baldbootstrap.BrokerRegistry
+	// serverRegistry 是协议服务器 provider 的契约装配注册表（WithServerRegistry）。
+	// 与其余 12 个资源域注入口对称：未声明时框架自建空表并补注册 http/grpc 内置
+	// provider；已声明时在其上补注册（用户注册的同名 provider 优先，不覆盖）。
+	serverRegistry *baldbootstrap.ServerRegistry
 
 	tracerRegistry  *TracerRegistry
 	metricsRegistry *MetricsRegistry
@@ -306,6 +310,34 @@ func WithAuditRegistry(r *AuditRegistry) BootstrapOption {
 	return func(s *bootstrapSpec) { s.auditRegistry = r }
 }
 
+// WithServerRegistry 注入协议服务器的契约装配注册表（显式注册 provider，
+// 见 bootstrap.ServerRegistry）。与 WithDatabaseRegistry / WithCacheRegistry /
+// WithStorageRegistry 等 12 个资源域注入口对称——server 是此前唯一缺失注入口
+// 的域（框架把 ServerRegistry 当函数内局部变量、硬编码只注册 http/grpc）。
+//
+// 语义：
+//   - 未声明本 Option 时，框架自建空注册表并补注册 http/grpc（行为与既有完全一致）；
+//   - 声明本 Option 时，在用户注册表**之上**补注册 http/grpc（用 Has 判存在性），
+//     用户已注册的同名 provider 不被覆盖（Register 对重名 fail-fast，故先 Has）。
+//
+// 用户注册的段名会进入 validateServerSections 的「已实现」判据——故
+// implemented=false 的契约段（如 server.asynq / server.cron）一旦有对应
+// provider 注册即合法，不再 fail-fast。这是后端子模块提供协议实现的正式通道。
+//
+// 典型用法：
+//
+//	sr := baldbootstrap.NewServerRegistry()
+//	sr.MustRegister(asynqcontract.Type, asynqcontract.Provider())  // "asynq"
+//	sr.MustRegister(croncontract.Type, croncontract.Provider())    // "cron"
+//	appkit.FromBootstrap(cfg, appkit.WithServerRegistry(sr), ...)
+//
+// 与 WithExtraServers / WithExtraServerFunc 的分工：后两者是契约形状表达不了的
+// 服务器的逃生舱（收已构造实例或运行期工厂）；本 Option 服务「契约段已存在、
+// 只是框架未内置 provider」的常规后端——它们应走契约装配而非逃生舱。
+func WithServerRegistry(r *baldbootstrap.ServerRegistry) BootstrapOption {
+	return func(s *bootstrapSpec) { s.serverRegistry = r }
+}
+
 // ---------------------------------------------------------------------------
 // 业务透传（U1）：FromBootstrap 表达不了、但重业务需要的生命周期面——转发
 // 给 New 的同名 Option。语义与直用 New 完全一致，仅注册顺序有约定：
@@ -464,8 +496,14 @@ func FromBootstrap(cfg *bootstrapv1.BootstrapConfig, opts ...BootstrapOption) (*
 	// 能力声明与契约段一致性校验仍在构造期（上方 fail-fast 块）——配置错误
 	// 仍在启动最早暴露，不因时序调整而丢失。
 	var buildServers func(ctx context.Context) ([]transport.Server, func(), error)
-	if spec.httpHandler != nil || spec.gatewayRegister != nil || spec.grpcRegister != nil {
-		sr := baldbootstrap.NewServerRegistry()
+	if spec.httpHandler != nil || spec.gatewayRegister != nil || spec.grpcRegister != nil || spec.serverRegistry != nil {
+		// 复用用户注入的注册表（WithServerRegistry）——其中可能已有 asynq/cron
+		// 等后端子模块注册的 provider；未注入时自建空表。http/grpc 用 Has 判
+		// 存在性后补注册，不覆盖用户已注册的同名 provider。
+		sr := spec.serverRegistry
+		if sr == nil {
+			sr = baldbootstrap.NewServerRegistry()
+		}
 		if spec.httpHandler != nil || spec.gatewayRegister != nil {
 			// 健康检查默认装配在此落地：探针包在业务 handler 外层（协议实现
 			// 不注册任何框架路由），见《Bald 健康检查装配设计》。
@@ -481,7 +519,9 @@ func FromBootstrap(cfg *bootstrapv1.BootstrapConfig, opts ...BootstrapOption) (*
 				}
 				httpOpts = append(httpOpts, baldbootstrap.WithGatewayRegister(gatewayRegister))
 			}
-			sr.MustRegister("http", baldbootstrap.HttpServerProvider(httpOpts...))
+			if !sr.Has("http") {
+				sr.MustRegister("http", baldbootstrap.HttpServerProvider(httpOpts...))
+			}
 		}
 		if spec.grpcRegister != nil {
 			grpcOpts := []baldbootstrap.GRPCServerOption{
@@ -497,7 +537,9 @@ func FromBootstrap(cfg *bootstrapv1.BootstrapConfig, opts ...BootstrapOption) (*
 			if spec.health != nil {
 				grpcOpts = append(grpcOpts, baldbootstrap.WithGRPCHealth(spec.health, spec.healthInterval))
 			}
-			sr.MustRegister("grpc", baldbootstrap.GrpcServerProvider(grpcOpts...))
+			if !sr.Has("grpc") {
+				sr.MustRegister("grpc", baldbootstrap.GrpcServerProvider(grpcOpts...))
+			}
 		}
 		buildServers = func(ctx context.Context) ([]transport.Server, func(), error) {
 			return sr.BuildServers(ctx, cfg.GetServer())
