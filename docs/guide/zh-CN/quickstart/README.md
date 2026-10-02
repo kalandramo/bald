@@ -174,5 +174,5 @@ go run ./_example/bald --log.format=json --log.level=debug   # 切换日志格�
 
 ### 下一步
 
-- 阅读 [产品介绍](./introduction/README.md) 了解设计理念。
-- 阅读 [开发手册](../devel/zh-CN/README.md) 深入 Server 契约、配置中心与注册中心设计。
+- 阅读 [产品介绍](../introduction/README.md) 了解设计理念。
+- 阅读 [开发手册](../../../devel/zh-CN/README.md) 深入 Server 契约、配置中心与注册中心设计。

@@ -47,4 +47,4 @@ AppKit（编排层）
   └── contrib 桥接：authn-jwt / store-gorm / authz-casbin / observability-otlp / audit-gorm / audit-stream / database
 ```
 
-更详细的设计文档见 [开发手册](../devel/zh-CN/README.md)。
+更详细的设计文档见 [开发手册](../../../devel/zh-CN/README.md)。

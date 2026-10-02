@@ -59,7 +59,7 @@ bald/
 └── _example/bald/            # 最小示例（appkit 编排 HTTP/gRPC 双协议）
 ```
 
-公开契约速查见 [`docs/devel/zh-CN/框架契约总览.md`](docs/devel/zh-CN/框架契约总览.md)；架构演进与第二轮优化（P10–A1，时空可组合性）见 `docs/devel/zh-CN/架构演进路线.md` 与 `docs/devel/zh-CN/架构优化路线.md`。
+公开契约速查见 [`docs/devel/zh-CN/框架契约总览.md`](docs/devel/zh-CN/框架契约总览.md)；架构演进与第二轮优化（P10–A1，时空可组合性）见 [`docs/devel/zh-CN/架构演进路线.md`](docs/devel/zh-CN/架构演进路线.md) 与 [`docs/devel/zh-CN/架构优化路线.md`](docs/devel/zh-CN/架构优化路线.md)。
 
 ## 快速开始
 
@@ -340,7 +340,7 @@ go test ./...
 
 **怎么选**：想快速体验框架单个能力 → 跑 `_example/bald`；想照着一个真实项目的完整分层抄作业 → clone [`kalandramo/bald-admin`](https://github.com/kalandramo/bald-admin)。
 
-官方代码生成工具（`bald gen proto/store/app`，生成 starter 骨架，详见 架构优化路线 §P12）：
+官方代码生成工具（`bald gen proto/store/app`，生成 starter 骨架，详见 [架构优化路线](docs/devel/zh-CN/架构优化路线.md) §P12）：
 
 ```bash
 go install github.com/kalandramo/bald/cmd/bald@latest
