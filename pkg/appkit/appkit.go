@@ -129,10 +129,10 @@ type AppKit struct {
 	cfg appConfig
 
 	// 可观察性。
-	// TODO 使用场景列举
-	running atomic.Bool
-	done    chan struct{}
-	runErr  atomic.Value // error
+	running  atomic.Bool
+	done     chan struct{}
+	doneOnce sync.Once    // 防「成功后重试」double-close（fail-safe，见 Run 内 defer）
+	runErr   atomic.Value // error
 }
 
 // appConfig 收敛 AppKit 的配置装配输入与加载结果。
@@ -439,7 +439,10 @@ func (a *AppKit) Run(ctx context.Context) error {
 
 	// 以下 defer 必须在 loadConfig 成功之后注册：确保失败路径不 close done。
 	defer a.running.Store(false)
-	defer close(a.done)
+	// doneOnce 保证 done channel 只被关闭一次：一次成功 Run 后 running 归还为
+	// false，若对同一实例再次 Run（误用），裸 close 会 panic("close of closed
+	// channel")——进程级崩溃。Once 把它降级为「无副作用」。
+	defer a.doneOnce.Do(func() { close(a.done) })
 	defer a.cfg.closeStore() // 释放配置监听资源（fsnotify watcher）
 
 	ctx, cancel := context.WithCancel(ctx)

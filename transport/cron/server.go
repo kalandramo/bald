@@ -60,32 +60,39 @@ type Server struct {
 }
 
 // NewServer 创建一个 Cron 服务器实例。
-// 默认使用支持秒级表达式和描述符的解析器。
+// 默认使用支持秒级表达式和描述符的解析器（可用 [WithSeconds] 关闭秒级）。
+//
+// 构造顺序：先求值全部 Option（得到最终配置），再**一次性**构造 scheduler ——
+// 避免「每个 Option 各自重建 scheduler」导致的 Recover 链丢失与互相覆盖。
 func NewServer(opts ...Option) *Server {
-	cronParser := cron.NewParser(
-		cron.Second | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor,
-	)
-
-	srv := &Server{
-		cronScheduler: cron.New(
-			cron.WithParser(cronParser),
-			cron.WithChain(
-				cron.Recover(cron.PrintfLogger(log.New(log.Writer(), "[cron] ", log.LstdFlags))),
-			),
-		),
-		entryIDs:           sync.Map{},
+	o := options{
+		seconds:            true, // 默认保留秒级：与既有行为/文档示例一致
 		gracefullyShutdown: true,
 	}
+	for _, opt := range opts {
+		opt(&o)
+	}
 
-	srv.init(opts...)
+	schedulerOpts := []cron.Option{
+		cron.WithParser(buildParser(o.seconds)),
+		cron.WithChain(
+			cron.Recover(cron.PrintfLogger(log.New(log.Writer(), "[cron] ", log.LstdFlags))),
+		),
+	}
+	if o.location != nil {
+		schedulerOpts = append(schedulerOpts, cron.WithLocation(o.location))
+	}
+	if o.logger != nil {
+		schedulerOpts = append(schedulerOpts, cron.WithLogger(o.logger))
+	}
+
+	srv := &Server{
+		cronScheduler:      cron.New(schedulerOpts...),
+		entryIDs:           sync.Map{},
+		gracefullyShutdown: o.gracefullyShutdown,
+	}
 
 	return srv
-}
-
-func (s *Server) init(opts ...Option) {
-	for _, o := range opts {
-		o(s)
-	}
 }
 
 // ---------------------------------------------------------------------------

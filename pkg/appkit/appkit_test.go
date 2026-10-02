@@ -115,6 +115,51 @@ func TestBug3_CrashCascadeStop(t *testing.T) {
 	}
 }
 
+// TestRun_SuccessThenRetryDoesNotPanic 同一 AppKit 实例在一次成功 Run 之后
+// 再次 Run，必须**不 panic**。
+//
+// 背景：Run 的 `defer close(a.done)` 是裸 defer——一次成功后 running 被归还为
+// false，再次 Run 的 CAS 成功 → 再次执行 close(a.done) → close of closed
+// channel panic（进程级崩溃，比返回错误危险得多）。
+//
+// 语义边界：同一实例成功后**不应**再 Run（会重复启动服务器）；本测试只要求
+// 这个误用是「fail-safe 的可诊断行为」而非「panic 崩溃」。用 recover 捕获，
+// 把 panic 转成可读失败。
+func TestRun_SuccessThenRetryDoesNotPanic(t *testing.T) {
+	withArgs(t, []string{})
+
+	srv := newMock("retry-once")
+	app := New(Name("retry-once"), Servers(srv))
+
+	runOnce := func(tag string) (err error) {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Fatalf("%s: Run panicked (want no panic): %v", tag, r)
+			}
+		}()
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		go func() {
+			time.Sleep(10 * time.Millisecond)
+			cancel() // 触发优雅停机
+		}()
+		return app.Run(ctx)
+	}
+
+	if err := runOnce("first"); err != nil {
+		t.Fatalf("first Run: %v", err)
+	}
+	// Done() 已关闭（首次 Run 结束）。
+	select {
+	case <-app.Done():
+	default:
+		t.Fatal("Done() should be closed after first Run")
+	}
+
+	// 第二次：不得 panic（close of closed channel）。
+	_ = runOnce("second")
+}
+
 // 防重入：重复调用 Run 应返回 ErrAlreadyRunning。
 func TestRun_NoReentrant(t *testing.T) {
 	srv := newMock("s")
