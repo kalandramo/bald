@@ -37,6 +37,7 @@ import (
 
 	"github.com/kalandramo/bald/pkg/appkit"
 	"github.com/kalandramo/bald/pkg/middleware/bundle"
+	"github.com/kalandramo/bald/pkg/store"
 	"github.com/kalandramo/bald/transport"
 )
 
@@ -64,11 +65,13 @@ func newApp() *appkit.AppKit {
 		appkit.Requires("audit.store", "db"),
 
 		// ---- T1 效应账本：全局写入配套逆操作 ----
-		// 任何全局注册（RegisterTenant/SetAuditor...）都应
+		// 任何全局注册（RegisterTenant/SetAuditor/RegisterDataScope...）都应
 		// 配一条 Effect；停机阶段 0 逆序回放，e2e 测试用 UndoEffects 隔离全局状态。
+		// 下例：配合业务 BeforeStart 里的 store.RegisterTenant("tenant_id", ...)，
+		// 提供对偶的 UnregisterTenant 逆操作——缺了它，注册会泄漏到进程重启之后
+		// 不可见、但 e2e 用例之间可互相污染。
 		appkit.Effect("tenant-registration", func(ctx context.Context) error {
-			// store.UnregisterTenant("tenant_id") // 与 RegisterTenant 配对的逆操作
-			_ = ctx
+			store.UnregisterTenant("tenant_id") // 与 RegisterTenant 配对的逆操作
 			return nil
 		}),
 

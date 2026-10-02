@@ -47,6 +47,15 @@ func TestGenApp_TemplateFormats(t *testing.T) {
 			t.Errorf("template missing anchor %q", want)
 		}
 	}
+	// 防回归（T1 可逆性）：Effect 的逆操作必须是**可执行调用**，不是注释空壳——
+	// 此前模板把 store.UnregisterTenant 注释掉，新项目照抄即继承「全局注册点无
+	// 逆操作」的漏洞（e2e 用 UndoEffects 隔离时策略泄漏到下一用例）。
+	if strings.Contains(buf.String(), "// store.UnregisterTenant") {
+		t.Error("Effect undo is a commented-out shell; enable store.UnregisterTenant(...)")
+	}
+	if !strings.Contains(buf.String(), `store.UnregisterTenant("tenant_id")`) {
+		t.Error(`template missing executable store.UnregisterTenant("tenant_id") in Effect undo`)
+	}
 }
 
 // TestGenApp_GeneratedCodeCompiles 端到端：实际生成到临时目录并在 bald module 内
