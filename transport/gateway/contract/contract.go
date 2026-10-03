@@ -32,14 +32,14 @@ import (
 // Type 是契约 server 段中 gateway 后端的段名。
 const Type = "gateway"
 
-// ServerProvider 是契约驱动的服务器工厂签名（结构化兼容 bootstrap.ServerProvider）。
-type ServerProvider func(ctx context.Context, cfg *bootstrapv1.Server) (transport.Server, func(), error)
-
 // RegisterFunc 是 grpc-gateway 转码注册回调：业务在此建 runtime.ServeMux 并组合
 // pb.RegisterXxxHandler。与 bootstrap.HTTPServerOption 的 WithGatewayRegister 同签名。
 type RegisterFunc func(ctx context.Context, conn *grpc.ClientConn) (http.Handler, error)
 
-// Provider 返回契约驱动的 gateway ServerProvider。
+// Provider 返回契约驱动的 gateway 工厂函数。
+//
+// 返回**未命名函数类型**（与 cache/redis/contract.Provider 同惯例）——调用点可直接
+// 赋给 bootstrap.ServerProvider，无需显式转换，且本包不必 import bootstrap。
 //
 // register 必供：它是转码面的**业务内容**（哪些 service 暴露为 REST），契约段
 // 的声明式字段表达不了。为 nil 时构造期 fail-fast——配置声明了 gateway 段却
@@ -47,7 +47,7 @@ type RegisterFunc func(ctx context.Context, conn *grpc.ClientConn) (http.Handler
 //
 // 段后端地址解析：sec.backend_grpc_addr 非空时用它，否则回退 cfg.server.grpc.addr
 // ——后者覆盖「gateway 与 gRPC 同进程」的常见拓扑（无需重复声明地址）。
-func Provider(register RegisterFunc) ServerProvider {
+func Provider(register RegisterFunc) func(context.Context, *bootstrapv1.Server) (transport.Server, func(), error) {
 	return func(_ context.Context, cfg *bootstrapv1.Server) (transport.Server, func(), error) {
 		sec := cfg.GetGateway()
 		if sec == nil {

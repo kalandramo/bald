@@ -32,10 +32,6 @@ import (
 // Type 是契约 server 段中 asynq 后端的段名。
 const Type = "asynq"
 
-// ServerProvider 是契约驱动的服务器工厂签名（结构化兼容 bootstrap.ServerProvider）。
-// 返回值语义：段未配置 → (nil, nil, nil) 表示跳过；构造失败 → error。
-type ServerProvider func(ctx context.Context, cfg *bootstrapv1.Server) (transport.Server, func(), error)
-
 // Option 配置本 Provider 的行为（非 asynq 服务器的 Option——那是 asynq.Option）。
 //
 // 为什么需要它：asynq 的**任务处理器注册**（RegisterSubscriber）是应用逻辑，
@@ -86,12 +82,16 @@ func WithCodecRegistration(fn func()) Option {
 	return func(c *providerConfig) { c.codecRegist = fn }
 }
 
-// Provider 返回契约驱动的 asynq ServerProvider。
+// Provider 返回契约驱动的 asynq 工厂函数。
+//
+// 返回**未命名函数类型**（与 cache/redis/contract.Provider 同惯例）——这样调用点
+// 可直接赋给 bootstrap.ServerProvider（具名类型可从同名未命名函数类型隐式转换），
+// 无需显式转换，且本包不必 import bootstrap。
 //
 // 仅当契约 server.asynq 段存在时构造（段缺失返回 nil server，BuildServers 跳过）。
 // 段字段按「未设置即用实现默认」语义映射（区别于契约零值——见 proto 中 optional
 // 三态与 0 哨兵的说明）。
-func Provider(opts ...Option) ServerProvider {
+func Provider(opts ...Option) func(context.Context, *bootstrapv1.Server) (transport.Server, func(), error) {
 	c := &providerConfig{}
 	for _, o := range opts {
 		o(c)

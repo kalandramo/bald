@@ -26,9 +26,6 @@ import (
 // Type 是契约 server 段中 cron 后端的段名。
 const Type = "cron"
 
-// ServerProvider 是契约驱动的服务器工厂签名（结构化兼容 bootstrap.ServerProvider）。
-type ServerProvider func(ctx context.Context, cfg *bootstrapv1.Server) (transport.Server, func(), error)
-
 // Option 配置本 Provider 的行为（非 cron 服务器的 Option——那是 cron.Option）。
 type Option func(*providerConfig)
 
@@ -52,7 +49,11 @@ func WithServerOptions(opts ...cron.Option) Option {
 	return func(c *providerConfig) { c.extraOpts = append(c.extraOpts, opts...) }
 }
 
-// Provider 返回契约驱动的 cron ServerProvider。
+// Provider 返回契约驱动的 cron 工厂函数。
+//
+// 返回**未命名函数类型**（与 cache/redis/contract.Provider 同惯例）——调用点可直接
+// 赋给 bootstrap.ServerProvider（具名类型可从同名未命名函数类型隐式转换），无需
+// 显式转换，且本包不必 import bootstrap。
 //
 // 仅当契约 server.cron 段存在时构造（段缺失返回 nil server，BuildServers 跳过）。
 // 段字段按「未设置即用实现默认」语义映射（optional bool 为 nil 时不传 Option；
@@ -60,7 +61,7 @@ func WithServerOptions(opts ...cron.Option) Option {
 //
 // 注意 cron 无需外部依赖（进程内调度器），故段存在时总是构造成功——与 asynq
 // 不同（asynq 需 Redis，无地址时业务可自行降级）。
-func Provider(opts ...Option) ServerProvider {
+func Provider(opts ...Option) func(context.Context, *bootstrapv1.Server) (transport.Server, func(), error) {
 	c := &providerConfig{}
 	for _, o := range opts {
 		o(c)
