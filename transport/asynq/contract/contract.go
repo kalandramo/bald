@@ -40,10 +40,11 @@ const Type = "asynq"
 type Option func(*providerConfig)
 
 type providerConfig struct {
-	handlers     []func(context.Context, *asynq.Server) error
-	extraOpts    []asynq.Option
-	codecRegist  func()
-	addrResolver func() string
+	handlers      []func(context.Context, *asynq.Server) error
+	extraOpts     []asynq.Option
+	codecRegist   func()
+	addrResolver  func() string
+	codecResolver func() string
 }
 
 // WithHandlers 注册「server 构造后」的处理器挂载回调。
@@ -64,6 +65,14 @@ func WithHandlers(fn func(context.Context, *asynq.Server) error) Option {
 // 段字段非空时本回调**不**被调用（显式配置优先）。
 func WithAddressResolver(fn func() string) Option {
 	return func(c *providerConfig) { c.addrResolver = fn }
+}
+
+// WithCodecResolver 设置「段 codec 为空时」的编解码器名解析回调。
+//
+// 对称于 [WithAddressResolver]：契约段未配 codec 时业务可回退（如 env
+// BALD_ADMIN_ASYNQ_CODEC）。段字段非空时本回调**不**被调用。
+func WithCodecResolver(fn func() string) Option {
+	return func(c *providerConfig) { c.codecResolver = fn }
 }
 
 // WithServerOptions 追加 asynq.Option——补齐契约段表达不了的能力（约 46 个
@@ -111,6 +120,12 @@ func Provider(opts ...Option) func(context.Context, *bootstrapv1.Server) (transp
 		if sec.GetRedisAddress() == "" && c.addrResolver != nil {
 			if addr := c.addrResolver(); addr != "" {
 				allOpts = append(allOpts, asynq.WithRedisAddress(addr))
+			}
+		}
+		// 段未配 codec 时回退到业务解析器（保 env BALD_ADMIN_ASYNQ_CODEC 兼容）。
+		if sec.GetCodec() == "" && c.codecResolver != nil {
+			if name := c.codecResolver(); name != "" {
+				allOpts = append(allOpts, asynq.WithCodec(name))
 			}
 		}
 		allOpts = append(allOpts, c.extraOpts...)

@@ -16,6 +16,7 @@ require (
 	github.com/hibiken/asynq v0.26.0
 	github.com/kalandramo/bald/bconf v0.7.2
 	github.com/kalandramo/bald/encoding v0.1.0
+	github.com/kalandramo/bald/encoding/json v0.1.1
 	github.com/kalandramo/bald/transport v0.2.1
 	github.com/stretchr/testify v1.12.1
 )

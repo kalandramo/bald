@@ -13,10 +13,13 @@ package contract
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
 
+	"github.com/kalandramo/bald/encoding"
+	"github.com/kalandramo/bald/encoding/json"
 	"github.com/kalandramo/bald/transport/asynq"
 )
 
@@ -169,4 +172,55 @@ func TestProvider_AddressResolverNotCalledWhenSectionSet(t *testing.T) {
 	if called {
 		t.Fatal("address resolver was invoked despite explicit section address (explicit must win)")
 	}
+}
+
+// TestProvider_CodecResolverFallback 段 codec 为空 → 用解析器回退（保 env 兼容）。
+func TestProvider_CodecResolverFallback(t *testing.T) {
+	called := false
+	// 先注册 codec，避免 WithCodec 静默设 nil。
+	registerTestCodec()
+	p := Provider(
+		WithCodecRegistration(registerTestCodec),
+		WithCodecResolver(func() string {
+			called = true
+			return "json"
+		}),
+	)
+	cfg := &bootstrapv1.Server{
+		Asynq: &bootstrapv1.Server_Asynq{RedisAddress: "127.0.0.1:6379"}, // codec 空
+	}
+	if _, _, err := p(context.Background(), cfg); err != nil {
+		t.Fatalf("Provider() error = %v", err)
+	}
+	if !called {
+		t.Fatal("codec resolver was not invoked when section codec is empty")
+	}
+}
+
+// TestProvider_CodecResolverNotCalledWhenSectionSet 段显式配 codec → 不调解析器。
+func TestProvider_CodecResolverNotCalledWhenSectionSet(t *testing.T) {
+	called := false
+	p := Provider(
+		WithCodecRegistration(registerTestCodec),
+		WithCodecResolver(func() string {
+			called = true
+			return "should-not-be-used"
+		}),
+	)
+	cfg := &bootstrapv1.Server{
+		Asynq: &bootstrapv1.Server_Asynq{RedisAddress: "127.0.0.1:6379", Codec: "json"},
+	}
+	if _, _, err := p(context.Background(), cfg); err != nil {
+		t.Fatalf("Provider() error = %v", err)
+	}
+	if called {
+		t.Fatal("codec resolver was invoked despite explicit section codec (explicit must win)")
+	}
+}
+
+var testCodecOnce sync.Once
+
+// registerTestCodec 注册 json codec（幂等），供本文件需 WithCodec 的用例。
+func registerTestCodec() {
+	testCodecOnce.Do(func() { encoding.MustRegister(json.New()) })
 }
