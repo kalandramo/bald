@@ -57,6 +57,18 @@ Effect；实例经 `app.Database/Cache/Storage` 取回注入）——go-bald-adm
 的 DB/Redis/MinIO 桥接即此路径，与 contrib contract 官方 provider 并存
 （两条合法路径，代码声明能力）。
 
+**协议服务器注入口（2026-10-03 新增）**：`appkit.WithServerRegistry` 补齐了
+server 域此前**唯一缺失**的注入口（其余 12 个资源域都有 `With*Registry`，
+server 却是 appkit 内的函数局部变量、硬编码只注册 http/grpc）。语义：
+- 未声明本 Option → 框架自建空表并补注册 http/grpc（既有行为不变）；
+- 声明本 Option → 在用户表**之上**补注册 http/grpc（`Has` 判重，不覆盖同名）；
+- 用户注册的段名进入 `validateServerSections` 的「已实现」判据——故
+  `implemented=false` 的段（如 `server.asynq`/`server.cron`/`server.gateway`）
+  一旦有对应 provider 注册即合法，不再 fail-fast。
+
+这使**后端子模块提供的协议实现**（`transport/asynq/contract` 等）成为正式路径，
+而非被迫走 `WithExtraServers` 逃生舱（后者收已构造实例，会逼使装配滑回构造期）。
+
 原则：**能力声明在代码**。契约有 server.grpc 段但业务未 `WithGRPC` 时，对应 flag
 变更不产生效果（没有 server 消费）——这是刻意的，避免「配置说开了、没人实现」
 的静默失效（与 S1 能力声明 fail-fast 同哲学）。
@@ -109,6 +121,7 @@ app, err := appkit.FromBootstrap(bootstrap,
     appkit.WithCacheRegistry(cacheReg),            // 契约驱动缓存实例（cache.<backend> 段查表；cache/<backend>/contract 注册）
     appkit.WithStorageRegistry(storageReg),        // 契约驱动对象存储（storage.<backend> 段查表；oss/<backend>/contract 注册）
     appkit.WithAiRegistry(aiReg),                  // 契约驱动 AI 客户端（ai.<backend> 段查表；ai/<backend>/contract 注册）
+    appkit.WithServerRegistry(srvReg),             // 契约驱动协议服务器（server.<proto> 段查表；transport/<proto>/contract 注册；框架内置 http/grpc）
     appkit.WithTracerRegistry(trReg),              // 契约驱动 tracer（tracer 段查表；observability-otlp/contract 注册）
     appkit.WithMetricsRegistry(mReg),              // 契约驱动 metrics（metrics 段查表；含独立暴露端缺省 :9091）
 )
