@@ -9,7 +9,7 @@ replace github.com/kalandramo/bald/transport => ..
 replace github.com/kalandramo/bald/transport/http => ../http
 
 require (
-	github.com/kalandramo/bald/bconf v0.7.2
+	github.com/kalandramo/bald/bconf v0.9.0
 	github.com/kalandramo/bald/transport/http v0.1.1
 	google.golang.org/grpc v1.83.2
 )
