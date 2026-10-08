@@ -152,6 +152,9 @@ func (s *Server) Start(ctx context.Context) error {
 	if lis2 != nil {
 		_ = lis2.Close()
 	}
+	// 关闭全部已建会话：否则空闲连接（readPump 阻塞在 conn.Read）的
+	// goroutine 与 socket 在 Stop 后继续存活。
+	s.sessionManager.CloseAll()
 	log.Println("[tcp] server stopped")
 	return nil
 }
@@ -166,13 +169,15 @@ func (s *Server) Stop(_ context.Context) error {
 	}
 
 	s.running = false
+	var err error
 	if s.lis != nil {
-		err := s.lis.Close()
+		err = s.lis.Close()
 		s.lis = nil
-		log.Println("[tcp] server stopped")
-		return err
 	}
-	return nil
+	// 关闭全部已建会话（见 Start 内注释；与 Start 的退出路径对称）。
+	s.sessionManager.CloseAll()
+	log.Println("[tcp] server stopped")
+	return err
 }
 
 // Endpoint 返回服务器的访问地址。

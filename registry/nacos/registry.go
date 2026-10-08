@@ -17,6 +17,7 @@ import (
 	"net"
 	"net/url"
 	"strconv"
+	"sync"
 
 	"github.com/nacos-group/nacos-sdk-go/v2/clients"
 	"github.com/nacos-group/nacos-sdk-go/v2/clients/naming_client"
@@ -38,6 +39,12 @@ var (
 type Registry struct {
 	opts options
 	cli  naming_client.INamingClient
+
+	// owned 为 true 表示 cli 由本 Registry 自建（New），Close 时负责关闭；
+	// false 表示 cli 由调用方注入（NewWithClient），不负责关闭。
+	// 对齐 registry/etcd 的 owned 语义。
+	owned     bool
+	closeOnce sync.Once
 }
 
 // New 按 options 自建 nacos naming client 并构造 Registry（拥有 client 生命周期）。
@@ -76,7 +83,7 @@ func New(opts ...Option) (*Registry, error) {
 	if err != nil {
 		return nil, fmt.Errorf("nacos: create naming client: %w", err)
 	}
-	return &Registry{opts: op, cli: cli}, nil
+	return newRegistry(cli, op, true), nil
 }
 
 // NewWithClient 注入既有 nacos naming client 构造 Registry（不负责 client 关闭）。
@@ -84,13 +91,24 @@ func NewWithClient(cli naming_client.INamingClient, opts ...Option) (*Registry, 
 	if cli == nil {
 		return nil, errors.New("nacos: naming client is nil")
 	}
-	op := newOptions(opts...)
-	return &Registry{opts: op, cli: cli}, nil
+	return newRegistry(cli, newOptions(opts...), false), nil
 }
 
-// Close 释放 Registry 资源。nacos SDK v2 的 ephemeral 实例随连接断开自动
-// 注销；SDK 未暴露 client 级 Close，这里仅保留占位语义（幂等 no-op）。
-func (r *Registry) Close() error { return nil }
+func newRegistry(cli naming_client.INamingClient, op options, owned bool) *Registry {
+	return &Registry{opts: op, cli: cli, owned: owned}
+}
+
+// Close 释放 Registry 资源：自建模式下关闭 naming client（含其 gRPC 长连接与
+// 心跳/订阅协程）；注入模式（NewWithClient）下 client 归调用方，不关闭。
+// 幂等，可安全在停机 Effect 与测试 cleanup 中重复调用。
+func (r *Registry) Close() error {
+	r.closeOnce.Do(func() {
+		if r.owned && r.cli != nil {
+			r.cli.CloseClient()
+		}
+	})
+	return nil
+}
 
 // Register 注册一个实例：按 endpoint 逐个注册（服务名带协议后缀 name.scheme）。
 func (r *Registry) Register(_ context.Context, si *registry.ServiceInstance) error {

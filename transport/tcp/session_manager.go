@@ -46,6 +46,34 @@ func (sm *SessionManager) Clean() {
 	sm.sessions.Clear()
 }
 
+// CloseAll 关闭并移除全部会话。
+//
+// 与 Clean 的区别（关键）：Clean 只做 sync.Map.Clear（丢弃引用，**不关连接、
+// 不停止 pump goroutine**）；CloseAll 逐个调用 Session.Close（closeOnce 幂等），
+// 真正释放每会话持有的 net.Conn 与 read/write pump goroutine。
+//
+// 服务于 Server.Stop：此前 Stop 只关 listener，远端保持连接但空闲的会话
+// （readPump 阻塞在 conn.Read）会一直挂着——运行期热插拔/重建 server 时泄漏。
+func (sm *SessionManager) CloseAll() {
+	var sessions []*Session
+	sm.sessions.Range(func(_, val any) bool {
+		if s, ok := val.(*Session); ok {
+			sessions = append(sessions, s)
+		}
+		return true
+	})
+
+	for _, s := range sessions {
+		s.Close() // 内部 removeSession→LoadAndDelete，逐条清出管理器
+	}
+
+	// 兜底：清掉未被 removeSession 摘除的残留（如 hook 缺失路径）。
+	if len(sessions) == 0 {
+		return
+	}
+	sm.sessions.Clear()
+}
+
 // count returns the number of active sessions.
 func (sm *SessionManager) count() int {
 	count := 0
