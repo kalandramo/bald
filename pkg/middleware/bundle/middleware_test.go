@@ -228,3 +228,36 @@ func TestFromMiddleware_AllSevenSegments(t *testing.T) {
 		t.Fatalf("全段装配后请求应 200，got %d", w.Code)
 	}
 }
+
+// TestFromMiddleware_CORSValidateEnforced 桥必须**调用** CORS 校验（而非只构造
+// 配置）——`allowed_origins:["*"]` 与 `allow_credentials:true` 同时出现时装配报错。
+//
+// 本测试的由来（如实记录）：对桥做「跳过 cc.Validate()」打靶时，gin/bundle 两包
+// 仍全绿——因 gin 侧只直接测了方法本身，未覆盖**桥的调用点**。补此用例封住该缺口。
+func TestFromMiddleware_CORSValidateEnforced(t *testing.T) {
+	// 非法组合：通配来源 + 凭证 → 装配期必须报错。
+	mw := mustMiddleware(t, `{"cors":{"allowedOrigins":["*"],"allowCredentials":true}}`)
+	_, _, err := FromMiddleware(mw)
+	if err == nil {
+		t.Fatal("allowed_origins=[\"*\"] + allow_credentials=true 应使装配 fail-fast（浏览器会拒绝该响应）")
+	}
+	if !strings.Contains(err.Error(), "cors") {
+		t.Errorf("错误信息应指明 cors 段，got: %v", err)
+	}
+
+	// 合法组合：显式来源 + 凭证 → 通过。
+	mw = mustMiddleware(t, `{"cors":{"allowedOrigins":["https://a.example"],"allowCredentials":true}}`)
+	_, closeFn, err := FromMiddleware(mw)
+	if err != nil {
+		t.Fatalf("显式来源 + 凭证应合法: %v", err)
+	}
+	defer closeFn()
+
+	// 合法组合：通配来源 + 无凭证 → 通过（默认形态）。
+	mw = mustMiddleware(t, `{"cors":{"allowedOrigins":["*"]}}`)
+	_, closeFn2, err := FromMiddleware(mw)
+	if err != nil {
+		t.Fatalf("通配来源 + 无凭证应合法: %v", err)
+	}
+	defer closeFn2()
+}

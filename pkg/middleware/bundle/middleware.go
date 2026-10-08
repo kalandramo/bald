@@ -77,7 +77,11 @@ func FromMiddleware(mw *bootstrapv1.Server_Http_Middleware) (opts []Option, clos
 
 	// --- cors ---
 	if c := mw.GetCors(); c != nil {
-		opts = append(opts, CORS(corsConfigFrom(c)))
+		cc := corsConfigFrom(c)
+		if verr := cc.Validate(); verr != nil {
+			return nil, close, fmt.Errorf("bundle: middleware.cors: %w", verr)
+		}
+		opts = append(opts, CORS(cc))
 	}
 
 	// --- rate_limit ---

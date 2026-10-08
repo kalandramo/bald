@@ -31,6 +31,21 @@ func DefaultCORS() *CORSConfig {
 	}
 }
 
+// Validate 校验跨域配置的**规范性约束**。
+//
+// 目前只拦一条：`AllowOrigin == "*"` 与 `AllowCredentials == true` 同时出现。
+// 这是 W3C Fetch 规范的硬禁止（带凭证的请求，Allow-Origin 不得为通配符），
+// 浏览器会直接拒绝该响应——即服务端「看起来配好了」、实际全部 CORS 失败，
+// 是典型的静默失效。中间件本身无法替调用方改写语义（改写 "*" 为具体来源需要
+// 请求上下文），故在装配期 fail-fast 让问题在启动时暴露。
+func (c *CORSConfig) Validate() error {
+	if c.AllowOrigin == "*" && c.AllowCredentials {
+		return fmt.Errorf("gin: cors: allowed_origins [\"*\"] with allow_credentials=true is rejected by browsers " +
+			"(fetch spec forbids wildcard origin with credentials); list explicit origins instead")
+	}
+	return nil
+}
+
 // CORS 是 gin 跨域中间件。OPTIONS 预检直接返回 204，普通请求写入响应头。
 func CORS(config *CORSConfig) gin.HandlerFunc {
 	return func(c *gin.Context) {

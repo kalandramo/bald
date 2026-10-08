@@ -188,3 +188,25 @@ func TestTracing_NoLogButTraceIDInContext(t *testing.T) {
 		t.Error("tracing 应把 trace_id 注入请求 ctx（审计/日志关联的落点）")
 	}
 }
+
+// --- cors 规范性约束（`*` + credentials 是浏览器禁止的组合）---
+
+func TestCORSConfig_ValidateRejectsWildcardWithCredentials(t *testing.T) {
+	// 非法组合：通配来源 + 凭证。
+	bad := &CORSConfig{AllowOrigin: "*", AllowCredentials: true}
+	if err := bad.Validate(); err == nil {
+		t.Fatal("allowed_origins=[\"*\"] + allow_credentials=true 应被拒（浏览器会拒绝该响应）")
+	}
+
+	// 合法：显式来源 + 凭证。
+	ok1 := &CORSConfig{AllowOrigin: "https://a.example", AllowCredentials: true}
+	if err := ok1.Validate(); err != nil {
+		t.Errorf("显式来源 + 凭证应合法: %v", err)
+	}
+
+	// 合法：通配来源 + 无凭证（默认配置即此）。
+	ok2 := DefaultCORS()
+	if err := ok2.Validate(); err != nil {
+		t.Errorf("DefaultCORS 应合法: %v", err)
+	}
+}
