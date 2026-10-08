@@ -155,6 +155,8 @@ require (
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/kalandramo/bald/bconfig v0.1.0 // indirect
+	github.com/kalandramo/bald/ratelimit v0.1.0
+	github.com/kalandramo/bald/ratelimit/tokenbucket v0.1.0
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/magiconair/properties v1.8.5 // indirect
@@ -223,3 +225,7 @@ require (
 	sigs.k8s.io/structured-merge-diff/v6 v6.4.2 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
+
+replace github.com/kalandramo/bald/ratelimit => ./ratelimit
+
+replace github.com/kalandramo/bald/ratelimit/tokenbucket => ./ratelimit/tokenbucket

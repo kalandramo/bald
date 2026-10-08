@@ -60,6 +60,12 @@ type Bundle struct {
 	corsCfg *ginmw.CORSConfig
 	secure  bool
 
+	// rateLimiter 是配置驱动的限流层（gin 专属，D5）。契约
+	// server.http.middleware.rate_limit 经 RateLimitFromMiddleware 构造后经
+	// RateLimit 注入；nil 表示未启用。gRPC 链无对应段（契约 Grpc.Middleware
+	// 不含 rate_limit）。
+	rateLimiter *ginmw.RateLimiter
+
 	// logging 控制请求日志/可观测中间件（默认开启）。
 	logging bool
 }
@@ -94,6 +100,17 @@ func CORS(cfg *ginmw.CORSConfig) Option { return func(b *Bundle) { b.corsCfg = c
 
 // Secure 附加 gin 安全响应头中间件（gRPC 链无对应层）。
 func Secure() Option { return func(b *Bundle) { b.secure = true } }
+
+// RateLimit 附加配置驱动的限流层（gin 专属，D5）。rl 通常来自
+// [RateLimitFromMiddleware]（契约 server.http.middleware.rate_limit → 中间件）。
+// 传 nil 等同不设置（与 CORS 惯例一致：缺省不装配）。
+//
+// 链序：限流挂在业务 handler 之前、认证/授权之后（见 Gin 的链序说明）——
+// 先认证再限流，避免匿名流量耗尽配额拖垮已认证用户。
+//
+// 生命周期：Bundle 不持有 rl 的关闭职责（与 CORS 同）——调用方在停机时
+// 调 rl.Close()（RateLimiter.Close 幂等）。
+func RateLimit(rl *ginmw.RateLimiter) Option { return func(b *Bundle) { b.rateLimiter = rl } }
 
 // NoLogging 关闭请求日志/可观测中间件（默认开启）。
 func NoLogging() Option { return func(b *Bundle) { b.logging = false } }
@@ -132,6 +149,13 @@ func (b *Bundle) Gin() []gin.HandlerFunc {
 	}
 	if b.authorizer != nil {
 		chain = append(chain, b.ginAuthz())
+	}
+	if b.rateLimiter != nil {
+		// 限流在最内层（业务 handler 之前）：目标是对「业务操作」限流，
+		// 且天然可见认证后的 subject（为将来按用户限流留位）。代价是它不
+		// 保护认证/授权层自身——若需在认证前限流以保护认证层，业务可自行
+		// 把 ginmw.RateLimit 挂到链首（本层只是默认落点）。
+		chain = append(chain, b.rateLimiter.Handler())
 	}
 	return chain
 }
