@@ -193,8 +193,16 @@ func (b *Breaker) Execute(ctx context.Context, fn func() error) error {
 }
 
 // State implements [circuitbreaker.CircuitBreaker].
-// The SRE breaker is always conceptually "closed" — it degrades gracefully
-// rather than fully opening. We report Open when acceptance drops to 0.
+//
+// ⚠️ **D4 语义提示**：SRE 的接受率 `accept = (requests - k*errors) / (requests + 1)`
+// 对任何 `requests > 0` 都恒 `< 1`（分母比分子大 1），故：
+//   - `StateClosed` **仅在零请求时可达**（下方早退分支）；
+//   - 一旦产生过请求，只可能是 `StateHalfOpen`（accept<1 且 >0）或
+//     `StateOpen`（accept<=0）。
+//
+// 即「本 breaker 是优雅降级而非三态熔断」——需要真正的三态语义请改用
+// 阈值式实现（`circuitbreaker/hystrix`）。该性质由 `state_chars_test.go`
+// 的特征化测试钉住（不改变本实现语义）。
 func (b *Breaker) State() circuitbreaker.State {
 	b.mu.Lock()
 	defer b.mu.Unlock()

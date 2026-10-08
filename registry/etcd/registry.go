@@ -106,6 +106,11 @@ func (r *Registry) Close() error {
 
 // Register 注册一个实例：Grant 租约 + Put（heartBeat 后台续约保活）。
 func (r *Registry) Register(ctx context.Context, service *registry.ServiceInstance) error {
+	// D15 前置闸门（单一真相源，见 registry.ServiceInstance.Validate）：
+	// 缺 Name/ID 会静默注册到 `<ns>//<id>` 这类畸形 key。
+	if err := service.Validate(); err != nil {
+		return err
+	}
 	value, err := marshal(service)
 	if err != nil {
 		return err

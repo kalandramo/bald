@@ -9,7 +9,10 @@
 //   - 提供内存实现（inmemory）用于开发/测试。
 package registry
 
-import "context"
+import (
+	"context"
+	"errors"
+)
 
 // ServiceInstance 描述一个注册到服务发现中心的应用实例。
 type ServiceInstance struct {
@@ -25,6 +28,33 @@ type ServiceInstance struct {
 	Endpoints []string `json:"endpoints"`
 	// Kind 实例类型（如 "grpc"、"http"、"mixed"）。
 	Kind string `json:"kind"`
+}
+
+// Validate 校验实例的必要字段。**Register 的前置闸门**——各 backend 的
+// Register 首行应调用它，避免缺 Name/ID 时静默注册到畸形 key
+// （如 `<namespace>//<id>`、`<namespace>/<name>/`）。
+//
+// 为什么放在契约层而非各 backend 内：四个后端（etcd/consul/nacos/kubernetes）
+// 各自判断会重演「同一不变量的多处实现只改一处」——收敛为单一闸门。
+//
+// 字段要求：
+//   - ID 非空：注册 key 的最后一段，空则拼出 `<ns>/<name>/`；
+//   - Name 非空：注册 key 的中间段，空则拼出 `<ns>//<id>`（不可按正常语义发现）；
+//   - Endpoints 允许为空（如 MQ 家族子模块无监听端点，见 transport/broker 注释）。
+//
+// 对齐同组件其它入口的 fail-fast 质量：etcd.New 缺 endpoint 报
+// "etcd: endpoints is required"、contract.Provider 缺段报错。
+func (s *ServiceInstance) Validate() error {
+	if s == nil {
+		return errors.New("registry: service instance is nil")
+	}
+	if s.Name == "" {
+		return errors.New("registry: service instance Name is required (empty name registers under a malformed key)")
+	}
+	if s.ID == "" {
+		return errors.New("registry: service instance ID is required (empty id registers under a malformed key)")
+	}
+	return nil
 }
 
 // Registrar 是服务注册中心的最小契约。

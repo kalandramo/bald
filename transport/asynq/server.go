@@ -115,6 +115,13 @@ func NewServer(opts ...Option) *Server {
 		redisConnOpt: newRedisClientOpt(),
 		asynqConfig: asynq.Config{
 			Concurrency: defaultConcurrency,
+			// D9：默认 ErrorHandler——把 asynq 的静默失败提升为显式日志。
+			// 关键场景：消费一个**无对应处理器**的任务类型时，asynq 抛
+			// ErrHandlerNotFound 且默认不打印 → 表现为「注册成功但永不执行、
+			// 无任何输出」（实测等 70 秒静默）。此处至少留下可观测痕迹。
+			// 仅加可观测性，不改变「是否触发」——类型定义可先于处理器存在
+			// 是刻意的设计张力（见《框架缺陷报告》D9）。
+			ErrorHandler: asynq.ErrorHandlerFunc(defaultErrorHandler),
 		},
 		schedulerOpts: &asynq.SchedulerOpts{},
 		mux:           asynq.NewServeMux(),
@@ -132,6 +139,26 @@ func NewServer(opts ...Option) *Server {
 	srv.init(opts...)
 
 	return srv
+}
+
+// defaultErrorHandler 是 NewServer 装配的默认 asynq.ErrorHandler（D9）。
+//
+// 旁路语义：绝不 panic、绝不吞掉之后的处理（与审计/效应撤销同一纪律）。
+// 业务可用 [WithErrorHandler] 覆盖它（覆盖优先——init 在 NewServer 之后跑）。
+func defaultErrorHandler(_ context.Context, task *asynq.Task, err error) {
+	typeName := "<nil>"
+	if task != nil {
+		typeName = task.Type()
+	}
+	if errors.Is(err, asynq.ErrHandlerNotFound) {
+		// 最高价值的告警：注册了任务却无人消费（错误可排查性最低的场景）。
+		log.Printf("[asynq] WARN: no handler registered for task type %q — the task will NOT be processed "+
+			"(register one via RegisterSubscriber / RegisterSubscriberWithCtx)", typeName)
+		return
+	}
+	if err != nil {
+		log.Printf("[asynq] task %q processing error: %v", typeName, err)
+	}
 }
 
 func (s *Server) init(opts ...Option) {
@@ -666,6 +693,12 @@ func (s *Server) NewPeriodicTask(cronSpec, typeName string, msg any, opts ...asy
 }
 
 // RemovePeriodicTask 移除一个定时任务。
+// RemovePeriodicTask 按 **taskId（任务类型名，即 NewPeriodicTask 的 typeName）**
+// 移除周期任务——内部经 QueryPeriodicTaskEntryID 反查 entryID。
+//
+// ⚠️ 参数语义提示（D10）：本方法收的是 **taskId**，而 [Server.NewPeriodicTask]
+// 的返回值是 **entryID**——两者不对称，直接回传会报 `periodic task not found`。
+// 若持有的是 NewPeriodicTask 的返回值，请用 [Server.RemovePeriodicTaskByEntryID]。
 func (s *Server) RemovePeriodicTask(taskId string) error {
 	entryId := s.QueryPeriodicTaskEntryID(taskId)
 	if entryId == "" {
@@ -677,6 +710,26 @@ func (s *Server) RemovePeriodicTask(taskId string) error {
 	}
 
 	s.removePeriodicTaskEntryID(taskId)
+	return nil
+}
+
+// RemovePeriodicTaskByEntryID 按 **entryID（NewPeriodicTask 的返回值）** 移除
+// 周期任务——与 [Server.NewPeriodicTask] 的返回类型对称，消除 D10 的误传风险。
+//
+// 幂等：entryID 不存在（或对应的 taskId 已不在反查表）时返回 nil——移除本就不
+// 存在的东西是成功的（与 Store.Delete 的幂等语义一致），而非报错。
+func (s *Server) RemovePeriodicTaskByEntryID(entryID string) error {
+	if err := s.unregisterPeriodicTask(entryID); err != nil {
+		return err
+	}
+	// 同步清理 taskId→entryID 反查表，避免留下指向已注销 entry 的孤儿条目。
+	s.mtxEntryIDs.Lock()
+	for taskID, eid := range s.entryIDs {
+		if eid == entryID {
+			delete(s.entryIDs, taskID)
+		}
+	}
+	s.mtxEntryIDs.Unlock()
 	return nil
 }
 

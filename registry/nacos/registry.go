@@ -112,8 +112,10 @@ func (r *Registry) Close() error {
 
 // Register 注册一个实例：按 endpoint 逐个注册（服务名带协议后缀 name.scheme）。
 func (r *Registry) Register(_ context.Context, si *registry.ServiceInstance) error {
-	if si.Name == "" {
-		return ErrServiceInstanceNameEmpty
+	// D15 前置闸门（单一真相源，见 registry.ServiceInstance.Validate）——
+	// 统一收编原先的内联 `si.Name == ""` 判断，并补上此前缺失的 ID 校验。
+	if err := si.Validate(); err != nil {
+		return err
 	}
 	for _, endpoint := range si.Endpoints {
 		u, err := url.Parse(endpoint)

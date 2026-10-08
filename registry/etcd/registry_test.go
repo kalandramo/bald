@@ -19,6 +19,7 @@ package etcd
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -131,30 +132,38 @@ func TestRegisterDiscoverDeregister(t *testing.T) {
 	t.Log("注销成功：实例已从 etcd 消失")
 }
 
-// TestRegister_MissingNameIsAccepted —— **记录一个框架行为（D15）**：
-// `Register` 不校验 `service.Name`，缺 name 时**静默成功**。
+// TestRegister_MissingNameIsRejected —— **D15 已修**（2026-10-08）：
+// Register 经契约层 ServiceInstance.Validate 前置校验，缺 Name 时**报错**，
+// 不再静默注册到 `<ns>//<id>` 这类畸形 key。
 //
-// 依据：`registry.go:108-116` 的 `Register` 直接用
-// `fmt.Sprintf("%s/%s/%s", namespace, service.Name, service.ID)` 拼 key，
-// **无任何前置校验**——name 为空会注册到 `<ns>//<id>` 这种畸形 key 下，
-// 不报错、不可发现（`GetService("")` 语义未定义）。
-//
-// 本测试**断言当前行为**（静默接受）以锁定事实，而非断言它应报错——
-// 后者会红（因为框架确实不校验）。缺陷记入报告 D15。
-func TestRegister_MissingNameIsAccepted(t *testing.T) {
+// 原测试（TestRegister_MissingNameIsAccepted）断言的是**修复前**的行为
+// （静默接受）以锁定事实；修复后该断言失真，故改本测试钉住新行为。
+// 闸门收敛在 registry.ServiceInstance.Validate（单一真相源），四个后端
+// （etcd/consul/nacos/kubernetes）的 Register 首行共用它。
+func TestRegister_MissingNameIsRejected(t *testing.T) {
 	r := newTestRegistry(t)
 	ctx := context.Background()
 	inst := &registry.ServiceInstance{ID: "ut-noname-" + time.Now().Format("150405.000000")}
 
 	err := r.Register(ctx, inst)
-	if err != nil {
-		t.Logf("框架已开始校验 name（行为变化，可更新 D15）: %v", err)
-		return
+	if err == nil {
+		t.Fatal("缺 Name 必须被拒绝（D15：此前静默注册到畸形 key）")
 	}
-	t.Log("确认 D15：缺 name 的实例被静默接受（Register 无前置校验）")
+	if !strings.Contains(err.Error(), "Name") {
+		t.Errorf("错误信息应指明 Name，got: %v", err)
+	}
+}
 
-	// 清理：Deregister 用同样的空 name 拼 key，能删掉。
-	_ = r.Deregister(ctx, inst)
+// TestRegister_MissingIDIsRejected 缺 ID 同样被拒（D15 的姊妹场景：
+// 此前会拼出 `<ns>/<name>/` 畸形 key）。
+func TestRegister_MissingIDIsRejected(t *testing.T) {
+	r := newTestRegistry(t)
+	ctx := context.Background()
+	inst := &registry.ServiceInstance{Name: "ut-noid-" + time.Now().Format("150405.000000")}
+
+	if err := r.Register(ctx, inst); err == nil {
+		t.Fatal("缺 ID 必须被拒绝")
+	}
 }
 
 // TestGetService_NotFound —— 查询不存在的服务返回空（非报错）。

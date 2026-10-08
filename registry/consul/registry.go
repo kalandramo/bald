@@ -95,6 +95,10 @@ func (r *Registry) Close() error {
 
 // Register register service
 func (r *Registry) Register(ctx context.Context, svc *registry.ServiceInstance) error {
+	// D15 前置闸门（单一真相源，见 registry.ServiceInstance.Validate）。
+	if err := svc.Validate(); err != nil {
+		return err
+	}
 	return r.cli.Register(ctx, svc, r.enableHealthCheck)
 }
 
