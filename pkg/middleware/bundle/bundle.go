@@ -60,6 +60,15 @@ type Bundle struct {
 	corsCfg *ginmw.CORSConfig
 	secure  bool
 
+	// 契约中间件段的配置化覆盖（零值 = 用既有默认，见 Gin()）。
+	recoveryCfg ginmw.RecoveryConfig
+	requestID   ginmw.RequestIDConfig
+	loggingCfg  ginmw.LoggingConfig
+	timeoutCfg  *ginmw.TimeoutConfig
+
+	// tracing 为 true 时挂 span-only 追踪层（契约 tracing 段存在即启用）。
+	tracing bool
+
 	// rateLimiter 是配置驱动的限流层（gin 专属，D5）。契约
 	// server.http.middleware.rate_limit 经 RateLimitFromMiddleware 构造后经
 	// RateLimit 注入；nil 表示未启用。gRPC 链无对应段（契约 Grpc.Middleware
@@ -112,6 +121,35 @@ func Secure() Option { return func(b *Bundle) { b.secure = true } }
 // 调 rl.Close()（RateLimiter.Close 幂等）。
 func RateLimit(rl *ginmw.RateLimiter) Option { return func(b *Bundle) { b.rateLimiter = rl } }
 
+// Recovery 配置 panic 恢复层（契约 middleware.recovery 段）。
+// 不设时保留既有默认（同款恢复行为、不含栈）。
+func Recovery(cfg ginmw.RecoveryConfig) Option {
+	return func(b *Bundle) { b.recoveryCfg = cfg }
+}
+
+// RequestID 配置请求 ID 层（契约 middleware.request_id 段）。
+// 不设时用默认头名 X-Request-ID。
+func RequestID(cfg ginmw.RequestIDConfig) Option {
+	return func(b *Bundle) { b.requestID = cfg }
+}
+
+// Logging 配置请求日志层（契约 middleware.logging 段，追加跳过路径）。
+// 不设时仅内置跳过表。
+func Logging(cfg ginmw.LoggingConfig) Option {
+	return func(b *Bundle) { b.loggingCfg = cfg }
+}
+
+// Timeout 附加请求超时层（契约 middleware.timeout 段）。传 nil 等同不设置。
+// 链序：挂在内层（业务 handler 之前、限流之后）——超时应覆盖业务处理本身。
+func Timeout(cfg *ginmw.TimeoutConfig) Option {
+	return func(b *Bundle) { b.timeoutCfg = cfg }
+}
+
+// Tracing 附加 span-only 追踪层（契约 middleware.tracing 段，空 message、存在即
+// 启用）。与 Logging 的区别：只起 span/写 trace_id，不写请求日志。二者可并存
+// （tracing 在外层，见 Gin 的链序）。
+func Tracing() Option { return func(b *Bundle) { b.tracing = true } }
+
 // NoLogging 关闭请求日志/可观测中间件（默认开启）。
 func NoLogging() Option { return func(b *Bundle) { b.logging = false } }
 
@@ -131,9 +169,17 @@ func New(opts ...Option) *Bundle {
 //
 // 未注入的依赖对应层直接省略（零开销），如未设 Authn 则链中无认证层。
 func (b *Bundle) Gin() []gin.HandlerFunc {
-	chain := []gin.HandlerFunc{ginmw.Recovery(), ginmw.RequestIDMiddleware()}
+	// 契约段的 chain 位置（外→内）：
+	//   Recovery → RequestID → Tracing → Logging → CORS → Secure → Authn → Audit
+	//   → Authz → RateLimit → Timeout
+	// Tracing 在 Logging 之外：若二者并存，logging 起的 span 成为 tracing span 的
+	// child（外层先起的 span 是父）；只追踪不打日志时就只挂 Tracing。
+	chain := []gin.HandlerFunc{ginmw.Recovery(b.recoveryCfg), ginmw.RequestIDMiddleware(b.requestID)}
+	if b.tracing {
+		chain = append(chain, ginmw.Tracing())
+	}
 	if b.logging {
-		chain = append(chain, ginmw.Logging())
+		chain = append(chain, ginmw.Logging(b.loggingCfg))
 	}
 	if b.corsCfg != nil {
 		chain = append(chain, ginmw.CORS(b.corsCfg))
@@ -151,11 +197,15 @@ func (b *Bundle) Gin() []gin.HandlerFunc {
 		chain = append(chain, b.ginAuthz())
 	}
 	if b.rateLimiter != nil {
-		// 限流在最内层（业务 handler 之前）：目标是对「业务操作」限流，
-		// 且天然可见认证后的 subject（为将来按用户限流留位）。代价是它不
-		// 保护认证/授权层自身——若需在认证前限流以保护认证层，业务可自行
-		// 把 ginmw.RateLimit 挂到链首（本层只是默认落点）。
+		// 限流在授权之后、超时之前：目标是对「业务操作」限流，且天然可见认证后
+		// 的 subject（为将来按用户限流留位）。代价是它不保护认证/授权层自身——
+		// 若需在认证前限流以保护认证层，业务可自行把 ginmw.RateLimit 挂到链首。
 		chain = append(chain, b.rateLimiter.Handler())
+	}
+	if b.timeoutCfg != nil {
+		// 超时在最内层（业务 handler 之前）：只计业务处理耗时，不把上层中间件
+		// 的开销算进超时预算。
+		chain = append(chain, ginmw.Timeout(*b.timeoutCfg))
 	}
 	return chain
 }

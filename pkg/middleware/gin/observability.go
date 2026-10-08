@@ -103,6 +103,15 @@ func WithSkipMetrics() Option {
 	}
 }
 
+// WithSkipPaths 追加不记录日志的路径（支持通配，如 "/health/*"）。
+// 契约 server.http.middleware.logging.skip_paths 的落点。语义为**追加**——
+// 与 WithSkipMetrics 的内置表并列（契约段是「额外再跳过哪些」）。
+func WithSkipPaths(paths ...string) Option {
+	return func(o *ObservabilityOptions) {
+		o.SkipPaths = append(o.SkipPaths, paths...)
+	}
+}
+
 // resolveLogger 返回生效 Logger：显式 WithLogger 注入优先，否则每次请求惰性取
 // 全局（D8：构造期快照会让运行期 SetLogger 重建对请求日志永久失效——示例先默认
 // logger 构造中间件、BeforeStart 再按最终配置重建，快照即分裂）。
