@@ -175,12 +175,19 @@ func isKnownCommand(root *cobra.Command, name string) bool {
 // 路由；grpcgw 构建走网关转码面（WithGatewayRegister + 契约
 // server.http.driver=grpc-gateway，见 register_grpcgw.go）。
 func newApp(bootstrap *bootstrapv1.BootstrapConfig, healthChecker *health.Health) *appkit.AppKit {
-	// 业务身份默认值：env 前缀（BALD_DEMO_*）与多环境文件名前缀都由 Name 驱动，
-	// 必须在 FromBootstrap 构造期就位（配置四源中以 env 为准的覆盖依赖它）。
+	// 业务身份：服务名与版本（日志、注册中心实例名）。
+	// 注意这不决定 env 前缀——配置命名空间由下面的 WithConfigNamespace 独立
+	// 声明（BALD_DEMO_*）。二者分开后，这里的 app.name 即使被配置文件/env
+	// 覆盖，也不会影响「能读到哪些环境变量」。
 	bootstrap.GetApp().Name = "bald-demo"
 	bootstrap.GetApp().Version = "v0.1.0"
 
 	opts := []appkit.BootstrapOption{
+		// 配置命名空间：env 前缀（BALD_DEMO_*）与多环境文件名
+		// （bald-demo-prod.yaml）的来源。必须是代码层常量——FromBootstrap
+		// 路径下若取自契约 app.name 会构成自指（见 WithConfigNamespace 注释）。
+		appkit.WithConfigNamespace("bald-demo"),
+
 		// --- 能力声明（代码提供） ---
 		// gRPC：service 注册 + 拦截器链（链序说明见 newGRPCServerOptions，
 		// ErrorInterceptor 必须最外层；与 e2e 复用同一构造，杜绝「测试与生产不一致」）。
