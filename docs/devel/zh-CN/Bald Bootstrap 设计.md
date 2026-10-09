@@ -250,6 +250,10 @@ kratos 桥便捷入口）垫底为基准层；契约源层逆序 append（`layer
 `Name-Env.yaml/json` > `Name.yaml/json`，搜 `.` / `./configs` / `$HOME/.config/Name`），
 缺失不报错（允许纯远程/纯 flag 应用）；env 层与 flag 层静态缓存。
 
+> `Options.Name` 在 appkit 装配链里由 **`AppKit.cfgNamespace`（配置命名空间）**
+> 传入，而非服务身份 `a.name`——两者已分字段，理由见「AppKit FromBootstrap
+> 约定装配」的「已知耦合与坑」。它同时决定 env 前缀与上段的文件名规则。
+
 四个行为承诺（各有测试钉死，见 §「实现与验证」）：
 
 1. **快照隔离**：`Settings()` 返回深拷贝，已发布快照不受后续热更新影响；

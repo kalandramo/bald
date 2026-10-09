@@ -131,13 +131,24 @@ database:
 负载 = 去前缀 → 全小写 → 下划线/连字符 一律视为点路径分隔符
 ```
 
-应用名 `bald-demo`（即 `app.name` / `appkit.Name("bald-demo")`）时：
+应用名（**配置命名空间**，与「服务身份」`app.name` 是两个概念）为 `bald-demo` 时：
 
 ```
 BALD_DEMO_SERVER_HTTP_ADDR  →  server.http.addr
 BALD_DEMO_LOGGER_BACKENDS   →  logger.backends
 BALD_DEMO_CACHE_REDIS_ADDR  →  cache.redis.addr
 ```
+
+命名空间的来源按装配路径区分：
+
+| 路径 | 声明方式 | 缺省 |
+|---|---|---|
+| `appkit.FromBootstrap` | `appkit.WithConfigNamespace("<name>")` | **必填**，未声明即构造期报错 |
+| `appkit.New` | `appkit.ConfigNamespace("<name>")` | 回退 `appkit.Name` 的值 |
+
+**为什么 FromBootstrap 不容许回退**：`app.name` 可被配置文件/env 供给，而
+env 前缀又由它派生，构成自指——用户写 `app.name: foo` 会让全部
+`BALD_<原前缀>_*` 覆盖静默失效。命名空间必须是代码层常量。
 
 两个必须知道的约束：
 
@@ -156,13 +167,15 @@ BALD_DEMO_CACHE_REDIS_ADDR  →  cache.redis.addr
 **装配方式**（两条路径字段名不同）：
 
 ```go
-// 路径 A：FromBootstrap —— 由契约 app.env 驱动
+// 路径 A：FromBootstrap —— 服务身份走契约，配置命名空间显式声明
 bootstrap := bconf.NewBootstrap()
-bootstrap.GetApp().Name = "my-app"   // 文件名前缀
-bootstrap.GetApp().Env = "prod"      // 环境名
-app, err := appkit.FromBootstrap(bootstrap, appkit.WithWatchConfig(true))
+bootstrap.GetApp().Name = "my-app"   // 服务身份（日志/注册中心）
+bootstrap.GetApp().Env = "prod"      // 环境名（选 {Name}-{Env}.yaml）
+app, err := appkit.FromBootstrap(bootstrap,
+    appkit.WithConfigNamespace("my-app"), // 配置命名空间（env 前缀 + 文件名前缀），必填
+    appkit.WithWatchConfig(true))
 
-// 路径 B：appkit.New —— 由 appkit.Env 选项驱动
+// 路径 B：appkit.New —— Name 兼作命名空间（代码层值，无自指），可用 ConfigNamespace 显式区分
 app := appkit.New(
     appkit.Name("my-app"),
     appkit.Env("prod"),
@@ -336,7 +349,8 @@ addr := bootstrap.GetServer().GetHttp().GetAddr()   // proto getter，nil-safe
 | 报错 | 含义 | 处置 |
 |---|---|---|
 | `config: unsupported format "toml"` | 文件格式不在 yaml/json 内 | 转 yaml 或 json |
-| `config: Name is required` | 没设应用名（env 前缀依赖它） | 设 `app.name` 或 `appkit.Name("my-app")` |
+| `appkit: config namespace not declared` | FromBootstrap 路径未声明配置命名空间 | 补 `appkit.WithConfigNamespace("<name>")` |
+| `config: Name is required` | 配置命名空间为空（env 前缀依赖它） | 设 `appkit.ConfigNamespace("my-app")` 或 `appkit.Name("my-app")` |
 | `config: layer "nacos": Watch=true but Reader does not implement bconfig.ValueWatcher` | 层声明了 watch 但源不支持 | 去掉该层 `watch: true` |
 | `bootstrap: no config source configured` | 契约 `config` 段一个源都没配，却走了 `Build` | 至少注册并配置一个源，或不用契约源层 |
 | `bootstrap: provider <name>: layer Reader is nil` | provider 造了层但没给 Reader | provider 实现 bug |

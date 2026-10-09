@@ -264,11 +264,22 @@ gin 演示路由，grpcgw 构建走网关转码面（`WithGatewayRegister` + yam
 
 ## 已知耦合与坑
 
-- **env 前缀耦合 app.name**：bconfig Store 的 env 层用 `environMap(Name)` 生成
-  前缀（bald-demo → BALD_DEMO_*）。Name 来自契约 app.name（构造期可见值），
-  业务自定义 env 前缀必须**在 FromBootstrap 之前**设好契约 name
-  （示例在 newApp 开头设 `bootstrap.GetApp().Name = "bald-demo"`）。
-  漏设的症状：env 覆盖静默失效、文件值压过测试注入值（e2e 曾因此挂）。
+- **配置命名空间必须显式声明**（FromBootstrap 路径）：`bootstrap/config` 的
+  env 层用 `environMap(Name)` 生成前缀（bald-demo → BALD_DEMO_*），定义在
+  `bootstrap/config/merge.go`；`Name` 同时驱动多环境文件名发现
+  （`{Name}-{Env}.yaml`、`$HOME/.config/{Name}`，见
+  `bootstrap/config/config.go`）。这个「配置命名空间」**由
+  `appkit.WithConfigNamespace("<name>")` 提供**，未声明时 FromBootstrap 直接
+  报错（文案给出 Option 名）。
+
+  **为什么不能取自契约 `app.name`**：`app.name` 可被配置文件/env 供给，而
+  env 的前缀又由它派生——构成自指。用户写 `app.name: foo` 会让全部
+  `BALD_<原前缀>_*` 覆盖**静默失效**（回落到文件值，无报错）。故
+  `AppKit` 内 `cfgNamespace`（配置命名空间）与 `name`（服务身份：日志、
+  注册中心实例名）是两个字段，前者要求代码层稳定源。
+
+  New 路径（`appkit.New`）例外：未声明 `ConfigNamespace` 时回退 `Name`——
+  该值来自调用方源码，属代码层稳定源，不构成自指。
 - **example go.mod**：`pkg/middleware/gin` 传递依赖 `bald-crud/viewer`（嵌套
   module），example 需 `replace => ../../../bald-crud/viewer`。
 - **nacos tag 的 SDK 版本分裂**：contrib registry/nacos/v3 用 v2 SDK（naming），
