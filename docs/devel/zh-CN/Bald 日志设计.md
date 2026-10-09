@@ -125,7 +125,7 @@ type Options struct {
 3. **多目标 errgroup 并发写**，但为**复制分流**（每个目标收全量日志），不支持按级别分流到不同文件；
 4. **文件与 lumberjack 句柄经 `NewWithCleanup` 返回的 cleanup 释放**（`New` 丢弃它）——lumberjack 缓冲需 Close 触发落盘，不关则停机丢尾批、热更新重建后端泄漏句柄；`BslogLoggerProvider` 与 appkit 默认路径均走 `NewWithCleanup`（Windows 上 `t.TempDir` 对未关句柄删除失败，是该缺陷的暴露面）。
 
-扩展点分两层。**bslog 的 `Option`**：`WithFilter(FilterKey("password"))` 精细脱敏（任意 `slog.Attr→slog.Attr` 变换函数）、`WithAttrs` 固定属性、`WithHandler`/`WithOTelHandler` 换底层 handler——均为 bslog 特有，其余五后端无对应（条目结构由各家 SDK 决定，无中间 handler 层可插）。**契约层 `NewFilterLogger(l, keys...)`**：全后端通用的脱敏装饰器，命中 key 的值统一掩码为 `***`（属性保留不丢弃），覆盖调用参数、`With` 派生属性、ctx 属性流三类来源；配置驱动（契约 `logger.filter_keys`，单选与 backends 全部后端统一生效，宁全勿漏——远端可检索平台恰是外泄风险最高处），留空零开销直通。两套并存按需选择：配置驱动全后端用 filter_keys，代码驱动仅 slog 的精细变换用 `WithFilter`。bslog 脱敏的实现细节：slog 把 `WithAttrs` 固化的属性交给内层 handler 在 `Handle` 阶段直接合并，会绕过外层装饰器——`filterHandler.WithAttrs` 必须**先过滤再下沉**，否则 `logger.With("password", ...)` 的脱敏静默失效。
+扩展点分两层。**bslog 的 `Option`**：`WithFilter(FilterKey("password"))` 精细脱敏（任意 `slog.Attr→slog.Attr` 变换函数）、`WithAttrs` 固定属性、`WithHandler`/`WithOTelHandler` 换底层 handler——均为 bslog 特有，其余五后端无对应（条目结构由各家 SDK 决定，无中间 handler 层可插）。**契约层 `NewFilterLogger(l, keys...)`**：全后端通用的脱敏装饰器，命中 key 的值统一掩码为 `***`（属性保留不丢弃），覆盖**位置参数 kv 对**（`Info(ctx,msg,"password",v)`）、**`With` 派生 kv 对**、**ctx 属性流**三类来源；配置驱动（契约 `logger.filter_keys`，单选与 backends 全部后端统一生效，宁全勿漏——远端可检索平台恰是外泄风险最高处），留空零开销直通。**不覆盖 `slog.Attr` 形式**（`slog.String("password", v)`）——脱敏按「偶数下标是 key」匹配 kv 对，Attr 会原样透传；该形式只能由后端 handler 层覆盖（bslog 的 `WithFilter`）。故两套**互补**而非可替代：配置驱动全后端用 filter_keys，需覆盖 Attr 时 bslog 另挂 `WithFilter`。bslog 脱敏的实现细节：slog 把 `WithAttrs` 固化的属性交给内层 handler 在 `Handle` 阶段直接合并，会绕过外层装饰器——`filterHandler.WithAttrs` 必须**先过滤再下沉**，否则 `logger.With("password", ...)` 的脱敏静默失效。
 
 OTel 桥接刻意零依赖：核心不 import otel，`WithOTelHandler` 只是 `WithHandler` 的语义别名，调用方自带 `otelslog.NewHandler` 注入，otel 依赖树谁用谁背。**OTel 不下沉到五后端**（有意裁定）：OTel Logs 与五后端是"后端选择"互斥关系而非叠加——要 OTel 管道用 bslog+`WithOTelHandler` 即可；选了 loki/SLS/sentry 已选定日志平台，双管道冗余；要经 collector 转发的场景由 collector 完成，后端无需感知。同理 **`WithHandler` 也不下沉**：它抽象的是 slog 的 handler 层，五后端条目构造即各家 SDK API 调用（SLS `LogContent`、CLS `Log_Content`、sentry Event、loki JSON、charm 原生），强行抽象等于重造一层适配器。
 
@@ -238,7 +238,7 @@ logger:
       loki: { endpoint: http://loki:3100/loki/api/v1/push, labels: { app: myapp } }
 ```
 
-`filter_keys` 是 Logger 顶层全局字段（与 `backends` 清单正交）：对全部后端生效，装配层在最终 Logger（单项直通或合并后的 MultiLogger）出口统一包装 `log.NewFilterLogger`——覆盖调用参数、`With` 派生、ctx 属性流三类来源，全部后端共享同一份过滤。
+`filter_keys` 是 Logger 顶层全局字段（与 `backends` 清单正交）：对全部后端生效，装配层在最终 Logger（单项直通或合并后的 MultiLogger）出口统一包装 `log.NewFilterLogger`——覆盖位置参数 kv 对、`With` 派生 kv 对、ctx 属性流三类来源（**不含 `slog.Attr` 形式**，见下文局限），全部后端共享同一份过滤。
 
 热更新：`WithWatchConfig(true)` 下改 yaml 即重建后端（副本试装载 + 校验 + 原子替换），改坏只记错不杀进程。仍需代码的场景：业务装饰器（脱敏/固定属性，`WithLogDecorators`）与远端/自定义后端注册（`WithLogRegistry`）。
 
@@ -296,7 +296,7 @@ logger:
 - [x] 多后端广播契约接入：proto `Logger.backends` + `BuildLogger` 逐项构造（MultiLogger 合并、单项直通、失败回滚）——MultiLogger 从纯装饰器升级为契约可达能力，本地 + 远程双写纯配置声明。
 - [x] 契约唯一化瘦身：删单 `type` 顶层选法与八个未实现后端段，provider 签名改吃 `*Logger_Backend`、`LoggerView` 视图层删除（provider 恒见单后端项，无需归一化）、bconf 校验/默认值与全部测试随迁——契约只为已实现的后端承诺形状。
 - [x] bslog 直写文件路径自动创建父目录：对齐 lumberjack 轮转路径的首写 MkdirAll——修复嵌套目录缺失时静默回退 stdout 的不对称。
-- [x] 全后端脱敏 `NewFilterLogger` + `logger.filter_keys` 契约：契约层通用装饰器（调用参数/With 派生/ctx 属性流三级来源全覆盖、空清单零开销直通）+ proto `filter_keys=2`（契约唯一化瘦身后 `Logger` 消息字段重排，bconf 空串项 fail-fast）+ `BuildLogger`/appkit 出口统一包装（单选、backends、type=slog 特例三路径一致）——远端可检索平台（loki/SLS/CLS/sentry）纯配置声明即脱敏；WithHandler/OTel 明确不下沉五后端（互斥后端选择 + 无统一 handler 层可抽象）。
+- [x] 全后端脱敏 `NewFilterLogger` + `logger.filter_keys` 契约：契约层通用装饰器（位置参数 kv 对/With 派生 kv 对/ctx 属性流三级来源覆盖、空清单零开销直通；**`slog.Attr` 形式不在覆盖内**，需 bslog `WithFilter` 补足）+ proto `filter_keys=2`（契约唯一化瘦身后 `Logger` 消息字段重排，bconf 空串项 fail-fast）+ `BuildLogger`/appkit 出口统一包装（单选、backends、type=slog 特例三路径一致）——远端可检索平台（loki/SLS/CLS/sentry）纯配置声明即脱敏；WithHandler/OTel 明确不下沉五后端（互斥后端选择 + 无统一 handler 层可抽象）。
 - [x] trace 关联闭环：observability 中间件经 `ContextWithAttrs` 挂 `trace_id`，零 TracerProvider 时随机 ID 兜底。
 
 验证：`log` module 及各后端、`bootstrap` 均随 bald CI（build + vet + test -short）全绿；backends 多后端广播另经 `_example/bald` e2e 冒烟（双后端独立 level/format、坏值 fail-fast 带 `backends[i]` 定位、文件路径父目录自动创建）。

@@ -9,8 +9,23 @@ import (
 const filterMask = "***"
 
 // filterLogger 是契约层脱敏装饰器：日志进入后端前，把命中敏感 key 清单的
-// 属性值统一掩码。三类来源全覆盖——四级方法的调用参数、With 派生属性、
-// ctx 属性流；属性保留不丢弃（只掩值），与 bslog.FilterKey 语义对齐。
+// 属性值统一掩码。属性保留不丢弃（只掩值），与 bslog.FilterKey 语义对齐。
+//
+// 覆盖范围（**实测确认，勿凭注释推断**）：
+//   - 四级方法的**位置参数对**：Info(ctx, msg, "password", v)；
+//   - **With 派生**的 kv 对：logger.With("password", v)；
+//   - **ctx 属性流**：ContextWithAttrs(ctx, slog.String("password", v))。
+//
+// **不覆盖**：任何位置的 slog.Attr——Info(ctx, msg, slog.String("password", v))、
+// logger.With(slog.String("password", v))。原因：filterArgs 按「偶数下标是 key」
+// 匹配，slog.Attr 不是 (string, value) 对，整条 args 不命中即原样透传。
+// 该形式由后端 handler 层承担（bslog 的 WithFilter(FilterKey(...)) 是
+// slog.Handler 装饰器，能改写 Record 的 Attr）；其余五后端无 handler 层，
+// 该形式不脱敏。
+//
+// 因此「配置驱动的 filter_keys」与「代码驱动的 bslog.WithFilter」是**互补**而非
+// 可替代关系：前者全后端通用但只覆盖 kv 对与 ctx 流，后者仅 slog 但覆盖 Attr。
+// 需覆盖 Attr 形式时两者都要挂。
 type filterLogger struct {
 	inner Logger
 	keys  map[string]struct{} // 构造后只读，With 派生共享，并发安全
