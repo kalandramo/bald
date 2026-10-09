@@ -28,7 +28,7 @@ func TestFromBootstrap_BusinessBindFlagOverridesFile(t *testing.T) {
 	cfg := bconf.NewBootstrap()
 	dynamicAddr(cfg)
 
-	a, err := FromBootstrap(cfg, WithBind("", opts))
+	a, err := FromBootstrap(cfg, WithConfigNamespace(testConfigNamespace), WithBind("", opts))
 	if err != nil {
 		t.Fatalf("FromBootstrap: %v", err)
 	}
@@ -53,7 +53,7 @@ func TestFromBootstrap_BusinessBindFileStillApplies(t *testing.T) {
 	cfg := bconf.NewBootstrap()
 	dynamicAddr(cfg)
 
-	a, err := FromBootstrap(cfg, WithBind("", opts))
+	a, err := FromBootstrap(cfg, WithConfigNamespace(testConfigNamespace), WithBind("", opts))
 	if err != nil {
 		t.Fatalf("FromBootstrap: %v", err)
 	}

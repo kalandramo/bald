@@ -34,7 +34,7 @@ func TestFromBootstrap_ContractStorageLifecycle(t *testing.T) {
 		Minio: &bootstrapv1.Storage_Minio{Endpoint: "127.0.0.1:9000"},
 	}
 
-	a, err := FromBootstrap(cfg, WithHTTP(new(http.ServeMux)), WithStorageRegistry(sr))
+	a, err := FromBootstrap(cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), WithStorageRegistry(sr))
 	if err != nil {
 		t.Fatalf("FromBootstrap: %v", err)
 	}
@@ -83,7 +83,7 @@ func TestFromBootstrap_StorageSectionWithoutTable(t *testing.T) {
 		Minio: &bootstrapv1.Storage_Minio{Endpoint: "127.0.0.1:9000"},
 	}
 
-	a, err := FromBootstrap(cfg, WithHTTP(new(http.ServeMux)))
+	a, err := FromBootstrap(cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
 	if err != nil {
 		t.Fatalf("FromBootstrap: %v", err)
 	}

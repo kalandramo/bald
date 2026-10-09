@@ -34,7 +34,7 @@ func TestFromBootstrap_ContractAiLifecycle(t *testing.T) {
 		Openai: &bootstrapv1.Ai_Openai{ModelType: 2, Cloud: &bootstrapv1.Ai_CloudConfig{ApiKey: "sk"}},
 	}
 
-	a, err := FromBootstrap(cfg, WithHTTP(new(http.ServeMux)), WithAiRegistry(ar))
+	a, err := FromBootstrap(cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), WithAiRegistry(ar))
 	if err != nil {
 		t.Fatalf("FromBootstrap: %v", err)
 	}
@@ -83,7 +83,7 @@ func TestFromBootstrap_AiSectionWithoutTable(t *testing.T) {
 		Openai: &bootstrapv1.Ai_Openai{ModelType: 2, Cloud: &bootstrapv1.Ai_CloudConfig{ApiKey: "sk"}},
 	}
 
-	a, err := FromBootstrap(cfg, WithHTTP(new(http.ServeMux)))
+	a, err := FromBootstrap(cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
 	if err != nil {
 		t.Fatalf("FromBootstrap: %v", err)
 	}

@@ -34,7 +34,7 @@ func TestFromBootstrap_ContractBrokerLifecycle(t *testing.T) {
 		Redis: &bootstrapv1.Broker_Redis{Address: "127.0.0.1:6379"},
 	}
 
-	a, err := FromBootstrap(cfg, WithHTTP(new(http.ServeMux)), WithBrokerRegistry(br))
+	a, err := FromBootstrap(cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), WithBrokerRegistry(br))
 	if err != nil {
 		t.Fatalf("FromBootstrap: %v", err)
 	}
@@ -83,7 +83,7 @@ func TestFromBootstrap_BrokerSectionWithoutTable(t *testing.T) {
 		Redis: &bootstrapv1.Broker_Redis{Address: "127.0.0.1:6379"},
 	}
 
-	a, err := FromBootstrap(cfg, WithHTTP(new(http.ServeMux)))
+	a, err := FromBootstrap(cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
 	if err != nil {
 		t.Fatalf("FromBootstrap: %v", err)
 	}

@@ -50,7 +50,7 @@ func TestFromBootstrap_ExtraServerFuncRunTime(t *testing.T) {
 	srv := &probeServer{name: "extra", started: &started, mark: mark}
 
 	a, err := FromBootstrap(cfg,
-		WithExtraServerFunc(func(context.Context) (transport.Server, error) {
+		WithConfigNamespace(testConfigNamespace), WithExtraServerFunc(func(context.Context) (transport.Server, error) {
 			mark("extraServerFn")
 			return srv, nil
 		}),
@@ -84,7 +84,7 @@ func TestFromBootstrap_ExtraServerFuncNilSkipped(t *testing.T) {
 	dynamicAddr(cfg)
 
 	a, err := FromBootstrap(cfg,
-		WithExtraServerFunc(func(context.Context) (transport.Server, error) { return nil, nil }),
+		WithConfigNamespace(testConfigNamespace), WithExtraServerFunc(func(context.Context) (transport.Server, error) { return nil, nil }),
 	)
 	if err != nil {
 		t.Fatalf("FromBootstrap: %v", err)
@@ -113,7 +113,7 @@ func TestFromBootstrap_ExtraServerFuncWithoutMainProtocol(t *testing.T) {
 
 	// 注意：**不**传 WithHTTP / WithGRPC —— 只有额外服务器。
 	a, err := FromBootstrap(cfg,
-		WithExtraServerFunc(func(context.Context) (transport.Server, error) { return srv, nil }),
+		WithConfigNamespace(testConfigNamespace), WithExtraServerFunc(func(context.Context) (transport.Server, error) { return srv, nil }),
 	)
 	if err != nil {
 		t.Fatalf("FromBootstrap: %v", err)

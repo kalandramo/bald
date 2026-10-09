@@ -65,7 +65,7 @@ func TestFromBootstrap_AuditProviderSeesDatabases(t *testing.T) {
 	})
 
 	a, err := FromBootstrap(cfg,
-		WithHTTP(new(http.ServeMux)),
+		WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
 		WithDatabaseRegistry(dr),
 		WithAuditRegistry(ar),
 	)

@@ -53,6 +53,18 @@ type AppKit struct {
 	name    string
 	version string
 
+	// cfgNamespace 是**配置命名空间**——派生 env 前缀（BALD_DEMO_*）与多环境
+	// 文件名（bald-demo-prod.yaml）的稳定标识（见 loadConfig 的 config.Options.Name）。
+	//
+	// 与 name（服务身份）分离的理由：配置命名空间必须在「任何配置装载之前」确定，
+	// 若取自契约 app.name（FromBootstrap 路径），则形成自指——app.name 可由配置
+	// 文件/env 供给，而 env 的前缀又由它派生：用户写 app.name: foo 会让全部
+	// BALD_<原前缀>_* 覆盖静默失效（回落到文件值，无报错）。两条用途生命周期
+	// 不同，必须分字段。
+	//
+	// 取值优先级见 New（回退 name）与 FromBootstrap（要求显式声明，否则 fail-fast）。
+	cfgNamespace string
+
 	// 服务器 Stop 阶段超时（before/afterStop 钩子固定 defaultHookTimeout：
 	// runHook 独立超时安全网保留、不再可配置——慢钩子应在钩子内自控 ctx）。
 	stopTimeout time.Duration
@@ -238,6 +250,18 @@ func Name(name string) Option               { return func(a *AppKit) { a.name = 
 func Version(v string) Option               { return func(a *AppKit) { a.version = v } }
 func Registrar(r registry.Registrar) Option { return func(a *AppKit) { a.registrar = r } }
 
+// ConfigNamespace 声明**配置命名空间**——env 前缀（BALD_DEMO_*）与多环境
+// 文件名（bald-demo-prod.yaml）的来源。
+//
+// 与 Name 的关系：Name 是**服务身份**（日志、注册中心实例名）；ConfigNamespace
+// 是**配置坐标**。二者通常同值，但语义独立——ConfigNamespace 必须在配置装载前
+// 稳定可得，Name 可以来自被装载的配置。
+//
+// 缺省行为：New 路径下未声明时回退 Name 的值（其值来自调用方源码，属代码层
+// 稳定源，无自指）；FromBootstrap 路径**不回退**（其 Name 来自被装载的契约，
+// 会构成 env 前缀自指），必须用 WithConfigNamespace 显式声明。
+func ConfigNamespace(ns string) Option { return func(a *AppKit) { a.cfgNamespace = ns } }
+
 // SetRegistrar 运行期设置注册中心，供 New 构造路径在配置装载后按契约构造
 // （FromBootstrap 路径由 buildRegistrar 内部赋值，无需此方法）。
 // 时序约束：须在 Run 进入 register 之前调用（BeforeStart 是安全窗口）——
@@ -345,6 +369,13 @@ func New(opts ...Option) *AppKit {
 	for _, o := range opts {
 		o(a)
 	}
+	// 配置命名空间回退：放在 opts 循环**之后**——保证 ConfigNamespace 无论与
+	// Name 的书写先后都优先（若放在循环内逐项判断，`Name` 先于 `ConfigNamespace`
+	// 时会被后续覆盖，反之则不会，产生顺序依赖）。
+	// 回退源是 a.name（New 路径下由调用方源码提供，代码层稳定值，无自指）。
+	if a.cfgNamespace == "" {
+		a.cfgNamespace = a.name
+	}
 	return a
 }
 
@@ -371,7 +402,9 @@ func (a *AppKit) loadConfig() error {
 	_ = fs.Parse(os.Args[1:])
 
 	s, err := config.Load(config.Options{
-		Name:           a.name,
+		// Name 是配置命名空间（env 前缀 / 多环境文件名），非服务身份——
+		// 二者已在 AppKit 内分字段（见 AppKit.cfgNamespace 注释）。
+		Name:           a.cfgNamespace,
 		Env:            a.cfg.env,
 		ConfigFile:     a.cfg.cfgFile,
 		Flags:          fs,

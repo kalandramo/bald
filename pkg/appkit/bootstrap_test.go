@@ -283,7 +283,7 @@ func TestFromBootstrap_MetadataFromContract(t *testing.T) {
 	cfg.App.Id = "instance-1"
 	cfg.App.StopTimeout = nil // 回退默认 30s
 
-	a, err := FromBootstrap(cfg, WithHTTP(new(http.ServeMux)))
+	a, err := FromBootstrap(cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
 	if err != nil {
 		t.Fatalf("FromBootstrap: %v", err)
 	}
@@ -309,13 +309,13 @@ func TestFromBootstrap_NilConfig(t *testing.T) {
 func TestFromBootstrap_FailFastMissingSegments(t *testing.T) {
 	cfg := bconf.NewBootstrap()
 	cfg.Server.Http = nil
-	if _, err := FromBootstrap(cfg, WithHTTP(new(http.ServeMux))); err == nil {
+	if _, err := FromBootstrap(cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux))); err == nil {
 		t.Fatal("expected error: WithHTTP declared but server.http is nil")
 	}
 
 	cfg2 := bconf.NewBootstrap()
 	cfg2.Server.Grpc = nil
-	if _, err := FromBootstrap(cfg2, WithGRPC(func(*grpc.Server) {})); err == nil {
+	if _, err := FromBootstrap(cfg2, WithConfigNamespace(testConfigNamespace), WithGRPC(func(*grpc.Server) {})); err == nil {
 		t.Fatal("expected error: WithGRPC declared but server.grpc is nil")
 	}
 }
@@ -332,7 +332,7 @@ func TestFromBootstrap_ServersConstructed(t *testing.T) {
 	dynamicAddr(cfg)
 
 	a, err := FromBootstrap(cfg,
-		WithHTTP(new(http.ServeMux)),
+		WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
 		WithGRPC(func(*grpc.Server) {}),
 	)
 	if err != nil {
@@ -349,7 +349,7 @@ func TestFromBootstrap_ServersConstructed(t *testing.T) {
 
 	cfg2 := bconf.NewBootstrap()
 	dynamicAddr(cfg2)
-	a2, err := FromBootstrap(cfg2, WithHTTP(new(http.ServeMux)))
+	a2, err := FromBootstrap(cfg2, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
 	if err != nil {
 		t.Fatalf("FromBootstrap: %v", err)
 	}
@@ -358,7 +358,7 @@ func TestFromBootstrap_ServersConstructed(t *testing.T) {
 		t.Fatalf("servers = %d, want 1", len(a2.servers))
 	}
 
-	a3, err := FromBootstrap(bconf.NewBootstrap())
+	a3, err := FromBootstrap(bconf.NewBootstrap(), WithConfigNamespace(testConfigNamespace))
 	if err != nil {
 		t.Fatalf("FromBootstrap: %v", err)
 	}
@@ -382,7 +382,7 @@ func TestFromBootstrap_GatewayDriver(t *testing.T) {
 	// ① gateway 能力声明但 server.http 段缺失 → 构造期 fail-fast。
 	cfgNoHttp := bconf.NewBootstrap()
 	cfgNoHttp.Server.Http = nil
-	if _, err := FromBootstrap(cfgNoHttp, WithGatewayRegister(gwRegister)); err == nil {
+	if _, err := FromBootstrap(cfgNoHttp, WithConfigNamespace(testConfigNamespace), WithGatewayRegister(gwRegister)); err == nil {
 		t.Fatal("expected error: WithGatewayRegister declared but server.http is nil")
 	}
 
@@ -390,7 +390,7 @@ func TestFromBootstrap_GatewayDriver(t *testing.T) {
 	//    W1：构造延后到 Run，故驱动 Run 后观察 server 类型。
 	cfg2 := bconf.NewBootstrap()
 	dynamicAddr(cfg2)
-	a, err := FromBootstrap(cfg2, WithGatewayRegister(gwRegister))
+	a, err := FromBootstrap(cfg2, WithConfigNamespace(testConfigNamespace), WithGatewayRegister(gwRegister))
 	if err != nil {
 		t.Fatalf("FromBootstrap(gateway only): %v", err)
 	}
@@ -405,7 +405,7 @@ func TestFromBootstrap_GatewayDriver(t *testing.T) {
 	// ③ 双能力声明 + driver 留空 → fail-fast：两个能力竞争同一端口，
 	//    必须由配置显式表态（显式 > 隐式）。
 	_, err = FromBootstrap(bconf.NewBootstrap(),
-		WithHTTP(new(http.ServeMux)), WithGatewayRegister(gwRegister))
+		WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), WithGatewayRegister(gwRegister))
 	if err == nil || !strings.Contains(err.Error(), "driver") {
 		t.Fatalf("expected driver fail-fast, got %v", err)
 	}
@@ -414,7 +414,7 @@ func TestFromBootstrap_GatewayDriver(t *testing.T) {
 	cfg4 := bconf.NewBootstrap()
 	dynamicAddr(cfg4)
 	cfg4.GetServer().GetHttp().Driver = baldbootstrap.DriverGrpcGateway
-	a4, err := FromBootstrap(cfg4, WithHTTP(new(http.ServeMux)), WithGatewayRegister(gwRegister))
+	a4, err := FromBootstrap(cfg4, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), WithGatewayRegister(gwRegister))
 	if err != nil {
 		t.Fatalf("FromBootstrap(both + grpc-gateway): %v", err)
 	}
@@ -429,7 +429,7 @@ func TestFromBootstrap_GatewayDriver(t *testing.T) {
 	// ⑤ gateway 能力声明 + driver=其他值 → fail-fast（转码能力无消费面）。
 	cfg5 := bconf.NewBootstrap()
 	cfg5.GetServer().GetHttp().Driver = "gin"
-	if _, err := FromBootstrap(cfg5, WithGatewayRegister(gwRegister)); err == nil {
+	if _, err := FromBootstrap(cfg5, WithConfigNamespace(testConfigNamespace), WithGatewayRegister(gwRegister)); err == nil {
 		t.Fatal("expected error: gateway register declared but driver not grpc-gateway")
 	}
 }
@@ -450,7 +450,7 @@ func TestFromBootstrap_LoggerLifecycle(t *testing.T) {
 		got = append(got, b) // 构造与 BeforeStart 均主 goroutine，无需锁。
 		return stubLogger(), nil, nil
 	})
-	a, err := FromBootstrap(cfg, WithHTTP(new(http.ServeMux)), WithLogRegistry(lr))
+	a, err := FromBootstrap(cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), WithLogRegistry(lr))
 	if err != nil {
 		t.Fatalf("FromBootstrap: %v", err)
 	}
@@ -498,7 +498,7 @@ func TestFromBootstrap_ConfigRegistry(t *testing.T) {
 	cfg := bconf.NewBootstrap()
 	dynamicAddr(cfg)
 
-	a, err := FromBootstrap(cfg, WithHTTP(new(http.ServeMux)), WithConfigRegistry(reg))
+	a, err := FromBootstrap(cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), WithConfigRegistry(reg))
 	if err != nil {
 		t.Fatalf("FromBootstrap: %v", err)
 	}
@@ -604,7 +604,7 @@ func TestFromBootstrap_AllServersDynamicPort(t *testing.T) {
 	cfg := bconf.NewBootstrap()
 	dynamicAddr(cfg)
 
-	a, err := FromBootstrap(cfg, WithHTTP(new(http.ServeMux)), WithGRPC(func(*grpc.Server) {}))
+	a, err := FromBootstrap(cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), WithGRPC(func(*grpc.Server) {}))
 	if err != nil {
 		t.Fatalf("FromBootstrap: %v", err)
 	}
@@ -694,7 +694,7 @@ func TestFromBootstrap_PassthroughOrder(t *testing.T) {
 
 	var nameInHook atomic.Value
 	a, err := FromBootstrap(cfg,
-		WithConfigFile(yaml),
+		WithConfigNamespace(testConfigNamespace), WithConfigFile(yaml),
 		WithHTTP(new(http.ServeMux)),
 		WithBeforeStart(func(context.Context) error {
 			// 契约终值验证：装载链（Unmarshal→Validate→Logger）已跑完。
@@ -752,7 +752,7 @@ func TestFromBootstrap_PassthroughReconcile(t *testing.T) {
 
 	var triggered atomic.Bool
 	a, err := FromBootstrap(cfg,
-		WithHTTP(new(http.ServeMux)),
+		WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
 		WithReconcile("test.passthrough", func(context.Context, *ReconcileCtx) error {
 			triggered.Store(true)
 			return nil
@@ -789,7 +789,7 @@ func TestFromBootstrap_PassthroughCapabilityFailFast(t *testing.T) {
 	cfg.GetServer().GetHttp().Addr = "127.0.0.1:0"
 
 	a, err := FromBootstrap(cfg,
-		WithHTTP(new(http.ServeMux)),
+		WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
 		WithProvides("db"),
 		WithRequires("audit.store", "db", "cache"),
 	)
@@ -822,7 +822,7 @@ func TestFromBootstrap_PassthroughComponents(t *testing.T) {
 
 	var started, disposed atomic.Bool
 	a, err := FromBootstrap(cfg,
-		WithHTTP(new(http.ServeMux)),
+		WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
 		WithComponents(ComponentFunc("test.comp", func(context.Context) error {
 			started.Store(true)
 			return nil
@@ -833,7 +833,7 @@ func TestFromBootstrap_PassthroughComponents(t *testing.T) {
 	}
 	// Dispose 观测：包一层组件捕获。
 	a, err = FromBootstrap(cfg,
-		WithHTTP(new(http.ServeMux)),
+		WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
 		WithComponents(&disposeProbe{disposed: &disposed}, ComponentFunc("test.comp2", func(context.Context) error {
 			started.Store(true)
 			return nil

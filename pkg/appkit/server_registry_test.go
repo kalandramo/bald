@@ -49,7 +49,7 @@ func TestFromBootstrap_ServerRegistryCustomProviderWired(t *testing.T) {
 	})
 
 	a, err := FromBootstrap(cfg,
-		WithHTTP(new(http.ServeMux)),
+		WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
 		WithServerRegistry(sr),
 	)
 	if err != nil {
@@ -84,7 +84,7 @@ func TestFromBootstrap_ServerRegistryOnlyNoMainProtocol(t *testing.T) {
 		return &probeServer{name: "asynq", started: started, mark: func(string) {}}, nil, nil
 	})
 
-	a, err := FromBootstrap(cfg, WithServerRegistry(sr))
+	a, err := FromBootstrap(cfg, WithConfigNamespace(testConfigNamespace), WithServerRegistry(sr))
 	if err != nil {
 		t.Fatalf("FromBootstrap: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestFromBootstrap_BuiltinProvidersBackfilled(t *testing.T) {
 	sr := baldbootstrap.NewServerRegistry()
 
 	a, err := FromBootstrap(cfg,
-		WithHTTP(new(http.ServeMux)),
+		WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
 		WithServerRegistry(sr),
 	)
 	if err != nil {

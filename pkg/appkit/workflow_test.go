@@ -34,7 +34,7 @@ func TestFromBootstrap_ContractWorkflowLifecycle(t *testing.T) {
 		Argo: &bootstrapv1.Workflow_Argo{ServerUrl: "http://127.0.0.1:2746", Namespace: "ci"},
 	}
 
-	a, err := FromBootstrap(cfg, WithHTTP(new(http.ServeMux)), WithWorkflowRegistry(wr))
+	a, err := FromBootstrap(cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), WithWorkflowRegistry(wr))
 	if err != nil {
 		t.Fatalf("FromBootstrap: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestFromBootstrap_WorkflowSectionWithoutTable(t *testing.T) {
 		Argo: &bootstrapv1.Workflow_Argo{ServerUrl: "http://127.0.0.1:2746"},
 	}
 
-	a, err := FromBootstrap(cfg, WithHTTP(new(http.ServeMux)))
+	a, err := FromBootstrap(cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
 	if err != nil {
 		t.Fatalf("FromBootstrap: %v", err)
 	}

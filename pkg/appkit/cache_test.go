@@ -36,7 +36,7 @@ func TestFromBootstrap_ContractCacheLifecycle(t *testing.T) {
 		Local: &bootstrapv1.Cache_Local{Size: 1024 * 1024, DefaultTtlSeconds: 60},
 	}
 
-	a, err := FromBootstrap(cfg, WithHTTP(new(http.ServeMux)), WithCacheRegistry(cr))
+	a, err := FromBootstrap(cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), WithCacheRegistry(cr))
 	if err != nil {
 		t.Fatalf("FromBootstrap: %v", err)
 	}
@@ -86,7 +86,7 @@ func TestFromBootstrap_CacheSectionWithoutTable(t *testing.T) {
 		Local: &bootstrapv1.Cache_Local{Size: 1024},
 	}
 
-	a, err := FromBootstrap(cfg, WithHTTP(new(http.ServeMux)))
+	a, err := FromBootstrap(cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
 	if err != nil {
 		t.Fatalf("FromBootstrap (构造期不校验合并后配置): %v", err)
 	}
@@ -104,7 +104,7 @@ func TestFromBootstrap_NoCacheSection(t *testing.T) {
 	cfg := bconf.NewBootstrap()
 	dynamicAddr(cfg)
 
-	a, err := FromBootstrap(cfg, WithHTTP(new(http.ServeMux)))
+	a, err := FromBootstrap(cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
 	if err != nil {
 		t.Fatalf("FromBootstrap: %v", err)
 	}

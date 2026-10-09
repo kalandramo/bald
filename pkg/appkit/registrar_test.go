@@ -69,7 +69,7 @@ func TestFromBootstrap_ContractRegistrarLifecycle(t *testing.T) {
 	cfg := bconfNewBootstrapWithRegistry("fake")
 	dynamicAddr(cfg)
 
-	a, err := FromBootstrap(cfg, WithHTTP(new(http.ServeMux)), WithRegistrarRegistry(rr))
+	a, err := FromBootstrap(cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), WithRegistrarRegistry(rr))
 	if err != nil {
 		t.Fatalf("FromBootstrap: %v", err)
 	}
@@ -121,7 +121,7 @@ func TestFromBootstrap_ExplicitRegistrarWins(t *testing.T) {
 
 	explicit := &stubRegistrar{}
 	a, err := FromBootstrap(cfg,
-		WithHTTP(new(http.ServeMux)),
+		WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
 		WithRegistrar(explicit),
 		WithRegistrarRegistry(rr),
 	)
@@ -152,7 +152,7 @@ func TestFromBootstrap_RegistrySectionWithoutTable(t *testing.T) {
 	cfg := bconfNewBootstrapWithRegistry("fake")
 	dynamicAddr(cfg)
 
-	a, err := FromBootstrap(cfg, WithHTTP(new(http.ServeMux)))
+	a, err := FromBootstrap(cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
 	if err != nil {
 		t.Fatalf("FromBootstrap (构造期不校验合并后配置): %v", err)
 	}

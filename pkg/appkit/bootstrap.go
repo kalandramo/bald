@@ -87,6 +87,9 @@ type bootstrapSpec struct {
 	watchFiles  bool
 	cfgRegistry *baldbootstrap.Registry
 	remote      baldconfig.RemoteSource
+	// cfgNamespace 是配置命名空间（WithConfigNamespace 声明）。FromBootstrap
+	// 路径**必填**——不回退契约 app.name（自指，见 WithConfigNamespace 注释）。
+	cfgNamespace string
 
 	extraServers []transport.Server
 	afterStart   []func(context.Context) error
@@ -243,6 +246,21 @@ func WithAfterStart(fn func(context.Context) error) BootstrapOption {
 // 已传 WithConfigRegistry 且其中含 file 源时无需重复声明。
 func WithConfigFile(path string) BootstrapOption {
 	return func(s *bootstrapSpec) { s.configFile = path }
+}
+
+// WithConfigNamespace 声明**配置命名空间**——env 前缀（BALD_DEMO_*）与多环境
+// 文件名（bald-demo-prod.yaml）的来源。
+//
+// **必填**（FromBootstrap 路径）：未声明时 FromBootstrap 直接返回错误。
+// 原因见 AppKit.cfgNamespace 注释——该路径下契约 app.name 来自被装载的配置，
+// 若以它派生 env 前缀，则「配置里的 app.name」会反过来改变「能读到哪些环境
+// 变量」，构成自指循环（症状：全部 <前缀>_* env 覆盖静默失效）。
+// 显式声明把命名空间钉在代码层，与配置装载解耦。
+//
+// 与 New 路径的差异：New 侧 ConfigNamespace 可选，未声明时回退 Name
+// （其值来自调用方源码，无自指）；FromBootstrap 侧不做任何回退。
+func WithConfigNamespace(ns string) BootstrapOption {
+	return func(s *bootstrapSpec) { s.cfgNamespace = ns }
 }
 
 // WithWatchConfig 启用本地配置文件热更新（fsnotify）。
@@ -586,9 +604,22 @@ func FromBootstrap(cfg *bootstrapv1.BootstrapConfig, opts ...BootstrapOption) (*
 
 	// a 先声明再进闭包：BeforeStart 在 Run 期才执行，届时 a 已赋值。
 	var a *AppKit
+
+	// 配置命名空间必须显式声明（WithConfigNamespace）：FromBootstrap 路径下
+	// 契约 app.name 由配置装载填充，若以它派生 env 前缀则是自指——配置里的
+	// app.name 会改变「能读到哪些环境变量」，症状为 <原前缀>_* env 覆盖静默
+	// 失效（回落文件值，无报错）。不回退、不大声失败会留下静默 footgun。
+	if spec.cfgNamespace == "" {
+		return nil, errors.New("appkit: config namespace not declared: " +
+			"app.name is loaded from configuration and would be read before namespace " +
+			"resolution (self-referential env prefix); " +
+			`declare it explicitly: appkit.WithConfigNamespace("<name>")`)
+	}
+
 	kitOpts := []Option{
 		ID(cfg.GetApp().GetId()),
 		Name(orDefault(cfg.GetApp().GetName(), "bald-app")),
+		ConfigNamespace(spec.cfgNamespace),
 		Version(orDefault(cfg.GetApp().GetVersion(), "v0.0.0")),
 		Env(cfg.GetApp().GetEnv()),
 		StopTimeout(orDuration(cfg.GetApp().GetStopTimeout().AsDuration(), 30*time.Second)),

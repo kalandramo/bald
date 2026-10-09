@@ -39,7 +39,7 @@ func TestFromBootstrap_ContractDatabaseLifecycle(t *testing.T) {
 	cfg := bconfNewBootstrapWithDatabase()
 	dynamicAddr(cfg)
 
-	a, err := FromBootstrap(cfg, WithHTTP(new(http.ServeMux)), WithDatabaseRegistry(dr))
+	a, err := FromBootstrap(cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), WithDatabaseRegistry(dr))
 	if err != nil {
 		t.Fatalf("FromBootstrap: %v", err)
 	}
@@ -86,7 +86,7 @@ func TestFromBootstrap_DatabaseSectionWithoutTable(t *testing.T) {
 	cfg := bconfNewBootstrapWithDatabase()
 	dynamicAddr(cfg)
 
-	a, err := FromBootstrap(cfg, WithHTTP(new(http.ServeMux)))
+	a, err := FromBootstrap(cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
 	if err != nil {
 		t.Fatalf("FromBootstrap (构造期不校验合并后配置): %v", err)
 	}
@@ -104,7 +104,7 @@ func TestFromBootstrap_NoDatabaseSection(t *testing.T) {
 	cfg := bconf.NewBootstrap()
 	dynamicAddr(cfg)
 
-	a, err := FromBootstrap(cfg, WithHTTP(new(http.ServeMux)))
+	a, err := FromBootstrap(cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
 	if err != nil {
 		t.Fatalf("FromBootstrap: %v", err)
 	}
