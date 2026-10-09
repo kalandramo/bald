@@ -5,7 +5,7 @@ go 1.27.1
 require (
 	github.com/glebarez/sqlite v1.11.0
 	github.com/kalandramo/bald v0.11.0
-	github.com/kalandramo/bald/bconf v0.9.0
+	github.com/kalandramo/bald/bconf v0.9.1
 	github.com/stretchr/testify v1.12.1
 	gorm.io/gorm v1.25.12
 )
