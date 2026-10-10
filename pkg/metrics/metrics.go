@@ -1,11 +1,32 @@
-// Package metrics 定义 bald 的可观测性指标抽象（第三支柱，与 trace/log 并列）。
+// Package metrics 定义 bald 的**请求级**指标抽象（第三支柱，与 trace/log 并列）。
+//
+// 核心是 [Recorder]：HTTP/gRPC 请求经中间件（AuditWithMetrics）**自动 emit**，
+// 无需业务手工埋点。指标含协议维度（OTel semconv v1.43.0）与审计三元组两条
+// 正交序列。
+//
+// # 与顶层 metrics/ 的区别（同名不同义，易混）
+//
+// 本仓有**两套并存的指标体系**，二者可共存于一个进程，但职责不同：
+//
+//	本包（github.com/kalandramo/bald/pkg/metrics，请求级）
+//	  ├ 中间件自动 emit：HTTP/gRPC 请求经 AuditWithMetrics 自动记录
+//	  ├ 维度固定：协议维度（OTel semconv v1.43.0）+ 审计三元组（正交两序列）
+//	  └ 契约驱动：bconf metrics 段 → appkit MetricsRegistry → observability-otlp
+//
+//	metrics/（github.com/kalandramo/bald/metrics，传输级三原语）
+//	  ├ 手工埋点：业务/传输代码显式调用 Counter/Histogram/Gauge
+//	  ├ 维度自由：name + labels 由埋点方决定
+//	  └ 后端自选：业务 New() 后注入，**不经 bconf 契约**
+//
+// 判别规则：**有「请求」的走本包（中间件自动），没有的走 metrics/（手工埋点）。**
+// 完整设计与取舍见 docs/devel/zh-CN/Bald 指标设计.md。
 //
 // 设计原则（与 log/audit 一致）：
 //   - 零后端耦合：默认使用 otel 全局 MeterProvider（未配置时为 no-op，零配置可运行），
 //     不 import 任何具体 exporter（prometheus/otlp 等外置为桥接子模块）。
 //   - 协议指标对齐 OTel semconv v1.43.0：HTTP 侧 http.server.request.duration /
 //     http.server.active_requests，gRPC 侧 rpc.server.call.duration——可套社区
-//     dashboard、被 APM 自动识别（设计见 docs/devel/zh-CN/Bald 指标设计.md）。
+//     dashboard、被 APM 自动识别。
 //   - 审计三元组（object/action/result）与协议维度正交：业务视角走独立序列
 //     bald_audit_events_total（M7 同源不丢），不与协议属性叠加（基数纪律）。
 package metrics
@@ -80,8 +101,8 @@ type RequestInfo struct {
 // nopRecorder 静默默认实现（未配置具体 MeterProvider 时不产生副作用）。
 type nopRecorder struct{}
 
-func (nopRecorder) Record(context.Context, Event, Transport, float64)          {}
-func (nopRecorder) RecordActive(context.Context, Event, Transport, int64)     {}
+func (nopRecorder) Record(context.Context, Event, Transport, float64)     {}
+func (nopRecorder) RecordActive(context.Context, Event, Transport, int64) {}
 
 // NopRecorder 返回静默默认 Recorder。
 func NopRecorder() Recorder { return nopRecorder{} }
@@ -96,8 +117,8 @@ type otelRecorder struct {
 	meterName string
 	once      sync.Once
 
-	httpDuration metric.Float64Histogram  // http.server.request.duration (s)
-	rpcDuration  metric.Float64Histogram  // rpc.server.call.duration (s)
+	httpDuration metric.Float64Histogram   // http.server.request.duration (s)
+	rpcDuration  metric.Float64Histogram   // rpc.server.call.duration (s)
 	activeReqs   metric.Int64UpDownCounter // http.server.active_requests ({request})
 	auditEvents  metric.Int64Counter       // bald_audit_events_total
 }
