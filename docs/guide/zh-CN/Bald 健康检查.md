@@ -8,15 +8,16 @@
 
 **readiness 回答「该不该摘流量」（依赖检查，Down → 503）；liveness 回答
 「该不该重启」（恒 200，绝不检查依赖）。两个 handler 都是标准
-`http.Handler`——gin、`net/http`、grpc-gateway 都能直接挂。**
+`http.Handler`——`net/http` 直接挂；gin / grpc-gateway 用各自的官方适配
+（gin 是 `gin.WrapH`，见第 1 节）。**
 
 ```go
 h := health.New()                                          // 默认 5s 全局超时
 h.Register("mysql", health.PingFunc(sqlDB.PingContext))    // Ping(ctx) error 形态零适配
 h.Register("kafka", health.TCP("kafka:9092", 2*time.Second))
 
-srv.GET("/readyz",  health.NewHandler(h).ServeHTTP)        // 依赖检查，Down → 503
-srv.GET("/healthz", health.NewLivenessHandler().ServeHTTP) // 进程活着即 200
+mux.Handle("/readyz",  health.NewHandler(h))               // 依赖检查，Down → 503
+mux.Handle("/healthz", health.NewLivenessHandler())        // 进程活着即 200
 ```
 
 ## 0. 引依赖
@@ -29,14 +30,25 @@ go get github.com/kalandramo/bald/health
 
 ## 1. 挂路由：两个探针端点
 
-gin（`ServeHTTP` 方法值与 `gin.HandlerFunc` 同签名，直接传）：
+gin——**必须经 `gin.WrapH` 适配**。health 的 handler 是标准
+`http.Handler`（`ServeHTTP(w http.ResponseWriter, r *http.Request)`），而
+`gin.HandlerFunc` 是 `func(*gin.Context)`——**两者签名不同**，直接传
+`health.NewHandler(h).ServeHTTP` 会编译失败：
 
 ```go
-srv.GET("/healthz", health.NewLivenessHandler().ServeHTTP)
-srv.GET("/readyz",  health.NewHandler(h).ServeHTTP)
+router.GET("/healthz", gin.WrapH(health.NewLivenessHandler()))
+router.GET("/readyz",  gin.WrapH(health.NewHandler(h)))
 ```
 
-标准库 `net/http`：
+手写适配同理（`gin.WrapH` 即此模式的封装，等价但更惯用）：
+
+```go
+router.GET("/readyz", func(c *gin.Context) {
+    health.NewHandler(h).ServeHTTP(c.Writer, c.Request)
+})
+```
+
+标准库 `net/http`（无需适配，直接挂）：
 
 ```go
 mux := http.NewServeMux()

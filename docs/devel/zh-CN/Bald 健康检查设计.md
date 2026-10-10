@@ -116,9 +116,12 @@ timeout)` 约束。每个检查器再被一层 `select { done, checkCtx.Done() }
 ### Handler：readiness 与 liveness 是两个问题
 
 ```go
-srv.GET("/healthz", health.NewLivenessHandler().ServeHTTP) // 进程活着即 200
-srv.GET("/readyz",  health.NewHandler(h).ServeHTTP)        // 依赖检查，Down → 503
+mux.Handle("/healthz", health.NewLivenessHandler()) // 进程活着即 200
+mux.Handle("/readyz",  health.NewHandler(h))        // 依赖检查，Down → 503
 ```
+
+（handler 是标准 `http.Handler`；gin 侧需 `gin.WrapH` 适配，签名不同不可直传——
+见《Bald 健康检查》第 1 节。）
 
 readiness 的响应映射只有一条：`Down → 503`，`Up/Unknown → 200`。响应体
 JSON 带全量明细：
@@ -209,7 +212,7 @@ module 绑上 grpc；gin 专属 handler——省一个适配，绑定框架。
 ```go
 h := health.New()
 h.Register("db", health.TCP(cfg.DB.Addr, 2*time.Second))
-srv.GET("/readyz", health.NewHandler(h).ServeHTTP)
+mux.Handle("/readyz", health.NewHandler(h))
 ```
 
 **已完成（2026-09-18 核实）**：发 tag（当前消费方引 `health/v0.1.1`）、根模块
