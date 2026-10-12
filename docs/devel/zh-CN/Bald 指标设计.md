@@ -8,7 +8,7 @@
 >
 > 关联文档：[Bald 审计设计](./Bald%20审计设计.md)（同源纪律与旁路纪律）、[Bald 日志设计](./Bald%20日志设计.md)（可观测性闭环）、[Bald Bootstrap 设计](./Bald%20Bootstrap%20设计.md)（契约装配链）、[框架契约总览](./框架契约总览.md)（§9 中间件表）
 >
-> Last updated: 2026-09-15
+> Last updated: 2026-10-12
 >
 > Status: Accepted
 
@@ -50,7 +50,7 @@ TCP 会话与 MQ 消费循环里没有「请求」这个概念，维度天然是
 | 后端装配 | bconf `metrics` 段 → appkit `MetricsRegistry` → `observability-otlp/contract` → `Setup` 多 Reader | 业务自选后端 `New()` 直连，**不经契约** |
 | otel 依赖 | 契约层即 otel API（全局 MeterProvider） | 契约层零依赖，otel 只是三后端之一 |
 | panic 防护 | `emitMetricsSafely` recover 降级 | 无（tcp 直接调用；当前三后端不主动 panic，风险低） |
-| 发版 | 随根模块 | **零 tag**（见「实现与过渡」） |
+| 发版 | 随根模块 | 独立发版：`metrics/v0.1.0` + 三后端 tag |
 
 **场景判断规则：**
 
@@ -213,7 +213,7 @@ metrics/                  module github.com/kalandramo/bald/metrics          （
 └── datadog/              module …/metrics/datadog     → DataDog/datadog-go/v5 v5.8.2
 ```
 
-三个后端统一形态：`New(opts ...Option) (*Provider, error)` + `var _ metrics.Metrics = (*Provider)(nil)` 断言 + functional options。命名对齐六域桥接模块的顶层布局判别（独立 go.mod = 可独立发布），但这四个模块**都还没有发过版**。
+三个后端统一形态：`New(opts ...Option) (*Provider, error)` + `var _ metrics.Metrics = (*Provider)(nil)` 断言 + functional options。命名对齐六域桥接模块的顶层布局判别（独立 go.mod = 可独立发布），这四个模块已发版：`metrics/v0.1.0` 与 `metrics/{prometheus,otel,datadog}/v0.1.0`。
 
 #### Prometheus 后端：promauto 工厂 + 七个惰性缓存 map
 
@@ -317,11 +317,11 @@ bconf 的 `metrics` 段（`type ∈ {"prometheus", "otlp"}`）驱动的是 `pkg/
 - gRPC stream 调用不经 `AuditInterceptor`（unary only，存量边界不变）。
 - `http.server.active_requests` 的 `server.address` 取 `Host` 头——可被客户端伪造，仅作 semconv 合规尽力，不用于安全判定。
 
-### 传输级三原语：零 tag、Gauge 语义分歧、单例位互斥
+### 传输级三原语：Gauge 语义分歧、单例位互斥（发版已解决）
 
-**零 tag：事实上没有外部用户，但 transport 欠着编造版本。** 四个模块从未发版，接口可以自由修正而不破坏任何人。但 `transport/tcp`、`transport/webrtc` 的 go.mod require `metrics v0.0.1`——**该 tag 不存在**；`transport/{kafka,rabbitmq,redis,rocketmq}` require 伪版本 `v0.0.0-00010101000000-000000000000` 靠 replace 兜底。当前全靠 `replace ../../metrics` 本地开发在编译；一旦去掉 replace 发布，tcp/webrtc 必然解析失败。
+**发版（2026-09-19 已解决）。** 修复前四个模块未发版，`transport/tcp`、`transport/webrtc` 的 go.mod 引用了不存在的 `metrics v0.0.1`，`transport/{kafka,rabbitmq,redis,rocketmq}` 则用伪版本 `v0.0.0-00010101000000-000000000000` 靠 replace 兜底——一旦去掉 replace 发布，tcp/webrtc 必然解析失败。现六个 transport 模块的 require 均指向真实版本 `metrics v0.1.0`（`0b34c02` 发版轨，同时消除全部 v0.0.0 内部占位）；`replace ../../metrics` 按仓库惯例保留供本地开发。
 
-**Gauge 语义：接口加 `GaugeAdd` 方法（破坏性，零 tag 窗口内自由改）。** 修复前接口只有 `Gauge`（Set 契约），但 otel 后端实际是 Add（`Float64UpDownCounter` 模拟）、tcp 埋点又按增量用法调用——两个相反方向的偏离恰好只在 otel 组合下互相抵消，同一份业务代码从 otel 切到 prometheus 后端，in_flight 指标就静默坏掉。修复（2026-09-15）：`Gauge` 定死 Set 语义（otel 改用同步 `Float64Gauge.Record`），新增 `GaugeAdd` 承载增量语义，三后端行为一致；tcp 的 `connections_in_flight` ±1 改走 `GaugeAdd`。自定义 `Metrics` 实现需补一个 `GaugeAdd` 方法。
+**Gauge 语义：接口加 `GaugeAdd` 方法（破坏性变更，在发版前的零 tag 窗口内完成）。** 修复前接口只有 `Gauge`（Set 契约），但 otel 后端实际是 Add（`Float64UpDownCounter` 模拟）、tcp 埋点又按增量用法调用——两个相反方向的偏离恰好只在 otel 组合下互相抵消，同一份业务代码从 otel 切到 prometheus 后端，in_flight 指标就静默坏掉。修复（2026-09-15）：`Gauge` 定死 Set 语义（otel 改用同步 `Float64Gauge.Record`），新增 `GaugeAdd` 承载增量语义，三后端行为一致；tcp 的 `connections_in_flight` ±1 改走 `GaugeAdd`。自定义 `Metrics` 实现需补一个 `GaugeAdd` 方法。
 
 **全局 MeterProvider 单例位：与 observability-otlp 互斥使用。** `metrics/otel.New` 与 `observability-otlp/metrics.Setup` 都调 `otel.SetMeterProvider`。同时使用时后设者生效、先设者的全部指标静默丢失；`pkg/metrics` 的 Recorder 依赖全局位，被 `metrics/otel` 顶掉后请求级指标也会路由错误。约束：**一个进程里二选一**。要同时要 OTLP 直推和 Prometheus 抓取，用 `Setup` 的多 Reader（它本来就是为此设计的）。
 
@@ -356,8 +356,10 @@ bconf 的 `metrics` 段（`type ∈ {"prometheus", "otlp"}`）驱动的是 `pkg/
 
 1. ~~修 D1-D3~~（已完成，2026-09-15：D1 单锁 + `-race` 测试；D2 defaultConfig nil + 两构造器兜底；D3 Gauge=Set + `GaugeAdd` 正名，otel 同步 gauge，tcp 改 `GaugeAdd`；D4-D7 一并清理）。
 2. 清理 `doc.go` / 缺省 serviceName 的 go-wind 残留（已完成，2026-09-15：doc.go 改 "bald framework"、缺省 serviceName 改 `bald-app`）。
-3. 打 tag：`metrics/v0.1.0` + `metrics/{prometheus,otel,datadog}/v0.1.0`（lightweight，对齐仓库惯例）。
-4. transport 六模块 require 改真实版本，replace 保留（发版随迁惯例；新 tag 撞 sumdb 收录延迟用 `GONOSUMDB` 绕过）。
+3. ~~打 tag：`metrics/v0.1.0` + `metrics/{prometheus,otel,datadog}/v0.1.0`~~（已完成，2026-09-19）。
+4. ~~transport 六模块 require 改真实版本，replace 保留~~（已完成，2026-09-19：`0b34c02` 发版轨，六模块 require 均指向 `metrics v0.1.0`）。
+
+**发版状态：本 checklist 已全部执行完毕**（2026-09-19，`0b34c02`）。
 
 ## 附录：FAQ
 
