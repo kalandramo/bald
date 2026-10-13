@@ -356,7 +356,7 @@ addr := bootstrap.GetServer().GetHttp().GetAddr()   // proto getter，nil-safe
 | `bootstrap: provider <name>: layer Reader is nil` | provider 造了层但没给 Reader | provider 实现 bug |
 | `appkit: Bind("x"): opt is nil` | `Bind` 传了 nil | 检查绑定对象 |
 | `appkit: Bind("x"): opt registers its own flag prefix, prefix must be empty` | `PlainBinder` 配了非空 prefix | prefix 传 `""` |
-| `bootstrap: invalid server config: server.sse is configured but has no implementation in this repo` | 配了本仓无实现的服务器段 | 删该段，或用 `appkit.WithExtraServers` 手工挂载 |
+| `bootstrap: invalid server config: server.sse is configured but has no implementation in this repo` | 配了本仓无实现的服务器段 | 注册对应 provider（如 `WithServerRegistry` + `transport/sse/contract`），或删该段；也可用 `appkit.WithExtraServers` 手工挂载 |
 | 校验失败（`bconf.Validate`） | 值违反契约级校验规则（地址格式、必填段等） | 按错误信息修正取值 |
 | 键写错但**无报错**、值没生效 | 未知键被放行（`DiscardUnknown`，为业务自定义段） | 用 `bconf.Validate` + 契约 getter 核对；确认键名拼写 |
 
