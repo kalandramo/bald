@@ -179,17 +179,22 @@ func validateSlogSection(s *bootstrapv1.Logger_Slog, prefix string) error {
 			return fmt.Errorf("%s.format %q, want console|json", prefix, v)
 		}
 	}
-	// 输出目标：output_paths 非空时逐项非空；为空时回退要求 output_path
-	//（都空时装配层会默认 stdout，但显式给了 Slog 段却不给输出目标，
-	// 更可能是漏配——fail-fast 暴露）。
+	// 输出目标：output_paths 非空时逐项非空；两者都空时**放行**——装配层
+	// 回退默认 stdout（见 bootstrap/log.go 的 LogOptions，与 log.proto 的
+	// 「两者都空时装配层回退默认 stdout」一致）。空串有明确定义的语义，
+	// 不是漏配；与 charm 段的 output_path 空串放行同款。
+	//
+	// 历史：此处曾 fail-fast（理由「显式给了 Slog 段却不给输出目标，更可能是
+	// 漏配」）。但那是猜测而非事实，且与 repeated 字段的替换语义叠加后代价过高：
+	// logger.backends 是 repeated，配置中出现的列表**整体替换**默认列表、新元素
+	// 不继承默认项任何字段（见 bconf/unmarshal.go 的 clearPresentLists）——用户
+	// 只想改 format 就必须额外补 output_path，否则在几百行外报一个看不懂的错。
 	if ps := s.GetOutputPaths(); len(ps) > 0 {
 		for i, p := range ps {
 			if p == "" {
 				return fmt.Errorf("%s.output_paths[%d] must not be empty", prefix, i)
 			}
 		}
-	} else if s.GetOutputPath() == "" {
-		return fmt.Errorf("%s.output_path must not be empty", prefix)
 	}
 	if r := s.GetRotate(); r != nil {
 		if r.GetMaxSize() < 0 {

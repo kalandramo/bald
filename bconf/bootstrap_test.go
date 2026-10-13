@@ -215,6 +215,44 @@ func TestValidateSlogOutputPaths(t *testing.T) {
 	}
 }
 
+// TestValidateSlogOutputPathOptional 输出目标整体缺省时不应 fail-fast。
+//
+// 语义依据（三处必须一致，本测试锁定它们）：
+//   - proto 契约 log.proto："两者都空时装配层回退默认 stdout"；
+//   - 装配层 bootstrap/log.go LogOptions：都空 → 保留 bslog 默认 ["stdout"]；
+//   - 校验层：空串放行（与 charm 段同款——charm 的 output_path 空串有 contract
+//     明确定义的语义，不是漏配）。
+//
+// RED 场景（本测试要防的回退）：校验层又要求 output_path 非空——用户只想改
+// level/format 却被要求补一个他不需要的字段；且因 repeated 列表整体替换默认值
+// （bconf/unmarshal.go clearPresentLists），漏写会让「改 format」的意图被静默
+// 丢弃一个无关字段后报错。
+func TestValidateSlogOutputPathOptional(t *testing.T) {
+	// 场景 A：只写 level/format，不写任何输出目标。
+	cfg := NewBootstrap()
+	defaultSlog(cfg).OutputPath = ""
+	defaultSlog(cfg).OutputPaths = nil
+	if err := Validate(cfg); err != nil {
+		t.Fatalf("无输出目标的 slog 段应放行（装配层回退 stdout）: %v", err)
+	}
+
+	// 场景 B：配置装载路径——repeated 整体替换后，新项只有 level/format。
+	m := map[string]any{
+		"logger": map[string]any{
+			"backends": []any{
+				map[string]any{"type": "slog", "slog": map[string]any{"level": "info", "format": "json"}},
+			},
+		},
+	}
+	cfg2 := NewBootstrap()
+	if err := UnmarshalMap(m, cfg2); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if err := Validate(cfg2); err != nil {
+		t.Fatalf("只改 format 的常见用法应放行（这正是 bald-admin 生产配置的形态）: %v", err)
+	}
+}
+
 // TestUnmarshalMapBackends 多后端声明经配置装载：列表项平移进 repeated Backends，
 // 每项自带 type 与参数段。
 func TestUnmarshalMapBackends(t *testing.T) {

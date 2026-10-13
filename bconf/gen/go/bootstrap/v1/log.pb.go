@@ -186,7 +186,8 @@ type Logger_Slog struct {
 	Level  string                 `protobuf:"bytes,1,opt,name=level,proto3" json:"level,omitempty"`
 	Format string                 `protobuf:"bytes,2,opt,name=format,proto3" json:"format,omitempty"`
 	// 输出目标（单值便捷字段）：stdout / stderr 或文件路径。
-	// output_paths 非空时优先生效；两者都空时装配层回退默认 stdout。
+	// output_paths 非空时优先生效；两者都空时回退默认 stdout（校验层放行，
+	// 装配层兑现——见 bootstrap/log.go 的 LogOptions）。
 	OutputPath string `protobuf:"bytes,3,opt,name=output_path,json=outputPath,proto3" json:"output_path,omitempty"`
 	// 多输出目标：同时写多个目标（如 stdout + 文件），复制分流（每目标收全量）。
 	OutputPaths []string `protobuf:"bytes,4,rep,name=output_paths,json=outputPaths,proto3" json:"output_paths,omitempty"`
