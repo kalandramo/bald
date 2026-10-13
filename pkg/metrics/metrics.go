@@ -28,7 +28,7 @@
 //     http.server.active_requests，gRPC 侧 rpc.server.call.duration——可套社区
 //     dashboard、被 APM 自动识别。
 //   - 审计三元组（object/action/result）与协议维度正交：业务视角走独立序列
-//     bald_audit_events_total（M7 同源不丢），不与协议属性叠加（基数纪律）。
+//     bald_audit_events_total（同源不丢），不与协议属性叠加（基数纪律）。
 package metrics
 
 import (

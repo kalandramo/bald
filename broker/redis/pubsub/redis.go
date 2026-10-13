@@ -118,7 +118,7 @@ func (b *pubsubBroker) Connect() error {
 		},
 	}
 
-	// 探活（D13.2 修复，2026-09-22）：redigo 的 Pool 是**懒连接**——上面的
+	// 探活（修复，2026-09-22）：redigo 的 Pool 是**懒连接**——上面的
 	// Dial 只在首次 pool.Get() 时才真正建连。故此处若不探活，Redis 不可达时
 	// 本方法会返回 nil（**假成功**），故障被推迟到首次 Publish/Subscribe 才
 	// 暴露，误导启动期健康检查。这里取一条连接并 PING，把「连不上」提前到
@@ -178,7 +178,7 @@ func (b *pubsubBroker) internalPublish(ctx context.Context, topic string, msg *b
 
 func (b *pubsubBroker) publish(_ context.Context, topic string, msg *broker.Message, _ ...broker.PublishOption) error {
 	// pool 为 nil 时 `(*Pool)(nil).Get()` 会 panic。三种情况会置 nil：
-	// 未 Connect、Connect 探活失败（D13.2 起）、已 Disconnect。须前置防护。
+	// 未 Connect、Connect 探活失败、已 Disconnect。须前置防护。
 	if b.pool == nil {
 		return errors.New("redis: not connected, call Connect first")
 	}

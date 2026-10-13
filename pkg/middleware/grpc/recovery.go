@@ -1,4 +1,4 @@
-// recovery.go 提供 gRPC 侧的 panic 兜底拦截器（D5）。
+// recovery.go 提供 gRPC 侧的 panic 兜底拦截器。
 //
 // gin 链首道是 ginmw.Recovery()，gRPC 链此前没有对应层——handler/内层拦截器
 // panic 会直接打穿进程（连接中断、无日志）。本拦截器捕获 panic、记日志后返回

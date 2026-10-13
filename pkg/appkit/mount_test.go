@@ -208,7 +208,7 @@ type auditorFunc func(context.Context, audit.AuditEvent)
 
 func (f auditorFunc) Record(ctx context.Context, ev audit.AuditEvent) { f(ctx, ev) }
 
-// TestResolveAuditor_InjectedOverridesGlobal 契约（D4）：Auditor Option 注入后，
+// TestResolveAuditor_InjectedOverridesGlobal 契约：Auditor Option 注入后，
 // 重组审计事件写入注入实例而非全局——bundle 注入 a、appkit 走全局的 split-brain
 // sink 从结构上消除。未注入时回退全局。
 func TestResolveAuditor_InjectedOverridesGlobal(t *testing.T) {

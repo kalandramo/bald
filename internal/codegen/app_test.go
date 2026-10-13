@@ -47,7 +47,7 @@ func TestGenApp_TemplateFormats(t *testing.T) {
 			t.Errorf("template missing anchor %q", want)
 		}
 	}
-	// 防回归（T1 可逆性）：Effect 的逆操作必须是**可执行调用**，不是注释空壳——
+	// 防回归（可逆性）：Effect 的逆操作必须是**可执行调用**，不是注释空壳——
 	// 此前模板把 store.UnregisterTenant 注释掉，新项目照抄即继承「全局注册点无
 	// 逆操作」的漏洞（e2e 用 UndoEffects 隔离时策略泄漏到下一用例）。
 	if strings.Contains(buf.String(), "// store.UnregisterTenant") {
@@ -59,7 +59,7 @@ func TestGenApp_TemplateFormats(t *testing.T) {
 }
 
 // TestGenApp_GeneratedCodeCompiles 端到端：实际生成到临时目录并在 bald module 内
-// go build 验证生成物可编译（P12 验收标准：生成物 go build 通过）。
+// go build 验证生成物可编译（验收标准：生成物 go build 通过）。
 func TestGenApp_GeneratedCodeCompiles(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("go toolchain not in PATH")
@@ -119,7 +119,7 @@ func TestGenAppSpec_TemplateFormats(t *testing.T) {
 		}
 	}
 
-	// ---- 装配纪律防回归（P12 审查修复的两个 P0）----
+	// ---- 装配纪律防回归（审查修复的两个 P0）----
 	srcStr := string(src)
 	// P0-1：Option 只有 New 消费——New 调用必须出现在最后一次 capOpts append 之后。
 	newIdx := strings.Index(srcStr, "app := appkit.New(capOpts...)")
@@ -226,7 +226,7 @@ func TestGenAppSpec_GeneratedRuns(t *testing.T) {
 	<-done
 }
 
-// TestGenAppSpec_CommandOmitsName CLI 参数层（P12 UX 修复）：spec 方言模式下 <name>
+// TestGenAppSpec_CommandOmitsName CLI 参数层（UX 修复）：spec 方言模式下 <name>
 // 可省略——应用名与默认输出路径 cmd/<AppSpec.meta.name>/main.go 以 AppSpec 为准；
 // 模板模式（无 --spec）缺 <name> 仍须报错。
 func TestGenAppSpec_CommandOmitsName(t *testing.T) {

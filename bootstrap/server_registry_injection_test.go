@@ -1,6 +1,6 @@
 package bootstrap
 
-// Wave 1 回归测试（2026-10-03）：server 域注入口——外部注册 provider 使
+// 回归测试（2026-10-03）：server 域注入口——外部注册 provider 使
 // implemented=false 的契约段合法。
 //
 // 背景：`serverSections` 把 cron/asynq 等标记为 implemented=false（框架不内置
@@ -120,7 +120,7 @@ func TestBuildServers_CronSectionAdmittedAfterProviderRegistration(t *testing.T)
 	}
 }
 
-// TestBuildServers_GatewaySectionFailFastWithoutProvider gateway 段（Wave 2 新增）
+// TestBuildServers_GatewaySectionFailFastWithoutProvider gateway 段（新增）
 // 配了但无 provider → fail-fast。锁定：新段必须进 serverSections，否则配了既不
 // 校验也不装配（静默失效——正是 D2 防护要拦的情形）。
 func TestBuildServers_GatewaySectionFailFastWithoutProvider(t *testing.T) {

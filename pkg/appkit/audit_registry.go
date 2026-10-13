@@ -23,7 +23,7 @@
 //
 // 生命周期：阶段 B（BeforeStart，契约装载校验后）Build 并 SetAuditor
 // 全局注入；停机 Effect 逆序回放——先 cleanup（stream flush 尾批审计
-// 事件），再恢复装配前的全局 Auditor（T1 纪律：全局写入配套逆操作）。
+// 事件），再恢复装配前的全局 Auditor（纪律：全局写入配套逆操作）。
 // audit 段不支持热更新（运行期热切走 R1-2 协调器的 audit.backends
 // 期望态，双轨并存——与「全局路径 vs 构造器注入」哲学一致）。
 //

@@ -1,4 +1,4 @@
-// Package bundle 是横切关注点门面（P10，见 docs/devel/zh-CN/架构优化路线.md）。
+// Package bundle 是横切关注点门面（见 docs/devel/zh-CN/架构优化路线.md）。
 //
 // 解决的问题：pkg/middleware/{gin,grpc} 的中间件/拦截器此前只能散装手挂，
 // 正确链序（Error 最外、Authn→Audit→Authz）只活在文档与纪律里，是坑清单中
@@ -96,12 +96,12 @@ func Audit(a audit.Auditor) Option { return func(b *Bundle) { b.auditor = a } }
 func Metrics(r metrics.Recorder) Option { return func(b *Bundle) { b.recorder = r } }
 
 // Normalized 显式开启 P9 归一化默认（authz.Default{HTTP,GRPC}{Object,Action}）。
-// D7 起归一化默认开启（P9 的核心收益——根治 REST/gRPC 双命名空间 RBAC——不应
+// D7 起归一化默认开启（的核心收益——根治 REST/gRPC 双命名空间 RBAC——不应
 // 依赖调用方记得 opt-in），本 Option 保留为显式声明（幂等）。
 func Normalized() Option { return func(b *Bundle) { b.normalized = true } }
 
 // Raw 关闭归一化，回到 P7 原始语义（HTTP object=path、gRPC object=FullMethod），
-// 供依赖旧双命名空间语义的存量部署 opt-out（D7 配套）。
+// 供依赖旧双命名空间语义的存量部署 opt-out（配套）。
 func Raw() Option { return func(b *Bundle) { b.normalized = false } }
 
 // CORS 附加 gin 跨域中间件（gRPC 链无对应层）。传 nil 等同不设置。
@@ -153,7 +153,7 @@ func Tracing() Option { return func(b *Bundle) { b.tracing = true } }
 // NoLogging 关闭请求日志/可观测中间件（默认开启）。
 func NoLogging() Option { return func(b *Bundle) { b.logging = false } }
 
-// New 构造 Bundle。归一化默认开启（D7）——REST/gRPC 共用同一份 RBAC 语义是
+// New 构造 Bundle。归一化默认开启——REST/gRPC 共用同一份 RBAC 语义是
 // 默认正确行为；需旧原始语义时显式 Raw() opt-out。
 func New(opts ...Option) *Bundle {
 	b := &Bundle{logging: true, normalized: true}

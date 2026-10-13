@@ -132,7 +132,7 @@ func AuditInterceptor(opts ...AuditOption) grpc.UnaryServerInterceptor {
 }
 
 // emitMetricsSafely 指标旁路记录：Recorder panic 仅降级记日志，绝不影响响应
-// （D5：与 auditor 的 recordSafely 同一纪律，此前 metrics.Record 未被保护，
+// （与 auditor 的 recordSafely 同一纪律，此前 metrics.Record 未被保护，
 // panic 会打穿 gRPC 链——gRPC 此前也没有 Recovery 兜底）。
 func emitMetricsSafely(rec metrics.Recorder, ctx context.Context, ev metrics.Event, transport metrics.Transport, seconds float64) {
 	if rec == nil {

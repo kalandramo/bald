@@ -93,7 +93,7 @@ func Provider(opts ...Option) func(context.Context, *bootstrapv1.Server) (transp
 //
 // 「未设置」语义：optional bool 为 nil 时**不**调对应 Option（用实现默认——
 // cron 的 seconds / gracefullyShutdown 默认均启用）。这避免了「空段 cron: {}
-// 关掉秒级」的反向陷阱（D11 镜像：配了反而反向生效）。
+// 关掉秒级」的反向陷阱（镜像：配了反而反向生效）。
 //
 // 而 location 解析失败视为**配置错误**（fail-fast）：时区名拼错会让任务在
 // 意外时间触发，静默降级比报错危险。

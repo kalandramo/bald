@@ -40,7 +40,7 @@ func NewValidator(validators any) (*Validator, error) {
 // Register 把 obj 上所有形如 Validate<RequestTypeName>(ctx, *Request) error 的方法注册进来。
 // 方法名必须是 `Validate` + 请求类型名；第一个参数为 context.Context，第二个参数为请求指针。
 //
-// 关键行为（P2 修复）：只要方法名以 Validate 开头，就被视为「声明了校验意图」；
+// 关键行为（修复）：只要方法名以 Validate 开头，就被视为「声明了校验意图」；
 // 此时**任何**一项约定不满足都返回 error，而不是静默跳过。
 // 这是为防止方法名拼写错误（如 ValidateUserRequst）导致校验完全不生效且无任何提示
 // ——这类静默失效在生产环境等同于「没有校验」。

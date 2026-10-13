@@ -14,7 +14,7 @@ import (
 	log "github.com/kalandramo/bald/log"
 )
 
-// 运行期装配（W1）：server 构造必须发生在 beforeStart 钩子链**之后**。
+// 运行期装配：server 构造必须发生在 beforeStart 钩子链**之后**。
 //
 // 为什么：业务声明的路由/gRPC service 依赖 beforeStart 建立的运行期资源
 // （DB/Redis/仓储）。若 server 构造仍在 FromBootstrap 构造期执行，消费方

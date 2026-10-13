@@ -62,7 +62,7 @@ func setPath(m map[string]any, path string, value any) {
 //
 // 引导 flag（--config）不落树：它由 loadConfig 自己消费（指定配置文件路径），
 // 且 bconf 契约顶层存在同名 message 字段（Config *Config），string 值落树会在
-// Unmarshal 时触发 coerce 报错（T7 冒烟暴露：go-bald-admin serve --config=... 无法启动）。
+// Unmarshal 时触发 coerce 报错（冒烟暴露：go-bald-admin serve --config=... 无法启动）。
 func flattenFlags(fs *pflag.FlagSet) map[string]any {
 	if fs == nil {
 		return nil

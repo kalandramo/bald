@@ -2,7 +2,7 @@ package contract
 
 // contract_test.go —— gateway 契约装配的字段解析与 fail-fast。
 //
-// 锁定的不变量（Wave 3.5）：
+// 锁定的不变量：
 //  1. 段缺失 → (nil, nil, nil)；
 //  2. register 为 nil → fail-fast（配置声明了转码面却无内容）；
 //  3. addr 为空 → fail-fast；

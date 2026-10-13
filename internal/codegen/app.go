@@ -12,7 +12,7 @@ import (
 	appspecv1 "github.com/kalandramo/bald/bconf/gen/go/bald/appspec/v1"
 )
 
-// appTmpl 是应用装配骨架模板（P12 第一步，见 docs/devel/zh-CN/架构优化路线.md §3）。
+// appTmpl 是应用装配骨架模板（第一步，见 docs/devel/zh-CN/架构优化路线.md §3）。
 //
 // 素材来源：kalandramo/bald-admin M10 落地后的真实装配形状——覆盖 appkit 全部
 // 第二轮原语的推荐用法：S1 能力声明、T1 效应账本、C1 组件生命周期、R1 key 级
@@ -97,7 +97,7 @@ func newApp() *appkit.AppKit {
 	)
 }
 
-// buildBundle 演示横切关注点接线（P10）：一次构造、双传输产出、链序由框架固化。
+// buildBundle 演示横切关注点接线：一次构造、双传输产出、链序由框架固化。
 // gin 侧 router.Use(b.Gin()...)；gRPC 侧 grpcserver.NewGRPCServerWithRegister(cfg, b.GRPCChain(), ...).
 // 依赖用构造器注入（替代全局 Set*）；Normalized() 一键启用 P9 归一化。
 func buildBundle() *bundle.Bundle {
@@ -171,7 +171,7 @@ func (o *appOptions) Run() error {
 	return nil
 }
 
-// genAppCmd 生成应用装配骨架 main.go（P12：第一步模板生成 + 第二步 AppSpec 方言驱动）。
+// genAppCmd 生成应用装配骨架 main.go（第一步模板生成 + 第二步 AppSpec 方言驱动）。
 //
 // 两种模式：
 //   - gen app <name>                       → 第一版硬编码模板骨架（含 [FILL] 填充点）
@@ -223,7 +223,7 @@ func genAppCmd(streams IOStreams) *cobra.Command {
 	return cmd
 }
 
-// runGenAppSpec 读取 AppSpec 并用 appspec 模板渲染（P12 第二步）。
+// runGenAppSpec 读取 AppSpec 并用 appspec 模板渲染（第二步）。
 func runGenAppSpec(spec, out string, force bool, streams IOStreams) error {
 	raw, err := os.ReadFile(spec)
 	if err != nil {

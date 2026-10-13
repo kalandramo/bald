@@ -34,7 +34,7 @@ func AuthnWithAuditor(a audit.Auditor) AuthnOption {
 // pkg/store 多租户自动隔离）。
 //
 // 认证失败（缺 token / 校验失败）时发送一条 ResultDeny 审计事件后 abort——审计
-// 中间件注册在 Authn 内侧，abort 后不再执行，认证失败必须由本层显式留痕（D3）。
+// 中间件注册在 Authn 内侧，abort 后不再执行，认证失败必须由本层显式留痕。
 //
 // authenticator 为 nil 时中间件退化为空操作（不认证，等同于公开服务）。
 func AuthnMiddleware(authenticator authn.Authenticator, opts ...AuthnOption) gin.HandlerFunc {

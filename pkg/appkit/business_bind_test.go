@@ -10,7 +10,7 @@ import (
 	log "github.com/kalandramo/bald/log"
 )
 
-// W2：FromBootstrap 必须提供业务配置对象的 flag 绑定通道。
+// FromBootstrap 必须提供业务配置对象的 flag 绑定通道。
 //
 // 缺口：FromBootstrap 只硬编码 Bind("server.http"/"server.grpc"/log)，没有业务
 // 绑定入口——业务 flag（如 --login.rate_limit.rate）无法进入装载 FlagSet，

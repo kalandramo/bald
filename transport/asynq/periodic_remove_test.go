@@ -8,7 +8,7 @@ import (
 // ---------------------------------------------------------------------------
 // D10：RemovePeriodicTask 的参数语义歧义
 //
-// 缺陷（D10）：`NewPeriodicTask(...) (string, error)` **返回 entryID**，而
+// 缺陷：`NewPeriodicTask(...) (string, error)` **返回 entryID**，而
 // `RemovePeriodicTask(taskId string)` **收 taskId（任务类型名）**并内部反查——
 // 两个方法一个返 entryID、一个收 taskId，不对称且方法名未体现差异，
 // 极易误传（实测踩坑：传 entryID → `periodic task not found`，且以 500 返回）。

@@ -91,7 +91,7 @@ func convergeFn(failOn string, comps *map[string]*reconComp) ReconcileFunc {
 	}
 }
 
-// setupReconApp 构造运行中的 AppKit + 协调器（A1 原语要求 Run 存活期）。
+// setupReconApp 构造运行中的 AppKit + 协调器（原语要求 Run 存活期）。
 func setupReconApp(t *testing.T, failOn string) (*AppKit, *map[string]*reconComp, func()) {
 	t.Helper()
 	comps := &map[string]*reconComp{}

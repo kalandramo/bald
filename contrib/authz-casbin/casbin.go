@@ -1,13 +1,13 @@
 // Package authzcasbin 实现基于 casbin 的 bald authz.Authorizer 桥接，
-// 自 go-bald-admin 范例 internal/security/casbin 晋升（P11，见 docs/devel/zh-CN/架构优化路线.md）。
+// 自 go-bald-admin 范例 internal/security/casbin 晋升（见 docs/devel/zh-CN/架构优化路线.md）。
 //
 // 设计约束（对齐 bald P7/P9 原则）：
 //   - 实现 bald 核心的 authz.Authorizer 接口，作为业务侧桥接子模块；
 //     核心框架保持零策略引擎耦合，casbin 只存在于本 module（不进 bald 核心）。
-//   - 传输中立归一化已由核心拦截器完成（P9 反哺）：gin/grpc Authz 中间件经
+//   - 传输中立归一化已由核心拦截器完成（反哺）：gin/grpc Authz 中间件经
 //     authz.DefaultHTTPObject/DefaultHTTPAction（gin）与 authz.DefaultGRPCObject/
 //     DefaultGRPCAction（grpc）在拦截器层把请求翻译为 (资源名, 动作)，本桥接只做纯 Enforce，
-//     不再重复归一化（M6.8 CR Issue4 根因：双命名空间泄漏，已在核心层根治）。
+//     不再重复归一化（CR Issue4 根因：双命名空间泄漏，已在核心层根治）。
 //
 // 职责划分：RBAC **模型**（.conf）是框架性声明，由本包内嵌为默认；**策略**（.csv，
 // 角色→权限、subject→角色）是业务数据，由调用方注入（通常 go:embed 业务自己的 csv）。
@@ -108,7 +108,7 @@ func (a *Authorizer) Authorize(ctx context.Context, subject, object, action stri
 }
 
 // Reload 从策略源重新装载策略，使运行期变更（如新注册用户的角色绑定）立即
-// 对后续 Authorize 生效，无需重启进程（D7）。
+// 对后续 Authorize 生效，无需重启进程。
 //
 // 语义：
 //   - 写锁独占，与并发的 Authorize 判定互斥（LoadPolicy 会重建内部策略状态，

@@ -34,7 +34,7 @@ func AuthnWithAuditor(a audit.Auditor) AuthnOption {
 // pkg/store 多租户自动隔离）。
 //
 // 认证失败（缺 token / 校验失败）时发送一条 ResultDeny 审计事件后返回 Unauthenticated
-// ——审计拦截器注册在 Authn 内侧，认证失败时不再执行，必须由本层显式留痕（D3）。
+// ——审计拦截器注册在 Authn 内侧，认证失败时不再执行，必须由本层显式留痕。
 //
 // authenticator 为 nil 时拦截器退化为空操作（不认证，等同于公开服务）。
 func AuthnInterceptor(authenticator authn.Authenticator, opts ...AuthnOption) grpc.UnaryServerInterceptor {

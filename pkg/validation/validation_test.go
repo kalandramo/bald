@@ -47,7 +47,7 @@ func TestValidatorUnregistered(t *testing.T) {
 	}
 }
 
-// TestRegister_TypoMustError 回归防护（P2 修复）：
+// TestRegister_TypoMustError 回归防护（修复）：
 // 方法名拼写错误必须返回 error，而不是静默跳过。
 //
 // 修复前：Register 只打一行 klog.V(4) 日志就 continue，调用方完全无感，

@@ -14,7 +14,7 @@ import (
 	log "github.com/kalandramo/bald/log"
 )
 
-// WithGRPCOptions（W1）：gRPC 选项工厂必须在 **Run 期**求值，而非 FromBootstrap 构造期。
+// WithGRPCOptions：gRPC 选项工厂必须在 **Run 期**求值，而非 FromBootstrap 构造期。
 //
 // 为什么：选项常含拦截器链，而链需要认证器/授权器——它们在业务 beforeStart 才建立。
 // WithGRPC 的 unary 变参在调用点即求值（Go 语义），构造期只能拿到 nil，业务被迫用

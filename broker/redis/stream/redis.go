@@ -115,7 +115,7 @@ func (b *streamBroker) Connect() error {
 		},
 	}
 
-	// 探活（D13.2 修复，2026-09-22）：同 pubsub driver——redigo Pool 懒连接，
+	// 探活（修复，2026-09-22）：同 pubsub driver——redigo Pool 懒连接，
 	// 不探活则 Redis 不可达时本方法返回 nil（假成功），故障推迟到首次
 	// Publish/Subscribe 才暴露。取一条连接 PING，把失败提前到返回值。
 	conn := b.pool.Get()
@@ -174,7 +174,7 @@ func (b *streamBroker) publish(_ context.Context, stream string, msg *broker.Mes
 	}
 
 	// pool 为 nil 时 `(*Pool)(nil).Get()` 会 panic。三种情况会置 nil：
-	// 未 Connect、Connect 探活失败（D13.2 起）、已 Disconnect。须前置防护。
+	// 未 Connect、Connect 探活失败、已 Disconnect。须前置防护。
 	if b.pool == nil {
 		return errors.New("redis-stream: not connected, call Connect first")
 	}

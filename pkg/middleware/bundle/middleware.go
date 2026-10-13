@@ -10,7 +10,7 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// 契约桥：server.http.middleware.* → bundle Option（D5 的根因修复）
+// 契约桥：server.http.middleware.* → bundle Option（的根因修复）
 //
 // 背景：本仓库曾有一个**系统性缺口**——契约 `server.http.middleware` 下七个
 // 子段（recovery/cors/logging/request_id/tracing/rate_limit/timeout）在生成

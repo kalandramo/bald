@@ -2,7 +2,7 @@
 //
 // 背景（对照 Cordis 论文「万物皆插件」的 bald 可翻译子集）：trace provider、
 // metrics exporter、审计后端、缓存连接池等进程内基础设施此前是散装全局
-// （Setup + 手工 BeforeStop flush），忘挂 BeforeStop 就丢数据（M9：trace 退出前
+// （Setup + 手工 BeforeStop flush），忘挂 BeforeStop 就丢数据（trace 退出前
 // 必须 shutdown 否则丢尾批 span）。C1 把它们统一为有生命周期的组件，与 servers
 // 一起纳入 appkit 编排：顺序 Start（注册序=依赖建立序）、逆序 Dispose（停机
 // 对称）、panic 隔离、独立超时——「trace 忘 flush 丢批」从文档知识变成结构保证。

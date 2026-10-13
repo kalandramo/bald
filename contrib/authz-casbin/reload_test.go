@@ -43,7 +43,7 @@ func writePolicy(t *testing.T, dir, content string) string {
 	return p
 }
 
-// TestCasbin_ReloadPicksUpNewRoleBinding 核心验收（D7 端到端语义）：
+// TestCasbin_ReloadPicksUpNewRoleBinding 核心验收（端到端语义）：
 // 策略文件新增 subject→角色 绑定时，Reload 后新的判定立即生效——无需重建授权器。
 func TestCasbin_ReloadPicksUpNewRoleBinding(t *testing.T) {
 	dir := t.TempDir()

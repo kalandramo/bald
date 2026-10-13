@@ -438,7 +438,7 @@ func (s *Store[T]) translate(ctx context.Context, req *storev1.PagingRequest) (*
 	if s.shouldIsolate(ctx) {
 		mergeTenant(where, ctx)
 	}
-	// 数据权限范围：在租户隔离基础上进一步收窄可见行（P9，Viewer 五级范围；
+	// 数据权限范围：在租户隔离基础上进一步收窄可见行（Viewer 五级范围；
 	// 布尔树版支持多范围 OR 组合，如「本人 OR 本部门」）。
 	mergeDataScope(where, ctx)
 	mergeDataScopeExpr(where, ctx)

@@ -31,7 +31,7 @@ var (
 // RegisterDataScope 注册一个数据范围策略（可多次注册，多个策略的条件会合并）。
 //
 // 这是**全局注册点**（对共享 slice 的写入）。若需在停机/测试隔离时撤销，
-// 用 [RegisterDataScopeWithDisposer]（T1 可逆 effect 语义，与
+// 用 [RegisterDataScopeWithDisposer]（可逆 effect 语义，与
 // [RegisterTenant]/[UnregisterTenant] 的配对同构）。
 func RegisterDataScope(fn DataScopeFunc) {
 	scopeMu.Lock()
@@ -39,7 +39,7 @@ func RegisterDataScope(fn DataScopeFunc) {
 	dataScopes = append(dataScopes, fn)
 }
 
-// RegisterDataScopeWithDisposer 注册数据范围策略并返回**注销闭包**（T1 可逆
+// RegisterDataScopeWithDisposer 注册数据范围策略并返回**注销闭包**（可逆
 // effect）。dispose 幂等：重复调用无副作用，且只移除本次注册项，不影响其它
 // 策略。
 //

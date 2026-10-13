@@ -113,7 +113,7 @@ type bootstrapSpec struct {
 	metricsRegistry *MetricsRegistry
 	auditRegistry   *AuditRegistry
 
-	// 业务透传声明（U1：重业务走 FromBootstrap 的逃生面——钩子/协调器/
+	// 业务透传声明（重业务走 FromBootstrap 的逃生面——钩子/协调器/
 	// 能力声明/订阅/效果账本/组件，转发给 New 的同名 Option）。
 	beforeStart []func(context.Context) error
 	beforeStop  []func(context.Context) error
@@ -124,7 +124,7 @@ type bootstrapSpec struct {
 	requires    []requireDecl
 	components  []Component
 
-	// 业务配置 flag 绑定（W2）：与 New 路径的 Bind Option 同语义，转发到
+	// 业务配置 flag 绑定：与 New 路径的 Bind Option 同语义，转发到
 	// kitOpts。缺此通道时业务 flag 进不了装载 FlagSet，「flag > env > 文件」
 	// 优先级链对业务配置项整条失效（用户显式传参被静默忽略）。
 	bindings []flagBinding
@@ -322,7 +322,7 @@ func WithMetricsRegistry(r *MetricsRegistry) BootstrapOption {
 // 见 AuditRegistry）。契约 audit 段存在时，阶段 B 按 audit.backends
 // 列表装配（log 内置无需注册；store/stream 走 contract 注册；多后端
 // 组装 MultiAuditor）并 SetAuditor 全局注入，停机 Effect 恢复装配前
-// 全局（T1 纪律）+ 聚合 cleanup（stream flush 尾批）。audit 段不支持
+// 全局（纪律）+ 聚合 cleanup（stream flush 尾批）。audit 段不支持
 // 热更新（运行期热切走 R1-2 协调器）。
 func WithAuditRegistry(r *AuditRegistry) BootstrapOption {
 	return func(s *bootstrapSpec) { s.auditRegistry = r }
@@ -357,7 +357,7 @@ func WithServerRegistry(r *baldbootstrap.ServerRegistry) BootstrapOption {
 }
 
 // ---------------------------------------------------------------------------
-// 业务透传（U1）：FromBootstrap 表达不了、但重业务需要的生命周期面——转发
+// 业务透传：FromBootstrap 表达不了、但重业务需要的生命周期面——转发
 // 给 New 的同名 Option。语义与直用 New 完全一致，仅注册顺序有约定：
 //   - WithBeforeStart 追加在 FromBootstrap 内部装载链之后（契约装载/校验/
 //     Logger 重建/各 Registry Build 完成后执行——业务钩子里可直接读终值）；
@@ -406,13 +406,13 @@ func WithRequires(component string, caps ...string) BootstrapOption {
 	return func(s *bootstrapSpec) { s.requires = append(s.requires, requireDecl{component: component, caps: caps}) }
 }
 
-// WithComponents 声明进程内组件（C1 生命周期：Start 于服务器监听前、
+// WithComponents 声明进程内组件（生命周期：Start 于服务器监听前、
 // Dispose 于停机末段逆序，与 New 的 Components 语义一致）。
 func WithComponents(comps ...Component) BootstrapOption {
 	return func(s *bootstrapSpec) { s.components = append(s.components, comps...) }
 }
 
-// WithBind 注册业务配置对象的 flag（W2），语义与 New 路径的 Bind 完全一致
+// WithBind 注册业务配置对象的 flag，语义与 New 路径的 Bind 完全一致
 // （proto.Message → bconf.BindFlags 遍历描述符；PlainBinder → AddFlags）。
 //
 // 为什么需要：FromBootstrap 内化了 server.http/server.grpc/log 的绑定，但业务
@@ -502,7 +502,7 @@ func FromBootstrap(cfg *bootstrapv1.BootstrapConfig, opts ...BootstrapOption) (*
 	// 代码，是刻意的）；零能力声明（纯后台进程）跳过构造，servers 为空合法。
 	// BuildServers 失败回滚阶段 A 与配置层，与 ConfigRegistry 错误路径对称。
 	var servers []transport.Server
-	// 服务器构造**延后到 Run 期**（W1 装配时序根治）。
+	// 服务器构造**延后到 Run 期**（装配时序根治）。
 	//
 	// 背景：BuildServers 会同步调用业务注册回调（WithGRPC 的 register、
 	// WithHTTP/WithGatewayRegister 的 handler），而消费方依赖 beforeStart
@@ -687,7 +687,7 @@ func FromBootstrap(cfg *bootstrapv1.BootstrapConfig, opts ...BootstrapOption) (*
 		}),
 		// 审计 Effect 注册在 tracer-shutdown 之前：逆序回放时最后执行——
 		// 先 cleanup（stream flush 尾批审计事件，在指标/span 之后收集面最全），
-		// 再恢复装配前的全局 Auditor（T1：全局写入配套逆操作）。
+		// 再恢复装配前的全局 Auditor（全局写入配套逆操作）。
 		Effect("appkit:audit-restore", func(ctx context.Context) error {
 			if auditSt == nil {
 				return nil
@@ -800,11 +800,11 @@ func FromBootstrap(cfg *bootstrapv1.BootstrapConfig, opts ...BootstrapOption) (*
 			return nil
 		}))
 	}
-	// W1：servers 的 cleanup 不再在此注册——服务器构造已延后到 Run 期
+	// servers 的 cleanup 不再在此注册——服务器构造已延后到 Run 期
 	// （见下方运行期装配钩子），其 cleanup 在同一阶段经 addEffect 入账，
 	// 保证「构造即入账」不变（否则构造成功而注册失败会泄漏）。
 
-	// 业务透传（U1）：钩子/协调器/能力声明/订阅/效果——追加在框架装配之后
+	// 业务透传：钩子/协调器/能力声明/订阅/效果——追加在框架装配之后
 	//（beforeStart 在内部装载链后执行，可读契约终值；Effect 逆序回放先于
 	// 框架 Effect——业务资源先收）。
 	for _, fn := range spec.beforeStart {
@@ -870,7 +870,7 @@ func FromBootstrap(cfg *bootstrapv1.BootstrapConfig, opts ...BootstrapOption) (*
 	if len(spec.components) > 0 {
 		kitOpts = append(kitOpts, Components(spec.components...))
 	}
-	// 业务配置 flag 绑定（W2）：与框架自身的 server.http/server.grpc 绑定同层，
+	// 业务配置 flag 绑定：与框架自身的 server.http/server.grpc 绑定同层，
 	// 使业务 flag 进入装载 FlagSet 的 flag 层（最高优先级）。
 	for _, b := range spec.bindings {
 		kitOpts = append(kitOpts, Bind(b.prefix, b.opt))

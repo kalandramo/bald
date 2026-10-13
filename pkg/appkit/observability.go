@@ -32,7 +32,7 @@
 //	    appkit.WithTracerRegistry(tr),
 //	    appkit.WithMetricsRegistry(mr), ...)
 //
-// New 构造路径（T7 模式）在业务 BeforeStart 里直接调 Build，停机自行挂接
+// New 构造路径（模式）在业务 BeforeStart 里直接调 Build，停机自行挂接
 // （见 go-bald-admin main.go setupObservability）。
 package appkit
 
@@ -189,7 +189,7 @@ func (r *MetricsRegistry) Build(ctx context.Context, cfg *bootstrapv1.Metrics) (
 // 暴露端 HTTP 生命周期
 // ---------------------------------------------------------------------------
 
-// 指标暴露端缺省值（T8 根治：与 gRPC :9090 错峰）。
+// 指标暴露端缺省值（根治：与 gRPC :9090 错峰）。
 const (
 	defaultMetricsAddr = ":9091"
 	defaultMetricsPath = "/metrics"

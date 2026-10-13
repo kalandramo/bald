@@ -51,7 +51,7 @@ func TestStore_DeleteIdempotent(t *testing.T) {
 		t.Fatalf("delete set: rows=%d, want 3", rows)
 	}
 
-	// 4) 空集合条件删除 → (0, nil)，同样是合法结果（D12 原始误报场景）。
+	// 4) 空集合条件删除 → (0, nil)，同样是合法结果（原始误报场景）。
 	rows, err = s.Delete(ctx, &store.Where{Filters: []*storev1.FilterCondition{store.Eq("name", "nobody")}})
 	if err != nil {
 		t.Fatalf("delete empty set must be idempotent: err=%v, want nil", err)

@@ -1,5 +1,5 @@
 // Package metrics 是 bald metrics.Recorder 的 OpenTelemetry 真实后端桥接，
-// 自 go-bald-admin 范例 internal/observability/metrics 晋升（P11，见 docs/devel/zh-CN/架构优化路线.md）。
+// 自 go-bald-admin 范例 internal/observability/metrics 晋升（见 docs/devel/zh-CN/架构优化路线.md）。
 //
 // 采用 OTel 多 Reader 模式：默认挂 Prometheus exporter（供 /metrics 被抓取），
 // 若通过 WithOTLPAddr 提供地址则额外挂 OTLP metric exporter 直推远端 APM（如
@@ -113,7 +113,7 @@ func Setup(opts ...Option) (http.Handler, func(context.Context) error, error) {
 	mopts := []metric.Option{
 		metric.WithResource(res),
 	}
-	// 注意：metric.WithReader 非可变参，多 Reader 须逐项 append（M9 踩坑记录）。
+	// 注意：metric.WithReader 非可变参，多 Reader 须逐项 append（踩坑记录）。
 	for _, r := range readers {
 		mopts = append(mopts, metric.WithReader(r))
 	}

@@ -6,7 +6,7 @@ package pubsub
 //
 // `b.pool = nil` 表示「未连接」状态，有三条路径会置 nil：
 //   1. 从未 Connect
-//   2. Connect 探活失败（D13.2 起，v0.1.1）
+//   2. Connect 探活失败（起，v0.1.1）
 //   3. 已 Disconnect
 //
 // 而 publish/Subscribe 直接 `b.pool.Get()` → `(*Pool)(nil).Get()`

@@ -59,7 +59,7 @@ func WithSubjectResolver(fn func(ctx context.Context, info *grpc.UnaryServerInfo
 //	)
 //
 // 此时同一业务资源在 REST（/v1/secret/*）与 gRPC（SecretService.*）下归一到同一
-// 资源名+动作，策略无需双写（M6.8 CR Issue4 的反哺修复）。
+// 资源名+动作，策略无需双写（CR Issue4 的反哺修复）。
 //
 // authorizer 为 nil 时拦截器退化为空操作（不授权，等同于开放服务）。
 func AuthzInterceptor(authorizer authz.Authorizer, opts ...AuthzOption) grpc.UnaryServerInterceptor {

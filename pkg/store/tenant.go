@@ -45,7 +45,7 @@ func RegisterTenant(key string, valueFunc TenantValueFunc) {
 
 // UnregisterTenant 注销一个租户维度（幂等：不存在时无操作）。
 //
-// 与 RegisterTenant 对偶，是全局注册点第一个补齐「逆操作」的成员（T1 效应账本，
+// 与 RegisterTenant 对偶，是全局注册点第一个补齐「逆操作」的成员（效应账本，
 // 见 docs/devel/zh-CN/架构优化路线.md）。典型用法：
 //
 //	store.RegisterTenant("tenant_id", store.DefaultTenantFunc)

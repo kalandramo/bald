@@ -69,7 +69,7 @@ type ObservabilityOptions struct {
 // Option is a functional option for configuring the middleware
 type Option func(*ObservabilityOptions)
 
-// WithLogger 显式注入自定义 log.Logger（D8：优先于全局惰性解析——注入后运行期
+// WithLogger 显式注入自定义 log.Logger（优先于全局惰性解析——注入后运行期
 // SetLogger 重建不影响本中间件，需要该隔离语义时使用）。
 func WithLogger(logger log.Logger) Option {
 	return func(o *ObservabilityOptions) {
@@ -113,7 +113,7 @@ func WithSkipPaths(paths ...string) Option {
 }
 
 // resolveLogger 返回生效 Logger：显式 WithLogger 注入优先，否则每次请求惰性取
-// 全局（D8：构造期快照会让运行期 SetLogger 重建对请求日志永久失效——示例先默认
+// 全局（构造期快照会让运行期 SetLogger 重建对请求日志永久失效——示例先默认
 // logger 构造中间件、BeforeStart 再按最终配置重建，快照即分裂）。
 func (o *ObservabilityOptions) resolveLogger() log.Logger {
 	if o.Logger != nil {

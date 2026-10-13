@@ -316,9 +316,9 @@ func Servers(servers ...transport.Server) Option {
 	return func(a *AppKit) { a.servers = append(a.servers, servers...) }
 }
 
-// Auditor 注入运行期审计后端：appkit 自身发出的审计事件（A1 组件挂载/卸载、
+// Auditor 注入运行期审计后端：appkit 自身发出的审计事件（组件挂载/卸载、
 // R1-2 协调收敛/错误）写入该实例，与业务经 bundle.Audit 注入的请求级审计
-// 同源，消除 split-brain sink（D4）。未注入时回退全局 audit.GetAuditor()。
+// 同源，消除 split-brain sink。未注入时回退全局 audit.GetAuditor。
 func Auditor(a audit.Auditor) Option { return func(a2 *AppKit) { a2.auditor = a } }
 
 func StopTimeout(d time.Duration) Option { return func(a *AppKit) { a.stopTimeout = d } }
@@ -599,11 +599,11 @@ func (a *AppKit) Run(ctx context.Context) error {
 }
 
 // stopAll 分五阶段优雅停机（对照 go-lulu 分阶段停机骨架）：
-//  0. 效应账本逆序回放（T1：撤销装配期全局写入，先于一切停机钩子）
+//  0. 效应账本逆序回放（撤销装配期全局写入，先于一切停机钩子）
 //  1. BeforeStop 钩子（独立超时 defaultHookTimeout，panic 安全不拖垮整机）
 //  2. 各 Server.Stop 并发（独立超时 stopTimeout）
 //  3. AfterStop 钩子（独立超时 defaultHookTimeout，panic 安全）
-//  4. 组件 Dispose 逆序（C1：AfterStop 之后——钩子期间组件仍可用，最后收尾）
+//  4. 组件 Dispose 逆序（AfterStop 之后——钩子期间组件仍可用，最后收尾）
 //
 // 每个阶段使用各自独立的 WithTimeout ctx，互不影响；parent 取消会级联缩短各阶段。
 // waitForEndpoints / register / afterStart / 组件启动失败路径也经本函数回滚
@@ -641,7 +641,7 @@ func (a *AppKit) stopAll(parent context.Context) {
 		}
 	}
 
-	// 阶段 4：组件 Dispose（C1，逆序、幂等；AfterStop 之后——钩子期间组件仍可用）。
+	// 阶段 4：组件 Dispose（逆序、幂等；AfterStop 之后——钩子期间组件仍可用）。
 	a.disposeComponents(parent)
 }
 

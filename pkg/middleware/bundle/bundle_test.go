@@ -214,7 +214,7 @@ func TestGinRawDefaults_WithoutNormalization(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", w.Code)
 	}
-	// 契约（向后兼容）：默认 object=原始路径、action=HTTP 方法（P7 语义）。
+	// 契约（向后兼容）：默认 object=原始路径、action=HTTP 方法（语义）。
 	if az.last.object != "/v1/secret/42" || az.last.action != http.MethodGet {
 		t.Fatalf("raw defaults: object=%q action=%q", az.last.object, az.last.action)
 	}
@@ -390,7 +390,7 @@ func (failingAuthn) AuthenticateToken(string) (*authn.AuthClaims, error) {
 	return nil, context.Canceled
 }
 
-// TestDefaultNormalized 契约（D7）：New() 不显式传 Normalized() 也默认归一化——
+// TestDefaultNormalized 契约：New 不显式传 Normalized 也默认归一化——
 // P9 的双命名空间根治不应依赖调用方记得 opt-in；Raw() 显式关闭。
 func TestDefaultNormalized(t *testing.T) {
 	log := &callLog{}
@@ -426,7 +426,7 @@ func TestDefaultNormalized(t *testing.T) {
 	}
 }
 
-// TestGRPCRecovery_PanicContained 契约（D5）：handler panic 被 Recovery 拦截器
+// TestGRPCRecovery_PanicContained 契约：handler panic 被 Recovery 拦截器
 // 捕获并转为 *berrors.Internal，由最外层 Error 收口为 Internal status，不打穿进程。
 func TestGRPCRecovery_PanicContained(t *testing.T) {
 	b := New()

@@ -7,7 +7,7 @@
 //
 // 生命周期：Close 停止后台 goroutine 并 drain 剩余缓冲（发布失败的降级
 // fallback，语义与后台消费一致），不丢弃已入队事件。签名适配
-// appkit.ComponentFunc 的 dispose——纳入组件生命周期（C1）：
+// appkit.ComponentFunc 的 dispose——纳入组件生命周期：
 //
 //	appkit.ComponentFunc("audit-stream", a.Close)
 //

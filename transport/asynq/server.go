@@ -141,7 +141,7 @@ func NewServer(opts ...Option) *Server {
 	return srv
 }
 
-// defaultErrorHandler 是 NewServer 装配的默认 asynq.ErrorHandler（D9）。
+// defaultErrorHandler 是 NewServer 装配的默认 asynq.ErrorHandler。
 //
 // 旁路语义：绝不 panic、绝不吞掉之后的处理（与审计/效应撤销同一纪律）。
 // 业务可用 [WithErrorHandler] 覆盖它（覆盖优先——init 在 NewServer 之后跑）。
@@ -696,7 +696,7 @@ func (s *Server) NewPeriodicTask(cronSpec, typeName string, msg any, opts ...asy
 // RemovePeriodicTask 按 **taskId（任务类型名，即 NewPeriodicTask 的 typeName）**
 // 移除周期任务——内部经 QueryPeriodicTaskEntryID 反查 entryID。
 //
-// ⚠️ 参数语义提示（D10）：本方法收的是 **taskId**，而 [Server.NewPeriodicTask]
+// ⚠️ 参数语义提示：本方法收的是 **taskId**，而 [Server.NewPeriodicTask]
 // 的返回值是 **entryID**——两者不对称，直接回传会报 `periodic task not found`。
 // 若持有的是 NewPeriodicTask 的返回值，请用 [Server.RemovePeriodicTaskByEntryID]。
 func (s *Server) RemovePeriodicTask(taskId string) error {

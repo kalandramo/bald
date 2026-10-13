@@ -2,7 +2,7 @@ package sentinel
 
 // sentinel_test.go —— 补零测试：Sentinel 限流适配器。
 //
-// ## 为何补这个测试（Wave 4.6）
+// ## 为何补这个测试
 //
 // 计划 4.6：「补零测试能力轴的测试：`bald/ratelimit/sentinel/`、
 // `bald/registry/{etcd,consul,kubernetes}/`」——这些包此前 **0 测试**。

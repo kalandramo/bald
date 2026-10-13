@@ -322,7 +322,7 @@ func TestFromBootstrap_FailFastMissingSegments(t *testing.T) {
 
 // 服务器构造数量随能力声明走：双声明=2，单声明=1，零声明=0。
 //
-// W1：构造延后到 Run 期（beforeStart 链后），故此处必须驱动 Run 才能观察
+// 构造延后到 Run 期（beforeStart 链后），故此处必须驱动 Run 才能观察
 // servers——构造期断言的是「尚未构造」（servers==0），运行后才是声明数量。
 func TestFromBootstrap_ServersConstructed(t *testing.T) {
 	old := log.GetLogger()
@@ -338,7 +338,7 @@ func TestFromBootstrap_ServersConstructed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FromBootstrap: %v", err)
 	}
-	// 构造期未构建（W1 语义：延后到 Run）。
+	// 构造期未构建（语义：延后到 Run）。
 	if len(a.servers) != 0 {
 		t.Fatalf("servers at construction = %d, want 0 (deferred to Run)", len(a.servers))
 	}
@@ -387,7 +387,7 @@ func TestFromBootstrap_GatewayDriver(t *testing.T) {
 	}
 
 	// ② 单声明 + driver 留空 → 默认转码面（GatewayServer 承载 server.http 段）。
-	//    W1：构造延后到 Run，故驱动 Run 后观察 server 类型。
+	//    构造延后到 Run，故驱动 Run 后观察 server 类型。
 	cfg2 := bconf.NewBootstrap()
 	dynamicAddr(cfg2)
 	a, err := FromBootstrap(cfg2, WithConfigNamespace(testConfigNamespace), WithGatewayRegister(gwRegister))
@@ -667,7 +667,7 @@ func TestHotReload_BadConfigKeepsOld(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// 业务透传（U1）：WithBeforeStart/WithBeforeStop/WithEffect/WithReconcile/
+// 业务透传：WithBeforeStart/WithBeforeStop/WithEffect/WithReconcile/
 // WithProvides/WithRequires/WithOnKeyChange 的转发语义。
 // ---------------------------------------------------------------------------
 

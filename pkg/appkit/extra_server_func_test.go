@@ -2,7 +2,7 @@ package appkit
 
 // extra_server_func_test.go —— WithExtraServerFunc：运行期构造额外服务器。
 //
-// 背景（W2 能力）：WithExtraServers 收已构造实例（调用点即需存在）；若该服务器
+// 背景（能力）：WithExtraServers 收已构造实例（调用点即需存在）；若该服务器
 // 需要运行期资源（如就绪的认证器），应用只能传「请求期解析」代理。本 Option 收
 // 工厂函数，延后到 Run 期 beforeStart 链末尾调用。
 //

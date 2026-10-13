@@ -28,7 +28,7 @@ type ActionResolver func(request string) string
 // 规则：取 FullMethod 的 Service 段（最后一个 '.' 之前、首个 '/' 之后），
 // 去除 "Service" 后缀并转小写。这样同一业务资源在 REST（/v1/secret/*）与
 // gRPC（SecretService.*）下归一到同一资源名，避免「双命名空间泄漏」
-// （M6.8 CR Issue4 的根因：gin 与 grpc 各用各的 object 命名，策略需双写）。
+// （CR Issue4 的根因：gin 与 grpc 各用各的 object 命名，策略需双写）。
 func DefaultGRPCObject(fullMethod string) string {
 	svc := strings.Trim(fullMethod, "/")
 	if i := strings.Index(svc, "/"); i >= 0 {

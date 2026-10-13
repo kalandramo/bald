@@ -45,10 +45,10 @@
 //
 //	| 你要做的事                         | 用哪个                           | 为什么                                      |
 //	|------------------------------------|----------------------------------|---------------------------------------------|
-//	| 改共享全局状态（SetLogger/注册表） | Effect(T1)                       | 登记**逆操作**；停机阶段 0 逆序回放，失败亦可回滚 |
-//	| 建/关一个有生命周期的实例          | Components(C1) / ComponentFunc   | 顺序 Start + 逆序 Dispose；panic 隔离、独立超时  |
+//	| 改共享全局状态（SetLogger/注册表） | Effect                       | 登记**逆操作**；停机阶段 0 逆序回放，失败亦可回滚 |
+//	| 建/关一个有生命周期的实例          | Components / ComponentFunc   | 顺序 Start + 逆序 Dispose；panic 隔离、独立超时  |
 //	| 声明启动前依赖的能力               | Provides / Requires(S1)          | Resolve 启动期 fail-fast，替代运行时 nil panic  |
-//	| 运行期动态挂载/卸载                | MountComponent / Registry.Mount(A1) | 可逆；装配期 Register 只增不减（重名报错）  |
+//	| 运行期动态挂载/卸载                | MountComponent / Registry.Mount | 可逆；装配期 Register 只增不减（重名报错）  |
 //	| 配置变更时对个别 key 做定点响应    | OnKeyChange(R1)                  | 仅该 key 真变化才触发；无需全量 Unmarshal       |
 //	| 让实际态收敛到配置声明的期望态     | Reconcile(R1-2)                  | diff-apply，失败下次补齐（K8s controller 语义） |
 //	| 纯生命周期时机（无逆操作、无实例） | BeforeStart/AfterStart/...       | 只需「在某个时刻跑一段代码」时的最轻选择         |

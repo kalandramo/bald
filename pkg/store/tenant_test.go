@@ -63,7 +63,7 @@ func TestMergeDataScope(t *testing.T) {
 	assert.Equal(t, "u-1", fields["owner"])
 }
 
-// TestUnregisterTenant 验证逆操作契约（T1 效应账本的对偶成员）：
+// TestUnregisterTenant 验证逆操作契约（效应账本的对偶成员）：
 // 注册→隔离生效；注销→维度消失；重复注销幂等。
 func TestUnregisterTenant(t *testing.T) {
 	ctx := contextx.WithTenantID(context.Background(), "t-42")

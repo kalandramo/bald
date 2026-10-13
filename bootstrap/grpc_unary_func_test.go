@@ -2,7 +2,7 @@ package bootstrap
 
 // grpc_unary_func_test.go —— WithGRPCUnaryFunc 的合并顺序与延迟求值语义。
 //
-// 背景（W1 能力）：WithGRPCUnary 的变参在调用点即求值，若选项构造依赖运行期资源
+// 背景（能力）：WithGRPCUnary 的变参在调用点即求值，若选项构造依赖运行期资源
 // （认证器/授权器），构造期只能拿到 nil。WithGRPCUnaryFunc 收工厂函数，在 provider
 // 闭包内（Run 期、server 构造时）调用。
 //

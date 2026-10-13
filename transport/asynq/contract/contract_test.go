@@ -2,7 +2,7 @@ package contract
 
 // contract_test.go —— asynq 契约装配的字段映射与三态语义。
 //
-// 锁定的不变量（Wave 3）：
+// 锁定的不变量：
 //  1. 段缺失 → (nil, nil, nil)，BuildServers 跳过；
 //  2. optional bool 为 nil 时不覆盖实现默认（反向陷阱防护）；
 //  3. 显式 true/false 正确覆盖；

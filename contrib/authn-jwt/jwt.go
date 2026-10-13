@@ -216,7 +216,7 @@ type jwtClaims struct {
 
 // toJWT 把核心声明映射到 jwt 桥接类型。
 //
-// **jti（RegisteredClaims.ID）必填**（D6 修复，2026-09-22）：不设 jti 时，
+// **jti（RegisteredClaims.ID）必填**（修复，2026-09-22）：不设 jti 时，
 // 同一秒内对相同 claims 签发会得到**字节完全相同**的 token——因为
 // iat/nbf/exp 均为秒级 NumericDate，且 RS256/HS256 对同一输入签名确定
 // （无随机盐）。后果有两处真实危害：

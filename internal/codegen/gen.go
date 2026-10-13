@@ -3,10 +3,10 @@
 // 提供三个子命令，演示「配置驱动 + 嵌入模板」生成骨架：
 //   - bald gen proto  <name>  生成 api/proto/bald/<name>/v1/<name>.proto（含 PagingRequest 引用）
 //   - bald gen store  <name>  生成 <name>.go 实体骨架（gorm tag + keyOf 提取函数）
-//   - bald gen app    <name>  生成 cmd/<name>/main.go 应用装配骨架（P12：appkit 全原语 + bundle）
+//   - bald gen app    <name>  生成 cmd/<name>/main.go 应用装配骨架（appkit 全原语 + bundle）
 //
 // 工具链归属（2026-09-02）：自 _example/bald 示例模块提升为核心 cmd/bald 子命令
-// （P12 落地记录标注的「工具链归属」评估落地）。生成物以 _example/bald 消费者模块为
+// （落地记录标注的「工具链归属」评估落地）。生成物以 _example/bald 消费者模块为
 // 编译/运行上下文做端到端验证（见 app_test.go），核心 go.mod 不引入 gin/grpc。
 package codegen
 

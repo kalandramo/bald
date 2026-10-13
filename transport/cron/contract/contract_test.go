@@ -2,7 +2,7 @@ package contract
 
 // contract_test.go —— cron 契约装配的字段映射与三态语义。
 //
-// 锁定的不变量（Wave 3）：
+// 锁定的不变量：
 //  1. 段缺失 → (nil, nil, nil)；
 //  2. optional bool 为 nil 时不覆盖实现默认（cron 的 seconds 默认启用）；
 //  3. 非法 location → fail-fast（时区拼错会让任务在意外时间触发）；

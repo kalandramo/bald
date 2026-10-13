@@ -1,6 +1,6 @@
 package etcd
 
-// registry_test.go —— 补零测试：etcd 注册中心（Wave 4.6）。
+// registry_test.go —— 补零测试：etcd 注册中心。
 //
 // 计划 4.6：「补零测试能力轴的测试：`bald/ratelimit/sentinel/`、
 // `bald/registry/{etcd,consul,kubernetes}/`」——本包此前 **0 测试**
@@ -154,7 +154,7 @@ func TestRegister_MissingNameIsRejected(t *testing.T) {
 	}
 }
 
-// TestRegister_MissingIDIsRejected 缺 ID 同样被拒（D15 的姊妹场景：
+// TestRegister_MissingIDIsRejected 缺 ID 同样被拒（的姊妹场景：
 // 此前会拼出 `<ns>/<name>/` 畸形 key）。
 func TestRegister_MissingIDIsRejected(t *testing.T) {
 	r := newTestRegistry(t)
