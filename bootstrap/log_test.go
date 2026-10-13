@@ -286,6 +286,21 @@ func TestLogOptions_OutputPathBackwardCompat(t *testing.T) {
 	}
 }
 
+// TestLogOptions_NoOutputTargetFallsBackToStdout 输出目标整体缺省时回退
+// 默认 ["stdout"]——契约（log.proto：「两者都空时装配层回退默认 stdout」）
+// 与校验层（bconf.Validate 空串放行）共同依赖的兑现点。
+//
+// 这是 bald-admin 生产配置的实际形态：slog 段只写 level/format。
+func TestLogOptions_NoOutputTargetFallsBackToStdout(t *testing.T) {
+	o := LogOptions(&bootstrapv1.Logger_Backend{
+		Type: "slog",
+		Slog: &bootstrapv1.Logger_Slog{Level: "info", Format: "json"},
+	})
+	if !reflect.DeepEqual(o.OutputPaths, []string{"stdout"}) {
+		t.Fatalf("OutputPaths = %v, want [stdout]（回退默认，不得为空）", o.OutputPaths)
+	}
+}
+
 // TestBslogLoggerProvider_MultiOutputRotate 端到端：契约多输出 + 轮转 →
 // 文件目标收到全量日志流（复制分流），lumberjack 轮转开启时正常写入。
 func TestBslogLoggerProvider_MultiOutputRotate(t *testing.T) {
