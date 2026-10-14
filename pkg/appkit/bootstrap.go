@@ -24,7 +24,7 @@ package appkit
 //   - Bind --log.* flag 壳：仅注册 flag 定义，终值以契约 logger 段为准；
 //   - 启动期先用默认 Logger（阶段 A），BeforeStart 完成装载+校验后按契约
 //     logger 段重建（阶段 B），停机经 Effect 恢复原 Logger 并释放后端；
-//   - WithConfigRegistry 时经 bootstrap.Registry.Build 产出配置层
+//   - WithConfigRegistry 时经 bootstrap.ConfigRegistry.Build 产出配置层
 //     （注册序=层优先级，首元素最高），cleanup 挂 Effect 停机逆序释放；
 //   - OnConfigChange：热更新副本试装载+校验后整契约原子落盘，并重建 Logger
 //     （log.level 即改即生效）；坏配置降级记日志、保留旧契约。
@@ -85,7 +85,7 @@ type bootstrapSpec struct {
 
 	configFile  string
 	watchFiles  bool
-	cfgRegistry *baldbootstrap.Registry
+	cfgRegistry *baldbootstrap.ConfigRegistry
 	remote      baldconfig.RemoteSource
 	// cfgNamespace 是配置命名空间（WithConfigNamespace 声明）。FromBootstrap
 	// 路径**必填**——不回退契约 app.name（自指，见 WithConfigNamespace 注释）。
@@ -270,7 +270,7 @@ func WithWatchConfig(watch bool) BootstrapOption {
 
 // WithConfigRegistry 注入契约 Config 段的源装配注册表（显式注册 provider，
 // 注册序即层优先级）。FromBootstrap 负责 Build 与 cleanup 停机释放。
-func WithConfigRegistry(r *baldbootstrap.Registry) BootstrapOption {
+func WithConfigRegistry(r *baldbootstrap.ConfigRegistry) BootstrapOption {
 	return func(s *bootstrapSpec) { s.cfgRegistry = r }
 }
 

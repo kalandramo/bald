@@ -486,7 +486,7 @@ func TestFromBootstrap_ConfigRegistry(t *testing.T) {
 	t.Cleanup(func() { log.SetLogger(old) })
 
 	closed := make(chan struct{})
-	reg := baldbootstrap.NewRegistry()
+	reg := baldbootstrap.NewConfigRegistry()
 	reg.MustRegister("fake", func(context.Context, *bootstrapv1.BootstrapConfig) (*baldconfig.Layer, func(), error) {
 		l := &baldconfig.Layer{
 			Name:   "fake",

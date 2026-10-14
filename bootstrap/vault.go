@@ -19,7 +19,7 @@ import (
 // 缺省 30s），层默认参与热更新（Watch=true）；client 自建模式（契约
 // address/token，缺省回退 VAULT_ADDR/VAULT_TOKEN 环境变量），api.Client
 // 无显式关闭接口，cleanup 为 nil。
-func VaultProvider() Provider {
+func VaultProvider() ConfigProvider {
 	return func(_ context.Context, cfg *bootstrapv1.BootstrapConfig) (*config.Layer, func(), error) {
 		c := cfg.GetConfig().GetVault()
 		if c == nil {

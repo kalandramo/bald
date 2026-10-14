@@ -17,7 +17,7 @@ import (
 // 层格式：契约 File.format 优先；为空时按路径扩展名推断（config.FormatOf），
 // 再为空则由 Store 回退按 yaml 解析。契约 watch=true 时层订阅热更新
 // （file 源实现 bconfig.ValueWatcher，父目录 watch 防编辑器原子重命名丢事件）。
-func FileProvider() Provider {
+func FileProvider() ConfigProvider {
 	return func(ctx context.Context, cfg *bootstrapv1.BootstrapConfig) (*config.Layer, func(), error) {
 		c := cfg.GetConfig().GetFile()
 		if c == nil {

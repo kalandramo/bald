@@ -20,7 +20,7 @@ import (
 //
 // 契约 Env.separator 字段暂无对应 provider Option（env 源只按整变量名读取），
 // 该字段留给上层的 Decoder / key 归一化职责，此处忽略。
-func EnvProvider() Provider {
+func EnvProvider() ConfigProvider {
 	return func(_ context.Context, cfg *bootstrapv1.BootstrapConfig) (*config.Layer, func(), error) {
 		c := cfg.GetConfig().GetEnv()
 		if c == nil {

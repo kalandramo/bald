@@ -10,11 +10,11 @@
 // bootstrap/registry.go 包注释）；实例的运行期编排（start 后 Register、
 // stopAll 前 Deregister、cleanup 挂 Effect 回放）仍归组合层 appkit。
 //
-// 设计原则（对齐本包 Registry）：**显式注册**——不用 init() + blank import，
+// 设计原则（对齐本包 ConfigRegistry）：**显式注册**——不用 init() + blank import，
 // 主程序在 main() 里逐个调用 MustRegister；未 import 的后端零依赖零编译成本，
 // 运行期 fail-fast 报错，依赖图全程可见。
 //
-// 与 config Registry 的两点差异：
+// 与 ConfigRegistry 的两点差异：
 //  1. 按契约 registry.type **单选**分发（type 字段的契约语义就是单选），
 //     不做 optional 子消息迭代多选（go-wind resolveRegistry 的做法——
 //     多注册中心 fan-out 无消费方，语义空洞）；
@@ -50,7 +50,7 @@ type RegistrarProvider func(ctx context.Context, cfg *bootstrapv1.Registry) (reg
 // RegistrarRegistry 是服务注册中心 Provider 的显式注册表。
 // 实例非并发安全（main 装配期使用）；Build 线程安全。
 //
-// 与 config Registry 的差异：不做多源级联（registry 无优先级语义），
+// 与 ConfigRegistry 的差异：不做多源级联（registry 无优先级语义），
 // 按契约 registry.type 单选分发。
 type RegistrarRegistry struct {
 	mu        sync.Mutex

@@ -159,7 +159,7 @@ type Registry struct {
     order     []string // 注册序 = 默认级联优先级（先注册者优先级高）
 }
 
-func NewRegistry() *Registry
+func NewConfigRegistry() *ConfigRegistry
 func (r *Registry) Register(name string, p Provider) error
 func (r *Registry) MustRegister(name string, p Provider)
 ```
@@ -167,7 +167,7 @@ func (r *Registry) MustRegister(name string, p Provider)
 用法（`_example/bald` 与 `registry_test.go` 的真实形状）：
 
 ```go
-r := bootstrap.NewRegistry()
+r := bootstrap.NewConfigRegistry()
 r.MustRegister("env", bootstrap.EnvProvider())   // 先注册：优先级最高
 r.MustRegister("file", bootstrap.FileProvider()) // 后注册：被 env 覆盖
 
@@ -557,7 +557,7 @@ K8s grpc 探针与 HTTP `/readyz` 同源。
 ### 与 appkit 的协作
 
 bootstrap 不感知 appkit。appkit 的 `FromBootstrap` 是本模块的第一个也是主要
-消费者：Config 段经 `bootstrap.Registry.Build` 产出配置层（cleanup 挂 Effect
+消费者：Config 段经 `bootstrap.ConfigRegistry.Build` 产出配置层（cleanup 挂 Effect
 停机释放）、Logger 段经 `LogRegistry.BuildLogger`、Server 段经
 `ServerRegistry.BuildServers`、六域经各自 Registry 的 `Build`——「与直用
 bootstrap 的路径同一实现（消除双真相源）」。分工细节与停机链序（12 段 Effect
@@ -590,10 +590,10 @@ bconf/标准库/独立 module，归 bootstrap；需要根模块包或运行期�
 
 ### 放弃全局单例 Registry
 
-被放弃方案：包级 `var DefaultRegistry = NewRegistry()`，业务往里注册。
+被放弃方案：包级 `var DefaultConfigRegistry = NewConfigRegistry()`，业务往里注册。
 它比 init() 自注册好一点（至少注册调用是显式的），但「同一个进程里两个应用
 各持一套装配」立刻名存实亡，测试之间的隔离也只能靠 reset 钩子。Registry
-实例化的成本是一行 `NewRegistry()`，我们不为省这一行放弃隔离性。
+实例化的成本是一行 `NewConfigRegistry()`，我们不为省这一行放弃隔离性。
 
 ### cleanup 归构造方，Store 不代劳
 

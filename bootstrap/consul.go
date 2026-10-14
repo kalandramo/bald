@@ -16,7 +16,7 @@ import (
 //
 // 层语义：consul 源用 watch plan 推送变更，层默认参与热更新（Watch=true）；
 // client 自建模式（契约 address/token/scheme），consul client 无需显式释放。
-func ConsulProvider() Provider {
+func ConsulProvider() ConfigProvider {
 	return func(_ context.Context, cfg *bootstrapv1.BootstrapConfig) (*config.Layer, func(), error) {
 		c := cfg.GetConfig().GetConsul()
 		if c == nil {

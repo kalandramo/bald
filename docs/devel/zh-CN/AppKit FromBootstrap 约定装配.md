@@ -40,7 +40,7 @@ Workflow/Tracer/Metrics/Registrar）管业务运行期的资源接线，经
 | 用户侧样板 | ~30-60 行（Option 声明 + handler 注册） | ~200+ 行（Bind×3、BeforeStart 装载、Registry 手动 Build、Effect 手动挂） |
 | 典型消费者 | `_example/bald`（quickstart，433 行/13 包）；go-bald-admin（reference，U1 已切，630 行——数据段经透传 provider 消费） | （无——业务自有桥接/数据段透传场景经 With*Registry 表达，见下「透传 provider」） |
 
-**默认走 FromBootstrap**。选 New 的判定信号：需要把 Registry.Build 拆到
+**默认走 FromBootstrap**。选 New 的判定信号：需要把 ConfigRegistry.Build 拆到
 BeforeStart 的自定义时序点、组件间有 FromBootstrap 表达不了的依赖编排、
 或需要多个 app 实例共存。走 New 时注意三个已知泄漏点（FromBootstrap 已
 内化）：serviceName 闭包须 Bind 时取值（构造期取值有时序问题）、Effect
@@ -83,7 +83,7 @@ server 却是 appkit 内的函数局部变量、硬编码只注册 http/grpc）�
    阶段 B（BeforeStart 装载+校验后按契约 logger 段重建）→ 停机经 Effect 恢复
    原 Logger 并释放后端。业务装饰器（脱敏）阶段 A/B 统一生效。
    （两级工厂分发与 deco 分级的设计论证见《AppKit 日志装配设计.md》。）
-4. **ConfigRegistry**：契约 Config 段经 `bootstrap.Registry.Build` 产出配置层
+4. **ConfigRegistry**：契约 Config 段经 `bootstrap.ConfigRegistry.Build` 产出配置层
    （注册序=层优先级），cleanup 挂 Effect 停机释放。
 5. **BeforeStart**：Settings→Unmarshal→Validate→rebuildLogger。
 6. **服务器构造走 `bootstrap.ServerRegistry`**：能力声明（WithHTTP/WithGRPC/

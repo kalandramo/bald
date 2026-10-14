@@ -17,8 +17,8 @@ func (s *stubReader) Load(_ context.Context, _ string) ([]byte, error) {
 	return s.data, nil
 }
 
-// stubLayerProvider 返回一个固定行为的 Provider：返回预置 layer / cleanup / err。
-func stubLayerProvider(l *config.Layer, cleanup func(), err error) Provider {
+// stubLayerProvider 返回一个固定行为的 ConfigProvider：返回预置 layer / cleanup / err。
+func stubLayerProvider(l *config.Layer, cleanup func(), err error) ConfigProvider {
 	return func(context.Context, *bootstrapv1.BootstrapConfig) (*config.Layer, func(), error) {
 		return l, cleanup, err
 	}
@@ -30,7 +30,7 @@ func stubLayerOf(rd bconfig.Reader) *config.Layer {
 }
 
 func TestRegister(t *testing.T) {
-	r := NewRegistry()
+	r := NewConfigRegistry()
 
 	if err := r.Register("env", stubLayerProvider(stubLayerOf(&stubReader{}), nil, nil)); err != nil {
 		t.Fatalf("Register(first) = %v, want nil", err)
@@ -54,7 +54,7 @@ func TestRegister(t *testing.T) {
 }
 
 func TestMustRegister_PanicsOnDuplicate(t *testing.T) {
-	r := NewRegistry()
+	r := NewConfigRegistry()
 	r.MustRegister("env", stubLayerProvider(stubLayerOf(&stubReader{}), nil, nil))
 
 	defer func() {
@@ -67,7 +67,7 @@ func TestMustRegister_PanicsOnDuplicate(t *testing.T) {
 
 // TestBuild_OrderIsPriority 验证注册序 = 层优先级：先注册的源排在列表首位（最高）。
 func TestBuild_OrderIsPriority(t *testing.T) {
-	r := NewRegistry()
+	r := NewConfigRegistry()
 	r.MustRegister("first", stubLayerProvider(stubLayerOf(&stubReader{data: []byte("from-first")}), nil, nil))
 	r.MustRegister("second", stubLayerProvider(stubLayerOf(&stubReader{data: []byte("from-second")}), nil, nil))
 
@@ -91,7 +91,7 @@ func TestBuild_OrderIsPriority(t *testing.T) {
 
 // TestBuild_SkipsUnconfiguredSources 验证返回 nil layer 的 provider 被跳过（非错误）。
 func TestBuild_SkipsUnconfiguredSources(t *testing.T) {
-	r := NewRegistry()
+	r := NewConfigRegistry()
 	r.MustRegister("unconfigured", stubLayerProvider(nil, nil, nil))
 	r.MustRegister("configured", stubLayerProvider(stubLayerOf(&stubReader{data: []byte("ok")}), nil, nil))
 
@@ -108,7 +108,7 @@ func TestBuild_SkipsUnconfiguredSources(t *testing.T) {
 
 // TestBuild_NameFallback：provider 未填层名时由 Build 回填注册名。
 func TestBuild_NameFallback(t *testing.T) {
-	r := NewRegistry()
+	r := NewConfigRegistry()
 	r.MustRegister("basis", stubLayerProvider(stubLayerOf(&stubReader{data: []byte("ok")}), nil, nil))
 
 	layers, cleanup, err := r.Build(context.Background(), &bootstrapv1.BootstrapConfig{})
@@ -123,7 +123,7 @@ func TestBuild_NameFallback(t *testing.T) {
 
 // TestBuild_NilReaderRejected：层 Reader 为 nil 是装配错误（fail-fast 回滚）。
 func TestBuild_NilReaderRejected(t *testing.T) {
-	r := NewRegistry()
+	r := NewConfigRegistry()
 	r.MustRegister("bad", stubLayerProvider(&config.Layer{}, func() {}, nil))
 
 	if _, cleanup, err := r.Build(context.Background(), &bootstrapv1.BootstrapConfig{}); err == nil {
@@ -135,7 +135,7 @@ func TestBuild_NilReaderRejected(t *testing.T) {
 
 // TestBuild_WatchMismatchRejected：Watch=true 但 Reader 非 ValueWatcher 报错。
 func TestBuild_WatchMismatchRejected(t *testing.T) {
-	r := NewRegistry()
+	r := NewConfigRegistry()
 	r.MustRegister("bad", stubLayerProvider(&config.Layer{Reader: &stubReader{}, Watch: true}, nil, nil))
 
 	if _, _, err := r.Build(context.Background(), &bootstrapv1.BootstrapConfig{}); err == nil {
@@ -150,7 +150,7 @@ func TestBuild_RollbackOnError(t *testing.T) {
 		return func() { order = append(order, name) }
 	}
 
-	r := NewRegistry()
+	r := NewConfigRegistry()
 	r.MustRegister("ok", stubLayerProvider(stubLayerOf(&stubReader{}), mkCloser("ok"), nil))
 	r.MustRegister("ok2", stubLayerProvider(stubLayerOf(&stubReader{}), mkCloser("ok2"), nil))
 	r.MustRegister("boom", stubLayerProvider(nil, nil, errors.New("boom")))
@@ -169,7 +169,7 @@ func TestBuild_RollbackOnError(t *testing.T) {
 
 // TestBuild_NoSourceConfigured 验证所有源都未配置时报错而非空层列表。
 func TestBuild_NoSourceConfigured(t *testing.T) {
-	r := NewRegistry()
+	r := NewConfigRegistry()
 	r.MustRegister("unconfigured", stubLayerProvider(nil, nil, nil))
 
 	_, _, err := r.Build(context.Background(), &bootstrapv1.BootstrapConfig{})
@@ -179,7 +179,7 @@ func TestBuild_NoSourceConfigured(t *testing.T) {
 }
 
 func TestBuild_NilConfig(t *testing.T) {
-	r := NewRegistry()
+	r := NewConfigRegistry()
 	r.MustRegister("env", stubLayerProvider(stubLayerOf(&stubReader{}), nil, nil))
 
 	if _, _, err := r.Build(context.Background(), nil); err == nil {

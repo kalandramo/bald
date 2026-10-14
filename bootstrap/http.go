@@ -18,7 +18,7 @@ import (
 // 层语义：HTTP 源无推送能力，以 ETag 条件轮询模拟 watch，层默认参与热更新
 // （Watch=true，轮询间隔契约 poll_interval 毫秒，缺省 30s）。层格式取契约
 // format 字段；自建 client 的空闲连接归层 cleanup 释放。
-func HttpProvider() Provider {
+func HttpProvider() ConfigProvider {
 	return func(_ context.Context, cfg *bootstrapv1.BootstrapConfig) (*config.Layer, func(), error) {
 		c := cfg.GetConfig().GetHttp()
 		if c == nil {

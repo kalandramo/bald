@@ -18,7 +18,7 @@ import (
 // 契约 original_config=true 时层开启原始文档模式（结构化命名空间返回原文档，
 // 整文档消费推荐）。连接失败立即报错（fail-fast，不 panic）。
 // endpoint 优先，为空回退契约 ip 字段。
-func ApolloProvider() Provider {
+func ApolloProvider() ConfigProvider {
 	return func(_ context.Context, cfg *bootstrapv1.BootstrapConfig) (*config.Layer, func(), error) {
 		c := cfg.GetConfig().GetApollo()
 		if c == nil {

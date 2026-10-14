@@ -16,7 +16,7 @@ import (
 //
 // 层语义：etcd 源自带原生 watch 推送，层默认参与热更新（Watch=true）；
 // client 自建模式（契约 endpoints → 惰性建连），资源归层 cleanup 释放。
-func EtcdProvider() Provider {
+func EtcdProvider() ConfigProvider {
 	return func(ctx context.Context, cfg *bootstrapv1.BootstrapConfig) (*config.Layer, func(), error) {
 		c := cfg.GetConfig().GetEtcd()
 		if c == nil {

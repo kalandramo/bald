@@ -328,21 +328,21 @@ bald/bootstrap/                  module github.com/kalandramo/bald/bootstrap
 //   - cleanup 释放 provider 持有的资源（含 reader 本身，Store 不重复关闭），
 //     可为 nil（如 env 无资源）；
 //   - 出错返回 error，Build 短路并回滚已构造的源。
-type Provider func(ctx context.Context, cfg *bootstrapv1.BootstrapConfig) (*config.Layer, func(), error)
+type ConfigProvider func(ctx context.Context, cfg *bootstrapv1.BootstrapConfig) (*config.Layer, func(), error)
 
-type Registry struct {
+type ConfigRegistry struct {
     mu        sync.RWMutex
-    providers map[string]Provider // key = "file" / "env" / "etcd" ...
+    providers map[string]ConfigProvider // key = "file" / "env" / "etcd" ...
     order     []string            // 注册序 = 默认级联优先级（高优先级在前）
 }
 
-func NewRegistry() *Registry { ... }
+func NewConfigRegistry() *ConfigRegistry { ... }
 
 // Register 注册一个配置源工厂。重名报错（不覆盖，fail-fast）。
-func (r *Registry) Register(name string, p Provider) error { ... }
+func (r *ConfigRegistry) Register(name string, p ConfigProvider) error { ... }
 
 // MustRegister 是 Register 的 panic 版本，仅用于主程序 main() 内显式注册，
-func (r *Registry) MustRegister(name string, p Provider) { ... }
+func (r *ConfigRegistry) MustRegister(name string, p ConfigProvider) { ... }
 ```
 
 与 `ConfigAction`（返回无参 `func()` 清理闭包）的关键差异：
@@ -482,7 +482,7 @@ func (r *Registry) Build(ctx context.Context, cfg *bootstrapv1.BootstrapConfig) 
 
 ```go
 func main() {
-    reg := bootstrap.NewRegistry()
+    reg := bootstrap.NewConfigRegistry()
     // 显式注册：读代码即知装了什么；注册序即层优先级（先注册者覆盖后注册者）
     reg.MustRegister("env", bootstrap.EnvProvider())
     reg.MustRegister("file", bootstrap.FileProvider())

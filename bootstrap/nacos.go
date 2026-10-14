@@ -18,7 +18,7 @@ import (
 // client 自建模式（契约 server_addrs → 惰性建连，namespace 进 ClientConfig），
 // nacos-sdk-go 无显式关闭接口，cleanup 为 nil。
 // 契约 format 字段透传层 Format（配置内容格式声明）。
-func NacosProvider() Provider {
+func NacosProvider() ConfigProvider {
 	return func(_ context.Context, cfg *bootstrapv1.BootstrapConfig) (*config.Layer, func(), error) {
 		c := cfg.GetConfig().GetNacos()
 		if c == nil {

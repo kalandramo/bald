@@ -24,7 +24,7 @@ import (
 // 返回的 cleanup 逆序释放各 provider 资源（后构造的先释放，与装配相反）；
 // 装配失败时 Build 内部已回滚，此时 cleanup 为 nil。层 reader 的资源归
 // cleanup 释放，Store.Close 不重复关闭。
-func (r *Registry) Build(ctx context.Context, cfg *bootstrapv1.BootstrapConfig) ([]config.Layer, func(), error) {
+func (r *ConfigRegistry) Build(ctx context.Context, cfg *bootstrapv1.BootstrapConfig) ([]config.Layer, func(), error) {
 	if cfg == nil {
 		return nil, nil, errors.New("bootstrap: config is nil")
 	}

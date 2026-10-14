@@ -145,7 +145,7 @@ func TestBuild_Integration(t *testing.T) {
 	})
 
 	t.Run("env registered first is highest priority", func(t *testing.T) {
-		r := NewRegistry()
+		r := NewConfigRegistry()
 		r.MustRegister("env", EnvProvider())
 		r.MustRegister("file", FileProvider())
 
@@ -168,7 +168,7 @@ func TestBuild_Integration(t *testing.T) {
 	})
 
 	t.Run("file only", func(t *testing.T) {
-		r := NewRegistry()
+		r := NewConfigRegistry()
 		r.MustRegister("file", FileProvider())
 
 		layers, cleanup, err := r.Build(context.Background(), cfg)

@@ -18,7 +18,7 @@ import (
 // 惰性建连（in-cluster 或契约 kube_config/master），clientset 无显式关闭
 // 接口，cleanup 为 nil。契约 config_map_name/key 经 WithConfigMapName/
 // WithDataKey 成为空 key 装配的默认值（层 Load(ctx, "") 直接命中）。
-func KubernetesProvider() Provider {
+func KubernetesProvider() ConfigProvider {
 	return func(_ context.Context, cfg *bootstrapv1.BootstrapConfig) (*config.Layer, func(), error) {
 		c := cfg.GetConfig().GetKubernetes()
 		if c == nil {
