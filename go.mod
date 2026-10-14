@@ -42,7 +42,7 @@ require (
 	github.com/kalandramo/bald-crud/viewer v0.3.0
 	github.com/kalandramo/bald/bconf v0.9.1
 	github.com/kalandramo/bald/berrors v0.1.1
-	github.com/kalandramo/bald/bootstrap v0.10.0
+	github.com/kalandramo/bald/bootstrap v0.11.0
 	github.com/kalandramo/bald/health v0.1.1
 	github.com/kalandramo/bald/log v0.5.2
 	github.com/kalandramo/bald/ratelimit v0.1.0
