@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -19,6 +20,84 @@ const (
 	durationName     = "Duration"
 	durationFullName = "google.protobuf.Duration"
 )
+
+// FindUnknownKeys 找出配置树中「契约未声明」的键，返回按路径排序的列表。
+//
+// 用途：把「写错键名静默落到零值」这一配置系统最危险的故障模式变成**可见**。
+// 这是退役 viper 时的原始动因（见《Bald 配置系统设计.md》§2.2），但 UnmarshalMap
+// 的 DiscardUnknown 使同类问题在 env/文件路径上仍会静默发生。
+//
+// 只读：不改 m，也不改 UnmarshalMap 的行为——是否据此报错由调用方决定。
+//
+// allowTop 是「业务自持顶层段」白名单（如 bald-admin 的 file/login）：
+//   - 命中白名单的顶层段**整棵子树跳过**（业务段形状框架无权约束）；
+//   - 白名单之外，逐层比对字段描述符，任何一层出现未知键即计入。
+//
+// 为什么必须给白名单：框架无法区分「用户把 server.http 写成 server.htpp」
+// 与「业务在 audit 段下写自持键 audit.fallback_tenant」——两者的父段都是契约段。
+// 实测 bald-admin 生产配置即在 audit 段下使用 fallback_tenant（由业务
+// ServerOptions 的 mapstructure 消费），故无白名单的 fail-fast 会误伤合法配置。
+// 白名单的粒度是**段级**（顶层名）；契约段内部的业务键仍需调用方按需放行。
+func FindUnknownKeys(m map[string]any, msg proto.Message, allowTop ...string) []string {
+	if m == nil || msg == nil {
+		return nil
+	}
+	allowed := make(map[string]bool, len(allowTop))
+	for _, s := range allowTop {
+		allowed[strings.ToLower(s)] = true
+	}
+	var out []string
+	findUnknown(msg.ProtoReflect(), m, "", allowed, true, &out)
+	sort.Strings(out)
+	return out
+}
+
+// findUnknown 递归比对一层 map 与 message 的字段描述符。
+//
+// isTop 为 true 时，未知键先查白名单——命中则整棵子树跳过（业务段）。
+func findUnknown(msg protoreflect.Message, m map[string]any, path string,
+	allowed map[string]bool, isTop bool, out *[]string) {
+
+	fields := msg.Descriptor().Fields()
+	byName := make(map[string]protoreflect.FieldDescriptor, fields.Len()*2)
+	for i := 0; i < fields.Len(); i++ {
+		fd := fields.Get(i)
+		byName[strings.ToLower(string(fd.Name()))] = fd
+		byName[strings.ToLower(fd.JSONName())] = fd
+	}
+
+	for k, v := range m {
+		lk := strings.ToLower(k)
+		full := path + "." + k
+		fd, ok := byName[lk]
+		if !ok {
+			if isTop && allowed[lk] {
+				continue // 业务自持段，整棵子树放行
+			}
+			*out = append(*out, full)
+			continue
+		}
+		switch {
+		case fd.IsList():
+			if child := fd.Message(); child != nil {
+				if items, ok := v.([]any); ok {
+					for i, it := range items {
+						if im, ok := it.(map[string]any); ok {
+							findUnknown(dynamicpb.NewMessage(child), im,
+								full+"["+strconv.Itoa(i)+"]", allowed, false, out)
+						}
+					}
+				}
+			}
+		case fd.IsMap():
+			// map 的值形状由用户自定义，不递归。
+		case fd.Kind() == protoreflect.MessageKind:
+			if sub, ok := v.(map[string]any); ok {
+				findUnknown(dynamicpb.NewMessage(fd.Message()), sub, full, allowed, false, out)
+			}
+		}
+	}
+}
 
 // UnmarshalMap 把合并后的配置树（map 形态，键为 proto 字段名）反序列化为
 // Protobuf 消息。这是「proto 作为配置契约」的桥接点：配置的形状由 proto 定义，
@@ -134,6 +213,20 @@ func coerceMessage(msg protoreflect.Message, m map[string]any) error {
 }
 
 // lookupField 按候选键名在 map 中查找（不区分 "-" 与 "_" 的差异）。
+//
+// 折叠匹配（fold fallback）：env 层把下划线当路径分隔符（bootstrap/config 的
+// environMap），于是 SERVER_ADDRS 落成嵌套 {server:{addrs:...}}；而契约字段名
+// 本身含下划线（server_addrs）——同一字符在两处语义冲突，平级匹配必然失败。
+// 故平级匹配全试过之后，把「候选名的下划线段」当嵌套路径逐层下钻再试一次
+// （server_addrs → m["server"]["addrs"]）。
+//
+// 命中时把值**搬移到平级键**并删除原嵌套链：env 路径下会残留 {server:{addrs:...}}，
+// 而 Nacos 消息并无 server 字段——残留键会被下游判为未知键（严格模式下即报错），
+// 故必须清理，不能只读不搬。
+//
+// 安全前提（已核验，见 bconf 测试）：全契约无「a_b 标量 与 a 子消息」同层共存
+// 的情形（179 个下划线字段分布在 62 个 message），故折叠不引入歧义；且平级匹配
+// 优先于折叠，真嵌套键不会被折叠抢走。
 func lookupField(m map[string]any, names ...string) (any, bool) {
 	for _, n := range names {
 		if v, ok := m[n]; ok {
@@ -148,7 +241,66 @@ func lookupField(m map[string]any, names ...string) (any, bool) {
 			}
 		}
 	}
+	// 折叠匹配：候选名含下划线时，按段下钻。
+	for _, n := range names {
+		if !strings.Contains(n, "_") {
+			continue
+		}
+		if v, ok := foldPath(m, n); ok {
+			return v, true
+		}
+	}
 	return nil, false
+}
+
+// foldPath 把下划线候选名当嵌套路径下钻；命中则把值搬到平级键 n 并清理原链。
+//
+// 要求**完整消费**全部段（max_open_connections → m[max][open][connections]），
+// 中途任一段不是 map 或不存在即失败——避免把部分匹配误当命中。
+func foldPath(m map[string]any, n string) (any, bool) {
+	parts := strings.Split(n, "_")
+
+	// 逐层下钻，记录路径以便命中后回删。
+	type hop struct {
+		parent map[string]any
+		key    string
+	}
+	var chain []hop
+	cur := m
+	for i, p := range parts {
+		k, v, ok := lookupKeyFold(cur, p)
+		if !ok {
+			return nil, false
+		}
+		chain = append(chain, hop{parent: cur, key: k})
+		if i == len(parts)-1 {
+			// 完整命中：搬到平级键，再回删整条嵌套链。
+			m[n] = v
+			for _, h := range chain {
+				delete(h.parent, h.key)
+			}
+			return v, true
+		}
+		next, ok := v.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		cur = next
+	}
+	return nil, false
+}
+
+// lookupKeyFold 在单层 map 中按键名查找（先精确，再忽略大小写与 "-"/"_" 差异）。
+func lookupKeyFold(m map[string]any, key string) (string, any, bool) {
+	if v, ok := m[key]; ok {
+		return key, v, true
+	}
+	for k, v := range m {
+		if strings.EqualFold(strings.ReplaceAll(k, "-", "_"), strings.ReplaceAll(key, "-", "_")) {
+			return k, v, true
+		}
+	}
+	return "", nil, false
 }
 
 // coerceValue 按字段描述符把单个值转换成 protojson 可接受的类型。

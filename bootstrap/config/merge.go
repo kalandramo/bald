@@ -83,9 +83,16 @@ func flattenFlags(fs *pflag.FlagSet) map[string]any {
 //
 // 规则：BALD_DEMO_SERVER_HTTP_ADDR → 去前缀 → 全小写 → 下划线/连字符一律解释为
 // 点路径分隔符 → server.http.addr。即环境变量名按下划线切段映射点路径。
-// 注：与 viper 的「查询驱动 + replacer」不同，本实现为枚举驱动；契约字段名均为
-// 单词（无下划线），因此切段歧义在契约键上不存在，业务键命名请避免下划线
-// （用点路径命名或 yaml/flag 覆盖）。
+//
+// 与 viper 的「查询驱动 + replacer」不同，本实现为枚举驱动。
+//
+// ⚠ 已知限制：契约字段名**大量含下划线**（server_addrs / data_id /
+// max_open_connections …，共 179 个字段分布于 62 个 message），与本函数
+// 「下划线即分隔符」的规则直接冲突——SERVER_ADDRS 会被切成 {server:{addrs}},
+// 而契约字段是 server_addrs。二者靠 bconf.lookupField 的**折叠匹配**弥合
+// （平级匹配失败后把下划线段当嵌套路径下钻并搬回平级键，见 bconf/unmarshal.go）。
+// 因此本函数无须感知契约；但**业务键**若含下划线仍会被误切，业务键请用点路径
+// （yaml/flag 覆盖）或避免下划线命名。
 func environMap(name string) map[string]any {
 	// 前缀规范化：连字符转下划线（name "bald-demo" → 前缀 "BALD_DEMO_"），
 	// 与 K8s/etcd 环境变量命名习惯一致；负载内的 "_"/"-" 均视为路径分隔。

@@ -91,6 +91,24 @@ type Options struct {
 	// [DefaultLoadTimeout]，负值禁用（信任源自身超时控制）。
 	// 远端配置中心不可达时快速失败，避免启动无限阻塞。
 	LoadTimeout time.Duration
+	// AllowBusinessSections 声明**业务自持的顶层段**（契约未声明、由业务
+	// 自行解析，如 bald-admin 的 file / login）。严格校验时整棵子树放行。
+	//
+	// 只在 StrictContract 开启时有意义。
+	AllowBusinessSections []string
+	// StrictContract 启用「契约段未知键」校验：Load 后用
+	// [bconf.FindUnknownKeys] 扫一遍合并树，发现未知键即返回错误（fail-fast）。
+	//
+	// 默认为 false。原因是框架无法区分「用户笔误」与「业务自持键」——二者的
+	// 父段都可能是契约段（实测：bald-admin 在契约段 audit 下使用业务键
+	// fallback_tenant）。故必须由调用方用 AllowBusinessSections 声明业务段；
+	// 契约段**内部**的业务键（如 audit.fallback_tenant）仍会被判为未知——
+	// 这是刻意的：要放行它们，应把键挪到独立顶层段，而非让框架猜。
+	//
+	// 开启后能捕获的最有价值场景：env / 配置文件里把 server.http 写成
+	// server.htpp 这类笔误——此前被 DiscardUnknown 静默丢弃（进程照常启动、
+	// 行为却不对），是本项目退役 viper 的原始动因。
+	StrictContract bool
 }
 
 // layerState 一个层的运行期状态：声明 + 当前文档缓存。
@@ -216,6 +234,17 @@ func Load(opts Options) (*Store, error) {
 	s.flagM = flattenFlags(opts.Flags)
 
 	s.merged = s.remerge()
+
+	// 4.5) 严格契约校验（opt-in）：把「写错键名静默落到零值」变成可见错误。
+	// 必须在合并完成后做——env/flag 也参与合并，只查文件会漏掉 env 的笔误。
+	if opts.StrictContract {
+		if unknown := bconf.FindUnknownKeys(s.merged, bconf.NewBootstrap(),
+			opts.AllowBusinessSections...); len(unknown) > 0 {
+			s.Close()
+			return nil, fmt.Errorf("config: unknown contract keys (typo? or declare in AllowBusinessSections): %s",
+				strings.Join(unknown, ", "))
+		}
+	}
 
 	// 5) 热更新监听。
 	if err := s.setupWatch(opts); err != nil {

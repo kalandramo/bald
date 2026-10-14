@@ -91,7 +91,7 @@ require (
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/kalandramo/bald/bconfig v0.1.0 // indirect
-	github.com/kalandramo/bald/bootstrap v0.10.0 // indirect
+	github.com/kalandramo/bald/bootstrap v0.11.0 // indirect
 	github.com/kalandramo/bald/health v0.1.1 // indirect
 	github.com/kalandramo/bald/registry v0.1.1 // indirect
 	github.com/kalandramo/bald/transport v0.2.1 // indirect
