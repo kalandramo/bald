@@ -87,6 +87,9 @@ type bootstrapSpec struct {
 	watchFiles  bool
 	cfgRegistry *baldbootstrap.ConfigRegistry
 	remote      baldconfig.RemoteSource
+	// strictContract / businessSections 透传到 config.Options（见 WithStrictContract）。
+	strictContract   bool
+	businessSections []string
 	// cfgNamespace 是配置命名空间（WithConfigNamespace 声明）。FromBootstrap
 	// 路径**必填**——不回退契约 app.name（自指，见 WithConfigNamespace 注释）。
 	cfgNamespace string
@@ -272,6 +275,31 @@ func WithWatchConfig(watch bool) BootstrapOption {
 // 注册序即层优先级）。FromBootstrap 负责 Build 与 cleanup 停机释放。
 func WithConfigRegistry(r *baldbootstrap.ConfigRegistry) BootstrapOption {
 	return func(s *bootstrapSpec) { s.cfgRegistry = r }
+}
+
+// WithStrictContract 启用契约段未知键校验（opt-in，默认关闭）。
+//
+// 启用后，Load 完成时扫描合并后的配置树：**白名单之外的顶层段**内出现契约未
+// 声明的键即 fail-fast 并指名该键。它能捕获的最有价值场景是拼写错误——
+// `server.htpp` 误写为 `server.htpp` 这类笔误，此前被 DiscardUnknown 静默丢弃
+// （进程照常启动、行为却不对），是 bald 退役 viper 的原始动因。
+//
+// businessSections 是**应用自持的顶层段名**（如 bald-admin 的 "biz"）：命中者
+// 整棵子树放行，框架不解析其内部形状。框架**不认识任何业务段名**——清单完全由
+// 应用给出，框架侧零业务概念（这正是本开关不叫「业务段白名单」的原因）。
+//
+// 用法（应用侧）：
+//
+//	appkit.WithStrictContract("biz")   // 业务段整棵放行，其余严格
+//
+// 注意：契约段**内部**的业务键（如曾用的 audit.fallback_tenant）无法经此放行
+// ——那正是需要把业务键迁到独立业务段的原因（框架无法区分「用户笔误」与
+// 「业务自持键」，二者父段都是契约段）。
+func WithStrictContract(businessSections ...string) BootstrapOption {
+	return func(s *bootstrapSpec) {
+		s.strictContract = true
+		s.businessSections = append(s.businessSections, businessSections...)
+	}
 }
 
 // WithLogDecorators 附加 bslog 日志装饰器（脱敏、业务字段等），阶段 A/B
@@ -874,6 +902,10 @@ func FromBootstrap(cfg *bootstrapv1.BootstrapConfig, opts ...BootstrapOption) (*
 	// 使业务 flag 进入装载 FlagSet 的 flag 层（最高优先级）。
 	for _, b := range spec.bindings {
 		kitOpts = append(kitOpts, Bind(b.prefix, b.opt))
+	}
+	// 严格契约校验（opt-in，见 WithStrictContract）：业务段白名单原样透传。
+	if spec.strictContract {
+		kitOpts = append(kitOpts, StrictContract(spec.businessSections...))
 	}
 
 	a = New(kitOpts...) // BeforeStart 闭包引用 a，执行时已赋值（Run 期才回调）

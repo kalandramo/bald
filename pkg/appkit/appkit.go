@@ -162,6 +162,9 @@ type appConfig struct {
 	onChange  func(map[string]any)
 	bindings  []flagBinding
 	store     *config.Store
+	// strictContract / businessSections 透传到 config.Options（见 WithStrictContract）。
+	strictContract   bool
+	businessSections []string
 }
 
 // closeStore 释放配置仓库的监听资源（fsnotify watcher）；未加载时 no-op。
@@ -305,6 +308,18 @@ func Env(env string) Option { return func(a *AppKit) { a.cfg.env = env } }
 // WatchConfigFile 启用本地配置文件热更新（fsnotify）。
 func WatchConfigFile(watch bool) Option { return func(a *AppKit) { a.cfg.watchFile = watch } }
 
+// StrictContract 启用契约段未知键校验（opt-in）。businessSections 是应用自持的
+// 顶层段名，命中者整棵子树放行；其余顶层段内出现契约未声明的键即 fail-fast。
+//
+// New 路径（直接构造 AppKit）用本 Option 与 WithStrictContract 对应——
+// 后者是 FromBootstrap 路径的等价物（语义一致，仅入口不同）。
+func StrictContract(businessSections ...string) Option {
+	return func(a *AppKit) {
+		a.cfg.strictContract = true
+		a.cfg.businessSections = append(a.cfg.businessSections, businessSections...)
+	}
+}
+
 // OnConfigChange 注册配置热更新回调（本地文件或远程变更均触发）。
 // 形参为变更后重新合并的配置快照（map），业务在其中重新 Unmarshal 完成热重载。
 // 回调应轻量（改状态、切引用、记日志），不要阻塞——它串行阻塞后续变更分发。
@@ -412,6 +427,11 @@ func (a *AppKit) loadConfig() error {
 		Remote:         a.cfg.remote,
 		WatchLocalFile: a.cfg.watchFile,
 		OnChange:       a.wrapKeyWatch(a.cfg.onChange), // R1：包装全量回调，追加 key 级分发
+		// 严格契约校验（opt-in，见 WithStrictContract）：业务段经白名单整棵放行，
+		// 其余顶层段内的未知键 fail-fast。框架**不认识任何业务段名**——白名单由
+		// 应用传入，故此处只做透传，不引入业务概念。
+		StrictContract:        a.cfg.strictContract,
+		AllowBusinessSections: a.cfg.businessSections,
 	})
 	if err != nil {
 		return err
