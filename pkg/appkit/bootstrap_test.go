@@ -51,7 +51,7 @@ func TestResolveLoggerFactory(t *testing.T) {
 		}
 		return stubLogger(), nil, nil
 	})
-	regFac := resolveLoggerFactory(&bootstrapSpec{logRegistry: lr})
+	regFac := resolveLoggerFactory(&bootstrapSpec{LogRegistry: lr})
 
 	lg, _, err := regFac(context.Background(), nil)
 	if err != nil {
@@ -204,7 +204,7 @@ func TestDefaultPath_FilterKeys(t *testing.T) {
 func TestDefaultPath_SlogDecorators(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "deco.log")
 	fac := resolveLoggerFactory(&bootstrapSpec{
-		logDeco: []bslog.Option{bslog.WithAttrs(slog.String("deco", "yes"))},
+		LogDecorators: []bslog.Option{bslog.WithAttrs(slog.String("deco", "yes"))},
 	})
 
 	l, cleanup, err := fac(context.Background(), &bootstrapv1.Logger{
@@ -526,10 +526,13 @@ func TestHotReload_RebuildsLogger(t *testing.T) {
 
 	cfg := bconf.NewBootstrap()
 	cf := &countingFactory{}
-	spec := &bootstrapSpec{logFac: cf.factory}
+	spec := &bootstrapSpec{}
+	// logFac 是 resolveLoggerFactory 的解析结果（非用户声明），不再落入
+	// Decl——测试以独立变量承载并按参数传递（与 FromBootstrap 内部一致）。
+	logFac := cf.factory
 
 	var cc atomic.Pointer[func()]
-	lg, cleanup, err := spec.logFac(context.Background(), nil)
+	lg, cleanup, err := logFac(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("phase A: %v", err)
 	}
@@ -539,7 +542,7 @@ func TestHotReload_RebuildsLogger(t *testing.T) {
 	log.SetLogger(lg)
 	cc.Store(&cleanup)
 
-	hotReload(cfg, spec, &cc, map[string]any{
+	hotReload(cfg, spec, logFac, &cc, map[string]any{
 		"logger": map[string]any{
 			"backends": []any{
 				map[string]any{"type": "slog", "slog": map[string]any{"level": "warn", "format": "json", "output_path": "stdout"}},
@@ -566,17 +569,17 @@ func TestRebuildLogger_FlushesOldBackend(t *testing.T) {
 
 	flushed := make(chan struct{}, 1)
 	first := true
-	spec := &bootstrapSpec{logFac: func(context.Context, *bootstrapv1.Logger) (log.Logger, func(), error) {
+	logFac := func(context.Context, *bootstrapv1.Logger) (log.Logger, func(), error) {
 		if first {
 			first = false
 			return stubLogger(), func() { flushed <- struct{}{} }, nil
 		}
 		return stubLogger(), nil, nil
-	}}
+	}
 
 	var cc atomic.Pointer[func()]
 	// 阶段 A：初始后端 + cleanup 入表。
-	lg, cleanup, err := spec.logFac(context.Background(), nil)
+	lg, cleanup, err := logFac(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("phase A: %v", err)
 	}
@@ -586,7 +589,7 @@ func TestRebuildLogger_FlushesOldBackend(t *testing.T) {
 	// 阶段 B：换后端——旧 cleanup 应被同步调用。
 	if err := rebuildLogger(&bootstrapv1.Logger{
 		Backends: []*bootstrapv1.Logger_Backend{{Type: "slog"}},
-	}, spec, &cc); err != nil {
+	}, logFac, &cc); err != nil {
 		t.Fatalf("rebuildLogger: %v", err)
 	}
 	select {
@@ -640,9 +643,11 @@ func TestHotReload_BadConfigKeepsOld(t *testing.T) {
 	t.Cleanup(func() { log.SetLogger(old) })
 
 	cfg := bconf.NewBootstrap()
-	spec := &bootstrapSpec{logFac: (&countingFactory{}).factory}
+	spec := &bootstrapSpec{}
+	// logFac 参数化（原 spec.logFac 字段已移除——非用户声明，见 decl.go）。
+	logFac := (&countingFactory{}).factory
 	var cc atomic.Pointer[func()]
-	lg, cleanup, err := spec.logFac(context.Background(), nil)
+	lg, cleanup, err := logFac(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("phase A: %v", err)
 	}
@@ -652,7 +657,7 @@ func TestHotReload_BadConfigKeepsOld(t *testing.T) {
 	log.SetLogger(lg)
 	cc.Store(&cleanup)
 
-	hotReload(cfg, spec, &cc, map[string]any{
+	hotReload(cfg, spec, logFac, &cc, map[string]any{
 		"logger": map[string]any{
 			"backends": []any{
 				map[string]any{"type": "slog", "slog": map[string]any{"level": "not-a-level"}},

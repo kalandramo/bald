@@ -1,0 +1,266 @@
+// decl.go 定义 Decl——**全部装配期声明的纯数据载体**（装配层评估 §5.2 批 2
+// 第一波，起点设计 D1-target-appkit.md §5.2）。
+//
+// 背景：Option 原为 func(*AppKit)，包外无法构造（AppKit 字段未导出），
+// mech 子包因此只能经 AppKit 的导出注册方法（register.go）间接写入。批 2
+// 把 Option 接口化为 interface{ Apply(*Decl) }（导出方法 + 导出参数类型，
+// 包外可实现），Decl 承载全部装配期声明的写入面：
+//   - New 路径 Option 的全部写入（ID/Name/Config*/Bind/Servers/钩子/机制…）；
+//   - FromBootstrap 路径 BootstrapOption 的全部写入（WithHTTP/WithGRPC/
+//     各域 Registry/WithLogDecorators/WithExtraServerFunc…）。
+//
+// 字段集由对账得出（逐 Option 逐一归属，见各字段注释），不含任何运行期
+// 状态：效应账本的运行期追加（addEffect）、key 订阅的基线快照（last/armed）、
+// 配置装载结果（*config.Store）等仍归 AppKit 私有字段，构造期从 Decl 拷贝
+// （newFromDecl）。AppKit 不嵌入 Decl——声明（纯数据）与运行态（并发保护、
+// 可逆账本、幂等跟踪）生命周期不同，嵌入会把运行态暴露成可外部改写的
+// 导出字段；拷贝让引擎（Run/stopAll/UndoEffects/Resolve/协调器/热更）与
+// 改造前逐字段同构，行为零变化。
+//
+// bootstrapSpec 是 Decl 的类型别名（见 bootstrap.go）：BootstrapOption 的
+// 写入目标与 New 路径的构造输入从此是同一份数据形状，两条装配路径的声明
+// 面不再各持一套私有结构。
+package appkit
+
+import (
+	"context"
+	"net/http"
+	"time"
+
+	"google.golang.org/grpc"
+
+	baldbootstrap "github.com/kalandramo/bald/bootstrap"
+	"github.com/kalandramo/bald/bootstrap/config"
+	"github.com/kalandramo/bald/health"
+	"github.com/kalandramo/bald/log/bslog"
+	"github.com/kalandramo/bald/pkg/audit"
+	"github.com/kalandramo/bald/registry"
+	"github.com/kalandramo/bald/transport"
+)
+
+// Decl 汇集全部装配期声明（纯数据、全导出字段）。两条装配路径共用：
+// New 路径由 Option.Apply 逐项写入；FromBootstrap 路径由 BootstrapOption
+// 写入（经 bootstrapSpec 别名）后，框架再按契约补齐其余字段。
+type Decl struct {
+	// ---- 服务身份（ID/Name/Version Option；app 段回填） ----
+	ID      string
+	Name    string
+	Version string
+	// Env 运行环境（Env Option；契约 app.env）。
+	Env string
+
+	// ---- 配置源（ConfigFile/RemoteConfig/ConfigLayers/Env/WatchConfigFile/
+	// StrictContract/OnConfigChange/Bind Option；WithConfigFile/
+	// WithRemoteConfig/WithWatchConfig/WithStrictContract/WithBind 同名声明） ----
+	// ConfigNamespace 配置命名空间（env 前缀 / 多环境文件名来源）。
+	ConfigNamespace string
+	ConfigFile      string
+	WatchConfigFile bool
+	RemoteConfig    config.RemoteSource
+	// ConfigLayers 契约源层（ConfigLayers Option；FromBootstrap 经
+	// ConfigRegistry.Build 产出后追加）。
+	ConfigLayers []config.Layer
+	// StrictContract 与 BusinessSections 成对：开关 + 应用自持顶层段白名单
+	// （StrictContract/WithStrictContract 可多次调用追加白名单）。
+	StrictContract   bool
+	BusinessSections []string
+	// OnConfigChange 热更新全量回调（单槽，后写覆盖——与原写入路径一致）。
+	OnConfigChange func(map[string]any)
+	// Binds 业务配置对象的 flag 绑定（Bind/WithBind 追加）。
+	Binds []BindDecl
+
+	// ---- 注册中心与服务器（Registrar/Servers Option；WithRegistrar/
+	// WithExtraServers/WithExtraServerFunc 同名声明） ----
+	Registrar registry.Registrar
+	// Servers 已构造的服务器实例（Servers/WithExtraServers 追加）。
+	Servers []transport.Server
+	// ServersFunc 运行期构造的附加服务器工厂（WithExtraServerFunc 追加；
+	// Run 期 beforeStart 链末尾调用，可消费业务运行期资源）。
+	ServersFunc []func(context.Context) (transport.Server, error)
+
+	// ---- 生命周期钩子与超时（StopTimeout/BeforeStart/AfterStart/
+	// BeforeStop/AfterStop Option；WithAfterStart/WithBeforeStart/
+	// WithBeforeStop 同名声明） ----
+	StopTimeout time.Duration
+	BeforeStart []func(context.Context) error
+	AfterStart  []func(context.Context) error
+	BeforeStop  []func(context.Context) error
+	AfterStop   []func(context.Context) error
+
+	// ---- 机制层（Effect/EffectTimeout/Provides/Requires/Components/
+	// ComponentTimeout/OnKeyChange/Reconcile Option；WithEffect/WithReconcile/
+	// WithOnKeyChange/WithProvides/WithRequires/WithComponents 同名声明；
+	// mech 子包经 Apply 直写） ----
+	Effects []EffectDecl
+	// EffectTimeout 效应撤销阶段的独立超时（单槽）。
+	EffectTimeout time.Duration
+	Provides      []string
+	Requires      []RequireDecl
+	Components    []Component
+	// ComponentTimeout 组件 Start/Dispose 的独立超时（单槽）。
+	ComponentTimeout time.Duration
+	KeyWatches       []KeyWatchDecl
+	Reconciles       []ReconcileDecl
+
+	// ---- 审计（Auditor Option；运行期审计事件 sink） ----
+	Auditor audit.Auditor
+
+	// ---- 可观测与日志后端装配（WithTracerRegistry/WithMetricsRegistry/
+	// WithAuditRegistry/WithLogRegistry/WithLogDecorators 声明） ----
+	TracerRegistry  *TracerRegistry
+	MetricsRegistry *MetricsRegistry
+	AuditRegistry   *AuditRegistry
+	// LogRegistry 契约驱动的日志后端注册表（阶段 A/B 两级分派见
+	// resolveLoggerFactory）。
+	LogRegistry *baldbootstrap.LogRegistry
+	// LogDecorators bslog 日志装饰器（仅默认路径 slog 项与阶段 A 回退消费）。
+	LogDecorators []bslog.Option
+
+	// ---- 资源域契约装配注册表（WithRegistrarRegistry/WithConfigRegistry/
+	// WithServerRegistry/WithDatabaseRegistry/WithCacheRegistry/
+	// WithStorageRegistry/WithAiRegistry/WithWorkflowRegistry/
+	// WithBrokerRegistry 声明；FromBootstrap 阶段 B 逐域 Build） ----
+	RegistrarRegistry *baldbootstrap.RegistrarRegistry
+	ConfigRegistry    *baldbootstrap.ConfigRegistry
+	ServerRegistry    *baldbootstrap.ServerRegistry
+	DatabaseRegistry  *baldbootstrap.DatabaseRegistry
+	CacheRegistry     *baldbootstrap.CacheRegistry
+	StorageRegistry   *baldbootstrap.StorageRegistry
+	AiRegistry        *baldbootstrap.AiRegistry
+	WorkflowRegistry  *baldbootstrap.WorkflowRegistry
+	BrokerRegistry    *baldbootstrap.BrokerRegistry
+
+	// ---- 协议面（WithHTTP/WithGatewayRegister/WithGRPC/WithGRPCOptions
+	// 声明；能力声明在代码，契约 server 段驱动装配） ----
+	HTTPHandler http.Handler
+	// GatewayRegister grpc-gateway 转码注册回调（server.http 的一种模式，
+	// 由契约 server.http.driver 选择，见 WithGatewayRegister）。
+	GatewayRegister func(context.Context, *grpc.ClientConn) (http.Handler, error)
+	// GRPCRegister gRPC service 注册回调；GRPCUnary 拦截器链（值切片，
+	// 调用点求值）。
+	GRPCRegister func(*grpc.Server)
+	GRPCUnary    []grpc.ServerOption
+	// GRPCOptionsFn 运行期求值的 gRPC 选项工厂（WithGRPCOptions；与
+	// GRPCUnary 累加，静态在前）。
+	GRPCOptionsFn func() []grpc.ServerOption
+
+	// ---- 健康检查（WithHealth/WithProbePaths/WithHealthPollInterval 声明；
+	// 探针路径仅 WithHealth 置默认值，空值 = 未声明） ----
+	Health         *health.Health
+	ProbeLivePath  string
+	ProbeReadyPath string
+	// HealthInterval gRPC 侧就绪状态同步间隔（0 = 未覆盖，用默认）。
+	HealthInterval time.Duration
+}
+
+// EffectDecl 是一条可逆效应声明（Effect/WithEffect/mech.Effect 的写入面；
+// 运行期账本条目 effectEntry 与之同构，构造期拷贝）。
+type EffectDecl struct {
+	Name string
+	Undo func(context.Context) error
+}
+
+// RequireDecl 是组件能力依赖声明（Requires/WithRequires/mech.Requires 的
+// 写入面；引擎内部 requirement 与之同构，构造期拷贝）。
+type RequireDecl struct {
+	Component string
+	Caps      []string
+}
+
+// KeyWatchDecl 是 key 级配置订阅声明（OnKeyChange/WithOnKeyChange/
+// mech.OnKeyChange 的写入面；运行期 keyWatcher 在其上携带基线状态）。
+type KeyWatchDecl struct {
+	Key string
+	Fn  func(old, new string)
+}
+
+// ReconcileDecl 是期望态协调器声明（Reconcile/WithReconcile/mech.Reconcile
+// 的写入面；引擎内部 reconciler 与之同构，构造期拷贝）。
+type ReconcileDecl struct {
+	Name string
+	Fn   ReconcileFunc
+}
+
+// BindDecl 是一条业务配置对象的 flag 绑定声明（Bind/WithBind 的写入面；
+// 原 flagBinding 的导出形态——proto.Message 走 bconf.BindFlags，
+// PlainBinder 走 AddFlags，见 bindFlags）。
+type BindDecl struct {
+	Prefix string
+	Opt    any
+}
+
+// defaultDecl 返回带缺省值的空声明（New 与 FromBootstrap 共用的构造起点；
+// 缺省值与旧 New 的结构体字面量逐字段一致：ID 随机实例后缀，元数据默认值，
+// 超时默认值。探针路径刻意不预填——空值即「未声明」，由 WithHealth 置默认）。
+func defaultDecl() Decl {
+	return Decl{
+		ID:               defaultInstanceID(),
+		Name:             "bald-app",
+		Version:          "v0.0.0",
+		StopTimeout:      defaultStopTimeout,
+		EffectTimeout:    defaultHookTimeout,
+		ComponentTimeout: defaultHookTimeout,
+	}
+}
+
+// newFromDecl 从声明构造 AppKit（构造期拷贝：引擎消费的运行态字段从 Decl
+// 逐字段拷入，运行期追加与并发保护仍归 AppKit 私有字段）。效应账本按声明
+// 序入账——运行期 addEffect 在同一账本继续追加，逆序回放顺序与旧实现一致。
+func newFromDecl(d Decl) *AppKit {
+	a := &AppKit{
+		id:               d.ID,
+		name:             d.Name,
+		version:          d.Version,
+		cfgNamespace:     d.ConfigNamespace,
+		stopTimeout:      d.StopTimeout,
+		registrar:        d.Registrar,
+		servers:          d.Servers,
+		beforeStart:      d.BeforeStart,
+		afterStart:       d.AfterStart,
+		beforeStop:       d.BeforeStop,
+		afterStop:        d.AfterStop,
+		effectTimeout:    d.EffectTimeout,
+		provides:         d.Provides,
+		components:       d.Components,
+		componentTimeout: d.ComponentTimeout,
+		auditor:          d.Auditor,
+		reconItems:       make(map[string][]reconItem),
+		done:             make(chan struct{}),
+		cfg: appConfig{
+			cfgFile:          d.ConfigFile,
+			remote:           d.RemoteConfig,
+			layers:           d.ConfigLayers,
+			env:              d.Env,
+			watchFile:        d.WatchConfigFile,
+			onChange:         d.OnConfigChange,
+			bindings:         d.Binds,
+			strictContract:   d.StrictContract,
+			businessSections: d.BusinessSections,
+		},
+	}
+	if len(d.Effects) > 0 {
+		a.effects = make([]effectEntry, len(d.Effects))
+		for i, e := range d.Effects {
+			a.effects[i] = effectEntry{name: e.Name, undo: e.Undo}
+		}
+	}
+	if len(d.Requires) > 0 {
+		a.requires = make([]requirement, len(d.Requires))
+		for i, r := range d.Requires {
+			a.requires[i] = requirement{component: r.Component, caps: r.Caps}
+		}
+	}
+	if len(d.KeyWatches) > 0 {
+		a.keyWatchers = make([]keyWatcher, len(d.KeyWatches))
+		for i, w := range d.KeyWatches {
+			a.keyWatchers[i] = keyWatcher{key: w.Key, fn: w.Fn}
+		}
+	}
+	if len(d.Reconciles) > 0 {
+		a.reconcilers = make([]reconciler, len(d.Reconciles))
+		for i, r := range d.Reconciles {
+			a.reconcilers[i] = reconciler{name: r.Name, fn: r.Fn}
+		}
+	}
+	return a
+}

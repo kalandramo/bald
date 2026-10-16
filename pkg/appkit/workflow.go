@@ -31,7 +31,7 @@ import (
 // provider，见 bootstrap.WorkflowRegistry）。契约 workflow 段任一后端段
 // 存在时，阶段 B 按段名查表构建客户端；workflow 段不支持热更新。
 func WithWorkflowRegistry(r *baldbootstrap.WorkflowRegistry) BootstrapOption {
-	return func(s *bootstrapSpec) { s.workflowRegistry = r }
+	return func(s *bootstrapSpec) { s.WorkflowRegistry = r }
 }
 
 // buildWorkflows 在阶段 B（契约装载校验后）按契约 workflow 段构建全部已
@@ -43,10 +43,10 @@ func buildWorkflows(a *AppKit, cfg *bootstrapv1.BootstrapConfig, spec *bootstrap
 	if wcfg == nil {
 		return nil, nil // 未配置任何工作流客户端
 	}
-	if spec.workflowRegistry == nil {
+	if spec.WorkflowRegistry == nil {
 		return nil, errors.New("appkit: bootstrap.workflow present but no WorkflowRegistry wired (WithWorkflowRegistry missing)")
 	}
-	clients, cleanup, err := spec.workflowRegistry.Build(context.Background(), wcfg)
+	clients, cleanup, err := spec.WorkflowRegistry.Build(context.Background(), wcfg)
 	if err != nil {
 		return nil, err
 	}

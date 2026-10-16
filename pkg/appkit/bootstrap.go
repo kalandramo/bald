@@ -47,7 +47,6 @@ import (
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
 	baldbootstrap "github.com/kalandramo/bald/bootstrap"
 	baldconfig "github.com/kalandramo/bald/bootstrap/config"
-	"github.com/kalandramo/bald/health"
 	log "github.com/kalandramo/bald/log"
 	"github.com/kalandramo/bald/log/bslog"
 	"github.com/kalandramo/bald/pkg/audit"
@@ -59,101 +58,13 @@ import (
 // 由 resolveLoggerFactory 产出、FromBootstrap 装载链与 rebuildLogger 消费）。
 type loggerFactory = func(ctx context.Context, l *bootstrapv1.Logger) (lg log.Logger, cleanup func(), err error)
 
-// bootstrapSpec 汇集 FromBootstrap 的业务能力声明。
-type bootstrapSpec struct {
-	httpHandler     http.Handler
-	gatewayRegister func(context.Context, *grpc.ClientConn) (http.Handler, error)
-	grpcRegister    func(*grpc.Server)
-	grpcUnary       []grpc.ServerOption
-	// grpcOptionsFn 是**运行期求值**的 gRPC 选项工厂（WithGRPCOptions）。
-	// 与 grpcUnary 的差别：后者是值切片，在 WithGRPC 调用点即求值（Go 变参语义），
-	// 若其构造依赖 beforeStart 建立的运行期资源（认证器/授权器/仓储），构造期只能
-	// 拿到 nil。本字段存工厂函数，在 Run 期 server 构造钩子内调用——二者累加。
-	grpcOptionsFn func() []grpc.ServerOption
-	// extraServerFns 是**运行期构造**的附加服务器工厂（WithExtraServerFunc）。
-	// 与 extraServers 的差别：后者收已构造实例（调用点即需存在），本字段收工厂，
-	// 在 Run 期 beforeStart 链末尾调用，可消费业务已建的运行期资源。
-	extraServerFns []func(context.Context) (transport.Server, error)
-	registrar      registry.Registrar
-
-	// 健康检查默认装配（WithHealth）：数据源、探针路径、gRPC 同步间隔。
-	health         *health.Health
-	probeLivePath  string
-	probeReadyPath string
-	healthInterval time.Duration
-	regRegistry     *baldbootstrap.RegistrarRegistry
-
-	configFile  string
-	watchFiles  bool
-	cfgRegistry *baldbootstrap.ConfigRegistry
-	remote      baldconfig.RemoteSource
-	// strictContract / businessSections 透传到 config.Options（见 WithStrictContract）。
-	strictContract   bool
-	businessSections []string
-	// cfgNamespace 是配置命名空间（WithConfigNamespace 声明）。FromBootstrap
-	// 路径**必填**——不回退契约 app.name（自指，见 WithConfigNamespace 注释）。
-	cfgNamespace string
-
-	extraServers []transport.Server
-	afterStart   []func(context.Context) error
-
-	logDeco     []bslog.Option
-	logRegistry *baldbootstrap.LogRegistry
-	logFac      loggerFactory // resolveLoggerFactory 的解析结果（非用户 Option）。
-
-	dbRegistry       *baldbootstrap.DatabaseRegistry
-	cacheRegistry    *baldbootstrap.CacheRegistry
-	storageRegistry  *baldbootstrap.StorageRegistry
-	aiRegistry       *baldbootstrap.AiRegistry
-	workflowRegistry *baldbootstrap.WorkflowRegistry
-	brokerRegistry   *baldbootstrap.BrokerRegistry
-	// serverRegistry 是协议服务器 provider 的契约装配注册表（WithServerRegistry）。
-	// 与其余 12 个资源域注入口对称：未声明时框架自建空表并补注册 http/grpc 内置
-	// provider；已声明时在其上补注册（用户注册的同名 provider 优先，不覆盖）。
-	serverRegistry *baldbootstrap.ServerRegistry
-
-	tracerRegistry  *TracerRegistry
-	metricsRegistry *MetricsRegistry
-	auditRegistry   *AuditRegistry
-
-	// 业务透传声明（重业务走 FromBootstrap 的逃生面——钩子/协调器/
-	// 能力声明/订阅/效果账本/组件，转发给 New 的同名 Option）。
-	beforeStart []func(context.Context) error
-	beforeStop  []func(context.Context) error
-	effects     []effectDecl
-	reconciles  []reconcileDecl
-	keyWatches  []keyWatchDecl
-	provides    []string
-	requires    []requireDecl
-	components  []Component
-
-	// 业务配置 flag 绑定：与 New 路径的 Bind Option 同语义，转发到
-	// kitOpts。缺此通道时业务 flag 进不了装载 FlagSet，「flag > env > 文件」
-	// 优先级链对业务配置项整条失效（用户显式传参被静默忽略）。
-	bindings []flagBinding
-}
-
-// effectDecl / reconcileDecl / keyWatchDecl / requireDecl 是透传声明的
-// 载体（与 New 的 Option 参数一一对应，仅用于 spec 暂存）。
-type effectDecl struct {
-	name string
-	undo func(context.Context) error
-}
-
-type reconcileDecl struct {
-	name string
-	fn   ReconcileFunc
-}
-
-type keyWatchDecl struct {
-	key string
-	fn  func(old, new string)
-}
-
-type requireDecl struct {
-	component string
-	caps      []string
-}
+// bootstrapSpec 是 FromBootstrap 能力声明的写入目标，批 2 起为 **Decl 的类型
+// 别名**：BootstrapOption 的写入面与 New 路径 Option 的写入面统一为同一份
+// 纯数据声明（decl.go），两条装配路径不再各持一套私有结构。别名保证
+// BootstrapOption 与全部 With* 的公开签名本波不变；字段由小写改名导出
+// （写入语义逐字段不变）。原 logFac 字段（resolveLoggerFactory 的解析结果，
+// 非用户声明）不再落入 Decl，由 FromBootstrap 局部求值并参数传递。
+type bootstrapSpec = Decl
 
 // BootstrapOption 声明 FromBootstrap 的业务能力（与 New 的 Option 分属两个
 // 类型，避免混淆：BootstrapOption 在构造前生效，Option 语义由 FromBootstrap 内化）。
@@ -161,7 +72,7 @@ type BootstrapOption func(*bootstrapSpec)
 
 // WithHTTP 声明启用 HTTP 服务器，业务 handler 必供（探针路径由框架兜底）。
 func WithHTTP(handler http.Handler) BootstrapOption {
-	return func(s *bootstrapSpec) { s.httpHandler = handler }
+	return func(s *bootstrapSpec) { s.HTTPHandler = handler }
 }
 
 // WithGatewayRegister 声明 grpc-gateway 转码能力：REST → gRPC 转码注册回调，
@@ -176,13 +87,13 @@ func WithHTTP(handler http.Handler) BootstrapOption {
 // 留空会让两个能力静默竞争同一端口）；handler 由此被转码面替代，业务要
 // 混合路由时在回调里返回组合 handler。
 func WithGatewayRegister(fn func(context.Context, *grpc.ClientConn) (http.Handler, error)) BootstrapOption {
-	return func(s *bootstrapSpec) { s.gatewayRegister = fn }
+	return func(s *bootstrapSpec) { s.GatewayRegister = fn }
 }
 
 // WithGRPC 声明启用 gRPC 服务器。register 注册业务 service；unary 为完整
 // 拦截器链（链序是安全策略，归业务：ErrorInterceptor 须挂最外层）。
 func WithGRPC(register func(*grpc.Server), unary ...grpc.ServerOption) BootstrapOption {
-	return func(s *bootstrapSpec) { s.grpcRegister, s.grpcUnary = register, unary }
+	return func(s *bootstrapSpec) { s.GRPCRegister, s.GRPCUnary = register, unary }
 }
 
 // WithGRPCOptions 注册**运行期求值**的 gRPC 服务器选项。
@@ -197,33 +108,33 @@ func WithGRPC(register func(*grpc.Server), unary ...grpc.ServerOption) Bootstrap
 //	appkit.WithGRPC(registerSvc)                  // 只声明 service 注册
 //	appkit.WithGRPCOptions(newInterceptorChain)   // 拦截器链延到 Run 期构造
 func WithGRPCOptions(fn func() []grpc.ServerOption) BootstrapOption {
-	return func(s *bootstrapSpec) { s.grpcOptionsFn = fn }
+	return func(s *bootstrapSpec) { s.GRPCOptionsFn = fn }
 }
 
 // WithRegistrar 注入注册中心实例（如 inmemory.New()）。
 // 显式实例优先于契约装配（阶段 B 的 buildRegistrar 检测到非 nil 即跳过）。
 func WithRegistrar(r registry.Registrar) BootstrapOption {
-	return func(s *bootstrapSpec) { s.registrar = r }
+	return func(s *bootstrapSpec) { s.Registrar = r }
 }
 
 // WithRegistrarRegistry 注入服务注册中心的契约装配注册表（显式注册
 // provider，见 bootstrap.RegistrarRegistry）。契约 registry 段存在且未显式
 // WithRegistrar 时，阶段 B 按 registry.type 构造注册中心。
 func WithRegistrarRegistry(rr *baldbootstrap.RegistrarRegistry) BootstrapOption {
-	return func(s *bootstrapSpec) { s.regRegistry = rr }
+	return func(s *bootstrapSpec) { s.RegistrarRegistry = rr }
 }
 
 // WithRemoteConfig 接入远程配置源（config.RemoteSource，如 kratos 桥接的 etcd/nacos）。
 // 远程作基准，契约层/本地文件覆盖之（优先级见 Store 合并约定）。
 func WithRemoteConfig(src baldconfig.RemoteSource) BootstrapOption {
-	return func(s *bootstrapSpec) { s.remote = src }
+	return func(s *bootstrapSpec) { s.RemoteConfig = src }
 }
 
 // WithExtraServers 追加附加服务器（契约形状表达不了的服务器，如独立端口的
 // 自定义监听面），与主服务器并行启停。grpc-gateway 转码面不走此逃生舱，
 // 用 WithGatewayRegister + 契约 server.http.driver 声明。
 func WithExtraServers(servers ...transport.Server) BootstrapOption {
-	return func(s *bootstrapSpec) { s.extraServers = append(s.extraServers, servers...) }
+	return func(s *bootstrapSpec) { s.Servers = append(s.Servers, servers...) }
 }
 
 // WithExtraServerFunc 注册**运行期构造**的附加服务器。
@@ -237,18 +148,18 @@ func WithExtraServers(servers ...transport.Server) BootstrapOption {
 //
 // 本钩子**独立于** http/grpc 是否声明——只声明额外服务器（无主协议面）时同样生效。
 func WithExtraServerFunc(fn func(context.Context) (transport.Server, error)) BootstrapOption {
-	return func(s *bootstrapSpec) { s.extraServerFns = append(s.extraServerFns, fn) }
+	return func(s *bootstrapSpec) { s.ServersFunc = append(s.ServersFunc, fn) }
 }
 
 // WithAfterStart 注册启动完成回调（服务已监听、注册已完成，可打 endpoint 日志/预热）。
 func WithAfterStart(fn func(context.Context) error) BootstrapOption {
-	return func(s *bootstrapSpec) { s.afterStart = append(s.afterStart, fn) }
+	return func(s *bootstrapSpec) { s.AfterStart = append(s.AfterStart, fn) }
 }
 
 // WithConfigFile 声明本地配置文件（语义同 appkit.ConfigFile，单路径）。
 // 已传 WithConfigRegistry 且其中含 file 源时无需重复声明。
 func WithConfigFile(path string) BootstrapOption {
-	return func(s *bootstrapSpec) { s.configFile = path }
+	return func(s *bootstrapSpec) { s.ConfigFile = path }
 }
 
 // WithConfigNamespace 声明**配置命名空间**——env 前缀（BALD_DEMO_*）与多环境
@@ -263,18 +174,18 @@ func WithConfigFile(path string) BootstrapOption {
 // 与 New 路径的差异：New 侧 ConfigNamespace 可选，未声明时回退 Name
 // （其值来自调用方源码，无自指）；FromBootstrap 侧不做任何回退。
 func WithConfigNamespace(ns string) BootstrapOption {
-	return func(s *bootstrapSpec) { s.cfgNamespace = ns }
+	return func(s *bootstrapSpec) { s.ConfigNamespace = ns }
 }
 
 // WithWatchConfig 启用本地配置文件热更新（fsnotify）。
 func WithWatchConfig(watch bool) BootstrapOption {
-	return func(s *bootstrapSpec) { s.watchFiles = watch }
+	return func(s *bootstrapSpec) { s.WatchConfigFile = watch }
 }
 
 // WithConfigRegistry 注入契约 Config 段的源装配注册表（显式注册 provider，
 // 注册序即层优先级）。FromBootstrap 负责 Build 与 cleanup 停机释放。
 func WithConfigRegistry(r *baldbootstrap.ConfigRegistry) BootstrapOption {
-	return func(s *bootstrapSpec) { s.cfgRegistry = r }
+	return func(s *bootstrapSpec) { s.ConfigRegistry = r }
 }
 
 // WithStrictContract 启用契约段未知键校验（opt-in，默认关闭）。
@@ -297,8 +208,8 @@ func WithConfigRegistry(r *baldbootstrap.ConfigRegistry) BootstrapOption {
 // 「业务自持键」，二者父段都是契约段）。
 func WithStrictContract(businessSections ...string) BootstrapOption {
 	return func(s *bootstrapSpec) {
-		s.strictContract = true
-		s.businessSections = append(s.businessSections, businessSections...)
+		s.StrictContract = true
+		s.BusinessSections = append(s.BusinessSections, businessSections...)
 	}
 }
 
@@ -306,7 +217,7 @@ func WithStrictContract(businessSections ...string) BootstrapOption {
 // 构造 Logger 时统一生效。注意：装饰器是 bslog.Option，仅对默认路径的
 // slog 项与阶段 A 回退生效，其余后端（loki/aliyun 等）不消费装饰器。
 func WithLogDecorators(deco ...bslog.Option) BootstrapOption {
-	return func(s *bootstrapSpec) { s.logDeco = append(s.logDeco, deco...) }
+	return func(s *bootstrapSpec) { s.LogDecorators = append(s.LogDecorators, deco...) }
 }
 
 // WithLogRegistry 声明契约驱动的日志后端注册表：按契约 logger.backends
@@ -327,7 +238,7 @@ func WithLogDecorators(deco ...bslog.Option) BootstrapOption {
 // WithLogDecorators 仅对默认路径的 slog 项与阶段 A 回退生效；注册表
 // 路径要消费装饰器，注册一个 deco-aware 的 slog provider 即可。
 func WithLogRegistry(r *baldbootstrap.LogRegistry) BootstrapOption {
-	return func(s *bootstrapSpec) { s.logRegistry = r }
+	return func(s *bootstrapSpec) { s.LogRegistry = r }
 }
 
 // WithTracerRegistry 注入 trace 后端的契约装配注册表（显式注册 provider，
@@ -335,7 +246,7 @@ func WithLogRegistry(r *baldbootstrap.LogRegistry) BootstrapOption {
 // 全局 TracerProvider，shutdown 挂停机 Effect 最后回放（收集尾批 span）。
 // tracer 段不支持热更新。
 func WithTracerRegistry(r *TracerRegistry) BootstrapOption {
-	return func(s *bootstrapSpec) { s.tracerRegistry = r }
+	return func(s *bootstrapSpec) { s.TracerRegistry = r }
 }
 
 // WithMetricsRegistry 注入指标后端的契约装配注册表（显式注册 provider，
@@ -343,7 +254,7 @@ func WithTracerRegistry(r *TracerRegistry) BootstrapOption {
 // 双通道（prometheus 抓取端独立端口 + 可选 OTLP 直推），flush 与暴露端
 // 关闭挂停机 Effect。metrics 段不支持热更新。
 func WithMetricsRegistry(r *MetricsRegistry) BootstrapOption {
-	return func(s *bootstrapSpec) { s.metricsRegistry = r }
+	return func(s *bootstrapSpec) { s.MetricsRegistry = r }
 }
 
 // WithAuditRegistry 注入审计后端的契约装配注册表（显式注册 provider，
@@ -353,7 +264,7 @@ func WithMetricsRegistry(r *MetricsRegistry) BootstrapOption {
 // 全局（纪律）+ 聚合 cleanup（stream flush 尾批）。audit 段不支持
 // 热更新（运行期热切走 R1-2 协调器）。
 func WithAuditRegistry(r *AuditRegistry) BootstrapOption {
-	return func(s *bootstrapSpec) { s.auditRegistry = r }
+	return func(s *bootstrapSpec) { s.AuditRegistry = r }
 }
 
 // WithServerRegistry 注入协议服务器的契约装配注册表（显式注册 provider，
@@ -381,7 +292,7 @@ func WithAuditRegistry(r *AuditRegistry) BootstrapOption {
 // 服务器的逃生舱（收已构造实例或运行期工厂）；本 Option 服务「契约段已存在、
 // 只是框架未内置 provider」的常规后端——它们应走契约装配而非逃生舱。
 func WithServerRegistry(r *baldbootstrap.ServerRegistry) BootstrapOption {
-	return func(s *bootstrapSpec) { s.serverRegistry = r }
+	return func(s *bootstrapSpec) { s.ServerRegistry = r }
 }
 
 // ---------------------------------------------------------------------------
@@ -397,47 +308,47 @@ func WithServerRegistry(r *baldbootstrap.ServerRegistry) BootstrapOption {
 // →校验→Logger 重建→registrar/可观测性/数据客户端装配）之后执行。业务在此
 // 读契约终值装配桥接（DB 连接、Authn/Authz 桥等）。
 func WithBeforeStart(fn func(context.Context) error) BootstrapOption {
-	return func(s *bootstrapSpec) { s.beforeStart = append(s.beforeStart, fn) }
+	return func(s *bootstrapSpec) { s.BeforeStart = append(s.BeforeStart, fn) }
 }
 
 // WithBeforeStop 追加业务停机前钩子（与 New 的 BeforeStop 语义一致）。
 func WithBeforeStop(fn func(context.Context) error) BootstrapOption {
-	return func(s *bootstrapSpec) { s.beforeStop = append(s.beforeStop, fn) }
+	return func(s *bootstrapSpec) { s.BeforeStop = append(s.BeforeStop, fn) }
 }
 
 // WithEffect 声明业务停机效果（逆序回放；与 New 的 Effect 语义一致，见上
 // 方顺序约定）。
 func WithEffect(name string, undo func(ctx context.Context) error) BootstrapOption {
-	return func(s *bootstrapSpec) { s.effects = append(s.effects, effectDecl{name: name, undo: undo}) }
+	return func(s *bootstrapSpec) { s.Effects = append(s.Effects, EffectDecl{Name: name, Undo: undo}) }
 }
 
 // WithReconcile 声明期望态协调器（与 New 的 Reconcile 语义一致：首次收敛在
 // 配置基线装载后、AfterStart 前触发，其后每次配置变更再次触发）。
 func WithReconcile(name string, fn ReconcileFunc) BootstrapOption {
-	return func(s *bootstrapSpec) { s.reconciles = append(s.reconciles, reconcileDecl{name: name, fn: fn}) }
+	return func(s *bootstrapSpec) { s.Reconciles = append(s.Reconciles, ReconcileDecl{Name: name, Fn: fn}) }
 }
 
 // WithOnKeyChange 订阅单个配置 key 的变更（与 New 的 OnKeyChange 语义一致，
 // key 级增量协调）。
 func WithOnKeyChange(key string, fn func(old, new string)) BootstrapOption {
-	return func(s *bootstrapSpec) { s.keyWatches = append(s.keyWatches, keyWatchDecl{key: key, fn: fn}) }
+	return func(s *bootstrapSpec) { s.KeyWatches = append(s.KeyWatches, KeyWatchDecl{Key: key, Fn: fn}) }
 }
 
 // WithProvides 声明本进程提供的能力（S1 启动期 fail-fast，与 New 的 Provides
 // 语义一致）。
 func WithProvides(caps ...string) BootstrapOption {
-	return func(s *bootstrapSpec) { s.provides = append(s.provides, caps...) }
+	return func(s *bootstrapSpec) { s.Provides = append(s.Provides, caps...) }
 }
 
 // WithRequires 声明组件依赖的能力（与 New 的 Requires 语义一致）。
 func WithRequires(component string, caps ...string) BootstrapOption {
-	return func(s *bootstrapSpec) { s.requires = append(s.requires, requireDecl{component: component, caps: caps}) }
+	return func(s *bootstrapSpec) { s.Requires = append(s.Requires, RequireDecl{Component: component, Caps: caps}) }
 }
 
 // WithComponents 声明进程内组件（生命周期：Start 于服务器监听前、
 // Dispose 于停机末段逆序，与 New 的 Components 语义一致）。
 func WithComponents(comps ...Component) BootstrapOption {
-	return func(s *bootstrapSpec) { s.components = append(s.components, comps...) }
+	return func(s *bootstrapSpec) { s.Components = append(s.Components, comps...) }
 }
 
 // WithBind 注册业务配置对象的 flag，语义与 New 路径的 Bind 完全一致
@@ -449,7 +360,7 @@ func WithComponents(comps ...Component) BootstrapOption {
 // 本 Option 把该通道补上，使优先级链对业务配置项同样成立。
 func WithBind(prefix string, opt any) BootstrapOption {
 	return func(s *bootstrapSpec) {
-		s.bindings = append(s.bindings, flagBinding{prefix: prefix, opt: opt})
+		s.Binds = append(s.Binds, BindDecl{Prefix: prefix, Opt: opt})
 	}
 }
 
@@ -470,38 +381,39 @@ func FromBootstrap(cfg *bootstrapv1.BootstrapConfig, opts ...BootstrapOption) (*
 	// 日志后端工厂两级分发：契约驱动注册表（WithLogRegistry：阶段 A 无
 	// 契约回退默认 bslog，阶段 B 按 logger.backends 逐项查表构造）；
 	// 不声明时默认纯函数路径（仅 slog 项 + 教学报错，依赖增量为零）。
-	spec.logFac = resolveLoggerFactory(spec)
+	// 解析结果不落入 Decl（非用户声明），经参数传递给装载链与热更。
+	logFac := resolveLoggerFactory(spec)
 
 	httpCfg := cfg.GetServer().GetHttp()
 	grpcCfg := cfg.GetServer().GetGrpc()
-	if spec.httpHandler != nil && httpCfg == nil {
+	if spec.HTTPHandler != nil && httpCfg == nil {
 		return nil, errors.New("appkit: WithHTTP declared but bootstrap.server.http is nil")
 	}
-	if spec.gatewayRegister != nil && httpCfg == nil {
+	if spec.GatewayRegister != nil && httpCfg == nil {
 		return nil, errors.New("appkit: WithGatewayRegister declared but bootstrap.server.http is nil")
 	}
-	if spec.grpcRegister != nil && grpcCfg == nil {
+	if spec.GRPCRegister != nil && grpcCfg == nil {
 		return nil, errors.New("appkit: WithGRPC declared but bootstrap.server.grpc is nil")
 	}
-	if spec.health != nil && spec.probeLivePath == spec.probeReadyPath {
+	if spec.Health != nil && spec.ProbeLivePath == spec.ProbeReadyPath {
 		// 探针要挂在同一个 mux 上，同路径注册会 panic——启动期 fail-fast 暴露。
-		return nil, fmt.Errorf("appkit: WithHealth probe paths must differ, got %q twice", spec.probeLivePath)
+		return nil, fmt.Errorf("appkit: WithHealth probe paths must differ, got %q twice", spec.ProbeLivePath)
 	}
-	if spec.gatewayRegister != nil {
+	if spec.GatewayRegister != nil {
 		// 网关面由 server.http.driver 选择：非 grpc-gateway 的显式值 = 转码能力
 		// 无消费面；与 WithHTTP 同时声明且留空 = 两个能力静默竞争同一端口。
 		// 都属启动期错误，fail-fast 暴露（显式 > 隐式）。
 		switch d := httpCfg.GetDriver(); {
 		case d != "" && d != baldbootstrap.DriverGrpcGateway:
 			return nil, fmt.Errorf("appkit: WithGatewayRegister declared but server.http.driver = %q, want %q or empty", d, baldbootstrap.DriverGrpcGateway)
-		case spec.httpHandler != nil && d == "":
+		case spec.HTTPHandler != nil && d == "":
 			return nil, fmt.Errorf("appkit: WithHTTP and WithGatewayRegister are both declared; set server.http.driver = %q to serve the transcoding face", baldbootstrap.DriverGrpcGateway)
 		}
 	}
 
 	// 阶段 A：默认 Logger，保证契约装载前的启动日志可见。失败路径回滚。
 	oldLogger := log.GetLogger()
-	bootLogger, bootCleanup, err := spec.logFac(context.Background(), nil)
+	bootLogger, bootCleanup, err := logFac(context.Background(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("appkit: bootstrap logger: %w", err)
 	}
@@ -515,8 +427,8 @@ func FromBootstrap(cfg *bootstrapv1.BootstrapConfig, opts ...BootstrapOption) (*
 	// 契约 Config 段 → 配置层（注册序=层优先级）。失败回滚阶段 A。
 	var layers []baldconfig.Layer
 	var layersCleanup func()
-	if spec.cfgRegistry != nil {
-		layers, layersCleanup, err = spec.cfgRegistry.Build(context.Background(), cfg)
+	if spec.ConfigRegistry != nil {
+		layers, layersCleanup, err = spec.ConfigRegistry.Build(context.Background(), cfg)
 		if err != nil {
 			log.SetLogger(oldLogger)
 			bootCleanup()
@@ -542,26 +454,26 @@ func FromBootstrap(cfg *bootstrapv1.BootstrapConfig, opts ...BootstrapOption) (*
 	// 能力声明与契约段一致性校验仍在构造期（上方 fail-fast 块）——配置错误
 	// 仍在启动最早暴露，不因时序调整而丢失。
 	var buildServers func(ctx context.Context) ([]transport.Server, func(), error)
-	if spec.httpHandler != nil || spec.gatewayRegister != nil || spec.grpcRegister != nil || spec.serverRegistry != nil {
+	if spec.HTTPHandler != nil || spec.GatewayRegister != nil || spec.GRPCRegister != nil || spec.ServerRegistry != nil {
 		// 复用用户注入的注册表（WithServerRegistry）——其中可能已有 asynq/cron
 		// 等后端子模块注册的 provider；未注入时自建空表。http/grpc 用 Has 判
 		// 存在性后补注册，不覆盖用户已注册的同名 provider。
-		sr := spec.serverRegistry
+		sr := spec.ServerRegistry
 		if sr == nil {
 			sr = baldbootstrap.NewServerRegistry()
 		}
-		if spec.httpHandler != nil || spec.gatewayRegister != nil {
+		if spec.HTTPHandler != nil || spec.GatewayRegister != nil {
 			// 健康检查默认装配在此落地：探针包在业务 handler 外层（协议实现
 			// 不注册任何框架路由），见《Bald 健康检查装配设计》。
-			handler := spec.httpHandler
-			if spec.health != nil && handler != nil {
-				handler = withProbes(handler, spec.health, spec.probeLivePath, spec.probeReadyPath)
+			handler := spec.HTTPHandler
+			if spec.Health != nil && handler != nil {
+				handler = withProbes(handler, spec.Health, spec.ProbeLivePath, spec.ProbeReadyPath)
 			}
 			httpOpts := []baldbootstrap.HTTPServerOption{baldbootstrap.WithHTTPHandler(handler)}
-			if spec.gatewayRegister != nil {
-				gatewayRegister := spec.gatewayRegister
-				if spec.health != nil {
-					gatewayRegister = withGatewayProbes(gatewayRegister, spec.health, spec.probeLivePath, spec.probeReadyPath)
+			if spec.GatewayRegister != nil {
+				gatewayRegister := spec.GatewayRegister
+				if spec.Health != nil {
+					gatewayRegister = withGatewayProbes(gatewayRegister, spec.Health, spec.ProbeLivePath, spec.ProbeReadyPath)
 				}
 				httpOpts = append(httpOpts, baldbootstrap.WithGatewayRegister(gatewayRegister))
 			}
@@ -569,19 +481,19 @@ func FromBootstrap(cfg *bootstrapv1.BootstrapConfig, opts ...BootstrapOption) (*
 				sr.MustRegister("http", baldbootstrap.HttpServerProvider(httpOpts...))
 			}
 		}
-		if spec.grpcRegister != nil {
+		if spec.GRPCRegister != nil {
 			grpcOpts := []baldbootstrap.GRPCServerOption{
-				baldbootstrap.WithGRPCUnary(spec.grpcUnary...),
-				baldbootstrap.WithGRPCRegister(spec.grpcRegister),
+				baldbootstrap.WithGRPCUnary(spec.GRPCUnary...),
+				baldbootstrap.WithGRPCRegister(spec.GRPCRegister),
 			}
 			// WithGRPCOptions：把「运行期求值」的选项工厂透传给 provider——它在
 			// Run 期 server 构造时调用（见 bootstrap.GrpcServerProvider），彼时
 			// 业务 beforeStart 已建好认证器/授权器。
-			if spec.grpcOptionsFn != nil {
-				grpcOpts = append(grpcOpts, baldbootstrap.WithGRPCUnaryFunc(spec.grpcOptionsFn))
+			if spec.GRPCOptionsFn != nil {
+				grpcOpts = append(grpcOpts, baldbootstrap.WithGRPCUnaryFunc(spec.GRPCOptionsFn))
 			}
-			if spec.health != nil {
-				grpcOpts = append(grpcOpts, baldbootstrap.WithGRPCHealth(spec.health, spec.healthInterval))
+			if spec.Health != nil {
+				grpcOpts = append(grpcOpts, baldbootstrap.WithGRPCHealth(spec.Health, spec.HealthInterval))
 			}
 			if !sr.Has("grpc") {
 				sr.MustRegister("grpc", baldbootstrap.GrpcServerProvider(grpcOpts...))
@@ -591,7 +503,7 @@ func FromBootstrap(cfg *bootstrapv1.BootstrapConfig, opts ...BootstrapOption) (*
 			return sr.BuildServers(ctx, cfg.GetServer())
 		}
 	}
-	servers = append(servers, spec.extraServers...)
+	servers = append(servers, spec.Servers...)
 
 	// curCleanup 跟踪当前生效 Logger 的后端释放钩子：阶段 B 与热更新重建时
 	// 原子替换（替换前旧钩子被同步兑现——带缓冲后端的尾批不因热切换丢失，
@@ -637,7 +549,7 @@ func FromBootstrap(cfg *bootstrapv1.BootstrapConfig, opts ...BootstrapOption) (*
 	// 契约 app.name 由配置装载填充，若以它派生 env 前缀则是自指——配置里的
 	// app.name 会改变「能读到哪些环境变量」，症状为 <原前缀>_* env 覆盖静默
 	// 失效（回落文件值，无报错）。不回退、不大声失败会留下静默 footgun。
-	if spec.cfgNamespace == "" {
+	if spec.ConfigNamespace == "" {
 		return nil, errors.New("appkit: config namespace not declared: " +
 			"app.name is loaded from configuration and would be read before namespace " +
 			"resolution (self-referential env prefix); " +
@@ -647,7 +559,7 @@ func FromBootstrap(cfg *bootstrapv1.BootstrapConfig, opts ...BootstrapOption) (*
 	kitOpts := []Option{
 		ID(cfg.GetApp().GetId()),
 		Name(orDefault(cfg.GetApp().GetName(), "bald-app")),
-		ConfigNamespace(spec.cfgNamespace),
+		ConfigNamespace(spec.ConfigNamespace),
 		Version(orDefault(cfg.GetApp().GetVersion(), "v0.0.0")),
 		Env(cfg.GetApp().GetEnv()),
 		StopTimeout(orDuration(cfg.GetApp().GetStopTimeout().AsDuration(), 30*time.Second)),
@@ -657,7 +569,7 @@ func FromBootstrap(cfg *bootstrapv1.BootstrapConfig, opts ...BootstrapOption) (*
 		ConfigLayers(layers...),
 		Servers(servers...),
 		BeforeStart(func(ctx context.Context) error {
-			if err := syncBootstrap(a, cfg, spec, &curCleanup, &regCleanup); err != nil {
+			if err := syncBootstrap(a, cfg, spec, logFac, &curCleanup, &regCleanup); err != nil {
 				return err
 			}
 			// 可观测性（tracer/metrics 段）在注册中心之后、数据/缓存客户端
@@ -716,7 +628,7 @@ func FromBootstrap(cfg *bootstrapv1.BootstrapConfig, opts ...BootstrapOption) (*
 			return nil
 		}),
 		OnConfigChange(func(m map[string]any) {
-			hotReload(cfg, spec, &curCleanup, m)
+			hotReload(cfg, spec, logFac, &curCleanup, m)
 		}),
 		// 审计 Effect 注册在 tracer-shutdown 之前：逆序回放时最后执行——
 		// 先 cleanup（stream flush 尾批审计事件，在指标/span 之后收集面最全），
@@ -812,19 +724,19 @@ func FromBootstrap(cfg *bootstrapv1.BootstrapConfig, opts ...BootstrapOption) (*
 	if grpcCfg != nil {
 		kitOpts = append(kitOpts, Bind("server.grpc", grpcCfg))
 	}
-	if spec.registrar != nil {
-		kitOpts = append(kitOpts, Registrar(spec.registrar))
+	if spec.Registrar != nil {
+		kitOpts = append(kitOpts, Registrar(spec.Registrar))
 	}
-	if spec.remote != nil {
-		kitOpts = append(kitOpts, RemoteConfig(spec.remote))
+	if spec.RemoteConfig != nil {
+		kitOpts = append(kitOpts, RemoteConfig(spec.RemoteConfig))
 	}
-	for _, fn := range spec.afterStart {
+	for _, fn := range spec.AfterStart {
 		kitOpts = append(kitOpts, AfterStart(fn))
 	}
-	if spec.configFile != "" {
-		kitOpts = append(kitOpts, ConfigFile(spec.configFile))
+	if spec.ConfigFile != "" {
+		kitOpts = append(kitOpts, ConfigFile(spec.ConfigFile))
 	}
-	if spec.watchFiles {
+	if spec.WatchConfigFile {
 		kitOpts = append(kitOpts, WatchConfigFile(true))
 	}
 	if layersCleanup != nil {
@@ -840,7 +752,7 @@ func FromBootstrap(cfg *bootstrapv1.BootstrapConfig, opts ...BootstrapOption) (*
 	// 业务透传：钩子/协调器/能力声明/订阅/效果——追加在框架装配之后
 	//（beforeStart 在内部装载链后执行，可读契约终值；Effect 逆序回放先于
 	// 框架 Effect——业务资源先收）。
-	for _, fn := range spec.beforeStart {
+	for _, fn := range spec.BeforeStart {
 		kitOpts = append(kitOpts, BeforeStart(fn))
 	}
 	// W1 运行期服务器构造：**追加在业务 beforeStart 之后**——注册序即执行序，
@@ -867,8 +779,8 @@ func FromBootstrap(cfg *bootstrapv1.BootstrapConfig, opts ...BootstrapOption) (*
 	// 运行期额外服务器（WithExtraServerFunc）：同样追加在业务 beforeStart 之后
 	//（注册序=执行序），故工厂可读业务建立的运行期资源。**独立于 buildServers
 	// 是否存在**——只声明额外服务器（无 http/grpc 主面）时本钩子仍生效。
-	if len(spec.extraServerFns) > 0 {
-		fns := spec.extraServerFns
+	if len(spec.ServersFunc) > 0 {
+		fns := spec.ServersFunc
 		kitOpts = append(kitOpts, BeforeStart(func(ctx context.Context) error {
 			for _, fn := range fns {
 				srv, err := fn(ctx)
@@ -882,35 +794,35 @@ func FromBootstrap(cfg *bootstrapv1.BootstrapConfig, opts ...BootstrapOption) (*
 			return nil
 		}))
 	}
-	for _, fn := range spec.beforeStop {
+	for _, fn := range spec.BeforeStop {
 		kitOpts = append(kitOpts, BeforeStop(fn))
 	}
-	for _, e := range spec.effects {
-		kitOpts = append(kitOpts, Effect(e.name, e.undo))
+	for _, e := range spec.Effects {
+		kitOpts = append(kitOpts, Effect(e.Name, e.Undo))
 	}
-	for _, r := range spec.reconciles {
-		kitOpts = append(kitOpts, Reconcile(r.name, r.fn))
+	for _, r := range spec.Reconciles {
+		kitOpts = append(kitOpts, Reconcile(r.Name, r.Fn))
 	}
-	for _, k := range spec.keyWatches {
-		kitOpts = append(kitOpts, OnKeyChange(k.key, k.fn))
+	for _, k := range spec.KeyWatches {
+		kitOpts = append(kitOpts, OnKeyChange(k.Key, k.Fn))
 	}
-	if len(spec.provides) > 0 {
-		kitOpts = append(kitOpts, Provides(spec.provides...))
+	if len(spec.Provides) > 0 {
+		kitOpts = append(kitOpts, Provides(spec.Provides...))
 	}
-	for _, r := range spec.requires {
-		kitOpts = append(kitOpts, Requires(r.component, r.caps...))
+	for _, r := range spec.Requires {
+		kitOpts = append(kitOpts, Requires(r.Component, r.Caps...))
 	}
-	if len(spec.components) > 0 {
-		kitOpts = append(kitOpts, Components(spec.components...))
+	if len(spec.Components) > 0 {
+		kitOpts = append(kitOpts, Components(spec.Components...))
 	}
 	// 业务配置 flag 绑定：与框架自身的 server.http/server.grpc 绑定同层，
 	// 使业务 flag 进入装载 FlagSet 的 flag 层（最高优先级）。
-	for _, b := range spec.bindings {
-		kitOpts = append(kitOpts, Bind(b.prefix, b.opt))
+	for _, b := range spec.Binds {
+		kitOpts = append(kitOpts, Bind(b.Prefix, b.Opt))
 	}
 	// 严格契约校验（opt-in，见 WithStrictContract）：业务段白名单原样透传。
-	if spec.strictContract {
-		kitOpts = append(kitOpts, StrictContract(spec.businessSections...))
+	if spec.StrictContract {
+		kitOpts = append(kitOpts, StrictContract(spec.BusinessSections...))
 	}
 
 	a = New(kitOpts...) // BeforeStart 闭包引用 a，执行时已赋值（Run 期才回调）
@@ -920,7 +832,7 @@ func FromBootstrap(cfg *bootstrapv1.BootstrapConfig, opts ...BootstrapOption) (*
 // syncBootstrap 装载配置快照进契约，重建 Logger，并按契约 registry 段
 // 构造注册中心（BeforeStart 阶段 B——必须在校验后执行，构造用的契约值
 // 已含文件/env 覆盖）。
-func syncBootstrap(a *AppKit, cfg *bootstrapv1.BootstrapConfig, spec *bootstrapSpec, curCleanup, regCleanup *atomic.Pointer[func()]) error {
+func syncBootstrap(a *AppKit, cfg *bootstrapv1.BootstrapConfig, spec *bootstrapSpec, logFac loggerFactory, curCleanup, regCleanup *atomic.Pointer[func()]) error {
 	m := a.Settings()
 	if m == nil {
 		return errors.New("appkit: settings snapshot is nil")
@@ -931,7 +843,7 @@ func syncBootstrap(a *AppKit, cfg *bootstrapv1.BootstrapConfig, spec *bootstrapS
 	if err := bconf.Validate(cfg); err != nil {
 		return fmt.Errorf("appkit: validate bootstrap config: %w", err)
 	}
-	if err := rebuildLogger(cfg.GetLogger(), spec, curCleanup); err != nil {
+	if err := rebuildLogger(cfg.GetLogger(), logFac, curCleanup); err != nil {
 		return err
 	}
 	return buildRegistrar(a, cfg, spec, regCleanup)
@@ -949,10 +861,10 @@ func buildRegistrar(a *AppKit, cfg *bootstrapv1.BootstrapConfig, spec *bootstrap
 	if rcfg == nil {
 		return nil // 未声明注册中心
 	}
-	if spec.regRegistry == nil {
+	if spec.RegistrarRegistry == nil {
 		return errors.New("appkit: bootstrap.registry present but no RegistrarRegistry wired (WithRegistrarRegistry missing)")
 	}
-	reg, cleanup, err := spec.regRegistry.Build(context.Background(), rcfg)
+	reg, cleanup, err := spec.RegistrarRegistry.Build(context.Background(), rcfg)
 	if err != nil {
 		return fmt.Errorf("appkit: build registrar: %w", err)
 	}
@@ -967,7 +879,7 @@ func buildRegistrar(a *AppKit, cfg *bootstrapv1.BootstrapConfig, spec *bootstrap
 // hotReload 热更新：副本试装载 + 校验，通过后整契约原子落盘并重建 Logger。
 // 任一步失败都降级记日志、保留旧契约，不阻断热更新流程（与审计旁路同哲学）。
 // Unmarshal 只做结构转换、不校验取值，坏值必须由 Validate 拦在落盘之前。
-func hotReload(cfg *bootstrapv1.BootstrapConfig, spec *bootstrapSpec, curCleanup *atomic.Pointer[func()], m map[string]any) {
+func hotReload(cfg *bootstrapv1.BootstrapConfig, spec *bootstrapSpec, logFac loggerFactory, curCleanup *atomic.Pointer[func()], m map[string]any) {
 	const msg = "appkit: config hot-reload"
 	lg := log.GetLogger()
 
@@ -991,7 +903,7 @@ func hotReload(cfg *bootstrapv1.BootstrapConfig, spec *bootstrapSpec, curCleanup
 	cfg.Reset()
 	proto.Merge(cfg, candidate)
 
-	if err := rebuildLogger(cfg.GetLogger(), spec, curCleanup); err != nil {
+	if err := rebuildLogger(cfg.GetLogger(), logFac, curCleanup); err != nil {
 		lg.Error(context.Background(), msg, "err", err)
 	}
 }
@@ -1001,8 +913,8 @@ func hotReload(cfg *bootstrapv1.BootstrapConfig, spec *bootstrapSpec, curCleanup
 // 换后端时旧 cleanup 被同步兑现（先切全局句柄、再冲刷旧后端）：带缓冲的
 // 后端（loki batchSize 未满的尾批）在热更新切换时不丢日志。旧 cleanup 若
 // 阻塞（远端不可达）由后端自身的 flush 超时上界保护。
-func rebuildLogger(l *bootstrapv1.Logger, spec *bootstrapSpec, curCleanup *atomic.Pointer[func()]) error {
-	lg, cleanup, err := spec.logFac(context.Background(), l)
+func rebuildLogger(l *bootstrapv1.Logger, logFac loggerFactory, curCleanup *atomic.Pointer[func()]) error {
+	lg, cleanup, err := logFac(context.Background(), l)
 	if err != nil {
 		return fmt.Errorf("appkit: build logger: %w", err)
 	}
@@ -1023,8 +935,8 @@ func rebuildLogger(l *bootstrapv1.Logger, spec *bootstrapSpec, curCleanup *atomi
 // 契约驱动 LogRegistry（WithLogRegistry）> 默认纯函数路径。
 // 两条路径均在阶段 A（cfg=nil，契约装载前）回退默认 bslog，阶段 B 分派。
 func resolveLoggerFactory(s *bootstrapSpec) loggerFactory {
-	if s.logRegistry != nil {
-		reg, deco := s.logRegistry, s.logDeco
+	if s.LogRegistry != nil {
+		reg, deco := s.LogRegistry, s.LogDecorators
 		return func(ctx context.Context, l *bootstrapv1.Logger) (log.Logger, func(), error) {
 			if l == nil {
 				// 阶段 A（契约装载前）：回退默认 bslog，保证启动日志可见。
@@ -1034,7 +946,7 @@ func resolveLoggerFactory(s *bootstrapSpec) loggerFactory {
 			return reg.BuildLogger(ctx, l)
 		}
 	}
-	return defaultLoggerFactory(s.logDeco)
+	return defaultLoggerFactory(s.LogDecorators)
 }
 
 // defaultLoggerFactory 返回默认路径日志工厂（零 Option 时生效）：

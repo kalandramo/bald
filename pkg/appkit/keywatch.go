@@ -42,7 +42,7 @@ type keyWatcher struct {
 // 上次观测值不同才触发 fn(old, new)——同值刷新不触发，未订阅的 key 变更
 // 不波及。可与 OnConfigChange 叠加使用。key 为点路径（"http.addr"）。
 func OnKeyChange(key string, fn func(old, new string)) Option {
-	return func(a *AppKit) { a.AddKeyWatch(key, fn) }
+	return optionFunc(func(d *Decl) { d.KeyWatches = append(d.KeyWatches, KeyWatchDecl{Key: key, Fn: fn}) })
 }
 
 // armKeyWatchers 在配置首次加载完成后为全部订阅建立基线快照。

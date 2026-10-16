@@ -23,10 +23,10 @@ type HealthOption func(*bootstrapSpec)
 func WithProbePaths(live, ready string) HealthOption {
 	return func(s *bootstrapSpec) {
 		if live != "" {
-			s.probeLivePath = live
+			s.ProbeLivePath = live
 		}
 		if ready != "" {
-			s.probeReadyPath = ready
+			s.ProbeReadyPath = ready
 		}
 	}
 }
@@ -35,7 +35,7 @@ func WithProbePaths(live, ready string) HealthOption {
 func WithHealthPollInterval(d time.Duration) HealthOption {
 	return func(s *bootstrapSpec) {
 		if d > 0 {
-			s.healthInterval = d
+			s.HealthInterval = d
 		}
 	}
 }
@@ -48,9 +48,9 @@ func WithHealthPollInterval(d time.Duration) HealthOption {
 // 挂进自己的 gin/mux 即可。见《Bald 健康检查装配设计》。
 func WithHealth(h *health.Health, opts ...HealthOption) BootstrapOption {
 	return func(s *bootstrapSpec) {
-		s.health = h
-		s.probeLivePath = DefaultHealthPath
-		s.probeReadyPath = DefaultReadyPath
+		s.Health = h
+		s.ProbeLivePath = DefaultHealthPath
+		s.ProbeReadyPath = DefaultReadyPath
 		for _, o := range opts {
 			o(s)
 		}

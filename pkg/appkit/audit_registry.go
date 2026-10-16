@@ -187,7 +187,7 @@ func buildAudit(a *AppKit, cfg *bootstrapv1.BootstrapConfig, spec *bootstrapSpec
 	// 未接线 Registry 时用空表装配：含非 log 项会因查不到 Provider
 	// fail-fast，错误直指缺失的后端（比「no AuditRegistry wired」更
 	// 可操作）；纯 log 列表零注册即得（决策④语义由 Build 内置兑现）。
-	r := spec.auditRegistry
+	r := spec.AuditRegistry
 	if r == nil {
 		r = NewAuditRegistry()
 	}

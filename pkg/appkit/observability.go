@@ -183,10 +183,10 @@ func buildObservability(cfg *bootstrapv1.BootstrapConfig, spec *bootstrapSpec) (
 	st := &observabilityState{}
 
 	if tcfg := cfg.GetTracer(); tcfg != nil {
-		if spec.tracerRegistry == nil {
+		if spec.TracerRegistry == nil {
 			return nil, errors.New("appkit: bootstrap.tracer present but no TracerRegistry wired (WithTracerRegistry missing)")
 		}
-		sd, err := spec.tracerRegistry.Build(context.Background(), tcfg)
+		sd, err := spec.TracerRegistry.Build(context.Background(), tcfg)
 		if err != nil {
 			return nil, fmt.Errorf("appkit: build tracer: %w", err)
 		}
@@ -194,10 +194,10 @@ func buildObservability(cfg *bootstrapv1.BootstrapConfig, spec *bootstrapSpec) (
 	}
 
 	if mcfg := cfg.GetMetrics(); mcfg != nil {
-		if spec.metricsRegistry == nil {
+		if spec.MetricsRegistry == nil {
 			return nil, errors.New("appkit: bootstrap.metrics present but no MetricsRegistry wired (WithMetricsRegistry missing)")
 		}
-		h, flush, err := spec.metricsRegistry.Build(context.Background(), mcfg)
+		h, flush, err := spec.MetricsRegistry.Build(context.Background(), mcfg)
 		if err != nil {
 			return nil, fmt.Errorf("appkit: build metrics: %w", err)
 		}

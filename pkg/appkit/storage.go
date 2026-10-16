@@ -32,7 +32,7 @@ import (
 // provider，见 bootstrap.StorageRegistry）。契约 storage 段任一后端段
 // 存在时，阶段 B 按段名查表构建客户端；storage 段不支持热更新。
 func WithStorageRegistry(r *baldbootstrap.StorageRegistry) BootstrapOption {
-	return func(s *bootstrapSpec) { s.storageRegistry = r }
+	return func(s *bootstrapSpec) { s.StorageRegistry = r }
 }
 
 // buildStorages 在阶段 B（契约装载校验后）按契约 storage 段构建全部已配置
@@ -44,10 +44,10 @@ func buildStorages(a *AppKit, cfg *bootstrapv1.BootstrapConfig, spec *bootstrapS
 	if scfg == nil {
 		return nil, nil // 未配置任何对象存储
 	}
-	if spec.storageRegistry == nil {
+	if spec.StorageRegistry == nil {
 		return nil, errors.New("appkit: bootstrap.storage present but no StorageRegistry wired (WithStorageRegistry missing)")
 	}
-	clients, cleanup, err := spec.storageRegistry.Build(context.Background(), scfg)
+	clients, cleanup, err := spec.StorageRegistry.Build(context.Background(), scfg)
 	if err != nil {
 		return nil, err
 	}

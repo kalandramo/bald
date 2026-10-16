@@ -32,7 +32,7 @@ import (
 // provider，见 bootstrap.DatabaseRegistry）。契约 database 段任一引擎段
 // 存在时，阶段 B 按段名查表构建客户端；database 段不支持热更新。
 func WithDatabaseRegistry(r *baldbootstrap.DatabaseRegistry) BootstrapOption {
-	return func(s *bootstrapSpec) { s.dbRegistry = r }
+	return func(s *bootstrapSpec) { s.DatabaseRegistry = r }
 }
 
 // buildDatabases 在阶段 B（契约装载校验后）按契约 database 段构建全部
@@ -45,10 +45,10 @@ func buildDatabases(a *AppKit, cfg *bootstrapv1.BootstrapConfig, spec *bootstrap
 	if dbcfg == nil {
 		return nil, nil // 未配置任何数据库
 	}
-	if spec.dbRegistry == nil {
+	if spec.DatabaseRegistry == nil {
 		return nil, errors.New("appkit: bootstrap.database present but no DatabaseRegistry wired (WithDatabaseRegistry missing)")
 	}
-	clients, cleanup, err := spec.dbRegistry.Build(context.Background(), dbcfg)
+	clients, cleanup, err := spec.DatabaseRegistry.Build(context.Background(), dbcfg)
 	if err != nil {
 		return nil, err
 	}

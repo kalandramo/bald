@@ -35,7 +35,7 @@ import (
 // 见 bootstrap.AiRegistry）。契约 ai 段任一后端段存在时，阶段 B 按段名
 // 查表构建客户端；ai 段不支持热更新。
 func WithAiRegistry(r *baldbootstrap.AiRegistry) BootstrapOption {
-	return func(s *bootstrapSpec) { s.aiRegistry = r }
+	return func(s *bootstrapSpec) { s.AiRegistry = r }
 }
 
 // buildAis 在阶段 B（契约装载校验后）按契约 ai 段构建全部已配置后端的
@@ -47,10 +47,10 @@ func buildAis(a *AppKit, cfg *bootstrapv1.BootstrapConfig, spec *bootstrapSpec) 
 	if acfg == nil {
 		return nil, nil // 未配置任何 AI 客户端
 	}
-	if spec.aiRegistry == nil {
+	if spec.AiRegistry == nil {
 		return nil, errors.New("appkit: bootstrap.ai present but no AiRegistry wired (WithAiRegistry missing)")
 	}
-	clients, cleanup, err := spec.aiRegistry.Build(context.Background(), acfg)
+	clients, cleanup, err := spec.AiRegistry.Build(context.Background(), acfg)
 	if err != nil {
 		return nil, err
 	}

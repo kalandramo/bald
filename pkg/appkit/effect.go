@@ -46,12 +46,12 @@ type effectEntry struct {
 //   - undo panic 被隔离，不拖垮其余撤销与整机停机；
 //   - 回放幂等：执行后账本清空，重复调用无副作用。
 func Effect(name string, undo func(ctx context.Context) error) Option {
-	return func(a *AppKit) { a.AddEffect(name, undo) }
+	return optionFunc(func(d *Decl) { d.Effects = append(d.Effects, EffectDecl{Name: name, Undo: undo}) })
 }
 
 // EffectTimeout 设置效应撤销阶段的独立超时（每条 undo 各享此超时）。
 func EffectTimeout(d time.Duration) Option {
-	return func(a *AppKit) { a.SetEffectTimeout(d) }
+	return optionFunc(func(decl *Decl) { decl.EffectTimeout = d })
 }
 
 // addEffect 运行期登记一条逆操作（幂等追加，并发安全）。

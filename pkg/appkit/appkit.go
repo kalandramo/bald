@@ -160,7 +160,7 @@ type appConfig struct {
 	env       string
 	watchFile bool
 	onChange  func(map[string]any)
-	bindings  []flagBinding
+	bindings  []BindDecl
 	store     *config.Store
 	// strictContract / businessSections 透传到 config.Options（见 WithStrictContract）。
 	strictContract   bool
@@ -174,12 +174,9 @@ func (c *appConfig) closeStore() {
 	}
 }
 
-// flagBinding 记录一个待绑定进配置装载 FlagSet 的配置对象及其配置键前缀。
-// 归 appkit 而非配置仓库：绑定时机与 AppKit 的 FlagSet 构造耦合，见 Bind 注释。
-type flagBinding struct {
-	prefix string
-	opt    any
-}
+// （原 flagBinding 已由导出的 BindDecl 承载——装配期声明统一进 Decl，
+// 见 decl.go；绑定时机与 AppKit 的 FlagSet 构造耦合的归位理由不变，
+// 见 Bind 注释。）
 
 // PlainBinder 支持"无前缀"注册 flag 的配置对象，键前缀由实现体内置。
 // 例如 log.Options 固定注册 --log.*。
@@ -222,36 +219,62 @@ type PlainBinder interface {
 // 归 appkit 而非配置仓库：Bind 注册的 flag 进入 **AppKit 的 FlagSet**，由
 // loadConfig 交给配置装载器合并——绑定动作与 AppKit 生命周期同序。
 func Bind(prefix string, opt any) Option {
-	return func(a *AppKit) {
-		a.cfg.bindings = append(a.cfg.bindings, flagBinding{prefix: prefix, opt: opt})
-	}
+	return optionFunc(func(a *Decl) { a.Binds = append(a.Binds, BindDecl{Prefix: prefix, Opt: opt}) })
 }
 
-// bindFlags 把一个 flagBinding 注册进给定 FlagSet（Bind 的落地步骤）。
-func bindFlags(fs *pflag.FlagSet, b flagBinding) error {
-	switch opt := b.opt.(type) {
+// bindFlags 把一个 BindDecl 注册进给定 FlagSet（Bind 的落地步骤）。
+func bindFlags(fs *pflag.FlagSet, b BindDecl) error {
+	switch opt := b.Opt.(type) {
 	case proto.Message:
-		bconf.BindFlags(fs, opt, b.prefix)
+		bconf.BindFlags(fs, opt, b.Prefix)
 	case PlainBinder:
-		if b.prefix != "" {
-			return fmt.Errorf("appkit: Bind(%q): opt registers its own flag prefix, prefix must be empty", b.prefix)
+		if b.Prefix != "" {
+			return fmt.Errorf("appkit: Bind(%q): opt registers its own flag prefix, prefix must be empty", b.Prefix)
 		}
 		opt.AddFlags(fs)
 	case nil:
-		return fmt.Errorf("appkit: Bind(%q): opt is nil", b.prefix)
+		return fmt.Errorf("appkit: Bind(%q): opt is nil", b.Prefix)
 	default:
-		return fmt.Errorf("appkit: Bind(%q): opt %T is neither a proto.Message (BindFlags) nor a PlainBinder (AddFlags)", b.prefix, b.opt)
+		return fmt.Errorf("appkit: Bind(%q): opt %T is neither a proto.Message (BindFlags) nor a PlainBinder (AddFlags)", b.Prefix, b.Opt)
 	}
 	return nil
 }
 
-// Option 配置 AppKit。
-type Option func(*AppKit)
+// Option 配置 AppKit 的装配期声明。
+//
+// 批 2 起为**接口**：type Option interface{ Apply(*Decl) }——方法与参数类型
+// 均导出，包外（pkg/appkit/mech、未来 contrib）可实现自己的 Option 值直写
+// Decl 导出字段（装配层评估 §5.2 / D1 §5.2）。包内构造器经 optionFunc
+// 适配；运行期状态不受影响——Apply 只写纯数据声明，AppKit 在构造期从
+// Decl 拷贝（newFromDecl）。
+//
+// 兼容性（本波不删任何导出名）：所有既有构造函数（ID/Name/Bind/…）签名
+// 不变、语义不变，仅返回值从 func 值变为实现该接口的值；[]Option 切片、
+// 变参传递照常编译。变化点是 Option 值不再可直接调用（opt(a) 形态）——
+// 全仓检索确认无此用法。
+type Option interface {
+	// Apply 把声明写入 Decl。实现须只写 Decl 字段（纯数据声明），不得
+	// 依赖调用顺序之外的上下文；同一 Option 的重复 Apply 幂等性由写入
+	// 语义决定（追加型多次 Apply 累加，与原 func 形态一致）。
+	Apply(*Decl)
+}
 
-func ID(id string) Option                   { return func(a *AppKit) { a.id = id } }
-func Name(name string) Option               { return func(a *AppKit) { a.name = name } }
-func Version(v string) Option               { return func(a *AppKit) { a.version = v } }
-func Registrar(r registry.Registrar) Option { return func(a *AppKit) { a.registrar = r } }
+// optionFunc 把 func(*Decl) 适配为 Option（包内构造器的统一载体；
+// mech 等包外实现者自持类型实现 Apply，不经此适配）。
+type optionFunc func(*Decl)
+
+func (f optionFunc) Apply(d *Decl) { f(d) }
+
+func ID(id string) Option { return optionFunc(func(d *Decl) { d.ID = id }) }
+func Name(name string) Option {
+	return optionFunc(func(d *Decl) { d.Name = name })
+}
+func Version(v string) Option {
+	return optionFunc(func(d *Decl) { d.Version = v })
+}
+func Registrar(r registry.Registrar) Option {
+	return optionFunc(func(d *Decl) { d.Registrar = r })
+}
 
 // ConfigNamespace 声明**配置命名空间**——env 前缀（BALD_DEMO_*）与多环境
 // 文件名（bald-demo-prod.yaml）的来源。
@@ -263,7 +286,9 @@ func Registrar(r registry.Registrar) Option { return func(a *AppKit) { a.registr
 // 缺省行为：New 路径下未声明时回退 Name 的值（其值来自调用方源码，属代码层
 // 稳定源，无自指）；FromBootstrap 路径**不回退**（其 Name 来自被装载的契约，
 // 会构成 env 前缀自指），必须用 WithConfigNamespace 显式声明。
-func ConfigNamespace(ns string) Option { return func(a *AppKit) { a.cfgNamespace = ns } }
+func ConfigNamespace(ns string) Option {
+	return optionFunc(func(d *Decl) { d.ConfigNamespace = ns })
+}
 
 // SetRegistrar 运行期设置注册中心，供 New 构造路径在配置装载后按契约构造
 // （FromBootstrap 路径由 buildRegistrar 内部赋值，无需此方法）。
@@ -273,7 +298,9 @@ func ConfigNamespace(ns string) Option { return func(a *AppKit) { a.cfgNamespace
 func (a *AppKit) SetRegistrar(r registry.Registrar) { a.registrar = r }
 
 // ConfigFile 指定 --config 配置文件路径（onexstack 风格）。
-func ConfigFile(f string) Option { return func(a *AppKit) { a.cfg.cfgFile = f } }
+func ConfigFile(f string) Option {
+	return optionFunc(func(d *Decl) { d.ConfigFile = f })
+}
 
 // RemoteConfig 接入远程配置中心（etcd/consul/nacos/apollo/firestore 等）。
 // 传入实现 config.RemoteSource 的后端，推荐用 config.FromKratosSource 桥接
@@ -285,7 +312,7 @@ func ConfigFile(f string) Option { return func(a *AppKit) { a.cfg.cfgFile = f } 
 // 语义：远程桥内部被适配为最低优先级的基准层；契约源层推荐用 ConfigLayers
 // （由 bootstrap Registry 装配，Registry 注册序即优先级）。
 func RemoteConfig(src config.RemoteSource) Option {
-	return func(a *AppKit) { a.cfg.remote = src }
+	return optionFunc(func(d *Decl) { d.RemoteConfig = src })
 }
 
 // ConfigLayers 接入命名配置源层（契约 Config 段 → bconfig 源，bootstrap
@@ -298,15 +325,19 @@ func RemoteConfig(src config.RemoteSource) Option {
 //
 // 任一层 reader 实现 bconfig.ValueWatcher 即参与热更新（变更 → 全量重合并）。
 func ConfigLayers(ls ...config.Layer) Option {
-	return func(a *AppKit) { a.cfg.layers = append(a.cfg.layers, ls...) }
+	return optionFunc(func(d *Decl) { d.ConfigLayers = append(d.ConfigLayers, ls...) })
 }
 
 // Env 设置运行环境（dev/test/prod...）。非空时本地按 Name-Env.yaml 选择默认文件，
 // 远程 path 由后端构造时拼接（多环境路线 1，详见 docs/config-center-design.md）。
-func Env(env string) Option { return func(a *AppKit) { a.cfg.env = env } }
+func Env(env string) Option {
+	return optionFunc(func(d *Decl) { d.Env = env })
+}
 
 // WatchConfigFile 启用本地配置文件热更新（fsnotify）。
-func WatchConfigFile(watch bool) Option { return func(a *AppKit) { a.cfg.watchFile = watch } }
+func WatchConfigFile(watch bool) Option {
+	return optionFunc(func(d *Decl) { d.WatchConfigFile = watch })
+}
 
 // StrictContract 启用契约段未知键校验（opt-in）。businessSections 是应用自持的
 // 顶层段名，命中者整棵子树放行；其余顶层段内出现契约未声明的键即 fail-fast。
@@ -314,42 +345,46 @@ func WatchConfigFile(watch bool) Option { return func(a *AppKit) { a.cfg.watchFi
 // New 路径（直接构造 AppKit）用本 Option 与 WithStrictContract 对应——
 // 后者是 FromBootstrap 路径的等价物（语义一致，仅入口不同）。
 func StrictContract(businessSections ...string) Option {
-	return func(a *AppKit) {
-		a.cfg.strictContract = true
-		a.cfg.businessSections = append(a.cfg.businessSections, businessSections...)
-	}
+	return optionFunc(func(d *Decl) {
+		d.StrictContract = true
+		d.BusinessSections = append(d.BusinessSections, businessSections...)
+	})
 }
 
 // OnConfigChange 注册配置热更新回调（本地文件或远程变更均触发）。
 // 形参为变更后重新合并的配置快照（map），业务在其中重新 Unmarshal 完成热重载。
 // 回调应轻量（改状态、切引用、记日志），不要阻塞——它串行阻塞后续变更分发。
 func OnConfigChange(fn func(map[string]any)) Option {
-	return func(a *AppKit) { a.cfg.onChange = fn }
+	return optionFunc(func(d *Decl) { d.OnConfigChange = fn })
 }
 
 func Servers(servers ...transport.Server) Option {
-	return func(a *AppKit) { a.servers = append(a.servers, servers...) }
+	return optionFunc(func(d *Decl) { d.Servers = append(d.Servers, servers...) })
 }
 
 // Auditor 注入运行期审计后端：appkit 自身发出的审计事件（组件挂载/卸载、
 // R1-2 协调收敛/错误）写入该实例，与业务经 bundle.Audit 注入的请求级审计
 // 同源，消除 split-brain sink。未注入时回退全局 audit.GetAuditor。
-func Auditor(a audit.Auditor) Option { return func(a2 *AppKit) { a2.auditor = a } }
+func Auditor(a audit.Auditor) Option {
+	return optionFunc(func(d *Decl) { d.Auditor = a })
+}
 
-func StopTimeout(d time.Duration) Option { return func(a *AppKit) { a.stopTimeout = d } }
+func StopTimeout(d time.Duration) Option {
+	return optionFunc(func(decl *Decl) { decl.StopTimeout = d })
+}
 
 // BeforeStart / AfterStart / BeforeStop / AfterStop 注册生命周期钩子。
 func BeforeStart(fn func(context.Context) error) Option {
-	return func(a *AppKit) { a.beforeStart = append(a.beforeStart, fn) }
+	return optionFunc(func(d *Decl) { d.BeforeStart = append(d.BeforeStart, fn) })
 }
 func AfterStart(fn func(context.Context) error) Option {
-	return func(a *AppKit) { a.afterStart = append(a.afterStart, fn) }
+	return optionFunc(func(d *Decl) { d.AfterStart = append(d.AfterStart, fn) })
 }
 func BeforeStop(fn func(context.Context) error) Option {
-	return func(a *AppKit) { a.beforeStop = append(a.beforeStop, fn) }
+	return optionFunc(func(d *Decl) { d.BeforeStop = append(d.BeforeStop, fn) })
 }
 func AfterStop(fn func(context.Context) error) Option {
-	return func(a *AppKit) { a.afterStop = append(a.afterStop, fn) }
+	return optionFunc(func(d *Decl) { d.AfterStop = append(d.AfterStop, fn) })
 }
 
 func hostname() string {
@@ -369,29 +404,21 @@ func defaultInstanceID() string {
 	return hostname() + "-" + uuid.NewString()[:8]
 }
 
-// New 构造 AppKit。
+// New 构造 AppKit：先以缺省值初始化 Decl，逐项 Apply 声明，再从 Decl
+// 构造（构造期拷贝，见 decl.go）。
 func New(opts ...Option) *AppKit {
-	a := &AppKit{
-		id:               defaultInstanceID(),
-		name:             "bald-app",
-		version:          "v0.0.0",
-		stopTimeout:      defaultStopTimeout,
-		effectTimeout:    defaultHookTimeout,
-		componentTimeout: defaultHookTimeout,
-		reconItems:       make(map[string][]reconItem),
-		done:             make(chan struct{}),
-	}
+	d := defaultDecl()
 	for _, o := range opts {
-		o(a)
+		o.Apply(&d)
 	}
 	// 配置命名空间回退：放在 opts 循环**之后**——保证 ConfigNamespace 无论与
 	// Name 的书写先后都优先（若放在循环内逐项判断，`Name` 先于 `ConfigNamespace`
 	// 时会被后续覆盖，反之则不会，产生顺序依赖）。
-	// 回退源是 a.name（New 路径下由调用方源码提供，代码层稳定值，无自指）。
-	if a.cfgNamespace == "" {
-		a.cfgNamespace = a.name
+	// 回退源是 d.Name（New 路径下由调用方源码提供，代码层稳定值，无自指）。
+	if d.ConfigNamespace == "" {
+		d.ConfigNamespace = d.Name
 	}
-	return a
+	return newFromDecl(d)
 }
 
 // loadConfig 在启动期加载配置：本地 --config 文件 + 环境变量 + 业务 flag + 可选远程配置中心。

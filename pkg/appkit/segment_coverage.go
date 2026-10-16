@@ -81,7 +81,7 @@ func consumedSegments(cfg *bootstrapv1.BootstrapConfig, spec *bootstrapSpec, ser
 	} {
 		m[s] = true
 	}
-	if spec.cfgRegistry != nil {
+	if spec.ConfigRegistry != nil {
 		m["config"] = true
 	}
 	if serverWired || proto.Equal(cfg.GetServer(), bconf.NewBootstrap().GetServer()) {

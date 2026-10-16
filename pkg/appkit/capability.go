@@ -32,14 +32,14 @@ type requirement struct {
 // 标识："db"、"cache-redis"、"mq"。只声明确定拥有的能力（可选依赖如缓存，
 // 降级运行时不声明）。同一能力重复声明视为装配笔误，Resolve 报错。
 func Provides(caps ...string) Option {
-	return func(a *AppKit) { a.AddProvides(caps...) }
+	return optionFunc(func(d *Decl) { d.Provides = append(d.Provides, caps...) })
 }
 
 // Requires 声明组件 component 依赖的能力。component 是依赖方标识（建议
 // "<domain>.<name>"，如 "audit.store"），仅用于缺失时的报错定位。
 // 同一组件可多次声明（合并）；同一 (component, cap) 重复声明幂等。
 func Requires(component string, caps ...string) Option {
-	return func(a *AppKit) { a.AddRequires(component, caps...) }
+	return optionFunc(func(d *Decl) { d.Requires = append(d.Requires, RequireDecl{Component: component, Caps: caps}) })
 }
 
 // Resolve 校验能力声明的一致性：

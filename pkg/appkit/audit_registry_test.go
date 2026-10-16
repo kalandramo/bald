@@ -226,9 +226,9 @@ func TestBuildAudit(t *testing.T) {
 	audit.SetAuditor(marker)
 
 	var events []string
-	spec := &bootstrapSpec{auditRegistry: NewAuditRegistry()}
-	spec.auditRegistry.MustRegister("store", backendProvider("store", &events, nil, nil))
-	spec.auditRegistry.MustRegister("stream", backendProvider("stream", &events, nil, nil))
+	spec := &bootstrapSpec{AuditRegistry: NewAuditRegistry()}
+	spec.AuditRegistry.MustRegister("store", backendProvider("store", &events, nil, nil))
+	spec.AuditRegistry.MustRegister("stream", backendProvider("stream", &events, nil, nil))
 	cfg.Audit = auditCfg("store", "stream")
 	st, err = buildAudit(nil, cfg, spec)
 	if err != nil || st == nil {

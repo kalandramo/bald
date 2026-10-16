@@ -4,13 +4,16 @@
 //
 // 分层契约：
 //   - mech 单向 import appkit；appkit 不 import mech。
-//   - 机制构造器经 AppKit 的导出注册方法（AddEffect/AddProvides/...，见
-//     pkg/appkit/register.go）写入状态，返回 appkit.Option（本批仍是
-//     func(*appkit.AppKit)，接口化为批 2 的破坏性变更）。
+//   - appkit.Option 自批 2 起为接口 interface{ Apply(*appkit.Decl) }（导出
+//     方法 + 导出参数类型，包外可实现）：本包每个构造器返回**自持 option
+//     类型**，Apply 直写 Decl 的导出字段——与 appkit 包内构造器（optionFunc
+//     适配）、BootstrapOption（bootstrapSpec = Decl 别名）共用同一份声明
+//     载体，不再经 AppKit 的注册方法中转（register.go 已随 Decl 导出移除）。
 //   - 引擎消费的类型（Component、ReconcileCtx、ReconcileFunc 等）仍归
-//     appkit，本包经 appkit.X 引用。
-//   - appkit 包内保留同名构造函数为一行薄转发别名，旧调用点与现有测试
-//     无需迁移；本批不删除任何旧名。
+//     appkit，本包经 appkit.X 引用；运行期登记（addEffect 等持锁路径）
+//     不经 Decl，保持原样。
+//   - 机制引擎本身（UndoEffects/Resolve/startComponents/dispatchKeyWatch/
+//     runReconcilers）留在 appkit，行为与本包构造器无关。
 package mech
 
 import (
@@ -20,49 +23,110 @@ import (
 	"github.com/kalandramo/bald/pkg/appkit"
 )
 
+// effectOption 是 Effect 的自持 option 类型：Apply 直写 Decl.Effects
+// （追加语义，与原写入路径逐字段一致）。
+type effectOption struct {
+	name string
+	undo func(ctx context.Context) error
+}
+
+func (o effectOption) Apply(d *appkit.Decl) {
+	d.Effects = append(d.Effects, appkit.EffectDecl{Name: o.name, Undo: o.undo})
+}
+
+// effectTimeoutOption 是 EffectTimeout 的自持 option 类型（单槽覆盖）。
+type effectTimeoutOption time.Duration
+
+func (o effectTimeoutOption) Apply(d *appkit.Decl) { d.EffectTimeout = time.Duration(o) }
+
+// providesOption 是 Provides 的自持 option 类型（追加语义）。
+type providesOption []string
+
+func (o providesOption) Apply(d *appkit.Decl) { d.Provides = append(d.Provides, o...) }
+
+// requiresOption 是 Requires 的自持 option 类型（追加语义）。
+type requiresOption struct {
+	component string
+	caps      []string
+}
+
+func (o requiresOption) Apply(d *appkit.Decl) {
+	d.Requires = append(d.Requires, appkit.RequireDecl{Component: o.component, Caps: o.caps})
+}
+
+// componentsOption 是 Components 的自持 option 类型（追加语义）。
+type componentsOption []appkit.Component
+
+func (o componentsOption) Apply(d *appkit.Decl) { d.Components = append(d.Components, o...) }
+
+// componentTimeoutOption 是 ComponentTimeout 的自持 option 类型（单槽覆盖）。
+type componentTimeoutOption time.Duration
+
+func (o componentTimeoutOption) Apply(d *appkit.Decl) { d.ComponentTimeout = time.Duration(o) }
+
+// keyWatchOption 是 OnKeyChange 的自持 option 类型（追加语义）。
+type keyWatchOption struct {
+	key string
+	fn  func(old, new string)
+}
+
+func (o keyWatchOption) Apply(d *appkit.Decl) {
+	d.KeyWatches = append(d.KeyWatches, appkit.KeyWatchDecl{Key: o.key, Fn: o.fn})
+}
+
+// reconcileOption 是 Reconcile 的自持 option 类型（追加语义）。
+type reconcileOption struct {
+	name string
+	fn   appkit.ReconcileFunc
+}
+
+func (o reconcileOption) Apply(d *appkit.Decl) {
+	d.Reconciles = append(d.Reconciles, appkit.ReconcileDecl{Name: o.name, Fn: o.fn})
+}
+
 // Effect 登记一条可逆效应：undo 在停机（stopAll 阶段 0，先于 BeforeStop 钩子）
 // 或启动失败回滚时逆序执行。契约（每条 undo 独立超时、panic 隔离、回放幂等）
 // 与 appkit.Effect 完全一致，详见其文档。
 func Effect(name string, undo func(ctx context.Context) error) appkit.Option {
-	return func(a *appkit.AppKit) { a.AddEffect(name, undo) }
+	return effectOption{name: name, undo: undo}
 }
 
 // EffectTimeout 设置效应撤销阶段的独立超时（每条 undo 各享此超时）。
 func EffectTimeout(d time.Duration) appkit.Option {
-	return func(a *appkit.AppKit) { a.SetEffectTimeout(d) }
+	return effectTimeoutOption(d)
 }
 
 // Provides 声明本进程将提供的能力（可多次调用，追加）。只声明确定拥有的能力；
 // 同一能力重复声明视为装配笔误，Resolve 启动期报错。
 func Provides(caps ...string) appkit.Option {
-	return func(a *appkit.AppKit) { a.AddProvides(caps...) }
+	return providesOption(caps)
 }
 
 // Requires 声明组件 component 依赖的能力。缺失能力在 Resolve 启动期聚合报错
 // （fail-fast）；同一 (component, cap) 重复声明幂等。
 func Requires(component string, caps ...string) appkit.Option {
-	return func(a *appkit.AppKit) { a.AddRequires(component, caps...) }
+	return requiresOption{component: component, caps: caps}
 }
 
 // Components 注册进程内组件（可多次调用，追加）：顺序 Start（注册序=依赖
 // 建立序）、逆序 Dispose（停机对称）、panic 隔离、独立超时。
 func Components(comps ...appkit.Component) appkit.Option {
-	return func(a *appkit.AppKit) { a.AddComponents(comps...) }
+	return componentsOption(comps)
 }
 
 // ComponentTimeout 设置组件 Start/Dispose 的独立超时。
 func ComponentTimeout(d time.Duration) appkit.Option {
-	return func(a *appkit.AppKit) { a.SetComponentTimeout(d) }
+	return componentTimeoutOption(d)
 }
 
 // OnKeyChange 订阅单个配置 key 的变更：仅当该 key 新值与上次观测值不同才触发
 // fn(old, new)；可与 OnConfigChange 叠加使用。key 为点路径（"http.addr"）。
 func OnKeyChange(key string, fn func(old, new string)) appkit.Option {
-	return func(a *appkit.AppKit) { a.AddKeyWatch(key, fn) }
+	return keyWatchOption{key: key, fn: fn}
 }
 
 // Reconcile 注册一个期望态协调器（R1-2）：框架以配置为期望态、diff 实际态后
 // 收敛；单个协调器失败仅记日志，由下次协调补齐，不阻断整机。
 func Reconcile(name string, fn appkit.ReconcileFunc) appkit.Option {
-	return func(a *appkit.AppKit) { a.AddReconcile(name, fn) }
+	return reconcileOption{name: name, fn: fn}
 }

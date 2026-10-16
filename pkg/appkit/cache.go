@@ -31,7 +31,7 @@ import (
 // 见 bootstrap.CacheRegistry）。契约 cache 段任一后端段存在时，阶段 B
 // 按段名查表构建缓存实例；cache 段不支持热更新。
 func WithCacheRegistry(r *baldbootstrap.CacheRegistry) BootstrapOption {
-	return func(s *bootstrapSpec) { s.cacheRegistry = r }
+	return func(s *bootstrapSpec) { s.CacheRegistry = r }
 }
 
 // buildCaches 在阶段 B（契约装载校验后）按契约 cache 段构建全部已配置
@@ -43,10 +43,10 @@ func buildCaches(a *AppKit, cfg *bootstrapv1.BootstrapConfig, spec *bootstrapSpe
 	if ccfg == nil {
 		return nil, nil // 未配置任何缓存
 	}
-	if spec.cacheRegistry == nil {
+	if spec.CacheRegistry == nil {
 		return nil, errors.New("appkit: bootstrap.cache present but no CacheRegistry wired (WithCacheRegistry missing)")
 	}
-	clients, cleanup, err := spec.cacheRegistry.Build(context.Background(), ccfg)
+	clients, cleanup, err := spec.CacheRegistry.Build(context.Background(), ccfg)
 	if err != nil {
 		return nil, err
 	}

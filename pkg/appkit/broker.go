@@ -34,7 +34,7 @@ import (
 // 见 bootstrap.BrokerRegistry）。契约 broker 段任一后端段存在时，阶段 B
 // 按段名查表构建实例；broker 段不支持热更新。
 func WithBrokerRegistry(r *baldbootstrap.BrokerRegistry) BootstrapOption {
-	return func(s *bootstrapSpec) { s.brokerRegistry = r }
+	return func(s *bootstrapSpec) { s.BrokerRegistry = r }
 }
 
 // buildBrokers 在阶段 B（契约装载校验后）按契约 broker 段构建全部已配置
@@ -46,10 +46,10 @@ func buildBrokers(a *AppKit, cfg *bootstrapv1.BootstrapConfig, spec *bootstrapSp
 	if bcfg == nil {
 		return nil, nil // 未配置任何消息代理
 	}
-	if spec.brokerRegistry == nil {
+	if spec.BrokerRegistry == nil {
 		return nil, errors.New("appkit: bootstrap.broker present but no BrokerRegistry wired (WithBrokerRegistry missing)")
 	}
-	clients, cleanup, err := spec.brokerRegistry.Build(context.Background(), bcfg)
+	clients, cleanup, err := spec.BrokerRegistry.Build(context.Background(), bcfg)
 	if err != nil {
 		return nil, err
 	}

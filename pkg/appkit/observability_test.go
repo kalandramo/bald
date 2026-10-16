@@ -159,11 +159,11 @@ func TestBuildObservability(t *testing.T) {
 
 	// 双段命中：state 三句柄齐备（暴露端真起 http.Server）。
 	spec := &bootstrapSpec{
-		tracerRegistry:  NewTracerRegistry(),
-		metricsRegistry: NewMetricsRegistry(),
+		TracerRegistry:  NewTracerRegistry(),
+		MetricsRegistry: NewMetricsRegistry(),
 	}
-	spec.tracerRegistry.MustRegister("otlp", stubTracerProvider(new(bool), func(context.Context) error { return nil }))
-	spec.metricsRegistry.MustRegister("prometheus", stubMetricsProvider(new(bool)))
+	spec.TracerRegistry.MustRegister("otlp", stubTracerProvider(new(bool), func(context.Context) error { return nil }))
+	spec.MetricsRegistry.MustRegister("prometheus", stubMetricsProvider(new(bool)))
 	st, err = buildObservability(cfg, spec) // cfg 只带 tracer 段
 	if err != nil {
 		t.Fatalf("tracer hit: %v", err)
