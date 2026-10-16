@@ -2,9 +2,7 @@ package bootstrap
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"sync"
 
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
 )
@@ -22,41 +20,16 @@ type StorageProvider func(ctx context.Context, cfg *bootstrapv1.Storage) (any, f
 // 在 main() 里逐个 MustRegister）；段存在但未注册 fail-fast。
 // storage 是 optional 段集合（minio/s3 可并存），装配语义是
 // 「每段各自构建、全部返回」。
+// 薄壳（批 1 收敛，见 registry.go）：互斥锁 + provider 表 + Register/MustRegister
+// 由嵌入的 Registry[T] 载体承载（文案经 TypeTexts 与既有文案逐字一致）；
+// 本文件只保留 storage 特有的段表与 Build 装配序。
 type StorageRegistry struct {
-	mu        sync.Mutex
-	providers map[string]StorageProvider
+	*Registry[StorageProvider]
 }
 
 // NewStorageRegistry 创建空注册表。
 func NewStorageRegistry() *StorageRegistry {
-	return &StorageRegistry{providers: make(map[string]StorageProvider)}
-}
-
-// Register 注册一个后端 Provider；重名/空名/nil provider 均 fail-fast。
-func (r *StorageRegistry) Register(typ string, p StorageProvider) error {
-	if typ == "" {
-		return errors.New("bootstrap: storage type is empty")
-	}
-	if p == nil {
-		return fmt.Errorf("bootstrap: storage provider for %q is nil", typ)
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.providers == nil {
-		r.providers = make(map[string]StorageProvider)
-	}
-	if _, dup := r.providers[typ]; dup {
-		return fmt.Errorf("bootstrap: storage provider %q already registered", typ)
-	}
-	r.providers[typ] = p
-	return nil
-}
-
-// MustRegister 注册后端 Provider，失败 panic（装配期错误应当炸在启动时）。
-func (r *StorageRegistry) MustRegister(typ string, p StorageProvider) {
-	if err := r.Register(typ, p); err != nil {
-		panic(err)
-	}
+	return &StorageRegistry{Registry: NewRegistry[StorageProvider](TypeTexts("bootstrap", "storage"))}
 }
 
 // storageSection 契约段枚举：固定顺序即装配顺序（proto 字段序），
@@ -83,12 +56,7 @@ func (r *StorageRegistry) Build(ctx context.Context, cfg *bootstrapv1.Storage) (
 	if cfg == nil {
 		return nil, nil, nil // 未配置任何对象存储
 	}
-	r.mu.Lock()
-	provs := make(map[string]StorageProvider, len(r.providers))
-	for k, v := range r.providers {
-		provs[k] = v
-	}
-	r.mu.Unlock()
+	provs := r.Snapshot()
 
 	var (
 		clients  = make(map[string]any)

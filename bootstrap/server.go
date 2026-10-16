@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"google.golang.org/grpc"
@@ -35,38 +34,15 @@ type ServerProvider func(ctx context.Context, cfg *bootstrapv1.Server) (transpor
 
 // ServerRegistry 按名字注册协议服务器工厂（显式注册，无 init() 副作用）。
 // 名字约定小写（"grpc"/"http"），与契约 Server 段名对应。
+// 薄壳（批 1 收敛，见 registry.go）：provider 表与 Register/MustRegister 由
+// 嵌入的 Registry[T] 载体承载（文案经 NameTexts 与既有文案逐字一致）。
 type ServerRegistry struct {
-	mu        sync.RWMutex
-	providers map[string]ServerProvider
+	*Registry[ServerProvider]
 }
 
 // NewServerRegistry 创建一个空的 [ServerRegistry]。
 func NewServerRegistry() *ServerRegistry {
-	return &ServerRegistry{providers: make(map[string]ServerProvider)}
-}
-
-// Register 注册一个协议服务器工厂。重名报错、不覆盖（fail-fast）。
-func (r *ServerRegistry) Register(name string, p ServerProvider) error {
-	if name == "" {
-		return fmt.Errorf("bootstrap: server provider name is empty")
-	}
-	if p == nil {
-		return fmt.Errorf("bootstrap: server provider %q is nil", name)
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if _, ok := r.providers[name]; ok {
-		return fmt.Errorf("bootstrap: server provider %q already registered", name)
-	}
-	r.providers[name] = p
-	return nil
-}
-
-// MustRegister 是 [ServerRegistry.Register] 的 panic 版本，仅用于主程序 main() 内显式注册。
-func (r *ServerRegistry) MustRegister(name string, p ServerProvider) {
-	if err := r.Register(name, p); err != nil {
-		panic(err)
-	}
+	return &ServerRegistry{Registry: NewRegistry[ServerProvider](NameTexts("bootstrap", "server"))}
 }
 
 // Has 报告名字对应的协议服务器工厂是否已注册。
@@ -76,9 +52,7 @@ func (r *ServerRegistry) MustRegister(name string, p ServerProvider) {
 // 注册的同名 provider（[Register] 对重名 fail-fast）。先 Has 再 MustRegister
 // 即可共存。
 func (r *ServerRegistry) Has(name string) bool {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	_, ok := r.providers[name]
+	_, ok := r.Get(name)
 	return ok
 }
 
@@ -155,18 +129,13 @@ func (r *ServerRegistry) BuildServers(ctx context.Context, cfg *bootstrapv1.Serv
 		return nil, nil, fmt.Errorf("bootstrap: server config is nil")
 	}
 
-	r.mu.RLock()
-	names := make([]string, 0, len(r.providers))
-	registered := make(map[string]bool, len(r.providers))
-	for k := range r.providers {
+	providers := r.Snapshot()
+	names := make([]string, 0, len(providers))
+	registered := make(map[string]bool, len(providers))
+	for k := range providers {
 		names = append(names, k)
 		registered[k] = true
 	}
-	providers := make(map[string]ServerProvider, len(r.providers))
-	for k, v := range r.providers {
-		providers[k] = v
-	}
-	r.mu.RUnlock()
 	sort.Strings(names) // 确定性顺序（错误信息与遍历序稳定）
 
 	// 前置校验：契约里配了但「本仓无实现、且无注册 provider」的段必须 fail-fast。

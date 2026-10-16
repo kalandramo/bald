@@ -35,7 +35,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
 
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
 	registry "github.com/kalandramo/bald/registry"
@@ -52,41 +51,16 @@ type RegistrarProvider func(ctx context.Context, cfg *bootstrapv1.Registry) (reg
 //
 // 与 ConfigRegistry 的差异：不做多源级联（registry 无优先级语义），
 // 按契约 registry.type 单选分发。
+// 薄壳（批 1 收敛，见 registry.go）：互斥锁 + provider 表 + Register/MustRegister
+// 由嵌入的 Registry[T] 载体承载（文案经 TypeTexts 与既有文案逐字一致）；
+// 本文件只保留 registrar 特有的单选分发 Build。
 type RegistrarRegistry struct {
-	mu        sync.Mutex
-	providers map[string]RegistrarProvider
+	*Registry[RegistrarProvider]
 }
 
 // NewRegistrarRegistry 创建空注册表。
 func NewRegistrarRegistry() *RegistrarRegistry {
-	return &RegistrarRegistry{providers: make(map[string]RegistrarProvider)}
-}
-
-// Register 注册一个后端 Provider；重名/空名/nil provider 均 fail-fast。
-func (r *RegistrarRegistry) Register(typ string, p RegistrarProvider) error {
-	if typ == "" {
-		return errors.New("bootstrap: registrar type is empty")
-	}
-	if p == nil {
-		return fmt.Errorf("bootstrap: registrar provider for %q is nil", typ)
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.providers == nil {
-		r.providers = make(map[string]RegistrarProvider)
-	}
-	if _, dup := r.providers[typ]; dup {
-		return fmt.Errorf("bootstrap: registrar provider %q already registered", typ)
-	}
-	r.providers[typ] = p
-	return nil
-}
-
-// MustRegister 注册后端 Provider，失败 panic（装配期错误应当炸在启动时）。
-func (r *RegistrarRegistry) MustRegister(typ string, p RegistrarProvider) {
-	if err := r.Register(typ, p); err != nil {
-		panic(err)
-	}
+	return &RegistrarRegistry{Registry: NewRegistry[RegistrarProvider](TypeTexts("bootstrap", "registrar"))}
 }
 
 // Build 按契约 registry.type 单选分发到已注册的 Provider。
@@ -104,9 +78,7 @@ func (r *RegistrarRegistry) Build(ctx context.Context, cfg *bootstrapv1.Registry
 	if typ == "" {
 		return nil, nil, errors.New("bootstrap: registry.type is empty")
 	}
-	r.mu.Lock()
-	p, ok := r.providers[typ]
-	r.mu.Unlock()
+	p, ok := r.Get(typ)
 	if !ok {
 		return nil, nil, fmt.Errorf("bootstrap: registrar provider %q not registered (import the backend contract package and MustRegister it)", typ)
 	}

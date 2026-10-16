@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"sync"
 
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
 	"github.com/kalandramo/bald/log"
@@ -26,38 +25,15 @@ import (
 type LoggerProvider func(ctx context.Context, b *bootstrapv1.Logger_Backend) (log.Logger, func(), error)
 
 // LogRegistry 按名字注册日志后端工厂（显式注册，无 init() 副作用）。
+// 薄壳（批 1 收敛，见 registry.go）：provider 表与 Register/MustRegister 由
+// 嵌入的 Registry[T] 载体承载（文案经 NameTexts 与既有文案逐字一致）。
 type LogRegistry struct {
-	mu        sync.RWMutex
-	providers map[string]LoggerProvider
+	*Registry[LoggerProvider]
 }
 
 // NewLogRegistry 创建一个空的 [LogRegistry]。
 func NewLogRegistry() *LogRegistry {
-	return &LogRegistry{providers: make(map[string]LoggerProvider)}
-}
-
-// Register 注册一个日志后端工厂。重名报错、不覆盖（fail-fast）。
-func (r *LogRegistry) Register(name string, p LoggerProvider) error {
-	if name == "" {
-		return fmt.Errorf("bootstrap: log provider name is empty")
-	}
-	if p == nil {
-		return fmt.Errorf("bootstrap: log provider %q is nil", name)
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if _, ok := r.providers[name]; ok {
-		return fmt.Errorf("bootstrap: log provider %q already registered", name)
-	}
-	r.providers[name] = p
-	return nil
-}
-
-// MustRegister 是 [LogRegistry.Register] 的 panic 版本，仅用于主程序 main() 内显式注册。
-func (r *LogRegistry) MustRegister(name string, p LoggerProvider) {
-	if err := r.Register(name, p); err != nil {
-		panic(err)
-	}
+	return &LogRegistry{Registry: NewRegistry[LoggerProvider](NameTexts("bootstrap", "log"))}
 }
 
 // BuildLogger 按契约的 backends 清单逐项查表构造并广播合并。
@@ -123,9 +99,7 @@ func (r *LogRegistry) buildBackend(ctx context.Context, b *bootstrapv1.Logger_Ba
 		return nil, nil, fmt.Errorf("bootstrap: logger.backends type is empty")
 	}
 
-	r.mu.RLock()
-	p, ok := r.providers[name]
-	r.mu.RUnlock()
+	p, ok := r.Get(name)
 	if !ok {
 		return nil, nil, fmt.Errorf("bootstrap: log provider %q not registered (registered: %v)", name, r.names())
 	}
@@ -146,10 +120,9 @@ func (r *LogRegistry) buildBackend(ctx context.Context, b *bootstrapv1.Logger_Ba
 
 // names 返回已注册 provider 名的排序快照（错误信息用）。
 func (r *LogRegistry) names() []string {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	names := make([]string, 0, len(r.providers))
-	for k := range r.providers {
+	provs := r.Snapshot()
+	names := make([]string, 0, len(provs))
+	for k := range provs {
 		names = append(names, k)
 	}
 	sort.Strings(names)

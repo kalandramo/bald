@@ -2,9 +2,7 @@ package bootstrap
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"sync"
 
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
 )
@@ -26,41 +24,16 @@ type AiProvider func(ctx context.Context, cfg *bootstrapv1.Ai) (any, func(), err
 // 契约字段消费注记：ai.*.cloud.organization 仅 openai/langchaingo 消费
 // （SDK 支持）；eino-ext openai 无 organization 概念，eino 段配了该字段
 // 会 fail-fast 报错（见 ai/eino/contract.buildConfig），不静默忽略。
+// 薄壳（批 1 收敛，见 registry.go）：互斥锁 + provider 表 + Register/MustRegister
+// 由嵌入的 Registry[T] 载体承载（文案经 TypeTexts 与既有文案逐字一致）；
+// 本文件只保留 ai 特有的段表与 Build 装配序。
 type AiRegistry struct {
-	mu        sync.Mutex
-	providers map[string]AiProvider
+	*Registry[AiProvider]
 }
 
 // NewAiRegistry 创建空注册表。
 func NewAiRegistry() *AiRegistry {
-	return &AiRegistry{providers: make(map[string]AiProvider)}
-}
-
-// Register 注册一个后端 Provider；重名/空名/nil provider 均 fail-fast。
-func (r *AiRegistry) Register(typ string, p AiProvider) error {
-	if typ == "" {
-		return errors.New("bootstrap: ai type is empty")
-	}
-	if p == nil {
-		return fmt.Errorf("bootstrap: ai provider for %q is nil", typ)
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.providers == nil {
-		r.providers = make(map[string]AiProvider)
-	}
-	if _, dup := r.providers[typ]; dup {
-		return fmt.Errorf("bootstrap: ai provider %q already registered", typ)
-	}
-	r.providers[typ] = p
-	return nil
-}
-
-// MustRegister 注册后端 Provider，失败 panic（装配期错误应当炸在启动时）。
-func (r *AiRegistry) MustRegister(typ string, p AiProvider) {
-	if err := r.Register(typ, p); err != nil {
-		panic(err)
-	}
+	return &AiRegistry{Registry: NewRegistry[AiProvider](TypeTexts("bootstrap", "ai"))}
 }
 
 // aiSection 契约段枚举：固定顺序即装配顺序（proto 字段序），
@@ -88,12 +61,7 @@ func (r *AiRegistry) Build(ctx context.Context, cfg *bootstrapv1.Ai) (map[string
 	if cfg == nil {
 		return nil, nil, nil // 未配置任何 AI 客户端
 	}
-	r.mu.Lock()
-	provs := make(map[string]AiProvider, len(r.providers))
-	for k, v := range r.providers {
-		provs[k] = v
-	}
-	r.mu.Unlock()
+	provs := r.Snapshot()
 
 	var (
 		clients  = make(map[string]any)

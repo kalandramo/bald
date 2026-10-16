@@ -39,10 +39,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
 
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
 
+	"github.com/kalandramo/bald/bootstrap"
 	"github.com/kalandramo/bald/pkg/audit"
 )
 
@@ -78,41 +78,15 @@ type AuditProvider func(ctx context.Context, cfg *bootstrapv1.Audit, res *AppKit
 // AuditRegistry 是审计后端 Provider 的显式注册表（audit.backends 多选；
 // log 内置于 Build，无需注册）。
 // 实例非并发安全（main 装配期使用）；Build 线程安全。
+// 薄壳（批 1 收敛）：provider 表与 Register/MustRegister 由 bootstrap.Registry[T]
+// 载体承载（文案经 TypeTexts 与既有文案逐字一致）。
 type AuditRegistry struct {
-	mu        sync.Mutex
-	providers map[string]AuditProvider
+	*bootstrap.Registry[AuditProvider]
 }
 
 // NewAuditRegistry 创建空注册表。
 func NewAuditRegistry() *AuditRegistry {
-	return &AuditRegistry{providers: make(map[string]AuditProvider)}
-}
-
-// Register 注册一个审计后端 Provider；重名/空名/nil 均 fail-fast。
-func (r *AuditRegistry) Register(typ string, p AuditProvider) error {
-	if typ == "" {
-		return errors.New("appkit: audit type is empty")
-	}
-	if p == nil {
-		return fmt.Errorf("appkit: audit provider for %q is nil", typ)
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.providers == nil {
-		r.providers = make(map[string]AuditProvider)
-	}
-	if _, dup := r.providers[typ]; dup {
-		return fmt.Errorf("appkit: audit provider %q already registered", typ)
-	}
-	r.providers[typ] = p
-	return nil
-}
-
-// MustRegister 注册审计后端 Provider，失败 panic。
-func (r *AuditRegistry) MustRegister(typ string, p AuditProvider) {
-	if err := r.Register(typ, p); err != nil {
-		panic(err)
-	}
+	return &AuditRegistry{Registry: bootstrap.NewRegistry[AuditProvider](bootstrap.TypeTexts("appkit", "audit"))}
 }
 
 // Build 按契约 audit.backends 列表装配审计后端（v0.6.0 起多选）。
@@ -134,12 +108,7 @@ func (r *AuditRegistry) Build(ctx context.Context, cfg *bootstrapv1.Audit, res *
 	if len(backends) == 0 {
 		return nil, nil, errors.New(`appkit: audit.backends is required when audit section is present (expect "log", "store" or "stream")`)
 	}
-	r.mu.Lock()
-	provs := make(map[string]AuditProvider, len(r.providers))
-	for k, v := range r.providers {
-		provs[k] = v
-	}
-	r.mu.Unlock()
+	provs := r.Snapshot()
 
 	var (
 		auditors []audit.Auditor

@@ -2,9 +2,7 @@ package bootstrap
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"sync"
 
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
 )
@@ -22,41 +20,16 @@ type WorkflowProvider func(ctx context.Context, cfg *bootstrapv1.Workflow) (any,
 // 里逐个 MustRegister）；段存在但未注册 fail-fast。
 // workflow 是 optional 段集合（当前仅 argo，后续可扩 temporal/conductor 等），
 // 装配语义是「每段各自构建、全部返回」。
+// 薄壳（批 1 收敛，见 registry.go）：互斥锁 + provider 表 + Register/MustRegister
+// 由嵌入的 Registry[T] 载体承载（文案经 TypeTexts 与既有文案逐字一致）；
+// 本文件只保留 workflow 特有的段表与 Build 装配序。
 type WorkflowRegistry struct {
-	mu        sync.Mutex
-	providers map[string]WorkflowProvider
+	*Registry[WorkflowProvider]
 }
 
 // NewWorkflowRegistry 创建空注册表。
 func NewWorkflowRegistry() *WorkflowRegistry {
-	return &WorkflowRegistry{providers: make(map[string]WorkflowProvider)}
-}
-
-// Register 注册一个后端 Provider；重名/空名/nil provider 均 fail-fast。
-func (r *WorkflowRegistry) Register(typ string, p WorkflowProvider) error {
-	if typ == "" {
-		return errors.New("bootstrap: workflow type is empty")
-	}
-	if p == nil {
-		return fmt.Errorf("bootstrap: workflow provider for %q is nil", typ)
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.providers == nil {
-		r.providers = make(map[string]WorkflowProvider)
-	}
-	if _, dup := r.providers[typ]; dup {
-		return fmt.Errorf("bootstrap: workflow provider %q already registered", typ)
-	}
-	r.providers[typ] = p
-	return nil
-}
-
-// MustRegister 注册后端 Provider，失败 panic（装配期错误应当炸在启动时）。
-func (r *WorkflowRegistry) MustRegister(typ string, p WorkflowProvider) {
-	if err := r.Register(typ, p); err != nil {
-		panic(err)
-	}
+	return &WorkflowRegistry{Registry: NewRegistry[WorkflowProvider](TypeTexts("bootstrap", "workflow"))}
 }
 
 // workflowSection 契约段枚举：固定顺序即装配顺序（proto 字段序），
@@ -97,12 +70,7 @@ func (r *WorkflowRegistry) Build(ctx context.Context, cfg *bootstrapv1.Workflow)
 	if cfg == nil {
 		return nil, nil, nil // 未配置任何工作流客户端
 	}
-	r.mu.Lock()
-	provs := make(map[string]WorkflowProvider, len(r.providers))
-	for k, v := range r.providers {
-		provs[k] = v
-	}
-	r.mu.Unlock()
+	provs := r.Snapshot()
 
 	var (
 		clients  = make(map[string]any)

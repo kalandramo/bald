@@ -2,9 +2,7 @@ package bootstrap
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"sync"
 
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
 )
@@ -28,41 +26,16 @@ type CacheProvider func(ctx context.Context, cfg *bootstrapv1.Cache) (any, func(
 // 回填的旁路语义由 cache/loadable 在本层之上组合（读穿透 + singleflight
 // 合并并发 miss，WithDegradeOnError 可选降级）。原 contrib/cache-redis
 // 组件已删除（2026-09-18，能力被 cache/redis + cache/loadable 覆盖）。
+// 薄壳（批 1 收敛，见 registry.go）：互斥锁 + provider 表 + Register/MustRegister
+// 由嵌入的 Registry[T] 载体承载（文案经 TypeTexts 与既有文案逐字一致）；
+// 本文件只保留 cache 特有的段表与 Build 装配序。
 type CacheRegistry struct {
-	mu        sync.Mutex
-	providers map[string]CacheProvider
+	*Registry[CacheProvider]
 }
 
 // NewCacheRegistry 创建空注册表。
 func NewCacheRegistry() *CacheRegistry {
-	return &CacheRegistry{providers: make(map[string]CacheProvider)}
-}
-
-// Register 注册一个后端 Provider；重名/空名/nil provider 均 fail-fast。
-func (r *CacheRegistry) Register(typ string, p CacheProvider) error {
-	if typ == "" {
-		return errors.New("bootstrap: cache type is empty")
-	}
-	if p == nil {
-		return fmt.Errorf("bootstrap: cache provider for %q is nil", typ)
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.providers == nil {
-		r.providers = make(map[string]CacheProvider)
-	}
-	if _, dup := r.providers[typ]; dup {
-		return fmt.Errorf("bootstrap: cache provider %q already registered", typ)
-	}
-	r.providers[typ] = p
-	return nil
-}
-
-// MustRegister 注册后端 Provider，失败 panic（装配期错误应当炸在启动时）。
-func (r *CacheRegistry) MustRegister(typ string, p CacheProvider) {
-	if err := r.Register(typ, p); err != nil {
-		panic(err)
-	}
+	return &CacheRegistry{Registry: NewRegistry[CacheProvider](TypeTexts("bootstrap", "cache"))}
 }
 
 // cacheSection 契约段枚举：固定顺序即装配顺序（proto 字段序），
@@ -89,12 +62,7 @@ func (r *CacheRegistry) Build(ctx context.Context, cfg *bootstrapv1.Cache) (map[
 	if cfg == nil {
 		return nil, nil, nil // 未配置任何缓存
 	}
-	r.mu.Lock()
-	provs := make(map[string]CacheProvider, len(r.providers))
-	for k, v := range r.providers {
-		provs[k] = v
-	}
-	r.mu.Unlock()
+	provs := r.Snapshot()
 
 	var (
 		clients  = make(map[string]any)

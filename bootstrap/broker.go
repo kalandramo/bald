@@ -2,9 +2,7 @@ package bootstrap
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"sync"
 
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
 )
@@ -23,41 +21,16 @@ type BrokerProvider func(ctx context.Context, cfg *bootstrapv1.Broker) (any, fun
 // broker 是 optional 段集合（kafka/rabbitmq/redis/rocketmq 可并存），
 // 装配语义是「每段各自构建、全部返回」——事件总线与任务队列可分别落在
 // 不同 broker 上。
+// 薄壳（批 1 收敛，见 registry.go）：互斥锁 + provider 表 + Register/MustRegister
+// 由嵌入的 Registry[T] 载体承载（文案经 TypeTexts 与既有文案逐字一致）；
+// 本文件只保留 broker 特有的段表与 Build 装配序。
 type BrokerRegistry struct {
-	mu        sync.Mutex
-	providers map[string]BrokerProvider
+	*Registry[BrokerProvider]
 }
 
 // NewBrokerRegistry 创建空注册表。
 func NewBrokerRegistry() *BrokerRegistry {
-	return &BrokerRegistry{providers: make(map[string]BrokerProvider)}
-}
-
-// Register 注册一个后端 Provider；重名/空名/nil provider 均 fail-fast。
-func (r *BrokerRegistry) Register(typ string, p BrokerProvider) error {
-	if typ == "" {
-		return errors.New("bootstrap: broker type is empty")
-	}
-	if p == nil {
-		return fmt.Errorf("bootstrap: broker provider for %q is nil", typ)
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.providers == nil {
-		r.providers = make(map[string]BrokerProvider)
-	}
-	if _, dup := r.providers[typ]; dup {
-		return fmt.Errorf("bootstrap: broker provider %q already registered", typ)
-	}
-	r.providers[typ] = p
-	return nil
-}
-
-// MustRegister 注册后端 Provider，失败 panic（装配期错误应当炸在启动时）。
-func (r *BrokerRegistry) MustRegister(typ string, p BrokerProvider) {
-	if err := r.Register(typ, p); err != nil {
-		panic(err)
-	}
+	return &BrokerRegistry{Registry: NewRegistry[BrokerProvider](TypeTexts("bootstrap", "broker"))}
 }
 
 // brokerSection 契约段枚举：固定顺序即装配顺序（proto 字段序）。
@@ -101,12 +74,7 @@ func (r *BrokerRegistry) Build(ctx context.Context, cfg *bootstrapv1.Broker) (ma
 	if cfg == nil {
 		return nil, nil, nil // 未配置任何消息代理
 	}
-	r.mu.Lock()
-	provs := make(map[string]BrokerProvider, len(r.providers))
-	for k, v := range r.providers {
-		provs[k] = v
-	}
-	r.mu.Unlock()
+	provs := r.Snapshot()
 
 	var (
 		clients  = make(map[string]any)

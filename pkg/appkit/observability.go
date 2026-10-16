@@ -41,10 +41,10 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"sync"
 
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
 
+	"github.com/kalandramo/bald/bootstrap"
 	"github.com/kalandramo/bald/log"
 )
 
@@ -60,41 +60,15 @@ type TracerProvider func(ctx context.Context, cfg *bootstrapv1.Tracer) (func(con
 
 // TracerRegistry 是 trace 后端 Provider 的显式注册表（tracer.type 单选）。
 // 实例非并发安全（main 装配期使用）；Build 线程安全。
+// 薄壳（批 1 收敛）：provider 表与 Register/MustRegister 由 bootstrap.Registry[T]
+// 载体承载（文案经 TypeTexts 与既有文案逐字一致）。
 type TracerRegistry struct {
-	mu        sync.Mutex
-	providers map[string]TracerProvider
+	*bootstrap.Registry[TracerProvider]
 }
 
 // NewTracerRegistry 创建空注册表。
 func NewTracerRegistry() *TracerRegistry {
-	return &TracerRegistry{providers: make(map[string]TracerProvider)}
-}
-
-// Register 注册一个 trace 后端 Provider；重名/空名/nil 均 fail-fast。
-func (r *TracerRegistry) Register(typ string, p TracerProvider) error {
-	if typ == "" {
-		return errors.New("appkit: tracer type is empty")
-	}
-	if p == nil {
-		return fmt.Errorf("appkit: tracer provider for %q is nil", typ)
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.providers == nil {
-		r.providers = make(map[string]TracerProvider)
-	}
-	if _, dup := r.providers[typ]; dup {
-		return fmt.Errorf("appkit: tracer provider %q already registered", typ)
-	}
-	r.providers[typ] = p
-	return nil
-}
-
-// MustRegister 注册 trace 后端 Provider，失败 panic（装配期错误应当炸在启动时）。
-func (r *TracerRegistry) MustRegister(typ string, p TracerProvider) {
-	if err := r.Register(typ, p); err != nil {
-		panic(err)
-	}
+	return &TracerRegistry{Registry: bootstrap.NewRegistry[TracerProvider](bootstrap.TypeTexts("appkit", "tracer"))}
 }
 
 // Build 按契约 tracer.type 单选分发。段为 nil → no-op shutdown（缺省语义）；
@@ -107,9 +81,7 @@ func (r *TracerRegistry) Build(ctx context.Context, cfg *bootstrapv1.Tracer) (fu
 	if typ == "" {
 		return nil, errors.New(`appkit: tracer.type is required when tracer section is present (expect "otlp")`)
 	}
-	r.mu.Lock()
-	p, ok := r.providers[typ]
-	r.mu.Unlock()
+	p, ok := r.Get(typ)
 	if !ok {
 		return nil, fmt.Errorf("appkit: tracer provider %q not registered (import the backend contract package and MustRegister it)", typ)
 	}
@@ -129,41 +101,15 @@ type MetricsProvider func(ctx context.Context, cfg *bootstrapv1.Metrics) (http.H
 // MetricsRegistry 是指标后端 Provider 的显式注册表（metrics.type 单选：
 // "prometheus"=仅本地抓取，"otlp"=抓取+直推双通道——同一后端实现的两种
 // 声明形态，由业务分别注册）。
+// 薄壳（批 1 收敛）：provider 表与 Register/MustRegister 由 bootstrap.Registry[T]
+// 载体承载（文案经 TypeTexts 与既有文案逐字一致）。
 type MetricsRegistry struct {
-	mu        sync.Mutex
-	providers map[string]MetricsProvider
+	*bootstrap.Registry[MetricsProvider]
 }
 
 // NewMetricsRegistry 创建空注册表。
 func NewMetricsRegistry() *MetricsRegistry {
-	return &MetricsRegistry{providers: make(map[string]MetricsProvider)}
-}
-
-// Register 注册一个指标后端 Provider；重名/空名/nil 均 fail-fast。
-func (r *MetricsRegistry) Register(typ string, p MetricsProvider) error {
-	if typ == "" {
-		return errors.New("appkit: metrics type is empty")
-	}
-	if p == nil {
-		return fmt.Errorf("appkit: metrics provider for %q is nil", typ)
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.providers == nil {
-		r.providers = make(map[string]MetricsProvider)
-	}
-	if _, dup := r.providers[typ]; dup {
-		return fmt.Errorf("appkit: metrics provider %q already registered", typ)
-	}
-	r.providers[typ] = p
-	return nil
-}
-
-// MustRegister 注册指标后端 Provider，失败 panic。
-func (r *MetricsRegistry) MustRegister(typ string, p MetricsProvider) {
-	if err := r.Register(typ, p); err != nil {
-		panic(err)
-	}
+	return &MetricsRegistry{Registry: bootstrap.NewRegistry[MetricsProvider](bootstrap.TypeTexts("appkit", "metrics"))}
 }
 
 // Build 按契约 metrics.type 单选分发。段为 nil → 不装配（nil, nil, nil）；
@@ -176,9 +122,7 @@ func (r *MetricsRegistry) Build(ctx context.Context, cfg *bootstrapv1.Metrics) (
 	if typ == "" {
 		return nil, nil, errors.New(`appkit: metrics.type is required when metrics section is present (expect "prometheus" or "otlp")`)
 	}
-	r.mu.Lock()
-	p, ok := r.providers[typ]
-	r.mu.Unlock()
+	p, ok := r.Get(typ)
 	if !ok {
 		return nil, nil, fmt.Errorf("appkit: metrics provider %q not registered (import the backend contract package and MustRegister it)", typ)
 	}

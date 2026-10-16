@@ -29,7 +29,6 @@ package bootstrap
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
@@ -53,40 +52,42 @@ type ConfigProvider func(ctx context.Context, cfg *bootstrapv1.BootstrapConfig) 
 //
 // 与 go-wind 的全局 map + init() 自注册不同，ConfigRegistry 是显式实例：
 // 每个测试、每个应用可持有独立的 ConfigRegistry，装配什么、以什么顺序，全部写在调用方代码里。
+//
+// 薄壳（批 1 收敛，见 registry.go）：provider 表与空名/nil/重名校验由嵌入的
+// Registry[T] 载体承载（文案经 NameTexts 与既有文案逐字一致）；本类型只保留
+// 特有的注册序 order（默认级联优先级）及其锁。
 type ConfigRegistry struct {
-	mu        sync.RWMutex
-	providers map[string]ConfigProvider
-	order     []string // 注册序 = 默认级联优先级（先注册者优先级高）
+	*Registry[ConfigProvider]
+	mu    sync.RWMutex // 只保护 order（provider 表的锁在载体里）
+	order []string     // 注册序 = 默认级联优先级（先注册者优先级高）
 }
 
 // NewConfigRegistry 创建一个空的 [ConfigRegistry]。
 func NewConfigRegistry() *ConfigRegistry {
-	return &ConfigRegistry{providers: make(map[string]ConfigProvider)}
+	return &ConfigRegistry{Registry: NewRegistry[ConfigProvider](NameTexts("bootstrap", ""))}
 }
 
 // Register 注册一个配置源工厂。
 //
 // name 是源的逻辑名（如 "file" / "env"），仅用于错误信息与调试，不参与装配语义。
 // 重名报错、不覆盖（fail-fast）：同一 ConfigRegistry 里多次注册同名 provider 是程序 bug。
+//
+// 校验与存储由载体 Register 承担；注册成功后在此追加注册序——order 与 provider
+// 表分属两把锁（先载体后 order，snapshot 同序），注册序 = 成功注册的完成序
+// （main 装配期顺序注册，语义与原单锁实现一致）。
 func (r *ConfigRegistry) Register(name string, p ConfigProvider) error {
-	if name == "" {
-		return fmt.Errorf("bootstrap: provider name is empty")
-	}
-	if p == nil {
-		return fmt.Errorf("bootstrap: provider %q is nil", name)
+	if err := r.Registry.Register(name, p); err != nil {
+		return err
 	}
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	if _, ok := r.providers[name]; ok {
-		return fmt.Errorf("bootstrap: provider %q already registered", name)
-	}
-	r.providers[name] = p
 	r.order = append(r.order, name)
+	r.mu.Unlock()
 	return nil
 }
 
 // MustRegister 是 [ConfigRegistry.Register] 的 panic 版本，仅用于主程序 main() 内显式注册。
 // 绝不在任何包的 init() 里使用——这是与 go-wind 自注册模式的根本区别。
+// 显式保留覆盖实现（不透传载体 MustRegister）：必须走上面的 Register 才能同步维护注册序。
 func (r *ConfigRegistry) MustRegister(name string, p ConfigProvider) {
 	if err := r.Register(name, p); err != nil {
 		panic(err)
@@ -96,12 +97,8 @@ func (r *ConfigRegistry) MustRegister(name string, p ConfigProvider) {
 // snapshot 返回注册序与 provider 的只读快照，使 Build 不长时间持锁。
 func (r *ConfigRegistry) snapshot() ([]string, map[string]ConfigProvider) {
 	r.mu.RLock()
-	defer r.mu.RUnlock()
 	names := make([]string, len(r.order))
 	copy(names, r.order)
-	providers := make(map[string]ConfigProvider, len(r.providers))
-	for k, v := range r.providers {
-		providers[k] = v
-	}
-	return names, providers
+	r.mu.RUnlock()
+	return names, r.Snapshot()
 }
