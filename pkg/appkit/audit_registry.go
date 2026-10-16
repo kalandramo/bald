@@ -15,9 +15,9 @@
 // （「配置驱动参数，代码声明能力」分工：契约段声明类型与参数，DB/Redis
 // 连接不进契约）。
 //
-// 多后端按列表序组装 MultiAuditor（顺序即广播序）；任一项构造失败
-// 逆序回滚已构造项的 cleanup（对齐 bootstrap 六域 Registry 的 Build
-// 模式）。
+// 多后端按列表序组装、任一项构造失败逆序回滚已构造项的 cleanup——该语义
+// 已收敛进 pkg/audit.Compose（批 1 内化，D1 §4.2a：组装是审计能力自己的
+// 语义，不住在装配层），Build 只做「段 → 构造器列表」的映射。
 //
 // 段缺省语义：不装配（全局 audit.GetAuditor() 保持现状，默认 nop）。
 //
@@ -92,10 +92,9 @@ func NewAuditRegistry() *AuditRegistry {
 // Build 按契约 audit.backends 列表装配审计后端（v0.6.0 起多选）。
 // 段为 nil → 不装配（nil, nil, nil）；列表空、含重复项或项未注册均
 // fail-fast（与 TracerRegistry 同款主开关语义）；log 内置返回核心
-// LoggerAuditor（无需注册）；多后端按列表序组装 MultiAuditor（顺序即
-// 广播序），任一项构造失败逆序回滚已构造项的 cleanup；成功后 cleanup
-// 聚合逆序回放（后构造先释放，对齐 Effect 逆序纪律），无 cleanup 项
-// 则返回 nil。
+// LoggerAuditor（无需注册）。构造、失败逆序回滚与多后端组装收敛在
+// audit.Compose（顺序即广播序；单后端直返；cleanup 聚合逆序回放，无
+// cleanup 项则返回 nil）。
 //
 // res 是已完成前置装配的资源容器（database/cache/storage 客户端），
 // 透传给各 provider——调用方须保证它已填充（buildAudit 排在
@@ -110,61 +109,52 @@ func (r *AuditRegistry) Build(ctx context.Context, cfg *bootstrapv1.Audit, res *
 	}
 	provs := r.Snapshot()
 
-	var (
-		auditors []audit.Auditor
-		seen     = make(map[string]struct{}, len(backends))
-		cleanups []func(context.Context) error
-		rollback = func() {
-			for i := len(cleanups) - 1; i >= 0; i-- {
-				cleanups[i](ctx) // 失败路径尽力释放，错误忽略
-			}
-		}
-	)
+	// 段 → 构造器列表：只做映射，不触发构造。构造、失败逆序回滚与多后端
+	// 组装的语义收敛在 audit.Compose（批 1 内化）。log 内置零注册即得；
+	// 未注册项延迟到构造序中抛出（notRegisteredError）——它位于第 N 项时，
+	// 前序已构造项仍会被 Compose 逆序回滚（与原内联实现逐字同语义）。
+	backs := make([]audit.NamedBackend, 0, len(backends))
 	for _, typ := range backends {
-		if _, dup := seen[typ]; dup {
-			rollback()
-			return nil, nil, fmt.Errorf("appkit: duplicate backend %q in audit.backends", typ)
-		}
-		seen[typ] = struct{}{}
 		if typ == AuditTypeLog {
-			auditors = append(auditors, audit.NewLoggerAuditor()) // 内置：零依赖开箱即用
+			backs = append(backs, audit.NamedBackend{Name: typ, New: func(context.Context) (audit.Auditor, func(context.Context) error, error) {
+				return audit.NewLoggerAuditor(), nil, nil // 内置：零依赖开箱即用
+			}})
 			continue
 		}
 		p, ok := provs[typ]
-		if !ok {
-			rollback()
-			return nil, nil, fmt.Errorf("appkit: audit provider %q not registered (import the backend contract package and MustRegister it)", typ)
-		}
-		a, cleanup, err := p(ctx, cfg, res)
-		if err != nil {
-			rollback()
-			return nil, nil, fmt.Errorf("appkit: build audit backend %q: %w", typ, err)
-		}
-		auditors = append(auditors, a)
-		if cleanup != nil {
-			cleanups = append(cleanups, cleanup)
-		}
+		backs = append(backs, audit.NamedBackend{Name: typ, New: func(ctx context.Context) (audit.Auditor, func(context.Context) error, error) {
+			if !ok {
+				return nil, nil, notRegisteredError{typ}
+			}
+			return p(ctx, cfg, res)
+		}})
 	}
 
-	var a audit.Auditor
-	if len(auditors) == 1 {
-		a = auditors[0] // 单后端直接返回（类型断言友好）
-	} else {
-		a = audit.NewMultiAuditor(auditors...) // 列表序 = 广播序
-	}
-	var aggregated func(context.Context) error
-	if len(cleanups) > 0 {
-		aggregated = func(ctx context.Context) error {
-			var errs []error
-			for i := len(cleanups) - 1; i >= 0; i-- { // 逆序：后构造先释放
-				if err := cleanups[i](ctx); err != nil {
-					errs = append(errs, err)
-				}
+	a2, cleanup, err := audit.Compose(ctx, backs...)
+	if err != nil {
+		var ce *audit.ComposeError
+		if errors.As(err, &ce) {
+			var nre notRegisteredError
+			if errors.As(ce.Err, &nre) {
+				return nil, nil, nre // 查表失败：教学文案原样透出
 			}
-			return errors.Join(errs...)
+			if errors.Is(ce.Err, audit.ErrDuplicateBackend) {
+				return nil, nil, fmt.Errorf("appkit: duplicate backend %q in audit.backends", ce.Backend)
+			}
+			return nil, nil, fmt.Errorf("appkit: build audit backend %q: %w", ce.Backend, ce.Err)
 		}
+		return nil, nil, err
 	}
-	return a, aggregated, nil
+	return a2, cleanup, nil
+}
+
+// notRegisteredError 是 provider 查表失败的载体：经 Compose 的构造闭包延迟
+// 抛出，由 Build 映射回既有教学文案原样透出（ComposeError 的通用包装文案
+// 不适用于「查表失败」——它不是构造失败）。
+type notRegisteredError struct{ typ string }
+
+func (e notRegisteredError) Error() string {
+	return fmt.Sprintf("appkit: audit provider %q not registered (import the backend contract package and MustRegister it)", e.typ)
 }
 
 // ---------------------------------------------------------------------------

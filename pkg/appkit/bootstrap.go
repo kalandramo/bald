@@ -656,7 +656,7 @@ func FromBootstrap(cfg *bootstrapv1.BootstrapConfig, opts ...BootstrapOption) (*
 		Bind("", baldbootstrap.LogOptions(nil)),
 		ConfigLayers(layers...),
 		Servers(servers...),
-		BeforeStart(func(context.Context) error {
+		BeforeStart(func(ctx context.Context) error {
 			if err := syncBootstrap(a, cfg, spec, &curCleanup, &regCleanup); err != nil {
 				return err
 			}
@@ -708,6 +708,11 @@ func FromBootstrap(cfg *bootstrapv1.BootstrapConfig, opts ...BootstrapOption) (*
 				return err
 			}
 			brokerCleanup = cleanup
+			// L3 段覆盖告警（批 1 告警级，见 segment_coverage.go）：装配链
+			// 末尾、契约已装载定型——枚举实际出现的顶层段，减去本次装配真
+			// 实被消费的段，剩余即告警（script 段零消费者的静默失效由此可
+			// 见）。不报错、不拦截启动；批 2 的 StrictSegments 才转 fail-fast。
+			warnUnconsumedSegments(ctx, cfg, spec, buildServers != nil)
 			return nil
 		}),
 		OnConfigChange(func(m map[string]any) {
