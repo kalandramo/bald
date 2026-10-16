@@ -40,7 +40,7 @@ func TestAppKit_ConfigLayers(t *testing.T) {
 	withArgs(t, []string{"--config=" + cfgFile})
 
 	changed := make(chan struct{}, 4)
-	a := New(
+	a := NewApp(
 		Name("bald-test"),
 		ConfigLayers(
 			config.Layer{Name: "first", Reader: first, Watch: true},

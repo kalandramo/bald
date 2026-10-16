@@ -54,7 +54,7 @@ func (f *fakeComp) Dispose(context.Context) error {
 // TestComponents_StartThenReverseDispose 契约：顺序启动（注册序）、停机逆序销毁。
 func TestComponents_StartThenReverseDispose(t *testing.T) {
 	l := &compLog{}
-	app := New(
+	app := NewApp(
 		Components(
 			&fakeComp{name: "a", log: l},
 			&fakeComp{name: "b", log: l},
@@ -77,7 +77,7 @@ func TestComponents_StartThenReverseDispose(t *testing.T) {
 // 已启动的 a 被逆序 Dispose；b、c 不 Dispose；错误信息含组件名。
 func TestComponent_StartFailureRollback(t *testing.T) {
 	l := &compLog{}
-	app := New(
+	app := NewApp(
 		Components(
 			&fakeComp{name: "a", log: l},
 			&fakeComp{name: "b", log: l, startErr: errors.New("no db")},
@@ -98,7 +98,7 @@ func TestComponent_StartFailureRollback(t *testing.T) {
 // TestComponent_StartPanicIsolated 组件 Start panic：转为错误返回，不击穿 Run。
 func TestComponent_StartPanicIsolated(t *testing.T) {
 	l := &compLog{}
-	app := New(
+	app := NewApp(
 		Components(&fakeComp{name: "boom", log: l, startPanic: true}),
 	)
 	err := app.Run(context.Background())
@@ -110,7 +110,7 @@ func TestComponent_StartPanicIsolated(t *testing.T) {
 // TestComponent_DisposeErrorIsolated Dispose 出错不阻断其余销毁，也不影响 Run 正常退出。
 func TestComponent_DisposeErrorIsolated(t *testing.T) {
 	l := &compLog{}
-	app := New(
+	app := NewApp(
 		Components(
 			&fakeComp{name: "a", log: l},
 			&fakeComp{name: "bad", log: l, dispErr: errors.New("flush failed")},
@@ -131,7 +131,7 @@ func TestComponent_DisposeErrorIsolated(t *testing.T) {
 // 其余组件照常销毁。
 func TestComponent_DisposeTimeout(t *testing.T) {
 	l := &compLog{}
-	app := New(
+	app := NewApp(
 		ComponentTimeout(50 * time.Millisecond),
 	)
 	// slow 的 Dispose 卡到 ctx 超时（独立于 fakeComp 的可编程行为）。
@@ -188,7 +188,7 @@ func TestComponentFunc(t *testing.T) {
 // 不应触发任何 Dispose。
 func TestComponent_DontDisposeUnstarted(t *testing.T) {
 	l := &compLog{}
-	app := New(
+	app := NewApp(
 		Components(&fakeComp{name: "a", log: l}),
 		BeforeStart(func(context.Context) error { return errors.New("boom") }),
 	)

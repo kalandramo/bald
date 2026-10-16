@@ -6,15 +6,15 @@
 //   - go-lulu 的自研 App 层精髓：自管 errgroup、优雅停机防坑（Stop 传入未取消 ctx）、
 //     崩溃级联停止、Run 防重入、可观察通道、Endpoint 动态端口注册。
 //
-// 用法：
+// 用法（单一装配入口，契约驱动的约定装配，见 serve.go）：
 //
-//	app := appkit.New(
-//	    appkit.Name("bald-demo"),
-//	    appkit.StopTimeout(15*time.Second),
-//	    appkit.Registrar(registrar),
-//	    appkit.Servers(grpcSrv, httpSrv),
+//	appkit.MustServe(context.Background(),
+//	    appkit.WithHTTP(handler),
+//	    appkit.WithGRPC(register, opts...),
 //	)
-//	if err := app.Run(context.Background()); err != nil { log.Fatal(err) }
+//
+// Serve/MustServe 内部完成 --config 解析 → 契约装载 → 命名空间解析 →
+// 约定装配 → Run（信号处理内建于 Run）。测试/e2e 用 NewApp 显式构造。
 package appkit
 
 import (
@@ -57,12 +57,12 @@ type AppKit struct {
 	// 文件名（bald-demo-prod.yaml）的稳定标识（见 loadConfig 的 config.Options.Name）。
 	//
 	// 与 name（服务身份）分离的理由：配置命名空间必须在「任何配置装载之前」确定，
-	// 若取自契约 app.name（FromBootstrap 路径），则形成自指——app.name 可由配置
+	// 若取自契约 app.name（Serve 路径），则形成自指——app.name 可由配置
 	// 文件/env 供给，而 env 的前缀又由它派生：用户写 app.name: foo 会让全部
 	// BALD_<原前缀>_* 覆盖静默失效（回落到文件值，无报错）。两条用途生命周期
 	// 不同，必须分字段。
 	//
-	// 取值优先级见 New（回退 name）与 FromBootstrap（要求显式声明，否则 fail-fast）。
+	// 取值优先级见 NewApp（回退 name）与 Serve（要求显式声明，否则 fail-fast）。
 	cfgNamespace string
 
 	// 服务器 Stop 阶段超时（before/afterStop 钩子固定 defaultHookTimeout：
@@ -283,15 +283,15 @@ func Registrar(r registry.Registrar) Option {
 // 是**配置坐标**。二者通常同值，但语义独立——ConfigNamespace 必须在配置装载前
 // 稳定可得，Name 可以来自被装载的配置。
 //
-// 缺省行为：New 路径下未声明时回退 Name 的值（其值来自调用方源码，属代码层
-// 稳定源，无自指）；FromBootstrap 路径**不回退**（其 Name 来自被装载的契约，
+// 缺省行为：NewApp 路径下未声明时回退 Name 的值（其值来自调用方源码，属代码层
+// 稳定源，无自指）；Serve 路径**不回退**（其 Name 来自被装载的契约，
 // 会构成 env 前缀自指），必须用 WithConfigNamespace 显式声明。
 func ConfigNamespace(ns string) Option {
 	return optionFunc(func(d *Decl) { d.ConfigNamespace = ns })
 }
 
-// SetRegistrar 运行期设置注册中心，供 New 构造路径在配置装载后按契约构造
-// （FromBootstrap 路径由 buildRegistrar 内部赋值，无需此方法）。
+// SetRegistrar 运行期设置注册中心，供 NewApp 构造路径在配置装载后按契约构造
+// （Serve 路径由 buildRegistrar 内部赋值，无需此方法）。
 // 时序约束：须在 Run 进入 register 之前调用（BeforeStart 是安全窗口）——
 // register/deregister 每次都读 a.registrar，不做缓存，赋值即时生效。
 // client cleanup 由调用方挂停机 Effect 回放（Deregister 先于 Effect，顺序安全）。
@@ -307,7 +307,7 @@ func ConfigFile(f string) Option {
 // kratos contrib 的 config.Source，例如：
 //
 //	src := config.FromKratosSource(etcdconfig.New(client, etcdconfig.WithPath("/config/demo/prod.yaml")))
-//	appkit.New(..., appkit.RemoteConfig(src))
+//	appkit.NewApp(appkit.RemoteConfig(src))
 //
 // 语义：远程桥内部被适配为最低优先级的基准层；契约源层推荐用 ConfigLayers
 // （由 bootstrap Registry 装配，Registry 注册序即优先级）。
@@ -321,7 +321,7 @@ func RemoteConfig(src config.RemoteSource) Option {
 //
 //	layers, cleanup, err := registry.Build(ctx, bootCfg)
 //	defer cleanup()
-//	appkit.New(name, appkit.ConfigLayers(layers...))
+//	appkit.NewApp(appkit.ConfigLayers(layers...))
 //
 // 任一层 reader 实现 bconfig.ValueWatcher 即参与热更新（变更 → 全量重合并）。
 func ConfigLayers(ls ...config.Layer) Option {
@@ -342,8 +342,8 @@ func WatchConfigFile(watch bool) Option {
 // StrictContract 启用契约段未知键校验（opt-in）。businessSections 是应用自持的
 // 顶层段名，命中者整棵子树放行；其余顶层段内出现契约未声明的键即 fail-fast。
 //
-// New 路径（直接构造 AppKit）用本 Option 与 WithStrictContract 对应——
-// 后者是 FromBootstrap 路径的等价物（语义一致，仅入口不同）。
+// NewApp 路径（直接构造 AppKit）用本 Option 与 WithStrictContract 对应——
+// 后者是 Serve 路径的等价物（语义一致，仅入口不同）。
 func StrictContract(businessSections ...string) Option {
 	return optionFunc(func(d *Decl) {
 		d.StrictContract = true
@@ -404,21 +404,35 @@ func defaultInstanceID() string {
 	return hostname() + "-" + uuid.NewString()[:8]
 }
 
-// New 构造 AppKit：先以缺省值初始化 Decl，逐项 Apply 声明，再从 Decl
-// 构造（构造期拷贝，见 decl.go）。
-func New(opts ...Option) *AppKit {
+// newDecl 以缺省值初始化 Decl 并逐项 Apply 声明——NewApp 与 Serve 共用的
+// 构造起点。nil Option 跳过（原 FromBootstrap 对 func 值的判空语义保留）。
+func newDecl(opts ...Option) *Decl {
 	d := defaultDecl()
 	for _, o := range opts {
-		o.Apply(&d)
+		if o != nil {
+			o.Apply(&d)
+		}
 	}
-	// 配置命名空间回退：放在 opts 循环**之后**——保证 ConfigNamespace 无论与
+	return &d
+}
+
+// NewApp 构造 AppKit（原 New，批 2 W2a 更名）：显式 Option 装配的构造器，
+// 测试/e2e 复用同一构造逻辑的入口。先以缺省值初始化 Decl，逐项 Apply 声明，
+// 再从 Decl 构造（构造期拷贝，见 decl.go）。
+//
+// 它**不是第二条装配路径**：契约驱动的约定装配只有 Serve 一条（With* 声明 +
+// 内部契约装载 + 装配流，见 serve.go/assemble）；NewApp 只把声明的纯数据
+// 拷入运行态（newFromDecl），不消费契约段、不派生服务器注册与框架钩子链。
+func NewApp(opts ...Option) *AppKit {
+	d := newDecl(opts...)
+	// 配置命名空间回退：放在 Apply **之后**——保证 ConfigNamespace 无论与
 	// Name 的书写先后都优先（若放在循环内逐项判断，`Name` 先于 `ConfigNamespace`
 	// 时会被后续覆盖，反之则不会，产生顺序依赖）。
-	// 回退源是 d.Name（New 路径下由调用方源码提供，代码层稳定值，无自指）。
+	// 回退源是 d.Name（本路径下由调用方源码提供，代码层稳定值，无自指）。
 	if d.ConfigNamespace == "" {
 		d.ConfigNamespace = d.Name
 	}
-	return newFromDecl(d)
+	return newFromDecl(*d)
 }
 
 // loadConfig 在启动期加载配置：本地 --config 文件 + 环境变量 + 业务 flag + 可选远程配置中心。

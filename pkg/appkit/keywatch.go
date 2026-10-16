@@ -6,7 +6,7 @@
 // 地址、auditor 后端），全量回调把「哪些变了」的 diff 责任推给每个业务。
 // OnKeyChange 把 diff 下沉到框架：只有订阅的 key 新旧值确实不同才触发：
 //
-//	app := appkit.New(
+//	app := appkit.NewApp(
 //	    appkit.OnKeyChange("http.addr", func(old, new string) {
 //	        log.Info(ctx, "http.addr changed", "old", old, "new", new)
 //	    }),

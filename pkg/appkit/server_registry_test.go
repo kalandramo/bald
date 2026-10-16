@@ -28,9 +28,9 @@ import (
 	"github.com/kalandramo/bald/transport"
 )
 
-// TestFromBootstrap_ServerRegistryCustomProviderWired 注入带自定义 provider 的
+// TestAssemble_ServerRegistryCustomProviderWired 注入带自定义 provider 的
 // ServerRegistry：provider 在 Run 期被调用，其 server 进入启动序列。
-func TestFromBootstrap_ServerRegistryCustomProviderWired(t *testing.T) {
+func TestAssemble_ServerRegistryCustomProviderWired(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
 
@@ -48,16 +48,13 @@ func TestFromBootstrap_ServerRegistryCustomProviderWired(t *testing.T) {
 		return &probeServer{name: "asynq", started: &atomic.Bool{}, mark: func(string) {}}, nil, nil
 	})
 
-	a, err := FromBootstrap(cfg,
+	a := assembleForTest(t, cfg,
 		WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
 		WithServerRegistry(sr),
 	)
-	if err != nil {
-		t.Fatalf("FromBootstrap: %v", err)
-	}
 	// 构造期：provider 不应被调用（BuildServers 延后到 Run 期）。
 	if n := asynqCalled.Load(); n != 0 {
-		t.Fatalf("custom provider called %d times during FromBootstrap, want 0 (deferred to Run)", n)
+		t.Fatalf("custom provider called %d times during construction, want 0 (deferred to Run)", n)
 	}
 
 	runBriefly(t, a, 50*time.Millisecond)
@@ -67,9 +64,9 @@ func TestFromBootstrap_ServerRegistryCustomProviderWired(t *testing.T) {
 	}
 }
 
-// TestFromBootstrap_ServerRegistryOnlyNoMainProtocol 只注入 Registry（不声明
+// TestAssemble_ServerRegistryOnlyNoMainProtocol 只注入 Registry（不声明
 // http/grpc）也能构造服务器面——门禁条件须包含 spec.serverRegistry != nil。
-func TestFromBootstrap_ServerRegistryOnlyNoMainProtocol(t *testing.T) {
+func TestAssemble_ServerRegistryOnlyNoMainProtocol(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
 
@@ -84,10 +81,7 @@ func TestFromBootstrap_ServerRegistryOnlyNoMainProtocol(t *testing.T) {
 		return &probeServer{name: "asynq", started: started, mark: func(string) {}}, nil, nil
 	})
 
-	a, err := FromBootstrap(cfg, WithConfigNamespace(testConfigNamespace), WithServerRegistry(sr))
-	if err != nil {
-		t.Fatalf("FromBootstrap: %v", err)
-	}
+	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), WithServerRegistry(sr))
 	if a == nil {
 		t.Fatal("a = nil")
 	}
@@ -102,9 +96,9 @@ func TestFromBootstrap_ServerRegistryOnlyNoMainProtocol(t *testing.T) {
 	}
 }
 
-// TestFromBootstrap_BuiltinProvidersBackfilled 注入 Registry 后，框架仍补注册
+// TestAssemble_BuiltinProvidersBackfilled 注入 Registry 后，框架仍补注册
 // http/grpc 内置 provider——声明了主协议面就必须能用。
-func TestFromBootstrap_BuiltinProvidersBackfilled(t *testing.T) {
+func TestAssemble_BuiltinProvidersBackfilled(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
 
@@ -117,13 +111,10 @@ func TestFromBootstrap_BuiltinProvidersBackfilled(t *testing.T) {
 	// 空的自定义 Registry——框架应补注册 http/grpc。
 	sr := baldbootstrap.NewServerRegistry()
 
-	a, err := FromBootstrap(cfg,
+	a := assembleForTest(t, cfg,
 		WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
 		WithServerRegistry(sr),
 	)
-	if err != nil {
-		t.Fatalf("FromBootstrap: %v", err)
-	}
 
 	runBriefly(t, a, 50*time.Millisecond)
 

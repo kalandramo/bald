@@ -39,7 +39,7 @@ func TestBind_FlagOverridesFile(t *testing.T) {
 	httpOpts := &bootstrapv1.Server_Http{}
 	grpcOpts := &bootstrapv1.Server_Grpc{}
 
-	a := New(Name("bald-test"),
+	a := NewApp(Name("bald-test"),
 		Bind("http", httpOpts),
 		Bind("grpc", grpcOpts),
 	)
@@ -65,7 +65,7 @@ func TestBind_EnvOverridesFile(t *testing.T) {
 
 	t.Setenv("BALD_TEST_HTTP_ADDR", ":28080")
 
-	a := New(Name("bald-test"), Bind("http", &bootstrapv1.Server_Http{}))
+	a := NewApp(Name("bald-test"), Bind("http", &bootstrapv1.Server_Http{}))
 	if err := a.loadConfig(); err != nil {
 		t.Fatalf("loadConfig: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestBind_FlagOverridesEnv(t *testing.T) {
 	withArgs(t, []string{"--config=" + cfgFile, "--http.addr=:38080"})
 	t.Setenv("BALD_TEST_HTTP_ADDR", ":28080")
 
-	a := New(Name("bald-test"), Bind("http", &bootstrapv1.Server_Http{}))
+	a := NewApp(Name("bald-test"), Bind("http", &bootstrapv1.Server_Http{}))
 	if err := a.loadConfig(); err != nil {
 		t.Fatalf("loadConfig: %v", err)
 	}
@@ -97,7 +97,7 @@ func TestBind_KeyPathAligned(t *testing.T) {
 	cfgFile := writeCfg(t, "grpc:\n  addr: \":9090\"\n  reflection: false\n")
 	withArgs(t, []string{"--config=" + cfgFile, "--grpc.reflection=true"})
 
-	a := New(Name("bald-test"), Bind("grpc", &bootstrapv1.Server_Grpc{}))
+	a := NewApp(Name("bald-test"), Bind("grpc", &bootstrapv1.Server_Grpc{}))
 	if err := a.loadConfig(); err != nil {
 		t.Fatalf("loadConfig: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestBind_PlainBinder(t *testing.T) {
 	cfgFile := writeCfg(t, "log:\n  level: \"info\"\n")
 	withArgs(t, []string{"--config=" + cfgFile, "--log.level=debug"})
 
-	a := New(Name("bald-test"), Bind("", &plainBinder{}))
+	a := NewApp(Name("bald-test"), Bind("", &plainBinder{}))
 	if err := a.loadConfig(); err != nil {
 		t.Fatalf("loadConfig: %v", err)
 	}
@@ -138,7 +138,7 @@ func TestBind_Errors(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			withArgs(t, []string{})
-			a := New(Name("bald-test"), Bind(tc.prefix, tc.opt))
+			a := NewApp(Name("bald-test"), Bind(tc.prefix, tc.opt))
 			if err := a.loadConfig(); err == nil {
 				t.Errorf("loadConfig succeeded, want error")
 			}

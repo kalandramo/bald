@@ -95,7 +95,7 @@ func convergeFn(failOn string, comps *map[string]*reconComp) ReconcileFunc {
 func setupReconApp(t *testing.T, failOn string) (*AppKit, *map[string]*reconComp, func()) {
 	t.Helper()
 	comps := &map[string]*reconComp{}
-	app := New(
+	app := NewApp(
 		Name("recon-test"),
 		Servers(reconSrv{}),
 		Reconcile("audit.backends", convergeFn(failOn, comps)),
@@ -208,7 +208,7 @@ func TestReconcile_StartupAppliesInitialConfig(t *testing.T) {
 		t.Fatalf("write config: %v", err)
 	}
 	comps := &map[string]*reconComp{}
-	app := New(
+	app := NewApp(
 		Name("recon-init"),
 		Servers(reconSrv{}),
 		ConfigFile(cfgPath),

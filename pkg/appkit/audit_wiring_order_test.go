@@ -28,7 +28,7 @@ import (
 //
 // RED 场景：把 bootstrap.go 阶段 B 的 buildAudit 调用移到 buildDatabases 之前
 // 即失败（res.Database("sql") 返回 not-ok）。
-func TestFromBootstrap_AuditProviderSeesDatabases(t *testing.T) {
+func TestAssemble_AuditProviderSeesDatabases(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
 
@@ -64,14 +64,11 @@ func TestFromBootstrap_AuditProviderSeesDatabases(t *testing.T) {
 		return audit.NewLoggerAuditor(), nil, nil
 	})
 
-	a, err := FromBootstrap(cfg,
+	a := assembleForTest(t, cfg,
 		WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
 		WithDatabaseRegistry(dr),
 		WithAuditRegistry(ar),
 	)
-	if err != nil {
-		t.Fatalf("FromBootstrap: %v", err)
-	}
 
 	runBriefly(t, a, 50*time.Millisecond)
 

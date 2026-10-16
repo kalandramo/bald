@@ -10,7 +10,7 @@
 //
 //	ar := appkit.NewAuditRegistry()
 //	ar.MustRegister(storecontract.TypeStore, storecontract.NewStoreProvider(db))
-//	app, err := appkit.FromBootstrap(cfg, appkit.WithAuditRegistry(ar), ...)
+//	appkit.Serve(ctx, appkit.WithAuditRegistry(ar), ...)
 package contract
 
 import (

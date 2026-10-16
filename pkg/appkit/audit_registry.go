@@ -27,12 +27,12 @@
 // audit 段不支持热更新（运行期热切走 R1-2 协调器的 audit.backends
 // 期望态，双轨并存——与「全局路径 vs 构造器注入」哲学一致）。
 //
-// 用法（FromBootstrap 路径）：
+// 用法（Serve 路径）：
 //
 //	ar := appkit.NewAuditRegistry()
 //	ar.MustRegister(storecontract.TypeStore, storecontract.NewStoreProvider(db))
 //	ar.MustRegister(streamcontract.TypeStream, streamcontract.NewStreamProvider(rdb))
-//	app, err := appkit.FromBootstrap(cfg, appkit.WithAuditRegistry(ar), ...)
+//	appkit.Serve(ctx, appkit.WithAuditRegistry(ar), ...)
 package appkit
 
 import (
@@ -72,7 +72,7 @@ const (
 // 构造期即取真实实例，惰性包装失去存在理由。
 //
 // 返回 (auditor, cleanup)：cleanup 承载后端资源释放（如 stream 后台
-// goroutine 停机 flush 尾批），由 FromBootstrap 挂 Effect 逆序回放。
+// goroutine 停机 flush 尾批），由 assemble 挂 Effect 逆序回放。
 type AuditProvider func(ctx context.Context, cfg *bootstrapv1.Audit, res *AppKit) (audit.Auditor, func(context.Context) error, error)
 
 // AuditRegistry 是审计后端 Provider 的显式注册表（audit.backends 多选；
@@ -158,7 +158,7 @@ func (e notRegisteredError) Error() string {
 }
 
 // ---------------------------------------------------------------------------
-// FromBootstrap 集成（阶段 B 构建 + Effect 回放）
+// 约定装配集成（阶段 B 构建 + Effect 回放）
 // ---------------------------------------------------------------------------
 
 // auditState 承载阶段 B（BeforeStart）装配、停机期消费的句柄
@@ -173,13 +173,13 @@ type auditState struct {
 // buildAudit 在阶段 B 按 audit 段装配审计后端并注入全局。段缺失为 no-op
 // （全局保持现状）；backends 全为 log 零注册即得（Build 内置路径），含
 // store/stream 需对应 Provider 已注册，否则 fail-fast（配置意图无法兑现）。
-// 返回停机句柄，由 FromBootstrap 挂 Effect。
+// 返回停机句柄，由 assemble 挂 Effect。
 //
 // 调用序（2026-09-28 修订）：**排在 buildDatabases/buildCaches 之后**——
 // 审计后端常需 DB（store）或 Redis（stream）连接，资源必须先就绪；a 作为
 // 资源容器透传给各 provider。此前排在数据客户端之前，后端只能拿到 nil，
 // 业务被迫备惰性包装（详见 AuditProvider 文档）。
-func buildAudit(a *AppKit, cfg *bootstrapv1.BootstrapConfig, spec *bootstrapSpec) (*auditState, error) {
+func buildAudit(a *AppKit, cfg *bootstrapv1.BootstrapConfig, spec *Decl) (*auditState, error) {
 	acfg := cfg.GetAudit()
 	if acfg == nil {
 		return nil, nil // 段缺省：不装配

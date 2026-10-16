@@ -6,4 +6,4 @@ package main
 
 import "github.com/kalandramo/bald/pkg/appkit"
 
-func nacosBootstrapOptions() []appkit.BootstrapOption { return nil }
+func nacosBootstrapOptions() []appkit.Option { return nil }

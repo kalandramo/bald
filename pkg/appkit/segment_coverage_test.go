@@ -45,7 +45,7 @@ func (l *warnLogger) Enabled(log.Level) bool { return true }
 func (l *warnLogger) With(args ...any) log.Logger { return l }
 
 // probeLoggerOption 把 wl 装成契约 logger 段的 probe 后端（阶段 B 生效）。
-func probeLoggerOption(wl *warnLogger) BootstrapOption {
+func probeLoggerOption(wl *warnLogger) Option {
 	reg := bootstrap.NewLogRegistry()
 	reg.MustRegister("probe", func(context.Context, *bootstrapv1.Logger_Backend) (log.Logger, func(), error) {
 		return wl, nil, nil
@@ -64,7 +64,7 @@ func (l *warnLogger) lines() []string {
 }
 
 // 含 script 段的合法配置：告警出现、列出的就是 script、启动不受影响。
-func TestFromBootstrap_WarnsUnconsumedScript(t *testing.T) {
+func TestAssemble_WarnsUnconsumedScript(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
 
@@ -74,13 +74,10 @@ func TestFromBootstrap_WarnsUnconsumedScript(t *testing.T) {
 	probeCfg(cfg)
 	cfg.Script = &bootstrapv1.Script{Engine: bootstrapv1.Script_LUA}
 
-	a, err := FromBootstrap(cfg,
+	a := assembleForTest(t, cfg,
 		WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
 		probeLoggerOption(wl),
 	)
-	if err != nil {
-		t.Fatalf("FromBootstrap: %v", err)
-	}
 	runBriefly(t, a, 50*time.Millisecond) // Run 无错 = 启动不受影响
 
 	var found string
@@ -102,7 +99,7 @@ func TestFromBootstrap_WarnsUnconsumedScript(t *testing.T) {
 }
 
 // 全部出现的段都被消费：无告警。
-func TestFromBootstrap_NoWarnWhenAllConsumed(t *testing.T) {
+func TestAssemble_NoWarnWhenAllConsumed(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
 
@@ -118,13 +115,10 @@ func TestFromBootstrap_NoWarnWhenAllConsumed(t *testing.T) {
 		return "db", nil, nil
 	})
 
-	a, err := FromBootstrap(cfg,
+	a := assembleForTest(t, cfg,
 		WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
 		WithDatabaseRegistry(dr), probeLoggerOption(wl),
 	)
-	if err != nil {
-		t.Fatalf("FromBootstrap: %v", err)
-	}
 	runBriefly(t, a, 50*time.Millisecond)
 
 	for _, line := range wl.lines() {
@@ -136,7 +130,7 @@ func TestFromBootstrap_NoWarnWhenAllConsumed(t *testing.T) {
 
 // 端到端（配置文件装载路径）：script 段由 config 层贡献（非代码内联），
 // 装载完成后告警如实列出。
-func TestFromBootstrap_WarnsScriptFromConfigLayer(t *testing.T) {
+func TestAssemble_WarnsScriptFromConfigLayer(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
 
@@ -153,13 +147,10 @@ func TestFromBootstrap_WarnsScriptFromConfigLayer(t *testing.T) {
 		}, nil, nil
 	})
 
-	a, err := FromBootstrap(cfg,
+	a := assembleForTest(t, cfg,
 		WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
 		WithConfigRegistry(reg), probeLoggerOption(wl),
 	)
-	if err != nil {
-		t.Fatalf("FromBootstrap: %v", err)
-	}
 	runBriefly(t, a, 50*time.Millisecond)
 
 	if got := cfg.GetScript().GetOptions().GetEnabled(); !got {
@@ -186,7 +177,7 @@ func TestFromBootstrap_WarnsScriptFromConfigLayer(t *testing.T) {
 // :9090）→ 不告警——预填是框架自己的行为，对其告警属自相矛盾的噪音；
 // ②用户覆盖了任一 server 子字段 → 照实告警——该段配置确实不产生任何
 // 服务器（未声明能力），告警可行动（等待实现或从契约移除）。
-func TestFromBootstrap_ZeroCapabilityDefaultServerNoWarn(t *testing.T) {
+func TestAssemble_ZeroCapabilityDefaultServerNoWarn(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
 
@@ -194,10 +185,7 @@ func TestFromBootstrap_ZeroCapabilityDefaultServerNoWarn(t *testing.T) {
 	cfg := bconf.NewBootstrap()
 	probeCfg(cfg)
 
-	a, err := FromBootstrap(cfg, WithConfigNamespace(testConfigNamespace), probeLoggerOption(wl))
-	if err != nil {
-		t.Fatalf("FromBootstrap: %v", err)
-	}
+	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), probeLoggerOption(wl))
 	runBriefly(t, a, 30*time.Millisecond)
 
 	for _, line := range wl.lines() {
@@ -207,7 +195,7 @@ func TestFromBootstrap_ZeroCapabilityDefaultServerNoWarn(t *testing.T) {
 	}
 }
 
-func TestFromBootstrap_ZeroCapabilityOverriddenServerWarns(t *testing.T) {
+func TestAssemble_ZeroCapabilityOverriddenServerWarns(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
 
@@ -216,10 +204,7 @@ func TestFromBootstrap_ZeroCapabilityOverriddenServerWarns(t *testing.T) {
 	probeCfg(cfg)
 	cfg.GetServer().GetHttp().Addr = "127.0.0.1:18080" // 用户覆盖：偏离预填默认
 
-	a, err := FromBootstrap(cfg, WithConfigNamespace(testConfigNamespace), probeLoggerOption(wl))
-	if err != nil {
-		t.Fatalf("FromBootstrap: %v", err)
-	}
+	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), probeLoggerOption(wl))
 	runBriefly(t, a, 30*time.Millisecond)
 
 	var found string

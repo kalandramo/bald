@@ -135,7 +135,7 @@ func TestMetricsRegistry_RegisterValidation(t *testing.T) {
 
 func TestBuildObservability(t *testing.T) {
 	// 段全缺省：no-op state。
-	st, err := buildObservability(&bootstrapv1.BootstrapConfig{}, &bootstrapSpec{})
+	st, err := buildObservability(&bootstrapv1.BootstrapConfig{}, &Decl{})
 	if err != nil {
 		t.Fatalf("no sections: %v", err)
 	}
@@ -146,19 +146,19 @@ func TestBuildObservability(t *testing.T) {
 	// tracer 段存在但未接 registry：fail-fast。
 	cfg := &bootstrapv1.BootstrapConfig{}
 	cfg.Tracer = &bootstrapv1.Tracer{Type: "otlp"}
-	if _, err := buildObservability(cfg, &bootstrapSpec{}); err == nil {
+	if _, err := buildObservability(cfg, &Decl{}); err == nil {
 		t.Error("tracer without registry should fail")
 	}
 
 	// metrics 段存在但未接 registry：fail-fast。
 	cfg2 := &bootstrapv1.BootstrapConfig{}
 	cfg2.Metrics = &bootstrapv1.Metrics{Type: "prometheus"}
-	if _, err := buildObservability(cfg2, &bootstrapSpec{}); err == nil {
+	if _, err := buildObservability(cfg2, &Decl{}); err == nil {
 		t.Error("metrics without registry should fail")
 	}
 
 	// 双段命中：state 三句柄齐备（暴露端真起 http.Server）。
-	spec := &bootstrapSpec{
+	spec := &Decl{
 		TracerRegistry:  NewTracerRegistry(),
 		MetricsRegistry: NewMetricsRegistry(),
 	}

@@ -14,7 +14,7 @@
 //
 //	wr := bootstrap.NewWorkflowRegistry()
 //	wr.MustRegister(argocontract.Type, argocontract.Provider) // "argo"
-//	app, err := appkit.FromBootstrap(cfg, appkit.WithWorkflowRegistry(wr), ...)
+//	appkit.Serve(ctx, appkit.WithWorkflowRegistry(wr), ...)
 //	// Run 后取实例：
 //	cli := app.Workflow(argocontract.Type).(*argo.WorkflowClient)
 package appkit
@@ -30,15 +30,15 @@ import (
 // WithWorkflowRegistry 注入工作流引擎后端的契约装配注册表（显式注册
 // provider，见 bootstrap.WorkflowRegistry）。契约 workflow 段任一后端段
 // 存在时，阶段 B 按段名查表构建客户端；workflow 段不支持热更新。
-func WithWorkflowRegistry(r *baldbootstrap.WorkflowRegistry) BootstrapOption {
-	return func(s *bootstrapSpec) { s.WorkflowRegistry = r }
+func WithWorkflowRegistry(r *baldbootstrap.WorkflowRegistry) Option {
+	return optionFunc(func(s *Decl) { s.WorkflowRegistry = r })
 }
 
 // buildWorkflows 在阶段 B（契约装载校验后）按契约 workflow 段构建全部已
 // 配置后端的工作流客户端，存入 a.workflows 供业务经 Workflow/Workflows 取用。
 // workflow 段缺失为 no-op；段存在但未接 WorkflowRegistry 则 fail-fast。
-// 返回聚合 cleanup（可为 nil），由 FromBootstrap 挂停机 Effect。
-func buildWorkflows(a *AppKit, cfg *bootstrapv1.BootstrapConfig, spec *bootstrapSpec) (func(), error) {
+// 返回聚合 cleanup（可为 nil），由 assemble 挂停机 Effect。
+func buildWorkflows(a *AppKit, cfg *bootstrapv1.BootstrapConfig, spec *Decl) (func(), error) {
 	wcfg := cfg.GetWorkflow()
 	if wcfg == nil {
 		return nil, nil // 未配置任何工作流客户端
@@ -55,7 +55,7 @@ func buildWorkflows(a *AppKit, cfg *bootstrapv1.BootstrapConfig, spec *bootstrap
 }
 
 // Workflow 返回按契约段装配的工作流引擎客户端实例（阶段 B 后、Run 期可用；
-// FromBootstrap 构造期尚未装载契约，返回空）。
+// 装配构造期尚未装载契约，返回空）。
 // typ 为契约段名（见 workflow/<engine>/contract.Type，如 "argo"）。
 // 并发语义：workflows 只在 BeforeStart（阶段 B）单次写入，Run 后只读，
 // happens-before 由 Run 启动流程保证。

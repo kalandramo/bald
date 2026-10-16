@@ -5,9 +5,9 @@
 // mech 子包因此只能经 AppKit 的导出注册方法（register.go）间接写入。批 2
 // 把 Option 接口化为 interface{ Apply(*Decl) }（导出方法 + 导出参数类型，
 // 包外可实现），Decl 承载全部装配期声明的写入面：
-//   - New 路径 Option 的全部写入（ID/Name/Config*/Bind/Servers/钩子/机制…）；
-//   - FromBootstrap 路径 BootstrapOption 的全部写入（WithHTTP/WithGRPC/
-//     各域 Registry/WithLogDecorators/WithExtraServerFunc…）。
+//   - NewApp 路径 Option 的全部写入（ID/Name/Config*/Bind/Servers/钩子/机制…）；
+//   - Serve 路径 With* 的全部写入（WithHTTP/WithGRPC/各域 Registry/
+//     WithLogDecorators/WithExtraServerFunc…）。
 //
 // 字段集由对账得出（逐 Option 逐一归属，见各字段注释），不含任何运行期
 // 状态：效应账本的运行期追加（addEffect）、key 订阅的基线快照（last/armed）、
@@ -17,9 +17,8 @@
 // 导出字段；拷贝让引擎（Run/stopAll/UndoEffects/Resolve/协调器/热更）与
 // 改造前逐字段同构，行为零变化。
 //
-// bootstrapSpec 是 Decl 的类型别名（见 bootstrap.go）：BootstrapOption 的
-// 写入目标与 New 路径的构造输入从此是同一份数据形状，两条装配路径的声明
-// 面不再各持一套私有结构。
+// 唯一 Option 类型（批 2 W2a）：原 BootstrapOption/HealthOption 已删除，
+// With* 构造器重定型为返回 Option——写入目标是同一份 Decl。
 package appkit
 
 import (
@@ -38,9 +37,9 @@ import (
 	"github.com/kalandramo/bald/transport"
 )
 
-// Decl 汇集全部装配期声明（纯数据、全导出字段）。两条装配路径共用：
-// New 路径由 Option.Apply 逐项写入；FromBootstrap 路径由 BootstrapOption
-// 写入（经 bootstrapSpec 别名）后，框架再按契约补齐其余字段。
+// Decl 汇集全部装配期声明（纯数据、全导出字段）。两条构造路径共用：
+// NewApp 路径由 Option.Apply 逐项写入；Serve 路径由 With* 写入后，框架
+// （assemble）再按契约补齐其余字段。
 type Decl struct {
 	// ---- 服务身份（ID/Name/Version Option；app 段回填） ----
 	ID      string
@@ -57,7 +56,7 @@ type Decl struct {
 	ConfigFile      string
 	WatchConfigFile bool
 	RemoteConfig    config.RemoteSource
-	// ConfigLayers 契约源层（ConfigLayers Option；FromBootstrap 经
+	// ConfigLayers 契约源层（ConfigLayers Option；约定装配经
 	// ConfigRegistry.Build 产出后追加）。
 	ConfigLayers []config.Layer
 	// StrictContract 与 BusinessSections 成对：开关 + 应用自持顶层段白名单
@@ -119,7 +118,7 @@ type Decl struct {
 	// ---- 资源域契约装配注册表（WithRegistrarRegistry/WithConfigRegistry/
 	// WithServerRegistry/WithDatabaseRegistry/WithCacheRegistry/
 	// WithStorageRegistry/WithAiRegistry/WithWorkflowRegistry/
-	// WithBrokerRegistry 声明；FromBootstrap 阶段 B 逐域 Build） ----
+	// WithBrokerRegistry 声明；assemble 阶段 B 逐域 Build） ----
 	RegistrarRegistry *baldbootstrap.RegistrarRegistry
 	ConfigRegistry    *baldbootstrap.ConfigRegistry
 	ServerRegistry    *baldbootstrap.ServerRegistry
@@ -189,7 +188,7 @@ type BindDecl struct {
 	Opt    any
 }
 
-// defaultDecl 返回带缺省值的空声明（New 与 FromBootstrap 共用的构造起点；
+// defaultDecl 返回带缺省值的空声明（NewApp 与 assemble 的 kitOpts 共用的构造起点；
 // 缺省值与旧 New 的结构体字面量逐字段一致：ID 随机实例后缀，元数据默认值，
 // 超时默认值。探针路径刻意不预填——空值即「未声明」，由 WithHealth 置默认）。
 func defaultDecl() Decl {

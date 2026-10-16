@@ -10,14 +10,14 @@ import (
 	log "github.com/kalandramo/bald/log"
 )
 
-// FromBootstrap 必须提供业务配置对象的 flag 绑定通道。
+// 约定装配必须提供业务配置对象的 flag 绑定通道。
 //
-// 缺口：FromBootstrap 只硬编码 Bind("server.http"/"server.grpc"/log)，没有业务
+// 缺口：约定装配只硬编码 Bind("server.http"/"server.grpc"/log)，没有业务
 // 绑定入口——业务 flag（如 --login.rate_limit.rate）无法进入装载 FlagSet，
 // 「flag > env > 文件」优先级链对业务配置项整条失效（静默忽略用户显式传参）。
 //
 // 断言：经 WithBind 注册的配置对象，其 flag 能覆盖配置文件中的同名键。
-func TestFromBootstrap_BusinessBindFlagOverridesFile(t *testing.T) {
+func TestAssemble_BusinessBindFlagOverridesFile(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
 
@@ -28,10 +28,7 @@ func TestFromBootstrap_BusinessBindFlagOverridesFile(t *testing.T) {
 	cfg := bconf.NewBootstrap()
 	dynamicAddr(cfg)
 
-	a, err := FromBootstrap(cfg, WithConfigNamespace(testConfigNamespace), WithBind("", opts))
-	if err != nil {
-		t.Fatalf("FromBootstrap: %v", err)
-	}
+	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), WithBind("", opts))
 	if err := a.loadConfig(); err != nil {
 		t.Fatalf("loadConfig: %v", err)
 	}
@@ -42,7 +39,7 @@ func TestFromBootstrap_BusinessBindFlagOverridesFile(t *testing.T) {
 }
 
 // 反向：未传 flag 时文件值仍生效（WithBind 不得破坏既有优先级）。
-func TestFromBootstrap_BusinessBindFileStillApplies(t *testing.T) {
+func TestAssemble_BusinessBindFileStillApplies(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
 
@@ -53,10 +50,7 @@ func TestFromBootstrap_BusinessBindFileStillApplies(t *testing.T) {
 	cfg := bconf.NewBootstrap()
 	dynamicAddr(cfg)
 
-	a, err := FromBootstrap(cfg, WithConfigNamespace(testConfigNamespace), WithBind("", opts))
-	if err != nil {
-		t.Fatalf("FromBootstrap: %v", err)
-	}
+	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), WithBind("", opts))
 	if err := a.loadConfig(); err != nil {
 		t.Fatalf("loadConfig: %v", err)
 	}

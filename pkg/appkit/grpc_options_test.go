@@ -14,7 +14,7 @@ import (
 	log "github.com/kalandramo/bald/log"
 )
 
-// WithGRPCOptions：gRPC 选项工厂必须在 **Run 期**求值，而非 FromBootstrap 构造期。
+// WithGRPCOptions：gRPC 选项工厂必须在 **Run 期**求值，而非装配构造期。
 //
 // 为什么：选项常含拦截器链，而链需要认证器/授权器——它们在业务 beforeStart 才建立。
 // WithGRPC 的 unary 变参在调用点即求值（Go 语义），构造期只能拿到 nil，业务被迫用
@@ -24,7 +24,7 @@ import (
 // 断言（RED 时期望失败）：
 //   - 构造期：选项工厂**未被调用**；
 //   - Run 期：调用顺序为 beforeStart → optionsFn → register。
-func TestFromBootstrap_GRPCOptionsEvaluatedAtRunTime(t *testing.T) {
+func TestAssemble_GRPCOptionsEvaluatedAtRunTime(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
 
@@ -44,7 +44,7 @@ func TestFromBootstrap_GRPCOptionsEvaluatedAtRunTime(t *testing.T) {
 		return strings.Join(order, ",")
 	}
 
-	a, err := FromBootstrap(cfg,
+	a := assembleForTest(t, cfg,
 		WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
 		WithGRPC(func(*grpc.Server) { mark("register") }),
 		WithGRPCOptions(func() []grpc.ServerOption {
@@ -53,13 +53,10 @@ func TestFromBootstrap_GRPCOptionsEvaluatedAtRunTime(t *testing.T) {
 		}),
 		WithBeforeStart(func(context.Context) error { mark("beforeStart"); return nil }),
 	)
-	if err != nil {
-		t.Fatalf("FromBootstrap: %v", err)
-	}
 
 	// 构造期：选项工厂不得被调用（这正是本能力的意义）。
 	if got := snapshot(); strings.Contains(got, "optionsFn") {
-		t.Fatalf("gRPC options factory ran during FromBootstrap (order=%q); "+
+		t.Fatalf("gRPC options factory ran during construction (order=%q); "+
 			"want deferred to Run -- 否则构造期拿不到运行期依赖", got)
 	}
 

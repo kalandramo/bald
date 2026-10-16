@@ -16,7 +16,7 @@
 //	br := bootstrap.NewBrokerRegistry()
 //	br.MustRegister(kafkacontract.Type, kafkacontract.Provider)         // "kafka"
 //	br.MustRegister(rabbitmqcontract.Type, rabbitmqcontract.Provider)   // "rabbitmq"
-//	app, err := appkit.FromBootstrap(cfg, appkit.WithBrokerRegistry(br), ...)
+//	appkit.Serve(ctx, appkit.WithBrokerRegistry(br), ...)
 //	// Run 后取实例：
 //	b   := app.Broker(kafkacontract.Type).(*kafka.KafkaBroker)
 //	pub := app.Publish(kafkacontract.Type, "events", &broker.Message{...})
@@ -33,15 +33,15 @@ import (
 // WithBrokerRegistry 注入消息代理后端的契约装配注册表（显式注册 provider，
 // 见 bootstrap.BrokerRegistry）。契约 broker 段任一后端段存在时，阶段 B
 // 按段名查表构建实例；broker 段不支持热更新。
-func WithBrokerRegistry(r *baldbootstrap.BrokerRegistry) BootstrapOption {
-	return func(s *bootstrapSpec) { s.BrokerRegistry = r }
+func WithBrokerRegistry(r *baldbootstrap.BrokerRegistry) Option {
+	return optionFunc(func(s *Decl) { s.BrokerRegistry = r })
 }
 
 // buildBrokers 在阶段 B（契约装载校验后）按契约 broker 段构建全部已配置
 // 后端的消息代理实例，存入 a.brokers 供业务经 Broker/Brokers 取用。
 // broker 段缺失为 no-op；段存在但未接 BrokerRegistry 则 fail-fast。
-// 返回聚合 cleanup（可为 nil），由 FromBootstrap 挂停机 Effect。
-func buildBrokers(a *AppKit, cfg *bootstrapv1.BootstrapConfig, spec *bootstrapSpec) (func(), error) {
+// 返回聚合 cleanup（可为 nil），由 assemble 挂停机 Effect。
+func buildBrokers(a *AppKit, cfg *bootstrapv1.BootstrapConfig, spec *Decl) (func(), error) {
 	bcfg := cfg.GetBroker()
 	if bcfg == nil {
 		return nil, nil // 未配置任何消息代理
@@ -58,7 +58,7 @@ func buildBrokers(a *AppKit, cfg *bootstrapv1.BootstrapConfig, spec *bootstrapSp
 }
 
 // Broker 返回按契约段装配的消息代理实例（阶段 B 后、Run 期可用；
-// FromBootstrap 构造期尚未装载契约，返回空）。
+// 装配构造期尚未装载契约，返回空）。
 // typ 为契约段名（见 broker/<impl>/contract.Type，如 "kafka"）。
 // 并发语义：brokers 只在 BeforeStart（阶段 B）单次写入，Run 后只读，
 // happens-before 由 Run 启动流程保证。

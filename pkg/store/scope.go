@@ -50,7 +50,7 @@ func RegisterDataScope(fn DataScopeFunc) {
 // 用法（与 appkit.Effect 配对，使停机逆序回放自动撤销）：
 //
 //	dispose := store.RegisterDataScopeWithDisposer(myScope)
-//	app := appkit.New(appkit.Effect("data-scope", func(context.Context) error { dispose(); return nil }))
+//	app := appkit.NewApp(appkit.Effect("data-scope", func(context.Context) error { dispose(); return nil }))
 func RegisterDataScopeWithDisposer(fn DataScopeFunc) (dispose func()) {
 	scopeMu.Lock()
 	dataScopes = append(dataScopes, fn)

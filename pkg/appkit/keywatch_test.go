@@ -85,7 +85,7 @@ func (c *kwCollector) waitN(t *testing.T, n int, timeout time.Duration) []kwEven
 func TestOnKeyChange_TriggersOnDiff(t *testing.T) {
 	src := newKWSource("http:\n  addr: \":8080\"\n")
 	col := &kwCollector{}
-	app := New(
+	app := NewApp(
 		RemoteConfig(src),
 		OnKeyChange("http.addr", col.record),
 	)
@@ -104,7 +104,7 @@ func TestOnKeyChange_TriggersOnDiff(t *testing.T) {
 func TestOnKeyChange_NoTriggerOnSame(t *testing.T) {
 	src := newKWSource("http:\n  addr: \":8080\"\n")
 	col := &kwCollector{}
-	app := New(
+	app := NewApp(
 		RemoteConfig(src),
 		OnKeyChange("http.addr", col.record),
 	)
@@ -124,7 +124,7 @@ func TestOnKeyChange_NoTriggerOnSame(t *testing.T) {
 func TestOnKeyChange_MultipleKeys(t *testing.T) {
 	src := newKWSource("http:\n  addr: \":8080\"\ngrpc:\n  addr: \":9080\"\n")
 	colA, colB := &kwCollector{}, &kwCollector{}
-	app := New(
+	app := NewApp(
 		RemoteConfig(src),
 		OnKeyChange("http.addr", colA.record),
 		OnKeyChange("grpc.addr", colB.record),
@@ -147,7 +147,7 @@ func TestOnKeyChange_WithUserOnChange(t *testing.T) {
 	col := &kwCollector{}
 	fullRuns := 0
 	var mu sync.Mutex
-	app := New(
+	app := NewApp(
 		RemoteConfig(src),
 		OnKeyChange("http.addr", col.record),
 		OnConfigChange(func(map[string]any) {
@@ -174,7 +174,7 @@ func TestOnKeyChange_WithUserOnChange(t *testing.T) {
 func TestOnKeyChange_MultiUpdate(t *testing.T) {
 	src := newKWSource("http:\n  addr: \":8080\"\n")
 	col := &kwCollector{}
-	app := New(
+	app := NewApp(
 		RemoteConfig(src),
 		OnKeyChange("http.addr", col.record),
 	)

@@ -187,7 +187,7 @@ func TestBuildAudit(t *testing.T) {
 	t.Cleanup(func() { audit.SetAuditor(old) })
 
 	// 段缺省：no-op（全局不动）。
-	st, err := buildAudit(nil, &bootstrapv1.BootstrapConfig{}, &bootstrapSpec{})
+	st, err := buildAudit(nil, &bootstrapv1.BootstrapConfig{}, &Decl{})
 	if err != nil || st != nil {
 		t.Fatalf("no section: st=%v err=%v", st, err)
 	}
@@ -195,13 +195,13 @@ func TestBuildAudit(t *testing.T) {
 	// 空列表：fail-fast。
 	cfg := &bootstrapv1.BootstrapConfig{}
 	cfg.Audit = &bootstrapv1.Audit{}
-	if _, err := buildAudit(nil, cfg, &bootstrapSpec{}); err == nil {
+	if _, err := buildAudit(nil, cfg, &Decl{}); err == nil {
 		t.Fatal("empty backends should fail")
 	}
 
 	// [log]：无 Registry 也装配（内置）。
 	cfg.Audit = auditCfg("log")
-	st, err = buildAudit(nil, cfg, &bootstrapSpec{})
+	st, err = buildAudit(nil, cfg, &Decl{})
 	if err != nil {
 		t.Fatalf("log builtin: %v", err)
 	}
@@ -215,7 +215,7 @@ func TestBuildAudit(t *testing.T) {
 	// [store]：无 Registry fail-fast，错误直指缺失后端（升级前为
 	// 「no AuditRegistry wired」）。
 	cfg.Audit = auditCfg("store")
-	_, err = buildAudit(nil, cfg, &bootstrapSpec{})
+	_, err = buildAudit(nil, cfg, &Decl{})
 	if err == nil || !strings.Contains(err.Error(), `provider "store" not registered`) {
 		t.Fatalf("store without registry should fail with provider error, got %v", err)
 	}
@@ -226,7 +226,7 @@ func TestBuildAudit(t *testing.T) {
 	audit.SetAuditor(marker)
 
 	var events []string
-	spec := &bootstrapSpec{AuditRegistry: NewAuditRegistry()}
+	spec := &Decl{AuditRegistry: NewAuditRegistry()}
 	spec.AuditRegistry.MustRegister("store", backendProvider("store", &events, nil, nil))
 	spec.AuditRegistry.MustRegister("stream", backendProvider("stream", &events, nil, nil))
 	cfg.Audit = auditCfg("store", "stream")

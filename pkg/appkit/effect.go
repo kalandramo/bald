@@ -11,7 +11,7 @@
 //
 //	old := audit.GetAuditor()
 //	audit.SetAuditor(storeAuditor)
-//	app := appkit.New(
+//	app := appkit.NewApp(
 //	    appkit.Effect("audit-gorm", func(ctx context.Context) error {
 //	        audit.SetAuditor(old) // 恢复旧值
 //	        return nil
@@ -21,7 +21,7 @@
 //
 // e2e 测试隔离用法（免跑完整 Run）：
 //
-//	app := appkit.New(appkit.Effect(...))
+//	app := appkit.NewApp(appkit.Effect(...))
 //	t.Cleanup(func() { app.UndoEffects(context.Background()) })
 package appkit
 

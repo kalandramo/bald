@@ -21,14 +21,14 @@
 // tracer 中间件在首个请求前接入全局 Provider。两段均不支持热更新
 // （exporter/Provider 重建侵入大，与 registry 段同款决策）。
 //
-// 用法（FromBootstrap 路径）：
+// 用法（Serve 路径）：
 //
 //	tr := appkit.NewTracerRegistry()
 //	tr.MustRegister(otlpcontract.TracerType, otlpcontract.NewTracerProvider("my-app"))
 //	mr := appkit.NewMetricsRegistry()
 //	mr.MustRegister(otlpcontract.TypePrometheus, otlpcontract.NewPrometheusProvider("my-app"))
 //	mr.MustRegister(otlpcontract.TypeOTLP, otlpcontract.NewOTLPProvider("my-app"))
-//	app, err := appkit.FromBootstrap(cfg,
+//	appkit.Serve(ctx,
 //	    appkit.WithTracerRegistry(tr),
 //	    appkit.WithMetricsRegistry(mr), ...)
 //
@@ -53,7 +53,7 @@ import (
 // ---------------------------------------------------------------------------
 
 // TracerProvider 按契约 Tracer 段装配全局 trace 后端。
-// 返回 shutdown（flush 缓冲 span，进程退出前调用），由 FromBootstrap 挂
+// 返回 shutdown（flush 缓冲 span，进程退出前调用），由 assemble 挂
 // 停机 Effect 逆序回放（最后执行，收集全部尾批 span）。未开启远端的实现
 // 返回 no-op shutdown。
 type TracerProvider func(ctx context.Context, cfg *bootstrapv1.Tracer) (func(context.Context) error, error)
@@ -94,7 +94,7 @@ func (r *TracerRegistry) Build(ctx context.Context, cfg *bootstrapv1.Tracer) (fu
 
 // MetricsProvider 按契约 Metrics 段装配指标后端。
 // 返回 (handler, shutdown)：handler 是 Prometheus 抓取端（挂独立端口，
-// 由 StartMetricsServer / FromBootstrap 起 http.Server）；shutdown flush
+// 由 StartMetricsServer / 约定装配起 http.Server）；shutdown flush
 // OTLP 直推通道并释放 MeterProvider（进程退出前调用）。
 type MetricsProvider func(ctx context.Context, cfg *bootstrapv1.Metrics) (http.Handler, func(context.Context) error, error)
 
@@ -162,7 +162,7 @@ func StartMetricsServer(addr, path string, h http.Handler) *http.Server {
 }
 
 // ---------------------------------------------------------------------------
-// FromBootstrap 集成（阶段 B 构建 + Effect 回放）
+// 约定装配集成（阶段 B 构建 + Effect 回放）
 // ---------------------------------------------------------------------------
 
 // observabilityState 承载阶段 B（BeforeStart）装配、停机期消费的句柄
@@ -176,10 +176,10 @@ type observabilityState struct {
 // buildObservability 在阶段 B（契约装载校验后）按 tracer / metrics 段装配
 // 可观测性：tracer Build 设全局 Provider；metrics Build 产出抓取端 handler，
 // 经 StartMetricsServer 起独立端口。段缺失为 no-op；段存在但未接对应
-// Registry 则 fail-fast（配置意图无法兑现）。返回停机句柄，由 FromBootstrap
+// Registry 则 fail-fast（配置意图无法兑现）。返回停机句柄，由 assemble
 // 挂 Effect（注册序早于 bootstrap-logger → 逆序回放最后执行：所有组件
 // cleanup 完成后再 flush 尾批指标与 span）。
-func buildObservability(cfg *bootstrapv1.BootstrapConfig, spec *bootstrapSpec) (*observabilityState, error) {
+func buildObservability(cfg *bootstrapv1.BootstrapConfig, spec *Decl) (*observabilityState, error) {
 	st := &observabilityState{}
 
 	if tcfg := cfg.GetTracer(); tcfg != nil {

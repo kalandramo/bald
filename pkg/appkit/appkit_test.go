@@ -70,7 +70,7 @@ func TestBug1_StopTimeoutRespected(t *testing.T) {
 	srv := newMock("s1")
 	srv.stopDelay = 30 * time.Millisecond
 
-	app := New(
+	app := NewApp(
 		Name("bug1"),
 		StopTimeout(50*time.Millisecond),
 		Servers(srv),
@@ -96,7 +96,7 @@ func TestBug3_CrashCascadeStop(t *testing.T) {
 	bad := newMock("bad")
 	bad.startErr = errors.New("boom")
 
-	app := New(
+	app := NewApp(
 		Name("bug3"),
 		Servers(good, bad),
 	)
@@ -129,7 +129,7 @@ func TestRun_SuccessThenRetryDoesNotPanic(t *testing.T) {
 	withArgs(t, []string{})
 
 	srv := newMock("retry-once")
-	app := New(Name("retry-once"), Servers(srv))
+	app := NewApp(Name("retry-once"), Servers(srv))
 
 	runOnce := func(tag string) (err error) {
 		defer func() {
@@ -163,7 +163,7 @@ func TestRun_SuccessThenRetryDoesNotPanic(t *testing.T) {
 // 防重入：重复调用 Run 应返回 ErrAlreadyRunning。
 func TestRun_NoReentrant(t *testing.T) {
 	srv := newMock("s")
-	app := New(Name("reentrant"), Servers(srv))
+	app := NewApp(Name("reentrant"), Servers(srv))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -189,7 +189,7 @@ func TestRun_NoReentrant(t *testing.T) {
 // 可观察性：Run 结束后 Done() 应关闭。
 func TestObservability_DoneAndErr(t *testing.T) {
 	srv := newMock("obs")
-	app := New(Name("obs"), Servers(srv))
+	app := NewApp(Name("obs"), Servers(srv))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
@@ -220,7 +220,7 @@ func TestRun_ConfigLoadFailureAllowsRetry(t *testing.T) {
 	withArgs(t, []string{})
 
 	// 用一个必然失败的 Bind 让 loadConfig 返回错误。
-	a := New(Name("retry"), Bind("http", struct{}{}))
+	a := NewApp(Name("retry"), Bind("http", struct{}{}))
 
 	if err := a.Run(context.Background()); err == nil {
 		t.Fatal("Run succeeded, want config load error")
@@ -253,7 +253,7 @@ func TestRun_ConcurrentLoadConfigSafe(t *testing.T) {
 	withArgs(t, []string{})
 
 	srv := newMock("concurrent")
-	a := New(Name("concurrent"), Servers(srv))
+	a := NewApp(Name("concurrent"), Servers(srv))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -295,7 +295,7 @@ func TestRegistry_RegisterDeregister(t *testing.T) {
 	reg := &recordingRegistrar{}
 	srv := newMock("reg1")
 
-	app := New(
+	app := NewApp(
 		ID("node-1"),
 		Name("svc"),
 		Version("v1"),
@@ -341,7 +341,7 @@ func TestP0_StopPhasesOrderAndTimeout(t *testing.T) {
 	srv := newMock("phased")
 	srv.stopDelay = 5 * time.Millisecond
 
-	app := New(
+	app := NewApp(
 		Name("phased"),
 		StopTimeout(50*time.Millisecond),
 		Servers(srv),
@@ -389,7 +389,7 @@ func TestP0_HookPanicIsolated(t *testing.T) {
 	srv := newMock("panichook")
 	srv.stopDelay = 2 * time.Millisecond
 
-	app := New(
+	app := NewApp(
 		Name("panichook"),
 		Servers(srv),
 		BeforeStop(func(ctx context.Context) error {
@@ -502,7 +502,7 @@ func TestAppKit_ConfigLoadedAndExposed(t *testing.T) {
 	srv := newMock("cfg")
 	var loadedAddr string
 	var app *AppKit
-	app = New(
+	app = NewApp(
 		Name("cfg-demo"),
 		ConfigFile(localPath),
 		RemoteConfig(remote),
@@ -535,7 +535,7 @@ func TestAppKit_ConfigMissingFileNoError(t *testing.T) {
 	srv := newMock("cfg2")
 	var loadedAddr string
 	var app *AppKit
-	app = New(
+	app = NewApp(
 		Name("cfg-demo"),
 		// 不传 ConfigFile：纯远程/纯 flag 配置，本地文件缺失不应报错（onexstack 风格）。
 		RemoteConfig(remote),
@@ -565,7 +565,7 @@ func TestAppKit_MultiServerEndpointAggregation(t *testing.T) {
 	httpSrv := httpserver.NewHTTPServer(&bootstrapv1.Server_Http{Addr: ":0"}, http.NewServeMux())
 	grpcSrv := grpcserver.NewGRPCServerWithRegister(&bootstrapv1.Server_Grpc{Addr: ":0"}, nil, nil)
 
-	app := New(
+	app := NewApp(
 		ID("node-multi"),
 		Name("multi-svc"),
 		Version("v1.2.3"),
@@ -631,7 +631,7 @@ func TestAppKit_MultiServerEndpointAggregation(t *testing.T) {
 // 本测试锁住该行为——若回归，注册阶段会重新崩。
 func TestD16_NonRegistrableEndpointFiltered(t *testing.T) {
 	// 直接构造 AppKit（不 Run）：buildInstance 是纯函数，无需启动 server。
-	app := New(
+	app := NewApp(
 		ID("node-d16"),
 		Name("d16-svc"),
 		Servers(

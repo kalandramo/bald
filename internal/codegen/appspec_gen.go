@@ -172,7 +172,7 @@ func serveRunE(_ *cobra.Command, _ []string) error {
 	))
 {{- end }}
 
-	app := appkit.New(capOpts...)
+	app := appkit.NewApp(capOpts...)
 	if err := app.Run(context.Background()); err != nil {
 		baldlog.Error(context.Background(), "{{ .Meta.Name }} exited", "error", err)
 		return err

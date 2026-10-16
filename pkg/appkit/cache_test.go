@@ -13,11 +13,11 @@ import (
 	"github.com/kalandramo/bald/log"
 )
 
-// FromBootstrap 契约装配：阶段 B 构建 → Cache 取用 → 停机 cleanup。
+// 约定装配：阶段 B 构建 → Cache 取用 → 停机 cleanup。
 // Registry 行为测试（注册/段枚举/回滚）已随六域 Registry 迁 bootstrap
 // （bootstrap/cache_test.go，2026-09-15）。
 
-func TestFromBootstrap_ContractCacheLifecycle(t *testing.T) {
+func TestAssemble_ContractCacheLifecycle(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
 
@@ -36,10 +36,7 @@ func TestFromBootstrap_ContractCacheLifecycle(t *testing.T) {
 		Local: &bootstrapv1.Cache_Local{Size: 1024 * 1024, DefaultTtlSeconds: 60},
 	}
 
-	a, err := FromBootstrap(cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), WithCacheRegistry(cr))
-	if err != nil {
-		t.Fatalf("FromBootstrap: %v", err)
-	}
+	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), WithCacheRegistry(cr))
 	// 构造期（阶段 A）尚未装载契约：Cache 为空
 	if _, ok := a.Cache("local"); ok {
 		t.Fatal("Cache should be empty before Run (phase B not reached)")
@@ -76,7 +73,7 @@ func TestFromBootstrap_ContractCacheLifecycle(t *testing.T) {
 }
 
 // 契约 cache 段存在但未接 CacheRegistry → 阶段 B fail-fast。
-func TestFromBootstrap_CacheSectionWithoutTable(t *testing.T) {
+func TestAssemble_CacheSectionWithoutTable(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
 
@@ -86,28 +83,22 @@ func TestFromBootstrap_CacheSectionWithoutTable(t *testing.T) {
 		Local: &bootstrapv1.Cache_Local{Size: 1024},
 	}
 
-	a, err := FromBootstrap(cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
-	if err != nil {
-		t.Fatalf("FromBootstrap (构造期不校验合并后配置): %v", err)
-	}
-	err = a.Run(context.Background())
+	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
+	err := a.Run(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "CacheRegistry") {
 		t.Fatalf("expected CacheRegistry missing error, got %v", err)
 	}
 }
 
 // cache 段缺失 → no-op，不要求接注册表。
-func TestFromBootstrap_NoCacheSection(t *testing.T) {
+func TestAssemble_NoCacheSection(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
 
 	cfg := bconf.NewBootstrap()
 	dynamicAddr(cfg)
 
-	a, err := FromBootstrap(cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
-	if err != nil {
-		t.Fatalf("FromBootstrap: %v", err)
-	}
+	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- a.Run(ctx) }()

@@ -33,11 +33,11 @@ func TestInstanceID_SuffixLength(t *testing.T) {
 
 // TestIDOption_OverridesDefault 显式 ID Option 覆盖随机默认（K8s 固定 pod 名等场景）。
 func TestIDOption_OverridesDefault(t *testing.T) {
-	a := New(ID("fixed-instance"))
+	a := NewApp(ID("fixed-instance"))
 	if a.id != "fixed-instance" {
 		t.Fatalf("ID option not applied: got %q", a.id)
 	}
-	other := New()
+	other := NewApp()
 	if other.id == a.id {
 		t.Fatalf("default instance id %q must differ from explicit ID", other.id)
 	}

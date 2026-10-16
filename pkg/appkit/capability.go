@@ -5,7 +5,7 @@
 // issueToken 在 InitBridges 之前调用 → Signer nil panic）。S1 把依赖显式化：
 // 装配期声明 Provides/Requires，启动早期 Resolve 校验，缺依赖 fail-fast：
 //
-//	app := appkit.New(
+//	app := appkit.NewApp(
 //	    appkit.Provides("db", "cache-redis"),   // BeforeStart 将建立的能力
 //	    appkit.Requires("audit.store", "db"),   // 审计落库依赖 DB
 //	)

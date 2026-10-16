@@ -16,28 +16,26 @@ const (
 	DefaultReadyPath  = "/readyz"  // 就绪探针（依赖检查，Down → 503）
 )
 
-// HealthOption 配置 appkit 的健康检查默认装配。
-type HealthOption func(*bootstrapSpec)
-
 // WithProbePaths 覆盖 HTTP 探针路径（默认 /healthz /readyz）；空值忽略。
-func WithProbePaths(live, ready string) HealthOption {
-	return func(s *bootstrapSpec) {
+// 作为 WithHealth 的变参项使用（原 HealthOption 类型已并入唯一 Option 类型）。
+func WithProbePaths(live, ready string) Option {
+	return optionFunc(func(s *Decl) {
 		if live != "" {
 			s.ProbeLivePath = live
 		}
 		if ready != "" {
 			s.ProbeReadyPath = ready
 		}
-	}
+	})
 }
 
 // WithHealthPollInterval 覆盖 gRPC 侧就绪状态同步间隔（默认 2s）。
-func WithHealthPollInterval(d time.Duration) HealthOption {
-	return func(s *bootstrapSpec) {
+func WithHealthPollInterval(d time.Duration) Option {
+	return optionFunc(func(s *Decl) {
 		if d > 0 {
 			s.HealthInterval = d
 		}
-	}
+	})
 }
 
 // WithHealth 装配健康检查：HTTP/gateway 双探针 + gRPC 标准健康服务状态联动。
@@ -46,20 +44,22 @@ func WithHealthPollInterval(d time.Duration) HealthOption {
 // 框架路由）；gRPC 侧由 bootstrap 后台轮询 h 并把结果 SetServingStatus。
 // **不声明则不挂任何探针**——业务也可以完全自行组装：把 health.NewHandler(h)
 // 挂进自己的 gin/mux 即可。见《Bald 健康检查装配设计》。
-func WithHealth(h *health.Health, opts ...HealthOption) BootstrapOption {
-	return func(s *bootstrapSpec) {
+func WithHealth(h *health.Health, opts ...Option) Option {
+	return optionFunc(func(s *Decl) {
 		s.Health = h
 		s.ProbeLivePath = DefaultHealthPath
 		s.ProbeReadyPath = DefaultReadyPath
 		for _, o := range opts {
-			o(s)
+			if o != nil {
+				o.Apply(s)
+			}
 		}
-	}
+	})
 }
 
 // WithProbes 在业务 handler 外层包一层探针 mux（精确路径给探针，其余交给业务），
-// 导出给手工装配场景复用：CLI 生成的 app、不用 FromBootstrap 的装配代码。
-// live/ready 传空串时用默认路径（/healthz、/readyz）。
+// 导出给手工装配（NewApp + Servers）场景复用：CLI 生成的 app、不走 Serve 的
+// 装配代码。live/ready 传空串时用默认路径（/healthz、/readyz）。
 func WithProbes(business http.Handler, h *health.Health, live, ready string) http.Handler {
 	if live == "" {
 		live = DefaultHealthPath

@@ -8,7 +8,7 @@
 // 顶层段，减去本次装配真实被消费的段，剩余即打一条 warning：不报错、
 // 不做白名单。
 //
-// 调用点：FromBootstrap 的 BeforeStart 装配链末尾（契约已装载定型、各段
+// 调用点：assemble 的 BeforeStart 装配链末尾（契约已装载定型、各段
 // 消费与否已见分晓）——见 consumedSegments 的注释。
 package appkit
 
@@ -44,10 +44,10 @@ func presentTopLevelSegments(cfg *bootstrapv1.BootstrapConfig) []string {
 	return out
 }
 
-// consumedSegments 计算本次装配真实消费的顶层段。逐条对应 FromBootstrap
+// consumedSegments 计算本次装配真实消费的顶层段。逐条对应约定装配
 // 的真实消费路径（以代码为准，勿凭段名推测）：
 //
-//   - app / logger：无条件消费——app 元数据在 FromBootstrap 构造期读入
+//   - app / logger：无条件消费——app 元数据在装配构造期读入
 //     kitOpts（bootstrap.go 的 ID/Name/Version/Env/StopTimeout）；logger 由
 //     BeforeStart 的 rebuildLogger 无条件按契约重建（段缺失时回退默认后端）。
 //   - registry / tracer / metrics / database / cache / storage / ai /
@@ -64,7 +64,7 @@ func presentTopLevelSegments(cfg *bootstrapv1.BootstrapConfig) []string {
 //     WithGRPC）或注入 WithServerRegistry 时消费——此时 Run 期
 //     BuildServers 必然运行并对已出现的子段逐个查表（未实现子段 fail-fast）；
 //     未声明任何能力时 server.* 配置不产生任何服务器（刻意语义，见
-//     FromBootstrap 文档「能力声明在代码」），段值虽经 Bind 参与合并，
+//     「能力声明在代码」的约定），段值虽经 Bind 参与合并，
 //     但无装配消费——照实告警。唯一豁口：server 段与 bconf.NewBootstrap()
 //     的预填默认值深相等（proto.Equal）时视为已消费——预填是框架自己的
 //     行为，对其告警属自相矛盾的噪音；用户改过其中任何子字段（哪怕只改
@@ -72,7 +72,7 @@ func presentTopLevelSegments(cfg *bootstrapv1.BootstrapConfig) []string {
 //
 // 之外的一切段名（含 script 与未来新增、本函数尚未认识的段）默认无消费者，
 // 由调用方告警。
-func consumedSegments(cfg *bootstrapv1.BootstrapConfig, spec *bootstrapSpec, serverWired bool) map[string]bool {
+func consumedSegments(cfg *bootstrapv1.BootstrapConfig, spec *Decl, serverWired bool) map[string]bool {
 	m := make(map[string]bool, 14)
 	for _, s := range []string{
 		"app", "logger",
@@ -93,7 +93,7 @@ func consumedSegments(cfg *bootstrapv1.BootstrapConfig, spec *bootstrapSpec, ser
 // warnUnconsumedSegments 检查「实际出现的顶层段 − 本次装配被消费的段」，
 // 有剩余则打一条 warning 列出未覆盖段名。告警级：不报错、不拦截启动——
 // 文案给出可行动的出路（等实现或从契约移除）。
-func warnUnconsumedSegments(ctx context.Context, cfg *bootstrapv1.BootstrapConfig, spec *bootstrapSpec, serverWired bool) {
+func warnUnconsumedSegments(ctx context.Context, cfg *bootstrapv1.BootstrapConfig, spec *Decl, serverWired bool) {
 	consumed := consumedSegments(cfg, spec, serverWired)
 	var uncovered []string
 	for _, s := range presentTopLevelSegments(cfg) {

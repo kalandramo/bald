@@ -17,14 +17,14 @@ import (
 // 运行期装配：server 构造必须发生在 beforeStart 钩子链**之后**。
 //
 // 为什么：业务声明的路由/gRPC service 依赖 beforeStart 建立的运行期资源
-// （DB/Redis/仓储）。若 server 构造仍在 FromBootstrap 构造期执行，消费方
+// （DB/Redis/仓储）。若 server 构造仍在装配构造期执行，消费方
 // （register 回调、handler）就早于依赖就绪——业务被迫改用请求期懒解析
 // （lazyAuthn/lazySigner 适配器族 + 请求期读包级 store）绕开该时序。
 //
 // 断言（RED 时期望失败）：
 //   - 构造期：register 未被调用；
 //   - Run 期：顺序恰为 beforeStart → register。
-func TestFromBootstrap_ServerConstructionAfterBeforeStart(t *testing.T) {
+func TestAssemble_ServerConstructionAfterBeforeStart(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
 
@@ -44,17 +44,14 @@ func TestFromBootstrap_ServerConstructionAfterBeforeStart(t *testing.T) {
 		return strings.Join(order, ",")
 	}
 
-	a, err := FromBootstrap(cfg,
+	a := assembleForTest(t, cfg,
 		WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
 		WithGRPC(func(*grpc.Server) { mark("register") }),
 		WithBeforeStart(func(context.Context) error { mark("beforeStart"); return nil }),
 	)
-	if err != nil {
-		t.Fatalf("FromBootstrap: %v", err)
-	}
 
 	if got := snapshot(); strings.Contains(got, "register") {
-		t.Fatalf("server construction ran during FromBootstrap (order=%q); want deferred to Run", got)
+		t.Fatalf("server construction ran during construction (order=%q); want deferred to Run", got)
 	}
 
 	runBriefly(t, a, 50*time.Millisecond)

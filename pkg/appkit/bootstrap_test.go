@@ -1,6 +1,6 @@
 package appkit
 
-// FromBootstrap 约定装配层的单测（2026-09-06）。
+// 约定装配层（assemble，经 Serve 触达）的单测（2026-09-06）。
 //
 // 覆盖：元数据契约驱动、能力声明 fail-fast、服务器构造、日志两阶段生命周期
 // （阶段 A 默认 → 阶段 B 契约重建 → 停机恢复）、ConfigRegistry 层装配与
@@ -51,7 +51,7 @@ func TestResolveLoggerFactory(t *testing.T) {
 		}
 		return stubLogger(), nil, nil
 	})
-	regFac := resolveLoggerFactory(&bootstrapSpec{LogRegistry: lr})
+	regFac := resolveLoggerFactory(&Decl{LogRegistry: lr})
 
 	lg, _, err := regFac(context.Background(), nil)
 	if err != nil {
@@ -81,7 +81,7 @@ func TestResolveLoggerFactory(t *testing.T) {
 	}
 
 	// ③ 都不声明 → 默认纯函数路径：阶段 A 回退可用。
-	defFac := resolveLoggerFactory(&bootstrapSpec{})
+	defFac := resolveLoggerFactory(&Decl{})
 	lg2, _, err := defFac(context.Background(), nil)
 	if err != nil || lg2 == nil {
 		t.Fatalf("default path phase A: (%v, %v)", lg2, err)
@@ -91,7 +91,7 @@ func TestResolveLoggerFactory(t *testing.T) {
 // 默认路径纯函数分派：阶段 A 回退；type=slog 直构；其余 type（含远端后端与
 // 已删除的 nop）fail-fast 教学报错（错误给出 WithLogRegistry 用法），绝不静默降级。
 func TestDefaultPath(t *testing.T) {
-	fac := resolveLoggerFactory(&bootstrapSpec{})
+	fac := resolveLoggerFactory(&Decl{})
 
 	// 阶段 A（l==nil）：回退默认 bslog。
 	if lg, _, err := fac(context.Background(), nil); err != nil || lg == nil {
@@ -153,7 +153,7 @@ func TestDefaultPath(t *testing.T) {
 // TestDefaultPath_FilterKeys 全局脱敏在默认路径生效：type=slog 特例
 // 与 backends 直构路径出口包 FilterLogger（filter_keys 与 deco 可叠加）。
 func TestDefaultPath_FilterKeys(t *testing.T) {
-	fac := resolveLoggerFactory(&bootstrapSpec{})
+	fac := resolveLoggerFactory(&Decl{})
 
 	// 单 slog 项直构路径。
 	path := filepath.Join(t.TempDir(), "filter-slog.log")
@@ -203,7 +203,7 @@ func TestDefaultPath_FilterKeys(t *testing.T) {
 // TestDefaultPath_SlogDecorators type=slog 在默认路径保留装饰器语义。
 func TestDefaultPath_SlogDecorators(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "deco.log")
-	fac := resolveLoggerFactory(&bootstrapSpec{
+	fac := resolveLoggerFactory(&Decl{
 		LogDecorators: []bslog.Option{bslog.WithAttrs(slog.String("deco", "yes"))},
 	})
 
@@ -274,8 +274,29 @@ func dynamicAddr(cfg *bootstrapv1.BootstrapConfig) {
 	}
 }
 
+// assembleForTest 是原 FromBootstrap(cfg, opts...) 在测试里的等价物（契约显式
+// 注入）：契约由测试代码构造并直接传入内部 assemble，构造期语义与旧入口逐点
+// 一致——含把契约段置 nil（server_registry/nil-段 fail-fast 用例）、构造期读
+// 契约段（gateway driver 判定）这类 WithConfigLayers 表达不了的形态。只放
+// 本 _test.go：公开装配入口只有 Serve（契约由其内部装载产出），不存在第二
+// 公开装配路径。
+func assembleForTest(t *testing.T, cfg *bootstrapv1.BootstrapConfig, opts ...Option) *AppKit {
+	t.Helper()
+	a, err := assemble(newDecl(opts...), cfg)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	return a
+}
+
+// assembleForTestErr 是 assembleForTest 的错误路径版本：不 Fatal，返回装配
+// 错误供 fail-fast 断言（原 `FromBootstrap(...)` 的 err 检查用法）。
+func assembleForTestErr(cfg *bootstrapv1.BootstrapConfig, opts ...Option) (*AppKit, error) {
+	return assemble(newDecl(opts...), cfg)
+}
+
 // 元数据（id/name/version/env/stop_timeout）全部取自契约 app 段。
-func TestFromBootstrap_MetadataFromContract(t *testing.T) {
+func TestAssemble_MetadataFromContract(t *testing.T) {
 	cfg := bconf.NewBootstrap()
 	cfg.App.Name = "meta-app"
 	cfg.App.Version = "v9.9.9"
@@ -283,10 +304,7 @@ func TestFromBootstrap_MetadataFromContract(t *testing.T) {
 	cfg.App.Id = "instance-1"
 	cfg.App.StopTimeout = nil // 回退默认 30s
 
-	a, err := FromBootstrap(cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
-	if err != nil {
-		t.Fatalf("FromBootstrap: %v", err)
-	}
+	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
 	if a.id != "instance-1" || a.name != "meta-app" || a.version != "v9.9.9" {
 		t.Fatalf("metadata not driven by contract: id=%s name=%s version=%s", a.id, a.name, a.version)
 	}
@@ -299,23 +317,23 @@ func TestFromBootstrap_MetadataFromContract(t *testing.T) {
 }
 
 // nil 契约 fail-fast。
-func TestFromBootstrap_NilConfig(t *testing.T) {
-	if _, err := FromBootstrap(nil); err == nil {
+func TestAssemble_NilConfig(t *testing.T) {
+	if _, err := assembleForTestErr(nil); err == nil {
 		t.Fatal("expected error for nil config")
 	}
 }
 
 // 能力声明了但契约段缺失 → 构造期 fail-fast（不等到 Run）。
-func TestFromBootstrap_FailFastMissingSegments(t *testing.T) {
+func TestAssemble_FailFastMissingSegments(t *testing.T) {
 	cfg := bconf.NewBootstrap()
 	cfg.Server.Http = nil
-	if _, err := FromBootstrap(cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux))); err == nil {
+	if _, err := assembleForTestErr(cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux))); err == nil {
 		t.Fatal("expected error: WithHTTP declared but server.http is nil")
 	}
 
 	cfg2 := bconf.NewBootstrap()
 	cfg2.Server.Grpc = nil
-	if _, err := FromBootstrap(cfg2, WithConfigNamespace(testConfigNamespace), WithGRPC(func(*grpc.Server) {})); err == nil {
+	if _, err := assembleForTestErr(cfg2, WithConfigNamespace(testConfigNamespace), WithGRPC(func(*grpc.Server) {})); err == nil {
 		t.Fatal("expected error: WithGRPC declared but server.grpc is nil")
 	}
 }
@@ -324,20 +342,17 @@ func TestFromBootstrap_FailFastMissingSegments(t *testing.T) {
 //
 // 构造延后到 Run 期（beforeStart 链后），故此处必须驱动 Run 才能观察
 // servers——构造期断言的是「尚未构造」（servers==0），运行后才是声明数量。
-func TestFromBootstrap_ServersConstructed(t *testing.T) {
+func TestAssemble_ServersConstructed(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
 
 	cfg := bconf.NewBootstrap()
 	dynamicAddr(cfg)
 
-	a, err := FromBootstrap(cfg,
+	a := assembleForTest(t, cfg,
 		WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
 		WithGRPC(func(*grpc.Server) {}),
 	)
-	if err != nil {
-		t.Fatalf("FromBootstrap: %v", err)
-	}
 	// 构造期未构建（语义：延后到 Run）。
 	if len(a.servers) != 0 {
 		t.Fatalf("servers at construction = %d, want 0 (deferred to Run)", len(a.servers))
@@ -349,19 +364,13 @@ func TestFromBootstrap_ServersConstructed(t *testing.T) {
 
 	cfg2 := bconf.NewBootstrap()
 	dynamicAddr(cfg2)
-	a2, err := FromBootstrap(cfg2, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
-	if err != nil {
-		t.Fatalf("FromBootstrap: %v", err)
-	}
+	a2 := assembleForTest(t, cfg2, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
 	runBriefly(t, a2, 50*time.Millisecond)
 	if len(a2.servers) != 1 {
 		t.Fatalf("servers = %d, want 1", len(a2.servers))
 	}
 
-	a3, err := FromBootstrap(bconf.NewBootstrap(), WithConfigNamespace(testConfigNamespace))
-	if err != nil {
-		t.Fatalf("FromBootstrap: %v", err)
-	}
+	a3 := assembleForTest(t, bconf.NewBootstrap(), WithConfigNamespace(testConfigNamespace))
 	// 零能力声明：运行前后都无 server（合法：纯后台进程）。
 	runBriefly(t, a3, 30*time.Millisecond)
 	if len(a3.servers) != 0 {
@@ -371,7 +380,7 @@ func TestFromBootstrap_ServersConstructed(t *testing.T) {
 
 // gateway 能力声明的 driver 语义：网关是 server.http 段的一种模式
 // （契约 server.http.driver 选择），不是独立服务器。
-func TestFromBootstrap_GatewayDriver(t *testing.T) {
+func TestAssemble_GatewayDriver(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
 
@@ -382,7 +391,7 @@ func TestFromBootstrap_GatewayDriver(t *testing.T) {
 	// ① gateway 能力声明但 server.http 段缺失 → 构造期 fail-fast。
 	cfgNoHttp := bconf.NewBootstrap()
 	cfgNoHttp.Server.Http = nil
-	if _, err := FromBootstrap(cfgNoHttp, WithConfigNamespace(testConfigNamespace), WithGatewayRegister(gwRegister)); err == nil {
+	if _, err := assembleForTestErr(cfgNoHttp, WithConfigNamespace(testConfigNamespace), WithGatewayRegister(gwRegister)); err == nil {
 		t.Fatal("expected error: WithGatewayRegister declared but server.http is nil")
 	}
 
@@ -390,10 +399,7 @@ func TestFromBootstrap_GatewayDriver(t *testing.T) {
 	//    构造延后到 Run，故驱动 Run 后观察 server 类型。
 	cfg2 := bconf.NewBootstrap()
 	dynamicAddr(cfg2)
-	a, err := FromBootstrap(cfg2, WithConfigNamespace(testConfigNamespace), WithGatewayRegister(gwRegister))
-	if err != nil {
-		t.Fatalf("FromBootstrap(gateway only): %v", err)
-	}
+	a := assembleForTest(t, cfg2, WithConfigNamespace(testConfigNamespace), WithGatewayRegister(gwRegister))
 	runBriefly(t, a, 50*time.Millisecond)
 	if len(a.servers) != 1 {
 		t.Fatalf("servers = %d, want 1", len(a.servers))
@@ -404,7 +410,7 @@ func TestFromBootstrap_GatewayDriver(t *testing.T) {
 
 	// ③ 双能力声明 + driver 留空 → fail-fast：两个能力竞争同一端口，
 	//    必须由配置显式表态（显式 > 隐式）。
-	_, err = FromBootstrap(bconf.NewBootstrap(),
+	_, err := assembleForTestErr(bconf.NewBootstrap(),
 		WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), WithGatewayRegister(gwRegister))
 	if err == nil || !strings.Contains(err.Error(), "driver") {
 		t.Fatalf("expected driver fail-fast, got %v", err)
@@ -414,10 +420,7 @@ func TestFromBootstrap_GatewayDriver(t *testing.T) {
 	cfg4 := bconf.NewBootstrap()
 	dynamicAddr(cfg4)
 	cfg4.GetServer().GetHttp().Driver = baldbootstrap.DriverGrpcGateway
-	a4, err := FromBootstrap(cfg4, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), WithGatewayRegister(gwRegister))
-	if err != nil {
-		t.Fatalf("FromBootstrap(both + grpc-gateway): %v", err)
-	}
+	a4 := assembleForTest(t, cfg4, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), WithGatewayRegister(gwRegister))
 	runBriefly(t, a4, 50*time.Millisecond)
 	if len(a4.servers) == 0 {
 		t.Fatal("servers = 0, want >=1 after Run")
@@ -429,14 +432,14 @@ func TestFromBootstrap_GatewayDriver(t *testing.T) {
 	// ⑤ gateway 能力声明 + driver=其他值 → fail-fast（转码能力无消费面）。
 	cfg5 := bconf.NewBootstrap()
 	cfg5.GetServer().GetHttp().Driver = "gin"
-	if _, err := FromBootstrap(cfg5, WithConfigNamespace(testConfigNamespace), WithGatewayRegister(gwRegister)); err == nil {
+	if _, err := assembleForTestErr(cfg5, WithConfigNamespace(testConfigNamespace), WithGatewayRegister(gwRegister)); err == nil {
 		t.Fatal("expected error: gateway register declared but driver not grpc-gateway")
 	}
 }
 
 // 日志两阶段生命周期：阶段 A（构造期，nil 段）→ 阶段 B（BeforeStart，契约段）
 // → 停机恢复原全局 Logger。
-func TestFromBootstrap_LoggerLifecycle(t *testing.T) {
+func TestAssemble_LoggerLifecycle(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
 
@@ -450,10 +453,7 @@ func TestFromBootstrap_LoggerLifecycle(t *testing.T) {
 		got = append(got, b) // 构造与 BeforeStart 均主 goroutine，无需锁。
 		return stubLogger(), nil, nil
 	})
-	a, err := FromBootstrap(cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), WithLogRegistry(lr))
-	if err != nil {
-		t.Fatalf("FromBootstrap: %v", err)
-	}
+	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), WithLogRegistry(lr))
 
 	// 阶段 A 已发生：全局句柄已是回退 bslog（非 old），且未查表。
 	if log.GetLogger() == old {
@@ -481,7 +481,7 @@ func TestFromBootstrap_LoggerLifecycle(t *testing.T) {
 
 // WithConfigRegistry：契约 Config 段经 Registry.Build 产出层参与合并，
 // cleanup 挂 Effect 停机释放；层内容（logger.level=debug）经装载写回契约。
-func TestFromBootstrap_ConfigRegistry(t *testing.T) {
+func TestAssemble_ConfigRegistry(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
 
@@ -498,10 +498,7 @@ func TestFromBootstrap_ConfigRegistry(t *testing.T) {
 	cfg := bconf.NewBootstrap()
 	dynamicAddr(cfg)
 
-	a, err := FromBootstrap(cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), WithConfigRegistry(reg))
-	if err != nil {
-		t.Fatalf("FromBootstrap: %v", err)
-	}
+	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), WithConfigRegistry(reg))
 	if len(a.cfg.layers) != 1 {
 		t.Fatalf("layers = %d, want 1", len(a.cfg.layers))
 	}
@@ -526,9 +523,9 @@ func TestHotReload_RebuildsLogger(t *testing.T) {
 
 	cfg := bconf.NewBootstrap()
 	cf := &countingFactory{}
-	spec := &bootstrapSpec{}
+	spec := &Decl{}
 	// logFac 是 resolveLoggerFactory 的解析结果（非用户声明），不再落入
-	// Decl——测试以独立变量承载并按参数传递（与 FromBootstrap 内部一致）。
+	// Decl——测试以独立变量承载并按参数传递（与 assemble 内部一致）。
 	logFac := cf.factory
 
 	var cc atomic.Pointer[func()]
@@ -536,7 +533,7 @@ func TestHotReload_RebuildsLogger(t *testing.T) {
 	if err != nil {
 		t.Fatalf("phase A: %v", err)
 	}
-	if cleanup == nil { // 镜像 FromBootstrap 的归一化（curCleanup 钩子恒非 nil）。
+	if cleanup == nil { // 镜像 assemble 的归一化（curCleanup 钩子恒非 nil）。
 		cleanup = func() {}
 	}
 	log.SetLogger(lg)
@@ -600,17 +597,14 @@ func TestRebuildLogger_FlushesOldBackend(t *testing.T) {
 }
 
 // 双服务器（HTTP+gRPC）动态端口 :0 完整 Run：Endpoint 必须解析出真实端口。
-func TestFromBootstrap_AllServersDynamicPort(t *testing.T) {
+func TestAssemble_AllServersDynamicPort(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
 
 	cfg := bconf.NewBootstrap()
 	dynamicAddr(cfg)
 
-	a, err := FromBootstrap(cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), WithGRPC(func(*grpc.Server) {}))
-	if err != nil {
-		t.Fatalf("FromBootstrap: %v", err)
-	}
+	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), WithGRPC(func(*grpc.Server) {}))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
@@ -643,7 +637,7 @@ func TestHotReload_BadConfigKeepsOld(t *testing.T) {
 	t.Cleanup(func() { log.SetLogger(old) })
 
 	cfg := bconf.NewBootstrap()
-	spec := &bootstrapSpec{}
+	spec := &Decl{}
 	// logFac 参数化（原 spec.logFac 字段已移除——非用户声明，见 decl.go）。
 	logFac := (&countingFactory{}).factory
 	var cc atomic.Pointer[func()]
@@ -651,7 +645,7 @@ func TestHotReload_BadConfigKeepsOld(t *testing.T) {
 	if err != nil {
 		t.Fatalf("phase A: %v", err)
 	}
-	if cleanup == nil { // 镜像 FromBootstrap 的归一化（curCleanup 钩子恒非 nil）。
+	if cleanup == nil { // 镜像 assemble 的归一化（curCleanup 钩子恒非 nil）。
 		cleanup = func() {}
 	}
 	log.SetLogger(lg)
@@ -676,10 +670,10 @@ func TestHotReload_BadConfigKeepsOld(t *testing.T) {
 // WithProvides/WithRequires/WithOnKeyChange 的转发语义。
 // ---------------------------------------------------------------------------
 
-// 钩子顺序：WithBeforeStart 在 FromBootstrap 内部装载链之后执行（钩子里
+// 钩子顺序：WithBeforeStart 在 assemble 内部装载链之后执行（钩子里
 // 契约已是配置终值）；停机时 WithBeforeStop 先于 Effect 回放、业务 Effect
 // 逆序回放先于框架 Effect（业务资源先收）。
-func TestFromBootstrap_PassthroughOrder(t *testing.T) {
+func TestAssemble_PassthroughOrder(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
 
@@ -698,7 +692,7 @@ func TestFromBootstrap_PassthroughOrder(t *testing.T) {
 	record := func(s string) { mu.Lock(); order = append(order, s); mu.Unlock() }
 
 	var nameInHook atomic.Value
-	a, err := FromBootstrap(cfg,
+	a := assembleForTest(t, cfg,
 		WithConfigNamespace(testConfigNamespace), WithConfigFile(yaml),
 		WithHTTP(new(http.ServeMux)),
 		WithBeforeStart(func(context.Context) error {
@@ -711,9 +705,6 @@ func TestFromBootstrap_PassthroughOrder(t *testing.T) {
 		WithEffect("biz:two", func(context.Context) error { record("effect:two"); return nil }),
 		WithBeforeStop(func(context.Context) error { record("beforeStop"); return nil }),
 	)
-	if err != nil {
-		t.Fatalf("FromBootstrap: %v", err)
-	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
@@ -748,7 +739,7 @@ func TestFromBootstrap_PassthroughOrder(t *testing.T) {
 }
 
 // WithReconcile 声明经透传注册：启动收敛期首次触发（Run 内 loadConfig 基线后）。
-func TestFromBootstrap_PassthroughReconcile(t *testing.T) {
+func TestAssemble_PassthroughReconcile(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
 
@@ -756,16 +747,13 @@ func TestFromBootstrap_PassthroughReconcile(t *testing.T) {
 	cfg.GetServer().GetHttp().Addr = "127.0.0.1:0"
 
 	var triggered atomic.Bool
-	a, err := FromBootstrap(cfg,
+	a := assembleForTest(t, cfg,
 		WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
 		WithReconcile("test.passthrough", func(context.Context, *ReconcileCtx) error {
 			triggered.Store(true)
 			return nil
 		}),
 	)
-	if err != nil {
-		t.Fatalf("FromBootstrap: %v", err)
-	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
@@ -786,21 +774,18 @@ func TestFromBootstrap_PassthroughReconcile(t *testing.T) {
 }
 
 // WithRequires 的 S1 fail-fast 经透传生效：声明依赖但未 Provide → 启动期报错。
-func TestFromBootstrap_PassthroughCapabilityFailFast(t *testing.T) {
+func TestAssemble_PassthroughCapabilityFailFast(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
 
 	cfg := bconf.NewBootstrap()
 	cfg.GetServer().GetHttp().Addr = "127.0.0.1:0"
 
-	a, err := FromBootstrap(cfg,
+	a := assembleForTest(t, cfg,
 		WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
 		WithProvides("db"),
 		WithRequires("audit.store", "db", "cache"),
 	)
-	if err != nil {
-		t.Fatalf("FromBootstrap: %v", err)
-	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
@@ -816,9 +801,9 @@ func TestFromBootstrap_PassthroughCapabilityFailFast(t *testing.T) {
 	cancel()
 }
 
-// WithComponents 透传：C1 生命周期经 FromBootstrap 声明（Start 于监听前、
+// WithComponents 透传：C1 生命周期经约定装配声明（Start 于监听前、
 // Dispose 于停机末段）。
-func TestFromBootstrap_PassthroughComponents(t *testing.T) {
+func TestAssemble_PassthroughComponents(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
 
@@ -826,27 +811,21 @@ func TestFromBootstrap_PassthroughComponents(t *testing.T) {
 	cfg.GetServer().GetHttp().Addr = "127.0.0.1:0"
 
 	var started, disposed atomic.Bool
-	a, err := FromBootstrap(cfg,
+	a := assembleForTest(t, cfg,
 		WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
 		WithComponents(ComponentFunc("test.comp", func(context.Context) error {
 			started.Store(true)
 			return nil
 		})),
 	)
-	if err != nil {
-		t.Fatalf("FromBootstrap: %v", err)
-	}
 	// Dispose 观测：包一层组件捕获。
-	a, err = FromBootstrap(cfg,
+	a = assembleForTest(t, cfg,
 		WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
 		WithComponents(&disposeProbe{disposed: &disposed}, ComponentFunc("test.comp2", func(context.Context) error {
 			started.Store(true)
 			return nil
 		})),
 	)
-	if err != nil {
-		t.Fatalf("FromBootstrap (2nd): %v", err)
-	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)

@@ -122,13 +122,13 @@ func TestGenAppSpec_TemplateFormats(t *testing.T) {
 	// ---- 装配纪律防回归（审查修复的两个 P0）----
 	srcStr := string(src)
 	// P0-1：Option 只有 New 消费——New 调用必须出现在最后一次 capOpts append 之后。
-	newIdx := strings.Index(srcStr, "app := appkit.New(capOpts...)")
+	newIdx := strings.Index(srcStr, "app := appkit.NewApp(capOpts...)")
 	lastAppend := strings.LastIndex(srcStr, "capOpts = append")
 	if newIdx < 0 || lastAppend < 0 {
-		t.Fatalf("template lost New/append anchors (newIdx=%d lastAppend=%d)", newIdx, lastAppend)
+		t.Fatalf("template lost NewApp/append anchors (newIdx=%d lastAppend=%d)", newIdx, lastAppend)
 	}
 	if newIdx < lastAppend {
-		t.Errorf("appkit.New must come AFTER the last capOpts append: New@%d < append@%d", newIdx, lastAppend)
+		t.Errorf("appkit.NewApp must come AFTER the last capOpts append: NewApp@%d < append@%d", newIdx, lastAppend)
 	}
 	// P0-2：Run 之前不可调 MountComponent（要求运行态，Run 内才置位）——
 	// 模板生成物不应出现 MountComponent 调用（组件一律走 Components Option；

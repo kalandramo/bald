@@ -11,7 +11,7 @@
 // 组件管实例生命周期（高级、结构化）。典型用法：
 //
 //	traceShutdown, _ := trace.Setup(...)
-//	app := appkit.New(
+//	app := appkit.NewApp(
 //	    appkit.Components(appkit.ComponentFunc("trace.provider", traceShutdown)),
 //	    ...
 //	)

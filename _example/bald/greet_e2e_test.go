@@ -36,10 +36,10 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 
-	bconf "github.com/kalandramo/bald/bconf"
 	"github.com/kalandramo/bald/berrors"
 	"github.com/kalandramo/bald/berrors/grpcerr"
 	"github.com/kalandramo/bald/health"
+	"github.com/kalandramo/bald/pkg/appkit"
 
 	baldv1 "github.com/kalandramo/bald/example/bald/gen"
 )
@@ -52,14 +52,14 @@ import (
 func startApp(t *testing.T) (grpcAddr, httpAddr string, stop func()) {
 	t.Helper()
 
-	// pflag.CommandLine 是全局的，appkit.Bind 会往里注册 flag（http.addr 等）。
-	// 测试内多次启动会重复注册，触发 "flag redefined" panic，故临时替换。
+	// pflag.CommandLine 是全局的；Serve 内部的配置装载会注册/解析 flag，
+	// 测试内多次启动若复用全局 FlagSet 可能重复注册，故临时替换。
 	oldFlags := pflag.CommandLine
 	pflag.CommandLine = pflag.NewFlagSet("e2e", pflag.ContinueOnError)
 	defer func() { pflag.CommandLine = oldFlags }()
 
 	// 配置文件由示例自带（_example/bald/configs/bald-demo.yaml），而 go test 的工作
-	// 目录就是包目录 _example/bald/，因此 newApp 里的相对路径可直接命中，无需切目录。
+	// 目录就是包目录 _example/bald/，因此 newAppOptions 里的相对路径可直接命中，无需切目录。
 
 	// 端口分配有两个约束：
 	// ① 不能用 :0 —— 网关转码面需连到 gRPC 服务，而 :0 是「监听时由内核
@@ -67,34 +67,26 @@ func startApp(t *testing.T) (grpcAddr, httpAddr string, stop func()) {
 	// ② 必须带 127.0.0.1 —— 否则 ":9090" 会被客户端解析成 [::1]:9090（IPv6），
 	//    而服务监听在 IPv4，出现 "connection refused"。
 	//
-	// 另外必须用 env 覆盖：newApp 会加载 configs/bald-demo.yaml（其中写死
-	// grpc.addr: :9090），BeforeStart 的 Unmarshal 会覆盖掉这里设在
-	// bootstrap 上的值。appkit 优先级是 flag > env > 文件，用 env 才能压过文件。
+	// 端口经 env 覆盖：Serve 路径的契约由框架内部装载（预装载 + BeforeStart
+	// 全量装载都合并 env 层），业务不再持有契约指针。appkit 优先级是
+	// flag > env > 文件，用 env 才能压过 configs/bald-demo.yaml 里写死的地址。
 	grpcAddr = freeAddr(t)
 	httpAddr = freeAddr(t)
 	t.Setenv("BALD_DEMO_SERVER_GRPC_ADDR", grpcAddr)
 	t.Setenv("BALD_DEMO_SERVER_HTTP_ADDR", httpAddr)
 
-	bootstrap := bconf.NewBootstrap()
-	// ③ bootstrapv1 契约下 server 直接持有 BootstrapConfig 的子消息指针
-	//    （legacy confv1 时代的 adapt 值快照桥接已删除）——env/flag 覆盖与
-	//    Unmarshal 合并作用在同一对象上，这里直接改对象即可与 env 同值，
-	//    Unmarshal 覆盖后语义不变。指针直通让「New 期构造的 server 读到
-	//    最终配置」成为结构保证，不再依赖时序。
-	bootstrap.GetServer().GetGrpc().Addr = grpcAddr
-	bootstrap.GetServer().GetHttp().Addr = httpAddr
-
 	healthChecker := health.New()
 
-	// 与 serveRunE 完全同构：newApp 内部经 FromBootstrap 复用同一份拦截器链
-	// 构造（newGRPCServerOptions），确保测的就是生产那条链路：
+	// 与 serveRunE 完全同构：复用同一份 newAppOptions（内含同一份拦截器链
+	// 构造 newGRPCServerOptions），确保测的就是生产那条链路：
 	// 曾在这里另写构造导致漏掉 ValidatorInterceptor，非法请求居然通过，
 	// 测试却「看起来在跑」——这类不一致会让回归测试完全失去价值。
-	app := newApp(bootstrap, healthChecker)
-
+	//
+	// 与 main 的差别只在生命周期控制：Serve 阻塞到停机，测试用可取消 ctx
+	// 驱动它（Run 的信号处理与优雅停机语义不变）。
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
-	go func() { errCh <- app.Run(ctx) }()
+	go func() { errCh <- appkit.Serve(ctx, newAppOptions(healthChecker)...) }()
 
 	stop = func() {
 		cancel()

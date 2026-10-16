@@ -44,7 +44,7 @@ func (f fakeComp) Dispose(context.Context) error {
 func TestMechOptionsReachEngine(t *testing.T) {
 	var undone []string
 	disposed := false
-	app := appkit.New(
+	app := appkit.NewApp(
 		Effect("m1", func(context.Context) error { undone = append(undone, "m1"); return nil }),
 		EffectTimeout(3*time.Second),
 		Provides("cap-a"),
@@ -76,7 +76,7 @@ func TestMechOptionsReachEngine(t *testing.T) {
 // TestMechRequiresFailFast mech.Requires 声明的缺失能力在 Resolve 聚合报错
 // （缺失项与依赖方组件名可定位）。
 func TestMechRequiresFailFast(t *testing.T) {
-	app := appkit.New(
+	app := appkit.NewApp(
 		Requires("audit.store", "db", "cache"),
 	)
 	err := app.Resolve()

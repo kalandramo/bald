@@ -13,11 +13,11 @@ import (
 	"github.com/kalandramo/bald/log"
 )
 
-// FromBootstrap 契约装配：阶段 B 构建 → Storage 取用 → 停机 cleanup。
+// 约定装配：阶段 B 构建 → Storage 取用 → 停机 cleanup。
 // Registry 行为测试（注册/段枚举/回滚）已随六域 Registry 迁 bootstrap
 // （bootstrap/storage_test.go，2026-09-15）。
 
-func TestFromBootstrap_ContractStorageLifecycle(t *testing.T) {
+func TestAssemble_ContractStorageLifecycle(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
 
@@ -34,10 +34,7 @@ func TestFromBootstrap_ContractStorageLifecycle(t *testing.T) {
 		Minio: &bootstrapv1.Storage_Minio{Endpoint: "127.0.0.1:9000"},
 	}
 
-	a, err := FromBootstrap(cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), WithStorageRegistry(sr))
-	if err != nil {
-		t.Fatalf("FromBootstrap: %v", err)
-	}
+	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), WithStorageRegistry(sr))
 	if _, ok := a.Storage("minio"); ok {
 		t.Fatal("Storage should be empty before Run (phase B not reached)")
 	}
@@ -73,7 +70,7 @@ func TestFromBootstrap_ContractStorageLifecycle(t *testing.T) {
 }
 
 // 契约 storage 段存在但未接 StorageRegistry → 阶段 B fail-fast。
-func TestFromBootstrap_StorageSectionWithoutTable(t *testing.T) {
+func TestAssemble_StorageSectionWithoutTable(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
 
@@ -83,11 +80,8 @@ func TestFromBootstrap_StorageSectionWithoutTable(t *testing.T) {
 		Minio: &bootstrapv1.Storage_Minio{Endpoint: "127.0.0.1:9000"},
 	}
 
-	a, err := FromBootstrap(cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
-	if err != nil {
-		t.Fatalf("FromBootstrap: %v", err)
-	}
-	err = a.Run(context.Background())
+	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
+	err := a.Run(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "StorageRegistry") {
 		t.Fatalf("expected StorageRegistry missing error, got %v", err)
 	}

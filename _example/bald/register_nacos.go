@@ -79,8 +79,8 @@ func nacosConfigSource() config.RemoteSource {
 // nacosBootstrapOptions 返回 nacos 的注册中心 + 配置中心装配选项。
 //
 // 注册中心走契约装配（registry 段驱动）；配置中心仍是运行时桥接注入。
-func nacosBootstrapOptions() []appkit.BootstrapOption {
-	return []appkit.BootstrapOption{
+func nacosBootstrapOptions() []appkit.Option {
+	return []appkit.Option{
 		appkit.WithRegistrarRegistry(registrarRegistry()),
 		appkit.WithRemoteConfig(nacosConfigSource()),
 	}

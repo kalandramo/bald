@@ -70,7 +70,7 @@ func TestRegistry_UnmountMissing(t *testing.T) {
 
 // TestMountComponent_NotRunning 契约：Run 之前调用报 ErrNotRunning。
 func TestMountComponent_NotRunning(t *testing.T) {
-	app := New()
+	app := NewApp()
 	err := app.MountComponent(context.Background(), ComponentFunc("x", nil))
 	if !errors.Is(err, ErrNotRunning) {
 		t.Fatalf("want ErrNotRunning, got %v", err)
@@ -88,7 +88,7 @@ func TestMountComponent_Lifecycle(t *testing.T) {
 	var mountErr, unmountErr, reUnmountErr error
 	var app *AppKit
 
-	app = New(
+	app = NewApp(
 		Components(&fakeComp{name: "base", log: l}),
 		AfterStart(func(ctx context.Context) error {
 			mountErr = app.MountComponent(ctx, dyn)
@@ -132,7 +132,7 @@ func TestMountComponent_Lifecycle(t *testing.T) {
 func TestMountComponent_MountFailureRollback(t *testing.T) {
 	l := &compLog{}
 	var app *AppKit
-	app = New(
+	app = NewApp(
 		Components(&fakeComp{name: "base", log: l}),
 		AfterStart(func(ctx context.Context) error {
 			return app.MountComponent(ctx, &fakeComp{name: "boom", log: l, startErr: errors.New("no resource")})
@@ -167,7 +167,7 @@ func TestAuditComponent_EventShape(t *testing.T) {
 	audit.SetAuditor(am)
 	t.Cleanup(func() { audit.SetAuditor(old) })
 
-	app := New()
+	app := NewApp()
 	ctx := authn.ContextWithAuthClaims(context.Background(),
 		&authn.AuthClaims{Subject: "u-admin", TenantID: "t-1"})
 	app.auditComponent(ctx, "mount", "tool.echo")
@@ -194,7 +194,7 @@ func TestAuditComponent_PanicIsolated(t *testing.T) {
 	audit.SetAuditor(auditorFunc(func(context.Context, audit.AuditEvent) { panic("boom") }))
 	t.Cleanup(func() { audit.SetAuditor(old) })
 
-	app := New()
+	app := NewApp()
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -218,7 +218,7 @@ func TestResolveAuditor_InjectedOverridesGlobal(t *testing.T) {
 	t.Cleanup(func() { audit.SetAuditor(old) })
 
 	injected := &mountAuditMem{}
-	app := New(Auditor(injected))
+	app := NewApp(Auditor(injected))
 	ctx := authn.ContextWithAuthClaims(context.Background(),
 		&authn.AuthClaims{Subject: "u-admin", TenantID: "t-9"})
 	app.auditComponent(ctx, "mount", "tool.echo")
@@ -234,7 +234,7 @@ func TestResolveAuditor_InjectedOverridesGlobal(t *testing.T) {
 	}
 
 	// 未注入：回退全局。
-	fallback := New()
+	fallback := NewApp()
 	fallback.auditComponent(ctx, "mount", "tool.echo")
 	if len(globalMem.events) != 1 {
 		t.Fatalf("without injection, events go to global auditor, got %+v", globalMem.events)

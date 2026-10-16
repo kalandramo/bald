@@ -10,10 +10,10 @@
 //
 //	ar := appkit.NewAuditRegistry()
 //	ar.MustRegister(streamcontract.TypeStream, streamcontract.NewStreamProvider(rdb))
-//	app, err := appkit.FromBootstrap(cfg, appkit.WithAuditRegistry(ar), ...)
+//	appkit.Serve(ctx, appkit.WithAuditRegistry(ar), ...)
 //
 // cleanup 即 StreamAuditor.Close（停后台 goroutine + drain 尾批缓冲），
-// 由 FromBootstrap 挂 Effect 逆序回放（逆序最后执行：审计尾批在指标/
+// 由约定装配挂 Effect 逆序回放（逆序最后执行：审计尾批在指标/
 // span flush 之后收集）。
 package contract
 

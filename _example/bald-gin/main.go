@@ -94,7 +94,7 @@ func main() {
 	// 直接把 gin.Engine 作为 http.Handler 交给 bald 服务器层。
 	httpSrv := httpserver.NewHTTPServer(bootstrap.GetServer().GetHttp(), engine)
 
-	app := appkit.New(
+	app := appkit.NewApp(
 		appkit.Name("bald-gin"),
 		appkit.Version("v0.1.0"),
 		appkit.StopTimeout(15*time.Second),

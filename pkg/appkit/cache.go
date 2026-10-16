@@ -14,7 +14,7 @@
 //	cr := bootstrap.NewCacheRegistry()
 //	cr.MustRegister(localcontract.Type, localcontract.Provider)  // "local"
 //	cr.MustRegister(rediscontract.Type, rediscontract.Provider)  // "redis"
-//	app, err := appkit.FromBootstrap(cfg, appkit.WithCacheRegistry(cr), ...)
+//	appkit.Serve(ctx, appkit.WithCacheRegistry(cr), ...)
 //	// Run 后取实例：
 //	c := app.Cache(rediscontract.Type).(cache.Cache)
 package appkit
@@ -30,15 +30,15 @@ import (
 // WithCacheRegistry 注入缓存后端的契约装配注册表（显式注册 provider，
 // 见 bootstrap.CacheRegistry）。契约 cache 段任一后端段存在时，阶段 B
 // 按段名查表构建缓存实例；cache 段不支持热更新。
-func WithCacheRegistry(r *baldbootstrap.CacheRegistry) BootstrapOption {
-	return func(s *bootstrapSpec) { s.CacheRegistry = r }
+func WithCacheRegistry(r *baldbootstrap.CacheRegistry) Option {
+	return optionFunc(func(s *Decl) { s.CacheRegistry = r })
 }
 
 // buildCaches 在阶段 B（契约装载校验后）按契约 cache 段构建全部已配置
 // 后端的缓存实例，存入 a.caches 供业务经 Cache/Caches 取用。cache 段
 // 缺失为 no-op；段存在但未接 CacheRegistry 则 fail-fast。
-// 返回聚合 cleanup（可为 nil），由 FromBootstrap 挂停机 Effect。
-func buildCaches(a *AppKit, cfg *bootstrapv1.BootstrapConfig, spec *bootstrapSpec) (func(), error) {
+// 返回聚合 cleanup（可为 nil），由 assemble 挂停机 Effect。
+func buildCaches(a *AppKit, cfg *bootstrapv1.BootstrapConfig, spec *Decl) (func(), error) {
 	ccfg := cfg.GetCache()
 	if ccfg == nil {
 		return nil, nil // 未配置任何缓存
@@ -55,7 +55,7 @@ func buildCaches(a *AppKit, cfg *bootstrapv1.BootstrapConfig, spec *bootstrapSpe
 }
 
 // Cache 返回按契约段装配的后端缓存实例（阶段 B 后、Run 期可用；
-// FromBootstrap 构造期尚未装载契约，返回空）。
+// 装配构造期尚未装载契约，返回空）。
 // typ 为契约段名（见 cache/<backend>/contract.Type，如 "redis"）。
 // 并发语义：caches 只在 BeforeStart（阶段 B）单次写入，Run 后只读，
 // happens-before 由 Run 启动流程保证。

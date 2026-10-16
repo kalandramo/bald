@@ -18,7 +18,7 @@
 //	ar := bootstrap.NewAiRegistry()
 //	ar.MustRegister(openaicontract.Type, openaicontract.Provider)      // "openai"
 //	ar.MustRegister(langchaincontract.Type, langchaincontract.Provider) // "langchaingo"
-//	app, err := appkit.FromBootstrap(cfg, appkit.WithAiRegistry(ar), ...)
+//	appkit.Serve(ctx, appkit.WithAiRegistry(ar), ...)
 //	// Run 后取实例：
 //	cli := app.Ai(openaicontract.Type).(*goopenai.Client)
 package appkit
@@ -34,15 +34,15 @@ import (
 // WithAiRegistry 注入 AI 模型后端的契约装配注册表（显式注册 provider，
 // 见 bootstrap.AiRegistry）。契约 ai 段任一后端段存在时，阶段 B 按段名
 // 查表构建客户端；ai 段不支持热更新。
-func WithAiRegistry(r *baldbootstrap.AiRegistry) BootstrapOption {
-	return func(s *bootstrapSpec) { s.AiRegistry = r }
+func WithAiRegistry(r *baldbootstrap.AiRegistry) Option {
+	return optionFunc(func(s *Decl) { s.AiRegistry = r })
 }
 
 // buildAis 在阶段 B（契约装载校验后）按契约 ai 段构建全部已配置后端的
 // 模型客户端，存入 a.ais 供业务经 Ai/Ais 取用。ai 段缺失为 no-op；
 // 段存在但未接 AiRegistry 则 fail-fast。
-// 返回聚合 cleanup（可为 nil），由 FromBootstrap 挂停机 Effect。
-func buildAis(a *AppKit, cfg *bootstrapv1.BootstrapConfig, spec *bootstrapSpec) (func(), error) {
+// 返回聚合 cleanup（可为 nil），由 assemble 挂停机 Effect。
+func buildAis(a *AppKit, cfg *bootstrapv1.BootstrapConfig, spec *Decl) (func(), error) {
 	acfg := cfg.GetAi()
 	if acfg == nil {
 		return nil, nil // 未配置任何 AI 客户端
@@ -59,7 +59,7 @@ func buildAis(a *AppKit, cfg *bootstrapv1.BootstrapConfig, spec *bootstrapSpec) 
 }
 
 // Ai 返回按契约段装配的后端模型客户端实例（阶段 B 后、Run 期可用；
-// FromBootstrap 构造期尚未装载契约，返回空）。
+// 装配构造期尚未装载契约，返回空）。
 // typ 为契约段名（见 ai/<backend>/contract.Type，如 "openai"）。
 // 并发语义：ais 只在 BeforeStart（阶段 B）单次写入，Run 后只读，
 // happens-before 由 Run 启动流程保证。

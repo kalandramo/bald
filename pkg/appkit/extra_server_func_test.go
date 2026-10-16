@@ -24,9 +24,9 @@ import (
 	"github.com/kalandramo/bald/transport"
 )
 
-// TestFromBootstrap_ExtraServerFuncRunTime 断言工厂在 Run 期调用、构造期零调用，
+// TestAssemble_ExtraServerFuncRunTime 断言工厂在 Run 期调用、构造期零调用，
 // 且顺序为 beforeStart（建依赖）→ extraServerFn（用依赖）→ 服务器启动。
-func TestFromBootstrap_ExtraServerFuncRunTime(t *testing.T) {
+func TestAssemble_ExtraServerFuncRunTime(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
 
@@ -49,19 +49,16 @@ func TestFromBootstrap_ExtraServerFuncRunTime(t *testing.T) {
 	var started atomic.Bool
 	srv := &probeServer{name: "extra", started: &started, mark: mark}
 
-	a, err := FromBootstrap(cfg,
+	a := assembleForTest(t, cfg,
 		WithConfigNamespace(testConfigNamespace), WithExtraServerFunc(func(context.Context) (transport.Server, error) {
 			mark("extraServerFn")
 			return srv, nil
 		}),
 		WithBeforeStart(func(context.Context) error { mark("beforeStart"); return nil }),
 	)
-	if err != nil {
-		t.Fatalf("FromBootstrap: %v", err)
-	}
 
 	if got := snapshot(); strings.Contains(got, "extraServerFn") {
-		t.Fatalf("extra server factory ran during FromBootstrap (order=%q); want deferred to Run", got)
+		t.Fatalf("extra server factory ran during construction (order=%q); want deferred to Run", got)
 	}
 
 	runBriefly(t, a, 50*time.Millisecond)
@@ -74,21 +71,18 @@ func TestFromBootstrap_ExtraServerFuncRunTime(t *testing.T) {
 	}
 }
 
-// TestFromBootstrap_ExtraServerFuncNilSkipped 断言工厂返回 nil 时：不 panic、
+// TestAssemble_ExtraServerFuncNilSkipped 断言工厂返回 nil 时：不 panic、
 // 不把 nil 塞进启动序列（避免 nil 解引用）。
-func TestFromBootstrap_ExtraServerFuncNilSkipped(t *testing.T) {
+func TestAssemble_ExtraServerFuncNilSkipped(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
 
 	cfg := bconf.NewBootstrap()
 	dynamicAddr(cfg)
 
-	a, err := FromBootstrap(cfg,
+	a := assembleForTest(t, cfg,
 		WithConfigNamespace(testConfigNamespace), WithExtraServerFunc(func(context.Context) (transport.Server, error) { return nil, nil }),
 	)
-	if err != nil {
-		t.Fatalf("FromBootstrap: %v", err)
-	}
 
 	// 正常启停（若 nil 被塞入序列，Start 会 panic）。
 	runBriefly(t, a, 30*time.Millisecond)
@@ -97,11 +91,11 @@ func TestFromBootstrap_ExtraServerFuncNilSkipped(t *testing.T) {
 	}
 }
 
-// TestFromBootstrap_ExtraServerFuncWithoutMainProtocol 断言**无 http/grpc 主面**时
+// TestAssemble_ExtraServerFuncWithoutMainProtocol 断言**无 http/grpc 主面**时
 // （buildServers==nil）额外服务器仍被构造并启动——本 Option 独立于主协议面。
 //
 // 这是 C9 假设的直接验证（计划反证表标注「待验证」）。
-func TestFromBootstrap_ExtraServerFuncWithoutMainProtocol(t *testing.T) {
+func TestAssemble_ExtraServerFuncWithoutMainProtocol(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
 
@@ -112,12 +106,9 @@ func TestFromBootstrap_ExtraServerFuncWithoutMainProtocol(t *testing.T) {
 	srv := &probeServer{name: "extra-only", started: &started, mark: func(string) {}}
 
 	// 注意：**不**传 WithHTTP / WithGRPC —— 只有额外服务器。
-	a, err := FromBootstrap(cfg,
+	a := assembleForTest(t, cfg,
 		WithConfigNamespace(testConfigNamespace), WithExtraServerFunc(func(context.Context) (transport.Server, error) { return srv, nil }),
 	)
-	if err != nil {
-		t.Fatalf("FromBootstrap: %v", err)
-	}
 
 	runBriefly(t, a, 50*time.Millisecond)
 

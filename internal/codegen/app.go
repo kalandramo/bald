@@ -49,7 +49,7 @@ func main() {
 }
 
 func newApp() *appkit.AppKit {
-	return appkit.New(
+	return appkit.NewApp(
 		appkit.Name("{{.Name}}"),
 		appkit.Version("v0.1.0"),
 		appkit.StopTimeout(15*time.Second),

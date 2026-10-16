@@ -1,12 +1,13 @@
 // Command bald 是 bald 服务框架的示例入口：
-// 使用 appkit.FromBootstrap 约定装配一个 HTTP 服务与一个 gRPC 服务——
-// 契约/flag/env/配置文件驱动一切可配置项，代码只声明配置表达不了的业务能力。
+// 使用 appkit.MustServe（单一装配入口）约定装配一个 HTTP 服务与一个 gRPC 服务
+// ——契约/flag/env/配置文件驱动一切可配置项，代码只声明配置表达不了的业务能力。
 //
 // 装配分工（配置驱动参数，代码声明能力）：
 //
-//	框架内化（FromBootstrap）：Bind×3、配置装载+校验、日志两阶段（启动默认→
-//	契约重建）、热更新回调、app 元数据（id/name/version/env/stop_timeout）、
-//	服务器构造（走 bootstrap.ServerRegistry 契约装配）、注册中心启停、停机资源释放。
+//	框架内化（Serve）：--config 解析、契约装载、Bind×3、配置装载+校验、
+//	日志两阶段（启动默认→契约重建）、热更新回调、app 元数据（id/name/version/
+//	env/stop_timeout）、服务器构造（走 bootstrap.ServerRegistry 契约装配）、
+//	注册中心启停、停机资源释放。
 //	代码声明（业务必供）：gin 路由、gRPC service、拦截器链序、就绪探针依赖、
 //	日志脱敏装饰、gateway 转码注册（WithGatewayRegister，-tags grpcgw）。
 //
@@ -53,17 +54,13 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
-	"google.golang.org/protobuf/types/known/durationpb"
 
 	usercmd "github.com/kalandramo/bald/example/bald/user"
 
-	bconf "github.com/kalandramo/bald/bconf"
-	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
 	"github.com/kalandramo/bald/berrors"
 	baldlog "github.com/kalandramo/bald/log"
 	"github.com/kalandramo/bald/log/bslog"
@@ -76,15 +73,7 @@ import (
 )
 
 func serveRunE(_ *cobra.Command, _ []string) error {
-	// 0. 契约是唯一真相源：业务只填业务默认值，其余交给配置四源
-	//    （flag > env > 本地文件 > 远程，任一层热更新全量重合并）。
-	//    server 子消息指针直通：FromBootstrap 构造的 server 在 Start 时实时读
-	//    契约，BeforeStart 装载写回同一对象即生效，无需回填。
-	bootstrap := bconf.NewBootstrap()
-	bootstrap.GetServer().GetHttp().Addr = ":8080" // 明文 HTTP；启用 HTTPS 给 Http.Tls 挂证书段
-	bootstrap.GetApp().StopTimeout = durationpb.New(15 * time.Second)
-
-	// 1. 业务能力（配置文件表达不了，只能代码声明）。
+	// 0. 业务能力（配置文件表达不了，只能代码声明）。
 	//    健康检查：一个聚合器同时驱动 HTTP /healthz /readyz 与 gRPC health
 	//    （未就绪 → /readyz 503、gRPC NOT_SERVING，K8s 摘流量）。
 	healthChecker := health.New()
@@ -93,15 +82,10 @@ func serveRunE(_ *cobra.Command, _ []string) error {
 		return nil
 	}))
 
-	// 2. 约定装配（-tags grpcgw 时网关转码面经契约 server.http.driver 接入）+ 运行。
-	//    Bind×3、装载/校验/日志两阶段、热更新、服务器构造全部由框架内化（见 newApp）。
-	app := newApp(bootstrap, healthChecker)
-
-	// 3. 运行：阻塞直到收到信号或任一服务器退出。
-	if err := app.Run(context.Background()); err != nil {
-		baldlog.Error(context.Background(), "bald app exited", "error", err)
-		return err
-	}
+	// 1. 单一装配入口：契约装载、约定装配（Bind×3、装载/校验/日志两阶段、
+	//    热更新、服务器构造全部由框架内化）、信号处理与 Run 全部在 Serve 内部
+	//    （见 newAppOptions 的能力声明）。失败记日志后以非零码退出。
+	appkit.MustServe(context.Background(), newAppOptions(healthChecker)...)
 	return nil
 }
 
@@ -156,16 +140,19 @@ func isKnownCommand(root *cobra.Command, name string) bool {
 	return false
 }
 
-// newApp 用 appkit.FromBootstrap 做约定装配（HTTP + gRPC + 配置 + 校验链路）。
+// newAppOptions 声明业务能力（Serve 的约定装配消费这些 Option）。
 //
-// 抽成函数是为了让 e2e 测试能复用**同一份**真实构造逻辑（greet_e2e_test.go），
+// 抽成函数是为了让 e2e 测试能复用**同一份**声明（greet_e2e_test.go），
 // 而不是在测试里另抄一份——复制出来的应用与真实运行的不一致，测试就失去回归价值。
 //
-// FromBootstrap 内化的约定（原本要手写的样板）：
+// Serve 内化的约定（原本要手写的样板）：
+//   - 契约装载：bconf.NewBootstrap 骨架 + --config（默认 configs/bald-demo.yaml，
+//     来自 WithConfigFile）的文件/env 基线预装载；
 //   - Bind server.http/server.grpc/--log.* 三组 flag（四源路径统一）；
 //   - BeforeStart：Settings→Unmarshal→Validate→按契约 logger 段重建 Logger；
 //   - OnConfigChange：热更新副本试装载+校验后原子落盘，并重建 Logger；
-//   - app 元数据（name/version/env/stop_timeout）取自契约 app 段；
+//   - app 元数据（name/version/env/stop_timeout）取自契约 app 段（本示例由
+//     configs/bald-demo.yaml 的 app 段供给）；
 //   - 停机恢复启动前 Logger、释放配置层资源（Effect 效应账本）。
 //
 // 业务保留的声明（配置驱动不了）：路由、gRPC service、拦截器链序、
@@ -174,18 +161,11 @@ func isKnownCommand(root *cobra.Command, name string) bool {
 // HTTP 面按构建分叉（同一 server.http 段只跑一个面）：默认构建走 gin 演示
 // 路由；grpcgw 构建走网关转码面（WithGatewayRegister + 契约
 // server.http.driver=grpc-gateway，见 register_grpcgw.go）。
-func newApp(bootstrap *bootstrapv1.BootstrapConfig, healthChecker *health.Health) *appkit.AppKit {
-	// 业务身份：服务名与版本（日志、注册中心实例名）。
-	// 注意这不决定 env 前缀——配置命名空间由下面的 WithConfigNamespace 独立
-	// 声明（BALD_DEMO_*）。二者分开后，这里的 app.name 即使被配置文件/env
-	// 覆盖，也不会影响「能读到哪些环境变量」。
-	bootstrap.GetApp().Name = "bald-demo"
-	bootstrap.GetApp().Version = "v0.1.0"
-
-	opts := []appkit.BootstrapOption{
+func newAppOptions(healthChecker *health.Health) []appkit.Option {
+	opts := []appkit.Option{
 		// 配置命名空间：env 前缀（BALD_DEMO_*）与多环境文件名
-		// （bald-demo-prod.yaml）的来源。必须是代码层常量——FromBootstrap
-		// 路径下若取自契约 app.name 会构成自指（见 WithConfigNamespace 注释）。
+		// （bald-demo-prod.yaml）的来源。必须是代码层常量——Serve 路径下若取
+		// 自契约 app.name 会构成自指（见 WithConfigNamespace 注释）。
 		appkit.WithConfigNamespace("bald-demo"),
 
 		// --- 能力声明（代码提供） ---
@@ -204,12 +184,11 @@ func newApp(bootstrap *bootstrapv1.BootstrapConfig, healthChecker *health.Health
 		),
 
 		appkit.WithAfterStart(func(ctx context.Context) error {
-			// 地址为契约最终值（BeforeStart 装载后写回）；
-			// :0 动态端口场景显示契约值，真实端口见注册中心聚合结果。
 			ctx = baldlog.ContextWithAttrs(ctx, slog.String("stage", "started"))
-			baldlog.Info(ctx, "bald-demo started",
-				"http", bootstrap.GetServer().GetHttp().GetAddr(),
-				"grpc", bootstrap.GetServer().GetGrpc().GetAddr())
+			// 端点地址由框架的注册日志打印（WithRegistrar 生效时 Run 会输出
+			// "appkit registered" + endpoints，地址为契约最终值）——此处不再
+			// 重复读契约（契约已是 Serve 内部产物，业务不持引用）。
+			baldlog.Info(ctx, "bald-demo started")
 			return nil
 		}),
 
@@ -220,7 +199,7 @@ func newApp(bootstrap *bootstrapv1.BootstrapConfig, healthChecker *health.Health
 		// + WithRegistrarRegistry 显式注册 provider（见 register_nacos.go）。
 		appkit.WithRegistrar(inmemory.New()),
 		// 本地配置文件 + fsnotify 热更新（缺失不报错，可只用 env/flag/远程）。
-		// 多环境：契约 app.env（--env=prod）选 {Name}-{Env}.yaml。
+		// 多环境：契约 app.env（BALD_DEMO_APP_ENV）选 {Name}-{Env}.yaml。
 		appkit.WithConfigFile("configs/bald-demo.yaml"),
 		appkit.WithWatchConfig(true),
 	}
@@ -238,14 +217,7 @@ func newApp(bootstrap *bootstrapv1.BootstrapConfig, healthChecker *health.Health
 	}
 	// nacos 后端（注册中心 + 配置中心）：默认空操作，-tags nacos 时接入。
 	opts = append(opts, nacosBootstrapOptions()...)
-
-	app, err := appkit.FromBootstrap(bootstrap, opts...)
-	if err != nil {
-		// 契约与能力声明不一致（如声明了 WithHTTP 但契约删了 server.http 段）
-		// 属启动期错误，fail-fast 暴露，不静默降级。
-		panic("newApp: " + err.Error())
-	}
-	return app
+	return opts
 }
 
 // newRouter 组织业务 HTTP 路由（gin 引擎 + 中间件链 + 示例路由组）。
@@ -270,7 +242,7 @@ var osExit = func(code int) { os.Exit(code) }
 // （针对 baldv1.GreetRequest 的 ValidateGreetRequest）。
 var greetValidator grpcmw.MessageValidator
 
-// registerGRPCService 是 gRPC service 注册回调，供 FromBootstrap 的 WithGRPC 使用。
+// registerGRPCService 是 gRPC service 注册回调，供 WithGRPC 使用。
 //
 // 默认编译（无 grpcgw tag）下它是空实现——业务在此注册自己的实现即可
 // （pb.RegisterYourServer(s, yourImpl)）。

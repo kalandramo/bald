@@ -31,7 +31,7 @@ func (l *effectLog) snapshot() []string {
 // TestEffect_UndoReverseOrder 逆序回放契约：后注册的先撤销（与依赖建立顺序对称）。
 func TestEffect_UndoReverseOrder(t *testing.T) {
 	l := &effectLog{}
-	app := New(
+	app := NewApp(
 		Effect("a", func(context.Context) error { l.add("undo-a"); return nil }),
 		Effect("b", func(context.Context) error { l.add("undo-b"); return nil }),
 		Effect("c", func(context.Context) error { l.add("undo-c"); return nil }),
@@ -48,7 +48,7 @@ func TestEffect_UndoReverseOrder(t *testing.T) {
 // TestEffect_Idempotent 回放幂等契约：账本回放后清空，重复调用无副作用。
 func TestEffect_Idempotent(t *testing.T) {
 	l := &effectLog{}
-	app := New(
+	app := NewApp(
 		Effect("a", func(context.Context) error { l.add("undo-a"); return nil }),
 	)
 
@@ -63,7 +63,7 @@ func TestEffect_Idempotent(t *testing.T) {
 // TestEffect_PanicIsolated panic 隔离契约：单条 undo panic 不拖垮其余回放。
 func TestEffect_PanicIsolated(t *testing.T) {
 	l := &effectLog{}
-	app := New(
+	app := NewApp(
 		Effect("a", func(context.Context) error { l.add("undo-a"); return nil }),
 		Effect("boom", func(context.Context) error { panic("boom") }),
 		Effect("c", func(context.Context) error { l.add("undo-c"); return nil }),
@@ -89,7 +89,7 @@ func TestEffect_PanicIsolated(t *testing.T) {
 // TestEffect_UndoOnErrorReturn undo 返回错误契约：记录日志但继续回放其余效应。
 func TestEffect_UndoOnErrorReturn(t *testing.T) {
 	l := &effectLog{}
-	app := New(
+	app := NewApp(
 		Effect("a", func(context.Context) error { l.add("undo-a"); return nil }),
 		Effect("fail", func(context.Context) error { return errors.New("fail") }),
 	)
@@ -105,7 +105,7 @@ func TestEffect_UndoOnErrorReturn(t *testing.T) {
 // 优雅停机）时，stopAll 阶段 0 自动逆序回放效应。
 func TestEffect_RunUndoesOnShutdown(t *testing.T) {
 	l := &effectLog{}
-	app := New(
+	app := NewApp(
 		Servers(newMock("fx-run")),
 		Effect("a", func(context.Context) error { l.add("undo-a"); return nil }),
 		Effect("b", func(context.Context) error { l.add("undo-b"); return nil }),
@@ -130,7 +130,7 @@ func TestEffect_RunUndoesOnShutdown(t *testing.T) {
 // 的路径（不经过 stopAll）也必须回放账本。
 func TestEffect_UndoOnBeforeStartFailure(t *testing.T) {
 	l := &effectLog{}
-	app := New(
+	app := NewApp(
 		Servers(newMock("fx-fail")),
 		Effect("a", func(context.Context) error { l.add("undo-a"); return nil }),
 		BeforeStart(func(context.Context) error { return errors.New("boom") }),
@@ -148,7 +148,7 @@ func TestEffect_UndoOnBeforeStartFailure(t *testing.T) {
 // TestEffect_Timeout 每条 undo 独立超时契约：卡死的 undo 被超时收口，不拖垮后续。
 func TestEffect_Timeout(t *testing.T) {
 	l := &effectLog{}
-	app := New(
+	app := NewApp(
 		EffectTimeout(50*time.Millisecond),
 		Effect("slow", func(ctx context.Context) error {
 			<-ctx.Done() // 卡到超时

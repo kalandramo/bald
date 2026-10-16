@@ -13,7 +13,7 @@ import (
 	"github.com/kalandramo/bald/log"
 )
 
-// FromBootstrap 契约装配：阶段 B 构建 → Database 取用 → 停机 cleanup。
+// 约定装配：阶段 B 构建 → Database 取用 → 停机 cleanup。
 // Registry 行为测试（注册/段枚举/回滚）已随六域 Registry 迁 bootstrap
 // （bootstrap/database_test.go，2026-09-15）。
 
@@ -25,7 +25,7 @@ func bconfNewBootstrapWithDatabase() *bootstrapv1.BootstrapConfig {
 	return cfg
 }
 
-func TestFromBootstrap_ContractDatabaseLifecycle(t *testing.T) {
+func TestAssemble_ContractDatabaseLifecycle(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
 
@@ -39,10 +39,7 @@ func TestFromBootstrap_ContractDatabaseLifecycle(t *testing.T) {
 	cfg := bconfNewBootstrapWithDatabase()
 	dynamicAddr(cfg)
 
-	a, err := FromBootstrap(cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), WithDatabaseRegistry(dr))
-	if err != nil {
-		t.Fatalf("FromBootstrap: %v", err)
-	}
+	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), WithDatabaseRegistry(dr))
 	// 构造期（阶段 A）尚未装载契约：Database 为空
 	if _, ok := a.Database("sql"); ok {
 		t.Fatal("Database should be empty before Run (phase B not reached)")
@@ -79,35 +76,29 @@ func TestFromBootstrap_ContractDatabaseLifecycle(t *testing.T) {
 }
 
 // 契约 database 段存在但未接 DatabaseRegistry → 阶段 B fail-fast。
-func TestFromBootstrap_DatabaseSectionWithoutTable(t *testing.T) {
+func TestAssemble_DatabaseSectionWithoutTable(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
 
 	cfg := bconfNewBootstrapWithDatabase()
 	dynamicAddr(cfg)
 
-	a, err := FromBootstrap(cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
-	if err != nil {
-		t.Fatalf("FromBootstrap (构造期不校验合并后配置): %v", err)
-	}
-	err = a.Run(context.Background())
+	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
+	err := a.Run(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "DatabaseRegistry") {
 		t.Fatalf("expected DatabaseRegistry missing error, got %v", err)
 	}
 }
 
 // database 段缺失（纯后台进程）→ no-op，不要求接注册表。
-func TestFromBootstrap_NoDatabaseSection(t *testing.T) {
+func TestAssemble_NoDatabaseSection(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
 
 	cfg := bconf.NewBootstrap()
 	dynamicAddr(cfg)
 
-	a, err := FromBootstrap(cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
-	if err != nil {
-		t.Fatalf("FromBootstrap: %v", err)
-	}
+	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- a.Run(ctx) }()

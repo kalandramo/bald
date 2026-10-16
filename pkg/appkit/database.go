@@ -15,7 +15,7 @@
 //	dr := bootstrap.NewDatabaseRegistry()
 //	dr.MustRegister(gormcontract.Type, gormcontract.Provider)    // "sql"
 //	dr.MustRegister(mongocontract.Type, mongocontract.Provider) // "mongodb"
-//	app, err := appkit.FromBootstrap(cfg, appkit.WithDatabaseRegistry(dr), ...)
+//	appkit.Serve(ctx, appkit.WithDatabaseRegistry(dr), ...)
 //	// Run 后取实例：
 //	cli := app.Database(gormcontract.Type).(*gormcrud.Client)
 package appkit
@@ -31,16 +31,16 @@ import (
 // WithDatabaseRegistry 注入数据库客户端的契约装配注册表（显式注册
 // provider，见 bootstrap.DatabaseRegistry）。契约 database 段任一引擎段
 // 存在时，阶段 B 按段名查表构建客户端；database 段不支持热更新。
-func WithDatabaseRegistry(r *baldbootstrap.DatabaseRegistry) BootstrapOption {
-	return func(s *bootstrapSpec) { s.DatabaseRegistry = r }
+func WithDatabaseRegistry(r *baldbootstrap.DatabaseRegistry) Option {
+	return optionFunc(func(s *Decl) { s.DatabaseRegistry = r })
 }
 
 // buildDatabases 在阶段 B（契约装载校验后）按契约 database 段构建全部
 // 已配置引擎的客户端，实例存入 a.databases 供业务经 Database/Databases
 // 取用。database 段缺失为 no-op；段存在但未接 DatabaseRegistry 则
 // fail-fast（配置意图无法兑现）。
-// 返回聚合 cleanup（可为 nil），由 FromBootstrap 挂停机 Effect。
-func buildDatabases(a *AppKit, cfg *bootstrapv1.BootstrapConfig, spec *bootstrapSpec) (func(), error) {
+// 返回聚合 cleanup（可为 nil），由 assemble 挂停机 Effect。
+func buildDatabases(a *AppKit, cfg *bootstrapv1.BootstrapConfig, spec *Decl) (func(), error) {
 	dbcfg := cfg.GetDatabase()
 	if dbcfg == nil {
 		return nil, nil // 未配置任何数据库
@@ -57,7 +57,7 @@ func buildDatabases(a *AppKit, cfg *bootstrapv1.BootstrapConfig, spec *bootstrap
 }
 
 // Database 返回按契约段装配的引擎客户端实例（阶段 B 后、Run 期可用；
-// FromBootstrap 构造期尚未装载契约，返回空）。
+// 装配构造期尚未装载契约，返回空）。
 // typ 为契约段名（见 contrib/database/<engine>/contract.Type，如 "sql"）。
 // 类型安全在消费侧恢复：kit.Database(gormcontract.Type).(*gormcrud.Client)。
 //

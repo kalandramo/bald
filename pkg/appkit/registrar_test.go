@@ -49,13 +49,13 @@ func (s *stubRegistrar) snapshot() (int, int) {
 	return s.registered, s.deregistered
 }
 
-// --- FromBootstrap 契约装配：全生命周期（阶段 B 构造 → start 注册 → 停机反注册 + cleanup） ---
+// --- 约定装配（契约驱动）：全生命周期（阶段 B 构造 → start 注册 → 停机反注册 + cleanup） ---
 //
 // 注：RegistrarRegistry 自身的「显式注册 + fail-fast + 单选分发」单测在
 // bootstrap module（bootstrap/registrar_test.go）——2026-09-17 该注册表迁入
 // bootstrap 装配层，本文件只保留 appkit 侧的生命周期编排断言。
 
-func TestFromBootstrap_ContractRegistrarLifecycle(t *testing.T) {
+func TestAssemble_ContractRegistrarLifecycle(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
 
@@ -69,10 +69,7 @@ func TestFromBootstrap_ContractRegistrarLifecycle(t *testing.T) {
 	cfg := bconfNewBootstrapWithRegistry("fake")
 	dynamicAddr(cfg)
 
-	a, err := FromBootstrap(cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), WithRegistrarRegistry(rr))
-	if err != nil {
-		t.Fatalf("FromBootstrap: %v", err)
-	}
+	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), WithRegistrarRegistry(rr))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
@@ -105,7 +102,7 @@ func TestFromBootstrap_ContractRegistrarLifecycle(t *testing.T) {
 }
 
 // 显式 WithRegistrar 优先：契约段存在但显式实例非 nil 时不走契约装配。
-func TestFromBootstrap_ExplicitRegistrarWins(t *testing.T) {
+func TestAssemble_ExplicitRegistrarWins(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
 
@@ -120,14 +117,11 @@ func TestFromBootstrap_ExplicitRegistrarWins(t *testing.T) {
 	dynamicAddr(cfg)
 
 	explicit := &stubRegistrar{}
-	a, err := FromBootstrap(cfg,
+	a := assembleForTest(t, cfg,
 		WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
 		WithRegistrar(explicit),
 		WithRegistrarRegistry(rr),
 	)
-	if err != nil {
-		t.Fatalf("FromBootstrap: %v", err)
-	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
@@ -145,18 +139,15 @@ func TestFromBootstrap_ExplicitRegistrarWins(t *testing.T) {
 }
 
 // 契约 registry 段存在但未接 RegistrarRegistry → 阶段 B fail-fast。
-func TestFromBootstrap_RegistrySectionWithoutTable(t *testing.T) {
+func TestAssemble_RegistrySectionWithoutTable(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
 
 	cfg := bconfNewBootstrapWithRegistry("fake")
 	dynamicAddr(cfg)
 
-	a, err := FromBootstrap(cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
-	if err != nil {
-		t.Fatalf("FromBootstrap (构造期不校验合并后配置): %v", err)
-	}
-	err = a.Run(context.Background())
+	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
+	err := a.Run(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "RegistrarRegistry") {
 		t.Fatalf("expected RegistrarRegistry missing error, got %v", err)
 	}
@@ -164,7 +155,7 @@ func TestFromBootstrap_RegistrySectionWithoutTable(t *testing.T) {
 
 // --- New 构造路径：SetRegistrar 运行期注入（go-bald-admin T7 装配模式） ---
 
-// BeforeStart 里按契约 Build + SetRegistrar（New 路径等价于 FromBootstrap 的
+// BeforeStart 里按契约 Build + SetRegistrar（NewApp 路径等价于约定装配的
 // buildRegistrar），cleanup 挂停机 Effect：断言 register 发生（SetRegistrar
 // 在 register 窗口之前即时生效）、停机 Deregister + cleanup 恰好各一次。
 func TestNew_SetRegistrarLifecycle(t *testing.T) {
@@ -186,7 +177,7 @@ func TestNew_SetRegistrarLifecycle(t *testing.T) {
 
 	srv := newMock("setreg")
 	var app *AppKit
-	app = New(
+	app = NewApp(
 		Name("setreg"),
 		Servers(srv),
 		Effect("appkit:registrar-client", func(context.Context) error {

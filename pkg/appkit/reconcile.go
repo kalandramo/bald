@@ -12,7 +12,7 @@
 //
 // 典型用法（审计后端热切换，无需重启）：
 //
-//	app := appkit.New(
+//	app := appkit.NewApp(
 //	    appkit.Reconcile("audit.backends", func(ctx context.Context, r *appkit.ReconcileCtx) error {
 //	        want := parseBackends(r.StringSlice("audit.backends")) // 期望态
 //	        // 新增：期望有、实际无
