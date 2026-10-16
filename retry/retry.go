@@ -58,6 +58,18 @@ type Retrier struct {
 	rng *rand.Rand
 }
 
+// Doer is the minimal port for retryable operations. Depend on this
+// interface instead of the concrete [Retrier] so implementations can be
+// substituted (e.g. a no-op or a test double).
+type Doer interface {
+	// Do runs fn, retrying transient failures per the implementation's
+	// policy, and returns the last error when retries are exhausted.
+	Do(ctx context.Context, fn func(ctx context.Context) error) error
+}
+
+// Compile-time check: *Retrier satisfies the Doer port.
+var _ Doer = (*Retrier)(nil)
+
 // Option configures the [Retrier].
 type Option func(*Retrier)
 
