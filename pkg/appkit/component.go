@@ -61,12 +61,12 @@ func (f componentFunc) Dispose(ctx context.Context) error {
 
 // Components 注册进程内组件（可多次调用，追加）。
 func Components(comps ...Component) Option {
-	return func(a *AppKit) { a.components = append(a.components, comps...) }
+	return func(a *AppKit) { a.AddComponents(comps...) }
 }
 
 // ComponentTimeout 设置组件 Start/Dispose 的独立超时（默认 defaultHookTimeout）。
 func ComponentTimeout(d time.Duration) Option {
-	return func(a *AppKit) { a.componentTimeout = d }
+	return func(a *AppKit) { a.SetComponentTimeout(d) }
 }
 
 // wrapComponentStartErr 统一组件启动失败的错误包裹（startComponents 与

@@ -165,9 +165,7 @@ func NewReconcileCtx(app *AppKit, name string, settings map[string]any) *Reconci
 // 单个协调器返回 error 时其余继续（隔离），错误仅记日志——协调是收敛过程，
 // 失败由下次协调补齐，不因单点失败阻断整机。
 func Reconcile(name string, fn ReconcileFunc) Option {
-	return func(a *AppKit) {
-		a.reconcilers = append(a.reconcilers, reconciler{name: name, fn: fn})
-	}
+	return func(a *AppKit) { a.AddReconcile(name, fn) }
 }
 
 // ReconcileNow 立即执行一次全量协调（按注册序）。供测试与「配置变更后手动触发」
