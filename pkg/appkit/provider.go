@@ -22,7 +22,7 @@
 //     wiring_order_test 钉住）、其余段在阶段 B 框架钩子内按 canonical 序构建
 //     （logger → registry → tracer → metrics → database → cache → storage →
 //     audit → ai → workflow → broker；audit 在 storage 与 ai 之间的既有次序）；
-//  4. 产物入库：引擎按顶层段把 Build 产物放进 AppKit 的统一资源面
+//  4. 产物入库：引擎按顶层段把 Build 产物放进 App 的统一资源面
 //     （storeProduct → App.Resource(segment)，B4）——注册中心实例、六域
 //     客户端、审计后端与表外段产物均按契约段路径存取（map 产物按
 //     "<顶层段>.<子段>" 展开），服务器列表经 storeServerProduct 并入停机序；
@@ -72,8 +72,8 @@ type BuildScope struct {
 	Decl *Decl
 	// App 资源容器：阶段 B 起（含 server 阶段）非 nil，且**前序段产物已
 	// 填充**（audit 后端经 App.Resource("database.sql") 取连接即依赖此
-	// 序）；config 段构造期与 logger 阶段 A 为 nil（AppKit 尚未构造）。
-	App *AppKit
+	// 序）；config 段构造期与 logger 阶段 A 为 nil（App 尚未构造）。
+	App *App
 }
 
 // Provider 消费契约段并构建该段产物。

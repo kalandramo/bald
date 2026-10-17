@@ -125,7 +125,7 @@ func WithLogDecorators(deco ...bslog.Option) Option {
 // loggerSource 统一「默认两阶段日志工厂」与「logger Provider 接管」的调用面：
 // 阶段 A（契约未装载）与阶段 B/热更（按契约或候选重建）各一个调用点。
 // Provider 路径的 scope.App 恒为 nil——日志装配先于资源容器存在，且热更路径
-// 在配置 watch goroutine 上执行，不得触碰 AppKit；Build 须并发安全（阶段 B
+// 在配置 watch goroutine 上执行，不得触碰 App；Build 须并发安全（阶段 B
 // 与热更可能并发进入）。
 type loggerSource interface {
 	bootstrapLogger(ctx context.Context) (log.Logger, func(), error)
@@ -189,14 +189,14 @@ func resolveLoggerSource(spec *Decl, plan *providerPlan) loggerSource {
 	return defaultLoggerSource{deco: spec.LogDecorators}
 }
 
-// assemble 按契约约定装配 AppKit——段驱动 Provider 装配引擎（原 12 段手工
+// assemble 按契约约定装配 App——段驱动 Provider 装配引擎（原 12 段手工
 // 流的整体替换，批 2 W2b；公开入口只剩 Serve/MustServe，见 serve.go）。
 //
 // spec 为业务能力声明（With*/Providers 写入的 Decl，调用方已 Apply 完毕）；
 // cfg 为契约，必须非 nil——Serve 路径由内部契约装载产出（bconf.NewBootstrap +
 // 预装载），包内测试经显式注入复刻旧 FromBootstrap(cfg, opts...) 的构造期
-// 语义。返回的 AppKit 已完成全部约定装配，直接 Run 即可。
-func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*AppKit, error) {
+// 语义。返回的 App 已完成全部约定装配，直接 Run 即可。
+func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*App, error) {
 	if cfg == nil {
 		return nil, errors.New("appkit: assemble: bootstrap config is nil")
 	}
@@ -251,7 +251,7 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*AppKit, error) {
 	log.SetLogger(bootLogger)
 
 	// 构造期阶段：config 段 Provider 产出配置层（声明序=层优先级，首元素
-	// 最高）。scope.App 为 nil——AppKit 尚未构造。失败回滚阶段 A。
+	// 最高）。scope.App 为 nil——App 尚未构造。失败回滚阶段 A。
 	var layers []baldconfig.Layer
 	var layersCleanup func()
 	if len(plan.construct) > 0 {
@@ -299,7 +299,7 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*AppKit, error) {
 	var auditSt *auditState
 
 	// a 先声明再进闭包：BeforeStart 在 Run 期才执行，届时 a 已赋值。
-	var a *AppKit
+	var a *App
 
 	// 注：配置命名空间的必填检查在 Serve（serve.go）——它在任何副作用（阶段 A
 	// Logger、契约预装载）之前 fail-fast，比旧 FromBootstrap 把检查放在阶段 A
@@ -615,9 +615,9 @@ func noopCleanupFn(c Cleanup) func() {
 	return func() { _ = c(context.Background()) }
 }
 
-// storeProduct 把阶段 B Provider 的产物按顶层段落进 AppKit 的资源面，并把
+// storeProduct 把阶段 B Provider 的产物按顶层段落进 App 的资源面，并把
 // cleanup 填入对应槽位。产物形状不符 = 装配错误（fail-fast）。
-func storeProduct(a *AppKit, r buildResult, slots *cleanupSlots, auditSt **auditState) error {
+func storeProduct(a *App, r buildResult, slots *cleanupSlots, auditSt **auditState) error {
 	top := segmentTop(r.prov.Segments()[0])
 	switch top {
 	case "registry":
@@ -660,7 +660,7 @@ func storeProduct(a *AppKit, r buildResult, slots *cleanupSlots, auditSt **audit
 // setResources 把段产物落进统一资源面（B4）：map[string]any 产物按
 // "<top>.<子段>" 逐键展开（与六域产物的段路径约定同构，nil 值跳过），
 // 其余产物整体落 "<top>"。仅 BeforeStart（阶段 B）单线程写入，Run 后只读。
-func (a *AppKit) setResources(top string, product any) {
+func (a *App) setResources(top string, product any) {
 	if product == nil {
 		return
 	}
@@ -693,7 +693,7 @@ func productStringMap(r buildResult) (map[string]any, error) {
 
 // storeServerProduct 落迟后阶段（server 段）产物：[]transport.Server 追加进
 // 服务器列表，cleanup 经 addEffect 入账（构造即入账，停机先 drain 服务器）。
-func storeServerProduct(a *AppKit, r buildResult) error {
+func storeServerProduct(a *App, r buildResult) error {
 	var servers []transport.Server
 	switch v := r.product.(type) {
 	case nil:
@@ -715,7 +715,7 @@ func storeServerProduct(a *AppKit, r buildResult) error {
 // syncBootstrap 装载配置快照进契约、校验并重建 Logger（阶段 B 前置框架步骤
 // ——必须在校验后重建，构造用的契约值已含文件/env 覆盖；registry 段的注册
 // 中心构造已 Provider 化，在阶段 B 循环按 canonical 序进行）。
-func syncBootstrap(a *AppKit, cfg *bootstrapv1.BootstrapConfig, spec *Decl, logSrc loggerSource, curCleanup *atomic.Pointer[func()]) error {
+func syncBootstrap(a *App, cfg *bootstrapv1.BootstrapConfig, spec *Decl, logSrc loggerSource, curCleanup *atomic.Pointer[func()]) error {
 	m := a.Settings()
 	if m == nil {
 		return errors.New("appkit: settings snapshot is nil")

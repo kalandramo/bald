@@ -47,8 +47,8 @@ import (
 // ErrAlreadyRunning 在重复调用 Run 时返回。
 var ErrAlreadyRunning = errors.New("appkit: Run already in progress")
 
-// AppKit 自研应用编排层。
-type AppKit struct {
+// App 自研应用编排层。
+type App struct {
 	id      string
 	name    string
 	version string
@@ -133,7 +133,7 @@ type AppKit struct {
 	runErr   atomic.Value // error
 }
 
-// appConfig 收敛 AppKit 的配置装配输入与加载结果。
+// appConfig 收敛 App 的配置装配输入与加载结果。
 // 装配输入：cfgFile / remote / layers（契约源层） / env / watchFile / onChange / bindings；加载结果：store。
 type appConfig struct {
 	cfgFile   string
@@ -157,7 +157,7 @@ func (c *appConfig) closeStore() {
 }
 
 // （原 flagBinding 已由导出的 BindDecl 承载——装配期声明统一进 Decl，
-// 见 decl.go；绑定时机与 AppKit 的 FlagSet 构造耦合的归位理由不变，
+// 见 decl.go；绑定时机与 App 的 FlagSet 构造耦合的归位理由不变，
 // 见 Bind 注释。）
 
 // PlainBinder 支持"无前缀"注册 flag 的配置对象，键前缀由实现体内置。
@@ -167,7 +167,7 @@ type PlainBinder interface {
 	AddFlags(fs *pflag.FlagSet)
 }
 
-// Bind 把业务配置对象的 flag 注册进 AppKit 的 FlagSet，从而接入配置装载的
+// Bind 把业务配置对象的 flag 注册进 App 的 FlagSet，从而接入配置装载的
 // flag 层，使「业务 flag > env > 本地文件 > 远程」这条优先级链完整生效。
 //
 // 背景：仅调用 AddFlags(pflag.CommandLine, ...) 只把 flag 注册到全局 flagset，
@@ -198,8 +198,8 @@ type PlainBinder interface {
 // 注意：用了 Bind 之后不要再自行 AddFlags 到 pflag.CommandLine，否则同一配置
 // 有两处注册源（虽然值一致，但语义重复）。
 //
-// 归 appkit 而非配置仓库：Bind 注册的 flag 进入 **AppKit 的 FlagSet**，由
-// loadConfig 交给配置装载器合并——绑定动作与 AppKit 生命周期同序。
+// 归 appkit 而非配置仓库：Bind 注册的 flag 进入 **App 的 FlagSet**，由
+// loadConfig 交给配置装载器合并——绑定动作与 App 生命周期同序。
 func Bind(prefix string, opt any) Option {
 	return optionFunc(func(a *Decl) { a.Binds = append(a.Binds, BindDecl{Prefix: prefix, Opt: opt}) })
 }
@@ -222,12 +222,12 @@ func bindFlags(fs *pflag.FlagSet, b BindDecl) error {
 	return nil
 }
 
-// Option 配置 AppKit 的装配期声明。
+// Option 配置 App 的装配期声明。
 //
 // 批 2 起为**接口**：type Option interface{ Apply(*Decl) }——方法与参数类型
 // 均导出，包外（pkg/appkit/mech、未来 contrib）可实现自己的 Option 值直写
 // Decl 导出字段（装配层评估 §5.2 / D1 §5.2）。包内构造器经 optionFunc
-// 适配；运行期状态不受影响——Apply 只写纯数据声明，AppKit 在构造期从
+// 适配；运行期状态不受影响——Apply 只写纯数据声明，App 在构造期从
 // Decl 拷贝（newFromDecl）。
 //
 // 兼容性（本波不删任何导出名）：所有既有构造函数（ID/Name/Bind/…）签名
@@ -281,7 +281,7 @@ func ConfigNamespace(ns string) Option {
 // 时序约束：须在 Run 进入 register 之前调用（BeforeStart 是安全窗口）——
 // register/deregister 每次都读 a.registrar，不做缓存，赋值即时生效。
 // client cleanup 由调用方挂停机 Effect 回放（Deregister 先于 Effect，顺序安全）。
-func (a *AppKit) SetRegistrar(r registry.Registrar) { a.registrar = r }
+func (a *App) SetRegistrar(r registry.Registrar) { a.registrar = r }
 
 // ConfigFile 指定 --config 配置文件路径（onexstack 风格）。
 func ConfigFile(f string) Option {
@@ -381,7 +381,7 @@ func hostname() string {
 
 // defaultInstanceID 返回默认实例 ID：hostname + 短随机后缀。
 //
-// 纯 hostname 会让同机多实例（本地并发多个服务）或同进程多 AppKit 的注册 ID 相同，
+// 纯 hostname 会让同机多实例（本地并发多个服务）或同进程多 App 的注册 ID 相同，
 // 后注册实例会覆盖前者——服务发现拿到错误端点。随机后缀保证每次启动都是唯一新实例。
 // 需要稳定标识（如 K8s 固定 pod 名、跨重启一致）时用 ID() Option 显式注入。
 func defaultInstanceID() string {
@@ -400,14 +400,14 @@ func newDecl(opts ...Option) *Decl {
 	return &d
 }
 
-// NewApp 构造 AppKit（原 New，批 2 W2a 更名）：显式 Option 装配的构造器，
+// NewApp 构造 App（原 New，批 2 W2a 更名）：显式 Option 装配的构造器，
 // 测试/e2e 复用同一构造逻辑的入口。先以缺省值初始化 Decl，逐项 Apply 声明，
 // 再从 Decl 构造（构造期拷贝，见 decl.go）。
 //
 // 它**不是第二条装配路径**：契约驱动的约定装配只有 Serve 一条（With* 声明 +
 // 内部契约装载 + 装配流，见 serve.go/assemble）；NewApp 只把声明的纯数据
 // 拷入运行态（newFromDecl），不消费契约段、不派生服务器注册与框架钩子链。
-func NewApp(opts ...Option) *AppKit {
+func NewApp(opts ...Option) *App {
 	d := newDecl(opts...)
 	// 配置命名空间回退：放在 Apply **之后**——保证 ConfigNamespace 无论与
 	// Name 的书写先后都优先（若放在循环内逐项判断，`Name` 先于 `ConfigNamespace`
@@ -422,7 +422,7 @@ func NewApp(opts ...Option) *AppKit {
 // loadConfig 在启动期加载配置：本地 --config 文件 + 环境变量 + 业务 flag + 可选远程配置中心。
 // 结果是 a.cfg.store（*config.Store），调用方通过 Settings()/Config() 读取并
 // Unmarshal 到业务 options。
-func (a *AppKit) loadConfig() error {
+func (a *App) loadConfig() error {
 	fs := pflag.NewFlagSet("bald", pflag.ContinueOnError)
 	fs.StringVar(&a.cfg.cfgFile, "config", a.cfg.cfgFile,
 		"Read configuration from specified FILE (JSON/YAML); "+
@@ -443,7 +443,7 @@ func (a *AppKit) loadConfig() error {
 
 	s, err := config.Load(config.Options{
 		// Name 是配置命名空间（env 前缀 / 多环境文件名），非服务身份——
-		// 二者已在 AppKit 内分字段（见 AppKit.cfgNamespace 注释）。
+		// 二者已在 App 内分字段（见 App.cfgNamespace 注释）。
 		Name:           a.cfgNamespace,
 		Env:            a.cfg.env,
 		ConfigFile:     a.cfg.cfgFile,
@@ -467,12 +467,12 @@ func (a *AppKit) loadConfig() error {
 }
 
 // Done 返回应用结束信号通道，便于测试与嵌入。
-func (a *AppKit) Done() <-chan struct{} { return a.done }
+func (a *App) Done() <-chan struct{} { return a.done }
 
 // Settings 返回加载后的配置快照（深拷贝 map），供 bconf.UnmarshalMap /
 // baldconfig.Unmarshal 填充契约。仅在 Run 触发配置加载后才有有效内容；
 // 未加载时为 nil。热更新不影响已取出的快照（发布语义：快照稳定）。
-func (a *AppKit) Settings() map[string]any {
+func (a *App) Settings() map[string]any {
 	if a.cfg.store == nil {
 		return nil
 	}
@@ -481,10 +481,10 @@ func (a *AppKit) Settings() map[string]any {
 
 // Config 返回配置仓库（*config.Store），供点路径实时读取（GetString/
 // GetStringSlice/Get）与一站式 Unmarshal。仅在 Run 触发配置加载后非 nil。
-func (a *AppKit) Config() *config.Store { return a.cfg.store }
+func (a *App) Config() *config.Store { return a.cfg.store }
 
 // Err 返回 Run 的退出错误（Run 返回后有效）。
-func (a *AppKit) Err() error {
+func (a *App) Err() error {
 	if v, ok := a.runErr.Load().(error); ok {
 		return v
 	}
@@ -499,7 +499,7 @@ func (a *AppKit) Err() error {
 //   - 任一服务器 Start 失败 -> 其余服务器都被 Stop（崩溃级联）；
 //   - Stop 传入的 ctx 是未取消的新 ctx（带 stopTimeout），stopTimeout 才有效；
 //   - 信号（SIGINT/SIGTERM）或 ctx 取消触发优雅停机。
-func (a *AppKit) Run(ctx context.Context) error {
+func (a *App) Run(ctx context.Context) error {
 	// 先占坑（防重入），再加载配置——顺序重要，不可调换。
 	//
 	// 曾把 loadConfig 放在 CAS 之前，理由是「配置失败不属于运行中状态，不应占用
@@ -653,7 +653,7 @@ func (a *AppKit) Run(ctx context.Context) error {
 // 每个阶段使用各自独立的 WithTimeout ctx，互不影响；parent 取消会级联缩短各阶段。
 // waitForEndpoints / register / afterStart / 组件启动失败路径也经本函数回滚
 // （含效应回放与组件 Dispose）。
-func (a *AppKit) stopAll(parent context.Context) {
+func (a *App) stopAll(parent context.Context) {
 	// 阶段 0：效应账本逆序回放（幂等，已回放过则无操作）。
 	a.UndoEffects(parent)
 
@@ -691,7 +691,7 @@ func (a *AppKit) stopAll(parent context.Context) {
 }
 
 // runHook 在独立超时 ctx 中执行生命周期钩子，并 recover 防止单个钩子 panic 拖垮整机。
-func (a *AppKit) runHook(parent context.Context, timeout time.Duration, name string, fn func(context.Context) error) (err error) {
+func (a *App) runHook(parent context.Context, timeout time.Duration, name string, fn func(context.Context) error) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("appkit %s hook panicked: %v", name, r)
@@ -711,7 +711,7 @@ func (a *AppKit) runHook(parent context.Context, timeout time.Duration, name str
 //
 // 与既有过滤意图一致（`ep != ""` 只是想跳过「无端点」的 server），
 // 此处把「非空」收紧为「可注册」。
-func (a *AppKit) buildInstance() *registry.ServiceInstance {
+func (a *App) buildInstance() *registry.ServiceInstance {
 	var eps []string
 	for _, s := range a.servers {
 		if ep := s.Endpoint(); ep != "" && registrableEndpoint(ep) {
@@ -750,7 +750,7 @@ func registrableEndpoint(ep string) bool {
 // waitForEndpoints 轮询直到所有 server 的 Endpoint 解析出真实端口（非 ":0"），
 // 或 ctx 取消/超时。这避免了把 ":0" 这样的未绑定地址注册到服务发现。
 // 对于显式绑定固定端口的 server，Endpoint 一开始就非 ":0"，会立即通过。
-func (a *AppKit) waitForEndpoints(ctx context.Context) error {
+func (a *App) waitForEndpoints(ctx context.Context) error {
 	const (
 		pollInterval = 10 * time.Millisecond
 		timeout      = 5 * time.Second // 单个 server 监听准备上限
@@ -781,7 +781,7 @@ func (a *AppKit) waitForEndpoints(ctx context.Context) error {
 }
 
 // register 将实例注册到服务发现（若有 Registrar）。
-func (a *AppKit) register(ctx context.Context) error {
+func (a *App) register(ctx context.Context) error {
 	if a.registrar == nil {
 		return nil
 	}
@@ -789,7 +789,7 @@ func (a *AppKit) register(ctx context.Context) error {
 }
 
 // deregister 从服务发现注销实例（优先调用，避免流量打到已停服务）。
-func (a *AppKit) deregister(ctx context.Context) error {
+func (a *App) deregister(ctx context.Context) error {
 	if a.registrar == nil {
 		return nil
 	}

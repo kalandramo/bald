@@ -52,7 +52,7 @@ func TestAssemble_ContractAiLifecycle(t *testing.T) {
 		t.Fatalf("instance type mismatch: %T", cli)
 	}
 	if all := resourceMap(t, a, "ai"); len(all) != 1 {
-		t.Fatalf("Ais() = %v, want 1 entry", all)
+		t.Fatalf("Resource(\"ai\") snapshot = %v, want 1 entry", all)
 	}
 
 	cancel()

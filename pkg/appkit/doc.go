@@ -12,7 +12,7 @@
 //
 // 启动期配置（onexstack 风格 + 远程）：
 //
-//	AppKit 在 Run 的最早阶段调用 loadConfig：读取 --config 本地文件（yaml/json）、
+//	App 在 Run 的最早阶段调用 loadConfig：读取 --config 本地文件（yaml/json）、
 //	环境变量（前缀 NAME_）、业务 flag（仅显式传入的参与合并）、可选远程配置中心
 //	（etcd/consul/nacos 等，经 config.RemoteSource 抽象接入，推荐用
 //	config.FromKratosSource 桥接 kratos contrib 后端）。优先级 flag > env > 本地 >
@@ -39,7 +39,7 @@
 //
 // # 扩展机制的职责边界（何时用哪个）
 //
-// AppKit 有四组「可组合性原语」（T1/S1/C1/A1+R1，见
+// App 有四组「可组合性原语」（T1/S1/C1/A1+R1，见
 // docs/devel/zh-CN/架构优化路线.md）。它们与既有生命周期钩子易混淆，
 // 下表给出选择判据：
 //

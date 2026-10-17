@@ -20,7 +20,7 @@ const testConfigNamespace = "bald-app"
 
 // 本文件钉住「配置命名空间与 app.name 解耦」的不变量。
 //
-// 背景：AppKit.name 曾双肩挑——既是服务身份（日志/注册中心），又是配置
+// 背景：App.name 曾双肩挑——既是服务身份（日志/注册中心），又是配置
 // 命名空间（env 前缀 + 多环境文件名）。约定装配路径下 name 取自契约
 // app.name，而 app.name 可被配置文件/env 供给，于是「配置里的 app.name」
 // 反过来决定「能读到哪些环境变量」——自指循环，症状是 env 覆盖静默失效。

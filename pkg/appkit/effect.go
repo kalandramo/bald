@@ -62,7 +62,7 @@ func effectTimeoutOpt(d time.Duration) Option {
 // 供运行期钩子登记——典型场景是 W1 延后到 Run 期的服务器构造：构造产物
 // （cleanup）只能在构造发生的同一时刻入账，否则「构造成功但注册失败」的
 // 窗口会泄漏资源。
-func (a *AppKit) addEffect(name string, undo func(ctx context.Context) error) {
+func (a *App) addEffect(name string, undo func(ctx context.Context) error) {
 	a.effectsMu.Lock()
 	a.effects = append(a.effects, effectEntry{name: name, undo: undo})
 	a.effectsMu.Unlock()
@@ -74,7 +74,7 @@ func (a *AppKit) addEffect(name string, undo func(ctx context.Context) error) {
 //	t.Cleanup(func() { app.UndoEffects(context.Background()) })
 //
 // 单条 undo 超时或 panic 仅记日志，不中断其余回放（旁路语义，与审计一致）。
-func (a *AppKit) UndoEffects(parent context.Context) {
+func (a *App) UndoEffects(parent context.Context) {
 	a.effectsMu.Lock()
 	entries := a.effects
 	a.effects = nil

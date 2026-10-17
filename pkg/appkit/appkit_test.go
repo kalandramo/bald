@@ -114,7 +114,7 @@ func TestBug3_CrashCascadeStop(t *testing.T) {
 	}
 }
 
-// TestRun_SuccessThenRetryDoesNotPanic 同一 AppKit 实例在一次成功 Run 之后
+// TestRun_SuccessThenRetryDoesNotPanic 同一 App 实例在一次成功 Run 之后
 // 再次 Run，必须**不 panic**。
 //
 // 背景：Run 的 `defer close(a.done)` 是裸 defer——一次成功后 running 被归还为
@@ -463,7 +463,7 @@ func TestAppKit_ConfigLoadedAndExposed(t *testing.T) {
 
 	srv := newMock("cfg")
 	var loadedAddr string
-	var app *AppKit
+	var app *App
 	app = NewApp(
 		Name("cfg-demo"),
 		ConfigFile(localPath),
@@ -496,7 +496,7 @@ func TestAppKit_ConfigMissingFileNoError(t *testing.T) {
 	remote := &memRemoteSource{data: []byte("http:\n  addr: \":7070\""), format: "yaml"}
 	srv := newMock("cfg2")
 	var loadedAddr string
-	var app *AppKit
+	var app *App
 	app = NewApp(
 		Name("cfg-demo"),
 		// 不传 ConfigFile：纯远程/纯 flag 配置，本地文件缺失不应报错（onexstack 风格）。
@@ -592,7 +592,7 @@ func TestAppKit_MultiServerEndpointAggregation(t *testing.T) {
 // 修复：buildInstance 只收集可注册的 endpoint（host 含端口）。
 // 本测试锁住该行为——若回归，注册阶段会重新崩。
 func TestD16_NonRegistrableEndpointFiltered(t *testing.T) {
-	// 直接构造 AppKit（不 Run）：buildInstance 是纯函数，无需启动 server。
+	// 直接构造 App（不 Run）：buildInstance 是纯函数，无需启动 server。
 	app := NewApp(
 		ID("node-d16"),
 		Name("d16-svc"),

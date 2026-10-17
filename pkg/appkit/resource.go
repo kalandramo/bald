@@ -34,7 +34,7 @@ import "strings"
 //
 // 未装配或段缺失返回 (nil, false)。tracer/metrics 产物刻意不落资源面
 // （shutdown/暴露端由 Provider 自持，cleanup 槽位承担停机回收）。
-func (k *AppKit) Resource(segment string) (any, bool) {
+func (k *App) Resource(segment string) (any, bool) {
 	if segment == "" {
 		return nil, false
 	}

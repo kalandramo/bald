@@ -6,7 +6,7 @@ import (
 )
 
 // TestDefaultInstanceID_Unique 默认实例 ID 须全局唯一：hostname 前缀 + 随机后缀，
-// 同机多实例 / 同进程多 AppKit 不冲突（多实例注册覆盖的架构债修复）。
+// 同机多实例 / 同进程多 App 不冲突（多实例注册覆盖的架构债修复）。
 func TestDefaultInstanceID_Unique(t *testing.T) {
 	host := hostname()
 	seen := make(map[string]bool)

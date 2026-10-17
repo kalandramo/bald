@@ -1,4 +1,4 @@
-// util.go 是协调配套的纯工具函数（不依赖 AppKit 任何状态）。
+// util.go 是协调配套的纯工具函数（不依赖 App 任何状态）。
 //
 // B5 落点说明（装配层评估.md §9.3）：DiffStrings 实现体自批 2 起移入本包，
 // appkit 侧旧名删除——appkit 内部无生产引用，生成物（internal/codegen 模板）

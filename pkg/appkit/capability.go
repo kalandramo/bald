@@ -54,7 +54,7 @@ func requiresOpt(component string, caps ...string) Option {
 //
 // Run 在启动早期自动调用（配置加载后、beforeStart 前）；手动调用用于测试
 // 或「装配校验与运行解耦」场景。
-func (a *AppKit) Resolve() error {
+func (a *App) Resolve() error {
 	seen := make(map[string]struct{}, len(a.provides))
 	var errs []string
 

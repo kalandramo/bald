@@ -64,7 +64,7 @@ func wrapComponentStartErr(name string, err error) error {
 
 // startComponents 顺序启动全部组件；任一失败则由调用方经 stopAll 逆序 Dispose
 // 已启动组件（started 跟踪保证只处理成功 Start 过的，幂等）。
-func (a *AppKit) startComponents(ctx context.Context) error {
+func (a *App) startComponents(ctx context.Context) error {
 	for _, c := range a.components {
 		if err := a.runHook(ctx, a.componentTimeout, "component:"+c.Name()+":start", c.Start); err != nil {
 			return wrapComponentStartErr(c.Name(), err)
@@ -83,7 +83,7 @@ func (a *AppKit) startComponents(ctx context.Context) error {
 //
 // A1 竞态闭环：置位 disposed（锁内）后才快照销毁——此后 MountComponent 被
 // 拒绝（并回滚其 Start），保证销毁后不再有组件逃逸出停机序列。
-func (a *AppKit) disposeComponents(parent context.Context) {
+func (a *App) disposeComponents(parent context.Context) {
 	a.startedMu.Lock()
 	if a.disposed {
 		a.startedMu.Unlock()

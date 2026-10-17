@@ -50,7 +50,7 @@ func onKeyChangeOpt(key string, fn func(old, new string)) Option {
 }
 
 // armKeyWatchers 在配置首次加载完成后为全部订阅建立基线快照。
-func (a *AppKit) armKeyWatchers() {
+func (a *App) armKeyWatchers() {
 	a.keyWatchMu.Lock()
 	defer a.keyWatchMu.Unlock()
 	for i := range a.keyWatchers {
@@ -62,7 +62,7 @@ func (a *AppKit) armKeyWatchers() {
 
 // wrapKeyWatch 包装用户全量回调：先跑全量（保留既有行为），再分发 key 订阅，
 // 最后跑 R1-2 期望态协调（配置变更是协调的主要触发源）。
-func (a *AppKit) wrapKeyWatch(user func(map[string]any)) func(map[string]any) {
+func (a *App) wrapKeyWatch(user func(map[string]any)) func(map[string]any) {
 	return func(m map[string]any) {
 		if user != nil {
 			user(m)
@@ -74,7 +74,7 @@ func (a *AppKit) wrapKeyWatch(user func(map[string]any)) func(map[string]any) {
 
 // dispatchKeyWatch 逐 key 比对新值，仅对确实变化的订阅触发 fn。
 // 锁内串行分发：保证同一 watcher 的 fn 不并发、观测顺序与变更顺序一致。
-func (a *AppKit) dispatchKeyWatch() {
+func (a *App) dispatchKeyWatch() {
 	a.keyWatchMu.Lock()
 	defer a.keyWatchMu.Unlock()
 	for i := range a.keyWatchers {

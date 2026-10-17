@@ -179,7 +179,7 @@ func TestNew_SetRegistrarLifecycle(t *testing.T) {
 	})
 
 	srv := newMock("setreg")
-	var app *AppKit
+	var app *App
 	app = NewApp(
 		Name("setreg"),
 		Servers(srv),

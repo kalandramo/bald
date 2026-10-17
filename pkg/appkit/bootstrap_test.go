@@ -262,7 +262,7 @@ func (f funcLogSrc) contractLogger(ctx context.Context, cfg *bootstrapv1.Bootstr
 }
 
 // runBriefly 启动 app 并在延迟后取消 ctx，等待 Run 返回（完整生命周期：BeforeStart→运行→停机回放）。
-func runBriefly(t *testing.T, a *AppKit, delay time.Duration) {
+func runBriefly(t *testing.T, a *App, delay time.Duration) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
@@ -295,7 +295,7 @@ func dynamicAddr(cfg *bootstrapv1.BootstrapConfig) {
 // 契约段（gateway driver 判定）这类 WithConfigLayers 表达不了的形态。只放
 // 本 _test.go：公开装配入口只有 Serve（契约由其内部装载产出），不存在第二
 // 公开装配路径。
-func assembleForTest(t *testing.T, cfg *bootstrapv1.BootstrapConfig, opts ...Option) *AppKit {
+func assembleForTest(t *testing.T, cfg *bootstrapv1.BootstrapConfig, opts ...Option) *App {
 	t.Helper()
 	a, err := assemble(newDecl(opts...), cfg)
 	if err != nil {
@@ -306,7 +306,7 @@ func assembleForTest(t *testing.T, cfg *bootstrapv1.BootstrapConfig, opts ...Opt
 
 // assembleForTestErr 是 assembleForTest 的错误路径版本：不 Fatal，返回装配
 // 错误供 fail-fast 断言（原 `FromBootstrap(...)` 的 err 检查用法）。
-func assembleForTestErr(cfg *bootstrapv1.BootstrapConfig, opts ...Option) (*AppKit, error) {
+func assembleForTestErr(cfg *bootstrapv1.BootstrapConfig, opts ...Option) (*App, error) {
 	return assemble(newDecl(opts...), cfg)
 }
 
@@ -747,7 +747,7 @@ func TestAssemble_PassthroughOrder(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	// 停机五阶段（AppKit 既有语义）：阶段 0 Effect 逆序回放 → 阶段 1 BeforeStop。
+	// 停机五阶段（App 既有语义）：阶段 0 Effect 逆序回放 → 阶段 1 BeforeStop。
 	// 业务 Effect（biz:two/biz:one）注册在框架 Effect 之后 → 逆序回放先执行。
 	want := []string{"beforeStart", "effect:two", "effect:one", "beforeStop"}
 	if len(order) != len(want) {

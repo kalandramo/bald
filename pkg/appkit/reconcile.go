@@ -71,7 +71,7 @@ type ReconcileCtx struct {
 	// Name 是本协调器的注册名（日志/审计定位用）。
 	Name string
 
-	app *AppKit
+	app *App
 }
 
 // String 读取期望态中点路径的字符串值（缺失/nil → ""，标量 → 字符串化）。
@@ -147,7 +147,7 @@ func (r *ReconcileCtx) Has(name string) bool {
 }
 
 // Mount 挂载一个由本协调器管理的组件（记入归属，供下次 diff）。
-// 语义与 AppKit.MountComponent 一致（Start + 纳入停机序列 + mount 审计事件）。
+// 语义与 App.MountComponent 一致（Start + 纳入停机序列 + mount 审计事件）。
 func (r *ReconcileCtx) Mount(ctx context.Context, name string, c Component) error {
 	return r.app.reconMount(ctx, r.Name, name, c)
 }
@@ -159,8 +159,8 @@ func (r *ReconcileCtx) Unmount(ctx context.Context, name string) error {
 
 // NewReconcileCtx 构造一个协调上下文，供测试或「手动触发协调」使用（正常路径下
 // 由 runReconcilers 内部构造，无需调用方关心）。测试装置用 NewHarness 构造
-// 运行态 AppKit 后，配合本函数显式注入期望态快照驱动协调逻辑（见 harness.go）。
-func NewReconcileCtx(app *AppKit, name string, settings map[string]any) *ReconcileCtx {
+// 运行态 App 后，配合本函数显式注入期望态快照驱动协调逻辑（见 harness.go）。
+func NewReconcileCtx(app *App, name string, settings map[string]any) *ReconcileCtx {
 	return &ReconcileCtx{Settings: settings, Name: name, app: app}
 }
 
@@ -173,13 +173,13 @@ func reconcileOpt(name string, fn ReconcileFunc) Option {
 
 // ReconcileNow 立即执行一次全量协调（按注册序）。供测试与「配置变更后手动触发」
 // 使用；配置 watch 触发路径见 runReconcilers（经 OnConfigChange 包裹）。
-func (a *AppKit) ReconcileNow(ctx context.Context) {
+func (a *App) ReconcileNow(ctx context.Context) {
 	a.runReconcilers(ctx)
 }
 
 // runReconcilers 顺序执行全部协调器，单个失败仅记日志（收敛语义：下次补齐）。
 // 每次协调整体取一次配置快照，保证单个协调内期望态一致。
-func (a *AppKit) runReconcilers(ctx context.Context) {
+func (a *App) runReconcilers(ctx context.Context) {
 	var settings map[string]any
 	if a.cfg.store != nil {
 		settings = a.cfg.store.Settings()
@@ -189,7 +189,7 @@ func (a *AppKit) runReconcilers(ctx context.Context) {
 
 // runReconcilersWith 以给定期望态快照执行协调（测试/手动注入用；正常路径走
 // runReconcilers 由配置仓库取快照）。
-func (a *AppKit) runReconcilersWith(ctx context.Context, settings map[string]any) {
+func (a *App) runReconcilersWith(ctx context.Context, settings map[string]any) {
 	a.reconMu.Lock()
 	rs := append([]reconciler(nil), a.reconcilers...)
 	a.reconMu.Unlock()
@@ -208,7 +208,7 @@ func (a *AppKit) runReconcilersWith(ctx context.Context, settings map[string]any
 // ---- 协调器归属跟踪（实际态） ----
 
 // reconMounted 返回协调器 name 名下已挂载的组件名（挂载序）。
-func (a *AppKit) reconMounted(recon string) []string {
+func (a *App) reconMounted(recon string) []string {
 	a.reconMu.Lock()
 	defer a.reconMu.Unlock()
 	names := make([]string, 0, len(a.reconItems[recon]))
@@ -219,7 +219,7 @@ func (a *AppKit) reconMounted(recon string) []string {
 }
 
 // reconGet 取协调器名下的组件实例。
-func (a *AppKit) reconGet(recon, name string) (Component, bool) {
+func (a *App) reconGet(recon, name string) (Component, bool) {
 	a.reconMu.Lock()
 	defer a.reconMu.Unlock()
 	for _, it := range a.reconItems[recon] {
@@ -231,7 +231,7 @@ func (a *AppKit) reconGet(recon, name string) (Component, bool) {
 }
 
 // reconMount 挂载并记入协调器归属（幂等：同名已挂载返回错误，避免重复）。
-func (a *AppKit) reconMount(ctx context.Context, recon, name string, c Component) error {
+func (a *App) reconMount(ctx context.Context, recon, name string, c Component) error {
 	if c == nil {
 		return fmt.Errorf("appkit: reconcile mount %s: nil component", name)
 	}
@@ -246,7 +246,7 @@ func (a *AppKit) reconMount(ctx context.Context, recon, name string, c Component
 }
 
 // reconUnmount 卸载并移除归属（幂等：不存在返回错误）。
-func (a *AppKit) reconUnmount(ctx context.Context, recon, name string) error {
+func (a *App) reconUnmount(ctx context.Context, recon, name string) error {
 	a.reconMu.Lock()
 	items := a.reconItems[recon]
 	idx := -1
@@ -269,7 +269,7 @@ func (a *AppKit) reconUnmount(ctx context.Context, recon, name string) error {
 
 // auditReconcile 旁路发出协调审计事件（与 A1 挂载/卸载同源，Object="reconciler"；
 // 后端经 D4 resolveAuditor 单一解析，与请求级审计同源）。
-func (a *AppKit) auditReconcile(ctx context.Context, action, name string, err error) {
+func (a *App) auditReconcile(ctx context.Context, action, name string, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Error(ctx, "appkit reconcile audit panicked", "panic", r)

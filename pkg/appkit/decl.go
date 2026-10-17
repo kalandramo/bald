@@ -1,8 +1,8 @@
 // decl.go 定义 Decl——**全部装配期声明的纯数据载体**（装配层评估 §5.2 批 2
 // 第一波，起点设计 D1-target-appkit.md §5.2）。
 //
-// 背景：Option 原为 func(*AppKit)，包外无法构造（AppKit 字段未导出），
-// mech 子包因此只能经 AppKit 的导出注册方法（register.go）间接写入。批 2
+// 背景：Option 原为 func(*App)，包外无法构造（App 字段未导出），
+// mech 子包因此只能经 App 的导出注册方法（register.go）间接写入。批 2
 // 把 Option 接口化为 interface{ Apply(*Decl) }（导出方法 + 导出参数类型，
 // 包外可实现），Decl 承载全部装配期声明的写入面：
 //   - NewApp 路径 Option 的全部写入（ID/Name/Config*/Bind/Servers/钩子/机制…）；
@@ -11,8 +11,8 @@
 //
 // 字段集由对账得出（逐 Option 逐一归属，见各字段注释），不含任何运行期
 // 状态：效应账本的运行期追加（addEffect）、key 订阅的基线快照（last/armed）、
-// 配置装载结果（*config.Store）等仍归 AppKit 私有字段，构造期从 Decl 拷贝
-// （newFromDecl）。AppKit 不嵌入 Decl——声明（纯数据）与运行态（并发保护、
+// 配置装载结果（*config.Store）等仍归 App 私有字段，构造期从 Decl 拷贝
+// （newFromDecl）。App 不嵌入 Decl——声明（纯数据）与运行态（并发保护、
 // 可逆账本、幂等跟踪）生命周期不同，嵌入会把运行态暴露成可外部改写的
 // 导出字段；拷贝让引擎（Run/stopAll/UndoEffects/Resolve/协调器/热更）与
 // 改造前逐字段同构，行为零变化。
@@ -185,11 +185,11 @@ func defaultDecl() Decl {
 	}
 }
 
-// newFromDecl 从声明构造 AppKit（构造期拷贝：引擎消费的运行态字段从 Decl
-// 逐字段拷入，运行期追加与并发保护仍归 AppKit 私有字段）。效应账本按声明
+// newFromDecl 从声明构造 App（构造期拷贝：引擎消费的运行态字段从 Decl
+// 逐字段拷入，运行期追加与并发保护仍归 App 私有字段）。效应账本按声明
 // 序入账——运行期 addEffect 在同一账本继续追加，逆序回放顺序与旧实现一致。
-func newFromDecl(d Decl) *AppKit {
-	a := &AppKit{
+func newFromDecl(d Decl) *App {
+	a := &App{
 		id:               d.ID,
 		name:             d.Name,
 		version:          d.Version,

@@ -12,55 +12,57 @@ import (
 	appspecv1 "github.com/kalandramo/bald/bconf/gen/go/bald/appspec/v1"
 )
 
-// appTmpl 是应用装配骨架模板（第一步，见 docs/devel/zh-CN/架构优化路线.md §3）。
+// appTmpl 是应用装配骨架模板（批 2 目标惯用法：MustServe 单入口，见
+// docs/devel/zh-CN/装配层评估.md §4.1）。
 //
-// 素材来源：kalandramo/bald-admin M10 落地后的真实装配形状——覆盖 appkit 全部
-// 第二轮原语的推荐用法：S1 能力声明、T1 效应账本、C1 组件生命周期、R1 key 级
-// 热更新订阅、bundle 横切接线注释。生成物为可编译的单文件 main.go，业务在
-// 「填充点」注释处填入自己的 server/biz 即可。
+// 生成物为可编译的单文件 main.go：装配收敛为一次 MustServe 声明式调用——
+// 框架自有后端经 std.Standard() 打包注入，业务能力经 Option 声明，填充点
+// 标记 [FILL]。素材覆盖 appkit 第二轮原语的推荐用法：S1 能力声明、T1 效应
+// 账本、C1 组件生命周期、R1 key 级热更新订阅、P10 bundle 横切接线。
 //
 // 设计原则：生成物只做装配、不含业务逻辑；每个原语都带一行「为什么」注释——
 // 生成的代码就是最佳实践文档。
 var appTmpl = `// {{.Name}} 应用装配骨架（bald gen app 生成）。
 //
-// 装配约定（对照 kalandramo/bald-admin M10 形状）：
-//   - 填充点标记为 [FILL]：servers / 业务 biz / 组件实现，其余保持默认即合法。
-//   - 停机五阶段由 appkit 自动编排：效应回放→BeforeStop→Server.Stop→AfterStop→
+// 装配约定（批 2 目标惯用法，对照 _example/bald/main.go）：
+//   - 唯一装配入口 MustServe：内部完成 --config 解析 → 契约装载 → 命名空间
+//     解析 → 段驱动 Provider 装配（std.Standard() 提供框架自有后端）→ Run
+//     （信号处理内建）；失败记日志后以非零码退出。
+//   - 停机五阶段由框架自动编排：效应回放→BeforeStop→Server.Stop→AfterStop→
 //     组件逆序 Dispose，无需手写任何清理顺序逻辑。
 //   - 能力声明（Provides/Requires）让缺依赖在启动期 fail-fast，而非运行时 nil panic。
 package main
 
 import (
 	"context"
-	"os"
-	"time"
 
 	"github.com/kalandramo/bald/pkg/appkit"
 	"github.com/kalandramo/bald/pkg/appkit/mech"
+	"github.com/kalandramo/bald/pkg/appkit/std"
 	"github.com/kalandramo/bald/pkg/middleware/bundle"
 	"github.com/kalandramo/bald/pkg/store"
-	"github.com/kalandramo/bald/transport"
 )
 
 func main() {
-	app := newApp()
-	if err := app.Run(context.Background()); err != nil {
-		os.Exit(1)
-	}
+	appkit.MustServe(context.Background(), options()...)
 }
 
-func newApp() *appkit.AppKit {
-	return appkit.NewApp(
-		appkit.Name("{{.Name}}"),
-		appkit.Version("v0.1.0"),
-		appkit.StopTimeout(15*time.Second),
+// options 声明业务能力（配置表达不了的部分）。契约里已有形状的部分
+// （server 地址/TLS、日志、app 元数据、配置源）由框架按契约装配，业务
+// 无需也不应手写 Bind/server 构造。
+func options() []appkit.Option {
+	opts := []appkit.Option{
+		// 框架自有后端的默认 Provider 集合：server.http/grpc 服务器构造
+		// （按能力声明）与 audit 的 log 后端（契约 audit.backends 驱动）。
+		std.Standard(),
 
-		// 本地配置（configs/{{.Name}}.yaml）；flag/env/远程四源合并由 pkg/config 完成。
-		appkit.ConfigFile("configs/{{.Name}}.yaml"),
+		// 配置命名空间：env 前缀与多环境文件名的来源，Serve 必填（防自指）。
+		appkit.ConfigNamespace("{{.Name}}"),
+		// appkit.ConfigFile("configs/{{.Name}}.yaml"), // [FILL] 本地配置文件（显式路径缺失启动即报错）
 
 		// ---- S1 能力声明：启动期 fail-fast ----
 		// 声明本进程将建立的能力（BeforeStart 建立连接/初始化后即算提供），
-		// 依赖方声明 Requires；漏写 Provides 时 Run 启动即报：
+		// 依赖方声明 Requires；漏写 Provides 时启动即报：
 		//   unresolved capabilities: capability "db" (required by audit.store)
 		mech.Provides("db"),
 		mech.Requires("audit.store", "db"),
@@ -89,17 +91,21 @@ func newApp() *appkit.AppKit {
 
 		// ---- R1 配置细粒度热更新 ----
 		// 与 OnConfigChange 全量重载互补：仅当该 key 值确实变化才触发。
-		mech.OnKeyChange("http.addr", func(old, new string) {
+		mech.OnKeyChange("server.http.addr", func(old, new string) {
 			// [FILL] 定点响应地址变更（记日志/重建 listener）
 		}),
 
-		// ---- servers（[FILL]）----
-		// appkit.Servers(httpSrv, grpcSrv),
-	)
+		// ---- 传输能力与第三方后端（[FILL]）----
+		// HTTP：appkit.WithHTTP(newRouter())            // 业务 handler 必供
+		// gRPC：appkit.WithGRPC(registerService, chain) // service 注册 + 拦截器链
+		// 第三方后端 Provider（加法式，范本 contrib/store-gorm）：
+		//   storegorm.AppProvider(), // 契约 database.sql 段 → *gorm.DB
+	}
+	return opts
 }
 
-// buildBundle 演示横切关注点接线：一次构造、双传输产出、链序由框架固化。
-// gin 侧 router.Use(b.Gin()...)；gRPC 侧 grpcserver.NewGRPCServerWithRegister(cfg, b.GRPCChain(), ...).
+// buildBundle 演示横切关注点接线（P10）：一次构造、双传输产出、链序由框架固化。
+// gin 侧 router.Use(b.Gin()...)；gRPC 侧 appkit.WithGRPC(register, b.GRPCChain()...)。
 // 依赖用构造器注入（替代全局 Set*）；Normalized() 一键启用 P9 归一化。
 func buildBundle() *bundle.Bundle {
 	return bundle.New(
@@ -109,14 +115,6 @@ func buildBundle() *bundle.Bundle {
 		// bundle.Metrics(recorder),
 		bundle.Normalized(),
 	)
-}
-
-// buildServers 演示 server 装配（[FILL] 业务 handler 后启用）。
-func buildServers() []transport.Server {
-	b := buildBundle()
-	_ = b.Gin()        // gin 中间件链
-	_ = b.GRPCChain()  // gRPC ServerOption
-	return nil // [FILL] return []transport.Server{httpSrv, grpcSrv}
 }
 `
 

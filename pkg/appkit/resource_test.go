@@ -7,7 +7,7 @@ import (
 
 // resourceMap 拆包 Resource 的两返回值为 map 视图（测试辅助：段缺集合或形状
 // 不符即 Fatal）。原 Ais()/Databases() 等集合访问器的调用点经此迁移。
-func resourceMap(t *testing.T, a *AppKit, segment string) map[string]any {
+func resourceMap(t *testing.T, a *App, segment string) map[string]any {
 	t.Helper()
 	v, ok := a.Resource(segment)
 	if !ok {

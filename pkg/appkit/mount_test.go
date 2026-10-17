@@ -9,7 +9,7 @@ import (
 	"github.com/kalandramo/bald/pkg/authn"
 )
 
-// ---- AppKit.MountComponent / UnmountComponent ----
+// ---- App.MountComponent / UnmountComponent ----
 
 // TestMountComponent_NotRunning 契约：Run 之前调用报 ErrNotRunning。
 func TestMountComponent_NotRunning(t *testing.T) {
@@ -29,7 +29,7 @@ func TestMountComponent_Lifecycle(t *testing.T) {
 	l := &compLog{}
 	dyn := &fakeComp{name: "dyn", log: l}
 	var mountErr, unmountErr, reUnmountErr error
-	var app *AppKit
+	var app *App
 
 	app = NewApp(
 		componentsOpt(&fakeComp{name: "base", log: l}),
@@ -74,7 +74,7 @@ func TestMountComponent_Lifecycle(t *testing.T) {
 // 返回错误、不进入停机序列（后续 stopAll 不会触碰它）。
 func TestMountComponent_MountFailureRollback(t *testing.T) {
 	l := &compLog{}
-	var app *AppKit
+	var app *App
 	app = NewApp(
 		componentsOpt(&fakeComp{name: "base", log: l}),
 		AfterStart(func(ctx context.Context) error {

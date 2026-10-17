@@ -39,7 +39,7 @@ import (
 // 命名空间必须经 ConfigNamespace 显式声明（原因见其注释——env 前缀自指）；
 // 两遍合并修自指、删除该必填项是批 3（B6）的工作，本波保留必填约束。
 //
-// 运行期行为（信号处理、优雅停机、防重入）与 AppKit.Run 一致。
+// 运行期行为（信号处理、优雅停机、防重入）与 App.Run 一致。
 func Serve(ctx context.Context, opts ...Option) error {
 	d := newDecl(opts...)
 

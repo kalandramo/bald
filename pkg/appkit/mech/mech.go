@@ -8,7 +8,7 @@
 //     方法 + 导出参数类型，包外可实现）：本包每个构造器返回**自持 option
 //     类型**，Apply 直写 Decl 的导出字段——与 appkit 包内构造器（optionFunc
 //     适配）共用同一份声明
-//     载体，不再经 AppKit 的注册方法中转（register.go 已随 Decl 导出移除）。
+//     载体，不再经 App 的注册方法中转（register.go 已随 Decl 导出移除）。
 //   - 引擎消费的类型（Component、ReconcileCtx、ReconcileFunc 等）仍归
 //     appkit，本包经 appkit.X 引用；运行期登记（addEffect 等持锁路径）
 //     不经 Decl，保持原样。ComponentFunc 适配器自 B5 起归本包（仅实现

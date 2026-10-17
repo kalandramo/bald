@@ -27,7 +27,7 @@ import (
 
 // runExpectErr 驱动 Run 并断言返回错误包含全部 want 子串（L3 报错发生在
 // BeforeStart 装配链末尾——契约已装载定型，经 Run 失败路径返回）。
-func runExpectErr(t *testing.T, a *AppKit, want ...string) {
+func runExpectErr(t *testing.T, a *App, want ...string) {
 	t.Helper()
 	err := a.Run(context.Background())
 	if err == nil {

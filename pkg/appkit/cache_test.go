@@ -55,7 +55,7 @@ func TestAssemble_ContractCacheLifecycle(t *testing.T) {
 		t.Fatalf("instance type mismatch: %T", cli)
 	}
 	if all := resourceMap(t, a, "cache"); len(all) != 1 {
-		t.Fatalf("Caches() = %v, want 1 entry", all)
+		t.Fatalf("Resource(\"cache\") snapshot = %v, want 1 entry", all)
 	}
 
 	cancel()

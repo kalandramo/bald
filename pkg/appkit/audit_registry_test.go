@@ -80,7 +80,7 @@ func TestAssemble_AuditGlobalInjection(t *testing.T) {
 	t.Cleanup(func() { audit.SetAuditor(old) })
 
 	var cleaned int
-	prov := auditTestProvider(func(_ context.Context, _ *bootstrapv1.Audit, _ *AppKit) (audit.Auditor, func(context.Context) error, error) {
+	prov := auditTestProvider(func(_ context.Context, _ *bootstrapv1.Audit, _ *App) (audit.Auditor, func(context.Context) error, error) {
 		return taggedAuditor{Auditor: audit.NopAuditor(), tag: "contract"},
 			func(context.Context) error { cleaned++; return nil }, nil
 	})
@@ -132,7 +132,7 @@ func TestAssemble_AuditProviderSeesDatabases(t *testing.T) {
 	})
 
 	var sawDB bool
-	prov := auditTestProvider(func(_ context.Context, _ *bootstrapv1.Audit, res *AppKit) (audit.Auditor, func(context.Context) error, error) {
+	prov := auditTestProvider(func(_ context.Context, _ *bootstrapv1.Audit, res *App) (audit.Auditor, func(context.Context) error, error) {
 		if res == nil {
 			return nil, nil, errProbe("res is nil")
 		}

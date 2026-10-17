@@ -6,7 +6,7 @@
 //     装配期 Register（不可逆、冲突报错）的**运行期对偶**——可逆挂载、
 //     undo 幂等。两个语义必须分开：装配期错误
 //     应 fail-fast（panic 合理），运行期变更必须可回滚（效应账本语义）。
-//   - AppKit.MountComponent/UnmountComponent：把 C1 组件生命周期扩展到运行期——
+//   - App.MountComponent/UnmountComponent：把 C1 组件生命周期扩展到运行期——
 //     挂载即 Start 并纳入停机序列（stopAll 阶段 4 逆序 Dispose），卸载即移除并
 //     立即 Dispose。管理面热插拔、agent 工具挂载共用此原语。
 //   - 运行时重组天然一条审计事件（§6.2 自修改审计）：AuditEvent{Object:"component",
@@ -14,7 +14,7 @@
 //
 // 典型管理面用法：
 //
-//	func mountHandler(app *appkit.AppKit) gin.HandlerFunc {
+//	func mountHandler(app *appkit.App) gin.HandlerFunc {
 //	    return func(c *gin.Context) {
 //	        comp := newComponentFromRequest(c)
 //	        if err := app.MountComponent(c.Request.Context(), comp); err != nil {
@@ -43,7 +43,7 @@ var ErrNotRunning = errors.New("appkit: app not running")
 // 不再接受新的挂载。
 var errComponentsDisposed = errors.New("appkit: components already disposed")
 
-// ---- AppKit：运行期组件热插拔 ----
+// ---- App：运行期组件热插拔 ----
 
 // MountComponent 运行中动态挂载组件：立即 Start 并纳入停机序列（stopAll 阶段 4
 // 逆序 Dispose，顺序=挂载序）。管理面热插拔/agent 工具挂载的承载原语；装配期
@@ -54,7 +54,7 @@ var errComponentsDisposed = errors.New("appkit: components already disposed")
 //
 // 竞态闭环：组件系统停机销毁（阶段 4）开始后拒绝新挂载；若销毁与挂载并发竞争，
 // 挂载方的 Start 会随之回滚 Dispose——保证「挂载失败 = 无副作用」。
-func (a *AppKit) MountComponent(ctx context.Context, c Component) error {
+func (a *App) MountComponent(ctx context.Context, c Component) error {
 	if !a.running.Load() {
 		return ErrNotRunning
 	}
@@ -83,7 +83,7 @@ func (a *AppKit) MountComponent(ctx context.Context, c Component) error {
 // UnmountComponent 运行中卸载组件：从停机序列移除并立即 Dispose（此后 stopAll
 // 不再触碰）。卸载最新挂载的同名条目（LIFO）；未挂载返回错误。
 // Dispose 失败仅记日志——组件已从序列移除，维持卸载结果（旁路语义）。
-func (a *AppKit) UnmountComponent(ctx context.Context, name string) error {
+func (a *App) UnmountComponent(ctx context.Context, name string) error {
 	if !a.running.Load() {
 		return ErrNotRunning
 	}
@@ -113,7 +113,7 @@ func (a *AppKit) UnmountComponent(ctx context.Context, name string) error {
 
 // ListComponents 返回当前纳入停机序列的组件名（装配期 + 运行期挂载的合集，
 // 按启动/挂载序排列），供管理面观测端点使用。
-func (a *AppKit) ListComponents() []string {
+func (a *App) ListComponents() []string {
 	a.startedMu.Lock()
 	defer a.startedMu.Unlock()
 	names := make([]string, 0, len(a.started))
@@ -126,7 +126,7 @@ func (a *AppKit) ListComponents() []string {
 // resolveAuditor 返回 appkit 自身审计事件的接收后端：显式注入（Auditor Option）
 // 优先，否则回退全局（其默认即 nop，永不返回 nil）。D4：单一解析顺序，消除
 // bundle 注入与 appkit 全局各走一边的 split-brain sink。
-func (a *AppKit) resolveAuditor() audit.Auditor {
+func (a *App) resolveAuditor() audit.Auditor {
 	if a.auditor != nil {
 		return a.auditor
 	}
@@ -136,7 +136,7 @@ func (a *AppKit) resolveAuditor() audit.Auditor {
 // auditComponent 旁路发出一条运行时重组审计事件（§6.2 自修改审计原语）：
 // Subject/TenantID 取 ctx 中的 AuthClaims（可为空）；Auditor panic/错误仅记日志，
 // 绝不阻断挂载/卸载本身（与审计中间件 recordSafely 同一纪律）。
-func (a *AppKit) auditComponent(ctx context.Context, action, name string) {
+func (a *App) auditComponent(ctx context.Context, action, name string) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Error(ctx, "appkit component audit panicked", "panic", r)

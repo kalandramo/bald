@@ -62,7 +62,7 @@ const (
 //
 // 返回 (auditor, cleanup)：cleanup 承载后端资源释放（如 stream 后台
 // goroutine 停机 flush 尾批），由引擎挂 Effect 逆序回放。
-type AuditProvider func(ctx context.Context, cfg *bootstrapv1.Audit, res *AppKit) (audit.Auditor, func(context.Context) error, error)
+type AuditProvider func(ctx context.Context, cfg *bootstrapv1.Audit, res *App) (audit.Auditor, func(context.Context) error, error)
 
 // auditState 承载阶段 B（BeforeStart）装配、停机期消费的句柄（构造期零值
 // + 运行期接线，引擎 storeProduct 填充）。

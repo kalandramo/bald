@@ -37,11 +37,12 @@ func TestGenApp_TemplateFormats(t *testing.T) {
 	if _, err := format.Source(buf.Bytes()); err != nil {
 		t.Fatalf("generated code not gofmt-able: %v\n%s", err, buf.String())
 	}
-	// 关键锚点：全部第二轮原语必须在模板中示范。
+	// 关键锚点：批 2 目标惯用法 + 全部第二轮原语必须在模板中示范。
 	for _, want := range []string{
+		"appkit.MustServe", "std.Standard()", "appkit.ConfigNamespace",
 		"mech.Provides", "mech.Requires", "mech.Effect",
 		"mech.Components", "mech.ComponentFunc", "mech.OnKeyChange",
-		"bundle.New", "bundle.Normalized", "b.GRPCChain",
+		"bundle.New", "bundle.Normalized",
 	} {
 		if !strings.Contains(buf.String(), want) {
 			t.Errorf("template missing anchor %q", want)
@@ -87,9 +88,9 @@ func TestGenApp_GeneratedCodeCompiles(t *testing.T) {
 	}
 }
 
-// TestGenAppSpec_TemplateFormats P12 第二步：AppSpec 方言模板渲染 + gofmt 必须成功，
-// 关键原语锚点齐备（Reconcile/R1-2、Components/C1、Servers/P10 bundle），且装配
-// 顺序正确（审查修复的防回归断言）。
+// TestGenAppSpec_TemplateFormats 方言模板渲染 + gofmt 必须成功；批 2 目标惯用法
+// 与关键原语锚点齐备（MustServe 单入口、std、Reconcile/R1-2、Components/C1、
+// bundle/P10、健康检查），且装配纪律防回归（过渡形态产物必须绝迹）。
 func TestGenAppSpec_TemplateFormats(t *testing.T) {
 	data := appspecData{
 		Meta:             &appspecv1.AppMeta{Name: "demo", Desc: "d"},
@@ -108,37 +109,52 @@ func TestGenAppSpec_TemplateFormats(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
+	srcStr := string(src)
 	for _, want := range []string{
-		"mech.Reconcile", "mech.Components", "appkit.Servers",
-		"bundle.Normalized", "mech.Provides", "reconcileAudit",
-		"mech.OnKeyChange",            // R1 热更新骨架
+		"appkit.MustServe",            // 批 2 单入口
+		"std.Standard()",              // 框架自有后端
+		"mech.Reconcile",              // R1-2 期望态协调
+		"mech.Components",             // C1 组件
+		"mech.Provides",               // S1 能力声明
 		`mech.Requires("audit.store"`, // 结构化 requires：component + caps
+		"reconcileAudit",              // R1-2 协调器实现体
+		"mech.OnKeyChange",            // R1 热更新骨架
+		"bundle.Normalized",           // P10 bundle 接线
+		"appkit.WithHealth(",          // 健康检查默认装配
+		"appkit.WithGRPC(",            // gRPC 能力声明
+		"appkit.WithHTTP(",            // HTTP 能力声明
 	} {
-		if !strings.Contains(string(src), want) {
+		if !strings.Contains(srcStr, want) {
 			t.Errorf("spec template missing anchor %q", want)
 		}
 	}
 
-	// ---- 装配纪律防回归（审查修复的两个 P0）----
-	srcStr := string(src)
-	// P0-1：Option 只有 New 消费——New 调用必须出现在最后一次 capOpts append 之后。
-	newIdx := strings.Index(srcStr, "app := appkit.NewApp(capOpts...)")
-	lastAppend := strings.LastIndex(srcStr, "capOpts = append")
-	if newIdx < 0 || lastAppend < 0 {
-		t.Fatalf("template lost NewApp/append anchors (newIdx=%d lastAppend=%d)", newIdx, lastAppend)
+	// ---- 装配纪律防回归（过渡形态产物绝迹）----
+	// 恰好一次装配入口调用：MustServe 是唯一入口，多次出现即声明分裂。
+	if n := strings.Count(srcStr, "appkit.MustServe("); n != 1 {
+		t.Errorf("exactly one appkit.MustServe call expected, got %d", n)
 	}
-	if newIdx < lastAppend {
-		t.Errorf("appkit.NewApp must come AFTER the last capOpts append: NewApp@%d < append@%d", newIdx, lastAppend)
+	// NewApp 是测试构造器，生成物不得走第二条装配路径（过渡形态回归哨兵）。
+	if strings.Contains(srcStr, "appkit.NewApp(") {
+		t.Error("spec template must not emit appkit.NewApp (single entry is MustServe)")
 	}
-	// P0-2：Run 之前不可调 MountComponent（要求运行态，Run 内才置位）——
-	// 模板生成物不应出现 MountComponent 调用（组件一律走 Components Option；
-	// 匹配调用形式 ".MountComponent("，注释中的提及不算）。
+	// Bind×N 已由引擎内化（server.*/--log.*），生成物不得再手写（过渡形态回归哨兵）。
+	if strings.Contains(srcStr, "appkit.Bind(") {
+		t.Error("spec template must not emit appkit.Bind (contract binds are internalized)")
+	}
+	// 手工服务器注册（appkit.Servers + http/grpc server 构造器）已被 std server
+	// Provider 取代，出现即过渡形态回归。
+	if strings.Contains(srcStr, "appkit.Servers(") || strings.Contains(srcStr, "bconf.NewBootstrap") {
+		t.Error("spec template must not emit manual server assembly (appkit.Servers/bconf.NewBootstrap)")
+	}
+	// Run 之前不可调 MountComponent（要求运行态，Run 内才置位）——
+	// 组件一律走 mech.Components Option（匹配调用形式 ".MountComponent("，注释提及不算）。
 	if strings.Contains(srcStr, ".MountComponent(") {
 		t.Errorf("spec template must not emit MountComponent calls (components go through mech.Components Option)")
 	}
 }
 
-// TestGenAppSpec_GeneratedCompiles P12 第二步端到端：按 AppSpec 生成的 main.go
+// TestGenAppSpec_GeneratedCompiles 方言模板端到端：按 AppSpec 生成的 main.go
 // 在 bald module 内真实 go build 通过（http+grpc / grpc-only 两分支）。
 func TestGenAppSpec_GeneratedCompiles(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
@@ -170,10 +186,10 @@ func TestGenAppSpec_GeneratedCompiles(t *testing.T) {
 	}
 }
 
-// TestGenAppSpec_GeneratedRuns P12 运行时冒烟（审查修复新增）：编译并真实运行
-// 生成物（无传输 server，避免端口占用），断言其在宽限期内保持存活——即装配
-// 正确（servers/组件经 Option 传入、无 Run 前 MountComponent 崩溃）、Run 阻塞在
-// 信号等待。编译通过但运行即崩（两个 P0 的病状）会被本测试捕获。
+// TestGenAppSpec_GeneratedRuns 运行时冒烟：编译并真实运行生成物（无传输 server，
+// 避免端口占用），断言其在宽限期内保持存活——生成物走 MustServe 全链路
+// （--config 解析、契约装载、段驱动 Provider 装配、组件与审计协调器启动）、
+// Run 阻塞在信号等待。编译通过但启动即崩（装配错误/L3 段覆盖报错）会被本测试捕获。
 func TestGenAppSpec_GeneratedRuns(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("go toolchain not in PATH")
@@ -189,7 +205,7 @@ func TestGenAppSpec_GeneratedRuns(t *testing.T) {
 	if err := renderAppSpec(data, path, false, NewDefaultIOStreams()); err != nil {
 		t.Fatalf("render: %v", err)
 	}
-	// 提供最小配置文件（ConfigFile + WatchConfigFile 均指向它）。
+	// 提供最小配置文件（MustServe 契约装载消费；audit.backends 驱动 std 审计装配）。
 	if err := os.MkdirAll(filepath.Join(dir, "configs"), 0o755); err != nil {
 		t.Fatalf("mkdir configs: %v", err)
 	}

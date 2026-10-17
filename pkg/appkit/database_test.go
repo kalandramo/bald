@@ -58,7 +58,7 @@ func TestAssemble_ContractDatabaseLifecycle(t *testing.T) {
 		t.Fatalf("client type mismatch: %T", cli)
 	}
 	if all := resourceMap(t, a, "database"); len(all) != 1 {
-		t.Fatalf("Databases() = %v, want 1 entry", all)
+		t.Fatalf("Resource(\"database\") snapshot = %v, want 1 entry", all)
 	}
 
 	cancel()
