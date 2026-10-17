@@ -18,7 +18,7 @@ go 1.27.1
 
 require (
 	github.com/gin-gonic/gin v1.12.0
-	github.com/kalandramo/bald v0.8.0
+	github.com/kalandramo/bald v0.11.0
 	github.com/kalandramo/bald/bconf v0.10.0
 	github.com/kalandramo/bald/health v0.1.1
 	github.com/kalandramo/bald/log v0.5.2
