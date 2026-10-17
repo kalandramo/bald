@@ -6,8 +6,8 @@
 // 把 Option 接口化为 interface{ Apply(*Decl) }（导出方法 + 导出参数类型，
 // 包外可实现），Decl 承载全部装配期声明的写入面：
 //   - NewApp 路径 Option 的全部写入（ID/Name/Config*/Bind/Servers/钩子/机制…）；
-//   - Serve 路径 With* 的全部写入（WithHTTP/WithGRPC/各域 Registry/
-//     WithLogDecorators/WithExtraServerFunc…）。
+//   - Serve 路径 With* 的全部写入（WithHTTP/WithGRPC/Providers 段驱动
+//     声明/WithLogDecorators/WithExtraServerFunc…）。
 //
 // 字段集由对账得出（逐 Option 逐一归属，见各字段注释），不含任何运行期
 // 状态：效应账本的运行期追加（addEffect）、key 订阅的基线快照（last/armed）、
@@ -28,7 +28,6 @@ import (
 
 	"google.golang.org/grpc"
 
-	baldbootstrap "github.com/kalandramo/bald/bootstrap"
 	"github.com/kalandramo/bald/bootstrap/config"
 	"github.com/kalandramo/bald/health"
 	"github.com/kalandramo/bald/log/bslog"
@@ -104,30 +103,18 @@ type Decl struct {
 	// ---- 审计（Auditor Option；运行期审计事件 sink） ----
 	Auditor audit.Auditor
 
-	// ---- 可观测与日志后端装配（WithTracerRegistry/WithMetricsRegistry/
-	// WithAuditRegistry/WithLogRegistry/WithLogDecorators 声明） ----
-	TracerRegistry  *TracerRegistry
-	MetricsRegistry *MetricsRegistry
-	AuditRegistry   *AuditRegistry
-	// LogRegistry 契约驱动的日志后端注册表（阶段 A/B 两级分派见
-	// resolveLoggerFactory）。
-	LogRegistry *baldbootstrap.LogRegistry
+	// ---- 段驱动 Provider（Providers/WithUnimplementedSegments 声明；
+	// std.Standard() 与第三方 Provider 经 Apply 追加，装配引擎见 provider.go） ----
+	// Providers 是段驱动装配的全部 Provider（含 std.Standard() 打包的框架
+	// 自有后端；按精确段路径末者胜——后声明覆盖先声明）。
+	Providers []Provider
+	// UnimplementedSegments 是 L3 覆盖检查的白名单（WithUnimplementedSegments
+	// 追加）：契约已声明、框架尚无消费者的段，显式豁免启动期报错。
+	UnimplementedSegments []string
+
+	// ---- 日志装饰器（WithLogDecorators 声明；归 B7，批 3 再收敛） ----
 	// LogDecorators bslog 日志装饰器（仅默认路径 slog 项与阶段 A 回退消费）。
 	LogDecorators []bslog.Option
-
-	// ---- 资源域契约装配注册表（WithRegistrarRegistry/WithConfigRegistry/
-	// WithServerRegistry/WithDatabaseRegistry/WithCacheRegistry/
-	// WithStorageRegistry/WithAiRegistry/WithWorkflowRegistry/
-	// WithBrokerRegistry 声明；assemble 阶段 B 逐域 Build） ----
-	RegistrarRegistry *baldbootstrap.RegistrarRegistry
-	ConfigRegistry    *baldbootstrap.ConfigRegistry
-	ServerRegistry    *baldbootstrap.ServerRegistry
-	DatabaseRegistry  *baldbootstrap.DatabaseRegistry
-	CacheRegistry     *baldbootstrap.CacheRegistry
-	StorageRegistry   *baldbootstrap.StorageRegistry
-	AiRegistry        *baldbootstrap.AiRegistry
-	WorkflowRegistry  *baldbootstrap.WorkflowRegistry
-	BrokerRegistry    *baldbootstrap.BrokerRegistry
 
 	// ---- 协议面（WithHTTP/WithGatewayRegister/WithGRPC/WithGRPCOptions
 	// 声明；能力声明在代码，契约 server 段驱动装配） ----

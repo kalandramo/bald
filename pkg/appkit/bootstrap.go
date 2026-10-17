@@ -1,8 +1,11 @@
 package appkit
 
 // 约定装配的内部实现（assemble）：原 FromBootstrap（2026-09-06 新增的契约
-// 约定装配入口）在批 2 W2a 收敛为 Serve 的内部步骤，本文件不再有第二个公开
-// 装配入口（装配层评估 §4.1：单入口裁决，代价 > 收益）。
+// 约定装配入口）在批 2 W2a 收敛为 Serve 的内部步骤；批 2 W2b 起，原 12 段
+// 手工装配流替换为**段驱动 Provider 循环**（装配层评估 §4.2 候选 A，机制见
+// provider.go）——每个资源域 = 1 个 Provider 声明 + 段存在性由契约反射给出，
+// 框架内不再维护任何手工段枚举表。框架自有后端的默认 Provider 集合由
+// std.Standard()（pkg/appkit/std）打包注入。
 //
 // 动机：显式 Option 逐项装配让业务 main.go 手写 Bind×3、BeforeStart 装载+
 // 校验+重建 Logger、OnConfigChange 再装载等样板。约定装配把「契约里已有形状
@@ -25,8 +28,8 @@ package appkit
 //   - Bind --log.* flag 壳：仅注册 flag 定义，终值以契约 logger 段为准；
 //   - 启动期先用默认 Logger（阶段 A），BeforeStart 完成装载+校验后按契约
 //     logger 段重建（阶段 B），停机经 Effect 恢复原 Logger 并释放后端；
-//   - WithConfigRegistry 时经 bootstrap.ConfigRegistry.Build 产出配置层
-//     （注册序=层优先级，首元素最高），cleanup 挂 Effect 停机逆序释放；
+//   - config 段 Provider（构造期）产出配置层（声明序=层优先级，首元素最高），
+//     cleanup 挂 Effect 停机逆序释放；
 //   - OnConfigChange：热更新副本试装载+校验后整契约原子落盘，并重建 Logger
 //     （log.level 即改即生效）；坏配置降级记日志、保留旧契约。
 
@@ -52,8 +55,8 @@ import (
 	"github.com/kalandramo/bald/transport"
 )
 
-// loggerFactory 是解析后的日志后端工厂（私有类型：不进入公开 API，
-// 由 resolveLoggerFactory 产出、assemble 装载链与 rebuildLogger 消费）。
+// loggerFactory 是解析后的日志后端工厂（私有类型：不进入公开 API，由
+// defaultLoggerFactory 产出、defaultLoggerSource 消费）。
 type loggerFactory = func(ctx context.Context, l *bootstrapv1.Logger) (lg log.Logger, cleanup func(), err error)
 
 // WithHTTP 声明启用 HTTP 服务器，业务 handler 必供（探针路径由框架兜底）。
@@ -65,7 +68,7 @@ func WithHTTP(handler http.Handler) Option {
 // 业务自建 runtime.ServeMux、组合 pb.RegisterXxxHandler 后交回 http.Handler。
 //
 // 网关不是独立服务器，而是 server.http 段的一种模式，由契约 server.http.driver
-// 驱动装配（HttpServerProvider 的模式分支）：
+// 驱动装配（std server Provider 的模式分支）：
 //   - driver 为 "grpc-gateway"（或留空）→ HTTP 端口即网关转码面；
 //   - driver 为其他值 → 构造期 fail-fast（转码能力无消费面）。
 //
@@ -98,16 +101,10 @@ func WithGRPCOptions(fn func() []grpc.ServerOption) Option {
 }
 
 // WithRegistrar 注入注册中心实例（如 inmemory.New()）。
-// 显式实例优先于契约装配（阶段 B 的 buildRegistrar 检测到非 nil 即跳过）。
+// 显式实例优先于契约装配：阶段 B 的纯 registry 段 Provider 在显式实例非 nil
+// 时被引擎跳过（程序化接管 = 刻意覆盖而非静默失效，批 1 语义）。
 func WithRegistrar(r registry.Registrar) Option {
 	return optionFunc(func(s *Decl) { s.Registrar = r })
-}
-
-// WithRegistrarRegistry 注入服务注册中心的契约装配注册表（显式注册
-// provider，见 bootstrap.RegistrarRegistry）。契约 registry 段存在且未显式
-// WithRegistrar 时，阶段 B 按 registry.type 构造注册中心。
-func WithRegistrarRegistry(rr *baldbootstrap.RegistrarRegistry) Option {
-	return optionFunc(func(s *Decl) { s.RegistrarRegistry = rr })
 }
 
 // WithRemoteConfig 接入远程配置源（config.RemoteSource，如 kratos 桥接的 etcd/nacos）。
@@ -143,7 +140,7 @@ func WithAfterStart(fn func(context.Context) error) Option {
 }
 
 // WithConfigFile 声明本地配置文件（语义同 appkit.ConfigFile，单路径）。
-// 已传 WithConfigRegistry 且其中含 file 源时无需重复声明。
+// 本地文件在 Serve 的契约预装载与 Run 期 loadConfig 两阶段命中同一文件。
 func WithConfigFile(path string) Option {
 	return optionFunc(func(s *Decl) { s.ConfigFile = path })
 }
@@ -166,12 +163,6 @@ func WithConfigNamespace(ns string) Option {
 // WithWatchConfig 启用本地配置文件热更新（fsnotify）。
 func WithWatchConfig(watch bool) Option {
 	return optionFunc(func(s *Decl) { s.WatchConfigFile = watch })
-}
-
-// WithConfigRegistry 注入契约 Config 段的源装配注册表（显式注册 provider，
-// 注册序即层优先级）。assemble 负责 Build 与 cleanup 停机释放。
-func WithConfigRegistry(r *baldbootstrap.ConfigRegistry) Option {
-	return optionFunc(func(s *Decl) { s.ConfigRegistry = r })
 }
 
 // WithStrictContract 启用契约段未知键校验（opt-in，默认关闭）。
@@ -201,98 +192,24 @@ func WithStrictContract(businessSections ...string) Option {
 
 // WithLogDecorators 附加 bslog 日志装饰器（脱敏、业务字段等），阶段 A/B
 // 构造 Logger 时统一生效。注意：装饰器是 bslog.Option，仅对默认路径的
-// slog 项与阶段 A 回退生效，其余后端（loki/aliyun 等）不消费装饰器。
+// slog 项与阶段 A 回退生效；以 logger Provider 接管日志装配时，装饰器是否
+// 生效由该 Provider 决定（与原 LogRegistry 路径的 deco-aware 语义一致）。
 func WithLogDecorators(deco ...bslog.Option) Option {
 	return optionFunc(func(s *Decl) { s.LogDecorators = append(s.LogDecorators, deco...) })
-}
-
-// WithLogRegistry 声明契约驱动的日志后端注册表：按契约 logger.backends
-// 逐项查表构造后端（查表 / 多项合并 / 出口脱敏 / 未注册 fail-fast 均由
-// bootstrap.LogRegistry 全权负责）。
-//
-// 不声明本 Option 时默认路径为纯函数分派（无注册表、依赖增量为零）：
-// 仅支持 slog 项（+业务装饰器）与阶段 A 回退，其余项 fail-fast
-// 并给出本 Option 的用法示例。远端/自定义后端必须经本 Option 注册：
-//
-//	reg := baldbootstrap.NewLogRegistry()
-//	reg.MustRegister(lokicontract.Type, lokicontract.Provider) // log/loki/contract
-//	reg.MustRegister("slog", baldbootstrap.BslogLoggerProvider()) // 可选；不注册则 slog 项 fail-fast
-//	appkit.Serve(context.Background(), appkit.WithLogRegistry(reg))
-//
-// 两阶段语义：阶段 A（契约装载前）回退默认 bslog 保证启动日志可见；
-// 阶段 B 按 logger.backends 逐项查表重建，未注册的项构造期 fail-fast。
-// WithLogDecorators 仅对默认路径的 slog 项与阶段 A 回退生效；注册表
-// 路径要消费装饰器，注册一个 deco-aware 的 slog provider 即可。
-func WithLogRegistry(r *baldbootstrap.LogRegistry) Option {
-	return optionFunc(func(s *Decl) { s.LogRegistry = r })
-}
-
-// WithTracerRegistry 注入 trace 后端的契约装配注册表（显式注册 provider，
-// 见 TracerRegistry）。契约 tracer 段存在时，阶段 B 按 tracer.type 构造
-// 全局 TracerProvider，shutdown 挂停机 Effect 最后回放（收集尾批 span）。
-// tracer 段不支持热更新。
-func WithTracerRegistry(r *TracerRegistry) Option {
-	return optionFunc(func(s *Decl) { s.TracerRegistry = r })
-}
-
-// WithMetricsRegistry 注入指标后端的契约装配注册表（显式注册 provider，
-// 见 MetricsRegistry）。契约 metrics 段存在时，阶段 B 按 metrics.type 装配
-// 双通道（prometheus 抓取端独立端口 + 可选 OTLP 直推），flush 与暴露端
-// 关闭挂停机 Effect。metrics 段不支持热更新。
-func WithMetricsRegistry(r *MetricsRegistry) Option {
-	return optionFunc(func(s *Decl) { s.MetricsRegistry = r })
-}
-
-// WithAuditRegistry 注入审计后端的契约装配注册表（显式注册 provider，
-// 见 AuditRegistry）。契约 audit 段存在时，阶段 B 按 audit.backends
-// 列表装配（log 内置无需注册；store/stream 走 contract 注册；多后端
-// 组装 MultiAuditor）并 SetAuditor 全局注入，停机 Effect 恢复装配前
-// 全局（纪律）+ 聚合 cleanup（stream flush 尾批）。audit 段不支持
-// 热更新（运行期热切走 R1-2 协调器）。
-func WithAuditRegistry(r *AuditRegistry) Option {
-	return optionFunc(func(s *Decl) { s.AuditRegistry = r })
-}
-
-// WithServerRegistry 注入协议服务器的契约装配注册表（显式注册 provider，
-// 见 bootstrap.ServerRegistry）。与 WithDatabaseRegistry / WithCacheRegistry /
-// WithStorageRegistry 等 12 个资源域注入口对称——server 是此前唯一缺失注入口
-// 的域（框架把 ServerRegistry 当函数内局部变量、硬编码只注册 http/grpc）。
-//
-// 语义：
-//   - 未声明本 Option 时，框架自建空注册表并补注册 http/grpc（行为与既有完全一致）；
-//   - 声明本 Option 时，在用户注册表**之上**补注册 http/grpc（用 Has 判存在性），
-//     用户已注册的同名 provider 不被覆盖（Register 对重名 fail-fast，故先 Has）。
-//
-// 用户注册的段名会进入 validateServerSections 的「已实现」判据——故
-// implemented=false 的契约段（如 server.asynq / server.cron）一旦有对应
-// provider 注册即合法，不再 fail-fast。这是后端子模块提供协议实现的正式通道。
-//
-// 典型用法：
-//
-//	sr := baldbootstrap.NewServerRegistry()
-//	sr.MustRegister(asynqcontract.Type, asynqcontract.Provider())  // "asynq"
-//	sr.MustRegister(croncontract.Type, croncontract.Provider())    // "cron"
-//	appkit.Serve(ctx, appkit.WithServerRegistry(sr), ...)
-//
-// 与 WithExtraServers / WithExtraServerFunc 的分工：后两者是契约形状表达不了的
-// 服务器的逃生舱（收已构造实例或运行期工厂）；本 Option 服务「契约段已存在、
-// 只是框架未内置 provider」的常规后端——它们应走契约装配而非逃生舱。
-func WithServerRegistry(r *baldbootstrap.ServerRegistry) Option {
-	return optionFunc(func(s *Decl) { s.ServerRegistry = r })
 }
 
 // ---------------------------------------------------------------------------
 // 业务透传：With* 声明里没有对应项、但重业务需要的生命周期面——与 NewApp 的
 // 同名 Option 写入同一 Decl。语义与直用 NewApp 完全一致，仅注册顺序有约定：
 //   - WithBeforeStart 追加在 assemble 内部装载链之后（契约装载/校验/
-//     Logger 重建/各 Registry Build 完成后执行——业务钩子里可直接读终值）；
+//     Logger 重建/各段 Provider 构建完成后执行——业务钩子里可直接读终值）；
 //   - WithEffect 注册在框架 Effect 之后——停机逆序回放时业务效果先执行
 //     （业务资源先收，框架底座后收）。
 // ---------------------------------------------------------------------------
 
 // WithBeforeStart 追加业务启动钩子：在 assemble 内部的装载链（配置装载
-// →校验→Logger 重建→registrar/可观测性/数据客户端装配）之后执行。业务在此
-// 读契约终值装配桥接（DB 连接、Authn/Authz 桥等）。
+// →校验→Logger 重建→各段 Provider 构建）之后执行。业务在此读契约终值
+// 装配桥接（DB 连接、Authn/Authz 桥等）。
 func WithBeforeStart(fn func(context.Context) error) Option {
 	return optionFunc(func(s *Decl) { s.BeforeStart = append(s.BeforeStart, fn) })
 }
@@ -350,23 +267,89 @@ func WithBind(prefix string, opt any) Option {
 	})
 }
 
-// assemble 按契约约定装配 AppKit——原 FromBootstrap（契约约定装配入口）函数体
-// 的整体迁移，批 2 W2a 起是 Serve 的内部步骤（公开入口只剩 Serve/MustServe，
-// 见 serve.go；段驱动 Provider 化是下一波 W2b）。
+// loggerSource 统一「默认两阶段日志工厂」与「logger Provider 接管」的调用面：
+// 阶段 A（契约未装载）与阶段 B/热更（按契约或候选重建）各一个调用点。
+// Provider 路径的 scope.App 恒为 nil——日志装配先于资源容器存在，且热更路径
+// 在配置 watch goroutine 上执行，不得触碰 AppKit；Build 须并发安全（阶段 B
+// 与热更可能并发进入）。
+type loggerSource interface {
+	bootstrapLogger(ctx context.Context) (log.Logger, func(), error)
+	contractLogger(ctx context.Context, cfg *bootstrapv1.BootstrapConfig) (log.Logger, func(), error)
+}
+
+// defaultLoggerSource 是内置默认路径（零 logger Provider 时生效）：无注册表的
+// 纯函数分派，依赖增量严格为零（bslog 本就是 bootstrap 直接依赖），消费
+// Decl.LogDecorators（WithLogDecorators 语义保持）。
+type defaultLoggerSource struct{ deco []bslog.Option }
+
+func (s defaultLoggerSource) bootstrapLogger(ctx context.Context) (log.Logger, func(), error) {
+	return defaultLoggerFactory(s.deco)(ctx, nil)
+}
+
+func (s defaultLoggerSource) contractLogger(ctx context.Context, cfg *bootstrapv1.BootstrapConfig) (log.Logger, func(), error) {
+	return defaultLoggerFactory(s.deco)(ctx, cfg.GetLogger())
+}
+
+// providerLoggerSource 是 logger Provider 接管路径：引擎在三个时点调用
+// Provider.Build（阶段 A：Config=nil；阶段 B/热更：Config=完整契约或候选），
+// 产物为 log.Logger，cleanup 交由引擎的 curCleanup 原子换槽兑现。
+type providerLoggerSource struct {
+	prov Provider
+	spec *Decl
+}
+
+func (s providerLoggerSource) build(ctx context.Context, cfg *bootstrapv1.BootstrapConfig) (log.Logger, func(), error) {
+	product, cleanup, err := s.prov.Build(ctx, BuildScope{Config: cfg, Decl: s.spec})
+	if err != nil {
+		return nil, nil, err
+	}
+	lg, ok := product.(log.Logger)
+	if !ok {
+		if c := cleanup; c != nil {
+			_ = c(ctx)
+		}
+		return nil, nil, fmt.Errorf("appkit: logger provider %v returned %T, want log.Logger", s.prov.Segments(), product)
+	}
+	var fc func()
+	if cleanup != nil {
+		fc = func() { _ = cleanup(context.Background()) }
+	}
+	return lg, fc, nil
+}
+
+func (s providerLoggerSource) bootstrapLogger(ctx context.Context) (log.Logger, func(), error) {
+	return s.build(ctx, nil)
+}
+
+func (s providerLoggerSource) contractLogger(ctx context.Context, cfg *bootstrapv1.BootstrapConfig) (log.Logger, func(), error) {
+	return s.build(ctx, cfg)
+}
+
+// resolveLoggerSource 按 spec 解析日志源：声明了 logger 段 Provider 即接管
+// （原 WithLogRegistry 通道的等价物），否则内置默认工厂。
+func resolveLoggerSource(spec *Decl, plan *providerPlan) loggerSource {
+	if plan.loggerProv != nil {
+		return providerLoggerSource{prov: plan.loggerProv, spec: spec}
+	}
+	return defaultLoggerSource{deco: spec.LogDecorators}
+}
+
+// assemble 按契约约定装配 AppKit——段驱动 Provider 装配引擎（原 12 段手工
+// 流的整体替换，批 2 W2b；公开入口只剩 Serve/MustServe，见 serve.go）。
 //
-// spec 为业务能力声明（With* 写入的 Decl，调用方已 Apply 完毕）；cfg 为契约，
-// 必须非 nil——Serve 路径由内部契约装载产出（bconf.NewBootstrap + 预装载），
-// 包内测试经显式注入复刻旧 FromBootstrap(cfg, opts...) 的构造期语义。返回的
-// AppKit 已完成全部约定装配，直接 Run 即可。
+// spec 为业务能力声明（With*/Providers 写入的 Decl，调用方已 Apply 完毕）；
+// cfg 为契约，必须非 nil——Serve 路径由内部契约装载产出（bconf.NewBootstrap +
+// 预装载），包内测试经显式注入复刻旧 FromBootstrap(cfg, opts...) 的构造期
+// 语义。返回的 AppKit 已完成全部约定装配，直接 Run 即可。
 func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*AppKit, error) {
 	if cfg == nil {
 		return nil, errors.New("appkit: assemble: bootstrap config is nil")
 	}
-	// 日志后端工厂两级分发：契约驱动注册表（WithLogRegistry：阶段 A 无
-	// 契约回退默认 bslog，阶段 B 按 logger.backends 逐项查表构造）；
-	// 不声明时默认纯函数路径（仅 slog 项 + 教学报错，依赖增量为零）。
-	// 解析结果不落入 Decl（非用户声明），经参数传递给装载链与热更。
-	logFac := resolveLoggerFactory(spec)
+	// 段驱动装配计划：路径末者胜 + 分阶段排序（机制见 provider.go）。
+	plan, err := newProviderPlan(spec)
+	if err != nil {
+		return nil, err
+	}
 
 	httpCfg := cfg.GetServer().GetHttp()
 	grpcCfg := cfg.GetServer().GetGrpc()
@@ -395,9 +378,13 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*AppKit, error) {
 		}
 	}
 
+	// 日志源两级分发：logger 段 Provider 接管 > 内置默认工厂（消费
+	// WithLogDecorators）。解析结果不落入 Decl（非用户声明），经参数传递。
+	logSrc := resolveLoggerSource(spec, plan)
+
 	// 阶段 A：默认 Logger，保证契约装载前的启动日志可见。失败路径回滚。
 	oldLogger := log.GetLogger()
-	bootLogger, bootCleanup, err := logFac(context.Background(), nil)
+	bootLogger, bootCleanup, err := logSrc.bootstrapLogger(context.Background())
 	if err != nil {
 		return nil, fmt.Errorf("appkit: bootstrap logger: %w", err)
 	}
@@ -408,86 +395,38 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*AppKit, error) {
 	}
 	log.SetLogger(bootLogger)
 
-	// 契约 Config 段 → 配置层（注册序=层优先级）。失败回滚阶段 A。
+	// 构造期阶段：config 段 Provider 产出配置层（声明序=层优先级，首元素
+	// 最高）。scope.App 为 nil——AppKit 尚未构造。失败回滚阶段 A。
 	var layers []baldconfig.Layer
 	var layersCleanup func()
-	if spec.ConfigRegistry != nil {
-		layers, layersCleanup, err = spec.ConfigRegistry.Build(context.Background(), cfg)
+	if len(plan.construct) > 0 {
+		built, _, err := runProviderLoop(context.Background(), plan.construct,
+			BuildScope{Config: cfg, Decl: spec}, false, nil)
 		if err != nil {
 			log.SetLogger(oldLogger)
 			bootCleanup()
 			return nil, fmt.Errorf("appkit: config layers: %w", err)
 		}
-	}
-
-	// 服务器构造走 bootstrap.ServerRegistry（契约驱动装配层，与直用 bootstrap
-	// 同一实现，消除双真相源）：能力声明 → provider 注入，契约段 → 装配。
-	// 未声明的能力不注册 provider——契约段存在也无 server 消费（能力声明在
-	// 代码，是刻意的）；零能力声明（纯后台进程）跳过构造，servers 为空合法。
-	// BuildServers 失败回滚阶段 A 与配置层，与 ConfigRegistry 错误路径对称。
-	var servers []transport.Server
-	// 服务器构造**延后到 Run 期**（装配时序根治）。
-	//
-	// 背景：BuildServers 会同步调用业务注册回调（WithGRPC 的 register、
-	// WithHTTP/WithGatewayRegister 的 handler），而消费方依赖 beforeStart
-	// 建立的运行期资源（DB/Redis/仓储）。构造期构建即迫使业务改用请求期
-	// 懒解析（lazyAuthn/lazySigner 适配器族 + 请求期读包级 store）。故此处
-	// 只注册 provider（不触发构造），把 BuildServers 交给 Run 期 beforeStart
-	// 链**末尾**执行（见下方 deferred server build）。
-	//
-	// 能力声明与契约段一致性校验仍在构造期（上方 fail-fast 块）——配置错误
-	// 仍在启动最早暴露，不因时序调整而丢失。
-	var buildServers func(ctx context.Context) ([]transport.Server, func(), error)
-	if spec.HTTPHandler != nil || spec.GatewayRegister != nil || spec.GRPCRegister != nil || spec.ServerRegistry != nil {
-		// 复用用户注入的注册表（WithServerRegistry）——其中可能已有 asynq/cron
-		// 等后端子模块注册的 provider；未注入时自建空表。http/grpc 用 Has 判
-		// 存在性后补注册，不覆盖用户已注册的同名 provider。
-		sr := spec.ServerRegistry
-		if sr == nil {
-			sr = baldbootstrap.NewServerRegistry()
-		}
-		if spec.HTTPHandler != nil || spec.GatewayRegister != nil {
-			// 健康检查默认装配在此落地：探针包在业务 handler 外层（协议实现
-			// 不注册任何框架路由），见《Bald 健康检查装配设计》。
-			handler := spec.HTTPHandler
-			if spec.Health != nil && handler != nil {
-				handler = withProbes(handler, spec.Health, spec.ProbeLivePath, spec.ProbeReadyPath)
+		for _, r := range built {
+			ls, ok := r.product.([]baldconfig.Layer)
+			if !ok {
+				rollbackBuilds(built, context.Background())
+				log.SetLogger(oldLogger)
+				bootCleanup()
+				return nil, fmt.Errorf("appkit: config provider %v returned %T, want []config.Layer", r.prov.Segments(), r.product)
 			}
-			httpOpts := []baldbootstrap.HTTPServerOption{baldbootstrap.WithHTTPHandler(handler)}
-			if spec.GatewayRegister != nil {
-				gatewayRegister := spec.GatewayRegister
-				if spec.Health != nil {
-					gatewayRegister = withGatewayProbes(gatewayRegister, spec.Health, spec.ProbeLivePath, spec.ProbeReadyPath)
+			layers = append(layers, ls...)
+			if c := noopCleanupFn(r.cleanup); c != nil {
+				prev := layersCleanup
+				layersCleanup = func() {
+					if prev != nil {
+						prev()
+					}
+					c()
 				}
-				httpOpts = append(httpOpts, baldbootstrap.WithGatewayRegister(gatewayRegister))
 			}
-			if !sr.Has("http") {
-				sr.MustRegister("http", baldbootstrap.HttpServerProvider(httpOpts...))
-			}
-		}
-		if spec.GRPCRegister != nil {
-			grpcOpts := []baldbootstrap.GRPCServerOption{
-				baldbootstrap.WithGRPCUnary(spec.GRPCUnary...),
-				baldbootstrap.WithGRPCRegister(spec.GRPCRegister),
-			}
-			// WithGRPCOptions：把「运行期求值」的选项工厂透传给 provider——它在
-			// Run 期 server 构造时调用（见 bootstrap.GrpcServerProvider），彼时
-			// 业务 beforeStart 已建好认证器/授权器。
-			if spec.GRPCOptionsFn != nil {
-				grpcOpts = append(grpcOpts, baldbootstrap.WithGRPCUnaryFunc(spec.GRPCOptionsFn))
-			}
-			if spec.Health != nil {
-				grpcOpts = append(grpcOpts, baldbootstrap.WithGRPCHealth(spec.Health, spec.HealthInterval))
-			}
-			if !sr.Has("grpc") {
-				sr.MustRegister("grpc", baldbootstrap.GrpcServerProvider(grpcOpts...))
-			}
-		}
-		buildServers = func(ctx context.Context) ([]transport.Server, func(), error) {
-			return sr.BuildServers(ctx, cfg.GetServer())
 		}
 	}
-	servers = append(servers, spec.Servers...)
 
 	// curCleanup 跟踪当前生效 Logger 的后端释放钩子：阶段 B 与热更新重建时
 	// 原子替换（替换前旧钩子被同步兑现——带缓冲后端的尾批不因热切换丢失，
@@ -495,35 +434,13 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*AppKit, error) {
 	var curCleanup atomic.Pointer[func()]
 	curCleanup.Store(&bootCleanup)
 
-	// regCleanup 跟踪契约装配注册中心的 client 释放钩子（阶段 B 构造时填入）。
-	// Deregister 先于 stopAll 执行，Effect 回放在 stopAll 内——顺序安全。
-	var regCleanup atomic.Pointer[func()]
-
-	// dbCleanup 跟踪契约装配数据库客户端的连接池释放钩子（阶段 B 构建时
-	// 填入）。Effect 注册在 servers 之前——停机逆序回放保证服务器先 drain、
-	// 数据库连接最后关。
-	var dbCleanup func()
-	// cacheCleanup 同理跟踪缓存实例释放钩子；Effect 注册在 database-clients
-	// 之后——逆序回放保证缓存先关（加速层，关了不影响正确性）、数据库最后关。
-	var cacheCleanup func()
-	// storageCleanup 跟踪对象存储客户端释放钩子；Effect 注册在 cache-clients
-	// 之后——停机逆序：storage 先关（暂无长连接）、缓存次之、数据库最后关。
-	var storageCleanup func()
-	// aiCleanup 跟踪 AI 客户端释放钩子；Effect 注册在 storage-clients 之后
-	// （当前三后端均无连接池，cleanup 为 nil，Effect 预留）。
-	var aiCleanup func()
-	// workflowCleanup/brokerCleanup 跟踪工作流客户端与消息代理断连钩子；
-	// Effect 注册在 ai-clients 之后——停机逆序：broker（in-flight 消息）→
-	// workflow → ai → storage → cache → database。
-	var workflowCleanup func()
-	var brokerCleanup func()
-	// obs 跟踪阶段 B 装配的可观测性句柄（tracer shutdown / metrics 暴露端 +
-	// flush）。Effect 注册在 bootstrap-logger 之前——停机逆序回放最后执行：
-	// 所有组件 cleanup 完成、Logger 恢复后，再停暴露端、flush 尾批指标与 span。
-	var obs *observabilityState
+	// canonical 停机槽位：各段 Provider 的 cleanup 在 Build 成功后填充，
+	// Effect（构造期按 cleanupOrder 预登记）逆序回放时兑现——Effect 注册序
+	// 与旧 12 段流逐条一致。
+	slots := newCleanupSlots(plan)
 	// auditSt 跟踪阶段 B 装配的审计后端句柄（装配前全局 prev + 后端 cleanup）。
-	// Effect 注册在 tracer-shutdown 之前——逆序回放最后执行：stream 尾批审计
-	// 事件在指标/span flush 之后收集（收集面最全），再恢复装配前全局 Auditor。
+	// Effect 回放：先 cleanup（stream flush 尾批审计事件，在指标/span 之后
+	// 收集面最全），再恢复装配前全局 Auditor。
 	var auditSt *auditState
 
 	// a 先声明再进闭包：BeforeStart 在 Run 期才执行，届时 a 已赋值。
@@ -544,157 +461,55 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*AppKit, error) {
 		//（阶段 B 从契约重建 Logger，flag→合并→Unmarshal→契约的链路经此打通）。
 		Bind("", baldbootstrap.LogOptions(nil)),
 		ConfigLayers(layers...),
-		Servers(servers...),
+		Servers(spec.Servers...),
 		BeforeStart(func(ctx context.Context) error {
-			if err := syncBootstrap(a, cfg, spec, logFac, &curCleanup, &regCleanup); err != nil {
+			// 阶段 B 前置框架步骤：装载配置快照进契约 + 校验 + 按契约重建
+			// Logger（必须在校验后重建——构造用的契约值已含文件/env 覆盖；
+			// registry 段的注册中心构造已 Provider 化，在下方循环进行）。
+			if err := syncBootstrap(a, cfg, spec, logSrc, &curCleanup); err != nil {
 				return err
 			}
-			// 可观测性（tracer/metrics 段）在注册中心之后、数据/缓存客户端
-			// 之前装配：使 Recorder / tracer 在首个请求与后续组件初始化 span
-			// 前接入全局 Provider（`=` 赋值外层，T7 教训：闭包内 `:=` 遮蔽
-			// 致停机 Effect 拿 nil）。
-			o, err := buildObservability(cfg, spec)
+			// 阶段 B Provider 循环：canonical 序（registry→tracer→metrics→
+			// database→cache→storage→audit→ai→workflow→broker，见 stageBRank）。
+			// 显式 WithRegistrar 实例接管 registry 段时跳过纯 registry Provider
+			// （程序化接管 = 刻意覆盖，批 1 语义）。
+			bps := plan.stageB
+			if spec.Registrar != nil {
+				bps = dropSegmentProviders(bps, "registry")
+			}
+			_, _, err := runProviderLoop(ctx, bps, BuildScope{Config: cfg, Decl: spec, App: a}, true,
+				func(r buildResult) error { return storeProduct(a, r, slots, &auditSt) })
 			if err != nil {
 				return err
 			}
-			obs = o
-			// 数据库/缓存客户端构建在注册中心之后：任一步失败走 Run 失败路径
-			// 回滚 Effect 账本（各 Effect 自行释放）。赋值外层变量（勿用 :=，
-			// 否则遮蔽导致 Effect 回放拿到 nil）。
-			cleanup, err := buildDatabases(a, cfg, spec)
-			if err != nil {
-				return err
-			}
-			dbCleanup = cleanup
-			if cleanup, err = buildCaches(a, cfg, spec); err != nil {
-				return err
-			}
-			cacheCleanup = cleanup
-			if cleanup, err = buildStorages(a, cfg, spec); err != nil {
-				return err
-			}
-			storageCleanup = cleanup
-			// 审计后端（audit 段）在**数据/缓存/存储客户端之后**装配：store 后端
-			// 需 *gorm.DB、stream 后端需 redis 客户端——资源必须先就绪，a 作为
-			// 资源容器透传给 provider（AuditProvider 的 res 参数）。SetAuditor
-			// 全局注入，使后续组件初始化与首个请求的审计事件即进契约后端。
-			// （2026-09-28 修订：此前排在可观测性之后、数据客户端之前——后端
-			// 只能拿到 nil，业务被迫备惰性包装 lazyStoreAuditor。）
-			au, err := buildAudit(a, cfg, spec)
-			if err != nil {
-				return err
-			}
-			auditSt = au
-			if cleanup, err = buildAis(a, cfg, spec); err != nil {
-				return err
-			}
-			aiCleanup = cleanup
-			if cleanup, err = buildWorkflows(a, cfg, spec); err != nil {
-				return err
-			}
-			workflowCleanup = cleanup
-			if cleanup, err = buildBrokers(a, cfg, spec); err != nil {
-				return err
-			}
-			brokerCleanup = cleanup
-			// L3 段覆盖告警（批 1 告警级，见 segment_coverage.go）：装配链
+			// L3 段覆盖检查（批 2 起报错级，见 segment_coverage.go）：装配链
 			// 末尾、契约已装载定型——枚举实际出现的顶层段，减去本次装配真
-			// 实被消费的段，剩余即告警（script 段零消费者的静默失效由此可
-			// 见）。不报错、不拦截启动；批 2 的 StrictSegments 才转 fail-fast。
-			warnUnconsumedSegments(ctx, cfg, spec, buildServers != nil)
-			return nil
+			// 实被消费的段与白名单，剩余即启动期 error（script 段零消费者的
+			// 静默失效由此拦截）。
+			return checkSegmentCoverage(cfg, spec, plan)
 		}),
 		OnConfigChange(func(m map[string]any) {
-			hotReload(cfg, spec, logFac, &curCleanup, m)
-		}),
-		// 审计 Effect 注册在 tracer-shutdown 之前：逆序回放时最后执行——
-		// 先 cleanup（stream flush 尾批审计事件，在指标/span 之后收集面最全），
-		// 再恢复装配前的全局 Auditor（全局写入配套逆操作）。
-		Effect("appkit:audit-restore", func(ctx context.Context) error {
-			if auditSt == nil {
-				return nil
-			}
-			if auditSt.cleanup != nil {
-				if err := auditSt.cleanup(ctx); err != nil {
-					log.Error(ctx, "appkit audit cleanup failed", "error", err.Error())
-				}
-			}
-			audit.SetAuditor(auditSt.prev)
-			return nil
-		}),
-		// 可观测性 Effect 注册在 bootstrap-logger 之前：逆序回放时最后执行
-		// （所有组件 cleanup、Logger 恢复之后）——先停 metrics 暴露端 +
-		// flush 指标，再 flush trace（收集全部尾批 span）。
-		Effect("appkit:tracer-shutdown", func(ctx context.Context) error {
-			if obs == nil || obs.traceShutdown == nil {
-				return nil
-			}
-			return obs.traceShutdown(ctx)
-		}),
-		Effect("appkit:metrics-server", func(ctx context.Context) error {
-			if obs == nil {
-				return nil
-			}
-			if obs.metricsSrv != nil {
-				if err := obs.metricsSrv.Shutdown(ctx); err != nil {
-					log.Error(ctx, "appkit metrics server shutdown failed", "error", err.Error())
-				}
-			}
-			if obs.metricsFlush != nil {
-				return obs.metricsFlush(ctx)
-			}
-			return nil
-		}),
-		Effect("appkit:bootstrap-logger", func(context.Context) error {
-			log.SetLogger(oldLogger)
-			if c := curCleanup.Load(); c != nil {
-				(*c)()
-			}
-			return nil
-		}),
-		Effect("appkit:registrar-client", func(context.Context) error {
-			if c := regCleanup.Load(); c != nil {
-				(*c)()
-			}
-			return nil
-		}),
-		Effect("appkit:database-clients", func(context.Context) error {
-			if dbCleanup != nil {
-				dbCleanup()
-			}
-			return nil
-		}),
-		Effect("appkit:cache-clients", func(context.Context) error {
-			if cacheCleanup != nil {
-				cacheCleanup()
-			}
-			return nil
-		}),
-		Effect("appkit:storage-clients", func(context.Context) error {
-			if storageCleanup != nil {
-				storageCleanup()
-			}
-			return nil
-		}),
-		Effect("appkit:ai-clients", func(context.Context) error {
-			if aiCleanup != nil {
-				aiCleanup()
-			}
-			return nil
-		}),
-		Effect("appkit:workflow-clients", func(context.Context) error {
-			if workflowCleanup != nil {
-				workflowCleanup()
-			}
-			return nil
-		}),
-		Effect("appkit:broker-clients", func(context.Context) error {
-			if brokerCleanup != nil {
-				brokerCleanup()
-			}
-			return nil
+			hotReload(cfg, spec, logSrc, &curCleanup, m)
 		}),
 	}
+	// 框架停机 Effect：audit-restore 登记**最前**（逆序回放最后执行——先
+	// cleanup（stream flush 尾批审计事件，在指标/span 之后收集面最全），再
+	// 恢复装配前全局 Auditor），其余 canonical 槽位按 cleanupOrder 依次登记
+	//（回放序：broker → … → database → registrar-client → bootstrap-logger →
+	// metrics-server → tracer-shutdown → audit-restore，与旧 12 段流一致）。
+	kitOpts = append(kitOpts, Effect(effectNameBySegment["audit"], func(ctx context.Context) error {
+		if auditSt == nil {
+			return nil
+		}
+		if auditSt.cleanup != nil {
+			if err := auditSt.cleanup(ctx); err != nil {
+				log.Error(ctx, "appkit audit cleanup failed", "error", err.Error())
+			}
+		}
+		audit.SetAuditor(auditSt.prev)
+		return nil
+	}))
+	kitOpts = append(kitOpts, slots.effects(oldLogger, &curCleanup)...)
 	if httpCfg != nil {
 		kitOpts = append(kitOpts, Bind("server.http", httpCfg))
 	}
@@ -722,9 +537,10 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*AppKit, error) {
 			return nil
 		}))
 	}
-	// servers 的 cleanup 不再在此注册——服务器构造已延后到 Run 期
-	// （见下方运行期装配钩子），其 cleanup 在同一阶段经 addEffect 入账，
-	// 保证「构造即入账」不变（否则构造成功而注册失败会泄漏）。
+	// 表外（第三方）段 Provider 的停机 Effect：登记在 config-layers 之后、
+	// 业务 Effect 之前——逆序回放时业务效果先执行，第三方资源次之，框架
+	// 底座（上方 canonical 槽位）最后收。
+	kitOpts = append(kitOpts, slots.foreignEffects()...)
 
 	// 业务透传：钩子/协调器/能力声明/订阅/效果——追加在框架装配之后
 	//（beforeStart 在内部装载链后执行，可读契约终值；Effect 逆序回放先于
@@ -732,30 +548,24 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*AppKit, error) {
 	for _, fn := range spec.BeforeStart {
 		kitOpts = append(kitOpts, BeforeStart(fn))
 	}
-	// W1 运行期服务器构造：**追加在业务 beforeStart 之后**——注册序即执行序，
-	// 故本钩子最后执行，此时业务已建成运行期资源（DB/仓储/biz/handler），
-	// register 回调（gRPC service 注册）与 HTTP handler 消费它们即拿到真实依赖。
-	// 构造失败的错误经 Run 的 beforeStart 失败路径回滚（Effect 逆序回放配置层
-	// 与阶段 A Logger），与原先的构造期回滚等价。
-	if buildServers != nil {
+	// 迟后阶段（server 段 Provider）：**追加在业务 beforeStart 之后**——注册序
+	// 即执行序，故本钩子在业务钩子后执行，此时业务已建成运行期资源（DB/
+	// 仓储/biz/handler），register 回调（gRPC service 注册）与 HTTP handler
+	// 消费它们即拿到真实依赖。构造失败的错误经 Run 的 beforeStart 失败路径
+	// 回滚（Effect 逆序回放配置层与阶段 A Logger），与旧实现等价。
+	if len(plan.late) > 0 {
 		kitOpts = append(kitOpts, BeforeStart(func(ctx context.Context) error {
-			built, cleanup, err := buildServers(ctx)
+			_, _, err := runProviderLoop(ctx, plan.late, BuildScope{Config: cfg, Decl: spec, App: a}, true,
+				func(r buildResult) error { return storeServerProduct(a, r) })
 			if err != nil {
-				return fmt.Errorf("appkit: build servers: %w", err)
-			}
-			a.servers = append(a.servers, built...)
-			if cleanup != nil {
-				a.addEffect("appkit:servers", func(context.Context) error {
-					cleanup()
-					return nil
-				})
+				return err
 			}
 			return nil
 		}))
 	}
 	// 运行期额外服务器（WithExtraServerFunc）：同样追加在业务 beforeStart 之后
-	//（注册序=执行序），故工厂可读业务建立的运行期资源。**独立于 buildServers
-	// 是否存在**——只声明额外服务器（无 http/grpc 主面）时本钩子仍生效。
+	//（注册序=执行序），故工厂可读业务建立的运行期资源。**独立于** server 段
+	// Provider 是否存在——只声明额外服务器（无主协议面）时本钩子仍生效。
 	if len(spec.ServersFunc) > 0 {
 		fns := spec.ServersFunc
 		kitOpts = append(kitOpts, BeforeStart(func(ctx context.Context) error {
@@ -806,10 +616,241 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*AppKit, error) {
 	return a, nil
 }
 
-// syncBootstrap 装载配置快照进契约，重建 Logger，并按契约 registry 段
-// 构造注册中心（BeforeStart 阶段 B——必须在校验后执行，构造用的契约值
-// 已含文件/env 覆盖）。
-func syncBootstrap(a *AppKit, cfg *bootstrapv1.BootstrapConfig, spec *Decl, logFac loggerFactory, curCleanup, regCleanup *atomic.Pointer[func()]) error {
+// dropSegmentProviders 过滤掉「全部声明路径都落在 top 段」的 Provider
+// （显式实例接管语义：WithRegistrar 非 nil 时跳过纯 registry Provider）。
+func dropSegmentProviders(ps []Provider, top string) []Provider {
+	out := ps[:0:0]
+	for _, p := range ps {
+		all := true
+		for _, s := range p.Segments() {
+			if segmentTop(s) != top {
+				all = false
+				break
+			}
+		}
+		if !all {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// foreignSlotKey 是表外段 Provider 停机槽位的键（首声明路径；同路径多
+// Provider 并存时聚合逆序——后建者先收）。
+func foreignSlotKey(p Provider) string { return p.Segments()[0] }
+
+// cleanupSlots 是停机清理槽位集：canonical 段按 cleanupOrder 预登记（名字与
+// 旧 12 段流逐字一致），表外段按首声明路径预登记；Build 成功后填充，停机
+// 逆序回放兑现。
+type cleanupSlots struct {
+	cleanups map[string]*Cleanup // canonical 段名 → 槽位
+	foreign  map[string]*Cleanup // 表外段首路径 → 槽位
+}
+
+func newCleanupSlots(plan *providerPlan) *cleanupSlots {
+	s := &cleanupSlots{cleanups: map[string]*Cleanup{}, foreign: map[string]*Cleanup{}}
+	for _, seg := range cleanupOrder {
+		c := Cleanup(nil)
+		s.cleanups[seg] = &c
+	}
+	for _, p := range plan.stageB {
+		if _, ok := effectNameBySegment[segmentTop(p.Segments()[0])]; ok {
+			continue // canonical 段走上方槽位
+		}
+		k := foreignSlotKey(p)
+		if _, dup := s.foreign[k]; dup {
+			continue
+		}
+		c := Cleanup(nil)
+		s.foreign[k] = &c
+	}
+	return s
+}
+
+// fill 填充段槽位（同段多 Provider 并存时聚合逆序：后建者先收）。
+func (s *cleanupSlots) fill(seg string, c Cleanup) {
+	slot := s.cleanups[seg]
+	if slot == nil || c == nil {
+		return
+	}
+	if *slot == nil {
+		*slot = c
+		return
+	}
+	prev := *slot
+	*slot = func(ctx context.Context) error {
+		if err := c(ctx); err != nil {
+			return err
+		}
+		return prev(ctx)
+	}
+}
+
+// fillForeign 填充表外段槽位（键 = Provider 首声明路径）。
+func (s *cleanupSlots) fillForeign(p Provider, c Cleanup) {
+	slot := s.foreign[foreignSlotKey(p)]
+	if slot == nil || c == nil {
+		return
+	}
+	if *slot == nil {
+		*slot = c
+		return
+	}
+	prev := *slot
+	*slot = func(ctx context.Context) error {
+		if err := c(ctx); err != nil {
+			return err
+		}
+		return prev(ctx)
+	}
+}
+
+// effects 生成 canonical 段停机 Effect（audit-restore 由 assemble 单独登记，
+// 不在此列；顺序 = cleanupOrder，即注册序）。logger 段非 Provider 驱动，
+// 特供 bootstrap-logger Effect：恢复装配前全局 Logger 并兑现最新后端 cleanup
+// （热更重建原子换槽的钩子在此收口）。
+func (s *cleanupSlots) effects(oldLogger log.Logger, curCleanup *atomic.Pointer[func()]) []Option {
+	var opts []Option
+	for _, seg := range cleanupOrder {
+		seg := seg
+		switch seg {
+		case "audit":
+			continue
+		case "logger":
+			opts = append(opts, Effect(effectNameBySegment[seg], func(context.Context) error {
+				log.SetLogger(oldLogger)
+				if c := curCleanup.Load(); c != nil {
+					(*c)()
+				}
+				return nil
+			}))
+		default:
+			opts = append(opts, Effect(effectNameBySegment[seg], func(ctx context.Context) error {
+				if c := *s.cleanups[seg]; c != nil {
+					return c(ctx)
+				}
+				return nil
+			}))
+		}
+	}
+	return opts
+}
+
+// foreignEffects 生成表外段停机 Effect（声明序注册；名字携带段路径便于定位）。
+func (s *cleanupSlots) foreignEffects() []Option {
+	var opts []Option
+	for k, slot := range s.foreign {
+		k, slot := k, slot
+		opts = append(opts, Effect("appkit:provider."+k, func(ctx context.Context) error {
+			if c := *slot; c != nil {
+				return c(ctx)
+			}
+			return nil
+		}))
+	}
+	return opts
+}
+
+// noopCleanupFn 把 Cleanup 转成无参聚合用闭包（config 层 cleanup 聚合）。
+func noopCleanupFn(c Cleanup) func() {
+	if c == nil {
+		return nil
+	}
+	return func() { _ = c(context.Background()) }
+}
+
+// storeProduct 把阶段 B Provider 的产物按顶层段落进 AppKit 的资源面，并把
+// cleanup 填入对应槽位。产物形状不符 = 装配错误（fail-fast）。
+func storeProduct(a *AppKit, r buildResult, slots *cleanupSlots, auditSt **auditState) error {
+	top := segmentTop(r.prov.Segments()[0])
+	switch top {
+	case "registry":
+		reg, ok := r.product.(registry.Registrar)
+		if !ok {
+			return fmt.Errorf("appkit: registry provider %v returned %T, want registry.Registrar", r.prov.Segments(), r.product)
+		}
+		a.registrar = reg
+		slots.fill(top, r.cleanup)
+	case "database", "cache", "storage", "ai", "workflow", "broker":
+		m, err := productStringMap(r)
+		if err != nil {
+			return err
+		}
+		switch top {
+		case "database":
+			a.databases = m
+		case "cache":
+			a.caches = m
+		case "storage":
+			a.storages = m
+		case "ai":
+			a.ais = m
+		case "workflow":
+			a.workflows = m
+		case "broker":
+			a.brokers = m
+		}
+		slots.fill(top, r.cleanup)
+	case "audit":
+		aud, ok := r.product.(audit.Auditor)
+		if !ok {
+			return fmt.Errorf("appkit: audit provider %v returned %T, want audit.Auditor", r.prov.Segments(), r.product)
+		}
+		prev := audit.GetAuditor()
+		audit.SetAuditor(aud)
+		*auditSt = &auditState{prev: prev, cleanup: r.cleanup}
+	case "tracer", "metrics":
+		// 产物不落资源面（tracer shutdown / metrics 暴露端由 Provider 自持，
+		// cleanup 槽位承担停机回收；StartMetricsServer 为其导出工具）。
+		slots.fill(top, r.cleanup)
+	default:
+		// 表外段：cleanup 照常入账，产物本波不落资源面——W3 的
+		// App.Resource(segment)（B4）统一收口。
+		slots.fillForeign(r.prov, r.cleanup)
+	}
+	return nil
+}
+
+// productStringMap 归一六资源域产物：map[string]any（键=子段名；nil 视为空）。
+func productStringMap(r buildResult) (map[string]any, error) {
+	if r.product == nil {
+		return map[string]any{}, nil
+	}
+	m, ok := r.product.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("appkit: provider %v returned %T, want map[string]any", r.prov.Segments(), r.product)
+	}
+	if m == nil {
+		m = map[string]any{}
+	}
+	return m, nil
+}
+
+// storeServerProduct 落迟后阶段（server 段）产物：[]transport.Server 追加进
+// 服务器列表，cleanup 经 addEffect 入账（构造即入账，停机先 drain 服务器）。
+func storeServerProduct(a *AppKit, r buildResult) error {
+	var servers []transport.Server
+	switch v := r.product.(type) {
+	case nil:
+	case []transport.Server:
+		servers = v
+	case transport.Server:
+		servers = []transport.Server{v}
+	default:
+		return fmt.Errorf("appkit: server provider %v returned %T, want []transport.Server", r.prov.Segments(), r.product)
+	}
+	a.servers = append(a.servers, servers...)
+	if r.cleanup != nil {
+		c := r.cleanup
+		a.addEffect("appkit:servers", func(ctx context.Context) error { return c(ctx) })
+	}
+	return nil
+}
+
+// syncBootstrap 装载配置快照进契约、校验并重建 Logger（阶段 B 前置框架步骤
+// ——必须在校验后重建，构造用的契约值已含文件/env 覆盖；registry 段的注册
+// 中心构造已 Provider 化，在阶段 B 循环按 canonical 序进行）。
+func syncBootstrap(a *AppKit, cfg *bootstrapv1.BootstrapConfig, spec *Decl, logSrc loggerSource, curCleanup *atomic.Pointer[func()]) error {
 	m := a.Settings()
 	if m == nil {
 		return errors.New("appkit: settings snapshot is nil")
@@ -820,43 +861,13 @@ func syncBootstrap(a *AppKit, cfg *bootstrapv1.BootstrapConfig, spec *Decl, logF
 	if err := bconf.Validate(cfg); err != nil {
 		return fmt.Errorf("appkit: validate bootstrap config: %w", err)
 	}
-	if err := rebuildLogger(cfg.GetLogger(), logFac, curCleanup); err != nil {
-		return err
-	}
-	return buildRegistrar(a, cfg, spec, regCleanup)
-}
-
-// buildRegistrar 在阶段 B（契约装载校验后）按契约 registry 段构造注册中心。
-// 显式 WithRegistrar 优先（实例非 nil 即跳过）；契约段缺失为 no-op；
-// 段存在但未接 RegistrarRegistry 则 fail-fast（配置意图无法兑现）。
-// registry 段不支持热更新（client 重建侵入性大，变更需重启生效）。
-func buildRegistrar(a *AppKit, cfg *bootstrapv1.BootstrapConfig, spec *Decl, regCleanup *atomic.Pointer[func()]) error {
-	if a.registrar != nil {
-		return nil // 显式注入优先
-	}
-	rcfg := cfg.GetRegistry()
-	if rcfg == nil {
-		return nil // 未声明注册中心
-	}
-	if spec.RegistrarRegistry == nil {
-		return errors.New("appkit: bootstrap.registry present but no RegistrarRegistry wired (WithRegistrarRegistry missing)")
-	}
-	reg, cleanup, err := spec.RegistrarRegistry.Build(context.Background(), rcfg)
-	if err != nil {
-		return fmt.Errorf("appkit: build registrar: %w", err)
-	}
-	if cleanup == nil {
-		cleanup = func() {}
-	}
-	a.registrar = reg
-	regCleanup.Store(&cleanup)
-	return nil
+	return rebuildLogger(cfg, logSrc, curCleanup)
 }
 
 // hotReload 热更新：副本试装载 + 校验，通过后整契约原子落盘并重建 Logger。
 // 任一步失败都降级记日志、保留旧契约，不阻断热更新流程（与审计旁路同哲学）。
 // Unmarshal 只做结构转换、不校验取值，坏值必须由 Validate 拦在落盘之前。
-func hotReload(cfg *bootstrapv1.BootstrapConfig, spec *Decl, logFac loggerFactory, curCleanup *atomic.Pointer[func()], m map[string]any) {
+func hotReload(cfg *bootstrapv1.BootstrapConfig, spec *Decl, logSrc loggerSource, curCleanup *atomic.Pointer[func()], m map[string]any) {
 	const msg = "appkit: config hot-reload"
 	lg := log.GetLogger()
 
@@ -880,7 +891,7 @@ func hotReload(cfg *bootstrapv1.BootstrapConfig, spec *Decl, logFac loggerFactor
 	cfg.Reset()
 	proto.Merge(cfg, candidate)
 
-	if err := rebuildLogger(cfg.GetLogger(), logFac, curCleanup); err != nil {
+	if err := rebuildLogger(cfg, logSrc, curCleanup); err != nil {
 		lg.Error(context.Background(), msg, "err", err)
 	}
 }
@@ -890,8 +901,8 @@ func hotReload(cfg *bootstrapv1.BootstrapConfig, spec *Decl, logFac loggerFactor
 // 换后端时旧 cleanup 被同步兑现（先切全局句柄、再冲刷旧后端）：带缓冲的
 // 后端（loki batchSize 未满的尾批）在热更新切换时不丢日志。旧 cleanup 若
 // 阻塞（远端不可达）由后端自身的 flush 超时上界保护。
-func rebuildLogger(l *bootstrapv1.Logger, logFac loggerFactory, curCleanup *atomic.Pointer[func()]) error {
-	lg, cleanup, err := logFac(context.Background(), l)
+func rebuildLogger(cfg *bootstrapv1.BootstrapConfig, logSrc loggerSource, curCleanup *atomic.Pointer[func()]) error {
+	lg, cleanup, err := logSrc.contractLogger(context.Background(), cfg)
 	if err != nil {
 		return fmt.Errorf("appkit: build logger: %w", err)
 	}
@@ -908,25 +919,7 @@ func rebuildLogger(l *bootstrapv1.Logger, logFac loggerFactory, curCleanup *atom
 	return nil
 }
 
-// resolveLoggerFactory 按 spec 解析日志后端工厂（两级分发）：
-// 契约驱动 LogRegistry（WithLogRegistry）> 默认纯函数路径。
-// 两条路径均在阶段 A（cfg=nil，契约装载前）回退默认 bslog，阶段 B 分派。
-func resolveLoggerFactory(s *Decl) loggerFactory {
-	if s.LogRegistry != nil {
-		reg, deco := s.LogRegistry, s.LogDecorators
-		return func(ctx context.Context, l *bootstrapv1.Logger) (log.Logger, func(), error) {
-			if l == nil {
-				// 阶段 A（契约装载前）：回退默认 bslog，保证启动日志可见。
-				lg, c := bslog.NewWithCleanup(baldbootstrap.LogOptions(nil), deco...)
-				return lg, c, nil
-			}
-			return reg.BuildLogger(ctx, l)
-		}
-	}
-	return defaultLoggerFactory(s.LogDecorators)
-}
-
-// defaultLoggerFactory 返回默认路径日志工厂（零 Option 时生效）：
+// defaultLoggerFactory 返回默认路径日志工厂（零 logger Provider 时生效）：
 // 无注册表的纯函数分派，依赖增量严格为零（bslog 本就是 bootstrap 直接依赖）。
 //
 // 三分派：
@@ -936,8 +929,9 @@ func resolveLoggerFactory(s *Decl) loggerFactory {
 //     的既有语义）后 MultiLogger 合并；非 slog 项 fail-fast 教学报错；
 //   - backends 为空：fail-fast（契约至少声明一项）。
 //
-// 全局脱敏（filter_keys 非空）：出口包 log.NewFilterLogger——与注册表路径
-// （BuildLogger 出口包装）语义一致。
+// 全局脱敏（filter_keys 非空）：出口包 log.NewFilterLogger。
+// 远端/自定义后端经 logger 段 Provider 接管（原 WithLogRegistry 通道的
+// 等价物）：声明一个 Segments()=["logger"] 的 Provider 即整体替换本工厂。
 func defaultLoggerFactory(deco []bslog.Option) loggerFactory {
 	return func(_ context.Context, l *bootstrapv1.Logger) (log.Logger, func(), error) {
 		if l == nil {
@@ -958,19 +952,17 @@ func defaultLoggerFactory(deco []bslog.Option) loggerFactory {
 				continue
 			}
 			return nil, nil, fmt.Errorf("appkit: logger.backends[%d] type %q: default path supports only \"slog\";\n"+
-				"  remote/custom backends need explicit registration:\n"+
-				"    reg := bootstrap.NewLogRegistry()\n"+
-				"    reg.MustRegister(lokicontract.Type, lokicontract.Provider) // log/loki/contract\n"+
-				"    appkit.Serve(context.Background(), appkit.WithLogRegistry(reg))", i, b.GetType())
+				"  remote/custom backends need a logger provider:\n"+
+				"    appkit.MustServe(ctx, std.Standard(), myLoggerProvider()) // Segments()=[\"logger\"]", i, b.GetType())
 		}
-		// 单项直通：不包 MultiLogger 广播层（与 BuildLogger 出口原则对齐，
-		// 空脱敏清单下整个出口零多余包装）；多项经 MultiLogger 合并。
+		// 单项直通：不包 MultiLogger 广播层（出口零多余包装）；多项经
+		// MultiLogger 合并。
 		var out log.Logger = loggers[0]
 		if len(loggers) > 1 {
 			out = log.NewMultiLogger(loggers...)
 		}
 		// cleanup 按构造序正放释放各 slog 项的文件/轮转句柄（lumberjack 缓冲
-		// 冲刷落盘、热更新重建不泄漏——与 BuildLogger 出口对齐，恒非 nil）。
+		// 冲刷落盘、热更新重建不泄漏——恒非 nil）。
 		merged := func() {
 			for _, c := range cleanups {
 				c()

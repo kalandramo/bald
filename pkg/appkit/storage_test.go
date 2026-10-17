@@ -34,7 +34,7 @@ func TestAssemble_ContractStorageLifecycle(t *testing.T) {
 		Minio: &bootstrapv1.Storage_Minio{Endpoint: "127.0.0.1:9000"},
 	}
 
-	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), WithStorageRegistry(sr))
+	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), storageTestProvider(sr))
 	if _, ok := a.Storage("minio"); ok {
 		t.Fatal("Storage should be empty before Run (phase B not reached)")
 	}
@@ -82,7 +82,7 @@ func TestAssemble_StorageSectionWithoutTable(t *testing.T) {
 
 	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
 	err := a.Run(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "StorageRegistry") {
+	if err == nil || !strings.Contains(err.Error(), "no consumer") && strings.Contains(err.Error(), "storage") {
 		t.Fatalf("expected StorageRegistry missing error, got %v", err)
 	}
 }

@@ -8,6 +8,7 @@
 #   - server.http : bootstrapv1.Server_Http
 #   - server.grpc : bootstrapv1.Server_Grpc
 #   - logger      : bootstrapv1.Logger（type 选后端，slog 段给参数）
+#   - database.sql: bootstrapv1.Database_SQL（storegorm.Provider 消费）
 #
 # 同一套键路径同时适用于四种配置源：
 #   --server.http.addr  ⇔  server.http.addr  ⇔  BALD_DEMO_SERVER_HTTP_ADDR  ⇔  本文件的 server.http.addr
@@ -49,10 +50,9 @@ server:
 # ---------------------------------------------------------------------------
 # 日志（bootstrapv1.Logger：backends 后端清单，每项 = type + 参数段）
 # 默认路径零注册代码：单 slog 项（标准库适配器）开箱即用。
-# 远端/自定义后端（loki/aliyun/tencent/sentry/charm/自有）需 main 里三行注册：
-#   reg := bootstrap.NewLogRegistry()
-#   reg.MustRegister(lokicontract.Type, lokicontract.Provider)
-#   appkit.Serve(context.Background(), appkit.WithLogRegistry(reg))
+# 远端/自定义后端（loki/aliyun/tencent/sentry/charm/自有）：声明一个 logger 段
+# Provider（Segments()=["logger"]，两阶段+热更协议见 pkg/appkit/provider.go）
+# 传入 MustServe 即整体接管日志装配（原 WithLogRegistry 通道的等价物）。
 # ---------------------------------------------------------------------------
 logger:
   # 全局脱敏（可选）：命中 key 的属性值在全部后端统一掩码为 ***（含调用参数、
@@ -98,6 +98,17 @@ logger:
   #       topic_id: "<topic-id>"
   #       access_key: "<AK>"
   #       access_secret: "<SK>"
+
+# ---------------------------------------------------------------------------
+# 数据库（bootstrapv1.Database_SQL：storegorm.Provider 消费——段驱动 Provider
+# 装配全链路演示：契约段 → Provider 打开连接 → 资源容器（app.Database("sql")）
+# → 停机释放连接池）。sqlite 为内存库（零文件残留；驱动已内置，其余驱动经
+# baldblgorm.RegisterDialector 注册）。
+# ---------------------------------------------------------------------------
+database:
+  sql:
+    driver: "sqlite"
+    source: "file::memory:?cache=shared&_fk=1"
 
 # ---------------------------------------------------------------------------
 # 服务注册中心（bootstrapv1.Registry：type 选后端 + 各后端参数段）

@@ -3,7 +3,7 @@ package appkit
 // 约定装配层（assemble，经 Serve 触达）的单测（2026-09-06）。
 //
 // 覆盖：元数据契约驱动、能力声明 fail-fast、服务器构造、日志两阶段生命周期
-// （阶段 A 默认 → 阶段 B 契约重建 → 停机恢复）、ConfigRegistry 层装配与
+// （阶段 A 默认 → 阶段 B 契约重建 → 停机恢复）、config Provider 层装配与
 // cleanup 停机释放、热更新重建 Logger。
 
 import (
@@ -39,59 +39,56 @@ func stubLogger() log.Logger {
 	return bslog.New(bslog.NewOptions())
 }
 
-// 日志工厂两级分发：契约注册表（WithLogRegistry）> 默认纯函数路径。
-func TestResolveLoggerFactory(t *testing.T) {
-	// ① 注册表：阶段 A（cfg=nil）回退默认 bslog（不触发表）；阶段 B 按 type 查表。
-	hits := 0
-	lr := baldbootstrap.NewLogRegistry()
-	lr.MustRegister("fake", func(_ context.Context, b *bootstrapv1.Logger_Backend) (log.Logger, func(), error) {
-		hits++
-		if b.GetType() != "fake" {
-			t.Errorf("provider got type %q, want fake", b.GetType())
+// 日志源两级分发：logger 段 Provider 接管（原 WithLogRegistry 通道的等价
+// 形态）> 默认纯函数路径。Provider 在阶段 A（Config=nil）与阶段 B（完整
+// 契约）各有一个调用点。
+func TestResolveLoggerSource(t *testing.T) {
+	var contractHits int
+	loggerProv := segProvider{segs: []string{"logger"}, build: func(_ context.Context, s BuildScope) (any, Cleanup, error) {
+		if s.Config == nil {
+			return stubLogger(), nil, nil // 阶段 A：回退可用 Logger
 		}
+		contractHits++
 		return stubLogger(), nil, nil
-	})
-	regFac := resolveLoggerFactory(&Decl{LogRegistry: lr})
-
-	lg, _, err := regFac(context.Background(), nil)
+	}}
+	spec := &Decl{Providers: []Provider{loggerProv}}
+	plan, err := newProviderPlan(spec)
 	if err != nil {
-		t.Fatalf("phase A: %v", err)
+		t.Fatalf("plan: %v", err)
 	}
-	if lg == nil {
-		t.Fatal("phase A must produce a usable logger (fallback slog)")
+	src := resolveLoggerSource(spec, plan)
+
+	// 阶段 A（cfg=nil）：Provider 被调用且拿到 nil 契约，产出可用 Logger。
+	lg, _, err := src.bootstrapLogger(context.Background())
+	if err != nil || lg == nil {
+		t.Fatalf("phase A: (%v, %v)", lg, err)
 	}
-	if hits != 0 {
-		t.Fatalf("phase A must not consult registry, hits = %d", hits)
+	if contractHits != 0 {
+		t.Fatalf("phase A must not pass contract, hits = %d", contractHits)
 	}
 
-	if _, _, err := regFac(context.Background(), &bootstrapv1.Logger{
-		Backends: []*bootstrapv1.Logger_Backend{{Type: "fake"}},
+	// 阶段 B：按契约重建，Provider 拿到含 logger 段的完整契约。
+	if _, _, err := src.contractLogger(context.Background(), &bootstrapv1.BootstrapConfig{
+		Logger: &bootstrapv1.Logger{Backends: []*bootstrapv1.Logger_Backend{{Type: "fake"}}},
 	}); err != nil {
 		t.Fatalf("phase B: %v", err)
 	}
-	if hits != 1 {
-		t.Fatalf("registry hits = %d, want 1", hits)
+	if contractHits != 1 {
+		t.Fatalf("contract hits = %d, want 1", contractHits)
 	}
 
-	// ② 注册表未覆盖的契约 type → fail-fast（列出已注册项）。
-	if _, _, err := regFac(context.Background(), &bootstrapv1.Logger{
-		Backends: []*bootstrapv1.Logger_Backend{{Type: "nope"}},
-	}); err == nil {
-		t.Fatal("expected unknown logger type fail-fast")
-	}
-
-	// ③ 都不声明 → 默认纯函数路径：阶段 A 回退可用。
-	defFac := resolveLoggerFactory(&Decl{})
-	lg2, _, err := defFac(context.Background(), nil)
+	// ② 无 logger Provider → 默认纯函数路径：阶段 A 回退可用。
+	defSrc := resolveLoggerSource(&Decl{}, plan)
+	lg2, _, err := defSrc.bootstrapLogger(context.Background())
 	if err != nil || lg2 == nil {
 		t.Fatalf("default path phase A: (%v, %v)", lg2, err)
 	}
 }
 
-// 默认路径纯函数分派：阶段 A 回退；type=slog 直构；其余 type（含远端后端与
-// 已删除的 nop）fail-fast 教学报错（错误给出 WithLogRegistry 用法），绝不静默降级。
+// 默认路径纯函数分派：阶段 A 回退；type=slog 直构；其余 type（含远端后端）
+// fail-fast 教学报错（错误给出 logger Provider 用法），绝不静默降级。
 func TestDefaultPath(t *testing.T) {
-	fac := resolveLoggerFactory(&Decl{})
+	fac := defaultLoggerFactory(nil)
 
 	// 阶段 A（l==nil）：回退默认 bslog。
 	if lg, _, err := fac(context.Background(), nil); err != nil || lg == nil {
@@ -105,14 +102,14 @@ func TestDefaultPath(t *testing.T) {
 			Loki: &bootstrapv1.Logger_Loki{Endpoint: "http://127.0.0.1:1/loki/api/v1/push"},
 		}},
 	})
-	if err == nil || !strings.Contains(err.Error(), "WithLogRegistry") {
+	if err == nil || !strings.Contains(err.Error(), "logger provider") {
 		t.Fatalf("type=loki should fail-fast with usage, got: %v", err)
 	}
 
 	// 未实现 type：同样 fail-fast 教学。
 	if _, _, err := fac(context.Background(), &bootstrapv1.Logger{
 		Backends: []*bootstrapv1.Logger_Backend{{Type: "zap"}},
-	}); err == nil || !strings.Contains(err.Error(), "WithLogRegistry") {
+	}); err == nil || !strings.Contains(err.Error(), "logger provider") {
 		t.Fatalf("type=zap should fail-fast with usage, got: %v", err)
 	}
 
@@ -153,7 +150,7 @@ func TestDefaultPath(t *testing.T) {
 // TestDefaultPath_FilterKeys 全局脱敏在默认路径生效：type=slog 特例
 // 与 backends 直构路径出口包 FilterLogger（filter_keys 与 deco 可叠加）。
 func TestDefaultPath_FilterKeys(t *testing.T) {
-	fac := resolveLoggerFactory(&Decl{})
+	fac := defaultLoggerFactory(nil)
 
 	// 单 slog 项直构路径。
 	path := filepath.Join(t.TempDir(), "filter-slog.log")
@@ -203,9 +200,7 @@ func TestDefaultPath_FilterKeys(t *testing.T) {
 // TestDefaultPath_SlogDecorators type=slog 在默认路径保留装饰器语义。
 func TestDefaultPath_SlogDecorators(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "deco.log")
-	fac := resolveLoggerFactory(&Decl{
-		LogDecorators: []bslog.Option{bslog.WithAttrs(slog.String("deco", "yes"))},
-	})
+	fac := defaultLoggerFactory([]bslog.Option{bslog.WithAttrs(slog.String("deco", "yes"))})
 
 	l, cleanup, err := fac(context.Background(), &bootstrapv1.Logger{
 		Backends: []*bootstrapv1.Logger_Backend{
@@ -225,14 +220,15 @@ func TestDefaultPath_SlogDecorators(t *testing.T) {
 	}
 }
 
-// countingFactory 包一层计数工厂：记录每次调用的契约 logger 段入参。
-type countingFactory struct {
+// countingLogSrc 计数日志源（loggerSource 测试桩）：记录每次调用的契约
+// 入参（nil = 阶段 A）。
+type countingLogSrc struct {
 	mu   sync.Mutex
 	args []*bootstrapv1.Logger
 	dec  []bslog.Option
 }
 
-func (c *countingFactory) factory(_ context.Context, l *bootstrapv1.Logger) (log.Logger, func(), error) {
+func (c *countingLogSrc) build(_ context.Context, l *bootstrapv1.Logger) (log.Logger, func(), error) {
 	c.mu.Lock()
 	c.args = append(c.args, l)
 	c.mu.Unlock()
@@ -240,10 +236,29 @@ func (c *countingFactory) factory(_ context.Context, l *bootstrapv1.Logger) (log
 	return bslog.New(bslog.NewOptions(), c.dec...), nil, nil
 }
 
-func (c *countingFactory) calls() int {
+func (c *countingLogSrc) bootstrapLogger(ctx context.Context) (log.Logger, func(), error) {
+	return c.build(ctx, nil)
+}
+
+func (c *countingLogSrc) contractLogger(ctx context.Context, cfg *bootstrapv1.BootstrapConfig) (log.Logger, func(), error) {
+	return c.build(ctx, cfg.GetLogger())
+}
+
+func (c *countingLogSrc) calls() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return len(c.args)
+}
+
+// funcLogSrc 以工厂函数构造 loggerSource（测试桩）。
+type funcLogSrc struct{ fn loggerFactory }
+
+func (f funcLogSrc) bootstrapLogger(ctx context.Context) (log.Logger, func(), error) {
+	return f.fn(ctx, nil)
+}
+
+func (f funcLogSrc) contractLogger(ctx context.Context, cfg *bootstrapv1.BootstrapConfig) (log.Logger, func(), error) {
+	return f.fn(ctx, cfg.GetLogger())
 }
 
 // runBriefly 启动 app 并在延迟后取消 ctx，等待 Run 返回（完整生命周期：BeforeStart→运行→停机回放）。
@@ -352,6 +367,7 @@ func TestAssemble_ServersConstructed(t *testing.T) {
 	a := assembleForTest(t, cfg,
 		WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
 		WithGRPC(func(*grpc.Server) {}),
+		StandardServerProvider(),
 	)
 	// 构造期未构建（语义：延后到 Run）。
 	if len(a.servers) != 0 {
@@ -364,13 +380,13 @@ func TestAssemble_ServersConstructed(t *testing.T) {
 
 	cfg2 := bconf.NewBootstrap()
 	dynamicAddr(cfg2)
-	a2 := assembleForTest(t, cfg2, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
+	a2 := assembleForTest(t, cfg2, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), StandardServerProvider())
 	runBriefly(t, a2, 50*time.Millisecond)
 	if len(a2.servers) != 1 {
 		t.Fatalf("servers = %d, want 1", len(a2.servers))
 	}
 
-	a3 := assembleForTest(t, bconf.NewBootstrap(), WithConfigNamespace(testConfigNamespace))
+	a3 := assembleForTest(t, bconf.NewBootstrap(), WithConfigNamespace(testConfigNamespace), StandardServerProvider())
 	// 零能力声明：运行前后都无 server（合法：纯后台进程）。
 	runBriefly(t, a3, 30*time.Millisecond)
 	if len(a3.servers) != 0 {
@@ -399,7 +415,7 @@ func TestAssemble_GatewayDriver(t *testing.T) {
 	//    构造延后到 Run，故驱动 Run 后观察 server 类型。
 	cfg2 := bconf.NewBootstrap()
 	dynamicAddr(cfg2)
-	a := assembleForTest(t, cfg2, WithConfigNamespace(testConfigNamespace), WithGatewayRegister(gwRegister))
+	a := assembleForTest(t, cfg2, WithConfigNamespace(testConfigNamespace), WithGatewayRegister(gwRegister), StandardServerProvider())
 	runBriefly(t, a, 50*time.Millisecond)
 	if len(a.servers) != 1 {
 		t.Fatalf("servers = %d, want 1", len(a.servers))
@@ -420,7 +436,7 @@ func TestAssemble_GatewayDriver(t *testing.T) {
 	cfg4 := bconf.NewBootstrap()
 	dynamicAddr(cfg4)
 	cfg4.GetServer().GetHttp().Driver = baldbootstrap.DriverGrpcGateway
-	a4 := assembleForTest(t, cfg4, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), WithGatewayRegister(gwRegister))
+	a4 := assembleForTest(t, cfg4, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), WithGatewayRegister(gwRegister), StandardServerProvider())
 	runBriefly(t, a4, 50*time.Millisecond)
 	if len(a4.servers) == 0 {
 		t.Fatal("servers = 0, want >=1 after Run")
@@ -437,8 +453,8 @@ func TestAssemble_GatewayDriver(t *testing.T) {
 	}
 }
 
-// 日志两阶段生命周期：阶段 A（构造期，nil 段）→ 阶段 B（BeforeStart，契约段）
-// → 停机恢复原全局 Logger。
+// 日志两阶段生命周期（logger 段 Provider 接管形态）：阶段 A（构造期，nil
+// 契约）→ 阶段 B（BeforeStart，契约段）→ 停机恢复原全局 Logger。
 func TestAssemble_LoggerLifecycle(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
@@ -446,30 +462,32 @@ func TestAssemble_LoggerLifecycle(t *testing.T) {
 	cfg := bconf.NewBootstrap()
 	dynamicAddr(cfg)
 
-	// 注册表 stub provider：记录阶段 B 查表收到的后端声明项。
-	var got []*bootstrapv1.Logger_Backend
-	lr := baldbootstrap.NewLogRegistry()
-	lr.MustRegister("slog", func(_ context.Context, b *bootstrapv1.Logger_Backend) (log.Logger, func(), error) {
-		got = append(got, b) // 构造与 BeforeStart 均主 goroutine，无需锁。
+	// logger Provider：记录每次调用收到的契约（nil = 阶段 A）。
+	var mu sync.Mutex
+	var got []*bootstrapv1.BootstrapConfig
+	loggerProv := segProvider{segs: []string{"logger"}, build: func(_ context.Context, s BuildScope) (any, Cleanup, error) {
+		mu.Lock()
+		got = append(got, s.Config) // 构造与 BeforeStart 均主 goroutine，无需锁。
+		mu.Unlock()
 		return stubLogger(), nil, nil
-	})
-	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), WithLogRegistry(lr))
+	}}
+	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), loggerProv)
 
-	// 阶段 A 已发生：全局句柄已是回退 bslog（非 old），且未查表。
+	// 阶段 A 已发生：全局句柄已是回退 bslog（非 old），Provider 拿到 nil 契约。
 	if log.GetLogger() == old {
 		t.Fatal("phase A should install fallback logger, global still old")
 	}
-	if len(got) != 0 {
-		t.Fatalf("phase A must not consult registry, hits = %d", len(got))
+	if len(got) != 1 || got[0] != nil {
+		t.Fatalf("phase A calls = %d, want 1 with nil contract", len(got))
 	}
 
 	runBriefly(t, a, 30*time.Millisecond)
 
-	// 阶段 B：BeforeStart 按契约段查表重建，恰好一次，入参为契约终值。
-	if len(got) != 1 {
-		t.Fatalf("registry hits after run = %d, want 1", len(got))
+	// 阶段 B：BeforeStart 按契约重建，恰好一次，入参为契约终值。
+	if len(got) != 2 {
+		t.Fatalf("provider calls after run = %d, want 2 (phase A + phase B)", len(got))
 	}
-	if got[0] == nil || got[0].GetSlog().GetLevel() != cfg.GetLogger().GetBackends()[0].GetSlog().GetLevel() {
+	if got[1] == nil || got[1].GetLogger().GetBackends()[0].GetSlog().GetLevel() != cfg.GetLogger().GetBackends()[0].GetSlog().GetLevel() {
 		t.Fatal("phase B should receive contract logger segment")
 	}
 
@@ -479,9 +497,10 @@ func TestAssemble_LoggerLifecycle(t *testing.T) {
 	}
 }
 
-// WithConfigRegistry：契约 Config 段经 Registry.Build 产出层参与合并，
-// cleanup 挂 Effect 停机释放；层内容（logger.level=debug）经装载写回契约。
-func TestAssemble_ConfigRegistry(t *testing.T) {
+// config 段 Provider（构造期）：契约 Config 段经 Registry.Build 产出层参与
+// 合并，cleanup 挂 Effect 停机释放；层内容（logger.level=debug）经装载写回
+// 契约。（原 WithConfigRegistry 形态的 Provider 等价迁移。）
+func TestAssemble_ConfigProvider(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
 
@@ -498,7 +517,7 @@ func TestAssemble_ConfigRegistry(t *testing.T) {
 	cfg := bconf.NewBootstrap()
 	dynamicAddr(cfg)
 
-	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), WithConfigRegistry(reg))
+	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), configTestProvider(reg))
 	if len(a.cfg.layers) != 1 {
 		t.Fatalf("layers = %d, want 1", len(a.cfg.layers))
 	}
@@ -522,14 +541,14 @@ func TestHotReload_RebuildsLogger(t *testing.T) {
 	t.Cleanup(func() { log.SetLogger(old) })
 
 	cfg := bconf.NewBootstrap()
-	cf := &countingFactory{}
+	cf := &countingLogSrc{}
 	spec := &Decl{}
-	// logFac 是 resolveLoggerFactory 的解析结果（非用户声明），不再落入
+	// logSrc 是 resolveLoggerSource 的解析结果形态（非用户声明），不落入
 	// Decl——测试以独立变量承载并按参数传递（与 assemble 内部一致）。
-	logFac := cf.factory
+	logSrc := cf
 
 	var cc atomic.Pointer[func()]
-	lg, cleanup, err := logFac(context.Background(), nil)
+	lg, cleanup, err := logSrc.bootstrapLogger(context.Background())
 	if err != nil {
 		t.Fatalf("phase A: %v", err)
 	}
@@ -539,7 +558,7 @@ func TestHotReload_RebuildsLogger(t *testing.T) {
 	log.SetLogger(lg)
 	cc.Store(&cleanup)
 
-	hotReload(cfg, spec, logFac, &cc, map[string]any{
+	hotReload(cfg, spec, logSrc, &cc, map[string]any{
 		"logger": map[string]any{
 			"backends": []any{
 				map[string]any{"type": "slog", "slog": map[string]any{"level": "warn", "format": "json", "output_path": "stdout"}},
@@ -566,17 +585,17 @@ func TestRebuildLogger_FlushesOldBackend(t *testing.T) {
 
 	flushed := make(chan struct{}, 1)
 	first := true
-	logFac := func(context.Context, *bootstrapv1.Logger) (log.Logger, func(), error) {
+	logSrc := funcLogSrc{fn: func(context.Context, *bootstrapv1.Logger) (log.Logger, func(), error) {
 		if first {
 			first = false
 			return stubLogger(), func() { flushed <- struct{}{} }, nil
 		}
 		return stubLogger(), nil, nil
-	}
+	}}
 
 	var cc atomic.Pointer[func()]
 	// 阶段 A：初始后端 + cleanup 入表。
-	lg, cleanup, err := logFac(context.Background(), nil)
+	lg, cleanup, err := logSrc.bootstrapLogger(context.Background())
 	if err != nil {
 		t.Fatalf("phase A: %v", err)
 	}
@@ -584,9 +603,11 @@ func TestRebuildLogger_FlushesOldBackend(t *testing.T) {
 	cc.Store(&cleanup)
 
 	// 阶段 B：换后端——旧 cleanup 应被同步调用。
-	if err := rebuildLogger(&bootstrapv1.Logger{
+	rebuildCfg := bconf.NewBootstrap()
+	rebuildCfg.Logger = &bootstrapv1.Logger{
 		Backends: []*bootstrapv1.Logger_Backend{{Type: "slog"}},
-	}, logFac, &cc); err != nil {
+	}
+	if err := rebuildLogger(rebuildCfg, logSrc, &cc); err != nil {
 		t.Fatalf("rebuildLogger: %v", err)
 	}
 	select {
@@ -638,10 +659,10 @@ func TestHotReload_BadConfigKeepsOld(t *testing.T) {
 
 	cfg := bconf.NewBootstrap()
 	spec := &Decl{}
-	// logFac 参数化（原 spec.logFac 字段已移除——非用户声明，见 decl.go）。
-	logFac := (&countingFactory{}).factory
+	// logSrc 参数化（resolveLoggerSource 的解析结果形态，非用户声明）。
+	logSrc := &countingLogSrc{}
 	var cc atomic.Pointer[func()]
-	lg, cleanup, err := logFac(context.Background(), nil)
+	lg, cleanup, err := logSrc.bootstrapLogger(context.Background())
 	if err != nil {
 		t.Fatalf("phase A: %v", err)
 	}
@@ -651,7 +672,7 @@ func TestHotReload_BadConfigKeepsOld(t *testing.T) {
 	log.SetLogger(lg)
 	cc.Store(&cleanup)
 
-	hotReload(cfg, spec, logFac, &cc, map[string]any{
+	hotReload(cfg, spec, logSrc, &cc, map[string]any{
 		"logger": map[string]any{
 			"backends": []any{
 				map[string]any{"type": "slog", "slog": map[string]any{"level": "not-a-level"}},

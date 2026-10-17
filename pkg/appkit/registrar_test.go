@@ -53,7 +53,9 @@ func (s *stubRegistrar) snapshot() (int, int) {
 //
 // 注：RegistrarRegistry 自身的「显式注册 + fail-fast + 单选分发」单测在
 // bootstrap module（bootstrap/registrar_test.go）——2026-09-17 该注册表迁入
-// bootstrap 装配层，本文件只保留 appkit 侧的生命周期编排断言。
+// bootstrap 装配层；批 2 W2b 起它经 registrarTestProvider 包成 registry 段
+// Provider 接入段驱动装配（生产侧由后端 contract 包导出 Provider），本文件
+// 只保留 appkit 侧的生命周期编排断言。
 
 func TestAssemble_ContractRegistrarLifecycle(t *testing.T) {
 	old := log.GetLogger()
@@ -69,7 +71,7 @@ func TestAssemble_ContractRegistrarLifecycle(t *testing.T) {
 	cfg := bconfNewBootstrapWithRegistry("fake")
 	dynamicAddr(cfg)
 
-	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), WithRegistrarRegistry(rr))
+	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), registrarTestProvider(rr))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
@@ -120,7 +122,7 @@ func TestAssemble_ExplicitRegistrarWins(t *testing.T) {
 	a := assembleForTest(t, cfg,
 		WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
 		WithRegistrar(explicit),
-		WithRegistrarRegistry(rr),
+		registrarTestProvider(rr),
 	)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -138,7 +140,8 @@ func TestAssemble_ExplicitRegistrarWins(t *testing.T) {
 	}
 }
 
-// 契约 registry 段存在但未接 RegistrarRegistry → 阶段 B fail-fast。
+// 契约 registry 段存在但无 registry Provider → L3 启动期报错（原
+// 「未接 RegistrarRegistry」fail-fast 的段驱动等价语义）。
 func TestAssemble_RegistrySectionWithoutTable(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
@@ -148,8 +151,8 @@ func TestAssemble_RegistrySectionWithoutTable(t *testing.T) {
 
 	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
 	err := a.Run(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "RegistrarRegistry") {
-		t.Fatalf("expected RegistrarRegistry missing error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "no consumer") || !strings.Contains(err.Error(), "registry") {
+		t.Fatalf("expected no-consumer error for registry, got %v", err)
 	}
 }
 

@@ -32,8 +32,9 @@ import (
 // Serve 完成契约驱动的约定装配并阻塞运行到优雅停机。
 //
 // 唯一装配入口：内部完成 --config 解析 → 契约装载（骨架 + 配置文件/env 基线
-// 预装载）→ 命名空间解析 → 约定装配（12 段手工装配流，原 FromBootstrap 函数体）
-// → Run。业务只经 Option 声明配置表达不了的能力（WithHTTP/WithGRPC/钩子等）。
+// 预装载）→ 命名空间解析 → 约定装配（段驱动 Provider 循环，见 provider.go/
+// bootstrap.go；框架自有后端经 std.Standard() 声明）→ Run。业务只经 Option
+// 声明配置表达不了的能力（WithHTTP/WithGRPC/钩子/第三方 Provider 等）。
 //
 // 命名空间必须经 WithConfigNamespace 显式声明（原因见其注释——env 前缀自指）；
 // 两遍合并修自指、删除该必填项是批 3（B6）的工作，本波保留必填约束。

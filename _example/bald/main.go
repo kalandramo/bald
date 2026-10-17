@@ -4,10 +4,12 @@
 //
 // 装配分工（配置驱动参数，代码声明能力）：
 //
-//	框架内化（Serve）：--config 解析、契约装载、Bind×3、配置装载+校验、
-//	日志两阶段（启动默认→契约重建）、热更新回调、app 元数据（id/name/version/
-//	env/stop_timeout）、服务器构造（走 bootstrap.ServerRegistry 契约装配）、
-//	注册中心启停、停机资源释放。
+//	框架内化（Serve + std.Standard()）：--config 解析、契约装载、Bind×3、
+//	配置装载+校验、日志两阶段（启动默认→契约重建）、热更新回调、app 元数据
+//	（id/name/version/env/stop_timeout）、服务器构造（std server Provider，
+//	能力声明驱动）、注册中心启停、停机资源释放。
+//	第三方 Provider（加法式）：storegorm.Provider 消费契约 database.sql 段
+//	（目标 main.go 形态的首个第三方后端范本，见 pkg/appkit/std 包文档）。
 //	代码声明（业务必供）：gin 路由、gRPC service、拦截器链序、就绪探针依赖、
 //	日志脱敏装饰、gateway 转码注册（WithGatewayRegister，-tags grpcgw）。
 //
@@ -64,7 +66,9 @@ import (
 	"github.com/kalandramo/bald/berrors"
 	baldlog "github.com/kalandramo/bald/log"
 	"github.com/kalandramo/bald/log/bslog"
+	storegorm "github.com/kalandramo/bald/contrib/store-gorm"
 	"github.com/kalandramo/bald/pkg/appkit"
+	"github.com/kalandramo/bald/pkg/appkit/std"
 	mid "github.com/kalandramo/bald/pkg/middleware/gin"
 	grpcmw "github.com/kalandramo/bald/pkg/middleware/grpc"
 	"github.com/kalandramo/bald/health"
@@ -163,6 +167,15 @@ func isKnownCommand(root *cobra.Command, name string) bool {
 // server.http.driver=grpc-gateway，见 register_grpcgw.go）。
 func newAppOptions(healthChecker *health.Health) []appkit.Option {
 	opts := []appkit.Option{
+		// --- 框架默认后端 + 第三方 Provider（目标 main.go 形态，评估 §4.1）---
+		// std.Standard()：框架自有后端的段驱动 Provider 集合（http/grpc 服务器
+		// 构造、audit.log 默认——对账表见 pkg/appkit/std 包文档）。
+		std.Standard(),
+		// storegorm.AppProvider()：第三方后端加法式范本——消费契约 database.sql
+		// 段（configs/bald-demo.yaml 的 database 段驱动），产物经
+		// app.Database("sql") 取用，停机自动释放连接池。
+		storegorm.AppProvider(),
+
 		// 配置命名空间：env 前缀（BALD_DEMO_*）与多环境文件名
 		// （bald-demo-prod.yaml）的来源。必须是代码层常量——Serve 路径下若取
 		// 自契约 app.name 会构成自指（见 WithConfigNamespace 注释）。
@@ -195,8 +208,9 @@ func newAppOptions(healthChecker *health.Health) []appkit.Option {
 		// --- 配置驱动参数（也可全写在 configs/bald-demo.yaml 里） ---
 		// 服务注册中心：默认构建演示用 inmemory（零外部依赖、覆盖
 		// register→运行→deregister 全流程）；显式实例优先于契约 registry 段。
-		// 生产：-tags nacos（或 etcd/consul）走契约装配——yaml registry 段
-		// + WithRegistrarRegistry 显式注册 provider（见 register_nacos.go）。
+		// 生产：-tags nacos（或 etcd/consul）走段驱动 Provider 装配——yaml
+		// registry 段驱动 + registry 段 Provider（见 register_nacos.go 的
+		// nacosRegistrarProvider）。
 		appkit.WithRegistrar(inmemory.New()),
 		// 本地配置文件 + fsnotify 热更新（缺失不报错，可只用 env/flag/远程）。
 		// 多环境：契约 app.env（BALD_DEMO_APP_ENV）选 {Name}-{Env}.yaml。

@@ -1,137 +1,49 @@
-// observability.go 实现可观测性（tracer / metrics 契约段）的装配注册表。
+// observability.go 提供可观测性后端（tracer / metrics 契约段）的装配基座。
 //
-// 与 bootstrap 各域 Registry（含 2026-09-17 迁入的 bootstrap.RegistrarRegistry）
-// 同模式：显式注册（不用 init()+blank import，主程序在 main() 里逐个
-// MustRegister）；段存在但未注册 fail-fast；停机句柄挂 Effect 逆序回放。
-// tracer / metrics 段均按段内 type **单选**分发（契约语义就是单选：
-// tracer.type ∈ {"otlp"}，metrics.type ∈ {"prometheus","otlp"}）。
+// 批 2 W2b 起，tracer/metrics 段经**段驱动 Provider** 装配：后端实现方
+// （如 contrib/observability-otlp）导出的构造函数返回 TracerProvider /
+// MetricsProvider 函数值，用户以 Provider 消费 tracer/metrics 段并在其
+// Build 内按契约 type 单选分发（契约语义就是单选：tracer.type ∈ {"otlp"}，
+// metrics.type ∈ {"prometheus","otlp"}）。本文件保留两件事：
+//   - TracerProvider / MetricsProvider 函数契约（后端与用户 Provider 的
+//     接缝类型，contrib/observability-otlp/contract 按此构造）；
+//   - StartMetricsServer（metrics 暴露端独立监听面的生命周期工具，用户
+//     Provider 在 Build 内调用，返回 *http.Server 供停机 Shutdown）。
 //
-// 留在 appkit 的原因（归位判别）：TracerProvider/MeterProvider 的构造依赖 otel
-// 包（主模块依赖），且产物要进运行期编排（全局 Provider 注入 + Effect 回放），
-// 不满足 bootstrap 的「仅依赖 bconf/独立 module」判据——与 RegistrarRegistry
-// 迁走的原因恰好对称。
+// 生命周期约定（用户 Provider 遵守）：阶段 B（BeforeStart，契约装载校验后）
+// Build——必须晚于配置装载（值来自契约），早于 servers 监听（BeforeStart
+// 语义保证），使 Recorder / tracer 中间件在首个请求前接入全局 Provider；
+// cleanup 交引擎挂停机 Effect（canonical 序：metrics-server、tracer-shutdown
+// 的回放位次与旧 12 段流一致——所有组件 cleanup 完成、Logger 恢复后，再停
+// 暴露端、flush 尾批指标与 span）。两段均不支持热更新。
 //
 // 段缺省语义（契约级，框架保守缺省）：
 //   - tracer 段缺省 → no-op trace（otel 全局默认，零配置可运行）；
-//   - metrics 段缺省 → 不装配（无暴露端点）。业务要「缺省仍暴露 :9091」
-//     （go-bald-admin T9 文档语义）时自行合成默认段再 Build。
-//
-// 生命周期：阶段 B（BeforeStart，契约装载校验后）Build——必须晚于配置装载
-// （值来自契约），早于 servers 监听（BeforeStart 语义保证），使 Recorder /
-// tracer 中间件在首个请求前接入全局 Provider。两段均不支持热更新
-// （exporter/Provider 重建侵入大，与 registry 段同款决策）。
-//
-// 用法（Serve 路径）：
-//
-//	tr := appkit.NewTracerRegistry()
-//	tr.MustRegister(otlpcontract.TracerType, otlpcontract.NewTracerProvider("my-app"))
-//	mr := appkit.NewMetricsRegistry()
-//	mr.MustRegister(otlpcontract.TypePrometheus, otlpcontract.NewPrometheusProvider("my-app"))
-//	mr.MustRegister(otlpcontract.TypeOTLP, otlpcontract.NewOTLPProvider("my-app"))
-//	appkit.Serve(ctx,
-//	    appkit.WithTracerRegistry(tr),
-//	    appkit.WithMetricsRegistry(mr), ...)
-//
-// New 构造路径（模式）在业务 BeforeStart 里直接调 Build，停机自行挂接
-// （见 go-bald-admin main.go setupObservability）。
+//   - metrics 段缺省 → 不装配（无暴露端点）。
+//   - 段存在而无 Provider → L3 覆盖检查启动期报错（原「Registry 未接线」
+//     fail-fast 的等价物，见 segment_coverage.go）。
 package appkit
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"net/http"
 
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
 
-	"github.com/kalandramo/bald/bootstrap"
 	"github.com/kalandramo/bald/log"
 )
 
-// ---------------------------------------------------------------------------
-// Tracer
-// ---------------------------------------------------------------------------
-
 // TracerProvider 按契约 Tracer 段装配全局 trace 后端。
-// 返回 shutdown（flush 缓冲 span，进程退出前调用），由 assemble 挂
-// 停机 Effect 逆序回放（最后执行，收集全部尾批 span）。未开启远端的实现
-// 返回 no-op shutdown。
+// 返回 shutdown（flush 缓冲 span，进程退出前调用），由引擎挂停机 Effect
+// 逆序回放（最后执行，收集全部尾批 span）。未开启远端的实现返回 no-op
+// shutdown。
 type TracerProvider func(ctx context.Context, cfg *bootstrapv1.Tracer) (func(context.Context) error, error)
 
-// TracerRegistry 是 trace 后端 Provider 的显式注册表（tracer.type 单选）。
-// 实例非并发安全（main 装配期使用）；Build 线程安全。
-// 薄壳（批 1 收敛）：provider 表与 Register/MustRegister 由 bootstrap.Registry[T]
-// 载体承载（文案经 TypeTexts 与既有文案逐字一致）。
-type TracerRegistry struct {
-	*bootstrap.Registry[TracerProvider]
-}
-
-// NewTracerRegistry 创建空注册表。
-func NewTracerRegistry() *TracerRegistry {
-	return &TracerRegistry{Registry: bootstrap.NewRegistry[TracerProvider](bootstrap.TypeTexts("appkit", "tracer"))}
-}
-
-// Build 按契约 tracer.type 单选分发。段为 nil → no-op shutdown（缺省语义）；
-// 段存在但 type 为空/未注册均 fail-fast（显式主开关契约：行为由声明决定）。
-func (r *TracerRegistry) Build(ctx context.Context, cfg *bootstrapv1.Tracer) (func(context.Context) error, error) {
-	if cfg == nil {
-		return func(context.Context) error { return nil }, nil // 段缺省：no-op trace
-	}
-	typ := cfg.GetType()
-	if typ == "" {
-		return nil, errors.New(`appkit: tracer.type is required when tracer section is present (expect "otlp")`)
-	}
-	p, ok := r.Get(typ)
-	if !ok {
-		return nil, fmt.Errorf("appkit: tracer provider %q not registered (import the backend contract package and MustRegister it)", typ)
-	}
-	return p(ctx, cfg)
-}
-
-// ---------------------------------------------------------------------------
-// Metrics
-// ---------------------------------------------------------------------------
-
 // MetricsProvider 按契约 Metrics 段装配指标后端。
-// 返回 (handler, shutdown)：handler 是 Prometheus 抓取端（挂独立端口，
-// 由 StartMetricsServer / 约定装配起 http.Server）；shutdown flush
-// OTLP 直推通道并释放 MeterProvider（进程退出前调用）。
+// 返回 (handler, shutdown)：handler 是 Prometheus 抓取端（经
+// StartMetricsServer 挂独立端口）；shutdown flush OTLP 直推通道并释放
+// MeterProvider（进程退出前调用）。
 type MetricsProvider func(ctx context.Context, cfg *bootstrapv1.Metrics) (http.Handler, func(context.Context) error, error)
-
-// MetricsRegistry 是指标后端 Provider 的显式注册表（metrics.type 单选：
-// "prometheus"=仅本地抓取，"otlp"=抓取+直推双通道——同一后端实现的两种
-// 声明形态，由业务分别注册）。
-// 薄壳（批 1 收敛）：provider 表与 Register/MustRegister 由 bootstrap.Registry[T]
-// 载体承载（文案经 TypeTexts 与既有文案逐字一致）。
-type MetricsRegistry struct {
-	*bootstrap.Registry[MetricsProvider]
-}
-
-// NewMetricsRegistry 创建空注册表。
-func NewMetricsRegistry() *MetricsRegistry {
-	return &MetricsRegistry{Registry: bootstrap.NewRegistry[MetricsProvider](bootstrap.TypeTexts("appkit", "metrics"))}
-}
-
-// Build 按契约 metrics.type 单选分发。段为 nil → 不装配（nil, nil, nil）；
-// 段存在但 type 为空/未注册均 fail-fast（与 TracerRegistry 同款主开关语义）。
-func (r *MetricsRegistry) Build(ctx context.Context, cfg *bootstrapv1.Metrics) (http.Handler, func(context.Context) error, error) {
-	if cfg == nil {
-		return nil, nil, nil // 段缺省：不装配
-	}
-	typ := cfg.GetType()
-	if typ == "" {
-		return nil, nil, errors.New(`appkit: metrics.type is required when metrics section is present (expect "prometheus" or "otlp")`)
-	}
-	p, ok := r.Get(typ)
-	if !ok {
-		return nil, nil, fmt.Errorf("appkit: metrics provider %q not registered (import the backend contract package and MustRegister it)", typ)
-	}
-	return p(ctx, cfg)
-}
-
-// ---------------------------------------------------------------------------
-// 暴露端 HTTP 生命周期
-// ---------------------------------------------------------------------------
 
 // 指标暴露端缺省值（根治：与 gRPC :9090 错峰）。
 const (
@@ -159,54 +71,4 @@ func StartMetricsServer(addr, path string, h http.Handler) *http.Server {
 		}
 	}()
 	return srv
-}
-
-// ---------------------------------------------------------------------------
-// 约定装配集成（阶段 B 构建 + Effect 回放）
-// ---------------------------------------------------------------------------
-
-// observabilityState 承载阶段 B（BeforeStart）装配、停机期消费的句柄
-// （构造期零值 + 运行期接线，T7 regCleanup 同模式）。
-type observabilityState struct {
-	traceShutdown func(context.Context) error
-	metricsSrv    *http.Server
-	metricsFlush  func(context.Context) error
-}
-
-// buildObservability 在阶段 B（契约装载校验后）按 tracer / metrics 段装配
-// 可观测性：tracer Build 设全局 Provider；metrics Build 产出抓取端 handler，
-// 经 StartMetricsServer 起独立端口。段缺失为 no-op；段存在但未接对应
-// Registry 则 fail-fast（配置意图无法兑现）。返回停机句柄，由 assemble
-// 挂 Effect（注册序早于 bootstrap-logger → 逆序回放最后执行：所有组件
-// cleanup 完成后再 flush 尾批指标与 span）。
-func buildObservability(cfg *bootstrapv1.BootstrapConfig, spec *Decl) (*observabilityState, error) {
-	st := &observabilityState{}
-
-	if tcfg := cfg.GetTracer(); tcfg != nil {
-		if spec.TracerRegistry == nil {
-			return nil, errors.New("appkit: bootstrap.tracer present but no TracerRegistry wired (WithTracerRegistry missing)")
-		}
-		sd, err := spec.TracerRegistry.Build(context.Background(), tcfg)
-		if err != nil {
-			return nil, fmt.Errorf("appkit: build tracer: %w", err)
-		}
-		st.traceShutdown = sd
-	}
-
-	if mcfg := cfg.GetMetrics(); mcfg != nil {
-		if spec.MetricsRegistry == nil {
-			return nil, errors.New("appkit: bootstrap.metrics present but no MetricsRegistry wired (WithMetricsRegistry missing)")
-		}
-		h, flush, err := spec.MetricsRegistry.Build(context.Background(), mcfg)
-		if err != nil {
-			return nil, fmt.Errorf("appkit: build metrics: %w", err)
-		}
-		st.metricsSrv = StartMetricsServer(
-			mcfg.GetPrometheus().GetAddr(),
-			mcfg.GetPrometheus().GetPath(),
-			h,
-		)
-		st.metricsFlush = flush
-	}
-	return st, nil
 }

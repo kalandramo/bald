@@ -1,11 +1,8 @@
 package appkit
 
 import (
-	"context"
 	"net/http"
 	"time"
-
-	"google.golang.org/grpc"
 
 	"github.com/kalandramo/bald/health"
 )
@@ -80,20 +77,4 @@ func withProbes(business http.Handler, h *health.Health, live, ready string) htt
 		mux.Handle("/", business)
 	}
 	return mux
-}
-
-// withGatewayProbes 包装 gateway 转码注册回调：转码 handler 由业务在 Start 期
-// 才产出，探针在装配层包在返回值外层（与纯 HTTP 面复用同一函数）。
-func withGatewayProbes(
-	register func(ctx context.Context, conn *grpc.ClientConn) (http.Handler, error),
-	h *health.Health,
-	live, ready string,
-) func(ctx context.Context, conn *grpc.ClientConn) (http.Handler, error) {
-	return func(ctx context.Context, conn *grpc.ClientConn) (http.Handler, error) {
-		business, err := register(ctx, conn)
-		if err != nil {
-			return nil, err
-		}
-		return withProbes(business, h, live, ready), nil
-	}
 }

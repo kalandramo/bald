@@ -1,18 +1,15 @@
+// server_registry_test.go —— server 段 Provider（原 WithServerRegistry 的
+// Provider 等价形态；批 2 W2b：WithServerRegistry 已删，用户经段驱动
+// Provider 接入第三方协议服务器，co-provider 与内置 http/grpc 并存）。
+//
+// 本文件锁三条不变量（原编号语义逐条迁移）：
+//  1. co-provider 的 Build 在 **Run 期**（迟后阶段）被调用（构造期零调用）；
+//  2. co-provider 与内置 std server Provider 并存（http 主面不因
+//     co-provider 而丢失）；
+//  3. 仅声明 co-provider（不声明 http/grpc 能力）也能构造服务器面。
+//
+// 用真实构建链路（不 mock 中间层）：契约段 → Provider → server 启动。
 package appkit
-
-// server_registry_test.go —— WithServerRegistry：server 域注入口。
-//
-// 背景（G-1）：其余 12 个资源域都有 With*Registry 注入口，唯独 server 没有——
-// 框架把 ServerRegistry 当函数内局部变量、硬编码只注册 http/grpc。第三方
-// 想加协议服务器只能走 WithExtraServers 逃生舱，而逃生舱收已构造实例，逼使
-// 装配滑回构造期（时序倒置的机制来源）。
-//
-// 本文件锁三条不变量：
-//  1. 注入的自定义 provider 在 **Run 期**被 BuildServers 调用（构造期零调用）；
-//  2. 注入 Registry 后 http/grpc 内置 provider 仍被补注册（不因注入而丢失）；
-//  3. 仅注入 Registry（不声明 http/grpc）也能构造服务器面（门禁含 serverRegistry）。
-//
-// 用真实 BuildServers 链路（不 mock 中间层）：契约段 → provider → server 启动。
 
 import (
 	"context"
@@ -23,50 +20,55 @@ import (
 
 	bconf "github.com/kalandramo/bald/bconf"
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
-	baldbootstrap "github.com/kalandramo/bald/bootstrap"
 	log "github.com/kalandramo/bald/log"
 	"github.com/kalandramo/bald/transport"
 )
 
-// TestAssemble_ServerRegistryCustomProviderWired 注入带自定义 provider 的
-// ServerRegistry：provider 在 Run 期被调用，其 server 进入启动序列。
-func TestAssemble_ServerRegistryCustomProviderWired(t *testing.T) {
+// asynqCoProvider 构造消费 server.asynq 段的 co-provider（第三方协议
+// 后端的 Provider 形态：自建 server、产物 []transport.Server 交引擎入列）。
+func asynqCoProvider(called, started *atomic.Bool) segProvider {
+	return segProvider{segs: []string{"server.asynq"}, build: func(context.Context, BuildScope) (any, Cleanup, error) {
+		called.Store(true)
+		return []transport.Server{&probeServer{name: "asynq", started: started, mark: func(string) {}}}, nil, nil
+	}}
+}
+
+// TestAssemble_ServerCoProviderDeferred co-provider 在 Run 期被调用，
+// 其 server 进入启动序列（原 TestAssemble_ServerRegistryCustomProviderWired）。
+func TestAssemble_ServerCoProviderDeferred(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
 
 	cfg := bconf.NewBootstrap()
-	// 契约里配一个 implemented=false 的段（asynq）——框架不内置，靠注入的 provider。
+	// 契约里配一个非内置子段（asynq）——框架不内置，靠 co-provider。
 	cfg.Server.Asynq = &bootstrapv1.Server_Asynq{RedisAddress: "127.0.0.1:6379"}
-	// 同时配 http 主面，验证内置 provider 补注册不被注入破坏。
+	// 同时配 http 主面，验证内置 server Provider 不因 co-provider 而丢失。
 	cfg.Server.Http = &bootstrapv1.Server_Http{Addr: ":0"}
 	cfg.Server.Grpc = nil
 
-	var asynqCalled atomic.Int32
-	sr := baldbootstrap.NewServerRegistry()
-	sr.MustRegister("asynq", func(context.Context, *bootstrapv1.Server) (transport.Server, func(), error) {
-		asynqCalled.Add(1)
-		return &probeServer{name: "asynq", started: &atomic.Bool{}, mark: func(string) {}}, nil, nil
-	})
-
+	var called, started atomic.Bool
 	a := assembleForTest(t, cfg,
 		WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
-		WithServerRegistry(sr),
-	)
-	// 构造期：provider 不应被调用（BuildServers 延后到 Run 期）。
-	if n := asynqCalled.Load(); n != 0 {
-		t.Fatalf("custom provider called %d times during construction, want 0 (deferred to Run)", n)
+		StandardServerProvider(), asynqCoProvider(&called, &started))
+	// 构造期：co-provider 不应被调用（服务器构造延后到 Run 期迟后阶段）。
+	if called.Load() {
+		t.Fatal("co-provider called during construction, want deferred to Run")
 	}
 
 	runBriefly(t, a, 50*time.Millisecond)
 
-	if n := asynqCalled.Load(); n != 1 {
-		t.Fatalf("custom provider called %d times at Run, want 1", n)
+	if !called.Load() {
+		t.Fatal("co-provider not called at Run")
+	}
+	if len(a.servers) != 2 {
+		t.Fatalf("servers = %d, want 2 (http builtin + asynq co-provider)", len(a.servers))
 	}
 }
 
-// TestAssemble_ServerRegistryOnlyNoMainProtocol 只注入 Registry（不声明
-// http/grpc）也能构造服务器面——门禁条件须包含 spec.serverRegistry != nil。
-func TestAssemble_ServerRegistryOnlyNoMainProtocol(t *testing.T) {
+// TestAssemble_ServerCoProviderOnlyNoMainProtocol 只声明 co-provider
+// （不声明 http/grpc 能力）也能构造服务器面（原
+// TestAssemble_ServerRegistryOnlyNoMainProtocol）。
+func TestAssemble_ServerCoProviderOnlyNoMainProtocol(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
 
@@ -75,13 +77,9 @@ func TestAssemble_ServerRegistryOnlyNoMainProtocol(t *testing.T) {
 	cfg.Server.Http = nil
 	cfg.Server.Grpc = nil
 
-	started := &atomic.Bool{}
-	sr := baldbootstrap.NewServerRegistry()
-	sr.MustRegister("asynq", func(context.Context, *bootstrapv1.Server) (transport.Server, func(), error) {
-		return &probeServer{name: "asynq", started: started, mark: func(string) {}}, nil, nil
-	})
-
-	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), WithServerRegistry(sr))
+	var called, started atomic.Bool
+	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace),
+		asynqCoProvider(&called, &started))
 	if a == nil {
 		t.Fatal("a = nil")
 	}
@@ -89,16 +87,17 @@ func TestAssemble_ServerRegistryOnlyNoMainProtocol(t *testing.T) {
 	runBriefly(t, a, 50*time.Millisecond)
 
 	if !started.Load() {
-		t.Fatal("仅注入 Registry（无 http/grpc 主面）时自定义 server 未被启动")
+		t.Fatal("仅声明 co-provider（无 http/grpc 主面）时自定义 server 未被启动")
 	}
 	if a.Err() != nil {
 		t.Fatalf("a.Err() = %v, want nil", a.Err())
 	}
 }
 
-// TestAssemble_BuiltinProvidersBackfilled 注入 Registry 后，框架仍补注册
-// http/grpc 内置 provider——声明了主协议面就必须能用。
-func TestAssemble_BuiltinProvidersBackfilled(t *testing.T) {
+// TestAssemble_BuiltinStdServerProvider 内置 std server Provider 按能力
+// 声明构建 http 主面（原 TestAssemble_BuiltinProvidersBackfilled：
+// 「框架补注册 http/grpc」语义在 Provider 形态下即 std 的构建行为）。
+func TestAssemble_BuiltinStdServerProvider(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
 
@@ -108,17 +107,16 @@ func TestAssemble_BuiltinProvidersBackfilled(t *testing.T) {
 		t.Skip("contract has no http section")
 	}
 
-	// 空的自定义 Registry——框架应补注册 http/grpc。
-	sr := baldbootstrap.NewServerRegistry()
-
 	a := assembleForTest(t, cfg,
 		WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
-		WithServerRegistry(sr),
-	)
+		StandardServerProvider())
 
 	runBriefly(t, a, 50*time.Millisecond)
 
 	if a.Err() != nil {
-		t.Fatalf("a.Err() = %v, want nil（内置 http provider 应被补注册）", a.Err())
+		t.Fatalf("a.Err() = %v, want nil（内置 http provider 应按能力声明构建）", a.Err())
+	}
+	if len(a.servers) != 1 {
+		t.Fatalf("servers = %d, want 1", len(a.servers))
 	}
 }

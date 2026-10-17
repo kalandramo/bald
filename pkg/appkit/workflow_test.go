@@ -34,7 +34,7 @@ func TestAssemble_ContractWorkflowLifecycle(t *testing.T) {
 		Argo: &bootstrapv1.Workflow_Argo{ServerUrl: "http://127.0.0.1:2746", Namespace: "ci"},
 	}
 
-	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), WithWorkflowRegistry(wr))
+	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), workflowTestProvider(wr))
 	if _, ok := a.Workflow("argo"); ok {
 		t.Fatal("Workflow should be empty before Run (phase B not reached)")
 	}
@@ -79,7 +79,7 @@ func TestAssemble_WorkflowSectionWithoutTable(t *testing.T) {
 
 	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
 	err := a.Run(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "WorkflowRegistry") {
+	if err == nil || !strings.Contains(err.Error(), "no consumer") && strings.Contains(err.Error(), "workflow") {
 		t.Fatalf("expected WorkflowRegistry missing error, got %v", err)
 	}
 }

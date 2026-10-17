@@ -8,9 +8,15 @@
 //
 //	go run -tags nacos ./_example/bald            # 配置随示例自带，自动加载
 //
-// 注册中心（已迁移契约装配）：本文件只做两件事——把 nacos 契约 provider
-// 显式注册进 RegistrarRegistry + 交 WithRegistrarRegistry；具体连接参数
-// 全部来自 configs/bald-demo.yaml 的 registry 段（契约驱动，零硬编码）。
+// 注册中心（已迁移段驱动 Provider 装配）：本文件只做两件事——把 nacos 契约
+// provider 包成 registry 段的 appkit.Provider（原 RegistrarRegistry 注入的
+// Provider 等价形态）+ 经 Providers 传入装配；具体连接参数全部来自
+// configs/bald-demo.yaml 的 registry 段（契约驱动，零硬编码）。
+//
+// 注：示例 main 始终声明 WithRegistrar(inmemory.New())（显式实例优先于契约
+// 装配——引擎跳过纯 registry 段 Provider），故本 Provider 在示例默认选项下
+// 不会构建；去掉 WithRegistrar 后本段即按 yaml registry.nacos 驱动真实注册
+// （迁移前语义不变，见 appkit.WithRegistrar 注释）。
 //
 // 配置中心（仍是桥接）：config.FromKratosSource(nacosconfig.NewConfigSource(cli))
 // 把 kratos contrib 的 nacos config（实现 kratos config.Source）适配成
@@ -21,13 +27,15 @@
 package main
 
 import (
+	"context"
+	"fmt"
+
 	"github.com/nacos-group/nacos-sdk-go/clients"
 	config_client "github.com/nacos-group/nacos-sdk-go/clients/config_client"
 	v1constant "github.com/nacos-group/nacos-sdk-go/common/constant"
 	v1vo "github.com/nacos-group/nacos-sdk-go/vo"
 
 	nacosconfig "github.com/go-kratos/kratos/v3/contrib/config/nacos/v3"
-	baldbootstrap "github.com/kalandramo/bald/bootstrap"
 	"github.com/kalandramo/bald/bootstrap/config"
 	"github.com/kalandramo/bald/pkg/appkit"
 
@@ -38,14 +46,38 @@ import (
 // 注册中心的地址已契约化：见 configs/bald-demo.yaml registry.nacos 段。
 var nacosHost, nacosPort = "127.0.0.1", uint64(8848)
 
-// registrarRegistry 显式注册 nacos 契约 provider。
+// nacosRegistrarProvider 是 registry 段的 nacos 后端 Provider：按契约
+// registry 段构造 nacos Registrar，产物（registry.Registrar）由引擎落
+// 资源容器。第三方注册中心接入的 Provider 等价形态（原「构造注册表 +
+// MustRegister + WithRegistrarRegistry」三步收敛为一个 Provider 值）。
 //
-// 未 import 的后端（etcd/consul/kubernetes）零依赖零编译成本；
-// 契约 registry.type 指向未注册后端时构造期 fail-fast。
-func registrarRegistry() *baldbootstrap.RegistrarRegistry {
-	rr := baldbootstrap.NewRegistrarRegistry()
-	rr.MustRegister(nacoscontract.Type, nacoscontract.Provider)
-	return rr
+// 未 import 的后端（etcd/consul/kubernetes）零依赖零编译成本；本 Provider
+// 只服务 type=nacos，其余 type 显式报错（单后端 Provider 的自描述边界）。
+type nacosRegistrarProvider struct{}
+
+func (nacosRegistrarProvider) Segments() []string { return []string{"registry"} }
+
+// Apply 把自身追加进声明（Provider 即 Option）。
+func (nacosRegistrarProvider) Apply(d *appkit.Decl) { d.Providers = append(d.Providers, nacosRegistrarProvider{}) }
+
+func (nacosRegistrarProvider) Build(ctx context.Context, s appkit.BuildScope) (any, appkit.Cleanup, error) {
+	rcfg := s.Config.GetRegistry()
+	if rcfg == nil {
+		return nil, nil, nil // 段缺失：跳过（引擎仅在段存在时调用，防御性）
+	}
+	if rcfg.GetType() != nacoscontract.Type {
+		return nil, nil, fmt.Errorf("nacos: registry.type = %q, want %q (this provider only assembles nacos)", rcfg.GetType(), nacoscontract.Type)
+	}
+	reg, cleanup, err := nacoscontract.Provider(ctx, rcfg)
+	if err != nil {
+		return nil, nil, err
+	}
+	return reg, func(context.Context) error {
+		if cleanup != nil {
+			cleanup()
+		}
+		return nil
+	}, nil
 }
 
 // newNacosConfigClient 构造配置中心用的 config client（nacos-sdk-go v1，
@@ -78,10 +110,11 @@ func nacosConfigSource() config.RemoteSource {
 
 // nacosBootstrapOptions 返回 nacos 的注册中心 + 配置中心装配选项。
 //
-// 注册中心走契约装配（registry 段驱动）；配置中心仍是运行时桥接注入。
+// 注册中心走段驱动 Provider（registry 段驱动，显式 WithRegistrar 实例优先）；
+// 配置中心仍是运行时桥接注入（WithRemoteConfig，四源合并的远程基准层）。
 func nacosBootstrapOptions() []appkit.Option {
 	return []appkit.Option{
-		appkit.WithRegistrarRegistry(registrarRegistry()),
+		nacosRegistrarProvider{},
 		appkit.WithRemoteConfig(nacosConfigSource()),
 	}
 }

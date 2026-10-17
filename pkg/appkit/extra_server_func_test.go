@@ -8,7 +8,7 @@ package appkit
 //
 // 本文件锁三条不变量：
 //  1. 工厂在 **Run 期**调用（构造期零调用）——能力成立的前提；
-//  2. 无 http/grpc 主面（buildServers==nil）时**同样生效**——独立于主协议面；
+//  2. 无 http/grpc 主面（无 server Provider 产物）时**同样生效**——独立于主协议面；
 //  3. 工厂返回 nil 时不 panic、不污染启动序列（降级语义）。
 
 import (
@@ -30,8 +30,7 @@ func TestAssemble_ExtraServerFuncRunTime(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
 
-	cfg := bconf.NewBootstrap()
-	dynamicAddr(cfg)
+	cfg := bconf.NewBootstrap() // 预填 server 段豁免（无能力 ⇒ 不绑端口，L3 不报错）
 
 	var mu sync.Mutex
 	var order []string
@@ -77,8 +76,7 @@ func TestAssemble_ExtraServerFuncNilSkipped(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
 
-	cfg := bconf.NewBootstrap()
-	dynamicAddr(cfg)
+	cfg := bconf.NewBootstrap() // 预填 server 段豁免（无能力 ⇒ 不绑端口，L3 不报错）
 
 	a := assembleForTest(t, cfg,
 		WithConfigNamespace(testConfigNamespace), WithExtraServerFunc(func(context.Context) (transport.Server, error) { return nil, nil }),
@@ -99,8 +97,7 @@ func TestAssemble_ExtraServerFuncWithoutMainProtocol(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
 
-	cfg := bconf.NewBootstrap()
-	dynamicAddr(cfg)
+	cfg := bconf.NewBootstrap() // 预填 server 段豁免（无能力 ⇒ 不绑端口，L3 不报错）
 
 	var started atomic.Bool
 	srv := &probeServer{name: "extra-only", started: &started, mark: func(string) {}}

@@ -48,6 +48,7 @@ func TestAssemble_ServerConstructionAfterBeforeStart(t *testing.T) {
 		WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
 		WithGRPC(func(*grpc.Server) { mark("register") }),
 		WithBeforeStart(func(context.Context) error { mark("beforeStart"); return nil }),
+		StandardServerProvider(),
 	)
 
 	if got := snapshot(); strings.Contains(got, "register") {
