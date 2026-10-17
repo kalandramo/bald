@@ -32,9 +32,9 @@ func (l *effectLog) snapshot() []string {
 func TestEffect_UndoReverseOrder(t *testing.T) {
 	l := &effectLog{}
 	app := NewApp(
-		Effect("a", func(context.Context) error { l.add("undo-a"); return nil }),
-		Effect("b", func(context.Context) error { l.add("undo-b"); return nil }),
-		Effect("c", func(context.Context) error { l.add("undo-c"); return nil }),
+		effectOpt("a", func(context.Context) error { l.add("undo-a"); return nil }),
+		effectOpt("b", func(context.Context) error { l.add("undo-b"); return nil }),
+		effectOpt("c", func(context.Context) error { l.add("undo-c"); return nil }),
 	)
 
 	app.UndoEffects(context.Background())
@@ -49,7 +49,7 @@ func TestEffect_UndoReverseOrder(t *testing.T) {
 func TestEffect_Idempotent(t *testing.T) {
 	l := &effectLog{}
 	app := NewApp(
-		Effect("a", func(context.Context) error { l.add("undo-a"); return nil }),
+		effectOpt("a", func(context.Context) error { l.add("undo-a"); return nil }),
 	)
 
 	app.UndoEffects(context.Background())
@@ -64,9 +64,9 @@ func TestEffect_Idempotent(t *testing.T) {
 func TestEffect_PanicIsolated(t *testing.T) {
 	l := &effectLog{}
 	app := NewApp(
-		Effect("a", func(context.Context) error { l.add("undo-a"); return nil }),
-		Effect("boom", func(context.Context) error { panic("boom") }),
-		Effect("c", func(context.Context) error { l.add("undo-c"); return nil }),
+		effectOpt("a", func(context.Context) error { l.add("undo-a"); return nil }),
+		effectOpt("boom", func(context.Context) error { panic("boom") }),
+		effectOpt("c", func(context.Context) error { l.add("undo-c"); return nil }),
 	)
 
 	done := make(chan struct{})
@@ -90,8 +90,8 @@ func TestEffect_PanicIsolated(t *testing.T) {
 func TestEffect_UndoOnErrorReturn(t *testing.T) {
 	l := &effectLog{}
 	app := NewApp(
-		Effect("a", func(context.Context) error { l.add("undo-a"); return nil }),
-		Effect("fail", func(context.Context) error { return errors.New("fail") }),
+		effectOpt("a", func(context.Context) error { l.add("undo-a"); return nil }),
+		effectOpt("fail", func(context.Context) error { return errors.New("fail") }),
 	)
 
 	app.UndoEffects(context.Background())
@@ -107,8 +107,8 @@ func TestEffect_RunUndoesOnShutdown(t *testing.T) {
 	l := &effectLog{}
 	app := NewApp(
 		Servers(newMock("fx-run")),
-		Effect("a", func(context.Context) error { l.add("undo-a"); return nil }),
-		Effect("b", func(context.Context) error { l.add("undo-b"); return nil }),
+		effectOpt("a", func(context.Context) error { l.add("undo-a"); return nil }),
+		effectOpt("b", func(context.Context) error { l.add("undo-b"); return nil }),
 	)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -132,7 +132,7 @@ func TestEffect_UndoOnBeforeStartFailure(t *testing.T) {
 	l := &effectLog{}
 	app := NewApp(
 		Servers(newMock("fx-fail")),
-		Effect("a", func(context.Context) error { l.add("undo-a"); return nil }),
+		effectOpt("a", func(context.Context) error { l.add("undo-a"); return nil }),
 		BeforeStart(func(context.Context) error { return errors.New("boom") }),
 	)
 
@@ -149,12 +149,12 @@ func TestEffect_UndoOnBeforeStartFailure(t *testing.T) {
 func TestEffect_Timeout(t *testing.T) {
 	l := &effectLog{}
 	app := NewApp(
-		EffectTimeout(50*time.Millisecond),
-		Effect("slow", func(ctx context.Context) error {
+		effectTimeoutOpt(50*time.Millisecond),
+		effectOpt("slow", func(ctx context.Context) error {
 			<-ctx.Done() // 卡到超时
 			return ctx.Err()
 		}),
-		Effect("b", func(context.Context) error { l.add("undo-b"); return nil }),
+		effectOpt("b", func(context.Context) error { l.add("undo-b"); return nil }),
 	)
 
 	start := time.Now()

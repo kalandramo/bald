@@ -7,7 +7,7 @@
 // OnKeyChange 把 diff 下沉到框架：只有订阅的 key 新旧值确实不同才触发：
 //
 //	app := appkit.NewApp(
-//	    appkit.OnKeyChange("http.addr", func(old, new string) {
+//	    mech.OnKeyChange("http.addr", func(old, new string) {
 //	        log.Info(ctx, "http.addr changed", "old", old, "new", new)
 //	    }),
 //	    appkit.OnConfigChange(func(m map[string]any) { /* 全量重载，仍可用 */ }),
@@ -23,6 +23,9 @@
 // 并发语义与 OnConfigChange 相同：分发发生在 config.Load 的变更回调内（其
 // 合并树已重建完毕）。fn 应轻量（改状态、切引用、记日志），不要在其中调用
 // config 重载/注入类操作或长时间阻塞。
+//
+// 导出构造面在 pkg/appkit/mech（mech.OnKeyChange，B5 下沉）；本文件的未导出
+// onKeyChangeOpt 是引擎透传与包内测试共用的写入面。
 package appkit
 
 import (
@@ -38,10 +41,11 @@ type keyWatcher struct {
 	armed bool
 }
 
-// OnKeyChange 订阅单个配置 key 的变更（R1 增量协调）。仅当该 key 的新值与
+// onKeyChangeOpt 订阅单个配置 key 的变更（mech.OnKeyChange 的引擎内部写入
+// 面，R1 增量协调）。仅当该 key 的新值与
 // 上次观测值不同才触发 fn(old, new)——同值刷新不触发，未订阅的 key 变更
 // 不波及。可与 OnConfigChange 叠加使用。key 为点路径（"http.addr"）。
-func OnKeyChange(key string, fn func(old, new string)) Option {
+func onKeyChangeOpt(key string, fn func(old, new string)) Option {
 	return optionFunc(func(d *Decl) { d.KeyWatches = append(d.KeyWatches, KeyWatchDecl{Key: key, Fn: fn}) })
 }
 

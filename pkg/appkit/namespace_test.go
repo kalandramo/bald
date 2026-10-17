@@ -35,11 +35,11 @@ const testConfigNamespace = "bald-app"
 func TestServe_NamespaceRequired(t *testing.T) {
 	err := Serve(context.Background(), WithHTTP(new(http.ServeMux)))
 	if err == nil {
-		t.Fatal("Serve without WithConfigNamespace succeeded; want fail-fast error")
+		t.Fatal("Serve without ConfigNamespace succeeded; want fail-fast error")
 	}
 	// 文案必须能一步定位解法：给出可复制的 Option 名。
-	if !strings.Contains(err.Error(), "WithConfigNamespace") {
-		t.Fatalf("error message must name the fix (WithConfigNamespace), got: %v", err)
+	if !strings.Contains(err.Error(), "appkit.ConfigNamespace") {
+		t.Fatalf("error message must name the fix (appkit.ConfigNamespace), got: %v", err)
 	}
 }
 
@@ -51,7 +51,7 @@ func TestAssemble_NamespaceFromOption(t *testing.T) {
 
 	a := assembleForTest(t, cfg,
 		WithHTTP(new(http.ServeMux)),
-		WithConfigNamespace("cfg-ns"),
+		ConfigNamespace("cfg-ns"),
 	)
 
 	if a.cfgNamespace != "cfg-ns" {

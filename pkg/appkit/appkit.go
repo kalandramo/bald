@@ -72,29 +72,11 @@ type AppKit struct {
 	registrar registry.Registrar // 注册中心
 	servers   []transport.Server // 服务协议
 
-	// 契约装配的数据库客户端（阶段 B buildDatabases 填充，段名→实例；
-	// Run 前为空。见 database.go）。
-	databases map[string]any
-
-	// 契约装配的缓存实例（阶段 B buildCaches 填充，段名→实例；
-	// Run 前为空。见 cache.go）。
-	caches map[string]any
-
-	// 契约装配的对象存储客户端（阶段 B buildStorages 填充，段名→实例；
-	// Run 前为空。见 storage.go）。
-	storages map[string]any
-
-	// 契约装配的 AI 模型客户端（阶段 B buildAis 填充，段名→实例；
-	// Run 前为空。见 ai.go）。
-	ais map[string]any
-
-	// 契约装配的工作流引擎客户端（阶段 B buildWorkflows 填充，段名→实例；
-	// Run 前为空。见 workflow.go）。
-	workflows map[string]any
-
-	// 契约装配的消息代理实例（阶段 B buildBrokers 填充，段名→实例；
-	// Run 前为空。见 broker.go）。
-	brokers map[string]any
+	// resources 是统一资源面（B4，装配层评估 §5.1）：段驱动 Provider 的产物
+	// 按契约段路径存取（键=段路径，见 Resource 与 storeProduct）。阶段 B
+	// 写入、Run 后只读，happens-before 由 Run 启动流程保证（与原六域
+	// map 字段的并发语义一致）。
+	resources map[string]any
 
 	// 钩子（可选）。
 	beforeStart []func(context.Context) error
@@ -162,7 +144,7 @@ type appConfig struct {
 	onChange  func(map[string]any)
 	bindings  []BindDecl
 	store     *config.Store
-	// strictContract / businessSections 透传到 config.Options（见 WithStrictContract）。
+	// strictContract / businessSections 透传到 config.Options（见 StrictContract）。
 	strictContract   bool
 	businessSections []string
 }
@@ -272,6 +254,10 @@ func Name(name string) Option {
 func Version(v string) Option {
 	return optionFunc(func(d *Decl) { d.Version = v })
 }
+
+// Registrar 注入注册中心实例（如 inmemory.New()）。
+// 显式实例优先于契约装配（Serve 路径）：阶段 B 的纯 registry 段 Provider
+// 在显式实例非 nil 时被引擎跳过——程序化接管 = 刻意覆盖而非静默失效。
 func Registrar(r registry.Registrar) Option {
 	return optionFunc(func(d *Decl) { d.Registrar = r })
 }
@@ -285,7 +271,7 @@ func Registrar(r registry.Registrar) Option {
 //
 // 缺省行为：NewApp 路径下未声明时回退 Name 的值（其值来自调用方源码，属代码层
 // 稳定源，无自指）；Serve 路径**不回退**（其 Name 来自被装载的契约，
-// 会构成 env 前缀自指），必须用 WithConfigNamespace 显式声明。
+// 会构成 env 前缀自指），必须用 ConfigNamespace 显式声明。
 func ConfigNamespace(ns string) Option {
 	return optionFunc(func(d *Decl) { d.ConfigNamespace = ns })
 }
@@ -341,9 +327,7 @@ func WatchConfigFile(watch bool) Option {
 
 // StrictContract 启用契约段未知键校验（opt-in）。businessSections 是应用自持的
 // 顶层段名，命中者整棵子树放行；其余顶层段内出现契约未声明的键即 fail-fast。
-//
-// NewApp 路径（直接构造 AppKit）用本 Option 与 WithStrictContract 对应——
-// 后者是 Serve 路径的等价物（语义一致，仅入口不同）。
+// Serve 路径与 NewApp 路径共用本 Option（双入口同一写入面）。
 func StrictContract(businessSections ...string) Option {
 	return optionFunc(func(d *Decl) {
 		d.StrictContract = true
@@ -468,7 +452,7 @@ func (a *AppKit) loadConfig() error {
 		Remote:         a.cfg.remote,
 		WatchLocalFile: a.cfg.watchFile,
 		OnChange:       a.wrapKeyWatch(a.cfg.onChange), // R1：包装全量回调，追加 key 级分发
-		// 严格契约校验（opt-in，见 WithStrictContract）：业务段经白名单整棵放行，
+		// 严格契约校验（opt-in，见 StrictContract）：业务段经白名单整棵放行，
 		// 其余顶层段内的未知键 fail-fast。框架**不认识任何业务段名**——白名单由
 		// 应用传入，故此处只做透传，不引入业务概念。
 		StrictContract:        a.cfg.strictContract,

@@ -319,7 +319,7 @@ func TestAssemble_MetadataFromContract(t *testing.T) {
 	cfg.App.Id = "instance-1"
 	cfg.App.StopTimeout = nil // 回退默认 30s
 
-	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
+	a := assembleForTest(t, cfg, ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
 	if a.id != "instance-1" || a.name != "meta-app" || a.version != "v9.9.9" {
 		t.Fatalf("metadata not driven by contract: id=%s name=%s version=%s", a.id, a.name, a.version)
 	}
@@ -342,13 +342,13 @@ func TestAssemble_NilConfig(t *testing.T) {
 func TestAssemble_FailFastMissingSegments(t *testing.T) {
 	cfg := bconf.NewBootstrap()
 	cfg.Server.Http = nil
-	if _, err := assembleForTestErr(cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux))); err == nil {
+	if _, err := assembleForTestErr(cfg, ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux))); err == nil {
 		t.Fatal("expected error: WithHTTP declared but server.http is nil")
 	}
 
 	cfg2 := bconf.NewBootstrap()
 	cfg2.Server.Grpc = nil
-	if _, err := assembleForTestErr(cfg2, WithConfigNamespace(testConfigNamespace), WithGRPC(func(*grpc.Server) {})); err == nil {
+	if _, err := assembleForTestErr(cfg2, ConfigNamespace(testConfigNamespace), WithGRPC(func(*grpc.Server) {})); err == nil {
 		t.Fatal("expected error: WithGRPC declared but server.grpc is nil")
 	}
 }
@@ -365,7 +365,7 @@ func TestAssemble_ServersConstructed(t *testing.T) {
 	dynamicAddr(cfg)
 
 	a := assembleForTest(t, cfg,
-		WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
+		ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
 		WithGRPC(func(*grpc.Server) {}),
 		StandardServerProvider(),
 	)
@@ -380,13 +380,13 @@ func TestAssemble_ServersConstructed(t *testing.T) {
 
 	cfg2 := bconf.NewBootstrap()
 	dynamicAddr(cfg2)
-	a2 := assembleForTest(t, cfg2, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), StandardServerProvider())
+	a2 := assembleForTest(t, cfg2, ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), StandardServerProvider())
 	runBriefly(t, a2, 50*time.Millisecond)
 	if len(a2.servers) != 1 {
 		t.Fatalf("servers = %d, want 1", len(a2.servers))
 	}
 
-	a3 := assembleForTest(t, bconf.NewBootstrap(), WithConfigNamespace(testConfigNamespace), StandardServerProvider())
+	a3 := assembleForTest(t, bconf.NewBootstrap(), ConfigNamespace(testConfigNamespace), StandardServerProvider())
 	// 零能力声明：运行前后都无 server（合法：纯后台进程）。
 	runBriefly(t, a3, 30*time.Millisecond)
 	if len(a3.servers) != 0 {
@@ -407,7 +407,7 @@ func TestAssemble_GatewayDriver(t *testing.T) {
 	// ① gateway 能力声明但 server.http 段缺失 → 构造期 fail-fast。
 	cfgNoHttp := bconf.NewBootstrap()
 	cfgNoHttp.Server.Http = nil
-	if _, err := assembleForTestErr(cfgNoHttp, WithConfigNamespace(testConfigNamespace), WithGatewayRegister(gwRegister)); err == nil {
+	if _, err := assembleForTestErr(cfgNoHttp, ConfigNamespace(testConfigNamespace), WithGatewayRegister(gwRegister)); err == nil {
 		t.Fatal("expected error: WithGatewayRegister declared but server.http is nil")
 	}
 
@@ -415,7 +415,7 @@ func TestAssemble_GatewayDriver(t *testing.T) {
 	//    构造延后到 Run，故驱动 Run 后观察 server 类型。
 	cfg2 := bconf.NewBootstrap()
 	dynamicAddr(cfg2)
-	a := assembleForTest(t, cfg2, WithConfigNamespace(testConfigNamespace), WithGatewayRegister(gwRegister), StandardServerProvider())
+	a := assembleForTest(t, cfg2, ConfigNamespace(testConfigNamespace), WithGatewayRegister(gwRegister), StandardServerProvider())
 	runBriefly(t, a, 50*time.Millisecond)
 	if len(a.servers) != 1 {
 		t.Fatalf("servers = %d, want 1", len(a.servers))
@@ -427,7 +427,7 @@ func TestAssemble_GatewayDriver(t *testing.T) {
 	// ③ 双能力声明 + driver 留空 → fail-fast：两个能力竞争同一端口，
 	//    必须由配置显式表态（显式 > 隐式）。
 	_, err := assembleForTestErr(bconf.NewBootstrap(),
-		WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), WithGatewayRegister(gwRegister))
+		ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), WithGatewayRegister(gwRegister))
 	if err == nil || !strings.Contains(err.Error(), "driver") {
 		t.Fatalf("expected driver fail-fast, got %v", err)
 	}
@@ -436,7 +436,7 @@ func TestAssemble_GatewayDriver(t *testing.T) {
 	cfg4 := bconf.NewBootstrap()
 	dynamicAddr(cfg4)
 	cfg4.GetServer().GetHttp().Driver = baldbootstrap.DriverGrpcGateway
-	a4 := assembleForTest(t, cfg4, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), WithGatewayRegister(gwRegister), StandardServerProvider())
+	a4 := assembleForTest(t, cfg4, ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), WithGatewayRegister(gwRegister), StandardServerProvider())
 	runBriefly(t, a4, 50*time.Millisecond)
 	if len(a4.servers) == 0 {
 		t.Fatal("servers = 0, want >=1 after Run")
@@ -448,7 +448,7 @@ func TestAssemble_GatewayDriver(t *testing.T) {
 	// ⑤ gateway 能力声明 + driver=其他值 → fail-fast（转码能力无消费面）。
 	cfg5 := bconf.NewBootstrap()
 	cfg5.GetServer().GetHttp().Driver = "gin"
-	if _, err := assembleForTestErr(cfg5, WithConfigNamespace(testConfigNamespace), WithGatewayRegister(gwRegister)); err == nil {
+	if _, err := assembleForTestErr(cfg5, ConfigNamespace(testConfigNamespace), WithGatewayRegister(gwRegister)); err == nil {
 		t.Fatal("expected error: gateway register declared but driver not grpc-gateway")
 	}
 }
@@ -471,7 +471,7 @@ func TestAssemble_LoggerLifecycle(t *testing.T) {
 		mu.Unlock()
 		return stubLogger(), nil, nil
 	}}
-	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), loggerProv)
+	a := assembleForTest(t, cfg, ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), loggerProv)
 
 	// 阶段 A 已发生：全局句柄已是回退 bslog（非 old），Provider 拿到 nil 契约。
 	if log.GetLogger() == old {
@@ -517,7 +517,7 @@ func TestAssemble_ConfigProvider(t *testing.T) {
 	cfg := bconf.NewBootstrap()
 	dynamicAddr(cfg)
 
-	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), configTestProvider(reg))
+	a := assembleForTest(t, cfg, ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), configTestProvider(reg))
 	if len(a.cfg.layers) != 1 {
 		t.Fatalf("layers = %d, want 1", len(a.cfg.layers))
 	}
@@ -625,7 +625,7 @@ func TestAssemble_AllServersDynamicPort(t *testing.T) {
 	cfg := bconf.NewBootstrap()
 	dynamicAddr(cfg)
 
-	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), WithGRPC(func(*grpc.Server) {}))
+	a := assembleForTest(t, cfg, ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), WithGRPC(func(*grpc.Server) {}))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
@@ -687,12 +687,13 @@ func TestHotReload_BadConfigKeepsOld(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// 业务透传：WithBeforeStart/WithBeforeStop/WithEffect/WithReconcile/
-// WithProvides/WithRequires/WithOnKeyChange 的转发语义。
+// 业务透传：BeforeStart/BeforeStop 与机制声明（mech.Effect/mech.Reconcile/
+// mech.Provides/mech.Requires/mech.OnKeyChange 等写入同一 Decl；本组测试经
+// 未导出 *Opt 写入面驱动同一透传路径——in-package 测试不可 import mech）。
 // ---------------------------------------------------------------------------
 
-// 钩子顺序：WithBeforeStart 在 assemble 内部装载链之后执行（钩子里
-// 契约已是配置终值）；停机时 WithBeforeStop 先于 Effect 回放、业务 Effect
+// 钩子顺序：BeforeStart 在 assemble 内部装载链之后执行（钩子里
+// 契约已是配置终值）；停机时 BeforeStop 先于 Effect 回放、业务 Effect
 // 逆序回放先于框架 Effect（业务资源先收）。
 func TestAssemble_PassthroughOrder(t *testing.T) {
 	old := log.GetLogger()
@@ -714,17 +715,17 @@ func TestAssemble_PassthroughOrder(t *testing.T) {
 
 	var nameInHook atomic.Value
 	a := assembleForTest(t, cfg,
-		WithConfigNamespace(testConfigNamespace), WithConfigFile(yaml),
+		ConfigNamespace(testConfigNamespace), ConfigFile(yaml),
 		WithHTTP(new(http.ServeMux)),
-		WithBeforeStart(func(context.Context) error {
+		BeforeStart(func(context.Context) error {
 			// 契约终值验证：装载链（Unmarshal→Validate→Logger）已跑完。
 			nameInHook.Store(cfg.GetApp().GetName())
 			record("beforeStart")
 			return nil
 		}),
-		WithEffect("biz:one", func(context.Context) error { record("effect:one"); return nil }),
-		WithEffect("biz:two", func(context.Context) error { record("effect:two"); return nil }),
-		WithBeforeStop(func(context.Context) error { record("beforeStop"); return nil }),
+		effectOpt("biz:one", func(context.Context) error { record("effect:one"); return nil }),
+		effectOpt("biz:two", func(context.Context) error { record("effect:two"); return nil }),
+		BeforeStop(func(context.Context) error { record("beforeStop"); return nil }),
 	)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -759,7 +760,7 @@ func TestAssemble_PassthroughOrder(t *testing.T) {
 	}
 }
 
-// WithReconcile 声明经透传注册：启动收敛期首次触发（Run 内 loadConfig 基线后）。
+// 协调器声明经透传注册：启动收敛期首次触发（Run 内 loadConfig 基线后）。
 func TestAssemble_PassthroughReconcile(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
@@ -769,8 +770,8 @@ func TestAssemble_PassthroughReconcile(t *testing.T) {
 
 	var triggered atomic.Bool
 	a := assembleForTest(t, cfg,
-		WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
-		WithReconcile("test.passthrough", func(context.Context, *ReconcileCtx) error {
+		ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
+		reconcileOpt("test.passthrough", func(context.Context, *ReconcileCtx) error {
 			triggered.Store(true)
 			return nil
 		}),
@@ -794,7 +795,7 @@ func TestAssemble_PassthroughReconcile(t *testing.T) {
 	}
 }
 
-// WithRequires 的 S1 fail-fast 经透传生效：声明依赖但未 Provide → 启动期报错。
+// Requires 声明的 S1 fail-fast 经透传生效：声明依赖但未 Provide → 启动期报错。
 func TestAssemble_PassthroughCapabilityFailFast(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
@@ -803,9 +804,9 @@ func TestAssemble_PassthroughCapabilityFailFast(t *testing.T) {
 	cfg.GetServer().GetHttp().Addr = "127.0.0.1:0"
 
 	a := assembleForTest(t, cfg,
-		WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
-		WithProvides("db"),
-		WithRequires("audit.store", "db", "cache"),
+		ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
+		providesOpt("db"),
+		requiresOpt("audit.store", "db", "cache"),
 	)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -822,7 +823,23 @@ func TestAssemble_PassthroughCapabilityFailFast(t *testing.T) {
 	cancel()
 }
 
-// WithComponents 透传：C1 生命周期经约定装配声明（Start 于监听前、
+// testDisposeComp 适配无启动逻辑的清理函数为 Component——mech.ComponentFunc
+// 的包内测试替代（B5 下沉后 in-package 测试不可 import mech：导入环约束）。
+type testDisposeComp struct {
+	name    string
+	dispose func(context.Context) error
+}
+
+func (c testDisposeComp) Name() string                { return c.name }
+func (c testDisposeComp) Start(context.Context) error { return nil }
+func (c testDisposeComp) Dispose(ctx context.Context) error {
+	if c.dispose == nil {
+		return nil
+	}
+	return c.dispose(ctx)
+}
+
+// componentsOpt 透传：C1 生命周期经约定装配声明（Start 于监听前、
 // Dispose 于停机末段）。
 func TestAssemble_PassthroughComponents(t *testing.T) {
 	old := log.GetLogger()
@@ -833,19 +850,19 @@ func TestAssemble_PassthroughComponents(t *testing.T) {
 
 	var started, disposed atomic.Bool
 	a := assembleForTest(t, cfg,
-		WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
-		WithComponents(ComponentFunc("test.comp", func(context.Context) error {
+		ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
+		componentsOpt(testDisposeComp{"test.comp", func(context.Context) error {
 			started.Store(true)
 			return nil
-		})),
+		}}),
 	)
 	// Dispose 观测：包一层组件捕获。
 	a = assembleForTest(t, cfg,
-		WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
-		WithComponents(&disposeProbe{disposed: &disposed}, ComponentFunc("test.comp2", func(context.Context) error {
+		ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
+		componentsOpt(&disposeProbe{disposed: &disposed}, testDisposeComp{"test.comp2", func(context.Context) error {
 			started.Store(true)
 			return nil
-		})),
+		}}),
 	)
 
 	ctx, cancel := context.WithCancel(context.Background())

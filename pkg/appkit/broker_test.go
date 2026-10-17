@@ -34,8 +34,8 @@ func TestAssemble_ContractBrokerLifecycle(t *testing.T) {
 		Redis: &bootstrapv1.Broker_Redis{Address: "127.0.0.1:6379"},
 	}
 
-	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), brokerTestProvider(br))
-	if _, ok := a.Broker("redis"); ok {
+	a := assembleForTest(t, cfg, ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), brokerTestProvider(br))
+	if _, ok := a.Resource("broker.redis"); ok {
 		t.Fatal("Broker should be empty before Run (phase B not reached)")
 	}
 
@@ -44,14 +44,14 @@ func TestAssemble_ContractBrokerLifecycle(t *testing.T) {
 	go func() { done <- a.Run(ctx) }()
 	time.Sleep(300 * time.Millisecond)
 
-	b, ok := a.Broker("redis")
+	b, ok := a.Resource("broker.redis")
 	if !ok {
 		t.Fatal("broker instance not built from contract")
 	}
 	if c, ok := b.(*stubBroker); !ok || c.name != "redis" {
 		t.Fatalf("instance type mismatch: %T", b)
 	}
-	if all := a.Brokers(); len(all) != 1 {
+	if all := resourceMap(t, a, "broker"); len(all) != 1 {
 		t.Fatalf("Brokers() = %v, want 1 entry", all)
 	}
 
@@ -80,7 +80,7 @@ func TestAssemble_BrokerSectionWithoutTable(t *testing.T) {
 		Redis: &bootstrapv1.Broker_Redis{Address: "127.0.0.1:6379"},
 	}
 
-	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
+	a := assembleForTest(t, cfg, ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
 	err := a.Run(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "no consumer") && strings.Contains(err.Error(), "broker") {
 		t.Fatalf("expected BrokerRegistry missing error, got %v", err)

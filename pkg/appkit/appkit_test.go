@@ -3,7 +3,6 @@ package appkit
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net"
 	"net/http"
 	"net/url"
@@ -412,43 +411,6 @@ func TestP0_HookPanicIsolated(t *testing.T) {
 	}
 }
 
-// P1：泛型注册表 + 重名防护 + 并发安全。
-func TestP1_Registry(t *testing.T) {
-	r := NewRegistry[string]()
-	if err := r.Register("a", "1"); err != nil {
-		t.Fatalf("register a: %v", err)
-	}
-	if err := r.Register("a", "x"); err == nil {
-		t.Fatal("expected duplicate register error")
-	}
-	if err := r.Register("b", "2"); err != nil {
-		t.Fatalf("register b: %v", err)
-	}
-	if v, ok := r.Get("a"); !ok || v != "1" {
-		t.Fatalf("get a = %q,%v", v, ok)
-	}
-	if _, ok := r.Get("missing"); ok {
-		t.Fatal("get missing should be false")
-	}
-	if got := r.List(); len(got) != 2 || got[0] != "a" || got[1] != "b" {
-		t.Fatalf("list = %v, want [a b]", got)
-	}
-
-	// 并发注册不 panic / 不数据竞争。
-	var wg sync.WaitGroup
-	for i := 0; i < 50; i++ {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			_ = r.Register(fmt.Sprintf("c%d", i), "v")
-		}(i)
-	}
-	wg.Wait()
-	if len(r.List()) != 52 {
-		t.Fatalf("after concurrent register list len = %d, want 52", len(r.List()))
-	}
-}
-
 // recordingRegistrar 记录注册/反注册调用。
 type recordingRegistrar struct {
 	mu           sync.Mutex
@@ -635,10 +597,10 @@ func TestD16_NonRegistrableEndpointFiltered(t *testing.T) {
 		ID("node-d16"),
 		Name("d16-svc"),
 		Servers(
-			&stubEndpointServer{ep: "cron://scheduler"},  // 进程内调度器：无端口
+			&stubEndpointServer{ep: "cron://scheduler"}, // 进程内调度器：无端口
 			&stubEndpointServer{ep: "http://127.0.0.1:8080"},
 			&stubEndpointServer{ep: "asynq://10.0.0.1:6379"},
-			&stubEndpointServer{ep: ""},                  // 无端点（既有过滤）
+			&stubEndpointServer{ep: ""}, // 无端点（既有过滤）
 		),
 	)
 
@@ -666,13 +628,13 @@ func TestD16_RegistrableEndpointPredicate(t *testing.T) {
 		ep   string
 		want bool
 	}{
-		{"cron://scheduler", false},        // 无端口 → 注册会崩
-		{"", false},                        // 空
-		{"http://127.0.0.1:8080", true},    // 正常
-		{"asynq://10.0.0.1:6379", true},    // 有端口
-		{"http://:8080", true},             // 仅端口（listen 地址）合法
-		{"://nohost:1", false},             // 无 scheme → url.Parse 失败或 Host 空
-		{"cron://scheduler:1", true},       // 有端口即认为可注册（由注册中心最终校验）
+		{"cron://scheduler", false},     // 无端口 → 注册会崩
+		{"", false},                     // 空
+		{"http://127.0.0.1:8080", true}, // 正常
+		{"asynq://10.0.0.1:6379", true}, // 有端口
+		{"http://:8080", true},          // 仅端口（listen 地址）合法
+		{"://nohost:1", false},          // 无 scheme → url.Parse 失败或 Host 空
+		{"cron://scheduler:1", true},    // 有端口即认为可注册（由注册中心最终校验）
 	}
 	for _, c := range cases {
 		if got := registrableEndpoint(c.ep); got != c.want {

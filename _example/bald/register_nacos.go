@@ -13,14 +13,14 @@
 // Provider 等价形态）+ 经 Providers 传入装配；具体连接参数全部来自
 // configs/bald-demo.yaml 的 registry 段（契约驱动，零硬编码）。
 //
-// 注：示例 main 始终声明 WithRegistrar(inmemory.New())（显式实例优先于契约
+// 注：示例 main 始终声明 Registrar(inmemory.New())（显式实例优先于契约
 // 装配——引擎跳过纯 registry 段 Provider），故本 Provider 在示例默认选项下
-// 不会构建；去掉 WithRegistrar 后本段即按 yaml registry.nacos 驱动真实注册
-// （迁移前语义不变，见 appkit.WithRegistrar 注释）。
+// 不会构建；去掉 Registrar 后本段即按 yaml registry.nacos 驱动真实注册
+// （迁移前语义不变，见 appkit.Registrar 注释）。
 //
 // 配置中心（仍是桥接）：config.FromKratosSource(nacosconfig.NewConfigSource(cli))
 // 把 kratos contrib 的 nacos config（实现 kratos config.Source）适配成
-// bald 的 config.RemoteSource，由 WithRemoteConfig 接入四源合并。
+// bald 的 config.RemoteSource，由 RemoteConfig 接入四源合并。
 //
 // 注意版本分裂（仅配置中心桥接涉及）：contrib config/nacos/v3 依赖
 // nacos-sdk-go 旧版 v1；注册中心已走直连 SDK v2 provider，无 v1 依赖。
@@ -110,11 +110,11 @@ func nacosConfigSource() config.RemoteSource {
 
 // nacosBootstrapOptions 返回 nacos 的注册中心 + 配置中心装配选项。
 //
-// 注册中心走段驱动 Provider（registry 段驱动，显式 WithRegistrar 实例优先）；
-// 配置中心仍是运行时桥接注入（WithRemoteConfig，四源合并的远程基准层）。
+// 注册中心走段驱动 Provider（registry 段驱动，显式 Registrar 实例优先）；
+// 配置中心仍是运行时桥接注入（RemoteConfig，四源合并的远程基准层）。
 func nacosBootstrapOptions() []appkit.Option {
 	return []appkit.Option{
 		nacosRegistrarProvider{},
-		appkit.WithRemoteConfig(nacosConfigSource()),
+		appkit.RemoteConfig(nacosConfigSource()),
 	}
 }

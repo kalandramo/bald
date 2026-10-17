@@ -34,8 +34,8 @@ func TestAssemble_ContractAiLifecycle(t *testing.T) {
 		Openai: &bootstrapv1.Ai_Openai{ModelType: 2, Cloud: &bootstrapv1.Ai_CloudConfig{ApiKey: "sk"}},
 	}
 
-	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), aiTestProvider(ar))
-	if _, ok := a.Ai("openai"); ok {
+	a := assembleForTest(t, cfg, ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), aiTestProvider(ar))
+	if _, ok := a.Resource("ai.openai"); ok {
 		t.Fatal("Ai should be empty before Run (phase B not reached)")
 	}
 
@@ -44,14 +44,14 @@ func TestAssemble_ContractAiLifecycle(t *testing.T) {
 	go func() { done <- a.Run(ctx) }()
 	time.Sleep(300 * time.Millisecond)
 
-	cli, ok := a.Ai("openai")
+	cli, ok := a.Resource("ai.openai")
 	if !ok {
 		t.Fatal("ai instance not built from contract")
 	}
 	if c, ok := cli.(*stubClient); !ok || c.name != "openai" {
 		t.Fatalf("instance type mismatch: %T", cli)
 	}
-	if all := a.Ais(); len(all) != 1 {
+	if all := resourceMap(t, a, "ai"); len(all) != 1 {
 		t.Fatalf("Ais() = %v, want 1 entry", all)
 	}
 
@@ -80,7 +80,7 @@ func TestAssemble_AiSectionWithoutTable(t *testing.T) {
 		Openai: &bootstrapv1.Ai_Openai{ModelType: 2, Cloud: &bootstrapv1.Ai_CloudConfig{ApiKey: "sk"}},
 	}
 
-	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
+	a := assembleForTest(t, cfg, ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
 	err := a.Run(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "no consumer") || !strings.Contains(err.Error(), "ai") {
 		t.Fatalf("expected no-consumer error for ai, got %v", err)

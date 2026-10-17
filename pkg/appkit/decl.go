@@ -48,8 +48,7 @@ type Decl struct {
 	Env string
 
 	// ---- 配置源（ConfigFile/RemoteConfig/ConfigLayers/Env/WatchConfigFile/
-	// StrictContract/OnConfigChange/Bind Option；WithConfigFile/
-	// WithRemoteConfig/WithWatchConfig/WithStrictContract/WithBind 同名声明） ----
+	// StrictContract/OnConfigChange/Bind Option） ----
 	// ConfigNamespace 配置命名空间（env 前缀 / 多环境文件名来源）。
 	ConfigNamespace string
 	ConfigFile      string
@@ -59,36 +58,34 @@ type Decl struct {
 	// ConfigRegistry.Build 产出后追加）。
 	ConfigLayers []config.Layer
 	// StrictContract 与 BusinessSections 成对：开关 + 应用自持顶层段白名单
-	// （StrictContract/WithStrictContract 可多次调用追加白名单）。
+	// （StrictContract 可多次调用追加白名单）。
 	StrictContract   bool
 	BusinessSections []string
 	// OnConfigChange 热更新全量回调（单槽，后写覆盖——与原写入路径一致）。
 	OnConfigChange func(map[string]any)
-	// Binds 业务配置对象的 flag 绑定（Bind/WithBind 追加）。
+	// Binds 业务配置对象的 flag 绑定（Bind 追加）。
 	Binds []BindDecl
 
-	// ---- 注册中心与服务器（Registrar/Servers Option；WithRegistrar/
-	// WithExtraServers/WithExtraServerFunc 同名声明） ----
+	// ---- 注册中心与服务器（Registrar/Servers Option；WithExtraServerFunc
+	// 声明运行期工厂） ----
 	Registrar registry.Registrar
-	// Servers 已构造的服务器实例（Servers/WithExtraServers 追加）。
+	// Servers 已构造的服务器实例（Servers 追加）。
 	Servers []transport.Server
 	// ServersFunc 运行期构造的附加服务器工厂（WithExtraServerFunc 追加；
 	// Run 期 beforeStart 链末尾调用，可消费业务运行期资源）。
 	ServersFunc []func(context.Context) (transport.Server, error)
 
 	// ---- 生命周期钩子与超时（StopTimeout/BeforeStart/AfterStart/
-	// BeforeStop/AfterStop Option；WithAfterStart/WithBeforeStart/
-	// WithBeforeStop 同名声明） ----
+	// BeforeStop/AfterStop Option） ----
 	StopTimeout time.Duration
 	BeforeStart []func(context.Context) error
 	AfterStart  []func(context.Context) error
 	BeforeStop  []func(context.Context) error
 	AfterStop   []func(context.Context) error
 
-	// ---- 机制层（Effect/EffectTimeout/Provides/Requires/Components/
-	// ComponentTimeout/OnKeyChange/Reconcile Option；WithEffect/WithReconcile/
-	// WithOnKeyChange/WithProvides/WithRequires/WithComponents 同名声明；
-	// mech 子包经 Apply 直写） ----
+	// ---- 机制层（导出构造面在 pkg/appkit/mech：mech.Effect/EffectTimeout/
+	// Provides/Requires/Components/ComponentTimeout/OnKeyChange/Reconcile
+	// 经 Apply 直写；引擎透传见 assemble 的未导出 *Opt 写入面） ----
 	Effects []EffectDecl
 	// EffectTimeout 效应撤销阶段的独立超时（单槽）。
 	EffectTimeout time.Duration
@@ -139,37 +136,36 @@ type Decl struct {
 	HealthInterval time.Duration
 }
 
-// EffectDecl 是一条可逆效应声明（Effect/WithEffect/mech.Effect 的写入面；
+// EffectDecl 是一条可逆效应声明（mech.Effect 的写入面；
 // 运行期账本条目 effectEntry 与之同构，构造期拷贝）。
 type EffectDecl struct {
 	Name string
 	Undo func(context.Context) error
 }
 
-// RequireDecl 是组件能力依赖声明（Requires/WithRequires/mech.Requires 的
+// RequireDecl 是组件能力依赖声明（mech.Requires 的
 // 写入面；引擎内部 requirement 与之同构，构造期拷贝）。
 type RequireDecl struct {
 	Component string
 	Caps      []string
 }
 
-// KeyWatchDecl 是 key 级配置订阅声明（OnKeyChange/WithOnKeyChange/
-// mech.OnKeyChange 的写入面；运行期 keyWatcher 在其上携带基线状态）。
+// KeyWatchDecl 是 key 级配置订阅声明（mech.OnKeyChange 的写入面；
+// 运行期 keyWatcher 在其上携带基线状态）。
 type KeyWatchDecl struct {
 	Key string
 	Fn  func(old, new string)
 }
 
-// ReconcileDecl 是期望态协调器声明（Reconcile/WithReconcile/mech.Reconcile
-// 的写入面；引擎内部 reconciler 与之同构，构造期拷贝）。
+// ReconcileDecl 是期望态协调器声明（mech.Reconcile 的写入面；
+// 引擎内部 reconciler 与之同构，构造期拷贝）。
 type ReconcileDecl struct {
 	Name string
 	Fn   ReconcileFunc
 }
 
-// BindDecl 是一条业务配置对象的 flag 绑定声明（Bind/WithBind 的写入面；
-// 原 flagBinding 的导出形态——proto.Message 走 bconf.BindFlags，
-// PlainBinder 走 AddFlags，见 bindFlags）。
+// BindDecl 是一条业务配置对象的 flag 绑定声明（Bind 的写入面；
+// proto.Message 走 bconf.BindFlags，PlainBinder 走 AddFlags，见 bindFlags）。
 type BindDecl struct {
 	Prefix string
 	Opt    any
@@ -211,6 +207,7 @@ func newFromDecl(d Decl) *AppKit {
 		componentTimeout: d.ComponentTimeout,
 		auditor:          d.Auditor,
 		reconItems:       make(map[string][]reconItem),
+		resources:        make(map[string]any),
 		done:             make(chan struct{}),
 		cfg: appConfig{
 			cfgFile:          d.ConfigFile,

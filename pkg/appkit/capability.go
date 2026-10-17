@@ -6,14 +6,17 @@
 // 装配期声明 Provides/Requires，启动早期 Resolve 校验，缺依赖 fail-fast：
 //
 //	app := appkit.NewApp(
-//	    appkit.Provides("db", "cache-redis"),   // BeforeStart 将建立的能力
-//	    appkit.Requires("audit.store", "db"),   // 审计落库依赖 DB
+//	    mech.Provides("db", "cache-redis"),   // BeforeStart 将建立的能力
+//	    mech.Requires("audit.store", "db"),   // 审计落库依赖 DB
 //	)
 //	// 若漏声明 Provides("db")，Run 启动即失败：
 //	// appkit: unresolved capabilities: capability "db" (required by audit.store); provided: []
 //
 // 能力是纯声明符号（不做实例管理——那是 C1 Component 的职责），Resolve 只校验
 // 装配一致性，为 C1/R1 的组件图打底。
+//
+// 导出构造面在 pkg/appkit/mech（mech.Provides/mech.Requires，B5 下沉）；本文件
+// 的未导出 providesOpt/requiresOpt 是引擎透传与包内测试共用的写入面。
 package appkit
 
 import (
@@ -28,17 +31,19 @@ type requirement struct {
 	caps      []string // 依赖的能力列表
 }
 
-// Provides 声明本进程将提供的能力（可多次调用，追加）。能力名建议用稳定短
+// providesOpt 声明本进程将提供的能力（mech.Provides 的引擎内部写入面；可多次
+// 调用，追加）。能力名建议用稳定短
 // 标识："db"、"cache-redis"、"mq"。只声明确定拥有的能力（可选依赖如缓存，
 // 降级运行时不声明）。同一能力重复声明视为装配笔误，Resolve 报错。
-func Provides(caps ...string) Option {
+func providesOpt(caps ...string) Option {
 	return optionFunc(func(d *Decl) { d.Provides = append(d.Provides, caps...) })
 }
 
-// Requires 声明组件 component 依赖的能力。component 是依赖方标识（建议
+// requiresOpt 声明组件 component 依赖的能力（mech.Requires 的引擎内部写入
+// 面）。component 是依赖方标识（建议
 // "<domain>.<name>"，如 "audit.store"），仅用于缺失时的报错定位。
 // 同一组件可多次声明（合并）；同一 (component, cap) 重复声明幂等。
-func Requires(component string, caps ...string) Option {
+func requiresOpt(component string, caps ...string) Option {
 	return optionFunc(func(d *Decl) { d.Requires = append(d.Requires, RequireDecl{Component: component, Caps: caps}) })
 }
 

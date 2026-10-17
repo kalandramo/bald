@@ -39,9 +39,9 @@ func TestAssemble_ContractDatabaseLifecycle(t *testing.T) {
 	cfg := bconfNewBootstrapWithDatabase()
 	dynamicAddr(cfg)
 
-	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), dbTestProvider(dr))
+	a := assembleForTest(t, cfg, ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), dbTestProvider(dr))
 	// 构造期（阶段 A）尚未装载契约：Database 为空
-	if _, ok := a.Database("sql"); ok {
+	if _, ok := a.Resource("database.sql"); ok {
 		t.Fatal("Database should be empty before Run (phase B not reached)")
 	}
 
@@ -50,14 +50,14 @@ func TestAssemble_ContractDatabaseLifecycle(t *testing.T) {
 	go func() { done <- a.Run(ctx) }()
 	time.Sleep(300 * time.Millisecond)
 
-	cli, ok := a.Database("sql")
+	cli, ok := a.Resource("database.sql")
 	if !ok {
 		t.Fatal("database client not built from contract")
 	}
 	if c, ok := cli.(*stubClient); !ok || c.name != "sql" {
 		t.Fatalf("client type mismatch: %T", cli)
 	}
-	if all := a.Databases(); len(all) != 1 {
+	if all := resourceMap(t, a, "database"); len(all) != 1 {
 		t.Fatalf("Databases() = %v, want 1 entry", all)
 	}
 
@@ -83,7 +83,7 @@ func TestAssemble_DatabaseSectionWithoutTable(t *testing.T) {
 	cfg := bconfNewBootstrapWithDatabase()
 	dynamicAddr(cfg)
 
-	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
+	a := assembleForTest(t, cfg, ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
 	err := a.Run(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "no consumer") && strings.Contains(err.Error(), "database") {
 		t.Fatalf("expected DatabaseRegistry missing error, got %v", err)
@@ -98,7 +98,7 @@ func TestAssemble_NoDatabaseSection(t *testing.T) {
 	cfg := bconf.NewBootstrap()
 	dynamicAddr(cfg)
 
-	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
+	a := assembleForTest(t, cfg, ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- a.Run(ctx) }()
@@ -107,7 +107,7 @@ func TestAssemble_NoDatabaseSection(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if _, ok := a.Database("sql"); ok {
+	if _, ok := a.Resource("database.sql"); ok {
 		t.Fatal("no database should be built without database section")
 	}
 }

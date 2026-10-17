@@ -45,14 +45,14 @@ func TestAssemble_GRPCOptionsEvaluatedAtRunTime(t *testing.T) {
 	}
 
 	a := assembleForTest(t, cfg,
-		WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
+		ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
 		WithGRPC(func(*grpc.Server) { mark("register") }),
 		WithGRPCOptions(func() []grpc.ServerOption {
 			mark("optionsFn")
 			return nil // 只验时机，不注入真拦截器
 		}),
 		StandardServerProvider(),
-		WithBeforeStart(func(context.Context) error { mark("beforeStart"); return nil }),
+		BeforeStart(func(context.Context) error { mark("beforeStart"); return nil }),
 	)
 
 	// 构造期：选项工厂不得被调用（这正是本能力的意义）。

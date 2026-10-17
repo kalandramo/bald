@@ -7,7 +7,8 @@
 // 完全缺失，导致：e2e 测试全局污染、重复注册语义靠约定（InitBridges 幂等）。
 //
 // 效应账本把这些约定变成结构保证：任何全局写入配套登记一条逆操作（undo），
-// 停机（或启动失败回滚）时逆序回放，系统恢复到装配前的干净状态：
+// 停机（或启动失败回滚）时逆序回放，系统恢复到装配前的干净状态
+// （导出构造面见 pkg/appkit/mech 的 mech.Effect）：
 //
 //	old := audit.GetAuditor()
 //	audit.SetAuditor(storeAuditor)
@@ -21,7 +22,7 @@
 //
 // e2e 测试隔离用法（免跑完整 Run）：
 //
-//	app := appkit.NewApp(appkit.Effect(...))
+//	app := appkit.NewApp(mech.Effect(...))
 //	t.Cleanup(func() { app.UndoEffects(context.Background()) })
 package appkit
 
@@ -38,19 +39,20 @@ type effectEntry struct {
 	undo func(ctx context.Context) error
 }
 
-// Effect 登记一条可逆效应。undo 在停机（stopAll 阶段 0，先于 BeforeStop 钩子）
+// effectOpt 登记一条可逆效应（mech.Effect 的引擎内部写入面，B5 下沉后
+// appkit 侧不再导出）。undo 在停机（stopAll 阶段 0，先于 BeforeStop 钩子）
 // 或启动失败回滚时**逆序**执行（后注册的先撤销，与依赖建立顺序对称）。
 //
 // 契约（由 effect_test.go 固化）：
-//   - undo 每条独立超时（EffectTimeout，默认 defaultHookTimeout）；
+//   - undo 每条独立超时（effectTimeoutOpt，默认 defaultHookTimeout）；
 //   - undo panic 被隔离，不拖垮其余撤销与整机停机；
 //   - 回放幂等：执行后账本清空，重复调用无副作用。
-func Effect(name string, undo func(ctx context.Context) error) Option {
+func effectOpt(name string, undo func(ctx context.Context) error) Option {
 	return optionFunc(func(d *Decl) { d.Effects = append(d.Effects, EffectDecl{Name: name, Undo: undo}) })
 }
 
-// EffectTimeout 设置效应撤销阶段的独立超时（每条 undo 各享此超时）。
-func EffectTimeout(d time.Duration) Option {
+// effectTimeoutOpt 设置效应撤销阶段的独立超时（每条 undo 各享此超时）。
+func effectTimeoutOpt(d time.Duration) Option {
 	return optionFunc(func(decl *Decl) { decl.EffectTimeout = d })
 }
 

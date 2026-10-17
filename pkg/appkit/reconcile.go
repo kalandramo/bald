@@ -13,7 +13,7 @@
 // 典型用法（审计后端热切换，无需重启）：
 //
 //	app := appkit.NewApp(
-//	    appkit.Reconcile("audit.backends", func(ctx context.Context, r *appkit.ReconcileCtx) error {
+//	    mech.Reconcile("audit.backends", func(ctx context.Context, r *appkit.ReconcileCtx) error {
 //	        want := parseBackends(r.StringSlice("audit.backends")) // 期望态
 //	        // 新增：期望有、实际无
 //	        for _, name := range want {
@@ -35,12 +35,15 @@
 //	    }),
 //	    ...
 //	)
+//
+// 导出构造面在 pkg/appkit/mech（mech.Reconcile，B5 下沉）；本文件的未导出
+// reconcileOpt 是引擎透传与包内测试共用的写入面。ReconcileCtx/ReconcileFunc
+// 与协调引擎（runReconcilers 等）归 appkit——接收者方法与引擎私有状态。
 package appkit
 
 import (
 	"context"
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/kalandramo/bald/log"
@@ -161,10 +164,10 @@ func NewReconcileCtx(app *AppKit, name string, settings map[string]any) *Reconci
 	return &ReconcileCtx{Settings: settings, Name: name, app: app}
 }
 
-// Reconcile 注册一个期望态协调器（R1-2）。多个协调器按注册序依次执行；
-// 单个协调器返回 error 时其余继续（隔离），错误仅记日志——协调是收敛过程，
-// 失败由下次协调补齐，不因单点失败阻断整机。
-func Reconcile(name string, fn ReconcileFunc) Option {
+// reconcileOpt 注册一个期望态协调器（mech.Reconcile 的引擎内部写入面，R1-2）。
+// 多个协调器按注册序依次执行；单个协调器返回 error 时其余继续（隔离），
+// 错误仅记日志——协调是收敛过程，失败由下次协调补齐，不因单点失败阻断整机。
+func reconcileOpt(name string, fn ReconcileFunc) Option {
 	return optionFunc(func(d *Decl) { d.Reconciles = append(d.Reconciles, ReconcileDecl{Name: name, Fn: fn}) })
 }
 
@@ -289,34 +292,6 @@ func (a *AppKit) auditReconcile(ctx context.Context, action, name string, err er
 		ev.Error = err.Error()
 	}
 	a.resolveAuditor().Record(ctx, ev)
-}
-
-// DiffStrings 是协调常用工具：返回期望集与实际集的差集（新增 / 移除，均有序）。
-// 便于业务写「期望有实际无→挂载、实际有期望无→卸载」的协调逻辑：
-//
-//	add, remove := appkit.DiffStrings(want, have)
-func DiffStrings(want, have []string) (add, remove []string) {
-	wantSet := make(map[string]struct{}, len(want))
-	haveSet := make(map[string]struct{}, len(have))
-	for _, w := range want {
-		wantSet[w] = struct{}{}
-	}
-	for _, h := range have {
-		haveSet[h] = struct{}{}
-	}
-	for w := range wantSet {
-		if _, ok := haveSet[w]; !ok {
-			add = append(add, w)
-		}
-	}
-	for h := range haveSet {
-		if _, ok := wantSet[h]; !ok {
-			remove = append(remove, h)
-		}
-	}
-	sort.Strings(add)
-	sort.Strings(remove) // 稳定顺序：协调结果可预期、便于测试
-	return add, remove
 }
 
 // ParseStringList 把配置值解析为字符串列表：支持 []string、[]any（yaml 列表）

@@ -9,69 +9,12 @@ import (
 	"github.com/kalandramo/bald/pkg/authn"
 )
 
-// ---- Registry[T].Mount/Unmount ----
-
-// TestRegistry_MountUndo 契约：挂载生效 → undo 后失效 → undo 幂等（重复无副作用）。
-func TestRegistry_MountUndo(t *testing.T) {
-	r := NewRegistry[string]()
-	undo, err := r.Mount("tool-a", "impl-a")
-	if err != nil {
-		t.Fatalf("Mount: %v", err)
-	}
-	if got, ok := r.Get("tool-a"); !ok || got != "impl-a" {
-		t.Fatalf("after mount Get = (%q,%v), want (impl-a,true)", got, ok)
-	}
-
-	undo()
-	if got, ok := r.Get("tool-a"); ok || got != "" {
-		t.Fatalf("after undo Get = (%q,%v), want (\"\",false)", got, ok)
-	}
-	undo() // 幂等：二次调用无 panic 无副作用
-	if _, ok := r.items["tool-a"]; ok {
-		t.Fatal("undo must be idempotent")
-	}
-}
-
-// TestRegistry_MountConflict 契约：与 Register/Mount 互斥冲突——同名已存在
-// （无论谁写入）挂载失败且不覆盖。
-func TestRegistry_MountConflict(t *testing.T) {
-	r := NewRegistry[string]()
-	_ = r.Register("tool", "from-register")
-	if _, err := r.Mount("tool", "from-mount"); err == nil {
-		t.Fatal("Mount over Register name must fail")
-	}
-	if got, ok := r.Get("tool"); !ok || got != "from-register" {
-		t.Fatalf("Mount must not overwrite, got (%q,%v)", got, ok)
-	}
-
-	undo, err := r.Mount("tool2", "m1")
-	if err != nil {
-		t.Fatalf("Mount tool2: %v", err)
-	}
-	if _, err := r.Mount("tool2", "m2"); err == nil {
-		t.Fatal("second Mount same name must fail")
-	}
-	if got, ok := r.Get("tool2"); !ok || got != "m1" {
-		t.Fatalf("second Mount must not overwrite, got (%q,%v)", got, ok)
-	}
-	undo()
-}
-
-// TestRegistry_UnmountMissing 契约：卸载不存在的条目返回零值+false（无 panic）。
-func TestRegistry_UnmountMissing(t *testing.T) {
-	r := NewRegistry[string]()
-	got, ok := r.Unmount("nope")
-	if ok || got != "" {
-		t.Fatalf("Unmount missing = (%q,%v), want (%q,false)", got, ok, "")
-	}
-}
-
 // ---- AppKit.MountComponent / UnmountComponent ----
 
 // TestMountComponent_NotRunning 契约：Run 之前调用报 ErrNotRunning。
 func TestMountComponent_NotRunning(t *testing.T) {
 	app := NewApp()
-	err := app.MountComponent(context.Background(), ComponentFunc("x", nil))
+	err := app.MountComponent(context.Background(), testDisposeComp{"x", nil})
 	if !errors.Is(err, ErrNotRunning) {
 		t.Fatalf("want ErrNotRunning, got %v", err)
 	}
@@ -89,7 +32,7 @@ func TestMountComponent_Lifecycle(t *testing.T) {
 	var app *AppKit
 
 	app = NewApp(
-		Components(&fakeComp{name: "base", log: l}),
+		componentsOpt(&fakeComp{name: "base", log: l}),
 		AfterStart(func(ctx context.Context) error {
 			mountErr = app.MountComponent(ctx, dyn)
 			names := app.ListComponents()
@@ -133,7 +76,7 @@ func TestMountComponent_MountFailureRollback(t *testing.T) {
 	l := &compLog{}
 	var app *AppKit
 	app = NewApp(
-		Components(&fakeComp{name: "base", log: l}),
+		componentsOpt(&fakeComp{name: "base", log: l}),
 		AfterStart(func(ctx context.Context) error {
 			return app.MountComponent(ctx, &fakeComp{name: "boom", log: l, startErr: errors.New("no resource")})
 		}),

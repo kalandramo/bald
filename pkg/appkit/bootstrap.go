@@ -100,29 +100,9 @@ func WithGRPCOptions(fn func() []grpc.ServerOption) Option {
 	return optionFunc(func(s *Decl) { s.GRPCOptionsFn = fn })
 }
 
-// WithRegistrar 注入注册中心实例（如 inmemory.New()）。
-// 显式实例优先于契约装配：阶段 B 的纯 registry 段 Provider 在显式实例非 nil
-// 时被引擎跳过（程序化接管 = 刻意覆盖而非静默失效，批 1 语义）。
-func WithRegistrar(r registry.Registrar) Option {
-	return optionFunc(func(s *Decl) { s.Registrar = r })
-}
-
-// WithRemoteConfig 接入远程配置源（config.RemoteSource，如 kratos 桥接的 etcd/nacos）。
-// 远程作基准，契约层/本地文件覆盖之（优先级见 Store 合并约定）。
-func WithRemoteConfig(src baldconfig.RemoteSource) Option {
-	return optionFunc(func(s *Decl) { s.RemoteConfig = src })
-}
-
-// WithExtraServers 追加附加服务器（契约形状表达不了的服务器，如独立端口的
-// 自定义监听面），与主服务器并行启停。grpc-gateway 转码面不走此逃生舱，
-// 用 WithGatewayRegister + 契约 server.http.driver 声明。
-func WithExtraServers(servers ...transport.Server) Option {
-	return optionFunc(func(s *Decl) { s.Servers = append(s.Servers, servers...) })
-}
-
 // WithExtraServerFunc 注册**运行期构造**的附加服务器。
 //
-// 与 WithExtraServers 的差别：后者收已构造实例（调用点即需存在）；本 Option 收
+// 与 Servers 的差别：后者收已构造实例（调用点即需存在）；本 Option 收
 // 工厂函数，在 Run 期 beforeStart 链末尾（业务钩子之后）调用——故可消费业务建立
 // 的运行期资源（如就绪的认证器/授权器）。这是应用层「构造期占位」的替代品。
 //
@@ -134,137 +114,12 @@ func WithExtraServerFunc(fn func(context.Context) (transport.Server, error)) Opt
 	return optionFunc(func(s *Decl) { s.ServersFunc = append(s.ServersFunc, fn) })
 }
 
-// WithAfterStart 注册启动完成回调（服务已监听、注册已完成，可打 endpoint 日志/预热）。
-func WithAfterStart(fn func(context.Context) error) Option {
-	return optionFunc(func(s *Decl) { s.AfterStart = append(s.AfterStart, fn) })
-}
-
-// WithConfigFile 声明本地配置文件（语义同 appkit.ConfigFile，单路径）。
-// 本地文件在 Serve 的契约预装载与 Run 期 loadConfig 两阶段命中同一文件。
-func WithConfigFile(path string) Option {
-	return optionFunc(func(s *Decl) { s.ConfigFile = path })
-}
-
-// WithConfigNamespace 声明**配置命名空间**——env 前缀（BALD_DEMO_*）与多环境
-// 文件名（bald-demo-prod.yaml）的来源。
-//
-// **必填**（Serve 路径）：未声明时 Serve 直接返回错误。
-// 原因见 AppKit.cfgNamespace 注释——该路径下契约 app.name 来自被装载的配置，
-// 若以它派生 env 前缀，则「配置里的 app.name」会反过来改变「能读到哪些环境
-// 变量」，构成自指循环（症状：全部 <前缀>_* env 覆盖静默失效）。
-// 显式声明把命名空间钉在代码层，与配置装载解耦。
-//
-// 与 NewApp 路径的差异：NewApp 侧 ConfigNamespace 可选，未声明时回退 Name
-// （其值来自调用方源码，无自指）；Serve 侧不做任何回退。
-func WithConfigNamespace(ns string) Option {
-	return optionFunc(func(s *Decl) { s.ConfigNamespace = ns })
-}
-
-// WithWatchConfig 启用本地配置文件热更新（fsnotify）。
-func WithWatchConfig(watch bool) Option {
-	return optionFunc(func(s *Decl) { s.WatchConfigFile = watch })
-}
-
-// WithStrictContract 启用契约段未知键校验（opt-in，默认关闭）。
-//
-// 启用后，Load 完成时扫描合并后的配置树：**白名单之外的顶层段**内出现契约未
-// 声明的键即 fail-fast 并指名该键。它能捕获的最有价值场景是拼写错误——
-// `server.htpp` 误写为 `server.htpp` 这类笔误，此前被 DiscardUnknown 静默丢弃
-// （进程照常启动、行为却不对），是 bald 退役 viper 的原始动因。
-//
-// businessSections 是**应用自持的顶层段名**（如 bald-admin 的 "biz"）：命中者
-// 整棵子树放行，框架不解析其内部形状。框架**不认识任何业务段名**——清单完全由
-// 应用给出，框架侧零业务概念（这正是本开关不叫「业务段白名单」的原因）。
-//
-// 用法（应用侧）：
-//
-//	appkit.WithStrictContract("biz")   // 业务段整棵放行，其余严格
-//
-// 注意：契约段**内部**的业务键（如曾用的 audit.fallback_tenant）无法经此放行
-// ——那正是需要把业务键迁到独立业务段的原因（框架无法区分「用户笔误」与
-// 「业务自持键」，二者父段都是契约段）。
-func WithStrictContract(businessSections ...string) Option {
-	return optionFunc(func(s *Decl) {
-		s.StrictContract = true
-		s.BusinessSections = append(s.BusinessSections, businessSections...)
-	})
-}
-
 // WithLogDecorators 附加 bslog 日志装饰器（脱敏、业务字段等），阶段 A/B
 // 构造 Logger 时统一生效。注意：装饰器是 bslog.Option，仅对默认路径的
 // slog 项与阶段 A 回退生效；以 logger Provider 接管日志装配时，装饰器是否
 // 生效由该 Provider 决定（与原 LogRegistry 路径的 deco-aware 语义一致）。
 func WithLogDecorators(deco ...bslog.Option) Option {
 	return optionFunc(func(s *Decl) { s.LogDecorators = append(s.LogDecorators, deco...) })
-}
-
-// ---------------------------------------------------------------------------
-// 业务透传：With* 声明里没有对应项、但重业务需要的生命周期面——与 NewApp 的
-// 同名 Option 写入同一 Decl。语义与直用 NewApp 完全一致，仅注册顺序有约定：
-//   - WithBeforeStart 追加在 assemble 内部装载链之后（契约装载/校验/
-//     Logger 重建/各段 Provider 构建完成后执行——业务钩子里可直接读终值）；
-//   - WithEffect 注册在框架 Effect 之后——停机逆序回放时业务效果先执行
-//     （业务资源先收，框架底座后收）。
-// ---------------------------------------------------------------------------
-
-// WithBeforeStart 追加业务启动钩子：在 assemble 内部的装载链（配置装载
-// →校验→Logger 重建→各段 Provider 构建）之后执行。业务在此读契约终值
-// 装配桥接（DB 连接、Authn/Authz 桥等）。
-func WithBeforeStart(fn func(context.Context) error) Option {
-	return optionFunc(func(s *Decl) { s.BeforeStart = append(s.BeforeStart, fn) })
-}
-
-// WithBeforeStop 追加业务停机前钩子（与 NewApp 的 BeforeStop 语义一致）。
-func WithBeforeStop(fn func(context.Context) error) Option {
-	return optionFunc(func(s *Decl) { s.BeforeStop = append(s.BeforeStop, fn) })
-}
-
-// WithEffect 声明业务停机效果（逆序回放；与 NewApp 的 Effect 语义一致，见上
-// 方顺序约定）。
-func WithEffect(name string, undo func(ctx context.Context) error) Option {
-	return optionFunc(func(s *Decl) { s.Effects = append(s.Effects, EffectDecl{Name: name, Undo: undo}) })
-}
-
-// WithReconcile 声明期望态协调器（与 NewApp 的 Reconcile 语义一致：首次收敛在
-// 配置基线装载后、AfterStart 前触发，其后每次配置变更再次触发）。
-func WithReconcile(name string, fn ReconcileFunc) Option {
-	return optionFunc(func(s *Decl) { s.Reconciles = append(s.Reconciles, ReconcileDecl{Name: name, Fn: fn}) })
-}
-
-// WithOnKeyChange 订阅单个配置 key 的变更（与 NewApp 的 OnKeyChange 语义一致，
-// key 级增量协调）。
-func WithOnKeyChange(key string, fn func(old, new string)) Option {
-	return optionFunc(func(s *Decl) { s.KeyWatches = append(s.KeyWatches, KeyWatchDecl{Key: key, Fn: fn}) })
-}
-
-// WithProvides 声明本进程提供的能力（S1 启动期 fail-fast，与 NewApp 的 Provides
-// 语义一致）。
-func WithProvides(caps ...string) Option {
-	return optionFunc(func(s *Decl) { s.Provides = append(s.Provides, caps...) })
-}
-
-// WithRequires 声明组件依赖的能力（与 NewApp 的 Requires 语义一致）。
-func WithRequires(component string, caps ...string) Option {
-	return optionFunc(func(s *Decl) { s.Requires = append(s.Requires, RequireDecl{Component: component, Caps: caps}) })
-}
-
-// WithComponents 声明进程内组件（生命周期：Start 于服务器监听前、
-// Dispose 于停机末段逆序，与 NewApp 的 Components 语义一致）。
-func WithComponents(comps ...Component) Option {
-	return optionFunc(func(s *Decl) { s.Components = append(s.Components, comps...) })
-}
-
-// WithBind 注册业务配置对象的 flag，语义与 NewApp 路径的 Bind 完全一致
-// （proto.Message → bconf.BindFlags 遍历描述符；PlainBinder → AddFlags）。
-//
-// 为什么需要：约定装配内化了 server.http/server.grpc/log 的绑定，但业务
-// 自持配置段（如 login.rate_limit.*）此前没有绑定入口——业务 flag 进不了装载
-// FlagSet，用户显式传的 --login.rate_limit.rate=x 被静默忽略，只能靠文件/env。
-// 本 Option 把该通道补上，使优先级链对业务配置项同样成立。
-func WithBind(prefix string, opt any) Option {
-	return optionFunc(func(s *Decl) {
-		s.Binds = append(s.Binds, BindDecl{Prefix: prefix, Opt: opt})
-	})
 }
 
 // loggerSource 统一「默认两阶段日志工厂」与「logger Provider 接管」的调用面：
@@ -471,7 +326,7 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*AppKit, error) {
 			}
 			// 阶段 B Provider 循环：canonical 序（registry→tracer→metrics→
 			// database→cache→storage→audit→ai→workflow→broker，见 stageBRank）。
-			// 显式 WithRegistrar 实例接管 registry 段时跳过纯 registry Provider
+			// 显式 Registrar 实例接管 registry 段时跳过纯 registry Provider
 			// （程序化接管 = 刻意覆盖，批 1 语义）。
 			bps := plan.stageB
 			if spec.Registrar != nil {
@@ -497,7 +352,7 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*AppKit, error) {
 	// 恢复装配前全局 Auditor），其余 canonical 槽位按 cleanupOrder 依次登记
 	//（回放序：broker → … → database → registrar-client → bootstrap-logger →
 	// metrics-server → tracer-shutdown → audit-restore，与旧 12 段流一致）。
-	kitOpts = append(kitOpts, Effect(effectNameBySegment["audit"], func(ctx context.Context) error {
+	kitOpts = append(kitOpts, effectOpt(effectNameBySegment["audit"], func(ctx context.Context) error {
 		if auditSt == nil {
 			return nil
 		}
@@ -532,7 +387,7 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*AppKit, error) {
 		kitOpts = append(kitOpts, WatchConfigFile(true))
 	}
 	if layersCleanup != nil {
-		kitOpts = append(kitOpts, Effect("appkit:config-layers", func(context.Context) error {
+		kitOpts = append(kitOpts, effectOpt("appkit:config-layers", func(context.Context) error {
 			layersCleanup()
 			return nil
 		}))
@@ -544,7 +399,8 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*AppKit, error) {
 
 	// 业务透传：钩子/协调器/能力声明/订阅/效果——追加在框架装配之后
 	//（beforeStart 在内部装载链后执行，可读契约终值；Effect 逆序回放先于
-	// 框架 Effect——业务资源先收）。
+	// 框架 Effect——业务资源先收）。声明经 mech.* 等导出构造面写入 Decl，
+	// 引擎经未导出 *Opt 写入面透传（B5 后导出构造面归 mech）。
 	for _, fn := range spec.BeforeStart {
 		kitOpts = append(kitOpts, BeforeStart(fn))
 	}
@@ -585,29 +441,29 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*AppKit, error) {
 		kitOpts = append(kitOpts, BeforeStop(fn))
 	}
 	for _, e := range spec.Effects {
-		kitOpts = append(kitOpts, Effect(e.Name, e.Undo))
+		kitOpts = append(kitOpts, effectOpt(e.Name, e.Undo))
 	}
 	for _, r := range spec.Reconciles {
-		kitOpts = append(kitOpts, Reconcile(r.Name, r.Fn))
+		kitOpts = append(kitOpts, reconcileOpt(r.Name, r.Fn))
 	}
 	for _, k := range spec.KeyWatches {
-		kitOpts = append(kitOpts, OnKeyChange(k.Key, k.Fn))
+		kitOpts = append(kitOpts, onKeyChangeOpt(k.Key, k.Fn))
 	}
 	if len(spec.Provides) > 0 {
-		kitOpts = append(kitOpts, Provides(spec.Provides...))
+		kitOpts = append(kitOpts, providesOpt(spec.Provides...))
 	}
 	for _, r := range spec.Requires {
-		kitOpts = append(kitOpts, Requires(r.Component, r.Caps...))
+		kitOpts = append(kitOpts, requiresOpt(r.Component, r.Caps...))
 	}
 	if len(spec.Components) > 0 {
-		kitOpts = append(kitOpts, Components(spec.Components...))
+		kitOpts = append(kitOpts, componentsOpt(spec.Components...))
 	}
 	// 业务配置 flag 绑定：与框架自身的 server.http/server.grpc 绑定同层，
 	// 使业务 flag 进入装载 FlagSet 的 flag 层（最高优先级）。
 	for _, b := range spec.Binds {
 		kitOpts = append(kitOpts, Bind(b.Prefix, b.Opt))
 	}
-	// 严格契约校验（opt-in，见 WithStrictContract）：业务段白名单原样透传。
+	// 严格契约校验（opt-in，见 StrictContract）：业务段白名单原样透传。
 	if spec.StrictContract {
 		kitOpts = append(kitOpts, StrictContract(spec.BusinessSections...))
 	}
@@ -617,7 +473,7 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*AppKit, error) {
 }
 
 // dropSegmentProviders 过滤掉「全部声明路径都落在 top 段」的 Provider
-// （显式实例接管语义：WithRegistrar 非 nil 时跳过纯 registry Provider）。
+// （显式实例接管语义：Registrar 非 nil 时跳过纯 registry Provider）。
 func dropSegmentProviders(ps []Provider, top string) []Provider {
 	out := ps[:0:0]
 	for _, p := range ps {
@@ -717,7 +573,7 @@ func (s *cleanupSlots) effects(oldLogger log.Logger, curCleanup *atomic.Pointer[
 		case "audit":
 			continue
 		case "logger":
-			opts = append(opts, Effect(effectNameBySegment[seg], func(context.Context) error {
+			opts = append(opts, effectOpt(effectNameBySegment[seg], func(context.Context) error {
 				log.SetLogger(oldLogger)
 				if c := curCleanup.Load(); c != nil {
 					(*c)()
@@ -725,7 +581,7 @@ func (s *cleanupSlots) effects(oldLogger log.Logger, curCleanup *atomic.Pointer[
 				return nil
 			}))
 		default:
-			opts = append(opts, Effect(effectNameBySegment[seg], func(ctx context.Context) error {
+			opts = append(opts, effectOpt(effectNameBySegment[seg], func(ctx context.Context) error {
 				if c := *s.cleanups[seg]; c != nil {
 					return c(ctx)
 				}
@@ -741,7 +597,7 @@ func (s *cleanupSlots) foreignEffects() []Option {
 	var opts []Option
 	for k, slot := range s.foreign {
 		k, slot := k, slot
-		opts = append(opts, Effect("appkit:provider."+k, func(ctx context.Context) error {
+		opts = append(opts, effectOpt("appkit:provider."+k, func(ctx context.Context) error {
 			if c := *slot; c != nil {
 				return c(ctx)
 			}
@@ -770,26 +626,14 @@ func storeProduct(a *AppKit, r buildResult, slots *cleanupSlots, auditSt **audit
 			return fmt.Errorf("appkit: registry provider %v returned %T, want registry.Registrar", r.prov.Segments(), r.product)
 		}
 		a.registrar = reg
+		a.setResources(top, reg)
 		slots.fill(top, r.cleanup)
 	case "database", "cache", "storage", "ai", "workflow", "broker":
 		m, err := productStringMap(r)
 		if err != nil {
 			return err
 		}
-		switch top {
-		case "database":
-			a.databases = m
-		case "cache":
-			a.caches = m
-		case "storage":
-			a.storages = m
-		case "ai":
-			a.ais = m
-		case "workflow":
-			a.workflows = m
-		case "broker":
-			a.brokers = m
-		}
+		a.setResources(top, m)
 		slots.fill(top, r.cleanup)
 	case "audit":
 		aud, ok := r.product.(audit.Auditor)
@@ -799,16 +643,37 @@ func storeProduct(a *AppKit, r buildResult, slots *cleanupSlots, auditSt **audit
 		prev := audit.GetAuditor()
 		audit.SetAuditor(aud)
 		*auditSt = &auditState{prev: prev, cleanup: r.cleanup}
+		a.setResources(top, aud)
 	case "tracer", "metrics":
 		// 产物不落资源面（tracer shutdown / metrics 暴露端由 Provider 自持，
 		// cleanup 槽位承担停机回收；StartMetricsServer 为其导出工具）。
 		slots.fill(top, r.cleanup)
 	default:
-		// 表外段：cleanup 照常入账，产物本波不落资源面——W3 的
-		// App.Resource(segment)（B4）统一收口。
+		// 表外段：cleanup 照常入账，产物按统一约定落资源面（B4 收口）：
+		// map 产物按 "<顶层段>.<子段>" 展开、非 map 产物落 "<顶层段>"。
+		a.setResources(top, r.product)
 		slots.fillForeign(r.prov, r.cleanup)
 	}
 	return nil
+}
+
+// setResources 把段产物落进统一资源面（B4）：map[string]any 产物按
+// "<top>.<子段>" 逐键展开（与六域产物的段路径约定同构，nil 值跳过），
+// 其余产物整体落 "<top>"。仅 BeforeStart（阶段 B）单线程写入，Run 后只读。
+func (a *AppKit) setResources(top string, product any) {
+	if product == nil {
+		return
+	}
+	if m, ok := product.(map[string]any); ok {
+		for child, v := range m {
+			if v == nil {
+				continue
+			}
+			a.resources[top+"."+child] = v
+		}
+		return
+	}
+	a.resources[top] = product
 }
 
 // productStringMap 归一六资源域产物：map[string]any（键=子段名；nil 视为空）。

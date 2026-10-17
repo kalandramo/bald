@@ -45,9 +45,9 @@ func TestAssemble_ServerConstructionAfterBeforeStart(t *testing.T) {
 	}
 
 	a := assembleForTest(t, cfg,
-		WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
+		ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
 		WithGRPC(func(*grpc.Server) { mark("register") }),
-		WithBeforeStart(func(context.Context) error { mark("beforeStart"); return nil }),
+		BeforeStart(func(context.Context) error { mark("beforeStart"); return nil }),
 		StandardServerProvider(),
 	)
 

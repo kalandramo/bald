@@ -89,3 +89,25 @@ func TestMechRequiresFailFast(t *testing.T) {
 		}
 	}
 }
+
+// TestComponentFunc 纯清理组件（B5 自 appkit 迁入）：Start no-op，Dispose 调用
+// 注入函数；nil dispose 安全。
+func TestComponentFunc(t *testing.T) {
+	called := false
+	c := ComponentFunc("trace.provider", func(context.Context) error {
+		called = true
+		return nil
+	})
+	if c.Name() != "trace.provider" {
+		t.Errorf("Name = %q", c.Name())
+	}
+	if err := c.Start(context.Background()); err != nil {
+		t.Fatalf("Start should be no-op, got %v", err)
+	}
+	if err := c.Dispose(context.Background()); err != nil || !called {
+		t.Fatalf("Dispose should call fn: called=%v err=%v", called, err)
+	}
+	if err := ComponentFunc("nil", nil).Dispose(context.Background()); err != nil {
+		t.Fatalf("nil dispose should be safe, got %v", err)
+	}
+}

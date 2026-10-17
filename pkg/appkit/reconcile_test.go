@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"testing"
 	"time"
@@ -64,12 +65,39 @@ func newReconSettings(want string) map[string]any {
 	return map[string]any{"audit": map[string]any{"backends": want}}
 }
 
+// diffStrings 是 mech.DiffStrings 的测试内联副本（仅用于本文件期望值计算）：
+// B5 后 DiffStrings 导出面归 mech，而 in-package 测试不可 import mech
+// （appkit→mech→appkit 导入环）。
+func diffStrings(want, have []string) (add, remove []string) {
+	wantSet := make(map[string]struct{}, len(want))
+	haveSet := make(map[string]struct{}, len(have))
+	for _, w := range want {
+		wantSet[w] = struct{}{}
+	}
+	for _, h := range have {
+		haveSet[h] = struct{}{}
+	}
+	for w := range wantSet {
+		if _, ok := haveSet[w]; !ok {
+			add = append(add, w)
+		}
+	}
+	for h := range haveSet {
+		if _, ok := wantSet[h]; !ok {
+			remove = append(remove, h)
+		}
+	}
+	sort.Strings(add)
+	sort.Strings(remove)
+	return add, remove
+}
+
 // convergeFn 是通用协调逻辑：期望列表 vs 已挂载列表，增/删到收敛。
 // 工厂按名构造组件（failOn 指定哪个名字构造出的组件 Start 必然失败）。
 func convergeFn(failOn string, comps *map[string]*reconComp) ReconcileFunc {
 	return func(ctx context.Context, r *ReconcileCtx) error {
 		want := r.StringSlice("audit.backends")
-		add, remove := DiffStrings(want, r.Mounted())
+		add, remove := diffStrings(want, r.Mounted())
 		for _, name := range add {
 			c := &reconComp{name: name, log: &compLog{}}
 			if name == failOn {
@@ -98,7 +126,7 @@ func setupReconApp(t *testing.T, failOn string) (*AppKit, *map[string]*reconComp
 	app := NewApp(
 		Name("recon-test"),
 		Servers(reconSrv{}),
-		Reconcile("audit.backends", convergeFn(failOn, comps)),
+		reconcileOpt("audit.backends", convergeFn(failOn, comps)),
 		AfterStart(func(ctx context.Context) error { return nil }),
 	)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -212,7 +240,7 @@ func TestReconcile_StartupAppliesInitialConfig(t *testing.T) {
 		Name("recon-init"),
 		Servers(reconSrv{}),
 		ConfigFile(cfgPath),
-		Reconcile("audit.backends", convergeFn("", comps)),
+		reconcileOpt("audit.backends", convergeFn("", comps)),
 	)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -273,22 +301,6 @@ func TestReconcile_AuditEvent(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("reconcile should emit audit event")
-	}
-}
-
-// TestDiffStrings 差集工具契约：有序、去重、无交集。
-func TestDiffStrings(t *testing.T) {
-	add, remove := DiffStrings([]string{"a", "b"}, []string{"b", "c"})
-	if len(add) != 1 || add[0] != "a" {
-		t.Errorf("add = %v, want [a]", add)
-	}
-	if len(remove) != 1 || remove[0] != "c" {
-		t.Errorf("remove = %v, want [c]", remove)
-	}
-	// 完全一致 → 空差集（收敛终态）。
-	add, remove = DiffStrings([]string{"a"}, []string{"a"})
-	if len(add) != 0 || len(remove) != 0 {
-		t.Errorf("converged diff = (%v,%v), want empty", add, remove)
 	}
 }
 

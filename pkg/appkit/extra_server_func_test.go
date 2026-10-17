@@ -2,7 +2,7 @@ package appkit
 
 // extra_server_func_test.go —— WithExtraServerFunc：运行期构造额外服务器。
 //
-// 背景（能力）：WithExtraServers 收已构造实例（调用点即需存在）；若该服务器
+// 背景（能力）：Servers 收已构造实例（调用点即需存在）；若该服务器
 // 需要运行期资源（如就绪的认证器），应用只能传「请求期解析」代理。本 Option 收
 // 工厂函数，延后到 Run 期 beforeStart 链末尾调用。
 //
@@ -49,11 +49,11 @@ func TestAssemble_ExtraServerFuncRunTime(t *testing.T) {
 	srv := &probeServer{name: "extra", started: &started, mark: mark}
 
 	a := assembleForTest(t, cfg,
-		WithConfigNamespace(testConfigNamespace), WithExtraServerFunc(func(context.Context) (transport.Server, error) {
+		ConfigNamespace(testConfigNamespace), WithExtraServerFunc(func(context.Context) (transport.Server, error) {
 			mark("extraServerFn")
 			return srv, nil
 		}),
-		WithBeforeStart(func(context.Context) error { mark("beforeStart"); return nil }),
+		BeforeStart(func(context.Context) error { mark("beforeStart"); return nil }),
 	)
 
 	if got := snapshot(); strings.Contains(got, "extraServerFn") {
@@ -79,7 +79,7 @@ func TestAssemble_ExtraServerFuncNilSkipped(t *testing.T) {
 	cfg := bconf.NewBootstrap() // 预填 server 段豁免（无能力 ⇒ 不绑端口，L3 不报错）
 
 	a := assembleForTest(t, cfg,
-		WithConfigNamespace(testConfigNamespace), WithExtraServerFunc(func(context.Context) (transport.Server, error) { return nil, nil }),
+		ConfigNamespace(testConfigNamespace), WithExtraServerFunc(func(context.Context) (transport.Server, error) { return nil, nil }),
 	)
 
 	// 正常启停（若 nil 被塞入序列，Start 会 panic）。
@@ -104,7 +104,7 @@ func TestAssemble_ExtraServerFuncWithoutMainProtocol(t *testing.T) {
 
 	// 注意：**不**传 WithHTTP / WithGRPC —— 只有额外服务器。
 	a := assembleForTest(t, cfg,
-		WithConfigNamespace(testConfigNamespace), WithExtraServerFunc(func(context.Context) (transport.Server, error) { return srv, nil }),
+		ConfigNamespace(testConfigNamespace), WithExtraServerFunc(func(context.Context) (transport.Server, error) { return srv, nil }),
 	)
 
 	runBriefly(t, a, 50*time.Millisecond)

@@ -22,10 +22,10 @@
 //     wiring_order_test 钉住）、其余段在阶段 B 框架钩子内按 canonical 序构建
 //     （logger → registry → tracer → metrics → database → cache → storage →
 //     audit → ai → workflow → broker；audit 在 storage 与 ai 之间的既有次序）；
-//  4. 产物入库：引擎按顶层段把 Build 产物放进 AppKit 的对应资源面
-//     （storeProduct）——注册中心实例、六域客户端 map、审计全局注入、
-//     服务器列表；未知段的产物本波不落资源面（cleanup 照常入账），W3 的
-//     App.Resource(segment)（B4）再统一收口；
+//  4. 产物入库：引擎按顶层段把 Build 产物放进 AppKit 的统一资源面
+//     （storeProduct → App.Resource(segment)，B4）——注册中心实例、六域
+//     客户端、审计后端与表外段产物均按契约段路径存取（map 产物按
+//     "<顶层段>.<子段>" 展开），服务器列表经 storeServerProduct 并入停机序；
 //  5. 停机回收：每个 Provider 的 cleanup 在构造期按 canonical 停机序预登记
 //     Effect（槽位模式，Build 成功后填充）——Effect 注册序与旧 12 段流逐条
 //     一致，逆序回放序不变（audit-restore 仍最后执行）；
@@ -71,8 +71,8 @@ type BuildScope struct {
 	// （如未经 WithHealth 的 ProbeLivePath）保持零值，勿假设已回填默认。
 	Decl *Decl
 	// App 资源容器：阶段 B 起（含 server 阶段）非 nil，且**前序段产物已
-	// 填充**（audit 后端经 App.Database("sql") 取连接即依赖此序）；config
-	// 段构造期与 logger 阶段 A 为 nil（AppKit 尚未构造）。
+	// 填充**（audit 后端经 App.Resource("database.sql") 取连接即依赖此
+	// 序）；config 段构造期与 logger 阶段 A 为 nil（AppKit 尚未构造）。
 	App *AppKit
 }
 

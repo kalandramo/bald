@@ -55,7 +55,7 @@ func (f *fakeComp) Dispose(context.Context) error {
 func TestComponents_StartThenReverseDispose(t *testing.T) {
 	l := &compLog{}
 	app := NewApp(
-		Components(
+		componentsOpt(
 			&fakeComp{name: "a", log: l},
 			&fakeComp{name: "b", log: l},
 			&fakeComp{name: "c", log: l},
@@ -78,7 +78,7 @@ func TestComponents_StartThenReverseDispose(t *testing.T) {
 func TestComponent_StartFailureRollback(t *testing.T) {
 	l := &compLog{}
 	app := NewApp(
-		Components(
+		componentsOpt(
 			&fakeComp{name: "a", log: l},
 			&fakeComp{name: "b", log: l, startErr: errors.New("no db")},
 			&fakeComp{name: "c", log: l},
@@ -99,7 +99,7 @@ func TestComponent_StartFailureRollback(t *testing.T) {
 func TestComponent_StartPanicIsolated(t *testing.T) {
 	l := &compLog{}
 	app := NewApp(
-		Components(&fakeComp{name: "boom", log: l, startPanic: true}),
+		componentsOpt(&fakeComp{name: "boom", log: l, startPanic: true}),
 	)
 	err := app.Run(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "panicked") {
@@ -111,7 +111,7 @@ func TestComponent_StartPanicIsolated(t *testing.T) {
 func TestComponent_DisposeErrorIsolated(t *testing.T) {
 	l := &compLog{}
 	app := NewApp(
-		Components(
+		componentsOpt(
 			&fakeComp{name: "a", log: l},
 			&fakeComp{name: "bad", log: l, dispErr: errors.New("flush failed")},
 		),
@@ -132,7 +132,7 @@ func TestComponent_DisposeErrorIsolated(t *testing.T) {
 func TestComponent_DisposeTimeout(t *testing.T) {
 	l := &compLog{}
 	app := NewApp(
-		ComponentTimeout(50 * time.Millisecond),
+		componentTimeoutOpt(50 * time.Millisecond),
 	)
 	// slow 的 Dispose 卡到 ctx 超时（独立于 fakeComp 的可编程行为）。
 	app.components = append(app.components, slowComp{log: l})
@@ -163,33 +163,12 @@ func (s slowComp) Dispose(ctx context.Context) error {
 	return ctx.Err()
 }
 
-// TestComponentFunc 纯清理组件：Start no-op，Dispose 调用注入函数；nil dispose 安全。
-func TestComponentFunc(t *testing.T) {
-	called := false
-	c := ComponentFunc("trace.provider", func(context.Context) error {
-		called = true
-		return nil
-	})
-	if c.Name() != "trace.provider" {
-		t.Errorf("Name = %q", c.Name())
-	}
-	if err := c.Start(context.Background()); err != nil {
-		t.Fatalf("Start should be no-op, got %v", err)
-	}
-	if err := c.Dispose(context.Background()); err != nil || !called {
-		t.Fatalf("Dispose should call fn: called=%v err=%v", called, err)
-	}
-	if err := ComponentFunc("nil", nil).Dispose(context.Background()); err != nil {
-		t.Fatalf("nil dispose should be safe, got %v", err)
-	}
-}
-
 // TestComponent_DontDisposeUnstarted Run 因 beforeStart 失败退出时，组件尚未启动，
 // 不应触发任何 Dispose。
 func TestComponent_DontDisposeUnstarted(t *testing.T) {
 	l := &compLog{}
 	app := NewApp(
-		Components(&fakeComp{name: "a", log: l}),
+		componentsOpt(&fakeComp{name: "a", log: l}),
 		BeforeStart(func(context.Context) error { return errors.New("boom") }),
 	)
 	if err := app.Run(context.Background()); err == nil {

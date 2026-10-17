@@ -2,8 +2,9 @@
 // agent-native 最小前置，同时是 R1 期望态 diff-apply 的底层支撑）。
 //
 // 设计（对照论文时间可组合性在运行期的延伸）：
-//   - Registry[T].Mount/Unmount：装配期 Register（不可逆、冲突报错）的
-//     **运行期对偶**——可逆挂载、undo 幂等。两个语义必须分开：装配期错误
+//   - mech.Registry[T].Mount/Unmount（B5 下沉，载体类型与全部方法同迁）：
+//     装配期 Register（不可逆、冲突报错）的**运行期对偶**——可逆挂载、
+//     undo 幂等。两个语义必须分开：装配期错误
 //     应 fail-fast（panic 合理），运行期变更必须可回滚（效应账本语义）。
 //   - AppKit.MountComponent/UnmountComponent：把 C1 组件生命周期扩展到运行期——
 //     挂载即 Start 并纳入停机序列（stopAll 阶段 4 逆序 Dispose），卸载即移除并
@@ -28,7 +29,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
 
 	"github.com/kalandramo/bald/log"
 	"github.com/kalandramo/bald/pkg/audit"
@@ -42,43 +42,6 @@ var ErrNotRunning = errors.New("appkit: app not running")
 // errComponentsDisposed 表示组件系统已进入停机销毁（stopAll 阶段 4 执行后），
 // 不再接受新的挂载。
 var errComponentsDisposed = errors.New("appkit: components already disposed")
-
-// ---- Registry[T]：运行期可逆挂载 ----
-
-// Mount 运行期可逆挂载：与 Register（装配期、不可逆、冲突报错）对偶。
-// 挂载成功返回 undo 闭包（幂等：重复调用无副作用）；已存在同名条目（无论
-// Register 还是 Mount 写入）返回错误，不做覆盖。
-//
-// 约定：同名字换实现应先 Unmount 旧条目再 Mount 新条目（mount/unmount 配对）。
-// undo 语义为「撤销本次挂载」：若违反约定在同名新条目存在时执行旧 undo，会按名
-// 移除（此时移除的是新条目）——管理面调用保持配对即可避免。
-func (r *Registry[T]) Mount(name string, impl T) (undo func(), err error) {
-	r.mu.Lock()
-	if _, ok := r.items[name]; ok {
-		r.mu.Unlock()
-		return nil, fmt.Errorf("appkit: %q already registered", name)
-	}
-	r.items[name] = impl
-	r.mu.Unlock()
-
-	var once sync.Once
-	return func() {
-		once.Do(func() { _, _ = r.Unmount(name) })
-	}, nil
-}
-
-// Unmount 按名卸载（可逆注销），返回被卸载的实例；不存在时返回零值与 false。
-func (r *Registry[T]) Unmount(name string) (T, bool) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	impl, ok := r.items[name]
-	if !ok {
-		var zero T
-		return zero, false
-	}
-	delete(r.items, name)
-	return impl, true
-}
 
 // ---- AppKit：运行期组件热插拔 ----
 

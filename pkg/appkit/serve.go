@@ -9,7 +9,7 @@ package appkit
 //
 // --config 内化的参考实现是 bald-admin preloadBootstrap 手写的 pflag 扫描
 // （bald-admin/backend/cmd/bald-admin/app/registries.go）：flag 名 --config、
-// 默认值取 WithConfigFile 声明路径（与 loadConfig 的 --config 注册同一默认——
+// 默认值取 ConfigFile 声明路径（与 loadConfig 的 --config 注册同一默认——
 // 两阶段装载命中同一文件）、ContinueOnError + 未知 flag 白名单 + 解析错误忽略。
 // 契约装载 = bconf.NewBootstrap 骨架 + 配置文件/env 基线预装载（文件与 Run 期
 // loadConfig 命中同一文件——两阶段装载同源是启动正确性的前提；ConfigRegistry
@@ -36,14 +36,14 @@ import (
 // bootstrap.go；框架自有后端经 std.Standard() 声明）→ Run。业务只经 Option
 // 声明配置表达不了的能力（WithHTTP/WithGRPC/钩子/第三方 Provider 等）。
 //
-// 命名空间必须经 WithConfigNamespace 显式声明（原因见其注释——env 前缀自指）；
+// 命名空间必须经 ConfigNamespace 显式声明（原因见其注释——env 前缀自指）；
 // 两遍合并修自指、删除该必填项是批 3（B6）的工作，本波保留必填约束。
 //
 // 运行期行为（信号处理、优雅停机、防重入）与 AppKit.Run 一致。
 func Serve(ctx context.Context, opts ...Option) error {
 	d := newDecl(opts...)
 
-	// 配置命名空间必须显式声明（WithConfigNamespace）：契约 app.name 由配置
+	// 配置命名空间必须显式声明（ConfigNamespace）：契约 app.name 由配置
 	// 装载填充，若以它派生 env 前缀则是自指——配置里的 app.name 会改变「能读
 	// 到哪些环境变量」，症状为 <原前缀>_* env 覆盖静默失效（回落文件值，无报
 	// 错）。不回退、大声失败。文案与原 FromBootstrap 检查逐字一致（测试钉住）。
@@ -51,7 +51,7 @@ func Serve(ctx context.Context, opts ...Option) error {
 		return errors.New("appkit: config namespace not declared: " +
 			"app.name is loaded from configuration and would be read before namespace " +
 			"resolution (self-referential env prefix); " +
-			`declare it explicitly: appkit.WithConfigNamespace("<name>")`)
+			`declare it explicitly: appkit.ConfigNamespace("<name>")`)
 	}
 
 	// --config 解析：内化业务侧手写 pflag 扫描（见文件头）。解析结果写回

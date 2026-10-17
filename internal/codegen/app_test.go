@@ -39,8 +39,8 @@ func TestGenApp_TemplateFormats(t *testing.T) {
 	}
 	// 关键锚点：全部第二轮原语必须在模板中示范。
 	for _, want := range []string{
-		"appkit.Provides", "appkit.Requires", "appkit.Effect",
-		"appkit.Components", "appkit.ComponentFunc", "appkit.OnKeyChange",
+		"mech.Provides", "mech.Requires", "mech.Effect",
+		"mech.Components", "mech.ComponentFunc", "mech.OnKeyChange",
 		"bundle.New", "bundle.Normalized", "b.GRPCChain",
 	} {
 		if !strings.Contains(buf.String(), want) {
@@ -109,10 +109,10 @@ func TestGenAppSpec_TemplateFormats(t *testing.T) {
 		t.Fatalf("read: %v", err)
 	}
 	for _, want := range []string{
-		"appkit.Reconcile", "appkit.Components", "appkit.Servers",
-		"bundle.Normalized", "appkit.Provides", "reconcileAudit",
-		"appkit.OnKeyChange",            // R1 热更新骨架
-		`appkit.Requires("audit.store"`, // 结构化 requires：component + caps
+		"mech.Reconcile", "mech.Components", "appkit.Servers",
+		"bundle.Normalized", "mech.Provides", "reconcileAudit",
+		"mech.OnKeyChange",            // R1 热更新骨架
+		`mech.Requires("audit.store"`, // 结构化 requires：component + caps
 	} {
 		if !strings.Contains(string(src), want) {
 			t.Errorf("spec template missing anchor %q", want)
@@ -134,7 +134,7 @@ func TestGenAppSpec_TemplateFormats(t *testing.T) {
 	// 模板生成物不应出现 MountComponent 调用（组件一律走 Components Option；
 	// 匹配调用形式 ".MountComponent("，注释中的提及不算）。
 	if strings.Contains(srcStr, ".MountComponent(") {
-		t.Errorf("spec template must not emit MountComponent calls (components go through appkit.Components Option)")
+		t.Errorf("spec template must not emit MountComponent calls (components go through mech.Components Option)")
 	}
 }
 

@@ -205,7 +205,7 @@ func validateServerSections(cfg *bootstrapv1.Server, registered map[string]bool)
 		}
 		problems = append(problems, fmt.Sprintf(
 			"server.%s is configured but has no implementation in this repo "+
-				"(remove the section, register a provider for it, or use appkit.WithExtraServers to mount it manually)", sec.name))
+				"(remove the section, register a provider for it, or use appkit.Servers to mount it manually)", sec.name))
 	}
 	if len(problems) > 0 {
 		return fmt.Errorf("bootstrap: invalid server config: %s", strings.Join(problems, "; "))

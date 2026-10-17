@@ -17,7 +17,7 @@ import (
 // 真实接线，生成物 go build 通过且 Run 不会因装配顺序问题失败。
 //
 // 装配纪律（对照 kalandramo/bald-admin M10 形状，P12 审查修正）：
-//   - servers 与组件一律经 appkit.Servers/appkit.Components Option 传给 New——
+//   - servers 与组件一律经 appkit.Servers/mech.Components Option 传给 New——
 //     Option 只有 New 消费，New 之后再 append 无效；Run 之前也不可调
 //     MountComponent（要求运行态，Run 内才置位）。
 //   - reconcileAudit 是真实可运行的 R1-2 协调器（log 后端开箱即用，
@@ -53,6 +53,7 @@ import (
 {{- end }}
 
 	"github.com/kalandramo/bald/pkg/appkit"
+	"github.com/kalandramo/bald/pkg/appkit/mech"
 	"github.com/kalandramo/bald/pkg/audit"
 	baldlog "github.com/kalandramo/bald/log"
 	"github.com/kalandramo/bald/log/bslog"
@@ -117,7 +118,7 @@ func serveRunE(_ *cobra.Command, _ []string) error {
 		appkit.ConfigFile("configs/{{ .Meta.Name }}.yaml"),
 		appkit.WatchConfigFile(true),
 		// R1-2 期望态协调：以 audit.backends 为期望态，运行期热切审计后端。
-		appkit.Reconcile("audit.backends", reconcileAudit),
+		mech.Reconcile("audit.backends", reconcileAudit),
 	}
 {{- if or .Server.Http .Server.Grpc }}
 	// 配置 flag 覆盖（四源优先级 flag > env > 文件 > 远程）：--server.http.addr / --server.grpc.addr。
@@ -127,17 +128,17 @@ func serveRunE(_ *cobra.Command, _ []string) error {
 	capOpts = append(capOpts, appkit.Bind("", logOpts)) // 日志配置 --log.*（含 rotate）
 {{- if .Server.Http }}
 	// R1 key 级热更新示例：仅当 server.http.addr 值确实变化才触发（与 OnConfigChange 全量互补）。
-	capOpts = append(capOpts, appkit.OnKeyChange("server.http.addr", func(old, new string) {
+	capOpts = append(capOpts, mech.OnKeyChange("server.http.addr", func(old, new string) {
 		baldlog.Info(context.Background(), "server.http.addr changed", "old", old, "new", new)
 	}))
 {{- end }}
 {{- if .Capability }}
 {{- range .Capability.Provides }}
-	capOpts = append(capOpts, appkit.Provides("{{ . }}")) // S1：本进程提供的能力
+	capOpts = append(capOpts, mech.Provides("{{ . }}")) // S1：本进程提供的能力
 {{- end }}
 {{- range .Capability.Requires }}
 	// S1：{{ .Component }} 声明对下列能力的依赖（缺失则启动 fail-fast）。
-	capOpts = append(capOpts, appkit.Requires("{{ .Component }}",
+	capOpts = append(capOpts, mech.Requires("{{ .Component }}",
 {{- range .Caps }}
 		"{{ . }}",
 {{- end }}
@@ -154,7 +155,7 @@ func serveRunE(_ *cobra.Command, _ []string) error {
 		comps = append(comps, comp)
 	}
 {{- end }}
-	capOpts = append(capOpts, appkit.Components(comps...))
+	capOpts = append(capOpts, mech.Components(comps...))
 {{- end }}
 {{- if or .Server.Http .Server.Grpc }}
 	// 探针装配（协议实现不注册框架路由）：HTTP 双探针 + gRPC health 状态联动。
@@ -199,7 +200,7 @@ func buildComponent(kind, name, prefix string) (appkit.Component, error) {
 	switch kind {
 	// TODO: 为各 kind 接入真实组件工厂（db/redis/otlp/casbin/...）。
 	case "heartbeat":
-		return appkit.ComponentFunc(name, func(ctx context.Context) error {
+		return mech.ComponentFunc(name, func(ctx context.Context) error {
 			baldlog.Info(ctx, "heartbeat component started", "name", name)
 			_ = prefix // 组件配置键前缀（config 读取 TODO）
 			return nil
@@ -229,7 +230,7 @@ func reconcileAudit(ctx context.Context, rctx *appkit.ReconcileCtx) error {
 	if len(want) == 0 {
 		want = defaultAuditBackends // config 未设置时回退 AppSpec 声明
 	}
-	add, remove := appkit.DiffStrings(want, rctx.Mounted())
+	add, remove := mech.DiffStrings(want, rctx.Mounted())
 	if len(add) == 0 && len(remove) == 0 {
 		return nil // 幂等：期望==实际，不抖动
 	}

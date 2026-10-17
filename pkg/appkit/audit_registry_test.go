@@ -88,7 +88,7 @@ func TestAssemble_AuditGlobalInjection(t *testing.T) {
 	cfg := bconf.NewBootstrap() // 预填 server 段豁免（无能力 ⇒ 不绑端口，L3 不报错）
 	cfg.Audit = auditCfg("log")
 
-	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), prov)
+	a := assembleForTest(t, cfg, ConfigNamespace(testConfigNamespace), prov)
 
 	// 注入发生在阶段 B（Run 期）——驱动 Run 后、停机前断言全局句柄。
 	ctx, cancel := context.WithCancel(context.Background())
@@ -136,13 +136,13 @@ func TestAssemble_AuditProviderSeesDatabases(t *testing.T) {
 		if res == nil {
 			return nil, nil, errProbe("res is nil")
 		}
-		if v, ok := res.Database("sql"); ok && v == wantDB {
+		if v, ok := res.Resource("database.sql"); ok && v == wantDB {
 			sawDB = true
 		}
 		return audit.NewLoggerAuditor(), nil, nil
 	})
 
-	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
+	a := assembleForTest(t, cfg, ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
 		StandardServerProvider(), dbTestProvider(dr), prov)
 	runBriefly(t, a, 50*time.Millisecond)
 

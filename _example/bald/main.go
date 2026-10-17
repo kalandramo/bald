@@ -151,7 +151,7 @@ func isKnownCommand(root *cobra.Command, name string) bool {
 //
 // Serve 内化的约定（原本要手写的样板）：
 //   - 契约装载：bconf.NewBootstrap 骨架 + --config（默认 configs/bald-demo.yaml，
-//     来自 WithConfigFile）的文件/env 基线预装载；
+//     来自 ConfigFile）的文件/env 基线预装载；
 //   - Bind server.http/server.grpc/--log.* 三组 flag（四源路径统一）；
 //   - BeforeStart：Settings→Unmarshal→Validate→按契约 logger 段重建 Logger；
 //   - OnConfigChange：热更新副本试装载+校验后原子落盘，并重建 Logger；
@@ -160,7 +160,7 @@ func isKnownCommand(root *cobra.Command, name string) bool {
 //   - 停机恢复启动前 Logger、释放配置层资源（Effect 效应账本）。
 //
 // 业务保留的声明（配置驱动不了）：路由、gRPC service、拦截器链序、
-// 探针依赖、日志脱敏——见下方各 With* 选项。
+// 探针依赖、日志脱敏——见下方各 Option。
 //
 // HTTP 面按构建分叉（同一 server.http 段只跑一个面）：默认构建走 gin 演示
 // 路由；grpcgw 构建走网关转码面（WithGatewayRegister + 契约
@@ -173,13 +173,13 @@ func newAppOptions(healthChecker *health.Health) []appkit.Option {
 		std.Standard(),
 		// storegorm.AppProvider()：第三方后端加法式范本——消费契约 database.sql
 		// 段（configs/bald-demo.yaml 的 database 段驱动），产物经
-		// app.Database("sql") 取用，停机自动释放连接池。
+		// app.Resource("database.sql") 取用，停机自动释放连接池。
 		storegorm.AppProvider(),
 
 		// 配置命名空间：env 前缀（BALD_DEMO_*）与多环境文件名
 		// （bald-demo-prod.yaml）的来源。必须是代码层常量——Serve 路径下若取
-		// 自契约 app.name 会构成自指（见 WithConfigNamespace 注释）。
-		appkit.WithConfigNamespace("bald-demo"),
+		// 自契约 app.name 会构成自指（见 ConfigNamespace 注释）。
+		appkit.ConfigNamespace("bald-demo"),
 
 		// --- 能力声明（代码提供） ---
 		// gRPC：service 注册 + 拦截器链（链序说明见 newGRPCServerOptions，
@@ -196,9 +196,9 @@ func newAppOptions(healthChecker *health.Health) []appkit.Option {
 			bslog.WithAttrs(slog.String("service.name", "bald-demo")),
 		),
 
-		appkit.WithAfterStart(func(ctx context.Context) error {
+		appkit.AfterStart(func(ctx context.Context) error {
 			ctx = baldlog.ContextWithAttrs(ctx, slog.String("stage", "started"))
-			// 端点地址由框架的注册日志打印（WithRegistrar 生效时 Run 会输出
+			// 端点地址由框架的注册日志打印（Registrar 生效时 Run 会输出
 			// "appkit registered" + endpoints，地址为契约最终值）——此处不再
 			// 重复读契约（契约已是 Serve 内部产物，业务不持引用）。
 			baldlog.Info(ctx, "bald-demo started")
@@ -211,11 +211,11 @@ func newAppOptions(healthChecker *health.Health) []appkit.Option {
 		// 生产：-tags nacos（或 etcd/consul）走段驱动 Provider 装配——yaml
 		// registry 段驱动 + registry 段 Provider（见 register_nacos.go 的
 		// nacosRegistrarProvider）。
-		appkit.WithRegistrar(inmemory.New()),
+		appkit.Registrar(inmemory.New()),
 		// 本地配置文件 + fsnotify 热更新（缺失不报错，可只用 env/flag/远程）。
 		// 多环境：契约 app.env（BALD_DEMO_APP_ENV）选 {Name}-{Env}.yaml。
-		appkit.WithConfigFile("configs/bald-demo.yaml"),
-		appkit.WithWatchConfig(true),
+		appkit.ConfigFile("configs/bald-demo.yaml"),
+		appkit.WatchConfigFile(true),
 	}
 	// HTTP 面二选一（同一 server.http 段只跑一个面，语义见 WithGatewayRegister）：
 	//   - 默认构建：gin 演示路由（gin.Engine 即 http.Handler），中间件链是安全

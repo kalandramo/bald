@@ -36,6 +36,7 @@ import (
 	"time"
 
 	"github.com/kalandramo/bald/pkg/appkit"
+	"github.com/kalandramo/bald/pkg/appkit/mech"
 	"github.com/kalandramo/bald/pkg/middleware/bundle"
 	"github.com/kalandramo/bald/pkg/store"
 	"github.com/kalandramo/bald/transport"
@@ -61,8 +62,8 @@ func newApp() *appkit.AppKit {
 		// 声明本进程将建立的能力（BeforeStart 建立连接/初始化后即算提供），
 		// 依赖方声明 Requires；漏写 Provides 时 Run 启动即报：
 		//   unresolved capabilities: capability "db" (required by audit.store)
-		appkit.Provides("db"),
-		appkit.Requires("audit.store", "db"),
+		mech.Provides("db"),
+		mech.Requires("audit.store", "db"),
 
 		// ---- T1 效应账本：全局写入配套逆操作 ----
 		// 任何全局注册（RegisterTenant/SetAuditor/RegisterDataScope...）都应
@@ -70,7 +71,7 @@ func newApp() *appkit.AppKit {
 		// 下例：配合业务 BeforeStart 里的 store.RegisterTenant("tenant_id", ...)，
 		// 提供对偶的 UnregisterTenant 逆操作——缺了它，注册会泄漏到进程重启之后
 		// 不可见、但 e2e 用例之间可互相污染。
-		appkit.Effect("tenant-registration", func(ctx context.Context) error {
+		mech.Effect("tenant-registration", func(ctx context.Context) error {
 			store.UnregisterTenant("tenant_id") // 与 RegisterTenant 配对的逆操作
 			return nil
 		}),
@@ -78,8 +79,8 @@ func newApp() *appkit.AppKit {
 		// ---- C1 进程内组件：统一生命周期 ----
 		// trace provider / metrics exporter / 审计后端连接等基础设施注册为组件，
 		// 停机阶段 4 逆序 Dispose——「trace 忘 flush 丢批」类问题从文档变成结构保证。
-		appkit.Components(
-			appkit.ComponentFunc("trace.provider", func(ctx context.Context) error {
+		mech.Components(
+			mech.ComponentFunc("trace.provider", func(ctx context.Context) error {
 				// [FILL] 返回 obtrace/otel TracerProvider 的 Shutdown
 				_ = ctx
 				return nil
@@ -88,7 +89,7 @@ func newApp() *appkit.AppKit {
 
 		// ---- R1 配置细粒度热更新 ----
 		// 与 OnConfigChange 全量重载互补：仅当该 key 值确实变化才触发。
-		appkit.OnKeyChange("http.addr", func(old, new string) {
+		mech.OnKeyChange("http.addr", func(old, new string) {
 			// [FILL] 定点响应地址变更（记日志/重建 listener）
 		}),
 

@@ -12,9 +12,15 @@
 //
 //	traceShutdown, _ := trace.Setup(...)
 //	app := appkit.NewApp(
-//	    appkit.Components(appkit.ComponentFunc("trace.provider", traceShutdown)),
+//	    mech.Components(mech.ComponentFunc("trace.provider", traceShutdown)),
 //	    ...
 //	)
+//
+// 导出构造面在 pkg/appkit/mech（mech.Components/mech.ComponentFunc/
+// mech.ComponentTimeout，B5 下沉）；本文件的未导出 componentsOpt/
+// componentTimeoutOpt 是引擎透传与包内测试共用的写入面。Component 接口与
+// 引擎（startComponents/disposeComponents/MountComponent）归 appkit——
+// Decl.Components 的消费方，且 mech 单向 import appkit。
 package appkit
 
 import (
@@ -39,33 +45,14 @@ type Component interface {
 	Dispose(ctx context.Context) error
 }
 
-// ComponentFunc 把一个无启动逻辑的清理函数（如 otel TracerProvider.Shutdown、
-// database/sql Close）适配为 Component。
-func ComponentFunc(name string, dispose func(context.Context) error) Component {
-	return componentFunc{name: name, dispose: dispose}
-}
-
-type componentFunc struct {
-	name    string
-	dispose func(context.Context) error
-}
-
-func (f componentFunc) Name() string                { return f.name }
-func (f componentFunc) Start(context.Context) error { return nil }
-func (f componentFunc) Dispose(ctx context.Context) error {
-	if f.dispose == nil {
-		return nil
-	}
-	return f.dispose(ctx)
-}
-
-// Components 注册进程内组件（可多次调用，追加）。
-func Components(comps ...Component) Option {
+// componentsOpt 注册进程内组件（mech.Components 的引擎内部写入面；可多次
+// 调用，追加）。
+func componentsOpt(comps ...Component) Option {
 	return optionFunc(func(d *Decl) { d.Components = append(d.Components, comps...) })
 }
 
-// ComponentTimeout 设置组件 Start/Dispose 的独立超时（默认 defaultHookTimeout）。
-func ComponentTimeout(d time.Duration) Option {
+// componentTimeoutOpt 设置组件 Start/Dispose 的独立超时（默认 defaultHookTimeout）。
+func componentTimeoutOpt(d time.Duration) Option {
 	return optionFunc(func(decl *Decl) { decl.ComponentTimeout = d })
 }
 

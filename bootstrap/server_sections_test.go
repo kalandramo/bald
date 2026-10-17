@@ -39,8 +39,8 @@ func TestBuildServers_ConfiguredUnimplementedSectionFailsFast(t *testing.T) {
 	if !strings.Contains(err.Error(), "server.sse") {
 		t.Fatalf("error %q must name the offending section server.sse", err)
 	}
-	if !strings.Contains(err.Error(), "WithExtraServers") {
-		t.Fatalf("error %q must point to the escape hatch (WithExtraServers)", err)
+	if !strings.Contains(err.Error(), "appkit.Servers") {
+		t.Fatalf("error %q must point to the escape hatch (appkit.Servers)", err)
 	}
 	if servers != nil {
 		t.Fatalf("servers = %v, want nil on failure", servers)

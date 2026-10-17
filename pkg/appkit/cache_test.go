@@ -36,9 +36,9 @@ func TestAssemble_ContractCacheLifecycle(t *testing.T) {
 		Local: &bootstrapv1.Cache_Local{Size: 1024 * 1024, DefaultTtlSeconds: 60},
 	}
 
-	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), cacheTestProvider(cr))
+	a := assembleForTest(t, cfg, ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), cacheTestProvider(cr))
 	// 构造期（阶段 A）尚未装载契约：Cache 为空
-	if _, ok := a.Cache("local"); ok {
+	if _, ok := a.Resource("cache.local"); ok {
 		t.Fatal("Cache should be empty before Run (phase B not reached)")
 	}
 
@@ -47,14 +47,14 @@ func TestAssemble_ContractCacheLifecycle(t *testing.T) {
 	go func() { done <- a.Run(ctx) }()
 	time.Sleep(300 * time.Millisecond)
 
-	cli, ok := a.Cache("local")
+	cli, ok := a.Resource("cache.local")
 	if !ok {
 		t.Fatal("cache instance not built from contract")
 	}
 	if c, ok := cli.(*stubCache); !ok || c.name != "local" {
 		t.Fatalf("instance type mismatch: %T", cli)
 	}
-	if all := a.Caches(); len(all) != 1 {
+	if all := resourceMap(t, a, "cache"); len(all) != 1 {
 		t.Fatalf("Caches() = %v, want 1 entry", all)
 	}
 
@@ -83,7 +83,7 @@ func TestAssemble_CacheSectionWithoutTable(t *testing.T) {
 		Local: &bootstrapv1.Cache_Local{Size: 1024},
 	}
 
-	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
+	a := assembleForTest(t, cfg, ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
 	err := a.Run(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "no consumer") && strings.Contains(err.Error(), "cache") {
 		t.Fatalf("expected CacheRegistry missing error, got %v", err)
@@ -98,7 +98,7 @@ func TestAssemble_NoCacheSection(t *testing.T) {
 	cfg := bconf.NewBootstrap()
 	dynamicAddr(cfg)
 
-	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
+	a := assembleForTest(t, cfg, ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- a.Run(ctx) }()
@@ -107,7 +107,7 @@ func TestAssemble_NoCacheSection(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if _, ok := a.Cache("local"); ok {
+	if _, ok := a.Resource("cache.local"); ok {
 		t.Fatal("no cache should be built without cache section")
 	}
 }

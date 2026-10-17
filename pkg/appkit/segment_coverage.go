@@ -102,10 +102,10 @@ func checkSegmentCoverage(cfg *bootstrapv1.BootstrapConfig, spec *Decl, plan *pr
 //   - registry / tracer / metrics / database / cache / storage / ai /
 //     workflow / broker / audit：**段在而 Provider 声明了该段**即消费——
 //     阶段 B 循环按 canonical 序构建（runProviderLoop），构建失败 fail-fast
-//     能走到检查点即代表已消费。registry 段被 WithRegistrar 显式实例接管
-//     时视为已消费（程序化接管 = 刻意覆盖，批 1 语义）。
-//   - config：仅经 config 段 Provider 消费（构造期产层）。WithConfigFile /
-//     WithRemoteConfig 走本地文件与远程桥通道，不是契约 config 段。
+//     能走到检查点即代表已消费。registry 段被 Registrar 显式实例接管时视
+//     为已消费（程序化接管 = 刻意覆盖，批 1 语义）。
+//   - config：仅经 config 段 Provider 消费（构造期产层）。ConfigFile /
+//     RemoteConfig 走本地文件与远程桥通道，不是契约 config 段。
 //   - server：能力声明（WithHTTP/WithGatewayRegister/WithGRPC）、非内置
 //     协议 Provider 触发、或与 bconf.NewBootstrap() 预填默认深相等
 //     （proto.Equal，批 1 预填豁免）→ 已消费；零能力声明且用户改过任一

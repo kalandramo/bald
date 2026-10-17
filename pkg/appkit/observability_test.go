@@ -48,7 +48,7 @@ func TestAssemble_ObservabilityProviderLifecycle(t *testing.T) {
 		return nil, func(context.Context) error { tracerSD.Store(true); return nil }, nil
 	}}
 
-	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), obs, tracer)
+	a := assembleForTest(t, cfg, ConfigNamespace(testConfigNamespace), obs, tracer)
 	runBriefly(t, a, 50*time.Millisecond)
 
 	if !tracerSD.Load() {

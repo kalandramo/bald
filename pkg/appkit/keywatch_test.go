@@ -87,7 +87,7 @@ func TestOnKeyChange_TriggersOnDiff(t *testing.T) {
 	col := &kwCollector{}
 	app := NewApp(
 		RemoteConfig(src),
-		OnKeyChange("http.addr", col.record),
+		onKeyChangeOpt("http.addr", col.record),
 	)
 	if err := app.loadConfig(); err != nil {
 		t.Fatalf("loadConfig: %v", err)
@@ -106,7 +106,7 @@ func TestOnKeyChange_NoTriggerOnSame(t *testing.T) {
 	col := &kwCollector{}
 	app := NewApp(
 		RemoteConfig(src),
-		OnKeyChange("http.addr", col.record),
+		onKeyChangeOpt("http.addr", col.record),
 	)
 	if err := app.loadConfig(); err != nil {
 		t.Fatalf("loadConfig: %v", err)
@@ -126,8 +126,8 @@ func TestOnKeyChange_MultipleKeys(t *testing.T) {
 	colA, colB := &kwCollector{}, &kwCollector{}
 	app := NewApp(
 		RemoteConfig(src),
-		OnKeyChange("http.addr", colA.record),
-		OnKeyChange("grpc.addr", colB.record),
+		onKeyChangeOpt("http.addr", colA.record),
+		onKeyChangeOpt("grpc.addr", colB.record),
 	)
 	if err := app.loadConfig(); err != nil {
 		t.Fatalf("loadConfig: %v", err)
@@ -149,7 +149,7 @@ func TestOnKeyChange_WithUserOnChange(t *testing.T) {
 	var mu sync.Mutex
 	app := NewApp(
 		RemoteConfig(src),
-		OnKeyChange("http.addr", col.record),
+		onKeyChangeOpt("http.addr", col.record),
 		OnConfigChange(func(map[string]any) {
 			mu.Lock()
 			fullRuns++
@@ -176,7 +176,7 @@ func TestOnKeyChange_MultiUpdate(t *testing.T) {
 	col := &kwCollector{}
 	app := NewApp(
 		RemoteConfig(src),
-		OnKeyChange("http.addr", col.record),
+		onKeyChangeOpt("http.addr", col.record),
 	)
 	if err := app.loadConfig(); err != nil {
 		t.Fatalf("loadConfig: %v", err)

@@ -34,8 +34,8 @@ func TestAssemble_ContractWorkflowLifecycle(t *testing.T) {
 		Argo: &bootstrapv1.Workflow_Argo{ServerUrl: "http://127.0.0.1:2746", Namespace: "ci"},
 	}
 
-	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), workflowTestProvider(wr))
-	if _, ok := a.Workflow("argo"); ok {
+	a := assembleForTest(t, cfg, ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), workflowTestProvider(wr))
+	if _, ok := a.Resource("workflow.argo"); ok {
 		t.Fatal("Workflow should be empty before Run (phase B not reached)")
 	}
 
@@ -44,7 +44,7 @@ func TestAssemble_ContractWorkflowLifecycle(t *testing.T) {
 	go func() { done <- a.Run(ctx) }()
 	time.Sleep(300 * time.Millisecond)
 
-	cli, ok := a.Workflow("argo")
+	cli, ok := a.Resource("workflow.argo")
 	if !ok {
 		t.Fatal("workflow instance not built from contract")
 	}
@@ -77,7 +77,7 @@ func TestAssemble_WorkflowSectionWithoutTable(t *testing.T) {
 		Argo: &bootstrapv1.Workflow_Argo{ServerUrl: "http://127.0.0.1:2746"},
 	}
 
-	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
+	a := assembleForTest(t, cfg, ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
 	err := a.Run(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "no consumer") && strings.Contains(err.Error(), "workflow") {
 		t.Fatalf("expected WorkflowRegistry missing error, got %v", err)

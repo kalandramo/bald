@@ -71,7 +71,7 @@ func TestAssemble_ContractRegistrarLifecycle(t *testing.T) {
 	cfg := bconfNewBootstrapWithRegistry("fake")
 	dynamicAddr(cfg)
 
-	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), registrarTestProvider(rr))
+	a := assembleForTest(t, cfg, ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), registrarTestProvider(rr))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
@@ -103,7 +103,7 @@ func TestAssemble_ContractRegistrarLifecycle(t *testing.T) {
 	}
 }
 
-// 显式 WithRegistrar 优先：契约段存在但显式实例非 nil 时不走契约装配。
+// 显式 Registrar 优先：契约段存在但显式实例非 nil 时不走契约装配。
 func TestAssemble_ExplicitRegistrarWins(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
@@ -120,8 +120,8 @@ func TestAssemble_ExplicitRegistrarWins(t *testing.T) {
 
 	explicit := &stubRegistrar{}
 	a := assembleForTest(t, cfg,
-		WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
-		WithRegistrar(explicit),
+		ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
+		Registrar(explicit),
 		registrarTestProvider(rr),
 	)
 
@@ -149,7 +149,7 @@ func TestAssemble_RegistrySectionWithoutTable(t *testing.T) {
 	cfg := bconfNewBootstrapWithRegistry("fake")
 	dynamicAddr(cfg)
 
-	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
+	a := assembleForTest(t, cfg, ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
 	err := a.Run(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "no consumer") || !strings.Contains(err.Error(), "registry") {
 		t.Fatalf("expected no-consumer error for registry, got %v", err)
@@ -183,7 +183,7 @@ func TestNew_SetRegistrarLifecycle(t *testing.T) {
 	app = NewApp(
 		Name("setreg"),
 		Servers(srv),
-		Effect("appkit:registrar-client", func(context.Context) error {
+		effectOpt("appkit:registrar-client", func(context.Context) error {
 			if cleanup != nil {
 				cleanup()
 			}

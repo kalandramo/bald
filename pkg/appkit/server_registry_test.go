@@ -48,7 +48,7 @@ func TestAssemble_ServerCoProviderDeferred(t *testing.T) {
 
 	var called, started atomic.Bool
 	a := assembleForTest(t, cfg,
-		WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
+		ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
 		StandardServerProvider(), asynqCoProvider(&called, &started))
 	// 构造期：co-provider 不应被调用（服务器构造延后到 Run 期迟后阶段）。
 	if called.Load() {
@@ -78,7 +78,7 @@ func TestAssemble_ServerCoProviderOnlyNoMainProtocol(t *testing.T) {
 	cfg.Server.Grpc = nil
 
 	var called, started atomic.Bool
-	a := assembleForTest(t, cfg, WithConfigNamespace(testConfigNamespace),
+	a := assembleForTest(t, cfg, ConfigNamespace(testConfigNamespace),
 		asynqCoProvider(&called, &started))
 	if a == nil {
 		t.Fatal("a = nil")
@@ -108,7 +108,7 @@ func TestAssemble_BuiltinStdServerProvider(t *testing.T) {
 	}
 
 	a := assembleForTest(t, cfg,
-		WithConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
+		ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
 		StandardServerProvider())
 
 	runBriefly(t, a, 50*time.Millisecond)
