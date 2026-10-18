@@ -163,19 +163,24 @@ func (o *appOptions) Run() error {
 	if err != nil {
 		return err
 	}
-	if err := writeFileGuarded(o.OutFile, formatted, o.Force, o.IOStreams); err != nil {
+	if err := writeGuarded(o.OutFile, formatted, Owned, o.Force, o.IOStreams); err != nil {
 		return err
 	}
 	fmt.Fprintln(o.Out, "next: fill [FILL] points, then `go mod edit` your module imports if needed")
 	return nil
 }
 
-// genAppCmd 生成应用装配骨架 main.go（第一步模板生成 + 第二步 AppSpec 方言驱动）。
+// genAppCmd 生成应用装配骨架（第一步模板生成 + 第二步 AppSpec 目标目录树）。
 //
 // 两种模式：
 //   - gen app <name>                       → 第一版硬编码模板骨架（含 [FILL] 填充点）
-//   - gen app <name> --spec <AppSpec.json> → 第二版方言驱动：AppSpec 单一真相源，
-//     依 ServerSpec/ComponentSpec/CapabilitySpec/audit_backends 装配 appkit 全原语。
+//   - gen app <name> --spec <AppSpec.json> → 第二版方言驱动（批 3 W3a）：AppSpec
+//     单一真相源，生成目标目录树（§4.6 / D2 §2.1）——cmd/<app>/{main.go,app/command.go}、
+//     internal/bootstrap/{assemble.gen.go,domains.gen.go,seed/}、
+//     internal/apiserver/{apiserver.go,domains.gen.go,layering_invariant_test.go}、
+//     api/{buf.yaml,buf.gen.yaml}、configs/<app>.yaml、taskfile.yml；三道门
+//     （Gate1 schema / Gate2 契约键 / Gate3 StrictContract）全过后落盘，
+//     归属三态（owned 覆盖 / seeded 跳过 kept: / user 永不触碰）。
 func genAppCmd(streams IOStreams) *cobra.Command {
 	o := &appOptions{IOStreams: streams}
 	cmd := &cobra.Command{
@@ -191,9 +196,10 @@ func genAppCmd(streams IOStreams) *cobra.Command {
 
 填充点标记为 [FILL]。素材对照 kalandramo/bald-admin M10 装配形状。
 
-指定 --spec <AppSpec.json> 时切换为 P12 第二步：以 AppSpec 方言（proto 单一真相源）
-驱动装配，取代本模板的硬编码字段；此时 <name> 可省略——应用名与默认输出路径
-（cmd/<AppSpec.meta.name>/main.go）均以 AppSpec 为准。`,
+指定 --spec <AppSpec.json> 时切换为 P12 第二步（批 3 目标目录树）：以 AppSpec
+方言（proto 单一真相源）驱动整套骨架，此时 <name> 可省略——应用名与目录树
+均以 AppSpec 为准。旧字段 server/audit_backends/bundle_normalized 是快捷
+方式：bootstrap 段为空时归一化进契约投影，非空时与其投影不一致生成期报错。`,
 		Args: func(_ *cobra.Command, args []string) error {
 			if o.Spec == "" && len(args) != 1 {
 				// 模板模式必须给应用名（决定 cmd/<name>/main.go）。
@@ -215,14 +221,20 @@ func genAppCmd(streams IOStreams) *cobra.Command {
 			return o.Run()
 		},
 	}
-	cmd.Flags().StringVar(&o.OutFile, "out", "", "输出文件（默认 cmd/<name>/main.go）")
+	cmd.Flags().StringVar(&o.OutFile, "out", "", "输出根目录（模板模式默认 cmd/<name>/main.go；spec 模式默认 layout.root 或 .）")
 	cmd.Flags().StringVar(&o.Module, "module", "", "业务 module 路径（提示用）")
 	cmd.Flags().StringVar(&o.Spec, "spec", "", "AppSpec JSON 路径（protojson），开启 P12 第二步方言生成")
 	cmd.Flags().BoolVar(&o.Force, "force", false, "覆盖已存在的目标文件（默认拒绝）")
 	return cmd
 }
 
-// runGenAppSpec 读取 AppSpec 并用 appspec 模板渲染（第二步）。
+// runGenAppSpec 读取 AppSpec 并生成目标目录树（第二步）：三道门全过后落盘。
+//
+// 流水线：Gate1 schema 门（validateAppSpec）→ 快捷方式归一化
+// （normalizeBootstrap——bootstrap 为空时旧 6 字段升格为唯一契约投影）→
+// Gate2 契约门（contractGate：描述符派生配置树 + 未知键校验 + YAML 回读
+// 复检）→ buildTreeView（段存在性派生，无字段转写）→ buildTree/emitTree
+// （三态归属落盘）。appspecData 手工转写已删除：模板直接吃 *appspecv1.AppSpec。
 func runGenAppSpec(spec, out string, force bool, streams IOStreams) error {
 	raw, err := os.ReadFile(spec)
 	if err != nil {
@@ -232,18 +244,25 @@ func runGenAppSpec(spec, out string, force bool, streams IOStreams) error {
 	if err := protojson.Unmarshal(raw, as); err != nil {
 		return fmt.Errorf("parse AppSpec (protojson): %w", err)
 	}
-	if out == "" {
-		// 未显式给 --out：默认 cmd/<AppSpec.meta.name>/main.go（与 spec 内命名一致，
-		// 不取 CLI 位置参数——spec 方言下应用名由 AppSpec 决定）。
-		out = filepath.Join("cmd", as.Meta.GetName(), "main.go")
+	if err := guardErrs(validateAppSpec(as)); err != nil {
+		return fmt.Errorf("Gate1 (spec schema): %w", err)
 	}
-	data := appspecData{
-		Meta:             as.Meta,
-		Server:           as.Server,
-		Capability:       as.Capability,
-		Components:       as.Components,
-		AuditBackends:    as.AuditBackends,
-		BundleNormalized: as.BundleNormalized,
+	bs := normalizeBootstrap(as)
+	cfgYAML, err := contractGate(as, bs)
+	if err != nil {
+		return err
 	}
-	return renderAppSpec(data, out, force, streams)
+	root := out
+	if root == "" {
+		root = as.GetLayout().GetRoot() // layout.root 默认 "."（产出根 = CWD）
+	}
+	files, err := buildTree(buildTreeView(as, bs), cfgYAML)
+	if err != nil {
+		return err
+	}
+	if err := emitTree(root, files, force, streams); err != nil {
+		return err
+	}
+	fmt.Fprintln(streams.Out, "next: appspec.json is the declaration truth source; edit it and rerun with --force to regenerate owned files (seeded files are kept, user files are never touched)")
+	return nil
 }

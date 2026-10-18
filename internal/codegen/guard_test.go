@@ -15,9 +15,11 @@ func testStreams() (IOStreams, *bytes.Buffer) {
 	return IOStreams{In: os.Stdin, Out: &out, ErrOut: os.Stderr}, &out
 }
 
-// TestWriteFileGuarded_RefusesOverwrite 防覆盖底线：目标已存在即拒绝，
-// 原文件内容分毫不动，错误信息自带 --force 指引。
-func TestWriteFileGuarded_RefusesOverwrite(t *testing.T) {
+// ---- writeGuarded 三态归属（D2 §5.1 回归生成语义）----
+
+// TestWriteGuarded_OwnedRefusesOverwrite Owned 防覆盖底线：目标已存在且无
+// --force 即拒绝，原文件分毫不动，错误信息自带 --force 指引。
+func TestWriteGuarded_OwnedRefusesOverwrite(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "demo.proto")
 	if err := os.WriteFile(path, []byte("hand-edited"), 0o644); err != nil {
@@ -25,9 +27,9 @@ func TestWriteFileGuarded_RefusesOverwrite(t *testing.T) {
 	}
 	streams, out := testStreams()
 
-	err := writeFileGuarded(path, []byte("regenerated"), false, streams)
+	err := writeGuarded(path, []byte("regenerated"), Owned, false, streams)
 	if err == nil {
-		t.Fatal("must refuse to overwrite an existing file")
+		t.Fatal("must refuse to overwrite an existing owned file without --force")
 	}
 	for _, want := range []string{"already exists", "--force"} {
 		if !strings.Contains(err.Error(), want) {
@@ -43,8 +45,8 @@ func TestWriteFileGuarded_RefusesOverwrite(t *testing.T) {
 	}
 }
 
-// TestWriteFileGuarded_ForceOverwrites --force 显式放行覆盖，成功提示走 Out。
-func TestWriteFileGuarded_ForceOverwrites(t *testing.T) {
+// TestWriteGuarded_OwnedForceOverwrites Owned + --force 显式放行覆盖。
+func TestWriteGuarded_OwnedForceOverwrites(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "demo.proto")
 	if err := os.WriteFile(path, []byte("old"), 0o644); err != nil {
@@ -52,7 +54,7 @@ func TestWriteFileGuarded_ForceOverwrites(t *testing.T) {
 	}
 	streams, out := testStreams()
 
-	if err := writeFileGuarded(path, []byte("new"), true, streams); err != nil {
+	if err := writeGuarded(path, []byte("new"), Owned, true, streams); err != nil {
 		t.Fatalf("force write: %v", err)
 	}
 	got, _ := os.ReadFile(path)
@@ -64,19 +66,114 @@ func TestWriteFileGuarded_ForceOverwrites(t *testing.T) {
 	}
 }
 
-// TestWriteFileGuarded_WritesNew 新路径正常写入（含目录自动创建）。
-func TestWriteFileGuarded_WritesNew(t *testing.T) {
+// TestWriteGuarded_SeededKept Seeded 生成一次：不存在则写；已存在即跳过并
+// 输出 kept:（不算错误，--force 也不覆盖——生成一次之后归用户维护）。
+func TestWriteGuarded_SeededKept(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "seed", "seed.go")
+	streams, out := testStreams()
+
+	if err := writeGuarded(path, []byte("package seed\n\n// v1\n"), Seeded, false, streams); err != nil {
+		t.Fatalf("first seed write: %v", err)
+	}
+	if !strings.Contains(out.String(), "generated:") {
+		t.Errorf("first write must report generated:, got: %q", out.String())
+	}
+
+	// 用户手改后的内容 --force 也不许覆盖。
+	streams2, out2 := testStreams()
+	if err := writeGuarded(path, []byte("package seed\n\n// v2 (regenerated)\n"), Seeded, true, streams2); err != nil {
+		t.Fatalf("seeded skip must not be an error: %v", err)
+	}
+	if !strings.Contains(out2.String(), "kept:") {
+		t.Errorf("seeded skip must report kept:, got: %q", out2.String())
+	}
+	got, _ := os.ReadFile(path)
+	if !strings.Contains(string(got), "// v1") {
+		t.Errorf("seeded file must be kept verbatim, got: %q", got)
+	}
+}
+
+// TestWriteGuarded_UserUntouched User 永不落盘：只输出 skip:，连目录都不创建。
+func TestWriteGuarded_UserUntouched(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "user", "biz.go")
+	streams, out := testStreams()
+
+	if err := writeGuarded(path, []byte("package biz"), User, true, streams); err != nil {
+		t.Fatalf("user file must never be an error: %v", err)
+	}
+	if !strings.Contains(out.String(), "skip:") {
+		t.Errorf("user file must report skip:, got: %q", out.String())
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("user file must not be created: %v", err)
+	}
+}
+
+// TestWriteGuarded_WritesNew 新路径正常写入（含目录自动创建）。
+func TestWriteGuarded_WritesNew(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "nested", "cmd", "demo", "main.go")
 	streams, out := testStreams()
 
-	if err := writeFileGuarded(path, []byte("package main"), false, streams); err != nil {
+	if err := writeGuarded(path, []byte("package main"), Owned, false, streams); err != nil {
 		t.Fatalf("write new: %v", err)
 	}
 	if !strings.Contains(out.String(), "generated:") {
 		t.Errorf("success message must go to Out, got: %q", out.String())
 	}
 }
+
+// ---- 越权直写回归锁（D2 §5.3）：gofmt 失败绝不触碰目标 ----
+
+// TestWriteFileFormatted_GofmtFailureNeverTouchesTarget gofmt 失败时目标文件
+// 字节不变、诊断原文写 <path>.rej、错误里附 .rej 路径。旧 renderAppSpec 在
+// 此场景 os.WriteFile 目标路径（无 --force 也截断重写用户文件）——本测试钉死。
+func TestWriteFileFormatted_GofmtFailureNeverTouchesTarget(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "main.go")
+	sentinel := "package main // user-edited, precious"
+	if err := os.WriteFile(path, []byte(sentinel), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	streams, _ := testStreams()
+
+	err := writeFileFormatted(path, []byte("func ( {not go"), Owned, false, streams)
+	if err == nil {
+		t.Fatal("gofmt failure must be an error")
+	}
+	if !strings.Contains(err.Error(), ".rej") {
+		t.Errorf("error must mention the .rej path, got: %v", err)
+	}
+	got, _ := os.ReadFile(path)
+	if string(got) != sentinel {
+		t.Errorf("target was touched on gofmt failure: %q", got)
+	}
+	rej, err := os.ReadFile(path + ".rej")
+	if err != nil {
+		t.Fatalf("diagnostic .rej not written: %v", err)
+	}
+	if string(rej) != "func ( {not go" {
+		t.Errorf(".rej must carry the raw output, got: %q", rej)
+	}
+}
+
+// TestWriteFileFormatted_SuccessGoesThroughGuard gofmt 成功后走 writeGuarded
+// （Owned 无 --force 拒绝覆盖已存在文件）。
+func TestWriteFileFormatted_SuccessGoesThroughGuard(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "main.go")
+	if err := os.WriteFile(path, []byte("package main"), 0o644); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	streams, _ := testStreams()
+	if err := writeFileFormatted(path, []byte("package main\n"), Owned, false, streams); err == nil {
+		t.Fatal("owned overwrite without --force must be refused")
+	}
+}
+
+// ---- 命令级契约（gen proto 沿用 Owned 语义）----
 
 // TestGenProto_CommandGuard CLI 层端到端：gen proto 二次执行拒绝（不静默覆盖），
 // --force 放行；信息性输出走 IOStreams.Out 而非内建 println（stderr）。

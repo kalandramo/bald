@@ -2,69 +2,131 @@ syntax = "proto3";
 
 package bald.appspec.v1;
 
+import "bootstrap/v1/bootstrap.proto";
+
 option go_package = "github.com/kalandramo/bald/bconf/gen/go/bald/appspec/v1;appspecv1";
 
 // AppSpec 是 bald 应用的「声明式拓扑方言」（P12 第二步）：用一个 proto message
 // 描述一个微服务的装配形态——开通哪些 server、挂载哪些组件、声明哪些能力依赖、
-// 启用哪些审计后端。代码生成器（gen app --spec）读取 AppSpec，据此吐出一份
-// 已装配好 appkit 全原语（Capability/S1、Component/C1、Reconcile/R1-2、
-// Mount/A1、bundle）的 main.go，消除「模板 + 手填配置键」两处真相源。
+// 启用哪些审计后端。代码生成器（gen app --spec）读取 AppSpec，据此吐出目标
+// 目录树（装配层评估 §4.6 / D2-target-codegen.md §2.1）。
 //
-// 设计对齐 go-wind-admin 的 proto 组织（service/v1 + config 分层），但更激进：
-// 把「应用装配」本身也升格为单一 proto 真相源，而非散落在 main.go 的 Option 链。
+// 唯一真相源纪律（批 3 裁决 4 / 膨胀根治）：框架契约段的真相源是
+// bootstrap.v1.BootstrapConfig（字段 7），AppSpec 不复制它的字段；旧字段
+// server / audit_backends / bundle_normalized 降级为「快捷方式」——bootstrap
+// 为空时被归一化进投影，bootstrap 非空时任一非零快捷值与其投影不一致即
+// 生成期报错（Gate1，internal/codegen/appspec_validate.go），消灭双真相源
+// 而不是制造静默覆盖。
 message AppSpec {
-  // 应用元信息（生成代码的标识）。
+  // 应用元信息（生成代码的标识；契约 app.name 缺省取 meta.name）。
   AppMeta meta = 1;
 
-  // 开通的传输服务（HTTP/gRPC/gRPC-Gateway）。
+  // [快捷方式] 开通的传输服务；bootstrap.server 非空时必须与投影一致。
   ServerSpec server = 2;
 
   // 挂载的组件（生命周期受 C1 五阶段停机管理）。
   repeated ComponentSpec components = 3;
 
-  // 能力依赖（S1 启动期 fail-fast 校验）。
+  // 能力依赖（S1 启动期 fail-fast 校验；生成期 Gate1 先校验 requires⊆provides）。
   CapabilitySpec capability = 4;
 
-  // 审计后端期望态（R1-2 协调器消费，对应 config audit.backends）。
+  // [快捷方式] 审计后端期望态；bootstrap.audit 非空时必须与
+  // bootstrap.audit.backends 一致（含顺序——列表序即 MultiAuditor 广播序）。
   repeated string audit_backends = 5;
 
-  // 是否启用归一化中间件链（P9 + P10 bundle Normalized()）。
+  // [快捷方式] 是否启用归一化中间件链；bundle.normalized 声明时必须与其一致。
   bool bundle_normalized = 6;
+
+  // 框架契约段：唯一真相源 = bconf（15 段一次带入，不复制字段）。生成物
+  // configs/<app>.yaml 由本段经 protoreflect 派生——加一个 bconf 段 = 0 处
+  // 生成器改动（装配层评估 §4.6 膨胀根治 / D2 §3.4）。
+  bootstrap.v1.BootstrapConfig bootstrap = 7;
+
+  // 生成期布局声明（输出根 / apiserver 目录 / Gate3 开关）。
+  LayoutSpec layout = 8;
+
+  // 装配期 bundle 声明（取代 bundle_normalized 快捷方式；bundle 是装配期
+  // 概念不是契约段，故不在 bootstrap）。
+  BundleSpec bundle = 9;
+
+  // 显式域清单（裁决 4：域声明值经生成物 domains.gen.go 变参直传
+  // MustServe；name 唯一由 Gate1 校验）。
+  repeated DomainSpec domains = 10;
+}
+
+// LayoutSpec 声明生成期布局。
+message LayoutSpec {
+  // 产出根目录（gen app 相对它落盘），默认 "."。
+  string root = 1;
+  // apiserver 目录名（internal/<apiserver_dir>），默认 "apiserver"。
+  string apiserver_dir = 2;
+  // 生成物是否 emit appkit.StrictContract（Gate3 运行期契约门）。
+  // 默认 true（proto3 optional 保 presence：未声明 = true，显式 false 才关闭）。
+  optional bool strict_contract = 3;
+}
+
+// BundleSpec 声明装配期 bundle（P10 横切链；P9 归一化）。链序由框架固化、
+// 无显式覆盖 API，故本消息只保留有消费者的字段（YAGNI——声明面不允许
+// 无消费者字段，见 internal/codegen 的字段消费机器守卫）。
+message BundleSpec {
+  // 是否启用归一化（audit object/action 双传输同源）。
+  bool normalized = 1;
+}
+
+// DomainSpec 声明一个业务域（裁决 4：域清单进 AppSpec）。
+message DomainSpec {
+  // 域名（全应用唯一；域装配次序 = 声明序）。
+  string name = 1;
+  // 域的 proto 包名（如 "greet.v1"）。
+  string proto_package = 2;
+  // 域的 gRPC service 全名（如 "greet.v1.GreetService"；W3b gen domain
+  // 校验其与实际 proto 匹配并派生路由/授权策略）。
+  string service = 3;
+  // 域模型文件（如 "internal/apiserver/model/greet.go"）。
+  string model = 4;
+  // 域声明值所在的 Go import 路径（该包须导出 appkit.Domain 值——W2 形态，
+  // 对照 _example/bald/domains.gen.go）。
+  string go_package = 5;
 }
 
 // AppMeta 生成代码的标识信息。
 message AppMeta {
   // 应用/命令名（如 go-bald-admin），决定 cmd/<name>/main.go 路径与包名。
   string name = 1;
-  // Go module 路径（如 github.com/you/app），生成文件头 import 用。
+  // Go module 路径（如 github.com/you/app），生成文件 import 前缀。
   string module = 2;
-  // 服务中文/英文短描述，落在文件头注释。
+  // 服务中文/英文短描述，落在 command.go 的 Short 与文件头注释。
   string desc = 3;
 }
 
-// ServerSpec 声明要开通的传输服务。
+// ServerSpec 声明要开通的传输服务（[快捷方式]：bootstrap.server 非空时，
+// 下方任一非零值都必须与 bootstrap 投影一致，否则生成期报错）。
 message ServerSpec {
-  // 是否开通 HTTP（gin）。
+  // 是否开通 HTTP（投影 = bootstrap.server.http 段存在）。
   bool http = 1;
-  // 是否开通 gRPC。
+  // 是否开通 gRPC（投影 = bootstrap.server.grpc 段存在）。
   bool grpc = 2;
-  // 是否开通 gRPC-Gateway（REST transcoding）。
+  // 是否开通 gRPC-Gateway（REST transcoding）。投影 = server.http.driver
+  // == "grpc-gateway"（同端口单面）或 server.gateway 段（独立端口）。
   bool gateway = 3;
-  // HTTP 监听地址（空则用 config 默认）。
+  // HTTP 监听地址（投影 = server.http.addr）。
   string http_addr = 4;
-  // gRPC 监听地址（空则用 config 默认）。
+  // gRPC 监听地址（投影 = server.grpc.addr）。
   string grpc_addr = 5;
 }
 
 // ComponentSpec 声明一个托管组件。
 message ComponentSpec {
   // 组件类型；生成器据此挑选对应组件工厂。
-  // 取值：heartbeat | db | redis | otlp | casbin | store-audit | stream-audit。
+  // 取值 = Gate1 白名单（生成器已实现工厂的 kind 集合）：heartbeat。
+  // 其余 kind 生成期即报错（此前 db/redis/... 到运行期才炸 unknown kind）。
   string kind = 1;
   // 组件名（写入 ReconcileCtx/Registry 的标识，须唯一）。
   string name = 2;
-  // 组件所需的配置键前缀（生成对应 config 读取代码）。
+  // 组件所需的配置键前缀（组件工厂消费，落到组件自身的配置读取）。
   string config_prefix = 3;
+  // 组件工厂参数（k/v 原样透传给组件工厂，声明面不再有未消费字段）。
+  map<string, string> params = 4;
 }
 
 // CapabilitySpec 声明能力依赖（S1 Provides/Requires 校验源）。
@@ -81,6 +143,6 @@ message CapabilitySpec {
 message Requirement {
   // 依赖方组件标识（如 "audit.store"），用于缺失时定位。
   string component = 1;
-  // 依赖的能力列表（须被 Provides 覆盖，否则启动 fail-fast）。
+  // 依赖的能力列表（须被 Provides 覆盖，否则生成期 Gate1 / 启动期 S1 fail-fast）。
   repeated string caps = 2;
 }

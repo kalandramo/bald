@@ -119,7 +119,7 @@ func (o *protoOptions) Run() error {
 	if err != nil {
 		return err
 	}
-	if err := writeFileGuarded(filepath.Join(o.OutDir, o.Name+".proto"), content, o.Force, o.IOStreams); err != nil {
+	if err := writeGuarded(filepath.Join(o.OutDir, o.Name+".proto"), content, Owned, o.Force, o.IOStreams); err != nil {
 		return err
 	}
 	// A2：buf 生态联动——bald 仓库的 proto 生成统一走 buf（api/proto/buf.gen.yaml，
@@ -192,7 +192,7 @@ func (o *storeOptions) Run() error {
 	if err != nil {
 		return err
 	}
-	return writeFileGuarded(filepath.Join(o.OutDir, o.Name+".go"), formatted, o.Force, o.IOStreams)
+	return writeGuarded(filepath.Join(o.OutDir, o.Name+".go"), formatted, Owned, o.Force, o.IOStreams)
 }
 
 func genStoreCmd(streams IOStreams) *cobra.Command {
@@ -218,7 +218,7 @@ func genStoreCmd(streams IOStreams) *cobra.Command {
 	return cmd
 }
 
-// renderTmpl 渲染模板并返回字节（落盘统一走 writeFileGuarded，不再内联写文件）。
+// renderTmpl 渲染模板并返回字节（落盘统一走 writeGuarded，不再内联写文件）。
 func renderTmpl(name, tmpl string, data any) ([]byte, error) {
 	t := template.Must(template.New(name).Funcs(template.FuncMap{"title": title}).Parse(tmpl))
 	var buf bytes.Buffer

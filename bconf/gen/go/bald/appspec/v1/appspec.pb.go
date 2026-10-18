@@ -7,6 +7,7 @@
 package appspecv1
 
 import (
+	v1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -23,28 +24,44 @@ const (
 
 // AppSpec 是 bald 应用的「声明式拓扑方言」（P12 第二步）：用一个 proto message
 // 描述一个微服务的装配形态——开通哪些 server、挂载哪些组件、声明哪些能力依赖、
-// 启用哪些审计后端。代码生成器（gen app --spec）读取 AppSpec，据此吐出一份
-// 已装配好 appkit 全原语（Capability/S1、Component/C1、Reconcile/R1-2、
-// Mount/A1、bundle）的 main.go，消除「模板 + 手填配置键」两处真相源。
+// 启用哪些审计后端。代码生成器（gen app --spec）读取 AppSpec，据此吐出目标
+// 目录树（装配层评估 §4.6 / D2-target-codegen.md §2.1）。
 //
-// 设计对齐 go-wind-admin 的 proto 组织（service/v1 + config 分层），但更激进：
-// 把「应用装配」本身也升格为单一 proto 真相源，而非散落在 main.go 的 Option 链。
+// 唯一真相源纪律（批 3 裁决 4 / 膨胀根治）：框架契约段的真相源是
+// bootstrap.v1.BootstrapConfig（字段 7），AppSpec 不复制它的字段；旧字段
+// server / audit_backends / bundle_normalized 降级为「快捷方式」——bootstrap
+// 为空时被归一化进投影，bootstrap 非空时任一非零快捷值与其投影不一致即
+// 生成期报错（Gate1，internal/codegen/appspec_validate.go），消灭双真相源
+// 而不是制造静默覆盖。
 type AppSpec struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// 应用元信息（生成代码的标识）。
+	// 应用元信息（生成代码的标识；契约 app.name 缺省取 meta.name）。
 	Meta *AppMeta `protobuf:"bytes,1,opt,name=meta,proto3" json:"meta,omitempty"`
-	// 开通的传输服务（HTTP/gRPC/gRPC-Gateway）。
+	// [快捷方式] 开通的传输服务；bootstrap.server 非空时必须与投影一致。
 	Server *ServerSpec `protobuf:"bytes,2,opt,name=server,proto3" json:"server,omitempty"`
 	// 挂载的组件（生命周期受 C1 五阶段停机管理）。
 	Components []*ComponentSpec `protobuf:"bytes,3,rep,name=components,proto3" json:"components,omitempty"`
-	// 能力依赖（S1 启动期 fail-fast 校验）。
+	// 能力依赖（S1 启动期 fail-fast 校验；生成期 Gate1 先校验 requires⊆provides）。
 	Capability *CapabilitySpec `protobuf:"bytes,4,opt,name=capability,proto3" json:"capability,omitempty"`
-	// 审计后端期望态（R1-2 协调器消费，对应 config audit.backends）。
+	// [快捷方式] 审计后端期望态；bootstrap.audit 非空时必须与
+	// bootstrap.audit.backends 一致（含顺序——列表序即 MultiAuditor 广播序）。
 	AuditBackends []string `protobuf:"bytes,5,rep,name=audit_backends,json=auditBackends,proto3" json:"audit_backends,omitempty"`
-	// 是否启用归一化中间件链（P9 + P10 bundle Normalized()）。
+	// [快捷方式] 是否启用归一化中间件链；bundle.normalized 声明时必须与其一致。
 	BundleNormalized bool `protobuf:"varint,6,opt,name=bundle_normalized,json=bundleNormalized,proto3" json:"bundle_normalized,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// 框架契约段：唯一真相源 = bconf（15 段一次带入，不复制字段）。生成物
+	// configs/<app>.yaml 由本段经 protoreflect 派生——加一个 bconf 段 = 0 处
+	// 生成器改动（装配层评估 §4.6 膨胀根治 / D2 §3.4）。
+	Bootstrap *v1.BootstrapConfig `protobuf:"bytes,7,opt,name=bootstrap,proto3" json:"bootstrap,omitempty"`
+	// 生成期布局声明（输出根 / apiserver 目录 / Gate3 开关）。
+	Layout *LayoutSpec `protobuf:"bytes,8,opt,name=layout,proto3" json:"layout,omitempty"`
+	// 装配期 bundle 声明（取代 bundle_normalized 快捷方式；bundle 是装配期
+	// 概念不是契约段，故不在 bootstrap）。
+	Bundle *BundleSpec `protobuf:"bytes,9,opt,name=bundle,proto3" json:"bundle,omitempty"`
+	// 显式域清单（裁决 4：域声明值经生成物 domains.gen.go 变参直传
+	// MustServe；name 唯一由 Gate1 校验）。
+	Domains       []*DomainSpec `protobuf:"bytes,10,rep,name=domains,proto3" json:"domains,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *AppSpec) Reset() {
@@ -119,14 +136,239 @@ func (x *AppSpec) GetBundleNormalized() bool {
 	return false
 }
 
+func (x *AppSpec) GetBootstrap() *v1.BootstrapConfig {
+	if x != nil {
+		return x.Bootstrap
+	}
+	return nil
+}
+
+func (x *AppSpec) GetLayout() *LayoutSpec {
+	if x != nil {
+		return x.Layout
+	}
+	return nil
+}
+
+func (x *AppSpec) GetBundle() *BundleSpec {
+	if x != nil {
+		return x.Bundle
+	}
+	return nil
+}
+
+func (x *AppSpec) GetDomains() []*DomainSpec {
+	if x != nil {
+		return x.Domains
+	}
+	return nil
+}
+
+// LayoutSpec 声明生成期布局。
+type LayoutSpec struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 产出根目录（gen app 相对它落盘），默认 "."。
+	Root string `protobuf:"bytes,1,opt,name=root,proto3" json:"root,omitempty"`
+	// apiserver 目录名（internal/<apiserver_dir>），默认 "apiserver"。
+	ApiserverDir string `protobuf:"bytes,2,opt,name=apiserver_dir,json=apiserverDir,proto3" json:"apiserver_dir,omitempty"`
+	// 生成物是否 emit appkit.StrictContract（Gate3 运行期契约门）。
+	// 默认 true（proto3 optional 保 presence：未声明 = true，显式 false 才关闭）。
+	StrictContract *bool `protobuf:"varint,3,opt,name=strict_contract,json=strictContract,proto3,oneof" json:"strict_contract,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *LayoutSpec) Reset() {
+	*x = LayoutSpec{}
+	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LayoutSpec) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LayoutSpec) ProtoMessage() {}
+
+func (x *LayoutSpec) ProtoReflect() protoreflect.Message {
+	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LayoutSpec.ProtoReflect.Descriptor instead.
+func (*LayoutSpec) Descriptor() ([]byte, []int) {
+	return file_bald_appspec_v1_appspec_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *LayoutSpec) GetRoot() string {
+	if x != nil {
+		return x.Root
+	}
+	return ""
+}
+
+func (x *LayoutSpec) GetApiserverDir() string {
+	if x != nil {
+		return x.ApiserverDir
+	}
+	return ""
+}
+
+func (x *LayoutSpec) GetStrictContract() bool {
+	if x != nil && x.StrictContract != nil {
+		return *x.StrictContract
+	}
+	return false
+}
+
+// BundleSpec 声明装配期 bundle（P10 横切链；P9 归一化）。链序由框架固化、
+// 无显式覆盖 API，故本消息只保留有消费者的字段（YAGNI——声明面不允许
+// 无消费者字段，见 internal/codegen 的字段消费机器守卫）。
+type BundleSpec struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 是否启用归一化（audit object/action 双传输同源）。
+	Normalized    bool `protobuf:"varint,1,opt,name=normalized,proto3" json:"normalized,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BundleSpec) Reset() {
+	*x = BundleSpec{}
+	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BundleSpec) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BundleSpec) ProtoMessage() {}
+
+func (x *BundleSpec) ProtoReflect() protoreflect.Message {
+	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BundleSpec.ProtoReflect.Descriptor instead.
+func (*BundleSpec) Descriptor() ([]byte, []int) {
+	return file_bald_appspec_v1_appspec_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *BundleSpec) GetNormalized() bool {
+	if x != nil {
+		return x.Normalized
+	}
+	return false
+}
+
+// DomainSpec 声明一个业务域（裁决 4：域清单进 AppSpec）。
+type DomainSpec struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 域名（全应用唯一；域装配次序 = 声明序）。
+	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// 域的 proto 包名（如 "greet.v1"）。
+	ProtoPackage string `protobuf:"bytes,2,opt,name=proto_package,json=protoPackage,proto3" json:"proto_package,omitempty"`
+	// 域的 gRPC service 全名（如 "greet.v1.GreetService"；W3b gen domain
+	// 校验其与实际 proto 匹配并派生路由/授权策略）。
+	Service string `protobuf:"bytes,3,opt,name=service,proto3" json:"service,omitempty"`
+	// 域模型文件（如 "internal/apiserver/model/greet.go"）。
+	Model string `protobuf:"bytes,4,opt,name=model,proto3" json:"model,omitempty"`
+	// 域声明值所在的 Go import 路径（该包须导出 appkit.Domain 值——W2 形态，
+	// 对照 _example/bald/domains.gen.go）。
+	GoPackage     string `protobuf:"bytes,5,opt,name=go_package,json=goPackage,proto3" json:"go_package,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DomainSpec) Reset() {
+	*x = DomainSpec{}
+	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DomainSpec) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DomainSpec) ProtoMessage() {}
+
+func (x *DomainSpec) ProtoReflect() protoreflect.Message {
+	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DomainSpec.ProtoReflect.Descriptor instead.
+func (*DomainSpec) Descriptor() ([]byte, []int) {
+	return file_bald_appspec_v1_appspec_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *DomainSpec) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *DomainSpec) GetProtoPackage() string {
+	if x != nil {
+		return x.ProtoPackage
+	}
+	return ""
+}
+
+func (x *DomainSpec) GetService() string {
+	if x != nil {
+		return x.Service
+	}
+	return ""
+}
+
+func (x *DomainSpec) GetModel() string {
+	if x != nil {
+		return x.Model
+	}
+	return ""
+}
+
+func (x *DomainSpec) GetGoPackage() string {
+	if x != nil {
+		return x.GoPackage
+	}
+	return ""
+}
+
 // AppMeta 生成代码的标识信息。
 type AppMeta struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// 应用/命令名（如 go-bald-admin），决定 cmd/<name>/main.go 路径与包名。
 	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	// Go module 路径（如 github.com/you/app），生成文件头 import 用。
+	// Go module 路径（如 github.com/you/app），生成文件 import 前缀。
 	Module string `protobuf:"bytes,2,opt,name=module,proto3" json:"module,omitempty"`
-	// 服务中文/英文短描述，落在文件头注释。
+	// 服务中文/英文短描述，落在 command.go 的 Short 与文件头注释。
 	Desc          string `protobuf:"bytes,3,opt,name=desc,proto3" json:"desc,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -134,7 +376,7 @@ type AppMeta struct {
 
 func (x *AppMeta) Reset() {
 	*x = AppMeta{}
-	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[1]
+	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -146,7 +388,7 @@ func (x *AppMeta) String() string {
 func (*AppMeta) ProtoMessage() {}
 
 func (x *AppMeta) ProtoReflect() protoreflect.Message {
-	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[1]
+	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -159,7 +401,7 @@ func (x *AppMeta) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AppMeta.ProtoReflect.Descriptor instead.
 func (*AppMeta) Descriptor() ([]byte, []int) {
-	return file_bald_appspec_v1_appspec_proto_rawDescGZIP(), []int{1}
+	return file_bald_appspec_v1_appspec_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *AppMeta) GetName() string {
@@ -183,18 +425,20 @@ func (x *AppMeta) GetDesc() string {
 	return ""
 }
 
-// ServerSpec 声明要开通的传输服务。
+// ServerSpec 声明要开通的传输服务（[快捷方式]：bootstrap.server 非空时，
+// 下方任一非零值都必须与 bootstrap 投影一致，否则生成期报错）。
 type ServerSpec struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// 是否开通 HTTP（gin）。
+	// 是否开通 HTTP（投影 = bootstrap.server.http 段存在）。
 	Http bool `protobuf:"varint,1,opt,name=http,proto3" json:"http,omitempty"`
-	// 是否开通 gRPC。
+	// 是否开通 gRPC（投影 = bootstrap.server.grpc 段存在）。
 	Grpc bool `protobuf:"varint,2,opt,name=grpc,proto3" json:"grpc,omitempty"`
-	// 是否开通 gRPC-Gateway（REST transcoding）。
+	// 是否开通 gRPC-Gateway（REST transcoding）。投影 = server.http.driver
+	// == "grpc-gateway"（同端口单面）或 server.gateway 段（独立端口）。
 	Gateway bool `protobuf:"varint,3,opt,name=gateway,proto3" json:"gateway,omitempty"`
-	// HTTP 监听地址（空则用 config 默认）。
+	// HTTP 监听地址（投影 = server.http.addr）。
 	HttpAddr string `protobuf:"bytes,4,opt,name=http_addr,json=httpAddr,proto3" json:"http_addr,omitempty"`
-	// gRPC 监听地址（空则用 config 默认）。
+	// gRPC 监听地址（投影 = server.grpc.addr）。
 	GrpcAddr      string `protobuf:"bytes,5,opt,name=grpc_addr,json=grpcAddr,proto3" json:"grpc_addr,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -202,7 +446,7 @@ type ServerSpec struct {
 
 func (x *ServerSpec) Reset() {
 	*x = ServerSpec{}
-	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[2]
+	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -214,7 +458,7 @@ func (x *ServerSpec) String() string {
 func (*ServerSpec) ProtoMessage() {}
 
 func (x *ServerSpec) ProtoReflect() protoreflect.Message {
-	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[2]
+	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -227,7 +471,7 @@ func (x *ServerSpec) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServerSpec.ProtoReflect.Descriptor instead.
 func (*ServerSpec) Descriptor() ([]byte, []int) {
-	return file_bald_appspec_v1_appspec_proto_rawDescGZIP(), []int{2}
+	return file_bald_appspec_v1_appspec_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *ServerSpec) GetHttp() bool {
@@ -269,19 +513,22 @@ func (x *ServerSpec) GetGrpcAddr() string {
 type ComponentSpec struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// 组件类型；生成器据此挑选对应组件工厂。
-	// 取值：heartbeat | db | redis | otlp | casbin | store-audit | stream-audit。
+	// 取值 = Gate1 白名单（生成器已实现工厂的 kind 集合）：heartbeat。
+	// 其余 kind 生成期即报错（此前 db/redis/... 到运行期才炸 unknown kind）。
 	Kind string `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`
 	// 组件名（写入 ReconcileCtx/Registry 的标识，须唯一）。
 	Name string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	// 组件所需的配置键前缀（生成对应 config 读取代码）。
-	ConfigPrefix  string `protobuf:"bytes,3,opt,name=config_prefix,json=configPrefix,proto3" json:"config_prefix,omitempty"`
+	// 组件所需的配置键前缀（组件工厂消费，落到组件自身的配置读取）。
+	ConfigPrefix string `protobuf:"bytes,3,opt,name=config_prefix,json=configPrefix,proto3" json:"config_prefix,omitempty"`
+	// 组件工厂参数（k/v 原样透传给组件工厂，声明面不再有未消费字段）。
+	Params        map[string]string `protobuf:"bytes,4,rep,name=params,proto3" json:"params,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ComponentSpec) Reset() {
 	*x = ComponentSpec{}
-	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[3]
+	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -293,7 +540,7 @@ func (x *ComponentSpec) String() string {
 func (*ComponentSpec) ProtoMessage() {}
 
 func (x *ComponentSpec) ProtoReflect() protoreflect.Message {
-	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[3]
+	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -306,7 +553,7 @@ func (x *ComponentSpec) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ComponentSpec.ProtoReflect.Descriptor instead.
 func (*ComponentSpec) Descriptor() ([]byte, []int) {
-	return file_bald_appspec_v1_appspec_proto_rawDescGZIP(), []int{3}
+	return file_bald_appspec_v1_appspec_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *ComponentSpec) GetKind() string {
@@ -330,6 +577,13 @@ func (x *ComponentSpec) GetConfigPrefix() string {
 	return ""
 }
 
+func (x *ComponentSpec) GetParams() map[string]string {
+	if x != nil {
+		return x.Params
+	}
+	return nil
+}
+
 // CapabilitySpec 声明能力依赖（S1 Provides/Requires 校验源）。
 type CapabilitySpec struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -345,7 +599,7 @@ type CapabilitySpec struct {
 
 func (x *CapabilitySpec) Reset() {
 	*x = CapabilitySpec{}
-	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[4]
+	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -357,7 +611,7 @@ func (x *CapabilitySpec) String() string {
 func (*CapabilitySpec) ProtoMessage() {}
 
 func (x *CapabilitySpec) ProtoReflect() protoreflect.Message {
-	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[4]
+	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -370,7 +624,7 @@ func (x *CapabilitySpec) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CapabilitySpec.ProtoReflect.Descriptor instead.
 func (*CapabilitySpec) Descriptor() ([]byte, []int) {
-	return file_bald_appspec_v1_appspec_proto_rawDescGZIP(), []int{4}
+	return file_bald_appspec_v1_appspec_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *CapabilitySpec) GetProvides() []string {
@@ -392,7 +646,7 @@ type Requirement struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// 依赖方组件标识（如 "audit.store"），用于缺失时定位。
 	Component string `protobuf:"bytes,1,opt,name=component,proto3" json:"component,omitempty"`
-	// 依赖的能力列表（须被 Provides 覆盖，否则启动 fail-fast）。
+	// 依赖的能力列表（须被 Provides 覆盖，否则生成期 Gate1 / 启动期 S1 fail-fast）。
 	Caps          []string `protobuf:"bytes,2,rep,name=caps,proto3" json:"caps,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -400,7 +654,7 @@ type Requirement struct {
 
 func (x *Requirement) Reset() {
 	*x = Requirement{}
-	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[5]
+	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -412,7 +666,7 @@ func (x *Requirement) String() string {
 func (*Requirement) ProtoMessage() {}
 
 func (x *Requirement) ProtoReflect() protoreflect.Message {
-	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[5]
+	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -425,7 +679,7 @@ func (x *Requirement) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Requirement.ProtoReflect.Descriptor instead.
 func (*Requirement) Descriptor() ([]byte, []int) {
-	return file_bald_appspec_v1_appspec_proto_rawDescGZIP(), []int{5}
+	return file_bald_appspec_v1_appspec_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *Requirement) GetComponent() string {
@@ -446,7 +700,7 @@ var File_bald_appspec_v1_appspec_proto protoreflect.FileDescriptor
 
 const file_bald_appspec_v1_appspec_proto_rawDesc = "" +
 	"\n" +
-	"\x1dbald/appspec/v1/appspec.proto\x12\x0fbald.appspec.v1\"\xc1\x02\n" +
+	"\x1dbald/appspec/v1/appspec.proto\x12\x0fbald.appspec.v1\x1a\x1cbootstrap/v1/bootstrap.proto\"\x9f\x04\n" +
 	"\aAppSpec\x12,\n" +
 	"\x04meta\x18\x01 \x01(\v2\x18.bald.appspec.v1.AppMetaR\x04meta\x123\n" +
 	"\x06server\x18\x02 \x01(\v2\x1b.bald.appspec.v1.ServerSpecR\x06server\x12>\n" +
@@ -457,7 +711,31 @@ const file_bald_appspec_v1_appspec_proto_rawDesc = "" +
 	"capability\x18\x04 \x01(\v2\x1f.bald.appspec.v1.CapabilitySpecR\n" +
 	"capability\x12%\n" +
 	"\x0eaudit_backends\x18\x05 \x03(\tR\rauditBackends\x12+\n" +
-	"\x11bundle_normalized\x18\x06 \x01(\bR\x10bundleNormalized\"I\n" +
+	"\x11bundle_normalized\x18\x06 \x01(\bR\x10bundleNormalized\x12;\n" +
+	"\tbootstrap\x18\a \x01(\v2\x1d.bootstrap.v1.BootstrapConfigR\tbootstrap\x123\n" +
+	"\x06layout\x18\b \x01(\v2\x1b.bald.appspec.v1.LayoutSpecR\x06layout\x123\n" +
+	"\x06bundle\x18\t \x01(\v2\x1b.bald.appspec.v1.BundleSpecR\x06bundle\x125\n" +
+	"\adomains\x18\n" +
+	" \x03(\v2\x1b.bald.appspec.v1.DomainSpecR\adomains\"\x87\x01\n" +
+	"\n" +
+	"LayoutSpec\x12\x12\n" +
+	"\x04root\x18\x01 \x01(\tR\x04root\x12#\n" +
+	"\rapiserver_dir\x18\x02 \x01(\tR\fapiserverDir\x12,\n" +
+	"\x0fstrict_contract\x18\x03 \x01(\bH\x00R\x0estrictContract\x88\x01\x01B\x12\n" +
+	"\x10_strict_contract\",\n" +
+	"\n" +
+	"BundleSpec\x12\x1e\n" +
+	"\n" +
+	"normalized\x18\x01 \x01(\bR\n" +
+	"normalized\"\x94\x01\n" +
+	"\n" +
+	"DomainSpec\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12#\n" +
+	"\rproto_package\x18\x02 \x01(\tR\fprotoPackage\x12\x18\n" +
+	"\aservice\x18\x03 \x01(\tR\aservice\x12\x14\n" +
+	"\x05model\x18\x04 \x01(\tR\x05model\x12\x1d\n" +
+	"\n" +
+	"go_package\x18\x05 \x01(\tR\tgoPackage\"I\n" +
 	"\aAppMeta\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x16\n" +
 	"\x06module\x18\x02 \x01(\tR\x06module\x12\x12\n" +
@@ -468,11 +746,15 @@ const file_bald_appspec_v1_appspec_proto_rawDesc = "" +
 	"\x04grpc\x18\x02 \x01(\bR\x04grpc\x12\x18\n" +
 	"\agateway\x18\x03 \x01(\bR\agateway\x12\x1b\n" +
 	"\thttp_addr\x18\x04 \x01(\tR\bhttpAddr\x12\x1b\n" +
-	"\tgrpc_addr\x18\x05 \x01(\tR\bgrpcAddr\"\\\n" +
+	"\tgrpc_addr\x18\x05 \x01(\tR\bgrpcAddr\"\xdb\x01\n" +
 	"\rComponentSpec\x12\x12\n" +
 	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12#\n" +
-	"\rconfig_prefix\x18\x03 \x01(\tR\fconfigPrefix\"f\n" +
+	"\rconfig_prefix\x18\x03 \x01(\tR\fconfigPrefix\x12B\n" +
+	"\x06params\x18\x04 \x03(\v2*.bald.appspec.v1.ComponentSpec.ParamsEntryR\x06params\x1a9\n" +
+	"\vParamsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"f\n" +
 	"\x0eCapabilitySpec\x12\x1a\n" +
 	"\bprovides\x18\x01 \x03(\tR\bprovides\x128\n" +
 	"\brequires\x18\x02 \x03(\v2\x1c.bald.appspec.v1.RequirementR\brequires\"?\n" +
@@ -493,26 +775,36 @@ func file_bald_appspec_v1_appspec_proto_rawDescGZIP() []byte {
 	return file_bald_appspec_v1_appspec_proto_rawDescData
 }
 
-var file_bald_appspec_v1_appspec_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_bald_appspec_v1_appspec_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
 var file_bald_appspec_v1_appspec_proto_goTypes = []any{
-	(*AppSpec)(nil),        // 0: bald.appspec.v1.AppSpec
-	(*AppMeta)(nil),        // 1: bald.appspec.v1.AppMeta
-	(*ServerSpec)(nil),     // 2: bald.appspec.v1.ServerSpec
-	(*ComponentSpec)(nil),  // 3: bald.appspec.v1.ComponentSpec
-	(*CapabilitySpec)(nil), // 4: bald.appspec.v1.CapabilitySpec
-	(*Requirement)(nil),    // 5: bald.appspec.v1.Requirement
+	(*AppSpec)(nil),            // 0: bald.appspec.v1.AppSpec
+	(*LayoutSpec)(nil),         // 1: bald.appspec.v1.LayoutSpec
+	(*BundleSpec)(nil),         // 2: bald.appspec.v1.BundleSpec
+	(*DomainSpec)(nil),         // 3: bald.appspec.v1.DomainSpec
+	(*AppMeta)(nil),            // 4: bald.appspec.v1.AppMeta
+	(*ServerSpec)(nil),         // 5: bald.appspec.v1.ServerSpec
+	(*ComponentSpec)(nil),      // 6: bald.appspec.v1.ComponentSpec
+	(*CapabilitySpec)(nil),     // 7: bald.appspec.v1.CapabilitySpec
+	(*Requirement)(nil),        // 8: bald.appspec.v1.Requirement
+	nil,                        // 9: bald.appspec.v1.ComponentSpec.ParamsEntry
+	(*v1.BootstrapConfig)(nil), // 10: bootstrap.v1.BootstrapConfig
 }
 var file_bald_appspec_v1_appspec_proto_depIdxs = []int32{
-	1, // 0: bald.appspec.v1.AppSpec.meta:type_name -> bald.appspec.v1.AppMeta
-	2, // 1: bald.appspec.v1.AppSpec.server:type_name -> bald.appspec.v1.ServerSpec
-	3, // 2: bald.appspec.v1.AppSpec.components:type_name -> bald.appspec.v1.ComponentSpec
-	4, // 3: bald.appspec.v1.AppSpec.capability:type_name -> bald.appspec.v1.CapabilitySpec
-	5, // 4: bald.appspec.v1.CapabilitySpec.requires:type_name -> bald.appspec.v1.Requirement
-	5, // [5:5] is the sub-list for method output_type
-	5, // [5:5] is the sub-list for method input_type
-	5, // [5:5] is the sub-list for extension type_name
-	5, // [5:5] is the sub-list for extension extendee
-	0, // [0:5] is the sub-list for field type_name
+	4,  // 0: bald.appspec.v1.AppSpec.meta:type_name -> bald.appspec.v1.AppMeta
+	5,  // 1: bald.appspec.v1.AppSpec.server:type_name -> bald.appspec.v1.ServerSpec
+	6,  // 2: bald.appspec.v1.AppSpec.components:type_name -> bald.appspec.v1.ComponentSpec
+	7,  // 3: bald.appspec.v1.AppSpec.capability:type_name -> bald.appspec.v1.CapabilitySpec
+	10, // 4: bald.appspec.v1.AppSpec.bootstrap:type_name -> bootstrap.v1.BootstrapConfig
+	1,  // 5: bald.appspec.v1.AppSpec.layout:type_name -> bald.appspec.v1.LayoutSpec
+	2,  // 6: bald.appspec.v1.AppSpec.bundle:type_name -> bald.appspec.v1.BundleSpec
+	3,  // 7: bald.appspec.v1.AppSpec.domains:type_name -> bald.appspec.v1.DomainSpec
+	9,  // 8: bald.appspec.v1.ComponentSpec.params:type_name -> bald.appspec.v1.ComponentSpec.ParamsEntry
+	8,  // 9: bald.appspec.v1.CapabilitySpec.requires:type_name -> bald.appspec.v1.Requirement
+	10, // [10:10] is the sub-list for method output_type
+	10, // [10:10] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_bald_appspec_v1_appspec_proto_init() }
@@ -520,13 +812,14 @@ func file_bald_appspec_v1_appspec_proto_init() {
 	if File_bald_appspec_v1_appspec_proto != nil {
 		return
 	}
+	file_bald_appspec_v1_appspec_proto_msgTypes[1].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bald_appspec_v1_appspec_proto_rawDesc), len(file_bald_appspec_v1_appspec_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   6,
+			NumMessages:   10,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
