@@ -1,0 +1,16 @@
+{
+  "meta": {
+    "name": "bald-demo",
+    "module": "github.com/kalandramo/bald/example/bald",
+    "desc": "bald 服务框架示例（AppSpec 声明真相源——bald gen domain 的输入）"
+  },
+  "domains": [
+    {
+      "name": "greet",
+      "protoPackage": "bald.v1",
+      "service": "bald.v1.GreetService",
+      "model": "greetv1/greet.go",
+      "goPackage": "github.com/kalandramo/bald/example/bald/greetv1"
+    }
+  ]
+}

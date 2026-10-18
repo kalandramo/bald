@@ -1,9 +1,12 @@
 // Package codegen 是 bald CLI（cmd/bald）的轻量代码生成脚手架（对照 osbuilder 的嵌入模板范式）。
 //
-// 提供三个子命令，演示「配置驱动 + 嵌入模板」生成骨架：
-//   - bald gen proto  <name>  生成 api/proto/bald/<name>/v1/<name>.proto（含 PagingRequest 引用）
-//   - bald gen store  <name>  生成 <name>.go 实体骨架（gorm tag + keyOf 提取函数）
-//   - bald gen app    <name>  生成 cmd/<name>/main.go 应用装配骨架（appkit 全原语 + bundle）
+// 提供四个子命令，演示「配置驱动 + 嵌入模板」生成骨架：
+//   - bald gen proto   <name>  生成 api/proto/<name>/v1/<name>.proto（CRUD 六件套：
+//                              google.api.http 注解 + buf.validate 规则 + FilterExpr）
+//   - bald gen store   <name>  生成 <name>.go 实体骨架（gorm tag + keyOf 提取函数）
+//   - bald gen app     <name>  生成 cmd/<name>/main.go 应用装配骨架（appkit 全原语 + bundle）
+//   - bald gen domain  --spec  按 AppSpec.domains 重写域驱动生成物（批 3 W3b，
+//                              见 gen_domain.go——清单×2 + 逐域 handler + 授权别名）
 //
 // 工具链归属（2026-09-02）：自 _example/bald 示例模块提升为核心 cmd/bald 子命令
 // （落地记录标注的「工具链归属」评估落地）。生成物以 _example/bald 消费者模块为
@@ -20,31 +23,93 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// protoTmpl 是 protobuf 服务骨架模板（Package 用 bald.<name>.v1）。
+// protoTmpl 是 protobuf 服务骨架模板（裁决 7 的 CRUD 六件套：service +
+// List/Get/Create/Update/Delete，其上叠 google.api.http 注解（REST 映射）、
+// buf.validate 规则（字段校验）与 bald.store.v1.FilterExpr（结构化过滤），
+// 装配层评估 §4.6）。package 用 <name>.v1（与 AppSpec.domains[].proto_package
+// 的声明口径一致，gen domain 的 service 校验以此对账）；REST 资源段默认
+// <name>s，可经 --plural 覆盖（bald-admin 口径：/v1/org-units）。
+//
+// 单模板源纪律：本模板是全仓唯一的 proto 模板——gen app 不生成 proto（只落
+// buf 扇出配置），--spec 与 CRUD 模式无双轨。注解依赖（googleapis/
+// protovalidate/bald store）经 buf 模块 deps 解析（对照 _example/bald/proto
+// 的 buf.yaml），Go 侧 genproto 由业务 module 按需 require（官方包提供，
+// buf managed mode 的 except 口径）。
 var protoTmpl = `syntax = "proto3";
 
-package bald.{{.Name}}.v1;
+package {{.Name}}.v1;
 
+import "google/api/annotations.proto";
 import "google/protobuf/empty.proto";
+import "buf/validate/validate.proto";
 import "bald/store/v1/store.proto";
 
 {{- if .GoPackage }}
 option go_package = "{{.GoPackage}}";
 {{- end }}
 
-// {{.Name | title}}Service 示例服务。
+// {{.Name | title}}Service 是 {{.Name}} 域的 CRUD 六件套（bald gen proto 生成）。
+// google.api.http 注解驱动 REST 面与网关转码（同一个 RPC 同时暴露 gRPC 与
+// REST/JSON，业务不写两遍）；授权策略与路由表由 gen domain 从本契约派生。
 service {{.Name | title}}Service {
-  rpc List({{.Name | title}}ListRequest) returns ({{.Name | title}}ListResponse);
-  rpc Get({{.Name | title}}GetRequest) returns ({{.Name | title}});
+  // List 分页查询（paging 三态分页 + filter_expr 结构化过滤，服务端按白名单
+  // 翻译为查询——bald.store.v1 安全规约）。
+  rpc List({{.Name | title}}ListRequest) returns ({{.Name | title}}ListResponse) {
+    option (google.api.http) = {
+      get: "/v1/{{.Plural}}"
+    };
+  }
+
+  // Get 按 id 取单条。
+  rpc Get({{.Name | title}}GetRequest) returns ({{.Name | title}}) {
+    option (google.api.http) = {
+      get: "/v1/{{.Plural}}/{id}"
+    };
+  }
+
+  // Create 新建（body = 整个资源；AIP-133）。
+  rpc Create({{.Name | title}}CreateRequest) returns ({{.Name | title}}) {
+    option (google.api.http) = {
+      post: "/v1/{{.Plural}}"
+      body: "*"
+    };
+  }
+
+  // Update 更新（body = 整个资源；AIP-134）。
+  rpc Update({{.Name | title}}UpdateRequest) returns ({{.Name | title}}) {
+    option (google.api.http) = {
+      put: "/v1/{{.Plural}}/{id}"
+      body: "*"
+    };
+  }
+
+  // Delete 删除。
+  rpc Delete({{.Name | title}}DeleteRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {
+      delete: "/v1/{{.Plural}}/{id}"
+    };
+  }
 }
 
+// {{.Name | title}} 是 {{.Name}} 业务资源。buf.validate 注解是契约的一部分：
+// 前后端、gRPC/REST 多入口共享同一份规则，由 protovalidate 运行时读取执行
+// （无需代码生成插件）。注解表达不了的复杂逻辑（查库、外部状态比对）才
+// 手写 Go——同一规则禁止两处各写一遍。
 message {{.Name | title}} {
-  string id = 1;
-  string name = 2;
+  // id 资源标识（Create 时留空由服务端分配）。
+  string id = 1 [(buf.validate.field).string = {min_len: 1, max_len: 63}];
+
+  // name 展示名。
+  string name = 2 [(buf.validate.field).string = {min_len: 1, max_len: 128}];
 }
 
 message {{.Name | title}}ListRequest {
+  // paging 分页参数（页码/偏移/游标三态共存，服务端按优先级择一）。
   bald.store.v1.PagingRequest paging = 1;
+
+  // filter_expr 结构化过滤表达式（AND/OR 布尔代数，可嵌套；优先于字符串 DSL，
+  // 服务端须严格校验与参数化——bald.store.v1 安全规约 4）。
+  bald.store.v1.FilterExpr filter_expr = 2;
 }
 
 message {{.Name | title}}ListResponse {
@@ -53,7 +118,24 @@ message {{.Name | title}}ListResponse {
 }
 
 message {{.Name | title}}GetRequest {
-  string id = 1;
+  string id = 1 [(buf.validate.field).string = {min_len: 1}];
+}
+
+message {{.Name | title}}CreateRequest {
+  // {{.Name}} 待建资源（id 留空由服务端分配）。
+  {{.Name | title}} {{.Name}} = 1;
+}
+
+message {{.Name | title}}UpdateRequest {
+  // id 目标资源标识（REST 路径变量）。
+  string id = 1 [(buf.validate.field).string = {min_len: 1}];
+
+  // {{.Name}} 更新后的资源。
+  {{.Name | title}} {{.Name}} = 2;
+}
+
+message {{.Name | title}}DeleteRequest {
+  string id = 1 [(buf.validate.field).string = {min_len: 1}];
 }
 `
 
@@ -74,12 +156,12 @@ func KeyOf{{.Name | title}}(u *{{.Name | title}}) string { return u.ID }
 func NewCommand(streams IOStreams) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:              "gen [command]",
-		Short:            "轻量代码生成脚手架（proto / store / app 骨架）",
+		Short:            "轻量代码生成脚手架（proto / store / app / domain）",
 		TraverseChildren: true,
 		SilenceUsage:     true,
 		RunE:             func(cmd *cobra.Command, _ []string) error { return cmd.Help() },
 	}
-	cmd.AddCommand(genProtoCmd(streams), genStoreCmd(streams), genAppCmd(streams))
+	cmd.AddCommand(genProtoCmd(streams), genStoreCmd(streams), genAppCmd(streams), genDomainCmd(streams))
 	return cmd
 }
 
@@ -87,20 +169,32 @@ func NewCommand(streams IOStreams) *cobra.Command {
 // 注意：输出目录字段不可命名 Out——会遮蔽内嵌 IOStreams.Out (io.Writer)。
 type protoOptions struct {
 	Name      string // 位置参数：proto 服务名
+	Plural    string // --plural：REST 资源段（默认 name+s）
 	OutDir    string // --out
 	GoPackage string // --go-package
+	Module    string // --module：业务 module 路径（裁决 7 落地消费——go_package 缺省派生源）
 	Force     bool   // --force：覆盖已存在文件（默认拒绝，防冲掉手改生成物）
 
 	IOStreams
 }
 
-// Complete 回填位置参数与派生默认值（不做校验、不产生副作用）。
+// Complete 回填位置参数与派生默认值（不做校验、不产生副作用）。--module
+// 落地消费（裁决 7 / D2 Q6）：未显式给 --go-package 时由 module 派生
+// <module>/api/gen/go/<name>/v1;<name>v1——与 gen app 目录树的 buf managed
+// mode 前缀同源；buf managed 会在生成期覆盖它，此处声明保 proto 自身的
+// 可读性与非 buf 工具链的正确性。
 func (o *protoOptions) Complete(args []string) error {
 	if len(args) > 0 {
 		o.Name = args[0]
 	}
+	if o.Plural == "" {
+		o.Plural = o.Name + "s"
+	}
 	if o.OutDir == "" {
-		o.OutDir = filepath.Join("api", "proto", "bald", o.Name, "v1")
+		o.OutDir = filepath.Join("api", "proto", o.Name, "v1")
+	}
+	if o.GoPackage == "" && o.Module != "" {
+		o.GoPackage = o.Module + "/api/gen/go/" + o.Name + "/v1;" + o.Name + "v1"
 	}
 	return nil
 }
@@ -115,16 +209,19 @@ func (o *protoOptions) Validate() error {
 
 // Run 纯执行：输入已全部就绪，不再读取任何 flag。
 func (o *protoOptions) Run() error {
-	content, err := renderTmpl("proto", protoTmpl, map[string]string{"Name": o.Name, "GoPackage": o.GoPackage})
+	content, err := renderTmpl("proto", protoTmpl, map[string]string{
+		"Name": o.Name, "Plural": o.Plural, "GoPackage": o.GoPackage,
+	})
 	if err != nil {
 		return err
 	}
 	if err := writeGuarded(filepath.Join(o.OutDir, o.Name+".proto"), content, Owned, o.Force, o.IOStreams); err != nil {
 		return err
 	}
-	// A2：buf 生态联动——bald 仓库的 proto 生成统一走 buf（api/proto/buf.gen.yaml，
-	// `task proto` 触发），生成物需纳入 buf 模块后运行 `buf generate` 才有 Go 代码。
-	fmt.Fprintln(o.Out, "next: add the file to your buf module, then run `buf generate` (bald repo: `task proto`) to produce Go code")
+	// A2：buf 生态联动——注解依赖（googleapis / bufbuild/protovalidate / bald
+	// store）经 buf 模块 deps 解析（对照 _example/bald/proto/buf.yaml），生成
+	// 物需纳入 buf 模块后运行 buf generate 才有 Go 代码。
+	fmt.Fprintln(o.Out, "next: add the file to your buf module (deps: buf.build/googleapis/googleapis, buf.build/bufbuild/protovalidate and your bald store module), then run `buf generate` to produce Go code")
 	return nil
 }
 
@@ -145,9 +242,11 @@ func genProtoCmd(streams IOStreams) *cobra.Command {
 			return o.Run()
 		},
 	}
-	cmd.Flags().StringVar(&o.OutDir, "out", "", "输出目录（默认 api/proto/bald/<name>/v1）")
+	cmd.Flags().StringVar(&o.OutDir, "out", "", "输出目录（默认 api/proto/<name>/v1）")
+	cmd.Flags().StringVar(&o.Plural, "plural", "", "REST 资源段（google.api.http 路径用；默认 <name>s）")
 	cmd.Flags().StringVar(&o.GoPackage, "go-package", "",
-		"proto 的 go_package option（默认不写；bald 生态经 buf managed mode 补充）")
+		"proto 的 go_package option（默认由 --module 派生；bald 生态经 buf managed mode 补充）")
+	cmd.Flags().StringVar(&o.Module, "module", "", "业务 module 路径（go_package 缺省派生源：<module>/api/gen/go/<name>/v1）")
 	cmd.Flags().BoolVar(&o.Force, "force", false, "覆盖已存在的目标文件（默认拒绝）")
 	return cmd
 }

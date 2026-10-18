@@ -552,29 +552,6 @@ func scaffoldModule(t *testing.T, dir, module string) {
 	}
 }
 
-// seedDomainPackage 在临时 module 落一个最小域包（W2 目标形态的域声明值；
-// gen domain / W3b 的 seed 职责，测试脚手架代为承担）。
-func seedDomainPackage(t *testing.T, dir, module string) {
-	t.Helper()
-	pkgDir := filepath.Join(dir, "internal", "apiserver", "greetv1")
-	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
-		t.Fatalf("mkdir domain pkg: %v", err)
-	}
-	src := `// Package greetv1 是最小测试域包（W2 目标形态：包导出一个 appkit.Domain 值）。
-package greetv1
-
-import (
-	"github.com/kalandramo/bald/pkg/appkit"
-)
-
-// Domain 是 greet 域的声明值（变参直传 appkit.MustServe）。
-var Domain = appkit.Domain{Name: "greet"}
-`
-	if err := os.WriteFile(filepath.Join(pkgDir, "greetv1.go"), []byte(src), 0o644); err != nil {
-		t.Fatalf("write domain pkg: %v", err)
-	}
-}
-
 // writeSpecJSON 把 AppSpec 结构写为 protojson 文件（gen app --spec 的输入）。
 func writeSpecJSON(t *testing.T, dir string, as *appspecv1.AppSpec) string {
 	t.Helper()
@@ -591,14 +568,13 @@ func writeSpecJSON(t *testing.T, dir string, as *appspecv1.AppSpec) string {
 }
 
 // runGenAppInTemp 把参考夹具生成到临时 module（复用 runGenAppSpec 全流水线：
-// 三道门 + 三态落盘），返回二进制路径。
-func runGenAppInTemp(t *testing.T, as *appspecv1.AppSpec, withDomain bool) (string, string) {
+// 三道门 + 三态落盘），并在声明域存在时跟进 gen domain——W3b 起域产物
+// （域包声明值骨架 + 清单扇出 + 逐域 handler）由 gen domain 落地，测试不再
+// 自备域包脚手架。返回 module 目录与 spec 路径。
+func runGenAppInTemp(t *testing.T, as *appspecv1.AppSpec) (string, string) {
 	t.Helper()
 	dir := t.TempDir()
 	scaffoldModule(t, dir, as.GetMeta().GetModule())
-	if withDomain {
-		seedDomainPackage(t, dir, as.GetMeta().GetModule())
-	}
 	specPath := writeSpecJSON(t, dir, as)
 	t.Chdir(dir) // gen app 的产出根 = CWD（CLI 语义）；相对树必须落在临时 module 内
 	cmd := genAppCmd(NewDefaultIOStreams())
@@ -606,7 +582,67 @@ func runGenAppInTemp(t *testing.T, as *appspecv1.AppSpec, withDomain bool) (stri
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("gen app --spec: %v", err)
 	}
+	if len(as.GetDomains()) > 0 {
+		writeFixtureProto(t, dir) // gen domain 的 service 校验与注解派生以真实 proto 为输入
+		dcmd := genDomainCmd(NewDefaultIOStreams())
+		dcmd.SetArgs([]string{"--spec", specPath, "--force"})
+		if err := dcmd.Execute(); err != nil {
+			t.Fatalf("gen domain: %v", err)
+		}
+	}
 	return dir, specPath
+}
+
+// writeFixtureProto 在临时 module 落一个与 guardFixture 声明同构的最小域
+// proto（package greet.v1 + GreetService + google.api.http 注解）：service
+// 全名与 guardFixture.domains[0].service 对账；REST 资源段用复数 greets，
+// 使 gRPC 面（greet）与 HTTP 面（greets）归一化结果不同——授权别名表的
+// 非空路径由此得到真实输入。
+func writeFixtureProto(t *testing.T, dir string) {
+	t.Helper()
+	path := filepath.Join(dir, "api", "proto", "greet", "v1", "greet.proto")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir proto dir: %v", err)
+	}
+	src := `syntax = "proto3";
+
+package greet.v1;
+
+import "google/api/annotations.proto";
+
+option go_package = "demo.example/app/api/gen/go/greet/v1;greetv1";
+
+// GreetService 是测试夹具域 service（与 guardFixture 的 domains[0].service 对账）。
+service GreetService {
+  rpc Greet(GreetRequest) returns (GreetResponse) {
+    option (google.api.http) = {
+      post: "/v1/greets"
+      body: "*"
+    };
+  }
+
+  rpc GreetGet(GreetGetRequest) returns (GreetResponse) {
+    option (google.api.http) = {
+      get: "/v1/greets/{name}"
+    };
+  }
+}
+
+message GreetRequest {
+  string name = 1;
+}
+
+message GreetGetRequest {
+  string name = 1;
+}
+
+message GreetResponse {
+  string greet = 1;
+}
+`
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatalf("write fixture proto: %v", err)
+	}
 }
 
 // TestTree_GeneratedProjectCompiles 生成的工程在独立消费者 module 内真实
@@ -632,7 +668,7 @@ func TestTree_GeneratedProjectCompiles(t *testing.T) {
 	for name, as := range cases {
 		as := as
 		t.Run(name, func(t *testing.T) {
-			dir, _ := runGenAppInTemp(t, as, true)
+			dir, _ := runGenAppInTemp(t, as)
 			build := exec.Command("go", "build", "./...")
 			build.Dir = dir
 			if out, err := build.CombinedOutput(); err != nil {
@@ -652,7 +688,7 @@ func TestTree_GeneratedProjectRuns(t *testing.T) {
 	as := &appspecv1.AppSpec{
 		Meta: &appspecv1.AppMeta{Name: "smoketree", Module: "demo.example/app", Desc: "smoke"},
 	}
-	dir, _ := runGenAppInTemp(t, as, false)
+	dir, _ := runGenAppInTemp(t, as)
 	bin := filepath.Join(dir, "smoketree.bin")
 	build := exec.Command("go", "build", "-o", bin, "./cmd/smoketree")
 	build.Dir = dir

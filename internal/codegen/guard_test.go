@@ -188,7 +188,7 @@ func TestGenProto_CommandGuard(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("first gen: %v", err)
 	}
-	want := filepath.Join("api", "proto", "bald", "demo", "v1", "demo.proto")
+	want := filepath.Join("api", "proto", "demo", "v1", "demo.proto")
 	if _, err := os.Stat(want); err != nil {
 		t.Fatalf("generated file %q not found: %v", want, err)
 	}
