@@ -109,6 +109,15 @@ type Decl struct {
 	// 1 行 lambda 提供。
 	Identity IdentityFunc
 
+	// ---- 业务域（Domain.Apply 追加；每域包导出一个 Domain 值，变参直传
+	// MustServe——装配层评估 §4.3 接缝裁定：appkit 只接受域声明值，不新增
+	// 注册表式 API，域清单的承载者是生成文件（W3 bald gen domain 产出
+	// domains.gen.go；_example 的手写 domains.gen.go 是其目标形态）。
+	// 引擎消费见 domain.go：Wire 时点 = 业务 BeforeStart 之后、迟后阶段
+	// （server 构建）之前，声明序执行、失败 fail-fast。NewApp 路径不消费
+	// 本字段（非第二条装配路径）。 ----
+	Domains []Domain
+
 	// ---- 段驱动 Provider（Providers/WithUnimplementedSegments 声明；
 	// std.Standard() 与第三方 Provider 经 Apply 追加，装配引擎见 provider.go） ----
 	// Providers 是段驱动装配的全部 Provider（含 std.Standard() 打包的框架

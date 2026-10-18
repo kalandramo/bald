@@ -9,9 +9,13 @@
 //	（id/name/version/env/stop_timeout）、服务器构造（std server Provider，
 //	能力声明驱动）、注册中心启停、停机资源释放。
 //	第三方 Provider（加法式）：storegorm.Provider 消费契约 database.sql 段
-//	（目标 main.go 形态的首个第三方后端范本，见 pkg/appkit/std 包文档）。
-//	代码声明（业务必供）：gin 路由、gRPC service、拦截器链序、就绪探针依赖、
-//	日志脱敏装饰、gateway 转码注册（WithGatewayRegister，-tags grpcgw）。
+//	（目标 main.go 形态的首个第三方后端范本，见 pkg/appkit/std 包文档）；
+//	loggerProvider 覆盖 std 默认日志（Attr 层脱敏 password/token + service.name）。
+//	业务域（一等概念，判据 ① 活体）：greetv1.Domain 经域清单（domains.gen.go）
+//	变参直传——域自我接线（读自己的配置段、构造能力、持有端口）+ 自持路由与
+//	gRPC service 注册；新增一个业务域只手写 3 个文件、装配零改动。
+//	代码声明（业务必供）：gin 路由（ping/users/articles 演示）、拦截器链序、
+//	就绪探针依赖、gateway 转码注册（WithGatewayRegister，-tags grpcgw）。
 //
 // 运行：
 //
@@ -61,16 +65,17 @@ import (
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
 
+	greetv1 "github.com/kalandramo/bald/example/bald/greetv1"
 	usercmd "github.com/kalandramo/bald/example/bald/user"
 
 	"github.com/kalandramo/bald/berrors"
-	baldlog "github.com/kalandramo/bald/log"
 	storegorm "github.com/kalandramo/bald/contrib/store-gorm"
+	"github.com/kalandramo/bald/health"
+	baldlog "github.com/kalandramo/bald/log"
 	"github.com/kalandramo/bald/pkg/appkit"
 	"github.com/kalandramo/bald/pkg/appkit/std"
 	mid "github.com/kalandramo/bald/pkg/middleware/gin"
 	grpcmw "github.com/kalandramo/bald/pkg/middleware/grpc"
-	"github.com/kalandramo/bald/health"
 	"github.com/kalandramo/bald/registry/inmemory"
 	"github.com/kalandramo/bald/transport/web"
 )
@@ -179,9 +184,11 @@ func newAppOptions(healthChecker *health.Health) []appkit.Option {
 		// app.name: "bald-demo" 即 env 前缀（BALD_DEMO_*）与多环境文件名来源——
 		// 契约无 app.name 时启动 fail-fast 且报错可行动。
 		// --- 能力声明（代码提供） ---
-		// gRPC：service 注册 + 拦截器链（链序说明见 newGRPCServerOptions，
-		// ErrorInterceptor 必须最外层；与 e2e 复用同一构造，杜绝「测试与生产不一致」）。
-		appkit.WithGRPC(registerGRPCService, newGRPCServerOptions()...),
+		// gRPC：拦截器链（链序说明见 newGRPCServerOptions，ErrorInterceptor
+		// 必须最外层；与 e2e 复用同一构造，杜绝「测试与生产不一致」）。
+		// service 注册不再在此声明——greet 域经 Domain.Services 自持注册
+		//（引擎并入 server 构建的注册回调，业务注册在前、域按声明序在后）。
+		appkit.WithGRPCOptions(newGRPCServerOptions),
 
 		// 健康检查默认装配：HTTP 双探针 + gRPC health 状态对称联动。
 		appkit.WithHealth(healthChecker),
@@ -206,7 +213,16 @@ func newAppOptions(healthChecker *health.Health) []appkit.Option {
 		// 多环境：契约 app.env（BALD_DEMO_APP_ENV）选 {Name}-{Env}.yaml。
 		appkit.ConfigFile("configs/bald-demo.yaml"),
 		appkit.WatchConfigFile(true),
+
+		// 日志装饰（B7 后装饰归 provider 自持）：本应用的 loggerProvider 覆盖
+		// std 默认（段路径末者胜），恢复 Attr 层脱敏演示——password/token
+		// 掩码为 *** + service.name 固定属性（见 providers.go 与其行为测试）。
+		newLoggerProvider(),
 	}
+	// 业务域（一等概念，判据 ① 活体）：域清单（domains.gen.go——bald gen
+	// domain 生成的目标形态，W3 使其真实）变参直传。新增域只改清单文件，
+	// 装配零改动。
+	opts = append(opts, domainOptions...)
 	// HTTP 面二选一（同一 server.http 段只跑一个面，语义见 WithGatewayRegister）：
 	//   - 默认构建：gin 演示路由（gin.Engine 即 http.Handler），中间件链是安全
 	//     策略，归代码；
@@ -234,28 +250,6 @@ func newRouter() *gin.Engine {
 
 // osExit 抽离以便后续测试替换；默认调用 os.Exit。
 var osExit = func(code int) { os.Exit(code) }
-
-// greetValidator 是注入给 gRPC 校验拦截器的回调（依赖倒置：拦截器不绑定具体校验库）。
-//
-// 默认编译（无 grpcgw build tag）下没有注册任何 gRPC service，因此它是 nil，
-// 拦截器退化为显式的空操作——注意这与旧实现不同：旧实现传
-// `validation.NewValidator(nil)` 会得到一个「看似注册了、实际什么都不校验」的
-// 校验器，问题被隐藏；现在 nil 就是 nil，语义可见。
-//
-// 启用 `go run -tags grpcgw` 后，由 register_grpcgw.go 的 init 注入真实校验器
-// （针对 baldv1.GreetRequest 的 ValidateGreetRequest）。
-var greetValidator grpcmw.MessageValidator
-
-// registerGRPCService 是 gRPC service 注册回调，供 WithGRPC 使用。
-//
-// 默认编译（无 grpcgw tag）下它是空实现——业务在此注册自己的实现即可
-// （pb.RegisterYourServer(s, yourImpl)）。
-//
-// 启用 `go run -tags grpcgw` 后，由 register_grpcgw.go 的 init 替换为真实注册
-// （baldv1.RegisterGreetServiceServer），无需再手工改本文件。
-var registerGRPCService = func(s *grpc.Server) {
-	// 在此注册你的 gRPC service 实现。
-}
 
 // newGRPCServerOptions 构造 gRPC 服务器选项（拦截器链）。
 //
@@ -295,7 +289,10 @@ func newGRPCServerOptions() []grpc.ServerOption {
 		grpcmw.RequestIDInterceptor(),
 		grpcmw.UnaryObservability(),
 		grpcmw.DefaulterInterceptor(),
-		grpcmw.ValidatorInterceptor(greetValidator),
+		// 校验回调随域自持（greetv1.Validator：第 1 层 proto 注解 + 第 2 层
+		// 手写规则，见 greetv1/greet.go）。默认构建同样生效——域迁移后
+		// GreetService 在两种构建下都真实注册，链路无差别。
+		grpcmw.ValidatorInterceptor(greetv1.Validator),
 	}
 	return []grpc.ServerOption{grpc.ChainUnaryInterceptor(unaryInterceptors...)}
 }
@@ -313,7 +310,7 @@ func newGRPCServerOptions() []grpc.ServerOption {
 var gatewayRegister func(ctx context.Context, conn *grpc.ClientConn) (http.Handler, error)
 
 // 注：e2e 测试与 main 同包（package main，见 greet_e2e_test.go），
-// 可直接访问 newApp / registerGRPCService / newGRPCServerOptions，无需导出包装。
+// 可直接访问 newAppOptions / newGRPCServerOptions，无需导出包装。
 // 这是把测试放在 bald/ 目录内而非独立 tests/ 目录的原因。
 
 // exampleRoutes 演示 bald 的 HTTP 路由约定：路由注册直接由业务完成（使用 gin 引擎），
@@ -332,25 +329,8 @@ func exampleRoutes(e *gin.Engine) {
 		_, _ = c.Writer.Write([]byte("pong\n"))
 	})
 
-	// 结构化示例①：纯 JSON 绑定 + 业务错误（返回 400 + ErrorResponse）。
-	type greetReq struct {
-		Name string `json:"name"`
-	}
-	type greetResp struct {
-		Greet string `json:"greet"`
-	}
-	v1.POST("/greet", func(c *gin.Context) {
-		web.HandleJSONRequest[greetReq, greetResp](c,
-			func(_ context.Context, g *greetReq) (greetResp, error) {
-				if g.Name == "" {
-					// BadRequest 的代码-原因-消息三者分离：Reason 稳定可枚举（客户端可匹配），
-					// Message 给人看，二者经统一 ErrorResponse 返回。
-					return greetResp{}, berrors.BadRequest("EMPTY_NAME").
-						WithMessage("name 不能为空")
-				}
-				return greetResp{Greet: "hello, " + g.Name}, nil
-			})
-	})
+	// 注：POST /v1/greet 已随 greet 域迁入 greetv1 包（Domain.Routes 自持
+	// 注册，行为逐行等价）——main 不再出现域的路由知识。
 
 	// URI 通配符示例：/v1/users/:id 经 gin 原生 ShouldBindUri 绑定到 req.ID
 	// （需 uri:"id" tag，与路径变量名一致）。

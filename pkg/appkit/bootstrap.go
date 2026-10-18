@@ -194,6 +194,14 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*App, error) {
 		return nil, err
 	}
 
+	// 域声明解析（装配层评估 §4.3，机制见 domain.go）：装配期校验 fail-fast
+	// 先于阶段 A Logger 等一切副作用；Services 并入 gRPC 注册回调（先于下方
+	// 能力声明检查——域提供的注册回调与 WithGRPC 声明同权）。
+	if err := validateDomains(spec, cfg.GetServer().GetGrpc() != nil); err != nil {
+		return nil, err
+	}
+	composeDomainServices(spec)
+
 	httpCfg := cfg.GetServer().GetHttp()
 	grpcCfg := cfg.GetServer().GetGrpc()
 	if spec.HTTPHandler != nil && httpCfg == nil {
@@ -374,6 +382,15 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*App, error) {
 	// 引擎经未导出 *Opt 写入面透传（B5 后导出构造面归 mech）。
 	for _, fn := range spec.BeforeStart {
 		kitOpts = append(kitOpts, BeforeStart(fn))
+	}
+	// 域装配钩子（装配层评估 §4.3，机制见 domain.go）：注册序在业务钩子之后
+	//（域可消费业务钩子建立的运行期资源）、迟后阶段之前（域的路由/服务注册
+	// 先于 server 构建生效）——「资源面已就绪」与「注册先于 server 构建」两
+	// 约束夹出的窗口。多域次序 = 声明序；域 Wire/Routes 失败 fail-fast。
+	if len(spec.Domains) > 0 {
+		kitOpts = append(kitOpts, BeforeStart(func(ctx context.Context) error {
+			return wireDomains(ctx, a, spec)
+		}))
 	}
 	// 迟后阶段（server 段 Provider）：**追加在业务 beforeStart 之后**——注册序
 	// 即执行序，故本钩子在业务钩子后执行，此时业务已建成运行期资源（DB/

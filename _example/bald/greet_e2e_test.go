@@ -3,7 +3,7 @@
 // 本文件是 bald 示例的端到端回归测试，与 main 同包（package main）。
 //
 // 为什么同包：main 包是「程序包」，不可被 import。把测试放在同目录同包下，
-// 才能直接调用 newApp / registerGRPCService，从而复用**真实的**应用构造逻辑
+// 才能直接调用 newAppOptions / newGRPCServerOptions，从而复用**真实的**应用构造逻辑
 // —— 而不是在测试里另抄一份（复制出来的应用与真实运行的不一致，测试就失去回归价值）。
 //
 // 它启动真实的 AppKit（gRPC + REST 网关转码面 + 校验链路），用 gRPC 客户端
