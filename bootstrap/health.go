@@ -38,7 +38,7 @@ type grpcHealthServer struct {
 // SetServingStatus 给 gRPC 标准健康服务（"" = 整体服务），使 K8s grpc 探针与
 // HTTP /readyz 同源。interval <= 0 时用默认间隔（2s）。
 //
-// 手工装配（如 CLI 生成的 app、不用 FromBootstrap 的装配代码）用它；走
+// 手工装配（如 CLI 生成的 app、不经约定装配的代码）用它；走
 // bootstrap 装配的路径由 [GrpcServerProvider] 的 WithGRPCHealth 自动完成。
 func NewGRPCHealthServer(srv *grpcserver.GRPCServer, h *health.Health, interval time.Duration) transport.Server {
 	if interval <= 0 {

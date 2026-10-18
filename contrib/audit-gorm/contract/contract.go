@@ -1,5 +1,5 @@
 // Package contract 提供 audit-gorm 后端的契约装配：bootstrapv1 的
-// audit 段 → appkit AuditRegistry Provider。
+// audit 段 → appkit.AuditProvider（经应用自声明的 audit 段 Provider 接入）。
 //
 // 单独成包的原因（对齐 observability-otlp/contract 模式）：store 根包
 // 保持零契约依赖（纯 gorm 实现），只有本包 import bconf + appkit——业务
@@ -8,9 +8,12 @@
 // gorm 连接来自业务代码而非契约段（「配置驱动参数，代码声明能力」分工），
 // 故导出的是 Provider 构造器（闭包绑定连接实例）：
 //
-//	ar := appkit.NewAuditRegistry()
-//	ar.MustRegister(storecontract.TypeStore, storecontract.NewStoreProvider(db))
-//	appkit.Serve(ctx, appkit.WithAuditRegistry(ar), ...)
+//	appkit.MustServe(ctx, std.Standard(), myAuditProvider(db), ...)
+//
+// myAuditProvider 是应用自声明的 audit 段 Provider（段路径 "audit"，末者胜
+// 覆盖 std 默认）：Build 内把 backends 中的 store 项映射为本包
+// NewStoreProvider(db) 并经 pkg/audit.Compose 组装——接入说明见
+// pkg/appkit/audit_registry.go。
 package contract
 
 import (

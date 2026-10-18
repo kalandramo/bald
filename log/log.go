@@ -6,7 +6,7 @@
 //   - onexstack/pkg/otelslog：slog.Handler 桥接 OpenTelemetry Logs（可选后端）
 //
 // 本包核心（log.go / global.go / nop.go）不依赖任何具体日志库；
-// 默认后端为 nop（静默），由用户在 AppKit 装配期经 log.SetLogger 注入具体实现。
+// 默认后端为 nop（静默），由用户在应用装配期经 log.SetLogger 注入具体实现。
 package log
 
 import "context"

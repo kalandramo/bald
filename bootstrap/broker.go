@@ -9,7 +9,7 @@ import (
 
 // BrokerProvider 按契约 Broker 段构造具体消息代理实例（已 Connect）。
 // 返回 (实例, cleanup, error)：cleanup 断开连接并清理订阅者，
-// 由调用方释放（appkit FromBootstrap 挂停机 Effect 逆序回放）。
+// 由调用方释放（appkit 挂停机 Effect 逆序回放）。
 // 各后端的实现见 broker/<impl>/contract 包。
 type BrokerProvider func(ctx context.Context, cfg *bootstrapv1.Broker) (any, func(), error)
 
@@ -65,7 +65,7 @@ var brokerSections = []brokerSection{
 // 全部段缺失为 no-op；任一段存在但未实现（契约超集里声明、本仓无后端）
 // 或未注册 Provider 均 fail-fast；构建失败回滚已建实例的 cleanup（逆序）。
 //
-// 生命周期：由 appkit FromBootstrap 在阶段 B（BeforeStart，契约装载校验后）
+// 生命周期：由段驱动装配引擎在阶段 B（BeforeStart，契约装载校验后）
 // 调用，先 Init 再 Connect（各后端 contract 已封装）；broker 段不支持热更新
 // （与 database 段同理）。cleanup 交还调用方，appkit 挂停机 Effect——注册在
 // workflow-clients 之后，停机逆序回放时 broker（in-flight 消息）先于

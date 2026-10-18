@@ -1,5 +1,6 @@
 // Package contract 提供 observability-otlp 后端的契约装配：bootstrapv1 的
-// tracer / metrics 段 → appkit TracerRegistry / MetricsRegistry Provider。
+// tracer / metrics 段 → appkit.TracerProvider / MetricsProvider（经应用自声明的
+// 段 Provider 接入）。
 //
 // 单独成包的原因（对齐 registry/nacos/contract 模式）：trace/metrics
 // 根包保持零契约依赖（纯 SDK 实现），只有本包 import bconf + appkit——业务
@@ -8,11 +9,12 @@
 // serviceName（resource 的 service.name）来自应用而非契约段，故导出的是
 // Provider 构造器（闭包绑定服务名）而非包级 Provider 变量：
 //
-//	tr := appkit.NewTracerRegistry()
-//	tr.MustRegister(otlpcontract.TracerType, otlpcontract.NewTracerProvider("my-app"))
-//	mr := appkit.NewMetricsRegistry()
-//	mr.MustRegister(otlpcontract.TypePrometheus, otlpcontract.NewPrometheusProvider("my-app"))
-//	mr.MustRegister(otlpcontract.TypeOTLP, otlpcontract.NewOTLPProvider("my-app"))
+//	appkit.MustServe(ctx, std.Standard(), otlpProviders("my-app"), ...)
+//
+// otlpProviders 是应用自声明的 tracer/metrics 段 Provider（段路径 "tracer"/
+// "metrics"）：Build 内按契约 type 单选分发——tracer.type=otlp 走本包
+// NewTracerProvider("my-app")，metrics.type ∈ {prometheus, otlp} 走
+// NewPrometheusProvider / NewOTLPProvider——接入说明见 pkg/appkit/observability.go。
 package contract
 
 import (

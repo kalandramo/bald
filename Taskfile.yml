@@ -94,7 +94,7 @@ tasks:
     cmds:
       - go vet ./...
 
-  # e2e：启动**真实的** AppKit（HTTP + gRPC + 校验链路），用 gRPC 客户端调用，
+  # e2e：启动**真实的**应用（MustServe 装配，HTTP + gRPC + 校验链路），用 gRPC 客户端调用，
   # 验证请求校验的两层机制都生效（proto 注解 + 手写 Go）。
   # 这是长期保留的回归测试，改校验链路/proto 注解/拦截器接线后都应重跑。
   # 依赖 proto 生成产物，故 depend on proto-example。

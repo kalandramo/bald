@@ -6,12 +6,11 @@
 // broker/kafka/contract 同一模式。
 //
 // 与 bootstrap 的关系：本包**不** import bootstrap。Provider 的返回类型是
-// 结构化兼容的自有函数类型，注册时反正地传入 bootstrap.ServerRegistry：
-//
-//	sr := baldbootstrap.NewServerRegistry()
-//	sr.MustRegister(asynqcontract.Type, asynqcontract.Provider(...))
-//
-// appkit 侧经 WithServerRegistry 注入该注册表即可（见 pkg/appkit 注释）。
+// 结构化兼容的自有函数类型（bootstrap.ServerProvider 形状），由应用侧的
+// server 段 Provider 消费——原「NewServerRegistry + MustRegister +
+// WithServerRegistry」三步已收敛为段驱动 Provider（等价形态见
+// _example/bald/register_nacos.go 的 nacosRegistrarProvider，registry 段同构）：
+// Build 内按契约 server.asynq 段调本包 Provider 构造并交回 []transport.Server。
 //
 // 契约字段 vs 实现 Option 面：契约收「装配必需 + 高频」子集（Redis 连接、
 // 并发、队列、codec、优雅关闭等），其余 ~46 个 Option 经 [WithServerOptions]

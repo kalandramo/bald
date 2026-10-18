@@ -9,7 +9,7 @@ import (
 
 // StorageProvider 按契约 Storage 段构造具体后端对象存储客户端。
 // 返回 (实例, cleanup, error)：cleanup 释放后端资源（可为 nil），由
-// 调用方释放（appkit FromBootstrap 挂停机 Effect 逆序回放）。
+// 调用方释放（appkit 挂停机 Effect 逆序回放）。
 // 各后端的实现见 oss/<backend>/contract 包。
 type StorageProvider func(ctx context.Context, cfg *bootstrapv1.Storage) (any, func(), error)
 
@@ -48,7 +48,7 @@ var storageSections = []storageSection{
 // 全部段缺失为 no-op；任一段存在但未注册 Provider 均 fail-fast；
 // 构建失败回滚已建实例的 cleanup（逆序）。
 //
-// 生命周期：由 appkit FromBootstrap 在阶段 B（BeforeStart，契约装载校验后）
+// 生命周期：由段驱动装配引擎在阶段 B（BeforeStart，契约装载校验后）
 // 调用；storage 段不支持热更新（与 database 段同理）。cleanup 交还调用方，
 // appkit 挂停机 Effect——注册在 cache-clients 之后，逆序回放：
 // storage/metrics 先关、缓存次之、数据库最后关。

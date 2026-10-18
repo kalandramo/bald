@@ -1,5 +1,5 @@
 // Package contract 提供 redis 后端的契约装配：bootstrapv1.Cache 的 redis 段 →
-// 自建 go-redis client + bald/cache/redis 适配 + CacheRegistry Provider。
+// 自建 go-redis client + bald/cache/redis 适配（经同包 AppProvider 接入段驱动装配）。
 //
 // 单独成包的原因：redis 包保持零契约依赖（纯适配，client 由调用方注入），
 // 只有本包 import bconf——业务按需 import，依赖图全程可见。
@@ -30,11 +30,8 @@ const Type = "redis"
 
 // Provider 按契约 cache.redis 段构造 Redis 缓存（自建 client，三种部署模式）。
 // 返回的 cleanup 由 appkit 停机 Effect 回放（关闭底层连接池）。
-// 仅当 cache.redis 段存在时被 CacheRegistry 调度到。
-// 签名与 bootstrap.CacheProvider 结构化兼容，直接注册：
-//
-//	cr := bootstrap.NewCacheRegistry()
-//	cr.MustRegister(rediscontract.Type, rediscontract.Provider)
+// 仅当 cache.redis 段存在时被段驱动装配调用（同包 AppProvider 的 Build
+// 复用本函数；签名与 bootstrap.CacheProvider 结构化兼容）。
 func Provider(ctx context.Context, cfg *bootstrapv1.Cache) (any, func(), error) {
 	sec := cfg.GetRedis()
 	if sec == nil {

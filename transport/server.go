@@ -2,9 +2,9 @@
 //
 // 设计要点：
 //   - Server 契约与 Kratos 的 transport.Server（Start/Stop）签名兼容，
-//     方法集是其超集（额外 Endpoint()），因此既可由本框架 AppKit 编排，
+//     方法集是其超集（额外 Endpoint()），因此既可由本框架编排层（appkit）编排，
 //     也能直接塞进 Kratos App。
-//   - 生命周期编排统一由 AppKit（pkg/appkit）负责：并发启停、优雅停机、
+//   - 生命周期编排统一由编排层（pkg/appkit）负责：并发启停、优雅停机、
 //     Endpoint 动态端口注册。本包只定义契约，不做独立运行入口。
 package transport
 

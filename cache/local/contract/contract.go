@@ -1,5 +1,6 @@
 // Package contract 提供 local（进程内 freecache）后端的契约装配：
-// bootstrapv1.Cache 的 local 段 → bald/cache/local 构造映射 + CacheRegistry Provider。
+// bootstrapv1.Cache 的 local 段 → bald/cache/local 构造映射（CacheProvider
+// 形状；段驱动 AppProvider 接入面见 cache/redis/contract 范本）。
 //
 // 单独成包的原因：local 包保持零契约依赖（纯 SDK 实现），
 // 只有本包 import bconf——业务按需 import，依赖图全程可见。
@@ -21,11 +22,9 @@ const Type = "local"
 
 // Provider 按契约 cache.local 段构造进程内缓存。
 // 返回的 cleanup 由 appkit 停机 Effect 回放（Close 语义为清空内存）。
-// 仅当 cache.local 段存在时被 CacheRegistry 调度到。
-// 签名与 bootstrap.CacheProvider 结构化兼容，直接注册：
-//
-//	cr := bootstrap.NewCacheRegistry()
-//	cr.MustRegister(localcontract.Type, localcontract.Provider)
+// 仅当 cache.local 段存在时被 CacheRegistry 单选分发调用（注册表机制保留
+// 在 bootstrap 内部）；段驱动装配的接入面（AppProvider）见
+// cache/redis/contract 范本。
 func Provider(ctx context.Context, cfg *bootstrapv1.Cache) (any, func(), error) {
 	sec := cfg.GetLocal()
 	if sec == nil {

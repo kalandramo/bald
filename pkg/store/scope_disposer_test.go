@@ -17,7 +17,7 @@ import (
 // 背景：`store.RegisterDataScope` / `RegisterDataScopeExpr` 是全局注册点，
 // 但**对偶的逆操作原语缺失**——对比 `store.RegisterTenant` / `UnregisterTenant`
 // 已配对。后果：e2e 用 `t.Cleanup(app.UndoEffects)` 隔离全局状态时，数据范围
-// 策略泄漏到下一个用例（跨用例污染）；进程内多 AppKit 实例场景下注册叠加。
+// 策略泄漏到下一个用例（跨用例污染）；进程内多 App 实例场景下注册叠加。
 //
 // 为什么用 WithDisposer 而非 `UnregisterDataScope(fn)`：Go 的函数值不可比较，
 // 按「函数身份」注销不可靠（闭包每次求值都是新值）。闭包式 disposer 精确捕获

@@ -1,12 +1,12 @@
 // Package contract 提供 kubernetes 后端的契约装配：bootstrapv1.Registry 段 →
-// kubernetes options 映射 + RegistrarRegistry Provider。
+// kubernetes options 映射 + 服务注册 Provider（bootstrap.RegistrarProvider 形状）。
 //
 // 单独成包的原因：provider 根包保持零契约依赖（纯 SDK 实现），
 // 只有本包 import bconf——业务按需 import，依赖图全程可见。
 //
 // 注意：kubernetes 路线依赖 in-cluster 环境（自建 clientset 走
 // rest.InClusterConfig），集群外请用 NewWithClient 注入后走
-// appkit.WithRegistrar 显式注入路径。
+// appkit.Registrar(...) 显式实例路径。
 package contract
 
 import (
@@ -24,7 +24,8 @@ const Type = "kubernetes"
 
 // Provider 按契约 registry.kubernetes 段构造 kubernetes Registrar。
 // 返回的 cleanup 由 appkit 停机 Effect 回放（Deregister 先于它，顺序安全）。
-// 仅当 cfg.GetType() == Type 时被 RegistrarRegistry 调度到。
+// 仅当 cfg.GetType() == Type 时被 bootstrap.RegistrarRegistry 或应用的
+// registry 段 Provider 调度到（接入范本见 _example/bald/register_nacos.go）。
 func Provider(ctx context.Context, cfg *bootstrapv1.Registry) (registry.Registrar, func(), error) {
 	c := cfg.GetKubernetes()
 	if c == nil {

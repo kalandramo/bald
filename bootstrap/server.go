@@ -47,10 +47,9 @@ func NewServerRegistry() *ServerRegistry {
 
 // Has 报告名字对应的协议服务器工厂是否已注册。
 //
-// 供装配层（appkit）做「补注册」前的存在性判断：用户经 WithServerRegistry 注入
-// 自己的注册表后，框架仍要保证 http/grpc 两个内置协议可用，但不能覆盖用户已
-// 注册的同名 provider（[Register] 对重名 fail-fast）。先 Has 再 MustRegister
-// 即可共存。
+// 供装配层（appkit）做「补注册」前的存在性判断：框架要保证 http/grpc 两个
+// 内置协议可用，但不能覆盖已注册的同名 provider（[Register] 对重名
+// fail-fast）。先 Has 再 MustRegister 即可共存。
 func (r *ServerRegistry) Has(name string) bool {
 	_, ok := r.Get(name)
 	return ok
@@ -109,8 +108,8 @@ var serverSections = []serverSection{
 	{"sqs", false, func(s *bootstrapv1.Server) bool { return s.GetSqs() != nil }},
 
 	// gateway：grpc-gateway REST 转码面（独立端口）。框架不内置其 provider
-	// （需 grpc-gateway 重依赖，不进核心依赖图）——配该段须经 WithServerRegistry
-	// 注册 provider（如 bald-admin 经 transport/gateway 桥接），否则 fail-fast。
+	// （需 grpc-gateway 重依赖，不进核心依赖图）——配该段须经 server 段
+	// Provider 注册实现，否则 fail-fast。
 	{"gateway", false, func(s *bootstrapv1.Server) bool { return s.GetGateway() != nil }},
 }
 
@@ -183,8 +182,8 @@ func (r *ServerRegistry) BuildServers(ctx context.Context, cfg *bootstrapv1.Serv
 //   - 内置 implemented=true 的段（http/grpc）永远放行；
 //   - implemented=false 的段（cron/asynq/…）默认 fail-fast——它们在 bconf
 //     定义里存在，但框架本身不提供装配；
-//   - 但若装配层已为该段注册了 provider（如业务经 WithServerRegistry +
-//     transport/asynq/contract 注入），则视为「有实现」，放行——这正是
+//   - 但若装配层已为该段注册了 provider（如业务的 server 段 Provider +
+//     transport/asynq/contract 构造），则视为「有实现」，放行——这正是
 //     「协议服务器的实现可来自后端子模块」的语义：段名与 provider 名一一对应。
 //
 // **仍不**因「段配了但 provider 未注册」而 fail-fast：那是刻意的能力声明机制

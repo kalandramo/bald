@@ -20,7 +20,7 @@ import (
 // 业务 handler 拥有——探针由装配层（`appkit.WithHealth`）或业务自行挂载，
 // 见《Bald 健康检查装配设计》。
 //
-// 并发安全：ln 由 mu 保护。Start 在 AppKit 的 errgroup goroutine 中执行，
+// 并发安全：ln 由 mu 保护。Start 在 appkit 的 errgroup goroutine 中执行，
 // 而 Endpoint() 由 appkit 主 goroutine 轮询（waitForEndpoints），二者并发，
 // 无保护时构成数据竞争（go test -race 可复现）。
 type HTTPServer struct {

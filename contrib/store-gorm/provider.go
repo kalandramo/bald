@@ -8,12 +8,8 @@
 //
 //	appkit.MustServe(ctx,
 //	    std.Standard(),
-//	    baldgorm.Provider(),                    // 契约 database.sql → *gorm.DB
-//	    appkit.WithBeforeStart(func(ctx context.Context) error {
-//	        db, _ := app.Database("sql").(*gorm.DB) // Run 后取用（类型安全在消费侧）
-//	        ...
-//	    }),
-//	    ...)
+//	    baldgorm.AppProvider(),                 // 契约 database.sql → *gorm.DB
+//	    ...) // 域 Wire/业务钩子内经 app.Resource("database.sql") 取用
 //
 // 驱动解析复用 conn.go 的注册表：sqlite 内置（glebarez 纯 Go，本模块既有
 // 依赖），postgres/mysql 等由业务 import 驱动后 RegisterDialector 注册——
@@ -35,8 +31,8 @@ import (
 // 构造函数保留不动，故段驱动装配的导出名取 AppProvider。
 //
 // Build 语义：按契约段（driver/source/连接池参数）经 Open(WithConfig) 打开
-// *gorm.DB → 产物 map[string]any{"sql": db} 落 a.databases（引擎 storeProduct
-// 的六资源域约定，Run 后经 App.Database("sql") 取用）→ cleanup 关闭连接池
+// *gorm.DB → 产物经引擎 storeProduct 的六资源域约定落资源面（Run 后经
+// App.Resource("database.sql") 取用）→ cleanup 关闭连接池
 // （停机逆序回放：数据库最后关）。未注册的 driver 沿用 Open 的 fail-fast。
 func AppProvider() appkit.Provider { return gormProvider{} }
 

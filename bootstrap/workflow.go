@@ -9,7 +9,7 @@ import (
 
 // WorkflowProvider 按契约 Workflow 段构造具体工作流引擎客户端。
 // 返回 (实例, cleanup, error)：cleanup 释放后端资源（如关闭 HTTP 连接），
-// 由调用方释放（appkit FromBootstrap 挂停机 Effect 逆序回放）。
+// 由调用方释放（appkit 挂停机 Effect 逆序回放）。
 // 各后端的实现见 workflow/<engine>/contract 包。
 type WorkflowProvider func(ctx context.Context, cfg *bootstrapv1.Workflow) (any, func(), error)
 
@@ -62,7 +62,7 @@ var declaredWorkflowSections = []struct {
 // 全部段缺失为 no-op；任一段存在但未注册 Provider 均 fail-fast；
 // 构建失败回滚已建实例的 cleanup（逆序）。
 //
-// 生命周期：由 appkit FromBootstrap 在阶段 B（BeforeStart，契约装载校验后）
+// 生命周期：由段驱动装配引擎在阶段 B（BeforeStart，契约装载校验后）
 // 调用；workflow 段不支持热更新（与 database 段同理）。cleanup 交还调用方，
 // appkit 挂停机 Effect——注册在 ai-clients 之后，停机逆序回放时工作流
 // 客户端先于 ai/storage/cache/database 关闭。

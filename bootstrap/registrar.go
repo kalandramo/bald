@@ -23,12 +23,12 @@
 //     前反注册），这是 go-wind RegistryAction（实例被 `_ = reg` 丢弃）
 //     缺失的一环。cleanup 只负责 client 生命周期，停机 Effect 回放。
 //
-// 用法：
+// 用法（经 registry 段 Provider 接入段驱动装配——Provider 等价形态见
+// _example/bald/register_nacos.go 的 nacosRegistrarProvider）：
 //
 //	rr := bootstrap.NewRegistrarRegistry()
 //	rr.MustRegister(etcdcontract.Type, etcdcontract.Provider)
-//	rr.MustRegister(nacoscontract.Type, nacoscontract.Provider)
-//	app, err := appkit.FromBootstrap(cfg, appkit.WithRegistrarRegistry(rr), ...)
+//	appkit.MustServe(ctx, std.Standard(), registrarSegmentProvider(rr), ...)
 package bootstrap
 
 import (
@@ -42,7 +42,7 @@ import (
 
 // RegistrarProvider 按契约 Registry 段构造具体后端。
 // 返回 (实例, cleanup, error)：cleanup 释放 client/连接资源（可为 nil），
-// 由 appkit FromBootstrap 在停机 Effect 中回放（Deregister 先于它，顺序安全）。
+// 由 appkit 在停机 Effect 中回放（Deregister 先于它，顺序安全）。
 // 各后端的实现见 registry/<backend>/contract 包。
 type RegistrarProvider func(ctx context.Context, cfg *bootstrapv1.Registry) (registry.Registrar, func(), error)
 
@@ -67,7 +67,7 @@ func NewRegistrarRegistry() *RegistrarRegistry {
 // 段为 nil/type 为空/type 未注册均 fail-fast——显式注册的天然收益：
 // 未 import 的后端在这里报错，而不是静默无注册。
 //
-// 生命周期：由 appkit FromBootstrap 在阶段 B（BeforeStart，契约装载校验后）
+// 生命周期：由段驱动装配引擎在阶段 B（BeforeStart，契约装载校验后）
 // 调用；registry 段不支持热更新（client 重建侵入性大，变更需重启生效）。
 // cleanup 交还调用方，appkit 挂停机 Effect appkit:registrar-client 释放。
 func (r *RegistrarRegistry) Build(ctx context.Context, cfg *bootstrapv1.Registry) (registry.Registrar, func(), error) {

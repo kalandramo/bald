@@ -89,7 +89,7 @@ type BuildScope struct {
 // Provider 嵌入 Option（Apply 把自身追加进声明）——Provider 值可直接作为
 // MustServe/NewApp 的变参项，与 std.Standard()、业务域 Option 并列：
 //
-//	appkit.MustServe(ctx, std.Standard(), storegorm.Provider(), ...)
+//	appkit.MustServe(ctx, std.Standard(), storegorm.AppProvider(), ...)
 type Provider interface {
 	Option
 	// Segments 声明本 Provider 消费的契约段路径（非空；空路径装配期报错）。

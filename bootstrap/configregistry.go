@@ -14,8 +14,8 @@
 //
 // 归位判别（新插件初始化落点）：产物仅是「契约段 → 实例」的构造（仅依赖
 // bconf/标准库/独立 module）→ 注册表放本包；产物需进入运行期编排（依赖
-// 根模块包、挂 Effect/Component、存 AppKit 字段）→ 注册表放 pkg/appkit（如
-// Tracer/MetricsRegistry 依赖 otel——这条判据正是 RegistrarRegistry 有条件
+// 根模块包、挂 Effect/Component、存 App 字段）→ 落 pkg/appkit 的 Provider
+// 形态（如 tracer/metrics 依赖 otel——这条判据正是 RegistrarRegistry 有条件
 // 迁入本包的原因：registry 契约下放为独立 module 后，它对主模块包的依赖消失）。
 //
 // 依赖方向：

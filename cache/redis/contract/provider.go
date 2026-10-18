@@ -8,13 +8,8 @@
 //
 //	appkit.MustServe(ctx,
 //	    std.Standard(),
-//	    rediscontract.AppProvider(),            // 契约 cache.redis → cache.Cache
-//	    appkit.WithBeforeStart(func(ctx context.Context) error {
-//	        c, _ := app.Database(...).(*...)     // Run 后取用（类型安全在消费侧）
-//	        _ = c                                 // 或经 appkit 资源面断言 cache.Cache
-//	        ...
-//	    }),
-//	    ...)
+//	    rediscontract.AppProvider(),            // 契约 cache.redis → 资源面
+//	    ...) // 域 Wire/业务钩子内经 app.Resource("cache.redis") 取用
 //
 // 放置说明（与 store-gorm 的结构差异）：本模块的契约映射逻辑在 contract
 // 包（redis 包保持零契约依赖），root 包反向 import 本包——段驱动导出只能

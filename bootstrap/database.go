@@ -9,7 +9,7 @@ import (
 
 // DatabaseProvider 按契约 Database 段构造具体引擎客户端。
 // 返回 (实例, cleanup, error)：cleanup 释放连接池/client 资源（可为 nil），
-// 由调用方释放（appkit FromBootstrap 挂停机 Effect 逆序回放）。
+// 由调用方释放（appkit 挂停机 Effect 逆序回放）。
 // 各引擎的实现见 contrib/database/<engine>/contract 包。
 type DatabaseProvider func(ctx context.Context, cfg *bootstrapv1.Database) (any, func(), error)
 
@@ -63,7 +63,7 @@ var databaseSections = []databaseSection{
 // Provider 均 fail-fast（显式注册的天然收益）；构建失败回滚已建实例
 // 的 cleanup（逆序）。
 //
-// 生命周期：由 appkit FromBootstrap 在阶段 B（BeforeStart，契约装载校验后）
+// 生命周期：由段驱动装配引擎在阶段 B（BeforeStart，契约装载校验后）
 // 调用；database 段不支持热更新（连接池重建侵入性大，变更需重启生效）。
 // cleanup 交还调用方，appkit 挂停机 Effect——注册在 servers 之前，逆序
 // 回放保证「服务器先 drain、数据库连接最后关」。

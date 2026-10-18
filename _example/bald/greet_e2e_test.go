@@ -6,7 +6,7 @@
 // 才能直接调用 newAppOptions / newGRPCServerOptions，从而复用**真实的**应用构造逻辑
 // —— 而不是在测试里另抄一份（复制出来的应用与真实运行的不一致，测试就失去回归价值）。
 //
-// 它启动真实的 AppKit（gRPC + REST 网关转码面 + 校验链路），用 gRPC 客户端
+// 它启动真实的应用（MustServe 全链路：gRPC + REST 网关转码面 + 校验链路），用 gRPC 客户端
 // 与 REST 请求发起调用，验证请求参数校验的两层机制都真实生效：
 //   - 第 1 层：proto 的 buf.validate 注解（protovalidate 运行时从描述符读取）
 //   - 第 2 层：手写 Go（pkg/validation 分发器，承载注解表达不了的逻辑）

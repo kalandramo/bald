@@ -23,7 +23,7 @@ import (
 //
 // 嵌入 *grpc.Server 提升其方法（如 RegisterService），内部统一经嵌入字段操作。
 //
-// 并发安全：ln 由 mu 保护。Start 在 AppKit 的 errgroup goroutine 中执行，
+// 并发安全：ln 由 mu 保护。Start 在 appkit 的 errgroup goroutine 中执行，
 // 而 Endpoint() 由 appkit 主 goroutine 轮询（waitForEndpoints）、Stop 由停机
 // goroutine 调用，三者并发，无保护时构成数据竞争（go test -race 可复现）。
 type GRPCServer struct {

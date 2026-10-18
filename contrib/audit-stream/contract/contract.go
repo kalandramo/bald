@@ -1,5 +1,5 @@
 // Package contract 提供 audit-stream 后端的契约装配：bootstrapv1 的
-// audit 段 → appkit AuditRegistry Provider。
+// audit 段 → appkit.AuditProvider（经应用自声明的 audit 段 Provider 接入）。
 //
 // 单独成包的原因（对齐 observability-otlp/contract 模式）：stream 根包
 // 保持零契约依赖（纯 go-redis 实现），只有本包 import bconf + appkit——
@@ -8,9 +8,12 @@
 // redis 客户端来自业务代码而非契约段（「配置驱动参数，代码声明能力」
 // 分工），故导出的是 Provider 构造器（闭包绑定客户端实例）：
 //
-//	ar := appkit.NewAuditRegistry()
-//	ar.MustRegister(streamcontract.TypeStream, streamcontract.NewStreamProvider(rdb))
-//	appkit.Serve(ctx, appkit.WithAuditRegistry(ar), ...)
+//	appkit.MustServe(ctx, std.Standard(), myAuditProvider(rdb), ...)
+//
+// myAuditProvider 是应用自声明的 audit 段 Provider（段路径 "audit"，末者胜
+// 覆盖 std 默认）：Build 内把 backends 中的 stream 项映射为本包
+// NewStreamProvider(rdb) 并经 pkg/audit.Compose 组装——接入说明见
+// pkg/appkit/audit_registry.go。
 //
 // cleanup 即 StreamAuditor.Close（停后台 goroutine + drain 尾批缓冲），
 // 由约定装配挂 Effect 逆序回放（逆序最后执行：审计尾批在指标/
