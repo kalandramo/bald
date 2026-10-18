@@ -1,0 +1,31 @@
+package apiserver
+
+import (
+	"context"
+	"errors"
+
+	"github.com/kalandramo/bald/pkg/authn"
+)
+
+// demoAuthn 是闭环演示的认证桩（用户槽位——真实业务接 JWT/OIDC 桥接子模块）：
+// 固定 token → 身份映射，供 bundle.Authn 注入。
+type demoAuthn struct{}
+
+var errUnknownToken = errors.New("demo: unknown token")
+
+// Authenticate 实现 authn.Authenticator：token 已由传输层存入 context。
+func (demoAuthn) Authenticate(ctx context.Context) (*authn.AuthClaims, error) {
+	return demoAuthn{}.AuthenticateToken(authn.TokenFromContext(ctx))
+}
+
+// AuthenticateToken 实现 authn.Authenticator（演示工程固定映射，无过期）。
+func (demoAuthn) AuthenticateToken(token string) (*authn.AuthClaims, error) {
+	switch token {
+	case "tok-admin":
+		return &authn.AuthClaims{Subject: "u-admin", Name: "demo admin", Roles: []string{"admin"}}, nil
+	case "tok-viewer":
+		return &authn.AuthClaims{Subject: "u-viewer", Name: "demo viewer", Roles: []string{"viewer"}}, nil
+	default:
+		return nil, errUnknownToken
+	}
+}

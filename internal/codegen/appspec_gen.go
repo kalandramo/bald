@@ -534,6 +534,10 @@ var seedPoliciesTmpl = `// Package seed 承载授权策略行（bald gen app 生
 // List(→list)/Create(→write) 因缺策略行 403（实测复现）。viewer 只读
 // （get/list）；gen domain 产物 authz/alias.gen.go 的 DefaultActions 是本表
 // 的对账面。只有自定义策略才需要登记在本文件。
+//
+// 消费入口（行为不在生成物里）：contrib/authz-casbin 的 NewRows——本表行
+// 映射为 authzcasbin.PolicyRow 装载（见该包文档；角色绑定 g 行是运行期
+// 业务数据，由业务侧提供）。
 package seed
 
 // PolicyRow 一条默认授权策略行（role/object/action）。

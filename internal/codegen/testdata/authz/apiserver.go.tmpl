@@ -1,0 +1,31 @@
+// Package apiserver 是 HTTP 面的业务装配钩子（bald gen app 生成一次，
+// 此后归你维护——重生成跳过本文件；中间件链是安全策略，归业务自持）。
+//
+// 批 4 W4 闭环演示形态：本文件按「authz 链路接线」改写（用户槽位的真实
+// 用法）——bundle.Authn 注入认证桩、bundle.Authz 注入 casbin 桥（桥由
+// internal/apiserver/authz 从生成物装配：seed.Rows + ObjectAliases）。
+package apiserver
+
+import (
+	"github.com/gin-gonic/gin"
+	"github.com/kalandramo/bald/pkg/middleware/bundle"
+
+	demoauthz "{{MODULE}}/internal/apiserver/authz"
+)
+
+// NewRouter 组织业务 HTTP 路由（gin 引擎 + 横切链）。被
+// internal/bootstrap/assemble.gen.go 的 WithHTTP 声明消费。
+func NewRouter() *gin.Engine {
+	authorizer, err := demoauthz.NewAuthorizer()
+	if err != nil {
+		// 策略装载失败启动即崩（fail-fast；真实业务在此记日志并退出）。
+		panic(err)
+	}
+	router := gin.New()
+	router.Use(bundle.New(
+		bundle.Normalized(), // P9 归一化：object/action 双传输同源
+		bundle.Authn(demoAuthn{}),
+		bundle.Authz(authorizer),
+	).Gin()...)
+	return router
+}

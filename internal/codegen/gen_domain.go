@@ -704,7 +704,8 @@ package authz
 import convert "{{ .Module }}/internal/{{ .APIDir }}/handler/convert"
 {{- end }}
 // ObjectAliases 是 object 归一化别名表（gRPC 面命名 → HTTP 面命名；仅列两侧
-// 归一化结果不一致的域）。
+// 归一化结果不一致的域）。消费入口（行为不在生成物里）：contrib/authz-casbin
+// 的 NewAlias——双向等价解析，桥接请求面命名与策略行命名空间（见该包文档）。
 var ObjectAliases = map[string]string{
 {{- range $k, $v := .Aliases }}
 	{{ q $k }}: {{ q $v }},

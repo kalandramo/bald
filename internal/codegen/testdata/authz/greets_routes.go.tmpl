@@ -1,0 +1,28 @@
+package greetv1
+
+import (
+	"fmt"
+	"net/http"
+
+	"github.com/gin-gonic/gin"
+)
+
+// greetsRoutes 是闭环演示的受保护端点接线（用户槽位——域自持路由惯用法）：
+// POST /v1/greets 与 GET /v1/greets/{name}。授权由 bundle 链承担
+// （Authn → Authz），handler 本体不做权限判断——401/403/200 三态完全来自
+// 生成物策略行 + 别名表 + contrib 桥。
+func init() {
+	Domain.Routes = func(h http.Handler) error {
+		r, ok := h.(*gin.Engine)
+		if !ok {
+			return fmt.Errorf("greetv1: expected *gin.Engine, got %T", h)
+		}
+		r.POST("/v1/greets", func(c *gin.Context) {
+			c.JSON(http.StatusOK, gin.H{"domain": "greet", "action": "create"})
+		})
+		r.GET("/v1/greets/:name", func(c *gin.Context) {
+			c.JSON(http.StatusOK, gin.H{"domain": "greet", "name": c.Param("name")})
+		})
+		return nil
+	}
+}

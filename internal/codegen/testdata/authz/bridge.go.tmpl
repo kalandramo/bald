@@ -1,0 +1,31 @@
+package authz
+
+import (
+	authzcasbin "github.com/kalandramo/bald/contrib/authz-casbin"
+	baldauthz "github.com/kalandramo/bald/pkg/authz"
+
+	"{{MODULE}}/internal/bootstrap/seed"
+)
+
+// NewAuthorizer 从生成物装配 casbin 桥（批 4 W4 闭环演示的用户槽位接线，
+// 即「生成物只产数据、contrib 产行为」的消费路径示范）：
+//   - seed.Rows（gen app 产物默认策略行）映射为 PolicyRow 经 NewRows 装载；
+//   - ObjectAliases（gen domain 产物别名表）经 NewAlias 桥接请求面命名与
+//     策略行命名空间（HTTP 面 greets → 策略行 greet）。
+// g 行（subject→角色绑定）是运行期业务数据，演示工程用固定桩（真实业务
+// 从 DB 装载并随授权变更 Reload——contrib 桥的 ReloadableAuthorizer 语义）。
+func NewAuthorizer() (baldauthz.Authorizer, error) {
+	rows := make([]authzcasbin.PolicyRow, 0, len(seed.Rows))
+	for _, r := range seed.Rows {
+		rows = append(rows, authzcasbin.PolicyRow{Role: r.Role, Object: r.Object, Action: r.Action})
+	}
+	grants := []authzcasbin.Grant{
+		{Subject: "u-admin", Role: "admin"},
+		{Subject: "u-viewer", Role: "viewer"},
+	}
+	az, err := authzcasbin.NewRows(rows, grants)
+	if err != nil {
+		return nil, err
+	}
+	return authzcasbin.NewAlias(az, ObjectAliases), nil
+}
