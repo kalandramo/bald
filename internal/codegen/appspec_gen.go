@@ -121,7 +121,8 @@ func options() ([]appkit.Option, error) {
 		// 框架自有后端的默认 Provider 集合：server.http/grpc 服务器构造
 		// （按下方能力声明）与 audit 的 log 后端（契约 audit.backends 驱动）。
 		std.Standard(),
-		appkit.ConfigNamespace("{{ .Meta.Name }}"),
+		// 配置命名空间由契约 app.name 派生（B6 两遍合并）——契约里的 app.name
+		// 必填（缺失启动 fail-fast 且报错可行动）。
 		appkit.ConfigFile("configs/{{ .Meta.Name }}.yaml"),
 		appkit.WatchConfigFile(true),
 		// R1-2 期望态协调：以 audit.backends 为期望态，运行期热切审计后端。
@@ -287,13 +288,13 @@ func reconcileAudit(ctx context.Context, rctx *appkit.ReconcileCtx) error {
 }
 
 // auditors 记录当前生效的后端审计器（实际态）；Mount/Unmount 维护，名 == 后端名，
-// 与 rctx.Mounted() 一一对应。锁仅保护 map；全局 Auditor 的重设由 applyAuditors 串行完成。
+// 与 rctx.Mounted() 一一对应。锁仅保护 map；当前生效审计器的重设由 applyAuditors 串行完成。
 var auditors = struct {
 	mu  sync.Mutex
 	set map[string]audit.Auditor
 }{set: make(map[string]audit.Auditor)}
 
-// auditBackendComponent 是一个后端审计器组件：Mount 即注册进全局审计器，
+// auditBackendComponent 是一个后端审计器组件：Mount 即注册进当前生效审计器集，
 // Unmount（Dispose）即注销——组件停机逆序 Dispose 保证了热切换的对称性。
 type auditBackendComponent struct{ name string }
 
@@ -337,7 +338,23 @@ func buildAuditBackend(name string) audit.Auditor {
 	return nil
 }
 
-// applyAuditors 按后端名排序重建全局审计器（顺序确定，便于测试与排查日志）；
+// currentAudMu/currentAuditor 自持当前生效审计器（B8：框架全局
+// audit.SetAuditor/GetAuditor 已删除——热切换生效集由应用持有，接线审计
+// 消费方（bundle.Audit / 中间件 AuditWithAuditor）时经 CurrentAuditor 显式注入）。
+var (
+	currentAudMu   sync.RWMutex
+	currentAuditor audit.Auditor = audit.NopAuditor()
+)
+
+// CurrentAuditor 返回当前生效审计器（热切换对已注入消费方即时可见——以本
+// 函数为注入值即可获得动态转发语义）。
+func CurrentAuditor() audit.Auditor {
+	currentAudMu.RLock()
+	defer currentAudMu.RUnlock()
+	return currentAuditor
+}
+
+// applyAuditors 按后端名排序重建当前生效审计器（顺序确定，便于测试与排查日志）；
 // 空则退化为 Nop（NewMultiAuditor 兜底），绝不阻断审计旁路。
 func applyAuditors() {
 	auditors.mu.Lock()
@@ -352,7 +369,9 @@ func applyAuditors() {
 	}
 	auditors.mu.Unlock()
 
-	audit.SetAuditor(audit.NewMultiAuditor(list...))
+	currentAudMu.Lock()
+	currentAuditor = audit.NewMultiAuditor(list...)
+	currentAudMu.Unlock()
 }
 
 func main() {

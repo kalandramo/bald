@@ -18,7 +18,7 @@
 //	config.FromKratosSource 桥接 kratos contrib 后端）。优先级 flag > env > 本地 >
 //	远程（远程作为基准），本地文件与远程变更触发全量重合并 + 热更新（OnConfigChange）。
 //	配置结果存于配置仓库（*config.Store），调用方可在 BeforeStart 钩子里通过
-//	app.Settings() 取快照或 app.Config() 实时点路径读取。
+//	app.Settings() 取快照（点路径读取经 bootstrap/config 的 At/String 值语义）。
 //
 //	业务 flag 必须经 Bind(prefix, opt) 注册（而非自行 AddFlags 到 pflag.CommandLine），
 //	否则 flag 不进入配置装载的 flag 层，压不过环境变量、本地文件与远程基准。

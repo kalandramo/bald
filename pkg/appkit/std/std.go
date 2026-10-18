@@ -9,17 +9,19 @@
 //     （appkit.StandardServerProvider）；
 //   - audit（audit.backends 中的 "log" 项）：结构化日志审计后端，核心包
 //     零依赖开箱即用（appkit.StandardAuditProvider；store/stream 属第三方
-//     集成，见下）。
+//     集成，见下）；
+//   - logger（契约 logger.backends）：bslog（标准库 slog）后端——B7 起唯一
+//     内置日志通道（appkit.StandardLoggerProvider；阶段 A 引导 logger 的
+//     持有者。第三方日志后端经用户 logger Provider 覆盖，段路径末者胜）。
 //
 // 以下各段在原 12 段流里**没有默认接线**，故不进 std（「不多不少」对账）：
 //   - registry / database / cache / storage / ai / workflow / broker /
 //     tracer / metrics / config：均为第三方后端域（nacos/etcd、mysql、
 //     redis、minio…或仅远程源描述）——段存在而无 Provider 时由 L3 覆盖
 //     检查启动期报错（见 appkit.segment_coverage）；
-//   - logger / app：消费无条件（段缺失 = 默认后端/默认元数据而非跳过），
-//     与 Provider 的「段在才构建」语义不同构——logger 两阶段重建+热更留在
-//     引擎内置路径（WithLogDecorators 语义保持），声明 logger 段 Provider
-//     可整体接管（原 WithLogRegistry 的等价通道）。
+//   - app：消费无条件（段缺失 = 默认元数据而非跳过）。logger 段已收编为
+//     上方 StandardLoggerProvider（两阶段重建+热更协议仍在引擎——loggerSource
+//     通道，B7 起默认分派删除、零声明时引擎回退同一内置 Provider）。
 //
 // 实现落点说明（对 D1 §3.3 的偏差）：Provider 实现体住在 pkg/appkit
 // （standard.go）而非本包——两者都深度消费 appkit 内部件（Decl 能力声明、
@@ -46,5 +48,9 @@ import (
 // Standard 返回框架自有后端的默认 Provider 集合（一个 Option；成员可被
 // 后声明的同段 Provider 覆盖——段路径末者胜，见 appkit.Provider）。
 func Standard() appkit.Option {
-	return appkit.Providers(appkit.StandardServerProvider(), appkit.StandardAuditProvider())
+	return appkit.Providers(
+		appkit.StandardServerProvider(),
+		appkit.StandardAuditProvider(),
+		appkit.StandardLoggerProvider(),
+	)
 }

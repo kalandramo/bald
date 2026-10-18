@@ -55,10 +55,6 @@ import (
 	"github.com/kalandramo/bald/transport"
 )
 
-// loggerFactory 是解析后的日志后端工厂（私有类型：不进入公开 API，由
-// defaultLoggerFactory 产出、defaultLoggerSource 消费）。
-type loggerFactory = func(ctx context.Context, l *bootstrapv1.Logger) (lg log.Logger, cleanup func(), err error)
-
 // WithHTTP 声明启用 HTTP 服务器，业务 handler 必供（探针路径由框架兜底）。
 func WithHTTP(handler http.Handler) Option {
 	return optionFunc(func(s *Decl) { s.HTTPHandler = handler })
@@ -114,12 +110,12 @@ func WithExtraServerFunc(fn func(context.Context) (transport.Server, error)) Opt
 	return optionFunc(func(s *Decl) { s.ServersFunc = append(s.ServersFunc, fn) })
 }
 
-// WithLogDecorators 附加 bslog 日志装饰器（脱敏、业务字段等），阶段 A/B
-// 构造 Logger 时统一生效。注意：装饰器是 bslog.Option，仅对默认路径的
-// slog 项与阶段 A 回退生效；以 logger Provider 接管日志装配时，装饰器是否
-// 生效由该 Provider 决定（与原 LogRegistry 路径的 deco-aware 语义一致）。
-func WithLogDecorators(deco ...bslog.Option) Option {
-	return optionFunc(func(s *Decl) { s.LogDecorators = append(s.LogDecorators, deco...) })
+// logDecoratorsOpt 附加 bslog 日志装饰器（B7 取消导出：装饰归 provider 自持
+// ——装饰器类型是具体日志后端的 bslog.Option，经公开 Option 暴露即把后端类型
+// 泄露进声明面）。内置 slog Provider（StandardLoggerProvider）消费 Decl 的
+// 装饰器；第三方 logger Provider 自持装饰。
+func logDecoratorsOpt(deco ...bslog.Option) Option {
+	return optionFunc(func(s *Decl) { s.logDecorators = append(s.logDecorators, deco...) })
 }
 
 // loggerSource 统一「默认两阶段日志工厂」与「logger Provider 接管」的调用面：
@@ -132,22 +128,11 @@ type loggerSource interface {
 	contractLogger(ctx context.Context, cfg *bootstrapv1.BootstrapConfig) (log.Logger, func(), error)
 }
 
-// defaultLoggerSource 是内置默认路径（零 logger Provider 时生效）：无注册表的
-// 纯函数分派，依赖增量严格为零（bslog 本就是 bootstrap 直接依赖），消费
-// Decl.LogDecorators（WithLogDecorators 语义保持）。
-type defaultLoggerSource struct{ deco []bslog.Option }
-
-func (s defaultLoggerSource) bootstrapLogger(ctx context.Context) (log.Logger, func(), error) {
-	return defaultLoggerFactory(s.deco)(ctx, nil)
-}
-
-func (s defaultLoggerSource) contractLogger(ctx context.Context, cfg *bootstrapv1.BootstrapConfig) (log.Logger, func(), error) {
-	return defaultLoggerFactory(s.deco)(ctx, cfg.GetLogger())
-}
-
-// providerLoggerSource 是 logger Provider 接管路径：引擎在三个时点调用
-// Provider.Build（阶段 A：Config=nil；阶段 B/热更：Config=完整契约或候选），
-// 产物为 log.Logger，cleanup 交由引擎的 curCleanup 原子换槽兑现。
+// providerLoggerSource 是 logger Provider 路径（唯一路径——B7 删除默认分派，
+// D1 §4.5：slog 后端经 StandardLoggerProvider 走同一条 provider 通道进 std）：
+// 引擎在三个时点调用 Provider.Build（阶段 A：Config=nil——框架在此保证启动
+// 日志可见；阶段 B/热更：Config=完整契约或候选），产物为 log.Logger，cleanup
+// 交由引擎的 curCleanup 原子换槽兑现。
 type providerLoggerSource struct {
 	prov Provider
 	spec *Decl
@@ -180,13 +165,16 @@ func (s providerLoggerSource) contractLogger(ctx context.Context, cfg *bootstrap
 	return s.build(ctx, cfg)
 }
 
-// resolveLoggerSource 按 spec 解析日志源：声明了 logger 段 Provider 即接管
-// （原 WithLogRegistry 通道的等价物），否则内置默认工厂。
+// resolveLoggerSource 解析日志源：声明了 logger 段 Provider 即接管（std 内置
+// 与第三方同通道，段路径末者胜）；零声明时回退内置 StandardLoggerProvider
+// ——「框架持有一个引导 logger」由其阶段 A 分支（Config=nil）兑现，阶段 B 用
+// Provider 结果替换（loggerSource 两阶段协议沿用）。
 func resolveLoggerSource(spec *Decl, plan *providerPlan) loggerSource {
-	if plan.loggerProv != nil {
-		return providerLoggerSource{prov: plan.loggerProv, spec: spec}
+	prov := plan.loggerProv
+	if prov == nil {
+		prov = StandardLoggerProvider()
 	}
-	return defaultLoggerSource{deco: spec.LogDecorators}
+	return providerLoggerSource{prov: prov, spec: spec}
 }
 
 // assemble 按契约约定装配 App——段驱动 Provider 装配引擎（原 12 段手工
@@ -233,8 +221,8 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*App, error) {
 		}
 	}
 
-	// 日志源两级分发：logger 段 Provider 接管 > 内置默认工厂（消费
-	// WithLogDecorators）。解析结果不落入 Decl（非用户声明），经参数传递。
+	// 日志源：logger 段 Provider（零声明回退内置 StandardLoggerProvider，消费
+	// Decl 的装饰器）。解析结果不落入 Decl（非用户声明），经参数传递。
 	logSrc := resolveLoggerSource(spec, plan)
 
 	// 阶段 A：默认 Logger，保证契约装载前的启动日志可见。失败路径回滚。
@@ -293,11 +281,6 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*App, error) {
 	// Effect（构造期按 cleanupOrder 预登记）逆序回放时兑现——Effect 注册序
 	// 与旧 12 段流逐条一致。
 	slots := newCleanupSlots(plan)
-	// auditSt 跟踪阶段 B 装配的审计后端句柄（装配前全局 prev + 后端 cleanup）。
-	// Effect 回放：先 cleanup（stream flush 尾批审计事件，在指标/span 之后
-	// 收集面最全），再恢复装配前全局 Auditor。
-	var auditSt *auditState
-
 	// a 先声明再进闭包：BeforeStart 在 Run 期才执行，届时 a 已赋值。
 	var a *App
 
@@ -308,7 +291,7 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*App, error) {
 	kitOpts := []Option{
 		ID(cfg.GetApp().GetId()),
 		Name(orDefault(cfg.GetApp().GetName(), "bald-app")),
-		ConfigNamespace(spec.ConfigNamespace),
+		configNamespaceOpt(spec.configNamespace), // B6：Serve 已按契约 app.name 派生
 		Version(orDefault(cfg.GetApp().GetVersion(), "v0.0.0")),
 		Env(cfg.GetApp().GetEnv()),
 		StopTimeout(orDuration(cfg.GetApp().GetStopTimeout().AsDuration(), 30*time.Second)),
@@ -333,7 +316,7 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*App, error) {
 				bps = dropSegmentProviders(bps, "registry")
 			}
 			_, _, err := runProviderLoop(ctx, bps, BuildScope{Config: cfg, Decl: spec, App: a}, true,
-				func(r buildResult) error { return storeProduct(a, r, slots, &auditSt) })
+				func(r buildResult) error { return storeProduct(a, r, slots) })
 			if err != nil {
 				return err
 			}
@@ -347,23 +330,11 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*App, error) {
 			hotReload(cfg, spec, logSrc, &curCleanup, m)
 		}),
 	}
-	// 框架停机 Effect：audit-restore 登记**最前**（逆序回放最后执行——先
-	// cleanup（stream flush 尾批审计事件，在指标/span 之后收集面最全），再
-	// 恢复装配前全局 Auditor），其余 canonical 槽位按 cleanupOrder 依次登记
-	//（回放序：broker → … → database → registrar-client → bootstrap-logger →
-	// metrics-server → tracer-shutdown → audit-restore，与旧 12 段流一致）。
-	kitOpts = append(kitOpts, effectOpt(effectNameBySegment["audit"], func(ctx context.Context) error {
-		if auditSt == nil {
-			return nil
-		}
-		if auditSt.cleanup != nil {
-			if err := auditSt.cleanup(ctx); err != nil {
-				log.Error(ctx, "appkit audit cleanup failed", "error", err.Error())
-			}
-		}
-		audit.SetAuditor(auditSt.prev)
-		return nil
-	}))
+	// 框架停机 Effect：canonical 槽位按 cleanupOrder 依次登记（audit 槽位居
+	// 首 → 逆序回放最后执行，后端 cleanup 的 stream 尾批审计事件在指标/span
+	// flush 之后收集——回放序：broker → … → database → registrar-client →
+	// bootstrap-logger → metrics-server → tracer-shutdown → audit-restore，
+	// 与旧 12 段流一致；B8 起无「恢复装配前全局」步骤——全局审计器已删除）。
 	kitOpts = append(kitOpts, slots.effects(oldLogger, &curCleanup)...)
 	if httpCfg != nil {
 		kitOpts = append(kitOpts, Bind("server.http", httpCfg))
@@ -561,17 +532,15 @@ func (s *cleanupSlots) fillForeign(p Provider, c Cleanup) {
 	}
 }
 
-// effects 生成 canonical 段停机 Effect（audit-restore 由 assemble 单独登记，
-// 不在此列；顺序 = cleanupOrder，即注册序）。logger 段非 Provider 驱动，
-// 特供 bootstrap-logger Effect：恢复装配前全局 Logger 并兑现最新后端 cleanup
+// effects 生成 canonical 段停机 Effect（顺序 = cleanupOrder，即注册序；
+// audit 槽位居首 → 逆序回放最后执行）。logger 段非 Provider 驱动，特供
+// bootstrap-logger Effect：恢复装配前全局 Logger 并兑现最新后端 cleanup
 // （热更重建原子换槽的钩子在此收口）。
 func (s *cleanupSlots) effects(oldLogger log.Logger, curCleanup *atomic.Pointer[func()]) []Option {
 	var opts []Option
 	for _, seg := range cleanupOrder {
 		seg := seg
 		switch seg {
-		case "audit":
-			continue
 		case "logger":
 			opts = append(opts, effectOpt(effectNameBySegment[seg], func(context.Context) error {
 				log.SetLogger(oldLogger)
@@ -617,7 +586,7 @@ func noopCleanupFn(c Cleanup) func() {
 
 // storeProduct 把阶段 B Provider 的产物按顶层段落进 App 的资源面，并把
 // cleanup 填入对应槽位。产物形状不符 = 装配错误（fail-fast）。
-func storeProduct(a *App, r buildResult, slots *cleanupSlots, auditSt **auditState) error {
+func storeProduct(a *App, r buildResult, slots *cleanupSlots) error {
 	top := segmentTop(r.prov.Segments()[0])
 	switch top {
 	case "registry":
@@ -640,14 +609,46 @@ func storeProduct(a *App, r buildResult, slots *cleanupSlots, auditSt **auditSta
 		if !ok {
 			return fmt.Errorf("appkit: audit provider %v returned %T, want audit.Auditor", r.prov.Segments(), r.product)
 		}
-		prev := audit.GetAuditor()
-		audit.SetAuditor(aud)
-		*auditSt = &auditState{prev: prev, cleanup: r.cleanup}
+		// B8：全局 SetAuditor 已删除——契约产物作 appkit 自身审计事件的兜底
+		// sink（显式 Auditor Option 优先，不覆盖），并照常落资源面供业务
+		// 显式注入 bundle/中间件。
+		if a.auditor == nil {
+			a.auditor = aud
+		}
 		a.setResources(top, aud)
-	case "tracer", "metrics":
-		// 产物不落资源面（tracer shutdown / metrics 暴露端由 Provider 自持，
-		// cleanup 槽位承担停机回收；StartMetricsServer 为其导出工具）。
 		slots.fill(top, r.cleanup)
+	case "tracer":
+		// 产物不落资源面（tracer shutdown 由 Provider 自持，cleanup 槽位承担
+		// 停机回收）。
+		slots.fill(top, r.cleanup)
+	case "metrics":
+		// 产物为可关闭的暴露端（B7：MetricsProvider 返回 MetricsExposure 而非
+		// 裸 Handler，监听面归 metricshttp 能力包）。停机序「先停暴露端再
+		// flush」由引擎在此合成进 cleanup 槽位——Provider 只需返回 (端点, flush)。
+		var exp MetricsExposure
+		if r.product != nil {
+			e, ok := r.product.(MetricsExposure)
+			if !ok {
+				return fmt.Errorf("appkit: metrics provider %v returned %T, want MetricsExposure (nil = no exposure)", r.prov.Segments(), r.product)
+			}
+			exp = e
+		}
+		flush := r.cleanup
+		var slot Cleanup
+		if exp != nil || flush != nil {
+			slot = func(ctx context.Context) error {
+				if exp != nil {
+					if err := exp.Stop(ctx); err != nil {
+						log.Error(ctx, "appkit metrics exposure stop failed", "error", err.Error())
+					}
+				}
+				if flush != nil {
+					return flush(ctx)
+				}
+				return nil
+			}
+		}
+		slots.fill(top, slot)
 	default:
 		// 表外段：cleanup 照常入账，产物按统一约定落资源面（B4 收口）：
 		// map 产物按 "<顶层段>.<子段>" 展开、非 map 产物落 "<顶层段>"。
@@ -782,59 +783,6 @@ func rebuildLogger(cfg *bootstrapv1.BootstrapConfig, logSrc loggerSource, curCle
 	}
 	curCleanup.Store(&cleanup)
 	return nil
-}
-
-// defaultLoggerFactory 返回默认路径日志工厂（零 logger Provider 时生效）：
-// 无注册表的纯函数分派，依赖增量严格为零（bslog 本就是 bootstrap 直接依赖）。
-//
-// 三分派：
-//   - 阶段 A（l==nil，契约装载前）：回退默认 bslog，保证启动日志可见；
-//   - backends 项（多后端广播）：type=slog 项直构（走 deco 特例——deco 是
-//     bslog.Option，仅 bslog 后端可消费，保留 WithLogDecorators 在默认路径
-//     的既有语义）后 MultiLogger 合并；非 slog 项 fail-fast 教学报错；
-//   - backends 为空：fail-fast（契约至少声明一项）。
-//
-// 全局脱敏（filter_keys 非空）：出口包 log.NewFilterLogger。
-// 远端/自定义后端经 logger 段 Provider 接管（原 WithLogRegistry 通道的
-// 等价物）：声明一个 Segments()=["logger"] 的 Provider 即整体替换本工厂。
-func defaultLoggerFactory(deco []bslog.Option) loggerFactory {
-	return func(_ context.Context, l *bootstrapv1.Logger) (log.Logger, func(), error) {
-		if l == nil {
-			// 阶段 A（契约装载前）：回退默认 bslog，保证启动日志可见。
-			return bslog.New(baldbootstrap.LogOptions(nil), deco...), nil, nil
-		}
-		bs := l.GetBackends()
-		if len(bs) == 0 {
-			return nil, nil, fmt.Errorf("appkit: logger.backends is empty (declare at least one backend, e.g. type \"slog\")")
-		}
-		loggers := make([]log.Logger, 0, len(bs))
-		var cleanups []func()
-		for i, b := range bs {
-			if b.GetType() == "slog" {
-				lg, c := bslog.NewWithCleanup(baldbootstrap.LogOptions(b), deco...)
-				loggers = append(loggers, lg)
-				cleanups = append(cleanups, c)
-				continue
-			}
-			return nil, nil, fmt.Errorf("appkit: logger.backends[%d] type %q: default path supports only \"slog\";\n"+
-				"  remote/custom backends need a logger provider:\n"+
-				"    appkit.MustServe(ctx, std.Standard(), myLoggerProvider()) // Segments()=[\"logger\"]", i, b.GetType())
-		}
-		// 单项直通：不包 MultiLogger 广播层（出口零多余包装）；多项经
-		// MultiLogger 合并。
-		var out log.Logger = loggers[0]
-		if len(loggers) > 1 {
-			out = log.NewMultiLogger(loggers...)
-		}
-		// cleanup 按构造序正放释放各 slog 项的文件/轮转句柄（lumberjack 缓冲
-		// 冲刷落盘、热更新重建不泄漏——恒非 nil）。
-		merged := func() {
-			for _, c := range cleanups {
-				c()
-			}
-		}
-		return log.NewFilterLogger(out, l.GetFilterKeys()...), merged, nil
-	}
 }
 
 func orDefault(s, def string) string {

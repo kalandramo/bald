@@ -278,13 +278,12 @@ func (m *reconAuditMem) snapshot() []audit.AuditEvent {
 }
 
 // TestReconcile_AuditEvent 协调产生审计事件（Object="reconciler"）。
+// B8 起无全局审计器——sink 经显式注入（此处直设 App.auditor，等价 auditorOpt）。
 func TestReconcile_AuditEvent(t *testing.T) {
-	old := audit.GetAuditor()
 	am := &reconAuditMem{}
-	audit.SetAuditor(am)
-	t.Cleanup(func() { audit.SetAuditor(old) })
 
 	app, _, _ := setupReconApp(t, "")
+	app.auditor = am
 	app.runReconcilersWith(context.Background(), newReconSettings("log"))
 
 	found := false
@@ -304,21 +303,35 @@ func TestReconcile_AuditEvent(t *testing.T) {
 	}
 }
 
-// TestParseStringList 配置值解析契约：[]string / 逗号串 / []any / 空值。
-func TestParseStringList(t *testing.T) {
-	if got := ParseStringList([]string{"a", "b"}); len(got) != 2 {
-		t.Errorf("[]string = %v", got)
+// TestReconcileCtx_ValueSemantics 配置值语义（config 委托，B7 §4.3 落点）：
+// String 点路径标量化、StringSlice 列表解析。实现体已迁 bootstrap/config
+// （config.At/String/StringList），此处钉住委托后的语义——与 config.StringList
+// 完全一致（含收敛语义：[]any 非字符串项按标量化保留，原 appkit 版丢弃）。
+func TestReconcileCtx_ValueSemantics(t *testing.T) {
+	r := NewReconcileCtx(nil, "probe", map[string]any{
+		"audit": map[string]any{"backends": "log, store ,stream"},
+		"str":   map[string]any{"v": "x"},
+		"num":   42,
+		"list":  []any{"a", 1, "b"},
+	})
+	if got := r.String("str.v"); got != "x" {
+		t.Errorf("nested string = %q, want x", got)
 	}
-	if got := ParseStringList("a, b ,c"); len(got) != 3 || got[1] != "b" {
-		t.Errorf("comma string = %v", got)
+	if got := r.String("num"); got != "42" {
+		t.Errorf("scalar string = %q, want 42", got)
 	}
-	if got := ParseStringList([]any{"a", 1, "b"}); len(got) != 2 {
-		t.Errorf("[]any should skip non-string: %v", got)
+	if got := r.String("missing"); got != "" {
+		t.Errorf("missing = %q, want empty", got)
 	}
-	if got := ParseStringList(""); len(got) != 0 {
-		t.Errorf("empty = %v, want nil", got)
+	got := r.StringSlice("audit.backends")
+	if len(got) != 3 || got[0] != "log" || got[1] != "store" || got[2] != "stream" {
+		t.Errorf("comma list = %v, want [log store stream]", got)
 	}
-	if got := ParseStringList(nil); got != nil {
-		t.Errorf("nil = %v, want nil", got)
+	lst := r.StringSlice("list")
+	if len(lst) != 3 || lst[0] != "a" || lst[1] != "1" || lst[2] != "b" {
+		t.Errorf("[]any list = %v, want [a 1 b] (config.StringList converged semantics)", lst)
+	}
+	if got := r.StringSlice("missing"); got != nil {
+		t.Errorf("missing slice = %v, want nil", got)
 	}
 }

@@ -8,8 +8,9 @@
 //   - 审计三元组 (subject, object, action) 复用 P9 的 authz.ObjectResolver/ActionResolver
 //     归一化原语，使 REST/gRPC 在同一份审计语义下被记录（谁在何时对什么资源做了什么）。
 //
-// 默认后端为 nop（静默），由用户在 AppKit 装配期经 audit.SetAuditor 注入具体实现，
-// 或在拦截器/中间件构造时传入 Auditor 实例。
+// 缺省后端为 nop（静默）；注入为显式构造器注入（拦截器/中间件/bundle 传入
+// Auditor 实例）。曾有的全局 SetAuditor/GetAuditor 已随装配层 B8 删除——
+// 审计 sink 不再依赖进程级全局状态（需要运行期热切换的应用自持持有者）
 package audit
 
 import (

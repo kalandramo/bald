@@ -49,8 +49,11 @@ type Decl struct {
 
 	// ---- 配置源（ConfigFile/RemoteConfig/ConfigLayers/Env/WatchConfigFile/
 	// StrictContract/OnConfigChange/Bind Option） ----
-	// ConfigNamespace 配置命名空间（env 前缀 / 多环境文件名来源）。
-	ConfigNamespace string
+	// configNamespace 配置命名空间（env 前缀 / 多环境文件名来源）——**内部派生
+	// 值**（B6，装配层评估 §5.1）：Serve 路径由契约 app.name 两遍合并派生，
+	// NewApp 路径回退 Name。不再有公开声明口（原 ConfigNamespace Option 已删，
+	// env 名不变）。
+	configNamespace string
 	ConfigFile      string
 	WatchConfigFile bool
 	RemoteConfig    config.RemoteSource
@@ -97,8 +100,14 @@ type Decl struct {
 	KeyWatches       []KeyWatchDecl
 	Reconciles       []ReconcileDecl
 
-	// ---- 审计（Auditor Option；运行期审计事件 sink） ----
+	// ---- 审计（auditorOpt 写入；运行期 appkit 自身审计事件 sink） ----
 	Auditor audit.Auditor
+
+	// ---- 身份端口（Identity Option；appkit 审计事件 Subject/TenantID 取值） ----
+	// IdentityFunc 是 appkit 对业务身份的最小端口（D1 §4.4）：nil = 空身份
+	// （与今日 claims 为 nil 的行为一致）。适配（如 authn claims）由应用侧
+	// 1 行 lambda 提供。
+	Identity IdentityFunc
 
 	// ---- 段驱动 Provider（Providers/WithUnimplementedSegments 声明；
 	// std.Standard() 与第三方 Provider 经 Apply 追加，装配引擎见 provider.go） ----
@@ -109,9 +118,9 @@ type Decl struct {
 	// 追加）：契约已声明、框架尚无消费者的段，显式豁免启动期报错。
 	UnimplementedSegments []string
 
-	// ---- 日志装饰器（WithLogDecorators 声明；归 B7，批 3 再收敛） ----
-	// LogDecorators bslog 日志装饰器（仅默认路径 slog 项与阶段 A 回退消费）。
-	LogDecorators []bslog.Option
+	// ---- 日志装饰器（logDecoratorsOpt 写入，B7 取消导出：装饰归 provider
+	// 自持——内置 slog Provider 消费本字段，第三方 logger Provider 自持装饰） ----
+	logDecorators []bslog.Option
 
 	// ---- 协议面（WithHTTP/WithGatewayRegister/WithGRPC/WithGRPCOptions
 	// 声明；能力声明在代码，契约 server 段驱动装配） ----
@@ -193,7 +202,7 @@ func newFromDecl(d Decl) *App {
 		id:               d.ID,
 		name:             d.Name,
 		version:          d.Version,
-		cfgNamespace:     d.ConfigNamespace,
+		cfgNamespace:     d.configNamespace,
 		stopTimeout:      d.StopTimeout,
 		registrar:        d.Registrar,
 		servers:          d.Servers,
@@ -206,6 +215,7 @@ func newFromDecl(d Decl) *App {
 		components:       d.Components,
 		componentTimeout: d.ComponentTimeout,
 		auditor:          d.Auditor,
+		identity:         d.Identity,
 		reconItems:       make(map[string][]reconItem),
 		resources:        make(map[string]any),
 		done:             make(chan struct{}),

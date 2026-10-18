@@ -3,7 +3,7 @@ package mech
 import (
 	"testing"
 
-	"github.com/kalandramo/bald/pkg/appkit"
+	"github.com/kalandramo/bald/bootstrap/config"
 )
 
 // TestDiffStrings 差集工具契约（B5 自 appkit 迁入，实现体在本包）：有序、
@@ -24,12 +24,12 @@ func TestDiffStrings(t *testing.T) {
 }
 
 // TestParseStringListForward 薄转发钉住：mech.ParseStringList 与
-// appkit.ParseStringList 同实现（实现体留 appkit 的批 2 裁决，见 util.go 落点
-// 说明；目标归宿 bootstrap/config 随批 3 职责边界迁移）。
+// config.StringList 同实现（实现体已随批 3 职责边界落点迁至
+// bootstrap/config——最终归宿，见 util.go 落点说明）。
 func TestParseStringListForward(t *testing.T) {
 	input := []any{"a", 1, "b"}
-	if got, want := ParseStringList(input), appkit.ParseStringList(input); len(got) != len(want) || len(got) != 2 {
-		t.Errorf("forward mismatch: mech=%v appkit=%v", got, want)
+	if got, want := ParseStringList(input), config.StringList(input); len(got) != len(want) || len(got) != 3 || got[1] != "1" {
+		t.Errorf("forward mismatch: mech=%v config=%v (want converged semantics [a 1 b])", got, want)
 	}
 	if got := ParseStringList(""); got != nil {
 		t.Errorf("empty = %v, want nil", got)

@@ -54,24 +54,24 @@ func TestAppKit_ConfigLayers(t *testing.T) {
 	defer a.cfg.closeStore()
 
 	// 本地文件压过全部契约层。
-	if got := a.Config().GetString("log.level"); got != "warn" {
+	if got := readSetting(a, "log.level"); got != "warn" {
 		t.Errorf("log.level = %q, want warn (local file above layers)", got)
 	}
 	// 列表首层胜出重叠键；后层独有键保留（字段级合并）。
-	if got := a.Config().GetString("log.from"); got != "first" {
+	if got := readSetting(a, "log.from"); got != "first" {
 		t.Errorf("log.from = %q, want first", got)
 	}
-	if got := a.Config().GetString("log.extra"); got != "1" {
+	if got := readSetting(a, "log.extra"); got != "1" {
 		t.Errorf("log.extra = %q, want 1 (field-level merge)", got)
 	}
 
 	// 契约层热更新：first 层变更触发 OnConfigChange，且新值生效。
 	first.push("log:\n  level: debug\n  from: pushed")
 	<-changed
-	if got := a.Config().GetString("log.from"); got != "pushed" {
+	if got := readSetting(a, "log.from"); got != "pushed" {
 		t.Errorf("log.from = %q, want pushed (layer hot update via appkit)", got)
 	}
-	if got := a.Config().GetString("log.level"); got != "warn" {
+	if got := readSetting(a, "log.level"); got != "warn" {
 		t.Errorf("log.level = %q, want warn (local still above layers)", got)
 	}
 }

@@ -20,7 +20,7 @@
 //	        if err := app.MountComponent(c.Request.Context(), comp); err != nil {
 //	            c.JSON(500, ...); return
 //	        }
-//	        // 请求 ctx 已带 AuthClaims → 审计事件自动携带 subject
+//	        // 请求 ctx 的业务身份经 Identity 端口取值 → 审计事件携带 subject
 //	    }
 //	}
 package appkit
@@ -32,7 +32,6 @@ import (
 
 	"github.com/kalandramo/bald/log"
 	"github.com/kalandramo/bald/pkg/audit"
-	"github.com/kalandramo/bald/pkg/authn"
 )
 
 // ErrNotRunning 表示 App 尚未运行（Run 之前）或已退出——运行期原语仅可在
@@ -49,8 +48,8 @@ var errComponentsDisposed = errors.New("appkit: components already disposed")
 // 逆序 Dispose，顺序=挂载序）。管理面热插拔/agent 工具挂载的承载原语；装配期
 // 静态组件用 Components Option。
 //
-// 产生一条 mount 审计事件（Subject 自动取 ctx 中的 AuthClaims——管理面 handler
-// 传入带认证的 request ctx 即可带上身份），审计旁路不阻断挂载。
+// 产生一条 mount 审计事件（Subject 经身份端口 Identity 取 ctx 业务身份，
+// 缺省空——管理面 handler 声明 Identity 适配即可带上身份），审计旁路不阻断挂载。
 //
 // 竞态闭环：组件系统停机销毁（阶段 4）开始后拒绝新挂载；若销毁与挂载并发竞争，
 // 挂载方的 Start 会随之回滚 Dispose——保证「挂载失败 = 无副作用」。
@@ -123,19 +122,20 @@ func (a *App) ListComponents() []string {
 	return names
 }
 
-// resolveAuditor 返回 appkit 自身审计事件的接收后端：显式注入（Auditor Option）
-// 优先，否则回退全局（其默认即 nop，永不返回 nil）。D4：单一解析顺序，消除
-// bundle 注入与 appkit 全局各走一边的 split-brain sink。
+// resolveAuditor 返回 appkit 自身审计事件的接收后端：显式注入（auditorOpt）
+// 优先，其次契约 audit 段产物（storeProduct 兜底写入），最终 Nop——永不返回
+// nil。D4 单一解析顺序；B8 起不再读全局 audit.GetAuditor()（已删除）。
 func (a *App) resolveAuditor() audit.Auditor {
 	if a.auditor != nil {
 		return a.auditor
 	}
-	return audit.GetAuditor()
+	return audit.NopAuditor()
 }
 
 // auditComponent 旁路发出一条运行时重组审计事件（§6.2 自修改审计原语）：
-// Subject/TenantID 取 ctx 中的 AuthClaims（可为空）；Auditor panic/错误仅记日志，
-// 绝不阻断挂载/卸载本身（与审计中间件 recordSafely 同一纪律）。
+// Subject/TenantID 经身份端口（Identity Option；缺省空身份——B7 依赖倒置，
+// appkit 不再 import pkg/authn）；Auditor panic/错误仅记日志，绝不阻断挂载/
+// 卸载本身（与审计中间件 recordSafely 同一纪律）。
 func (a *App) auditComponent(ctx context.Context, action, name string) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -143,8 +143,8 @@ func (a *App) auditComponent(ctx context.Context, action, name string) {
 		}
 	}()
 	subject, tenant := "", ""
-	if claims := authn.AuthClaimsFromContext(ctx); claims != nil {
-		subject, tenant = claims.Subject, claims.TenantID
+	if a.identity != nil {
+		subject, tenant = a.identity(ctx)
 	}
 	a.resolveAuditor().Record(ctx, audit.AuditEvent{
 		Subject:  subject,

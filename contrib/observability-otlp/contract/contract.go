@@ -18,7 +18,6 @@ package contract
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"time"
 
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
@@ -26,6 +25,8 @@ import (
 
 	obmetrics "github.com/kalandramo/bald/contrib/observability-otlp/metrics"
 	obtrace "github.com/kalandramo/bald/contrib/observability-otlp/trace"
+
+	"github.com/kalandramo/bald/observability/metricshttp"
 )
 
 // 契约段 type 字段的取值。
@@ -61,33 +62,47 @@ func NewTracerProvider(serviceName string) appkit.TracerProvider {
 // NewPrometheusProvider 返回绑定 serviceName 的「仅本地抓取」指标 Provider
 // （metrics.type=prometheus：otlp.endpoint 必须为空，配置了直推端点属矛盾
 // 声明，fail-fast 提示改用 type "otlp"）。
+//
+// B7：产物为可关闭的暴露端（appkit.MetricsExposure，实现是 metricshttp.Server）
+// ——监听面由本包经 metricshttp.Start 在独立端口起停（addr/path 取契约
+// metrics.prometheus 段，空值走缺省 :9091 / /metrics）；引擎保证停机序
+// 「先停暴露端、再 flush」。
 func NewPrometheusProvider(serviceName string) appkit.MetricsProvider {
-	return func(_ context.Context, cfg *bootstrapv1.Metrics) (http.Handler, func(context.Context) error, error) {
+	return func(_ context.Context, cfg *bootstrapv1.Metrics) (appkit.MetricsExposure, func(context.Context) error, error) {
 		if ep := cfg.GetOtlp().GetEndpoint(); ep != "" {
 			return nil, nil, fmt.Errorf(`metrics.type=%q conflicts with metrics.otlp.endpoint %q (use type %q to enable push)`,
 				TypePrometheus, ep, TypeOTLP)
 		}
-		return obmetrics.Setup(obmetrics.WithServiceName(serviceName))
+		h, shutdown, err := obmetrics.Setup(obmetrics.WithServiceName(serviceName))
+		if err != nil {
+			return nil, nil, err
+		}
+		return metricshttp.Start(cfg.GetPrometheus().GetAddr(), cfg.GetPrometheus().GetPath(), h), shutdown, nil
 	}
 }
 
 // NewOTLPProvider 返回绑定 serviceName 的「抓取 + 直推双通道」指标 Provider
 // （metrics.type=otlp：endpoint 必填，缺省 fail-fast；prometheus 段的
-// addr/path 由 appkit 装配层消费起暴露端）。
+// addr/path 由本 Provider 经 metricshttp.Start 消费起暴露端，见
+// NewPrometheusProvider 的 B7 说明）。
 func NewOTLPProvider(serviceName string) appkit.MetricsProvider {
-	return func(_ context.Context, cfg *bootstrapv1.Metrics) (http.Handler, func(context.Context) error, error) {
+	return func(_ context.Context, cfg *bootstrapv1.Metrics) (appkit.MetricsExposure, func(context.Context) error, error) {
 		otlp := cfg.GetOtlp()
 		endpoint := otlp.GetEndpoint()
 		if endpoint == "" {
 			return nil, nil, fmt.Errorf(`metrics.type=%q requires metrics.otlp.endpoint`, TypeOTLP)
 		}
 		interval := time.Duration(otlp.GetPushInterval()) * time.Second
-		return obmetrics.Setup(
+		h, shutdown, err := obmetrics.Setup(
 			obmetrics.WithOTLPAddr(endpoint),
 			obmetrics.WithServiceName(serviceName),
 			obmetrics.WithInsecure(otlp.GetInsecure()),
 			obmetrics.WithHeaders(otlp.GetHeaders()),
 			obmetrics.WithInterval(interval),
 		)
+		if err != nil {
+			return nil, nil, err
+		}
+		return metricshttp.Start(cfg.GetPrometheus().GetAddr(), cfg.GetPrometheus().GetPath(), h), shutdown, nil
 	}
 }

@@ -39,7 +39,7 @@ func TestGenApp_TemplateFormats(t *testing.T) {
 	}
 	// 关键锚点：批 2 目标惯用法 + 全部第二轮原语必须在模板中示范。
 	for _, want := range []string{
-		"appkit.MustServe", "std.Standard()", "appkit.ConfigNamespace",
+		"appkit.MustServe", "std.Standard()",
 		"mech.Provides", "mech.Requires", "mech.Effect",
 		"mech.Components", "mech.ComponentFunc", "mech.OnKeyChange",
 		"bundle.New", "bundle.Normalized",
@@ -205,12 +205,13 @@ func TestGenAppSpec_GeneratedRuns(t *testing.T) {
 	if err := renderAppSpec(data, path, false, NewDefaultIOStreams()); err != nil {
 		t.Fatalf("render: %v", err)
 	}
-	// 提供最小配置文件（MustServe 契约装载消费；audit.backends 驱动 std 审计装配）。
+	// 提供最小配置文件（MustServe 契约装载消费；app.name 驱生命名空间——B6
+	// 必填；audit.backends 驱动 std 审计装配）。
 	if err := os.MkdirAll(filepath.Join(dir, "configs"), 0o755); err != nil {
 		t.Fatalf("mkdir configs: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "configs", "smoke.yaml"),
-		[]byte("audit.backends: log\n"), 0o644); err != nil {
+		[]byte("app:\n  name: smoke\naudit:\n  backends: log\n"), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 

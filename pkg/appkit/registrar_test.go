@@ -71,7 +71,7 @@ func TestAssemble_ContractRegistrarLifecycle(t *testing.T) {
 	cfg := bconfNewBootstrapWithRegistry("fake")
 	dynamicAddr(cfg)
 
-	a := assembleForTest(t, cfg, ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), registrarTestProvider(rr))
+	a := assembleForTest(t, cfg, WithHTTP(new(http.ServeMux)), registrarTestProvider(rr))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
@@ -120,7 +120,7 @@ func TestAssemble_ExplicitRegistrarWins(t *testing.T) {
 
 	explicit := &stubRegistrar{}
 	a := assembleForTest(t, cfg,
-		ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
+		WithHTTP(new(http.ServeMux)),
 		Registrar(explicit),
 		registrarTestProvider(rr),
 	)
@@ -149,7 +149,7 @@ func TestAssemble_RegistrySectionWithoutTable(t *testing.T) {
 	cfg := bconfNewBootstrapWithRegistry("fake")
 	dynamicAddr(cfg)
 
-	a := assembleForTest(t, cfg, ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
+	a := assembleForTest(t, cfg, WithHTTP(new(http.ServeMux)))
 	err := a.Run(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "no consumer") || !strings.Contains(err.Error(), "registry") {
 		t.Fatalf("expected no-consumer error for registry, got %v", err)

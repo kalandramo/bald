@@ -36,7 +36,7 @@ func TestAssemble_ContractCacheLifecycle(t *testing.T) {
 		Local: &bootstrapv1.Cache_Local{Size: 1024 * 1024, DefaultTtlSeconds: 60},
 	}
 
-	a := assembleForTest(t, cfg, ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), cacheTestProvider(cr))
+	a := assembleForTest(t, cfg, WithHTTP(new(http.ServeMux)), cacheTestProvider(cr))
 	// 构造期（阶段 A）尚未装载契约：Cache 为空
 	if _, ok := a.Resource("cache.local"); ok {
 		t.Fatal("Cache should be empty before Run (phase B not reached)")
@@ -83,7 +83,7 @@ func TestAssemble_CacheSectionWithoutTable(t *testing.T) {
 		Local: &bootstrapv1.Cache_Local{Size: 1024},
 	}
 
-	a := assembleForTest(t, cfg, ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
+	a := assembleForTest(t, cfg, WithHTTP(new(http.ServeMux)))
 	err := a.Run(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "no consumer") && strings.Contains(err.Error(), "cache") {
 		t.Fatalf("expected CacheRegistry missing error, got %v", err)
@@ -98,7 +98,7 @@ func TestAssemble_NoCacheSection(t *testing.T) {
 	cfg := bconf.NewBootstrap()
 	dynamicAddr(cfg)
 
-	a := assembleForTest(t, cfg, ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
+	a := assembleForTest(t, cfg, WithHTTP(new(http.ServeMux)))
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- a.Run(ctx) }()

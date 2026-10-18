@@ -49,7 +49,7 @@ func TestAssemble_ExtraServerFuncRunTime(t *testing.T) {
 	srv := &probeServer{name: "extra", started: &started, mark: mark}
 
 	a := assembleForTest(t, cfg,
-		ConfigNamespace(testConfigNamespace), WithExtraServerFunc(func(context.Context) (transport.Server, error) {
+		WithExtraServerFunc(func(context.Context) (transport.Server, error) {
 			mark("extraServerFn")
 			return srv, nil
 		}),
@@ -79,7 +79,7 @@ func TestAssemble_ExtraServerFuncNilSkipped(t *testing.T) {
 	cfg := bconf.NewBootstrap() // 预填 server 段豁免（无能力 ⇒ 不绑端口，L3 不报错）
 
 	a := assembleForTest(t, cfg,
-		ConfigNamespace(testConfigNamespace), WithExtraServerFunc(func(context.Context) (transport.Server, error) { return nil, nil }),
+		WithExtraServerFunc(func(context.Context) (transport.Server, error) { return nil, nil }),
 	)
 
 	// 正常启停（若 nil 被塞入序列，Start 会 panic）。
@@ -104,7 +104,7 @@ func TestAssemble_ExtraServerFuncWithoutMainProtocol(t *testing.T) {
 
 	// 注意：**不**传 WithHTTP / WithGRPC —— 只有额外服务器。
 	a := assembleForTest(t, cfg,
-		ConfigNamespace(testConfigNamespace), WithExtraServerFunc(func(context.Context) (transport.Server, error) { return srv, nil }),
+		WithExtraServerFunc(func(context.Context) (transport.Server, error) { return srv, nil }),
 	)
 
 	runBriefly(t, a, 50*time.Millisecond)

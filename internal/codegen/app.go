@@ -56,8 +56,8 @@ func options() []appkit.Option {
 		// （按能力声明）与 audit 的 log 后端（契约 audit.backends 驱动）。
 		std.Standard(),
 
-		// 配置命名空间：env 前缀与多环境文件名的来源，Serve 必填（防自指）。
-		appkit.ConfigNamespace("{{.Name}}"),
+		// 配置命名空间由契约 app.name 派生（B6 两遍合并）——契约里的 app.name
+		// 必填，缺失启动 fail-fast 且报错可行动。
 		// appkit.ConfigFile("configs/{{.Name}}.yaml"), // [FILL] 本地配置文件（显式路径缺失启动即报错）
 
 		// ---- S1 能力声明：启动期 fail-fast ----
@@ -68,7 +68,7 @@ func options() []appkit.Option {
 		mech.Requires("audit.store", "db"),
 
 		// ---- T1 效应账本：全局写入配套逆操作 ----
-		// 任何全局注册（RegisterTenant/SetAuditor/RegisterDataScope...）都应
+		// 任何全局注册（RegisterTenant/RegisterDataScope...）都应
 		// 配一条 Effect；停机阶段 0 逆序回放，e2e 测试用 UndoEffects 隔离全局状态。
 		// 下例：配合业务 BeforeStart 里的 store.RegisterTenant("tenant_id", ...)，
 		// 提供对偶的 UnregisterTenant 逆操作——缺了它，注册会泄漏到进程重启之后

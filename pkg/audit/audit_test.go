@@ -30,23 +30,3 @@ func TestNopAuditor_RecordNoop(t *testing.T) {
 	// nop 不应 panic，也不应产生副作用。
 	NopAuditor().Record(context.Background(), AuditEvent{Subject: "u1"})
 }
-
-func TestGlobalSetGet(t *testing.T) {
-	a := &memAuditor{}
-	SetAuditor(a)
-	defer SetAuditor(nil)
-	if GetAuditor() != a {
-		t.Fatal("GetAuditor should return the injected auditor")
-	}
-	a.Record(context.Background(), AuditEvent{Subject: "u2", Result: ResultAllow})
-	if got := a.all(); len(got) != 1 || got[0].Subject != "u2" {
-		t.Fatalf("unexpected events: %+v", got)
-	}
-}
-
-func TestSetAuditor_NilFallsBackToNop(t *testing.T) {
-	SetAuditor(nil)
-	if _, ok := GetAuditor().(nopAuditor); !ok {
-		t.Fatal("nil should reset to nopAuditor")
-	}
-}

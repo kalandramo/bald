@@ -2,6 +2,7 @@
 bin/
 bald.exe
 /_example/*.exe
+_example/**/*.exe
 
 # proto 生成产物（由 buf generate 生成）。
 # - _example/bald/gen：示例项目生成代码，体积较大，不入库（本地 `task proto` 重建）。

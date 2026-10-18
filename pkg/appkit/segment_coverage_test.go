@@ -52,7 +52,7 @@ func TestAssemble_ErrorsUnconsumedScript(t *testing.T) {
 	cfg.Script = &bootstrapv1.Script{Engine: bootstrapv1.Script_LUA}
 
 	a := assembleForTest(t, cfg,
-		ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
+		WithHTTP(new(http.ServeMux)),
 		StandardServerProvider())
 	runExpectErr(t, a, "no consumer", "script", "WithUnimplementedSegments")
 }
@@ -68,7 +68,7 @@ func TestAssemble_WhitelistExemptsScript(t *testing.T) {
 	cfg.Script = &bootstrapv1.Script{Engine: bootstrapv1.Script_LUA}
 
 	a := assembleForTest(t, cfg,
-		ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
+		WithHTTP(new(http.ServeMux)),
 		WithUnimplementedSegments("script"),
 		StandardServerProvider())
 	runBriefly(t, a, 30*time.Millisecond) // Run 无错 = 白名单豁免生效
@@ -90,7 +90,7 @@ func TestAssemble_NoErrorWhenAllConsumed(t *testing.T) {
 		return "db", nil, nil
 	})
 
-	a := assembleForTest(t, cfg, ConfigNamespace(testConfigNamespace),
+	a := assembleForTest(t, cfg,
 		dbTestProvider(dr), StandardServerProvider())
 	runBriefly(t, a, 50*time.Millisecond)
 }
@@ -113,7 +113,7 @@ func TestAssemble_ErrorsScriptFromConfigLayer(t *testing.T) {
 	})
 
 	a := assembleForTest(t, cfg,
-		ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
+		WithHTTP(new(http.ServeMux)),
 		configTestProvider(reg), StandardServerProvider())
 	runExpectErr(t, a, "no consumer", "script")
 }
@@ -127,7 +127,7 @@ func TestAssemble_ZeroCapabilityDefaultServerNoError(t *testing.T) {
 
 	cfg := bconf.NewBootstrap()
 
-	a := assembleForTest(t, cfg, ConfigNamespace(testConfigNamespace))
+	a := assembleForTest(t, cfg)
 	runBriefly(t, a, 30*time.Millisecond)
 }
 
@@ -141,7 +141,7 @@ func TestAssemble_ZeroCapabilityOverriddenServerError(t *testing.T) {
 	cfg := bconf.NewBootstrap()
 	cfg.GetServer().GetHttp().Addr = "127.0.0.1:18080" // 用户覆盖：偏离预填默认
 
-	a := assembleForTest(t, cfg, ConfigNamespace(testConfigNamespace))
+	a := assembleForTest(t, cfg)
 	runExpectErr(t, a, "no consumer", "server")
 }
 
@@ -156,7 +156,7 @@ func TestAssemble_ServerSubSegmentWithoutProvider(t *testing.T) {
 	dynamicAddr(cfg)
 	cfg.Server.Asynq = &bootstrapv1.Server_Asynq{RedisAddress: "127.0.0.1:6379"}
 
-	a := assembleForTest(t, cfg, ConfigNamespace(testConfigNamespace),
+	a := assembleForTest(t, cfg,
 		WithHTTP(new(http.ServeMux)), StandardServerProvider())
 	runExpectErr(t, a, "server.asynq is configured but has no implementation")
 }
@@ -171,7 +171,7 @@ func TestAssemble_WhitelistExemptsServerSubSegment(t *testing.T) {
 	cfg.Server.Asynq = &bootstrapv1.Server_Asynq{RedisAddress: "127.0.0.1:6379"}
 
 	a := assembleForTest(t, cfg,
-		ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
+		WithHTTP(new(http.ServeMux)),
 		WithUnimplementedSegments("server.asynq"),
 		StandardServerProvider())
 	runBriefly(t, a, 30*time.Millisecond)
@@ -195,7 +195,7 @@ func TestAssemble_ServerSubSegmentWithCoProvider(t *testing.T) {
 	}}
 
 	a := assembleForTest(t, cfg,
-		ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
+		WithHTTP(new(http.ServeMux)),
 		StandardServerProvider(), asynq)
 	runBriefly(t, a, 50*time.Millisecond)
 

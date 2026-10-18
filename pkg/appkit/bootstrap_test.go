@@ -85,10 +85,30 @@ func TestResolveLoggerSource(t *testing.T) {
 	}
 }
 
-// 默认路径纯函数分派：阶段 A 回退；type=slog 直构；其余 type（含远端后端）
-// fail-fast 教学报错（错误给出 logger Provider 用法），绝不静默降级。
-func TestDefaultPath(t *testing.T) {
-	fac := defaultLoggerFactory(nil)
+// 内置 slog Provider 分派（B7：原默认路径整体迁入 StandardLoggerProvider）：
+// 阶段 A 回退；type=slog 直构；其余 type（含远端后端）fail-fast 教学报错
+// （错误给出 logger Provider 用法），绝不静默降级。
+func TestStandardLoggerProvider(t *testing.T) {
+	prov := StandardLoggerProvider()
+	build := func(t *testing.T, cfg *bootstrapv1.BootstrapConfig) (log.Logger, func(), error) {
+		t.Helper()
+		product, cleanup, err := prov.Build(context.Background(), BuildScope{Config: cfg, Decl: &Decl{}})
+		if err != nil {
+			return nil, nil, err
+		}
+		lg, ok := product.(log.Logger)
+		if !ok {
+			t.Fatalf("provider product %T, want log.Logger", product)
+		}
+		var fc func()
+		if cleanup != nil {
+			fc = func() { _ = cleanup(context.Background()) }
+		}
+		return lg, fc, nil
+	}
+	fac := func(_ context.Context, l *bootstrapv1.Logger) (log.Logger, func(), error) {
+		return build(t, &bootstrapv1.BootstrapConfig{Logger: l})
+	}
 
 	// 阶段 A（l==nil）：回退默认 bslog。
 	if lg, _, err := fac(context.Background(), nil); err != nil || lg == nil {
@@ -147,10 +167,28 @@ func TestDefaultPath(t *testing.T) {
 	}
 }
 
-// TestDefaultPath_FilterKeys 全局脱敏在默认路径生效：type=slog 特例
+// TestStandardLoggerProvider_FilterKeys 全局脱敏在内置路径生效：type=slog 特例
 // 与 backends 直构路径出口包 FilterLogger（filter_keys 与 deco 可叠加）。
-func TestDefaultPath_FilterKeys(t *testing.T) {
-	fac := defaultLoggerFactory(nil)
+func TestStandardLoggerProvider_FilterKeys(t *testing.T) {
+	prov := StandardLoggerProvider()
+	build := func(cfg *bootstrapv1.BootstrapConfig) (log.Logger, func(), error) {
+		product, cleanup, err := prov.Build(context.Background(), BuildScope{Config: cfg, Decl: &Decl{}})
+		if err != nil {
+			return nil, nil, err
+		}
+		lg, ok := product.(log.Logger)
+		if !ok {
+			t.Fatalf("provider product %T, want log.Logger", product)
+		}
+		var fc func()
+		if cleanup != nil {
+			fc = func() { _ = cleanup(context.Background()) }
+		}
+		return lg, fc, nil
+	}
+	fac := func(_ context.Context, l *bootstrapv1.Logger) (log.Logger, func(), error) {
+		return build(&bootstrapv1.BootstrapConfig{Logger: l})
+	}
 
 	// 单 slog 项直构路径。
 	path := filepath.Join(t.TempDir(), "filter-slog.log")
@@ -197,16 +235,35 @@ func TestDefaultPath_FilterKeys(t *testing.T) {
 	}
 }
 
-// TestDefaultPath_SlogDecorators type=slog 在默认路径保留装饰器语义。
-func TestDefaultPath_SlogDecorators(t *testing.T) {
+// TestStandardLoggerProvider_SlogDecorators type=slog 保留装饰器语义
+// （装饰经 Decl 内部字段消费——B7 取消导出后归 provider 自持的接缝）。
+func TestStandardLoggerProvider_SlogDecorators(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "deco.log")
-	fac := defaultLoggerFactory([]bslog.Option{bslog.WithAttrs(slog.String("deco", "yes"))})
+	prov := StandardLoggerProvider()
+	build := func(cfg *bootstrapv1.BootstrapConfig) (log.Logger, func(), error) {
+		product, cleanup, err := prov.Build(context.Background(), BuildScope{
+			Config: cfg,
+			Decl:   &Decl{logDecorators: []bslog.Option{bslog.WithAttrs(slog.String("deco", "yes"))}},
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		lg, ok := product.(log.Logger)
+		if !ok {
+			t.Fatalf("provider product %T, want log.Logger", product)
+		}
+		var fc func()
+		if cleanup != nil {
+			fc = func() { _ = cleanup(context.Background()) }
+		}
+		return lg, fc, nil
+	}
 
-	l, cleanup, err := fac(context.Background(), &bootstrapv1.Logger{
+	l, cleanup, err := build(&bootstrapv1.BootstrapConfig{Logger: &bootstrapv1.Logger{
 		Backends: []*bootstrapv1.Logger_Backend{
 			{Type: "slog", Slog: &bootstrapv1.Logger_Slog{Level: "debug", Format: "json", OutputPath: path}},
 		},
-	})
+	}})
 	if err != nil || l == nil {
 		t.Fatalf("slog item with deco: (%v, %v)", l, err)
 	}
@@ -215,7 +272,7 @@ func TestDefaultPath_SlogDecorators(t *testing.T) {
 	}
 	l.Info(context.Background(), "msg")
 	data, err := os.ReadFile(path)
-	if err != nil || !strings.Contains(string(data), `"deco":"yes"`) {
+	if err != nil || !strings.Contains(string(data), "\"deco\":\"yes\"") {
 		t.Fatalf("decorator should apply on builtin slog path: (%s, %v)", data, err)
 	}
 }
@@ -250,8 +307,11 @@ func (c *countingLogSrc) calls() int {
 	return len(c.args)
 }
 
-// funcLogSrc 以工厂函数构造 loggerSource（测试桩）。
-type funcLogSrc struct{ fn loggerFactory }
+// funcLogSrc 以工厂函数构造 loggerSource（测试桩；B7 删除 defaultLoggerFactory
+// 后工厂类型不再存在，桩直接内联 func 字段）。
+type funcLogSrc struct {
+	fn func(ctx context.Context, l *bootstrapv1.Logger) (lg log.Logger, cleanup func(), err error)
+}
 
 func (f funcLogSrc) bootstrapLogger(ctx context.Context) (log.Logger, func(), error) {
 	return f.fn(ctx, nil)
@@ -319,7 +379,7 @@ func TestAssemble_MetadataFromContract(t *testing.T) {
 	cfg.App.Id = "instance-1"
 	cfg.App.StopTimeout = nil // 回退默认 30s
 
-	a := assembleForTest(t, cfg, ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
+	a := assembleForTest(t, cfg, WithHTTP(new(http.ServeMux)))
 	if a.id != "instance-1" || a.name != "meta-app" || a.version != "v9.9.9" {
 		t.Fatalf("metadata not driven by contract: id=%s name=%s version=%s", a.id, a.name, a.version)
 	}
@@ -342,13 +402,13 @@ func TestAssemble_NilConfig(t *testing.T) {
 func TestAssemble_FailFastMissingSegments(t *testing.T) {
 	cfg := bconf.NewBootstrap()
 	cfg.Server.Http = nil
-	if _, err := assembleForTestErr(cfg, ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux))); err == nil {
+	if _, err := assembleForTestErr(cfg, WithHTTP(new(http.ServeMux))); err == nil {
 		t.Fatal("expected error: WithHTTP declared but server.http is nil")
 	}
 
 	cfg2 := bconf.NewBootstrap()
 	cfg2.Server.Grpc = nil
-	if _, err := assembleForTestErr(cfg2, ConfigNamespace(testConfigNamespace), WithGRPC(func(*grpc.Server) {})); err == nil {
+	if _, err := assembleForTestErr(cfg2, WithGRPC(func(*grpc.Server) {})); err == nil {
 		t.Fatal("expected error: WithGRPC declared but server.grpc is nil")
 	}
 }
@@ -365,7 +425,7 @@ func TestAssemble_ServersConstructed(t *testing.T) {
 	dynamicAddr(cfg)
 
 	a := assembleForTest(t, cfg,
-		ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
+		WithHTTP(new(http.ServeMux)),
 		WithGRPC(func(*grpc.Server) {}),
 		StandardServerProvider(),
 	)
@@ -380,13 +440,13 @@ func TestAssemble_ServersConstructed(t *testing.T) {
 
 	cfg2 := bconf.NewBootstrap()
 	dynamicAddr(cfg2)
-	a2 := assembleForTest(t, cfg2, ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), StandardServerProvider())
+	a2 := assembleForTest(t, cfg2, WithHTTP(new(http.ServeMux)), StandardServerProvider())
 	runBriefly(t, a2, 50*time.Millisecond)
 	if len(a2.servers) != 1 {
 		t.Fatalf("servers = %d, want 1", len(a2.servers))
 	}
 
-	a3 := assembleForTest(t, bconf.NewBootstrap(), ConfigNamespace(testConfigNamespace), StandardServerProvider())
+	a3 := assembleForTest(t, bconf.NewBootstrap(), StandardServerProvider())
 	// 零能力声明：运行前后都无 server（合法：纯后台进程）。
 	runBriefly(t, a3, 30*time.Millisecond)
 	if len(a3.servers) != 0 {
@@ -407,7 +467,7 @@ func TestAssemble_GatewayDriver(t *testing.T) {
 	// ① gateway 能力声明但 server.http 段缺失 → 构造期 fail-fast。
 	cfgNoHttp := bconf.NewBootstrap()
 	cfgNoHttp.Server.Http = nil
-	if _, err := assembleForTestErr(cfgNoHttp, ConfigNamespace(testConfigNamespace), WithGatewayRegister(gwRegister)); err == nil {
+	if _, err := assembleForTestErr(cfgNoHttp, WithGatewayRegister(gwRegister)); err == nil {
 		t.Fatal("expected error: WithGatewayRegister declared but server.http is nil")
 	}
 
@@ -415,7 +475,7 @@ func TestAssemble_GatewayDriver(t *testing.T) {
 	//    构造延后到 Run，故驱动 Run 后观察 server 类型。
 	cfg2 := bconf.NewBootstrap()
 	dynamicAddr(cfg2)
-	a := assembleForTest(t, cfg2, ConfigNamespace(testConfigNamespace), WithGatewayRegister(gwRegister), StandardServerProvider())
+	a := assembleForTest(t, cfg2, WithGatewayRegister(gwRegister), StandardServerProvider())
 	runBriefly(t, a, 50*time.Millisecond)
 	if len(a.servers) != 1 {
 		t.Fatalf("servers = %d, want 1", len(a.servers))
@@ -427,7 +487,7 @@ func TestAssemble_GatewayDriver(t *testing.T) {
 	// ③ 双能力声明 + driver 留空 → fail-fast：两个能力竞争同一端口，
 	//    必须由配置显式表态（显式 > 隐式）。
 	_, err := assembleForTestErr(bconf.NewBootstrap(),
-		ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), WithGatewayRegister(gwRegister))
+		WithHTTP(new(http.ServeMux)), WithGatewayRegister(gwRegister))
 	if err == nil || !strings.Contains(err.Error(), "driver") {
 		t.Fatalf("expected driver fail-fast, got %v", err)
 	}
@@ -436,7 +496,7 @@ func TestAssemble_GatewayDriver(t *testing.T) {
 	cfg4 := bconf.NewBootstrap()
 	dynamicAddr(cfg4)
 	cfg4.GetServer().GetHttp().Driver = baldbootstrap.DriverGrpcGateway
-	a4 := assembleForTest(t, cfg4, ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), WithGatewayRegister(gwRegister), StandardServerProvider())
+	a4 := assembleForTest(t, cfg4, WithHTTP(new(http.ServeMux)), WithGatewayRegister(gwRegister), StandardServerProvider())
 	runBriefly(t, a4, 50*time.Millisecond)
 	if len(a4.servers) == 0 {
 		t.Fatal("servers = 0, want >=1 after Run")
@@ -448,7 +508,7 @@ func TestAssemble_GatewayDriver(t *testing.T) {
 	// ⑤ gateway 能力声明 + driver=其他值 → fail-fast（转码能力无消费面）。
 	cfg5 := bconf.NewBootstrap()
 	cfg5.GetServer().GetHttp().Driver = "gin"
-	if _, err := assembleForTestErr(cfg5, ConfigNamespace(testConfigNamespace), WithGatewayRegister(gwRegister)); err == nil {
+	if _, err := assembleForTestErr(cfg5, WithGatewayRegister(gwRegister)); err == nil {
 		t.Fatal("expected error: gateway register declared but driver not grpc-gateway")
 	}
 }
@@ -471,7 +531,7 @@ func TestAssemble_LoggerLifecycle(t *testing.T) {
 		mu.Unlock()
 		return stubLogger(), nil, nil
 	}}
-	a := assembleForTest(t, cfg, ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), loggerProv)
+	a := assembleForTest(t, cfg, WithHTTP(new(http.ServeMux)), loggerProv)
 
 	// 阶段 A 已发生：全局句柄已是回退 bslog（非 old），Provider 拿到 nil 契约。
 	if log.GetLogger() == old {
@@ -517,7 +577,7 @@ func TestAssemble_ConfigProvider(t *testing.T) {
 	cfg := bconf.NewBootstrap()
 	dynamicAddr(cfg)
 
-	a := assembleForTest(t, cfg, ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), configTestProvider(reg))
+	a := assembleForTest(t, cfg, WithHTTP(new(http.ServeMux)), configTestProvider(reg))
 	if len(a.cfg.layers) != 1 {
 		t.Fatalf("layers = %d, want 1", len(a.cfg.layers))
 	}
@@ -625,7 +685,7 @@ func TestAssemble_AllServersDynamicPort(t *testing.T) {
 	cfg := bconf.NewBootstrap()
 	dynamicAddr(cfg)
 
-	a := assembleForTest(t, cfg, ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), WithGRPC(func(*grpc.Server) {}))
+	a := assembleForTest(t, cfg, WithHTTP(new(http.ServeMux)), WithGRPC(func(*grpc.Server) {}))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
@@ -715,7 +775,7 @@ func TestAssemble_PassthroughOrder(t *testing.T) {
 
 	var nameInHook atomic.Value
 	a := assembleForTest(t, cfg,
-		ConfigNamespace(testConfigNamespace), ConfigFile(yaml),
+		ConfigFile(yaml),
 		WithHTTP(new(http.ServeMux)),
 		BeforeStart(func(context.Context) error {
 			// 契约终值验证：装载链（Unmarshal→Validate→Logger）已跑完。
@@ -770,7 +830,7 @@ func TestAssemble_PassthroughReconcile(t *testing.T) {
 
 	var triggered atomic.Bool
 	a := assembleForTest(t, cfg,
-		ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
+		WithHTTP(new(http.ServeMux)),
 		reconcileOpt("test.passthrough", func(context.Context, *ReconcileCtx) error {
 			triggered.Store(true)
 			return nil
@@ -804,7 +864,7 @@ func TestAssemble_PassthroughCapabilityFailFast(t *testing.T) {
 	cfg.GetServer().GetHttp().Addr = "127.0.0.1:0"
 
 	a := assembleForTest(t, cfg,
-		ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
+		WithHTTP(new(http.ServeMux)),
 		providesOpt("db"),
 		requiresOpt("audit.store", "db", "cache"),
 	)
@@ -850,7 +910,7 @@ func TestAssemble_PassthroughComponents(t *testing.T) {
 
 	var started, disposed atomic.Bool
 	a := assembleForTest(t, cfg,
-		ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
+		WithHTTP(new(http.ServeMux)),
 		componentsOpt(testDisposeComp{"test.comp", func(context.Context) error {
 			started.Store(true)
 			return nil
@@ -858,7 +918,7 @@ func TestAssemble_PassthroughComponents(t *testing.T) {
 	)
 	// Dispose 观测：包一层组件捕获。
 	a = assembleForTest(t, cfg,
-		ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
+		WithHTTP(new(http.ServeMux)),
 		componentsOpt(&disposeProbe{disposed: &disposed}, testDisposeComp{"test.comp2", func(context.Context) error {
 			started.Store(true)
 			return nil

@@ -28,12 +28,12 @@ func TestAssemble_BusinessBindFlagOverridesFile(t *testing.T) {
 	cfg := bconf.NewBootstrap()
 	dynamicAddr(cfg)
 
-	a := assembleForTest(t, cfg, ConfigNamespace(testConfigNamespace), Bind("", opts))
+	a := assembleForTest(t, cfg, Bind("", opts))
 	if err := a.loadConfig(); err != nil {
 		t.Fatalf("loadConfig: %v", err)
 	}
 
-	if got := a.Config().GetString("login.rate_limit.rate"); got != "9" {
+	if got := readSetting(a, "login.rate_limit.rate"); got != "9" {
 		t.Fatalf("login.rate_limit.rate = %q, want 9 (业务 flag 应压过文件)", got)
 	}
 }
@@ -50,11 +50,11 @@ func TestAssemble_BusinessBindFileStillApplies(t *testing.T) {
 	cfg := bconf.NewBootstrap()
 	dynamicAddr(cfg)
 
-	a := assembleForTest(t, cfg, ConfigNamespace(testConfigNamespace), Bind("", opts))
+	a := assembleForTest(t, cfg, Bind("", opts))
 	if err := a.loadConfig(); err != nil {
 		t.Fatalf("loadConfig: %v", err)
 	}
-	if got := a.Config().GetString("login.rate_limit.rate"); got != "3" {
+	if got := readSetting(a, "login.rate_limit.rate"); got != "3" {
 		t.Fatalf("login.rate_limit.rate = %q, want 3 (来自文件)", got)
 	}
 }

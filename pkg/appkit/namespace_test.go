@@ -2,108 +2,108 @@ package appkit
 
 import (
 	"context"
+	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
-
-	bconf "github.com/kalandramo/bald/bconf"
+	"time"
 )
 
-// testConfigNamespace 是本包测试统一的配置命名空间。
+// 本文件钉住 B6 两遍合并的配置命名空间语义（装配层评估 §5.1）：
 //
-// 取 "bald-app" 的理由：与 bconf.NewBootstrap() 的契约默认 App.Name 同值，
-// 使迁移前后 config.Load 的 Name 实参完全一致——48 处调用的迁移是**纯粹**
-// 的「补声明」，不夹带任何行为变更，测试若变红即说明迁移出错。
+//   - Serve 路径：命名空间由**契约 app.name 派生**——第一遍装载文件/远程层
+//     解析 app.name，第二遍以它为前缀挂 env 层。env 前缀 NAME_* 不变是红线
+//     （现有用户的 NAME_ 前缀 env 必须原样生效）；
+//   - NewApp 路径：命名空间回退 Name（其值来自调用方源码，代码层稳定源）；
+//   - 契约无 app.name → fail-fast 且错误可行动（指明 app.name 必填）。
 //
-// 注意它不等于任何测试的 a.name：服务身份仍由各契约 app.name 驱动。
-const testConfigNamespace = "bald-app"
+// 历史：曾要求显式声明（ConfigNamespace Option）以避开 env 前缀自指；两遍
+// 合并落地后该 Option 已删除，本文件的两条 Serve 测试即其替代的回归锁。
 
-// 本文件钉住「配置命名空间与 app.name 解耦」的不变量。
-//
-// 背景：App.name 曾双肩挑——既是服务身份（日志/注册中心），又是配置
-// 命名空间（env 前缀 + 多环境文件名）。约定装配路径下 name 取自契约
-// app.name，而 app.name 可被配置文件/env 供给，于是「配置里的 app.name」
-// 反过来决定「能读到哪些环境变量」——自指循环，症状是 env 覆盖静默失效。
-//
-// 解耦后：命名空间走独立字段 cfgNamespace，Serve 要求显式声明。
-// 以下测试把这条边界钉死，防止将来有人「顺手」恢复回退。
-
-// TestServe_NamespaceRequired 未声明命名空间时入口 fail-fast。
-//
-// RED 意义：修复前该调用会成功（静默用契约 app.name 作前缀），
-// 本测试在修复前必红——这正是自指 footgun 的入口。
-func TestServe_NamespaceRequired(t *testing.T) {
+// TestServe_AppNameRequired 契约无 app.name 时入口 fail-fast，错误指明必填。
+func TestServe_AppNameRequired(t *testing.T) {
+	// 工作目录（appkit 包）下无 bald-app.yaml / --config：预装载找不到任何
+	// 配置源 → app.name 缺失 → fail-fast。
 	err := Serve(context.Background(), WithHTTP(new(http.ServeMux)))
 	if err == nil {
-		t.Fatal("Serve without ConfigNamespace succeeded; want fail-fast error")
+		t.Fatal("Serve without app.name succeeded; want fail-fast error")
 	}
-	// 文案必须能一步定位解法：给出可复制的 Option 名。
-	if !strings.Contains(err.Error(), "appkit.ConfigNamespace") {
-		t.Fatalf("error message must name the fix (appkit.ConfigNamespace), got: %v", err)
-	}
-}
-
-// TestAssemble_NamespaceFromOption 显式声明后命名空间就位，
-// 且**不受契约 app.name 影响**——这是解耦的核心断言。
-func TestAssemble_NamespaceFromOption(t *testing.T) {
-	cfg := bconf.NewBootstrap()
-	cfg.App.Name = "service-identity" // 服务身份，与命名空间无关
-
-	a := assembleForTest(t, cfg,
-		WithHTTP(new(http.ServeMux)),
-		ConfigNamespace("cfg-ns"),
-	)
-
-	if a.cfgNamespace != "cfg-ns" {
-		t.Fatalf("cfgNamespace = %q, want cfg-ns", a.cfgNamespace)
-	}
-	// 服务身份仍走契约 app.name。
-	if a.name != "service-identity" {
-		t.Fatalf("name = %q, want service-identity", a.name)
-	}
-	// 关键：两者已解耦——命名空间不等于服务身份。
-	if a.cfgNamespace == a.name {
-		t.Fatal("cfgNamespace and name must be independent fields")
+	if !strings.Contains(err.Error(), "app.name is required") {
+		t.Fatalf("error message must state app.name is required, got: %v", err)
 	}
 }
 
-// TestConfigNamespace_OverridesName New 路径下 ConfigNamespace 优先于 Name。
+// TestServe_NamespaceDerivedFromContractAndEnvWorks 核心回归锁：命名空间由
+// 契约 app.name 派生，NAME_ 前缀 env 覆盖文件值（env 名不变红线）。
 //
-// 同时覆盖**书写顺序无关**：无论 ConfigNamespace 在 Name 之前还是之后，
-// 结果都必须是 ConfigNamespace 的值（回退实现放在 opts 循环之后保证这点）。
-func TestConfigNamespace_OverridesName(t *testing.T) {
-	cases := []struct {
-		name string
-		opts []Option
-		want string
-	}{
-		{"ns-after-name", []Option{Name("svc"), ConfigNamespace("ns")}, "ns"},
-		{"ns-before-name", []Option{ConfigNamespace("ns"), Name("svc")}, "ns"},
+// 文件写 app.name: ns-app 与 server.http.addr ":1xxxx"（占位）；env 以
+// NS_APP_ 前缀覆盖 server.http.addr 为测试专属空闲端口——服务必须绑定 env
+// 值。该断言端到端贯穿：预装载派生命名空间 → Run 期 loadConfig 以同一命名
+// 空间重建 env 层 → flag/env/文件四源合并。
+func TestServe_NamespaceDerivedFromContractAndEnvWorks(t *testing.T) {
+	// 占随机端口（关闭后复用，竞态窗口可忽略）。
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("reserve port: %v", err)
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			a := NewApp(tc.opts...)
-			if a.cfgNamespace != tc.want {
-				t.Fatalf("cfgNamespace = %q, want %q", a.cfgNamespace, tc.want)
-			}
-		})
+	envAddr := lis.Addr().String()
+	_ = lis.Close()
+
+	dir := t.TempDir()
+	yamlPath := filepath.Join(dir, "ns-app.yaml")
+	yml := "app:\n  name: \"ns-app\"\nserver:\n  http: { addr: \":18443\" }\n"
+	if err := os.WriteFile(yamlPath, []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// env 名不变红线：前缀派生自 app.name（ns-app → NS_APP_）。
+	t.Setenv("NS_APP_SERVER_HTTP_ADDR", envAddr)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- Serve(ctx, StandardServerProvider(), ConfigFile(yamlPath), WithHTTP(new(http.ServeMux)))
+	}()
+	defer func() {
+		cancel()
+		select {
+		case <-errCh:
+		case <-time.After(10 * time.Second):
+			t.Error("app did not stop within timeout")
+		}
+	}()
+
+	// 就绪判据：env 覆盖的端口可连（文件值 :18443 不得被绑定）。
+	deadline := time.Now().Add(5 * time.Second)
+	ready := false
+	for time.Now().Before(deadline) {
+		c, derr := net.DialTimeout("tcp", envAddr, 200*time.Millisecond)
+		if derr == nil {
+			_ = c.Close()
+			ready = true
+			break
+		}
+		select {
+		case runErr := <-errCh:
+			t.Fatalf("Serve failed before ready: %v", runErr)
+		default:
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !ready {
+		t.Fatalf("env-overridden addr %s not bound within timeout (env prefix derivation broken?)", envAddr)
 	}
 }
 
-// TestConfigNamespace_FallsBackToName New 路径未声明时回退 Name——
-// 该值来自调用方源码（代码层稳定源），不构成自指。
-func TestConfigNamespace_FallsBackToName(t *testing.T) {
+// TestNewApp_NamespaceFallsBackToName New 路径命名空间回退 Name（代码层
+// 稳定源，无自指）；缺省非空（config.Load 要求 Name 非空）。
+func TestNewApp_NamespaceFallsBackToName(t *testing.T) {
 	a := NewApp(Name("code-layer-ns"))
 	if a.cfgNamespace != "code-layer-ns" {
 		t.Fatalf("cfgNamespace = %q, want fallback to Name value", a.cfgNamespace)
 	}
-}
-
-// TestConfigNamespace_DefaultsWithoutName 两个都不传时走 New 的内置默认，
-// 不得为空（config.Load 要求 Name 非空，空即启动失败）。
-func TestConfigNamespace_DefaultsWithoutName(t *testing.T) {
-	a := NewApp()
-	if a.cfgNamespace == "" {
+	if b := NewApp(); b.cfgNamespace == "" {
 		t.Fatal("cfgNamespace must never be empty (config.Load requires non-empty Name)")
 	}
 }

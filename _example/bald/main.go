@@ -65,7 +65,6 @@ import (
 
 	"github.com/kalandramo/bald/berrors"
 	baldlog "github.com/kalandramo/bald/log"
-	"github.com/kalandramo/bald/log/bslog"
 	storegorm "github.com/kalandramo/bald/contrib/store-gorm"
 	"github.com/kalandramo/bald/pkg/appkit"
 	"github.com/kalandramo/bald/pkg/appkit/std"
@@ -176,11 +175,9 @@ func newAppOptions(healthChecker *health.Health) []appkit.Option {
 		// app.Resource("database.sql") 取用，停机自动释放连接池。
 		storegorm.AppProvider(),
 
-		// 配置命名空间：env 前缀（BALD_DEMO_*）与多环境文件名
-		// （bald-demo-prod.yaml）的来源。必须是代码层常量——Serve 路径下若取
-		// 自契约 app.name 会构成自指（见 ConfigNamespace 注释）。
-		appkit.ConfigNamespace("bald-demo"),
-
+		// 配置命名空间由契约 app.name 派生（B6 两遍合并）：configs/bald-demo.yaml 的
+		// app.name: "bald-demo" 即 env 前缀（BALD_DEMO_*）与多环境文件名来源——
+		// 契约无 app.name 时启动 fail-fast 且报错可行动。
 		// --- 能力声明（代码提供） ---
 		// gRPC：service 注册 + 拦截器链（链序说明见 newGRPCServerOptions，
 		// ErrorInterceptor 必须最外层；与 e2e 复用同一构造，杜绝「测试与生产不一致」）。
@@ -188,13 +185,6 @@ func newAppOptions(healthChecker *health.Health) []appkit.Option {
 
 		// 健康检查默认装配：HTTP 双探针 + gRPC health 状态对称联动。
 		appkit.WithHealth(healthChecker),
-
-		// 日志脱敏装饰：阶段 A（启动默认）/ 阶段 B（契约重建）构造 Logger 时统一生效。
-		appkit.WithLogDecorators(
-			bslog.WithFilter(bslog.FilterKey("password")),
-			bslog.WithFilter(bslog.FilterKey("token")),
-			bslog.WithAttrs(slog.String("service.name", "bald-demo")),
-		),
 
 		appkit.AfterStart(func(ctx context.Context) error {
 			ctx = baldlog.ContextWithAttrs(ctx, slog.String("stage", "started"))

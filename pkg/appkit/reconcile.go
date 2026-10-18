@@ -44,11 +44,10 @@ package appkit
 import (
 	"context"
 	"fmt"
-	"strings"
 
+	"github.com/kalandramo/bald/bootstrap/config"
 	"github.com/kalandramo/bald/log"
 	"github.com/kalandramo/bald/pkg/audit"
-	"github.com/kalandramo/bald/pkg/authn"
 )
 
 // ReconcileFunc 执行一次协调：读期望态（经 r.Viper）、比对实际态（r.Mounted/r.Has）、
@@ -75,63 +74,25 @@ type ReconcileCtx struct {
 }
 
 // String 读取期望态中点路径的字符串值（缺失/nil → ""，标量 → 字符串化）。
+// 薄委托 config.At + config.String（B7 §4.3：点路径读取与标量字符串化是
+// 配置装载层的值语义，实现体归 bootstrap/config，appkit 只留接收者方法）。
 func (r *ReconcileCtx) String(key string) string {
-	v, ok := settingAtPath(r.Settings, key)
+	v, ok := config.At(r.Settings, key)
 	if !ok {
 		return ""
 	}
-	return settingString(v)
+	return config.String(v)
 }
 
 // StringSlice 读取期望态中点路径的字符串列表：支持 []string、[]any（yaml 列表）
-// 与逗号分隔的字符串；缺失/空值返回 nil。语义与 ParseStringList 一致。
+// 与逗号分隔的字符串；缺失/空值返回 nil。薄委托 config.StringList（语义与
+// 之完全一致——ParseStringList 的实现体已随职责边界落点迁出 appkit）。
 func (r *ReconcileCtx) StringSlice(key string) []string {
-	v, ok := settingAtPath(r.Settings, key)
+	v, ok := config.At(r.Settings, key)
 	if !ok {
 		return nil
 	}
-	return ParseStringList(v)
-}
-
-// settingAtPath 按点路径在配置快照中查找值（"server.http.addr"）。
-func settingAtPath(m map[string]any, key string) (any, bool) {
-	if m == nil || key == "" {
-		return nil, false
-	}
-	parts := strings.Split(key, ".")
-	cur := m
-	for i, p := range parts {
-		v, ok := cur[p]
-		if !ok {
-			return nil, false
-		}
-		if i == len(parts)-1 {
-			return v, true
-		}
-		cur, ok = v.(map[string]any)
-		if !ok {
-			return nil, false
-		}
-	}
-	return nil, false
-}
-
-// settingString 标量转字符串（nil → ""，bool/int/float → 十进制文本，
-// 与配置装载器的 GetString 语义一致）。
-func settingString(v any) string {
-	switch val := v.(type) {
-	case nil:
-		return ""
-	case string:
-		return val
-	case bool:
-		if val {
-			return "true"
-		}
-		return "false"
-	default:
-		return fmt.Sprint(val)
-	}
+	return config.StringList(v)
 }
 
 // Mounted 返回当前实际已挂载、由本协调器管理的组件名（有序，与挂载序一致）。
@@ -276,8 +237,8 @@ func (a *App) auditReconcile(ctx context.Context, action, name string, err error
 		}
 	}()
 	subject, tenant := "", ""
-	if claims := authn.AuthClaimsFromContext(ctx); claims != nil {
-		subject, tenant = claims.Subject, claims.TenantID
+	if a.identity != nil {
+		subject, tenant = a.identity(ctx)
 	}
 	ev := audit.AuditEvent{
 		Subject:  subject,
@@ -292,45 +253,6 @@ func (a *App) auditReconcile(ctx context.Context, action, name string, err error
 		ev.Error = err.Error()
 	}
 	a.resolveAuditor().Record(ctx, ev)
-}
-
-// ParseStringList 把配置值解析为字符串列表：支持 []string、[]any（yaml 列表）
-// 以及逗号分隔的字符串（"log,store,stream"）；空值返回 nil。
-func ParseStringList(v any) []string {
-	switch val := v.(type) {
-	case nil:
-		return nil
-	case []string:
-		out := make([]string, 0, len(val))
-		for _, s := range val {
-			if s = strings.TrimSpace(s); s != "" {
-				out = append(out, s)
-			}
-		}
-		return out
-	case string:
-		if strings.TrimSpace(val) == "" {
-			return nil
-		}
-		parts := strings.Split(val, ",")
-		out := make([]string, 0, len(parts))
-		for _, s := range parts {
-			if s = strings.TrimSpace(s); s != "" {
-				out = append(out, s)
-			}
-		}
-		return out
-	case []any:
-		out := make([]string, 0, len(val))
-		for _, item := range val {
-			if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
-				out = append(out, strings.TrimSpace(s))
-			}
-		}
-		return out
-	default:
-		return nil
-	}
 }
 
 // reconItem 是协调器归属表条目。

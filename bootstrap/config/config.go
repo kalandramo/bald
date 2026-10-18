@@ -96,6 +96,16 @@ type Options struct {
 	//
 	// 只在 StrictContract 开启时有意义。
 	AllowBusinessSections []string
+	// DeferEnv 延迟 env 层装载（两遍合并的第一遍）：Load 不构建 env 层，
+	// merged 仅含声明层（远程桥/契约源/本地文件）。供「先由文件层解析配置名
+	// （如契约 app.name），再经 (*Store).MountEnv 按派生前缀挂载 env 层」的
+	// 自指消解流程——env 前缀依赖配置名、而配置名可能来自配置文件本身。
+	//
+	// 约定：DeferEnv 时 Name 仅用于本地文件发现（可空——空 Name 跳过发现），
+	// env 前缀由 MountEnv 的实参决定；StrictContract 校验只覆盖已挂载的层，
+	// env 键的未知键检查需在 MountEnv 后自行用 bconf.FindUnknownKeys 补做
+	//（Run 期 loadConfig 不延迟，不受影响）。
+	DeferEnv bool
 	// StrictContract 启用「契约段未知键」校验：Load 后用
 	// [bconf.FindUnknownKeys] 扫一遍合并树，发现未知键即返回错误（fail-fast）。
 	//
@@ -152,7 +162,9 @@ type Store struct {
 //   - 层初始装配失败即整体报错（fail-fast）；热更新期间解码失败保留旧层
 //     缓存，仍触发重合并与 OnChange（编辑半写状态可观测）。
 func Load(opts Options) (*Store, error) {
-	if opts.Name == "" {
+	// Name 缺省即 env 前缀来源，必须非空；DeferEnv 把 env 层延迟到 MountEnv，
+	// Name 只剩文件发现职责——可为空（空 Name 跳过发现）。
+	if opts.Name == "" && !opts.DeferEnv {
 		return nil, fmt.Errorf("config: Name is required")
 	}
 
@@ -229,8 +241,11 @@ func Load(opts Options) (*Store, error) {
 		s.selfClosers = append(s.selfClosers, src)
 	}
 
-	// 4) env 与 flag 层（进程运行期静态）。
-	s.envM = environMap(opts.Name)
+	// 4) env 与 flag 层（进程运行期静态）。DeferEnv 时 env 层缺位，由调用方
+	// 派生配置名后经 MountEnv 挂载（两遍合并第二遍）。
+	if !opts.DeferEnv {
+		s.envM = environMap(opts.Name)
+	}
 	s.flagM = flattenFlags(opts.Flags)
 
 	s.merged = s.remerge()
@@ -301,6 +316,17 @@ func (s *Store) remerge() map[string]any {
 	m = deepMerge(m, s.envM)
 	m = deepMerge(m, s.flagM)
 	return m
+}
+
+// MountEnv 以 name 派生 env 前缀（NAME_ 语义）挂载 env 层并全量重合并
+// （两遍合并的第二遍，装配层评估 B6）。与 DeferEnv 配对使用；对已含 env 层的
+// Store 调用等价于换前缀重建 env 层（幂等收口在 remerge，快照发布语义不变）。
+// 之后任一层 watch 触发的重合并照常叠加 env 层——热更语义不因延迟挂载回归。
+func (s *Store) MountEnv(name string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.envM = environMap(name)
+	s.merged = s.remerge()
 }
 
 // setupWatch 配置热更新监听：对每个 Watch 且实现 ValueWatcher 的层启动
@@ -561,6 +587,26 @@ func toStringSlice(v any) []string {
 	default:
 		return nil
 	}
+}
+
+// At 按点路径在配置树中查找值（"server.http.addr"），路径不存在返回
+// (nil, false)。包级纯函数——Store.Get 与 ReconcileCtx 等无 Store 场景共用
+// 同一点路径语义（D1 §4.3：点路径读取是配置装载层的值语义）。
+func At(m map[string]any, key string) (any, bool) {
+	return getAtPath(m, key)
+}
+
+// String 标量转字符串（对齐旧 viper cast.ToString 的常见分支：bool →
+// "true"/"false"、数值 → 十进制文本、nil → ""）。Store.GetString 的包级形态。
+func String(v any) string {
+	return toString(v)
+}
+
+// StringList 值转字符串列表：[]string、[]any（yaml 列表，非字符串项按
+// String 标量化）与逗号分隔的字符串；空值返回 nil。Store.GetStringSlice 与
+// 原 appkit.ParseStringList 的归宿（批 3 职责边界落点）。
+func StringList(v any) []string {
+	return toStringSlice(v)
 }
 
 // Unmarshal 把配置快照（合并后的 map）反序列化为 Protobuf 消息。

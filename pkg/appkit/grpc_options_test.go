@@ -45,7 +45,7 @@ func TestAssemble_GRPCOptionsEvaluatedAtRunTime(t *testing.T) {
 	}
 
 	a := assembleForTest(t, cfg,
-		ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
+		WithHTTP(new(http.ServeMux)),
 		WithGRPC(func(*grpc.Server) { mark("register") }),
 		WithGRPCOptions(func() []grpc.ServerOption {
 			mark("optionsFn")

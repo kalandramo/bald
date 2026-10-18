@@ -25,7 +25,8 @@ type auditOptions struct {
 	objectResolver  authz.ObjectResolver
 	actionResolver  authz.ActionResolver
 	subjectResolver func(ctx context.Context, info *grpc.UnaryServerInfo) string
-	// auditor 指定审计后端；nil 时使用 audit.GetAuditor() 全局实例。
+	// auditor 指定审计后端；nil 时退化为 NopAuditor（B8：全局审计器已删除，
+	// 显式注入是唯一通道——bundle 自动注入；独立构造经 AuditWithAuditor）。
 	auditor audit.Auditor
 	// metricsRecorder 同步 emit 指标（与审计同源）；nil 时 no-op。
 	metricsRecorder metrics.Recorder
@@ -46,7 +47,7 @@ func AuditWithSubjectResolver(fn func(ctx context.Context, info *grpc.UnaryServe
 	return func(o *auditOptions) { o.subjectResolver = fn }
 }
 
-// AuditWithAuditor 指定审计后端；缺省用全局 audit.GetAuditor()。
+// AuditWithAuditor 指定审计后端；缺省 NopAuditor（显式注入是唯一通道）。
 func AuditWithAuditor(a audit.Auditor) AuditOption {
 	return func(o *auditOptions) { o.auditor = a }
 }
@@ -77,7 +78,7 @@ func AuditInterceptor(opts ...AuditOption) grpc.UnaryServerInterceptor {
 	}
 	auditor := cfg.auditor
 	if auditor == nil {
-		auditor = audit.GetAuditor()
+		auditor = audit.NopAuditor()
 	}
 	resolver := newAuditResolver(cfg)
 	rec := cfg.metricsRecorder

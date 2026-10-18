@@ -49,11 +49,11 @@ func TestBind_FlagOverridesFile(t *testing.T) {
 	}
 
 	// flag 应压过本地文件。
-	if got := a.Config().GetString("http.addr"); got != ":18080" {
+	if got := readSetting(a, "http.addr"); got != ":18080" {
 		t.Errorf("http.addr = %q, want :18080 (flag 应压过本地文件)", got)
 	}
 	// 未通过 flag 覆盖的段仍取自本地文件。
-	if got := a.Config().GetString("grpc.addr"); got != ":9090" {
+	if got := readSetting(a, "grpc.addr"); got != ":9090" {
 		t.Errorf("grpc.addr = %q, want :9090 (来自本地文件)", got)
 	}
 }
@@ -69,7 +69,7 @@ func TestBind_EnvOverridesFile(t *testing.T) {
 	if err := a.loadConfig(); err != nil {
 		t.Fatalf("loadConfig: %v", err)
 	}
-	if got := a.Config().GetString("http.addr"); got != ":28080" {
+	if got := readSetting(a, "http.addr"); got != ":28080" {
 		t.Errorf("http.addr = %q, want :28080 (env 应压过本地文件)", got)
 	}
 }
@@ -84,7 +84,7 @@ func TestBind_FlagOverridesEnv(t *testing.T) {
 	if err := a.loadConfig(); err != nil {
 		t.Fatalf("loadConfig: %v", err)
 	}
-	if got := a.Config().GetString("http.addr"); got != ":38080" {
+	if got := readSetting(a, "http.addr"); got != ":38080" {
 		t.Errorf("http.addr = %q, want :38080 (flag 应压过 env)", got)
 	}
 }
@@ -101,10 +101,10 @@ func TestBind_KeyPathAligned(t *testing.T) {
 	if err := a.loadConfig(); err != nil {
 		t.Fatalf("loadConfig: %v", err)
 	}
-	if got := a.Config().GetString("grpc.addr"); got != ":9090" {
+	if got := readSetting(a, "grpc.addr"); got != ":9090" {
 		t.Errorf("grpc.addr = %q, want :9090", got)
 	}
-	if got := a.Config().GetString("grpc.reflection"); got != "true" {
+	if got := readSetting(a, "grpc.reflection"); got != "true" {
 		t.Errorf("grpc.reflection = %q, want true", got)
 	}
 }
@@ -118,7 +118,7 @@ func TestBind_PlainBinder(t *testing.T) {
 	if err := a.loadConfig(); err != nil {
 		t.Fatalf("loadConfig: %v", err)
 	}
-	if got := a.Config().GetString("log.level"); got != "debug" {
+	if got := readSetting(a, "log.level"); got != "debug" {
 		t.Errorf("log.level = %q, want debug", got)
 	}
 }

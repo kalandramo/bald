@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/kalandramo/bald/pkg/audit"
-	"github.com/kalandramo/bald/pkg/authn"
 )
 
 // ---- App.MountComponent / UnmountComponent ----
@@ -103,18 +102,24 @@ func (m *mountAuditMem) Record(_ context.Context, ev audit.AuditEvent) {
 	m.events = append(m.events, ev)
 }
 
-// TestAuditComponent_EventShape 契约：重组审计事件三元组 + Meta + Subject（取 ctx claims）。
-func TestAuditComponent_EventShape(t *testing.T) {
-	old := audit.GetAuditor()
-	am := &mountAuditMem{}
-	audit.SetAuditor(am)
-	t.Cleanup(func() { audit.SetAuditor(old) })
+// testIdentityKey 是身份端口的测试 ctx 标记（模拟应用侧 1 行 lambda 的适配）。
+type testIdentityKey struct{}
 
-	app := NewApp()
-	ctx := authn.ContextWithAuthClaims(context.Background(),
-		&authn.AuthClaims{Subject: "u-admin", TenantID: "t-1"})
+// TestAuditComponent_EventShape 契约：重组审计事件三元组 + Meta + Subject
+// （经身份端口取 ctx 业务身份；未声明 Identity 的匿名 ctx 为空）。
+func TestAuditComponent_EventShape(t *testing.T) {
+	am := &mountAuditMem{}
+	app := NewApp(
+		auditorOpt(am),
+		// 应用侧适配的形状：1 行 lambda 从自己的 ctx 约定取身份。
+		Identity(func(ctx context.Context) (string, string) {
+			v, _ := ctx.Value(testIdentityKey{}).(string)
+			return v, "t-1"
+		}),
+	)
+	ctx := context.WithValue(context.Background(), testIdentityKey{}, "u-admin")
 	app.auditComponent(ctx, "mount", "tool.echo")
-	app.auditComponent(context.Background(), "unmount", "tool.echo") // 匿名：Subject 空
+	app.auditComponent(context.Background(), "unmount", "tool.echo") // 无标记：Subject 空
 
 	if len(am.events) != 2 {
 		t.Fatalf("want 2 events, got %d", len(am.events))
@@ -133,11 +138,7 @@ func TestAuditComponent_EventShape(t *testing.T) {
 
 // TestAuditComponent_PanicIsolated 契约：Auditor panic 被隔离，不影响调用方。
 func TestAuditComponent_PanicIsolated(t *testing.T) {
-	old := audit.GetAuditor()
-	audit.SetAuditor(auditorFunc(func(context.Context, audit.AuditEvent) { panic("boom") }))
-	t.Cleanup(func() { audit.SetAuditor(old) })
-
-	app := NewApp()
+	app := NewApp(auditorOpt(auditorFunc(func(context.Context, audit.AuditEvent) { panic("boom") })))
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -151,35 +152,33 @@ type auditorFunc func(context.Context, audit.AuditEvent)
 
 func (f auditorFunc) Record(ctx context.Context, ev audit.AuditEvent) { f(ctx, ev) }
 
-// TestResolveAuditor_InjectedOverridesGlobal 契约：Auditor Option 注入后，
-// 重组审计事件写入注入实例而非全局——bundle 注入 a、appkit 走全局的 split-brain
-// sink 从结构上消除。未注入时回退全局。
-func TestResolveAuditor_InjectedOverridesGlobal(t *testing.T) {
-	old := audit.GetAuditor()
-	globalMem := &mountAuditMem{}
-	audit.SetAuditor(globalMem)
-	t.Cleanup(func() { audit.SetAuditor(old) })
-
+// TestResolveAuditor_InjectedOverridesContractProduct 契约：显式注入（auditorOpt）
+// 优先于契约 audit 段产物（storeProduct 兜底写入不覆盖已注入值）——split-brain
+// sink 从结构上消除；零注入时回退 Nop（B8：无全局兜底），永不返回 nil。
+func TestResolveAuditor_InjectedOverridesContractProduct(t *testing.T) {
 	injected := &mountAuditMem{}
-	app := NewApp(Auditor(injected))
-	ctx := authn.ContextWithAuthClaims(context.Background(),
-		&authn.AuthClaims{Subject: "u-admin", TenantID: "t-9"})
-	app.auditComponent(ctx, "mount", "tool.echo")
-
-	if len(injected.events) != 1 {
-		t.Fatalf("injected auditor should receive the event, got %+v", injected.events)
+	app := NewApp(auditorOpt(injected))
+	if app.resolveAuditor() != injected {
+		t.Fatal("explicit injection must win")
 	}
-	if injected.events[0].TenantID != "t-9" {
-		t.Fatalf("event TenantID = %q, want t-9", injected.events[0].TenantID)
+	// 契约产物兜底写入（storeProduct 语义）：未注入时填入，已注入不覆盖。
+	a2 := NewApp()
+	probe := &mountAuditMem{}
+	if a2.auditor == nil {
+		a2.auditor = probe
 	}
-	if len(globalMem.events) != 0 {
-		t.Fatalf("global auditor must NOT receive events when injection exists, got %+v", globalMem.events)
+	if a2.resolveAuditor() != probe {
+		t.Fatal("contract product should become the fallback sink")
 	}
-
-	// 未注入：回退全局。
-	fallback := NewApp()
-	fallback.auditComponent(ctx, "mount", "tool.echo")
-	if len(globalMem.events) != 1 {
-		t.Fatalf("without injection, events go to global auditor, got %+v", globalMem.events)
+	// 空身份缺省：无 Identity 声明时 Subject/Tenant 恒空（与今日 claims 为 nil 一致）。
+	blank := &mountAuditMem{}
+	a3 := NewApp(auditorOpt(blank))
+	a3.auditComponent(context.Background(), "mount", "x")
+	if len(blank.events) != 1 || blank.events[0].Subject != "" || blank.events[0].TenantID != "" {
+		t.Fatalf("default identity must be empty, got %+v", blank.events)
+	}
+	// 最终兜底 Nop。
+	if NewApp().resolveAuditor() == nil {
+		t.Fatal("resolveAuditor must never return nil")
 	}
 }

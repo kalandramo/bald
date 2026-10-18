@@ -15,6 +15,7 @@ import (
 	"time"
 
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
+	"github.com/kalandramo/bald/bootstrap/config"
 	"github.com/kalandramo/bald/registry"
 	grpcserver "github.com/kalandramo/bald/transport/grpc"
 	httpserver "github.com/kalandramo/bald/transport/http"
@@ -474,7 +475,7 @@ func TestAppKit_ConfigLoadedAndExposed(t *testing.T) {
 			if m == nil {
 				t.Fatal("Settings() is nil in BeforeStart")
 			}
-			loadedAddr = app.Config().GetString("http.addr")
+			loadedAddr = readSetting(app, "http.addr")
 			return nil
 		}),
 	)
@@ -490,6 +491,16 @@ func TestAppKit_ConfigLoadedAndExposed(t *testing.T) {
 	}
 }
 
+// readSetting 从 Settings() 快照按点路径读字符串（App.Config() 删除后，
+// 点路径读取走 bootstrap/config 的 At/String 值语义——B7 §4.3）。
+func readSetting(a *App, key string) string {
+	v, ok := config.At(a.Settings(), key)
+	if !ok {
+		return ""
+	}
+	return config.String(v)
+}
+
 // TestAppKit_ConfigMissingFileNoError：本地文件缺失不报错（onexstack 行为），
 // 远程基准生效。
 func TestAppKit_ConfigMissingFileNoError(t *testing.T) {
@@ -503,7 +514,7 @@ func TestAppKit_ConfigMissingFileNoError(t *testing.T) {
 		RemoteConfig(remote),
 		Servers(srv),
 		BeforeStart(func(_ context.Context) error {
-			loadedAddr = app.Config().GetString("http.addr")
+			loadedAddr = readSetting(app, "http.addr")
 			return nil
 		}),
 	)

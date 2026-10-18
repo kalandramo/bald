@@ -56,13 +56,9 @@ type App struct {
 	// cfgNamespace 是**配置命名空间**——派生 env 前缀（BALD_DEMO_*）与多环境
 	// 文件名（bald-demo-prod.yaml）的稳定标识（见 loadConfig 的 config.Options.Name）。
 	//
-	// 与 name（服务身份）分离的理由：配置命名空间必须在「任何配置装载之前」确定，
-	// 若取自契约 app.name（Serve 路径），则形成自指——app.name 可由配置
-	// 文件/env 供给，而 env 的前缀又由它派生：用户写 app.name: foo 会让全部
-	// BALD_<原前缀>_* 覆盖静默失效（回落到文件值，无报错）。两条用途生命周期
-	// 不同，必须分字段。
-	//
-	// 取值优先级见 NewApp（回退 name）与 Serve（要求显式声明，否则 fail-fast）。
+	// 取值（B6 两遍合并，装配层评估 §5.1）：Serve 路径由契约 app.name 派生
+	// （先装载文件/远程层解析 app.name，再按它挂 env 层——自指由两遍顺序消解，
+	// env 名不变）；NewApp 路径回退 Name（代码层稳定源，无自指）。
 	cfgNamespace string
 
 	// 服务器 Stop 阶段超时（before/afterStop 钩子固定 defaultHookTimeout：
@@ -118,9 +114,13 @@ type App struct {
 	startedMu        sync.Mutex
 	disposed         bool // 组件系统已销毁（A1：置位后拒绝运行期挂载，见 mount.go）
 
-	// D4 审计后端：运行期重组/协调审计事件（mount/reconcile）的显式注入点。
-	// nil 时回退 audit.GetAuditor() 全局（其默认即 nop）——消除「bundle 注入 a、
-	// appkit 走全局」的审计 sink 分裂。
+	// 身份端口（D1 §4.4）：appkit 审计事件的 Subject/TenantID 取值函数；
+	// nil = 空身份（与今日 claims 为 nil 时一致）。适配由应用侧注入。
+	identity IdentityFunc
+
+	// D4 审计后端：运行期重组/协调审计事件（mount/reconcile）的显式注入点，
+	// 契约 audit 段产物在阶段 B 兜底写入（见 storeProduct）。nil 时 resolveAuditor
+	// 返回 Nop（B8 收尾：全局 audit.GetAuditor() 兜底已删除）。
 	auditor audit.Auditor
 
 	// 配置对象
@@ -262,18 +262,11 @@ func Registrar(r registry.Registrar) Option {
 	return optionFunc(func(d *Decl) { d.Registrar = r })
 }
 
-// ConfigNamespace 声明**配置命名空间**——env 前缀（BALD_DEMO_*）与多环境
-// 文件名（bald-demo-prod.yaml）的来源。
-//
-// 与 Name 的关系：Name 是**服务身份**（日志、注册中心实例名）；ConfigNamespace
-// 是**配置坐标**。二者通常同值，但语义独立——ConfigNamespace 必须在配置装载前
-// 稳定可得，Name 可以来自被装载的配置。
-//
-// 缺省行为：NewApp 路径下未声明时回退 Name 的值（其值来自调用方源码，属代码层
-// 稳定源，无自指）；Serve 路径**不回退**（其 Name 来自被装载的契约，
-// 会构成 env 前缀自指），必须用 ConfigNamespace 显式声明。
-func ConfigNamespace(ns string) Option {
-	return optionFunc(func(d *Decl) { d.ConfigNamespace = ns })
+// configNamespaceOpt 写入配置命名空间（B6 取消导出：原 ConfigNamespace Option
+// 删除，命名空间转为内部派生值——Serve 由契约 app.name 派生、NewApp 回退
+// Name）。保留为引擎与包内测试的写入面。
+func configNamespaceOpt(ns string) Option {
+	return optionFunc(func(d *Decl) { d.configNamespace = ns })
 }
 
 // SetRegistrar 运行期设置注册中心，供 NewApp 构造路径在配置装载后按契约构造
@@ -346,10 +339,10 @@ func Servers(servers ...transport.Server) Option {
 	return optionFunc(func(d *Decl) { d.Servers = append(d.Servers, servers...) })
 }
 
-// Auditor 注入运行期审计后端：appkit 自身发出的审计事件（组件挂载/卸载、
-// R1-2 协调收敛/错误）写入该实例，与业务经 bundle.Audit 注入的请求级审计
-// 同源，消除 split-brain sink。未注入时回退全局 audit.GetAuditor。
-func Auditor(a audit.Auditor) Option {
+// auditorOpt 注入运行期审计后端（B7 取消导出：审计器显式注入归应用——经
+// bundle.Audit / 中间件 AuditWithAuditor 等构造器注入；appkit 自身审计事件的
+// sink 缺省由契约 audit 段产物兜底，见 storeProduct，最终兜底 Nop）。
+func auditorOpt(a audit.Auditor) Option {
 	return optionFunc(func(d *Decl) { d.Auditor = a })
 }
 
@@ -409,12 +402,10 @@ func newDecl(opts ...Option) *Decl {
 // 拷入运行态（newFromDecl），不消费契约段、不派生服务器注册与框架钩子链。
 func NewApp(opts ...Option) *App {
 	d := newDecl(opts...)
-	// 配置命名空间回退：放在 Apply **之后**——保证 ConfigNamespace 无论与
-	// Name 的书写先后都优先（若放在循环内逐项判断，`Name` 先于 `ConfigNamespace`
-	// 时会被后续覆盖，反之则不会，产生顺序依赖）。
-	// 回退源是 d.Name（本路径下由调用方源码提供，代码层稳定值，无自指）。
-	if d.ConfigNamespace == "" {
-		d.ConfigNamespace = d.Name
+	// 配置命名空间回退（B6：声明口已删，回退即唯一来源）：取 d.Name——
+	// 本路径下由调用方源码提供，代码层稳定值，无自指。
+	if d.configNamespace == "" {
+		d.configNamespace = d.Name
 	}
 	return newFromDecl(*d)
 }
@@ -478,10 +469,6 @@ func (a *App) Settings() map[string]any {
 	}
 	return a.cfg.store.Settings()
 }
-
-// Config 返回配置仓库（*config.Store），供点路径实时读取（GetString/
-// GetStringSlice/Get）与一站式 Unmarshal。仅在 Run 触发配置加载后非 nil。
-func (a *App) Config() *config.Store { return a.cfg.store }
 
 // Err 返回 Run 的退出错误（Run 返回后有效）。
 func (a *App) Err() error {

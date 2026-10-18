@@ -39,7 +39,7 @@ func TestAssemble_ContractDatabaseLifecycle(t *testing.T) {
 	cfg := bconfNewBootstrapWithDatabase()
 	dynamicAddr(cfg)
 
-	a := assembleForTest(t, cfg, ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), dbTestProvider(dr))
+	a := assembleForTest(t, cfg, WithHTTP(new(http.ServeMux)), dbTestProvider(dr))
 	// 构造期（阶段 A）尚未装载契约：Database 为空
 	if _, ok := a.Resource("database.sql"); ok {
 		t.Fatal("Database should be empty before Run (phase B not reached)")
@@ -83,7 +83,7 @@ func TestAssemble_DatabaseSectionWithoutTable(t *testing.T) {
 	cfg := bconfNewBootstrapWithDatabase()
 	dynamicAddr(cfg)
 
-	a := assembleForTest(t, cfg, ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
+	a := assembleForTest(t, cfg, WithHTTP(new(http.ServeMux)))
 	err := a.Run(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "no consumer") && strings.Contains(err.Error(), "database") {
 		t.Fatalf("expected DatabaseRegistry missing error, got %v", err)
@@ -98,7 +98,7 @@ func TestAssemble_NoDatabaseSection(t *testing.T) {
 	cfg := bconf.NewBootstrap()
 	dynamicAddr(cfg)
 
-	a := assembleForTest(t, cfg, ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
+	a := assembleForTest(t, cfg, WithHTTP(new(http.ServeMux)))
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- a.Run(ctx) }()

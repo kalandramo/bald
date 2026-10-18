@@ -34,7 +34,7 @@ func TestAssemble_ContractBrokerLifecycle(t *testing.T) {
 		Redis: &bootstrapv1.Broker_Redis{Address: "127.0.0.1:6379"},
 	}
 
-	a := assembleForTest(t, cfg, ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), brokerTestProvider(br))
+	a := assembleForTest(t, cfg, WithHTTP(new(http.ServeMux)), brokerTestProvider(br))
 	if _, ok := a.Resource("broker.redis"); ok {
 		t.Fatal("Broker should be empty before Run (phase B not reached)")
 	}
@@ -80,7 +80,7 @@ func TestAssemble_BrokerSectionWithoutTable(t *testing.T) {
 		Redis: &bootstrapv1.Broker_Redis{Address: "127.0.0.1:6379"},
 	}
 
-	a := assembleForTest(t, cfg, ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
+	a := assembleForTest(t, cfg, WithHTTP(new(http.ServeMux)))
 	err := a.Run(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "no consumer") && strings.Contains(err.Error(), "broker") {
 		t.Fatalf("expected BrokerRegistry missing error, got %v", err)

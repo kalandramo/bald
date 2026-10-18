@@ -5,7 +5,7 @@
 // 最大的「隐性知识税」。Bundle 一次构造、双传输产出、链序由框架固化：
 //
 //	b := bundle.New(
-//	    bundle.Authn(authenticator),   // 依赖实例经构造器注入（SetAuditor 等全局退化为兜底）
+//	    bundle.Authn(authenticator),   // 依赖实例经构造器注入（全局 audit 兜底已删除）
 //	    bundle.Authz(authorizer),
 //	    bundle.Audit(auditor),
 //	    bundle.Metrics(recorder),
@@ -279,7 +279,7 @@ func (b *Bundle) ginAuthz() gin.HandlerFunc {
 }
 
 // ginAudit 组装 gin 审计中间件。auditor 未注入时显式接 NopAuditor（Bundle
-// 语义是完全显式注入，不吃 audit.GetAuditor() 全局兜底，避免测试间全局污染）。
+// 语义是完全显式注入，不依赖任何全局审计句柄，避免测试间全局污染）。
 func (b *Bundle) ginAudit() gin.HandlerFunc {
 	var opts []ginmw.AuditOption
 	if b.normalized {

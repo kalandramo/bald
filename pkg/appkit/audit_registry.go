@@ -12,14 +12,20 @@
 // 业务代码注入，「配置驱动参数，代码声明能力」分工：契约段声明类型与参数，
 // DB/Redis 连接不进契约）。
 //
-// 段缺省语义：不装配（全局 audit.GetAuditor() 保持现状，默认 nop）。
+// B8（批 3）：全局 audit.SetAuditor/GetAuditor 删除——产物落资源面 +
+// appkit 自身事件兜底 sink（见 storeProduct），请求级审计由应用把产物
+// 显式注入 bundle/中间件。
+//
+// 段缺省语义：不装配（appkit 自身审计事件走显式注入/契约产物兜底/Nop，
+// 见 storeProduct 与 resolveAuditor）。
 //
 // 生命周期约定（用户 Provider 遵守）：阶段 B（BeforeStart，契约装载校验后）
-// Build 并由引擎全局注入（SetAuditor）；build 序在 database/cache 客户端
-// 之后——store 后端需 *gorm.DB、stream 后端需 redis 客户端，资源必须先
-// 就绪（scope.App 经 Database/Cache 取用）。停机 Effect（appkit:audit-restore）
-// 逆序回放最后执行：先 cleanup（stream flush 尾批审计事件），再恢复装配前
-// 全局 Auditor。audit 段不支持热更新（运行期热切走 R1-2 协调器）。
+// Build，产物落 App 资源面（Resource("audit")）并作 appkit 自身审计事件的
+// 兜底 sink；build 序在 database/cache 客户端之后——store 后端需 *gorm.DB、
+// stream 后端需 redis 客户端，资源必须先就绪（scope.App 经 Resource 取用）。
+// 停机 Effect（appkit:audit-restore）逆序回放最后执行：cleanup（stream flush
+// 尾批审计事件）。audit 段不支持热更新（运行期热切走 R1-2 协调器；全局
+// SetAuditor 已随 B8 删除，热切换后的 sink 由应用自持并显式注入）。
 //
 // 用法（Serve 路径，第三方 audit Provider 覆盖 std 默认——段路径末者胜）：
 //
@@ -63,12 +69,3 @@ const (
 // 返回 (auditor, cleanup)：cleanup 承载后端资源释放（如 stream 后台
 // goroutine 停机 flush 尾批），由引擎挂 Effect 逆序回放。
 type AuditProvider func(ctx context.Context, cfg *bootstrapv1.Audit, res *App) (audit.Auditor, func(context.Context) error, error)
-
-// auditState 承载阶段 B（BeforeStart）装配、停机期消费的句柄（构造期零值
-// + 运行期接线，引擎 storeProduct 填充）。
-type auditState struct {
-	// prev 装配前的全局 Auditor（Effect 回放恢复，T1 纪律）。
-	prev audit.Auditor
-	// cleanup 后端资源释放（多后端聚合逆序回放，如 stream 停机 flush 尾批）。
-	cleanup Cleanup
-}

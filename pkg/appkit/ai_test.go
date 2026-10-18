@@ -34,7 +34,7 @@ func TestAssemble_ContractAiLifecycle(t *testing.T) {
 		Openai: &bootstrapv1.Ai_Openai{ModelType: 2, Cloud: &bootstrapv1.Ai_CloudConfig{ApiKey: "sk"}},
 	}
 
-	a := assembleForTest(t, cfg, ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)), aiTestProvider(ar))
+	a := assembleForTest(t, cfg, WithHTTP(new(http.ServeMux)), aiTestProvider(ar))
 	if _, ok := a.Resource("ai.openai"); ok {
 		t.Fatal("Ai should be empty before Run (phase B not reached)")
 	}
@@ -80,7 +80,7 @@ func TestAssemble_AiSectionWithoutTable(t *testing.T) {
 		Openai: &bootstrapv1.Ai_Openai{ModelType: 2, Cloud: &bootstrapv1.Ai_CloudConfig{ApiKey: "sk"}},
 	}
 
-	a := assembleForTest(t, cfg, ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)))
+	a := assembleForTest(t, cfg, WithHTTP(new(http.ServeMux)))
 	err := a.Run(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "no consumer") || !strings.Contains(err.Error(), "ai") {
 		t.Fatalf("expected no-consumer error for ai, got %v", err)

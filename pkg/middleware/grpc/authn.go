@@ -19,12 +19,13 @@ import (
 type AuthnOption func(*authnOptions)
 
 type authnOptions struct {
-	// auditor 指定认证失败审计事件的接收后端；nil 时用 audit.GetAuditor() 全局实例。
+	// auditor 指定认证失败审计事件的接收后端；nil 时退化为 NopAuditor
+	// （B8：全局审计器已删除，显式注入是唯一通道——bundle 自动注入）。
 	// 由 bundle 注入（与请求审计同一后端），保证 authn 路径与业务审计同源。
 	auditor audit.Auditor
 }
 
-// AuthnWithAuditor 指定认证失败审计后端；缺省用全局 audit.GetAuditor()。
+// AuthnWithAuditor 指定认证失败审计后端；缺省 NopAuditor（显式注入是唯一通道）。
 func AuthnWithAuditor(a audit.Auditor) AuthnOption {
 	return func(o *authnOptions) { o.auditor = a }
 }
@@ -44,7 +45,7 @@ func AuthnInterceptor(authenticator authn.Authenticator, opts ...AuthnOption) gr
 	}
 	auditor := cfg.auditor
 	if auditor == nil {
-		auditor = audit.GetAuditor()
+		auditor = audit.NopAuditor()
 	}
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		if authenticator == nil {

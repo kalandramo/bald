@@ -1,13 +1,11 @@
-// observability_test.go —— tracer/metrics 段装配契约（批 2 W2b 迁移：原
-// TracerRegistry/MetricsRegistry 的注册表单测随注册表删除——type 单选分发
-// 收进用户侧 obsProvider；本文件保留 StartMetricsServer 工具契约与引擎
-// cleanup 槽位的编排断言）。
+// observability_test.go —— tracer/metrics 段装配契约（批 2 W2b 迁移；B7 再迁移：
+// 暴露端监听面单测随 StartMetricsServer 下沉 observability/metricshttp 包，
+// 本文件保留引擎对 MetricsExposure 产物的编排断言——cleanup 槽位合成
+// 「先停暴露端再 flush」的停机序）。
 package appkit
 
 import (
 	"context"
-	"net"
-	"net/http"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -17,9 +15,26 @@ import (
 	log "github.com/kalandramo/bald/log"
 )
 
-// TestAssemble_ObservabilityProviderLifecycle 用户 obsProvider（tracer +
-// metrics 双段）经引擎编排：Build 拿到契约段、cleanup 进 canonical 槽位、
-// 停机逆序回放兑现（tracer-shutdown / metrics-server Effect 名保持）。
+// fakeExposure 是 MetricsExposure 测试桩：记录 Stop 时序（与 flush 共用一个
+// 单调序号器，断言「先停暴露端再 flush」）。
+type fakeExposure struct {
+	stopped atomic.Bool
+	seq     *atomic.Int64
+	at      atomic.Int64
+}
+
+func (f *fakeExposure) Stop(context.Context) error {
+	f.stopped.Store(true)
+	if f.seq != nil {
+		f.at.Store(f.seq.Add(1))
+	}
+	return nil
+}
+
+// TestAssemble_ObservabilityProviderLifecycle 用户 Provider（tracer + metrics
+// 各一段）经引擎编排：Build 拿到契约段、metrics 产物为可关闭暴露端、停机
+// 逆序回放兑现且**先停暴露端再 flush**（metrics-server / tracer-shutdown
+// Effect 名保持）。
 func TestAssemble_ObservabilityProviderLifecycle(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
@@ -30,70 +45,39 @@ func TestAssemble_ObservabilityProviderLifecycle(t *testing.T) {
 
 	var (
 		tracerSD, metricsFlush atomic.Bool
+		seq                    atomic.Int64
+		flushAt                atomic.Int64
 	)
-	obs := segProvider{segs: []string{"tracer", "metrics"}, build: func(ctx context.Context, s BuildScope) (any, Cleanup, error) {
-		if s.Config.GetTracer() == nil || s.Config.GetMetrics() == nil {
-			t.Fatal("obs provider must see both contract sections")
+	exp := &fakeExposure{seq: &seq}
+	// metrics Provider：产物为暴露端 + flush cleanup（B7 契约形状）。
+	metrics := segProvider{segs: []string{"metrics"}, build: func(_ context.Context, s BuildScope) (any, Cleanup, error) {
+		if s.Config.GetMetrics() == nil {
+			t.Fatal("metrics provider must see the metrics section")
 		}
-		// metrics：暴露端真起独立端口（StartMetricsServer 工具契约）。
-		srv := StartMetricsServer("127.0.0.1:0", "/metrics", http.NotFoundHandler())
-		return nil, func(context.Context) error {
-			_ = srv.Shutdown(context.Background())
+		return exp, func(context.Context) error {
+			flushAt.Store(seq.Add(1))
 			metricsFlush.Store(true)
 			return nil
 		}, nil
 	}}
-	// tracer 单独一个 Provider：验证同段多路径并存与独立 cleanup。
+	// tracer 单独一个 Provider：验证同段族多 Provider 并存与独立 cleanup。
 	tracer := segProvider{segs: []string{"tracer"}, build: func(context.Context, BuildScope) (any, Cleanup, error) {
 		return nil, func(context.Context) error { tracerSD.Store(true); return nil }, nil
 	}}
 
-	a := assembleForTest(t, cfg, ConfigNamespace(testConfigNamespace), obs, tracer)
+	a := assembleForTest(t, cfg, metrics, tracer)
 	runBriefly(t, a, 50*time.Millisecond)
 
 	if !tracerSD.Load() {
 		t.Fatal("tracer cleanup not invoked on stop (tracer-shutdown slot)")
 	}
 	if !metricsFlush.Load() {
-		t.Fatal("metrics cleanup not invoked on stop (metrics-server slot)")
+		t.Fatal("metrics flush not invoked on stop (metrics-server slot)")
 	}
-}
-
-func TestStartMetricsServer(t *testing.T) {
-	// 占随机端口（关闭后复用，竞态窗口可忽略）。
-	lis, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("reserve port: %v", err)
+	if !exp.stopped.Load() {
+		t.Fatal("exposure Stop not invoked on stop (engine-composed stop-then-flush)")
 	}
-	addr := lis.Addr().String()
-	_ = lis.Close()
-
-	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("metrics-stub"))
-	})
-	srv := StartMetricsServer(addr, "/custom-metrics", handler)
-	defer func() { _ = srv.Shutdown(context.Background()) }()
-
-	deadline := time.Now().Add(2 * time.Second)
-	var resp *http.Response
-	for {
-		resp, err = http.Get("http://" + addr + "/custom-metrics")
-		if err == nil {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("server not ready: %v", err)
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d", resp.StatusCode)
-	}
-
-	// 默认值：空 addr/path 走 :9091 / /metrics（仅断言常量，不起真端口避冲突）。
-	if defaultMetricsAddr != ":9091" || defaultMetricsPath != "/metrics" {
-		t.Fatalf("defaults changed: %q %q", defaultMetricsAddr, defaultMetricsPath)
+	if exp.at.Load() == 0 || flushAt.Load() == 0 || exp.at.Load() > flushAt.Load() {
+		t.Fatalf("stop must happen before flush: stopAt=%d flushAt=%d", exp.at.Load(), flushAt.Load())
 	}
 }

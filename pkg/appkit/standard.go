@@ -11,7 +11,9 @@
 //   - StandardServerProvider：server.http / server.grpc——能力声明在代码
 //     （WithHTTP/WithGatewayRegister/WithGRPC），契约段驱动地址/TLS/driver；
 //   - StandardAuditProvider：audit.backends 的 "log" 项——核心 LoggerAuditor
-//     零依赖开箱即用。
+//     零依赖开箱即用；
+//   - StandardLoggerProvider：logger 段——bslog（标准库 slog）后端，阶段 A
+//     引导 logger 的持有者（B7：默认日志分派删除后的唯一内置通道）。
 //
 // 其余各段（registry/database/.../config/tracer/metrics）在原 12 段流无
 // 默认接线，不设内置 Provider（段存在而无 Provider = L3 启动期报错）。
@@ -26,6 +28,8 @@ import (
 
 	baldbootstrap "github.com/kalandramo/bald/bootstrap"
 	"github.com/kalandramo/bald/health"
+	log "github.com/kalandramo/bald/log"
+	"github.com/kalandramo/bald/log/bslog"
 	"github.com/kalandramo/bald/pkg/audit"
 	"github.com/kalandramo/bald/transport"
 )
@@ -40,6 +44,69 @@ func StandardServerProvider() Provider { return stdServerProvider{} }
 // std.Standard() 成员）。第三方 store/stream 后端经用户 audit Provider
 // 覆盖（段路径末者胜）。
 func StandardAuditProvider() Provider { return stdAuditProvider{} }
+
+// StandardLoggerProvider 返回框架内置日志 Provider（logger 段；std.Standard()
+// 成员）。B7 起这是日志装配的唯一内置通道（原 defaultLoggerFactory 的分派
+// 逻辑整体迁入，D1 §4.5——App 层不再有第二个日志路径）：
+//   - 阶段 A（Config=nil，契约装载前）：产出引导 bslog——框架持有的
+//     「引导 logger」，保证启动日志可见；阶段 B 用本 Provider 的契约结果替换；
+//   - 阶段 B/热更：按契约 logger.backends 逐项构造（type=slog 直构 + 装饰器，
+//     多项 MultiLogger 合并，出口包 FilterLogger）；非 slog 项 fail-fast
+//     教学报错；backends 为空 fail-fast。
+//
+// 装饰器消费 Decl 的内部字段（logDecoratorsOpt 写入）；第三方 logger Provider
+// 自持装饰，经段路径末者胜整体覆盖本 Provider。
+func StandardLoggerProvider() Provider { return stdLoggerProvider{} }
+
+// stdLoggerProvider 消费 logger 段。
+type stdLoggerProvider struct{}
+
+func (stdLoggerProvider) Segments() []string { return []string{"logger"} }
+
+// Apply 把自身追加进声明（Provider 即 Option）。
+func (stdLoggerProvider) Apply(d *Decl) { d.Providers = append(d.Providers, stdLoggerProvider{}) }
+
+// Build 构造日志后端。产物为 log.Logger（引擎 loggerSource 协议消费；
+// cleanup 交 curCleanup 原子换槽——文件/轮转句柄的释放与热更重建不泄漏）。
+func (stdLoggerProvider) Build(_ context.Context, s BuildScope) (any, Cleanup, error) {
+	deco := s.Decl.logDecorators
+	// l==nil：阶段 A（契约装载前）或契约无 logger 段——回退引导 bslog。
+	l := s.Config.GetLogger()
+	if l == nil {
+		return bslog.New(baldbootstrap.LogOptions(nil), deco...), nil, nil
+	}
+	bs := l.GetBackends()
+	if len(bs) == 0 {
+		return nil, nil, fmt.Errorf("appkit: logger.backends is empty (declare at least one backend, e.g. type \"slog\")")
+	}
+	loggers := make([]log.Logger, 0, len(bs))
+	var cleanups []func()
+	for i, b := range bs {
+		if b.GetType() == "slog" {
+			lg, c := bslog.NewWithCleanup(baldbootstrap.LogOptions(b), deco...)
+			loggers = append(loggers, lg)
+			cleanups = append(cleanups, c)
+			continue
+		}
+		return nil, nil, fmt.Errorf("appkit: logger.backends[%d] type %q: default path supports only \"slog\";\n"+
+			"  remote/custom backends need a logger provider:\n"+
+			"    appkit.MustServe(ctx, std.Standard(), myLoggerProvider()) // Segments()=[\"logger\"]", i, b.GetType())
+	}
+	// 单项直通：不包 MultiLogger 广播层（出口零多余包装）；多项经
+	// MultiLogger 合并。
+	var out log.Logger = loggers[0]
+	if len(loggers) > 1 {
+		out = log.NewMultiLogger(loggers...)
+	}
+	// cleanup 按构造序正放释放各 slog 项的文件/轮转句柄（lumberjack 缓冲
+	// 冲刷落盘、热更新重建不泄漏——恒非 nil）。
+	merged := func() {
+		for _, c := range cleanups {
+			c()
+		}
+	}
+	return log.NewFilterLogger(out, l.GetFilterKeys()...), noopCleanup(merged), nil
+}
 
 // ---------------------------------------------------------------------------
 // server Provider：server.http / server.grpc
@@ -154,8 +221,8 @@ func (stdAuditProvider) Apply(d *Decl) { d.Providers = append(d.Providers, stdAu
 // Build 按契约 audit.backends 列表装配审计后端（多选，列表序即广播序）。
 // "log" 内置；其余项 fail-fast 教学报错（std 不含第三方后端——经用户
 // audit Provider 接管）。多后端组装、失败逆序回滚收敛在 pkg/audit.Compose
-// （批 1 内化）。产物为 audit.Auditor，由引擎全局注入（SetAuditor）并在
-// 停机恢复装配前全局——见 storeProduct。
+// （批 1 内化）。产物为 audit.Auditor，落资源面并作 appkit 自身审计事件的
+// 兜底 sink（B8：全局 SetAuditor 已删除）——见 storeProduct。
 func (stdAuditProvider) Build(ctx context.Context, s BuildScope) (any, Cleanup, error) {
 	acfg := s.Config.GetAudit()
 	if acfg == nil {

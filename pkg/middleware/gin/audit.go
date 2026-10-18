@@ -43,7 +43,7 @@ func AuditWithSubjectResolver(fn func(c *gin.Context) string) AuditOption {
 	return func(o *auditOptions) { o.subjectResolver = fn }
 }
 
-// AuditWithAuditor 指定审计后端；缺省用全局 audit.GetAuditor()。
+// AuditWithAuditor 指定审计后端；缺省 NopAuditor（显式注入是唯一通道）。
 func AuditWithAuditor(a audit.Auditor) AuditOption {
 	return func(o *auditOptions) { o.auditor = a }
 }
@@ -74,7 +74,7 @@ func AuditMiddleware(opts ...AuditOption) gin.HandlerFunc {
 	}
 	auditor := cfg.auditor
 	if auditor == nil {
-		auditor = audit.GetAuditor()
+		auditor = audit.NopAuditor()
 	}
 	rec := cfg.metricsRecorder
 	if rec == nil {

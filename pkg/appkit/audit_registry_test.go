@@ -72,13 +72,12 @@ func TestStdAuditProvider_Build(t *testing.T) {
 	}
 }
 
-// TestAssemble_AuditGlobalInjection 引擎编排断言：audit 段 Provider 的产物
-// 全局注入（SetAuditor）、prev 保留、停机 Effect 恢复装配前全局并兑现后端
-// cleanup（appkit:audit-restore 逆序回放最后执行）。
-func TestAssemble_AuditGlobalInjection(t *testing.T) {
-	old := audit.GetAuditor()
-	t.Cleanup(func() { audit.SetAuditor(old) })
-
+// TestAssemble_AuditProductBecomesAppAuditor 引擎编排断言：audit 段 Provider
+// 的产物落资源面（Resource("audit")）并成为 appkit 自身审计事件的兜底 sink
+// （显式注入优先、不被产物覆盖），cleanup 经 canonical 槽位停机兑现
+// （appkit:audit-restore 逆序回放最后执行；B8 起无「恢复装配前全局」步骤
+// ——全局审计器已删除）。
+func TestAssemble_AuditProductBecomesAppAuditor(t *testing.T) {
 	var cleaned int
 	prov := auditTestProvider(func(_ context.Context, _ *bootstrapv1.Audit, _ *App) (audit.Auditor, func(context.Context) error, error) {
 		return taggedAuditor{Auditor: audit.NopAuditor(), tag: "contract"},
@@ -88,15 +87,20 @@ func TestAssemble_AuditGlobalInjection(t *testing.T) {
 	cfg := bconf.NewBootstrap() // 预填 server 段豁免（无能力 ⇒ 不绑端口，L3 不报错）
 	cfg.Audit = auditCfg("log")
 
-	a := assembleForTest(t, cfg, ConfigNamespace(testConfigNamespace), prov)
+	a := assembleForTest(t, cfg, prov)
 
-	// 注入发生在阶段 B（Run 期）——驱动 Run 后、停机前断言全局句柄。
+	// 产物接线发生在阶段 B（Run 期）——驱动 Run 后、停机前断言 sink 与资源面。
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- a.Run(ctx) }()
 	time.Sleep(100 * time.Millisecond)
-	if _, isContract := audit.GetAuditor().(taggedAuditor); !isContract {
-		t.Fatalf("global auditor should be contract backend during Run, got %T", audit.GetAuditor())
+	if _, isContract := a.auditor.(taggedAuditor); !isContract {
+		t.Fatalf("app auditor should be the contract backend during Run, got %T", a.auditor)
+	}
+	if v, ok := a.Resource("audit"); !ok {
+		t.Fatal("audit product missing from resource face")
+	} else if _, isAud := v.(audit.Auditor); !isAud {
+		t.Fatalf("Resource(\"audit\") = %T, want audit.Auditor", v)
 	}
 	cancel()
 	if err := <-done; err != nil {
@@ -105,9 +109,6 @@ func TestAssemble_AuditGlobalInjection(t *testing.T) {
 
 	if cleaned != 1 {
 		t.Fatalf("audit cleanup called %d times, want 1 (stop replay)", cleaned)
-	}
-	if audit.GetAuditor() != old {
-		t.Fatalf("global auditor not restored after stop, got %T", audit.GetAuditor())
 	}
 }
 
@@ -142,7 +143,7 @@ func TestAssemble_AuditProviderSeesDatabases(t *testing.T) {
 		return audit.NewLoggerAuditor(), nil, nil
 	})
 
-	a := assembleForTest(t, cfg, ConfigNamespace(testConfigNamespace), WithHTTP(new(http.ServeMux)),
+	a := assembleForTest(t, cfg, WithHTTP(new(http.ServeMux)),
 		StandardServerProvider(), dbTestProvider(dr), prov)
 	runBriefly(t, a, 50*time.Millisecond)
 

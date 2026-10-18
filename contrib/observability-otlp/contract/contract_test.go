@@ -45,13 +45,20 @@ func TestNewPrometheusProvider(t *testing.T) {
 		t.Error("conflicting otlp endpoint should fail")
 	}
 
-	// 干净声明：handler + shutdown 非 nil。
-	h, shutdown, err := p(context.Background(), &bootstrapv1.Metrics{Type: TypePrometheus})
+	// 干净声明：暴露端 + shutdown 非 nil（B7：产物为可关闭暴露端，监听面
+	// 归 metricshttp——addr 用 :0 避免与缺省 :9091 冲突）。
+	exp, shutdown, err := p(context.Background(), &bootstrapv1.Metrics{
+		Type:       TypePrometheus,
+		Prometheus: &bootstrapv1.Metrics_Prometheus{Addr: "127.0.0.1:0"},
+	})
 	if err != nil {
 		t.Fatalf("setup: %v", err)
 	}
-	if h == nil || shutdown == nil {
-		t.Fatal("handler/shutdown should not be nil")
+	if exp == nil || shutdown == nil {
+		t.Fatal("exposure/shutdown should not be nil")
+	}
+	if err := exp.Stop(context.Background()); err != nil {
+		t.Fatalf("exposure stop: %v", err)
 	}
 	if err := shutdown(context.Background()); err != nil {
 		t.Fatalf("shutdown: %v", err)
@@ -67,19 +74,24 @@ func TestNewOTLPProvider(t *testing.T) {
 	}
 
 	// endpoint 有值：双通道构造成功（exporter 构造不连网；shutdown 会强制
-	// flush 到远端，本地无 collector 故只断言非 nil，不真调）。
-	h, shutdown, err := p(context.Background(), &bootstrapv1.Metrics{
+	// flush 到远端，本地无 collector 故只断言非 nil，不真调）。暴露端监听
+	// :0（B7：监听面归 metricshttp，见 TestNewPrometheusProvider）。
+	exp, shutdown, err := p(context.Background(), &bootstrapv1.Metrics{
 		Type: TypeOTLP,
 		Otlp: &bootstrapv1.Metrics_Otlp{
 			Endpoint:     "127.0.0.1:4318",
 			Insecure:     true,
 			PushInterval: 15,
 		},
+		Prometheus: &bootstrapv1.Metrics_Prometheus{Addr: "127.0.0.1:0"},
 	})
 	if err != nil {
 		t.Fatalf("setup: %v", err)
 	}
-	if h == nil || shutdown == nil {
-		t.Fatal("handler/shutdown should not be nil")
+	if exp == nil || shutdown == nil {
+		t.Fatal("exposure/shutdown should not be nil")
+	}
+	if err := exp.Stop(context.Background()); err != nil {
+		t.Fatalf("exposure stop: %v", err)
 	}
 }
