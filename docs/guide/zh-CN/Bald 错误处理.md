@@ -2,7 +2,7 @@
 
 面向使用者的操作手册：怎么构造错误、怎么匹配错误、错误怎么出 HTTP/gRPC 边界。
 设计论证（为什么零依赖核心 + 对等桥接子包、决策①~⑨）见
-`docs/devel/zh-CN/Bald 错误模型设计.md`，本文只讲用法。
+`docs/devel/zh-CN/Bald 错误模型设计.md`，本文只讲用法。错误模型与装配形态正交，v0.25.0 装配层重构不涉及本页所述 API，内容无变化。
 
 ## 心智模型：一句话版
 
@@ -20,7 +20,7 @@ biz 构造、补偿/降级分支的匹配、DAL 包装、CLI 与测试断言—�
 
 ## 0. 引依赖
 
-berrors 是独立 module（`github.com/kalandramo/bald/berrors`，v0.1.0），根包
+berrors 是独立 module（`github.com/kalandramo/bald/berrors`，v0.1.1），根包
 零第三方依赖——import 它只拉标准库：
 
 ```bash

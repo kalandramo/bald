@@ -29,8 +29,8 @@ bald 有**两套并存的指标体系**，不是一套的两层。选错体系 =
 | 维度 | 协议维度（semconv v1.43.0）+ 审计三元组（正交两序列） | 自由：埋点方传 name + labels |
 | 指标 | `http.server.request.duration`、`http.server.active_requests`、`rpc.server.call.duration`、`bald_audit_events_total` | 埋点方命名（tcp/kafka 各自一套） |
 | emit 方式 | 中间件自动（`AuditWithMetrics`） | 业务/传输代码手工调用 |
-| 后端装配 | bconf `metrics` 段 → appkit `MetricsRegistry` → `observability-otlp` | 业务手工 `New()` 直连，**不经契约** |
-| 发版 | 随根模块 | **零 tag**（见第 1 节） |
+| 后端装配 | bconf `metrics` 段 → appkit `MetricsProvider` → `observability-otlp/contract` | 业务手工 `New()` 直连，**不经契约** |
+| 发版 | 随根模块 | 独立 tag（`metrics/v0.1.1` + 三后端 `v0.1.0`，见第 1 节） |
 
 **场景判断规则：**
 
@@ -61,15 +61,9 @@ bald 有**两套并存的指标体系**，不是一套的两层。选错体系 =
 go get github.com/kalandramo/bald/metrics/prometheus   # 或 metrics/otel、metrics/datadog
 ```
 
-**零 tag 现状（如实告知）**：四个模块至今未发版，`go get` 拉不到——当前
-只能在 go.mod 里 `replace` 到本地路径编译（bald 仓库内开发天然如此）：
-
-```go
-replace github.com/kalandramo/bald/metrics => ../bald/metrics
-replace github.com/kalandramo/bald/metrics/prometheus => ../bald/metrics/prometheus
-```
-
-发版后（`metrics/v0.1.0` + 三后端 `v0.1.0`）此节作废，直接 `go get`。
+**已发版**：四个 module 均已打 tag——`metrics/v0.1.1` + 三后端各
+`v0.1.0`，`go get` 直接可用。仓库内联调未发版改动时，仍可临时
+`replace` 到本地路径（如 `replace github.com/kalandramo/bald/metrics => ../bald/metrics`）。
 
 ## 2. 三后端速查
 
@@ -86,7 +80,7 @@ replace github.com/kalandramo/bald/metrics/prometheus => ../bald/metrics/prometh
 ```go
 // 路径 A：私有注册表（New 无条件新建，互相隔离）——用 Registry() 挂自有端点
 p, _ := prometheus.New(prometheus.WithNamespace("myapp"))
-http.Handle("/metrics", promhttp.HandlerFor(p.Registry(), http.HandlerForOpts{}))
+http.Handle("/metrics", promhttp.HandlerFor(p.Registry(), promhttp.HandlerOpts{}))
 
 // 路径 B：混入进程全局注册表——promhttp.Handler() 直接暴露
 p, _ := prometheus.NewWithDefaultRegistry(prometheus.WithNamespace("myapp"))

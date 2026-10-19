@@ -1,86 +1,60 @@
 # 用 bald CLI 起步新服务（bald gen app）
 
-> 定位：面向 **bald 使用者**（用 bald 写服务、想从零起步的开发者）的分步指南；不解释框架内部设计，只讲「怎么装、怎么写、怎么跑」。
-> 关联设计：代码生成工具设计.md、架构优化路线.md §P12、框架契约总览.md
-> 状态：已实现（首个对外发布 `v0.1.0`，本文命令与日志均实测验证）
+> 定位：面向 **bald 使用者**（从零起步的开发者）的分步指南：安装 CLI → 写 AppSpec → 生成骨架 → 起服务 → 加域 → 接授权。框架内部设计见 `docs/devel/zh-CN/装配层评估.md`（§4.6 目标骨架、§11 端到端实测、§12 授权闭环）；本页只讲「怎么装、怎么写、怎么跑」。
+> 形态基准：仓库示例 [`_example/bald`](https://github.com/kalandramo/bald/blob/main/_example/bald)——本页代码块均与该示例或生成器模板逐语句对账。
+> 状态：已实现（本文以 `v0.25.0` 为版本锚；生成 → 拉依赖 → 编译 → 起服务 → `/readyz` 200 → 优雅退出的端到端实测 1m16.8s，见装配层评估 §11）。
 
 ---
 
 ## 1. 前置条件
 
-- Go ≥ 1.26（`go.mod` 声明 `go 1.26.5`）。
+- Go ≥ 1.27（bald `go.mod` 声明 `go 1.27.1`）。
 - 网络可达 `https://goproxy.cn`（国内默认可用）或 `proxy.golang.org`。
+- 一个 Go module 项目（下文以 `example.com/my-service` 为例，按需替换）。
 - 服务本身只需 bald 库；**代码生成器是独立 CLI**，不随业务代码引入。
 
 ## 2. 安装 CLI
 
 ```bash
-go install github.com/kalandramo/bald/cmd/bald@latest
+go install github.com/kalandramo/bald/cmd/bald@v0.25.0
 bald --help   # 验证安装
 ```
 
-版本语义说明：
+- `@latest` 解析最新 release tag（本文锚定 `v0.25.0`；固定版本用 `@v0.25.0`）。
+- 新 tag 发布后 sum.golang.org 校验和收录有延迟（数小时），期间安装可能报 `verifying module ...: 404 Not Found`——属正常现象，稍后重试即可。
+- CLI 提供 4 个生成子命令：`gen app`（装配骨架目录树）、`gen domain`（域驱动生成物）、`gen proto`（CRUD proto 骨架）、`gen store`（实体骨架）。
 
-- `@latest` 会解析**最新 release tag**（当前 `v0.1.0`）；固定版本用 `@v0.1.0`。
-- 新 tag 发布后 sum.golang.org 校验和收录有延迟（数小时），期间安装可能报 `verifying module ... 404 not found: temporarily unavailable`——**属正常现象**，稍后重试即可，不需要任何额外配置。
-- 安装后无 PATH 问题（`go install` 输出到 `GOPATH/bin`，默认已在 PATH）。
+## 3. AppSpec：装配的单一真相源
 
-## 3. 从零起步一个可编译的应用
+AppSpec 用一份 JSON 声明应用的装配形态——开通哪些 server、挂哪些组件、声明哪些能力依赖、带哪些业务域。它是**唯一真相源**：改装配先改 AppSpec 再重新生成，不要手改生成文件。
 
-```bash
-# 1) 初始化 module
-mkdir my-service && cd my-service
-go mod init example.com/my-service
-
-# 2) 声明装配（AppSpec，见 §4）
-vim appspec.json
-
-# 3) 用 CLI 生成装配骨架（spec 模式下 <name> 可省略，应用名/输出路径由 AppSpec meta.name 决定）
-bald gen app --spec appspec.json
-# => generated app (spec-driven): cmd/my-service/main.go
-
-# 4) 拉取依赖并编译
-go get github.com/kalandramo/bald@v0.1.0   # 或直接 go mod tidy
-go mod tidy
-go build ./...    # 生成骨架保证可编译
-
-# 5) 准备本地配置（骨架要求该文件存在，见 §5）
-mkdir configs
-echo 'http:
-  addr: ":8080"
-grpc:
-  addr: ":9090"' > configs/my-service.yaml
-
-# 6) 运行
-go run ./cmd/my-service
-```
-
-到此得到一个**可启动**的骨架：HTTP + gRPC 双 server、heartbeat 组件、审计后端协调器全部真实接线（§6 展示启动日志）。接下来按生成文件里的 `[FILL]`/`TODO` 标注填入业务即可。
-
-## 4. AppSpec：声明式装配方言
-
-AppSpec 用单个 JSON 描述「应用要开通哪些 server、挂载哪些组件、声明哪些能力依赖、启用哪些审计后端」——它是装配的**单一真相源**（对应代码生成设计 P12 第二步）。改动装配应先改 AppSpec 再 `bald gen app --spec` 重新生成，**不要手改生成文件**。
-
-### 4.1 字段参考（JSON 字段名即 protojson 形式）
+### 3.1 字段参考（JSON 字段名即 protojson 形式）
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `meta.name` | string | 应用/命令名；决定 `cmd/<name>/main.go` 与 `configs/<name>.yaml` |
-| `meta.module` | string | 你的 Go module 路径（写入生成文件头，提示用） |
-| `meta.desc` | string | 应用短描述 |
-| `server.http` | bool | 开通 HTTP（gin） |
-| `server.grpc` | bool | 开通 gRPC |
-| `server.gateway` | bool | 开通 grpc-gateway（**当前为业务 TODO 填充点**，见 §7） |
-| `server.http_addr` / `server.grpc_addr` | string | 默认监听地址（config 未覆盖时生效） |
-| `components[]` | 数组 | `{kind, name, config_prefix}`，托管组件（C1 生命周期） |
-| `capability.provides[]` | string[] | 本进程提供的能力（S1，启动期 fail-fast） |
-| `capability.requires[]` | 数组 | `{component, caps[]}`——**组件对能力的依赖**（如 `audit.store` 需要 `db`），缺失启动即报 |
-| `audit_backends[]` | string[] | 审计后端期望态（协调器据此热挂载，见 §5.3） |
-| `bundle_normalized` | bool | 启用 P9 归一化链（审计 object/action 双传输同源） |
+| `meta.name` | string | 应用/命令名：决定 `cmd/<name>/` 与 `configs/<name>.yaml`；契约 `app.name` 缺省取它 |
+| `meta.module` | string | 你的 Go module 路径（生成文件 import 前缀，必填） |
+| `meta.desc` | string | 应用短描述（落在 command.go 的 Short 与文件头） |
+| `server.http` / `server.grpc` | bool | [快捷方式] 开通 HTTP / gRPC 面 |
+| `server.gateway` | bool | [快捷方式] 开通 grpc-gateway 转码面（投影 = `server.http.driver="grpc-gateway"`，同端口单面语义） |
+| `server.httpAddr` / `server.grpcAddr` | string | [快捷方式] 监听地址（投影 = 契约 `server.http.addr` / `server.grpc.addr`） |
+| `components[]` | 数组 | `{kind, name, configPrefix, params}`；kind 白名单当前仅 `heartbeat`（Gate1 生成期校验） |
+| `capability.provides[]` | string[] | 本进程提供的能力（S1 启动期 fail-fast 校验） |
+| `capability.requires[]` | 数组 | `{component, caps[]}`：组件对能力的依赖；`caps` ⊆ `provides`（Gate1 校验） |
+| `auditBackends[]` | string[] | [快捷方式] 审计后端期望态（投影 = `bootstrap.audit.backends`，含顺序） |
+| `bundleNormalized` | bool | [快捷方式] 归一化中间件链（推荐改用 `bundle.normalized`） |
+| `bootstrap` | 对象 | bconf 契约段（15 段整棵带入）——**唯一真相源**；生成物 `configs/<app>.yaml` 由它经 protoreflect 派生 |
+| `layout.root` | string | 产出根目录（默认 `.`） |
+| `layout.apiserverDir` | string | apiserver 目录名（默认 `apiserver`） |
+| `layout.strictContract` | bool | 生成物是否 emit `appkit.StrictContract()`（proto3 optional 保 presence：未声明 = **true**） |
+| `bundle.normalized` | bool | 装配期 bundle 归一化声明（audit object/action 双传输同源） |
+| `domains[]` | 数组 | 显式域清单 `{name, protoPackage, service, model, goPackage}`（§6） |
 
-组件 `kind` 当前实现：`heartbeat`（真实启动）；`db`/`redis`/`otlp`/`casbin`/`store-audit`/`stream-audit` 为工厂占位（`buildComponent` 内 TODO，业务接入后返回真实 `appkit.Component`）。
+快捷方式纪律：`bootstrap` 为空时，快捷方式归一化进契约投影；`bootstrap` 非空时，任一非零快捷值与其投影不一致即 Gate1 报错——消灭双真相源，不做静默覆盖。
 
-### 4.2 最小完整示例
+### 3.2 示例
+
+最小可跑：
 
 ```json
 {
@@ -89,106 +63,175 @@ AppSpec 用单个 JSON 描述「应用要开通哪些 server、挂载哪些组�
     "module": "example.com/my-service",
     "desc": "演示服务"
   },
-  "server": { "http": true, "grpc": true, "httpAddr": ":8080", "grpcAddr": ":9090" },
-  "components": [
-    { "kind": "heartbeat", "name": "my-service.heartbeat", "configPrefix": "my-service" }
-  ],
-  "capability": {
-    "provides": ["db"],
-    "requires": [{ "component": "audit.store", "caps": ["db"] }]
-  },
-  "auditBackends": ["log"],
-  "bundleNormalized": true
+  "server": { "http": true, "grpc": true, "httpAddr": ":8080", "grpcAddr": ":9090" }
 }
 ```
 
-> 仓库自带反向生成对照样本：`_example/bald/_scratch/go-bald-admin.appspec.json`（描述官方范例 go-bald-admin 的框架装配形状，可作参考）。
+带组件/能力/审计的完整形态见 `_example/bald/_scratch/appspec.sample.json`；带业务域的声明见 `_example/bald/appspec.json`（greet 域）。
 
-## 5. 配置
-
-### 5.1 本地配置（必须存在）
-
-骨架用 `appkit.ConfigFile("configs/<meta.name>.yaml")`——**该文件缺失时应用启动即失败**（报 `config: merge local ... no such file`）。最小内容可以很薄，未写的键回退代码/spec 默认：
-
-```yaml
-http:
-  addr: ":8080"     # 未设置时回退 spec 的 server.http_addr
-grpc:
-  addr: ":9090"
-# log:              # 日志键，见 §5.2
-# audit:            # 审计键，见 §5.3
-```
-
-### 5.2 日志与 flag 覆盖
-
-生成物将日志选项经 `appkit.Bind("", logOpts)` 绑定，flag/env/文件可覆盖（优先级 **flag > env > 文件 > 远程 > 代码默认**）：
+## 4. gen app：生成目标目录树
 
 ```bash
-go run ./cmd/my-service --log.level=debug          # 日志级别
-go run ./cmd/my-service --http.addr=:18080         # 覆盖监听地址
+bald gen app --spec appspec.json   # spec 模式下 <name> 可省略，一切以 AppSpec 为准
 ```
 
-### 5.3 审计后端期望态（R1-2 热协调）
+flag：`--spec`（AppSpec JSON 路径）、`--out`（产出根，默认 `layout.root` 或 `.`）、`--force`（覆盖已存在的生成物）、`--module`（提示用）。无 `--spec` 时是单文件模板模式（`gen app <name>`，含 `[FILL]` 填充点）——起步推荐 spec 模式。
 
-- 期望态来源：config 键 `audit.backends`；未设置时回退 AppSpec 声明的 `audit_backends`。
-- 生成物内置 R1-2 协调器 `reconcileAudit`：启动收敛期与配置热变更时把实际挂载的审计器 **diff-apply** 到期望态（K8s controller 语义，失败不回滚、下次补齐）。
-- 已实现后端：`log`（事件落应用日志，开箱即用）；`store`/`stream` 后端为 TODO（依赖业务的 DB/Redis 桥接）。
+### 4.1 三道门
 
-## 6. 生成物解读（启动日志对照）
+落盘前依次过三道门：
 
-`cmd/<name>/main.go` 的真实装配（全部经 `appkit.New(Options...)` 完成，无运行期二次装配）：
+- **Gate1（schema 门）**：`meta.name`/`meta.module` 必填、组件 kind 白名单、`requires[].caps ⊆ provides`、域 `name` 唯一 + `go_package` 必填 + import 别名不冲突、快捷方式与 bootstrap 投影一致。报错逐条指明字段路径与非法值。
+- **Gate2（契约门）**：`configs/<app>.yaml` 的键由 proto 字段描述符派生（模板不写任何裸配置键）并回读复检——生成物配置键在结构上错不了。
+- **Gate3（运行期契约门）**：生成物 emit `appkit.StrictContract()`（`layout.strictContract` 默认 true），未知契约键启动即报。
 
-- **S1 能力**：`Provides`/`Requires`（component, caps…）——漏声明依赖启动即报 `unresolved capabilities`。
-- **C1 组件**：`Components(buildComponent(kind, ...)...)`。
-- **R1-2**：`Reconcile("audit.backends", reconcileAudit)` + key 级 `OnKeyChange("http.addr", ...)`。
-- **P10 bundle**：`bundle.New(...)` 一次构造，HTTP 走 `router.Use(b.Gin()...)`、gRPC 走 `b.GRPCChain()`。
-- **servers**：`server.NewHTTPServer` / `server.NewGRPCServerWithRegister`（gRPC 标准健康服务自带；探针与 reflection 由装配层接线）。
+### 4.2 生成物树与归属三态
 
-启动日志（实测 v0.1.0 生成物）：
-
+```text
+my-service/
+├─ appspec.json                                    # 用户物：声明真相源，生成器永不读写
+├─ cmd/my-service/main.go                          # 生成物：≤25 行，装配知识为零
+├─ cmd/my-service/app/command.go                   # 生成物：cobra 根 + 唯一 MustServe 调用
+├─ internal/bootstrap/assemble.gen.go              # 生成物：Options() 是装配的全部
+├─ internal/bootstrap/domains.gen.go               # 生成物：业务域清单（暂空，占位）
+├─ internal/bootstrap/seed/seed.go                 # 生成一次：演示种子数据
+├─ internal/bootstrap/seed/policies.go             # 生成一次：默认授权策略行
+├─ internal/apiserver/apiserver.go                 # 生成一次：HTTP 装配钩子（加业务路由处）
+├─ internal/apiserver/domains.gen.go               # 生成物：域声明对账清单
+├─ internal/apiserver/layering_invariant_test.go   # 生成物：biz 层不 import 装配层的守卫测试
+├─ api/buf.yaml / api/buf.gen.yaml                 # 生成物：buf 模块与生成配置
+├─ configs/my-service.yaml                         # 生成物：契约配置（由 AppSpec 派生）
+└─ taskfile.yml                                    # 生成物：task run / verify / proto
 ```
-time=... level=INFO msg="appkit starting" name=my-service version=v0.1.0 servers=2
-time=... level=INFO msg="appkit component started" component=my-service.heartbeat
-time=... level=INFO msg="reconcile audit.backends" add=log remove=""
-time=... level=INFO msg="audit backend mounted" backend=log
-time=... level=INFO msg="audit event" object=component action=mount result=allow
-time=... level=INFO msg="appkit started" servers=2
+
+入口链只有三跳：`main.go`（≤25 行硬预算，预算表见 `internal/codegen/appspec_budget_test.go`）→ `app.Execute()`（cobra 根）→ `appkit.MustServe(context.Background(), bootstrap.Options()...)`。装配知识全部在 `internal/bootstrap/assemble.gen.go` 的 `Options()`：`std.Standard()`（server/audit/logger 三类框架自有后端的段驱动 Provider）+ `ConfigFile`/`WatchConfigFile` + `appkit.StrictContract()` + 传输面能力声明（`WithGRPC`/`WithHTTP`/`WithGatewayRegister`，按声明裁剪）+ `WithHealth`（双探针 + gRPC health 联动）+ `mech.Provides/Requires`（能力）+ `mech.Components`（组件）+ `domainOptions`（域清单变参直传）。
+
+归属三态语义：**生成物（owned）**——每次重写，已存在时需 `--force`；**生成一次（seeded）**——`seed/` 与 `apiserver.go`，不存在才落盘（重生成输出 `kept:`，`--force` 也不覆盖），此后归你维护；**用户物**——`appspec.json` 与业务代码，生成器永不读写。
+
+### 4.3 rerun：改声明，不改手写
+
+```bash
+vim appspec.json
+bald gen app --spec appspec.json --force   # owned 重写；seeded 输出 kept: 跳过；用户物不动
 ```
 
-## 7. 骨架边界（生成器不代填的业务）
+## 5. 起服务
 
-生成器保证**框架装配开箱可运行**；以下属业务填充点（生成文件内 `[FILL]`/`TODO`）：
+```bash
+go get github.com/kalandramo/bald@v0.25.0
+go mod tidy
+go run ./cmd/my-service
+```
 
-| 位置 | 需要填什么 |
+- **配置**：`configs/my-service.yaml` 已由 AppSpec 派生（`app.name` 缺省取 `meta.name` 写入）。四源覆盖同一条键路径：flag `--server.http.addr=:18080` ⇔ 环境变量 `MY_SERVICE_SERVER_HTTP_ADDR` ⇔ yaml `server.http.addr`（优先级 flag > env > 本地文件 > 远程；详见[Bald 配置系统](Bald%20配置系统.md)）。
+- **探针**：`/healthz`（存活）与 `/readyz`（就绪，依赖未就绪 503）由框架默认挂载，数据源是生成物的 `healthChecker`。
+- **业务端点**：加在 `internal/apiserver/apiserver.go` 的 `NewRouter`（生成一次、归你维护）。
+- **启动日志**：引擎打印 `appkit starting` → `appkit started`（声明组件后还有 `appkit component started`；注册中心生效时还有 `appkit registered`，含最终 endpoints）。
+
+端到端实测基线：gen → tidy → build → 起服务 → `GET /readyz` 200 → 优雅退出共 1m16.8s（装配层评估 §11；`internal/codegen/appspec_timed_test.go` 可复跑）。
+
+## 6. gen domain：新增业务域
+
+一个业务域 = 手写两样 + 一行声明：
+
+1. **域 proto**：落在 `api/proto`、`api/protos` 或 `proto` 任一候选根下（`google.api.http` 注解会被派生成 REST 路由表与授权动作投影）。
+2. **域包**：在 `domains[].goPackage` 指向的包里导出 `appkit.Domain` 声明值——三个钩子由引擎在既定时点消费：`Wire`（读自己的配置段、构造能力）、`Routes`（REST 路由自持）、`Services`（gRPC 注册自持）。逐行范本：[`_example/bald/greetv1/domain.go`](https://github.com/kalandramo/bald/blob/main/_example/bald/greetv1/domain.go)。
+3. **声明**：在 AppSpec 的 `domains[]` 加 `{name, protoPackage, service, model, goPackage}`，`service` 必须是实际 proto 的 `<package>.<Service>` 全名。
+
+然后生成：
+
+```bash
+bald gen app --spec appspec.json --force    # 重写 owned：默认策略行等随域声明更新（seeded kept）
+bald gen domain --spec appspec.json --force # 重写域清单与逐域扇出
+```
+
+`gen domain` 产物（owned，重写需 `--force`）：
+
+| 产物 | 作用 |
 |---|---|
-| `serveRunE` 内 HTTP 段 | 业务路由注册（`router.POST("/v1/...", handler)`） |
-| `registerGRPCService` | gRPC service 注册（`s.RegisterService(...)`） |
-| `buildComponent` | `db`/`redis`/`otlp`/`casbin` 等组件的真实工厂 |
-| `buildAuditBackend` | `store`/`stream` 审计后端（依赖 DB/Redis） |
-| bundle `TODO` 注释 | 业务依赖注入：`bundle.Authn(authn)` / `bundle.Authz(authz)` / `bundle.Metrics(rec)` |
-| `gateway` | grpc-gateway 装配（模板未接线，属业务层） |
+| `internal/bootstrap/domains.gen.go` | 域清单聚合（`appkit.Domain` 值变参直传 MustServe；与 gen app 共用同一模板） |
+| `internal/apiserver/domains.gen.go` | 逐域 handler 挂载扇出（`DomainHandlers`） |
+| `internal/apiserver/handler/grpc/<d>.gen.go` | gRPC 注册委托 |
+| `internal/apiserver/handler/gin/<d>.gen.go` | REST 挂载委托 + 注解派生路由表 |
+| `internal/apiserver/handler/convert/<d>.gen.go` | 授权动作投影（Delete→delete、List→list、Create/Update/Set/Put→write、其余→get） |
+| `internal/apiserver/authz/alias.gen.go` | 授权别名表 + 默认动作聚合（proto service 派生） |
+| `<go_package>/domain.gen.go` | 域声明值骨架（**生成一次**：域包已有导出 `Domain` 时跳过——既有域包如 `_example/bald/greetv1` 不会被覆盖） |
 
-> 一个直接可抄的「真实项目完整分层范本」是官方范例 [kalandramo/bald-admin](https://github.com/kalandramo/bald-admin)（业务路由/biz/wire/管理面齐全），生成骨架与之同形，业务层手写填充即可。
+rerun 语义：新增域 = 手写 proto + 域包 + 改 `domains[]` + 上面两条命令——装配文件改动为 0（域清单存在的意义）。Gate1 会校验 `domains[].service` 与产出根下实际 proto 匹配（扫描 `api/proto`、`api/protos`、`proto`），失配报错指明哪个域、哪个 proto 文件、实际声明了什么。详细展开见[新增业务域：Domain 与 gen domain](新增业务域：Domain%20与%20gen%20domain.md)。
 
-## 8. 其他生成命令
-
-| 命令 | 作用 | 常用 flag |
-|---|---|---|
-| `bald gen app [name] [--spec spec.json]` | 生成应用装配骨架 main.go（无 `--spec` 时为第一版模板模式，需提供 `<name>`，含 `[FILL]` 填充点；spec 模式下 `<name>` 可省略） | `--out`、`--module`（提示用）、`--spec`、`--force` |
-| `bald gen proto <name>` | 生成 protobuf 服务骨架到 `api/proto/bald/<name>/v1` | `--out`、`--go-package`（默认不写，bald 生态由 buf managed mode 补充）、`--force` |
-| `bald gen store <name>` | 生成实体骨架（gorm tag + keyOf） | `--out`、`--out-pkg`、`--force` |
-
-三个子命令均遵守**不静默覆盖**：目标文件已存在时拒绝生成并提示（防止冲掉手改过的生成物），`--force` 显式放行覆盖。
+## 7. gen proto / gen store：契约骨架
 
 ```bash
-bald gen proto user        # 产出 api/proto/bald/user/v1/user.proto 骨架
-bald gen store user        # 产出 ./user.go（gorm tag + keyOf）
+bald gen proto greet   # → api/proto/greet/v1/greet.proto
+bald gen store greet   # → ./greet.go（gorm tag + keyOf）
 ```
 
-## 9. 常见问题
+`gen proto` 产出 **CRUD 六件套**：service + List/Get/Create/Update/Delete 五个 RPC，每个 RPC 带 `google.api.http` 注解（同一个 RPC 同时暴露 gRPC 与 REST/JSON），`buf.validate` 字段校验规则，List 请求带 `bald.store.v1` 的分页与结构化过滤（`PagingRequest`/`FilterExpr`）。proto 包名用 `<name>.v1`，与 `domains[].protoPackage` 的声明口径一致（`gen domain` 的 service 校验以此对账）。常用 flag：`--out`（默认 `api/proto/<name>/v1`）、`--plural`（REST 资源段，默认 `<name>s`）、`--go-package`（缺省由 `--module` 派生）、`--module`、`--force`。
 
-- **启动报 `config: merge local ... no such file`** → 未创建 `configs/<name>.yaml`（§5.1）。
-- **启动报 `unresolved capabilities: ... (required by ...)`** → 能力声明不匹配：为 `requires` 中组件补齐对应 `Provides`（§4.1）。
-- **`go get`/`go install` 报 sumdb 404** → 新 tag 收录延迟，数小时后重试（§2）。
-- **想改装配形态** → 改 AppSpec 再 `bald gen app --spec` 重新生成；生成文件若已被手改，重新生成会被拒绝，需 `--force` 显式覆盖（先备份手改内容）。
-- **`heartbeat` 之外组件启动报 `unknown component kind`** → 该 kind 工厂未实现（§7 边界），返回错误使装配失败属预期，提示业务补工厂。
+生成后把 proto 纳入 buf 模块跑 `buf generate` 得到 Go 代码（`api/buf.yaml`/`api/buf.gen.yaml` 已由 gen app 生成；deps 需 googleapis、protovalidate 与 bald store 模块）——`taskfile.yml` 的 `task proto` 就是这一步。全部生成命令遵守**不静默覆盖**：目标已存在时拒绝并提示，`--force` 显式放行。
+
+## 8. 授权接线（生成物数据 + 一个桥）
+
+生成物已把授权的**数据面**备好，你只写一个桥：
+
+- `internal/bootstrap/seed/policies.go`：默认策略行，从域 proto service 派生（object = service 全名去 `Service` 后缀转小写）：`admin` 覆盖六元组 get/list/write/delete/post/put，`viewer` 只读 get/list。只写 REST 四动词的历史教训是补 gRPC 面时 403——生成物已按六元组预置。
+- `internal/apiserver/authz/alias.gen.go`：`ObjectAliases` 别名表（仅列 gRPC/HTTP 两侧归一化不一致的域）+ `DefaultActions` 逐 RPC 动作聚合。
+
+装载经 `contrib/authz-casbin`（生成物只产数据、桥产行为），以下逐语句对照真实接线范本 `internal/codegen/testdata/authz/bridge.go.tmpl`：
+
+```go
+// internal/apiserver/authz/bridge.go（package authz，与 alias.gen.go 同包，ObjectAliases 直接可见）
+func NewAuthorizer() (baldauthz.Authorizer, error) {
+	rows := make([]authzcasbin.PolicyRow, 0, len(seed.Rows))
+	for _, r := range seed.Rows {
+		rows = append(rows, authzcasbin.PolicyRow{Role: r.Role, Object: r.Object, Action: r.Action})
+	}
+	grants := []authzcasbin.Grant{
+		{Subject: "u-admin", Role: "admin"},   // g 行（subject→角色）是运行期业务数据——
+		{Subject: "u-viewer", Role: "viewer"}, // 真实业务从 DB 装载并随授权变更 Reload
+	}
+	az, err := authzcasbin.NewRows(rows, grants) // p 行策略 + g 行绑定
+	if err != nil {
+		return nil, err
+	}
+	return authzcasbin.NewAlias(az, ObjectAliases), nil // 双向别名桥接（HTTP 面 greets ⇄ 策略行 greet）
+}
+```
+
+再把桥挂进 `internal/apiserver/apiserver.go` 的 `NewRouter`（对照范本 `internal/codegen/testdata/authz/apiserver.go.tmpl`）：
+
+```go
+authorizer, err := demoauthz.NewAuthorizer() // demoauthz = <module>/internal/apiserver/authz
+if err != nil {
+	panic(err) // 策略装载失败启动即崩（fail-fast；真实业务在此记日志并退出）
+}
+router.Use(bundle.New(
+	bundle.Normalized(),
+	bundle.Authn(demoAuthn{}),   // 认证：接你的用户系统（范本 demo_authn.go.tmpl）
+	bundle.Authz(authorizer),
+).Gin()...)
+```
+
+端到端三态实测（装配层评估 §12，`TestTree_AuthzClosedLoop`）：`POST /v1/greets` 无 token **401**（authn 层拒绝）→ viewer **403**（策略行只有 get/list）→ admin **200**（六元组含 post）；403→200 的放行必经别名反查，三态全部由「生成物数据 + contrib 行为」产生，handler 无权限判断。语义要点：只装 p 行不装 g 行恒拒绝（默认拒绝语义，非错误）。更多细节见[Bald 授权使用](Bald%20授权使用.md)。
+
+## 9. 故障排查
+
+| 症状 | 原因与处理 |
+|---|---|
+| `Gate1 (spec schema): meta.name is required ...` | AppSpec 缺必填字段；报错逐条列出（含字段路径），按条补齐 |
+| `components[0].kind "db" is not supported (whitelist: heartbeat)` | kind 白名单当前仅 `heartbeat`；db/redis 等经业务 Provider 接入（见[Provider 接入：contract.AppProvider 与段 Provider](Provider%20接入：contract.AppProvider%20与段%20Provider.md)） |
+| `Gate2 (contract keys ...): contract keys unknown to bconf (typo? ...)` | `AppSpec.bootstrap` 里有契约外的键；改键名或删除 |
+| `config: unknown contract keys (typo? or declare in AllowBusinessSections): <keys>` | 运行期 StrictContract 拦到未知键（配置文件/env/flag 均在检查范围）；改键名，业务自持段经 `appkit.StrictContract("<段名>")` 白名单放行 |
+| `unresolved capabilities: capability "db" (required by audit.store)` | `capability.requires` 声明的能力不在 `provides`；补齐声明 |
+| `<path> already exists, refusing to overwrite (pass --force to allow)` | 生成物已存在；确认手改已备份后加 `--force` |
+| 输出 `kept:` 但文件没更新 | 该文件是生成一次（`seed/`、`apiserver.go`、域骨架）——`--force` 也不覆盖，直接手改 |
+| `Gate1 (domains.service vs proto): service "..." not found ...` | `domains[].service` 与实际 proto 失配；按报错对齐声明或 proto（§6） |
+| `go install` 报 sumdb 404 | 新 tag 校验和收录延迟，数小时后重试（§2） |
+
+## 10. 下一步
+
+- [快速入门](./quickstart/README.md)：五分钟跑通最小服务。
+- [新增业务域：Domain 与 gen domain](新增业务域：Domain%20与%20gen%20domain.md)：域包三文件结构与 gen domain 全解。
+- [Provider 接入：contract.AppProvider 与段 Provider](Provider%20接入：contract.AppProvider%20与段%20Provider.md)：接数据库等第三方后端。
+- [机制层 mech：Effect 与期望态](机制层%20mech：Effect%20与期望态.md)：能力/组件/热更新的机制层原语。
+- [Bald 授权使用](Bald%20授权使用.md)：授权模型、casbin 桥与策略管理。

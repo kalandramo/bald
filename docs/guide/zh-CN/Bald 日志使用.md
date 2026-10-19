@@ -1,26 +1,28 @@
 # Bald 日志使用
 
-面向使用者的操作手册：默认行为是什么、启用其他后端要做哪几步、报错了怎么修。
-设计论证（为什么两级工厂、为什么远端独立 module）见
+面向使用者的操作手册：默认行为是什么、接其他后端要做哪几步、报错了怎么修。
+设计论证（为什么段 Provider 装配、为什么远端独立 module）见
 `docs/devel/zh-CN/Bald 日志设计.md` 与 `AppKit 日志装配设计.md`，本文只讲操作。
 
 ## 心智模型：一句话版
 
-**契约只有一个多值配置项 `backends`：默认预置一项 slog（零代码零配置）；
-其余五个后端 = 引一个依赖 + 三行注册 + `backends` 里加一项。**
+**日志经 logger 段 Provider 装配：`std.Standard()` 预置默认 Provider（仅 `slog`
+项，零代码零配置）；其余五个后端 = 引一个依赖 + 自声明一个 logger Provider
+（Build 里调 contract 包现成部件）+ `backends` 里加一项。段路径末者胜——
+后声明的 Provider 整体覆盖 std 默认，装饰器也归 Provider 自持。**
 
-| | 默认路径（零 Option） | 注册表路径（`WithLogRegistry`） |
+| | 默认路径（std 内置 Provider） | 自声明 logger Provider |
 | --- | --- | --- |
-| 可用后端 | 仅 `slog` 项 | 注册了什么就有什么 |
+| 可用后端 | 仅 `slog` 项 | Build 分派里写谁就有什么 |
 | 依赖增量 | 严格为零 | 用哪个后端引哪个 module |
-| 配了不支持的 type | fail-fast 教学报错 | fail-fast 列出已注册名单 |
+| 配了不支持的 type | fail-fast 教学报错 | 由你的 Build 决定（建议同样 fail-fast） |
 
 ## 0. 什么都不做：默认行为
 
-`main.go` 不写任何日志代码：
+`main.go` 不写任何日志代码（logger 段零声明时引擎回退同一内置 Provider）：
 
 ```go
-app := appkit.FromBootstrap(cfg) // 默认 slog，stdout + info 起步
+appkit.MustServe(ctx, /* 你的业务 Option */) // 默认 slog，stdout + info 起步
 ```
 
 调整行为只需 yaml（`backends` 至少一项；项内字段缺失时回退默认）：
@@ -41,9 +43,9 @@ logger:
           compress: true
 ```
 
-## 1. 启用其他后端：通用三步
+## 1. 启用其他后端：自声明 logger Provider
 
-以 Loki 为例（其余后端替换 module 与 type 即可）：
+以 Loki 为例（其余后端替换 module 与分派分支即可）：
 
 **步骤 1：引依赖**（远端后端是独立 module，用的人付依赖代价）：
 
@@ -51,22 +53,57 @@ logger:
 go get github.com/kalandramo/bald/log/loki
 ```
 
-**步骤 2：main.go 三行注册**：
+**步骤 2：自声明 logger Provider**（三方法实现 `appkit.Provider`；`Provider`
+即 `Option`，可直接作 `MustServe` 变参项）：
 
 ```go
-import (
-    "github.com/kalandramo/bald/bootstrap"
-    lokicontract "github.com/kalandramo/bald/log/loki/contract"
-    "github.com/kalandramo/bald/pkg/appkit"
-)
+type loggerProvider struct{}
 
-reg := bootstrap.NewLogRegistry()
-reg.MustRegister(lokicontract.Type, lokicontract.Provider) // "loki"
-app := appkit.FromBootstrap(cfg, appkit.WithLogRegistry(reg))
+func (loggerProvider) Segments() []string { return []string{"logger"} }
+func (loggerProvider) Apply(d *appkit.Decl) { d.Providers = append(d.Providers, loggerProvider{}) }
+
+func (loggerProvider) Build(ctx context.Context, s appkit.BuildScope) (any, appkit.Cleanup, error) {
+    l := s.Config.GetLogger()
+    if l == nil { // 阶段 A（契约装载前）：引导 logger，保证启动日志可见
+        return bslog.New(baldbootstrap.LogOptions(nil)), nil, nil
+    }
+    loggers := make([]log.Logger, 0, len(l.GetBackends()))
+    var cleanups []func()
+    for _, b := range l.GetBackends() {
+        switch b.GetType() {
+        case "slog":
+            lg, c := bslog.NewWithCleanup(baldbootstrap.LogOptions(b))
+            loggers, cleanups = append(loggers, lg), append(cleanups, c)
+        case "loki": // contract 包现成部件：契约段 → 后端构造
+            lg, c, err := lokicontract.Provider(ctx, b)
+            if err != nil {
+                return nil, nil, err
+            }
+            loggers, cleanups = append(loggers, lg), append(cleanups, c)
+        default:
+            return nil, nil, fmt.Errorf("logger: unsupported backend type %q", b.GetType())
+        }
+    }
+    out := loggers[0]
+    if len(loggers) > 1 {
+        out = log.NewMultiLogger(loggers...) // 多项广播
+    }
+    merged := func() { for _, c := range cleanups { c() } }
+    return log.NewFilterLogger(out, l.GetFilterKeys()...), // filter_keys 出口统一生效
+        appkit.Cleanup(func(context.Context) error { merged(); return nil }), nil
+}
 ```
 
-用哪个注册哪个，可同时注册多个（`MustRegister` 逐个调用）。
-没有 `init()` 自注册——blank import 不会接线，注册必须显式出现在你的代码里。
+```go
+appkit.MustServe(ctx, std.Standard(), loggerProvider{}, ...) // 末者胜：整体覆盖默认
+```
+
+`log/{loki,sentry,charm,aliyun,tencent}` 各有一个 `contract.Provider(ctx, b)`
+——「契约段 → 后端构造」的现成部件，在你的 Build 分派里按 type 调用即可。
+没有 `init()` 自注册——blank import 不会接线，分派必须显式写在你的代码里。
+热更重建复用同一 Build（`l == nil` 引导分支照旧要写）；脱敏/固定属性等装饰器
+也在此自持（`bslog.Option`）——完整范本（含 `bslog.WithFilter` 掩码 +
+`WithAttrs` service.name，行为测试 providers_test.go）见 `_example/bald/providers.go`。
 
 **步骤 3：yaml 声明**（backends 列表加一项，可替换默认 slog 项或并存）：
 
@@ -79,8 +116,8 @@ logger:
         labels: { app: myapp }
 ```
 
-三步完成后：项内 `type` 即契约开关，装配层按名查表构造；热更新
-（`WithWatchConfig(true)`）下改 yaml 即重建后端，改坏只记错不杀进程。
+三步完成后：项内 `type` 即契约开关，Provider 按名分派构造；热更新
+（`WatchConfigFile(true)`）下改 yaml 即重建后端，改坏只记错不杀进程。
 
 ## 2. 五后端速查
 
@@ -134,30 +171,20 @@ logger:
       loki: { endpoint: http://loki:3100/loki/api/v1/push, labels: { app: myapp } }
 ```
 
-含非 slog 项时**必须**走注册表路径（默认路径只接受 slog 项，其余报错定位到项）。
-任一项构造失败 fail-fast 并回滚已构造项（带缓冲后端不泄漏）。
+含非 slog 项时**必须**自声明 logger Provider（默认路径只接受 slog 项，其余报错定位到项）。
+任一项构造失败 fail-fast（错误定位到项，启动即停，不静默降级）。
 
-## 4. 报错解读：三类 fail-fast 及修复
+## 4. 报错解读：fail-fast 及修复
 
-**默认路径配了远端后端项**（没走步骤 2）：
+**默认路径配了非 slog 项**（没自声明 Provider）：
 
 ```text
 appkit: logger.backends[0] type "loki": default path supports only "slog";
-  remote/custom backends need explicit registration:
-    reg := bootstrap.NewLogRegistry()
-    reg.MustRegister(lokicontract.Type, lokicontract.Provider) // log/loki/contract
-    appkit.FromBootstrap(cfg, appkit.WithLogRegistry(reg))
+  remote/custom backends need a logger provider:
+    appkit.MustServe(ctx, std.Standard(), myLoggerProvider()) // Segments()=["logger"]
 ```
 
-修复：照错误里的三行做，就是第 1 节的步骤 2。绝不会静默降级为 slog。
-
-**注册了但 type 拼错 / 忘注册**（走了步骤 2 但名单没覆盖）：
-
-```text
-bootstrap: backends[0]: bootstrap: log provider "loki" not registered (registered: [sentry tencent])
-```
-
-修复：对照括号里的已注册名单，补 `MustRegister` 或改 `type` 拼写。
+修复：照错误里的样子自声明 logger Provider，就是第 1 节的步骤 2。绝不会静默降级为 slog。
 
 **backends 空清单**（段存在但一项没写）：
 
@@ -167,32 +194,41 @@ appkit: logger.backends is empty (declare at least one backend, e.g. type "slog"
 
 修复：至少声明一项（通常是把默认 slog 项写回去）。
 
+**Provider Build 内构造失败**（yaml 配错，错误定位到失败项，如 loki 缺 endpoint）：
+
+```text
+log/loki/contract: endpoint is required
+```
+
+修复：按报错补 yaml 字段（自声明 Provider 可自带自己的报错前缀）。启动期
+装配 fail-fast；热更新路径改坏则试装载/校验失败直接丢弃本次变更、重建失败
+仅记错误日志——两种情况旧 logger 都继续服役，进程不退。
+
 ## 5. 自定义后端
 
-provider 就是一个函数，签名与内置后端完全相同：
+后端构造函数的签名与内置 contract 部件完全相同：
 
 ```go
 func(ctx context.Context, b *bootstrapv1.Logger_Backend) (log.Logger, func(), error)
 ```
 
-注册后 `type: mylog` 项即契约可达：
+把它放进自声明 Provider 的 Build 分派里，`type: mylog` 项即契约可达：
 
 ```go
-reg := bootstrap.NewLogRegistry()
-reg.MustRegister("mylog", func(ctx context.Context, b *bootstrapv1.Logger_Backend) (log.Logger, func(), error) {
-    l := mylog.New()                       // 你的实现，实现 log.Logger 六方法接口
-    return l, func() { _ = l.Close() }, nil // cleanup 恒非 nil（返回 nil 会被兜底为空函数）
-})
-app := appkit.FromBootstrap(cfg, appkit.WithLogRegistry(reg))
+case "mylog":
+    l := mylog.New()                         // 你的实现，实现 log.Logger 六方法接口
+    loggers = append(loggers, l)
+    cleanups = append(cleanups, func() { _ = l.Close() }) // cleanup 可为 nil（引擎兜底为空函数）
 ```
 
 段内配置可复用契约已有段（如 `b.GetSlog()`），也可以不读段纯代码构造。
 
 ## 6. 边界与注意事项
 
-- **业务装饰器（`WithLogDecorators`）只对默认路径的 slog 项生效**（deco 是
-  `bslog.Option`）。注册表路径要装饰器，注册一个 deco-aware 的 slog provider：
-  `reg.MustRegister("slog", decoAwareProvider)`，并 yaml 用 `type: slog` 项。
+- **装饰器归 Provider 自持（`WithLogDecorators` 已取消导出）**：要脱敏/固定
+  属性，在自声明 Provider 里把 `bslog.Option`（`bslog.WithFilter`、
+  `bslog.WithAttrs`）传给 `bslog.New`/`bslog.NewWithCleanup`，阶段 A 引导
+  分支同样传入——范本 `_example/bald/providers.go`。
 - **`filter_keys` 是顶层字段**，与后端清单正交，对全部后端统一生效（出口统一包
   `NewFilterLogger`）。
 - **云凭据（access_key/dsn 等）建议经环境变量注入**：配置源 flag > env > yaml

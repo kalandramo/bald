@@ -185,8 +185,8 @@ func main() {
 `MCPServer` 满足 bald 的 `transport.Server` 契约，可直接交给 appkit 并行启停：
 
 ```go
-appkit.New(
-    appkit.WithExtraServers(srv),
+appkit.MustServe(ctx,
+    appkit.Servers(srv),
     // ...
 )
 ```

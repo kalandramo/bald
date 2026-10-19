@@ -56,7 +56,7 @@ mux.Handle("/healthz", health.NewLivenessHandler())
 mux.Handle("/readyz",  health.NewHandler(h))
 ```
 
-**协议实现不管探针**：`transport/http` 不注册任何框架路由，路由表归业务。若想少写两行，用装配层的一条开关（走 `FromBootstrap` 时 `appkit.WithHealth(h)`；手工装配用 `appkit.WithProbes` + `bootstrap.NewGRPCHealthServer`）：
+**协议实现不管探针**：`transport/http` 不注册任何框架路由，路由表归业务。若想少写两行，用装配层的一条开关 `appkit.WithHealth(h)`（单入口 `MustServe` 装配传 Option 即可；gRPC health 由标准 server Provider 内化——bootstrap 后台轮询 h 推送 SetServingStatus；`appkit.WithProbes` 保留给手工装配场景包裹业务 handler）：
 
 ```go
 appkit.WithHealth(h)                                             // HTTP 双探针 + gRPC health 状态联动

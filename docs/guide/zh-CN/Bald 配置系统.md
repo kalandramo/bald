@@ -1,7 +1,7 @@
 # Bald 配置系统
 
 配置形状由 **proto 契约**声明（`bconf`），值可从 **flag / 环境变量 / 本地文件 / 远程配置中心**四路进入，
-按固定优先级合并成一棵配置树，再由契约反序列化成强类型对象。改配置**不用改代码**，写错键名**不会静默生效**。
+按固定优先级合并成一棵配置树，再由契约反序列化成强类型对象。改配置**不用改代码**，写错键名**启动即报**（§7）。
 
 > 本文是使用指南：怎么配、怎么读、怎么排错。
 > 设计动机与内部机制（为什么用 proto 而非 struct + mapstructure、`UnmarshalMap` 的三个坑、
@@ -9,25 +9,35 @@
 > [Bald 配置源层设计](../../devel/zh-CN/Bald%20配置源层设计.md)、
 > [Bald 配置契约设计](../../devel/zh-CN/Bald%20配置契约设计.md)。
 
-## 0. 什么都不做：默认行为
+## 0. 最小启动形态：默认行为
 
-`main.go` 写 `bconf.NewBootstrap()`、不传配置文件：
-
-- 拿到一份**全部取 proto 默认值**的契约对象（`server.http.addr` 等均为默认值），应用可直接跑起来。
-- 没有配置文件、没有环境变量、没有远程源——**零配置可运行**，这是开发期的默认形态。
-- 框架内置 `--config` flag（指定本地配置文件路径）；`appkit.FromBootstrap` 还会自动
-  `Bind` `server.http` / `server.grpc` / `log` 三组 flag（见 §4.1）。业务自定义配置段需自行
-  `appkit.Bind`（见 §4.3）。
+`main.go` 写一个 `MustServe`，配置文件只给 `app.name`：
 
 ```go
-bootstrap := bconf.NewBootstrap()
-bootstrap.GetServer().GetHttp().Addr = ":8080" // 代码内改默认值（业务默认值）
-app, err := appkit.FromBootstrap(bootstrap, appkit.WithGRPC(registerGRPCService))
+func main() {
+    appkit.MustServe(context.Background(),
+        appkit.ConfigFile("configs/app.yaml"), // 本地文件源（留空则按 Name 规则发现，见 §3.2）
+        appkit.WithHTTP(router),               // 业务能力声明（配置表达不了的部分，见 §4.1）
+    )
+}
 ```
 
-关键语义：**代码里设的值是「默认值」，可被四源任意一路覆盖**。上例 `Addr = ":8080"` 之后，
-`--server.http.addr=:9090`、`BALD_DEMO_SERVER_HTTP_ADDR=:9090`、配置文件里的 `server.http.addr`
-都能把它压掉——这正是「改配置不改代码」的实现方式。
+```yaml
+# configs/app.yaml —— 唯一必填项是 app.name（配置命名空间来源，见 §3.1）
+app:
+  name: "my-app"
+```
+
+- 没写进文件的字段全部取 **proto 默认值**（`server.http.addr` 等），应用可直接跑起来。
+- 没有环境变量、没有 flag、没有远程源——**一份最小 yaml 即可运行**，这是开发期的默认形态。
+- 框架内化 `--config` flag（指定/覆盖本地配置文件路径），并内化 `Bind`
+  `server.http` / `server.grpc` / `--log.*` 三组 flag（见 §4.1）。业务自定义配置段需自行
+  `appkit.Bind`（见 §4.3）。
+
+关键语义：**proto 默认值是基线，可被四源任意一路覆盖**。默认 `server.http.addr` 之后，
+`--server.http.addr=:9090`、`MY_APP_SERVER_HTTP_ADDR=:9090`、配置文件里的 `server.http.addr`
+都能改掉它——这正是「改配置不改代码」的实现方式。要调整业务默认基线，改配置文件即可
+（契约在 `Serve` 内部装载，业务代码不持引用）。
 
 ## 1. 四源与优先级
 
@@ -50,7 +60,7 @@ graph TB
     U --> V["bconf.Validate<br/>契约级校验（手写规则）"]
     V --> C["*bootstrapv1.BootstrapConfig<br/>强类型契约"]
 
-    C --> W["appkit.FromBootstrap<br/>按契约装配服务器/日志/DB/缓存/…"]
+    C --> W["appkit.MustServe<br/>按契约装配服务器/日志/DB/缓存/…"]
 
     style M fill:#ffe6cc
     style C fill:#d5e8d4
@@ -131,7 +141,8 @@ database:
 负载 = 去前缀 → 全小写 → 下划线/连字符 一律视为点路径分隔符
 ```
 
-应用名（**配置命名空间**，与「服务身份」`app.name` 是两个概念）为 `bald-demo` 时：
+配置命名空间**就是契约 `app.name`**（单一来源，B6）：它同时派生 env 前缀与多环境文件名前缀。
+`app.name` 为 `bald-demo` 时：
 
 ```
 BALD_DEMO_SERVER_HTTP_ADDR  →  server.http.addr
@@ -139,16 +150,23 @@ BALD_DEMO_LOGGER_BACKENDS   →  logger.backends
 BALD_DEMO_CACHE_REDIS_ADDR  →  cache.redis.addr
 ```
 
-命名空间的来源按装配路径区分：
+命名空间按装配入口派生：
 
-| 路径 | 声明方式 | 缺省 |
+| 装配入口 | 命名空间来源 | 缺失时 |
 |---|---|---|
-| `appkit.FromBootstrap` | `appkit.WithConfigNamespace("<name>")` | **必填**，未声明即构造期报错 |
-| `appkit.New` | `appkit.ConfigNamespace("<name>")` | 回退 `appkit.Name` 的值 |
+| `appkit.MustServe` / `Serve` | 契约 `app.name`（两遍合并第一遍从文件/远程层解析） | **fail-fast**，报错见 §7 |
+| `appkit.NewApp` | 回退 `Name` Option 的值 | — |
 
-**为什么 FromBootstrap 不容许回退**：`app.name` 可被配置文件/env 供给，而
-env 前缀又由它派生，构成自指——用户写 `app.name: foo` 会让全部
-`BALD_<原前缀>_*` 覆盖静默失效。命名空间必须是代码层常量。
+**为什么 Serve 不容许回退**：`app.name` 由配置文件供给，而 env 前缀又由它派生，构成自指——
+若允许别的来源，用户改了 `app.name` 之后全部 `BALD_<旧前缀>_*` 覆盖会静默失效。所以 Serve
+走**两遍合并**：第一遍只装载文件/远程层并解析 `app.name`（`DeferEnv`，env 层暂缺位），
+第二遍 `Store.MountEnv(app.name)` 按派生前缀挂载 env 层、全量重合并
+（`bootstrap/config/config.go` 的 `MountEnv`；端到端回归锁
+`pkg/appkit/namespace_test.go` 的 `TestServe_NamespaceDerivedFromContractAndEnvWorks`）。
+
+**env 名不变红线**：这套机制只改「前缀从哪来」，不改 `NAME_` 前缀的既有语义——
+现有用户的 `BALD_DEMO_*` 变量照旧覆盖文件值，且延迟挂载后热更新触发的全量重合并
+仍叠加 env 层（`bootstrap/config/env_twopass_test.go` 钉住的两条红线）。
 
 两个必须知道的约束：
 
@@ -164,25 +182,17 @@ env 前缀又由它派生，构成自指——用户写 `app.name: foo` 会让�
 
 用「应用名 + 环境」组合选择默认配置文件，无需在代码里写死路径。
 
-**装配方式**（两条路径字段名不同）：
-
 ```go
-// 路径 A：FromBootstrap —— 服务身份走契约，配置命名空间显式声明
-bootstrap := bconf.NewBootstrap()
-bootstrap.GetApp().Name = "my-app"   // 服务身份（日志/注册中心）
-bootstrap.GetApp().Env = "prod"      // 环境名（选 {Name}-{Env}.yaml）
-app, err := appkit.FromBootstrap(bootstrap,
-    appkit.WithConfigNamespace("my-app"), // 配置命名空间（env 前缀 + 文件名前缀），必填
-    appkit.WithWatchConfig(true))
-
-// 路径 B：appkit.New —— Name 兼作命名空间（代码层值，无自指），可用 ConfigNamespace 显式区分
-app := appkit.New(
-    appkit.Name("my-app"),
-    appkit.Env("prod"),
-    appkit.ConfigFile(""),   // 留空 = 按 Name-Env 规则查找
-    appkit.WatchConfigFile(true),
+appkit.MustServe(context.Background(),
+    appkit.Name("my-app"),        // 文件发现名（configs/my-app*.yaml）
+    appkit.Env("prod"),           // 多环境 → 优先找 my-app-prod.yaml
+    appkit.ConfigFile(""),        // 留空 = 按 Name-Env 规则发现；非空 = 显式指定
+    appkit.WatchConfigFile(true), // 本地文件热更新
 )
 ```
+
+两个字段各管一件事，同名最省心：代码层的 `Name` 决定**去哪找文件**；
+yaml 里的契约 `app.name` 派生 **env 前缀与文件名前缀**（§3.1）。
 
 **查找规则**（`discoverLocalFile`，`bootstrap/config/config.go`）：
 
@@ -208,94 +218,113 @@ configs/
   my-app-prod.yaml    # Env=prod 时优先命中
 ```
 
-`Env` 非空时命中第 2 项，**不会**与第 3 项叠加——是「择一命中」而非「覆盖合并」。
-需要基线 + 覆盖的组合时，用契约源层（§4.2）显式叠层。
+`Env` 非空时命中第 2 项，**不会**与第 3 项叠加——是「择一命中」而非「覆盖合并」
+（`discoverLocalFile` 直接以 `<Name>-<Env>` 为文件名查找）。需要基线 + 覆盖的组合时，
+用契约源层（§4.2）显式叠层。
 
-> 契约 `app.env` 的**唯一作用**是本地文件名拼接。远程配置源不读它
-> （7 个远程 provider 均无 `Env` 引用）——远程多环境需在后端连接参数里自带区分，
-> 或经契约源层显式叠层。
+> 契约 `app.env` 的作用是本地文件名拼接与 app 元数据；远程多环境请在后端连接参数里
+> 自带区分，或经契约源层显式叠层。
 
 ## 4. 主程序怎么接
 
-### 4.1 推荐：`appkit.FromBootstrap` 约定装配
+### 4.1 推荐入口：`appkit.MustServe` 约定装配
 
-框架**内化**了 flag 绑定、四源装载、校验、热更新、服务器构造。业务只声明能力：
+单一装配入口：`Serve` 内化了 `--config` 解析、契约两遍装载、四源合并、校验、热更新、
+服务器构造与停机，业务只声明配置表达不了的能力：
 
 ```go
 func main() {
-    bootstrap := bconf.NewBootstrap()   // 契约（唯一真相源）
-    bootstrap.GetApp().StopTimeout = durationpb.New(15 * time.Second)
-
-    app, err := appkit.FromBootstrap(bootstrap,
-        appkit.WithConfigFile("configs/app.yaml"),  // 本地文件源
-        appkit.WithWatchConfig(true),               // 监听文件变更（热更新）
-        appkit.WithHTTP(router),                    // 声明 HTTP 能力
-        appkit.WithGRPC(registerGRPCService),       // 声明 gRPC 能力
+    appkit.MustServe(context.Background(),
+        appkit.ConfigFile("configs/app.yaml"),        // 本地文件源（也可省略，按 Name 规则发现）
+        appkit.WatchConfigFile(true),                 // 监听文件变更（热更新）
+        appkit.WithHTTP(router),                      // 声明 HTTP 能力
+        appkit.WithGRPCOptions(newGRPCServerOptions), // gRPC 拦截器链
     )
-    if err != nil {
-        log.Fatal(err)
-    }
-    if err := app.Run(context.Background()); err != nil {
-        log.Fatal(err)
-    }
 }
 ```
 
-`FromBootstrap` 内部已自动 `Bind` 三组 flag（`pkg/appkit/bootstrap.go:490/636/639`）：
-`server.http`、`server.grpc`、`log`（即 `--log.*`）。所以这三块的 flag 覆盖开箱即用，无需自己注册。
+flag 侧框架内化两件事：
 
-### 4.2 契约源层：追加远程配置中心
+- **`--config` 由 Serve 解析**（`pkg/appkit/serve.go` 的 `parseConfigFlag`）：扫描 `os.Args`
+  取路径写回 `ConfigFile`，业务侧无需手写 pflag 扫描；未知/写错的 flag 不阻断启动，
+  由各自的消费方负责报错。
+- **`server.http` / `server.grpc` / `--log.*` 三组 flag 由 Serve 内化 `Bind`**
+  （现行范本见 `_example/bald/main.go` 的装配注释）——这三块的 flag 覆盖开箱即用。
 
-远程源经**注册表显式注册**（不用 `init()` + blank import 的隐式副作用）：
+**业务自己的 flag 经 `appkit.Bind` 声明**（§4.3）：`Bind` 把 proto 消息或 `PlainBinder`
+注册进 App 的 FlagSet，装载时进入 flag 层参与四源合并。只注册进 `cobra` / 全局 flagset 的
+flag 走的是平行解析路径，**不参与**配置合并。
+
+### 4.2 远程配置与源层：`RemoteConfig` 桥 / `ConfigLayers` 显式叠层
+
+本地文件 + env + flag 之外还有两路远端配置，按需选择：
+
+**① `RemoteConfig` 远程桥（现行范本）**：把实现 `config.RemoteSource` 的后端接进来，
+内部适配为**最低优先级的基准层**。kratos contrib 的 `config.Source` 经
+`config.FromKratosSource` 一行桥接（见 `_example/bald/register_nacos.go`，build tag `nacos`）：
 
 ```go
-reg := baldbootstrap.NewRegistry()
-reg.MustRegister("file", baldbootstrap.FileProvider())
-reg.MustRegister("nacos", baldbootstrap.NacosProvider())  // 按需追加
-
-app, err := appkit.FromBootstrap(bootstrap,
-    appkit.WithConfigRegistry(reg),
-    // ...
-)
+src := config.FromKratosSource(nacosconfig.NewConfigSource(cli))
+appkit.MustServe(ctx, appkit.RemoteConfig(src), /* 其余 Option */)
 ```
 
-**注册序即层优先级**（先注册者优先级高）。9 个适配器全部落地：
-`env` / `file` / `etcd` / `consul` / `nacos` / `apollo` / `kubernetes` / `vault` / `http`。
+**② `ConfigLayers` 契约源层**：手里已有层列表（如经 bootstrap Registry 的 `Build` 从契约
+`config` 段产出）时显式传入：
 
-若某源在契约里没配（如 `config.nacos` 段缺失），provider 返回 `nil` 层、`Build` 跳过——不是错误。
+```go
+layers, cleanup, err := registry.Build(ctx, bootCfg) // 契约 config 段 → bconfig 源
+if err != nil {
+    log.Fatal(err)
+}
+defer cleanup()
+
+app := appkit.NewApp(appkit.ConfigLayers(layers...))
+```
+
+**层序即优先级：列表首元素最高**，整体位于本地文件/env/flag 之下、`RemoteConfig` 远程桥之上
+（`appkit.ConfigLayers` 文档注释）。任一层 reader 实现 `bconfig.ValueWatcher` 即参与热更新
+（变更 → 全量重合并）。源在契约里没配、或返回空文档时按「无该层」处理——不是错误
+（`assembleLayer` 把空文档视为该层无配置）。
+
+契约 `config` 段共 9 类源可混合（§9）；`std.Standard()` 自带的 config Provider
+覆盖本地 file + env 基线。
 
 ### 4.3 业务配置段：`appkit.Bind` 接入 flag 层
 
-业务自己的配置对象要参与 flag 覆盖，必须经 `Bind` 注册进 AppKit 的 FlagSet：
+业务自己的配置要参与 flag 覆盖，必须经 `Bind` 注册进 App 的 FlagSet：
 
 ```go
-appkit.Bind("server.http", bootstrap.GetServer().GetHttp()),  // proto.Message → 自动生成 --server.http.addr 等
-appkit.Bind("", logOpts),                                     // PlainBinder（自带 --log.* 前缀，prefix 须传空）
+appkit.Bind("mybiz", &bizCfg),  // proto.Message → bconf.BindFlags 按描述符生成 --mybiz.* 层级 flag
+appkit.Bind("", logOpts),       // PlainBinder（自带 --log.* 前缀，prefix 须传空）
 ```
 
 两种形态：`proto.Message` 走 `bconf.BindFlags` 按描述符生成层级 flag；
-`PlainBinder`（实现 `AddFlags(fs)`）自注册无前缀 flag。
+`PlainBinder`（实现 `AddFlags(fs)`）自注册无前缀 flag。生成脚手架对日志选项的接线
+就是第二种（`appkit.Bind("", logOpts)`）。
 
 > **不要**再自行 `AddFlags(pflag.CommandLine, ...)`。只注册到全局 flagset 的话
-> `config.Load` 拿不到它们，flag 层实际只有 `--config` 生效——`Bind` 正是为此缺口而生。
+> flag 值进不了四源合并——`Bind` 正是为此缺口而生。
+>
+> 自持顶层段（如上例 `mybiz`）记得同步传给 `appkit.StrictContract("mybiz")`
+> 做白名单（§7.1），否则严格契约校验会把它当未知键拦下。
 
-### 4.4 两条装配路径的选项命名规律
+### 4.4 配置相关 Option 一览
 
-选项名按路径分两套，**不可混用**（传错类型编译期即报错）：
+装配已收敛为**单一 Option 入口**：`MustServe` / `Serve` 与 `NewApp` 共用同一套 `Option`
+（`mech` 包的机制类 Option 亦同型，可混用）。配置相关的全部 Option：
 
-| 用途 | `FromBootstrap` 路径 | `appkit.New` 路径 |
+| Option | 签名 | 作用 |
 |---|---|---|
-| 本地配置文件 | `WithConfigFile(path)` | `ConfigFile(path)` |
-| 热更新开关 | `WithWatchConfig(bool)` | `WatchConfigFile(bool)` |
-| 契约源层 | `WithConfigRegistry(reg)` | `ConfigLayers(ls...)` |
-| 单键热更新 | `WithOnKeyChange(key, fn)` | — |
-| 全量热更新 | — | `OnConfigChange(fn)` |
-| 期望态协调 | `WithReconcile(name, fn)` | — |
-| 运行环境 | 契约 `app.env` 字段 | `Env("prod")` |
+| `appkit.ConfigFile` | `ConfigFile(path string)` | 本地配置文件路径；留空按 Name-Env 规则发现（§3.2） |
+| `appkit.WatchConfigFile` | `WatchConfigFile(watch bool)` | 本地文件热更新（fsnotify） |
+| `appkit.RemoteConfig` | `RemoteConfig(src config.RemoteSource)` | 远程配置中心桥，最低优先级基准层（§4.2） |
+| `appkit.ConfigLayers` | `ConfigLayers(ls ...config.Layer)` | 契约源层，列表首优先级最高（§4.2） |
+| `appkit.StrictContract` | `StrictContract(businessSections ...string)` | 未知契约键 fail-fast；参数即业务自持顶层段白名单（§7.1） |
+| `appkit.OnConfigChange` | `OnConfigChange(fn func(map[string]any))` | 全量热更新回调（§6） |
+| `appkit.Bind` | `Bind(prefix string, opt any)` | 业务 flag 接入 flag 层（§4.3） |
 
-规律：**`FromBootstrap` 路径用 `With*` 前缀（返回 `BootstrapOption`），
-`appkit.New` 路径无前缀（返回 `Option`）**。`Bind` 是例外——它是 `Option`（属 `New` 路径），
-但 `FromBootstrap` 内部会代为调用它绑定 `server.http`/`server.grpc`/`log` 三组 flag。
+文件发现的 `Name` / `Env` 两个通用 Option 见 §3.2；单键订阅 `mech.OnKeyChange` 与
+期望态协调 `mech.Reconcile` 见 §6。
 
 ## 5. 读配置
 
@@ -305,7 +334,7 @@ appkit.Bind("", logOpts),                                     // PlainBinder（�
 addr := bootstrap.GetServer().GetHttp().GetAddr()   // proto getter，nil-safe
 ```
 
-`bootstrap` 子消息**指针直通**：`FromBootstrap` 构造的服务器在 `Start` 时实时读契约，
+`bootstrap` 子消息**指针直通**：装配期构造的服务器在 `Start` 时实时读契约，
 `BeforeStart` 阶段装载写回同一对象即生效，无需回填。
 
 若需拿合并后的原始树（自定义段解析等）：`app.Settings()` 返回**深拷贝**快照——
@@ -313,22 +342,20 @@ addr := bootstrap.GetServer().GetHttp().GetAddr()   // proto getter，nil-safe
 
 ## 6. 热更新
 
-三层粒度，按需选用。**两条装配路径的选项类型不同**（命名规律见 §4.4）：
-`FromBootstrap` 用 `With*`（`BootstrapOption`），`appkit.New` 无前缀（`Option`）——不可混用。
+三层粒度，按需选用（全在单一 Option 入口上，`mech` 两个与 `appkit` 三个可混用）：
 
-| API | 路径 | 粒度 | 说明 |
-|---|---|---|---|
-| `appkit.WithWatchConfig(true)` | FromBootstrap | 开关 | 监听本地文件变更（远程源自身 watch） |
-| `appkit.WithOnKeyChange("server.http.addr", fn)` | FromBootstrap | 单键 | `fn(old, new string)`，仅值变化才触发 |
-| `appkit.WithReconcile("audit.backends", fn)` | FromBootstrap | 期望态 | K8s controller 式 diff：只增删变动部分 |
-| `appkit.WatchConfigFile(true)` | New | 开关 | 同上，`New` 路径版本 |
-| `appkit.OnConfigChange(fn)` | New | 全量 | `fn(map[string]any)`，整份重载 |
+| API | 粒度 | 说明 |
+|---|---|---|
+| `appkit.WatchConfigFile(true)` | 开关 | 监听本地文件变更（fsnotify）；远程源自身 watch |
+| `appkit.OnConfigChange(fn)` | 全量 | `fn(map[string]any)`，整份重载（快照深拷贝，见 §5） |
+| `mech.OnKeyChange("http.addr", fn)` | 单键 | `fn(old, new string)`，仅值变化才触发 |
+| `mech.Reconcile("audit.backends", fn)` | 期望态 | K8s controller 式 diff：只增删变动部分 |
 
-`WithOnKeyChange` 语义（由 `keywatch_test.go` 固化）：
+`mech.OnKeyChange` 语义（由 `pkg/appkit/keywatch_test.go` 固化）：
 
 - 启动时以**首次加载值为基线**，首次变更前不触发；
 - 仅当新值 ≠ 旧值才触发（同值刷新不触发）；
-- 与全量回调共存时：**先跑全量回调，再分发 key 订阅**；
+- 与全量回调共存时：**先跑全量回调，再分发 key 订阅，最后跑期望态协调**；
 - 未开启 watch（本地 watch 与远程源都未配）时**永不触发**。
 
 变更流程：任一层 watch 触发 → 全量重合并 → 重建配置树 → 回调解分发。
@@ -336,7 +363,7 @@ addr := bootstrap.GetServer().GetHttp().GetAddr()   // proto getter，nil-safe
 
 **哪些段支持热更新**：只有**配置装载本身**（`config` 源层、本地文件）与 `logger` 段支持。
 `logger` 走两阶段重建（启动默认 → 按契约重建）；`audit.backends` 支持运行期热切（走
-`WithReconcile` 期望态协调器，是唯一的能力段热更新）。
+`mech.Reconcile` 期望态协调器，是唯一的能力段热更新）。
 
 **其余能力段都不支持**（`database` / `cache` / `registry` / `broker` / `storage` / `ai` /
 `workflow` / `tracer` / `metrics` / `script`）——这些段的 client 重建侵入性大，变更需重启生效。
@@ -349,20 +376,39 @@ addr := bootstrap.GetServer().GetHttp().GetAddr()   // proto getter，nil-safe
 | 报错 | 含义 | 处置 |
 |---|---|---|
 | `config: unsupported format "toml"` | 文件格式不在 yaml/json 内 | 转 yaml 或 json |
-| `appkit: config namespace not declared` | FromBootstrap 路径未声明配置命名空间 | 补 `appkit.WithConfigNamespace("<name>")` |
-| `config: Name is required` | 配置命名空间为空（env 前缀依赖它） | 设 `appkit.ConfigNamespace("my-app")` 或 `appkit.Name("my-app")` |
+| `appkit: bootstrap.app.name is required: the config namespace (env prefix NAME_* and multi-env file name) is derived from it; set app.name in the config file loaded via --config` | Serve 路径契约缺 `app.name`——env 前缀与多环境文件名都由它派生（§3.1） | 在 `--config` 装载的配置文件里设 `app.name` |
+| `appkit: bootstrap config declares sections with no consumer:`（明细 `top-level sections with no consumer: <段名>`，或 `server.<x> is configured but has no implementation in this repo (remove the section, provide a Provider for "server.<x>", or whitelist it via appkit.WithUnimplementedSegments)`） | L3 段覆盖检查：契约声明了但装配无消费者——**段名拼错也落在这里**（拼错即无人覆盖） | 引入对应 Provider；或 `appkit.WithUnimplementedSegments("<段>")` 显式豁免；或删该段 |
+| `config: unknown contract keys (typo? or declare in AllowBusinessSections): <keys>` | 开了 `StrictContract` 后出现契约未声明的键（§7.1） | 改键名；业务自持段加进 `StrictContract` 白名单 |
 | `config: layer "nacos": Watch=true but Reader does not implement bconfig.ValueWatcher` | 层声明了 watch 但源不支持 | 去掉该层 `watch: true` |
 | `bootstrap: no config source configured` | 契约 `config` 段一个源都没配，却走了 `Build` | 至少注册并配置一个源，或不用契约源层 |
 | `bootstrap: provider <name>: layer Reader is nil` | provider 造了层但没给 Reader | provider 实现 bug |
 | `appkit: Bind("x"): opt is nil` | `Bind` 传了 nil | 检查绑定对象 |
 | `appkit: Bind("x"): opt registers its own flag prefix, prefix must be empty` | `PlainBinder` 配了非空 prefix | prefix 传 `""` |
-| `bootstrap: invalid server config: server.sse is configured but has no implementation in this repo` | 配了本仓无实现的服务器段 | 注册对应 provider（如 `WithServerRegistry` + `transport/sse/contract`），或删该段；也可用 `appkit.WithExtraServers` 手工挂载 |
 | 校验失败（`bconf.Validate`） | 值违反契约级校验规则（地址格式、必填段等） | 按错误信息修正取值 |
-| 键写错但**无报错**、值没生效 | 未知键被放行（`DiscardUnknown`，为业务自定义段） | 用 `bconf.Validate` + 契约 getter 核对；确认键名拼写 |
+| 键写错但**无报错**、值没生效 | 未开 `StrictContract` 的默认行为（`DiscardUnknown`，为业务自定义段放行） | 开 `appkit.StrictContract()`（§7.1）；或用 `bconf.Validate` + 契约 getter 核对键名拼写 |
 
-最后一条要特别说明：proto 契约只约束**框架级**配置，业务自定义段允许自由键，
-因此未知键**不会**报错。写错框架级键名时的表现是「值没生效」而非报错——
-排查手段是核对契约字段路径（`bconf/proto/bootstrap/v1/*.proto`）。
+「no consumer」一条值得展开：L3 段覆盖检查（`pkg/appkit/segment_coverage.go`）在启动期用
+protobuf 反射枚举契约里**实际出现**的顶层段，减去本次装配真实被消费的段与白名单，
+剩余即报错并列出段名——`script` 段曾是这条规则的第一个实例（全仓零消费者，
+用户配置静默失效）。
+
+### 7.1 未知键防护：`StrictContract` 让键名笔误响亮失败
+
+proto 契约只约束**框架级**配置，业务自定义段允许自由键，所以配置装载默认**放行未知键**
+（`DiscardUnknown`）——写错框架级键名时的表现是「值没生效」而非报错。这是最阴的一类故障：
+照文档抄 `http.addr`，正确键是 `server.http.addr`，值静默回落默认值。
+
+`appkit.StrictContract(businessSections ...string)` 把它翻转成 fail-fast（`Serve` 与
+`NewApp` 双入口共用同一写入面）：装载完成后对**合并后的树**（文件 + env + flag 全部参与）
+跑 `bconf.FindUnknownKeys`，契约未声明的键启动即报——只查文件会漏掉 env 的笔误，
+所以校验点刻意放在合并之后。
+
+- `businessSections` 是应用自持的**顶层段名白名单**（如业务自己的 `biz`/`mybiz` 段），
+  命中者整棵子树放行；可多次调用追加。
+- **代码生成脚手架的产物默认开启**（appspec 未显式关闭即 emit `StrictContract()`）；
+  **手写应用建议显式加一行** `appkit.StrictContract()`——「键写错静默失效」正是
+  批 1 复盘的直接教训：校验的门造好了，没接线等于没有。
+- 未开 StrictContract 时，段级拼错由 L3 段覆盖检查兜底（键级拼错仍静默）。
 
 ## 8. 快速排错清单
 
@@ -370,7 +416,7 @@ addr := bootstrap.GetServer().GetHttp().GetAddr()   // proto getter，nil-safe
 
 1. 有没有传 flag？`--server.http.addr` 传了就压过一切（`Changed==true` 才参与）。
 2. 环境变量前缀对不对？必须是 `<APP_NAME>_`（`bald-demo` → `BALD_DEMO_`）。
-3. 本地文件路径对不对？`WithConfigFile("configs/app.yaml")` 是**相对运行目录**的路径。
+3. 本地文件路径对不对？`ConfigFile("configs/app.yaml")` 是**相对运行目录**的路径。
 4. 多环境文件名对不对？设了 `Env=prod` 就找 `<Name>-prod.yaml`，**不会**回退到 `<Name>.yaml`。
    搜索目录只有 `.`、`./configs`、`$HOME/.config/<Name>` 三处（见 §3.2）。
 5. 键名是不是契约字段路径？下划线会被当路径分隔符。

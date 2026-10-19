@@ -18,7 +18,7 @@
 | 特性 | 说明 |
 | --- | --- |
 | 统一 Server 契约 | `Server = Start / Stop / Endpoint`，HTTP / gRPC / Gateway 共用一份契约。 |
-| 多协议同进程 | 一个 `AppKit` 可并发编排多个 Server，共享生命周期。 |
+| 多协议同进程 | 一个 `App` 可并发编排多个 Server，共享生命周期。 |
 | 优雅停机 | 收到 SIGINT/SIGTERM 或 ctx 取消时，先反注册再五阶段优雅停机（效应回放→BeforeStop→Server.Stop→AfterStop→组件 Dispose），避免流量打到已停服务。 |
 | 动态端口注册 | `Endpoint()` 在 `Start` 后返回真实地址，`:0` 动态端口也能正确注册到服务发现。 |
 | 可插拔注册中心 | 内置内存实现（开发/测试），另有 etcd / consul / nacos / kubernetes 直连 SDK provider（`registry/<backend>` 独立 module，契约装配）。 |
@@ -37,7 +37,7 @@
 ### 架构概览
 
 ```
-AppKit（编排层）
+App（编排层）
   ├── Server 契约：HTTP / gRPC / Gateway（并发启停 + 五阶段优雅停机）
   ├── Registrar 抽象：内存 / etcd | consul | nacos | kubernetes（直连 SDK provider）
   ├── Component 抽象：trace/metrics/审计等进程内组件统一生命周期
@@ -46,5 +46,7 @@ AppKit（编排层）
   ├── 配置加载：flag > env > 本地文件 > 远程配置中心（热更新 + key 级订阅）
   └── contrib 桥接：authn-jwt / store-gorm / authz-casbin / observability-otlp / audit-gorm / audit-stream / database
 ```
+
+Effect 账本、能力声明、组件生命周期、key 级配置订阅与期望态协调等高级机制面的实现现居 `pkg/appkit/mech`。
 
 更详细的设计文档见 [开发手册](../../../devel/zh-CN/README.md)。

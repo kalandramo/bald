@@ -1,37 +1,40 @@
 # Bald 缓存使用
 
-面向使用者的操作手册：默认行为是什么、启用 local/redis 后端要做哪几步、
-契约操作语义怎么用、回源击穿怎么交给 loadable 组合器、报错了怎么修。
-设计论证（为什么契约只认 []byte、为什么回源必须合并并发、为什么组合器
-不进装配）见 `docs/devel/zh-CN/Bald 缓存设计.md`，本文只讲操作。
+面向使用者的操作手册：默认行为是什么、启用 redis 后端要做哪几步、local
+怎么接入、实例怎么取、契约操作语义怎么用、回源击穿怎么交给 loadable 组
+合器、报错了怎么修。设计论证（为什么契约只认 []byte、为什么回源必须合
+并并发、为什么组合器不进装配）见 `docs/devel/zh-CN/Bald 缓存设计.md`，
+本文只讲操作。
 
 ## 心智模型：一句话版
 
-**缓存生效 = 后端装配 + 按需组合两件事。后端契约段 `cache.local` /
-`cache.redis` 可并存：引一个依赖 + 两行注册 + yaml 加一段即得实例；回源
-组合（miss → 查库 → 回填）不进装配，用 `loadable.New` 显式构造——loader
-是业务函数，配置变不出来。**
+**缓存生效 = 后端装配 + 按需组合两件事。后端以段驱动 Provider 接入：
+`rediscontract.AppProvider()` 直接作为 `MustServe` 变参项，消费契约
+`cache.redis` 段，实例落资源面、经 `app.Resource("cache.redis")` 取用；
+回源组合（miss → 查库 → 回填）不进装配，用 `loadable.New` 显式构造——
+loader 是业务函数，配置变不出来。**
 
-| | 契约装配（FromBootstrap） | 直用构造（New + Option） |
+| | 契约装配（段驱动 Provider） | 直用构造（New + Option） |
 | --- | --- | --- |
-| 时机 | 启动期一次性（BeforeStart，首个请求前） | 业务代码任意时点 |
-| 参数来源 | yaml `cache.local` / `cache.redis` 段 | Option 链代码声明 |
+| 时机 | 启动期一次性（阶段 B，业务钩子之前） | 业务代码任意时点 |
+| 参数来源 | yaml `cache.redis` 段 | Option 链代码声明 |
 | 生命周期 | 框架管（停机 Effect：缓存先关、数据库最后关） | 业务管（Close 自理） |
 | redis client | contract 自建 + Ping 校验 + 停机关闭 | 注入已有 client，Close 不关它 |
+| 实例取用 | `app.Resource("cache.redis")`（域 Wire 内） | 自己持有返回值 |
 | 适合 | 大多数项目：启动即正确 | 测试 / 复用已有连接 / 细粒度控参 |
 
 ## 0. 什么都不做：默认行为
 
-`main.go` 不写任何缓存代码、yaml 不配 `cache` 段：
+`main.go` 不接任何缓存 Provider、yaml 不配 `cache` 段：
 
-- 装配 no-op，`app.Cache()` 恒空——缓存零成本可关闭。
+- 装配 no-op，资源面无 cache 产物（`app.Resource("cache.redis")` 恒
+  `(nil, false)`）——缓存零成本可关闭。
 - 与审计不同，**没有零注册的内置后端**：local 虽是纯内存实现，同样要
-  引 module + 注册（`cache` 契约与各后端是独立 module，用的人付依赖代价）。
+  引 module + 接 Provider（`cache` 契约与各后端是独立 module，用的人付
+  依赖代价）。
 - `cache` 段不支持热更新（与 database 段同理）。
 
-## 1. 启用 local / redis：通用三步
-
-以 redis 为例（local 同理；两段是 optional 段集合，可并存、各自装配）。
+## 1. 启用 redis：装配三步
 
 **步骤 1：引依赖**（后端是独立 module）：
 
@@ -42,23 +45,27 @@ go get github.com/kalandramo/bald/cache/redis
 注：`cache`、`cache/loadable`、`cache/local`、`cache/redis` 均已发 tag，
 `go get` 即用。
 
-**步骤 2：main.go 两行注册**：
+**步骤 2：`MustServe` 变参里接一行 Provider**（Provider 即 Option，直接
+作为变参项；`cache.redis` 段缺失即被引擎跳过，不接也合法）：
 
 ```go
 import (
-    "github.com/kalandramo/bald/bootstrap"
-    "github.com/kalandramo/bald/pkg/appkit"
-    localcontract "github.com/kalandramo/bald/cache/local/contract"
     rediscontract "github.com/kalandramo/bald/cache/redis/contract"
+    "github.com/kalandramo/bald/pkg/appkit"
+    "github.com/kalandramo/bald/pkg/appkit/std"
 )
 
-cr := bootstrap.NewCacheRegistry()
-cr.MustRegister(localcontract.Type, localcontract.Provider)  // "local"，可选
-cr.MustRegister(rediscontract.Type, rediscontract.Provider)  // "redis"
-app, err := appkit.FromBootstrap(cfg, appkit.WithCacheRegistry(cr), ...)
+appkit.MustServe(ctx,
+    std.Standard(),
+    rediscontract.AppProvider(), // 契约 cache.redis 段 → 资源面
+    // ...业务域与其余 Option
+)
 ```
 
-没有 `init()` 自注册——注册必须显式出现在你的代码里。
+`AppProvider()` 复用同包 `Provider` 的构造逻辑：段存在 → 校验 / 建连 /
+Ping fail-fast（不产半成品实例）→ 产物 `map{"redis": 实例}` 落引擎 cache
+资源面 → cleanup 关闭底层连接池（停机逆序回放：缓存先关、数据库最后关）。
+没有 `init()` 自注册——接入必须显式出现在你的代码里。
 
 **步骤 3：yaml 声明**：
 
@@ -80,24 +87,67 @@ cache:
     #   addrs: ["10.0.0.1:26379"] # Sentinel 节点，至少一项
 ```
 
-**取实例（时机关键）**：装配发生在 BeforeStart（契约装载校验后），
-FromBootstrap 构造期 `app.Cache()` 返回空。业务经 `WithBeforeStart` 桥接
-（追加在框架装载链之后执行，契约终值可读）：
+**取实例（时机关键）**：装配发生在 Run 期阶段 B（框架 BeforeStart 链内、
+契约装载校验之后），而 `Serve` / `MustServe` 不返回 app 句柄——业务的
+官方取用窗口是**域 Wire**（执行时资源面已就绪、服务器尚未构建）：
 
 ```go
-var app *appkit.AppKit // 前置声明：闭包需捕获 app，而 := 的作用域从语句末才开始
-app, err := appkit.FromBootstrap(cfg,
-    appkit.WithCacheRegistry(cr),
-    appkit.WithBeforeStart(func(ctx context.Context) error {
-        if v, ok := app.Cache("redis"); ok {
-            myCache = v.(cache.Cache) // 桥接给业务层
-        }
-        return nil
-    }),
+var myCache cache.Cache
+
+appkit.MustServe(ctx,
+    std.Standard(),
+    rediscontract.AppProvider(),
+    appkit.Domain{
+        Name: "myapp",
+        Wire: func(ctx context.Context, app *appkit.App) error {
+            if v, ok := app.Resource("cache.redis"); ok {
+                myCache = v.(cache.Cache) // 桥接给业务层
+            }
+            return nil
+        },
+    },
+    // ...
 )
 ```
 
-生产范例见 go-bald-admin 的 `cacheRegistry()` + `WithBeforeStart` 接线。
+`app.Resource` 按契约段路径取阶段 B 产物，三种形态（`pkg/appkit/resource.go`）：
+
+- **子段精确路径**（`"cache.redis"`）→ 实例本身（`*rediscache.Cache`，
+  即 `cache.Cache` 实现）；
+- **顶层段**（`"cache"`）→ `map[string]any` 副本快照（键 = 子段名）——
+  可安全遍历 / 留存，不暴露内部 map，内部后续写入不影响已取出的快照；
+- **表外（第三方）段**：map 产物按 `<顶层段>.<子段>` 展开、非 map 产物
+  落 `<顶层段>`（引擎统一约定）。
+
+未装配或段缺失一律 `(nil, false)`；域 Wire 执行时阶段 B 已完成，cache
+段存在则实例必已就位。
+
+**local 侧的现状**：`cache/local/contract.Provider(ctx, cfg)` 仍在
+（bootstrap CacheProvider 形状，注册表机制退居 bootstrap 内部），但 local
+暂无现成的段驱动接入面——要经契约装配启用 local，照第 5 节自写一个薄
+Provider（Build 里复用 `localcontract.Provider`），或直接直用构造。注意
+L3 覆盖检查只看顶层段：只接 redis Provider 时，yaml 里的 `cache.local`
+不报错、也**静默不生效**。
+
+**原生 client 访问器**：适配器暴露 `(*rediscache.Cache).Client()`，返回
+`goredis.UniversalClient`——与适配器持有的是**同一实例**（非副本、非代
+理）：适配器方法与业务经该句柄的操作共用同一连接池、同一键空间。典型
+用途是 TokenStore / 验证码这类需要原生能力的场景（INCR 原子计数、SCAN、
+SUBSCRIBE、定制 Pipeline 等）：
+
+```go
+rc := myCache.(*rediscache.Cache) // 第 1 节取回的实例
+rdb := rc.Client()                // goredis.UniversalClient，与适配器同一实例
+n, err := rdb.Incr(ctx, "captcha:attempts").Result()
+```
+
+- **所有权不转移**：契约轨（AppProvider / Provider）的 client 归构造期
+  注册的 cleanup（停机关闭连接池），业务持句柄时勿再 Close；直用轨（`New`
+  注入）归调用方，`Cache.Close` 不关它。
+- **keyPrefix 只对适配器方法生效**：经本句柄读写的裸键不经过前缀——同
+  一键空间里两套键名规则，跨轨排查时留意。
+- **集群 / 哨兵部署**下动态类型是 `*goredis.ClusterClient` /
+  `*goredis.FailoverClient`，需要具体形态时自行断言。
 
 ## 2. 双后端速查
 
@@ -105,7 +155,7 @@ app, err := appkit.FromBootstrap(cfg,
 | --- | --- | --- |
 | module | `cache/local` | `cache/redis` |
 | 底层 | freecache 零 GC 环形缓冲 | go-redis v9 |
-| 注册 | `localcontract.Provider` | `rediscontract.Provider` |
+| 接入 | 自写 Provider（第 5 节）或直用构造 | `rediscontract.AppProvider()` |
 | 参数子段 | `local.size` / `local.default_ttl_seconds` | `redis.addr` / `redis.password` / `redis.db` / `redis.key_prefix` + `redis.cluster{addrs,max_redirects}` / `redis.sentinel{master_name,addrs}` |
 | GetMulti / SetMulti | 进程内顺序迭代 | MGET / Pipeline 单次网络往返 |
 | SetNX | check-then-set（非严格原子） | 原生 SET NX（原子） |
@@ -168,7 +218,7 @@ c := loadable.New(backend, loadFromDB, loadable.WithTTL(5*time.Minute))
 val, err := c.Get(ctx, "user:1") // miss → singleflight 合并 → 回填 → 返回
 ```
 
-backend 可以是契约装配的实例（`app.Cache("redis")` 取回的）或直用构造的。
+backend 可以是契约装配的实例（`app.Resource("cache.redis")` 取回的）或直用构造的。
 
 Get 关键路径四步：
 
@@ -190,13 +240,14 @@ Get 关键路径四步：
 - **透传族**：`Set/SetNX/Delete/Has/SetMulti/Close` 直通 backend；
   `GetMulti` 逐 key 走 Get——Get 会回源则 GetMulti 也回源，语义一致。
 
-loadable 不进 CacheRegistry：loader 是业务函数，框架无法从配置里变出它
-——「配置驱动参数，代码声明能力」。跨进程合并（多副本同时 miss）用契约层
-`SetNX` 原语自行组合。
+loadable 不进段驱动装配（无契约段可消费）：loader 是业务函数，框架无法
+从配置里变出它——「配置驱动参数，代码声明能力」。跨进程合并（多副本同
+时 miss）用契约层 `SetNX` 原语自行组合。
 
-## 5. 自定义后端
+## 5. 自定义后端：直用构造与段驱动 Provider
 
-实现 8 方法 `cache.Cache` 接口（须并发安全），直用构造即得：
+**直用构造**（零装配）：实现 8 方法 `cache.Cache` 接口（须并发安全），
+业务自行构造、自管生命周期：
 
 ```go
 type memcachedCache struct{ /* ... */ }
@@ -208,33 +259,69 @@ c := newMemcachedCache()
 defer c.Close()
 ```
 
-注意：契约装配的段枚举固定为 local → redis（`bootstrap` 的
-`cacheSections`，proto 字段序）——注册自定义 Provider 不会被调度。新后端
-要进契约装配须先在 bconf 加段（框架侧演进）；业务仓的现实路径是直用构造
-+ 业务自管生命周期。
+**段驱动接入**：实现 `appkit.Provider` 三件套（Segments / Apply / Build，
+Provider 即 Option，与 `std.Standard()` 并列传入 `MustServe`）。local 暂
+无现成接入面，下例即其接线配方（Build 复用既有构造）：
 
-## 6. 报错解读：八类 fail-fast 及修复
+```go
+type localCacheProvider struct{}
 
-**配了 cache 段但没接 CacheRegistry**（漏了 WithCacheRegistry）：
+func (localCacheProvider) Segments() []string { return []string{"cache.local"} }
+func (localCacheProvider) Apply(d *appkit.Decl) {
+    d.Providers = append(d.Providers, localCacheProvider{})
+}
 
-```text
-appkit: bootstrap.cache present but no CacheRegistry wired (WithCacheRegistry missing)
+func (localCacheProvider) Build(ctx context.Context, s appkit.BuildScope) (any, appkit.Cleanup, error) {
+    prod, cleanup, err := localcontract.Provider(ctx, s.Config.GetCache())
+    if err != nil {
+        return nil, nil, err
+    }
+    // 产物必须是 map（键=子段名）：引擎按 "<顶层段>.<子段>" 展开落资源面。
+    return map[string]any{localcontract.Type: prod},
+        func(context.Context) error { cleanup(); return nil }, nil
+}
 ```
 
-修复：FromBootstrap 加 `appkit.WithCacheRegistry(cr)`。
+四条硬约定：
 
-**段存在但没注册**（漏了步骤 2）：
+- **段路径须是契约里真实存在的段**（proto 字段），否则 Provider 被静默
+  跳过（「段缺失 = 合法」语义）——bconf 现有 cache 子段只有 `local` /
+  `redis`，新后端要占自己的段须先在 bconf 加字段（框架侧演进），yaml 里
+  的未知键不会进契约。
+- **产物形状**：cache 属六资源域，产物必须是 `map[string]any`（键 = 子段
+  名），展开后经 `app.Resource("cache.local")` 这类段路径取用；非 map
+  产物启动期 fail-fast。
+- **同段路径末者胜**：后声明的 Provider 接管同一路径——可用来顶替
+  `cache.redis` 的默认后端；老注册表的「重名注册 panic」不复存在。
+- **cleanup 挂停机 Effect**：cache 槽位在 database 之后注册，逆序回放
+  保证缓存先关、数据库最后关。
+
+## 6. 报错解读：fail-fast 及修复
+
+注册表时代的旧报错（no CacheRegistry wired / provider not registered /
+already registered）已随段驱动装配消失，不再出现。现行报错两类来源：
+**L3 段覆盖检查**（段存在而无人消费，启动期报错）与 **Provider
+fail-fast**（段被消费但校验 / 建连失败，错误经引擎包装为
+`appkit: provider [cache.redis]: …` 前缀）。
+
+**cache 段存在但没有任何 Provider 接入**（漏接 `AppProvider()`）——L3
+段覆盖检查，启动期报错：
 
 ```text
-bootstrap: cache.local present but provider not registered (import the backend contract package and MustRegister it)
+appkit: bootstrap config declares sections with no consumer:
+  top-level sections with no consumer: cache
+  hint: 该段无消费者，配置不会生效；引入对应 Provider、经 appkit.WithUnimplementedSegments 显式豁免，或从契约移除该段
 ```
 
-修复：照第 1 节步骤 2 补 `MustRegister`。
+修复：`MustServe` 变参加 `rediscontract.AppProvider()`，或照第 5 节自写
+Provider / `appkit.WithUnimplementedSegments("cache")` 显式豁免 / 删掉
+该段。L3 只查顶层段：cache 因任一 cache Provider 在而视为已消费，未接管
+的子段（如只接 redis 时的 `cache.local`）不报错、静默不生效。
 
 **redis.addr 缺失**：
 
 ```text
-bootstrap: build cache redis: cache: redis.addr is required
+appkit: provider [cache.redis]: cache: redis.addr is required
 ```
 
 修复：yaml 补 `cache.redis.addr`。
@@ -242,7 +329,7 @@ bootstrap: build cache redis: cache: redis.addr is required
 **cluster 与 sentinel 同时声明**：
 
 ```text
-cache: redis.cluster and redis.sentinel are mutually exclusive
+appkit: provider [cache.redis]: cache: redis.cluster and redis.sentinel are mutually exclusive
 ```
 
 修复：三选一——`addr`（单节点）/ `cluster` / `sentinel`。
@@ -250,7 +337,7 @@ cache: redis.cluster and redis.sentinel are mutually exclusive
 **cluster/sentinel 模式下还留着 addr**（配置漂移防护）：
 
 ```text
-cache: redis.addr is only valid in standalone mode (remove it when cluster section is present)
+appkit: provider [cache.redis]: cache: redis.addr is only valid in standalone mode (remove it when cluster section is present)
 ```
 
 （sentinel 模式下同一前缀，括号提示为 `remove it when sentinel section is present`。）
@@ -260,7 +347,7 @@ cache: redis.addr is only valid in standalone mode (remove it when cluster secti
 **集群模式配了 db**（Redis Cluster 不支持 SELECT）：
 
 ```text
-cache: redis.db is not supported in cluster mode
+appkit: provider [cache.redis]: cache: redis.db is not supported in cluster mode
 ```
 
 修复：去掉 `db`（单节点/哨兵模式可用）。
@@ -268,18 +355,11 @@ cache: redis.db is not supported in cluster mode
 **client 构建失败**（地址不通 / 密码错 / Ping 超时）：
 
 ```text
-bootstrap: build cache redis: cache: build redis client: ...
+appkit: provider [cache.redis]: cache: build redis client: dial tcp ...
 ```
 
-修复：检查地址、密码、网络连通；已构建的其他段实例会被逆序回滚，无泄漏。
-
-**重名注册**（panic）：
-
-```text
-bootstrap: cache provider "redis" already registered
-```
-
-修复：去掉重复注册。
+修复：检查地址、密码、网络连通；失败前已构建的其他段实例由 Run 失败路
+径逆序回放 cleanup，无泄漏。
 
 ## 7. 边界与注意事项
 
@@ -305,9 +385,11 @@ bootstrap: cache provider "redis" already registered
 
 ## FAQ
 
-**Q：local 和 redis 能同时用吗？** 能：契约段是 optional 段集合，两段并存
-各自装配、分别取回。典型用法 local 做热点加速 + redis 做共享层——但框架
-不提供两级联动与失效广播，一致性业务自理（这正是 L2 显式不做的边界）。
+**Q：local 和 redis 能同时用吗？** 能：段驱动装配按段路径各归各——redis
+接现成 `AppProvider`，local 照第 5 节自写 Provider 或直用构造；两段并存
+各自装配、经 `app.Resource("cache.redis")` / `app.Resource("cache.local")`
+分别取回。典型用法 local 做热点加速 + redis 做共享层——但框架不提供两级
+联动与失效广播，一致性业务自理（这正是 L2 显式不做的边界）。
 
 **Q：Get miss 为什么返回错误而不是 nil？** `ErrNotFound` 哨兵让 miss 与
 故障可区分：`errors.Is` 命中走回源，其他错误向上报。返回 nil 会丢掉这层
