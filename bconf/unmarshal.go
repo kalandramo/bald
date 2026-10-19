@@ -165,10 +165,10 @@ func UnmarshalMap(m map[string]any, msg proto.Message) error {
 	return nil
 }
 
-// clearPresentLists 对 src 中显式出现（长度 > 0）的 repeated 字段，清空 dst 的同名字段，
-// 使随后的 proto.Merge 表现为「替换」而非「追加」。
+// clearPresentLists 对 src 中显式出现（长度 > 0）的 repeated 与 map 字段，
+// 清空 dst 的同名字段，使随后的 proto.Merge 表现为「替换」而非「追加/逐条合并」。
 //
-// src 中未出现的 list 字段不动，其默认值得以保留。嵌套 message 递归处理。
+// src 中未出现的 list/map 字段不动，其默认值得以保留。嵌套 message 递归处理。
 func clearPresentLists(dst, src protoreflect.Message) {
 	fields := src.Descriptor().Fields()
 	for i := 0; i < fields.Len(); i++ {
@@ -178,6 +178,15 @@ func clearPresentLists(dst, src protoreflect.Message) {
 		}
 		switch {
 		case fd.IsList():
+			dst.Clear(fd)
+		case fd.IsMap():
+			// map 字段：proto.Merge 对 map 是逐条合并而非替换——与 repeated 的
+			// 追加残留同构（默认项残留）。src 显式给出 map 时清空 dst，使其同为
+			// 「替换」语义。此前 map 字段落入下方 MessageKind 分支（map 字段的
+			// Kind 是合成 entry 消息），Mutable(fd).Message() 直接 panic——任何
+			// 非空 map<string,string> 配置（如 tracer.otlp.headers、logger.
+			// loki.labels）都会让 UnmarshalMap 崩溃。W3 性能基准套件首次实证
+			//（v0.24.0 起即存在，无既有测试覆盖）。
 			dst.Clear(fd)
 		case fd.Kind() == protoreflect.MessageKind:
 			// 递归处理嵌套消息（如 http.tls 下的 list 字段）。
