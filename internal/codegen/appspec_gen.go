@@ -2,7 +2,8 @@ package codegen
 
 // appspec_gen.go 是 gen app --spec 的目标目录树生成器（装配层评估 §4.6 /
 // D2-target-codegen.md §2.1）：从「96~300 行单文件 package main」变为
-// 12 个落盘项（生成物 + 生成一次，随声明裁剪），装配收敛到
+// 13 个落盘项（生成物 + 生成一次，随声明裁剪；configs/<app>.yaml 是 Gate2
+// 派生追加项，实证见 appspec_budget_test.go 的 13 行清单），装配收敛到
 // assemble.gen.go 的唯一 Options()。
 //
 // 膨胀根治（§4.6）：本文件没有 appspecData——模板直接吃 *appspecv1.AppSpec
