@@ -3,6 +3,7 @@ package authzcasbin
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"testing"
 )
 
@@ -107,5 +108,29 @@ func BenchmarkNewRows_LoadPolicy(b *testing.B) {
 		if _, err := NewRows(rows, grants); err != nil {
 			b.Fatal(err)
 		}
+	}
+}
+
+// BenchmarkAuthorizer_NoReuse 度量**零重用**形态（批 6）：键空间 8,192 个
+// subject 远超缓存容量 1,024——稳态下每次判定都是缓存未命中（评估 + 插入 +
+// 逐出）。对照 HEAD 同名基准（无缓存，纯 Enforce）即得 miss 路径的边际成本；
+// 与 Direct/Hit/Miss（重入形态，稳态全命中）互补，共同划定缓存收益区间。
+// subject 键在计时外预构造（循环内无 fmt/拼接分配）。
+func BenchmarkAuthorizer_NoReuse(b *testing.B) {
+	az := benchInner(b)
+	const numSubjects = 8192 // > defaultEnforceCacheCapacity(1024)
+	subs := make([]string, numSubjects)
+	for i := range subs {
+		subs[i] = "u-no-" + strconv.Itoa(i)
+	}
+	ctx := context.Background()
+	b.ReportAllocs()
+	i := 0
+	for b.Loop() {
+		ok, err := az.Authorize(ctx, subs[i%numSubjects], "unknown", "get")
+		if err != nil || ok {
+			b.Fatalf("no-reuse deny: got=%v err=%v", ok, err)
+		}
+		i++
 	}
 }

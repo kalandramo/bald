@@ -53,6 +53,12 @@ type Authorizer struct {
 	// adapter 是策略源；nil 表示构造时无策略（空策略 fail-closed 初始态），
 	// 此时 Reload 为合法无操作（无可重载之源）。
 	adapter persist.Adapter
+
+	// cache 是 (subject, object, action) → 判定 的有界 LRU 结果缓存（批 6），
+	// 吸收 casbin 引擎逐请求分配（命中路径零 Enforce、零分配）。安全语义见
+	// cache.go：只缓存无错误判定、Reload 整体失效、容量有界、命中不以任何
+	// 方式放宽放行面。锁序：本结构先 a.mu 后 cache.mu（两把锁从不反序嵌套）。
+	cache *enforceCache
 }
 
 // New 用内嵌的默认 RBAC 模型 + 调用方策略构造 casbin 授权器。
@@ -85,7 +91,7 @@ func NewWithModel(modelConf, policyCSV string) (*Authorizer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("casbin: new enforcer: %w", err)
 	}
-	return &Authorizer{enf: enf, adapter: adapter}, nil
+	return &Authorizer{enf: enf, adapter: adapter, cache: newEnforceCache(defaultEnforceCacheCapacity)}, nil
 }
 
 // Authorize 判定 subject（用户 ID）是否对 (object, action) 有权限。
@@ -93,17 +99,29 @@ func NewWithModel(modelConf, policyCSV string) (*Authorizer, error) {
 //   - casbin Enforce 返回 false → 拒绝（默认拒绝，需显式授权）；
 //   - 引擎错误 → 透传 error（拦截器映射为 500）。
 //
+// 判定结果经有界 LRU 缓存（见 [enforceCache]）：Web 流量对同一 (subject,
+// object, action) 高度重入（同一用户反复访问同资源），命中路径不经引擎、
+// 零分配。命中返回的是**曾依据当时策略算出的结果**——策略在 Reload 时整体
+// 失效（见 [Authorizer.Reload]），错误永不入缓存；未命中照常评估，评估语义
+// fail-closed 不变。键含 ToLower 后的 action，大小写变体共享同一判定。
+//
 // object/action 已由核心拦截器归一化（见包文档），此处直接作为 (obj, act) 喂给 casbin。
 func (a *Authorizer) Authorize(ctx context.Context, subject, object, action string) (bool, error) {
 	if subject == "" {
 		return false, fmt.Errorf("casbin: empty subject (not authenticated)")
 	}
+	act := strings.ToLower(action)
+	key := enforceKey{subject: subject, object: object, action: act}
+	if allowed, ok := a.cache.get(key); ok {
+		return allowed, nil
+	}
 	a.mu.RLock()
 	defer a.mu.RUnlock()
-	allowed, err := a.enf.Enforce(subject, object, strings.ToLower(action))
+	allowed, err := a.enf.Enforce(subject, object, act)
 	if err != nil {
 		return false, fmt.Errorf("casbin: enforce: %w", err)
 	}
+	a.cache.put(key, allowed)
 	return allowed, nil
 }
 
@@ -115,16 +133,22 @@ func (a *Authorizer) Authorize(ctx context.Context, subject, object, action stri
 //     与 Enforce 交叉构成数据竞争）；
 //   - 空策略初始态（构造时无策略文本）下为合法无操作：无源可重载，返回 nil；
 //   - 装载失败时 **casbin 的 LoadPolicy 语义保证旧策略仍在**（fail-safe：
-//     失败的 LoadPolicy 不改变已加载的策略），错误透传给调用方记录/重试。
+//     失败的 LoadPolicy 不改变已加载的策略），错误透传给调用方记录/重试；
+//   - 重载触碰策略源，判定缓存（[enforceCache]）随之**整体失效**——装载成败
+//     皆失效：成功自不必说；失败时旧策略虽原样保留，多一次冷启动只是性能
+//     损失，而「Reload 后缓存必空」的不变量不留例外（安全红线：任何策略
+//     变更路径都不得让旧判定越过重载继续生效）。
 //
 // 实现 authz.ReloadableAuthorizer。
 func (a *Authorizer) Reload() error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.adapter == nil {
-		return nil // 空策略初始态：无源可重载
+		return nil // 空策略初始态：无源可重载（无策略变更，缓存无需失效）
 	}
-	if err := a.enf.LoadPolicy(); err != nil {
+	err := a.enf.LoadPolicy()
+	a.cache.invalidate()
+	if err != nil {
 		return fmt.Errorf("casbin: reload policy: %w", err)
 	}
 	return nil
@@ -159,5 +183,5 @@ func NewWithAdapter(modelConf string, adapter persist.Adapter) (*Authorizer, err
 	if err != nil {
 		return nil, fmt.Errorf("casbin: new enforcer: %w", err)
 	}
-	return &Authorizer{enf: enf, adapter: adapter}, nil
+	return &Authorizer{enf: enf, adapter: adapter, cache: newEnforceCache(defaultEnforceCacheCapacity)}, nil
 }
