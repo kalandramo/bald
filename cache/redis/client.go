@@ -16,7 +16,7 @@
 //
 // 用法（AppProvider 产物取原生 client）：
 //
-//	rc := app.Resource("cache.redis").(map[string]any)["redis"].(*rediscache.Cache)
+//	rc := app.Resource("cache.redis").(*rediscache.Cache) // 精确子段路径直返实例（map 展开仅发生在顶层段聚合）
 //	rdb := rc.Client() // goredis.UniversalClient，与适配器同一实例
 //	n, err := rdb.Incr(ctx, "captcha:attempts").Result()
 
