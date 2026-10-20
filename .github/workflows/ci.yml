@@ -79,4 +79,4 @@ jobs:
           done
 
       - name: TestTree_EndToEndTimed full-chain timed (criterion ④, outside -short)
-        run: go test ./internal/codegen/ -run TestTree_EndToEndTimed -count=1 -timeout 15m
+        run: go test ./internal/codegen/ -run 'TestTree_(EndToEndTimed|AuthzClosedLoop)' -count=1 -timeout 15m

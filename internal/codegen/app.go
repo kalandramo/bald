@@ -225,6 +225,7 @@ func genAppCmd(streams IOStreams) *cobra.Command {
 	cmd.Flags().StringVar(&o.Module, "module", "", "业务 module 路径（提示用）")
 	cmd.Flags().StringVar(&o.Spec, "spec", "", "AppSpec JSON 路径（protojson），开启 P12 第二步方言生成")
 	cmd.Flags().BoolVar(&o.Force, "force", false, "覆盖已存在的目标文件（默认拒绝）")
+	cmd.SetErr(streams.ErrOut)
 	return cmd
 }
 

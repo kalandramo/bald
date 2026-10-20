@@ -3,6 +3,7 @@ package codegen
 import (
 	"bytes"
 	"go/format"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -124,9 +125,12 @@ func TestGenAppSpec_CommandOmitsName(t *testing.T) {
 		}
 	}
 
-	// 模板模式（无 --spec）：缺 <name> 仍报错。
+	// 模板模式（无 --spec）：缺 <name> 仍报错。此负例用默认流（ErrOut =
+	// os.Stderr），SetErr 覆写为弃流后错误只经 Execute 返回值断言——不把
+	// 预期错误漏进 CI 日志（run 39361419248 的「accepts 1 arg(s)」噪音即此）。
 	cmd2 := genAppCmd(NewDefaultIOStreams())
 	cmd2.SetArgs(nil)
+	cmd2.SetErr(io.Discard)
 	if err := cmd2.Execute(); err == nil {
 		t.Fatalf("template mode without <name> must fail")
 	} else if !strings.Contains(err.Error(), "accepts 1 arg(s)") {

@@ -772,5 +772,6 @@ api/protos、proto），失配报错指明域、proto 文件与实际声明。�
 	cmd.Flags().StringVar(&o.APIServerDir, "apiserver-dir", "", "apiserver 目录名（默认 layout.apiserver_dir 否则 apiserver；传 - 跳过 apiserver 侧产物）")
 	cmd.Flags().BoolVar(&o.Force, "force", false, "覆盖已存在的 owned 文件（默认拒绝）")
 	_ = cmd.MarkFlagFilename("spec", ".json")
+	cmd.SetErr(streams.ErrOut)
 	return cmd
 }

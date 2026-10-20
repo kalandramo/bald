@@ -34,6 +34,14 @@ func TestTree_AuthzClosedLoop(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("go toolchain not in PATH")
 	}
+	// -short 跳过，与判据④计时（TestTree_EndToEndTimed）同口径：全链路
+	// （gen→tidy→build→serve→停机）分钟级墙钟且起真实服务，不混入 -short
+	// 主循环（ci.yml 对 -short 全家仅给 5m 包级超时；本测试此前无守卫随
+	// -short 上 runner，是 run 39104694914 起家族红的成员之一）。CI 全跑
+	// 需在 ci.yml 判据④独立 step 并列 -run——脚手架外改动，另行处理。
+	if testing.Short() {
+		t.Skip("生成工程 authz 闭环 -short 跳过，与判据④计时同口径由 CI 独立 step 全跑")
+	}
 
 	// 1. gen app + gen domain（参考夹具；端口换空闲值，避免并发会话冲突）。
 	baldRoot := repoRoot(t) // Chdir 前取仓库根（Chdir 后 Getwd 是临时产出根）
@@ -176,8 +184,10 @@ func writeAuthzGlue(t *testing.T, dir, tplDir, baldRoot, module string) {
 	if err != nil {
 		t.Fatalf("read generated go.mod: %v", err)
 	}
+	// replace 目标 ToSlash：go.mod 的本地路径统一正斜杠（POSIX 原生形态；
+	// Windows 的 go 命令两种分隔符都收，生成内容不掺平台分隔符）。
 	line := "\nrequire github.com/kalandramo/bald/contrib/authz-casbin v0.0.0-00010101000000-000000000000\n\n" +
-		"replace github.com/kalandramo/bald/contrib/authz-casbin => " + filepath.Join(baldRoot, "contrib", "authz-casbin") + "\n"
+		"replace github.com/kalandramo/bald/contrib/authz-casbin => " + filepath.ToSlash(filepath.Join(baldRoot, "contrib", "authz-casbin")) + "\n"
 	if err := os.WriteFile(gomod, append(content, []byte(line)...), 0o644); err != nil {
 		t.Fatalf("append go.mod: %v", err)
 	}

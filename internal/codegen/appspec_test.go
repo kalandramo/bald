@@ -520,6 +520,21 @@ func TestTree_OwnershipAcrossRegenerations(t *testing.T) {
 // scaffoldModule 在 dir 落一个与 _example/bald 同构的消费者 module：
 // go.mod 逐行改写（module 行换名、replace 相对路径转绝对），go.sum 原样复制
 // ——依赖闭包与 _example 完全一致，离线可构建。
+//
+// hermetic 化（Linux CI 修复）：_example/bald/go.mod 的 kratos fork replace
+// （../../../kratos/...）指向 bald 仓库的**兄弟目录** checkout——只在本机
+// 存在，GitHub runner 只有仓库本身（checkout 在 <workspace>/bald，兄弟目录
+// 解析到 <workspace>/kratos，不存在），go mod tidy 加载模块图即炸。这是
+// run 39104694914 起 TestTree_* 全红的唯一直因（「reading
+// .../kratos/contrib/config/nacos/go.mod: no such file or directory」）。
+// 处置：replace 目标缺 go.mod 的整行剔除，并连带剔除该模块的零时间占位版本
+// require（v?…-00010101000000-000000000000 只可能经 replace 满足，留 require
+// 去 replace 在 proxy 上必 404）。剔除判据 = 目标缺 go.mod **或逃出仓库
+// checkout**（与 TestScaffoldModule_ReplacesAreHermetic 同一不变量——只判
+// 存在性会漏掉本机恰有兄弟 checkout 的机器）。生成树不 import kratos
+// contrib fork（夹具无 registry/nacos 配置，本仓 registry/nacos 也只依赖
+// 真版本 kratos v3.0.0），剔除不改变被测生成物的依赖闭包；_example/bald
+// 本体（用户面）不动。
 func scaffoldModule(t *testing.T, dir, module string) {
 	t.Helper()
 	base := exampleModule(t)
@@ -528,6 +543,10 @@ func scaffoldModule(t *testing.T, dir, module string) {
 		t.Fatalf("read example go.mod: %v", err)
 	}
 	lines := strings.Split(string(gomod), "\n")
+	// 第一遍：module 换名、replace 目标转绝对；目标缺 go.mod 或逃出仓库
+	// checkout 的记入 dropped，行体置删除标记。
+	const drop = "\x00drop"
+	var dropped = map[string]bool{}
 	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		switch {
@@ -535,11 +554,55 @@ func scaffoldModule(t *testing.T, dir, module string) {
 			lines[i] = "module " + module
 		case strings.HasPrefix(trimmed, "replace "):
 			parts := strings.SplitN(trimmed, "=>", 2)
-			if len(parts) == 2 {
-				lines[i] = parts[0] + "=> " + filepath.Join(base, strings.TrimSpace(parts[1]))
+			if len(parts) != 2 {
+				continue
 			}
+			fields := strings.Fields(parts[0])
+			if len(fields) < 2 {
+				continue
+			}
+			target := filepath.Join(base, strings.TrimSpace(parts[1]))
+			// hermetic 判据与 TestScaffoldModule_ReplacesAreHermetic 同一不变量：
+			// 目标必须仍在仓库 checkout 内（根从 base 派生，不依赖进程 cwd）且
+			// 自带 go.mod。只判存在性不够——本机恰有 kratos 兄弟 checkout 时
+			// 外指 replace 在本机成立、runner 上必炸（run 39104694914）。
+			root := filepath.Clean(filepath.Join(base, "..", ".."))
+			inside := false
+			if rel, relErr := filepath.Rel(root, target); relErr == nil &&
+				rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				inside = true
+			}
+			if _, err := os.Stat(filepath.Join(target, "go.mod")); err != nil || !inside {
+				dropped[fields[1]] = true
+				lines[i] = drop
+				continue
+			}
+			lines[i] = parts[0] + "=> " + target
 		}
 	}
+	// 第二遍：剔除删除标记行 + 已删 replace 模块的占位版本 require
+	// （require ( 块内条目与单行 require 都处理）。
+	filtered := lines[:0]
+	inRequire := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		switch {
+		case trimmed == drop:
+			continue
+		case strings.HasPrefix(trimmed, "require ("):
+			inRequire = true
+		case inRequire && trimmed == ")":
+			inRequire = false
+		case len(dropped) > 0 && (inRequire || strings.HasPrefix(trimmed, "require ")):
+			fields := strings.Fields(strings.TrimPrefix(trimmed, "require "))
+			if len(fields) >= 2 && dropped[fields[0]] &&
+				strings.HasSuffix(fields[1], "-00010101000000-000000000000") {
+				continue
+			}
+		}
+		filtered = append(filtered, line)
+	}
+	lines = filtered
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(strings.Join(lines, "\n")), 0o644); err != nil {
 		t.Fatalf("write go.mod: %v", err)
 	}
@@ -550,6 +613,87 @@ func scaffoldModule(t *testing.T, dir, module string) {
 	if err := os.WriteFile(filepath.Join(dir, "go.sum"), gosum, 0o644); err != nil {
 		t.Fatalf("write go.sum: %v", err)
 	}
+}
+
+// TestScaffoldModule_ReplacesAreHermetic 把 Linux CI 的失败模式钉成全平台可跑
+// 的不变量（不依赖 runner 也能验）：脚手架 go.mod 的每个 replace 目标必须
+// 落在仓库 checkout 内且自带 go.mod——runner 上只有仓库本身，指向兄弟目录
+// 的 replace 只在本机碰巧成立（run 39104694914 起 tidy 全红的根因）；每个
+// 零时间占位版本 require 必须有 replace 兜底（占位伪版本 proxy 上不存在）。
+func TestScaffoldModule_ReplacesAreHermetic(t *testing.T) {
+	dir := t.TempDir()
+	scaffoldModule(t, dir, "demo.example/hermetic")
+	data, err := os.ReadFile(filepath.Join(dir, "go.mod"))
+	if err != nil {
+		t.Fatalf("read scaffolded go.mod: %v", err)
+	}
+	root := repoRoot(t)
+	replaced := map[string]bool{}
+	isInsideRepo := func(target string) (bool, error) {
+		rel, err := filepath.Rel(root, target)
+		if err != nil {
+			return false, err
+		}
+		return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)), nil
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "replace ") {
+			continue
+		}
+		parts := strings.SplitN(trimmed, "=>", 2)
+		if len(parts) != 2 {
+			t.Errorf("malformed replace line: %q", trimmed)
+			continue
+		}
+		fields := strings.Fields(parts[0])
+		if len(fields) < 2 {
+			t.Errorf("malformed replace line: %q", trimmed)
+			continue
+		}
+		mod, target := fields[1], strings.TrimSpace(parts[1])
+		if !filepath.IsAbs(target) {
+			t.Errorf("replace %s target must be absolute, got %q", mod, target)
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(target, "go.mod")); err != nil {
+			t.Errorf("replace %s target %s must contain go.mod: %v", mod, target, err)
+			continue
+		}
+		if inside, err := isInsideRepo(target); err != nil || !inside {
+			t.Errorf("replace %s target %s escapes the repo checkout %s (rel=%q, err=%v): a sibling-of-repo replace only resolves on machines with that sibling present — Linux CI has been red on it since run 39104694914", mod, target, root, rel2s(root, target), err)
+			continue
+		}
+		replaced[mod] = true
+	}
+	inRequire := false
+	for _, line := range strings.Split(string(data), "\n") {
+		trimmed := strings.TrimSpace(line)
+		switch {
+		case strings.HasPrefix(trimmed, "require ("):
+			inRequire = true
+			continue
+		case inRequire && trimmed == ")":
+			inRequire = false
+			continue
+		}
+		fields := strings.Fields(strings.TrimPrefix(trimmed, "require "))
+		if len(fields) < 2 || !strings.HasPrefix(fields[1], "v") {
+			continue
+		}
+		if strings.HasSuffix(fields[1], "-00010101000000-000000000000") && !replaced[fields[0]] {
+			t.Errorf("placeholder-version require %s %s has no replace: go mod tidy would try the zero-time pseudo-version on the proxy and 404", fields[0], fields[1])
+		}
+	}
+}
+
+// rel2s 是守卫报错用的相对化捷径（失败时退回原样，不影响断言）。
+func rel2s(root, target string) string {
+	rel, err := filepath.Rel(root, target)
+	if err != nil {
+		return target
+	}
+	return rel
 }
 
 // writeSpecJSON 把 AppSpec 结构写为 protojson 文件（gen app --spec 的输入）。

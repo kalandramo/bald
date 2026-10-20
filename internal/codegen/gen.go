@@ -162,6 +162,10 @@ func NewCommand(streams IOStreams) *cobra.Command {
 		RunE:             func(cmd *cobra.Command, _ []string) error { return cmd.Help() },
 	}
 	cmd.AddCommand(genProtoCmd(streams), genStoreCmd(streams), genAppCmd(streams), genDomainCmd(streams))
+	// cobra 的 "Error: ..." 打到 ErrOrStderr——与 IOStreams 解耦；接上后错误
+	// 随 streams.ErrOut 走（生产 = os.Stderr 行为不变；测试注入弃流即不把
+	// 预期负例错误漏进 CI 日志）。
+	cmd.SetErr(streams.ErrOut)
 	return cmd
 }
 
@@ -248,6 +252,7 @@ func genProtoCmd(streams IOStreams) *cobra.Command {
 		"proto 的 go_package option（默认由 --module 派生；bald 生态经 buf managed mode 补充）")
 	cmd.Flags().StringVar(&o.Module, "module", "", "业务 module 路径（go_package 缺省派生源：<module>/api/gen/go/<name>/v1）")
 	cmd.Flags().BoolVar(&o.Force, "force", false, "覆盖已存在的目标文件（默认拒绝）")
+	cmd.SetErr(streams.ErrOut)
 	return cmd
 }
 
@@ -314,6 +319,7 @@ func genStoreCmd(streams IOStreams) *cobra.Command {
 	cmd.Flags().StringVar(&o.OutDir, "out", "", "输出目录（默认当前目录）")
 	cmd.Flags().StringVar(&o.Pkg, "out-pkg", "", "生成文件的 package（默认 main）")
 	cmd.Flags().BoolVar(&o.Force, "force", false, "覆盖已存在的目标文件（默认拒绝）")
+	cmd.SetErr(streams.ErrOut)
 	return cmd
 }
 

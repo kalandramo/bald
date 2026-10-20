@@ -2,6 +2,7 @@ package codegen
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,10 +10,14 @@ import (
 )
 
 // testStreams 返回捕获 Out 的 IOStreams——命令信息性输出可被断言（Options 三阶段
-// 的可测试性落点：输出走 o.Out 而非 os.Stdout）。
+// 的可测试性落点：输出走 o.Out 而非 os.Stdout）。ErrOut 弃流：gen 命令构造器统一
+// 接 cmd.SetErr(streams.ErrOut)，cobra 的 "Error: ..." 随 ErrOut 走——负例测试
+// 故意触发的错误若绑 os.Stderr 会漏进 CI 日志，读日志的人会误判为真实失败
+// （run 39361419248 日志里的 Gate1/already exists 噪音即此）；错误本身仍经
+// Execute 返回值逐字断言，不损失验证力度。
 func testStreams() (IOStreams, *bytes.Buffer) {
 	var out bytes.Buffer
-	return IOStreams{In: os.Stdin, Out: &out, ErrOut: os.Stderr}, &out
+	return IOStreams{In: os.Stdin, Out: &out, ErrOut: io.Discard}, &out
 }
 
 // ---- writeGuarded 三态归属（D2 §5.1 回归生成语义）----
