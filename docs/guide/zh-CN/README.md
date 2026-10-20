@@ -2,7 +2,7 @@
 
 本手册介绍如何安装、使用 bald 框架构建并运行 Go 服务。
 
-- [产品介绍](./introduction/README.md)
+- [Bald 入门简介](./introduction/README.md)：认知层教程——bald 是什么、为什么这样设计、四条量化判据与推荐阅读路径；先立认知地图，再进操作。
 - [快速入门](./quickstart/README.md)
 - [用 bald CLI 起步新服务](./用%20bald%20CLI%20起步新服务.md)：安装官方 CLI，用 `bald gen app --spec` 从零生成并运行一个可编译的服务骨架（含 AppSpec 参考、配置、生成物解读、常见问题）
 - [Bald 错误处理](./Bald%20错误处理.md)：错误构造（11 工厂 + With\* 链 + sentinel 派生安全）、按 Reason 匹配、HTTP/gRPC 边界收口接线（拦截器最外层/客户端还原）、响应体形状与 FAQ
