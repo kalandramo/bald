@@ -321,7 +321,7 @@ func (s *MCPServer) registerToolsRecursive(cmd *cobra.Command) error {
 			if result != nil {
 				return result, nil
 			}
-			return toolOutputToResult(output), nil
+			return toolOutputToResult(output, toolMeta), nil
 		}); err != nil {
 			baldlog.Error(nil, "register in-process tool failed", "tool", tool.Name, "error", err)
 			continue

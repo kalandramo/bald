@@ -86,6 +86,10 @@ type toolMeta struct {
 	flagNames map[string]struct{}
 	// argSpecs is the ordered list of positional argument specs.
 	argSpecs []ArgSpec
+	// outputJSON records whether the command declared [AnnotationOutputJSON],
+	// i.e. whether its stdout is a JSON contract whose parsed value should be
+	// surfaced as structuredContent.data at call time.
+	outputJSON bool
 }
 
 // buildFlatSchema constructs a flat JSON Schema for a cobra command.
@@ -218,6 +222,11 @@ func (s Selector) createToolFromCmd(cmd *cobra.Command, toolNamePrefix string) (
 	if ann := toolAnnotations(cmd); ann != nil {
 		tool.Annotations = *ann
 	}
+
+	// Record the JSON-contract hint for call-time structured output. It is not
+	// an mcp.ToolAnnotation (the protocol has no such field) and therefore must
+	// not leak into the tool definition.
+	meta.outputJSON = outputJSONHint(cmd)
 
 	return tool, meta, nil
 }

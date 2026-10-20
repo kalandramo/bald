@@ -298,6 +298,8 @@ cmd.Annotations = map[string]string{
 
 布尔值用 `strconv.ParseBool` 解析（`"1"`/`"true"`/`"0"`/`"false"`），解析失败只告警并跳过，不会让注册失败。
 
+不写进 MCP 注解、但同样放在 `cmd.Annotations` 里的还有 `outputJSONHint`（`AnnotationOutputJSON`）——声明该命令的 stdout 是一份 JSON 契约，见 §7.6。
+
 ### 7.5 入参 schema 长什么样
 
 **扁平结构**：所有 flag 与位置参数都是顶层属性，没有嵌套的 `flags` / `args` 子对象。
@@ -330,6 +332,76 @@ cmd.Annotations = map[string]string{
 | `duration` | `string` + Go duration 正则 |
 
 `cmd.MarkFlagRequired("x")` 的 flag 进 `required`；`flag.DefValue` 非空时写入 `default`。
+
+### 7.6 结构化输出：structuredContent 双轨
+
+每个工具结果现在同时带两条轨道：
+
+- **文本轨道**（`content[].text`）：`stdout` 与 `stderr` 用单个换行拼接；非零退出码仍然并入 `isError: true` 的文本结果。这一轨与升级前**逐字节一致**，不认结构化内容的客户端看到的完全是旧行为。
+- **结构化轨道**（`structuredContent`）：`{stdout, stderr, exitCode}`，字段名与 `ToolOutput`（即 REST 形态的响应体）完全一致。空 `stdout`/`stderr` 在 JSON 里**缺省**（键缺失等价空串），`exitCode` **恒出现**（成功为 `0`），它是命令层面的成败判据，`isError` 只表示工具调用本身失败。
+
+为什么值得多这一轨：拿到的是一份真 JSON，模型才能直接据此组装后续查询（拿 `data.pods[0].name` 去查详情），而不是再对一段文本做二次解析。
+
+#### 声明 JSON 输出契约：`outputJSONHint`
+
+命令的 stdout 本来就是机器可读 JSON 时，用注解声明：
+
+```go
+cmd := &cobra.Command{
+    Use:   "pods",
+    Short: "列出 Pod（JSON）",
+    // 命中后，结果的结构化轨道会多一个 data 键，承载解析后的 JSON 原值。
+    Annotations: map[string]string{
+        cobramcp.AnnotationOutputJSON: "true", // 键名 outputJSONHint
+    },
+    RunE: func(cmd *cobra.Command, _ []string) error {
+        // stdout 只放 JSON：任何混排文本都会让结构化侧退化成 warning。
+        return json.NewEncoder(cmd.OutOrStdout()).Encode(pods)
+    },
+}
+```
+
+该注解**不进 MCP 工具注解**（协议没有对应字段），只在注册期被 cobramcp 读走，因此不会改变工具清单里看到的 annotations。布尔值语义与其它布尔注解一致（`ParseBool`：`"1"`/`"true"`/`"0"`/`"false"`）。
+
+调用结果长这样（省略无关字段）：
+
+```json
+{
+  "content": [{ "type": "text", "text": "{\"pods\":[{\"name\":\"a\"}]}" }],
+  "structuredContent": {
+    "stdout": "{\"pods\":[{\"name\":\"a\"}]}\n",
+    "exitCode": 0,
+    "data": { "pods": [{ "name": "a" }] }
+  }
+}
+```
+
+客户端消费方式：优先读 `structuredContent.data`（对象或数组原样放入，**数值用 `json.Number` 保留字面量**，大整数 id 不会被 float64 改写成另一个数）；`data` 缺失时退回读 `content[].text`——两条轨道永远是同一份输出。
+
+#### 解析规则与 `warning`
+
+| stdout 情形 | `data` | `warning` |
+| --- | --- | --- |
+| 空（含纯空白） | 无 | 无——这不是违约，只是这次没有输出 |
+| 合法 JSON 对象 / 数组 | 解析后的原值 | 无 |
+| 非法 JSON | 无 | `not valid JSON: ...` |
+| JSON 之后还有尾随文本 | 无 | `trailing data ...` |
+| 合法但顶层是标量（字符串/数字/布尔/null） | 无 | `... not an object or array` |
+| 超过 1 MiB | 无 | `... above the ... structured parse limit` |
+
+`warning` 只描述「契约没兑现」，同时会经 `bald/log` 打一条 warn（带命令路径），便于运维发现「注解写了、数据却一直缺」。体积上限只作用于**解析**：文本轨道始终完整，从不截断。
+
+**尾随文本是最常见的坑**：cobra 在 `RunE` 返回错误时会把 usage 追加到 stdout，JSON 后面就跟了一串文本。要保住失败路径的机器可读性，命令（或根命令）得打开 `SilenceUsage` / `SilenceErrors`。
+
+#### 错误路径语义
+
+- `exitCode != 0` 时 `isError` 与 `structuredContent` **并存**（mcp-go v1.1.0 允许），失败命令输出的 JSON 诊断对象照样进 `data`。
+- `outputJSONHint` 命中的命令无论退出码是否为 0 都会尝试解析——失败的那次调用往往正是用 JSON 讲清原因的那次。
+- 解析失败**绝不**把工具调用标成 `isError`：命令可能执行成功、只是输出不是 JSON，制造假错误会让调用方误判而重试。工具是否失败只看 `isError` / `exitCode`。
+
+#### 兼容承诺
+
+文本轨道保持逐字节不变（既有测试原样通过），结构化轨道只**新增**字段，不改变任何现有字段的含义；REST 形态（`POST /<tool>`）本来就直接返回 `ToolOutput` JSON，不参与双轨改造。工具定义目前**不声明** `outputSchema`，客户端不要假设存在 schema 校验——形状以本文为准。
 
 ## 8. 收窄暴露面与认证
 

@@ -38,7 +38,46 @@ const (
 	// AnnotationOpenWorld hints that the tool may interact with external entities
 	// outside its closed domain.
 	AnnotationOpenWorld = "openWorldHint"
+
+	// AnnotationOutputJSON 声明该命令的 stdout 是一份 JSON 契约（对象或数组）。
+	//
+	// 它不进入 mcp.ToolAnnotation（MCP 协议没有对应字段），只在注册期被
+	// cobramcp 自己读走：启用的命令，其调用结果的 structuredContent 会多出
+	// 一个 data 键，承载解析后的 JSON 原值，让 LLM 能直接据此组装后续调用，
+	// 而不是重新解析一段文本。文本轨道完全不受影响——解析失败也一样。
+	//
+	// 布尔值语义与其它布尔注解一致（strconv.ParseBool："1"/"true"/"0"/"false"）。
+	AnnotationOutputJSON = "outputJSONHint"
 )
+
+// boolAnnotation parses a boolean annotation.
+//
+// ok is false when the key is absent or its value is not a bool; in the latter
+// case a warning is logged and the annotation is skipped rather than failing
+// registration.
+func boolAnnotation(cmd *cobra.Command, key string) (value, ok bool) {
+	raw, exists := cmd.Annotations[key]
+	if !exists {
+		return false, false
+	}
+
+	parsed, err := strconv.ParseBool(raw)
+	if err != nil {
+		baldlog.Warn(nil, "invalid bool value for annotation, skipping", "key", key, "value", raw)
+
+		return false, false
+	}
+
+	return parsed, true
+}
+
+// outputJSONHint reports whether cmd declares its stdout to be a JSON contract
+// (see [AnnotationOutputJSON]). Absent or unparsable values mean "no hint".
+func outputJSONHint(cmd *cobra.Command) bool {
+	enabled, ok := boolAnnotation(cmd, AnnotationOutputJSON)
+
+	return ok && enabled
+}
 
 // toolAnnotations reads MCP annotation keys from cmd.Annotations and
 // returns a populated *mcp.ToolAnnotation, or nil if no MCP annotations are found.
@@ -67,19 +106,10 @@ func toolAnnotations(cmd *cobra.Command) *mcp.ToolAnnotation {
 	}
 
 	for _, item := range boolAnnotations {
-		raw, ok := cmd.Annotations[item.key]
-		if !ok {
-			continue
+		if parsed, ok := boolAnnotation(cmd, item.key); ok {
+			item.apply(&parsed)
+			found = true
 		}
-
-		parsed, err := strconv.ParseBool(raw)
-		if err != nil {
-			baldlog.Warn(nil, "invalid bool value for annotation, skipping", "key", item.key, "value", raw)
-			continue
-		}
-
-		item.apply(&parsed)
-		found = true
 	}
 
 	if !found {

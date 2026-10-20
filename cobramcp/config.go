@@ -2,7 +2,6 @@ package cobramcp
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"time"
 
@@ -208,7 +207,7 @@ func (c *Config) newTransportServer(cmd *cobra.Command, serverType mcptransport.
 			if err != nil {
 				return mcp.NewToolResultError(err.Error()), nil
 			}
-			return toolOutputToResult(output), nil
+			return toolOutputToResult(output, meta), nil
 		}); err != nil {
 			baldlog.Error(cmd.Context(), "register subprocess tool failed", "tool", tool.Name, "error", err)
 		}
@@ -340,22 +339,4 @@ func decodeToolInput(req mcp.CallToolRequest, meta toolMeta) ToolInput {
 		FlagNames: meta.flagNames,
 		ArgNames:  argNames,
 	}
-}
-
-// toolOutputToResult converts a ToolOutput into a *mcp.CallToolResult.
-func toolOutputToResult(output ToolOutput) *mcp.CallToolResult {
-	combined := output.StdOut
-	if output.StdErr != "" {
-		if combined != "" {
-			combined += "\n"
-		}
-		combined += output.StdErr
-	}
-	if output.ExitCode != 0 {
-		if combined == "" {
-			combined = fmt.Sprintf("exit code %d", output.ExitCode)
-		}
-		return mcp.NewToolResultError(combined)
-	}
-	return mcp.NewToolResultText(combined)
 }

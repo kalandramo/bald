@@ -317,7 +317,12 @@ type ToolInput struct {
 
 ### 6.5 输出转换
 
-`toolOutputToResult`（`config.go`）把 `ToolOutput` 转成 `mcp.CallToolResult`：stdout + stderr 合并；`ExitCode != 0` 时作为工具错误结果返回（MCP 协议层不视为传输错误）。
+`toolOutputToResult`（`structured.go`）把 `ToolOutput` 转成 `mcp.CallToolResult`，输出双轨：
+
+- **文本轨道**（`Content`）：stdout + stderr 合并；`ExitCode != 0` 时作为工具错误结果返回（MCP 协议层不视为传输错误）。这一轨与引入结构化输出之前逐字节一致。
+- **结构化轨道**（`StructuredContent`）：`{stdout, stderr, exitCode}`（空值缺省、`exitCode` 恒出现），字段名与 `ToolOutput` 一致；`isError` 与结构化内容可并存。命中 `outputJSONHint` 注解（`AnnotationOutputJSON`）的命令额外把 stdout 解析进 `data`，解析不了则只给 `warning`，绝不影响文本轨道、也不伪造工具错误。
+
+REST 形态不走这两个轨道：它直接把 `ToolOutput` 序列化成响应体。
 
 ## 7. 服务暴露形态
 
