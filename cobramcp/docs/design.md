@@ -72,6 +72,7 @@ cobramcp/
 ├── stream.go           mcp stream  → SSE
 ├── restcmd.go / rest.go  mcp rest  → 纯 REST
 ├── tools.go            mcp tools   → 导出工具清单 JSON
+├── manifest.go         工具清单 Resource（tools://manifest）
 ├── auth.go             认证中间件构建（钩子 + 静态 token）
 ├── selector.go         Selector 类型 + 工具创建（buildFlatSchema/createToolFromCmd）
 ├── selectors.go        Selector 构造器（AllowCmds/ExcludeFlags/NoFlags 等）
@@ -348,7 +349,25 @@ REST 形态不走这两个轨道：它直接把 `ToolOutput` 序列化成响应�
 
 REST 复用与 MCP 相同的参数还原与子进程执行路径（`restToolHandler` 调 `buildCommandArgs` + `execSubprocess`）。
 
-### 7.2 停机
+### 7.2 工具清单 Resource（`tools://manifest`）
+
+`manifest.go` 把注册好的工具元数据以单个 Resource 暴露，作为"自描述"的第二个载体（第一个是 §6.5 的结构化输出轨道）：
+
+| 项 | 约定 |
+| --- | --- |
+| URI | `tools://manifest`（常量 `ManifestResourceURI`） |
+| MIME | `application/json`（`ManifestMIMEType`） |
+| 内容 | `[]mcp.Tool` 直接序列化：`name` / `description` / `inputSchema` / `annotations`，按 `name` 升序 |
+| 读取 | 注册期一次编码的字节原样返回；未知 URI fail-closed |
+| 注册 | `transport/mcp` 的 `Server.RegisterResource`（对 mcp-go `AddResource` 的薄封装，纯增量） |
+
+**单一真相源**：`toolManifest` 的输入就是注册进服务端的那份 `[]*mcp.Tool`，编码复用 `mcp.Tool.MarshalJSON`——`tools/list` 走的也是它，所以清单元素与 `tools/list` 元素是同一个对象，本包没有第二份"元数据构造"代码。两个执行模型都在工具注册完成后调用同一个 `registerManifestResource`：`config.go` 的 `newTransportServer`（子进程）与 `server.go` 的 `NewMCPServer`（进程内），各自传入真正注册成功的工具切片。
+
+**确定性**：按 `name` 升序后紧凑编码，同一工具集必得同一串字节，客户端可据此缓存或按字节比对（与 `determinism_test.go` 钉的是同一条纪律）。注册顺序是命令树深度优先遍历顺序，属于实现细节，不作为契约暴露。
+
+**兼容面**：Resource 能力是纯增量——不注册时不声明 `resources`，注册后 `initialize` 响应才多出该能力。「只认 Tools」的客户端行为完全不变。逐工具 Resource、`ResourceTemplate`、`resources/subscribe` 均未实现（单份清单已满足"一次拉全"，其余等真实需求）。
+
+### 7.3 停机
 
 - stdio：客户端断开（stdin EOF）即结束，`serveStdio` 用 `select { <-ctx.Done(); <-srv.Done() }` 感知；
 - SSE：等待 ctx 取消后优雅停机；
@@ -492,6 +511,7 @@ cobramcp 不持有自己的日志后端配置：所有日志经 `bald/log` 契�
 ## 12. 扩展点
 
 - **注册非 Cobra 来源的工具**：用 `MCPServer.Transport()` 拿到底层 `transport/mcp` 服务端，直接 `RegisterHandler`。
+- **注册自定义 Resource**：同一个 `Transport()` 上的 `RegisterResource(mcp.Resource, handler)` 就是对 mcp-go `AddResource` 的薄封装；cobramcp 自带的清单 Resource（§7.2）走的就是它。
 - **自定义工具入参 schema**：给 flag 加 `jsonschema` 注解，覆盖类型推导。
 - **改写工具执行**：`Selector.Middleware`（超时、日志、结果改写、错误转换）。
 - **自定义认证**：`AuthMiddleware` 注入任意 `http.Handler` 中间件（注意放行 well-known 路径、透传 `Flusher`）。

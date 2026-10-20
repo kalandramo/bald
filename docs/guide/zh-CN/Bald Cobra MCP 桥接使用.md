@@ -403,6 +403,40 @@ cmd := &cobra.Command{
 
 文本轨道保持逐字节不变（既有测试原样通过），结构化轨道只**新增**字段，不改变任何现有字段的含义；REST 形态（`POST /<tool>`）本来就直接返回 `ToolOutput` JSON，不参与双轨改造。工具定义目前**不声明** `outputSchema`，客户端不要假设存在 schema 校验——形状以本文为准。
 
+### 7.7 工具清单 Resource：`tools://manifest`
+
+除了 `tools/list`，服务端还把**同一份**工具元数据当成 MCP Resource 暴露了一份：
+
+| 项 | 值 |
+| --- | --- |
+| URI | `tools://manifest` |
+| MIME | `application/json` |
+| 内容 | 全部对外暴露工具的数组：`name` / `description` / `inputSchema` / `annotations` |
+| 顺序 | 按 `name` 升序，同一工具集逐字节确定 |
+
+客户端（例如 Claude Desktop）在 `initialize` 之后 `resources/list` 就能看到它，一次 `resources/read` 即拉全工具清单，不必每轮对话重新 `tools/list` 分页取元数据。这和"GraphQL introspection 当 Resource，一次取 schema"是同一个思路：元数据只拉一次，之后按需调用。
+
+清单不是另一份手工维护的文档：它与 `tools/list` 出自同一个注册切片、用同一个 `mcp.Tool` 序列化（`manifest.go` 的 `toolManifest`），所以**两处不可能漂移**。`manifest_test.go` 里逐字段比对清单与 `tools/list`，就是这条承诺的硬证据。清单在注册期一次编码，读取只是把同一份字节原样回出去，没有副作用、也不需要锁。
+
+清单原文长这样（省略部分字段）：
+
+```json
+[
+  {
+    "name": "pods",
+    "description": "列出 Pod（JSON）",
+    "inputSchema": { "type": "object", "properties": { "namespace": { "type": "string" } } },
+    "annotations": { "readOnlyHint": true }
+  }
+]
+```
+
+**客户端能力说明**：只认 Tools 的客户端完全无损——它不会发 `resources/*` 请求，工具调用行为与升级前一致。`initialize` 响应里会多出一条 `resources` 能力声明，那是协议规定的"本服务提供资源"通告，不认它的客户端会忽略。
+
+**两个执行模型行为一致**：子进程模型（`mcp start` / `mcp stream`）与进程内模型（`NewMCPServer`）注册的是同一个 URI、同一份 MIME、同名 Resource；工具集相同时两个模型给出的清单逐字节相同。
+
+**没有做的（YAGNI）**：不提供逐工具 Resource（`tools://manifest/<name>`）——单份清单 JSON 已经满足"一次拉全"；不用 `ResourceTemplate`；不发 `resources/updated` 通知——工具集在服务端生命周期内不可变，订阅没有意义。
+
 ## 8. 收窄暴露面与认证
 
 ### 8.1 Selector：只暴露该暴露的

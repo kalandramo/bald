@@ -121,6 +121,25 @@
 //	    },
 //	}
 //
+// # 自描述：工具清单 Resource
+//
+// 工具元数据有两个载体，内容同源：
+//
+//   - MCP 原生的 tools/list（按需协商，可分页）；
+//   - 固定 Resource tools://manifest（application/json），一次读取即拿到全部
+//     对外暴露工具的 name/description/inputSchema/annotations，按 name 升序、
+//     字节级确定。
+//
+// 支持 Resources 的客户端（例如 Claude Desktop）可以在 initialize 之后先拉清单，
+// 不必逐轮重复请求工具元数据。只认 Tools 的客户端完全无损：工具注册与调用行为
+// 不变，initialize 响应里只是多出一条 resources 能力声明。
+//
+// 清单从工具注册数据派生（manifest.go 的 toolManifest 直接序列化注册用的
+// []*mcp.Tool），不另建真相源，因此不会与 tools/list 漂移。两个执行模型
+// （[Config] 与 [NewMCPServer]）注册的是同一个 Resource。逐工具 Resource
+// （tools://manifest/<name>）与 ResourceTemplate 暂不提供——单份清单已满足
+// "一次拉全"。
+//
 // # Logging
 //
 // cobramcp 不持有自己的日志后端配置：所有日志都经 bald/log 契约输出。

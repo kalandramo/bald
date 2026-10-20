@@ -285,6 +285,24 @@ func (s *Server) RegisterHandlerWithJsonSchema(name, description string, jsonSch
 	return s.RegisterHandler(tool, handler)
 }
 
+// RegisterResource 在底层 MCP 服务端注册一个资源及其读取处理器。
+//
+// 与 RegisterHandler 一样是对 mcp-go 的薄封装：resources/list 与
+// resources/read 的协议帧、能力声明、分页都由 mcp-go 完成，本层不介入
+// 资源内容的语义（URI 编解码、MIME 类型与序列化格式由调用方决定）。
+//
+// 纯增量：不注册任何资源时，initialize 响应中不会声明 resources 能力，
+// 客户端行为与本方法引入之前完全一致。
+func (s *Server) RegisterResource(resource mcp.Resource, handler server.ResourceHandlerFunc) error {
+	if s.mcpServer == nil {
+		return errors.New("mcp server is nil")
+	}
+
+	s.mcpServer.AddResource(resource, handler)
+
+	return nil
+}
+
 // endpointFromListener 由真实 listener 推导 endpoint，":0" 动态端口取系统分配端口。
 func endpointFromListener(ln net.Listener, addr string) *url.URL {
 	host, _, err := net.SplitHostPort(addr)

@@ -199,6 +199,9 @@ func (c *Config) newTransportServer(cmd *cobra.Command, serverType mcptransport.
 	srv := mcptransport.NewServer(opts...)
 
 	// 子进程模型：每次工具调用都以还原出的参数重新执行自身二进制。
+	// registered 记录真正注册成功的工具，清单只从这份数据派生。
+	registered := make([]*mcp.Tool, 0, len(c.tools))
+
 	for _, tool := range c.tools {
 		meta := c.toolMetas[tool.Name]
 		if err := srv.RegisterHandler(*tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -210,7 +213,17 @@ func (c *Config) newTransportServer(cmd *cobra.Command, serverType mcptransport.
 			return toolOutputToResult(output, meta), nil
 		}); err != nil {
 			baldlog.Error(cmd.Context(), "register subprocess tool failed", "tool", tool.Name, "error", err)
+
+			continue
 		}
+
+		registered = append(registered, tool)
+	}
+
+	// 自描述载体（MCP 演进 P2）：与进程内模型同一实现、同一份数据派生，
+	// 两个模型对客户端暴露的清单语义一致。
+	if err := registerManifestResource(srv.RegisterResource, registered); err != nil {
+		return nil, err
 	}
 
 	return srv, nil
