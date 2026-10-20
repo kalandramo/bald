@@ -27,6 +27,12 @@ import (
 // 以 CTRL_BREAK 控制台事件代之（Go 运行时转成 os.Interrupt，命中 App.Run
 // 的 signal.Notify(SIGINT, SIGTERM) 优雅停机分支——同一代码路径）。
 func TestTree_EndToEndTimed(t *testing.T) {
+	// 判据④端到端计时 -short 跳过，由 CI 独立 step 全跑：全链路（gen→
+	// tidy→build→serve→停机）分钟级墙钟且起真实服务，不混入 -short 主
+	// 循环；ci.yml 在模块循环后以独立 step 全跑本测试。
+	if testing.Short() {
+		t.Skip("判据④端到端计时 -short 跳过，由 CI 独立 step 全跑")
+	}
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("go toolchain not in PATH")
 	}

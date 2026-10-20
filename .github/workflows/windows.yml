@@ -1,0 +1,58 @@
+# ci-windows：Windows 周界守卫（W6-3 ⑤ 窄口径）。不复制主 ci.yml 的全量
+# 85 module：每周窗口内只跑跨平台敏感的三个 module——
+#   - root：含 internal/codegen（判据④全链路）与 pkg/appkit（装配引擎）；
+#   - bootstrap：装配/配置装载（含 bootstrap/config 基准包）；
+#   - contrib/authz-casbin：桥接外部引擎（casbin）的策略装载与授权路径。
+# 其余模块不触碰 Windows 特有分支（信号/控制台/路径语义），全量覆盖归
+# ubuntu 主 ci.yml。
+# 步骤口径：
+#   - root go test -short：与主循环同口径（-short 跳过计时/集成测试）；
+#   - TestTree_EndToEndTimed 独立全跑：覆盖 CTRL_BREAK 停机路径全链路
+#     （Windows 无 SIGTERM，以 CTRL_BREAK 控制台事件代之，命中同一
+#     os.Interrupt 优雅停机分支）；-timeout 20m 对 Windows 冷态构建余量
+#     充分；
+#   - bootstrap / casbin：build + vet + test -short 三件套（同主循环单
+#     module 口径）。
+# 触发：每周一 03:00 UTC cron + 手动 workflow_dispatch（修窗/发布前手动触发）。
+name: ci-windows
+
+on:
+  schedule:
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: windows-latest
+    env:
+      # 与 ci.yml 同一故障转移串（goproxy.io 主源 + proxy.golang.org 备源）
+      GOPROXY: "https://goproxy.io|https://proxy.golang.org,direct"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.1"
+
+      - name: root module go test -short
+        run: go test -short -timeout 10m ./...
+
+      - name: TestTree_EndToEndTimed full-chain timed (CTRL_BREAK shutdown path)
+        run: go test ./internal/codegen/ -run TestTree_EndToEndTimed -count=1 -timeout 20m
+
+      - name: bootstrap module build + vet + test
+        working-directory: bootstrap
+        run: |
+          go build ./...
+          go vet ./...
+          go test -short -timeout 10m ./...
+
+      - name: contrib/authz-casbin build + vet + test
+        working-directory: contrib/authz-casbin
+        run: |
+          go build ./...
+          go vet ./...
+          go test -short -timeout 10m ./...

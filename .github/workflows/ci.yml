@@ -7,6 +7,15 @@
 #   注释），MessageState 含 Mutex 属 vet 误报区。
 # - go test -short + -timeout 5m：-short 跳过集成测试（各模块
 #   testing.Short() 惯例）；超时防挂死测试拖垮整个 job。
+# - 基准冒烟：每模块追加 go test -bench . -benchtime=1x -run '^$'——编译
+#   并单迭代跑一轮基准，拦「基准编译坏/基准 panic」回归；无基准 module
+#   空跑零成本，有基准 module（root/bootstrap/bconf/casbin）各秒级。
+#   分配剖面回归不在此拦：由各包 alloc_guard_test.go（testing.Benchmark
+#   直取既有基准断言）随 -short 主循环守卫，不经 CI 解析基准输出。
+# - 判据④端到端计时（TestTree_EndToEndTimed：gen→tidy→build→serve→
+#   停机 ≤1800s）分钟级墙钟且起真实服务，不适合 -short 主循环：测试内
+#   testing.Short 跳过，循环后独立 step 全跑（-count=1 -timeout 15m；
+#   循环内构建缓存已温热，15m 对残余冷态余量充分）。
 # - 依赖预下载 + 3 次重试：proxy.golang.org 偶发 HTTP/2 瞬断
 #   （stream INTERNAL_ERROR，2026-09-12 log/aliyun 即此挂掉），
 #   下载完成后 build/vet/test 全程离线稳定。
@@ -63,8 +72,11 @@ jobs:
               sleep 15
             done
             if [ "$mod" = "." ]; then
-              (cd . && go build ./... && go vet -copylocks=false ./... && go test -short -timeout 5m ./...)
+              (cd . && go build ./... && go vet -copylocks=false ./... && go test -short -timeout 5m ./... && go test -bench . -benchtime=1x -run '^$' ./...)
             else
-              (cd "$mod" && go build ./... && go vet ./... && go test -short -timeout 5m ./...)
+              (cd "$mod" && go build ./... && go vet ./... && go test -short -timeout 5m ./... && go test -bench . -benchtime=1x -run '^$' ./...)
             fi
           done
+
+      - name: TestTree_EndToEndTimed full-chain timed (criterion ④, outside -short)
+        run: go test ./internal/codegen/ -run TestTree_EndToEndTimed -count=1 -timeout 15m
