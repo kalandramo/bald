@@ -1,4 +1,4 @@
-# 机制层 mech：Effect 与期望态
+# 机制层 mech - Effect 与期望态
 
 本页介绍 `pkg/appkit/mech`——bald 的高级机制面。quickstart 的单入口装配
 （`appkit.MustServe`）与各能力包页覆盖日常开发，用不到这里的任何符号；

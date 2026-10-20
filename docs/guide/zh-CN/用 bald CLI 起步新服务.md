@@ -157,7 +157,7 @@ bald gen domain --spec appspec.json --force # 重写域清单与逐域扇出
 | `internal/apiserver/authz/alias.gen.go` | 授权别名表 + 默认动作聚合（proto service 派生） |
 | `<go_package>/domain.gen.go` | 域声明值骨架（**生成一次**：域包已有导出 `Domain` 时跳过——既有域包如 `_example/bald/greetv1` 不会被覆盖） |
 
-rerun 语义：新增域 = 手写 proto + 域包 + 改 `domains[]` + 上面两条命令——装配文件改动为 0（域清单存在的意义）。Gate1 会校验 `domains[].service` 与产出根下实际 proto 匹配（扫描 `api/proto`、`api/protos`、`proto`），失配报错指明哪个域、哪个 proto 文件、实际声明了什么。详细展开见[新增业务域：Domain 与 gen domain](新增业务域：Domain%20与%20gen%20domain.md)。
+rerun 语义：新增域 = 手写 proto + 域包 + 改 `domains[]` + 上面两条命令——装配文件改动为 0（域清单存在的意义）。Gate1 会校验 `domains[].service` 与产出根下实际 proto 匹配（扫描 `api/proto`、`api/protos`、`proto`），失配报错指明哪个域、哪个 proto 文件、实际声明了什么。详细展开见[新增业务域 - Domain 与 gen domain](新增业务域%20-%20Domain%20与%20gen%20domain.md)。
 
 ## 7. gen proto / gen store：契约骨架
 
@@ -219,7 +219,7 @@ router.Use(bundle.New(
 | 症状 | 原因与处理 |
 |---|---|
 | `Gate1 (spec schema): meta.name is required ...` | AppSpec 缺必填字段；报错逐条列出（含字段路径），按条补齐 |
-| `components[0].kind "db" is not supported (whitelist: heartbeat)` | kind 白名单当前仅 `heartbeat`；db/redis 等经业务 Provider 接入（见[Provider 接入：contract.AppProvider 与段 Provider](Provider%20接入：contract.AppProvider%20与段%20Provider.md)） |
+| `components[0].kind "db" is not supported (whitelist: heartbeat)` | kind 白名单当前仅 `heartbeat`；db/redis 等经业务 Provider 接入（见[Provider 接入 - contract.AppProvider 与段 Provider](Provider%20接入%20-%20contract.AppProvider%20与段%20Provider.md)） |
 | `Gate2 (contract keys ...): contract keys unknown to bconf (typo? ...)` | `AppSpec.bootstrap` 里有契约外的键；改键名或删除 |
 | `config: unknown contract keys (typo? or declare in AllowBusinessSections): <keys>` | 运行期 StrictContract 拦到未知键（配置文件/env/flag 均在检查范围）；改键名，业务自持段经 `appkit.StrictContract("<段名>")` 白名单放行 |
 | `unresolved capabilities: capability "db" (required by audit.store)` | `capability.requires` 声明的能力不在 `provides`；补齐声明 |
@@ -231,7 +231,7 @@ router.Use(bundle.New(
 ## 10. 下一步
 
 - [快速入门](./quickstart/README.md)：五分钟跑通最小服务。
-- [新增业务域：Domain 与 gen domain](新增业务域：Domain%20与%20gen%20domain.md)：域包三文件结构与 gen domain 全解。
-- [Provider 接入：contract.AppProvider 与段 Provider](Provider%20接入：contract.AppProvider%20与段%20Provider.md)：接数据库等第三方后端。
-- [机制层 mech：Effect 与期望态](机制层%20mech：Effect%20与期望态.md)：能力/组件/热更新的机制层原语。
+- [新增业务域 - Domain 与 gen domain](新增业务域%20-%20Domain%20与%20gen%20domain.md)：域包三文件结构与 gen domain 全解。
+- [Provider 接入 - contract.AppProvider 与段 Provider](Provider%20接入%20-%20contract.AppProvider%20与段%20Provider.md)：接数据库等第三方后端。
+- [机制层 mech - Effect 与期望态](机制层%20mech%20-%20Effect%20与期望态.md)：能力/组件/热更新的机制层原语。
 - [Bald 授权使用](Bald%20授权使用.md)：授权模型、casbin 桥与策略管理。

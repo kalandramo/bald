@@ -1,4 +1,4 @@
-# Provider 接入：contract.AppProvider 与段 Provider
+# Provider 接入 - contract.AppProvider 与段 Provider
 
 面向要把一个能力（自研或第三方）接进 bald 装配层的人：标准能力怎么一行接入、整段自持的 Provider 怎么写、段覆盖与停机回收的语义、报错了怎么修。设计论证（装配引擎为什么从 12 段手工流收敛为段驱动 Provider）见 `docs/devel/zh-CN/装配层评估.md` §4.2，本文只讲操作。主线一句话：**能力进装配层的唯一形态是段驱动 Provider——声明消费哪个契约段，引擎在既定阶段调 Build，产物按段路径落统一资源面，cleanup 进停机 Effect 账本。**
 
@@ -19,7 +19,7 @@ type Provider interface {
 ```
 
 - **Segments：段路径即契约段**。顶层段名（"database"、"audit"）或子段路径（"database.sql"、"server.http"），精确匹配；段存在性由 protobuf 反射逐级判定（消息型字段非 nil 即 present）。契约共 15 个顶层段。
-- **Option 同款 Apply**：Provider 嵌入 Option——与 `std.Standard()`、业务域声明值并列传入 MustServe（[新增业务域](./新增业务域：Domain%20与%20gen%20domain.md) §3 同一手法）。`appkit.Providers(ps ...Provider)` 可把多个 Provider 打包为一个 Option（`provider.go:106`）。
+- **Option 同款 Apply**：Provider 嵌入 Option——与 `std.Standard()`、业务域声明值并列传入 MustServe（[新增业务域](./新增业务域%20-%20Domain%20与%20gen%20domain.md) §3 同一手法）。`appkit.Providers(ps ...Provider)` 可把多个 Provider 打包为一个 Option（`provider.go:106`）。
 - **Build 输入 BuildScope**：Config（阶段 B / server 阶段为已装载定型的完整契约；config 段构造期与 logger 阶段 A 可为 nil）、Decl（只读约定）、App（阶段 B 起非 nil，**前序段产物已填充**——audit 后端经 `App.Resource("database.sql")` 取连接即依赖此序）。
 - **Build 产物形状按顶层段约定**：registry 段为 registry.Registrar；六资源域（database/cache/storage/ai/workflow/broker）为 map[string]any（键=子段名）；audit 段为 audit.Auditor；server 段为 []transport.Server；config 段为 []config.Layer；无产物可返回 nil。
 
@@ -110,7 +110,7 @@ appkit: bootstrap config declares sections with no consumer:
 - registry/audit 等整产物段 → 产物本身；
 - 未装配或段缺失 → `(nil, false)`；装配构造期恒 `(nil, false)`。
 
-域 Wire、业务钩子都从这一个入口取（[新增业务域](./新增业务域：Domain%20与%20gen%20domain.md) §6：基础设施经资源面迟到取用）。tracer/metrics 产物刻意不落资源面（shutdown/暴露端由 Provider 自持，cleanup 槽位承担停机回收）；六资源域段（database/cache/storage/ai/workflow/broker）不支持热更新。
+域 Wire、业务钩子都从这一个入口取（[新增业务域](./新增业务域%20-%20Domain%20与%20gen%20domain.md) §6：基础设施经资源面迟到取用）。tracer/metrics 产物刻意不落资源面（shutdown/暴露端由 Provider 自持，cleanup 槽位承担停机回收）；六资源域段（database/cache/storage/ai/workflow/broker）不支持热更新。
 
 ## 5. cleanup 与停机：Effect 账本
 

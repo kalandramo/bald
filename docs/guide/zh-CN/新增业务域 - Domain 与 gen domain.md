@@ -1,4 +1,4 @@
-# 新增业务域：Domain 与 gen domain
+# 新增业务域 - Domain 与 gen domain
 
 面向要给 bald 服务新增一个业务域的人：域声明值怎么写、三个槽位各在什么时点被引擎消费、`bald gen domain` 重写哪些生成物、报错了怎么修。设计论证（为什么域清单必须由生成文件承载、为什么 appkit 不新增注册表式 API）见 `docs/devel/zh-CN/装配层评估.md` §4.3/§4.6，本文只讲操作。主线一句话（批 3 收口判据①原文）：**演示域 = proto + greet.go + domain.go 共 3 手写文件，gen domain 重写清单，装配改动 0**。
 
@@ -155,7 +155,7 @@ AppSpec.domains 字段参考（protojson 字段名；范本 `_example/bald/appsp
 ## 6. 多域协作规则
 
 - **域间禁止互相 import**。业务能力级跨域访问走两条通道：被依赖域包导出访问器，依赖经 Deps getter 供给——装配面保留各域 Deps getter 实参，域在 Wire 里迟到取用。批 4 W1b 样板域（tenant/user）先行定型这套形态，bald-admin 21 域域化实证（共享依赖清单 BizSet 随之溶解为域 Wire 自取）。
-- **基础设施住装配层**：数据库连接、缓存客户端等是装配层自持的抉择，域在 Wire 内经 `app.Resource("database.sql")`、`app.Resource("cache.redis")` 迟到取用（阶段 B 产物此时已就绪；资源面语义见 [Provider 接入](./Provider%20接入：contract.AppProvider%20与段%20Provider.md) §4）；迁移执行同理。
+- **基础设施住装配层**：数据库连接、缓存客户端等是装配层自持的抉择，域在 Wire 内经 `app.Resource("database.sql")`、`app.Resource("cache.redis")` 迟到取用（阶段 B 产物此时已就绪；资源面语义见 [Provider 接入](./Provider%20接入%20-%20contract.AppProvider%20与段%20Provider.md) §4）；迁移执行同理。
 - **业务配置段只进 Settings 快照**：`app.Settings()` 读自己的 `<域>.*` 子树，不进契约、不触发 L3 覆盖检查。
 
 ## FAQ
