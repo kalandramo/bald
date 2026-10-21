@@ -1,6 +1,6 @@
 // reconcile.go 实现 R1 第二子集：期望态 diff-apply 协调器
-// （docs/devel/zh-CN/架构优化路线.md §3 R1，对照 Cordis 组件加载器的增量协调
-// 与 Kubernetes 的 declarative reconcile 循环）。
+// （docs/devel/zh-CN/架构优化路线.md §3 R1；与 Kubernetes declarative
+// reconcile 循环同型）。
 //
 // R1-1（OnKeyChange）是**事件驱动**：框架告诉你「key 从 A 变 B」，业务自己决定
 // 怎么响应。R1-2 是**状态驱动**：业务只声明「期望是什么样」，框架拿期望态与实际态
@@ -74,7 +74,7 @@ type ReconcileCtx struct {
 }
 
 // String 读取期望态中点路径的字符串值（缺失/nil → ""，标量 → 字符串化）。
-// 薄委托 config.At + config.String（B7 §4.3：点路径读取与标量字符串化是
+// 薄委托 config.At + config.String（点路径读取与标量字符串化是
 // 配置装载层的值语义，实现体归 bootstrap/config，appkit 只留接收者方法）。
 func (r *ReconcileCtx) String(key string) string {
 	v, ok := config.At(r.Settings, key)

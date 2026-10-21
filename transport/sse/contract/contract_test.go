@@ -10,9 +10,8 @@ package contract
 //  5. afterBuild 回调在 server 构造后被调用，且拿到非 nil server；
 //  6. afterBuild 返回 error → 装配失败。
 //
-// 这些断言共同覆盖「逃生舱 → 契约 provider」迁移中的行为等价性：
-// 迁移前由 bald-admin 的 buildSSEServer 做的 path 处理与接线，
-// 迁移后应由 Provider + Option 承担。
+// 这些断言共同钉住契约 provider 的行为等价性：path 处理与接线由
+// Provider + Option 承担。
 
 import (
 	"context"

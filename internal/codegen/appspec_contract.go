@@ -22,8 +22,7 @@ import (
 // （描述符派生），漏不了（段存在性由 Has 判定）。
 
 // contractTree 把 AppSpec 归一化后的 bootstrap 段派生为配置树（map 形态，
-// 键 = proto 字段名），并保证 app.name 必有值（缺省取 meta.name——装配层
-// 评估 §3.3 表：app.name 缺省取 meta.name）。
+// 键 = proto 字段名），并保证 app.name 必有值（缺省取 meta.name）。
 func contractTree(as *appspecv1.AppSpec, bs *bootstrapv1.BootstrapConfig) (map[string]any, error) {
 	m, err := messageToMap(bs.ProtoReflect())
 	if err != nil {

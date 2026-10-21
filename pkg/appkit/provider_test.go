@@ -1,4 +1,4 @@
-// provider_test.go —— 段驱动装配引擎的测试装置（批 2 W2b）。
+// provider_test.go —— 段驱动装配引擎的测试装置。
 //
 // segProvider 是通用测试 Provider：固定段路径 + Build 闭包，可直接作为
 // Option 传入 assembleForTest。registryProvider 把 bootstrap 各域 Registry

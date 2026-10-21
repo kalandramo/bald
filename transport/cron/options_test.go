@@ -6,7 +6,7 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// P2-5：WithSeconds 契约落地（原为空实现）
+// WithSeconds 契约
 //
 // 契约声明 `server.cron.seconds`「是否启用秒级精度，默认 false」，但
 // WithSeconds 此前是空实现——配了完全无效。且 parser 在 NewServer 内构造、

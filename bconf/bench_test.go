@@ -2,7 +2,7 @@ package bconf
 
 import "testing"
 
-// bench_test.go 为 bconf 契约核心的基准套件（批 5 W3）。三项均与 v0.24.0 可比
+// bench_test.go 为 bconf 契约核心的基准套件。三项均与 v0.24.0 可比
 // （API 未断裂），对照方法与口径见 docs/devel/zh-CN/性能基准.md。
 //
 // 口径纪律：
@@ -216,11 +216,11 @@ func BenchmarkFindUnknownKeys_StrictScan(b *testing.B) {
 	}
 }
 
-// TestUnmarshalMap_MapFieldReplace 是 W3 基准套件首跑实证崩溃的回归测试：
+// TestUnmarshalMap_MapFieldReplace 钉住 map 字段替换语义的回归测试：
 // clearPresentLists 曾把 map 字段落入 MessageKind 分支（map 字段的 Kind 是
 // 合成 entry 消息），Mutable(fd).Message() 对 map 直接 panic——契约里任何
 // 非空 map<string,string>（tracer.otlp.headers、logger.loki.labels）都会
-// 崩溃，v0.24.0 起即存在且无既有测试覆盖。修复后 map 与 repeated 同为
+// 崩溃。map 与 repeated 同为
 // 「替换」语义：二次 Unmarshal 的 map 整体覆盖，不残留首次条目。
 func TestUnmarshalMap_MapFieldReplace(t *testing.T) {
 	cfg := NewBootstrap()

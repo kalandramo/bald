@@ -52,10 +52,9 @@ func (s *stubRegistrar) snapshot() (int, int) {
 // --- 约定装配（契约驱动）：全生命周期（阶段 B 构造 → start 注册 → 停机反注册 + cleanup） ---
 //
 // 注：RegistrarRegistry 自身的「显式注册 + fail-fast + 单选分发」单测在
-// bootstrap module（bootstrap/registrar_test.go）——2026-09-17 该注册表迁入
-// bootstrap 装配层；批 2 W2b 起它经 registrarTestProvider 包成 registry 段
-// Provider 接入段驱动装配（生产侧由后端 contract 包导出 Provider），本文件
-// 只保留 appkit 侧的生命周期编排断言。
+// bootstrap module（bootstrap/registrar_test.go）；注册表经 registrarTestProvider
+// 包成 registry 段 Provider 接入段驱动装配（生产侧由后端 contract 包导出
+// Provider），本文件只保留 appkit 侧的生命周期编排断言。
 
 func TestAssemble_ContractRegistrarLifecycle(t *testing.T) {
 	old := log.GetLogger()
@@ -156,7 +155,7 @@ func TestAssemble_RegistrySectionWithoutTable(t *testing.T) {
 	}
 }
 
-// --- New 构造路径：SetRegistrar 运行期注入（go-bald-admin T7 装配模式） ---
+// --- New 构造路径：SetRegistrar 运行期注入 ---
 
 // BeforeStart 里按契约 Build + SetRegistrar（NewApp 路径等价于约定装配的
 // buildRegistrar），cleanup 挂停机 Effect：断言 register 发生（SetRegistrar

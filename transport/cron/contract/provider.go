@@ -1,11 +1,11 @@
-// provider.go —— 段驱动装配的加法式 Provider 导出（批 2 第三波：生态接入，
+// provider.go —— 段驱动装配的加法式 Provider 导出（生态接入，
 // 范本 contrib/store-gorm 的 AppProvider）。既有构造逻辑（Provider 契约
 // 工厂，段字段 → cron.Option 映射 + 任务挂载）保留不动；本文件只**新增**
 // 对 pkg/appkit 段驱动装配的接入面：AppProvider() 消费契约 server.cron 段，
 // 产物为 transport.Server 进服务器列表。
 //
 // server 段 co-provider：与 std 的 http/grpc 并存（不同段路径并存是引擎
-// 的既有语义，W2b 测试已证明）；server 段在业务 BeforeStart 钩子之后构建
+// 的既有语义）；server 段在业务 BeforeStart 钩子之后构建
 // （phaseLate，服务器构造消费业务建好的运行期资源）。
 //
 // 本包的 Option（WithJobs / WithServerOptions）经 AppProvider 的变参透传，

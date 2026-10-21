@@ -56,7 +56,7 @@ type App struct {
 	// cfgNamespace 是**配置命名空间**——派生 env 前缀（BALD_DEMO_*）与多环境
 	// 文件名（bald-demo-prod.yaml）的稳定标识（见 loadConfig 的 config.Options.Name）。
 	//
-	// 取值（B6 两遍合并，装配层评估 §5.1）：Serve 路径由契约 app.name 派生
+	// 取值（B6 两遍合并）：Serve 路径由契约 app.name 派生
 	// （先装载文件/远程层解析 app.name，再按它挂 env 层——自指由两遍顺序消解，
 	// env 名不变）；NewApp 路径回退 Name（代码层稳定源，无自指）。
 	cfgNamespace string
@@ -68,10 +68,9 @@ type App struct {
 	registrar registry.Registrar // 注册中心
 	servers   []transport.Server // 服务协议
 
-	// resources 是统一资源面（B4，装配层评估 §5.1）：段驱动 Provider 的产物
+	// resources 是统一资源面：段驱动 Provider 的产物
 	// 按契约段路径存取（键=段路径，见 Resource 与 storeProduct）。阶段 B
-	// 写入、Run 后只读，happens-before 由 Run 启动流程保证（与原六域
-	// map 字段的并发语义一致）。
+	// 写入、Run 后只读，happens-before 由 Run 启动流程保证。
 	resources map[string]any
 
 	// 钩子（可选）。
@@ -93,7 +92,7 @@ type App struct {
 	provides []string
 	requires []requirement
 
-	// R1 key 级配置订阅：细粒度变更分发（见 keywatch.go）。
+	// key 级配置订阅：细粒度变更分发（见 keywatch.go）。
 	// 与配置仓库的分工：Store 管装载与快照，本字段只存「订阅者」——变更分发
 	// 在 wrapKeyWatch 内，见 doc.go「扩展机制的职责边界」。
 	keyWatchers []keyWatcher
@@ -112,15 +111,15 @@ type App struct {
 	componentTimeout time.Duration
 	started          []Component // 已成功 Start 的组件（Dispose 幂等跟踪）
 	startedMu        sync.Mutex
-	disposed         bool // 组件系统已销毁（A1：置位后拒绝运行期挂载，见 mount.go）
+	disposed         bool // 组件系统已销毁（置位后拒绝运行期挂载，见 mount.go）
 
-	// 身份端口（D1 §4.4）：appkit 审计事件的 Subject/TenantID 取值函数；
+	// 身份端口：appkit 审计事件的 Subject/TenantID 取值函数；
 	// nil = 空身份（与今日 claims 为 nil 时一致）。适配由应用侧注入。
 	identity IdentityFunc
 
-	// D4 审计后端：运行期重组/协调审计事件（mount/reconcile）的显式注入点，
+	// 审计后端：运行期重组/协调审计事件（mount/reconcile）的显式注入点，
 	// 契约 audit 段产物在阶段 B 兜底写入（见 storeProduct）。nil 时 resolveAuditor
-	// 返回 Nop（B8 收尾：全局 audit.GetAuditor() 兜底已删除）。
+	// 返回 Nop（B8：全局 audit.GetAuditor() 兜底已删除）。
 	auditor audit.Auditor
 
 	// 配置对象
@@ -224,13 +223,13 @@ func bindFlags(fs *pflag.FlagSet, b BindDecl) error {
 
 // Option 配置 App 的装配期声明。
 //
-// 批 2 起为**接口**：type Option interface{ Apply(*Decl) }——方法与参数类型
+// Option 为**接口**：type Option interface{ Apply(*Decl) }——方法与参数类型
 // 均导出，包外（pkg/appkit/mech、未来 contrib）可实现自己的 Option 值直写
-// Decl 导出字段（装配层评估 §5.2 / D1 §5.2）。包内构造器经 optionFunc
+// Decl 导出字段。包内构造器经 optionFunc
 // 适配；运行期状态不受影响——Apply 只写纯数据声明，App 在构造期从
 // Decl 拷贝（newFromDecl）。
 //
-// 兼容性（本波不删任何导出名）：所有既有构造函数（ID/Name/Bind/…）签名
+// 兼容性：所有既有构造函数（ID/Name/Bind/…）签名
 // 不变、语义不变，仅返回值从 func 值变为实现该接口的值；[]Option 切片、
 // 变参传递照常编译。变化点是 Option 值不再可直接调用（opt(a) 形态）——
 // 全仓检索确认无此用法。
@@ -393,7 +392,7 @@ func newDecl(opts ...Option) *Decl {
 	return &d
 }
 
-// NewApp 构造 App（原 New，批 2 W2a 更名）：显式 Option 装配的构造器，
+// NewApp 构造 App：显式 Option 装配的构造器，
 // 测试/e2e 复用同一构造逻辑的入口。先以缺省值初始化 Decl，逐项 Apply 声明，
 // 再从 Decl 构造（构造期拷贝，见 decl.go）。
 //
@@ -442,7 +441,7 @@ func (a *App) loadConfig() error {
 		Layers:         a.cfg.layers,
 		Remote:         a.cfg.remote,
 		WatchLocalFile: a.cfg.watchFile,
-		OnChange:       a.wrapKeyWatch(a.cfg.onChange), // R1：包装全量回调，追加 key 级分发
+		OnChange:       a.wrapKeyWatch(a.cfg.onChange), // 包装全量回调，追加 key 级分发
 		// 严格契约校验（opt-in，见 StrictContract）：业务段经白名单整棵放行，
 		// 其余顶层段内的未知键 fail-fast。框架**不认识任何业务段名**——白名单由
 		// 应用传入，故此处只做透传，不引入业务概念。
@@ -453,7 +452,7 @@ func (a *App) loadConfig() error {
 		return err
 	}
 	a.cfg.store = s
-	a.armKeyWatchers() // R1：以首次加载值为基线
+	a.armKeyWatchers() // 以首次加载值为基线
 	return nil
 }
 

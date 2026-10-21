@@ -45,7 +45,7 @@ func TestProvider_MissingAddr(t *testing.T) {
 }
 
 // miniredis 起真实内存 Redis 验证全流程：Ping→读写→前缀隔离→cleanup 关闭。
-// （§0 硬性原则：接真实 Redis，不用 fake client。）
+// （硬性原则：接真实 Redis，不用 fake client。）
 func TestProvider_BuildRoundTripAndCleanup(t *testing.T) {
 	mr, err := miniredis.Run()
 	if err != nil {

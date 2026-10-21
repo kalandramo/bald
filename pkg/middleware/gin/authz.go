@@ -41,7 +41,7 @@ func WithSubjectResolver(fn func(c *gin.Context) string) AuthzOption {
 // AuthzMiddleware 是 gin 授权中间件：用注入的 Authorizer 对 (subject, object, action)
 // 访问控制。
 //
-// 默认（无 Option）：object 取请求路径、action 取 HTTP 方法（与 P7 一致）。
+// 默认（无 Option）：object 取请求路径、action 取 HTTP 方法。
 // 接 casbin/RBAC 且需与 gRPC 共用策略时，可用 authz.DefaultHTTPObject/DefaultHTTPAction
 // 做传输中立归一化（与 grpc 侧对称）：
 //

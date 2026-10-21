@@ -2,7 +2,7 @@ package bconf
 
 import "testing"
 
-// alloc_guard_test.go 为 bconf 热路径的分配剖面守卫（批 6 收尾）：以
+// alloc_guard_test.go 为 bconf 热路径的分配剖面守卫：以
 // testing.Benchmark() 直取 bench_test.go 既有基准定义（同包函数值直用，
 // 不复制 fixture、不另起口径），在测试进程内断言关键分配不变量。分配
 // 剖面只取决于代码与工具链版本——本地与 CI 同 go 1.27.1，确定性成立，

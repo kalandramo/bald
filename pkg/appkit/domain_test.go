@@ -1,6 +1,6 @@
 package appkit
 
-// domain_test.go 钉住业务域引擎消费的四个不变量（装配层评估 §4.3）：
+// domain_test.go 钉住业务域引擎消费的四个不变量：
 //  1. Wire 时点窗口：阶段 B 资源面就绪之后（App.Resource 可取产物）、业务
 //     BeforeStart 之后、迟后阶段（server 构建）之前——两约束夹出的窗口；
 //  2. 多域次序 = 声明序（Wire 与 Routes 均按 MustServe 变参序）；

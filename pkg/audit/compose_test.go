@@ -1,6 +1,6 @@
 package audit
 
-// Compose 单测（批 1 内化）：多后端组装、后端为空、第 N 个失败时已建后端
+// Compose 单测：多后端组装、后端为空、第 N 个失败时已建后端
 // 逆序关闭、重复名回滚、cleanup 聚合。
 
 import (

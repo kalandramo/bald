@@ -204,7 +204,7 @@ func NewMCPServer(opts MCPOptions, cmdFactory func() *cobra.Command, serverOpts 
 		return nil, err
 	}
 
-	// 自描述载体（MCP 演进 P2）：把刚注册的工具元数据以单个 Resource 暴露，
+	// 自描述载体：把刚注册的工具元数据以单个 Resource 暴露，
 	// 支持 Resources 的客户端一次拉全，不必逐轮 tools/list。清单从 s.tools
 	// （即上面注册用的同一份切片）派生，不二次构造。
 	if err := registerManifestResource(srv.transport.RegisterResource, srv.tools); err != nil {

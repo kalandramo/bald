@@ -1,11 +1,10 @@
 package baldgorm
 
-// provider_opts_test.go —— 评估 §11.4 上游建议第二条的钉子：AppProvider 的
-// 变参 Option 透传 Open 生效。
+// provider_opts_test.go —— AppProvider 的变参 Option 透传 Open 生效的钉子。
 //   1. 零变参（nil opts）行为与透传前完全一致：空 Source 段按「未设置」处理，
 //      落缺省 SQLite 内存库；
-//   2. WithEnv 透传生效：env 命中即覆盖契约段 Source（bald-admin 的
-//      BALD_ADMIN_DB_DSN 契约轨恢复路径）；
+//   2. WithEnv 透传生效：env 命中即覆盖契约段 Source（如 bald-admin 的
+//      BALD_ADMIN_DB_DSN）；
 //   3. 业务 opts 在 WithConfig 之后应用，可覆盖契约段（WithDSN > Source）；
 //      Apply 落声明不丢透传的 Option。
 

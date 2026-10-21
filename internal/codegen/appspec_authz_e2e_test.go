@@ -13,8 +13,8 @@ import (
 	"time"
 )
 
-// TestTree_AuthzClosedLoop 生成物 authz 链路闭环（装配层评估 §11 第 6 条缺口
-// 的收口证明）：gen app + gen domain 的测试工程里，桥接真实消费两个生成物——
+// TestTree_AuthzClosedLoop 生成物 authz 链路闭环：gen app + gen domain 的
+// 测试工程里，桥接真实消费两个生成物——
 // internal/bootstrap/seed/policies.go 的默认策略行（经 contrib/authz-casbin
 // 的 NewRows 装载）与 internal/<apiserver_dir>/authz/alias.gen.go 的
 // ObjectAliases（经 NewAlias 双向等价解析）——受保护端点三态：
@@ -34,11 +34,11 @@ func TestTree_AuthzClosedLoop(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("go toolchain not in PATH")
 	}
-	// -short 跳过，与判据④计时（TestTree_EndToEndTimed）同口径：全链路
+	// -short 跳过，与计时测试（TestTree_EndToEndTimed）同口径：全链路
 	// （gen→tidy→build→serve→停机）分钟级墙钟且起真实服务，不混入 -short
 	// 主循环（ci.yml 对 -short 全家仅给 5m 包级超时；本测试此前无守卫随
-	// -short 上 runner，是 run 39104694914 起家族红的成员之一）。CI 全跑
-	// 需在 ci.yml 判据④独立 step 并列 -run——脚手架外改动，另行处理。
+	// -short 上 runner，曾致家族红）。CI 全跑
+	// 需在 ci.yml 独立 step 并列 -run——脚手架外改动，另行处理。
 	if testing.Short() {
 		t.Skip("生成工程 authz 闭环 -short 跳过，与判据④计时同口径由 CI 独立 step 全跑")
 	}

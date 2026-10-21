@@ -22,7 +22,7 @@ func mustRowsAuthorizer(t *testing.T) *Authorizer {
 	return a
 }
 
-// cache_test.go 为判定结果缓存（cache.go，批 6 第 1 项）的语义测试。
+// cache_test.go 为判定结果缓存（cache.go）的语义测试。
 // 安全红线逐条落测：
 //   - 命中/未命中判定与引擎一致（不放大放行面）；
 //   - Reload 后缓存必空——**陈旧放行必须失效**（stale allow → deny）；

@@ -1,6 +1,6 @@
 package codegen
 
-// gen_domain_test.go 是 gen domain（批 3 W3b）的验收测试：owned 通道的命令级
+// gen_domain_test.go 是 gen domain 的验收测试：owned 通道的命令级
 // 契约、端到端产物清单与形态对照、Gate1 强化的 service↔proto 校验报错原文、
 // gen proto CRUD 六件套、seed 实内容派生、layering AST 守卫的正反例。
 
@@ -55,7 +55,7 @@ func TestGenDomain_EndToEnd(t *testing.T) {
 		}
 	}
 
-	// apiserver 侧扇出清单：逐域 handler 挂载/注册（W3a 预注的 W3b 升级形态）。
+	// apiserver 侧扇出清单：逐域 handler 挂载/注册。
 	fanout, err := os.ReadFile(filepath.Join(dir, "internal", "apiserver", "domains.gen.go"))
 	if err != nil {
 		t.Fatalf("read apiserver manifest: %v", err)
@@ -124,7 +124,7 @@ func TestGenDomain_EndToEnd(t *testing.T) {
 		}
 	}
 
-	// 域声明值骨架（seeded——W3b 前 seedDomainPackage 脚手架的正式替代者）。
+	// 域声明值骨架（seeded）。
 	dv, err := os.ReadFile(filepath.Join(dir, "internal", "apiserver", "greetv1", "domain.gen.go"))
 	if err != nil {
 		t.Fatalf("read domain value: %v", err)
@@ -183,7 +183,7 @@ func TestGenDomain_ExistingDomainPackageSkipped(t *testing.T) {
 	}
 }
 
-// TestGenDomain_ServiceMismatch_Red Gate1 强化（W3a 遗留）：service 声明与
+// TestGenDomain_ServiceMismatch_Red Gate1 强化：service 声明与
 // 实际 proto 失配 → 报错指明哪个域的 service 在哪个 proto 里缺失、实际声明。
 func TestGenDomain_ServiceMismatch_Red(t *testing.T) {
 	dir := t.TempDir()
@@ -233,7 +233,7 @@ func TestGenDomain_ProtoPackageMissing_Red(t *testing.T) {
 }
 
 // TestGenDomain_NoProto_Red 完全没有 proto → 报错（域声明无法与契约对账时
-// 不允许静默通过——这正是 W3a 遗留缺口的反面）。
+// 不允许静默通过）。
 func TestGenDomain_NoProto_Red(t *testing.T) {
 	dir := t.TempDir()
 	as := guardFixture()
@@ -250,7 +250,7 @@ func TestGenDomain_NoProto_Red(t *testing.T) {
 	}
 }
 
-// TestGenProto_CRUD_SixPiece 裁决 7：无 --spec 的 CRUD 六件套模板——
+// TestGenProto_CRUD_SixPiece：无 --spec 的 CRUD 六件套模板——
 // google.api.http 注解 + buf.validate 规则 + FilterExpr + --module 消费。
 func TestGenProto_CRUD_SixPiece(t *testing.T) {
 	dir := t.TempDir()

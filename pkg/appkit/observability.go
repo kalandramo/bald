@@ -1,15 +1,14 @@
 // observability.go 提供可观测性后端（tracer / metrics 契约段）的装配接缝类型。
 //
-// 批 2 W2b 起，tracer/metrics 段经**段驱动 Provider** 装配：后端实现方
+// tracer/metrics 段经**段驱动 Provider** 装配：后端实现方
 // （如 contrib/observability-otlp）导出的构造函数返回 TracerProvider /
 // MetricsProvider 函数值，用户以 Provider 消费 tracer/metrics 段并在其
 // Build 内按契约 type 单选分发（契约语义就是单选：tracer.type ∈ {"otlp"}，
 // metrics.type ∈ {"prometheus","otlp"}）。
 //
-// B7（批 3，D1 §4.1）：metrics 暴露端的**监听面归能力包**——新公开包
-// observability/metricshttp 持有 Start/Stop（原 appkit.StartMetricsServer
-// 已删除，App 层不再自建 http.Server）。MetricsProvider 契约随之从「返回裸
-// http.Handler」变为「返回可关闭的暴露端（MetricsExposure）」：后端在自己
+// metrics 暴露端的**监听面归能力包**：公开包 observability/metricshttp 持有
+// Start/Stop（App 层不自建 http.Server）。MetricsProvider 契约是「返回可
+// 关闭的暴露端（MetricsExposure）」：后端
 // 的 Build 内起监听（metricshttp.Start），把端点句柄交回引擎；引擎把停机
 // 合成进 canonical 槽位——先停暴露端、再 flush（storeProduct 的 metrics
 // 分支），尾批指标不因监听面先收而丢失。
@@ -40,7 +39,7 @@ import (
 type TracerProvider func(ctx context.Context, cfg *bootstrapv1.Tracer) (func(context.Context) error, error)
 
 // MetricsExposure 是 metrics 暴露端（Prometheus 抓取独立监听面）的可关闭
-// 句柄——MetricsProvider 产物契约（B7，D1 §4.1）。实现由能力包
+// 句柄——MetricsProvider 产物契约。实现由能力包
 // observability/metricshttp 提供（metricshttp.Start 返回的 *Server 天然满足）；
 // 引擎保证停机序「先 Stop 暴露端、再执行 MetricsProvider 的 flush」。
 type MetricsExposure interface {

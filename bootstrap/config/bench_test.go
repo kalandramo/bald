@@ -2,7 +2,7 @@ package config
 
 import "testing"
 
-// bench_test.go 为配置仓库（Store）的基准套件（批 5 W3）。
+// bench_test.go 为配置仓库（Store）的基准套件。
 //
 // 口径纪律：
 //   - 层缓存 map（layerM 各层的 m）在计时外构造一次；remerge 是 copy-on-write

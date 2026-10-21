@@ -1,4 +1,4 @@
-// provider.go —— 段驱动装配的加法式 Provider 导出（批 2 第三波：生态接入，
+// provider.go —— 段驱动装配的加法式 Provider 导出（生态接入，
 // 范本 contrib/store-gorm 的 AppProvider）。既有构造逻辑（契约字段 →
 // nacos.Option 映射 + New）保留不动；本文件只**新增**对 pkg/appkit 段驱动
 // 装配的接入面：AppProvider() 消费契约 registry.nacos 段，产物为

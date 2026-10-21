@@ -2,7 +2,7 @@ package appkit
 
 import "testing"
 
-// alloc_guard_test.go 为 appkit 资源面/装配期的分配剖面守卫（批 6 收尾）：
+// alloc_guard_test.go 为 appkit 资源面/装配期的分配剖面守卫：
 // 以 testing.Benchmark() 直取 bench_test.go 既有基准定义（同包函数值直用），
 // 在测试进程内断言分配不变量——本地与 CI 同 go 1.27.1，确定性成立。
 //

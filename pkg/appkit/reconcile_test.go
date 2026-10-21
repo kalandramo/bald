@@ -303,10 +303,10 @@ func TestReconcile_AuditEvent(t *testing.T) {
 	}
 }
 
-// TestReconcileCtx_ValueSemantics 配置值语义（config 委托，B7 §4.3 落点）：
-// String 点路径标量化、StringSlice 列表解析。实现体已迁 bootstrap/config
+// TestReconcileCtx_ValueSemantics 配置值语义（config 委托）：
+// String 点路径标量化、StringSlice 列表解析。实现体在 bootstrap/config
 // （config.At/String/StringList），此处钉住委托后的语义——与 config.StringList
-// 完全一致（含收敛语义：[]any 非字符串项按标量化保留，原 appkit 版丢弃）。
+// 完全一致（含收敛语义：[]any 非字符串项按标量化保留）。
 func TestReconcileCtx_ValueSemantics(t *testing.T) {
 	r := NewReconcileCtx(nil, "probe", map[string]any{
 		"audit": map[string]any{"backends": "log, store ,stream"},

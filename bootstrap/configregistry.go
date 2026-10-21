@@ -53,7 +53,7 @@ type ConfigProvider func(ctx context.Context, cfg *bootstrapv1.BootstrapConfig) 
 // 与 go-wind 的全局 map + init() 自注册不同，ConfigRegistry 是显式实例：
 // 每个测试、每个应用可持有独立的 ConfigRegistry，装配什么、以什么顺序，全部写在调用方代码里。
 //
-// 薄壳（批 1 收敛，见 registry.go）：provider 表与空名/nil/重名校验由嵌入的
+// 薄壳（见 registry.go）：provider 表与空名/nil/重名校验由嵌入的
 // Registry[T] 载体承载（文案经 NameTexts 与既有文案逐字一致）；本类型只保留
 // 特有的注册序 order（默认级联优先级）及其锁。
 type ConfigRegistry struct {

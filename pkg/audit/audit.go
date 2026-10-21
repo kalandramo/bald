@@ -1,6 +1,6 @@
 // Package audit 定义 bald 的审计日志抽象（零后端耦合、传输中立）。
 //
-// 设计原则（与 P7 认证、P9 授权对齐）：
+// 设计原则：
 //   - 核心只定义 AuditEvent 结构与 Auditor 接口，不 import 任何具体存储/消息总线
 //     （落库 / 发 Kafka / 写 ES 等外置为桥接子模块）。
 //   - 审计是旁路（side-effect），永远不阻断业务请求：即便 Auditor 报错也仅记日志，

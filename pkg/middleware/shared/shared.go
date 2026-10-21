@@ -1,6 +1,6 @@
 // Package shared 收敛 gin/gRPC 可观测性中间件的传输无关核心（trace header
-// 常量、注入模式、header 计算、通配匹配）——R1 合并前两份 observability.go
-// 逐行重复，SpanKind 等修复须改两份（重复税实缴）；此后改一处两传输层生效。
+// 常量、注入模式、header 计算、通配匹配）——gin/gRPC 两份 observability.go
+// 逐行重复的收敛面，修复只改一处、两传输层同时生效。
 //
 // 两侧 gin/grpc 子包以类型别名 + 常量别名维持既有导出 API 稳定。
 package shared

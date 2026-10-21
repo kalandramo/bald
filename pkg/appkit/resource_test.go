@@ -41,7 +41,7 @@ func TestResource_SegmentPath(t *testing.T) {
 	}
 }
 
-// TestResource_SnapshotIsCopy 副本语义（D1 §4.6 既有取舍，原 Ais() 返回副本）：
+// TestResource_SnapshotIsCopy 副本语义（既有取舍）：
 // 顶层段读取返回副本快照——改写快照不影响内部资源面，内部后续写入也不影响
 // 已取出的快照。
 func TestResource_SnapshotIsCopy(t *testing.T) {

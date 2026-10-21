@@ -22,7 +22,7 @@ type fixedSpan struct {
 func (s *fixedSpan) SpanContext() trace.SpanContext { return s.sc }
 
 // TestTraceContext：span 的 TraceID 必须注入 request context，供 handler 内
-// contextx.TraceIDFromContext 读取。R4 复审确认本中间件是 contextx.WithTraceID
+// contextx.TraceIDFromContext 读取。本中间件是 contextx.WithTraceID
 // 的唯一生产者——audit/authn/crudbridge 五处 TraceIDFromContext 消费依赖它，
 // 不挂载则审计事件 trace_id 字段恒空。测试钉住该注入契约防回归。
 func TestTraceContext(t *testing.T) {

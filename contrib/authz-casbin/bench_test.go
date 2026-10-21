@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// bench_test.go 为 authz-casbin 桥的基准套件（批 5 W3）。
+// bench_test.go 为 authz-casbin 桥的基准套件。
 //
 // 口径纪律：
 //   - 内层授权器一律用真实 casbin 引擎（NewRows 构造），不用桩——落证的是
@@ -111,7 +111,7 @@ func BenchmarkNewRows_LoadPolicy(b *testing.B) {
 	}
 }
 
-// BenchmarkAuthorizer_NoReuse 度量**零重用**形态（批 6）：键空间 8,192 个
+// BenchmarkAuthorizer_NoReuse 度量**零重用**形态：键空间 8,192 个
 // subject 远超缓存容量 1,024——稳态下每次判定都是缓存未命中（评估 + 插入 +
 // 逐出）。对照 HEAD 同名基准（无缓存，纯 Enforce）即得 miss 路径的边际成本；
 // 与 Direct/Hit/Miss（重入形态，稳态全命中）互补，共同划定缓存收益区间。

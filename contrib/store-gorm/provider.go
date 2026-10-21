@@ -1,5 +1,5 @@
-// provider.go —— 段驱动装配的加法式 Provider 导出（批 2 W2b：第三方后端
-// 集成的新范本）。原构造函数（NewGormProvider / Open 等）保留不动；本文件
+// provider.go —— 段驱动装配的加法式 Provider 导出（第三方后端集成范本）。
+// 既有构造函数（NewGormProvider / Open 等）保留不动；本文件
 // 只**新增**对 pkg/appkit 段驱动装配的接入面：AppProvider(opts...) 消费契约
 // database.sql 段，经既有 Open(WithConfig, opts...) 打开 *gorm.DB 并落资源容器，
 // cleanup 释放连接池。
@@ -27,16 +27,15 @@ import (
 // AppProvider 返回消费契约 database.sql 段的 appkit.Provider（段路径
 // "database.sql"；段缺失即被引擎跳过，合法）。
 //
-// 命名说明（任务书形态 storegorm.Provider() 的偏差）：gorm.go 既有泛型
+// 命名说明：gorm.go 既有泛型
 // Provider[T]（store.DBProvider 的 GORM 实现）占用了 Provider 标识符且原
 // 构造函数保留不动，故段驱动装配的导出名取 AppProvider。
 //
-// Option 透传（评估 §11.4 上游建议第二条；transport/cron 等同款先例）：
+// Option 透传（transport/cron 等同款先例）：
 // opts 原样透传 Open 并在 WithConfig 之后应用——业务 Option（WithEnv /
 // WithDSN / WithDriver / WithGormConfig）沿 Open 既有优先级覆盖契约段
 // （连接串 env > WithDSN > WithConfig.Source）。AppProvider() 零变参与
-// 透传前行为完全一致。典型用法（bald-admin 的 BALD_ADMIN_DB_DSN env
-// 契约轨恢复）：
+// 透传前行为完全一致。典型用法（bald-admin 的 BALD_ADMIN_DB_DSN env）：
 //
 //	baldgorm.AppProvider(baldgorm.WithEnv("BALD_ADMIN_DB_DSN"))
 //

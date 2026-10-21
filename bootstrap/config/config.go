@@ -591,7 +591,7 @@ func toStringSlice(v any) []string {
 
 // At 按点路径在配置树中查找值（"server.http.addr"），路径不存在返回
 // (nil, false)。包级纯函数——Store.Get 与 ReconcileCtx 等无 Store 场景共用
-// 同一点路径语义（D1 §4.3：点路径读取是配置装载层的值语义）。
+// 同一点路径语义。
 func At(m map[string]any, key string) (any, bool) {
 	return getAtPath(m, key)
 }
@@ -603,8 +603,7 @@ func String(v any) string {
 }
 
 // StringList 值转字符串列表：[]string、[]any（yaml 列表，非字符串项按
-// String 标量化）与逗号分隔的字符串；空值返回 nil。Store.GetStringSlice 与
-// 原 appkit.ParseStringList 的归宿（批 3 职责边界落点）。
+// String 标量化）与逗号分隔的字符串；空值返回 nil。
 func StringList(v any) []string {
 	return toStringSlice(v)
 }

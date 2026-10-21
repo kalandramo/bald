@@ -24,8 +24,7 @@ const (
 
 // FindUnknownKeys 找出配置树中「契约未声明」的键，返回按路径排序的列表。
 //
-// 用途：把「写错键名静默落到零值」这一配置系统最危险的故障模式变成**可见**。
-// 这是退役 viper 时的原始动因（见《Bald 配置系统设计.md》§2.2），但 UnmarshalMap
+// 用途：把「写错键名静默落到零值」这一配置系统最危险的故障模式变成**可见**。UnmarshalMap
 // 的 DiscardUnknown 使同类问题在 env/文件路径上仍会静默发生。
 //
 // 只读：不改 m，也不改 UnmarshalMap 的行为——是否据此报错由调用方决定。
@@ -217,11 +216,10 @@ func clearPresentLists(dst, src protoreflect.Message) {
 		case fd.IsMap():
 			// map 字段：proto.Merge 对 map 是逐条合并而非替换——与 repeated 的
 			// 追加残留同构（默认项残留）。src 显式给出 map 时清空 dst，使其同为
-			// 「替换」语义。此前 map 字段落入下方 MessageKind 分支（map 字段的
+			// 「替换」语义。map 字段若落入下方 MessageKind 分支（map 字段的
 			// Kind 是合成 entry 消息），Mutable(fd).Message() 直接 panic——任何
 			// 非空 map<string,string> 配置（如 tracer.otlp.headers、logger.
-			// loki.labels）都会让 UnmarshalMap 崩溃。W3 性能基准套件首次实证
-			//（v0.24.0 起即存在，无既有测试覆盖）。
+			// loki.labels）都会让 UnmarshalMap 崩溃。
 			dst.Clear(fd)
 		case fd.Kind() == protoreflect.MessageKind:
 			// 递归处理嵌套消息（如 http.tls 下的 list 字段）。

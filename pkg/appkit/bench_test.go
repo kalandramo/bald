@@ -11,8 +11,8 @@ import (
 	"github.com/kalandramo/bald/bootstrap/config"
 )
 
-// bench_test.go 为 appkit 装配引擎/运行期编排的基准套件（批 5 W3）。本组全部
-// 为仅基线项：批 1-4 的接口化 Option/Decl、统一资源面、效应账本、key 订阅、
+// bench_test.go 为 appkit 装配引擎/运行期编排的基准套件。本组全部
+// 为仅基线项：接口化 Option/Decl、统一资源面、效应账本、key 订阅、
 // 期望态协调均为 v0.25.0 新模型，无 v0.24.0 对应路径可比。
 //
 // 口径纪律：
@@ -62,7 +62,7 @@ func benchDeclOptions() []Option {
 	}
 }
 
-// BenchmarkDeclApply_OptionFanout 度量接口化 Option（Apply(*Decl)，批 2）的
+// BenchmarkDeclApply_OptionFanout 度量接口化 Option（Apply(*Decl)）的
 // 装配期写入面成本：25 个混合 Option 逐个 Apply 到一份 Decl——NewApp 装配
 // 的声明收集阶段成本。Decl 基底在计时外经 defaultDecl() 构造（含
 // os.Hostname 随机实例 ID），每 op 结构体拷贝后复用。

@@ -24,8 +24,7 @@ func TestDiffStrings(t *testing.T) {
 }
 
 // TestParseStringListForward 薄转发钉住：mech.ParseStringList 与
-// config.StringList 同实现（实现体已随批 3 职责边界落点迁至
-// bootstrap/config——最终归宿，见 util.go 落点说明）。
+// config.StringList 同实现。
 func TestParseStringListForward(t *testing.T) {
 	input := []any{"a", 1, "b"}
 	if got, want := ParseStringList(input), config.StringList(input); len(got) != len(want) || len(got) != 3 || got[1] != "1" {

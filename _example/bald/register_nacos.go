@@ -16,7 +16,7 @@
 // 注：示例 main 始终声明 Registrar(inmemory.New())（显式实例优先于契约
 // 装配——引擎跳过纯 registry 段 Provider），故本 Provider 在示例默认选项下
 // 不会构建；去掉 Registrar 后本段即按 yaml registry.nacos 驱动真实注册
-// （迁移前语义不变，见 appkit.Registrar 注释）。
+// （语义见 appkit.Registrar 注释）。
 //
 // 配置中心（仍是桥接）：config.FromKratosSource(nacosconfig.NewConfigSource(cli))
 // 把 kratos contrib 的 nacos config（实现 kratos config.Source）适配成

@@ -1,18 +1,18 @@
 // audit_registry.go 提供审计后端（audit 契约段）的装配接缝类型。
 //
-// 批 2 W2b 起，audit 段经**段驱动 Provider** 装配：框架自有的 "log" 后端
+// audit 段经**段驱动 Provider** 装配：框架自有的 "log" 后端
 // 内置于 std.Standard()（核心 LoggerAuditor 零依赖开箱即用）；store/stream
 // 等第三方后端的实现方（contrib/audit-gorm、contrib/audit-stream）经
 // AuditProvider 函数值接入——用户声明自己的 audit 段 Provider，在其 Build
 // 内把 backends 项映射为后端构造器并经 pkg/audit.Compose 组装（多后端
-// 列表分发、构造失败逆序回滚的语义收敛在 Compose，批 1 内化）。
+// 列表分发、构造失败逆序回滚的语义收敛在 Compose）。
 //
 // 与 tracer/metrics 的既有差异保持：backends 含 "log" 零注册即得——
 // LoggerAuditor 在核心包零依赖。store/stream 走 contract 构造（连接实例由
 // 业务代码注入，「配置驱动参数，代码声明能力」分工：契约段声明类型与参数，
 // DB/Redis 连接不进契约）。
 //
-// B8（批 3）：全局 audit.SetAuditor/GetAuditor 删除——产物落资源面 +
+// B8：全局 audit.SetAuditor/GetAuditor 删除——产物落资源面 +
 // appkit 自身事件兜底 sink（见 storeProduct），请求级审计由应用把产物
 // 显式注入 bundle/中间件。
 //

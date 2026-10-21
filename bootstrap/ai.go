@@ -24,7 +24,7 @@ type AiProvider func(ctx context.Context, cfg *bootstrapv1.Ai) (any, func(), err
 // 契约字段消费注记：ai.*.cloud.organization 仅 openai/langchaingo 消费
 // （SDK 支持）；eino-ext openai 无 organization 概念，eino 段配了该字段
 // 会 fail-fast 报错（见 ai/eino/contract.buildConfig），不静默忽略。
-// 薄壳（批 1 收敛，见 registry.go）：互斥锁 + provider 表 + Register/MustRegister
+// 薄壳（见 registry.go）：互斥锁 + provider 表 + Register/MustRegister
 // 由嵌入的 Registry[T] 载体承载（文案经 TypeTexts 与既有文案逐字一致）；
 // 本文件只保留 ai 特有的段表与 Build 装配序。
 type AiRegistry struct {

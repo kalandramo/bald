@@ -7,7 +7,7 @@ import (
 
 // TestAllowAll / TestDenyAll：零策略两极端（认证与授权抽象设计决策④——
 // 「零策略两极端……放核心让中间件开箱可用（不注入 Authorizer 时默认
-// DenyAll，fail-closed）」）。R4 复审：零调用非删除依据，测试钉住语义。
+// DenyAll，fail-closed）」），测试钉住语义。
 func TestAllowAll(t *testing.T) {
 	a := AllowAll()
 	for _, args := range [][3]string{

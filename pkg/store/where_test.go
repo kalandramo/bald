@@ -6,7 +6,7 @@ import (
 	storev1 "github.com/kalandramo/bald/bconf/gen/go/bald/store/v1"
 )
 
-// TestWhereConstructors：条件便捷构造家族（R4 复审——谓词族对称性契约）。
+// TestWhereConstructors：条件便捷构造家族（谓词族对称性契约）。
 // 零调用成员 Lt/Lte/Nin 与在用成员（Eq/Ne/Gt/Gte/In/Like）以同一断言钉住
 // 形状，防翻译层（gorm applyFilter 等）语义漂移时无测试可依。
 func TestWhereConstructors(t *testing.T) {
@@ -45,7 +45,7 @@ func TestWhereConstructors(t *testing.T) {
 	}
 }
 
-// TestWhereSetConstructors：In/Nin 集合条件（R4 零调用成员 Nin 补测）。
+// TestWhereSetConstructors：In/Nin 集合条件（零调用成员 Nin 补测）。
 func TestWhereSetConstructors(t *testing.T) {
 	in := In("f", "a", "b")
 	if in.GetOp() != storev1.Operator_IN {

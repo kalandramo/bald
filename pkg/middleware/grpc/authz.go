@@ -49,7 +49,7 @@ func WithSubjectResolver(fn func(ctx context.Context, info *grpc.UnaryServerInfo
 // 默认（无 Option）：
 //   - subject 取自认证阶段注入的 AuthClaims.Subject；
 //   - object = info.FullMethod（原始全方法名）；
-//   - action = "CALL"（对应 gRPC 调用语义，与架构演进路线 P7 一致、向后兼容）。
+//   - action = "CALL"（对应 gRPC 调用语义，向后兼容）。
 //
 // 传输中立归一化（推荐接 casbin/RBAC 时使用）：
 //

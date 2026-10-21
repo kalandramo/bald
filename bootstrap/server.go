@@ -34,7 +34,7 @@ type ServerProvider func(ctx context.Context, cfg *bootstrapv1.Server) (transpor
 
 // ServerRegistry 按名字注册协议服务器工厂（显式注册，无 init() 副作用）。
 // 名字约定小写（"grpc"/"http"），与契约 Server 段名对应。
-// 薄壳（批 1 收敛，见 registry.go）：provider 表与 Register/MustRegister 由
+// 薄壳（见 registry.go）：provider 表与 Register/MustRegister 由
 // 嵌入的 Registry[T] 载体承载（文案经 NameTexts 与既有文案逐字一致）。
 type ServerRegistry struct {
 	*Registry[ServerProvider]

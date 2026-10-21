@@ -1,10 +1,9 @@
 // Package mech 承载 appkit 的高级机制面：T1 效应账本、S1 能力声明、C1 组件
-// 生命周期、R1 key 级配置订阅与期望态协调
-// （docs/devel/zh-CN/装配层评估.md §4.4/§6、D1-target-appkit.md §5）。
+// 生命周期、R1 key 级配置订阅与期望态协调。
 //
 // 分层契约：
 //   - mech 单向 import appkit；appkit 不 import mech。
-//   - appkit.Option 自批 2 起为接口 interface{ Apply(*appkit.Decl) }（导出
+//   - appkit.Option 为接口 interface{ Apply(*appkit.Decl) }（导出
 //     方法 + 导出参数类型，包外可实现）：本包每个构造器返回**自持 option
 //     类型**，Apply 直写 Decl 的导出字段——与 appkit 包内构造器（optionFunc
 //     适配）共用同一份声明

@@ -13,7 +13,7 @@ import (
 // 的可测试性落点：输出走 o.Out 而非 os.Stdout）。ErrOut 弃流：gen 命令构造器统一
 // 接 cmd.SetErr(streams.ErrOut)，cobra 的 "Error: ..." 随 ErrOut 走——负例测试
 // 故意触发的错误若绑 os.Stderr 会漏进 CI 日志，读日志的人会误判为真实失败
-// （run 39361419248 日志里的 Gate1/already exists 噪音即此）；错误本身仍经
+// （Gate1/already exists 噪音即此）；错误本身仍经
 // Execute 返回值逐字断言，不损失验证力度。
 func testStreams() (IOStreams, *bytes.Buffer) {
 	var out bytes.Buffer
@@ -133,8 +133,8 @@ func TestWriteGuarded_WritesNew(t *testing.T) {
 // ---- 越权直写回归锁（D2 §5.3）：gofmt 失败绝不触碰目标 ----
 
 // TestWriteFileFormatted_GofmtFailureNeverTouchesTarget gofmt 失败时目标文件
-// 字节不变、诊断原文写 <path>.rej、错误里附 .rej 路径。旧 renderAppSpec 在
-// 此场景 os.WriteFile 目标路径（无 --force 也截断重写用户文件）——本测试钉死。
+// 字节不变、诊断原文写 <path>.rej、错误里附 .rej 路径。此场景若直接
+// os.WriteFile 目标路径，会无 --force 也截断重写用户文件——本测试钉死。
 func TestWriteFileFormatted_GofmtFailureNeverTouchesTarget(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "main.go")

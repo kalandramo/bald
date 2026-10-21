@@ -1,7 +1,6 @@
-// resource.go 是统一资源面（B4，装配层评估 §5.1 / D1-target-appkit.md §2.4）：
-// 段驱动 Provider 的产物按**契约段路径**存取，取代原 12 个逐域访问器
-// （Database/Databases/Cache/Caches/Storage/Storages/Ai/Ais/Workflow/
-// Workflows/Broker/Brokers——六域 × 单实例/集合两态，随本批删除）。
+// resource.go 是统一资源面：
+// 段驱动 Provider 的产物按**契约段路径**存取（App.Resource 单一访问口），
+// 不设逐域类型化访问器。
 //
 // 分工（契约段 → 实例的构造归 Provider，运行期编排归 appkit）：
 //   - Provider（范本：contrib/store-gorm 的 Provider）：按契约子段构建；

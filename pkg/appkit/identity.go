@@ -1,12 +1,12 @@
 package appkit
 
-// identity.go 定义 appkit 对业务身份的最小端口（D1 §4.4，装配层评估 §4.5）。
+// identity.go 定义 appkit 对业务身份的最小端口。
 //
 // 背景：appkit 为发运行期审计事件（组件挂载/卸载、R1-2 协调收敛/错误）需要
-// 「ctx 里的业务身份（subject/tenant）」。此前直接 import pkg/authn 读
-// AuthClaims——App 层被迫认识业务身份的存放方式。B7 依赖倒置：appkit 只声明
-// 它需要的取值函数形状，authn 到端口的适配由应用（或 contrib）以 1 行 lambda
-// 提供；缺省（未声明 Identity）为空身份——与今日 claims 为 nil 时行为一致。
+// 「ctx 里的业务身份（subject/tenant）」。依赖倒置：appkit 只声明它需要的
+// 取值函数形状而不 import pkg/authn，authn 到端口的适配由应用（或 contrib）
+// 以 1 行 lambda 提供；缺省（未声明 Identity）为空身份——与 claims 为 nil 时
+// 行为一致。
 //
 // 用法（应用侧适配）：
 //

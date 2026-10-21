@@ -6,7 +6,7 @@
 // 「先 Bind 后一次性 Validate」的流水线（见 pkg/web 的多源绑定）。
 //
 // 注意：本包只负责「分发」，不负责「规则表达」。声明式的字段级规则应写在 proto 的
-// buf.validate 注解里（由 protovalidate 在运行时读取），见 docs/devel/zh-CN/架构改进路线图.md P6。
+// buf.validate 注解里（由 protovalidate 在运行时读取）。
 // 本包适合承载注解表达不了的复杂校验（查库、权限比对、跨字段动态逻辑）。
 package validation
 
@@ -114,7 +114,7 @@ func (v *Validator) Validate(ctx context.Context, request any) error {
 
 // RequestTypeName 返回请求类型的名字（去掉指针）。
 // 值类型/nil 入参返回空串（fail-fast 哲学：请求链路上的反射工具不 panic，
-// 调用方拿到空串走自己的缺省分支——CR5 修复）。
+// 调用方拿到空串走自己的缺省分支）。
 func RequestTypeName(request any) string {
 	if request == nil {
 		return ""

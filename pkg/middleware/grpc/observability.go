@@ -27,8 +27,8 @@ import (
 // 未设置全局 TracerProvider 时，otel.Tracer 返回 no-op tracer，零配置也能运行。
 var tracer = otel.Tracer("bald/grpc")
 
-// Standard trace header keys（R1 合并：定义收敛至 middleware/shared，此处
-// 别名维持既有导出 API 稳定）
+// Standard trace header keys（定义在 middleware/shared，此处
+// 为别名维持既有导出 API 稳定）
 const (
 	// W3C Trace Context standard
 	TraceParentHeaderKey = shared.TraceParentHeaderKey
@@ -43,7 +43,7 @@ const (
 	TraceStateHeaderKey = shared.TraceStateHeaderKey
 )
 
-// TraceInjectionMode defines how trace information is injected（R1 合并：定义收敛至 middleware/shared）
+// TraceInjectionMode defines how trace information is injected（定义在 middleware/shared）
 type TraceInjectionMode = shared.TraceInjectionMode
 
 const (
@@ -123,7 +123,7 @@ func UnaryObservability(opts ...Option) grpc.UnaryServerInterceptor {
 		// no-op tracer（未装配全局 TracerProvider）下 SpanContext 恒全零，
 		// LogTraceIDs 兜底随机 ID 作日志关联；真实 tracer 在跑时透传真实值。
 		logTraceID, logSpanID := middleware.LogTraceIDs(ctx)
-		// 审计-链路关联（R4 复审连带修复）：trace_id 同时进 ctx 属性流与
+		// 审计-链路关联：trace_id 同时进 ctx 属性流与
 		// contextx（audit/authn/crudbridge 的 TraceIDFromContext 消费）——
 		// 此前只进前者，审计事件 trace_id 字段恒空。与日志同源。
 		ctx = contextx.WithTraceID(ctx, logTraceID)
@@ -226,7 +226,7 @@ func StreamObservability(opts ...Option) grpc.StreamServerInterceptor {
 		// no-op tracer（未装配全局 TracerProvider）下 SpanContext 恒全零，
 		// LogTraceIDs 兜底随机 ID 作日志关联；真实 tracer 在跑时透传真实值。
 		logTraceID, logSpanID := middleware.LogTraceIDs(ctx)
-		// 审计-链路关联（R4 复审连带修复）：同 unary 侧——trace_id 进
+		// 审计-链路关联：同 unary 侧——trace_id 进
 		// contextx 供 TraceIDFromContext 消费。
 		ctx = contextx.WithTraceID(ctx, logTraceID)
 		ctx = log.ContextWithAttrs(ctx,
@@ -297,7 +297,7 @@ func matchMethod(method, pattern string) bool {
 		return true
 	}
 
-	// Wildcard support（R1 合并：通配匹配收敛至 shared.MatchWildcard）
+	// Wildcard support（通配匹配在 shared.MatchWildcard）
 	if strings.Contains(pattern, "*") {
 		return shared.MatchWildcard(method, pattern)
 	}
@@ -305,8 +305,8 @@ func matchMethod(method, pattern string) bool {
 	return false
 }
 
-// injectTraceMetadata injects trace headers into gRPC metadata（R1 合并：
-// header 计算收敛至 shared.InjectTrace，本函数仅剩 md.Set 落点——Set 为
+// injectTraceMetadata injects trace headers into gRPC metadata（header
+// 计算在 shared.InjectTrace，本函数仅剩 md.Set 落点——Set 为
 // 变参签名，闭包适配）
 func injectTraceMetadata(md metadata.MD, spanCtx trace.SpanContext, config *ObservabilityOptions) metadata.MD {
 	shared.InjectTrace(config.TraceInjectionMode, config.CustomTraceHeader, spanCtx,

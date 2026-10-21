@@ -1,8 +1,8 @@
 // capability.go 实现 S1 能力声明与解析（docs/devel/zh-CN/架构优化路线.md）。
 //
-// 背景（对照 Cordis 论文的空间可组合性/共效应）：bald 的组件此前互相依赖时
-// 不声明、不解析，依赖缺失要到运行时第 N 个请求才炸（go-bald-admin M8：
-// issueToken 在 InitBridges 之前调用 → Signer nil panic）。S1 把依赖显式化：
+// 背景：组件互相依赖若不声明、不解析，依赖缺失要到运行时第 N 个请求才炸
+// （真实案例：issueToken 在 InitBridges 之前调用 → Signer nil panic）。
+// S1 把依赖显式化：
 // 装配期声明 Provides/Requires，启动早期 Resolve 校验，缺依赖 fail-fast：
 //
 //	app := appkit.NewApp(
@@ -15,7 +15,7 @@
 // 能力是纯声明符号（不做实例管理——那是 C1 Component 的职责），Resolve 只校验
 // 装配一致性，为 C1/R1 的组件图打底。
 //
-// 导出构造面在 pkg/appkit/mech（mech.Provides/mech.Requires，B5 下沉）；本文件
+// 导出构造面在 pkg/appkit/mech（mech.Provides/mech.Requires）；本文件
 // 的未导出 providesOpt/requiresOpt 是引擎透传与包内测试共用的写入面。
 package appkit
 

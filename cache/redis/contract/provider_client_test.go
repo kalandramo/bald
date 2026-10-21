@@ -1,6 +1,6 @@
 package contract
 
-// provider_client_test.go —— 评估 §11.4 上游建议第一条的端到端钉子：业务经
+// provider_client_test.go —— 端到端钉子：业务经
 // AppProvider 产物（map[string]any{"redis": *rediscache.Cache}）取原生
 // go-redis client，且拿到的是 Provider 自建、cleanup 负责关闭的**同一实例**
 // ——cleanup 之后经同一句柄操作即报 closed。

@@ -1,7 +1,6 @@
-// audit_registry_test.go —— audit 段装配契约（批 2 W2b 迁移：原
-// AuditRegistry 的查表语义已吸收进用户侧 Provider + pkg/audit.Compose，
-// 组装顺序/回滚/聚合错误由 pkg/audit 的 Compose 单测承载；本文件保留
-// std 内置 audit Provider 的契约与引擎全局注入的编排断言）。
+// audit_registry_test.go —— audit 段装配契约（组装顺序/回滚/聚合错误由
+// pkg/audit 的 Compose 单测承载；本文件保留 std 内置 audit Provider 的契约
+// 与引擎全局注入的编排断言）。
 package appkit
 
 import (

@@ -22,12 +22,12 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// AppSpec 是 bald 应用的「声明式拓扑方言」（P12 第二步）：用一个 proto message
+// AppSpec 是 bald 应用的「声明式拓扑方言」：用一个 proto message
 // 描述一个微服务的装配形态——开通哪些 server、挂载哪些组件、声明哪些能力依赖、
 // 启用哪些审计后端。代码生成器（gen app --spec）读取 AppSpec，据此吐出目标
-// 目录树（装配层评估 §4.6 / D2-target-codegen.md §2.1）。
+// 目录树（D2-target-codegen.md §2.1）。
 //
-// 唯一真相源纪律（批 3 裁决 4 / 膨胀根治）：框架契约段的真相源是
+// 唯一真相源纪律：框架契约段的真相源是
 // bootstrap.v1.BootstrapConfig（字段 7），AppSpec 不复制它的字段；旧字段
 // server / audit_backends / bundle_normalized 降级为「快捷方式」——bootstrap
 // 为空时被归一化进投影，bootstrap 非空时任一非零快捷值与其投影不一致即
@@ -50,14 +50,14 @@ type AppSpec struct {
 	BundleNormalized bool `protobuf:"varint,6,opt,name=bundle_normalized,json=bundleNormalized,proto3" json:"bundle_normalized,omitempty"`
 	// 框架契约段：唯一真相源 = bconf（15 段一次带入，不复制字段）。生成物
 	// configs/<app>.yaml 由本段经 protoreflect 派生——加一个 bconf 段 = 0 处
-	// 生成器改动（装配层评估 §4.6 膨胀根治 / D2 §3.4）。
+	// 生成器改动（D2 §3.4）。
 	Bootstrap *v1.BootstrapConfig `protobuf:"bytes,7,opt,name=bootstrap,proto3" json:"bootstrap,omitempty"`
 	// 生成期布局声明（输出根 / apiserver 目录 / Gate3 开关）。
 	Layout *LayoutSpec `protobuf:"bytes,8,opt,name=layout,proto3" json:"layout,omitempty"`
 	// 装配期 bundle 声明（取代 bundle_normalized 快捷方式；bundle 是装配期
 	// 概念不是契约段，故不在 bootstrap）。
 	Bundle *BundleSpec `protobuf:"bytes,9,opt,name=bundle,proto3" json:"bundle,omitempty"`
-	// 显式域清单（裁决 4：域声明值经生成物 domains.gen.go 变参直传
+	// 显式域清单（域声明值经生成物 domains.gen.go 变参直传
 	// MustServe；name 唯一由 Gate1 校验）。
 	Domains       []*DomainSpec `protobuf:"bytes,10,rep,name=domains,proto3" json:"domains,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -277,19 +277,19 @@ func (x *BundleSpec) GetNormalized() bool {
 	return false
 }
 
-// DomainSpec 声明一个业务域（裁决 4：域清单进 AppSpec）。
+// DomainSpec 声明一个业务域（域清单进 AppSpec）。
 type DomainSpec struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// 域名（全应用唯一；域装配次序 = 声明序）。
 	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	// 域的 proto 包名（如 "greet.v1"）。
 	ProtoPackage string `protobuf:"bytes,2,opt,name=proto_package,json=protoPackage,proto3" json:"proto_package,omitempty"`
-	// 域的 gRPC service 全名（如 "greet.v1.GreetService"；W3b gen domain
+	// 域的 gRPC service 全名（如 "greet.v1.GreetService"；gen domain
 	// 校验其与实际 proto 匹配并派生路由/授权策略）。
 	Service string `protobuf:"bytes,3,opt,name=service,proto3" json:"service,omitempty"`
 	// 域模型文件（如 "internal/apiserver/model/greet.go"）。
 	Model string `protobuf:"bytes,4,opt,name=model,proto3" json:"model,omitempty"`
-	// 域声明值所在的 Go import 路径（该包须导出 appkit.Domain 值——W2 形态，
+	// 域声明值所在的 Go import 路径（该包须导出 appkit.Domain 值，
 	// 对照 _example/bald/domains.gen.go）。
 	GoPackage     string `protobuf:"bytes,5,opt,name=go_package,json=goPackage,proto3" json:"go_package,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -591,7 +591,7 @@ type CapabilitySpec struct {
 	Provides []string `protobuf:"bytes,1,rep,name=provides,proto3" json:"provides,omitempty"`
 	// 组件对能力的依赖声明（Requires(component, caps...) 的 proto 对应）。
 	// 注意：requires 是「组件声明依赖」，不是扁平能力名——否则无法表达
-	// 「audit.store 需要 db」的归属关系（P12 反向生成 go-bald-admin 时暴露的缺口）。
+	// 「audit.store 需要 db」的归属关系。
 	Requires      []*Requirement `protobuf:"bytes,2,rep,name=requires,proto3" json:"requires,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

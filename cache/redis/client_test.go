@@ -1,6 +1,6 @@
 package redis
 
-// client_test.go —— 评估 §11.4 上游建议第一道的钉子：
+// client_test.go —— 原生 client 暴露契约的钉子：
 //   1. Client() 返回与 New 注入的是**同一实例**（接口判等按指针身份）；
 //   2. 同一实例是活的：经 Client() 句柄的写操作直接可见于底层 Redis。
 

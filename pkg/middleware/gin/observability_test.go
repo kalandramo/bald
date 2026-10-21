@@ -93,7 +93,7 @@ func TestObservability_SpanKindServer(t *testing.T) {
 // TestObservability_TraceIDInContext：Observability 必须把 trace_id 注入
 // contextx（审计-链路关联修复的防回归锚点）——handler 内
 // contextx.TraceIDFromContext 必须非空且与日志属性流的 trace_id 同值。
-// R4 复审连带发现：此前 trace_id 只进日志属性流，audit/authn/crudbridge
+// 背景：此前 trace_id 只进日志属性流，audit/authn/crudbridge
 // 五处 TraceIDFromContext 消费恒读空，审计事件 trace_id 字段恒空。
 func TestObservability_TraceIDInContext(t *testing.T) {
 	gin.SetMode(gin.TestMode)

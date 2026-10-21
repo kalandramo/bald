@@ -1,11 +1,10 @@
 // greet.go 是 greet 域的 biz/model + 传输适配（新增域 3 文件目标的第 2 个
 // 手写文件）：
 //   - 域配置段读取（Settings 快照 greet.* 子树）与能力构造（greeter）；
-//   - sayHello 业务函数（gRPC 面与 REST 面共用同一 biz——迁移前
-//     register_grpcgw 与 main.go 内联闭包的两份实现合一）；
+//   - sayHello 业务函数（gRPC 面与 REST 面共用同一 biz）；
 //   - REST 路由（gin）与 gRPC service 实现；
-//   - 契约校验回调（第 1 层 proto 注解 + 第 2 层手写规则，原 register_grpcgw
-//     的分层校验整体随域迁移——校验规则是域自己的契约知识）。
+//   - 契约校验回调（第 1 层 proto 注解 + 第 2 层手写规则——校验规则是
+//     域自己的契约知识）。
 package greetv1
 
 import (
@@ -29,7 +28,7 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// 域端口：Wire 按自己的配置段构造并持有（§3.3 修复——能力策略住域，不住装配层）
+// 域端口：Wire 按自己的配置段构造并持有（能力策略住域，不住装配层）
 // ---------------------------------------------------------------------------
 
 // greeter 是 greet 域的核心能力：问候语前缀由域配置段 greet.greeting 供给。
@@ -39,7 +38,7 @@ type greeter struct {
 
 func (g *greeter) Greet(name string) string {
 	if name == "" {
-		name = "world" // 与迁移前 Greet 的缺省语义一致
+		name = "world" // 缺省问候名
 	}
 	return g.greeting + ", " + name
 }
@@ -63,8 +62,8 @@ type domainConfig struct {
 	greeting string
 }
 
-// readOwnConfig 读域配置段：缺省 greeting="hello" 与迁移前行为一致（新增段
-// 缺省零回归）；env 覆盖通道 BALD_DEMO_GREET_GREETING 由配置装载的 env 层
+// readOwnConfig 读域配置段：缺省 greeting="hello"（新增段缺省零回归）；
+// env 覆盖通道 BALD_DEMO_GREET_GREETING 由配置装载的 env 层
 // 展平供给。
 func readOwnConfig(app *appkit.App) domainConfig {
 	c := domainConfig{greeting: "hello"}
@@ -90,7 +89,7 @@ func wire(_ context.Context, app *appkit.App) error {
 // biz：gRPC 面与 REST 面共用同一业务函数
 // ---------------------------------------------------------------------------
 
-// sayHello 是 greet 域的业务函数（迁移前 register_grpcgw.Greet）。
+// sayHello 是 greet 域的业务函数。
 func sayHello(ctx context.Context, name string) string {
 	return currentGreeter().Greet(name)
 }
@@ -138,8 +137,7 @@ func registerRoutes(h http.Handler) error {
 	// 版本组：与 main 的示例路由同一前缀；CORS 子链是域自己的安全策略。
 	v1 := e.Group("/v1", mid.CORS(mid.DefaultCORS()))
 
-	// 结构化示例：纯 JSON 绑定 + 业务错误（400 + ErrorResponse）——与迁移前
-	// main.go 的内联闭包逐行等价（e2e 回归钉住）。
+	// 结构化示例：纯 JSON 绑定 + 业务错误（400 + ErrorResponse，e2e 回归钉住）。
 	type greetReq struct {
 		Name string `json:"name"`
 	}
@@ -168,7 +166,7 @@ func registerRoutes(h http.Handler) error {
 
 // protoValidator 是 protovalidate 的预热实例（init 构建）：New() 预编译注解
 // 中的 CEL 表达式，之后每次校验复用编译结果；「注解写错」在进程启动期暴露
-// （CompilationError panic——fail fast，与迁移前 register_grpcgw 的 init 一致）。
+// （CompilationError panic——fail fast）。
 var protoValidator protovalidate.Validator
 
 // requestRules 承载 protovalidate 注解表达不了、需要外部状态的校验
@@ -195,7 +193,7 @@ func init() {
 //   - 第 2 层：手写规则（依赖外部状态，注解表达不了）。
 //
 // 拦截器链是应用策略（main 的 newGRPCServerOptions）；域只贡献自己的回调——
-// 新增域的校验组合点在应用的链构造（W3 由生成物承担）。
+// 新增域的校验组合点在应用的链构造（由生成物承担）。
 func Validator(ctx context.Context, rq any) error {
 	if msg, ok := rq.(proto.Message); ok {
 		if err := protoValidator.Validate(msg); err != nil {
@@ -235,7 +233,7 @@ var reservedNames = map[string]struct{}{
 }
 
 // ValidateGreetRequest 校验 GreetRequest。
-// 方法名必须严格等于 "Validate" + 请求类型名，否则 NewValidator 会报错（P2）。
+// 方法名必须严格等于 "Validate" + 请求类型名，否则 NewValidator 会报错。
 //
 // 本方法不重复校验非空/长度/格式——那些已在 proto 注解里（第 1 层），这里只
 // 做注解表达不了的判断，避免同一规则两处各写一遍（双真相源）。

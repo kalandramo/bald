@@ -1,8 +1,6 @@
 package appkit
 
-// 约定装配的内部实现（assemble）：原 FromBootstrap（2026-09-06 新增的契约
-// 约定装配入口）在批 2 W2a 收敛为 Serve 的内部步骤；批 2 W2b 起，原 12 段
-// 手工装配流替换为**段驱动 Provider 循环**（装配层评估 §4.2 候选 A，机制见
+// 约定装配的内部实现（assemble）：由**段驱动 Provider 循环**驱动（机制见
 // provider.go）——每个资源域 = 1 个 Provider 声明 + 段存在性由契约反射给出，
 // 框架内不再维护任何手工段枚举表。框架自有后端的默认 Provider 集合由
 // std.Standard()（pkg/appkit/std）打包注入。
@@ -128,8 +126,8 @@ type loggerSource interface {
 	contractLogger(ctx context.Context, cfg *bootstrapv1.BootstrapConfig) (log.Logger, func(), error)
 }
 
-// providerLoggerSource 是 logger Provider 路径（唯一路径——B7 删除默认分派，
-// D1 §4.5：slog 后端经 StandardLoggerProvider 走同一条 provider 通道进 std）：
+// providerLoggerSource 是 logger Provider 路径（唯一路径：slog 后端经
+// StandardLoggerProvider 走同一条 provider 通道进 std）：
 // 引擎在三个时点调用 Provider.Build（阶段 A：Config=nil——框架在此保证启动
 // 日志可见；阶段 B/热更：Config=完整契约或候选），产物为 log.Logger，cleanup
 // 交由引擎的 curCleanup 原子换槽兑现。
@@ -177,13 +175,12 @@ func resolveLoggerSource(spec *Decl, plan *providerPlan) loggerSource {
 	return providerLoggerSource{prov: prov, spec: spec}
 }
 
-// assemble 按契约约定装配 App——段驱动 Provider 装配引擎（原 12 段手工
-// 流的整体替换，批 2 W2b；公开入口只剩 Serve/MustServe，见 serve.go）。
+// assemble 按契约约定装配 App——段驱动 Provider 装配引擎
+// （公开入口只剩 Serve/MustServe，见 serve.go）。
 //
 // spec 为业务能力声明（With*/Providers 写入的 Decl，调用方已 Apply 完毕）；
 // cfg 为契约，必须非 nil——Serve 路径由内部契约装载产出（bconf.NewBootstrap +
-// 预装载），包内测试经显式注入复刻旧 FromBootstrap(cfg, opts...) 的构造期
-// 语义。返回的 App 已完成全部约定装配，直接 Run 即可。
+// 预装载），包内测试经显式注入 cfg 复用同一构造期语义。返回的 App 已完成全部约定装配，直接 Run 即可。
 func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*App, error) {
 	if cfg == nil {
 		return nil, errors.New("appkit: assemble: bootstrap config is nil")
@@ -194,7 +191,7 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*App, error) {
 		return nil, err
 	}
 
-	// 域声明解析（装配层评估 §4.3，机制见 domain.go）：装配期校验 fail-fast
+	// 域声明解析（机制见 domain.go）：装配期校验 fail-fast
 	// 先于阶段 A Logger 等一切副作用；Services 并入 gRPC 注册回调（先于下方
 	// 能力声明检查——域提供的注册回调与 WithGRPC 声明同权）。
 	if err := validateDomains(spec, cfg.GetServer().GetGrpc() != nil); err != nil {
@@ -318,7 +315,7 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*App, error) {
 			// 阶段 B Provider 循环：canonical 序（registry→tracer→metrics→
 			// database→cache→storage→audit→ai→workflow→broker，见 stageBRank）。
 			// 显式 Registrar 实例接管 registry 段时跳过纯 registry Provider
-			// （程序化接管 = 刻意覆盖，批 1 语义）。
+			// （程序化接管 = 刻意覆盖）。
 			bps := plan.stageB
 			if spec.Registrar != nil {
 				bps = dropSegmentProviders(bps, "registry")
@@ -328,7 +325,7 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*App, error) {
 			if err != nil {
 				return err
 			}
-			// L3 段覆盖检查（批 2 起报错级，见 segment_coverage.go）：装配链
+			// L3 段覆盖检查（见 segment_coverage.go）：装配链
 			// 末尾、契约已装载定型——枚举实际出现的顶层段，减去本次装配真
 			// 实被消费的段与白名单，剩余即启动期 error（script 段零消费者的
 			// 静默失效由此拦截）。
@@ -383,7 +380,7 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*App, error) {
 	for _, fn := range spec.BeforeStart {
 		kitOpts = append(kitOpts, BeforeStart(fn))
 	}
-	// 域装配钩子（装配层评估 §4.3，机制见 domain.go）：注册序在业务钩子之后
+	// 域装配钩子（机制见 domain.go）：注册序在业务钩子之后
 	//（域可消费业务钩子建立的运行期资源）、迟后阶段之前（域的路由/服务注册
 	// 先于 server 构建生效）——「资源面已就绪」与「注册先于 server 构建」两
 	// 约束夹出的窗口。多域次序 = 声明序；域 Wire/Routes 失败 fail-fast。

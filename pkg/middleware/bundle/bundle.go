@@ -96,12 +96,12 @@ func Audit(a audit.Auditor) Option { return func(b *Bundle) { b.auditor = a } }
 func Metrics(r metrics.Recorder) Option { return func(b *Bundle) { b.recorder = r } }
 
 // Normalized 显式开启 P9 归一化默认（authz.Default{HTTP,GRPC}{Object,Action}）。
-// D7 起归一化默认开启（的核心收益——根治 REST/gRPC 双命名空间 RBAC——不应
+// 归一化默认开启（核心收益——根治 REST/gRPC 双命名空间 RBAC——不应
 // 依赖调用方记得 opt-in），本 Option 保留为显式声明（幂等）。
 func Normalized() Option { return func(b *Bundle) { b.normalized = true } }
 
-// Raw 关闭归一化，回到 P7 原始语义（HTTP object=path、gRPC object=FullMethod），
-// 供依赖旧双命名空间语义的存量部署 opt-out（配套）。
+// Raw 关闭归一化，回到原始语义（HTTP object=path、gRPC object=FullMethod），
+// 供依赖该语义的存量部署 opt-out（配套）。
 func Raw() Option { return func(b *Bundle) { b.normalized = false } }
 
 // CORS 附加 gin 跨域中间件（gRPC 链无对应层）。传 nil 等同不设置。

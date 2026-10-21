@@ -35,9 +35,8 @@ type GatewayServer struct {
 //
 // register 的签名刻意是「返回 http.Handler」而不是「传入 *http.ServeMux」：
 // grpc-gateway v2 用的是 runtime.ServeMux（不是标准库 *http.ServeMux），
-// 旧签名把 *http.ServeMux 硬编码进去，导致 grpc-gateway v2 根本无法接入。
-// 改成让业务自己创建并注册、只交回一个 http.Handler 后，
-// 本包**无需依赖 grpc-gateway**（与 P5「核心零后端依赖」治理一致）。
+// 业务自己创建并注册 mux、只交回一个 http.Handler，本包因此**无需依赖
+// grpc-gateway**。
 //
 // conn 与 handler 延迟到 Start 时才建立：构造期 config 尚未加载，backend.addr
 // 仍是默认值；延迟到 Start（config 已就绪）可拿到 env/flag 覆盖后的真实地址。

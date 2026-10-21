@@ -1,7 +1,7 @@
-// Package authzcasbin 实现基于 casbin 的 bald authz.Authorizer 桥接，
-// 自 go-bald-admin 范例 internal/security/casbin 晋升（见 docs/devel/zh-CN/架构优化路线.md）。
+// Package authzcasbin 实现基于 casbin 的 bald authz.Authorizer 桥接
+// （docs/devel/zh-CN/架构优化路线.md）。
 //
-// 设计约束（对齐 bald P7/P9 原则）：
+// 设计约束：
 //   - 实现 bald 核心的 authz.Authorizer 接口，作为业务侧桥接子模块；
 //     核心框架保持零策略引擎耦合，casbin 只存在于本 module（不进 bald 核心）。
 //   - 传输中立归一化已由核心拦截器完成（反哺）：gin/grpc Authz 中间件经
@@ -54,7 +54,7 @@ type Authorizer struct {
 	// 此时 Reload 为合法无操作（无可重载之源）。
 	adapter persist.Adapter
 
-	// cache 是 (subject, object, action) → 判定 的有界 LRU 结果缓存（批 6），
+	// cache 是 (subject, object, action) → 判定 的有界 LRU 结果缓存，
 	// 吸收 casbin 引擎逐请求分配（命中路径零 Enforce、零分配）。安全语义见
 	// cache.go：只缓存无错误判定、Reload 整体失效、容量有界、命中不以任何
 	// 方式放宽放行面。锁序：本结构先 a.mu 后 cache.mu（两把锁从不反序嵌套）。

@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	// SQLite 用纯 Go driver（glebarez）：本机/CI 无 gcc 时 cgo 版 go-sqlite3 整体失效
-	//（与 go-bald-admin T0 的切换同因）。
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -27,7 +26,7 @@ type User struct {
 
 // newTestProvider 每个测试用独立临时数据库文件，避免内存库跨测试串扰。
 // 显式 t.Cleanup 关闭连接池：Windows 下 TempDir RemoveAll 会因未释放的
-// sqlite 文件句柄失败（"being used by another process"，与 go-bald-admin 同款坑）。
+// sqlite 文件句柄失败（"being used by another process"）。
 func newTestProvider(t *testing.T) *Provider[User] {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "test.db")

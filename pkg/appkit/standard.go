@@ -1,5 +1,4 @@
-// standard.go 是框架自有后端的内置 Provider 实现（std.Standard() 的成员；
-// 装配层评估 §4.2 具体入口，批 2 W2b）。
+// standard.go 是框架自有后端的内置 Provider 实现（std.Standard() 的成员）。
 //
 // 实现落在 appkit（而非 std 包）的原因：两者都深度消费 appkit 内部件——
 // server Provider 消费 Decl 能力声明与探针包装（withProbes），audit 产物
@@ -46,8 +45,7 @@ func StandardServerProvider() Provider { return stdServerProvider{} }
 func StandardAuditProvider() Provider { return stdAuditProvider{} }
 
 // StandardLoggerProvider 返回框架内置日志 Provider（logger 段；std.Standard()
-// 成员）。B7 起这是日志装配的唯一内置通道（原 defaultLoggerFactory 的分派
-// 逻辑整体迁入，D1 §4.5——App 层不再有第二个日志路径）：
+// 成员）。这是日志装配的唯一内置通道（App 层不再有第二个日志路径）：
 //   - 阶段 A（Config=nil，契约装载前）：产出引导 bslog——框架持有的
 //     「引导 logger」，保证启动日志可见；阶段 B 用本 Provider 的契约结果替换；
 //   - 阶段 B/热更：按契约 logger.backends 逐项构造（type=slog 直构 + 装饰器，
@@ -220,8 +218,8 @@ func (stdAuditProvider) Apply(d *Decl) { d.Providers = append(d.Providers, stdAu
 
 // Build 按契约 audit.backends 列表装配审计后端（多选，列表序即广播序）。
 // "log" 内置；其余项 fail-fast 教学报错（std 不含第三方后端——经用户
-// audit Provider 接管）。多后端组装、失败逆序回滚收敛在 pkg/audit.Compose
-// （批 1 内化）。产物为 audit.Auditor，落资源面并作 appkit 自身审计事件的
+// audit Provider 接管）。多后端组装、失败逆序回滚收敛在 pkg/audit.Compose。产物为 audit.Auditor，
+// 落资源面并作 appkit 自身审计事件的
 // 兜底 sink（B8：全局 SetAuditor 已删除）——见 storeProduct。
 func (stdAuditProvider) Build(ctx context.Context, s BuildScope) (any, Cleanup, error) {
 	acfg := s.Config.GetAudit()

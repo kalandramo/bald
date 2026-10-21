@@ -27,7 +27,7 @@ type DatabaseProvider func(ctx context.Context, cfg *bootstrapv1.Database) (any,
 // 返回 any 是装配层的必然；类型安全在消费侧恢复——SQL 客户端接
 // contrib/store-gorm 变 store.DBProvider[T]。any 不向框架内部扩散：
 // 本包只保存与转发，不做任何断言。
-// 薄壳（批 1 收敛，见 registry.go）：互斥锁 + provider 表 + Register/MustRegister
+// 薄壳（见 registry.go）：互斥锁 + provider 表 + Register/MustRegister
 // 由嵌入的 Registry[T] 载体承载（文案经 TypeTexts 与既有文案逐字一致）；
 // 本文件只保留 database 特有的段表与 Build 装配序。
 type DatabaseRegistry struct {

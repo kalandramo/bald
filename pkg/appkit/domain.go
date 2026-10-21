@@ -1,21 +1,19 @@
-// domain.go 实现业务域一等概念 appkit.Domain（装配层评估 §4.3 /
-// D1-target-appkit.md §1.3-§1.4，判据 ① 的框架侧）。
+// domain.go 实现业务域一等概念 appkit.Domain。
 //
 // 域是「每域包导出一个声明值」的一等 Option：Domain 实现 Option（Apply 追加进
 // Decl.Domains——Provider 同款手法），变参直传 MustServe：
 //
 //	appkit.MustServe(ctx, std.Standard(), authv1.Domain, dictv1.Domain)
 //
-// 接缝裁定（评估 §4.3，架构裁定照录）：appkit 只接受「域声明值」，不新增注册
-// 表式 API；域清单的承载者是生成文件（Go 无运行期包发现，W3 的 bald gen
+// 接缝约定：appkit 只接受「域声明值」，不新增注册
+// 表式 API；域清单的承载者是生成文件（Go 无运行期包发现，bald gen
 // domain 产出 domains.gen.go 聚合清单；_example 的手写 domains.gen.go 即其
-// 目标形态）。init() 自注册禁止（「不做 init() 自注册」哲学，评估 §4.3）。
+// 目标形态）。init() 自注册禁止（「不做 init() 自注册」哲学）。
 //
 // 三个槽位（以 bald-admin 21 域的真实诉求裁剪，YAGNI）：
 //   - Wire：域在装配期自我接线——读自己的配置段（app.Settings() 快照）、构造
-//     自己的能力（限流/熔断/重试等）、持有自己的端口（§3.3「业务能力策略住
-//     装配层」的修复：builders.go 那类读业务阈值的构造器迁回域包，装配层不再
-//     出现业务阈值）；
+//     自己的能力（限流/熔断/重试等）、持有自己的端口（业务能力策略住域：
+//     读业务阈值的构造器归域包，装配层不再出现业务阈值）；
 //   - Routes：HTTP 路由注册——接收 WithHTTP 声明的业务 handler（gin 场景即
 //     *gin.Engine；appkit 不 import 路由器，路由器耦合由域自持），在 server
 //     构建前生效；gateway 转码面占用 server.http 端口时让位（同端口单面语义）；
@@ -26,7 +24,7 @@
 //   - 迁移：执行迁移需要存储栈类型（gorm AutoMigrate），appkit 不 import 存储
 //     栈——域在 Wire 内经 App.Resource("database.sql") 取连接自行执行
 //     （bald-admin audit_wiring.go 的 AutoMigrate 即既有先例）；声明式迁移清单
-//     归 W3 生成物（评估 §4.6）。
+//     由 gen domain 生成物承载。
 //   - ConfigKeys：业务配置段只进 Settings 快照、不进契约（bald-admin 的 biz
 //     段先例——业务键被契约 Unmarshal 丢弃，与 L3 段覆盖检查无交互）；
 //     StrictContract 白名单由应用声明（appkit.StrictContract）。
@@ -62,7 +60,7 @@ type Domain struct {
 	Name string
 
 	// Wire 域自我接线（装配期执行一次）：读自己的配置段（app.Settings()）、
-	// 构造自己的能力、持有自己的端口（§3.3 修复）。执行时资源面已就绪
+	// 构造自己的能力、持有自己的端口。执行时资源面已就绪
 	// （App.Resource 可取阶段 B 产物），业务 BeforeStart 钩子已跑完（域可
 	// 消费业务建立的运行期资源）。返回错误 = 启动失败（fail-fast）。
 	Wire func(ctx context.Context, app *App) error
@@ -86,7 +84,7 @@ func (d Domain) Apply(decl *Decl) { decl.Domains = append(decl.Domains, d) }
 
 // validateDomains 装配期校验域声明（构造期 fail-fast，先于阶段 A Logger 等
 // 一切副作用）：
-//   - Name 必填且唯一（生成期校验「name 唯一」的运行期镜像，评估 §4.3 裁决 4）；
+//   - Name 必填且唯一（生成期校验「name 唯一」的运行期镜像）；
 //   - Routes 需有 HTTP 面可挂（WithHTTP/WithGatewayRegister 至少其一——
 //     gateway 面运行期让位语义见 Routes 字段注释）；
 //   - Services 需契约 server.grpc 段存在（与 WithGRPC 的既有 fail-fast 同语义）。

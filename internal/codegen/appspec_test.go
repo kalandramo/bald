@@ -525,7 +525,7 @@ func TestTree_OwnershipAcrossRegenerations(t *testing.T) {
 // （../../../kratos/...）指向 bald 仓库的**兄弟目录** checkout——只在本机
 // 存在，GitHub runner 只有仓库本身（checkout 在 <workspace>/bald，兄弟目录
 // 解析到 <workspace>/kratos，不存在），go mod tidy 加载模块图即炸。这是
-// run 39104694914 起 TestTree_* 全红的唯一直因（「reading
+// TestTree_* 全红的唯一直因（「reading
 // .../kratos/contrib/config/nacos/go.mod: no such file or directory」）。
 // 处置：replace 目标缺 go.mod 的整行剔除，并连带剔除该模块的零时间占位版本
 // require（v?…-00010101000000-000000000000 只可能经 replace 满足，留 require
@@ -565,7 +565,7 @@ func scaffoldModule(t *testing.T, dir, module string) {
 			// hermetic 判据与 TestScaffoldModule_ReplacesAreHermetic 同一不变量：
 			// 目标必须仍在仓库 checkout 内（根从 base 派生，不依赖进程 cwd）且
 			// 自带 go.mod。只判存在性不够——本机恰有 kratos 兄弟 checkout 时
-			// 外指 replace 在本机成立、runner 上必炸（run 39104694914）。
+			// 外指 replace 在本机成立、runner 上必炸。
 			root := filepath.Clean(filepath.Join(base, "..", ".."))
 			inside := false
 			if rel, relErr := filepath.Rel(root, target); relErr == nil &&
@@ -618,7 +618,7 @@ func scaffoldModule(t *testing.T, dir, module string) {
 // TestScaffoldModule_ReplacesAreHermetic 把 Linux CI 的失败模式钉成全平台可跑
 // 的不变量（不依赖 runner 也能验）：脚手架 go.mod 的每个 replace 目标必须
 // 落在仓库 checkout 内且自带 go.mod——runner 上只有仓库本身，指向兄弟目录
-// 的 replace 只在本机碰巧成立（run 39104694914 起 tidy 全红的根因）；每个
+// 的 replace 只在本机碰巧成立（tidy 全红的根因）；每个
 // 零时间占位版本 require 必须有 replace 兜底（占位伪版本 proxy 上不存在）。
 func TestScaffoldModule_ReplacesAreHermetic(t *testing.T) {
 	dir := t.TempDir()
@@ -712,7 +712,7 @@ func writeSpecJSON(t *testing.T, dir string, as *appspecv1.AppSpec) string {
 }
 
 // runGenAppInTemp 把参考夹具生成到临时 module（复用 runGenAppSpec 全流水线：
-// 三道门 + 三态落盘），并在声明域存在时跟进 gen domain——W3b 起域产物
+// 三道门 + 三态落盘），并在声明域存在时跟进 gen domain——域产物
 // （域包声明值骨架 + 清单扇出 + 逐域 handler）由 gen domain 落地，测试不再
 // 自备域包脚手架。返回 module 目录与 spec 路径。
 func runGenAppInTemp(t *testing.T, as *appspecv1.AppSpec) (string, string) {

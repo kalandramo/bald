@@ -171,7 +171,7 @@ func isKnownCommand(root *cobra.Command, name string) bool {
 // server.http.driver=grpc-gateway，见 register_grpcgw.go）。
 func newAppOptions(healthChecker *health.Health) []appkit.Option {
 	opts := []appkit.Option{
-		// --- 框架默认后端 + 第三方 Provider（目标 main.go 形态，评估 §4.1）---
+		// --- 框架默认后端 + 第三方 Provider ---
 		// std.Standard()：框架自有后端的段驱动 Provider 集合（http/grpc 服务器
 		// 构造、audit.log 默认——对账表见 pkg/appkit/std 包文档）。
 		std.Standard(),
@@ -219,8 +219,8 @@ func newAppOptions(healthChecker *health.Health) []appkit.Option {
 		// 掩码为 *** + service.name 固定属性（见 providers.go 与其行为测试）。
 		newLoggerProvider(),
 	}
-	// 业务域（一等概念，判据 ① 活体）：域清单（domains.gen.go——bald gen
-	// domain 生成的目标形态，W3 使其真实）变参直传。新增域只改清单文件，
+	// 业务域（一等概念）：域清单（domains.gen.go——bald gen domain 生成）
+	// 变参直传。新增域只改清单文件，
 	// 装配零改动。
 	opts = append(opts, domainOptions...)
 	// HTTP 面二选一（同一 server.http 段只跑一个面，语义见 WithGatewayRegister）：
@@ -263,7 +263,7 @@ var osExit = func(code int) { os.Exit(code) }
 // 却让测试看起来在跑 —— 复用同一构造函数可杜绝这类「测试与生产不一致」。
 //
 // 校验器：拦截器接受回调（依赖倒置），具体实现由注入方决定，
-// 本包不绑定任何校验库（与 P5「核心零后端依赖」治理一致）。三种接法：
+// 本包不绑定任何校验库。三种接法：
 //
 //	// (a) protovalidate：读取 proto 的 buf.validate 注解（声明式字段规则）
 //	//     需先 go get buf.build/go/protovalidate（会引入 cel-go，按需引入）
@@ -304,7 +304,7 @@ func newGRPCServerOptions() []grpc.ServerOption {
 // server.http.driver=grpc-gateway（configs/bald-demo.yaml）接入网关转码面。
 //
 // 用回调而非直接构造，是因为 GatewayServer 依赖 grpc-gateway（较重），
-// 默认构建不该引入它（与 P5「核心零重依赖」、P6「依赖倒置」一致）。
+// 默认构建不该引入它。
 // 网关也不是独立服务器：同一 server.http 段只跑一个面，模式由契约
 // server.http.driver 驱动（与 bootstrap.ServerRegistry 的装配语义一致）。
 var gatewayRegister func(ctx context.Context, conn *grpc.ClientConn) (http.Handler, error)

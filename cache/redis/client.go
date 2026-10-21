@@ -1,5 +1,4 @@
-// client.go —— 底层原生 go-redis client 的加法式暴露（评估 §11.4 上游建议
-// 第一条）。业务（TokenStore / 验证码 / MFA / 审计流 / cachemonitor 等）需要
+// client.go —— 底层原生 go-redis client 的加法式暴露。业务（TokenStore / 验证码 / MFA / 审计流 / cachemonitor 等）需要
 // 原生 client 能力（INCR 原子计数、SCAN、SUBSCRIBE、定制 Pipeline 等），
 // 既有产物却只暴露 cache.Cache 抽象，拿不到原生 client。纯加法：只新增
 // 一个只读访问器，既有构造逻辑与既有调用点零改动。

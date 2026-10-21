@@ -327,7 +327,7 @@ func TestRegistry_RegisterDeregister(t *testing.T) {
 	}
 }
 
-// P0：分阶段停机顺序与独立超时。
+// 分阶段停机顺序与独立超时。
 // 验证顺序为 beforeStop -> transport.Stop -> afterStop，且各阶段用各自独立超时 ctx。
 func TestP0_StopPhasesOrderAndTimeout(t *testing.T) {
 	var mu sync.Mutex
@@ -384,7 +384,7 @@ func TestP0_StopPhasesOrderAndTimeout(t *testing.T) {
 	}
 }
 
-// P0：生命周期钩子 panic 不应拖垮整机停机（recover 隔离）。
+// 生命周期钩子 panic 不应拖垮整机停机（recover 隔离）。
 func TestP0_HookPanicIsolated(t *testing.T) {
 	srv := newMock("panichook")
 	srv.stopDelay = 2 * time.Millisecond
@@ -491,8 +491,8 @@ func TestAppKit_ConfigLoadedAndExposed(t *testing.T) {
 	}
 }
 
-// readSetting 从 Settings() 快照按点路径读字符串（App.Config() 删除后，
-// 点路径读取走 bootstrap/config 的 At/String 值语义——B7 §4.3）。
+// readSetting 从 Settings() 快照按点路径读字符串（点路径读取走
+// bootstrap/config 的 At/String 值语义）。
 func readSetting(a *App, key string) string {
 	v, ok := config.At(a.Settings(), key)
 	if !ok {

@@ -5,7 +5,7 @@ package appkit
 //	0 效应账本逆序回放 → 1 BeforeStop → 2 Server.Stop → 3 AfterStop →
 //	4 组件 Dispose（AfterStop 之后——钩子期间组件仍可用，最后收尾）。
 //
-// 裁决 6 收尾（装配层评估 §7）：AfterStop 已在单入口上以裸名导出
+// AfterStop 在单入口上以裸名导出
 // （AfterStop Option，Decl.AfterStop 承载）——本测试同时核验其生效落点
 // 恰在 Server.Stop 与组件 Dispose 之间。
 

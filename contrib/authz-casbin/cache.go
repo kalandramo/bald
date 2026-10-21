@@ -5,10 +5,10 @@ import (
 	"sync"
 )
 
-// enforceCache 是 (subject, object, action) → 判定结果 的有界 LRU 结果缓存，
-// 批 6 第 1 项（casbin 引擎逐请求分配优化）的核心构件。
+// enforceCache 是 (subject, object, action) → 判定结果 的有界 LRU 结果缓存
+// （casbin 引擎逐请求分配优化的核心构件）。
 //
-// 背景：批 5 W3 落证 casbin 引擎每次 Enforce ≈206 allocs/8.6KB（函数表/参数
+// 背景：实测 casbin 引擎每次 Enforce ≈206 allocs/8.6KB（函数表/参数
 // 装箱等逐请求重建），策略全扫拒绝路径更高（≈1,270 allocs，101 行全扫）。而
 // Web 服务的授权流量高度重入——同一 subject 反复访问同一 (object, action) 是
 // 常态——结果缓存在这一形态下收益最大。

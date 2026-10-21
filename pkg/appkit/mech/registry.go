@@ -1,6 +1,5 @@
-// registry.go 承载运行期可逆挂载基座 Registry[T]（原 pkg/appkit 的导出类型，
-// B5 下沉：类型与全部方法自包含、无 App 未导出状态依赖，接收者方法随类型
-// 同包迁移无 Go 约束；docs/devel/zh-CN/装配层评估.md §4.4、D1 §2.6）。
+// registry.go 承载运行期可逆挂载基座 Registry[T]（类型与全部方法自包含、
+// 无 App 未导出状态依赖）。
 //
 // 设计意图（显式装配哲学）：注册表实例由调用方显式构造（NewRegistry），
 // 装配期 Register 冲突报错 fail-fast，运行期变更走 Mount/Unmount 可逆语义
@@ -8,8 +7,7 @@
 // 接线由业务侧在装配代码里显式完成。
 //
 // 注：与 bootstrap 的装配期注册表载体（bootstrap/registry.go，fail-fast
-// 语义）语义不同、不共用——两套泛型注册表并存是批 1 的裁定终态
-// （装配层评估.md §9.6）。
+// 语义）语义不同、不共用——两套泛型注册表并存是刻意设计。
 package mech
 
 import (

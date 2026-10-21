@@ -40,7 +40,7 @@ func TestGenApp_TemplateFormats(t *testing.T) {
 	if _, err := format.Source(buf.Bytes()); err != nil {
 		t.Fatalf("generated code not gofmt-able: %v\n%s", err, buf.String())
 	}
-	// 关键锚点：批 2 目标惯用法 + 全部第二轮原语必须在模板中示范。
+	// 关键锚点：目标惯用法 + 全部原语必须在模板中示范。
 	for _, want := range []string{
 		"appkit.MustServe", "std.Standard()",
 		"mech.Provides", "mech.Requires", "mech.Effect",
@@ -127,7 +127,7 @@ func TestGenAppSpec_CommandOmitsName(t *testing.T) {
 
 	// 模板模式（无 --spec）：缺 <name> 仍报错。此负例用默认流（ErrOut =
 	// os.Stderr），SetErr 覆写为弃流后错误只经 Execute 返回值断言——不把
-	// 预期错误漏进 CI 日志（run 39361419248 的「accepts 1 arg(s)」噪音即此）。
+	// 预期错误漏进 CI 日志（「accepts 1 arg(s)」噪音即此）。
 	cmd2 := genAppCmd(NewDefaultIOStreams())
 	cmd2.SetArgs(nil)
 	cmd2.SetErr(io.Discard)

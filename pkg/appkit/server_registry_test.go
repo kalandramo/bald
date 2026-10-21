@@ -1,8 +1,7 @@
-// server_registry_test.go —— server 段 Provider（原 WithServerRegistry 的
-// Provider 等价形态；批 2 W2b：WithServerRegistry 已删，用户经段驱动
-// Provider 接入第三方协议服务器，co-provider 与内置 http/grpc 并存）。
+// server_registry_test.go —— server 段 Provider（用户经段驱动 Provider 接入
+// 第三方协议服务器，co-provider 与内置 http/grpc 并存）。
 //
-// 本文件锁三条不变量（原编号语义逐条迁移）：
+// 本文件锁三条不变量：
 //  1. co-provider 的 Build 在 **Run 期**（迟后阶段）被调用（构造期零调用）；
 //  2. co-provider 与内置 std server Provider 并存（http 主面不因
 //     co-provider 而丢失）；

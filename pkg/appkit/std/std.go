@@ -1,8 +1,7 @@
-// Package std 打包框架自有后端的默认 Provider 集合（装配层评估 §4.2
-// 「具体入口」，批 2 W2b）。
+// Package std 打包框架自有后端的默认 Provider 集合。
 //
 // std.Standard() 返回一个 Option，内含框架**自有**后端的段驱动 Provider
-// （对账基准 = 原 12 段手工流的实际默认接线，不多不少）：
+// （对账基准 = 框架自有后端的实际默认接线，不多不少）：
 //
 //   - server（server.http / server.grpc）：协议服务器构造——能力声明在代码
 //     （WithHTTP/WithGatewayRegister/WithGRPC），契约段驱动地址/TLS/driver
@@ -21,9 +20,9 @@
 //     检查启动期报错（见 appkit.segment_coverage）；
 //   - app：消费无条件（段缺失 = 默认元数据而非跳过）。logger 段已收编为
 //     上方 StandardLoggerProvider（两阶段重建+热更协议仍在引擎——loggerSource
-//     通道，B7 起默认分派删除、零声明时引擎回退同一内置 Provider）。
+//     通道，零声明时引擎回退同一内置 Provider）。
 //
-// 实现落点说明（对 D1 §3.3 的偏差）：Provider 实现体住在 pkg/appkit
+// 实现落点说明：Provider 实现体住在 pkg/appkit
 // （standard.go）而非本包——两者都深度消费 appkit 内部件（Decl 能力声明、
 // 探针包装、产物入库），且包内测试需要不经 import 环引用；本包是纯打包面。
 //

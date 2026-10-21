@@ -33,8 +33,8 @@ func CheckErr(err error) {
 	}
 }
 
-// Ownership 是生成物的归属三态（装配层评估 §4.6 回归生成语义 /
-// D2-target-codegen.md §5.1）：回归生成不再只有「存在即报错」一种口径。
+// Ownership 是生成物的归属三态（D2-target-codegen.md §5.1）：回归生成不再
+// 只有「存在即报错」一种口径。
 type Ownership int
 
 const (

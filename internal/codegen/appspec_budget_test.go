@@ -44,7 +44,7 @@ func TestTree_D2Budgets(t *testing.T) {
 		lines := strings.Count(strings.TrimRight(string(data), "\n"), "\n") + 1
 		t.Logf("%-52s %3d 行（预算 %s）", r.path, lines, r.buy)
 	}
-	// 硬断言：入口文件行数预算（D2 §2.1 / 装配层评估 §4.6）。
+	// 硬断言：入口文件行数预算（D2 §2.1）。
 	data, err := os.ReadFile(filepath.Join(dir, "cmd", "demoapp", "main.go"))
 	if err != nil {
 		t.Fatalf("read main.go: %v", err)

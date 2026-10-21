@@ -1,10 +1,7 @@
-// decl.go 定义 Decl——**全部装配期声明的纯数据载体**（装配层评估 §5.2 批 2
-// 第一波，起点设计 D1-target-appkit.md §5.2）。
+// decl.go 定义 Decl——**全部装配期声明的纯数据载体**。
 //
-// 背景：Option 原为 func(*App)，包外无法构造（App 字段未导出），
-// mech 子包因此只能经 App 的导出注册方法（register.go）间接写入。批 2
-// 把 Option 接口化为 interface{ Apply(*Decl) }（导出方法 + 导出参数类型，
-// 包外可实现），Decl 承载全部装配期声明的写入面：
+// 背景：Option 是接口 interface{ Apply(*Decl) }（导出方法 + 导出参数类型，
+// 包外可实现——mech 等子包据此直写 Decl），Decl 承载全部装配期声明的写入面：
 //   - NewApp 路径 Option 的全部写入（ID/Name/Config*/Bind/Servers/钩子/机制…）；
 //   - Serve 路径 With* 的全部写入（WithHTTP/WithGRPC/Providers 段驱动
 //     声明/WithLogDecorators/WithExtraServerFunc…）。
@@ -17,8 +14,7 @@
 // 导出字段；拷贝让引擎（Run/stopAll/UndoEffects/Resolve/协调器/热更）与
 // 改造前逐字段同构，行为零变化。
 //
-// 唯一 Option 类型（批 2 W2a）：原 BootstrapOption/HealthOption 已删除，
-// With* 构造器重定型为返回 Option——写入目标是同一份 Decl。
+// 唯一 Option 类型：With* 构造器返回 Option——写入目标是同一份 Decl。
 package appkit
 
 import (
@@ -50,9 +46,8 @@ type Decl struct {
 	// ---- 配置源（ConfigFile/RemoteConfig/ConfigLayers/Env/WatchConfigFile/
 	// StrictContract/OnConfigChange/Bind Option） ----
 	// configNamespace 配置命名空间（env 前缀 / 多环境文件名来源）——**内部派生
-	// 值**（B6，装配层评估 §5.1）：Serve 路径由契约 app.name 两遍合并派生，
-	// NewApp 路径回退 Name。不再有公开声明口（原 ConfigNamespace Option 已删，
-	// env 名不变）。
+	// 值**（B6）：Serve 路径由契约 app.name 两遍合并派生，
+	// NewApp 路径回退 Name。不再有公开声明口。
 	configNamespace string
 	ConfigFile      string
 	WatchConfigFile bool
@@ -104,14 +99,14 @@ type Decl struct {
 	Auditor audit.Auditor
 
 	// ---- 身份端口（Identity Option；appkit 审计事件 Subject/TenantID 取值） ----
-	// IdentityFunc 是 appkit 对业务身份的最小端口（D1 §4.4）：nil = 空身份
+	// IdentityFunc 是 appkit 对业务身份的最小端口：nil = 空身份
 	// （与今日 claims 为 nil 的行为一致）。适配（如 authn claims）由应用侧
 	// 1 行 lambda 提供。
 	Identity IdentityFunc
 
 	// ---- 业务域（Domain.Apply 追加；每域包导出一个 Domain 值，变参直传
-	// MustServe——装配层评估 §4.3 接缝裁定：appkit 只接受域声明值，不新增
-	// 注册表式 API，域清单的承载者是生成文件（W3 bald gen domain 产出
+	// MustServe——appkit 只接受域声明值，不新增
+	// 注册表式 API，域清单的承载者是生成文件（bald gen domain 产出
 	// domains.gen.go；_example 的手写 domains.gen.go 是其目标形态）。
 	// 引擎消费见 domain.go：Wire 时点 = 业务 BeforeStart 之后、迟后阶段
 	// （server 构建）之前，声明序执行、失败 fail-fast。NewApp 路径不消费

@@ -5,11 +5,10 @@
 //                              google.api.http 注解 + buf.validate 规则 + FilterExpr）
 //   - bald gen store   <name>  生成 <name>.go 实体骨架（gorm tag + keyOf 提取函数）
 //   - bald gen app     <name>  生成 cmd/<name>/main.go 应用装配骨架（appkit 全原语 + bundle）
-//   - bald gen domain  --spec  按 AppSpec.domains 重写域驱动生成物（批 3 W3b，
-//                              见 gen_domain.go——清单×2 + 逐域 handler + 授权别名）
+//   - bald gen domain  --spec  按 AppSpec.domains 重写域驱动生成物
+//                              （见 gen_domain.go——清单×2 + 逐域 handler + 授权别名）
 //
-// 工具链归属（2026-09-02）：自 _example/bald 示例模块提升为核心 cmd/bald 子命令
-// （落地记录标注的「工具链归属」评估落地）。生成物以 _example/bald 消费者模块为
+// 生成物以 _example/bald 消费者模块为
 // 编译/运行上下文做端到端验证（见 app_test.go），核心 go.mod 不引入 gin/grpc。
 package codegen
 
@@ -23,10 +22,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// protoTmpl 是 protobuf 服务骨架模板（裁决 7 的 CRUD 六件套：service +
+// protoTmpl 是 protobuf 服务骨架模板（CRUD 六件套：service +
 // List/Get/Create/Update/Delete，其上叠 google.api.http 注解（REST 映射）、
 // buf.validate 规则（字段校验）与 bald.store.v1.FilterExpr（结构化过滤），
-// 装配层评估 §4.6）。package 用 <name>.v1（与 AppSpec.domains[].proto_package
+// ）。package 用 <name>.v1（与 AppSpec.domains[].proto_package
 // 的声明口径一致，gen domain 的 service 校验以此对账）；REST 资源段默认
 // <name>s，可经 --plural 覆盖（bald-admin 口径：/v1/org-units）。
 //
@@ -176,14 +175,14 @@ type protoOptions struct {
 	Plural    string // --plural：REST 资源段（默认 name+s）
 	OutDir    string // --out
 	GoPackage string // --go-package
-	Module    string // --module：业务 module 路径（裁决 7 落地消费——go_package 缺省派生源）
+	Module    string // --module：业务 module 路径（go_package 缺省派生源）
 	Force     bool   // --force：覆盖已存在文件（默认拒绝，防冲掉手改生成物）
 
 	IOStreams
 }
 
 // Complete 回填位置参数与派生默认值（不做校验、不产生副作用）。--module
-// 落地消费（裁决 7 / D2 Q6）：未显式给 --go-package 时由 module 派生
+// 缺省派生：未显式给 --go-package 时由 module 派生
 // <module>/api/gen/go/<name>/v1;<name>v1——与 gen app 目录树的 buf managed
 // mode 前缀同源；buf managed 会在生成期覆盖它，此处声明保 proto 自身的
 // 可读性与非 buf 工具链的正确性。

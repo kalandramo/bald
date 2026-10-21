@@ -64,7 +64,7 @@ func TestFromError(t *testing.T) {
 	}
 }
 
-// P3：构造即捕获调用栈，StackTrace() 返回非空字符串且含调用方帧。
+// 构造即捕获调用栈，StackTrace() 返回非空字符串且含调用方帧。
 func TestStackTraceCaptured(t *testing.T) {
 	e := NotFound("WITH_STACK")
 	stack := e.StackTrace()

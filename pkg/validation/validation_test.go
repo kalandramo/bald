@@ -100,7 +100,7 @@ func TestRegister_NonValidateMethodIgnored(t *testing.T) {
 	}
 }
 
-// --- 用于 P2 回归测试的错误形态 ---
+// --- 回归测试用错误形态 ---
 
 type typoValidator struct{}
 

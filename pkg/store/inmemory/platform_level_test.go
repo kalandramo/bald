@@ -20,7 +20,7 @@ type platformDoc struct {
 // TestStore_PlatformLevel_SkipsTenantIsolation 锁定 WithPlatformLevel 豁免
 // （2026-09-24，缺陷 D20）。
 //
-// 背景：b04dc78 起 Get/List/Count/Delete 无条件调 applyIsolation → mergeTenant
+// 背景：Get/List/Count/Delete 无条件调 applyIsolation → mergeTenant
 // 自动注入 `tenant_id = ?`。对**无 tenant_id 列**的平台级表，这会产生
 // `no such column: tenant_id`（bald-admin 实测 13 个 e2e 500）。
 //

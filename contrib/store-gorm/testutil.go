@@ -9,8 +9,8 @@ import (
 )
 
 // NewTestDB 返回测试用 SQLite 临时文件库，测试结束自动关闭连接池
-//（Windows 下未释放的 sqlite 文件句柄会导致 TempDir 清理失败，
-//与 go-bald-admin 同款坑）。每个测试独立库文件，无跨测试串扰。
+//（Windows 下未释放的 sqlite 文件句柄会导致 TempDir 清理失败）。
+//每个测试独立库文件，无跨测试串扰。
 func NewTestDB(t testing.TB) *gorm.DB {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "baldgorm-test.db")

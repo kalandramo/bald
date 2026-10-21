@@ -51,7 +51,7 @@ type RegistrarProvider func(ctx context.Context, cfg *bootstrapv1.Registry) (reg
 //
 // 与 ConfigRegistry 的差异：不做多源级联（registry 无优先级语义），
 // 按契约 registry.type 单选分发。
-// 薄壳（批 1 收敛，见 registry.go）：互斥锁 + provider 表 + Register/MustRegister
+// 薄壳（见 registry.go）：互斥锁 + provider 表 + Register/MustRegister
 // 由嵌入的 Registry[T] 载体承载（文案经 TypeTexts 与既有文案逐字一致）；
 // 本文件只保留 registrar 特有的单选分发 Build。
 type RegistrarRegistry struct {

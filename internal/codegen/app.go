@@ -12,12 +12,11 @@ import (
 	appspecv1 "github.com/kalandramo/bald/bconf/gen/go/bald/appspec/v1"
 )
 
-// appTmpl 是应用装配骨架模板（批 2 目标惯用法：MustServe 单入口，见
-// docs/devel/zh-CN/装配层评估.md §4.1）。
+// appTmpl 是应用装配骨架模板（MustServe 单入口惯用法）。
 //
 // 生成物为可编译的单文件 main.go：装配收敛为一次 MustServe 声明式调用——
 // 框架自有后端经 std.Standard() 打包注入，业务能力经 Option 声明，填充点
-// 标记 [FILL]。素材覆盖 appkit 第二轮原语的推荐用法：S1 能力声明、T1 效应
+// 标记 [FILL]。素材覆盖 appkit 原语的推荐用法：S1 能力声明、T1 效应
 // 账本、C1 组件生命周期、R1 key 级热更新订阅、P10 bundle 横切接线。
 //
 // 设计原则：生成物只做装配、不含业务逻辑；每个原语都带一行「为什么」注释——
@@ -89,7 +88,7 @@ func options() []appkit.Option {
 			}),
 		),
 
-		// ---- R1 配置细粒度热更新 ----
+		// ---- 配置 key 级热更新 ----
 		// 与 OnConfigChange 全量重载互补：仅当该 key 值确实变化才触发。
 		mech.OnKeyChange("server.http.addr", func(old, new string) {
 			// [FILL] 定点响应地址变更（记日志/重建 listener）
@@ -104,7 +103,7 @@ func options() []appkit.Option {
 	return opts
 }
 
-// buildBundle 演示横切关注点接线（P10）：一次构造、双传输产出、链序由框架固化。
+// buildBundle 演示横切关注点接线：一次构造、双传输产出、链序由框架固化。
 // gin 侧 router.Use(b.Gin()...)；gRPC 侧 appkit.WithGRPC(register, b.GRPCChain()...)。
 // 依赖用构造器注入（替代全局 Set*）；Normalized() 一键启用 P9 归一化。
 func buildBundle() *bundle.Bundle {
@@ -123,7 +122,7 @@ type appOptions struct {
 	Name    string // 位置参数：应用名（spec 模式可省，以 AppSpec.meta.name 为准）
 	OutFile string // --out（不可命名 Out，避免遮蔽 IOStreams.Out）
 	Module  string // --module
-	Spec    string // --spec：AppSpec JSON 路径，开启 P12 第二步方言生成
+	Spec    string // --spec：AppSpec JSON 路径，开启方言生成
 	Force   bool   // --force：覆盖已存在的目标文件（默认拒绝）
 
 	IOStreams
@@ -150,7 +149,7 @@ func (o *appOptions) Validate() error {
 	return nil
 }
 
-// Run 纯执行：spec 非空走 P12 第二步方言生成，否则渲染硬编码模板骨架。
+// Run 纯执行：spec 非空走 AppSpec 方言生成，否则渲染硬编码模板骨架。
 func (o *appOptions) Run() error {
 	if o.Spec != "" {
 		return runGenAppSpec(o.Spec, o.OutFile, o.Force, o.IOStreams)
@@ -174,8 +173,8 @@ func (o *appOptions) Run() error {
 //
 // 两种模式：
 //   - gen app <name>                       → 第一版硬编码模板骨架（含 [FILL] 填充点）
-//   - gen app <name> --spec <AppSpec.json> → 第二版方言驱动（批 3 W3a）：AppSpec
-//     单一真相源，生成目标目录树（§4.6 / D2 §2.1）——cmd/<app>/{main.go,app/command.go}、
+//   - gen app <name> --spec <AppSpec.json> → 方言驱动：AppSpec
+//     单一真相源，生成目标目录树（D2 §2.1）——cmd/<app>/{main.go,app/command.go}、
 //     internal/bootstrap/{assemble.gen.go,domains.gen.go,seed/}、
 //     internal/apiserver/{apiserver.go,domains.gen.go,layering_invariant_test.go}、
 //     api/{buf.yaml,buf.gen.yaml}、configs/<app>.yaml、taskfile.yml；三道门

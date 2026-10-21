@@ -14,8 +14,8 @@ import (
 	"time"
 )
 
-// TestTree_EndToEndTimed 判据 ④ 端到端计时（装配层评估 §4.6 第 4 条的度量
-// 口径）：T0 → gen app（参考夹具，gen domain 随域声明跟进）→ go mod tidy →
+// TestTree_EndToEndTimed 端到端计时口径：T0 → gen app（参考夹具，gen domain
+// 随域声明跟进）→ go mod tidy →
 // go build → 起服务 → GET /readyz 200 → GET 业务端点 200 → SIGTERM →
 // 优雅退出 → T1，要求 T1-T0 ≤ 1800s。
 //
@@ -38,7 +38,7 @@ func TestTree_EndToEndTimed(t *testing.T) {
 	}
 	start := time.Now() // T0
 
-	// 1. gen app + gen domain（批 3 参考夹具；端口换成本轮空闲值——避免与
+	// 1. gen app + gen domain（参考夹具；端口换成本轮空闲值——避免与
 	//    并发会话/其他用例的 :18080 冲突，Gate1 双侧投影同步改）。
 	as := guardFixture()
 	port := freePort(t)

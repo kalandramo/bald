@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// TestRegistry：泛型注册表契约（R4 复审——运行期可逆挂载的基座）。
+// TestRegistry：泛型注册表契约（运行期可逆挂载的基座）。
 // 钉住：Register 重名报错不覆盖（防静默踩踏）、MustRegister 重名 panic、
 // Get 未命中返回 (零值, false)、List 升序稳定输出。
 func TestRegistry(t *testing.T) {

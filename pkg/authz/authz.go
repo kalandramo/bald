@@ -1,6 +1,6 @@
 // Package authz 定义 bald 的授权抽象（零引擎耦合）。
 //
-// 设计原则（见 docs/devel/zh-CN/架构演进路线.md §0.5 / P7）：
+// 设计原则（见 docs/devel/zh-CN/架构演进路线.md §0.5）：
 //   - 核心只定义 Authorizer 接口，不 import casbin / rbac 等具体策略引擎；
 //     Casbin/RBAC 作为可选桥接子模块（bald-authz-casbin）外置。
 //   - 授权判定基于 (subject, object, action)；subject 从 authn.AuthClaims 取，

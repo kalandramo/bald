@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// TestFreeAddr：P13 收编的测试基础设施（R4 复审：新 e2e 的直接依赖）。
+// TestFreeAddr：收编的测试基础设施（新 e2e 的直接依赖）。
 // 契约：①带 127.0.0.1 前缀（防 gRPC 客户端把裸 ":port" 解析成 [::1] IPv6
 // 导致 connection refused——设计文档明确记载的坑）；②返回地址可立即监听。
 func TestFreeAddr(t *testing.T) {

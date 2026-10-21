@@ -1,20 +1,17 @@
 package appkit
 
-// serve.go 是单一装配入口（装配层评估 §4.1 / D1-target-appkit.md §1）。
+// serve.go 是单一装配入口。
 //
 // Serve 内部完成「--config 解析 → 契约两遍预装载（含命名空间派生）→ 约定装配
 // （assemble，bootstrap.go）→ Run（信号处理内建）」；MustServe 是 main 用的
-// 薄壳：Serve 失败记日志后以非零码退出。原 FromBootstrap 已删除，其函数体
-// 整体迁移为 assemble（内部实现，段驱动 Provider 化是下一波 W2b）。
+// 薄壳：Serve 失败记日志后以非零码退出。
 //
-// --config 内化的参考实现是 bald-admin preloadBootstrap 手写的 pflag 扫描
-// （bald-admin/backend/cmd/bald-admin/app/registries.go）：flag 名 --config、
+// --config 解析：flag 名 --config、
 // 默认值取 ConfigFile 声明路径（与 loadConfig 的 --config 注册同一默认——
 // 两阶段装载命中同一文件）、ContinueOnError + 未知 flag 白名单 + 解析错误忽略。
 //
-// 配置命名空间（B6，装配层评估 §5.1）：命名空间（env 前缀 NAME_* 与多环境
-// 文件名来源）由**契约 app.name 派生**，不再有显式声明口（原 ConfigNamespace
-// Option 已删除）。派生即两遍合并：
+// 配置命名空间（B6）：命名空间（env 前缀 NAME_* 与多环境
+// 文件名来源）由**契约 app.name 派生**，不再有显式声明口。
 //
 //	第一遍：预装载文件/远程层（env 层延迟）→ Unmarshal 解析契约 app.name；
 //	第二遍：以 app.name 为前缀挂 env 层（Store.MountEnv）全量重合并 → 契约定形。
@@ -86,8 +83,8 @@ func MustServe(ctx context.Context, opts ...Option) {
 	}
 }
 
-// parseConfigFlag 扫描 os.Args 解析 --config（bald-admin preloadBootstrap 的
-// 行为内化，与 loadConfig 的 --config 注册同款容错）：ContinueOnError +
+// parseConfigFlag 扫描 os.Args 解析 --config（与 loadConfig 的 --config
+// 注册同款容错）：ContinueOnError +
 // 未知 flag 白名单 + 解析错误忽略（下划线赋值丢弃）——未知/写错的 flag 不阻断
 // 启动，由各自的消费方（业务 flag、cobra）负责报错。
 func parseConfigFlag(defaultPath string) string {

@@ -1,10 +1,10 @@
 // registry.go 提供各域 Provider 注册表的泛型载体 Registry[T]——装配期
 // 「按名注册 + fail-fast」的单一实现。
 //
-// 批 1 收敛（装配层评估 §4.2 候选 B / §6 批 1）：bootstrap 十份
+// bootstrap 十份
 // （Ai/Broker/Cache/Config/Database/Workflow/Storage/Log/Server/Registrar）与
-// pkg/appkit 三份（Tracer/Metrics/Audit）注册表原各自手写同一套样板——互斥锁 +
-// providers map + Register/MustRegister 的空名/nil/重名校验——现统一嵌入本载体，
+// pkg/appkit 三份（Tracer/Metrics/Audit）注册表共用同一套样板——互斥锁 +
+// providers map + Register/MustRegister 的空名/nil/重名校验——统一嵌入本载体，
 // 各自特有的 Build/段逻辑不变。错误文案经 RegistryTexts 在构造时注入，与既有
 // 各表的逐字文案对齐（零行为变化）；现存三种文案族见 TypeTexts / NameTexts。
 //

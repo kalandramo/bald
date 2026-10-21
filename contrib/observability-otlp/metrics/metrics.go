@@ -1,5 +1,5 @@
-// Package metrics 是 bald metrics.Recorder 的 OpenTelemetry 真实后端桥接，
-// 自 go-bald-admin 范例 internal/observability/metrics 晋升（见 docs/devel/zh-CN/架构优化路线.md）。
+// Package metrics 是 bald metrics.Recorder 的 OpenTelemetry 真实后端桥接
+// （docs/devel/zh-CN/架构优化路线.md）。
 //
 // 采用 OTel 多 Reader 模式：默认挂 Prometheus exporter（供 /metrics 被抓取），
 // 若通过 WithOTLPAddr 提供地址则额外挂 OTLP metric exporter 直推远端 APM（如

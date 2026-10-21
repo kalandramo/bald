@@ -125,7 +125,7 @@ func schemaFields(t *testing.T, raw []byte) map[string]any {
 	return fields
 }
 
-// P2-1：清单必须字节级确定，且与输入顺序无关（按 name 升序）。
+// 清单必须字节级确定，且与输入顺序无关（按 name 升序）。
 func TestToolManifest_DeterministicAndSorted(t *testing.T) {
 	schema := json.RawMessage("{\"type\":\"object\"}")
 	tools := []*mcp.Tool{
@@ -155,7 +155,7 @@ func TestToolManifest_DeterministicAndSorted(t *testing.T) {
 	require.Equal(t, "zulu", entries[2].Name)
 }
 
-// P2-2：清单条目与工具定义（tools/list 的同一编码）逐字段同源，没有第二份构造。
+// 清单条目与工具定义（tools/list 的同一编码）逐字段同源，没有第二份构造。
 func TestToolManifest_MatchesToolDefinitions(t *testing.T) {
 	c := &Config{}
 	require.NoError(t, c.registerTools(manifestTree("demo")))
@@ -195,7 +195,7 @@ func TestToolManifest_MatchesToolDefinitions(t *testing.T) {
 	require.Equal(t, "List things", listEntry.Annotations.Title)
 }
 
-// P2-3：清单 Resource 的注册参数与读取语义；未知 URI fail-closed。
+// 清单 Resource 的注册参数与读取语义；未知 URI fail-closed。
 func TestRegisterManifestResource_Contract(t *testing.T) {
 	var (
 		gotResource mcp.Resource
@@ -350,7 +350,7 @@ func readManifest(t *testing.T, ctx context.Context, mcpClient *client.Client) s
 	return manifest
 }
 
-// P2-4（进程内模型）：NewMCPServer 路径的客户端可以一次拉全工具清单。
+// 进程内模型：NewMCPServer 路径的客户端可以一次拉全工具清单。
 func TestMCPServer_ManifestResourceOverTransport(t *testing.T) {
 	srv, err := NewMCPServer(MCPOptions{
 		Enabled: true,
@@ -371,7 +371,7 @@ func TestMCPServer_ManifestResourceOverTransport(t *testing.T) {
 	require.Contains(t, manifest, "\"name\":\"list\"")
 }
 
-// P2-5（子进程模型）：Config/Command 路径行为与进程内模型一致。
+// 子进程模型：Config/Command 路径行为与进程内模型一致。
 func TestConfig_ManifestResourceOverTransport(t *testing.T) {
 	c := &Config{}
 
@@ -387,7 +387,7 @@ func TestConfig_ManifestResourceOverTransport(t *testing.T) {
 	require.Contains(t, manifest, "\"name\":\"demo_list\"")
 }
 
-// P2-6：两个执行模型对同一份工具集给出逐字节相同的清单与相同的 Resource 元数据。
+// 两个执行模型对同一份工具集给出逐字节相同的清单与相同的 Resource 元数据。
 func TestManifestResource_IdenticalAcrossExecutionModels(t *testing.T) {
 	inProcess, err := NewMCPServer(MCPOptions{
 		Enabled: true,

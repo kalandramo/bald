@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-// TestValidRequired：必填字段非空检查（R4 复审补课——校验设计验收标准 #2
-// 自评审以来从未交付，零调用能力以测试钉住行为防静默腐烂）。
+// TestValidRequired：必填字段非空检查（校验设计验收标准 #2——零调用能力
+// 以测试钉住行为防静默腐烂）。
 // isEmpty 语义：nil / 空串 / 空 slice / 空 map / nil 指针视为空；
 // 零值标量（int 0 / bool false）不算空。
 func TestValidRequired(t *testing.T) {

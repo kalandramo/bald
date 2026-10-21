@@ -21,7 +21,7 @@ type BrokerProvider func(ctx context.Context, cfg *bootstrapv1.Broker) (any, fun
 // broker 是 optional 段集合（kafka/rabbitmq/redis/rocketmq 可并存），
 // 装配语义是「每段各自构建、全部返回」——事件总线与任务队列可分别落在
 // 不同 broker 上。
-// 薄壳（批 1 收敛，见 registry.go）：互斥锁 + provider 表 + Register/MustRegister
+// 薄壳（见 registry.go）：互斥锁 + provider 表 + Register/MustRegister
 // 由嵌入的 Registry[T] 载体承载（文案经 TypeTexts 与既有文案逐字一致）；
 // 本文件只保留 broker 特有的段表与 Build 装配序。
 type BrokerRegistry struct {

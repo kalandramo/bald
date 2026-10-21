@@ -24,9 +24,8 @@ type CacheProvider func(ctx context.Context, cfg *bootstrapv1.Cache) (any, func(
 // 与业务旁路缓存（Cache-Aside）的分工：本层是通用 KV 缓存抽象
 // （Get/Set/SetNX/Multi，进程内/分布式），面向任意键值加速；带 loader
 // 回填的旁路语义由 cache/loadable 在本层之上组合（读穿透 + singleflight
-// 合并并发 miss，WithDegradeOnError 可选降级）。原 contrib/cache-redis
-// 组件已删除（2026-09-18，能力被 cache/redis + cache/loadable 覆盖）。
-// 薄壳（批 1 收敛，见 registry.go）：互斥锁 + provider 表 + Register/MustRegister
+// 合并并发 miss，WithDegradeOnError 可选降级）。
+// 薄壳（见 registry.go）：互斥锁 + provider 表 + Register/MustRegister
 // 由嵌入的 Registry[T] 载体承载（文案经 TypeTexts 与既有文案逐字一致）；
 // 本文件只保留 cache 特有的段表与 Build 装配序。
 type CacheRegistry struct {

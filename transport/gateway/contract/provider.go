@@ -1,4 +1,4 @@
-// provider.go —— 段驱动装配的加法式 Provider 导出（批 2 第三波：生态接入，
+// provider.go —— 段驱动装配的加法式 Provider 导出（生态接入，
 // 范本 contrib/store-gorm 的 AppProvider）。既有构造逻辑（Provider 契约
 // 工厂，addr/backend_grpc_addr 解析 + NewGatewayServer）保留不动；本文件
 // 只**新增**对 pkg/appkit 段驱动装配的接入面：AppProvider() 消费契约

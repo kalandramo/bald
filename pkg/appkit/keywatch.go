@@ -1,5 +1,5 @@
 // keywatch.go 实现 R1 配置增量协调的第一子集：key 级变更订阅
-// （docs/devel/zh-CN/架构优化路线.md，对照 Cordis 组件加载器的增量协调）。
+// （docs/devel/zh-CN/架构优化路线.md）。
 //
 // 背景：appkit.OnConfigChange 是全量回调——配置任何变更都触发，业务在其中
 // 重新 Unmarshal 完成热重载。多数热更新场景只关心个别 key（日志级别、监听
@@ -42,7 +42,7 @@ type keyWatcher struct {
 }
 
 // onKeyChangeOpt 订阅单个配置 key 的变更（mech.OnKeyChange 的引擎内部写入
-// 面，R1 增量协调）。仅当该 key 的新值与
+// 面）。仅当该 key 的新值与
 // 上次观测值不同才触发 fn(old, new)——同值刷新不触发，未订阅的 key 变更
 // 不波及。可与 OnConfigChange 叠加使用。key 为点路径（"http.addr"）。
 func onKeyChangeOpt(key string, fn func(old, new string)) Option {

@@ -220,7 +220,7 @@ func (c *Config) newTransportServer(cmd *cobra.Command, serverType mcptransport.
 		registered = append(registered, tool)
 	}
 
-	// 自描述载体（MCP 演进 P2）：与进程内模型同一实现、同一份数据派生，
+	// 自描述载体：与进程内模型同一实现、同一份数据派生，
 	// 两个模型对客户端暴露的清单语义一致。
 	if err := registerManifestResource(srv.RegisterResource, registered); err != nil {
 		return nil, err

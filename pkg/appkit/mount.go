@@ -2,7 +2,7 @@
 // agent-native 最小前置，同时是 R1 期望态 diff-apply 的底层支撑）。
 //
 // 设计（对照论文时间可组合性在运行期的延伸）：
-//   - mech.Registry[T].Mount/Unmount（B5 下沉，载体类型与全部方法同迁）：
+//   - mech.Registry[T].Mount/Unmount：
 //     装配期 Register（不可逆、冲突报错）的**运行期对偶**——可逆挂载、
 //     undo 幂等。两个语义必须分开：装配期错误
 //     应 fail-fast（panic 合理），运行期变更必须可回滚（效应账本语义）。
@@ -133,8 +133,8 @@ func (a *App) resolveAuditor() audit.Auditor {
 }
 
 // auditComponent 旁路发出一条运行时重组审计事件（§6.2 自修改审计原语）：
-// Subject/TenantID 经身份端口（Identity Option；缺省空身份——B7 依赖倒置，
-// appkit 不再 import pkg/authn）；Auditor panic/错误仅记日志，绝不阻断挂载/
+// Subject/TenantID 经身份端口（Identity Option；缺省空身份——appkit 不
+// import pkg/authn）；Auditor panic/错误仅记日志，绝不阻断挂载/
 // 卸载本身（与审计中间件 recordSafely 同一纪律）。
 func (a *App) auditComponent(ctx context.Context, action, name string) {
 	defer func() {

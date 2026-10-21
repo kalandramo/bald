@@ -59,7 +59,7 @@ func effectTimeoutOpt(d time.Duration) Option {
 // addEffect 运行期登记一条逆操作（幂等追加，并发安全）。
 //
 // 与 Option 版 Effect 的区别：Effect 在**装配期**（选项遍历时）登记；本方法
-// 供运行期钩子登记——典型场景是 W1 延后到 Run 期的服务器构造：构造产物
+// 供运行期钩子登记——典型场景是 Run 期才发生的服务器构造：构造产物
 // （cleanup）只能在构造发生的同一时刻入账，否则「构造成功但注册失败」的
 // 窗口会泄漏资源。
 func (a *App) addEffect(name string, undo func(ctx context.Context) error) {

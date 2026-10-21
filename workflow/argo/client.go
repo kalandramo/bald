@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-// defaultHTTPTimeout 是 REST 客户端的默认单请求超时（CR4：此前无超时，
+// defaultHTTPTimeout 是 REST 客户端的默认单请求超时（无默认超时时，
 // 调用方漏传 ctx 即永久挂起）。
 const defaultHTTPTimeout = 30 * time.Second
 
@@ -39,7 +39,7 @@ func NewClient(opts ClientOptions) (*WorkflowClient, error) {
 	baseURL := strings.TrimRight(opts.ServerURL, "/")
 
 	httpClient := &http.Client{
-		Timeout: defaultHTTPTimeout, // CR4：无默认超时的 http.Client 会随调用方 ctx 永久挂起（漏传 ctx 的调用点即挂死）
+		Timeout: defaultHTTPTimeout, // 无默认超时的 http.Client 会随调用方 ctx 永久挂起（漏传 ctx 的调用点即挂死）
 	}
 	if opts.InsecureSkipVerify {
 		httpClient.Transport = &http.Transport{

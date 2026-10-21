@@ -1,5 +1,4 @@
-// provider.go 实现段驱动的 Provider 装配抽象（装配层评估 §4.2 候选 A，
-// 批 2 W2b；起点形状 D1-target-appkit.md §3.2，按代码事实调整为 BuildScope）。
+// provider.go 实现段驱动的 Provider 装配抽象。
 //
 // 核心抽象只有两个：
 //
@@ -27,10 +26,10 @@
 //     客户端、审计后端与表外段产物均按契约段路径存取（map 产物按
 //     "<顶层段>.<子段>" 展开），服务器列表经 storeServerProduct 并入停机序；
 //  5. 停机回收：每个 Provider 的 cleanup 在构造期按 canonical 停机序预登记
-//     Effect（槽位模式，Build 成功后填充）——Effect 注册序与旧 12 段流逐条
-//     一致，逆序回放序不变（audit-restore 仍最后执行）；
+//     Effect（槽位模式，Build 成功后填充）——Effect 注册序即构建序，
+//     逆序回放（audit-restore 仍最后执行）；
 //  6. L3 覆盖检查（segment_coverage.go）：全部构建完成后枚举「实际出现的
-//     顶层段 − 已消费段 − 白名单」，非空即启动期报错（批 1 告警升级）。
+//     顶层段 − 已消费段 − 白名单」，非空即启动期报错。
 //
 // logger 与 app 两个段**不在 Provider 循环里**：它们的消费是无条件的（段
 // 缺失 = 用默认后端/默认元数据，而非跳过），且 logger 承载两阶段重建与热更
@@ -61,8 +60,8 @@ func noopCleanup(cleanup func()) Cleanup {
 	return func(context.Context) error { cleanup(); return nil }
 }
 
-// BuildScope 是 Provider 构建期的输入（D1 §3.2 的 (cfg, app) 起点按代码事实
-// 扩展：服务器构造消费 Decl 的能力声明，故整份声明随 scope 传递）。
+// BuildScope 是 Provider 构建期的输入（服务器构造消费 Decl 的能力声明，
+// 故整份声明随 scope 传递）。
 type BuildScope struct {
 	// Config 装配契约。阶段 B / server 阶段为已装载定型的完整契约；config
 	// 段构造期与 logger 阶段 A 可为 nil（契约尚未/无需装载）。
@@ -101,8 +100,8 @@ type Provider interface {
 	Build(ctx context.Context, s BuildScope) (any, Cleanup, error)
 }
 
-// Providers 把多个 Provider 打包为一个 Option（D1 §3.2 的声明式注册形态；
-// 单个 Provider 本身也是 Option，二者按可读性选用）。
+// Providers 把多个 Provider 打包为一个 Option（单个 Provider 本身也是
+// Option，二者按可读性选用）。
 func Providers(ps ...Provider) Option {
 	return optionFunc(func(d *Decl) {
 		for _, p := range ps {
@@ -114,7 +113,7 @@ func Providers(ps ...Provider) Option {
 }
 
 // WithUnimplementedSegments 显式豁免「契约已声明、框架尚无消费者」的段
-// （L3 覆盖检查的白名单出口，装配层评估 §4.2 fail-fast 表 L3/裁决 2）。
+// （L3 覆盖检查的白名单出口）。
 //
 // L3 默认 fail-closed：契约里出现的顶层段若无任何 Provider 消费，启动期
 // 直接报错。契约先行的工位（先写配置、后等实现）经本 Option 显式承认

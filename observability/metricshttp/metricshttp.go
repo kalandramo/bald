@@ -1,9 +1,8 @@
 // Package metricshttp 持有 metrics 暴露端的独立监听面（Prometheus 抓取端口）。
 //
-// B7（批 3，D1 §4.1）：真起监听面是**能力构造**而非 App 编排——原
-// appkit.StartMetricsServer 自建 mux/http.Server 并 go ListenAndServe，随
-// 职责边界落点下沉到本包。后端 Provider（如 contrib/observability-otlp 的
-// contract）在自己的 Build 内调用 Start，把返回的 *Server 作为 appkit
+// 真起监听面是**能力构造**而非 App 编排：后端 Provider（如
+// contrib/observability-otlp 的 contract）在自己的 Build 内调用 Start，
+// 把返回的 *Server 作为 appkit
 // MetricsExposure 交回引擎；引擎把停机合成进 canonical 槽位——先停暴露端
 // （Stop）、再执行 Provider 的 flush，尾批指标不丢失。
 //

@@ -1,7 +1,7 @@
 // providers.go —— 应用自持语义的段 Provider（范本：bald-admin
 // cmd/bald-admin/app/providers.go 的 loggerProvider）。
 //
-// B7 后装饰归 provider 自持（WithLogDecorators 已取消导出）：本应用的
+// 装饰归 provider 自持：本应用的
 // loggerProvider 覆盖 std 默认的 StandardLoggerProvider（段路径末者胜——
 // 声明序在 std.Standard() 之后），把 Attr 层脱敏（bslog.WithFilter）与固定
 // 结构化属性（service.name）带进阶段 A/B 两个构造点。

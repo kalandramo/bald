@@ -27,8 +27,8 @@ import (
 // 保证框架在零配置下也能运行——这与"核心零依赖、可观测性由调用方装配"的设计一致。
 var tracer = otel.Tracer("bald/gin")
 
-// Standard trace header keys（R1 合并：定义收敛至 middleware/shared，此处
-// 别名维持既有导出 API 稳定）
+// Standard trace header keys（定义在 middleware/shared，此处
+// 为别名维持既有导出 API 稳定）
 const (
 	// W3C Trace Context standard (most recommended)
 	TraceParentHeaderKey = shared.TraceParentHeaderKey
@@ -43,7 +43,7 @@ const (
 	TraceStateHeaderKey = shared.TraceStateHeaderKey
 )
 
-// TraceInjectionMode defines how trace information is injected（R1 合并：定义收敛至 middleware/shared）
+// TraceInjectionMode defines how trace information is injected（定义在 middleware/shared）
 type TraceInjectionMode = shared.TraceInjectionMode
 
 const (
@@ -166,7 +166,7 @@ func Observability(opts ...Option) gin.HandlerFunc {
 		// no-op tracer（未装配全局 TracerProvider）下 SpanContext 恒全零，
 		// LogTraceIDs 兜底随机 ID 作日志关联；真实 tracer 在跑时透传真实值。
 		logTraceID, logSpanID := middleware.LogTraceIDs(ctx)
-		// 审计-链路关联（R4 复审连带修复）：trace_id 同时进 ctx 属性流（日志
+		// 审计-链路关联：trace_id 同时进 ctx 属性流（日志
 		// 自动携带）与 contextx（audit/authn/crudbridge 的 TraceIDFromContext
 		// 消费）——此前只进前者，审计事件 trace_id 字段恒空。与日志同源
 		// （LogTraceIDs 产物，no-op tracer 时同为兜底随机 ID）。
@@ -289,7 +289,7 @@ func matchPathPattern(path, pattern string) bool {
 		return true
 	}
 
-	// Wildcard support（R1 合并：通配匹配收敛至 shared.MatchWildcard）
+	// Wildcard support（通配匹配在 shared.MatchWildcard）
 	if strings.Contains(pattern, "*") {
 		return shared.MatchWildcard(path, pattern)
 	}
@@ -302,8 +302,8 @@ func matchPathPattern(path, pattern string) bool {
 	return false
 }
 
-// injectTraceHeaders injects trace headers based on configuration（R1 合并：
-// header 计算收敛至 shared.InjectTrace，本函数仅剩 gin Header 落点）
+// injectTraceHeaders injects trace headers based on configuration（header
+// 计算在 shared.InjectTrace，本函数仅剩 gin Header 落点）
 func injectTraceHeaders(c *gin.Context, spanCtx trace.SpanContext, config *ObservabilityOptions) {
 	shared.InjectTrace(config.TraceInjectionMode, config.CustomTraceHeader, spanCtx, c.Header)
 }

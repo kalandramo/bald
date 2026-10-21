@@ -3,7 +3,7 @@
 // 把 GORM 的 *gorm.DB 适配为 bald 核心的 store.DBProvider[T] +
 // store.Queryable[T]，使业务能以统一的泛型 Store[T] 姿态访问任意
 // GORM 支持的数据库（MySQL / PostgreSQL / SQLite 等），而 bald 核心
-// 不引入任何 GORM 依赖（遵循 P5 零后端耦合）。
+// 不引入任何 GORM 依赖。
 //
 // 用法：
 //

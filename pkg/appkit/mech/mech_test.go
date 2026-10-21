@@ -1,7 +1,6 @@
-// mech_test.go 钉住批 2 的核心契约：mech 构造器返回**自持 option 类型**、
+// mech_test.go 钉住 mech 的核心契约：mech 构造器返回**自持 option 类型**、
 // 实现 appkit.Option（interface{ Apply(*appkit.Decl) }）、直写 Decl 导出
-// 字段，并经 appkit.New 的 Decl 构造路径被引擎真实消费
-// （装配层评估 §5.2 批 2 第一波、D1-target-appkit.md §5.2）。
+// 字段，并经 appkit.New 的 Decl 构造路径被引擎真实消费。
 package mech
 
 import (
@@ -13,8 +12,7 @@ import (
 	"github.com/kalandramo/bald/pkg/appkit"
 )
 
-// 编译期断言：每个自持 option 类型都实现 appkit.Option（接口化后跨包
-// 可实现——本波的存在性证明）。
+// 编译期断言：每个自持 option 类型都实现 appkit.Option（跨包可实现）。
 var (
 	_ appkit.Option = Effect("", nil)
 	_ appkit.Option = EffectTimeout(0)

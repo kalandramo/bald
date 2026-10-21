@@ -25,7 +25,7 @@ import (
 type LoggerProvider func(ctx context.Context, b *bootstrapv1.Logger_Backend) (log.Logger, func(), error)
 
 // LogRegistry 按名字注册日志后端工厂（显式注册，无 init() 副作用）。
-// 薄壳（批 1 收敛，见 registry.go）：provider 表与 Register/MustRegister 由
+// 薄壳（见 registry.go）：provider 表与 Register/MustRegister 由
 // 嵌入的 Registry[T] 载体承载（文案经 NameTexts 与既有文案逐字一致）。
 type LogRegistry struct {
 	*Registry[LoggerProvider]

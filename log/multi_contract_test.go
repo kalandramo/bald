@@ -51,7 +51,7 @@ func (r *multiSink) With(args ...any) Logger {
 }
 
 // TestMultiLogger 广播契约（日志设计文档：多源广播装饰器——本地+远端
-// 并存的契约形状，backends 装配已可达）。R4 复审：前瞻能力零调用非删除依据。
+// 并存的契约形状，backends 装配已可达）。
 func TestMultiLogger(t *testing.T) {
 	a, b := newMultiSink(LevelInfo), newMultiSink(LevelInfo)
 	ml := NewMultiLogger(a, b)

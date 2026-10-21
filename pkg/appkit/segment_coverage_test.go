@@ -1,10 +1,9 @@
-// L3 段覆盖检查的单测（批 2 W2b：告警升级为启动期 error，裁决 2；有意
-// 行为变更——原 5 个告警断言迁移为报错语义，逐处见各测试注释）。
+// L3 段覆盖检查的单测（断言启动期报错语义，逐处见各测试注释）。
 //
 // 覆盖：含 script 段的合法配置 → 启动期 error 且列出段名；白名单豁免
 // （WithUnimplementedSegments）；全部出现的段都被消费 → 无错误；端到端走
 // 配置文件装载路径（script 由 config 层贡献）；零能力声明一对钉子：预填
-// 默认 server 段不报错（框架自填非用户意图，批 1 预填豁免沿用），用户
+// 默认 server 段不报错（框架自填非用户意图，预填豁免），用户
 // 覆盖 server 子字段则报错；server 非内置子段无 Provider 接管 → 报错
 // （原 bootstrap.validateServerSections 语义并入 L3）。
 package appkit
@@ -120,7 +119,7 @@ func TestAssemble_ErrorsScriptFromConfigLayer(t *testing.T) {
 
 // 零能力声明 + 未改动的预填默认 server 段（bconf.NewBootstrap 的 http :8080 /
 // grpc :9090）→ 不报错——预填是框架自己的行为，对其报错属自相矛盾的噪音
-// （批 1 预填豁免沿用；原 TestAssemble_ZeroCapabilityDefaultServerNoWarn 迁移）。
+// （预填豁免沿用）。
 func TestAssemble_ZeroCapabilityDefaultServerNoError(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
