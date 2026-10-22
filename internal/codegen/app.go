@@ -23,7 +23,7 @@ import (
 // 生成的代码就是最佳实践文档。
 var appTmpl = `// {{.Name}} 应用装配骨架（bald gen app 生成）。
 //
-// 装配约定（批 2 目标惯用法，对照 _example/bald/main.go）：
+// 装配约定（对照 _example/bald/main.go）：
 //   - 唯一装配入口 MustServe：内部完成 --config 解析 → 契约装载 → 命名空间
 //     解析 → 段驱动 Provider 装配（std.Standard() 提供框架自有后端）→ Run
 //     （信号处理内建）；失败记日志后以非零码退出。
@@ -66,7 +66,7 @@ func options() []appkit.Option {
 		mech.Provides("db"),
 		mech.Requires("audit.store", "db"),
 
-		// ---- T1 效应账本：全局写入配套逆操作 ----
+		// ---- 效应账本：全局写入配套逆操作 ----
 		// 任何全局注册（RegisterTenant/RegisterDataScope...）都应
 		// 配一条 Effect；停机阶段 0 逆序回放，e2e 测试用 UndoEffects 隔离全局状态。
 		// 下例：配合业务 BeforeStart 里的 store.RegisterTenant("tenant_id", ...)，
@@ -77,7 +77,7 @@ func options() []appkit.Option {
 			return nil
 		}),
 
-		// ---- C1 进程内组件：统一生命周期 ----
+		// ---- 进程内组件：统一生命周期 ----
 		// trace provider / metrics exporter / 审计后端连接等基础设施注册为组件，
 		// 停机阶段 4 逆序 Dispose——「trace 忘 flush 丢批」类问题从文档变成结构保证。
 		mech.Components(
@@ -185,17 +185,17 @@ func genAppCmd(streams IOStreams) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "app [name]",
 		Short: "生成应用装配骨架 main.go（appkit 全原语 + bundle 接线）",
-		Long: `生成可编译的 cmd/<name>/main.go 装配骨架，覆盖 appkit 第二轮全部原语的推荐用法：
+		Long: `生成可编译的 cmd/<name>/main.go 装配骨架，覆盖 appkit 全部原语的推荐用法：
 
   - S1 能力声明（Provides/Requires，启动期 fail-fast）
-  - T1 效应账本（Effect 登记全局写入的逆操作）
-  - C1 组件生命周期（Components + ComponentFunc）
+  - 效应账本（Effect 登记全局写入的逆操作）
+  - 组件生命周期（Components + ComponentFunc）
   - R1 配置 key 级热更新订阅（OnKeyChange）
-  - P10 bundle 横切接线示例（buildBundle/buildServers）
+  - bundle 横切接线示例（buildBundle/buildServers）
 
-填充点标记为 [FILL]。素材对照 kalandramo/bald-admin M10 装配形状。
+填充点标记为 [FILL]。素材对照 kalandramo/bald-admin 的装配形状。
 
-指定 --spec <AppSpec.json> 时切换为 P12 第二步（批 3 目标目录树）：以 AppSpec
+指定 --spec <AppSpec.json> 时切换为目录树模式：以 AppSpec
 方言（proto 单一真相源）驱动整套骨架，此时 <name> 可省略——应用名与目录树
 均以 AppSpec 为准。旧字段 server/audit_backends/bundle_normalized 是快捷
 方式：bootstrap 段为空时归一化进契约投影，非空时与其投影不一致生成期报错。`,
@@ -222,7 +222,7 @@ func genAppCmd(streams IOStreams) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&o.OutFile, "out", "", "输出根目录（模板模式默认 cmd/<name>/main.go；spec 模式默认 layout.root 或 .）")
 	cmd.Flags().StringVar(&o.Module, "module", "", "业务 module 路径（提示用）")
-	cmd.Flags().StringVar(&o.Spec, "spec", "", "AppSpec JSON 路径（protojson），开启 P12 第二步方言生成")
+	cmd.Flags().StringVar(&o.Spec, "spec", "", "AppSpec JSON 路径（protojson），开启方言生成（目标目录树）")
 	cmd.Flags().BoolVar(&o.Force, "force", false, "覆盖已存在的目标文件（默认拒绝）")
 	cmd.SetErr(streams.ErrOut)
 	return cmd

@@ -42,7 +42,7 @@ func validateAppSpec(as *appspecv1.AppSpec) []error {
 		add("meta.name is required (drives cmd/<name>/ and configs/<name>.yaml)")
 	}
 	if as.GetMeta().GetModule() == "" {
-		add("meta.module is required (generated files import <module>/internal/... -- D14 is now enforced, not advisory)")
+		add("meta.module is required (generated files import <module>/internal/...)")
 	}
 
 	// ---- components：kind 白名单 + name 唯一 ----

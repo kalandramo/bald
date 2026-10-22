@@ -31,8 +31,7 @@ func main() {
 		Long: `bald 是 Go 服务框架（库）；本 CLI 提供配套的开发工具。
 
 代码生成脚手架 gen 输出可编译骨架（proto / store / app），作为 bald 生态的
-starter：模板质量以 _example/bald 消费者模块的端到端编译/运行测试固化为防线。
-文档见 docs/devel/zh-CN/架构优化路线.md §P12。`,
+starter：模板质量以 _example/bald 消费者模块的端到端编译/运行测试固化为防线。`,
 		SilenceUsage:  true, // 错误不打 usage（flag 错误由 cobra 单独提示）
 		SilenceErrors: true, // 错误统一由 CheckErr 出口打印
 	}

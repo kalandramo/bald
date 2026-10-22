@@ -56,7 +56,7 @@
 ├── internal/bootstrap/assemble.gen.go           生成物   ~110 行  声明 → appkit 单次装配调用（§2.3）
 ├── internal/bootstrap/domains.gen.go            生成物   ~55 行   域清单聚合：import + 域描述符切片 + service 注册切片
 ├── internal/bootstrap/seed/seed.go              生成一次 ~70 行   业务种子数据（重生成跳过）
-├── internal/bootstrap/seed/policies.go          生成一次 ~40 行   授权策略行（重生成跳过；默认从 proto 派生，见 §4）
+├── internal/bootstrap/seed/policies.go          生成一次 ~35 行   授权策略行（重生成跳过；默认从 proto 派生，见 §4）
 ├── internal/apiserver/apiserver.go              生成一次 ~40 行   路由分组/中间件挂载点（业务唯一装配钩子）
 ├── internal/apiserver/domains.gen.go            生成物   ~70 行   HTTP 路由登记 + convert 注册（取代 server.go:25-82）
 ├── internal/apiserver/biz/v1/<d>/<d>.go         用户物   ~80 行   业务逻辑（示例域 demo 由生成器 seed 一份）

@@ -1,9 +1,9 @@
 // Package apiserver 是 HTTP 面的业务装配钩子（bald gen app 生成一次，
 // 此后归你维护——重生成跳过本文件；中间件链是安全策略，归业务自持）。
 //
-// 批 4 W4 闭环演示形态：本文件按「authz 链路接线」改写（用户槽位的真实
-// 用法）——bundle.Authn 注入认证桩、bundle.Authz 注入 casbin 桥（桥由
-// internal/apiserver/authz 从生成物装配：seed.Rows + ObjectAliases）。
+// 本文件按「authz 链路接线」改写（用户槽位的真实用法）：bundle.Authn 注入
+// 认证桩、bundle.Authz 注入 casbin 桥（桥由 internal/apiserver/authz 从生成物
+// 装配：seed.Rows + ObjectAliases）。
 package apiserver
 
 import (

@@ -661,7 +661,7 @@ func TestScaffoldModule_ReplacesAreHermetic(t *testing.T) {
 			continue
 		}
 		if inside, err := isInsideRepo(target); err != nil || !inside {
-			t.Errorf("replace %s target %s escapes the repo checkout %s (rel=%q, err=%v): a sibling-of-repo replace only resolves on machines with that sibling present — Linux CI has been red on it since run 39104694914", mod, target, root, rel2s(root, target), err)
+			t.Errorf("replace %s target %s escapes the repo checkout %s (rel=%q, err=%v): a sibling-of-repo replace only resolves on machines with that sibling present", mod, target, root, rel2s(root, target), err)
 			continue
 		}
 		replaced[mod] = true

@@ -7,8 +7,8 @@ import (
 	"{{MODULE}}/internal/bootstrap/seed"
 )
 
-// NewAuthorizer 从生成物装配 casbin 桥（批 4 W4 闭环演示的用户槽位接线，
-// 即「生成物只产数据、contrib 产行为」的消费路径示范）：
+// NewAuthorizer 从生成物装配 casbin 桥（用户槽位接线，即「生成物只产数据、
+// contrib 产行为」的消费路径示范）：
 //   - seed.Rows（gen app 产物默认策略行）映射为 PolicyRow 经 NewRows 装载；
 //   - ObjectAliases（gen domain 产物别名表）经 NewAlias 桥接请求面命名与
 //     策略行命名空间（HTTP 面 greets → 策略行 greet）。
