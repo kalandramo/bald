@@ -92,6 +92,11 @@ type Config struct {
 	// 始终免认证（公开发现端点）。
 	OAuthProtectedResource *mcpserver.ProtectedResourceMetadataConfig
 
+	// ServerDescription 是 initialize 握手 serverInfo.description 字段
+	// （mark3labs Implementation.Description）。客户端在握手期即可看出
+	// 服务归属，不必等到第一次工具调用。空时不注入（保持默认行为）。
+	ServerDescription string
+
 	tools          []*mcp.Tool
 	toolMetas      map[string]toolMeta // tool name → registration-time metadata
 	toolSelectors  map[string]Selector // tool name → selector that owns it
@@ -183,6 +188,9 @@ func (c *Config) newTransportServer(cmd *cobra.Command, serverType mcptransport.
 	}
 	if c.BaseURL != "" && serverType == mcptransport.ServerTypeSSE {
 		opts = append(opts, mcptransport.WithSSEOptions(mcpserver.WithBaseURL(c.BaseURL)))
+	}
+	if c.ServerDescription != "" {
+		opts = append(opts, mcptransport.WithMCPServerOptions(mcpserver.WithDescription(c.ServerDescription)))
 	}
 
 	// 认证：AuthMiddleware（外层）+ AuthToken（内层静态校验）组合成单一中间件。
