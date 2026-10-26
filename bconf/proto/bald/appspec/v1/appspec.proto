@@ -97,6 +97,23 @@ message AppMeta {
   string module = 2;
   // 服务中文/英文短描述，落在 command.go 的 Short 与文件头注释。
   string desc = 3;
+  // 角色划分（多角色部署：api / runner 各起一个进程）。为空 = 单角色，
+  // 生成器走既有单 cmd/ 路径（零迁移）；非空时 Gate1 校验角色名唯一、
+  // 各角色 domains 并集等于 domains 全集。
+  repeated RoleSpec roles = 4;
+}
+
+// RoleSpec 声明一个进程角色（元素类型紧跟引用者，同 Requirement 的约定）。
+message RoleSpec {
+  // 角色名（api | runner）：决定 cmd/<meta.name>-<role>/main.go 与
+  // configs/<app>-<role>.yaml 的命名；非空且在全应用唯一。
+  string name = 1;
+  // 该角色承载的业务域（引用 AppSpec.domains[].name）。所有角色的并集
+  // 必须恰好等于 domains 全集——缺域 = 有域无人服务，多域 = 引用了不存在的域。
+  repeated string domains = 2;
+  // 该角色的传输面：configs/<app>-<role>.yaml 的 server 段依据（runner
+  // 通常不开 HTTP/gRPC 面）。
+  ServerSpec server = 3;
 }
 
 // ServerSpec 声明要开通的传输服务（[快捷方式]：bootstrap.server 非空时，
