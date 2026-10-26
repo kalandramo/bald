@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/dynamicpb"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
 	appspecv1 "github.com/kalandramo/bald/bconf/gen/go/bald/appspec/v1"
@@ -104,6 +105,50 @@ func validateAppSpec(as *appspecv1.AppSpec) []error {
 		}
 	}
 
+	// ---- roles：为空 = 单角色（零迁移，不校验不报错）；非空才进三道检查 ----
+	// 1) name 非空且唯一；2) 每个 domains 元素必须是已声明的域；3) 各角色
+	// domains 并集恰好等于 domains 全集（缺域 = 有域无人服务，多域 = 引用了
+	// 不存在的域，两者都进聚合错误并列出具体域名）。
+	if roles := as.GetMeta().GetRoles(); len(roles) > 0 {
+		seenRole := map[string]int{}
+		union := map[string]bool{}
+		for i, r := range roles {
+			name := r.GetName()
+			if name == "" {
+				add("meta.roles[%d].name 不能为空（字段 meta.roles.name：api | runner，决定 cmd/<meta.name>-<role>/ 目录名）", i)
+			} else if prev, dup := seenRole[name]; dup {
+				add("meta.roles[%d].name %q 与 meta.roles[%d].name 重复（字段 meta.roles.name 必须全应用唯一）", i, name, prev)
+			} else {
+				seenRole[name] = i
+			}
+			for _, d := range r.GetDomains() {
+				if _, ok := seenDomain[d]; !ok {
+					add("meta.roles[%d] (%s) 的 domains %q 未在 domains[].name 中声明（字段 meta.roles.domains 必须引用已声明的域）", i, name, d)
+				}
+				union[d] = true
+			}
+		}
+		missing := make([]string, 0, len(as.GetDomains()))
+		for _, d := range as.GetDomains() {
+			if n := d.GetName(); n != "" && !union[n] {
+				missing = append(missing, n)
+			}
+		}
+		extra := make([]string, 0)
+		for n := range union {
+			if _, ok := seenDomain[n]; !ok {
+				extra = append(extra, n)
+			}
+		}
+		slices.Sort(missing)
+		slices.Sort(extra)
+		if len(missing) > 0 || len(extra) > 0 {
+			add("meta.roles 各角色 domains 的并集必须等于 domains 全集：缺失=%v 多余=%v "+
+				"（字段 meta.roles.domains 的并集 vs domains[].name——缺域则该域无人服务，多域则引用了不存在的域）",
+				missing, extra)
+		}
+	}
+
 	// ---- 快捷方式 ⇄ bootstrap 投影一致（bootstrap 非空时；消灭双真相源）----
 	bs := as.GetBootstrap()
 	if bootstrapEmpty(bs) {
@@ -157,6 +202,30 @@ func bootstrapEmpty(bs *bootstrapv1.BootstrapConfig) bool {
 	return bs == nil || proto.Equal(bs, &bootstrapv1.BootstrapConfig{})
 }
 
+// projectServer 把 ServerSpec 快捷方式投影为契约 server 段（AppSpec.server
+// 与 RoleSpec.server 共用同一份投影——双真相源消亡）。未声明任何传输面时
+// 返回 nil：段缺席即「不配置」，L3 段覆盖检查无从要求覆盖。
+func projectServer(sv *appspecv1.ServerSpec) *bootstrapv1.Server {
+	if sv == nil {
+		return nil
+	}
+	var out *bootstrapv1.Server
+	if sv.GetHttp() || sv.GetHttpAddr() != "" || sv.GetGateway() {
+		driver := ""
+		if sv.GetGateway() {
+			driver = gatewayDriver
+		}
+		out = &bootstrapv1.Server{Http: &bootstrapv1.Server_Http{Addr: sv.GetHttpAddr(), Driver: driver}}
+	}
+	if sv.GetGrpc() || sv.GetGrpcAddr() != "" {
+		if out == nil {
+			out = &bootstrapv1.Server{}
+		}
+		out.Grpc = &bootstrapv1.Server_Grpc{Addr: sv.GetGrpcAddr()}
+	}
+	return out
+}
+
 // normalizeBootstrap 把「bootstrap 为空」的 AppSpec 的快捷方式归一化为契约
 // 投影（旧 6 字段 spec 的兼容通道；bootstrap 非空时原样返回——一致性已由
 // Gate1 校验）。此后 config 发射与能力探测只认归一化结果，双真相源消亡。
@@ -166,22 +235,7 @@ func normalizeBootstrap(as *appspecv1.AppSpec) *bootstrapv1.BootstrapConfig {
 		return bs
 	}
 	out := &bootstrapv1.BootstrapConfig{}
-	if sv := as.GetServer(); sv != nil {
-		if sv.GetHttp() || sv.GetHttpAddr() != "" || sv.GetGateway() {
-			driver := ""
-			if sv.GetGateway() {
-				driver = gatewayDriver
-			}
-			out.Server = &bootstrapv1.Server{Http: &bootstrapv1.Server_Http{Addr: sv.GetHttpAddr(), Driver: driver}}
-		}
-		if sv.GetGrpc() || sv.GetGrpcAddr() != "" {
-			grpc := &bootstrapv1.Server_Grpc{Addr: sv.GetGrpcAddr()}
-			if out.Server == nil {
-				out.Server = &bootstrapv1.Server{}
-			}
-			out.Server.Grpc = grpc
-		}
-	}
+	out.Server = projectServer(as.GetServer())
 	if len(as.GetAuditBackends()) > 0 {
 		out.Audit = &bootstrapv1.Audit{Backends: slices.Clone(as.GetAuditBackends())}
 	}
@@ -232,6 +286,19 @@ var builderConsumed = map[string]bool{
 	"bald.appspec.v1.AppSpec.bundle_normalized":      true,
 	"bald.appspec.v1.AppSpec.bootstrap":              true,
 	"bald.appspec.v1.AppSpec.layout.root":            true,
+	// meta.roles：消费 = Gate1 角色校验（本文件 roles 块：name 唯一 +
+	// domains 引用 + 并集覆盖）+ 树构建器按角色切分 cmd/<app>-<role>/ 与
+	// configs/<app>-<role>.yaml（不落可断言的单一标记，故与快捷方式
+	// server.* 同类登记）。
+	"bald.appspec.v1.AppSpec.meta.roles":                  true,
+	"bald.appspec.v1.AppSpec.meta.roles.name":             true,
+	"bald.appspec.v1.AppSpec.meta.roles.domains":          true,
+	"bald.appspec.v1.AppSpec.meta.roles.server":           true,
+	"bald.appspec.v1.AppSpec.meta.roles.server.http":      true,
+	"bald.appspec.v1.AppSpec.meta.roles.server.grpc":      true,
+	"bald.appspec.v1.AppSpec.meta.roles.server.gateway":   true,
+	"bald.appspec.v1.AppSpec.meta.roles.server.http_addr": true,
+	"bald.appspec.v1.AppSpec.meta.roles.server.grpc_addr": true,
 }
 
 // appspecLocal 报告消息是否属于 appspec 本地声明面（守卫只遍历 AppSpec
@@ -260,6 +327,14 @@ func checkFieldConsumers(rendered string) []error {
 				// 静态遍历与实例是否置位无关——守卫管的是声明面本身）。
 				if fd.IsList() {
 					list := msg.Get(fd).List()
+					if list.Len() == 0 {
+						// 空列表也必须按元素类型下钻一次：守卫管的是声明面，
+						// 与实例是否置位无关。此前空列表直接跳过，重复消息的
+						// 子字段（domains/components/capability.requires/roles）全在
+						// 盲区——登记写错、字段漏接消费者都不会报红。
+						walk(full, dynamicpb.NewMessage(fd.Message()).ProtoReflect())
+						continue
+					}
 					for j := 0; j < list.Len(); j++ {
 						walk(full, list.Get(j).Message())
 					}

@@ -8,8 +8,10 @@ import (
 
 	"github.com/spf13/cobra"
 	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 
 	appspecv1 "github.com/kalandramo/bald/bconf/gen/go/bald/appspec/v1"
+	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
 )
 
 // appTmpl 是应用装配骨架模板（MustServe 单入口惯用法）。
@@ -23,7 +25,7 @@ import (
 // 生成的代码就是最佳实践文档。
 var appTmpl = `// {{.Name}} 应用装配骨架（bald gen app 生成）。
 //
-// 装配约定（对照 _example/bald/main.go）：
+// 装配约定（对照 _example/bald/internal/bootstrap/assemble.go）：
 //   - 唯一装配入口 MustServe：内部完成 --config 解析 → 契约装载 → 命名空间
 //     解析 → 段驱动 Provider 装配（std.Standard() 提供框架自有后端）→ Run
 //     （信号处理内建）；失败记日志后以非零码退出。
@@ -252,11 +254,16 @@ func runGenAppSpec(spec, out string, force bool, streams IOStreams) error {
 	if err != nil {
 		return err
 	}
+	view := buildTreeView(as, bs)
+	cfgs, err := roleContracts(as, bs, cfgYAML, view)
+	if err != nil {
+		return err
+	}
 	root := out
 	if root == "" {
 		root = as.GetLayout().GetRoot() // layout.root 默认 "."（产出根 = CWD）
 	}
-	files, err := buildTree(buildTreeView(as, bs), cfgYAML)
+	files, err := buildTree(view, cfgs)
 	if err != nil {
 		return err
 	}
@@ -264,5 +271,46 @@ func runGenAppSpec(spec, out string, force bool, streams IOStreams) error {
 		return err
 	}
 	fmt.Fprintln(streams.Out, "next: appspec.json is the declaration truth source; edit it and rerun with --force to regenerate owned files (seeded files are kept, user files are never touched)")
+	return nil
+}
+
+// roleContracts 为每个角色派生一份契约 YAML（决策 D2=b：每角色一份
+// configs/<app>-<role>.yaml）。单角色直接复用 Gate2 已算出的 base——这是
+// 「roles 为空时生成物逐字节不变」的保证点。
+//
+// 多角色时 RoleSpec.server 非 nil 即以它为准：server 段由 projectServer
+// 覆盖（normalizeBootstrap 只在契约段整体为空时才投影快捷方式，这里不能
+// 依赖它）。空 ServerSpec 投影为 nil 段——runner 的契约里因此没有 server 段。
+// server 为 nil 的角色继承 AppSpec 的契约（不另开面）。
+func roleContracts(as *appspecv1.AppSpec, bs *bootstrapv1.BootstrapConfig, base []byte, view *treeView) (map[string][]byte, error) {
+	cfgs := make(map[string][]byte, len(view.Roles))
+	for _, slot := range view.Roles {
+		if slot.Name == "" {
+			cfgs[""] = base // 单角色：零额外派生
+			continue
+		}
+		sv := roleServer(as, slot.Name)
+		if sv == nil {
+			cfgs[slot.Name] = base // 未声明 server = 继承 AppSpec 的契约
+			continue
+		}
+		roleBs := proto.Clone(bs).(*bootstrapv1.BootstrapConfig)
+		roleBs.Server = projectServer(sv)
+		cy, err := contractGate(as, roleBs)
+		if err != nil {
+			return nil, fmt.Errorf("role %q: %w", slot.Name, err)
+		}
+		cfgs[slot.Name] = cy
+	}
+	return cfgs, nil
+}
+
+// roleServer 返回指定角色声明的 server 快捷方式（不存在时返回 nil = 继承）。
+func roleServer(as *appspecv1.AppSpec, role string) *appspecv1.ServerSpec {
+	for _, r := range as.GetMeta().GetRoles() {
+		if r.GetName() == role {
+			return r.GetServer()
+		}
+	}
 	return nil
 }

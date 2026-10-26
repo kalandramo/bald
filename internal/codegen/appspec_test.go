@@ -305,7 +305,7 @@ func renderedFixture(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("contractGate: %v", err)
 	}
-	files, err := buildTree(buildTreeView(as, normalizeBootstrap(as)), cfg)
+	files, err := buildTree(buildTreeView(as, normalizeBootstrap(as)), map[string][]byte{"": cfg})
 	if err != nil {
 		t.Fatalf("buildTree: %v", err)
 	}
@@ -356,7 +356,7 @@ func TestMachineGuard_MarkerNotEmittedRed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("contractGate: %v", err)
 	}
-	files, err := buildTree(buildTreeView(as, normalizeBootstrap(as)), cfg)
+	files, err := buildTree(buildTreeView(as, normalizeBootstrap(as)), map[string][]byte{"": cfg})
 	if err != nil {
 		t.Fatalf("buildTree: %v", err)
 	}
@@ -391,7 +391,7 @@ func genFixtureTree(t *testing.T, dir string, force bool) (*bytes.Buffer, error)
 	if err != nil {
 		t.Fatalf("contractGate: %v", err)
 	}
-	files, err := buildTree(buildTreeView(as, normalizeBootstrap(as)), cfg)
+	files, err := buildTree(buildTreeView(as, normalizeBootstrap(as)), map[string][]byte{"": cfg})
 	if err != nil {
 		t.Fatalf("buildTree: %v", err)
 	}

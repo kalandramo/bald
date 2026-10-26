@@ -173,7 +173,7 @@ func TestGenDomain_ExistingDomainPackageSkipped(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(pkgDir, "domain.gen.go")); !os.IsNotExist(err) {
 		t.Errorf("skeleton must not be written over an existing domain value: %v", err)
 	}
-	// 根级清单形态（_example）：package main。
+	// 根级清单形态（早期 _example）：package main。
 	m, err := os.ReadFile(filepath.Join(dir, "domains.gen.go"))
 	if err != nil {
 		t.Fatalf("read root manifest: %v", err)

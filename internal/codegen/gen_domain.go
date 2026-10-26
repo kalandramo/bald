@@ -536,7 +536,7 @@ func derivedAuthz(as *appspecv1.AppSpec, byService map[string]protoService) (map
 }
 
 // manifestPackage 由清单路径折算 package 子句（internal/bootstrap → bootstrap；
-// 根级 domains.gen.go → main——_example 形态）。
+// 根级 domains.gen.go → main——早期 _example 形态）。
 func manifestPackage(manifest string) string {
 	base := filepath.Base(filepath.Dir(filepath.FromSlash(manifest)))
 	if base == "." || base == "" {
@@ -766,7 +766,7 @@ api/protos、proto），失配报错指明域、proto 文件与实际声明。�
 	}
 	cmd.Flags().StringVar(&o.Spec, "spec", "", "AppSpec JSON 路径（protojson；必填）")
 	cmd.Flags().StringVar(&o.OutDir, "out", "", "产出根（默认 .）")
-	cmd.Flags().StringVar(&o.Manifest, "manifest", "", "域清单落盘路径（默认 internal/bootstrap/domains.gen.go；_example 根级形态传 domains.gen.go）")
+	cmd.Flags().StringVar(&o.Manifest, "manifest", "", "域清单落盘路径（默认 internal/bootstrap/domains.gen.go；早期根级形态传 domains.gen.go）")
 	cmd.Flags().StringVar(&o.APIServerDir, "apiserver-dir", "", "apiserver 目录名（默认 layout.apiserver_dir 否则 apiserver；传 - 跳过 apiserver 侧产物）")
 	cmd.Flags().BoolVar(&o.Force, "force", false, "覆盖已存在的 owned 文件（默认拒绝）")
 	_ = cmd.MarkFlagFilename("spec", ".json")
