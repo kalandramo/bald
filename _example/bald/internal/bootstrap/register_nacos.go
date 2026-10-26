@@ -1,19 +1,19 @@
 //go:build nacos
 
-// Command bald 的 nacos 后端接线示例（建在独立 build tag 下，默认不参与编译）。
+// Command bald-demo 的 nacos 后端接线示例（建在独立 build tag 下，默认不参与编译）。
 //
 // 为什么要隔离：nacos SDK 较重，且默认构建用一个 nacos server 才能跑起来；
-// 用 build tag 隔开后，默认 `go run ./_example/bald` 不引入这些依赖、
+// 用 build tag 隔开后，默认 `go run ./cmd/bald-demo` 不引入这些依赖、
 // 无需 nacos 进程即可演示，而需要真实 nacos 时再显式开启：
 //
-//	go run -tags nacos ./_example/bald            # 配置随示例自带，自动加载
+//	go run -tags nacos ./cmd/bald-demo            # 配置随示例自带，自动加载
 //
 // 注册中心（已迁移段驱动 Provider 装配）：本文件只做两件事——把 nacos 契约
 // provider 包成 registry 段的 appkit.Provider（原 RegistrarRegistry 注入的
 // Provider 等价形态）+ 经 Providers 传入装配；具体连接参数全部来自
-// configs/bald-demo.yaml 的 registry 段（契约驱动，零硬编码）。
+// configs/bald-demo-api.yaml 的 registry 段（契约驱动，零硬编码）。
 //
-// 注：示例 main 始终声明 Registrar(inmemory.New())（显式实例优先于契约
+// 注：示例装配层始终声明 Registrar(inmemory.New())（显式实例优先于契约
 // 装配——引擎跳过纯 registry 段 Provider），故本 Provider 在示例默认选项下
 // 不会构建；去掉 Registrar 后本段即按 yaml registry.nacos 驱动真实注册
 // （语义见 appkit.Registrar 注释）。
@@ -24,7 +24,7 @@
 //
 // 注意版本分裂（仅配置中心桥接涉及）：contrib config/nacos/v3 依赖
 // nacos-sdk-go 旧版 v1；注册中心已走直连 SDK v2 provider，无 v1 依赖。
-package main
+package bootstrap
 
 import (
 	"context"
@@ -43,7 +43,7 @@ import (
 )
 
 // nacosHost/nacosPort 是配置中心（桥接路径）的 nacos server 地址。
-// 注册中心的地址已契约化：见 configs/bald-demo.yaml registry.nacos 段。
+// 注册中心的地址已契约化：见 configs/bald-demo-api.yaml registry.nacos 段。
 var nacosHost, nacosPort = "127.0.0.1", uint64(8848)
 
 // nacosRegistrarProvider 是 registry 段的 nacos 后端 Provider：按契约

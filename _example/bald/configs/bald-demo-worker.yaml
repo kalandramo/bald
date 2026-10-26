@@ -1,0 +1,70 @@
+# bald-demo-worker 配置示例 —— worker 角色（只开 gRPC 面）的契约。
+#
+# 与 api 角色（configs/bald-demo-api.yaml）的差别：**没有 server.http 段**。
+# 这是刻意的对偶约束，不是漏写：装配层不为 worker 声明 HTTP 能力
+# （internal/bootstrap/assemble.go 的 role 分支），契约里就不放这个段。反例是
+# 「两个角色共用一份带 server.http 的契约、只靠代码少声明一个面」—— 那种形态下
+# 一旦有人覆盖过 server.http.addr（env/flag 也算），启动会报「server 段配置确实
+# 不产生任何服务器」（pkg/appkit/segment_coverage.go 的 serverCovered）。故每角色
+# 一份契约。
+#
+# 优先级（高 → 低，viper 默认语义）：
+#   命令行 flag > 环境变量 > 本地文件(本文件) > 远程配置中心
+#
+# 键名即 Protobuf 配置契约（bconf/proto/bootstrap/v1/）中的字段路径。同一套键
+# 路径同时适用于四种配置源：
+#   --server.grpc.addr ⇔ server.grpc.addr ⇔ BALD_DEMO_SERVER_GRPC_ADDR ⇔ 本文件
+
+# ---------------------------------------------------------------------------
+# App 元数据（bootstrapv1.App）：env 前缀（BALD_DEMO_*）与多环境文件名都由
+# app.name 派生——契约无 app.name 时启动 fail-fast。
+# ---------------------------------------------------------------------------
+app:
+  name: "bald-demo"
+  version: "v0.1.0"
+  stop_timeout: "15s"     # 优雅停机总超时（protojson Duration 字面量）
+
+# ---------------------------------------------------------------------------
+# gRPC 服务（bootstrapv1.Server_Grpc）——本角色只有这一个传输面
+# ---------------------------------------------------------------------------
+server:
+  grpc:
+    addr: ":9091"        # 与 api 角色的 :9090 错开，两个进程可同时跑
+    reflection: false    # gRPC Server Reflection（grpcurl 调试需要）
+
+# ---------------------------------------------------------------------------
+# 日志（bootstrapv1.Logger）：单 slog 后端，零注册代码开箱即用
+# ---------------------------------------------------------------------------
+logger:
+  backends:
+    - type: "slog"
+      slog:
+        level: "info"
+        format: "console"
+        output_path: "stdout"
+
+# ---------------------------------------------------------------------------
+# 数据库（bootstrapv1.Database_SQL：storegorm.Provider 消费）
+# sqlite 内存库：零文件残留，驱动已内置
+# ---------------------------------------------------------------------------
+database:
+  sql:
+    driver: "sqlite"
+    source: "file::memory:?cache=shared&_fk=1"
+
+# ---------------------------------------------------------------------------
+# 服务注册中心（bootstrapv1.Registry）：默认构建由显式 Registrar(inmemory.New())
+# 优先接管；-tags nacos 时本段驱动真实注册（参数全契约化）
+# ---------------------------------------------------------------------------
+registry:
+  type: "nacos"
+  nacos:
+    server_addrs: ["127.0.0.1:8848"]
+    namespace: "public"
+    group: "DEFAULT_GROUP"
+    cluster_name: "DEFAULT"
+    default_kind: "grpc"
+
+# 注：本契约没有 greet 业务段 —— worker 角色不装配业务域
+# （internal/bootstrap/assemble.go 的 domainOptionsForRole）。域声明了 Routes
+# 就必须同时声明 HTTP 面，故「不开 HTTP 面的角色」不能挂带 REST 路由的域。

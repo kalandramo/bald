@@ -89,7 +89,7 @@ var Domain = appkit.Domain{
 
 ## 3. 域声明值进装配：清单归生成器
 
-main.go 不出现任何具体域名——域清单聚合全部声明值后变参直传（`_example/bald/main.go:225` 的 `opts = append(opts, domainOptions...)`）：
+装配层不出现任何具体域名——域清单聚合全部声明值后变参直传（`_example/bald/internal/bootstrap/assemble.go` 的 `opts = append(opts, domainOptionsForRole(role)...)`）：
 
 ```go
 // domains.gen.go（bald gen domain 生成）：

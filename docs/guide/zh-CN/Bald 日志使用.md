@@ -103,7 +103,7 @@ appkit.MustServe(ctx, std.Standard(), loggerProvider{}, ...) // 末者胜：整�
 没有 `init()` 自注册——blank import 不会接线，分派必须显式写在你的代码里。
 热更重建复用同一 Build（`l == nil` 引导分支照旧要写）；脱敏/固定属性等装饰器
 也在此自持（`bslog.Option`）——完整范本（含 `bslog.WithFilter` 掩码 +
-`WithAttrs` service.name，行为测试 providers_test.go）见 `_example/bald/providers.go`。
+`WithAttrs` service.name，行为测试 providers_test.go）见 `_example/bald/internal/bootstrap/providers.go`。
 
 **步骤 3：yaml 声明**（backends 列表加一项，可替换默认 slog 项或并存）：
 
@@ -228,7 +228,7 @@ case "mylog":
 - **装饰器归 Provider 自持（`WithLogDecorators` 已取消导出）**：要脱敏/固定
   属性，在自声明 Provider 里把 `bslog.Option`（`bslog.WithFilter`、
   `bslog.WithAttrs`）传给 `bslog.New`/`bslog.NewWithCleanup`，阶段 A 引导
-  分支同样传入——范本 `_example/bald/providers.go`。
+  分支同样传入——范本 `_example/bald/internal/bootstrap/providers.go`。
 - **`filter_keys` 是顶层字段**，与后端清单正交，对全部后端统一生效（出口统一包
   `NewFilterLogger`）。
 - **云凭据（access_key/dsn 等）建议经环境变量注入**：配置源 flag > env > yaml

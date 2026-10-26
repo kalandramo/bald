@@ -91,7 +91,7 @@ router.GET("/v1/hello", func(c *gin.Context) {
 curl -i http://127.0.0.1:8080/v1/hello
 ```
 
-更完整的路由写法（路由分组、中间件链、结构化绑定与校验、错误到 HTTP 状态码的映射）直接照抄示例 [`_example/bald/main.go`](https://github.com/kalandramo/bald/blob/main/_example/bald/main.go) 的 `exampleRoutes`。
+更完整的路由写法（路由分组、中间件链、结构化绑定与校验、错误到 HTTP 状态码的映射）直接照抄示例 [`_example/bald/internal/apiserver/router.go`](https://github.com/kalandramo/bald/blob/main/_example/bald/internal/apiserver/router.go) 的 `exampleRoutes`。
 
 ### 6. 加一个配置项：契约校验当场拦截
 
@@ -126,8 +126,8 @@ config: unknown contract keys (typo? or declare in AllowBusinessSections): serve
 
 默认无注册中心。需要服务发现时二选一：
 
-- 开发/测试（零外部依赖）：在装配声明里注入内存实现 `appkit.Registrar(inmemory.New())`（示例见 `_example/bald/main.go`）——启动自动 Register、停机自动 Deregister；注册中心生效时启动日志会出现 `appkit registered`（含最终 endpoints）。
-- 生产：yaml `registry` 段声明后端与连接参数（如 `type: "nacos"` + `nacos: { server_addrs: [...] }`），后端 Provider 由 contrib 包加法式提供（接入范本见 `_example/bald/register_nacos.go`）。registry 段不支持热更新，变更需重启。
+- 开发/测试（零外部依赖）：在装配声明里注入内存实现 `appkit.Registrar(inmemory.New())`（示例见 `_example/bald/internal/bootstrap/assemble.go`）——启动自动 Register、停机自动 Deregister；注册中心生效时启动日志会出现 `appkit registered`（含最终 endpoints）。
+- 生产：yaml `registry` 段声明后端与连接参数（如 `type: "nacos"` + `nacos: { server_addrs: [...] }`），后端 Provider 由 contrib 包加法式提供（接入范本见 `_example/bald/internal/bootstrap/register_nacos.go`）。registry 段不支持热更新，变更需重启。
 
 ### 下一步
 

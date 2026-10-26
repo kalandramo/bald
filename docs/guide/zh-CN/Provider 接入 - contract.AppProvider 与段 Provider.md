@@ -59,7 +59,7 @@ cache:
 
 ### 2.2 整段自持：自己实现 Provider
 
-范本 `_example/bald/providers.go` 的 loggerProvider（覆盖 std 默认日志通道，行为测试钉住掩码语义）——三件套逐条对账：
+范本 `_example/bald/internal/bootstrap/providers.go` 的 loggerProvider（覆盖 std 默认日志通道，行为测试钉住掩码语义）——三件套逐条对账：
 
 ```go
 func (p loggerProvider) Segments() []string { return []string{"logger"} }              // 段路径

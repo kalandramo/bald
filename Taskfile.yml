@@ -89,8 +89,23 @@ tasks:
       - go build -tags grpcgw ./...
 
   example-vet:
-    desc: 静态检查 _example（默认 tag）
+    desc: 静态检查 _example（默认 tag，仅外层 module）
     dir: _example
+    cmds:
+      - go vet ./...
+
+  # _example/bald 是**嵌套** module（github.com/kalandramo/bald/example/bald），
+  # 不在外层 _example 模块的 `go build ./...` / `go vet ./...` 范围内——上面的
+  # example-build/example-vet 实际只覆盖 _example 自身的包。扇出形态
+  # （cmd/bald-demo 与 cmd/bald-demo-worker 两个入口 + internal/bootstrap 的
+  # Options(role)）此前只有 example-e2e（带 grpcgw tag、需 buf 产物）这一条
+  # 编译路径，默认 tag 下从未被类型检查过。本任务补上：`go vet ./...` 会编译
+  # 全部包（含两个 package main），且不落可执行文件——`go build ./...` 会把
+  # bald-demo.exe 写进源码目录（_example 下遗留的 bald-gin.exe 就是同一个坑，
+  # 与上面 cobramcp examples 的取舍一致）。跨目录只能用任务级 dir（Task 3.52）。
+  example-bald-vet:
+    desc: 静态检查 _example/bald 嵌套 module（默认 tag，覆盖两个角色入口）
+    dir: _example/bald
     cmds:
       - go vet ./...
 
@@ -301,6 +316,6 @@ tasks:
   # CI 建议跑这个，而不是只跑 `go build ./...`。
   verify:
     desc: 全量验证（核心 + example + cobramcp + retry/ratelimit/broker/circuitbreaker）
-    deps: [build, test, example-build, example-vet, cobramcp-verify, encoding-verify, retry-verify, ratelimit-verify, broker-verify, circuitbreaker-verify]
+    deps: [build, test, example-build, example-vet, example-bald-vet, cobramcp-verify, encoding-verify, retry-verify, ratelimit-verify, broker-verify, circuitbreaker-verify]
     cmds:
       - cmd: 'echo "verify: core + example + nested modules OK（grpcgw 需 buf，见 example-build-grpcgw）"'

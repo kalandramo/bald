@@ -5,7 +5,7 @@
 // loggerProvider 覆盖 std 默认的 StandardLoggerProvider（段路径末者胜——
 // 声明序在 std.Standard() 之后），把 Attr 层脱敏（bslog.WithFilter）与固定
 // 结构化属性（service.name）带进阶段 A/B 两个构造点。
-package main
+package bootstrap
 
 import (
 	"context"

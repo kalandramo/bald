@@ -7,8 +7,9 @@
 // import 树里有什么，这里就列什么。
 //
 // 本模板由 gen app 与 gen domain 共用（单模板源不漂移）；package 子句由
-// 清单落盘路径折算（internal/bootstrap → bootstrap；_example 根级 → main）。
-package main
+// 清单落盘路径折算（internal/bootstrap → bootstrap；根级 domains.gen.go →
+// main——早期 _example 形态，现 _example 用 internal/bootstrap）。
+package bootstrap
 
 import (
 	"github.com/kalandramo/bald/pkg/appkit"

@@ -2,7 +2,7 @@
 // 回归）：password/token 两类键以 slog.Attr 形态流经日志时
 // 必须被掩码为 ***，且 service.name 固定属性随行——契约 filter_keys 不处理
 // Attr 形态，bslog.WithFilter 是唯一覆盖该来源的机制（bald-admin 实测结论）。
-package main
+package bootstrap
 
 import (
 	"context"

@@ -249,7 +249,7 @@ flag 侧框架内化两件事：
   取路径写回 `ConfigFile`，业务侧无需手写 pflag 扫描；未知/写错的 flag 不阻断启动，
   由各自的消费方负责报错。
 - **`server.http` / `server.grpc` / `--log.*` 三组 flag 由 Serve 内化 `Bind`**
-  （现行范本见 `_example/bald/main.go` 的装配注释）——这三块的 flag 覆盖开箱即用。
+  （现行范本见 `_example/bald/internal/bootstrap/assemble.go` 的装配注释）——这三块的 flag 覆盖开箱即用。
 
 **业务自己的 flag 经 `appkit.Bind` 声明**（§4.3）：`Bind` 把 proto 消息或 `PlainBinder`
 注册进 App 的 FlagSet，装载时进入 flag 层参与四源合并。只注册进 `cobra` / 全局 flagset 的
@@ -261,7 +261,7 @@ flag 走的是平行解析路径，**不参与**配置合并。
 
 **① `RemoteConfig` 远程桥（现行范本）**：把实现 `config.RemoteSource` 的后端接进来，
 内部适配为**最低优先级的基准层**。kratos contrib 的 `config.Source` 经
-`config.FromKratosSource` 一行桥接（见 `_example/bald/register_nacos.go`，build tag `nacos`）：
+`config.FromKratosSource` 一行桥接（见 `_example/bald/internal/bootstrap/register_nacos.go`，build tag `nacos`）：
 
 ```go
 src := config.FromKratosSource(nacosconfig.NewConfigSource(cli))

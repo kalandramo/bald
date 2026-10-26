@@ -7,9 +7,8 @@
 // 仓库在无 protoc 环境也能正常构建。本地装好工具链后：
 //
 //	cd _example/bald
-//	make proto          # buf generate 生成 gen/baldv1/*.go
-//	cd ../..
-//	go run -tags grpcgw ./_example/bald            # 配置随示例自带，自动加载
+//	task proto          # buf generate 生成 gen/*.go
+//	go run -tags grpcgw ./cmd/bald-demo            # 配置随示例自带，自动加载
 //
 // 此时 GreetService 同时可通过 gRPC 与 REST 访问（见 proto 的 google.api.http
 // 注解）。REST 面由契约 server.http.driver=grpc-gateway 选择（gatewayRegister
@@ -19,7 +18,7 @@
 // 域边界说明：gRPC service 注册与契约校验已随 greet 域迁入 greetv1 包
 // （域自持契约——Domain.Services / greetv1.Validator）；本文件只剩应用级的
 // 网关转码面接线（face 选择是应用策略，非域知识）。
-package main
+package bootstrap
 
 import (
 	"context"
@@ -28,7 +27,7 @@ import (
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"google.golang.org/grpc"
 
-	// 由 `make proto` 生成（protoc-gen-go / protoc-gen-go-grpc /
+	// 由 `task proto` 生成（protoc-gen-go / protoc-gen-go-grpc /
 	// protoc-gen-grpc-gateway）。未生成前本文件因 build tag 不参与编译。
 	//
 	// 路径说明：_example/bald 是独立 module
@@ -36,8 +35,9 @@ import (
 	baldv1 "github.com/kalandramo/bald/example/bald/gen"
 )
 
-// init 注入 grpc-gateway 转码注册回调（main.go 经 WithGatewayRegister 声明
-// 网关能力，配合契约 server.http.driver=grpc-gateway 接入网关转码面）。
+// init 注入 grpc-gateway 转码注册回调（assemble.go 的 RoleAPI 分支经
+// WithGatewayRegister 声明网关能力，配合契约 server.http.driver=grpc-gateway
+// 接入网关转码面）。
 func init() {
 	gatewayRegister = registerGateway
 }
