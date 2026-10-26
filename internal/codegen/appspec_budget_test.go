@@ -22,7 +22,7 @@ func TestTree_D2Budgets(t *testing.T) {
 	}
 	rows := []row{
 		{filepath.Join("cmd", "demoapp", "main.go"), "≤25"},
-		{filepath.Join("cmd", "demoapp", "app", "command.go"), "~45"},
+		{filepath.Join("cmd", "demoapp", "app", "command.go"), "~35"}, // appcli 单轨后机制层外移
 		{filepath.Join("internal", "bootstrap", "assemble.gen.go"), "~110"},
 		{filepath.Join("internal", "bootstrap", "domains.gen.go"), "~55"},
 		{filepath.Join("internal", "bootstrap", "seed", "seed.go"), "seed-once"},
