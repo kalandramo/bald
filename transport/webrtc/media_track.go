@@ -100,9 +100,9 @@ func (m *MediaTrack) forwardRTP() {
 		n, _, err := m.track.Read(buf)
 		if err != nil {
 			if err == io.EOF || errors.Is(err, io.ErrClosedPipe) {
-				LogDebugf("track %s closed", m.id)
+				logDebugf("track %s closed", m.id)
 			} else {
-				LogErrorf("read RTP error: %s", err)
+				logErrorf("read RTP error: %s", err)
 			}
 			m.Close()
 			return
@@ -119,7 +119,7 @@ func (m *MediaTrack) forwardRTP() {
 		// 发送给所有订阅者
 		for _, localTrack := range m.subscribers {
 			if _, writeErr := localTrack.Write(packet); writeErr != nil {
-				LogErrorf("write to subscriber error: %s", writeErr)
+				logErrorf("write to subscriber error: %s", writeErr)
 			}
 		}
 		m.mu.RUnlock()

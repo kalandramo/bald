@@ -108,7 +108,7 @@ func (s *Session) BindDataChannel(dc *webrtc.DataChannel, onOpen func()) {
 			return
 		}
 		if err := s.hooks.handleSocketRawData(s.SessionID(), msg.Data); err != nil {
-			LogError("handle socket raw data error:", err)
+			logError("handle socket raw data error:", err)
 		}
 	})
 
@@ -118,7 +118,7 @@ func (s *Session) BindDataChannel(dc *webrtc.DataChannel, onOpen func()) {
 
 	dc.OnError(func(err error) {
 		if err != nil && !isExpectedDataChannelCloseError(err) {
-			LogError("data channel error:", err)
+			logError("data channel error:", err)
 		}
 		s.Close()
 	})
@@ -174,13 +174,13 @@ func (s *Session) closeConnection() {
 
 	if dc != nil {
 		if err := dc.Close(); err != nil {
-			LogDebugf("close data channel error: %s", err)
+			logDebugf("close data channel error: %s", err)
 		}
 	}
 
 	if pc != nil {
 		if err := pc.Close(); err != nil {
-			LogDebugf("close peer connection error: %s", err)
+			logDebugf("close peer connection error: %s", err)
 		}
 	}
 }
@@ -209,7 +209,7 @@ func (s *Session) writePump() {
 				err = dc.Send(msg)
 			}
 			if err != nil {
-				LogError("write data channel message error:", err)
+				logError("write data channel message error:", err)
 				return
 			}
 		}

@@ -11,11 +11,6 @@ import (
 	"github.com/kalandramo/bald/broker"
 )
 
-const (
-	ProtocolVersion = "0.9.1"
-	Protocol        = "AMQP"
-)
-
 type rabbitBroker struct {
 	mtx sync.Mutex
 	wg  sync.WaitGroup
@@ -275,7 +270,7 @@ func (b *rabbitBroker) Subscribe(routingKey string, handler broker.Handler, bind
 			m.Body = binder()
 
 			if p.err = broker.Unmarshal(b.options.Codec, msg.Body, &m.Body); p.err != nil {
-				LogErrorf("unmarshal message failed: %v", p.err)
+				logErrorf("unmarshal message failed: %v", p.err)
 			}
 		} else {
 			m.Body = msg.Body

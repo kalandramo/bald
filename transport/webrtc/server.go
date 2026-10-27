@@ -103,7 +103,7 @@ func NewServer(opts ...ServerOption) *Server {
 	srv.sessionManager.RegisterObserver(srv)
 
 	if err := srv.init(opts...); err != nil {
-		LogError("webrtc server init error:", err)
+		logError("webrtc server init error:", err)
 		return nil
 	}
 
@@ -178,7 +178,7 @@ func RegisterServerMessageHandler[T any](srv *Server, messageType NetMessageType
 			case *T:
 				return handler(sessionId, t)
 			default:
-				LogError("invalid payload struct type:", t)
+				logError("invalid payload struct type:", t)
 				return errors.New("invalid payload struct type")
 			}
 		},
@@ -240,7 +240,7 @@ func (s *Server) defaultMarshalNetPacket(messageType NetMessageType, message Mes
 func (s *Server) SendRawMessage(sessionId SessionID, message []byte) error {
 	session := s.sessionManager.getSession(sessionId)
 	if session == nil {
-		LogError("session not found:", sessionId)
+		logError("session not found:", sessionId)
 		return errors.New("session not found")
 	}
 
@@ -252,7 +252,7 @@ func (s *Server) SendRawMessage(sessionId SessionID, message []byte) error {
 func (s *Server) SendMessage(sessionId SessionID, messageType NetMessageType, message MessagePayload) error {
 	buf, err := s.marshalMessage(messageType, message)
 	if err != nil {
-		LogError("marshal message error:", err)
+		logError("marshal message error:", err)
 		return err
 	}
 
@@ -262,7 +262,7 @@ func (s *Server) SendMessage(sessionId SessionID, messageType NetMessageType, me
 func (s *Server) Broadcast(messageType NetMessageType, message MessagePayload) {
 	buf, err := s.marshalMessage(messageType, message)
 	if err != nil {
-		LogError(" marshal message error:", err)
+		logError(" marshal message error:", err)
 		return
 	}
 
@@ -288,7 +288,7 @@ func (s *Server) defaultUnmarshalNetPacket(buf []byte) (handler *MessageHandlerD
 	case PayloadTypeBinary:
 		var msg BinaryNetPacket
 		if err = msg.Unmarshal(buf); err != nil {
-			LogErrorf("decode message exception: %s", err)
+			logErrorf("decode message exception: %s", err)
 			return nil, nil, err
 		}
 		messageType = msg.Type
@@ -297,7 +297,7 @@ func (s *Server) defaultUnmarshalNetPacket(buf []byte) (handler *MessageHandlerD
 	case PayloadTypeText:
 		var msg TextNetPacket
 		if err = msg.Unmarshal(buf); err != nil {
-			LogErrorf("decode message exception: %s", err)
+			logErrorf("decode message exception: %s", err)
 			return nil, nil, err
 		}
 		messageType = msg.Type
@@ -305,7 +305,7 @@ func (s *Server) defaultUnmarshalNetPacket(buf []byte) (handler *MessageHandlerD
 	}
 
 	if handler = s.GetMessageHandler(messageType); handler == nil {
-		LogError("message handler not found:", messageType)
+		logError("message handler not found:", messageType)
 		return nil, nil, errors.New("message handler not found")
 	}
 
@@ -313,12 +313,12 @@ func (s *Server) defaultUnmarshalNetPacket(buf []byte) (handler *MessageHandlerD
 		payload = rawPayload
 	} else {
 		if err = broker.Unmarshal(s.codec, rawPayload, &payload); err != nil {
-			LogErrorf("unmarshal message exception: %s", err)
+			logErrorf("unmarshal message exception: %s", err)
 			return nil, nil, err
 		}
 	}
 
-	//LogDebug(string(rawPayload))
+	//logDebug(string(rawPayload))
 
 	return
 }
@@ -335,12 +335,12 @@ func (s *Server) handleSocketRawData(sessionId SessionID, buf []byte) error {
 func (s *Server) defaultHandleSocketRawData(sessionId SessionID, buf []byte) error {
 	handler, payload, err := s.unmarshalNetPacket(buf)
 	if err != nil {
-		LogErrorf("unmarshal message failed: %s", err)
+		logErrorf("unmarshal message failed: %s", err)
 		return err
 	}
 
 	if err = handler.Handler(sessionId, payload); err != nil {
-		LogErrorf("message handler failed: %s", err)
+		logErrorf("message handler failed: %s", err)
 		return err
 	}
 
@@ -417,28 +417,28 @@ func (s *Server) signalHandler(res http.ResponseWriter, req *http.Request) {
 			return
 		}
 		// 可以通过 WebSocket 或其他方式发送 candidate，这里暂不实现
-		LogDebugf("ICE candidate generated for session %s", session.SessionID())
+		logDebugf("ICE candidate generated for session %s", session.SessionID())
 	})
 
 	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
-		LogInfof("session %s connection state changed: %s", session.SessionID(), state.String())
+		logInfof("session %s connection state changed: %s", session.SessionID(), state.String())
 		switch state {
 		case webrtc.PeerConnectionStateClosed, webrtc.PeerConnectionStateFailed, webrtc.PeerConnectionStateDisconnected:
-			LogInfof("session %s closing due to state: %s", session.SessionID(), state.String())
+			logInfof("session %s closing due to state: %s", session.SessionID(), state.String())
 			session.Close()
 		}
 	})
 
 	pc.OnDataChannel(func(dc *webrtc.DataChannel) {
-		LogInfof("session %s data channel opened: %s", session.SessionID(), dc.Label())
+		logInfof("session %s data channel opened: %s", session.SessionID(), dc.Label())
 		if !s.allowAnyDataLabel && s.dataChannelLabel != "" && dc.Label() != s.dataChannelLabel {
-			LogWarnf("session %s rejecting data channel with label: %s", session.SessionID(), dc.Label())
+			logWarnf("session %s rejecting data channel with label: %s", session.SessionID(), dc.Label())
 			_ = dc.Close()
 			return
 		}
 
 		session.BindDataChannel(dc, func() {
-			LogInfof("session %s added to session manager", session.SessionID())
+			logInfof("session %s added to session manager", session.SessionID())
 			s.sessionManager.addSession(session)
 			session.Listen()
 		})
@@ -446,7 +446,7 @@ func (s *Server) signalHandler(res http.ResponseWriter, req *http.Request) {
 
 	// 处理 incoming 媒体轨道
 	pc.OnTrack(func(remote *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
-		LogInfof("session %s received track: kind=%s, codec=%s",
+		logInfof("session %s received track: kind=%s, codec=%s",
 			session.SessionID(), remote.Kind(), remote.Codec().MimeType)
 
 		// 添加到 SFU 路由器
@@ -579,7 +579,7 @@ func (s *Server) Start(ctx context.Context) error {
 	s.BaseContext = func(net.Listener) context.Context {
 		return ctx
 	}
-	LogInfof("server listening on: %s", lis.Addr().String())
+	logInfof("server listening on: %s", lis.Addr().String())
 
 	var err error
 	if s.tlsConf != nil {
@@ -606,7 +606,7 @@ func (s *Server) Stop(ctx context.Context) error {
 	}
 	s.stateMu.Unlock()
 
-	LogInfo("server stopping...")
+	logInfo("server stopping...")
 
 	err := s.Shutdown(ctx)
 	s.sessionManager.closeAllAndWait()
@@ -616,7 +616,7 @@ func (s *Server) Stop(ctx context.Context) error {
 	s.running = false
 	s.stateMu.Unlock()
 
-	LogInfo("server stopped.")
+	logInfo("server stopped.")
 
 	return err
 }
@@ -639,7 +639,7 @@ func (s *Server) handleICECandidate(candidate *webrtc.ICECandidateInit, res http
 	// 这里简化处理，实际需要通过 WebSocket 或其他方式维护 session 映射
 	res.WriteHeader(http.StatusOK)
 	res.Write([]byte(`{"status":"ok"}`))
-	LogDebug("ICE candidate received")
+	logDebug("ICE candidate received")
 }
 
 func (s *Server) OnSessionAdded(session *Session) {
@@ -658,7 +658,7 @@ func (s *Server) OnSessionRemoved(session *Session) {
 		s.sfuRouter.RemoveSessionTracks(session.SessionID())
 	}
 
-	LogInfof("✓ session %s removed from session manager. Active sessions: %d",
+	logInfof("✓ session %s removed from session manager. Active sessions: %d",
 		session.SessionID(), s.sessionManager.count())
 }
 
@@ -677,7 +677,7 @@ func (s *Server) SubscribeToPublisher(subscriberID SessionID, publisherID Sessio
 	// 获取发布者的所有轨道
 	tracks := s.sfuRouter.GetPublisherTracks(publisherID)
 	if len(tracks) == 0 {
-		LogWarnf("no tracks available from publisher %s", publisherID)
+		logWarnf("no tracks available from publisher %s", publisherID)
 		return nil
 	}
 
@@ -685,26 +685,26 @@ func (s *Server) SubscribeToPublisher(subscriberID SessionID, publisherID Sessio
 	for _, mediaTrack := range tracks {
 		localTrack, err := s.sfuRouter.CreateLocalTrackForSubscriber(subscriberID, mediaTrack, pc)
 		if err != nil {
-			LogErrorf("create local track error: %s", err)
+			logErrorf("create local track error: %s", err)
 			continue
 		}
 
 		// 发送 renegotation 信令
 		if err := s.sendRenegotiation(session, pc); err != nil {
-			LogErrorf("send renegotiation error: %s", err)
+			logErrorf("send renegotiation error: %s", err)
 		}
 
 		_ = localTrack // 保持引用
 	}
 
-	LogInfof("session %s subscribed to publisher %s (%d tracks)", subscriberID, publisherID, len(tracks))
+	logInfof("session %s subscribed to publisher %s (%d tracks)", subscriberID, publisherID, len(tracks))
 	return nil
 }
 
 // UnsubscribeFromPublisher 取消订阅
 func (s *Server) UnsubscribeFromPublisher(subscriberID SessionID, publisherID SessionID) {
 	s.sfuRouter.Unsubscribe(subscriberID, publisherID)
-	LogInfof("session %s unsubscribed from publisher %s", subscriberID, publisherID)
+	logInfof("session %s unsubscribed from publisher %s", subscriberID, publisherID)
 }
 
 // broadcastTrackAvailable 广播轨道可用通知
@@ -728,7 +728,7 @@ func (s *Server) broadcastTrackAvailable(publisherID SessionID, track *MediaTrac
 
 	payload, err := broker.Marshal(s.codec, msg)
 	if err != nil {
-		LogErrorf("marshal track available message error: %s", err)
+		logErrorf("marshal track available message error: %s", err)
 		return
 	}
 

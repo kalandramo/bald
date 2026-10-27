@@ -25,7 +25,7 @@ const (
 )
 
 func handleHygrothermograph(_ context.Context, topic string, headers broker.Headers, msg *api.Hygrothermograph) error {
-	LogInfof("Topic %s, Headers: %+v, Payload: %+v\n", topic, headers, msg)
+	logInfof("Topic %s, Headers: %+v, Payload: %+v\n", topic, headers, msg)
 	return nil
 }
 
@@ -33,7 +33,7 @@ func loggingMiddlerware(next broker.Handler) broker.Handler {
 	return func(ctx context.Context, evt broker.Event) error {
 		err := next(ctx, evt)
 		if err != nil {
-			LogErrorf("err is %+v", err)
+			logErrorf("err is %+v", err)
 		}
 		return nil
 	}
@@ -43,10 +43,10 @@ func recoveryMiddlerware(next broker.Handler) broker.Handler {
 	return func(ctx context.Context, evt broker.Event) error {
 		defer func() {
 			if rerr := recover(); rerr != nil {
-				LogError(rerr)
+				logError(rerr)
 			}
 		}()
-		LogInfo("recover middleware")
+		logInfo("recover middleware")
 		return next(ctx, evt)
 	}
 }

@@ -208,7 +208,7 @@ func WithMediaEnabled(enabled bool) ServerOption {
 				},
 				PayloadType: 96,
 			}, webrtc.RTPCodecTypeVideo); err != nil {
-				LogErrorf("register H264 codec error: %s", err)
+				logErrorf("register H264 codec error: %s", err)
 			}
 
 			if err := mediaEngine.RegisterCodec(webrtc.RTPCodecParameters{
@@ -221,7 +221,7 @@ func WithMediaEnabled(enabled bool) ServerOption {
 				},
 				PayloadType: 96,
 			}, webrtc.RTPCodecTypeVideo); err != nil {
-				LogErrorf("register VP8 codec error: %s", err)
+				logErrorf("register VP8 codec error: %s", err)
 			}
 
 			// 注册音频编解码器
@@ -235,7 +235,7 @@ func WithMediaEnabled(enabled bool) ServerOption {
 				},
 				PayloadType: 111,
 			}, webrtc.RTPCodecTypeAudio); err != nil {
-				LogErrorf("register Opus codec error: %s", err)
+				logErrorf("register Opus codec error: %s", err)
 			}
 
 			api := webrtc.NewAPI(

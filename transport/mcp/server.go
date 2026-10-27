@@ -82,13 +82,13 @@ func (s *Server) init(opts ...ServerOption) {
 
 	switch s.serverType {
 	case ServerTypeSSE, ServerTypeHTTP:
-		LogInfof("MCP server type set to %s, address: %s", s.serverType, s.serverAddr)
+		logInfof("MCP server type set to %s, address: %s", s.serverType, s.serverAddr)
 	case ServerTypeInProcess:
-		LogInfo("MCP server type set to IN_PROCESS")
+		logInfo("MCP server type set to IN_PROCESS")
 	case ServerTypeStdio:
-		LogInfo("MCP server type set to STDIO")
+		logInfo("MCP server type set to STDIO")
 	default:
-		LogWarnf("Unsupported MCP server type: %s, defaulting to STDIO", s.serverType)
+		logWarnf("Unsupported MCP server type: %s, defaulting to STDIO", s.serverType)
 		s.serverType = ServerTypeStdio
 	}
 
@@ -113,7 +113,7 @@ func (s *Server) Start(ctx context.Context) error {
 	s.mu.RUnlock()
 
 	if s.started.Load() {
-		LogWarn("MCP server already started")
+		logWarn("MCP server already started")
 		return nil
 	}
 
@@ -177,7 +177,7 @@ func (s *Server) Start(ctx context.Context) error {
 
 	s.started.Store(true)
 
-	LogInfof("MCP server started, [%s][%s][%s] endpoint=%s",
+	logInfof("MCP server started, [%s][%s][%s] endpoint=%s",
 		s.serverName, s.serverVersion, s.serverType, s.Endpoint())
 
 	return nil
@@ -185,11 +185,11 @@ func (s *Server) Start(ctx context.Context) error {
 
 func (s *Server) Stop(ctx context.Context) error {
 	if !s.started.Load() {
-		LogWarn("MCP server already stopped")
+		logWarn("MCP server already stopped")
 		return nil
 	}
 
-	LogInfof("MCP server stopping, name: %s", s.serverName)
+	logInfof("MCP server stopping, name: %s", s.serverName)
 
 	s.started.Store(false)
 
@@ -222,9 +222,9 @@ func (s *Server) Stop(ctx context.Context) error {
 	s.mu.RUnlock()
 
 	if err != nil {
-		LogError("server stopped with error", err)
+		logError("server stopped with error", err)
 	} else {
-		LogInfo("server stopped.")
+		logInfo("server stopped.")
 	}
 
 	return err

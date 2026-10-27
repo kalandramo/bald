@@ -15,11 +15,6 @@ type RetryCountKey struct{}
 type NamespaceKey struct{}
 type InstanceNameKey struct{}
 type GroupNameKey struct{}
-type SubscriptionExpressionsKey struct{}
-type AwaitDurationKey struct{}
-type MaxMessageNumKey struct{}
-type InvisibleDurationKey struct{}
-type ReceiveIntervalKey struct{}
 type LoggerLevelKey struct{}
 
 ///
@@ -42,5 +37,4 @@ type SendWithTransactionKey struct{}
 /// SubscribeOption
 ///
 
-type SubscriptionFilterExpressionKey struct{}
 type ConsumerModelKey struct{}

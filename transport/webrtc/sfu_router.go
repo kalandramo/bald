@@ -37,7 +37,7 @@ func (r *SFURouter) AddTrack(sessionID SessionID, track *webrtc.TrackRemote, rec
 	// 自动启动转发
 	mediaTrack.Start()
 
-	LogInfof("added track: session=%s, trackID=%s, kind=%s", sessionID, track.ID(), track.Kind())
+	logInfof("added track: session=%s, trackID=%s, kind=%s", sessionID, track.ID(), track.Kind())
 
 	return mediaTrack
 }
@@ -67,7 +67,7 @@ func (r *SFURouter) RemoveTrack(sessionID SessionID, trackID string) {
 				}
 			}
 
-			LogInfof("removed track: session=%s, trackID=%s", sessionID, trackID)
+			logInfof("removed track: session=%s, trackID=%s", sessionID, trackID)
 		}
 
 		if len(tracks) == 0 {
@@ -84,7 +84,7 @@ func (r *SFURouter) RemoveSessionTracks(sessionID SessionID) {
 	if tracks, ok := r.tracks[sessionID]; ok {
 		for trackID, track := range tracks {
 			track.Close()
-			LogInfof("closed track: session=%s, trackID=%s", sessionID, trackID)
+			logInfof("closed track: session=%s, trackID=%s", sessionID, trackID)
 		}
 		delete(r.tracks, sessionID)
 	}
@@ -92,7 +92,7 @@ func (r *SFURouter) RemoveSessionTracks(sessionID SessionID) {
 	// 清理该会话的订阅
 	delete(r.subscriptions, sessionID)
 
-	LogInfof("removed all tracks for session: %s", sessionID)
+	logInfof("removed all tracks for session: %s", sessionID)
 }
 
 // Subscribe 订阅指定会话的媒体轨道
@@ -114,7 +114,7 @@ func (r *SFURouter) Subscribe(subscriberID SessionID, publisherID SessionID) []*
 		}
 	}
 
-	LogInfof("session %s subscribed to %d tracks from %s", subscriberID, len(subscribedTracks), publisherID)
+	logInfof("session %s subscribed to %d tracks from %s", subscriberID, len(subscribedTracks), publisherID)
 
 	return subscribedTracks
 }
@@ -147,7 +147,7 @@ func (r *SFURouter) Unsubscribe(subscriberID SessionID, publisherID SessionID) {
 		}
 	}
 
-	LogInfof("session %s unsubscribed from %s", subscriberID, publisherID)
+	logInfof("session %s unsubscribed from %s", subscriberID, publisherID)
 }
 
 // GetPublisherTracks 获取发布者的所有轨道
@@ -198,7 +198,7 @@ func (r *SFURouter) CreateLocalTrackForSubscriber(subscriberID SessionID, mediaT
 	// 注册到媒体轨道
 	mediaTrack.AddSubscriber(subscriberID, localTrack)
 
-	LogInfof("created local track for subscriber %s: trackID=%s", subscriberID, mediaTrack.ID())
+	logInfof("created local track for subscriber %s: trackID=%s", subscriberID, mediaTrack.ID())
 
 	return localTrack, nil
 }

@@ -136,18 +136,18 @@ func (c *Client) Connect() error {
 	})
 	dc.OnMessage(func(msg webrtc.DataChannelMessage) {
 		if err := c.messageHandler(msg.Data); err != nil {
-			LogErrorf("client message handler failed: %s", err)
+			logErrorf("client message handler failed: %s", err)
 		}
 	})
 	dc.OnError(func(err error) {
 		if err != nil && !isExpectedDataChannelCloseError(err) {
-			LogErrorf("client data channel error: %s", err)
+			logErrorf("client data channel error: %s", err)
 		}
 	})
 
 	// 处理 incoming 媒体轨道
 	pc.OnTrack(func(remote *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
-		LogInfof("received remote track: kind=%s, codec=%s", remote.Kind(), remote.Codec().MimeType)
+		logInfof("received remote track: kind=%s, codec=%s", remote.Kind(), remote.Codec().MimeType)
 
 		c.pcMu.Lock()
 		c.remoteTracks[remote.ID()] = remote
@@ -426,7 +426,7 @@ func (c *Client) AddLocalTrack(track *webrtc.TrackLocalStaticRTP) error {
 	c.localTracks[track.ID()] = track
 	c.pcMu.Unlock()
 
-	LogInfof("added local track: %s", track.ID())
+	logInfof("added local track: %s", track.ID())
 	return nil
 }
 
@@ -439,7 +439,7 @@ func (c *Client) RemoveLocalTrack(trackID string) {
 		// TrackLocalStaticRTP 不需要手动关闭
 		// 从 PeerConnection 中移除轨道（如果需要）
 		delete(c.localTracks, trackID)
-		LogInfof("removed local track: %s", trackID)
+		logInfof("removed local track: %s", trackID)
 	}
 }
 

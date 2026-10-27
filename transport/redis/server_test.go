@@ -24,7 +24,7 @@ const (
 )
 
 func handleHygrothermograph(_ context.Context, topic string, headers broker.Headers, msg *api.Hygrothermograph) error {
-	LogInfof("Topic %s, Headers: %+v, Payload: %+v\n", topic, headers, msg)
+	logInfof("Topic %s, Headers: %+v, Payload: %+v\n", topic, headers, msg)
 	return nil
 }
 

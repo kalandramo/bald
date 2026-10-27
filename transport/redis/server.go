@@ -71,16 +71,16 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 
 	if s.err = s.Init(); s.err != nil {
-		LogErrorf("init broker failed: [%s]", s.err.Error())
+		logErrorf("init broker failed: [%s]", s.err.Error())
 		return s.err
 	}
 
 	if s.err = s.Connect(); s.err != nil {
-		LogErrorf("connect broker failed: [%s]", s.err.Error())
+		logErrorf("connect broker failed: [%s]", s.err.Error())
 		return s.err
 	}
 
-	LogInfof("server listening on: %s", s.Address())
+	logInfof("server listening on: %s", s.Address())
 
 	if s.err = s.doRegisterSubscriberMap(); s.err != nil {
 		return s.err
@@ -97,7 +97,7 @@ func (s *Server) Stop(ctx context.Context) error {
 		return nil
 	}
 
-	LogInfo("server stopping...")
+	logInfo("server stopping...")
 
 	for _, v := range s.subscribers {
 		_ = v.Unsubscribe(false)
@@ -109,7 +109,7 @@ func (s *Server) Stop(ctx context.Context) error {
 	err := s.Disconnect()
 	s.err = nil
 
-	LogInfo("server stopped.")
+	logInfo("server stopped.")
 
 	return err
 }
@@ -157,7 +157,7 @@ func (s *Server) doRegisterSubscriber(topic string, handler broker.Handler, bind
 	}
 
 	if _, exists := s.subscribers[topic]; exists {
-		LogWarnf("subscriber for topic '%s' already exists, overwriting", topic)
+		logWarnf("subscriber for topic '%s' already exists, overwriting", topic)
 	}
 	s.subscribers[topic] = sub
 	return nil
@@ -167,7 +167,7 @@ func (s *Server) doRegisterSubscriberMap() error {
 	var errs []error
 	for topic, opt := range s.subscriberOpts {
 		if err := s.doRegisterSubscriber(topic, opt.Handler, opt.Binder, opt.SubscribeOptions...); err != nil {
-			LogErrorf("register subscriber failed, topic: %s, error: %s", topic, err.Error())
+			logErrorf("register subscriber failed, topic: %s, error: %s", topic, err.Error())
 			errs = append(errs, err)
 		}
 	}

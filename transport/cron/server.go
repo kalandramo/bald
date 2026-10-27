@@ -22,7 +22,6 @@ package cron
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
 	"sync"
@@ -240,9 +239,3 @@ func (s *Server) GetEntries() []cron.Entry {
 func (s *Server) Scheduler() *cron.Cron {
 	return s.cronScheduler
 }
-
-// ---------------------------------------------------------------------------
-// 错误定义
-// ---------------------------------------------------------------------------
-
-var ErrServerNotStarted = errors.New("cron server not started")

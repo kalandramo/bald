@@ -54,46 +54,6 @@ func WithDefaultOptions() broker.Option {
 /// logger 转发
 ///
 
-func LogDebug(args ...any) {
-	option.LogDebug(args...)
-}
-
-func LogInfo(args ...any) {
-	option.LogInfo(args...)
-}
-
-func LogWarn(args ...any) {
-	option.LogWarn(args...)
-}
-
-func LogError(args ...any) {
-	option.LogError(args...)
-}
-
-func LogFatal(args ...any) {
-	option.LogFatal(args...)
-}
-
-func LogDebugf(format string, args ...any) {
-	option.LogDebugf(format, args...)
-}
-
-func LogInfof(format string, args ...any) {
-	option.LogInfof(format, args...)
-}
-
-func LogWarnf(format string, args ...any) {
-	option.LogWarnf(format, args...)
-}
-
-func LogErrorf(format string, args ...any) {
-	option.LogErrorf(format, args...)
-}
-
-func LogFatalf(format string, args ...any) {
-	option.LogFatalf(format, args...)
-}
-
 ///
 /// Stream 专属配置 转发
 ///

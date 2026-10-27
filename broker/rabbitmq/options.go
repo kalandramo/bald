@@ -1,7 +1,6 @@
 package rabbitmq
 
 import (
-	"context"
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -117,7 +116,6 @@ type durableQueueKey struct{}
 type subscribeBindArgsKey struct{}
 type subscribeQueueArgsKey struct{}
 type requeueOnErrorKey struct{}
-type subscribeContextKey struct{}
 type ackSuccessKey struct{}
 type autoDeleteQueueKey struct{}
 
@@ -139,10 +137,6 @@ func WithQueueArguments(args map[string]any) broker.SubscribeOption {
 
 func WithRequeueOnError() broker.SubscribeOption {
 	return broker.SubscribeContextWithValue(requeueOnErrorKey{}, true)
-}
-
-func WithSubscribeContext(ctx context.Context) broker.SubscribeOption {
-	return broker.SubscribeContextWithValue(subscribeContextKey{}, ctx)
 }
 
 func WithAckOnSuccess() broker.SubscribeOption {

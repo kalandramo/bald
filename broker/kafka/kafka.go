@@ -404,7 +404,7 @@ func (b *kafkaBroker) publishMultipleWriter(ctx context.Context, topic string, m
 	var err error
 	err = writer.WriteMessages(options.Context, kMsg)
 	if err != nil {
-		LogErrorf("WriteMessages error: %s", err.Error())
+		logErrorf("WriteMessages error: %s", err.Error())
 		switch cached {
 		case false:
 			var kerr kafkaGo.Error
@@ -488,7 +488,7 @@ func (b *kafkaBroker) publishOneWriter(ctx context.Context, topic string, msg *b
 	var err error
 	err = b.writer.Writer.WriteMessages(options.Context, kMsg)
 	if err != nil {
-		LogErrorf("WriteMessages error: %s", err.Error())
+		logErrorf("WriteMessages error: %s", err.Error())
 		switch cached {
 		case false:
 			var kerr kafkaGo.Error
@@ -551,7 +551,7 @@ func (b *kafkaBroker) Subscribe(
 
 	if value, ok := options.Context.Value(autoSubscribeCreateTopicKey{}).(*autoSubscribeCreateTopicValue); ok {
 		if err := CreateTopic(b.Address(), value.Topic, value.NumPartitions, value.ReplicationFactor); err != nil {
-			LogErrorf("create topic error: %s", err.Error())
+			logErrorf("create topic error: %s", err.Error())
 		}
 	}
 

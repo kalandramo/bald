@@ -89,11 +89,11 @@ func (s *Server) Endpoint() string {
 }
 
 func (s *Server) Start(ctx context.Context) error {
-	LogInfof("server listening on: %s", s.Addr)
+	logInfof("server listening on: %s", s.Addr)
 
 	if err := s.ListenAndServe(); err != nil {
 		if !errors.Is(err, http.ErrServerClosed) {
-			LogErrorf("start server failed: %s", err.Error())
+			logErrorf("start server failed: %s", err.Error())
 			return err
 		}
 	}
@@ -102,12 +102,12 @@ func (s *Server) Start(ctx context.Context) error {
 }
 
 func (s *Server) Stop(ctx context.Context) error {
-	LogInfo("server stopping...")
+	logInfo("server stopping...")
 
 	err := s.Close()
 	s.err = nil
 
-	LogInfo("server stopped.")
+	logInfo("server stopped.")
 
 	return err
 }

@@ -181,7 +181,7 @@ func (s *subscriber) processBatchMessage() {
 			if err != nil {
 				// 先判断是否需要立即退出
 				if isFatalError(s, err) {
-					LogErrorf("fatal FetchMessage error, exiting: %v", err)
+					logErrorf("fatal FetchMessage error, exiting: %v", err)
 					return
 				}
 
@@ -194,7 +194,7 @@ func (s *subscriber) processBatchMessage() {
 					continue
 				}
 
-				LogErrorf("FetchMessage error: %s", err.Error())
+				logErrorf("FetchMessage error: %s", err.Error())
 				backoffSleep(errorAttempt, s.errorMin, s.errorMax)
 				if errorAttempt < 6 {
 					errorAttempt++
@@ -237,11 +237,11 @@ func (s *subscriber) processSingleMessage() {
 			if err != nil {
 				// 立即退出的情况
 				if isFatalError(s, err) {
-					LogErrorf("fatal FetchMessage error, exiting: %v", err)
+					logErrorf("fatal FetchMessage error, exiting: %v", err)
 					return
 				}
 
-				LogErrorf("FetchMessage error: %s", err.Error())
+				logErrorf("FetchMessage error: %s", err.Error())
 				backoffSleep(errorAttempt, s.errorMin, s.errorMax)
 				if errorAttempt < 6 {
 					errorAttempt++
@@ -260,7 +260,7 @@ func (s *subscriber) processSingleMessage() {
 func (s *subscriber) handleBatchMessage(messages []kafkaGo.Message) {
 	for _, km := range messages {
 		if done := s.handleMessage(km); done {
-			LogErrorf("[batch] handleMessage failed for topic %s partition %d offset %d", km.Topic, km.Partition, km.Offset)
+			logErrorf("[batch] handleMessage failed for topic %s partition %d offset %d", km.Topic, km.Partition, km.Offset)
 		}
 	}
 }
@@ -282,7 +282,7 @@ func (s *subscriber) handleMessage(km kafkaGo.Message) bool {
 		bm.Body = s.binder()
 
 		if err = broker.Unmarshal(s.b.options.Codec, km.Value, &bm.Body); err != nil {
-			LogErrorf("unmarshal message failed: %v", err)
+			logErrorf("unmarshal message failed: %v", err)
 			return true
 		}
 	} else {
@@ -292,13 +292,13 @@ func (s *subscriber) handleMessage(km kafkaGo.Message) bool {
 	pub := newPublication(ctx, s.reader, km, bm)
 
 	if err = s.handler(ctx, pub); err != nil {
-		LogErrorf("handle message failed: %v", err)
+		logErrorf("handle message failed: %v", err)
 		return true
 	}
 
 	if s.options.AutoAck {
 		if err = pub.Ack(); err != nil {
-			LogErrorf("unable to commit km: %v", err)
+			logErrorf("unable to commit km: %v", err)
 			return true
 		}
 	}

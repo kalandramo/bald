@@ -111,9 +111,3 @@ func WithPublishBodyCodec(codec string) PublishOption {
 		o.BodyCodec = codec
 	}
 }
-
-func WithPublishCallback(callback func(error)) PublishOption {
-	return func(o *PublishOptions) {
-		o.Callback = callback
-	}
-}

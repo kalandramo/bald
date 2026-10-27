@@ -201,7 +201,7 @@ func (r *rabbitConnection) reconnect(secure bool, config *amqp.Config) {
 
 		select {
 		case err := <-notifyClose:
-			LogError(err)
+			logError(err)
 			r.Lock()
 			r.connected = false
 			r.waitConnection = make(chan struct{})
@@ -281,7 +281,7 @@ func (r *rabbitConnection) tryConnect(secure bool, config *amqp.Config) error {
 	// declare all registered exchanges
 	for _, ex := range r.exchanges {
 		if err := r.Channel.DeclareExchange(ex.Name, ex.Type, ex.Durable, false); err != nil {
-			LogErrorf("declare exchange '%s' failed: %v", ex.Name, err)
+			logErrorf("declare exchange '%s' failed: %v", ex.Name, err)
 		}
 	}
 
@@ -404,9 +404,9 @@ func (r *rabbitConnection) handleConfirms(confirmChan chan amqp.Confirmation) {
 			r.onConfirm(conf)
 		} else {
 			if conf.Ack {
-				LogDebugf("message confirmed, delivery tag: %d", conf.DeliveryTag)
+				logDebugf("message confirmed, delivery tag: %d", conf.DeliveryTag)
 			} else {
-				LogWarnf("message nacked, delivery tag: %d", conf.DeliveryTag)
+				logWarnf("message nacked, delivery tag: %d", conf.DeliveryTag)
 			}
 		}
 	}
@@ -418,7 +418,7 @@ func (r *rabbitConnection) handleReturns(returnChan chan amqp.Return) {
 		if r.onReturn != nil {
 			r.onReturn(ret)
 		} else {
-			LogErrorf("message returned, reason: %s, exchange: %s, routing key: %s",
+			logErrorf("message returned, reason: %s, exchange: %s, routing key: %s",
 				ret.ReplyText, ret.Exchange, ret.RoutingKey)
 		}
 	}

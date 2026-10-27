@@ -47,7 +47,7 @@ func NewClient(opts ClientOptions) (*WorkflowClient, error) {
 		}
 	}
 
-	LogInfof("connected to Argo Server at %s (namespace: %s)", baseURL, opts.Namespace)
+	logInfof("connected to Argo Server at %s (namespace: %s)", baseURL, opts.Namespace)
 
 	return &WorkflowClient{
 		options: opts,
@@ -63,7 +63,7 @@ func (wc *WorkflowClient) Close() error {
 	defer wc.mu.Unlock()
 	wc.running = false
 	wc.client.CloseIdleConnections()
-	LogInfo("disconnected from Argo Server")
+	logInfo("disconnected from Argo Server")
 	return nil
 }
 
@@ -176,7 +176,7 @@ func (wc *WorkflowClient) SubmitWorkflow(ctx context.Context, wf *Workflow, opts
 		return nil, fmt.Errorf("submit workflow error: %w", err)
 	}
 
-	LogInfof("submitted workflow %s in namespace %s", result.Metadata.Name, ns)
+	logInfof("submitted workflow %s in namespace %s", result.Metadata.Name, ns)
 	return &result, nil
 }
 
@@ -252,7 +252,7 @@ func (wc *WorkflowClient) DeleteWorkflow(ctx context.Context, name string, optsN
 		return fmt.Errorf("delete workflow error: %w", err)
 	}
 
-	LogInfof("deleted workflow %s in namespace %s", name, ns)
+	logInfof("deleted workflow %s in namespace %s", name, ns)
 	return nil
 }
 
@@ -274,7 +274,7 @@ func (wc *WorkflowClient) SuspendWorkflow(ctx context.Context, name string, opts
 		return fmt.Errorf("suspend workflow error: %w", err)
 	}
 
-	LogInfof("suspended workflow %s", name)
+	logInfof("suspended workflow %s", name)
 	return nil
 }
 
@@ -292,7 +292,7 @@ func (wc *WorkflowClient) ResumeWorkflow(ctx context.Context, name string, optsN
 		return fmt.Errorf("resume workflow error: %w", err)
 	}
 
-	LogInfof("resumed workflow %s", name)
+	logInfof("resumed workflow %s", name)
 	return nil
 }
 
@@ -310,7 +310,7 @@ func (wc *WorkflowClient) TerminateWorkflow(ctx context.Context, name string, op
 		return fmt.Errorf("terminate workflow error: %w", err)
 	}
 
-	LogInfof("terminated workflow %s", name)
+	logInfof("terminated workflow %s", name)
 	return nil
 }
 
@@ -329,7 +329,7 @@ func (wc *WorkflowClient) ResubmitWorkflow(ctx context.Context, name string, opt
 		return nil, fmt.Errorf("resubmit workflow error: %w", err)
 	}
 
-	LogInfof("resubmitted workflow %s", name)
+	logInfof("resubmitted workflow %s", name)
 	return &result, nil
 }
 
@@ -348,7 +348,7 @@ func (wc *WorkflowClient) RetryWorkflow(ctx context.Context, name string, optsNa
 		return nil, fmt.Errorf("retry workflow error: %w", err)
 	}
 
-	LogInfof("retried workflow %s", name)
+	logInfof("retried workflow %s", name)
 	return &result, nil
 }
 
@@ -371,7 +371,7 @@ func (wc *WorkflowClient) StopWorkflow(ctx context.Context, name string, optsNam
 		return fmt.Errorf("stop workflow error: %w", err)
 	}
 
-	LogInfof("stopped workflow %s", name)
+	logInfof("stopped workflow %s", name)
 	return nil
 }
 

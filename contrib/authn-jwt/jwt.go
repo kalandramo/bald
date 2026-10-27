@@ -347,14 +347,6 @@ func (a *Authenticator) IssueToken(claims authn.AuthClaims, ttl time.Duration) (
 	return signed, nil
 }
 
-// ---- 兼容层：保留旧 HMAC 直接调用形态（避免范例之外调用方一次性改写）----
-
-// IssueToken 包级便捷函数：用对称密钥签发 HS256 token。
-// 仅供未切换到 Option 构造的旧调用方临时使用，新代码请用 NewAuthenticator(...).IssueToken。
-func IssueToken(secret []byte, claims authn.AuthClaims, ttl time.Duration) (string, error) {
-	return NewAuthenticator(WithHMACSecret(secret)).IssueToken(claims, ttl)
-}
-
 // ---- 演示 / 测试辅助：生成 RSA 与 ECDSA 密钥对 ----
 
 // GenerateRSA 生成 bits 位 RSA 密钥对（默认 2048）。
