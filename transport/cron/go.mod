@@ -27,7 +27,7 @@ replace github.com/kalandramo/bald/transport/grpc => ../../transport/grpc
 replace github.com/kalandramo/bald/transport/http => ../../transport/http
 
 require (
-	github.com/kalandramo/bald v0.11.0
+	github.com/kalandramo/bald v0.28.0
 	github.com/kalandramo/bald/bconf v0.12.0
 	github.com/kalandramo/bald/transport v0.3.0
 	github.com/robfig/cron/v3 v3.0.1

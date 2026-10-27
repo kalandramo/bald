@@ -5,7 +5,7 @@ go 1.27.1
 require (
 	github.com/alicebob/miniredis/v2 v2.39.0
 	github.com/gomodule/redigo v1.9.2
-	github.com/kalandramo/bald v0.11.0
+	github.com/kalandramo/bald v0.28.0
 	github.com/kalandramo/bald/bconf v0.12.0
 	github.com/kalandramo/bald/broker v0.1.0
 	github.com/kalandramo/bald/encoding v0.1.0

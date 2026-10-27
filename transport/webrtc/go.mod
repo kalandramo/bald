@@ -21,7 +21,7 @@ replace github.com/kalandramo/bald/registry => ../../registry
 replace github.com/kalandramo/bald/transport => ..
 
 require (
-	github.com/kalandramo/bald v0.8.0
+	github.com/kalandramo/bald v0.28.0
 	github.com/kalandramo/bald/broker v0.1.0
 	github.com/kalandramo/bald/encoding v0.1.0
 	github.com/kalandramo/bald/encoding/json v0.1.1

@@ -34,7 +34,7 @@ replace github.com/kalandramo/bald/transport/http => ../../transport/http
 
 require (
 	github.com/hibiken/asynq v0.26.0
-	github.com/kalandramo/bald v0.11.0
+	github.com/kalandramo/bald v0.28.0
 	github.com/kalandramo/bald/bconf v0.12.0
 	github.com/kalandramo/bald/encoding v0.1.0
 	github.com/kalandramo/bald/encoding/json v0.1.1
