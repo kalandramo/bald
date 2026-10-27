@@ -152,7 +152,7 @@ func KeyOf{{.Name | title}}(u *{{.Name | title}}) string { return u.ID }
 `
 
 // NewCommand 组装 gen 中间节点：仅挂载叶子子命令，不承载领域逻辑。
-func NewCommand(streams IOStreams) *cobra.Command {
+func NewCommand(streams ioStreams) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:              "gen [command]",
 		Short:            "轻量代码生成脚手架（proto / store / app / domain）",
@@ -161,7 +161,7 @@ func NewCommand(streams IOStreams) *cobra.Command {
 		RunE:             func(cmd *cobra.Command, _ []string) error { return cmd.Help() },
 	}
 	cmd.AddCommand(genProtoCmd(streams), genStoreCmd(streams), genAppCmd(streams), genDomainCmd(streams))
-	// cobra 的 "Error: ..." 打到 ErrOrStderr——与 IOStreams 解耦；接上后错误
+	// cobra 的 "Error: ..." 打到 ErrOrStderr——与 ioStreams 解耦；接上后错误
 	// 随 streams.ErrOut 走（生产 = os.Stderr 行为不变；测试注入弃流即不把
 	// 预期负例错误漏进 CI 日志）。
 	cmd.SetErr(streams.ErrOut)
@@ -169,7 +169,7 @@ func NewCommand(streams IOStreams) *cobra.Command {
 }
 
 // protoOptions 是 gen proto 叶子命令的领域配置（flag 绑定字段，Complete 补默认值）。
-// 注意：输出目录字段不可命名 Out——会遮蔽内嵌 IOStreams.Out (io.Writer)。
+// 注意：输出目录字段不可命名 Out——会遮蔽内嵌 ioStreams.Out (io.Writer)。
 type protoOptions struct {
 	Name      string // 位置参数：proto 服务名
 	Plural    string // --plural：REST 资源段（默认 name+s）
@@ -178,7 +178,7 @@ type protoOptions struct {
 	Module    string // --module：业务 module 路径（go_package 缺省派生源）
 	Force     bool   // --force：覆盖已存在文件（默认拒绝，防冲掉手改生成物）
 
-	IOStreams
+	ioStreams
 }
 
 // Complete 回填位置参数与派生默认值（不做校验、不产生副作用）。--module
@@ -218,7 +218,7 @@ func (o *protoOptions) Run() error {
 	if err != nil {
 		return err
 	}
-	if err := writeGuarded(filepath.Join(o.OutDir, o.Name+".proto"), content, Owned, o.Force, o.IOStreams); err != nil {
+	if err := writeGuarded(filepath.Join(o.OutDir, o.Name+".proto"), content, owned, o.Force, o.ioStreams); err != nil {
 		return err
 	}
 	// A2：buf 生态联动——注解依赖（googleapis / bufbuild/protovalidate / bald
@@ -228,8 +228,8 @@ func (o *protoOptions) Run() error {
 	return nil
 }
 
-func genProtoCmd(streams IOStreams) *cobra.Command {
-	o := &protoOptions{IOStreams: streams}
+func genProtoCmd(streams ioStreams) *cobra.Command {
+	o := &protoOptions{ioStreams: streams}
 	cmd := &cobra.Command{
 		Use:          "proto <name>",
 		Short:        "生成 protobuf 服务骨架",
@@ -258,11 +258,11 @@ func genProtoCmd(streams IOStreams) *cobra.Command {
 // storeOptions 是 gen store 叶子命令的领域配置。
 type storeOptions struct {
 	Name   string // 位置参数：实体名
-	OutDir string // --out（不可命名 Out，避免遮蔽 IOStreams.Out）
+	OutDir string // --out（不可命名 Out，避免遮蔽 ioStreams.Out）
 	Pkg    string // --out-pkg
 	Force  bool   // --force
 
-	IOStreams
+	ioStreams
 }
 
 func (o *storeOptions) Complete(args []string) error {
@@ -295,11 +295,11 @@ func (o *storeOptions) Run() error {
 	if err != nil {
 		return err
 	}
-	return writeGuarded(filepath.Join(o.OutDir, o.Name+".go"), formatted, Owned, o.Force, o.IOStreams)
+	return writeGuarded(filepath.Join(o.OutDir, o.Name+".go"), formatted, owned, o.Force, o.ioStreams)
 }
 
-func genStoreCmd(streams IOStreams) *cobra.Command {
-	o := &storeOptions{IOStreams: streams}
+func genStoreCmd(streams ioStreams) *cobra.Command {
+	o := &storeOptions{ioStreams: streams}
 	cmd := &cobra.Command{
 		Use:          "store <name>",
 		Short:        "生成实体骨架（gorm tag + keyOf）",

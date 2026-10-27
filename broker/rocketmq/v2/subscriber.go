@@ -16,7 +16,6 @@ type subscriber struct {
 	handler broker.Handler
 	reader  rocketmq.PushConsumer
 	closed  bool
-	done    chan struct{}
 }
 
 func (s *subscriber) Options() broker.SubscribeOptions {

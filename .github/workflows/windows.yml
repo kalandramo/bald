@@ -1,5 +1,6 @@
-# ci-windows：Windows 周界守卫（W6-3 ⑤ 窄口径）。不复制主 ci.yml 的全量
-# 85 module：每周窗口内只跑跨平台敏感的三个 module——
+# ci-windows：Windows 周界守卫（W6-3 ⑤ 窄口径）。不复制主 ci.yml 的全量模块
+# 清单（其数量由主 ci.yml 的 find 循环决定，随模块增删变化，不在此钉死）：
+# 每周窗口内只跑跨平台敏感的三个 module——
 #   - root：含 internal/codegen（判据④全链路）与 pkg/appkit（装配引擎）；
 #   - bootstrap：装配/配置装载（含 bootstrap/config 基准包）；
 #   - contrib/authz-casbin：桥接外部引擎（casbin）的策略装载与授权路径。

@@ -36,9 +36,6 @@ require (
 require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/kalandramo/bald/encoding v0.1.0 // indirect
-	github.com/kalandramo/bald/encoding/json v0.1.1 // indirect
-	github.com/kalandramo/bald/encoding/proto v0.1.0 // indirect
 	github.com/rabbitmq/amqp091-go v1.10.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
-	google.golang.org/protobuf v1.36.12 // indirect
 )

@@ -11,10 +11,10 @@ replace github.com/kalandramo/bald/encoding/json => ../../encoding/json
 require (
 	github.com/google/uuid v1.6.0
 	github.com/kalandramo/bald v0.11.0
-	github.com/kalandramo/bald/bconf v0.10.0
+	github.com/kalandramo/bald/bconf v0.12.0
 	github.com/kalandramo/bald/encoding v0.1.0
 	github.com/kalandramo/bald/encoding/json v0.1.1
-	github.com/kalandramo/bald/transport v0.2.1
+	github.com/kalandramo/bald/transport v0.3.0
 )
 
 require (
@@ -95,7 +95,7 @@ require (
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/kalandramo/bald/bconfig v0.1.0 // indirect
-	github.com/kalandramo/bald/bootstrap v0.11.0 // indirect
+	github.com/kalandramo/bald/bootstrap v0.13.1 // indirect
 	github.com/kalandramo/bald/health v0.1.1 // indirect
 	github.com/kalandramo/bald/log v0.5.2 // indirect
 	github.com/kalandramo/bald/registry v0.1.1 // indirect

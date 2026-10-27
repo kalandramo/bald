@@ -9,20 +9,20 @@ import (
 	"testing"
 )
 
-// testStreams 返回捕获 Out 的 IOStreams——命令信息性输出可被断言（Options 三阶段
+// testStreams 返回捕获 Out 的 ioStreams——命令信息性输出可被断言（Options 三阶段
 // 的可测试性落点：输出走 o.Out 而非 os.Stdout）。ErrOut 弃流：gen 命令构造器统一
 // 接 cmd.SetErr(streams.ErrOut)，cobra 的 "Error: ..." 随 ErrOut 走——负例测试
 // 故意触发的错误若绑 os.Stderr 会漏进 CI 日志，读日志的人会误判为真实失败
 // （Gate1/already exists 噪音即此）；错误本身仍经
 // Execute 返回值逐字断言，不损失验证力度。
-func testStreams() (IOStreams, *bytes.Buffer) {
+func testStreams() (ioStreams, *bytes.Buffer) {
 	var out bytes.Buffer
-	return IOStreams{In: os.Stdin, Out: &out, ErrOut: io.Discard}, &out
+	return ioStreams{In: os.Stdin, Out: &out, ErrOut: io.Discard}, &out
 }
 
 // ---- writeGuarded 三态归属（D2 §5.1 回归生成语义）----
 
-// TestWriteGuarded_OwnedRefusesOverwrite Owned 防覆盖底线：目标已存在且无
+// TestWriteGuarded_OwnedRefusesOverwrite owned 防覆盖底线：目标已存在且无
 // --force 即拒绝，原文件分毫不动，错误信息自带 --force 指引。
 func TestWriteGuarded_OwnedRefusesOverwrite(t *testing.T) {
 	dir := t.TempDir()
@@ -32,7 +32,7 @@ func TestWriteGuarded_OwnedRefusesOverwrite(t *testing.T) {
 	}
 	streams, out := testStreams()
 
-	err := writeGuarded(path, []byte("regenerated"), Owned, false, streams)
+	err := writeGuarded(path, []byte("regenerated"), owned, false, streams)
 	if err == nil {
 		t.Fatal("must refuse to overwrite an existing owned file without --force")
 	}
@@ -50,7 +50,7 @@ func TestWriteGuarded_OwnedRefusesOverwrite(t *testing.T) {
 	}
 }
 
-// TestWriteGuarded_OwnedForceOverwrites Owned + --force 显式放行覆盖。
+// TestWriteGuarded_OwnedForceOverwrites owned + --force 显式放行覆盖。
 func TestWriteGuarded_OwnedForceOverwrites(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "demo.proto")
@@ -59,7 +59,7 @@ func TestWriteGuarded_OwnedForceOverwrites(t *testing.T) {
 	}
 	streams, out := testStreams()
 
-	if err := writeGuarded(path, []byte("new"), Owned, true, streams); err != nil {
+	if err := writeGuarded(path, []byte("new"), owned, true, streams); err != nil {
 		t.Fatalf("force write: %v", err)
 	}
 	got, _ := os.ReadFile(path)
@@ -122,7 +122,7 @@ func TestWriteGuarded_WritesNew(t *testing.T) {
 	path := filepath.Join(dir, "nested", "cmd", "demo", "main.go")
 	streams, out := testStreams()
 
-	if err := writeGuarded(path, []byte("package main"), Owned, false, streams); err != nil {
+	if err := writeGuarded(path, []byte("package main"), owned, false, streams); err != nil {
 		t.Fatalf("write new: %v", err)
 	}
 	if !strings.Contains(out.String(), "generated:") {
@@ -144,7 +144,7 @@ func TestWriteFileFormatted_GofmtFailureNeverTouchesTarget(t *testing.T) {
 	}
 	streams, _ := testStreams()
 
-	err := writeFileFormatted(path, []byte("func ( {not go"), Owned, false, streams)
+	err := writeFileFormatted(path, []byte("func ( {not go"), owned, false, streams)
 	if err == nil {
 		t.Fatal("gofmt failure must be an error")
 	}
@@ -165,7 +165,7 @@ func TestWriteFileFormatted_GofmtFailureNeverTouchesTarget(t *testing.T) {
 }
 
 // TestWriteFileFormatted_SuccessGoesThroughGuard gofmt 成功后走 writeGuarded
-// （Owned 无 --force 拒绝覆盖已存在文件）。
+// （owned 无 --force 拒绝覆盖已存在文件）。
 func TestWriteFileFormatted_SuccessGoesThroughGuard(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "main.go")
@@ -173,15 +173,15 @@ func TestWriteFileFormatted_SuccessGoesThroughGuard(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 	streams, _ := testStreams()
-	if err := writeFileFormatted(path, []byte("package main\n"), Owned, false, streams); err == nil {
+	if err := writeFileFormatted(path, []byte("package main\n"), owned, false, streams); err == nil {
 		t.Fatal("owned overwrite without --force must be refused")
 	}
 }
 
-// ---- 命令级契约（gen proto 沿用 Owned 语义）----
+// ---- 命令级契约（gen proto 沿用 owned 语义）----
 
 // TestGenProto_CommandGuard CLI 层端到端：gen proto 二次执行拒绝（不静默覆盖），
-// --force 放行；信息性输出走 IOStreams.Out 而非内建 println（stderr）。
+// --force 放行；信息性输出走 ioStreams.Out 而非内建 println（stderr）。
 func TestGenProto_CommandGuard(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir) // 默认相对输出（api/proto/bald/<name>/v1）落在临时目录

@@ -220,8 +220,8 @@ func TestTree_RoleFanoutLayout(t *testing.T) {
 		}
 	}
 	for _, fl := range files {
-		if strings.HasPrefix(fl.Path, "cmd"+string(filepath.Separator)) && fl.Own != Owned {
-			t.Errorf("角色 cmd 文件必须 Owned，%s 实际归属 %v", fl.Path, fl.Own)
+		if strings.HasPrefix(fl.Path, "cmd"+string(filepath.Separator)) && fl.Own != owned {
+			t.Errorf("角色 cmd 文件必须 owned，%s 实际归属 %v", fl.Path, fl.Own)
 		}
 	}
 }

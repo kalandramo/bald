@@ -307,7 +307,7 @@ type domainOptions struct {
 	APIServerDir string // --apiserver-dir：apiserver 目录名（默认取 layout.apiserver_dir 否则 apiserver；传 - 跳过 apiserver 侧产物）
 	Force        bool   // --force：覆盖已存在的 owned 文件
 
-	IOStreams
+	ioStreams
 }
 
 func (o *domainOptions) Complete() error {
@@ -376,7 +376,7 @@ func (o *domainOptions) Run() error {
 		if err != nil {
 			return err
 		}
-		if err := writeFileFormatted(filepath.Join(pkgDir, "domain.gen.go"), data, Seeded, o.Force, o.IOStreams); err != nil {
+		if err := writeFileFormatted(filepath.Join(pkgDir, "domain.gen.go"), data, Seeded, o.Force, o.ioStreams); err != nil {
 			return err
 		}
 	}
@@ -387,7 +387,7 @@ func (o *domainOptions) Run() error {
 	if err != nil {
 		return err
 	}
-	if err := writeFileFormatted(filepath.Join(o.OutDir, o.Manifest), manifestRaw, Owned, o.Force, o.IOStreams); err != nil {
+	if err := writeFileFormatted(filepath.Join(o.OutDir, o.Manifest), manifestRaw, owned, o.Force, o.ioStreams); err != nil {
 		return err
 	}
 
@@ -408,7 +408,7 @@ func (o *domainOptions) emitAPIServerSide(v *treeView, scan *protoScan) error {
 		if err != nil {
 			return err
 		}
-		return writeFileFormatted(filepath.Join(o.OutDir, path), raw, Owned, o.Force, o.IOStreams)
+		return writeFileFormatted(filepath.Join(o.OutDir, path), raw, owned, o.Force, o.ioStreams)
 	}
 	// 逐域 handler（委托域声明值自持实现 + 注解派生表）。
 	byService := serviceIndex(scan)
@@ -732,8 +732,8 @@ func mergeActions(ms ...map[string]string) map[string]string {
 `
 
 // genDomainCmd 组装 gen domain 叶子命令。
-func genDomainCmd(streams IOStreams) *cobra.Command {
-	o := &domainOptions{IOStreams: streams}
+func genDomainCmd(streams ioStreams) *cobra.Command {
+	o := &domainOptions{ioStreams: streams}
 	cmd := &cobra.Command{
 		Use:   "domain --spec <AppSpec.json>",
 		Short: "按 AppSpec.domains 重写域驱动生成物（清单×2 + 逐域 handler + 授权别名）",

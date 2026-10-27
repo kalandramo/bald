@@ -21,17 +21,6 @@ func hasUrlPrefix(url string) bool {
 	return re.MatchString(url)
 }
 
-func refitUrl(url string, enableTLS bool) string {
-	if !hasUrlPrefix(url) {
-		prefix := "amqp://"
-		if enableTLS {
-			prefix = "amqps://"
-		}
-		url = prefix + url
-	}
-	return url
-}
-
 func generateUUID() string {
 	id, err := uuid.NewRandom()
 	if err != nil {

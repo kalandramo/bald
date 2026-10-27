@@ -1,4 +1,4 @@
-# ci：全模块 build + vet + test（模块自动发现，85 module 零维护）。
+# ci：全模块 build + vet + test + tidy 闸门（模块自动发现，find 循环为准，零维护）。
 # 说明：
 # - 多模块仓库：shell 循环 find go.mod，模块增删零维护；_example 是
 #   验证用独立 module（GOFLAGS=-mod=mod 特殊装载），排除。
@@ -16,6 +16,9 @@
 #   停机 ≤1800s）分钟级墙钟且起真实服务，不适合 -short 主循环：测试内
 #   testing.Short 跳过，循环后独立 step 全跑（-count=1 -timeout 15m；
 #   循环内构建缓存已温热，15m 对残余冷态余量充分）。
+# - 依赖面闸门：模块循环内 go mod tidy -diff——go.mod/go.sum 与代码 import 漂移
+#   即红（本仓此前无此闸门，29 模块 go.mod 真实漂移静默累积到评估日才被发现）。-diff
+#   只报告不落盘，故不影响后续 build 的 -mod=readonly 默认。
 # - 依赖预下载 + 3 次重试：proxy.golang.org 偶发 HTTP/2 瞬断
 #   （stream INTERNAL_ERROR，2026-09-12 log/aliyun 即此挂掉），
 #   下载完成后 build/vet/test 全程离线稳定。
@@ -71,6 +74,8 @@ jobs:
               echo "::warning::$mod 依赖下载瞬断，15s 后重试（第 $n/2 次）"
               sleep 15
             done
+            # 依赖面闸门：漂移即红（前置依赖已 download，解析全图不额外拉网）
+            (cd "$mod" && go mod tidy -diff)
             if [ "$mod" = "." ]; then
               (cd . && go build ./... && go vet -copylocks=false ./... && go test -short -timeout 5m ./... && go test -bench . -benchtime=1x -run '^$' ./...)
             else

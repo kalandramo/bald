@@ -24,7 +24,7 @@ import (
 // genFile 是目标目录树的一个落盘项。
 type genFile struct {
 	Path  string    // 相对产出根的路径
-	Own   Ownership // 归属三态（D2 §5.1）
+	Own   ownership // 归属三态（D2 §5.1）
 	Raw   []byte    // 内容
 	GoSrc bool      // .go 源码：gofmt 后落盘，gofmt 失败写 .rej 绝不触碰目标
 }
@@ -814,7 +814,7 @@ func renderTreeTemplate(name, tmpl string, data any) ([]byte, error) {
 func buildTree(v *treeView, cfgs map[string][]byte) ([]genFile, error) {
 	v.Package = "bootstrap" // 域清单固定落 internal/bootstrap（package 子句同目录名）
 	files := []genFile{}
-	addIn := func(vv *treeView, path, tmpl string, own Ownership, goSrc bool) error {
+	addIn := func(vv *treeView, path, tmpl string, own ownership, goSrc bool) error {
 		raw, err := renderTreeTemplate(filepath.Base(path), tmpl, vv)
 		if err != nil {
 			return err
@@ -822,7 +822,7 @@ func buildTree(v *treeView, cfgs map[string][]byte) ([]genFile, error) {
 		files = append(files, genFile{Path: path, Own: own, Raw: raw, GoSrc: goSrc})
 		return nil
 	}
-	add := func(path, tmpl string, own Ownership, goSrc bool) error {
+	add := func(path, tmpl string, own ownership, goSrc bool) error {
 		return addIn(v, path, tmpl, own, goSrc)
 	}
 	// 角色扇出：每角色落 cmd/<CmdName>/{main.go, app/command.go}。单角色时
@@ -831,17 +831,17 @@ func buildTree(v *treeView, cfgs map[string][]byte) ([]genFile, error) {
 		rv := *v
 		rv.CmdName = slot.CmdName
 		rv.RoleName = slot.Name
-		if err := addIn(&rv, filepath.Join("cmd", rv.CmdName, "main.go"), mainTmpl, Owned, true); err != nil {
+		if err := addIn(&rv, filepath.Join("cmd", rv.CmdName, "main.go"), mainTmpl, owned, true); err != nil {
 			return nil, err
 		}
-		if err := addIn(&rv, filepath.Join("cmd", rv.CmdName, "app", "command.go"), commandTmpl, Owned, true); err != nil {
+		if err := addIn(&rv, filepath.Join("cmd", rv.CmdName, "app", "command.go"), commandTmpl, owned, true); err != nil {
 			return nil, err
 		}
 	}
-	if err := add(filepath.Join("internal", "bootstrap", "assemble.gen.go"), assembleTmpl, Owned, true); err != nil {
+	if err := add(filepath.Join("internal", "bootstrap", "assemble.gen.go"), assembleTmpl, owned, true); err != nil {
 		return nil, err
 	}
-	if err := add(filepath.Join("internal", "bootstrap", "domains.gen.go"), bootstrapDomainsTmpl, Owned, true); err != nil {
+	if err := add(filepath.Join("internal", "bootstrap", "domains.gen.go"), bootstrapDomainsTmpl, owned, true); err != nil {
 		return nil, err
 	}
 	if err := add(filepath.Join("internal", "bootstrap", "seed", "seed.go"), seedTmpl, Seeded, true); err != nil {
@@ -850,10 +850,10 @@ func buildTree(v *treeView, cfgs map[string][]byte) ([]genFile, error) {
 	if err := add(filepath.Join("internal", "bootstrap", "seed", "policies.go"), seedPoliciesTmpl, Seeded, true); err != nil {
 		return nil, err
 	}
-	if err := add(filepath.Join("internal", v.APIDir, "domains.gen.go"), apiserverDomainsTmpl, Owned, true); err != nil {
+	if err := add(filepath.Join("internal", v.APIDir, "domains.gen.go"), apiserverDomainsTmpl, owned, true); err != nil {
 		return nil, err
 	}
-	if err := add(filepath.Join("internal", v.APIDir, "layering_invariant_test.go"), layeringTestTmpl, Owned, true); err != nil {
+	if err := add(filepath.Join("internal", v.APIDir, "layering_invariant_test.go"), layeringTestTmpl, owned, true); err != nil {
 		return nil, err
 	}
 	if v.HasHTTP {
@@ -861,13 +861,13 @@ func buildTree(v *treeView, cfgs map[string][]byte) ([]genFile, error) {
 			return nil, err
 		}
 	}
-	if err := add(filepath.Join("api", "buf.yaml"), bufYamlTmpl, Owned, false); err != nil {
+	if err := add(filepath.Join("api", "buf.yaml"), bufYamlTmpl, owned, false); err != nil {
 		return nil, err
 	}
-	if err := add(filepath.Join("api", "buf.gen.yaml"), bufGenYamlTmpl, Owned, false); err != nil {
+	if err := add(filepath.Join("api", "buf.gen.yaml"), bufGenYamlTmpl, owned, false); err != nil {
 		return nil, err
 	}
-	if err := add("taskfile.yml", taskfileTmpl, Owned, false); err != nil {
+	if err := add("taskfile.yml", taskfileTmpl, owned, false); err != nil {
 		return nil, err
 	}
 	// 每角色一份契约（决策 D2=b）：runner 的 configs 里没有 server 段，
@@ -879,7 +879,7 @@ func buildTree(v *treeView, cfgs map[string][]byte) ([]genFile, error) {
 		}
 		files = append(files, genFile{
 			Path: filepath.Join("configs", filepath.Base(slot.ConfigFile)),
-			Own:  Owned,
+			Own:  owned,
 			Raw:  cfgYAML,
 		})
 	}
@@ -889,7 +889,7 @@ func buildTree(v *treeView, cfgs map[string][]byte) ([]genFile, error) {
 // emitTree 把目录树落盘（产出根 = layout.root，默认 "."）：.go 经
 // writeFileFormatted（gofmt + 失败 .rej）；其余经 writeGuarded。逐文件输出
 // generated:/kept:/skip:（三态语义可见）。
-func emitTree(root string, files []genFile, force bool, streams IOStreams) error {
+func emitTree(root string, files []genFile, force bool, streams ioStreams) error {
 	for _, f := range files {
 		path := filepath.Join(root, f.Path)
 		if f.GoSrc {

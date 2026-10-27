@@ -4,12 +4,7 @@ go 1.27.1
 
 require github.com/kalandramo/bald/broker v0.1.0
 
-require (
-	github.com/kalandramo/bald/encoding v0.1.0 // indirect
-	github.com/kalandramo/bald/encoding/json v0.1.1 // indirect
-	github.com/kalandramo/bald/encoding/proto v0.1.0 // indirect
-	google.golang.org/protobuf v1.36.11 // indirect
-)
+require github.com/kalandramo/bald/encoding v0.1.0 // indirect
 
 replace github.com/kalandramo/bald/broker => ../../broker
 

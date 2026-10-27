@@ -97,7 +97,7 @@ func TestConfig(t *testing.T) {
 
 	t.Run("Config with inputs", func(t *testing.T) {
 		config := &Config{
-			Inputs: []Input{
+			Inputs: []input{
 				{
 					Type:        "promptString",
 					ID:          "api-key",
@@ -218,32 +218,32 @@ func TestMCPServer(t *testing.T) {
 
 func TestInput(t *testing.T) {
 	t.Run("Input with password flag", func(t *testing.T) {
-		input := Input{
+		in := input{
 			Type:        "promptString",
 			ID:          "password",
 			Description: "Enter password",
 			Password:    true,
 		}
 
-		assert.Equal(t, "promptString", input.Type)
-		assert.Equal(t, "password", input.ID)
-		assert.True(t, input.Password)
+		assert.Equal(t, "promptString", in.Type)
+		assert.Equal(t, "password", in.ID)
+		assert.True(t, in.Password)
 	})
 
 	t.Run("Input without password flag", func(t *testing.T) {
-		input := Input{
+		in := input{
 			Type:        "promptString",
 			ID:          "username",
 			Description: "Enter username",
 		}
 
-		assert.Equal(t, "promptString", input.Type)
-		assert.Equal(t, "username", input.ID)
-		assert.False(t, input.Password)
+		assert.Equal(t, "promptString", in.Type)
+		assert.Equal(t, "username", in.ID)
+		assert.False(t, in.Password)
 	})
 
 	t.Run("Multiple inputs", func(t *testing.T) {
-		inputs := []Input{
+		inputs := []input{
 			{
 				Type:        "promptString",
 				ID:          "api-key",

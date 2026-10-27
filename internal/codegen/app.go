@@ -122,12 +122,12 @@ func buildBundle() *bundle.Bundle {
 // appOptions 是 gen app 叶子命令的领域配置（模板模式 / AppSpec 方言模式共用）。
 type appOptions struct {
 	Name    string // 位置参数：应用名（spec 模式可省，以 AppSpec.meta.name 为准）
-	OutFile string // --out（不可命名 Out，避免遮蔽 IOStreams.Out）
+	OutFile string // --out（不可命名 Out，避免遮蔽 ioStreams.Out）
 	Module  string // --module
 	Spec    string // --spec：AppSpec JSON 路径，开启方言生成
 	Force   bool   // --force：覆盖已存在的目标文件（默认拒绝）
 
-	IOStreams
+	ioStreams
 }
 
 // Complete 回填位置参数与派生默认值。spec 模式下输出路径以 AppSpec.meta.name
@@ -154,7 +154,7 @@ func (o *appOptions) Validate() error {
 // Run 纯执行：spec 非空走 AppSpec 方言生成，否则渲染硬编码模板骨架。
 func (o *appOptions) Run() error {
 	if o.Spec != "" {
-		return runGenAppSpec(o.Spec, o.OutFile, o.Force, o.IOStreams)
+		return runGenAppSpec(o.Spec, o.OutFile, o.Force, o.ioStreams)
 	}
 	raw, err := renderTmpl("app", appTmpl, map[string]string{"Name": o.Name})
 	if err != nil {
@@ -164,7 +164,7 @@ func (o *appOptions) Run() error {
 	if err != nil {
 		return err
 	}
-	if err := writeGuarded(o.OutFile, formatted, Owned, o.Force, o.IOStreams); err != nil {
+	if err := writeGuarded(o.OutFile, formatted, owned, o.Force, o.ioStreams); err != nil {
 		return err
 	}
 	fmt.Fprintln(o.Out, "next: fill [FILL] points, then `go mod edit` your module imports if needed")
@@ -182,8 +182,8 @@ func (o *appOptions) Run() error {
 //     api/{buf.yaml,buf.gen.yaml}、configs/<app>.yaml、taskfile.yml；三道门
 //     （Gate1 schema / Gate2 契约键 / Gate3 StrictContract）全过后落盘，
 //     归属三态（owned 覆盖 / seeded 跳过 kept: / user 永不触碰）。
-func genAppCmd(streams IOStreams) *cobra.Command {
-	o := &appOptions{IOStreams: streams}
+func genAppCmd(streams ioStreams) *cobra.Command {
+	o := &appOptions{ioStreams: streams}
 	cmd := &cobra.Command{
 		Use:   "app [name]",
 		Short: "生成应用装配骨架 main.go（appkit 全原语 + bundle 接线）",
@@ -237,7 +237,7 @@ func genAppCmd(streams IOStreams) *cobra.Command {
 // Gate2 契约门（contractGate：描述符派生配置树 + 未知键校验 + YAML 回读
 // 复检）→ buildTreeView（段存在性派生，无字段转写）→ buildTree/emitTree
 // （三态归属落盘）。appspecData 手工转写已删除：模板直接吃 *appspecv1.AppSpec。
-func runGenAppSpec(spec, out string, force bool, streams IOStreams) error {
+func runGenAppSpec(spec, out string, force bool, streams ioStreams) error {
 	raw, err := os.ReadFile(spec)
 	if err != nil {
 		return fmt.Errorf("read spec: %w", err)

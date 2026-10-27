@@ -4,12 +4,12 @@ import "fmt"
 
 // Config represents the structure of VSCode's MCP configuration file.
 type Config struct {
-	Inputs  []Input           `json:"inputs,omitempty"`
+	Inputs  []input           `json:"inputs,omitempty"`
 	Servers map[string]Server `json:"servers"`
 }
 
-// Input represents a VSCode input variable configuration.
-type Input struct {
+// input represents a VSCode input variable configuration.
+type input struct {
 	Type        string `json:"type"`
 	ID          string `json:"id"`
 	Description string `json:"description"`

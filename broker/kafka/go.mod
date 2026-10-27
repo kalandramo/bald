@@ -12,8 +12,6 @@ require (
 
 require (
 	github.com/kalandramo/bald/encoding v0.1.0 // indirect
-	github.com/kalandramo/bald/encoding/json v0.1.1 // indirect
-	github.com/kalandramo/bald/encoding/proto v0.1.0 // indirect
 	github.com/klauspost/compress v1.17.9 // indirect
 	github.com/pierrec/lz4/v4 v4.1.21 // indirect
 	github.com/stretchr/testify v1.12.1 // indirect

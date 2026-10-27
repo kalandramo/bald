@@ -13,22 +13,22 @@ import (
 )
 
 // Config represents MCP server configuration that can be managed.
-type Config[S Server] interface {
+type Config[S server] interface {
 	HasServer(name string) bool
 	AddServer(name string, server S)
 	RemoveServer(name string)
 	Print()
 }
 
-// Server represents an individual MCP server entry.
-type Server interface {
+// server represents an individual MCP server entry.
+type server interface {
 	Print()
 }
 
 // Manager provides generic configuration management for MCP servers.
 // It handles loading, saving, and modifying MCP server configurations.
 // It is not thread-safe.
-type Manager[S Server, C Config[S]] struct {
+type Manager[S server, C Config[S]] struct {
 	configPath string
 	config     C
 }

@@ -8,20 +8,20 @@ import (
 	"path/filepath"
 )
 
-// IOStreams 是命令的标准出入流（kubectl genericiooptions.IOStreams 的迷你版，
+// ioStreams 是命令的标准出入流（kubectl genericiooptions.IOStreams 的迷你版，
 // 不为单个结构体引入 k8s 依赖树）。命令不直接打印 os.Stdout，而是写 streams.Out——
 // 生产路径绑定进程标准流，测试路径注入 bytes.Buffer 即可断言输出。
 //
-// 落地依据 golang-cobra-cli-design 规范：叶子命令 Options 三阶段 + IOStreams。
-type IOStreams struct {
+// 落地依据 golang-cobra-cli-design 规范：叶子命令 Options 三阶段 + ioStreams。
+type ioStreams struct {
 	In     io.Reader
 	Out    io.Writer // 信息性输出（生成结果、next 提示）
 	ErrOut io.Writer // 诊断输出
 }
 
-// NewDefaultIOStreams 返回绑定进程标准流的 IOStreams（生产路径）。
-func NewDefaultIOStreams() IOStreams {
-	return IOStreams{In: os.Stdin, Out: os.Stdout, ErrOut: os.Stderr}
+// NewDefaultIOStreams 返回绑定进程标准流的 ioStreams（生产路径）。
+func NewDefaultIOStreams() ioStreams {
+	return ioStreams{In: os.Stdin, Out: os.Stdout, ErrOut: os.Stderr}
 }
 
 // CheckErr 是 CLI 的唯一错误出口：非 nil 时打印 stderr 并以码 1 退出。
@@ -33,15 +33,15 @@ func CheckErr(err error) {
 	}
 }
 
-// Ownership 是生成物的归属三态（D2-target-codegen.md §5.1）：回归生成不再
+// ownership 是生成物的归属三态（D2-target-codegen.md §5.1）：回归生成不再
 // 只有「存在即报错」一种口径。
-type Ownership int
+type ownership int
 
 const (
-	// Owned 生成物：每次 gen 重写（文件头 DO NOT EDIT，内容以生成器为准）。
+	// owned 生成物：每次 gen 重写（文件头 DO NOT EDIT，内容以生成器为准）。
 	// 已存在时不加 --force 一律拒绝（防覆盖底线不变——无 --force 不重写已存在
 	// 文件），--force 显式放行。
-	Owned Ownership = iota
+	owned ownership = iota
 	// Seeded 生成一次：不存在才落盘；已存在即跳过并输出 kept:（不算错误）。
 	// --force 也不覆盖——生成一次之后归用户维护（seed/、apiserver.go 等）。
 	Seeded
@@ -51,12 +51,12 @@ const (
 )
 
 // writeGuarded 是全部生成命令共用的落盘通道（按归属决定覆盖/跳过/拒绝）：
-//   - Owned：不存在则写；已存在须 --force（错误信息自带指引）。
+//   - owned：不存在则写；已存在须 --force（错误信息自带指引）。
 //   - Seeded：不存在则写；已存在输出 kept: 并返回 nil。
 //   - User：永不落盘，输出 skip:。
 //
 // 成功/跳过提示走 streams.Out（信息性输出不污染 stderr）。
-func writeGuarded(path string, content []byte, own Ownership, force bool, streams IOStreams) error {
+func writeGuarded(path string, content []byte, own ownership, force bool, streams ioStreams) error {
 	switch own {
 	case User:
 		fmt.Fprintln(streams.Out, "skip:", path, "(user file)")
@@ -68,7 +68,7 @@ func writeGuarded(path string, content []byte, own Ownership, force bool, stream
 		} else if !os.IsNotExist(err) {
 			return fmt.Errorf("stat %s: %w", path, err)
 		}
-	case Owned:
+	case owned:
 		if !force {
 			if _, err := os.Stat(path); err == nil {
 				return fmt.Errorf("%s already exists, refusing to overwrite (pass --force to allow)", path)
@@ -94,7 +94,7 @@ func writeGuarded(path string, content []byte, own Ownership, force bool, stream
 // gofmt 失败时**绝不触碰目标路径**（修掉原 renderAppSpec 的越权直写缺陷：
 // 旧实现在 gofmt 失败时 os.WriteFile 目标路径，无 --force 也截断重写用户
 // 文件）；诊断性原文写 <path>.rej 并在错误里附路径，交由用户排查。
-func writeFileFormatted(path string, raw []byte, own Ownership, force bool, streams IOStreams) error {
+func writeFileFormatted(path string, raw []byte, own ownership, force bool, streams ioStreams) error {
 	formatted, err := format.Source(raw)
 	if err != nil {
 		rej := path + ".rej"
