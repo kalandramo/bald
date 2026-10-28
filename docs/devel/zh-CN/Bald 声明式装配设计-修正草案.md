@@ -394,7 +394,7 @@ func applyNode(ctx context.Context, app *appkit.App, node appkit.Node) error {
 }
 ```
 
-迁移期不强制所有域改 `Declare`；但 `bald doctor` 会统计 `Opaque` 域数量，作为 L3 达成的量化门槛（见 §7）。已实现：报告的 `domains:` 行给出 `declared` / `legacy` 计数与名单（2026-10-29）；`_example/bald` 的 greet 域已迁到 `ApplyNode` 目标形态（`domains: 1 (declared 1, legacy 0)`、`nodes: 7 (opaque 2)`，逃逸舱只剩框架自身的程序化 registry 与 std server）；bald-admin 的 language/dict 域是中间形态（`domains: 20 (declared 2, legacy 18)`、`nodes: 63 (opaque 47)`——路由/服务节点带段与依赖，构造仍收在 `domain.<name>.wire`），可作其余域的改写配方。
+迁移期不强制所有域改 `Declare`；但 `bald doctor` 会统计 `Opaque` 域数量，作为 L3 达成的量化门槛（见 §7）。已实现：报告的 `domains:` 行给出 `declared` / `legacy` 计数与名单（2026-10-29）；`_example/bald` 的 greet 域已迁到 `ApplyNode` 目标形态（`domains: 1 (declared 1, legacy 0)`、`nodes: 7 (opaque 2)`，逃逸舱只剩框架自身的程序化 registry 与 std server）；bald-admin 的 language/dict 域也已迁到该形态（`domains: 20 (declared 2, legacy 18)`、`nodes: 55 (opaque 45)`：biz/routes 节点由 `ApplyNode` 执行，服务注册走 `Domain.Services`），两者不再贡献逃逸舱；其余 18 个 legacy 域仍保留逐槽位 Opaque 投影，可照 language/dict 的形状改写。
 
 ### 4.7 执行、回滚与停机
 

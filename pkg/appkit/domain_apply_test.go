@@ -156,6 +156,32 @@ func TestDomain_ApplyNodeAllowsDeferredServices(t *testing.T) {
 	}
 }
 
+// ApplyNode 在装配路径上能拿到 WithHTTP 声明的 handler（路由节点的挂载入口）。
+// kitOpts 不携带业务能力声明，App 的大门必须从 spec 补上——否则路由节点执行时
+// 拿到 nil，域要么静默少挂路由、要么报错退出。
+func TestDomain_ApplyNodeSeesHTTPHandler(t *testing.T) {
+	h := new(http.ServeMux)
+	var got atomic.Value
+	dom := Domain{
+		Name: "greet",
+		Declare: func(context.Context, PlanScope) ([]Node, error) {
+			return []Node{{Key: "domain.greet.biz", Phase: PhaseWire}}, nil
+		},
+		ApplyNode: func(_ context.Context, app *App, _ Node) error {
+			got.Store(app.HTTPHandler())
+			return nil
+		},
+	}
+	cfg := bconf.NewBootstrap()
+	dynamicAddr(cfg)
+	a := assembleForTest(t, cfg, WithHTTP(h), dom)
+	runBriefly(t, a, 50*time.Millisecond)
+
+	if got.Load() != http.Handler(h) {
+		t.Fatalf("ApplyNode saw HTTP handler %v, want the declared one", got.Load())
+	}
+}
+
 // 执行序 = 计划序（Phase → Priority → Key），不是声明序。
 func TestDomain_ApplyNodeExecutesInPlanOrder(t *testing.T) {
 	var mu struct {

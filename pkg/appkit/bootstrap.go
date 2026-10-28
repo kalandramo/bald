@@ -474,6 +474,9 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*App, error) {
 	}
 
 	a = NewApp(kitOpts...) // BeforeStart 闭包引用 a，执行时已赋值（Run 期才回调）
+	// kitOpts 不含业务能力声明（HTTP handler 只进 spec，见 WithHTTP 的消费面），
+	// 故 ApplyNode 域的路由挂载入口在此补上——与 provider 看同一份 spec。
+	a.httpHandler = spec.HTTPHandler
 
 	// M3 计划快照 + 节点协调器：计划是配置变更 diff 的基线；可协调的 Provider
 	// 节点（audit 等）在配置变更时按同一 Provider 重建产物并替换 cleanup 槽位。
