@@ -115,7 +115,9 @@ func BuildRoot(use, short string, runE func(*cobra.Command, []string) error, opt
 		root.AddCommand(&cobra.Command{
 			Use:   "doctor",
 			Short: "Print assembly plan diagnostics (summary, opaque nodes, segment coverage)",
-			Args:  cobra.NoArgs,
+			// --config 等框架 flag 由 appkit 自行扫描 os.Args（与 serve 同路径），
+			// cobra 不定义它们：关闭 flag 解析，参数原样留给 appkit（Args 不校验）。
+			DisableFlagParsing: true,
 			RunE: func(cmd *cobra.Command, _ []string) error {
 				return c.doctor(cmd.Context())
 			},

@@ -128,7 +128,8 @@ func TestDoctorSubcommand(t *testing.T) {
 		called = true
 		return nil
 	}))
-	root.SetArgs([]string{"doctor"})
+	// 框架 flag（--config）由 appkit 自扫描 os.Args，doctor 子命令必须放行。
+	root.SetArgs([]string{"doctor", "--config", "x.yaml"})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("doctor 执行失败: %v", err)
 	}
