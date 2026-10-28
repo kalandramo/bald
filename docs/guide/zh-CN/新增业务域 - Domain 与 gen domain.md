@@ -11,21 +11,35 @@
 | 触碰 | `api/proto/<域>/v1/<域>.proto`、域包 `<域>v1/{<域>.go, domain.go}` | `domains.gen.go`×2、`handler/{grpc,gin,convert}/<域>.gen.go`、`authz/alias.gen.go` | **0 处** |
 | 频率 | 每域一次 | 域清单或域 proto 变化后重跑 | 不变 |
 
-## 1. Domain 声明值：三个槽位
+## 1. Domain 声明值：Declare + 三个兼容钩子
 
-`appkit.Domain` 定义于 `pkg/appkit/domain.go:60`：Name 必填且全应用唯一，三个钩子全部可选（nil = 该域不声明该面）。
+`appkit.Domain` 定义于 `pkg/appkit/domain.go`：Name 必填且全应用唯一；四个字段全部可选（nil = 该域不声明该面/该钩子）。
 
 | 槽位 | 签名 | 引擎消费时点 |
 | --- | --- | --- |
-| `Wire` | `func(ctx context.Context, app *App) error` | 域装配钩子（业务 BeforeStart 之后、server 构建之前），带 ctx；此时资源面已就绪（`app.Resource(...)` 可取阶段 B 产物），业务钩子建立的运行期资源也可消费 |
+| `Declare` | `func(ctx context.Context, s PlanScope) ([]Node, error)` | **计划期纯函数**（不构造实例）：返回的节点进入装配计划且非 Opaque，声明域自有资源、依赖与重载策略。Phase 必须落在 wire 或其后（configure/bootstrap 归框架 Provider），Key 必填且全应用唯一 |
+| `Wire` | `func(ctx context.Context, app *App) error` | 域装配钩子（业务 BeforeStart 之后、server 构建之前），带 ctx；此时资源面已就绪（`storegorm.SQL.Resource(app)` 等类型化句柄可取阶段 B 产物），业务钩子建立的运行期资源也可消费 |
 | `Routes` | `func(h http.Handler) error` | Wire 之后、server 构建之前；参数是 WithHTTP 声明的业务 handler（gin 场景即 `*gin.Engine`，路由器耦合域自持断言）；gateway 转码面占用 server.http 端口时整体让位（不调用——同端口单面语义） |
 | `Services` | `func(s *grpc.Server)` | 并入 server 构建的注册回调（业务注册在前、域按声明序在后）；调用发生在迟后阶段 server Provider 构建时——彼时 Wire 已完成，域端口就绪 |
 
-完整装配时序（`domain.go` 包注释钉住，wiring_order 测试族断言）：框架钩子（契约装载 + 阶段 B Provider 循环 + L3 覆盖检查）→ 业务 BeforeStart → 逐域 Wire → Routes（多域按声明序）→ 迟后阶段（server Provider 构建时调 Services）。任一域 Wire/Routes 失败 fail-fast（错误带域名），已建资源经 Run 的回滚账本回收。
+**Declare 与兼容钩子的关系**（Domain v2 迁移期形态，设计 §4.6）：`Declare` 只声明拓扑，构造仍由 Wire/Routes/Services 完成。声明了 `Declare` 的域，引擎不再逐槽位合成 Opaque 节点，而是把它们塌缩成**一个** `domain.<name>.wire` Opaque 节点——`--plan` 能看到 non-opaque 的 routes/services 节点与依赖，`bald doctor` 的 `opaque` 清单则如实指出构造仍不透明。省略 `Declare` 的域保持既有逐槽位投影（`domain.<name>` / `.routes` / `.services` 三个 Opaque 节点）。
+
+```go
+// 节选 _example/bald/greetv1/domain.go
+var Domain = appkit.Domain{
+    Name:     "greet",
+    Declare:  declare,   // 计划可检视：routes/services 节点 + dependsOn domain.greet.wire
+    Wire:     wire,
+    Routes:   registerRoutes,
+    Services: registerService,
+}
+```
+
+完整装配时序（`domain.go` 包注释钉住，wiring_order 测试族断言）：框架钩子（契约装载 + 阶段 B Provider 循环 + 段覆盖检查）→ 业务 BeforeStart → 逐域 Wire → Routes（多域按声明序）→ 迟后阶段（server Provider 构建时调 Services）。任一域 Wire/Routes 失败 fail-fast（错误带域名），已建资源经 Run 的回滚账本回收。
 
 声明期校验（构造期 fail-fast，先于阶段 A 一切副作用）：Name 为空或重复报错；声明了 Routes 而应用未声明 HTTP 面（WithHTTP/WithGatewayRegister 至少其一）报错；声明了 Services 而契约 server.grpc 段缺失报错。报错原文见 §5。
 
-三个没有的槽位同样是设计决定：迁移不做槽位（appkit 不 import 存储栈——需要迁移的域在 Wire 内经 `app.Resource("database.sql")` 取连接自行执行）；ConfigKeys 不做槽位（业务配置段只进 Settings 快照、不进契约，与 L3 段覆盖检查无交互）。
+没有的槽位同样是设计决定：迁移不做槽位（appkit 不 import 存储栈——需要迁移的域在 Wire 内经类型化句柄 `storegorm.SQL.Resource(app)` 取连接自行执行）；ConfigKeys 不做槽位（业务配置段只进 Settings 快照、不进契约，与 L3 段覆盖检查无交互）。
 
 ## 2. 手写三个文件（可对账范本：_example/bald/greetv1）
 
@@ -155,7 +169,7 @@ AppSpec.domains 字段参考（protojson 字段名；范本 `_example/bald/appsp
 ## 6. 多域协作规则
 
 - **域间禁止互相 import**。业务能力级跨域访问走两条通道：被依赖域包导出访问器，依赖经 Deps getter 供给——装配面保留各域 Deps getter 实参，域在 Wire 里迟到取用。批 4 W1b 样板域（tenant/user）先行定型这套形态，bald-admin 21 域域化实证（共享依赖清单 BizSet 随之溶解为域 Wire 自取）。
-- **基础设施住装配层**：数据库连接、缓存客户端等是装配层自持的抉择，域在 Wire 内经 `app.Resource("database.sql")`、`app.Resource("cache.redis")` 迟到取用（阶段 B 产物此时已就绪；资源面语义见 [Provider 接入](./Provider%20接入%20-%20contract.AppProvider%20与段%20Provider.md) §4）；迁移执行同理。
+- **基础设施住装配层**：数据库连接、缓存客户端等是装配层自持的抉择，域在 Wire 内经 `storegorm.SQL.Resource(app)`、`rediscontract.Redis.Resource(app)` 迟到取用（阶段 B 产物此时已就绪；资源面语义见 [Provider 接入](./Provider%20接入%20-%20contract.AppProvider%20与段%20Provider.md) §4）；迁移执行同理。
 - **业务配置段只进 Settings 快照**：`app.Settings()` 读自己的 `<域>.*` 子树，不进契约、不触发 L3 覆盖检查。
 
 ## FAQ

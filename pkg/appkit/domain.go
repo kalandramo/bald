@@ -59,6 +59,17 @@ type Domain struct {
 	// Name 域名：fail-fast 错误定位与生成物清单（domains.gen.go）对账的标识。
 	Name string
 
+	// Declare 是域的计划期声明（纯函数，不构造实例）：返回的节点进入装配
+	// 计划（非 Opaque），声明域自有资源、依赖与重载策略（设计 §4.6）。
+	// 节点 Phase 必须落在 wire 或其后（configure/bootstrap 归框架 Provider）；
+	// Key 必填且全应用唯一，Kind 缺省 domain，Reload 缺省 static。
+	//
+	// 迁移期语义：Wire/Routes/Services 仍是实际接线点；声明了 Declare 时
+	// 引擎不再逐个合成它们的 Opaque 节点，而是塌缩成一个
+	// Key("domain.<name>.wire") 的 Opaque 节点——构造仍不透明，拓扑声明已
+	// 可检视。省略 Declare 的域保持既有逐槽位投影（domain.go 头注释）。
+	Declare func(ctx context.Context, s PlanScope) ([]Node, error)
+
 	// Wire 域自我接线（装配期执行一次）：读自己的配置段（app.Settings()）、
 	// 构造自己的能力、持有自己的端口。执行时资源面已就绪
 	// （Key[T].Resource 可取阶段 B 产物），业务 BeforeStart 钩子已跑完（域可
@@ -143,6 +154,60 @@ func hasDomainServices(domains []Domain) bool {
 		}
 	}
 	return false
+}
+
+// declaredDomainNodes 调用 Declare 并规范化返回节点（纯函数投影，不构造实例）。
+// 校验：Key 必填；Phase 必须落在 wire/serve/drain/teardown（configure/bootstrap
+// 归框架 Provider）；Kind 缺省 domain；来源统一标记为 OriginDomain。
+func declaredDomainNodes(ctx context.Context, dom Domain, scope PlanScope) ([]Node, error) {
+	raw, err := dom.Declare(ctx, scope)
+	if err != nil {
+		return nil, fmt.Errorf("appkit: domain %q: declare: %w", dom.Name, err)
+	}
+	out := make([]Node, 0, len(raw))
+	for i, n := range raw {
+		if n.Key == "" {
+			return nil, fmt.Errorf("appkit: domain %q: declared node #%d: empty key", dom.Name, i)
+		}
+		if n.Phase < PhaseWire {
+			return nil, fmt.Errorf("appkit: domain %q: declared node %q: phase %s is framework-owned "+
+				"(declare wire/serve/drain/teardown)", dom.Name, n.Key, n.Phase)
+		}
+		if n.Phase > PhaseTeardown {
+			return nil, fmt.Errorf("appkit: domain %q: declared node %q: unknown phase %s", dom.Name, n.Key, n.Phase)
+		}
+		if n.Kind == "" {
+			n.Kind = "domain"
+		}
+		n.Origin = OriginDomain
+		out = append(out, n)
+	}
+	return out, nil
+}
+
+// domainCompatNode 把声明了 Declare 的域的兼容槽位塌缩成单一 Opaque 节点：
+// 构造仍不透明，但只占一个逃逸舱名额（设计 §4.6）。无任何兼容钩子时返回
+// false——纯声明域不产生构造节点。
+func domainCompatNode(dom Domain, spec *Decl) (Node, bool) {
+	var segs []string
+	if dom.Routes != nil && spec.HTTPHandler != nil {
+		segs = append(segs, "server.http") // 与 wireDomains 的调用条件同源
+	}
+	if dom.Services != nil {
+		segs = append(segs, "server.grpc")
+	}
+	if dom.Wire == nil && len(segs) == 0 {
+		return Node{}, false
+	}
+	return Node{
+		Key:      ResourceKey("domain." + dom.Name + ".wire"),
+		Kind:     "domain",
+		Segments: segs,
+		Phase:    PhaseWire,
+		Reload:   ReloadStatic,
+		Opaque:   true,
+		Origin:   OriginDomain,
+	}, true
 }
 
 // wireDomains 执行域装配（域 BeforeStart 钩子体）：声明序逐域 Wire → Routes。

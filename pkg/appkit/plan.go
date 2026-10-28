@@ -231,7 +231,7 @@ func compilePlan(ctx context.Context, d *Decl, cfg *bootstrapv1.BootstrapConfig)
 
 // planFrom 把已解析的 Provider 计划投影为可检视的 Plan（纯函数）。编译预检与
 // 配置变更重算共用本函数：同一份 Decl/契约必得同一计划（I2）。
-func planFrom(_ context.Context, d *Decl, cfg *bootstrapv1.BootstrapConfig, pp *providerPlan) (*Plan, error) {
+func planFrom(ctx context.Context, d *Decl, cfg *bootstrapv1.BootstrapConfig, pp *providerPlan) (*Plan, error) {
 	p := &Plan{
 		App:       appMetaFrom(cfg),
 		InputHash: inputHash(cfg),
@@ -280,9 +280,21 @@ func planFrom(_ context.Context, d *Decl, cfg *bootstrapv1.BootstrapConfig, pp *
 		}
 	}
 
-	// 业务域：Wire 是不透明接线节点；Routes/Services 各自成节点并依赖 Wire
-	// （M1 只声明自己的时序，不伪造与具体 Provider 键的依赖）。
+	// 业务域：声明了 Declare 时以其返回节点为拓扑（非 Opaque），兼容槽位塌缩为
+	// 一个 Opaque 的 domain.<name>.wire 节点；未声明 Declare 的域保持逐槽位
+	// Opaque 投影（迁移期双轨，见 domain.go）。
 	for _, dom := range d.Domains {
+		if dom.Declare != nil {
+			nodes, err := declaredDomainNodes(ctx, dom, PlanScope{Config: cfg, Decl: d})
+			if err != nil {
+				return nil, err
+			}
+			p.Nodes = append(p.Nodes, nodes...)
+			if w, ok := domainCompatNode(dom, d); ok {
+				p.Nodes = append(p.Nodes, w)
+			}
+			continue
+		}
 		wireKey := ResourceKey("domain." + dom.Name)
 		p.Nodes = append(p.Nodes, Node{
 			Key:    wireKey,

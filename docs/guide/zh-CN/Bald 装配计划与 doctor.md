@@ -41,23 +41,28 @@ nodes:
                                                  segments=logger
   bootstrap  database.sql           priority=50  provider, reload=restart
                                                  segments=database.sql
-  wire       domain.greet.routes    priority=10  domain, opaque
-                                                 segments=server.http
-                                                 dependsOn=domain.greet
+  wire       domain.greet.wire      priority=0   domain, opaque
+                                                 segments=server.http,server.grpc
   serve      server                 priority=0   std, opaque
                                                  segments=server.grpc,server.http
-opaque: 5 node(s)
+  serve      domain.greet.services  priority=5   domain
+                                                 segments=server.grpc
+                                                 dependsOn=domain.greet.wire
+  serve      domain.greet.routes    priority=10  domain
+                                                 segments=server.http
+                                                 dependsOn=domain.greet.wire
+opaque: 3 node(s)
 segments:
-  server.http          consumers=domain.greet.routes,server
+  server.http          consumers=domain.greet.routes,domain.greet.wire,server
 warnings:
   warn override [logger]: segment "logger" is declared by ...
-plan hash: 5a7fcee4...
+plan hash: 192924bf...
 ```
 
 读法：
 
 - **`phase`**：`configure` → `bootstrap` → `wire` → `serve` → `drain` → `teardown`。跨相位不接受 `DependsOn` 反向边（编译期报错），停机按 `TeardownAfter` 逆序。
-- **`opaque`**：该节点没有声明式依赖拓扑，按 legacy 顺序执行。域在迁移到 `Domain.Declare` 之前整块是 Opaque。
+- **`opaque`**：该节点没有声明式依赖拓扑，按 legacy 顺序执行。域在声明 `Domain.Declare` 之前整块是 Opaque；声明后拓扑节点可检视，构造仍归 `Wire`/`Routes`/`Services`，并塌缩成一个 `domain.<name>.wire` Opaque 节点（设计 §4.6）。
 - **`segments=`**：节点读取的契约段路径；`segments:` 汇总里 `consumers=` 为空且未白名单的段会在启动期报错。
 - **`reload=`**：节点级重载策略，决定配置热更时协调还是重报（见 [机制层 mech](./机制层%20mech%20-%20Effect%20与期望态.md)）。
 
@@ -89,14 +94,14 @@ bald-demo doctor --config configs/bald-demo-api.yaml
 bald doctor
 app: bald-demo v0.1.0 (env=)
 input: d5f5f80e...
-plan:  5a7fcee4...
+plan:  192924bf...
 
-nodes: 8 (opaque 5)
+nodes: 8 (opaque 3)
   phase bootstrap  3
   phase configure  1
-  phase serve      2
-  phase wire       2
-  opaque: domain.greet, domain.greet.routes, domain.greet.services, registry, server
+  phase serve      3
+  phase wire       1
+  opaque: domain.greet.wire, registry, server
   override: registry (programmatic takeover)
 
 segments: 7 (consumed 7, whitelisted 0, framework 0, unconsumed 0)
