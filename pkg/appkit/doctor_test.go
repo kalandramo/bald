@@ -30,7 +30,7 @@ func TestDoctor_ReportsPlanFacts(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	writeDoctor(&buf, p, []string{"v1", "v2"}, nil)
+	writeDoctor(&buf, p, []string{"v1", "v2"}, nil, domainReport{})
 	out := buf.String()
 
 	for _, want := range []string{
@@ -52,6 +52,29 @@ func TestDoctor_ReportsPlanFacts(t *testing.T) {
 	}
 }
 
+// §4.6 的量化口径：doctor 报告声明式域与 legacy 域的数量与名单。
+func TestDoctor_ReportsDomainMigration(t *testing.T) {
+	cfgPath := writePlanConfig(t, "doctor-domains", "")
+	declared := Domain{Name: "greet", Declare: func(context.Context, PlanScope) ([]Node, error) { return nil, nil }}
+	legacy := Domain{Name: "user", Wire: func(context.Context, *App) error { return nil }}
+	p, err := Compile(context.Background(), ConfigFile(cfgPath), declared, legacy)
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+	var buf bytes.Buffer
+	writeDoctor(&buf, p, nil, nil, newDomainReport([]Domain{declared, legacy}))
+	out := buf.String()
+	for _, want := range []string{
+		"domains: 2 (declared 1, legacy 1)",
+		"declared: greet",
+		"legacy: user",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("doctor output missing %q:\n%s", want, out)
+		}
+	}
+}
+
 func TestDoctor_BuildTagsLineWhenUnset(t *testing.T) {
 	cfgPath := writePlanConfig(t, "doctor-tags", "")
 	p, err := Compile(context.Background(), ConfigFile(cfgPath))
@@ -59,7 +82,7 @@ func TestDoctor_BuildTagsLineWhenUnset(t *testing.T) {
 		t.Fatalf("Compile: %v", err)
 	}
 	var buf bytes.Buffer
-	writeDoctor(&buf, p, nil, nil)
+	writeDoctor(&buf, p, nil, nil, domainReport{})
 	if !strings.Contains(buf.String(), "build tags: (none)") {
 		t.Fatalf("doctor output missing empty build tag marker:\n%s", buf.String())
 	}

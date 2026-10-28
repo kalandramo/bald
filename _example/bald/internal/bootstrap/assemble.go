@@ -137,6 +137,10 @@ func Options(role string) []appkit.Option {
 	// 计划缓存：启动期把计划按 (role, input) 记为基线，doctor 据此报告装配
 	// 变更（本地文件，非执行依据；读写失败只告警）。
 	opts = append(opts, appkit.WithPlanCache(".bald/plan-cache.json"))
+	// 逃逸舱预算：api 角色 3 个（域兼容 wire、程序化 registry、std server），
+	// worker 更少——设计 §7 的 v0.28 目标即 ≤3 个。预算=当前值，新增逃逸舱
+	// 会让 --plan/doctor 出现 opaque-budget 告警。
+	opts = append(opts, appkit.WithOpaqueBudget(3))
 	return opts
 }
 

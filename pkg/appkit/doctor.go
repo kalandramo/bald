@@ -26,8 +26,41 @@ func Doctor(ctx context.Context, opts ...Option) error {
 	if err != nil {
 		return err
 	}
-	writeDoctor(os.Stdout, p, buildTags(), comparePlanCache(d.PlanCache, p))
+	writeDoctor(os.Stdout, p, buildTags(), comparePlanCache(d.PlanCache, p), newDomainReport(d.Domains))
 	return nil
+}
+
+// domainReport 汇总业务域的声明式迁移进度（设计 §4.6 的量化口径）：声明了
+// Declare 的域进入 declared（拓扑可检视），其余整块是 legacy Opaque。名称
+// 排序保证同一装配字节稳定。
+type domainReport struct {
+	declared []string
+	legacy   []string
+}
+
+func newDomainReport(domains []Domain) domainReport {
+	var r domainReport
+	for _, d := range domains {
+		if d.Declare != nil {
+			r.declared = append(r.declared, d.Name)
+			continue
+		}
+		r.legacy = append(r.legacy, d.Name)
+	}
+	sort.Strings(r.declared)
+	sort.Strings(r.legacy)
+	return r
+}
+
+// write 渲染域迁移进度（无业务域时整体省略）。
+func (r domainReport) write(w io.Writer) {
+	total := len(r.declared) + len(r.legacy)
+	if total == 0 {
+		return
+	}
+	fmt.Fprintf(w, "\ndomains: %d (declared %d, legacy %d)\n", total, len(r.declared), len(r.legacy))
+	printSegments(w, "declared", r.declared)
+	printSegments(w, "legacy", r.legacy)
 }
 
 // buildTags 读取构建期 -tags 设置（未显式指定时返回 nil）。
@@ -45,7 +78,7 @@ func buildTags() []string {
 }
 
 // writeDoctor 渲染 doctor 报告。所有清单按字典序输出，保证同一计划字节稳定。
-func writeDoctor(w io.Writer, p *Plan, tags []string, cache *planCacheBaseline) {
+func writeDoctor(w io.Writer, p *Plan, tags []string, cache *planCacheBaseline, domains domainReport) {
 	fmt.Fprintln(w, "bald doctor")
 	fmt.Fprintf(w, "app: %s %s (env=%s)\n", p.App.Name, p.App.Version, p.App.Env)
 	if p.Role != "" {
@@ -87,6 +120,7 @@ func writeDoctor(w io.Writer, p *Plan, tags []string, cache *planCacheBaseline) 
 	for _, n := range overrides {
 		fmt.Fprintf(w, "  override: %s (%s)\n", n.Key, n.Reason)
 	}
+	domains.write(w)
 
 	// 段：未消费、白名单、框架自持、有消费者的段各自成组。
 	var unconsumed, whitelisted, framework, consumed []string

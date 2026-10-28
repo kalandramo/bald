@@ -108,6 +108,9 @@ nodes: 8 (opaque 3)
   opaque: domain.greet.wire, registry, server
   override: registry (programmatic takeover)
 
+domains: 1 (declared 1, legacy 0)
+  declared: greet
+
 segments: 7 (consumed 7, whitelisted 0, framework 0, unconsumed 0)
 
 build tags: (none)
@@ -125,6 +128,7 @@ gen: run `bald gen app --check` and `bald gen domain --check` in the generated t
 | `cache` | 相对上次启动基线的差异（见 §4；无缓存声明时整行省略） |
 | `nodes` / `phase` | 计划规模与各相位分布 |
 | `opaque: ...` | 逃逸舱逐个列名——白盒化 legacy 部分；`WithOpaqueBudget(n)` 超预算时在 `warnings` 出现 `opaque-budget` |
+| `domains` | 业务域迁移进度：`declared` = 用 `Domain.Declare` 声明拓扑的域，`legacy` = 整块 Opaque 的域（设计 §4.6 的量化口径） |
 | `override: key (reason)` | 显式覆盖的节点与其理由 |
 | `segments` 分组 | `consumed` 有消费者；`whitelisted` 经 `WithUnimplementedSegments` 豁免；`framework` 框架无条件消费；`unconsumed` 非空即启动失败 |
 | `build tags` | 构建期 `-tags`（`debug.ReadBuildInfo` 读取），用于解释 build tag 分叉 |

@@ -237,6 +237,6 @@ func TestPlanRole_FromWithRole(t *testing.T) {
 // renderDoctor 渲染 doctor 报告为字符串（测试共用）。
 func renderDoctor(p *Plan, cache *planCacheBaseline) string {
 	var buf bytes.Buffer
-	writeDoctor(&buf, p, nil, cache)
+	writeDoctor(&buf, p, nil, cache, domainReport{})
 	return buf.String()
 }
