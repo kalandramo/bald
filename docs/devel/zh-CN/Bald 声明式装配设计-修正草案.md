@@ -365,7 +365,7 @@ func Declare(_ context.Context, s appkit.PlanScope) ([]appkit.Node, error) {
 }
 ```
 
-迁移期不强制所有域改 `Declare`；但 `bald doctor` 会统计 `Opaque` 域数量，作为 L3 达成的量化门槛（见 §7）。已实现：报告的 `domains:` 行给出 `declared` / `legacy` 计数与名单（2026-10-29）。
+迁移期不强制所有域改 `Declare`；但 `bald doctor` 会统计 `Opaque` 域数量，作为 L3 达成的量化门槛（见 §7）。已实现：报告的 `domains:` 行给出 `declared` / `legacy` 计数与名单（2026-10-29）；bald-admin 的 language 域已按此形态迁移（`domains: 20 (declared 1, legacy 19)`，路由节点带段与依赖、构造收在 `domain.language.wire`），可作其余域的改写配方。
 
 ### 4.7 执行、回滚与停机
 
