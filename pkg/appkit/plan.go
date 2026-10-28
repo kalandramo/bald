@@ -855,6 +855,9 @@ func (p *Plan) Explain(w io.Writer) {
 		if n.Override {
 			flags = append(flags, "override: "+n.Reason)
 		}
+		if n.Reload != ReloadStatic {
+			flags = append(flags, "reload="+n.Reload.String())
+		}
 		fmt.Fprintf(tw, "  %s\t%s\tpriority=%d\t%s\n", n.Phase, n.Key, n.Priority, strings.Join(flags, ", "))
 		if len(n.Segments) > 0 {
 			fmt.Fprintf(tw, "\t\t\tsegments=%s\n", strings.Join(n.Segments, ","))
