@@ -10,6 +10,9 @@ package appkit
 // 默认值取 ConfigFile 声明路径（与 loadConfig 的 --config 注册同一默认——
 // 两阶段装载命中同一文件）、ContinueOnError + 未知 flag 白名单 + 解析错误忽略。
 //
+// --plan 解析走同款容错：--plan 打印装配计划（text）并返回 nil（退出码 0），
+// --plan-format=json 输出机读格式；打印发生在任何副作用之前（见 plan.go）。
+//
 // 配置命名空间（B6）：命名空间（env 前缀 NAME_* 与多环境
 // 文件名来源）由**契约 app.name 派生**，不再有显式声明口。
 //
@@ -55,6 +58,17 @@ func Serve(ctx context.Context, opts ...Option) error {
 	// ConfigFile，使 Run 期 loadConfig 的 --config 注册与预装载同源。
 	d.ConfigFile = parseConfigFlag(d.ConfigFile)
 
+	// --plan：在任何副作用（阶段 A Logger、Provider Build、钩子）之前打印
+	// 装配计划并返回 nil（MustServe 路径据此以 0 退出）。编译复用 compileDecl
+	// ——与真实启动同一份声明/契约，预检错误在启动前暴露。
+	if out := parsePlanFlag(); out.enabled {
+		p, err := compileDecl(ctx, d)
+		if err != nil {
+			return err
+		}
+		return writePlan(os.Stdout, p, out.format)
+	}
+
 	// 契约两遍预装载：第一遍文件/远程层 → app.name 派生命名空间；第二遍挂
 	// env 层全量重合并 → 契约定形（含 env 覆盖）。预装载是无 flag 层、无契约
 	// 源层的基线装载，仅使契约引导信息在装配期可得；完整装载仍由 Run 期
@@ -94,6 +108,24 @@ func parseConfigFlag(defaultPath string) string {
 	fs.StringVar(&cfgFile, "config", defaultPath, "config file")
 	_ = fs.Parse(os.Args[1:])
 	return cfgFile
+}
+
+// planFlagOutput 是 --plan 的解析结果（enabled=false 时 Serve 走正常装配）。
+type planFlagOutput struct {
+	enabled bool
+	format  string
+}
+
+// parsePlanFlag 扫描 os.Args 解析 --plan / --plan-format（与 --config 同款
+// pflag 容错：ContinueOnError + 未知 flag 白名单 + 解析错误忽略）。
+func parsePlanFlag() planFlagOutput {
+	fs := pflag.NewFlagSet("bald", pflag.ContinueOnError)
+	fs.ParseErrorsWhitelist.UnknownFlags = true
+	out := planFlagOutput{format: "text"}
+	fs.BoolVar(&out.enabled, "plan", false, "print the assembly plan and exit")
+	fs.StringVar(&out.format, "plan-format", out.format, "plan output format: text or json")
+	_ = fs.Parse(os.Args[1:])
+	return out
 }
 
 // preloadContract 两遍预装载配置进契约并返回派生的配置命名空间：

@@ -133,11 +133,13 @@ type loggerSource interface {
 // 交由引擎的 curCleanup 原子换槽兑现。
 type providerLoggerSource struct {
 	prov Provider
+	node Node
 	spec *Decl
 }
 
 func (s providerLoggerSource) build(ctx context.Context, cfg *bootstrapv1.BootstrapConfig) (log.Logger, func(), error) {
-	product, cleanup, err := s.prov.Build(ctx, BuildScope{Config: cfg, Decl: s.spec})
+	scope := ApplyScope{Config: cfg, Decl: s.spec, Node: s.node}
+	product, cleanup, err := s.prov.Build(ctx, scope, s.node)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -163,16 +165,46 @@ func (s providerLoggerSource) contractLogger(ctx context.Context, cfg *bootstrap
 	return s.build(ctx, cfg)
 }
 
-// resolveLoggerSource 解析日志源：声明了 logger 段 Provider 即接管（std 内置
-// 与第三方同通道，段路径末者胜）；零声明时回退内置 StandardLoggerProvider
-// ——「框架持有一个引导 logger」由其阶段 A 分支（Config=nil）兑现，阶段 B 用
-// Provider 结果替换（loggerSource 两阶段协议沿用）。
+// resolveLoggerSource 解析日志源：logger 段 Provider 即接管（std 内置与
+// 第三方同通道，段路径末者胜）；零声明时 plan 已回退内置
+// StandardLoggerProvider——「框架持有一个引导 logger」由其阶段 A 分支
+// （Config=nil）兑现，阶段 B 用 Provider 结果替换（loggerSource 两阶段协议）。
 func resolveLoggerSource(spec *Decl, plan *providerPlan) loggerSource {
-	prov := plan.loggerProv
-	if prov == nil {
-		prov = StandardLoggerProvider()
+	return providerLoggerSource{prov: plan.loggerProv, node: plan.loggerNode, spec: spec}
+}
+
+// validateCapabilities 校验代码侧能力声明与契约段的对偶关系（纯函数，无
+// 副作用）：WithHTTP/Gateway 需 server.http 段、WithGRPC 需 server.grpc 段、
+// 探针路径不得相同、网关 driver 只能由 grpc-gateway 消费。assemble 与 Compile
+// 共用——`--plan` 的预检与真实启动对同一批错误 fail-fast。
+func validateCapabilities(spec *Decl, cfg *bootstrapv1.BootstrapConfig) error {
+	httpCfg := cfg.GetServer().GetHttp()
+	grpcCfg := cfg.GetServer().GetGrpc()
+	if spec.HTTPHandler != nil && httpCfg == nil {
+		return errors.New("appkit: WithHTTP declared but bootstrap.server.http is nil")
 	}
-	return providerLoggerSource{prov: prov, spec: spec}
+	if spec.GatewayRegister != nil && httpCfg == nil {
+		return errors.New("appkit: WithGatewayRegister declared but bootstrap.server.http is nil")
+	}
+	if spec.GRPCRegister != nil && grpcCfg == nil {
+		return errors.New("appkit: WithGRPC declared but bootstrap.server.grpc is nil")
+	}
+	if spec.Health != nil && spec.ProbeLivePath == spec.ProbeReadyPath {
+		// 探针要挂在同一个 mux 上，同路径注册会 panic——启动期 fail-fast 暴露。
+		return fmt.Errorf("appkit: WithHealth probe paths must differ, got %q twice", spec.ProbeLivePath)
+	}
+	if spec.GatewayRegister != nil {
+		// 网关面由 server.http.driver 选择：非 grpc-gateway 的显式值 = 转码能力
+		// 无消费面；与 WithHTTP 同时声明且留空 = 两个能力静默竞争同一端口。
+		// 都属启动期错误，fail-fast 暴露（显式 > 隐式）。
+		switch d := httpCfg.GetDriver(); {
+		case d != "" && d != baldbootstrap.DriverGrpcGateway:
+			return fmt.Errorf("appkit: WithGatewayRegister declared but server.http.driver = %q, want %q or empty", d, baldbootstrap.DriverGrpcGateway)
+		case spec.HTTPHandler != nil && d == "":
+			return fmt.Errorf("appkit: WithHTTP and WithGatewayRegister are both declared; set server.http.driver = %q to serve the transcoding face", baldbootstrap.DriverGrpcGateway)
+		}
+	}
+	return nil
 }
 
 // assemble 按契约约定装配 App——段驱动 Provider 装配引擎
@@ -185,8 +217,9 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*App, error) {
 	if cfg == nil {
 		return nil, errors.New("appkit: assemble: bootstrap config is nil")
 	}
-	// 段驱动装配计划：路径末者胜 + 分阶段排序（机制见 provider.go）。
-	plan, err := newProviderPlan(spec)
+	// 段驱动装配计划：路径末者胜 → Provider.Plan → 节点冲突裁决 + 统一排序
+	//（机制见 provider.go）。计划是执行顺序的唯一来源。
+	plan, err := newProviderPlan(context.Background(), spec, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -201,29 +234,8 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*App, error) {
 
 	httpCfg := cfg.GetServer().GetHttp()
 	grpcCfg := cfg.GetServer().GetGrpc()
-	if spec.HTTPHandler != nil && httpCfg == nil {
-		return nil, errors.New("appkit: WithHTTP declared but bootstrap.server.http is nil")
-	}
-	if spec.GatewayRegister != nil && httpCfg == nil {
-		return nil, errors.New("appkit: WithGatewayRegister declared but bootstrap.server.http is nil")
-	}
-	if spec.GRPCRegister != nil && grpcCfg == nil {
-		return nil, errors.New("appkit: WithGRPC declared but bootstrap.server.grpc is nil")
-	}
-	if spec.Health != nil && spec.ProbeLivePath == spec.ProbeReadyPath {
-		// 探针要挂在同一个 mux 上，同路径注册会 panic——启动期 fail-fast 暴露。
-		return nil, fmt.Errorf("appkit: WithHealth probe paths must differ, got %q twice", spec.ProbeLivePath)
-	}
-	if spec.GatewayRegister != nil {
-		// 网关面由 server.http.driver 选择：非 grpc-gateway 的显式值 = 转码能力
-		// 无消费面；与 WithHTTP 同时声明且留空 = 两个能力静默竞争同一端口。
-		// 都属启动期错误，fail-fast 暴露（显式 > 隐式）。
-		switch d := httpCfg.GetDriver(); {
-		case d != "" && d != baldbootstrap.DriverGrpcGateway:
-			return nil, fmt.Errorf("appkit: WithGatewayRegister declared but server.http.driver = %q, want %q or empty", d, baldbootstrap.DriverGrpcGateway)
-		case spec.HTTPHandler != nil && d == "":
-			return nil, fmt.Errorf("appkit: WithHTTP and WithGatewayRegister are both declared; set server.http.driver = %q to serve the transcoding face", baldbootstrap.DriverGrpcGateway)
-		}
+	if err := validateCapabilities(spec, cfg); err != nil {
+		return nil, err
 	}
 
 	// 日志源：logger 段 Provider（零声明回退内置 StandardLoggerProvider，消费
@@ -243,13 +255,20 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*App, error) {
 	}
 	log.SetLogger(bootLogger)
 
+	// 计划期诊断（同 Key 覆盖等逃逸舱）在引导 logger 就绪后可见——与 --plan
+	// 输出同源（I10）。
+	for _, w := range plan.warnings {
+		log.Warn(context.Background(), "appkit: provider plan warning",
+			"code", w.Code, "subject", w.Subject, "message", w.Message)
+	}
+
 	// 构造期阶段：config 段 Provider 产出配置层（声明序=层优先级，首元素
 	// 最高）。scope.App 为 nil——App 尚未构造。失败回滚阶段 A。
 	var layers []baldconfig.Layer
 	var layersCleanup func()
 	if len(plan.construct) > 0 {
-		built, _, err := runProviderLoop(context.Background(), plan.construct,
-			BuildScope{Config: cfg, Decl: spec}, false, nil)
+		built, err := runProviderNodes(context.Background(), plan.construct,
+			ApplyScope{Config: cfg, Decl: spec}, nil)
 		if err != nil {
 			log.SetLogger(oldLogger)
 			bootCleanup()
@@ -261,7 +280,7 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*App, error) {
 				rollbackBuilds(built, context.Background())
 				log.SetLogger(oldLogger)
 				bootCleanup()
-				return nil, fmt.Errorf("appkit: config provider %v returned %T, want []config.Layer", r.prov.Segments(), r.product)
+				return nil, fmt.Errorf("appkit: config provider %v returned %T, want []config.Layer", r.node.Segments, r.product)
 			}
 			layers = append(layers, ls...)
 			if c := noopCleanupFn(r.cleanup); c != nil {
@@ -282,9 +301,9 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*App, error) {
 	var curCleanup atomic.Pointer[func()]
 	curCleanup.Store(&bootCleanup)
 
-	// canonical 停机槽位：各段 Provider 的 cleanup 在 Build 成功后填充，
-	// Effect（构造期按 cleanupOrder 预登记）逆序回放时兑现——Effect 注册序
-	// 与旧 12 段流逐条一致。
+	// 停机槽位：阶段 B 各节点的 cleanup 在 Build 成功后按节点 Key 填充；
+	// Effect 按 teardownOrder 的逆序注册（I5）——回放序即节点声明的停机序
+	//（Apply 逆序 + TeardownAfter），不再有手工 cleanupOrder。
 	slots := newCleanupSlots(plan)
 	// a 先声明再进闭包：BeforeStart 在 Run 期才执行，届时 a 已赋值。
 	var a *App
@@ -312,15 +331,10 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*App, error) {
 			if err := syncBootstrap(a, cfg, spec, logSrc, &curCleanup); err != nil {
 				return err
 			}
-			// 阶段 B Provider 循环：canonical 序（registry→tracer→metrics→
-			// database→cache→storage→audit→ai→workflow→broker，见 stageBRank）。
-			// 显式 Registrar 实例接管 registry 段时跳过纯 registry Provider
-			// （程序化接管 = 刻意覆盖）。
-			bps := plan.stageB
-			if spec.Registrar != nil {
-				bps = dropSegmentProviders(bps, "registry")
-			}
-			_, _, err := runProviderLoop(ctx, bps, BuildScope{Config: cfg, Decl: spec, App: a}, true,
+			// 阶段 B Provider 循环：计划序（阶段内 Kahn 拓扑 + (Priority,
+			// Key)；机制见 provider.go）。显式 Registrar 实例接管 registry 段
+			// 时纯 registry Provider 已在计划期跳过（程序化接管 = 刻意覆盖）。
+			_, err := runProviderNodes(ctx, plan.stageB, ApplyScope{Config: cfg, Decl: spec, App: a},
 				func(r buildResult) error { return storeProduct(a, r, slots) })
 			if err != nil {
 				return err
@@ -335,11 +349,10 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*App, error) {
 			hotReload(cfg, spec, logSrc, &curCleanup, m)
 		}),
 	}
-	// 框架停机 Effect：canonical 槽位按 cleanupOrder 依次登记（audit 槽位居
-	// 首 → 逆序回放最后执行，后端 cleanup 的 stream 尾批审计事件在指标/span
-	// flush 之后收集——回放序：broker → … → database → registrar-client →
-	// bootstrap-logger → metrics-server → tracer-shutdown → audit-restore，
-	// 与旧 12 段流一致；B8 起无「恢复装配前全局」步骤——全局审计器已删除）。
+	// 框架停机 Effect：按计划推导的停机序逆序注册（I5）——回放即停机序
+	//（audit-restore 由 TeardownAfter ["*"] 排到最后：stream 尾批审计事件在
+	// 指标/span flush 之后收集；B8 起无「恢复装配前全局」步骤——全局审计器
+	// 已删除）。
 	kitOpts = append(kitOpts, slots.effects(oldLogger, &curCleanup)...)
 	if httpCfg != nil {
 		kitOpts = append(kitOpts, Bind("server.http", httpCfg))
@@ -368,10 +381,6 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*App, error) {
 			return nil
 		}))
 	}
-	// 表外（第三方）段 Provider 的停机 Effect：登记在 config-layers 之后、
-	// 业务 Effect 之前——逆序回放时业务效果先执行，第三方资源次之，框架
-	// 底座（上方 canonical 槽位）最后收。
-	kitOpts = append(kitOpts, slots.foreignEffects()...)
 
 	// 业务透传：钩子/协调器/能力声明/订阅/效果——追加在框架装配之后
 	//（beforeStart 在内部装载链后执行，可读契约终值；Effect 逆序回放先于
@@ -396,12 +405,9 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*App, error) {
 	// 回滚（Effect 逆序回放配置层与阶段 A Logger），与旧实现等价。
 	if len(plan.late) > 0 {
 		kitOpts = append(kitOpts, BeforeStart(func(ctx context.Context) error {
-			_, _, err := runProviderLoop(ctx, plan.late, BuildScope{Config: cfg, Decl: spec, App: a}, true,
+			_, err := runProviderNodes(ctx, plan.late, ApplyScope{Config: cfg, Decl: spec, App: a},
 				func(r buildResult) error { return storeServerProduct(a, r) })
-			if err != nil {
-				return err
-			}
-			return nil
+			return err
 		}))
 	}
 	// 运行期额外服务器（WithExtraServerFunc）：同样追加在业务 beforeStart 之后
@@ -457,60 +463,33 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*App, error) {
 	return a, nil
 }
 
-// dropSegmentProviders 过滤掉「全部声明路径都落在 top 段」的 Provider
-// （显式实例接管语义：Registrar 非 nil 时跳过纯 registry Provider）。
-func dropSegmentProviders(ps []Provider, top string) []Provider {
-	out := ps[:0:0]
-	for _, p := range ps {
-		all := true
-		for _, s := range p.Segments() {
-			if segmentTop(s) != top {
-				all = false
-				break
-			}
-		}
-		if !all {
-			out = append(out, p)
-		}
-	}
-	return out
-}
-
-// foreignSlotKey 是表外段 Provider 停机槽位的键（首声明路径；同路径多
-// Provider 并存时聚合逆序——后建者先收）。
-func foreignSlotKey(p Provider) string { return p.Segments()[0] }
-
-// cleanupSlots 是停机清理槽位集：canonical 段按 cleanupOrder 预登记（名字与
-// 旧 12 段流逐字一致），表外段按首声明路径预登记；Build 成功后填充，停机
-// 逆序回放兑现。
+// cleanupSlots 是停机清理槽位集：节点 Key → cleanup（Build 成功后填充）。
+// 停机序在计划期已由 teardownOrder 推出（I5），Effect 按该序逆序注册。
 type cleanupSlots struct {
-	cleanups map[string]*Cleanup // canonical 段名 → 槽位
-	foreign  map[string]*Cleanup // 表外段首路径 → 槽位
+	cleanups  map[ResourceKey]*Cleanup
+	order     []ResourceKey          // 停机序（先执行者在前）
+	name      map[ResourceKey]string // 节点 Effect 名
+	loggerKey ResourceKey
 }
 
 func newCleanupSlots(plan *providerPlan) *cleanupSlots {
-	s := &cleanupSlots{cleanups: map[string]*Cleanup{}, foreign: map[string]*Cleanup{}}
-	for _, seg := range cleanupOrder {
-		c := Cleanup(nil)
-		s.cleanups[seg] = &c
+	s := &cleanupSlots{
+		cleanups:  make(map[ResourceKey]*Cleanup, len(plan.teardown)),
+		order:     plan.teardown,
+		name:      plan.effectName,
+		loggerKey: plan.loggerNode.Key,
 	}
-	for _, p := range plan.stageB {
-		if _, ok := effectNameBySegment[segmentTop(p.Segments()[0])]; ok {
-			continue // canonical 段走上方槽位
-		}
-		k := foreignSlotKey(p)
-		if _, dup := s.foreign[k]; dup {
-			continue
-		}
+	for _, key := range plan.teardown {
 		c := Cleanup(nil)
-		s.foreign[k] = &c
+		s.cleanups[key] = &c
 	}
 	return s
 }
 
-// fill 填充段槽位（同段多 Provider 并存时聚合逆序：后建者先收）。
-func (s *cleanupSlots) fill(seg string, c Cleanup) {
-	slot := s.cleanups[seg]
+// fill 填充节点槽位（同 Key 只 Build 一次；聚合分支保留给防御性重复填充，
+// 后填者先执行）。
+func (s *cleanupSlots) fill(key ResourceKey, c Cleanup) {
+	slot := s.cleanups[key]
 	if slot == nil || c == nil {
 		return
 	}
@@ -527,60 +506,26 @@ func (s *cleanupSlots) fill(seg string, c Cleanup) {
 	}
 }
 
-// fillForeign 填充表外段槽位（键 = Provider 首声明路径）。
-func (s *cleanupSlots) fillForeign(p Provider, c Cleanup) {
-	slot := s.foreign[foreignSlotKey(p)]
-	if slot == nil || c == nil {
-		return
-	}
-	if *slot == nil {
-		*slot = c
-		return
-	}
-	prev := *slot
-	*slot = func(ctx context.Context) error {
-		if err := c(ctx); err != nil {
-			return err
-		}
-		return prev(ctx)
-	}
-}
-
-// effects 生成 canonical 段停机 Effect（顺序 = cleanupOrder，即注册序；
-// audit 槽位居首 → 逆序回放最后执行）。logger 段非 Provider 驱动，特供
-// bootstrap-logger Effect：恢复装配前全局 Logger 并兑现最新后端 cleanup
+// effects 生成停机 Effect：按停机序逆序注册，回放即停机序（I5）。logger
+// 槽位特供 bootstrap-logger——恢复装配前全局 Logger 并兑现最新后端 cleanup
 // （热更重建原子换槽的钩子在此收口）。
 func (s *cleanupSlots) effects(oldLogger log.Logger, curCleanup *atomic.Pointer[func()]) []Option {
-	var opts []Option
-	for _, seg := range cleanupOrder {
-		seg := seg
-		switch seg {
-		case "logger":
-			opts = append(opts, effectOpt(effectNameBySegment[seg], func(context.Context) error {
+	opts := make([]Option, 0, len(s.order))
+	for i := len(s.order) - 1; i >= 0; i-- {
+		key := s.order[i]
+		name := s.name[key]
+		if key == s.loggerKey {
+			opts = append(opts, effectOpt(name, func(context.Context) error {
 				log.SetLogger(oldLogger)
 				if c := curCleanup.Load(); c != nil {
 					(*c)()
 				}
 				return nil
 			}))
-		default:
-			opts = append(opts, effectOpt(effectNameBySegment[seg], func(ctx context.Context) error {
-				if c := *s.cleanups[seg]; c != nil {
-					return c(ctx)
-				}
-				return nil
-			}))
+			continue
 		}
-	}
-	return opts
-}
-
-// foreignEffects 生成表外段停机 Effect（声明序注册；名字携带段路径便于定位）。
-func (s *cleanupSlots) foreignEffects() []Option {
-	var opts []Option
-	for k, slot := range s.foreign {
-		k, slot := k, slot
-		opts = append(opts, effectOpt("appkit:provider."+k, func(ctx context.Context) error {
+		slot := s.cleanups[key]
+		opts = append(opts, effectOpt(name, func(ctx context.Context) error {
 			if c := *slot; c != nil {
 				return c(ctx)
 			}
@@ -601,27 +546,27 @@ func noopCleanupFn(c Cleanup) func() {
 // storeProduct 把阶段 B Provider 的产物按顶层段落进 App 的资源面，并把
 // cleanup 填入对应槽位。产物形状不符 = 装配错误（fail-fast）。
 func storeProduct(a *App, r buildResult, slots *cleanupSlots) error {
-	top := segmentTop(r.prov.Segments()[0])
+	top := segmentTop(r.node.Segments[0])
 	switch top {
 	case "registry":
 		reg, ok := r.product.(registry.Registrar)
 		if !ok {
-			return fmt.Errorf("appkit: registry provider %v returned %T, want registry.Registrar", r.prov.Segments(), r.product)
+			return fmt.Errorf("appkit: registry provider %v returned %T, want registry.Registrar", r.node.Segments, r.product)
 		}
 		a.registrar = reg
 		a.setResources(top, reg)
-		slots.fill(top, r.cleanup)
+		slots.fill(r.node.Key, r.cleanup)
 	case "database", "cache", "storage", "ai", "workflow", "broker":
 		m, err := productStringMap(r)
 		if err != nil {
 			return err
 		}
 		a.setResources(top, m)
-		slots.fill(top, r.cleanup)
+		slots.fill(r.node.Key, r.cleanup)
 	case "audit":
 		aud, ok := r.product.(audit.Auditor)
 		if !ok {
-			return fmt.Errorf("appkit: audit provider %v returned %T, want audit.Auditor", r.prov.Segments(), r.product)
+			return fmt.Errorf("appkit: audit provider %v returned %T, want audit.Auditor", r.node.Segments, r.product)
 		}
 		// B8：全局 SetAuditor 已删除——契约产物作 appkit 自身审计事件的兜底
 		// sink（显式 Auditor Option 优先，不覆盖），并照常落资源面供业务
@@ -630,11 +575,11 @@ func storeProduct(a *App, r buildResult, slots *cleanupSlots) error {
 			a.auditor = aud
 		}
 		a.setResources(top, aud)
-		slots.fill(top, r.cleanup)
+		slots.fill(r.node.Key, r.cleanup)
 	case "tracer":
 		// 产物不落资源面（tracer shutdown 由 Provider 自持，cleanup 槽位承担
 		// 停机回收）。
-		slots.fill(top, r.cleanup)
+		slots.fill(r.node.Key, r.cleanup)
 	case "metrics":
 		// 产物为可关闭的暴露端（B7：MetricsProvider 返回 MetricsExposure 而非
 		// 裸 Handler，监听面归 metricshttp 能力包）。停机序「先停暴露端再
@@ -643,7 +588,7 @@ func storeProduct(a *App, r buildResult, slots *cleanupSlots) error {
 		if r.product != nil {
 			e, ok := r.product.(MetricsExposure)
 			if !ok {
-				return fmt.Errorf("appkit: metrics provider %v returned %T, want MetricsExposure (nil = no exposure)", r.prov.Segments(), r.product)
+				return fmt.Errorf("appkit: metrics provider %v returned %T, want MetricsExposure (nil = no exposure)", r.node.Segments, r.product)
 			}
 			exp = e
 		}
@@ -662,12 +607,12 @@ func storeProduct(a *App, r buildResult, slots *cleanupSlots) error {
 				return nil
 			}
 		}
-		slots.fill(top, slot)
+		slots.fill(r.node.Key, slot)
 	default:
 		// 表外段：cleanup 照常入账，产物按统一约定落资源面（B4 收口）：
 		// map 产物按 "<顶层段>.<子段>" 展开、非 map 产物落 "<顶层段>"。
 		a.setResources(top, r.product)
-		slots.fillForeign(r.prov, r.cleanup)
+		slots.fill(r.node.Key, r.cleanup)
 	}
 	return nil
 }
@@ -698,7 +643,7 @@ func productStringMap(r buildResult) (map[string]any, error) {
 	}
 	m, ok := r.product.(map[string]any)
 	if !ok {
-		return nil, fmt.Errorf("appkit: provider %v returned %T, want map[string]any", r.prov.Segments(), r.product)
+		return nil, fmt.Errorf("appkit: provider %v returned %T, want map[string]any", r.node.Segments, r.product)
 	}
 	if m == nil {
 		m = map[string]any{}
@@ -717,7 +662,7 @@ func storeServerProduct(a *App, r buildResult) error {
 	case transport.Server:
 		servers = []transport.Server{v}
 	default:
-		return fmt.Errorf("appkit: server provider %v returned %T, want []transport.Server", r.prov.Segments(), r.product)
+		return fmt.Errorf("appkit: server provider %v returned %T, want []transport.Server", r.node.Segments, r.product)
 	}
 	a.servers = append(a.servers, servers...)
 	if r.cleanup != nil {

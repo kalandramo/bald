@@ -35,13 +35,13 @@ func TestAppProvider_ApplyPreservesFactory(t *testing.T) {
 	if len(d.Providers) != 1 {
 		t.Fatalf("decl providers = %d, want 1", len(d.Providers))
 	}
-	srv, _, err := d.Providers[0].Build(context.Background(), appkit.BuildScope{
+	srv, _, err := d.Providers[0].Build(context.Background(), appkit.ApplyScope{
 		Config: &bootstrapv1.BootstrapConfig{
 			Server: &bootstrapv1.Server{
 				Asynq: &bootstrapv1.Server_Asynq{RedisAddress: "127.0.0.1:6379"},
 			},
 		},
-	})
+	}, appkit.Node{})
 	if err != nil {
 		t.Fatalf("Build via decl: %v", err)
 	}
@@ -52,13 +52,13 @@ func TestAppProvider_ApplyPreservesFactory(t *testing.T) {
 
 func TestAppProvider_BuildConstructsServer(t *testing.T) {
 	ap := AppProvider()
-	srv, cleanup, err := ap.Build(context.Background(), appkit.BuildScope{
+	srv, cleanup, err := ap.Build(context.Background(), appkit.ApplyScope{
 		Config: &bootstrapv1.BootstrapConfig{
 			Server: &bootstrapv1.Server{
 				Asynq: &bootstrapv1.Server_Asynq{RedisAddress: "127.0.0.1:6379"},
 			},
 		},
-	})
+	}, appkit.Node{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -76,13 +76,13 @@ func TestAppProvider_WithHandlersForwarded(t *testing.T) {
 		called = true
 		return nil
 	}))
-	srv, _, err := ap.Build(context.Background(), appkit.BuildScope{
+	srv, _, err := ap.Build(context.Background(), appkit.ApplyScope{
 		Config: &bootstrapv1.BootstrapConfig{
 			Server: &bootstrapv1.Server{
 				Asynq: &bootstrapv1.Server_Asynq{RedisAddress: "127.0.0.1:6379"},
 			},
 		},
-	})
+	}, appkit.Node{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -92,9 +92,9 @@ func TestAppProvider_WithHandlersForwarded(t *testing.T) {
 }
 
 func TestAppProvider_SubSectionMissingSkips(t *testing.T) {
-	srv, cleanup, err := AppProvider().Build(context.Background(), appkit.BuildScope{
+	srv, cleanup, err := AppProvider().Build(context.Background(), appkit.ApplyScope{
 		Config: &bootstrapv1.BootstrapConfig{Server: &bootstrapv1.Server{}},
-	})
+	}, appkit.Node{})
 	if err != nil {
 		t.Fatalf("Build error = %v, want nil (skip)", err)
 	}
@@ -104,9 +104,9 @@ func TestAppProvider_SubSectionMissingSkips(t *testing.T) {
 }
 
 func TestAppProvider_TopSectionMissingIsBug(t *testing.T) {
-	_, _, err := AppProvider().Build(context.Background(), appkit.BuildScope{
+	_, _, err := AppProvider().Build(context.Background(), appkit.ApplyScope{
 		Config: &bootstrapv1.BootstrapConfig{},
-	})
+	}, appkit.Node{})
 	if err == nil || !strings.Contains(err.Error(), "report this as a bug") {
 		t.Fatalf("err = %v, want bug report (engine gates by exact path)", err)
 	}

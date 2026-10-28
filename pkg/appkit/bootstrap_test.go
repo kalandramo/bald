@@ -52,7 +52,7 @@ func TestResolveLoggerSource(t *testing.T) {
 		return stubLogger(), nil, nil
 	}}
 	spec := &Decl{Providers: []Provider{loggerProv}}
-	plan, err := newProviderPlan(spec)
+	plan, err := newProviderPlan(context.Background(), spec, &bootstrapv1.BootstrapConfig{})
 	if err != nil {
 		t.Fatalf("plan: %v", err)
 	}
@@ -92,7 +92,7 @@ func TestStandardLoggerProvider(t *testing.T) {
 	prov := StandardLoggerProvider()
 	build := func(t *testing.T, cfg *bootstrapv1.BootstrapConfig) (log.Logger, func(), error) {
 		t.Helper()
-		product, cleanup, err := prov.Build(context.Background(), BuildScope{Config: cfg, Decl: &Decl{}})
+		product, cleanup, err := prov.Build(context.Background(), ApplyScope{Config: cfg, Decl: &Decl{}}, Node{})
 		if err != nil {
 			return nil, nil, err
 		}
@@ -172,7 +172,7 @@ func TestStandardLoggerProvider(t *testing.T) {
 func TestStandardLoggerProvider_FilterKeys(t *testing.T) {
 	prov := StandardLoggerProvider()
 	build := func(cfg *bootstrapv1.BootstrapConfig) (log.Logger, func(), error) {
-		product, cleanup, err := prov.Build(context.Background(), BuildScope{Config: cfg, Decl: &Decl{}})
+		product, cleanup, err := prov.Build(context.Background(), ApplyScope{Config: cfg, Decl: &Decl{}}, Node{})
 		if err != nil {
 			return nil, nil, err
 		}
@@ -241,10 +241,10 @@ func TestStandardLoggerProvider_SlogDecorators(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "deco.log")
 	prov := StandardLoggerProvider()
 	build := func(cfg *bootstrapv1.BootstrapConfig) (log.Logger, func(), error) {
-		product, cleanup, err := prov.Build(context.Background(), BuildScope{
+		product, cleanup, err := prov.Build(context.Background(), ApplyScope{
 			Config: cfg,
 			Decl:   &Decl{logDecorators: []bslog.Option{bslog.WithAttrs(slog.String("deco", "yes"))}},
-		})
+		}, Node{})
 		if err != nil {
 			return nil, nil, err
 		}

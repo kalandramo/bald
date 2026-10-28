@@ -34,22 +34,22 @@ func auditCfg(backends ...string) *bootstrapv1.Audit {
 // 退役，有意行为变更）。
 func TestStdAuditProvider_Build(t *testing.T) {
 	p := stdAuditProvider{}
-	scope := BuildScope{Config: &bootstrapv1.BootstrapConfig{}}
+	scope := ApplyScope{Config: &bootstrapv1.BootstrapConfig{}}
 
 	// 段缺省：不装配。
-	if a, _, err := p.Build(context.Background(), scope); a != nil || err != nil {
+	if a, _, err := p.Build(context.Background(), scope, Node{}); a != nil || err != nil {
 		t.Fatalf("nil section: a=%v err=%v", a, err)
 	}
 
 	// 空列表：fail-fast。
 	scope.Config.Audit = &bootstrapv1.Audit{}
-	if _, _, err := p.Build(context.Background(), scope); err == nil {
+	if _, _, err := p.Build(context.Background(), scope, Node{}); err == nil {
 		t.Fatal("empty backends should fail")
 	}
 
 	// [log]：内置 LoggerAuditor。
 	scope.Config.Audit = auditCfg("log")
-	a, cleanup, err := p.Build(context.Background(), scope)
+	a, cleanup, err := p.Build(context.Background(), scope, Node{})
 	if err != nil || a == nil || cleanup != nil {
 		t.Fatalf("log builtin: a=%v cleanup-set=%v err=%v", a, cleanup != nil, err)
 	}
@@ -59,14 +59,14 @@ func TestStdAuditProvider_Build(t *testing.T) {
 
 	// [store]：std 不含第三方后端，fail-fast 并指向 Provider 覆盖出口。
 	scope.Config.Audit = auditCfg("store")
-	_, _, err = p.Build(context.Background(), scope)
+	_, _, err = p.Build(context.Background(), scope, Node{})
 	if err == nil || !strings.Contains(err.Error(), "declare an audit Provider") {
 		t.Fatalf("store should fail with provider guidance, got %v", err)
 	}
 
 	// 重复项：经 audit.Compose 重复检测 fail-fast。
 	scope.Config.Audit = auditCfg("log", "log")
-	if _, _, err = p.Build(context.Background(), scope); err == nil {
+	if _, _, err = p.Build(context.Background(), scope, Node{}); err == nil {
 		t.Fatal("duplicate backend should fail")
 	}
 }

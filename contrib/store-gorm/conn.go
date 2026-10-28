@@ -11,13 +11,15 @@
 //	)
 //
 // 驱动策略（对齐 registry 模块的注册制，未 import 的后端零依赖）：
+//
 //   - sqlite：预注册（glebarez 纯 Go driver，本模块既有直接依赖），别名 sqlite/sqlite3/file；
+//
 //   - postgres / mysql 等：业务侧 import gorm driver 后显式注册：
 //
-//	import gormpostgres "gorm.io/driver/postgres"
+//     import gormpostgres "gorm.io/driver/postgres"
 //
-//	baldgorm.RegisterDialector("postgres", gormpostgres.Open)
-//	baldgorm.RegisterDialector("postgresql", gormpostgres.Open) // URL 形式 scheme 别名
+//     baldgorm.RegisterDialector("postgres", gormpostgres.Open)
+//     baldgorm.RegisterDialector("postgresql", gormpostgres.Open) // URL 形式 scheme 别名
 //
 // 未注册的驱动 Open 报明确错误（fail-fast，不静默降级）。
 package baldgorm

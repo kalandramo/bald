@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/kalandramo/bald/pkg/store"
 	storev1 "github.com/kalandramo/bald/bconf/gen/go/bald/store/v1"
+	"github.com/kalandramo/bald/pkg/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	// SQLite 用纯 Go driver（glebarez）：本机/CI 无 gcc 时 cgo 版 go-sqlite3 整体失效
@@ -115,14 +115,14 @@ func TestGormFilterSortPaging(t *testing.T) {
 
 	// 分页：第 1 页，每页 2
 	res, err = repo.ListWithPaging(ctx, &storev1.PagingRequest{
-		Page:      protoUint32(1),
-		PageSize:  protoUint32(2),
-		Sorting:   []*storev1.Sorting{store.Sort("age")},
+		Page:     protoUint32(1),
+		PageSize: protoUint32(2),
+		Sorting:  []*storev1.Sorting{store.Sort("age")},
 	})
 	require.NoError(t, err)
 	require.Len(t, res.Items, 2)
-	assert.Equal(t, "bob", res.Items[0].Name)   // 25
-	assert.Equal(t, "dave", res.Items[1].Name)  // 25 (稳定序)
+	assert.Equal(t, "bob", res.Items[0].Name)  // 25
+	assert.Equal(t, "dave", res.Items[1].Name) // 25 (稳定序)
 	assert.Equal(t, uint32(1), res.Meta.GetCurrentPage().GetValue())
 	assert.Equal(t, uint32(2), res.Meta.GetPageSize())
 	assert.Equal(t, uint32(2), res.Meta.GetTotalPages().GetValue())

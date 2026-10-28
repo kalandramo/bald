@@ -41,8 +41,19 @@ func (appProvider) Segments() []string { return []string{"registry.nacos"} }
 // Apply 把自身追加进声明（Provider 即 Option，可直接作为 MustServe 变参项）。
 func (appProvider) Apply(d *appkit.Decl) { d.Providers = append(d.Providers, appProvider{}) }
 
+// Plan 声明段节点（registry.nacos；阶段由段族决定）。
+func (appProvider) Plan(context.Context, appkit.PlanScope) ([]appkit.Node, error) {
+	return []appkit.Node{{
+		Key:        "registry.nacos",
+		Segments:   []string{"registry.nacos"},
+		Phase:      appkit.PhaseBootstrap,
+		Priority:   appkit.PriorityRegistry,
+		EffectName: "appkit:registrar-client",
+	}}, nil
+}
+
 // Build 复用既有 Provider 构造 nacos Registrar。
-func (appProvider) Build(ctx context.Context, s appkit.BuildScope) (any, appkit.Cleanup, error) {
+func (appProvider) Build(ctx context.Context, s appkit.ApplyScope, _ appkit.Node) (any, appkit.Cleanup, error) {
 	regSec := s.Config.GetRegistry()
 	if regSec == nil {
 		return nil, nil, fmt.Errorf("registry/nacos: registry section is missing " +

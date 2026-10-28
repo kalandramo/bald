@@ -303,11 +303,11 @@ func BenchmarkStdLoggerProvider_Build(b *testing.B) {
 			Slog: &bootstrapv1.Logger_Slog{Level: "info", Format: "console", OutputPath: "stdout"},
 		}},
 	}}
-	scope := BuildScope{Config: cfg, Decl: &Decl{}}
+	scope := ApplyScope{Config: cfg, Decl: &Decl{}}
 	ctx := context.Background()
 	b.ReportAllocs()
 	for b.Loop() {
-		prod, cleanup, err := prov.Build(ctx, scope)
+		prod, cleanup, err := prov.Build(ctx, scope, Node{})
 		if err != nil {
 			b.Fatal(err)
 		}

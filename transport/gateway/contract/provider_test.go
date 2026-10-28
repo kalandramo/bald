@@ -38,7 +38,7 @@ func TestAppProvider_ApplyPreservesFactory(t *testing.T) {
 	if len(d.Providers) != 1 {
 		t.Fatalf("decl providers = %d, want 1", len(d.Providers))
 	}
-	srv, _, err := d.Providers[0].Build(context.Background(), appkit.BuildScope{
+	srv, _, err := d.Providers[0].Build(context.Background(), appkit.ApplyScope{
 		Config: &bootstrapv1.BootstrapConfig{
 			Server: &bootstrapv1.Server{
 				Gateway: &bootstrapv1.Server_Gateway{
@@ -47,7 +47,7 @@ func TestAppProvider_ApplyPreservesFactory(t *testing.T) {
 				},
 			},
 		},
-	})
+	}, appkit.Node{})
 	if err != nil {
 		t.Fatalf("Build via decl: %v", err)
 	}
@@ -59,7 +59,7 @@ func TestAppProvider_ApplyPreservesFactory(t *testing.T) {
 func TestAppProvider_BuildConstructsServer(t *testing.T) {
 	srv, cleanup, err := AppProvider(func(context.Context, *grpc.ClientConn) (http.Handler, error) {
 		return http.NewServeMux(), nil
-	}).Build(context.Background(), appkit.BuildScope{
+	}).Build(context.Background(), appkit.ApplyScope{
 		Config: &bootstrapv1.BootstrapConfig{
 			Server: &bootstrapv1.Server{
 				Gateway: &bootstrapv1.Server_Gateway{
@@ -68,7 +68,7 @@ func TestAppProvider_BuildConstructsServer(t *testing.T) {
 				},
 			},
 		},
-	})
+	}, appkit.Node{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -81,13 +81,13 @@ func TestAppProvider_BuildConstructsServer(t *testing.T) {
 }
 
 func TestAppProvider_RegisterNilFailsFast(t *testing.T) {
-	_, _, err := AppProvider(nil).Build(context.Background(), appkit.BuildScope{
+	_, _, err := AppProvider(nil).Build(context.Background(), appkit.ApplyScope{
 		Config: &bootstrapv1.BootstrapConfig{
 			Server: &bootstrapv1.Server{
 				Gateway: &bootstrapv1.Server_Gateway{Addr: "127.0.0.1:18081"},
 			},
 		},
-	})
+	}, appkit.Node{})
 	if err == nil || !strings.Contains(err.Error(), "no register func provided") {
 		t.Fatalf("err = %v, want register func required", err)
 	}
@@ -96,22 +96,22 @@ func TestAppProvider_RegisterNilFailsFast(t *testing.T) {
 func TestAppProvider_AddrRequiredFailsFast(t *testing.T) {
 	_, _, err := AppProvider(func(context.Context, *grpc.ClientConn) (http.Handler, error) {
 		return http.NewServeMux(), nil
-	}).Build(context.Background(), appkit.BuildScope{
+	}).Build(context.Background(), appkit.ApplyScope{
 		Config: &bootstrapv1.BootstrapConfig{
 			Server: &bootstrapv1.Server{
 				Gateway: &bootstrapv1.Server_Gateway{BackendGrpcAddr: "127.0.0.1:19090"},
 			},
 		},
-	})
+	}, appkit.Node{})
 	if err == nil || !strings.Contains(err.Error(), "server.gateway.addr is required") {
 		t.Fatalf("err = %v, want addr required", err)
 	}
 }
 
 func TestAppProvider_SubSectionMissingSkips(t *testing.T) {
-	srv, cleanup, err := AppProvider(nil).Build(context.Background(), appkit.BuildScope{
+	srv, cleanup, err := AppProvider(nil).Build(context.Background(), appkit.ApplyScope{
 		Config: &bootstrapv1.BootstrapConfig{Server: &bootstrapv1.Server{}},
-	})
+	}, appkit.Node{})
 	if err != nil {
 		t.Fatalf("Build error = %v, want nil (skip)", err)
 	}
@@ -121,9 +121,9 @@ func TestAppProvider_SubSectionMissingSkips(t *testing.T) {
 }
 
 func TestAppProvider_TopSectionMissingIsBug(t *testing.T) {
-	_, _, err := AppProvider(nil).Build(context.Background(), appkit.BuildScope{
+	_, _, err := AppProvider(nil).Build(context.Background(), appkit.ApplyScope{
 		Config: &bootstrapv1.BootstrapConfig{},
-	})
+	}, appkit.Node{})
 	if err == nil || !strings.Contains(err.Error(), "report this as a bug") {
 		t.Fatalf("err = %v, want bug report (engine gates by exact path)", err)
 	}

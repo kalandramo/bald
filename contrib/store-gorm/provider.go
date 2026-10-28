@@ -55,8 +55,19 @@ func (gormProvider) Segments() []string { return []string{"database.sql"} }
 // 落声明时不能丢（transport/cron 同款处置）。
 func (p gormProvider) Apply(d *appkit.Decl) { d.Providers = append(d.Providers, p) }
 
+// Plan 声明段节点（database.sql；阶段由段族决定）。
+func (gormProvider) Plan(context.Context, appkit.PlanScope) ([]appkit.Node, error) {
+	return []appkit.Node{{
+		Key:        "database.sql",
+		Segments:   []string{"database.sql"},
+		Phase:      appkit.PhaseBootstrap,
+		Priority:   appkit.PriorityDatabase,
+		EffectName: "appkit:database-clients",
+	}}, nil
+}
+
 // Build 打开契约声明的 SQL 连接并落资源容器。
-func (p gormProvider) Build(_ context.Context, s appkit.BuildScope) (any, appkit.Cleanup, error) {
+func (p gormProvider) Build(_ context.Context, s appkit.ApplyScope, _ appkit.Node) (any, appkit.Cleanup, error) {
 	sec := s.Config.GetDatabase().GetSql()
 	if sec == nil {
 		return nil, nil, fmt.Errorf("baldgorm: database.sql section is missing " +

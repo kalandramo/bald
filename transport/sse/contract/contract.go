@@ -65,7 +65,7 @@ func WithServerOptions(opts ...sse.Option) Option {
 //
 // **时序**：回调在 sse.NewServer 之后、返回 server 之前执行——早于 appkit 的
 // Start。典型用途是把构造出的 *sse.Server 注册为业务的推送发布器
-//（如 bald-admin 的 message 域 Publisher 适配）。
+// （如 bald-admin 的 message 域 Publisher 适配）。
 //
 // ctx 为 provider 收到的启动上下文（Run 期），可透传给回调内的日志/初始化。
 func WithAfterBuild(fn func(context.Context, *sse.Server) error) Option {
@@ -81,7 +81,7 @@ func WithAfterBuild(fn func(context.Context, *sse.Server) error) Option {
 // 仅当契约 server.sse 段存在时构造（段缺失返回 nil server，BuildServers 跳过）。
 //
 // **addr 必填**：段存在但 addr 为空时 fail-fast——与 gateway contract 同判据
-//（「配了段却不给监听地址」是漏配，显式优于隐式）。注意这与「用 addr 空串表示
+// （「配了段却不给监听地址」是漏配，显式优于隐式）。注意这与「用 addr 空串表示
 // 不启用」的旧逃生舱语义相反：现在「不启用」的正确表达是**移除 sse 段**。
 //
 // 关于 tls：与 gateway contract 一致，本层只做契约字段到 sse.Option 的透传，
@@ -120,7 +120,7 @@ func Provider(opts ...Option) func(context.Context, *bootstrapv1.Server) (transp
 // buildOpts 把契约 sse 段映射为 sse.Option 序列。
 //
 // 「未设置」语义：path 为空时**不**调 WithPath——用实现默认值 "/events"
-//（与契约注释 server.proto 的「默认 /events」一致）。这避免「空段 sse: {}
+// （与契约注释 server.proto 的「默认 /events」一致）。这避免「空段 sse: {}
 // 反而把 path 设成空串」的反向陷阱。
 func buildOpts(sec *bootstrapv1.Server_Sse) []sse.Option {
 	var opts []sse.Option

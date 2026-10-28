@@ -53,7 +53,11 @@ func (stubScriptProvider) Segments() []string { return []string{"script"} }
 
 func (p stubScriptProvider) Apply(d *Decl) { d.Providers = append(d.Providers, p) }
 
-func (p stubScriptProvider) Build(_ context.Context, _ BuildScope) (any, Cleanup, error) {
+func (p stubScriptProvider) Plan(context.Context, PlanScope) ([]Node, error) {
+	return []Node{{Key: "script", Kind: "script", Segments: []string{"script"}, Phase: PhaseBootstrap}}, nil
+}
+
+func (p stubScriptProvider) Build(_ context.Context, _ ApplyScope, _ Node) (any, Cleanup, error) {
 	if p.rec != nil {
 		p.rec.mark("stageB")
 	}

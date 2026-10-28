@@ -64,9 +64,25 @@ func (stdLoggerProvider) Segments() []string { return []string{"logger"} }
 // Apply 把自身追加进声明（Provider 即 Option）。
 func (stdLoggerProvider) Apply(d *Decl) { d.Providers = append(d.Providers, stdLoggerProvider{}) }
 
+// Plan 声明日志节点：阶段 B 引导位（PriorityLogger 先于其它阶段 B 资源）；
+// 停机 Effect 名与旧 12 段流一致（appkit:bootstrap-logger）。
+func (stdLoggerProvider) Plan(context.Context, PlanScope) ([]Node, error) {
+	return []Node{{
+		Key:        "logger",
+		Kind:       "logger",
+		Segments:   []string{"logger"},
+		Phase:      PhaseBootstrap,
+		Priority:   PriorityLogger,
+		Reload:     ReloadStatic,
+		EffectName: "appkit:bootstrap-logger",
+		Opaque:     true,
+		Origin:     OriginStd,
+	}}, nil
+}
+
 // Build 构造日志后端。产物为 log.Logger（引擎 loggerSource 协议消费；
 // cleanup 交 curCleanup 原子换槽——文件/轮转句柄的释放与热更重建不泄漏）。
-func (stdLoggerProvider) Build(_ context.Context, s BuildScope) (any, Cleanup, error) {
+func (stdLoggerProvider) Build(_ context.Context, s ApplyScope, _ Node) (any, Cleanup, error) {
 	deco := s.Decl.logDecorators
 	// l==nil：阶段 A（契约装载前）或契约无 logger 段——回退引导 bslog。
 	l := s.Config.GetLogger()
@@ -120,11 +136,25 @@ func (stdServerProvider) Segments() []string { return []string{"server.http", "s
 // Apply 把自身追加进声明（Provider 即 Option，可直接作为 MustServe 变参项）。
 func (stdServerProvider) Apply(d *Decl) { d.Providers = append(d.Providers, stdServerProvider{}) }
 
+// Plan 声明协议服务器节点：迟后阶段（PhaseServe）——业务 BeforeStart 钩子
+// 之后构造，register 回调与 handler 消费业务建好的运行期资源。
+func (stdServerProvider) Plan(context.Context, PlanScope) ([]Node, error) {
+	return []Node{{
+		Key:      "server",
+		Kind:     "server",
+		Segments: []string{"server.grpc", "server.http"},
+		Phase:    PhaseServe,
+		Reload:   ReloadStatic,
+		Opaque:   true,
+		Origin:   OriginStd,
+	}}, nil
+}
+
 // Build 按能力声明构造协议服务器（gRPC 先于 HTTP——与旧 BuildServers 的
 // 注册名排序 "grpc" < "http" 一致，保持服务器列表序与停机聚合序不变）。
 // 产物为 []transport.Server（零能力声明 = 空切片，跳过构造合法：纯后台
 // 进程）；cleanup 聚合逆序释放（后建先收，与 runClosers 栈式语义一致）。
-func (p stdServerProvider) Build(ctx context.Context, s BuildScope) (any, Cleanup, error) {
+func (p stdServerProvider) Build(ctx context.Context, s ApplyScope, _ Node) (any, Cleanup, error) {
 	d := s.Decl
 	if d.HTTPHandler == nil && d.GatewayRegister == nil && d.GRPCRegister == nil {
 		return nil, nil, nil // 零能力声明：跳过构造（纯后台进程合法）
@@ -216,12 +246,30 @@ func (stdAuditProvider) Segments() []string { return []string{"audit"} }
 // Apply 把自身追加进声明（Provider 即 Option）。
 func (stdAuditProvider) Apply(d *Decl) { d.Providers = append(d.Providers, stdAuditProvider{}) }
 
+// Plan 声明审计节点：阶段 B 构建（audit_wiring_order_test 钉住它依赖
+// database/cache 客户端就绪——PriorityAudit 排在二者之后）；TeardownAfter
+// ["*"] 使停机回放最后执行：stream 尾批审计事件在指标/span flush 之后收集。
+func (stdAuditProvider) Plan(context.Context, PlanScope) ([]Node, error) {
+	return []Node{{
+		Key:           "audit",
+		Kind:          "audit",
+		Segments:      []string{"audit"},
+		Phase:         PhaseBootstrap,
+		Priority:      PriorityAudit,
+		Reload:        ReloadStatic,
+		TeardownAfter: []ResourceKey{"*"},
+		EffectName:    "appkit:audit-restore",
+		Opaque:        true,
+		Origin:        OriginStd,
+	}}, nil
+}
+
 // Build 按契约 audit.backends 列表装配审计后端（多选，列表序即广播序）。
 // "log" 内置；其余项 fail-fast 教学报错（std 不含第三方后端——经用户
 // audit Provider 接管）。多后端组装、失败逆序回滚收敛在 pkg/audit.Compose。产物为 audit.Auditor，
 // 落资源面并作 appkit 自身审计事件的
 // 兜底 sink（B8：全局 SetAuditor 已删除）——见 storeProduct。
-func (stdAuditProvider) Build(ctx context.Context, s BuildScope) (any, Cleanup, error) {
+func (stdAuditProvider) Build(ctx context.Context, s ApplyScope, _ Node) (any, Cleanup, error) {
 	acfg := s.Config.GetAudit()
 	if acfg == nil {
 		return nil, nil, nil // 段缺省：不装配（引擎仅在段存在时调用，防御性）

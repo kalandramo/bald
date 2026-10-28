@@ -36,7 +36,7 @@ func TestAppProvider_ApplyAddsToDecl(t *testing.T) {
 }
 
 func TestAppProvider_BuildConstructsStorage(t *testing.T) {
-	scope := appkit.BuildScope{Config: &bootstrapv1.BootstrapConfig{
+	scope := appkit.ApplyScope{Config: &bootstrapv1.BootstrapConfig{
 		Storage: &bootstrapv1.Storage{
 			S3: &bootstrapv1.Storage_S3{
 				Region:    "us-east-1",
@@ -45,7 +45,7 @@ func TestAppProvider_BuildConstructsStorage(t *testing.T) {
 			},
 		},
 	}}
-	product, cleanup, err := appProvider{}.Build(context.Background(), scope)
+	product, cleanup, err := appProvider{}.Build(context.Background(), scope, appkit.Node{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -66,28 +66,28 @@ func TestAppProvider_BuildConstructsStorage(t *testing.T) {
 }
 
 func TestAppProvider_TopSectionMissingIsBug(t *testing.T) {
-	scope := appkit.BuildScope{Config: &bootstrapv1.BootstrapConfig{}}
-	_, _, err := appProvider{}.Build(context.Background(), scope)
+	scope := appkit.ApplyScope{Config: &bootstrapv1.BootstrapConfig{}}
+	_, _, err := appProvider{}.Build(context.Background(), scope, appkit.Node{})
 	if err == nil || !strings.Contains(err.Error(), "report this as a bug") {
 		t.Fatalf("err = %v, want bug report (engine gates by exact path)", err)
 	}
 }
 
 func TestAppProvider_SubSectionMissingFailsFast(t *testing.T) {
-	scope := appkit.BuildScope{Config: &bootstrapv1.BootstrapConfig{
+	scope := appkit.ApplyScope{Config: &bootstrapv1.BootstrapConfig{
 		Storage: &bootstrapv1.Storage{},
 	}}
-	_, _, err := appProvider{}.Build(context.Background(), scope)
+	_, _, err := appProvider{}.Build(context.Background(), scope, appkit.Node{})
 	if err == nil || !strings.Contains(err.Error(), "s3 section is missing") {
 		t.Fatalf("err = %v, want s3 section missing", err)
 	}
 }
 
 func TestAppProvider_RegionRequiredFailsFast(t *testing.T) {
-	scope := appkit.BuildScope{Config: &bootstrapv1.BootstrapConfig{
+	scope := appkit.ApplyScope{Config: &bootstrapv1.BootstrapConfig{
 		Storage: &bootstrapv1.Storage{S3: &bootstrapv1.Storage_S3{}},
 	}}
-	_, _, err := appProvider{}.Build(context.Background(), scope)
+	_, _, err := appProvider{}.Build(context.Background(), scope, appkit.Node{})
 	if err == nil || !strings.Contains(err.Error(), "s3.region is required") {
 		t.Fatalf("err = %v, want region required", err)
 	}

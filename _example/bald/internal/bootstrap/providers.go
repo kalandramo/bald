@@ -43,9 +43,22 @@ func (p loggerProvider) Segments() []string { return []string{"logger"} }
 // Apply 把自身追加进声明（Provider 即 Option，可直接作为 MustServe 变参项）。
 func (p loggerProvider) Apply(d *appkit.Decl) { d.Providers = append(d.Providers, p) }
 
+// Plan 声明 logger 节点：段路径 logger、引导阶段、日志优先级，稳定效果名
+// 供热更期原子换槽。
+func (p loggerProvider) Plan(context.Context, appkit.PlanScope) ([]appkit.Node, error) {
+	return []appkit.Node{{
+		Key:        "logger",
+		Kind:       "logger",
+		Segments:   []string{"logger"},
+		Phase:      appkit.PhaseBootstrap,
+		Priority:   appkit.PriorityLogger,
+		EffectName: "appkit:bootstrap-logger",
+	}}, nil
+}
+
 // Build 构造日志后端（产物 log.Logger，引擎 loggerSource 协议消费；cleanup
 // 交 curCleanup 原子换槽——文件/轮转句柄的释放与热更重建不泄漏）。
-func (p loggerProvider) Build(_ context.Context, s appkit.BuildScope) (any, appkit.Cleanup, error) {
+func (p loggerProvider) Build(_ context.Context, s appkit.ApplyScope, _ appkit.Node) (any, appkit.Cleanup, error) {
 	l := s.Config.GetLogger()
 	if l == nil {
 		// 阶段 A（契约装载前）：引导 bslog——启动期日志仍带脱敏。

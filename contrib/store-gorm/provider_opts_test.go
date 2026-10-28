@@ -23,10 +23,10 @@ import (
 // buildAppProvider 包装 AppProvider 产物 Build：断言产物形状并注册连接池清理。
 func buildAppProvider(t *testing.T, p appkit.Provider, sec *bootstrapv1.Database_SQL) *gorm.DB {
 	t.Helper()
-	scope := appkit.BuildScope{Config: &bootstrapv1.BootstrapConfig{
+	scope := appkit.ApplyScope{Config: &bootstrapv1.BootstrapConfig{
 		Database: &bootstrapv1.Database{Sql: sec},
 	}}
-	product, cleanup, err := p.Build(context.Background(), scope)
+	product, cleanup, err := p.Build(context.Background(), scope, appkit.Node{})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = cleanup(context.Background()) })
 	m, ok := product.(map[string]any)
@@ -59,9 +59,9 @@ func TestAppProvider_WithEnvPassthrough(t *testing.T) {
 	sec := &bootstrapv1.Database_SQL{Driver: "postgres", Source: "host=from-config"}
 
 	// 反证：零变参沿契约段打开 postgres，未注册驱动 fail-fast。
-	_, _, err := AppProvider().Build(context.Background(), appkit.BuildScope{
+	_, _, err := AppProvider().Build(context.Background(), appkit.ApplyScope{
 		Config: &bootstrapv1.BootstrapConfig{Database: &bootstrapv1.Database{Sql: sec}},
-	})
+	}, appkit.Node{})
 	require.ErrorContains(t, err, "unregistered database driver")
 
 	db := buildAppProvider(t,

@@ -27,7 +27,7 @@ func TestLoggerProviderMasksAttrAndTagsServiceName(t *testing.T) {
 	}}
 
 	p := newLoggerProvider().(loggerProvider)
-	product, cleanup, err := p.Build(context.Background(), appkit.BuildScope{Config: cfg, Decl: &appkit.Decl{}})
+	product, cleanup, err := p.Build(context.Background(), appkit.ApplyScope{Config: cfg, Decl: &appkit.Decl{}}, appkit.Node{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}

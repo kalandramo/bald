@@ -1,40 +1,44 @@
-// provider.go 实现段驱动的 Provider 装配抽象。
+// provider.go 实现段驱动的 Provider 装配抽象（v2：Plan/Build 分离）。
 //
-// 核心抽象只有两个：
+// 核心抽象：
 //
 //	type Provider interface {
-//	    Option                          // Provider 值可直接作为 Option 传入 MustServe/NewApp
-//	    Segments() []string             // 声明消费的契约段路径（顶层段名或子段路径）
-//	    Build(ctx, BuildScope) (any, Cleanup, error)
+//	    Option                        // Provider 值可直接作为 Option 传入 MustServe/NewApp
+//	    Segments() []string           // 声明消费/归属的契约段路径
+//	    Plan(ctx, PlanScope) ([]Node, error)          // 纯函数：声明阶段/优先级/依赖/停机约束
+//	    Build(ctx, ApplyScope, Node) (any, Cleanup, error) // 唯一允许副作用的入口
 //	}
 //	func Providers(ps ...Provider) Option
+//	func AdaptLegacy(p LegacyProvider) Provider  // v1（只有 Build）迁移期适配
 //
-// 装配引擎（assemble，bootstrap.go）不再手写 12 段逐域调用，改为：
+// v2 把「计划」与「构建」拆开：Plan 只读契约与声明，返回带 Phase/Priority/
+// DependsOn/TeardownAfter 的节点；引擎以节点为唯一排序源（不再维护
+// stageBRank/cleanupOrder 手工表），Build 按节点顺序逐项执行。v1 Provider
+// （Build(ctx, BuildScope)）经 AdaptLegacy 包装为一个 Opaque 节点——计划里
+// 如实标 legacy，不假装可分析。
+//
+// 装配引擎（assemble，bootstrap.go）不再手写 12 段逐域调用，而是：
 //
 //  1. 解析声明：收集全部 Provider，按**精确段路径**做末者胜（后声明的 Provider
 //     接管同一路径——std.Standard() 的默认后端由此可被用户 Provider 覆盖；
 //     不同路径并存——server.http 与 server.asynq 可同时由不同 Provider 供给）；
-//  2. 枚举契约：段存在性由 protobuf 反射给出（segmentPresent）——**段缺失 =
-//     Provider 跳过（合法）**，段在而 Build 失败 = fail-fast；
-//  3. 分阶段构建（providerPhase）：config 段在构造期构建（层产出要进
-//     kitOpts）、server 段延后到业务 BeforeStart 钩子之后（服务器构造时序，
-//     wiring_order_test 钉住）、其余段在阶段 B 框架钩子内按 canonical 序构建
-//     （logger → registry → tracer → metrics → database → cache → storage →
-//     audit → ai → workflow → broker；audit 在 storage 与 ai 之间的既有次序）；
-//  4. 产物入库：引擎按顶层段把 Build 产物放进 App 的统一资源面
-//     （storeProduct → App.Resource(segment)，B4）——注册中心实例、六域
-//     客户端、审计后端与表外段产物均按契约段路径存取（map 产物按
-//     "<顶层段>.<子段>" 展开），服务器列表经 storeServerProduct 并入停机序；
-//  5. 停机回收：每个 Provider 的 cleanup 在构造期按 canonical 停机序预登记
-//     Effect（槽位模式，Build 成功后填充）——Effect 注册序即构建序，
-//     逆序回放（audit-restore 仍最后执行）；
-//  6. L3 覆盖检查（segment_coverage.go）：全部构建完成后枚举「实际出现的
-//     顶层段 − 已消费段 − 白名单」，非空即启动期报错。
+//     段归属重复在计划中以 override 警告显式化（B3：v0.26 告警、v0.27 报错）。
+//  2. 节点归一：每个 Provider 的 Plan 产出一个节点（Phase/Priority/Key/…）；
+//     引擎校验节点阶段与段族一致（config→Configure、server→Serve、其余→
+//     Bootstrap），按节点对同 Key 冲突做 I4 裁决（唯一 Override + Reason 胜出，
+//     其余失败）。
+//  3. 段存在性 gate：段缺失 = Provider 跳过（合法）；config 段无条件构建。
+//  4. 排序：orderNodes（阶段 → Kahn 拓扑 → (Priority, Key)）是唯一排序实现。
+//  5. 构建：阶段 B / 迟后阶段逐节点 Build；产物入库（storeProduct）、cleanup
+//     入节点槽位。
+//  6. 停机：teardownOrder 由「Apply 逆序 + TeardownAfter」推出停机序（audit
+//     等节点可声明 ["*"] 排到最后），Effect 按停机序的逆序注册。
+//  7. L3 覆盖检查（segment_coverage.go）：段实际出现 − 已消费 − 白名单，非空
+//     即启动期报错。
 //
-// logger 与 app 两个段**不在 Provider 循环里**：它们的消费是无条件的（段
-// 缺失 = 用默认后端/默认元数据，而非跳过），且 logger 承载两阶段重建与热更
-// ——与「段在才构建、段缺即跳过」的 Provider 语义不同构。logger Provider
-// 覆盖经专用通道（phaseLogger，见 bootstrap.go 的 loggerSource 适配）。
+// logger 与 app 两个段**不在 Provider 构建循环里**：它们的消费是无条件的，
+// 且 logger 承载两阶段重建与热更——logger Provider 的 Plan 节点进计划，
+// Build 经 loggerSource 专用通道调用（见 bootstrap.go）。
 package appkit
 
 import (
@@ -60,30 +64,47 @@ func noopCleanup(cleanup func()) Cleanup {
 	return func(context.Context) error { cleanup(); return nil }
 }
 
-// BuildScope 是 Provider 构建期的输入（服务器构造消费 Decl 的能力声明，
-// 故整份声明随 scope 传递）。
-type BuildScope struct {
-	// Config 装配契约。阶段 B / server 阶段为已装载定型的完整契约；config
-	// 段构造期与 logger 阶段 A 可为 nil（契约尚未/无需装载）。
+// PlanScope 是 Plan 的输入（纯数据；Provider 不得改写 Decl）。
+type PlanScope struct {
+	// Config 已定形的契约（只读）。阶段 A 的 logger Plan 可为 nil。
 	Config *bootstrapv1.BootstrapConfig
-	// Decl 全部装配期声明（只读约定：Provider 不得改写）。声明缺省的字段
-	// （如未经 WithHealth 的 ProbeLivePath）保持零值，勿假设已回填默认。
+	// Decl 全部装配期声明（只读）。
 	Decl *Decl
-	// App 资源容器：阶段 B 起（含 server 阶段）非 nil，且**前序段产物已
-	// 填充**（audit 后端经 App.Resource("database.sql") 取连接即依赖此
-	// 序）；config 段构造期与 logger 阶段 A 为 nil（App 尚未构造）。
-	App *App
+	// Role 应用角色（当前为空；生成物/多角色应用可使用）。
+	Role string
 }
 
-// Provider 消费契约段并构建该段产物。
+// ApplyScope 是 Build 的输入（PlanScope + 资源容器与当前节点）。
+type ApplyScope struct {
+	Config *bootstrapv1.BootstrapConfig
+	Decl   *Decl
+	Role   string
+	// App 资源容器：阶段 B 起非 nil，且前序节点产物已填充。
+	App *App
+	// Node 正在应用的节点（Plan 返回的那一个）。
+	Node Node
+}
+
+// BuildScope 是 v1 Provider（LegacyProvider）的构建输入，保留给 AdaptLegacy。
+type BuildScope struct {
+	Config *bootstrapv1.BootstrapConfig
+	Decl   *Decl
+	App    *App
+}
+
+// Provider 消费契约段并构建该段产物（v2）。
 //
 // Segments 声明**契约段路径**：顶层段名（"database"、"audit"）或子段路径
 // （"database.sql"、"server.http"）。路径按精确匹配做末者胜：后声明的
-// Provider 接管同一路径（覆盖 std 默认后端），不同路径并存（多协议/多引擎）。
+// Provider 接管同一路径（覆盖 std 默认后端），不同路径并存。
+//
+// Plan 必须是纯函数：不写文件、不发网络、不改全局、不构造实例。返回的节点
+// 必须包含 Key 与 Phase；Segments 缺省取 Segments()；Kind/Origin/Reload 缺省
+// 由引擎填充。M1 支持每个 Provider 恰好一个节点。
 //
 // Build 仅在「至少一条声明路径实际出现于契约」时被调用（段缺失 = 跳过，
-// 合法语义）；段内子段的存在性与分派由实现自持（可复用 bootstrap 各域
-// Registry 作内部机制）。Build 失败 = fail-fast，启动中止。
+// 合法语义）；config 段无条件构建。Build 失败 = fail-fast，启动中止。
+// （方法名沿用 v1 的 Build：Option 已占用 Apply(*Decl)，Go 无方法重载。）
 //
 // Provider 嵌入 Option（Apply 把自身追加进声明）——Provider 值可直接作为
 // MustServe/NewApp 的变参项，与 std.Standard()、业务域 Option 并列：
@@ -93,10 +114,20 @@ type Provider interface {
 	Option
 	// Segments 声明本 Provider 消费的契约段路径（非空；空路径装配期报错）。
 	Segments() []string
-	// Build 构建段产物。返回值：(产物, 停机清理, 错误)。产物形状按顶层段
-	// 约定（见 storeProduct）：registry 段为 registry.Registrar，六资源域为
-	// map[string]any（键=子段名），audit 段为 audit.Auditor，server 段为
-	// []transport.Server，config 段为 []config.Layer；无产物可返回 nil。
+	// Plan 返回本 Provider 的资源节点（M1：恰好一个）。
+	Plan(ctx context.Context, s PlanScope) ([]Node, error)
+	// Build 构建节点产物。产物形状按顶层段约定（见 storeProduct）：registry
+	// 段为 registry.Registrar，六资源域为 map[string]any（键=子段名），
+	// audit 段为 audit.Auditor，server 段为 []transport.Server，config 段为
+	// []config.Layer；无产物可返回 nil。
+	Build(ctx context.Context, s ApplyScope, n Node) (any, Cleanup, error)
+}
+
+// LegacyProvider 是 v1 Provider（只有 Build，无 Plan）。迁移期经 AdaptLegacy
+// 进入 v2 引擎；计划中显示为 Opaque legacy 节点。
+type LegacyProvider interface {
+	Option
+	Segments() []string
 	Build(ctx context.Context, s BuildScope) (any, Cleanup, error)
 }
 
@@ -111,6 +142,62 @@ func Providers(ps ...Provider) Option {
 		}
 	})
 }
+
+// AdaptLegacy 把 v1 Provider 包装成 v2：计划中为一个 Opaque 节点，Key 由段
+// 路径合成，Build 委托原 Build。第三方 Provider 迁移期的兜底通道；节点标
+// origin=legacy（不假装可计划）。
+func AdaptLegacy(p LegacyProvider) Provider {
+	if p == nil {
+		return nil
+	}
+	return legacyProvider{p: p}
+}
+
+// legacyProvider 是 AdaptLegacy 的包装体。
+type legacyProvider struct{ p LegacyProvider }
+
+func (l legacyProvider) Segments() []string { return l.p.Segments() }
+func (l legacyProvider) Apply(d *Decl)      { d.Providers = append(d.Providers, l) }
+
+func (l legacyProvider) Plan(_ context.Context, s PlanScope) ([]Node, error) {
+	segs := sortedUnique(l.p.Segments())
+	if len(segs) == 0 {
+		return nil, fmt.Errorf("appkit: legacy provider declares no segments")
+	}
+	return []Node{{
+		Key:      nodeKey(segs),
+		Kind:     segmentTop(segs[0]),
+		Segments: segs,
+		Phase:    phaseFor(phaseByTop(segmentTop(segs[0]))),
+		Priority: PriorityLegacy,
+		Reload:   ReloadStatic,
+		Opaque:   true,
+		Origin:   OriginLegacy,
+	}}, nil
+}
+
+func (l legacyProvider) Build(ctx context.Context, s ApplyScope, _ Node) (any, Cleanup, error) {
+	return l.p.Build(ctx, BuildScope{Config: s.Config, Decl: s.Decl, App: s.App})
+}
+
+// 优先级常量：同阶段 ready 集合的显式排序键（越小越先）。数值是 Provider
+// 声明的一部分（不再是引擎手工表）；第三方可自选任意值，默认 0。
+const (
+	PriorityLogger   = 10 // 阶段 A/B 日志引导（先于其它阶段 B 资源）
+	PriorityRegistry = 20
+	PriorityTracer   = 30
+	PriorityMetrics  = 40
+	PriorityDatabase = 50
+	PriorityCache    = 60
+	PriorityStorage  = 70
+	PriorityAudit    = 80 // 审计依赖 database/cache/storage 客户端就绪
+	PriorityAI       = 90
+	PriorityWorkflow = 100
+	PriorityBroker   = 110
+	// PriorityLegacy 是 AdaptLegacy 节点的缺省优先级：排在声明了阶段内优先
+	// 级的原生 Provider 之后（Bootstrap），与旧表「表外段排其后」等价。
+	PriorityLegacy = 500
+)
 
 // WithUnimplementedSegments 显式豁免「契约已声明、框架尚无消费者」的段
 // （L3 覆盖检查的白名单出口）。
@@ -213,71 +300,64 @@ func phaseByTop(top string) providerPhase {
 	}
 }
 
-// stageBRank 是阶段 B 的 canonical 构建序（= 旧 12 段手工流的调用序；audit
-// 依赖 database/cache 客户端就绪，排在二者之后——audit_wiring_order_test
-// 钉住）。表外段（第三方）排在其后、按声明序稳定排列。
-var stageBRank = map[string]int{
-	"logger": 0, "registry": 1, "tracer": 2, "metrics": 3,
-	"database": 4, "cache": 5, "storage": 6, "audit": 7,
-	"ai": 8, "workflow": 9, "broker": 10,
-}
-
-// cleanupOrder 是停机 Effect 的 canonical **注册序**（逆序回放即停机释放序，
-// 与旧 12 段流的 Effect 注册序逐条一致）：audit-restore 注册最早 → 回放最后
-// （stream 尾批审计事件在指标/span flush 之后收集），logger 恢复居中。
-// 表外的第三方 Provider cleanup 在本序全部登记之后追加（回放更早——业务
-// 资源先收、框架底座后收）。
-var cleanupOrder = []string{
-	"audit", "tracer", "metrics", "logger", "registry",
-	"database", "cache", "storage", "ai", "workflow", "broker",
-}
-
-// effectNameBySegment 是各 canonical 段停机 Effect 的名字（与旧 12 段流的
-// Effect 名逐字一致——时序断言与停机日志依赖这些名字）。
-var effectNameBySegment = map[string]string{
-	"audit":    "appkit:audit-restore",
-	"tracer":   "appkit:tracer-shutdown",
-	"metrics":  "appkit:metrics-server",
-	"logger":   "appkit:bootstrap-logger",
-	"registry": "appkit:registrar-client",
-	"database": "appkit:database-clients",
-	"cache":    "appkit:cache-clients",
-	"storage":  "appkit:storage-clients",
-	"ai":       "appkit:ai-clients",
-	"workflow": "appkit:workflow-clients",
-	"broker":   "appkit:broker-clients",
+// providerEntry 把 Provider 与其 Plan 节点绑定：节点是执行与排序的唯一依据。
+type providerEntry struct {
+	prov Provider
+	node Node
 }
 
 // providerPlan 是装配期解析完成的 Provider 计划：路径末者胜后的活跃集合，
-// 按阶段分组、阶段内按 canonical 序排列。
+// Plan 节点经冲突裁决（I4）与统一排序，按阶段分组。
 type providerPlan struct {
 	// byPath 记录每条声明路径的最终归属（末者胜；值 = active 下标+1，0 = 无归属）。
 	byPath map[string]int
-	// active 是末者胜后的活跃 Provider（保声明序）。
+	// active 是末者胜后的活跃 Provider（保声明序；含被程序化 Registrar 接管
+	// 而跳过构建的纯 registry Provider——L3 覆盖检查仍视其段为已消费）。
 	active []Provider
-	// construct/stageB/late 是分阶段后的活跃集合（阶段内 canonical 序）。
-	construct []Provider
-	stageB    []Provider
-	late      []Provider
-	// loggerProv 是接管日志装配的 Provider（至多一个）。
+
+	// entries 是存活节点（冲突裁决后），按全局 apply 序排列（不含 logger）。
+	entries []providerEntry
+	// construct/stageB/late 是 entries 的阶段视图（阶段内 apply 序）。
+	construct []providerEntry
+	stageB    []providerEntry
+	late      []providerEntry
+
+	// loggerProv/loggerNode 是日志装配的专用通道（恒非 nil：零声明回退内置
+	// StandardLoggerProvider）。logger 不在 entries 里——它走两阶段 + 热更协议。
 	loggerProv Provider
+	loggerNode Node
+
+	// applyNodes 是停机推导的输入：logger 节点 + 阶段 B 节点（apply 序）。
+	applyNodes []Node
+	// teardown 是停机序（先执行者在前）：Apply 逆序 + TeardownAfter 约束（I5）。
+	teardown []ResourceKey
+	// effectName 是节点停机 Effect 名（键 = 节点 Key；与旧 Effect 名逐字一致）。
+	effectName map[ResourceKey]string
+
 	// unimplemented 是白名单集合（查 O(1)）。
 	unimplemented map[string]bool
+	// warnings 是计划期诊断（同 Key 覆盖等），由 Compile 并入 Plan.Warnings。
+	warnings []Diagnostic
 }
 
-// newProviderPlan 解析 Decl.Providers：收集路径 → 末者胜 → 分阶段排序。
-// 校验：空段路径报错；同一 Provider 声明跨阶段路径报错（一次 Build 无法同时
-// 服务两种调用时机与两份 scope 约定）。
-func newProviderPlan(d *Decl) (*providerPlan, error) {
-	plan := &providerPlan{byPath: map[string]int{}, unimplemented: map[string]bool{}}
+// newProviderPlan 解析 Decl.Providers：路径末者胜 → 段存在性 gate →
+// Provider.Plan → 节点冲突裁决 → 统一排序。校验：空段路径、跨阶段段族、
+// 每 Provider 恰一节点、节点阶段与段族一致。
+func newProviderPlan(ctx context.Context, d *Decl, cfg *bootstrapv1.BootstrapConfig) (*providerPlan, error) {
+	plan := &providerPlan{
+		byPath:        map[string]int{},
+		unimplemented: map[string]bool{},
+		effectName:    map[ResourceKey]string{},
+	}
 	for _, name := range d.UnimplementedSegments {
 		if name != "" {
 			plan.unimplemented[name] = true
 		}
 	}
 
-	// 收集每条路径的末者（后声明覆盖先声明——std 默认后端可被用户覆盖）。
-	lastOwner := map[string]int{} // path → provider 下标
+	// 1. 路径末者胜：收集每条路径的末声明者（后声明覆盖先声明——std 默认
+	// 后端可被用户覆盖）。
+	lastOwner := map[string]int{}
 	for i, p := range d.Providers {
 		segs := p.Segments()
 		if len(segs) == 0 {
@@ -290,42 +370,220 @@ func newProviderPlan(d *Decl) (*providerPlan, error) {
 			lastOwner[s] = i
 		}
 	}
-	// 活跃 = 至少最终拥有一条路径的 Provider（保声明序去重；路径的最终归属
-	// 即其末声明者，必在活跃集合内）。
 	owned := map[int]bool{}
 	for _, i := range lastOwner {
 		owned[i] = true
 	}
+
+	// 2. 活跃集合 + Plan 纯推导。段存在性 gate 在此一次完成：config 段无条件
+	// （源可独立于契约 config 段存在）、logger 恒规划（两阶段协议）、其余段
+	// 缺失即跳过（合法，L2）。
+	scope := PlanScope{Config: cfg, Decl: d}
+	var (
+		allEntries []providerEntry
+		haveLogger bool
+	)
 	for i, p := range d.Providers {
 		if !owned[i] {
 			continue
 		}
+		segs := p.Segments()
 		plan.active = append(plan.active, p)
-		for _, s := range p.Segments() {
+		for _, s := range segs {
 			plan.byPath[s] = len(plan.active) // 1-based；后写覆盖前写 = 末者胜
+		}
+		ph, err := providerPhaseFamily(p)
+		if err != nil {
+			return nil, err
+		}
+		// 显式 Registrar 实例接管 registry 段：纯 registry Provider 整体跳过
+		//（程序化接管 = 刻意覆盖）。
+		if d.Registrar != nil && providerAllTop(p, "registry") {
+			continue
+		}
+		if ph != phaseConstruct && ph != phaseLogger && !providerTriggered(cfg, p) {
+			continue
+		}
+		planned, err := p.Plan(ctx, scope)
+		if err != nil {
+			return nil, fmt.Errorf("appkit: provider %v: plan: %w", segs, err)
+		}
+		if len(planned) != 1 {
+			return nil, fmt.Errorf("appkit: provider %v returned %d plan nodes; M1 requires exactly one", segs, len(planned))
+		}
+		node, err := plan.normalizeNode(p, planned[0])
+		if err != nil {
+			return nil, err
+		}
+		if ph == phaseLogger {
+			if haveLogger {
+				return nil, fmt.Errorf("appkit: multiple logger providers declared (%v); only one may consume the logger segment", segs)
+			}
+			haveLogger = true
+		}
+		allEntries = append(allEntries, providerEntry{prov: p, node: node})
+	}
+
+	// 3. 零 logger 声明回退内置 Provider（阶段 A 引导 logger 的持有者）：
+	// 计划与执行同源，logger 节点恒存在。
+	if !haveLogger {
+		p := StandardLoggerProvider()
+		planned, err := p.Plan(ctx, scope)
+		if err != nil {
+			return nil, fmt.Errorf("appkit: builtin logger provider: plan: %w", err)
+		}
+		if len(planned) != 1 {
+			return nil, fmt.Errorf("appkit: builtin logger provider returned %d plan nodes; want 1", len(planned))
+		}
+		node, err := plan.normalizeNode(p, planned[0])
+		if err != nil {
+			return nil, err
+		}
+		allEntries = append(allEntries, providerEntry{prov: p, node: node})
+	}
+
+	// 4. 同 Key 冲突裁决（I4）→ 统一排序（阶段 → 拓扑 → (Priority, Key)）。
+	nodes := make([]Node, len(allEntries))
+	for i, e := range allEntries {
+		nodes[i] = e.node
+	}
+	survivors, warns, err := resolveNodeConflicts(nodes)
+	if err != nil {
+		return nil, err
+	}
+	plan.warnings = warns
+	surv := make([]Node, 0, len(survivors))
+	byIndex := make(map[ResourceKey]providerEntry, len(survivors))
+	for _, i := range survivors {
+		surv = append(surv, nodes[i])
+		byIndex[nodes[i].Key] = allEntries[i]
+	}
+	ordered, err := topoOrder(surv)
+	if err != nil {
+		return nil, err
+	}
+
+	// 5. 依 apply 序重建 entries，并抽出 logger 专用通道。
+	for _, n := range ordered {
+		e := byIndex[n.Key]
+		e.node = n
+		if segmentTop(e.node.Segments[0]) == "logger" {
+			plan.loggerProv = e.prov
+			plan.loggerNode = e.node
+			continue
+		}
+		plan.entries = append(plan.entries, e)
+	}
+	for _, e := range plan.entries {
+		switch e.node.Phase {
+		case PhaseConfigure:
+			plan.construct = append(plan.construct, e)
+		case PhaseBootstrap:
+			plan.stageB = append(plan.stageB, e)
+		case PhaseServe:
+			plan.late = append(plan.late, e)
 		}
 	}
 
-	// 分阶段 + 阶段内 canonical 稳定排序。
-	byPhase := map[providerPhase][]Provider{}
-	for _, p := range plan.active {
-		ph := phaseByTop(segmentTop(p.Segments()[0]))
-		for _, s := range p.Segments() {
-			if phaseByTop(segmentTop(s)) != ph {
-				return nil, fmt.Errorf("appkit: provider %v declares segments across build phases (%v) — split it into one Provider per phase", p.Segments(), p.Segments())
-			}
-		}
-		byPhase[ph] = append(byPhase[ph], p)
+	// 6. 停机序：logger 先于阶段 B 应用（阶段 A 引导），故 apply 序为
+	// [logger, stageB...]；停机序 = 逆序 + TeardownAfter。
+	plan.applyNodes = append(plan.applyNodes, plan.loggerNode)
+	for _, e := range plan.stageB {
+		plan.applyNodes = append(plan.applyNodes, e.node)
 	}
-	plan.construct = sortByStageBRank(byPhase[phaseConstruct])
-	plan.stageB = sortByStageBRank(byPhase[phaseStageB])
-	plan.late = sortByStageBRank(byPhase[phaseLate])
-	if logger := byPhase[phaseLogger]; len(logger) > 1 {
-		return nil, fmt.Errorf("appkit: %d providers declare logger segments (%v); only one logger provider may be declared", len(logger), pathsOf(logger))
-	} else if len(logger) == 1 {
-		plan.loggerProv = logger[0]
+	order, err := teardownOrder(plan.applyNodes)
+	if err != nil {
+		return nil, err
+	}
+	plan.teardown = order
+	for _, n := range plan.applyNodes {
+		plan.effectName[n.Key] = n.EffectName
 	}
 	return plan, nil
+}
+
+// normalizeNode 补齐 Plan 节点的缺省字段并校验其与 Provider 声明的一致性。
+// 缺省：Segments=Segments()、Kind=首个段顶层名、Origin=provider、
+// EffectName="appkit:"+Key；Phase 必须与段族一致（config→configure、
+// server→serve、其余→bootstrap）。
+func (p *providerPlan) normalizeNode(prov Provider, n Node) (Node, error) {
+	declared := sortedUnique(prov.Segments())
+	if n.Key == "" {
+		return Node{}, fmt.Errorf("appkit: provider %v plan returned a node with empty key", declared)
+	}
+	if len(n.Segments) == 0 {
+		n.Segments = declared
+	}
+	n.Segments = sortedUnique(n.Segments)
+	for _, s := range n.Segments {
+		if !containsString(declared, s) {
+			return Node{}, fmt.Errorf("appkit: provider %v plan node %q consumes undeclared segment %q", declared, n.Key, s)
+		}
+	}
+	if n.Kind == "" {
+		n.Kind = segmentTop(n.Segments[0])
+	}
+	if n.Origin == "" {
+		n.Origin = OriginProvider
+	}
+	if n.EffectName == "" {
+		n.EffectName = "appkit:" + string(n.Key)
+	}
+	switch n.Phase {
+	case PhaseConfigure, PhaseBootstrap, PhaseServe:
+	default:
+		return Node{}, fmt.Errorf("appkit: provider %v plan node %q declares unsupported phase %s (want configure, bootstrap or serve)", declared, n.Key, n.Phase)
+	}
+	if want := phaseFor(phaseByTop(segmentTop(n.Segments[0]))); n.Phase != want {
+		return Node{}, fmt.Errorf("appkit: provider %v plan node %q phase %s does not match its segment family (want %s)", declared, n.Key, n.Phase, want)
+	}
+	return n, nil
+}
+
+// providerPhaseFamily 取 Provider 全部声明路径的共同构建时机；跨族报错
+// （一次 Build 无法同时服务两种调用时机与两份 scope 约定）。
+func providerPhaseFamily(p Provider) (providerPhase, error) {
+	segs := p.Segments()
+	ph := phaseByTop(segmentTop(segs[0]))
+	for _, s := range segs[1:] {
+		if got := phaseByTop(segmentTop(s)); got != ph {
+			return 0, fmt.Errorf("appkit: provider %v declares segments across build phases — split it into one Provider per phase", segs)
+		}
+	}
+	return ph, nil
+}
+
+// providerAllTop 报告 Provider 的全部声明路径都属于 top 段。
+func providerAllTop(p Provider, top string) bool {
+	segs := p.Segments()
+	if len(segs) == 0 {
+		return false
+	}
+	for _, s := range segs {
+		if segmentTop(s) != top {
+			return false
+		}
+	}
+	return true
+}
+
+// providerTriggered 报告 Provider 至少一条声明路径出现于契约。
+func providerTriggered(cfg *bootstrapv1.BootstrapConfig, p Provider) bool {
+	for _, s := range p.Segments() {
+		if segmentPresent(cfg, s) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsString(in []string, want string) bool {
+	for _, s := range in {
+		if s == want {
+			return true
+		}
+	}
+	return false
 }
 
 // ownsPath 报告活跃集合中是否有 Provider 最终拥有 path。
@@ -345,37 +603,6 @@ func (p *providerPlan) triggeredPaths(cfg *bootstrapv1.BootstrapConfig) map[stri
 	return out
 }
 
-// pathsOf 汇总一组 Provider 的全部声明路径（错误信息用）。
-func pathsOf(ps []Provider) []string {
-	var out []string
-	for _, p := range ps {
-		out = append(out, p.Segments()...)
-	}
-	return out
-}
-
-// sortByStageBRank 按 stageBRank 稳定排序（表外段保持声明序排其后；
-// 集合个位数大小，插入排序足够且零依赖）。
-func sortByStageBRank(ps []Provider) []Provider {
-	for i := 1; i < len(ps); i++ {
-		for j := i; j > 0 && stageBRankMin(ps[j]) < stageBRankMin(ps[j-1]); j-- {
-			ps[j], ps[j-1] = ps[j-1], ps[j]
-		}
-	}
-	return ps
-}
-
-// stageBRankMin 取 Provider 全部声明路径的最小 canonical 序（表外段 = MaxInt）。
-func stageBRankMin(p Provider) int {
-	min := int(^uint(0) >> 1)
-	for _, s := range p.Segments() {
-		if r, ok := stageBRank[segmentTop(s)]; ok && r < min {
-			min = r
-		}
-	}
-	return min
-}
-
 // ---------------------------------------------------------------------------
 // 构建循环
 // ---------------------------------------------------------------------------
@@ -383,43 +610,28 @@ func stageBRankMin(p Provider) int {
 // buildResult 是单次 Build 的落账（cleanup 槽位由调用方持有）。
 type buildResult struct {
 	prov    Provider
+	node    Node
 	product any
 	cleanup Cleanup
 }
 
-// runProviderLoop 按序构建触发的 Provider：presenceGated 时段缺失跳过
-// （合法，fail-fast 表 L2）——config 段（构造期）为无条件构建（其源可独立
-// 于契约 config 段存在，如本地文件）；段在而 Build 失败 fail-fast。
-//
-// sink 非 nil 时**逐项即时落账**（构建一个、入库一个）：阶段 B 的后段
-// Provider 依赖前段产物（audit 经 App.Database 取连接），延迟入库会破坏该
-// 依赖——旧 12 段流每个 build* 都是即建即存，本循环保持同一时序。落账项的
-// cleanup 已入引擎槽位/账本，构建失败由 Run 失败路径的 UndoEffects 回放，
+// runProviderNodes 按计划序构建节点（段存在性 gate 已在计划期完成）。sink
+// 非 nil 时**逐项即时落账**（构建一个、入库一个）：阶段 B 的后段 Provider
+// 依赖前段产物（audit 经 App.Database 取连接），延迟入库会破坏该依赖。落账
+// 项的 cleanup 已入引擎槽位，构建失败由 Run 失败路径的 UndoEffects 回放，
 // 不在此重复回滚；sink 为 nil（构造期，账本未建立）时失败逆序回滚已建项。
-func runProviderLoop(ctx context.Context, ps []Provider, s BuildScope, presenceGated bool, sink func(buildResult) error) ([]buildResult, map[string]bool, error) {
-	var (
-		built     []buildResult
-		triggered = map[string]bool{}
-	)
-	for _, p := range ps {
-		hit := !presenceGated
-		for _, seg := range p.Segments() {
-			if presenceGated && segmentPresent(s.Config, seg) {
-				triggered[seg] = true
-				hit = true
-			}
-		}
-		if !hit {
-			continue // 段缺失 → 跳过（合法）
-		}
-		product, cleanup, err := p.Build(ctx, s)
+func runProviderNodes(ctx context.Context, entries []providerEntry, s ApplyScope, sink func(buildResult) error) ([]buildResult, error) {
+	var built []buildResult
+	for _, e := range entries {
+		s.Node = e.node
+		product, cleanup, err := e.prov.Build(ctx, s, e.node)
 		if err != nil {
 			if sink == nil {
 				rollbackBuilds(built, ctx)
 			}
-			return nil, triggered, fmt.Errorf("appkit: provider %v: %w", p.Segments(), err)
+			return nil, fmt.Errorf("appkit: provider %v: %w", e.node.Segments, err)
 		}
-		r := buildResult{prov: p, product: product, cleanup: cleanup}
+		r := buildResult{prov: e.prov, node: e.node, product: product, cleanup: cleanup}
 		if sink == nil {
 			built = append(built, r)
 			continue
@@ -428,10 +640,10 @@ func runProviderLoop(ctx context.Context, ps []Provider, s BuildScope, presenceG
 			if cleanup != nil {
 				_ = cleanup(ctx) // 本项未入账，就地释放（前序项由账本回放）
 			}
-			return nil, triggered, err
+			return nil, err
 		}
 	}
-	return built, triggered, nil
+	return built, nil
 }
 
 // rollbackBuilds 逆序兑现已成功项的 cleanup（跨 Provider 构建失败回滚）。

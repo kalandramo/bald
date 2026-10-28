@@ -44,8 +44,19 @@ func (appProvider) Segments() []string { return []string{"cache.redis"} }
 // Apply 把自身追加进声明（Provider 即 Option，可直接作为 MustServe 变参项）。
 func (appProvider) Apply(d *appkit.Decl) { d.Providers = append(d.Providers, appProvider{}) }
 
+// Plan 声明段节点（cache.redis；阶段由段族决定）。
+func (appProvider) Plan(context.Context, appkit.PlanScope) ([]appkit.Node, error) {
+	return []appkit.Node{{
+		Key:        "cache.redis",
+		Segments:   []string{"cache.redis"},
+		Phase:      appkit.PhaseBootstrap,
+		Priority:   appkit.PriorityCache,
+		EffectName: "appkit:cache-clients",
+	}}, nil
+}
+
 // Build 复用既有 Provider 构造 Redis 缓存并落资源容器。
-func (appProvider) Build(ctx context.Context, s appkit.BuildScope) (any, appkit.Cleanup, error) {
+func (appProvider) Build(ctx context.Context, s appkit.ApplyScope, _ appkit.Node) (any, appkit.Cleanup, error) {
 	cacheSec := s.Config.GetCache()
 	if cacheSec == nil {
 		return nil, nil, fmt.Errorf("cache/redis: cache section is missing " +

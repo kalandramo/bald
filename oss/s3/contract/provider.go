@@ -37,8 +37,19 @@ func (appProvider) Segments() []string { return []string{"storage.s3"} }
 // Apply 把自身追加进声明（Provider 即 Option，可直接作为 MustServe 变参项）。
 func (appProvider) Apply(d *appkit.Decl) { d.Providers = append(d.Providers, appProvider{}) }
 
+// Plan 声明段节点（storage.s3；阶段由段族决定）。
+func (appProvider) Plan(context.Context, appkit.PlanScope) ([]appkit.Node, error) {
+	return []appkit.Node{{
+		Key:        "storage.s3",
+		Segments:   []string{"storage.s3"},
+		Phase:      appkit.PhaseBootstrap,
+		Priority:   appkit.PriorityStorage,
+		EffectName: "appkit:storage-clients",
+	}}, nil
+}
+
 // Build 复用既有 Provider 构造 S3 兼容客户端并落资源容器。
-func (appProvider) Build(ctx context.Context, s appkit.BuildScope) (any, appkit.Cleanup, error) {
+func (appProvider) Build(ctx context.Context, s appkit.ApplyScope, _ appkit.Node) (any, appkit.Cleanup, error) {
 	storageSec := s.Config.GetStorage()
 	if storageSec == nil {
 		return nil, nil, fmt.Errorf("oss/s3: storage section is missing " +

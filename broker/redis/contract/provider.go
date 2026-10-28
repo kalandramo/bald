@@ -37,8 +37,21 @@ func (appProvider) Segments() []string { return []string{"broker.redis"} }
 // Apply 把自身追加进声明（Provider 即 Option，可直接作为 MustServe 变参项）。
 func (appProvider) Apply(d *appkit.Decl) { d.Providers = append(d.Providers, appProvider{}) }
 
+// Plan 声明 broker 节点：阶段 B、canonical broker 优先级（停机 Effect 名与
+// 旧手工表一致）。
+func (appProvider) Plan(context.Context, appkit.PlanScope) ([]appkit.Node, error) {
+	return []appkit.Node{{
+		Key:        "broker.redis",
+		Kind:       "broker",
+		Segments:   []string{"broker.redis"},
+		Phase:      appkit.PhaseBootstrap,
+		Priority:   appkit.PriorityBroker,
+		EffectName: "appkit:broker-clients",
+	}}, nil
+}
+
 // Build 复用既有 Provider 构造 Redis Broker 并落资源容器。
-func (appProvider) Build(ctx context.Context, s appkit.BuildScope) (any, appkit.Cleanup, error) {
+func (appProvider) Build(ctx context.Context, s appkit.ApplyScope, _ appkit.Node) (any, appkit.Cleanup, error) {
 	brokerSec := s.Config.GetBroker()
 	if brokerSec == nil {
 		return nil, nil, fmt.Errorf("broker/redis: broker section is missing " +

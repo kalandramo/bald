@@ -53,8 +53,17 @@ func (appProvider) Segments() []string { return []string{"server.sse"} }
 // 时不能丢。
 func (p appProvider) Apply(d *appkit.Decl) { d.Providers = append(d.Providers, p) }
 
+// Plan 声明段节点（server.sse；阶段由段族决定）。
+func (appProvider) Plan(context.Context, appkit.PlanScope) ([]appkit.Node, error) {
+	return []appkit.Node{{
+		Key:      "server.sse",
+		Segments: []string{"server.sse"},
+		Phase:    appkit.PhaseServe,
+	}}, nil
+}
+
 // Build 复用既有工厂构造 SSE 服务器。
-func (p appProvider) Build(ctx context.Context, s appkit.BuildScope) (any, appkit.Cleanup, error) {
+func (p appProvider) Build(ctx context.Context, s appkit.ApplyScope, _ appkit.Node) (any, appkit.Cleanup, error) {
 	serverSec := s.Config.GetServer()
 	if serverSec == nil {
 		return nil, nil, fmt.Errorf("transport/sse: server section is missing " +

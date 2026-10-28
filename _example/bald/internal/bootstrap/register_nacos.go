@@ -58,9 +58,24 @@ type nacosRegistrarProvider struct{}
 func (nacosRegistrarProvider) Segments() []string { return []string{"registry"} }
 
 // Apply 把自身追加进声明（Provider 即 Option）。
-func (nacosRegistrarProvider) Apply(d *appkit.Decl) { d.Providers = append(d.Providers, nacosRegistrarProvider{}) }
+func (nacosRegistrarProvider) Apply(d *appkit.Decl) {
+	d.Providers = append(d.Providers, nacosRegistrarProvider{})
+}
 
-func (nacosRegistrarProvider) Build(ctx context.Context, s appkit.BuildScope) (any, appkit.Cleanup, error) {
+// Plan 声明 registry 节点：段路径 registry、引导阶段、注册中心优先级；
+// 显式 Registrar 实例接管时引擎在计划期跳过本 Provider。
+func (nacosRegistrarProvider) Plan(context.Context, appkit.PlanScope) ([]appkit.Node, error) {
+	return []appkit.Node{{
+		Key:        "registry",
+		Kind:       "registry",
+		Segments:   []string{"registry"},
+		Phase:      appkit.PhaseBootstrap,
+		Priority:   appkit.PriorityRegistry,
+		EffectName: "appkit:registrar-client",
+	}}, nil
+}
+
+func (nacosRegistrarProvider) Build(ctx context.Context, s appkit.ApplyScope, _ appkit.Node) (any, appkit.Cleanup, error) {
 	rcfg := s.Config.GetRegistry()
 	if rcfg == nil {
 		return nil, nil, nil // 段缺失：跳过（引擎仅在段存在时调用，防御性）

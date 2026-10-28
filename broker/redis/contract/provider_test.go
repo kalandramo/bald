@@ -40,12 +40,12 @@ func TestAppProvider_ApplyAddsToDecl(t *testing.T) {
 func TestAppProvider_BuildConnectsAndCleanup(t *testing.T) {
 	mr := miniredis.RunT(t)
 
-	scope := appkit.BuildScope{Config: &bootstrapv1.BootstrapConfig{
+	scope := appkit.ApplyScope{Config: &bootstrapv1.BootstrapConfig{
 		Broker: &bootstrapv1.Broker{
 			Redis: &bootstrapv1.Broker_Redis{Address: mr.Addr()},
 		},
 	}}
-	product, cleanup, err := appProvider{}.Build(context.Background(), scope)
+	product, cleanup, err := appProvider{}.Build(context.Background(), scope, appkit.Node{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -66,18 +66,18 @@ func TestAppProvider_BuildConnectsAndCleanup(t *testing.T) {
 }
 
 func TestAppProvider_TopSectionMissingIsBug(t *testing.T) {
-	scope := appkit.BuildScope{Config: &bootstrapv1.BootstrapConfig{}}
-	_, _, err := appProvider{}.Build(context.Background(), scope)
+	scope := appkit.ApplyScope{Config: &bootstrapv1.BootstrapConfig{}}
+	_, _, err := appProvider{}.Build(context.Background(), scope, appkit.Node{})
 	if err == nil || !strings.Contains(err.Error(), "report this as a bug") {
 		t.Fatalf("err = %v, want bug report (engine gates by exact path)", err)
 	}
 }
 
 func TestAppProvider_SubSectionMissingFailsFast(t *testing.T) {
-	scope := appkit.BuildScope{Config: &bootstrapv1.BootstrapConfig{
+	scope := appkit.ApplyScope{Config: &bootstrapv1.BootstrapConfig{
 		Broker: &bootstrapv1.Broker{},
 	}}
-	_, _, err := appProvider{}.Build(context.Background(), scope)
+	_, _, err := appProvider{}.Build(context.Background(), scope, appkit.Node{})
 	if err == nil || !strings.Contains(err.Error(), "redis section is missing") {
 		t.Fatalf("err = %v, want redis section missing", err)
 	}

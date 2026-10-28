@@ -13,10 +13,12 @@ import (
 	baldbootstrap "github.com/kalandramo/bald/bootstrap"
 )
 
-// segProvider 通用测试 Provider。
+// segProvider 通用测试 Provider（v2：Plan 由段名派生节点，Build 闭包沿用
+// BuildScope 形状以减少测试样板——ApplyScope 在此降维）。
 type segProvider struct {
 	segs  []string
 	build func(ctx context.Context, s BuildScope) (any, Cleanup, error)
+	plan  func(ctx context.Context, s PlanScope) ([]Node, error) // 可选：覆盖默认节点
 }
 
 func (p segProvider) Segments() []string { return p.segs }
@@ -24,8 +26,62 @@ func (p segProvider) Segments() []string { return p.segs }
 // Apply 把自身追加进声明（Provider 即 Option）。
 func (p segProvider) Apply(d *Decl) { d.Providers = append(d.Providers, p) }
 
-func (p segProvider) Build(ctx context.Context, s BuildScope) (any, Cleanup, error) {
-	return p.build(ctx, s)
+func (p segProvider) Plan(ctx context.Context, s PlanScope) ([]Node, error) {
+	if p.plan != nil {
+		return p.plan(ctx, s)
+	}
+	segs := sortedUnique(p.segs)
+	top := segmentTop(segs[0])
+	n := Node{
+		Key:      nodeKey(segs),
+		Phase:    phaseFor(phaseByTop(top)),
+		Priority: testSegmentPriority(top),
+	}
+	// 与 std Provider 一致的停机约束（测试装置镜像生产声明）。
+	switch top {
+	case "audit":
+		n.TeardownAfter = []ResourceKey{"*"}
+	case "metrics":
+		n.TeardownAfter = []ResourceKey{"logger"}
+	case "tracer":
+		n.TeardownAfter = []ResourceKey{"logger", "metrics"}
+	}
+	return []Node{n}, nil
+}
+
+func (p segProvider) Build(ctx context.Context, s ApplyScope, _ Node) (any, Cleanup, error) {
+	return p.build(ctx, BuildScope{Config: s.Config, Decl: s.Decl, App: s.App})
+}
+
+// testSegmentPriority 把旧 canonical 段序写成测试期望值（生产侧已无此表：
+// 优先级由各 Provider 的 Plan 声明；测试装置镜像它们）。
+func testSegmentPriority(top string) int {
+	switch top {
+	case "logger":
+		return PriorityLogger
+	case "registry":
+		return PriorityRegistry
+	case "tracer":
+		return PriorityTracer
+	case "metrics":
+		return PriorityMetrics
+	case "database":
+		return PriorityDatabase
+	case "cache":
+		return PriorityCache
+	case "storage":
+		return PriorityStorage
+	case "audit":
+		return PriorityAudit
+	case "ai":
+		return PriorityAI
+	case "workflow":
+		return PriorityWorkflow
+	case "broker":
+		return PriorityBroker
+	default:
+		return 0
+	}
 }
 
 // registryProvider 把一个 bootstrap 域 Registry 的 Build 包成段驱动

@@ -25,12 +25,12 @@ func TestAppProvider_ProductExposesNativeClient(t *testing.T) {
 	}
 	defer mr.Close()
 
-	scope := appkit.BuildScope{Config: &bootstrapv1.BootstrapConfig{
+	scope := appkit.ApplyScope{Config: &bootstrapv1.BootstrapConfig{
 		Cache: &bootstrapv1.Cache{
 			Redis: &bootstrapv1.Cache_Redis{Addr: mr.Addr()},
 		},
 	}}
-	product, cleanup, err := appProvider{}.Build(context.Background(), scope)
+	product, cleanup, err := appProvider{}.Build(context.Background(), scope, appkit.Node{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
