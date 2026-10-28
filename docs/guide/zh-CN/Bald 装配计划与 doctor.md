@@ -194,7 +194,7 @@ CI 可组合成「计划 hash 基线 + 生成物零 drift」：`--plan --plan-fo
 | **L1** 声明式配置 | 配置形状由 schema 定义，未知键/未消费段可检测 | 达成 | 契约 proto + StrictContract + 段覆盖检查 |
 | **L2** 可计划拓扑 | 装配拓扑由纯函数算出并打印 | 达成 | `appkit.Compile` + `--plan` + `Plan.Hash()` |
 | **L3** 顺序无关组合 | 结果只由依赖图与显式优先级决定 | 达成 | 节点 `Phase`/`Priority`/`DependsOn` 取代手工排序表；置换测试 |
-| **L4** 收敛运行 | 声明资源可协调，漂移可观测 | 部分 | 节点级 `ReloadPolicy` + `App.Drift` + `Reconcile`；Provider 节点与声明域节点（`Domain.Reconcile`）可协调，database/cache/storage 段仍明确不支持热更 |
+| **L4** 收敛运行 | 声明资源可协调，漂移可观测 | 部分 | 节点级 `ReloadPolicy` + `App.Drift` + `Reconcile`；Provider 节点与声明域节点（`Domain.Reconcile`）可协调，database/cache/storage 段仍明确不支持热更；声明域节点的段限 `BootstrapConfig` 字段路径，域自有业务配置的期望态是开放问题（设计 Q8） |
 | **L5** 纯函数生成 | 生成物是 `(AppSpec, proto)` 的函数，可 `--check` | 达成（生成物维度） | 双跑字节一致 + 清单 `--check` 零写入；运行期装配仍是 L3/L4 组合 |
 
 缺口以 `OpaqueCount` 与 `doctor` 的 `opaque:` 清单量化：数字越小，搬进声明式拓扑的部分越多。
