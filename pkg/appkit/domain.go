@@ -10,7 +10,9 @@
 // domain 产出 domains.gen.go 聚合清单；_example 的手写 domains.gen.go 即其
 // 目标形态）。init() 自注册禁止（「不做 init() 自注册」哲学）。
 //
-// 槽位（以 bald-admin 21 域的真实诉求裁剪，YAGNI）：
+// 槽位（以 bald-admin 20 域的真实诉求裁剪，YAGNI）：
+//   - ApplyNode：声明节点的执行点——引擎在域窗口内按计划序逐条调用，声明
+//     从「拓扑」变成「可执行资源」（目标形态，设计 §4.6）；与兼容槽位互斥；
 //   - Wire：域在装配期自我接线——读自己的配置段（app.Settings() 快照）、构造
 //     自己的能力（限流/熔断/重试等）、持有自己的端口（业务能力策略住域：
 //     读业务阈值的构造器归域包，装配层不再出现业务阈值）；
@@ -18,7 +20,7 @@
 //     *gin.Engine；appkit 不 import 路由器，路由器耦合由域自持），在 server
 //     构建前生效；gateway 转码面占用 server.http 端口时让位（同端口单面语义）；
 //   - Services：gRPC service 注册——并入 server 构建的注册回调（业务注册在
-//     前、域按声明序在后），实现端口由 Wire 构造；
+//     前、域按声明序在后），实现端口由 Wire/ApplyNode 构造；
 //   - Reconcile：Declare 声明的 ReloadReconcile 节点的协调钩子——配置热更
 //     时重建域自有资源（设计 §4.6 的目标形态补全：声明节点不再只是拓扑）。
 //
@@ -31,8 +33,8 @@
 //     段先例——业务键被契约 Unmarshal 丢弃，与 L3 段覆盖检查无交互）；
 //     StrictContract 白名单由应用声明（appkit.StrictContract）。
 //
-// Wire 执行时点（域 BeforeStart 钩子，注册序 = 执行序，wiring_order_test 族
-// 钉住）：
+// Wire/ApplyNode 执行时点（域 BeforeStart 钩子；Wire 按注册序执行，ApplyNode
+// 按计划序执行声明节点，wiring_order_test 族钉住）：
 //
 //	框架钩子（契约装载 + 阶段 B Provider 循环 + L3）→ 业务 BeforeStart → 域 →
 //	迟后阶段（server Provider）→ 额外服务器工厂
@@ -41,14 +43,16 @@
 // 域的路由/服务注册须在 server 构建前生效。放在业务钩子之后，域还能消费业务
 // 钩子建立的运行期资源（bald-admin 的 authenticator/仓储均建于 BeforeStart）。
 // 多域次序 = 声明序（Decl.Domains 的 Apply 追加序 = MustServe 变参序）；任一
-// 域 Wire/Routes 失败 fail-fast（错误带域名，经 Run 的 beforeStart 失败路径
-// 回滚账本）。NewApp 不消费 Domains（非第二条装配路径，见 NewApp 注释）。
+// 域 Wire/Routes/ApplyNode 失败 fail-fast（错误带域名，经 Run 的 beforeStart
+// 失败路径回滚账本）。NewApp 不消费 Domains（非第二条装配路径，见 NewApp
+// 注释）。
 package appkit
 
 import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"google.golang.org/grpc"
 )
@@ -91,7 +95,27 @@ type Domain struct {
 	// Services gRPC service 注册：并入 server 构建的注册回调（业务注册在前、
 	// 域按声明序在后；调用点在迟后阶段 server 构建——彼时 Wire 已完成，域
 	// 端口就绪）。appkit.WithGRPC/WithGRPCOptions 声明的拦截器链照常生效。
+	//
+	// 与 ApplyNode 共存合法：Services 是延迟注册回调（不在域窗口执行），不
+	// 存在「接线跑两遍」；此时域不得再为服务注册声明 server.grpc 节点（该
+	// 节点的执行点在 server 构建时，ApplyNode 的窗口里没有 grpc.Server——
+	// 声明了只会得到计划与执行的双真相源，计划期 fail-fast）。
 	Services func(s *grpc.Server)
+
+	// ApplyNode 是声明节点的执行点（目标形态）：引擎在域窗口内按**计划序**
+	//（Phase → Priority → Key，含跨域依赖）逐条调用 Declare 返回的节点，node
+	// 是该节点的计划投影（Key/Kind/Segments/Reload 可读）。声明因此从「拓扑
+	// 声明」变成「可执行资源」，域不再产生 Opaque 兼容节点。
+	//
+	// 与兼容槽位互斥：同时声明 Wire/Routes 会让同一接线在域窗口执行两次，
+	// 装配期 fail-fast（Services 是延迟注册回调，见字段注释，可与 ApplyNode
+	// 共存）。执行时点与 Wire 相同（业务 BeforeStart 之后、server 构建之前）
+	// ——路由仍先于 server 构建；失败 fail-fast（错误带域名与节点 Key），
+	// 已执行节点无回滚（与 Wire 失败同语义：进程终止）。
+	//
+	// 声明节点应覆盖 ApplyNode 消费的配置段（Segments）——L3 覆盖检查据此
+	// 判定段已消费，漏声明会让启动按未消费段失败。
+	ApplyNode func(ctx context.Context, app *App, node Node) error
 
 	// Reconcile 是域内可协调节点的协调钩子：Declare 返回 ReloadReconcile
 	// 节点的域必须提供它（否则装配期 fail-fast——引擎无法重建域自有状态，
@@ -115,6 +139,8 @@ func (d Domain) Apply(decl *Decl) { decl.Domains = append(decl.Domains, d) }
 // validateDomains 装配期校验域声明（构造期 fail-fast，先于阶段 A Logger 等
 // 一切副作用）：
 //   - Name 必填且唯一（生成期校验「name 唯一」的运行期镜像）；
+//   - ApplyNode 需有 Declare 可执行，且不与 Wire/Routes 混用（否则接线跑
+//     两遍；Services 是延迟注册回调，不在此列）；
 //   - Routes 需有 HTTP 面可挂（WithHTTP/WithGatewayRegister 至少其一——
 //     gateway 面运行期让位语义见 Routes 字段注释）；
 //   - Services 需契约 server.grpc 段存在（与 WithGRPC 的既有 fail-fast 同语义）。
@@ -128,6 +154,15 @@ func validateDomains(d *Decl, grpcPresent bool) error {
 			return fmt.Errorf("appkit: duplicate domain name %q (each domain must be declared once)", dom.Name)
 		}
 		seen[dom.Name] = true
+		if dom.ApplyNode != nil {
+			if dom.Declare == nil {
+				return fmt.Errorf("appkit: domain %q declares ApplyNode but no Declare (nothing to execute)", dom.Name)
+			}
+			if dom.Wire != nil || dom.Routes != nil {
+				return fmt.Errorf("appkit: domain %q mixes ApplyNode with compat hooks Wire/Routes "+
+					"(wiring would run twice; move the construction into the declared nodes)", dom.Name)
+			}
+		}
 		if dom.Routes != nil && d.HTTPHandler == nil && d.GatewayRegister == nil {
 			return fmt.Errorf("appkit: domain %q declares Routes but no HTTP face is declared "+
 				"(use appkit.WithHTTP or appkit.WithGatewayRegister)", dom.Name)
@@ -209,14 +244,26 @@ func declaredDomainNodes(ctx context.Context, dom Domain, scope PlanScope) ([]No
 			if dom.Reconcile == nil {
 				return nil, fmt.Errorf("appkit: domain %q: declared node %q: reload=reconcile requires Domain.Reconcile", dom.Name, n.Key)
 			}
-			if dom.Wire == nil {
-				// Wire 是域资源的唯一构造点；启动后记「已应用」必须有真实
-				// 实际态可对应，否则 Drift 从第一天起就在说谎。
-				return nil, fmt.Errorf("appkit: domain %q: declared node %q: reload=reconcile requires Domain.Wire (the construction point of the reconcilable state)", dom.Name, n.Key)
+			if dom.Wire == nil && dom.ApplyNode == nil {
+				// Wire/ApplyNode 是域资源的唯一构造点；启动后记「已应用」必须有
+				// 真实实际态可对应，否则 Drift 从第一天起就在说谎。
+				return nil, fmt.Errorf("appkit: domain %q: declared node %q: reload=reconcile requires Domain.Wire or Domain.ApplyNode (the construction point of the reconcilable state)", dom.Name, n.Key)
 			}
 			if len(n.Segments) == 0 {
 				return nil, fmt.Errorf("appkit: domain %q: declared node %q: reload=reconcile requires at least one segment (desired state is derived from segment contents)", dom.Name, n.Key)
 			}
+		}
+		if dom.ApplyNode != nil && n.Opaque {
+			// 引擎逐条执行的节点不可能「构造不透明」——这个标记只会让
+			// Opaque 计数虚高，掩盖真正未迁移的部分。
+			return nil, fmt.Errorf("appkit: domain %q: declared node %q: ApplyNode domain must declare non-opaque nodes", dom.Name, n.Key)
+		}
+		if dom.ApplyNode != nil && claimsSegment(n.Segments, "server.grpc") {
+			// grpc.Server 在 ApplyNode 的窗口（域 BeforeStart）里还不存在；
+			// 服务注册只能走 Domain.Services（server 构建时的延迟回调）。
+			// 声明该节点而执行点无法兑现 = 计划说谎，计划期拦下。
+			return nil, fmt.Errorf("appkit: domain %q: declared node %q: server.grpc cannot be applied in the domain window "+
+				"(register services with Domain.Services instead)", dom.Name, n.Key)
 		}
 		if n.Kind == "" {
 			n.Kind = "domain"
@@ -227,10 +274,23 @@ func declaredDomainNodes(ctx context.Context, dom Domain, scope PlanScope) ([]No
 	return out, nil
 }
 
+// claimsSegment 报告节点声明的段是否落在 path 之下（含 path 本身）。
+func claimsSegment(segments []string, path string) bool {
+	for _, seg := range segments {
+		if seg == path || strings.HasPrefix(seg, path+".") {
+			return true
+		}
+	}
+	return false
+}
+
 // domainCompatNode 把声明了 Declare 的域的兼容槽位塌缩成单一 Opaque 节点：
 // 构造仍不透明，但只占一个逃逸舱名额（设计 §4.6）。无任何兼容钩子时返回
 // false——纯声明域不产生构造节点。
 func domainCompatNode(dom Domain, spec *Decl) (Node, bool) {
+	if dom.ApplyNode != nil {
+		return Node{}, false // 节点由引擎逐条执行，构造不再不透明
+	}
 	var segs []string
 	if dom.Routes != nil && spec.HTTPHandler != nil {
 		segs = append(segs, "server.http") // 与 wireDomains 的调用条件同源
@@ -252,10 +312,29 @@ func domainCompatNode(dom Domain, spec *Decl) (Node, bool) {
 	}, true
 }
 
-// wireDomains 执行域装配（域 BeforeStart 钩子体）：声明序逐域 Wire → Routes。
+// wireDomains 执行域装配（域 BeforeStart 钩子体）：
+//   - ApplyNode 域：其声明节点按**计划序**逐条执行（Phase → Priority → Key，
+//     跨域依赖由计划保证）；节点是计划的投影，执行失败带域名与节点 Key；
+//   - 兼容钩子域：声明序逐域 Wire → Routes（ApplyNode 域没有兼容钩子，
+//     见 validateDomains）。
+//
 // Services 不在此调用——已并入 GRPCRegister，由迟后阶段 server 构建时调用。
-func wireDomains(ctx context.Context, a *App, spec *Decl) error {
+func wireDomains(ctx context.Context, a *App, spec *Decl, owner map[ResourceKey]Domain, plan *Plan) error {
+	if plan != nil {
+		for _, n := range plan.Nodes {
+			dom, ok := owner[n.Key]
+			if !ok || dom.ApplyNode == nil {
+				continue
+			}
+			if err := dom.ApplyNode(ctx, a, n); err != nil {
+				return fmt.Errorf("appkit: domain %q: apply %q: %w", dom.Name, n.Key, err)
+			}
+		}
+	}
 	for _, dom := range spec.Domains {
+		if dom.ApplyNode != nil {
+			continue
+		}
 		if dom.Wire != nil {
 			if err := dom.Wire(ctx, a); err != nil {
 				return fmt.Errorf("appkit: domain %q: %w", dom.Name, err)

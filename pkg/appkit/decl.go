@@ -231,6 +231,7 @@ func newFromDecl(d Decl) *App {
 		componentTimeout: d.ComponentTimeout,
 		auditor:          d.Auditor,
 		identity:         d.Identity,
+		httpHandler:      d.HTTPHandler,
 		reconItems:       make(map[string][]reconItem),
 		resources:        make(map[string]any),
 		applied:          make(map[ResourceKey]string),

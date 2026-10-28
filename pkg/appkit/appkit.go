@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
@@ -67,6 +68,10 @@ type App struct {
 
 	registrar registry.Registrar // 注册中心
 	servers   []transport.Server // 服务协议
+
+	// httpHandler 是 WithHTTP 声明的业务 handler（ApplyNode 域挂路由的入口；
+	// 网关转码面或未声明时为 nil）。声明期值，运行期只读。
+	httpHandler http.Handler
 
 	// resources 是统一资源面：段驱动 Provider 的产物
 	// 按契约段路径存取（键=段路径，见 Resource 与 storeProduct）。阶段 B
@@ -486,6 +491,11 @@ func (a *App) Settings() map[string]any {
 	}
 	return a.cfg.store.Settings()
 }
+
+// HTTPHandler 返回 WithHTTP 声明的业务 handler（域 ApplyNode 挂路由的
+// 入口——路由注册在域窗口内完成，参数即这里返回的 handler）。网关转码面
+// 或未声明 HTTP 能力时为 nil。
+func (a *App) HTTPHandler() http.Handler { return a.httpHandler }
 
 // Err 返回 Run 的退出错误（Run 返回后有效）。
 func (a *App) Err() error {

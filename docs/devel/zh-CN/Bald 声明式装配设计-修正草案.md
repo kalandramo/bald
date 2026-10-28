@@ -330,42 +330,71 @@ type Domain struct {
 	// 纯函数；不构造实例。
 	Declare func(ctx context.Context, s PlanScope) ([]Node, error)
 
-	// 以下为迁移期兼容槽位。声明了 Declare 时仍可用，但引擎会把它们
-	// 归入 Key("domain.<name>.wire") 这个 Opaque 节点。
+	// ApplyNode 是目标形态的执行点：引擎在域窗口内按计划序（Phase →
+	// Priority → Key）逐条调用 Declare 返回的节点。声明因此从「拓扑」变成
+	// 「可执行资源」，域不再产生 Opaque 兼容节点。与 Wire/Routes 互斥
+	//（同窗口立即执行，接线会跑两遍——装配期 fail-fast）。
+	ApplyNode func(ctx context.Context, app *App, node Node) error
+
+	// 以下为迁移期兼容槽位。未声明 ApplyNode 时，引擎把它们归入
+	// Key("domain.<name>.wire") 这个 Opaque 节点。
 	Wire     func(ctx context.Context, app *App) error
 	Routes   func(h http.Handler) error
 	Services func(s *grpc.Server)
 
 	// Reconcile 是域内可协调节点（Declare 返回 ReloadReconcile）的协调钩子：
 	// 配置热更时引擎按节点 Key 调用，把域自有资源重建到新契约。
-	// 声明 ReloadReconcile 节点却缺钩子 / 缺 Wire / 缺段都在计划期报错。
+	// 声明 ReloadReconcile 节点却缺钩子 / 缺 Wire/ApplyNode / 缺段都在计划期报错。
 	Reconcile func(ctx context.Context, app *App, node Node) error
 }
 ```
+
+**声明 + 执行**（已实现）：`ApplyNode` 在域窗口（业务 `BeforeStart` 之后、server 构建之前）按计划序执行声明节点，节点按 Key 区分职责；`app.HTTPHandler()` 提供 `WithHTTP` 声明的业务 handler（路由节点挂载用）。两条边界由计划期 fail-fast 兜住：`ApplyNode` 与 `Wire`/`Routes` 互斥（双写）；声明节点不得消费 `server.grpc`——`grpc.Server` 在域窗口里还不存在，服务注册只能走 `Domain.Services`（server 构建时的延迟回调）。`Services` 因此与 `ApplyNode` 共存合法，且不必为它声明节点（它不在域窗口执行，不存在双写）。迁移完成的域不再合成 `domain.<name>.wire`，逃逸舱归零：`_example/bald` 的 greet 域迁后 `nodes: 7 (opaque 2)`（只剩程序化 registry 与 std server）。
 
 声明节点的 `Segments` 必须是 `BootstrapConfig` 的真实字段路径：拼错的段不会出现在 L3 覆盖检查里，期望态摘要还会退化成 Key/Kind 常量（reconcile 节点永不触发）——计划期直接报错。这也意味着域自有业务配置（`biz` 段）目前无法作为 reconcile 节点的期望态，见 §8.2 Q8。
 
 可协调声明节点的契约：启动时 Wire 建立实际态、成功后节点记为已应用（Drift 不误报 Missing）；配置变更按节点 `DesiredHash` diff，钩子成功才落新摘要，失败保留旧值由 Drift 报 Stale。声明节点集合是拓扑，应跨配置稳定——热更中新出现的节点键没有登记面。
 
-目标形态示例（greet 域）：
+目标形态示例（`_example/bald/greetv1` 的真实形态）：
 
 ```go
-func Declare(_ context.Context, s appkit.PlanScope) ([]appkit.Node, error) {
-	if s.Contract.GetServer().GetHttp() == nil {
-		return nil, nil // 无 HTTP 面：不声明路由节点
+var Domain = appkit.Domain{
+	Name:      "greet",
+	Declare:   declare,
+	ApplyNode: applyNode,
+	Services:  registerService, // 延迟注册回调：server 构建时执行
+}
+
+func declare(_ context.Context, s appkit.PlanScope) ([]appkit.Node, error) {
+	nodes := []appkit.Node{{
+		Key:      "domain.greet.biz",
+		Phase:    appkit.PhaseWire,
+		Priority: 10,
+	}}
+	if s.Decl.HTTPHandler != nil { // 网关让位时不声明路由节点
+		nodes = append(nodes, appkit.Node{
+			Key:       "domain.greet.routes",
+			Segments:  []string{"server.http"},
+			Phase:     appkit.PhaseServe,
+			Priority:  10,
+			DependsOn: []appkit.ResourceKey{"domain.greet.biz"},
+		})
 	}
-	return []appkit.Node{{
-		Key:       appkit.NewKey[Routes]("domain.greet.routes").Name(),
-		Kind:      "domain",
-		Segments:  []string{"server.http"},
-		DependsOn: []appkit.ResourceKey{"server.http", "domain.greet.wire"},
-		Phase:     appkit.PhaseServe,
-		Reload:    appkit.ReloadStatic,
-	}}, nil
+	return nodes, nil
+}
+
+func applyNode(ctx context.Context, app *appkit.App, node appkit.Node) error {
+	switch node.Key {
+	case "domain.greet.biz":
+		return wire(ctx, app) // 读 greet.* 配置 → 构造能力 → 持有端口
+	case "domain.greet.routes":
+		return registerRoutes(app.HTTPHandler())
+	}
+	return fmt.Errorf("greetv1: unknown declared node %q", node.Key)
 }
 ```
 
-迁移期不强制所有域改 `Declare`；但 `bald doctor` 会统计 `Opaque` 域数量，作为 L3 达成的量化门槛（见 §7）。已实现：报告的 `domains:` 行给出 `declared` / `legacy` 计数与名单（2026-10-29）；bald-admin 的 language/dict 域已按此形态迁移（`domains: 20 (declared 2, legacy 18)`、`nodes: 63 (opaque 47)`，路由与服务节点带段与依赖、构造收在 `domain.<name>.wire`），可作其余域的改写配方。
+迁移期不强制所有域改 `Declare`；但 `bald doctor` 会统计 `Opaque` 域数量，作为 L3 达成的量化门槛（见 §7）。已实现：报告的 `domains:` 行给出 `declared` / `legacy` 计数与名单（2026-10-29）；`_example/bald` 的 greet 域已迁到 `ApplyNode` 目标形态（`domains: 1 (declared 1, legacy 0)`、`nodes: 7 (opaque 2)`，逃逸舱只剩框架自身的程序化 registry 与 std server）；bald-admin 的 language/dict 域是中间形态（`domains: 20 (declared 2, legacy 18)`、`nodes: 63 (opaque 47)`——路由/服务节点带段与依赖，构造仍收在 `domain.<name>.wire`），可作其余域的改写配方。
 
 ### 4.7 执行、回滚与停机
 

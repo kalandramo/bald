@@ -77,8 +77,9 @@ func readOwnConfig(app *appkit.App) domainConfig {
 	return c
 }
 
-// wire 是域的装配期自我接线：读自己的配置段 → 构造自己的能力 → 持有自己的
-// 端口。资源面此时已就绪（本域无资源依赖，恰作演示的最小接线）。
+// wire 是 biz 节点（domain.greet.biz）的执行体：读自己的配置段 → 构造自己的
+// 能力 → 持有自己的端口。资源面此时已就绪（本域无资源依赖，恰作演示的最小
+// 接线）。
 func wire(_ context.Context, app *appkit.App) error {
 	cfg := readOwnConfig(app)
 	port = &greeter{greeting: cfg.greeting}
@@ -125,10 +126,11 @@ func registerService(s *grpc.Server) {
 // 传输适配②：REST 路由（Routes 槽位——挂上 WithHTTP 声明的业务 handler）
 // ---------------------------------------------------------------------------
 
-// registerRoutes 把 greet 域的 REST 路由挂到应用 HTTP 面。参数是 WithHTTP
-// 声明的 handler（gin 场景即 *gin.Engine——路由器耦合由域自持断言，appkit
-// 不 import 路由器）。仅业务 handler 面被调用；gateway 转码面占用
-// server.http 端口时引擎不调用本槽位（同端口单面语义，REST 走转码）。
+// registerRoutes 把 greet 域的 REST 路由挂到应用 HTTP 面（routes 节点
+// domain.greet.routes 的执行体）。参数是 WithHTTP 声明的 handler（gin 场景即
+// *gin.Engine——路由器耦合由域自持断言，appkit 不 import 路由器）。仅业务
+// handler 面被调用；gateway 转码面占用 server.http 端口时该节点不出现在计划
+// 里（同端口单面语义，REST 走转码）。
 func registerRoutes(h http.Handler) error {
 	e, ok := h.(*gin.Engine)
 	if !ok {

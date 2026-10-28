@@ -310,6 +310,9 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*App, error) {
 	// 声明域的可协调节点键（装配末期由 registerDomainReconcilers 填充）：
 	// 域 Wire 成功后逐个记为已应用——实际态由 Wire 建立。
 	var domainReconcileKeys []ResourceKey
+	// 全量计划（装配末期由 planFrom 填充）：ApplyNode 域按计划序执行声明节点，
+	// 钩子在 Run 期才执行，届时本变量已赋值。
+	var domainPlan *Plan
 
 	// 注：配置命名空间的必填检查在 Serve（serve.go）——它在任何副作用（阶段 A
 	// Logger、契约预装载）之前 fail-fast，比旧 FromBootstrap 把检查放在阶段 A
@@ -398,7 +401,7 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*App, error) {
 	// 约束夹出的窗口。多域次序 = 声明序；域 Wire/Routes 失败 fail-fast。
 	if len(spec.Domains) > 0 {
 		kitOpts = append(kitOpts, BeforeStart(func(ctx context.Context) error {
-			if err := wireDomains(ctx, a, spec); err != nil {
+			if err := wireDomains(ctx, a, spec, plan.domainNodes, domainPlan); err != nil {
 				return err
 			}
 			// Wire 成功 = 声明的域资源已建到期望态：可协调节点落账，Drift
@@ -478,6 +481,7 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
+	domainPlan = fullPlan
 	a.installPlan(fullPlan)
 	for _, e := range plan.stageB {
 		if e.node.Reload != ReloadReconcile {

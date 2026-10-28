@@ -36,36 +36,34 @@ app: bald-demo v0.1.0 (env=)
 role: api
 input: d5f5f80e...
 nodes:
-  configure  app                    priority=-1  app
-                                                 segments=app
-  bootstrap  logger                 priority=10  provider, reload=reconcile
-                                                 segments=logger
-  bootstrap  database.sql           priority=50  provider, reload=restart
-                                                 segments=database.sql
-  wire       domain.greet.wire      priority=0   domain, opaque
-                                                 segments=server.http,server.grpc
-  serve      server                 priority=0   std, opaque
-                                                 segments=server.grpc,server.http
-  serve      domain.greet.services  priority=5   domain
-                                                 segments=server.grpc
-                                                 dependsOn=domain.greet.wire
-  serve      domain.greet.routes    priority=10  domain
-                                                 segments=server.http
-                                                 dependsOn=domain.greet.wire
-opaque: 3 node(s)
+  configure  app                  priority=-1  app
+                                               segments=app
+  bootstrap  logger               priority=10  provider, reload=reconcile
+                                               segments=logger
+  bootstrap  registry             priority=20  app, opaque, override: programmatic takeover
+                                               segments=registry
+  bootstrap  database.sql         priority=50  provider, reload=restart
+                                               segments=database.sql
+  wire       domain.greet.biz     priority=10  domain
+  serve      server               priority=0   std, opaque
+                                               segments=server.grpc,server.http
+  serve      domain.greet.routes  priority=10  domain
+                                               segments=server.http
+                                               dependsOn=domain.greet.biz
+opaque: 2 node(s)
 segments:
-  server.http          consumers=domain.greet.routes,domain.greet.wire,server
+  server.http          consumers=domain.greet.routes,server
 warnings:
   warn override [logger]: segment "logger" is declared by ...
-plan hash: 192924bf...
+plan hash: 162e34f4...
 ```
 
 读法：
 
 - **`phase`**：`configure` → `bootstrap` → `wire` → `serve` → `drain` → `teardown`。跨相位不接受 `DependsOn` 反向边（编译期报错），停机按 `TeardownAfter` 逆序。
-- **`opaque`**：该节点没有声明式依赖拓扑，按 legacy 顺序执行。域在声明 `Domain.Declare` 之前整块是 Opaque；声明后拓扑节点可检视，构造仍归 `Wire`/`Routes`/`Services`，并塌缩成一个 `domain.<name>.wire` Opaque 节点（设计 §4.6）。
+- **`opaque`**：该节点没有声明式依赖拓扑，按 legacy 顺序执行。域在声明 `Domain.Declare` 之前整块是 Opaque；只声明拓扑、构造仍归 `Wire`/`Routes`/`Services` 时塌缩成一个 `domain.<name>.wire` Opaque 节点；迁到 `Domain.ApplyNode`（按计划序逐节点执行）后不再产生兼容节点，域贡献的逃逸舱归零（设计 §4.6）。
 - **`segments=`**：节点读取的契约段路径；`segments:` 汇总里 `consumers=` 为空且未白名单的段会在启动期报错。
-- **`reload=`**：节点级重载策略，决定配置热更时协调还是重报。`reconcile` 节点必须有人能重建它的实际态：Provider 节点由同一 Provider 重跑 `Build`，域声明节点由 `Domain.Reconcile` 承担——声明了 `ReloadReconcile` 却没给钩子（或没给 `Wire`、没声明段）的域在计划期直接报错，不留「永远 Stale」的假节点（见 [机制层 mech](./机制层%20mech%20-%20Effect%20与期望态.md)）。
+- **`reload=`**：节点级重载策略，决定配置热更时协调还是重报。`reconcile` 节点必须有人能重建它的实际态：Provider 节点由同一 Provider 重跑 `Build`，域声明节点由 `Domain.Reconcile` 承担——声明了 `ReloadReconcile` 却没给钩子（或没给 `Wire`/`ApplyNode`、没声明段）的域在计划期直接报错，不留「永远 Stale」的假节点（见 [机制层 mech](./机制层%20mech%20-%20Effect%20与期望态.md)）。
 
 JSON 形态（`--plan-format=json`）是 `Plan` 的序列化，供脚本比较 hash、做计划基线。
 
@@ -100,12 +98,12 @@ plan:  192924bf...
 cache: .bald/plan-cache.json (baseline ba88603d903f, recorded 2026-10-28T18:38:41Z)
   plan unchanged
 
-nodes: 8 (opaque 3)
+nodes: 7 (opaque 2)
   phase bootstrap  3
   phase configure  1
-  phase serve      3
+  phase serve      2
   phase wire       1
-  opaque: domain.greet.wire, registry, server
+  opaque: registry, server
   override: registry (programmatic takeover)
 
 domains: 1 (declared 1, legacy 0)
