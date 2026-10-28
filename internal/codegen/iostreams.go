@@ -2,7 +2,6 @@ package codegen
 
 import (
 	"fmt"
-	"go/format"
 	"io"
 	"os"
 	"path/filepath"
@@ -39,8 +38,8 @@ type ownership int
 
 const (
 	// owned 生成物：每次 gen 重写（文件头 DO NOT EDIT，内容以生成器为准）。
-	// 已存在时不加 --force 一律拒绝（防覆盖底线不变——无 --force 不重写已存在
-	// 文件），--force 显式放行。
+	// 已存在时默认拒绝（防覆盖底线不变——无显式放行不重写已存在文件）：
+	// spec 模式用 --adopt 放行，单文件模板模式用 --force 放行。
 	owned ownership = iota
 	// Seeded 生成一次：不存在才落盘；已存在即跳过并输出 kept:（不算错误）。
 	// --force 也不覆盖——生成一次之后归用户维护（seed/、apiserver.go 等）。
@@ -71,7 +70,7 @@ func writeGuarded(path string, content []byte, own ownership, force bool, stream
 	case owned:
 		if !force {
 			if _, err := os.Stat(path); err == nil {
-				return fmt.Errorf("%s already exists, refusing to overwrite (pass --force to allow)", path)
+				return fmt.Errorf("%s already exists, refusing to overwrite (pass --adopt for spec mode, --force for template mode)", path)
 			} else if !os.IsNotExist(err) {
 				return fmt.Errorf("stat %s: %w", path, err)
 			}
@@ -95,7 +94,7 @@ func writeGuarded(path string, content []byte, own ownership, force bool, stream
 // 旧实现在 gofmt 失败时 os.WriteFile 目标路径，无 --force 也截断重写用户
 // 文件）；诊断性原文写 <path>.rej 并在错误里附路径，交由用户排查。
 func writeFileFormatted(path string, raw []byte, own ownership, force bool, streams ioStreams) error {
-	formatted, err := format.Source(raw)
+	formatted, err := prepareContent(genFile{Path: path, Raw: raw, GoSrc: true})
 	if err != nil {
 		rej := path + ".rej"
 		if mkErr := os.MkdirAll(filepath.Dir(rej), 0o755); mkErr == nil {

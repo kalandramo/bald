@@ -305,7 +305,8 @@ type domainOptions struct {
 	OutDir       string // --out：产出根（默认 .）
 	Manifest     string // --manifest：域清单落盘路径（默认 internal/bootstrap/domains.gen.go）
 	APIServerDir string // --apiserver-dir：apiserver 目录名（默认取 layout.apiserver_dir 否则 apiserver；传 - 跳过 apiserver 侧产物）
-	Force        bool   // --force：覆盖已存在的 owned 文件
+	Adopt        bool   // --adopt：覆盖已存在的 owned 文件（--force 的替代，B5）
+	Check        bool   // --check：只校验不落盘（I8；有差异即失败）
 
 	ioStreams
 }
@@ -323,6 +324,9 @@ func (o *domainOptions) Complete() error {
 func (o *domainOptions) Validate() error {
 	if o.Spec == "" {
 		return fmt.Errorf("the --spec <AppSpec.json> is required (domains[] is the declaration truth source)")
+	}
+	if o.Adopt && o.Check {
+		return fmt.Errorf("--adopt and --check are mutually exclusive")
 	}
 	return nil
 }
@@ -355,6 +359,8 @@ func (o *domainOptions) Run() error {
 		v.APIPkg = as.GetMeta().GetModule() + "/internal/" + o.APIServerDir
 	}
 
+	var files []genFile
+
 	// 域包消费：已导出 Domain 的包跳过骨架（既有域包）；缺失则 seed 声明值骨架。
 	for _, d := range as.GetDomains() {
 		dir, err := domainDir(as.GetMeta().GetModule(), d.GetGoPackage())
@@ -366,8 +372,15 @@ func (o *domainOptions) Run() error {
 		if err != nil {
 			return fmt.Errorf("inspect domain package %s: %w", dir, err)
 		}
+		skeleton := filepath.Join(dir, "domain.gen.go")
 		if present {
 			fmt.Fprintln(o.Out, "skip:", pkgDir, "(domain value already declared)")
+			// 已生成的骨架仍入清单（seeded 只判存在性）：若首次生成后不再列出，
+			// 清单字节会随「骨架已存在」而漂移，--check 永远不干净。消费者域包
+			// 自带 Domain 且无 domain.gen.go 时则完全不入清单。
+			if _, statErr := os.Stat(filepath.Join(pkgDir, "domain.gen.go")); statErr == nil {
+				files = append(files, genFile{Path: skeleton, Own: Seeded})
+			}
 			continue
 		}
 		data, err := renderTreeTemplate(filepath.Base(dir)+"-domain", domainValueTmpl, map[string]string{
@@ -376,39 +389,54 @@ func (o *domainOptions) Run() error {
 		if err != nil {
 			return err
 		}
-		if err := writeFileFormatted(filepath.Join(pkgDir, "domain.gen.go"), data, Seeded, o.Force, o.ioStreams); err != nil {
-			return err
-		}
+		files = append(files, genFile{Path: skeleton, Own: Seeded, Raw: data, GoSrc: true})
 	}
 
 	// 域清单（与 gen app 共用 bootstrapDomainsTmpl——单模板源不漂移）。
+	// 生成器标识用共享常量：同一路径在两命令下必须逐字节一致（见 domainsGenTag）。
 	v.Package = manifestPackage(o.Manifest)
-	manifestRaw, err := renderTreeTemplate("bootstrap-domains", bootstrapDomainsTmpl, v)
+	mv := *v
+	mv.Gen = domainsGenTag
+	manifestRaw, err := renderTreeTemplate("bootstrap-domains", bootstrapDomainsTmpl, &mv)
 	if err != nil {
 		return err
 	}
-	if err := writeFileFormatted(filepath.Join(o.OutDir, o.Manifest), manifestRaw, owned, o.Force, o.ioStreams); err != nil {
-		return err
-	}
+	files = append(files, genFile{Path: o.Manifest, Own: owned, Raw: manifestRaw, GoSrc: true})
 
 	// apiserver 侧扇出（"-" 跳过——非标准目录树的宿主，如 _example）。
 	if o.APIServerDir != "-" {
-		if err := o.emitAPIServerSide(v, scan); err != nil {
+		if err := o.emitAPIServerSide(v, scan, &files); err != nil {
 			return err
 		}
 	}
-	fmt.Fprintln(o.Out, "next: appspec.json is the declaration truth source; add a domain = hand-write its proto + domain package, declare it in domains[], rerun with --force (assembly files stay untouched)")
+
+	_, genManifestRaw, err := buildManifest("bald gen domain", o.Spec, files)
+	if err != nil {
+		return err
+	}
+	if o.Check {
+		return checkTree(o.OutDir, domainManifestName, files, genManifestRaw, o.ioStreams)
+	}
+	if err := emitTree(o.OutDir, files, o.Adopt, o.ioStreams); err != nil {
+		return err
+	}
+	if err := writeManifest(o.OutDir, domainManifestName, genManifestRaw, o.ioStreams); err != nil {
+		return err
+	}
+	fmt.Fprintln(o.Out, "next: appspec.json is the declaration truth source; add a domain = hand-write its proto + domain package, declare it in domains[], rerun with --check to verify or --adopt to regenerate (assembly files stay untouched)")
 	return nil
 }
 
-// emitAPIServerSide 落盘 internal/<apiserver_dir>/ 的扇出与逐域 handler 产物。
-func (o *domainOptions) emitAPIServerSide(v *treeView, scan *protoScan) error {
+// emitAPIServerSide 收集 internal/<apiserver_dir>/ 的扇出与逐域 handler 产物
+// （落盘统一由 Run 的 emitTree 完成，manifest 与写入共享同一批字节）。
+func (o *domainOptions) emitAPIServerSide(v *treeView, scan *protoScan, files *[]genFile) error {
 	emit := func(path, tmpl string, data any) error {
 		raw, err := renderTreeTemplate(filepath.Base(path), tmpl, data)
 		if err != nil {
 			return err
 		}
-		return writeFileFormatted(filepath.Join(o.OutDir, path), raw, owned, o.Force, o.ioStreams)
+		*files = append(*files, genFile{Path: path, Own: owned, Raw: raw, GoSrc: true})
+		return nil
 	}
 	// 逐域 handler（委托域声明值自持实现 + 注解派生表）。
 	byService := serviceIndex(scan)
@@ -751,7 +779,8 @@ func genDomainCmd(streams ioStreams) *cobra.Command {
 
 Gate1 强化：domains[].service 必须与产出根下实际 proto 匹配（扫描 api/proto、
 api/protos、proto），失配报错指明域、proto 文件与实际声明。全部产物 owned
-（--force 覆盖）；域包骨架 seeded（生成一次）。`,
+（--adopt 覆盖）；域包骨架 seeded（生成一次）。--check 零写校验生成物与
+清单（domains.manifest.json）是否同声明一致。`,
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 		RunE: func(*cobra.Command, []string) error {
@@ -768,7 +797,8 @@ api/protos、proto），失配报错指明域、proto 文件与实际声明。�
 	cmd.Flags().StringVar(&o.OutDir, "out", "", "产出根（默认 .）")
 	cmd.Flags().StringVar(&o.Manifest, "manifest", "", "域清单落盘路径（默认 internal/bootstrap/domains.gen.go；早期根级形态传 domains.gen.go）")
 	cmd.Flags().StringVar(&o.APIServerDir, "apiserver-dir", "", "apiserver 目录名（默认 layout.apiserver_dir 否则 apiserver；传 - 跳过 apiserver 侧产物）")
-	cmd.Flags().BoolVar(&o.Force, "force", false, "覆盖已存在的 owned 文件（默认拒绝）")
+	cmd.Flags().BoolVar(&o.Adopt, "adopt", false, "覆盖已存在的 owned 文件并更新清单（默认拒绝）")
+	cmd.Flags().BoolVar(&o.Check, "check", false, "只校验生成物与清单是否与声明一致（零写入，有差异即失败）")
 	_ = cmd.MarkFlagFilename("spec", ".json")
 	cmd.SetErr(streams.ErrOut)
 	return cmd

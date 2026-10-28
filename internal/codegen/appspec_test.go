@@ -380,8 +380,8 @@ func TestMachineGuard_MarkerNotEmittedRed(t *testing.T) {
 // 目标目录树：布局 / 三态归属 / 行数预算
 // ---------------------------------------------------------------------------
 
-// genFixtureTree 在临时目录落参考夹具的目录树（--force 语义由调用方控制）。
-func genFixtureTree(t *testing.T, dir string, force bool) (*bytes.Buffer, error) {
+// genFixtureTree 在临时目录落参考夹具的目录树（--adopt 语义由调用方控制）。
+func genFixtureTree(t *testing.T, dir string, adopt bool) (*bytes.Buffer, error) {
 	t.Helper()
 	as := guardFixture()
 	if err := guardErrs(validateAppSpec(as)); err != nil {
@@ -396,7 +396,7 @@ func genFixtureTree(t *testing.T, dir string, force bool) (*bytes.Buffer, error)
 		t.Fatalf("buildTree: %v", err)
 	}
 	streams, out := testStreams()
-	err = emitTree(dir, files, force, streams)
+	err = emitTree(dir, files, adopt, streams)
 	return out, err
 }
 
@@ -466,8 +466,8 @@ func TestTree_LineBudget(t *testing.T) {
 }
 
 // TestTree_OwnershipAcrossRegenerations 三态行为（回归生成）：
-// 第一次全 generated:；第二次无 --force 在 owned 文件上拒绝（错误带 --force）；
-// --force 放行后 owned 覆盖、seeded kept: 且用户改动保留。
+// 第一次全 generated:；第二次无 --adopt 在 owned 文件上拒绝（错误给出两种
+// 放行开关）；--adopt 放行后 owned 覆盖、seeded kept: 且用户改动保留。
 func TestTree_OwnershipAcrossRegenerations(t *testing.T) {
 	dir := t.TempDir()
 	if _, err := genFixtureTree(t, dir, false); err != nil {
@@ -480,32 +480,34 @@ func TestTree_OwnershipAcrossRegenerations(t *testing.T) {
 		t.Fatalf("hand-edit seed: %v", err)
 	}
 
-	// 第二次：无 --force → owned 拒绝。
+	// 第二次：无 --adopt → owned 拒绝。
 	if _, err := genFixtureTree(t, dir, false); err == nil {
-		t.Fatal("second gen without --force must fail on owned files")
-	} else if !strings.Contains(err.Error(), "--force") {
-		t.Errorf("refusal must mention --force, got: %v", err)
+		t.Fatal("second gen without --adopt must fail on owned files")
+	} else if !strings.Contains(err.Error(), "--adopt") {
+		t.Errorf("refusal must mention --adopt, got: %v", err)
 	}
 	// 拒绝路径不得半途改动文件（emitTree 逐文件落盘，首个 owned 拒绝即返回）。
 	if got, _ := os.ReadFile(seedPath); string(got) != handEdit {
 		t.Errorf("seeded file must survive refused regen, got: %q", got)
 	}
 
-	// 第三次：--force → owned 覆盖 + seeded kept:。
+	// 第三次：--adopt → owned 覆盖 + seeded kept:。
 	out, err := genFixtureTree(t, dir, true)
 	if err != nil {
-		t.Fatalf("force regen: %v", err)
+		t.Fatalf("adopt regen: %v", err)
 	}
-	if kept := strings.Count(out.String(), "kept:"); kept != 3 {
-		t.Errorf("force regen must report kept: for 3 seeded files, got %d:\n%s", kept, out.String())
+	// seed.go、seed/policies.go、apiserver.go、apiserver/domains.gen.go（预域
+	// 形态由 gen domain 升级，故 seed 而非 owned）。
+	if kept := strings.Count(out.String(), "kept:"); kept != 4 {
+		t.Errorf("adopt regen must report kept: for 4 seeded files, got %d:\n%s", kept, out.String())
 	}
 	if got, _ := os.ReadFile(seedPath); string(got) != handEdit {
-		t.Errorf("seeded file must survive --force regen, got: %q", got)
+		t.Errorf("seeded file must survive --adopt regen, got: %q", got)
 	}
 	mainPath := filepath.Join(dir, "cmd", "demoapp", "main.go")
 	before, _ := os.ReadFile(mainPath)
 	if _, err := genFixtureTree(t, dir, true); err != nil {
-		t.Fatalf("force regen 2: %v", err)
+		t.Fatalf("adopt regen 2: %v", err)
 	}
 	after, _ := os.ReadFile(mainPath)
 	if !bytes.Equal(before, after) {
@@ -722,14 +724,14 @@ func runGenAppInTemp(t *testing.T, as *appspecv1.AppSpec) (string, string) {
 	specPath := writeSpecJSON(t, dir, as)
 	t.Chdir(dir) // gen app 的产出根 = CWD（CLI 语义）；相对树必须落在临时 module 内
 	cmd := genAppCmd(NewDefaultIOStreams())
-	cmd.SetArgs([]string{"--spec", specPath, "--force"})
+	cmd.SetArgs([]string{"--spec", specPath, "--adopt"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("gen app --spec: %v", err)
 	}
 	if len(as.GetDomains()) > 0 {
 		writeFixtureProto(t, dir) // gen domain 的 service 校验与注解派生以真实 proto 为输入
 		dcmd := genDomainCmd(NewDefaultIOStreams())
-		dcmd.SetArgs([]string{"--spec", specPath, "--force"})
+		dcmd.SetArgs([]string{"--spec", specPath, "--adopt"})
 		if err := dcmd.Execute(); err != nil {
 			t.Fatalf("gen domain: %v", err)
 		}

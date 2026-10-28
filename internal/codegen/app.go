@@ -125,7 +125,9 @@ type appOptions struct {
 	OutFile string // --out（不可命名 Out，避免遮蔽 ioStreams.Out）
 	Module  string // --module
 	Spec    string // --spec：AppSpec JSON 路径，开启方言生成
-	Force   bool   // --force：覆盖已存在的目标文件（默认拒绝）
+	Force   bool   // --force：模板模式覆盖已存在目标文件（默认拒绝）
+	Adopt   bool   // --adopt：spec 模式覆盖 owned 生成物（--force 的替代，B5）
+	Check   bool   // --check：spec 模式只校验不落盘（I8；有差异即失败）
 
 	ioStreams
 }
@@ -143,10 +145,22 @@ func (o *appOptions) Complete(args []string) error {
 	return nil
 }
 
-// Validate 校验必填项（模板模式必须给应用名；spec 模式由 cobra Args 放行）。
+// Validate 校验必填项与模式互斥（模板模式必须给应用名；spec 模式由 cobra Args 放行）。
 func (o *appOptions) Validate() error {
 	if o.Spec == "" && o.Name == "" {
 		return fmt.Errorf("the app name is required (or pass --spec <AppSpec.json>)")
+	}
+	if o.Spec == "" {
+		if o.Adopt || o.Check {
+			return fmt.Errorf("--adopt/--check apply to spec mode (--spec <AppSpec.json>); template mode uses --force")
+		}
+		return nil
+	}
+	if o.Force {
+		return fmt.Errorf("--force is retired for spec mode; use --adopt to regenerate owned files")
+	}
+	if o.Adopt && o.Check {
+		return fmt.Errorf("--adopt and --check are mutually exclusive")
 	}
 	return nil
 }
@@ -154,7 +168,7 @@ func (o *appOptions) Validate() error {
 // Run 纯执行：spec 非空走 AppSpec 方言生成，否则渲染硬编码模板骨架。
 func (o *appOptions) Run() error {
 	if o.Spec != "" {
-		return runGenAppSpec(o.Spec, o.OutFile, o.Force, o.ioStreams)
+		return runGenAppSpec(o.Spec, o.OutFile, o.Adopt, o.Check, o.ioStreams)
 	}
 	raw, err := renderTmpl("app", appTmpl, map[string]string{"Name": o.Name})
 	if err != nil {
@@ -225,7 +239,9 @@ func genAppCmd(streams ioStreams) *cobra.Command {
 	cmd.Flags().StringVar(&o.OutFile, "out", "", "输出根目录（模板模式默认 cmd/<name>/main.go；spec 模式默认 layout.root 或 .）")
 	cmd.Flags().StringVar(&o.Module, "module", "", "业务 module 路径（提示用）")
 	cmd.Flags().StringVar(&o.Spec, "spec", "", "AppSpec JSON 路径（protojson），开启方言生成（目标目录树）")
-	cmd.Flags().BoolVar(&o.Force, "force", false, "覆盖已存在的目标文件（默认拒绝）")
+	cmd.Flags().BoolVar(&o.Force, "force", false, "模板模式：覆盖已存在的目标文件（默认拒绝）")
+	cmd.Flags().BoolVar(&o.Adopt, "adopt", false, "spec 模式：覆盖 owned 生成物并更新清单（--force 的替代）")
+	cmd.Flags().BoolVar(&o.Check, "check", false, "spec 模式：只校验生成物与清单是否与声明一致（零写入，有差异即失败）")
 	cmd.SetErr(streams.ErrOut)
 	return cmd
 }
@@ -237,7 +253,7 @@ func genAppCmd(streams ioStreams) *cobra.Command {
 // Gate2 契约门（contractGate：描述符派生配置树 + 未知键校验 + YAML 回读
 // 复检）→ buildTreeView（段存在性派生，无字段转写）→ buildTree/emitTree
 // （三态归属落盘）。appspecData 手工转写已删除：模板直接吃 *appspecv1.AppSpec。
-func runGenAppSpec(spec, out string, force bool, streams ioStreams) error {
+func runGenAppSpec(spec, out string, adopt, check bool, streams ioStreams) error {
 	raw, err := os.ReadFile(spec)
 	if err != nil {
 		return fmt.Errorf("read spec: %w", err)
@@ -267,10 +283,20 @@ func runGenAppSpec(spec, out string, force bool, streams ioStreams) error {
 	if err != nil {
 		return err
 	}
-	if err := emitTree(root, files, force, streams); err != nil {
+	_, manifestRaw, err := buildManifest("bald gen app", spec, files)
+	if err != nil {
 		return err
 	}
-	fmt.Fprintln(streams.Out, "next: appspec.json is the declaration truth source; edit it and rerun with --force to regenerate owned files (seeded files are kept, user files are never touched)")
+	if check {
+		return checkTree(root, appManifestName, files, manifestRaw, streams)
+	}
+	if err := emitTree(root, files, adopt, streams); err != nil {
+		return err
+	}
+	if err := writeManifest(root, appManifestName, manifestRaw, streams); err != nil {
+		return err
+	}
+	fmt.Fprintln(streams.Out, "next: appspec.json is the declaration truth source; edit it and rerun with --check to verify, --adopt to regenerate owned files (seeded files are kept, user files are never touched)")
 	return nil
 }
 
