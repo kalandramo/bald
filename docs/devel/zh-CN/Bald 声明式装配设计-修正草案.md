@@ -343,7 +343,7 @@ type Domain struct {
 }
 ```
 
-声明节点的 `Segments` 必须是 `BootstrapConfig` 的真实字段路径：拼错的段不会出现在 L3 覆盖检查里，期望态摘要还会退化成 Key/Kind 常量（reconcile 节点永不触发）——计划期直接报错。
+声明节点的 `Segments` 必须是 `BootstrapConfig` 的真实字段路径：拼错的段不会出现在 L3 覆盖检查里，期望态摘要还会退化成 Key/Kind 常量（reconcile 节点永不触发）——计划期直接报错。这也意味着域自有业务配置（`biz` 段）目前无法作为 reconcile 节点的期望态，见 §8.2 Q8。
 
 可协调声明节点的契约：启动时 Wire 建立实际态、成功后节点记为已应用（Drift 不误报 Missing）；配置变更按节点 `DesiredHash` diff，钩子成功才落新摘要，失败保留旧值由 Drift 报 Stale。声明节点集合是拓扑，应跨配置稳定——热更中新出现的节点键没有登记面。
 
@@ -563,6 +563,7 @@ bald doctor --config configs/bald-demo-api.yaml
 | Q5 | 路由是否由生成器接管？ | 是，默认生成；`--no-routes` 保留自定义 |
 | Q6 | `AppSpec` 快捷方式何时移除？ | v0.28；投影门已运行两个版本 |
 | Q7 | build tag 分叉如何进入声明？ | 短期计划中记录 `Ambient` 并警告；长期进 AppSpec `variants` |
+| Q8 | 域自有业务配置（`biz` 段）如何进入可协调节点的期望态？ | 现状 `Node.Segments` 只认 `BootstrapConfig` 字段路径（`segmentPathKnown`），`Domain.Reconcile` 节点因此只能挂框架段；建议扩展 `biz.<path>` 命名空间、计划期从 Settings 快照取子树做期望态摘要——否则业务配置热更仍只有重启一条路 |
 
 ---
 
