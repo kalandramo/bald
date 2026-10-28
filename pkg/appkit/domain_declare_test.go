@@ -119,6 +119,13 @@ func TestDomain_DeclareRejectsBadNodes(t *testing.T) {
 			want: "framework-owned",
 		},
 		{
+			name: "unknown segment path",
+			declare: func(context.Context, PlanScope) ([]Node, error) {
+				return []Node{{Key: "domain.x.node", Segments: []string{"server.htpp"}, Phase: PhaseServe}}, nil
+			},
+			want: `unknown segment path "server.htpp"`,
+		},
+		{
 			name: "declare error wrapped with domain name",
 			declare: func(context.Context, PlanScope) ([]Node, error) {
 				return nil, errors.New("no proto")

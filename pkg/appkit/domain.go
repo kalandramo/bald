@@ -64,7 +64,8 @@ type Domain struct {
 	// Declare 是域的计划期声明（纯函数，不构造实例）：返回的节点进入装配
 	// 计划（非 Opaque），声明域自有资源、依赖与重载策略（设计 §4.6）。
 	// 节点 Phase 必须落在 wire 或其后（configure/bootstrap 归框架 Provider）；
-	// Key 必填且全应用唯一，Kind 缺省 domain，Reload 缺省 static。声明
+	// Key 必填且全应用唯一，Kind 缺省 domain，Reload 缺省 static。Segments
+	// 必须是 BootstrapConfig 的真实字段路径（拼错在计划期报错）；声明
 	// ReloadReconcile 的节点须提供 Domain.Reconcile 且至少声明一个段
 	//（期望态摘要取自段内容）。
 	//
@@ -193,6 +194,13 @@ func declaredDomainNodes(ctx context.Context, dom Domain, scope PlanScope) ([]No
 		}
 		if n.Phase > PhaseTeardown {
 			return nil, fmt.Errorf("appkit: domain %q: declared node %q: unknown phase %s", dom.Name, n.Key, n.Phase)
+		}
+		for _, seg := range n.Segments {
+			// 拼错的段只是「消费了一个不存在的路径」：L3 覆盖检查看不到它，
+			// 期望态摘要也退化成 Key/Kind 常量（reconcile 节点将永不触发）。
+			if !segmentPathKnown(seg) {
+				return nil, fmt.Errorf("appkit: domain %q: declared node %q: unknown segment path %q (want a BootstrapConfig field path like \"server.http\")", dom.Name, n.Key, seg)
+			}
 		}
 		if n.Reload == ReloadReconcile {
 			// 可协调节点必须可收敛：段缺失时期望态摘要只剩 Key/Kind，配置

@@ -343,6 +343,8 @@ type Domain struct {
 }
 ```
 
+声明节点的 `Segments` 必须是 `BootstrapConfig` 的真实字段路径：拼错的段不会出现在 L3 覆盖检查里，期望态摘要还会退化成 Key/Kind 常量（reconcile 节点永不触发）——计划期直接报错。
+
 可协调声明节点的契约：启动时 Wire 建立实际态、成功后节点记为已应用（Drift 不误报 Missing）；配置变更按节点 `DesiredHash` diff，钩子成功才落新摘要，失败保留旧值由 Drift 报 Stale。声明节点集合是拓扑，应跨配置稳定——热更中新出现的节点键没有登记面。
 
 目标形态示例（greet 域）：
