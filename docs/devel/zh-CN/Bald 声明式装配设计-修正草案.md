@@ -21,7 +21,7 @@
 
 同时给出 **L1–L5 声明式等级**，用于对外诚实表述与验收：草案撰写时 bald 是 **L1 + 部分 L2**，本设计目标是在 v0.26 达到 **L3**、v0.27 达到 **L4**、v0.28 达到 **L5**。
 
-> **实施状态（2026-10-29，M0–M5 + doctor + Domain v2 已落地）**：`Compile`/Plan IR、Provider v2、删除手工排序表、`Key[T]` 类型化资源、节点级 `ReloadPolicy` + `Drift`、生成清单与 `--check`/`--adopt`、`WithOpaqueBudget`、`bald doctor`、计划缓存 `WithPlanCache`（§4.9，按 `(Role, InputHash)` 记基线、doctor 只读对比）均已交付，`WithRole` 补齐角色进计划与 Provider 作用域的缺口；`Domain.Declare`（§4.6）已落地并从示例 greet 域起用，`Domain.Reconcile` 补齐声明的可协调节点（计划期校验 + 热更分发）。对外口径随之更新为「声明式装配（L1–L3 达成，L4 部分，L5 生成物维度达成）」，见 [装配计划与 doctor](../../guide/zh-CN/Bald%20装配计划与%20doctor.md) §5。**未达成的验收项**：① `Opaque` 预算——示例在 greet 迁移 `Declare` 后为 **3（达标）**，bald-admin 仍为 50（21 域未迁移，需业务侧跟进）；② L4 的收敛已覆盖 Provider 节点与声明域节点（`Domain.Reconcile`，2026-10-29 落地：计划期校验 + Wire 成功后落账 + 热更按 Key 调钩子），但 database/cache/storage 等 Provider 段仍明确不支持热更，且 bald-admin 尚未有域使用 `Declare`。
+> **实施状态（2026-10-29，M0–M5 + doctor + Domain v2 已落地）**：`Compile`/Plan IR、Provider v2、删除手工排序表、`Key[T]` 类型化资源、节点级 `ReloadPolicy` + `Drift`、生成清单与 `--check`/`--adopt`、`WithOpaqueBudget`、`bald doctor`、计划缓存 `WithPlanCache`（§4.9，按 `(Role, InputHash)` 记基线、doctor 只读对比）均已交付，`WithRole` 补齐角色进计划与 Provider 作用域的缺口；`Domain.Declare`/`Domain.ApplyNode`（§4.6）已落地，示例 greet 域与 bald-admin 全部 20 个域都已迁到该形态（计划期 Opaque 只剩 std server 构造节点），`Domain.Reconcile` 补齐声明的可协调节点（计划期校验 + 热更分发）。对外口径随之更新为「声明式装配（L1–L3 达成，L4 部分，L5 生成物维度达成）」，见 [装配计划与 doctor](../../guide/zh-CN/Bald%20装配计划与%20doctor.md) §5。**未达成的验收项**：① `Opaque` 预算——示例为 **2**、bald-admin 为 **1**，均达标；② L4 的收敛已覆盖 Provider 节点（logger/audit 的 `ReloadReconcile`）与声明域节点（`Domain.Reconcile`，2026-10-29 落地：计划期校验 + Wire/ApplyNode 成功后落账 + 热更按 Key 调钩子），但 database/cache/storage 等 Provider 段仍明确不支持热更，域侧也尚无节点使用 `ReloadReconcile`（域自有配置进期望态的口径见 §8.2 Q8）。
 
 ---
 
@@ -394,7 +394,7 @@ func applyNode(ctx context.Context, app *appkit.App, node appkit.Node) error {
 }
 ```
 
-迁移期不强制所有域改 `Declare`；但 `bald doctor` 会统计 `Opaque` 域数量，作为 L3 达成的量化门槛（见 §7）。已实现：报告的 `domains:` 行给出 `declared` / `legacy` 计数与名单（2026-10-29）；`_example/bald` 的 greet 域已迁到 `ApplyNode` 目标形态（`domains: 1 (declared 1, legacy 0)`、`nodes: 7 (opaque 2)`，逃逸舱只剩框架自身的程序化 registry 与 std server）；bald-admin 的 language/dict 域也已迁到该形态（`domains: 20 (declared 2, legacy 18)`、`nodes: 55 (opaque 45)`：biz/routes 节点由 `ApplyNode` 执行，服务注册走 `Domain.Services`），两者不再贡献逃逸舱；其余 18 个 legacy 域仍保留逐槽位 Opaque 投影，可照 language/dict 的形状改写。
+迁移期不强制所有域改 `Declare`；但 `bald doctor` 会统计 `Opaque` 域数量，作为 L3 达成的量化门槛（见 §7）。已实现：报告的 `domains:` 行给出 `declared` / `legacy` 计数与名单（2026-10-29）；`_example/bald` 的 greet 域已迁到 `ApplyNode` 目标形态（`domains: 1 (declared 1, legacy 0)`、`nodes: 7 (opaque 2)`，逃逸舱只剩框架自身的程序化 registry 与 std server）；bald-admin 的 20 个域已**全部**迁到该形态（`domains: 20 (declared 20, legacy 0)`、`nodes: 47 (opaque 1)`：biz/routes 节点由 `ApplyNode` 执行，服务注册走 `Domain.Services`），域不再贡献逃逸舱，唯一 Opaque 是 std server 构造节点。其中 18 个域拓扑同形（构造 biz + 委托 hgin 注册），声明与执行分派收敛在装配层小工具 `domains.StandardDomain`（`internal/apiserver/domains/standard.go`），每域只保留自己的构造体与注册体。
 
 ### 4.7 执行、回滚与停机
 
