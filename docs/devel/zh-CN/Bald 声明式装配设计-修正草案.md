@@ -401,7 +401,7 @@ func (a *App) Drift(ctx context.Context) ([]Drift, error)
 
 - `appkit.Compile(ctx, opts...) (*Plan, error)`：公开纯函数，供测试、CLI、`doctor` 使用。
 - `Serve` 识别 `--plan` / `--plan-format=json`（与 `--config` 同一 pflag 容错路径），打印后 `exit 0`，**在任何副作用之前**。
-- `bald doctor`（新子命令）输出：计划摘要、`Opaque` 节点数、白名单段、被覆盖的段、build tag 分叉、`gen --check` 结果。
+- `bald doctor`（新子命令）输出：计划摘要、`Opaque` 节点数、域迁移进度（`domains:` 的 `declared`/`legacy` 计数与名单）、白名单段、被覆盖的段、build tag 分叉、`gen --check` 结果。
   - **实现偏差**：`gen --check` 结果以「出口提示」呈现而非代跑——运行期二进制不 import `internal/codegen`（生成器是另一个执行体）；`doctor` 保持只读，CI 里两条命令并列执行。
 - 计划缓存：按 `(Role, InputHash)` 写入 `.bald/plan-cache.json`，仅作对比基线，不作为执行依据。**已实现**：`appkit.WithPlanCache(path)` 声明路径（生成物 `bootstrap.Options()` 默认声明 `.bald/plan-cache.json`），`Serve` 装配成功后记录、`doctor` 只读对比（无缓存整行省略；缺失/损坏只提示）；写入按 16 条上限去重裁剪，原子 rename。
 
