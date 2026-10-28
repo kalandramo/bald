@@ -10,7 +10,7 @@
 // domain 产出 domains.gen.go 聚合清单；_example 的手写 domains.gen.go 即其
 // 目标形态）。init() 自注册禁止（「不做 init() 自注册」哲学）。
 //
-// 三个槽位（以 bald-admin 21 域的真实诉求裁剪，YAGNI）：
+// 槽位（以 bald-admin 21 域的真实诉求裁剪，YAGNI）：
 //   - Wire：域在装配期自我接线——读自己的配置段（app.Settings() 快照）、构造
 //     自己的能力（限流/熔断/重试等）、持有自己的端口（业务能力策略住域：
 //     读业务阈值的构造器归域包，装配层不再出现业务阈值）；
@@ -18,7 +18,9 @@
 //     *gin.Engine；appkit 不 import 路由器，路由器耦合由域自持），在 server
 //     构建前生效；gateway 转码面占用 server.http 端口时让位（同端口单面语义）；
 //   - Services：gRPC service 注册——并入 server 构建的注册回调（业务注册在
-//     前、域按声明序在后），实现端口由 Wire 构造。
+//     前、域按声明序在后），实现端口由 Wire 构造；
+//   - Reconcile：Declare 声明的 ReloadReconcile 节点的协调钩子——配置热更
+//     时重建域自有资源（设计 §4.6 的目标形态补全：声明节点不再只是拓扑）。
 //
 // 裁剪说明（为何没有迁移/ConfigKeys 槽位）：
 //   - 迁移：执行迁移需要存储栈类型（gorm AutoMigrate），appkit 不 import 存储
@@ -62,7 +64,9 @@ type Domain struct {
 	// Declare 是域的计划期声明（纯函数，不构造实例）：返回的节点进入装配
 	// 计划（非 Opaque），声明域自有资源、依赖与重载策略（设计 §4.6）。
 	// 节点 Phase 必须落在 wire 或其后（configure/bootstrap 归框架 Provider）；
-	// Key 必填且全应用唯一，Kind 缺省 domain，Reload 缺省 static。
+	// Key 必填且全应用唯一，Kind 缺省 domain，Reload 缺省 static。声明
+	// ReloadReconcile 的节点须提供 Domain.Reconcile 且至少声明一个段
+	//（期望态摘要取自段内容）。
 	//
 	// 迁移期语义：Wire/Routes/Services 仍是实际接线点；声明了 Declare 时
 	// 引擎不再逐个合成它们的 Opaque 节点，而是塌缩成一个
@@ -87,6 +91,20 @@ type Domain struct {
 	// 域按声明序在后；调用点在迟后阶段 server 构建——彼时 Wire 已完成，域
 	// 端口就绪）。appkit.WithGRPC/WithGRPCOptions 声明的拦截器链照常生效。
 	Services func(s *grpc.Server)
+
+	// Reconcile 是域内可协调节点的协调钩子：Declare 返回 ReloadReconcile
+	// 节点的域必须提供它（否则装配期 fail-fast——引擎无法重建域自有状态，
+	// 静默留下永远 Stale 的节点只会让 Drift 失真）。配置热更时引擎按节点
+	// Key 调用，node 是新计划的期望节点；app 提供资源面与新配置快照
+	// （app.Settings()）。
+	//
+	// 与 appkit.NodeReconciler 同一契约：幂等（重复调用朝同一终态收敛）；
+	// 返回错误时已应用摘要不更新，Drift 如实报 Stale，下次变更重试。该节点
+	// 在 Wire 成功后即记为已应用——构造期资源的实际态由 Wire 建立。
+	//
+	// 协调器在装配期按初始计划的声明节点登记：声明节点集合应稳定（拓扑变化
+	// 本就是重启语义），热更中新出现的节点键没有登记面，Drift 会如实报 Missing。
+	Reconcile func(ctx context.Context, app *App, node Node) error
 }
 
 // Apply 把域追加进声明（Option 实现；Provider 同款手法——域值直接作为
@@ -175,6 +193,22 @@ func declaredDomainNodes(ctx context.Context, dom Domain, scope PlanScope) ([]No
 		}
 		if n.Phase > PhaseTeardown {
 			return nil, fmt.Errorf("appkit: domain %q: declared node %q: unknown phase %s", dom.Name, n.Key, n.Phase)
+		}
+		if n.Reload == ReloadReconcile {
+			// 可协调节点必须可收敛：段缺失时期望态摘要只剩 Key/Kind，配置
+			// 变更永远 diff 不出该节点（钩子静默不触发）；钩子缺失时引擎
+			// 无法重建域自有状态。两种静默失效都在计划期拦下。
+			if dom.Reconcile == nil {
+				return nil, fmt.Errorf("appkit: domain %q: declared node %q: reload=reconcile requires Domain.Reconcile", dom.Name, n.Key)
+			}
+			if dom.Wire == nil {
+				// Wire 是域资源的唯一构造点；启动后记「已应用」必须有真实
+				// 实际态可对应，否则 Drift 从第一天起就在说谎。
+				return nil, fmt.Errorf("appkit: domain %q: declared node %q: reload=reconcile requires Domain.Wire (the construction point of the reconcilable state)", dom.Name, n.Key)
+			}
+			if len(n.Segments) == 0 {
+				return nil, fmt.Errorf("appkit: domain %q: declared node %q: reload=reconcile requires at least one segment (desired state is derived from segment contents)", dom.Name, n.Key)
+			}
 		}
 		if n.Kind == "" {
 			n.Kind = "domain"

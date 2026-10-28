@@ -21,7 +21,7 @@
 
 同时给出 **L1–L5 声明式等级**，用于对外诚实表述与验收：草案撰写时 bald 是 **L1 + 部分 L2**，本设计目标是在 v0.26 达到 **L3**、v0.27 达到 **L4**、v0.28 达到 **L5**。
 
-> **实施状态（2026-10-29，M0–M5 + doctor + Domain v2 已落地）**：`Compile`/Plan IR、Provider v2、删除手工排序表、`Key[T]` 类型化资源、节点级 `ReloadPolicy` + `Drift`、生成清单与 `--check`/`--adopt`、`WithOpaqueBudget`、`bald doctor`、计划缓存 `WithPlanCache`（§4.9，按 `(Role, InputHash)` 记基线、doctor 只读对比）均已交付，`WithRole` 补齐角色进计划与 Provider 作用域的缺口；`Domain.Declare`（§4.6）已落地并从示例 greet 域起用。对外口径随之更新为「声明式装配（L1–L3 达成，L4 部分，L5 生成物维度达成）」，见 [装配计划与 doctor](../../guide/zh-CN/Bald%20装配计划与%20doctor.md) §5。**未达成的验收项**：① `Opaque` 预算——示例在 greet 迁移 `Declare` 后为 **3（达标）**，bald-admin 仍为 50（21 域未迁移，需业务侧跟进）；② L4 的收敛仍限于声明式组件子集，域内资源热更未纳入。
+> **实施状态（2026-10-29，M0–M5 + doctor + Domain v2 已落地）**：`Compile`/Plan IR、Provider v2、删除手工排序表、`Key[T]` 类型化资源、节点级 `ReloadPolicy` + `Drift`、生成清单与 `--check`/`--adopt`、`WithOpaqueBudget`、`bald doctor`、计划缓存 `WithPlanCache`（§4.9，按 `(Role, InputHash)` 记基线、doctor 只读对比）均已交付，`WithRole` 补齐角色进计划与 Provider 作用域的缺口；`Domain.Declare`（§4.6）已落地并从示例 greet 域起用，`Domain.Reconcile` 补齐声明的可协调节点（计划期校验 + 热更分发）。对外口径随之更新为「声明式装配（L1–L3 达成，L4 部分，L5 生成物维度达成）」，见 [装配计划与 doctor](../../guide/zh-CN/Bald%20装配计划与%20doctor.md) §5。**未达成的验收项**：① `Opaque` 预算——示例在 greet 迁移 `Declare` 后为 **3（达标）**，bald-admin 仍为 50（21 域未迁移，需业务侧跟进）；② L4 的收敛已覆盖 Provider 节点与声明域节点（`Domain.Reconcile`，2026-10-29 落地：计划期校验 + Wire 成功后落账 + 热更按 Key 调钩子），但 database/cache/storage 等 Provider 段仍明确不支持热更，且 bald-admin 尚未有域使用 `Declare`。
 
 ---
 
@@ -335,8 +335,15 @@ type Domain struct {
 	Wire     func(ctx context.Context, app *App) error
 	Routes   func(h http.Handler) error
 	Services func(s *grpc.Server)
+
+	// Reconcile 是域内可协调节点（Declare 返回 ReloadReconcile）的协调钩子：
+	// 配置热更时引擎按节点 Key 调用，把域自有资源重建到新契约。
+	// 声明 ReloadReconcile 节点却缺钩子 / 缺 Wire / 缺段都在计划期报错。
+	Reconcile func(ctx context.Context, app *App, node Node) error
 }
 ```
+
+可协调声明节点的契约：启动时 Wire 建立实际态、成功后节点记为已应用（Drift 不误报 Missing）；配置变更按节点 `DesiredHash` diff，钩子成功才落新摘要，失败保留旧值由 Drift 报 Stale。声明节点集合是拓扑，应跨配置稳定——热更中新出现的节点键没有登记面。
 
 目标形态示例（greet 域）：
 

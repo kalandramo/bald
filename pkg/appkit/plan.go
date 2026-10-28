@@ -313,6 +313,12 @@ func planFrom(ctx context.Context, d *Decl, cfg *bootstrapv1.BootstrapConfig, pp
 			if err != nil {
 				return nil, err
 			}
+			if pp.domainNodes == nil {
+				pp.domainNodes = map[ResourceKey]Domain{}
+			}
+			for _, n := range nodes {
+				pp.domainNodes[n.Key] = dom
+			}
 			p.Nodes = append(p.Nodes, nodes...)
 			if w, ok := domainCompatNode(dom, d); ok {
 				p.Nodes = append(p.Nodes, w)

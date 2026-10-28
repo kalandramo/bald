@@ -307,6 +307,9 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*App, error) {
 	slots := newCleanupSlots(plan)
 	// a 先声明再进闭包：BeforeStart 在 Run 期才执行，届时 a 已赋值。
 	var a *App
+	// 声明域的可协调节点键（装配末期由 registerDomainReconcilers 填充）：
+	// 域 Wire 成功后逐个记为已应用——实际态由 Wire 建立。
+	var domainReconcileKeys []ResourceKey
 
 	// 注：配置命名空间的必填检查在 Serve（serve.go）——它在任何副作用（阶段 A
 	// Logger、契约预装载）之前 fail-fast，比旧 FromBootstrap 把检查放在阶段 A
@@ -395,7 +398,15 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*App, error) {
 	// 约束夹出的窗口。多域次序 = 声明序；域 Wire/Routes 失败 fail-fast。
 	if len(spec.Domains) > 0 {
 		kitOpts = append(kitOpts, BeforeStart(func(ctx context.Context) error {
-			return wireDomains(ctx, a, spec)
+			if err := wireDomains(ctx, a, spec); err != nil {
+				return err
+			}
+			// Wire 成功 = 声明的域资源已建到期望态：可协调节点落账，Drift
+			// 不把正常启动误报为 Missing（热更路径由 applyPlanChange 落账）。
+			for _, key := range domainReconcileKeys {
+				a.markAppliedByKey(key)
+			}
+			return nil
 		}))
 	}
 	// 迟后阶段（server 段 Provider）：**追加在业务 beforeStart 之后**——注册序
@@ -481,7 +492,47 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*App, error) {
 			return storeProductReplacing(ctx, a, buildResult{prov: prov, node: node, product: product, cleanup: cleanup}, slots)
 		}
 	}
+	// 声明域的可协调节点：协调钩子归域自持（Domain.Reconcile），与 Provider
+	// 节点共用同一 NodeReconciler 面——配置变更按同一 Key diff 分发。
+	domainReconcileKeys = registerDomainReconcilers(a, plan, fullPlan)
 	return a, nil
+}
+
+// registerDomainReconcilers 为声明域的 ReloadReconcile 节点注册协调适配器：
+// 把 NodeReconciler(ctx, next) 转成 Domain.Reconcile(ctx, app, node)——node 取
+// next 里该 Key 的期望节点（缺省回退装配期节点）。返回待落账的节点键，供
+// 域 Wire 成功后记为已应用。
+func registerDomainReconcilers(a *App, plan *providerPlan, fullPlan *Plan) []ResourceKey {
+	keys := make([]ResourceKey, 0, len(plan.domainNodes))
+	for _, n := range fullPlan.Nodes {
+		dom, ok := plan.domainNodes[n.Key]
+		if !ok || n.Reload != ReloadReconcile || dom.Reconcile == nil {
+			continue
+		}
+		key, hook, want := n.Key, dom.Reconcile, n
+		a.nodeReconcilers[key] = func(ctx context.Context, next *Plan) error {
+			node := want
+			if cur := lookupPlanNode(next, key); cur != nil {
+				node = *cur
+			}
+			return hook(ctx, a, node)
+		}
+		keys = append(keys, n.Key)
+	}
+	return keys
+}
+
+// lookupPlanNode 按 Key 取计划节点（nil 计划返回 nil）。
+func lookupPlanNode(p *Plan, key ResourceKey) *Node {
+	if p == nil {
+		return nil
+	}
+	for i := range p.Nodes {
+		if p.Nodes[i].Key == key {
+			return &p.Nodes[i]
+		}
+	}
+	return nil
 }
 
 // cleanupSlots 是停机清理槽位集：节点 Key → cleanup（Build 成功后填充）。

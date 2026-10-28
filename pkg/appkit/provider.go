@@ -360,6 +360,10 @@ type providerPlan struct {
 	// effectName 是节点停机 Effect 名（键 = 节点 Key；与旧 Effect 名逐字一致）。
 	effectName map[ResourceKey]string
 
+	// domainNodes 是声明域节点 → 所属域（planFrom 填充）：装配期据此为
+	// ReloadReconcile 的声明节点注册域协调钩子（Domain.Reconcile）。
+	domainNodes map[ResourceKey]Domain
+
 	// unimplemented 是白名单集合（查 O(1)）。
 	unimplemented map[string]bool
 	// warnings 是计划期诊断（同 Key 覆盖等），由 Compile 并入 Plan.Warnings。
