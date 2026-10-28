@@ -129,6 +129,10 @@ type Decl struct {
 	// 0 = 不设预算）。超预算只产计划警告，不阻断装配——计量恒可见
 	// （Plan.OpaqueCount），CI 可自行设门。
 	OpaqueBudget int
+	// Ambient 是构建环境注入的接线说明（WithAmbient 追加）：build tag 分叉、
+	// init() 注册回调等计划看不到、却改变运行形态的事实。每条投影为
+	// Plan.Warnings 的 ambient 诊断（I10）。
+	Ambient []Ambient
 	// PlanCache 是计划缓存文件路径（WithPlanCache 写入；空 = 不落盘）。启动期
 	// 记录计划基线，doctor 只读对比；缓存不是执行依据（见 plan_cache.go）。
 	PlanCache string

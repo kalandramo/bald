@@ -348,8 +348,8 @@ func TestPlan_RegistrarTakeoverVisible(t *testing.T) {
 }
 
 // TestPlan_EscapeHatchesReported 钉住 I10：计划可静态观测的逃逸舱都必须
-// 出现在 Plan.Warnings——白名单段、节点 override、程序化 Registrar 接管。
-// build tag 分叉（init() 注入回调）发生在声明之前、不在计划 IR 内，由
+// 出现在 Plan.Warnings——白名单段、节点 override、程序化 Registrar 接管、
+// 环境注入（WithAmbient：build tag / init() 接线）。计划看不到的域仍由
 // Opaque 计数与预算纳管（见 TestPlan_OpaqueBudget）。
 func TestPlan_EscapeHatchesReported(t *testing.T) {
 	t.Run("whitelisted segment", func(t *testing.T) {
@@ -393,6 +393,57 @@ func TestPlan_EscapeHatchesReported(t *testing.T) {
 			t.Fatalf("takeover warning missing: %+v", p.Warnings)
 		}
 	})
+
+	t.Run("ambient injection", func(t *testing.T) {
+		cfgPath := writePlanConfig(t, "plan-escape-ambient", "script:\n  options:\n    enabled: true\n")
+		notes := []Ambient{
+			{Name: "build-tag:grpcgw", Detail: "grpc-gateway wiring compiled only under -tags grpcgw"},
+			{Name: "build-tag:nacos", Detail: "nacos providers compiled only under -tags nacos"},
+		}
+		compile := func(t *testing.T, notes ...Ambient) *Plan {
+			t.Helper()
+			p, err := Compile(context.Background(), ConfigFile(cfgPath),
+				WithUnimplementedSegments("script"), WithAmbient(notes...))
+			if err != nil {
+				t.Fatalf("Compile: %v", err)
+			}
+			return p
+		}
+
+		p := compile(t, notes...)
+		for _, n := range notes {
+			if !hasWarning(p, "ambient", n.Name) {
+				t.Fatalf("ambient warning for %q missing: %+v", n.Name, p.Warnings)
+			}
+		}
+		// 声明序无关（I2）：倒序声明得到同一计划哈希。
+		reversed := compile(t, notes[1], notes[0])
+		if p.Hash() != reversed.Hash() {
+			t.Fatalf("ambient declaration order changed plan hash: %s vs %s", p.Hash(), reversed.Hash())
+		}
+		// 重复声明去重：同一逃逸舱只产一条诊断。
+		dup := compile(t, notes[0], notes[0])
+		var ambientCount int
+		for _, w := range dup.Warnings {
+			if w.Code == "ambient" && w.Subject == notes[0].Name {
+				ambientCount++
+			}
+		}
+		if ambientCount != 1 {
+			t.Fatalf("duplicate ambient note produced %d warnings, want 1: %+v", ambientCount, dup.Warnings)
+		}
+	})
+}
+
+// TestPlan_AmbientRequiresName 钉住逃逸舱的最小身份约束：无名 Ambient 在
+// 计划期报错——诊断无法被引用，等于隐身。
+func TestPlan_AmbientRequiresName(t *testing.T) {
+	cfgPath := writePlanConfig(t, "plan-ambient-noname", "script:\n  options:\n    enabled: true\n")
+	_, err := Compile(context.Background(), ConfigFile(cfgPath),
+		WithUnimplementedSegments("script"), WithAmbient(Ambient{Detail: "unlabeled wiring"}))
+	if err == nil || !strings.Contains(err.Error(), "ambient declaration requires a Name") {
+		t.Fatalf("Compile err = %v, want ambient Name error", err)
+	}
 }
 
 // TestPlan_OpaqueBudget 钉住逃逸舱的计量出口：OpaqueCount 恒进计划（I10），

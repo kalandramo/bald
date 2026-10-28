@@ -137,6 +137,9 @@ func Options(role string) []appkit.Option {
 	// 计划缓存：启动期把计划按 (role, input) 记为基线，doctor 据此报告装配
 	// 变更（本地文件，非执行依据；读写失败只告警）。
 	opts = append(opts, appkit.WithPlanCache(".bald/plan-cache.json"))
+	// 环境注入接线（Q7 短期形态）：build tag 分叉在编译期决定接线，计划看不到
+	// 内部——由带 tag 的文件在 init 里登记，--plan/doctor 以 ambient 警告呈现。
+	opts = append(opts, appkit.WithAmbient(ambientNotes...))
 	// 逃逸舱预算：api 角色 2 个（程序化 registry、std server）——greet 域已迁到
 	// Domain v2 的 ApplyNode 形态，不再产生兼容节点，逃逸舱低于设计 §7 的
 	// v0.28 目标（≤3）。预算=当前值，新增逃逸舱会让 --plan/doctor 出现
@@ -144,6 +147,10 @@ func Options(role string) []appkit.Option {
 	opts = append(opts, appkit.WithOpaqueBudget(2))
 	return opts
 }
+
+// ambientNotes 收集 build tag 分叉注入的接线说明（register_*.go 的 init
+// 追加；Options 把它投影为计划 ambient 警告）。
+var ambientNotes []appkit.Ambient
 
 // domainOptionsForRole 按角色选择业务域清单（对照生成物 domains.gen.go 的
 // domainOptionsForRole：单模板源，装配层只做选择）。

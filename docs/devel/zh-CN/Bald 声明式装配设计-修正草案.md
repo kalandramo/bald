@@ -21,7 +21,7 @@
 
 同时给出 **L1–L5 声明式等级**，用于对外诚实表述与验收：草案撰写时 bald 是 **L1 + 部分 L2**，本设计目标是在 v0.26 达到 **L3**、v0.27 达到 **L4**、v0.28 达到 **L5**。
 
-> **实施状态（2026-10-29，M0–M5 + doctor + Domain v2 已落地）**：`Compile`/Plan IR、Provider v2、删除手工排序表、`Key[T]` 类型化资源、节点级 `ReloadPolicy` + `Drift`、生成清单与 `--check`/`--adopt`、`WithOpaqueBudget`、`bald doctor`、计划缓存 `WithPlanCache`（§4.9，按 `(Role, InputHash)` 记基线、doctor 只读对比）均已交付，`WithRole` 补齐角色进计划与 Provider 作用域的缺口；`Domain.Declare`/`Domain.ApplyNode`（§4.6）已落地，示例 greet 域与 bald-admin 全部 20 个域都已迁到该形态（计划期 Opaque 只剩 std server 构造节点），`Domain.Reconcile` 补齐声明的可协调节点（计划期校验 + 热更分发）。对外口径随之更新为「声明式装配（L1–L3 达成，L4 部分，L5 生成物维度达成）」，见 [装配计划与 doctor](../../guide/zh-CN/Bald%20装配计划与%20doctor.md) §5。**未达成的验收项**：① `Opaque` 预算——示例为 **2**、bald-admin 为 **1**，均达标；② L4 的收敛已覆盖 Provider 节点（logger/audit 的 `ReloadReconcile`）与声明域节点（`Domain.Reconcile`，2026-10-29 落地：计划期校验 + Wire/ApplyNode 成功后落账 + 热更按 Key 调钩子），但 database/cache/storage 等 Provider 段仍明确不支持热更，域侧也尚无节点使用 `ReloadReconcile`（域自有配置进期望态的口径见 §8.2 Q8）。
+> **实施状态（2026-10-29，M0–M5 + doctor + Domain v2 已落地）**：`Compile`/Plan IR、Provider v2、删除手工排序表、`Key[T]` 类型化资源、节点级 `ReloadPolicy` + `Drift`、生成清单与 `--check`/`--adopt`、`WithOpaqueBudget`、`bald doctor`、计划缓存 `WithPlanCache`（§4.9，按 `(Role, InputHash)` 记基线、doctor 只读对比）均已交付，`WithRole` 补齐角色进计划与 Provider 作用域的缺口、`WithAmbient` 把 build tag / `init()` 注入接线记为计划 `ambient` 警告（Q7 短期形态）；`Domain.Declare`/`Domain.ApplyNode`（§4.6）已落地，示例 greet 域与 bald-admin 全部 20 个域都已迁到该形态（计划期 Opaque 只剩 std server 构造节点），`Domain.Reconcile` 补齐声明的可协调节点（计划期校验 + 热更分发）。对外口径随之更新为「声明式装配（L1–L3 达成，L4 部分，L5 生成物维度达成）」，见 [装配计划与 doctor](../../guide/zh-CN/Bald%20装配计划与%20doctor.md) §5。**未达成的验收项**：① `Opaque` 预算——示例为 **2**、bald-admin 为 **1**，均达标；② L4 的收敛已覆盖 Provider 节点（logger/audit 的 `ReloadReconcile`）与声明域节点（`Domain.Reconcile`，2026-10-29 落地：计划期校验 + Wire/ApplyNode 成功后落账 + 热更按 Key 调钩子），但 database/cache/storage 等 Provider 段仍明确不支持热更，域侧也尚无节点使用 `ReloadReconcile`（域自有配置进期望态的口径见 §8.2 Q8）。
 
 ---
 
@@ -432,6 +432,7 @@ func (a *App) Drift(ctx context.Context) ([]Drift, error)
 - `Serve` 识别 `--plan` / `--plan-format=json`（与 `--config` 同一 pflag 容错路径），打印后 `exit 0`，**在任何副作用之前**。
 - `bald doctor`（新子命令）输出：计划摘要、`Opaque` 节点数、域迁移进度（`domains:` 的 `declared`/`legacy` 计数与名单）、白名单段、被覆盖的段、build tag 分叉、`gen --check` 结果。
   - **实现偏差**：`gen --check` 结果以「出口提示」呈现而非代跑——运行期二进制不 import `internal/codegen`（生成器是另一个执行体）；`doctor` 保持只读，CI 里两条命令并列执行。
+  - **build tag 分叉**：`doctor` 的 `build tags:` 行来自 `debug.ReadBuildInfo`（构建事实）；应用侧语义由 `WithAmbient` 显式声明，进 `Plan.Warnings` 的 `ambient` 诊断——计划不嗅探 build tag，只记录声明者告诉它的事实（Q7 短期形态）。
 - 计划缓存：按 `(Role, InputHash)` 写入 `.bald/plan-cache.json`，仅作对比基线，不作为执行依据。**已实现**：`appkit.WithPlanCache(path)` 声明路径（生成物 `bootstrap.Options()` 默认声明 `.bald/plan-cache.json`），`Serve` 装配成功后记录、`doctor` 只读对比（无缓存整行省略；缺失/损坏只提示）；写入按 16 条上限去重裁剪，原子 rename。
 
 ### 4.10 代码生成：从脚手架到纯函数
@@ -597,7 +598,7 @@ bald doctor --config configs/bald-demo-api.yaml
 | Q4 | 收敛首版覆盖哪些资源？ | logger/audit/组件；DB/cache/storage 仅 `ReloadRestart` |
 | Q5 | 路由是否由生成器接管？ | 是，默认生成；`--no-routes` 保留自定义 |
 | Q6 | `AppSpec` 快捷方式何时移除？ | v0.28；投影门已运行两个版本 |
-| Q7 | build tag 分叉如何进入声明？ | 短期计划中记录 `Ambient` 并警告；长期进 AppSpec `variants` |
+| Q7 | build tag 分叉如何进入声明？ | 短期计划中记录 `Ambient` 并警告——**已落**（`WithAmbient`，2026-10-29：示例 `-tags grpcgw`/`nacos` 经 `init()` 登记，`--plan`/`doctor` 出现 `ambient` 警告）；长期进 AppSpec `variants`（未做） |
 | Q8 | 域自有业务配置（`biz` 段）如何进入可协调节点的期望态？ | 现状 `Node.Segments` 只认 `BootstrapConfig` 字段路径（`segmentPathKnown`），`Domain.Reconcile` 节点因此只能挂框架段；建议扩展 `biz.<path>` 命名空间、计划期从 Settings 快照取子树做期望态摘要——否则业务配置热更仍只有重启一条路 |
 
 ---
@@ -628,7 +629,7 @@ bald doctor --config configs/bald-demo-api.yaml
 | 资源面 `any` + 字符串 | P4：`Key[T]`；旧 API deprecate |
 | 收敛只覆盖组件 | P3：节点级 `ReloadPolicy` + `Drift`；保守默认 |
 | Registrar 覆盖静默 | P5：计划警告 + `Override` 显式化 |
-| build tag 改变接线 | P5：计划 `Ambient` 警告；长期 AppSpec `variants` |
+| build tag 改变接线 | P5：计划 `Ambient` 警告（`WithAmbient`，已落）；长期 AppSpec `variants` |
 | codegen 有状态、非幂等 | P6：清单 + `--check` + 确定性；路由生成 |
 | 对外称「声明式编程」 | §3.1：改为「声明式装配（Lx）」，按等级表述 |
 | 验收只量生产力 | §7：声明性指标为主，生产力指标为辅 |

@@ -130,7 +130,9 @@ gen: run `bald gen app --check` and `bald gen domain --check` in the generated t
 | `override: key (reason)` | 显式覆盖的节点与其理由 |
 | `segments` 分组 | `consumed` 有消费者；`whitelisted` 经 `WithUnimplementedSegments` 豁免；`framework` 框架无条件消费；`unconsumed` 非空即启动失败 |
 | `build tags` | 构建期 `-tags`（`debug.ReadBuildInfo` 读取），用于解释 build tag 分叉 |
-| `warnings` | 与 `--plan` 同源的全部诊断（含 `override` / `whitelisted` / `opaque-budget`） |
+| `warnings` | 与 `--plan` 同源的全部诊断（含 `override` / `whitelisted` / `opaque-budget` / `ambient`） |
+
+`build tags` 行只回答「这个二进制用什么 tag 编的」；**为什么某个 tag 改变接线**需要应用自己说清楚：`appkit.WithAmbient(appkit.Ambient{Name: "build-tag:grpcgw", Detail: "..."})` 把这类环境注入声明进计划，`--plan` 与 `doctor` 的 `warnings` 出现 `ambient` 诊断（示例见 `_example/bald/internal/bootstrap/register_grpcgw.go` 的 `init()`）。`Name` 为空在计划期报错。
 
 ### 3.3 只读边界
 

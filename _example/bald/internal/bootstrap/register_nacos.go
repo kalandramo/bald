@@ -134,3 +134,12 @@ func nacosBootstrapOptions() []appkit.Option {
 		appkit.RemoteConfig(nacosConfigSource()),
 	}
 }
+
+// init 把本文件的接线登记进计划（Q7）：-tags nacos 在编译期引入 nacos
+// provider 与远程配置源，计划只能看到「build tag 注入」这一事实。
+func init() {
+	ambientNotes = append(ambientNotes, appkit.Ambient{
+		Name:   "build-tag:nacos",
+		Detail: "nacos registry provider and remote config source are compiled only under -tags nacos",
+	})
+}

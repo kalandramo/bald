@@ -389,11 +389,17 @@ func planFrom(ctx context.Context, d *Decl, cfg *bootstrapv1.BootstrapConfig, pp
 		p.Nodes[i].DesiredHash = nodeDesiredHash(cfg, p.Nodes[i])
 	}
 
-	// 逃逸舱可见化：覆盖 / 白名单 / 同 Key 裁决（I4/I10 的 M1 子集）+ 预算。
+	// 逃逸舱可见化：覆盖 / 白名单 / 同 Key 裁决（I4/I10 的 M1 子集）+ 预算 +
+	// 环境注入（build tag / init() 接线，WithAmbient 显式声明）。
 	p.Warnings = append(p.Warnings, pp.warnings...)
 	p.Warnings = append(p.Warnings, overrideWarnings(d)...)
 	p.Warnings = append(p.Warnings, whitelistWarnings(pp)...)
 	p.Warnings = append(p.Warnings, opaqueBudgetWarnings(d.OpaqueBudget, p.Nodes)...)
+	ambient, err := ambientWarnings(d.Ambient)
+	if err != nil {
+		return nil, err
+	}
+	p.Warnings = append(p.Warnings, ambient...)
 
 	ordered, orderWarnings, err := orderNodes(p.Nodes)
 	if err != nil {
