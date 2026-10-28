@@ -538,7 +538,7 @@ func Routes(h http.Handler) error {
 | 冲突可见 | 重复 Key / override / 白名单 100% 出现在计划与 doctor |
 | 资源访问类型化 | 公开 API 中 `Resource(string)` 调用点 = 0（AST 守卫） |
 | 收敛覆盖 | `ReloadReconcile` 节点数 ≥ 组件 + logger + audit；`Drift` e2e 通过 |
-| 生成确定性 | 参考工程 `gen --check` 零 diff；双跑字节一致 |
+| 生成确定性 | 生成物维度：`TestGen_Deterministic`/`TestGen_CheckClean`（guard 夹具）零 diff + 双跑字节一致；`_example/bald` 是手写超集对照（角色化 `Options(role)` + 自定义 Provider/拦截器/探针），其 `appspec.json` 未声明 roles，生成物是单角色 `Options()`——adopt 会与手写文件同包重名，故该示例不适用零 diff 判据 |
 | `Opaque` 预算 | 每版本下降；v0.28 参考工程 ≤ 3 个（预期：第三方 legacy Provider） |
 
 ### 7.2 保留的生产力指标（次指标，不替代声明性指标）
@@ -559,12 +559,18 @@ go test ./pkg/appkit -run 'TestApply_(TeardownOrder|RollbackOnFailure)'
 # 漂移
 go test ./pkg/appkit -run TestDrift
 
-# 生成确定性
-cd _example/bald && bald gen app --spec appspec.json --check && bald gen domain --check
+# 生成确定性：生成器自有树（guard 夹具）双跑一致 + --check 零 diff
+go test ./internal/codegen -run 'TestGen_(Deterministic|CheckClean)'
 
 # 综合诊断
 bald doctor --config configs/bald-demo-api.yaml
 ```
+
+> `_example/bald` 不跑 `gen app --check`：该示例是**手写装配超集**（`Options(role)`
+> 角色化装配、storegorm/health/拦截器/网关等自定义接线），`appspec.json` 也没有
+> `meta.roles` 与 bootstrap 段，生成物（单角色 `Options()`）与手写文件同包重名，
+> adopt 后无法编译。要让示例也进生成物树，需要生成器支持「自定义接线扩展」——
+> 这是 §8.2 Q5/Q7 之后的议题，当前不阻塞生成物维度的确定性验收。
 
 ---
 
