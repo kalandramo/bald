@@ -12,6 +12,7 @@
 package appcli
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -31,6 +32,7 @@ type config struct {
 	plugins      bool
 	pluginPrefix string
 	version      string
+	doctor       func(context.Context) error
 }
 
 // Option 是 Main 的可选行为。
@@ -67,6 +69,12 @@ func WithVersion(v string) Option {
 	return func(c *config) { c.version = v }
 }
 
+// WithDoctor 挂 doctor 子命令：fn 由应用提供（典型为 appkit.Doctor +
+// 同一份装配 Options——doctor 报告必须与真实启动同源）。未挂时不出现该命令。
+func WithDoctor(fn func(context.Context) error) Option {
+	return func(c *config) { c.doctor = fn }
+}
+
 // BuildRoot 只造根命令（不执行）——测试与需要自持命令树的入口用。
 func BuildRoot(use, short string, runE func(*cobra.Command, []string) error, opts ...Option) (*cobra.Command, *config) {
 	c := &config{}
@@ -100,6 +108,16 @@ func BuildRoot(use, short string, runE func(*cobra.Command, []string) error, opt
 			Args:  cobra.NoArgs,
 			Run: func(cmd *cobra.Command, _ []string) {
 				fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", use, v)
+			},
+		})
+	}
+	if c.doctor != nil {
+		root.AddCommand(&cobra.Command{
+			Use:   "doctor",
+			Short: "Print assembly plan diagnostics (summary, opaque nodes, segment coverage)",
+			Args:  cobra.NoArgs,
+			RunE: func(cmd *cobra.Command, _ []string) error {
+				return c.doctor(cmd.Context())
 			},
 		})
 	}

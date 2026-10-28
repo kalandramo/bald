@@ -1,6 +1,7 @@
 package appcli
 
 import (
+	"context"
 	"errors"
 	"os"
 	"testing"
@@ -118,5 +119,29 @@ func TestPluginPrefixOverride(t *testing.T) {
 	_, c := BuildRoot("demo", "d", noopRunE, WithPluginPrefix("bald"))
 	if got := pluginPrefix(c, "demo"); got != "bald" {
 		t.Fatalf("WithPluginPrefix 应覆盖默认派生: %q", got)
+	}
+}
+
+func TestDoctorSubcommand(t *testing.T) {
+	var called bool
+	root, _ := BuildRoot("demo", "d", noopRunE, WithDoctor(func(cmdCtx context.Context) error {
+		called = true
+		return nil
+	}))
+	root.SetArgs([]string{"doctor"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("doctor 执行失败: %v", err)
+	}
+	if !called {
+		t.Fatal("doctor 钩子未执行")
+	}
+}
+
+func TestNoDoctorSubcommandWithoutOption(t *testing.T) {
+	root, _ := BuildRoot("demo", "d", noopRunE)
+	for _, c := range root.Commands() {
+		if c.Name() == "doctor" {
+			t.Fatal("未传 WithDoctor 时不得挂出 doctor 子命令")
+		}
 	}
 }

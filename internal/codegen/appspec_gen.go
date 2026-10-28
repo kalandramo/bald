@@ -254,7 +254,17 @@ func Execute() error {
 		appkit.MustServe(context.Background(), bootstrap.Options()...)
 {{- end}}
 		return nil
-	}, appcli.WithPlugins())
+	},
+		appcli.WithPlugins(),
+		// doctor：与 serve 同一份装配 Options——报告必须与真实启动同源。
+		appcli.WithDoctor(func(ctx context.Context) error {
+{{- if .MultiRole }}
+			return appkit.Doctor(ctx, bootstrap.Options({{ q .RoleName }})...)
+{{- else}}
+			return appkit.Doctor(ctx, bootstrap.Options()...)
+{{- end}}
+		}),
+	)
 }
 `
 

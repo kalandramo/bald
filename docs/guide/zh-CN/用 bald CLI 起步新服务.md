@@ -91,7 +91,7 @@ flag：`--spec`（AppSpec JSON 路径）、`--out`（产出根，默认 `layout.
 my-service/
 ├─ appspec.json                                    # 用户物：声明真相源，生成器永不读写
 ├─ cmd/my-service/main.go                          # 生成物：≤25 行，装配知识为零
-├─ cmd/my-service/app/command.go                   # 生成物：cobra 根 + 唯一 MustServe 调用
+├─ cmd/my-service/app/command.go                   # 生成物：cobra 根 + 唯一 MustServe 调用（serve / doctor / version）
 ├─ internal/bootstrap/assemble.gen.go              # 生成物：Options() 是装配的全部
 ├─ internal/bootstrap/domains.gen.go               # 生成物：业务域清单（暂空，占位）
 ├─ internal/bootstrap/seed/seed.go                 # 生成一次：演示种子数据
@@ -127,6 +127,7 @@ go run ./cmd/my-service
 - **探针**：`/healthz`（存活）与 `/readyz`（就绪，依赖未就绪 503）由框架默认挂载，数据源是生成物的 `healthChecker`。
 - **业务端点**：加在 `internal/apiserver/apiserver.go` 的 `NewRouter`（生成一次、归你维护）。
 - **启动日志**：引擎打印 `appkit starting` → `appkit started`（声明组件后还有 `appkit component started`；注册中心生效时还有 `appkit registered`，含最终 endpoints）。
+- **启动前审阅**：`go run ./cmd/my-service --plan` 打印装配计划（节点/相位/依赖/段覆盖/hash）；`go run ./cmd/my-service doctor` 输出逃逸舱诊断。两者与真实启动同源、只读，详见[装配计划与 doctor](Bald%20装配计划与%20doctor.md)。
 
 端到端实测基线：gen → tidy → build → 起服务 → `GET /readyz` 200 → 优雅退出共 1m16.8s（装配层评估 §11；`internal/codegen/appspec_timed_test.go` 可复跑）。
 

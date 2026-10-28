@@ -16,5 +16,6 @@
 - [新增业务域 - Domain 与 gen domain](./新增业务域%20-%20Domain%20与%20gen%20domain.md)：`appkit.Domain` 域声明（Routes/Services 自持，引擎在 Wire 后、server 构建前调用）与 `bald gen domain` 确定性重写域生成物——域清单×2、逐域 gRPC 注册/REST 挂载/授权动作投影、授权别名表，Gate1 校验 service 与 proto 匹配，新增域装配改动 0
 - [Bald 授权使用](./Bald%20授权使用.md)：生成物产数据、桥产行为——gen app 默认策略行（动作六元组，object 走 DefaultGRPCObject 同源规则）与 gen domain 别名表，contrib/authz-casbin 两入口 NewRows/NewAlias 装载，401/403/200 三态来源与手写应用最小装配
 - [Provider 接入 - contract.AppProvider 与段 Provider](./Provider%20接入%20-%20contract.AppProvider%20与段%20Provider.md)：把能力接进装配面的统一契约——实现 appkit.Provider（Segments 声明配置段、Build 产产物与 cleanup）经各能力包 contract.AppProvider() 构造器注入；段在才构建、段缺失跳过（合法），Build 失败 fail-fast，cleanup 入效应账本逆序回放
+- [Bald 装配计划与 doctor](./Bald%20装配计划与%20doctor.md)：启动前审阅装配——`appkit.Compile` 纯函数与 Plan IR（节点/相位/依赖/段覆盖/警告/hash）、`--plan` 与 `--plan-format=json`、`bald doctor` 逃逸舱诊断（Opaque 节点、白名单段、覆盖、build tag）与只读边界、退出码与 CI 组合、当前声明式等级（L1–L5）口径
 - [机制层 mech - Effect 与期望态](./机制层%20mech%20-%20Effect%20与期望态.md)：高级机制面（业务默认不需要，用不到可整页跳过）——Effect 账本（登记/逆序回放/启动失败回滚）、Provides/Requires 能力声明与组件生命周期、OnKeyChange key 订阅与 Reconcile 期望态协调（全量→key 订阅→协调顺序固定）、Registry[T] 运行期可逆挂载
 - 最佳实践（待补充）

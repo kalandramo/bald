@@ -36,5 +36,9 @@ func Main(role, use, short string) error {
 		// 存储后端切换演示子命令（业务子命令挂 root，与 serve 并存）。
 		appcli.WithSubcommands(usercmd.NewUserCommand()),
 		appcli.WithPlugins(),
+		// doctor：与 serve 同一份装配 Options——报告必须与真实启动同源。
+		appcli.WithDoctor(func(ctx context.Context) error {
+			return appkit.Doctor(ctx, bootstrap.Options(role)...)
+		}),
 	)
 }

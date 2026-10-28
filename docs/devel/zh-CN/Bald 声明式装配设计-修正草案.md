@@ -19,7 +19,9 @@
 2. **把顺序和覆盖从代码搬到数据**——用 `DependsOn`/`Priority`/`Key` 推导拓扑序与停机序，删除 `stageBRank`/`cleanupOrder` 手工表；重复声明与静默覆盖改为显式 `Override` + 冲突报错。
 3. **把收敛从「组件挂载」扩展到「声明资源」**——为节点声明 `ReloadPolicy`，配置变更时重算计划、按 key diff、协调或明确报告「需要重启」；增加 `Drift` 查询。
 
-同时给出 **L1–L5 声明式等级**，用于对外诚实表述与验收：当前 bald 是 **L1 + 部分 L2**，本设计目标是在 v0.26 达到 **L3**、v0.27 达到 **L4**、v0.28 达到 **L5**。
+同时给出 **L1–L5 声明式等级**，用于对外诚实表述与验收：草案撰写时 bald 是 **L1 + 部分 L2**，本设计目标是在 v0.26 达到 **L3**、v0.27 达到 **L4**、v0.28 达到 **L5**。
+
+> **实施状态（2026-10-29，M0–M5 + doctor 已落地）**：`Compile`/Plan IR、Provider v2、删除手工排序表、`Key[T]` 类型化资源、节点级 `ReloadPolicy` + `Drift`、生成清单与 `--check`/`--adopt`、`WithOpaqueBudget`、`bald doctor` 均已交付；对外口径随之更新为「声明式装配（L1–L3 达成，L4 部分，L5 生成物维度达成）」，见 [装配计划与 doctor](../../guide/zh-CN/Bald%20装配计划与%20doctor.md) §5。**未达成的验收项**：① `Opaque` 预算 v0.28 ≤ 3 未达标（示例 5、bald-admin 50），瓶颈在域尚未迁移到 `Domain.Declare`；② 计划缓存 `.bald/plan-cache.json` 未实现；③ L4 的收敛仍限于声明式组件子集，域内资源热更未纳入。
 
 ---
 
@@ -76,13 +78,13 @@
 
 ### 3.1 声明式等级（对外表述口径）
 
-| 等级 | 定义 | 判定方式 | 当前 | 目标 |
+| 等级 | 定义 | 判定方式 | 草案时 | 现状（2026-10-29） |
 |---|---|---|---|---|
-| **L1 声明式配置** | 配置形状由 schema 定义，未知键/未消费段可检测 | 契约 proto + strict + 覆盖检查 | **达成** | 保持 |
-| **L2 可计划拓扑** | 装配拓扑可由纯函数算出并打印；执行前可审阅 | `Compile` + `--plan` | **部分**（`AppSpec` 是数据，`Decl` 不是） | v0.26 |
-| **L3 顺序无关组合** | 结果只由依赖图与显式优先级决定，与实参/import 顺序无关 | 置换测试 + 无手工排序表 | 未达成 | v0.26 |
-| **L4 收敛运行** | 声明资源可 level-triggered 协调；漂移可观测 | 配置变更/漂移 e2e | 未达成（仅组件子集） | v0.27 |
-| **L5 纯函数生成** | 生成物是 `(AppSpec, proto)` 的纯函数，可 `--check` diff | 双跑字节一致 + check 零 diff | 未达成 | v0.28 |
+| **L1 声明式配置** | 配置形状由 schema 定义，未知键/未消费段可检测 | 契约 proto + strict + 覆盖检查 | **达成** | **达成** |
+| **L2 可计划拓扑** | 装配拓扑可由纯函数算出并打印；执行前可审阅 | `Compile` + `--plan` | **部分**（`AppSpec` 是数据，`Decl` 不是） | **达成**（`Compile`/`Plan`/`--plan`/`Plan.Hash`/`doctor`） |
+| **L3 顺序无关组合** | 结果只由依赖图与显式优先级决定，与实参/import 顺序无关 | 置换测试 + 无手工排序表 | 未达成 | **达成**（`Phase`/`Priority`/`DependsOn` 取代手工表，置换测试） |
+| **L4 收敛运行** | 声明资源可 level-triggered 协调；漂移可观测 | 配置变更/漂移 e2e | 未达成（仅组件子集） | **部分**（节点 `ReloadPolicy` + `Drift` + `Reconcile`，域资源未纳入） |
+| **L5 纯函数生成** | 生成物是 `(AppSpec, proto)` 的纯函数，可 `--check` diff | 双跑字节一致 + check 零 diff | 未达成 | **达成（生成物维度）**（清单 + `--check` 零写入 + 双跑一致） |
 
 对外文案从「声明式编程」改为「**声明式装配（Lx）**」，并在 README/指南中给出当前等级。这是本草案唯一要求立即执行的文档变更。
 
@@ -391,6 +393,7 @@ func (a *App) Drift(ctx context.Context) ([]Drift, error)
 - `appkit.Compile(ctx, opts...) (*Plan, error)`：公开纯函数，供测试、CLI、`doctor` 使用。
 - `Serve` 识别 `--plan` / `--plan-format=json`（与 `--config` 同一 pflag 容错路径），打印后 `exit 0`，**在任何副作用之前**。
 - `bald doctor`（新子命令）输出：计划摘要、`Opaque` 节点数、白名单段、被覆盖的段、build tag 分叉、`gen --check` 结果。
+  - **实现偏差**：`gen --check` 结果以「出口提示」呈现而非代跑——运行期二进制不 import `internal/codegen`（生成器是另一个执行体）；`doctor` 保持只读，CI 里两条命令并列执行。
 - 计划缓存：按 `(Role, InputHash)` 写入 `.bald/plan-cache.json`，仅作对比基线，不作为执行依据。
 
 ### 4.10 代码生成：从脚手架到纯函数
