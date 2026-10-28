@@ -70,7 +70,7 @@ type PlanScope struct {
 	Config *bootstrapv1.BootstrapConfig
 	// Decl 全部装配期声明（只读）。
 	Decl *Decl
-	// Role 应用角色（当前为空；生成物/多角色应用可使用）。
+	// Role 应用角色（WithRole 声明；单角色应用为空）。
 	Role string
 }
 
@@ -411,7 +411,7 @@ func newProviderPlan(ctx context.Context, d *Decl, cfg *bootstrapv1.BootstrapCon
 	// 2. 活跃集合 + Plan 纯推导。段存在性 gate 在此一次完成：config 段无条件
 	// （源可独立于契约 config 段存在）、logger 恒规划（两阶段协议）、其余段
 	// 缺失即跳过（合法，L2）。
-	scope := PlanScope{Config: cfg, Decl: d}
+	scope := PlanScope{Config: cfg, Decl: d, Role: d.Role}
 	var (
 		allEntries []providerEntry
 		haveLogger bool

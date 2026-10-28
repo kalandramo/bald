@@ -21,7 +21,7 @@
 
 同时给出 **L1–L5 声明式等级**，用于对外诚实表述与验收：草案撰写时 bald 是 **L1 + 部分 L2**，本设计目标是在 v0.26 达到 **L3**、v0.27 达到 **L4**、v0.28 达到 **L5**。
 
-> **实施状态（2026-10-29，M0–M5 + doctor + Domain v2 已落地）**：`Compile`/Plan IR、Provider v2、删除手工排序表、`Key[T]` 类型化资源、节点级 `ReloadPolicy` + `Drift`、生成清单与 `--check`/`--adopt`、`WithOpaqueBudget`、`bald doctor` 均已交付；`Domain.Declare`（§4.6）已落地并从示例 greet 域起用。对外口径随之更新为「声明式装配（L1–L3 达成，L4 部分，L5 生成物维度达成）」，见 [装配计划与 doctor](../../guide/zh-CN/Bald%20装配计划与%20doctor.md) §5。**未达成的验收项**：① `Opaque` 预算——示例在 greet 迁移 `Declare` 后为 **3（达标）**，bald-admin 仍为 50（21 域未迁移，需业务侧跟进）；② 计划缓存 `.bald/plan-cache.json` 未实现；③ L4 的收敛仍限于声明式组件子集，域内资源热更未纳入。
+> **实施状态（2026-10-29，M0–M5 + doctor + Domain v2 已落地）**：`Compile`/Plan IR、Provider v2、删除手工排序表、`Key[T]` 类型化资源、节点级 `ReloadPolicy` + `Drift`、生成清单与 `--check`/`--adopt`、`WithOpaqueBudget`、`bald doctor`、计划缓存 `WithPlanCache`（§4.9，按 `(Role, InputHash)` 记基线、doctor 只读对比）均已交付，`WithRole` 补齐角色进计划与 Provider 作用域的缺口；`Domain.Declare`（§4.6）已落地并从示例 greet 域起用。对外口径随之更新为「声明式装配（L1–L3 达成，L4 部分，L5 生成物维度达成）」，见 [装配计划与 doctor](../../guide/zh-CN/Bald%20装配计划与%20doctor.md) §5。**未达成的验收项**：① `Opaque` 预算——示例在 greet 迁移 `Declare` 后为 **3（达标）**，bald-admin 仍为 50（21 域未迁移，需业务侧跟进）；② L4 的收敛仍限于声明式组件子集，域内资源热更未纳入。
 
 ---
 
@@ -394,7 +394,7 @@ func (a *App) Drift(ctx context.Context) ([]Drift, error)
 - `Serve` 识别 `--plan` / `--plan-format=json`（与 `--config` 同一 pflag 容错路径），打印后 `exit 0`，**在任何副作用之前**。
 - `bald doctor`（新子命令）输出：计划摘要、`Opaque` 节点数、白名单段、被覆盖的段、build tag 分叉、`gen --check` 结果。
   - **实现偏差**：`gen --check` 结果以「出口提示」呈现而非代跑——运行期二进制不 import `internal/codegen`（生成器是另一个执行体）；`doctor` 保持只读，CI 里两条命令并列执行。
-- 计划缓存：按 `(Role, InputHash)` 写入 `.bald/plan-cache.json`，仅作对比基线，不作为执行依据。
+- 计划缓存：按 `(Role, InputHash)` 写入 `.bald/plan-cache.json`，仅作对比基线，不作为执行依据。**已实现**：`appkit.WithPlanCache(path)` 声明路径（生成物 `bootstrap.Options()` 默认声明 `.bald/plan-cache.json`），`Serve` 装配成功后记录、`doctor` 只读对比（无缓存整行省略；缺失/损坏只提示）；写入按 16 条上限去重裁剪，原子 rename。
 
 ### 4.10 代码生成：从脚手架到纯函数
 

@@ -90,6 +90,8 @@ func Options(role string) []appkit.Option {
 		// 配置文件按角色分叉（每角色一份契约）；- 由契约 app.name 派生 env
 		// 前缀（BALD_DEMO_*）与多环境文件名（契约无 app.name 时启动 fail-fast）。
 		appkit.ConfigFile(cfg),
+		// 角色进计划与计划缓存键：doctor 的报告与基线对比按角色分核。
+		appkit.WithRole(role),
 		appkit.WatchConfigFile(true),
 		// gRPC 面：两个角色都开。拦截器链是安全策略，归业务自持
 		//（链序见 newGRPCServerOptions，ErrorInterceptor 必须最外层）。
@@ -132,6 +134,9 @@ func Options(role string) []appkit.Option {
 	opts = append(opts, domainOptionsForRole(role)...)
 	// nacos 后端（注册中心 + 配置中心）：默认空操作，-tags nacos 时接入。
 	opts = append(opts, nacosBootstrapOptions()...)
+	// 计划缓存：启动期把计划按 (role, input) 记为基线，doctor 据此报告装配
+	// 变更（本地文件，非执行依据；读写失败只告警）。
+	opts = append(opts, appkit.WithPlanCache(".bald/plan-cache.json"))
 	return opts
 }
 

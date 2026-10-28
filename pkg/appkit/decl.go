@@ -40,6 +40,10 @@ type Decl struct {
 	ID      string
 	Name    string
 	Version string
+	// Role 应用角色（WithRole；多角色部署时区分同名 app 的各角色装配）。
+	// 进 Plan.Role / PlanScope.Role 与计划缓存键 (Role, InputHash)；空 =
+	// 单角色应用。
+	Role string
 	// Env 运行环境（Env Option；契约 app.env）。
 	Env string
 
@@ -125,6 +129,9 @@ type Decl struct {
 	// 0 = 不设预算）。超预算只产计划警告，不阻断装配——计量恒可见
 	// （Plan.OpaqueCount），CI 可自行设门。
 	OpaqueBudget int
+	// PlanCache 是计划缓存文件路径（WithPlanCache 写入；空 = 不落盘）。启动期
+	// 记录计划基线，doctor 只读对比；缓存不是执行依据（见 plan_cache.go）。
+	PlanCache string
 
 	// ---- 日志装饰器（logDecoratorsOpt 写入，B7 取消导出：装饰归 provider
 	// 自持——内置 slog Provider 消费本字段，第三方 logger Provider 自持装饰） ----

@@ -265,6 +265,13 @@ func Version(v string) Option {
 	return optionFunc(func(d *Decl) { d.Version = v })
 }
 
+// WithRole 声明应用角色（单二进制多角色部署时区分同名 app 的各角色装配）。
+// 角色进计划（Plan.Role）、Provider 作用域（PlanScope/ApplyScope.Role）与
+// 计划缓存键——doctor 的基线对比因此按角色分核。空（缺省）= 单角色应用。
+func WithRole(role string) Option {
+	return optionFunc(func(d *Decl) { d.Role = role })
+}
+
 // Registrar 注入注册中心实例（如 inmemory.New()）。
 // 显式实例优先于契约装配（Serve 路径）：阶段 B 的纯 registry 段 Provider
 // 在显式实例非 nil 时被引擎跳过——程序化接管 = 刻意覆盖而非静默失效。

@@ -85,6 +85,8 @@ func Serve(ctx context.Context, opts ...Option) error {
 	if err != nil {
 		return err
 	}
+	// 计划缓存：记录启动基线（仅本地文件，失败只告警——缓存不是执行依据）。
+	a.recordPlanCache(ctx, d.PlanCache)
 	return a.Run(ctx)
 }
 

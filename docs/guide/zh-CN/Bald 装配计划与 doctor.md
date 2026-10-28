@@ -12,7 +12,7 @@ p, err := appkit.Compile(ctx, opts...) // 纯函数：不 Build、不跑钩子�
 
 | 字段 | 含义 |
 |---|---|
-| `App` / `Role` | 契约元数据与多角色标记 |
+| `App` / `Role` | 契约元数据与角色（`WithRole` 声明；多角色部署按角色分核） |
 | `InputHash` | 契约（确定性序列化）的指纹 |
 | `Nodes` | 节点集：`Key`、`Kind`、`Phase`、`Priority`、`DependsOn`、`Segments`、`Reload`、`Override`/`Reason`、`Opaque` |
 | `OpaqueCount` | 逃逸舱节点数（没有进入声明式拓扑、按 legacy 顺序执行的部分） |
@@ -33,6 +33,7 @@ bald-demo --config configs/bald-demo-api.yaml --plan --plan-format=json
 
 ```
 app: bald-demo v0.1.0 (env=)
+role: api
 input: d5f5f80e...
 nodes:
   configure  app                    priority=-1  app
@@ -93,8 +94,11 @@ bald-demo doctor --config configs/bald-demo-api.yaml
 ```
 bald doctor
 app: bald-demo v0.1.0 (env=)
+role: api
 input: d5f5f80e...
 plan:  192924bf...
+cache: .bald/plan-cache.json (baseline ba88603d903f, recorded 2026-10-28T18:38:41Z)
+  plan unchanged
 
 nodes: 8 (opaque 3)
   phase bootstrap  3
@@ -118,6 +122,7 @@ gen: run `bald gen app --check` and `bald gen domain --check` in the generated t
 | 行 | 回答什么 |
 |---|---|
 | `input` / `plan` | 报告是否与真实启动同源（同输入同 hash） |
+| `cache` | 相对上次启动基线的差异（见 §4；无缓存声明时整行省略） |
 | `nodes` / `phase` | 计划规模与各相位分布 |
 | `opaque: ...` | 逃逸舱逐个列名——白盒化 legacy 部分；`WithOpaqueBudget(n)` 超预算时在 `warnings` 出现 `opaque-budget` |
 | `override: key (reason)` | 显式覆盖的节点与其理由 |
@@ -131,8 +136,42 @@ gen: run `bald gen app --check` and `bald gen domain --check` in the generated t
 
 - 被 import 的包的 `init()` 仍会执行（例如示例里 web 路由的 gin 注册日志）——这是 Go 运行期语义，不是 doctor 的副作用。
 - 生成物清单校验属代码生成器职责（运行期二进制不 import 生成器），报告末尾给 `bald gen app --check` / `bald gen domain --check` 的出口提示，不代跑。
+- 计划缓存只读：`doctor` 读基线做对比，**不写**基线（写只发生在真实启动，见 §4）。
 
-## 4. 退出码与 CI
+## 4. 计划缓存：跨启动对比基线
+
+`appkit.WithPlanCache(".bald/plan-cache.json")` 声明缓存路径（`bald gen app` 生成的 `bootstrap.Options()` 默认已声明；空路径 = 不落盘）。
+
+| 时点 | 行为 |
+|---|---|
+| 真实启动（`Serve` 装配成功、`Run` 之前） | 按 `(Role, InputHash)` 记一条基线：整份计划 + `PlanHash` + 记录时间。同键覆盖；最多保留 16 条（超出丢最旧）；临时文件 + rename 原子写 |
+| `doctor` | 只读同一文件：优先精确 `(Role, InputHash)`，找不到则取同 Role 最近一条——契约变了也能回答「装配变了什么」 |
+
+`doctor` 的三种缓存行：
+
+```
+cache: .bald/plan-cache.json (baseline ba88603d903f, recorded 2026-10-28T18:38:41Z)
+  plan unchanged
+
+cache: .bald/plan-cache.json (baseline db80c27572ef, recorded 2026-10-28T18:33:31Z)
+  input changed since baseline: 95fca9009d03 -> d5f5f80ec60d
+  plan changed: 3 node(s)
+    + domain.greet.routes (domain, static)      # 新增
+    - legacy.old (provider, static)             # 移除
+    ~ logger (provider, reconcile): desired state  # 期望态/依赖变化
+
+cache: .bald/plan-cache.json (no baseline for role "worker")   # 该角色还没有基线
+cache: .bald/plan-cache.json (unavailable: ...)                # 文件损坏/不可读
+```
+
+边界（诚实说明）：
+
+- **不是执行依据**：缓存不参与协调、不影响装配；写失败降级为 debug 日志（只读工作目录的环境照常启动），读失败只给一行提示、退出码仍为 0。
+- **按角色分核**：同一份缓存文件里 api/worker 各占一条——这也是 `WithRole` 存在的理由（没有它，多角色应用无法区分同名 app 的基线）。
+- **本地事实，不是 CI 判据**：`InputHash` 含 env 覆盖后的契约值（如动态地址），基线随机器/端口变化；CI 的稳定判据仍用 `--plan --plan-format=json` 的 `plan hash`（§5）。
+- `.bald/` 是本地目录，建议进 `.gitignore`（本仓已忽略）。
+
+## 5. 退出码与 CI
 
 | 命令 | 成功 | 失败 |
 |---|---|---|
@@ -142,7 +181,7 @@ gen: run `bald gen app --check` and `bald gen domain --check` in the generated t
 
 CI 可组合成「计划 hash 基线 + 生成物零 drift」：`--plan --plan-format=json | jq -r .hash` 与提交的基线比较；生成树跑两个 `--check`。
 
-## 5. 声明式等级现状（对外口径）
+## 6. 声明式等级现状（对外口径）
 
 对外表述统一为「**声明式装配**」并标注等级，而不是笼统的「声明式编程」。当前状态（判据与目标见 [设计草案 §3.1](../../devel/zh-CN/Bald%20声明式装配设计-修正草案.md)）：
 
@@ -156,7 +195,7 @@ CI 可组合成「计划 hash 基线 + 生成物零 drift」：`--plan --plan-fo
 
 缺口以 `OpaqueCount` 与 `doctor` 的 `opaque:` 清单量化：数字越小，搬进声明式拓扑的部分越多。
 
-## 6. 常见问题
+## 7. 常见问题
 
 - **`--plan` 打印了但服务没起来**：这是设计行为——`--plan` 以 0 退出，不进入 Run。
 - **`doctor` 报段覆盖错误**：与启动同源，先按 [配置系统排错](./Bald%20配置系统.md) 处理（引入 Provider / 白名单 / 删段）。

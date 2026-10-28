@@ -386,6 +386,8 @@ func Options() []appkit.Option {
 	opts = append(opts, mech.Components(comps...))
 {{- end}}
 {{- if .MultiRole}}
+	// 角色进计划与计划缓存键：doctor 的报告与基线对比按角色分核。
+	opts = append(opts, appkit.WithRole(role))
 	// 角色分支：传输面与域清单都按角色选择——这是「一份 AppSpec 两个进程」
 	// 的全部差异点（域清单见 domains.gen.go 的 domainOptionsForRole）。
 	switch role {
@@ -416,6 +418,9 @@ func Options() []appkit.Option {
 	// service 注册。
 	opts = append(opts, domainOptions...)
 {{- end}}
+	// 计划缓存：启动期把计划按 (role, input) 记为基线，doctor 据此报告装配
+	// 变更（本地文件，非执行依据；读写失败只告警）。
+	opts = append(opts, appkit.WithPlanCache(".bald/plan-cache.json"))
 	return opts
 }
 {{- if .MultiRole}}

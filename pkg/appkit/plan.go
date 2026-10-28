@@ -62,6 +62,18 @@ func (p Phase) String() string {
 // MarshalText 让计划 JSON 里的阶段是稳定字符串而不是裸数字。
 func (p Phase) MarshalText() ([]byte, error) { return []byte(p.String()), nil }
 
+// UnmarshalText 与 MarshalText 对称——计划 JSON 必须可回读（计划缓存依赖
+// 这一点，见 plan_cache.go）。
+func (p *Phase) UnmarshalText(b []byte) error {
+	for _, ph := range []Phase{PhaseConfigure, PhaseBootstrap, PhaseWire, PhaseServe, PhaseDrain, PhaseTeardown} {
+		if ph.String() == string(b) {
+			*p = ph
+			return nil
+		}
+	}
+	return fmt.Errorf("appkit: unknown phase %q", string(b))
+}
+
 // ReloadPolicy 声明配置变更时该节点的处理方式。
 type ReloadPolicy uint8
 
@@ -86,6 +98,17 @@ func (r ReloadPolicy) String() string {
 
 // MarshalText 同 Phase：JSON 中输出可读字符串。
 func (r ReloadPolicy) MarshalText() ([]byte, error) { return []byte(r.String()), nil }
+
+// UnmarshalText 与 MarshalText 对称（计划 JSON 可回读）。
+func (r *ReloadPolicy) UnmarshalText(b []byte) error {
+	for _, rp := range []ReloadPolicy{ReloadStatic, ReloadReconcile, ReloadRestart} {
+		if rp.String() == string(b) {
+			*r = rp
+			return nil
+		}
+	}
+	return fmt.Errorf("appkit: unknown reload policy %q", string(b))
+}
 
 // ResourceKey 是资源的稳定身份（序列化/日志/计划里出现的字符串形态）。
 type ResourceKey string
@@ -234,6 +257,7 @@ func compilePlan(ctx context.Context, d *Decl, cfg *bootstrapv1.BootstrapConfig)
 func planFrom(ctx context.Context, d *Decl, cfg *bootstrapv1.BootstrapConfig, pp *providerPlan) (*Plan, error) {
 	p := &Plan{
 		App:       appMetaFrom(cfg),
+		Role:      d.Role,
 		InputHash: inputHash(cfg),
 	}
 
@@ -285,7 +309,7 @@ func planFrom(ctx context.Context, d *Decl, cfg *bootstrapv1.BootstrapConfig, pp
 	// Opaque 投影（迁移期双轨，见 domain.go）。
 	for _, dom := range d.Domains {
 		if dom.Declare != nil {
-			nodes, err := declaredDomainNodes(ctx, dom, PlanScope{Config: cfg, Decl: d})
+			nodes, err := declaredDomainNodes(ctx, dom, PlanScope{Config: cfg, Decl: d, Role: d.Role})
 			if err != nil {
 				return nil, err
 			}

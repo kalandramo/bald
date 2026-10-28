@@ -138,7 +138,7 @@ type providerLoggerSource struct {
 }
 
 func (s providerLoggerSource) build(ctx context.Context, cfg *bootstrapv1.BootstrapConfig) (log.Logger, func(), error) {
-	scope := ApplyScope{Config: cfg, Decl: s.spec, Node: s.node}
+	scope := ApplyScope{Config: cfg, Decl: s.spec, Role: s.spec.Role, Node: s.node}
 	product, cleanup, err := s.prov.Build(ctx, scope, s.node)
 	if err != nil {
 		return nil, nil, err
@@ -268,7 +268,7 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*App, error) {
 	var layersCleanup func()
 	if len(plan.construct) > 0 {
 		built, err := runProviderNodes(context.Background(), plan.construct,
-			ApplyScope{Config: cfg, Decl: spec}, nil)
+			ApplyScope{Config: cfg, Decl: spec, Role: spec.Role}, nil)
 		if err != nil {
 			log.SetLogger(oldLogger)
 			bootCleanup()
@@ -334,7 +334,7 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*App, error) {
 			// 阶段 B Provider 循环：计划序（阶段内 Kahn 拓扑 + (Priority,
 			// Key)；机制见 provider.go）。显式 Registrar 实例接管 registry 段
 			// 时纯 registry Provider 已在计划期跳过（程序化接管 = 刻意覆盖）。
-			_, err := runProviderNodes(ctx, plan.stageB, ApplyScope{Config: cfg, Decl: spec, App: a},
+			_, err := runProviderNodes(ctx, plan.stageB, ApplyScope{Config: cfg, Decl: spec, Role: spec.Role, App: a},
 				func(r buildResult) error { return storeProduct(a, r, slots) })
 			if err != nil {
 				return err
@@ -405,7 +405,7 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*App, error) {
 	// 回滚（Effect 逆序回放配置层与阶段 A Logger），与旧实现等价。
 	if len(plan.late) > 0 {
 		kitOpts = append(kitOpts, BeforeStart(func(ctx context.Context) error {
-			_, err := runProviderNodes(ctx, plan.late, ApplyScope{Config: cfg, Decl: spec, App: a},
+			_, err := runProviderNodes(ctx, plan.late, ApplyScope{Config: cfg, Decl: spec, Role: spec.Role, App: a},
 				func(r buildResult) error { return storeServerProduct(a, r) })
 			return err
 		}))
@@ -474,7 +474,7 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*App, error) {
 		}
 		prov, node := e.prov, e.node
 		a.nodeReconcilers[node.Key] = func(ctx context.Context, _ *Plan) error {
-			product, cleanup, err := prov.Build(ctx, ApplyScope{Config: cfg, Decl: spec, App: a}, node)
+			product, cleanup, err := prov.Build(ctx, ApplyScope{Config: cfg, Decl: spec, Role: spec.Role, App: a}, node)
 			if err != nil {
 				return fmt.Errorf("appkit: reconcile provider %v: %w", node.Segments, err)
 			}

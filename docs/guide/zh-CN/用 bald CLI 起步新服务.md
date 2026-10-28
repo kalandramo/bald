@@ -128,6 +128,7 @@ go run ./cmd/my-service
 - **业务端点**：加在 `internal/apiserver/apiserver.go` 的 `NewRouter`（生成一次、归你维护）。
 - **启动日志**：引擎打印 `appkit starting` → `appkit started`（声明组件后还有 `appkit component started`；注册中心生效时还有 `appkit registered`，含最终 endpoints）。
 - **启动前审阅**：`go run ./cmd/my-service --plan` 打印装配计划（节点/相位/依赖/段覆盖/hash）；`go run ./cmd/my-service doctor` 输出逃逸舱诊断。两者与真实启动同源、只读，详见[装配计划与 doctor](Bald%20装配计划与%20doctor.md)。
+- **计划基线**：生成物默认声明 `appkit.WithPlanCache(".bald/plan-cache.json")`——真实启动记录计划基线，`doctor` 报告相对上次的节点级差异。`.bald/` 是本地目录，记得进 `.gitignore`。
 
 端到端实测基线：gen → tidy → build → 起服务 → `GET /readyz` 200 → 优雅退出共 1m16.8s（装配层评估 §11；`internal/codegen/appspec_timed_test.go` 可复跑）。
 

@@ -18,6 +18,7 @@ import (
 )
 
 // Doctor 编译装配计划并向 stdout 输出诊断报告（纯读取，可安全用于运维探针与 CI）。
+// 声明了 WithPlanCache 时，报告追加一段与基线的只读对比（缓存不可读只提示，不报错）。
 func Doctor(ctx context.Context, opts ...Option) error {
 	d := newDecl(opts...)
 	d.ConfigFile = parseConfigFlag(d.ConfigFile)
@@ -25,7 +26,7 @@ func Doctor(ctx context.Context, opts ...Option) error {
 	if err != nil {
 		return err
 	}
-	writeDoctor(os.Stdout, p, buildTags())
+	writeDoctor(os.Stdout, p, buildTags(), comparePlanCache(d.PlanCache, p))
 	return nil
 }
 
@@ -44,7 +45,7 @@ func buildTags() []string {
 }
 
 // writeDoctor 渲染 doctor 报告。所有清单按字典序输出，保证同一计划字节稳定。
-func writeDoctor(w io.Writer, p *Plan, tags []string) {
+func writeDoctor(w io.Writer, p *Plan, tags []string, cache *planCacheBaseline) {
 	fmt.Fprintln(w, "bald doctor")
 	fmt.Fprintf(w, "app: %s %s (env=%s)\n", p.App.Name, p.App.Version, p.App.Env)
 	if p.Role != "" {
@@ -52,6 +53,7 @@ func writeDoctor(w io.Writer, p *Plan, tags []string) {
 	}
 	fmt.Fprintf(w, "input: %s\n", p.InputHash)
 	fmt.Fprintf(w, "plan:  %s\n", p.Hash())
+	writePlanCacheSection(w, cache, p)
 
 	// 节点：阶段分布 + 逃逸舱清单（Opaque 节点逐个列名，I10 不隐身）。
 	fmt.Fprintf(w, "\nnodes: %d (opaque %d)\n", len(p.Nodes), p.OpaqueCount)
@@ -125,6 +127,62 @@ func writeDoctor(w io.Writer, p *Plan, tags []string) {
 	}
 
 	fmt.Fprintln(w, "\ngen: run `bald gen app --check` and `bald gen domain --check` in the generated tree")
+}
+
+// writePlanCacheSection 渲染缓存基线对比：一行摘要 + 节点级差异（+ 新增 /
+// - 移除 / ~ 期望态或依赖变化）。无缓存声明时整体省略。
+func writePlanCacheSection(w io.Writer, b *planCacheBaseline, p *Plan) {
+	if b == nil {
+		return
+	}
+	switch {
+	case b.Err != nil:
+		fmt.Fprintf(w, "cache: %s (unavailable: %v)\n", b.Path, b.Err)
+		return
+	case b.Entry == nil:
+		if p.Role == "" {
+			fmt.Fprintf(w, "cache: %s (no baseline yet)\n", b.Path)
+		} else {
+			fmt.Fprintf(w, "cache: %s (no baseline for role %q)\n", b.Path, p.Role)
+		}
+		return
+	}
+	fmt.Fprintf(w, "cache: %s (baseline %s, recorded %s)\n",
+		b.Path, hashPrefix(b.Entry.PlanHash), b.Entry.RecordedAt)
+	if b.InputChanged {
+		fmt.Fprintf(w, "  input changed since baseline: %s -> %s\n",
+			hashPrefix(b.Entry.InputHash), hashPrefix(p.InputHash))
+	}
+	if b.Change.Empty() {
+		fmt.Fprintln(w, "  plan unchanged")
+		return
+	}
+	fmt.Fprintf(w, "  plan changed: %d node(s)\n", len(b.Change.Changes))
+	for _, ch := range b.Change.Changes {
+		switch {
+		case ch.Added:
+			fmt.Fprintf(w, "    + %s (%s, %s)\n", ch.Key, ch.Kind, ch.Policy)
+		case ch.Removed:
+			fmt.Fprintf(w, "    - %s (%s, %s)\n", ch.Key, ch.Kind, ch.Policy)
+		default:
+			var what []string
+			if ch.From != ch.To {
+				what = append(what, "desired state")
+			}
+			if ch.DepsChanged {
+				what = append(what, "dependencies")
+			}
+			fmt.Fprintf(w, "    ~ %s (%s, %s): %s\n", ch.Key, ch.Kind, ch.Policy, strings.Join(what, " + "))
+		}
+	}
+}
+
+// hashPrefix 截断摘要用于报告行（完整值在 plan: / input: 行）。
+func hashPrefix(h string) string {
+	if len(h) <= 12 {
+		return h
+	}
+	return h[:12]
 }
 
 func printSegments(w io.Writer, label string, paths []string) {

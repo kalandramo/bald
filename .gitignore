@@ -4,6 +4,10 @@ bald.exe
 /_example/*.exe
 _example/**/*.exe
 
+# 装配计划缓存（appkit.WithPlanCache 的本地基线文件）：每台机器各自记录，
+# 不入库——它是「上次启动看到的计划」，不是生成物。
+.bald/
+
 # proto 生成产物（由 buf generate 生成）。
 # - _example/bald/gen：示例项目生成代码，体积较大，不入库（本地 `task proto` 重建）。
 # - pkg/conf/gen：根模块运行时必需的生成代码（约 100KB，最大文件 24KB），

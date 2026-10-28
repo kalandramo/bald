@@ -30,7 +30,7 @@ func TestDoctor_ReportsPlanFacts(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	writeDoctor(&buf, p, []string{"v1", "v2"})
+	writeDoctor(&buf, p, []string{"v1", "v2"}, nil)
 	out := buf.String()
 
 	for _, want := range []string{
@@ -59,7 +59,7 @@ func TestDoctor_BuildTagsLineWhenUnset(t *testing.T) {
 		t.Fatalf("Compile: %v", err)
 	}
 	var buf bytes.Buffer
-	writeDoctor(&buf, p, nil)
+	writeDoctor(&buf, p, nil, nil)
 	if !strings.Contains(buf.String(), "build tags: (none)") {
 		t.Fatalf("doctor output missing empty build tag marker:\n%s", buf.String())
 	}
