@@ -10,7 +10,7 @@
 //	    std.Standard(),
 //	    baldgorm.AppProvider(baldgorm.WithEnv("BALD_ADMIN_DB_DSN")),
 //	                                            // 契约 database.sql → *gorm.DB（env 覆盖通道；零变参即纯契约轨）
-//	    ...) // 域 Wire/业务钩子内经 app.Resource("database.sql") 取用
+//	    ...) // 域 Wire/业务钩子内经 baldgorm.SQL.Resource(app) 取用
 //
 // 驱动解析复用 conn.go 的注册表：sqlite 内置（glebarez 纯 Go，本模块既有
 // 依赖），postgres/mysql 等由业务 import 驱动后 RegisterDialector 注册——
@@ -21,8 +21,13 @@ import (
 	"context"
 	"fmt"
 
+	"gorm.io/gorm"
+
 	"github.com/kalandramo/bald/pkg/appkit"
 )
+
+// SQL 是 database.sql 资源的类型化句柄（消费侧经 SQL.Resource(app) 取 *gorm.DB）。
+var SQL = appkit.NewKey[*gorm.DB]("database.sql")
 
 // AppProvider 返回消费契约 database.sql 段的 appkit.Provider（段路径
 // "database.sql"；段缺失即被引擎跳过，合法）。
@@ -41,7 +46,7 @@ import (
 //
 // Build 语义：按契约段（driver/source/连接池参数）经 Open(WithConfig, opts...)
 // 打开 *gorm.DB → 产物经引擎 storeProduct 的六资源域约定落资源面（Run 后经
-// App.Resource("database.sql") 取用）→ cleanup 关闭连接池
+// SQL.Resource(app) 取用）→ cleanup 关闭连接池
 // （停机逆序回放：数据库最后关）。未注册的 driver 沿用 Open 的 fail-fast。
 func AppProvider(opts ...Option) appkit.Provider { return gormProvider{opts: opts} }
 

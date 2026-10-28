@@ -1,23 +1,23 @@
-// resource.go 是统一资源面：
-// 段驱动 Provider 的产物按**契约段路径**存取（App.Resource 单一访问口），
-// 不设逐域类型化访问器。
+// resource.go 是统一资源面：段驱动 Provider 的产物按**契约段路径**存取，
+// 类型化访问走 Key[T]（key.go），本文件提供其内部实现与 deprecated 的
+// 字符串入口。
 //
 // 分工（契约段 → 实例的构造归 Provider，运行期编排归 appkit）：
 //   - Provider（范本：contrib/store-gorm 的 Provider）：按契约子段构建；
 //   - 引擎（storeProduct）：产物按段路径落库（六域 map 按 "<顶层段>.<子段>"
 //     展开，registry/audit 等整产物落 "<顶层段>"，表外段同构，见
 //     bootstrap.go storeProduct）；
-//   - appkit：本访问器供 Run 期取用；cleanup 挂停机 Effect——六域注册序在
-//     servers 之前，逆序回放保证「服务器先 drain、数据库连接最后关」。
-//     database/cache/storage/ai/workflow/broker 段不支持热更新。
+//   - appkit：lookup 供 Key[T] 与 deprecated Resource 取用；cleanup 挂停机
+//     Effect——六域注册序在 servers 之前，逆序回放保证「服务器先 drain、
+//     数据库连接最后关」。database/cache/storage/ai/workflow/broker 段不
+//     支持热更新。
 //
-// 用法（类型安全在消费侧恢复）：
+// 用法（Provider 导出 Key，消费侧依赖 Key 而非字符串）：
 //
-//	appkit.MustServe(ctx, std.Standard(), storegorm.Provider(), ...)
-//	// Run 后取实例：
-//	cli := app.Resource("database.sql").(*gormcrud.Client)
+//	appkit.MustServe(ctx, std.Standard(), storegorm.AppProvider(), ...)
+//	cli, ok := storegorm.SQL.Resource(app) // *gorm.DB
 //	// 集合遍历（副本快照，取代原 Databases()/Ais() 的副本语义）：
-//	if all, ok := app.Resource("database").(map[string]any); ok { ... }
+//	all, ok := appkit.NewKey[map[string]any]("database").Resource(app)
 package appkit
 
 import "strings"
@@ -33,18 +33,24 @@ import "strings"
 //
 // 未装配或段缺失返回 (nil, false)。tracer/metrics 产物刻意不落资源面
 // （shutdown/暴露端由 Provider 自持，cleanup 槽位承担停机回收）。
-func (k *App) Resource(segment string) (any, bool) {
-	if segment == "" {
+//
+// Deprecated: 使用 Provider 导出的 appkit.Key[T]（如 storegorm.SQL.Resource(app)）；
+// 该方法无法在编译期保证产物类型，v0.28 删除。
+func (a *App) Resource(segment string) (any, bool) { return a.lookup(segment) }
+
+// lookup 是 Resource 与 Key[T].Resource 的共同实现（不导出、无弃用噪音）。
+func (a *App) lookup(segment string) (any, bool) {
+	if a == nil || segment == "" {
 		return nil, false
 	}
-	if v, ok := k.resources[segment]; ok {
+	if v, ok := a.resources[segment]; ok {
 		return v, true
 	}
 	// 顶层段读取：从 "<segment>.*" 子段键聚合出副本快照（拷贝内部 map，
 	// 沿用原 Xs() 访问器的副本取舍）。
 	prefix := segment + "."
 	var snap map[string]any
-	for key, v := range k.resources {
+	for key, v := range a.resources {
 		if strings.HasPrefix(key, prefix) {
 			if snap == nil {
 				snap = make(map[string]any)

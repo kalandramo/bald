@@ -56,8 +56,8 @@ const (
 //
 // res 是**已完成前置装配的资源容器**（阶段 B 的 database/cache/storage 等
 // 客户端）：审计后端若需 DB/Redis 连接，经此取用（如 store 后端取
-// res.Resource("database.sql") 的 *gorm.DB、stream 后端取
-// res.Resource("cache.redis")）。
+// storegorm.SQL.Resource(res) 的 *gorm.DB、stream 后端取
+// rediscontract.Redis.Resource(res)）。
 //
 // 为什么显式传 res（2026-09-28 修订）：审计后端与 DB/Redis 是「消费者依赖
 // 生产者」——原实现把 buildAudit 排在 buildDatabases **之前**，后端构造时

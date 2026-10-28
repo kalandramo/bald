@@ -22,9 +22,9 @@
 //
 // 裁剪说明（为何没有迁移/ConfigKeys 槽位）：
 //   - 迁移：执行迁移需要存储栈类型（gorm AutoMigrate），appkit 不 import 存储
-//     栈——域在 Wire 内经 App.Resource("database.sql") 取连接自行执行
-//     （bald-admin audit_wiring.go 的 AutoMigrate 即既有先例）；声明式迁移清单
-//     由 gen domain 生成物承载。
+//     栈——域在 Wire 内经类型化资源句柄取连接自行执行（如
+//     storegorm.SQL.Resource(app)；bald-admin audit_wiring.go 的 AutoMigrate
+//     即既有先例）；声明式迁移清单由 gen domain 生成物承载。
 //   - ConfigKeys：业务配置段只进 Settings 快照、不进契约（bald-admin 的 biz
 //     段先例——业务键被契约 Unmarshal 丢弃，与 L3 段覆盖检查无交互）；
 //     StrictContract 白名单由应用声明（appkit.StrictContract）。

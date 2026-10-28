@@ -13,8 +13,13 @@ import (
 	"context"
 	"fmt"
 
+	minio "github.com/kalandramo/bald/oss/minio"
 	"github.com/kalandramo/bald/pkg/appkit"
 )
+
+// MinIO 是 storage.minio 资源的类型化句柄（消费侧经 MinIO.Resource(app) 取
+// *minio.Storage）。
+var MinIO = appkit.NewKey[*minio.Storage]("storage.minio")
 
 // AppProvider 返回消费契约 storage.minio 段的 appkit.Provider（段路径
 // "storage.minio"；段缺失即被引擎跳过，合法）。

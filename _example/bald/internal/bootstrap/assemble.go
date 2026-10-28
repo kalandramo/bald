@@ -85,7 +85,7 @@ func Options(role string) []appkit.Option {
 		// （按能力声明）、audit 的 log 后端与 logger（契约段驱动）。
 		std.Standard(),
 		// 第三方 Provider（加法式范本）：消费契约 database.sql 段，产物经
-		// app.Resource("database.sql") 取用，停机自动释放连接池。
+		// storegorm.SQL.Resource(app) 取用，停机自动释放连接池。
 		storegorm.AppProvider(),
 		// 配置文件按角色分叉（每角色一份契约）；- 由契约 app.name 派生 env
 		// 前缀（BALD_DEMO_*）与多环境文件名（契约无 app.name 时启动 fail-fast）。

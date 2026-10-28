@@ -9,7 +9,7 @@
 //	appkit.MustServe(ctx,
 //	    std.Standard(),
 //	    rediscontract.AppProvider(),            // 契约 cache.redis → 资源面
-//	    ...) // 域 Wire/业务钩子内经 app.Resource("cache.redis") 取用
+//	    ...) // 域 Wire/业务钩子内经 rediscontract.Redis.Resource(app) 取用
 //
 // 放置说明（与 store-gorm 的结构差异）：本模块的契约映射逻辑在 contract
 // 包（redis 包保持零契约依赖），root 包反向 import 本包——段驱动导出只能
@@ -20,8 +20,13 @@ import (
 	"context"
 	"fmt"
 
+	rediscache "github.com/kalandramo/bald/cache/redis"
 	"github.com/kalandramo/bald/pkg/appkit"
 )
+
+// Redis 是 cache.redis 资源的类型化句柄（消费侧经 Redis.Resource(app) 取
+// *rediscache.Cache）。
+var Redis = appkit.NewKey[*rediscache.Cache]("cache.redis")
 
 // AppProvider 返回消费契约 cache.redis 段的 appkit.Provider（段路径
 // "cache.redis"；段缺失即被引擎跳过，合法）。
@@ -32,7 +37,7 @@ import (
 //
 // Build 语义：cache.redis 段在 → 经既有 Provider 构造（validate/dial/Ping
 // fail-fast，不产半成品实例）→ 产物 map[string]any{"redis": client} 落引擎
-// cache 资源面（Run 后经资源容器取用）→ cleanup 关闭底层连接池（停机逆序
+// cache 资源面（Run 后经 Redis.Resource(app) 取用）→ cleanup 关闭底层连接池（停机逆序
 // 回放：缓存先关、数据库最后关）。
 func AppProvider() appkit.Provider { return appProvider{} }
 

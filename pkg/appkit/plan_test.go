@@ -345,3 +345,51 @@ func TestPlan_RegistrarTakeoverVisible(t *testing.T) {
 		t.Fatalf("registry segment usage = %+v", segmentUseByPath(p, "registry"))
 	}
 }
+
+// TestPlan_EscapeHatchesReported 钉住 I10：计划可静态观测的逃逸舱都必须
+// 出现在 Plan.Warnings——白名单段、节点 override、程序化 Registrar 接管。
+// build tag 分叉（init() 注入回调）发生在声明之前、不在计划 IR 内，由 M5 的
+// Opaque 预算单独纳管。
+func TestPlan_EscapeHatchesReported(t *testing.T) {
+	t.Run("whitelisted segment", func(t *testing.T) {
+		cfgPath := writePlanConfig(t, "plan-escape-whitelist", "script:\n  options:\n    enabled: true\n")
+		p, err := Compile(context.Background(), ConfigFile(cfgPath), WithUnimplementedSegments("script"))
+		if err != nil {
+			t.Fatalf("Compile: %v", err)
+		}
+		if !hasWarning(p, "whitelisted", "script") {
+			t.Fatalf("whitelist warning missing: %+v", p.Warnings)
+		}
+	})
+
+	t.Run("node override", func(t *testing.T) {
+		cfgPath := writePlanConfig(t, "plan-escape-override",
+			"database:\n  sql:\n    driver: \"sqlite\"\n    source: \"file::memory:?cache=shared&_fk=1\"\n"+
+				"script:\n  options:\n    enabled: true\n")
+		winner := Node{Key: "shared", Kind: "script-impl", Phase: PhaseBootstrap, Priority: PriorityLegacy}
+		winner.Override, winner.Reason = true, "test override"
+		loser := Node{Key: "shared", Kind: "database-impl", Phase: PhaseBootstrap, Priority: PriorityDatabase}
+		p, err := Compile(context.Background(), ConfigFile(cfgPath),
+			fixedNodeProvider([]string{"script"}, winner),
+			fixedNodeProvider([]string{"database.sql"}, loser),
+		)
+		if err != nil {
+			t.Fatalf("Compile: %v", err)
+		}
+		if !hasWarning(p, "override", "shared") {
+			t.Fatalf("override warning missing: %+v", p.Warnings)
+		}
+	})
+
+	t.Run("programmatic takeover", func(t *testing.T) {
+		cfgPath := writePlanConfig(t, "plan-escape-takeover",
+			"registry:\n  type: \"nacos\"\n  nacos:\n    server_addrs: [\"127.0.0.1:8848\"]\n")
+		p, err := Compile(context.Background(), ConfigFile(cfgPath), Registrar(testRegistrar{}))
+		if err != nil {
+			t.Fatalf("Compile: %v", err)
+		}
+		if !hasWarning(p, "programmatic-takeover", "registry") {
+			t.Fatalf("takeover warning missing: %+v", p.Warnings)
+		}
+	})
+}

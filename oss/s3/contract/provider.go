@@ -13,8 +13,12 @@ import (
 	"context"
 	"fmt"
 
+	s3 "github.com/kalandramo/bald/oss/s3"
 	"github.com/kalandramo/bald/pkg/appkit"
 )
+
+// S3 是 storage.s3 资源的类型化句柄（消费侧经 S3.Resource(app) 取 *s3.Storage）。
+var S3 = appkit.NewKey[*s3.Storage]("storage.s3")
 
 // AppProvider 返回消费契约 storage.s3 段的 appkit.Provider（段路径
 // "storage.s3"；段缺失即被引擎跳过，合法）。
