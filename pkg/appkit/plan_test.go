@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"math/rand"
 	"net/http"
 	"os"
@@ -348,8 +349,8 @@ func TestPlan_RegistrarTakeoverVisible(t *testing.T) {
 
 // TestPlan_EscapeHatchesReported 钉住 I10：计划可静态观测的逃逸舱都必须
 // 出现在 Plan.Warnings——白名单段、节点 override、程序化 Registrar 接管。
-// build tag 分叉（init() 注入回调）发生在声明之前、不在计划 IR 内，由 M5 的
-// Opaque 预算单独纳管。
+// build tag 分叉（init() 注入回调）发生在声明之前、不在计划 IR 内，由
+// Opaque 计数与预算纳管（见 TestPlan_OpaqueBudget）。
 func TestPlan_EscapeHatchesReported(t *testing.T) {
 	t.Run("whitelisted segment", func(t *testing.T) {
 		cfgPath := writePlanConfig(t, "plan-escape-whitelist", "script:\n  options:\n    enabled: true\n")
@@ -390,6 +391,79 @@ func TestPlan_EscapeHatchesReported(t *testing.T) {
 		}
 		if !hasWarning(p, "programmatic-takeover", "registry") {
 			t.Fatalf("takeover warning missing: %+v", p.Warnings)
+		}
+	})
+}
+
+// TestPlan_OpaqueBudget 钉住逃逸舱的计量出口：OpaqueCount 恒进计划（I10），
+// 超预算只产计划警告、不阻断装配；0 = 不设预算，CI 可自行设门。
+func TestPlan_OpaqueBudget(t *testing.T) {
+	cfgPath := writePlanConfig(t, "plan-opaque",
+		"database:\n  sql:\n    driver: \"sqlite\"\n    source: \"file::memory:?cache=shared&_fk=1\"\n"+
+			"script:\n  options:\n    enabled: true\n")
+	legacy := []Option{
+		AdaptLegacy(legacyStub{segs: []string{"database.sql"}}),
+		AdaptLegacy(legacyStub{segs: []string{"script"}}),
+	}
+
+	compile := func(t *testing.T, opts ...Option) *Plan {
+		t.Helper()
+		all := append([]Option{ConfigFile(cfgPath)}, opts...)
+		p, err := Compile(context.Background(), append(all, legacy...)...)
+		if err != nil {
+			t.Fatalf("Compile: %v", err)
+		}
+		return p
+	}
+
+	t.Run("count visible without budget", func(t *testing.T) {
+		p := compile(t)
+		var opaque []ResourceKey
+		for _, n := range p.Nodes {
+			if n.Opaque {
+				opaque = append(opaque, n.Key)
+			}
+		}
+		if p.OpaqueCount != len(opaque) {
+			t.Fatalf("OpaqueCount = %d, opaque nodes = %v", p.OpaqueCount, opaque)
+		}
+		if p.OpaqueCount < 2 || !hasNode(p, "database.sql") || !hasNode(p, "script") {
+			t.Fatalf("legacy nodes missing or not counted opaque: count=%d nodes=%+v", p.OpaqueCount, p.Nodes)
+		}
+		if hasWarning(p, "opaque-budget", "opaque") {
+			t.Fatalf("unmanaged plan emitted an opaque-budget warning: %+v", p.Warnings)
+		}
+	})
+
+	t.Run("over budget warns", func(t *testing.T) {
+		p := compile(t, WithOpaqueBudget(1))
+		if !hasWarning(p, "opaque-budget", "opaque") {
+			t.Fatalf("opaque-budget warning missing: %+v", p.Warnings)
+		}
+	})
+
+	t.Run("within budget silent", func(t *testing.T) {
+		base := compile(t)
+		p := compile(t, WithOpaqueBudget(base.OpaqueCount))
+		if hasWarning(p, "opaque-budget", "opaque") {
+			t.Fatalf("warning for a plan within budget: %+v", p.Warnings)
+		}
+	})
+
+	t.Run("negative budget rejected", func(t *testing.T) {
+		_, err := Compile(context.Background(), ConfigFile(cfgPath), WithOpaqueBudget(-1))
+		if err == nil || !strings.Contains(err.Error(), "budget must be >= 0") {
+			t.Fatalf("negative budget not rejected: %v", err)
+		}
+	})
+
+	t.Run("explain prints count", func(t *testing.T) {
+		p := compile(t)
+		var buf bytes.Buffer
+		p.Explain(&buf)
+		want := fmt.Sprintf("opaque: %d node(s)", p.OpaqueCount)
+		if !strings.Contains(buf.String(), want) {
+			t.Fatalf("Explain does not report %q:\n%s", want, buf.String())
 		}
 	})
 }

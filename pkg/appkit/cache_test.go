@@ -38,7 +38,7 @@ func TestAssemble_ContractCacheLifecycle(t *testing.T) {
 
 	a := assembleForTest(t, cfg, WithHTTP(new(http.ServeMux)), cacheTestProvider(cr))
 	// 构造期（阶段 A）尚未装载契约：Cache 为空
-	if _, ok := a.Resource("cache.local"); ok {
+	if _, ok := a.lookup("cache.local"); ok {
 		t.Fatal("Cache should be empty before Run (phase B not reached)")
 	}
 
@@ -47,7 +47,7 @@ func TestAssemble_ContractCacheLifecycle(t *testing.T) {
 	go func() { done <- a.Run(ctx) }()
 	time.Sleep(300 * time.Millisecond)
 
-	cli, ok := a.Resource("cache.local")
+	cli, ok := a.lookup("cache.local")
 	if !ok {
 		t.Fatal("cache instance not built from contract")
 	}
@@ -107,7 +107,7 @@ func TestAssemble_NoCacheSection(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if _, ok := a.Resource("cache.local"); ok {
+	if _, ok := a.lookup("cache.local"); ok {
 		t.Fatal("no cache should be built without cache section")
 	}
 }

@@ -35,7 +35,7 @@ func TestAssemble_ContractWorkflowLifecycle(t *testing.T) {
 	}
 
 	a := assembleForTest(t, cfg, WithHTTP(new(http.ServeMux)), workflowTestProvider(wr))
-	if _, ok := a.Resource("workflow.argo"); ok {
+	if _, ok := a.lookup("workflow.argo"); ok {
 		t.Fatal("Workflow should be empty before Run (phase B not reached)")
 	}
 
@@ -44,7 +44,7 @@ func TestAssemble_ContractWorkflowLifecycle(t *testing.T) {
 	go func() { done <- a.Run(ctx) }()
 	time.Sleep(300 * time.Millisecond)
 
-	cli, ok := a.Resource("workflow.argo")
+	cli, ok := a.lookup("workflow.argo")
 	if !ok {
 		t.Fatal("workflow instance not built from contract")
 	}

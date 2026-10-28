@@ -35,7 +35,7 @@ func TestAssemble_ContractStorageLifecycle(t *testing.T) {
 	}
 
 	a := assembleForTest(t, cfg, WithHTTP(new(http.ServeMux)), storageTestProvider(sr))
-	if _, ok := a.Resource("storage.minio"); ok {
+	if _, ok := a.lookup("storage.minio"); ok {
 		t.Fatal("Storage should be empty before Run (phase B not reached)")
 	}
 
@@ -44,7 +44,7 @@ func TestAssemble_ContractStorageLifecycle(t *testing.T) {
 	go func() { done <- a.Run(ctx) }()
 	time.Sleep(300 * time.Millisecond)
 
-	cli, ok := a.Resource("storage.minio")
+	cli, ok := a.lookup("storage.minio")
 	if !ok {
 		t.Fatal("storage instance not built from contract")
 	}

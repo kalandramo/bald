@@ -1,6 +1,6 @@
-// resource.go 是统一资源面：段驱动 Provider 的产物按**契约段路径**存取，
-// 类型化访问走 Key[T]（key.go），本文件提供其内部实现与 deprecated 的
-// 字符串入口。
+// resource.go 是统一资源面的内部实现：段驱动 Provider 的产物按**契约段路径**
+// 存取，访问统一走类型化句柄 Key[T]（key.go）；字符串入口已按 B2 删除
+// （v0.28），lookup 仅对包内与 Key[T] 可见。
 //
 // 分工（契约段 → 实例的构造归 Provider，运行期编排归 appkit）：
 //   - Provider（范本：contrib/store-gorm 的 Provider）：按契约子段构建；
@@ -22,7 +22,7 @@ package appkit
 
 import "strings"
 
-// Resource 按契约段路径取阶段 B Provider 的装配产物（阶段 B 后、Run 期可用；
+// lookup 按契约段路径取阶段 B Provider 的装配产物（阶段 B 后、Run 期可用；
 // 装配构造期尚未装载契约，恒 (nil, false)）。segment 为段路径：
 //   - 子段精确路径（"database.sql"）→ 该实例本身；
 //   - 顶层段（"database"）→ map[string]any 副本快照（键=子段名）——副本
@@ -34,11 +34,7 @@ import "strings"
 // 未装配或段缺失返回 (nil, false)。tracer/metrics 产物刻意不落资源面
 // （shutdown/暴露端由 Provider 自持，cleanup 槽位承担停机回收）。
 //
-// Deprecated: 使用 Provider 导出的 appkit.Key[T]（如 storegorm.SQL.Resource(app)）；
-// 该方法无法在编译期保证产物类型，v0.28 删除。
-func (a *App) Resource(segment string) (any, bool) { return a.lookup(segment) }
-
-// lookup 是 Resource 与 Key[T].Resource 的共同实现（不导出、无弃用噪音）。
+// 仅 Key[T].Resource 与包内测试调用：公开的字符串入口（App.Resource）已删除。
 func (a *App) lookup(segment string) (any, bool) {
 	if a == nil || segment == "" {
 		return nil, false

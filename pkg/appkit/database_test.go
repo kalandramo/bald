@@ -41,7 +41,7 @@ func TestAssemble_ContractDatabaseLifecycle(t *testing.T) {
 
 	a := assembleForTest(t, cfg, WithHTTP(new(http.ServeMux)), dbTestProvider(dr))
 	// 构造期（阶段 A）尚未装载契约：Database 为空
-	if _, ok := a.Resource("database.sql"); ok {
+	if _, ok := a.lookup("database.sql"); ok {
 		t.Fatal("Database should be empty before Run (phase B not reached)")
 	}
 
@@ -50,7 +50,7 @@ func TestAssemble_ContractDatabaseLifecycle(t *testing.T) {
 	go func() { done <- a.Run(ctx) }()
 	time.Sleep(300 * time.Millisecond)
 
-	cli, ok := a.Resource("database.sql")
+	cli, ok := a.lookup("database.sql")
 	if !ok {
 		t.Fatal("database client not built from contract")
 	}
@@ -107,7 +107,7 @@ func TestAssemble_NoDatabaseSection(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if _, ok := a.Resource("database.sql"); ok {
+	if _, ok := a.lookup("database.sql"); ok {
 		t.Fatal("no database should be built without database section")
 	}
 }

@@ -35,7 +35,7 @@
 //	框架钩子（契约装载 + 阶段 B Provider 循环 + L3）→ 业务 BeforeStart → 域 →
 //	迟后阶段（server Provider）→ 额外服务器工厂
 //
-// 该窗口由两约束夹出：域需要资源面已就绪（阶段 B 产物经 App.Resource 可取）；
+// 该窗口由两约束夹出：域需要资源面已就绪（阶段 B 产物经 Key[T].Resource 可取）；
 // 域的路由/服务注册须在 server 构建前生效。放在业务钩子之后，域还能消费业务
 // 钩子建立的运行期资源（bald-admin 的 authenticator/仓储均建于 BeforeStart）。
 // 多域次序 = 声明序（Decl.Domains 的 Apply 追加序 = MustServe 变参序）；任一
@@ -61,7 +61,7 @@ type Domain struct {
 
 	// Wire 域自我接线（装配期执行一次）：读自己的配置段（app.Settings()）、
 	// 构造自己的能力、持有自己的端口。执行时资源面已就绪
-	// （App.Resource 可取阶段 B 产物），业务 BeforeStart 钩子已跑完（域可
+	// （Key[T].Resource 可取阶段 B 产物），业务 BeforeStart 钩子已跑完（域可
 	// 消费业务建立的运行期资源）。返回错误 = 启动失败（fail-fast）。
 	Wire func(ctx context.Context, app *App) error
 

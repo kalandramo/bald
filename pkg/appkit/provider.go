@@ -205,9 +205,35 @@ const (
 // L3 默认 fail-closed：契约里出现的顶层段若无任何 Provider 消费，启动期
 // 直接报错。契约先行的工位（先写配置、后等实现）经本 Option 显式承认
 // 「我知道该段暂不生效」，多次调用追加。条目为顶层段名（"script"）或
-// server 子段路径（"server.asynq"）。
+// server 子段路径（"server.asynq"），且必须是 BootstrapConfig 的真实字段
+// 路径——拼错的豁免默认静默失效会让 L4 名存实亡，故计划期直接报错。
 func WithUnimplementedSegments(names ...string) Option {
 	return optionFunc(func(d *Decl) { d.UnimplementedSegments = append(d.UnimplementedSegments, names...) })
+}
+
+// WithOpaqueBudget 声明 Opaque 节点数预算：计划期超过预算即产出
+// opaque-budget 警告（不阻断装配）。0（缺省）= 不设预算，但
+// Plan.OpaqueCount 恒可见——CI 可直接按计数设门。Opaque 的典型来源：
+// AdaptLegacy 包装的 v1 Provider、Domain Wire、命令式组件。
+func WithOpaqueBudget(n int) Option {
+	return optionFunc(func(d *Decl) { d.OpaqueBudget = n })
+}
+
+// segmentPathKnown 判定白名单条目是否为 BootstrapConfig 的真实字段路径
+// （逐级消息型字段）。空路径 / 未知字段 / 末端非消息型均判未知。
+func segmentPathKnown(path string) bool {
+	if path == "" {
+		return false
+	}
+	m := (&bootstrapv1.BootstrapConfig{}).ProtoReflect()
+	for _, name := range strings.Split(path, ".") {
+		fd := m.Descriptor().Fields().ByName(protoreflect.Name(name))
+		if fd == nil || fd.Kind() != protoreflect.MessageKind {
+			return false
+		}
+		m = m.Get(fd).Message()
+	}
+	return true
 }
 
 // ---------------------------------------------------------------------------
@@ -350,9 +376,16 @@ func newProviderPlan(ctx context.Context, d *Decl, cfg *bootstrapv1.BootstrapCon
 		effectName:    map[ResourceKey]string{},
 	}
 	for _, name := range d.UnimplementedSegments {
-		if name != "" {
-			plan.unimplemented[name] = true
+		if name == "" {
+			return nil, fmt.Errorf("appkit: WithUnimplementedSegments: empty segment path (want a BootstrapConfig field path like \"script\" or \"server.asynq\")")
 		}
+		if !segmentPathKnown(name) {
+			return nil, fmt.Errorf("appkit: WithUnimplementedSegments(%q): unknown bootstrap segment path (want a BootstrapConfig field path like \"script\" or \"server.asynq\")", name)
+		}
+		plan.unimplemented[name] = true
+	}
+	if d.OpaqueBudget < 0 {
+		return nil, fmt.Errorf("appkit: WithOpaqueBudget(%d): budget must be >= 0 (0 = unmanaged)", d.OpaqueBudget)
 	}
 
 	// 1. 路径末者胜：收集每条路径的末声明者（后声明覆盖先声明——std 默认

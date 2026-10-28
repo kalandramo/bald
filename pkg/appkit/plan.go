@@ -168,12 +168,14 @@ type AppMeta struct {
 
 // Plan 是编译结果。Nodes 已按全局拓扑序稳定排序。
 type Plan struct {
-	App       AppMeta      `json:"app"`
-	Role      string       `json:"role,omitempty"`
-	InputHash string       `json:"inputHash"` // 可检视输入的摘要（契约确定性序列化）
-	Nodes     []Node       `json:"nodes"`
-	Segments  []SegmentUse `json:"segments"`
-	Warnings  []Diagnostic `json:"warnings,omitempty"`
+	App       AppMeta `json:"app"`
+	Role      string  `json:"role,omitempty"`
+	InputHash string  `json:"inputHash"` // 可检视输入的摘要（契约确定性序列化）
+	Nodes     []Node  `json:"nodes"`
+	// OpaqueCount 是 Opaque 节点数（逃逸舱预算的计量口径；预算见 WithOpaqueBudget）。
+	OpaqueCount int          `json:"opaqueCount"`
+	Segments    []SegmentUse `json:"segments"`
+	Warnings    []Diagnostic `json:"warnings,omitempty"`
 }
 
 // Compile 编译装配计划：两遍预装载契约（appkit.ConfigFile 指定的文件）→
@@ -332,16 +334,24 @@ func planFrom(_ context.Context, d *Decl, cfg *bootstrapv1.BootstrapConfig, pp *
 		})
 	}
 
+	// 逃逸舱计量：Opaque 节点数恒进计划（预算告警的计量口径，I10）。
+	for _, n := range p.Nodes {
+		if n.Opaque {
+			p.OpaqueCount++
+		}
+	}
+
 	// 期望态摘要：可协调节点（logger/audit/组件）由契约段内容与节点身份求得，
 	// 供配置变更 diff 与 Drift 判定（M3）。其余节点（重启生效/静态）不产生摘要。
 	for i := range p.Nodes {
 		p.Nodes[i].DesiredHash = nodeDesiredHash(cfg, p.Nodes[i])
 	}
 
-	// 逃逸舱可见化：覆盖 / 白名单 / 同 Key 裁决（I4/I10 的 M1 子集）。
+	// 逃逸舱可见化：覆盖 / 白名单 / 同 Key 裁决（I4/I10 的 M1 子集）+ 预算。
 	p.Warnings = append(p.Warnings, pp.warnings...)
 	p.Warnings = append(p.Warnings, overrideWarnings(d)...)
 	p.Warnings = append(p.Warnings, whitelistWarnings(pp)...)
+	p.Warnings = append(p.Warnings, opaqueBudgetWarnings(d.OpaqueBudget, p.Nodes)...)
 
 	ordered, orderWarnings, err := orderNodes(p.Nodes)
 	if err != nil {
@@ -516,6 +526,30 @@ func whitelistWarnings(pp *providerPlan) []Diagnostic {
 		})
 	}
 	return out
+}
+
+// opaqueBudgetWarnings 把「Opaque 节点数超预算」显式化（I10：逃逸舱不隐身）。
+// budget<=0 表示未声明预算：不告警，但 Plan.OpaqueCount 仍供 CI 设门。
+func opaqueBudgetWarnings(budget int, nodes []Node) []Diagnostic {
+	if budget <= 0 {
+		return nil
+	}
+	var keys []string
+	for _, n := range nodes {
+		if n.Opaque {
+			keys = append(keys, string(n.Key))
+		}
+	}
+	if len(keys) <= budget {
+		return nil
+	}
+	sort.Strings(keys)
+	return []Diagnostic{{
+		Level:   DiagWarn,
+		Code:    "opaque-budget",
+		Subject: "opaque",
+		Message: fmt.Sprintf("%d opaque node(s) exceed the budget %d: %s", len(keys), budget, strings.Join(keys, ", ")),
+	}}
 }
 
 // sortAndDedupWarnings 让警告集合与声明序无关（I2 的哈希稳定性）。
@@ -871,6 +905,8 @@ func (p *Plan) Explain(w io.Writer) {
 		}
 	}
 	tw.Flush()
+
+	fmt.Fprintf(w, "opaque: %d node(s)\n", p.OpaqueCount)
 
 	fmt.Fprintln(w, "segments:")
 	for _, s := range p.Segments {

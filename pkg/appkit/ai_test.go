@@ -35,7 +35,7 @@ func TestAssemble_ContractAiLifecycle(t *testing.T) {
 	}
 
 	a := assembleForTest(t, cfg, WithHTTP(new(http.ServeMux)), aiTestProvider(ar))
-	if _, ok := a.Resource("ai.openai"); ok {
+	if _, ok := a.lookup("ai.openai"); ok {
 		t.Fatal("Ai should be empty before Run (phase B not reached)")
 	}
 
@@ -44,7 +44,7 @@ func TestAssemble_ContractAiLifecycle(t *testing.T) {
 	go func() { done <- a.Run(ctx) }()
 	time.Sleep(300 * time.Millisecond)
 
-	cli, ok := a.Resource("ai.openai")
+	cli, ok := a.lookup("ai.openai")
 	if !ok {
 		t.Fatal("ai instance not built from contract")
 	}

@@ -35,7 +35,7 @@ func TestAssemble_ContractBrokerLifecycle(t *testing.T) {
 	}
 
 	a := assembleForTest(t, cfg, WithHTTP(new(http.ServeMux)), brokerTestProvider(br))
-	if _, ok := a.Resource("broker.redis"); ok {
+	if _, ok := a.lookup("broker.redis"); ok {
 		t.Fatal("Broker should be empty before Run (phase B not reached)")
 	}
 
@@ -44,7 +44,7 @@ func TestAssemble_ContractBrokerLifecycle(t *testing.T) {
 	go func() { done <- a.Run(ctx) }()
 	time.Sleep(300 * time.Millisecond)
 
-	b, ok := a.Resource("broker.redis")
+	b, ok := a.lookup("broker.redis")
 	if !ok {
 		t.Fatal("broker instance not built from contract")
 	}

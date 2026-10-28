@@ -109,7 +109,7 @@ func BenchmarkResource_Lookup(b *testing.B) {
 	app := benchResourceApp()
 	b.ReportAllocs()
 	for b.Loop() {
-		v, ok := app.Resource("registry")
+		v, ok := app.lookup("registry")
 		if !ok || v == nil {
 			b.Fatal("registry lookup failed")
 		}
@@ -122,7 +122,7 @@ func BenchmarkResource_SubSegment(b *testing.B) {
 	app := benchResourceApp()
 	b.ReportAllocs()
 	for b.Loop() {
-		v, ok := app.Resource("database.sql")
+		v, ok := app.lookup("database.sql")
 		if !ok || v == nil {
 			b.Fatal("subsegment lookup failed")
 		}
@@ -137,7 +137,7 @@ func BenchmarkResource_TopLevelSnapshot(b *testing.B) {
 	app := benchResourceApp()
 	b.ReportAllocs()
 	for b.Loop() {
-		v, ok := app.Resource("database")
+		v, ok := app.lookup("database")
 		if !ok {
 			b.Fatal("top-level snapshot failed")
 		}

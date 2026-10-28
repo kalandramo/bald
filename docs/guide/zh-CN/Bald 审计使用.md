@@ -99,7 +99,8 @@ appkit.MustServe(ctx, std.Standard(), auditProvider{db: db}, ...)
 没有 `init()` 自注册——contract 包的 `NewStoreProvider(db)` /
 `NewStreamProvider(rdb)`（返回 `appkit.AuditProvider` 函数值）只在你的 Build
 分派里被调用时才生效。Build 在阶段 B 执行、排在 database/cache 客户端之后
-（store 需 `*gorm.DB`、stream 需 redis，经 `s.App.Resource(...)` 先就绪）；
+（store 需 `*gorm.DB`、stream 需 redis，经 `storegorm.SQL.Resource(app)` /
+`rediscontract.Redis.Resource(app)` 先就绪）；
 产物落资源面，cleanup 由框架挂停机 Effect 逆序回放（stream 尾批 flush
 最后执行）。
 

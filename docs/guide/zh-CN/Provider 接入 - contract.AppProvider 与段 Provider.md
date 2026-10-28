@@ -20,7 +20,7 @@ type Provider interface {
 
 - **Segments：段路径即契约段**。顶层段名（"database"、"audit"）或子段路径（"database.sql"、"server.http"），精确匹配；段存在性由 protobuf 反射逐级判定（消息型字段非 nil 即 present）。契约共 15 个顶层段。
 - **Option 同款 Apply**：Provider 嵌入 Option——与 `std.Standard()`、业务域声明值并列传入 MustServe（[新增业务域](./新增业务域%20-%20Domain%20与%20gen%20domain.md) §3 同一手法）。`appkit.Providers(ps ...Provider)` 可把多个 Provider 打包为一个 Option（`provider.go:106`）。
-- **Build 输入 BuildScope**：Config（阶段 B / server 阶段为已装载定型的完整契约；config 段构造期与 logger 阶段 A 可为 nil）、Decl（只读约定）、App（阶段 B 起非 nil，**前序段产物已填充**——audit 后端经 `App.Resource("database.sql")` 取连接即依赖此序）。
+- **Build 输入 BuildScope**：Config（阶段 B / server 阶段为已装载定型的完整契约；config 段构造期与 logger 阶段 A 可为 nil）、Decl（只读约定）、App（阶段 B 起非 nil，**前序段产物已填充**——audit 后端经 `storegorm.SQL.Resource(app)` 取连接即依赖此序）。
 - **Build 产物形状按顶层段约定**：registry 段为 registry.Registrar；六资源域（database/cache/storage/ai/workflow/broker）为 map[string]any（键=子段名）；audit 段为 audit.Auditor；server 段为 []transport.Server；config 段为 []config.Layer；无产物可返回 nil。
 
 ## 2. 三种接入粒度
@@ -99,14 +99,14 @@ appkit: bootstrap config declares sections with no consumer:
 ```
 
   server 段双层判定：非内置子段（http/grpc 之外）无 Provider 接管同样报错；用户改过 server 子字段却零能力声明也报错（与 bconf 预填默认深相等则豁免——框架自填非用户意图）。段名拼错由同一次检查覆盖：拼错 ⇒ 该段无人覆盖。这条检查的由来是 script 段教训——全仓零消费者，用户配置静默失效。
-- **白名单出口**：`appkit.WithUnimplementedSegments("script", "server.asynq")`——契约先行的工位显式承认「该段暂不生效」，多次调用追加；条目为顶层段名或 server 子段路径。它是唯一豁免出口。
+- **白名单出口**：`appkit.WithUnimplementedSegments("script", "server.asynq")`——契约先行的工位显式承认「该段暂不生效」，多次调用追加；条目为顶层段名或 server 子段路径，**必须是 `BootstrapConfig` 里真实存在的消息型字段链**（拼错在计划期报错，不会静默制造一个不存在的豁免）。它是唯一豁免出口。
 
 ## 4. 产物落资源面
 
-引擎把 Build 产物按段路径落进统一资源面（`bootstrap.go:681`）：map[string]any 产物按 `<顶层段>.<子段>` 逐键展开（nil 值跳过），非 map 产物整体落 `<顶层段>`；仅阶段 B 单线程写入，Run 后只读。取用走 `App.Resource(segment)`（`pkg/appkit/resource.go:37`）：
+引擎把 Build 产物按段路径落进统一资源面（`bootstrap.go:681`）：map[string]any 产物按 `<顶层段>.<子段>` 逐键展开（nil 值跳过），非 map 产物整体落 `<顶层段>`；仅阶段 B 单线程写入，Run 后只读。取用走类型化句柄 `Key[T].Resource(app)`（字符串入口 `App.Resource(string)` 已按 B2 删除）：
 
-- **子段精确路径直返实例**：`app.Resource("cache.redis")` → 该实例本身（类型断言在消费侧恢复）；
-- 顶层段（"cache"）→ map[string]any 副本快照（键=子段名，可安全遍历/留存）；
+- **子段精确路径直返实例**：`storegorm.SQL.Resource(app)` → `*gorm.DB`（类型在句柄上静态确定，无断言）；
+- 顶层段（"cache"）→ map[string]any 副本快照（键=子段名，可安全遍历/留存）；用 `appkit.NewKey[map[string]any]("cache").Resource(app)` 取；
 - registry/audit 等整产物段 → 产物本身；
 - 未装配或段缺失 → `(nil, false)`；装配构造期恒 `(nil, false)`。
 

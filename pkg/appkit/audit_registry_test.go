@@ -96,7 +96,7 @@ func TestAssemble_AuditProductBecomesAppAuditor(t *testing.T) {
 	if _, isContract := a.auditor.(taggedAuditor); !isContract {
 		t.Fatalf("app auditor should be the contract backend during Run, got %T", a.auditor)
 	}
-	if v, ok := a.Resource("audit"); !ok {
+	if v, ok := a.lookup("audit"); !ok {
 		t.Fatal("audit product missing from resource face")
 	} else if _, isAud := v.(audit.Auditor); !isAud {
 		t.Fatalf("Resource(\"audit\") = %T, want audit.Auditor", v)
@@ -136,7 +136,7 @@ func TestAssemble_AuditProviderSeesDatabases(t *testing.T) {
 		if res == nil {
 			return nil, nil, errProbe("res is nil")
 		}
-		if v, ok := res.Resource("database.sql"); ok && v == wantDB {
+		if v, ok := res.lookup("database.sql"); ok && v == wantDB {
 			sawDB = true
 		}
 		return audit.NewLoggerAuditor(), nil, nil

@@ -1,7 +1,7 @@
 package appkit
 
 // domain_test.go 钉住业务域引擎消费的四个不变量：
-//  1. Wire 时点窗口：阶段 B 资源面就绪之后（App.Resource 可取产物）、业务
+//  1. Wire 时点窗口：阶段 B 资源面就绪之后（Key[T].Resource 可取产物）、业务
 //     BeforeStart 之后、迟后阶段（server 构建）之前——两约束夹出的窗口；
 //  2. 多域次序 = 声明序（Wire 与 Routes 均按 MustServe 变参序）；
 //  3. 域 Wire/Routes 失败 fail-fast（错误带域名，经 Run 失败路径返回）；
@@ -43,7 +43,7 @@ func (r *recorder) snapshot() string {
 }
 
 // stubScriptProvider 消费 script 段（表外顶层段 → 阶段 B 构建；产物为非 map
-// 值 → 落资源面 "script"，供域 Wire 经 App.Resource 取用）。script 段被本
+// 值 → 落资源面 "script"，供域 Wire 经 Key[T].Resource 取用）。script 段被本
 // Provider 触发即视为已消费，L3 不报错。
 type stubScriptProvider struct {
 	rec *recorder
@@ -80,8 +80,8 @@ func TestDomain_WireWindow(t *testing.T) {
 	dom := Domain{
 		Name: "demo",
 		Wire: func(_ context.Context, a *App) error {
-			// 约束①：资源面已就绪——阶段 B 产物经 App.Resource 可取。
-			v, ok := a.Resource("script")
+			// 约束①：资源面已就绪——阶段 B 产物经 Key[T].Resource 可取。
+			v, ok := a.lookup("script")
 			if !ok || v != "stub-script" {
 				return errors.New("resource face not ready at Wire time")
 			}

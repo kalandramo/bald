@@ -211,3 +211,41 @@ func TestAssemble_ServerSubSegmentWithCoProvider(t *testing.T) {
 		t.Fatalf("a.Err() = %v, want nil", a.Err())
 	}
 }
+
+// M5：白名单名字必须是契约里真实存在的段路径（BootstrapConfig 字段链，
+// 中间节点必须是 message）——拼错在计划期报错，而不是静默制造一个不存在的
+// 豁免（L4：宣称可校验）。
+func TestPlan_RejectsUnknownWhitelistSegment(t *testing.T) {
+	cfgPath := writePlanConfig(t, "plan-whitelist-typo", "script:\n  options:\n    enabled: true\n")
+
+	t.Run("typo", func(t *testing.T) {
+		_, err := Compile(context.Background(), ConfigFile(cfgPath), WithUnimplementedSegments("scriptt"))
+		if err == nil {
+			t.Fatal("Compile accepted a misspelled whitelist segment")
+		}
+		if !strings.Contains(err.Error(), "unknown bootstrap segment path") || !strings.Contains(err.Error(), "scriptt") {
+			t.Fatalf("error does not explain the unknown path: %v", err)
+		}
+	})
+
+	t.Run("scalar leaf", func(t *testing.T) {
+		// app.name 是标量字段：可读但不是可消费的段。
+		_, err := Compile(context.Background(), ConfigFile(cfgPath), WithUnimplementedSegments("app.name"))
+		if err == nil || !strings.Contains(err.Error(), "unknown bootstrap segment path") {
+			t.Fatalf("scalar field accepted as a segment path: %v", err)
+		}
+	})
+
+	t.Run("empty", func(t *testing.T) {
+		_, err := Compile(context.Background(), ConfigFile(cfgPath), WithUnimplementedSegments(""))
+		if err == nil || !strings.Contains(err.Error(), "empty segment path") {
+			t.Fatalf("empty whitelist entry not rejected: %v", err)
+		}
+	})
+
+	t.Run("real path accepted", func(t *testing.T) {
+		if _, err := Compile(context.Background(), ConfigFile(cfgPath), WithUnimplementedSegments("script")); err != nil {
+			t.Fatalf("Compile with real whitelist path: %v", err)
+		}
+	})
+}

@@ -121,6 +121,10 @@ type Decl struct {
 	// UnimplementedSegments 是 L3 覆盖检查的白名单（WithUnimplementedSegments
 	// 追加）：契约已声明、框架尚无消费者的段，显式豁免启动期报错。
 	UnimplementedSegments []string
+	// OpaqueBudget 是 Opaque 节点数的告警预算（WithOpaqueBudget 写入；
+	// 0 = 不设预算）。超预算只产计划警告，不阻断装配——计量恒可见
+	// （Plan.OpaqueCount），CI 可自行设门。
+	OpaqueBudget int
 
 	// ---- 日志装饰器（logDecoratorsOpt 写入，B7 取消导出：装饰归 provider
 	// 自持——内置 slog Provider 消费本字段，第三方 logger Provider 自持装饰） ----
