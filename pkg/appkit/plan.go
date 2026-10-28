@@ -22,6 +22,7 @@ import (
 	"text/tabwriter"
 
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
 
 	bconf "github.com/kalandramo/bald/bconf"
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
@@ -136,7 +137,9 @@ type Node struct {
 	// v1 Provider（AdaptLegacy）、Domain Wire、Component Start 均为 true。
 	Opaque bool `json:"opaque,omitempty"`
 
-	// DesiredHash 是节点期望态的摘要（可协调节点必须提供）；Opaque 节点为空。
+	// DesiredHash 是可协调节点（ReloadReconcile）期望态的摘要：节点身份 +
+	// 声明段的契约内容。重启/静态节点为空；Opaque 只表示内部不可分析，不排除
+	// 期望态摘要。
 	DesiredHash string `json:"desiredHash,omitempty"`
 
 	// EffectName 是节点停机 Effect 的名（Provider 可声明；缺省 "appkit:"+Key）。
@@ -221,7 +224,12 @@ func compilePlan(ctx context.Context, d *Decl, cfg *bootstrapv1.BootstrapConfig)
 	if err := checkSegmentCoverage(cfg, d, pp); err != nil {
 		return nil, err
 	}
+	return planFrom(ctx, d, cfg, pp)
+}
 
+// planFrom 把已解析的 Provider 计划投影为可检视的 Plan（纯函数）。编译预检与
+// 配置变更重算共用本函数：同一份 Decl/契约必得同一计划（I2）。
+func planFrom(_ context.Context, d *Decl, cfg *bootstrapv1.BootstrapConfig, pp *providerPlan) (*Plan, error) {
 	p := &Plan{
 		App:       appMetaFrom(cfg),
 		InputHash: inputHash(cfg),
@@ -318,10 +326,16 @@ func compilePlan(ctx context.Context, d *Decl, cfg *bootstrapv1.BootstrapConfig)
 			Kind:     "component",
 			Phase:    PhaseServe,
 			Priority: 20, // server 构造（late Provider）之后、servers Start 之前
-			Reload:   ReloadStatic,
+			Reload:   ReloadReconcile,
 			Opaque:   true,
 			Origin:   OriginApp,
 		})
+	}
+
+	// 期望态摘要：可协调节点（logger/audit/组件）由契约段内容与节点身份求得，
+	// 供配置变更 diff 与 Drift 判定（M3）。其余节点（重启生效/静态）不产生摘要。
+	for i := range p.Nodes {
+		p.Nodes[i].DesiredHash = nodeDesiredHash(cfg, p.Nodes[i])
 	}
 
 	// 逃逸舱可见化：覆盖 / 白名单 / 同 Key 裁决（I4/I10 的 M1 子集）。
@@ -348,6 +362,50 @@ func appMetaFrom(cfg *bootstrapv1.BootstrapConfig) AppMeta {
 		Version: orDefault(a.GetVersion(), "v0.0.0"),
 		Env:     a.GetEnv(),
 	}
+}
+
+// nodeDesiredHash 计算可协调节点的期望态摘要：节点身份 + 各声明段的确定性
+// 序列化子树。段缺失（Provider 已 gate，理论上不出现）按空值参与摘要，保持
+// 与「段被删除」可区分。非 ReloadReconcile 节点无摘要（重启/静态无期望态）。
+func nodeDesiredHash(cfg *bootstrapv1.BootstrapConfig, n Node) string {
+	if n.Reload != ReloadReconcile || cfg == nil {
+		return ""
+	}
+	h := sha256.New()
+	io.WriteString(h, "key="+string(n.Key)+"\nkind="+n.Kind+"\n")
+	for _, seg := range sortedUnique(n.Segments) {
+		io.WriteString(h, "segment="+seg+"\n")
+		if msg := segmentMessage(cfg, seg); msg != nil {
+			if b, err := (proto.MarshalOptions{Deterministic: true}).Marshal(msg.Interface()); err == nil {
+				_, _ = h.Write(b)
+			}
+		}
+		io.WriteString(h, "\n")
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// segmentMessage 按点路径以 protobuf 反射取契约段消息（"server.grpc" →
+// cfg.server.grpc）；路径不存在或非消息型字段返回 nil。
+func segmentMessage(cfg *bootstrapv1.BootstrapConfig, path string) protoreflect.Message {
+	if cfg == nil || path == "" {
+		return nil
+	}
+	m := cfg.ProtoReflect()
+	for _, name := range strings.Split(path, ".") {
+		if !m.IsValid() {
+			return nil
+		}
+		fd := m.Descriptor().Fields().ByName(protoreflect.Name(name))
+		if fd == nil || fd.Kind() != protoreflect.MessageKind {
+			return nil
+		}
+		m = m.Get(fd).Message()
+	}
+	if !m.IsValid() {
+		return nil
+	}
+	return m
 }
 
 // inputHash 对契约做确定性序列化后求摘要（I2 的可检视输入基线）。

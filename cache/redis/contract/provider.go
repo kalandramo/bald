@@ -56,6 +56,7 @@ func (appProvider) Plan(context.Context, appkit.PlanScope) ([]appkit.Node, error
 		Segments:   []string{"cache.redis"},
 		Phase:      appkit.PhaseBootstrap,
 		Priority:   appkit.PriorityCache,
+		Reload:     appkit.ReloadRestart,
 		EffectName: "appkit:cache-clients",
 	}}, nil
 }

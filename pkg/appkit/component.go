@@ -72,6 +72,7 @@ func (a *App) startComponents(ctx context.Context) error {
 		a.startedMu.Lock()
 		a.started = append(a.started, c)
 		a.startedMu.Unlock()
+		a.markAppliedByKey(ResourceKey("component." + c.Name()))
 		log.Info(ctx, "appkit component started", "component", c.Name())
 	}
 	return nil

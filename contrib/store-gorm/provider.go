@@ -67,6 +67,7 @@ func (gormProvider) Plan(context.Context, appkit.PlanScope) ([]appkit.Node, erro
 		Segments:   []string{"database.sql"},
 		Phase:      appkit.PhaseBootstrap,
 		Priority:   appkit.PriorityDatabase,
+		Reload:     appkit.ReloadRestart,
 		EffectName: "appkit:database-clients",
 	}}, nil
 }

@@ -618,7 +618,7 @@ func TestHotReload_RebuildsLogger(t *testing.T) {
 	log.SetLogger(lg)
 	cc.Store(&cleanup)
 
-	hotReload(cfg, spec, logSrc, &cc, map[string]any{
+	hotReload(NewHarness(), cfg, spec, logSrc, &cc, map[string]any{
 		"logger": map[string]any{
 			"backends": []any{
 				map[string]any{"type": "slog", "slog": map[string]any{"level": "warn", "format": "json", "output_path": "stdout"}},
@@ -732,7 +732,7 @@ func TestHotReload_BadConfigKeepsOld(t *testing.T) {
 	log.SetLogger(lg)
 	cc.Store(&cleanup)
 
-	hotReload(cfg, spec, logSrc, &cc, map[string]any{
+	hotReload(NewHarness(), cfg, spec, logSrc, &cc, map[string]any{
 		"logger": map[string]any{
 			"backends": []any{
 				map[string]any{"type": "slog", "slog": map[string]any{"level": "not-a-level"}},

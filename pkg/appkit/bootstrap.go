@@ -346,7 +346,7 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*App, error) {
 			return checkSegmentCoverage(cfg, spec, plan)
 		}),
 		OnConfigChange(func(m map[string]any) {
-			hotReload(cfg, spec, logSrc, &curCleanup, m)
+			hotReload(a, cfg, spec, logSrc, &curCleanup, m)
 		}),
 	}
 	// 框架停机 Effect：按计划推导的停机序逆序注册（I5）——回放即停机序
@@ -460,6 +460,27 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*App, error) {
 	}
 
 	a = NewApp(kitOpts...) // BeforeStart 闭包引用 a，执行时已赋值（Run 期才回调）
+
+	// M3 计划快照 + 节点协调器：计划是配置变更 diff 的基线；可协调的 Provider
+	// 节点（audit 等）在配置变更时按同一 Provider 重建产物并替换 cleanup 槽位。
+	fullPlan, err := planFrom(context.Background(), spec, cfg, plan)
+	if err != nil {
+		return nil, err
+	}
+	a.installPlan(fullPlan)
+	for _, e := range plan.stageB {
+		if e.node.Reload != ReloadReconcile {
+			continue
+		}
+		prov, node := e.prov, e.node
+		a.nodeReconcilers[node.Key] = func(ctx context.Context, _ *Plan) error {
+			product, cleanup, err := prov.Build(ctx, ApplyScope{Config: cfg, Decl: spec, App: a}, node)
+			if err != nil {
+				return fmt.Errorf("appkit: reconcile provider %v: %w", node.Segments, err)
+			}
+			return storeProductReplacing(ctx, a, buildResult{prov: prov, node: node, product: product, cleanup: cleanup}, slots)
+		}
+	}
 	return a, nil
 }
 
@@ -484,6 +505,22 @@ func newCleanupSlots(plan *providerPlan) *cleanupSlots {
 		s.cleanups[key] = &c
 	}
 	return s
+}
+
+// replace 以新 cleanup 替换节点槽位并同步兑现旧钩子（配置协调路径；
+// 返回旧钩子的错误，调用方决定是否仅记日志）。
+func (s *cleanupSlots) replace(ctx context.Context, key ResourceKey, c Cleanup) {
+	slot := s.cleanups[key]
+	if slot == nil {
+		return
+	}
+	old := *slot
+	*slot = c
+	if old != nil {
+		if err := old(ctx); err != nil {
+			log.Error(ctx, "appkit node cleanup failed during reconcile", "node", string(key), "error", err)
+		}
+	}
 }
 
 // fill 填充节点槽位（同 Key 只 Build 一次；聚合分支保留给防御性重复填充，
@@ -546,6 +583,16 @@ func noopCleanupFn(c Cleanup) func() {
 // storeProduct 把阶段 B Provider 的产物按顶层段落进 App 的资源面，并把
 // cleanup 填入对应槽位。产物形状不符 = 装配错误（fail-fast）。
 func storeProduct(a *App, r buildResult, slots *cleanupSlots) error {
+	return storeProductWith(a, r, func(key ResourceKey, c Cleanup) { slots.fill(key, c) })
+}
+
+// storeProductReplacing 是配置协调路径的落账：新产物替换旧产物，旧 cleanup
+// 在替换后同步兑现（连接池/暴露端不因热替换泄漏）。
+func storeProductReplacing(ctx context.Context, a *App, r buildResult, slots *cleanupSlots) error {
+	return storeProductWith(a, r, func(key ResourceKey, c Cleanup) { slots.replace(ctx, key, c) })
+}
+
+func storeProductWith(a *App, r buildResult, put func(ResourceKey, Cleanup)) error {
 	top := segmentTop(r.node.Segments[0])
 	switch top {
 	case "registry":
@@ -555,31 +602,32 @@ func storeProduct(a *App, r buildResult, slots *cleanupSlots) error {
 		}
 		a.registrar = reg
 		a.setResources(top, reg)
-		slots.fill(r.node.Key, r.cleanup)
+		put(r.node.Key, r.cleanup)
 	case "database", "cache", "storage", "ai", "workflow", "broker":
 		m, err := productStringMap(r)
 		if err != nil {
 			return err
 		}
 		a.setResources(top, m)
-		slots.fill(r.node.Key, r.cleanup)
+		put(r.node.Key, r.cleanup)
 	case "audit":
 		aud, ok := r.product.(audit.Auditor)
 		if !ok {
 			return fmt.Errorf("appkit: audit provider %v returned %T, want audit.Auditor", r.node.Segments, r.product)
 		}
 		// B8：全局 SetAuditor 已删除——契约产物作 appkit 自身审计事件的兜底
-		// sink（显式 Auditor Option 优先，不覆盖），并照常落资源面供业务
-		// 显式注入 bundle/中间件。
-		if a.auditor == nil {
+		// sink（显式 Auditor Option 优先，不覆盖；先前契约产物可被协调替换），
+		// 并照常落资源面供业务显式注入 bundle/中间件。
+		if a.auditor == nil || a.auditorFromContract {
 			a.auditor = aud
+			a.auditorFromContract = true
 		}
 		a.setResources(top, aud)
-		slots.fill(r.node.Key, r.cleanup)
+		put(r.node.Key, r.cleanup)
 	case "tracer":
 		// 产物不落资源面（tracer shutdown 由 Provider 自持，cleanup 槽位承担
 		// 停机回收）。
-		slots.fill(r.node.Key, r.cleanup)
+		put(r.node.Key, r.cleanup)
 	case "metrics":
 		// 产物为可关闭的暴露端（B7：MetricsProvider 返回 MetricsExposure 而非
 		// 裸 Handler，监听面归 metricshttp 能力包）。停机序「先停暴露端再
@@ -607,13 +655,14 @@ func storeProduct(a *App, r buildResult, slots *cleanupSlots) error {
 				return nil
 			}
 		}
-		slots.fill(r.node.Key, slot)
+		put(r.node.Key, slot)
 	default:
 		// 表外段：cleanup 照常入账，产物按统一约定落资源面（B4 收口）：
 		// map 产物按 "<顶层段>.<子段>" 展开、非 map 产物落 "<顶层段>"。
 		a.setResources(top, r.product)
-		slots.fill(r.node.Key, r.cleanup)
+		put(r.node.Key, r.cleanup)
 	}
+	a.markAppliedByKey(r.node.Key)
 	return nil
 }
 
@@ -686,27 +735,53 @@ func syncBootstrap(a *App, cfg *bootstrapv1.BootstrapConfig, spec *Decl, logSrc 
 	if err := bconf.Validate(cfg); err != nil {
 		return fmt.Errorf("appkit: validate bootstrap config: %w", err)
 	}
-	return rebuildLogger(cfg, logSrc, curCleanup)
+	// 以合并后的契约（文件/env/flag/层）重算并安装计划：配置变更 diff 的
+	// 基线必须是真实生效的契约，而非装配前的预装载形态。
+	next, err := compilePlan(context.Background(), spec, cfg)
+	if err != nil {
+		return err
+	}
+	a.installPlan(next)
+	if err := rebuildLogger(cfg, logSrc, curCleanup); err != nil {
+		return err
+	}
+	for _, n := range next.Nodes {
+		if n.Kind == "logger" {
+			a.markAppliedByKey(n.Key)
+			break
+		}
+	}
+	return nil
 }
 
-// hotReload 热更新：副本试装载 + 校验，通过后整契约原子落盘并重建 Logger。
-// 任一步失败都降级记日志、保留旧契约，不阻断热更新流程（与审计旁路同哲学）。
+// hotReload 热更新：默认值试装载 + 校验 + 计划重算，通过后整契约原子落盘、
+// 重建 Logger 并按计划差异协调节点（M3）。任一步失败都降级记日志、保留旧
+// 契约，不阻断热更新流程（与审计旁路同哲学）。
 // Unmarshal 只做结构转换、不校验取值，坏值必须由 Validate 拦在落盘之前。
-func hotReload(cfg *bootstrapv1.BootstrapConfig, spec *Decl, logSrc loggerSource, curCleanup *atomic.Pointer[func()], m map[string]any) {
+//
+// candidate 从「默认值 + 全量设置快照」重建，而不是克隆当前契约再合并：
+// settings 是 Store 的完整合并结果（等价于冷启动的输入），而 proto3 标量无
+// presence，合并进旧契约时零值（false/0/""）无法覆盖旧的非零值——热更把
+// 开关从 true 改回 false 会静默失效。从默认值重建则天然是「按新快照求值」。
+func hotReload(a *App, cfg *bootstrapv1.BootstrapConfig, spec *Decl, logSrc loggerSource, curCleanup *atomic.Pointer[func()], m map[string]any) {
 	const msg = "appkit: config hot-reload"
+	ctx := context.Background()
 	lg := log.GetLogger()
 
-	candidate, ok := proto.Clone(cfg).(*bootstrapv1.BootstrapConfig)
-	if !ok {
-		lg.Error(context.Background(), msg, "err", errors.New("proto clone produced unexpected type"))
-		return
-	}
+	candidate := bconf.NewBootstrap()
 	if err := baldconfig.Unmarshal(m, candidate); err != nil {
-		lg.Error(context.Background(), msg, "err", err)
+		lg.Error(ctx, msg, "err", err)
 		return
 	}
 	if err := bconf.Validate(candidate); err != nil {
-		lg.Error(context.Background(), msg, "err", err)
+		lg.Error(ctx, msg, "err", err)
+		return
+	}
+	// 计划重算在落盘前完成：新契约若无法编译（段覆盖/能力冲突等），整次
+	// 热更新被拒绝，旧契约与旧计划保持一致（不做半生效）。
+	next, err := compilePlan(ctx, spec, candidate)
+	if err != nil {
+		lg.Error(ctx, msg, "err", err)
 		return
 	}
 	// 原子落盘：整体替换 cfg 内容。禁止 `*cfg = *candidate`——proto 消息
@@ -716,8 +791,20 @@ func hotReload(cfg *bootstrapv1.BootstrapConfig, spec *Decl, logSrc loggerSource
 	cfg.Reset()
 	proto.Merge(cfg, candidate)
 
-	if err := rebuildLogger(cfg, logSrc, curCleanup); err != nil {
-		lg.Error(context.Background(), msg, "err", err)
+	// logger 走专用两阶段/热更协议：重建成功才落账已应用摘要，失败由 Drift
+	// 如实报 Stale。
+	loggerOK := rebuildLogger(cfg, logSrc, curCleanup) == nil
+	if !loggerOK {
+		lg.Error(ctx, msg, "err", errors.New("logger rebuild failed; drift will report stale"))
+	}
+	a.applyPlanChange(ctx, next, m)
+	if loggerOK {
+		for _, n := range next.Nodes {
+			if n.Kind == "logger" {
+				a.markAppliedByKey(n.Key)
+				break
+			}
+		}
 	}
 }
 

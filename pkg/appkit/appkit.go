@@ -104,6 +104,14 @@ type App struct {
 	reconItems  map[string][]reconItem // reconciler 名 → 其管理的组件（实际态）
 	reconMu     sync.Mutex
 
+	// M3 计划快照与实际态：当前生效计划（配置变更时整体替换）、可协调节点的
+	// 已应用期望态摘要（启动落账、Drift 依据），以及节点级协调器（引擎内置，
+	// 如 audit 重建）。
+	plan            *Plan
+	planMu          sync.RWMutex
+	applied         map[ResourceKey]string
+	nodeReconcilers map[ResourceKey]NodeReconciler
+
 	// C1 进程内组件：统一生命周期的基础设施（见 component.go）。
 	// 与钩子的区别：组件有 name 与 Start/Dispose 对，进入停机序列、可观测、
 	// 可运行期热插拔；钩子只是一次性时机回调——见 doc.go「扩展机制的职责边界」。
@@ -121,6 +129,9 @@ type App struct {
 	// 契约 audit 段产物在阶段 B 兜底写入（见 storeProduct）。nil 时 resolveAuditor
 	// 返回 Nop（B8：全局 audit.GetAuditor() 兜底已删除）。
 	auditor audit.Auditor
+	// auditorFromContract 标记当前 auditor 来自契约 audit 段产物（可被下一次
+	// 契约协调替换）；显式 Auditor Option 注入时为 false，协调不得覆盖。
+	auditorFromContract bool
 
 	// 配置对象
 	cfg appConfig

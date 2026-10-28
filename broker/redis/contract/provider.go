@@ -46,6 +46,7 @@ func (appProvider) Plan(context.Context, appkit.PlanScope) ([]appkit.Node, error
 		Segments:   []string{"broker.redis"},
 		Phase:      appkit.PhaseBootstrap,
 		Priority:   appkit.PriorityBroker,
+		Reload:     appkit.ReloadRestart,
 		EffectName: "appkit:broker-clients",
 	}}, nil
 }

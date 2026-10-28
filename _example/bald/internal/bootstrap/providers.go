@@ -52,6 +52,7 @@ func (p loggerProvider) Plan(context.Context, appkit.PlanScope) ([]appkit.Node, 
 		Segments:   []string{"logger"},
 		Phase:      appkit.PhaseBootstrap,
 		Priority:   appkit.PriorityLogger,
+		Reload:     appkit.ReloadReconcile,
 		EffectName: "appkit:bootstrap-logger",
 	}}, nil
 }

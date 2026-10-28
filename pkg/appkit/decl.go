@@ -222,6 +222,8 @@ func newFromDecl(d Decl) *App {
 		identity:         d.Identity,
 		reconItems:       make(map[string][]reconItem),
 		resources:        make(map[string]any),
+		applied:          make(map[ResourceKey]string),
+		nodeReconcilers:  make(map[ResourceKey]NodeReconciler),
 		done:             make(chan struct{}),
 		cfg: appConfig{
 			cfgFile:          d.ConfigFile,

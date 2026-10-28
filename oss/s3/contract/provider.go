@@ -48,6 +48,7 @@ func (appProvider) Plan(context.Context, appkit.PlanScope) ([]appkit.Node, error
 		Segments:   []string{"storage.s3"},
 		Phase:      appkit.PhaseBootstrap,
 		Priority:   appkit.PriorityStorage,
+		Reload:     appkit.ReloadRestart,
 		EffectName: "appkit:storage-clients",
 	}}, nil
 }

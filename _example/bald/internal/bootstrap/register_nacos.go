@@ -71,6 +71,7 @@ func (nacosRegistrarProvider) Plan(context.Context, appkit.PlanScope) ([]appkit.
 		Segments:   []string{"registry"},
 		Phase:      appkit.PhaseBootstrap,
 		Priority:   appkit.PriorityRegistry,
+		Reload:     appkit.ReloadRestart,
 		EffectName: "appkit:registrar-client",
 	}}, nil
 }

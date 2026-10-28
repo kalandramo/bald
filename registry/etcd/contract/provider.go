@@ -48,6 +48,7 @@ func (appProvider) Plan(context.Context, appkit.PlanScope) ([]appkit.Node, error
 		Segments:   []string{"registry.etcd"},
 		Phase:      appkit.PhaseBootstrap,
 		Priority:   appkit.PriorityRegistry,
+		Reload:     appkit.ReloadRestart,
 		EffectName: "appkit:registrar-client",
 	}}, nil
 }
