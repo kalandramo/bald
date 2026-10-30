@@ -43,6 +43,17 @@ type planCacheEntry struct {
 	Plan       *Plan  `json:"plan"`
 }
 
+// DiagnosticChange 是计划诊断（告警/逃逸舱可见化）在两次计划之间的差异。
+// 诊断不进装配拓扑，但 ambient 接线、覆盖裁决等变化同样值得运维看见。
+type DiagnosticChange struct {
+	Level   DiagnosticLevel `json:"level"`
+	Code    string          `json:"code"`
+	Subject string          `json:"subject,omitempty"`
+	Message string          `json:"message"`
+	Added   bool            `json:"added,omitempty"`
+	Removed bool            `json:"removed,omitempty"`
+}
+
 // planCacheBaseline 是 doctor 对基线的对比结果（Err 非 nil 表示缓存不可读，
 // 此时 Entry 为 nil——报告只给一行提示）。
 type planCacheBaseline struct {
@@ -54,6 +65,7 @@ type planCacheBaseline struct {
 	//（命令式槽位、告警、段视图同样进 Hash）。
 	PlanChanged bool
 	Change      PlanChange
+	Diagnostics []DiagnosticChange
 }
 
 // WithPlanCache 声明计划缓存文件路径（如 ".bald/plan-cache.json"）。启动期
@@ -210,5 +222,45 @@ func comparePlanCache(path string, p *Plan) *planCacheBaseline {
 	if b.Entry.Plan != nil {
 		b.Change = diffPlan(b.Entry.Plan, p)
 	}
+	b.Diagnostics = diffDiagnostics(b.Entry.Plan, p)
 	return b
+}
+
+// diffDiagnostics 对比计划诊断（按 Level+Code+Subject+Message 身份）。同一
+// 诊断集合的声明序不影响结果。
+func diffDiagnostics(old, next *Plan) []DiagnosticChange {
+	var oldList, nextList []Diagnostic
+	if old != nil {
+		oldList = append(oldList, old.Warnings...)
+	}
+	if next != nil {
+		nextList = append(nextList, next.Warnings...)
+	}
+	key := func(d Diagnostic) string {
+		return string(d.Level) + "\x00" + d.Code + "\x00" + d.Subject + "\x00" + d.Message
+	}
+	sort.Slice(oldList, func(i, j int) bool { return key(oldList[i]) < key(oldList[j]) })
+	sort.Slice(nextList, func(i, j int) bool { return key(nextList[i]) < key(nextList[j]) })
+	var out []DiagnosticChange
+	i, j := 0, 0
+	for i < len(oldList) || j < len(nextList) {
+		switch {
+		case j >= len(nextList) || (i < len(oldList) && key(oldList[i]) < key(nextList[j])):
+			out = append(out, DiagnosticChange{
+				Level: oldList[i].Level, Code: oldList[i].Code,
+				Subject: oldList[i].Subject, Message: oldList[i].Message, Removed: true,
+			})
+			i++
+		case i >= len(oldList) || key(nextList[j]) < key(oldList[i]):
+			out = append(out, DiagnosticChange{
+				Level: nextList[j].Level, Code: nextList[j].Code,
+				Subject: nextList[j].Subject, Message: nextList[j].Message, Added: true,
+			})
+			j++
+		default:
+			i++
+			j++
+		}
+	}
+	return out
 }

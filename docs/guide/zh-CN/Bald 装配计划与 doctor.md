@@ -179,11 +179,16 @@ cache: .bald/plan-cache.json (baseline 4c1f0a2e77ab, recorded 2026-10-28T18:37:0
     - effect: cleanup-a
     + effect: cleanup-b
 
+cache: .bald/plan-cache.json (baseline 9a0e51c3b7d4, recorded 2026-10-28T18:36:20Z)
+  plan unchanged: nodes + imperative slots  # 装配声明没变，但诊断变了
+  diagnostics changed: 1
+    + warn ambient (build-tag:grpcgw): gateway registration injected by -tags grpcgw
+
 cache: .bald/plan-cache.json (no baseline for role "worker")   # 该角色还没有基线
 cache: .bald/plan-cache.json (unavailable: ...)                # 文件损坏/不可读
 ```
 
-`plan unchanged` 的判据是「**装配声明**未变」：节点 + 命令式槽位（`Plan.Imperative`）——报告行因此显式限定为 `plan unchanged: nodes + imperative slots`，不断言整份 `Plan.Hash` 相等（告警/段视图变化仍可能移动哈希，严格比对以报告顶部的 `plan:` 行或 CI 的计划哈希基线为准）。节点身份对比为空不等于计划没变——effect/keyWatch/reconcile 槽位不进节点拓扑，却会改变运行期行为，所以单列一组增删行，而不是谎报 `plan unchanged`。节点属性（priority/phase/segments 等）变化同样移动装配哈希但不在身份对比里，doctor 报 `plan changed: node attributes (...)` 而不是假装能逐项列出。`InputHash`、告警与段视图各有独立报告面（`input changed` 行、`warnings`、`segments`），不混进这条判据。
+`plan unchanged` 的判据是「**装配声明**未变」：节点 + 命令式槽位（`Plan.Imperative`）——报告行因此显式限定为 `plan unchanged: nodes + imperative slots`，不断言整份 `Plan.Hash` 相等（告警/段视图变化仍可能移动哈希，严格比对以报告顶部的 `plan:` 行或 CI 的计划哈希基线为准）。节点身份对比为空不等于计划没变——effect/keyWatch/reconcile 槽位不进节点拓扑，却会改变运行期行为，所以单列一组增删行，而不是谎报 `plan unchanged`。节点属性（priority/phase/segments 等）变化同样移动装配哈希但不在身份对比里，doctor 报 `plan changed: node attributes (...)` 而不是假装能逐项列出。诊断（`Plan.Warnings`，如 `ambient` 接线、覆盖裁决）单独列 `diagnostics changed`：它们不进节点/槽位判据，但基线对比照样逐条给出增删，不让 build tag 分叉在缓存里隐身。`InputHash` 与段视图仍各有独立报告面（`input changed` 行、`segments`）。
 
 边界（诚实说明）：
 

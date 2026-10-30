@@ -198,54 +198,73 @@ func writePlanCacheSection(w io.Writer, b *planCacheBaseline, p *Plan) {
 		fmt.Fprintf(w, "  input changed since baseline: %s -> %s\n",
 			hashPrefix(b.Entry.InputHash), hashPrefix(p.InputHash))
 	}
-	if !b.PlanChanged {
+	if !b.PlanChanged && b.Change.Empty() {
 		// 限定判据：这里只断言装配声明（节点 + 命令式槽位）未变，不断言
 		// Plan.Hash 相等——告警/段视图变化不进此判据（上方 plan: 行给出
-		// 当前整份计划哈希，需要严格比对时以它为准）。
+		// 当前整份计划哈希，需要严格比对时以它为准）。诊断差异另行列出。
 		fmt.Fprintln(w, "  plan unchanged: nodes + imperative slots")
-		return
+		if len(b.Diagnostics) == 0 {
+			return
+		}
 	}
-	if b.Change.Empty() {
-		// 装配哈希变了但节点/槽位身份对比为空：变化只在节点属性（priority/
-		// phase/segments/opaque 等）。如实报出，不谎报 unchanged，也不假装
-		// 能逐项列出。
-		fmt.Fprintln(w, "  plan changed: node attributes (priority/phase/segments)")
-		return
-	}
-	if len(b.Change.Changes) > 0 {
-		fmt.Fprintf(w, "  plan changed: %d node(s)\n", len(b.Change.Changes))
-		for _, ch := range b.Change.Changes {
-			switch {
-			case ch.Added:
-				fmt.Fprintf(w, "    + %s (%s, %s)\n", ch.Key, ch.Kind, ch.Policy)
-			case ch.Removed:
-				fmt.Fprintf(w, "    - %s (%s, %s)\n", ch.Key, ch.Kind, ch.Policy)
-			default:
-				var what []string
-				if ch.From != ch.To {
-					what = append(what, "desired state")
+	if b.PlanChanged {
+		if b.Change.Empty() {
+			// 装配哈希变了但节点/槽位身份对比为空：变化只在节点属性（priority/
+			// phase/segments/opaque 等）。如实报出，不谎报 unchanged，也不假装
+			// 能逐项列出。
+			fmt.Fprintln(w, "  plan changed: node attributes (priority/phase/segments)")
+		}
+		if len(b.Change.Changes) > 0 {
+			fmt.Fprintf(w, "  plan changed: %d node(s)\n", len(b.Change.Changes))
+			for _, ch := range b.Change.Changes {
+				switch {
+				case ch.Added:
+					fmt.Fprintf(w, "    + %s (%s, %s)\n", ch.Key, ch.Kind, ch.Policy)
+				case ch.Removed:
+					fmt.Fprintf(w, "    - %s (%s, %s)\n", ch.Key, ch.Kind, ch.Policy)
+				default:
+					var what []string
+					if ch.From != ch.To {
+						what = append(what, "desired state")
+					}
+					if ch.DepsChanged {
+						what = append(what, "dependencies")
+					}
+					fmt.Fprintf(w, "    ~ %s (%s, %s): %s\n", ch.Key, ch.Kind, ch.Policy, strings.Join(what, " + "))
 				}
-				if ch.DepsChanged {
-					what = append(what, "dependencies")
+			}
+		}
+		if len(b.Change.Imperative) > 0 {
+			// 命令式槽位（effect/keyWatch/reconcile/hook 等）不进节点拓扑，但闭包
+			// 增删同样改变运行期行为——计划缓存要回答「装配变了什么」，就逐条列出。
+			fmt.Fprintf(w, "  imperative slots changed: %d\n", len(b.Change.Imperative))
+			for _, ic := range b.Change.Imperative {
+				mark := "+"
+				if ic.Removed {
+					mark = "-"
 				}
-				fmt.Fprintf(w, "    ~ %s (%s, %s): %s\n", ch.Key, ch.Kind, ch.Policy, strings.Join(what, " + "))
+				name := ic.Name
+				if name == "" {
+					name = "-"
+				}
+				fmt.Fprintf(w, "    %s %s: %s\n", mark, ic.Kind, name)
 			}
 		}
 	}
-	if len(b.Change.Imperative) > 0 {
-		// 命令式槽位（effect/keyWatch/reconcile）不进节点拓扑，但闭包增删同样
-		// 改变运行期行为——计划缓存要回答「装配变了什么」，就逐条列出。
-		fmt.Fprintf(w, "  imperative slots changed: %d\n", len(b.Change.Imperative))
-		for _, ic := range b.Change.Imperative {
+	if len(b.Diagnostics) > 0 {
+		// 诊断（ambient 接线、覆盖裁决等）不进拓扑，但同样是声明变化：与节点
+		// 差异分开列，避免把「告警变了」读成「装配变了」。
+		fmt.Fprintf(w, "  diagnostics changed: %d\n", len(b.Diagnostics))
+		for _, dc := range b.Diagnostics {
 			mark := "+"
-			if ic.Removed {
+			if dc.Removed {
 				mark = "-"
 			}
-			name := ic.Name
-			if name == "" {
-				name = "-"
+			subject := ""
+			if dc.Subject != "" {
+				subject = " (" + dc.Subject + ")"
 			}
-			fmt.Fprintf(w, "    %s %s: %s\n", mark, ic.Kind, name)
+			fmt.Fprintf(w, "    %s %s %s%s: %s\n", mark, dc.Level, dc.Code, subject, dc.Message)
 		}
 	}
 }

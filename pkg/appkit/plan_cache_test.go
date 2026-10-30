@@ -128,6 +128,50 @@ func TestPlanCache_NodeAttributeChangeVisible(t *testing.T) {
 	}
 }
 
+// 诊断（ambient 接线）变化不移动节点/槽位，但基线对比必须单列 diagnostics
+// ——否则 build tag 分叉在计划缓存里彻底隐身。
+func TestPlanCache_DiagnosticsChangeVisible(t *testing.T) {
+	cfgPath := writePlanConfig(t, "cache-diagnostics", "script:\n  options:\n    enabled: true\n")
+	alpha := Node{Key: "alpha", Kind: "script-impl", Phase: PhaseBootstrap, Priority: PriorityLegacy}
+	compile := func(notes ...Ambient) *Plan {
+		t.Helper()
+		opts := []Option{ConfigFile(cfgPath), fixedNodeProvider([]string{"script"}, alpha)}
+		if len(notes) > 0 {
+			opts = append(opts, WithAmbient(notes...))
+		}
+		p, err := Compile(context.Background(), opts...)
+		if err != nil {
+			t.Fatalf("Compile: %v", err)
+		}
+		return p
+	}
+	base, next := compile(), compile(Ambient{
+		Name:   "build-tag:grpcgw",
+		Detail: "gateway registration injected by -tags grpcgw",
+	})
+	path := filepath.Join(t.TempDir(), "plan-cache.json")
+	if err := writePlanCacheEntry(path, base, time.Now()); err != nil {
+		t.Fatalf("writePlanCacheEntry: %v", err)
+	}
+	cmp := comparePlanCache(path, next)
+	if cmp.PlanChanged || !cmp.Change.Empty() {
+		t.Fatalf("compare = %+v, want assembly unchanged", cmp)
+	}
+	if len(cmp.Diagnostics) != 1 || !cmp.Diagnostics[0].Added || cmp.Diagnostics[0].Code != "ambient" {
+		t.Fatalf("diagnostic diff = %+v, want one added ambient", cmp.Diagnostics)
+	}
+	out := renderDoctor(next, cmp)
+	for _, want := range []string{
+		"plan unchanged: nodes + imperative slots",
+		"diagnostics changed: 1",
+		"+ warn ambient (build-tag:grpcgw)",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("doctor output missing %q:\n%s", want, out)
+		}
+	}
+}
+
 func TestPlanCache_DiffOnAddedNode(t *testing.T) {
 	cfgPath := writePlanConfig(t, "cache-diff",
 		"script:\n  options:\n    enabled: true\n"+
