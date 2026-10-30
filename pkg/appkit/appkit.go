@@ -131,8 +131,8 @@ type App struct {
 	identity IdentityFunc
 
 	// 审计后端：运行期重组/协调审计事件（mount/reconcile）的显式注入点，
-	// 契约 audit 段产物在阶段 B 兜底写入（见 storeProduct）。nil 时 resolveAuditor
-	// 返回 Nop（B8：全局 audit.GetAuditor() 兜底已删除）。
+	// 契约 audit 段产物在阶段 B 兜底写入（见 storeProduct）。nil 时
+	// resolveAuditor 返回 Nop。
 	auditor audit.Auditor
 	// auditorFromContract 标记当前 auditor 来自契约 audit 段产物（可被下一次
 	// 契约协调替换）；显式 Auditor Option 注入时为 false，协调不得覆盖。
@@ -306,7 +306,7 @@ func configNamespaceOpt(ns string) Option {
 }
 
 // SetRegistrar 运行期设置注册中心，供 NewApp 构造路径在配置装载后按契约构造
-// （Serve 路径由 buildRegistrar 内部赋值，无需此方法）。
+// （Serve 路径由 registry 段 Provider 的产物赋值，无需此方法）。
 // 时序约束：须在 Run 进入 register 之前调用（BeforeStart 是安全窗口）——
 // register/deregister 每次都读 a.registrar，不做缓存，赋值即时生效。
 // client cleanup 由调用方挂停机 Effect 回放（Deregister 先于 Effect，顺序安全）。
@@ -424,7 +424,7 @@ func defaultInstanceID() string {
 }
 
 // newDecl 以缺省值初始化 Decl 并逐项 Apply 声明——NewApp 与 Serve 共用的
-// 构造起点。nil Option 跳过（原 FromBootstrap 对 func 值的判空语义保留）。
+// 构造起点。nil Option 跳过。
 func newDecl(opts ...Option) *Decl {
 	d := defaultDecl()
 	for _, o := range opts {

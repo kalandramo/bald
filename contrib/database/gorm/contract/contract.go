@@ -1,5 +1,6 @@
 // Package contract 提供 gorm（通用 SQL）后端的契约装配：bootstrapv1.Database
-// 的 sql 段 → bald-crud/gorm options 映射 + DatabaseRegistry Provider。
+// 的 sql 段 → bald-crud/gorm options 映射 + 构造 func（供段驱动 Provider 的
+// Build 复用）。
 //
 // 单独成包的原因：根包保持零契约依赖（纯 SDK 封装），
 // 只有本包 import bconf——业务按需 import，依赖图全程可见。
@@ -22,11 +23,7 @@ const Type = "sql"
 
 // Provider 按契约 database.sql 段构造 SQL 客户端。
 // 返回的 cleanup 由 appkit 停机 Effect 回放（数据库连接最后关）。
-// 仅当 database.sql 段存在时被 DatabaseRegistry 调度到。
-// 签名与 bootstrap.DatabaseProvider 结构化兼容，直接注册：
-//
-//	dr := bootstrap.NewDatabaseRegistry()
-//	dr.MustRegister(gormcontract.Type, gormcontract.Provider)
+// 供自定义 Provider 的 Build 直接调用。
 func Provider(ctx context.Context, cfg *bootstrapv1.Database) (any, func(), error) {
 	sec := cfg.GetSql()
 	if sec == nil {

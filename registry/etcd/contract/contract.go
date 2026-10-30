@@ -1,5 +1,5 @@
 // Package contract 提供 etcd 后端的契约装配：bootstrapv1.Registry 段 →
-// etcd options 映射 + RegistrarRegistry Provider。
+// etcd options 映射 + 段驱动 Provider（AppProvider，见 provider.go）。
 //
 // 单独成包的原因：provider 根包保持零契约依赖（纯 SDK 实现），
 // 只有本包 import bconf——业务按需 import，依赖图全程可见。
@@ -20,9 +20,8 @@ import (
 const Type = "etcd"
 
 // Provider 按契约 registry.etcd 段构造 etcd Registrar。
-// 返回的 cleanup 负责 client 生命周期（Close），由 RegistrarRegistry 交
+// 返回的 cleanup 负责 client 生命周期（Close），由 AppProvider 交
 // appkit Effect 在停机时回放（Deregister 先于它执行，顺序安全）。
-// 仅当 cfg.GetType() == Type 时被 RegistrarRegistry 调度到。
 func Provider(ctx context.Context, cfg *bootstrapv1.Registry) (registry.Registrar, func(), error) {
 	c := cfg.GetEtcd()
 	if c == nil {

@@ -1,7 +1,7 @@
 // compose.go 实现「多后端组装 + 逆序回滚」的声明式收敛（组装是审计能力
 // 自己的语义，不该住在装配层）。
 //
-// appkit 的 AuditRegistry.Build 只做「契约 backends 列表 → 构造器列表」的
+// audit 段 Provider 的 Build 只做「契约 backends 列表 → 构造器列表」的
 // 映射（不触发构造），构造、失败逆序回滚与多后端合并全部收敛到 Compose：
 //
 //	auditor, cleanup, err := audit.Compose(ctx,

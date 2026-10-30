@@ -3,7 +3,6 @@ package sentry
 import (
 	"context"
 	"fmt"
-	"strconv"
 
 	"github.com/getsentry/sentry-go"
 
@@ -155,9 +154,4 @@ func NewLogger(opts ...Option) (Logger, error) {
 	return &sentryLog{
 		hub: sentry.CurrentHub(),
 	}, nil
-}
-
-// levelToInt 返回级别的可读字符串（调试用途）。
-func levelToInt(level log.Level) string {
-	return strconv.Itoa(int(level))
 }

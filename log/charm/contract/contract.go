@@ -1,8 +1,6 @@
 // Package contract 把契约后端声明项（bootstrapv1.Logger_Backend）的 charm 段
-// 映射为 charm 后端的构造选项，供 bootstrap.LogRegistry 显式注册：
-//
-//	reg := bootstrap.NewLogRegistry()
-//	reg.MustRegister(contract.Type, contract.Provider)
+// 映射为 charm 后端实例。自定义 logger Provider 的 Build 按 backends[].type
+// 分派到本包 Provider（stdio 之外的远端后端必须自持 Provider）。
 //
 // 本包是唯一 import 契约（bconf）的地方；根包（..）保持零契约依赖。
 package contract

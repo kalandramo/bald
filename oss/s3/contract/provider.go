@@ -23,9 +23,8 @@ var S3 = appkit.NewKey[*s3.Storage]("storage.s3")
 // AppProvider 返回消费契约 storage.s3 段的 appkit.Provider（段路径
 // "storage.s3"；段缺失即被引擎跳过，合法）。
 //
-// 命名说明（store-gorm 同例）：本包既有 Provider（bootstrap.StorageProvider
-// 形状的注册 func）占用 Provider 标识符且保留不动，故段驱动装配的导出名
-// 取 AppProvider。
+// 命名说明（store-gorm 同例）：本包既有 Provider（契约段构造 func）占用
+// Provider 标识符且保留不动，故段驱动装配的导出名取 AppProvider。
 //
 // Build 语义：storage.s3 段在 → 经既有 Provider 构造（region 必填、SDK
 // 构造失败 fail-closed）→ 产物 map[string]any{"s3": storage} 落引擎

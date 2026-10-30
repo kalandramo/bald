@@ -31,7 +31,7 @@ const Type = "redis"
 // Provider 按契约 cache.redis 段构造 Redis 缓存（自建 client，三种部署模式）。
 // 返回的 cleanup 由 appkit 停机 Effect 回放（关闭底层连接池）。
 // 仅当 cache.redis 段存在时被段驱动装配调用（同包 AppProvider 的 Build
-// 复用本函数；签名与 bootstrap.CacheProvider 结构化兼容）。
+// 复用本函数；自定义 Provider 的 Build 也可直接调用）。
 func Provider(ctx context.Context, cfg *bootstrapv1.Cache) (any, func(), error) {
 	sec := cfg.GetRedis()
 	if sec == nil {
@@ -139,5 +139,5 @@ func dial(ctx context.Context, sec *bootstrapv1.Cache_Redis) (goredis.UniversalC
 // 接口守卫：Provider 产出满足 Cache 契约。
 var _ baldcache.Cache = (*rediscache.Cache)(nil)
 
-// 类型守卫：Provider 签名与 bootstrap.CacheProvider 结构化兼容。
+// 类型守卫：Provider 保持构造 func 形状（供 Provider.Build 复用）。
 var _ func(context.Context, *bootstrapv1.Cache) (any, func(), error) = Provider

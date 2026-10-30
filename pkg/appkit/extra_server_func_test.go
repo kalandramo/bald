@@ -90,9 +90,8 @@ func TestAssemble_ExtraServerFuncNilSkipped(t *testing.T) {
 }
 
 // TestAssemble_ExtraServerFuncWithoutMainProtocol 断言**无 http/grpc 主面**时
-// （buildServers==nil）额外服务器仍被构造并启动——本 Option 独立于主协议面。
-//
-// 这是 C9 假设的直接验证（计划反证表标注「待验证」）。
+// （零能力声明，server Provider 不构造）额外服务器仍被构造并启动——本 Option
+// 独立于主协议面。
 func TestAssemble_ExtraServerFuncWithoutMainProtocol(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
@@ -110,7 +109,7 @@ func TestAssemble_ExtraServerFuncWithoutMainProtocol(t *testing.T) {
 	runBriefly(t, a, 50*time.Millisecond)
 
 	if !started.Load() {
-		t.Fatal("无 http/grpc 主面时额外服务器未被启动；WithExtraServerFunc 应独立于 buildServers")
+		t.Fatal("无 http/grpc 主面时额外服务器未被启动；WithExtraServerFunc 应独立于主协议面")
 	}
 	if a.Err() != nil {
 		t.Fatalf("a.Err() = %v, want nil", a.Err())

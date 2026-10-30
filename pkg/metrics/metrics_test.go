@@ -2,7 +2,6 @@ package metrics
 
 import (
 	"context"
-	"sync"
 	"testing"
 
 	"go.opentelemetry.io/otel"
@@ -10,34 +9,6 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 )
-
-// memRecorder 是测试用内存 Recorder，记录所有 emit 的指标事件。
-type memRecorder struct {
-	mu      sync.Mutex
-	records []recordCall
-}
-
-type recordCall struct {
-	ev        Event
-	transport Transport
-	dur       float64
-}
-
-func (m *memRecorder) Record(_ context.Context, ev Event, t Transport, dur float64) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.records = append(m.records, recordCall{ev: ev, transport: t, dur: dur})
-}
-
-func (m *memRecorder) RecordActive(context.Context, Event, Transport, int64) {}
-
-func (m *memRecorder) all() []recordCall {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	out := make([]recordCall, len(m.records))
-	copy(out, m.records)
-	return out
-}
 
 func TestNopRecorder_Noop(t *testing.T) {
 	r := NopRecorder()
@@ -80,25 +51,6 @@ func collectMetrics(t *testing.T, reader *sdkmetric.ManualReader) map[string]met
 		}
 	}
 	return out
-}
-
-// attrsOf 取首个数据点的属性集（单序列断言够用）。
-func attrsOf(t *testing.T, agg metricdata.Aggregation) attribute.Set {
-	t.Helper()
-	switch d := agg.(type) {
-	case metricdata.Histogram[float64]:
-		if len(d.DataPoints) == 0 {
-			t.Fatal("no histogram datapoints")
-		}
-		return d.DataPoints[0].Attributes
-	case metricdata.Sum[int64]:
-		if len(d.DataPoints) == 0 {
-			t.Fatal("no sum datapoints")
-		}
-		return d.DataPoints[0].Attributes
-	}
-	t.Fatalf("unexpected aggregation type %T", agg)
-	return attribute.Set{}
 }
 
 func wantAttr(t *testing.T, set attribute.Set, key, val string) {

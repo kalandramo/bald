@@ -2,7 +2,6 @@ package httpserver
 
 import (
 	"context"
-	"net"
 	"net/http"
 	"strings"
 	"testing"
@@ -10,18 +9,6 @@ import (
 
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
 )
-
-// freeAddr 返回一个空闲的本机地址（绑定 :0 试探后关闭）。
-func freeAddr(t *testing.T) string {
-	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("probe free addr: %v", err)
-	}
-	addr := ln.Addr().String()
-	_ = ln.Close()
-	return addr
-}
 
 // startAndWait 启动 server 并等待 Endpoint 就绪（:0 场景），返回 stop 函数。
 func startAndWait(t *testing.T, srv interface {

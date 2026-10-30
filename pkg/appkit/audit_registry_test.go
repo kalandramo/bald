@@ -12,7 +12,6 @@ import (
 
 	bconf "github.com/kalandramo/bald/bconf"
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
-	"github.com/kalandramo/bald/bootstrap"
 	log "github.com/kalandramo/bald/log"
 	"github.com/kalandramo/bald/pkg/audit"
 )
@@ -126,10 +125,9 @@ func TestAssemble_AuditProviderSeesDatabases(t *testing.T) {
 	cfg.Audit = auditCfg("probe")
 
 	const wantDB = "probe-db"
-	dr := bootstrap.NewDatabaseRegistry()
-	dr.MustRegister("sql", func(context.Context, *bootstrapv1.Database) (any, func(), error) {
-		return wantDB, nil, nil
-	})
+	dbProv := stubDomainProvider("database", "sql",
+		func(c *bootstrapv1.BootstrapConfig) bool { return c.GetDatabase().GetSql() != nil },
+		wantDB, nil)
 
 	var sawDB bool
 	prov := auditTestProvider(func(_ context.Context, _ *bootstrapv1.Audit, res *App) (audit.Auditor, func(context.Context) error, error) {
@@ -143,7 +141,7 @@ func TestAssemble_AuditProviderSeesDatabases(t *testing.T) {
 	})
 
 	a := assembleForTest(t, cfg, WithHTTP(new(http.ServeMux)),
-		StandardServerProvider(), dbTestProvider(dr), prov)
+		StandardServerProvider(), dbProv, prov)
 	runBriefly(t, a, 50*time.Millisecond)
 
 	if !sawDB {

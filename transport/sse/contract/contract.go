@@ -1,31 +1,16 @@
 // Package contract 提供 SSE 传输层的契约装配：bootstrapv1.Server 的 sse 段 →
-// sse.NewServer + 契约驱动的 ServerProvider。
+// sse.NewServer + 构造 func（供 server.sse 段 Provider 的 Build 复用）。
 //
 // 单独成包的原因（与 transport/{asynq,cron,gateway}/contract 同惯例）：
 // transport/sse 保持零契约依赖（核心不 import bconf），只有本包 import
 // bconf——业务按需 import，依赖图全程可见。
 //
-// ## 为什么需要这个子包（初版曾走逃生舱）
+// 契约段表达传输参数（addr/path/tls）；授权钩子、订阅回调等业务接线经
+// WithServerOptions / WithAfterBuild 注入，在 Provider 的 Build 内应用（时机
+// 在业务 BeforeStart 之后，可读取业务运行期资源）。
 //
-// server.sse 段在 bconf 契约中**早已存在**（addr/path/tls），但长期缺对应
-// contract 包，故此前只能经 appkit.WithExtraServerFunc 逃生舱装配。当时
-// 记下的理由是「SSE 的接线本质是函数注入，而契约段是声明式配置字段，
-// 表达不了函数」——**该理由不成立**：同族的 gateway contract 面对的正是
-// 同一问题（转码注册回调是业务内容），它的解法就是本包采用的 Option 注入：
-//
-//	gatewaycontract.Provider(registerGateway)   // 函数经 Provider 参数注入
-//	ssecontract.Provider(                        // 同理
-//	    ssecontract.WithAuthorizeFunc(...),
-//	    ssecontract.WithSubscriberFunction(...),
-//	)
-//
-// 执行时机等价（这也是逃生舱当初的选取理由，实测已证伪其必要性）：
-// pkg/appkit/bootstrap.go 中 buildServers（契约 provider）与 extraServerFns
-// （逃生舱）**注册在同一个位置**——都追加在业务 beforeStart 之后，故 Provider
-// 回调同样能读到业务建立的运行期资源（DB/仓储/authenticator）。
-//
-// 与 bootstrap 的关系：本包**不** import bootstrap（Provider 返回结构化兼容
-// 签名，用 var _ 守卫）。
+// 与 bootstrap 的关系：本包不 import bootstrap（Provider 返回未命名函数类型，
+// 用 var _ 守卫）。
 package contract
 
 import (
@@ -74,11 +59,10 @@ func WithAfterBuild(fn func(context.Context, *sse.Server) error) Option {
 
 // Provider 返回契约驱动的 SSE 工厂函数。
 //
-// 返回**未命名函数类型**（与 cache/redis/contract.Provider 同惯例）——调用点可直接
-// 赋给 bootstrap.ServerProvider（具名类型可从同名未命名函数类型隐式转换），无需
-// 显式转换，且本包不必 import bootstrap。
+// 返回**未命名函数类型**——调用方在 server.sse 段 Provider 的 Build 中直接
+// 调用，无需显式类型转换，本包也不必 import bootstrap。
 //
-// 仅当契约 server.sse 段存在时构造（段缺失返回 nil server，BuildServers 跳过）。
+// 仅当契约 server.sse 段存在时构造（段缺失返回 nil server，引擎跳过）。
 //
 // **addr 必填**：段存在但 addr 为空时 fail-fast——与 gateway contract 同判据
 // （「配了段却不给监听地址」是漏配，显式优于隐式）。注意这与「用 addr 空串表示
@@ -130,6 +114,6 @@ func buildOpts(sec *bootstrapv1.Server_Sse) []sse.Option {
 	return opts
 }
 
-// 类型守卫：Provider 返回的签名与 bootstrap.ServerProvider 结构化兼容
-// （不在本包 import bootstrap——避免 transport/sse → bootstrap 的依赖）。
+// 类型守卫：Provider 保持构造 func 形状（供 server.sse 段 Provider 的 Build
+// 调用；不在本包 import bootstrap——避免 transport/sse → bootstrap 的依赖）。
 var _ func(context.Context, *bootstrapv1.Server) (transport.Server, func(), error) = Provider()

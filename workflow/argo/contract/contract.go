@@ -1,5 +1,6 @@
 // Package contract 提供 argo 后端的契约装配：bootstrapv1.Workflow 的 argo
-// 段 → bald/workflow/argo ClientOptions 映射 + WorkflowRegistry Provider。
+// 段 → bald/workflow/argo ClientOptions 映射 + 构造 func（供段驱动 Provider
+// 的 Build 复用）。
 //
 // 单独成包的原因：argo 包保持零契约依赖（纯 REST 客户端），
 // 只有本包 import bconf——业务按需 import，依赖图全程可见。
@@ -18,11 +19,8 @@ import (
 const Type = "argo"
 
 // Provider 按契约 workflow.argo 段构造 Argo Workflows 客户端。
-// 返回的 cleanup 关闭客户端（断开空闲连接）。仅当 workflow.argo 段存在时被
-// WorkflowRegistry 调度到。签名与 bootstrap.WorkflowProvider 结构化兼容，直接注册：
-//
-//	wr := bootstrap.NewWorkflowRegistry()
-//	wr.MustRegister(argocontract.Type, argocontract.Provider)
+// 返回的 cleanup 关闭客户端（断开空闲连接）。供自定义 Provider 的 Build
+// 直接调用。
 func Provider(ctx context.Context, cfg *bootstrapv1.Workflow) (any, func(), error) {
 	sec := cfg.GetArgo()
 	if sec == nil {
@@ -41,5 +39,5 @@ func Provider(ctx context.Context, cfg *bootstrapv1.Workflow) (any, func(), erro
 	return client, func() { _ = client.Close() }, nil
 }
 
-// 类型守卫：Provider 签名与 bootstrap.WorkflowProvider 结构化兼容。
+// 类型守卫：Provider 保持构造 func 形状（供 Provider.Build 复用）。
 var _ func(context.Context, *bootstrapv1.Workflow) (any, func(), error) = Provider

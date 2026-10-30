@@ -10,7 +10,6 @@ import (
 
 	bconf "github.com/kalandramo/bald/bconf"
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
-	baldbootstrap "github.com/kalandramo/bald/bootstrap"
 	"github.com/kalandramo/bald/log"
 	"github.com/kalandramo/bald/registry"
 )
@@ -51,10 +50,8 @@ func (s *stubRegistrar) snapshot() (int, int) {
 
 // --- 约定装配（契约驱动）：全生命周期（阶段 B 构造 → start 注册 → 停机反注册 + cleanup） ---
 //
-// 注：RegistrarRegistry 自身的「显式注册 + fail-fast + 单选分发」单测在
-// bootstrap module（bootstrap/registrar_test.go）；注册表经 registrarTestProvider
-// 包成 registry 段 Provider 接入段驱动装配（生产侧由后端 contract 包导出
-// Provider），本文件只保留 appkit 侧的生命周期编排断言。
+// 注：registry 段由后端 package 导出的 Provider 消费（生产侧由各注册中心
+// contract 包提供）；本文件只保留 appkit 侧的生命周期编排断言。
 
 func TestAssemble_ContractRegistrarLifecycle(t *testing.T) {
 	old := log.GetLogger()
@@ -62,15 +59,12 @@ func TestAssemble_ContractRegistrarLifecycle(t *testing.T) {
 
 	stub := &stubRegistrar{}
 	cleaned := 0
-	rr := baldbootstrap.NewRegistrarRegistry()
-	rr.MustRegister("fake", func(context.Context, *bootstrapv1.Registry) (registry.Registrar, func(), error) {
-		return stub, func() { cleaned++ }, nil
-	})
+	prov := stubRegistrarProvider(stub, func() { cleaned++ })
 
 	cfg := bconfNewBootstrapWithRegistry("fake")
 	dynamicAddr(cfg)
 
-	a := assembleForTest(t, cfg, WithHTTP(new(http.ServeMux)), registrarTestProvider(rr))
+	a := assembleForTest(t, cfg, WithHTTP(new(http.ServeMux)), prov)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
@@ -108,11 +102,7 @@ func TestAssemble_ExplicitRegistrarWins(t *testing.T) {
 	t.Cleanup(func() { log.SetLogger(old) })
 
 	built := 0
-	rr := baldbootstrap.NewRegistrarRegistry()
-	rr.MustRegister("fake", func(context.Context, *bootstrapv1.Registry) (registry.Registrar, func(), error) {
-		built++
-		return &stubRegistrar{}, func() {}, nil
-	})
+	prov := stubRegistrarProvider(&stubRegistrar{}, func() { built++ })
 
 	cfg := bconfNewBootstrapWithRegistry("fake")
 	dynamicAddr(cfg)
@@ -121,7 +111,7 @@ func TestAssemble_ExplicitRegistrarWins(t *testing.T) {
 	a := assembleForTest(t, cfg,
 		WithHTTP(new(http.ServeMux)),
 		Registrar(explicit),
-		registrarTestProvider(rr),
+		prov,
 	)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -157,9 +147,9 @@ func TestAssemble_RegistrySectionWithoutTable(t *testing.T) {
 
 // --- New 构造路径：SetRegistrar 运行期注入 ---
 
-// BeforeStart 里按契约 Build + SetRegistrar（NewApp 路径等价于约定装配的
-// buildRegistrar），cleanup 挂停机 Effect：断言 register 发生（SetRegistrar
-// 在 register 窗口之前即时生效）、停机 Deregister + cleanup 恰好各一次。
+// BeforeStart 里按契约构造 + SetRegistrar（NewApp 路径的注册中心接线自持），
+// cleanup 挂停机 Effect：断言 register 发生（SetRegistrar 在 register 窗口
+// 之前即时生效）、停机 Deregister + cleanup 恰好各一次。
 func TestNew_SetRegistrarLifecycle(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
@@ -168,14 +158,14 @@ func TestNew_SetRegistrarLifecycle(t *testing.T) {
 	var mu sync.Mutex
 	cleaned := 0
 	var cleanup func()
-	rr := baldbootstrap.NewRegistrarRegistry()
-	rr.MustRegister("fake", func(context.Context, *bootstrapv1.Registry) (registry.Registrar, func(), error) {
+	// NewApp 路径的注册中心构建由应用自持（契约段驱动在此路径不参与）。
+	newRegistrar := func(context.Context) (registry.Registrar, func(), error) {
 		return stub, func() {
 			mu.Lock()
 			cleaned++
 			mu.Unlock()
 		}, nil
-	})
+	}
 
 	srv := newMock("setreg")
 	var app *App
@@ -189,7 +179,7 @@ func TestNew_SetRegistrarLifecycle(t *testing.T) {
 			return nil
 		}),
 		BeforeStart(func(ctx context.Context) error {
-			reg, cl, err := rr.Build(ctx, &bootstrapv1.Registry{Type: "fake"})
+			reg, cl, err := newRegistrar(ctx)
 			if err != nil {
 				return err
 			}

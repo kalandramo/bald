@@ -12,9 +12,8 @@
 // 业务代码注入，「配置驱动参数，代码声明能力」分工：契约段声明类型与参数，
 // DB/Redis 连接不进契约）。
 //
-// B8：全局 audit.SetAuditor/GetAuditor 删除——产物落资源面 +
-// appkit 自身事件兜底 sink（见 storeProduct），请求级审计由应用把产物
-// 显式注入 bundle/中间件。
+// 产物落资源面 + appkit 自身事件兜底 sink（见 storeProduct）；请求级审计
+// 由应用把产物显式注入 bundle/中间件，不经全局句柄。
 //
 // 段缺省语义：不装配（appkit 自身审计事件走显式注入/契约产物兜底/Nop，
 // 见 storeProduct 与 resolveAuditor）。
@@ -24,8 +23,8 @@
 // 兜底 sink；build 序在 database/cache 客户端之后——store 后端需 *gorm.DB、
 // stream 后端需 redis 客户端，资源必须先就绪（scope.App 经 Resource 取用）。
 // 停机 Effect（appkit:audit-restore）逆序回放最后执行：cleanup（stream flush
-// 尾批审计事件）。audit 段不支持热更新（运行期热切走 R1-2 协调器；全局
-// SetAuditor 已随 B8 删除，热切换后的 sink 由应用自持并显式注入）。
+// 尾批审计事件）。audit 段不支持热更新；运行期热切走协调器，热切换后的
+// sink 由应用自持并显式注入。
 //
 // 用法（Serve 路径，第三方 audit Provider 覆盖 std 默认——段路径末者胜）：
 //
@@ -59,12 +58,10 @@ const (
 // storegorm.SQL.Resource(res) 的 *gorm.DB、stream 后端取
 // rediscontract.Redis.Resource(res)）。
 //
-// 为什么显式传 res（2026-09-28 修订）：审计后端与 DB/Redis 是「消费者依赖
-// 生产者」——原实现把 buildAudit 排在 buildDatabases **之前**，后端构造时
-// 资源必为 nil，业务被迫用「构造期捕获取值函数 + 请求期首次解析」的惰性
-// 包装（lazyStoreAuditor）绕开。这与 T11/T12 修的「装配时序倒置」同族。
-// 现 audit 段的 canonical 构建序排在数据/缓存客户端之后，且把资源容器
-// 显式交给 provider——构造期即取真实实例，惰性包装失去存在理由。
+// 为什么显式传 res：审计后端与 DB/Redis 是「消费者依赖生产者」——audit 段
+// 的构建序必须排在数据/缓存客户端之后，且把资源容器显式交给 provider：
+// 构造期即取真实实例，避免「构造期捕获取值函数 + 请求期首次解析」的惰性
+// 包装。
 //
 // 返回 (auditor, cleanup)：cleanup 承载后端资源释放（如 stream 后台
 // goroutine 停机 flush 尾批），由引擎挂 Effect 逆序回放。

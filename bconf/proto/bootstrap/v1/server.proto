@@ -460,7 +460,7 @@ message Server {
   // 与 server.http.driver = "grpc-gateway" 的区别：后者是「同一端口二选一」
   // 模式（HTTP 端口即转码面）；本段描述「独立转码面与主 HTTP/gin 面并存」的
   // 拓扑——gateway 监听自己的 addr，连到 backend_grpc_addr 指向的 gRPC 服务。
-  // 需要独立端口的场景用本段，而非 WithExtraServers 逃生舱。
+  // 需要独立端口的场景用本段，而非 WithExtraServerFunc 逃生舱。
   message Gateway {
     // 网关监听地址，如 ":8081"。
     string addr = 1;

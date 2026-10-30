@@ -384,6 +384,22 @@ func TestPlan_RegistrarTakeoverVisible(t *testing.T) {
 	}
 }
 
+// TestPlan_MultipleRegistryProvidersFailFast 钉住 registry 单选：契约同时
+// 声明两个 registry 子段且两个 Provider 都在，计划期即报错——后建者静默
+// 覆盖先建者是不可接受的失败模式。
+func TestPlan_MultipleRegistryProvidersFailFast(t *testing.T) {
+	cfgPath := writePlanConfig(t, "plan-registry-multi",
+		"registry:\n  type: \"etcd\"\n  etcd:\n    endpoints: [\"127.0.0.1:2379\"]\n"+
+			"  consul:\n    address: \"127.0.0.1:8500\"\n")
+	_, err := Compile(context.Background(), ConfigFile(cfgPath),
+		planCountingProvider{segs: []string{"registry.etcd"}, calls: new(int32)},
+		planCountingProvider{segs: []string{"registry.consul"}, calls: new(int32)},
+	)
+	if err == nil || !strings.Contains(err.Error(), "registry is single-select") {
+		t.Fatalf("err = %v, want single-select error", err)
+	}
+}
+
 // TestPlan_EscapeHatchesReported 钉住 I10：计划可静态观测的逃逸舱都必须
 // 出现在 Plan.Warnings——白名单段、节点 override、程序化 Registrar 接管、
 // 环境注入（WithAmbient：build tag / init() 接线）。计划看不到的域仍由

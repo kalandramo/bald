@@ -11,7 +11,7 @@
 //	本包（github.com/kalandramo/bald/pkg/metrics，请求级）
 //	  ├ 中间件自动 emit：HTTP/gRPC 请求经 AuditWithMetrics 自动记录
 //	  ├ 维度固定：协议维度（OTel semconv v1.43.0）+ 审计三元组（正交两序列）
-//	  └ 契约驱动：bconf metrics 段 → appkit MetricsRegistry → observability-otlp
+//	  └ 契约驱动：bconf metrics 段 → 段 Provider → observability-otlp Setup
 //
 //	metrics/（github.com/kalandramo/bald/metrics，传输级三原语）
 //	  ├ 手工埋点：业务/传输代码显式调用 Counter/Histogram/Gauge

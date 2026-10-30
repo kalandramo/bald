@@ -47,7 +47,6 @@ import (
 	baldbootstrap "github.com/kalandramo/bald/bootstrap"
 	baldconfig "github.com/kalandramo/bald/bootstrap/config"
 	log "github.com/kalandramo/bald/log"
-	"github.com/kalandramo/bald/log/bslog"
 	"github.com/kalandramo/bald/pkg/audit"
 	"github.com/kalandramo/bald/registry"
 	"github.com/kalandramo/bald/transport"
@@ -106,14 +105,6 @@ func WithGRPCOptions(fn func() []grpc.ServerOption) Option {
 // 本钩子**独立于** http/grpc 是否声明——只声明额外服务器（无主协议面）时同样生效。
 func WithExtraServerFunc(fn func(context.Context) (transport.Server, error)) Option {
 	return optionFunc(func(s *Decl) { s.ServersFunc = append(s.ServersFunc, fn) })
-}
-
-// logDecoratorsOpt 附加 bslog 日志装饰器（B7 取消导出：装饰归 provider 自持
-// ——装饰器类型是具体日志后端的 bslog.Option，经公开 Option 暴露即把后端类型
-// 泄露进声明面）。内置 slog Provider（StandardLoggerProvider）消费 Decl 的
-// 装饰器；第三方 logger Provider 自持装饰。
-func logDecoratorsOpt(deco ...bslog.Option) Option {
-	return optionFunc(func(s *Decl) { s.logDecorators = append(s.logDecorators, deco...) })
 }
 
 // loggerSource 统一「默认两阶段日志工厂」与「logger Provider 接管」的调用面：
@@ -325,8 +316,8 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig, settings map[string]
 	var domainPlan *Plan
 
 	// 注：配置命名空间的必填检查在 Serve（serve.go）——它在任何副作用（阶段 A
-	// Logger、契约预装载）之前 fail-fast，比旧 FromBootstrap 把检查放在阶段 A
-	// 之后更早暴露；assemble 不重复检查（测试注入契约的路径同样适用）。
+	// Logger、契约预装载）之前 fail-fast；assemble 不重复检查（测试注入契约的
+	// 路径同样适用）。
 
 	kitOpts := []Option{
 		ID(cfg.GetApp().GetId()),
@@ -705,9 +696,9 @@ func storeProductWith(a *App, r buildResult, put func(ResourceKey, Cleanup)) err
 		if !ok {
 			return fmt.Errorf("appkit: audit provider %v returned %T, want audit.Auditor", r.node.Segments, r.product)
 		}
-		// B8：全局 SetAuditor 已删除——契约产物作 appkit 自身审计事件的兜底
-		// sink（显式 Auditor Option 优先，不覆盖；先前契约产物可被协调替换），
-		// 并照常落资源面供业务显式注入 bundle/中间件。
+		// 契约产物作 appkit 自身审计事件的兜底 sink（显式 Auditor Option 优先，
+		// 不覆盖；先前契约产物可被协调替换），并照常落资源面供业务显式注入
+		// bundle/中间件。
 		if a.auditor == nil || a.auditorFromContract {
 			a.auditor = aud
 			a.auditorFromContract = true

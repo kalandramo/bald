@@ -9,13 +9,10 @@ import (
 
 	bconf "github.com/kalandramo/bald/bconf"
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
-	baldbootstrap "github.com/kalandramo/bald/bootstrap"
 	"github.com/kalandramo/bald/log"
 )
 
 // 约定装配：阶段 B 构建 → Ai 取用 → 停机 cleanup。
-// Registry 行为测试（注册/段枚举/回滚）已随六域 Registry 迁 bootstrap
-// （bootstrap/ai_test.go，2026-09-15）。
 
 func TestAssemble_ContractAiLifecycle(t *testing.T) {
 	old := log.GetLogger()
@@ -23,10 +20,9 @@ func TestAssemble_ContractAiLifecycle(t *testing.T) {
 
 	type stubClient struct{ name string }
 	cleaned := false
-	ar := baldbootstrap.NewAiRegistry()
-	ar.MustRegister("openai", func(context.Context, *bootstrapv1.Ai) (any, func(), error) {
-		return &stubClient{name: "openai"}, func() { cleaned = true }, nil
-	})
+	prov := stubDomainProvider("ai", "openai",
+		func(c *bootstrapv1.BootstrapConfig) bool { return c.GetAi().GetOpenai() != nil },
+		&stubClient{name: "openai"}, func() { cleaned = true })
 
 	cfg := bconf.NewBootstrap()
 	dynamicAddr(cfg)
@@ -34,7 +30,7 @@ func TestAssemble_ContractAiLifecycle(t *testing.T) {
 		Openai: &bootstrapv1.Ai_Openai{ModelType: 2, Cloud: &bootstrapv1.Ai_CloudConfig{ApiKey: "sk"}},
 	}
 
-	a := assembleForTest(t, cfg, WithHTTP(new(http.ServeMux)), aiTestProvider(ar))
+	a := assembleForTest(t, cfg, WithHTTP(new(http.ServeMux)), prov)
 	if _, ok := a.lookup("ai.openai"); ok {
 		t.Fatal("Ai should be empty before Run (phase B not reached)")
 	}
@@ -69,7 +65,7 @@ func TestAssemble_ContractAiLifecycle(t *testing.T) {
 	}
 }
 
-// 契约 ai 段存在但未接 AiRegistry → 阶段 B fail-fast。
+// 契约 ai 段存在但无 ai Provider → 阶段 B fail-fast。
 func TestAssemble_AiSectionWithoutTable(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })

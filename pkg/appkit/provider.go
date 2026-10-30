@@ -16,7 +16,7 @@
 // 的部分（Domain Wire、程序化 Registrar、命令式组件、std server）以 Opaque
 // 节点进计划——如实标出，不假装可分析。
 //
-// 装配引擎（assemble，bootstrap.go）不再手写 12 段逐域调用，而是：
+// 装配引擎（assemble，bootstrap.go）按 Provider 计划执行，不手写逐域调用：
 //
 //  1. 解析声明：收集全部 Provider，按**精确段路径**做末者胜（后声明的 Provider
 //     接管同一路径——std.Standard() 的默认后端由此可被用户 Provider 覆盖；
@@ -51,8 +51,8 @@ import (
 )
 
 // Cleanup 是 Provider 产物的停机释放钩子（Effect 回放执行；nil 表示无资源）。
-// 旧 12 段流里两种清理形状（无参 func() 与 func(context.Context) error）统一
-// 为带 ctx 形态——与 Effect 账本的 undo 签名同构，回放路径零适配。
+// 两种既有清理形状（无参 func() 与 func(context.Context) error）统一为带 ctx
+// 形态——与 Effect 账本的 undo 签名同构，回放路径零适配。
 type Cleanup func(context.Context) error
 
 // noopCleanup 把旧式无参清理闭包适配为 Cleanup（Provider 实现侧的便利件）。
@@ -368,6 +368,10 @@ func newProviderPlan(ctx context.Context, d *Decl, cfg *bootstrapv1.BootstrapCon
 	var (
 		allEntries []providerEntry
 		haveLogger bool
+		// registry 是单选域：契约同时声明 registry.etcd 与 registry.consul 且
+		// 两者 Provider 都在时，后建者会静默覆盖先建者——计划期直接报错，
+		// 不留给运行期。
+		registryOwners []string
 	)
 	for i, p := range d.Providers {
 		if !owned[i] {
@@ -407,7 +411,15 @@ func newProviderPlan(ctx context.Context, d *Decl, cfg *bootstrapv1.BootstrapCon
 			}
 			haveLogger = true
 		}
+		if segmentTop(segs[0]) == "registry" {
+			registryOwners = append(registryOwners, segs[0])
+		}
 		allEntries = append(allEntries, providerEntry{prov: p, node: node})
+	}
+
+	if len(registryOwners) > 1 {
+		return nil, fmt.Errorf("appkit: multiple registry providers triggered (%v); registry is single-select "+
+			"(one process registers with one registry center) — remove the extra registry segment or the extra provider", registryOwners)
 	}
 
 	// 3. 零 logger 声明回退内置 Provider（阶段 A 引导 logger 的持有者）：

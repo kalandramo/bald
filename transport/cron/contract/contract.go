@@ -1,15 +1,14 @@
 // Package contract 提供 cron 定时任务调度器的契约装配：bootstrapv1.Server 的
-// cron 段 → cron.Option 映射 + 契约驱动的 ServerProvider。
+// cron 段 → cron.Option 映射 + 构造 func（供 server.cron 段 Provider 的
+// Build 复用）。
 //
 // 单独成包的原因：transport/cron 保持零契约依赖（纯调度器封装），只有本包
 // import bconf——业务按需 import，依赖图全程可见。与 cache/redis/contract、
 // transport/asynq/contract 同一模式。
 //
-// 与 bootstrap 的关系：本包**不** import bootstrap。Provider 的返回类型是
-// 结构化兼容的自有函数类型，注册时反正地传入 bootstrap.ServerRegistry：
-//
-//	sr := baldbootstrap.NewServerRegistry()
-//	sr.MustRegister(croncontract.Type, croncontract.Provider(...))
+// 与 bootstrap 的关系：本包不 import bootstrap。Provider 返回自有函数类型，
+// 由应用的 server 段 Provider 在 Build 内调用并交回 []transport.Server
+// （接入范本见同包 AppProvider）。
 package contract
 
 import (
@@ -51,11 +50,10 @@ func WithServerOptions(opts ...cron.Option) Option {
 
 // Provider 返回契约驱动的 cron 工厂函数。
 //
-// 返回**未命名函数类型**（与 cache/redis/contract.Provider 同惯例）——调用点可直接
-// 赋给 bootstrap.ServerProvider（具名类型可从同名未命名函数类型隐式转换），无需
-// 显式转换，且本包不必 import bootstrap。
+// 返回**未命名函数类型**——调用方在 server.cron 段 Provider 的 Build 中
+// 直接调用，无需显式类型转换，本包也不必 import bootstrap。
 //
-// 仅当契约 server.cron 段存在时构造（段缺失返回 nil server，BuildServers 跳过）。
+// 仅当契约 server.cron 段存在时构造（段缺失返回 nil server，引擎跳过）。
 // 段字段按「未设置即用实现默认」语义映射（optional bool 为 nil 时不传 Option；
 // location 为空不传时区）。
 //
@@ -116,6 +114,6 @@ func buildOpts(sec *bootstrapv1.Server_Cron) ([]cron.Option, error) {
 	return opts, nil
 }
 
-// 类型守卫：Provider 返回的签名与 bootstrap.ServerProvider 结构化兼容
-// （不在本包 import bootstrap——避免 transport/cron → bootstrap 的依赖）。
+// 类型守卫：Provider 保持构造 func 形状（供 server.cron 段 Provider 的 Build
+// 调用；不在本包 import bootstrap——避免 transport/cron → bootstrap 的依赖）。
 var _ func(context.Context, *bootstrapv1.Server) (transport.Server, func(), error) = Provider()

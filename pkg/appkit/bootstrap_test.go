@@ -8,7 +8,6 @@ package appkit
 
 import (
 	"context"
-	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -235,54 +234,11 @@ func TestStandardLoggerProvider_FilterKeys(t *testing.T) {
 	}
 }
 
-// TestStandardLoggerProvider_SlogDecorators type=slog 保留装饰器语义
-// （装饰经 Decl 内部字段消费——B7 取消导出后归 provider 自持的接缝）。
-func TestStandardLoggerProvider_SlogDecorators(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "deco.log")
-	prov := StandardLoggerProvider()
-	build := func(cfg *bootstrapv1.BootstrapConfig) (log.Logger, func(), error) {
-		product, cleanup, err := prov.Build(context.Background(), ApplyScope{
-			Config: cfg,
-			Decl:   &Decl{logDecorators: []bslog.Option{bslog.WithAttrs(slog.String("deco", "yes"))}},
-		}, Node{})
-		if err != nil {
-			return nil, nil, err
-		}
-		lg, ok := product.(log.Logger)
-		if !ok {
-			t.Fatalf("provider product %T, want log.Logger", product)
-		}
-		var fc func()
-		if cleanup != nil {
-			fc = func() { _ = cleanup(context.Background()) }
-		}
-		return lg, fc, nil
-	}
-
-	l, cleanup, err := build(&bootstrapv1.BootstrapConfig{Logger: &bootstrapv1.Logger{
-		Backends: []*bootstrapv1.Logger_Backend{
-			{Type: "slog", Slog: &bootstrapv1.Logger_Slog{Level: "debug", Format: "json", OutputPath: path}},
-		},
-	}})
-	if err != nil || l == nil {
-		t.Fatalf("slog item with deco: (%v, %v)", l, err)
-	}
-	if cleanup != nil {
-		defer cleanup()
-	}
-	l.Info(context.Background(), "msg")
-	data, err := os.ReadFile(path)
-	if err != nil || !strings.Contains(string(data), "\"deco\":\"yes\"") {
-		t.Fatalf("decorator should apply on builtin slog path: (%s, %v)", data, err)
-	}
-}
-
 // countingLogSrc 计数日志源（loggerSource 测试桩）：记录每次调用的契约
 // 入参（nil = 阶段 A）。
 type countingLogSrc struct {
 	mu   sync.Mutex
 	args []*bootstrapv1.Logger
-	dec  []bslog.Option
 }
 
 func (c *countingLogSrc) build(_ context.Context, l *bootstrapv1.Logger) (log.Logger, func(), error) {
@@ -290,7 +246,7 @@ func (c *countingLogSrc) build(_ context.Context, l *bootstrapv1.Logger) (log.Lo
 	c.args = append(c.args, l)
 	c.mu.Unlock()
 	// 用默认 Options（stdout+info）而非 LogOptions(l)：避免契约段值（如输出到文件）影响测试输出。
-	return bslog.New(bslog.NewOptions(), c.dec...), nil, nil
+	return bslog.New(bslog.NewOptions()), nil, nil
 }
 
 func (c *countingLogSrc) bootstrapLogger(ctx context.Context) (log.Logger, func(), error) {
@@ -557,27 +513,22 @@ func TestAssemble_LoggerLifecycle(t *testing.T) {
 	}
 }
 
-// config 段 Provider（构造期）：契约 Config 段经 Registry.Build 产出层参与
-// 合并，cleanup 挂 Effect 停机释放；层内容（logger.level=debug）经装载写回
-// 契约。（原 WithConfigRegistry 形态的 Provider 等价迁移。）
+// config 段 Provider（构造期）：契约 config 段经 Provider 产出层参与合并，
+// cleanup 挂 Effect 停机释放；层内容（logger.level=debug）经装载写回契约。
 func TestAssemble_ConfigProvider(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
 
 	closed := make(chan struct{})
-	reg := baldbootstrap.NewConfigRegistry()
-	reg.MustRegister("fake", func(context.Context, *bootstrapv1.BootstrapConfig) (*baldconfig.Layer, func(), error) {
-		l := &baldconfig.Layer{
-			Name:   "fake",
-			Reader: &fakeReader{data: []byte("logger:\n  backends:\n    - type: slog\n      slog:\n        level: debug\n        format: console\n        output_path: stdout\n")},
-		}
-		return l, func() { close(closed) }, nil
-	})
+	prov := stubConfigProvider([]baldconfig.Layer{{
+		Name:   "fake",
+		Reader: &fakeReader{data: []byte("logger:\n  backends:\n    - type: slog\n      slog:\n        level: debug\n        format: console\n        output_path: stdout\n")},
+	}}, func() { close(closed) })
 
 	cfg := bconf.NewBootstrap()
 	dynamicAddr(cfg)
 
-	a := assembleForTest(t, cfg, WithHTTP(new(http.ServeMux)), configTestProvider(reg))
+	a := assembleForTest(t, cfg, WithHTTP(new(http.ServeMux)), prov)
 	if len(a.cfg.layers) != 1 {
 		t.Fatalf("layers = %d, want 1", len(a.cfg.layers))
 	}

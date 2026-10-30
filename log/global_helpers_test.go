@@ -7,7 +7,6 @@ import (
 
 // recordingLogger 记录包级 helper 的转发目标与方法调用。
 type recordingLogger struct {
-	stubLogger
 	level Level
 	withN int
 }

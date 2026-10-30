@@ -1,5 +1,5 @@
 // Package contract 提供 s3 后端的契约装配：bootstrapv1.Storage 的 s3 段 →
-// bald/oss/s3 Config 映射 + StorageRegistry Provider。
+// bald/oss/s3 Config 映射 + 构造 func（供段驱动 Provider 的 Build 复用）。
 //
 // 单独成包的原因：s3 包保持零契约依赖（纯 SDK 封装），
 // 只有本包 import bconf——业务按需 import，依赖图全程可见。
@@ -20,11 +20,7 @@ const Type = "s3"
 // Provider 按契约 storage.s3 段构造 S3 兼容（AWS S3 / Ceph / MinIO 等）
 // 客户端与 Storage 门面。
 // 返回的 cleanup 为 nil（aws-sdk 客户端无显式 Close 语义）。
-// 仅当 storage.s3 段存在时被 StorageRegistry 调度到。
-// 签名与 bootstrap.StorageProvider 结构化兼容，直接注册：
-//
-//	sr := bootstrap.NewStorageRegistry()
-//	sr.MustRegister(s3contract.Type, s3contract.Provider)
+// 同包 AppProvider 的 Build 复用本函数；自定义 Provider 的 Build 也可直接调用。
 func Provider(ctx context.Context, cfg *bootstrapv1.Storage) (any, func(), error) {
 	sec := cfg.GetS3()
 	if sec == nil {
@@ -53,5 +49,5 @@ func Provider(ctx context.Context, cfg *bootstrapv1.Storage) (any, func(), error
 	return client, nil, nil
 }
 
-// 类型守卫：Provider 签名与 bootstrap.StorageProvider 结构化兼容。
+// 类型守卫：Provider 保持构造 func 形状（供 Provider.Build 复用）。
 var _ func(context.Context, *bootstrapv1.Storage) (any, func(), error) = Provider

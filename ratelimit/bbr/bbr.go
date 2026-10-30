@@ -145,9 +145,8 @@ type Limiter struct {
 func (l *Limiter) now() time.Time { return l.cfg.clock() }
 
 type bucket struct {
-	startTime int64
-	count     int64
-	totalRTT  int64 // nanoseconds
+	count    int64
+	totalRTT int64 // nanoseconds
 }
 
 // Allow checks whether a new request should be admitted.

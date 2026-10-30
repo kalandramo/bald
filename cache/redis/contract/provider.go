@@ -31,9 +31,8 @@ var Redis = appkit.NewKey[*rediscache.Cache]("cache.redis")
 // AppProvider 返回消费契约 cache.redis 段的 appkit.Provider（段路径
 // "cache.redis"；段缺失即被引擎跳过，合法）。
 //
-// 命名说明（store-gorm 同例）：本包既有 Provider（bootstrap.CacheProvider
-// 形状的注册 func）占用 Provider 标识符且保留不动，故段驱动装配的导出名
-// 取 AppProvider。
+// 命名说明（store-gorm 同例）：本包既有 Provider（契约段构造 func）占用
+// Provider 标识符且保留不动，故段驱动装配的导出名取 AppProvider。
 //
 // Build 语义：cache.redis 段在 → 经既有 Provider 构造（validate/dial/Ping
 // fail-fast，不产半成品实例）→ 产物 map[string]any{"redis": client} 落引擎

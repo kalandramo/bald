@@ -1,5 +1,5 @@
 // Package contract 提供 nacos 后端的契约装配：bootstrapv1.Registry 段 →
-// nacos options 映射 + RegistrarRegistry Provider。
+// nacos options 映射 + 段驱动 Provider（AppProvider，见 provider.go）。
 //
 // 单独成包的原因：provider 根包保持零契约依赖（纯 SDK 实现），
 // 只有本包 import bconf——业务按需 import，依赖图全程可见。
@@ -20,7 +20,7 @@ const Type = "nacos"
 
 // Provider 按契约 registry.nacos 段构造 nacos Registrar。
 // 返回的 cleanup 由 appkit 停机 Effect 回放（Deregister 先于它，顺序安全）。
-// 仅当 cfg.GetType() == Type 时被 RegistrarRegistry 调度到。
+// 由 AppProvider 的 Build 调用（段存在性 gate 见 provider.go）。
 func Provider(ctx context.Context, cfg *bootstrapv1.Registry) (registry.Registrar, func(), error) {
 	c := cfg.GetNacos()
 	if c == nil {

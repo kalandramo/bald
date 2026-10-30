@@ -1,5 +1,5 @@
 // Package contract 提供 rocketmq 后端的契约装配：bootstrapv1.Broker 的 rocketmq
-// 段 → broker.Option 映射 + BrokerRegistry Provider。
+// 段 → broker.Option 映射 + 构造 func（供段驱动 Provider 的 Build 复用）。
 //
 // 单独成包的原因：rocketmq 实现保持零契约依赖（纯 SDK 封装），
 // 只有本包 import bconf——业务按需 import，依赖图全程可见。
@@ -24,11 +24,7 @@ import (
 const Type = "rocketmq"
 
 // Provider 按契约 broker.rocketmq 段构造 RocketMQ Broker 并连接 NameServer。
-// 返回的 cleanup 断开生产者与订阅者。仅当 broker.rocketmq 段存在时被
-// BrokerRegistry 调度到。签名与 bootstrap.BrokerProvider 结构化兼容，直接注册：
-//
-//	br := bootstrap.NewBrokerRegistry()
-//	br.MustRegister(rocketmqcontract.Type, rocketmqcontract.Provider)
+// 返回的 cleanup 断开生产者与订阅者。供自定义 Provider 的 Build 直接调用。
 func Provider(ctx context.Context, cfg *bootstrapv1.Broker) (any, func(), error) {
 	sec := cfg.GetRocketmq()
 	if sec == nil {
@@ -76,5 +72,5 @@ func Provider(ctx context.Context, cfg *bootstrapv1.Broker) (any, func(), error)
 	return b, func() { _ = b.Disconnect() }, nil
 }
 
-// 类型守卫：Provider 签名与 bootstrap.BrokerProvider 结构化兼容。
+// 类型守卫：Provider 保持构造 func 形状（供 Provider.Build 复用）。
 var _ func(context.Context, *bootstrapv1.Broker) (any, func(), error) = Provider

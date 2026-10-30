@@ -9,13 +9,10 @@ import (
 
 	bconf "github.com/kalandramo/bald/bconf"
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
-	baldbootstrap "github.com/kalandramo/bald/bootstrap"
 	"github.com/kalandramo/bald/log"
 )
 
 // 约定装配：阶段 B 构建 → Broker 取用 → 停机 cleanup。
-// Registry 行为测试（注册/段枚举/回滚）已随六域 Registry 迁 bootstrap
-// （bootstrap/broker_test.go，2026-09-15）。
 
 func TestAssemble_ContractBrokerLifecycle(t *testing.T) {
 	old := log.GetLogger()
@@ -23,10 +20,9 @@ func TestAssemble_ContractBrokerLifecycle(t *testing.T) {
 
 	type stubBroker struct{ name string }
 	cleaned := false
-	br := baldbootstrap.NewBrokerRegistry()
-	br.MustRegister("redis", func(context.Context, *bootstrapv1.Broker) (any, func(), error) {
-		return &stubBroker{name: "redis"}, func() { cleaned = true }, nil
-	})
+	prov := stubDomainProvider("broker", "redis",
+		func(c *bootstrapv1.BootstrapConfig) bool { return c.GetBroker().GetRedis() != nil },
+		&stubBroker{name: "redis"}, func() { cleaned = true })
 
 	cfg := bconf.NewBootstrap()
 	dynamicAddr(cfg)
@@ -34,7 +30,7 @@ func TestAssemble_ContractBrokerLifecycle(t *testing.T) {
 		Redis: &bootstrapv1.Broker_Redis{Address: "127.0.0.1:6379"},
 	}
 
-	a := assembleForTest(t, cfg, WithHTTP(new(http.ServeMux)), brokerTestProvider(br))
+	a := assembleForTest(t, cfg, WithHTTP(new(http.ServeMux)), prov)
 	if _, ok := a.lookup("broker.redis"); ok {
 		t.Fatal("Broker should be empty before Run (phase B not reached)")
 	}
@@ -69,7 +65,7 @@ func TestAssemble_ContractBrokerLifecycle(t *testing.T) {
 	}
 }
 
-// 契约 broker 段存在但未接 BrokerRegistry → 阶段 B fail-fast。
+// 契约 broker 段存在但无 broker Provider → 阶段 B fail-fast。
 func TestAssemble_BrokerSectionWithoutTable(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
@@ -82,7 +78,7 @@ func TestAssemble_BrokerSectionWithoutTable(t *testing.T) {
 
 	a := assembleForTest(t, cfg, WithHTTP(new(http.ServeMux)))
 	err := a.Run(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "no consumer") && strings.Contains(err.Error(), "broker") {
-		t.Fatalf("expected BrokerRegistry missing error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "no consumer") || !strings.Contains(err.Error(), "broker") {
+		t.Fatalf("expected no-consumer error for broker, got %v", err)
 	}
 }

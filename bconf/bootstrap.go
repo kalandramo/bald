@@ -98,8 +98,8 @@ func validateApp(a *bootstrapv1.App) error {
 }
 
 // validateLogger 校验日志契约段。段级规则只到形状可判定层（值域、必填
-// 连接目标、数值非负）；后端是否已注册由装配层 bootstrap.LogRegistry
-// 查表 fail-fast——契约层不硬编码后端清单。
+// 连接目标、数值非负）；能否装配由段 Provider 在装配期决定（段存在而无
+// Provider 时 L3 覆盖检查启动期报错）——契约层不硬编码后端清单。
 //
 // filter_keys 与 backends 两个 repeated 字段逐项校验：前者先做（脱敏对
 // 全部后端生效），项非空；后者校验 type 非空与六种后端段的段级规则

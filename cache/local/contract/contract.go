@@ -22,9 +22,7 @@ const Type = "local"
 
 // Provider 按契约 cache.local 段构造进程内缓存。
 // 返回的 cleanup 由 appkit 停机 Effect 回放（Close 语义为清空内存）。
-// 仅当 cache.local 段存在时被 CacheRegistry 单选分发调用（注册表机制保留
-// 在 bootstrap 内部）；段驱动装配的接入面（AppProvider）见
-// cache/redis/contract 范本。
+// 供自定义 Provider 的 Build 直接调用（接入范本见 cache/redis/contract）。
 func Provider(ctx context.Context, cfg *bootstrapv1.Cache) (any, func(), error) {
 	sec := cfg.GetLocal()
 	if sec == nil {
@@ -51,5 +49,5 @@ func buildOptions(sec *bootstrapv1.Cache_Local) []local.Option {
 // 接口守卫：Provider 产出满足 Cache 契约。
 var _ baldcache.Cache = (*local.Cache)(nil)
 
-// 类型守卫：Provider 签名与 bootstrap.CacheProvider 结构化兼容。
+// 类型守卫：Provider 保持构造 func 形状（供 Provider.Build 复用）。
 var _ func(context.Context, *bootstrapv1.Cache) (any, func(), error) = Provider

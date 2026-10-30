@@ -1,5 +1,5 @@
 // Package contract 提供 langchaingo 后端的契约装配：bootstrapv1.Ai 的
-// langchaingo 段 → bald/ai/langchaingo Config 映射 + AiRegistry Provider。
+// langchaingo 段 → bald/ai/langchaingo Config 映射 + 构造 func（供段驱动 Provider 的 Build 复用）。
 //
 // 单独成包的原因：langchaingo 包保持零契约依赖（纯 SDK 封装），
 // 只有本包 import bconf——业务按需 import，依赖图全程可见。
@@ -19,11 +19,7 @@ const Type = "langchaingo"
 
 // Provider 按契约 ai.langchaingo 段构造 LangChainGo 模型。
 // 返回的 cleanup 为 nil（模型对象无连接池资源）。
-// 仅当 ai.langchaingo 段存在时被 AiRegistry 调度到。
-// 签名与 bootstrap.AiProvider 结构化兼容，直接注册：
-//
-//	ar := bootstrap.NewAiRegistry()
-//	ar.MustRegister(langchaincontract.Type, langchaincontract.Provider)
+// 供自定义 Provider 的 Build 直接调用。
 func Provider(ctx context.Context, cfg *bootstrapv1.Ai) (any, func(), error) {
 	sec := cfg.GetLangchaingo()
 	if sec == nil {
@@ -67,5 +63,5 @@ func buildConfig(modelType int32, modelName string, timeoutSec int32, cloud *boo
 	return cc, nil
 }
 
-// 类型守卫：Provider 签名与 bootstrap.AiProvider 结构化兼容。
+// 类型守卫：Provider 保持构造 func 形状（供 Provider.Build 复用）。
 var _ func(context.Context, *bootstrapv1.Ai) (any, func(), error) = Provider

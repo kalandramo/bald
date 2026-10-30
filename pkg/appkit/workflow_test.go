@@ -9,13 +9,10 @@ import (
 
 	bconf "github.com/kalandramo/bald/bconf"
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
-	baldbootstrap "github.com/kalandramo/bald/bootstrap"
 	"github.com/kalandramo/bald/log"
 )
 
 // 约定装配：阶段 B 构建 → Workflow 取用 → 停机 cleanup。
-// Registry 行为测试（注册/段枚举/回滚）已随六域 Registry 迁 bootstrap
-// （bootstrap/workflow_test.go，2026-09-15）。
 
 func TestAssemble_ContractWorkflowLifecycle(t *testing.T) {
 	old := log.GetLogger()
@@ -23,10 +20,9 @@ func TestAssemble_ContractWorkflowLifecycle(t *testing.T) {
 
 	type stubClient struct{ name string }
 	cleaned := false
-	wr := baldbootstrap.NewWorkflowRegistry()
-	wr.MustRegister("argo", func(context.Context, *bootstrapv1.Workflow) (any, func(), error) {
-		return &stubClient{name: "argo"}, func() { cleaned = true }, nil
-	})
+	prov := stubDomainProvider("workflow", "argo",
+		func(c *bootstrapv1.BootstrapConfig) bool { return c.GetWorkflow().GetArgo() != nil },
+		&stubClient{name: "argo"}, func() { cleaned = true })
 
 	cfg := bconf.NewBootstrap()
 	dynamicAddr(cfg)
@@ -34,7 +30,7 @@ func TestAssemble_ContractWorkflowLifecycle(t *testing.T) {
 		Argo: &bootstrapv1.Workflow_Argo{ServerUrl: "http://127.0.0.1:2746", Namespace: "ci"},
 	}
 
-	a := assembleForTest(t, cfg, WithHTTP(new(http.ServeMux)), workflowTestProvider(wr))
+	a := assembleForTest(t, cfg, WithHTTP(new(http.ServeMux)), prov)
 	if _, ok := a.lookup("workflow.argo"); ok {
 		t.Fatal("Workflow should be empty before Run (phase B not reached)")
 	}
@@ -66,7 +62,7 @@ func TestAssemble_ContractWorkflowLifecycle(t *testing.T) {
 	}
 }
 
-// 契约 workflow 段存在但未接 WorkflowRegistry → 阶段 B fail-fast。
+// 契约 workflow 段存在但无 workflow Provider → 阶段 B fail-fast。
 func TestAssemble_WorkflowSectionWithoutTable(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
@@ -79,7 +75,7 @@ func TestAssemble_WorkflowSectionWithoutTable(t *testing.T) {
 
 	a := assembleForTest(t, cfg, WithHTTP(new(http.ServeMux)))
 	err := a.Run(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "no consumer") && strings.Contains(err.Error(), "workflow") {
-		t.Fatalf("expected WorkflowRegistry missing error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "no consumer") || !strings.Contains(err.Error(), "workflow") {
+		t.Fatalf("expected no-consumer error for workflow, got %v", err)
 	}
 }

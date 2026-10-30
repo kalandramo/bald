@@ -3,8 +3,8 @@ module github.com/kalandramo/bald/contrib/observability-otlp
 go 1.27.1
 
 require (
-	github.com/kalandramo/bald v0.11.0
-	github.com/kalandramo/bald/bconf v0.12.0
+	github.com/kalandramo/bald v0.29.0
+	github.com/kalandramo/bald/bconf v0.13.0
 	github.com/prometheus/client_golang v1.24.1
 	go.opentelemetry.io/otel v1.46.0
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp v1.46.0
@@ -98,9 +98,9 @@ require (
 	github.com/kalandramo/bald/bootstrap v0.13.1 // indirect
 	github.com/kalandramo/bald/health v0.1.1 // indirect
 	github.com/kalandramo/bald/log v0.5.2 // indirect
-	github.com/kalandramo/bald/registry v0.1.1 // indirect
-	github.com/kalandramo/bald/transport v0.3.0 // indirect
-	github.com/kalandramo/bald/transport/gateway v0.1.1 // indirect
+	github.com/kalandramo/bald/registry v0.3.0 // indirect
+	github.com/kalandramo/bald/transport v0.4.0 // indirect
+	github.com/kalandramo/bald/transport/gateway v0.4.0 // indirect
 	github.com/kalandramo/bald/transport/grpc v0.1.1 // indirect
 	github.com/kalandramo/bald/transport/http v0.1.1 // indirect
 	github.com/magiconair/properties v1.8.5 // indirect

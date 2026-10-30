@@ -24,7 +24,7 @@ import (
 	"github.com/kalandramo/bald/transport/sse"
 )
 
-// TestProvider_SectionMissingSkips 段缺失 → nil server（BuildServers 跳过）。
+// TestProvider_SectionMissingSkips 段缺失 → nil server（引擎跳过构建）。
 func TestProvider_SectionMissingSkips(t *testing.T) {
 	p := Provider()
 	srv, cleanup, err := p(context.Background(), &bootstrapv1.Server{})

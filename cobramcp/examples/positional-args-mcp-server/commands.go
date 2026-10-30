@@ -433,20 +433,3 @@ func newChatCmd() *cobra.Command {
 	return cmd
 }
 
-// root 命令
-var rootCmd = &cobra.Command{
-	Use:   "yourcli",
-	Short: "一个示例命令行工具",
-	Long: `这是一个使用 Cobra 和 Cobrax 构建的示例命令行工具，
-演示了不同类型的位置参数和 flag 的配置。`,
-}
-
-/*
-func init() {
-	rootCmd.AddCommand(newOncallCmd())
-	rootCmd.AddCommand(newCpCmd())
-	rootCmd.AddCommand(newMakeCmd())
-	rootCmd.AddCommand(newKubectlCmd())
-	rootCmd.AddCommand(newChatCmd()) // 添加新的 chat 命令
-}
-*/

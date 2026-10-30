@@ -17,13 +17,12 @@
 // Build——必须晚于配置装载（值来自契约），早于 servers 监听（BeforeStart
 // 语义保证），使 Recorder / tracer 中间件在首个请求前接入全局 Provider；
 // cleanup 交引擎挂停机 Effect（canonical 序：metrics-server、tracer-shutdown
-// 的回放位次与旧 12 段流一致）。两段均不支持热更新。
+// 的回放位次与停机聚合序一致）。两段均不支持热更新。
 //
 // 段缺省语义（契约级，框架保守缺省）：
 //   - tracer 段缺省 → no-op trace（otel 全局默认，零配置可运行）；
 //   - metrics 段缺省 → 不装配（无暴露端点）。
-//   - 段存在而无 Provider → L3 覆盖检查启动期报错（原「Registry 未接线」
-//     fail-fast 的等价物，见 segment_coverage.go）。
+//   - 段存在而无 Provider → L3 覆盖检查启动期报错（见 segment_coverage.go）。
 package appkit
 
 import (

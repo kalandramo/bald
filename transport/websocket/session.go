@@ -129,16 +129,6 @@ func (s *Session) closeConnect() {
 	}
 }
 
-func (s *Session) sendPingMessage(message string) error {
-	s.connMu.RLock()
-	conn := s.conn
-	s.connMu.RUnlock()
-	if conn == nil {
-		return nil
-	}
-	return conn.WriteMessage(ws.PingMessage, []byte(message))
-}
-
 func (s *Session) sendPongMessage(message string) error {
 	s.connMu.RLock()
 	conn := s.conn

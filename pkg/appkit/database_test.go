@@ -9,13 +9,10 @@ import (
 
 	bconf "github.com/kalandramo/bald/bconf"
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
-	baldbootstrap "github.com/kalandramo/bald/bootstrap"
 	"github.com/kalandramo/bald/log"
 )
 
 // 约定装配：阶段 B 构建 → Database 取用 → 停机 cleanup。
-// Registry 行为测试（注册/段枚举/回滚）已随六域 Registry 迁 bootstrap
-// （bootstrap/database_test.go，2026-09-15）。
 
 func bconfNewBootstrapWithDatabase() *bootstrapv1.BootstrapConfig {
 	cfg := bconf.NewBootstrap()
@@ -31,15 +28,14 @@ func TestAssemble_ContractDatabaseLifecycle(t *testing.T) {
 
 	type stubClient struct{ name string }
 	cleaned := false
-	dr := baldbootstrap.NewDatabaseRegistry()
-	dr.MustRegister("sql", func(context.Context, *bootstrapv1.Database) (any, func(), error) {
-		return &stubClient{name: "sql"}, func() { cleaned = true }, nil
-	})
+	prov := stubDomainProvider("database", "sql",
+		func(c *bootstrapv1.BootstrapConfig) bool { return c.GetDatabase().GetSql() != nil },
+		&stubClient{name: "sql"}, func() { cleaned = true })
 
 	cfg := bconfNewBootstrapWithDatabase()
 	dynamicAddr(cfg)
 
-	a := assembleForTest(t, cfg, WithHTTP(new(http.ServeMux)), dbTestProvider(dr))
+	a := assembleForTest(t, cfg, WithHTTP(new(http.ServeMux)), prov)
 	// 构造期（阶段 A）尚未装载契约：Database 为空
 	if _, ok := a.lookup("database.sql"); ok {
 		t.Fatal("Database should be empty before Run (phase B not reached)")
@@ -75,7 +71,7 @@ func TestAssemble_ContractDatabaseLifecycle(t *testing.T) {
 	}
 }
 
-// 契约 database 段存在但未接 DatabaseRegistry → 阶段 B fail-fast。
+// 契约 database 段存在但无 database Provider → 阶段 B fail-fast。
 func TestAssemble_DatabaseSectionWithoutTable(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
@@ -85,12 +81,12 @@ func TestAssemble_DatabaseSectionWithoutTable(t *testing.T) {
 
 	a := assembleForTest(t, cfg, WithHTTP(new(http.ServeMux)))
 	err := a.Run(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "no consumer") && strings.Contains(err.Error(), "database") {
-		t.Fatalf("expected DatabaseRegistry missing error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "no consumer") || !strings.Contains(err.Error(), "database") {
+		t.Fatalf("expected no-consumer error for database, got %v", err)
 	}
 }
 
-// database 段缺失（纯后台进程）→ no-op，不要求接注册表。
+// database 段缺失（纯后台进程）→ no-op，不要求 Provider。
 func TestAssemble_NoDatabaseSection(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })

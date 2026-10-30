@@ -1,19 +1,17 @@
 // Package contract 提供 asynq 任务队列的契约装配：bootstrapv1.Server 的
-// asynq 段 → asynq.Option 映射 + 契约驱动的 ServerProvider。
+// asynq 段 → asynq.Option 映射 + 构造 func（供 server.asynq 段 Provider 的
+// Build 复用）。
 //
 // 单独成包的原因：transport/asynq 保持零契约依赖（纯 SDK 封装），只有本包
 // import bconf——业务按需 import，依赖图全程可见。与 cache/redis/contract、
 // broker/kafka/contract 同一模式。
 //
-// 与 bootstrap 的关系：本包**不** import bootstrap。Provider 的返回类型是
-// 结构化兼容的自有函数类型（bootstrap.ServerProvider 形状），由应用侧的
-// server 段 Provider 消费——原「NewServerRegistry + MustRegister +
-// WithServerRegistry」三步已收敛为段驱动 Provider（等价形态见
-// _example/bald/register_nacos.go 的 nacosRegistrarProvider，registry 段同构）：
-// Build 内按契约 server.asynq 段调本包 Provider 构造并交回 []transport.Server。
+// 与 bootstrap 的关系：本包不 import bootstrap。Provider 返回自有函数类型，
+// 由应用的 server 段 Provider 在 Build 内调用并交回 []transport.Server
+// （接入范本见同包 AppProvider）。
 //
 // 契约字段 vs 实现 Option 面：契约收「装配必需 + 高频」子集（Redis 连接、
-// 并发、队列、codec、优雅关闭等），其余 ~46 个 Option 经 [WithServerOptions]
+// 并发、队列、codec、优雅关闭等），其余 Option 经 [WithServerOptions]
 // 由业务补齐——契约表达声明式常用项，Option 表达完整能力。
 package contract
 
@@ -92,11 +90,10 @@ func WithCodecRegistration(fn func()) Option {
 
 // Provider 返回契约驱动的 asynq 工厂函数。
 //
-// 返回**未命名函数类型**（与 cache/redis/contract.Provider 同惯例）——这样调用点
-// 可直接赋给 bootstrap.ServerProvider（具名类型可从同名未命名函数类型隐式转换），
-// 无需显式转换，且本包不必 import bootstrap。
+// 返回**未命名函数类型**——调用方在 server.asynq 段 Provider 的 Build 中
+// 直接调用，无需显式类型转换，本包也不必 import bootstrap。
 //
-// 仅当契约 server.asynq 段存在时构造（段缺失返回 nil server，BuildServers 跳过）。
+// 仅当契约 server.asynq 段存在时构造（段缺失返回 nil server，引擎跳过）。
 // 段字段按「未设置即用实现默认」语义映射（区别于契约零值——见 proto 中 optional
 // 三态与 0 哨兵的说明）。
 func Provider(opts ...Option) func(context.Context, *bootstrapv1.Server) (transport.Server, func(), error) {
@@ -194,6 +191,6 @@ func queueWeights(queues []string) map[string]int32 {
 	return w
 }
 
-// 类型守卫：Provider 返回的签名与 bootstrap.ServerProvider 结构化兼容
-// （不在本包 import bootstrap——避免 transport/asynq → bootstrap 的依赖）。
+// 类型守卫：Provider 保持构造 func 形状（供 server.asynq 段 Provider 的 Build
+// 调用；不在本包 import bootstrap——避免 transport/asynq → bootstrap 的依赖）。
 var _ func(context.Context, *bootstrapv1.Server) (transport.Server, func(), error) = Provider()

@@ -4,7 +4,7 @@
 // 包外可实现——mech 等子包据此直写 Decl），Decl 承载全部装配期声明的写入面：
 //   - NewApp 路径 Option 的全部写入（ID/Name/Config*/Bind/Servers/钩子/机制…）；
 //   - Serve 路径 With* 的全部写入（WithHTTP/WithGRPC/Providers 段驱动
-//     声明/WithLogDecorators/WithExtraServerFunc…）。
+//     声明/WithExtraServerFunc…）。
 //
 // 字段集由对账得出（逐 Option 逐一归属，见各字段注释），不含任何运行期
 // 状态：效应账本的运行期追加（addEffect）、key 订阅的基线快照（last/armed）、
@@ -26,7 +26,6 @@ import (
 
 	"github.com/kalandramo/bald/bootstrap/config"
 	"github.com/kalandramo/bald/health"
-	"github.com/kalandramo/bald/log/bslog"
 	"github.com/kalandramo/bald/pkg/audit"
 	"github.com/kalandramo/bald/registry"
 	"github.com/kalandramo/bald/transport"
@@ -56,8 +55,8 @@ type Decl struct {
 	ConfigFile      string
 	WatchConfigFile bool
 	RemoteConfig    config.RemoteSource
-	// ConfigLayers 契约源层（ConfigLayers Option；约定装配经
-	// ConfigRegistry.Build 产出后追加）。
+	// ConfigLayers 契约源层（ConfigLayers Option；约定装配由 config 段
+	// Provider 产出后追加）。
 	ConfigLayers []config.Layer
 	// StrictContract 与 BusinessSections 成对：开关 + 应用自持顶层段白名单
 	// （StrictContract 可多次调用追加白名单）。
@@ -146,10 +145,6 @@ type Decl struct {
 	// PlanCache 是计划缓存文件路径（WithPlanCache 写入；空 = 不落盘）。启动期
 	// 记录计划基线，doctor 只读对比；缓存不是执行依据（见 plan_cache.go）。
 	PlanCache string
-
-	// ---- 日志装饰器（logDecoratorsOpt 写入，B7 取消导出：装饰归 provider
-	// 自持——内置 slog Provider 消费本字段，第三方 logger Provider 自持装饰） ----
-	logDecorators []bslog.Option
 
 	// ---- 协议面（WithHTTP/WithGatewayRegister/WithGRPC/WithGRPCOptions
 	// 声明；能力声明在代码，契约 server 段驱动装配） ----

@@ -1,5 +1,5 @@
 // Package contract 提供 openai 后端的契约装配：bootstrapv1.Ai 的 openai 段 →
-// bald/ai/openai Config 映射 + AiRegistry Provider。
+// bald/ai/openai Config 映射 + 构造 func（供段驱动 Provider 的 Build 复用）。
 //
 // 单独成包的原因：openai 包保持零契约依赖（纯 SDK 封装），
 // 只有本包 import bconf——业务按需 import，依赖图全程可见。
@@ -19,11 +19,7 @@ const Type = "openai"
 
 // Provider 按契约 ai.openai 段构造 OpenAI 兼容客户端。
 // 返回的 cleanup 为 nil（客户端无连接池资源）。
-// 仅当 ai.openai 段存在时被 AiRegistry 调度到。
-// 签名与 bootstrap.AiProvider 结构化兼容，直接注册：
-//
-//	ar := bootstrap.NewAiRegistry()
-//	ar.MustRegister(openaicontract.Type, openaicontract.Provider)
+// 供自定义 Provider 的 Build 直接调用。
 func Provider(ctx context.Context, cfg *bootstrapv1.Ai) (any, func(), error) {
 	sec := cfg.GetOpenai()
 	if sec == nil {
@@ -72,5 +68,5 @@ func buildConfig(sec *bootstrapv1.Ai_Openai) (*openai.Config, error) {
 	return cc, nil
 }
 
-// 类型守卫：Provider 签名与 bootstrap.AiProvider 结构化兼容。
+// 类型守卫：Provider 保持构造 func 形状（供 Provider.Build 复用）。
 var _ func(context.Context, *bootstrapv1.Ai) (any, func(), error) = Provider

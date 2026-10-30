@@ -13,7 +13,7 @@
 //     内置日志通道（appkit.StandardLoggerProvider；阶段 A 引导 logger 的
 //     持有者。第三方日志后端经用户 logger Provider 覆盖，段路径末者胜）。
 //
-// 以下各段在原 12 段流里**没有默认接线**，故不进 std（「不多不少」对账）：
+// 以下各段**没有默认接线**，故不进 std：
 //   - registry / database / cache / storage / ai / workflow / broker /
 //     tracer / metrics / config：均为第三方后端域（nacos/etcd、mysql、
 //     redis、minio…或仅远程源描述）——段存在而无 Provider 时由 L3 覆盖

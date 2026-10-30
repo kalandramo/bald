@@ -16,11 +16,10 @@ import (
 
 // reloadableStub 是支持重载的桩，记录 Reload 次数并可注入错误。
 type reloadableStub struct {
-	allow  bool
-	calls  int
-	err    error
-	after  bool // Reload 后 allow 切换为 true
-	closed bool
+	allow bool
+	calls int
+	err   error
+	after bool // Reload 后 allow 切换为 true
 }
 
 func (s *reloadableStub) Authorize(context.Context, string, string, string) (bool, error) {

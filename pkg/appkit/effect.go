@@ -10,11 +10,11 @@
 // 停机（或启动失败回滚）时逆序回放，系统恢复到装配前的干净状态
 // （导出构造面见 pkg/appkit/mech 的 mech.Effect）：
 //
-//	old := audit.GetAuditor()
-//	audit.SetAuditor(storeAuditor)
+//	old := log.GetLogger()
+//	log.SetLogger(myLogger)
 //	app := appkit.NewApp(
-//	    appkit.Effect("audit-gorm", func(ctx context.Context) error {
-//	        audit.SetAuditor(old) // 恢复旧值
+//	    mech.Effect("my-logger", func(ctx context.Context) error {
+//	        log.SetLogger(old) // 恢复旧值
 //	        return nil
 //	    }),
 //	    ...

@@ -9,26 +9,22 @@ import (
 
 	bconf "github.com/kalandramo/bald/bconf"
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
-	baldbootstrap "github.com/kalandramo/bald/bootstrap"
 	"github.com/kalandramo/bald/log"
 )
 
 // 约定装配：阶段 B 构建 → Cache 取用 → 停机 cleanup。
-// Registry 行为测试（注册/段枚举/回滚）已随六域 Registry 迁 bootstrap
-// （bootstrap/cache_test.go，2026-09-15）。
 
 func TestAssemble_ContractCacheLifecycle(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
 
-	// stub 实例（真实 Cache 语义由 cache/<backend>/contract 测试覆盖；
-	// 本测试验证 appkit 生命周期：构建→取用→停机 cleanup）。
+	// stub 实例（真实 Cache 语义由各后端包测试覆盖；本测试验证 appkit
+	// 生命周期：构建→取用→停机 cleanup）。
 	type stubCache struct{ name string }
 	cleaned := false
-	cr := baldbootstrap.NewCacheRegistry()
-	cr.MustRegister("local", func(context.Context, *bootstrapv1.Cache) (any, func(), error) {
-		return &stubCache{name: "local"}, func() { cleaned = true }, nil
-	})
+	prov := stubDomainProvider("cache", "local",
+		func(c *bootstrapv1.BootstrapConfig) bool { return c.GetCache().GetLocal() != nil },
+		&stubCache{name: "local"}, func() { cleaned = true })
 
 	cfg := bconf.NewBootstrap()
 	dynamicAddr(cfg)
@@ -36,7 +32,7 @@ func TestAssemble_ContractCacheLifecycle(t *testing.T) {
 		Local: &bootstrapv1.Cache_Local{Size: 1024 * 1024, DefaultTtlSeconds: 60},
 	}
 
-	a := assembleForTest(t, cfg, WithHTTP(new(http.ServeMux)), cacheTestProvider(cr))
+	a := assembleForTest(t, cfg, WithHTTP(new(http.ServeMux)), prov)
 	// 构造期（阶段 A）尚未装载契约：Cache 为空
 	if _, ok := a.lookup("cache.local"); ok {
 		t.Fatal("Cache should be empty before Run (phase B not reached)")
@@ -72,7 +68,7 @@ func TestAssemble_ContractCacheLifecycle(t *testing.T) {
 	}
 }
 
-// 契约 cache 段存在但未接 CacheRegistry → 阶段 B fail-fast。
+// 契约 cache 段存在但无 cache Provider → 阶段 B fail-fast。
 func TestAssemble_CacheSectionWithoutTable(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
@@ -85,12 +81,12 @@ func TestAssemble_CacheSectionWithoutTable(t *testing.T) {
 
 	a := assembleForTest(t, cfg, WithHTTP(new(http.ServeMux)))
 	err := a.Run(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "no consumer") && strings.Contains(err.Error(), "cache") {
-		t.Fatalf("expected CacheRegistry missing error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "no consumer") || !strings.Contains(err.Error(), "cache") {
+		t.Fatalf("expected no-consumer error for cache, got %v", err)
 	}
 }
 
-// cache 段缺失 → no-op，不要求接注册表。
+// cache 段缺失 → no-op，不要求 Provider。
 func TestAssemble_NoCacheSection(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })

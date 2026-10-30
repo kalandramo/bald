@@ -5,7 +5,8 @@
 //     不绑定任何具体注册中心（etcd/consul/nacos/kubernetes...）；
 //   - 具体后端以直连 SDK 的 provider 形式放 registry/<backend>
 //     （独立 module，依赖隔离，按需 import）；
-//   - 契约装配走 bootstrap.RegistrarRegistry（显式 MustRegister，fail-fast）；
+//   - 契约装配走段驱动 Provider（registry 段；各后端 contract 包导出
+//     AppProvider 或构造 func），或经 appkit.Registrar(...) 显式实例接管；
 //   - 提供内存实现（inmemory）用于开发/测试。
 package registry
 

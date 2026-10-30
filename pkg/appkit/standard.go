@@ -6,7 +6,7 @@
 // pkg/appkit/std 以 Standard() 打包导出（对账表见该包文档）；两个导出构造
 // 器同时允许高级用户单独取用或覆盖单个默认。
 //
-// 成员清单（对账基准 = 原 12 段手工流的实际默认接线，不多不少）：
+// 成员清单（框架内置默认，不多不少）：
 //   - StandardServerProvider：server.http / server.grpc——能力声明在代码
 //     （WithHTTP/WithGatewayRegister/WithGRPC），契约段驱动地址/TLS/driver；
 //   - StandardAuditProvider：audit.backends 的 "log" 项——核心 LoggerAuditor
@@ -14,8 +14,8 @@
 //   - StandardLoggerProvider：logger 段——bslog（标准库 slog）后端，阶段 A
 //     引导 logger 的持有者（B7：默认日志分派删除后的唯一内置通道）。
 //
-// 其余各段（registry/database/.../config/tracer/metrics）在原 12 段流无
-// 默认接线，不设内置 Provider（段存在而无 Provider = L3 启动期报错）。
+// 其余各段（registry/database/.../config/tracer/metrics）没有内置默认接线，
+// 不设内置 Provider（段存在而无 Provider = L3 启动期报错）。
 package appkit
 
 import (
@@ -48,12 +48,12 @@ func StandardAuditProvider() Provider { return stdAuditProvider{} }
 // 成员）。这是日志装配的唯一内置通道（App 层不再有第二个日志路径）：
 //   - 阶段 A（Config=nil，契约装载前）：产出引导 bslog——框架持有的
 //     「引导 logger」，保证启动日志可见；阶段 B 用本 Provider 的契约结果替换；
-//   - 阶段 B/热更：按契约 logger.backends 逐项构造（type=slog 直构 + 装饰器，
-//     多项 MultiLogger 合并，出口包 FilterLogger）；非 slog 项 fail-fast
+//   - 阶段 B/热更：按契约 logger.backends 逐项构造（type=slog 直构，多项
+//     MultiLogger 合并，出口包 FilterLogger）；非 slog 项 fail-fast
 //     教学报错；backends 为空 fail-fast。
 //
-// 装饰器消费 Decl 的内部字段（logDecoratorsOpt 写入）；第三方 logger Provider
-// 自持装饰，经段路径末者胜整体覆盖本 Provider。
+// 需要装饰器或多后端时的自定义 logger Provider 自持装饰，经段路径末者胜
+// 整体覆盖本 Provider。
 func StandardLoggerProvider() Provider { return stdLoggerProvider{} }
 
 // stdLoggerProvider 消费 logger 段。
@@ -65,7 +65,7 @@ func (stdLoggerProvider) Segments() []string { return []string{"logger"} }
 func (stdLoggerProvider) Apply(d *Decl) { d.Providers = append(d.Providers, stdLoggerProvider{}) }
 
 // Plan 声明日志节点：阶段 B 引导位（PriorityLogger 先于其它阶段 B 资源）；
-// 停机 Effect 名与旧 12 段流一致（appkit:bootstrap-logger）。
+// 停机 Effect 名 appkit:bootstrap-logger。
 //
 // 非 Opaque：期望态完全由 logger 契约段派生（ReloadReconcile + DesiredHash），
 // 计划能看到「装配什么」（后端列表/过滤键）——只有后端构造细节是 Provider
@@ -86,11 +86,10 @@ func (stdLoggerProvider) Plan(context.Context, PlanScope) ([]Node, error) {
 // Build 构造日志后端。产物为 log.Logger（引擎 loggerSource 协议消费；
 // cleanup 交 curCleanup 原子换槽——文件/轮转句柄的释放与热更重建不泄漏）。
 func (stdLoggerProvider) Build(_ context.Context, s ApplyScope, _ Node) (any, Cleanup, error) {
-	deco := s.Decl.logDecorators
 	// l==nil：阶段 A（契约装载前）或契约无 logger 段——回退引导 bslog。
 	l := s.Config.GetLogger()
 	if l == nil {
-		return bslog.New(baldbootstrap.LogOptions(nil), deco...), nil, nil
+		return bslog.New(baldbootstrap.LogOptions(nil)), nil, nil
 	}
 	bs := l.GetBackends()
 	if len(bs) == 0 {
@@ -100,7 +99,7 @@ func (stdLoggerProvider) Build(_ context.Context, s ApplyScope, _ Node) (any, Cl
 	var cleanups []func()
 	for i, b := range bs {
 		if b.GetType() == "slog" {
-			lg, c := bslog.NewWithCleanup(baldbootstrap.LogOptions(b), deco...)
+			lg, c := bslog.NewWithCleanup(baldbootstrap.LogOptions(b))
 			loggers = append(loggers, lg)
 			cleanups = append(cleanups, c)
 			continue
@@ -130,8 +129,8 @@ func (stdLoggerProvider) Build(_ context.Context, s ApplyScope, _ Node) (any, Cl
 // ---------------------------------------------------------------------------
 
 // stdServerProvider 消费 server.http / server.grpc 段（引擎按顶层段
-// "server" 归入迟后阶段）。原 assemble 内部「能力声明 → 注册 provider →
-// BuildServers」流的 Provider 化，行为逐条一致。
+// "server" 归入迟后阶段）：能力声明（WithHTTP/WithGRPC）决定构造哪些协议面，
+// 契约段只驱动地址/TLS/driver。
 type stdServerProvider struct{}
 
 func (stdServerProvider) Segments() []string { return []string{"server.http", "server.grpc"} }
@@ -157,10 +156,10 @@ func (stdServerProvider) Plan(context.Context, PlanScope) ([]Node, error) {
 	}}, nil
 }
 
-// Build 按能力声明构造协议服务器（gRPC 先于 HTTP——与旧 BuildServers 的
-// 注册名排序 "grpc" < "http" 一致，保持服务器列表序与停机聚合序不变）。
-// 产物为 []transport.Server（零能力声明 = 空切片，跳过构造合法：纯后台
-// 进程）；cleanup 聚合逆序释放（后建先收，与 runClosers 栈式语义一致）。
+// Build 按能力声明构造协议服务器（gRPC 先于 HTTP：保持服务器列表序与停机
+// 聚合序稳定）。产物为 []transport.Server（零能力声明 = 空切片，跳过构造
+// 合法：纯后台进程）；cleanup 聚合逆序释放（后建先收，与 runClosers 栈式
+// 语义一致）。
 func (p stdServerProvider) Build(ctx context.Context, s ApplyScope, _ Node) (any, Cleanup, error) {
 	d := s.Decl
 	if d.HTTPHandler == nil && d.GatewayRegister == nil && d.GRPCRegister == nil {
@@ -277,8 +276,7 @@ func (stdAuditProvider) Plan(context.Context, PlanScope) ([]Node, error) {
 // Build 按契约 audit.backends 列表装配审计后端（多选，列表序即广播序）。
 // "log" 内置；其余项 fail-fast 教学报错（std 不含第三方后端——经用户
 // audit Provider 接管）。多后端组装、失败逆序回滚收敛在 pkg/audit.Compose。产物为 audit.Auditor，
-// 落资源面并作 appkit 自身审计事件的
-// 兜底 sink（B8：全局 SetAuditor 已删除）——见 storeProduct。
+// 落资源面并作 appkit 自身审计事件的兜底 sink——见 storeProduct。
 func (stdAuditProvider) Build(ctx context.Context, s ApplyScope, _ Node) (any, Cleanup, error) {
 	acfg := s.Config.GetAudit()
 	if acfg == nil {

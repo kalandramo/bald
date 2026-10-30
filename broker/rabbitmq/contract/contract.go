@@ -1,5 +1,5 @@
 // Package contract 提供 rabbitmq 后端的契约装配：bootstrapv1.Broker 的 rabbitmq
-// 段 → broker.Option 映射 + BrokerRegistry Provider。
+// 段 → broker.Option 映射 + 构造 func（供段驱动 Provider 的 Build 复用）。
 //
 // 单独成包的原因：rabbitmq 实现保持零契约依赖（纯 SDK 封装），
 // 只有本包 import bconf——业务按需 import，依赖图全程可见。
@@ -21,11 +21,7 @@ import (
 const Type = "rabbitmq"
 
 // Provider 按契约 broker.rabbitmq 段构造 RabbitMQ Broker 并建立连接。
-// 返回的 cleanup 断开连接并清理订阅者。仅当 broker.rabbitmq 段存在时被
-// BrokerRegistry 调度到。签名与 bootstrap.BrokerProvider 结构化兼容，直接注册：
-//
-//	br := bootstrap.NewBrokerRegistry()
-//	br.MustRegister(rabbitmqcontract.Type, rabbitmqcontract.Provider)
+// 返回的 cleanup 断开连接并清理订阅者。供自定义 Provider 的 Build 直接调用。
 //
 // 字段消费：url=连接地址（缺 amqp:// 前缀自动补）、username/password=凭证
 // （URL 无 userinfo 时注入）、exchange=默认 exchange、queue=默认订阅队列。
@@ -87,5 +83,5 @@ func injectCredentials(rawURL, username, password string) (string, error) {
 	return u.String(), nil
 }
 
-// 类型守卫：Provider 签名与 bootstrap.BrokerProvider 结构化兼容。
+// 类型守卫：Provider 保持构造 func 形状（供 Provider.Build 复用）。
 var _ func(context.Context, *bootstrapv1.Broker) (any, func(), error) = Provider

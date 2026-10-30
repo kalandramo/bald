@@ -18,7 +18,6 @@ import (
 
 	bconf "github.com/kalandramo/bald/bconf"
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
-	"github.com/kalandramo/bald/bootstrap"
 	baldconfig "github.com/kalandramo/bald/bootstrap/config"
 	log "github.com/kalandramo/bald/log"
 	"github.com/kalandramo/bald/transport"
@@ -84,13 +83,12 @@ func TestAssemble_NoErrorWhenAllConsumed(t *testing.T) {
 	cfg.Database = &bootstrapv1.Database{
 		Sql: &bootstrapv1.Database_SQL{Driver: "sqlite", Source: ":memory:"},
 	}
-	dr := bootstrap.NewDatabaseRegistry()
-	dr.MustRegister("sql", func(context.Context, *bootstrapv1.Database) (any, func(), error) {
-		return "db", nil, nil
-	})
+	prov := stubDomainProvider("database", "sql",
+		func(c *bootstrapv1.BootstrapConfig) bool { return c.GetDatabase().GetSql() != nil },
+		"db", nil)
 
 	a := assembleForTest(t, cfg,
-		dbTestProvider(dr), StandardServerProvider())
+		prov, StandardServerProvider())
 	runBriefly(t, a, 50*time.Millisecond)
 }
 
@@ -103,17 +101,14 @@ func TestAssemble_ErrorsScriptFromConfigLayer(t *testing.T) {
 	cfg := bconf.NewBootstrap()
 	dynamicAddr(cfg)
 
-	reg := bootstrap.NewConfigRegistry()
-	reg.MustRegister("fake", func(context.Context, *bootstrapv1.BootstrapConfig) (*baldconfig.Layer, func(), error) {
-		return &baldconfig.Layer{
-			Name:   "fake",
-			Reader: &fakeReader{data: []byte("script:\n  options:\n    enabled: true\n")},
-		}, nil, nil
-	})
+	prov := stubConfigProvider([]baldconfig.Layer{{
+		Name:   "fake",
+		Reader: &fakeReader{data: []byte("script:\n  options:\n    enabled: true\n")},
+	}}, nil)
 
 	a := assembleForTest(t, cfg,
 		WithHTTP(new(http.ServeMux)),
-		configTestProvider(reg), StandardServerProvider())
+		prov, StandardServerProvider())
 	runExpectErr(t, a, "no consumer", "script")
 }
 

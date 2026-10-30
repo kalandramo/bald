@@ -1,18 +1,15 @@
 // Package contract 提供 grpc-gateway 转码面的契约装配：bootstrapv1.Server 的
-// gateway 段 → gateway.NewGatewayServer + 契约驱动的 ServerProvider。
+// gateway 段 → gateway.NewGatewayServer + 构造 func（供 server.gateway 段
+// Provider 的 Build 复用）。
 //
 // 单独成包的原因：transport/gateway 保持零契约依赖（核心不依赖 grpc-gateway），
 // 只有本包 import bconf——业务按需 import，依赖图全程可见。
 //
-// ## 为什么需要这个子包（本该用 server.http.driver 的场景）
+// 拓扑定位：server.http.driver = "grpc-gateway" 是「同一端口二选一」模式
+// （HTTP 端口即转码面，gin 主面被替代）；server.gateway 段（独立 addr +
+// backend_grpc_addr）表达「gin 主面 + 独立转码面并存」的拓扑。
 //
-// 契约 server.http.driver = "grpc-gateway" 是「**同一端口二选一**」模式：HTTP
-// 端口即转码面，gin 主面被替代。但「gin 主面 + 独立转码面并存」的拓扑（如
-// bald-admin 的 :8080 gin + :8081 转码）表达不了，此前只能走 WithExtraServers
-// 逃生舱。server.gateway 段（独立 addr + backend_grpc_addr）为此拓扑提供声明式
-// 表达——本 Provider 即其装配实现。
-//
-// 与 bootstrap 的关系：本包**不** import bootstrap（Provider 返回结构化兼容签名，
+// 与 bootstrap 的关系：本包不 import bootstrap（Provider 返回未命名函数类型，
 // 用 var _ 守卫）。
 package contract
 
@@ -38,8 +35,8 @@ type RegisterFunc func(ctx context.Context, conn *grpc.ClientConn) (http.Handler
 
 // Provider 返回契约驱动的 gateway 工厂函数。
 //
-// 返回**未命名函数类型**（与 cache/redis/contract.Provider 同惯例）——调用点可直接
-// 赋给 bootstrap.ServerProvider，无需显式转换，且本包不必 import bootstrap。
+// 返回**未命名函数类型**——调用方在 server.gateway 段 Provider 的 Build 中
+// 直接调用，无需显式类型转换，本包也不必 import bootstrap。
 //
 // register 必供：它是转码面的**业务内容**（哪些 service 暴露为 REST），契约段
 // 的声明式字段表达不了。为 nil 时构造期 fail-fast——配置声明了 gateway 段却
@@ -80,5 +77,6 @@ func Provider(register RegisterFunc) func(context.Context, *bootstrapv1.Server) 
 	}
 }
 
-// 类型守卫：Provider 返回的签名与 bootstrap.ServerProvider 结构化兼容。
+// 类型守卫：Provider 保持构造 func 形状（供 server.gateway 段 Provider 的
+// Build 调用）。
 var _ func(context.Context, *bootstrapv1.Server) (transport.Server, func(), error) = Provider(nil)

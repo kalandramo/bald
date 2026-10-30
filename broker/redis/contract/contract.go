@@ -1,5 +1,5 @@
 // Package contract 提供 redis 后端的契约装配：bootstrapv1.Broker 的 redis
-// 段 → broker.Option 映射 + BrokerRegistry Provider。
+// 段 → broker.Option 映射 + 构造 func（供段驱动 Provider 的 Build 复用）。
 //
 // 单独成包的原因：redis 实现保持零契约依赖（纯 SDK 封装），
 // 只有本包 import bconf——业务按需 import，依赖图全程可见。
@@ -22,11 +22,8 @@ import (
 const Type = "redis"
 
 // Provider 按契约 broker.redis 段构造 Redis Broker（默认 pubsub 驱动）并连接。
-// 返回的 cleanup 断开连接。仅当 broker.redis 段存在时被 BrokerRegistry 调度到。
-// 签名与 bootstrap.BrokerProvider 结构化兼容，直接注册：
-//
-//	br := bootstrap.NewBrokerRegistry()
-//	br.MustRegister(rediscontract.Type, rediscontract.Provider)
+// 返回的 cleanup 断开连接。同包 AppProvider 的 Build 复用本函数；自定义
+// Provider 的 Build 也可直接调用。
 //
 // 契约段为 Pub/Sub 形状（address/password/db）；Stream 驱动为能力层，
 // 业务可用 redis.NewBroker(option.DriverTypeStream, ...) 显式选择。
@@ -74,5 +71,5 @@ func buildDialURL(addr, password string, db int) string {
 	return u.String()
 }
 
-// 类型守卫：Provider 签名与 bootstrap.BrokerProvider 结构化兼容。
+// 类型守卫：Provider 保持构造 func 形状（供 Provider.Build 复用）。
 var _ func(context.Context, *bootstrapv1.Broker) (any, func(), error) = Provider

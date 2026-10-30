@@ -38,18 +38,6 @@ func (s *stubLayerReader) push(doc string) {
 	}
 }
 
-// waitFor 轮询等待条件成立（最多 1s），避免热更新时序竞态。
-func waitFor(t *testing.T, cond func() bool, msg string) {
-	t.Helper()
-	for i := 0; i < 200; i++ {
-		if cond() {
-			return
-		}
-		sleepMs(5)
-	}
-	t.Fatal(msg)
-}
-
 // TestLoad_Layers_MergePriority：列表首元素优先级最高 + 字段级合并。
 // first 层覆盖 second 层的重叠键；second 独有键保留——这是 FallbackReader
 // 回退语义做不到的字段级合并，是层模型的直接证据。

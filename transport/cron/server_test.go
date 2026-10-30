@@ -3,53 +3,9 @@ package cron
 import (
 	"context"
 	"log"
-	"os"
-	"os/signal"
-	"syscall"
 	"testing"
 	"time"
 )
-
-func TestServer(t *testing.T) {
-	if testing.Short() {
-		t.Skip("manual test: blocks on signal")
-	}
-	interrupt := make(chan os.Signal, 1)
-	signal.Notify(interrupt, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
-
-	// 创建 cron 服务
-	srv := NewServer()
-
-	// 在 Start 前注册任务（推荐）
-	// 每 10 秒执行一次
-	_, _ = srv.NewTimerJob("*/10 * * * * *", func() {
-		log.Println("task run every 10 seconds")
-	})
-
-	// 每分钟执行一次
-	_, _ = srv.NewTimerJob("0 */1 * * * *", func() {
-		log.Println("task run every minute")
-	})
-
-	// 每 5 秒执行一次（描述符写法）
-	_, _ = srv.NewTimerJob("@every 5s", func() {
-		log.Println("task run every 5 seconds (descriptor)")
-	})
-
-	log.Printf("registered %d jobs", srv.GetJobCount())
-
-	defer func() {
-		if err := srv.Stop(t.Context()); err != nil {
-			t.Errorf("expected nil got %v", err)
-		}
-	}()
-
-	if err := srv.Start(t.Context()); err != nil {
-		t.Fatalf("srv.Start failed: %v", err)
-	}
-
-	<-interrupt
-}
 
 func TestAddRemoveJob(t *testing.T) {
 	srv := NewServer()

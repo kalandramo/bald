@@ -19,18 +19,16 @@ import (
 // AppProvider 返回消费契约 registry.etcd 段的 appkit.Provider（段路径
 // "registry.etcd"；段缺失即被引擎跳过，合法）。
 //
-// 命名说明（store-gorm 同例）：本包既有 Provider（RegistrarRegistry 形状
-// 的注册 func）占用 Provider 标识符且保留不动，故段驱动装配的导出名取
-// AppProvider。
+// 命名说明（store-gorm 同例）：本包既有 Provider（契约段构造 func）占用
+// Provider 标识符且保留不动，故段驱动装配的导出名取 AppProvider。
 //
 // Build 语义：registry.etcd 段在 → 经既有 Provider 构造（endpoints 必填，
 // clientv3 拨号失败 fail-fast）→ 产物 registry.Registrar 落引擎注册中心位
 // （storeProduct 的顶层段约定）→ cleanup 关闭 client（Deregister 先于它
 // 回放，顺序安全）。
 //
-// 与旧 RegistrarRegistry 的语义差异：旧流按 registry.type == "etcd" 分派，
-// 段驱动按**子段存在性**分派（registry.etcd 段在即建）——「不启用」的表达
-// 是移除对应子段。
+// 启用的表达是**子段存在性**（registry.<backend> 段在即建），「不启用」即
+// 移除对应子段——与 registry.type 字段无关。
 func AppProvider() appkit.Provider { return appProvider{} }
 
 // appProvider 消费 registry.etcd 段。

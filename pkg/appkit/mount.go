@@ -122,9 +122,9 @@ func (a *App) ListComponents() []string {
 	return names
 }
 
-// resolveAuditor 返回 appkit 自身审计事件的接收后端：显式注入（auditorOpt）
-// 优先，其次契约 audit 段产物（storeProduct 兜底写入），最终 Nop——永不返回
-// nil。D4 单一解析顺序；B8 起不再读全局 audit.GetAuditor()（已删除）。
+// resolveAuditor 返回 appkit 自身审计事件的接收后端，解析顺序固定为：
+// 显式注入（auditorOpt）→ 契约 audit 段产物（storeProduct 兜底写入）→ Nop。
+// 永不返回 nil。
 func (a *App) resolveAuditor() audit.Auditor {
 	if a.auditor != nil {
 		return a.auditor
