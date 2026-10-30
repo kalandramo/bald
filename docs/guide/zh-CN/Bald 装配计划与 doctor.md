@@ -64,11 +64,12 @@ plan hash: 162e34f4...
 - **`opaque`**：该节点没有声明式依赖拓扑，按 legacy 顺序执行。域在声明 `Domain.Declare` 之前整块是 Opaque；只声明拓扑、构造仍归 `Wire`/`Routes`/`Services` 时塌缩成一个 `domain.<name>.wire` Opaque 节点；迁到 `Domain.ApplyNode`（按计划序逐节点执行）后不再产生兼容节点，域贡献的逃逸舱归零（设计 §4.6）。
 - **`segments=`**：节点读取的契约段路径；`segments:` 汇总里 `consumers=` 为空且未白名单的段会在启动期报错。声明域节点既可挂框架段（`server.http` 这类 `BootstrapConfig` 字段路径），也可挂业务配置段 `biz.<path>`——后者把域自有配置带进 `reload=reconcile` 节点的期望态（计划期从合并 Settings 快照取子树算摘要，配置变更即触发 `Domain.Reconcile`）。`biz.<path>` 同样出现在 `segments:` 汇总（标注消费者），但不参与契约段覆盖检查。
 - **`reload=`**：节点级重载策略，决定配置热更时协调还是重报。`reconcile` 节点必须有人能重建它的实际态：Provider 节点由同一 Provider 重跑 `Build`，域声明节点由 `Domain.Reconcile` 承担——声明了 `ReloadReconcile` 却没给钩子（或没给 `Wire`/`ApplyNode`、没声明段）的域在计划期直接报错；Provider 也只有 bootstrap 阶段的节点注册了协调器（logger 走专用热更协议），config/server 段节点声明 `reconcile` 同样计划期报错，不留「永远 Stale」的假节点（见 [机制层 mech](./机制层%20mech%20-%20Effect%20与期望态.md)）。
-- **`imperative:`**：不参与拓扑的命令式槽位（`effect` / `keyWatch` / `reconcile`，来自 `mech.*` 声明）。闭包不可排序、不可分析，但计划不隐藏它们——配置热更订阅者与停机效果在 `--plan` 与 `doctor` 里都有名可查（设计 §6 的 Data/Imperative 分区落点）：
+- **`imperative:`**：不参与拓扑的命令式槽位（`effect` / `keyWatch` / `reconcile` 来自 `mech.*` 声明；`hook` 是 `BeforeStart`/`AfterStart`/`BeforeStop`/`AfterStop` 生命周期钩子，按声明序编号）。闭包不可排序、不可分析，但计划不隐藏它们——配置热更订阅者、停机效果与生命周期钩子在 `--plan` 与 `doctor` 里都有名可查（设计 §6 的 Data/Imperative 分区落点）：
 
   ```
   imperative:
     effect       cleanup-db
+    hook         beforeStart[0]
     keyWatch     server.http
     reconcile    logger
   ```
@@ -136,7 +137,7 @@ gen: run `bald gen app --check` and `bald gen domain --check` in the generated t
 | `opaque: ...` | 逃逸舱逐个列名——白盒化 legacy 部分；`WithOpaqueBudget(n)` 超预算时在 `warnings` 出现 `opaque-budget` |
 | `domains` | 业务域迁移进度：`declared` = 用 `Domain.Declare` 声明拓扑的域，`legacy` = 整块 Opaque 的域（设计 §4.6 的量化口径） |
 | `override: key (reason)` | 显式覆盖的节点与其理由 |
-| `imperative` | 命令式槽位清单（`effect` / `keyWatch` / `reconcile`）——与 `--plan` 同源，闭包不隐身 |
+| `imperative` | 命令式槽位清单（`effect` / `keyWatch` / `reconcile` / `hook`）——与 `--plan` 同源，闭包不隐身 |
 | `segments` 分组 | `consumed` 有消费者；`whitelisted` 经 `WithUnimplementedSegments` 豁免；`framework` 框架无条件消费；`unconsumed` 非空即启动失败 |
 | `build tags` | 构建期 `-tags`（`debug.ReadBuildInfo` 读取），用于解释 build tag 分叉 |
 | `warnings` | 与 `--plan` 同源的全部诊断（含 `override` / `whitelisted` / `opaque-budget` / `ambient`） |

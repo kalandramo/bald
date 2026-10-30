@@ -8,14 +8,16 @@ import (
 )
 
 // TestPlan_ImperativeSlotsVisible 钉住 §6 的 Data/Imperative 分区落点：闭包
-// 不参与排序，但 effect/keyWatch/reconcile 声明必须在计划里可见（否则 --plan
-// 漏报配置热更订阅者与停机效果）。
+// 不参与排序，但 effect/keyWatch/reconcile/hook 声明必须在计划里可见（否则
+// --plan 漏报配置热更订阅者、停机效果与生命周期钩子）。
 func TestPlan_ImperativeSlotsVisible(t *testing.T) {
 	p, err := Compile(context.Background(),
 		ConfigFile(writePlanConfig(t, "imperative", "")),
 		effectOpt("cleanup-db", func(context.Context) error { return nil }),
 		onKeyChangeOpt("server.http", func(_, _ string) {}),
 		reconcileOpt("logger", func(context.Context, *ReconcileCtx) error { return nil }),
+		BeforeStart(func(context.Context) error { return nil }),
+		AfterStop(func(context.Context) error { return nil }),
 	)
 	if err != nil {
 		t.Fatalf("Compile: %v", err)
@@ -23,6 +25,8 @@ func TestPlan_ImperativeSlotsVisible(t *testing.T) {
 
 	want := []Imperative{
 		{Kind: "effect", Name: "cleanup-db"},
+		{Kind: "hook", Name: "afterStop[0]"},
+		{Kind: "hook", Name: "beforeStart[0]"},
 		{Kind: "keyWatch", Name: "server.http"},
 		{Kind: "reconcile", Name: "logger"},
 	}
@@ -32,7 +36,10 @@ func TestPlan_ImperativeSlotsVisible(t *testing.T) {
 
 	var out strings.Builder
 	p.Explain(&out)
-	for _, line := range []string{"imperative:", "effect       cleanup-db", "keyWatch     server.http", "reconcile    logger"} {
+	for _, line := range []string{
+		"imperative:", "effect       cleanup-db", "hook         beforeStart[0]",
+		"hook         afterStop[0]", "keyWatch     server.http", "reconcile    logger",
+	} {
 		if !strings.Contains(out.String(), line) {
 			t.Errorf("plan output missing %q:\n%s", line, out.String())
 		}

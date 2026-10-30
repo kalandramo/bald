@@ -190,8 +190,8 @@ type AppMeta struct {
 }
 
 // Imperative 是 Decl 中命令式槽位在计划里的可见化（§6 Data/Imperative 分区）：
-// 闭包不参与排序、不可分析，但必须可见——否则 --plan 会漏报配置热更订阅者
-// 与停机效果。只记录种类与声明名/键，不假装它们是数据节点。
+// 闭包不参与排序、不可分析，但必须可见——否则 --plan 会漏报配置热更订阅者、
+// 停机效果与生命周期钩子。只记录种类与声明名/键/序号，不假装它们是数据节点。
 type Imperative struct {
 	Kind string `json:"kind"`
 	Name string `json:"name,omitempty"`
@@ -391,8 +391,9 @@ func planFrom(ctx context.Context, d *Decl, cfg *bootstrapv1.BootstrapConfig, se
 		})
 	}
 
-	// 命令式槽位可见化（effect/keyWatch/reconcile）：闭包不进节点拓扑，但
-	// 计划必须如实列出声明——配置热更订阅者与停机效果不因「不可分析」而消失。
+	// 命令式槽位可见化（effect/keyWatch/reconcile/hook）：闭包不进节点拓扑，
+	// 但计划必须如实列出声明——配置热更订阅者、停机效果与生命周期钩子不因
+	//「不可分析」而消失（P1：BeforeStart 等函数字段让「会起什么」不可回答）。
 	// 按 (Kind, Name) 排序，保持置换不变性。
 	for _, e := range d.Effects {
 		p.Imperative = append(p.Imperative, Imperative{Kind: "effect", Name: e.Name})
@@ -402,6 +403,23 @@ func planFrom(ctx context.Context, d *Decl, cfg *bootstrapv1.BootstrapConfig, se
 	}
 	for _, r := range d.Reconciles {
 		p.Imperative = append(p.Imperative, Imperative{Kind: "reconcile", Name: r.Name})
+	}
+	// 钩子按声明序编号：钩子顺序本身是执行语义（前后钩子逆序回放），索引
+	// 是它在计划里的稳定身份。
+	for _, h := range []struct {
+		name string
+		fns  []func(context.Context) error
+	}{
+		{"beforeStart", d.BeforeStart},
+		{"afterStart", d.AfterStart},
+		{"beforeStop", d.BeforeStop},
+		{"afterStop", d.AfterStop},
+	} {
+		for i := range h.fns {
+			p.Imperative = append(p.Imperative, Imperative{
+				Kind: "hook", Name: fmt.Sprintf("%s[%d]", h.name, i),
+			})
+		}
 	}
 	sort.Slice(p.Imperative, func(i, j int) bool {
 		if p.Imperative[i].Kind != p.Imperative[j].Kind {
