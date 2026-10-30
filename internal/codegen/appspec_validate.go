@@ -31,6 +31,11 @@ var componentKinds = map[string]bool{
 // 里的字符串字面量，限定为小写标识符形状，避免诊断/文件口径随命名漂移。
 var variantNameRe = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
+// variantTagRe 限定单个 build tag 的形状（Go 构建约束允许字母、数字、下划线
+// 与点）。逗号、空格与 ! / && / || 都是表达式语法：生成物按「列表包含该项」
+// 判定命中，这类写法永远不命中且不报错——必须在生成期拒绝。
+var variantTagRe = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.]*$`)
+
 // gatewayDriver 是「gateway 快捷方式」的契约投影值：同端口单面语义
 // （server.http.driver = "grpc-gateway"，与 WithGatewayRegister 的既有
 // 约定一致；独立端口拓扑用契约段 server.gateway，不经快捷方式）。
@@ -174,12 +179,19 @@ func validateAppSpec(as *appspecv1.AppSpec) []error {
 		}
 		seenTag := map[string]bool{}
 		for j, t := range tags {
-			if strings.TrimSpace(t) == "" {
+			switch {
+			case strings.TrimSpace(t) == "":
 				add("variants[%d].build_tags[%d] is empty", i, j)
 				continue
-			}
-			if strings.TrimSpace(t) != t {
+			case strings.TrimSpace(t) != t:
 				add("variants[%d].build_tags[%d] %q has surrounding whitespace", i, j, t)
+				continue
+			case !variantTagRe.MatchString(t):
+				// 生成物的命中判据是「构建 tag 列表包含这一项」：带逗号会被
+				// BuildTags 拆成两项、带 ! / && 则永远不等于任何单项——两种
+				// 写法都会静默不命中，必须在生成期拒绝而不是靠建错树发现。
+				add("variants[%d].build_tags[%d] %q is not a single build tag (expressions such as \"a,b\", \"!a\" or \"a&&b\" are not supported; declare one tag per entry, all entries must match)", i, j, t)
+				continue
 			}
 			if seenTag[t] {
 				add("variants[%d].build_tags[%d] %q is duplicated", i, j, t)

@@ -642,7 +642,7 @@ message Variant {
 
 - 生成 `internal/bootstrap/variants.gen.go`（仅 `variants` 非空时落盘）：`variantOptions()` 在运行期读 `appkit.BuildTags()`（`debug.ReadBuildInfo` 的 `-tags`，与 `doctor` 的 `build tags` 行同源），用 `appkit.HasBuildTags` 判定命中，命中的变体逐个 `appkit.WithAmbient`；`assemble.gen.go` 在 `Options()` 返回前展开它。
 - **不按 `//go:build` 分文件**：早期草案给每个变体生成一个带构建约束的文件并各自导出 `options()`，同一组 tag 命中多个变体（如 `grpcgw` 与 `grpcgw,nacos`）时会在同一包里重复定义符号。运行期判定天然允许多个变体同时命中，按声明序全部投影，Subject 区分身份。
-- 生成期校验（Gate1）：`name` 必填、匹配 `^[a-z][a-z0-9_]*$`、全应用唯一；`build_tags` 非空，逐项非空、无首尾空白、不重复。产物纳入 `--check`/`--adopt`，双跑逐字节一致；未声明 `variants` 的树不落该文件、`assemble.gen.go` 也不出现调用（逐个字节与引入前一致）。
+- 生成期校验（Gate1）：`name` 必填、匹配 `^[a-z][a-z0-9_]*$`、全应用唯一；`build_tags` 非空，逐项非空、无首尾空白、不重复，且必须是**单个 tag**（匹配 `^[A-Za-z0-9_][A-Za-z0-9_.]*$`）——`"a,b"`、`"!a"`、`"a&&b"` 这类表达式会被拒绝：命中判据是「构建 tag 列表包含这一项」，表达式永远不命中且不报错，属于静默失效。产物纳入 `--check`/`--adopt`，双跑逐字节一致；未声明 `variants` 的树不落该文件、`assemble.gen.go` 也不出现调用（逐个字节与引入前一致）。
 - 计划口径：带对应 tag 的构建里，`Plan.Warnings` 出现 `ambient` 诊断（Subject = `variant:<name>`）；不带 tag 的构建不出现。CI 至少对每个变体各跑一次 `--plan`。变体**不产生节点**——它声明的仍是「计划外的注入」，首批只把可见性从手写 `init()` 挪进声明；不改变装配。
 - 框架测试：`TestGenApp_VariantsProjectedToAmbient`（产物内容 + 默认说明 + `--check` 零差异 + 未声明不落盘）、`TestGenApp_VariantsPrunedWhenUndeclared`（声明移除后 `--adopt` 删旧 `variants.gen.go`、`assemble.gen.go` 不再引用）、`TestTree_VariantsProjectedAtRuntime`（同一棵树分别 `-tags grpcgw` / 不带 tag 构建并跑 `doctor`：前者出现 `ambient [variant:grpcgw]`、后者不出现）、`TestGate1_Variants`（名/标签各条拒绝）、`TestHasBuildTags`（命中判据）。
 

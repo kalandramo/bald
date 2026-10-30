@@ -206,6 +206,8 @@ func TestGate1_Variants(t *testing.T) {
 	valid := guardFixture()
 	valid.Variants = []*appspecv1.Variant{{
 		Name: "grpcgw", BuildTags: []string{"grpcgw"}, Description: "d",
+	}, {
+		Name: "linux_amd64", BuildTags: []string{"linux", "amd64", "go1.27"},
 	}}
 	if errs := validateAppSpec(valid); len(errs) != 0 {
 		t.Fatalf("valid variants must pass Gate1: %v", errs)
@@ -245,6 +247,18 @@ func TestGate1_Variants(t *testing.T) {
 		"duplicate tag": {
 			[]*appspecv1.Variant{{Name: "grpcgw", BuildTags: []string{"grpcgw", "grpcgw"}}},
 			`variants[0].build_tags[1] "grpcgw" is duplicated`,
+		},
+		"comma expression": {
+			[]*appspecv1.Variant{{Name: "grpcgw", BuildTags: []string{"grpcgw,nacos"}}},
+			`"grpcgw,nacos" is not a single build tag`,
+		},
+		"negation expression": {
+			[]*appspecv1.Variant{{Name: "grpcgw", BuildTags: []string{"!nacos"}}},
+			`"!nacos" is not a single build tag`,
+		},
+		"conjunction expression": {
+			[]*appspecv1.Variant{{Name: "grpcgw", BuildTags: []string{"grpcgw&&nacos"}}},
+			`"grpcgw&&nacos" is not a single build tag`,
 		},
 	}
 	for name, tc := range cases {
