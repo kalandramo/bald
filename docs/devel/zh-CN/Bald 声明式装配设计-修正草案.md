@@ -620,8 +620,32 @@ bald doctor --config configs/bald-demo-api.yaml
 | Q4 | 收敛首版覆盖哪些资源？ | logger/audit/组件；DB/cache/storage 仅 `ReloadRestart` |
 | Q5 | 路由是否由生成器接管？ | 是，默认生成；`--no-routes` 保留自定义。**可见性已落**（2026-10-30）：`Domain.RouteTable` → `Plan.Routes`（`--plan`/`doctor` 可见、置换不变、跨域同路由计划期报错、gin 挂不上去的形态——通配参数名不一致、catch-all 与更长路径并存、未命名/位置非法的通配符——同样计划期报错、手写 `Routes` 无清单给 `custom-routes` 警告）；**绑定生成已落为 opt-in**（`--rest-bind`，2026-10-30：注解 → gin 路由 + 服务接口 + protojson 编解码；同批注解另出 `internal/<apiserver_dir>/routes/<d>.gen.go` 的 `appkit.Route` 清单，域引用 `RouteTable: routes.<Name>` 即获计划可见性）；**逃逸面已落**（`--rest-bind --no-routes`：只产绑定、清单自持）；**前置校验已落**（2026-10-30：生成期读消费者 `go.mod`，缺 `github.com/kalandramo/bald/transport/web` 直接报错并给 `go get` 修法，不再产出编译不过的树）；**默认生成未做**——实测前置未满足：夹具/未跑 `buf generate` 的真实树缺 proto Go 包（绑定文件 import 其 `go_package`），默认开启必然在编译期爆炸；待消费方流水线保证 proto 产物与 `transport/web` 依赖后再议。可见性口径：清单一域自持 REST 面，非域路由不在其中 |
 | Q6 | `AppSpec` 快捷方式何时移除？ | v0.28；投影门已运行两个版本。移除的前置——契约层可离线再生——已就绪（2026-10-30：`bconf/buf.gen.local.yaml` 与远端插件产物逐字节一致，`TestGeneratedMatchesProto` 钉住）；剩余是 bconf 破坏性契约变更的版本/发布决策（owner） |
-| Q7 | build tag 分叉如何进入声明？ | 短期计划中记录 `Ambient` 并警告——**已落**（`WithAmbient`，2026-10-29：示例 `-tags grpcgw`/`nacos` 经 `init()` 登记，`--plan`/`doctor` 出现 `ambient` 警告）；长期进 AppSpec `variants`（未做） |
+| Q7 | build tag 分叉如何进入声明？ | 短期计划中记录 `Ambient` 并警告——**已落**（`WithAmbient`，2026-10-29：示例 `-tags grpcgw`/`nacos` 经 `init()` 登记，`--plan`/`doctor` 出现 `ambient` 警告）；长期进 AppSpec `variants`（**草案见 §8.3**；未实现） |
 | Q8 | 域自有业务配置（`biz` 段）如何进入可协调节点的期望态？ | **已落**（2026-10-30，按草案实现）：`Node.Segments` 接受 `biz.<path>`，计划期从合并 Settings 快照按完整点路径取子树、JSON 确定性序列化算 `DesiredHash`（段缺失/有值可区分）；`Domain.Declare` 校验纳入 biz 段，`Domain.Reconcile` 在热更时按新快照协调。快照口径：`Compile`/`--plan` 为文件 + env，真实启动/热更为含 flag 的完整合并 |
+
+### 8.3 Q7 长期形态草案：`AppSpec.variants`（待裁决）
+
+目标：build tag 分叉从「手写 `init()` + `WithAmbient`」升级为声明，生成器物化带构建约束的接线；`Ambient` 退化为迁移期的手写逃逸舱。
+
+草案形状（bconf 增量字段，不破坏既有 spec）：
+
+```proto
+message Variant {
+  string name = 1;               // 稳定身份：生成文件名、ambient Subject 都用它
+  repeated string build_tags = 2; // 生效的 tag 组合（全部满足）
+  string description = 3;        // 人读说明 → ambient 诊断的 Detail
+}
+// AppSpec 增加：repeated Variant variants = <N>;
+```
+
+生成与计划口径：
+
+- 每个变体生成 `internal/bootstrap/variants/<name>.gen.go`，文件头 `//go:build <tags>`，导出 `func options() []appkit.Option`（返回 `appkit.WithAmbient(...)`）；`Assemble` 无条件展开该函数，未带 tag 的构建得到空切片——不用 `init()` 改写全局状态。
+- 生成期校验：`name` 唯一且非空、`build_tags` 非空、tag 组合不与默认构建互斥到不可达；产物纳入 `--check`/`--adopt`，双跑字节一致。
+- 计划口径：带对应 tag 的构建里，`Plan.Warnings` 出现 `ambient` 诊断（Subject = `variant:<name>`）；不带 tag 的构建不出现。CI 至少对每个变体各跑一次 `--plan`。
+- 迁移：示例删除 `register_grpcgw.go` / `register_nacos.go` 的 `init()`，改为 spec 声明两个 variant；`WithAmbient` 保留一个版本，供尚未入 spec 的注入使用。
+
+未决点（owner）：tag 表达力是否允许逻辑组合（`grpcgw && !nacos`）、变体是否允许覆盖 bootstrap 段（首批建议只声明可见性、不覆盖装配），以及 `variants` 与 `--plan` 缓存基线的对账口径。
 
 ---
 
