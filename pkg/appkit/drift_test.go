@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -232,6 +233,29 @@ func (p reconcileProbeProvider) Build(context.Context, ApplyScope, Node) (any, C
 		close(p.first)
 	}
 	return nil, nil, nil
+}
+
+// 协调器只在阶段 B 注册：config/server 段的 Provider 节点声明 reconcile
+// 将来只会得到一个永远 Missing 的漂移记录——计划期即拒绝。
+func TestPlan_RejectsReconcileOnNonBootstrapProvider(t *testing.T) {
+	configProvider := segProvider{segs: []string{"config"}, plan: func(context.Context, PlanScope) ([]Node, error) {
+		return []Node{{Key: "config.probe", Phase: PhaseConfigure, Reload: ReloadReconcile}}, nil
+	}}
+	_, err := Compile(context.Background(),
+		ConfigFile(writePlanConfig(t, "reconcile-config-phase", "")), configProvider)
+	if err == nil || !strings.Contains(err.Error(), "reload=reconcile") {
+		t.Fatalf("Compile(config provider reconcile) = %v, want reload=reconcile rejection", err)
+	}
+
+	cfg := bconf.NewBootstrap()
+	cfg.Server.Asynq = &bootstrapv1.Server_Asynq{RedisAddress: "127.0.0.1:6379"}
+	serverProvider := segProvider{segs: []string{"server.asynq"}, plan: func(context.Context, PlanScope) ([]Node, error) {
+		return []Node{{Key: "server.asynq", Phase: PhaseServe, Reload: ReloadReconcile}}, nil
+	}}
+	_, err = compilePlan(context.Background(), newDecl(serverProvider), cfg, nil)
+	if err == nil || !strings.Contains(err.Error(), "reload=reconcile") {
+		t.Fatalf("Compile(server provider reconcile) = %v, want reload=reconcile rejection", err)
+	}
 }
 
 // e2e：契约层变更 → 计划重算 → 可协调节点重建 → Drift 收敛为空。

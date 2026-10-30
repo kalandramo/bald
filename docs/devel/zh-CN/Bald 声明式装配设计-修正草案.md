@@ -429,7 +429,7 @@ func (a *App) Drift(ctx context.Context) ([]Drift, error)
 - **Unexpected**：运行态有、计划无（第三方运行期挂载）。
 - **Stale**：`DesiredHash` 与观测不一致。
 
-第一版只覆盖 `ReloadReconcile` 节点（logger、audit、组件、声明域节点），`database/cache/storage` 一律 `ReloadRestart`——不假装能热切连接池。这比现在「Reconcile 只覆盖组件、但文档写 Kubernetes 同型」更诚实，也为后续扩展留下数据位。域节点的期望态可来自框架段（`BootstrapConfig` 路径）或业务配置（`biz.<path>`，Q8），两者共用同一条 diff/协调路径。
+第一版只覆盖 `ReloadReconcile` 节点（logger、audit、组件、声明域节点），`database/cache/storage` 一律 `ReloadRestart`——不假装能热切连接池。这比现在「Reconcile 只覆盖组件、但文档写 Kubernetes 同型」更诚实，也为后续扩展留下数据位。域节点的期望态可来自框架段（`BootstrapConfig` 路径）或业务配置（`biz.<path>`，Q8），两者共用同一条 diff/协调路径。协调器只在阶段 B 注册（logger 走专用热更协议）：Provider 在 config/server 段声明 `ReloadReconcile` 会在计划期报错——那类节点没有重建路径，登记它只会留下永远 Missing 的漂移记录。
 
 ### 4.9 Plan 入口
 

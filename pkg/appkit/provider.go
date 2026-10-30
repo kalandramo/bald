@@ -575,8 +575,16 @@ func (p *providerPlan) normalizeNode(prov Provider, n Node) (Node, error) {
 	default:
 		return Node{}, fmt.Errorf("appkit: provider %v plan node %q declares unsupported phase %s (want configure, bootstrap or serve)", declared, n.Key, n.Phase)
 	}
-	if want := phaseFor(phaseByTop(segmentTop(n.Segments[0]))); n.Phase != want {
+	ph := phaseByTop(segmentTop(n.Segments[0]))
+	if want := phaseFor(ph); n.Phase != want {
 		return Node{}, fmt.Errorf("appkit: provider %v plan node %q phase %s does not match its segment family (want %s)", declared, n.Key, n.Phase, want)
+	}
+	// 协调器只在阶段 B 注册（bootstrap.go 按 plan.stageB 登记）；logger 走
+	// 专用热更协议。config/server 段节点声明 reconcile 只会得到一个永远
+	// Missing 的漂移记录——计划期拦下，不留给运行期告警。
+	if n.Reload == ReloadReconcile && ph != phaseStageB && ph != phaseLogger {
+		return Node{}, fmt.Errorf("appkit: provider %v plan node %q declares reload=reconcile, but %s-phase providers have no hot-reload path "+
+			"(config/server nodes are rebuilt only on restart)", declared, n.Key, segmentTop(n.Segments[0]))
 	}
 	return n, nil
 }
