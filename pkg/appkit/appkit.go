@@ -352,6 +352,9 @@ func StrictContract(businessSections ...string) Option {
 
 // OnConfigChange 注册配置热更新回调（本地文件或远程变更均触发）。
 // 形参为变更后重新合并的配置快照（map），业务在其中重新 Unmarshal 完成热重载。
+// Serve 路径上框架自身的契约热更新先执行（试装载/校验/计划切换/Logger 重建，
+// 失败则保留旧契约），随后才调用本回调；之后才分发 mech.OnKeyChange 订阅与
+// 期望态协调器。
 // 回调应轻量（改状态、切引用、记日志），不要阻塞——它串行阻塞后续变更分发。
 func OnConfigChange(fn func(map[string]any)) Option {
 	return optionFunc(func(d *Decl) { d.OnConfigChange = fn })

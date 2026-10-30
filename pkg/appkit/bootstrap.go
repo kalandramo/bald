@@ -351,9 +351,13 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig, settings map[string]
 			// 静默失效由此拦截）。
 			return checkSegmentCoverage(cfg, spec, plan)
 		}),
-		OnConfigChange(func(m map[string]any) {
-			hotReload(a, cfg, spec, logSrc, &curCleanup, m)
-		}),
+		// 框架热更新与用户全量回调共用单一槽位（Decl.OnConfigChange 后写覆盖）：
+		// 显式合成，否则 kitOpts 重建时漏掉 spec.OnConfigChange，业务回调在
+		// Serve 路径上静默失效。
+		OnConfigChange(composeOnConfigChange(
+			func(m map[string]any) { hotReload(a, cfg, spec, logSrc, &curCleanup, m) },
+			spec.OnConfigChange,
+		)),
 	}
 	// 框架停机 Effect：按计划推导的停机序逆序注册（I5）——回放即停机序
 	//（audit-restore 由 TeardownAfter ["*"] 排到最后：stream 尾批审计事件在
@@ -810,6 +814,20 @@ func syncBootstrap(a *App, cfg *bootstrapv1.BootstrapConfig, spec *Decl, logSrc 
 		}
 	}
 	return nil
+}
+
+// composeOnConfigChange 把框架热更新与用户全量回调合到单一 OnConfigChange
+// 槽位（Decl 该槽单写）。框架先跑：试装载/校验/计划切换/Logger 重建；随后
+// 用户回调才看到契约终值与新 Logger。框架拒绝候选配置时用户回调仍执行——
+// 用户可能管理契约之外的段，且 key 订阅与协调器同样按配置存储的新值分发。
+func composeOnConfigChange(framework, user func(map[string]any)) func(map[string]any) {
+	if user == nil {
+		return framework
+	}
+	return func(m map[string]any) {
+		framework(m)
+		user(m)
+	}
 }
 
 // hotReload 热更新：默认值试装载 + 校验 + 计划重算，通过后整契约原子落盘、
