@@ -27,8 +27,6 @@ import (
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"google.golang.org/grpc"
 
-	"github.com/kalandramo/bald/pkg/appkit"
-
 	// 由 `task proto` 生成（protoc-gen-go / protoc-gen-go-grpc /
 	// protoc-gen-grpc-gateway）。未生成前本文件因 build tag 不参与编译。
 	//
@@ -39,7 +37,8 @@ import (
 
 // init 注入 grpc-gateway 转码注册回调（assemble.go 的 RoleAPI 分支经
 // WithGatewayRegister 声明网关能力，配合契约 server.http.driver=grpc-gateway
-// 接入网关转码面）。
+// 接入网关转码面）。可见性不在这里登记：assemble.go 的 WithVariantDecls
+// 恒声明 grpcgw 分叉，带 tag 构建由 Active 标出并产 ambient 警告。
 func init() {
 	gatewayRegister = registerGateway
 }
@@ -57,14 +56,4 @@ func registerGateway(ctx context.Context, conn *grpc.ClientConn) (http.Handler, 
 		return nil, err
 	}
 	return mux, nil
-}
-
-// init 把本文件的接线登记进计划（Q7）：-tags grpcgw 在编译期决定
-// server.http 由网关转码面服务，计划只能看到「build tag 注入」这一事实、
-// 看不到转码回调内部——ambient 警告让它不隐身。
-func init() {
-	ambientNotes = append(ambientNotes, appkit.Ambient{
-		Name:   "build-tag:grpcgw",
-		Detail: "server.http may be served by grpc-gateway transcoding; wiring is compiled only under -tags grpcgw",
-	})
 }

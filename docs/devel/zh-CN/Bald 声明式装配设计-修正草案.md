@@ -647,7 +647,7 @@ message Variant {
 - 计划口径：`Plan.Variants` 恒列出全部声明（未命中也列出，供审计）；带对应 tag 的构建里，`Active` 为真并额外在 `Plan.Warnings` 产 `ambient` 诊断（Subject = `variant:<name>`），不带 tag 的构建只有 `declared` 状态、没有诊断。CI 至少对每个变体各跑一次 `--plan`，并至少跑一次不带 tag 的 `--plan` 确认声明面完整。变体**不产生节点**——它声明的仍是「计划外的注入」，首批只把可见性从手写 `init()` 挪进声明；不改变装配。
 - 框架测试：`TestGenApp_VariantsProjectedToPlan`（产物内容 + 默认说明 + `--check` 零差异 + 未声明不落盘）、`TestGenApp_VariantsPrunedWhenUndeclared`（声明移除后 `--adopt` 删旧 `variants.gen.go`、`assemble.gen.go` 不再引用）、`TestTree_VariantsProjectedAtRuntime`（同一棵树分别 `-tags grpcgw` / 不带 tag 构建并跑 `doctor`：`variants: 1 (active 1)` + `ambient [variant:grpcgw]` 对照 `variants: 1 (active 0)` 无诊断）、`TestVariantProjection_*`（`pkg/appkit`：声明恒进计划、排序/默认说明、仅命中产诊断、缺名/重名报错）、`TestGate1_Variants`（名/标签各条拒绝）、`TestHasBuildTags`（命中判据）。
 
-未决点（owner）：tag 表达力是否允许逻辑组合（`grpcgw && !nacos`）、变体是否允许覆盖 bootstrap 段（首批只声明可见性、不覆盖装配）、`variants` 与 `--plan` 缓存基线的对账口径，以及示例 `register_grpcgw.go` / `register_nacos.go` 的 `init()` 是否随首批迁移进 spec（当前保留，`WithAmbient` 与 `variants` 并存）。
+未决点（owner）：tag 表达力是否允许逻辑组合（`grpcgw && !nacos`）、变体是否允许覆盖 bootstrap 段（首批只声明可见性、不覆盖装配）、`variants` 与 `--plan` 缓存基线的对账口径。2026-10-30 起示例已把手写 `WithAmbient` 登记迁到 `WithVariantDecls`（`_example/bald/internal/bootstrap/assemble.go`，声明恒可见；`register_*.go` 只留接线本身），手写应用与生成物共用同一运行期投影。与手写 `WithAmbient` 并存时共用身份空间（同 Subject 同说明合并、异说明报错）。
 
 ---
 

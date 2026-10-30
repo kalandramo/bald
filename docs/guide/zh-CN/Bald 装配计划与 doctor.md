@@ -151,7 +151,7 @@ gen: run `bald gen app --check` and `bald gen domain --check` in the generated t
 | `build tags` | 构建期 `-tags`（`debug.ReadBuildInfo` 读取），用于解释 build tag 分叉 |
 | `warnings` | 与 `--plan` 同源的全部诊断（含 `override` / `whitelisted` / `opaque-budget` / `ambient`） |
 
-`build tags` 行只回答「这个二进制用什么 tag 编的」；**为什么某个 tag 改变接线**需要应用自己说清楚：`appkit.WithAmbient(appkit.Ambient{Name: "build-tag:grpcgw", Detail: "..."})` 把这类环境注入声明进计划，`--plan` 与 `doctor` 的 `warnings` 出现 `ambient` 诊断（示例见 `_example/bald/internal/bootstrap/register_grpcgw.go` 的 `init()`）。`Name` 为空在计划期报错；同一个 `Name` 可以重复声明（同 `Detail` 合并为一条诊断，与声明序无关），但同 `Name` 不同 `Detail` 会在计划期报错——一个逃逸舱身份不能同时描述两种注入。
+`build tags` 行只回答「这个二进制用什么 tag 编的」；**为什么某个 tag 改变接线**需要应用自己说清楚：`appkit.WithAmbient(appkit.Ambient{Name: "build-tag:grpcgw", Detail: "..."})` 把这类环境注入声明进计划，`--plan` 与 `doctor` 的 `warnings` 出现 `ambient` 诊断；手写的构建期分叉更推荐 `appkit.WithVariantDecls`（声明恒可见，见下）。`Name` 为空在计划期报错；同一个 `Name` 可以重复声明（同 `Detail` 合并为一条诊断，与声明序无关），但同 `Name` 不同 `Detail` 会在计划期报错——一个逃逸舱身份不能同时描述两种注入。
 
 声明形态（`bald gen app`，2026-10-30）：在 `appspec.json` 的 `variants` 里声明 `name` / `build_tags` / `description`，生成器落 `internal/bootstrap/variants.gen.go`，在 `Options()` 里把每条声明投影为 `appkit.VariantDecl`，`Active` 按**当前二进制实际带有的 tag**（与上面的 `build tags` 行同源）计算。**声明恒进计划**：`--plan`/`doctor` 的 `variants:` 段列出全部声明（`declared`/`active`），不带 tag 的构建也能审计「声明了哪些变体」；命中的变体（`active`）才在 `warnings` 里出现 `ambient` 诊断（Subject = `variant:<name>`）。多个变体同时命中时全部 `active`。它只做可见性——变体注入的接线仍在计划之外，`WithAmbient` 保留为手写逃生舱。`build_tags` 为空、`name` 重复/非法（须匹配 `^[a-z][a-z0-9_]*$`）、tag 写成表达式（`"a,b"`、`"!a"`、`"a&&b"`——命中判据是「包含这一个 tag」，表达式会静默不命中）在生成期（Gate1）拒绝。
 

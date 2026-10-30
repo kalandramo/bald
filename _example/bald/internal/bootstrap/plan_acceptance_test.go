@@ -42,12 +42,30 @@ func TestPlan_ReferenceProject(t *testing.T) {
 		t.Errorf("Plan.Routes = %+v, want greet POST /v1/greet", p.Routes)
 	}
 
+	// 构建期变体（Q7）：声明恒进计划——任何构建都列出 grpcgw / nacos 两条
+	// 分叉；Active 与 ambient 警告只在对应 tag 编进来时为真（同一个测试在
+	// 默认与 -tags grpcgw 两种构建下都成立）。
+	tags := appkit.BuildTags()
+	grpcgwOn := appkit.HasBuildTags(tags, "grpcgw")
+	if len(p.Variants) != 2 {
+		t.Fatalf("Plan.Variants = %+v, want the two declared build-tag variants", p.Variants)
+	}
+	for _, v := range p.Variants {
+		if want := v.Name == "grpcgw" && grpcgwOn; v.Active != want {
+			t.Errorf("variant %q active = %v, want %v (build tags: %v)", v.Name, v.Active, want, tags)
+		}
+	}
+
 	// 逃逸警告为 0：域有 RouteTable（不该 custom-routes）、预算达标（不该
-	// opaque-budget）、默认构建不该有 ambient。
+	// opaque-budget）；ambient 只允许来自当前构建命中的 grpcgw 变体。
 	for _, w := range p.Warnings {
 		switch w.Code {
-		case "custom-routes", "opaque-budget", "ambient":
+		case "custom-routes", "opaque-budget":
 			t.Errorf("unexpected %s warning: %s (%s)", w.Code, w.Message, w.Subject)
+		case "ambient":
+			if w.Subject != "variant:grpcgw" || !grpcgwOn {
+				t.Errorf("unexpected ambient warning: %s (%s)", w.Message, w.Subject)
+			}
 		}
 	}
 
