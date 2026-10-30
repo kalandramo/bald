@@ -193,8 +193,8 @@ type AppMeta struct {
 
 // Imperative 是 Decl 中命令式槽位在计划里的可见化（§6 Data/Imperative 分区）：
 // 闭包不参与排序、不可分析，但必须可见——否则 --plan 会漏报配置热更订阅者、
-// 停机效果、生命周期钩子与运行期服务器工厂。只记录种类与声明名/键/序号，
-// 不假装它们是数据节点。
+// 停机效果、生命周期钩子、运行期服务器工厂与服务器能力声明。只记录种类与
+// 声明名/键/序号，不假装它们是数据节点。
 type Imperative struct {
 	Kind string `json:"kind"`
 	Name string `json:"name,omitempty"`
@@ -212,8 +212,8 @@ type Plan struct {
 	// OpaqueCount 是 Opaque 节点数（逃逸舱预算的计量口径；预算见 WithOpaqueBudget）。
 	OpaqueCount int          `json:"opaqueCount"`
 	Segments    []SegmentUse `json:"segments"`
-	// Imperative 是命令式槽位清单（effect/keyWatch/reconcile；按 (Kind,Name)
-	// 排序，保证置换不变性）。
+	// Imperative 是命令式槽位清单（effect/keyWatch/reconcile/hook/serverFunc/
+	// serverCapability/onConfigChange；按 (Kind,Name) 排序，保证置换不变性）。
 	Imperative []Imperative `json:"imperative,omitempty"`
 	Warnings   []Diagnostic `json:"warnings,omitempty"`
 }
@@ -430,6 +430,22 @@ func planFrom(ctx context.Context, d *Decl, cfg *bootstrapv1.BootstrapConfig, se
 		p.Imperative = append(p.Imperative, Imperative{
 			Kind: "serverFunc", Name: fmt.Sprintf("extraServer[%d]", i),
 		})
+	}
+	// 服务器能力声明（WithHTTP/WithGatewayRegister/WithGRPC/WithGRPCOptions）：
+	// 注册回调装进去的路由/service 计划看不见，但「声明了哪一面」必须可见——
+	// 否则纯 gRPC 与纯 HTTP 应用的 --plan 完全相同。
+	for _, c := range []struct {
+		name    string
+		present bool
+	}{
+		{"gateway", d.GatewayRegister != nil},
+		{"grpc", d.GRPCRegister != nil},
+		{"grpcOptions", d.GRPCOptionsFn != nil},
+		{"http", d.HTTPHandler != nil},
+	} {
+		if c.present {
+			p.Imperative = append(p.Imperative, Imperative{Kind: "serverCapability", Name: c.name})
+		}
 	}
 	if d.OnConfigChange != nil {
 		p.Imperative = append(p.Imperative, Imperative{Kind: "onConfigChange"})

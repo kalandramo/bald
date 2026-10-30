@@ -2,9 +2,12 @@ package appkit
 
 import (
 	"context"
+	"net/http"
 	"reflect"
 	"strings"
 	"testing"
+
+	"google.golang.org/grpc"
 
 	"github.com/kalandramo/bald/transport"
 )
@@ -46,6 +49,46 @@ func TestPlan_ImperativeSlotsVisible(t *testing.T) {
 		"imperative:", "effect       cleanup-db", "hook         beforeStart[0]",
 		"hook         afterStop[0]", "keyWatch     server.http",
 		"onConfigChange -", "reconcile    logger", "serverFunc   extraServer[0]",
+	} {
+		if !strings.Contains(out.String(), line) {
+			t.Errorf("plan output missing %q:\n%s", line, out.String())
+		}
+	}
+}
+
+// TestPlan_ServerCapabilitiesVisible 钉住服务器能力声明的可见化：WithHTTP/
+// WithGatewayRegister/WithGRPC/WithGRPCOptions 的回调决定 server 实际提供
+// 什么，计划看不见注册内容，但必须看得见「声明了哪一面」——否则纯 gRPC 与
+// 纯 HTTP 装配的 --plan 完全相同。
+func TestPlan_ServerCapabilitiesVisible(t *testing.T) {
+	cfgPath := writePlanConfig(t, "server-caps",
+		"server:\n  http:\n    addr: \"127.0.0.1:0\"\n    driver: \"grpc-gateway\"\n  grpc:\n    addr: \"127.0.0.1:0\"\n")
+	p, err := Compile(context.Background(), ConfigFile(cfgPath),
+		WithHTTP(http.NewServeMux()),
+		WithGatewayRegister(func(context.Context, *grpc.ClientConn) (http.Handler, error) { return nil, nil }),
+		WithGRPC(func(*grpc.Server) {}),
+		WithGRPCOptions(func() []grpc.ServerOption { return nil }),
+	)
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+
+	var got []string
+	for _, slot := range p.Imperative {
+		if slot.Kind == "serverCapability" {
+			got = append(got, slot.Name)
+		}
+	}
+	want := []string{"gateway", "grpc", "grpcOptions", "http"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("server capabilities = %v, want %v", got, want)
+	}
+
+	var out strings.Builder
+	p.Explain(&out)
+	for _, line := range []string{
+		"serverCapability gateway", "serverCapability grpc",
+		"serverCapability grpcOptions", "serverCapability http",
 	} {
 		if !strings.Contains(out.String(), line) {
 			t.Errorf("plan output missing %q:\n%s", line, out.String())
