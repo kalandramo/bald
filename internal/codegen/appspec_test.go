@@ -13,6 +13,7 @@ import (
 
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	appspecv1 "github.com/kalandramo/bald/bconf/gen/go/bald/appspec/v1"
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
@@ -313,6 +314,20 @@ func TestGate2_UnknownKeyRed(t *testing.T) {
 	}
 }
 
+// TestGate2_DurationIsLiteral Duration 必须按 protojson 字面量（"15s"）落盘：
+// bconf 的 coerceDuration 只接受 duration 串，生成物写成 {seconds:15} 会
+// 让配置装载在启动期失败。
+func TestGate2_DurationIsLiteral(t *testing.T) {
+	bs := &bootstrapv1.BootstrapConfig{App: &bootstrapv1.App{StopTimeout: durationpb.New(15 * time.Second)}}
+	cfg, err := contractGate(&appspecv1.AppSpec{Meta: &appspecv1.AppMeta{Name: "demo"}}, bs)
+	if err != nil {
+		t.Fatalf("Gate2: %v", err)
+	}
+	if !strings.Contains(string(cfg), "stop_timeout: 15s") {
+		t.Errorf("duration must serialize as a protojson literal:\n%s", cfg)
+	}
+}
+
 // TestGate2_EmptySegmentStaysObject 段存在性是语义：出现但为空的消息段必须
 // 序列化为空对象而非 null（null 经 protojson 即「未设置」，段会被装载器丢弃）。
 func TestGate2_EmptySegmentStaysObject(t *testing.T) {
@@ -493,8 +508,6 @@ func TestTree_Layout(t *testing.T) {
 		filepath.Join("internal", "bootstrap", "domains.gen.go"),
 		filepath.Join("internal", "apiserver", "domains.gen.go"),
 		filepath.Join("internal", "apiserver", "layering_invariant_test.go"),
-		filepath.Join("api", "buf.yaml"),
-		filepath.Join("api", "buf.gen.yaml"),
 		filepath.Join("configs", "demoapp.yaml"),
 		"taskfile.yml",
 	}
@@ -504,6 +517,9 @@ func TestTree_Layout(t *testing.T) {
 		filepath.Join("internal", "bootstrap", "seed", "seed.go"),
 		filepath.Join("internal", "bootstrap", "seed", "policies.go"),
 		filepath.Join("internal", "apiserver", "apiserver.go"),
+		// buf 流水线配置：插件集合/依赖/输出路径是树的属性（种子后归用户）。
+		filepath.Join("api", "buf.yaml"),
+		filepath.Join("api", "buf.gen.yaml"),
 	}
 	for _, p := range owned {
 		data, err := os.ReadFile(filepath.Join(dir, p))
@@ -576,9 +592,10 @@ func TestTree_OwnershipAcrossRegenerations(t *testing.T) {
 	}
 	// seed.go、seed/policies.go、apiserver.go、apiserver/domains.gen.go（预域
 	// 形态由 gen domain 升级，故 seed 而非 owned）、bootstrap/custom.go 与
-	// cmd/<app>/app/custom.go（自定义接线钩子，播种后归用户）。
-	if kept := strings.Count(out.String(), "kept:"); kept != 6 {
-		t.Errorf("adopt regen must report kept: for 6 seeded files, got %d:\n%s", kept, out.String())
+	// cmd/<app>/app/custom.go（自定义接线钩子，播种后归用户）、api/buf.yaml 与
+	// api/buf.gen.yaml（buf 流水线配置，播种后归用户）。
+	if kept := strings.Count(out.String(), "kept:"); kept != 8 {
+		t.Errorf("adopt regen must report kept: for 8 seeded files, got %d:\n%s", kept, out.String())
 	}
 	if got, _ := os.ReadFile(seedPath); string(got) != handEdit {
 		t.Errorf("seeded file must survive --adopt regen, got: %q", got)
@@ -617,7 +634,7 @@ func TestGenApp_VariantsProjectedToPlan(t *testing.T) {
 		"func variantOptions() []appkit.Option {",
 		"opts := []appkit.Option{appkit.WithVariantDecls(",
 		"var variantImpls []appkit.VariantImpl",
-		"for _, impl := range variantImpls {",
+		"for i := range variantImpls {",
 		`Name:   "grpcgw",`,
 		`When:   "grpcgw",`,
 		`Detail: "gateway registration injected by -tags grpcgw",`,

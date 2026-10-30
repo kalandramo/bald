@@ -71,17 +71,17 @@ tasks:
       - go vet ./...
       - go test ./...
 
-  # 生成示例的 gRPC 服务代码（需 protoc-gen-go-grpc / protoc-gen-grpc-gateway 等）。
-  # 直接调 _example/bald 目录下的等效生成命令，不再递归调用子 Makefile。
+  # 生成示例的 gRPC 服务代码（buf remote 插件：go / go-grpc / grpc-gateway）。
+  # 与 _example/bald 的 `task proto` 等效，不再递归调用子 Makefile。
   proto-example:
-    desc: 生成示例的 gRPC/gRPC-Gateway 服务代码（需 protoc-gen-go-grpc 等）
-    dir: _example/bald
+    desc: 生成示例的 gRPC/gRPC-Gateway 服务代码（buf remote 插件）
+    dir: _example/bald/api
     cmds:
-      - cmd: cd proto && buf dep update || true
+      - cmd: buf dep update || true
         platforms: [linux, darwin]
-      - cmd: pushd proto && (buf dep update || exit /b 0) && popd
+      - cmd: (buf dep update || exit /b 0)
         platforms: [windows]
-      - buf generate proto --template proto/buf.gen.yaml
+      - buf generate
 
   # ---------------------------------------------------------------------------
   # _example 是独立 module（module github.com/kalandramo/bald/example，见 P5 治理），

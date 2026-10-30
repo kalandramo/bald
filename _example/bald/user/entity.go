@@ -1,17 +1,5 @@
-// Package user 演示 bald 存储层的「后端可切换」能力：
-// 同一份业务代码（User 实体 + Store[T] 调用）在运行时背后可换用
-// 内存实现或 GORM 实现，业务无感。
-//
-// 运行：
-//
-//	# 内存版（默认构建，零外部数据库依赖）
-//	go run ./_example/bald user
-//
-//	# GORM + SQLite 版（build tag 隔离 GORM 依赖，默认构建不引入）
-//	go run -tags gorm ./_example/bald user
-//
-// 该命令执行一组固定 CRUD/过滤/排序/分页演示并退出（非长驻服务），
-// 用于验证 pkg/store 抽象 + 各后端 Provider 正确性。
+// Package user 演示 bald 存储层的后端可切换：同一份业务代码在内存或
+// GORM+SQLite 之上运行（后者需 -tags gorm）。
 package user
 
 import (

@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package bald.v1;
 
-option go_package = "github.com/kalandramo/bald/example/bald/gen;baldv1";
+option go_package = "github.com/kalandramo/bald/example/bald/api/gen;baldv1";
 
 import "google/api/annotations.proto";
 import "buf/validate/validate.proto";

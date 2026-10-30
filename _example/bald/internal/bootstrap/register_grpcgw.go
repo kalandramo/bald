@@ -1,23 +1,5 @@
 //go:build grpcgw
 
-// 本文件演示 bald 的 grpc-gateway transcoding 接线（应用级网关面）。
-//
-// 它依赖 protoc 生成的代码（见 proto/ 目录与下方 import 的 baldv1 包），
-// 因此用 build tag `grpcgw` 保护：默认 `go build ./...` 不会编译它，
-// 仓库在无 protoc 环境也能正常构建。本地装好工具链后：
-//
-//	cd _example/bald
-//	task proto          # buf generate 生成 gen/*.go
-//	go run -tags grpcgw ./cmd/bald-demo            # 配置随示例自带，自动加载
-//
-// 此时 GreetService 同时可通过 gRPC 与 REST 访问（见 proto 的 google.api.http
-// 注解）。REST 面由契约 server.http.driver=grpc-gateway 选择（本文件把网关
-// 接线注册为 grpcgw 变体的实现），占用 server.http 端口，gin 演示路由让位
-// （greet 域的 Routes 槽位同规则让位——同端口单面语义）。
-//
-// 域边界说明：gRPC service 注册与契约校验已随 greet 域迁入 greetv1 包
-// （域自持契约——Domain.Services / greetv1.Validator）；本文件只剩应用级的
-// 网关转码面接线（face 选择是应用策略，非域知识）。
 package bootstrap
 
 import (
@@ -29,34 +11,20 @@ import (
 
 	"github.com/kalandramo/bald/pkg/appkit"
 
-	// 由 `task proto` 生成（protoc-gen-go / protoc-gen-go-grpc /
-	// protoc-gen-grpc-gateway）。未生成前本文件因 build tag 不参与编译。
-	//
-	// 路径说明：_example/bald 是独立 module
-	// github.com/kalandramo/bald/example/bald，故前缀是 .../example/bald/gen。
-	baldv1 "github.com/kalandramo/bald/example/bald/gen"
+	baldv1 "github.com/kalandramo/bald/example/bald/api/gen"
 )
 
-// init 把 grpc-gateway 转码注册回调注册为 grpcgw 变体的实现：声明面恒在
-// assemble.go（WithVariantDecls），本文件随 tag 才编进来——appkit 计划期对账
-// 声明与实现（I12），条件漂移启动即失败。
-//
-// 角色限定：多角色二进制里只有 API 角色服务 HTTP 面，worker 的契约没有
-// server.http——OnRole 让这份接线只落到 API 装配上（角色过滤是装配语义）。
+// grpcgw 变体：API 角色让出 gin 面（WithHTTP(nil)），由 grpc-gateway 转码
+// 服务 server.http 端口。契约 server.http.driver 为空即选网关面。
 func init() {
-	variantImpls = append(variantImpls, appkit.VariantImpl{
-		Name: "grpcgw",
-		Opts: []appkit.Option{appkit.OnRole(RoleAPI, appkit.WithGatewayRegister(registerGateway))},
-	})
+	variantOpts["grpcgw"] = []appkit.Option{
+		appkit.OnRole(RoleAPI,
+			appkit.WithHTTP(nil),
+			appkit.WithGatewayRegister(registerGateway),
+		),
+	}
 }
 
-// registerGateway 是 grpc-gateway 转码注册回调：把 GreetService 的 REST 面
-// 注册到 runtime.ServeMux（grpc-gateway v2 的 mux，非标准库 http.ServeMux），
-// 并把它作为 http.Handler 交回给 GatewayServer。
-//
-// conn 是到本进程 gRPC 服务的连接（契约 server.grpc.addr），由 GatewayServer
-// 在 Start 时建立。返回 http.Handler 而非在入参 mux 上注册，是为了让
-// transport 不必依赖 grpc-gateway（见 NewGatewayServer 的注释）。
 func registerGateway(ctx context.Context, conn *grpc.ClientConn) (http.Handler, error) {
 	mux := runtime.NewServeMux()
 	if err := baldv1.RegisterGreetServiceHandler(ctx, mux, conn); err != nil {

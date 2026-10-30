@@ -106,12 +106,12 @@ my-service/
 ├─ internal/apiserver/apiserver.go                 # 生成一次：HTTP 装配钩子（加业务路由处）
 ├─ internal/apiserver/domains.gen.go               # 生成物：域声明对账清单
 ├─ internal/apiserver/layering_invariant_test.go   # 生成物：biz 层不 import 装配层的守卫测试
-├─ api/buf.yaml / api/buf.gen.yaml                 # 生成物：buf 模块与生成配置
+├─ api/buf.yaml / api/buf.gen.yaml                 # 生成一次：buf 模块与生成配置
 ├─ configs/my-service.yaml                         # 生成物：契约配置（由 AppSpec 派生）
 └─ taskfile.yml                                    # 生成物：task run / verify / proto
 ```
 
-入口链只有三跳：`main.go`（≤25 行硬预算，预算表见 `internal/codegen/appspec_budget_test.go`）→ `app.Execute()`（cobra 根）→ `appkit.MustServe(context.Background(), bootstrap.Options()...)`。装配知识全部在 `internal/bootstrap/assemble.gen.go` 的 `Options()`：`std.Standard()`（server/audit/logger 三类框架自有后端的段驱动 Provider）+ `ConfigFile`/`WatchConfigFile` + `appkit.StrictContract()` + 传输面能力声明（`WithGRPC`/`WithHTTP`/`WithGatewayRegister`，按声明裁剪）+ `WithHealth`（双探针 + gRPC health 联动）+ `mech.Provides/Requires`（能力）+ `mech.Components`（组件）+ `domainOptions`（域清单变参直传）。
+入口链只有三跳：`main.go`（≤25 行硬预算，预算表见 `internal/codegen/appspec_budget_test.go`）→ `app.Execute()`（cobra 根）→ `appkit.MustServe(context.Background(), bootstrap.Options()...)`。装配知识全部在 `internal/bootstrap/assemble.gen.go` 的 `Options()`：`std.Standard()`（server/audit/logger 三类框架自有后端的段驱动 Provider）+ `ConfigFile`/`WatchConfigFile` + `appkit.StrictContract()` + 传输面能力声明（`WithGRPC`/`WithHTTP`/`WithGatewayRegister`，按声明裁剪）+ `WithHealth`（双探针 + gRPC health 联动）+ `mech.Provides/Requires`（能力）+ `mech.Components`（组件）+ `domainOptions(role)`（域清单变参直传）。
 
 生成器表达不了的接线（第三方 Provider、`Registrar`、`WithGRPCOptions`、`WithHealth` 覆盖、`WithOpaqueBudget`、业务 CLI 子命令、变体的应用级接线）放在两个 seeded 钩子文件里：`internal/bootstrap/custom.go` 的 `customOptions(role)` 追加在 `Options()` 末尾（同名单值字段末者胜），`cmd/<app>/app/custom.go` 的 `customSubcommands()` 与默认 serve 并存；带 `//go:build` 的文件在 `init()` 里登记 `variantOpts["<name>"]`，生成物 `variant_<name>.gen.go` 经 `customVariantOpts` 取出。
 
@@ -121,7 +121,7 @@ my-service/
 
 ```bash
 vim appspec.json
-bald gen app --spec appspec.json --force   # owned 重写；seeded 输出 kept: 跳过；用户物不动
+bald gen app --spec appspec.json --adopt   # owned 重写；seeded 输出 kept: 跳过；用户物不动
 ```
 
 ## 5. 起服务
@@ -146,7 +146,7 @@ go run ./cmd/my-service
 一个业务域 = 手写两样 + 一行声明：
 
 1. **域 proto**：落在 `api/proto`、`api/protos` 或 `proto` 任一候选根下（`google.api.http` 注解会被派生成 REST 路由表与授权动作投影）。
-2. **域包**：在 `domains[].goPackage` 指向的包里导出 `appkit.Domain` 声明值——三个钩子由引擎在既定时点消费：`Wire`（读自己的配置段、构造能力）、`Routes`（REST 路由自持）、`Services`（gRPC 注册自持）。逐行范本：[`_example/bald/greetv1/domain.go`](https://github.com/kalandramo/bald/blob/main/_example/bald/greetv1/domain.go)。
+2. **域包**：在 `domains[].goPackage` 指向的包里导出 `appkit.Domain` 声明值——钩子由引擎在既定时点消费：`Declare`/`ApplyNode`（声明节点并按计划执行：读自己的配置段、构造能力、挂 REST 路由）、`Reconcile`（热更协调）、`Services`（gRPC 注册自持）。逐行范本：[`_example/bald/greetv1/domain.go`](https://github.com/kalandramo/bald/blob/main/_example/bald/greetv1/domain.go)。
 3. **声明**：在 AppSpec 的 `domains[]` 加 `{name, protoPackage, service, model, goPackage}`，`service` 必须是实际 proto 的 `<package>.<Service>` 全名。
 
 然后生成：

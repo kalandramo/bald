@@ -1,0 +1,117 @@
+{
+  "version": 1,
+  "tool": "bald gen app",
+  "spec": "ff9712fd2d7b0677ced728063490b3c219377ac9f2479bc262aa8cd71bf9c509",
+  "files": [
+    {
+      "path": "api/buf.gen.yaml",
+      "ownership": "seeded",
+      "hash": "seeded"
+    },
+    {
+      "path": "api/buf.yaml",
+      "ownership": "seeded",
+      "hash": "seeded"
+    },
+    {
+      "path": "cmd/bald-demo-api/app/command.go",
+      "ownership": "owned",
+      "hash": "4c94e3c78500f4b1e7b72005433c8d88a0174dba3d1cdb2e935c1e102b91e2f8"
+    },
+    {
+      "path": "cmd/bald-demo-api/app/custom.go",
+      "ownership": "seeded",
+      "hash": "seeded"
+    },
+    {
+      "path": "cmd/bald-demo-api/main.go",
+      "ownership": "owned",
+      "hash": "0de7647f3e14f6bd35b45b0d969a9dadef13df48216e2f28377d958c092eecef"
+    },
+    {
+      "path": "cmd/bald-demo-worker/app/command.go",
+      "ownership": "owned",
+      "hash": "4004f2aa0d2e4c53756c5fdb735b842878ffa4af95e2d9455127b4f48a41f5b7"
+    },
+    {
+      "path": "cmd/bald-demo-worker/app/custom.go",
+      "ownership": "seeded",
+      "hash": "seeded"
+    },
+    {
+      "path": "cmd/bald-demo-worker/main.go",
+      "ownership": "owned",
+      "hash": "fcf6b1053b2a39447a92825c79a0452242e9e708488c430a580632ab8068e4f0"
+    },
+    {
+      "path": "configs/bald-demo-api.yaml",
+      "ownership": "owned",
+      "hash": "6137811813cd23641c67c4a8b028581173000116e51e07fe84c8bec2343d58c7"
+    },
+    {
+      "path": "configs/bald-demo-worker.yaml",
+      "ownership": "owned",
+      "hash": "813db8eef04b11978c457647758789860c9dfb40443e62d071f1b48014273ac3"
+    },
+    {
+      "path": "internal/apiserver/apiserver.go",
+      "ownership": "seeded",
+      "hash": "seeded"
+    },
+    {
+      "path": "internal/apiserver/domains.gen.go",
+      "ownership": "seeded",
+      "hash": "seeded"
+    },
+    {
+      "path": "internal/apiserver/layering_invariant_test.go",
+      "ownership": "owned",
+      "hash": "55d24ecb9409475db64240420969de751755c367d5f084a37281306457ae6a35"
+    },
+    {
+      "path": "internal/bootstrap/assemble.gen.go",
+      "ownership": "owned",
+      "hash": "ecba2efbf7cabf0eb47e68fbe44591c02fcb3a2f12c1e34cf68b5549acfe6fbc"
+    },
+    {
+      "path": "internal/bootstrap/custom.go",
+      "ownership": "seeded",
+      "hash": "seeded"
+    },
+    {
+      "path": "internal/bootstrap/domains.gen.go",
+      "ownership": "owned",
+      "hash": "db0138b48e45e4d8f5cad85195abbe84fe943bb1b25121ed4b7eea1ac0234eb7"
+    },
+    {
+      "path": "internal/bootstrap/seed/policies.go",
+      "ownership": "seeded",
+      "hash": "seeded"
+    },
+    {
+      "path": "internal/bootstrap/seed/seed.go",
+      "ownership": "seeded",
+      "hash": "seeded"
+    },
+    {
+      "path": "internal/bootstrap/variant_grpcgw.gen.go",
+      "ownership": "owned",
+      "hash": "f8d17a7fbabb36dff4b1b6cbff55bfc9980711d56842e257e44f7d9f3645a4dd"
+    },
+    {
+      "path": "internal/bootstrap/variant_nacos.gen.go",
+      "ownership": "owned",
+      "hash": "4a29ecd7e3fa611bc955712dc9b9c72b51b35b79803bc232fb5b5ccd2afdee1a"
+    },
+    {
+      "path": "internal/bootstrap/variants.gen.go",
+      "ownership": "owned",
+      "hash": "5a7560e1bd3e2e6984004be0cc9d83c9e4d922f40c19e51f319b6f220b78c218"
+    },
+    {
+      "path": "taskfile.yml",
+      "ownership": "owned",
+      "hash": "98b65823e6a4f4ab5702c21e09676dfe4583493dfb37ebfe0a95856fdacb40c7"
+    }
+  ]
+}

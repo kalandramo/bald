@@ -1,0 +1,23 @@
+# 目标目录树的构建入口（bald gen app 生成）。
+version: "3"
+
+tasks:
+  proto:
+    desc: 生成 protobuf 代码（插件与输出见 api/buf.gen.yaml）
+    dir: api
+    cmds:
+      - buf generate
+  run-api:
+    desc: 本地运行角色 api（读 configs/bald-demo-api.yaml）
+    cmds:
+      - go run ./cmd/bald-demo-api
+  run-worker:
+    desc: 本地运行角色 worker（读 configs/bald-demo-worker.yaml）
+    cmds:
+      - go run ./cmd/bald-demo-worker
+  verify:
+    desc: 构建 + vet + 测试（layering 不变量含在内）
+    cmds:
+      - go build ./...
+      - go vet ./...
+      - go test ./...

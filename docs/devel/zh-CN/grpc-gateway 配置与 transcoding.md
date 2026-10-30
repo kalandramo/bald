@@ -9,23 +9,30 @@
 ## 1. 目录结构
 
 ```
-_example/bald/
-├── main.go                 # 示例入口（bootstrap 装配 + HTTP + gRPC + AppKit 编排；gatewayRegister 默认 nil）
-├── register_grpcgw.go      # build tag `grpcgw`：init 注入 gRPC/gateway 接线 + biz 实现
-├── proto/
-│   ├── greet.proto         # 真实 proto + google.api.http 注解
-│   ├── buf.yaml            # buf 模块配置（依赖 googleapis）
-│   └── buf.gen.yaml        # 生成器配置（go / go-grpc / grpc-gateway）
-├── Taskfile.yml            # `task proto` 触发 buf generate（跨平台，Windows 亦可用）
-└── gen/                    # buf generate 产物（.pb.go / _grpc.pb.go / _pb.gw.go；
-                             #   包名 baldv1，paths=source_relative 产物落在 gen/ 根目录）
+_example/bald/                     # 生成树（appspec.json 是声明真相源）
+├── appspec.json                   # roles / bootstrap / domains / variants
+├── cmd/bald-demo-api/app/         # command.go（生成）+ custom.go（seeded）
+├── cmd/bald-demo-worker/app/
+├── internal/bootstrap/
+│   ├── assemble.gen.go            # gen app 投影：Options(role)
+│   ├── variants.gen.go            # 变体声明（恒进计划）
+│   ├── variant_grpcgw.gen.go      # //go:build grpcgw 的实现注册
+│   ├── custom.go                  # seeded：customOptions / variantOpts
+│   ├── register_grpcgw.go         # //go:build grpcgw：variantOpts["grpcgw"]
+│   └── register_nacos.go          # //go:build nacos
+├── api/
+│   ├── proto/greet.proto          # 真实 proto + google.api.http 注解
+│   ├── buf.yaml / buf.gen.yaml    # seeded（go / go-grpc / grpc-gateway 三插件）
+│   └── gen/                       # buf generate 产物（.pb.go / _grpc.pb.go / _pb.gw.go；
+│                                  #   包名 baldv1，paths=source_relative 落在 gen/ 根）
+└── taskfile.yml                   # `task proto`（dir: api）
 ```
 
 ---
 
 ## 2. proto 定义（含 transcoding）
 
-`proto/greet.proto` 关键片段：
+`api/proto/greet.proto` 关键片段：
 
 ```proto
 service GreetService {
@@ -53,24 +60,20 @@ service GreetService {
 
 ## 3. 生成代码
 
-安装工具链（一次性）：
-
 ```bash
-go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
-go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-grpc-gateway@latest
 # buf：见 https://buf.build/docs/installation
+# 插件走 buf remote（buf.gen.yaml 的 remote:），无需本机 protoc-gen-*。
 ```
 
 生成：
 
 ```bash
 cd _example/bald
-task proto        # buf generate proto --template proto/buf.gen.yaml
+task proto        # 等价于 cd api && buf generate
 go mod tidy       # 首次会把 grpc-gateway/v2 等写入 go.mod
 ```
 
-产物 `gen/`（Go 包名 `baldv1`，导入路径 `github.com/kalandramo/bald/example/bald/gen`）：
+产物 `api/gen/`（Go 包名 `baldv1`，导入路径 `github.com/kalandramo/bald/example/bald/api/gen`）：
 - `greet.pb.go`：message 与 `GreetServiceServer` 接口
 - `greet_grpc.pb.go`：`RegisterGreetServiceServer` / `ServiceDesc`
 - `greet.pb.gw.go`：`RegisterGreetServiceHandler(ctx, mux, conn)`
@@ -91,45 +94,29 @@ transport module（2026-09-05 自 pkg/server 迁入）提供两个载体：
   若传构造期快照字符串，会锁死默认端口（如 `:9090`），导致测试用 `t.Setenv`
   覆盖地址无效。
 
-`register_grpcgw.go`（build tag `grpcgw`）即此接线示例：
+`register_grpcgw.go`（build tag `grpcgw`）即此接线示例：业务实现随域
+（`greetv1.Domain.Services` / `Domain.RouteTable`），应用层只登记网关面。
 
 ```go
-// biz 层：gRPC（GreetService）与 gateway 转码面（REST）共用。
-func Greet(ctx context.Context, name string) (string, error) {
-    if name == "" {
-        name = "world"
-    }
-    return "hello, " + name, nil
+//go:build grpcgw
+
+func init() {
+	variantOpts["grpcgw"] = []appkit.Option{
+		appkit.OnRole(RoleAPI,
+			appkit.WithHTTP(nil),                      // 让出 gin 面
+			appkit.WithGatewayRegister(registerGateway), // server.http 改走转码
+		),
+	}
 }
 
-// 必须嵌入 UnimplementedGreetServiceServer（protoc-gen-go-grpc 默认
-// require_unimplemented_servers，否则编译报 mustEmbedUnimplemented...）。
-type greetService struct {
-    baldv1.UnimplementedGreetServiceServer
-}
-
-func (s *greetService) Greet(ctx context.Context, req *baldv1.GreetRequest) (*baldv1.GreetResponse, error) {
-    greet, err := Greet(ctx, req.GetName())
-    if err != nil {
-        return nil, err
-    }
-    return &baldv1.GreetResponse{Greet: greet}, nil
-}
-
-// 传给 grpcserver.NewGRPCServerWithRegister 的 register 回调
-func registerGRPCServiceFn(s *grpc.Server) {
-    baldv1.RegisterGreetServiceServer(s, &greetService{})
-}
-
-// 传给 gateway.NewGatewayServer 的 register 回调：
-// 自建 grpc-gateway v2 的 runtime.ServeMux（非标准库 http.ServeMux），
-// 注册 handler 后作为 http.Handler 交回 GatewayServer。
+// registerGateway 自建 grpc-gateway v2 的 runtime.ServeMux，注册 handler 后
+// 作为 http.Handler 交回 GatewayServer。
 func registerGateway(ctx context.Context, conn *grpc.ClientConn) (http.Handler, error) {
-    mux := runtime.NewServeMux()
-    if err := baldv1.RegisterGreetServiceHandler(ctx, mux, conn); err != nil {
-        return nil, err
-    }
-    return mux, nil
+	mux := runtime.NewServeMux()
+	if err := baldv1.RegisterGreetServiceHandler(ctx, mux, conn); err != nil {
+		return nil, err
+	}
+	return mux, nil
 }
 ```
 
@@ -139,17 +126,16 @@ func registerGateway(ctx context.Context, conn *grpc.ClientConn) (http.Handler, 
 
 ## 5. 启用示例
 
-main.go 默认以空实现接线（`registerGRPCService` 空回调、`gatewayRegister == nil` 走 gin 演示路由），保证无 protoc 环境下 `go build ./...` 可编译。启用完整 transcoding：
-
-1. 完成第 3 步生成代码（`gen/*.go` 存在）。
-2. 用 `-tags grpcgw` 编译运行——`register_grpcgw.go` 的 `init()` 会把真实的
-   `registerGRPCServiceFn` 注入 `registerGRPCService`、把 `registerGateway` 注入
-   `gatewayRegister`；`newApp` 检测到非 nil 即改走 `appkit.WithGatewayRegister`，
-   配合 yaml `server.http.driver: grpc-gateway`（configs/bald-demo.yaml），
-   server.http 端口装配为网关转码面（gin 演示路由让位，同一端口只跑一个面）：
+默认构建走 gin 业务面（`apiserver.NewRouter()` + 域自持 REST 路由）。启用完整
+transcoding 只需 `-tags grpcgw`：`variant_grpcgw.gen.go` 编入实现，`register_grpcgw.go`
+把增量登记到 `variantOpts["grpcgw"]`，`assemble.gen.go` 的 `variantOptions()` 在
+`Options()` 调用期展开——API 角色经 `WithHTTP(nil)` 让出 gin 面，
+`WithGatewayRegister` 使 `server.http` 端口装配为网关转码面（契约 `server.http.driver`
+为空时选网关面）。
 
 ```bash
-go run -tags grpcgw ./_example/bald            # 配置随示例自带，自动加载
+cd _example/bald
+go run -tags grpcgw ./cmd/bald-demo-api    # 配置随示例自带，自动加载
 ```
 
 ---

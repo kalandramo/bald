@@ -2,7 +2,61 @@
   "meta": {
     "name": "bald-demo",
     "module": "github.com/kalandramo/bald/example/bald",
-    "desc": "bald 服务框架示例（AppSpec 声明真相源——bald gen domain 的输入）"
+    "desc": "bald 服务框架示例（AppSpec 是声明真相源：api/worker 双角色 + greet 域）",
+    "roles": [
+      {
+        "name": "api",
+        "domains": ["greet"],
+        "server": {
+          "http": true,
+          "grpc": true,
+          "httpAddr": ":8080",
+          "grpcAddr": ":9090"
+        }
+      },
+      {
+        "name": "worker",
+        "domains": [],
+        "server": {
+          "grpc": true,
+          "grpcAddr": ":9091"
+        }
+      }
+    ]
+  },
+  "bootstrap": {
+    "app": {
+      "version": "v0.1.0",
+      "stopTimeout": "15s"
+    },
+    "logger": {
+      "backends": [
+        {
+          "type": "slog",
+          "slog": {
+            "level": "info",
+            "format": "console",
+            "outputPath": "stdout"
+          }
+        }
+      ]
+    },
+    "database": {
+      "sql": {
+        "driver": "sqlite",
+        "source": "file::memory:?cache=shared&_fk=1"
+      }
+    },
+    "registry": {
+      "type": "nacos",
+      "nacos": {
+        "serverAddrs": ["127.0.0.1:8848"],
+        "namespace": "public",
+        "group": "DEFAULT_GROUP",
+        "clusterName": "DEFAULT",
+        "defaultKind": "grpc"
+      }
+    }
   },
   "domains": [
     {
@@ -11,6 +65,18 @@
       "service": "bald.v1.GreetService",
       "model": "greetv1/greet.go",
       "goPackage": "github.com/kalandramo/bald/example/bald/greetv1"
+    }
+  ],
+  "variants": [
+    {
+      "name": "grpcgw",
+      "when": "grpcgw",
+      "description": "server.http 改由 grpc-gateway 转码面服务（接线见 internal/bootstrap/register_grpcgw.go）"
+    },
+    {
+      "name": "nacos",
+      "when": "nacos",
+      "description": "注册中心与远程配置改由 nacos 后端提供（接线见 internal/bootstrap/register_nacos.go）"
     }
   ]
 }

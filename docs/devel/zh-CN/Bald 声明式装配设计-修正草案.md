@@ -483,7 +483,7 @@ func Routes(h http.Handler) error {
 
 业务只实现生成的 interface（`GreetService`），路由与授权策略从 proto 派生。既有自定义路由保留 `--no-routes` 逃逸（计划中标记 `Opaque`）。
 
-> **实施状态（2026-10-30）**：**可见性**已落——`Domain.RouteTable []appkit.Route` 进 `Plan.Routes`（`--plan`/`doctor` 打印、参与计划哈希且置换不变），同一 `(方法, 路径)` 跨域在计划期报错，gin 挂不上去的形态（同位置通配参数名不一致、catch-all 与更长路径并存、未命名或位置非法的通配符）同样在计划期报错，声明 `Routes` 闭包却无清单的域给 `custom-routes` 警告（手写路由不假装可分析）；示例 greet 域已声明自己的表。**绑定生成默认开启（Q5 D1，2026-10-30）**：`gen domain` 从 `google.api.http` 注解生成 `handler/gin/<d>.bind.gen.go`（`<Name>Service` 接口 + `Bind<Name>(gin.IRouter, <Name>Service)`），路由/路径变量/查询与 body 由 `transport/web.BindProtoRequest` 装入 protojson、响应经 `WriteProtoResponse` 编码，实现只需实现接口。两条流水线前置由生成期把关：proto 的 Go 类型缺失时先按 `--proto-cmd`（默认 `buf generate`）在 `--out` 根编排 proto 阶段并复查产物，命令失败或仍无产物即硬错误（点名命令、缺失包、`--proto-cmd`/`--no-bind` 两条修法）；`transport/web` 缺失给 `go get` 修法。`--check` 零写入，不执行外部命令，前置缺失只报修法。`--no-bind` 是显式逃生口（REST 面完全手写／proto 阶段不归本命令管）；`--rest-bind` 退役为兼容开关（deprecated，等价于不给）。注解的 `additional_bindings` 逐条生成别名路由（同一 RPC 只实现一次）；带 REST 注解的流式 RPC 在生成期报错（gin/网关无法转码）；注解里的 `custom` 动词与 `response_body` 不在支持面内，生成期同样报错并点名 RPC 与字段（静默丢弃 `custom` 或忽略 `response_body` 会让 REST 面偏离注解契约——作者应手写该路由）；路径变量的跨段 pattern（如 `{name=projects/*/locations/*}`）与归一化后重名的变量同样生成期报错（gin 无法表达多段变量，静默退化成单段会让匹配语义偏离注解）。绑定读的是 proto 里 `option go_package` 的**字面值**：buf managed mode 的 `go_package_prefix` 若覆盖它，两者必须指向同一个 Go 包（示例 proto 2026-10-30 已对齐到 `.../example/bald/gen`，之前写的是不存在的 `_example/bald/gen/baldv1`）。**计划可见性随绑定一起生成**：同一批注解同时产出 `internal/<apiserver_dir>/routes/<d>.gen.go`（`appkit.Route` 清单，叶子包只 import `appkit`），域声明值引用 `RouteTable: routes.<Name>` 即让 `--plan`/`doctor` 列出注解派生路由、跨域冲突在计划期报错——注解仍是唯一真相源，不重复维护。清单放独立叶子包而非 `handler/gin`：后者为 `Mount` 反向 import 域包，域包引用它会成环。同一域同时保留手写 `RouteTable` 与生成清单会得到计划期错误（同名重复登记，点名处置方式）。**清单逃逸面**：`--no-routes` 与绑定生成连用只产 handler 绑定、不产路由清单，域保留手写 `RouteTable`（生成执行、清单自持）；与 `--no-bind` 连用是空操作，生成期拒绝。决策依据与两态验收见 §8.4。
+> **实施状态（2026-10-30）**：**可见性**已落——`Domain.RouteTable []appkit.Route` 进 `Plan.Routes`（`--plan`/`doctor` 打印、参与计划哈希且置换不变），同一 `(方法, 路径)` 跨域在计划期报错，gin 挂不上去的形态（同位置通配参数名不一致、catch-all 与更长路径并存、未命名或位置非法的通配符）同样在计划期报错，声明 `Routes` 闭包却无清单的域给 `custom-routes` 警告（手写路由不假装可分析）；示例 greet 域已声明自己的表。**绑定生成默认开启（Q5 D1，2026-10-30）**：`gen domain` 从 `google.api.http` 注解生成 `handler/gin/<d>.bind.gen.go`（`<Name>Service` 接口 + `Bind<Name>(gin.IRouter, <Name>Service)`），路由/路径变量/查询与 body 由 `transport/web.BindProtoRequest` 装入 protojson、响应经 `WriteProtoResponse` 编码，实现只需实现接口。两条流水线前置由生成期把关：proto 的 Go 类型缺失时先按 `--proto-cmd`（默认 `buf generate`）在 `--out` 根编排 proto 阶段并复查产物，命令失败或仍无产物即硬错误（点名命令、缺失包、`--proto-cmd`/`--no-bind` 两条修法）；`transport/web` 缺失给 `go get` 修法。`--check` 零写入，不执行外部命令，前置缺失只报修法。`--no-bind` 是显式逃生口（REST 面完全手写／proto 阶段不归本命令管）；`--rest-bind` 退役为兼容开关（deprecated，等价于不给）。注解的 `additional_bindings` 逐条生成别名路由（同一 RPC 只实现一次）；带 REST 注解的流式 RPC 在生成期报错（gin/网关无法转码）；注解里的 `custom` 动词与 `response_body` 不在支持面内，生成期同样报错并点名 RPC 与字段（静默丢弃 `custom` 或忽略 `response_body` 会让 REST 面偏离注解契约——作者应手写该路由）；路径变量的跨段 pattern（如 `{name=projects/*/locations/*}`）与归一化后重名的变量同样生成期报错（gin 无法表达多段变量，静默退化成单段会让匹配语义偏离注解）。绑定读的是 proto 里 `option go_package` 的**字面值**：buf managed mode 的 `go_package_prefix` 若覆盖它，两者必须指向同一个 Go 包（示例 proto 2026-10-30 已对齐到 `.../example/bald/api/gen`，与 `api/buf.gen.yaml` 的 `go_package_prefix` 同源）。**计划可见性随绑定一起生成**：同一批注解同时产出 `internal/<apiserver_dir>/routes/<d>.gen.go`（`appkit.Route` 清单，叶子包只 import `appkit`），域声明值引用 `RouteTable: routes.<Name>` 即让 `--plan`/`doctor` 列出注解派生路由、跨域冲突在计划期报错——注解仍是唯一真相源，不重复维护。清单放独立叶子包而非 `handler/gin`：后者为 `Mount` 反向 import 域包，域包引用它会成环。同一域同时保留手写 `RouteTable` 与生成清单会得到计划期错误（同名重复登记，点名处置方式）。**清单逃逸面**：`--no-routes` 与绑定生成连用只产 handler 绑定、不产路由清单，域保留手写 `RouteTable`（生成执行、清单自持）；与 `--no-bind` 连用是空操作，生成期拒绝。决策依据与两态验收见 §8.4。
 
 ---
 
@@ -551,7 +551,7 @@ func Routes(h http.Handler) error {
 | 冲突可见 | 重复 Key / override / 白名单 100% 出现在计划与 doctor |
 | 资源访问类型化 | 公开 API 中 `Resource(string)` 调用点 = 0（AST 守卫） |
 | 收敛覆盖 | `ReloadReconcile` 节点数 ≥ 组件 + logger + audit；`Drift` e2e 通过 |
-| 生成确定性 | 生成物维度：`TestGen_Deterministic`/`TestGen_CheckClean`（guard 夹具）零 diff + 双跑字节一致；`_example/bald` 是手写超集对照（角色化 `Options(role)` + 自定义 Provider/拦截器/探针），其 `appspec.json` 未声明 roles/bootstrap 段，生成物是单角色 `Options()`——adopt 会与手写文件同包重名，故该示例不适用零 diff 判据。生成器已具备自定义接线扩展（§8.5，2026-10-30）：表达不了的接线经 seeded 钩子追加，`customOptions` 的落盘/进计划两态由 `TestTree_CustomWiringHooks`/`TestTree_CustomWiringReachesPlan` 钉住 |
+| 生成确定性 | 生成物维度：`TestGen_Deterministic`/`TestGen_CheckClean`（guard 夹具）零 diff + 双跑字节一致；`_example/bald` 已迁入生成树（2026-10-30）：`appspec.json` 声明 roles/bootstrap/domains/variants，`gen app --check` 与 `gen domain --no-bind --check` 均零差异，手写部分全部收敛在 seeded 钩子（`custom.go`/`apiserver.go`/`cmd/*/app/custom.go`）与域包。生成器自定义接线扩展（§8.5）由 `TestTree_CustomWiringHooks`/`TestTree_CustomWiringReachesPlan` 钉住 |
 | `Opaque` 预算 | 每版本下降；v0.28 参考工程 ≤ 3 个（预期：第三方 legacy Provider） |
 
 ### 7.2 保留的生产力指标（次指标，不替代声明性指标）
@@ -593,18 +593,21 @@ go test ./internal/codegen -run 'TestGen_(Deterministic|CheckClean)|TestGenDomai
 # 同一属实在 -tags grpcgw 构建下再跑一遍（I12：实现编入但条件求值为假即失败）
 (cd _example/bald && go test -tags grpcgw ./internal/bootstrap -run TestPlan_ReferenceProject)
 
+# 示例生成树与声明零差异（appspec.json 是唯一真相源）
+go run ./cmd/bald gen app --spec _example/bald/appspec.json --out _example/bald --check
+go run ./cmd/bald gen domain --spec _example/bald/appspec.json --out _example/bald --no-bind --check
+
 # 综合诊断
 bald doctor --config configs/bald-demo-api.yaml
 ```
 
-> `_example/bald` 不跑 `gen app --check`：该示例仍是**手写装配超集**（角色化 `Options(role)`、
-> 自定义 Provider/拦截器/探针、演示用 CLI 子命令与 `biz.greet` 业务段）。生成器已具备
-> 自定义接线扩展（§8.5：`customOptions(role)` / `customVariantOpts` / `customSubcommands`），
-> 阻塞点因此从「生成器表达不了」转为「迁移会替换示例的教学内容」：`configs/*.yaml` 由
-> bootstrap 段重派生（失去逐段注释与 `biz` 业务段示例）、`api/` 生成 buf 配置与示例现有
-> `proto/` 布局并存、`gen domain` 会与手写 `greetv1/domain.go` 的同名 `Domain` 冲突（故
-> 示例只可能走 `gen app`）。是否迁移由 owner 裁决，当前不阻塞生成物维度的确定性验收
-> （由 guard 夹具承担）。
+> `_example/bald` 已迁入生成树（2026-10-30）：`appspec.json` 是声明真相源，生成物
+> （assemble/variants/domains/handler 扇出 + configs + taskfile）由 `gen app` 与
+> `gen domain --no-bind` 写出，`--check` 零差异；手写接线只留在 seeded 钩子
+> （`internal/bootstrap/custom.go`、`internal/apiserver/apiserver.go`、
+> `cmd/*/app/custom.go`）与域包（`greetv1`、`user`）。示例的 REST 面由域自持
+> （`Domain.RouteTable` + `registerRoutes`），故 `gen domain` 走 `--no-bind` 逃生口；
+> 域包已声明 `Domain` 时生成器跳过骨架（不覆盖手写域值）。
 
 ---
 
@@ -692,7 +695,7 @@ Q5 的可见性面与 `--rest-bind` 已落，但「默认生成」一直以「�
 
 | 消费方 | 是否走 `bald gen` | `google.api.http` 注解 | 前置依赖 |
 |---|---|---|---|
-| `_example/bald` | 否（手写装配，无 `appspec.json`/manifest） | `greet.proto`：1 `get` / 1 `post` / 1 `body`，无 `custom`、无 `response_body` | `go.mod` 已 require `transport/web` |
+| `_example/bald` | 是（`appspec.json` + manifest；`gen app` + `gen domain --no-bind`） | `greet.proto`：1 `get` / 1 `post` / 1 `body`，无 `custom`、无 `response_body` | `go.mod` 已 require `transport/web` |
 | `bald-admin` | 否（无 `appspec.json`/manifest） | 13 个带注解的 proto（全仓 14 个 service）：`get`/`post`/`put`/`delete`/`patch` + `body`，**0 `custom`、0 `response_body`** | `backend/go.mod` 已 require `transport/web v0.1.0`；`backend/api/gen/go` 有 buf 产物 |
 
 结论：
@@ -732,7 +735,7 @@ Q5 的可见性面与 `--rest-bind` 已落，但「默认生成」一直以「�
 - **不提供生成期枚举**：生成器不解析 `custom.go`，无法按内容改变模板；钩子只能「追加/覆盖 Option」，不能新增生成物或改变 plan 形状——计划的可分析性仍由声明面负责（接线对计划的影响走 Provider 的 `Plan`）。
 - **`Opts` 由变体文件经表取出**：带 tag 的 `init()` 先于 `assemble` 的 `Options()` 执行（Go 包级 init 顺序），命中判定仍只由构建约束决定。
 
-不在本扩展内：配置内容的教学注释放进 `configs/*.yaml`（owned，由 bootstrap 段重派生）、proto 目录布局（生成物固定 `api/`）、`gen domain` 与手写域值同名冲突——这些是 `_example/bald` 迁入生成物树的产品取舍，见 §7.3 注。
+迁移已落地（2026-10-30）：`configs/*.yaml` 由 bootstrap 段重派生（owned，教学注释随迁移去掉）、proto 目录统一到 `api/`（`api/buf.yaml` 为 seeded，示例按三插件流水线维护）、`gen domain` 遇域包已声明 `Domain` 时跳过骨架并与手写域值共存（示例走 `--no-bind` 保留域自持 REST 面）。
 
 验收：`TestTree_CustomWiringHooks`（落盘形态与调用点、单/多角色实参派生、变体钩子路由）与 `TestTree_CustomWiringReachesPlan`（替换 seeded 文件为第三方 Provider 后，生成树真实编译且节点进入 `appkit.Compile` 计划）。
 

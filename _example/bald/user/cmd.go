@@ -4,13 +4,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// NewUserCommand 返回 `bald user` 子命令。
-// 展示 bald 存储层「后端可切换」：具体 Provider 由 buildProvider() 提供，
-// 该函数有两个实现（build tag 隔离）：
-//   - provider_mem.go   (//go:build !gorm)  —— 内存实现，默认构建启用
-//   - provider_gorm.go  (//go:build gorm)   —— GORM+SQLite 实现，需 -tags gorm
-//
-// 业务代码（entity.go 的 runDemo）完全不感知后端差异。
+// NewUserCommand 返回 `user` 子命令：一组固定 CRUD/过滤/排序/分页演示。
+// 后端由 buildProvider 提供（provider_mem.go 默认；-tags gorm 走 GORM+SQLite）。
 func NewUserCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "user",

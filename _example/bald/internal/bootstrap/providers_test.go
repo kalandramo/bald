@@ -1,7 +1,5 @@
-// providers_test.go 钉住 loggerProvider 的掩码行为（Attr 层脱敏演示的行为
-// 回归）：password/token 两类键以 slog.Attr 形态流经日志时
-// 必须被掩码为 ***，且 service.name 固定属性随行——契约 filter_keys 不处理
-// Attr 形态，bslog.WithFilter 是唯一覆盖该来源的机制（bald-admin 实测结论）。
+// providers_test.go 回归 loggerProvider：slog.Attr 形态的 password/token 被
+// 掩码，service.name 固定属性随行。
 package bootstrap
 
 import (
@@ -39,8 +37,7 @@ func TestLoggerProviderMasksAttrAndTagsServiceName(t *testing.T) {
 		t.Fatalf("Build product = %T, want log.Logger", product)
 	}
 
-	// 三类来源里本机制负责的 slog.Attr 形态：位置参数对与 ctx 属性流由契约
-	// filter_keys/外层 FilterLogger 覆盖，不属本 Provider 的增量。
+	// 本 Provider 只覆盖 slog.Attr 形态；位置参数与 ctx 属性由 filter_keys 覆盖。
 	lg.Error(context.Background(), "login attempt",
 		slog.String("password", "s3cret-value"),
 		slog.String("token", "tkn-value"),

@@ -9,10 +9,10 @@ _example/**/*.exe
 .bald/
 
 # proto 生成产物（由 buf generate 生成）。
-# - _example/bald/gen：示例项目生成代码，体积较大，不入库（本地 `task proto` 重建）。
+# - _example/bald/api/gen：示例项目生成代码，体积较大，不入库（本地 `task proto` 重建）。
 # - pkg/conf/gen：根模块运行时必需的生成代码（约 100KB，最大文件 24KB），
 #   必须入库，否则外部 `go get github.com/kalandramo/bald` 后缺少 .pb.go 而编译失败。
-/_example/bald/gen/
+/_example/bald/api/gen/
 
 # 示例运行时产生的本地 SQLite 数据库
 _example/*.db

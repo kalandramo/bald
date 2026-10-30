@@ -308,12 +308,12 @@ func TestGenProto_CRUD_BufBuild(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("gen proto: %v", err)
 	}
-	// buf 模块根 = api/proto：buf.yaml 声明注解依赖（与 _example/bald/proto 同款
+	// buf 模块根 = api/proto：buf.yaml 声明注解依赖（与 _example/bald/api 同款
 	// 依赖，buf.lock 复用其已解析 commit——本机模块缓存命中）；bald/store/v1 契约
 	// 从本仓 bconf/proto 复制进模块（消费项目的既有依赖形态）。
 	writeAll(t, map[string]string{
 		"api/proto/buf.yaml":                  "version: v1\nname: buf.build/kalandramo/genproto-check\ndeps:\n  - buf.build/googleapis/googleapis\n  - buf.build/bufbuild/protovalidate\nlint:\n  use:\n    - STANDARD\n",
-		"api/proto/buf.lock":                  readRepoFile(t, "_example/bald/proto/buf.lock"),
+		"api/proto/buf.lock":                  readRepoFile(t, "_example/bald/api/buf.lock"),
 		"api/proto/bald/store/v1/store.proto": readRepoFile(t, "bconf/proto/bald/store/v1/store.proto"),
 	})
 	build := exec.Command("buf", "build", "-o", "image.pb")

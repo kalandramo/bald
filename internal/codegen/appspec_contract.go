@@ -112,17 +112,21 @@ func messageToMap(m protoreflect.Message) (any, error) {
 			continue
 		}
 		if fd.Kind() == protoreflect.MessageKind {
-			v, err := messageToMap(m.Get(fd).Message())
+			// 统一经 scalarToConfig：Duration/Timestamp 转 protojson 字面量
+			// （"15s"/RFC3339），其余消息递归为子树。直接在 messageToMap 里递归
+			// 会把 Duration 的 {seconds:15} 形状写进配置，而 bconf 装载器要求
+			// "15s" 字符串——生成物启动即失败。
+			v, err := scalarToConfig(fd, m.Get(fd))
 			if err != nil {
 				return nil, err
 			}
 			// 已出现但为空的消息段保持「空对象」形态（YAML `seg: {}`）——
 			// 段存在性本身是语义（如 server.http 存在即开通），不能序列化成
 			// null（protojson 把 null 当未设置，段会被装载器丢弃）。
-			if vm, ok := v.(map[string]any); ok && vm != nil {
-				out[string(fd.Name())] = vm
-			} else {
+			if v == nil {
 				out[string(fd.Name())] = map[string]any{}
+			} else {
+				out[string(fd.Name())] = v
 			}
 			continue
 		}

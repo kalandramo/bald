@@ -115,8 +115,12 @@ func TestTree_CustomWiringHooks(t *testing.T) {
 
 	withVariants, _ := renderAppTree(t, variantFixture(guardFixture()))
 	variantImpl := fileAt(t, withVariants, "internal", "bootstrap", "variant_grpcgw.gen.go")
-	if !strings.Contains(variantImpl, `customVariantOpts("grpcgw")`) {
-		t.Errorf("variant impl must route app-level wiring through customVariantOpts:\n%s", variantImpl)
+	variantsGen := fileAt(t, withVariants, "internal", "bootstrap", "variants.gen.go")
+	if !strings.Contains(variantsGen, "customVariantOpts(variantImpls[i].Name)") {
+		t.Errorf("variantOptions must late-bind app-level wiring through customVariantOpts:\n%s", variantsGen)
+	}
+	if strings.Contains(variantImpl, "customVariantOpts") {
+		t.Errorf("variant impl init must not read variantOpts (init order is not a contract):\n%s", variantImpl)
 	}
 }
 

@@ -1,145 +1,29 @@
-# bald-demo 完整配置示例（示例自带，路径相对运行目录：_example/bald/configs/）
-#
-# 优先级（高 → 低，viper 默认语义）：
-#   命令行 flag > 环境变量 > 本地文件(本文件) > 远程配置中心
-#
-# 键名即 Protobuf 配置契约（bconf/proto/bootstrap/v1/）中的字段路径：
-#   - app         : bootstrapv1.App（元数据：name/version/env/stop_timeout）
-#   - server.http : bootstrapv1.Server_Http
-#   - server.grpc : bootstrapv1.Server_Grpc
-#   - logger      : bootstrapv1.Logger（type 选后端，slog 段给参数）
-#   - database.sql: bootstrapv1.Database_SQL（storegorm.Provider 消费）
-#
-# 同一套键路径同时适用于四种配置源：
-#   --server.http.addr  ⇔  server.http.addr  ⇔  BALD_DEMO_SERVER_HTTP_ADDR  ⇔  本文件的 server.http.addr
-
-# ---------------------------------------------------------------------------
-# App 元数据（bootstrapv1.App）：MustServe 路径下契约由框架内部装载，
-# 元数据经配置供给（代码层不再预填契约）。
-# ---------------------------------------------------------------------------
 app:
-  name: "bald-demo"       # 服务身份（日志、注册中心实例名）；不决定 env 前缀
-  version: "v0.1.0"
-  stop_timeout: "15s"     # 优雅停机总超时（protojson Duration 字面量）
-
-# ---------------------------------------------------------------------------
-# HTTP 服务（bootstrapv1.Server_Http，默认明文；Http.Tls 非 nil 即启用 HTTPS）
-# ---------------------------------------------------------------------------
-server:
-  http:
-    addr: ":8080"        # 监听地址；":0" 可让系统分配空闲端口
-    # HTTP 面模式（bootstrapv1.Server_Http.driver）：仅在代码声明了网关能力
-    # （-tags grpcgw 的 WithGatewayRegister）时被消费——
-    #   grpc-gateway = 本端口跑 REST→gRPC 转码面（gin 演示路由让位）；
-    #   其余值/留空 = 业务 handler（与 driver 无关）。
-    driver: "grpc-gateway"
-    # TLS（bootstrapv1.Server_TLS）：file（证书路径）或 config（原始 PEM）二选一，
-    # 二者都提供时以 file 为准。
-    # tls:
-    #   file:
-    #     cert_path: /etc/certs/tls.crt
-    #     key_path: /etc/certs/tls.key
-
-  # -----------------------------------------------------------------------
-  # gRPC 服务（bootstrapv1.Server_Grpc）
-  # -----------------------------------------------------------------------
-  grpc:
-    addr: ":9090"        # 监听地址；":0" 可让系统分配空闲端口
-    reflection: false    # gRPC Server Reflection（调试工具 grpcurl 需要）
-
-# ---------------------------------------------------------------------------
-# 日志（bootstrapv1.Logger：backends 后端清单，每项 = type + 参数段）
-# 默认路径零注册代码：单 slog 项（标准库适配器）开箱即用。
-# 远端/自定义后端（loki/aliyun/tencent/sentry/charm/自有）：声明一个 logger 段
-# Provider（Segments()=["logger"]，两阶段+热更协议见 pkg/appkit/provider.go）
-# 传入 MustServe 即整体接管日志装配（原 WithLogRegistry 通道的等价物）。
-# ---------------------------------------------------------------------------
-logger:
-  # 全局脱敏（可选）：命中 key 的属性值在全部后端统一掩码为 ***（含调用参数、
-  # With 派生、ctx 属性流三类来源；留空零开销）：
-  # filter_keys: ["password", "access_token"]
-  backends:
-    - type: "slog"
-      slog:
-        level: "info"        # debug | info | warn | error
-        format: "console"    # console | json
-        output_path: "stdout"  # 单值输出目标：stdout / stderr 或文件路径
-        # 多输出 + 轮转（output_paths 非空时优先生效，单值字段被忽略）：
-        # output_paths: ["stdout", "/var/log/bald-demo/app.log"]  # 复制分流（每目标收全量）
-        # rotate:            # 仅对文件目标生效（lumberjack 按大小切割）
-        #   enabled: true    # 零值字段回退默认：100MB / 7 份 / 30 天 / gzip
-        #   max_size: 100    # MB
-        #   max_backups: 7   # 保留份数（不含当前）；0 = 保留全部
-        #   max_age: 30      # 天；0 = 不按时间清理
-        #   compress: true
-  # 多后端广播（列表加项，每条日志复制分流到全部后端；含远端项需 WithLogRegistry）：
-  # backends:
-  #   - type: slog                        # 本地：控制台/文件
-  #     slog: {level: info, format: console, output_path: stdout}
-  #   - type: loki                        # 远程：Grafana Loki 双写
-  #     loki: {endpoint: "http://loki:3100/loki/api/v1/push", labels: {app: bald-demo}}
-  # 其它后端项示例（需 WithLogRegistry 注册对应后端后，type 声明即生效）：
-  #   - type: charm                       # 终端彩色输出（本地开发）
-  #     charm: {level: info, output_path: stderr}
-  #   - type: sentry                      # 错误追踪
-  #     sentry:
-  #       dsn: "https://<key>@o0.ingest.sentry.io/<project>"
-  #       environment: "production"
-  #   - type: aliyun                      # 阿里云 SLS
-  #     aliyun:
-  #       endpoint: "cn-hangzhou.log.aliyuncs.com"
-  #       project: "demo"
-  #       logstore: "demo-logstore"
-  #       access_key: "<AK>"
-  #       access_secret: "<SK>"
-  #   - type: tencent                     # 腾讯云 CLS
-  #     tencent:
-  #       endpoint: "ap-guangzhou.cls.tencentcs.com"
-  #       topic_id: "<topic-id>"
-  #       access_key: "<AK>"
-  #       access_secret: "<SK>"
-
-# ---------------------------------------------------------------------------
-# 数据库（bootstrapv1.Database_SQL：storegorm.Provider 消费——段驱动 Provider
-# 装配全链路演示：契约段 → Provider 打开连接 → 资源容器（app.Database("sql")）
-# → 停机释放连接池）。sqlite 为内存库（零文件残留；驱动已内置，其余驱动经
-# baldblgorm.RegisterDialector 注册）。
-# ---------------------------------------------------------------------------
+    name: bald-demo
+    stop_timeout: 15s
+    version: v0.1.0
 database:
-  sql:
-    driver: "sqlite"
-    source: "file::memory:?cache=shared&_fk=1"
-
-# ---------------------------------------------------------------------------
-# 服务注册中心（bootstrapv1.Registry：type 选后端 + 各后端参数段）
-# ---------------------------------------------------------------------------
-# 语义：契约声明意图（type + 连接参数），代码声明能力（哪个后端可用）。
-#   - 默认构建：main.go 显式 WithRegistrar(inmemory.New()) 优先于本段
-#     （开发零依赖演示）；
-#   - -tags nacos 构建：nacos 契约 provider 已显式注册，本段驱动真实注册
-#     （连接参数全契约化，代码零硬编码）；
-#   - type 指向未注册后端：构造期 fail-fast（显式注册的天然收益）。
-# 注意：registry 段不支持热更新（client 重建侵入性大，变更需重启）。
+    sql:
+        driver: sqlite
+        source: file::memory:?cache=shared&_fk=1
+logger:
+    backends:
+        - slog:
+            format: console
+            level: info
+            output_path: stdout
+          type: slog
 registry:
-  type: "nacos"
-  nacos:
-    server_addrs: ["127.0.0.1:8848"]
-    namespace: "public"
-    group: "DEFAULT_GROUP"
-    cluster_name: "DEFAULT"
-    default_kind: "grpc"
-
-# ---------------------------------------------------------------------------
-# 业务配置段（判据 ① 活体：域的配置归属写进域——greetv1 域在 ApplyNode 的
-# biz 节点读取本段构造自己的能力，装配层不出现业务阈值）。
-#
-# 统一放在顶层 biz: 下，域以 biz.<域名> 路径声明期望态（设计 Q8）：
-# greetv1 的 domain.greet.biz 节点挂 segments=["biz.greet"] + reload=reconcile，
-# 本子树一变即触发 Domain.Reconcile 重建 greet 端口——业务配置热更不必重启。
-#
-# 业务段只进 Settings 快照、不进契约（与 L3 覆盖检查无交互）；env 覆盖通道：
-# BALD_DEMO_BIZ_GREET_GREETING。缺省 "hello" 与域迁移前行为一致（零回归）。
-# ---------------------------------------------------------------------------
-biz:
-  greet:
-    greeting: "hello"
+    nacos:
+        cluster_name: DEFAULT
+        default_kind: grpc
+        group: DEFAULT_GROUP
+        namespace: public
+        server_addrs:
+            - 127.0.0.1:8848
+    type: nacos
+server:
+    grpc:
+        addr: :9090
+    http:
+        addr: :8080
