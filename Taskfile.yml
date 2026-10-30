@@ -63,6 +63,14 @@ tasks:
     cmds:
       - go test . -run TestGeneratedMatchesProto -count=1
 
+  bconf-verify:
+    desc: bconf 契约层模块验证（build + vet + test；含生成物与 proto 一致性）
+    dir: bconf
+    cmds:
+      - go build ./...
+      - go vet ./...
+      - go test ./...
+
   # 生成示例的 gRPC 服务代码（需 protoc-gen-go-grpc / protoc-gen-grpc-gateway 等）。
   # 直接调 _example/bald 目录下的等效生成命令，不再递归调用子 Makefile。
   proto-example:
@@ -345,7 +353,7 @@ tasks:
   # 全量验证：核心 + example（默认 tag 与 grpcgw tag）+ 嵌套 module。
   # CI 建议跑这个，而不是只跑 `go build ./...`。
   verify:
-    desc: 全量验证（核心 + example + cobramcp + retry/ratelimit/broker/circuitbreaker）
-    deps: [build, test, example-build, example-vet, example-bald-vet, cobramcp-verify, encoding-verify, retry-verify, ratelimit-verify, broker-verify, circuitbreaker-verify]
+    desc: 全量验证（核心 + example + bconf + cobramcp + retry/ratelimit/broker/circuitbreaker）
+    deps: [build, test, bconf-verify, example-build, example-vet, example-bald-vet, cobramcp-verify, encoding-verify, retry-verify, ratelimit-verify, broker-verify, circuitbreaker-verify]
     cmds:
       - cmd: 'echo "verify: core + example + nested modules OK（grpcgw 需 buf，见 example-build-grpcgw）"'
