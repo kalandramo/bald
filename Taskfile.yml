@@ -48,6 +48,21 @@ tasks:
     cmds:
       - buf generate
 
+  # BSR 远端插件的离线等价物：同一份 managed mode 配置，只把插件换成本机
+  # protoc-gen-go。产物与入库 gen/go 逐字节一致（由 proto-contract-check 守住），
+  # 无 BSR 登录也能复现/校验契约层生成。
+  proto-contract-local:
+    desc: 用本机 buf + protoc-gen-go 重新生成契约层（与 BSR 产物逐字节一致）
+    dir: bconf
+    cmds:
+      - buf generate --template buf.gen.local.yaml
+
+  proto-contract-check:
+    desc: 校验契约层生成物与 proto 一致（工具链缺失时测试自动跳过）
+    dir: bconf
+    cmds:
+      - go test . -run TestGeneratedMatchesProto -count=1
+
   # 生成示例的 gRPC 服务代码（需 protoc-gen-go-grpc / protoc-gen-grpc-gateway 等）。
   # 直接调 _example/bald 目录下的等效生成命令，不再递归调用子 Makefile。
   proto-example:
@@ -322,6 +337,8 @@ tasks:
       - go test ./pkg/appkit -run 'TestDrift'
       - go test ./pkg/appkit -run 'TestAPI_'
       - go test ./internal/codegen -run 'TestGen_(Deterministic|CheckClean)|TestGenDomain_RESTBind_(Deterministic|NoRoutes)|TestPruneStaleOwned|TestCheckTree_'
+      - cmd: go test . -run TestGeneratedMatchesProto
+        dir: bconf
       - cmd: go test ./internal/bootstrap -run TestPlan_ReferenceProject
         dir: _example/bald
 

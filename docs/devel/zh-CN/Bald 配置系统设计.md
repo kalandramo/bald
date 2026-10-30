@@ -187,7 +187,7 @@ bald/bconf/                       module github.com/kalandramo/bald/bconf
 
 - **Go 导入路径**：`github.com/kalandramo/bald/bconf/gen/go/...`。
 - **生成方式**：`buf` managed mode（`buf.gen.yaml` 的 `go_package_prefix` 是生成路径的最终裁决者）。各 `.proto` 的 `option go_package` 已于 2026-09-05 与之全量对齐（历史上 store/appspec 两文件曾残留旧 `pkg/conf/gen` 串、靠 managed mode 兜底——已修正，不再依赖兜底）。
-- **改 proto 后**：跑 `buf generate` 重新生成 `.pb.go`——**不要直接手改 `.pb.go`**，`rawDesc` 内嵌描述符带 protobuf 长度前缀，改长字符串会让长度错位、运行时 panic。（protoc-gen-go 生成 rawDesc 时会剥离 `go_package`，故修正源串不影响生成产物。）
+- **改 proto 后**：跑 `buf generate` 重新生成 `.pb.go`——**不要直接手改 `.pb.go`**，`rawDesc` 内嵌描述符带 protobuf 长度前缀，改长字符串会让长度错位、运行时 panic。（protoc-gen-go 生成 rawDesc 时会剥离 `go_package`，故修正源串不影响生成产物。）无 BSR 登录时用 `task proto-contract-local`（本地 `protoc-gen-go` 等价模板，产物逐字节一致），`task proto-contract-check` 校验生成物与 proto 同步。
 
 ### 2.2 为什么用 proto 作契约（而非 Go struct + mapstructure）
 

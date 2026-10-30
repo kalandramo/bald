@@ -72,6 +72,8 @@ bald/bconf/                       module github.com/kalandramo/bald/bconf
 
 生成物入库，业务方无需装 buf 工具链即可构建。改 proto 后跑 `buf generate` 重新生成——**不要手改 `.pb.go`**：rawDesc 内嵌描述符带长度前缀，改长字符串会让长度错位、运行期 panic。
 
+无 BSR 登录时可跑 `task proto-contract-local`（`bconf/buf.gen.local.yaml`：同一份 managed mode，插件换成本机 `protoc-gen-go`）。已核实该路径与远端插件产物逐字节一致，`task proto-contract-check`（`TestGeneratedMatchesProto`，工具链缺失时自动跳过）把这条等价关系钉住：proto 改了没重生成、或本地插件版本漂移，都会在测试里报出具体文件。
+
 ### 契约形状：BootstrapConfig 十五个域
 
 顶层消息声明式描述应用完整拓扑：`app`（元数据，含全契约唯一 Duration 字段 `stop_timeout`）、`server`（HTTP/gRPC 可混合）、`config`（九种配置源可混合）、`registry`、`logger`、`tracer`、`metrics`、`broker`、`storage`、`ai`、`workflow`、`cache`、`script`、`database`、`audit`（v0.6.0 新增，见下）。多态域（配置源、日志后端、传输协议）一律 `optional` 子消息 + `repeated`——「同时配多种」是一等公民。

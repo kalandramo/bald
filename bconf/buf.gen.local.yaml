@@ -1,0 +1,17 @@
+# 离线等价生成模板：与 buf.gen.yaml 相同的 managed mode，只把远端插件换成
+# 本机 protoc-gen-go。用于无 BSR 登录/无网环境下复现契约层产物。
+#
+# 已核实（2026-10-30）：protoc-gen-go v1.36.12 下本模板的产物与入库的
+# gen/go 逐字节一致——远端插件的 protoc 版本记为 unknown，本地 buf 也不注入
+# 版本号，因此头部注释不会漂移。版本升级时先改 buf.gen.yaml 的远端版本，
+# 再用本模板重出并提交，两者必须保持同一 pin（见 bconf go.mod 的 protobuf 版本）。
+version: v2
+managed:
+  enabled: true
+  override:
+    - file_option: go_package_prefix
+      value: github.com/kalandramo/bald/bconf/gen/go
+plugins:
+  - local: protoc-gen-go
+    out: gen/go
+    opt: paths=source_relative
