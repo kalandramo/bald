@@ -609,6 +609,30 @@ func TestGenDomain_RESTBind_RequiresTransportWeb(t *testing.T) {
 	}
 }
 
+// TestGenDomain_RESTBind_RequiresProtoGoPackage 生成本身不跑 buf：go_package
+// 目录里没有 .go 文件时生成期拒绝并点名 buf generate，而不是产出一棵
+// import 不到 proto 类型的树。
+func TestGenDomain_RESTBind_RequiresProtoGoPackage(t *testing.T) {
+	dir, specPath := runGenAppInTemp(t, guardFixture())
+	pkgDir := filepath.Join(dir, "api", "gen", "go", "greet", "v1")
+	if err := os.RemoveAll(pkgDir); err != nil {
+		t.Fatalf("remove proto go package: %v", err)
+	}
+
+	streams, _ := testStreams()
+	cmd := genDomainCmd(streams)
+	cmd.SetArgs([]string{"--spec", specPath, "--out", dir, "--rest-bind", "--adopt"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("--rest-bind without generated proto Go package must fail at generation time")
+	}
+	for _, want := range []string{"demo.example/app/api/gen/go/greet/v1", "buf generate"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("err = %v, want containing %q", err, want)
+		}
+	}
+}
+
 // TestGenDomain_RESTBind_Deterministic Q5 生成物同样受「双跑字节一致」约束：
 // 同一份声明在两个临时树里各生成一遍，绑定文件、路由清单与其余产物逐字节相同。
 // 直接以绝对 --out 调用（不依赖 CWD），避免单测里两次 t.Chdir。

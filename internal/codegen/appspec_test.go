@@ -789,6 +789,15 @@ message GreetResponse {
 	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
 		t.Fatalf("write fixture proto: %v", err)
 	}
+	// buf generate 的等价物：--rest-bind 的生成期前置要求 go_package 目录里
+	// 已有 Go 文件（真实流水线由 protoc-gen-go 产出；这里只求存在性）。
+	pkgDir := filepath.Join(dir, "api", "gen", "go", "greet", "v1")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatalf("mkdir proto go package: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(pkgDir, "greet.pb.go"), []byte("package greetv1\n"), 0o644); err != nil {
+		t.Fatalf("write proto go stub: %v", err)
+	}
 }
 
 // TestTree_GeneratedProjectCompiles 生成的工程在独立消费者 module 内真实

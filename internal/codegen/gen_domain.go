@@ -773,7 +773,7 @@ func (o *domainOptions) emitAPIServerSide(v *treeView, scan *protoScan, files *[
 			}
 			if bind != nil {
 				if !bindDepsChecked {
-					if err := o.requireBindDeps(); err != nil {
+					if err := o.requireBindDeps(bind.ProtoPkgPath); err != nil {
 						return err
 					}
 					bindDepsChecked = true
@@ -806,10 +806,11 @@ func (o *domainOptions) emitAPIServerSide(v *treeView, scan *protoScan, files *[
 			"Domains": v.Spec.GetDomains(), "HasDomains": len(v.Spec.GetDomains()) > 0})
 }
 
-// requireBindDeps 是 --rest-bind 的流水线前置：bind 文件 import
-// transport/web（独立 module），消费者 go.mod 没声明就必然编译失败。生成期
-// 直接拒绝并给出修法，避免「生成成功、构建失败」的滞后错误。
-func (o *domainOptions) requireBindDeps() error {
+// requireBindDeps 是 --rest-bind 的两条流水线前置：bind 文件 import
+// transport/web（独立 module）与 proto 的 Go 类型包（buf generate 产物）。
+// 两者任一缺失都会让产物编译不过；生成期直接拒绝并给出修法，避免「生成
+// 成功、构建失败」的滞后错误。
+func (o *domainOptions) requireBindDeps(protoPkg string) error {
 	const transportWeb = "github.com/kalandramo/bald/transport/web"
 	gomod := filepath.Join(o.OutDir, "go.mod")
 	raw, err := os.ReadFile(gomod)
@@ -819,7 +820,45 @@ func (o *domainOptions) requireBindDeps() error {
 	if !strings.Contains(string(raw), transportWeb) {
 		return fmt.Errorf("--rest-bind generates bindings that import %s, but %s does not require it; run `go get %s` and regenerate (or drop --rest-bind to generate only the domain skeleton)", transportWeb, gomod, transportWeb)
 	}
+	if rel := moduleLocalDir(string(raw), protoPkg); rel != "" {
+		dir := filepath.Join(o.OutDir, rel)
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return fmt.Errorf("--rest-bind imports proto Go package %q, but %s is unreadable (%w); run `buf generate` first (or drop --rest-bind to generate only the domain skeleton)", protoPkg, dir, err)
+		}
+		generated := false
+		for _, e := range entries {
+			if !e.IsDir() && strings.HasSuffix(e.Name(), ".go") {
+				generated = true
+				break
+			}
+		}
+		if !generated {
+			return fmt.Errorf("--rest-bind imports proto Go package %q, but %s has no generated Go files; run `buf generate` first (or drop --rest-bind to generate only the domain skeleton)", protoPkg, dir)
+		}
+	}
 	return nil
+}
+
+// moduleLocalDir 把 go_package 路径映射回消费方 module 内的相对目录；包不在
+// 本 module 下（或 go.mod 无 module 行）时返回空——外部依赖是否已产出不归
+// 生成器管。
+func moduleLocalDir(gomod, pkg string) string {
+	for _, line := range strings.Split(gomod, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "module ") {
+			continue
+		}
+		mod := strings.TrimSpace(strings.TrimPrefix(line, "module "))
+		if pkg == mod {
+			return "."
+		}
+		if strings.HasPrefix(pkg, mod+"/") {
+			return strings.TrimPrefix(pkg, mod+"/")
+		}
+		return ""
+	}
+	return ""
 }
 
 // serviceIndex 把扫描结果按 service 全名建索引。
@@ -1253,7 +1292,8 @@ api/protos、proto），失配报错指明域、proto 文件与实际声明。�
 --rest-bind 的前置条件：proto 的 Go 类型已由 buf generate 产出（bind 文件
 import 其 go_package），消费者 module 依赖 bald/transport/web。默认关闭——
 未跑 buf generate 的树保持可编译；开启后 bind 文件与其余产物一同纳入
---check 对账。依赖缺失由生成期直接拒绝（读消费者 go.mod），不再拖到编译期。
+--check 对账。两条前置（transport/web 依赖、proto Go 产物）都由生成期直接
+校验（读消费者 go.mod 与 go_package 目录），缺失即拒绝，不再拖到编译期。
 --no-routes 与 --rest-bind 连用：只产 bind 文件，不产路由清单（域保留手写
 RouteTable）。`,
 		Args:         cobra.NoArgs,
