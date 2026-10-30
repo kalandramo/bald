@@ -21,7 +21,7 @@
 
 同时给出 **L1–L5 声明式等级**，用于对外诚实表述与验收：草案撰写时 bald 是 **L1 + 部分 L2**，本设计目标是在 v0.26 达到 **L3**、v0.27 达到 **L4**、v0.28 达到 **L5**。
 
-> **实施状态（2026-10-29，M0–M5 + doctor + Domain v2 已落地）**：`Compile`/Plan IR、Provider v2、删除手工排序表、`Key[T]` 类型化资源、节点级 `ReloadPolicy` + `Drift`、生成清单与 `--check`/`--adopt`、`WithOpaqueBudget`、`bald doctor`、计划缓存 `WithPlanCache`（§4.9，按 `(Role, InputHash)` 记基线、doctor 只读对比）均已交付，`WithRole` 补齐角色进计划与 Provider 作用域的缺口、`WithAmbient` 把 build tag / `init()` 注入接线记为计划 `ambient` 警告（Q7 短期形态）；`Domain.Declare`/`Domain.ApplyNode`（§4.6）已落地，示例 greet 域与 bald-admin 全部 20 个域都已迁到该形态（计划期 Opaque 只剩 std server 构造节点），`Domain.Reconcile` 补齐声明的可协调节点（计划期校验 + 热更分发）。对外口径随之更新为「声明式装配（L1–L3 达成，L4 部分，L5 生成物维度达成）」，见 [装配计划与 doctor](../../guide/zh-CN/Bald%20装配计划与%20doctor.md) §5。**未达成的验收项**：① `Opaque` 预算——示例为 **2**、bald-admin 为 **1**，均达标；② L4 的收敛已覆盖 Provider 节点（logger/audit 的 `ReloadReconcile`）与声明域节点（`Domain.Reconcile`，2026-10-29 落地：计划期校验 + Wire/ApplyNode 成功后落账 + 热更按 Key 调钩子），但 database/cache/storage 等 Provider 段仍明确不支持热更，域侧也尚无节点使用 `ReloadReconcile`（域自有配置进期望态的口径见 §8.2 Q8）。
+> **实施状态（2026-10-30，M0–M5 + doctor + Domain v2 + biz 段收敛已落地）**：`Compile`/Plan IR、Provider v2、删除手工排序表、`Key[T]` 类型化资源、节点级 `ReloadPolicy` + `Drift`、生成清单与 `--check`/`--adopt`、`WithOpaqueBudget`、`bald doctor`、计划缓存 `WithPlanCache`（§4.9，按 `(Role, InputHash)` 记基线、doctor 只读对比）均已交付，`WithRole` 补齐角色进计划与 Provider 作用域的缺口、`WithAmbient` 把 build tag / `init()` 注入接线记为计划 `ambient` 警告（Q7 短期形态）；`Domain.Declare`/`Domain.ApplyNode`（§4.6）已落地，示例 greet 域与 bald-admin 全部 20 个域都已迁到该形态（计划期 Opaque 只剩 std server 构造节点），`Domain.Reconcile` 补齐声明的可协调节点（计划期校验 + 热更分发）。对外口径随之更新为「声明式装配（L1–L4 达成，L5 生成物维度达成）」，见 [装配计划与 doctor](../../guide/zh-CN/Bald%20装配计划与%20doctor.md) §5。**收敛范围**：`Opaque` 预算——示例为 **2**、bald-admin 为 **1**，均达标；L4 的收敛覆盖 Provider 节点（logger/audit 的 `ReloadReconcile`）与声明域节点（`Domain.Reconcile`，2026-10-29 落地：计划期校验 + Wire/ApplyNode 成功后落账 + 热更按 Key 调钩子），域节点可挂框架段或业务配置段 `biz.<path>`（Q8，2026-10-30：计划期从 Settings 快照算期望态摘要，热更按新快照协调）；database/cache/storage 等 Provider 段仍明确不支持热更（`ReloadRestart`）。消费侧诚实说明：bald-admin 的域目前尚未声明 `ReloadReconcile` 节点，能力已由框架测试钉住（`TestPlan_BizSegmentDesiredState`、`TestHotReload_ReconcilesBizSegment`）。
 
 ---
 
@@ -83,7 +83,7 @@
 | **L1 声明式配置** | 配置形状由 schema 定义，未知键/未消费段可检测 | 契约 proto + strict + 覆盖检查 | **达成** | **达成** |
 | **L2 可计划拓扑** | 装配拓扑可由纯函数算出并打印；执行前可审阅 | `Compile` + `--plan` | **部分**（`AppSpec` 是数据，`Decl` 不是） | **达成**（`Compile`/`Plan`/`--plan`/`Plan.Hash`/`doctor`） |
 | **L3 顺序无关组合** | 结果只由依赖图与显式优先级决定，与实参/import 顺序无关 | 置换测试 + 无手工排序表 | 未达成 | **达成**（`Phase`/`Priority`/`DependsOn` 取代手工表，置换测试） |
-| **L4 收敛运行** | 声明资源可 level-triggered 协调；漂移可观测 | 配置变更/漂移 e2e | 未达成（仅组件子集） | **部分**（节点 `ReloadPolicy` + `Drift` + `Reconcile`，域资源未纳入） |
+| **L4 收敛运行** | 声明资源可 level-triggered 协调；漂移可观测 | 配置变更/漂移 e2e | 未达成（仅组件子集） | **达成**（节点 `ReloadPolicy` + `Drift` + `Reconcile`；域节点可挂框架段或 `biz.<path>` 业务段，2026-10-30） |
 | **L5 纯函数生成** | 生成物是 `(AppSpec, proto)` 的纯函数，可 `--check` diff | 双跑字节一致 + check 零 diff | 未达成 | **达成（生成物维度）**（清单 + `--check` 零写入 + 双跑一致） |
 
 对外文案从「声明式编程」改为「**声明式装配（Lx）**」，并在 README/指南中给出当前等级。这是本草案唯一要求立即执行的文档变更。
@@ -164,7 +164,7 @@ type ResourceKey string
 type Node struct {
 	Key       ResourceKey   // 如 "database.sql"、"domain.greet"
 	Kind      string        // server | database | logger | domain | component | hook | legacy
-	Segments  []string      // 读取的契约段（输入，不构成所有权）
+	Segments  []string      // 读取的契约段（输入，不构成所有权）；框架段路径或 biz.<path>（业务配置）
 	DependsOn []ResourceKey // 资源键依赖（决定 Apply 拓扑序）
 	// TeardownAfter 仅在「停机序 ≠ Apply 逆序」时声明；
 	// 取代 cleanupOrder 手工表。
@@ -351,7 +351,9 @@ type Domain struct {
 
 **声明 + 执行**（已实现）：`ApplyNode` 在域窗口（业务 `BeforeStart` 之后、server 构建之前）按计划序执行声明节点，节点按 Key 区分职责；`app.HTTPHandler()` 提供 `WithHTTP` 声明的业务 handler（路由节点挂载用）。两条边界由计划期 fail-fast 兜住：`ApplyNode` 与 `Wire`/`Routes` 互斥（双写）；声明节点不得消费 `server.grpc`——`grpc.Server` 在域窗口里还不存在，服务注册只能走 `Domain.Services`（server 构建时的延迟回调）。`Services` 因此与 `ApplyNode` 共存合法，且不必为它声明节点（它不在域窗口执行，不存在双写）。迁移完成的域不再合成 `domain.<name>.wire`，逃逸舱归零：`_example/bald` 的 greet 域迁后 `nodes: 7 (opaque 2)`（只剩程序化 registry 与 std server）。
 
-声明节点的 `Segments` 必须是 `BootstrapConfig` 的真实字段路径：拼错的段不会出现在 L3 覆盖检查里，期望态摘要还会退化成 Key/Kind 常量（reconcile 节点永不触发）——计划期直接报错。这也意味着域自有业务配置（`biz` 段）目前无法作为 reconcile 节点的期望态，见 §8.2 Q8。
+声明节点的 `Segments` 有两种合法形态：`BootstrapConfig` 的真实字段路径（如 `server.http`），或业务配置路径 `biz.<path>`（Q8 已落，2026-10-30）。拼错的段不会出现在 L3 覆盖检查里，期望态摘要还会退化成 Key/Kind 常量（reconcile 节点永不触发）——计划期直接报错；`biz.` 前缀后必须是非空、无空段的点路径。
+
+`biz.<path>` 的期望态取自计划编译时传入的**合并 Settings 快照**（`PlanScope.Settings`），按完整点路径（`biz` 是配置顶层段）取子树后做 JSON 序列化（map 键排序）再进摘要——同一快照稳定同摘要，子树有值 vs 存在但为空 vs 段缺失三者可区分。快照口径与运行时一致：`Compile`/`--plan` 为文件 + env 基线（无 flag 层），真实启动与热更为完整合并（含 flag）；计划期只读快照，不做 I/O。业务配置因此第一次能成为可协调节点的期望态，`Domain.Reconcile` 在热更时按新快照被调用。
 
 可协调声明节点的契约：启动时 Wire 建立实际态、成功后节点记为已应用（Drift 不误报 Missing）；配置变更按节点 `DesiredHash` diff，钩子成功才落新摘要，失败保留旧值由 Drift 报 Stale。声明节点集合是拓扑，应跨配置稳定——热更中新出现的节点键没有登记面。
 
@@ -424,7 +426,7 @@ func (a *App) Drift(ctx context.Context) ([]Drift, error)
 - **Unexpected**：运行态有、计划无（第三方运行期挂载）。
 - **Stale**：`DesiredHash` 与观测不一致。
 
-第一版只覆盖 `ReloadReconcile` 节点（logger、audit、组件），`database/cache/storage` 一律 `ReloadRestart`——不假装能热切连接池。这比现在「Reconcile 只覆盖组件、但文档写 Kubernetes 同型」更诚实，也为后续扩展留下数据位。
+第一版只覆盖 `ReloadReconcile` 节点（logger、audit、组件、声明域节点），`database/cache/storage` 一律 `ReloadRestart`——不假装能热切连接池。这比现在「Reconcile 只覆盖组件、但文档写 Kubernetes 同型」更诚实，也为后续扩展留下数据位。域节点的期望态可来自框架段（`BootstrapConfig` 路径）或业务配置（`biz.<path>`，Q8），两者共用同一条 diff/协调路径。
 
 ### 4.9 Plan 入口
 
@@ -599,7 +601,7 @@ bald doctor --config configs/bald-demo-api.yaml
 | Q5 | 路由是否由生成器接管？ | 是，默认生成；`--no-routes` 保留自定义 |
 | Q6 | `AppSpec` 快捷方式何时移除？ | v0.28；投影门已运行两个版本 |
 | Q7 | build tag 分叉如何进入声明？ | 短期计划中记录 `Ambient` 并警告——**已落**（`WithAmbient`，2026-10-29：示例 `-tags grpcgw`/`nacos` 经 `init()` 登记，`--plan`/`doctor` 出现 `ambient` 警告）；长期进 AppSpec `variants`（未做） |
-| Q8 | 域自有业务配置（`biz` 段）如何进入可协调节点的期望态？ | 现状 `Node.Segments` 只认 `BootstrapConfig` 字段路径（`segmentPathKnown`），`Domain.Reconcile` 节点因此只能挂框架段；建议扩展 `biz.<path>` 命名空间、计划期从 Settings 快照取子树做期望态摘要——否则业务配置热更仍只有重启一条路 |
+| Q8 | 域自有业务配置（`biz` 段）如何进入可协调节点的期望态？ | **已落**（2026-10-30，按草案实现）：`Node.Segments` 接受 `biz.<path>`，计划期从合并 Settings 快照按完整点路径取子树、JSON 确定性序列化算 `DesiredHash`（段缺失/有值可区分）；`Domain.Declare` 校验纳入 biz 段，`Domain.Reconcile` 在热更时按新快照协调。快照口径：`Compile`/`--plan` 为文件 + env，真实启动/热更为含 flag 的完整合并 |
 
 ---
 

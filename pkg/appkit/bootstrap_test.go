@@ -52,7 +52,7 @@ func TestResolveLoggerSource(t *testing.T) {
 		return stubLogger(), nil, nil
 	}}
 	spec := &Decl{Providers: []Provider{loggerProv}}
-	plan, err := newProviderPlan(context.Background(), spec, &bootstrapv1.BootstrapConfig{})
+	plan, err := newProviderPlan(context.Background(), spec, &bootstrapv1.BootstrapConfig{}, nil)
 	if err != nil {
 		t.Fatalf("plan: %v", err)
 	}
@@ -357,7 +357,7 @@ func dynamicAddr(cfg *bootstrapv1.BootstrapConfig) {
 // 公开装配路径。
 func assembleForTest(t *testing.T, cfg *bootstrapv1.BootstrapConfig, opts ...Option) *App {
 	t.Helper()
-	a, err := assemble(newDecl(opts...), cfg)
+	a, err := assemble(newDecl(opts...), cfg, nil)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
 	}
@@ -367,7 +367,7 @@ func assembleForTest(t *testing.T, cfg *bootstrapv1.BootstrapConfig, opts ...Opt
 // assembleForTestErr 是 assembleForTest 的错误路径版本：不 Fatal，返回装配
 // 错误供 fail-fast 断言（原 `FromBootstrap(...)` 的 err 检查用法）。
 func assembleForTestErr(cfg *bootstrapv1.BootstrapConfig, opts ...Option) (*App, error) {
-	return assemble(newDecl(opts...), cfg)
+	return assemble(newDecl(opts...), cfg, nil)
 }
 
 // 元数据（id/name/version/env/stop_timeout）全部取自契约 app 段。

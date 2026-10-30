@@ -62,7 +62,7 @@ plan hash: 162e34f4...
 
 - **`phase`**：`configure` → `bootstrap` → `wire` → `serve` → `drain` → `teardown`。跨相位不接受 `DependsOn` 反向边（编译期报错），停机按 `TeardownAfter` 逆序。
 - **`opaque`**：该节点没有声明式依赖拓扑，按 legacy 顺序执行。域在声明 `Domain.Declare` 之前整块是 Opaque；只声明拓扑、构造仍归 `Wire`/`Routes`/`Services` 时塌缩成一个 `domain.<name>.wire` Opaque 节点；迁到 `Domain.ApplyNode`（按计划序逐节点执行）后不再产生兼容节点，域贡献的逃逸舱归零（设计 §4.6）。
-- **`segments=`**：节点读取的契约段路径；`segments:` 汇总里 `consumers=` 为空且未白名单的段会在启动期报错。
+- **`segments=`**：节点读取的契约段路径；`segments:` 汇总里 `consumers=` 为空且未白名单的段会在启动期报错。声明域节点既可挂框架段（`server.http` 这类 `BootstrapConfig` 字段路径），也可挂业务配置段 `biz.<path>`——后者把域自有配置带进 `reload=reconcile` 节点的期望态（计划期从合并 Settings 快照取子树算摘要，配置变更即触发 `Domain.Reconcile`）。
 - **`reload=`**：节点级重载策略，决定配置热更时协调还是重报。`reconcile` 节点必须有人能重建它的实际态：Provider 节点由同一 Provider 重跑 `Build`，域声明节点由 `Domain.Reconcile` 承担——声明了 `ReloadReconcile` 却没给钩子（或没给 `Wire`/`ApplyNode`、没声明段）的域在计划期直接报错，不留「永远 Stale」的假节点（见 [机制层 mech](./机制层%20mech%20-%20Effect%20与期望态.md)）。
 
 JSON 形态（`--plan-format=json`）是 `Plan` 的序列化，供脚本比较 hash、做计划基线。
@@ -194,7 +194,7 @@ CI 可组合成「计划 hash 基线 + 生成物零 drift」：`--plan --plan-fo
 | **L1** 声明式配置 | 配置形状由 schema 定义，未知键/未消费段可检测 | 达成 | 契约 proto + StrictContract + 段覆盖检查 |
 | **L2** 可计划拓扑 | 装配拓扑由纯函数算出并打印 | 达成 | `appkit.Compile` + `--plan` + `Plan.Hash()` |
 | **L3** 顺序无关组合 | 结果只由依赖图与显式优先级决定 | 达成 | 节点 `Phase`/`Priority`/`DependsOn` 取代手工排序表；置换测试 |
-| **L4** 收敛运行 | 声明资源可协调，漂移可观测 | 部分 | 节点级 `ReloadPolicy` + `App.Drift` + `Reconcile`；Provider 节点与声明域节点（`Domain.Reconcile`）可协调，database/cache/storage 段仍明确不支持热更；声明域节点的段限 `BootstrapConfig` 字段路径，域自有业务配置的期望态是开放问题（设计 Q8） |
+| **L4** 收敛运行 | 声明资源可协调，漂移可观测 | 达成 | 节点级 `ReloadPolicy` + `App.Drift` + `Reconcile`；Provider 节点与声明域节点（`Domain.Reconcile`）可协调，声明域节点的段可挂框架路径或 `biz.<path>` 业务配置（设计 Q8，2026-10-30）；database/cache/storage 段仍明确不支持热更（`ReloadRestart`） |
 | **L5** 纯函数生成 | 生成物是 `(AppSpec, proto)` 的函数，可 `--check` | 达成（生成物维度） | 双跑字节一致 + 清单 `--check` 零写入；运行期装配仍是 L3/L4 组合 |
 
 缺口以 `OpaqueCount` 与 `doctor` 的 `opaque:` 清单量化：数字越小，搬进声明式拓扑的部分越多。

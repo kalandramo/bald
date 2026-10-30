@@ -93,11 +93,11 @@ func TestDomain_DeclareReconcileRecordsOwnership(t *testing.T) {
 	var calls int32
 	dom := reconcileDomain(&calls)
 	d := newDecl(dom)
-	pp, err := newProviderPlan(context.Background(), d, cfg)
+	pp, err := newProviderPlan(context.Background(), d, cfg, nil)
 	if err != nil {
 		t.Fatalf("newProviderPlan: %v", err)
 	}
-	if _, err := planFrom(context.Background(), d, cfg, pp); err != nil {
+	if _, err := planFrom(context.Background(), d, cfg, nil, pp); err != nil {
 		t.Fatalf("planFrom: %v", err)
 	}
 	if got := pp.domainNodes["domain.greet.limiter"].Name; got != "greet" {

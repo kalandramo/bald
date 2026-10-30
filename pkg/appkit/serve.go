@@ -75,13 +75,13 @@ func Serve(ctx context.Context, opts ...Option) error {
 	// loadConfig + BeforeStart 的 Unmarshal 负责（合并结果覆盖同一契约指针），
 	// 两阶段无冲突。
 	cfg := bconf.NewBootstrap()
-	ns, err := preloadContract(cfg, d.Name, d.ConfigFile)
+	ns, settings, err := preloadContract(cfg, d.Name, d.ConfigFile)
 	if err != nil {
 		return err
 	}
 	d.configNamespace = ns
 
-	a, err := assemble(d, cfg)
+	a, err := assemble(d, cfg, settings)
 	if err != nil {
 		return err
 	}
@@ -130,7 +130,7 @@ func parsePlanFlag() planFlagOutput {
 	return out
 }
 
-// preloadContract 两遍预装载配置进契约并返回派生的配置命名空间：
+// preloadContract 两遍预装载配置进契约并返回派生的配置命名空间与合并快照：
 //
 //	第一遍：baldconfig.Load（本地文件 + 远程层，DeferEnv——env 层延迟，前缀
 //	依赖尚未知的 app.name）→ Unmarshal 探针契约 → 解析 app.name。文件缺失且
@@ -138,11 +138,13 @@ func parsePlanFlag() planFlagOutput {
 //	语义，与 loadConfig 一致）；显式路径缺失 fail-fast。app.name 缺失 fail-fast
 //	且错误可行动（指明必填与供给途径）。
 //	第二遍：Store.MountEnv(app.name) 挂 env 层全量重合并 → Unmarshal 正式契约
-//	（env 覆盖生效）。预装载 store 无 watch，Unmarshal 后立即释放。
-func preloadContract(cfg *bootstrapv1.BootstrapConfig, name, cfgFile string) (string, error) {
+//	（env 覆盖生效）。预装载 store 无 watch，Unmarshal 后立即释放；返回的快照
+//	（含业务段）供计划期 `biz.<path>` 期望态摘要使用（无 flag 层——flag 只在
+//	运行期完整装载，计划会在 BeforeStart 以合并后的快照重算）。
+func preloadContract(cfg *bootstrapv1.BootstrapConfig, name, cfgFile string) (string, map[string]any, error) {
 	s, err := baldconfig.Load(baldconfig.Options{Name: name, ConfigFile: cfgFile, DeferEnv: true})
 	if err != nil {
-		return "", fmt.Errorf("appkit: preload config: %w", err)
+		return "", nil, fmt.Errorf("appkit: preload config: %w", err)
 	}
 	defer s.Close()
 
@@ -150,11 +152,11 @@ func preloadContract(cfg *bootstrapv1.BootstrapConfig, name, cfgFile string) (st
 	// Unmarshal 的合并语义纠缠）。
 	probe := &bootstrapv1.BootstrapConfig{}
 	if err := s.Unmarshal(probe); err != nil {
-		return "", fmt.Errorf("appkit: preload bootstrap config: %w", err)
+		return "", nil, fmt.Errorf("appkit: preload bootstrap config: %w", err)
 	}
 	ns := probe.GetApp().GetName()
 	if ns == "" {
-		return "", errors.New("appkit: bootstrap.app.name is required: the config namespace " +
+		return "", nil, errors.New("appkit: bootstrap.app.name is required: the config namespace " +
 			"(env prefix NAME_* and multi-env file name) is derived from it; " +
 			"set app.name in the config file loaded via --config")
 	}
@@ -162,7 +164,7 @@ func preloadContract(cfg *bootstrapv1.BootstrapConfig, name, cfgFile string) (st
 	// 第二遍：env 层按派生前缀挂载，重合并后契约定形。
 	s.MountEnv(ns)
 	if err := s.Unmarshal(cfg); err != nil {
-		return "", fmt.Errorf("appkit: preload bootstrap config: %w", err)
+		return "", nil, fmt.Errorf("appkit: preload bootstrap config: %w", err)
 	}
-	return ns, nil
+	return ns, s.Settings(), nil
 }

@@ -213,13 +213,13 @@ func validateCapabilities(spec *Decl, cfg *bootstrapv1.BootstrapConfig) error {
 // spec 为业务能力声明（With*/Providers 写入的 Decl，调用方已 Apply 完毕）；
 // cfg 为契约，必须非 nil——Serve 路径由内部契约装载产出（bconf.NewBootstrap +
 // 预装载），包内测试经显式注入 cfg 复用同一构造期语义。返回的 App 已完成全部约定装配，直接 Run 即可。
-func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*App, error) {
+func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig, settings map[string]any) (*App, error) {
 	if cfg == nil {
 		return nil, errors.New("appkit: assemble: bootstrap config is nil")
 	}
 	// 段驱动装配计划：路径末者胜 → Provider.Plan → 节点冲突裁决 + 统一排序
 	//（机制见 provider.go）。计划是执行顺序的唯一来源。
-	plan, err := newProviderPlan(context.Background(), spec, cfg)
+	plan, err := newProviderPlan(context.Background(), spec, cfg, settings)
 	if err != nil {
 		return nil, err
 	}
@@ -480,7 +480,7 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig) (*App, error) {
 
 	// M3 计划快照 + 节点协调器：计划是配置变更 diff 的基线；可协调的 Provider
 	// 节点（audit 等）在配置变更时按同一 Provider 重建产物并替换 cleanup 槽位。
-	fullPlan, err := planFrom(context.Background(), spec, cfg, plan)
+	fullPlan, err := planFrom(context.Background(), spec, cfg, settings, plan)
 	if err != nil {
 		return nil, err
 	}
@@ -795,7 +795,7 @@ func syncBootstrap(a *App, cfg *bootstrapv1.BootstrapConfig, spec *Decl, logSrc 
 	}
 	// 以合并后的契约（文件/env/flag/层）重算并安装计划：配置变更 diff 的
 	// 基线必须是真实生效的契约，而非装配前的预装载形态。
-	next, err := compilePlan(context.Background(), spec, cfg)
+	next, err := compilePlan(context.Background(), spec, cfg, m)
 	if err != nil {
 		return err
 	}
@@ -837,7 +837,7 @@ func hotReload(a *App, cfg *bootstrapv1.BootstrapConfig, spec *Decl, logSrc logg
 	}
 	// 计划重算在落盘前完成：新契约若无法编译（段覆盖/能力冲突等），整次
 	// 热更新被拒绝，旧契约与旧计划保持一致（不做半生效）。
-	next, err := compilePlan(ctx, spec, candidate)
+	next, err := compilePlan(ctx, spec, candidate, m)
 	if err != nil {
 		lg.Error(ctx, msg, "err", err)
 		return

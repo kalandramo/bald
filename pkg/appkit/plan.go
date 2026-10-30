@@ -145,7 +145,7 @@ type Diagnostic struct {
 type Node struct {
 	Key       ResourceKey   `json:"key"`                 // 如 "database.sql"、"domain.greet"
 	Kind      string        `json:"kind"`                // server | database | logger | domain | component | app | legacy
-	Segments  []string      `json:"segments,omitempty"`  // 读取的契约段（输入，不构成所有权）
+	Segments  []string      `json:"segments,omitempty"`  // 读取的契约段（输入，不构成所有权）；框架段路径或 biz.<path>
 	DependsOn []ResourceKey `json:"dependsOn,omitempty"` // 资源键依赖（决定 Apply 拓扑序）
 	// TeardownAfter 仅在「停机序 ≠ Apply 逆序」时声明（"*" = 全部其它节点）。
 	TeardownAfter []ResourceKey `json:"teardownAfter,omitempty"`
@@ -214,16 +214,16 @@ func Compile(ctx context.Context, opts ...Option) (*Plan, error) {
 // compileDecl 装载契约并编译计划（Serve 与 Compile 共用的唯一计划入口）。
 func compileDecl(ctx context.Context, d *Decl) (*Plan, error) {
 	cfg := bconf.NewBootstrap()
-	ns, err := preloadContract(cfg, d.Name, d.ConfigFile)
+	ns, settings, err := preloadContract(cfg, d.Name, d.ConfigFile)
 	if err != nil {
 		return nil, err
 	}
 	d.configNamespace = ns
-	return compilePlan(ctx, d, cfg)
+	return compilePlan(ctx, d, cfg, settings)
 }
 
 // compilePlan 从已定形的声明 + 契约推导计划。除标注的纯校验外不产生副作用。
-func compilePlan(ctx context.Context, d *Decl, cfg *bootstrapv1.BootstrapConfig) (*Plan, error) {
+func compilePlan(ctx context.Context, d *Decl, cfg *bootstrapv1.BootstrapConfig, settings map[string]any) (*Plan, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("appkit: compile: bootstrap config is nil")
 	}
@@ -236,7 +236,7 @@ func compilePlan(ctx context.Context, d *Decl, cfg *bootstrapv1.BootstrapConfig)
 
 	// 与 assemble 同源的构造期校验：计划预检不得放过真实启动会报的错误。
 	// Plan 在此被调用（纯函数，I1）；节点即执行顺序的唯一来源。
-	pp, err := newProviderPlan(ctx, d, cfg)
+	pp, err := newProviderPlan(ctx, d, cfg, settings)
 	if err != nil {
 		return nil, err
 	}
@@ -249,12 +249,13 @@ func compilePlan(ctx context.Context, d *Decl, cfg *bootstrapv1.BootstrapConfig)
 	if err := checkSegmentCoverage(cfg, d, pp); err != nil {
 		return nil, err
 	}
-	return planFrom(ctx, d, cfg, pp)
+	return planFrom(ctx, d, cfg, settings, pp)
 }
 
 // planFrom 把已解析的 Provider 计划投影为可检视的 Plan（纯函数）。编译预检与
-// 配置变更重算共用本函数：同一份 Decl/契约必得同一计划（I2）。
-func planFrom(ctx context.Context, d *Decl, cfg *bootstrapv1.BootstrapConfig, pp *providerPlan) (*Plan, error) {
+// 配置变更重算共用本函数：同一份 Decl/契约必得同一计划（I2）。settings 是
+// 合并后的配置快照，`biz.<path>` 段的期望态摘要取自它。
+func planFrom(ctx context.Context, d *Decl, cfg *bootstrapv1.BootstrapConfig, settings map[string]any, pp *providerPlan) (*Plan, error) {
 	p := &Plan{
 		App:       appMetaFrom(cfg),
 		Role:      d.Role,
@@ -309,7 +310,7 @@ func planFrom(ctx context.Context, d *Decl, cfg *bootstrapv1.BootstrapConfig, pp
 	// Opaque 投影（迁移期双轨，见 domain.go）。
 	for _, dom := range d.Domains {
 		if dom.Declare != nil {
-			nodes, err := declaredDomainNodes(ctx, dom, PlanScope{Config: cfg, Decl: d, Role: d.Role})
+			nodes, err := declaredDomainNodes(ctx, dom, PlanScope{Config: cfg, Decl: d, Role: d.Role, Settings: settings})
 			if err != nil {
 				return nil, err
 			}
@@ -386,7 +387,7 @@ func planFrom(ctx context.Context, d *Decl, cfg *bootstrapv1.BootstrapConfig, pp
 	// 期望态摘要：可协调节点（logger/audit/组件）由契约段内容与节点身份求得，
 	// 供配置变更 diff 与 Drift 判定（M3）。其余节点（重启生效/静态）不产生摘要。
 	for i := range p.Nodes {
-		p.Nodes[i].DesiredHash = nodeDesiredHash(cfg, p.Nodes[i])
+		p.Nodes[i].DesiredHash = nodeDesiredHash(cfg, settings, p.Nodes[i])
 	}
 
 	// 逃逸舱可见化：覆盖 / 白名单 / 同 Key 裁决（I4/I10 的 M1 子集）+ 预算 +
@@ -423,16 +424,27 @@ func appMetaFrom(cfg *bootstrapv1.BootstrapConfig) AppMeta {
 }
 
 // nodeDesiredHash 计算可协调节点的期望态摘要：节点身份 + 各声明段的确定性
-// 序列化子树。段缺失（Provider 已 gate，理论上不出现）按空值参与摘要，保持
-// 与「段被删除」可区分。非 ReloadReconcile 节点无摘要（重启/静态无期望态）。
-func nodeDesiredHash(cfg *bootstrapv1.BootstrapConfig, n Node) string {
-	if n.Reload != ReloadReconcile || cfg == nil {
+// 序列化子树。框架段取自 BootstrapConfig；`biz.<path>` 段取自合并后的
+// Settings 快照（Q8——域自有配置因此可收敛）。段缺失按 "absent" 参与摘要，
+// 保持与「段被删除」可区分。非 ReloadReconcile 节点无摘要（重启/静态无期望态）。
+func nodeDesiredHash(cfg *bootstrapv1.BootstrapConfig, settings map[string]any, n Node) string {
+	if n.Reload != ReloadReconcile {
 		return ""
 	}
 	h := sha256.New()
 	io.WriteString(h, "key="+string(n.Key)+"\nkind="+n.Kind+"\n")
 	for _, seg := range sortedUnique(n.Segments) {
 		io.WriteString(h, "segment="+seg+"\n")
+		// 解析用完整路径（biz 是合并快照里的顶层段，与 yaml 层级一致）。
+		if _, ok := bizSegmentPath(seg); ok {
+			if v, ok := settingsAtPath(settings, seg); ok {
+				writeSettingsSubtree(h, v)
+			} else {
+				io.WriteString(h, "absent")
+			}
+			io.WriteString(h, "\n")
+			continue
+		}
 		if msg := segmentMessage(cfg, seg); msg != nil {
 			if b, err := (proto.MarshalOptions{Deterministic: true}).Marshal(msg.Interface()); err == nil {
 				_, _ = h.Write(b)

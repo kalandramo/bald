@@ -266,7 +266,7 @@ func TestProviderPlan_StdTeardownOrder(t *testing.T) {
 		segProvider{segs: []string{"tracer"}, build: func(context.Context, BuildScope) (any, Cleanup, error) { return nil, nil, nil }},
 		segProvider{segs: []string{"database"}, build: func(context.Context, BuildScope) (any, Cleanup, error) { return nil, nil, nil }},
 	}}
-	plan, err := newProviderPlan(context.Background(), d, cfg)
+	plan, err := newProviderPlan(context.Background(), d, cfg, nil)
 	if err != nil {
 		t.Fatalf("newProviderPlan: %v", err)
 	}

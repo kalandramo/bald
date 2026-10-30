@@ -72,6 +72,10 @@ type PlanScope struct {
 	Decl *Decl
 	// Role 应用角色（WithRole 声明；单角色应用为空）。
 	Role string
+	// Settings 是合并后的配置快照（只读，含业务段）——`biz.<path>` 段的
+	// 期望态摘要取自这里。Compile/--plan 为文件 + env 基线；真实启动与热更为
+	// 完整合并（含 flag）。计划期不得据此做 I/O。
+	Settings map[string]any
 }
 
 // ApplyScope 是 Build 的输入（PlanScope + 资源容器与当前节点）。
@@ -373,7 +377,7 @@ type providerPlan struct {
 // newProviderPlan 解析 Decl.Providers：路径末者胜 → 段存在性 gate →
 // Provider.Plan → 节点冲突裁决 → 统一排序。校验：空段路径、跨阶段段族、
 // 每 Provider 恰一节点、节点阶段与段族一致。
-func newProviderPlan(ctx context.Context, d *Decl, cfg *bootstrapv1.BootstrapConfig) (*providerPlan, error) {
+func newProviderPlan(ctx context.Context, d *Decl, cfg *bootstrapv1.BootstrapConfig, settings map[string]any) (*providerPlan, error) {
 	plan := &providerPlan{
 		byPath:        map[string]int{},
 		unimplemented: map[string]bool{},
@@ -415,7 +419,7 @@ func newProviderPlan(ctx context.Context, d *Decl, cfg *bootstrapv1.BootstrapCon
 	// 2. 活跃集合 + Plan 纯推导。段存在性 gate 在此一次完成：config 段无条件
 	// （源可独立于契约 config 段存在）、logger 恒规划（两阶段协议）、其余段
 	// 缺失即跳过（合法，L2）。
-	scope := PlanScope{Config: cfg, Decl: d, Role: d.Role}
+	scope := PlanScope{Config: cfg, Decl: d, Role: d.Role, Settings: settings}
 	var (
 		allEntries []providerEntry
 		haveLogger bool

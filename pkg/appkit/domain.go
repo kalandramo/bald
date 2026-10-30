@@ -69,9 +69,10 @@ type Domain struct {
 	// 计划（非 Opaque），声明域自有资源、依赖与重载策略（设计 §4.6）。
 	// 节点 Phase 必须落在 wire 或其后（configure/bootstrap 归框架 Provider）；
 	// Key 必填且全应用唯一，Kind 缺省 domain，Reload 缺省 static。Segments
-	// 必须是 BootstrapConfig 的真实字段路径（拼错在计划期报错）；声明
-	// ReloadReconcile 的节点须提供 Domain.Reconcile 且至少声明一个段
-	//（期望态摘要取自段内容）。
+	// 须是 BootstrapConfig 的真实字段路径，或业务配置路径 biz.<path>（拼错
+	// 在计划期报错）；声明 ReloadReconcile 的节点须提供 Domain.Reconcile 且
+	// 至少声明一个段（期望态摘要取自段内容：框架段取 proto 序列化，biz 段取
+	// Settings 快照的子树 JSON）。
 	//
 	// 迁移期语义：Wire/Routes/Services 仍是实际接线点；声明了 Declare 时
 	// 引擎不再逐个合成它们的 Opaque 节点，而是塌缩成一个
@@ -233,8 +234,12 @@ func declaredDomainNodes(ctx context.Context, dom Domain, scope PlanScope) ([]No
 		for _, seg := range n.Segments {
 			// 拼错的段只是「消费了一个不存在的路径」：L3 覆盖检查看不到它，
 			// 期望态摘要也退化成 Key/Kind 常量（reconcile 节点将永不触发）。
+			// `biz.<path>` 指向 Settings 快照的业务段（Q8），其余必须是
+			// BootstrapConfig 字段路径。
 			if !segmentPathKnown(seg) {
-				return nil, fmt.Errorf("appkit: domain %q: declared node %q: unknown segment path %q (want a BootstrapConfig field path like \"server.http\")", dom.Name, n.Key, seg)
+				if _, ok := bizSegmentPath(seg); !ok {
+					return nil, fmt.Errorf("appkit: domain %q: declared node %q: unknown segment path %q (want a BootstrapConfig field path like \"server.http\" or a business-config path like \"biz.<section>\")", dom.Name, n.Key, seg)
+				}
 			}
 		}
 		if n.Reload == ReloadReconcile {
