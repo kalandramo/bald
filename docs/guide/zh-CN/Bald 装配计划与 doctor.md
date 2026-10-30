@@ -235,7 +235,7 @@ CI 可组合成「计划 hash 基线 + 生成物零 drift」：`--plan --plan-fo
 | **L4** 收敛运行 | 声明资源可协调，漂移可观测 | 达成 | 节点级 `ReloadPolicy` + `App.Drift` + `Reconcile`；Provider 节点与声明域节点（`Domain.Reconcile`）可协调，声明域节点的段可挂框架路径或 `biz.<path>` 业务配置（设计 Q8，2026-10-30）；database/cache/storage 段仍明确不支持热更（`ReloadRestart`） |
 | **L5** 纯函数生成 | 生成物是 `(AppSpec, proto)` 的函数，可 `--check` | 达成（生成物维度） | 双跑字节一致 + 清单 `--check` 零写入；运行期装配仍是 L3/L4 组合 |
 
-缺口以 `OpaqueCount` 与 `doctor` 的 `opaque:` 清单量化：数字越小，搬进声明式拓扑的部分越多。生成器侧：REST 路由**清单**已进计划（`Plan.Routes`）；handler 绑定可由 `bald gen domain --rest-bind` 从 `google.api.http` 注解生成（`Bind<Name>` + `<Name>Service`，需要 proto 的 Go 类型已 `buf generate`、消费者 module 依赖 `transport/web`——两条前置都由生成期校验：缺依赖读 `go.mod` 报 `go get`，`go_package` 目录无 Go 文件报 `buf generate`，不会拖到编译期），并同批产出 `appkit.Route` 清单（`internal/<apiserver_dir>/routes`，域引用 `RouteTable: routes.<Name>` 即让计划看见注解路由）；`--rest-bind --no-routes` 只产绑定、清单自持（域保留手写 `RouteTable`）。默认仍只产注解字符串清单与 `Mount` 委托——默认生成尚未接管（设计 Q5，2026-10-30 状态）。
+缺口以 `OpaqueCount` 与 `doctor` 的 `opaque:` 清单量化：数字越小，搬进声明式拓扑的部分越多。生成器侧：REST 路由**清单**已进计划（`Plan.Routes`）；handler 绑定由 `bald gen domain` 从 `google.api.http` 注解**默认生成**（`Bind<Name>` + `<Name>Service`，Q5 D1，2026-10-30），并同批产出 `appkit.Route` 清单（`internal/<apiserver_dir>/routes`，域引用 `RouteTable: routes.<Name>` 即让计划看见注解路由）。两条前置由生成期把关：proto 的 Go 类型缺失时先按 `--proto-cmd`（默认 `buf generate`）在 `--out` 根执行 proto 阶段并复查产物，失败即硬错误；消费者 module 缺 `transport/web` 时报 `go get` 修法。`--check` 零写入、不执行外部命令；`--no-bind` 跳过绑定与清单（REST 面完全手写），`--no-routes` 只跳过清单（域保留手写 `RouteTable`）。
 
 ## 7. 常见问题
 

@@ -145,11 +145,11 @@ go run ./cmd/my-service
 然后生成：
 
 ```bash
-bald gen app --spec appspec.json --force    # 重写 owned：默认策略行等随域声明更新（seeded kept）
-bald gen domain --spec appspec.json --force # 重写域清单与逐域扇出
+bald gen app --spec appspec.json --adopt    # 重写 owned：默认策略行等随域声明更新（seeded kept）
+bald gen domain --spec appspec.json --adopt # 重写域清单、逐域扇出与 REST 绑定
 ```
 
-`gen domain` 产物（owned，重写需 `--force`）：
+`gen domain` 产物（owned，重写需 `--adopt`）：
 
 | 产物 | 作用 |
 |---|---|
@@ -159,7 +159,11 @@ bald gen domain --spec appspec.json --force # 重写域清单与逐域扇出
 | `internal/apiserver/handler/gin/<d>.gen.go` | REST 挂载委托 + 注解派生路由表 |
 | `internal/apiserver/handler/convert/<d>.gen.go` | 授权动作投影（Delete→delete、List→list、Create/Update/Set/Put→write、其余→get） |
 | `internal/apiserver/authz/alias.gen.go` | 授权别名表 + 默认动作聚合（proto service 派生） |
+| `internal/apiserver/handler/gin/<d>.bind.gen.go` | 注解派生的 gin 绑定（`<Name>Service` 接口 + `Bind<Name>`；**默认生成**） |
+| `internal/apiserver/routes/<d>.gen.go` | 同批注解的 `appkit.Route` 清单（域引用 `RouteTable: routes.<Name>` 即获计划可见性） |
 | `<go_package>/domain.gen.go` | 域声明值骨架（**生成一次**：域包已有导出 `Domain` 时跳过——既有域包如 `_example/bald/greetv1` 不会被覆盖） |
+
+绑定生成（Q5 D1，默认开启）：`gen domain` 需要 proto 的 Go 类型（bind 文件 import 其 `go_package`）与 `transport/web` 依赖。Go 类型缺失时先按 `--proto-cmd`（默认 `buf generate`）在 `--out` 根执行 proto 阶段并复查产物；命令失败或仍无产物即硬错误。`--check` 零写入、不执行外部命令。`--no-bind` 跳过绑定与路由清单（REST 面完全手写），`--no-routes` 只跳过清单（域保留手写 `RouteTable`）；`--rest-bind` 是已退役的兼容开关（等价于不给）。
 
 rerun 语义：新增域 = 手写 proto + 域包 + 改 `domains[]` + 上面两条命令——装配文件改动为 0（域清单存在的意义）。Gate1 会校验 `domains[].service` 与产出根下实际 proto 匹配（扫描 `api/proto`、`api/protos`、`proto`），失配报错指明哪个域、哪个 proto 文件、实际声明了什么。详细展开见[新增业务域 - Domain 与 gen domain](新增业务域%20-%20Domain%20与%20gen%20domain.md)。
 

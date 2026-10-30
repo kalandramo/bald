@@ -20,7 +20,7 @@ import (
 )
 
 // BindProtoRequest 按 google.api.http 语义把一次 HTTP 请求装入 proto 请求消息，
-// 供生成物（bald gen domain --rest-bind）的 gin 路由直接复用：
+// 供生成物（bald gen domain 的注解派生绑定）的 gin 路由直接复用：
 //
 //   - body：注解的 body（"*" 整个请求体；"" 无 body；其他为请求字段路径）；
 //   - pathVars：路径变量（key 为注解里的变量名，可含 "." 表示嵌套字段）；

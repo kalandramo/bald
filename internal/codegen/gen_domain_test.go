@@ -36,8 +36,8 @@ func runGenDomain(t *testing.T, dir, specPath string, extra ...string) string {
 func TestGenDomain_EndToEnd(t *testing.T) {
 	dir, specPath := runGenAppInTemp(t, guardFixture())
 	out := runGenDomain(t, dir, specPath, "--adopt") // gen app 流水线已跑过一次 gen domain
-	if got := strings.Count(out, "generated:"); got != 6 {
-		t.Errorf("gen domain regen must emit 6 owned files (manifest + fanout + 3 handler + authz; domain value is seeded), got %d:\n%s", got, out)
+	if got := strings.Count(out, "generated:"); got != 8 {
+		t.Errorf("gen domain regen must emit 8 owned files (manifest + fanout + 3 handler + authz + bind + routes; domain value is seeded), got %d:\n%s", got, out)
 	}
 
 	// 域清单（internal/bootstrap）形态对照 _example 手写件：import 域包 +
@@ -438,20 +438,19 @@ func readRepoFile(t *testing.T, rel string) string {
 	return string(data)
 }
 
-// TestGenDomain_RESTBind 钉住 Q5 生成侧：--rest-bind 从 google.api.http 注解
-// 生成绑定文件（服务接口 + gin 路由 + protojson 编解码），默认不生成（未跑
-// buf generate 的树必须保持可编译），产物语法有效并纳入 --check 对账。
-func TestGenDomain_RESTBind(t *testing.T) {
+// TestGenDomain_BindingsDefaultOn 钉住 Q5 D1 生成侧：绑定与路由清单默认生成
+// （注解是唯一真相源，不生成等于把 REST 面留给手写代码）；--no-bind 是显式
+// 逃生口，切走时旧产物必须随 --adopt 退场。产物语法有效并纳入 --check 对账。
+func TestGenDomain_BindingsDefaultOn(t *testing.T) {
 	dir, specPath := runGenAppInTemp(t, guardFixture())
 	bindPath := filepath.Join(dir, "internal", "apiserver", "handler", "gin", "greet.bind.gen.go")
 	tablePath := filepath.Join(dir, "internal", "apiserver", "routes", "greet.gen.go")
 	for _, p := range []string{bindPath, tablePath} {
-		if _, err := os.Stat(p); !os.IsNotExist(err) {
-			t.Fatalf("default gen domain must not emit %s (proto Go types are not guaranteed): %v", filepath.Base(p), err)
+		if _, err := os.Stat(p); err != nil {
+			t.Fatalf("default gen domain must emit %s: %v", filepath.Base(p), err)
 		}
 	}
 
-	runGenDomain(t, dir, specPath, "--rest-bind", "--adopt")
 	raw, err := os.ReadFile(bindPath)
 	if err != nil {
 		t.Fatalf("read bind file: %v", err)
@@ -500,26 +499,45 @@ func TestGenDomain_RESTBind(t *testing.T) {
 		t.Fatalf("route table file is not valid Go: %v", err)
 	}
 
-	// bind 文件是 owned 产物：重跑 --check 必须零差异。
-	runGenDomain(t, dir, specPath, "--rest-bind", "--check")
+	// 默认产物纳入 --check 对账。
+	runGenDomain(t, dir, specPath, "--check")
+
+	// --no-bind 是逃生口：绑定与路由清单退场，其余产物不变。
+	out := runGenDomain(t, dir, specPath, "--no-bind", "--adopt")
+	for _, stale := range []string{"greet.bind.gen.go", "routes/greet.gen.go"} {
+		if !strings.Contains(out, stale) {
+			t.Errorf("--no-bind --adopt must prune %s, got:\n%s", stale, out)
+		}
+	}
+	for _, p := range []string{bindPath, tablePath} {
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Fatalf("--no-bind must not emit %s: %v", filepath.Base(p), err)
+		}
+	}
+	runGenDomain(t, dir, specPath, "--no-bind", "--check")
+
+	// --rest-bind 是历史开关：绑定默认生成后显式给与不给等价（旧脚本可用）。
+	runGenDomain(t, dir, specPath, "--rest-bind", "--adopt")
+	if _, err := os.Stat(bindPath); err != nil {
+		t.Fatalf("--rest-bind must still generate bindings: %v", err)
+	}
 }
 
-// TestGenDomain_RESTBind_NoRoutes --no-routes 是 Q5 的逃逸面：--rest-bind
-// 只产 handler 绑定，不产 appkit.Route 清单（域保留手写 RouteTable）；
-// 单独使用是空操作，必须拒绝而不是静默。
-func TestGenDomain_RESTBind_NoRoutes(t *testing.T) {
+// TestGenDomain_NoRoutes --no-routes 是 Q5 的逃逸面：绑定照常生成，但不产
+// appkit.Route 清单（域保留手写 RouteTable）；与 --no-bind 连用是空操作，
+// 必须拒绝而不是静默。
+func TestGenDomain_NoRoutes(t *testing.T) {
 	dir, specPath := runGenAppInTemp(t, guardFixture())
 	bindPath := filepath.Join(dir, "internal", "apiserver", "handler", "gin", "greet.bind.gen.go")
 	tablePath := filepath.Join(dir, "internal", "apiserver", "routes", "greet.gen.go")
 
-	// 先按普通 --rest-bind 落一次（绑定 + 清单），再切到 --no-routes：
-	// 上次清单里的路由清单是 owned 旧产物，--adopt 必须让它退场。
-	runGenDomain(t, dir, specPath, "--rest-bind", "--adopt")
+	// 默认已落绑定 + 清单；切到 --no-routes：上次清单里的路由清单是 owned
+	// 旧产物，--adopt 必须让它退场。
 	if _, err := os.Stat(tablePath); err != nil {
-		t.Fatalf("plain --rest-bind must emit the route manifest: %v", err)
+		t.Fatalf("default binding generation must emit the route manifest: %v", err)
 	}
 
-	out := runGenDomain(t, dir, specPath, "--rest-bind", "--no-routes", "--adopt")
+	out := runGenDomain(t, dir, specPath, "--no-routes", "--adopt")
 	if !strings.Contains(out, "removed:") || !strings.Contains(out, "routes/greet.gen.go") {
 		t.Fatalf("stale manifest must be pruned on --adopt, got:\n%s", out)
 	}
@@ -542,19 +560,26 @@ func TestGenDomain_RESTBind_NoRoutes(t *testing.T) {
 	}
 
 	// 跳过清单后仍是 owned 产物：--check 必须零差异。
-	runGenDomain(t, dir, specPath, "--rest-bind", "--no-routes", "--check")
+	runGenDomain(t, dir, specPath, "--no-routes", "--check")
 
 	streams, _ := testStreams()
 	cmd := genDomainCmd(streams)
-	cmd.SetArgs([]string{"--spec", specPath, "--out", dir, "--no-routes"})
-	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "--rest-bind") {
-		t.Fatalf("err = %v, want --no-routes-alone rejection naming --rest-bind", err)
+	cmd.SetArgs([]string{"--spec", specPath, "--out", dir, "--no-bind", "--no-routes"})
+	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "--no-bind") {
+		t.Fatalf("err = %v, want --no-bind + --no-routes rejection naming --no-bind", err)
+	}
+
+	streams, _ = testStreams()
+	cmd = genDomainCmd(streams)
+	cmd.SetArgs([]string{"--spec", specPath, "--out", dir, "--rest-bind", "--no-bind"})
+	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Fatalf("err = %v, want --rest-bind + --no-bind mutual exclusion", err)
 	}
 }
 
-// TestGenDomain_RESTBind_RequiresGoPackage 生成器不猜 import 路径：proto 缺
-// option go_package 时 --rest-bind 报错并指明域名与原因。
-func TestGenDomain_RESTBind_RequiresGoPackage(t *testing.T) {
+// TestGenDomain_Bind_RequiresGoPackage 生成器不猜 import 路径：proto 缺
+// option go_package 时绑定生成报错并指明域名与原因。
+func TestGenDomain_Bind_RequiresGoPackage(t *testing.T) {
 	dir, specPath := runGenAppInTemp(t, guardFixture())
 	protoPath := filepath.Join(dir, "api", "proto", "greet", "v1", "greet.proto")
 	src, err := os.ReadFile(protoPath)
@@ -567,17 +592,19 @@ func TestGenDomain_RESTBind_RequiresGoPackage(t *testing.T) {
 	}
 	streams, _ := testStreams()
 	cmd := genDomainCmd(streams)
-	cmd.SetArgs([]string{"--spec", specPath, "--out", dir, "--rest-bind", "--adopt"})
+	cmd.SetArgs([]string{"--spec", specPath, "--out", dir, "--adopt"})
 	err = cmd.Execute()
 	if err == nil || !strings.Contains(err.Error(), "no option go_package") {
 		t.Fatalf("err = %v, want missing go_package error", err)
 	}
+	// --no-bind 是逃生口：跳过绑定后不再需要 go_package。
+	runGenDomain(t, dir, specPath, "--adopt", "--no-bind")
 }
 
-// TestGenDomain_RESTBind_RequiresTransportWeb bind 文件 import transport/web
+// TestGenDomain_Bind_RequiresTransportWeb 绑定文件 import transport/web
 // （独立 module）：消费者 go.mod 没声明时生成期就拒绝，并给出 go get 修法，
 // 而不是产出一棵编译不过的树。
-func TestGenDomain_RESTBind_RequiresTransportWeb(t *testing.T) {
+func TestGenDomain_Bind_RequiresTransportWeb(t *testing.T) {
 	dir, specPath := runGenAppInTemp(t, guardFixture())
 	gomodPath := filepath.Join(dir, "go.mod")
 	raw, err := os.ReadFile(gomodPath)
@@ -597,61 +624,147 @@ func TestGenDomain_RESTBind_RequiresTransportWeb(t *testing.T) {
 
 	streams, _ := testStreams()
 	cmd := genDomainCmd(streams)
-	cmd.SetArgs([]string{"--spec", specPath, "--out", dir, "--rest-bind", "--adopt"})
+	cmd.SetArgs([]string{"--spec", specPath, "--out", dir, "--adopt"})
 	err = cmd.Execute()
 	if err == nil {
-		t.Fatal("--rest-bind without transport/web in go.mod must fail at generation time")
+		t.Fatal("binding generation without transport/web in go.mod must fail at generation time")
 	}
-	for _, want := range []string{"github.com/kalandramo/bald/transport/web", "does not require it", "go get"} {
+	for _, want := range []string{"github.com/kalandramo/bald/transport/web", "does not require it", "go get", "--no-bind"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("err = %v, want containing %q", err, want)
 		}
 	}
+
+	// --no-bind 是逃生口：不生成绑定就不用依赖 transport/web。
+	runGenDomain(t, dir, specPath, "--adopt", "--no-bind")
 }
 
-// TestGenDomain_RESTBind_RequiresProtoGoPackage 生成本身不跑 buf：go_package
-// 目录里没有 .go 文件时生成期拒绝并点名 buf generate，而不是产出一棵
-// import 不到 proto 类型的树。
-func TestGenDomain_RESTBind_RequiresProtoGoPackage(t *testing.T) {
+// TestGenDomain_ProtoStageOrchestrated 绑定前置（proto Go 类型）缺失时，
+// gen domain 按 --proto-cmd 编排 proto 阶段；成功后继续生成绑定并保持
+// --check 干净——一条命令产出一棵可编译的树（Q5 D1）。
+func TestGenDomain_ProtoStageOrchestrated(t *testing.T) {
 	dir, specPath := runGenAppInTemp(t, guardFixture())
 	pkgDir := filepath.Join(dir, "api", "gen", "go", "greet", "v1")
 	if err := os.RemoveAll(pkgDir); err != nil {
 		t.Fatalf("remove proto go package: %v", err)
 	}
+	// 假 proto 阶段：在 --out 根执行，写出绑定 import 的消息类型桩。
+	stub := `#!/bin/sh
+set -e
+mkdir -p api/gen/go/greet/v1
+cat > api/gen/go/greet/v1/greet.pb.go <<'EOF'
+package greetv1
 
+import "google.golang.org/protobuf/types/known/emptypb"
+
+type GreetRequest = emptypb.Empty
+
+type GreetGetRequest = emptypb.Empty
+
+type GreetResponse = emptypb.Empty
+EOF
+`
+	if err := os.WriteFile(filepath.Join(dir, "stub-proto.sh"), []byte(stub), 0o755); err != nil {
+		t.Fatalf("write stub proto script: %v", err)
+	}
+
+	out := runGenDomain(t, dir, specPath, "--adopt", "--proto-cmd", "sh stub-proto.sh")
+	if !strings.Contains(out, "proto:") {
+		t.Errorf("proto stage must report progress on the missing prerequisites, got:\n%s", out)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "api", "gen", "go", "greet", "v1", "greet.pb.go")); err != nil {
+		t.Fatalf("proto stage must produce the Go package: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "internal", "apiserver", "handler", "gin", "greet.bind.gen.go")); err != nil {
+		t.Fatalf("bindings must be generated after the proto stage: %v", err)
+	}
+	runGenDomain(t, dir, specPath, "--check")
+}
+
+// TestGenDomain_ProtoStageFailed_Red proto 阶段失败是生成期硬错误：错误点名
+// 命令、缺失的包与两条修法（--proto-cmd / --no-bind）。
+func TestGenDomain_ProtoStageFailed_Red(t *testing.T) {
+	dir, specPath := runGenAppInTemp(t, guardFixture())
+	if err := os.RemoveAll(filepath.Join(dir, "api", "gen", "go", "greet", "v1")); err != nil {
+		t.Fatalf("remove proto go package: %v", err)
+	}
 	streams, _ := testStreams()
 	cmd := genDomainCmd(streams)
-	cmd.SetArgs([]string{"--spec", specPath, "--out", dir, "--rest-bind", "--adopt"})
+	cmd.SetArgs([]string{"--spec", specPath, "--out", dir, "--adopt", "--proto-cmd", "exit 3"})
 	err := cmd.Execute()
 	if err == nil {
-		t.Fatal("--rest-bind without generated proto Go package must fail at generation time")
+		t.Fatal("proto stage failure must be a hard generation error")
 	}
-	for _, want := range []string{"demo.example/app/api/gen/go/greet/v1", "buf generate"} {
+	for _, want := range []string{"proto stage", "exit 3", "demo.example/app/api/gen/go/greet/v1", "--proto-cmd", "--no-bind"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("err = %v, want containing %q", err, want)
 		}
 	}
+
+	// --no-bind 是逃生口：跳过绑定后不执行 proto 阶段。
+	out := runGenDomain(t, dir, specPath, "--adopt", "--no-bind", "--proto-cmd", "exit 3")
+	if strings.Contains(out, "proto:") {
+		t.Errorf("--no-bind must not run the proto stage, got:\n%s", out)
+	}
 }
 
-// TestGenDomain_RESTBind_Deterministic Q5 生成物同样受「双跑字节一致」约束：
+// TestGenDomain_CheckDoesNotRunProtoStage --check 零写入：前置缺失时不执行
+// 外部命令，只报可执行修法（默认命令名 buf generate + --no-bind）。
+func TestGenDomain_CheckDoesNotRunProtoStage(t *testing.T) {
+	dir, specPath := runGenAppInTemp(t, guardFixture())
+	pkgDir := filepath.Join(dir, "api", "gen", "go", "greet", "v1")
+	if err := os.RemoveAll(pkgDir); err != nil {
+		t.Fatalf("remove proto go package: %v", err)
+	}
+	marker := filepath.Join(dir, "proto-ran")
+	streams, _ := testStreams()
+	cmd := genDomainCmd(streams)
+	cmd.SetArgs([]string{"--spec", specPath, "--out", dir, "--check", "--proto-cmd", "touch " + marker})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("--check with missing proto Go package must fail")
+	}
+	for _, want := range []string{"demo.example/app/api/gen/go/greet/v1", "rerun --check", "--no-bind"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("err = %v, want containing %q", err, want)
+		}
+	}
+	if _, statErr := os.Stat(marker); !os.IsNotExist(statErr) {
+		t.Fatalf("--check must not execute the proto stage (marker exists): %v", statErr)
+	}
+	if _, statErr := os.Stat(pkgDir); !os.IsNotExist(statErr) {
+		t.Fatalf("--check must not write the proto Go package: %v", statErr)
+	}
+
+	// 默认命令名由 --proto-cmd 缺省值承担：不传时报错点名 buf generate。
+	streams, _ = testStreams()
+	cmd = genDomainCmd(streams)
+	cmd.SetArgs([]string{"--spec", specPath, "--out", dir, "--check"})
+	err = cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "buf generate") {
+		t.Fatalf("err = %v, want the default proto command named", err)
+	}
+}
+
+// TestGenDomain_Bind_Deterministic Q5 生成物同样受「双跑字节一致」约束：
 // 同一份声明在两个临时树里各生成一遍，绑定文件、路由清单与其余产物逐字节相同。
 // 直接以绝对 --out 调用（不依赖 CWD），避免单测里两次 t.Chdir。
-func TestGenDomain_RESTBind_Deterministic(t *testing.T) {
+func TestGenDomain_Bind_Deterministic(t *testing.T) {
 	as := guardFixture()
 	snaps := make([]map[string][]byte, 2)
 	for i := range snaps {
 		dir := t.TempDir()
 		specPath := writeSpecJSON(t, dir, as)
 		writeFixtureProto(t, dir)
-		// --rest-bind 的流水线前置：消费者 module 必须声明 transport/web。
+		// 绑定的流水线前置：消费者 module 必须声明 transport/web。
 		gomod := "module demo.example/app\n\ngo 1.27.1\n\nrequire github.com/kalandramo/bald/transport/web v0.1.0\n"
 		if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(gomod), 0o644); err != nil {
 			t.Fatalf("write go.mod: %v", err)
 		}
 		cmd := genDomainCmd(NewDefaultIOStreams())
-		cmd.SetArgs([]string{"--spec", specPath, "--out", dir, "--rest-bind", "--adopt"})
+		cmd.SetArgs([]string{"--spec", specPath, "--out", dir, "--adopt"})
 		if err := cmd.Execute(); err != nil {
-			t.Fatalf("gen domain --rest-bind run %d: %v", i, err)
+			t.Fatalf("gen domain run %d: %v", i, err)
 		}
 		snaps[i] = snapshotTree(t, dir)
 	}

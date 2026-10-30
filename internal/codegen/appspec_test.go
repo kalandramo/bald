@@ -1037,13 +1037,26 @@ message GreetResponse {
 	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
 		t.Fatalf("write fixture proto: %v", err)
 	}
-	// buf generate 的等价物：--rest-bind 的生成期前置要求 go_package 目录里
-	// 已有 Go 文件（真实流水线由 protoc-gen-go 产出；这里只求存在性）。
+	// buf generate 的等价物：绑定文件默认生成，import 这里的消息类型——
+	// 桩必须满足 proto.Message（web.BindProtoRequest/WriteProtoResponse 的
+	// 签名要求），所以用 emptypb.Empty 的类型别名（真实流水线由 protoc-gen-go
+	// 产出完整实现；这里只要「存在且可编译」）。
 	pkgDir := filepath.Join(dir, "api", "gen", "go", "greet", "v1")
 	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
 		t.Fatalf("mkdir proto go package: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(pkgDir, "greet.pb.go"), []byte("package greetv1\n"), 0o644); err != nil {
+	stub := `package greetv1
+
+import "google.golang.org/protobuf/types/known/emptypb"
+
+// 测试桩：真实产物由 protoc-gen-go 生成；别名只为让生成绑定可编译。
+type GreetRequest = emptypb.Empty
+
+type GreetGetRequest = emptypb.Empty
+
+type GreetResponse = emptypb.Empty
+`
+	if err := os.WriteFile(filepath.Join(pkgDir, "greet.pb.go"), []byte(stub), 0o644); err != nil {
 		t.Fatalf("write proto go stub: %v", err)
 	}
 }

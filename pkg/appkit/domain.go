@@ -101,7 +101,7 @@ type Domain struct {
 	// 同样在计划期报错，不等启动期 panic。
 	//
 	// 它是清单而不是实现：Routes 闭包没有 RouteTable 时计划列不出来，
-	// Compile 给 custom-routes 警告（Q5 的 --no-routes 逃逸）。声明了
+	// Compile 给 custom-routes 警告（Q5 的 --no-routes/--no-bind 逃逸）。声明了
 	// RouteTable 就必须有 HTTP 面（WithHTTP/WithGatewayRegister），否则
 	// 装配期 fail-fast——路由无处可挂。
 	RouteTable []Route

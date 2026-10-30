@@ -125,12 +125,12 @@ var domainOptions = []appkit.Option{
 ## 4. gen domain：重写域驱动生成物
 
 ```bash
-bald gen domain --spec appspec.json [--force]
+bald gen domain --spec appspec.json [--adopt] [--proto-cmd "buf generate"]
 ```
 
-`--spec` 必填（AppSpec.domains 是域清单唯一真相源）；`--out` 产出根（默认 `.`）；`--manifest` 清单路径（默认 `internal/bootstrap/domains.gen.go`，_example 根级形态传 `domains.gen.go`）；`--apiserver-dir` 默认取 layout.apiserver_dir 否则 apiserver，传 `-` 跳过 apiserver 侧产物；`--force` 放行覆盖 owned 产物。
+`--spec` 必填（AppSpec.domains 是域清单唯一真相源）；`--out` 产出根（默认 `.`）；`--manifest` 清单路径（默认 `internal/bootstrap/domains.gen.go`，_example 根级形态传 `domains.gen.go`）；`--apiserver-dir` 默认取 layout.apiserver_dir 否则 apiserver，传 `-` 跳过 apiserver 侧产物；`--adopt` 放行覆盖 owned 产物；`--proto-cmd` 是绑定前置（proto 的 Go 类型）缺失时执行的 proto 生成命令（默认 `buf generate`，在 `--out` 根以 shell 语义执行）；`--no-bind` 跳过注解派生的绑定与路由清单；`--no-routes` 只跳过路由清单；`--rest-bind` 是已退役的兼容开关（等价于不给）。
 
-**产物清单**（命令定义见 `internal/codegen/gen_domain.go:737`）：
+**产物清单**（命令定义见 `internal/codegen/gen_domain.go`）：
 
 | 产物 | 归属 | 说明 |
 | --- | --- | --- |
@@ -138,15 +138,19 @@ bald gen domain --spec appspec.json [--force]
 | `internal/<apiserver_dir>/domains.gen.go` | owned | 逐域 handler 挂载扇出（清单序 = 域装配次序） |
 | `internal/<apiserver_dir>/handler/grpc/<域>.gen.go` | owned | gRPC 注册委托 |
 | `internal/<apiserver_dir>/handler/gin/<域>.gen.go` | owned | REST 挂载委托 + google.api.http 注解派生路由表 |
+| `internal/<apiserver_dir>/handler/gin/<域>.bind.gen.go` | owned | 注解派生绑定：`<Name>Service` 接口 + `Bind<Name>(gin.IRouter, impl)`（protojson 编解码；**默认生成**，`--no-bind` 跳过） |
+| `internal/<apiserver_dir>/routes/<域>.gen.go` | owned | 同批注解的 `appkit.Route` 清单（域引用 `RouteTable: routes.<Name>` 即获计划可见性；`--no-routes` 跳过） |
 | `internal/<apiserver_dir>/handler/convert/<域>.gen.go` | owned | 逐 RPC 授权动作投影（与 pkg/authz 默认规则同源） |
 | `internal/<apiserver_dir>/authz/alias.gen.go` | owned | 授权别名表（仅列 gRPC/HTTP 两侧归一化不一致的域）+ 默认动作聚合 |
 | `<go_package>/domain.gen.go` | seeded | 域声明值骨架：生成一次；域包已导出 Domain 时跳过（kept:），既有域包（如 greetv1）消费不覆盖 |
 
-**三态 writeGuarded 语义**（全部生成命令共用的落盘通道，`internal/codegen/iostreams.go:59`）：owned 每次重写，已存在且无 --force 一律拒绝（错误信息自带指引）；seeded 生成一次，已存在输出 `kept:` 并跳过（--force 也不覆盖——此后归你维护）；user 永不读写，仅输出 `skip:` 提示。proto 与域包手写文件属 user 侧；域包骨架是唯一的 seeded 产物——仅当域包尚无导出 Domain（按非测试 .go 文件结构判定）时落盘，Name 先挂上，三槽由你在手写文件里实现后挂进此值。
+**绑定生成的前置（Q5 D1，默认开启）**：bind 文件 import proto 的 `go_package` 与 `github.com/kalandramo/bald/transport/web`。`go_package` 目录无 Go 文件时，生成器先在 `--out` 根执行 `--proto-cmd` 并复查产物——命令失败或仍无产物即生成期硬错误，错误点名命令、缺失包与 `--proto-cmd`/`--no-bind` 两条修法。`--check` 零写入，不执行外部命令，缺失时直接报修法。`transport/web` 缺失给 `go get` 修法（生成器不改消费方 `go.mod`）。绑定内容只由注解与 rpc 签名决定，与 proto 生成物内容无关：是否在本机跑过 buf 不改变生成字节。
+
+**三态 writeGuarded 语义**（全部生成命令共用的落盘通道，`internal/codegen/iostreams.go:59`）：owned 每次重写，已存在且无 `--adopt` 一律拒绝（错误信息自带指引）；seeded 生成一次，已存在输出 `kept:` 并跳过（`--adopt` 也不覆盖——此后归你维护）；user 永不读写，仅输出 `skip:` 提示。proto 与域包手写文件属 user 侧；域包骨架是唯一的 seeded 产物——仅当域包尚无导出 Domain（按非测试 .go 文件结构判定）时落盘，Name 先挂上，三槽由你在手写文件里实现后挂进此值。
 
 **两阶段清单**：gen app 先把 `internal/<apiserver_dir>/domains.gen.go` 写成预域形态（对账清单），gen domain 把它重写为逐域挂载扇出——所以**重跑 gen app 之后必须 rerun gen domain**，否则 apiserver 侧停留在预域形态（装配层评估 §11.5「gen domain 两阶段清单」，文档级行为）。
 
-**何时重跑**：新增/删除域（改 domains[]）、改域 proto 的 service 或 http 注解（路由表与授权投影跟随派生）之后，`bald gen domain --spec appspec.json --force`。命令收尾提示即工作流原文：add a domain = hand-write its proto + domain package, declare it in domains[], rerun with --force (assembly files stay untouched)。
+**何时重跑**：新增/删除域（改 domains[]）、改域 proto 的 service 或 http 注解（路由表、绑定与授权投影跟随派生）之后，`bald gen domain --spec appspec.json --adopt`。命令收尾提示即工作流原文：add a domain = hand-write its proto + domain package, declare it in domains[], rerun with --check to verify or --adopt to regenerate (assembly files stay untouched)。
 
 AppSpec.domains 字段参考（protojson 字段名；范本 `_example/bald/appspec.json`）：`name` / `protoPackage` / `service` / `model` / `goPackage`。
 
@@ -155,7 +159,7 @@ AppSpec.domains 字段参考（protojson 字段名；范本 `_example/bald/appsp
 1. 手写契约 `api/proto/order/v1/order.proto`：service OrderService + google.api.http 注解（骨架可先 `bald gen proto order`）。
 2. 手写域包 `orderv1/order.go`：域配置读取（Settings 快照 order.* 子树）、能力构造、gRPC/REST 两面。
 3. appspec.json 的 domains[] 追加 `{"name": "order", "protoPackage": "order.v1", "service": "order.v1.OrderService", "model": "orderv1/order.go", "goPackage": "<module>/orderv1"}`。
-4. `bald gen domain --spec appspec.json --force`：重写清单×2 + handler 三件 + alias.gen.go；域包无 Domain 时 seed `orderv1/domain.gen.go` 骨架。
+4. `bald gen domain --spec appspec.json --adopt`：重写清单×2 + handler 三件 + alias.gen.go + 绑定/路由清单；proto Go 类型缺失时按 `--proto-cmd` 编排 proto 阶段（失败即硬错误，`--no-bind` 可跳过绑定）；域包无 Domain 时 seed `orderv1/domain.gen.go` 骨架。
 5. 把三槽实现在域包手写文件里挂进声明值（先手写 domain.go 亦可——骨架 seeded 自动 kept: 跳过）。
 6. 自检：`git status` 应只见手写文件与生成物变化——装配文件零 diff 即判据①达成。
 

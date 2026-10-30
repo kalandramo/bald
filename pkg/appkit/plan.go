@@ -761,7 +761,7 @@ func opaqueBudgetWarnings(budget int, nodes []Node) []Diagnostic {
 //     不一致（/users/:id 与 /users/:name）会 panic，catch-all 与任何更长路径
 //     也无法并存——这类冲突不靠「路径字符串完全相同」就能发现，按段比对；
 //   - 声明了 Routes 闭包却没有 RouteTable 的域给 custom-routes 警告：
-//     手写路由计划看不见，这是诚实缺省，不是错误（Q5 的 --no-routes 逃逸）。
+//     手写路由计划看不见，这是诚实缺省，不是错误（Q5 的 --no-routes/--no-bind 逃逸）。
 func collectDomainRoutes(d *Decl) ([]Route, []Diagnostic, error) {
 	var (
 		out   []Route
