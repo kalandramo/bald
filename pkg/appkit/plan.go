@@ -189,6 +189,14 @@ type AppMeta struct {
 	Env     string `json:"env,omitempty"`
 }
 
+// Imperative 是 Decl 中命令式槽位在计划里的可见化（§6 Data/Imperative 分区）：
+// 闭包不参与排序、不可分析，但必须可见——否则 --plan 会漏报配置热更订阅者
+// 与停机效果。只记录种类与声明名/键，不假装它们是数据节点。
+type Imperative struct {
+	Kind string `json:"kind"`
+	Name string `json:"name,omitempty"`
+}
+
 // Plan 是编译结果。Nodes 已按全局拓扑序稳定排序。
 type Plan struct {
 	App       AppMeta `json:"app"`
@@ -198,7 +206,10 @@ type Plan struct {
 	// OpaqueCount 是 Opaque 节点数（逃逸舱预算的计量口径；预算见 WithOpaqueBudget）。
 	OpaqueCount int          `json:"opaqueCount"`
 	Segments    []SegmentUse `json:"segments"`
-	Warnings    []Diagnostic `json:"warnings,omitempty"`
+	// Imperative 是命令式槽位清单（effect/keyWatch/reconcile；按 (Kind,Name)
+	// 排序，保证置换不变性）。
+	Imperative []Imperative `json:"imperative,omitempty"`
+	Warnings   []Diagnostic `json:"warnings,omitempty"`
 }
 
 // Compile 编译装配计划：两遍预装载契约（appkit.ConfigFile 指定的文件）→
@@ -376,6 +387,25 @@ func planFrom(ctx context.Context, d *Decl, cfg *bootstrapv1.BootstrapConfig, se
 			Origin:   OriginApp,
 		})
 	}
+
+	// 命令式槽位可见化（effect/keyWatch/reconcile）：闭包不进节点拓扑，但
+	// 计划必须如实列出声明——配置热更订阅者与停机效果不因「不可分析」而消失。
+	// 按 (Kind, Name) 排序，保持置换不变性。
+	for _, e := range d.Effects {
+		p.Imperative = append(p.Imperative, Imperative{Kind: "effect", Name: e.Name})
+	}
+	for _, k := range d.KeyWatches {
+		p.Imperative = append(p.Imperative, Imperative{Kind: "keyWatch", Name: k.Key})
+	}
+	for _, r := range d.Reconciles {
+		p.Imperative = append(p.Imperative, Imperative{Kind: "reconcile", Name: r.Name})
+	}
+	sort.Slice(p.Imperative, func(i, j int) bool {
+		if p.Imperative[i].Kind != p.Imperative[j].Kind {
+			return p.Imperative[i].Kind < p.Imperative[j].Kind
+		}
+		return p.Imperative[i].Name < p.Imperative[j].Name
+	})
 
 	// 逃逸舱计量：Opaque 节点数恒进计划（预算告警的计量口径，I10）。
 	for _, n := range p.Nodes {
@@ -988,6 +1018,17 @@ func (p *Plan) Explain(w io.Writer) {
 			status = append(status, "unconsumed")
 		}
 		fmt.Fprintf(w, "  %-20s %s\n", s.Path, strings.Join(status, ", "))
+	}
+
+	if len(p.Imperative) > 0 {
+		fmt.Fprintln(w, "imperative:")
+		for _, it := range p.Imperative {
+			name := it.Name
+			if name == "" {
+				name = "-"
+			}
+			fmt.Fprintf(w, "  %-12s %s\n", it.Kind, name)
+		}
 	}
 
 	if len(p.Warnings) > 0 {

@@ -120,6 +120,17 @@ func writeDoctor(w io.Writer, p *Plan, tags []string, cache *planCacheBaseline, 
 	for _, n := range overrides {
 		fmt.Fprintf(w, "  override: %s (%s)\n", n.Key, n.Reason)
 	}
+	if len(p.Imperative) > 0 {
+		// 命令式槽位可见化：闭包不进节点拓扑，但 doctor 必须如实列出。
+		fmt.Fprintf(w, "  imperative: %d\n", len(p.Imperative))
+		for _, it := range p.Imperative {
+			name := it.Name
+			if name == "" {
+				name = "-"
+			}
+			fmt.Fprintf(w, "    %s: %s\n", it.Kind, name)
+		}
+	}
 	domains.write(w)
 
 	// 段：未消费、白名单、框架自持、有消费者的段各自成组。
