@@ -10,11 +10,11 @@ replace github.com/kalandramo/bald/encoding/json => ../../encoding/json
 
 require (
 	github.com/google/uuid v1.6.0
-	github.com/kalandramo/bald v0.11.0
-	github.com/kalandramo/bald/bconf v0.12.0
+	github.com/kalandramo/bald v0.29.0
+	github.com/kalandramo/bald/bconf v0.13.0
 	github.com/kalandramo/bald/encoding v0.1.0
 	github.com/kalandramo/bald/encoding/json v0.1.1
-	github.com/kalandramo/bald/transport v0.3.0
+	github.com/kalandramo/bald/transport v0.4.0
 )
 
 require (
@@ -98,8 +98,8 @@ require (
 	github.com/kalandramo/bald/bootstrap v0.13.1 // indirect
 	github.com/kalandramo/bald/health v0.1.1 // indirect
 	github.com/kalandramo/bald/log v0.5.2 // indirect
-	github.com/kalandramo/bald/registry v0.1.1 // indirect
-	github.com/kalandramo/bald/transport/gateway v0.1.1 // indirect
+	github.com/kalandramo/bald/registry v0.3.0 // indirect
+	github.com/kalandramo/bald/transport/gateway v0.4.0 // indirect
 	github.com/kalandramo/bald/transport/grpc v0.1.1 // indirect
 	github.com/kalandramo/bald/transport/http v0.1.1 // indirect
 	github.com/magiconair/properties v1.8.5 // indirect

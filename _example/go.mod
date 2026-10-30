@@ -18,13 +18,13 @@ go 1.27.1
 
 require (
 	github.com/gin-gonic/gin v1.12.0
-	github.com/kalandramo/bald v0.11.0
-	github.com/kalandramo/bald/bconf v0.12.0
+	github.com/kalandramo/bald v0.29.0
+	github.com/kalandramo/bald/bconf v0.13.0
 	github.com/kalandramo/bald/health v0.1.1
 	github.com/kalandramo/bald/log v0.5.2
-	github.com/kalandramo/bald/registry v0.1.1
+	github.com/kalandramo/bald/registry v0.3.0
 	github.com/kalandramo/bald/transport/http v0.1.1
-	github.com/kalandramo/bald/transport/web v0.1.0
+	github.com/kalandramo/bald/transport/web v0.2.0
 	github.com/spf13/pflag v1.0.10
 )
 
@@ -120,8 +120,8 @@ require (
 	github.com/kalandramo/bald/bconfig v0.1.0 // indirect
 	github.com/kalandramo/bald/berrors v0.1.1 // indirect
 	github.com/kalandramo/bald/bootstrap v0.13.1 // indirect
-	github.com/kalandramo/bald/transport v0.3.0 // indirect
-	github.com/kalandramo/bald/transport/gateway v0.1.1 // indirect
+	github.com/kalandramo/bald/transport v0.4.0 // indirect
+	github.com/kalandramo/bald/transport/gateway v0.4.0 // indirect
 	github.com/kalandramo/bald/transport/grpc v0.1.1 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect

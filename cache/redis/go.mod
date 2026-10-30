@@ -4,9 +4,9 @@ go 1.27.1
 
 require (
 	github.com/alicebob/miniredis/v2 v2.35.0
-	github.com/kalandramo/bald v0.11.0
-	github.com/kalandramo/bald/bconf v0.12.0
-	github.com/kalandramo/bald/cache v0.1.1
+	github.com/kalandramo/bald v0.29.0
+	github.com/kalandramo/bald/bconf v0.13.0
+	github.com/kalandramo/bald/cache v0.3.0
 	github.com/redis/go-redis/v9 v9.17.2
 )
 
@@ -93,9 +93,9 @@ require (
 	github.com/kalandramo/bald/bootstrap v0.13.1 // indirect
 	github.com/kalandramo/bald/health v0.1.1 // indirect
 	github.com/kalandramo/bald/log v0.5.2 // indirect
-	github.com/kalandramo/bald/registry v0.1.1 // indirect
-	github.com/kalandramo/bald/transport v0.3.0 // indirect
-	github.com/kalandramo/bald/transport/gateway v0.1.1 // indirect
+	github.com/kalandramo/bald/registry v0.3.0 // indirect
+	github.com/kalandramo/bald/transport v0.4.0 // indirect
+	github.com/kalandramo/bald/transport/gateway v0.4.0 // indirect
 	github.com/kalandramo/bald/transport/grpc v0.1.1 // indirect
 	github.com/kalandramo/bald/transport/http v0.1.1 // indirect
 	github.com/magiconair/properties v1.8.5 // indirect
@@ -171,6 +171,8 @@ replace github.com/kalandramo/bald/bconfig => ../../bconfig
 replace github.com/kalandramo/bald/berrors => ../../berrors
 
 replace github.com/kalandramo/bald/bootstrap => ../../bootstrap
+
+replace github.com/kalandramo/bald/cache => ../
 
 replace github.com/kalandramo/bald/health => ../../health
 

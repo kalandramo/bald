@@ -8,16 +8,16 @@ require (
 	github.com/gin-gonic/gin v1.12.0
 	github.com/go-kratos/kratos/v3/contrib/config/nacos/v3 v3.0.0-00010101000000-000000000000
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.29.0
-	github.com/kalandramo/bald v0.11.0
-	github.com/kalandramo/bald/bconf v0.12.0
+	github.com/kalandramo/bald v0.29.0
+	github.com/kalandramo/bald/bconf v0.13.0
 	github.com/kalandramo/bald/berrors v0.1.1
 	github.com/kalandramo/bald/bootstrap v0.13.1
 	github.com/kalandramo/bald/contrib/store-gorm v0.0.0-00010101000000-000000000000
 	github.com/kalandramo/bald/health v0.1.1
 	github.com/kalandramo/bald/log v0.5.2
-	github.com/kalandramo/bald/registry v0.1.1
-	github.com/kalandramo/bald/registry/nacos v0.1.0
-	github.com/kalandramo/bald/transport/web v0.1.0
+	github.com/kalandramo/bald/registry v0.3.0
+	github.com/kalandramo/bald/registry/nacos v0.3.0
+	github.com/kalandramo/bald/transport/web v0.2.0
 	github.com/nacos-group/nacos-sdk-go v1.1.6
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
@@ -130,8 +130,8 @@ require (
 	github.com/kalandramo/bald/bconfig v0.1.0 // indirect
 	github.com/kalandramo/bald/ratelimit v0.1.0 // indirect
 	github.com/kalandramo/bald/ratelimit/tokenbucket v0.1.0 // indirect
-	github.com/kalandramo/bald/transport v0.3.0 // indirect
-	github.com/kalandramo/bald/transport/gateway v0.1.1 // indirect
+	github.com/kalandramo/bald/transport v0.4.0 // indirect
+	github.com/kalandramo/bald/transport/gateway v0.4.0 // indirect
 	github.com/kalandramo/bald/transport/grpc v0.1.1 // indirect
 	github.com/kalandramo/bald/transport/http v0.1.1 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
