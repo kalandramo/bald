@@ -572,6 +572,9 @@ go test ./pkg/appkit -run 'TestTeardownOrder_|TestProviderPlan_StdTeardownOrder|
 # 漂移
 go test ./pkg/appkit -run 'TestDrift'
 
+# 计划缓存基线与构建变体（Q7 对账口径：变体声明/命中态变化必须可见）
+go test ./pkg/appkit -run 'TestPlanCache_|TestVariantProjection_|TestDoctor_'
+
 # API 守卫（§7.1 两条「= 0」指标的可执行形态）
 go test ./pkg/appkit -run 'TestAPI_'   # Resource(string) 调用点、手工排序表标识符
 
