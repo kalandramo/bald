@@ -227,7 +227,7 @@ CI 可组合成「计划 hash 基线 + 生成物零 drift」：`--plan --plan-fo
 | **L4** 收敛运行 | 声明资源可协调，漂移可观测 | 达成 | 节点级 `ReloadPolicy` + `App.Drift` + `Reconcile`；Provider 节点与声明域节点（`Domain.Reconcile`）可协调，声明域节点的段可挂框架路径或 `biz.<path>` 业务配置（设计 Q8，2026-10-30）；database/cache/storage 段仍明确不支持热更（`ReloadRestart`） |
 | **L5** 纯函数生成 | 生成物是 `(AppSpec, proto)` 的函数，可 `--check` | 达成（生成物维度） | 双跑字节一致 + 清单 `--check` 零写入；运行期装配仍是 L3/L4 组合 |
 
-缺口以 `OpaqueCount` 与 `doctor` 的 `opaque:` 清单量化：数字越小，搬进声明式拓扑的部分越多。生成器侧另有一个明确缺口：REST 路由**清单**已进计划（`Plan.Routes`），但 handler 绑定与 `--no-routes`/默认生成尚未由 `gen domain` 接管（设计 Q5，2026-10-30 状态）。
+缺口以 `OpaqueCount` 与 `doctor` 的 `opaque:` 清单量化：数字越小，搬进声明式拓扑的部分越多。生成器侧：REST 路由**清单**已进计划（`Plan.Routes`）；handler 绑定可由 `bald gen domain --rest-bind` 从 `google.api.http` 注解生成（`Bind<Name>` + `<Name>Service`，需要 proto 的 Go 类型已 `buf generate`），默认仍只产路由表与 `Mount` 委托——默认生成与 `--no-routes` 逃逸尚未接管（设计 Q5，2026-10-30 状态）。
 
 ## 7. 常见问题
 

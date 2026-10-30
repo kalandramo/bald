@@ -43,26 +43,31 @@ import (
 // 覆盖 api/proto 目录树与 _example 的早期布局 proto）。
 var protoRoots = []string{"api/proto", "api/protos", "proto"}
 
-// protoMethod 是从 proto 源码解析出的一个 rpc 方法（含 google.api.http 注解）。
+// protoMethod 是从 proto 源码解析出的一个 rpc 方法（含 google.api.http 注解
+// 与请求/响应消息类型——--rest-bind 的绑定生成需要后两者）。
 type protoMethod struct {
-	Name string
-	Verb string // 注解动词（get/post/put/delete/patch）；无注解为空
-	Path string // 注解路径（如 /v1/greet/{name}）
-	Body string // 注解 body（"*" 或字段掩码）；GET/DELETE 缺省无 body
+	Name     string
+	Verb     string // 注解动词（get/post/put/delete/patch）；无注解为空
+	Path     string // 注解路径（如 /v1/greet/{name}）
+	Body     string // 注解 body（"*" 或字段掩码）；GET/DELETE 缺省无 body
+	Request  string // 请求消息类型（去 proto package 前缀；嵌套类型以 "_" 连接）
+	Response string // 响应消息类型（同上）
 }
 
 // protoService 是解析出的一个 service 声明。
 type protoService struct {
-	Package string
-	Name    string
-	Methods []protoMethod
+	Package   string
+	Name      string
+	Methods   []protoMethod
+	GoPackage string // proto 文件的 option go_package（"path;alias"）原样
 }
 
 // protoFile 是解析出的一个 proto 文件。
 type protoFile struct {
-	Path     string // 相对产出根
-	Package  string
-	Services []protoService
+	Path      string // 相对产出根
+	Package   string
+	GoPackage string
+	Services  []protoService
 }
 
 // protoScan 是一次全量扫描的结果（文件/包/service 均为声明序）。
@@ -73,17 +78,24 @@ type protoScan struct {
 }
 
 var (
-	reProtoPackage  = regexp.MustCompile(`(?m)^\s*package\s+([A-Za-z_][A-Za-z0-9_.]*)\s*;`)
-	reProtoService  = regexp.MustCompile(`(?m)^\s*service\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{`)
-	reProtoRPC      = regexp.MustCompile(`\brpc\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
-	reProtoHTTPVerb = regexp.MustCompile(`\b(get|post|put|delete|patch)\s*:\s*"([^"]*)"`)
-	reProtoHTTPBody = regexp.MustCompile(`\bbody\s*:\s*"([^"]*)"`)
-	reProtoHTTPDot  = regexp.MustCompile(`\(google\.api\.http\)\.(get|post|put|delete|patch)\s*=\s*"([^"]*)"`)
+	reProtoPackage   = regexp.MustCompile(`(?m)^\s*package\s+([A-Za-z_][A-Za-z0-9_.]*)\s*;`)
+	reProtoService   = regexp.MustCompile(`(?m)^\s*service\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{`)
+	reProtoRPC       = regexp.MustCompile(`\brpc\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*(?:stream\s+)?([A-Za-z_][A-Za-z0-9_.]*)\s*\)\s*returns\s*\(\s*(?:stream\s+)?([A-Za-z_][A-Za-z0-9_.]*)\s*\)`)
+	reProtoHTTPVerb  = regexp.MustCompile(`\b(get|post|put|delete|patch)\s*:\s*"([^"]*)"`)
+	reProtoHTTPBody  = regexp.MustCompile(`\bbody\s*:\s*"([^"]*)"`)
+	reProtoHTTPDot   = regexp.MustCompile(`\(google\.api\.http\)\.(get|post|put|delete|patch)\s*=\s*"([^"]*)"`)
+	reProtoGoPackage = regexp.MustCompile(`(?m)^\s*option\s+go_package\s*=\s*"([^"]+)"\s*;`)
+	// reProtoPathVar 匹配 google.api.http 路径变量（字段路径可含 "."，可带
+	// "=pattern" 段）。
+	reProtoPathVar = regexp.MustCompile(`\{([A-Za-z_][A-Za-z0-9_.]*)(=[^}]*)?\}`)
+	// reGinParam 归一化 gin 路由里的变量名（:name → :），用于冲突 shape 判定。
+	reGinParam = regexp.MustCompile(`:[A-Za-z0-9_]+`)
 )
 
-// scanProto 正则扫描单个 proto 源码（gen domain 只需要 package / service /
-// rpc / google.api.http 注解四个事实；正则口径对生成器与 buf format 风格的
-// proto 都是确定性的——braced 注解与 (google.api.http).get 点式注解都识别）。
+// scanProto 正则扫描单个 proto 源码（gen domain 需要 package / go_package /
+// service / rpc（含请求响应类型）/ google.api.http 注解；正则口径对生成器与
+// buf format 风格的 proto 都是确定性的——braced 注解与
+// (google.api.http).get 点式注解都识别）。
 func scanProto(relPath string, src []byte) (*protoFile, error) {
 	f := &protoFile{Path: relPath}
 	if m := reProtoPackage.FindSubmatch(src); m != nil {
@@ -91,12 +103,19 @@ func scanProto(relPath string, src []byte) (*protoFile, error) {
 	} else {
 		return nil, fmt.Errorf("%s: no package declaration", relPath)
 	}
+	if m := reProtoGoPackage.FindSubmatch(src); m != nil {
+		f.GoPackage = string(m[1])
+	}
 	text := string(src)
 	for _, loc := range reProtoService.FindAllStringSubmatchIndex(text, -1) {
-		svc := protoService{Package: f.Package, Name: text[loc[2]:loc[3]]}
+		svc := protoService{Package: f.Package, Name: text[loc[2]:loc[3]], GoPackage: f.GoPackage}
 		block, _ := braceBlock(text, loc[1]-1) // loc[1] 指向 '{' 之后，回退一格
 		for _, r := range reProtoRPC.FindAllStringSubmatchIndex(block, -1) {
-			m := protoMethod{Name: block[r[2]:r[3]]}
+			m := protoMethod{
+				Name:     block[r[2]:r[3]],
+				Request:  normalizeProtoType(f.Package, block[r[4]:r[5]]),
+				Response: normalizeProtoType(f.Package, block[r[6]:r[7]]),
+			}
 			// 方法段 = 本 rpc 起点到下一 rpc（或 service 块尾）。
 			end := len(block)
 			if rest := reProtoRPC.FindStringSubmatchIndex(block[r[1]:]); rest != nil {
@@ -299,6 +318,70 @@ func domainDir(module, goPackage string) (string, error) {
 	return "", fmt.Errorf("go_package %q is not under module %q (cannot locate the domain package directory)", goPackage, module)
 }
 
+// normalizeProtoType 把 proto 里的消息类型名折算为 Go 类型名：去 proto package
+// 前缀，嵌套类型的分隔点换 "_"（protoc-gen-go 的命名规则）。
+func normalizeProtoType(pkg, t string) string {
+	t = strings.TrimPrefix(t, pkg+".")
+	return strings.ReplaceAll(t, ".", "_")
+}
+
+// parseProtoGoPackage 拆 proto 的 option go_package（"path;alias" 或 "path"）：
+// 未写别名时按 protoc-gen-go 口径取路径末段（非法标识符字符换成 "_"）。
+func parseProtoGoPackage(gp string) (path, alias string) {
+	path, alias = gp, ""
+	if i := strings.IndexByte(gp, ';'); i >= 0 {
+		path, alias = gp[:i], gp[i+1:]
+	}
+	if alias == "" {
+		alias = path
+		if i := strings.LastIndexByte(alias, '/'); i >= 0 {
+			alias = alias[i+1:]
+		}
+	}
+	alias = sanitizeGoIdent(alias)
+	if alias == "" {
+		alias = "pb"
+	}
+	return path, alias
+}
+
+// sanitizeGoIdent 把 import 别名收敛成合法 Go 标识符。
+func sanitizeGoIdent(s string) string {
+	var b strings.Builder
+	for i, r := range s {
+		switch {
+		case r == '_' || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z'):
+			b.WriteRune(r)
+		case r >= '0' && r <= '9':
+			if i == 0 {
+				b.WriteByte('_')
+			}
+			b.WriteRune(r)
+		default:
+			b.WriteByte('_')
+		}
+	}
+	return b.String()
+}
+
+// ginPathOf 把 google.api.http 路径转成 gin 路由，并返回路径变量名（注解原名，
+// 可含 "." 表示嵌套字段）。{name} 与 {name=pattern} 都映射为 :name——gin 不支持
+// pattern 段，变量取整段原文（与 grpc-gateway 的 pattern 匹配语义不同）。
+func ginPathOf(path string) (string, []string) {
+	var vars []string
+	out := reProtoPathVar.ReplaceAllStringFunc(path, func(m string) string {
+		sub := reProtoPathVar.FindStringSubmatch(m)
+		vars = append(vars, sub[1])
+		return ":" + ginParamName(sub[1])
+	})
+	return out, vars
+}
+
+// ginParamName 是 gin 的变量名（":" 后不允许 "."，嵌套字段改用 "_"）。
+func ginParamName(protoVar string) string {
+	return strings.ReplaceAll(protoVar, ".", "_")
+}
+
 // domainOptions 是 gen domain 叶子命令的领域配置。
 type domainOptions struct {
 	Spec         string // --spec：AppSpec JSON 路径（必填——域清单的唯一真相源）
@@ -307,6 +390,7 @@ type domainOptions struct {
 	APIServerDir string // --apiserver-dir：apiserver 目录名（默认取 layout.apiserver_dir 否则 apiserver；传 - 跳过 apiserver 侧产物）
 	Adopt        bool   // --adopt：覆盖已存在的 owned 文件（--force 的替代，B5）
 	Check        bool   // --check：只校验不落盘（I8；有差异即失败）
+	RESTBind     bool   // --rest-bind：从 google.api.http 注解生成 gin 绑定（需要 proto 已 buf generate）
 
 	ioStreams
 }
@@ -427,6 +511,83 @@ func (o *domainOptions) Run() error {
 	return nil
 }
 
+// bindView 是 --rest-bind 逐域绑定文件的模板数据。
+type bindView struct {
+	Name          string // 域名的 Go 形态（用于 Bind<Name>/<Name>Service）
+	Domain        string
+	Service       string // proto service 全名
+	ProtoPkgAlias string // proto Go 包 import 别名
+	ProtoPkgPath  string // proto Go 包 import 路径
+	Methods       []bindMethodView
+	Routes        []bindRouteView
+}
+
+// bindMethodView 是服务接口的一个方法（按 RPC 名去重）。
+type bindMethodView struct {
+	RPC, Request, Response string
+}
+
+// bindRouteView 是 gin 路由登记的一项（一条 google.api.http 注解）。
+type bindRouteView struct {
+	RPC, Request, Verb, GinPath, Body, PathVarsExpr string
+}
+
+// bindViewOf 从域 service 的注解派生绑定视图；无 REST 注解时返回 nil（不产
+// 绑定文件）。--rest-bind 需要 proto 的 Go 类型：go_package 缺失即报错——
+// 生成器不猜 import 路径。
+func bindViewOf(name string, d *appspecv1.DomainSpec, svc protoService) (*bindView, error) {
+	var routes []bindRouteView
+	var methods []bindMethodView
+	seenRPC := map[string]bool{}
+	seenRoute := map[string]string{}
+	for _, m := range svc.Methods {
+		if m.Verb == "" {
+			continue
+		}
+		ginPath, vars := ginPathOf(m.Path)
+		// gin 的同 method+shape 路由此处就会 panic（:a 与 :b 是同一 shape），
+		// 生成期先报错——把运行期 panic 换成可定位的注解冲突。
+		key := strings.ToUpper(m.Verb) + " " + reGinParam.ReplaceAllString(ginPath, ":")
+		if prev, ok := seenRoute[key]; ok {
+			return nil, fmt.Errorf("domain %q: %s is mapped by both %s and %s after converting google.api.http patterns to gin routes (gin cannot register two identical shapes)", d.GetName(), key, prev, m.Name)
+		}
+		seenRoute[key] = m.Name
+		routes = append(routes, bindRouteView{
+			RPC: m.Name, Request: m.Request, Verb: strings.ToUpper(m.Verb),
+			GinPath: ginPath, Body: m.Body, PathVarsExpr: pathVarsExpr(vars),
+		})
+		if !seenRPC[m.Name] {
+			seenRPC[m.Name] = true
+			methods = append(methods, bindMethodView{RPC: m.Name, Request: m.Request, Response: m.Response})
+		}
+	}
+	if len(routes) == 0 {
+		return nil, nil
+	}
+	if svc.GoPackage == "" {
+		return nil, fmt.Errorf("domain %q: proto service %q has no option go_package; --rest-bind needs it to import the generated Go message types", d.GetName(), d.GetService())
+	}
+	protoPath, alias := parseProtoGoPackage(svc.GoPackage)
+	return &bindView{
+		Name: name, Domain: d.GetName(), Service: d.GetService(),
+		ProtoPkgAlias: alias, ProtoPkgPath: protoPath,
+		Methods: methods, Routes: routes,
+	}, nil
+}
+
+// pathVarsExpr 生成路径变量 map 字面量（变量名是 proto 字段路径，取值来自
+// gin 的路径参数）。
+func pathVarsExpr(vars []string) string {
+	if len(vars) == 0 {
+		return "nil"
+	}
+	parts := make([]string, 0, len(vars))
+	for _, v := range vars {
+		parts = append(parts, fmt.Sprintf("%q: c.Param(%q)", v, ginParamName(v)))
+	}
+	return "map[string]string{" + strings.Join(parts, ", ") + "}"
+}
+
 // emitAPIServerSide 收集 internal/<apiserver_dir>/ 的扇出与逐域 handler 产物
 // （落盘统一由 Run 的 emitTree 完成，manifest 与写入共享同一批字节）。
 func (o *domainOptions) emitAPIServerSide(v *treeView, scan *protoScan, files *[]genFile) error {
@@ -455,6 +616,17 @@ func (o *domainOptions) emitAPIServerSide(v *treeView, scan *protoScan, files *[
 		if err := emit(filepath.Join("internal", v.APIDir, "handler", "convert", d.GetName()+".gen.go"), handlerConvertTmpl,
 			map[string]any{"Name": name, "Service": d.GetService(), "Actions": derivedActions(svc)}); err != nil {
 			return err
+		}
+		if o.RESTBind {
+			bind, err := bindViewOf(name, d, svc)
+			if err != nil {
+				return err
+			}
+			if bind != nil {
+				if err := emit(filepath.Join("internal", v.APIDir, "handler", "gin", d.GetName()+".bind.gen.go"), handlerBindTmpl, bind); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	// 扇出清单。
@@ -671,6 +843,56 @@ var {{ .Name }}Actions = map[string]string{
 }
 `
 
+// handlerBindTmpl 是 handler/gin/<d>.bind.gen.go（--rest-bind）：从 google.api.http
+// 注解与 rpc 签名生成 gin 路由 + 请求绑定 + 响应编码，替换手写 REST handler。
+var handlerBindTmpl = `// Code generated by "bald gen domain --rest-bind". DO NOT EDIT.
+//
+// {{ .Domain }} 域的 REST 绑定（Q5）：路由、请求编解码、错误映射都从 proto 的
+// google.api.http 注解与 rpc 签名生成——注解是唯一真相源，改 proto 后重新
+// 生成，手写 REST handler 归零。前置条件（--rest-bind 显式开启的原因）：
+//   - proto 的 Go 类型已由 buf generate 产出（本文件 import 其 go_package）；
+//   - 消费者 module 依赖 github.com/kalandramo/bald/transport/web。
+//
+// 本文件是 appkit.Domain.Routes 的生成替代：把 Bind{{ .Name }}(engine, impl)
+// 挂进装配即可；同时保留手写 Domain.Routes 会把同一路由注册两次。
+package gin
+
+import (
+	"context"
+
+	"github.com/gin-gonic/gin"
+
+	"github.com/kalandramo/bald/transport/web"
+
+	{{ .ProtoPkgAlias }} "{{ .ProtoPkgPath }}"
+)
+
+// {{ .Name }}Service 是从 {{ .Service }} 的 rpc 签名生成的 Go 接口，业务实现
+// 后传入 Bind{{ .Name }}。
+type {{ .Name }}Service interface {
+{{- range .Methods }}
+	{{ .RPC }}(ctx context.Context, req *{{ $.ProtoPkgAlias }}.{{ .Request }}) (*{{ $.ProtoPkgAlias }}.{{ .Response }}, error)
+{{- end }}
+}
+
+// Bind{{ .Name }} 把 {{ .Service }} 的 REST 面挂到 r 上：路径/查询/body 按
+// google.api.http 注解绑定（web.BindProtoRequest），响应按 protojson 编码
+// （web.WriteProtoResponse，与 grpc-gateway 同形）。
+func Bind{{ .Name }}(r gin.IRouter, svc {{ .Name }}Service) {
+{{- range .Routes }}
+	r.{{ .Verb }}("{{ .GinPath }}", func(c *gin.Context) {
+		req := &{{ $.ProtoPkgAlias }}.{{ .Request }}{}
+		if err := web.BindProtoRequest(c, req, {{ q .Body }}, {{ .PathVarsExpr }}); err != nil {
+			web.ErrorResponse(c, err)
+			return
+		}
+		resp, err := svc.{{ .RPC }}(c.Request.Context(), req)
+		web.WriteProtoResponse(c, resp, err)
+	})
+{{- end }}
+}
+`
+
 // apiDomainFanoutTmpl 是 internal/<apiserver_dir>/domains.gen.go 的扇出形态：
 // 逐域 handler 挂载扇出。
 var apiDomainFanoutTmpl = `// Code generated by {{ .Gen }}. DO NOT EDIT.
@@ -778,11 +1000,19 @@ func genDomainCmd(streams ioStreams) *cobra.Command {
   - internal/<apiserver_dir>/authz/alias.gen.go  授权别名表 + 默认动作聚合
   - <go_package>/domain.gen.go                   域声明值骨架（生成一次；域包
                                                  已有 Domain 声明时消费跳过）
+  - internal/<apiserver_dir>/handler/gin/<d>.bind.gen.go  仅 --rest-bind：从
+                                                 google.api.http 注解生成 gin 路由
+                                                 与服务接口（替代手写 REST handler）
 
 Gate1 强化：domains[].service 必须与产出根下实际 proto 匹配（扫描 api/proto、
 api/protos、proto），失配报错指明域、proto 文件与实际声明。全部产物 owned
 （--adopt 覆盖）；域包骨架 seeded（生成一次）。--check 零写校验生成物与
-清单（domains.manifest.json）是否同声明一致。`,
+清单（domains.manifest.json）是否同声明一致。
+
+--rest-bind 的前置条件：proto 的 Go 类型已由 buf generate 产出（bind 文件
+import 其 go_package），消费者 module 依赖 bald/transport/web。默认关闭——
+未跑 buf generate 的树保持可编译；开启后 bind 文件与其余产物一同纳入
+--check 对账。`,
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 		RunE: func(*cobra.Command, []string) error {
@@ -801,6 +1031,7 @@ api/protos、proto），失配报错指明域、proto 文件与实际声明。�
 	cmd.Flags().StringVar(&o.APIServerDir, "apiserver-dir", "", "apiserver 目录名（默认 layout.apiserver_dir 否则 apiserver；传 - 跳过 apiserver 侧产物）")
 	cmd.Flags().BoolVar(&o.Adopt, "adopt", false, "覆盖已存在的 owned 文件并更新清单（默认拒绝）")
 	cmd.Flags().BoolVar(&o.Check, "check", false, "只校验生成物与清单是否与声明一致（零写入，有差异即失败）")
+	cmd.Flags().BoolVar(&o.RESTBind, "rest-bind", false, "从 google.api.http 注解生成 gin 路由与服务接口（需 proto Go 类型已 buf generate）")
 	_ = cmd.MarkFlagFilename("spec", ".json")
 	cmd.SetErr(streams.ErrOut)
 	return cmd

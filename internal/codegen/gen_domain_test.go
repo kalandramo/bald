@@ -5,13 +5,16 @@ package codegen
 // gen proto CRUD 六件套、seed 实内容派生、layering AST 守卫的正反例。
 
 import (
+	"go/parser"
+	"go/token"
 	"os"
 	"os/exec"
-	"runtime"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
+	appspecv1 "github.com/kalandramo/bald/bconf/gen/go/bald/appspec/v1"
 )
 
 // runGenDomain 在 dir（已含 spec 与 proto 夹具）执行 gen domain，返回输出。
@@ -309,9 +312,9 @@ func TestGenProto_CRUD_BufBuild(t *testing.T) {
 	// 依赖，buf.lock 复用其已解析 commit——本机模块缓存命中）；bald/store/v1 契约
 	// 从本仓 bconf/proto 复制进模块（消费项目的既有依赖形态）。
 	writeAll(t, map[string]string{
-		"api/proto/buf.yaml":                   "version: v1\nname: buf.build/kalandramo/genproto-check\ndeps:\n  - buf.build/googleapis/googleapis\n  - buf.build/bufbuild/protovalidate\nlint:\n  use:\n    - STANDARD\n",
-		"api/proto/buf.lock":                   readRepoFile(t, "_example/bald/proto/buf.lock"),
-		"api/proto/bald/store/v1/store.proto":  readRepoFile(t, "bconf/proto/bald/store/v1/store.proto"),
+		"api/proto/buf.yaml":                  "version: v1\nname: buf.build/kalandramo/genproto-check\ndeps:\n  - buf.build/googleapis/googleapis\n  - buf.build/bufbuild/protovalidate\nlint:\n  use:\n    - STANDARD\n",
+		"api/proto/buf.lock":                  readRepoFile(t, "_example/bald/proto/buf.lock"),
+		"api/proto/bald/store/v1/store.proto": readRepoFile(t, "bconf/proto/bald/store/v1/store.proto"),
 	})
 	build := exec.Command("buf", "build", "-o", "image.pb")
 	build.Dir = filepath.Join(dir, "api", "proto")
@@ -419,7 +422,7 @@ func writeAll(t *testing.T, files map[string]string) {
 }
 
 // readRepoFile 读仓库内文件（相对 bald 仓库根）。根以本文件源码路径定位
-//（runtime.Caller）——本包测试会用 t.Chdir 切走进程 cwd，repoRoot 的
+// （runtime.Caller）——本包测试会用 t.Chdir 切走进程 cwd，repoRoot 的
 // 「cwd 恒为包目录」前提在这些测试里不成立。
 func readRepoFile(t *testing.T, rel string) string {
 	t.Helper()
@@ -433,4 +436,120 @@ func readRepoFile(t *testing.T, rel string) string {
 		t.Fatalf("read repo file %s: %v", rel, err)
 	}
 	return string(data)
+}
+
+// TestGenDomain_RESTBind 钉住 Q5 生成侧：--rest-bind 从 google.api.http 注解
+// 生成绑定文件（服务接口 + gin 路由 + protojson 编解码），默认不生成（未跑
+// buf generate 的树必须保持可编译），产物语法有效并纳入 --check 对账。
+func TestGenDomain_RESTBind(t *testing.T) {
+	dir, specPath := runGenAppInTemp(t, guardFixture())
+	bindPath := filepath.Join(dir, "internal", "apiserver", "handler", "gin", "greet.bind.gen.go")
+	if _, err := os.Stat(bindPath); !os.IsNotExist(err) {
+		t.Fatalf("default gen domain must not emit the bind file (proto Go types are not guaranteed): %v", err)
+	}
+
+	runGenDomain(t, dir, specPath, "--rest-bind", "--adopt")
+	raw, err := os.ReadFile(bindPath)
+	if err != nil {
+		t.Fatalf("read bind file: %v", err)
+	}
+	src := string(raw)
+	for _, want := range []string{
+		`type GreetService interface {`,
+		`Greet(ctx context.Context, req *greetv1.GreetRequest) (*greetv1.GreetResponse, error)`,
+		`GreetGet(ctx context.Context, req *greetv1.GreetGetRequest) (*greetv1.GreetResponse, error)`,
+		`greetv1 "demo.example/app/api/gen/go/greet/v1"`,
+		`r.POST("/v1/greets", func(c *gin.Context) {`,
+		`web.BindProtoRequest(c, req, "*", nil)`,
+		`r.GET("/v1/greets/:name", func(c *gin.Context) {`,
+		`web.BindProtoRequest(c, req, "", map[string]string{"name": c.Param("name")})`,
+		`resp, err := svc.GreetGet(c.Request.Context(), req)`,
+		`web.WriteProtoResponse(c, resp, err)`,
+	} {
+		if !strings.Contains(src, want) {
+			t.Errorf("bind file missing %q:\n%s", want, src)
+		}
+	}
+	if _, err := parser.ParseFile(token.NewFileSet(), bindPath, raw, 0); err != nil {
+		t.Fatalf("bind file is not valid Go: %v", err)
+	}
+
+	// bind 文件是 owned 产物：重跑 --check 必须零差异。
+	runGenDomain(t, dir, specPath, "--rest-bind", "--check")
+}
+
+// TestGenDomain_RESTBind_RequiresGoPackage 生成器不猜 import 路径：proto 缺
+// option go_package 时 --rest-bind 报错并指明域名与原因。
+func TestGenDomain_RESTBind_RequiresGoPackage(t *testing.T) {
+	dir, specPath := runGenAppInTemp(t, guardFixture())
+	protoPath := filepath.Join(dir, "api", "proto", "greet", "v1", "greet.proto")
+	src, err := os.ReadFile(protoPath)
+	if err != nil {
+		t.Fatalf("read proto: %v", err)
+	}
+	stripped := reProtoGoPackage.ReplaceAll(src, nil)
+	if err := os.WriteFile(protoPath, stripped, 0o644); err != nil {
+		t.Fatalf("write proto: %v", err)
+	}
+	streams, _ := testStreams()
+	cmd := genDomainCmd(streams)
+	cmd.SetArgs([]string{"--spec", specPath, "--out", dir, "--rest-bind", "--adopt"})
+	err = cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "no option go_package") {
+		t.Fatalf("err = %v, want missing go_package error", err)
+	}
+}
+
+// TestGinPathOf 钉住注解路径 → gin 路由的转换口径（含 pattern 段与嵌套变量）。
+func TestGinPathOf(t *testing.T) {
+	cases := []struct {
+		in       string
+		wantPath string
+		wantVars []string
+		wantExpr string
+	}{
+		{"/v1/greets/{name}", "/v1/greets/:name", []string{"name"}, `map[string]string{"name": c.Param("name")}`},
+		{"/v1/{name=projects/*/locations/*}", "/v1/:name", []string{"name"}, `map[string]string{"name": c.Param("name")}`},
+		{"/v1/users/{user.id}/tags/{tag}", "/v1/users/:user_id/tags/:tag", []string{"user.id", "tag"}, `map[string]string{"user.id": c.Param("user_id"), "tag": c.Param("tag")}`},
+		{"/v1/health", "/v1/health", nil, "nil"},
+	}
+	for _, c := range cases {
+		gotPath, gotVars := ginPathOf(c.in)
+		if gotPath != c.wantPath {
+			t.Errorf("ginPathOf(%q) path = %q, want %q", c.in, gotPath, c.wantPath)
+		}
+		if strings.Join(gotVars, ",") != strings.Join(c.wantVars, ",") {
+			t.Errorf("ginPathOf(%q) vars = %v, want %v", c.in, gotVars, c.wantVars)
+		}
+		if got := pathVarsExpr(gotVars); got != c.wantExpr {
+			t.Errorf("pathVarsExpr(%v) = %q, want %q", gotVars, got, c.wantExpr)
+		}
+	}
+}
+
+// TestBindViewOf_RejectsDuplicateGinShape gin 对同 method+shape 的路由会在
+// 注册期 panic（:a 与 :b 同 shape）：生成期报错把 panic 换成可定位的注解冲突。
+func TestBindViewOf_RejectsDuplicateGinShape(t *testing.T) {
+	svc := protoService{
+		Package: "greet.v1", Name: "GreetService", GoPackage: "demo.example/app/api/gen/go/greet/v1;greetv1",
+		Methods: []protoMethod{
+			{Name: "GetA", Verb: "get", Path: "/v1/x/{a}", Request: "GetRequest", Response: "GetResponse"},
+			{Name: "GetB", Verb: "get", Path: "/v1/x/{b}", Request: "GetRequest", Response: "GetResponse"},
+		},
+	}
+	d := &appspecv1.DomainSpec{Name: "greet", Service: "greet.v1.GreetService"}
+	if _, err := bindViewOf("Greet", d, svc); err == nil || !strings.Contains(err.Error(), "identical shapes") {
+		t.Fatalf("err = %v, want duplicate gin shape error", err)
+	}
+}
+
+// TestBindViewOf_NoAnnotatedRoutes 无 google.api.http 注解的 service 不产绑定
+// 文件（没有可生成的 REST 面）。
+func TestBindViewOf_NoAnnotatedRoutes(t *testing.T) {
+	svc := protoService{Package: "greet.v1", Name: "GreetService", Methods: []protoMethod{{Name: "Ping"}}}
+	d := &appspecv1.DomainSpec{Name: "greet", Service: "greet.v1.GreetService"}
+	view, err := bindViewOf("Greet", d, svc)
+	if err != nil || view != nil {
+		t.Fatalf("view = %v, err = %v; want nil, nil", view, err)
+	}
 }
