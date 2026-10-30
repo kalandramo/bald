@@ -338,17 +338,19 @@ tasks:
   # 设计 §7.3「验收脚本」的可执行形态（声明性指标的主门）。
   # 只跑 go test，跨平台；参考工程的计划口径在 _example 独立 module 内断言。
   acceptance:
-    desc: 声明式装配验收（§7.3：计划纯净/顺序无关/停机序与回滚/漂移/计划缓存与变体/生成确定性/API 守卫/参考工程计划）
+    desc: 声明式装配验收（§7.3：计划纯净/顺序无关/停机序与回滚/漂移/计划缓存与变体（含 -tags 两态）/生成确定性/API 守卫/参考工程计划）
     cmds:
       - go test ./pkg/appkit -run 'TestPlan_(NoSideEffects|OrderInvariant|SegmentCoverage|Conflict|DomainRoutes|CustomRoutesWarning)|TestRouteShapeConflict'
       - go test ./pkg/appkit -run 'TestTeardownOrder_|TestProviderPlan_StdTeardownOrder|TestComponent_StartFailureRollback|TestMountComponent_MountFailureRollback'
       - go test ./pkg/appkit -run 'TestDrift'
-      - go test ./pkg/appkit -run 'TestPlanCache_|TestVariantProjection_|TestDoctor_'
+      - go test ./pkg/appkit -run 'TestPlanCache_|TestVariantProjection_|TestVariantEffects_|TestOption_OnRoleScoping|TestDoctor_'
       - go test ./pkg/appkit -run 'TestAPI_'
-      - go test ./internal/codegen -run 'TestGen_(Deterministic|CheckClean)|TestGenDomain_(Bind|Proto|NoRoutes|CheckDoesNotRunProtoStage)|TestPruneStaleOwned|TestCheckTree_'
+      - go test ./internal/codegen -run 'TestGen_(Deterministic|CheckClean)|TestGenDomain_(Bind|Proto|NoRoutes|CheckDoesNotRunProtoStage)|TestGenApp_Variants|TestTree_Variants|TestPruneStaleOwned|TestCheckTree_'
       - cmd: go test . -run TestGeneratedMatchesProto
         dir: bconf
       - cmd: go test ./internal/bootstrap -run TestPlan_ReferenceProject
+        dir: _example/bald
+      - cmd: go test -tags grpcgw ./internal/bootstrap -run TestPlan_ReferenceProject
         dir: _example/bald
 
   # 全量验证：核心 + example（默认 tag 与 grpcgw tag）+ 嵌套 module。

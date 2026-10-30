@@ -46,7 +46,7 @@ AppSpec 用一份 JSON 声明应用的装配形态——开通哪些 server、�
 | `layout.strictContract` | bool | 生成物是否 emit `appkit.StrictContract()`（proto3 optional 保 presence：未声明 = **true**） |
 | `bundle.normalized` | bool | 装配期 bundle 归一化声明（audit object/action 双传输同源） |
 | `domains[]` | 数组 | 显式域清单 `{name, protoPackage, service, model, goPackage}`（§6） |
-| `variants[]` | 数组 | 构建期变体 `{name, build_tags[], description}`：声明恒进计划（`--plan`/`doctor` 的 `variants:` 段，按 `declared`/`active` 列出），命中的变体另产 `ambient` 诊断（Subject = `variant:<name>`）；只做可见性、不改变装配 |
+| `variants[]` | 数组 | 构建期变体 `{name, when, buildTags[], description, effects{components[], patches[]}}`：`when` 是 `go/build/constraint` 表达式（如 `grpcgw && !nacos`），`buildTags` 是 && 糖（与 `when` 互斥）；声明恒进计划（`--plan`/`doctor` 的 `variants:` 段按 `declared`/`active` 列出并展示增量），命中的变体把 `effects`（组件 + bootstrap 字段补丁）并入真实装配；`//go:build` 实现由独立 tag 文件注册，与声明计划期对账（漂移即启动失败），不再产 `ambient` |
 
 契约段纪律：传输面、审计后端等一律声明在 `bootstrap`（唯一真相源）。旧快捷方式字段 `server` / `auditBackends` / `bundleNormalized` 已移除（Q6）——protojson 解析会直接报 `unknown field`，请把对应声明迁到 `bootstrap.server` / `bootstrap.audit.backends` / `bundle.normalized`。
 
@@ -97,7 +97,8 @@ my-service/
 ├─ cmd/my-service/app/command.go                   # 生成物：cobra 根 + 唯一 MustServe 调用（serve / doctor / version）
 ├─ internal/bootstrap/assemble.gen.go              # 生成物：Options() 是装配的全部
 ├─ internal/bootstrap/domains.gen.go               # 生成物：业务域清单（暂空，占位）
-├─ internal/bootstrap/variants.gen.go              # 生成物：仅 appspec.variants 非空时落盘（build tag 变体 → ambient 诊断）
+├─ internal/bootstrap/variants.gen.go              # 生成物：仅 appspec.variants 非空时落盘（声明 + 增量数据，恒进计划）
+├─ internal/bootstrap/variant_<name>.gen.go        # 生成物：每变体一份，//go:build 条件编译的 init() 注册实现
 ├─ internal/bootstrap/seed/seed.go                 # 生成一次：演示种子数据
 ├─ internal/bootstrap/seed/policies.go             # 生成一次：默认授权策略行
 ├─ internal/apiserver/apiserver.go                 # 生成一次：HTTP 装配钩子（加业务路由处）

@@ -176,9 +176,9 @@ func validateAppSpec(as *appspecv1.AppSpec) []error {
 		name := vr.GetName()
 		switch {
 		case name == "":
-			add("variants[%d].name is required (drives the ambient Subject \"variant:<name>\")", i)
+			add("variants[%d].name is required (plan origin \"variant:<name>\" and variant_<name>.gen.go are derived from it)", i)
 		case !variantNameRe.MatchString(name):
-			add("variants[%d].name %q is invalid (must match %s; used as the ambient Subject suffix)", i, name, variantNameRe)
+			add("variants[%d].name %q is invalid (must match %s; it names variant_<name>.gen.go and the plan origin)", i, name, variantNameRe)
 		case seenVariant[name]:
 			add("variants[%d].name %q is declared twice (variant names must be unique)", i, name)
 		default:

@@ -145,15 +145,15 @@ gen: run `bald gen app --check` and `bald gen domain --check` in the generated t
 | `domains` | 业务域迁移进度：`declared` = 用 `Domain.Declare` 声明拓扑的域，`legacy` = 整块 Opaque 的域（设计 §4.6 的量化口径） |
 | `override: key (reason)` | 显式覆盖的节点与其理由 |
 | `routes: N` | 域声明的 REST 路由清单（`Domain.RouteTable`）；没有声明路由时不打印 |
-| `variants: N (active M)` | 构建期变体声明（`AppSpec.variants`）：全部声明逐个列出 `declared`/`active`，`active` 者另在 `warnings` 产 `ambient` 诊断；没有声明时不打印 |
+| `variants: N (active M)` | 构建期变体声明（`AppSpec.variants`）：全部声明逐个列出 `declared`/`active` 及条件与增量（`component X (segment Y)` / `patch path=value (reason: …)`）；命中的变体把增量并入装配、不再产 `ambient`；没有声明时不打印 |
 | `imperative` | 命令式槽位清单（`effect` / `keyWatch` / `reconcile` / `hook` / `serverFunc` / `serverCapability` / `onConfigChange` / `identity` / `auditor`）——与 `--plan` 同源，闭包不隐身 |
 | `segments` 分组 | `consumed` 有消费者；`whitelisted` 经 `WithUnimplementedSegments` 豁免；`framework` 框架无条件消费；`unconsumed` 非空即启动失败 |
 | `build tags` | 构建期 `-tags`（`debug.ReadBuildInfo` 读取），用于解释 build tag 分叉 |
 | `warnings` | 与 `--plan` 同源的全部诊断（含 `override` / `whitelisted` / `opaque-budget` / `ambient`） |
 
-`build tags` 行只回答「这个二进制用什么 tag 编的」；**为什么某个 tag 改变接线**需要应用自己说清楚：`appkit.WithAmbient(appkit.Ambient{Name: "build-tag:grpcgw", Detail: "..."})` 把这类环境注入声明进计划，`--plan` 与 `doctor` 的 `warnings` 出现 `ambient` 诊断；手写的构建期分叉更推荐 `appkit.WithVariantDecls`（声明恒可见，见下）。`Name` 为空在计划期报错；同一个 `Name` 可以重复声明（同 `Detail` 合并为一条诊断，与声明序无关），但同 `Name` 不同 `Detail` 会在计划期报错——一个逃逸舱身份不能同时描述两种注入。
+`build tags` 行只回答「这个二进制用什么 tag 编的」；**为什么某个 tag 改变接线**由变体声明回答（见下）：`appkit.WithVariantDecls` 的条件按 `go/build/constraint` 求值，命中的变体把增量并入装配、在计划里带 `variant:<name>` 来源。尚未迁移的手写分叉仍可用 `appkit.WithAmbient(appkit.Ambient{Name: "build-tag:grpcgw", Detail: "..."})` 把环境注入记进 `warnings`——`Name` 为空在计划期报错；同一个 `Name` 可以重复声明（同 `Detail` 合并，与声明序无关），但同 `Name` 不同 `Detail` 报错。已声明变体的身份不允许再用 `WithAmbient` 描述（I11，计划期硬错误：删掉那条 `WithAmbient` 即可）。
 
-声明形态（`bald gen app`，2026-10-30）：在 `appspec.json` 的 `variants` 里声明 `name` / `build_tags` / `description`，生成器落 `internal/bootstrap/variants.gen.go`，在 `Options()` 里把每条声明投影为 `appkit.VariantDecl`，`Active` 按**当前二进制实际带有的 tag**（与上面的 `build tags` 行同源）计算。**声明恒进计划**：`--plan`/`doctor` 的 `variants:` 段列出全部声明（`declared`/`active`），不带 tag 的构建也能审计「声明了哪些变体」；命中的变体（`active`）才在 `warnings` 里出现 `ambient` 诊断（Subject = `variant:<name>`）。多个变体同时命中时全部 `active`。它只做可见性——变体注入的接线仍在计划之外，`WithAmbient` 保留为手写逃生舱。`build_tags` 为空、`name` 重复/非法（须匹配 `^[a-z][a-z0-9_]*$`）、tag 写成表达式（`"a,b"`、`"!a"`、`"a&&b"`——命中判据是「包含这一个 tag」，表达式会静默不命中）在生成期（Gate1）拒绝。
+声明形态（`bald gen app`，2026-10-30 终态）：`appspec.json` 的 `variants` 里声明 `name` / `when`（或 `buildTags` 糖）/ `description` / `effects`（组件与 bootstrap 字段补丁）。生成器落两份产物：`internal/bootstrap/variants.gen.go`（声明与增量数据，任何构建都进 `Options()`）和每个变体一份 `internal/bootstrap/variant_<name>.gen.go`（`//go:build <when>` 编译条件，`init()` 注册 `appkit.VariantImpl`）。**声明恒进计划**：`--plan`/`doctor` 的 `variants:` 段列出全部声明与增量，未命中也能审计「命中会加什么」；`Active` 按当前二进制实际的构建约束求值（与上面的 `build tags` 行同源，`-tags` 与 GOOS/GOARCH/release tag 一视同仁）。命中的变体把组件与补丁并入真实装配（节点来源 `variant:<name>`），不再产 `ambient`；`//go:build` 实现与声明在计划期对账（I12：实现多出、条件求值为假、组件名不对称都启动即失败）。路由挂载是闭包，仍由手写 `VariantImpl.WrapHTTP` 提供，同样受 I12 对账。`name` 重复/非法、`when` 与 `build_tags` 同时声明、`when` 非法表达式、`effects.components` 与全局组件重名在生成期（Gate1）拒绝。
 
 ### 3.3 只读边界
 
@@ -196,9 +196,9 @@ cache: .bald/plan-cache.json (baseline 2b7d19fc04ae, recorded 2026-10-28T18:34:5
     + greet POST /v1/greets -> Greet
 
 cache: .bald/plan-cache.json (baseline 7d1c2f9a0b3e, recorded 2026-10-30T06:00:00Z)
-  variants changed: 2                        # 变体声明与命中态（active）同样进装配判据
-    + grpcgw             active tags=grpcgw
-    ~ nacos              tags=nacos,config: tags
+  variants changed: 2                        # 变体声明、条件、增量与命中态（active）同样进装配判据
+    + grpcgw             active when=grpcgw
+    ~ nacos              declared when=nacos && config: when
 
 cache: .bald/plan-cache.json (baseline 9a0e51c3b7d4, recorded 2026-10-28T18:36:20Z)
   plan unchanged: nodes + imperative slots + routes + variants  # 装配声明没变，但诊断变了
@@ -209,7 +209,7 @@ cache: .bald/plan-cache.json (no baseline for role "worker")   # 该角色还没
 cache: .bald/plan-cache.json (unavailable: ...)                # 文件损坏/不可读
 ```
 
-`plan unchanged` 的判据是「**装配声明**未变」：节点 + 命令式槽位（`Plan.Imperative`）+ REST 路由清单（`Plan.Routes`）+ 构建变体声明（`Plan.Variants`）——报告行因此显式限定为 `plan unchanged: nodes + imperative slots + routes + variants`，不断言整份 `Plan.Hash` 相等（告警/段视图变化仍可能移动哈希，严格比对以报告顶部的 `plan:` 行或 CI 的计划哈希基线为准）。节点身份对比为空不等于计划没变——effect/keyWatch/reconcile 槽位不进节点拓扑，却会改变运行期行为，所以单列一组增删行，而不是谎报 `plan unchanged`；路由同理（`routes changed`，逐条给出增删，换一条 `Domain.RouteTable` 路径不会被「节点没变」掩盖）；变体同理（`variants changed`：声明增删、`tags` 改写、命中态 `active` 翻转都逐条列出——未命中的变体不产诊断，只有进装配判据才不会在对比里隐身；同一份 spec 换 `-tags` 重建会显示命中态变化，这是有意的口径）。节点属性（priority/phase/segments 等）变化同样移动装配哈希但不在身份对比里，doctor 报 `plan changed: node attributes (...)` 而不是假装能逐项列出（路由/变体已单列时不再冒用这一行）。诊断（`Plan.Warnings`，如 `ambient` 接线、覆盖裁决）单独列 `diagnostics changed`：它们不进节点/槽位/路由/变体判据，但基线对比照样逐条给出增删，不让 build tag 分叉在缓存里隐身。`InputHash` 与段视图仍各有独立报告面（`input changed` 行、`segments`）。
+`plan unchanged` 的判据是「**装配声明**未变」：节点 + 命令式槽位（`Plan.Imperative`）+ REST 路由清单（`Plan.Routes`）+ 构建变体声明（`Plan.Variants`）——报告行因此显式限定为 `plan unchanged: nodes + imperative slots + routes + variants`，不断言整份 `Plan.Hash` 相等（告警/段视图变化仍可能移动哈希，严格比对以报告顶部的 `plan:` 行或 CI 的计划哈希基线为准）。节点身份对比为空不等于计划没变——effect/keyWatch/reconcile 槽位不进节点拓扑，却会改变运行期行为，所以单列一组增删行，而不是谎报 `plan unchanged`；路由同理（`routes changed`，逐条给出增删，换一条 `Domain.RouteTable` 路径不会被「节点没变」掩盖）；变体同理（`variants changed`：声明增删、`when`/`effects`/`detail` 改写、命中态 `active` 翻转都逐条列出——未命中的变体不产诊断，只有进装配判据才不会在对比里隐身；同一份 spec 换 `-tags` 重建会显示命中态变化，这是有意的口径）。节点属性（priority/phase/segments 等）变化同样移动装配哈希但不在身份对比里，doctor 报 `plan changed: node attributes (...)` 而不是假装能逐项列出（路由/变体已单列时不再冒用这一行）。诊断（`Plan.Warnings`，如 `ambient` 接线、覆盖裁决）单独列 `diagnostics changed`：它们不进节点/槽位/路由/变体判据，但基线对比照样逐条给出增删，不让 build tag 分叉在缓存里隐身。`InputHash` 与段视图仍各有独立报告面（`input changed` 行、`segments`）。
 
 边界（诚实说明）：
 
