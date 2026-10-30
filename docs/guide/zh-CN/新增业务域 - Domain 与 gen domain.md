@@ -63,14 +63,19 @@ service GreetService {
 **文件二：域包 `<域>v1/<域>.go`（biz/model + 传输适配）**——域配置读取、能力构造、gRPC 与 REST 两面共用同一 biz（`greetv1/greet.go` 摘编）：
 
 ```go
-// 域配置段：从 Settings 快照读自己的 greet.* 子树（业务段只进 Settings、
-// 不进契约，与 L3 覆盖检查无交互）。
-func readOwnConfig(app *appkit.App) domainConfig { /* app.Settings()["greet"] */ }
+// 域配置段：从 Settings 快照的 biz.greet.* 子树读取（业务段只进 Settings、
+// 不进契约，与 L3 覆盖检查无交互）。顶层 biz: 是业务配置的统一命名空间，
+// 域用 biz.<域名> 路径把子树声明进可协调节点的期望态（设计 Q8）。
+func readOwnConfig(app *appkit.App) domainConfig { /* app.Settings()["biz"]["greet"] */ }
 
-// 域端口：Wire 构造并持有（能力策略住域，不住装配层）。
+// 域端口：biz 节点构造并持有（能力策略住域，不住装配层）。端口用原子指针
+// 整份交换——热更协调与请求读取并发，读方永远看到完整快照。
+var port atomic.Pointer[greeter]
+
+// wire 同时是 biz 节点的执行体与热更协调体：按新快照重建端口，幂等。
 func wire(_ context.Context, app *appkit.App) error {
     cfg := readOwnConfig(app)
-    port = &greeter{greeting: cfg.greeting}
+    port.Store(&greeter{greeting: cfg.greeting})
     return nil
 }
 
@@ -94,12 +99,15 @@ func registerRoutes(h http.Handler) error {
 
 ```go
 var Domain = appkit.Domain{
-    Name:     "greet",
-    Wire:     wire,
-    Routes:   registerRoutes,
-    Services: registerService,
+    Name:      "greet",
+    Declare:   declare,      // 声明节点：biz 挂 biz.greet + ReloadReconcile，routes 挂 server.http
+    ApplyNode: applyNode,    // 按计划序执行：biz 构造端口，routes 挂 REST 路由
+    Reconcile: reconcileNode,// 配置热更：biz 节点按新快照重建端口
+    Services:  registerService, // 延迟注册：server 构建时注册 gRPC service
 }
 ```
+
+声明里最关键的一条：`domain.greet.biz` 的 `Segments: []string{"biz.greet"}` + `Reload: appkit.ReloadReconcile`。计划期从合并 Settings 快照对该子树算期望态摘要，`biz.greet` 一变即按节点 Key 调 `Reconcile`——业务配置热更不再只有重启一条路。框架段（如 routes 的 `server.http`）与业务段（`biz.<path>`）可同时出现在一个域里。
 
 ## 3. 域声明值进装配：清单归生成器
 

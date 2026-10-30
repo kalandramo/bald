@@ -1,6 +1,6 @@
 // greet.go 是 greet 域的 biz/model + 传输适配（新增域 3 文件目标的第 2 个
 // 手写文件）：
-//   - 域配置段读取（Settings 快照 greet.* 子树）与能力构造（greeter）；
+//   - 域配置段读取（Settings 快照 biz.greet.* 子树）与能力构造（greeter）；
 //   - sayHello 业务函数（gRPC 面与 REST 面共用同一 biz）；
 //   - REST 路由（gin）与 gRPC service 实现；
 //   - 契约校验回调（第 1 层 proto 注解 + 第 2 层手写规则——校验规则是
@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync/atomic"
 
 	"buf.build/go/protovalidate"
 	"github.com/gin-gonic/gin"
@@ -31,7 +32,7 @@ import (
 // 域端口：Wire 按自己的配置段构造并持有（能力策略住域，不住装配层）
 // ---------------------------------------------------------------------------
 
-// greeter 是 greet 域的核心能力：问候语前缀由域配置段 greet.greeting 供给。
+// greeter 是 greet 域的核心能力：问候语前缀由域配置段 biz.greet.greeting 供给。
 type greeter struct {
 	greeting string
 }
@@ -45,29 +46,35 @@ func (g *greeter) Greet(name string) string {
 
 // port 是域端口（Wire 构造；引擎保证 Routes/Services 晚于 Wire 执行——
 // pkg/appkit 的 domain_test.go 时序窗口测试钉住）。
-var port *greeter
+//
+// 配置热更时 Reconcile 会重建端口，与请求路径的读取并发——用原子指针交换
+// 整份不可变 greeter，读方永远看到完整快照。
+var port atomic.Pointer[greeter]
 
 // currentGreeter 取域端口；Wire 未跑的直构路径（NewApp）回退缺省配置——
 // 域值自足，不因装配路径差异 panic。
 func currentGreeter() *greeter {
-	if port == nil {
-		return &greeter{greeting: "hello"}
+	if g := port.Load(); g != nil {
+		return g
 	}
-	return port
+	return &greeter{greeting: "hello"}
 }
 
-// domainConfig 是 greet 域自己的配置形状（从 Settings 快照的 greet.* 子树
-// 读取；业务段只进 Settings、不进契约，与 L3 覆盖检查无交互）。
+// domainConfig 是 greet 域自己的配置形状（从 Settings 快照的 biz.greet.*
+// 子树读取；业务段只进 Settings、不进契约，与 L3 覆盖检查无交互）。
 type domainConfig struct {
 	greeting string
 }
 
 // readOwnConfig 读域配置段：缺省 greeting="hello"（新增段缺省零回归）；
-// env 覆盖通道 BALD_DEMO_GREET_GREETING 由配置装载的 env 层
-// 展平供给。
+// env 覆盖通道 BALD_DEMO_BIZ_GREET_GREETING 由配置装载的 env 层展平供给。
 func readOwnConfig(app *appkit.App) domainConfig {
 	c := domainConfig{greeting: "hello"}
-	m, ok := app.Settings()["greet"].(map[string]any)
+	biz, ok := app.Settings()["biz"].(map[string]any)
+	if !ok {
+		return c
+	}
+	m, ok := biz["greet"].(map[string]any)
 	if !ok {
 		return c
 	}
@@ -80,9 +87,12 @@ func readOwnConfig(app *appkit.App) domainConfig {
 // wire 是 biz 节点（domain.greet.biz）的执行体：读自己的配置段 → 构造自己的
 // 能力 → 持有自己的端口。资源面此时已就绪（本域无资源依赖，恰作演示的最小
 // 接线）。
+//
+// 同一函数同时是热更协调体（Domain.Reconcile）：按新配置快照重建端口后原子
+// 交换，幂等——重复调用朝同一终态收敛。
 func wire(_ context.Context, app *appkit.App) error {
 	cfg := readOwnConfig(app)
-	port = &greeter{greeting: cfg.greeting}
+	port.Store(&greeter{greeting: cfg.greeting})
 	return nil
 }
 

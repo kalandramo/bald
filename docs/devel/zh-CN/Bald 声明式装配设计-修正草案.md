@@ -21,7 +21,7 @@
 
 同时给出 **L1–L5 声明式等级**，用于对外诚实表述与验收：草案撰写时 bald 是 **L1 + 部分 L2**，本设计目标是在 v0.26 达到 **L3**、v0.27 达到 **L4**、v0.28 达到 **L5**。
 
-> **实施状态（2026-10-30，M0–M5 + doctor + Domain v2 + biz 段收敛已落地）**：`Compile`/Plan IR、Provider v2、删除手工排序表、`Key[T]` 类型化资源、节点级 `ReloadPolicy` + `Drift`、生成清单与 `--check`/`--adopt`、`WithOpaqueBudget`、`bald doctor`、计划缓存 `WithPlanCache`（§4.9，按 `(Role, InputHash)` 记基线、doctor 只读对比）均已交付，`WithRole` 补齐角色进计划与 Provider 作用域的缺口、`WithAmbient` 把 build tag / `init()` 注入接线记为计划 `ambient` 警告（Q7 短期形态）；`Domain.Declare`/`Domain.ApplyNode`（§4.6）已落地，示例 greet 域与 bald-admin 全部 20 个域都已迁到该形态（计划期 Opaque 只剩 std server 构造节点），`Domain.Reconcile` 补齐声明的可协调节点（计划期校验 + 热更分发）。对外口径随之更新为「声明式装配（L1–L4 达成，L5 生成物维度达成）」，见 [装配计划与 doctor](../../guide/zh-CN/Bald%20装配计划与%20doctor.md) §5。**收敛范围**：`Opaque` 预算——示例为 **2**、bald-admin 为 **1**，均达标；L4 的收敛覆盖 Provider 节点（logger/audit 的 `ReloadReconcile`）与声明域节点（`Domain.Reconcile`，2026-10-29 落地：计划期校验 + Wire/ApplyNode 成功后落账 + 热更按 Key 调钩子），域节点可挂框架段或业务配置段 `biz.<path>`（Q8，2026-10-30：计划期从 Settings 快照算期望态摘要，热更按新快照协调）；database/cache/storage 等 Provider 段仍明确不支持热更（`ReloadRestart`）。消费侧诚实说明：bald-admin 的域目前尚未声明 `ReloadReconcile` 节点，能力已由框架测试钉住（`TestPlan_BizSegmentDesiredState`、`TestHotReload_ReconcilesBizSegment`）。
+> **实施状态（2026-10-30，M0–M5 + doctor + Domain v2 + biz 段收敛已落地）**：`Compile`/Plan IR、Provider v2、删除手工排序表、`Key[T]` 类型化资源、节点级 `ReloadPolicy` + `Drift`、生成清单与 `--check`/`--adopt`、`WithOpaqueBudget`、`bald doctor`、计划缓存 `WithPlanCache`（§4.9，按 `(Role, InputHash)` 记基线、doctor 只读对比）均已交付，`WithRole` 补齐角色进计划与 Provider 作用域的缺口、`WithAmbient` 把 build tag / `init()` 注入接线记为计划 `ambient` 警告（Q7 短期形态）；`Domain.Declare`/`Domain.ApplyNode`（§4.6）已落地，示例 greet 域与 bald-admin 全部 20 个域都已迁到该形态（计划期 Opaque 只剩 std server 构造节点），`Domain.Reconcile` 补齐声明的可协调节点（计划期校验 + 热更分发）。对外口径随之更新为「声明式装配（L1–L4 达成，L5 生成物维度达成）」，见 [装配计划与 doctor](../../guide/zh-CN/Bald%20装配计划与%20doctor.md) §5。**收敛范围**：`Opaque` 预算——示例为 **2**、bald-admin 为 **1**，均达标；L4 的收敛覆盖 Provider 节点（logger/audit 的 `ReloadReconcile`）与声明域节点（`Domain.Reconcile`，2026-10-29 落地：计划期校验 + Wire/ApplyNode 成功后落账 + 热更按 Key 调钩子），域节点可挂框架段或业务配置段 `biz.<path>`（Q8，2026-10-30：计划期从 Settings 快照算期望态摘要，热更按新快照协调）；database/cache/storage 等 Provider 段仍明确不支持热更（`ReloadRestart`）。消费侧：`_example/bald` 的 greet 域已用上（`domain.greet.biz` 挂 `biz.greet` + `ReloadReconcile`，配置改动即重建端口）；bald-admin 的域目前尚未声明 `ReloadReconcile` 节点。能力由框架测试钉住（`TestPlan_BizSegmentDesiredState`、`TestHotReload_ReconcilesBizSegment`）。
 
 ---
 
@@ -364,14 +364,17 @@ var Domain = appkit.Domain{
 	Name:      "greet",
 	Declare:   declare,
 	ApplyNode: applyNode,
+	Reconcile: reconcileNode,  // biz 节点按新快照重建端口（Q8）
 	Services:  registerService, // 延迟注册回调：server 构建时执行
 }
 
 func declare(_ context.Context, s appkit.PlanScope) ([]appkit.Node, error) {
 	nodes := []appkit.Node{{
 		Key:      "domain.greet.biz",
+		Segments: []string{"biz.greet"}, // 业务配置进期望态（Q8）
 		Phase:    appkit.PhaseWire,
 		Priority: 10,
+		Reload:   appkit.ReloadReconcile,
 	}}
 	if s.Decl.HTTPHandler != nil { // 网关让位时不声明路由节点
 		nodes = append(nodes, appkit.Node{
@@ -388,7 +391,7 @@ func declare(_ context.Context, s appkit.PlanScope) ([]appkit.Node, error) {
 func applyNode(ctx context.Context, app *appkit.App, node appkit.Node) error {
 	switch node.Key {
 	case "domain.greet.biz":
-		return wire(ctx, app) // 读 greet.* 配置 → 构造能力 → 持有端口
+		return wire(ctx, app) // 读 biz.greet.* 配置 → 构造能力 → 持有端口
 	case "domain.greet.routes":
 		return registerRoutes(app.HTTPHandler())
 	}

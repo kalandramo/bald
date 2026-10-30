@@ -361,9 +361,11 @@ addr := bootstrap.GetServer().GetHttp().GetAddr()   // proto getter，nil-safe
 变更流程：任一层 watch 触发 → 全量重合并 → 重建配置树 → 回调解分发。
 回调内应只做轻量操作（改状态、切引用、记日志），**不要**在回调里再触发配置重载或长时间阻塞。
 
-**哪些段支持热更新**：只有**配置装载本身**（`config` 源层、本地文件）与 `logger` 段支持。
-`logger` 走两阶段重建（启动默认 → 按契约重建）；`audit.backends` 支持运行期热切（走
-`mech.Reconcile` 期望态协调器，是唯一的能力段热更新）。
+**哪些段支持热更新**：**配置装载本身**（`config` 源层、本地文件）、`logger` 与
+`audit.backends` 段，以及**域声明的可协调节点**（含业务配置段）。`logger` 走两阶段重建
+（启动默认 → 按契约重建）；`audit.backends` 支持运行期热切（走 `mech.Reconcile` 期望态
+协调器）；域节点声明 `ReloadReconcile` 后，其段（框架路径或业务配置 `biz.<path>`）一变就
+按节点 Key 调 `Domain.Reconcile`（设计 Q8，`_example/bald` 的 greet 域即此形态）。
 
 **其余能力段都不支持**（`database` / `cache` / `registry` / `broker` / `storage` / `ai` /
 `workflow` / `tracer` / `metrics` / `script`）——这些段的 client 重建侵入性大，变更需重启生效。

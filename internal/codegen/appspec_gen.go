@@ -701,7 +701,7 @@ type Item struct {
 }
 
 // Items 是演示域的种子行（_example/bald greet 域的等效演示数据：三条问候
-// 配置——问候前缀可经域配置段 greet.greeting 覆盖，见 greetv1.wire）。
+// 配置——问候前缀可经域配置段 biz.greet.greeting 覆盖，见 greetv1.wire）。
 var Items = []Item{
 	{ID: "greet-001", Name: "bald", Greet: "hello"},
 	{ID: "greet-002", Name: "world", Greet: "hi"},
