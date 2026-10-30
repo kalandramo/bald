@@ -21,7 +21,7 @@
 
 同时给出 **L1–L5 声明式等级**，用于对外诚实表述与验收：草案撰写时 bald 是 **L1 + 部分 L2**，本设计目标是在 v0.26 达到 **L3**、v0.27 达到 **L4**、v0.28 达到 **L5**。
 
-> **实施状态（2026-10-30，M0–M5 + doctor + Domain v2 + biz 段收敛已落地）**：`Compile`/Plan IR、Provider v2、删除手工排序表、`Key[T]` 类型化资源、节点级 `ReloadPolicy` + `Drift`、生成清单与 `--check`/`--adopt`、`WithOpaqueBudget`、`bald doctor`、计划缓存 `WithPlanCache`（§4.9，按 `(Role, InputHash)` 记基线、doctor 只读对比）均已交付，`WithRole` 补齐角色进计划与 Provider 作用域的缺口、`WithAmbient` 把 build tag / `init()` 注入接线记为计划 `ambient` 警告（Q7 短期形态）；`Domain.Declare`/`Domain.ApplyNode`（§4.6）已落地，示例 greet 域与 bald-admin 全部 20 个域都已迁到该形态（计划期 Opaque 只剩 std server 构造节点与程序化 registry 接管节点；std logger/audit 由契约段派生期望态，2026-10-30 起不再计为逃逸舱），`Domain.Reconcile` 补齐声明的可协调节点（计划期校验 + 热更分发）。对外口径随之更新为「声明式装配（L1–L4 达成，L5 生成物维度达成）」，见 [装配计划与 doctor](../../guide/zh-CN/Bald%20装配计划与%20doctor.md) §5。**收敛范围**：`Opaque` 预算——示例为 **2**、bald-admin 为 **1**，均达标；L4 的收敛覆盖 Provider 节点（logger/audit 的 `ReloadReconcile`）与声明域节点（`Domain.Reconcile`，2026-10-29 落地：计划期校验 + Wire/ApplyNode 成功后落账 + 热更按 Key 调钩子），域节点可挂框架段或业务配置段 `biz.<path>`（Q8，2026-10-30：计划期从 Settings 快照算期望态摘要，热更按新快照协调）；database/cache/storage 等 Provider 段仍明确不支持热更（`ReloadRestart`）。消费侧：`_example/bald` 的 greet 域已用上（`domain.greet.biz` 挂 `biz.greet` + `ReloadReconcile`，配置改动即重建端口）；bald-admin 的 auth 域也已声明 `domain.auth.biz`（`biz.login`，登录防护三件整体快照替换，2026-10-30），其余域仍为静态节点。§6 的 Data/Imperative 分区已起步：`effect`/`keyWatch`/`reconcile` 命令式槽位、`BeforeStart`/`AfterStart`/`BeforeStop`/`AfterStop` 生命周期钩子（按声明序编号）、`WithExtraServerFunc` 服务器工厂、`WithHTTP`/`WithGatewayRegister`/`WithGRPC`/`WithGRPCOptions` 服务器能力面（`serverCapability`）、`OnConfigChange` 回调以及身份端口/显式审计 sink（`identity`/`auditor`）进入 `--plan`/`doctor` 的 `imperative` 段（闭包不隐身，2026-10-30）。能力由框架测试钉住（`TestPlan_BizSegmentDesiredState`、`TestHotReload_ReconcilesBizSegment`）。
+> **实施状态（2026-10-30，M0–M5 + doctor + Domain v2 + biz 段收敛已落地）**：`Compile`/Plan IR、Provider v2、删除手工排序表、`Key[T]` 类型化资源、节点级 `ReloadPolicy` + `Drift`、生成清单与 `--check`/`--adopt`、`WithOpaqueBudget`、`bald doctor`、计划缓存 `WithPlanCache`（§4.9，按 `(Role, InputHash)` 记基线、doctor 只读对比）均已交付，`WithRole` 补齐角色进计划与 Provider 作用域的缺口、`WithAmbient` 把 build tag / `init()` 注入接线记为计划 `ambient` 警告（Q7 短期形态）；`Domain.Declare`/`Domain.ApplyNode`（§4.6）已落地，示例 greet 域与 bald-admin 全部 20 个域都已迁到该形态（计划期 Opaque 只剩 std server 构造节点与程序化 registry 接管节点；std logger/audit 由契约段派生期望态，2026-10-30 起不再计为逃逸舱），`Domain.Reconcile` 补齐声明的可协调节点（计划期校验 + 热更分发）。对外口径随之更新为「声明式装配（L1–L4 达成，L5 生成物维度达成）」，见 [装配计划与 doctor](../../guide/zh-CN/Bald%20装配计划与%20doctor.md) §5。**收敛范围**：`Opaque` 预算——示例为 **2**、bald-admin 为 **1**，均达标；L4 的收敛覆盖 Provider 节点（logger/audit 的 `ReloadReconcile`）与声明域节点（`Domain.Reconcile`，2026-10-29 落地：计划期校验 + Wire/ApplyNode 成功后落账 + 热更按 Key 调钩子），域节点可挂框架段或业务配置段 `biz.<path>`（Q8，2026-10-30：计划期从 Settings 快照算期望态摘要，热更按新快照协调）；database/cache/storage 等 Provider 段仍明确不支持热更（`ReloadRestart`）。消费侧：`_example/bald` 的 greet 域已用上（`domain.greet.biz` 挂 `biz.greet` + `ReloadReconcile`，配置改动即重建端口）；bald-admin 的 auth 域也已声明 `domain.auth.biz`（`biz.login`，登录防护三件整体快照替换，2026-10-30），其余域仍为静态节点。§6 的 Data/Imperative 分区已起步：`effect`/`keyWatch`/`reconcile` 命令式槽位、`BeforeStart`/`AfterStart`/`BeforeStop`/`AfterStop` 生命周期钩子（按声明序编号）、`WithExtraServerFunc` 服务器工厂、`WithHTTP`/`WithGatewayRegister`/`WithGRPC`/`WithGRPCOptions` 服务器能力面（`serverCapability`）、`OnConfigChange` 回调以及身份端口/显式审计 sink（`identity`/`auditor`）进入 `--plan`/`doctor` 的 `imperative` 段（闭包不隐身，2026-10-30）；域声明的 REST 路由清单（`Domain.RouteTable`）进入 `Plan.Routes`——`--plan`/`doctor` 打印、参与计划哈希且置换不变，跨域同 `(方法, 路径)` 在计划期报错，手写 `Routes` 无清单给 `custom-routes` 警告（Q5 可见性面，2026-10-30；生成器接管绑定仍未做）。能力由框架测试钉住（`TestPlan_BizSegmentDesiredState`、`TestHotReload_ReconcilesBizSegment`、`TestPlan_DomainRoutesVisible`）。
 
 ---
 
@@ -195,6 +195,7 @@ type Plan struct {
 	InputHash string // 可检视输入的摘要（见 4.3 的 Describer）
 	Nodes     []Node
 	Segments  []SegmentUse
+	Routes    []Route     // 域声明的 REST 路由清单（Domain.RouteTable 汇总；Q5 可见性）
 	Warnings  []Diagnostic
 }
 
@@ -482,6 +483,8 @@ func Routes(h http.Handler) error {
 
 业务只实现生成的 interface（`GreetService`），路由与授权策略从 proto 派生。既有自定义路由保留 `--no-routes` 逃逸（计划中标记 `Opaque`）。
 
+> **实施状态（2026-10-30）**：只落了**可见性**这一半——`Domain.RouteTable []appkit.Route` 进 `Plan.Routes`（`--plan`/`doctor` 打印、参与计划哈希且置换不变），同一 `(方法, 路径)` 跨域在计划期报错，声明 `Routes` 闭包却无清单的域给 `custom-routes` 警告（手写路由不假装可分析）；示例 greet 域已声明自己的表。**生成器接管绑定未做**：`gen domain` 仍只产出字符串路由表与 `Mount` 委托，`--no-routes` 与「业务只实现生成的 interface」均未实现——handler 绑定（路径/查询/body → protojson、响应编码）与实现注册契约是下一步。
+
 ---
 
 ## 5. 语义不变量
@@ -603,7 +606,7 @@ bald doctor --config configs/bald-demo-api.yaml
 | Q2 | `Plan` 纯度如何强制？ | 首版契约 + canary 测试；不引入沙箱 |
 | Q3 | `Key[T]` 落 `pkg/appkit` 还是独立 module？ | 先 `pkg/appkit`，若出现循环再抽 `bald/resource` |
 | Q4 | 收敛首版覆盖哪些资源？ | logger/audit/组件；DB/cache/storage 仅 `ReloadRestart` |
-| Q5 | 路由是否由生成器接管？ | 是，默认生成；`--no-routes` 保留自定义 |
+| Q5 | 路由是否由生成器接管？ | 是，默认生成；`--no-routes` 保留自定义。**可见性已落**（2026-10-30）：`Domain.RouteTable` → `Plan.Routes`（`--plan`/`doctor` 可见、置换不变、跨域同路由计划期报错、手写 `Routes` 无清单给 `custom-routes` 警告）；**生成器接管绑定未做**（`--no-routes`/默认生成待实现）。可见性口径：清单一域自持 REST 面，非域路由不在其中 |
 | Q6 | `AppSpec` 快捷方式何时移除？ | v0.28；投影门已运行两个版本 |
 | Q7 | build tag 分叉如何进入声明？ | 短期计划中记录 `Ambient` 并警告——**已落**（`WithAmbient`，2026-10-29：示例 `-tags grpcgw`/`nacos` 经 `init()` 登记，`--plan`/`doctor` 出现 `ambient` 警告）；长期进 AppSpec `variants`（未做） |
 | Q8 | 域自有业务配置（`biz` 段）如何进入可协调节点的期望态？ | **已落**（2026-10-30，按草案实现）：`Node.Segments` 接受 `biz.<path>`，计划期从合并 Settings 快照按完整点路径取子树、JSON 确定性序列化算 `DesiredHash`（段缺失/有值可区分）；`Domain.Declare` 校验纳入 biz 段，`Domain.Reconcile` 在热更时按新快照协调。快照口径：`Compile`/`--plan` 为文件 + env，真实启动/热更为含 flag 的完整合并 |

@@ -93,6 +93,17 @@ type Domain struct {
 	// WithHTTP/WithGatewayRegister 的既有约定一致）。
 	Routes func(h http.Handler) error
 
+	// RouteTable 是 Routes/ApplyNode 实际挂载的 REST 路由清单（计划数据，
+	// 不参与执行）：域把「我挂了哪些路由」从闭包里的副作用变成可检视声明，
+	// 生成器可从 proto 的 google.api.http 注解派生，手写域自行维护。进
+	// Plan.Routes 与 --plan/doctor；同 (方法, 路径) 跨域冲突在计划期报错。
+	//
+	// 它是清单而不是实现：Routes 闭包没有 RouteTable 时计划列不出来，
+	// Compile 给 custom-routes 警告（Q5 的 --no-routes 逃逸）。声明了
+	// RouteTable 就必须有 HTTP 面（WithHTTP/WithGatewayRegister），否则
+	// 装配期 fail-fast——路由无处可挂。
+	RouteTable []Route
+
 	// Services gRPC service 注册：并入 server 构建的注册回调（业务注册在前、
 	// 域按声明序在后；调用点在迟后阶段 server 构建——彼时 Wire 已完成，域
 	// 端口就绪）。appkit.WithGRPC/WithGRPCOptions 声明的拦截器链照常生效。
@@ -170,6 +181,22 @@ func validateDomains(d *Decl, grpcPresent bool) error {
 		}
 		if dom.Services != nil && !grpcPresent {
 			return fmt.Errorf("appkit: domain %q declares Services but bootstrap.server.grpc is nil", dom.Name)
+		}
+		if len(dom.RouteTable) > 0 {
+			if d.HTTPHandler == nil && d.GatewayRegister == nil {
+				return fmt.Errorf("appkit: domain %q declares RouteTable but no HTTP face is declared "+
+					"(use appkit.WithHTTP or appkit.WithGatewayRegister)", dom.Name)
+			}
+			for i, r := range dom.RouteTable {
+				method := strings.ToUpper(strings.TrimSpace(r.Method))
+				if !httpRoutingMethods[method] {
+					return fmt.Errorf("appkit: domain %q route[%d]: unknown HTTP method %q", dom.Name, i, r.Method)
+				}
+				path := strings.TrimSpace(r.Path)
+				if path == "" || !strings.HasPrefix(path, "/") {
+					return fmt.Errorf("appkit: domain %q route[%d]: path %q must start with \"/\"", dom.Name, i, r.Path)
+				}
+			}
 		}
 	}
 	return nil

@@ -131,6 +131,17 @@ func writeDoctor(w io.Writer, p *Plan, tags []string, cache *planCacheBaseline, 
 			fmt.Fprintf(w, "    %s: %s\n", it.Kind, name)
 		}
 	}
+	if len(p.Routes) > 0 {
+		// 路由清单来自域声明（Domain.RouteTable），按计划序打印。
+		fmt.Fprintf(w, "  routes: %d\n", len(p.Routes))
+		for _, r := range p.Routes {
+			rpc := ""
+			if r.RPC != "" {
+				rpc = " -> " + r.RPC
+			}
+			fmt.Fprintf(w, "    %s %-6s %s%s\n", r.Domain, r.Method, r.Path, rpc)
+		}
+	}
 	domains.write(w)
 
 	// 段：未消费、白名单、框架自持、有消费者的段各自成组。

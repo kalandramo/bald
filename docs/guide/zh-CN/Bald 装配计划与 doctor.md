@@ -51,6 +51,8 @@ nodes:
                                                segments=server.http
                                                dependsOn=domain.greet.biz
 opaque: 2 node(s)
+routes:
+  greet        POST    /v1/greet -> Greet
 segments:
   server.http          consumers=domain.greet.routes,server
 warnings:
@@ -63,6 +65,7 @@ plan hash: 162e34f4...
 - **`phase`**：`configure` → `bootstrap` → `wire` → `serve` → `drain` → `teardown`。跨相位不接受 `DependsOn` 反向边（编译期报错），停机按 `TeardownAfter` 逆序。
 - **`opaque`**：该节点没有声明式依赖拓扑，按 legacy 顺序执行。域在声明 `Domain.Declare` 之前整块是 Opaque；只声明拓扑、构造仍归 `Wire`/`Routes`/`Services` 时塌缩成一个 `domain.<name>.wire` Opaque 节点；迁到 `Domain.ApplyNode`（按计划序逐节点执行）后不再产生兼容节点，域贡献的逃逸舱归零（设计 §4.6）。std 三节点里，logger/audit 的期望态完全由契约段派生（`reload=reconcile` + `DesiredHash`），不是逃逸舱；**server 保持 Opaque**——server 段只给地址/TLS/driver，真正装进去的路由与 service 由 `WithHTTP`/`WithGRPC` 回调注册，计划看不见。
 - **`segments=`**：节点读取的契约段路径；`segments:` 汇总里 `consumers=` 为空且未白名单的段会在启动期报错。声明域节点既可挂框架段（`server.http` 这类 `BootstrapConfig` 字段路径），也可挂业务配置段 `biz.<path>`——后者把域自有配置带进 `reload=reconcile` 节点的期望态（计划期从合并 Settings 快照取子树算摘要，配置变更即触发 `Domain.Reconcile`）。`biz.<path>` 同样出现在 `segments:` 汇总（标注消费者），但不参与契约段覆盖检查。
+- **`routes:`**：域自持 REST 面的路由清单（`Domain.RouteTable` 声明，生成器可从 proto 的 `google.api.http` 注解派生，手写域自行维护）。方法归一化为大写、路径须以 `/` 开头；同一 `(方法, 路径)` 被两个域声明在**计划期**报错，不用等 gin 启动期 panic。声明了 `Routes` 闭包却未提供清单的域给 `custom-routes` 警告——手写路由计划看不见，这是诚实缺省（Q5 的 `--no-routes` 逃逸）。清单范围是域自持 REST 面：示例 `internal/apiserver` 里非域的路由不在其中。
 - **`reload=`**：节点级重载策略，决定配置热更时协调还是重报。`reconcile` 节点必须有人能重建它的实际态：Provider 节点由同一 Provider 重跑 `Build`，域声明节点由 `Domain.Reconcile` 承担——声明了 `ReloadReconcile` 却没给钩子（或没给 `Wire`/`ApplyNode`、没声明段）的域在计划期直接报错；Provider 也只有 bootstrap 阶段的节点注册了协调器（logger 走专用热更协议），config/server 段节点声明 `reconcile` 同样计划期报错，不留「永远 Stale」的假节点（见 [机制层 mech](./机制层%20mech%20-%20Effect%20与期望态.md)）。
 - **`imperative:`**：不参与拓扑的命令式槽位（`effect` / `keyWatch` / `reconcile` 来自 `mech.*` 声明；`hook` 是 `BeforeStart`/`AfterStart`/`BeforeStop`/`AfterStop` 生命周期钩子，按声明序编号；`serverFunc` 是 `WithExtraServerFunc` 的运行期服务器工厂；`serverCapability` 是 `WithHTTP`/`WithGatewayRegister`/`WithGRPC`/`WithGRPCOptions` 声明的服务器能力面——注册内容不可见，但「开了哪一面」可见；`onConfigChange` 是热更全量回调；`identity`/`auditor` 是身份端口与显式注入的审计 sink——行为不可分析，但换掉它们会改变审计事件的身份与落点）。闭包不可排序、不可分析，但计划不隐藏它们——配置热更订阅者、停机效果、生命周期钩子与服务器能力面在 `--plan` 与 `doctor` 里都有名可查（设计 §6 的 Data/Imperative 分区落点）：
 
@@ -116,6 +119,8 @@ nodes: 7 (opaque 2)
   phase wire       1
   opaque: registry, server
   override: registry (programmatic takeover)
+  routes: 1
+    greet POST   /v1/greet -> Greet
 
 domains: 1 (declared 1, legacy 0)
   declared: greet
@@ -139,6 +144,7 @@ gen: run `bald gen app --check` and `bald gen domain --check` in the generated t
 | `opaque: ...` | 逃逸舱逐个列名——白盒化 legacy 部分；`WithOpaqueBudget(n)` 超预算时在 `warnings` 出现 `opaque-budget` |
 | `domains` | 业务域迁移进度：`declared` = 用 `Domain.Declare` 声明拓扑的域，`legacy` = 整块 Opaque 的域（设计 §4.6 的量化口径） |
 | `override: key (reason)` | 显式覆盖的节点与其理由 |
+| `routes: N` | 域声明的 REST 路由清单（`Domain.RouteTable`）；没有声明路由时不打印 |
 | `imperative` | 命令式槽位清单（`effect` / `keyWatch` / `reconcile` / `hook` / `serverFunc` / `serverCapability` / `onConfigChange` / `identity` / `auditor`）——与 `--plan` 同源，闭包不隐身 |
 | `segments` 分组 | `consumed` 有消费者；`whitelisted` 经 `WithUnimplementedSegments` 豁免；`framework` 框架无条件消费；`unconsumed` 非空即启动失败 |
 | `build tags` | 构建期 `-tags`（`debug.ReadBuildInfo` 读取），用于解释 build tag 分叉 |
@@ -221,7 +227,7 @@ CI 可组合成「计划 hash 基线 + 生成物零 drift」：`--plan --plan-fo
 | **L4** 收敛运行 | 声明资源可协调，漂移可观测 | 达成 | 节点级 `ReloadPolicy` + `App.Drift` + `Reconcile`；Provider 节点与声明域节点（`Domain.Reconcile`）可协调，声明域节点的段可挂框架路径或 `biz.<path>` 业务配置（设计 Q8，2026-10-30）；database/cache/storage 段仍明确不支持热更（`ReloadRestart`） |
 | **L5** 纯函数生成 | 生成物是 `(AppSpec, proto)` 的函数，可 `--check` | 达成（生成物维度） | 双跑字节一致 + 清单 `--check` 零写入；运行期装配仍是 L3/L4 组合 |
 
-缺口以 `OpaqueCount` 与 `doctor` 的 `opaque:` 清单量化：数字越小，搬进声明式拓扑的部分越多。
+缺口以 `OpaqueCount` 与 `doctor` 的 `opaque:` 清单量化：数字越小，搬进声明式拓扑的部分越多。生成器侧另有一个明确缺口：REST 路由**清单**已进计划（`Plan.Routes`），但 handler 绑定与 `--no-routes`/默认生成尚未由 `gen domain` 接管（设计 Q5，2026-10-30 状态）。
 
 ## 7. 常见问题
 

@@ -38,6 +38,12 @@ var Domain = appkit.Domain{
 	ApplyNode: applyNode,
 	Reconcile: reconcileNode,
 	Services:  registerService,
+	// RouteTable 是域自持 REST 面实际挂载的路由（可检视的计划数据）。原生
+	// gin 面只挂 POST /v1/greet（GET /v1/greet/{name} 走 grpc-gateway 转码，
+	// 由 proto 注解提供，不在此表）；见 registerRoutes。
+	RouteTable: []appkit.Route{
+		{Method: "POST", Path: "/v1/greet", RPC: "Greet"},
+	},
 }
 
 // declare 声明域的拓扑：biz 节点恒有；HTTP 面存在（业务 handler 非网关让位）

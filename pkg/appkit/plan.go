@@ -183,6 +183,26 @@ type SegmentUse struct {
 	Framework bool `json:"framework,omitempty"`
 }
 
+// Route 是一条域自持 REST 路由的声明（域名 + 方法 + 路径 + 可选 RPC 名）。
+//
+// 它是计划可检视的路由清单，不是路由的实现：域在 Domain.RouteTable 里声明
+// 自己实际挂载的路由（生成器可从 proto 的 google.api.http 注解派生），
+// Compile 汇总进 Plan.Routes。方法归一化为大写，路径须以 "/" 开头；
+// 同一 (方法, 路径) 被两个域声明是编译错误——路由冲突在计划期暴露，而不是
+// 等 gin 在启动期 panic。
+type Route struct {
+	Domain string `json:"domain"`
+	Method string `json:"method"`
+	Path   string `json:"path"`
+	RPC    string `json:"rpc,omitempty"`
+}
+
+// httpRoutingMethods 是计划期接受的路由方法（typo 在计划期报错）。
+var httpRoutingMethods = map[string]bool{
+	"GET": true, "POST": true, "PUT": true, "PATCH": true,
+	"DELETE": true, "HEAD": true, "OPTIONS": true,
+}
+
 // AppMeta 是计划中的应用元数据（与装配期 kitOpts 的取值一致）。
 type AppMeta struct {
 	ID      string `json:"id,omitempty"`
@@ -212,6 +232,11 @@ type Plan struct {
 	// OpaqueCount 是 Opaque 节点数（逃逸舱预算的计量口径；预算见 WithOpaqueBudget）。
 	OpaqueCount int          `json:"opaqueCount"`
 	Segments    []SegmentUse `json:"segments"`
+	// Routes 是域声明的 REST 路由清单（Domain.RouteTable 汇总；按
+	// (Domain, Path, Method, RPC) 排序，保证置换不变性）。它是清单而非实现：
+	// 手写 Routes 闭包没有 RouteTable 时计划列不出来，Compile 给
+	// custom-routes 警告。
+	Routes []Route `json:"routes,omitempty"`
 	// Imperative 是命令式槽位清单（effect/keyWatch/reconcile/hook/serverFunc/
 	// serverCapability/onConfigChange/identity/auditor；按 (Kind,Name) 排序，
 	// 保证置换不变性）。
@@ -381,6 +406,17 @@ func planFrom(ctx context.Context, d *Decl, cfg *bootstrapv1.BootstrapConfig, se
 			})
 		}
 	}
+
+	// REST 路由清单：域声明的 RouteTable 汇总进计划（Q5 的可见性面——路由
+	// 从闭包里的副作用变成可检视数据）；手写 Routes 闭包没有清单时给
+	// custom-routes 警告，不假装计划能看见它。同 (方法, 路径) 跨域冲突在此
+	// 报错——比 gin 启动期 panic 早一步。
+	routes, routeWarnings, err := collectDomainRoutes(d)
+	if err != nil {
+		return nil, err
+	}
+	p.Routes = routes
+	p.Warnings = append(p.Warnings, routeWarnings...)
 
 	// 进程内组件：BeforeStart 链之后、servers Start 之前顺序启动（component.go）。
 	for _, c := range d.Components {
@@ -700,6 +736,57 @@ func opaqueBudgetWarnings(budget int, nodes []Node) []Diagnostic {
 		Subject: "opaque",
 		Message: fmt.Sprintf("%d opaque node(s) exceed the budget %d: %s", len(keys), budget, strings.Join(keys, ", ")),
 	}}
+}
+
+// collectDomainRoutes 汇总域的 RouteTable 为计划路由清单：
+//   - 方法归一化为大写、路径原样（校验在 validateDomains：方法白名单、以 "/"
+//     开头、非空）；
+//   - 同一 (方法, 路径) 被两个域声明即冲突——两个域都想挂同一路由，运行期
+//     必然踩踏（gin panic 或静默覆盖），在计划期报错并点名双方；
+//   - 声明了 Routes 闭包却没有 RouteTable 的域给 custom-routes 警告：
+//     手写路由计划看不见，这是诚实缺省，不是错误（Q5 的 --no-routes 逃逸）。
+func collectDomainRoutes(d *Decl) ([]Route, []Diagnostic, error) {
+	var (
+		out   []Route
+		warns []Diagnostic
+	)
+	owner := map[string]string{} // "METHOD path" -> domain
+	for _, dom := range d.Domains {
+		if len(dom.RouteTable) == 0 {
+			if dom.Routes != nil {
+				warns = append(warns, Diagnostic{
+					Level:   DiagWarn,
+					Code:    "custom-routes",
+					Subject: dom.Name,
+					Message: "domain registers REST routes through a closure with no RouteTable; the plan cannot list them",
+				})
+			}
+			continue
+		}
+		for _, r := range dom.RouteTable {
+			method := strings.ToUpper(strings.TrimSpace(r.Method))
+			path := strings.TrimSpace(r.Path)
+			key := method + " " + path
+			if prev, ok := owner[key]; ok {
+				return nil, nil, fmt.Errorf("appkit: REST route %s %s is declared by both domain %q and %q", method, path, prev, dom.Name)
+			}
+			owner[key] = dom.Name
+			out = append(out, Route{Domain: dom.Name, Method: method, Path: path, RPC: r.RPC})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Domain != out[j].Domain {
+			return out[i].Domain < out[j].Domain
+		}
+		if out[i].Path != out[j].Path {
+			return out[i].Path < out[j].Path
+		}
+		if out[i].Method != out[j].Method {
+			return out[i].Method < out[j].Method
+		}
+		return out[i].RPC < out[j].RPC
+	})
+	return out, warns, nil
 }
 
 // sortAndDedupWarnings 让警告集合与声明序无关（I2 的哈希稳定性）。
@@ -1068,6 +1155,17 @@ func (p *Plan) Explain(w io.Writer) {
 	tw.Flush()
 
 	fmt.Fprintf(w, "opaque: %d node(s)\n", p.OpaqueCount)
+
+	if len(p.Routes) > 0 {
+		fmt.Fprintln(w, "routes:")
+		for _, r := range p.Routes {
+			rpc := ""
+			if r.RPC != "" {
+				rpc = " -> " + r.RPC
+			}
+			fmt.Fprintf(w, "  %-12s %-7s %s%s\n", r.Domain, r.Method, r.Path, rpc)
+		}
+	}
 
 	fmt.Fprintln(w, "segments:")
 	for _, s := range p.Segments {
