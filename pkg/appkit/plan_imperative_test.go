@@ -9,6 +9,7 @@ import (
 
 	"google.golang.org/grpc"
 
+	"github.com/kalandramo/bald/pkg/audit"
 	"github.com/kalandramo/bald/transport"
 )
 
@@ -90,6 +91,33 @@ func TestPlan_ServerCapabilitiesVisible(t *testing.T) {
 		"serverCapability gateway", "serverCapability grpc",
 		"serverCapability grpcOptions", "serverCapability http",
 	} {
+		if !strings.Contains(out.String(), line) {
+			t.Errorf("plan output missing %q:\n%s", line, out.String())
+		}
+	}
+}
+
+// TestPlan_IdentityAndAuditorVisible 钉住行为值槽位的可见化：Identity 与
+// 显式注入的 Auditor 都是宣布在代码里的行为，计划分析不了它们做什么，但
+// 换掉它们会改变审计事件的身份与落点——必须能在计划与跨版本 diff 里看见。
+func TestPlan_IdentityAndAuditorVisible(t *testing.T) {
+	p, err := Compile(context.Background(),
+		ConfigFile(writePlanConfig(t, "identity-auditor", "")),
+		Identity(func(context.Context) (string, string) { return "u1", "t1" }),
+		auditorOpt(audit.NewLoggerAuditor()),
+	)
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+
+	want := []Imperative{{Kind: "auditor"}, {Kind: "identity"}}
+	if !reflect.DeepEqual(p.Imperative, want) {
+		t.Fatalf("imperative = %+v, want %+v", p.Imperative, want)
+	}
+
+	var out strings.Builder
+	p.Explain(&out)
+	for _, line := range []string{"auditor      -", "identity     -"} {
 		if !strings.Contains(out.String(), line) {
 			t.Errorf("plan output missing %q:\n%s", line, out.String())
 		}

@@ -213,7 +213,8 @@ type Plan struct {
 	OpaqueCount int          `json:"opaqueCount"`
 	Segments    []SegmentUse `json:"segments"`
 	// Imperative 是命令式槽位清单（effect/keyWatch/reconcile/hook/serverFunc/
-	// serverCapability/onConfigChange；按 (Kind,Name) 排序，保证置换不变性）。
+	// serverCapability/onConfigChange/identity/auditor；按 (Kind,Name) 排序，
+	// 保证置换不变性）。
 	Imperative []Imperative `json:"imperative,omitempty"`
 	Warnings   []Diagnostic `json:"warnings,omitempty"`
 }
@@ -449,6 +450,15 @@ func planFrom(ctx context.Context, d *Decl, cfg *bootstrapv1.BootstrapConfig, se
 	}
 	if d.OnConfigChange != nil {
 		p.Imperative = append(p.Imperative, Imperative{Kind: "onConfigChange"})
+	}
+	// 身份端口与审计 sink 是行为值（函数/接口）：计划分析不了它们做什么，
+	// 但换掉它们会改变审计事件的 subject/tenant 与落点——必须能在计划
+	// 与跨版本 diff 里看见。
+	if d.Identity != nil {
+		p.Imperative = append(p.Imperative, Imperative{Kind: "identity"})
+	}
+	if d.Auditor != nil {
+		p.Imperative = append(p.Imperative, Imperative{Kind: "auditor"})
 	}
 	sort.Slice(p.Imperative, func(i, j int) bool {
 		if p.Imperative[i].Kind != p.Imperative[j].Kind {
