@@ -31,6 +31,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -54,6 +55,10 @@ type protoMethod struct {
 	Response  string     // 响应消息类型（同上）
 	Streaming bool       // 任一方向流式（proto 的 stream 关键字）
 	Rules     []httpRule // 全部 google.api.http 规则：主规则在前，additional_bindings 依次追加
+	// Unsupported 是注解里出现、但 --rest-bind 未实现的字段（custom 动词、
+	// response_body），去重后按字母序。生成期据此报错，避免生成的 REST 面
+	// 与注解契约静默不一致。
+	Unsupported []string
 }
 
 // httpRule 是一条 google.api.http 映射（主规则或 additional_bindings 条目）。
@@ -101,7 +106,40 @@ var (
 	reProtoPathVar = regexp.MustCompile(`\{([A-Za-z_][A-Za-z0-9_.]*)(=[^}]*)?\}`)
 	// reGinParam 归一化 gin 路由里的变量名（:name → :），用于冲突 shape 判定。
 	reGinParam = regexp.MustCompile(`:[A-Za-z0-9_]+`)
+	// reProtoHTTPUnsupported 匹配 --rest-bind 未实现的注解字段（custom 动词、
+	// response_body）。静默忽略会让生成的 REST 面与注解契约不一致，故扫描时
+	// 记录、生成期报错。
+	reProtoHTTPUnsupported = regexp.MustCompile(`\b(custom|response_body)\s*[:=]`)
+	// reProtoHTTPDotField 匹配点式注解的字段名：(google.api.http).<field>。
+	// 只用于补采未实现字段（custom / response_body），动词由 reProtoHTTPDot 处理。
+	reProtoHTTPDotField = regexp.MustCompile(`\(google\.api\.http\)\.([A-Za-z_][A-Za-z0-9_]*)`)
 )
+
+// unsupportedAnnotationFields 返回注解块里 --rest-bind 未实现的字段名（去重
+// 按字母序），供 bindViewOf 生成期报错。匹配须带 ":" 或 "="，因此
+// `body: "custom"` 这类字符串取值不会误判。
+func unsupportedAnnotationFields(text string) []string {
+	var out []string
+	for _, m := range reProtoHTTPUnsupported.FindAllStringSubmatch(text, -1) {
+		out = append(out, m[1])
+	}
+	return dedupeSorted(out)
+}
+
+// dedupeSorted 原地去重并排序；空输入返回 nil（生成视图里不出现空列表）。
+func dedupeSorted(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	sort.Strings(in)
+	out := in[:1]
+	for _, s := range in[1:] {
+		if s != out[len(out)-1] {
+			out = append(out, s)
+		}
+	}
+	return out
+}
 
 // scanProto 正则扫描单个 proto 源码（gen domain 需要 package / go_package /
 // service / rpc（含请求响应类型）/ google.api.http 注解；正则口径对生成器与
@@ -141,6 +179,7 @@ func scanProto(relPath string, src []byte) (*protoFile, error) {
 							m.Rules = rules
 							m.Verb, m.Path, m.Body = rules[0].Verb, rules[0].Path, rules[0].Body
 						}
+						m.Unsupported = unsupportedAnnotationFields(body)
 					}
 				}
 			}
@@ -151,6 +190,15 @@ func scanProto(relPath string, src []byte) (*protoFile, error) {
 					m.Rules = []httpRule{{Verb: mm[2], Path: mm[3]}}
 				}
 			}
+			// 点式注解未实现字段：option (google.api.http).custom… /
+			// .response_body = "…"。与 braced 形态合并去重（两态不并存，
+			// 合并只为让口径与顺序无关）。
+			for _, mm := range reProtoHTTPDotField.FindAllStringSubmatch(seg, -1) {
+				if mm[1] == "custom" || mm[1] == "response_body" {
+					m.Unsupported = append(m.Unsupported, mm[1])
+				}
+			}
+			m.Unsupported = dedupeSorted(m.Unsupported)
 			svc.Methods = append(svc.Methods, m)
 		}
 		f.Services = append(f.Services, svc)
@@ -590,6 +638,12 @@ func bindViewOf(name string, d *appspecv1.DomainSpec, svc protoService) (*bindVi
 	seenRPC := map[string]bool{}
 	seenRoute := map[string]string{}
 	for _, m := range svc.Methods {
+		if len(m.Unsupported) > 0 {
+			// 未实现的注解字段若被静默跳过，REST 面就与注解契约不一致
+			// （custom 动词整条丢弃、response_body 仍回整个消息）。宁可生成期
+			// 失败，让作者显式手写这条路由或改用已实现形态。
+			return nil, fmt.Errorf("domain %q: rpc %s carries google.api.http field(s) %s that --rest-bind does not implement (custom verbs and response_body would silently diverge from the annotation; hand-write this route instead)", d.GetName(), m.Name, strings.Join(m.Unsupported, ", "))
+		}
 		rules := methodRules(m)
 		if len(rules) == 0 {
 			continue
@@ -1148,7 +1202,7 @@ import 其 go_package），消费者 module 依赖 bald/transport/web。默认�
 	cmd.Flags().StringVar(&o.APIServerDir, "apiserver-dir", "", "apiserver 目录名（默认 layout.apiserver_dir 否则 apiserver；传 - 跳过 apiserver 侧产物）")
 	cmd.Flags().BoolVar(&o.Adopt, "adopt", false, "覆盖已存在的 owned 文件并更新清单（默认拒绝）")
 	cmd.Flags().BoolVar(&o.Check, "check", false, "只校验生成物与清单是否与声明一致（零写入，有差异即失败）")
-	cmd.Flags().BoolVar(&o.RESTBind, "rest-bind", false, "从 google.api.http 注解生成 gin 路由与服务接口（需 proto Go 类型已 buf generate）")
+	cmd.Flags().BoolVar(&o.RESTBind, "rest-bind", false, "从 google.api.http 注解生成 gin 路由与服务接口（需 proto Go 类型已 buf generate；custom 动词与 response_body 未实现，生成期报错）")
 	_ = cmd.MarkFlagFilename("spec", ".json")
 	cmd.SetErr(streams.ErrOut)
 	return cmd

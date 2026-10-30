@@ -675,3 +675,94 @@ func TestBindViewOf_StreamingRejected(t *testing.T) {
 		t.Fatalf("err = %v, want streaming rejection", err)
 	}
 }
+
+// TestScanProto_UnsupportedAnnotationFields 只把「注解字段名」记为未实现
+// （custom / response_body），字符串取值（body: "custom"）不算；点式与
+// braced 两种写法都采集到，且去重排序。
+func TestScanProto_UnsupportedAnnotationFields(t *testing.T) {
+	src := `syntax = "proto3";
+
+package greet.v1;
+
+option go_package = "demo.example/app/api/gen/go/greet/v1;greetv1";
+
+service GreetService {
+  rpc Get(GetRequest) returns (GetResponse) {
+    option (google.api.http) = {
+      get: "/v1/greets/{name}"
+      response_body: "greet"
+    };
+  }
+
+  rpc Frob(FrobRequest) returns (FrobResponse) {
+    option (google.api.http) = {
+      post: "/v1/frobs"
+      body: "custom"
+    };
+  }
+
+  rpc Custom(CustomRequest) returns (CustomResponse) {
+    option (google.api.http).custom.kind = "greet.v1.GreetService.Custom";
+    option (google.api.http).custom.path = "/v1/custom";
+  }
+}
+`
+	f, err := scanProto("greet.proto", []byte(src))
+	if err != nil {
+		t.Fatalf("scanProto: %v", err)
+	}
+	byName := map[string]protoMethod{}
+	for _, m := range f.Services[0].Methods {
+		byName[m.Name] = m
+	}
+	if got := strings.Join(byName["Get"].Unsupported, ","); got != "response_body" {
+		t.Fatalf("Get unsupported = %q, want response_body", got)
+	}
+	if got := strings.Join(byName["Frob"].Unsupported, ","); got != "" {
+		t.Fatalf("Frob unsupported = %q, body string value must not be flagged", got)
+	}
+	custom := byName["Custom"]
+	if got := strings.Join(custom.Unsupported, ","); got != "custom" {
+		t.Fatalf("Custom unsupported = %q, want custom (deduped)", got)
+	}
+	if custom.Verb != "" {
+		t.Fatalf("Custom verb = %q, dotted custom annotation must not yield a REST verb", custom.Verb)
+	}
+}
+
+// TestBindViewOf_RejectsUnsupportedAnnotationFields 未实现的注解字段必须
+// 生成期报错：静默跳过会让 REST 面与注解契约不一致。
+func TestBindViewOf_RejectsUnsupportedAnnotationFields(t *testing.T) {
+	svc := protoService{
+		Package: "greet.v1", Name: "GreetService", GoPackage: "demo.example/app/gen;gen",
+		Methods: []protoMethod{
+			{
+				Name: "Get", Request: "GetRequest", Response: "GetResponse",
+				Verb: "get", Path: "/v1/greets/{name}",
+				Rules:       []httpRule{{Verb: "get", Path: "/v1/greets/{name}"}},
+				Unsupported: []string{"response_body"},
+			},
+			{
+				// custom 动词没有可识别 verb：若只按 rules 为空跳过，这条注释
+				// 会消失得无声无息。
+				Name: "Custom", Request: "CustomRequest", Response: "CustomResponse",
+				Unsupported: []string{"custom"},
+			},
+		},
+	}
+	d := &appspecv1.DomainSpec{Name: "greet", Service: "greet.v1.GreetService"}
+	_, err := bindViewOf("Greet", d, svc)
+	if err == nil || !strings.Contains(err.Error(), "response_body") {
+		t.Fatalf("err = %v, want rejection naming response_body", err)
+	}
+	if !strings.Contains(err.Error(), "does not implement") {
+		t.Fatalf("err = %v, want fail-loud wording", err)
+	}
+
+	// custom-only 的 service：没有任何可识别路由，也必须报错而不是返回 nil。
+	only := svc
+	only.Methods = svc.Methods[1:]
+	if _, err := bindViewOf("Greet", d, only); err == nil || !strings.Contains(err.Error(), "custom") {
+		t.Fatalf("err = %v, want rejection naming custom", err)
+	}
+}
