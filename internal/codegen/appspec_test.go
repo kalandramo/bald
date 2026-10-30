@@ -653,6 +653,42 @@ func TestGenApp_VariantsProjectedToAmbient(t *testing.T) {
 	}
 }
 
+// TestGenApp_VariantsPrunedWhenUndeclared 声明移除后旧产物必须退场：变体
+// 列表清空（或整个 variants 字段消失）时，--adopt 要删掉上一轮的
+// variants.gen.go，assemble.gen.go 也不再引用 variantOptions——owned 文件
+// 的归属由当前声明重算，不认历史写入者。
+func TestGenApp_VariantsPrunedWhenUndeclared(t *testing.T) {
+	dir := t.TempDir()
+	scaffoldModule(t, dir, "demo.example/app")
+	specPath := writeSpecJSON(t, dir, variantFixture(guardFixture()))
+	t.Chdir(dir)
+	gen := func() {
+		cmd := genAppCmd(NewDefaultIOStreams())
+		cmd.SetArgs([]string{"--spec", specPath, "--adopt"})
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("gen app: %v", err)
+		}
+	}
+	variantsPath := filepath.Join(dir, "internal", "bootstrap", "variants.gen.go")
+	gen()
+	if _, err := os.Stat(variantsPath); err != nil {
+		t.Fatalf("declared variants must emit variants.gen.go: %v", err)
+	}
+
+	writeSpecJSON(t, dir, guardFixture())
+	gen()
+	if _, err := os.Stat(variantsPath); !os.IsNotExist(err) {
+		t.Errorf("dropping AppSpec.variants must prune the stale owned file: %v", err)
+	}
+	assemble, err := os.ReadFile(filepath.Join(dir, "internal", "bootstrap", "assemble.gen.go"))
+	if err != nil {
+		t.Fatalf("read assemble.gen.go: %v", err)
+	}
+	if strings.Contains(string(assemble), "variantOptions") {
+		t.Errorf("assemble.gen.go must drop the call after variants are undeclared:\n%s", assemble)
+	}
+}
+
 // TestTree_VariantsProjectedAtRuntime 运行期口径：同一份生成树，带 -tags
 // 构建的二进制在 doctor 里出现 variant:<name>，不带 tag 的构建不出现——
 // 命中的唯一依据是这个二进制实际怎么编的，不是生成期猜的 tag 组合。
