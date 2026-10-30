@@ -54,6 +54,16 @@ func TestPlan_BizSegmentDesiredState(t *testing.T) {
 	if na.Reload != ReloadReconcile || na.DesiredHash == "" {
 		t.Fatalf("biz reconcile node = %+v, want reconcile with desired hash", na)
 	}
+	// biz 段同样进段汇总（有消费者）——segments 视图不得对 Q8 节点说谎。
+	var bizSeg *SegmentUse
+	for i := range pa.Segments {
+		if pa.Segments[i].Path == "biz.audit" {
+			bizSeg = &pa.Segments[i]
+		}
+	}
+	if bizSeg == nil || len(bizSeg.Consumers) != 1 || bizSeg.Consumers[0] != key {
+		t.Fatalf("biz segment not visible in plan segments: %+v", pa.Segments)
+	}
 
 	// 同一快照双跑：摘要与计划哈希都稳定（I2）。
 	pb := compile(t, "biz:\n  audit:\n    policy: \"a\"\n")

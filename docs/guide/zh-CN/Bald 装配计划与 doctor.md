@@ -62,7 +62,7 @@ plan hash: 162e34f4...
 
 - **`phase`**：`configure` → `bootstrap` → `wire` → `serve` → `drain` → `teardown`。跨相位不接受 `DependsOn` 反向边（编译期报错），停机按 `TeardownAfter` 逆序。
 - **`opaque`**：该节点没有声明式依赖拓扑，按 legacy 顺序执行。域在声明 `Domain.Declare` 之前整块是 Opaque；只声明拓扑、构造仍归 `Wire`/`Routes`/`Services` 时塌缩成一个 `domain.<name>.wire` Opaque 节点；迁到 `Domain.ApplyNode`（按计划序逐节点执行）后不再产生兼容节点，域贡献的逃逸舱归零（设计 §4.6）。
-- **`segments=`**：节点读取的契约段路径；`segments:` 汇总里 `consumers=` 为空且未白名单的段会在启动期报错。声明域节点既可挂框架段（`server.http` 这类 `BootstrapConfig` 字段路径），也可挂业务配置段 `biz.<path>`——后者把域自有配置带进 `reload=reconcile` 节点的期望态（计划期从合并 Settings 快照取子树算摘要，配置变更即触发 `Domain.Reconcile`）。
+- **`segments=`**：节点读取的契约段路径；`segments:` 汇总里 `consumers=` 为空且未白名单的段会在启动期报错。声明域节点既可挂框架段（`server.http` 这类 `BootstrapConfig` 字段路径），也可挂业务配置段 `biz.<path>`——后者把域自有配置带进 `reload=reconcile` 节点的期望态（计划期从合并 Settings 快照取子树算摘要，配置变更即触发 `Domain.Reconcile`）。`biz.<path>` 同样出现在 `segments:` 汇总（标注消费者），但不参与契约段覆盖检查。
 - **`reload=`**：节点级重载策略，决定配置热更时协调还是重报。`reconcile` 节点必须有人能重建它的实际态：Provider 节点由同一 Provider 重跑 `Build`，域声明节点由 `Domain.Reconcile` 承担——声明了 `ReloadReconcile` 却没给钩子（或没给 `Wire`/`ApplyNode`、没声明段）的域在计划期直接报错，不留「永远 Stale」的假节点（见 [机制层 mech](./机制层%20mech%20-%20Effect%20与期望态.md)）。
 - **`imperative:`**：不参与拓扑的命令式槽位（`effect` / `keyWatch` / `reconcile`，来自 `mech.*` 声明）。闭包不可排序、不可分析，但计划不隐藏它们——配置热更订阅者与停机效果在 `--plan` 与 `doctor` 里都有名可查（设计 §6 的 Data/Imperative 分区落点）：
 

@@ -907,6 +907,17 @@ func buildSegmentUses(cfg *bootstrapv1.BootstrapConfig, d *Decl, pp *providerPla
 		}
 		add(SegmentUse{Path: name, Whitelisted: true})
 	}
+	// 业务配置段（biz.<path>）：不在契约段集合里，但节点确实读取——同样进
+	// 汇总（有消费者），否则 segments 视图对 Q8 节点说谎。
+	for path, keys := range exact {
+		if path != "biz" && !strings.HasPrefix(path, "biz.") {
+			continue
+		}
+		if _, ok := byPath[path]; ok {
+			continue
+		}
+		add(SegmentUse{Path: path, Consumers: keys})
+	}
 
 	out := make([]SegmentUse, 0, len(byPath))
 	for _, su := range byPath {
