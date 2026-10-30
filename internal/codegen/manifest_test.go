@@ -267,6 +267,49 @@ func TestGenDomain_CheckClean(t *testing.T) {
 
 // TestPruneStaleOwned --adopt 让「上次清单里的 owned、本次不再生成」的文件
 // 退场；seeded（播种后归用户）与越界路径（清单被改写）都不删。
+// TestCheckTree_ReportsStaleOwned 钉住 --check 的诚实面：上次清单里 owned、
+// 本次不再生成的文件不会被「只比对计划内文件」漏掉——它们在树里继续参与
+// 编译，必须点名（--adopt 负责删除）。
+func TestCheckTree_ReportsStaleOwned(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "keep.go"), []byte("keep"), 0o644); err != nil {
+		t.Fatalf("write keep.go: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "stale.go"), []byte("stale"), 0o644); err != nil {
+		t.Fatalf("write stale.go: %v", err)
+	}
+	files := []genFile{{Path: "keep.go", Own: owned, Raw: []byte("keep")}}
+	wantRaw, err := json.Marshal(&genManifest{Version: manifestVersion, Tool: "test", Files: []manifestEntry{
+		{Path: "keep.go", Ownership: "owned"},
+	}})
+	if err != nil {
+		t.Fatalf("marshal want manifest: %v", err)
+	}
+	oldRaw, err := json.Marshal(&genManifest{Version: manifestVersion, Tool: "test", Files: []manifestEntry{
+		{Path: "keep.go", Ownership: "owned"},
+		{Path: "stale.go", Ownership: "owned"},
+		{Path: "seed.go", Ownership: "seeded"},
+	}})
+	if err != nil {
+		t.Fatalf("marshal old manifest: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, domainManifestName), oldRaw, 0o644); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+
+	streams, _ := testStreams()
+	err = checkTree(root, domainManifestName, files, wantRaw, streams)
+	if err == nil {
+		t.Fatal("--check must fail when the tree holds a stale owned file")
+	}
+	if !strings.Contains(err.Error(), "stale: stale.go") {
+		t.Errorf("check must name the stale owned file, got: %v", err)
+	}
+	if strings.Contains(err.Error(), "seed.go") {
+		t.Errorf("seeded files belong to the user and must not be reported stale, got: %v", err)
+	}
+}
+
 func TestPruneStaleOwned(t *testing.T) {
 	base := t.TempDir()
 	root := filepath.Join(base, "tree")

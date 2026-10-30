@@ -211,7 +211,7 @@ cache: .bald/plan-cache.json (unavailable: ...)                # 文件损坏/�
 |---|---|---|
 | `--plan` / `--plan-format=json` | 打印计划，退出 0 | `Compile` 错误，非 0（stderr） |
 | `doctor` | 打印诊断，退出 0 | 同上 |
-| `gen app --check` / `gen domain --check` | `clean: N files`，退出 0 | 列出 drift 文件，非 0 |
+| `gen app --check` / `gen domain --check` | `clean: N files`，退出 0 | 列出 drift/stale 文件，非 0 |
 
 CI 可组合成「计划 hash 基线 + 生成物零 drift」：`--plan --plan-format=json | jq -r .hash` 与提交的基线比较；生成树跑两个 `--check`。
 

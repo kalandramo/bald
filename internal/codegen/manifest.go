@@ -144,12 +144,38 @@ func checkTree(root, manifestName string, files []genFile, wantRaw []byte, strea
 	case !bytes.Equal(gotManifest, wantRaw):
 		diffs = append(diffs, "out-of-date: "+manifestName)
 	}
+	// 上次清单里 owned、本次不再生成的文件：--check 不比对计划外文件，但
+	// 它们仍留在树里继续参与编译，必须显式报告（--adopt 会删除）。
+	keep := make(map[string]bool, len(files))
+	for _, f := range files {
+		keep[filepath.ToSlash(f.Path)] = true
+	}
+	for _, p := range staleOwned(gotManifest, keep) {
+		diffs = append(diffs, "stale: "+p)
+	}
 	if len(diffs) > 0 {
 		return fmt.Errorf("generated tree is not clean (%d difference(s)); rerun with --adopt:\n  %s",
 			len(diffs), strings.Join(diffs, "\n  "))
 	}
 	fmt.Fprintln(streams.Out, "clean:", len(files), "files in sync with spec")
 	return nil
+}
+
+// staleOwned 返回上次清单里记为 owned、本次计划不再生成的文件路径。
+// 清单缺失/损坏/版本不符时无法判定归属，返回 nil（--check 会另行报告清单
+// 本身的问题）。
+func staleOwned(raw []byte, keep map[string]bool) []string {
+	var old genManifest
+	if err := json.Unmarshal(raw, &old); err != nil || old.Version != manifestVersion {
+		return nil
+	}
+	var stale []string
+	for _, e := range old.Files {
+		if e.Ownership == "owned" && !keep[e.Path] {
+			stale = append(stale, e.Path)
+		}
+	}
+	return stale
 }
 
 // pruneStaleOwned 删除「上次清单记录为 owned、本次不再生成」的文件。

@@ -464,7 +464,7 @@ func (a *App) Drift(ctx context.Context) ([]Drift, error)
 }
 ```
 
-- `gen --check`：在内存中重新生成，与清单/磁盘比对；有差异打印 unified diff，退出码 1；**不写任何文件**。
+- `gen --check`：在内存中重新生成，与清单/磁盘比对；有差异打印 unified diff，退出码 1；**不写任何文件**；上次清单里 owned、本次不再生成的文件按 `stale:` 列出（它们仍在树里参与编译，`--adopt` 负责删除）。
 - `--adopt` 取代 `--force`：把已有文件纳入清单（记录当前哈希），而不是静默覆盖；并删除上次清单记为 owned、本次不再生成的旧产物（`removed:` 逐条打印；seeded 播种后归用户、user 文件永不删除，清单版本不符时跳过删除）。
 - 三态归属保留，但由清单承载；`gen` 不再依赖「文件是否存在」来猜归属。
 - 目标：`gen` 双跑字节一致（模板内 map 迭代排序），作为 CI 门。
@@ -500,7 +500,7 @@ func Routes(h http.Handler) error {
 | I5 | 停机序 = 逆拓扑（受 `TeardownAfter` 修正） | `TestApply_TeardownOrder`（随机 DAG） |
 | I6 | 应用失败按已应用节点逆序回滚；重试幂等 | `TestApply_RollbackOnFailure` |
 | I7 | 漂移可观测：移除一个可协调资源后 `Drift` 报 `Missing` | `TestDrift_DetectsMissing` |
-| I8 | 生成确定：双跑字节一致；`--check` 零 diff | `TestGen_Deterministic`、`TestGen_CheckClean`、`TestGenDomain_RESTBind_Deterministic` |
+| I8 | 生成确定：双跑字节一致；`--check` 零 diff 且 stale owned 可见 | `TestGen_Deterministic`、`TestGen_CheckClean`、`TestGenDomain_RESTBind_Deterministic`、`TestCheckTree_ReportsStaleOwned` |
 | I9 | 公开 API 无未类型化资源访问 | `TestAPI_NoUntypedResource`（AST 守卫） |
 | I10 | 逃逸舱可见：白名单段、override、build tag 分叉均出现在 `Plan.Warnings` | `TestPlan_EscapeHatchesReported` |
 
