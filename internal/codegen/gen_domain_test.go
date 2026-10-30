@@ -504,6 +504,44 @@ func TestGenDomain_RESTBind(t *testing.T) {
 	runGenDomain(t, dir, specPath, "--rest-bind", "--check")
 }
 
+// TestGenDomain_RESTBind_NoRoutes --no-routes 是 Q5 的逃逸面：--rest-bind
+// 只产 handler 绑定，不产 appkit.Route 清单（域保留手写 RouteTable）；
+// 单独使用是空操作，必须拒绝而不是静默。
+func TestGenDomain_RESTBind_NoRoutes(t *testing.T) {
+	dir, specPath := runGenAppInTemp(t, guardFixture())
+	bindPath := filepath.Join(dir, "internal", "apiserver", "handler", "gin", "greet.bind.gen.go")
+	tablePath := filepath.Join(dir, "internal", "apiserver", "routes", "greet.gen.go")
+
+	runGenDomain(t, dir, specPath, "--rest-bind", "--no-routes", "--adopt")
+	raw, err := os.ReadFile(bindPath)
+	if err != nil {
+		t.Fatalf("read bind file: %v", err)
+	}
+	src := string(raw)
+	if !strings.Contains(src, "--no-routes 跳过了路由清单") {
+		t.Errorf("bind header must explain the skipped manifest:\n%s", src)
+	}
+	if strings.Contains(src, "routes.Greet") {
+		t.Errorf("bind header must not point at a manifest that was not generated:\n%s", src)
+	}
+	if _, err := parser.ParseFile(token.NewFileSet(), bindPath, raw, 0); err != nil {
+		t.Fatalf("bind file is not valid Go: %v", err)
+	}
+	if _, err := os.Stat(tablePath); !os.IsNotExist(err) {
+		t.Fatalf("--no-routes must not emit the route manifest: %v", err)
+	}
+
+	// 跳过清单后仍是 owned 产物：--check 必须零差异。
+	runGenDomain(t, dir, specPath, "--rest-bind", "--no-routes", "--check")
+
+	streams, _ := testStreams()
+	cmd := genDomainCmd(streams)
+	cmd.SetArgs([]string{"--spec", specPath, "--out", dir, "--no-routes"})
+	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "--rest-bind") {
+		t.Fatalf("err = %v, want --no-routes-alone rejection naming --rest-bind", err)
+	}
+}
+
 // TestGenDomain_RESTBind_RequiresGoPackage 生成器不猜 import 路径：proto 缺
 // option go_package 时 --rest-bind 报错并指明域名与原因。
 func TestGenDomain_RESTBind_RequiresGoPackage(t *testing.T) {
