@@ -147,6 +147,68 @@ func TestPlanCache_RouteChangeVisible(t *testing.T) {
 	}
 }
 
+// 变体声明（Q7：AppSpec.variants → Plan.Variants）是声明面的一部分：声明
+// 增删与命中态（Active，二进制实际 -tags 决定）变化都改变装配口径，doctor
+// 必须单列 variants changed——未命中的声明不产诊断，不能在对比里隐身。
+func TestPlanCache_VariantChangeVisible(t *testing.T) {
+	cfgPath := writePlanConfig(t, "cache-variants", "script:\n  options:\n    enabled: true\n")
+	alpha := Node{Key: "alpha", Kind: "script-impl", Phase: PhaseBootstrap, Priority: PriorityLegacy}
+	compile := func(vs ...VariantDecl) *Plan {
+		t.Helper()
+		opts := []Option{ConfigFile(cfgPath), fixedNodeProvider([]string{"script"}, alpha)}
+		if len(vs) > 0 {
+			opts = append(opts, WithVariantDecls(vs...))
+		}
+		p, err := Compile(context.Background(), opts...)
+		if err != nil {
+			t.Fatalf("Compile: %v", err)
+		}
+		return p
+	}
+	base, declared := compile(), compile(VariantDecl{Name: "grpcgw", BuildTags: []string{"grpcgw"}})
+	if base.Hash() == declared.Hash() {
+		t.Fatal("variant declaration kept the same plan hash")
+	}
+
+	path := filepath.Join(t.TempDir(), "plan-cache.json")
+	if err := writePlanCacheEntry(path, base, time.Now()); err != nil {
+		t.Fatalf("writePlanCacheEntry: %v", err)
+	}
+	cmp := comparePlanCache(path, declared)
+	if !cmp.PlanChanged || !cmp.Change.Empty() {
+		t.Fatalf("compare = %+v, want variant-only plan change", cmp)
+	}
+	if len(cmp.Variants) != 1 || !cmp.Variants[0].Added || cmp.Variants[0].Name != "grpcgw" {
+		t.Fatalf("variant diff = %+v, want added grpcgw", cmp.Variants)
+	}
+	out := renderDoctor(declared, cmp)
+	for _, want := range []string{"variants changed: 1", "+ grpcgw", "declared", "tags=grpcgw"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("doctor output missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "plan unchanged") || strings.Contains(out, "node attributes") {
+		t.Fatalf("variant-only change must not be reported as unchanged/node attributes:\n%s", out)
+	}
+
+	// 同一份声明，换成带 tag 的构建：命中态翻转（Active false → true）同样
+	// 是装配口径变化；命中的变体另产 ambient 诊断。
+	active := compile(VariantDecl{Name: "grpcgw", BuildTags: []string{"grpcgw"}, Active: true})
+	if err := writePlanCacheEntry(path, declared, time.Now()); err != nil {
+		t.Fatalf("writePlanCacheEntry(declared): %v", err)
+	}
+	cmp = comparePlanCache(path, active)
+	if !cmp.PlanChanged || len(cmp.Variants) != 1 || !cmp.Variants[0].ActiveChanged || !cmp.Variants[0].Active {
+		t.Fatalf("compare = %+v, want active-state change on grpcgw", cmp)
+	}
+	out = renderDoctor(active, cmp)
+	for _, want := range []string{"variants changed: 1", "~ grpcgw", "tags=grpcgw: active"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("doctor output missing %q:\n%s", want, out)
+		}
+	}
+}
+
 // 节点属性（priority 等）变化会移动装配哈希，但不在节点身份/期望态差异里：
 // doctor 不得谎报 "plan unchanged"，也不假装能逐项列出。
 func TestPlanCache_NodeAttributeChangeVisible(t *testing.T) {
@@ -210,7 +272,7 @@ func TestPlanCache_DiagnosticsChangeVisible(t *testing.T) {
 	}
 	out := renderDoctor(next, cmp)
 	for _, want := range []string{
-		"plan unchanged: nodes + imperative slots + routes",
+		"plan unchanged: nodes + imperative slots + routes + variants",
 		"diagnostics changed: 1",
 		"+ warn ambient (build-tag:grpcgw)",
 	} {
@@ -300,7 +362,7 @@ func TestPlanCache_ContractChangeStillDiffs(t *testing.T) {
 	for _, want := range []string{
 		"input changed since baseline:",
 		// 判据限定在装配声明：告警/段视图变化不冒充「整份计划未变」。
-		"plan unchanged: nodes + imperative slots + routes",
+		"plan unchanged: nodes + imperative slots + routes + variants",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("doctor output missing %q:\n%s", want, out)

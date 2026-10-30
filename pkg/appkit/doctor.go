@@ -213,19 +213,19 @@ func writePlanCacheSection(w io.Writer, b *planCacheBaseline, p *Plan) {
 			hashPrefix(b.Entry.InputHash), hashPrefix(p.InputHash))
 	}
 	if !b.PlanChanged && b.Change.Empty() {
-		// 限定判据：这里只断言装配声明（节点 + 命令式槽位）未变，不断言
-		// Plan.Hash 相等——告警/段视图变化不进此判据（上方 plan: 行给出
+		// 限定判据：这里只断言装配声明（节点 + 命令式槽位 + 路由 + 变体）未变，
+		// 不断言 Plan.Hash 相等——告警/段视图变化不进此判据（上方 plan: 行给出
 		// 当前整份计划哈希，需要严格比对时以它为准）。诊断差异另行列出。
-		fmt.Fprintln(w, "  plan unchanged: nodes + imperative slots + routes")
+		fmt.Fprintln(w, "  plan unchanged: nodes + imperative slots + routes + variants")
 		if len(b.Diagnostics) == 0 {
 			return
 		}
 	}
 	if b.PlanChanged {
-		if b.Change.Empty() && len(b.Routes) == 0 {
-			// 装配哈希变了但节点/槽位/路由身份对比为空：变化只在节点属性
+		if b.Change.Empty() && len(b.Routes) == 0 && len(b.Variants) == 0 {
+			// 装配哈希变了但节点/槽位/路由/变体身份对比为空：变化只在节点属性
 			// （priority/phase/segments/opaque 等）。如实报出，不谎报 unchanged，
-			// 也不假装能逐项列出。路由已有自己的差异段，不再冒充属性变化。
+			// 也不假装能逐项列出。路由/变体已有自己的差异段，不再冒充属性变化。
 			fmt.Fprintln(w, "  plan changed: node attributes (priority/phase/segments)")
 		}
 		if len(b.Change.Changes) > 0 {
@@ -278,6 +278,37 @@ func writePlanCacheSection(w io.Writer, b *planCacheBaseline, p *Plan) {
 					rpc = " -> " + rc.RPC
 				}
 				fmt.Fprintf(w, "    %s %s %s %s%s\n", mark, rc.Domain, rc.Method, rc.Path, rpc)
+			}
+		}
+		if len(b.Variants) > 0 {
+			// 变体声明（AppSpec.variants → Plan.Variants）是声明面的一部分：
+			// 增删、tags 改写与命中态（Active，由二进制实际 -tags 决定）变化
+			// 都改变装配口径，逐条列出。
+			fmt.Fprintf(w, "  variants changed: %d\n", len(b.Variants))
+			for _, vc := range b.Variants {
+				state := "declared"
+				if vc.Active {
+					state = "active"
+				}
+				tags := strings.Join(vc.BuildTags, ",")
+				switch {
+				case vc.Added:
+					fmt.Fprintf(w, "    + %-20s %s tags=%s\n", vc.Name, state, tags)
+				case vc.Removed:
+					fmt.Fprintf(w, "    - %-20s %s tags=%s\n", vc.Name, state, tags)
+				default:
+					var what []string
+					if vc.TagsChanged {
+						what = append(what, "tags")
+					}
+					if vc.ActiveChanged {
+						what = append(what, "active")
+					}
+					if vc.DetailChanged {
+						what = append(what, "detail")
+					}
+					fmt.Fprintf(w, "    ~ %-20s tags=%s: %s\n", vc.Name, tags, strings.Join(what, " + "))
+				}
 			}
 		}
 	}

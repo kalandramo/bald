@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"time"
 
@@ -66,6 +67,21 @@ type DiagnosticChange struct {
 	Removed bool            `json:"removed,omitempty"`
 }
 
+// VariantChange 是构建变体声明（Q7：AppSpec.variants → Plan.Variants）在两次
+// 计划之间的差异。变体不产节点，但声明面的增删与命中态（Active，由二进制
+// 实际带有的 -tags 决定）同样改变装配口径：同一份声明换一套 tag 构建就是
+// 另一套接线，不能在基线对比里隐身。
+type VariantChange struct {
+	Name          string   `json:"name"`
+	BuildTags     []string `json:"buildTags,omitempty"`
+	Active        bool     `json:"active,omitempty"`
+	TagsChanged   bool     `json:"tagsChanged,omitempty"`
+	DetailChanged bool     `json:"detailChanged,omitempty"`
+	ActiveChanged bool     `json:"activeChanged,omitempty"`
+	Added         bool     `json:"added,omitempty"`
+	Removed       bool     `json:"removed,omitempty"`
+}
+
 // planCacheBaseline 是 doctor 对基线的对比结果（Err 非 nil 表示缓存不可读，
 // 此时 Entry 为 nil——报告只给一行提示）。
 type planCacheBaseline struct {
@@ -78,6 +94,7 @@ type planCacheBaseline struct {
 	PlanChanged bool
 	Change      PlanChange
 	Routes      []RouteChange
+	Variants    []VariantChange
 	Diagnostics []DiagnosticChange
 }
 
@@ -182,15 +199,17 @@ func readPlanCacheFile(path string) (*planCacheFile, error) {
 }
 
 // planAssemblyHash 是「装配声明」的投影哈希：节点 + 命令式槽位 + REST 路由
-// 清单。输入哈希、告警与段视图不在其中——它们各自有独立报告面（input
-// changed / warnings / segments），混进来会让无关配置改动被误报成装配变化。
-// 路由进判据：域声明的 RouteTable 决定实际挂载的 REST 面，换一条路径就是换
-// 运行期行为，不能因为「没有节点变化」被报成 plan unchanged。
+// 清单 + 构建变体声明。输入哈希、告警与段视图不在其中——它们各自有独立报告
+// 面（input changed / warnings / segments），混进来会让无关配置改动被误报成
+// 装配变化。路由进判据：域声明的 RouteTable 决定实际挂载的 REST 面，换一条
+// 路径就是换运行期行为，不能因为「没有节点变化」被报成 plan unchanged。
+// 变体同理（Q7 对账口径）：声明增删与命中态（Active，由二进制实际 -tags
+// 决定）都进判据，否则「同一份 spec 换 tag 构建」会在缓存里显示未变。
 func planAssemblyHash(p *Plan) string {
 	if p == nil {
 		return ""
 	}
-	q := Plan{Nodes: p.Nodes, Imperative: p.Imperative, Routes: p.Routes}
+	q := Plan{Nodes: p.Nodes, Imperative: p.Imperative, Routes: p.Routes, Variants: p.Variants}
 	return q.Hash()
 }
 
@@ -232,11 +251,12 @@ func comparePlanCache(path string, p *Plan) *planCacheBaseline {
 	}
 	b.InputChanged = b.Entry.InputHash != p.InputHash
 	// 输入与诊断（Warnings/Segments）另有自己的报告面；这里的 PlanChanged
-	// 只回答「装配声明是否变了」——节点 + 命令式槽位 + 路由清单投影。
+	// 只回答「装配声明是否变了」——节点 + 命令式槽位 + 路由清单 + 变体投影。
 	b.PlanChanged = planAssemblyHash(b.Entry.Plan) != planAssemblyHash(p)
 	if b.Entry.Plan != nil {
 		b.Change = diffPlan(b.Entry.Plan, p)
 		b.Routes = diffRoutes(b.Entry.Plan, p)
+		b.Variants = diffVariants(b.Entry.Plan, p)
 	}
 	b.Diagnostics = diffDiagnostics(b.Entry.Plan, p)
 	return b
@@ -275,6 +295,68 @@ func diffRoutes(old, next *Plan) []RouteChange {
 		default:
 			i++
 			j++
+		}
+	}
+	return out
+}
+
+// diffVariants 对比构建变体声明（按 Name 身份，计划投影已按 Name 排序）。
+// Added/Removed 携带变更后的（Removed 时为基准的）命中态；同名声明再按
+// tags / detail / active 三项标注属性变化。
+func diffVariants(old, next *Plan) []VariantChange {
+	var oldList, nextList []VariantDecl
+	if old != nil {
+		oldList = old.Variants
+	}
+	if next != nil {
+		nextList = next.Variants
+	}
+	oldIdx := make(map[string]VariantDecl, len(oldList))
+	for _, v := range oldList {
+		oldIdx[v.Name] = v
+	}
+	nextIdx := make(map[string]VariantDecl, len(nextList))
+	for _, v := range nextList {
+		nextIdx[v.Name] = v
+	}
+	names := make([]string, 0, len(oldIdx)+len(nextIdx))
+	for n := range oldIdx {
+		names = append(names, n)
+	}
+	for n := range nextIdx {
+		if _, ok := oldIdx[n]; !ok {
+			names = append(names, n)
+		}
+	}
+	sort.Strings(names)
+	var out []VariantChange
+	for _, n := range names {
+		o, hadOld := oldIdx[n]
+		x, hasNew := nextIdx[n]
+		switch {
+		case !hadOld:
+			out = append(out, VariantChange{
+				Name: x.Name, BuildTags: x.BuildTags, Active: x.Active, Added: true,
+			})
+		case !hasNew:
+			out = append(out, VariantChange{
+				Name: o.Name, BuildTags: o.BuildTags, Active: o.Active, Removed: true,
+			})
+		default:
+			tagsChanged := !slices.Equal(o.BuildTags, x.BuildTags)
+			detailChanged := o.Detail != x.Detail
+			activeChanged := o.Active != x.Active
+			if !tagsChanged && !detailChanged && !activeChanged {
+				continue
+			}
+			out = append(out, VariantChange{
+				Name:          x.Name,
+				BuildTags:     x.BuildTags,
+				Active:        x.Active,
+				TagsChanged:   tagsChanged,
+				DetailChanged: detailChanged,
+				ActiveChanged: activeChanged,
+			})
 		}
 	}
 	return out

@@ -110,7 +110,7 @@ role: api
 input: d5f5f80e...
 plan:  192924bf...
 cache: .bald/plan-cache.json (baseline ba88603d903f, recorded 2026-10-28T18:38:41Z)
-  plan unchanged: nodes + imperative slots + routes
+  plan unchanged: nodes + imperative slots + routes + variants
 
 nodes: 7 (opaque 2)
   phase bootstrap  3
@@ -176,7 +176,7 @@ gen: run `bald gen app --check` and `bald gen domain --check` in the generated t
 
 ```
 cache: .bald/plan-cache.json (baseline ba88603d903f, recorded 2026-10-28T18:38:41Z)
-  plan unchanged: nodes + imperative slots + routes
+  plan unchanged: nodes + imperative slots + routes + variants
 
 cache: .bald/plan-cache.json (baseline db80c27572ef, recorded 2026-10-28T18:33:31Z)
   input changed since baseline: 95fca9009d03 -> d5f5f80ec60d
@@ -195,8 +195,13 @@ cache: .bald/plan-cache.json (baseline 2b7d19fc04ae, recorded 2026-10-28T18:34:5
     - greet POST /v1/greet -> Greet
     + greet POST /v1/greets -> Greet
 
+cache: .bald/plan-cache.json (baseline 7d1c2f9a0b3e, recorded 2026-10-30T06:00:00Z)
+  variants changed: 2                        # 变体声明与命中态（active）同样进装配判据
+    + grpcgw             active tags=grpcgw
+    ~ nacos              tags=nacos,config: tags
+
 cache: .bald/plan-cache.json (baseline 9a0e51c3b7d4, recorded 2026-10-28T18:36:20Z)
-  plan unchanged: nodes + imperative slots + routes  # 装配声明没变，但诊断变了
+  plan unchanged: nodes + imperative slots + routes + variants  # 装配声明没变，但诊断变了
   diagnostics changed: 1
     + warn ambient (build-tag:grpcgw): gateway registration injected by -tags grpcgw
 
@@ -204,7 +209,7 @@ cache: .bald/plan-cache.json (no baseline for role "worker")   # 该角色还没
 cache: .bald/plan-cache.json (unavailable: ...)                # 文件损坏/不可读
 ```
 
-`plan unchanged` 的判据是「**装配声明**未变」：节点 + 命令式槽位（`Plan.Imperative`）+ REST 路由清单（`Plan.Routes`）——报告行因此显式限定为 `plan unchanged: nodes + imperative slots + routes`，不断言整份 `Plan.Hash` 相等（告警/段视图变化仍可能移动哈希，严格比对以报告顶部的 `plan:` 行或 CI 的计划哈希基线为准）。节点身份对比为空不等于计划没变——effect/keyWatch/reconcile 槽位不进节点拓扑，却会改变运行期行为，所以单列一组增删行，而不是谎报 `plan unchanged`；路由同理（`routes changed`，逐条给出增删，换一条 `Domain.RouteTable` 路径不会被「节点没变」掩盖）。节点属性（priority/phase/segments 等）变化同样移动装配哈希但不在身份对比里，doctor 报 `plan changed: node attributes (...)` 而不是假装能逐项列出（路由已单列时不再冒用这一行）。诊断（`Plan.Warnings`，如 `ambient` 接线、覆盖裁决）单独列 `diagnostics changed`：它们不进节点/槽位判据，但基线对比照样逐条给出增删，不让 build tag 分叉在缓存里隐身。`InputHash` 与段视图仍各有独立报告面（`input changed` 行、`segments`）。
+`plan unchanged` 的判据是「**装配声明**未变」：节点 + 命令式槽位（`Plan.Imperative`）+ REST 路由清单（`Plan.Routes`）+ 构建变体声明（`Plan.Variants`）——报告行因此显式限定为 `plan unchanged: nodes + imperative slots + routes + variants`，不断言整份 `Plan.Hash` 相等（告警/段视图变化仍可能移动哈希，严格比对以报告顶部的 `plan:` 行或 CI 的计划哈希基线为准）。节点身份对比为空不等于计划没变——effect/keyWatch/reconcile 槽位不进节点拓扑，却会改变运行期行为，所以单列一组增删行，而不是谎报 `plan unchanged`；路由同理（`routes changed`，逐条给出增删，换一条 `Domain.RouteTable` 路径不会被「节点没变」掩盖）；变体同理（`variants changed`：声明增删、`tags` 改写、命中态 `active` 翻转都逐条列出——未命中的变体不产诊断，只有进装配判据才不会在对比里隐身；同一份 spec 换 `-tags` 重建会显示命中态变化，这是有意的口径）。节点属性（priority/phase/segments 等）变化同样移动装配哈希但不在身份对比里，doctor 报 `plan changed: node attributes (...)` 而不是假装能逐项列出（路由/变体已单列时不再冒用这一行）。诊断（`Plan.Warnings`，如 `ambient` 接线、覆盖裁决）单独列 `diagnostics changed`：它们不进节点/槽位/路由/变体判据，但基线对比照样逐条给出增删，不让 build tag 分叉在缓存里隐身。`InputHash` 与段视图仍各有独立报告面（`input changed` 行、`segments`）。
 
 边界（诚实说明）：
 
