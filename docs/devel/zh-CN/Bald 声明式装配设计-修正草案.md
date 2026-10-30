@@ -563,8 +563,8 @@ func Routes(h http.Handler) error {
 落地形态是 `task acceptance`（只跑 `go test`，跨平台；逐条对应本节）：
 
 ```bash
-# 计划纯净 + 顺序无关
-go test ./pkg/appkit -run 'TestPlan_(NoSideEffects|OrderInvariant|SegmentCoverage|Conflict)'
+# 计划纯净 + 顺序无关 + 路由清单（可见性/冲突/gin 形态校验）
+go test ./pkg/appkit -run 'TestPlan_(NoSideEffects|OrderInvariant|SegmentCoverage|Conflict|DomainRoutes|CustomRoutesWarning)|TestRouteShapeConflict'
 
 # 停机序与回滚（按节点数据推导，不是手工表）
 go test ./pkg/appkit -run 'TestTeardownOrder_|TestProviderPlan_StdTeardownOrder|TestComponent_StartFailureRollback|TestMountComponent_MountFailureRollback'
@@ -576,8 +576,8 @@ go test ./pkg/appkit -run 'TestDrift'
 go test ./pkg/appkit -run 'TestAPI_'   # Resource(string) 调用点、手工排序表标识符
 
 # 生成确定性：生成器自有树（guard 夹具）双跑一致 + --check 零 diff
-# （--rest-bind 的绑定文件与路由清单同受约束）
-go test ./internal/codegen -run 'TestGen_(Deterministic|CheckClean)|TestGenDomain_RESTBind_Deterministic'
+# （--rest-bind 的绑定/路由清单与 --no-routes 逃逸同受约束；--adopt 清理过期 owned）
+go test ./internal/codegen -run 'TestGen_(Deterministic|CheckClean)|TestGenDomain_RESTBind_(Deterministic|NoRoutes)|TestPruneStaleOwned'
 
 # 参考工程的计划口径（Opaque 预算 / 路由可见 / 无逃逸警告 / 段覆盖）
 (cd _example/bald && go test ./internal/bootstrap -run TestPlan_ReferenceProject)

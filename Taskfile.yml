@@ -317,11 +317,11 @@ tasks:
   acceptance:
     desc: 声明式装配验收（§7.3：计划纯净/顺序无关/停机序与回滚/漂移/生成确定性/API 守卫/参考工程计划）
     cmds:
-      - go test ./pkg/appkit -run 'TestPlan_(NoSideEffects|OrderInvariant|SegmentCoverage|Conflict)'
+      - go test ./pkg/appkit -run 'TestPlan_(NoSideEffects|OrderInvariant|SegmentCoverage|Conflict|DomainRoutes|CustomRoutesWarning)|TestRouteShapeConflict'
       - go test ./pkg/appkit -run 'TestTeardownOrder_|TestProviderPlan_StdTeardownOrder|TestComponent_StartFailureRollback|TestMountComponent_MountFailureRollback'
       - go test ./pkg/appkit -run 'TestDrift'
       - go test ./pkg/appkit -run 'TestAPI_'
-      - go test ./internal/codegen -run 'TestGen_(Deterministic|CheckClean)|TestGenDomain_RESTBind_Deterministic'
+      - go test ./internal/codegen -run 'TestGen_(Deterministic|CheckClean)|TestGenDomain_RESTBind_(Deterministic|NoRoutes)|TestPruneStaleOwned'
       - cmd: go test ./internal/bootstrap -run TestPlan_ReferenceProject
         dir: _example/bald
 
