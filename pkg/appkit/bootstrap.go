@@ -449,6 +449,24 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig, settings map[string]
 	for _, fn := range spec.BeforeStop {
 		kitOpts = append(kitOpts, BeforeStop(fn))
 	}
+	for _, fn := range spec.AfterStop {
+		kitOpts = append(kitOpts, AfterStop(fn))
+	}
+	// 机制超时与身份/审计端口同为 Decl 声明面：kitOpts 重建时逐项透传，
+	// 漏传即 Serve 路径静默丢声明（与 OnConfigChange 同类）。零值表示未声明，
+	// 保留 defaultDecl 的默认超时。
+	if spec.EffectTimeout > 0 {
+		kitOpts = append(kitOpts, effectTimeoutOpt(spec.EffectTimeout))
+	}
+	if spec.ComponentTimeout > 0 {
+		kitOpts = append(kitOpts, componentTimeoutOpt(spec.ComponentTimeout))
+	}
+	if spec.Identity != nil {
+		kitOpts = append(kitOpts, Identity(spec.Identity))
+	}
+	if spec.Auditor != nil {
+		kitOpts = append(kitOpts, auditorOpt(spec.Auditor))
+	}
 	for _, e := range spec.Effects {
 		kitOpts = append(kitOpts, effectOpt(e.Name, e.Undo))
 	}
