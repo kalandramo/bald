@@ -93,6 +93,26 @@ func TestPlan_DomainRoutesConflict(t *testing.T) {
 	}
 }
 
+// TestPlan_DomainRoutesDuplicateInDomain 钉住同一域内重复登记（生成器派生的
+// 清单与手写 RouteTable 并存）的报错：点名域名与处置方式，而不是含糊的
+// 「两个域都声明了」。
+func TestPlan_DomainRoutesDuplicateInDomain(t *testing.T) {
+	cfgPath := writePlanConfig(t, "routes-dup", "")
+	dom := Domain{Name: "greet", RouteTable: []Route{
+		{Method: "POST", Path: "/v1/greet"},
+		{Method: "post", Path: "/v1/greet"},
+	}}
+	_, err := Compile(context.Background(), ConfigFile(cfgPath), WithHTTP(http.NewServeMux()), dom)
+	if err == nil {
+		t.Fatal("duplicate REST route within one domain must fail at plan time")
+	}
+	for _, want := range []string{"declared twice by domain \"greet\"", "drop the hand-written RouteTable or the generated one"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("err = %v, want containing %q", err, want)
+		}
+	}
+}
+
 func TestPlan_CustomRoutesWarning(t *testing.T) {
 	cfgPath := writePlanConfig(t, "routes-custom", "")
 	dom := Domain{

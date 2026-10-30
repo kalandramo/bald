@@ -444,8 +444,11 @@ func readRepoFile(t *testing.T, rel string) string {
 func TestGenDomain_RESTBind(t *testing.T) {
 	dir, specPath := runGenAppInTemp(t, guardFixture())
 	bindPath := filepath.Join(dir, "internal", "apiserver", "handler", "gin", "greet.bind.gen.go")
-	if _, err := os.Stat(bindPath); !os.IsNotExist(err) {
-		t.Fatalf("default gen domain must not emit the bind file (proto Go types are not guaranteed): %v", err)
+	tablePath := filepath.Join(dir, "internal", "apiserver", "routes", "greet.gen.go")
+	for _, p := range []string{bindPath, tablePath} {
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Fatalf("default gen domain must not emit %s (proto Go types are not guaranteed): %v", filepath.Base(p), err)
+		}
 	}
 
 	runGenDomain(t, dir, specPath, "--rest-bind", "--adopt")
@@ -472,6 +475,29 @@ func TestGenDomain_RESTBind(t *testing.T) {
 	}
 	if _, err := parser.ParseFile(token.NewFileSet(), bindPath, raw, 0); err != nil {
 		t.Fatalf("bind file is not valid Go: %v", err)
+	}
+
+	// 同一批注解派生 appkit.Route 清单（计划可见性）：域包引用它即可让
+	// --plan/doctor 列出路由，Annotation 仍是唯一真相源。
+	traw, err := os.ReadFile(tablePath)
+	if err != nil {
+		t.Fatalf("read route table file: %v", err)
+	}
+	tsrc := string(traw)
+	for _, want := range []string{
+		`package routes`,
+		`"github.com/kalandramo/bald/pkg/appkit"`,
+		`var Greet = []appkit.Route{`,
+		`{Method: "POST", Path: "/v1/greets", RPC: "Greet"},`,
+		`{Method: "GET", Path: "/v1/greets/:name", RPC: "GreetGet"},`,
+		`RouteTable: routes.Greet,`,
+	} {
+		if !strings.Contains(tsrc, want) {
+			t.Errorf("route table file missing %q:\n%s", want, tsrc)
+		}
+	}
+	if _, err := parser.ParseFile(token.NewFileSet(), tablePath, traw, 0); err != nil {
+		t.Fatalf("route table file is not valid Go: %v", err)
 	}
 
 	// bind 文件是 owned 产物：重跑 --check 必须零差异。

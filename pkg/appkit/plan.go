@@ -768,6 +768,11 @@ func collectDomainRoutes(d *Decl) ([]Route, []Diagnostic, error) {
 			path := strings.TrimSpace(r.Path)
 			key := method + " " + path
 			if prev, ok := owner[key]; ok {
+				if prev == dom.Name {
+					// 同一域重复登记常见于「生成器派生了清单、域里还留着
+					// 手写 RouteTable」——运行期同样会注册两遍，点名处置方式。
+					return nil, nil, fmt.Errorf("appkit: REST route %s %s is declared twice by domain %q (drop the hand-written RouteTable or the generated one)", method, path, dom.Name)
+				}
 				return nil, nil, fmt.Errorf("appkit: REST route %s %s is declared by both domain %q and %q", method, path, prev, dom.Name)
 			}
 			owner[key] = dom.Name
