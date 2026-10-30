@@ -158,7 +158,7 @@ app, err := appkit.FromBootstrap(cfg, appkit.WithAuditRegistry(ar), ...)
 
 ### 7. 运行期热切（R1-2 协调器，与装配双轨并存）
 
-一次性装配的对照轨是协调器期望态：配置面 `audit.backends`（如 `"log,store,stream"`，appspec `audit_backends` 字段），协调器按「期望有实际无 → mount、实际有期望无 → unmount」收敛，每次协调自身也发审计事件（Object=`"reconciler"`）。失败不回滚、下次协调继续收敛。go-bald-admin 已验证此轨（运行期热切审计后端）。
+一次性装配的对照轨是协调器期望态：配置面 `audit.backends`（如 `"log,store,stream"`，appspec 里即 `bootstrap.audit.backends` 段），协调器按「期望有实际无 → mount、实际有期望无 → unmount」收敛，每次协调自身也发审计事件（Object=`"reconciler"`）。失败不回滚、下次协调继续收敛。go-bald-admin 已验证此轨（运行期热切审计后端）。
 
 两轨关系与「全局路径 vs 构造器注入」同构：契约面管启动期一次性装配（fail-fast），协调器管运行期期望态（收敛容错）。v0.6.0 起契约字段名统一为 `backends`——两轨读**同一个键**，从「两份配置」变为「一份期望、两个执行器」，业务选择启用哪个（未注册协调器则仅契约轨静态装配）；同名后端列表在两轨语义一致（`Backends: [store, stream]` 列表形式与协调器 `ParseStringList` 的 yaml 列表形式互通）。
 

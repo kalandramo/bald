@@ -526,7 +526,7 @@ func Routes(h http.Handler) error {
 - **B3** 重复资源键从「静默末者胜」改为编译错误（v0.26 先告警，v0.27 报错）。
 - **B4** `Registrar(instance)` 与契约 registry 段同时存在时，v0.26 告警、v0.27 要求 `Override` 标注。
 - **B5** `gen --force` 语义由 `--adopt` 取代；清单缺失时 `gen --check` 视为不干净。
-- **B6** `AppSpec` 的 `server`/`audit_backends`/`bundle_normalized` 快捷方式在 v0.28 移除（投影门已运行两个版本）。
+- **B6** `AppSpec` 的 `server`/`audit_backends`/`bundle_normalized` 快捷方式**已移除**（Q6，2026-10-30；字段号 2/5/6 与字段名 reserved）：传输面与审计后端统一声明在 `bootstrap`，`--spec` 输入里出现旧字段时 protojson 直接报 `unknown field`。
 
 ### 6.3 与既有成果的关系
 
@@ -619,7 +619,7 @@ bald doctor --config configs/bald-demo-api.yaml
 | Q3 | `Key[T]` 落 `pkg/appkit` 还是独立 module？ | 先 `pkg/appkit`，若出现循环再抽 `bald/resource` |
 | Q4 | 收敛首版覆盖哪些资源？ | logger/audit/组件；DB/cache/storage 仅 `ReloadRestart` |
 | Q5 | 路由是否由生成器接管？ | 是，默认生成；`--no-routes` 保留自定义。**可见性已落**（2026-10-30）：`Domain.RouteTable` → `Plan.Routes`（`--plan`/`doctor` 可见、置换不变、跨域同路由计划期报错、gin 挂不上去的形态——通配参数名不一致、catch-all 与更长路径并存、未命名/位置非法的通配符——同样计划期报错、手写 `Routes` 无清单给 `custom-routes` 警告）；**绑定生成默认开启**（Q5 D1，2026-10-30：`gen domain` 注解 → gin 路由 + 服务接口 + protojson 编解码；同批注解另出 `internal/<apiserver_dir>/routes/<d>.gen.go` 的 `appkit.Route` 清单，域引用 `RouteTable: routes.<Name>` 即获计划可见性）；**proto 阶段编排已落**（proto Go 类型缺失时按 `--proto-cmd`（默认 `buf generate`）在 `--out` 根执行并复查产物，失败即硬错误；`--check` 零写入不执行外部命令）；**前置校验已落**（缺 `github.com/kalandramo/bald/transport/web` 给 `go get` 修法，不再产出编译不过的树）；**逃逸面**：`--no-bind` 跳过绑定与清单、`--no-routes` 只跳过清单（域保留手写 `RouteTable`），二者连同生成期拒绝都在 `TestGenDomain_*` 两态里钉住；`--rest-bind` 退役为兼容开关。决策记录见 §8.4。可见性口径：清单一域自持 REST 面，非域路由不在其中 |
-| Q6 | `AppSpec` 快捷方式何时移除？ | v0.28；投影门已运行两个版本。移除的前置——契约层可离线再生——已就绪（2026-10-30：`bconf/buf.gen.local.yaml` 与远端插件产物逐字节一致，`TestGeneratedMatchesProto` 钉住）；剩余是 bconf 破坏性契约变更的版本/发布决策（owner） |
+| Q6 | `AppSpec` 快捷方式何时移除？ | **已移除**（2026-10-30，破坏面 = B6）：proto 删除字段 2/5/6 并 `reserved` 号与名；Gate1 投影一致性校验与 `normalizeBootstrap` 归一化随之删除（契约段唯一真相源 = `bootstrap`，未声明时按空配置派生默认键）；`RoleSpec.server` 作为角色级覆盖保留。验收：`TestGate1_RemovedShortcutFieldsRejected`（旧字段 protojson 拒绝）、`TestContractBootstrap`、`bconf` 的 `TestGeneratedMatchesProto` |
 | Q7 | build tag 分叉如何进入声明？ | 短期计划中记录 `Ambient` 并警告——**已落**（`WithAmbient`，2026-10-29：示例 `-tags grpcgw`/`nacos` 经 `init()` 登记，`--plan`/`doctor` 出现 `ambient` 警告）；长期进 AppSpec `variants`——**首片已落**（2026-10-30：`AppSpec.variants` 声明 name/build_tags/description，声明恒进 `Plan.Variants`（未命中也可审计），命中的变体另产 `ambient` 诊断，首批只做可见性；口径见 §8.3） |
 | Q8 | 域自有业务配置（`biz` 段）如何进入可协调节点的期望态？ | **已落**（2026-10-30，按草案实现）：`Node.Segments` 接受 `biz.<path>`，计划期从合并 Settings 快照按完整点路径取子树、JSON 确定性序列化算 `DesiredHash`（段缺失/有值可区分）；`Domain.Declare` 校验纳入 biz 段，`Domain.Reconcile` 在热更时按新快照协调。快照口径：`Compile`/`--plan` 为文件 + env，真实启动/热更为含 flag 的完整合并 |
 

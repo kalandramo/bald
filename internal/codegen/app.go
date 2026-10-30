@@ -213,8 +213,8 @@ func genAppCmd(streams ioStreams) *cobra.Command {
 
 指定 --spec <AppSpec.json> 时切换为目录树模式：以 AppSpec
 方言（proto 单一真相源）驱动整套骨架，此时 <name> 可省略——应用名与目录树
-均以 AppSpec 为准。旧字段 server/audit_backends/bundle_normalized 是快捷
-方式：bootstrap 段为空时归一化进契约投影，非空时与其投影不一致生成期报错。`,
+均以 AppSpec 为准。契约段（server/audit/...）唯一真相源是 AppSpec.bootstrap
+（Q6 起旧快捷方式字段已移除）。`,
 		Args: func(_ *cobra.Command, args []string) error {
 			if o.Spec == "" && len(args) != 1 {
 				// 模板模式必须给应用名（决定 cmd/<name>/main.go）。
@@ -248,8 +248,8 @@ func genAppCmd(streams ioStreams) *cobra.Command {
 
 // runGenAppSpec 读取 AppSpec 并生成目标目录树（第二步）：三道门全过后落盘。
 //
-// 流水线：Gate1 schema 门（validateAppSpec）→ 快捷方式归一化
-// （normalizeBootstrap——bootstrap 为空时旧 6 字段升格为唯一契约投影）→
+// 流水线：Gate1 schema 门（validateAppSpec）→ 契约段定位
+// （contractBootstrap——bootstrap 是唯一真相源，未声明时按空配置派生默认键）→
 // Gate2 契约门（contractGate：描述符派生配置树 + 未知键校验 + YAML 回读
 // 复检）→ buildTreeView（段存在性派生，无字段转写）→ buildTree/emitTree
 // （三态归属落盘）。appspecData 手工转写已删除：模板直接吃 *appspecv1.AppSpec。
@@ -265,7 +265,7 @@ func runGenAppSpec(spec, out string, adopt, check bool, streams ioStreams) error
 	if err := guardErrs(validateAppSpec(as)); err != nil {
 		return fmt.Errorf("Gate1 (spec schema): %w", err)
 	}
-	bs := normalizeBootstrap(as)
+	bs := contractBootstrap(as)
 	cfgYAML, err := contractGate(as, bs)
 	if err != nil {
 		return err
@@ -312,9 +312,9 @@ func runGenAppSpec(spec, out string, adopt, check bool, streams ioStreams) error
 // 「roles 为空时生成物逐字节不变」的保证点。
 //
 // 多角色时 RoleSpec.server 非 nil 即以它为准：server 段由 projectServer
-// 覆盖（normalizeBootstrap 只在契约段整体为空时才投影快捷方式，这里不能
-// 依赖它）。空 ServerSpec 投影为 nil 段——runner 的契约里因此没有 server 段。
-// server 为 nil 的角色继承 AppSpec 的契约（不另开面）。
+// 覆盖（只覆盖该角色的投影，bootstrap 的其余段原样继承）。空 ServerSpec
+// 投影为 nil 段——runner 的契约里因此没有 server 段。
+// server 为 nil 的角色继承 bootstrap 的契约（不另开面）。
 func roleContracts(as *appspecv1.AppSpec, bs *bootstrapv1.BootstrapConfig, base []byte, view *treeView) (map[string][]byte, error) {
 	cfgs := make(map[string][]byte, len(view.Roles))
 	for _, slot := range view.Roles {

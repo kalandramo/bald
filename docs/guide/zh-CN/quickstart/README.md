@@ -14,7 +14,7 @@ go install github.com/kalandramo/bald/cmd/bald@v0.25.0
 
 ### 2. 声明 + 一条命令生成
 
-bald 的起步方式是「先声明、再生成」：AppSpec（JSON）声明应用开通哪些传输面，CLI 据此生成整套可编译的装配骨架。最小声明只需要 `meta` 与 `server`：
+bald 的起步方式是「先声明、再生成」：AppSpec（JSON）声明应用开通哪些传输面，CLI 据此生成整套可编译的装配骨架。最小声明只需要 `meta` 与 `bootstrap.server`：
 
 ```json
 {
@@ -23,7 +23,12 @@ bald 的起步方式是「先声明、再生成」：AppSpec（JSON）声明应�
     "module": "github.com/you/demo-svc",
     "desc": "我的第一个 bald 服务"
   },
-  "server": { "http": true, "grpc": true, "httpAddr": ":8080", "grpcAddr": ":9090" }
+  "bootstrap": {
+    "server": {
+      "http": { "addr": ":8080" },
+      "grpc": { "addr": ":9090" }
+    }
+  }
 }
 ```
 
@@ -54,8 +59,8 @@ demo-svc/
 
 归属三态（决定重新生成时发生什么）：
 
-- **生成物**（文件头标 `DO NOT EDIT`）：内容以生成器为准，重新生成时重写；已存在时需 `--force` 放行。
-- **生成一次**（`internal/bootstrap/seed/`、`internal/apiserver/apiserver.go`）：只在该文件不存在时落盘，重生成输出 `kept:` 跳过（`--force` 也不覆盖）——此后归你维护。
+- **生成物**（文件头标 `DO NOT EDIT`）：内容以生成器为准，重新生成时重写；已存在时需 `--adopt` 放行。
+- **生成一次**（`internal/bootstrap/seed/`、`internal/apiserver/apiserver.go`）：只在该文件不存在时落盘，重生成输出 `kept:` 跳过（`--adopt` 也不覆盖）——此后归你维护。
 - **用户物**：`appspec.json` 与你的业务代码，生成器永不读写。
 
 入口链只有三跳：`main.go`（行数硬预算 ≤25）→ `app.Execute()`（cobra 根）→ `appkit.MustServe(context.Background(), bootstrap.Options()...)`。装配知识全部在 `internal/bootstrap/assemble.gen.go` 的 `Options()`：`std.Standard()`（server/audit/logger 三类框架自有后端的段驱动 Provider）+ `ConfigFile`/`WatchConfigFile` + `appkit.StrictContract()`（生成物默认开启，见 §6）+ 传输面能力声明（`WithHTTP`/`WithGRPC`）+ 探针装配。地址、日志、TLS 等可配置项不写死在代码里——由 `configs/demo-svc.yaml` 按契约键驱动。

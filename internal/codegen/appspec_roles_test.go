@@ -115,7 +115,7 @@ func fanoutFixture(t *testing.T) *appspecv1.AppSpec {
 // 返回落盘项清单与全部生成物拼接文本（机器守卫的断言面）。
 func renderAppTree(t *testing.T, as *appspecv1.AppSpec) ([]genFile, string) {
 	t.Helper()
-	bs := normalizeBootstrap(as)
+	bs := contractBootstrap(as)
 	cfg, err := contractGate(as, bs)
 	if err != nil {
 		t.Fatalf("contractGate: %v", err)

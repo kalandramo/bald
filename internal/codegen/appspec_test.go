@@ -27,8 +27,6 @@ func guardFixture() *appspecv1.AppSpec {
 			Server: &bootstrapv1.Server{Http: &bootstrapv1.Server_Http{Addr: ":18080"}},
 			Audit:  &bootstrapv1.Audit{Backends: []string{"log"}},
 		},
-		Server:        &appspecv1.ServerSpec{Http: true, HttpAddr: ":18080"},
-		AuditBackends: []string{"log"},
 		Components: []*appspecv1.ComponentSpec{{
 			Kind: "heartbeat", Name: "demo.hb", ConfigPrefix: "demo.hb",
 			Params: map[string]string{"interval": "30s"},
@@ -37,8 +35,7 @@ func guardFixture() *appspecv1.AppSpec {
 			Provides: []string{"api", "db"},
 			Requires: []*appspecv1.Requirement{{Component: "audit.store", Caps: []string{"db"}}},
 		},
-		Bundle:           &appspecv1.BundleSpec{Normalized: true},
-		BundleNormalized: true,
+		Bundle: &appspecv1.BundleSpec{Normalized: true},
 		Domains: []*appspecv1.DomainSpec{{
 			Name: "greet", ProtoPackage: "greet.v1", Service: "greet.v1.GreetService",
 			Model: "internal/apiserver/model/greet.go", GoPackage: "demo.example/app/internal/apiserver/greetv1",
@@ -96,65 +93,16 @@ func TestGate1_RequiresSubsetOfProvides(t *testing.T) {
 	}
 }
 
-// TestGate1_ProjectionConsistency 快捷方式 ⇄ bootstrap 投影（消灭双真相源）：
-// 每条违例的报错都带两侧字段路径与取值。
-func TestGate1_ProjectionConsistency(t *testing.T) {
-	cases := map[string]func(*appspecv1.AppSpec){
-		"server.http shortcut without bootstrap projection": func(as *appspecv1.AppSpec) {
-			as.Bootstrap.Server = &bootstrapv1.Server{} // http 段缺席
-		},
-		"server.http_addr mismatch": func(as *appspecv1.AppSpec) {
-			as.Bootstrap.Server.Http.Addr = ":19999"
-		},
-		"server.grpc_addr mismatch": func(as *appspecv1.AppSpec) {
-			as.Server.Grpc = true
-			as.Server.GrpcAddr = ":19090"
-		},
-		"audit_backends mismatch": func(as *appspecv1.AppSpec) {
-			as.AuditBackends = []string{"log", "store"}
-		},
-		"audit_backends order matters": func(as *appspecv1.AppSpec) {
-			as.Bootstrap.Audit.Backends = []string{"store", "log"}
-		},
-		"bundle_normalized without bundle.normalized": func(as *appspecv1.AppSpec) {
-			as.Bundle = nil
-		},
-		"gateway without driver projection": func(as *appspecv1.AppSpec) {
-			as.Server.Gateway = true
-		},
-		"meta.name vs bootstrap.app.name": func(as *appspecv1.AppSpec) {
-			as.Bootstrap.App.Name = "other"
-		},
-	}
-	for name, mutate := range cases {
-		as := guardFixture()
-		mutate(as)
-		errs := validateAppSpec(as)
-		if len(errs) == 0 {
-			t.Errorf("%s: projection violation must be rejected", name)
-			continue
+// TestGate1_AppNameDeclaredOnce meta.name 与 bootstrap.app.name 只能有一处
+// （契约 app.name 缺省取 meta.name）：两侧都声明且不一致时生成期报错。
+func TestGate1_AppNameDeclaredOnce(t *testing.T) {
+	as := guardFixture()
+	as.Bootstrap.App.Name = "other"
+	msg := joinErrs(validateAppSpec(as))
+	for _, want := range []string{`bootstrap.app.name="other"`, `meta.name="demoapp"`, "at most one place"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("app.name 双处声明未被报告: error %q 缺少 %q", msg, want)
 		}
-		msg := joinErrs(errs)
-		if !strings.Contains(msg, "must agree") && !strings.Contains(msg, "absent") && !strings.Contains(msg, "at most one place") {
-			t.Errorf("%s: error must name the projection conflict, got: %s", name, msg)
-		}
-	}
-}
-
-// TestGate1_GatewayProjectionAccepted gateway 快捷方式的两个合法投影：
-// 同端口（driver=grpc-gateway）与独立端口段（bootstrap.server.gateway）。
-func TestGate1_GatewayProjectionAccepted(t *testing.T) {
-	samePort := guardFixture()
-	samePort.Server.Gateway = true
-	samePort.Bootstrap.Server.Http.Driver = "grpc-gateway"
-	if errs := validateAppSpec(samePort); len(errs) != 0 {
-		t.Errorf("driver projection must be accepted: %v", errs)
-	}
-	independent := guardFixture()
-	independent.Server.Gateway = true
-	independent.Bootstrap.Server.Gateway = &bootstrapv1.Server_Gateway{Addr: ":18081"}
-	if errs := validateAppSpec(independent); len(errs) != 0 {
-		t.Errorf("independent gateway segment must be accepted: %v", errs)
 	}
 }
 
@@ -272,34 +220,43 @@ func TestGate1_Variants(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// 快捷方式归一化（bootstrap 为空时的兼容通道）
+// 契约段定位（bootstrap 是唯一真相源）
 // ---------------------------------------------------------------------------
 
-// TestNormalizeBootstrap bootstrap 为空时，旧 6 字段快捷方式归一化为契约投影；
-// bootstrap 非空时原样透传（一致性已由 Gate1 把关）。
-func TestNormalizeBootstrap(t *testing.T) {
-	as := &appspecv1.AppSpec{
-		Meta:          &appspecv1.AppMeta{Name: "legacy"},
-		Server:        &appspecv1.ServerSpec{Http: true, HttpAddr: ":18080", Grpc: true, Gateway: true},
-		AuditBackends: []string{"log"},
+// TestContractBootstrap bootstrap 非空时原样返回（不复制、不改写）；未声明
+// 时返回空配置而非 nil，让 Gate2 仍能派生 app.name 等默认键。
+func TestContractBootstrap(t *testing.T) {
+	fx := guardFixture()
+	if got := contractBootstrap(fx); got != fx.Bootstrap {
+		t.Error("declared bootstrap must pass through unchanged")
 	}
-	bs := normalizeBootstrap(as)
-	if bs.GetServer().GetHttp() == nil || bs.GetServer().GetHttp().GetAddr() != ":18080" {
-		t.Errorf("http projection missing: %v", bs.GetServer())
+	empty := contractBootstrap(&appspecv1.AppSpec{Meta: &appspecv1.AppMeta{Name: "legacy"}})
+	if empty == nil {
+		t.Fatal("absent bootstrap must normalize to an empty config")
 	}
-	if bs.GetServer().GetHttp().GetDriver() != gatewayDriver {
-		t.Errorf("gateway shortcut must project to driver=%q, got %q", gatewayDriver, bs.GetServer().GetHttp().GetDriver())
+	if !proto.Equal(empty, &bootstrapv1.BootstrapConfig{}) {
+		t.Errorf("absent bootstrap must be empty, got: %v", empty)
 	}
-	if bs.GetServer().GetGrpc() == nil {
-		t.Error("grpc projection missing")
+}
+
+// TestGate1_RemovedShortcutFieldsRejected Q6：旧快捷方式字段已从 AppSpec 移除，
+// protojson 解析必须拒绝（否则声明面会静默丢字段）。
+func TestGate1_RemovedShortcutFieldsRejected(t *testing.T) {
+	cases := map[string]string{
+		"server":            `{"meta":{"name":"a","module":"m"},"server":{"http":true}}`,
+		"audit_backends":    `{"meta":{"name":"a","module":"m"},"auditBackends":["log"]}`,
+		"bundle_normalized": `{"meta":{"name":"a","module":"m"},"bundleNormalized":true}`,
 	}
-	if strings.Join(bs.GetAudit().GetBackends(), ",") != "log" {
-		t.Errorf("audit projection missing: %v", bs.GetAudit().GetBackends())
-	}
-	// bootstrap 非空：原样返回（不复制、不改写）。
-	orig := guardFixture().Bootstrap
-	if got := normalizeBootstrap(guardFixture()); !proto.Equal(got, orig) {
-		t.Error("non-empty bootstrap must pass through unchanged")
+	for field, raw := range cases {
+		as := &appspecv1.AppSpec{}
+		err := protojson.Unmarshal([]byte(raw), as)
+		if err == nil {
+			t.Errorf("%s: removed field must be rejected by protojson", field)
+			continue
+		}
+		if !strings.Contains(err.Error(), "unknown field") {
+			t.Errorf("%s: error must name the unknown field, got: %v", field, err)
+		}
 	}
 }
 
@@ -311,7 +268,7 @@ func TestNormalizeBootstrap(t *testing.T) {
 // 未知键校验全绿；配置含 app.name（缺省取 meta.name 的投影生效）。
 func TestGate2_RoundTripGreen(t *testing.T) {
 	as := guardFixture()
-	cfg, err := contractGate(as, normalizeBootstrap(as))
+	cfg, err := contractGate(as, contractBootstrap(as))
 	if err != nil {
 		t.Fatalf("Gate2 round-trip: %v", err)
 	}
@@ -388,11 +345,11 @@ func renderSpecForGuard(t *testing.T, as *appspecv1.AppSpec) string {
 	if err := guardErrs(validateAppSpec(as)); err != nil {
 		t.Fatalf("fixture must pass Gate1: %v", err)
 	}
-	cfg, err := contractGate(as, normalizeBootstrap(as))
+	cfg, err := contractGate(as, contractBootstrap(as))
 	if err != nil {
 		t.Fatalf("contractGate: %v", err)
 	}
-	files, err := buildTree(buildTreeView(as, normalizeBootstrap(as)), map[string][]byte{"": cfg})
+	files, err := buildTree(buildTreeView(as, contractBootstrap(as)), map[string][]byte{"": cfg})
 	if err != nil {
 		t.Fatalf("buildTree: %v", err)
 	}
@@ -413,13 +370,13 @@ func TestMachineGuard_AllFieldsConsumed(t *testing.T) {
 }
 
 // TestMachineGuard_UnconsumedFieldRed 负例（红）：从守卫表摘除一个消费者登记，
-// 守卫必须报「declared but has no consumer」——ServerSpec.gateway 型死声明
-// 从此不可能再上线（新增字段忘接消费者 = 测试红）。
+// 守卫必须报「declared but has no consumer」——死声明从此不可能再上线
+// （新增字段忘接消费者 = 测试红）。
 func TestMachineGuard_UnconsumedFieldRed(t *testing.T) {
 	rendered := renderedFixture(t)
-	saved := builderConsumed["bald.appspec.v1.AppSpec.server.gateway"]
-	delete(builderConsumed, "bald.appspec.v1.AppSpec.server.gateway")
-	defer func() { builderConsumed["bald.appspec.v1.AppSpec.server.gateway"] = saved }()
+	saved := builderConsumed["bald.appspec.v1.AppSpec.layout.root"]
+	delete(builderConsumed, "bald.appspec.v1.AppSpec.layout.root")
+	defer func() { builderConsumed["bald.appspec.v1.AppSpec.layout.root"] = saved }()
 
 	errs := checkFieldConsumers(rendered)
 	if len(errs) == 0 {
@@ -437,13 +394,12 @@ func TestMachineGuard_MarkerNotEmittedRed(t *testing.T) {
 	// 无 HTTP 面的声明：bundle.Normalized 无落点（apiserver.go 不 seed）。
 	as := guardFixture()
 	as.Bootstrap.Server = &bootstrapv1.Server{Grpc: &bootstrapv1.Server_Grpc{Addr: ":19090"}}
-	as.Server = &appspecv1.ServerSpec{Grpc: true}
 	as.Bundle = &appspecv1.BundleSpec{Normalized: true}
-	cfg, err := contractGate(as, normalizeBootstrap(as))
+	cfg, err := contractGate(as, contractBootstrap(as))
 	if err != nil {
 		t.Fatalf("contractGate: %v", err)
 	}
-	files, err := buildTree(buildTreeView(as, normalizeBootstrap(as)), map[string][]byte{"": cfg})
+	files, err := buildTree(buildTreeView(as, contractBootstrap(as)), map[string][]byte{"": cfg})
 	if err != nil {
 		t.Fatalf("buildTree: %v", err)
 	}
@@ -474,11 +430,11 @@ func genFixtureTree(t *testing.T, dir string, adopt bool) (*bytes.Buffer, error)
 	if err := guardErrs(validateAppSpec(as)); err != nil {
 		t.Fatalf("fixture Gate1: %v", err)
 	}
-	cfg, err := contractGate(as, normalizeBootstrap(as))
+	cfg, err := contractGate(as, contractBootstrap(as))
 	if err != nil {
 		t.Fatalf("contractGate: %v", err)
 	}
-	files, err := buildTree(buildTreeView(as, normalizeBootstrap(as)), map[string][]byte{"": cfg})
+	files, err := buildTree(buildTreeView(as, contractBootstrap(as)), map[string][]byte{"": cfg})
 	if err != nil {
 		t.Fatalf("buildTree: %v", err)
 	}
@@ -1069,7 +1025,6 @@ func TestTree_GeneratedProjectCompiles(t *testing.T) {
 	}
 	full := guardFixture()
 	full.Bootstrap.Server.Http.Driver = "grpc-gateway"
-	full.Server.Gateway = true
 	withVariants := guardFixture()
 	withVariants.Variants = []*appspecv1.Variant{{
 		Name: "grpcgw", BuildTags: []string{"grpcgw"}, Description: "d",

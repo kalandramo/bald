@@ -36,7 +36,7 @@ type genFile struct {
 // 「proto 字段 → 模板字段」的转写层。
 type treeView struct {
 	Spec       *appspecv1.AppSpec
-	Bootstrap  *bootstrapv1.BootstrapConfig // normalizeBootstrap 归一化后的契约段
+	Bootstrap  *bootstrapv1.BootstrapConfig // AppSpec.bootstrap（契约段唯一真相源）
 	Module     string                       // meta.module（import 前缀）
 	AppName    string                       // meta.name
 	Desc       string                       // meta.desc

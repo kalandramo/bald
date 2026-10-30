@@ -28,34 +28,25 @@ const (
 // 目录树（D2-target-codegen.md §2.1）。
 //
 // 唯一真相源纪律：框架契约段的真相源是
-// bootstrap.v1.BootstrapConfig（字段 7），AppSpec 不复制它的字段；旧字段
-// server / audit_backends / bundle_normalized 降级为「快捷方式」——bootstrap
-// 为空时被归一化进投影，bootstrap 非空时任一非零快捷值与其投影不一致即
-// 生成期报错（Gate1，internal/codegen/appspec_validate.go），消灭双真相源
-// 而不是制造静默覆盖。
+// bootstrap.v1.BootstrapConfig（字段 7），AppSpec 不复制它的字段。旧快捷
+// 方式 server / audit_backends / bundle_normalized（字段 2/5/6）已移除
+// （Q6）——传输面与审计后端必须声明在 bootstrap 段，归一化与双真相源
+// 校验随之删除；字段号与名字永久保留，禁止复用。
 type AppSpec struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// 应用元信息（生成代码的标识；契约 app.name 缺省取 meta.name）。
 	Meta *AppMeta `protobuf:"bytes,1,opt,name=meta,proto3" json:"meta,omitempty"`
-	// [快捷方式] 开通的传输服务；bootstrap.server 非空时必须与投影一致。
-	Server *ServerSpec `protobuf:"bytes,2,opt,name=server,proto3" json:"server,omitempty"`
 	// 挂载的组件（生命周期受 C1 五阶段停机管理）。
 	Components []*ComponentSpec `protobuf:"bytes,3,rep,name=components,proto3" json:"components,omitempty"`
 	// 能力依赖（S1 启动期 fail-fast 校验；生成期 Gate1 先校验 requires⊆provides）。
 	Capability *CapabilitySpec `protobuf:"bytes,4,opt,name=capability,proto3" json:"capability,omitempty"`
-	// [快捷方式] 审计后端期望态；bootstrap.audit 非空时必须与
-	// bootstrap.audit.backends 一致（含顺序——列表序即 MultiAuditor 广播序）。
-	AuditBackends []string `protobuf:"bytes,5,rep,name=audit_backends,json=auditBackends,proto3" json:"audit_backends,omitempty"`
-	// [快捷方式] 是否启用归一化中间件链；bundle.normalized 声明时必须与其一致。
-	BundleNormalized bool `protobuf:"varint,6,opt,name=bundle_normalized,json=bundleNormalized,proto3" json:"bundle_normalized,omitempty"`
 	// 框架契约段：唯一真相源 = bconf（15 段一次带入，不复制字段）。生成物
 	// configs/<app>.yaml 由本段经 protoreflect 派生——加一个 bconf 段 = 0 处
 	// 生成器改动（D2 §3.4）。
 	Bootstrap *v1.BootstrapConfig `protobuf:"bytes,7,opt,name=bootstrap,proto3" json:"bootstrap,omitempty"`
 	// 生成期布局声明（输出根 / apiserver 目录 / Gate3 开关）。
 	Layout *LayoutSpec `protobuf:"bytes,8,opt,name=layout,proto3" json:"layout,omitempty"`
-	// 装配期 bundle 声明（取代 bundle_normalized 快捷方式；bundle 是装配期
-	// 概念不是契约段，故不在 bootstrap）。
+	// 装配期 bundle 声明（bundle 是装配期概念不是契约段，故不在 bootstrap）。
 	Bundle *BundleSpec `protobuf:"bytes,9,opt,name=bundle,proto3" json:"bundle,omitempty"`
 	// 显式域清单（域声明值经生成物 domains.gen.go 变参直传
 	// MustServe；name 唯一由 Gate1 校验）。
@@ -106,13 +97,6 @@ func (x *AppSpec) GetMeta() *AppMeta {
 	return nil
 }
 
-func (x *AppSpec) GetServer() *ServerSpec {
-	if x != nil {
-		return x.Server
-	}
-	return nil
-}
-
 func (x *AppSpec) GetComponents() []*ComponentSpec {
 	if x != nil {
 		return x.Components
@@ -125,20 +109,6 @@ func (x *AppSpec) GetCapability() *CapabilitySpec {
 		return x.Capability
 	}
 	return nil
-}
-
-func (x *AppSpec) GetAuditBackends() []string {
-	if x != nil {
-		return x.AuditBackends
-	}
-	return nil
-}
-
-func (x *AppSpec) GetBundleNormalized() bool {
-	if x != nil {
-		return x.BundleNormalized
-	}
-	return false
 }
 
 func (x *AppSpec) GetBootstrap() *v1.BootstrapConfig {
@@ -580,20 +550,22 @@ func (x *RoleSpec) GetServer() *ServerSpec {
 	return nil
 }
 
-// ServerSpec 声明要开通的传输服务（[快捷方式]：bootstrap.server 非空时，
-// 下方任一非零值都必须与 bootstrap 投影一致，否则生成期报错）。
+// ServerSpec 声明一个角色的传输面（RoleSpec.server）。单角色或未声明
+// 角色时传输面由 bootstrap.server 派生；多角色时本段覆盖该角色
+// configs/<app>-<role>.yaml 的 server 段投影（空 ServerSpec = 该角色不
+// 开任何传输面）。
 type ServerSpec struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// 是否开通 HTTP（投影 = bootstrap.server.http 段存在）。
+	// 是否开通 HTTP。
 	Http bool `protobuf:"varint,1,opt,name=http,proto3" json:"http,omitempty"`
-	// 是否开通 gRPC（投影 = bootstrap.server.grpc 段存在）。
+	// 是否开通 gRPC。
 	Grpc bool `protobuf:"varint,2,opt,name=grpc,proto3" json:"grpc,omitempty"`
-	// 是否开通 gRPC-Gateway（REST transcoding）。投影 = server.http.driver
-	// == "grpc-gateway"（同端口单面）或 server.gateway 段（独立端口）。
+	// 是否开通 gRPC-Gateway（REST transcoding）。投影 = 该角色
+	// server.http.driver == "grpc-gateway"（同端口单面）。
 	Gateway bool `protobuf:"varint,3,opt,name=gateway,proto3" json:"gateway,omitempty"`
-	// HTTP 监听地址（投影 = server.http.addr）。
+	// HTTP 监听地址。
 	HttpAddr string `protobuf:"bytes,4,opt,name=http_addr,json=httpAddr,proto3" json:"http_addr,omitempty"`
-	// gRPC 监听地址（投影 = server.grpc.addr）。
+	// gRPC 监听地址。
 	GrpcAddr      string `protobuf:"bytes,5,opt,name=grpc_addr,json=grpcAddr,proto3" json:"grpc_addr,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -855,24 +827,21 @@ var File_bald_appspec_v1_appspec_proto protoreflect.FileDescriptor
 
 const file_bald_appspec_v1_appspec_proto_rawDesc = "" +
 	"\n" +
-	"\x1dbald/appspec/v1/appspec.proto\x12\x0fbald.appspec.v1\x1a\x1cbootstrap/v1/bootstrap.proto\"\xd5\x04\n" +
+	"\x1dbald/appspec/v1/appspec.proto\x12\x0fbald.appspec.v1\x1a\x1cbootstrap/v1/bootstrap.proto\"\x89\x04\n" +
 	"\aAppSpec\x12,\n" +
-	"\x04meta\x18\x01 \x01(\v2\x18.bald.appspec.v1.AppMetaR\x04meta\x123\n" +
-	"\x06server\x18\x02 \x01(\v2\x1b.bald.appspec.v1.ServerSpecR\x06server\x12>\n" +
+	"\x04meta\x18\x01 \x01(\v2\x18.bald.appspec.v1.AppMetaR\x04meta\x12>\n" +
 	"\n" +
 	"components\x18\x03 \x03(\v2\x1e.bald.appspec.v1.ComponentSpecR\n" +
 	"components\x12?\n" +
 	"\n" +
 	"capability\x18\x04 \x01(\v2\x1f.bald.appspec.v1.CapabilitySpecR\n" +
-	"capability\x12%\n" +
-	"\x0eaudit_backends\x18\x05 \x03(\tR\rauditBackends\x12+\n" +
-	"\x11bundle_normalized\x18\x06 \x01(\bR\x10bundleNormalized\x12;\n" +
+	"capability\x12;\n" +
 	"\tbootstrap\x18\a \x01(\v2\x1d.bootstrap.v1.BootstrapConfigR\tbootstrap\x123\n" +
 	"\x06layout\x18\b \x01(\v2\x1b.bald.appspec.v1.LayoutSpecR\x06layout\x123\n" +
 	"\x06bundle\x18\t \x01(\v2\x1b.bald.appspec.v1.BundleSpecR\x06bundle\x125\n" +
 	"\adomains\x18\n" +
 	" \x03(\v2\x1b.bald.appspec.v1.DomainSpecR\adomains\x124\n" +
-	"\bvariants\x18\v \x03(\v2\x18.bald.appspec.v1.VariantR\bvariants\"^\n" +
+	"\bvariants\x18\v \x03(\v2\x18.bald.appspec.v1.VariantR\bvariantsJ\x04\b\x02\x10\x03J\x04\b\x05\x10\x06J\x04\b\x06\x10\aR\x06serverR\x0eaudit_backendsR\x11bundle_normalized\"^\n" +
 	"\aVariant\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1d\n" +
 	"\n" +
@@ -959,23 +928,22 @@ var file_bald_appspec_v1_appspec_proto_goTypes = []any{
 }
 var file_bald_appspec_v1_appspec_proto_depIdxs = []int32{
 	5,  // 0: bald.appspec.v1.AppSpec.meta:type_name -> bald.appspec.v1.AppMeta
-	7,  // 1: bald.appspec.v1.AppSpec.server:type_name -> bald.appspec.v1.ServerSpec
-	8,  // 2: bald.appspec.v1.AppSpec.components:type_name -> bald.appspec.v1.ComponentSpec
-	9,  // 3: bald.appspec.v1.AppSpec.capability:type_name -> bald.appspec.v1.CapabilitySpec
-	12, // 4: bald.appspec.v1.AppSpec.bootstrap:type_name -> bootstrap.v1.BootstrapConfig
-	2,  // 5: bald.appspec.v1.AppSpec.layout:type_name -> bald.appspec.v1.LayoutSpec
-	3,  // 6: bald.appspec.v1.AppSpec.bundle:type_name -> bald.appspec.v1.BundleSpec
-	4,  // 7: bald.appspec.v1.AppSpec.domains:type_name -> bald.appspec.v1.DomainSpec
-	1,  // 8: bald.appspec.v1.AppSpec.variants:type_name -> bald.appspec.v1.Variant
-	6,  // 9: bald.appspec.v1.AppMeta.roles:type_name -> bald.appspec.v1.RoleSpec
-	7,  // 10: bald.appspec.v1.RoleSpec.server:type_name -> bald.appspec.v1.ServerSpec
-	11, // 11: bald.appspec.v1.ComponentSpec.params:type_name -> bald.appspec.v1.ComponentSpec.ParamsEntry
-	10, // 12: bald.appspec.v1.CapabilitySpec.requires:type_name -> bald.appspec.v1.Requirement
-	13, // [13:13] is the sub-list for method output_type
-	13, // [13:13] is the sub-list for method input_type
-	13, // [13:13] is the sub-list for extension type_name
-	13, // [13:13] is the sub-list for extension extendee
-	0,  // [0:13] is the sub-list for field type_name
+	8,  // 1: bald.appspec.v1.AppSpec.components:type_name -> bald.appspec.v1.ComponentSpec
+	9,  // 2: bald.appspec.v1.AppSpec.capability:type_name -> bald.appspec.v1.CapabilitySpec
+	12, // 3: bald.appspec.v1.AppSpec.bootstrap:type_name -> bootstrap.v1.BootstrapConfig
+	2,  // 4: bald.appspec.v1.AppSpec.layout:type_name -> bald.appspec.v1.LayoutSpec
+	3,  // 5: bald.appspec.v1.AppSpec.bundle:type_name -> bald.appspec.v1.BundleSpec
+	4,  // 6: bald.appspec.v1.AppSpec.domains:type_name -> bald.appspec.v1.DomainSpec
+	1,  // 7: bald.appspec.v1.AppSpec.variants:type_name -> bald.appspec.v1.Variant
+	6,  // 8: bald.appspec.v1.AppMeta.roles:type_name -> bald.appspec.v1.RoleSpec
+	7,  // 9: bald.appspec.v1.RoleSpec.server:type_name -> bald.appspec.v1.ServerSpec
+	11, // 10: bald.appspec.v1.ComponentSpec.params:type_name -> bald.appspec.v1.ComponentSpec.ParamsEntry
+	10, // 11: bald.appspec.v1.CapabilitySpec.requires:type_name -> bald.appspec.v1.Requirement
+	12, // [12:12] is the sub-list for method output_type
+	12, // [12:12] is the sub-list for method input_type
+	12, // [12:12] is the sub-list for extension type_name
+	12, // [12:12] is the sub-list for extension extendee
+	0,  // [0:12] is the sub-list for field type_name
 }
 
 func init() { file_bald_appspec_v1_appspec_proto_init() }

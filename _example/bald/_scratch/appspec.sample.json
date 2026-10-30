@@ -4,12 +4,14 @@
     "module": "github.com/you/demo-svc",
     "desc": "AppSpec 方言驱动生成的演示服务"
   },
-  "server": {
-    "http": true,
-    "grpc": true,
-    "gateway": false,
-    "httpAddr": ":8080",
-    "grpcAddr": ":9090"
+  "bootstrap": {
+    "server": {
+      "http": {"addr": ":8080"},
+      "grpc": {"addr": ":9090"}
+    },
+    "audit": {
+      "backends": ["log", "store"]
+    }
   },
   "components": [
     {"kind": "heartbeat", "name": "demo.heartbeat", "configPrefix": "demo"}
@@ -20,6 +22,5 @@
       {"component": "audit.store", "caps": ["db"]}
     ]
   },
-  "auditBackends": ["log", "store"],
-  "bundleNormalized": true
+  "bundle": {"normalized": true}
 }

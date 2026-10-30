@@ -35,15 +35,12 @@ AppSpec 用一份 JSON 声明应用的装配形态——开通哪些 server、�
 | `meta.name` | string | 应用/命令名：决定 `cmd/<name>/` 与 `configs/<name>.yaml`；契约 `app.name` 缺省取它 |
 | `meta.module` | string | 你的 Go module 路径（生成文件 import 前缀，必填） |
 | `meta.desc` | string | 应用短描述（落在 command.go 的 Short 与文件头） |
-| `server.http` / `server.grpc` | bool | [快捷方式] 开通 HTTP / gRPC 面 |
-| `server.gateway` | bool | [快捷方式] 开通 grpc-gateway 转码面（投影 = `server.http.driver="grpc-gateway"`，同端口单面语义） |
-| `server.httpAddr` / `server.grpcAddr` | string | [快捷方式] 监听地址（投影 = 契约 `server.http.addr` / `server.grpc.addr`） |
 | `components[]` | 数组 | `{kind, name, configPrefix, params}`；kind 白名单当前仅 `heartbeat`（Gate1 生成期校验） |
 | `capability.provides[]` | string[] | 本进程提供的能力（S1 启动期 fail-fast 校验） |
 | `capability.requires[]` | 数组 | `{component, caps[]}`：组件对能力的依赖；`caps` ⊆ `provides`（Gate1 校验） |
-| `auditBackends[]` | string[] | [快捷方式] 审计后端期望态（投影 = `bootstrap.audit.backends`，含顺序） |
-| `bundleNormalized` | bool | [快捷方式] 归一化中间件链（推荐改用 `bundle.normalized`） |
 | `bootstrap` | 对象 | bconf 契约段（15 段整棵带入）——**唯一真相源**；生成物 `configs/<app>.yaml` 由它经 protoreflect 派生 |
+| `bootstrap.server.http` / `bootstrap.server.grpc` | 对象 | 传输面：`{addr, driver, middleware}` / `{addr}`——段存在即开通 |
+| `bootstrap.audit.backends[]` | string[] | 审计后端期望态（列表序即 MultiAuditor 广播序） |
 | `layout.root` | string | 产出根目录（默认 `.`） |
 | `layout.apiserverDir` | string | apiserver 目录名（默认 `apiserver`） |
 | `layout.strictContract` | bool | 生成物是否 emit `appkit.StrictContract()`（proto3 optional 保 presence：未声明 = **true**） |
@@ -51,7 +48,7 @@ AppSpec 用一份 JSON 声明应用的装配形态——开通哪些 server、�
 | `domains[]` | 数组 | 显式域清单 `{name, protoPackage, service, model, goPackage}`（§6） |
 | `variants[]` | 数组 | 构建期变体 `{name, build_tags[], description}`：声明恒进计划（`--plan`/`doctor` 的 `variants:` 段，按 `declared`/`active` 列出），命中的变体另产 `ambient` 诊断（Subject = `variant:<name>`）；只做可见性、不改变装配 |
 
-快捷方式纪律：`bootstrap` 为空时，快捷方式归一化进契约投影；`bootstrap` 非空时，任一非零快捷值与其投影不一致即 Gate1 报错——消灭双真相源，不做静默覆盖。
+契约段纪律：传输面、审计后端等一律声明在 `bootstrap`（唯一真相源）。旧快捷方式字段 `server` / `auditBackends` / `bundleNormalized` 已移除（Q6）——protojson 解析会直接报 `unknown field`，请把对应声明迁到 `bootstrap.server` / `bootstrap.audit.backends` / `bundle.normalized`。
 
 ### 3.2 示例
 
@@ -64,7 +61,12 @@ AppSpec 用一份 JSON 声明应用的装配形态——开通哪些 server、�
     "module": "example.com/my-service",
     "desc": "演示服务"
   },
-  "server": { "http": true, "grpc": true, "httpAddr": ":8080", "grpcAddr": ":9090" }
+  "bootstrap": {
+    "server": {
+      "http": { "addr": ":8080" },
+      "grpc": { "addr": ":9090" }
+    }
+  }
 }
 ```
 
@@ -76,13 +78,13 @@ AppSpec 用一份 JSON 声明应用的装配形态——开通哪些 server、�
 bald gen app --spec appspec.json   # spec 模式下 <name> 可省略，一切以 AppSpec 为准
 ```
 
-flag：`--spec`（AppSpec JSON 路径）、`--out`（产出根，默认 `layout.root` 或 `.`）、`--force`（覆盖已存在的生成物）、`--module`（提示用）。无 `--spec` 时是单文件模板模式（`gen app <name>`，含 `[FILL]` 填充点）——起步推荐 spec 模式。
+flag：`--spec`（AppSpec JSON 路径）、`--out`（产出根，默认 `layout.root` 或 `.`）、`--adopt`（覆盖 owned 生成物并更新清单）、`--check`（零写入校验）、`--module`（提示用）。无 `--spec` 时是单文件模板模式（`gen app <name>`，含 `[FILL]` 填充点）——起步推荐 spec 模式。
 
 ### 4.1 三道门
 
 落盘前依次过三道门：
 
-- **Gate1（schema 门）**：`meta.name`/`meta.module` 必填、组件 kind 白名单、`requires[].caps ⊆ provides`、域 `name` 唯一 + `go_package` 必填 + import 别名不冲突、快捷方式与 bootstrap 投影一致。报错逐条指明字段路径与非法值。
+- **Gate1（schema 门）**：`meta.name`/`meta.module` 必填、组件 kind 白名单、`requires[].caps ⊆ provides`、域 `name` 唯一 + `go_package` 必填 + import 别名不冲突、`meta.name` 与 `bootstrap.app.name` 只声明一处。报错逐条指明字段路径与非法值。
 - **Gate2（契约门）**：`configs/<app>.yaml` 的键由 proto 字段描述符派生（模板不写任何裸配置键）并回读复检——生成物配置键在结构上错不了。
 - **Gate3（运行期契约门）**：生成物 emit `appkit.StrictContract()`（`layout.strictContract` 默认 true），未知契约键启动即报。
 

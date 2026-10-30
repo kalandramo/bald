@@ -43,7 +43,6 @@ func TestTree_EndToEndTimed(t *testing.T) {
 	as := guardFixture()
 	port := freePort(t)
 	as.Bootstrap.Server.Http.Addr = ":" + port
-	as.Server.HttpAddr = ":" + port
 	dir, _ := runGenAppInTemp(t, as)
 	t.Logf("stage gen app+domain: %s", time.Since(start))
 

@@ -581,7 +581,7 @@ func (o *domainOptions) Run() error {
 		return fmt.Errorf("Gate1 (domains.service vs proto): %w", err)
 	}
 
-	v := buildTreeView(as, normalizeBootstrap(as))
+	v := buildTreeView(as, contractBootstrap(as))
 	v.Gen = `"bald gen domain"`
 	if o.APIServerDir != "" && o.APIServerDir != "-" {
 		v.APIDir = o.APIServerDir

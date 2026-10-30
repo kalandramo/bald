@@ -98,7 +98,7 @@ func TestGenAppSpec_CommandOmitsName(t *testing.T) {
 	specPath := filepath.Join(dir, "appspec.json")
 	spec := `{
   "meta": {"name": "cli-demo", "module": "example.com/cli-demo", "desc": "d"},
-  "auditBackends": ["log"]
+  "bootstrap": {"audit": {"backends": ["log"]}}
 }`
 	if err := os.WriteFile(specPath, []byte(spec), 0o644); err != nil {
 		t.Fatalf("write spec: %v", err)

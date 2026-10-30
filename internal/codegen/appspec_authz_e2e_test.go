@@ -49,7 +49,6 @@ func TestTree_AuthzClosedLoop(t *testing.T) {
 	as := guardFixture()
 	port := freePort(t)
 	as.Bootstrap.Server.Http.Addr = ":" + port
-	as.Server.HttpAddr = ":" + port
 	dir, _ := runGenAppInTemp(t, as)
 
 	// 2. 用户槽位接线（testdata 模板落盘；{{MODULE}} 换成生成 module 名）。

@@ -7,7 +7,6 @@ import (
 	"slices"
 	"strings"
 
-	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/dynamicpb"
 
@@ -17,9 +16,9 @@ import (
 
 // appspec_validate.go 是 Gate1（生成期 schema 门，D2-target-codegen.md §3.5）：
 // 在任何文件落盘之前校验 AppSpec 声明——kind 白名单 / name 唯一 /
-// requires⊆provides / 快捷方式与 bootstrap 投影一致。此前这些违例要到
-// 运行期才炸（unknown component kind / unresolved capabilities），或根本
-// 无人校验（双真相源静默分叉）。
+// requires⊆provides / app.name 只声明一处。此前这些违例要到运行期才炸
+// （unknown component kind / unresolved capabilities），或根本无人校验。
+// 契约段的唯一真相源是 bootstrap（Q6 起旧快捷方式字段已移除，无投影对账）。
 
 // componentKinds 是生成器已实现组件工厂的 kind 白名单（Gate1）。白名单外
 // 的 kind 生成期即报错——此前 db/redis 等到运行期才炸 unknown component kind。
@@ -36,13 +35,13 @@ var variantNameRe = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 // 判定命中，这类写法永远不命中且不报错——必须在生成期拒绝。
 var variantTagRe = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.]*$`)
 
-// gatewayDriver 是「gateway 快捷方式」的契约投影值：同端口单面语义
+// gatewayDriver 是角色传输面 gateway 的契约投影值：同端口单面语义
 // （server.http.driver = "grpc-gateway"，与 WithGatewayRegister 的既有
-// 约定一致；独立端口拓扑用契约段 server.gateway，不经快捷方式）。
+// 约定一致；独立端口拓扑直接声明 bootstrap.server.gateway）。
 const gatewayDriver = "grpc-gateway"
 
 // validateAppSpec 校验 AppSpec 声明（Gate1），返回全部违例（聚合报错，
-// 每条含字段路径与非法值）。在 normalizeBootstrap 之前调用。
+// 每条含字段路径与非法值）。在 contractBootstrap 之前调用。
 func validateAppSpec(as *appspecv1.AppSpec) []error {
 	var errs []error
 	add := func(format string, args ...any) {
@@ -200,62 +199,17 @@ func validateAppSpec(as *appspecv1.AppSpec) []error {
 		}
 	}
 
-	// ---- 快捷方式 ⇄ bootstrap 投影一致（bootstrap 非空时；消灭双真相源）----
-	bs := as.GetBootstrap()
-	if bootstrapEmpty(bs) {
-		return errs // bootstrap 为空：快捷方式由 normalizeBootstrap 归一化为投影
-	}
-	sv := as.GetServer()
-	if sv != nil {
-		if sv.GetHttp() && bs.GetServer().GetHttp() == nil {
-			add("server.http=true but bootstrap.server.http is absent (shortcut must agree with the bootstrap projection)")
-		}
-		if a := sv.GetHttpAddr(); a != "" && bs.GetServer().GetHttp().GetAddr() != a {
-			add("server.http_addr=%q but bootstrap.server.http.addr=%q (fields server.http_addr vs bootstrap.server.http.addr must agree)",
-				a, bs.GetServer().GetHttp().GetAddr())
-		}
-		if sv.GetGrpc() && bs.GetServer().GetGrpc() == nil {
-			add("server.grpc=true but bootstrap.server.grpc is absent (shortcut must agree with the bootstrap projection)")
-		}
-		if a := sv.GetGrpcAddr(); a != "" && bs.GetServer().GetGrpc().GetAddr() != a {
-			add("server.grpc_addr=%q but bootstrap.server.grpc.addr=%q (fields server.grpc_addr vs bootstrap.server.grpc.addr must agree)",
-				a, bs.GetServer().GetGrpc().GetAddr())
-		}
-		if sv.GetGateway() {
-			samePort := bs.GetServer().GetHttp().GetDriver() == gatewayDriver
-			independent := bs.GetServer().GetGateway() != nil
-			if !samePort && !independent {
-				add("server.gateway=true but neither bootstrap.server.http.driver=%q nor bootstrap.server.gateway is declared "+
-					"(fields server.gateway vs bootstrap.server.http.driver/bootstrap.server.gateway must agree)", gatewayDriver)
-			}
-		}
-	}
-	if backends := as.GetAuditBackends(); len(backends) > 0 {
-		declared := bs.GetAudit().GetBackends()
-		if !slices.Equal(backends, declared) {
-			add("audit_backends=%v but bootstrap.audit.backends=%v (field audit_backends vs bootstrap.audit.backends must agree, including order)",
-				backends, declared)
-		}
-	}
-	if as.GetBundleNormalized() && !as.GetBundle().GetNormalized() {
-		add("bundle_normalized=true but bundle.normalized is false (fields bundle_normalized vs bundle.normalized must agree; prefer bundle.normalized)")
-	}
-	if an := bs.GetApp().GetName(); an != "" && as.GetMeta().GetName() != "" && an != as.GetMeta().GetName() {
+	// ---- app.name 双处声明：meta.name 与 bootstrap.app.name 只能有一处 ----
+	if an := as.GetBootstrap().GetApp().GetName(); an != "" && as.GetMeta().GetName() != "" && an != as.GetMeta().GetName() {
 		add("bootstrap.app.name=%q but meta.name=%q (contract app.name defaults to meta.name; declare it in at most one place)",
 			an, as.GetMeta().GetName())
 	}
 	return errs
 }
 
-// bootstrapEmpty 报告契约段是否整体为空（nil 或全字段零值）——为空时快捷
-// 方式承担真相源职责，由 normalizeBootstrap 归一化为投影。
-func bootstrapEmpty(bs *bootstrapv1.BootstrapConfig) bool {
-	return bs == nil || proto.Equal(bs, &bootstrapv1.BootstrapConfig{})
-}
-
-// projectServer 把 ServerSpec 快捷方式投影为契约 server 段（AppSpec.server
-// 与 RoleSpec.server 共用同一份投影——双真相源消亡）。未声明任何传输面时
-// 返回 nil：段缺席即「不配置」，L3 段覆盖检查无从要求覆盖。
+// projectServer 把角色传输面（RoleSpec.server）投影为该角色的契约 server
+// 段。未声明任何传输面时返回 nil：段缺席即「该角色不开传输面」，L3 段
+// 覆盖检查无从要求覆盖。
 func projectServer(sv *appspecv1.ServerSpec) *bootstrapv1.Server {
 	if sv == nil {
 		return nil
@@ -277,20 +231,13 @@ func projectServer(sv *appspecv1.ServerSpec) *bootstrapv1.Server {
 	return out
 }
 
-// normalizeBootstrap 把「bootstrap 为空」的 AppSpec 的快捷方式归一化为契约
-// 投影（旧 6 字段 spec 的兼容通道；bootstrap 非空时原样返回——一致性已由
-// Gate1 校验）。此后 config 发射与能力探测只认归一化结果，双真相源消亡。
-func normalizeBootstrap(as *appspecv1.AppSpec) *bootstrapv1.BootstrapConfig {
-	bs := as.GetBootstrap()
-	if !bootstrapEmpty(bs) {
+// contractBootstrap 返回契约段唯一真相源（AppSpec.bootstrap）。未声明时
+// 返回空配置：Gate2 仍能派生 app.name 等默认键，段存在性语义不受影响。
+func contractBootstrap(as *appspecv1.AppSpec) *bootstrapv1.BootstrapConfig {
+	if bs := as.GetBootstrap(); bs != nil {
 		return bs
 	}
-	out := &bootstrapv1.BootstrapConfig{}
-	out.Server = projectServer(as.GetServer())
-	if len(as.GetAuditBackends()) > 0 {
-		out.Audit = &bootstrapv1.Audit{Backends: slices.Clone(as.GetAuditBackends())}
-	}
-	return out
+	return &bootstrapv1.BootstrapConfig{}
 }
 
 // ---------------------------------------------------------------------------
@@ -328,25 +275,15 @@ var fieldConsumers = map[string]string{
 }
 
 // builderConsumed 是「由树构建器直接消费（不落生成物文本）」的字段集合：
-// 快捷方式（server/audit_backends/bundle_normalized）的消费 = Gate1 投影
-// 一致性校验 + normalizeBootstrap 归一化；bootstrap 段的消费 = Gate2 契约
-// 门 + 配置反射发射；layout.root 的消费 = 产出根定位。仍须登记——漏登即
-// 死声明（与 fieldConsumers 同一守卫）。
+// bootstrap 段的消费 = Gate2 契约门 + 配置反射发射；layout.root 的消费 =
+// 产出根定位。仍须登记——漏登即死声明（与 fieldConsumers 同一守卫）。
 var builderConsumed = map[string]bool{
-	"bald.appspec.v1.AppSpec.server":            true,
-	"bald.appspec.v1.AppSpec.server.http":       true,
-	"bald.appspec.v1.AppSpec.server.grpc":       true,
-	"bald.appspec.v1.AppSpec.server.gateway":    true,
-	"bald.appspec.v1.AppSpec.server.http_addr":  true,
-	"bald.appspec.v1.AppSpec.server.grpc_addr":  true,
-	"bald.appspec.v1.AppSpec.audit_backends":    true,
-	"bald.appspec.v1.AppSpec.bundle_normalized": true,
-	"bald.appspec.v1.AppSpec.bootstrap":         true,
-	"bald.appspec.v1.AppSpec.layout.root":       true,
+	"bald.appspec.v1.AppSpec.bootstrap":   true,
+	"bald.appspec.v1.AppSpec.layout.root": true,
 	// meta.roles：消费 = Gate1 角色校验（本文件 roles 块：name 唯一 +
 	// domains 引用 + 并集覆盖）+ 树构建器按角色切分 cmd/<app>-<role>/ 与
-	// configs/<app>-<role>.yaml（不落可断言的单一标记，故与快捷方式
-	// server.* 同类登记）。
+	// configs/<app>-<role>.yaml（不落可断言的单一标记，故与 layout.root
+	// 同类登记）。
 	"bald.appspec.v1.AppSpec.meta.roles":                  true,
 	"bald.appspec.v1.AppSpec.meta.roles.name":             true,
 	"bald.appspec.v1.AppSpec.meta.roles.domains":          true,
@@ -407,8 +344,7 @@ func checkFieldConsumers(rendered string) []error {
 			case hasMarker:
 				// 标记命中。
 			case builderConsumed[full]:
-				// 树构建器直接消费（Gate1 投影校验 / normalizeBootstrap /
-				// Gate2 契约门 / 产出根定位）。
+				// 树构建器直接消费（Gate2 契约门 / 产出根定位）。
 			default:
 				errs = append(errs, fmt.Errorf("field %s is declared but has no consumer (register it in fieldConsumers or builderConsumed)", full))
 			}
