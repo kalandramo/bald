@@ -43,8 +43,8 @@ func TestPlan_ReferenceProject(t *testing.T) {
 	}
 
 	// 构建期变体（Q7）：声明恒进计划——任何构建都列出 grpcgw / nacos 两条
-	// 分叉；Active 与 ambient 警告只在对应 tag 编进来时为真（同一个测试在
-	// 默认与 -tags grpcgw 两种构建下都成立）。
+	// 分叉；Active 只在对应 tag 编进来时为真（同一个测试在默认与 -tags
+	// grpcgw 两种构建下都成立）。
 	tags := appkit.BuildTags()
 	grpcgwOn := appkit.HasBuildTags(tags, "grpcgw")
 	if len(p.Variants) != 2 {
@@ -57,15 +57,13 @@ func TestPlan_ReferenceProject(t *testing.T) {
 	}
 
 	// 逃逸警告为 0：域有 RouteTable（不该 custom-routes）、预算达标（不该
-	// opaque-budget）；ambient 只允许来自当前构建命中的 grpcgw 变体。
+	// opaque-budget）、已声明变体不进 ambient（I11）。
 	for _, w := range p.Warnings {
 		switch w.Code {
 		case "custom-routes", "opaque-budget":
 			t.Errorf("unexpected %s warning: %s (%s)", w.Code, w.Message, w.Subject)
 		case "ambient":
-			if w.Subject != "variant:grpcgw" || !grpcgwOn {
-				t.Errorf("unexpected ambient warning: %s (%s)", w.Message, w.Subject)
-			}
+			t.Errorf("unexpected ambient warning: %s (%s)", w.Message, w.Subject)
 		}
 	}
 

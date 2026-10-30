@@ -134,9 +134,15 @@ type Decl struct {
 	// init() 注册回调等计划看不到、却改变运行形态的事实。每条投影为
 	// Plan.Warnings 的 ambient 诊断（I10）。
 	Ambient []Ambient
-	// Variants 是构建期变体声明（WithVariantDecls 追加；生成物按实际 build
-	// tags 计算 Active）——声明恒进计划，命中另产 ambient 诊断。
+	// Variants 是构建期变体声明（WithVariantDecls 追加；生成物按实际构建
+	// 约束求值 Active）——声明恒进计划，命中的声明增量并入装配。
 	Variants []VariantDecl
+	// VariantImpls 是变体实现（WithVariantImpl 追加；由 //go:build 文件注册）。
+	// 声明与实现按变体名对账：实现必须命中、组件集必须与声明一致（I12）。
+	VariantImpls []VariantImpl
+	// variantState 记录变体效果的首次应用结果（组件/HTTP 包装只能装一次；
+	// 补丁在配置热更重算时重放）。
+	variantState *variantState
 	// PlanCache 是计划缓存文件路径（WithPlanCache 写入；空 = 不落盘）。启动期
 	// 记录计划基线，doctor 只读对比；缓存不是执行依据（见 plan_cache.go）。
 	PlanCache string

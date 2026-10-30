@@ -38,7 +38,7 @@ import (
 // init 注入 grpc-gateway 转码注册回调（assemble.go 的 RoleAPI 分支经
 // WithGatewayRegister 声明网关能力，配合契约 server.http.driver=grpc-gateway
 // 接入网关转码面）。可见性不在这里登记：assemble.go 的 WithVariantDecls
-// 恒声明 grpcgw 分叉，带 tag 构建由 Active 标出并产 ambient 警告。
+// 恒声明 grpcgw 分叉，带 tag 构建只把 Active 标为真（已声明变体不进 ambient）。
 func init() {
 	gatewayRegister = registerGateway
 }

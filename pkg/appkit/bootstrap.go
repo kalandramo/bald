@@ -217,6 +217,12 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig, settings map[string]
 	if cfg == nil {
 		return nil, errors.New("appkit: assemble: bootstrap config is nil")
 	}
+	// 构建期变体（Q7）：命中变体的增量并入 Decl/契约——必须在 Provider 计划
+	// 与能力校验之前（补丁可能改 server.http.driver 等段值）。与 Compile 同源。
+	vp, err := applyVariantEffects(spec, cfg)
+	if err != nil {
+		return nil, err
+	}
 	// 段驱动装配计划：路径末者胜 → Provider.Plan → 节点冲突裁决 + 统一排序
 	//（机制见 provider.go）。计划是执行顺序的唯一来源。
 	plan, err := newProviderPlan(context.Background(), spec, cfg, settings)
@@ -506,7 +512,7 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig, settings map[string]
 
 	// M3 计划快照 + 节点协调器：计划是配置变更 diff 的基线；可协调的 Provider
 	// 节点（audit 等）在配置变更时按同一 Provider 重建产物并替换 cleanup 槽位。
-	fullPlan, err := planFrom(context.Background(), spec, cfg, settings, plan)
+	fullPlan, err := planFrom(context.Background(), spec, cfg, settings, plan, vp)
 	if err != nil {
 		return nil, err
 	}

@@ -143,6 +143,9 @@ func writeDoctor(w io.Writer, p *Plan, tags []string, cache *planCacheBaseline, 
 				state = "active"
 			}
 			fmt.Fprintf(w, "    %-8s %-20s when=%s\n", state, v.Name, variantWhenLabel(v))
+			for _, eff := range variantEffectLines(v) {
+				fmt.Fprintf(w, "             %s\n", eff)
+			}
 		}
 	}
 	domains.write(w)
@@ -303,6 +306,9 @@ func writePlanCacheSection(w io.Writer, b *planCacheBaseline, p *Plan) {
 					var what []string
 					if vc.WhenChanged {
 						what = append(what, "when")
+					}
+					if vc.EffectsChanged {
+						what = append(what, "effects")
 					}
 					if vc.ActiveChanged {
 						what = append(what, "active")

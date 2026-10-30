@@ -138,9 +138,9 @@ func Options(role string) []appkit.Option {
 	// 变更（本地文件，非执行依据；读写失败只告警）。
 	opts = append(opts, appkit.WithPlanCache(".bald/plan-cache.json"))
 	// 构建期变体（Q7）：声明恒进计划——不带 tag 的构建也能从 --plan/doctor
-	// 的 variants 段看到两条分叉（declared/active），命中的变体另产 ambient
-	// 警告。register_*.go 只保留接线本身（gatewayRegister 等），不再各自登记
-	// ambient；两条声明写在始终参与编译的这里，所以未命中也可见。
+	// 的 variants 段看到两条分叉（declared/active）。已声明变体不进 ambient；
+	// register_*.go 只保留接线本身（gatewayRegister 等），两条声明写在始终
+	// 参与编译的这里，所以未命中也可见。
 	opts = append(opts, appkit.WithVariantDecls(
 		appkit.VariantDecl{
 			Name:   "grpcgw",

@@ -716,9 +716,10 @@ func TestTree_VariantsProjectedAtRuntime(t *testing.T) {
 			if err != nil {
 				t.Fatalf("doctor: %v\n%s", err, out)
 			}
-			has := strings.Contains(string(out), "ambient [variant:grpcgw]")
-			if has != tc.want {
-				t.Errorf("variant:grpcgw diagnostic present = %v, want %v:\n%s", has, tc.want, out)
+			// I11：已声明的变体不再产 ambient 旁白——命中与否都只体现在
+			// variants 段的 active 状态上，装配增量是普通计划实体。
+			if has := strings.Contains(string(out), "ambient [variant:grpcgw]"); has {
+				t.Errorf("declared variants must not emit ambient diagnostics:\n%s", out)
 			}
 			if tagsLine := strings.Contains(string(out), "build tags: grpcgw"); tagsLine != tc.want {
 				t.Errorf("build tags line mismatch (got %v, want %v):\n%s", tagsLine, tc.want, out)

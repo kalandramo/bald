@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"time"
 
@@ -71,14 +72,15 @@ type DiagnosticChange struct {
 // 实际的构建约束求值决定）同样改变装配口径：同一份声明换一套 tag 构建就是
 // 另一套接线，不能在基线对比里隐身。
 type VariantChange struct {
-	Name          string `json:"name"`
-	When          string `json:"when,omitempty"`
-	Active        bool   `json:"active,omitempty"`
-	WhenChanged   bool   `json:"whenChanged,omitempty"`
-	DetailChanged bool   `json:"detailChanged,omitempty"`
-	ActiveChanged bool   `json:"activeChanged,omitempty"`
-	Added         bool   `json:"added,omitempty"`
-	Removed       bool   `json:"removed,omitempty"`
+	Name           string `json:"name"`
+	When           string `json:"when,omitempty"`
+	Active         bool   `json:"active,omitempty"`
+	WhenChanged    bool   `json:"whenChanged,omitempty"`
+	DetailChanged  bool   `json:"detailChanged,omitempty"`
+	EffectsChanged bool   `json:"effectsChanged,omitempty"`
+	ActiveChanged  bool   `json:"activeChanged,omitempty"`
+	Added          bool   `json:"added,omitempty"`
+	Removed        bool   `json:"removed,omitempty"`
 }
 
 // planCacheBaseline 是 doctor 对基线的对比结果（Err 非 nil 表示缓存不可读，
@@ -344,17 +346,19 @@ func diffVariants(old, next *Plan) []VariantChange {
 		default:
 			whenChanged := o.When != x.When
 			detailChanged := o.Detail != x.Detail
+			effectsChanged := !reflect.DeepEqual(o.Effects, x.Effects)
 			activeChanged := o.Active != x.Active
-			if !whenChanged && !detailChanged && !activeChanged {
+			if !whenChanged && !detailChanged && !effectsChanged && !activeChanged {
 				continue
 			}
 			out = append(out, VariantChange{
-				Name:          x.Name,
-				When:          x.When,
-				Active:        x.Active,
-				WhenChanged:   whenChanged,
-				DetailChanged: detailChanged,
-				ActiveChanged: activeChanged,
+				Name:           x.Name,
+				When:           x.When,
+				Active:         x.Active,
+				WhenChanged:    whenChanged,
+				DetailChanged:  detailChanged,
+				EffectsChanged: effectsChanged,
+				ActiveChanged:  activeChanged,
 			})
 		}
 	}
