@@ -143,16 +143,14 @@ func Options(role string) []appkit.Option {
 	// ambient；两条声明写在始终参与编译的这里，所以未命中也可见。
 	opts = append(opts, appkit.WithVariantDecls(
 		appkit.VariantDecl{
-			Name:      "grpcgw",
-			BuildTags: []string{"grpcgw"},
-			Detail:    "server.http may be served by grpc-gateway transcoding; wiring is compiled only under -tags grpcgw",
-			Active:    appkit.HasBuildTags(appkit.BuildTags(), "grpcgw"),
+			Name:   "grpcgw",
+			When:   "grpcgw",
+			Detail: "server.http may be served by grpc-gateway transcoding; wiring is compiled only under -tags grpcgw",
 		},
 		appkit.VariantDecl{
-			Name:      "nacos",
-			BuildTags: []string{"nacos"},
-			Detail:    "nacos registry provider and remote config source are compiled only under -tags nacos",
-			Active:    appkit.HasBuildTags(appkit.BuildTags(), "nacos"),
+			Name:   "nacos",
+			When:   "nacos",
+			Detail: "nacos registry provider and remote config source are compiled only under -tags nacos",
 		},
 	))
 	// 逃逸舱预算：api 角色 2 个（程序化 registry、std server）——greet 域已迁到

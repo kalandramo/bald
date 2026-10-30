@@ -5,6 +5,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -148,14 +150,17 @@ func TestGate1_MetaRequired(t *testing.T) {
 	}
 }
 
-// TestGate1_Variants 变体声明：name 必填/形状/唯一，build_tags 非空且逐项
-// 非空、无首尾空白、不重复；合法声明通过。
+// TestGate1_Variants 变体声明：name 必填/形状/唯一；生效条件 must declare
+// exactly one of when（go/build/constraint 表达式）与 build_tags（&& 糖），
+// build_tags 逐项仍按单 tag 校验（表达式写 when）。
 func TestGate1_Variants(t *testing.T) {
 	valid := guardFixture()
 	valid.Variants = []*appspecv1.Variant{{
 		Name: "grpcgw", BuildTags: []string{"grpcgw"}, Description: "d",
 	}, {
 		Name: "linux_amd64", BuildTags: []string{"linux", "amd64", "go1.27"},
+	}, {
+		Name: "gateway_only", When: "grpcgw && !nacos",
 	}}
 	if errs := validateAppSpec(valid); len(errs) != 0 {
 		t.Fatalf("valid variants must pass Gate1: %v", errs)
@@ -176,13 +181,25 @@ func TestGate1_Variants(t *testing.T) {
 		"duplicate name": {
 			[]*appspecv1.Variant{
 				{Name: "grpcgw", BuildTags: []string{"grpcgw"}},
-				{Name: "grpcgw", BuildTags: []string{"nacos"}},
+				{Name: "grpcgw", When: "nacos"},
 			},
 			`variants[1].name "grpcgw" is declared twice`,
 		},
-		"empty build_tags": {
+		"missing condition": {
 			[]*appspecv1.Variant{{Name: "grpcgw"}},
-			`variants[0].build_tags is empty`,
+			`variants[0] needs a condition`,
+		},
+		"both forms": {
+			[]*appspecv1.Variant{{Name: "grpcgw", BuildTags: []string{"grpcgw"}, When: "nacos"}},
+			`declares both when and build_tags`,
+		},
+		"invalid expression": {
+			[]*appspecv1.Variant{{Name: "grpcgw", When: "grpcgw &&"}},
+			`is not a valid go/build/constraint expression`,
+		},
+		"multiline expression": {
+			[]*appspecv1.Variant{{Name: "grpcgw", When: "grpcgw\n&& nacos"}},
+			`must be a single-line go/build/constraint expression`,
 		},
 		"blank tag": {
 			[]*appspecv1.Variant{{Name: "grpcgw", BuildTags: []string{"  "}}},
@@ -198,15 +215,15 @@ func TestGate1_Variants(t *testing.T) {
 		},
 		"comma expression": {
 			[]*appspecv1.Variant{{Name: "grpcgw", BuildTags: []string{"grpcgw,nacos"}}},
-			`"grpcgw,nacos" is not a single build tag`,
+			`use when for expressions`,
 		},
 		"negation expression": {
 			[]*appspecv1.Variant{{Name: "grpcgw", BuildTags: []string{"!nacos"}}},
-			`"!nacos" is not a single build tag`,
+			`use when for expressions`,
 		},
 		"conjunction expression": {
 			[]*appspecv1.Variant{{Name: "grpcgw", BuildTags: []string{"grpcgw&&nacos"}}},
-			`"grpcgw&&nacos" is not a single build tag`,
+			`use when for expressions`,
 		},
 	}
 	for name, tc := range cases {
@@ -324,9 +341,14 @@ func TestGate2_EmptySegmentStaysObject(t *testing.T) {
 // variantFixture 挂上机器守卫与生成测试共用的变体声明：取值与
 // fieldConsumers 的 variants 标记一一同构（改一处必须同步另一处）。
 func variantFixture(as *appspecv1.AppSpec) *appspecv1.AppSpec {
-	as.Variants = []*appspecv1.Variant{{
-		Name: "grpcgw", BuildTags: []string{"grpcgw"}, Description: "gateway wiring behind the grpcgw tag",
-	}}
+	as.Variants = []*appspecv1.Variant{
+		{
+			Name: "grpcgw", BuildTags: []string{"grpcgw"}, Description: "gateway wiring behind the grpcgw tag",
+		},
+		{
+			Name: "linux_amd64", When: "linux && amd64",
+		},
+	}
 	return as
 }
 
@@ -579,16 +601,13 @@ func TestGenApp_VariantsProjectedToPlan(t *testing.T) {
 	for _, want := range []string{
 		"package bootstrap",
 		"func variantOptions() []appkit.Option {",
-		"tags := appkit.BuildTags()",
 		"return []appkit.Option{appkit.WithVariantDecls(",
-		`Name:      "grpcgw",`,
-		`BuildTags: []string{"grpcgw"},`,
-		`Detail:    "gateway registration injected by -tags grpcgw",`,
-		`Active:    appkit.HasBuildTags(tags, "grpcgw"),`,
-		`Name:      "nacos_config",`,
-		`BuildTags: []string{"nacos", "config"},`,
-		`Detail:    "build-tag variant declared in AppSpec.variants (tags: nacos,config)",`,
-		`Active:    appkit.HasBuildTags(tags, "nacos", "config"),`,
+		`Name:   "grpcgw",`,
+		`When:   "grpcgw",`,
+		`Detail: "gateway registration injected by -tags grpcgw",`,
+		`Name:   "nacos_config",`,
+		`When:   "nacos && config",`,
+		`Detail: "build-tag variant declared in AppSpec.variants (when: nacos && config)",`,
 	} {
 		if !strings.Contains(src, want) {
 			t.Errorf("variants.gen.go missing %q:\n%s", want, src)
@@ -705,15 +724,23 @@ func TestTree_VariantsProjectedAtRuntime(t *testing.T) {
 				t.Errorf("build tags line mismatch (got %v, want %v):\n%s", tagsLine, tc.want, out)
 			}
 			// 声明面恒可见：变体总数与声明名不随构建变化，只有 active 计数变。
-			active := "0"
+			// 夹具第二个变体 when=linux && amd64 由主机平台求值，不能写死
+			// 0——验收 CI 跑在 linux/amd64 上它本来就命中。
+			active := 0
 			if tc.want {
-				active = "1"
+				active++
 			}
-			if !strings.Contains(string(out), "variants: 1 (active "+active+")") {
-				t.Errorf("variants section must report 1 declared, active=%v:\n%s", tc.want, out)
+			if runtime.GOOS == "linux" && runtime.GOARCH == "amd64" {
+				active++
 			}
-			if !strings.Contains(string(out), "grpcgw") {
-				t.Errorf("declared variant name must be listed in doctor:\n%s", out)
+			wantActive := strconv.Itoa(active)
+			if !strings.Contains(string(out), "variants: 2 (active "+wantActive+")") {
+				t.Errorf("variants section must report 2 declared, active=%s:\n%s", wantActive, out)
+			}
+			for _, name := range []string{"grpcgw", "linux_amd64"} {
+				if !strings.Contains(string(out), name) {
+					t.Errorf("declared variant %q must be listed in doctor:\n%s", name, out)
+				}
 			}
 		})
 	}

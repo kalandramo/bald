@@ -142,7 +142,7 @@ func writeDoctor(w io.Writer, p *Plan, tags []string, cache *planCacheBaseline, 
 			if v.Active {
 				state = "active"
 			}
-			fmt.Fprintf(w, "    %-8s %-20s tags=%s\n", state, v.Name, strings.Join(v.BuildTags, ","))
+			fmt.Fprintf(w, "    %-8s %-20s when=%s\n", state, v.Name, variantWhenLabel(v))
 		}
 	}
 	domains.write(w)
@@ -282,24 +282,27 @@ func writePlanCacheSection(w io.Writer, b *planCacheBaseline, p *Plan) {
 		}
 		if len(b.Variants) > 0 {
 			// 变体声明（AppSpec.variants → Plan.Variants）是声明面的一部分：
-			// 增删、tags 改写与命中态（Active，由二进制实际 -tags 决定）变化
-			// 都改变装配口径，逐条列出。
+			// 增删、条件表达式改写与命中态（Active，由二进制实际的构建约束
+			// 求值决定）变化都改变装配口径，逐条列出。
 			fmt.Fprintf(w, "  variants changed: %d\n", len(b.Variants))
 			for _, vc := range b.Variants {
 				state := "declared"
 				if vc.Active {
 					state = "active"
 				}
-				tags := strings.Join(vc.BuildTags, ",")
+				when := vc.When
+				if when == "" {
+					when = "(always)"
+				}
 				switch {
 				case vc.Added:
-					fmt.Fprintf(w, "    + %-20s %s tags=%s\n", vc.Name, state, tags)
+					fmt.Fprintf(w, "    + %-20s %s when=%s\n", vc.Name, state, when)
 				case vc.Removed:
-					fmt.Fprintf(w, "    - %-20s %s tags=%s\n", vc.Name, state, tags)
+					fmt.Fprintf(w, "    - %-20s %s when=%s\n", vc.Name, state, when)
 				default:
 					var what []string
-					if vc.TagsChanged {
-						what = append(what, "tags")
+					if vc.WhenChanged {
+						what = append(what, "when")
 					}
 					if vc.ActiveChanged {
 						what = append(what, "active")
@@ -307,7 +310,7 @@ func writePlanCacheSection(w io.Writer, b *planCacheBaseline, p *Plan) {
 					if vc.DetailChanged {
 						what = append(what, "detail")
 					}
-					fmt.Fprintf(w, "    ~ %-20s tags=%s: %s\n", vc.Name, tags, strings.Join(what, " + "))
+					fmt.Fprintf(w, "    ~ %-20s when=%s: %s\n", vc.Name, when, strings.Join(what, " + "))
 				}
 			}
 		}

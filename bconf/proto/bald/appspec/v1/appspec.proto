@@ -56,10 +56,15 @@ message Variant {
   // 变体名（全应用唯一；须匹配 ^[a-z][a-z0-9_]*$——诊断 Subject 为
   // "variant:<name>"，生成物也用它区分条目）。
   string name = 1;
-  // 生效所需的 build tag（全部满足才命中；空列表在 Gate1 报错）。
+  // 生效所需的 build tag（全部满足才命中）。迁移糖：与 when 互斥，等价于
+  // 用 && 连接；新声明请直接写 when。
   repeated string build_tags = 2;
   // 人读说明（进 ambient 诊断的 Detail；为空时生成器给默认说明）。
   string description = 3;
+  // 生效条件：Go 构建约束表达式（`//go:build` 行语法，如
+  // "grpcgw && !nacos"）。与 build_tags 互斥、二者必须声明一个；Gate1
+  // 用 go/build/constraint 同一解析器校验，命中判据与 go build 同源。
+  string when = 4;
 }
 
 // LayoutSpec 声明生成期布局。

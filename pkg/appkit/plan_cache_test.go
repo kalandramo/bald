@@ -165,7 +165,7 @@ func TestPlanCache_VariantChangeVisible(t *testing.T) {
 		}
 		return p
 	}
-	base, declared := compile(), compile(VariantDecl{Name: "grpcgw", BuildTags: []string{"grpcgw"}})
+	base, declared := compile(), compile(VariantDecl{Name: "grpcgw", When: "grpcgw"})
 	if base.Hash() == declared.Hash() {
 		t.Fatal("variant declaration kept the same plan hash")
 	}
@@ -182,7 +182,7 @@ func TestPlanCache_VariantChangeVisible(t *testing.T) {
 		t.Fatalf("variant diff = %+v, want added grpcgw", cmp.Variants)
 	}
 	out := renderDoctor(declared, cmp)
-	for _, want := range []string{"variants changed: 1", "+ grpcgw", "declared", "tags=grpcgw"} {
+	for _, want := range []string{"variants changed: 1", "+ grpcgw", "declared", "when=grpcgw"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("doctor output missing %q:\n%s", want, out)
 		}
@@ -193,7 +193,8 @@ func TestPlanCache_VariantChangeVisible(t *testing.T) {
 
 	// 同一份声明，换成带 tag 的构建：命中态翻转（Active false → true）同样
 	// 是装配口径变化；命中的变体另产 ambient 诊断。
-	active := compile(VariantDecl{Name: "grpcgw", BuildTags: []string{"grpcgw"}, Active: true})
+	setTestBuildTags(t, "grpcgw")
+	active := compile(VariantDecl{Name: "grpcgw", When: "grpcgw"})
 	if err := writePlanCacheEntry(path, declared, time.Now()); err != nil {
 		t.Fatalf("writePlanCacheEntry(declared): %v", err)
 	}
@@ -202,7 +203,7 @@ func TestPlanCache_VariantChangeVisible(t *testing.T) {
 		t.Fatalf("compare = %+v, want active-state change on grpcgw", cmp)
 	}
 	out = renderDoctor(active, cmp)
-	for _, want := range []string{"variants changed: 1", "~ grpcgw", "tags=grpcgw: active"} {
+	for _, want := range []string{"variants changed: 1", "~ grpcgw", "when=grpcgw: active"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("doctor output missing %q:\n%s", want, out)
 		}

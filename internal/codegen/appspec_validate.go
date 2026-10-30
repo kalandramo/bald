@@ -3,6 +3,7 @@ package codegen
 import (
 	"errors"
 	"fmt"
+	"go/build/constraint"
 	"regexp"
 	"slices"
 	"strings"
@@ -173,8 +174,18 @@ func validateAppSpec(as *appspecv1.AppSpec) []error {
 			seenVariant[name] = true
 		}
 		tags := vr.GetBuildTags()
-		if len(tags) == 0 {
-			add("variants[%d].build_tags is empty (a variant without tags would always match)", i)
+		when := strings.TrimSpace(vr.GetWhen())
+		switch {
+		case when != "" && len(tags) > 0:
+			add("variants[%d] declares both when and build_tags (they are mutually exclusive; when is the canonical form, build_tags is &&-sugar)", i)
+		case when == "" && len(tags) == 0:
+			add("variants[%d] needs a condition: declare when (a go/build/constraint expression) or build_tags (all must match)", i)
+		case when != "":
+			if strings.ContainsAny(vr.GetWhen(), "\r\n") {
+				add("variants[%d].when must be a single-line go/build/constraint expression", i)
+			} else if _, err := constraint.Parse("//go:build " + when); err != nil {
+				add("variants[%d].when %q is not a valid go/build/constraint expression: %v", i, when, err)
+			}
 		}
 		seenTag := map[string]bool{}
 		for j, t := range tags {
@@ -186,10 +197,10 @@ func validateAppSpec(as *appspecv1.AppSpec) []error {
 				add("variants[%d].build_tags[%d] %q has surrounding whitespace", i, j, t)
 				continue
 			case !variantTagRe.MatchString(t):
-				// 生成物的命中判据是「构建 tag 列表包含这一项」：带逗号会被
-				// BuildTags 拆成两项、带 ! / && 则永远不等于任何单项——两种
-				// 写法都会静默不命中，必须在生成期拒绝而不是靠建错树发现。
-				add("variants[%d].build_tags[%d] %q is not a single build tag (expressions such as \"a,b\", \"!a\" or \"a&&b\" are not supported; declare one tag per entry, all entries must match)", i, j, t)
+				// build_tags 是「每个条目一个 tag，全部命中」的迁移糖：带逗号
+				// 或布尔语法会被 && 连接后语义含糊，写表达式请用 when——两者
+				// 在 Gate1 互斥，不能让同一条件有两种拼法。
+				add("variants[%d].build_tags[%d] %q is not a single build tag (use when for expressions such as \"a,b\", \"!a\" or \"a&&b\")", i, j, t)
 				continue
 			}
 			if seenTag[t] {
@@ -267,10 +278,11 @@ var fieldConsumers = map[string]string{
 	"bald.appspec.v1.AppSpec.domains.model":                 "internal/apiserver/model/greet.go",
 	"bald.appspec.v1.AppSpec.domains.go_package":            "demo.example/app/internal/apiserver/greetv1",
 	// variants.gen.go 是 gofmt 后的 VariantDecl 字面量：name 的标记带上
-	// 字段名与对齐空格，避免与 build_tags 的 `"grpcgw"` 标记混淆（两个字段
-	// 各留一个独立标记，任一字段漏接消费者都能单独报红）。
-	"bald.appspec.v1.AppSpec.variants.name":        "Name:      \"grpcgw\",",
-	"bald.appspec.v1.AppSpec.variants.build_tags":  `"grpcgw"`,
+	// 字段名与对齐空格，避免与 when 的 `"grpcgw"` 标记混淆（两个字段
+	// 各留一个独立标记，任一字段漏接消费者都能单独报红）。build_tags 是
+	// when 的 &&-迁移糖，消费 = 生成期归一（builderConsumed），不落独立标记。
+	"bald.appspec.v1.AppSpec.variants.name":        "Name:   \"grpcgw\",",
+	"bald.appspec.v1.AppSpec.variants.when":        `When:   "linux && amd64",`,
 	"bald.appspec.v1.AppSpec.variants.description": "gateway wiring behind the grpcgw tag",
 }
 
@@ -293,6 +305,9 @@ var builderConsumed = map[string]bool{
 	"bald.appspec.v1.AppSpec.meta.roles.server.gateway":   true,
 	"bald.appspec.v1.AppSpec.meta.roles.server.http_addr": true,
 	"bald.appspec.v1.AppSpec.meta.roles.server.grpc_addr": true,
+	// variants.build_tags：消费 = buildVariants 归一为 when（&& 连接），不落
+	// 独立文本标记——与 when 共用同一生成形态。
+	"bald.appspec.v1.AppSpec.variants.build_tags": true,
 }
 
 // appspecLocal 报告消息是否属于 appspec 本地声明面（守卫只遍历 AppSpec

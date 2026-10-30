@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"sort"
 	"time"
 
@@ -68,18 +67,18 @@ type DiagnosticChange struct {
 }
 
 // VariantChange 是构建变体声明（Q7：AppSpec.variants → Plan.Variants）在两次
-// 计划之间的差异。变体不产节点，但声明面的增删与命中态（Active，由二进制
-// 实际带有的 -tags 决定）同样改变装配口径：同一份声明换一套 tag 构建就是
+// 计划之间的差异。变体声明面的增删、条件表达式改写与命中态（Active，由二进制
+// 实际的构建约束求值决定）同样改变装配口径：同一份声明换一套 tag 构建就是
 // 另一套接线，不能在基线对比里隐身。
 type VariantChange struct {
-	Name          string   `json:"name"`
-	BuildTags     []string `json:"buildTags,omitempty"`
-	Active        bool     `json:"active,omitempty"`
-	TagsChanged   bool     `json:"tagsChanged,omitempty"`
-	DetailChanged bool     `json:"detailChanged,omitempty"`
-	ActiveChanged bool     `json:"activeChanged,omitempty"`
-	Added         bool     `json:"added,omitempty"`
-	Removed       bool     `json:"removed,omitempty"`
+	Name          string `json:"name"`
+	When          string `json:"when,omitempty"`
+	Active        bool   `json:"active,omitempty"`
+	WhenChanged   bool   `json:"whenChanged,omitempty"`
+	DetailChanged bool   `json:"detailChanged,omitempty"`
+	ActiveChanged bool   `json:"activeChanged,omitempty"`
+	Added         bool   `json:"added,omitempty"`
+	Removed       bool   `json:"removed,omitempty"`
 }
 
 // planCacheBaseline 是 doctor 对基线的对比结果（Err 非 nil 表示缓存不可读，
@@ -336,24 +335,24 @@ func diffVariants(old, next *Plan) []VariantChange {
 		switch {
 		case !hadOld:
 			out = append(out, VariantChange{
-				Name: x.Name, BuildTags: x.BuildTags, Active: x.Active, Added: true,
+				Name: x.Name, When: x.When, Active: x.Active, Added: true,
 			})
 		case !hasNew:
 			out = append(out, VariantChange{
-				Name: o.Name, BuildTags: o.BuildTags, Active: o.Active, Removed: true,
+				Name: o.Name, When: o.When, Active: o.Active, Removed: true,
 			})
 		default:
-			tagsChanged := !slices.Equal(o.BuildTags, x.BuildTags)
+			whenChanged := o.When != x.When
 			detailChanged := o.Detail != x.Detail
 			activeChanged := o.Active != x.Active
-			if !tagsChanged && !detailChanged && !activeChanged {
+			if !whenChanged && !detailChanged && !activeChanged {
 				continue
 			}
 			out = append(out, VariantChange{
 				Name:          x.Name,
-				BuildTags:     x.BuildTags,
+				When:          x.When,
 				Active:        x.Active,
-				TagsChanged:   tagsChanged,
+				WhenChanged:   whenChanged,
 				DetailChanged: detailChanged,
 				ActiveChanged: activeChanged,
 			})

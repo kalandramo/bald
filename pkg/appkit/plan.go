@@ -1320,7 +1320,7 @@ func (p *Plan) Explain(w io.Writer) {
 			if v.Active {
 				state = "active"
 			}
-			fmt.Fprintf(w, "  %-8s %-20s tags=%s\n", state, v.Name, strings.Join(v.BuildTags, ","))
+			fmt.Fprintf(w, "  %-8s %-20s when=%s\n", state, v.Name, variantWhenLabel(v))
 		}
 	}
 

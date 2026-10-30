@@ -152,10 +152,15 @@ type Variant struct {
 	// 变体名（全应用唯一；须匹配 ^[a-z][a-z0-9_]*$——诊断 Subject 为
 	// "variant:<name>"，生成物也用它区分条目）。
 	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	// 生效所需的 build tag（全部满足才命中；空列表在 Gate1 报错）。
+	// 生效所需的 build tag（全部满足才命中）。迁移糖：与 when 互斥，等价于
+	// 用 && 连接；新声明请直接写 when。
 	BuildTags []string `protobuf:"bytes,2,rep,name=build_tags,json=buildTags,proto3" json:"build_tags,omitempty"`
 	// 人读说明（进 ambient 诊断的 Detail；为空时生成器给默认说明）。
-	Description   string `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"`
+	Description string `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"`
+	// 生效条件：Go 构建约束表达式（`//go:build` 行语法，如
+	// "grpcgw && !nacos"）。与 build_tags 互斥、二者必须声明一个；Gate1
+	// 用 go/build/constraint 同一解析器校验，命中判据与 go build 同源。
+	When          string `protobuf:"bytes,4,opt,name=when,proto3" json:"when,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -207,6 +212,13 @@ func (x *Variant) GetBuildTags() []string {
 func (x *Variant) GetDescription() string {
 	if x != nil {
 		return x.Description
+	}
+	return ""
+}
+
+func (x *Variant) GetWhen() string {
+	if x != nil {
+		return x.When
 	}
 	return ""
 }
@@ -841,12 +853,13 @@ const file_bald_appspec_v1_appspec_proto_rawDesc = "" +
 	"\x06bundle\x18\t \x01(\v2\x1b.bald.appspec.v1.BundleSpecR\x06bundle\x125\n" +
 	"\adomains\x18\n" +
 	" \x03(\v2\x1b.bald.appspec.v1.DomainSpecR\adomains\x124\n" +
-	"\bvariants\x18\v \x03(\v2\x18.bald.appspec.v1.VariantR\bvariantsJ\x04\b\x02\x10\x03J\x04\b\x05\x10\x06J\x04\b\x06\x10\aR\x06serverR\x0eaudit_backendsR\x11bundle_normalized\"^\n" +
+	"\bvariants\x18\v \x03(\v2\x18.bald.appspec.v1.VariantR\bvariantsJ\x04\b\x02\x10\x03J\x04\b\x05\x10\x06J\x04\b\x06\x10\aR\x06serverR\x0eaudit_backendsR\x11bundle_normalized\"r\n" +
 	"\aVariant\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1d\n" +
 	"\n" +
 	"build_tags\x18\x02 \x03(\tR\tbuildTags\x12 \n" +
-	"\vdescription\x18\x03 \x01(\tR\vdescription\"\x87\x01\n" +
+	"\vdescription\x18\x03 \x01(\tR\vdescription\x12\x12\n" +
+	"\x04when\x18\x04 \x01(\tR\x04when\"\x87\x01\n" +
 	"\n" +
 	"LayoutSpec\x12\x12\n" +
 	"\x04root\x18\x01 \x01(\tR\x04root\x12#\n" +
