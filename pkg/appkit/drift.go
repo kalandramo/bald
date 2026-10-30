@@ -35,17 +35,31 @@ type NodeChange struct {
 	DepsChanged bool         `json:"depsChanged,omitempty"`
 }
 
-// PlanChange 是一次计划重算的差异汇总（Restart 是明确需要重启的节点键）。
-type PlanChange struct {
-	Changes []NodeChange  `json:"changes,omitempty"`
-	Restart []ResourceKey `json:"restart,omitempty"`
+// ImperativeChange 是命令式槽位（effect/keyWatch/reconcile）在两次计划之间的
+// 差异。闭包本身不可比，只报槽位身份——计划缓存要回答「装配变了什么」，槽位
+// 的增删同样改变运行期行为。
+type ImperativeChange struct {
+	Kind    string `json:"kind"`
+	Name    string `json:"name,omitempty"`
+	Added   bool   `json:"added,omitempty"`
+	Removed bool   `json:"removed,omitempty"`
 }
 
-// Empty 报告两次计划无实质差异。
-func (c PlanChange) Empty() bool { return len(c.Changes) == 0 }
+// PlanChange 是一次计划重算的差异汇总（Restart 是明确需要重启的节点键）。
+type PlanChange struct {
+	Changes    []NodeChange       `json:"changes,omitempty"`
+	Imperative []ImperativeChange `json:"imperative,omitempty"`
+	Restart    []ResourceKey      `json:"restart,omitempty"`
+}
+
+// Empty 报告两次计划无实质差异（节点与命令式槽位都没有增删改）。
+func (c PlanChange) Empty() bool {
+	return len(c.Changes) == 0 && len(c.Imperative) == 0
+}
 
 // diffPlan 按节点 Key 对比新旧计划：新增/移除/期望态或依赖变化。节点顺序
-// 不影响结果（按 Key 排序输出）。
+// 不影响结果（按 Key 排序输出）。命令式槽位按 (Kind, Name) 单独对比——闭包
+// 不可比，但槽位增删同样改变装配行为。
 func diffPlan(old, next *Plan) PlanChange {
 	oldByKey := map[ResourceKey]Node{}
 	if old != nil {
@@ -92,6 +106,40 @@ func diffPlan(old, next *Plan) PlanChange {
 				Key: k, Kind: n.Kind, Policy: n.Reload,
 				From: o.DesiredHash, To: n.DesiredHash, DepsChanged: deps,
 			})
+		}
+	}
+	out.Imperative = diffImperative(old, next)
+	return out
+}
+
+// diffImperative 对比命令式槽位（按 (Kind, Name) 身份）。输入副本先排序：
+// 缓存文件可能被手工编辑，不假设 Plan.Imperative 的排序前提。
+func diffImperative(old, next *Plan) []ImperativeChange {
+	var oldSlots, nextSlots []Imperative
+	if old != nil {
+		oldSlots = append(oldSlots, old.Imperative...)
+	}
+	if next != nil {
+		nextSlots = append(nextSlots, next.Imperative...)
+	}
+	byKey := func(s []Imperative) {
+		sort.Slice(s, func(i, j int) bool { return s[i].Key() < s[j].Key() })
+	}
+	byKey(oldSlots)
+	byKey(nextSlots)
+	var out []ImperativeChange
+	i, j := 0, 0
+	for i < len(oldSlots) || j < len(nextSlots) {
+		switch {
+		case j >= len(nextSlots) || (i < len(oldSlots) && oldSlots[i].Key() < nextSlots[j].Key()):
+			out = append(out, ImperativeChange{Kind: oldSlots[i].Kind, Name: oldSlots[i].Name, Removed: true})
+			i++
+		case i >= len(oldSlots) || nextSlots[j].Key() < oldSlots[i].Key():
+			out = append(out, ImperativeChange{Kind: nextSlots[j].Kind, Name: nextSlots[j].Name, Added: true})
+			j++
+		default:
+			i++
+			j++
 		}
 	}
 	return out

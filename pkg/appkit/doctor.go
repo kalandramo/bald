@@ -198,32 +198,51 @@ func writePlanCacheSection(w io.Writer, b *planCacheBaseline, p *Plan) {
 		fmt.Fprintf(w, "  input changed since baseline: %s -> %s\n",
 			hashPrefix(b.Entry.InputHash), hashPrefix(p.InputHash))
 	}
-	if !b.PlanChanged && b.Change.Empty() {
+	if !b.PlanChanged {
 		fmt.Fprintln(w, "  plan unchanged")
 		return
 	}
 	if b.Change.Empty() {
-		// 节点对比为空但命令式槽位变了：不谎报 "plan unchanged"（槽位闭包
-		// 不进节点拓扑，却在 Plan.Imperative 里可查）。
-		fmt.Fprintln(w, "  nodes unchanged; imperative slots changed")
+		// 装配哈希变了但节点/槽位身份对比为空：变化只在节点属性（priority/
+		// phase/segments/opaque 等）。如实报出，不谎报 unchanged，也不假装
+		// 能逐项列出。
+		fmt.Fprintln(w, "  plan changed: node attributes (priority/phase/segments)")
 		return
 	}
-	fmt.Fprintf(w, "  plan changed: %d node(s)\n", len(b.Change.Changes))
-	for _, ch := range b.Change.Changes {
-		switch {
-		case ch.Added:
-			fmt.Fprintf(w, "    + %s (%s, %s)\n", ch.Key, ch.Kind, ch.Policy)
-		case ch.Removed:
-			fmt.Fprintf(w, "    - %s (%s, %s)\n", ch.Key, ch.Kind, ch.Policy)
-		default:
-			var what []string
-			if ch.From != ch.To {
-				what = append(what, "desired state")
+	if len(b.Change.Changes) > 0 {
+		fmt.Fprintf(w, "  plan changed: %d node(s)\n", len(b.Change.Changes))
+		for _, ch := range b.Change.Changes {
+			switch {
+			case ch.Added:
+				fmt.Fprintf(w, "    + %s (%s, %s)\n", ch.Key, ch.Kind, ch.Policy)
+			case ch.Removed:
+				fmt.Fprintf(w, "    - %s (%s, %s)\n", ch.Key, ch.Kind, ch.Policy)
+			default:
+				var what []string
+				if ch.From != ch.To {
+					what = append(what, "desired state")
+				}
+				if ch.DepsChanged {
+					what = append(what, "dependencies")
+				}
+				fmt.Fprintf(w, "    ~ %s (%s, %s): %s\n", ch.Key, ch.Kind, ch.Policy, strings.Join(what, " + "))
 			}
-			if ch.DepsChanged {
-				what = append(what, "dependencies")
+		}
+	}
+	if len(b.Change.Imperative) > 0 {
+		// 命令式槽位（effect/keyWatch/reconcile）不进节点拓扑，但闭包增删同样
+		// 改变运行期行为——计划缓存要回答「装配变了什么」，就逐条列出。
+		fmt.Fprintf(w, "  imperative slots changed: %d\n", len(b.Change.Imperative))
+		for _, ic := range b.Change.Imperative {
+			mark := "+"
+			if ic.Removed {
+				mark = "-"
 			}
-			fmt.Fprintf(w, "    ~ %s (%s, %s): %s\n", ch.Key, ch.Kind, ch.Policy, strings.Join(what, " + "))
+			name := ic.Name
+			if name == "" {
+				name = "-"
+			}
+			fmt.Fprintf(w, "    %s %s: %s\n", mark, ic.Kind, name)
 		}
 	}
 }

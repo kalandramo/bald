@@ -197,6 +197,9 @@ type Imperative struct {
 	Name string `json:"name,omitempty"`
 }
 
+// Key 是槽位身份（Kind + Name），供排序与计划差异对比复用。
+func (i Imperative) Key() string { return i.Kind + "\x00" + i.Name }
+
 // Plan 是编译结果。Nodes 已按全局拓扑序稳定排序。
 type Plan struct {
 	App       AppMeta `json:"app"`

@@ -174,13 +174,15 @@ cache: .bald/plan-cache.json (baseline db80c27572ef, recorded 2026-10-28T18:33:3
     ~ logger (provider, reconcile): desired state  # 期望态/依赖变化
 
 cache: .bald/plan-cache.json (baseline 4c1f0a2e77ab, recorded 2026-10-28T18:37:02Z)
-  nodes unchanged; imperative slots changed    # 节点拓扑没变，effect/keyWatch/reconcile 槽位变了
+  imperative slots changed: 2                # 节点拓扑没变，effect/keyWatch/reconcile 槽位变了
+    - effect: cleanup-a
+    + effect: cleanup-b
 
 cache: .bald/plan-cache.json (no baseline for role "worker")   # 该角色还没有基线
 cache: .bald/plan-cache.json (unavailable: ...)                # 文件损坏/不可读
 ```
 
-`plan unchanged` 的判据是「**装配声明**未变」：节点 + 命令式槽位（`Plan.Imperative`）。节点对比为空不等于计划没变——effect/keyWatch/reconcile 槽位不进节点拓扑，却会改变运行期行为，所以单列一行报出来，而不是谎报 `plan unchanged`。`InputHash`、告警与段视图各有独立报告面（`input changed` 行、`warnings`、`segments`），不混进这条判据。
+`plan unchanged` 的判据是「**装配声明**未变」：节点 + 命令式槽位（`Plan.Imperative`）。节点身份对比为空不等于计划没变——effect/keyWatch/reconcile 槽位不进节点拓扑，却会改变运行期行为，所以单列一组增删行，而不是谎报 `plan unchanged`。节点属性（priority/phase/segments 等）变化同样移动装配哈希但不在身份对比里，doctor 报 `plan changed: node attributes (...)` 而不是假装能逐项列出。`InputHash`、告警与段视图各有独立报告面（`input changed` 行、`warnings`、`segments`），不混进这条判据。
 
 边界（诚实说明）：
 

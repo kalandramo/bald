@@ -438,7 +438,7 @@ func (a *App) Drift(ctx context.Context) ([]Drift, error)
 - `bald doctor`（新子命令）输出：计划摘要、`Opaque` 节点数、域迁移进度（`domains:` 的 `declared`/`legacy` 计数与名单）、白名单段、被覆盖的段、build tag 分叉、`gen --check` 结果。
   - **实现偏差**：`gen --check` 结果以「出口提示」呈现而非代跑——运行期二进制不 import `internal/codegen`（生成器是另一个执行体）；`doctor` 保持只读，CI 里两条命令并列执行。
   - **build tag 分叉**：`doctor` 的 `build tags:` 行来自 `debug.ReadBuildInfo`（构建事实）；应用侧语义由 `WithAmbient` 显式声明，进 `Plan.Warnings` 的 `ambient` 诊断——计划不嗅探 build tag，只记录声明者告诉它的事实（Q7 短期形态）。
-- 计划缓存：按 `(Role, InputHash)` 写入 `.bald/plan-cache.json`，仅作对比基线，不作为执行依据。**已实现**：`appkit.WithPlanCache(path)` 声明路径（生成物 `bootstrap.Options()` 默认声明 `.bald/plan-cache.json`），`Serve` 装配成功后记录、`doctor` 只读对比（无缓存整行省略；缺失/损坏只提示）；写入按 16 条上限去重裁剪，原子 rename。对比的「plan unchanged」判据是装配声明投影（节点 + `Plan.Imperative` 槽位）：节点对比为空但 effect/keyWatch/reconcile 槽位变了时单列报 `nodes unchanged; imperative slots changed`，不谎报未变；InputHash/告警/段视图各有独立报告行。
+- 计划缓存：按 `(Role, InputHash)` 写入 `.bald/plan-cache.json`，仅作对比基线，不作为执行依据。**已实现**：`appkit.WithPlanCache(path)` 声明路径（生成物 `bootstrap.Options()` 默认声明 `.bald/plan-cache.json`），`Serve` 装配成功后记录、`doctor` 只读对比（无缓存整行省略；缺失/损坏只提示）；写入按 16 条上限去重裁剪，原子 rename。对比的「plan unchanged」判据是装配声明投影（节点 + `Plan.Imperative` 槽位）：节点身份对比为空但 effect/keyWatch/reconcile 槽位变了时逐条报增删（`imperative slots changed`），节点属性变化报 `plan changed: node attributes (...)`，不谎报未变；InputHash/告警/段视图各有独立报告行。
 
 ### 4.10 代码生成：从脚手架到纯函数
 

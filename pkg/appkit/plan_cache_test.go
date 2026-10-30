@@ -82,12 +82,49 @@ func TestPlanCache_NonNodeChangeVisible(t *testing.T) {
 		t.Fatalf("writePlanCacheEntry: %v", err)
 	}
 	cmp := comparePlanCache(path, next)
-	if cmp.Entry == nil || !cmp.PlanChanged || !cmp.Change.Empty() {
+	if cmp.Entry == nil || !cmp.PlanChanged || len(cmp.Change.Changes) != 0 {
 		t.Fatalf("compare = %+v, want plan changed with empty node diff", cmp)
+	}
+	if len(cmp.Change.Imperative) != 2 {
+		t.Fatalf("imperative diff = %+v, want one removal + one addition", cmp.Change.Imperative)
 	}
 	out := renderDoctor(next, cmp)
 	if strings.Contains(out, "plan unchanged") || !strings.Contains(out, "imperative slots changed") {
 		t.Fatalf("doctor output must report non-node plan change:\n%s", out)
+	}
+	for _, want := range []string{"- effect: cleanup-a", "+ effect: cleanup-b"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("doctor output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+// 节点属性（priority 等）变化会移动装配哈希，但不在节点身份/期望态差异里：
+// doctor 不得谎报 "plan unchanged"，也不假装能逐项列出。
+func TestPlanCache_NodeAttributeChangeVisible(t *testing.T) {
+	cfgPath := writePlanConfig(t, "cache-attribute", "script:\n  options:\n    enabled: true\n")
+	compile := func(priority int) *Plan {
+		t.Helper()
+		p, err := Compile(context.Background(), ConfigFile(cfgPath),
+			fixedNodeProvider([]string{"script"},
+				Node{Key: "alpha", Kind: "script-impl", Phase: PhaseBootstrap, Priority: priority}))
+		if err != nil {
+			t.Fatalf("Compile(priority=%d): %v", priority, err)
+		}
+		return p
+	}
+	base, next := compile(PriorityLegacy), compile(PriorityLegacy+1)
+	path := filepath.Join(t.TempDir(), "plan-cache.json")
+	if err := writePlanCacheEntry(path, base, time.Now()); err != nil {
+		t.Fatalf("writePlanCacheEntry: %v", err)
+	}
+	cmp := comparePlanCache(path, next)
+	if !cmp.PlanChanged || !cmp.Change.Empty() {
+		t.Fatalf("compare = %+v, want attribute-only change", cmp)
+	}
+	out := renderDoctor(next, cmp)
+	if strings.Contains(out, "plan unchanged") || !strings.Contains(out, "node attributes") {
+		t.Fatalf("doctor output must report attribute-only change:\n%s", out)
 	}
 }
 
