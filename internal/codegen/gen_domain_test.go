@@ -574,6 +574,41 @@ func TestGenDomain_RESTBind_RequiresGoPackage(t *testing.T) {
 	}
 }
 
+// TestGenDomain_RESTBind_RequiresTransportWeb bind 文件 import transport/web
+// （独立 module）：消费者 go.mod 没声明时生成期就拒绝，并给出 go get 修法，
+// 而不是产出一棵编译不过的树。
+func TestGenDomain_RESTBind_RequiresTransportWeb(t *testing.T) {
+	dir, specPath := runGenAppInTemp(t, guardFixture())
+	gomodPath := filepath.Join(dir, "go.mod")
+	raw, err := os.ReadFile(gomodPath)
+	if err != nil {
+		t.Fatalf("read go.mod: %v", err)
+	}
+	var kept []string
+	for _, line := range strings.Split(string(raw), "\n") {
+		if strings.Contains(line, "github.com/kalandramo/bald/transport/web") {
+			continue
+		}
+		kept = append(kept, line)
+	}
+	if err := os.WriteFile(gomodPath, []byte(strings.Join(kept, "\n")), 0o644); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+
+	streams, _ := testStreams()
+	cmd := genDomainCmd(streams)
+	cmd.SetArgs([]string{"--spec", specPath, "--out", dir, "--rest-bind", "--adopt"})
+	err = cmd.Execute()
+	if err == nil {
+		t.Fatal("--rest-bind without transport/web in go.mod must fail at generation time")
+	}
+	for _, want := range []string{"github.com/kalandramo/bald/transport/web", "does not require it", "go get"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("err = %v, want containing %q", err, want)
+		}
+	}
+}
+
 // TestGenDomain_RESTBind_Deterministic Q5 生成物同样受「双跑字节一致」约束：
 // 同一份声明在两个临时树里各生成一遍，绑定文件、路由清单与其余产物逐字节相同。
 // 直接以绝对 --out 调用（不依赖 CWD），避免单测里两次 t.Chdir。
@@ -584,6 +619,11 @@ func TestGenDomain_RESTBind_Deterministic(t *testing.T) {
 		dir := t.TempDir()
 		specPath := writeSpecJSON(t, dir, as)
 		writeFixtureProto(t, dir)
+		// --rest-bind 的流水线前置：消费者 module 必须声明 transport/web。
+		gomod := "module demo.example/app\n\ngo 1.27.1\n\nrequire github.com/kalandramo/bald/transport/web v0.1.0\n"
+		if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(gomod), 0o644); err != nil {
+			t.Fatalf("write go.mod: %v", err)
+		}
 		cmd := genDomainCmd(NewDefaultIOStreams())
 		cmd.SetArgs([]string{"--spec", specPath, "--out", dir, "--rest-bind", "--adopt"})
 		if err := cmd.Execute(); err != nil {

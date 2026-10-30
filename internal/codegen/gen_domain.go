@@ -749,6 +749,7 @@ func (o *domainOptions) emitAPIServerSide(v *treeView, scan *protoScan, files *[
 	}
 	// 逐域 handler（委托域声明值自持实现 + 注解派生表）。
 	byService := serviceIndex(scan)
+	bindDepsChecked := false
 	for _, d := range v.Spec.GetDomains() {
 		name := title(d.GetName())
 		goPkg := d.GetGoPackage()
@@ -771,6 +772,12 @@ func (o *domainOptions) emitAPIServerSide(v *treeView, scan *protoScan, files *[
 				return err
 			}
 			if bind != nil {
+				if !bindDepsChecked {
+					if err := o.requireBindDeps(); err != nil {
+						return err
+					}
+					bindDepsChecked = true
+				}
 				if !o.NoRoutes {
 					bind.RoutesPkgPath = v.Module + "/internal/" + v.APIDir + "/routes"
 					// 计划可见性：把同一批注解派生为 appkit.Route 清单。域包直接
@@ -797,6 +804,22 @@ func (o *domainOptions) emitAPIServerSide(v *treeView, scan *protoScan, files *[
 	return emit(filepath.Join("internal", v.APIDir, "authz", "alias.gen.go"), authzAliasTmpl,
 		map[string]any{"APIDir": v.APIDir, "Module": v.Module, "Aliases": aliases, "Actions": merged,
 			"Domains": v.Spec.GetDomains(), "HasDomains": len(v.Spec.GetDomains()) > 0})
+}
+
+// requireBindDeps 是 --rest-bind 的流水线前置：bind 文件 import
+// transport/web（独立 module），消费者 go.mod 没声明就必然编译失败。生成期
+// 直接拒绝并给出修法，避免「生成成功、构建失败」的滞后错误。
+func (o *domainOptions) requireBindDeps() error {
+	const transportWeb = "github.com/kalandramo/bald/transport/web"
+	gomod := filepath.Join(o.OutDir, "go.mod")
+	raw, err := os.ReadFile(gomod)
+	if err != nil {
+		return fmt.Errorf("--rest-bind needs %s, but reading %s failed: %w (add the dependency or drop --rest-bind)", transportWeb, gomod, err)
+	}
+	if !strings.Contains(string(raw), transportWeb) {
+		return fmt.Errorf("--rest-bind generates bindings that import %s, but %s does not require it; run `go get %s` and regenerate (or drop --rest-bind to generate only the domain skeleton)", transportWeb, gomod, transportWeb)
+	}
+	return nil
 }
 
 // serviceIndex 把扫描结果按 service 全名建索引。
@@ -1230,8 +1253,9 @@ api/protos、proto），失配报错指明域、proto 文件与实际声明。�
 --rest-bind 的前置条件：proto 的 Go 类型已由 buf generate 产出（bind 文件
 import 其 go_package），消费者 module 依赖 bald/transport/web。默认关闭——
 未跑 buf generate 的树保持可编译；开启后 bind 文件与其余产物一同纳入
---check 对账。--no-routes 与 --rest-bind 连用：只产 bind 文件，不产路由
-清单（域保留手写 RouteTable）。`,
+--check 对账。依赖缺失由生成期直接拒绝（读消费者 go.mod），不再拖到编译期。
+--no-routes 与 --rest-bind 连用：只产 bind 文件，不产路由清单（域保留手写
+RouteTable）。`,
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 		RunE: func(*cobra.Command, []string) error {
@@ -1250,7 +1274,7 @@ import 其 go_package），消费者 module 依赖 bald/transport/web。默认�
 	cmd.Flags().StringVar(&o.APIServerDir, "apiserver-dir", "", "apiserver 目录名（默认 layout.apiserver_dir 否则 apiserver；传 - 跳过 apiserver 侧产物）")
 	cmd.Flags().BoolVar(&o.Adopt, "adopt", false, "覆盖已存在的 owned 文件并更新清单（默认拒绝）")
 	cmd.Flags().BoolVar(&o.Check, "check", false, "只校验生成物与清单是否与声明一致（零写入，有差异即失败）")
-	cmd.Flags().BoolVar(&o.RESTBind, "rest-bind", false, "从 google.api.http 注解生成 gin 路由与服务接口（需 proto Go 类型已 buf generate；custom 动词与 response_body 未实现，生成期报错）")
+	cmd.Flags().BoolVar(&o.RESTBind, "rest-bind", false, "从 google.api.http 注解生成 gin 路由与服务接口（需 proto Go 类型已 buf generate、module 依赖 transport/web；custom 动词与 response_body 未实现，生成期报错）")
 	cmd.Flags().BoolVar(&o.NoRoutes, "no-routes", false, "与 --rest-bind 连用：跳过 appkit.Route 清单，域保留手写 RouteTable（生成执行、清单自持）")
 	_ = cmd.MarkFlagFilename("spec", ".json")
 	cmd.SetErr(streams.ErrOut)
