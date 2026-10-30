@@ -198,8 +198,14 @@ func writePlanCacheSection(w io.Writer, b *planCacheBaseline, p *Plan) {
 		fmt.Fprintf(w, "  input changed since baseline: %s -> %s\n",
 			hashPrefix(b.Entry.InputHash), hashPrefix(p.InputHash))
 	}
-	if b.Change.Empty() {
+	if !b.PlanChanged && b.Change.Empty() {
 		fmt.Fprintln(w, "  plan unchanged")
+		return
+	}
+	if b.Change.Empty() {
+		// 节点对比为空但命令式槽位变了：不谎报 "plan unchanged"（槽位闭包
+		// 不进节点拓扑，却在 Plan.Imperative 里可查）。
+		fmt.Fprintln(w, "  nodes unchanged; imperative slots changed")
 		return
 	}
 	fmt.Fprintf(w, "  plan changed: %d node(s)\n", len(b.Change.Changes))

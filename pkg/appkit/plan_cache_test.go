@@ -57,6 +57,40 @@ func TestPlanCache_RoundTripAndDiff(t *testing.T) {
 	}
 }
 
+// 命令式槽位变化：节点对比为空，但整份计划哈希变了——doctor 不得谎报
+// "plan unchanged"（effect/keyWatch/reconcile 同样进 Plan.Hash）。
+func TestPlanCache_NonNodeChangeVisible(t *testing.T) {
+	cfgPath := writePlanConfig(t, "cache-imperative", "script:\n  options:\n    enabled: true\n")
+	alpha := Node{Key: "alpha", Kind: "script-impl", Phase: PhaseBootstrap, Priority: PriorityLegacy}
+	compile := func(name string) *Plan {
+		t.Helper()
+		p, err := Compile(context.Background(), ConfigFile(cfgPath),
+			fixedNodeProvider([]string{"script"}, alpha),
+			effectOpt(name, func(context.Context) error { return nil }))
+		if err != nil {
+			t.Fatalf("Compile(%s): %v", name, err)
+		}
+		return p
+	}
+	base, next := compile("cleanup-a"), compile("cleanup-b")
+	if base.Hash() == next.Hash() {
+		t.Fatal("effect rename kept the same plan hash")
+	}
+
+	path := filepath.Join(t.TempDir(), "plan-cache.json")
+	if err := writePlanCacheEntry(path, base, time.Now()); err != nil {
+		t.Fatalf("writePlanCacheEntry: %v", err)
+	}
+	cmp := comparePlanCache(path, next)
+	if cmp.Entry == nil || !cmp.PlanChanged || !cmp.Change.Empty() {
+		t.Fatalf("compare = %+v, want plan changed with empty node diff", cmp)
+	}
+	out := renderDoctor(next, cmp)
+	if strings.Contains(out, "plan unchanged") || !strings.Contains(out, "imperative slots changed") {
+		t.Fatalf("doctor output must report non-node plan change:\n%s", out)
+	}
+}
+
 func TestPlanCache_DiffOnAddedNode(t *testing.T) {
 	cfgPath := writePlanConfig(t, "cache-diff",
 		"script:\n  options:\n    enabled: true\n"+

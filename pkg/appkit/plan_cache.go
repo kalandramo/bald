@@ -50,7 +50,10 @@ type planCacheBaseline struct {
 	Err          error
 	Entry        *planCacheEntry
 	InputChanged bool
-	Change       PlanChange
+	// PlanChanged 报告整份计划哈希是否变化——节点对比为空不等于计划未变
+	//（命令式槽位、告警、段视图同样进 Hash）。
+	PlanChanged bool
+	Change      PlanChange
 }
 
 // WithPlanCache 声明计划缓存文件路径（如 ".bald/plan-cache.json"）。启动期
@@ -153,6 +156,17 @@ func readPlanCacheFile(path string) (*planCacheFile, error) {
 	return f, nil
 }
 
+// planAssemblyHash 是「装配声明」的投影哈希：节点 + 命令式槽位。输入哈希、
+// 告警与段视图不在其中——它们各自有独立报告面（input changed / warnings /
+// segments），混进来会让无关配置改动被误报成装配变化。
+func planAssemblyHash(p *Plan) string {
+	if p == nil {
+		return ""
+	}
+	q := Plan{Nodes: p.Nodes, Imperative: p.Imperative}
+	return q.Hash()
+}
+
 // comparePlanCache 只读对比当前计划与基线：优先同 (Role, InputHash)，否则
 // 取同 Role 最近一次记录（契约变化时仍能回答「装配变了什么」）。path 为空
 // 或缓存不可读时返回带 Err 的基线——doctor 以一行提示呈现，不报错。
@@ -190,6 +204,9 @@ func comparePlanCache(path string, p *Plan) *planCacheBaseline {
 		return b
 	}
 	b.InputChanged = b.Entry.InputHash != p.InputHash
+	// 输入与诊断（Warnings/Segments）另有自己的报告面；这里的 PlanChanged
+	// 只回答「装配声明是否变了」——节点 + 命令式槽位投影。
+	b.PlanChanged = planAssemblyHash(b.Entry.Plan) != planAssemblyHash(p)
 	if b.Entry.Plan != nil {
 		b.Change = diffPlan(b.Entry.Plan, p)
 	}

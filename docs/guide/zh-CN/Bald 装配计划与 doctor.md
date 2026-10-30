@@ -160,7 +160,7 @@ gen: run `bald gen app --check` and `bald gen domain --check` in the generated t
 | 真实启动（`Serve` 装配成功、`Run` 之前） | 按 `(Role, InputHash)` 记一条基线：整份计划 + `PlanHash` + 记录时间。同键覆盖；最多保留 16 条（超出丢最旧）；临时文件 + rename 原子写 |
 | `doctor` | 只读同一文件：优先精确 `(Role, InputHash)`，找不到则取同 Role 最近一条——契约变了也能回答「装配变了什么」 |
 
-`doctor` 的三种缓存行：
+`doctor` 的四种缓存行：
 
 ```
 cache: .bald/plan-cache.json (baseline ba88603d903f, recorded 2026-10-28T18:38:41Z)
@@ -173,9 +173,14 @@ cache: .bald/plan-cache.json (baseline db80c27572ef, recorded 2026-10-28T18:33:3
     - legacy.old (provider, static)             # 移除
     ~ logger (provider, reconcile): desired state  # 期望态/依赖变化
 
+cache: .bald/plan-cache.json (baseline 4c1f0a2e77ab, recorded 2026-10-28T18:37:02Z)
+  nodes unchanged; imperative slots changed    # 节点拓扑没变，effect/keyWatch/reconcile 槽位变了
+
 cache: .bald/plan-cache.json (no baseline for role "worker")   # 该角色还没有基线
 cache: .bald/plan-cache.json (unavailable: ...)                # 文件损坏/不可读
 ```
+
+`plan unchanged` 的判据是「**装配声明**未变」：节点 + 命令式槽位（`Plan.Imperative`）。节点对比为空不等于计划没变——effect/keyWatch/reconcile 槽位不进节点拓扑，却会改变运行期行为，所以单列一行报出来，而不是谎报 `plan unchanged`。`InputHash`、告警与段视图各有独立报告面（`input changed` 行、`warnings`、`segments`），不混进这条判据。
 
 边界（诚实说明）：
 
