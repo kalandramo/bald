@@ -49,6 +49,7 @@ AppSpec 用一份 JSON 声明应用的装配形态——开通哪些 server、�
 | `layout.strictContract` | bool | 生成物是否 emit `appkit.StrictContract()`（proto3 optional 保 presence：未声明 = **true**） |
 | `bundle.normalized` | bool | 装配期 bundle 归一化声明（audit object/action 双传输同源） |
 | `domains[]` | 数组 | 显式域清单 `{name, protoPackage, service, model, goPackage}`（§6） |
+| `variants[]` | 数组 | 构建期变体 `{name, build_tags[], description}`：生成物按当前二进制实际带有的 tag 投影 `ambient` 诊断（Subject = `variant:<name>`），只做可见性、不改变装配 |
 
 快捷方式纪律：`bootstrap` 为空时，快捷方式归一化进契约投影；`bootstrap` 非空时，任一非零快捷值与其投影不一致即 Gate1 报错——消灭双真相源，不做静默覆盖。
 
@@ -94,6 +95,7 @@ my-service/
 ├─ cmd/my-service/app/command.go                   # 生成物：cobra 根 + 唯一 MustServe 调用（serve / doctor / version）
 ├─ internal/bootstrap/assemble.gen.go              # 生成物：Options() 是装配的全部
 ├─ internal/bootstrap/domains.gen.go               # 生成物：业务域清单（暂空，占位）
+├─ internal/bootstrap/variants.gen.go              # 生成物：仅 appspec.variants 非空时落盘（build tag 变体 → ambient 诊断）
 ├─ internal/bootstrap/seed/seed.go                 # 生成一次：演示种子数据
 ├─ internal/bootstrap/seed/policies.go             # 生成一次：默认授权策略行
 ├─ internal/apiserver/apiserver.go                 # 生成一次：HTTP 装配钩子（加业务路由处）
