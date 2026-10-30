@@ -459,16 +459,35 @@ func sanitizeGoIdent(s string) string {
 }
 
 // ginPathOf 把 google.api.http 路径转成 gin 路由，并返回路径变量名（注解原名，
-// 可含 "." 表示嵌套字段）。{name} 与 {name=pattern} 都映射为 :name——gin 不支持
-// pattern 段，变量取整段原文（与 grpc-gateway 的 pattern 匹配语义不同）。
-func ginPathOf(path string) (string, []string) {
+// 可含 "." 表示嵌套字段）。{name} 与单段 {name=pattern} 映射为 :name；跨段
+// pattern（含 "/"，如 {name=projects/*/locations/*}）gin 无法表达，返回错误
+// 而不是静默退化成单段匹配——那会让生成的 REST 面与注解契约不一致。
+func ginPathOf(path string) (string, []string, error) {
 	var vars []string
+	var patternErr error
 	out := reProtoPathVar.ReplaceAllStringFunc(path, func(m string) string {
 		sub := reProtoPathVar.FindStringSubmatch(m)
-		vars = append(vars, sub[1])
-		return ":" + ginParamName(sub[1])
+		name := sub[1]
+		if rule := strings.TrimPrefix(sub[2], "="); strings.Contains(rule, "/") {
+			patternErr = fmt.Errorf("google.api.http variable %q has a multi-segment pattern %q; gin routes cannot express it", name, rule)
+			return m
+		}
+		vars = append(vars, name)
+		return ":" + ginParamName(name)
 	})
-	return out, vars
+	if patternErr != nil {
+		return "", nil, patternErr
+	}
+	// gin 在同一路由里遇到重名参数会 panic（含嵌套字段归一化后的碰撞）。
+	seen := map[string]string{}
+	for _, v := range vars {
+		g := ginParamName(v)
+		if prev, ok := seen[g]; ok {
+			return "", nil, fmt.Errorf("google.api.http variables %q and %q both map to gin parameter :%s", prev, v, g)
+		}
+		seen[g] = v
+	}
+	return out, vars, nil
 }
 
 // ginParamName 是 gin 的变量名（":" 后不允许 "."，嵌套字段改用 "_"）。
@@ -654,7 +673,10 @@ func bindViewOf(name string, d *appspecv1.DomainSpec, svc protoService) (*bindVi
 			return nil, fmt.Errorf("domain %q: rpc %s is streaming but carries google.api.http annotations; streaming cannot be transcoded to REST", d.GetName(), m.Name)
 		}
 		for _, r := range rules {
-			ginPath, vars := ginPathOf(r.Path)
+			ginPath, vars, err := ginPathOf(r.Path)
+			if err != nil {
+				return nil, fmt.Errorf("domain %q: rpc %s: %w", d.GetName(), m.Name, err)
+			}
 			// gin 的同 method+shape 路由此处就会 panic（:a 与 :b 是同一 shape），
 			// 生成期先报错——把运行期 panic 换成可定位的注解冲突。
 			key := strings.ToUpper(r.Verb) + " " + reGinParam.ReplaceAllString(ginPath, ":")

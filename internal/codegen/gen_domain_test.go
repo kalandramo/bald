@@ -535,12 +535,16 @@ func TestGinPathOf(t *testing.T) {
 		wantExpr string
 	}{
 		{"/v1/greets/{name}", "/v1/greets/:name", []string{"name"}, `map[string]string{"name": c.Param("name")}`},
-		{"/v1/{name=projects/*/locations/*}", "/v1/:name", []string{"name"}, `map[string]string{"name": c.Param("name")}`},
+		{"/v1/{name=greets}", "/v1/:name", []string{"name"}, `map[string]string{"name": c.Param("name")}`},
 		{"/v1/users/{user.id}/tags/{tag}", "/v1/users/:user_id/tags/:tag", []string{"user.id", "tag"}, `map[string]string{"user.id": c.Param("user_id"), "tag": c.Param("tag")}`},
 		{"/v1/health", "/v1/health", nil, "nil"},
 	}
 	for _, c := range cases {
-		gotPath, gotVars := ginPathOf(c.in)
+		gotPath, gotVars, err := ginPathOf(c.in)
+		if err != nil {
+			t.Errorf("ginPathOf(%q) unexpected error: %v", c.in, err)
+			continue
+		}
 		if gotPath != c.wantPath {
 			t.Errorf("ginPathOf(%q) path = %q, want %q", c.in, gotPath, c.wantPath)
 		}
@@ -550,6 +554,17 @@ func TestGinPathOf(t *testing.T) {
 		if got := pathVarsExpr(gotVars); got != c.wantExpr {
 			t.Errorf("pathVarsExpr(%v) = %q, want %q", gotVars, got, c.wantExpr)
 		}
+	}
+}
+
+// TestGinPathOf_RejectsLossyPattern 跨段 pattern 与参数重名会让 gin 的匹配
+// 语义偏离注解（甚至注册期 panic）：生成期报错，不静默退化。
+func TestGinPathOf_RejectsLossyPattern(t *testing.T) {
+	if _, _, err := ginPathOf("/v1/{name=projects/*/locations/*}"); err == nil || !strings.Contains(err.Error(), "multi-segment") {
+		t.Fatalf("err = %v, want multi-segment rejection", err)
+	}
+	if _, _, err := ginPathOf("/v1/{user.id}/{user_id}"); err == nil || !strings.Contains(err.Error(), "gin parameter") {
+		t.Fatalf("err = %v, want gin parameter collision", err)
 	}
 }
 
