@@ -237,6 +237,10 @@ type Plan struct {
 	// 手写 Routes 闭包没有 RouteTable 时计划列不出来，Compile 给
 	// custom-routes 警告。
 	Routes []Route `json:"routes,omitempty"`
+	// Variants 是构建期变体声明（AppSpec.variants 的生成物投影；按 Name
+	// 排序）。声明恒进计划——不带 tag 的构建也能看到「声明了哪些变体」；
+	// Active 表示当前二进制实际带有了该变体的全部 tag（另产 ambient 诊断）。
+	Variants []VariantDecl `json:"variants,omitempty"`
 	// Imperative 是命令式槽位清单（effect/keyWatch/reconcile/hook/serverFunc/
 	// serverCapability/onConfigChange/identity/auditor；按 (Kind,Name) 排序，
 	// 保证置换不变性）。
@@ -417,6 +421,15 @@ func planFrom(ctx context.Context, d *Decl, cfg *bootstrapv1.BootstrapConfig, se
 	}
 	p.Routes = routes
 	p.Warnings = append(p.Warnings, routeWarnings...)
+
+	// 构建期变体声明（Q7）：声明恒进计划（可审计），命中的变体另产 ambient
+	// 诊断——两者都来自生成物的运行期投影，计划不嗅探 build tag。
+	variants, variantWarnings, err := variantProjection(d.Variants)
+	if err != nil {
+		return nil, err
+	}
+	p.Variants = variants
+	p.Warnings = append(p.Warnings, variantWarnings...)
 
 	// 进程内组件：BeforeStart 链之后、servers Start 之前顺序启动（component.go）。
 	for _, c := range d.Components {
@@ -1290,6 +1303,23 @@ func (p *Plan) Explain(w io.Writer) {
 				rpc = " -> " + r.RPC
 			}
 			fmt.Fprintf(w, "  %-12s %-7s %s%s\n", r.Domain, r.Method, r.Path, rpc)
+		}
+	}
+
+	if len(p.Variants) > 0 {
+		active := 0
+		for _, v := range p.Variants {
+			if v.Active {
+				active++
+			}
+		}
+		fmt.Fprintf(w, "variants: %d (active %d)\n", len(p.Variants), active)
+		for _, v := range p.Variants {
+			state := "declared"
+			if v.Active {
+				state = "active"
+			}
+			fmt.Fprintf(w, "  %-8s %-20s tags=%s\n", state, v.Name, strings.Join(v.BuildTags, ","))
 		}
 	}
 

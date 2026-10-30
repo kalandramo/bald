@@ -127,6 +127,24 @@ func writeDoctor(w io.Writer, p *Plan, tags []string, cache *planCacheBaseline, 
 			fmt.Fprintf(w, "    %s %-6s %s%s\n", r.Domain, r.Method, r.Path, rpc)
 		}
 	}
+	if len(p.Variants) > 0 {
+		// 变体声明恒列出（含未命中者）：不带 tag 的构建也能看到声明了什么，
+		// 命中状态只反映这个二进制怎么编的。
+		active := 0
+		for _, v := range p.Variants {
+			if v.Active {
+				active++
+			}
+		}
+		fmt.Fprintf(w, "  variants: %d (active %d)\n", len(p.Variants), active)
+		for _, v := range p.Variants {
+			state := "declared"
+			if v.Active {
+				state = "active"
+			}
+			fmt.Fprintf(w, "    %-8s %-20s tags=%s\n", state, v.Name, strings.Join(v.BuildTags, ","))
+		}
+	}
 	domains.write(w)
 
 	// 段：未消费、白名单、框架自持、有消费者的段各自成组。

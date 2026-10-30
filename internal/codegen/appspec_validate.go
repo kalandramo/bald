@@ -319,9 +319,12 @@ var fieldConsumers = map[string]string{
 	"bald.appspec.v1.AppSpec.domains.service":               "greet.v1.GreetService",
 	"bald.appspec.v1.AppSpec.domains.model":                 "internal/apiserver/model/greet.go",
 	"bald.appspec.v1.AppSpec.domains.go_package":            "demo.example/app/internal/apiserver/greetv1",
-	"bald.appspec.v1.AppSpec.variants.name":                 "variant:grpcgw",
-	"bald.appspec.v1.AppSpec.variants.build_tags":           `"grpcgw"`,
-	"bald.appspec.v1.AppSpec.variants.description":          "gateway wiring behind the grpcgw tag",
+	// variants.gen.go 是 gofmt 后的 VariantDecl 字面量：name 的标记带上
+	// 字段名与对齐空格，避免与 build_tags 的 `"grpcgw"` 标记混淆（两个字段
+	// 各留一个独立标记，任一字段漏接消费者都能单独报红）。
+	"bald.appspec.v1.AppSpec.variants.name":        "Name:      \"grpcgw\",",
+	"bald.appspec.v1.AppSpec.variants.build_tags":  `"grpcgw"`,
+	"bald.appspec.v1.AppSpec.variants.description": "gateway wiring behind the grpcgw tag",
 }
 
 // builderConsumed 是「由树构建器直接消费（不落生成物文本）」的字段集合：

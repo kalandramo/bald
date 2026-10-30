@@ -602,12 +602,12 @@ func TestTree_OwnershipAcrossRegenerations(t *testing.T) {
 	}
 }
 
-// TestGenApp_VariantsProjectedToAmbient Q7 首片：AppSpec.variants 落
-// internal/bootstrap/variants.gen.go，按二进制实际 build tags 投影 ambient
-// 诊断（生成期不展开 tag 组合、不按 tag 分文件——同一组 tag 命中多个变体
-// 也只多一条诊断，不会重复定义符号）；未声明 variants 的树不落该文件、
-// assemble.gen.go 也不出现调用。
-func TestGenApp_VariantsProjectedToAmbient(t *testing.T) {
+// TestGenApp_VariantsProjectedToPlan Q7：AppSpec.variants 落
+// internal/bootstrap/variants.gen.go，声明**恒**进计划（不带 tag 也能审计
+// 声明面），命中的变体另由 appkit 产 ambient 诊断（生成期不展开 tag 组合、
+// 不按 tag 分文件——同一组 tag 命中多个变体也只多一条诊断，不会重复定义
+// 符号）；未声明 variants 的树不落该文件、assemble.gen.go 也不出现调用。
+func TestGenApp_VariantsProjectedToPlan(t *testing.T) {
 	as := guardFixture()
 	as.Variants = []*appspecv1.Variant{
 		{Name: "grpcgw", BuildTags: []string{"grpcgw"}, Description: "gateway registration injected by -tags grpcgw"},
@@ -624,12 +624,15 @@ func TestGenApp_VariantsProjectedToAmbient(t *testing.T) {
 		"package bootstrap",
 		"func variantOptions() []appkit.Option {",
 		"tags := appkit.BuildTags()",
-		`if appkit.HasBuildTags(tags, "grpcgw") {`,
-		`if appkit.HasBuildTags(tags, "nacos", "config") {`,
-		`Name:   "variant:grpcgw",`,
-		`Name:   "variant:nacos_config",`,
-		`Detail: "gateway registration injected by -tags grpcgw",`,
-		`Detail: "build-tag variant declared in AppSpec.variants (tags: nacos,config)",`,
+		"return []appkit.Option{appkit.WithVariantDecls(",
+		`Name:      "grpcgw",`,
+		`BuildTags: []string{"grpcgw"},`,
+		`Detail:    "gateway registration injected by -tags grpcgw",`,
+		`Active:    appkit.HasBuildTags(tags, "grpcgw"),`,
+		`Name:      "nacos_config",`,
+		`BuildTags: []string{"nacos", "config"},`,
+		`Detail:    "build-tag variant declared in AppSpec.variants (tags: nacos,config)",`,
+		`Active:    appkit.HasBuildTags(tags, "nacos", "config"),`,
 	} {
 		if !strings.Contains(src, want) {
 			t.Errorf("variants.gen.go missing %q:\n%s", want, src)
@@ -703,9 +706,10 @@ func TestGenApp_VariantsPrunedWhenUndeclared(t *testing.T) {
 	}
 }
 
-// TestTree_VariantsProjectedAtRuntime 运行期口径：同一份生成树，带 -tags
-// 构建的二进制在 doctor 里出现 variant:<name>，不带 tag 的构建不出现——
-// 命中的唯一依据是这个二进制实际怎么编的，不是生成期猜的 tag 组合。
+// TestTree_VariantsProjectedAtRuntime 运行期口径：同一份生成树，声明**恒**
+// 出现在 doctor 的 variants 段（不带 tag 也能审计声明面），但只有带 -tags
+// 构建的二进制把变体标为 active 并产 variant:<name> 诊断——命中的唯一依据
+// 是这个二进制实际怎么编的，不是生成期猜的 tag 组合。
 func TestTree_VariantsProjectedAtRuntime(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("go toolchain not in PATH")
@@ -743,6 +747,17 @@ func TestTree_VariantsProjectedAtRuntime(t *testing.T) {
 			}
 			if tagsLine := strings.Contains(string(out), "build tags: grpcgw"); tagsLine != tc.want {
 				t.Errorf("build tags line mismatch (got %v, want %v):\n%s", tagsLine, tc.want, out)
+			}
+			// 声明面恒可见：变体总数与声明名不随构建变化，只有 active 计数变。
+			active := "0"
+			if tc.want {
+				active = "1"
+			}
+			if !strings.Contains(string(out), "variants: 1 (active "+active+")") {
+				t.Errorf("variants section must report 1 declared, active=%v:\n%s", tc.want, out)
+			}
+			if !strings.Contains(string(out), "grpcgw") {
+				t.Errorf("declared variant name must be listed in doctor:\n%s", out)
 			}
 		})
 	}

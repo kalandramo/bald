@@ -134,6 +134,9 @@ type Decl struct {
 	// init() 注册回调等计划看不到、却改变运行形态的事实。每条投影为
 	// Plan.Warnings 的 ambient 诊断（I10）。
 	Ambient []Ambient
+	// Variants 是构建期变体声明（WithVariantDecls 追加；生成物按实际 build
+	// tags 计算 Active）——声明恒进计划，命中另产 ambient 诊断。
+	Variants []VariantDecl
 	// PlanCache 是计划缓存文件路径（WithPlanCache 写入；空 = 不落盘）。启动期
 	// 记录计划基线，doctor 只读对比；缓存不是执行依据（见 plan_cache.go）。
 	PlanCache string
