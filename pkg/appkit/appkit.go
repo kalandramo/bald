@@ -325,6 +325,9 @@ func RemoteConfig(src config.RemoteSource) Option {
 //	appkit.NewApp(appkit.ConfigLayers(layers...))
 //
 // 任一层 reader 实现 bconfig.ValueWatcher 即参与热更新（变更 → 全量重合并）。
+//
+// Serve 路径同样生效：显式层与 config 段 Provider 产出的契约源层合流，
+// 契约源层居首（优先级更高），显式层追加在后。
 func ConfigLayers(ls ...config.Layer) Option {
 	return optionFunc(func(d *Decl) { d.ConfigLayers = append(d.ConfigLayers, ls...) })
 }

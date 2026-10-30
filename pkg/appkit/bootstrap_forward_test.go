@@ -6,6 +6,7 @@ import (
 	"time"
 
 	bconf "github.com/kalandramo/bald/bconf"
+	baldconfig "github.com/kalandramo/bald/bootstrap/config"
 	"github.com/kalandramo/bald/pkg/audit"
 )
 
@@ -39,5 +40,37 @@ func TestAssemble_ForwardsDeclMechanismFields(t *testing.T) {
 	}
 	if a.auditor == nil {
 		t.Fatal("auditor was dropped by assemble")
+	}
+}
+
+// forwardConfigProvider 测试桩：config 段 Provider，产出一个契约源层。
+type forwardConfigProvider struct{}
+
+func (forwardConfigProvider) Apply(d *Decl) {
+	d.Providers = append(d.Providers, forwardConfigProvider{})
+}
+func (forwardConfigProvider) Segments() []string { return []string{"config"} }
+
+func (forwardConfigProvider) Plan(context.Context, PlanScope) ([]Node, error) {
+	return []Node{{Key: "config.provider", Segments: []string{"config"}, Phase: PhaseConfigure}}, nil
+}
+
+func (forwardConfigProvider) Build(context.Context, ApplyScope, Node) (any, Cleanup, error) {
+	return []baldconfig.Layer{{Name: "contract"}}, nil, nil
+}
+
+// TestAssemble_MergesUserConfigLayers 钉住显式 ConfigLayers 在 Serve 路径不被
+// 丢弃：契约源层（config 段 Provider 产出）居首，显式层追加在后。
+func TestAssemble_MergesUserConfigLayers(t *testing.T) {
+	a := assembleForTest(t, bconf.NewBootstrap(),
+		Providers(forwardConfigProvider{}),
+		ConfigLayers(baldconfig.Layer{Name: "user"}),
+	)
+	if len(a.cfg.layers) != 2 {
+		t.Fatalf("layers = %d, want 2 (contract + user)", len(a.cfg.layers))
+	}
+	if a.cfg.layers[0].Name != "contract" || a.cfg.layers[1].Name != "user" {
+		t.Fatalf("layers = [%s %s], want [contract user]",
+			a.cfg.layers[0].Name, a.cfg.layers[1].Name)
 	}
 }

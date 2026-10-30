@@ -120,7 +120,8 @@ type Decl struct {
 	// ---- 段驱动 Provider（Providers/WithUnimplementedSegments 声明；
 	// std.Standard() 与第三方 Provider 经 Apply 追加，装配引擎见 provider.go） ----
 	// Providers 是段驱动装配的全部 Provider（含 std.Standard() 打包的框架
-	// 自有后端；按精确段路径末者胜——后声明覆盖先声明）。
+	// 自有后端；按精确段路径末者胜——后声明覆盖先声明）。NewApp 路径不消费
+	// 本字段（段驱动装配只有 Serve 一条路径，同 Domains）。
 	Providers []Provider
 	// UnimplementedSegments 是 L3 覆盖检查的白名单（WithUnimplementedSegments
 	// 追加）：契约已声明、框架尚无消费者的段，显式豁免启动期报错。

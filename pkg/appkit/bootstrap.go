@@ -294,6 +294,10 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig, settings map[string]
 			}
 		}
 	}
+	// 显式 ConfigLayers 声明与契约源层合流：契约源层（config 段 Provider 产出）
+	// 居首——契约是装配的权威来源；显式层追加在后（同列表内首元素最高，见
+	// ConfigLayers）。不合并即 Serve 路径静默丢声明。
+	layers = append(layers, spec.ConfigLayers...)
 
 	// curCleanup 跟踪当前生效 Logger 的后端释放钩子：阶段 B 与热更新重建时
 	// 原子替换（替换前旧钩子被同步兑现——带缓冲后端的尾批不因热切换丢失，
