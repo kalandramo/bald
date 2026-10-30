@@ -21,22 +21,21 @@ func WithVariantDecls(vs ...VariantDecl) Option {
 	return optionFunc(func(d *Decl) { d.Variants = append(d.Variants, vs...) })
 }
 
-// variantProjection 把变体声明规范化为计划字段与命中诊断：Name 必填、
-// 重复 Name 报错（一个身份不能描述两个变体）；命中的变体追加 ambient
-// 诊断，最终顺序由 Plan 收尾统一排序（置换不变）。
-func variantProjection(vs []VariantDecl) ([]VariantDecl, []Diagnostic, error) {
+// variantProjection 把变体声明规范化为计划字段：Name 必填、重复 Name 报错
+// （一个身份不能描述两个变体），说明为空时补默认 Detail；最终顺序由 Plan
+// 收尾统一排序（置换不变）。命中诊断不在这里生成——见 variantAmbients。
+func variantProjection(vs []VariantDecl) ([]VariantDecl, error) {
 	if len(vs) == 0 {
-		return nil, nil, nil
+		return nil, nil
 	}
 	seen := make(map[string]bool, len(vs))
 	out := make([]VariantDecl, 0, len(vs))
-	var warns []Diagnostic
 	for _, v := range vs {
 		if v.Name == "" {
-			return nil, nil, fmt.Errorf("appkit: variant declaration requires a Name")
+			return nil, fmt.Errorf("appkit: variant declaration requires a Name")
 		}
 		if seen[v.Name] {
-			return nil, nil, fmt.Errorf("appkit: variant %q declared twice", v.Name)
+			return nil, fmt.Errorf("appkit: variant %q declared twice", v.Name)
 		}
 		seen[v.Name] = true
 		detail := v.Detail
@@ -49,15 +48,20 @@ func variantProjection(vs []VariantDecl) ([]VariantDecl, []Diagnostic, error) {
 			Detail:    detail,
 			Active:    v.Active,
 		})
-		if v.Active {
-			warns = append(warns, Diagnostic{
-				Level:   DiagWarn,
-				Code:    "ambient",
-				Subject: "variant:" + v.Name,
-				Message: detail,
-			})
-		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	return out, warns, nil
+	return out, nil
+}
+
+// variantAmbients 返回命中变体的 ambient 声明，交给 ambientWarnings 与手写
+// WithAmbient 一起裁决：同一 Subject（variant:<name>）同说明合并、异说明
+// 报错——声明的身份空间只有一套，不能因为来源不同就出现两种描述。
+func variantAmbients(vs []VariantDecl) []Ambient {
+	var out []Ambient
+	for _, v := range vs {
+		if v.Active {
+			out = append(out, Ambient{Name: "variant:" + v.Name, Detail: v.Detail})
+		}
+	}
+	return out
 }

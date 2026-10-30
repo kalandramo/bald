@@ -76,6 +76,40 @@ func TestVariantProjection_DeclarationsAlwaysInPlan(t *testing.T) {
 	}
 }
 
+// 迁移期两套声明并存（手写 WithAmbient + AppSpec.variants）：命中变体与
+// WithAmbient 共用同一身份空间（Subject = "variant:<name>"）——同说明合并为
+// 一条诊断，异说明在计划期报错，不能让同一逃逸舱出现两种描述。
+func TestVariantProjection_SharesAmbientIdentity(t *testing.T) {
+	cfgPath := writePlanConfig(t, "variant-ambient", "")
+	compile := func(detail string) (*Plan, error) {
+		return Compile(context.Background(), ConfigFile(cfgPath),
+			WithVariantDecls(VariantDecl{Name: "grpcgw", Detail: detail, Active: true}),
+			WithAmbient(Ambient{Name: "variant:grpcgw", Detail: detail}),
+		)
+	}
+
+	p, err := compile("gateway wiring behind grpcgw")
+	if err != nil {
+		t.Fatalf("Compile (same detail): %v", err)
+	}
+	count := 0
+	for _, w := range p.Warnings {
+		if w.Code == "ambient" && w.Subject == "variant:grpcgw" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("same identity + same detail must merge into one diagnostic, got %d: %+v", count, p.Warnings)
+	}
+
+	if _, err := Compile(context.Background(), ConfigFile(cfgPath),
+		WithVariantDecls(VariantDecl{Name: "grpcgw", Detail: "from the spec", Active: true}),
+		WithAmbient(Ambient{Name: "variant:grpcgw", Detail: "from init()"}),
+	); err == nil || !strings.Contains(err.Error(), `ambient "variant:grpcgw" declared twice`) {
+		t.Fatalf("conflicting detail for one identity must fail the plan, got %v", err)
+	}
+}
+
 func TestVariantProjection_RejectsBadDeclarations(t *testing.T) {
 	cfgPath := writePlanConfig(t, "variant-bad", "")
 	for _, tc := range []struct {

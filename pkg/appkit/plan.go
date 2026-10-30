@@ -422,14 +422,13 @@ func planFrom(ctx context.Context, d *Decl, cfg *bootstrapv1.BootstrapConfig, se
 	p.Routes = routes
 	p.Warnings = append(p.Warnings, routeWarnings...)
 
-	// 构建期变体声明（Q7）：声明恒进计划（可审计），命中的变体另产 ambient
-	// 诊断——两者都来自生成物的运行期投影，计划不嗅探 build tag。
-	variants, variantWarnings, err := variantProjection(d.Variants)
+	// 构建期变体声明（Q7）：声明恒进计划（可审计）；命中的变体在下面并入
+	// ambient 诊断（与 WithAmbient 共用一套重名裁决）。
+	variants, err := variantProjection(d.Variants)
 	if err != nil {
 		return nil, err
 	}
 	p.Variants = variants
-	p.Warnings = append(p.Warnings, variantWarnings...)
 
 	// 进程内组件：BeforeStart 链之后、servers Start 之前顺序启动（component.go）。
 	for _, c := range d.Components {
@@ -530,12 +529,14 @@ func planFrom(ctx context.Context, d *Decl, cfg *bootstrapv1.BootstrapConfig, se
 	}
 
 	// 逃逸舱可见化：覆盖 / 白名单 / 同 Key 裁决（I4/I10 的 M1 子集）+ 预算 +
-	// 环境注入（build tag / init() 接线，WithAmbient 显式声明）。
+	// 环境注入（build tag / init() 接线，WithAmbient 显式声明；命中的构建期
+	// 变体并入同一身份空间——同 Subject 同说明合并，异说明报错）。
 	p.Warnings = append(p.Warnings, pp.warnings...)
 	p.Warnings = append(p.Warnings, overrideWarnings(d)...)
 	p.Warnings = append(p.Warnings, whitelistWarnings(pp)...)
 	p.Warnings = append(p.Warnings, opaqueBudgetWarnings(d.OpaqueBudget, p.Nodes)...)
-	ambient, err := ambientWarnings(d.Ambient)
+	ambientNotes := append(append([]Ambient(nil), d.Ambient...), variantAmbients(p.Variants)...)
+	ambient, err := ambientWarnings(ambientNotes)
 	if err != nil {
 		return nil, err
 	}
