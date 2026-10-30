@@ -4,7 +4,7 @@
 >
 > Last updated: 2026-09-14
 >
-> Discussion at: `Bald 配置契约设计.md`（兄弟篇：契约层专属展开）、`Bald 配置系统设计.md`（早期四源优先级决策记录的收编处——原《配置中心设计》已并入该篇，该文件已不存在）
+> Discussion at: `Bald 配置契约设计.md`（兄弟篇：契约层专属展开）、`Bald 配置系统设计.md`（全景：三层定位、四源优先级与装配层）
 >
 > Status: Accepted（已实现，随 bald bconfig module 演进）
 
@@ -12,7 +12,7 @@
 
 `bconfig` 是配置源层：一个 module 回答「配置从哪读、怎么组合、怎么感知变更」，自身不解析任何格式、不认识任何契约。核心是两件东西——**能力轴**（Reader/Watcher/ValueWatcher/Decoder 等小接口，后端按需实现、调用方类型断言发现）与**级联回退组合器**（FallbackReader：按优先级取第一个成功源，watch 事件触发重算而非转发推送值）。十个 provider 子包（file/env/fs/http/etcd/consul/nacos/apollo/kubernetes/vault）各自引入后端 SDK——不用的源不进二进制。本文最重要的承诺：**源只吐字节，类型化只发生在契约层的 UnmarshalMap 一处**——任何源与任何格式自由组合，新增源零契约改动。
 
-> 本文按当前代码（bconfig，2026-09-14）整理；契约层见兄弟篇《Bald 配置契约设计.md》，系统全景与装配层（Registry/Store）见《Bald 配置系统设计.md》，本文只作消费者视角的必要交代。
+> 本文按当前代码（bconfig）整理；契约层见兄弟篇《Bald 配置契约设计.md》，系统全景与装配层（Registry/Store）见《Bald 配置系统设计.md》，本文只作消费者视角的必要交代。
 
 ---
 
@@ -25,7 +25,7 @@
 1. **flag 压不过配置文件**。`viper.BindPFlag` 绑定的 flag 若未显式传入，`pflag.Value` 的零值（`""`、`false`）会覆盖配置文件里已设置的值——除非逐字段判断 `Changed`，必漏。
 2. **嵌套段静默丢失**。配置文件里写错的键名（`https` 而非 `http`），mapstructure 直接忽略——曾出现 **TLS 配置静默失效**，进程照常启动，行为却不对。
 
-2026-09-05 格局定型时 viper 整体退役：装载内核换为自建 merge-store（`bootstrap/config`），源抽象换为本文的 bconfig。viper 的 `RemoteProvider` 体系（etcd/consul 支持残缺、无 kubernetes/vault）一并退役。
+格局定型时 viper 整体退役：装载内核换为自建 merge-store（`bootstrap/config`），源抽象换为本文的 bconfig。viper 的 `RemoteProvider` 体系（etcd/consul 支持残缺、无 kubernetes/vault）一并退役。
 
 ### 需求侧：九种配置源、三种部署形态
 
@@ -122,7 +122,7 @@ all, _    := bconfig.NewFallbackReader(fileSrc, remote)     // 本地 > 远程�
 两条横向纪律：
 
 1. **双模式构造**：`New(opts...)` 从连接参数自建 client（契约装配路径，etcd/nacos 惰性建连），`NewWithClient(c, opts...)` 注入既有连接（复用注册发现场景，本源不负责关闭）。自建与否用 `owned` 标记，`Close` 只释放自己建的——注入方保有生命周期主权。两个例外：`kubernetes` 仅有 `New(opts...)`（不返回 error，clientset 由首次 Load/WatchValue 惰性初始化，无注入模式）；`consul` 的 `Close` 为空操作（consul api.Client 无可释放连接池，仅为 owned 语义完整）。
-2. **watch 能力分级诚实**：SDK 本就推送的（etcd/consul/nacos/apollo/kubernetes）直通推送；SDK 不支持的（vault/http）用轮询模拟而不是不实现——调用方拿到的是统一契约，不必关心底下是推送还是轮询。apollo 相比 go-wind 原版修正两点：`New` 连接失败返回 error 而非 panic；watcher 修复了注册后立即反注册的 bug。
+2. **watch 能力分级诚实**：SDK 本就推送的（etcd/consul/nacos/apollo/kubernetes）直通推送；SDK 不支持的（vault/http）用轮询模拟而不是不实现——调用方拿到的是统一契约，不必关心底下是推送还是轮询。apollo 后端的行为约定：`New` 连接失败返回 error（不 panic）；watcher 不会在注册后立即反注册。
 
 ### provider 编写纪律（新增源的五条 checklist）
 
@@ -183,14 +183,14 @@ type Layer struct {
 
 接口层面纯增量，无破坏。两次内部语义归一（均有记录）：
 
-1. **viper 退役**（2026-09-05）：装载内核换自建 merge-store，行为差异（toml/hcl/ini 格式随 viper 退役、仅支持 yaml/yml/json）已在装配层文档声明。
-2. **装配产出从 FallbackReader 归一为命名层列表**（2026-09-05）：字段级合并与热更新语义修正，`FallbackReader` 保留但退守同 key 降级域——API 不变，用途收窄。
+1. **viper 退役**：装载内核换自建 merge-store，行为差异（toml/hcl/ini 格式随 viper 退役、仅支持 yaml/yml/json）已在装配层文档声明。
+2. **装配产出从 FallbackReader 归一为命名层列表**：字段级合并与热更新语义修正，`FallbackReader` 保留但退守同 key 降级域——API 不变，用途收窄。
 
 **被放弃的方案带来的约束**：仅实现 `Watcher` 的源不会触发组合器通知——这是刻意行为且已在接口注释声明，不是 bug。新后端接入 checklist 见 §provider 编写纪律。
 
 ---
 
-## 实现与过渡
+## 实现现状
 
 全部已落地，无过渡安排：
 
@@ -198,17 +198,17 @@ type Layer struct {
 - [x] `FallbackReader`：级联回退、错误聚合、多源 watch 合并、重算语义、防协程泄漏（`fallback_test.go` 全语义覆盖）。
 - [x] 10 个 provider 子包全部实现；**9 个有独立测试文件**（module 共 62 个 Test 函数；远程源测试经环境适配可在 CI 离线跑）——`env` 子包无 `_test.go`（其行为经 `bconfig` 根包与 `bootstrap` 侧 provider 测试间接覆盖），是测试覆盖的已知缺口。
 - [x] 装配层消费链贯通：Registry → 9 个契约适配器（env/file/etcd/consul/nacos/apollo/kubernetes/vault/http；fs 走代码 API 无适配器）→ 命名层 → Store 优先级合并 → 热更新。
-- [x] 实战验证：go-bald-admin（现 bald-admin）已接入 nacos/kubernetes 源跑通（2026-09-10）。
+- [x] 实战验证：go-bald-admin（现 bald-admin）已接入 nacos/kubernetes 源跑通。
 
 **版本演进**：
 
 | 时间 | 变更 | 性质 |
 | --- | --- | --- |
-| 2026-09-03 | 初始抽象（`feat: 配置系统抽象`） | — |
-| 2026-09-04 | 提升为顶层 module `bconfig`（与 bconf 兄弟） | 结构 |
-| 2026-09-05 | 格局定型 + 远程源补齐：viper 退役；etcd/consul/nacos/apollo/kubernetes/vault 落地；契约死源瘦身（fs/redis/zookeeper/oss/polaris reserved） | 语义归一 |
-| 2026-09-05 | 远程源与数值解组健壮性修复 | 修复 |
-| 2026-09-10 | nacos/kubernetes 接入 bald-admin | 实战 |
+| | 初始抽象（`feat: 配置系统抽象`） | — |
+| | 提升为顶层 module `bconfig`（与 bconf 兄弟） | 结构 |
+| | 格局定型 + 远程源补齐：viper 退役；etcd/consul/nacos/apollo/kubernetes/vault 落地；契约死源瘦身（fs/redis/zookeeper/oss/polaris reserved） | 语义归一 |
+| | 远程源与数值解组健壮性修复 | 修复 |
+| | nacos/kubernetes 接入 bald-admin | 实战 |
 
 验证：bconfig module 随 bald CI（build + vet + test）全绿；`fs` 源保留为代码级 API（embed 资源无法经契约表达），不参与契约装配。
 
@@ -232,4 +232,4 @@ type Layer struct {
 
 ### 关联文档
 
-`Bald 配置系统设计.md`（全景：三层定位与装配层 Registry/Store；原《配置中心设计》的早期四源优先级决策记录已并入该篇）、`Bald 配置契约设计.md`（契约层：proto 形状 + UnmarshalMap 桥接）、`应用框架设计.md`（AppKit 生命周期与配置装载）。
+`Bald 配置系统设计.md`（全景：三层定位、四源优先级与装配层 Registry/Store）、`Bald 配置契约设计.md`（契约层：proto 形状 + UnmarshalMap 桥接）、`应用框架设计.md`（AppKit 生命周期与配置装载）。

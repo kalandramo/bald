@@ -10,7 +10,7 @@
 
 ## 摘要
 
-bald 的缓存分两层：**契约层**（`cache.Cache`）定义后端无关的 KV 抽象——`string` key + `[]byte` value + TTL，零序列化耦合、零外部依赖；**组合层**（`cache/loadable`）在 Get miss 时经 singleflight 合并并发回源并 best-effort 回填，业务侧省去「查缓存 → miss → 查库 → 写缓存」样板，同时根治进程内缓存击穿。最重要的承诺：**契约层不放泛型、不替业务做编解码决策**——序列化责任留在调用方，`[]byte` 边界清晰。实现层（`local` freecache / `redis` go-redis）各自独立 module 并经 `CacheRegistry` 契约装配；loadable 不进 Registry，由业务代码显式构造。本文回答三个问题：为什么契约这么瘦、为什么回源必须合并并发、为什么组合器不进契约装配。
+bald 的缓存分两层：**契约层**（`cache.Cache`）定义后端无关的 KV 抽象——`string` key + `[]byte` value + TTL，零序列化耦合、零外部依赖；**组合层**（`cache/loadable`）在 Get miss 时经 singleflight 合并并发回源并 best-effort 回填，业务侧省去「查缓存 → miss → 查库 → 写缓存」样板，同时根治进程内缓存击穿。最重要的承诺：**契约层不放泛型、不替业务做编解码决策**——序列化责任留在调用方，`[]byte` 边界清晰。实现层（`local` freecache / `redis` go-redis）各自独立 module 并经 `cache.<backend>` 段 Provider 装配；loadable 不进契约装配，由业务代码显式构造。本文回答三个问题：为什么契约这么瘦、为什么回源必须合并并发、为什么组合器不进契约装配。
 
 > 本文是按当前代码（cache/v0.1.0 + cache/loadable/v0.1.0）整理的设计文档。
 
@@ -40,7 +40,7 @@ func getUser(ctx context.Context, id string) ([]byte, error) {
 
 ### onex 的前车之鉴：两个已经踩过的坑
 
-我们评审了 onex/pkg/cache，它验证了装饰器组合模式的可行性，也留下了两个具体教训。其一，onex 的 `LoadableCache` 没有做并发合并——击穿发生时，并发 miss 全部打到 loader，回源语义名不副实。其二，onex 的 `L2Cache`（ristretto + 远程）没有失效广播——`Del` 只清本节点本地缓存，其他节点脏读直到 TTL 自然过期；短 TTL 只是掩盖。这两个坑直接决定了本设计的两个硬性要求：**回源必须合并并发**，**不做无失效广播的 L2**。
+既有缓存实现验证了装饰器组合模式的可行性，也留下两个具体教训。其一，`LoadableCache` 没有做并发合并——击穿发生时，并发 miss 全部打到 loader，回源语义名不副实。其二，`L2Cache`（本地 + 远程）没有失效广播——`Del` 只清本节点本地缓存，其他节点脏读直到 TTL 自然过期；短 TTL 只是掩盖。这两个坑直接决定了本设计的两个硬性要求：**回源必须合并并发**，**不做无失效广播的 L2**。
 
 ---
 
@@ -50,8 +50,8 @@ func getUser(ctx context.Context, id string) ([]byte, error) {
 
 ```mermaid
 flowchart TB
-    subgraph BOOT["bootstrap · 装配层【CacheRegistry】"]
-        REG["CacheRegistry 查表装配<br/>local/redis contract Provider"]
+    subgraph BOOT["appkit · 装配层【cache.<backend> 段 Provider】"]
+        REG["段 Provider 按契约装配<br/>local/redis 各自 contract.AppProvider"]
     end
 
     subgraph COMB["cache/loadable · 组合层【独立 module，业务显式构造】"]
@@ -74,7 +74,7 @@ flowchart TB
     BCONF -.->|"cache.local / cache.redis 段驱动查表"| BOOT
 ```
 
-依赖方向单一向上：实现/组合 → 契约；装配 → 契约 + bconf；业务 → 装配产出的后端实例 + 按需包 loadable。loadable 依赖仅 `golang.org/x/sync`，不 import bconf、不进 CacheRegistry——组合器是代码声明的能力，不是配置驱动的后端。
+依赖方向单一向上：实现/组合 → 契约；装配 → 契约 + bconf；业务 → 装配产出的后端实例 + 按需包 loadable。loadable 依赖仅 `golang.org/x/sync`，不 import bconf、不进契约装配——组合器是代码声明的能力，不是配置驱动的后端。
 
 ### 契约层：8 方法瘦接口 + ErrNotFound 哨兵（cache/cache.go）
 
@@ -99,7 +99,7 @@ type Cache interface {
 
 `cache/local` 基于 freecache：预分配环形缓冲带来零 GC 开销，segment 级锁支撑高并发，容量耗尽时 LRU 淘汰。`WithSize` 控制预分配大小（默认 256MB），`WithDefaultTTL` 兜底 `Set(ttl=0)` 的语义。另暴露 `HitCount`/`MissCount`/`EvacuateCount` 等指标方法，供业务接指标系统。
 
-`cache/redis` 适配 go-redis v9：`MGET` 单次网络往返实现 `GetMulti`，`Pipeline` 批量实现 `SetMulti`；`WithKeyPrefix` 做命名空间隔离。契约装配支持三种部署模式（互斥，fail-fast）：`redis.cluster` 段 → `NewClusterClient`（种子节点自动发现，不支持 db）、`redis.sentinel` 段 → `NewFailoverClient`（经哨兵发现主节点）、均缺 → 单节点 `NewClient`；cluster 模式下 MGET/Pipeline 由 go-redis 按 slot 拆分组执行，「单次往返」退化为按 slot 分组的若干次。两个边界要如实说明。其一，`New(client)` 注入 client，`Close()` **不关闭**底层 client——连接池、TLS、生命周期归调用方管理。其二，local 的 `SetNX` 是进程内 check-then-set，两次调用之间存在竞态窗口——**严格互斥场景必须用 redis 后端**（原生 `SET NX` 原子命令）。这个窗口不是理论的：2026-09-18 探针实测 200 goroutine 并发 `SetNX` 同一 key，5 轮中 1 轮出现 **4 个 goroutine 同时返回 true**（正确实现应恒为 1）。
+`cache/redis` 适配 go-redis v9：`MGET` 单次网络往返实现 `GetMulti`，`Pipeline` 批量实现 `SetMulti`；`WithKeyPrefix` 做命名空间隔离。契约装配支持三种部署模式（互斥，fail-fast）：`redis.cluster` 段 → `NewClusterClient`（种子节点自动发现，不支持 db）、`redis.sentinel` 段 → `NewFailoverClient`（经哨兵发现主节点）、均缺 → 单节点 `NewClient`；cluster 模式下 MGET/Pipeline 由 go-redis 按 slot 拆分组执行，「单次往返」退化为按 slot 分组的若干次。两个边界要如实说明。其一，`New(client)` 注入 client，`Close()` **不关闭**底层 client——连接池、TLS、生命周期归调用方管理。其二，local 的 `SetNX` 是进程内 check-then-set，两次调用之间存在竞态窗口——**严格互斥场景必须用 redis 后端**（原生 `SET NX` 原子命令）。这个窗口不是理论的：探针实测 200 goroutine 并发 `SetNX` 同一 key，5 轮中 1 轮出现 **4 个 goroutine 同时返回 true**（正确实现应恒为 1）。
 
 ### 组合层：loadable 用 singleflight 合并并发回源（cache/loadable/loadable.go）
 
@@ -132,11 +132,11 @@ Get 关键路径四步：
 
 透传族：`Set/SetNX/Delete/Has/SetMulti/Close` 直通 backend；`GetMulti` 逐 key 走 Get 路径——Get 会回源则 GetMulti 也回源，语义一致，any miss → `ErrNotFound` 对齐契约。
 
-### 装配层：后端进 CacheRegistry，组合器不进（cache/{local,redis}/contract）
+### 装配层：后端走段 Provider，组合器不进（cache/{local,redis}/contract）
 
-local 与 redis 各有 `contract/` 子包：bconf 契约段（`cache.local` / `cache.redis`）→ `Provider(ctx, *bootstrapv1.Cache) (any, func(), error)` → `CacheRegistry` 调度。单独成包的原因是实现包保持零契约依赖（local 纯 SDK、redis 纯适配），只有 contract 包 import bconf，依赖图全程可见。redis 的 contract 自建 client 并在 cleanup 中负责关闭；复用已有 client 的场景绕过 contract 直接用 redis 包的 `New`。
+local 与 redis 各有 `contract/` 子包：bconf 契约段（`cache.local` / `cache.redis`）→ `Provider(ctx, *bootstrapv1.Cache) (any, func(), error)`，再由 `contract.AppProvider()` 包成消费 `cache` 段的 `appkit.Provider`。单独成包的原因是实现包保持零契约依赖（local 纯 SDK、redis 纯适配），只有 contract 包 import bconf，依赖图全程可见。redis 的 contract 自建 client 并在 cleanup 中负责关闭；复用已有 client 的场景绕过 contract 直接用 redis 包的 `New`。
 
-loadable **不进 CacheRegistry**。Registry 装配的是后端实例（配置驱动），组合器由业务代码显式构造（代码声明能力）——loader 是业务函数，框架无法从配置里变出它。这条分工对齐 FromBootstrap 的总原则：「配置驱动参数，代码声明能力」。
+loadable **不进契约装配**。装配的是后端实例（配置驱动），组合器由业务代码显式构造（代码声明能力）——loader 是业务函数，框架无法从配置里变出它。分工原则是「配置驱动参数，代码声明能力」。
 
 ---
 
@@ -170,39 +170,39 @@ loadable **不进 CacheRegistry**。Registry 装配的是后端实例（配置�
 
 ## 兼容性
 
-纯增量，无破坏。契约层与 local/redis 实现零改动；loadable 是新增独立 module（依赖仅 `golang.org/x/sync`），不进 CacheRegistry。已发布 tag：`cache/v0.1.1` + `cache/loadable/v0.1.1` + `cache/local/v0.1.0` + `cache/redis/v0.1.0`。2026-09-16 增补：`cache.redis` 契约段新增 `cluster` / `sentinel` optional 子消息（字段 5/6，纯增量），contract 按段选建 `ClusterClient` / `FailoverClient` / 单节点 `Client`——旧配置零影响。
+`cache.redis` 契约段含 `cluster` / `sentinel` optional 子消息，contract 按段选建 `ClusterClient` / `FailoverClient` / 单节点 `Client`——未写这两个子段即单节点，旧配置零影响。loadable 是独立 module（依赖仅 `golang.org/x/sync`），不进契约装配。
 
 跨 module 使用者注意（非破坏但易踩）：`bald/cache` 系四个 module 相互独立，外部引用须 require 对应 module 本身（均已发 tag）；gopls 对嵌套 module 常报 BrokenImport 假阳性，以命令行 build/test 为准。
 
 ---
 
-## 实现与过渡
+## 实现现状
 
 全部已落地，无过渡安排：
 
 - [x] 契约层：8 方法 `Cache` 接口 + `ErrNotFound` + `Item`（接口契约单测）。
 - [x] 实现层 local：freecache 适配——`WithSize`（默认 256MB）/ `WithDefaultTTL` + `EntryCount`/`HitCount`/`MissCount`/`EvacuateCount`/`ExpiredCount` 指标五件套。
 - [x] 实现层 redis：go-redis v9 适配——`MGET` 单次往返 / `Pipeline` 批量 + `WithKeyPrefix` 命名空间隔离；契约装配三模式（单节点 / cluster / sentinel，互斥 fail-fast，cluster 不支持 db）。
-- [x] 双 contract 装配：`cache.local` / `cache.redis` 段 → `Provider` → `CacheRegistry`（redis 自建 client、cleanup 负责关闭；local cleanup 清空内存）。
+- [x] 双 contract 装配：`cache.local` / `cache.redis` 段 → `contract.AppProvider()`（redis 自建 client、cleanup 负责关闭；local cleanup 清空内存）。
 - [x] 组合层 loadable：`New` + singleflight 回源合并 + best-effort 回填 + 透传族。
 - [ ] L2 两级缓存（须带失效广播）、typed 泛型便利层——按真实需求排期，见不做清单。
 
-验证：`cache`、`cache/local`、`cache/redis`、`cache/loadable` 各 module 随 bald CI（build + vet + test -short）全绿；loadable 16 例单测（2026-09-18 评审补 2 例切片隔离回归），核心并发合并保证经「50 goroutine 同 key → loader 计数=1」与「4 key × 25 并发 → 计数=4」双用例验证，另含命中不回源 / 失败透传不回填 / 回填失败仍返回值 / `WithTTL` 回填 TTL / GetMulti 混合命中 / 透传族全量语义覆盖。原文称单测 `-race` 通过——该声称需 cgo（`-race requires cgo`），在无 gcc 的环境无法复现，本环境的验证以非 race 全绿为准。
+验证：`cache`、`cache/local`、`cache/redis`、`cache/loadable` 各 module 随 bald CI（build + vet + test -short）全绿；loadable 16 例单测，核心并发合并保证经「50 goroutine 同 key → loader 计数=1」与「4 key × 25 并发 → 计数=4」双用例验证，另含命中不回源 / 失败透传不回填 / 回填失败仍返回值 / `WithTTL` 回填 TTL / GetMulti 混合命中 / 透传族全量语义覆盖。`-race` 需要 cgo，在无 gcc 的环境中不可复现，验证以非 race 全绿为准。
 
-### 2026-09-18 评审修复（切片别名）
+### 切片所有权
 
-一次架构评审（天权）用探针实测发现一处数据完整性缺陷：`loadable.Get` 把 loader 返回的 `[]byte` 三处复用——返回给调用方、回填进 backend、经 singleflight 交给所有合并的 caller。后果三条：
+`loadable.Get` 返回的 `[]byte` 必须与 backend 中的值、以及所有被 singleflight 合并的 caller 各自独立——三者共享底层数组会同时破坏缓存与并发安全：
 
-1. 调用方改返回值污染缓存（探针：`v[0]='X'` 后 backend 里的值也变）；
-2. 20 个并发合并的 caller 共享同一底层数组（数据竞争，一个改全体看到脏数据）；
-3. 同一 `Get` API 两条路径别名语义相反——命中路径 backend 通常返回拷贝，miss 路径返回共享切片。
+1. 调用方改返回值会污染缓存；
+2. 并发合并的 caller 共享同一底层数组 → 数据竞争，一个改全体看到脏数据；
+3. 同一 `Get` API 两条路径别名语义必须一致（命中路径 backend 返回拷贝，miss 路径也必须返回独立切片）。
 
-**修复**：loader 结果在 singleflight flight 内即 `cloneBytes`，回填与返回各用独立拷贝（`nil` 保持 `nil`，不把负缓存条目变成非空切片）。补 2 例回归测试（`TestGet_ReturnedSliceDoesNotAliasCache`、`TestGet_MergedCallersDoNotShareSlice`），回滚修复后两者复红。
+实现上 loader 结果在 singleflight flight 内即 `cloneBytes`，回填与返回各用独立拷贝（`nil` 保持 `nil`，不把负缓存条目变成非空切片）。`TestGet_ReturnedSliceDoesNotAliasCache`、`TestGet_MergedCallersDoNotShareSlice` 钉住这两条。
 
-**消费现状（中性记录）**：`cache` 系四个 module 当前无仓内调用点——框架能力面不要求有消费者（见《设计评审-第三轮-2026-09-12》R4：「能力已备、消费者未至」是框架常态；零调用本身不是问题，真实风险是无测试覆盖导致静默腐烂，故以契约测试钉住行为）。
+**消费现状（中性记录）**：`cache` 系四个 module 当前无仓内调用点——框架能力面不要求有消费者（见《设计判据》J1：「能力已备、消费者未至」是框架常态；零调用本身不是问题，真实风险是无测试覆盖导致静默腐烂，故以契约测试钉住行为）。
 
 ---
 
 ## 附录：关联文档
 
-`AppKit FromBootstrap 约定装配.md`（CacheRegistry 装配全景）、`Bald 存储设计.md`（store 层与缓存的关系）、`Bald 日志设计.md`（同为「契约层零依赖 + 实现独立 module + contract 子包接入装配」模式的架构先例）。
+[应用框架设计](./应用框架设计.md) 与 [Provider 接入](../../guide/zh-CN/Provider%20接入%20-%20contract.AppProvider%20与段%20Provider.md)（段驱动装配全景）、[Bald 存储设计](./Bald%20存储设计.md)（store 层与缓存的关系）、[Bald 日志设计](./Bald%20日志设计.md)（同为「契约层零依赖 + 实现独立 module + contract 子包接入装配」模式的架构先例）。

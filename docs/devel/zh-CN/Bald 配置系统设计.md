@@ -43,7 +43,7 @@
 
 该文件**不是功能测试**，它定义的是「每个接口的最小方法集」，做两件事：
 
-1. **编译期断言**（`bconfig_test.go:46-54`）：`_ Reader = mockReader{}` 等 7 行，把接口形状钉死——任何人想给接口加方法，这里立刻编译失败。
+1. **编译期断言**（`bconfig_test.go`）：`_ Reader = mockReader{}` 等 7 行，把接口形状钉死——任何人想给接口加方法，这里立刻编译失败。
 2. **可组合性断言**（`TestInterfaces_Composable`）：明确三条关系——`ReadCloser` 可作为组合体使用；`ValueWatcher` **可以独立于 `Watcher` 单独实现**；`Decoder` 与读/监听互不依赖。
 
 价值：证明这套抽象支持「渐进实现」，后端可以只实现一部分能力而不破坏契约。
@@ -158,9 +158,9 @@ all, _ := NewFallbackReader(fileSrc, remote)
 | `Load` + `WatchValue` + `Close` | file / http / etcd / consul（etcd 自建 client 才关；consul 为 owned 语义占位——api.Client 无可释放资源，Close 恒 nil） |
 | 仅 `Load` | env、fs |
 
-双模式构造 `New(opts...)`（从连接参数自建 client，契约装配路径）+ `NewWithClient(c, opts...)`（注入已有 client 复用既有连接，本源不负责关闭）存在于 etcd / consul / nacos / apollo / vault / http（2026-09-05 补齐远程五家）；kubernetes 是例外——仅 `New`，kubeconfig / master URL 经 Option 注入（集群内 ServiceAccount 零配置直连）。watch 语义：etcd 原生 watch / consul watch plan / nacos ListenConfig / apollo 变更事件 / kubernetes ConfigMap watch 为**推送**；vault 无推送能力，以轮询模拟（与 http 的 ETag 轮询同型）。apollo 相比 go-wind 原版修正了两点：`New` 连接失败返回 error 而非 panic；watcher 修复了注册后立即反注册的 bug。
+双模式构造 `New(opts...)`（从连接参数自建 client，契约装配路径）+ `NewWithClient(c, opts...)`（注入已有 client 复用既有连接，本源不负责关闭）存在于 etcd / consul / nacos / apollo / vault / http（补齐远程五家）；kubernetes 是例外——仅 `New`，kubeconfig / master URL 经 Option 注入（集群内 ServiceAccount 零配置直连）。watch 语义：etcd 原生 watch / consul watch plan / nacos ListenConfig / apollo 变更事件 / kubernetes ConfigMap watch 为**推送**；vault 无推送能力，以轮询模拟（与 http 的 ETag 轮询同型）。apollo 后端的行为约定：`New` 连接失败返回 error（不 panic）；watcher 不会在注册后立即反注册。
 
-> 契约瘦身记录（2026-09-05）：`bootstrapv1.Config` 砍掉无 provider 的死源 fs/redis/zookeeper/oss/polaris（字段号 reserved 防复用）。fs 源的 `fsys` 是编译期资源无法经契约表达（`bconfig/fs` 走代码 API）；其余按需实现时以新字段号追加。vault 同日实现（KV v1/v2 + 轮询 watch），恢复字段号 10（原契约从未发布，无历史数据风险），并砍掉原契约中无消费者的 `mount_path` 字段。**契约字段须全有消费者**：nacos 的 namespace/server_addrs、kubernetes 的 config_map_name/key（WithConfigMapName/WithDataKey 回填空 key 装配默认值）均在此原则下补齐实现。
+> 契约瘦身记录：`bootstrapv1.Config` 砍掉无 provider 的死源 fs/redis/zookeeper/oss/polaris（字段号 reserved 防复用）。fs 源的 `fsys` 是编译期资源无法经契约表达（`bconfig/fs` 走代码 API）；其余按需实现时以新字段号追加。vault 同日实现（KV v1/v2 + 轮询 watch），恢复字段号 10（原契约从未发布，无历史数据风险），并砍掉原契约中无消费者的 `mount_path` 字段。**契约字段须全有消费者**：nacos 的 namespace/server_addrs、kubernetes 的 config_map_name/key（WithConfigMapName/WithDataKey 回填空 key 装配默认值）均在此原则下补齐实现。
 
 ---
 
@@ -186,12 +186,12 @@ bald/bconf/                       module github.com/kalandramo/bald/bconf
 ```
 
 - **Go 导入路径**：`github.com/kalandramo/bald/bconf/gen/go/...`。
-- **生成方式**：`buf` managed mode（`buf.gen.yaml` 的 `go_package_prefix` 是生成路径的最终裁决者）。各 `.proto` 的 `option go_package` 已于 2026-09-05 与之全量对齐（历史上 store/appspec 两文件曾残留旧 `pkg/conf/gen` 串、靠 managed mode 兜底——已修正，不再依赖兜底）。
+- **生成方式**：`buf` managed mode（`buf.gen.yaml` 的 `go_package_prefix` 是生成路径的最终裁决者）。各 `.proto` 的 `option go_package` 已与之一致（历史上 store/appspec 两文件曾残留旧 `pkg/conf/gen` 串、靠 managed mode 兜底——已修正，不再依赖兜底）。
 - **改 proto 后**：跑 `buf generate` 重新生成 `.pb.go`——**不要直接手改 `.pb.go`**，`rawDesc` 内嵌描述符带 protobuf 长度前缀，改长字符串会让长度错位、运行时 panic。（protoc-gen-go 生成 rawDesc 时会剥离 `go_package`，故修正源串不影响生成产物。）无 BSR 登录时用 `task proto-contract-local`（本地 `protoc-gen-go` 等价模板，产物逐字节一致），`task proto-contract-check` 校验生成物与 proto 同步。
 
 ### 2.2 为什么用 proto 作契约（而非 Go struct + mapstructure）
 
-> 本节为 2026-09-05 从《proto 配置契约设计.md》（已删除）收编的决策记录，动因与坑位均经实证。
+> 决策动因与坑位均经实证。
 
 **起点问题：Go struct + mapstructure 两个真实缺陷**
 
@@ -245,7 +245,7 @@ bald/bconf/                       module github.com/kalandramo/bald/bconf
 
 **契约设计细节（收编自《proto 配置契约设计.md》）**：
 
-1. **TLS 用显式子消息**（`server.proto` 的 `Server.http.tls` → `message TLS`）：启用 TLS 是三态语义（未配置/禁用/启用+参数），标量 bool 表达不了；显式子消息天然有 presence——`GetTls() == nil` 即未配置。坑位实证（2026-09-05）：`BindFlags` 走契约前必须 `m.Has(fd)` 判存在再 `Mutable`，否则 nil 子消息被实例化 → TLS 误启用 → e2e 全挂。
+1. **TLS 用显式子消息**（`server.proto` 的 `Server.http.tls` → `message TLS`）：启用 TLS 是三态语义（未配置/禁用/启用+参数），标量 bool 表达不了；显式子消息天然有 presence——`GetTls() == nil` 即未配置。坑位实证：`BindFlags` 走契约前必须 `m.Has(fd)` 判存在再 `Mutable`，否则 nil 子消息被实例化 → TLS 误启用 → e2e 全挂。
 2. **Duration 用 `google.protobuf.Duration`**（现仅 `app.stop_timeout` 一处）：拿到类型安全与 protojson 标准序列化，代价是序列化形态必须遵守 protojson 约定（见 §2.4 坑 1）。若新配置项无跨语言/跨域需求，秒数 int 字段反而更省心。
 3. **repeated 字段整体替换语义**：配置中出现列表时覆盖默认值而非追加（`UnmarshalMap` 保证，见 §2.4 坑 2）——契约层面无需为「覆盖 vs 追加」引入任何标记。
 
@@ -426,7 +426,7 @@ func EnvProvider() Provider {
 
 选注册序而非给 `Provider` 加 `Priority int` 字段的理由：注册序已能表达全部场景（主程序按想要的顺序 `MustRegister` 即可），引入 `Priority` 字段只会在「同优先级又需排第二序」时再加一层规则，徒增复杂度。
 
-> 语义归一说明（2026-09-05）：装配产出曾是 `bconfig.FallbackReader`（key 级 first-wins 回退），现已归一为**命名层列表**。回退语义做不到字段级合并（本地只覆盖部分字段时其余字段无法从远程基准继承），且热更新回读会被高优先级源永久屏蔽（远程变更静默失效）。`FallbackReader` 退守它擅长的域——同一 key 的多候选降级（见 §1.5.4 嵌套示例），不再出现在装配主链路上。
+> 语义归一说明：装配产出曾是 `bconfig.FallbackReader`（key 级 first-wins 回退），现已归一为**命名层列表**。回退语义做不到字段级合并（本地只覆盖部分字段时其余字段无法从远程基准继承），且热更新回读会被高优先级源永久屏蔽（远程变更静默失效）。`FallbackReader` 退守它擅长的域——同一 key 的多候选降级（见 §1.5.4 嵌套示例），不再出现在装配主链路上。
 
 ### 3.7 装配：Build 出命名层列表
 

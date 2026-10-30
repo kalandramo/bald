@@ -160,7 +160,7 @@ flowchart TB
     CB -->|委托 Start/Stop/Endpoint| TS
     MS -->|委托 Start/Stop/Endpoint| TS
 
-    HOST["宿主 appkit/bootstrap"] -.->|WithExtraServers| TS
+    HOST["宿主 appkit/bootstrap"] -.->|WithExtraServerFunc| TS
 ```
 
 ## 日志与信号
@@ -171,15 +171,15 @@ flowchart TB
 
 ## 与宿主装配
 
-进程内模型满足 `transport.Server` 契约，可经 `appkit.WithExtraServers`（`pkg/appkit/bootstrap.go`）交给宿主并行启停：
+进程内模型满足 `transport.Server` 契约，可经 `appkit.WithExtraServerFunc` 交给宿主并行启停：
 
 ```go
 srv, _ := cobramcp.NewMCPServer(cobramcp.MCPOptions{
     Enabled: true, Addr: ":8090", Name: "myapp", Version: "1.0.0",
 }, factory)
 
-appkit.New(
-    appkit.WithExtraServers(srv),
+appkit.NewApp(
+    appkit.WithExtraServerFunc(func(context.Context) (transport.Server, error) { return srv, nil }),
     // ...
 )
 ```

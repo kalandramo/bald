@@ -89,7 +89,7 @@ http.Handle("/metrics", promhttp.Handler())
 
 Option：`WithNamespace` / `WithSubsystem`（指标名前缀，最终
 `namespace_subsystem_name`）。`WithRegistry` 自定义注册表，对两个构造器
-都生效（测试常用；2026-09-15 修复了此前对 `New()` 无效的缺陷 D2）。
+都生效（测试常用）。
 
 ### otel：OTLP 直推 + 全局 MeterProvider
 
@@ -143,7 +143,7 @@ srv := tcp.NewServer(
 
 webrtc 侧是 `WithClientMetrics(m)`（ClientOption，注入客户端）。
 
-**既有埋点清单**（注入即得，无需手写；2026-09-15 命名统一后）：
+**既有埋点清单**（注入即得，无需手写；命名统一后）：
 
 | 传输 | 指标 | 类型 | 维度 |
 | --- | --- | --- | --- |
@@ -200,10 +200,8 @@ if c, ok := m.(metrics.Closer); ok {
 ## 5. 边界与注意事项
 
 - **Gauge 与 GaugeAdd 别用错语义**：`Gauge` 是 Set（传绝对值），
-  `GaugeAdd` 是增量（传 ±delta），三后端行为一致。2026-09-15 前接口
-  只有 `Gauge` 且 otel 后端实际是 Add 语义（跨后端分歧，设计文档 D3，
-  已修复）——存量代码若曾依赖「otel 下 Gauge 传增量碰巧正确」，迁移到
-  `GaugeAdd`。
+  `GaugeAdd` 是增量（传 ±delta），三后端行为一致。若代码从别的
+  指标库迁来、曾以为 `Gauge` 传的是增量，改用 `GaugeAdd`。
 
 - **全局 MeterProvider 单例位互斥**：`metrics/otel.New` 与
   `observability-otlp` 的 `Setup` 都调 `otel.SetMeterProvider`。同时使用
@@ -237,7 +235,7 @@ if c, ok := m.(metrics.Closer); ok {
 **Q：datadog 后端怎么接？** 只能手工：`datadog.New(datadog.WithAddress(...))`
 后 `WithMetrics` 注入。契约段无 `datadog` 取值，配置驱动走不通。
 
-**Q：六传输指标名是什么形态？** 已统一为 Prometheus 惯例（2026-09-15，
+**Q：六传输指标名是什么形态？** 已统一为 Prometheus 惯例（
 设计文档 D4）：broker 系四传输共用一组 `broker_*` 名 + `broker` label
 区分，client 系按传输前缀（`tcp_client_*`/`webrtc_client_*`）。自定义
 埋点建议对齐同款惯例（小写下划线、Counter 带 `_total`、延迟带

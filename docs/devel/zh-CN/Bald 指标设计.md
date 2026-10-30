@@ -8,7 +8,7 @@
 >
 > 关联文档：[Bald 审计设计](./Bald%20审计设计.md)（同源纪律与旁路纪律）、[Bald 日志设计](./Bald%20日志设计.md)（可观测性闭环）、[Bald Bootstrap 设计](./Bald%20Bootstrap%20设计.md)（契约装配链）、[框架契约总览](./框架契约总览.md)（§9 中间件表）
 >
-> Last updated: 2026-10-12
+> Last updated: 2026-10-30
 >
 > Status: Accepted
 
@@ -25,15 +25,15 @@ bald 的指标域是**两套并存的体系**，回答两类不同的问题：
 
 ### 请求级指标：自有命名回答不了协议问题
 
-v0.2.1 原始设计（2026-09-12）里，Recorder 基于审计同源维度 emit 两条自有命名指标——`bald_requests_total`（Counter，transport/object/action/result）与 `bald_request_duration_seconds`（Histogram，transport/object/action）。覆盖 RED 三要素（量/错误率/延迟），命名符合 Prometheus 惯例，但属自有命名空间：套不了社区 dashboard，APM 也不认识。
+请求级指标若只用自己的命名（`bald_requests_total` / `bald_request_duration_seconds`）覆盖 RED 三要素，命名虽符合 Prometheus 惯例，但属自有命名空间：套不了社区 dashboard，APM 也不认识。
 
-semconv v1.43.0 对齐（2026-09-15，现行）经三个决策点确认后切换——
+现行设计对齐 OTel semconv v1.43.0，三个决策点：
 
 1. **正交拆分**（而非把 object/action 叠进 semconv 指标属性）——叠加会撞基数墙：`method(≤9) × status(~30) × route(几十~几百) × object(几十) × action(几个) × result(3)` → 数十万时间序列，超出 Prometheus 单指标数万序列的工程上限。正交后各自数千 / 数百。
 2. **gRPC 同切**——HTTP/gRPC 统一对齐，不留双命名空间。
 3. **`http.server.active_requests` 补上**——饱和度信号（SRE 四金信号），拦截器已有请求边界，增量小。
 
-切换后：协议问题用协议标准指标回答（可套社区 dashboard / APM 自动识别），业务问题用审计指标回答（M7 同源不丢），两者正交、基数各自可控。
+结果：协议问题用协议标准指标回答（可套社区 dashboard / APM 自动识别），业务问题用审计指标回答（与审计三元组同源），两者正交、基数各自可控。
 
 ### 传输级指标：没有「请求」的路径塞不进固定维度
 
@@ -47,7 +47,7 @@ TCP 会话与 MQ 消费循环里没有「请求」这个概念，维度天然是
 | 维度 | 协议维度（semconv v1.43.0）+ 审计三元组（正交两序列） | 自由：埋点方传 name + labels |
 | 指标 | `http.server.request.duration`、`http.server.active_requests`、`rpc.server.call.duration`、`bald_audit_events_total` | 埋点方命名（tcp/kafka 各自一套） |
 | emit 方式 | 中间件自动（`AuditWithMetrics`） | 业务/传输代码手工调用 |
-| 后端装配 | bconf `metrics` 段 → appkit `MetricsRegistry` → `observability-otlp/contract` → `Setup` 多 Reader | 业务自选后端 `New()` 直连，**不经契约** |
+| 后端装配 | bconf `metrics` 段 → 段 Provider → `observability-otlp/contract` → `Setup` 多 Reader | 业务自选后端 `New()` 直连，**不经契约** |
 | otel 依赖 | 契约层即 otel API（全局 MeterProvider） | 契约层零依赖，otel 只是三后端之一 |
 | panic 防护 | `emitMetricsSafely` recover 降级 | 无（tcp 直接调用；当前三后端不主动 panic，风险低） |
 | 发版 | 随根模块 | 独立发版：`metrics/v0.1.0` + 三后端 tag |
@@ -147,30 +147,42 @@ otelRecorder 持四 instrument（`httpDuration` / `rpcDuration` / `activeReqs` /
 
 记录时机与审计同源：拦截器在请求结束时一次填充 `(object, action, result, duration)`，同步 emit——一次中间件记录，既进审计又出指标。结果分类与 `audit.Result` 对齐（allow/deny/error），错误率即 `bald_audit_events_total{result="error"}` 的计数占比。
 
-#### 自动装配路径（2026-09-12，bald v0.2.1）
+#### 契约装配路径
 
-手动接线（业务 main.go 自调 `obmetrics.Setup` 翻译契约字段）之外，契约 `metrics` 段可经 FromBootstrap 自动装配：
+`metrics` 段由**用户 metrics 段 Provider**（`Segments() = []string{"metrics"}`）装配。`contrib/observability-otlp/contract` 导出两个后端构造器 `NewPrometheusProvider(serviceName)` / `NewOTLPProvider(serviceName)`，用户的 Provider 按 `metrics.type` 单选分发：
 
 ```go
-mr := appkit.NewMetricsRegistry()
-mr.MustRegister("prometheus", otlpcontract.NewPrometheusProvider(appName))
-mr.MustRegister("otlp", otlpcontract.NewOTLPProvider(appName))
-// 顶层只需：
-appkit.FromBootstrap(bootstrap, appkit.WithMetricsRegistry(mr), ...)
+func (p metricsProvider) Build(ctx context.Context, s appkit.ApplyScope, _ appkit.Node) (any, appkit.Cleanup, error) {
+	cfg := s.Config.GetMetrics()
+	var mp appkit.MetricsProvider
+	switch cfg.GetType() {
+	case otlpcontract.TypePrometheus:
+		mp = otlpcontract.NewPrometheusProvider(p.serviceName)
+	case otlpcontract.TypeOTLP:
+		mp = otlpcontract.NewOTLPProvider(p.serviceName)
+	default:
+		return nil, nil, fmt.Errorf("unsupported metrics type %q", cfg.GetType())
+	}
+	exposure, flush, err := mp(ctx, cfg)
+	if err != nil {
+		return nil, nil, err
+	}
+	return exposure, flush, nil
+}
 ```
 
-- `metrics.type` 单选查表（prometheus=仅本地抓取 / otlp=抓取+直推双通道），段缺省 no-op、type 空/未注册 fail-fast——与 `bootstrap.RegistrarRegistry` 同语义。
-- 暴露端独立于业务 server（`appkit.StartMetricsServer`，缺省 `:9091` `/metrics`），生命周期解耦：业务 server drain 时指标端仍在产出尾批数据。
-- 停机 flush Effect 逆序回放**最后**执行（所有组件 cleanup 后）。
-- serviceName 即时绑定：contract Provider 构造器收 `serviceName string`（如 `NewPrometheusProvider(appName)`），构造时求值——resource 的 `service.name` 来自应用而非契约段，故导出构造器而非包级 Provider 变量。
+- `metrics.type` 单选：`prometheus` = 仅本地抓取，`otlp` = 抓取 + 直推双通道；段缺省 → 不装配；段存在而无 Provider → L3 启动期报错。
+- 暴露端归能力包 `observability/metricshttp`（独立监听，`metrics.prometheus.addr/path`，缺省 `:9091` `/metrics`）。产物是 `appkit.MetricsExposure`（可关闭句柄），引擎合成停机序：**先 Stop 暴露端、再执行 flush**——尾批指标不因监听面先收而丢失。
+- `metrics` 段不支持热更新（`ReloadStatic`）。
+- serviceName 即时绑定：构造器收 `serviceName string`，构造时求值——resource 的 `service.name` 来自应用而非契约段，故导出构造器而非包级变量。
 
-#### 惰性 instruments（noop-bind 修复史，v0.2.1）
+#### 惰性 instruments：为什么首次 Record 才创建
 
-otelRecorder 曾在构造期创建 instruments——OTel global 语义下，`SetMeterProvider` **之前**创建的 instrument 永久 no-op（绑定时捕获的是旧 noop meter）。Recorder 常在 Provider 装配前构造（如 bundle 构造期），症状是「指标端可见但恒空、无错误」。修复：instruments 改 `sync.Once` 首次 `Record` 时惰性创建（v0.2.1）。此前 go-bald-admin「不压流量恒空」的部分误判根因即此。
+OTel 的全局语义是：`SetMeterProvider` **之前**创建的 instrument 永久 no-op（创建时捕获的是旧 noop meter）。Recorder 常在指标 Provider 装配前构造（如 bundle 构造期），若构造期就创建 instruments，症状是「指标端可见但恒空、无错误」。因此 instruments 用 `sync.Once` 在首次 `Record` 时惰性创建。
 
 ### 传输级三原语（metrics/）
 
-> 本节行为以代码为准，已知缺陷及修复状态见「实现与过渡」。
+> 本节行为以代码为准。
 
 #### 契约：三原语接口，模块零依赖
 
@@ -196,7 +208,7 @@ type Closer interface {
 
 五点边界（前四点以代码为准，第五点为埋点纪律）：
 
-- **无返回值**：埋点永不向上游报错，失败静默（旁路纪律，与 audit.D5 同源）。代价是「可观测性自身不可观测」——后端挂了你只能在指标端点上发现数据没了。
+- **无返回值**：埋点永不向上游报错，失败静默（旁路纪律，与审计一致）。代价是「可观测性自身不可观测」——后端挂了你只能在指标端点上发现数据没了。
 - **`ctx` 由后端自行处置**：otel 后端把 ctx 传给 `Add`/`Record`（参与 OTel 上下文传播）；prometheus 与 datadog 后端显式 `_ = ctx` 丢弃。
 - **`Closer` 是能力探测接口而非生命周期要求**：持有后台资源（OTLP 缓冲、UDP 连接）的后端实现它（otel、datadog 有 `var _ metrics.Closer` 断言），prometheus 无需 Close。调用方用类型断言决定是否挂停机。
 - **label keys 须恒定**：同一 name 的 label key 集合跨调用保持不变——prometheus 后端首见冻结维度，后见新键静默丢弃（接口无返回值，无法报错）。
@@ -217,30 +229,30 @@ metrics/                  module github.com/kalandramo/bald/metrics          （
 
 #### Prometheus 后端：promauto 工厂 + 七个惰性缓存 map
 
-`Provider` 持有 cfg、`promauto.Factory` 与七个 map（counters/counterVecs/histograms/histogramVecs/gauges/gaugeVecs/labelNames），全部由一把 `sync.Mutex` 保护（2026-09-15 D1 修复——此前无锁，tcp 并发 handler 下必现 data race；锁内查建 instrument、锁外执行 Add/Observe/Set，instrument 自身并发安全）。instrument 首次使用时创建并缓存；无标签走单 instrument，有标签走 `*Vec`。
+`Provider` 持有 cfg、`promauto.Factory` 与七个 map（counters/counterVecs/histograms/histogramVecs/gauges/gaugeVecs/labelNames），全部由一把 `sync.Mutex` 保护（锁内查建 instrument、锁外执行 Add/Observe/Set；instrument 自身并发安全）。instrument 首次使用时创建并缓存；无标签走单 instrument，有标签走 `*Vec`。
 
 有两个构造器，行为差异是刚性的：
 
-- `New()`：缺省私有注册表（`prometheus.NewRegistry()`），互相隔离；`Registry()` 返回它供 `promhttp.HandlerFor` 挂自有端点。`WithRegistry` 可覆盖（2026-09-15 D2 修复——此前 `New()` 无条件覆盖丢弃，Option 失效）。
+- `New()`：缺省私有注册表（`prometheus.NewRegistry()`），互相隔离；`Registry()` 返回它供 `promhttp.HandlerFor` 挂自有端点。`WithRegistry` 可覆盖。
 - `NewWithDefaultRegistry()`：缺省 `prometheus.DefaultRegisterer`，指标混入进程全局注册表，`promhttp.Handler()` 可直接暴露。`WithRegistry` 同样可覆盖。
 
 已知边界：**label keys 首见冻结**（`cachedLabelKeys`）。同一 name 第一次出现的 label key 集合被缓存为该指标的 Vec 维度，之后传入不同（更多）label 的键会被静默丢弃而非报错——这是 Prometheus 同名指标维度必须固定的本质约束，已写入接口契约（调用方保证 label keys 恒定）。
 
 #### OTel 后端：OTLP 直推 + 全局 MeterProvider
 
-`New()` 组装链：OTLP exporter（gRPC 缺省 / `WithHTTP` 切换）→ resource（semconv v1.43.0 的 ServiceName/Version，2026-09-15 自 v1.34.0 升级统一）→ PeriodicReader（缺省 60s）→ `MeterProvider` → **`otel.SetMeterProvider(mp)` 设为全局**。四 map（counters/histograms/gauges/gaugeAdds）有 `sync.Mutex` 保护，instrument 创建失败静默 return。`Close()` 以 10s 超时 `Shutdown` flush 尾批。
+`New()` 组装链：OTLP exporter（gRPC 缺省 / `WithHTTP` 切换）→ resource（semconv v1.43.0 的 ServiceName/Version）→ PeriodicReader（缺省 60s）→ `MeterProvider` → **`otel.SetMeterProvider(mp)` 设为全局**。四 map（counters/histograms/gauges/gaugeAdds）有 `sync.Mutex` 保护，instrument 创建失败静默 return。`Close()` 以 10s 超时 `Shutdown` flush 尾批。
 
-**Gauge 用同步 `Float64Gauge` instrument**（2026-09-15 D3 修复）：OTel Go v1.46 提供同步 gauge，`Record` 即真 Set 语义，不再需要 observable 回调或 UpDownCounter 模拟。`GaugeAdd` 走 `Float64UpDownCounter.Add`（增量语义）。同名混用两种语义时第二个 instrument 创建失败、静默跳过（旁路纪律）。
+**Gauge 用同步 `Float64Gauge` instrument**：OTel Go v1.46 提供同步 gauge，`Record` 即真 Set 语义，不再需要 observable 回调或 UpDownCounter 模拟。`GaugeAdd` 走 `Float64UpDownCounter.Add`（增量语义）。同名混用两种语义时第二个 instrument 创建失败、静默跳过（旁路纪律）。
 
-缺省 `serviceName = "bald-app"`（`otel.go:56`；2026-09-15 自 go-wind 移植残留 `"go-wind-service"` 清理，对齐 `observability-otlp` 的 `defaultServiceName` 惯例）。
+缺省 `serviceName = "bald-app"`（对齐 `observability-otlp` 的 `defaultServiceName` 惯例）。
 
 #### Datadog 后端：DogStatsD UDP
 
-最薄的一层：`statsd.Client` 直连 `127.0.0.1:8125`，labels 转 `k:v` tag，`rate` 支持采样。`WithFlushPeriod` 经 `statsd.WithAggregationInterval` 消费（2026-09-15 D5 修复——此前是死配置）；`Counter`/`GaugeAdd` 的浮点增量经 `math.Round` 转整（D7 修复——此前直接截断）；`GaugeAdd` 用 statsd count 类型（增量语义），`Gauge` 用 statsd gauge（Set 语义）。
+最薄的一层：`statsd.Client` 直连 `127.0.0.1:8125`，labels 转 `k:v` tag，`rate` 支持采样。`WithFlushPeriod` 经 `statsd.WithAggregationInterval` 消费；`Counter`/`GaugeAdd` 的浮点增量经 `math.Round` 转整；`GaugeAdd` 用 statsd count 类型（增量语义），`Gauge` 用 statsd gauge（Set 语义）。
 
 #### 消费方式与既有埋点清单
 
-六个传输模块经 `WithMetrics(m metrics.Metrics)` 注入（与 `WithTracer` 对称；webrtc 客户端侧是 `WithClientMetrics`）。已落地的埋点（实测代码，2026-09-15 命名统一后）：
+六个传输模块经 `WithMetrics(m metrics.Metrics)` 注入（与 `WithTracer` 对称；webrtc 客户端侧是 `WithClientMetrics`）。已落地的埋点：
 
 | 传输 | 指标 | 类型 | 维度 |
 |---|---|---|---|
@@ -259,11 +271,11 @@ metrics/                  module github.com/kalandramo/bald/metrics          （
 | 同上 | `broker_message_duration_seconds` | Histogram | broker, topic |
 | 同上 | `broker_messages_errors_total` | Counter | broker, topic, error |
 
-命名已统一为 Prometheus 惯例（2026-09-15 D4 修复）：小写下划线、Counter 带 `_total`、延迟带 `_seconds`、label key 不含点号（`rpc.system`→`rpc_system`）。broker 系四个传输共用一组指标名，`broker` label（取值 kafka/rabbitmq/redis/rocketmq）区分传输。
+命名统一为 Prometheus 惯例：小写下划线、Counter 带 `_total`、延迟带 `_seconds`、label key 不含点号（`rpc.system`→`rpc_system`）。broker 系四个传输共用一组指标名，`broker` label（取值 kafka/rabbitmq/redis/rocketmq）区分传输。
 
 #### 与契约装配链的关系：不经 bconf，datadog 无契约位
 
-bconf 的 `metrics` 段（`type ∈ {"prometheus", "otlp"}`）驱动的是 `pkg/metrics` 那条链（appkit `MetricsRegistry` → `observability-otlp/contract` → `Setup`），**与本接口无关**。本体系的三个后端只能业务手工 `New()` 后注入 transport；datadog 在契约里没有取值，永远走不了配置驱动。
+bconf 的 `metrics` 段（`type ∈ {"prometheus", "otlp"}`）驱动的是 `pkg/metrics` 那条链（metrics 段 Provider → `observability-otlp/contract` → `Setup`），**与本接口无关**。本体系的三个后端只能业务手工 `New()` 后注入 transport；datadog 在契约里没有取值，永远走不了配置驱动。
 
 ## 理由与取舍
 
@@ -289,19 +301,19 @@ bconf 的 `metrics` 段（`type ∈ {"prometheus", "otlp"}`）驱动的是 `pkg/
 
 ### 传输级三原语的取舍
 
-**决策①：接口为什么无错误返回？** 埋点是旁路：后端连不上 Collector、UDP 丢包、instrument 创建失败，都不该影响消息处理主路径。这与 `audit.Auditor` 的 D5 纪律对称。代价是静默丢数，且没有自身的健康信号——我们接受，因为指标链路的排障入口是「端点上没数据」这个现象本身。
+**决策①：接口为什么无错误返回？** 埋点是旁路：后端连不上 Collector、UDP 丢包、instrument 创建失败，都不该影响消息处理主路径。这与 `audit.Auditor` 的旁路纪律对称。代价是静默丢数，且没有自身的健康信号——我们接受，因为指标链路的排障入口是「端点上没数据」这个现象本身。
 
 **决策②：Gauge 与 GaugeAdd 为什么是两个方法？** OTel 的 gauge 历史上只有 observable（回调注册、周期采集）形态，命令式接口接不进——旧实现因此退化为 `Float64UpDownCounter.Add`，与 prometheus/datadog 的 Set 语义分歧（换后端 = 换行为）。OTel Go v1.46 提供同步 gauge 后我们彻底拆开：`Gauge` = Set（otel 用 `Float64Gauge.Record`，prometheus 用 `Gauge.Set`，datadog 用 statsd gauge），`GaugeAdd` = 增量（otel 用 `Float64UpDownCounter.Add`，prometheus 用 `Gauge.Add`，datadog 用 statsd count）。三后端两种语义各自一致，tcp 的在途数 ±1 用法改走 `GaugeAdd`。
 
-**决策③：后端为什么放顶层子模块而不是 contrib/？** 对齐布局判别：独立 go.mod = 可独立发布的桥接模块，且契约（零依赖）与后端（重依赖）必须物理隔离，否则 transport 六模块会被迫传递引入 client_golang/otel/datadog-go。contrib/ 语义是「接根模块运行期框架」，这三者不接任何框架，只是 SDK 桥接。2026-09-17 该判别再落一例：服务注册（registry 契约 + `registry/{etcd,consul,nacos,kubernetes}` 后端）同样按此从 `pkg/registry` + `contrib/registry` 归位到顶层独立 module，见《Bald 注册中心设计.md》。
+**决策③：后端为什么放顶层子模块而不是 contrib/？** 对齐布局判别：独立 go.mod = 可独立发布的桥接模块，且契约（零依赖）与后端（重依赖）必须物理隔离，否则 transport 六模块会被迫传递引入 client_golang/otel/datadog-go。contrib/ 语义是「接根模块运行期框架」，这三者不接任何框架，只是 SDK 桥接。服务注册（registry 契约 + `registry/{etcd,consul,nacos,kubernetes}` 后端）按同一判别放在顶层独立 module，见《Bald 注册中心设计.md》。
 
-**决策④：为什么 `New()` 与 `NewWithDefaultRegistry()` 是两个函数？** 私有注册表隔离（`New`）与全局注册表混用（`NewWithDefaultRegistry`）是两种合法策略，用两个构造器区分是清晰的。曾经的矛盾（`New()` 无条件覆盖 `WithRegistry`，三者互相打架）已于 2026-09-15 修复（D2）：`WithRegistry` 对两个构造器都生效，缺省值各自兜底。
+**决策④：为什么 `New()` 与 `NewWithDefaultRegistry()` 是两个函数？** 私有注册表隔离（`New`）与全局注册表混用（`NewWithDefaultRegistry`）是两种合法策略，用两个构造器区分是清晰的。`WithRegistry` 对两个构造器都生效，缺省值各自兜底。
 
 ## 兼容性
 
 ### 请求级 Recorder：三项破坏性变更，装配链不变
 
-**破坏性变更**（随下个版本发布，先例 9454bec log 收缩）：
+**破坏性变更**：
 
 | 变更 | 影响 | 迁移 |
 |---|---|---|
@@ -309,7 +321,7 @@ bconf 的 `metrics` 段（`type ∈ {"prometheus", "otlp"}`）驱动的是 `pkg/
 | `Recorder` 接口加 `RecordActive` 方法 | 自定义 Recorder 实现 | 补一个空方法（或转发 `NopRecorder`） |
 | `Event` 加 `Request` 字段 | 构造 `Event` 的调用方 | 零值兼容，不填则协议指标缺属性（不报错） |
 
-**不变项**：`Record` 签名、`Transport` 枚举、`NopRecorder`、`New(meterName)` 构造；bconf `metrics` 段 → appkit `MetricsRegistry` → `observability-otlp` 装配链全程无感（Recorder 内部 emit 什么变了，链路没变）；`metrics/`（传输级）体系不受影响——TCP/MQ 埋点的 semconv（`messaging.*`）是独立讨论。
+**不变项**：`Record` 签名、`Transport` 枚举、`NopRecorder`、`New(meterName)` 构造；bconf `metrics` 段 → 段 Provider → `observability-otlp` 装配链全程无感（Recorder 内部 emit 什么变了，链路没变）；`metrics/`（传输级）体系不受影响——TCP/MQ 埋点的 semconv（`messaging.*`）是独立讨论。
 
 **已知边界**：
 
@@ -317,11 +329,9 @@ bconf 的 `metrics` 段（`type ∈ {"prometheus", "otlp"}`）驱动的是 `pkg/
 - gRPC stream 调用不经 `AuditInterceptor`（unary only，存量边界不变）。
 - `http.server.active_requests` 的 `server.address` 取 `Host` 头——可被客户端伪造，仅作 semconv 合规尽力，不用于安全判定。
 
-### 传输级三原语：Gauge 语义分歧、单例位互斥（发版已解决）
+### 传输级三原语：Gauge 语义与全局单例位
 
-**发版（2026-09-19 已解决）。** 修复前四个模块未发版，`transport/tcp`、`transport/webrtc` 的 go.mod 引用了不存在的 `metrics v0.0.1`，`transport/{kafka,rabbitmq,redis,rocketmq}` 则用伪版本 `v0.0.0-00010101000000-000000000000` 靠 replace 兜底——一旦去掉 replace 发布，tcp/webrtc 必然解析失败。现六个 transport 模块的 require 均指向真实版本 `metrics v0.1.0`（`0b34c02` 发版轨，同时消除全部 v0.0.0 内部占位）；`replace ../../metrics` 按仓库惯例保留供本地开发。
-
-**Gauge 语义：接口加 `GaugeAdd` 方法（破坏性变更，在发版前的零 tag 窗口内完成）。** 修复前接口只有 `Gauge`（Set 契约），但 otel 后端实际是 Add（`Float64UpDownCounter` 模拟）、tcp 埋点又按增量用法调用——两个相反方向的偏离恰好只在 otel 组合下互相抵消，同一份业务代码从 otel 切到 prometheus 后端，in_flight 指标就静默坏掉。修复（2026-09-15）：`Gauge` 定死 Set 语义（otel 改用同步 `Float64Gauge.Record`），新增 `GaugeAdd` 承载增量语义，三后端行为一致；tcp 的 `connections_in_flight` ±1 改走 `GaugeAdd`。自定义 `Metrics` 实现需补一个 `GaugeAdd` 方法。
+**两种 Gauge 语义。** `Gauge` 是 Set（value 是新的绝对读数），`GaugeAdd` 是增量（delta）。三后端行为一致：otel 用同步 `Float64Gauge.Record` / `Float64UpDownCounter.Add`，prometheus 用 `Gauge.Set` / `Gauge.Add`，datadog 用 statsd gauge / count。自定义 `Metrics` 实现必须同时实现两个方法——只有 Set 语义会让在途数这类增量用法静默出错。
 
 **全局 MeterProvider 单例位：与 observability-otlp 互斥使用。** `metrics/otel.New` 与 `observability-otlp/metrics.Setup` 都调 `otel.SetMeterProvider`。同时使用时后设者生效、先设者的全部指标静默丢失；`pkg/metrics` 的 Recorder 依赖全局位，被 `metrics/otel` 顶掉后请求级指标也会路由错误。约束：**一个进程里二选一**。要同时要 OTLP 直推和 Prometheus 抓取，用 `Setup` 的多 Reader（它本来就是为此设计的）。
 
@@ -333,33 +343,12 @@ bconf 的 `metrics` 段（`type ∈ {"prometheus", "otlp"}`）驱动的是 `pkg/
 | `observability-otlp/metrics/metrics.go` | `SetMeterProvider` | metrics |
 | `observability-otlp/trace/trace.go` | `SetTracerProvider` | **trace** |
 
-没有任何 trace 代码调 `SetMeterProvider`，也没有任何 metrics 代码调 `SetTracerProvider`。所以「tracer 与 metrics 都走 OTLP 直推」**完全可行**——`observability-otlp` 这个 module 同时提供 `trace/` 与 `metrics/`，其 `contract` 子包的用法示例（`TracerRegistry` + `MetricsRegistry` 同时注册）就是为此设计的。互斥只发生在「`metrics/otel` 与 `observability-otlp/metrics` 两个 metrics 后端之间」，与 trace 无关。
+没有任何 trace 代码调 `SetMeterProvider`，也没有任何 metrics 代码调 `SetTracerProvider`。所以「tracer 与 metrics 都走 OTLP 直推」**完全可行**——`observability-otlp` 这个 module 同时提供 `trace/` 与 `metrics/`，其 `contract` 子包同时导出两段的 Provider 构造器（同一个应用里分别声明 tracer / metrics 段 Provider 即可）。互斥只发生在「`metrics/otel` 与 `observability-otlp/metrics` 两个 metrics 后端之间」，与 trace 无关。
 
-## 实现与过渡
+## 实现与验证
 
-### 缺陷清单（按严重度）
-
-| # | 缺陷 | 位置 | 严重度 |
-|---|---|---|---|
-| D1 | prometheus Provider 七 map **无锁**，并发埋点 data race（otel 版有 mu，datadog 版无 map 所以幸免；tcp 的 handler 是并发的，prometheus 后端下必现） | `prometheus.go` 全文件 | 高，已修复（2026-09-15：单 `sync.Mutex` 保护全部缓存 map，`-race` 并发测试覆盖） |
-| D2 | `New()` 无条件覆盖 `cfg.registry`，`WithRegistry` 失效 | `prometheus.go:81-82` | 高，已修复（2026-09-15：defaultConfig registry 改 nil、两构造器各自兜底，`WithRegistry` 对两者生效） |
-| D3 | Gauge Set/Add 语义跨后端分歧（见「兼容性」）；tcp 增量用法仅 otel 正确 | 接口 + 三后端 + tcp | 高，已修复（2026-09-15：`Gauge` 定 Set + 新增 `GaugeAdd`，otel 用同步 `Float64Gauge`，tcp 改 `GaugeAdd`） |
-| D4 | 点号命名不符合 Prometheus 指标名字符集，prometheus 后端下不可抓 | transport 六传输（实际范围大于初记：broker 系 4 server + tcp/webrtc client + `rpc.system` label key） | 中，已修复（2026-09-15：全量统一 Prometheus 命名，见埋点清单） |
-| D5 | `WithFlushPeriod` 声明未消费 | `datadog.go:68-71` | 低，已修复（2026-09-15：经 `statsd.WithAggregationInterval` 消费） |
-| D6 | label keys 首见冻结，后见 label 静默丢弃 | `prometheus.go:144-151` | 低，已契约化（2026-09-15：写入接口注释，调用方保证同一 name 的 label keys 恒定） |
-| D7 | datadog `Counter` int64 截断 | `datadog.go:125` | 低，已修复（2026-09-15：`math.Round` 替代截断） |
-| D8 | otel 缺省 serviceName `"go-wind-service"` 血统残留；`doc.go` "go-wind framework" 措辞过期 | `otel.go:56`、`doc.go:2` | 低，已修复（2026-09-15，缺省改 `bald-app`） |
-
-处置原则：D1-D8 已全部于 2026-09-15 修复（D6 契约化——prometheus 同名指标维度固定是本质约束，接口无返回值无法报错，写入契约由调用方保证）。三后端测试从零补齐：prometheus 含 `-race` 并发用例与 Set/Add 语义断言，otel 用 ManualReader 断言 Set/Add 语义，datadog 用本地 UDP 收包断言 DogStatsD 线格式。
-
-### 发版 checklist
-
-1. ~~修 D1-D3~~（已完成，2026-09-15：D1 单锁 + `-race` 测试；D2 defaultConfig nil + 两构造器兜底；D3 Gauge=Set + `GaugeAdd` 正名，otel 同步 gauge，tcp 改 `GaugeAdd`；D4-D7 一并清理）。
-2. 清理 `doc.go` / 缺省 serviceName 的 go-wind 残留（已完成，2026-09-15：doc.go 改 "bald framework"、缺省 serviceName 改 `bald-app`）。
-3. ~~打 tag：`metrics/v0.1.0` + `metrics/{prometheus,otel,datadog}/v0.1.0`~~（已完成，2026-09-19）。
-4. ~~transport 六模块 require 改真实版本，replace 保留~~（已完成，2026-09-19：`0b34c02` 发版轨，六模块 require 均指向 `metrics v0.1.0`）。
-
-**发版状态：本 checklist 已全部执行完毕**（2026-09-19，`0b34c02`）。
+- **模块与发版**：`metrics/` 与三个后端各自独立发版（`v0.1.0`）；六个 transport 模块 require 真实版本，`replace ../../metrics` 仅供本地开发。
+- **测试**：prometheus 含 `-race` 并发用例与 Set/Add 语义断言；otel 用 ManualReader 断言 Set/Add 语义；datadog 用本地 UDP 收包断言 DogStatsD 线格式。
 
 ## 附录：FAQ
 
@@ -367,6 +356,6 @@ bconf 的 `metrics` 段（`type ∈ {"prometheus", "otlp"}`）驱动的是 `pkg/
 
 **Q：datadog 后端怎么接？** 只能手工：`datadog.New(datadog.WithAddress(...))` 后 `WithMetrics` 注入。契约段无 `datadog` 取值，配置驱动走不通——若需要，是 bconf `Metrics.Type` 枚举的独立增量提案。
 
-**Q：为什么六传输指标名是这个形态？** `metrics.Metrics` 对命名零约定，各传输移植时曾各自带原生态惯例（tcp 下划线、kafka 点号），2026-09-15 已统一为 Prometheus 惯例（D4）：broker 系四传输共用一组 `broker_*` 名 + `broker` label 区分，client 系按传输前缀（`tcp_client_*`/`webrtc_client_*`）。
+**Q：为什么六传输指标名是这个形态？** `metrics.Metrics` 对命名零约定，框架内统一约定为 Prometheus 惯例：broker 系四传输共用一组 `broker_*` 名 + `broker` label 区分，client 系按传输前缀（`tcp_client_*`/`webrtc_client_*`）。
 
 **Q：Grafana 面板从旧指标名怎么迁？** 见「兼容性」一节的迁移表——`bald_requests_total` 改 `bald_audit_events_total`，`bald_request_duration_seconds` 改 `http_server_request_duration_seconds`（Prometheus 形态）。

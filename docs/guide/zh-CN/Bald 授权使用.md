@@ -32,7 +32,7 @@ gen app 产物 `internal/bootstrap/seed/policies.go`（生成一次归你维护�
 - object 走 `pkg/authz.DefaultGRPCObject` 同源规则：`GreetService` →
   `"greet"`；
 - 动作是**六元组**：REST 动词 get/post/put/delete + gRPC 动作 list/write
-  双面对齐。教训（bald-admin bootstrap.go:648-654）：只写四条 REST 动词时，
+  双面对齐。教训（bald-admin bootstrap.go）：只写四条 REST 动词时，
   补 gRPC 面的 List/Create 因缺策略行 403；
 - 角色：admin 拿全部六元组，viewer 只读（get/list）。gen domain 产物
   authz/alias.gen.go 的 `DefaultActions` 是本表的对账面。
@@ -56,7 +56,7 @@ gen domain 产物 `internal/<apiserver_dir>/authz/alias.gen.go`：
 
 ## contrib/authz-casbin：两个装载入口
 
-**NewRows(rows, grants)**（policy.go:47）——生成物策略装载入口，把行渲染
+**NewRows(rows, grants)**（policy.go）——生成物策略装载入口，把行渲染
 成缺省 RBAC 模型的 p/g 行。语义四条：
 
 - 空集合法（fail-closed 初始态）：rows/grants 均可为 nil/空，对一切请求
@@ -74,7 +74,7 @@ g 行从哪来：**p 行是生成物，g 行不是**。初始绑定集构造时�
 运行期变更（新用户、换角色）走 Reload——配合 `NewWithAdapter` 指向可变
 策略源（DB adapter）才有真实语义。
 
-**NewAlias(inner, aliases)**（alias.go:48）——object 别名装饰器，消费
+**NewAlias(inner, aliases)**（alias.go）——object 别名装饰器，消费
 `ObjectAliases`（入参防御性拷贝，构造后只读）。为什么双向解析：策略行的
 object 命名空间由业务自选
 （gen 产物默认 gRPC 命名；bald-admin 的 DB 策略走 HTTP 命名），casbin 模型

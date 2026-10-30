@@ -4,17 +4,13 @@
 >
 > Last updated: 2026-09-14
 >
-> Discussion at: `Bald 配置源层设计.md`（兄弟篇：源层专属展开，本文 §2 内容的前身与收编来源）、`Bald 日志设计.md`（logger 域契约的演进篇）
+> Discussion at: `Bald 配置源层设计.md`（兄弟篇：源层专属展开）、`Bald 日志设计.md`（logger 域契约）
 >
 > Status: Accepted（已实现，随 bald bconf v0.6.0 发布）
 
 ## 摘要
 
 `bconf` 是配置形状的单一真相源：用 Protobuf 声明「一个应用长什么样」（18 个 proto、15 个顶层配置域），`buf` 生成强类型 Go 包，四个 Go API（`NewBootstrap` 默认值 / `UnmarshalMap` 合并桥接 / `Validate` 启动校验 / `BindFlags` flag 绑定）中，`UnmarshalMap` 与 `BindFlags` 按 proto 描述符自动工作——`--http.addr` 这类层级 flag 真零样板；默认值集中在 `NewBootstrap`、校验规则集中在 `Validate` 各一处维护——新增一个配置项 = 声明形状 + 两处各补内容，无需 interface/struct/flag 多处同步。模块仅依赖 protobuf 与 pflag，不含任何后端 SDK，不读配置（bconfig 的事）、不装配（bootstrap 的事）。本文回答三个问题：为什么用 proto 作契约而不是 Go struct、为什么桥接层要自建类型规范化与合并语义、为什么校验只到形状层不认后端。最重要的承诺：**已知键写错类型、取值越域或枚举名非法，在启动期报错，而不是静默落到零值——配置错误显式暴露。**边界同样如实：拼错的未知键名（`https` 而非 `http`）会像业务自定义段一样被 `DiscardUnknown` 静默放行、落默认值——键名级防呆未实现，代价见 §API 二。
-
-> 本文按当前代码整理；五后端段级校验（§API 三）为随本文补齐的增量，超出 v0.5.0 已发布内容，下次发版随附。
->
-> 2026-09-18 更新：补记 v0.6.0 的 `audit` 域（此前本文停留在 v0.5.0 视角，漏记该域导致三处计数偏低一，已修正）。
 
 ---
 
@@ -138,7 +134,7 @@ bconf.Validate(cfg)  // app.id/name 非空、addr 为合法 :port 或 ip:port、
                      // backends 至少一项、六种后端段级规则、filter_keys 无空串
 ```
 
-分层是刻意的：契约层只校验**形状可判定**的规则（非空、格式、数值域）；后端是否已注册由装配层 `bootstrap.LogRegistry` 查表 fail-fast——契约层不硬编码后端清单，新后端接入零契约改动。六种后端段各有段级规则，错误带 `backends[i].<seg>` 级定位：
+分层是刻意的：契约层只校验**形状可判定**的规则（非空、格式、数值域）；后端能否装配由段 Provider 在装配期决定（段存在而无 Provider 时 L3 覆盖检查启动期报错）——契约层不硬编码后端清单，新后端接入零契约改动。六种后端段各有段级规则，错误带 `backends[i].<seg>` 级定位：
 
 - **slog**：level/format 值域、输出目标（output_paths 优先，回退 output_path）、rotate 数值非负；
 - **charm**：level（debug|info|warn|error）与 format（json|text）值域——contract 对未知值**静默回退默认**（"fatal" 落 info、"console" 落 text），值域校验把静默错配变启动报错；output_path 空串放行（contract 明确空值与 "stderr" 等价，非漏配）；
@@ -201,7 +197,7 @@ bconf.BindFlags(fs, cfg, "server")   // 递归注册 --server.http.addr 等层�
 
 ---
 
-## 实现与过渡
+## 实现现状
 
 全部已落地，无过渡安排：
 

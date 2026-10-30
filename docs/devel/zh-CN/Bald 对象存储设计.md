@@ -2,11 +2,11 @@
 
 > Author(s): bald 团队
 >
-> Last updated: 2026-09-18
+> Last updated: 2026-10-30
 >
-> Discussion at: 源码 `oss/minio/{client,config}.go`、`oss/s3/{client,config,errors,storage}.go`、两个 `contract/` 子包；装配面 `bootstrap/storage.go`、`pkg/appkit/storage.go`；契约 `bconf/proto/bootstrap/v1/storage.proto`
+> 适用包：`oss/minio`、`oss/s3`（各自独立 module，含 `contract/` 子包）；契约 `bconf/proto/bootstrap/v1/storage.proto`
 >
-> Status: Accepted（两后端已落地、契约装配链完整；**装配期静默降级已于 2026-09-18 修复**，见「兼容性」§1）
+> Status: Accepted
 
 ## 摘要
 
@@ -16,7 +16,7 @@
 
 1. **门面 + SDK 双出口**。每个后端既提供类型化的 `Storage` 门面（`PutObject`/`GetObject`），也通过 `SDK()` 暴露底层客户端——业务需要高级特性（分片上传、预签名 URL、生命周期）时不必等门面补齐。
 2. **契约映射单独成包**。`contract/` 子包是唯一 import `bconf` 的地方，`oss/minio` 与 `oss/s3` 本体保持**零契约依赖**（纯 SDK 封装）。依赖图因此全程可见：业务按需 import 契约包，不引就不进依赖图。
-3. **显式注册**。与框架一致：`bootstrap.StorageRegistry` 在 main 里逐个 `MustRegister`，段存在但未注册 Provider 即 fail-fast。
+3. **显式装配**。每个后端在 `contract/` 子包导出 `AppProvider()`（消费 `storage.<backend>` 段），应用以 `appkit.Providers(...)` 显式声明；段存在而无 Provider 时由 L3 覆盖检查在启动期报错。
 
 ## 背景与动机
 
@@ -27,7 +27,7 @@
 - **s3 有 bucket 概念**：`Config.Bucket` 必填，`PutObject(ctx, key, body, contentType)` 只收 key，bucket 由门面持有。
 - **minio 无 bucket 概念**：`PutObject(ctx, bucket, key, body, contentType)` 每次传 bucket。
 
-强行抽公共接口要么让 s3 多一个冗余 bucket 参数，要么让 minio 丢掉多 bucket 能力。**取舍**：不抽公共接口，两后端各自独立，`StorageRegistry` 只保证"按段名构造、返回实例"这一层契约统一。代价是业务换后端要改调用点——但换对象存储后端本就罕见，且语义差异需要业务显式处理。
+强行抽公共接口要么让 s3 多一个冗余 bucket 参数，要么让 minio 丢掉多 bucket 能力。**取舍**：不抽公共接口，两后端各自独立，装配面只保证"按段名构造、返回实例"这一层统一。代价是业务换后端要改调用点——但换对象存储后端本就罕见，且语义差异需要业务显式处理。
 
 ## 设计
 
@@ -36,18 +36,18 @@
 ```mermaid
 flowchart TB
     subgraph contract["契约层（唯一 import bconf）"]
-        P1["oss/minio/contract.Provider"]
-        P2["oss/s3/contract.Provider"]
+        P1["oss/minio/contract.AppProvider()"]
+        P2["oss/s3/contract.AppProvider()"]
     end
 
-    subgraph bootstrap["装配层（构造期）"]
-        R["bootstrap.StorageRegistry<br/>MustRegister(type, provider)"]
-        B["Build(ctx, cfg)<br/>段存在 → 查表构建 → 失败回滚"]
+    subgraph bootstrap["装配层（阶段 B）"]
+        R["appkit.Providers(...)<br/>按段路径登记节点"]
+        B["Plan 定序 → Build(ctx, scope, node)<br/>段存在 → 构造 → 失败回滚"]
     end
 
     subgraph appkit["运行期胶水"]
-        W["appkit.WithStorageRegistry"]
-        E["停机 Effect<br/>appkit:storage-clients"]
+        W["资源面 appkit.NewKey[storage.Storage]("storage.minio")"]
+        E["停机 Effect（逆序回放 cleanup）"]
     end
 
     subgraph impl["实现层（零契约依赖）"]
@@ -81,14 +81,14 @@ flowchart TB
 
 ### 门面契约
 
-两后端的门面方法遵循同一套校验顺序（s3 侧示例，`storage.go:41-56`）：
+两后端的门面方法遵循同一套校验顺序（s3 侧示例，`storage.go`）：
 
 1. `s == nil || s.client == nil` → `ErrNilClient`
 2. `bucket == ""` → `ErrEmptyBucket`（s3 用 `s.bucket`）
 3. `key == ""` → `ErrEmptyObjectKey`
 4. `isNilReader(body)` → `ErrNilObjectBody`
 
-`isNilReader` 用反射处理**类型化的 nil reader**（`var r *bytes.Reader = nil` 传给 `io.Reader` 时接口非 nil）——两后端各有一份（`minio/client.go:100`、`s3/client.go:83`），是同构复制。
+`isNilReader` 用反射处理**类型化的 nil reader**（`var r *bytes.Reader = nil` 传给 `io.Reader` 时接口非 nil）——两后端各有一份（`minio/client.go`、`s3/client.go`），是同构复制。
 
 `prepareBody` 同样是两份同构实现：`io.ReadSeeker` 走 `readerSize`（三段 Seek 求长度），否则 `io.ReadAll` 缓冲。前者避免大文件全量入内存。
 
@@ -102,11 +102,11 @@ func Provider(ctx context.Context, cfg *bootstrapv1.Storage) (any, func(), error
 var _ func(context.Context, *bootstrapv1.Storage) (any, func(), error) = Provider
 ```
 
-Provider 做**三段校验**（以 minio 为例，`contract.go:30-45`）：
+Provider 做**三段校验**（以 minio 为例）：
 
 1. `cfg.GetMinio() == nil` → `storage: type="minio" but minio section is missing`
 2. `sec.GetEndpoint() == ""` → `storage: minio.endpoint is required`
-3. **`client.SDK() == nil` → 构造失败**（2026-09-18 新增，见「兼容性」§1）
+3. **`client.SDK() == nil` → 构造失败**（fail-closed，见「兼容性」§1）
 
 s3 侧对应校验 `Region` 必填 + 客户端构造成功。
 
@@ -132,17 +132,13 @@ s3 侧对应校验 `Region` 必填 + 客户端构造成功。
 
 ## 兼容性
 
-### 1. 装配期静默降级 —— ✅ 已修（2026-09-18）
+### 1. 装配期 fail-closed
 
-**现象**：`NewClient` 在构造失败时 `log.Error` 后 **`return nil`**（`minio/client.go:27-45`、`s3/client.go:41-46`），而 `NewStorage` 无条件把结果包进非 nil 门面（`minio/client.go:47-49`、`s3/storage.go:18-28`）。Provider 据此返回 `(client, nil, nil)`——**装配期看似成功**，配置错误被推迟到首次 `PutObject` 才以 `ErrNilClient` 暴露。
+`NewClient` 在构造失败时只记日志并返回 `nil`，`NewStorage` 仍会包出一个非 nil 门面。如果 Provider 直接返回这个门面，装配期看似成功，配置错误会推迟到首次 `PutObject` 才以 `ErrNilClient` 暴露——凭据无效、endpoint 语法错误在启动时没有任何信号。
 
-**影响**：凭据无效、endpoint 语法错误等配置问题在启动时无任何信号，故障延迟到业务首次调用。这与框架 fail-closed 的基调冲突。
+因此 Provider 在返回前校验 `client.SDK() == nil`，失败即返回 error。不改 `NewClient`/`NewStorage` 签名，把守卫放在装配边界。测试 `TestProvider_ClientConstructionFailureFailsClosed` 覆盖三种可复现的失败 endpoint。
 
-**修法**：Provider 在返回前校验 `client.SDK() == nil`，失败即返回 error。不改 `NewClient`/`NewStorage` 签名（避免波及面扩大）。
-
-**验证**：`oss/minio/contract/contract_test.go` 的 `TestProvider_ClientConstructionFailureFailsClosed` 覆盖三个可复现的失败 endpoint（`://bad`、`"a b c"`、`bad::host`，探针实测均使 `minio.New` 失败）。移除修复时该测试报 `Provider returned nil error`，恢复后 PASS——RED→GREEN 闭环。
-
-**诚实标注**：s3 侧无法构造真实红灯——`awsconfig.LoadDefaultConfig` 在本环境对空 region/无凭据等误配依然成功（探针实测）。s3 的守卫是**防御性代码**，其测试覆盖「合法配置不被误伤」而非伪造红灯。
+s3 侧无法构造同样的失败样本：`awsconfig.LoadDefaultConfig` 对空 region / 无凭据等误配依然成功。s3 的 `SDK()` 守卫是防御性代码，测试覆盖「合法配置不被误伤」。
 
 ### 2. 两后端接口不对称 —— 设计取舍，非缺陷
 
@@ -150,9 +146,9 @@ s3 侧对应校验 `Region` 必填 + 客户端构造成功。
 
 ### 3. 无生产调用方
 
-`oss/minio/contract`、`oss/s3/contract` 的 Provider 在全仓**仅被各自 `contract_test.go` 引用**，`_example/` 未接线 storage 段。这是「显式注册」设计的必然结果——接线责任在下游业务。装配链本身完整（bootstrap Registry + appkit 注入 + 停机 Effect），段存在但未注册时 fail-fast。
+`oss/minio/contract`、`oss/s3/contract` 的 Provider 在全仓**仅被各自 `contract_test.go` 引用**，`_example/` 未接线 storage 段。这是段驱动装配的必然结果——接线责任在下游业务。装配链本身完整（段 Provider + 计划 + 停机 Effect），段存在但无 Provider 时 L3 覆盖检查启动期报错。
 
-## 实现与过渡
+## 实现与验证
 
 ### 现状清单
 
@@ -160,34 +156,12 @@ s3 侧对应校验 `Region` 必填 + 客户端构造成功。
 |----|------|
 | 两后端实现 | ✅ 落地，门面 + `SDK()` 双出口 |
 | 契约映射 | ✅ 两个 `contract/` 子包，含类型守卫 |
-| 装配链 | ✅ `bootstrap.StorageRegistry` + `pkg/appkit/storage.go` + 停机 Effect |
-| fail-closed | ✅ 2026-09-18 修复（§1） |
+| 装配链 | ✅ `oss/{minio,s3}/contract.AppProvider()` + appkit 计划 + 停机 Effect |
+| fail-closed | ✅ Provider 校验 `SDK() != nil`，失败返回 error |
 | 测试 | ✅ 两 module 的包 + contract 子包均有测试 |
 | 生产接入 | ⚠️ 全仓无生产调用方（§3） |
 
-### 修复记录
-
-| # | 缺口 | 处置 | 提交 |
-|---|------|------|------|
-| 1 | 装配期静默降级 | Provider 校验 `SDK() != nil`，失败返回 error；minio 侧补 RED→GREEN 回归 | `efb75cd` |
-
 ## 附录
-
-### 关键锚点速查
-
-```
-oss/minio/client.go:27-45     NewClient（失败 return nil）
-oss/minio/client.go:47-49     NewStorage（无条件包装）
-oss/minio/contract/contract.go:30-45  Provider 三段校验
-oss/s3/client.go:41-46        NewClient（LoadDefaultConfig 失败 return nil）
-oss/s3/storage.go:18-28       NewStorage
-oss/s3/storage.go:41-56       PutObject 四段校验
-bootstrap/storage.go:16       StorageProvider 签名
-bootstrap/storage.go:82-120   Build（段枚举 + 失败回滚）
-pkg/appkit/storage.go:34      WithStorageRegistry
-pkg/appkit/storage.go:42      buildStorages（阶段 B 装配）
-pkg/appkit/storage.go:63/70   AppKit.Storage / Storages（运行期取用）
-```
 
 ### 与姊妹文档的关系
 

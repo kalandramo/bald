@@ -6,7 +6,7 @@
 >
 > Discussion at: 源码 `retry/{go.mod,retry.go,retry_test.go}`；对照 `broker/kafka/subscriber.go`、`registry/etcd/registry.go`、`bconfig/apollo/apollo.go`
 >
-> Status: Accepted（已落地、零依赖；但**尚未接入任何调用点、尚未登记**，见「实现与过渡」）
+> Status: Accepted（已落地、零依赖；Taskfile/README 已登记；**尚未接入任何调用点**，见「实现与验证」）
 
 ## 摘要
 
@@ -18,7 +18,7 @@
 2. **传输无关**。它只认 `func(ctx) error`，不认 HTTP、gRPC、Kafka、etcd。任何 I/O 都能包进来。
 3. **不吞错误语义**。终止时用 `errors.Join(哨兵, lastErr)`，调用方的 `errors.Is` 与我们的 `ErrMaxAttempts` **同时**成立。
 
-需要先说清现状：这个包是 `da4d533`（六模块批量移植）搬进来的，**全仓零 import**——没有任何一处代码在用它。仓内现有的重试行为，仍然散在三个后端里各写各的。
+需要先说清现状：**全仓零 import**——没有任何一处代码在用它。仓内现有的重试行为，仍然散在三个后端里各写各的。
 
 ## 背景与动机
 
@@ -27,7 +27,7 @@
 `broker/kafka` 的消费者自己写了一个退避函数：
 
 ```go
-// broker/kafka/subscriber.go:311
+// broker/kafka/subscriber.go
 // 简单的指数退避（带抖动），attempt 从 0 开始
 func backoffSleep(attempt int, min, max time.Duration) {
 	if min <= 0 {
@@ -48,7 +48,7 @@ func backoffSleep(attempt int, min, max time.Duration) {
 `registry/etcd` 的 KeepAlive 断链重注册是另一套——它先把 2^n 秒攒进切片，再随机挑一个：
 
 ```go
-// registry/etcd/registry.go:284
+// registry/etcd/registry.go
 retreat = append(retreat, 1<<retryCnt)
 time.Sleep(time.Duration(retreat[rnd.Intn(len(retreat))]) * time.Second)
 ```
@@ -56,7 +56,7 @@ time.Sleep(time.Duration(retreat[rnd.Intn(len(retreat))]) * time.Second)
 `bconfig/apollo` 的「空文档等待同步」又是第三套——固定间隔，且把「空文档」也算作失败：
 
 ```go
-// bconfig/apollo/apollo.go:142
+// bconfig/apollo/apollo.go
 func (c *Config) loadWithSyncWait(ctx context.Context, fetch func() ([]byte, error)) ([]byte, error) {
 	retries := c.opts.syncWaitRetries
 	...
@@ -78,8 +78,8 @@ func (c *Config) loadWithSyncWait(ctx context.Context, fetch func() ([]byte, err
 
 | 位置 | message | 字段 |
 |---|---|---|
-| `bconf/proto/bootstrap/v1/broker.proto:107` | `Broker.Rocketmq` | `int32 retry_count` |
-| `bconf/proto/bootstrap/v1/registry.proto:50` | `Registry.Etcd` | `int32 max_retry` |
+| `bconf/proto/bootstrap/v1/broker.proto` | `Broker.Rocketmq` | `int32 retry_count` |
+| `bconf/proto/bootstrap/v1/registry.proto` | `Registry.Etcd` | `int32 max_retry` |
 
 **没有任何一个字段能表达退避曲线**——初始值、倍数、上限、抖动策略，一个都写不出来。于是每个后端只能把曲线硬编码在自己代码里，配置文件能调的永远只有「几次」。
 
@@ -110,7 +110,7 @@ err := r.Do(ctx, func(ctx context.Context) error {
 
 **为什么 `fn` 要收一个 ctx**：让取消能继续往下传。调用方通常要把 ctx 交给 `http.NewRequestWithContext`、`db.QueryContext`——如果 `fn` 拿不到 ctx，重试虽然能被取消，但**正在执行的那次请求取消不了**，只能等它自己超时。
 
-**边界**：`Retrier` 配置在 `New` 之后不再变化，可以跨 goroutine 共享——包括注入了 `WithRNG` 的场景（对注入 `*rand.Rand` 的访问已由互斥量串行化，见「兼容性」第 3 条）。
+**边界**：`Retrier` 配置在 `New` 之后不再变化，可以跨 goroutine 共享——包括注入了 `WithRNG` 的场景（对注入 `*rand.Rand` 的访问已由互斥量串行化，见「边界与约束」§3）。
 
 ### 三组策略各自独立，互不知道对方存在
 
@@ -203,7 +203,7 @@ r := retry.New(
 
 预算还剩多少，就最多睡多少——`wait = min(wait, remaining)`，所以**最后一次等待不会被截断成「睡过头」**，而是刚好用尽预算后返回 `ErrTimeout`。
 
-**边界（口径不一致，如实说明）**：elapsed 用 `r.now()` 计算（可注入），但睡眠是真实的 `time.After(wait)`。注入假时钟做测试时，这两个口径对不上——见「兼容性」第 4 条。另一处口径：预算检查发生在每次尝试**之后**的退避计算处，循环开头只查 ctx——睡眠恰好用尽预算时，下一次 `fn` 仍会启动（其耗时超出预算），随后才在退避处返回 `ErrTimeout`。即「睡眠永不超预算，尝试可能压线多跑一次」。
+**边界（口径不一致，如实说明）**：elapsed 用 `r.now()` 计算（可注入），但睡眠是真实的 `time.After(wait)`。注入假时钟做测试时，这两个口径对不上——见「边界与约束」§4。另一处口径：预算检查发生在每次尝试**之后**的退避计算处，循环开头只查 ctx——睡眠恰好用尽预算时，下一次 `fn` 仍会启动（其耗时超出预算），随后才在退避处返回 `ErrTimeout`。即「睡眠永不超预算，尝试可能压线多跑一次」。
 
 ### 组合位置由调用方决定，`retry` 不感知熔断与限流
 
@@ -230,7 +230,7 @@ err := r.Do(ctx, func(ctx context.Context) error {
 
 ### 我们没选 `cenkalti/backoff/v4`，尽管它已经在依赖树里
 
-`github.com/cenkalti/backoff/v4 v4.3.0` 以 `// indirect` 出现在根 `go.mod:96`。它有现成的指数退避、`PermanentError`、`RetryAfter` 支持。我们没用，三个原因：
+`github.com/cenkalti/backoff/v4 v4.3.0` 以 `// indirect` 出现在根 `go.mod`。它有现成的指数退避、`PermanentError`、`RetryAfter` 支持。我们没用，三个原因：
 
 1. **它是框架，我们要零件**。`backoff.Retry(op, b)` 把「退避策略」和「执行循环」绑在一起，`op` 的返回值语义被它定义。而我们的调用点需要自己控制循环里的其他事——检查熔断、等令牌、判断 ctx。
 2. **引入即失去零依赖**。`retry` 的定位是「谁都拖得动」的零件；一旦 require 了第三方，它就和 `health`、`registry` 的零依赖惯例不一致了。
@@ -240,7 +240,7 @@ err := r.Do(ctx, func(ctx context.Context) error {
 
 ### 我们没选 kratos `middleware/retry`
 
-`kratos/v3` 在本仓只是 `// indirect`（`go.mod:111`），唯一用途是配置源桥接；`middleware/retry` 全仓零引用。选它会把重试和 HTTP/gRPC 传输绑死——而最需要重试的三处（kafka、etcd、apollo）**都不是 kratos 的传输层**。
+`kratos/v3` 在本仓只是 `// indirect`（`go.mod`），唯一用途是配置源桥接；`middleware/retry` 全仓零引用。选它会把重试和 HTTP/gRPC 传输绑死——而最需要重试的三处（kafka、etcd、apollo）**都不是 kratos 的传输层**。
 
 ### 我们没选 gRPC 的 service-config 重试
 
@@ -283,51 +283,41 @@ err := r.Do(ctx, func(ctx context.Context) error {
 
 **承认**：这确实多两行闭包。我们换的是 API 形状的稳定。
 
-## 兼容性
+## 边界与约束
 
-### 纯新增，零破坏
+### 1. `WithMaxAttempts(0)` 被静默忽略
 
-`retry` 是新 module，全仓搜索 `kalandramo/bald/retry` **只命中它自己的 `go.mod`**。没有任何现有调用方受影响，不需要迁移，不需要改任何现有代码。
+传入 0 会回落到默认 3（`TestWithMaxAttempts_LessThanOne` 固化了这个行为）。如果你以为 0 是「不重试」，实际会重试 3 次——要「不重试」请用 `WithMaxAttempts(1)` 或 `WithClassifier(RetryNever)`。
 
-### 边界：一处刻意保留，三处已修
+这是刻意保留的惯例：`circuitbreaker/vegas` 的 `WithAlpha(-1)` 同样忽略无效输入。仓内一致优先于「参数非法即报错」。
 
-经 2026-09-17 评审裁定——第 1 条**刻意保留**，第 2、3、4 条修复：
+### 2. nil 策略被忽略，不 panic
 
-1. **`WithMaxAttempts(0)` 会被静默忽略**，回落到默认 3（`TestWithMaxAttempts_LessThanOne` 固化了这个行为）。如果你以为传 0 是「不重试」，实际会重试 3 次——**要「不重试」请用 `WithMaxAttempts(1)` 或 `WithClassifier(RetryNever)`**。我们**刻意保留**它：`circuitbreaker/vegas` 的 `WithAlpha(-1)` 忽略无效输入（`TestNew_WithAlpha_InvalidIgnored`）是同一个惯例，仓内一致优先。
-2. **nil 策略不再 panic（已修）**。`WithBackoff(nil)` / `WithJitter(nil)` / `WithClassifier(nil)` / `WithClock(nil)` 改为忽略 nil、保留默认值，`Do` 不会崩。回归测试 `TestNew_NilStrategiesIgnored`。
-3. **注入 RNG 后可以并发共享（已修）**。注入的 `*rand.Rand` 由 `Retrier.mu` 串行化（锁加在 `random()` 内），`rngCh` 死字段已删除。回归测试 `TestDo_ConcurrentWithRNG`——**需 `-race` 才真正作数**。
-4. **时钟已可注入（已修，方案 A）**。新增导出 `WithClock(func() time.Time)`，与姊妹模块 `ratelimit/tokenbucket` 的 `WithClock`（`tokenbucket.go:38`）对齐，`New` 默认 `time.Now`。**但「口径不一致」仍在，且是我们刻意留下的**：注入的时钟只影响 `maxTotalWait` 的 elapsed 计算，睡眠仍走真实 `time.After`。收益是实的——让假时钟「每读一次就前进」，预算会在第一次退避计算时立即超支，于是**零真实等待地确定性测到 `ErrTimeout`**（`TestWithClock_DeterministicTimeout`：30s 退避不真睡，耗时 0.00s）。要让睡眠也跳过，需要 `WithSleeper` 那一层抽象；目前没有第二个消费者，不做（见「理由与取舍」的 YAGNI 取向）。
+`WithBackoff(nil)` / `WithJitter(nil)` / `WithClassifier(nil)` / `WithClock(nil)` 忽略 nil、保留默认值，`Do` 不会崩（`TestNew_NilStrategiesIgnored`）。配置由可选 Option 拼装时，nil 是很自然的中性值。
 
-### 迁移策略：不强制迁移
+### 3. 注入的 RNG 可并发共享
 
-`retry` 先作为**新代码的默认选择**。三处旧的就地实现**保持不动**——它们的参数与 `retry` 的默认值不同（kafka 的 `min<<attempt` 语义、etcd 的无上限随机、apollo 的「空文档也算失败」），直接替换就是行为变更，必须逐个评估，不能一把梭。
+注入的 `*rand.Rand` 由 `Retrier.mu` 串行化（锁在 `random()` 内）。不注入时用自己的随机源（`rngCh` 死字段已清除）。`TestDo_ConcurrentWithRNG` 需 `-race` 才真正作数。
 
-## 实现与过渡
+### 4. 时钟只影响墙钟预算，不影响睡眠（刻意）
 
-### 已落地
+`WithClock(func() time.Time)` 与姊妹模块 `ratelimit/tokenbucket` 对齐，`New` 默认 `time.Now`。但注入的时钟只影响 `maxTotalWait` 的 elapsed 计算，睡眠仍走真实 `time.After`。
 
-`retry/{go.mod,retry.go,retry_test.go}`，三个文件、零依赖。引入于 `da4d533`（六模块批量移植），`1bcebd1` 随全模块升级到 go 1.27.1。28 个测试覆盖三组策略、attempt 上限、ctx 取消、墙钟超限、零值防御与端到端。
+收益是实的：假时钟「每读一次就前进」时，预算会在第一次退避计算时立即超支，于是**零真实等待地确定性测到 `ErrTimeout`**（`TestWithClock_DeterministicTimeout`：30s 退避不真睡，耗时 0.00s）。要让睡眠也跳过，需要 `WithSleeper` 那一层抽象；目前没有第二个消费者，不做。
 
-**2026-09-17 修复（评审裁定第 2、3、4 条）**：nil 策略改为忽略并保留默认；注入 RNG 的访问由互斥量串行化、`rngCh` 死字段删除；新增导出 `WithClock`（方案 A）。三处都补了回归测试，`go vet` 与 `go test -short` 全绿（`-race` 需 cgo，本机无 gcc）。
+### 5. 零值防御是不对称的
 
-**2026-09-17 二轮评审修复（5 项）**：`ExponentialBackoff.Delay` 把 `Factor <= 0` 归一为 2（零值安全，回归测试 `TestExponentialBackoff_ZeroFactorDefaults`）——文档与包注释示例曾三处省略 `Factor`，照抄会得到 0 间隔重试；文档同步修正并发共享的过时「除非」条款、`LinearBackoff` 源码注释公式（`Initial*(attempt+1)` → `Initial+Step*attempt`）、测试计数（19→25）与 `maxTotalWait` 预算检查点的边界披露（检查在尝试之后，睡眠用尽预算后下一次 `fn` 仍会启动）。
+`ExponentialBackoff` 的 `Factor <= 0` 归一为 2、`Initial <= 0` 归一为 200ms——零基数的指数曲线恒为 0，不是有效策略。`LinearBackoff.Initial` **刻意不归一**：`Initial=0 + Step>0` 是合法曲线（首次立即重试、随后线性增长）。回归测试覆盖三个方向。
 
-**2026-09-18 审查轮修复（零值防御补全 + 登记）**：审查（天权）发现 `Factor` 的零值归一**只做了一半**——同款陷阱在 `Initial` 上未处理也未披露：`ExponentialBackoff{Initial: 0}` 的 `Delay` 恒为 0（零基数 × 任意 Factor = 0），即全零间隔热重试。修复：
+### 6. 预算检查点在尝试之后
 
-| 项 | 处置 | 理由 |
-|---|---|---|
-| `ExponentialBackoff.Initial <= 0` | 归一为 200ms（包默认），与 `Factor` 完全对称 | 零基数的指数曲线在数学上恒为 0，不是有效策略 |
-| `LinearBackoff.Initial` | **刻意不归一** | `Initial=0 + Step>0` 是合法曲线（首次立即重试、随后线性增长），归一化会破坏它 |
+`maxTotalWait` 的检查发生在一次尝试结束后、下一次退避之前。睡眠用尽预算后，下一次 `fn` 仍会启动一次——这是「至少尝试一次」的语义，不是漏检。
 
-新增 3 个回归测试（`TestExponentialBackoff_ZeroInitialDefaults`、`TestExponentialBackoff_NegativeInitialDefaults`、`TestLinearBackoff_ZeroInitialIsValid`），25 → 28 个。Taskfile 补 `retry-verify` 并挂进根 `verify`，根 README 登记。
+## 实现与验证
 
-### 登记工作（2026-09-18 已补齐）
+`retry` 单个 module、零依赖、三个文件。28 个测试覆盖三组策略、attempt 上限、ctx 取消、墙钟超限、零值防御、并发 RNG 与端到端。
 
-1. ~~**`Taskfile.yml` 里零处 `retry`**。~~ **已补**：新增 `retry-verify`（`dir: retry` 下 build+vet+test），挂进根 `verify` 的 deps。嵌套 module 不在根 `go build ./...` 范围内，故必须显式列出。
-2. ~~**根 `README.md` 零处 `retry`**。~~ **已补**：架构树登记该 module。
-3. **`docs/devel/zh-CN/README.md` 已收录本文**（2026-09-17 随本文补入索引）。
-
-**CI 不需要改**：`.github/workflows/ci.yml:54` 用 `find . -name go.mod` 自动发现全部 module（仅排除 `_example*`），`retry/` 已被自动纳入 build + vet + test。
+`Taskfile.yml` 的 `retry-verify` 已挂进根 `verify`；根 `README.md` 已登记模块树；CI 用 `find . -name go.mod` 自动发现全部 module。
 
 ### 接入顺序：先新代码，旧实现按「行为敏感度」排队
 
@@ -335,11 +325,11 @@ err := r.Do(ctx, func(ctx context.Context) error {
 - **必须先固定现有参数再接**：`registry/etcd` 的 KeepAlive 重注册（2^n 秒 + 随机、无上限）与 `broker/kafka` 的 fetch 退避（`min<<attempt` + 半抖）。这两处是行为敏感区，迁移前要把现有参数逐一对齐到 `retry` 的配置上，否则迁移即行为变更。
 - **不在本设计范围内**：让 `bconf` 契约表达退避曲线。这需要新增 proto 字段，是一次独立的契约变更（当前只有 `retry_count` / `max_retry` 两个标量）。
 
-### 验证方式
+### 验证
 
 ```bash
 cd retry && go test -short ./...     # 28 个测试
-cd retry && go test -race ./...      # 并发边界（需 cgo；本机无 gcc，交给 CI 或装有 gcc 的机器）
+cd retry && go test -race ./...      # 并发边界（需 cgo）
 ```
 
 ## 附录
@@ -376,6 +366,6 @@ cd retry && go test -race ./...      # 并发边界（需 cgo；本机无 gcc，
 
 ### 开放问题
 
-1. **时钟注入：已裁定方案 A 并落地（2026-09-17）**。导出 `WithClock(func() time.Time)`，`New` 默认 `time.Now`；只影响 elapsed 计算、睡眠仍走真实计时器（边界见「兼容性」第 4 条）。未采选项留档：**B**（再加一层 `WithSleeper`，让睡眠也可跳过）等真有第二个消费者再议；**C**（删掉 `timer` 字段）已否决——那会让 `ErrTimeout` 分支只能靠真实等待来测。
+1. **要不要再加一层 `WithSleeper`，让睡眠也可跳过？** 当前 `WithClock` 只影响 elapsed 计算（见「边界与约束」§4）。加 `WithSleeper` 能让超时测试完全脱离真实计时器，但目前没有第二个消费者，暂不做。
 2. 要不要支持 HTTP `Retry-After`（429/503）？这需要一个「让分类器返回建议等待时长」的扩展点，**会动 `Classifier` 的签名**，属于破坏性变更，需要单独决策。
 3. 默认抖动是否从 `NoJitter` 改为 `FullJitter`？这是行为变更，影响所有未显式配置的调用方，需要单独决策。

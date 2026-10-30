@@ -1,6 +1,6 @@
 # 新增业务域 - Domain 与 gen domain
 
-面向要给 bald 服务新增一个业务域的人：域声明值怎么写、三个槽位各在什么时点被引擎消费、`bald gen domain` 重写哪些生成物、报错了怎么修。设计论证（为什么域清单必须由生成文件承载、为什么 appkit 不新增注册表式 API）见 `docs/devel/zh-CN/装配层评估.md` §4.3/§4.6，本文只讲操作。主线一句话（批 3 收口判据①原文）：**演示域 = proto + greet.go + domain.go 共 3 手写文件，gen domain 重写清单，装配改动 0**。
+面向要给 bald 服务新增一个业务域的人：域声明值怎么写、三个槽位各在什么时点被引擎消费、`bald gen domain` 重写哪些生成物、报错了怎么修。设计论证（为什么域清单必须由生成文件承载、为什么 appkit 不新增注册表式 API）见 [Bald 声明式装配设计](../../devel/zh-CN/Bald%20声明式装配设计.md) 的 Domain v2 一节，本文只讲操作。主线一句话：**演示域 = proto + greet.go + domain.go 共 3 手写文件，gen domain 重写清单，装配改动 0**。
 
 ## 心智模型：一句话版
 
@@ -146,9 +146,9 @@ bald gen domain --spec appspec.json [--adopt] [--proto-cmd "buf generate"]
 
 **绑定生成的前置（Q5 D1，默认开启）**：bind 文件 import proto 的 `go_package` 与 `github.com/kalandramo/bald/transport/web`。`go_package` 目录无 Go 文件时，生成器先在 `--out` 根执行 `--proto-cmd` 并复查产物——命令失败或仍无产物即生成期硬错误，错误点名命令、缺失包与 `--proto-cmd`/`--no-bind` 两条修法。`--check` 零写入，不执行外部命令，缺失时直接报修法。`transport/web` 缺失给 `go get` 修法（生成器不改消费方 `go.mod`）。绑定内容只由注解与 rpc 签名决定，与 proto 生成物内容无关：是否在本机跑过 buf 不改变生成字节。
 
-**三态 writeGuarded 语义**（全部生成命令共用的落盘通道，`internal/codegen/iostreams.go:59`）：owned 每次重写，已存在且无 `--adopt` 一律拒绝（错误信息自带指引）；seeded 生成一次，已存在输出 `kept:` 并跳过（`--adopt` 也不覆盖——此后归你维护）；user 永不读写，仅输出 `skip:` 提示。proto 与域包手写文件属 user 侧；域包骨架是唯一的 seeded 产物——仅当域包尚无导出 Domain（按非测试 .go 文件结构判定）时落盘，Name 先挂上，三槽由你在手写文件里实现后挂进此值。
+**三态 writeGuarded 语义**（全部生成命令共用的落盘通道，`internal/codegen/iostreams.go`）：owned 每次重写，已存在且无 `--adopt` 一律拒绝（错误信息自带指引）；seeded 生成一次，已存在输出 `kept:` 并跳过（`--adopt` 也不覆盖——此后归你维护）；user 永不读写，仅输出 `skip:` 提示。proto 与域包手写文件属 user 侧；域包骨架是唯一的 seeded 产物——仅当域包尚无导出 Domain（按非测试 .go 文件结构判定）时落盘，Name 先挂上，三槽由你在手写文件里实现后挂进此值。
 
-**两阶段清单**：gen app 先把 `internal/<apiserver_dir>/domains.gen.go` 写成预域形态（对账清单），gen domain 把它重写为逐域挂载扇出——所以**重跑 gen app 之后必须 rerun gen domain**，否则 apiserver 侧停留在预域形态（装配层评估 §11.5「gen domain 两阶段清单」，文档级行为）。
+**两阶段清单**：gen app 先把 `internal/<apiserver_dir>/domains.gen.go` 写成预域形态（对账清单），gen domain 把它重写为逐域挂载扇出——所以**重跑 gen app 之后必须 rerun gen domain**，否则 apiserver 侧停留在预域形态（文档级行为，由生成树测试钉住）。
 
 **何时重跑**：新增/删除域（改 domains[]）、改域 proto 的 service 或 http 注解（路由表、绑定与授权投影跟随派生）之后，`bald gen domain --spec appspec.json --adopt`。命令收尾提示即工作流原文：add a domain = hand-write its proto + domain package, declare it in domains[], rerun with --check to verify or --adopt to regenerate (assembly files stay untouched)。
 
@@ -165,7 +165,7 @@ AppSpec.domains 字段参考（protojson 字段名；范本 `_example/bald/appsp
 
 ## 5. 报错速查
 
-**生成期（Gate1 强化：domains.service ↔ 实际 proto，`gen_domain.go:248`）**——扫描根为 api/proto、api/protos、proto（存在即扫，gen/ 生成目录跳过）：
+**生成期（Gate1 强化：domains.service ↔ 实际 proto，`gen_domain.go`）**——扫描根为 api/proto、api/protos、proto（存在即扫，gen/ 生成目录跳过）：
 
 - `Gate1 (domains.service vs proto): domains[0] (greet): service "bald.v1.GreetService" not found in proto package "bald.v1" (… declares: …)`——domains.service 必须是扫描根下某 proto 的 `<package>.<Service>`；报错列出该包实际声明，改声明或改 proto。
 - `domains[0] (greet): proto package "bald.v2" not found (scanned roots: …; N proto file(s) declaring packages: …) -- domains.service must be <package>.<Service> of a proto under the scanned roots`——protoPackage 拼错，或 proto 不在扫描根下。

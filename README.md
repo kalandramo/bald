@@ -4,7 +4,7 @@
 
 **bald 是一个用 Go 把服务装配「工程化」的框架**：装配写成段驱动的 Provider 契约，业务域是一等公民，代码生成器用三道门守住生成物，高级机制面收进 `pkg/appkit/mech`——业务代码只声明业务，装配知识不进业务目录。
 
-对外口径是「**声明式装配**」并标注等级：装配拓扑由纯函数算出并打印。2026-10-30 现状：L1–L4 达成（L4 = 节点级 `ReloadPolicy` + `Drift` + `Reconcile`，含 `biz.<path>` 业务段），L5 在生成物维度达成（`_example/bald` 已迁入生成树，`gen app` 与 `gen domain --no-bind` 的 `--check` 均零差异）。判据、证据与缺口见 [Bald 装配计划与 doctor](docs/guide/zh-CN/Bald%20装配计划与%20doctor.md) §6。
+对外口径是「**声明式装配**」并标注等级：装配拓扑由纯函数算出并打印。当前 L1–L4 达成（L4 = 节点级 `ReloadPolicy` + `Drift` + `Reconcile`，含 `biz.<path>` 业务段），L5 在生成物维度达成（`_example/bald` 已迁入生成树，`gen app` 与 `gen domain --no-bind` 的 `--check` 均零差异）。判据与口径见 [Bald 装配计划与 doctor](docs/guide/zh-CN/Bald%20装配计划与%20doctor.md)。
 
 融合三方设计精华：
 
@@ -17,13 +17,13 @@
 | 层 | 回答什么 | 入口 |
 |---|---|---|
 | 认知层 | bald 是什么、为什么这样设计 | [Bald 入门简介](docs/guide/zh-CN/introduction/README.md) |
-| 设计层 | 诊断、目标设计与批次实施记录（为什么长成现在的形状） | [装配层评估](docs/devel/zh-CN/装配层评估.md) |
+| 设计层 | 设计与决策（为什么长成现在的形状） | [开发手册 docs/devel/zh-CN/](docs/devel/zh-CN/) |
 | 使用层 | 怎么用（分页操作手册） | [用户手册 docs/guide/zh-CN/](docs/guide/zh-CN/) |
 
 ## 30 秒最小路径
 
 ```bash
-go install github.com/kalandramo/bald/cmd/bald@v0.25.0
+go install github.com/kalandramo/bald/cmd/bald@latest
 bald gen app --spec appspec.json
 ```
 
@@ -60,4 +60,4 @@ bald/
 
 - 全部设计篇目索引：[docs/devel/zh-CN/README.md](docs/devel/zh-CN/README.md)
 - 公开契约速查：[框架契约总览](docs/devel/zh-CN/框架契约总览.md)
-- 装配层诊断、目标设计与批 1–5 实施记录：[装配层评估](docs/devel/zh-CN/装配层评估.md)
+- 装配系统的设计与取舍：[Bald 声明式装配设计](docs/devel/zh-CN/Bald%20声明式装配设计.md)

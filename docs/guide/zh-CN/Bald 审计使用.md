@@ -9,7 +9,7 @@
 **审计生效 = 埋点 + 后端两件事。后端经 audit 段 Provider 装配：`std.Standard()`
 预置默认 Provider（`log` 项零代码零配置）；store/stream = 引一个依赖 + 自声明
 audit 段 Provider（`audit.Compose` 组装）+ `backends` 加一项。请求级 auditor
-经构造器显式注入 bundle/中间件（进程级全局已删除）；运行期热切走 R1-2
+经构造器显式注入 bundle/中间件（不存在进程级全局）；运行期热切走 R1-2
 协调器（同一个键）。**
 
 | | 契约轨（启动期 Provider） | 协调器轨（R1-2 热切） |
@@ -25,7 +25,7 @@ audit 段 Provider（`audit.Compose` 组装）+ `backends` 加一项。请求级
 `main.go` 不写任何审计代码、yaml 不配 `audit` 段：
 
 - audit 段缺省不装配；请求级审计中间件缺省 `NopAuditor`——显式注入是
-  唯一通道（进程级全局 `SetAuditor`/`GetAuditor` 已删除），挂了中间件也
+  唯一通道（框架不提供进程级 `SetAuditor`/`GetAuditor`），挂了中间件也
   不产生任何副作用——审计零成本可关闭。
 - 协调器/组件热插拔的管理面审计事件经单一解析取 sink（显式注入 >
   契约产物 > Nop，永不 nil），此形态下进 nop（不可见但不报错）。
@@ -178,8 +178,8 @@ router.Use(ginmw.AuditMiddleware(
 
 gin/grpc 审计中间件与 authn 失败审计在**构造时刻**绑定 auditor：显式
 `AuditWithAuditor(a)` / `AuthnWithAuditor(a)` / `bundle.Audit(a)` 是唯一
-注入通道，缺省 `NopAuditor`——进程级全局 `SetAuditor`/`GetAuditor` 已删除，
-不存在「快照全局」的缺省路径。而契约轨装配发生在阶段 B、协调器热切发生在
+注入通道，缺省 `NopAuditor`——框架不提供进程级全局，也不存在「快照全局」的
+缺省路径。而契约轨装配发生在阶段 B、协调器热切发生在
 运行期——都晚于 main 里构造的中间件。
 
 两种姿势按场景选：

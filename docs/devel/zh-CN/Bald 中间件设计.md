@@ -26,7 +26,7 @@
 
 合计 2248 行、**50 个测试**（bundle 11 / gin 13 / grpc 20 / shared 4 / 顶层 2）。
 
-> 本文为补缺而生：`pkg/middleware` 此前**无专属设计文档**——其设计意图散落在《架构优化路线》P10、《设计评审-第三轮》批 I、《认证与授权抽象设计》三处。本文是首次收敛。
+> 本文是 `pkg/middleware` 的权威设计文档；Bundle 链序的原始决策另见《架构优化路线》P10，认证/授权抽象见《认证与授权抽象设计》。
 
 ## 背景与动机
 
@@ -38,7 +38,7 @@
 
 ### 两处真实故障驱动
 
-1. **重复税**（R1 合并前）：gin 与 grpc 两份 `observability.go` 逐行重复——trace header 常量、`TraceInjectionMode`、`matchWildcard`、`injectTrace` 各一份。「SpanKind 修复又改了两份，重复税已实缴」（评审批 I 原话）。
+1. **重复税**：gin 与 grpc 两份 `observability.go` 曾逐行重复——trace header 常量、`TraceInjectionMode`、`matchWildcard`、`injectTrace` 各一份。同一处修复要改两遍，合并后才消除这份维护成本。
 2. **双命名空间**（P9 前）：REST 与 gRPC 的 RBAC 用不同 object/action 命名（HTTP 用 path、gRPC 用 FullMethod），同一份策略无法通用。
 
 ## 设计
@@ -96,9 +96,9 @@ Error → Recovery → RequestID → Observability → Authn → Audit → Authz
 
 ### 显式注入，不吃全局兜底
 
-Bundle 的审计层有一个刻意的语义：**auditor 未注入时显式接 `audit.NopAuditor()`**，而非回退到 `audit.GetAuditor()` 全局句柄。
+Bundle 的审计层有一个刻意的语义：**auditor 未注入时显式接 `audit.NopAuditor()`**，不读取任何进程级隐式 sink（审计不存在全局句柄）。
 
-理由（注释原文）：「Bundle 语义是完全显式注入，不吃 `audit.GetAuditor()` 全局兜底，避免测试间全局污染」。代价是若业务只设了 `Metrics` 没设 `Audit`，审计事件进 Nop——但**指标仍 emit**（审计中间件是指标埋点的载体，两者同源）——故 `auditor != nil || recorder != nil` 才挂审计层。
+理由：「Bundle 语义是完全显式注入，不吃全局兜底，避免测试间全局污染」。代价是若业务只设了 `Metrics` 没设 `Audit`，审计事件进 Nop——但**指标仍 emit**（审计中间件是指标埋点的载体，两者同源）——故 `auditor != nil || recorder != nil` 才挂审计层。
 
 ### 认证失败的审计盲区（D3）
 
@@ -154,7 +154,7 @@ R1 合并把两份 `observability.go` 的共性抽到 `shared`：
 
 ### 为什么 Bundle 用构造器注入而非全局句柄
 
-**被放弃方案**：回退 `audit.GetAuditor()` 等全局句柄。放弃理由：全局句柄在测试间互相污染（一个测试设了全局 auditor，另一个测试意外继承）。显式注入的代价是调用方多传几个 Option，收益是测试隔离与依赖可见。
+**被放弃方案**：读取进程级全局句柄（auditor/logger 等）。放弃理由：全局句柄在测试间互相污染（一个测试设了全局 auditor，另一个测试意外继承），且「谁注入了什么」在调用点不可见——框架因此不再提供这类全局句柄。显式注入的代价是调用方多传几个 Option，收益是测试隔离与依赖可见。
 
 ### 为什么 shared 只收敛传输无关部分
 
@@ -178,7 +178,7 @@ D7 之前归一化需显式 `Normalized()`；D7 起默认开启。依赖旧双�
 
 ### shared 收敛保 API 稳定
 
-R1 合并在 `v0.2.5`（commit `916a9e1`）落地——通过类型别名 + 常量别名，gin/grpc 侧的既有导出 API 零 breaking。
+gin/grpc 的共享收口通过类型别名 + 常量别名实现，两侧既有导出 API 零 breaking。
 
 ### 两个 audit 发送点的语义
 
@@ -201,11 +201,11 @@ R1 合并在 `v0.2.5`（commit `916a9e1`）落地——通过类型别名 + 常�
 | 文档 | 关系 |
 |---|---|
 | 架构优化路线 | P10 Bundle 的原始决策与链序记录 |
-| 设计评审-第三轮-2026-09-12 | 批 I（R1 shared 收敛）的评审记录 |
+| [设计判据](./设计判据.md) J2 | shared 收敛遵循「重复税」判据 |
 | [认证与授权抽象设计](./认证与授权抽象设计.md) | `Authn*`/`Authz*` 中间件依赖的 P7/P9 抽象 |
 | [Bald 审计设计](./Bald%20审计设计.md) | 审计中间件的后端契约与 D3 盲区 |
 | [Bald 指标设计](./Bald%20指标设计.md) | 审计中间件同源 emit 的指标 |
-| [框架契约总览](./框架契约总览.md) | §9 中间件速查表（§9.1 符号名 2026-09-18 已修正） |
+| [框架契约总览](./框架契约总览.md) | §9 中间件速查表（§9.1 符号名已对齐） |
 
 ### FAQ
 

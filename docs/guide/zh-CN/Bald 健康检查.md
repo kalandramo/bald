@@ -64,7 +64,7 @@ appkit.WithHealth(h, appkit.WithProbePaths("/livez", "/readyz"))  // 自定义�
 ```
 
 不声明则不挂探针（K8s 探针会 404 → 容器永不 Ready）；设计论证见
-`docs/devel/zh-CN/Bald 健康检查装配设计.md`。
+`docs/devel/zh-CN/Bald 健康检查设计.md`。
 
 readiness 的响应映射只有一条：**Down → 503，Up/Unknown → 200**（宁可乐观：
 误摘流量的代价高于故障实例多活一个周期）。响应体带全量明细，排障不用进

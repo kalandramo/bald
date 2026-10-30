@@ -1,8 +1,8 @@
 # 用 bald CLI 起步新服务（bald gen app）
 
-> 定位：面向 **bald 使用者**（从零起步的开发者）的分步指南：安装 CLI → 写 AppSpec → 生成骨架 → 起服务 → 加域 → 接授权。框架内部设计见 `docs/devel/zh-CN/装配层评估.md`（§4.6 目标骨架、§11 端到端实测、§12 授权闭环）；本页只讲「怎么装、怎么写、怎么跑」。
+> 定位：面向 **bald 使用者**（从零起步的开发者）的分步指南：安装 CLI → 写 AppSpec → 生成骨架 → 起服务 → 加域 → 接授权。框架内部设计见 [Bald 声明式装配设计](../../devel/zh-CN/Bald%20声明式装配设计.md)（目标骨架、生成物维度）与 [代码生成工具设计](../../devel/zh-CN/代码生成工具设计.md)；本页只讲「怎么装、怎么写、怎么跑」。
 > 形态基准：仓库示例 [`_example/bald`](https://github.com/kalandramo/bald/blob/main/_example/bald)——本页代码块均与该示例或生成器模板逐语句对账。
-> 状态：已实现（本文以 `v0.25.0` 为版本锚；生成 → 拉依赖 → 编译 → 起服务 → `/readyz` 200 → 优雅退出的端到端实测 1m16.8s，见装配层评估 §11）。
+> 状态：已实现。端到端路径已由生成树的 `--check` 与三态授权闭环测试钉住（见文末「验证」）。
 
 ---
 
@@ -16,11 +16,11 @@
 ## 2. 安装 CLI
 
 ```bash
-go install github.com/kalandramo/bald/cmd/bald@v0.25.0
+go install github.com/kalandramo/bald/cmd/bald@v0.31.0
 bald --help   # 验证安装
 ```
 
-- `@latest` 解析最新 release tag（本文锚定 `v0.25.0`；固定版本用 `@v0.25.0`）。
+- `@latest` 解析最新 release tag（本文锚定 `v0.31.0`；固定版本用 `@v0.31.0`）。
 - 新 tag 发布后 sum.golang.org 校验和收录有延迟（数小时），期间安装可能报 `verifying module ...: 404 Not Found`——属正常现象，稍后重试即可。
 - CLI 提供 4 个生成子命令：`gen app`（装配骨架目录树）、`gen domain`（域驱动生成物）、`gen proto`（CRUD proto 骨架）、`gen store`（实体骨架）。
 
@@ -127,7 +127,7 @@ bald gen app --spec appspec.json --adopt   # owned 重写；seeded 输出 kept: 
 ## 5. 起服务
 
 ```bash
-go get github.com/kalandramo/bald@v0.25.0
+go get github.com/kalandramo/bald@v0.31.0
 go mod tidy
 go run ./cmd/my-service
 ```
@@ -139,7 +139,7 @@ go run ./cmd/my-service
 - **启动前审阅**：`go run ./cmd/my-service --plan` 打印装配计划（节点/相位/依赖/段覆盖/hash）；`go run ./cmd/my-service doctor` 输出逃逸舱诊断。两者与真实启动同源、只读，详见[装配计划与 doctor](Bald%20装配计划与%20doctor.md)。
 - **计划基线**：生成物默认声明 `appkit.WithPlanCache(".bald/plan-cache.json")`——真实启动记录计划基线，`doctor` 报告相对上次的节点级差异。`.bald/` 是本地目录，记得进 `.gitignore`。
 
-端到端实测基线：gen → tidy → build → 起服务 → `GET /readyz` 200 → 优雅退出共 1m16.8s（装配层评估 §11；`internal/codegen/appspec_timed_test.go` 可复跑）。
+端到端路径：gen → tidy → build → 起服务 → `GET /readyz` 200 → 优雅退出（`internal/codegen/appspec_timed_test.go` 可复跑）。
 
 ## 6. gen domain：新增业务域
 
@@ -227,7 +227,7 @@ router.Use(bundle.New(
 ).Gin()...)
 ```
 
-端到端三态实测（装配层评估 §12，`TestTree_AuthzClosedLoop`）：`POST /v1/greets` 无 token **401**（authn 层拒绝）→ viewer **403**（策略行只有 get/list）→ admin **200**（六元组含 post）；403→200 的放行必经别名反查，三态全部由「生成物数据 + contrib 行为」产生，handler 无权限判断。语义要点：只装 p 行不装 g 行恒拒绝（默认拒绝语义，非错误）。更多细节见[Bald 授权使用](Bald%20授权使用.md)。
+端到端三态实测（`TestTree_AuthzClosedLoop`）：`POST /v1/greets` 无 token **401**（authn 层拒绝）→ viewer **403**（策略行只有 get/list）→ admin **200**（六元组含 post）；403→200 的放行必经别名反查，三态全部由「生成物数据 + contrib 行为」产生，handler 无权限判断。语义要点：只装 p 行不装 g 行恒拒绝（默认拒绝语义，非错误）。更多细节见[Bald 授权使用](Bald%20授权使用.md)。
 
 ## 9. 故障排查
 

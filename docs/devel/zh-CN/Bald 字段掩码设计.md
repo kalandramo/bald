@@ -8,7 +8,7 @@
 >
 > Last updated: 2026-09-18
 >
-> Status: Accepted（已实现；2026-09-10 自 bald-utils/fieldmaskutil 吸收）
+> Status: Accepted（已实现；自 bald-utils/fieldmaskutil 吸收）
 
 ## 摘要
 
@@ -18,7 +18,7 @@
 
 包只有两个文件、498 行，但导出面有 18 个符号，分两层：**扁平函数 API**（便捷包装）+ **`NestedMask` 递归 API**（复用掩码处理多条消息）。
 
-> 本文为补缺而生：`fieldmaskutil` 此前**无专属设计文档**，公开 API 面只能从源码读取。
+> 本文是 `fieldmaskutil` 的专属设计文档，完整覆盖其公开 API 面。
 
 ## 背景与动机
 
@@ -30,7 +30,7 @@ proto 的 `FieldMask` 是标准类型（`google.protobuf.FieldMask`），但它�
 
 ### 为什么从 bald-utils 吸收
 
-包注释记录：2026-09-10 自 `bald-utils/fieldmaskutil` 吸收。理由是**proto FieldMask 与 bald 的 proto 契约（`storev1`/`crudbridge`）天然相关**——PATCH 部分更新是 CRUD 标配，放在框架侧才能被 `pkg/store`、`crudbridge` 共同消费，而不是每个业务仓各copy 一份。
+包注释记录：自 `bald-utils/fieldmaskutil` 吸收。理由是**proto FieldMask 与 bald 的 proto 契约（`storev1`/`crudbridge`）天然相关**——PATCH 部分更新是 CRUD 标配，放在框架侧才能被 `pkg/store`、`crudbridge` 共同消费，而不是每个业务仓各copy 一份。
 
 ## 设计
 
@@ -171,15 +171,13 @@ func OverwriteByFieldMask(msg *proto.Message, fm *fieldmaskpb.FieldMask) error {
 
 ### 从 bald-utils 迁移
 
-2026-09-10 吸收；旧引用路径 `bald-utils/fieldmaskutil` 的调用方需改 import。API 面在吸收时保持不变。
+吸收；旧引用路径 `bald-utils/fieldmaskutil` 的调用方需改 import。API 面在吸收时保持不变。
 
 ## 实现与验证
 
 ### 测试覆盖
 
-`fieldmaskutil_test.go` 含 6 个测试，其中 `Test_NilValuePaths`（`fieldmaskutil_test.go:105`）钉住置 NULL 区分语义。
-
-> **文档-现状校正（2026-09-18）**：《设计评审-第三轮-2026-09-12.md:215》仍把 `NilValuePaths` 记为「主模块副本确无测试……唯一真欠账：补 `Test_NilValuePaths`」——**该欠账已落地**，测试存在。
+`fieldmaskutil_test.go` 含 6 个测试，其中 `Test_NilValuePaths`（`fieldmaskutil_test.go`）钉住置 NULL 区分语义。
 
 ### 消费方
 
@@ -191,7 +189,7 @@ func OverwriteByFieldMask(msg *proto.Message, fm *fieldmaskpb.FieldMask) error {
 
 | 文档 | 关系 |
 |---|---|
-| [框架契约总览](./框架契约总览.md) | 速查表（**此前缺 fieldmaskutil 节**，本文补齐了专文） |
+| [框架契约总览](./框架契约总览.md) | 速查表（含 fieldmaskutil 节） |
 | [Bald 存储设计](./Bald%20存储设计.md) | `pkg/store` 的部分更新消费本包 |
 
 ### FAQ

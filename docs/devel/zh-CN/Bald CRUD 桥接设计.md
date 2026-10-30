@@ -10,7 +10,7 @@
 >
 > Status: Accepted（已实现）
 >
-> 锚点基线：`bald` @ `058b2b2`、`bald-crud` @ `dc1c05e`
+> Discussion at: `bald` 的 `pkg/crudbridge` 与 `bald-crud` 的 `viewer`/`pagination` 契约
 
 ## 摘要
 
@@ -18,11 +18,11 @@
 
 两侧的身份体系不同源——bald 的请求级身份是**框架定义的最小集**（`contextx.UserID`/`TenantID`/`TraceID`，从 JWT claims 来），而 bald-crud 的 `viewer.Context` 承载**业务数据层需要的更强身份**：权限集、角色、数据范围、视图判定。不接通，bald-crud 的 `EnforceTenant`（租户强制）与 `DataScope`（行级范围）在 bald 服务的请求链路里就形同虚设。
 
-> **类型统一说明（2026-09-24）**：`viewer.Context.TenantID()` 已由 `uint64` 统一为 **`string`**，与 bald 生态（`contextx`/`authn`/`jwt`/`audit`）一致。此前 uint64 版本对非数字租户 ID 解析失败会静默降级为平台视图，导致租户隔离静默失效——该有损转换已移除。接口中 `UserID()` / `OrgUnitID()` 仍为 `uint64`（见《待处理事项》#13）。
+> **类型约定**：`viewer.Context.TenantID()` 为 **`string`**，与 bald 生态（`contextx`/`authn`/`jwt`/`audit`）一致，非数字租户 ID（UUID、`"t-default"`）可直接使用。接口中 `UserID()` / `OrgUnitID()` 仍为 `uint64`，边界见「兼容性 §类型边界」。
 
 本包提供两件东西：**身份桥接**（`SimpleViewer` + 构造/注入函数）与**数据范围翻译**（五级 viewer 范围 → `storev1.FilterExpr` 布尔树）。
 
-> 本文为补缺而生：`crudbridge` 此前**无专属设计文档**，公开 API 面只能从源码读取。
+> 本文是 `crudbridge` 的专属设计文档，完整覆盖其公开 API 面。
 
 ## 背景与动机
 
@@ -39,7 +39,7 @@ bald-crud 是**业务数据层**，需要更强的身份：不是「谁」，而
 包注释开篇即列安全语义，是设计的第一约束：
 
 1. **`IsSystemContext() == true` 会被 `EnforceTenant` 视为系统视图、跳过租户强制**。因此 `System` 标志**必须显式设置**，绝不基于「UserID 为空」等隐式条件推断——否则匿名请求会被误判为系统视图，绕过租户隔离。
-2. **`TenantID` 原样透传，无解析**（2026-09-24 起）。`viewer.Context.TenantID` 已统一为 `string`，非数字租户 ID（如 `"t-default"`）可正常承载。此前 uint64 版本经 `strconv.ParseUint` 转换，解析失败会静默留 0、被 `IsPlatformContext` 误判为平台视图而跳过隔离——**该有损转换已移除，不存在「解析失败」这一路径**（源码注释见 `pkg/crudbridge/crudbridge.go:14-18`）。
+2. **`TenantID` 原样透传，无解析**。`viewer.Context.TenantID` 是 `string`，非数字租户 ID（如 `"t-default"`）可正常承载。不存在 `strconv.ParseUint` 转换——也就没有「解析失败静默留 0、被 `IsPlatformContext` 误判为平台视图」这条路径。
 
 ## 设计
 
@@ -95,7 +95,7 @@ flowchart TB
 
 ### 视图判定：三态互斥
 
-`SimpleViewer` 的三个判定方法构成**互斥三态**（2026-09-25 起平台身份改为显式字段，见《待处理事项》#2）：
+`SimpleViewer` 的三个判定方法构成**互斥三态**（平台身份必须是显式字段，不基于空租户推断——见《设计判据》J5）：
 
 | 方法 | 条件 | 语义 |
 |---|---|---|
@@ -105,9 +105,9 @@ flowchart TB
 
 `System` 与 `Platform` 都是**显式字段而非推断**——这是上面安全语义①的落实。
 
-> **空租户的语义（2026-09-25 收紧）**：`TenantID == ""` **不再被推断为平台视图**。修复前 `IsPlatformContext() = !System && TenantID == ""`，已认证但租户为空的身份会被当作平台视图 → pass-through → 看全部租户（fail-open）。修复后平台身份必须显式声明 `Platform`；空租户且非平台非系统 → 经 `EnforceTenant` fail-closed（`ErrMissingViewer`）。
+> **空租户不得推断为平台视图**：平台身份必须显式声明 `Platform`——`IsPlatformContext() = !System && Platform`。已认证但租户为空、又非平台非系统的身份经 `EnforceTenant` fail-closed（`ErrMissingViewer`），不会被 pass-through 成「看全部租户」。
 >
-> 认证中间件（gin/grpc `AuthnMiddleware`/`AuthnInterceptor`）从 `claims.Platform` 透传该字段——此前**未传**，平台标记被丢弃。
+> 认证中间件（gin/grpc `AuthnMiddleware`/`AuthnInterceptor`）从 `claims.Platform` 透传该字段——不传就会丢弃平台标记。
 
 `HasPermission(action, resource)` 用 `action + ":" + resource` 拼接匹配 `PermsValue`——与 OAuth scope 格式（`user:read`）直接对上，故 `perms` 建议传 scopes。
 
@@ -173,13 +173,13 @@ crudbridge.RegisterDataScope(crudbridge.DataScopeFields{Owner: "owner_id"})
 
 数据范围是**安全边界**而非便利功能。身份缺失时，`DataScopeFilter` 返回 `store.Or(nil)`（空 OR = 恒假），而非放行。恒真会放行一切，恒假只拒绝——安全边界的默认必须是拒绝。
 
-证据：`pkg/crudbridge/data_scope.go:79` 起（`vc == nil` 与无有效分支均返回空 OR）。
+证据：`pkg/crudbridge/data_scope.go` 起（`vc == nil` 与无有效分支均返回空 OR）。
 
 ### 显式优于隐式
 
 `SimpleViewer` 字段全部导出、`System` 标志必须显式设置——因为**隐式推断在安全语境下会出错**。「UserID 为空 ⇒ 系统视图」这类推断会让匿名请求绕过租户隔离。
 
-证据：`pkg/crudbridge/crudbridge.go:31-45`（结构体字段全导出）；包注释安全语义①（`:12-15`）。
+证据：`pkg/crudbridge/crudbridge.go`（结构体字段全导出）；包注释安全语义①。
 
 代价是调用方可构造出「不一致」的 viewer（如 `System: true` 且 `TenantID` 非空）——但这是**显式意图**，与隐式推断的风险性质不同。
 
@@ -193,7 +193,7 @@ crudbridge.RegisterDataScope(crudbridge.DataScopeFields{Owner: "owner_id"})
 
 `crudbridge.go` 零 `authn` import，故 `ViewerFromIdentity` 需 5 个平铺参数而非一个 claims 对象。收益是依赖图干净（`crudbridge → contextx + viewer`），代价是调用略啰嗦。
 
-注意 `data_scope.go` 例外：它 import `pkg/authn`（`RegisterDataScope` 回调签名需 `*authn.AuthClaims`）。这是**单向依赖**，不构成循环——循环只在 authn 反向 import crudbridge 时成立。见《待处理事项》#14。
+注意 `data_scope.go` 例外：它 import `pkg/authn`（`RegisterDataScope` 回调签名需 `*authn.AuthClaims`）。这是**单向依赖**，不构成循环——循环只在 authn 反向 import crudbridge 时成立（见「兼容性 §类型边界」）。
 
 ### 与框架已有原则的关系
 
@@ -207,15 +207,20 @@ crudbridge.RegisterDataScope(crudbridge.DataScopeFields{Owner: "owner_id"})
 
 ### 依赖 bald-crud 的 viewer 包
 
-本包 import `github.com/kalandramo/bald-crud/viewer`——**外部 module 依赖**。`viewer.Context` 接口的方法集若变更（如新增方法），`SimpleViewer` 的编译期断言（`pkg/crudbridge/crudbridge.go:47`）会立刻报错（这是断言的价值）。
+本包 import `github.com/kalandramo/bald-crud/viewer`——**外部 module 依赖**。`viewer.Context` 接口的方法集若变更（如新增方法），`SimpleViewer` 的编译期断言（`pkg/crudbridge/crudbridge.go`）会立刻报错（这是断言的价值）。
 
-**已发生的破坏性变更**：`TenantID()` 由 `uint64` 改为 `string`（`viewer/v0.2.0`，2026-09-24）。下游凡自行实现 `viewer.Context` 的测试桩或适配器都须同步改签名——`bald-crud` 内五个 ORM 模块的测试桩因此编译失败（见《待处理事项》#1）。
+**已发生的破坏性变更**：`TenantID()` 由 `uint64` 改为 `string`（`viewer/v0.2.0`）。下游凡自行实现 `viewer.Context` 的测试桩或适配器都须同步改签名。
+
+### 类型边界
+
+- **`UserID()` / `OrgUnitID()` 仍为 `uint64`**：桥接层为此保留 `strconv.FormatUint` 转换（`data_scope.go`）。当前 `user_id` 来源（JWT claims）为数字字符串，转换无有损路径；若将来出现非数字形态，须与 `tenant_id` 同样统一为 `string`。
+- **依赖方向单向（crudbridge → authn）**：`crudbridge.go` 零 `authn` import，`ViewerFromIdentity` 因此用平铺参数而非 claims 对象；`data_scope.go` 因 `RegisterDataScope` 回调签名 import `pkg/authn`。反向 import 才构成循环。
 
 ### TenantID 类型与透传语义
 
-`ViewerFromIdentity`（`pkg/crudbridge/crudbridge.go:95`）的 `tenantID` 参数为 **`string`**，函数体内**原样透传**（`:103` `v.TenantIDValue = tenantID`），无解析路径。
+`ViewerFromIdentity`（`pkg/crudbridge/crudbridge.go`）的 `tenantID` 参数为 **`string`**，函数体内**原样透传**（`v.TenantIDValue = tenantID`），无解析路径。
 
-因此非数字租户 ID（如 UUID、`"t-default"`）**可直接使用**，无需自定义 `viewer.Context`。`strconv.ParseUint` 在本包仅剩 1 处，用于解析 **`userID`**（`:101`），与租户无关。
+因此非数字租户 ID（如 UUID、`"t-default"`）**可直接使用**，无需自定义 `viewer.Context`。`strconv.ParseUint` 在本包仅剩 1 处，用于解析 **`userID`**，与租户无关。
 
 ## 实现与验证
 
@@ -236,8 +241,8 @@ crudbridge.RegisterDataScope(crudbridge.DataScopeFields{Owner: "owner_id"})
 | [认证与授权抽象设计](./认证与授权抽象设计.md) | `pkg/authn`/`pkg/authz` 的抽象（本包消费其产出的 contextx 键） |
 | [Bald 存储设计](./Bald%20存储设计.md) | `pkg/store`（本包经 `RegisterDataScopeExpr` 接入其查询链） |
 | [上下文契约设计](./上下文契约设计.md) | `contextx` 五键（本包的身份来源） |
-| [待处理事项](./待处理事项.md) | 本域未修缺陷与约束的集中登记（如 #1 测试桩类型、#2 noop 语义） |
-| [框架契约总览](./框架契约总览.md) | 速查表（**此前缺 crudbridge 节**） |
+| [设计判据](./设计判据.md) J4 / J5 | 身份缺失 fail-closed、平台身份显式声明 |
+| [框架契约总览](./框架契约总览.md) | 速查表（含 crudbridge 节） |
 
 ### FAQ
 

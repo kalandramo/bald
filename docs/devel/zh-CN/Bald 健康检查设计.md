@@ -4,9 +4,9 @@
 >
 > Author(s): bald 团队
 >
-> Last updated: 2026-09-15
+> Last updated: 2026-10-30
 >
-> Status: Accepted（对应实现 `health` module；tag 已发且消费方引 `health/v0.1.1`，探针装配与就绪归属见《Bald 健康检查装配设计》）
+> Status: Accepted（对应实现 `health` module；tag 已发且消费方引 `health/v0.1.1`）
 
 ## 摘要
 
@@ -29,8 +29,7 @@ health 是 bald 的健康检查 module：一个接口、三态状态机、两层
 ### 移植背景
 
 本 module 是独立 module，`github.com/kalandramo/bald/health`：tag 已发（消费方引 `health/v0.1.1`）；
-2026-09-17 起由 `bootstrap`/`appkit` 依赖做探针与就绪装配（协议层已退出健康检查域），
-见《Bald 健康检查装配设计》。
+探针与就绪的装配由 `bootstrap`/`appkit` 承担（协议层不含健康检查域），见本文「探针与就绪的归属」。
 
 ## 设计
 
@@ -167,7 +166,7 @@ gRPC 健康检查协议（`grpc.health.v1`）——只覆盖 gRPC 面，且把�
 module 绑上 grpc；gin 专属 handler——省一个适配，绑定框架。
 
 **决策⑥：显式 Register，不用 init() 自注册。** 对齐 bald 全家决策（见
-《Bald Bootstrap 设计》）：注册了什么，代码里看得见。
+《Bald 声明式装配设计》与《设计判据》J5）：注册了什么，代码里看得见。
 
 **决策⑦：每次探针实时执行，不缓存、不后台轮询。** K8s `periodSeconds`
 本身控制探测频率，缓存只会引入陈旧窗口（依赖恢复/故障晚一个周期被发
@@ -176,7 +175,7 @@ module 绑上 grpc；gin 专属 handler——省一个适配，绑定框架。
 
 ## 兼容性
 
-独立 module。**消费者状态（2026-09-18 核实）**：已不再是「无消费者」——根 module、
+独立 module。**消费者状态（核实）**：已不再是「无消费者」——根 module、
 `bootstrap`、`_example`、`_example/bald` 四个 go.mod 均 require `health v0.1.1`。
 新增消费者不构成破坏性变更（纯增量），但「无消费者、纯增量」的表述已过时。
 测试 24 例全绿（状态/三态
@@ -184,7 +183,7 @@ module 绑上 grpc；gin 专属 handler——省一个适配，绑定框架。
 
 已知代价与遗留（诚实列出）：
 
-- `httpClient()` 是**未导出**函数（`health/http_helper.go:16`，首字母小写），
+- `httpClient()` 是**未导出**函数（`health/http_helper.go`，首字母小写），
   与文件内注释「函数名导出以便未来可注入自定义客户端」不符——注释描述的意图
   尚未落地。当前无注入 API，HTTPChecker 只能用默认 5s 客户端（自身 timeout
   字段已可覆盖单请求超时）。**文档与注释均高估了该函数的可见性。**
@@ -194,7 +193,7 @@ module 绑上 grpc；gin 专属 handler——省一个适配，绑定框架。
 - 组合子构造函数名 `AllCheckers/AnyCheckers` 与类型名 `All/Any` 不对称
   （避开 `All` 既是类型又是构造的歧义），略拗口但可用。
 
-## 实现与过渡
+## 实现现状
 
 **已落地**，4 个源文件 + 1 个测试文件（24 例）：
 
@@ -215,9 +214,60 @@ h.Register("db", health.TCP(cfg.DB.Addr, 2*time.Second))
 mux.Handle("/readyz", health.NewHandler(h))
 ```
 
-**已完成（2026-09-18 核实）**：发 tag（当前消费方引 `health/v0.1.1`）、根模块
-require、`bootstrapv1` 契约段与 Registry 装配均已完成——见《Bald 健康检查装配
-设计》。本节此前记的「尚未做」已全部落地。
+**已完成**：发 tag（当前消费方引 `health/v0.1.1`）、根模块 require、`bootstrapv1`
+契约段与装配层接线均已完成——见下节。
+
+## 探针与就绪的归属
+
+健康检查横跨「零件」与「接线」两层。边界一句话：**协议实现里没有健康检查，健康检查里没有协议依赖**——`transport` 根包与 `health` module 都保持零 require，`health` 不 import grpc。
+
+### 归位表
+
+| 关注点 | 归属 | 说明 |
+|---|---|---|
+| 生命周期（`Start`/`Stop`/`Endpoint`） | `transport.Server` | 不含健康语义 |
+| gRPC 标准健康服务注册 | `transport/grpc` | 只注册不判断（`grpc.health.v1` 是生态标配，见《设计判据》J6） |
+| 状态推送（`health.Check` → `SetServingStatus`） | `bootstrap` 组合服务器 | 需要 import grpc，故不进 `health` |
+| gRPC reflection 注册 | `bootstrap` | 按契约 `Server.Grpc.reflection` 注册，业务勿重复注册 |
+| HTTP 双探针路由 | `appkit.WithHealth` 或业务 | 用 `ServeMux` 包住业务 handler |
+| 探针/聚合/明细 | `health` | 本文前述能力 + `Health.Readiness(ctx) error` 适配 |
+
+### HTTP：包装而非内嵌
+
+装配层把业务 handler 包一层探针 mux：
+
+```go
+func WithProbes(business http.Handler, h *health.Health, live, ready string) http.Handler {
+	mux := http.NewServeMux()
+	mux.Handle(live, health.NewLivenessHandler()) // 恒 200
+	mux.Handle(ready, health.NewHandler(h))       // Down → 503 + JSON 明细
+	mux.Handle("/", business)                     // 业务路由兜底
+	return mux
+}
+```
+
+业务手工组装等价于在自己路由里加两行（gin 侧用 `gin.WrapH`）：
+
+```go
+router.GET("/healthz", gin.WrapH(health.NewLivenessHandler()))
+router.GET("/readyz",  gin.WrapH(health.NewHandler(h)))
+```
+
+`NewHTTPServer(cfg, handler)` / `NewGRPCServer(cfg, srv, register)` 等协议构造函数**不接受探针参数**，也不注册任何框架路由。
+
+### gRPC：标准服务在位，状态由外部推
+
+`transport/grpc` 注册 `health.NewServer()` 并暴露只读访问器 `HealthServer() *health.Server`；状态推送由 `bootstrap.NewGRPCHealthServer(srv, h, interval)` 承担——启动后立即探一次并按间隔同步，判据与 HTTP `/readyz` 同源（`StatusDown` → `NOT_SERVING`，否则 `SERVING`）。`Serve` 返回即停止轮询，不泄漏 goroutine。
+
+### 一行装配
+
+```go
+appkit.WithHealth(h)                              // /healthz + /readyz + gRPC 联动
+appkit.WithHealth(h, appkit.WithProbePaths("/livez", "/readyz"),
+	appkit.WithHealthPollInterval(2*time.Second))
+```
+
+不声明 `WithHealth` 则框架**不挂任何探针**。K8s 下这会让 `livenessProbe` 拿到 404 并反复重启——部署清单必须要么使用 `WithHealth`，要么由业务自挂 handler。
 
 ## 附录：FAQ
 

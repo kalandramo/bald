@@ -82,7 +82,7 @@ go mod tidy       # 首次会把 grpc-gateway/v2 等写入 go.mod
 
 ## 4. 接线到 bald server（框架契约）
 
-transport module（2026-09-05 自 pkg/server 迁入）提供两个载体：
+transport module（自 pkg/server 迁入）提供两个载体：
 
 - **gRPC**（子包 `transport/grpc`，包名 `grpcserver`）：
   `grpcserver.NewGRPCServerWithRegister(cfg *bootstrapv1.Server_Grpc, unary []grpc.ServerOption, register func(s *grpc.Server))` —— 包装新建的 `*grpc.Server`，注册 gRPC 标准健康服务（只注册不判断就绪），`register` 回调里挂业务 service；reflection 与就绪推送由装配层接线。
@@ -163,5 +163,5 @@ curl -i http://127.0.0.1:8080/v1/greet/bald
 1. **transcoding 规则写在 proto 的 `google.api.http` 注解里**，不要手写 REST handler。
 2. **biz 函数与传输层解耦**：gRPC 实现层只做"取字段 → 调 biz → 组装响应"的薄适配。
 3. **gateway 与 gRPC 同进程**：`GatewayServer` 在 `Start` 时读 `grpcBackend.GetAddr()` 连本进程 gRPC，无需独立部署。
-4. **网关由契约 driver 驱动**：`WithGatewayRegister` 声明能力 + `server.http.driver=grpc-gateway` 选择模式；与 `WithHTTP` 同时声明时 driver 必须显式（构造期 fail-fast），`WithExtraServers` 是契约形状表达不了的服务器的通用逃生舱。
+4. **网关由契约 driver 驱动**：`WithGatewayRegister` 声明能力 + `server.http.driver=grpc-gateway` 选择模式；与 `WithHTTP` 同时声明时 driver 必须显式（构造期 fail-fast），`WithExtraServerFunc` 是契约形状表达不了的服务器的通用逃生舱。
 5. **启用需 build tag**：示例接线文件用 `//go:build grpcgw` 保护，避免无 protoc 环境编译失败。

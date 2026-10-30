@@ -9,7 +9,7 @@
 - 官方 CLI（一次性安装；业务代码只依赖 bald 库）：
 
 ```bash
-go install github.com/kalandramo/bald/cmd/bald@v0.25.0
+go install github.com/kalandramo/bald/cmd/bald@v0.31.0
 ```
 
 ### 2. 声明 + 一条命令生成
@@ -70,7 +70,7 @@ demo-svc/
 ### 4. 拉依赖、起服务
 
 ```bash
-go get github.com/kalandramo/bald@v0.27.0
+go get github.com/kalandramo/bald@v0.31.0
 go mod tidy
 go run ./cmd/demo-svc
 ```
@@ -82,7 +82,7 @@ curl -i http://127.0.0.1:8080/healthz   # 200：存活
 curl -i http://127.0.0.1:8080/readyz    # 200：就绪（依赖未就绪 503，K8s 摘流量）
 ```
 
-CLI 机制层内置在 `pkg/appkit/appcli`（v0.27.0 起）：生成物 `cmd/demo-svc/app/command.go` 只有三行委托——根命令构建、`--config`/`--log.*` 的 FParseErr 白名单、flag 错误 UX、`--version` 与 `version` 子命令、kubectl 风格插件转发都由框架承担，不用每个项目手抄。两点需要知道的：
+CLI 机制层内置在 `pkg/appkit/appcli`：生成物 `cmd/demo-svc/app/command.go` 只有三行委托——根命令构建、`--config`/`--log.*` 的 FParseErr 白名单、flag 错误 UX、`--version` 与 `version` 子命令、kubectl 风格插件转发都由框架承担，不用每个项目手抄。两点需要知道的：
 
 - **版本注入**：构建时 `-ldflags -X github.com/kalandramo/bald/pkg/appkit/appcli.Version=v0.1.0`，`./demo-svc --version` 即打印它；未注入时回退构建信息的模块版本，本地 `go run`（devel）不挂 `--version`，不打印假版本。
 - **插件转发**：`./demo-svc <name>` 在 `<name>` 不是已知子命令时执行 PATH 里的 `demo-svc-<name>`（与 kubectl 同约定，前缀 = 二进制名，`appcli.WithPluginPrefix` 可覆盖）。业务子命令经 `appcli.WithSubcommands(...)` 挂进 command.go，与默认 serve 并存。

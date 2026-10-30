@@ -4,7 +4,7 @@
 （`appkit.MustServe`）与各能力包页覆盖日常开发，用不到这里的任何符号；
 **用不到本页可以整页跳过**。需要其中某一件——可逆的全局写入、启动期依赖
 检查、个别配置 key 的热更、期望态收敛、运行期可逆挂载——再按节取用。
-设计论证见 `docs/devel/zh-CN/装配层评估.md` §4.4/§9，本文只讲操作。
+设计论证见 [应用框架设计](../../devel/zh-CN/应用框架设计.md) 与 [Bald 声明式装配设计](../../devel/zh-CN/Bald%20声明式装配设计.md)，本文只讲操作。
 
 ## mech 与 appkit 的分层契约
 
@@ -58,7 +58,7 @@ app := appkit.NewApp(
 登记有两个时机。装配期走 `mech.Effect`；运行期由框架自己追加：Run 期才
 构造的产物（如服务器 cleanup）在构造发生的同一时刻入账——provider 构建
 循环逐项即时落账，构建失败由 Run 失败路径回放，构造期（账本未建立）失败
-则逆序回滚已建项（provider.go:395-433）。业务通常只接触装配期入口。
+则逆序回滚已建项（provider.go）。业务通常只接触装配期入口。
 
 ## 能力声明与组件生命周期
 
@@ -105,7 +105,7 @@ Resolve 挂在 Run 内紧随配置加载之后——依赖缺失在启动期报�
 由下次协调补齐，不阻断整机；多个协调器按注册序执行；手动触发用
 `app.ReconcileNow(ctx)`。
 
-配套工具 `mech.DiffStrings(want, have)`（util.go:20）返回期望集与实际集
+配套工具 `mech.DiffStrings(want, have)`（util.go）返回期望集与实际集
 的差集（add/remove，均升序稳定），「期望有实际无→挂载、实际有期望无→
 卸载」一句话写完；`mech.ParseStringList` 把配置值解析为字符串列表（薄委托
 config.StringList，新代码直接用它）。
@@ -127,7 +127,7 @@ config.StringList，新代码直接用它）。
   条目（保持配对）。
 
 它不是 bootstrap 那套装配期 fail-fast 注册表（bootstrap/registry.go）——
-两套泛型注册表语义不同、不共用，并存是装配层评估 §9 裁定的终态：前者服务
+两套泛型注册表语义不同、不共用，并存是有意的分工：前者服务
 段驱动装配，`Registry[T]` 的 Mount/Unmount 是装配期 Register 的**运行期
 对偶**（可逆挂载、undo 幂等），与 `App.MountComponent`/`UnmountComponent`
 同属组件热插拔与期望态协调的底层原语。

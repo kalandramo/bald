@@ -1,45 +1,71 @@
 ## 开发手册
 
-本目录收录 bald 框架的开发设计文档（中文）。
+本目录收录 bald 框架的设计文档。目标是：**一个新接手的人，只读本目录就能建立正确的心智模型，并在改动前知道该看哪几篇。**
 
-- [架构演进路线](./架构演进路线.md)：第一轮（P0–P9）架构演进的决策记录——三方设计来源（onexstack/Kratos/go-lulu）、P0 装配纪律、P1 健康检查对称、P3 错误模型、P4 工具链、P5 零后端耦合、P7 认证授权抽象、P8 多租户、P9 传输中立归一化。**（重建版：原文件缺失，依源码与后续文档的可核实引用重建，原文无从核实者标「待考」。）**
-- [架构优化路线](./架构优化路线.md)：第二轮（P10–A1）优化——时空可组合性五组原语 T1 效应账本 / S1 能力声明 / C1 组件生命周期 / A1 运行期可逆挂载 / R1 配置增量协调，加 P10 bundle 门面、P12 代码生成、P13 卫生项；含分层可逆性（装配期不可逆 / 运行期可逆）。**（重建版：同上。）**
-- [Bald 声明式装配设计（修正草案）](./Bald%20声明式装配设计-修正草案.md)：对「声明式」的判据重定义与目标模型——引入 `Plan` IR（纯函数、可打印/可 diff/可哈希）、Provider `Plan`/`Apply` 分离、`DependsOn`/`Priority`/`TeardownAfter` 取代手工排序表、`Key[T]` 类型化资源面、节点级 `ReloadPolicy` + `Drift`、codegen 清单与 `--check`；定义 L1–L5 声明式等级（2026-10-30：L1–L4 达成、L5 在生成物维度达成，M0–M5 与 Q5–Q8 已落；剩余 owner 点见正文 §8.2/§8.3）。
-- [应用框架设计](./应用框架设计.md)：AppKit 生命周期（五阶段停机）、Server/Registrar/Component 契约、效应账本/能力声明/运行期挂载。
-- [Bald 配置系统设计](./Bald%20配置系统设计.md)：配置系统全景——源抽象（Reader/ValueWatcher/FallbackReader + 10 provider）、proto 配置契约、bootstrap 装配（Registry/层优先级/Build 回滚）；源层与契约层的深展开见各自专属篇。**（原《配置中心设计》已并入本篇与《Bald 配置源层设计》——该文件已不存在，旧链接指向此处。）**
-- [Bald 配置源层设计](./Bald%20配置源层设计.md)：bconfig module 专属展开——字节进字节出的源层抽象（Reader/ValueWatcher/Decoder 能力轴 + 类型断言发现）、FallbackReader 级联回退与重算语义（事件值不可信）、10 个 provider 矩阵（双模式构造/推送与轮询分级/watch 父目录）、编写纪律 checklist。
-- [Bald 配置契约设计](./Bald%20配置契约设计.md)：bconf module 专属展开——18 proto 契约布局、四 API（NewBootstrap 默认值/UnmarshalMap 合并桥接/Validate 形状校验/BindFlags 描述符 flag 绑定）、coerce 类型缓冲层、三坑防御（Duration/repeated/presence）、契约演进 v0.1.0→v0.6.0（含 v0.5.0 唯一化瘦身、v0.6.0 audit 域）。
-- [Bald 注册中心设计](./Bald%20注册中心设计.md)：注册中心域的设计决策与取舍——契约零依赖（Registrar/Discovery/Watcher + inmemory）、后端各自独立 module（`registry/<backend>` 直连 SDK）、`RegistrarRegistry` 显式注册与 `registry.type` 单选分发、注册/反注册生命周期时序；含下放布局论证、breaking 代价、迁移与发版记录。
-- [Bald 健康检查设计](./Bald%20健康检查设计.md)：health module 专属展开——三态状态机（Unknown/Up/Down）、Checker 接口与 PingFunc 零适配、Health 并发聚合（Down 传染 > Unknown 传染、双层超时兜底）、readiness/liveness 双端点分离（Down→503、liveness 恒 200 不级联重启）、TCP/HTTP/All/Any 内置检查器；零第三方依赖纯标准库（2026-09-06 自 go-wind 移植；tag `health/v0.1.0` 已发，装配与归属见下条）。
-- [Bald 健康检查装配设计](./Bald%20健康检查装配设计.md)：探针与就绪的归位——协议实现不含健康/就绪（HTTP 探针注册、gRPC 就绪轮询、`ReadinessFunc` 参数全部移除；gRPC 标准健康服务保留但只注册不判断）、能力落 `health` + 装配层（`bootstrap.NewGRPCHealthServer` / `appkit.WithHealth` 一行默认装配 + 业务自组装两条路）、reflection 外移装配层；含运维风险（默认无探针 → K8s 404）与破坏面清单。
-- [Bald 日志设计](./Bald%20日志设计.md)：log 契约（6 方法接口/全局句柄/nop 默认/ctx 属性流/MultiLogger）、bslog 适配器（多输出/lumberjack 轮转/脱敏/OTel 桥接）、五远端后端独立 module + contract 模式、装配层（两级工厂/默认纯函数 + 教学报错/两阶段/热更新）、`logger.backends` 多后端广播；附录含 gookit/slog 评估决策与桥接适配器预留（并入自原《日志平面接口设计》）。
-- [AppKit 日志装配设计](./AppKit%20日志装配设计.md)：AppKit 侧日志装配策略——两级工厂分发（WithLogRegistry 机制全权 / 默认纯函数零依赖）的使用场景、nil 双语义（机制层 fail-fast vs 阶段 A 回退）、装饰器 deco 生效范围分级、四分派、脱敏单层保证的结构性机制。
-- [路由注册与绑定设计](./路由注册与绑定设计.md)：路由注册由业务用 gin 编写，transport/web 提供强绑定 gin 的泛型绑定/校验/响应流水线，路径变量用 uri tag。
-- [grpc-gateway 配置与 transcoding](./grpc-gateway%20配置与%20transcoding.md)：proto + google.api.http 注解、buf generate 生成、接线到 server.NewGRPCServerWithRegister / NewGatewayServer，gin 与 grpc-gateway 复用同一 biz 层。
-- [Bald 错误模型设计](./Bald%20错误模型设计.md)：berrors module 专属展开——传输中立 Error（Code/Reason/Message/Details + cause/栈）、不可变 builder、按 Reason 匹配的 Is、构造即捕获栈；grpcerr（gRPC 双向 + ErrorInfo）/httperr（17 码 HTTP 投影）对等桥接子包；google.rpc.Status JSON 三面一份契约；决策①~⑨ 含 2026-09-15 合并评估否决（并入自原《错误模型设计》）。
-- [认证与授权抽象设计](./认证与授权抽象设计.md)：P7 双接口——pkg/authn 认证抽象（Authenticator/AuthClaims）+ pkg/authz 授权抽象（Authorizer），零引擎耦合、桥接子模块外置，P9 归一化使 REST/gRPC 共用同一策略空间。
-- [Bald 审计设计](./Bald%20审计设计.md)：审计域统一设计——pkg/audit 旁路契约（Auditor/AuditEvent/三层防线）、四类埋点来源（请求中间件/认证失败 D3 盲区/协调器/组件热插拔）、三后端（log 内置 + contrib/audit-{store,stream} 桥接与 fallback 降级）、契约/协调器双轨装配；并入自原《审计抽象设计》，含严格代码比对发现的 Time 契约缺口（已修复：store/stream 后端记录时兜底）。
-- [Bald 指标设计](./Bald%20指标设计.md)：指标域统一设计——pkg/metrics 请求级 Recorder（semconv v1.43.0 对齐：http.server.request.duration / rpc.server.call.duration / http.server.active_requests + 正交审计指标 bald_audit_events_total，含装配链与惰性 instruments 修复史）+ 顶层 metrics/ 传输级三原语（Metrics 接口 + prometheus/otel/datadog 三后端，六传输埋点清单、零 tag 未发版事实、缺陷清单 D1-D8 与发版 checklist）；「两套体系总览」给入口判断。
-- [校验设计](./校验设计.md)：pkg/validation 按请求类型名分发的 Validate 方法约定 + 规则式轻量校验，与 proto buf.validate 注解互补。
-- [上下文契约设计](./上下文契约设计.md)：pkg/contextx 请求级元信息五个标准键（user/username/trace_id/request_id/tenant_id）的统一存取。
-- [Bald 字段掩码设计](./Bald%20字段掩码设计.md)：pkg/fieldmaskutil 专属展开——proto FieldMask 的过滤/剪除/覆写/校验四操作（Filter 与 Prune 对偶）、两层 API（扁平包装 vs `NestedMask` 递归复用）、四类字段形态递归（标量/消息/repeated/map）、路径归一化（snake_case + `id_`/`_id` 特例）；含两处已记录缺陷（`OverwriteByFieldMask` 自我覆写、三个 ByFieldMask 归一化不对称）。
-- [Bald CRUD 桥接设计](./Bald%20CRUD%20桥接设计.md)：pkg/crudbridge 专属展开——bald 身份（contextx）到 bald-crud `viewer.Context` 的桥接（`SimpleViewer` + 三条构造路径）、互斥三态视图判定、五级数据范围 → `storev1.FilterExpr` 布尔树翻译（**fail-closed**：身份缺失返回空 OR 恒假）、`RegisterDataScope` 一行接入；含安全语义（System 标志须显式、TenantID 原样透传无解析）与「设计哲学」节。
-- [Bald 中间件设计](./Bald%20中间件设计.md)：pkg/middleware 专属展开——四子包分工（gin 903/grpc 948/bundle 258/shared 104）、**Bundle 链序固化**（gin 与 gRPC 两条链，Audit 夹在 Authn/Authz 之间的双约束、Error 最外层收口）、显式注入不吃全局兜底（NopAuditor）、认证失败审计盲区 D3 的补偿设计、shared 传输无关核心收敛（`InjectTrace` 回调抽象 + 别名保 API）、`LogTraceIDs` 随机兜底；50 个测试。
-- [测试工具设计](./测试工具设计.md)：pkg/testkit e2e 复用工具的收编（P13），如 FreeAddr。
-- [代码生成工具设计](./代码生成工具设计.md)：cmd/bald 官方开发工具 CLI（gen proto/store/app）、AppSpec 方言与 Requirement 结构化、模板装配纪律（P0）、生成物骨架边界、消费者 module 测试策略。
-- [框架契约总览](./框架契约总览.md)：所有公开契约（接口/类型/函数/常量）速查表，按包分节，附桥接与依赖倒置接入说明。
-- [Bald 存储设计](./Bald%20存储设计.md)：`pkg/store` 模块专属展开——三层契约（`Store[T]` 门面 / `Queryable[T]` 后端契约 / `DBProvider[T]` 句柄注入）的拆分理由、`Where` 双通道（扁平 `Filters` + 布尔树 `Expr`，隔离条件不可被业务 OR 吞掉）、四策略分页（NoPaging/Token/Page/Offset 自动识别 + NextToken 末页不空发）、多租户读写对称闭环（读 `mergeTenant` 注入 + 写 `injectWriteTenant` 无条件覆写）、平台级豁免 `WithPlatformLevel`、写操作幂等语义（`Update`/`Delete` 对 0 行返回 `(0, nil)`：面向最终状态 + 对齐 SQL 原生语义 + 系统错误与业务状态分离）、数据权限五级范围布尔树翻译、inmemory 内置实现；含「设计哲学」与「决策沿革」节、接入示例，未修条目指向《待处理事项》。**（原《数据存储设计》已并入本篇——取舍论证入「决策沿革」、接入示例入「接入示例」；该独立文件已删除，旧链接见 git 历史。）**
-- [待处理事项](./待处理事项.md)：存储域（`pkg/store` / `pkg/crudbridge` / `bald-crud/viewer`）未修缺陷与约束的**集中登记**——含测试桩类型不匹配（五模块编译失败）、`noopContext` 语义矛盾、proto DSL 零消费、`Store.logger` 空接线、`Paginator` 无注册入口、token 非真游标等；各文档正文改为引用此册，避免多处漂移。
-- [示例前后端契约同步设计](./示例前后端契约同步设计.md)：proto 单一真相源 + buf v2 按消费者扇出（Go/TS/OpenAPI 各一份 gen 配置）——TS 客户端生成替换手写 API 层，消灭契约双写；含与 go-wind-admin 的差异点（响应信封/transport 保留）、独立时合 monorepo 的前置约束。已落地（2026-09-11，实施差异见文首状态行）。
-- [Bald Cobra MCP 桥接设计](./Bald%20Cobra%20MCP%20桥接设计.md)：`cobramcp` 与 `transport/mcp` 的边界设计——两个平级顶层独立 module（桥接层回答「工具从哪来」、协议层回答「工具怎么对外服务」）；`transport/mcp` 的 `transport.Server` 契约实现要点（`Start` 同步绑定、`Endpoint` 真实端口、`Stop` 优雅停机含 SSE `CloseSessions`、`Done()` 通道）与工具注册插槽；`cobramcp` 的双模型（`Command`/`Config` 子进程 vs `NewMCPServer` 进程内）、工具发现与服务端构造解耦；依赖单向（`cobramcp → transport/mcp → bald/log`，协议层不依赖 cobra/pflag）；日志只走契约、信号归宿主、认证落 HTTP 中间件层；宿主装配入口 `appkit.WithExtraServers`。
-- [Bald 重试设计](./Bald%20重试设计.md)：retry module 专属展开——三组正交策略（`Backoff` 曲线 / `Jitter` 抖动 / `Classifier` 判定）+ `Retrier.Do(ctx, fn)` 单入口、三条终止线（attempt 上限 / `maxTotalWait` 墙钟预算 / ctx 取消）与 `errors.Join` 错误包装（`errors.Is` 双向可穿透）；零依赖独立 module（与 health/registry 平级）、拒绝 `cenkalti/backoff` 与 kratos/gRPC 重试的取舍、默认 `NoJitter` 的争议点、四类边界代价（`WithMaxAttempts(0)` 静默忽略、nil 策略 panic、注入 RNG 后不并发安全、`timer` 无导出 Option）、三处就地退避（kafka/etcd/apollo）的接入判据与两件未做的登记工作。已落地但尚未接入（2026-09-17）。
-- [Bald 限流设计](./Bald%20限流设计.md)：ratelimit module 专属展开——双接口契约（`Limiter` 三方法 `Allow`/`Wait(ctx)`/`Close` + `ErrLimited`，叠加 `InflightLimiter` 的 `Done(rtt)` 表达「放行与释放配对」）与三个各自独立 module 的实现（`tokenbucket` 零依赖令牌桶为默认、`bbr` 滑动窗口自适应且实现 `InflightLimiter`、`sentinel` 桥接 Alibaba Sentinel 但句柄式释放留在具体类型）、拒绝 `x/time/rate` 与「单包多算法 + build tag」的取舍、`Done` 为何拆接口而非加方法（空参数 vs 带 `rtt`、为何 `sentinel` 不实现它、为何 `tokenbucket` 不该被迫实现空方法）；五类边界代价中三项已修（BBR 接口视角只放行一次即永久拒绝、`sentinel.Allow` 注释指向不存在的 `Done`、包注释写 go-wind）、两项遗留（`ErrLimited` 混用超限与已关闭、`tokenbucket.Close` 不唤醒 `Wait` 而 `notify` 是死字段）、四 module 未登记 Taskfile/README 的现状与「先补 `bbr` 时钟注入再挂中间件」的接入顺序。已落地但尚未接入（2026-09-17）。
-- [Bald 消息代理设计](./Bald%20消息代理设计.md)：broker module 专属展开——`Message.Body` 装 `any`、`Binder` 负责订阅端落地具体类型、`TypedHandler[T]`/泛型 `Subscribe[T]` 三层类型化糖（底座只有一种 `Handler`）、`derefAnyPointer` 解 `*any` 装指针的落地地基、发布/订阅双中间件链、`SubscriberSyncMap` 限时退订；四后端独立 module（kafka 一 topic 一 writer + 写失败自愈、rabbitmq 连接自愈、redis pubsub/stream 双驱动、rocketmq v2 客户端）各带 `contract/` 子包接 bconf（实现零契约依赖）；双装配路（transport Server 包装 vs `bootstrap.BrokerRegistry` + appkit 停机链 drain 最先）；三个未修缺口（`DefaultCodec` 恒为 nil 实际静默走 gob、`Request` 五后端全部 not implemented、bconf 13 段只实现 4 段且未实现段静默忽略）与修复顺序。已落地（2026-09-17）。
-- [Bald 熔断设计](./Bald%20熔断设计.md)：circuitbreaker module 专属展开——三态契约（`StateClosed`/`StateOpen`/`StateHalfOpen`）+ `ErrCircuitOpen` + 六方法接口（`Allow`/`MarkSuccess`/`MarkFailure` 成对上报、`Execute` 便捷包装、`State`/`Close`）；四实现各自独立 module（`sres` Google SRE 概率式平滑降级、`vegas` 按 RTT 膨胀提前侦测、`hystrix` 阈值+睡窗、`sentinel` 桥接 Sentinel），四者判决依据/并发保证/可观测面各不相同且无一完整兑现三态；含审查实证并修复的三个行为缺口（`hystrix` 半开态永久锁死、`vegas` 开态经接口不可恢复、`sentinel` entry 并发泄漏）与登记补齐。已落地、全仓零调用点（2026-09-18）。
-- [Bald 编解码设计](./Bald%20编解码设计.md)：encoding module 专属展开——`Codec` 三方法契约（`Marshal`/`Unmarshal`/`Name`）+ 全局注册表（`MustRegister` 三处 panic fail-fast / `GetCodec` 未注册返回 nil / `Names` 仅诊断）、「名字取用 + 代码装配」的两段式（装配期显式注册、构造期按名查表、运行期持有实例）、13 个 module 布局（根包零三方依赖 + 12 格式各自独立）；三个「非通用签名」格式的桥接方式（proto/thrift 的接口断言、flatbuffers 的 `FlatBufferMarshaler`、avro 的 `NewCodec(schema)` 双构造器）；四个未修缺口（thrift `serializer`/`deserializer` 死字段、flatbuffers `Unmarshal` 对畸形 buffer 静默成功、README/注释高估 avro 默认 codec 能力、装配期急切查表 vs `MustRegister` 时序约束）+ 消费侧两处 nil 未防护（属 transport 工单）。与 [Bald 消息代理设计](./Bald%20消息代理设计.md) 为姊妹篇。已落地（2026-09-18）。
-- [设计评审-第三轮（2026-09-12）](./设计评审-第三轮-2026-09-12.md)：第三轮全局设计评审的裁决记录——批 I（middleware R1 shared 收敛，消除 gin/grpc 重复税）、**R4 裁决**（「框架能力零调用不是删除依据，缺测试才是」——被缓存/编解码等多篇文档援引）、TR1–TR4（transport 域原始发现）、**CR4**（「无默认超时的 `http.Client` 会随调用方 ctx 永久挂起」——workflow 与 ai/eino 各犯一次）。**（重建版：原文件缺失，依后续文档的可核实引用重建；批 A–Z 完整清单与 R1–R3/R5+ 语义标「待考」。）**
+### 怎么读
 
-- [Bald 传输层设计](./Bald%20传输层设计.md)：transport 域专属展开——根 module 只定义一条极窄契约 `transport.Server`（Start/Stop/Endpoint，兼容 kratos 并扩展 Endpoint 以支持动态端口注册）+ `transport.Extract`（通配符地址 → 本机可达 IP，服务注册可达性的关键修复点）；18 个后端各自独立 module（http/grpc 为基准实现，broker 家族四后端非监听服务故 Endpoint 返回空）；含 2026-09-18 修复的三项（删 `listen.go` 死代码、四处幽灵契约 `server.Server` → `transport.Server`、SessionManager 的 observer 竞态/非幂等/rangeSessions 语义相反——含调用方同步修正），以及未修项与理由（Endpoint 语义统一属行为变更需设计、broker 家族同构复制、12/18 后端缺编译期断言、死 API）。
-- [Bald 对象存储设计](./Bald%20对象存储设计.md)：oss 域专属展开——两独立 module（`oss/minio` 与 `oss/s3`）各自提供「类型化门面 + `SDK()` 双出口」；契约映射单独成 `contract/` 子包使后端本体保持零契约依赖；**不抽公共接口**的理由（s3 的 bucket 语义与 minio 的多 bucket 能力真实冲突，强行统一会两头受损）；含 2026-09-18 修复的装配期静默降级（`NewClient` 失败 return nil 而 `NewStorage` 仍包出非 nil 门面 → Provider 校验 `SDK()` 非 nil 后 fail-closed，附 minio 侧 RED→GREEN 回归）。
-- [Bald 工作流设计](./Bald%20工作流设计.md)：workflow 域专属展开——`workflow/argo` 为**手写 REST 客户端**（非 Argo 官方 SDK，避免拉入整套 k8s 依赖），15 个生命周期方法；契约声明 4 段（temporal/argo/conductor/goworkflows）但仅实现 argo，含 2026-09-18 修复的两项（未实现段此前静默丢弃 → 新增 `declaredWorkflowSections` fail-fast；`GetWorkflowLogs` 此前绕过状态码检查把 401/404/500 错误体当正常日志返回 → 抽出 `doRawRequest` 统一检查），以及未修项（假连接日志、`running` 死字段、ServerURL 空值静默回退）。
-- [Bald 智能模型设计](./Bald%20智能模型设计.md)：ai 域专属展开——3 个独立 module（`openai`/`langchaingo`/`eino`）**能力面刻意不统一**（openai 仅最小依赖客户端 146 行、eino 编排最全 564 行、langchaingo 独有 agent/embedding/memory/vectorstore），抽公共接口会把最轻的拖到最重的依赖面；契约段 3 声明 = 实现 3（无未实现段，与 workflow 4/1 对比）；`bootstrap.AiRegistry` 显式注册 + `aiSections` 段枚举 + Build 失败回滚；含 2026-09-18 评审发现并修复的三项（**eino 默认超时与其他两后端不一致——不配置时 eino 曾走零超时 `http.Client`，请求永不超时、服务端无响应即永久挂起**，与 workflow CR4 同类 → 已对齐 30s 默认；`organization` 在 eino 段曾静默无效 → 已改为 fail-fast 报错；contract 注释"复用"实为"同形复制" → 已修正）。
+| 你关心的事 | 先读 |
+|---|---|
+| 框架整体怎么跑起来 | [应用框架设计](./应用框架设计.md) → [Bald Bootstrap 设计](./Bald%20Bootstrap%20设计.md) |
+| 装配系统（计划、阶段、Provider、收敛） | [Bald 声明式装配设计](./Bald%20声明式装配设计.md) |
+| 某个包对外承诺了什么 | [框架契约总览](./框架契约总览.md) |
+| 「保留还是删除」「要不要 fail-closed」这类判断 | [设计判据](./设计判据.md) |
+| 新增一个能力后端怎么接进装配 | guide 的 [Provider 接入](../../guide/zh-CN/Provider%20接入%20-%20contract.AppProvider%20与段%20Provider.md) |
+
+### 装配与配置
+
+- [应用框架设计](./应用框架设计.md)：AppKit 的进程模型——阶段化的启动/停机、效应账本（T1）、能力声明（S1）、组件生命周期、运行期挂载与配置协调；Server/Registrar/Component 三类契约的边界。
+- [Bald 声明式装配设计](./Bald%20声明式装配设计.md)：装配系统的核心设计——`Plan` IR（纯函数、可打印、可哈希）、Provider v2 的 `Plan`/`Build` 分离、`Priority`/`DependsOn`/`TeardownAfter` 取代手工排序、`Key[T]` 类型化资源面、节点级 `ReloadPolicy` 与 `Drift`、L1–L5 声明式等级与验收口径；末章是 Q1–Q9 的决策记录（路由清单、REST 绑定生成、变体、biz 段、自定义接线钩子）。
+- [Bald Bootstrap 设计](./Bald%20Bootstrap%20设计.md)：bootstrap 只做两件事——契约装载内核与纯构造层；不负责段的消费顺序（那是 appkit 的计划），也不持有全局注册表。
+- [Bald 配置系统设计](./Bald%20配置系统设计.md)：配置系统全景——源抽象、proto 契约、层合并与装配；源层与契约层的深展开见下面两篇。
+- [Bald 配置源层设计](./Bald%20配置源层设计.md)：字节进字节出的源层抽象（Reader/ValueWatcher/Decoder 能力轴 + 类型断言发现）、FallbackReader 级联回退、十个 provider 的双模式构造与 watch 语义。
+- [Bald 配置契约设计](./Bald%20配置契约设计.md)：bconf 的 proto 契约布局与四 API（默认值/合并桥接/形状校验/flag 绑定）、coerce 类型缓冲层。
+- [AppKit 日志装配设计](./AppKit%20日志装配设计.md)：为什么日志要走两阶段引导（契约装载前就要可用）、`logger` 段 Provider 的分派语义、热更新时旧后端的冲刷顺序。
+- [代码生成工具设计](./代码生成工具设计.md)：`bald gen proto/store/app/domain` 的定位与边界——生成物只依赖 `AppSpec + proto`，`--check` 零写入可判；owned/seeded/user 三态与 seeded 钩子。
+- [路由注册与绑定设计](./路由注册与绑定设计.md)：路由由业务用 gin 写、`transport/web` 提供绑定/校验/响应流水线；路径变量用 uri tag，REST 绑定可由 `gen domain` 从注解生成。
+
+### 请求路径
+
+- [Bald 传输层设计](./Bald%20传输层设计.md)：一条极窄契约 `transport.Server` + `transport.Extract`；各传输各自独立 module，监听与非监听服务（broker 家族）的差别。
+- [Bald 中间件设计](./Bald%20中间件设计.md)：gin/gRPC 双传输的横切装配与链序固化——Audit 夹在 Authn 与 Authz 之间的双约束、Error 最外层收口、shared 子包承载传输无关核心、显式注入不吃全局。
+- [认证与授权抽象设计](./认证与授权抽象设计.md)：`pkg/authn`（Authenticator/AuthClaims）与 `pkg/authz`（Authorizer）的双接口、引擎桥接外置，P9 归一化让 REST/gRPC 共用同一策略空间。
+- [Bald 错误模型设计](./Bald%20错误模型设计.md)：`berrors` 传输中立错误（Code/Reason/Message/Details + cause/栈）与 grpc/HTTP 对等桥接；不可变 builder 与按 Reason 匹配。
+- [校验设计](./校验设计.md)：按请求类型名分发的 `Validate` 约定与轻量规则校验，与 proto `buf.validate` 注解互补。
+- [上下文契约设计](./上下文契约设计.md)：`pkg/contextx` 请求级元信息的五个标准键与统一存取。
+- [Bald 字段掩码设计](./Bald%20字段掩码设计.md)：`pkg/fieldmaskutil` 对 proto FieldMask 的过滤/剪除/覆写/校验，两层 API 与四类字段形态。
+- [grpc-gateway 配置与 transcoding](./grpc-gateway%20配置与%20transcoding.md)：一份 proto 同时定义 gRPC 与 REST 映射；`server.http.driver=grpc-gateway` 时网关就是 `server.http` 端口，gin 与网关共用 biz 层。
+
+### 数据与存储
+
+- [Bald 存储设计](./Bald%20存储设计.md)：`pkg/store` 的三层契约（`Store[T]` 门面 / `Queryable[T]` 后端契约 / `DBProvider[T]` 句柄注入）、`Where` 双通道（隔离条件不可被业务 OR 吞掉）、四策略分页、多租户读写对称闭环、写操作幂等语义、数据权限布尔树翻译、inmemory 实现。
+- [Bald 缓存设计](./Bald%20缓存设计.md)：契约层守住 `[]byte` 边界、不放泛型；`cache/loadable` 用 singleflight 合并回源并 best-effort 回填；后端进契约装配、组合器由代码构造。
+- [Bald CRUD 桥接设计](./Bald%20CRUD%20桥接设计.md)：bald 身份体系到 bald-crud viewer 体系的桥接、互斥三态视图、五级数据范围到 `storev1.FilterExpr` 的 fail-closed 翻译。
+- [Bald 对象存储设计](./Bald%20对象存储设计.md)：`oss/minio` 与 `oss/s3` 的类型化门面 + `SDK()` 双出口；不抽公共接口的理由与契约映射单独成包。
+- [Bald 编解码设计](./Bald%20编解码设计.md)：`encoding` 的 `Codec` 三方法契约与全局注册表、「名字取用 + 代码装配」两段式、13 个 module 的布局与特殊签名格式的桥接。
+
+### 可观测、旁路与韧性
+
+- [Bald 日志设计](./Bald%20日志设计.md)：瘦契约（6 方法）+ nop 默认 + 装配期注入；bslog 适配器、五个远端后端独立 module、`logger.backends` 多后端广播与出口统一脱敏。
+- [Bald 指标设计](./Bald%20指标设计.md)：请求级 Recorder（semconv 对齐的 HTTP/gRPC 指标 + 审计三元组投影）与传输级三原语两套体系的分工；装配路径与暴露面归属。
+- [Bald 审计设计](./Bald%20审计设计.md)：旁路契约（`Auditor.Record` + 八字段事件）、四类埋点来源（请求中间件/认证失败/协调器/组件热插拔）、三层「永不阻断业务」防线、log 内置 + store/stream 桥接后端与 fallback 降级。
+- [Bald 健康检查设计](./Bald%20健康检查设计.md)：三态状态机与并发聚合、readiness/liveness 双端点分离、内置检查器；零第三方依赖。
+- [Bald 重试设计](./Bald%20重试设计.md)：`Backoff`/`Jitter`/`Classifier` 三组正交策略、`Retrier.Do` 单入口、三条终止线与 `errors.Join` 包装。
+- [Bald 限流设计](./Bald%20限流设计.md)：`Limiter` 三方法契约与 tokenbucket/bbr/sentinel 三实现；`InflightLimiter` 为何拆开。
+- [Bald 熔断设计](./Bald%20熔断设计.md)：三态契约与成对上报；sres/vegas/hystrix/sentinel 四实现的判决依据与已知边界。
+
+### 集成
+
+- [Bald 消息代理设计](./Bald%20消息代理设计.md)：`Message.Body` 装任意类型、`Binder` 负责落地、三层类型化糖；四个后端独立 module、双装配路径（transport Server 包装 / `broker.<backend>` 段 Provider）。
+- [Bald 注册中心设计](./Bald%20注册中心设计.md)：契约零依赖的 Registrar/Discovery/Watcher、后端独立 module、单选的 `registry.type` 与各后端 `AppProvider`；注册/反注册生命周期时序。
+- [Bald 工作流设计](./Bald%20工作流设计.md)：`workflow/argo` 手写 REST 客户端与生命周期方法；四段声明只实现 argo，未实现段由 L3 覆盖检查 fail-closed。
+- [Bald 智能模型设计](./Bald%20智能模型设计.md)：openai/langchaingo/eino 三个独立 module，能力面刻意不统一；契约段三声明 = 三实现。
+- [Bald Cobra MCP 桥接设计](./Bald%20Cobra%20MCP%20桥接设计.md)：`cobramcp`（工具从哪来）与 `transport/mcp`（工具怎么对外）的分层、进程内/子进程双模型、宿主装配入口 `appkit.WithExtraServerFunc`。
+- [示例前后端契约同步设计](./示例前后端契约同步设计.md)：proto 单一真相源 + buf 按消费者扇出（Go/TS/OpenAPI），消灭契约双写。
+
+### 质量与记录
+
+- [框架契约总览](./框架契约总览.md)：所有公开契约（接口/类型/函数/常量）速查表，按包分节，附桥接与依赖倒置说明。
+- [设计判据](./设计判据.md)：跨模块复用的裁决原则（零调用与死代码的区分、重复税、身份缺失 fail-closed、默认超时、协议只承诺协议形状等），新代码按此判断。
+- [性能基准](./性能基准.md)：装配期与运行期关键路径的基准口径与数字。
+- [测试工具设计](./测试工具设计.md)：`pkg/testkit` 的 e2e 复用工具。
+- [架构演进路线](./架构演进路线.md)、[架构优化路线](./架构优化路线.md)：第一轮（P0–P9）与第二轮（P10–A1）的**历史决策记录**，用于解释「为什么现在长这样」；描述现状时以各专题文档为准。

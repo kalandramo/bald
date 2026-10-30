@@ -6,7 +6,7 @@
 >
 > Last updated: 2026-09-15
 >
-> Status: Accepted（对应实现 `berrors` module，tag `berrors/v0.1.0`；本文并入并取代原《错误模型设计》，修正其两处与实现漂移的表述——模块归属与栈捕获时机）
+> Status: Accepted（对应实现 `berrors` module，tag `berrors/v0.1.0`）
 
 ## 摘要
 
@@ -18,8 +18,8 @@ berrors 是 bald 的错误契约 module：一个模型、三个包。根包定�
 import `berrors` 而不链接任何传输框架**。为此我们放弃了「把 `GRPCStatus()`
 挂在核心类型上」的便利，让桥接成本精确落到使用对应传输的项目。
 
-本文是 berrors module 的完整专文，吸收原《错误模型设计》的全部决策（①~⑧）
-并新增决策⑨（2026-09-15 结构复审：桥接子包不并入根包）。错误模型是依赖图
+本文是 berrors module 的完整专文，覆盖决策①~⑧
+并新增决策⑨（结构复审：桥接子包不并入根包）。错误模型是依赖图
 第 0 层叶子（见《[框架契约总览](框架契约总览.md)》§0「模块与依赖层级」）；HTTP 边界消费方式见
 《[路由注册与绑定设计](路由注册与绑定设计.md)》，前端错误解析见《[示例前后
 端契约同步设计](示例前后端契约同步设计.md)》，API 速查见《[框架契约总览]
@@ -57,14 +57,14 @@ return ErrOrderNotFound.WithMetadata(map[string]string{"id": id})
 
 初版落地为根模块 `pkg/berrors`、包名 `errors`。两个现实问题相继出现：
 
-1. **包名遮蔽代价大于收益**（2026-09-11 改名 `berrors`）：遮蔽标准库后全仓
+1. **包名遮蔽代价大于收益**（改名 `berrors`）：遮蔽标准库后全仓
    40+ 处被迫写别名 import；改名后包名与目录/模块一致，别名消失，标准库
    可同文件共存。
-2. **发布粒度**（2026-09-11 独立 module）：错误契约是 transport（第 1 层）
+2. **发布粒度**（独立 module）：错误契约是 transport（第 1 层）
    等多个模块的共同依赖，留在根模块会拖整个根模块闭包。独立后成为第 0
    层叶子（与 bconf/log/bconfig 互不依赖），发布 `berrors/v0.1.0`。
 
-### 2026-09-15 结构复审
+### 结构复审
 
 用户提问「grpcerr/httperr 能否并入根包」。评估：技术可行（三包同属一个
 module、API 无冲突、全仓仅 6 处 import），但被否决——决策⑨，见「理由与
@@ -97,7 +97,7 @@ biz 构造（`berrors.NotFound("user/not_found")`——错误诞生时不知道�
 知道将来以何种传输形态出去）、补偿与降级分支的 `Is` 匹配、DAL 层
 `WithCause` 包装、CLI 与单元测试的 sentinel 断言，全部只 import 根包；投影
 段被框架收口（HTTP 侧 `web.ErrorResponse`、gRPC 侧 `ErrorInterceptor`），
-业务代码几乎不碰桥接子包。实证见「实现与过渡」消费面：两仓合计 41 个文件
+业务代码几乎不碰桥接子包。实证见「实现现状」消费面：两仓合计 41 个文件
 只 import 根包，桥接子包的 6 处 import 全部是框架收口点或测试。
 
 ### Error：四个公开字段 + 两个附加物
@@ -127,8 +127,7 @@ return berrors.NotFound("ORDER_NOT_FOUND").WithMessage("订单 %s 不存在", id
 
 11 个工厂覆盖最常用传输类别；`New(code, reason)` 只留给工厂之外的场景。
 **栈捕获发生在 `New` 构造点**（`errors.go`：「构造即捕获失败点调用栈（对齐
-go-lulu WindError），无需等 With* 才记录」）——原《错误模型设计》写的「延迟
-到首个 With*」是落地前草案，与实现相反，本文修正。`With*` 上的
+go-lulu WindError），无需等 With* 才记录」）。`With*` 上的
 `captureStack` 是幂等保护，不覆盖构造点栈。
 
 ### 不可变 builder：sentinel 永远安全
@@ -142,9 +141,9 @@ func (e *Error) WithCode(code uint32) *Error   // 逃生舱：覆盖传输类别
 
 所有 `With*` 返回新实例，接收者绝不被修改。`Details` 是 `Error` 上**唯一的
 引用类型字段**（`Code`/`Reason`/`Message` 均为值类型，拷贝天然隔离），故
-`clone` 与 `WithDetails` 都对它**深拷贝**——2026-09-18 修复：此前浅拷贝使派生
-实例与源实例共享同一 map，派生实例就地改 `Details` 即污染 sentinel，击穿
-「sentinel 永远安全」的承诺。`nil` 保持 `nil`（大多数错误无 Details，零分配）。
+`clone` 与 `WithDetails` 都对它**深拷贝**——浅拷贝会让派生实例与源实例
+共享同一 map，派生实例就地改 `Details` 即污染 sentinel，击穿「sentinel
+永远安全」的承诺。`nil` 保持 `nil`（大多数错误无 Details，零分配）。
 
 ### 匹配与标准库桥接
 
@@ -180,8 +179,8 @@ func FromStatus(st *status.Status) error  // 从 ErrorInfo 恢复 Reason/Details
 两条诚实声明的边界：
 - 其一，`FromStatus` 对无 `ErrorInfo` 的普通 status：`Code` 与 `Message` 从
 status 取，`Reason` **留空**——刻意不把可变的 status 文本塞进 `Reason`，
-因为 `Reason` 是 `Is` 的匹配键、必须稳定（2026-09-18 修复：此前把文本塞进
-`Reason`，导致两个同类失败因文本不同而无法互相 `Is` 匹配）。带 `ErrorInfo`
+因为 `Reason` 是 `Is` 的匹配键、必须稳定——文本塞进 `Reason` 会让两个
+同类失败因文本不同而无法互相 `Is` 匹配。带 `ErrorInfo`
 时 `Reason`/`Details` 完整还原。
 - 其二，Kratos 互通是天然的：两边都产/认 `ErrorInfo`，`FromStatus` 能解析 Kratos 错误，`ToStatus` 的
 产出也能被 Kratos 客户端理解——不依赖 Kratos 包。
@@ -245,7 +244,7 @@ grpc + genproto，不用 gRPC 的调用方也被迫链接。
 proto3 JSON 契约（TS 生成类型需解包层）；HTTP 语义丢失（浏览器/网关/监控
 看不到真实状态码）；httperr 双向映射表整个失效。
 
-**决策⑨（2026-09-15）：桥接子包不并入根包。** 挑战来自合理直觉：三包同属
+**决策⑨：桥接子包不并入根包。** 挑战来自合理直觉：三包同属
 一个 module，合并似乎更简洁。否决理由：其一，grpcerr 并入 = 决策①弃案重演
 ——module 本就 require grpc，合并不改 go.sum，改变的是**链接产物**：
 `import berrors` 即链接 grpc 全家桶，纯 HTTP 服务与 CLI 首先受害；其二，
@@ -258,7 +257,7 @@ module 回归零第三方 require——下游几乎必有 grpc，收益有限而
 ## 兼容性
 
 **落地以来只有一次破坏性变更，且已完成。** 包名 `errors`→`berrors`
-（2026-09-11）：全仓 40+ 处别名 import 消失。此后 API 面纯增量。
+：全仓 40+ 处别名 import 消失。此后 API 面纯增量。
 
 **已知代价（诚实列出）：**
 
@@ -272,9 +271,9 @@ module 回归零第三方 require——下游几乎必有 grpc，收益有限而
 - module go.mod require grpc：不 import `grpcerr` 的消费方不受影响（链接
   隔离），但 go.sum 体积可见。反向拆分被决策⑨否决。
 
-## 实现与过渡
+## 实现现状
 
-**全部已落地**，收敛为 4 个源文件 + 3 个测试文件（**20 例单测**；2026-09-18 评审补 8 例回归。此前本文写「13 例」，实测为 12，为笔误）：
+**全部已落地**，收敛为 4 个源文件 + 3 个测试文件（**20 例单测**）：
 
 | 文件 | 内容 | 测试要点 |
 |---|---|---|
@@ -286,25 +285,25 @@ module 回归零第三方 require——下游几乎必有 grpc，收益有限而
 **消费面（全仓 6 处 import）：** `transport/web`（决策⑧响应体契约）、
 `pkg/middleware/grpc`（ErrorInterceptor 收口）、`pkg/middleware/gin`
 （authn/authz 取 401/403）、`_example/bald`（e2e 验证透传）——全部是投影
-收口点或测试。对照面（2026-09-15 统计）：bald 内只 import 根包的消费文件
+收口点或测试。对照面（统计）：bald 内只 import 根包的消费文件
 16 个；下游 bald-admin 后端 25 个（biz 八域 + gin/grpc handler），桥接子包
 0 处。投影被框架收口后业务仓库与桥接天然解耦——这就是决策①零依赖承诺
 的兑现面。
 
-### 2026-09-18 评审修复（四处）
+### 不变量与回归测试
 
-一次架构评审（天权）用探针实测发现四处「设计承诺 vs 实现」的不一致，全部修复并补回归测试。每条都先写 RED（断言「正确行为」）、修复后 GREEN，并做回滚验证（还原修复后测试复红）：
+四条「设计承诺 vs 实现」容易分叉的地方，各自钉成不变量并有回归测试：
 
-| # | 严重度 | 缺陷 | 修复 | 回归测试 |
-|---|---|---|---|---|
-| 1 | 高 | gRPC roundtrip 丢 `Message`——`ToStatus` 把它放进 status，`FromStatus` 却从未赋回字段 | `FromStatus` 显式 `ret.Message = st.Message()` | `TestRoundTripPreservesMessage` |
-| 2 | 中 | 无 `ErrorInfo` 的普通 status 把可变文本塞进 `Reason`，污染 `Is` 匹配键 | `Reason` 留空，文本归位 `Message` | `TestPlainStatusKeepsReasonClean` |
-| 3 | 中 | `clone` 浅拷贝 + 导出 `Details` → 派生实例就地改 map 污染 sentinel | `clone`/`WithDetails` 深拷贝（`nil` 保持 `nil`） | `TestImmutableBuilder_DetailsNotShared`、`TestWithDetails_CopiesInputMap` |
-| 4 | 低 | `CodeToHTTP(Canceled)=499` 有正向，`HTTPToCode(499)` 反向缺失兜底 `Unknown` | 反向表补 `499: CodeCanceled` | `TestHTTPMappingSymmetry`、`TestCanceledRoundTrip` |
+| # | 不变量 | 实现 | 回归测试 |
+|---|---|---|---|
+| 1 | `ToStatus` → `FromStatus` 往返保留 `Message` | `FromStatus` 显式 `ret.Message = st.Message()` | `TestRoundTripPreservesMessage` |
+| 2 | 无 `ErrorInfo` 的普通 status 不污染 `Is` 匹配键——可变文本只进 `Message`，`Reason` 留空 | `Reason` 留空，文本归位 `Message` | `TestPlainStatusKeepsReasonClean` |
+| 3 | 派生实例不与 sentinel 共享 `Details` map——导出字段被就地修改也不回流 | `clone`/`WithDetails` 深拷贝（`nil` 保持 `nil`） | `TestImmutableBuilder_DetailsNotShared`、`TestWithDetails_CopiesInputMap` |
+| 4 | HTTP 码映射正反双向对称 | 反向表含 `499: CodeCanceled` | `TestHTTPMappingSymmetry`、`TestCanceledRoundTrip` |
 
-**评审指出的两个测试盲区**（缺陷恰好都落在没断言的地方）：原 `TestToStatusAndFromStatusRoundTrip` 只断言 `Reason`/`Details` 漏了 `Message`；`httperr` 测试没做正反向对称性断言。两者均已补。
+**容易漏测的点**（上述四处都曾落在没有断言的地方）：roundtrip 测试若只断言 `Reason`/`Details` 会漏掉 `Message`；`httperr` 测试若不做正反向对称性断言会漏掉单向映射。
 
-**未改的边界（评审确认非缺陷）**：`WithCode` 是唯一不调 `captureStack` 的 `With*`，但它经 `clone` 复用 `New` 构造点的栈，行为正确；`sres` 式「构造签名是否统一」等属其他 module 议题，不在本 module 范围。
+**已知边界（非缺陷）**：`WithCode` 是唯一不调 `captureStack` 的 `With*`——它经 `clone` 复用 `New` 构造点的栈，行为正确；`sres` 式「构造签名是否统一」等属其他 module 议题，不在本 module 范围。
 
 ## 附录：FAQ
 
@@ -314,8 +313,8 @@ module 回归零第三方 require——下游几乎必有 grpc，收益有限而
 **和 Kratos `api/errors` 是什么关系？** 平行实现，经 `grpcerr` 互转；不依
 赖它——自带 gRPC 依赖，违反决策①。
 
-**栈是构造时捕获还是 With* 时捕获？** 构造时（`New` 即 `captureStack`）。
-原《错误模型设计》写反了这一条，本文已修正。
+**栈是构造时捕获还是 With* 时捕获？** 构造时（`New` 即 `captureStack`），
+`With*` 只克隆已有栈，不会重新捕获。
 
 **`Message` 进不进 `Error()`？** 不进。`Error()` 给日志，`Message` 给用户
 （字段直接取）；混入会污染日志且无法结构化消费。

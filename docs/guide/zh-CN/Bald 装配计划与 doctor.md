@@ -153,7 +153,7 @@ gen: run `bald gen app --check` and `bald gen domain --check` in the generated t
 
 `build tags` 行只回答「这个二进制用什么 tag 编的」；**为什么某个 tag 改变接线**由变体声明回答（见下）：`appkit.WithVariantDecls` 的条件按 `go/build/constraint` 求值，命中的变体把增量并入装配、在计划里带 `variant:<name>` 来源。尚未迁移的手写分叉仍可用 `appkit.WithAmbient(appkit.Ambient{Name: "build-tag:grpcgw", Detail: "..."})` 把环境注入记进 `warnings`——`Name` 为空在计划期报错；同一个 `Name` 可以重复声明（同 `Detail` 合并，与声明序无关），但同 `Name` 不同 `Detail` 报错。已声明变体的身份不允许再用 `WithAmbient` 描述（I11，计划期硬错误：删掉那条 `WithAmbient` 即可）。
 
-声明形态（`bald gen app`，2026-10-30 终态）：`appspec.json` 的 `variants` 里声明 `name` / `when`（或 `buildTags` 糖）/ `description` / `effects`（组件与 bootstrap 字段补丁）。生成器落两份产物：`internal/bootstrap/variants.gen.go`（声明与增量数据，任何构建都进 `Options()`）和每个变体一份 `internal/bootstrap/variant_<name>.gen.go`（`//go:build <when>` 编译条件，`init()` 注册 `appkit.VariantImpl`）。**声明恒进计划**：`--plan`/`doctor` 的 `variants:` 段列出全部声明与增量，未命中也能审计「命中会加什么」；`Active` 按当前二进制实际的构建约束求值（与上面的 `build tags` 行同源，`-tags` 与 GOOS/GOARCH/release tag 一视同仁）。命中的变体把组件与补丁并入真实装配（节点来源 `variant:<name>`），不再产 `ambient`；`//go:build` 实现与声明在计划期对账（I12：实现多出、条件求值为假、组件名不对称都启动即失败）。路由挂载是闭包，仍由手写 `VariantImpl.WrapHTTP` 提供，同样受 I12 对账。`name` 重复/非法、`when` 与 `build_tags` 同时声明、`when` 非法表达式、`effects.components` 与全局组件重名在生成期（Gate1）拒绝。
+声明形态（`bald gen app` 终态）：`appspec.json` 的 `variants` 里声明 `name` / `when`（或 `buildTags` 糖）/ `description` / `effects`（组件与 bootstrap 字段补丁）。生成器落两份产物：`internal/bootstrap/variants.gen.go`（声明与增量数据，任何构建都进 `Options()`）和每个变体一份 `internal/bootstrap/variant_<name>.gen.go`（`//go:build <when>` 编译条件，`init()` 注册 `appkit.VariantImpl`）。**声明恒进计划**：`--plan`/`doctor` 的 `variants:` 段列出全部声明与增量，未命中也能审计「命中会加什么」；`Active` 按当前二进制实际的构建约束求值（与上面的 `build tags` 行同源，`-tags` 与 GOOS/GOARCH/release tag 一视同仁）。命中的变体把组件与补丁并入真实装配（节点来源 `variant:<name>`），不再产 `ambient`；`//go:build` 实现与声明在计划期对账（I12：实现多出、条件求值为假、组件名不对称都启动即失败）。路由挂载是闭包，仍由手写 `VariantImpl.WrapHTTP` 提供，同样受 I12 对账。`name` 重复/非法、`when` 与 `build_tags` 同时声明、`when` 非法表达式、`effects.components` 与全局组件重名在生成期（Gate1）拒绝。
 
 ### 3.3 只读边界
 
@@ -230,17 +230,17 @@ CI 可组合成「计划 hash 基线 + 生成物零 drift」：`--plan --plan-fo
 
 ## 6. 声明式等级现状（对外口径）
 
-对外表述统一为「**声明式装配**」并标注等级，而不是笼统的「声明式编程」。当前状态（判据与目标见 [设计草案 §3.1](../../devel/zh-CN/Bald%20声明式装配设计-修正草案.md)）：
+对外表述统一为「**声明式装配**」并标注等级，而不是笼统的「声明式编程」。当前状态（判据与目标见 [设计草案 §3.1](../../devel/zh-CN/Bald%20声明式装配设计.md)）：
 
 | 等级 | 定义 | 现状 | 证据 / 缺口 |
 |---|---|---|---|
 | **L1** 声明式配置 | 配置形状由 schema 定义，未知键/未消费段可检测 | 达成 | 契约 proto + StrictContract + 段覆盖检查 |
 | **L2** 可计划拓扑 | 装配拓扑由纯函数算出并打印 | 达成 | `appkit.Compile` + `--plan` + `Plan.Hash()` |
 | **L3** 顺序无关组合 | 结果只由依赖图与显式优先级决定 | 达成 | 节点 `Phase`/`Priority`/`DependsOn` 取代手工排序表；置换测试 |
-| **L4** 收敛运行 | 声明资源可协调，漂移可观测 | 达成 | 节点级 `ReloadPolicy` + `App.Drift` + `Reconcile`；Provider 节点与声明域节点（`Domain.Reconcile`）可协调，声明域节点的段可挂框架路径或 `biz.<path>` 业务配置（设计 Q8，2026-10-30）；database/cache/storage 段仍明确不支持热更（`ReloadRestart`） |
+| **L4** 收敛运行 | 声明资源可协调，漂移可观测 | 达成 | 节点级 `ReloadPolicy` + `App.Drift` + `Reconcile`；Provider 节点与声明域节点（`Domain.Reconcile`）可协调，声明域节点的段可挂框架路径或 `biz.<path>` 业务配置（设计 Q8）；database/cache/storage 段仍明确不支持热更（`ReloadRestart`） |
 | **L5** 纯函数生成 | 生成物是 `(AppSpec, proto)` 的函数，可 `--check` | 达成（生成物维度） | 双跑字节一致 + 清单 `--check` 零写入；运行期装配仍是 L3/L4 组合 |
 
-缺口以 `OpaqueCount` 与 `doctor` 的 `opaque:` 清单量化：数字越小，搬进声明式拓扑的部分越多。生成器侧：REST 路由**清单**已进计划（`Plan.Routes`）；handler 绑定由 `bald gen domain` 从 `google.api.http` 注解**默认生成**（`Bind<Name>` + `<Name>Service`，Q5 D1，2026-10-30），并同批产出 `appkit.Route` 清单（`internal/<apiserver_dir>/routes`，域引用 `RouteTable: routes.<Name>` 即让计划看见注解路由）。两条前置由生成期把关：proto 的 Go 类型缺失时先按 `--proto-cmd`（默认 `buf generate`）在 `--out` 根执行 proto 阶段并复查产物，失败即硬错误；消费者 module 缺 `transport/web` 时报 `go get` 修法。`--check` 零写入、不执行外部命令；`--no-bind` 跳过绑定与清单（REST 面完全手写），`--no-routes` 只跳过清单（域保留手写 `RouteTable`）。
+缺口以 `OpaqueCount` 与 `doctor` 的 `opaque:` 清单量化：数字越小，搬进声明式拓扑的部分越多。生成器侧：REST 路由**清单**已进计划（`Plan.Routes`）；handler 绑定由 `bald gen domain` 从 `google.api.http` 注解**默认生成**（`Bind<Name>` + `<Name>Service`，Q5 D1），并同批产出 `appkit.Route` 清单（`internal/<apiserver_dir>/routes`，域引用 `RouteTable: routes.<Name>` 即让计划看见注解路由）。两条前置由生成期把关：proto 的 Go 类型缺失时先按 `--proto-cmd`（默认 `buf generate`）在 `--out` 根执行 proto 阶段并复查产物，失败即硬错误；消费者 module 缺 `transport/web` 时报 `go get` 修法。`--check` 零写入、不执行外部命令；`--no-bind` 跳过绑定与清单（REST 面完全手写），`--no-routes` 只跳过清单（域保留手写 `RouteTable`）。
 
 ## 7. 常见问题
 
