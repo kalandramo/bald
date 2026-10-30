@@ -50,9 +50,6 @@ package bootstrap
 
 import (
 	"context"
-	"net/http"
-
-	"google.golang.org/grpc"
 
 	storegorm "github.com/kalandramo/bald/contrib/store-gorm"
 	"github.com/kalandramo/bald/health"
@@ -111,16 +108,11 @@ func Options(role string) []appkit.Option {
 	switch role {
 	case RoleAPI:
 		// api：HTTP 面 + gRPC 面（gRPC 服务器由 greet 域的 Services 声明驱动，
-		// 故这里不 extra 声明 WithGRPC）。HTTP 面二选一，同一 server.http 段
-		// 只跑一个面。
-		if gatewayRegister != nil {
-			// grpcgw 构建：网关转码面（契约 server.http.driver=grpc-gateway），
-			// 同一 server.http 端口只跑一个面，gin 演示路由让位。
-			opts = append(opts, appkit.WithGatewayRegister(gatewayRegister))
-		} else {
-			// 默认构建：gin 演示路由（gin.Engine 即 http.Handler）。
-			opts = append(opts, appkit.WithHTTP(apiserver.NewRouter()))
-		}
+		// 故这里不 extra 声明 WithGRPC）。gin 演示路由恒声明；-tags grpcgw 的
+		// 网关实现经变体 Opts 叠加（register_grpcgw.go），契约
+		// server.http.driver=grpc-gateway 让转码面替代业务 handler——同一
+		// server.http 段只跑一个面。
+		opts = append(opts, appkit.WithHTTP(apiserver.NewRouter()))
 	case RoleWorker:
 		// worker：只开 gRPC 面，且不装任何业务域（见 domainOptionsForRole），
 		// 于是 service 只剩框架的 health——本角色的价值是证明「不带 HTTP、
@@ -132,15 +124,13 @@ func Options(role string) []appkit.Option {
 	// 域（域自我接线、自持 REST 路由与 gRPC service 注册），worker 一个业务域
 	// 都不装（runner 形态：只保留框架面）。
 	opts = append(opts, domainOptionsForRole(role)...)
-	// nacos 后端（注册中心 + 配置中心）：默认空操作，-tags nacos 时接入。
-	opts = append(opts, nacosBootstrapOptions()...)
 	// 计划缓存：启动期把计划按 (role, input) 记为基线，doctor 据此报告装配
 	// 变更（本地文件，非执行依据；读写失败只告警）。
 	opts = append(opts, appkit.WithPlanCache(".bald/plan-cache.json"))
 	// 构建期变体（Q7）：声明恒进计划——不带 tag 的构建也能从 --plan/doctor
 	// 的 variants 段看到两条分叉（declared/active）。已声明变体不进 ambient；
-	// register_*.go 只保留接线本身（gatewayRegister 等），两条声明写在始终
-	// 参与编译的这里，所以未命中也可见。
+	// register_*.go 只保留接线本身（registerGateway / nacosBootstrapOptions），
+	// 由 //go:build 的 init 注册成变体实现（variantImpls），命中才进装配。
 	opts = append(opts, appkit.WithVariantDecls(
 		appkit.VariantDecl{
 			Name:   "grpcgw",
@@ -153,6 +143,9 @@ func Options(role string) []appkit.Option {
 			Detail: "nacos registry provider and remote config source are compiled only under -tags nacos",
 		},
 	))
+	for _, impl := range variantImpls {
+		opts = append(opts, appkit.WithVariantImpl(impl))
+	}
 	// 逃逸舱预算：api 角色 2 个（程序化 registry、std server）——greet 域已迁到
 	// Domain v2 的 ApplyNode 形态，不再产生兼容节点，逃逸舱低于设计 §7 的
 	// v0.28 目标（≤3）。预算=当前值，新增逃逸舱会让 --plan/doctor 出现
@@ -190,16 +183,10 @@ func configFileForRole(role string) string {
 	return ""
 }
 
-// gatewayRegister 是 grpc-gateway 转码注册回调（REST → gRPC 转码）。
-//
-// 默认 nil：HTTP 面走 gin 演示路由。启用 `go run -tags grpcgw` 后，由
-// register_grpcgw.go 的 init 注入 registerGateway，配合契约
-// server.http.driver=grpc-gateway 接入网关转码面。
-//
-// 用回调而非直接构造，是因为 GatewayServer 依赖 grpc-gateway（较重），默认
-// 构建不该引入它。网关也不是独立服务器：同一 server.http 段只跑一个面，
-// 模式由契约 server.http.driver 驱动。
-var gatewayRegister func(ctx context.Context, conn *grpc.ClientConn) (http.Handler, error)
+// variantImpls 是 //go:build 文件注册的变体实现（register_grpcgw.go /
+// register_nacos.go 的 init 追加）。声明写在 assemble.go（任何构建都可见），
+// 实现随 tag 编译进来——appkit 计划期对账两者（I12），条件漂移启动即失败。
+var variantImpls []appkit.VariantImpl
 
 // healthChecker 是探针数据源：HTTP /healthz /readyz 与 gRPC health 状态同源
 // （未就绪 → /readyz 503、gRPC NOT_SERVING，K8s 摘流量）。

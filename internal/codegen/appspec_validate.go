@@ -27,6 +27,17 @@ var componentKinds = map[string]bool{
 	"heartbeat": true,
 }
 
+// supportedComponentKinds 是白名单的排序展示形态：全局组件与变体组件共用
+// 同一条错误信息，避免两处措辞漂移。
+func supportedComponentKinds() string {
+	kinds := make([]string, 0, len(componentKinds))
+	for k := range componentKinds {
+		kinds = append(kinds, k)
+	}
+	slices.Sort(kinds)
+	return strings.Join(kinds, ", ")
+}
+
 // variantNameRe 限定变体名：它同时是 ambient 诊断的 Subject 后缀与生成物
 // 里的字符串字面量，限定为小写标识符形状，避免诊断/文件口径随命名漂移。
 var variantNameRe = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
@@ -60,13 +71,8 @@ func validateAppSpec(as *appspecv1.AppSpec) []error {
 	seenComp := map[string]int{}
 	for i, c := range as.GetComponents() {
 		if !componentKinds[c.GetKind()] {
-			kindList := make([]string, 0, len(componentKinds))
-			for k := range componentKinds {
-				kindList = append(kindList, k)
-			}
-			slices.Sort(kindList)
 			add("components[%d].kind %q is not supported (field components.kind; whitelist: %s)",
-				i, c.GetKind(), strings.Join(kindList, ", "))
+				i, c.GetKind(), supportedComponentKinds())
 		}
 		if prev, dup := seenComp[c.GetName()]; dup {
 			add("components[%d].name %q duplicates components[%d].name (field components.name must be unique)", i, c.GetName(), prev)
@@ -160,6 +166,11 @@ func validateAppSpec(as *appspecv1.AppSpec) []error {
 	}
 
 	// ---- variants：build tag 分叉进声明（Q7）----
+	globalComp := map[string]bool{}
+	for _, c := range as.GetComponents() {
+		globalComp[c.GetName()] = true
+	}
+	variantComp := map[string]string{} // 组件名 -> 首次声明位置（跨变体唯一）
 	seenVariant := map[string]bool{}
 	for i, vr := range as.GetVariants() {
 		name := vr.GetName()
@@ -207,6 +218,41 @@ func validateAppSpec(as *appspecv1.AppSpec) []error {
 				add("variants[%d].build_tags[%d] %q is duplicated", i, j, t)
 			}
 			seenTag[t] = true
+		}
+		// effects.components：kind 白名单与全局组件同一张表；name 跨全局与
+		// 所有变体唯一（component.<name> 是计划节点身份，重复即两条节点）。
+		for j, c := range vr.GetEffects().GetComponents() {
+			field := fmt.Sprintf("variants[%d].effects.components[%d]", i, j)
+			if !componentKinds[c.GetKind()] {
+				add("%s.kind %q is not supported (whitelist: %s)", field, c.GetKind(), supportedComponentKinds())
+			}
+			name := c.GetName()
+			switch {
+			case name == "":
+				add("%s.name is required (component.<name> is a plan node identity)", field)
+			case globalComp[name]:
+				add("%s.name %q duplicates a components[].name (component names are plan node identities across the app and its variants)", field, name)
+			default:
+				if prev, dup := variantComp[name]; dup {
+					add("%s.name %q duplicates %s.name (component names are plan node identities across variants)", field, name, prev)
+				} else {
+					variantComp[name] = field
+				}
+			}
+		}
+		// effects.patches：路径形状生成期校验；字段存在性与「覆盖非空值须给
+		// reason」由 appkit 对默认契约（bconf 预填）在计划期校验——AppSpec 的
+		// bootstrap 段是部分声明，缺段不代表运行期缺字段。
+		for j, p := range vr.GetEffects().GetPatches() {
+			field := fmt.Sprintf("variants[%d].effects.patches[%d]", i, j)
+			switch {
+			case strings.TrimSpace(p.GetPath()) == "":
+				add("%s.path is required (a bootstrap contract field path such as app.env)", field)
+			case strings.TrimSpace(p.GetPath()) != p.GetPath():
+				add("%s.path %q has surrounding whitespace", field, p.GetPath())
+			case strings.ContainsAny(p.GetPath(), "\r\n"):
+				add("%s.path must be a single-line field path", field)
+			}
 		}
 	}
 
@@ -284,6 +330,16 @@ var fieldConsumers = map[string]string{
 	"bald.appspec.v1.AppSpec.variants.name":        "Name:   \"grpcgw\",",
 	"bald.appspec.v1.AppSpec.variants.when":        `When:   "linux && amd64",`,
 	"bald.appspec.v1.AppSpec.variants.description": "gateway wiring behind the grpcgw tag",
+	// variants.effects.*：增量声明在 variants.gen.go 落 VariantEffect 字面量，
+	// 组件字段另在 variant_<name>.gen.go 的 buildComponent 调用里出现——守卫
+	// 只看拼接文本，同一标记即可。标记按 variantFixture 取值断言。
+	"bald.appspec.v1.AppSpec.variants.effects.components.kind":          "heartbeat",
+	"bald.appspec.v1.AppSpec.variants.effects.components.name":          "demo.gw",
+	"bald.appspec.v1.AppSpec.variants.effects.components.config_prefix": "demo.gw",
+	"bald.appspec.v1.AppSpec.variants.effects.components.params":        "15s",
+	"bald.appspec.v1.AppSpec.variants.effects.patches.path":             "app.env",
+	"bald.appspec.v1.AppSpec.variants.effects.patches.value":            "prod",
+	"bald.appspec.v1.AppSpec.variants.effects.patches.reason":           "production builds are tagged grpcgw",
 }
 
 // builderConsumed 是「由树构建器直接消费（不落生成物文本）」的字段集合：

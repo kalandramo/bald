@@ -661,3 +661,26 @@ type stubEndpointServer struct{ ep string }
 func (s *stubEndpointServer) Start(context.Context) error { return nil }
 func (s *stubEndpointServer) Stop(context.Context) error  { return nil }
 func (s *stubEndpointServer) Endpoint() string            { return s.ep }
+
+// OnRole 角色限定：Option 只落到匹配角色的 Decl 上——多角色二进制里同一份
+// 变体实现（如网关接线）只服务该传输面的角色，另一角色装配保持干净。
+func TestOption_OnRoleScoping(t *testing.T) {
+	scoped := OnRole("api", optionFunc(func(d *Decl) {
+		d.Components = append(d.Components, planComponent{name: "gw"})
+	}))
+
+	worker := newDecl(WithRole("worker"), scoped)
+	if len(worker.Components) != 0 {
+		t.Errorf("scoped option leaked into role %q: %d component(s)", worker.Role, len(worker.Components))
+	}
+
+	api := newDecl(WithRole("api"), scoped)
+	if len(api.Components) != 1 || api.Components[0].Name() != "gw" {
+		t.Errorf("scoped option did not apply for role %q: %+v", api.Role, api.Components)
+	}
+
+	// 无角色（单角色应用）不等于任意角色：限定选项保持不生效。
+	if d := newDecl(scoped); len(d.Components) != 0 {
+		t.Errorf("scoped option must not apply to an un-roled app: %+v", d.Components)
+	}
+}

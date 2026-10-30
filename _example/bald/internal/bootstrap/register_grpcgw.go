@@ -11,9 +11,9 @@
 //	go run -tags grpcgw ./cmd/bald-demo            # 配置随示例自带，自动加载
 //
 // 此时 GreetService 同时可通过 gRPC 与 REST 访问（见 proto 的 google.api.http
-// 注解）。REST 面由契约 server.http.driver=grpc-gateway 选择（gatewayRegister
-// 回调声明网关能力），占用 server.http 端口，gin 演示路由让位（greet 域的
-// Routes 槽位同规则让位——同端口单面语义）。
+// 注解）。REST 面由契约 server.http.driver=grpc-gateway 选择（本文件把网关
+// 接线注册为 grpcgw 变体的实现），占用 server.http 端口，gin 演示路由让位
+// （greet 域的 Routes 槽位同规则让位——同端口单面语义）。
 //
 // 域边界说明：gRPC service 注册与契约校验已随 greet 域迁入 greetv1 包
 // （域自持契约——Domain.Services / greetv1.Validator）；本文件只剩应用级的
@@ -27,6 +27,8 @@ import (
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"google.golang.org/grpc"
 
+	"github.com/kalandramo/bald/pkg/appkit"
+
 	// 由 `task proto` 生成（protoc-gen-go / protoc-gen-go-grpc /
 	// protoc-gen-grpc-gateway）。未生成前本文件因 build tag 不参与编译。
 	//
@@ -35,12 +37,17 @@ import (
 	baldv1 "github.com/kalandramo/bald/example/bald/gen"
 )
 
-// init 注入 grpc-gateway 转码注册回调（assemble.go 的 RoleAPI 分支经
-// WithGatewayRegister 声明网关能力，配合契约 server.http.driver=grpc-gateway
-// 接入网关转码面）。可见性不在这里登记：assemble.go 的 WithVariantDecls
-// 恒声明 grpcgw 分叉，带 tag 构建只把 Active 标为真（已声明变体不进 ambient）。
+// init 把 grpc-gateway 转码注册回调注册为 grpcgw 变体的实现：声明面恒在
+// assemble.go（WithVariantDecls），本文件随 tag 才编进来——appkit 计划期对账
+// 声明与实现（I12），条件漂移启动即失败。
+//
+// 角色限定：多角色二进制里只有 API 角色服务 HTTP 面，worker 的契约没有
+// server.http——OnRole 让这份接线只落到 API 装配上（角色过滤是装配语义）。
 func init() {
-	gatewayRegister = registerGateway
+	variantImpls = append(variantImpls, appkit.VariantImpl{
+		Name: "grpcgw",
+		Opts: []appkit.Option{appkit.OnRole(RoleAPI, appkit.WithGatewayRegister(registerGateway))},
+	})
 }
 
 // registerGateway 是 grpc-gateway 转码注册回调：把 GreetService 的 REST 面

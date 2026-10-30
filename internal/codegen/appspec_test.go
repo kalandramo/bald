@@ -339,11 +339,22 @@ func TestGate2_EmptySegmentStaysObject(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // variantFixture 挂上机器守卫与生成测试共用的变体声明：取值与
-// fieldConsumers 的 variants 标记一一同构（改一处必须同步另一处）。
+// fieldConsumers 的 variants 标记一一同构（改一处必须同步另一处）。grpcgw
+// 带一组命中增量（组件 + 契约补丁），让「声明恒可见、命中才并入装配」两条
+// 口径都能在生成树上被断言。
 func variantFixture(as *appspecv1.AppSpec) *appspecv1.AppSpec {
 	as.Variants = []*appspecv1.Variant{
 		{
 			Name: "grpcgw", BuildTags: []string{"grpcgw"}, Description: "gateway wiring behind the grpcgw tag",
+			Effects: &appspecv1.VariantEffect{
+				Components: []*appspecv1.ComponentSpec{{
+					Kind: "heartbeat", Name: "demo.gw", ConfigPrefix: "demo.gw",
+					Params: map[string]string{"interval": "15s"},
+				}},
+				Patches: []*appspecv1.VariantPatch{{
+					Path: "app.env", Value: "prod", Reason: "production builds are tagged grpcgw",
+				}},
+			},
 		},
 		{
 			Name: "linux_amd64", When: "linux && amd64",
@@ -581,10 +592,10 @@ func TestTree_OwnershipAcrossRegenerations(t *testing.T) {
 }
 
 // TestGenApp_VariantsProjectedToPlan Q7：AppSpec.variants 落
-// internal/bootstrap/variants.gen.go，声明**恒**进计划（不带 tag 也能审计
-// 声明面），命中的变体另由 appkit 产 ambient 诊断（生成期不展开 tag 组合、
-// 不按 tag 分文件——同一组 tag 命中多个变体也只多一条诊断，不会重复定义
-// 符号）；未声明 variants 的树不落该文件、assemble.gen.go 也不出现调用。
+// internal/bootstrap/variants.gen.go（声明恒进计划，不带 tag 也能审计），
+// 每个变体另落一份 variant_<name>.gen.go（//go:build 与声明同源，命中即把
+// 实现注册进 variantImpls）；未声明 variants 的树两份产物都不落、
+// assemble.gen.go 也不出现调用。
 func TestGenApp_VariantsProjectedToPlan(t *testing.T) {
 	as := guardFixture()
 	as.Variants = []*appspecv1.Variant{
@@ -601,7 +612,9 @@ func TestGenApp_VariantsProjectedToPlan(t *testing.T) {
 	for _, want := range []string{
 		"package bootstrap",
 		"func variantOptions() []appkit.Option {",
-		"return []appkit.Option{appkit.WithVariantDecls(",
+		"opts := []appkit.Option{appkit.WithVariantDecls(",
+		"var variantImpls []appkit.VariantImpl",
+		"for _, impl := range variantImpls {",
 		`Name:   "grpcgw",`,
 		`When:   "grpcgw",`,
 		`Detail: "gateway registration injected by -tags grpcgw",`,
@@ -611,6 +624,21 @@ func TestGenApp_VariantsProjectedToPlan(t *testing.T) {
 	} {
 		if !strings.Contains(src, want) {
 			t.Errorf("variants.gen.go missing %q:\n%s", want, src)
+		}
+	}
+	// 每变体一份 //go:build 实现文件：文件约束 = 声明 When，编译进来即注册。
+	for _, tc := range []struct{ file, buildLine, name string }{
+		{"variant_grpcgw.gen.go", "//go:build grpcgw", `Name: "grpcgw"`},
+		{"variant_nacos_config.gen.go", "//go:build nacos && config", `Name: "nacos_config"`},
+	} {
+		impl, err := os.ReadFile(filepath.Join(dir, "internal", "bootstrap", tc.file))
+		if err != nil {
+			t.Fatalf("read %s: %v", tc.file, err)
+		}
+		for _, want := range []string{tc.buildLine, "variantImpls = append(variantImpls, appkit.VariantImpl{", tc.name} {
+			if !strings.Contains(string(impl), want) {
+				t.Errorf("%s missing %q:\n%s", tc.file, want, impl)
+			}
 		}
 	}
 
@@ -647,8 +675,8 @@ func TestGenApp_VariantsProjectedToPlan(t *testing.T) {
 
 // TestGenApp_VariantsPrunedWhenUndeclared 声明移除后旧产物必须退场：变体
 // 列表清空（或整个 variants 字段消失）时，--adopt 要删掉上一轮的
-// variants.gen.go，assemble.gen.go 也不再引用 variantOptions——owned 文件
-// 的归属由当前声明重算，不认历史写入者。
+// variants.gen.go 与逐变体实现文件，assemble.gen.go 也不再引用
+// variantOptions——owned 文件的归属由当前声明重算，不认历史写入者。
 func TestGenApp_VariantsPrunedWhenUndeclared(t *testing.T) {
 	dir := t.TempDir()
 	scaffoldModule(t, dir, "demo.example/app")
@@ -672,6 +700,11 @@ func TestGenApp_VariantsPrunedWhenUndeclared(t *testing.T) {
 	if _, err := os.Stat(variantsPath); !os.IsNotExist(err) {
 		t.Errorf("dropping AppSpec.variants must prune the stale owned file: %v", err)
 	}
+	for _, name := range []string{"variant_grpcgw.gen.go", "variant_linux_amd64.gen.go"} {
+		if _, err := os.Stat(filepath.Join(dir, "internal", "bootstrap", name)); !os.IsNotExist(err) {
+			t.Errorf("dropping AppSpec.variants must prune %s: %v", name, err)
+		}
+	}
 	assemble, err := os.ReadFile(filepath.Join(dir, "internal", "bootstrap", "assemble.gen.go"))
 	if err != nil {
 		t.Fatalf("read assemble.gen.go: %v", err)
@@ -681,10 +714,11 @@ func TestGenApp_VariantsPrunedWhenUndeclared(t *testing.T) {
 	}
 }
 
-// TestTree_VariantsProjectedAtRuntime 运行期口径：同一份生成树，声明**恒**
-// 出现在 doctor 的 variants 段（不带 tag 也能审计声明面），但只有带 -tags
-// 构建的二进制把变体标为 active 并产 variant:<name> 诊断——命中的唯一依据
-// 是这个二进制实际怎么编的，不是生成期猜的 tag 组合。
+// TestTree_VariantsProjectedAtRuntime 运行期口径：同一份生成树，声明与增量
+// **恒**出现在 doctor 的 variants 段（不带 tag 也能审计「命中会加什么」），
+// 但只有带 -tags 构建的二进制把变体标为 active 并把增量并入装配（组件节点、
+// 契约补丁）——命中的唯一依据是这个二进制实际怎么编的，不是生成期猜的 tag
+// 组合；已声明变体不进 ambient（I11）。
 func TestTree_VariantsProjectedAtRuntime(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("go toolchain not in PATH")
@@ -716,8 +750,22 @@ func TestTree_VariantsProjectedAtRuntime(t *testing.T) {
 			if err != nil {
 				t.Fatalf("doctor: %v\n%s", err, out)
 			}
-			// I11：已声明的变体不再产 ambient 旁白——命中与否都只体现在
-			// variants 段的 active 状态上，装配增量是普通计划实体。
+			// 声明增量恒可见：未命中只是不并入装配，声明面不舍弃。
+			for _, want := range []string{
+				"component demo.gw (segment demo.gw)",
+				"patch app.env=prod (reason: production builds are tagged grpcgw)",
+			} {
+				if !strings.Contains(string(out), want) {
+					t.Errorf("declared effect %q must be listed in doctor:\n%s", want, out)
+				}
+			}
+			// 命中才真正并入：补丁改计划元数据，组件成为计划节点。
+			applied := strings.Contains(string(out), "(env=prod)") &&
+				strings.Contains(string(out), "component.demo.gw")
+			if applied != tc.want {
+				t.Errorf("variant effects applied = %v, want %v:\n%s", applied, tc.want, out)
+			}
+			// I11：已声明变体不再产 ambient 旁白。
 			if has := strings.Contains(string(out), "ambient [variant:grpcgw]"); has {
 				t.Errorf("declared variants must not emit ambient diagnostics:\n%s", out)
 			}

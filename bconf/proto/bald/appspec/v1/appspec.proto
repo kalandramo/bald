@@ -44,27 +44,53 @@ message AppSpec {
   // MustServe；name 唯一由 Gate1 校验）。
   repeated DomainSpec domains = 10;
 
-  // 构建期变体声明（Q7 长期形态首片）：每个变体声明一组 build tag 与人读
-  // 说明；生成物把「当前二进制实际带哪些 tag」投影为计划 ambient 诊断，
-  // 让 build tag 分叉从手写 init() + WithAmbient 变成声明。首批只做可见性
-  // （诊断），不改变装配；WithAmbient 保留为迁移期的手写逃逸舱。
+  // 构建期变体声明（Q7）：每个变体声明一条 Go 构建约束表达式与命中时的
+  // 装配增量；生成物把声明恒投影进计划（未命中也可审计），命中由 appkit
+  // 按当前二进制实际的构建约束求值，增量成为普通计划实体（不再产 ambient
+  // 诊断）。
   repeated Variant variants = 11;
 }
 
 // Variant 声明一个构建期变体（build tag 分叉进声明）。
 message Variant {
-  // 变体名（全应用唯一；须匹配 ^[a-z][a-z0-9_]*$——诊断 Subject 为
-  // "variant:<name>"，生成物也用它区分条目）。
+  // 变体名（全应用唯一；须匹配 ^[a-z][a-z0-9_]*$——生成物用它命名实现
+  // 文件 variant_<name>.gen.go，诊断 Subject 为 "variant:<name>"）。
   string name = 1;
   // 生效所需的 build tag（全部满足才命中）。迁移糖：与 when 互斥，等价于
   // 用 && 连接；新声明请直接写 when。
   repeated string build_tags = 2;
-  // 人读说明（进 ambient 诊断的 Detail；为空时生成器给默认说明）。
+  // 人读说明（进声明面 Detail；为空时生成器给默认说明）。
   string description = 3;
   // 生效条件：Go 构建约束表达式（`//go:build` 行语法，如
   // "grpcgw && !nacos"）。与 build_tags 互斥、二者必须声明一个；Gate1
   // 用 go/build/constraint 同一解析器校验，命中判据与 go build 同源。
   string when = 4;
+  // 命中时的装配增量（声明式数据；未命中也随声明进计划，供 --plan/doctor
+  // 审计「命中会加什么」）。生成物把它投影为 appkit.VariantEffect，并按
+  // components 逐项在 //go:build 文件里生成实现——声明与实现同一真相源。
+  VariantEffect effects = 5;
+}
+
+// VariantEffect 是变体命中时的装配增量。组件与契约补丁是纯数据；REST
+// 路由的实现是闭包（WrapHTTP），不在 AppSpec 声明面——命中路由由手写
+// VariantImpl 提供，appkit 在计划期做声明/实现对账（I12）。
+message VariantEffect {
+  // 变体新增的托管组件。kind 与全局 components 共用白名单；name 跨全局
+  // 与所有变体唯一（component.<name> 是计划节点身份）。
+  repeated ComponentSpec components = 1;
+  // 变体对 bootstrap 契约的改写：点路径 + 字符串值。路径必须指向契约里
+  // 已存在的字符串字段；覆盖非空值须给 reason（appkit 计划期校验）。
+  repeated VariantPatch patches = 2;
+}
+
+// VariantPatch 是变体对 bootstrap 契约单字段的改写。
+message VariantPatch {
+  // 契约字段点路径（如 "app.env"）；须在 bootstrap schema 里可解析。
+  string path = 1;
+  // 目标值（被改写字段必须是 string）。
+  string value = 2;
+  // 覆盖非空现有值时的理由（进 variant-patch 诊断；填空值可省略）。
+  string reason = 3;
 }
 
 // LayoutSpec 声明生成期布局。

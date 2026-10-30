@@ -124,6 +124,16 @@ func nacosConfigSource() config.RemoteSource {
 	))
 }
 
+// init 把 nacos 接线注册为 nacos 变体的实现：声明面恒在 assemble.go，
+// 本文件随 tag 才编进来（I12 对账）。nacos 对注册中心与配置中心都生效，
+// 不按角色限定——两个角色的四源合并都该带上远程层。
+func init() {
+	variantImpls = append(variantImpls, appkit.VariantImpl{
+		Name: "nacos",
+		Opts: nacosBootstrapOptions(),
+	})
+}
+
 // nacosBootstrapOptions 返回 nacos 的注册中心 + 配置中心装配选项。
 //
 // 注册中心走段驱动 Provider（registry 段驱动，显式 Registrar 实例优先）；

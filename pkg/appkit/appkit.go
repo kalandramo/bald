@@ -277,6 +277,20 @@ func WithRole(role string) Option {
 	return optionFunc(func(d *Decl) { d.Role = role })
 }
 
+// OnRole 把一组 Option 限定在指定角色（Decl.Role 一致才应用）。多角色二进制
+// 里变体实现按角色落地时用它：同一份 //go:build 实现，只有真正服务该传输面
+// 的角色才拿到接线——角色过滤是装配语义，不是 build tag 的替代。
+func OnRole(role string, opts ...Option) Option {
+	return optionFunc(func(d *Decl) {
+		if d.Role != role {
+			return
+		}
+		for _, o := range opts {
+			o.Apply(d)
+		}
+	})
+}
+
 // Registrar 注入注册中心实例（如 inmemory.New()）。
 // 显式实例优先于契约装配（Serve 路径）：阶段 B 的纯 registry 段 Provider
 // 在显式实例非 nil 时被引擎跳过——程序化接管 = 刻意覆盖而非静默失效。
