@@ -512,7 +512,17 @@ func TestGenDomain_RESTBind_NoRoutes(t *testing.T) {
 	bindPath := filepath.Join(dir, "internal", "apiserver", "handler", "gin", "greet.bind.gen.go")
 	tablePath := filepath.Join(dir, "internal", "apiserver", "routes", "greet.gen.go")
 
-	runGenDomain(t, dir, specPath, "--rest-bind", "--no-routes", "--adopt")
+	// 先按普通 --rest-bind 落一次（绑定 + 清单），再切到 --no-routes：
+	// 上次清单里的路由清单是 owned 旧产物，--adopt 必须让它退场。
+	runGenDomain(t, dir, specPath, "--rest-bind", "--adopt")
+	if _, err := os.Stat(tablePath); err != nil {
+		t.Fatalf("plain --rest-bind must emit the route manifest: %v", err)
+	}
+
+	out := runGenDomain(t, dir, specPath, "--rest-bind", "--no-routes", "--adopt")
+	if !strings.Contains(out, "removed:") || !strings.Contains(out, "routes/greet.gen.go") {
+		t.Fatalf("stale manifest must be pruned on --adopt, got:\n%s", out)
+	}
 	raw, err := os.ReadFile(bindPath)
 	if err != nil {
 		t.Fatalf("read bind file: %v", err)

@@ -625,6 +625,13 @@ func (o *domainOptions) Run() error {
 	if err := emitTree(o.OutDir, files, o.Adopt, o.ioStreams); err != nil {
 		return err
 	}
+	if o.Adopt {
+		// 域被删除、或 --rest-bind/--no-routes 改变生成面时，上次清单里的
+		// owned 旧产物必须退场（否则陈旧绑定继续编译、--check 又看不见）。
+		if err := pruneStaleOwned(o.OutDir, domainManifestName, files, o.ioStreams); err != nil {
+			return err
+		}
+	}
 	if err := writeManifest(o.OutDir, domainManifestName, genManifestRaw, o.ioStreams); err != nil {
 		return err
 	}

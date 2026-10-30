@@ -293,10 +293,17 @@ func runGenAppSpec(spec, out string, adopt, check bool, streams ioStreams) error
 	if err := emitTree(root, files, adopt, streams); err != nil {
 		return err
 	}
+	if adopt {
+		// 声明删掉的旧产物必须退场（生成物是声明的函数）；只删上次清单
+		// 记为本生成器 owned 的文件，seeded/user 不动。
+		if err := pruneStaleOwned(root, appManifestName, files, streams); err != nil {
+			return err
+		}
+	}
 	if err := writeManifest(root, appManifestName, manifestRaw, streams); err != nil {
 		return err
 	}
-	fmt.Fprintln(streams.Out, "next: appspec.json is the declaration truth source; edit it and rerun with --check to verify, --adopt to regenerate owned files (seeded files are kept, user files are never touched)")
+	fmt.Fprintln(streams.Out, "next: appspec.json is the declaration truth source; edit it and rerun with --check to verify, --adopt to regenerate owned files (seeded files are kept, user files are never touched, stale owned files are removed)")
 	return nil
 }
 

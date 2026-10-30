@@ -8,7 +8,9 @@ package codegen
 //   - --check：按当前声明在内存里重算整棵树，与磁盘逐字节比对（零写入），
 //     任何 owned 差异 / 缺失 / 清单缺失或过期都判为不干净并列出差异路径；
 //   - --adopt：覆盖 owned 文件（seeded 文件播种后归用户，永不覆盖）并重写
-//     清单，是旧 --force 的替代语义（B5）。
+//     清单，是旧 --force 的替代语义（B5）；同时删除「上次清单记为 owned、
+//     本次不再生成」的旧产物——生成物是声明的函数，陈旧的绑定/路由清单
+//     不能继续编译而 --check 看不见。
 //
 // 清单本身不进入 Files（否则自指）：--check 以「重新渲染的清单字节」为期望值
 // 单独比对。
@@ -147,6 +149,46 @@ func checkTree(root, manifestName string, files []genFile, wantRaw []byte, strea
 			len(diffs), strings.Join(diffs, "\n  "))
 	}
 	fmt.Fprintln(streams.Out, "clean:", len(files), "files in sync with spec")
+	return nil
+}
+
+// pruneStaleOwned 删除「上次清单记录为 owned、本次不再生成」的文件。
+// 生成物是声明的函数：声明变化后旧产物必须退场，否则编译继续生效而
+// --check 看不见（它只比对本次计划内的文件）。只在 --adopt 下调用——删除
+// 与覆盖同属显式接管语义。seeded 播种后归用户、user 从不在清单里，两者
+// 都不删；清单损坏或版本不符时无法判定归属，整体跳过。
+func pruneStaleOwned(root, manifestName string, files []genFile, streams ioStreams) error {
+	raw, err := os.ReadFile(filepath.Join(root, manifestName))
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read %s: %w", manifestName, err)
+	}
+	var old genManifest
+	if err := json.Unmarshal(raw, &old); err != nil || old.Version != manifestVersion {
+		return nil
+	}
+	keep := make(map[string]bool, len(files))
+	for _, f := range files {
+		keep[filepath.ToSlash(f.Path)] = true
+	}
+	for _, e := range old.Files {
+		if e.Ownership != "owned" || keep[e.Path] {
+			continue
+		}
+		rel := filepath.Clean(filepath.FromSlash(e.Path))
+		if rel == "." || filepath.IsAbs(rel) || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			continue // 防御：清单被改写也不越出产出根
+		}
+		if err := os.Remove(filepath.Join(root, rel)); err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return fmt.Errorf("remove stale generated file %s: %w", e.Path, err)
+		}
+		fmt.Fprintln(streams.Out, "removed:", e.Path)
+	}
 	return nil
 }
 

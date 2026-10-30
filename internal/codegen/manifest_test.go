@@ -264,3 +264,59 @@ func TestGenDomain_CheckClean(t *testing.T) {
 		t.Errorf("gen domain --check should report clean, got: %q", out.String())
 	}
 }
+
+// TestPruneStaleOwned --adopt 让「上次清单里的 owned、本次不再生成」的文件
+// 退场；seeded（播种后归用户）与越界路径（清单被改写）都不删。
+func TestPruneStaleOwned(t *testing.T) {
+	base := t.TempDir()
+	root := filepath.Join(base, "tree")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	write := func(dir, rel string) string {
+		p := filepath.Join(dir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+		if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+		return p
+	}
+	stale := write(root, "internal/apiserver/routes/greet.gen.go")
+	keep := write(root, "internal/apiserver/domains.gen.go")
+	seed := write(root, "internal/bootstrap/seed/seed.go")
+	escape := write(base, "escape.go")
+
+	old := &genManifest{Version: manifestVersion, Tool: "test", Files: []manifestEntry{
+		{Path: "internal/apiserver/routes/greet.gen.go", Ownership: "owned"},
+		{Path: "internal/apiserver/domains.gen.go", Ownership: "owned"},
+		{Path: "internal/bootstrap/seed/seed.go", Ownership: "seeded"},
+		{Path: "../escape.go", Ownership: "owned"},
+	}}
+	raw, err := json.Marshal(old)
+	if err != nil {
+		t.Fatalf("marshal manifest: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, domainManifestName), raw, 0o644); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+
+	files := []genFile{{Path: "internal/apiserver/domains.gen.go", Own: owned}}
+	streams, out := testStreams()
+	if err := pruneStaleOwned(root, domainManifestName, files, streams); err != nil {
+		t.Fatalf("pruneStaleOwned: %v", err)
+	}
+
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Errorf("stale owned file must be removed: %v", err)
+	}
+	for _, p := range []string{keep, seed, escape} {
+		if _, err := os.Stat(p); err != nil {
+			t.Errorf("file %s must survive pruning: %v", p, err)
+		}
+	}
+	if got := out.String(); !strings.Contains(got, "removed: internal/apiserver/routes/greet.gen.go") {
+		t.Errorf("prune must report the removed path, got: %q", got)
+	}
+}
