@@ -653,6 +653,51 @@ func TestGenApp_VariantsProjectedToAmbient(t *testing.T) {
 	}
 }
 
+// TestTree_VariantsProjectedAtRuntime 运行期口径：同一份生成树，带 -tags
+// 构建的二进制在 doctor 里出现 variant:<name>，不带 tag 的构建不出现——
+// 命中的唯一依据是这个二进制实际怎么编的，不是生成期猜的 tag 组合。
+func TestTree_VariantsProjectedAtRuntime(t *testing.T) {
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go toolchain not in PATH")
+	}
+	dir, _ := runGenAppInTemp(t, variantFixture(guardFixture()))
+	for _, tc := range []struct {
+		name string
+		tags []string
+		want bool
+	}{
+		{"tagged", []string{"grpcgw"}, true},
+		{"untagged", nil, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			bin := filepath.Join(t.TempDir(), "demoapp")
+			args := []string{"build"}
+			if len(tc.tags) > 0 {
+				args = append(args, "-tags", strings.Join(tc.tags, ","))
+			}
+			args = append(args, "-o", bin, "./cmd/demoapp")
+			build := exec.Command("go", args...)
+			build.Dir = dir
+			if out, err := build.CombinedOutput(); err != nil {
+				t.Fatalf("build %v: %v\n%s", tc.tags, err, out)
+			}
+			doctor := exec.Command(bin, "doctor", "--config", "configs/demoapp.yaml")
+			doctor.Dir = dir
+			out, err := doctor.CombinedOutput()
+			if err != nil {
+				t.Fatalf("doctor: %v\n%s", err, out)
+			}
+			has := strings.Contains(string(out), "ambient [variant:grpcgw]")
+			if has != tc.want {
+				t.Errorf("variant:grpcgw diagnostic present = %v, want %v:\n%s", has, tc.want, out)
+			}
+			if tagsLine := strings.Contains(string(out), "build tags: grpcgw"); tagsLine != tc.want {
+				t.Errorf("build tags line mismatch (got %v, want %v):\n%s", tagsLine, tc.want, out)
+			}
+		})
+	}
+}
+
 // ---------------------------------------------------------------------------
 // 真编译 + 冒烟（沿用既有设施：临时 module 脚手架 + go build + 起服务）
 // ---------------------------------------------------------------------------
