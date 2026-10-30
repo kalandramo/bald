@@ -579,19 +579,21 @@ func manifestPackage(manifest string) string {
 // ---------------------------------------------------------------------------
 
 // domainValueTmpl 是 <go_package>/domain.gen.go：域声明值骨架（生成一次；
-// 域包尚无导出 Domain 时落盘，此后归用户维护——接线/Routes/Services 由用户
-// 在本包的手写文件里实现后挂进此值，对照 _example/bald/greetv1/domain.go）。
+// 域包尚无导出 Domain 时落盘，此后归用户维护——声明与执行由用户在本包的手写
+// 文件里实现后挂进此值，对照 _example/bald/greetv1/domain.go）。
 var domainValueTmpl = `// Code generated once by bald gen domain; now maintained by you.
 //
 // {{ .Name }} 域的声明值骨架（包导出 appkit.Domain 值）。本文件
-// 生成一次，此后归你维护：业务接线（Wire）、REST 路由（Routes）、gRPC 注册
-// （Services）在本包的手写文件里实现后挂进此值；重新生成跳过本文件。
+// 生成一次，此后归你维护：目标形态是 Declare（声明节点拓扑）+ ApplyNode
+// （按计划序执行），业务配置段用 biz.<域名> 并以 ReloadReconcile +
+// Reconcile 参与热更（设计 §4.6 / Q8）；迁移期仍可用兼容槽位
+// Wire/Routes/Services。重新生成跳过本文件。
 package {{ .Pkg }}
 
 import "github.com/kalandramo/bald/pkg/appkit"
 
-// Domain 是 {{ .Name }} 域的装配声明值（三个钩子均由引擎在既定时点消费，
-// 见 pkg/appkit/domain.go：Wire 时点 = 业务 BeforeStart 之后、server 构建之前）。
+// Domain 是 {{ .Name }} 域的装配声明值（钩子由引擎在既定时点消费，见
+// pkg/appkit/domain.go：域窗口 = 业务 BeforeStart 之后、server 构建之前）。
 var Domain = appkit.Domain{
 	Name: {{ q .Name }},
 }
