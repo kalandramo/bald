@@ -483,7 +483,7 @@ func Routes(h http.Handler) error {
 
 业务只实现生成的 interface（`GreetService`），路由与授权策略从 proto 派生。既有自定义路由保留 `--no-routes` 逃逸（计划中标记 `Opaque`）。
 
-> **实施状态（2026-10-30）**：**可见性**已落——`Domain.RouteTable []appkit.Route` 进 `Plan.Routes`（`--plan`/`doctor` 打印、参与计划哈希且置换不变），同一 `(方法, 路径)` 跨域在计划期报错，声明 `Routes` 闭包却无清单的域给 `custom-routes` 警告（手写路由不假装可分析）；示例 greet 域已声明自己的表。**绑定生成已落，但为 opt-in**：`gen domain --rest-bind` 从 `google.api.http` 注解生成 `handler/gin/<d>.bind.gen.go`（`<Name>Service` 接口 + `Bind<Name>(gin.IRouter, <Name>Service)`），路由/路径变量/查询与 body 由 `transport/web.BindProtoRequest` 装入 protojson、响应经 `WriteProtoResponse` 编码，实现只需实现接口；前置条件是 proto 的 Go 类型已 `buf generate`、消费者 module 依赖 `transport/web`。默认关闭的原因：生成树的 proto Go 产物在流水线之外（`gen` 不 import `protoc-gen-go`），默认生成会让未跑 `buf generate` 的树编译失败。仍缺：默认生成 + `--no-routes` 逃逸（待流水线保证 proto Go 产物），以及 `additional_bindings` 多路由解析。
+> **实施状态（2026-10-30）**：**可见性**已落——`Domain.RouteTable []appkit.Route` 进 `Plan.Routes`（`--plan`/`doctor` 打印、参与计划哈希且置换不变），同一 `(方法, 路径)` 跨域在计划期报错，声明 `Routes` 闭包却无清单的域给 `custom-routes` 警告（手写路由不假装可分析）；示例 greet 域已声明自己的表。**绑定生成已落，但为 opt-in**：`gen domain --rest-bind` 从 `google.api.http` 注解生成 `handler/gin/<d>.bind.gen.go`（`<Name>Service` 接口 + `Bind<Name>(gin.IRouter, <Name>Service)`），路由/路径变量/查询与 body 由 `transport/web.BindProtoRequest` 装入 protojson、响应经 `WriteProtoResponse` 编码，实现只需实现接口；前置条件是 proto 的 Go 类型已 `buf generate`、消费者 module 依赖 `transport/web`。默认关闭的原因：生成树的 proto Go 产物在流水线之外（`gen` 不 import `protoc-gen-go`），默认生成会让未跑 `buf generate` 的树编译失败。注解的 `additional_bindings` 逐条生成别名路由（同一 RPC 只实现一次）；带 REST 注解的流式 RPC 在生成期报错（gin/网关无法转码）。仍缺：默认生成 + `--no-routes` 逃逸（待流水线保证 proto Go 产物）。
 
 ---
 

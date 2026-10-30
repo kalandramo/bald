@@ -46,12 +46,21 @@ var protoRoots = []string{"api/proto", "api/protos", "proto"}
 // protoMethod 是从 proto 源码解析出的一个 rpc 方法（含 google.api.http 注解
 // 与请求/响应消息类型——--rest-bind 的绑定生成需要后两者）。
 type protoMethod struct {
-	Name     string
-	Verb     string // 注解动词（get/post/put/delete/patch）；无注解为空
-	Path     string // 注解路径（如 /v1/greet/{name}）
-	Body     string // 注解 body（"*" 或字段掩码）；GET/DELETE 缺省无 body
-	Request  string // 请求消息类型（去 proto package 前缀；嵌套类型以 "_" 连接）
-	Response string // 响应消息类型（同上）
+	Name      string
+	Verb      string // 主注解动词（get/post/put/delete/patch）；无注解为空
+	Path      string // 主注解路径（如 /v1/greet/{name}）
+	Body      string // 主注解 body（"*" 或字段掩码）；GET/DELETE 缺省无 body
+	Request   string // 请求消息类型（去 proto package 前缀；嵌套类型以 "_" 连接）
+	Response  string // 响应消息类型（同上）
+	Streaming bool   // 任一方向流式（proto 的 stream 关键字）
+	Rules     []httpRule // 全部 google.api.http 规则：主规则在前，additional_bindings 依次追加
+}
+
+// httpRule 是一条 google.api.http 映射（主规则或 additional_bindings 条目）。
+type httpRule struct {
+	Verb string
+	Path string
+	Body string
 }
 
 // protoService 是解析出的一个 service 声明。
@@ -81,7 +90,9 @@ var (
 	reProtoPackage   = regexp.MustCompile(`(?m)^\s*package\s+([A-Za-z_][A-Za-z0-9_.]*)\s*;`)
 	reProtoService   = regexp.MustCompile(`(?m)^\s*service\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{`)
 	reProtoRPC       = regexp.MustCompile(`\brpc\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*(?:stream\s+)?([A-Za-z_][A-Za-z0-9_.]*)\s*\)\s*returns\s*\(\s*(?:stream\s+)?([A-Za-z_][A-Za-z0-9_.]*)\s*\)`)
-	reProtoHTTPVerb  = regexp.MustCompile(`\b(get|post|put|delete|patch)\s*:\s*"([^"]*)"`)
+	// reProtoStream 识别 rpc 签名里的 stream 关键字（任一方向）。
+	reProtoStream   = regexp.MustCompile(`\bstream\s+[A-Za-z_]`)
+	reProtoHTTPVerb = regexp.MustCompile(`\b(get|post|put|delete|patch)\s*:\s*"([^"]*)"`)
 	reProtoHTTPBody  = regexp.MustCompile(`\bbody\s*:\s*"([^"]*)"`)
 	reProtoHTTPDot   = regexp.MustCompile(`\(google\.api\.http\)\.(get|post|put|delete|patch)\s*=\s*"([^"]*)"`)
 	reProtoGoPackage = regexp.MustCompile(`(?m)^\s*option\s+go_package\s*=\s*"([^"]+)"\s*;`)
@@ -112,9 +123,10 @@ func scanProto(relPath string, src []byte) (*protoFile, error) {
 		block, _ := braceBlock(text, loc[1]-1) // loc[1] 指向 '{' 之后，回退一格
 		for _, r := range reProtoRPC.FindAllStringSubmatchIndex(block, -1) {
 			m := protoMethod{
-				Name:     block[r[2]:r[3]],
-				Request:  normalizeProtoType(f.Package, block[r[4]:r[5]]),
-				Response: normalizeProtoType(f.Package, block[r[6]:r[7]]),
+				Name:      block[r[2]:r[3]],
+				Request:   normalizeProtoType(f.Package, block[r[4]:r[5]]),
+				Response:  normalizeProtoType(f.Package, block[r[6]:r[7]]),
+				Streaming: reProtoStream.MatchString(block[r[0]:r[1]]),
 			}
 			// 方法段 = 本 rpc 起点到下一 rpc（或 service 块尾）。
 			end := len(block)
@@ -125,7 +137,10 @@ func scanProto(relPath string, src []byte) (*protoFile, error) {
 			if i := strings.Index(seg, "(google.api.http)"); i >= 0 {
 				if j := strings.Index(seg[i:], "{"); j >= 0 {
 					if body, _ := braceBlock(seg, i+j); body != "" {
-						m.Verb, m.Path, m.Body = parseHTTPRule(body)
+						if rules := parseHTTPRules(body); len(rules) > 0 {
+							m.Rules = rules
+							m.Verb, m.Path, m.Body = rules[0].Verb, rules[0].Path, rules[0].Body
+						}
 					}
 				}
 			}
@@ -133,6 +148,7 @@ func scanProto(relPath string, src []byte) (*protoFile, error) {
 				// 点式注解回退：option (google.api.http).get = "/v1/x";
 				if mm := reProtoHTTPDot.FindStringSubmatch(seg); mm != nil {
 					m.Verb, m.Path = mm[2], mm[3]
+					m.Rules = []httpRule{{Verb: mm[2], Path: mm[3]}}
 				}
 			}
 			svc.Methods = append(svc.Methods, m)
@@ -168,6 +184,36 @@ func parseHTTPRule(body string) (verb, path, b string) {
 		b = m[1]
 	}
 	return verb, path, b
+}
+
+// parseHTTPRules 提取一条注解的全部规则：主规则 + additional_bindings 条目
+// （同一 RPC 的别名路径，如 GET 与 POST 两个入口）。additional_bindings 不
+// 允许再嵌套，单层扫描即可。
+func parseHTTPRules(block string) []httpRule {
+	var rules []httpRule
+	if v, p, b := parseHTTPRule(block); v != "" {
+		rules = append(rules, httpRule{Verb: v, Path: p, Body: b})
+	}
+	rest := block
+	for {
+		i := strings.Index(rest, "additional_bindings")
+		if i < 0 {
+			break
+		}
+		j := strings.Index(rest[i:], "{")
+		if j < 0 {
+			break
+		}
+		sub, end := braceBlock(rest, i+j)
+		if end < 0 {
+			break
+		}
+		if v, p, b := parseHTTPRule(sub); v != "" {
+			rules = append(rules, httpRule{Verb: v, Path: p, Body: b})
+		}
+		rest = rest[end+1:]
+	}
+	return rules
 }
 
 // scanProtoRoots 扫描产出根下的全部候选 proto 根（存在即扫），返回聚合结果
@@ -541,21 +587,29 @@ func bindViewOf(name string, d *appspecv1.DomainSpec, svc protoService) (*bindVi
 	seenRPC := map[string]bool{}
 	seenRoute := map[string]string{}
 	for _, m := range svc.Methods {
-		if m.Verb == "" {
+		rules := methodRules(m)
+		if len(rules) == 0 {
 			continue
 		}
-		ginPath, vars := ginPathOf(m.Path)
-		// gin 的同 method+shape 路由此处就会 panic（:a 与 :b 是同一 shape），
-		// 生成期先报错——把运行期 panic 换成可定位的注解冲突。
-		key := strings.ToUpper(m.Verb) + " " + reGinParam.ReplaceAllString(ginPath, ":")
-		if prev, ok := seenRoute[key]; ok {
-			return nil, fmt.Errorf("domain %q: %s is mapped by both %s and %s after converting google.api.http patterns to gin routes (gin cannot register two identical shapes)", d.GetName(), key, prev, m.Name)
+		if m.Streaming {
+			// grpc-gateway 不支持流式转码，gin 绑定同样无法承载——注解加在
+			// 流式 RPC 上是 proto 侧的错配，生成期直接报。
+			return nil, fmt.Errorf("domain %q: rpc %s is streaming but carries google.api.http annotations; streaming cannot be transcoded to REST", d.GetName(), m.Name)
 		}
-		seenRoute[key] = m.Name
-		routes = append(routes, bindRouteView{
-			RPC: m.Name, Request: m.Request, Verb: strings.ToUpper(m.Verb),
-			GinPath: ginPath, Body: m.Body, PathVarsExpr: pathVarsExpr(vars),
-		})
+		for _, r := range rules {
+			ginPath, vars := ginPathOf(r.Path)
+			// gin 的同 method+shape 路由此处就会 panic（:a 与 :b 是同一 shape），
+			// 生成期先报错——把运行期 panic 换成可定位的注解冲突。
+			key := strings.ToUpper(r.Verb) + " " + reGinParam.ReplaceAllString(ginPath, ":")
+			if prev, ok := seenRoute[key]; ok {
+				return nil, fmt.Errorf("domain %q: %s is mapped by both %s and %s after converting google.api.http patterns to gin routes (gin cannot register two identical shapes)", d.GetName(), key, prev, m.Name)
+			}
+			seenRoute[key] = m.Name
+			routes = append(routes, bindRouteView{
+				RPC: m.Name, Request: m.Request, Verb: strings.ToUpper(r.Verb),
+				GinPath: ginPath, Body: r.Body, PathVarsExpr: pathVarsExpr(vars),
+			})
+		}
 		if !seenRPC[m.Name] {
 			seenRPC[m.Name] = true
 			methods = append(methods, bindMethodView{RPC: m.Name, Request: m.Request, Response: m.Response})
@@ -650,20 +704,31 @@ func serviceIndex(scan *protoScan) map[string]protoService {
 }
 
 // derivedRoutes 把域 service 的 google.api.http 注解折算为 REST 路由登记
-// （"VERB path[ (body: …)] -> RPC"；注解驱动，D2 §4.2 机制 1）。
+// （"VERB path[ (body: …)] -> RPC"；注解驱动，D2 §4.2 机制 1）。同一 RPC 的
+// additional_bindings 逐条登记。
 func derivedRoutes(svc protoService) []string {
 	var out []string
 	for _, m := range svc.Methods {
-		if m.Verb == "" {
-			continue // 无 REST 映射的方法不进表
+		for _, r := range methodRules(m) {
+			line := strings.ToUpper(r.Verb) + " " + r.Path
+			if r.Body != "" {
+				line += " (body: " + r.Body + ")"
+			}
+			out = append(out, line+" -> "+m.Name)
 		}
-		line := strings.ToUpper(m.Verb) + " " + m.Path
-		if m.Body != "" {
-			line += " (body: " + m.Body + ")"
-		}
-		out = append(out, line+" -> "+m.Name)
 	}
 	return out
+}
+
+// methodRules 返回方法的注解规则；兼容只填了主规则的构造（测试/旧调用点）。
+func methodRules(m protoMethod) []httpRule {
+	if len(m.Rules) > 0 {
+		return m.Rules
+	}
+	if m.Verb == "" {
+		return nil
+	}
+	return []httpRule{{Verb: m.Verb, Path: m.Path, Body: m.Body}}
 }
 
 // derivedActions 把域 service 的逐 RPC 授权动作折算为 map（key = FullMethod

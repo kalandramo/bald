@@ -553,3 +553,99 @@ func TestBindViewOf_NoAnnotatedRoutes(t *testing.T) {
 		t.Fatalf("view = %v, err = %v; want nil, nil", view, err)
 	}
 }
+
+// TestScanProto_AdditionalBindings 钉住注解扫描的完整规则集：主规则 +
+// additional_bindings 全部进 Rules（derivedRoutes 逐条登记），stream 关键字
+// 被识别（流式 RPC 的 REST 注解是错配，由 bindViewOf 报错）。
+func TestScanProto_AdditionalBindings(t *testing.T) {
+	src := `syntax = "proto3";
+
+package greet.v1;
+
+option go_package = "demo.example/app/api/gen/go/greet/v1;greetv1";
+
+service GreetService {
+  rpc Search(SearchRequest) returns (SearchResponse) {
+    option (google.api.http) = {
+      get: "/v1/greets/search"
+      additional_bindings {
+        get: "/v1/greets:search"
+      }
+    };
+  }
+
+  rpc Watch(WatchRequest) returns (stream WatchResponse) {
+    option (google.api.http) = {
+      get: "/v1/greets/watch"
+    };
+  }
+}
+`
+	f, err := scanProto("greet.proto", []byte(src))
+	if err != nil {
+		t.Fatalf("scanProto: %v", err)
+	}
+	svc := f.Services[0]
+	if len(svc.Methods) != 2 {
+		t.Fatalf("methods = %d, want 2", len(svc.Methods))
+	}
+	search := svc.Methods[0]
+	if len(search.Rules) != 2 {
+		t.Fatalf("search rules = %+v, want primary + additional binding", search.Rules)
+	}
+	if search.Rules[1].Path != "/v1/greets:search" {
+		t.Fatalf("additional rule path = %q", search.Rules[1].Path)
+	}
+	if search.Streaming {
+		t.Fatal("Search must not be marked streaming")
+	}
+	if !svc.Methods[1].Streaming {
+		t.Fatal("Watch must be marked streaming")
+	}
+	routes := derivedRoutes(svc)
+	if len(routes) != 3 {
+		t.Fatalf("derivedRoutes = %v, want 3 entries (Search x2 + Watch)", routes)
+	}
+}
+
+// TestBindViewOf_AdditionalBindingsOneInterface 同一 RPC 的别名路径生成多条
+// gin 路由，但服务接口按 RPC 去重（实现只写一遍）。
+func TestBindViewOf_AdditionalBindingsOneInterface(t *testing.T) {
+	svc := protoService{
+		Package: "greet.v1", Name: "GreetService", GoPackage: "demo.example/app/api/gen/go/greet/v1;greetv1",
+		Methods: []protoMethod{{
+			Name: "Search", Request: "SearchRequest", Response: "SearchResponse",
+			Rules: []httpRule{
+				{Verb: "get", Path: "/v1/greets/search"},
+				{Verb: "get", Path: "/v1/greets:search"},
+			},
+		}},
+	}
+	d := &appspecv1.DomainSpec{Name: "greet", Service: "greet.v1.GreetService"}
+	view, err := bindViewOf("Greet", d, svc)
+	if err != nil {
+		t.Fatalf("bindViewOf: %v", err)
+	}
+	if len(view.Routes) != 2 {
+		t.Fatalf("routes = %+v, want 2 (primary + additional binding)", view.Routes)
+	}
+	if len(view.Methods) != 1 {
+		t.Fatalf("interface methods = %+v, want 1 (deduped by rpc)", view.Methods)
+	}
+}
+
+// TestBindViewOf_StreamingRejected 流式 RPC 无法转码成 REST：带注解即报错，
+// 不生成语义错误的 unary 绑定。
+func TestBindViewOf_StreamingRejected(t *testing.T) {
+	svc := protoService{
+		Package: "greet.v1", Name: "GreetService", GoPackage: "demo.example/app/gen;gen",
+		Methods: []protoMethod{{
+			Name: "Watch", Request: "WatchRequest", Response: "WatchResponse", Streaming: true,
+			Rules: []httpRule{{Verb: "get", Path: "/v1/greets/watch"}},
+		}},
+	}
+	d := &appspecv1.DomainSpec{Name: "greet", Service: "greet.v1.GreetService"}
+	if _, err := bindViewOf("Greet", d, svc); err == nil || !strings.Contains(err.Error(), "streaming") {
+		t.Fatalf("err = %v, want streaming rejection", err)
+	}
+}
