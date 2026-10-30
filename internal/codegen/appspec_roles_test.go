@@ -189,12 +189,13 @@ func TestMachineGuard_RoleFieldUnregisteredRed(t *testing.T) {
 }
 
 // TestTree_RoleFanoutLayout 钉两角色时的完整落盘集合：共享文件仍一份，
-// cmd 与 configs 按角色各一份（16 项 = 7 共享 + 4 cmd + 2 config + 3 seed）。
+// cmd 与 configs 按角色各一份（19 项 = 8 共享 + 6 cmd + 2 config + 3 seed）。
 func TestTree_RoleFanoutLayout(t *testing.T) {
 	files, _ := renderAppTree(t, fanoutFixture(t))
 	want := []string{
 		filepath.Join("internal", "bootstrap", "assemble.gen.go"),
 		filepath.Join("internal", "bootstrap", "domains.gen.go"),
+		filepath.Join("internal", "bootstrap", "custom.go"),
 		filepath.Join("internal", "apiserver", "domains.gen.go"),
 		filepath.Join("internal", "apiserver", "layering_invariant_test.go"),
 		filepath.Join("api", "buf.yaml"),
@@ -202,8 +203,10 @@ func TestTree_RoleFanoutLayout(t *testing.T) {
 		"taskfile.yml",
 		filepath.Join("cmd", "demoapp-api", "main.go"),
 		filepath.Join("cmd", "demoapp-api", "app", "command.go"),
+		filepath.Join("cmd", "demoapp-api", "app", "custom.go"),
 		filepath.Join("cmd", "demoapp-runner", "main.go"),
 		filepath.Join("cmd", "demoapp-runner", "app", "command.go"),
+		filepath.Join("cmd", "demoapp-runner", "app", "custom.go"),
 		filepath.Join("configs", "demoapp-api.yaml"),
 		filepath.Join("configs", "demoapp-runner.yaml"),
 		filepath.Join("internal", "bootstrap", "seed", "seed.go"),
@@ -223,8 +226,11 @@ func TestTree_RoleFanoutLayout(t *testing.T) {
 		}
 	}
 	for _, fl := range files {
-		if strings.HasPrefix(fl.Path, "cmd"+string(filepath.Separator)) && fl.Own != owned {
-			t.Errorf("角色 cmd 文件必须 owned，%s 实际归属 %v", fl.Path, fl.Own)
+		if strings.HasPrefix(fl.Path, "cmd"+string(filepath.Separator)) &&
+			fl.Path != filepath.Join("cmd", "demoapp-api", "app", "custom.go") &&
+			fl.Path != filepath.Join("cmd", "demoapp-runner", "app", "custom.go") &&
+			fl.Own != owned {
+			t.Errorf("角色 cmd 生成物必须 owned，%s 实际归属 %v", fl.Path, fl.Own)
 		}
 	}
 }

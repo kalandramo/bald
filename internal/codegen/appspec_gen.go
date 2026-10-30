@@ -1,9 +1,11 @@
 package codegen
 
 // appspec_gen.go 是 gen app --spec 的目标目录树生成器（D2-target-codegen.md
-// §2.1）：13 个落盘项（生成物 + 生成一次，随声明裁剪；configs/<app>.yaml 是
-// Gate2 派生追加项，实证见 appspec_budget_test.go 的 13 行清单），装配收敛到
-// assemble.gen.go 的唯一 Options()。
+// §2.1）：单角色 15 个落盘项（10 生成物 + 5 生成一次，随声明裁剪；
+// configs/<app>.yaml 是 Gate2 派生追加项，实证见 appspec_budget_test.go 的
+// 15 行清单），装配收敛到 assemble.gen.go 的唯一 Options()；生成器表达不了
+// 的接线经 seeded 钩子（bootstrap/custom.go、cmd/<app>/app/custom.go）追加
+// ——生成物只调用、从不覆盖（设计 §7.3 的自定义接线扩展）。
 //
 // 本文件没有 appspecData——模板直接吃 *appspecv1.AppSpec
 // （加派生的段存在性布尔）；契约配置树整棵由 protoreflect 反射派生
@@ -69,6 +71,10 @@ type treeView struct {
 	// 以下两字段由 buildTree 渲染角色文件时按角色覆写（模板只读它们）：
 	CmdName  string // cmd/<cmd_name>/；单角色 == AppName
 	RoleName string // 当前渲染的角色名；单角色为空串
+
+	// RoleExpr 是 customOptions 的实参表达式（多角色 = role 变量，单角色 =
+	// 空串字面量）：自定义接线钩子对两种形态同一签名，生成物只做拼装。
+	RoleExpr string
 }
 
 // variantSlot 是一个变体在生成期的派生视图：When 是规范化的 Go 构建约束
@@ -168,6 +174,7 @@ func (v *treeView) buildRoles(as *appspecv1.AppSpec, bs *bootstrapv1.BootstrapCo
 	v.CmdName = v.AppName
 	v.MultiRole = len(roles) > 0
 	if !v.MultiRole {
+		v.RoleExpr = `""`
 		v.Roles = []roleSlot{{
 			CmdName:    v.AppName,
 			ConfigFile: v.ConfigFile,
@@ -179,6 +186,7 @@ func (v *treeView) buildRoles(as *appspecv1.AppSpec, bs *bootstrapv1.BootstrapCo
 		}}
 		return
 	}
+	v.RoleExpr = "role"
 	for _, r := range roles {
 		s := roleSlot{
 			Name:       r.GetName(),
@@ -312,6 +320,9 @@ func Execute() error {
 		return nil
 	},
 		appcli.WithPlugins(),
+		// 业务子命令与默认 serve 并存：接线点是 cmd/<app>/app/custom.go
+		// （生成一次、归用户维护；重生成跳过）。
+		appcli.WithSubcommands(customSubcommands()...),
 		// doctor：与 serve 同一份装配 Options——报告必须与真实启动同源。
 		appcli.WithDoctor(func(ctx context.Context) error {
 {{- if .MultiRole }}
@@ -482,6 +493,11 @@ func Options() []appkit.Option {
 	// variants.gen.go / variant_<name>.gen.go；生成期不猜 tag 组合）。
 	opts = append(opts, variantOptions()...)
 {{- end}}
+	// 自定义接线扩展：生成器不认识的声明（第三方 Provider、Registrar、
+	// 拦截器链、探针数据源、Opaque 预算等）经 customOptions 追加。追加在
+	// 末尾 = 同名单值字段末者胜（可覆盖上面的面/健康/拦截器默认值）；
+	// custom.go 由 gen app 生成一次、此后归用户维护。
+	opts = append(opts, customOptions({{ .RoleExpr }})...)
 	return opts
 }
 {{- if .MultiRole}}
@@ -553,6 +569,53 @@ func registerGateway(_ context.Context, conn *grpc.ClientConn) (http.Handler, er
 	return mux, nil
 }
 {{- end}}
+`
+
+// bootstrapCustomTmpl 是 internal/bootstrap/custom.go（生成一次，归用户维护）：
+// 自定义接线扩展的唯一落点。生成物只调用钩子、从不覆盖本文件——这是
+// 「AppSpec 表达不了的接线」与「生成物确定性」并存的方式（设计 §7.3）。
+var bootstrapCustomTmpl = `// Package bootstrap 的自定义接线（bald gen app 生成一次，此后归你维护；
+// 重生成跳过本文件）。
+//
+// 生成物 assemble.gen.go 只声明 AppSpec 能表达的东西；第三方 Provider、
+// Registrar、拦截器链、探针数据源、Opaque 预算等生成器不认识的接线全部
+// 收敛在本文件——装配的声明面仍然只有 Options() 一个入口。
+package bootstrap
+
+import "github.com/kalandramo/bald/pkg/appkit"
+
+// customOptions 返回应用自定义接线，生成物在 Options() 末尾展开它：追加
+// 在末尾 = 同名单值字段末者胜，因此可以覆盖生成的面/健康检查/拦截器默认值。
+//
+// 多角色树里 role 是当前角色名（接线按角色分叉），单角色树为空串。
+func customOptions(role string) []appkit.Option {
+	return nil
+}
+
+// variantOpts 是构建期变体的应用级接线表（键 = AppSpec.variants.name）。
+// 变体实现随 //go:build 文件编入时，在带 tag 的文件里登记：
+//
+//	func init() { variantOpts["grpcgw"] = []appkit.Option{...} }
+//
+// 生成物 variant_<name>.gen.go 的 init 经 customVariantOpts 取出——变体
+// 声明/实现对账（I12）仍由生成物负责，业务只在命中时提供接线。
+var variantOpts = map[string][]appkit.Option{}
+
+// customVariantOpts 返回变体 name 的自定义接线（未登记返回 nil）。
+func customVariantOpts(name string) []appkit.Option { return variantOpts[name] }
+`
+
+// appCustomTmpl 是 cmd/<app>/app/custom.go（生成一次，归用户维护）：CLI 侧
+// 自定义接线（业务子命令与默认 serve 并存）。
+var appCustomTmpl = `// Package app 的 CLI 自定义接线（bald gen app 生成一次，此后归你维护；
+// 重生成跳过本文件）。
+package app
+
+import "github.com/spf13/cobra"
+
+// customSubcommands 返回本角色额外挂到根命令的业务子命令（与默认 serve
+// 并存）。生成物只调用本函数，不覆盖本文件。
+func customSubcommands() []*cobra.Command { return nil }
 `
 
 // domainsGenTag 是域清单模板的生成器标识：gen app 与 gen domain 共用同一
@@ -638,6 +701,10 @@ import "github.com/kalandramo/bald/pkg/appkit"
 func init() {
 	variantImpls = append(variantImpls, appkit.VariantImpl{
 		Name: {{ q .Variant.Name }},
+		// 应用级接线由用户自持：带 tag 的文件在 init 里登记
+		// variantOpts[name]（见 internal/bootstrap/custom.go），生成物只负责
+		// 「编译进来即登记实现」——声明/实现对账（I12）仍以本文件为准。
+		Opts: customVariantOpts({{ q .Variant.Name }}),
 		Components: []appkit.Component{
 {{- range .Variant.Components}}
 			buildComponent({{ q .Kind }}, {{ q .Name }}, {{ q .ConfigPrefix }}, map[string]string{ {{- range $k, $v := .Params }}{{ q $k }}: {{ q $v }}, {{ end -}} }),
@@ -648,7 +715,10 @@ func init() {
 {{- else}}
 
 func init() {
-	variantImpls = append(variantImpls, appkit.VariantImpl{Name: {{ q .Variant.Name }}})
+	variantImpls = append(variantImpls, appkit.VariantImpl{
+		Name: {{ q .Variant.Name }},
+		Opts: customVariantOpts({{ q .Variant.Name }}),
+	})
 }
 {{- end}}
 `
@@ -1011,6 +1081,9 @@ func buildTree(v *treeView, cfgs map[string][]byte) ([]genFile, error) {
 		if err := addIn(&rv, filepath.Join("cmd", rv.CmdName, "app", "command.go"), commandTmpl, owned, true); err != nil {
 			return nil, err
 		}
+		if err := addIn(&rv, filepath.Join("cmd", rv.CmdName, "app", "custom.go"), appCustomTmpl, Seeded, true); err != nil {
+			return nil, err
+		}
 	}
 	if err := add(filepath.Join("internal", "bootstrap", "assemble.gen.go"), assembleTmpl, owned, true); err != nil {
 		return nil, err
@@ -1034,6 +1107,9 @@ func buildTree(v *treeView, cfgs map[string][]byte) ([]genFile, error) {
 	dv := *v
 	dv.Gen = domainsGenTag // 与 gen domain 共写同一文件：标识与调用方无关
 	if err := addIn(&dv, filepath.Join("internal", "bootstrap", "domains.gen.go"), bootstrapDomainsTmpl, owned, true); err != nil {
+		return nil, err
+	}
+	if err := add(filepath.Join("internal", "bootstrap", "custom.go"), bootstrapCustomTmpl, Seeded, true); err != nil {
 		return nil, err
 	}
 	if err := add(filepath.Join("internal", "bootstrap", "seed", "seed.go"), seedTmpl, Seeded, true); err != nil {

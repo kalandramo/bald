@@ -95,8 +95,10 @@ my-service/
 ├─ appspec.json                                    # 用户物：声明真相源，生成器永不读写
 ├─ cmd/my-service/main.go                          # 生成物：≤25 行，装配知识为零
 ├─ cmd/my-service/app/command.go                   # 生成物：cobra 根 + 唯一 MustServe 调用（serve / doctor / version）
+├─ cmd/my-service/app/custom.go                    # 生成一次：CLI 自定义接线（customSubcommands）
 ├─ internal/bootstrap/assemble.gen.go              # 生成物：Options() 是装配的全部
 ├─ internal/bootstrap/domains.gen.go               # 生成物：业务域清单（暂空，占位）
+├─ internal/bootstrap/custom.go                    # 生成一次：装配自定义接线（customOptions / variantOpts）
 ├─ internal/bootstrap/variants.gen.go              # 生成物：仅 appspec.variants 非空时落盘（声明 + 增量数据，恒进计划）
 ├─ internal/bootstrap/variant_<name>.gen.go        # 生成物：每变体一份，//go:build 条件编译的 init() 注册实现
 ├─ internal/bootstrap/seed/seed.go                 # 生成一次：演示种子数据
@@ -111,7 +113,9 @@ my-service/
 
 入口链只有三跳：`main.go`（≤25 行硬预算，预算表见 `internal/codegen/appspec_budget_test.go`）→ `app.Execute()`（cobra 根）→ `appkit.MustServe(context.Background(), bootstrap.Options()...)`。装配知识全部在 `internal/bootstrap/assemble.gen.go` 的 `Options()`：`std.Standard()`（server/audit/logger 三类框架自有后端的段驱动 Provider）+ `ConfigFile`/`WatchConfigFile` + `appkit.StrictContract()` + 传输面能力声明（`WithGRPC`/`WithHTTP`/`WithGatewayRegister`，按声明裁剪）+ `WithHealth`（双探针 + gRPC health 联动）+ `mech.Provides/Requires`（能力）+ `mech.Components`（组件）+ `domainOptions`（域清单变参直传）。
 
-归属三态语义：**生成物（owned）**——每次重写，已存在时需 `--force`；**生成一次（seeded）**——`seed/` 与 `apiserver.go`，不存在才落盘（重生成输出 `kept:`，`--force` 也不覆盖），此后归你维护；**用户物**——`appspec.json` 与业务代码，生成器永不读写。
+生成器表达不了的接线（第三方 Provider、`Registrar`、`WithGRPCOptions`、`WithHealth` 覆盖、`WithOpaqueBudget`、业务 CLI 子命令、变体的应用级接线）放在两个 seeded 钩子文件里：`internal/bootstrap/custom.go` 的 `customOptions(role)` 追加在 `Options()` 末尾（同名单值字段末者胜），`cmd/<app>/app/custom.go` 的 `customSubcommands()` 与默认 serve 并存；带 `//go:build` 的文件在 `init()` 里登记 `variantOpts["<name>"]`，生成物 `variant_<name>.gen.go` 经 `customVariantOpts` 取出。
+
+归属三态语义：**生成物（owned）**——每次重写，已存在时需 `--adopt` 放行；**生成一次（seeded）**——`seed/`、`apiserver.go` 与两个 `custom.go` 接线钩子，不存在才落盘（重生成输出 `kept:`，`--adopt` 也不覆盖），此后归你维护；**用户物**——`appspec.json` 与业务代码，生成器永不读写。
 
 ### 4.3 rerun：改声明，不改手写
 

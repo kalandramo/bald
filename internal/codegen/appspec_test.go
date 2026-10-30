@@ -483,8 +483,8 @@ func TestTree_Layout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("gen: %v", err)
 	}
-	if n := strings.Count(out.String(), "generated:"); n != 13 {
-		t.Errorf("first run must generate 13 files, got %d:\n%s", n, out.String())
+	if n := strings.Count(out.String(), "generated:"); n != 15 {
+		t.Errorf("first run must generate 15 files, got %d:\n%s", n, out.String())
 	}
 	owned := []string{
 		filepath.Join("cmd", "demoapp", "main.go"),
@@ -499,6 +499,8 @@ func TestTree_Layout(t *testing.T) {
 		"taskfile.yml",
 	}
 	seeded := []string{
+		filepath.Join("internal", "bootstrap", "custom.go"),
+		filepath.Join("cmd", "demoapp", "app", "custom.go"),
 		filepath.Join("internal", "bootstrap", "seed", "seed.go"),
 		filepath.Join("internal", "bootstrap", "seed", "policies.go"),
 		filepath.Join("internal", "apiserver", "apiserver.go"),
@@ -573,9 +575,10 @@ func TestTree_OwnershipAcrossRegenerations(t *testing.T) {
 		t.Fatalf("adopt regen: %v", err)
 	}
 	// seed.go、seed/policies.go、apiserver.go、apiserver/domains.gen.go（预域
-	// 形态由 gen domain 升级，故 seed 而非 owned）。
-	if kept := strings.Count(out.String(), "kept:"); kept != 4 {
-		t.Errorf("adopt regen must report kept: for 4 seeded files, got %d:\n%s", kept, out.String())
+	// 形态由 gen domain 升级，故 seed 而非 owned）、bootstrap/custom.go 与
+	// cmd/<app>/app/custom.go（自定义接线钩子，播种后归用户）。
+	if kept := strings.Count(out.String(), "kept:"); kept != 6 {
+		t.Errorf("adopt regen must report kept: for 6 seeded files, got %d:\n%s", kept, out.String())
 	}
 	if got, _ := os.ReadFile(seedPath); string(got) != handEdit {
 		t.Errorf("seeded file must survive --adopt regen, got: %q", got)

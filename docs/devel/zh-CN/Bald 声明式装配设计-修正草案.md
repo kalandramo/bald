@@ -551,7 +551,7 @@ func Routes(h http.Handler) error {
 | 冲突可见 | 重复 Key / override / 白名单 100% 出现在计划与 doctor |
 | 资源访问类型化 | 公开 API 中 `Resource(string)` 调用点 = 0（AST 守卫） |
 | 收敛覆盖 | `ReloadReconcile` 节点数 ≥ 组件 + logger + audit；`Drift` e2e 通过 |
-| 生成确定性 | 生成物维度：`TestGen_Deterministic`/`TestGen_CheckClean`（guard 夹具）零 diff + 双跑字节一致；`_example/bald` 是手写超集对照（角色化 `Options(role)` + 自定义 Provider/拦截器/探针），其 `appspec.json` 未声明 roles，生成物是单角色 `Options()`——adopt 会与手写文件同包重名，故该示例不适用零 diff 判据 |
+| 生成确定性 | 生成物维度：`TestGen_Deterministic`/`TestGen_CheckClean`（guard 夹具）零 diff + 双跑字节一致；`_example/bald` 是手写超集对照（角色化 `Options(role)` + 自定义 Provider/拦截器/探针），其 `appspec.json` 未声明 roles/bootstrap 段，生成物是单角色 `Options()`——adopt 会与手写文件同包重名，故该示例不适用零 diff 判据。生成器已具备自定义接线扩展（§8.5，2026-10-30）：表达不了的接线经 seeded 钩子追加，`customOptions` 的落盘/进计划两态由 `TestTree_CustomWiringHooks`/`TestTree_CustomWiringReachesPlan` 钉住 |
 | `Opaque` 预算 | 每版本下降；v0.28 参考工程 ≤ 3 个（预期：第三方 legacy Provider） |
 
 ### 7.2 保留的生产力指标（次指标，不替代声明性指标）
@@ -583,7 +583,7 @@ go test ./pkg/appkit -run 'TestAPI_'   # Resource(string) 调用点、手工排�
 
 # 生成确定性：生成器自有树（guard 夹具）双跑一致 + --check 零 diff
 # （绑定/路由清单默认生成、--no-bind/--no-routes 两态、proto 阶段编排与生成期前置拒绝同受约束；--adopt 清理过期 owned）
-go test ./internal/codegen -run 'TestGen_(Deterministic|CheckClean)|TestGenDomain_(Bind|Proto|NoRoutes|CheckDoesNotRunProtoStage)|TestGenApp_Variants|TestTree_Variants|TestPruneStaleOwned|TestCheckTree_'
+go test ./internal/codegen -run 'TestGen_(Deterministic|CheckClean)|TestGenDomain_(Bind|Proto|NoRoutes|CheckDoesNotRunProtoStage)|TestGenApp_Variants|TestTree_Variants|TestPruneStaleOwned|TestCheckTree_|TestTree_CustomWiring'
 
 # 契约层生成物与 proto 同步（本地 buf + protoc-gen-go；工具链缺失时跳过）
 (cd bconf && go test . -run TestGeneratedMatchesProto)
@@ -597,11 +597,14 @@ go test ./internal/codegen -run 'TestGen_(Deterministic|CheckClean)|TestGenDomai
 bald doctor --config configs/bald-demo-api.yaml
 ```
 
-> `_example/bald` 不跑 `gen app --check`：该示例是**手写装配超集**（`Options(role)`
-> 角色化装配、storegorm/health/拦截器/网关等自定义接线），`appspec.json` 也没有
-> `meta.roles` 与 bootstrap 段，生成物（单角色 `Options()`）与手写文件同包重名，
-> adopt 后无法编译。要让示例也进生成物树，需要生成器支持「自定义接线扩展」——
-> 这是 §8.2 Q5/Q7 之后的议题，当前不阻塞生成物维度的确定性验收。
+> `_example/bald` 不跑 `gen app --check`：该示例仍是**手写装配超集**（角色化 `Options(role)`、
+> 自定义 Provider/拦截器/探针、演示用 CLI 子命令与 `biz.greet` 业务段）。生成器已具备
+> 自定义接线扩展（§8.5：`customOptions(role)` / `customVariantOpts` / `customSubcommands`），
+> 阻塞点因此从「生成器表达不了」转为「迁移会替换示例的教学内容」：`configs/*.yaml` 由
+> bootstrap 段重派生（失去逐段注释与 `biz` 业务段示例）、`api/` 生成 buf 配置与示例现有
+> `proto/` 布局并存、`gen domain` 会与手写 `greetv1/domain.go` 的同名 `Domain` 冲突（故
+> 示例只可能走 `gen app`）。是否迁移由 owner 裁决，当前不阻塞生成物维度的确定性验收
+> （由 guard 夹具承担）。
 
 ---
 
@@ -630,6 +633,7 @@ bald doctor --config configs/bald-demo-api.yaml
 | Q6 | `AppSpec` 快捷方式何时移除？ | **已移除**（2026-10-30，破坏面 = B6）：proto 删除字段 2/5/6 并 `reserved` 号与名；Gate1 投影一致性校验与 `normalizeBootstrap` 归一化随之删除（契约段唯一真相源 = `bootstrap`，未声明时按空配置派生默认键）；`RoleSpec.server` 作为角色级覆盖保留。验收：`TestGate1_RemovedShortcutFieldsRejected`（旧字段 protojson 拒绝）、`TestContractBootstrap`、`bconf` 的 `TestGeneratedMatchesProto` |
 | Q7 | build tag 分叉如何进入声明？ | **已落（终态，2026-10-30）**：`AppSpec.variants` 声明 `when`（`go/build/constraint` 表达式）、`build_tags`（&& 糖，与 `when` 互斥）与 `effects`（组件 + bootstrap 补丁）；声明恒进 `Plan.Variants`（未命中可审计），命中的变体把增量并入真实装配、不再产 `ambient`（I11）；`//go:build` 实现经 `variantImpls` 注册，与声明在计划期对账（I12），漂移即启动失败；生成物拆「声明/数据文件不分叉 + 每变体一份 tag 文件」；缓存对账沿用 `variants changed`。`WithAmbient` 只留迁移期。口径见 §8.3 |
 | Q8 | 域自有业务配置（`biz` 段）如何进入可协调节点的期望态？ | **已落**（2026-10-30，按草案实现）：`Node.Segments` 接受 `biz.<path>`，计划期从合并 Settings 快照按完整点路径取子树、JSON 确定性序列化算 `DesiredHash`（段缺失/有值可区分）；`Domain.Declare` 校验纳入 biz 段，`Domain.Reconcile` 在热更时按新快照协调。快照口径：`Compile`/`--plan` 为文件 + env，真实启动/热更为含 flag 的完整合并 |
+| Q9 | AppSpec 表达不了的自定义接线（第三方 Provider/拦截器/探针/CLI 子命令/变体接线）如何进生成物树？ | **已落**（2026-10-30）：三个 seeded 钩子承载，生成物只调用、从不覆盖——`customOptions(role)`（装配，末尾追加、末者胜）、`customVariantOpts(name)`（变体接线，带 tag 的 init 登记 `variantOpts`）、`customSubcommands()`（CLI 业务子命令）。口径见 §8.5；验收 `TestTree_CustomWiringHooks`/`TestTree_CustomWiringReachesPlan` |
 
 ### 8.3 Q7 终态：`AppSpec.variants` 声明 + 增量（2026-10-30 收口）
 
@@ -708,6 +712,29 @@ Q5 的可见性面与 `--rest-bind` 已落，但「默认生成」一直以「�
 - **两态验收**：默认态（生成绑定 + 清单）与 `--no-bind` 态（仅骨架）都在 `--check` 对账；proto 阶段覆盖「编排成功」「编排失败」「`--check` 不执行」三条路径。
 
 被否决的路线：B（前置缺失自动降级 + 告警）会让同一份声明在不同环境产出不同文件集，破坏生成确定性；C（默认硬失败、要求先跑 buf）与「一条命令产出一棵可编译的树」的流水线目标冲突。D1 把 proto 阶段纳入生成器，才让「默认生成」与「确定性」同时成立。
+
+### 8.5 Q9 自定义接线扩展：三个 seeded 钩子（2026-10-30 落地）
+
+问题：`assemble.gen.go` 与 `command.go` 是 owned 生成物，`Options()` 只能表达 AppSpec 能声明的东西；第三方 Provider、Registrar、拦截器链、探针数据源、Opaque 预算、业务 CLI 子命令在声明面之外，重生成即被抹掉。两条路可选：(1) 往 proto 里加「接线函数名字符串」字段——Godoc 不可达、拼错只在编译期炸、且守卫要求每个字段有消费者；(2) 固定文件名 + 固定签名的 seeded 钩子——零 proto 变更、生成物只调用、用户文件永不覆盖。选 (2)。
+
+钩子契约（生成为 `Seeded`：播种一次，之后归用户维护；`--adopt` 不覆盖、`--check` 只判存在性）：
+
+| 文件 | 钩子 | 生成物调用点 | 语义 |
+|---|---|---|---|
+| `internal/bootstrap/custom.go` | `customOptions(role string) []appkit.Option` | `Options(...)` 末尾（`variantOptions()` 之后） | 末尾追加 = 同名单值字段末者胜：可覆盖生成的面/健康检查/拦截器默认值；多角色树 `role` 为当前角色名，单角色为空串 |
+| 同上 | `customVariantOpts(name string) []appkit.Option`（读 `variantOpts` 表） | 每个 `variant_<name>.gen.go` 的 `init()` 把返回值填进 `VariantImpl.Opts` | 变体接线仍随 `//go:build` 编译：带 tag 的文件 `init()` 里登记 `variantOpts["grpcgw"] = ...`。实现登记与声明对账（I12）仍由生成物负责，杜绝「用户另登记一份 impl」造成的重复实现判错 |
+| `cmd/<app>/app/custom.go` | `customSubcommands() []*cobra.Command` | `appcli.WithSubcommands(customSubcommands()...)` | 业务子命令与默认 serve 并存（每个角色一份，因每个 cmd 目录独立） |
+
+设计约束：
+
+- **生成物确定性不变**：钩子内容不参与 owned 文件字节，`--check` 不会因用户接线判脏；seeded 文件不进 stale owned 清理。
+- **不引入 proto 字段**：接线是 Go 代码，不是声明数据；字符串函数名会把编译期错误推迟到运行期，且破坏「每个声明字段有机器可验证消费者」的守卫。
+- **不提供生成期枚举**：生成器不解析 `custom.go`，无法按内容改变模板；钩子只能「追加/覆盖 Option」，不能新增生成物或改变 plan 形状——计划的可分析性仍由声明面负责（接线对计划的影响走 Provider 的 `Plan`）。
+- **`Opts` 由变体文件经表取出**：带 tag 的 `init()` 先于 `assemble` 的 `Options()` 执行（Go 包级 init 顺序），命中判定仍只由构建约束决定。
+
+不在本扩展内：配置内容的教学注释放进 `configs/*.yaml`（owned，由 bootstrap 段重派生）、proto 目录布局（生成物固定 `api/`）、`gen domain` 与手写域值同名冲突——这些是 `_example/bald` 迁入生成物树的产品取舍，见 §7.3 注。
+
+验收：`TestTree_CustomWiringHooks`（落盘形态与调用点、单/多角色实参派生、变体钩子路由）与 `TestTree_CustomWiringReachesPlan`（替换 seeded 文件为第三方 Provider 后，生成树真实编译且节点进入 `appkit.Compile` 计划）。
 
 ---
 
