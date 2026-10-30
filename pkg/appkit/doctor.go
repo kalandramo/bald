@@ -199,7 +199,10 @@ func writePlanCacheSection(w io.Writer, b *planCacheBaseline, p *Plan) {
 			hashPrefix(b.Entry.InputHash), hashPrefix(p.InputHash))
 	}
 	if !b.PlanChanged {
-		fmt.Fprintln(w, "  plan unchanged")
+		// 限定判据：这里只断言装配声明（节点 + 命令式槽位）未变，不断言
+		// Plan.Hash 相等——告警/段视图变化不进此判据（上方 plan: 行给出
+		// 当前整份计划哈希，需要严格比对时以它为准）。
+		fmt.Fprintln(w, "  plan unchanged: nodes + imperative slots")
 		return
 	}
 	if b.Change.Empty() {

@@ -205,7 +205,11 @@ func TestPlanCache_ContractChangeStillDiffs(t *testing.T) {
 		t.Fatalf("node changes = %+v, want none (only warnings differ)", cmp.Change.Changes)
 	}
 	out := renderDoctor(next, cmp)
-	for _, want := range []string{"input changed since baseline:", "plan unchanged"} {
+	for _, want := range []string{
+		"input changed since baseline:",
+		// 判据限定在装配声明：告警/段视图变化不冒充「整份计划未变」。
+		"plan unchanged: nodes + imperative slots",
+	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("doctor output missing %q:\n%s", want, out)
 		}
