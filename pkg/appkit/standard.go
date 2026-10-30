@@ -66,6 +66,10 @@ func (stdLoggerProvider) Apply(d *Decl) { d.Providers = append(d.Providers, stdL
 
 // Plan 声明日志节点：阶段 B 引导位（PriorityLogger 先于其它阶段 B 资源）；
 // 停机 Effect 名与旧 12 段流一致（appkit:bootstrap-logger）。
+//
+// 非 Opaque：期望态完全由 logger 契约段派生（ReloadReconcile + DesiredHash），
+// 计划能看到「装配什么」（后端列表/过滤键）——只有后端构造细节是 Provider
+// 内部实现，不构成逃逸舱。
 func (stdLoggerProvider) Plan(context.Context, PlanScope) ([]Node, error) {
 	return []Node{{
 		Key:        "logger",
@@ -75,7 +79,6 @@ func (stdLoggerProvider) Plan(context.Context, PlanScope) ([]Node, error) {
 		Priority:   PriorityLogger,
 		Reload:     ReloadReconcile,
 		EffectName: "appkit:bootstrap-logger",
-		Opaque:     true,
 		Origin:     OriginStd,
 	}}, nil
 }
@@ -138,6 +141,10 @@ func (stdServerProvider) Apply(d *Decl) { d.Providers = append(d.Providers, stdS
 
 // Plan 声明协议服务器节点：迟后阶段（PhaseServe）——业务 BeforeStart 钩子
 // 之后构造，register 回调与 handler 消费业务建好的运行期资源。
+//
+// 保持 Opaque：server 段只声明地址/TLS/driver，真正装进去的 REST 路由与
+// gRPC service 由 WithHTTP/WithGRPC 的回调注册，计划看不见；这里的逃逸舱
+// 是诚实标记而非待办（生成式路由见设计 Q5）。
 func (stdServerProvider) Plan(context.Context, PlanScope) ([]Node, error) {
 	return []Node{{
 		Key:      "server",
@@ -249,6 +256,10 @@ func (stdAuditProvider) Apply(d *Decl) { d.Providers = append(d.Providers, stdAu
 // Plan 声明审计节点：阶段 B 构建（audit_wiring_order_test 钉住它依赖
 // database/cache 客户端就绪——PriorityAudit 排在二者之后）；TeardownAfter
 // ["*"] 使停机回放最后执行：stream 尾批审计事件在指标/span flush 之后收集。
+//
+// 非 Opaque：后端列表由 audit 契约段派生（ReloadReconcile + DesiredHash），
+// 计划能看到装配选择；store/stream 的第三方实现走用户 Provider（段路径末者
+// 胜），其是否 Opaque 由那个 Provider 自己声明。
 func (stdAuditProvider) Plan(context.Context, PlanScope) ([]Node, error) {
 	return []Node{{
 		Key:           "audit",
@@ -259,7 +270,6 @@ func (stdAuditProvider) Plan(context.Context, PlanScope) ([]Node, error) {
 		Reload:        ReloadReconcile,
 		TeardownAfter: []ResourceKey{"*"},
 		EffectName:    "appkit:audit-restore",
-		Opaque:        true,
 		Origin:        OriginStd,
 	}}, nil
 }

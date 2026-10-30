@@ -26,6 +26,43 @@ func standardProviders() Option {
 	return Providers(StandardServerProvider(), StandardAuditProvider(), StandardLoggerProvider())
 }
 
+// TestStandardProviders_OpaqueBoundary 钉住 std 三 Provider 的逃逸舱边界：
+// 契约派生的 logger/audit 节点不是 Opaque（期望态可派生、可 diff），server
+// 节点保持 Opaque——注册回调装进去的路由/service 计划不可见（设计 Q5）。
+func TestStandardProviders_OpaqueBoundary(t *testing.T) {
+	cfgPath := writePlanConfig(t, "std-opaque",
+		"audit:\n  backends: [\"log\"]\n"+
+			"server:\n  http:\n    addr: \"127.0.0.1:0\"\n")
+	p, err := Compile(context.Background(), ConfigFile(cfgPath),
+		standardProviders(), WithHTTP(http.NewServeMux()))
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+
+	for _, key := range []ResourceKey{"logger", "audit"} {
+		n := nodeByKey(p, key)
+		if n == nil {
+			t.Fatalf("node %q missing: %+v", key, p.Nodes)
+		}
+		if n.Opaque {
+			t.Fatalf("contract-derived node %q must not be Opaque", key)
+		}
+		if n.Reload != ReloadReconcile || n.DesiredHash == "" {
+			t.Fatalf("node %q must be reconcilable with a desired hash: %+v", key, *n)
+		}
+	}
+	server := nodeByKey(p, "server")
+	if server == nil {
+		t.Fatalf("server node missing: %+v", p.Nodes)
+	}
+	if !server.Opaque {
+		t.Fatal("server node must stay Opaque (registered routes/services are closures)")
+	}
+	if p.OpaqueCount != 1 {
+		t.Fatalf("opaque count = %d, want 1 (std server only)", p.OpaqueCount)
+	}
+}
+
 // writePlanConfig 落一份最小契约（app.name 必填；其余段由 bconf 预填）。
 func writePlanConfig(t *testing.T, name, extra string) string {
 	t.Helper()

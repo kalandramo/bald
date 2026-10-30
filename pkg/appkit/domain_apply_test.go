@@ -118,14 +118,15 @@ func TestDomain_ApplyNodeProjectsNoCompatNode(t *testing.T) {
 	if nodeByKey(p, "domain.greet.wire") != nil {
 		t.Fatal("ApplyNode domain must not synthesize a compat node")
 	}
-	// 迁移完成的域不贡献逃逸舱：唯一剩下的 Opaque 是框架自带的 logger 节点。
+	// 迁移完成的域不贡献逃逸舱：计划里没有 Opaque 节点（std logger/audit
+	// 由契约派生，不算逃逸舱）。
 	for _, n := range p.Nodes {
 		if n.Opaque && n.Origin == OriginDomain {
 			t.Fatalf("domain node %q still Opaque after ApplyNode migration", n.Key)
 		}
 	}
-	if p.OpaqueCount != 1 {
-		t.Fatalf("opaque count = %d, want 1 (framework logger only)", p.OpaqueCount)
+	if p.OpaqueCount != 0 {
+		t.Fatalf("opaque count = %d, want 0 (no opaque nodes)", p.OpaqueCount)
 	}
 }
 

@@ -218,7 +218,9 @@ func WithUnimplementedSegments(names ...string) Option {
 // WithOpaqueBudget 声明 Opaque 节点数预算：计划期超过预算即产出
 // opaque-budget 警告（不阻断装配）。0（缺省）= 不设预算，但
 // Plan.OpaqueCount 恒可见——CI 可直接按计数设门。Opaque 的典型来源：
-// AdaptLegacy 包装的 v1 Provider、Domain Wire、命令式组件。
+// AdaptLegacy 包装的 v1 Provider、Domain Wire、命令式组件、std server
+// （注册回调装进去的路由/service 不可分析）；契约派生的 std logger/audit
+// 不计入。
 func WithOpaqueBudget(n int) Option {
 	return optionFunc(func(d *Decl) { d.OpaqueBudget = n })
 }

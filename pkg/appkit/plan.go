@@ -156,8 +156,10 @@ type Node struct {
 	Override bool         `json:"override,omitempty"` // 显式覆盖同 Key 节点
 	Reason   string       `json:"reason,omitempty"`   // Override 的理由
 
-	// Opaque 表示该节点内部是命令式闭包，计划只能看到边界。
-	// v1 Provider（AdaptLegacy）、Domain Wire、Component Start 均为 true。
+	// Opaque 表示该节点内部是命令式闭包，计划只能看到边界（期望态无法由
+	// 声明派生）：v1 Provider（AdaptLegacy）、Domain Wire、命令式组件、std
+	// server（注册回调装进去的路由/service 不可见）均为 true；契约派生的
+	// std logger/audit 节点不是 Opaque。
 	Opaque bool `json:"opaque,omitempty"`
 
 	// DesiredHash 是可协调节点（ReloadReconcile）期望态的摘要：节点身份 +

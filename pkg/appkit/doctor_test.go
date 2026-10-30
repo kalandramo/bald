@@ -19,6 +19,9 @@ func TestDoctor_ReportsPlanFacts(t *testing.T) {
 
 	winner := Node{Key: "shared", Kind: "script-impl", Phase: PhaseBootstrap, Priority: PriorityLegacy}
 	winner.Override, winner.Reason = true, "doctor test override"
+	// 逃逸舱清单需要至少一个 Opaque 节点；fixedNodeProvider 模拟 legacy
+	// 投影（std logger/audit 已由契约派生，不再贡献逃逸舱）。
+	winner.Opaque = true
 	loser := Node{Key: "shared", Kind: "database-impl", Phase: PhaseBootstrap, Priority: PriorityDatabase}
 	p, err := Compile(context.Background(), ConfigFile(cfgPath),
 		WithUnimplementedSegments("broker"), // broker 段无 Provider 消费者，显式豁免
@@ -39,7 +42,7 @@ func TestDoctor_ReportsPlanFacts(t *testing.T) {
 		"plan:  " + p.Hash(),
 		"input: " + p.InputHash,
 		"opaque " + strconv.Itoa(p.OpaqueCount),
-		"opaque: logger",
+		"opaque: shared",
 		"whitelisted: broker",
 		"override: shared (doctor test override)",
 		"build tags: v1,v2",
