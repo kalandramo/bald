@@ -96,7 +96,9 @@ type Domain struct {
 	// RouteTable 是 Routes/ApplyNode 实际挂载的 REST 路由清单（计划数据，
 	// 不参与执行）：域把「我挂了哪些路由」从闭包里的副作用变成可检视声明，
 	// 生成器可从 proto 的 google.api.http 注解派生，手写域自行维护。进
-	// Plan.Routes 与 --plan/doctor；同 (方法, 路径) 跨域冲突在计划期报错。
+	// Plan.Routes 与 --plan/doctor；同 (方法, 路径) 跨域冲突在计划期报错，
+	// gin 挂不上去的形态（同位置通配参数名不一致、catch-all 与更长路径并存）
+	// 同样在计划期报错，不等启动期 panic。
 	//
 	// 它是清单而不是实现：Routes 闭包没有 RouteTable 时计划列不出来，
 	// Compile 给 custom-routes 警告（Q5 的 --no-routes 逃逸）。声明了

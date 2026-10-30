@@ -113,6 +113,115 @@ func TestPlan_DomainRoutesDuplicateInDomain(t *testing.T) {
 	}
 }
 
+// TestPlan_DomainRoutesGinShapeConflict 钉住「路径不同但 gin 挂不上去」的
+// 冲突：通配参数名不一致、catch-all 与更具体路径并存。这类冲突不能靠完全
+// 相同的路径字符串发现，必须在计划期按段比对报错。
+func TestPlan_DomainRoutesGinShapeConflict(t *testing.T) {
+	cases := []struct {
+		name string
+		a, b *Domain
+		want []string
+	}{
+		{
+			name: "cross-domain wildcard names differ",
+			a:    &Domain{Name: "alpha", RouteTable: []Route{{Method: "GET", Path: "/v1/users/:id"}}},
+			b:    &Domain{Name: "beta", RouteTable: []Route{{Method: "GET", Path: "/v1/users/:name"}}},
+			want: []string{`GET /v1/users/:id`, `"alpha"`, `GET /v1/users/:name`, `"beta"`, "one wildcard name per position"},
+		},
+		{
+			name: "catch-all against param",
+			a:    &Domain{Name: "alpha", RouteTable: []Route{{Method: "GET", Path: "/v1/files/*path"}}},
+			b:    &Domain{Name: "beta", RouteTable: []Route{{Method: "GET", Path: "/v1/files/:name"}}},
+			want: []string{"catch-all", "gin cannot register a catch-all beside any other route"},
+		},
+		{
+			name: "catch-all against longer static",
+			a:    &Domain{Name: "alpha", RouteTable: []Route{{Method: "GET", Path: "/v1/files/*path"}}},
+			b:    &Domain{Name: "beta", RouteTable: []Route{{Method: "GET", Path: "/v1/files/raw/y"}}},
+			want: []string{"catch-all", "gin cannot register a catch-all beside any other route"},
+		},
+		{
+			name: "same domain wildcard names differ",
+			a: &Domain{Name: "greet", RouteTable: []Route{
+				{Method: "GET", Path: "/v1/users/{id}"},
+				{Method: "GET", Path: "/v1/users/:name"},
+			}},
+			want: []string{`domain "greet" declares conflicting REST routes`, "one wildcard name per position"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfgPath := writePlanConfig(t, "routes-shape", "")
+			opts := []Option{ConfigFile(cfgPath), WithHTTP(http.NewServeMux()), *tc.a}
+			if tc.b != nil {
+				opts = append(opts, *tc.b)
+			}
+			_, err := Compile(context.Background(), opts...)
+			if err == nil {
+				t.Fatal("gin-unrepresentable route pair must fail at plan time")
+			}
+			for _, want := range tc.want {
+				if !strings.Contains(err.Error(), want) {
+					t.Fatalf("err = %v, want containing %q", err, want)
+				}
+			}
+		})
+	}
+}
+
+// TestPlan_DomainRoutesGinShapeCompatible 防误报：gin 允许的形态必须保持
+// 可编译——同位置同参数名、通配下的子路径、静态兄弟、以及不同方法。
+func TestPlan_DomainRoutesGinShapeCompatible(t *testing.T) {
+	cfgPath := writePlanConfig(t, "routes-shape-ok", "")
+	alpha := Domain{Name: "alpha", RouteTable: []Route{
+		{Method: "GET", Path: "/v1/users/:id"},
+		{Method: "GET", Path: "/v1/users/:id/profile"},
+		{Method: "GET", Path: "/v1/users/me"},
+		{Method: "POST", Path: "/v1/users/:name"},
+	}}
+	beta := Domain{Name: "beta", RouteTable: []Route{
+		{Method: "GET", Path: "/v1/users/:id/settings"},
+		{Method: "PUT", Path: "/v1/users/:name"},
+	}}
+	p, err := Compile(context.Background(), ConfigFile(cfgPath), WithHTTP(http.NewServeMux()), alpha, beta)
+	if err != nil {
+		t.Fatalf("compatible gin shapes must compile, got: %v", err)
+	}
+	if len(p.Routes) != 6 {
+		t.Fatalf("routes = %+v, want 6", p.Routes)
+	}
+}
+
+func TestRouteShapeConflict(t *testing.T) {
+	cases := []struct {
+		a, b string
+		want bool
+	}{
+		{"/users/:id", "/users/:id", false}, // 完全重复由 owner 键单独判
+		{"/users/:id", "/users/:name", true},
+		{"/users/:id", "/users/:id/profile", false},
+		{"/users/:id", "/users/me", false},
+		{"/files/*path", "/files/x", true},
+		{"/files/x", "/files/*path", true},
+		{"/files", "/files/*path", false},
+		{"/files/*path", "/files", false},
+		{"/files/*path", "/files/x/y", true},
+		{"/a/:id/b", "/a/:id/c", false},
+		{"/a/:id/b", "/a/:name/c", true},
+		{"/v1/users/{id}", "/v1/users/:name", true},
+		{"/a", "/a/", false},
+	}
+	for _, tc := range cases {
+		if got := routeShapeConflict(tc.a, tc.b) != ""; got != tc.want {
+			t.Errorf("routeShapeConflict(%q, %q) = %v, want %v", tc.a, tc.b, got, tc.want)
+		}
+		if got := routeShapeConflict(tc.b, tc.a) != ""; got != tc.want {
+			t.Errorf("routeShapeConflict(%q, %q) = %v, want %v (order must not matter)", tc.b, tc.a, got, tc.want)
+		}
+	}
+}
+
+// TestPlan_CustomRoutesWarning 钉住手写 Routes 闭包没有清单时的诚实缺省。
 func TestPlan_CustomRoutesWarning(t *testing.T) {
 	cfgPath := writePlanConfig(t, "routes-custom", "")
 	dom := Domain{
