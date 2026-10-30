@@ -191,7 +191,8 @@ type AppMeta struct {
 
 // Imperative 是 Decl 中命令式槽位在计划里的可见化（§6 Data/Imperative 分区）：
 // 闭包不参与排序、不可分析，但必须可见——否则 --plan 会漏报配置热更订阅者、
-// 停机效果与生命周期钩子。只记录种类与声明名/键/序号，不假装它们是数据节点。
+// 停机效果、生命周期钩子与运行期服务器工厂。只记录种类与声明名/键/序号，
+// 不假装它们是数据节点。
 type Imperative struct {
 	Kind string `json:"kind"`
 	Name string `json:"name,omitempty"`
@@ -420,6 +421,16 @@ func planFrom(ctx context.Context, d *Decl, cfg *bootstrapv1.BootstrapConfig, se
 				Kind: "hook", Name: fmt.Sprintf("%s[%d]", h.name, i),
 			})
 		}
+	}
+	// 运行期服务器工厂与配置热更回调同样是闭包：工厂返回什么、回调改什么
+	// 计划分析不了，但「声明了几个」必须可见（否则 --plan 漏报装配面）。
+	for i := range d.ServersFunc {
+		p.Imperative = append(p.Imperative, Imperative{
+			Kind: "serverFunc", Name: fmt.Sprintf("extraServer[%d]", i),
+		})
+	}
+	if d.OnConfigChange != nil {
+		p.Imperative = append(p.Imperative, Imperative{Kind: "onConfigChange"})
 	}
 	sort.Slice(p.Imperative, func(i, j int) bool {
 		if p.Imperative[i].Kind != p.Imperative[j].Kind {

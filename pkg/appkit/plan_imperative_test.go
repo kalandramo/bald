@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/kalandramo/bald/transport"
 )
 
 // TestPlan_ImperativeSlotsVisible 钉住 §6 的 Data/Imperative 分区落点：闭包
@@ -18,6 +20,8 @@ func TestPlan_ImperativeSlotsVisible(t *testing.T) {
 		reconcileOpt("logger", func(context.Context, *ReconcileCtx) error { return nil }),
 		BeforeStart(func(context.Context) error { return nil }),
 		AfterStop(func(context.Context) error { return nil }),
+		WithExtraServerFunc(func(context.Context) (transport.Server, error) { return nil, nil }),
+		OnConfigChange(func(map[string]any) {}),
 	)
 	if err != nil {
 		t.Fatalf("Compile: %v", err)
@@ -28,7 +32,9 @@ func TestPlan_ImperativeSlotsVisible(t *testing.T) {
 		{Kind: "hook", Name: "afterStop[0]"},
 		{Kind: "hook", Name: "beforeStart[0]"},
 		{Kind: "keyWatch", Name: "server.http"},
+		{Kind: "onConfigChange"},
 		{Kind: "reconcile", Name: "logger"},
+		{Kind: "serverFunc", Name: "extraServer[0]"},
 	}
 	if !reflect.DeepEqual(p.Imperative, want) {
 		t.Fatalf("imperative = %+v, want %+v", p.Imperative, want)
@@ -38,7 +44,8 @@ func TestPlan_ImperativeSlotsVisible(t *testing.T) {
 	p.Explain(&out)
 	for _, line := range []string{
 		"imperative:", "effect       cleanup-db", "hook         beforeStart[0]",
-		"hook         afterStop[0]", "keyWatch     server.http", "reconcile    logger",
+		"hook         afterStop[0]", "keyWatch     server.http",
+		"onConfigChange -", "reconcile    logger", "serverFunc   extraServer[0]",
 	} {
 		if !strings.Contains(out.String(), line) {
 			t.Errorf("plan output missing %q:\n%s", line, out.String())
