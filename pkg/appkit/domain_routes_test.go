@@ -261,6 +261,30 @@ func TestPlan_DomainRoutesValidation(t *testing.T) {
 			dom:  Domain{Name: "greet", RouteTable: []Route{{Method: "GET", Path: "/v1/greet"}}},
 			want: "declares RouteTable but no HTTP face",
 		},
+		{
+			name: "catch-all not last",
+			dom:  Domain{Name: "greet", RouteTable: []Route{{Method: "GET", Path: "/v1/files/*path/raw"}}},
+			opts: []Option{WithHTTP(http.NewServeMux())},
+			want: "must be the last path segment",
+		},
+		{
+			name: "unnamed wildcard",
+			dom:  Domain{Name: "greet", RouteTable: []Route{{Method: "GET", Path: "/v1/users/:"}}},
+			opts: []Option{WithHTTP(http.NewServeMux())},
+			want: "must be named",
+		},
+		{
+			name: "catch-all mid segment",
+			dom:  Domain{Name: "greet", RouteTable: []Route{{Method: "GET", Path: "/v1/files/x*y"}}},
+			opts: []Option{WithHTTP(http.NewServeMux())},
+			want: "must start a path segment",
+		},
+		{
+			name: "two wildcards in one segment",
+			dom:  Domain{Name: "greet", RouteTable: []Route{{Method: "GET", Path: "/v1/users/:a:b"}}},
+			opts: []Option{WithHTTP(http.NewServeMux())},
+			want: "at most one per segment",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

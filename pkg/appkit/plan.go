@@ -769,6 +769,9 @@ func collectDomainRoutes(d *Decl) ([]Route, []Diagnostic, error) {
 		for _, r := range dom.RouteTable {
 			method := strings.ToUpper(strings.TrimSpace(r.Method))
 			path := strings.TrimSpace(r.Path)
+			if err := validateRouteShape(dom.Name, method, path); err != nil {
+				return nil, nil, err
+			}
 			key := method + " " + path
 			if prev, ok := owner[key]; ok {
 				if prev.Domain == dom.Name {
@@ -878,6 +881,38 @@ func routeShapeConflict(a, b string) string {
 		return fmt.Sprintf("catch-all %q leaves no room for the longer path %q", sb[len(sb)-1].text, a)
 	}
 	return ""
+}
+
+// validateRouteShape 把 gin 注册期才会 panic 的路径形态提前到计划期：
+// catch-all 必须在最后一段、通配符必须有名字、每段至多一个通配符、'*' 只能
+// 出现在段首。{name=...} 的 proto 形态整段视为参数，不按 gin 语法拆。
+func validateRouteShape(domain, method, path string) error {
+	segs := splitRoutePath(path)
+	for i, s := range segs {
+		switch s.kind {
+		case 'a':
+			if s.name == "" {
+				return fmt.Errorf("appkit: domain %q route %s %s: catch-all %q must be named", domain, method, path, s.text)
+			}
+			if i != len(segs)-1 {
+				return fmt.Errorf("appkit: domain %q route %s %s: catch-all %q must be the last path segment", domain, method, path, s.text)
+			}
+		case 'p':
+			if s.name == "" {
+				return fmt.Errorf("appkit: domain %q route %s %s: wildcard %q must be named", domain, method, path, s.text)
+			}
+		}
+		if strings.HasPrefix(s.text, "{") {
+			continue
+		}
+		if n := strings.Count(s.text, ":") + strings.Count(s.text, "*"); n > 1 {
+			return fmt.Errorf("appkit: domain %q route %s %s: segment %q has %d wildcards; gin allows at most one per segment", domain, method, path, s.text, n)
+		}
+		if k := strings.IndexByte(s.text, '*'); k > 0 {
+			return fmt.Errorf("appkit: domain %q route %s %s: catch-all %q must start a path segment", domain, method, path, s.text)
+		}
+	}
+	return nil
 }
 
 // sortAndDedupWarnings 让警告集合与声明序无关（I2 的哈希稳定性）。
