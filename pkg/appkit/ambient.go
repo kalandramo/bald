@@ -18,14 +18,20 @@ type Ambient struct {
 }
 
 // WithAmbient 声明环境注入的接线（可多次调用，追加；重名去重）。
-// Name 为空在计划期报错——无身份的逃逸舱无法在计划里被引用。
+// 重名且 Detail 一致视为同一逃逸舱，只产一条诊断；重名而 Detail 冲突在
+// 计划期报错——同一身份无法同时描述两种注入，静默择一会让计划说谎。
+// Name 为空同样报错——无身份的逃逸舱无法在计划里被引用。
 func WithAmbient(notes ...Ambient) Option {
 	return optionFunc(func(d *Decl) { d.Ambient = append(d.Ambient, notes...) })
 }
 
 // ambientWarnings 把环境注入的接线显式化；顺序无关由 Plan 收尾统一排序去重。
+// 重名裁决在此完成（顺序无关）：同 Detail 合并，异 Detail 报错。
 func ambientWarnings(notes []Ambient) ([]Diagnostic, error) {
-	out := make([]Diagnostic, 0, len(notes))
+	if len(notes) == 0 {
+		return nil, nil
+	}
+	byName := make(map[string]string, len(notes))
 	for _, note := range notes {
 		if note.Name == "" {
 			return nil, fmt.Errorf("appkit: ambient declaration requires a Name")
@@ -34,6 +40,21 @@ func ambientWarnings(notes []Ambient) ([]Diagnostic, error) {
 		if msg == "" {
 			msg = "wiring injected by the build environment is not described by the plan"
 		}
+		if prev, ok := byName[note.Name]; ok {
+			if prev != msg {
+				return nil, fmt.Errorf("appkit: ambient %q declared twice with conflicting Detail", note.Name)
+			}
+			continue
+		}
+		byName[note.Name] = msg
+	}
+	out := make([]Diagnostic, 0, len(byName))
+	for _, note := range notes {
+		msg, ok := byName[note.Name]
+		if !ok {
+			continue
+		}
+		delete(byName, note.Name)
 		out = append(out, Diagnostic{
 			Level:   DiagWarn,
 			Code:    "ambient",

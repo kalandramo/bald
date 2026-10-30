@@ -144,7 +144,7 @@ gen: run `bald gen app --check` and `bald gen domain --check` in the generated t
 | `build tags` | 构建期 `-tags`（`debug.ReadBuildInfo` 读取），用于解释 build tag 分叉 |
 | `warnings` | 与 `--plan` 同源的全部诊断（含 `override` / `whitelisted` / `opaque-budget` / `ambient`） |
 
-`build tags` 行只回答「这个二进制用什么 tag 编的」；**为什么某个 tag 改变接线**需要应用自己说清楚：`appkit.WithAmbient(appkit.Ambient{Name: "build-tag:grpcgw", Detail: "..."})` 把这类环境注入声明进计划，`--plan` 与 `doctor` 的 `warnings` 出现 `ambient` 诊断（示例见 `_example/bald/internal/bootstrap/register_grpcgw.go` 的 `init()`）。`Name` 为空在计划期报错。
+`build tags` 行只回答「这个二进制用什么 tag 编的」；**为什么某个 tag 改变接线**需要应用自己说清楚：`appkit.WithAmbient(appkit.Ambient{Name: "build-tag:grpcgw", Detail: "..."})` 把这类环境注入声明进计划，`--plan` 与 `doctor` 的 `warnings` 出现 `ambient` 诊断（示例见 `_example/bald/internal/bootstrap/register_grpcgw.go` 的 `init()`）。`Name` 为空在计划期报错；同一个 `Name` 可以重复声明（同 `Detail` 合并为一条诊断，与声明序无关），但同 `Name` 不同 `Detail` 会在计划期报错——一个逃逸舱身份不能同时描述两种注入。
 
 ### 3.3 只读边界
 

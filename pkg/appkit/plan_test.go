@@ -483,6 +483,42 @@ func TestPlan_AmbientRequiresName(t *testing.T) {
 	}
 }
 
+// TestPlan_AmbientDuplicateName 钉住重名语义：同一身份、同一 Detail 合并为
+// 一条诊断（与声明序无关）；同一身份、不同 Detail 在计划期报错——否则计划
+// 会对同一逃逸舱给出两种描述。
+func TestPlan_AmbientDuplicateName(t *testing.T) {
+	cfgPath := writePlanConfig(t, "plan-ambient-dup", "script:\n  options:\n    enabled: true\n")
+	base := Ambient{Name: "build-tag:grpcgw", Detail: "grpc-gateway wiring compiled only under -tags grpcgw"}
+	compile := func(t *testing.T, notes ...Ambient) (*Plan, error) {
+		t.Helper()
+		return Compile(context.Background(), ConfigFile(cfgPath),
+			WithUnimplementedSegments("script"), WithAmbient(notes...))
+	}
+
+	// 同 Detail 的重名（含跨多次 WithAmbient 调用）合并为一条。
+	p, err := compile(t, base, base)
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+	var count int
+	for _, w := range p.Warnings {
+		if w.Code == "ambient" && w.Subject == base.Name {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("duplicate ambient note produced %d warnings, want 1: %+v", count, p.Warnings)
+	}
+
+	// 不同 Detail 的重名：计划期报错，且与声明序无关。
+	conflict := Ambient{Name: base.Name, Detail: "some other wiring"}
+	for _, notes := range [][]Ambient{{base, conflict}, {conflict, base}} {
+		if _, err := compile(t, notes...); err == nil || !strings.Contains(err.Error(), `ambient "build-tag:grpcgw" declared twice`) {
+			t.Fatalf("Compile err = %v, want conflicting-Detail error", err)
+		}
+	}
+}
+
 // TestPlan_OpaqueBudget 钉住逃逸舱的计量出口：OpaqueCount 恒进计划（I10），
 // 超预算只产计划警告、不阻断装配；0 = 不设预算，CI 可自行设门。
 func TestPlan_OpaqueBudget(t *testing.T) {
