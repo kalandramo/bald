@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -99,6 +100,53 @@ func TestPlanCache_NonNodeChangeVisible(t *testing.T) {
 	}
 }
 
+// 路由清单变化（Q5：Domain.RouteTable 是声明面的一部分）：节点/槽位对比为
+// 空，但 doctor 必须单列 routes changed 并逐条给出增删——换一条 REST 路径
+// 同样改变运行期行为，不能在基线对比里隐身。
+func TestPlanCache_RouteChangeVisible(t *testing.T) {
+	cfgPath := writePlanConfig(t, "cache-routes", "")
+	compile := func(routePath string) *Plan {
+		t.Helper()
+		dom := Domain{Name: "greet", RouteTable: []Route{
+			{Method: "POST", Path: routePath, RPC: "Greet"},
+		}}
+		p, err := Compile(context.Background(), ConfigFile(cfgPath), WithHTTP(http.NewServeMux()), dom)
+		if err != nil {
+			t.Fatalf("Compile(%s): %v", routePath, err)
+		}
+		return p
+	}
+	base, next := compile("/v1/greet"), compile("/v1/greets")
+	if base.Hash() == next.Hash() {
+		t.Fatal("route path change kept the same plan hash")
+	}
+
+	cachePath := filepath.Join(t.TempDir(), "plan-cache.json")
+	if err := writePlanCacheEntry(cachePath, base, time.Now()); err != nil {
+		t.Fatalf("writePlanCacheEntry: %v", err)
+	}
+	cmp := comparePlanCache(cachePath, next)
+	if !cmp.PlanChanged || !cmp.Change.Empty() {
+		t.Fatalf("compare = %+v, want route-only plan change", cmp)
+	}
+	if len(cmp.Routes) != 2 || !cmp.Routes[0].Removed || !cmp.Routes[1].Added {
+		t.Fatalf("route diff = %+v, want one removal + one addition", cmp.Routes)
+	}
+	out := renderDoctor(next, cmp)
+	for _, want := range []string{
+		"routes changed: 2",
+		"- greet POST /v1/greet -> Greet",
+		"+ greet POST /v1/greets -> Greet",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("doctor output missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "node attributes") {
+		t.Fatalf("route-only change must not be reported as node attributes:\n%s", out)
+	}
+}
+
 // 节点属性（priority 等）变化会移动装配哈希，但不在节点身份/期望态差异里：
 // doctor 不得谎报 "plan unchanged"，也不假装能逐项列出。
 func TestPlanCache_NodeAttributeChangeVisible(t *testing.T) {
@@ -162,7 +210,7 @@ func TestPlanCache_DiagnosticsChangeVisible(t *testing.T) {
 	}
 	out := renderDoctor(next, cmp)
 	for _, want := range []string{
-		"plan unchanged: nodes + imperative slots",
+		"plan unchanged: nodes + imperative slots + routes",
 		"diagnostics changed: 1",
 		"+ warn ambient (build-tag:grpcgw)",
 	} {
@@ -252,7 +300,7 @@ func TestPlanCache_ContractChangeStillDiffs(t *testing.T) {
 	for _, want := range []string{
 		"input changed since baseline:",
 		// 判据限定在装配声明：告警/段视图变化不冒充「整份计划未变」。
-		"plan unchanged: nodes + imperative slots",
+		"plan unchanged: nodes + imperative slots + routes",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("doctor output missing %q:\n%s", want, out)

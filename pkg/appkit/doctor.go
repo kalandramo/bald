@@ -213,16 +213,16 @@ func writePlanCacheSection(w io.Writer, b *planCacheBaseline, p *Plan) {
 		// 限定判据：这里只断言装配声明（节点 + 命令式槽位）未变，不断言
 		// Plan.Hash 相等——告警/段视图变化不进此判据（上方 plan: 行给出
 		// 当前整份计划哈希，需要严格比对时以它为准）。诊断差异另行列出。
-		fmt.Fprintln(w, "  plan unchanged: nodes + imperative slots")
+		fmt.Fprintln(w, "  plan unchanged: nodes + imperative slots + routes")
 		if len(b.Diagnostics) == 0 {
 			return
 		}
 	}
 	if b.PlanChanged {
-		if b.Change.Empty() {
-			// 装配哈希变了但节点/槽位身份对比为空：变化只在节点属性（priority/
-			// phase/segments/opaque 等）。如实报出，不谎报 unchanged，也不假装
-			// 能逐项列出。
+		if b.Change.Empty() && len(b.Routes) == 0 {
+			// 装配哈希变了但节点/槽位/路由身份对比为空：变化只在节点属性
+			// （priority/phase/segments/opaque 等）。如实报出，不谎报 unchanged，
+			// 也不假装能逐项列出。路由已有自己的差异段，不再冒充属性变化。
 			fmt.Fprintln(w, "  plan changed: node attributes (priority/phase/segments)")
 		}
 		if len(b.Change.Changes) > 0 {
@@ -259,6 +259,22 @@ func writePlanCacheSection(w io.Writer, b *planCacheBaseline, p *Plan) {
 					name = "-"
 				}
 				fmt.Fprintf(w, "    %s %s: %s\n", mark, ic.Kind, name)
+			}
+		}
+		if len(b.Routes) > 0 {
+			// 路由清单（Domain.RouteTable / 生成物 routes.<Name>）是声明面的
+			// 一部分：加一条或换一条路径都改变运行期 REST 面，逐条列出。
+			fmt.Fprintf(w, "  routes changed: %d\n", len(b.Routes))
+			for _, rc := range b.Routes {
+				mark := "+"
+				if rc.Removed {
+					mark = "-"
+				}
+				rpc := ""
+				if rc.RPC != "" {
+					rpc = " -> " + rc.RPC
+				}
+				fmt.Fprintf(w, "    %s %s %s %s%s\n", mark, rc.Domain, rc.Method, rc.Path, rpc)
 			}
 		}
 	}

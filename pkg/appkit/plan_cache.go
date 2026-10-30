@@ -43,6 +43,18 @@ type planCacheEntry struct {
 	Plan       *Plan  `json:"plan"`
 }
 
+// RouteChange 是 REST 路由清单在两次计划之间的差异。路由是声明面的一部分
+// （Q5：Domain.RouteTable → Plan.Routes），增删改同样改变运行期行为，不能在
+// 基线对比里隐身——节点身份对比为空不代表「装配没变」。
+type RouteChange struct {
+	Domain  string `json:"domain"`
+	Method  string `json:"method"`
+	Path    string `json:"path"`
+	RPC     string `json:"rpc,omitempty"`
+	Added   bool   `json:"added,omitempty"`
+	Removed bool   `json:"removed,omitempty"`
+}
+
 // DiagnosticChange 是计划诊断（告警/逃逸舱可见化）在两次计划之间的差异。
 // 诊断不进装配拓扑，但 ambient 接线、覆盖裁决等变化同样值得运维看见。
 type DiagnosticChange struct {
@@ -65,6 +77,7 @@ type planCacheBaseline struct {
 	//（命令式槽位、告警、段视图同样进 Hash）。
 	PlanChanged bool
 	Change      PlanChange
+	Routes      []RouteChange
 	Diagnostics []DiagnosticChange
 }
 
@@ -168,14 +181,16 @@ func readPlanCacheFile(path string) (*planCacheFile, error) {
 	return f, nil
 }
 
-// planAssemblyHash 是「装配声明」的投影哈希：节点 + 命令式槽位。输入哈希、
-// 告警与段视图不在其中——它们各自有独立报告面（input changed / warnings /
-// segments），混进来会让无关配置改动被误报成装配变化。
+// planAssemblyHash 是「装配声明」的投影哈希：节点 + 命令式槽位 + REST 路由
+// 清单。输入哈希、告警与段视图不在其中——它们各自有独立报告面（input
+// changed / warnings / segments），混进来会让无关配置改动被误报成装配变化。
+// 路由进判据：域声明的 RouteTable 决定实际挂载的 REST 面，换一条路径就是换
+// 运行期行为，不能因为「没有节点变化」被报成 plan unchanged。
 func planAssemblyHash(p *Plan) string {
 	if p == nil {
 		return ""
 	}
-	q := Plan{Nodes: p.Nodes, Imperative: p.Imperative}
+	q := Plan{Nodes: p.Nodes, Imperative: p.Imperative, Routes: p.Routes}
 	return q.Hash()
 }
 
@@ -217,13 +232,52 @@ func comparePlanCache(path string, p *Plan) *planCacheBaseline {
 	}
 	b.InputChanged = b.Entry.InputHash != p.InputHash
 	// 输入与诊断（Warnings/Segments）另有自己的报告面；这里的 PlanChanged
-	// 只回答「装配声明是否变了」——节点 + 命令式槽位投影。
+	// 只回答「装配声明是否变了」——节点 + 命令式槽位 + 路由清单投影。
 	b.PlanChanged = planAssemblyHash(b.Entry.Plan) != planAssemblyHash(p)
 	if b.Entry.Plan != nil {
 		b.Change = diffPlan(b.Entry.Plan, p)
+		b.Routes = diffRoutes(b.Entry.Plan, p)
 	}
 	b.Diagnostics = diffDiagnostics(b.Entry.Plan, p)
 	return b
+}
+
+// diffRoutes 对比路由清单（按域名+方法+路径+RPC 身份），声明序不影响结果。
+func diffRoutes(old, next *Plan) []RouteChange {
+	var oldList, nextList []Route
+	if old != nil {
+		oldList = append(oldList, old.Routes...)
+	}
+	if next != nil {
+		nextList = append(nextList, next.Routes...)
+	}
+	key := func(r Route) string {
+		return r.Domain + "\x00" + r.Method + "\x00" + r.Path + "\x00" + r.RPC
+	}
+	sort.Slice(oldList, func(i, j int) bool { return key(oldList[i]) < key(oldList[j]) })
+	sort.Slice(nextList, func(i, j int) bool { return key(nextList[i]) < key(nextList[j]) })
+	var out []RouteChange
+	i, j := 0, 0
+	for i < len(oldList) || j < len(nextList) {
+		switch {
+		case j >= len(nextList) || (i < len(oldList) && key(oldList[i]) < key(nextList[j])):
+			out = append(out, RouteChange{
+				Domain: oldList[i].Domain, Method: oldList[i].Method,
+				Path: oldList[i].Path, RPC: oldList[i].RPC, Removed: true,
+			})
+			i++
+		case i >= len(oldList) || key(nextList[j]) < key(oldList[i]):
+			out = append(out, RouteChange{
+				Domain: nextList[j].Domain, Method: nextList[j].Method,
+				Path: nextList[j].Path, RPC: nextList[j].RPC, Added: true,
+			})
+			j++
+		default:
+			i++
+			j++
+		}
+	}
+	return out
 }
 
 // diffDiagnostics 对比计划诊断（按 Level+Code+Subject+Message 身份）。同一
