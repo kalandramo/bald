@@ -526,6 +526,48 @@ func TestGenDomain_RESTBind_RequiresGoPackage(t *testing.T) {
 	}
 }
 
+// TestGenDomain_RESTBind_Deterministic Q5 生成物同样受「双跑字节一致」约束：
+// 同一份声明在两个临时树里各生成一遍，绑定文件、路由清单与其余产物逐字节相同。
+// 直接以绝对 --out 调用（不依赖 CWD），避免单测里两次 t.Chdir。
+func TestGenDomain_RESTBind_Deterministic(t *testing.T) {
+	as := guardFixture()
+	snaps := make([]map[string][]byte, 2)
+	for i := range snaps {
+		dir := t.TempDir()
+		specPath := writeSpecJSON(t, dir, as)
+		writeFixtureProto(t, dir)
+		cmd := genDomainCmd(NewDefaultIOStreams())
+		cmd.SetArgs([]string{"--spec", specPath, "--out", dir, "--rest-bind", "--adopt"})
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("gen domain --rest-bind run %d: %v", i, err)
+		}
+		snaps[i] = snapshotTree(t, dir)
+	}
+
+	a, b := snaps[0], snaps[1]
+	if len(a) != len(b) {
+		t.Fatalf("dual run produced different file counts: %d vs %d", len(a), len(b))
+	}
+	for _, rel := range []string{
+		"internal/apiserver/handler/gin/greet.bind.gen.go",
+		"internal/apiserver/routes/greet.gen.go",
+	} {
+		if _, ok := a[rel]; !ok {
+			t.Fatalf("first run missing %s", rel)
+		}
+	}
+	for path, want := range a {
+		got, ok := b[path]
+		if !ok {
+			t.Errorf("file %s missing from second run", path)
+			continue
+		}
+		if string(got) != string(want) {
+			t.Errorf("file %s differs between runs (%d vs %d bytes)", path, len(want), len(got))
+		}
+	}
+}
+
 // TestGinPathOf 钉住注解路径 → gin 路由的转换口径（含 pattern 段与嵌套变量）。
 func TestGinPathOf(t *testing.T) {
 	cases := []struct {

@@ -500,7 +500,7 @@ func Routes(h http.Handler) error {
 | I5 | 停机序 = 逆拓扑（受 `TeardownAfter` 修正） | `TestApply_TeardownOrder`（随机 DAG） |
 | I6 | 应用失败按已应用节点逆序回滚；重试幂等 | `TestApply_RollbackOnFailure` |
 | I7 | 漂移可观测：移除一个可协调资源后 `Drift` 报 `Missing` | `TestDrift_DetectsMissing` |
-| I8 | 生成确定：双跑字节一致；`--check` 零 diff | `TestGen_Deterministic`、`TestGen_CheckClean` |
+| I8 | 生成确定：双跑字节一致；`--check` 零 diff | `TestGen_Deterministic`、`TestGen_CheckClean`、`TestGenDomain_RESTBind_Deterministic` |
 | I9 | 公开 API 无未类型化资源访问 | `TestAPI_NoUntypedResource`（AST 守卫） |
 | I10 | 逃逸舱可见：白名单段、override、build tag 分叉均出现在 `Plan.Warnings` | `TestPlan_EscapeHatchesReported` |
 
@@ -576,7 +576,8 @@ go test ./pkg/appkit -run 'TestDrift'
 go test ./pkg/appkit -run 'TestAPI_'   # Resource(string) 调用点、手工排序表标识符
 
 # 生成确定性：生成器自有树（guard 夹具）双跑一致 + --check 零 diff
-go test ./internal/codegen -run 'TestGen_(Deterministic|CheckClean)'
+# （--rest-bind 的绑定文件与路由清单同受约束）
+go test ./internal/codegen -run 'TestGen_(Deterministic|CheckClean)|TestGenDomain_RESTBind_Deterministic'
 
 # 参考工程的计划口径（Opaque 预算 / 路由可见 / 无逃逸警告 / 段覆盖）
 (cd _example/bald && go test ./internal/bootstrap -run TestPlan_ReferenceProject)

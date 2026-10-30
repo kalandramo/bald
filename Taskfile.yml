@@ -321,7 +321,7 @@ tasks:
       - go test ./pkg/appkit -run 'TestTeardownOrder_|TestProviderPlan_StdTeardownOrder|TestComponent_StartFailureRollback|TestMountComponent_MountFailureRollback'
       - go test ./pkg/appkit -run 'TestDrift'
       - go test ./pkg/appkit -run 'TestAPI_'
-      - go test ./internal/codegen -run 'TestGen_(Deterministic|CheckClean)'
+      - go test ./internal/codegen -run 'TestGen_(Deterministic|CheckClean)|TestGenDomain_RESTBind_Deterministic'
       - cmd: go test ./internal/bootstrap -run TestPlan_ReferenceProject
         dir: _example/bald
 
