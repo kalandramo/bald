@@ -4,7 +4,7 @@
 
 - [架构演进路线](./架构演进路线.md)：第一轮（P0–P9）架构演进的决策记录——三方设计来源（onexstack/Kratos/go-lulu）、P0 装配纪律、P1 健康检查对称、P3 错误模型、P4 工具链、P5 零后端耦合、P7 认证授权抽象、P8 多租户、P9 传输中立归一化。**（重建版：原文件缺失，依源码与后续文档的可核实引用重建，原文无从核实者标「待考」。）**
 - [架构优化路线](./架构优化路线.md)：第二轮（P10–A1）优化——时空可组合性五组原语 T1 效应账本 / S1 能力声明 / C1 组件生命周期 / A1 运行期可逆挂载 / R1 配置增量协调，加 P10 bundle 门面、P12 代码生成、P13 卫生项；含分层可逆性（装配期不可逆 / 运行期可逆）。**（重建版：同上。）**
-- [Bald 声明式装配设计（修正草案）](./Bald%20声明式装配设计-修正草案.md)：对「声明式」的判据重定义与目标模型——引入 `Plan` IR（纯函数、可打印/可 diff/可哈希）、Provider `Plan`/`Apply` 分离、`DependsOn`/`Priority`/`TeardownAfter` 取代手工排序表、`Key[T]` 类型化资源面、节点级 `ReloadPolicy` + `Drift`、codegen 清单与 `--check`；定义 L1–L5 声明式等级（当前 L1 + 部分 L2，目标 v0.26 L3）。**草案，待 owner 裁决。**
+- [Bald 声明式装配设计（修正草案）](./Bald%20声明式装配设计-修正草案.md)：对「声明式」的判据重定义与目标模型——引入 `Plan` IR（纯函数、可打印/可 diff/可哈希）、Provider `Plan`/`Apply` 分离、`DependsOn`/`Priority`/`TeardownAfter` 取代手工排序表、`Key[T]` 类型化资源面、节点级 `ReloadPolicy` + `Drift`、codegen 清单与 `--check`；定义 L1–L5 声明式等级（2026-10-30：L1–L4 达成、L5 在生成物维度达成，M0–M5 与 Q5–Q8 已落；剩余 owner 点见正文 §8.2/§8.3）。
 - [应用框架设计](./应用框架设计.md)：AppKit 生命周期（五阶段停机）、Server/Registrar/Component 契约、效应账本/能力声明/运行期挂载。
 - [Bald 配置系统设计](./Bald%20配置系统设计.md)：配置系统全景——源抽象（Reader/ValueWatcher/FallbackReader + 10 provider）、proto 配置契约、bootstrap 装配（Registry/层优先级/Build 回滚）；源层与契约层的深展开见各自专属篇。**（原《配置中心设计》已并入本篇与《Bald 配置源层设计》——该文件已不存在，旧链接指向此处。）**
 - [Bald 配置源层设计](./Bald%20配置源层设计.md)：bconfig module 专属展开——字节进字节出的源层抽象（Reader/ValueWatcher/Decoder 能力轴 + 类型断言发现）、FallbackReader 级联回退与重算语义（事件值不可信）、10 个 provider 矩阵（双模式构造/推送与轮询分级/watch 父目录）、编写纪律 checklist。
