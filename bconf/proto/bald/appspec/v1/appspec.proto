@@ -52,6 +52,23 @@ message AppSpec {
   // 显式域清单（域声明值经生成物 domains.gen.go 变参直传
   // MustServe；name 唯一由 Gate1 校验）。
   repeated DomainSpec domains = 10;
+
+  // 构建期变体声明（Q7 长期形态首片）：每个变体声明一组 build tag 与人读
+  // 说明；生成物把「当前二进制实际带哪些 tag」投影为计划 ambient 诊断，
+  // 让 build tag 分叉从手写 init() + WithAmbient 变成声明。首批只做可见性
+  // （诊断），不改变装配；WithAmbient 保留为迁移期的手写逃逸舱。
+  repeated Variant variants = 11;
+}
+
+// Variant 声明一个构建期变体（build tag 分叉进声明）。
+message Variant {
+  // 变体名（全应用唯一；须匹配 ^[a-z][a-z0-9_]*$——诊断 Subject 为
+  // "variant:<name>"，生成物也用它区分条目）。
+  string name = 1;
+  // 生效所需的 build tag（全部满足才命中；空列表在 Gate1 报错）。
+  repeated string build_tags = 2;
+  // 人读说明（进 ambient 诊断的 Detail；为空时生成器给默认说明）。
+  string description = 3;
 }
 
 // LayoutSpec 声明生成期布局。

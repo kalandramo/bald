@@ -163,7 +163,10 @@ func pathsOf(files []genFile) []string {
 // 没有本用例，B2 登记的 9 个 meta.roles.* 键等于没被验证过（拼错也无人知）。
 func TestMachineGuard_RoleFieldsConsumed(t *testing.T) {
 	_, rendered := renderAppTree(t, fanoutFixture(t))
-	if errs := checkFieldConsumers(rendered); len(errs) != 0 {
+	// 变体字段的消费者只在声明了 variants 时落盘：追加一份带变体的渲染，
+	// 守卫才能核对 variants.* 的标记（角色夹具本身不声明变体，布局集合不变）。
+	_, vrendered := renderAppTree(t, variantFixture(fanoutFixture(t)))
+	if errs := checkFieldConsumers(rendered + vrendered); len(errs) != 0 {
 		t.Fatalf("roles 的每个字段都必须有消费者，got:\n%s", joinErrs(errs))
 	}
 }

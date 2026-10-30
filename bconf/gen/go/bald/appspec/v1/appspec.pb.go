@@ -59,7 +59,12 @@ type AppSpec struct {
 	Bundle *BundleSpec `protobuf:"bytes,9,opt,name=bundle,proto3" json:"bundle,omitempty"`
 	// 显式域清单（域声明值经生成物 domains.gen.go 变参直传
 	// MustServe；name 唯一由 Gate1 校验）。
-	Domains       []*DomainSpec `protobuf:"bytes,10,rep,name=domains,proto3" json:"domains,omitempty"`
+	Domains []*DomainSpec `protobuf:"bytes,10,rep,name=domains,proto3" json:"domains,omitempty"`
+	// 构建期变体声明（Q7 长期形态首片）：每个变体声明一组 build tag 与人读
+	// 说明；生成物把「当前二进制实际带哪些 tag」投影为计划 ambient 诊断，
+	// 让 build tag 分叉从手写 init() + WithAmbient 变成声明。首批只做可见性
+	// （诊断），不改变装配；WithAmbient 保留为迁移期的手写逃逸舱。
+	Variants      []*Variant `protobuf:"bytes,11,rep,name=variants,proto3" json:"variants,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -164,6 +169,78 @@ func (x *AppSpec) GetDomains() []*DomainSpec {
 	return nil
 }
 
+func (x *AppSpec) GetVariants() []*Variant {
+	if x != nil {
+		return x.Variants
+	}
+	return nil
+}
+
+// Variant 声明一个构建期变体（build tag 分叉进声明）。
+type Variant struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 变体名（全应用唯一；须匹配 ^[a-z][a-z0-9_]*$——诊断 Subject 为
+	// "variant:<name>"，生成物也用它区分条目）。
+	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// 生效所需的 build tag（全部满足才命中；空列表在 Gate1 报错）。
+	BuildTags []string `protobuf:"bytes,2,rep,name=build_tags,json=buildTags,proto3" json:"build_tags,omitempty"`
+	// 人读说明（进 ambient 诊断的 Detail；为空时生成器给默认说明）。
+	Description   string `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Variant) Reset() {
+	*x = Variant{}
+	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Variant) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Variant) ProtoMessage() {}
+
+func (x *Variant) ProtoReflect() protoreflect.Message {
+	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Variant.ProtoReflect.Descriptor instead.
+func (*Variant) Descriptor() ([]byte, []int) {
+	return file_bald_appspec_v1_appspec_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *Variant) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *Variant) GetBuildTags() []string {
+	if x != nil {
+		return x.BuildTags
+	}
+	return nil
+}
+
+func (x *Variant) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
 // LayoutSpec 声明生成期布局。
 type LayoutSpec struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -180,7 +257,7 @@ type LayoutSpec struct {
 
 func (x *LayoutSpec) Reset() {
 	*x = LayoutSpec{}
-	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[1]
+	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -192,7 +269,7 @@ func (x *LayoutSpec) String() string {
 func (*LayoutSpec) ProtoMessage() {}
 
 func (x *LayoutSpec) ProtoReflect() protoreflect.Message {
-	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[1]
+	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -205,7 +282,7 @@ func (x *LayoutSpec) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LayoutSpec.ProtoReflect.Descriptor instead.
 func (*LayoutSpec) Descriptor() ([]byte, []int) {
-	return file_bald_appspec_v1_appspec_proto_rawDescGZIP(), []int{1}
+	return file_bald_appspec_v1_appspec_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *LayoutSpec) GetRoot() string {
@@ -242,7 +319,7 @@ type BundleSpec struct {
 
 func (x *BundleSpec) Reset() {
 	*x = BundleSpec{}
-	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[2]
+	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -254,7 +331,7 @@ func (x *BundleSpec) String() string {
 func (*BundleSpec) ProtoMessage() {}
 
 func (x *BundleSpec) ProtoReflect() protoreflect.Message {
-	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[2]
+	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -267,7 +344,7 @@ func (x *BundleSpec) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BundleSpec.ProtoReflect.Descriptor instead.
 func (*BundleSpec) Descriptor() ([]byte, []int) {
-	return file_bald_appspec_v1_appspec_proto_rawDescGZIP(), []int{2}
+	return file_bald_appspec_v1_appspec_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *BundleSpec) GetNormalized() bool {
@@ -298,7 +375,7 @@ type DomainSpec struct {
 
 func (x *DomainSpec) Reset() {
 	*x = DomainSpec{}
-	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[3]
+	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -310,7 +387,7 @@ func (x *DomainSpec) String() string {
 func (*DomainSpec) ProtoMessage() {}
 
 func (x *DomainSpec) ProtoReflect() protoreflect.Message {
-	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[3]
+	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -323,7 +400,7 @@ func (x *DomainSpec) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DomainSpec.ProtoReflect.Descriptor instead.
 func (*DomainSpec) Descriptor() ([]byte, []int) {
-	return file_bald_appspec_v1_appspec_proto_rawDescGZIP(), []int{3}
+	return file_bald_appspec_v1_appspec_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *DomainSpec) GetName() string {
@@ -380,7 +457,7 @@ type AppMeta struct {
 
 func (x *AppMeta) Reset() {
 	*x = AppMeta{}
-	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[4]
+	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -392,7 +469,7 @@ func (x *AppMeta) String() string {
 func (*AppMeta) ProtoMessage() {}
 
 func (x *AppMeta) ProtoReflect() protoreflect.Message {
-	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[4]
+	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -405,7 +482,7 @@ func (x *AppMeta) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AppMeta.ProtoReflect.Descriptor instead.
 func (*AppMeta) Descriptor() ([]byte, []int) {
-	return file_bald_appspec_v1_appspec_proto_rawDescGZIP(), []int{4}
+	return file_bald_appspec_v1_appspec_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *AppMeta) GetName() string {
@@ -454,7 +531,7 @@ type RoleSpec struct {
 
 func (x *RoleSpec) Reset() {
 	*x = RoleSpec{}
-	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[5]
+	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -466,7 +543,7 @@ func (x *RoleSpec) String() string {
 func (*RoleSpec) ProtoMessage() {}
 
 func (x *RoleSpec) ProtoReflect() protoreflect.Message {
-	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[5]
+	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -479,7 +556,7 @@ func (x *RoleSpec) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RoleSpec.ProtoReflect.Descriptor instead.
 func (*RoleSpec) Descriptor() ([]byte, []int) {
-	return file_bald_appspec_v1_appspec_proto_rawDescGZIP(), []int{5}
+	return file_bald_appspec_v1_appspec_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *RoleSpec) GetName() string {
@@ -524,7 +601,7 @@ type ServerSpec struct {
 
 func (x *ServerSpec) Reset() {
 	*x = ServerSpec{}
-	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[6]
+	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -536,7 +613,7 @@ func (x *ServerSpec) String() string {
 func (*ServerSpec) ProtoMessage() {}
 
 func (x *ServerSpec) ProtoReflect() protoreflect.Message {
-	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[6]
+	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -549,7 +626,7 @@ func (x *ServerSpec) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServerSpec.ProtoReflect.Descriptor instead.
 func (*ServerSpec) Descriptor() ([]byte, []int) {
-	return file_bald_appspec_v1_appspec_proto_rawDescGZIP(), []int{6}
+	return file_bald_appspec_v1_appspec_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *ServerSpec) GetHttp() bool {
@@ -606,7 +683,7 @@ type ComponentSpec struct {
 
 func (x *ComponentSpec) Reset() {
 	*x = ComponentSpec{}
-	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[7]
+	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -618,7 +695,7 @@ func (x *ComponentSpec) String() string {
 func (*ComponentSpec) ProtoMessage() {}
 
 func (x *ComponentSpec) ProtoReflect() protoreflect.Message {
-	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[7]
+	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -631,7 +708,7 @@ func (x *ComponentSpec) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ComponentSpec.ProtoReflect.Descriptor instead.
 func (*ComponentSpec) Descriptor() ([]byte, []int) {
-	return file_bald_appspec_v1_appspec_proto_rawDescGZIP(), []int{7}
+	return file_bald_appspec_v1_appspec_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *ComponentSpec) GetKind() string {
@@ -677,7 +754,7 @@ type CapabilitySpec struct {
 
 func (x *CapabilitySpec) Reset() {
 	*x = CapabilitySpec{}
-	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[8]
+	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -689,7 +766,7 @@ func (x *CapabilitySpec) String() string {
 func (*CapabilitySpec) ProtoMessage() {}
 
 func (x *CapabilitySpec) ProtoReflect() protoreflect.Message {
-	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[8]
+	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -702,7 +779,7 @@ func (x *CapabilitySpec) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CapabilitySpec.ProtoReflect.Descriptor instead.
 func (*CapabilitySpec) Descriptor() ([]byte, []int) {
-	return file_bald_appspec_v1_appspec_proto_rawDescGZIP(), []int{8}
+	return file_bald_appspec_v1_appspec_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *CapabilitySpec) GetProvides() []string {
@@ -732,7 +809,7 @@ type Requirement struct {
 
 func (x *Requirement) Reset() {
 	*x = Requirement{}
-	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[9]
+	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -744,7 +821,7 @@ func (x *Requirement) String() string {
 func (*Requirement) ProtoMessage() {}
 
 func (x *Requirement) ProtoReflect() protoreflect.Message {
-	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[9]
+	mi := &file_bald_appspec_v1_appspec_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -757,7 +834,7 @@ func (x *Requirement) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Requirement.ProtoReflect.Descriptor instead.
 func (*Requirement) Descriptor() ([]byte, []int) {
-	return file_bald_appspec_v1_appspec_proto_rawDescGZIP(), []int{9}
+	return file_bald_appspec_v1_appspec_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *Requirement) GetComponent() string {
@@ -778,7 +855,7 @@ var File_bald_appspec_v1_appspec_proto protoreflect.FileDescriptor
 
 const file_bald_appspec_v1_appspec_proto_rawDesc = "" +
 	"\n" +
-	"\x1dbald/appspec/v1/appspec.proto\x12\x0fbald.appspec.v1\x1a\x1cbootstrap/v1/bootstrap.proto\"\x9f\x04\n" +
+	"\x1dbald/appspec/v1/appspec.proto\x12\x0fbald.appspec.v1\x1a\x1cbootstrap/v1/bootstrap.proto\"\xd5\x04\n" +
 	"\aAppSpec\x12,\n" +
 	"\x04meta\x18\x01 \x01(\v2\x18.bald.appspec.v1.AppMetaR\x04meta\x123\n" +
 	"\x06server\x18\x02 \x01(\v2\x1b.bald.appspec.v1.ServerSpecR\x06server\x12>\n" +
@@ -794,7 +871,13 @@ const file_bald_appspec_v1_appspec_proto_rawDesc = "" +
 	"\x06layout\x18\b \x01(\v2\x1b.bald.appspec.v1.LayoutSpecR\x06layout\x123\n" +
 	"\x06bundle\x18\t \x01(\v2\x1b.bald.appspec.v1.BundleSpecR\x06bundle\x125\n" +
 	"\adomains\x18\n" +
-	" \x03(\v2\x1b.bald.appspec.v1.DomainSpecR\adomains\"\x87\x01\n" +
+	" \x03(\v2\x1b.bald.appspec.v1.DomainSpecR\adomains\x124\n" +
+	"\bvariants\x18\v \x03(\v2\x18.bald.appspec.v1.VariantR\bvariants\"^\n" +
+	"\aVariant\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1d\n" +
+	"\n" +
+	"build_tags\x18\x02 \x03(\tR\tbuildTags\x12 \n" +
+	"\vdescription\x18\x03 \x01(\tR\vdescription\"\x87\x01\n" +
 	"\n" +
 	"LayoutSpec\x12\x12\n" +
 	"\x04root\x18\x01 \x01(\tR\x04root\x12#\n" +
@@ -858,39 +941,41 @@ func file_bald_appspec_v1_appspec_proto_rawDescGZIP() []byte {
 	return file_bald_appspec_v1_appspec_proto_rawDescData
 }
 
-var file_bald_appspec_v1_appspec_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
+var file_bald_appspec_v1_appspec_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
 var file_bald_appspec_v1_appspec_proto_goTypes = []any{
 	(*AppSpec)(nil),            // 0: bald.appspec.v1.AppSpec
-	(*LayoutSpec)(nil),         // 1: bald.appspec.v1.LayoutSpec
-	(*BundleSpec)(nil),         // 2: bald.appspec.v1.BundleSpec
-	(*DomainSpec)(nil),         // 3: bald.appspec.v1.DomainSpec
-	(*AppMeta)(nil),            // 4: bald.appspec.v1.AppMeta
-	(*RoleSpec)(nil),           // 5: bald.appspec.v1.RoleSpec
-	(*ServerSpec)(nil),         // 6: bald.appspec.v1.ServerSpec
-	(*ComponentSpec)(nil),      // 7: bald.appspec.v1.ComponentSpec
-	(*CapabilitySpec)(nil),     // 8: bald.appspec.v1.CapabilitySpec
-	(*Requirement)(nil),        // 9: bald.appspec.v1.Requirement
-	nil,                        // 10: bald.appspec.v1.ComponentSpec.ParamsEntry
-	(*v1.BootstrapConfig)(nil), // 11: bootstrap.v1.BootstrapConfig
+	(*Variant)(nil),            // 1: bald.appspec.v1.Variant
+	(*LayoutSpec)(nil),         // 2: bald.appspec.v1.LayoutSpec
+	(*BundleSpec)(nil),         // 3: bald.appspec.v1.BundleSpec
+	(*DomainSpec)(nil),         // 4: bald.appspec.v1.DomainSpec
+	(*AppMeta)(nil),            // 5: bald.appspec.v1.AppMeta
+	(*RoleSpec)(nil),           // 6: bald.appspec.v1.RoleSpec
+	(*ServerSpec)(nil),         // 7: bald.appspec.v1.ServerSpec
+	(*ComponentSpec)(nil),      // 8: bald.appspec.v1.ComponentSpec
+	(*CapabilitySpec)(nil),     // 9: bald.appspec.v1.CapabilitySpec
+	(*Requirement)(nil),        // 10: bald.appspec.v1.Requirement
+	nil,                        // 11: bald.appspec.v1.ComponentSpec.ParamsEntry
+	(*v1.BootstrapConfig)(nil), // 12: bootstrap.v1.BootstrapConfig
 }
 var file_bald_appspec_v1_appspec_proto_depIdxs = []int32{
-	4,  // 0: bald.appspec.v1.AppSpec.meta:type_name -> bald.appspec.v1.AppMeta
-	6,  // 1: bald.appspec.v1.AppSpec.server:type_name -> bald.appspec.v1.ServerSpec
-	7,  // 2: bald.appspec.v1.AppSpec.components:type_name -> bald.appspec.v1.ComponentSpec
-	8,  // 3: bald.appspec.v1.AppSpec.capability:type_name -> bald.appspec.v1.CapabilitySpec
-	11, // 4: bald.appspec.v1.AppSpec.bootstrap:type_name -> bootstrap.v1.BootstrapConfig
-	1,  // 5: bald.appspec.v1.AppSpec.layout:type_name -> bald.appspec.v1.LayoutSpec
-	2,  // 6: bald.appspec.v1.AppSpec.bundle:type_name -> bald.appspec.v1.BundleSpec
-	3,  // 7: bald.appspec.v1.AppSpec.domains:type_name -> bald.appspec.v1.DomainSpec
-	5,  // 8: bald.appspec.v1.AppMeta.roles:type_name -> bald.appspec.v1.RoleSpec
-	6,  // 9: bald.appspec.v1.RoleSpec.server:type_name -> bald.appspec.v1.ServerSpec
-	10, // 10: bald.appspec.v1.ComponentSpec.params:type_name -> bald.appspec.v1.ComponentSpec.ParamsEntry
-	9,  // 11: bald.appspec.v1.CapabilitySpec.requires:type_name -> bald.appspec.v1.Requirement
-	12, // [12:12] is the sub-list for method output_type
-	12, // [12:12] is the sub-list for method input_type
-	12, // [12:12] is the sub-list for extension type_name
-	12, // [12:12] is the sub-list for extension extendee
-	0,  // [0:12] is the sub-list for field type_name
+	5,  // 0: bald.appspec.v1.AppSpec.meta:type_name -> bald.appspec.v1.AppMeta
+	7,  // 1: bald.appspec.v1.AppSpec.server:type_name -> bald.appspec.v1.ServerSpec
+	8,  // 2: bald.appspec.v1.AppSpec.components:type_name -> bald.appspec.v1.ComponentSpec
+	9,  // 3: bald.appspec.v1.AppSpec.capability:type_name -> bald.appspec.v1.CapabilitySpec
+	12, // 4: bald.appspec.v1.AppSpec.bootstrap:type_name -> bootstrap.v1.BootstrapConfig
+	2,  // 5: bald.appspec.v1.AppSpec.layout:type_name -> bald.appspec.v1.LayoutSpec
+	3,  // 6: bald.appspec.v1.AppSpec.bundle:type_name -> bald.appspec.v1.BundleSpec
+	4,  // 7: bald.appspec.v1.AppSpec.domains:type_name -> bald.appspec.v1.DomainSpec
+	1,  // 8: bald.appspec.v1.AppSpec.variants:type_name -> bald.appspec.v1.Variant
+	6,  // 9: bald.appspec.v1.AppMeta.roles:type_name -> bald.appspec.v1.RoleSpec
+	7,  // 10: bald.appspec.v1.RoleSpec.server:type_name -> bald.appspec.v1.ServerSpec
+	11, // 11: bald.appspec.v1.ComponentSpec.params:type_name -> bald.appspec.v1.ComponentSpec.ParamsEntry
+	10, // 12: bald.appspec.v1.CapabilitySpec.requires:type_name -> bald.appspec.v1.Requirement
+	13, // [13:13] is the sub-list for method output_type
+	13, // [13:13] is the sub-list for method input_type
+	13, // [13:13] is the sub-list for extension type_name
+	13, // [13:13] is the sub-list for extension extendee
+	0,  // [0:13] is the sub-list for field type_name
 }
 
 func init() { file_bald_appspec_v1_appspec_proto_init() }
@@ -898,14 +983,14 @@ func file_bald_appspec_v1_appspec_proto_init() {
 	if File_bald_appspec_v1_appspec_proto != nil {
 		return
 	}
-	file_bald_appspec_v1_appspec_proto_msgTypes[1].OneofWrappers = []any{}
+	file_bald_appspec_v1_appspec_proto_msgTypes[2].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bald_appspec_v1_appspec_proto_rawDesc), len(file_bald_appspec_v1_appspec_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   11,
+			NumMessages:   12,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

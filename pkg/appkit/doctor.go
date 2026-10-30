@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"runtime/debug"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -26,7 +25,7 @@ func Doctor(ctx context.Context, opts ...Option) error {
 	if err != nil {
 		return err
 	}
-	writeDoctor(os.Stdout, p, buildTags(), comparePlanCache(d.PlanCache, p), newDomainReport(d.Domains))
+	writeDoctor(os.Stdout, p, BuildTags(), comparePlanCache(d.PlanCache, p), newDomainReport(d.Domains))
 	return nil
 }
 
@@ -61,20 +60,6 @@ func (r domainReport) write(w io.Writer) {
 	fmt.Fprintf(w, "\ndomains: %d (declared %d, legacy %d)\n", total, len(r.declared), len(r.legacy))
 	printSegments(w, "declared", r.declared)
 	printSegments(w, "legacy", r.legacy)
-}
-
-// buildTags 读取构建期 -tags 设置（未显式指定时返回 nil）。
-func buildTags() []string {
-	bi, ok := debug.ReadBuildInfo()
-	if !ok {
-		return nil
-	}
-	for _, s := range bi.Settings {
-		if s.Key == "-tags" && s.Value != "" {
-			return strings.Split(s.Value, ",")
-		}
-	}
-	return nil
 }
 
 // writeDoctor 渲染 doctor 报告。所有清单按字典序输出，保证同一计划字节稳定。

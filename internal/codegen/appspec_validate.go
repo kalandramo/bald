@@ -3,12 +3,13 @@ package codegen
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 
 	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/dynamicpb"
 	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/types/dynamicpb"
 
 	appspecv1 "github.com/kalandramo/bald/bconf/gen/go/bald/appspec/v1"
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
@@ -25,6 +26,10 @@ import (
 var componentKinds = map[string]bool{
 	"heartbeat": true,
 }
+
+// variantNameRe 限定变体名：它同时是 ambient 诊断的 Subject 后缀与生成物
+// 里的字符串字面量，限定为小写标识符形状，避免诊断/文件口径随命名漂移。
+var variantNameRe = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
 // gatewayDriver 是「gateway 快捷方式」的契约投影值：同端口单面语义
 // （server.http.driver = "grpc-gateway"，与 WithGatewayRegister 的既有
@@ -149,6 +154,40 @@ func validateAppSpec(as *appspecv1.AppSpec) []error {
 		}
 	}
 
+	// ---- variants：build tag 分叉进声明（Q7）----
+	seenVariant := map[string]bool{}
+	for i, vr := range as.GetVariants() {
+		name := vr.GetName()
+		switch {
+		case name == "":
+			add("variants[%d].name is required (drives the ambient Subject \"variant:<name>\")", i)
+		case !variantNameRe.MatchString(name):
+			add("variants[%d].name %q is invalid (must match %s; used as the ambient Subject suffix)", i, name, variantNameRe)
+		case seenVariant[name]:
+			add("variants[%d].name %q is declared twice (variant names must be unique)", i, name)
+		default:
+			seenVariant[name] = true
+		}
+		tags := vr.GetBuildTags()
+		if len(tags) == 0 {
+			add("variants[%d].build_tags is empty (a variant without tags would always match)", i)
+		}
+		seenTag := map[string]bool{}
+		for j, t := range tags {
+			if strings.TrimSpace(t) == "" {
+				add("variants[%d].build_tags[%d] is empty", i, j)
+				continue
+			}
+			if strings.TrimSpace(t) != t {
+				add("variants[%d].build_tags[%d] %q has surrounding whitespace", i, j, t)
+			}
+			if seenTag[t] {
+				add("variants[%d].build_tags[%d] %q is duplicated", i, j, t)
+			}
+			seenTag[t] = true
+		}
+	}
+
 	// ---- 快捷方式 ⇄ bootstrap 投影一致（bootstrap 非空时；消灭双真相源）----
 	bs := as.GetBootstrap()
 	if bootstrapEmpty(bs) {
@@ -250,24 +289,27 @@ func normalizeBootstrap(as *appspecv1.AppSpec) *bootstrapv1.BootstrapConfig {
 // value = 消费者必须在生成物文本中留下的标记。遍历 proto 描述符逐字段校验，
 // ServerSpec.gateway 型死声明从此不可能再上线（新增字段忘接消费者 = 测试红）。
 var fieldConsumers = map[string]string{
-	"bald.appspec.v1.AppSpec.meta.name":                "demoapp", // 标记按 guardFixture 取值断言（同包测试夹具）
-	"bald.appspec.v1.AppSpec.meta.module":              "demo.example/app",
-	"bald.appspec.v1.AppSpec.meta.desc":                "demo desc",
-	"bald.appspec.v1.AppSpec.components.kind":          "heartbeat",
-	"bald.appspec.v1.AppSpec.components.name":          "demo.hb",
-	"bald.appspec.v1.AppSpec.components.config_prefix": "demo.hb",
-	"bald.appspec.v1.AppSpec.components.params":        "30s",
-	"bald.appspec.v1.AppSpec.capability.provides":      "mech.Provides(",
+	"bald.appspec.v1.AppSpec.meta.name":                     "demoapp", // 标记按 guardFixture 取值断言（同包测试夹具）
+	"bald.appspec.v1.AppSpec.meta.module":                   "demo.example/app",
+	"bald.appspec.v1.AppSpec.meta.desc":                     "demo desc",
+	"bald.appspec.v1.AppSpec.components.kind":               "heartbeat",
+	"bald.appspec.v1.AppSpec.components.name":               "demo.hb",
+	"bald.appspec.v1.AppSpec.components.config_prefix":      "demo.hb",
+	"bald.appspec.v1.AppSpec.components.params":             "30s",
+	"bald.appspec.v1.AppSpec.capability.provides":           "mech.Provides(",
 	"bald.appspec.v1.AppSpec.capability.requires.component": "audit.store",
 	"bald.appspec.v1.AppSpec.capability.requires.caps":      "db",
-	"bald.appspec.v1.AppSpec.layout.apiserver_dir":     "internal/apiserver",
-	"bald.appspec.v1.AppSpec.layout.strict_contract":   "appkit.StrictContract(",
-	"bald.appspec.v1.AppSpec.bundle.normalized":        "bundle.Normalized(",
-	"bald.appspec.v1.AppSpec.domains.name":             "greet",
-	"bald.appspec.v1.AppSpec.domains.proto_package":    "greet.v1",
-	"bald.appspec.v1.AppSpec.domains.service":          "greet.v1.GreetService",
-	"bald.appspec.v1.AppSpec.domains.model":            "internal/apiserver/model/greet.go",
-	"bald.appspec.v1.AppSpec.domains.go_package":       "demo.example/app/internal/apiserver/greetv1",
+	"bald.appspec.v1.AppSpec.layout.apiserver_dir":          "internal/apiserver",
+	"bald.appspec.v1.AppSpec.layout.strict_contract":        "appkit.StrictContract(",
+	"bald.appspec.v1.AppSpec.bundle.normalized":             "bundle.Normalized(",
+	"bald.appspec.v1.AppSpec.domains.name":                  "greet",
+	"bald.appspec.v1.AppSpec.domains.proto_package":         "greet.v1",
+	"bald.appspec.v1.AppSpec.domains.service":               "greet.v1.GreetService",
+	"bald.appspec.v1.AppSpec.domains.model":                 "internal/apiserver/model/greet.go",
+	"bald.appspec.v1.AppSpec.domains.go_package":            "demo.example/app/internal/apiserver/greetv1",
+	"bald.appspec.v1.AppSpec.variants.name":                 "variant:grpcgw",
+	"bald.appspec.v1.AppSpec.variants.build_tags":           `"grpcgw"`,
+	"bald.appspec.v1.AppSpec.variants.description":          "gateway wiring behind the grpcgw tag",
 }
 
 // builderConsumed 是「由树构建器直接消费（不落生成物文本）」的字段集合：
@@ -276,16 +318,16 @@ var fieldConsumers = map[string]string{
 // 门 + 配置反射发射；layout.root 的消费 = 产出根定位。仍须登记——漏登即
 // 死声明（与 fieldConsumers 同一守卫）。
 var builderConsumed = map[string]bool{
-	"bald.appspec.v1.AppSpec.server":                 true,
-	"bald.appspec.v1.AppSpec.server.http":            true,
-	"bald.appspec.v1.AppSpec.server.grpc":            true,
-	"bald.appspec.v1.AppSpec.server.gateway":         true,
-	"bald.appspec.v1.AppSpec.server.http_addr":       true,
-	"bald.appspec.v1.AppSpec.server.grpc_addr":       true,
-	"bald.appspec.v1.AppSpec.audit_backends":         true,
-	"bald.appspec.v1.AppSpec.bundle_normalized":      true,
-	"bald.appspec.v1.AppSpec.bootstrap":              true,
-	"bald.appspec.v1.AppSpec.layout.root":            true,
+	"bald.appspec.v1.AppSpec.server":            true,
+	"bald.appspec.v1.AppSpec.server.http":       true,
+	"bald.appspec.v1.AppSpec.server.grpc":       true,
+	"bald.appspec.v1.AppSpec.server.gateway":    true,
+	"bald.appspec.v1.AppSpec.server.http_addr":  true,
+	"bald.appspec.v1.AppSpec.server.grpc_addr":  true,
+	"bald.appspec.v1.AppSpec.audit_backends":    true,
+	"bald.appspec.v1.AppSpec.bundle_normalized": true,
+	"bald.appspec.v1.AppSpec.bootstrap":         true,
+	"bald.appspec.v1.AppSpec.layout.root":       true,
 	// meta.roles：消费 = Gate1 角色校验（本文件 roles 块：name 唯一 +
 	// domains 引用 + 并集覆盖）+ 树构建器按角色切分 cmd/<app>-<role>/ 与
 	// configs/<app>-<role>.yaml（不落可断言的单一标记，故与快捷方式

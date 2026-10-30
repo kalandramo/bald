@@ -200,6 +200,63 @@ func TestGate1_MetaRequired(t *testing.T) {
 	}
 }
 
+// TestGate1_Variants 变体声明：name 必填/形状/唯一，build_tags 非空且逐项
+// 非空、无首尾空白、不重复；合法声明通过。
+func TestGate1_Variants(t *testing.T) {
+	valid := guardFixture()
+	valid.Variants = []*appspecv1.Variant{{
+		Name: "grpcgw", BuildTags: []string{"grpcgw"}, Description: "d",
+	}}
+	if errs := validateAppSpec(valid); len(errs) != 0 {
+		t.Fatalf("valid variants must pass Gate1: %v", errs)
+	}
+
+	cases := map[string]struct {
+		variants []*appspecv1.Variant
+		want     string
+	}{
+		"empty name": {
+			[]*appspecv1.Variant{{BuildTags: []string{"grpcgw"}}},
+			`variants[0].name is required`,
+		},
+		"invalid name": {
+			[]*appspecv1.Variant{{Name: "GrpcGW", BuildTags: []string{"grpcgw"}}},
+			`variants[0].name "GrpcGW" is invalid`,
+		},
+		"duplicate name": {
+			[]*appspecv1.Variant{
+				{Name: "grpcgw", BuildTags: []string{"grpcgw"}},
+				{Name: "grpcgw", BuildTags: []string{"nacos"}},
+			},
+			`variants[1].name "grpcgw" is declared twice`,
+		},
+		"empty build_tags": {
+			[]*appspecv1.Variant{{Name: "grpcgw"}},
+			`variants[0].build_tags is empty`,
+		},
+		"blank tag": {
+			[]*appspecv1.Variant{{Name: "grpcgw", BuildTags: []string{"  "}}},
+			`variants[0].build_tags[0] is empty`,
+		},
+		"whitespace tag": {
+			[]*appspecv1.Variant{{Name: "grpcgw", BuildTags: []string{" grpcgw"}}},
+			`has surrounding whitespace`,
+		},
+		"duplicate tag": {
+			[]*appspecv1.Variant{{Name: "grpcgw", BuildTags: []string{"grpcgw", "grpcgw"}}},
+			`variants[0].build_tags[1] "grpcgw" is duplicated`,
+		},
+	}
+	for name, tc := range cases {
+		as := guardFixture()
+		as.Variants = tc.variants
+		msg := joinErrs(validateAppSpec(as))
+		if !strings.Contains(msg, tc.want) {
+			t.Errorf("%s: error %q missing %q", name, msg, tc.want)
+		}
+	}
+}
+
 // ---------------------------------------------------------------------------
 // 快捷方式归一化（bootstrap 为空时的兼容通道）
 // ---------------------------------------------------------------------------
@@ -208,8 +265,8 @@ func TestGate1_MetaRequired(t *testing.T) {
 // bootstrap 非空时原样透传（一致性已由 Gate1 把关）。
 func TestNormalizeBootstrap(t *testing.T) {
 	as := &appspecv1.AppSpec{
-		Meta:   &appspecv1.AppMeta{Name: "legacy"},
-		Server: &appspecv1.ServerSpec{Http: true, HttpAddr: ":18080", Grpc: true, Gateway: true},
+		Meta:          &appspecv1.AppMeta{Name: "legacy"},
+		Server:        &appspecv1.ServerSpec{Http: true, HttpAddr: ":18080", Grpc: true, Gateway: true},
 		AuditBackends: []string{"log"},
 	}
 	bs := normalizeBootstrap(as)
@@ -293,11 +350,27 @@ func TestGate2_EmptySegmentStaysObject(t *testing.T) {
 // 字段消费机器守卫（G8 通用解）
 // ---------------------------------------------------------------------------
 
+// variantFixture 挂上机器守卫与生成测试共用的变体声明：取值与
+// fieldConsumers 的 variants 标记一一同构（改一处必须同步另一处）。
+func variantFixture(as *appspecv1.AppSpec) *appspecv1.AppSpec {
+	as.Variants = []*appspecv1.Variant{{
+		Name: "grpcgw", BuildTags: []string{"grpcgw"}, Description: "gateway wiring behind the grpcgw tag",
+	}}
+	return as
+}
+
 // renderedFixture 把参考夹具走完整树构建（Gate1 → 归一化 → Gate2 → buildTree），
-// 拼接全部生成物文本——机器守卫的断言面。
+// 拼接全部生成物文本——机器守卫的断言面。变体字段的消费者只在声明了
+// variants 时才落盘（variants.gen.go / assemble.gen.go 的调用），所以追加
+// 一份带 variants 的渲染，让守卫能按标记核对这三个字段。
 func renderedFixture(t *testing.T) string {
 	t.Helper()
-	as := guardFixture()
+	return renderSpecForGuard(t, guardFixture()) + renderSpecForGuard(t, variantFixture(guardFixture()))
+}
+
+// renderSpecForGuard 是 renderedFixture 的单份渲染。
+func renderSpecForGuard(t *testing.T, as *appspecv1.AppSpec) string {
+	t.Helper()
 	if err := guardErrs(validateAppSpec(as)); err != nil {
 		t.Fatalf("fixture must pass Gate1: %v", err)
 	}
@@ -512,6 +585,71 @@ func TestTree_OwnershipAcrossRegenerations(t *testing.T) {
 	after, _ := os.ReadFile(mainPath)
 	if !bytes.Equal(before, after) {
 		t.Error("owned regeneration must be deterministic (byte-identical)")
+	}
+}
+
+// TestGenApp_VariantsProjectedToAmbient Q7 首片：AppSpec.variants 落
+// internal/bootstrap/variants.gen.go，按二进制实际 build tags 投影 ambient
+// 诊断（生成期不展开 tag 组合、不按 tag 分文件——同一组 tag 命中多个变体
+// 也只多一条诊断，不会重复定义符号）；未声明 variants 的树不落该文件、
+// assemble.gen.go 也不出现调用。
+func TestGenApp_VariantsProjectedToAmbient(t *testing.T) {
+	as := guardFixture()
+	as.Variants = []*appspecv1.Variant{
+		{Name: "grpcgw", BuildTags: []string{"grpcgw"}, Description: "gateway registration injected by -tags grpcgw"},
+		{Name: "nacos_config", BuildTags: []string{"nacos", "config"}},
+	}
+	dir, specPath := runGenAppInTemp(t, as)
+
+	raw, err := os.ReadFile(filepath.Join(dir, "internal", "bootstrap", "variants.gen.go"))
+	if err != nil {
+		t.Fatalf("read variants.gen.go: %v", err)
+	}
+	src := string(raw)
+	for _, want := range []string{
+		"package bootstrap",
+		"func variantOptions() []appkit.Option {",
+		"tags := appkit.BuildTags()",
+		`if appkit.HasBuildTags(tags, "grpcgw") {`,
+		`if appkit.HasBuildTags(tags, "nacos", "config") {`,
+		`Name:   "variant:grpcgw",`,
+		`Name:   "variant:nacos_config",`,
+		`Detail: "gateway registration injected by -tags grpcgw",`,
+		`Detail: "build-tag variant declared in AppSpec.variants (tags: nacos,config)",`,
+	} {
+		if !strings.Contains(src, want) {
+			t.Errorf("variants.gen.go missing %q:\n%s", want, src)
+		}
+	}
+
+	assemble, err := os.ReadFile(filepath.Join(dir, "internal", "bootstrap", "assemble.gen.go"))
+	if err != nil {
+		t.Fatalf("read assemble.gen.go: %v", err)
+	}
+	if !strings.Contains(string(assemble), "opts = append(opts, variantOptions()...)") {
+		t.Errorf("assemble.gen.go must wire variantOptions:\n%s", assemble)
+	}
+
+	// 变体投影是 owned 产物：重跑 --check 必须零差异。
+	cmd := genAppCmd(NewDefaultIOStreams())
+	cmd.SetArgs([]string{"--spec", specPath, "--check"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("gen app --check after variants: %v", err)
+	}
+
+	plainDir := t.TempDir()
+	if _, err := genFixtureTree(t, plainDir, false); err != nil {
+		t.Fatalf("gen plain tree: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(plainDir, "internal", "bootstrap", "variants.gen.go")); !os.IsNotExist(err) {
+		t.Errorf("a tree without AppSpec.variants must not emit variants.gen.go: %v", err)
+	}
+	plainAssemble, err := os.ReadFile(filepath.Join(plainDir, "internal", "bootstrap", "assemble.gen.go"))
+	if err != nil {
+		t.Fatalf("read plain assemble.gen.go: %v", err)
+	}
+	if strings.Contains(string(plainAssemble), "variantOptions") {
+		t.Errorf("a tree without AppSpec.variants must not reference variantOptions:\n%s", plainAssemble)
 	}
 }
 
@@ -809,8 +947,13 @@ func TestTree_GeneratedProjectCompiles(t *testing.T) {
 	full := guardFixture()
 	full.Bootstrap.Server.Http.Driver = "grpc-gateway"
 	full.Server.Gateway = true
+	withVariants := guardFixture()
+	withVariants.Variants = []*appspecv1.Variant{{
+		Name: "grpcgw", BuildTags: []string{"grpcgw"}, Description: "d",
+	}}
 	cases := map[string]*appspecv1.AppSpec{
-		"httpgrpc": guardFixture(),
+		"httpgrpc":    guardFixture(),
+		"variants":    withVariants,
 		"fullgateway": full,
 		"domainsonly": {
 			Meta: &appspecv1.AppMeta{Name: "demodomain", Module: "demo.example/app", Desc: "d"},

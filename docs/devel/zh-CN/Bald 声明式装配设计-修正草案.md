@@ -21,7 +21,7 @@
 
 同时给出 **L1–L5 声明式等级**，用于对外诚实表述与验收：草案撰写时 bald 是 **L1 + 部分 L2**，本设计目标是在 v0.26 达到 **L3**、v0.27 达到 **L4**、v0.28 达到 **L5**。
 
-> **实施状态（2026-10-30，M0–M5 + doctor + Domain v2 + biz 段收敛已落地）**：`Compile`/Plan IR、Provider v2、删除手工排序表、`Key[T]` 类型化资源、节点级 `ReloadPolicy` + `Drift`、生成清单与 `--check`/`--adopt`、`WithOpaqueBudget`、`bald doctor`、计划缓存 `WithPlanCache`（§4.9，按 `(Role, InputHash)` 记基线、doctor 只读对比）均已交付，`WithRole` 补齐角色进计划与 Provider 作用域的缺口、`WithAmbient` 把 build tag / `init()` 注入接线记为计划 `ambient` 警告（Q7 短期形态）；`Domain.Declare`/`Domain.ApplyNode`（§4.6）已落地，示例 greet 域与 bald-admin 全部 20 个域都已迁到该形态（计划期 Opaque 只剩 std server 构造节点与程序化 registry 接管节点；std logger/audit 由契约段派生期望态，2026-10-30 起不再计为逃逸舱），`Domain.Reconcile` 补齐声明的可协调节点（计划期校验 + 热更分发）。对外口径随之更新为「声明式装配（L1–L4 达成，L5 生成物维度达成）」，见 [装配计划与 doctor](../../guide/zh-CN/Bald%20装配计划与%20doctor.md) §5。**收敛范围**：`Opaque` 预算——示例为 **2**、bald-admin 为 **1**，均达标；L4 的收敛覆盖 Provider 节点（logger/audit 的 `ReloadReconcile`）与声明域节点（`Domain.Reconcile`，2026-10-29 落地：计划期校验 + Wire/ApplyNode 成功后落账 + 热更按 Key 调钩子），域节点可挂框架段或业务配置段 `biz.<path>`（Q8，2026-10-30：计划期从 Settings 快照算期望态摘要，热更按新快照协调）；database/cache/storage 等 Provider 段仍明确不支持热更（`ReloadRestart`）。消费侧：`_example/bald` 的 greet 域已用上（`domain.greet.biz` 挂 `biz.greet` + `ReloadReconcile`，配置改动即重建端口）；bald-admin 的 auth 域也已声明 `domain.auth.biz`（`biz.login`，登录防护三件整体快照替换，2026-10-30），其余域仍为静态节点。§6 的 Data/Imperative 分区已起步：`effect`/`keyWatch`/`reconcile` 命令式槽位、`BeforeStart`/`AfterStart`/`BeforeStop`/`AfterStop` 生命周期钩子（按声明序编号）、`WithExtraServerFunc` 服务器工厂、`WithHTTP`/`WithGatewayRegister`/`WithGRPC`/`WithGRPCOptions` 服务器能力面（`serverCapability`）、`OnConfigChange` 回调以及身份端口/显式审计 sink（`identity`/`auditor`）进入 `--plan`/`doctor` 的 `imperative` 段（闭包不隐身，2026-10-30）；域声明的 REST 路由清单（`Domain.RouteTable`）进入 `Plan.Routes`——`--plan`/`doctor` 打印、参与计划哈希且置换不变，跨域同 `(方法, 路径)` 在计划期报错，手写 `Routes` 无清单给 `custom-routes` 警告（Q5 可见性面，2026-10-30）；`gen domain --rest-bind` 从 `google.api.http` 注解生成 gin 绑定与服务接口（`Bind<Name>` + `<Name>Service`，请求按路径/查询/body 绑定到 protojson、响应按 protojson 编码），并同批产出 `internal/<apiserver_dir>/routes/<d>.gen.go` 的 `appkit.Route` 清单（域引用 `RouteTable: routes.<Name>` 即让计划看见注解派生路由），默认关闭——未跑 `buf generate` 的树保持可编译；`--no-routes` 与 `--rest-bind` 连用时只产绑定、清单自持（域保留手写 `RouteTable`）。能力由框架测试钉住（`TestPlan_BizSegmentDesiredState`、`TestHotReload_ReconcilesBizSegment`、`TestPlan_DomainRoutesVisible`）。
+> **实施状态（2026-10-30，M0–M5 + doctor + Domain v2 + biz 段收敛已落地）**：`Compile`/Plan IR、Provider v2、删除手工排序表、`Key[T]` 类型化资源、节点级 `ReloadPolicy` + `Drift`、生成清单与 `--check`/`--adopt`、`WithOpaqueBudget`、`bald doctor`、计划缓存 `WithPlanCache`（§4.9，按 `(Role, InputHash)` 记基线、doctor 只读对比）均已交付，`WithRole` 补齐角色进计划与 Provider 作用域的缺口、`WithAmbient` 把 build tag / `init()` 注入接线记为计划 `ambient` 警告（Q7 短期形态）；`Domain.Declare`/`Domain.ApplyNode`（§4.6）已落地，示例 greet 域与 bald-admin 全部 20 个域都已迁到该形态（计划期 Opaque 只剩 std server 构造节点与程序化 registry 接管节点；std logger/audit 由契约段派生期望态，2026-10-30 起不再计为逃逸舱），`Domain.Reconcile` 补齐声明的可协调节点（计划期校验 + 热更分发）。对外口径随之更新为「声明式装配（L1–L4 达成，L5 生成物维度达成）」，见 [装配计划与 doctor](../../guide/zh-CN/Bald%20装配计划与%20doctor.md) §5。**收敛范围**：`Opaque` 预算——示例为 **2**、bald-admin 为 **1**，均达标；L4 的收敛覆盖 Provider 节点（logger/audit 的 `ReloadReconcile`）与声明域节点（`Domain.Reconcile`，2026-10-29 落地：计划期校验 + Wire/ApplyNode 成功后落账 + 热更按 Key 调钩子），域节点可挂框架段或业务配置段 `biz.<path>`（Q8，2026-10-30：计划期从 Settings 快照算期望态摘要，热更按新快照协调）；database/cache/storage 等 Provider 段仍明确不支持热更（`ReloadRestart`）。消费侧：`_example/bald` 的 greet 域已用上（`domain.greet.biz` 挂 `biz.greet` + `ReloadReconcile`，配置改动即重建端口）；bald-admin 的 auth 域也已声明 `domain.auth.biz`（`biz.login`，登录防护三件整体快照替换，2026-10-30），其余域仍为静态节点。§6 的 Data/Imperative 分区已起步：`effect`/`keyWatch`/`reconcile` 命令式槽位、`BeforeStart`/`AfterStart`/`BeforeStop`/`AfterStop` 生命周期钩子（按声明序编号）、`WithExtraServerFunc` 服务器工厂、`WithHTTP`/`WithGatewayRegister`/`WithGRPC`/`WithGRPCOptions` 服务器能力面（`serverCapability`）、`OnConfigChange` 回调以及身份端口/显式审计 sink（`identity`/`auditor`）进入 `--plan`/`doctor` 的 `imperative` 段（闭包不隐身，2026-10-30）；域声明的 REST 路由清单（`Domain.RouteTable`）进入 `Plan.Routes`——`--plan`/`doctor` 打印、参与计划哈希且置换不变，跨域同 `(方法, 路径)` 在计划期报错，手写 `Routes` 无清单给 `custom-routes` 警告（Q5 可见性面，2026-10-30）；`gen domain --rest-bind` 从 `google.api.http` 注解生成 gin 绑定与服务接口（`Bind<Name>` + `<Name>Service`，请求按路径/查询/body 绑定到 protojson、响应按 protojson 编码），并同批产出 `internal/<apiserver_dir>/routes/<d>.gen.go` 的 `appkit.Route` 清单（域引用 `RouteTable: routes.<Name>` 即让计划看见注解派生路由），默认关闭——未跑 `buf generate` 的树保持可编译；`--no-routes` 与 `--rest-bind` 连用时只产绑定、清单自持（域保留手写 `RouteTable`）。`AppSpec.variants` 首片（2026-10-30，§8.3）：`gen app` 落 `internal/bootstrap/variants.gen.go`，运行期按二进制实际 build tags 投影 `ambient` 诊断（Subject = `variant:<name>`），build tag 分叉从手写 `init()` 开始进入声明（首批只做可见性）。能力由框架测试钉住（`TestPlan_BizSegmentDesiredState`、`TestHotReload_ReconcilesBizSegment`、`TestPlan_DomainRoutesVisible`、`TestGenApp_VariantsProjectedToAmbient`）。
 
 ---
 
@@ -620,32 +620,33 @@ bald doctor --config configs/bald-demo-api.yaml
 | Q4 | 收敛首版覆盖哪些资源？ | logger/audit/组件；DB/cache/storage 仅 `ReloadRestart` |
 | Q5 | 路由是否由生成器接管？ | 是，默认生成；`--no-routes` 保留自定义。**可见性已落**（2026-10-30）：`Domain.RouteTable` → `Plan.Routes`（`--plan`/`doctor` 可见、置换不变、跨域同路由计划期报错、gin 挂不上去的形态——通配参数名不一致、catch-all 与更长路径并存、未命名/位置非法的通配符——同样计划期报错、手写 `Routes` 无清单给 `custom-routes` 警告）；**绑定生成已落为 opt-in**（`--rest-bind`，2026-10-30：注解 → gin 路由 + 服务接口 + protojson 编解码；同批注解另出 `internal/<apiserver_dir>/routes/<d>.gen.go` 的 `appkit.Route` 清单，域引用 `RouteTable: routes.<Name>` 即获计划可见性）；**逃逸面已落**（`--rest-bind --no-routes`：只产绑定、清单自持）；**前置校验已落**（2026-10-30：生成期读消费者 `go.mod` 与 proto `go_package` 目录——缺 `github.com/kalandramo/bald/transport/web` 给 `go get` 修法，`go_package` 目录无 Go 文件给 `buf generate` 修法，两条都在生成期拒绝，不再产出编译不过的树）；**默认生成未做**——实测前置未满足：夹具/未跑 `buf generate` 的真实树缺 proto Go 包（绑定文件 import 其 `go_package`），默认开启必然在编译期爆炸；待消费方流水线保证 proto 产物与 `transport/web` 依赖后再议。可见性口径：清单一域自持 REST 面，非域路由不在其中 |
 | Q6 | `AppSpec` 快捷方式何时移除？ | v0.28；投影门已运行两个版本。移除的前置——契约层可离线再生——已就绪（2026-10-30：`bconf/buf.gen.local.yaml` 与远端插件产物逐字节一致，`TestGeneratedMatchesProto` 钉住）；剩余是 bconf 破坏性契约变更的版本/发布决策（owner） |
-| Q7 | build tag 分叉如何进入声明？ | 短期计划中记录 `Ambient` 并警告——**已落**（`WithAmbient`，2026-10-29：示例 `-tags grpcgw`/`nacos` 经 `init()` 登记，`--plan`/`doctor` 出现 `ambient` 警告）；长期进 AppSpec `variants`（**草案见 §8.3**；未实现） |
+| Q7 | build tag 分叉如何进入声明？ | 短期计划中记录 `Ambient` 并警告——**已落**（`WithAmbient`，2026-10-29：示例 `-tags grpcgw`/`nacos` 经 `init()` 登记，`--plan`/`doctor` 出现 `ambient` 警告）；长期进 AppSpec `variants`——**首片已落**（2026-10-30：`AppSpec.variants` 声明 name/build_tags/description，生成物按二进制实际 build tags 投影 `ambient` 诊断，首批只做可见性；口径见 §8.3） |
 | Q8 | 域自有业务配置（`biz` 段）如何进入可协调节点的期望态？ | **已落**（2026-10-30，按草案实现）：`Node.Segments` 接受 `biz.<path>`，计划期从合并 Settings 快照按完整点路径取子树、JSON 确定性序列化算 `DesiredHash`（段缺失/有值可区分）；`Domain.Declare` 校验纳入 biz 段，`Domain.Reconcile` 在热更时按新快照协调。快照口径：`Compile`/`--plan` 为文件 + env，真实启动/热更为含 flag 的完整合并 |
 
-### 8.3 Q7 长期形态草案：`AppSpec.variants`（待裁决）
+### 8.3 Q7 长期形态：`AppSpec.variants`（首片已落，2026-10-30）
 
-目标：build tag 分叉从「手写 `init()` + `WithAmbient`」升级为声明，生成器物化带构建约束的接线；`Ambient` 退化为迁移期的手写逃逸舱。
+目标：build tag 分叉从「手写 `init()` + `WithAmbient`」升级为声明；`Ambient` 退化为迁移期的手写逃逸舱。
 
-草案形状（bconf 增量字段，不破坏既有 spec）：
+已落形状（bconf 增量字段，不破坏既有 spec）：
 
 ```proto
 message Variant {
-  string name = 1;               // 稳定身份：生成文件名、ambient Subject 都用它
-  repeated string build_tags = 2; // 生效的 tag 组合（全部满足）
-  string description = 3;        // 人读说明 → ambient 诊断的 Detail
+  string name = 1;                // 稳定身份：ambient Subject = "variant:<name>"
+  repeated string build_tags = 2; // 生效所需的 tag（全部满足才命中）
+  string description = 3;         // 人读说明 → ambient 诊断的 Detail（空则生成默认说明）
 }
-// AppSpec 增加：repeated Variant variants = <N>;
+// AppSpec 增加：repeated Variant variants = 11;
 ```
 
-生成与计划口径：
+生成与计划口径（**实现与早期草案的差异**）：
 
-- 每个变体生成 `internal/bootstrap/variants/<name>.gen.go`，文件头 `//go:build <tags>`，导出 `func options() []appkit.Option`（返回 `appkit.WithAmbient(...)`）；`Assemble` 无条件展开该函数，未带 tag 的构建得到空切片——不用 `init()` 改写全局状态。
-- 生成期校验：`name` 唯一且非空、`build_tags` 非空、tag 组合不与默认构建互斥到不可达；产物纳入 `--check`/`--adopt`，双跑字节一致。
-- 计划口径：带对应 tag 的构建里，`Plan.Warnings` 出现 `ambient` 诊断（Subject = `variant:<name>`）；不带 tag 的构建不出现。CI 至少对每个变体各跑一次 `--plan`。
-- 迁移：示例删除 `register_grpcgw.go` / `register_nacos.go` 的 `init()`，改为 spec 声明两个 variant；`WithAmbient` 保留一个版本，供尚未入 spec 的注入使用。
+- 生成 `internal/bootstrap/variants.gen.go`（仅 `variants` 非空时落盘）：`variantOptions()` 在运行期读 `appkit.BuildTags()`（`debug.ReadBuildInfo` 的 `-tags`，与 `doctor` 的 `build tags` 行同源），用 `appkit.HasBuildTags` 判定命中，命中的变体逐个 `appkit.WithAmbient`；`assemble.gen.go` 在 `Options()` 返回前展开它。
+- **不按 `//go:build` 分文件**：早期草案给每个变体生成一个带构建约束的文件并各自导出 `options()`，同一组 tag 命中多个变体（如 `grpcgw` 与 `grpcgw,nacos`）时会在同一包里重复定义符号。运行期判定天然允许多个变体同时命中，按声明序全部投影，Subject 区分身份。
+- 生成期校验（Gate1）：`name` 必填、匹配 `^[a-z][a-z0-9_]*$`、全应用唯一；`build_tags` 非空，逐项非空、无首尾空白、不重复。产物纳入 `--check`/`--adopt`，双跑逐字节一致；未声明 `variants` 的树不落该文件、`assemble.gen.go` 也不出现调用（逐个字节与引入前一致）。
+- 计划口径：带对应 tag 的构建里，`Plan.Warnings` 出现 `ambient` 诊断（Subject = `variant:<name>`）；不带 tag 的构建不出现。CI 至少对每个变体各跑一次 `--plan`。变体**不产生节点**——它声明的仍是「计划外的注入」，首批只把可见性从手写 `init()` 挪进声明；不改变装配。
+- 框架测试：`TestGenApp_VariantsProjectedToAmbient`（产物内容 + 默认说明 + `--check` 零差异 + 未声明不落盘）、`TestGate1_Variants`（名/标签各条拒绝）、`TestHasBuildTags`（命中判据）。
 
-未决点（owner）：tag 表达力是否允许逻辑组合（`grpcgw && !nacos`）、变体是否允许覆盖 bootstrap 段（首批建议只声明可见性、不覆盖装配），以及 `variants` 与 `--plan` 缓存基线的对账口径。
+未决点（owner）：tag 表达力是否允许逻辑组合（`grpcgw && !nacos`）、变体是否允许覆盖 bootstrap 段（首批只声明可见性、不覆盖装配）、`variants` 与 `--plan` 缓存基线的对账口径，以及示例 `register_grpcgw.go` / `register_nacos.go` 的 `init()` 是否随首批迁移进 spec（当前保留，`WithAmbient` 与 `variants` 并存）。
 
 ---
 
@@ -675,7 +676,7 @@ message Variant {
 | 资源面 `any` + 字符串 | P4：`Key[T]`；旧 API deprecate |
 | 收敛只覆盖组件 | P3：节点级 `ReloadPolicy` + `Drift`；保守默认 |
 | Registrar 覆盖静默 | P5：计划警告 + `Override` 显式化 |
-| build tag 改变接线 | P5：计划 `Ambient` 警告（`WithAmbient`，已落）；长期 AppSpec `variants` |
+| build tag 改变接线 | P5：计划 `Ambient` 警告（`WithAmbient`，已落）；AppSpec `variants` 首片已落（按实际 tag 投影 ambient，§8.3） |
 | codegen 有状态、非幂等 | P6：清单 + `--check` + 确定性；路由生成 |
 | 对外称「声明式编程」 | §3.1：改为「声明式装配（Lx）」，按等级表述 |
 | 验收只量生产力 | §7：声明性指标为主，生产力指标为辅 |
