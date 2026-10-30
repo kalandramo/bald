@@ -19,7 +19,7 @@ import (
 
 func TestPlanCache_RoundTripAndDiff(t *testing.T) {
 	cfgPath := writePlanConfig(t, "cache-app", "script:\n  options:\n    enabled: true\n")
-	alpha := Node{Key: "alpha", Kind: "script-impl", Phase: PhaseBootstrap, Priority: PriorityLegacy}
+	alpha := Node{Key: "alpha", Kind: "script-impl", Phase: PhaseBootstrap, Priority: testNodePriority}
 	p, err := Compile(context.Background(), ConfigFile(cfgPath), fixedNodeProvider([]string{"script"}, alpha))
 	if err != nil {
 		t.Fatalf("Compile: %v", err)
@@ -62,7 +62,7 @@ func TestPlanCache_RoundTripAndDiff(t *testing.T) {
 // "plan unchanged"（effect/keyWatch/reconcile 同样进 Plan.Hash）。
 func TestPlanCache_NonNodeChangeVisible(t *testing.T) {
 	cfgPath := writePlanConfig(t, "cache-imperative", "script:\n  options:\n    enabled: true\n")
-	alpha := Node{Key: "alpha", Kind: "script-impl", Phase: PhaseBootstrap, Priority: PriorityLegacy}
+	alpha := Node{Key: "alpha", Kind: "script-impl", Phase: PhaseBootstrap, Priority: testNodePriority}
 	compile := func(name string) *Plan {
 		t.Helper()
 		p, err := Compile(context.Background(), ConfigFile(cfgPath),
@@ -152,7 +152,7 @@ func TestPlanCache_RouteChangeVisible(t *testing.T) {
 // 必须单列 variants changed——未命中的声明不产诊断，不能在对比里隐身。
 func TestPlanCache_VariantChangeVisible(t *testing.T) {
 	cfgPath := writePlanConfig(t, "cache-variants", "script:\n  options:\n    enabled: true\n")
-	alpha := Node{Key: "alpha", Kind: "script-impl", Phase: PhaseBootstrap, Priority: PriorityLegacy}
+	alpha := Node{Key: "alpha", Kind: "script-impl", Phase: PhaseBootstrap, Priority: testNodePriority}
 	compile := func(vs ...VariantDecl) *Plan {
 		t.Helper()
 		opts := []Option{ConfigFile(cfgPath), fixedNodeProvider([]string{"script"}, alpha)}
@@ -224,7 +224,7 @@ func TestPlanCache_NodeAttributeChangeVisible(t *testing.T) {
 		}
 		return p
 	}
-	base, next := compile(PriorityLegacy), compile(PriorityLegacy+1)
+	base, next := compile(testNodePriority), compile(testNodePriority+1)
 	path := filepath.Join(t.TempDir(), "plan-cache.json")
 	if err := writePlanCacheEntry(path, base, time.Now()); err != nil {
 		t.Fatalf("writePlanCacheEntry: %v", err)
@@ -243,7 +243,7 @@ func TestPlanCache_NodeAttributeChangeVisible(t *testing.T) {
 // ——否则 build tag 分叉在计划缓存里彻底隐身。
 func TestPlanCache_DiagnosticsChangeVisible(t *testing.T) {
 	cfgPath := writePlanConfig(t, "cache-diagnostics", "script:\n  options:\n    enabled: true\n")
-	alpha := Node{Key: "alpha", Kind: "script-impl", Phase: PhaseBootstrap, Priority: PriorityLegacy}
+	alpha := Node{Key: "alpha", Kind: "script-impl", Phase: PhaseBootstrap, Priority: testNodePriority}
 	compile := func(notes ...Ambient) *Plan {
 		t.Helper()
 		opts := []Option{ConfigFile(cfgPath), fixedNodeProvider([]string{"script"}, alpha)}
@@ -287,7 +287,7 @@ func TestPlanCache_DiffOnAddedNode(t *testing.T) {
 	cfgPath := writePlanConfig(t, "cache-diff",
 		"script:\n  options:\n    enabled: true\n"+
 			"broker:\n  type: \"kafka\"\n")
-	alpha := Node{Key: "alpha", Kind: "script-impl", Phase: PhaseBootstrap, Priority: PriorityLegacy}
+	alpha := Node{Key: "alpha", Kind: "script-impl", Phase: PhaseBootstrap, Priority: testNodePriority}
 	base, err := Compile(context.Background(), ConfigFile(cfgPath),
 		WithUnimplementedSegments("broker"), fixedNodeProvider([]string{"script"}, alpha))
 	if err != nil {
@@ -298,7 +298,7 @@ func TestPlanCache_DiffOnAddedNode(t *testing.T) {
 		t.Fatalf("writePlanCacheEntry: %v", err)
 	}
 
-	beta := Node{Key: "beta", Kind: "broker-impl", Phase: PhaseBootstrap, Priority: PriorityLegacy}
+	beta := Node{Key: "beta", Kind: "broker-impl", Phase: PhaseBootstrap, Priority: testNodePriority}
 	next, err := Compile(context.Background(), ConfigFile(cfgPath),
 		WithUnimplementedSegments("broker"),
 		fixedNodeProvider([]string{"script"}, alpha),
@@ -326,7 +326,7 @@ func TestPlanCache_DiffOnAddedNode(t *testing.T) {
 }
 
 func TestPlanCache_ContractChangeStillDiffs(t *testing.T) {
-	alpha := Node{Key: "alpha", Kind: "script-impl", Phase: PhaseBootstrap, Priority: PriorityLegacy}
+	alpha := Node{Key: "alpha", Kind: "script-impl", Phase: PhaseBootstrap, Priority: testNodePriority}
 	baseCfg := writePlanConfig(t, "cache-contract", "script:\n  options:\n    enabled: true\n")
 	base, err := Compile(context.Background(), ConfigFile(baseCfg), fixedNodeProvider([]string{"script"}, alpha))
 	if err != nil {
@@ -448,9 +448,9 @@ func TestPlanRole_FromWithRole(t *testing.T) {
 		segs: []string{"script"},
 		plan: func(_ context.Context, s PlanScope) ([]Node, error) {
 			seen = append(seen, s.Role)
-			return []Node{{Key: "alpha", Kind: "script-impl", Phase: PhaseBootstrap, Priority: PriorityLegacy}}, nil
+			return []Node{{Key: "alpha", Kind: "script-impl", Phase: PhaseBootstrap, Priority: testNodePriority}}, nil
 		},
-		build: func(context.Context, BuildScope) (any, Cleanup, error) { return nil, nil, nil },
+		build: func(context.Context, ApplyScope) (any, Cleanup, error) { return nil, nil, nil },
 	}
 	p, err := Compile(context.Background(), ConfigFile(cfgPath), WithRole("api"), prov)
 	if err != nil {

@@ -63,9 +63,14 @@ type auditProvider struct {
 func (auditProvider) Segments() []string { return []string{"audit"} }
 func (p auditProvider) Apply(d *appkit.Decl) { d.Providers = append(d.Providers, p) }
 
+func (auditProvider) Plan(context.Context, appkit.PlanScope) ([]appkit.Node, error) {
+    return []appkit.Node{{Key: "audit", Phase: appkit.PhaseBootstrap,
+        Priority: appkit.PriorityAudit, TeardownAfter: []appkit.ResourceKey{"*"}}}, nil
+}
+
 // Build 把 backends 列表映射为后端构造器，经 audit.Compose 组装
 // （列表序 = 广播序；失败逆序回滚的语义收敛在 Compose）。
-func (p auditProvider) Build(ctx context.Context, s appkit.BuildScope) (any, appkit.Cleanup, error) {
+func (p auditProvider) Build(ctx context.Context, s appkit.ApplyScope, _ appkit.Node) (any, appkit.Cleanup, error) {
     acfg := s.Config.GetAudit()
     backs := make([]audit.NamedBackend, 0, len(acfg.GetBackends()))
     for _, typ := range acfg.GetBackends() {

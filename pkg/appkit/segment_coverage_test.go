@@ -188,7 +188,7 @@ func TestAssemble_ServerSubSegmentWithCoProvider(t *testing.T) {
 	cfg.Server.Asynq = &bootstrapv1.Server_Asynq{RedisAddress: "127.0.0.1:6379"}
 
 	var buildCalled, started atomic.Bool
-	asynq := segProvider{segs: []string{"server.asynq"}, build: func(context.Context, BuildScope) (any, Cleanup, error) {
+	asynq := segProvider{segs: []string{"server.asynq"}, build: func(context.Context, ApplyScope) (any, Cleanup, error) {
 		buildCalled.Store(true)
 		return []transport.Server{&probeServer{name: "asynq", started: &started, mark: func(string) {}}}, nil, nil
 	}}

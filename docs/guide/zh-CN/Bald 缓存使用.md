@@ -271,7 +271,12 @@ func (localCacheProvider) Apply(d *appkit.Decl) {
     d.Providers = append(d.Providers, localCacheProvider{})
 }
 
-func (localCacheProvider) Build(ctx context.Context, s appkit.BuildScope) (any, appkit.Cleanup, error) {
+func (localCacheProvider) Plan(context.Context, appkit.PlanScope) ([]appkit.Node, error) {
+    return []appkit.Node{{Key: "cache.local", Phase: appkit.PhaseBootstrap,
+        Priority: appkit.PriorityCache}}, nil
+}
+
+func (localCacheProvider) Build(ctx context.Context, s appkit.ApplyScope, _ appkit.Node) (any, appkit.Cleanup, error) {
     prod, cleanup, err := localcontract.Provider(ctx, s.Config.GetCache())
     if err != nil {
         return nil, nil, err

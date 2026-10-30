@@ -21,7 +21,7 @@ func fixedNodeProvider(segs []string, n Node) segProvider {
 	return segProvider{
 		segs:  segs,
 		plan:  func(context.Context, PlanScope) ([]Node, error) { return []Node{n}, nil },
-		build: func(context.Context, BuildScope) (any, Cleanup, error) { return nil, nil, nil },
+		build: func(context.Context, ApplyScope) (any, Cleanup, error) { return nil, nil, nil },
 	}
 }
 
@@ -32,7 +32,7 @@ func TestPlan_Conflict(t *testing.T) {
 		"database:\n  sql:\n    driver: \"sqlite\"\n    source: \"file::memory:?cache=shared&_fk=1\"\n"+
 			"script:\n  options:\n    enabled: true\n")
 
-	scriptNode := Node{Key: "shared", Kind: "script-impl", Phase: PhaseBootstrap, Priority: PriorityLegacy}
+	scriptNode := Node{Key: "shared", Kind: "script-impl", Phase: PhaseBootstrap, Priority: testNodePriority}
 	dbNode := Node{Key: "shared", Kind: "database-impl", Phase: PhaseBootstrap, Priority: PriorityDatabase}
 	scriptProv := fixedNodeProvider([]string{"script"}, scriptNode)
 	dbProv := fixedNodeProvider([]string{"database.sql"}, dbNode)
@@ -203,52 +203,6 @@ func TestTeardownOrder_RandomDAG(t *testing.T) {
 	}
 }
 
-// legacyStub 是 v1 Provider 的最小声明的形态（只有 Segments + Build）。
-type legacyStub struct {
-	segs  []string
-	built *bool
-}
-
-func (l legacyStub) Segments() []string { return l.segs }
-func (legacyStub) Apply(*Decl)          {}
-func (l legacyStub) Build(context.Context, BuildScope) (any, Cleanup, error) {
-	if l.built != nil {
-		*l.built = true
-	}
-	return nil, nil, nil
-}
-
-// AdaptLegacy：v1 Provider 以 Opaque legacy 节点进入计划（Key 由段路径合成、
-// 优先级落在 PriorityLegacy），Compile 不触发 Build；Build 委托原实现。
-func TestAdaptLegacy_PlansOpaqueNode(t *testing.T) {
-	cfgPath := writePlanConfig(t, "plan-legacy",
-		"database:\n  sql:\n    driver: \"sqlite\"\n    source: \"file::memory:?cache=shared&_fk=1\"\n")
-	var built bool
-	prov := AdaptLegacy(legacyStub{segs: []string{"database.sql"}, built: &built})
-	p, err := Compile(context.Background(), ConfigFile(cfgPath), prov)
-	if err != nil {
-		t.Fatalf("Compile: %v", err)
-	}
-	if built {
-		t.Fatal("Compile invoked a legacy Provider.Build (I1)")
-	}
-	var node *Node
-	for i := range p.Nodes {
-		if p.Nodes[i].Key == "database.sql" {
-			node = &p.Nodes[i]
-		}
-	}
-	if node == nil {
-		t.Fatalf("legacy node missing from plan: %+v", p.Nodes)
-	}
-	if !node.Opaque || node.Origin != OriginLegacy || node.Priority != PriorityLegacy || node.Phase != PhaseBootstrap {
-		t.Fatalf("legacy node = %+v, want opaque/legacy/bootstrap@%d", *node, PriorityLegacy)
-	}
-	if _, _, err := prov.Build(context.Background(), ApplyScope{}, *node); err != nil || !built {
-		t.Fatalf("AdaptLegacy.Build did not delegate: err=%v built=%v", err, built)
-	}
-}
-
 // I5/std 声明：审计 ["*"] + 指标 ["logger"] + 追踪 ["logger","metrics"]
 // 推出的停机序必须与旧手工表（cleanupOrder）的历史回放序一致——
 // database → logger → metrics → tracer → audit。
@@ -262,9 +216,9 @@ func TestProviderPlan_StdTeardownOrder(t *testing.T) {
 	d := &Decl{Providers: []Provider{
 		StandardLoggerProvider(),
 		StandardAuditProvider(),
-		segProvider{segs: []string{"metrics"}, build: func(context.Context, BuildScope) (any, Cleanup, error) { return nil, nil, nil }},
-		segProvider{segs: []string{"tracer"}, build: func(context.Context, BuildScope) (any, Cleanup, error) { return nil, nil, nil }},
-		segProvider{segs: []string{"database"}, build: func(context.Context, BuildScope) (any, Cleanup, error) { return nil, nil, nil }},
+		segProvider{segs: []string{"metrics"}, build: func(context.Context, ApplyScope) (any, Cleanup, error) { return nil, nil, nil }},
+		segProvider{segs: []string{"tracer"}, build: func(context.Context, ApplyScope) (any, Cleanup, error) { return nil, nil, nil }},
+		segProvider{segs: []string{"database"}, build: func(context.Context, ApplyScope) (any, Cleanup, error) { return nil, nil, nil }},
 	}}
 	plan, err := newProviderPlan(context.Background(), d, cfg, nil)
 	if err != nil {

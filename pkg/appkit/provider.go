@@ -9,13 +9,12 @@
 //	    Build(ctx, ApplyScope, Node) (any, Cleanup, error) // 唯一允许副作用的入口
 //	}
 //	func Providers(ps ...Provider) Option
-//	func AdaptLegacy(p LegacyProvider) Provider  // v1（只有 Build）迁移期适配
 //
 // v2 把「计划」与「构建」拆开：Plan 只读契约与声明，返回带 Phase/Priority/
 // DependsOn/TeardownAfter 的节点；引擎以节点为唯一排序源（不再维护
-// stageBRank/cleanupOrder 手工表），Build 按节点顺序逐项执行。v1 Provider
-// （Build(ctx, BuildScope)）经 AdaptLegacy 包装为一个 Opaque 节点——计划里
-// 如实标 legacy，不假装可分析。
+// stageBRank/cleanupOrder 手工表），Build 按节点顺序逐项执行。计划表达不了
+// 的部分（Domain Wire、程序化 Registrar、命令式组件、std server）以 Opaque
+// 节点进计划——如实标出，不假装可分析。
 //
 // 装配引擎（assemble，bootstrap.go）不再手写 12 段逐域调用，而是：
 //
@@ -89,13 +88,6 @@ type ApplyScope struct {
 	Node Node
 }
 
-// BuildScope 是 v1 Provider（LegacyProvider）的构建输入，保留给 AdaptLegacy。
-type BuildScope struct {
-	Config *bootstrapv1.BootstrapConfig
-	Decl   *Decl
-	App    *App
-}
-
 // Provider 消费契约段并构建该段产物（v2）。
 //
 // Segments 声明**契约段路径**：顶层段名（"database"、"audit"）或子段路径
@@ -127,14 +119,6 @@ type Provider interface {
 	Build(ctx context.Context, s ApplyScope, n Node) (any, Cleanup, error)
 }
 
-// LegacyProvider 是 v1 Provider（只有 Build，无 Plan）。迁移期经 AdaptLegacy
-// 进入 v2 引擎；计划中显示为 Opaque legacy 节点。
-type LegacyProvider interface {
-	Option
-	Segments() []string
-	Build(ctx context.Context, s BuildScope) (any, Cleanup, error)
-}
-
 // Providers 把多个 Provider 打包为一个 Option（单个 Provider 本身也是
 // Option，二者按可读性选用）。
 func Providers(ps ...Provider) Option {
@@ -145,43 +129,6 @@ func Providers(ps ...Provider) Option {
 			}
 		}
 	})
-}
-
-// AdaptLegacy 把 v1 Provider 包装成 v2：计划中为一个 Opaque 节点，Key 由段
-// 路径合成，Build 委托原 Build。第三方 Provider 迁移期的兜底通道；节点标
-// origin=legacy（不假装可计划）。
-func AdaptLegacy(p LegacyProvider) Provider {
-	if p == nil {
-		return nil
-	}
-	return legacyProvider{p: p}
-}
-
-// legacyProvider 是 AdaptLegacy 的包装体。
-type legacyProvider struct{ p LegacyProvider }
-
-func (l legacyProvider) Segments() []string { return l.p.Segments() }
-func (l legacyProvider) Apply(d *Decl)      { d.Providers = append(d.Providers, l) }
-
-func (l legacyProvider) Plan(_ context.Context, s PlanScope) ([]Node, error) {
-	segs := sortedUnique(l.p.Segments())
-	if len(segs) == 0 {
-		return nil, fmt.Errorf("appkit: legacy provider declares no segments")
-	}
-	return []Node{{
-		Key:      nodeKey(segs),
-		Kind:     segmentTop(segs[0]),
-		Segments: segs,
-		Phase:    phaseFor(phaseByTop(segmentTop(segs[0]))),
-		Priority: PriorityLegacy,
-		Reload:   ReloadStatic,
-		Opaque:   true,
-		Origin:   OriginLegacy,
-	}}, nil
-}
-
-func (l legacyProvider) Build(ctx context.Context, s ApplyScope, _ Node) (any, Cleanup, error) {
-	return l.p.Build(ctx, BuildScope{Config: s.Config, Decl: s.Decl, App: s.App})
 }
 
 // 优先级常量：同阶段 ready 集合的显式排序键（越小越先）。数值是 Provider
@@ -198,9 +145,6 @@ const (
 	PriorityAI       = 90
 	PriorityWorkflow = 100
 	PriorityBroker   = 110
-	// PriorityLegacy 是 AdaptLegacy 节点的缺省优先级：排在声明了阶段内优先
-	// 级的原生 Provider 之后（Bootstrap），与旧表「表外段排其后」等价。
-	PriorityLegacy = 500
 )
 
 // WithUnimplementedSegments 显式豁免「契约已声明、框架尚无消费者」的段
@@ -218,9 +162,8 @@ func WithUnimplementedSegments(names ...string) Option {
 // WithOpaqueBudget 声明 Opaque 节点数预算：计划期超过预算即产出
 // opaque-budget 警告（不阻断装配）。0（缺省）= 不设预算，但
 // Plan.OpaqueCount 恒可见——CI 可直接按计数设门。Opaque 的典型来源：
-// AdaptLegacy 包装的 v1 Provider、Domain Wire、命令式组件、std server
-// （注册回调装进去的路由/service 不可分析）；契约派生的 std logger/audit
-// 不计入。
+// Domain Wire、程序化 Registrar、命令式组件、std server（注册回调装进去的
+// 路由/service 不可分析）；契约派生的 std logger/audit 不计入。
 func WithOpaqueBudget(n int) Option {
 	return optionFunc(func(d *Decl) { d.OpaqueBudget = n })
 }

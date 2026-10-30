@@ -49,7 +49,7 @@ func TestAssemble_ObservabilityProviderLifecycle(t *testing.T) {
 	)
 	exp := &fakeExposure{seq: &seq}
 	// metrics Provider：产物为暴露端 + flush cleanup（B7 契约形状）。
-	metrics := segProvider{segs: []string{"metrics"}, build: func(_ context.Context, s BuildScope) (any, Cleanup, error) {
+	metrics := segProvider{segs: []string{"metrics"}, build: func(_ context.Context, s ApplyScope) (any, Cleanup, error) {
 		if s.Config.GetMetrics() == nil {
 			t.Fatal("metrics provider must see the metrics section")
 		}
@@ -60,7 +60,7 @@ func TestAssemble_ObservabilityProviderLifecycle(t *testing.T) {
 		}, nil
 	}}
 	// tracer 单独一个 Provider：验证同段族多 Provider 并存与独立 cleanup。
-	tracer := segProvider{segs: []string{"tracer"}, build: func(context.Context, BuildScope) (any, Cleanup, error) {
+	tracer := segProvider{segs: []string{"tracer"}, build: func(context.Context, ApplyScope) (any, Cleanup, error) {
 		return nil, func(context.Context) error { tracerSD.Store(true); return nil }, nil
 	}}
 

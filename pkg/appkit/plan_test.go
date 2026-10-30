@@ -404,7 +404,7 @@ func TestPlan_EscapeHatchesReported(t *testing.T) {
 		cfgPath := writePlanConfig(t, "plan-escape-override",
 			"database:\n  sql:\n    driver: \"sqlite\"\n    source: \"file::memory:?cache=shared&_fk=1\"\n"+
 				"script:\n  options:\n    enabled: true\n")
-		winner := Node{Key: "shared", Kind: "script-impl", Phase: PhaseBootstrap, Priority: PriorityLegacy}
+		winner := Node{Key: "shared", Kind: "script-impl", Phase: PhaseBootstrap, Priority: testNodePriority}
 		winner.Override, winner.Reason = true, "test override"
 		loser := Node{Key: "shared", Kind: "database-impl", Phase: PhaseBootstrap, Priority: PriorityDatabase}
 		p, err := Compile(context.Background(), ConfigFile(cfgPath),
@@ -525,15 +525,19 @@ func TestPlan_OpaqueBudget(t *testing.T) {
 	cfgPath := writePlanConfig(t, "plan-opaque",
 		"database:\n  sql:\n    driver: \"sqlite\"\n    source: \"file::memory:?cache=shared&_fk=1\"\n"+
 			"script:\n  options:\n    enabled: true\n")
-	legacy := []Option{
-		AdaptLegacy(legacyStub{segs: []string{"database.sql"}}),
-		AdaptLegacy(legacyStub{segs: []string{"script"}}),
+	// 未声明 Declare 的域整块投影为一个 Opaque 的 domain.<name> 节点，
+	// 是计划里最直白的逃逸舱来源（Domain Wire）。
+	opaque := []Option{
+		Domain{Name: "legacy-a"},
+		Domain{Name: "legacy-b"},
 	}
 
 	compile := func(t *testing.T, opts ...Option) *Plan {
 		t.Helper()
 		all := append([]Option{ConfigFile(cfgPath)}, opts...)
-		p, err := Compile(context.Background(), append(all, legacy...)...)
+		all = append(all, opaque...)
+		all = append(all, WithUnimplementedSegments("database", "script"))
+		p, err := Compile(context.Background(), all...)
 		if err != nil {
 			t.Fatalf("Compile: %v", err)
 		}
@@ -551,8 +555,8 @@ func TestPlan_OpaqueBudget(t *testing.T) {
 		if p.OpaqueCount != len(opaque) {
 			t.Fatalf("OpaqueCount = %d, opaque nodes = %v", p.OpaqueCount, opaque)
 		}
-		if p.OpaqueCount < 2 || !hasNode(p, "database.sql") || !hasNode(p, "script") {
-			t.Fatalf("legacy nodes missing or not counted opaque: count=%d nodes=%+v", p.OpaqueCount, p.Nodes)
+		if p.OpaqueCount < 2 || !hasNode(p, "domain.legacy-a") || !hasNode(p, "domain.legacy-b") {
+			t.Fatalf("opaque nodes missing or not counted: count=%d nodes=%+v", p.OpaqueCount, p.Nodes)
 		}
 		if hasWarning(p, "opaque-budget", "opaque") {
 			t.Fatalf("unmanaged plan emitted an opaque-budget warning: %+v", p.Warnings)

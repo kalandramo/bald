@@ -113,7 +113,7 @@ func (r *ReloadPolicy) UnmarshalText(b []byte) error {
 // ResourceKey 是资源的稳定身份（序列化/日志/计划里出现的字符串形态）。
 type ResourceKey string
 
-// Origin 标记节点来源（std 后端 / 第三方 Provider / 域 / 应用 / 迁移期 legacy）。
+// Origin 标记节点来源（std 后端 / 第三方 Provider / 域 / 应用 / 变体）。
 type Origin string
 
 const (
@@ -121,7 +121,6 @@ const (
 	OriginProvider Origin = "provider"
 	OriginDomain   Origin = "domain"
 	OriginApp      Origin = "app"
-	OriginLegacy   Origin = "legacy"
 	// OriginVariant 表示节点/路由来自命中变体的声明增量（Node.Variant 给出
 	// 变体名）。declared 变体不再产 ambient 诊断——来源在节点上（I11）。
 	OriginVariant Origin = "variant"
@@ -147,7 +146,7 @@ type Diagnostic struct {
 // Node 是计划中的一个资源节点。
 type Node struct {
 	Key       ResourceKey   `json:"key"`                 // 如 "database.sql"、"domain.greet"
-	Kind      string        `json:"kind"`                // server | database | logger | domain | component | app | legacy
+	Kind      string        `json:"kind"`                // server | database | logger | domain | component | app
 	Segments  []string      `json:"segments,omitempty"`  // 读取的契约段（输入，不构成所有权）；框架段路径或 biz.<path>
 	DependsOn []ResourceKey `json:"dependsOn,omitempty"` // 资源键依赖（决定 Apply 拓扑序）
 	// TeardownAfter 仅在「停机序 ≠ Apply 逆序」时声明（"*" = 全部其它节点）。
@@ -160,8 +159,8 @@ type Node struct {
 	Reason   string       `json:"reason,omitempty"`   // Override 的理由
 
 	// Opaque 表示该节点内部是命令式闭包，计划只能看到边界（期望态无法由
-	// 声明派生）：v1 Provider（AdaptLegacy）、Domain Wire、命令式组件、std
-	// server（注册回调装进去的路由/service 不可见）均为 true；契约派生的
+	// 声明派生）：Domain Wire、程序化 Registrar、命令式组件、std server
+	// （注册回调装进去的路由/service 不可见）均为 true；契约派生的
 	// std logger/audit 节点不是 Opaque。
 	Opaque bool `json:"opaque,omitempty"`
 

@@ -163,7 +163,7 @@ type ResourceKey string
 // Node 是计划中的一个资源节点。
 type Node struct {
 	Key       ResourceKey   // 如 "database.sql"、"domain.greet"
-	Kind      string        // server | database | logger | domain | component | hook | legacy
+	Kind      string        // server | database | logger | domain | component | hook
 	Segments  []string      // 读取的契约段（输入，不构成所有权）；框架段路径或 biz.<path>（业务配置）
 	DependsOn []ResourceKey // 资源键依赖（决定 Apply 拓扑序）
 	// TeardownAfter 仅在「停机序 ≠ Apply 逆序」时声明；
@@ -177,15 +177,15 @@ type Node struct {
 	Reason   string // Override 的理由（计划中打印）
 
 	// Opaque 表示该节点内部是命令式闭包，计划只能看到边界（期望态无法由
-	// 声明派生）。Provider v1 的 Build、Domain 的 Wire、命令式组件、std
-	// server（注册回调装进去的路由/service 不可见）在迁移期均为 true；
+	// 声明派生）。Domain 的 Wire、程序化 Registrar、命令式组件、std
+	// server（注册回调装进去的路由/service 不可见）均为 true；
 	// 契约派生的 std logger/audit 节点不是 Opaque。
 	Opaque bool
 
 	// DesiredHash 是节点期望态的摘要（可协调节点必须提供）。
 	DesiredHash string
 
-	Origin Origin // std | provider | domain | app | legacy
+	Origin Origin // std | provider | domain | app | variant
 }
 
 // Plan 是编译结果。Nodes 已按全局拓扑序稳定排序。
@@ -243,16 +243,7 @@ type Provider interface {
 }
 ```
 
-**迁移期适配器**（保证批 1 零用户破坏）：
-
-```go
-// AdaptLegacy 把 v1 Provider（只有 Build）包装成 v2：
-// 计划中显示为一个 Opaque 节点，Key 由段路径合成，
-// Reload 固定 RestartRequired（因为内部不可分析）。
-func AdaptLegacy(p ProviderV1) Provider
-```
-
-`std.Standard()` 的三个 Provider 首批改为原生 v2，作为范本；第三方 Provider 在 v0.26 内继续走适配器，计划里会明确显示 `legacy` + `Opaque`，不假装可计划。
+**迁移期适配器已退役**（v0.31.0，2026-10-30）：M1 期的 `AdaptLegacy`（v1 Provider 的 `Build` 包成 Opaque legacy 节点）按 B1「兜底一个发布周期」的承诺删除，`LegacyProvider`/`BuildScope`/`PriorityLegacy`/`OriginLegacy` 一并移出公开面；第三方 Provider 直接实现 v2 `Plan`/`Build`。`std.Standard()` 的三个 Provider 自 M1 起即为原生 v2 范本。
 
 ### 4.4 顺序与冲突：从代码搬到数据
 
@@ -515,7 +506,7 @@ func Routes(h http.Handler) error {
 | 批 | 内容 | 破坏面 | 验收 |
 |---|---|---|---|
 | **M0** | 引入 `Plan` IR（内部由现有 `stageBRank`/`cleanupOrder` 推导）；新增 `Compile` 与 `--plan`；落 I1/I2/I3 测试 | 零 | `_example` 与 bald-admin 计划可打印；置换测试通过（若失败，记录当前缺陷基线） |
-| **M1** | Provider v2 `Plan/Apply` + `AdaptLegacy`；std 三 Provider 原生化；删除三张手工表；冲突检测先告警 | Provider 作者（适配器兜底） | I4/I5 通过；手工排序表 grep 为 0 |
+| **M1** | Provider v2 `Plan/Apply` + `AdaptLegacy`（v0.31.0 已移除）；std 三 Provider 原生化；删除三张手工表；冲突检测先告警 | Provider 作者（适配器兜底） | I4/I5 通过；手工排序表 grep 为 0 |
 | **M2** | `Key[T]` / `Key[T].Resource`；`Resource(string)` deprecate；`Registrar` 覆盖显式化；`WithUnimplementedSegments` 进警告 | 资源访问方式 | I9/I10 通过；bald-admin 迁移 |
 | **M3** | 节点级 `ReloadPolicy` + `Drift`；配置变更重算计划；先覆盖 logger/audit/组件，DB 类标 `ReloadRestart` | 热更语义（更保守） | I7 通过；e2e 配置变更 |
 | **M4** | codegen 清单 `--check`/`--adopt`；路由从 `google.api.http` 生成；双跑确定性 | 生成物与 `--force` | I8 通过；参考工程 `--check` 零 diff |
@@ -523,7 +514,7 @@ func Routes(h http.Handler) error {
 
 ### 6.2 Breaking 清单
 
-- **B1** `Provider` 接口 v2（第三方 Provider 需改；提供 `AdaptLegacy` 一个发布周期）。
+- **B1** `Provider` 接口 v2（第三方 Provider 需改；`AdaptLegacy` 兜底一个发布周期后于 v0.31.0 移除，`LegacyProvider`/`BuildScope`/`PriorityLegacy`/`OriginLegacy` 同批删除）。
 - **B2** `App.Resource(string)` 降级 deprecated，v0.28 删除。
 - **B3** 重复资源键从「静默末者胜」改为编译错误（v0.26 先告警，v0.27 报错）。
 - **B4** `Registrar(instance)` 与契约 registry 段同时存在时，v0.26 告警、v0.27 要求 `Override` 标注。
@@ -552,7 +543,7 @@ func Routes(h http.Handler) error {
 | 资源访问类型化 | 公开 API 中 `Resource(string)` 调用点 = 0（AST 守卫） |
 | 收敛覆盖 | `ReloadReconcile` 节点数 ≥ 组件 + logger + audit；`Drift` e2e 通过 |
 | 生成确定性 | 生成物维度：`TestGen_Deterministic`/`TestGen_CheckClean`（guard 夹具）零 diff + 双跑字节一致；`_example/bald` 已迁入生成树（2026-10-30）：`appspec.json` 声明 roles/bootstrap/domains/variants，`gen app --check` 与 `gen domain --no-bind --check` 均零差异，手写部分全部收敛在 seeded 钩子（`custom.go`/`apiserver.go`/`cmd/*/app/custom.go`）与域包。生成器自定义接线扩展（§8.5）由 `TestTree_CustomWiringHooks`/`TestTree_CustomWiringReachesPlan` 钉住 |
-| `Opaque` 预算 | 每版本下降；v0.28 参考工程 ≤ 3 个（预期：第三方 legacy Provider） |
+| `Opaque` 预算 | 每版本下降；参考工程 ≤ 3 个（当前：std server + 程序化 registry） |
 
 ### 7.2 保留的生产力指标（次指标，不替代声明性指标）
 
@@ -621,14 +612,14 @@ bald doctor --config configs/bald-demo-api.yaml
 | `Plan`/`Apply` 两套逻辑漂移 | 计划与实际不一致 | 节点 `DesiredHash` 在 Apply 后校验；e2e 比对计划与资源面 |
 | 类型化 Key 引入包循环 | 工程结构复杂 | Key 放独立小 module（Q3）；`appkit` 只依赖接口 |
 | 收敛范围扩大导致语义事故 | 热更不安全的资源被误协调 | 默认 `ReloadStatic`；DB/连接池首版只 `ReloadRestart` |
-| 迁移期双轨（v1/v2 Provider）长期化 | 两套语义并存 | `Opaque` 预算 + 每版本递减；M5 删除适配器 |
+| 迁移期双轨（v1/v2 Provider）长期化 | 两套语义并存 | 已收口：`AdaptLegacy` 于 v0.31.0 移除，Provider 只有 v2 一种语义 |
 | 下游（bald-admin）迁移成本 | 发布节奏 | 与 v0.26 同批发版；提供 `bald migrate` 自动改写简单调用 |
 
 ### 8.2 开放问题（需 owner 裁决）
 
 | # | 问题 | 建议 |
 |---|---|---|
-| Q1 | 是否接受 Provider v2 的破坏？ | 接受；`AdaptLegacy` 兜底一个版本 |
+| Q1 | 是否接受 Provider v2 的破坏？ | 接受；`AdaptLegacy` 兜底一个版本，已于 v0.31.0 移除 |
 | Q2 | `Plan` 纯度如何强制？ | 首版契约 + canary 测试；不引入沙箱 |
 | Q3 | `Key[T]` 落 `pkg/appkit` 还是独立 module？ | 先 `pkg/appkit`，若出现循环再抽 `bald/resource` |
 | Q4 | 收敛首版覆盖哪些资源？ | logger/audit/组件；DB/cache/storage 仅 `ReloadRestart` |

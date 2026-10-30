@@ -26,7 +26,7 @@ import (
 // asynqCoProvider 构造消费 server.asynq 段的 co-provider（第三方协议
 // 后端的 Provider 形态：自建 server、产物 []transport.Server 交引擎入列）。
 func asynqCoProvider(called, started *atomic.Bool) segProvider {
-	return segProvider{segs: []string{"server.asynq"}, build: func(context.Context, BuildScope) (any, Cleanup, error) {
+	return segProvider{segs: []string{"server.asynq"}, build: func(context.Context, ApplyScope) (any, Cleanup, error) {
 		called.Store(true)
 		return []transport.Server{&probeServer{name: "asynq", started: started, mark: func(string) {}}}, nil, nil
 	}}

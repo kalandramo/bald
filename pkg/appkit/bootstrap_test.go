@@ -44,7 +44,7 @@ func stubLogger() log.Logger {
 // 契约）各有一个调用点。
 func TestResolveLoggerSource(t *testing.T) {
 	var contractHits int
-	loggerProv := segProvider{segs: []string{"logger"}, build: func(_ context.Context, s BuildScope) (any, Cleanup, error) {
+	loggerProv := segProvider{segs: []string{"logger"}, build: func(_ context.Context, s ApplyScope) (any, Cleanup, error) {
 		if s.Config == nil {
 			return stubLogger(), nil, nil // 阶段 A：回退可用 Logger
 		}
@@ -525,7 +525,7 @@ func TestAssemble_LoggerLifecycle(t *testing.T) {
 	// logger Provider：记录每次调用收到的契约（nil = 阶段 A）。
 	var mu sync.Mutex
 	var got []*bootstrapv1.BootstrapConfig
-	loggerProv := segProvider{segs: []string{"logger"}, build: func(_ context.Context, s BuildScope) (any, Cleanup, error) {
+	loggerProv := segProvider{segs: []string{"logger"}, build: func(_ context.Context, s ApplyScope) (any, Cleanup, error) {
 		mu.Lock()
 		got = append(got, s.Config) // 构造与 BeforeStart 均主 goroutine，无需锁。
 		mu.Unlock()

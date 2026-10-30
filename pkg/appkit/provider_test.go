@@ -13,11 +13,15 @@ import (
 	baldbootstrap "github.com/kalandramo/bald/bootstrap"
 )
 
-// segProvider 通用测试 Provider（v2：Plan 由段名派生节点，Build 闭包沿用
-// BuildScope 形状以减少测试样板——ApplyScope 在此降维）。
+// testNodePriority 是测试节点的任意非默认优先级（排在显式声明的 Provider
+// 之后，用于钉住 (Priority, Key) 排序）。
+const testNodePriority = 500
+
+// segProvider 通用测试 Provider（v2：Plan 由段名派生节点，Build 闭包直接用
+// ApplyScope 以减少测试样板）。
 type segProvider struct {
 	segs  []string
-	build func(ctx context.Context, s BuildScope) (any, Cleanup, error)
+	build func(ctx context.Context, s ApplyScope) (any, Cleanup, error)
 	plan  func(ctx context.Context, s PlanScope) ([]Node, error) // 可选：覆盖默认节点
 }
 
@@ -50,7 +54,7 @@ func (p segProvider) Plan(ctx context.Context, s PlanScope) ([]Node, error) {
 }
 
 func (p segProvider) Build(ctx context.Context, s ApplyScope, _ Node) (any, Cleanup, error) {
-	return p.build(ctx, BuildScope{Config: s.Config, Decl: s.Decl, App: s.App})
+	return p.build(ctx, s)
 }
 
 // testSegmentPriority 把旧 canonical 段序写成测试期望值（生产侧已无此表：
@@ -88,7 +92,7 @@ func testSegmentPriority(top string) int {
 // Provider：sec 取契约子段，build 委托域 Registry（分派/回滚语义不变），
 // 无参 cleanup 经 noopCleanup 适配。
 func registryProvider[T any, B any](seg string, sec func(*bootstrapv1.BootstrapConfig) *T, build func(context.Context, *T) (B, func(), error)) segProvider {
-	return segProvider{segs: []string{seg}, build: func(ctx context.Context, s BuildScope) (any, Cleanup, error) {
+	return segProvider{segs: []string{seg}, build: func(ctx context.Context, s ApplyScope) (any, Cleanup, error) {
 		out, cleanup, err := build(ctx, sec(s.Config))
 		return out, noopCleanup(cleanup), err
 	}}
@@ -134,7 +138,7 @@ func configTestProvider(reg *baldbootstrap.ConfigRegistry) segProvider {
 // auditTestProvider 把 AuditProvider 函数值包成 audit 段 Provider（引擎按
 // storeProduct 语义全局注入并恢复 prev）。
 func auditTestProvider(p AuditProvider) segProvider {
-	return segProvider{segs: []string{"audit"}, build: func(ctx context.Context, s BuildScope) (any, Cleanup, error) {
+	return segProvider{segs: []string{"audit"}, build: func(ctx context.Context, s ApplyScope) (any, Cleanup, error) {
 		a, cleanup, err := p(ctx, s.Config.GetAudit(), s.App)
 		return a, Cleanup(cleanup), err
 	}}

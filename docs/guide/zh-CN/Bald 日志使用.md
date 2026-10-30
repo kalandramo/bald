@@ -62,7 +62,12 @@ type loggerProvider struct{}
 func (loggerProvider) Segments() []string { return []string{"logger"} }
 func (loggerProvider) Apply(d *appkit.Decl) { d.Providers = append(d.Providers, loggerProvider{}) }
 
-func (loggerProvider) Build(ctx context.Context, s appkit.BuildScope) (any, appkit.Cleanup, error) {
+func (loggerProvider) Plan(context.Context, appkit.PlanScope) ([]appkit.Node, error) {
+    return []appkit.Node{{Key: "logger", Phase: appkit.PhaseBootstrap,
+        Priority: appkit.PriorityLogger, Reload: appkit.ReloadReconcile}}, nil
+}
+
+func (loggerProvider) Build(ctx context.Context, s appkit.ApplyScope, _ appkit.Node) (any, appkit.Cleanup, error) {
     l := s.Config.GetLogger()
     if l == nil { // 阶段 A（契约装载前）：引导 logger，保证启动日志可见
         return bslog.New(baldbootstrap.LogOptions(nil)), nil, nil
