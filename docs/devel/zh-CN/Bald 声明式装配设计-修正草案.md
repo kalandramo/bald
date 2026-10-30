@@ -560,18 +560,26 @@ func Routes(h http.Handler) error {
 
 ### 7.3 验收脚本（新增）
 
+落地形态是 `task acceptance`（只跑 `go test`，跨平台；逐条对应本节）：
+
 ```bash
 # 计划纯净 + 顺序无关
 go test ./pkg/appkit -run 'TestPlan_(NoSideEffects|OrderInvariant|SegmentCoverage|Conflict)'
 
-# 停机序与回滚
-go test ./pkg/appkit -run 'TestApply_(TeardownOrder|RollbackOnFailure)'
+# 停机序与回滚（按节点数据推导，不是手工表）
+go test ./pkg/appkit -run 'TestTeardownOrder_|TestProviderPlan_StdTeardownOrder|TestComponent_StartFailureRollback|TestMountComponent_MountFailureRollback'
 
 # 漂移
-go test ./pkg/appkit -run TestDrift
+go test ./pkg/appkit -run 'TestDrift'
+
+# API 守卫（§7.1 两条「= 0」指标的可执行形态）
+go test ./pkg/appkit -run 'TestAPI_'   # Resource(string) 调用点、手工排序表标识符
 
 # 生成确定性：生成器自有树（guard 夹具）双跑一致 + --check 零 diff
 go test ./internal/codegen -run 'TestGen_(Deterministic|CheckClean)'
+
+# 参考工程的计划口径（Opaque 预算 / 路由可见 / 无逃逸警告 / 段覆盖）
+(cd _example/bald && go test ./internal/bootstrap -run TestPlan_ReferenceProject)
 
 # 综合诊断
 bald doctor --config configs/bald-demo-api.yaml
