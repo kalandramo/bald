@@ -399,7 +399,7 @@ func applyNode(ctx context.Context, app *appkit.App, node appkit.Node) error {
 }
 ```
 
-迁移期不强制所有域改 `Declare`；但 `bald doctor` 会统计 `Opaque` 域数量，作为 L3 达成的量化门槛（见 §7）。已实现：报告的 `domains:` 行给出 `declared` / `legacy` 计数与名单（2026-10-29）；`_example/bald` 的 greet 域已迁到 `ApplyNode` 目标形态（`domains: 1 (declared 1, legacy 0)`、`nodes: 7 (opaque 2)`，逃逸舱只剩框架自身的程序化 registry 与 std server）；bald-admin 的 20 个域已**全部**迁到该形态（`domains: 20 (declared 20, legacy 0)`、`nodes: 47 (opaque 1)`：biz/routes 节点由 `ApplyNode` 执行，服务注册走 `Domain.Services`），域不再贡献逃逸舱，唯一 Opaque 是 std server 构造节点。其中 18 个域拓扑同形（构造 biz + 委托 hgin 注册），声明与执行分派收敛在装配层小工具 `domains.StandardDomain`（`internal/apiserver/domains/standard.go`），每域只保留自己的构造体与注册体。
+迁移期不强制所有域改 `Declare`；但 `bald doctor` 会统计 `Opaque` 域数量，作为 L3 达成的量化门槛（见 §7）。已实现：报告的 `domains:` 行给出 `declared` / `legacy` 计数与名单（2026-10-29）；`_example/bald` 的 greet 域已迁到 `ApplyNode` 目标形态（`domains: 1 (declared 1, legacy 0)`、`nodes: 7 (opaque 2)`，逃逸舱只剩框架自身的程序化 registry 与 std server）；bald-admin 的 20 个域已**全部**迁到该形态（`domains: 20 (declared 20, legacy 0)`、`nodes: 47 (opaque 1)`：biz/routes 节点由 `ApplyNode` 执行，服务注册走 `Domain.Services`），域不再贡献逃逸舱，唯一 Opaque 是 std server 构造节点。其中 18 个域拓扑同形（构造 biz + 委托 hgin 注册），声明与执行分派收敛在装配层小工具 `domains.StandardDomain`（`internal/apiserver/domains/standard.go`），每域只保留自己的构造体与注册体。2026-10-30 起 auth 域手写 Declare/ApplyNode/Reconcile，把 `biz.login` 声明为 `ReloadReconcile` 节点——首个真实下游热更（登录限流/熔断/重试整体快照替换，读路径原子 Load，段移除即真正禁用）；`bald-admin --plan` 可见 `domain.auth.biz reload=reconcile segments=biz.login`。
 
 ### 4.7 执行、回滚与停机
 
