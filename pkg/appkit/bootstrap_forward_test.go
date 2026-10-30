@@ -74,3 +74,42 @@ func TestAssemble_MergesUserConfigLayers(t *testing.T) {
 			a.cfg.layers[0].Name, a.cfg.layers[1].Name)
 	}
 }
+
+// TestAssemble_ForwardsRemainingDeclSurfaces 是 kitOpts 重建完整性的第二组
+// 钉子：钩子链、配置源声明、能力声明与严格契约白名单同样必须逐项透传——
+// 漏传即 Serve 路径静默丢声明（与 OnConfigChange/AfterStop 同类缺陷）。
+func TestAssemble_ForwardsRemainingDeclSurfaces(t *testing.T) {
+	// 框架自身的 beforeStart（契约装载链）也在链上，用无用户钩子的基线做差。
+	base := assembleForTest(t, bconf.NewBootstrap())
+	a := assembleForTest(t, bconf.NewBootstrap(),
+		BeforeStart(func(context.Context) error { return nil }),
+		AfterStart(func(context.Context) error { return nil }),
+		BeforeStop(func(context.Context) error { return nil }),
+		ConfigFile("/tmp/forward.yaml"),
+		WatchConfigFile(true),
+		providesOpt("cap.a"),
+		requiresOpt("db", "cap.a"),
+		componentsOpt(planComponent{name: "c1"}),
+		StrictContract("biz"),
+	)
+
+	if len(a.beforeStart) != len(base.beforeStart)+1 || len(a.afterStart) != 1 || len(a.beforeStop) != 1 {
+		t.Fatalf("hooks dropped: before=%d (base %d) after=%d beforeStop=%d",
+			len(a.beforeStart), len(base.beforeStart), len(a.afterStart), len(a.beforeStop))
+	}
+	if a.cfg.cfgFile != "/tmp/forward.yaml" || !a.cfg.watchFile {
+		t.Fatalf("config source declarations dropped: file=%q watch=%v", a.cfg.cfgFile, a.cfg.watchFile)
+	}
+	if len(a.provides) != 1 || a.provides[0] != "cap.a" {
+		t.Fatalf("provides = %v, want [cap.a]", a.provides)
+	}
+	if len(a.requires) != 1 || a.requires[0].component != "db" {
+		t.Fatalf("requires = %v, want db->cap.a", a.requires)
+	}
+	if len(a.components) != 1 || a.components[0].Name() != "c1" {
+		t.Fatalf("components = %v, want [c1]", a.components)
+	}
+	if !a.cfg.strictContract || len(a.cfg.businessSections) != 1 || a.cfg.businessSections[0] != "biz" {
+		t.Fatalf("strict contract dropped: on=%v sections=%v", a.cfg.strictContract, a.cfg.businessSections)
+	}
+}
