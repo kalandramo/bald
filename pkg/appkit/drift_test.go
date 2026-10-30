@@ -156,6 +156,28 @@ func TestApplyPlanChange_ReconcileAndRestart(t *testing.T) {
 	}
 }
 
+// 节点从新计划消失 = 拓扑变化：协调器没有「拆除节点」的动作，旧资源会存活
+// 到进程退出。如实报重启，不静默忘记（Drift 对新计划无从报起）。
+func TestApplyPlanChange_RemovedReconcileNodeRequiresRestart(t *testing.T) {
+	a := NewHarness()
+	old := &Plan{Nodes: []Node{
+		{Key: "audit", Kind: "audit", Reload: ReloadReconcile, DesiredHash: "a1"},
+	}}
+	a.installPlan(old)
+	a.setAppliedHash("audit", "a1")
+
+	change := a.applyPlanChange(context.Background(), &Plan{}, nil)
+	if len(change.Restart) != 1 || change.Restart[0] != "audit" {
+		t.Fatalf("restart list = %v, want [audit]", change.Restart)
+	}
+	a.planMu.RLock()
+	_, stillApplied := a.applied["audit"]
+	a.planMu.RUnlock()
+	if stillApplied {
+		t.Fatal("removed node kept its applied hash")
+	}
+}
+
 // I7：Drift 必须报 Missing（未落账/组件未启动）、Stale（摘要落后）、
 // Unexpected（协调器挂载了计划外组件）。
 func TestDrift_DetectsMissing(t *testing.T) {

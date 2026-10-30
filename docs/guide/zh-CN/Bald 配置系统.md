@@ -368,6 +368,8 @@ addr := bootstrap.GetServer().GetHttp().GetAddr()   // proto getter，nil-safe
 （启动默认 → 按契约重建）；`audit.backends` 支持运行期热切（走 `mech.Reconcile` 期望态
 协调器）；域节点声明 `ReloadReconcile` 后，其段（框架路径或业务配置 `biz.<path>`）一变就
 按节点 Key 调 `Domain.Reconcile`（设计 Q8，`_example/bald` 的 greet 域即此形态）。
+节点从新计划里消失（删段）属于拓扑变化：协调器没有拆除动作，引擎记 `restart-required`
+审计与告警，旧资源存活到进程退出——不假装已收敛。
 
 **其余能力段都不支持**（`database` / `cache` / `registry` / `broker` / `storage` / `ai` /
 `workflow` / `tracer` / `metrics` / `script`）——这些段的 client 重建侵入性大，变更需重启生效。

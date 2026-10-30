@@ -98,7 +98,8 @@ func diffPlan(old, next *Plan) PlanChange {
 }
 
 // applyPlanChange 在配置变更后应用计划差异：协调可协调节点、显式标记需重启
-// 节点、更新计划快照，最后驱动业务协调器（期望态来自新配置）。
+// 节点（含从计划消失的节点——协调器没有拆除动作）、更新计划快照，最后驱动
+// 业务协调器（期望态来自新配置）。
 //
 // 协调失败不回滚已生效的配置（与 R1 收敛语义一致）：摘要不更新，Drift 报
 // Stale，下次变更或显式协调继续补齐。
@@ -119,7 +120,13 @@ func (a *App) applyPlanChange(ctx context.Context, next *Plan, settings map[stri
 		switch ch.Policy {
 		case ReloadReconcile:
 			if ch.Removed {
+				// 节点从计划消失 = 拓扑变化：协调器没有「拆除节点」的动作，旧
+				// 资源会存活到进程退出。如实报重启，不假装已收敛。
 				a.setAppliedHash(ch.Key, "")
+				change.Restart = append(change.Restart, ch.Key)
+				log.Warn(ctx, "appkit: config change removed node; restart required to release its resources",
+					"node", string(ch.Key), "kind", ch.Kind)
+				a.auditReconcile(ctx, "restart-required", string(ch.Key), nil)
 				continue
 			}
 			if ch.Kind == "logger" {
