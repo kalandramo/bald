@@ -283,7 +283,7 @@ func TestReconcile_AuditEvent(t *testing.T) {
 	am := &reconAuditMem{}
 
 	app, _, _ := setupReconApp(t, "")
-	app.auditor = am
+	app.setAuditor(am, false)
 	app.runReconcilersWith(context.Background(), newReconSettings("log"))
 
 	found := false

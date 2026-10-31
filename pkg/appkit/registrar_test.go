@@ -71,8 +71,8 @@ func TestAssemble_ContractRegistrarLifecycle(t *testing.T) {
 	go func() { done <- a.Run(ctx) }()
 	time.Sleep(300 * time.Millisecond)
 
-	if reg, ok := a.registrar.(*stubRegistrar); !ok || reg != stub {
-		t.Fatalf("registrar not built from contract: %T", a.registrar)
+	if reg, ok := a.registrarValue().(*stubRegistrar); !ok || reg != stub {
+		t.Fatalf("registrar not built from contract: %T", a.registrarValue())
 	}
 	if n, _ := stub.snapshot(); n != 1 {
 		t.Fatalf("registered = %d, want 1", n)
@@ -121,8 +121,8 @@ func TestAssemble_ExplicitRegistrarWins(t *testing.T) {
 	cancel()
 	<-done
 
-	if a.registrar != registry.Registrar(explicit) {
-		t.Fatalf("explicit registrar should win, got %T", a.registrar)
+	if a.registrarValue() != registry.Registrar(explicit) {
+		t.Fatalf("explicit registrar should win, got %T", a.registrarValue())
 	}
 	if built != 0 {
 		t.Fatal("contract provider should not be invoked when explicit registrar set")

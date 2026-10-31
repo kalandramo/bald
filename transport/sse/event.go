@@ -65,6 +65,16 @@ func WithEventComment(comment string) EventMetaOption {
 	}
 }
 
+// clone 返回浅拷贝（切片字段只读共享）：调用方把同一 *Event 广播到多个流
+// 或重复发布时，各流落库的 ID/timestamp 与服务端编码互不影响。
+func (e *Event) clone() *Event {
+	if e == nil {
+		return nil
+	}
+	cp := *e
+	return &cp
+}
+
 // hasContent reports whether the event contains any SSE payload fields.
 func (e *Event) hasContent() bool {
 	return len(e.ID) > 0 || len(e.Data) > 0 || len(e.Event) > 0 || len(e.Retry) > 0

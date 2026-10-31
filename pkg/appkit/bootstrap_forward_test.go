@@ -38,7 +38,7 @@ func TestAssemble_ForwardsDeclMechanismFields(t *testing.T) {
 	if sub, tenant := a.identity(context.Background()); sub != "u1" || tenant != "t1" {
 		t.Fatalf("identity = (%q,%q), want (u1,t1)", sub, tenant)
 	}
-	if a.auditor == nil {
+	if a.auditorValue() == nil {
 		t.Fatal("auditor was dropped by assemble")
 	}
 }

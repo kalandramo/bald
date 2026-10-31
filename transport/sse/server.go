@@ -37,6 +37,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/kalandramo/bald/encoding"
@@ -64,9 +65,12 @@ type MessagePayload any
 type Server struct {
 	addr      string
 	tlsConfig *tls.Config
-	listener  net.Listener
-	mux       *http.ServeMux
-	server    *http.Server
+	// listener/server 由 Start 写入，Endpoint/Stop 可能并发读取（引擎在
+	// server 启动后轮询 Endpoint），故由 stateMu 保护。
+	stateMu  sync.RWMutex
+	listener net.Listener
+	mux      *http.ServeMux
+	server   *http.Server
 
 	middlewares []Middleware
 
@@ -130,7 +134,6 @@ func (s *Server) Start(ctx context.Context) error {
 	if s.tlsConfig != nil {
 		ln = tls.NewListener(ln, s.tlsConfig)
 	}
-	s.listener = ln
 
 	// 应用中间件链
 	h := http.Handler(s.mux)
@@ -138,14 +141,19 @@ func (s *Server) Start(ctx context.Context) error {
 		h = s.middlewares[i](h)
 	}
 
-	s.server = &http.Server{Handler: h}
-	s.server.BaseContext = func(net.Listener) context.Context { return ctx }
+	httpSrv := &http.Server{Handler: h}
+	httpSrv.BaseContext = func(net.Listener) context.Context { return ctx }
+
+	s.stateMu.Lock()
+	s.listener = ln
+	s.server = httpSrv
+	s.stateMu.Unlock()
 
 	fmt.Printf("[%s] server listening on: %s\n", KindSSE, ln.Addr().String())
 
 	errChan := make(chan error, 1)
 	go func() {
-		if err := s.server.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := httpSrv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errChan <- err
 			return
 		}
@@ -157,17 +165,20 @@ func (s *Server) Start(ctx context.Context) error {
 		return err
 	case <-ctx.Done():
 		s.streamMgr.Clean()
-		return s.server.Shutdown(context.Background())
+		return httpSrv.Shutdown(context.Background())
 	}
 }
 
 // Stop 优雅关闭服务器并清理所有流。
 func (s *Server) Stop(ctx context.Context) error {
 	s.streamMgr.Clean()
-	if s.server == nil {
+	s.stateMu.RLock()
+	httpSrv := s.server
+	s.stateMu.RUnlock()
+	if httpSrv == nil {
 		return nil
 	}
-	return s.server.Shutdown(ctx)
+	return httpSrv.Shutdown(ctx)
 }
 
 // Endpoint 返回服务器的访问地址。
@@ -177,8 +188,11 @@ func (s *Server) Endpoint() string {
 		scheme = "https"
 	}
 	addr := s.addr
-	if s.listener != nil {
-		addr = s.listener.Addr().String()
+	s.stateMu.RLock()
+	ln := s.listener
+	s.stateMu.RUnlock()
+	if ln != nil {
+		addr = ln.Addr().String()
 	}
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil || port == "" {
@@ -254,7 +268,7 @@ func (s *Server) Publish(_ context.Context, streamId StreamID, event *Event) {
 
 	select {
 	case <-stream.quit:
-	case stream.event <- s.process(event):
+	case stream.event <- s.process(event.clone()):
 	}
 }
 
@@ -266,7 +280,7 @@ func (s *Server) TryPublish(_ context.Context, streamId StreamID, event *Event) 
 	}
 
 	select {
-	case stream.event <- s.process(event):
+	case stream.event <- s.process(event.clone()):
 		return true
 	default:
 		return false
@@ -309,7 +323,7 @@ func (s *Server) Notify(_ context.Context, event *Event) {
 		}
 		select {
 		case <-stream.quit:
-		case stream.event <- s.process(event):
+		case stream.event <- s.process(event.clone()):
 		}
 	})
 }

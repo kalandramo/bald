@@ -112,15 +112,17 @@ tasks:
     cmds:
       - go vet -tags grpcgw ./...
 
-  # e2e：启动**真实的**应用（MustServe 装配，HTTP + gRPC + 校验链路），用 gRPC 客户端调用，
-  # 验证请求校验的两层机制都生效（proto 注解 + 手写 Go）。
+  # e2e：启动**真实的**应用（MustServe 装配，HTTP + gRPC + 校验链路），
+  # 默认构建走生成的 REST 绑定（BindGreet），grpcgw 构建走网关转码面；
+  # 两种形态共用同一套 gRPC 客户端用例与校验断言。
   # 这是长期保留的回归测试，改校验链路/proto 注解/拦截器接线后都应重跑。
   # 依赖 proto 生成产物，故 depend on proto-example。
   example-e2e:
-    desc: 运行 _example 的 e2e 回归测试（grpcgw）
+    desc: 运行 _example 的 e2e 回归测试（默认 gin 绑定 + grpcgw 转码面）
     deps: [proto-example]
     dir: _example/bald
     cmds:
+      - go test ./... -v
       - go test -tags grpcgw ./... -v
 
   # ---------------------------------------------------------------------------
@@ -309,6 +311,65 @@ tasks:
     desc: 运行核心模块全部测试（不含 _example，见 example-* 任务）
     cmds:
       - go test ./...
+
+  # 竞态检测：普通 test 不启用 race detector。范围 = 并发密集模块（session
+  # manager / 热重载 / 计划缓存 / 限流器）；新增此类模块时加行，CI 的 race
+  # job 用同一份清单。不进 `verify`：本地全量跑会显著变慢。
+  race-module:
+    internal: true
+    dir: "{{.MOD}}"
+    cmds:
+      - go test -short -race -timeout 10m ./...
+
+  race:
+    desc: 竞态检测（root + 并发密集模块，需 cgo）
+    cmds:
+      - task: race-module
+        vars: { MOD: . }
+      - task: race-module
+        vars: { MOD: transport }
+      - task: race-module
+        vars: { MOD: transport/grpc }
+      - task: race-module
+        vars: { MOD: transport/http }
+      - task: race-module
+        vars: { MOD: transport/http3 }
+      - task: race-module
+        vars: { MOD: transport/tcp }
+      - task: race-module
+        vars: { MOD: transport/websocket }
+      - task: race-module
+        vars: { MOD: transport/sse }
+      - task: race-module
+        vars: { MOD: transport/web }
+      - task: race-module
+        vars: { MOD: retry }
+      - task: race-module
+        vars: { MOD: ratelimit }
+      - task: race-module
+        vars: { MOD: ratelimit/tokenbucket }
+      - task: race-module
+        vars: { MOD: ratelimit/bbr }
+      - task: race-module
+        vars: { MOD: ratelimit/sentinel }
+      - task: race-module
+        vars: { MOD: bootstrap }
+      - task: race-module
+        vars: { MOD: registry }
+      - task: race-module
+        vars: { MOD: cache }
+      - task: race-module
+        vars: { MOD: cache/redis }
+      - task: race-module
+        vars: { MOD: broker }
+      - task: race-module
+        vars: { MOD: broker/redis }
+      - task: race-module
+        vars: { MOD: log }
+      - task: race-module
+        vars: { MOD: metrics }
+      - task: race-module
+        vars: { MOD: health }
 
   build:
     desc: 编译核心模块全部包（不含 _example，见 example-bald-vet）

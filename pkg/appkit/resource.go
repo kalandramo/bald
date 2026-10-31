@@ -39,6 +39,8 @@ func (a *App) lookup(segment string) (any, bool) {
 	if a == nil || segment == "" {
 		return nil, false
 	}
+	a.resourcesMu.RLock()
+	defer a.resourcesMu.RUnlock()
 	if v, ok := a.resources[segment]; ok {
 		return v, true
 	}

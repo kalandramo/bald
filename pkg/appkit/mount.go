@@ -126,10 +126,37 @@ func (a *App) ListComponents() []string {
 // 显式注入（auditorOpt）→ 契约 audit 段产物（storeProduct 兜底写入）→ Nop。
 // 永不返回 nil。
 func (a *App) resolveAuditor() audit.Auditor {
-	if a.auditor != nil {
-		return a.auditor
+	if aud := a.auditorValue(); aud != nil {
+		return aud
 	}
 	return audit.NopAuditor()
+}
+
+// auditorValue 是审计后端字段的内部读取口（测试断言类型/来源时使用；
+// 业务取 sink 请走 resolveAuditor，它保证永不返回 nil）。
+func (a *App) auditorValue() audit.Auditor {
+	a.auditorMu.RLock()
+	defer a.auditorMu.RUnlock()
+	return a.auditor
+}
+
+// installContractAuditor 写入契约 audit 段产物：显式注入（auditorFromContract
+// 为 false）优先，协调替换只在现有 sink 来自契约或尚未注入时生效。
+func (a *App) installContractAuditor(aud audit.Auditor) {
+	a.auditorMu.Lock()
+	defer a.auditorMu.Unlock()
+	if a.auditor == nil || a.auditorFromContract {
+		a.auditor = aud
+		a.auditorFromContract = true
+	}
+}
+
+// setAuditor 直设 sink（装配期测试/显式注入路径），fromContract 标记来源。
+func (a *App) setAuditor(aud audit.Auditor, fromContract bool) {
+	a.auditorMu.Lock()
+	defer a.auditorMu.Unlock()
+	a.auditor = aud
+	a.auditorFromContract = fromContract
 }
 
 // auditComponent 旁路发出一条运行时重组审计事件（§6.2 自修改审计原语）：

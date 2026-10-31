@@ -92,8 +92,8 @@ func TestAssemble_AuditProductBecomesAppAuditor(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- a.Run(ctx) }()
 	time.Sleep(100 * time.Millisecond)
-	if _, isContract := a.auditor.(taggedAuditor); !isContract {
-		t.Fatalf("app auditor should be the contract backend during Run, got %T", a.auditor)
+	if _, isContract := a.auditorValue().(taggedAuditor); !isContract {
+		t.Fatalf("app auditor should be the contract backend during Run, got %T", a.auditorValue())
 	}
 	if v, ok := a.lookup("audit"); !ok {
 		t.Fatal("audit product missing from resource face")

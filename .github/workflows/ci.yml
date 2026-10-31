@@ -85,3 +85,30 @@ jobs:
 
       - name: TestTree_EndToEndTimed full-chain timed (criterion ④, outside -short)
         run: go test ./internal/codegen/ -run 'TestTree_(EndToEndTimed|AuthzClosedLoop)' -count=1 -timeout 15m
+
+  # 竞态门禁：普通 test 不启用 race detector，session manager / 热重载 /
+  # 计划缓存 / 限流器等并发路径的竞争只能在这里被发现（代码注释里的
+  # 「-race 可检出」不是保险）。范围 = 并发密集模块，新增此类模块时加行；
+  # 其余模块的常规测试仍由 test job 覆盖。
+  race:
+    runs-on: ubuntu-latest
+    env:
+      GOPROXY: "https://goproxy.io|https://proxy.golang.org,direct"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.1"
+
+      - name: go test -race (concurrency-sensitive modules)
+        run: |
+          set -e
+          trap 'echo "### FAILED AT MODULE: $mod"; echo "::error::FAILED AT MODULE: $mod"' ERR
+          for mod in . transport transport/grpc transport/http transport/http3 \
+                     transport/tcp transport/websocket transport/sse transport/web \
+                     retry ratelimit ratelimit/tokenbucket ratelimit/bbr ratelimit/sentinel \
+                     bootstrap registry cache cache/redis broker broker/redis log metrics health; do
+            echo "=== race: $mod ==="
+            (cd "$mod" && go mod download && go test -short -race -timeout 10m ./...)
+          done

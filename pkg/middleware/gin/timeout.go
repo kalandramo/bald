@@ -33,9 +33,10 @@ const DefaultTimeoutStatusCode = http.StatusServiceUnavailable
 // 并自行清理；只做 HTTP 超时（不设 ctx deadline）以免与上层的 contextx 包装冲突。
 //
 // 并发模型：handler 在独立 goroutine 跑 c.Next()，写入缓冲 writer；主 goroutine
-// 计时。两条路径对真实 writer（original）的访问是**互斥**的——只有 flushTo(done)
-// 或超时分支会碰 original，且 done 关闭意味着 c.Next 已返回。缓冲 writer 内部
-// 用 mutex 保护，超时后 handler 的并发写入安全丢弃。
+// 计时。gin.Context 不是并发安全的——main 在超时分支**只写真实 writer**
+// （original），不动 c.Abort/c.Writer；等 handler goroutine 结束后才归还
+// c.Writer 给引擎收尾。缓冲 writer 内部用 mutex 保护，超时后 handler 的并发
+// 写入安全丢弃。
 func Timeout(cfg TimeoutConfig) gin.HandlerFunc {
 	status := cfg.StatusCode
 	if status <= 0 {
@@ -45,7 +46,11 @@ func Timeout(cfg TimeoutConfig) gin.HandlerFunc {
 
 	return func(c *gin.Context) {
 		original := c.Writer
-		bw := &bufferedResponseWriter{ResponseWriter: original, body: &bytes.Buffer{}}
+		bw := &bufferedResponseWriter{
+			ResponseWriter: original,
+			body:           &bytes.Buffer{},
+			hdr:            make(http.Header),
+		}
 		c.Writer = bw
 
 		done := make(chan struct{})
@@ -60,8 +65,12 @@ func Timeout(cfg TimeoutConfig) gin.HandlerFunc {
 		select {
 		case <-done:
 			// 正常完成：把缓冲的响应原样刷给客户端。
-			code, body := bw.snapshot()
+			code, hdr, body := bw.snapshot()
 			c.Writer = original
+			dst := original.Header()
+			for k, vv := range hdr {
+				dst[k] = vv
+			}
 			if code != 0 {
 				original.WriteHeader(code)
 			}
@@ -70,21 +79,45 @@ func Timeout(cfg TimeoutConfig) gin.HandlerFunc {
 			}
 		case <-timer.C:
 			// 超时：丢弃 handler 的后续写入，直接向真实 writer 写超时响应。
+			// 不调用 c.AbortWithStatus、不在此处改 c.Writer：两者都会与
+			// handler goroutine 里的 c.Next 竞争 gin.Context。响应写完后
+			// 显式 Flush，让客户端在 handler 返回前就拿到超时码。
 			bw.markDiscarded()
+			original.WriteHeader(status)
+			original.Flush()
+			<-done
 			c.Writer = original
-			c.AbortWithStatus(status)
 		}
 	}
 }
 
-// bufferedResponseWriter 缓冲 handler 的输出，直到 snapshot 或 markDiscarded。
+// bufferedResponseWriter 缓冲 handler 的输出（状态码/头/体），直到 snapshot
+// 或 markDiscarded。头也必须缓冲：直接透传到真实 writer 会让 handler
+// goroutine 与计时 goroutine 并发写同一份 header map。
 type bufferedResponseWriter struct {
 	gin.ResponseWriter
 	body *bytes.Buffer
+	hdr  http.Header
 
 	mu        sync.Mutex
 	code      int  // 显式 WriteHeader 的状态码（0 = 未设置）
 	discarded bool // 超时后置位：后续写入丢弃
+}
+
+// Header 返回缓冲头，避免 handler 直接写真实 writer 的 header。
+func (w *bufferedResponseWriter) Header() http.Header { return w.hdr }
+
+// WriteHeaderNow 推迟到 flush 时统一下发（缓冲阶段不触碰真实 writer）。
+func (w *bufferedResponseWriter) WriteHeaderNow() {}
+
+// Flush 在缓冲阶段为空操作：响应在 flush/超时分支一次性写出。
+func (w *bufferedResponseWriter) Flush() {}
+
+// Size 报告已缓冲的字节数（gin 日志/观测读取）。
+func (w *bufferedResponseWriter) Size() int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.body.Len()
 }
 
 // WriteHeader 仅记录状态码，不立刻下发（超时路径要能改写成 503）。
@@ -126,11 +159,11 @@ func (w *bufferedResponseWriter) WriteString(s string) (int, error) {
 	return w.Write([]byte(s))
 }
 
-// snapshot 返回已缓冲的状态码与响应体（供 flush）。
-func (w *bufferedResponseWriter) snapshot() (int, []byte) {
+// snapshot 返回已缓冲的状态码、响应头副本与响应体（供 flush）。
+func (w *bufferedResponseWriter) snapshot() (int, http.Header, []byte) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	return w.code, w.body.Bytes()
+	return w.code, w.hdr.Clone(), w.body.Bytes()
 }
 
 // markDiscarded 置位丢弃标志（超时后调用）。

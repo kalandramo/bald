@@ -681,7 +681,7 @@ func storeProductWith(a *App, r buildResult, put func(ResourceKey, Cleanup)) err
 		if !ok {
 			return fmt.Errorf("appkit: registry provider %v returned %T, want registry.Registrar", r.node.Segments, r.product)
 		}
-		a.registrar = reg
+		a.SetRegistrar(reg)
 		a.setResources(top, reg)
 		put(r.node.Key, r.cleanup)
 	case "database", "cache", "storage", "ai", "workflow", "broker":
@@ -699,10 +699,7 @@ func storeProductWith(a *App, r buildResult, put func(ResourceKey, Cleanup)) err
 		// 契约产物作 appkit 自身审计事件的兜底 sink（显式 Auditor Option 优先，
 		// 不覆盖；先前契约产物可被协调替换），并照常落资源面供业务显式注入
 		// bundle/中间件。
-		if a.auditor == nil || a.auditorFromContract {
-			a.auditor = aud
-			a.auditorFromContract = true
-		}
+		a.installContractAuditor(aud)
 		a.setResources(top, aud)
 		put(r.node.Key, r.cleanup)
 	case "tracer":
@@ -749,11 +746,14 @@ func storeProductWith(a *App, r buildResult, put func(ResourceKey, Cleanup)) err
 
 // setResources 把段产物落进统一资源面（B4）：map[string]any 产物按
 // "<top>.<子段>" 逐键展开（与六域产物的段路径约定同构，nil 值跳过），
-// 其余产物整体落 "<top>"。仅 BeforeStart（阶段 B）单线程写入，Run 后只读。
+// 其余产物整体落 "<top>"。写入点有两处：BeforeStart（阶段 B）与运行期
+// 配置协调（storeProductReplacing），因此以 resourcesMu 保护。
 func (a *App) setResources(top string, product any) {
 	if product == nil {
 		return
 	}
+	a.resourcesMu.Lock()
+	defer a.resourcesMu.Unlock()
 	if m, ok := product.(map[string]any); ok {
 		for child, v := range m {
 			if v == nil {

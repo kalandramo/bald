@@ -66,17 +66,22 @@ type App struct {
 	// runHook 独立超时安全网保留、不再可配置——慢钩子应在钩子内自控 ctx）。
 	stopTimeout time.Duration
 
-	registrar registry.Registrar // 注册中心
-	servers   []transport.Server // 服务协议
+	// registrar 可由 SetRegistrar/契约 registry 段在运行期写入，register/
+	// deregister 并发读取，故由 registrarMu 保护。
+	registrarMu sync.RWMutex
+	registrar   registry.Registrar // 注册中心
+	servers     []transport.Server // 服务协议
 
 	// httpHandler 是 WithHTTP 声明的业务 handler（ApplyNode 域挂路由的入口；
 	// 网关转码面或未声明时为 nil）。声明期值，运行期只读。
 	httpHandler http.Handler
 
 	// resources 是统一资源面：段驱动 Provider 的产物
-	// 按契约段路径存取（键=段路径，见 Resource 与 storeProduct）。阶段 B
-	// 写入、Run 后只读，happens-before 由 Run 启动流程保证。
-	resources map[string]any
+	// 按契约段路径存取（键=段路径，见 Resource 与 storeProduct）。启动期
+	// （阶段 B）与运行期配置协调（storeProductReplacing）都会写入，读方
+	// 可能在请求路径上——统一用 resourcesMu 同步，不能假定「写后只读」。
+	resources   map[string]any
+	resourcesMu sync.RWMutex
 
 	// 钩子（可选）。
 	beforeStart []func(context.Context) error
@@ -132,11 +137,11 @@ type App struct {
 
 	// 审计后端：运行期重组/协调审计事件（mount/reconcile）的显式注入点，
 	// 契约 audit 段产物在阶段 B 兜底写入（见 storeProduct）。nil 时
-	// resolveAuditor 返回 Nop。
-	auditor audit.Auditor
-	// auditorFromContract 标记当前 auditor 来自契约 audit 段产物（可被下一次
-	// 契约协调替换）；显式 Auditor Option 注入时为 false，协调不得覆盖。
-	auditorFromContract bool
+	// resolveAuditor 返回 Nop。协调可在运行期替换契约 sink，故由
+	// auditorMu 保护（读方含请求路径上的审计事件）。
+	auditorMu           sync.RWMutex
+	auditor             audit.Auditor
+	auditorFromContract bool // 当前 auditor 来自契约 audit 段产物（可被协调替换）
 
 	// 配置对象
 	cfg appConfig
@@ -310,7 +315,19 @@ func configNamespaceOpt(ns string) Option {
 // 时序约束：须在 Run 进入 register 之前调用（BeforeStart 是安全窗口）——
 // register/deregister 每次都读 a.registrar，不做缓存，赋值即时生效。
 // client cleanup 由调用方挂停机 Effect 回放（Deregister 先于 Effect，顺序安全）。
-func (a *App) SetRegistrar(r registry.Registrar) { a.registrar = r }
+func (a *App) SetRegistrar(r registry.Registrar) {
+	a.registrarMu.Lock()
+	defer a.registrarMu.Unlock()
+	a.registrar = r
+}
+
+// registrarValue 是注册中心的内部读取口：register/deregister/日志与测试
+// 共用，避免绕开 registrarMu 直读字段。
+func (a *App) registrarValue() registry.Registrar {
+	a.registrarMu.RLock()
+	defer a.registrarMu.RUnlock()
+	return a.registrar
+}
 
 // ConfigFile 指定 --config 配置文件路径。
 func ConfigFile(f string) Option {
@@ -623,7 +640,7 @@ func (a *App) Run(ctx context.Context) error {
 		log.Error(ctx, "appkit register failed", "error", err)
 		return err
 	}
-	if a.registrar != nil {
+	if a.registrarValue() != nil {
 		log.Info(ctx, "appkit registered",
 			"name", a.name, "id", a.id, "endpoints", a.buildInstance().Endpoints)
 	}
@@ -659,7 +676,7 @@ func (a *App) Run(ctx context.Context) error {
 	}
 
 	// 先反注册（避免流量打到已停服务），再优雅停机。
-	if a.registrar != nil {
+	if a.registrarValue() != nil {
 		log.Info(ctx, "appkit deregistering", "name", a.name, "id", a.id)
 	}
 	_ = a.deregister(context.Background())
@@ -816,16 +833,18 @@ func (a *App) waitForEndpoints(ctx context.Context) error {
 
 // register 将实例注册到服务发现（若有 Registrar）。
 func (a *App) register(ctx context.Context) error {
-	if a.registrar == nil {
+	r := a.registrarValue()
+	if r == nil {
 		return nil
 	}
-	return a.registrar.Register(ctx, a.buildInstance())
+	return r.Register(ctx, a.buildInstance())
 }
 
 // deregister 从服务发现注销实例（优先调用，避免流量打到已停服务）。
 func (a *App) deregister(ctx context.Context) error {
-	if a.registrar == nil {
+	r := a.registrarValue()
+	if r == nil {
 		return nil
 	}
-	return a.registrar.Deregister(ctx, a.buildInstance())
+	return r.Deregister(ctx, a.buildInstance())
 }

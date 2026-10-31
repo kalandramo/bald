@@ -164,9 +164,7 @@ func TestResolveAuditor_InjectedOverridesContractProduct(t *testing.T) {
 	// 契约产物兜底写入（storeProduct 语义）：未注入时填入，已注入不覆盖。
 	a2 := NewApp()
 	probe := &mountAuditMem{}
-	if a2.auditor == nil {
-		a2.auditor = probe
-	}
+	a2.installContractAuditor(probe)
 	if a2.resolveAuditor() != probe {
 		t.Fatal("contract product should become the fallback sink")
 	}

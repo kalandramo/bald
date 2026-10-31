@@ -21,6 +21,25 @@ func init() {
 	encoding.MustRegister(jsoncodec.New())
 }
 
+// waitServerAddr 等待 Start 完成监听并返回 host:port。直接读 listener 会与
+// Start 的写入竞争，这里走带锁的 Endpoint。
+func waitServerAddr(t *testing.T, srv *Server) string {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		ep := srv.Endpoint()
+		if i := strings.Index(ep, "://"); i >= 0 {
+			addr := ep[i+3:]
+			if addr != "" && !strings.HasSuffix(addr, ":0") {
+				return addr
+			}
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("server did not bind: Endpoint() = %q", srv.Endpoint())
+	return ""
+}
+
 // ---------------------------------------------------------------------------
 // NewServer + defaults
 // ---------------------------------------------------------------------------
@@ -275,9 +294,8 @@ func TestServer_SSE_ConnectAndReceive(t *testing.T) {
 	defer cancel()
 
 	go func() { _ = srv.Start(ctx) }()
-	time.Sleep(100 * time.Millisecond)
 
-	addr := srv.listener.Addr().String()
+	addr := waitServerAddr(t, srv)
 	url := fmt.Sprintf("http://%s/events?stream=updates", addr)
 
 	// Client: connect to SSE endpoint and read events
@@ -329,9 +347,8 @@ func TestServer_SSE_MissingStreamParam(t *testing.T) {
 	defer cancel()
 
 	go func() { _ = srv.Start(ctx) }()
-	time.Sleep(100 * time.Millisecond)
 
-	addr := srv.listener.Addr().String()
+	addr := waitServerAddr(t, srv)
 	// No ?stream= parameter
 	url := fmt.Sprintf("http://%s/events", addr)
 
@@ -356,9 +373,8 @@ func TestServer_SSE_StreamNotFound(t *testing.T) {
 	defer cancel()
 
 	go func() { _ = srv.Start(ctx) }()
-	time.Sleep(100 * time.Millisecond)
 
-	addr := srv.listener.Addr().String()
+	addr := waitServerAddr(t, srv)
 	url := fmt.Sprintf("http://%s/events?stream=nonexistent", addr)
 
 	resp, err := http.Get(url)
@@ -385,9 +401,8 @@ func TestServer_SSE_AutoStream(t *testing.T) {
 	defer cancel()
 
 	go func() { _ = srv.Start(ctx) }()
-	time.Sleep(100 * time.Millisecond)
 
-	addr := srv.listener.Addr().String()
+	addr := waitServerAddr(t, srv)
 	url := fmt.Sprintf("http://%s/events?stream=auto-created", addr)
 
 	// With autoStream, the stream should be auto-created
@@ -433,9 +448,8 @@ func TestServer_Use(t *testing.T) {
 	defer cancel()
 
 	go func() { _ = srv.Start(ctx) }()
-	time.Sleep(100 * time.Millisecond)
 
-	addr := srv.listener.Addr().String()
+	addr := waitServerAddr(t, srv)
 	url := fmt.Sprintf("http://%s/events?stream=nonexistent", addr)
 
 	resp, err := http.Get(url)
@@ -473,9 +487,8 @@ func TestServer_WithMiddleware(t *testing.T) {
 	defer cancel()
 
 	go func() { _ = srv.Start(ctx) }()
-	time.Sleep(100 * time.Millisecond)
 
-	addr := srv.listener.Addr().String()
+	addr := waitServerAddr(t, srv)
 	url := fmt.Sprintf("http://%s/events?stream=nonexistent", addr)
 
 	resp, err := http.Get(url)
@@ -508,9 +521,8 @@ func TestServer_Auth_Unauthorized(t *testing.T) {
 	defer cancel()
 
 	go func() { _ = srv.Start(ctx) }()
-	time.Sleep(100 * time.Millisecond)
 
-	addr := srv.listener.Addr().String()
+	addr := waitServerAddr(t, srv)
 	url := fmt.Sprintf("http://%s/events?stream=test", addr)
 
 	resp, err := http.Get(url)
@@ -539,9 +551,8 @@ func TestServer_Auth_Forbidden(t *testing.T) {
 	defer cancel()
 
 	go func() { _ = srv.Start(ctx) }()
-	time.Sleep(100 * time.Millisecond)
 
-	addr := srv.listener.Addr().String()
+	addr := waitServerAddr(t, srv)
 	url := fmt.Sprintf("http://%s/events?stream=test", addr)
 
 	resp, err := http.Get(url)
@@ -569,9 +580,8 @@ func TestServer_SSE_Options(t *testing.T) {
 	defer cancel()
 
 	go func() { _ = srv.Start(ctx) }()
-	time.Sleep(100 * time.Millisecond)
 
-	addr := srv.listener.Addr().String()
+	addr := waitServerAddr(t, srv)
 	url := fmt.Sprintf("http://%s/events?stream=test", addr)
 
 	req, _ := http.NewRequest(http.MethodOptions, url, nil)
@@ -607,9 +617,8 @@ func TestServer_HandleFunc(t *testing.T) {
 	defer cancel()
 
 	go func() { _ = srv.Start(ctx) }()
-	time.Sleep(100 * time.Millisecond)
 
-	addr := srv.listener.Addr().String()
+	addr := waitServerAddr(t, srv)
 	url := fmt.Sprintf("http://%s/health", addr)
 
 	resp, err := http.Get(url)
