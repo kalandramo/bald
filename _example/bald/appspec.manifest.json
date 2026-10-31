@@ -1,7 +1,7 @@
 {
   "version": 1,
   "tool": "bald gen app",
-  "spec": "ff9712fd2d7b0677ced728063490b3c219377ac9f2479bc262aa8cd71bf9c509",
+  "spec": "1f6590def434fbe8ed9a29a0855661220f06aba6e70b3b4968a8d5f19858aa8c",
   "files": [
     {
       "path": "api/buf.gen.yaml",
@@ -55,11 +55,6 @@
     },
     {
       "path": "internal/apiserver/apiserver.go",
-      "ownership": "seeded",
-      "hash": "seeded"
-    },
-    {
-      "path": "internal/apiserver/domains.gen.go",
       "ownership": "seeded",
       "hash": "seeded"
     },

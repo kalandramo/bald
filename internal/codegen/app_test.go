@@ -67,7 +67,6 @@ func TestGenAppSpec_GeneratesTree(t *testing.T) {
 		filepath.Join("cmd", "cli-demo", "app", "command.go"),
 		filepath.Join("internal", "bootstrap", "assemble.gen.go"),
 		filepath.Join("internal", "bootstrap", "domains.gen.go"),
-		filepath.Join("internal", "apiserver", "domains.gen.go"),
 		filepath.Join("configs", "cli-demo.yaml"),
 		filepath.Join("api", "buf.yaml"),
 		"taskfile.yml",

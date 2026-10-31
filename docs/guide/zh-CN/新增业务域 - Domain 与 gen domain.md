@@ -8,7 +8,7 @@
 
 | | 你手写 | 生成器重写 | 装配（main.go） |
 | --- | --- | --- | --- |
-| 触碰 | `api/proto/<域>/v1/<域>.proto`、域包 `<域>v1/{<域>.go, domain.go}` | `domains.gen.go`×2、`handler/{grpc,gin,convert}/<域>.gen.go`、`authz/alias.gen.go` | **0 处** |
+| 触碰 | `api/proto/<域>/v1/<域>.proto`、域包 `<域>v1/{<域>.go, domain.go}` | `domains.gen.go`、`handler/convert/<域>.gen.go`、`authz/alias.gen.go`（+ 默认生成的绑定与路由清单） | **0 处** |
 | 频率 | 每域一次 | 域清单或域 proto 变化后重跑 | 不变 |
 
 ## 1. Domain 声明值：Declare + 三个兼容钩子
@@ -135,9 +135,6 @@ bald gen domain --spec appspec.json [--adopt] [--proto-cmd "buf generate"]
 | 产物 | 归属 | 说明 |
 | --- | --- | --- |
 | `internal/bootstrap/domains.gen.go` | owned | 域清单聚合（与 gen app 共用同一模板——单模板源不漂移） |
-| `internal/<apiserver_dir>/domains.gen.go` | owned | 逐域 handler 挂载扇出（清单序 = 域装配次序） |
-| `internal/<apiserver_dir>/handler/grpc/<域>.gen.go` | owned | gRPC 注册委托 |
-| `internal/<apiserver_dir>/handler/gin/<域>.gen.go` | owned | REST 挂载委托 + google.api.http 注解派生路由表 |
 | `internal/<apiserver_dir>/handler/gin/<域>.bind.gen.go` | owned | 注解派生绑定：`<Name>Service` 接口 + `Bind<Name>(gin.IRouter, impl)`（protojson 编解码；**默认生成**，`--no-bind` 跳过） |
 | `internal/<apiserver_dir>/routes/<域>.gen.go` | owned | 同批注解的 `appkit.Route` 清单（域引用 `RouteTable: routes.<Name>` 即获计划可见性；`--no-routes` 跳过） |
 | `internal/<apiserver_dir>/handler/convert/<域>.gen.go` | owned | 逐 RPC 授权动作投影（与 pkg/authz 默认规则同源） |
@@ -148,18 +145,16 @@ bald gen domain --spec appspec.json [--adopt] [--proto-cmd "buf generate"]
 
 **三态 writeGuarded 语义**（全部生成命令共用的落盘通道，`internal/codegen/iostreams.go`）：owned 每次重写，已存在且无 `--adopt` 一律拒绝（错误信息自带指引）；seeded 生成一次，已存在输出 `kept:` 并跳过（`--adopt` 也不覆盖——此后归你维护）；user 永不读写，仅输出 `skip:` 提示。proto 与域包手写文件属 user 侧；域包骨架是唯一的 seeded 产物——仅当域包尚无导出 Domain（按非测试 .go 文件结构判定）时落盘，Name 先挂上，三槽由你在手写文件里实现后挂进此值。
 
-**两阶段清单**：gen app 先把 `internal/<apiserver_dir>/domains.gen.go` 写成预域形态（对账清单），gen domain 把它重写为逐域挂载扇出——所以**重跑 gen app 之后必须 rerun gen domain**，否则 apiserver 侧停留在预域形态（文档级行为，由生成树测试钉住）。
-
 **何时重跑**：新增/删除域（改 domains[]）、改域 proto 的 service 或 http 注解（路由表、绑定与授权投影跟随派生）之后，`bald gen domain --spec appspec.json --adopt`。命令收尾提示即工作流原文：add a domain = hand-write its proto + domain package, declare it in domains[], rerun with --check to verify or --adopt to regenerate (assembly files stay untouched)。
 
-AppSpec.domains 字段参考（protojson 字段名；范本 `_example/bald/appspec.json`）：`name` / `protoPackage` / `service` / `model` / `goPackage`。
+AppSpec.domains 字段参考（protojson 字段名；范本 `_example/bald/appspec.json`）：`name` / `protoPackage` / `service` / `goPackage`。
 
 **操作序列：新增一个 order 域**（对照 §2 的三个文件与上表产物）：
 
 1. 手写契约 `api/proto/order/v1/order.proto`：service OrderService + google.api.http 注解（骨架可先 `bald gen proto order`）。
 2. 手写域包 `orderv1/order.go`：域配置读取（Settings 快照 order.* 子树）、能力构造、gRPC/REST 两面。
-3. appspec.json 的 domains[] 追加 `{"name": "order", "protoPackage": "order.v1", "service": "order.v1.OrderService", "model": "orderv1/order.go", "goPackage": "<module>/orderv1"}`。
-4. `bald gen domain --spec appspec.json --adopt`：重写清单×2 + handler 三件 + alias.gen.go + 绑定/路由清单；proto Go 类型缺失时按 `--proto-cmd` 编排 proto 阶段（失败即硬错误，`--no-bind` 可跳过绑定）；域包无 Domain 时 seed `orderv1/domain.gen.go` 骨架。
+3. appspec.json 的 domains[] 追加 `{"name": "order", "protoPackage": "order.v1", "service": "order.v1.OrderService", "goPackage": "<module>/orderv1"}`。
+4. `bald gen domain --spec appspec.json --adopt`：重写域清单 + 授权投影 + alias.gen.go + 绑定/路由清单；proto Go 类型缺失时按 `--proto-cmd` 编排 proto 阶段（失败即硬错误，`--no-bind` 可跳过绑定）；域包无 Domain 时 seed `orderv1/domain.gen.go` 骨架。
 5. 把三槽实现在域包手写文件里挂进声明值（先手写 domain.go 亦可——骨架 seeded 自动 kept: 跳过）。
 6. 自检：`git status` 应只见手写文件与生成物变化——装配文件零 diff 即判据①达成。
 
@@ -187,7 +182,6 @@ AppSpec.domains 字段参考（protojson 字段名；范本 `_example/bald/appsp
 ## FAQ
 
 - **新增域要动 main.go 吗？** 不。域清单是生成文件，声明值变参直传；main 装配面的域相关增量只有一次性的形态迁移（批 3 实测两行）。
-- **重跑 gen app 后域产物退回预域形态？** 是两阶段设计：rerun gen domain 即恢复扇出形态（§4）。
 - **域包已有 Domain 声明，gen domain 会覆盖吗？** 不会——骨架是 seeded 且仅当域包尚无导出 Domain 时落盘；greetv1 这类既有域包消费不覆盖。
 - **域的 REST 路由挂在哪？** 挂上 WithHTTP 声明的业务 handler；gateway 转码面占用 server.http 端口时 Routes 整体让位（REST 走转码，同端口单面语义）。
 - **三个槽位必须全实现吗？** 不。三槽全可选，nil 即不声明该面；但声明了 Routes 需应用有 HTTP 面、声明了 Services 需契约 server.grpc 段（§1）。

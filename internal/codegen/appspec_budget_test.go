@@ -30,7 +30,6 @@ func TestTree_D2Budgets(t *testing.T) {
 		{filepath.Join("internal", "bootstrap", "seed", "seed.go"), "seed-once"},
 		{filepath.Join("internal", "bootstrap", "seed", "policies.go"), "seed-once"},
 		{filepath.Join("internal", "apiserver", "apiserver.go"), "~40"},
-		{filepath.Join("internal", "apiserver", "domains.gen.go"), "~70"},
 		{filepath.Join("internal", "apiserver", "layering_invariant_test.go"), "~60"},
 		{filepath.Join("api", "buf.yaml"), "seed-once"},
 		{filepath.Join("api", "buf.gen.yaml"), "seed-once"},

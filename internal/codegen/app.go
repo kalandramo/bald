@@ -43,7 +43,7 @@ func (o *appOptions) Run() error {
 // AppSpec 是唯一真相源：应用名、契约段（server/audit/...）与生成物路径均以
 // 它为准，产物为 cmd/<app>/{main.go,app/command.go}、
 // internal/bootstrap/{assemble.gen.go,domains.gen.go,seed/}、
-// internal/apiserver/{apiserver.go,domains.gen.go,layering_invariant_test.go}、
+// internal/apiserver/{apiserver.go,layering_invariant_test.go}、
 // api/{buf.yaml,buf.gen.yaml}、configs/<app>.yaml、taskfile.yml。三道门
 // （Gate1 schema / Gate2 契约键 / Gate3 StrictContract）全过后落盘，
 // 归属三态（owned 覆盖 / seeded 跳过 kept: / user 永不触碰）。

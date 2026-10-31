@@ -52,7 +52,6 @@ demo-svc/
 ├─ internal/bootstrap/seed/seed.go                 # 生成一次：演示种子数据
 ├─ internal/bootstrap/seed/policies.go             # 生成一次：默认授权策略行
 ├─ internal/apiserver/apiserver.go                 # 生成一次：HTTP 装配钩子（加业务路由处）
-├─ internal/apiserver/domains.gen.go               # 生成物：域声明对账清单
 ├─ internal/apiserver/layering_invariant_test.go   # 生成物：biz 层不 import 装配层的守卫测试
 ├─ api/buf.yaml / api/buf.gen.yaml                 # 生成物：buf 模块与生成配置
 ├─ configs/demo-svc.yaml                           # 生成物：契约配置（由 AppSpec 派生）

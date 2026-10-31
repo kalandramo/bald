@@ -41,7 +41,7 @@ func guardFixture() *appspecv1.AppSpec {
 		Bundle: &appspecv1.BundleSpec{Normalized: true},
 		Domains: []*appspecv1.DomainSpec{{
 			Name: "greet", ProtoPackage: "greet.v1", Service: "greet.v1.GreetService",
-			Model: "internal/apiserver/model/greet.go", GoPackage: "demo.example/app/internal/apiserver/greetv1",
+			GoPackage: "demo.example/app/internal/apiserver/greetv1",
 		}},
 	}
 }
@@ -498,15 +498,14 @@ func TestTree_Layout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("gen: %v", err)
 	}
-	if n := strings.Count(out.String(), "generated:"); n != 15 {
-		t.Errorf("first run must generate 15 files, got %d:\n%s", n, out.String())
+	if n := strings.Count(out.String(), "generated:"); n != 14 {
+		t.Errorf("first run must generate 14 files, got %d:\n%s", n, out.String())
 	}
 	owned := []string{
 		filepath.Join("cmd", "demoapp", "main.go"),
 		filepath.Join("cmd", "demoapp", "app", "command.go"),
 		filepath.Join("internal", "bootstrap", "assemble.gen.go"),
 		filepath.Join("internal", "bootstrap", "domains.gen.go"),
-		filepath.Join("internal", "apiserver", "domains.gen.go"),
 		filepath.Join("internal", "apiserver", "layering_invariant_test.go"),
 		filepath.Join("configs", "demoapp.yaml"),
 		"taskfile.yml",
@@ -590,12 +589,11 @@ func TestTree_OwnershipAcrossRegenerations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("adopt regen: %v", err)
 	}
-	// seed.go、seed/policies.go、apiserver.go、apiserver/domains.gen.go（预域
-	// 形态由 gen domain 升级，故 seed 而非 owned）、bootstrap/custom.go 与
+	// seed.go、seed/policies.go、apiserver.go、bootstrap/custom.go 与
 	// cmd/<app>/app/custom.go（自定义接线钩子，播种后归用户）、api/buf.yaml 与
 	// api/buf.gen.yaml（buf 流水线配置，播种后归用户）。
-	if kept := strings.Count(out.String(), "kept:"); kept != 8 {
-		t.Errorf("adopt regen must report kept: for 8 seeded files, got %d:\n%s", kept, out.String())
+	if kept := strings.Count(out.String(), "kept:"); kept != 7 {
+		t.Errorf("adopt regen must report kept: for 7 seeded files, got %d:\n%s", kept, out.String())
 	}
 	if got, _ := os.ReadFile(seedPath); string(got) != handEdit {
 		t.Errorf("seeded file must survive --adopt regen, got: %q", got)
@@ -1133,7 +1131,7 @@ func TestTree_GeneratedProjectCompiles(t *testing.T) {
 			Meta: &appspecv1.AppMeta{Name: "demodomain", Module: "demo.example/app", Desc: "d"},
 			Domains: []*appspecv1.DomainSpec{{
 				Name: "greet", ProtoPackage: "greet.v1", Service: "greet.v1.GreetService",
-				Model: "internal/apiserver/model/greet.go", GoPackage: "demo.example/app/internal/apiserver/greetv1",
+				GoPackage: "demo.example/app/internal/apiserver/greetv1",
 			}},
 		},
 	}

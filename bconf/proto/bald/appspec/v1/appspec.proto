@@ -121,11 +121,13 @@ message DomainSpec {
   // 域的 gRPC service 全名（如 "greet.v1.GreetService"；gen domain
   // 校验其与实际 proto 匹配并派生路由/授权策略）。
   string service = 3;
-  // 域模型文件（如 "internal/apiserver/model/greet.go"）。
-  string model = 4;
   // 域声明值所在的 Go import 路径（该包须导出 appkit.Domain 值，
   // 对照 _example/bald/domains.gen.go）。
   string go_package = 5;
+  // 4 曾是「域模型文件」路径，无生成物消费者（域模型由业务代码自持），
+  // 按「声明面不允许无消费者字段」移除。
+  reserved 4;
+  reserved "model";
 }
 
 // AppMeta 生成代码的标识信息。

@@ -480,8 +480,6 @@ type DomainSpec struct {
 	// 域的 gRPC service 全名（如 "greet.v1.GreetService"；gen domain
 	// 校验其与实际 proto 匹配并派生路由/授权策略）。
 	Service string `protobuf:"bytes,3,opt,name=service,proto3" json:"service,omitempty"`
-	// 域模型文件（如 "internal/apiserver/model/greet.go"）。
-	Model string `protobuf:"bytes,4,opt,name=model,proto3" json:"model,omitempty"`
 	// 域声明值所在的 Go import 路径（该包须导出 appkit.Domain 值，
 	// 对照 _example/bald/domains.gen.go）。
 	GoPackage     string `protobuf:"bytes,5,opt,name=go_package,json=goPackage,proto3" json:"go_package,omitempty"`
@@ -536,13 +534,6 @@ func (x *DomainSpec) GetProtoPackage() string {
 func (x *DomainSpec) GetService() string {
 	if x != nil {
 		return x.Service
-	}
-	return ""
-}
-
-func (x *DomainSpec) GetModel() string {
-	if x != nil {
-		return x.Model
 	}
 	return ""
 }
@@ -1014,15 +1005,14 @@ const file_bald_appspec_v1_appspec_proto_rawDesc = "" +
 	"BundleSpec\x12\x1e\n" +
 	"\n" +
 	"normalized\x18\x01 \x01(\bR\n" +
-	"normalized\"\x94\x01\n" +
+	"normalized\"\x8b\x01\n" +
 	"\n" +
 	"DomainSpec\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12#\n" +
 	"\rproto_package\x18\x02 \x01(\tR\fprotoPackage\x12\x18\n" +
-	"\aservice\x18\x03 \x01(\tR\aservice\x12\x14\n" +
-	"\x05model\x18\x04 \x01(\tR\x05model\x12\x1d\n" +
+	"\aservice\x18\x03 \x01(\tR\aservice\x12\x1d\n" +
 	"\n" +
-	"go_package\x18\x05 \x01(\tR\tgoPackage\"z\n" +
+	"go_package\x18\x05 \x01(\tR\tgoPackageJ\x04\b\x04\x10\x05R\x05model\"z\n" +
 	"\aAppMeta\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x16\n" +
 	"\x06module\x18\x02 \x01(\tR\x06module\x12\x12\n" +

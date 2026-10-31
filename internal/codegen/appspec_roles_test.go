@@ -103,7 +103,7 @@ func fanoutFixture(t *testing.T) *appspecv1.AppSpec {
 	)
 	as.Domains = append(as.GetDomains(), &appspecv1.DomainSpec{
 		Name: "task", ProtoPackage: "task.v1", Service: "task.v1.TaskService",
-		Model: "internal/apiserver/model/task.go", GoPackage: "demo.example/app/internal/apiserver/taskv1",
+		GoPackage: "demo.example/app/internal/apiserver/taskv1",
 	})
 	if errs := validateAppSpec(as); len(errs) != 0 {
 		t.Fatalf("fanout 夹具必须通过 Gate1:\n%s", joinErrs(errs))
@@ -189,14 +189,13 @@ func TestMachineGuard_RoleFieldUnregisteredRed(t *testing.T) {
 }
 
 // TestTree_RoleFanoutLayout 钉两角色时的完整落盘集合：共享文件仍一份，
-// cmd 与 configs 按角色各一份（19 项 = 8 共享 + 6 cmd + 2 config + 3 seed）。
+// cmd 与 configs 按角色各一份（18 项 = 7 共享 + 6 cmd + 2 config + 3 seed）。
 func TestTree_RoleFanoutLayout(t *testing.T) {
 	files, _ := renderAppTree(t, fanoutFixture(t))
 	want := []string{
 		filepath.Join("internal", "bootstrap", "assemble.gen.go"),
 		filepath.Join("internal", "bootstrap", "domains.gen.go"),
 		filepath.Join("internal", "bootstrap", "custom.go"),
-		filepath.Join("internal", "apiserver", "domains.gen.go"),
 		filepath.Join("internal", "apiserver", "layering_invariant_test.go"),
 		filepath.Join("api", "buf.yaml"),
 		filepath.Join("api", "buf.gen.yaml"),

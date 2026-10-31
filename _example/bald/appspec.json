@@ -63,7 +63,6 @@
       "name": "greet",
       "protoPackage": "bald.v1",
       "service": "bald.v1.GreetService",
-      "model": "greetv1/greet.go",
       "goPackage": "github.com/kalandramo/bald/example/bald/greetv1"
     }
   ],

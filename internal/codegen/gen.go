@@ -6,7 +6,7 @@
 //   - bald gen store   <name>  生成 <name>.go 实体骨架（gorm tag + keyOf 提取函数）
 //   - bald gen app     <name>  生成 cmd/<name>/main.go 应用装配骨架（appkit 全原语 + bundle）
 //   - bald gen domain  --spec  按 AppSpec.domains 重写域驱动生成物
-//                              （见 gen_domain.go——清单×2 + 逐域 handler + 授权别名）
+//                              （见 gen_domain.go——域清单 + 授权投影 + 绑定）
 //
 // 生成物以 _example/bald 消费者模块为
 // 编译/运行上下文做端到端验证（见 app_test.go），核心 go.mod 不引入 gin/grpc。

@@ -31,13 +31,13 @@ func runGenDomain(t *testing.T, dir, specPath string, extra ...string) string {
 }
 
 // TestGenDomain_EndToEnd 参考夹具全流水线（gen app → gen domain）：产物清单
-// 每文件标注 owned 通道（generated:）、清单形态对照 _example 手写件、逐域
-// handler 与授权别名落在 internal/apiserver 侧、重生成确定性。
+// 每文件标注 owned 通道（generated:）、清单形态对照 _example 手写件、授权投影
+// 与别名落在 internal/apiserver 侧、重生成确定性。
 func TestGenDomain_EndToEnd(t *testing.T) {
 	dir, specPath := runGenAppInTemp(t, guardFixture())
 	out := runGenDomain(t, dir, specPath, "--adopt") // gen app 流水线已跑过一次 gen domain
-	if got := strings.Count(out, "generated:"); got != 8 {
-		t.Errorf("gen domain regen must emit 8 owned files (manifest + fanout + 3 handler + authz + bind + routes; domain value is seeded), got %d:\n%s", got, out)
+	if got := strings.Count(out, "generated:"); got != 5 {
+		t.Errorf("gen domain regen must emit 5 owned files (manifest + convert + authz + bind + routes; domain value is seeded), got %d:\n%s", got, out)
 	}
 
 	// 域清单（internal/bootstrap）形态对照 _example 手写件：import 域包 +
@@ -58,47 +58,7 @@ func TestGenDomain_EndToEnd(t *testing.T) {
 		}
 	}
 
-	// apiserver 侧扇出清单：逐域 handler 挂载/注册。
-	fanout, err := os.ReadFile(filepath.Join(dir, "internal", "apiserver", "domains.gen.go"))
-	if err != nil {
-		t.Fatalf("read apiserver manifest: %v", err)
-	}
-	for _, want := range []string{
-		"package apiserver",
-		"var DomainHandlers = []DomainHandler{",
-		"Name: \"greet\", ProtoPackage: \"greet.v1\", Service: \"greet.v1.GreetService\", Model: \"internal/apiserver/model/greet.go\"",
-		"Mount:    ginhandler.MountGreet",
-		"Register: grpchandler.RegisterGreet",
-	} {
-		if !strings.Contains(string(fanout), want) {
-			t.Errorf("apiserver fanout missing %q:\n%s", want, fanout)
-		}
-	}
-
-	// 逐域 handler：grpc 注册委托 / gin 挂载委托 + 注解派生路由表 / convert 授权动作。
-	grpcH, err := os.ReadFile(filepath.Join(dir, "internal", "apiserver", "handler", "grpc", "greet.gen.go"))
-	if err != nil {
-		t.Fatalf("read grpc handler: %v", err)
-	}
-	for _, want := range []string{"func RegisterGreet(s *grpc.Server)", "greetv1.Domain.Services(s)", "DO NOT EDIT"} {
-		if !strings.Contains(string(grpcH), want) {
-			t.Errorf("grpc handler missing %q:\n%s", want, grpcH)
-		}
-	}
-	ginH, err := os.ReadFile(filepath.Join(dir, "internal", "apiserver", "handler", "gin", "greet.gen.go"))
-	if err != nil {
-		t.Fatalf("read gin handler: %v", err)
-	}
-	for _, want := range []string{
-		"func MountGreet(h http.Handler) error",
-		"greetv1.Domain.Routes(h)",
-		"\"POST /v1/greets (body: *) -> Greet\"",
-		"\"GET /v1/greets/{name} -> GreetGet\"",
-	} {
-		if !strings.Contains(string(ginH), want) {
-			t.Errorf("gin handler missing %q:\n%s", want, ginH)
-		}
-	}
+	// 逐域授权投影：convert 动作表（seed 策略行与 authz/alias.gen.go 以此对账）。
 	convH, err := os.ReadFile(filepath.Join(dir, "internal", "apiserver", "handler", "convert", "greet.gen.go"))
 	if err != nil {
 		t.Fatalf("read convert handler: %v", err)
@@ -863,7 +823,7 @@ func TestBindViewOf_NoAnnotatedRoutes(t *testing.T) {
 }
 
 // TestScanProto_AdditionalBindings 钉住注解扫描的完整规则集：主规则 +
-// additional_bindings 全部进 Rules（derivedRoutes 逐条登记），stream 关键字
+// additional_bindings 全部进 Rules（绑定生成逐条登记），stream 关键字
 // 被识别（流式 RPC 的 REST 注解是错配，由 bindViewOf 报错）。
 func TestScanProto_AdditionalBindings(t *testing.T) {
 	src := `syntax = "proto3";
@@ -910,9 +870,12 @@ service GreetService {
 	if !svc.Methods[1].Streaming {
 		t.Fatal("Watch must be marked streaming")
 	}
-	routes := derivedRoutes(svc)
-	if len(routes) != 3 {
-		t.Fatalf("derivedRoutes = %v, want 3 entries (Search x2 + Watch)", routes)
+	rules := 0
+	for _, m := range svc.Methods {
+		rules += len(methodRules(m))
+	}
+	if rules != 3 {
+		t.Fatalf("annotated rules = %d, want 3 (Search x2 + Watch)", rules)
 	}
 }
 

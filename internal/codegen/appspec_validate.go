@@ -321,7 +321,6 @@ var fieldConsumers = map[string]string{
 	"bald.appspec.v1.AppSpec.domains.name":                  "greet",
 	"bald.appspec.v1.AppSpec.domains.proto_package":         "greet.v1",
 	"bald.appspec.v1.AppSpec.domains.service":               "greet.v1.GreetService",
-	"bald.appspec.v1.AppSpec.domains.model":                 "internal/apiserver/model/greet.go",
 	"bald.appspec.v1.AppSpec.domains.go_package":            "demo.example/app/internal/apiserver/greetv1",
 	// variants.gen.go 是 gofmt 后的 VariantDecl 字面量：name 的标记带上
 	// 字段名与对齐空格，避免与 when 的 `"grpcgw"` 标记混淆（两个字段

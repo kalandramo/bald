@@ -45,7 +45,7 @@ AppSpec 用一份 JSON 声明应用的装配形态——开通哪些 server、�
 | `layout.apiserverDir` | string | apiserver 目录名（默认 `apiserver`） |
 | `layout.strictContract` | bool | 生成物是否 emit `appkit.StrictContract()`（proto3 optional 保 presence：未声明 = **true**） |
 | `bundle.normalized` | bool | 装配期 bundle 归一化声明（audit object/action 双传输同源） |
-| `domains[]` | 数组 | 显式域清单 `{name, protoPackage, service, model, goPackage}`（§6） |
+| `domains[]` | 数组 | 显式域清单 `{name, protoPackage, service, goPackage}`（§6） |
 | `variants[]` | 数组 | 构建期变体 `{name, when, buildTags[], description, effects{components[], patches[]}}`：`when` 是 `go/build/constraint` 表达式（如 `grpcgw && !nacos`），`buildTags` 是 && 糖（与 `when` 互斥）；声明恒进计划（`--plan`/`doctor` 的 `variants:` 段按 `declared`/`active` 列出并展示增量），命中的变体把 `effects`（组件 + bootstrap 字段补丁）并入真实装配；`//go:build` 实现由独立 tag 文件注册，与声明计划期对账（漂移即启动失败），不再产 `ambient` |
 
 契约段纪律：传输面、审计后端等一律声明在 `bootstrap`（唯一真相源）。旧快捷方式字段 `server` / `auditBackends` / `bundleNormalized` 已移除（Q6）——protojson 解析会直接报 `unknown field`，请把对应声明迁到 `bootstrap.server` / `bootstrap.audit.backends` / `bundle.normalized`。
@@ -104,7 +104,6 @@ my-service/
 ├─ internal/bootstrap/seed/seed.go                 # 生成一次：演示种子数据
 ├─ internal/bootstrap/seed/policies.go             # 生成一次：默认授权策略行
 ├─ internal/apiserver/apiserver.go                 # 生成一次：HTTP 装配钩子（加业务路由处）
-├─ internal/apiserver/domains.gen.go               # 生成物：域声明对账清单
 ├─ internal/apiserver/layering_invariant_test.go   # 生成物：biz 层不 import 装配层的守卫测试
 ├─ api/buf.yaml / api/buf.gen.yaml                 # 生成一次：buf 模块与生成配置
 ├─ configs/my-service.yaml                         # 生成物：契约配置（由 AppSpec 派生）
@@ -147,13 +146,13 @@ go run ./cmd/my-service
 
 1. **域 proto**：落在 `api/proto`、`api/protos` 或 `proto` 任一候选根下（`google.api.http` 注解会被派生成 REST 路由表与授权动作投影）。
 2. **域包**：在 `domains[].goPackage` 指向的包里导出 `appkit.Domain` 声明值——钩子由引擎在既定时点消费：`Declare`/`ApplyNode`（声明节点并按计划执行：读自己的配置段、构造能力、挂 REST 路由）、`Reconcile`（热更协调）、`Services`（gRPC 注册自持）。逐行范本：[`_example/bald/greetv1/domain.go`](https://github.com/kalandramo/bald/blob/main/_example/bald/greetv1/domain.go)。
-3. **声明**：在 AppSpec 的 `domains[]` 加 `{name, protoPackage, service, model, goPackage}`，`service` 必须是实际 proto 的 `<package>.<Service>` 全名。
+3. **声明**：在 AppSpec 的 `domains[]` 加 `{name, protoPackage, service, goPackage}`，`service` 必须是实际 proto 的 `<package>.<Service>` 全名。
 
 然后生成：
 
 ```bash
 bald gen app --spec appspec.json --adopt    # 重写 owned：默认策略行等随域声明更新（seeded kept）
-bald gen domain --spec appspec.json --adopt # 重写域清单、逐域扇出与 REST 绑定
+bald gen domain --spec appspec.json --adopt # 重写域清单、授权投影与 REST 绑定
 ```
 
 `gen domain` 产物（owned，重写需 `--adopt`）：
@@ -161,9 +160,6 @@ bald gen domain --spec appspec.json --adopt # 重写域清单、逐域扇出与 
 | 产物 | 作用 |
 |---|---|
 | `internal/bootstrap/domains.gen.go` | 域清单聚合（`appkit.Domain` 值变参直传 MustServe；与 gen app 共用同一模板） |
-| `internal/apiserver/domains.gen.go` | 逐域 handler 挂载扇出（`DomainHandlers`） |
-| `internal/apiserver/handler/grpc/<d>.gen.go` | gRPC 注册委托 |
-| `internal/apiserver/handler/gin/<d>.gen.go` | REST 挂载委托 + 注解派生路由表 |
 | `internal/apiserver/handler/convert/<d>.gen.go` | 授权动作投影（Delete→delete、List→list、Create/Update/Set/Put→write、其余→get） |
 | `internal/apiserver/authz/alias.gen.go` | 授权别名表 + 默认动作聚合（proto service 派生） |
 | `internal/apiserver/handler/gin/<d>.bind.gen.go` | 注解派生的 gin 绑定（`<Name>Service` 接口 + `Bind<Name>`；**默认生成**） |
