@@ -225,17 +225,13 @@ func TestGen_AdoptOverwritesOwnedOnly(t *testing.T) {
 	}
 }
 
-// TestGenApp_ModeFlags --force 在 spec 模式退役（B5）；--adopt 与 --check 互斥；
-// 模板模式不接受 --adopt/--check。
+// TestGenApp_ModeFlags --spec 必填；--adopt 与 --check 互斥（gen app 与 gen domain 同口径）。
 func TestGenApp_ModeFlags(t *testing.T) {
-	if err := (&appOptions{Spec: "x.json", Force: true}).Validate(); err == nil || !strings.Contains(err.Error(), "--force is retired") {
-		t.Fatalf("--force in spec mode must be rejected, got: %v", err)
+	if err := (&appOptions{}).Validate(); err == nil || !strings.Contains(err.Error(), "--spec") {
+		t.Fatalf("missing --spec must be rejected, got: %v", err)
 	}
 	if err := (&appOptions{Spec: "x.json", Adopt: true, Check: true}).Validate(); err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
 		t.Fatalf("--adopt + --check must be rejected, got: %v", err)
-	}
-	if err := (&appOptions{Name: "demo", Adopt: true}).Validate(); err == nil || !strings.Contains(err.Error(), "template mode uses --force") {
-		t.Fatalf("--adopt in template mode must be rejected, got: %v", err)
 	}
 	if err := (&domainOptions{Spec: "x.json", Adopt: true, Check: true}).Validate(); err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
 		t.Fatalf("gen domain --adopt + --check must be rejected, got: %v", err)

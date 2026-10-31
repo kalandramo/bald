@@ -1,15 +1,11 @@
 package codegen
 
 import (
-	"bytes"
-	"go/format"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
-	"text/template"
 )
 
 // exampleModule 返回 _example/bald 消费者 module 的绝对路径——生成物编译/运行以它
@@ -30,69 +26,26 @@ func repoRoot(t *testing.T) string {
 	return filepath.Clean(filepath.Join(wd, "..", ".."))
 }
 
-// TestGenApp_TemplateFormats 渲染 + go/format 必须成功（否则生成物不可编译）。
-func TestGenApp_TemplateFormats(t *testing.T) {
-	var buf bytes.Buffer
-	tp := template.Must(template.New("app").Parse(appTmpl))
-	if err := tp.Execute(&buf, map[string]string{"Name": "demo"}); err != nil {
-		t.Fatalf("render: %v", err)
+// TestGenApp_RequiresSpec CLI 参数层：gen app 只有 AppSpec 一条路径——缺 --spec
+// 直接拒绝并给出指引；位置参数不再接受（应用名以 AppSpec.meta.name 为准）。
+func TestGenApp_RequiresSpec(t *testing.T) {
+	cmd := genAppCmd(NewDefaultIOStreams())
+	cmd.SetErr(io.Discard)
+	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "--spec") {
+		t.Fatalf("missing --spec must fail with --spec guidance, got: %v", err)
 	}
-	if _, err := format.Source(buf.Bytes()); err != nil {
-		t.Fatalf("generated code not gofmt-able: %v\n%s", err, buf.String())
-	}
-	// 关键锚点：目标惯用法 + 全部原语必须在模板中示范。
-	for _, want := range []string{
-		"appkit.MustServe", "std.Standard()",
-		"mech.Provides", "mech.Requires", "mech.Effect",
-		"mech.Components", "mech.ComponentFunc", "mech.OnKeyChange",
-		"bundle.New", "bundle.Normalized",
-	} {
-		if !strings.Contains(buf.String(), want) {
-			t.Errorf("template missing anchor %q", want)
-		}
-	}
-	// 防回归（可逆性）：Effect 的逆操作必须是**可执行调用**，不是注释空壳。
-	if strings.Contains(buf.String(), "// store.UnregisterTenant") {
-		t.Error("Effect undo is a commented-out shell; enable store.UnregisterTenant(...)")
-	}
-	if !strings.Contains(buf.String(), `store.UnregisterTenant("tenant_id")`) {
-		t.Error(`template missing executable store.UnregisterTenant("tenant_id") in Effect undo`)
+
+	cmd2 := genAppCmd(NewDefaultIOStreams())
+	cmd2.SetErr(io.Discard)
+	cmd2.SetArgs([]string{"demo", "--spec", "appspec.json"})
+	if err := cmd2.Execute(); err == nil {
+		t.Fatal("positional app name must be rejected")
 	}
 }
 
-// TestGenApp_GeneratedCodeCompiles 端到端：实际生成到临时目录并在 bald module 内
-// go build 验证生成物可编译（验收标准：生成物 go build 通过）。
-func TestGenApp_GeneratedCodeCompiles(t *testing.T) {
-	if _, err := exec.LookPath("go"); err != nil {
-		t.Skip("go toolchain not in PATH")
-	}
-	dir := t.TempDir()
-	var buf bytes.Buffer
-	tp := template.Must(template.New("app").Parse(appTmpl))
-	if err := tp.Execute(&buf, map[string]string{"Name": "demoapp"}); err != nil {
-		t.Fatalf("render: %v", err)
-	}
-	formatted, err := format.Source(buf.Bytes())
-	if err != nil {
-		t.Fatalf("format: %v", err)
-	}
-	path := filepath.Join(dir, "main.go")
-	if err := os.WriteFile(path, formatted, 0o644); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-	// 在 _example/bald 模块内编译生成物：它是 bald 核心的真实消费者模块
-	// （依赖 cobra/gin/grpc，replace 指向根模块）——生成物即面向该形态的模块。
-	cmd := exec.Command("go", "build", "-o", filepath.Join(dir, "demoapp.bin"), path)
-	cmd.Dir = exampleModule(t)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("generated main.go does not compile: %v\n%s", err, out)
-	}
-}
-
-// TestGenAppSpec_CommandOmitsName CLI 参数层（UX）：spec 模式下 <name> 可省略
-// ——应用名与目录树均以 AppSpec 为准（meta.name/module 现为必填，Gate1 校验）；
-// 模板模式（无 --spec）缺 <name> 仍须报错。
-func TestGenAppSpec_CommandOmitsName(t *testing.T) {
+// TestGenAppSpec_GeneratesTree --spec 驱动整套目录树：<name> 不必给，应用名与
+// 落盘路径均以 AppSpec 为准（meta.name/module 必填，Gate1 校验）。
+func TestGenAppSpec_GeneratesTree(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir) // 默认产出根（layout.root="."）落在临时目录
 	specPath := filepath.Join(dir, "appspec.json")
@@ -104,11 +57,10 @@ func TestGenAppSpec_CommandOmitsName(t *testing.T) {
 		t.Fatalf("write spec: %v", err)
 	}
 
-	// spec 模式：不带 <name> 应成功，产出目录树（入口 cmd/cli-demo/main.go）。
 	cmd := genAppCmd(NewDefaultIOStreams())
 	cmd.SetArgs([]string{"--spec", specPath})
 	if err := cmd.Execute(); err != nil {
-		t.Fatalf("gen app --spec without <name> should succeed: %v", err)
+		t.Fatalf("gen app --spec should succeed: %v", err)
 	}
 	for _, want := range []string{
 		filepath.Join("cmd", "cli-demo", "main.go"),
@@ -123,17 +75,5 @@ func TestGenAppSpec_CommandOmitsName(t *testing.T) {
 		if _, err := os.Stat(want); err != nil {
 			t.Errorf("tree file %q not created: %v", want, err)
 		}
-	}
-
-	// 模板模式（无 --spec）：缺 <name> 仍报错。此负例用默认流（ErrOut =
-	// os.Stderr），SetErr 覆写为弃流后错误只经 Execute 返回值断言——不把
-	// 预期错误漏进 CI 日志（「accepts 1 arg(s)」噪音即此）。
-	cmd2 := genAppCmd(NewDefaultIOStreams())
-	cmd2.SetArgs(nil)
-	cmd2.SetErr(io.Discard)
-	if err := cmd2.Execute(); err == nil {
-		t.Fatalf("template mode without <name> must fail")
-	} else if !strings.Contains(err.Error(), "accepts 1 arg(s)") {
-		t.Fatalf("unexpected error: %v", err)
 	}
 }

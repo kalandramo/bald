@@ -75,10 +75,10 @@ AppSpec 用一份 JSON 声明应用的装配形态——开通哪些 server、�
 ## 4. gen app：生成目标目录树
 
 ```bash
-bald gen app --spec appspec.json   # spec 模式下 <name> 可省略，一切以 AppSpec 为准
+bald gen app --spec appspec.json   # 应用名与产出路径以 AppSpec 为准
 ```
 
-flag：`--spec`（AppSpec JSON 路径）、`--out`（产出根，默认 `layout.root` 或 `.`）、`--adopt`（覆盖 owned 生成物并更新清单）、`--check`（零写入校验）、`--module`（提示用）。无 `--spec` 时是单文件模板模式（`gen app <name>`，含 `[FILL]` 填充点）——起步推荐 spec 模式。
+flag：`--spec`（必填，AppSpec JSON 路径）、`--out`（产出根，默认 `layout.root` 或 `.`）、`--adopt`（覆盖 owned 生成物并更新清单）、`--check`（零写入校验）。装配形状全部由 AppSpec 声明。
 
 ### 4.1 三道门
 
@@ -183,7 +183,7 @@ bald gen store greet   # → ./greet.go（gorm tag + keyOf）
 
 `gen proto` 产出 **CRUD 六件套**：service + List/Get/Create/Update/Delete 五个 RPC，每个 RPC 带 `google.api.http` 注解（同一个 RPC 同时暴露 gRPC 与 REST/JSON），`buf.validate` 字段校验规则，List 请求带 `bald.store.v1` 的分页与结构化过滤（`PagingRequest`/`FilterExpr`）。proto 包名用 `<name>.v1`，与 `domains[].protoPackage` 的声明口径一致（`gen domain` 的 service 校验以此对账）。常用 flag：`--out`（默认 `api/proto/<name>/v1`）、`--plural`（REST 资源段，默认 `<name>s`）、`--go-package`（缺省由 `--module` 派生）、`--module`、`--force`。
 
-生成后把 proto 纳入 buf 模块跑 `buf generate` 得到 Go 代码（`api/buf.yaml`/`api/buf.gen.yaml` 已由 gen app 生成；deps 需 googleapis、protovalidate 与 bald store 模块）——`taskfile.yml` 的 `task proto` 就是这一步。全部生成命令遵守**不静默覆盖**：目标已存在时拒绝并提示，`--force` 显式放行。
+生成后把 proto 纳入 buf 模块跑 `buf generate` 得到 Go 代码（`api/buf.yaml`/`api/buf.gen.yaml` 已由 gen app 生成；deps 需 googleapis、protovalidate 与 bald store 模块）——`taskfile.yml` 的 `task proto` 就是这一步。全部生成命令遵守**不静默覆盖**：目标已存在时拒绝并提示——单文件生成器（`gen proto`/`gen store`）用 `--force` 放行，树生成器（`gen app`/`gen domain`）用 `--adopt` 收敛。
 
 ## 8. 授权接线（生成物数据 + 一个桥）
 
@@ -238,7 +238,7 @@ router.Use(bundle.New(
 | `Gate2 (contract keys ...): contract keys unknown to bconf (typo? ...)` | `AppSpec.bootstrap` 里有契约外的键；改键名或删除 |
 | `config: unknown contract keys (typo? or declare in AllowBusinessSections): <keys>` | 运行期 StrictContract 拦到未知键（配置文件/env/flag 均在检查范围）；改键名，业务自持段经 `appkit.StrictContract("<段名>")` 白名单放行 |
 | `unresolved capabilities: capability "db" (required by audit.store)` | `capability.requires` 声明的能力不在 `provides`；补齐声明 |
-| `<path> already exists, refusing to overwrite (pass --force to allow)` | 生成物已存在；确认手改已备份后加 `--force` |
+| `<path> already exists, refusing to overwrite (pass --adopt ... --force ...)` | 生成物已存在；树生成器（gen app/domain）用 `--adopt` 收敛，单文件生成器（gen proto/store）确认手改已备份后加 `--force` |
 | 输出 `kept:` 但文件没更新 | 该文件是生成一次（`seed/`、`apiserver.go`、域骨架）——`--force` 也不覆盖，直接手改 |
 | `Gate1 (domains.service vs proto): service "..." not found ...` | `domains[].service` 与实际 proto 失配；按报错对齐声明或 proto（§6） |
 | `go install` 报 sumdb 404 | 新 tag 校验和收录延迟，数小时后重试（§2） |

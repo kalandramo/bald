@@ -32,14 +32,13 @@ func CheckErr(err error) {
 	}
 }
 
-// ownership 是生成物的归属三态（D2-target-codegen.md §5.1）：回归生成不再
-// 只有「存在即报错」一种口径。
+// ownership 是生成物的归属三态：回归生成不再只有「存在即报错」一种口径。
 type ownership int
 
 const (
 	// owned 生成物：每次 gen 重写（文件头 DO NOT EDIT，内容以生成器为准）。
 	// 已存在时默认拒绝（防覆盖底线不变——无显式放行不重写已存在文件）：
-	// spec 模式用 --adopt 放行，单文件模板模式用 --force 放行。
+	// gen app / gen domain 用 --adopt 放行，gen proto / gen store 用 --force。
 	owned ownership = iota
 	// Seeded 生成一次：不存在才落盘；已存在即跳过并输出 kept:（不算错误）。
 	// --force 也不覆盖——生成一次之后归用户维护（seed/、apiserver.go 等）。
@@ -70,7 +69,7 @@ func writeGuarded(path string, content []byte, own ownership, force bool, stream
 	case owned:
 		if !force {
 			if _, err := os.Stat(path); err == nil {
-				return fmt.Errorf("%s already exists, refusing to overwrite (pass --adopt for spec mode, --force for template mode)", path)
+				return fmt.Errorf("%s already exists, refusing to overwrite (pass --adopt for gen app/domain, --force for gen proto/store)", path)
 			} else if !os.IsNotExist(err) {
 				return fmt.Errorf("stat %s: %w", path, err)
 			}

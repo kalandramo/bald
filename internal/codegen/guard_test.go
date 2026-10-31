@@ -222,29 +222,3 @@ func TestGenProto_CommandGuard(t *testing.T) {
 		t.Fatalf("gen --force: %v", err)
 	}
 }
-
-// TestGenApp_CommandGuardForce 模板模式同契约：gen app 二次执行拒绝、--force 放行。
-func TestGenApp_CommandGuardForce(t *testing.T) {
-	dir := t.TempDir()
-	t.Chdir(dir)
-	streams, _ := testStreams()
-
-	run := func(force bool) error {
-		cmd := genAppCmd(streams)
-		args := []string{"demoapp"}
-		if force {
-			args = append(args, "--force")
-		}
-		cmd.SetArgs(args)
-		return cmd.Execute()
-	}
-	if err := run(false); err != nil {
-		t.Fatalf("first gen app: %v", err)
-	}
-	if err := run(false); err == nil {
-		t.Fatal("second gen app must fail (file exists, no --force)")
-	}
-	if err := run(true); err != nil {
-		t.Fatalf("gen app --force: %v", err)
-	}
-}
