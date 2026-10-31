@@ -4,7 +4,7 @@
 
 **bald 是一个用 Go 把服务装配「工程化」的框架**：装配写成段驱动的 Provider 契约，业务域是一等公民，代码生成器用三道门守住生成物，高级机制面收进 `pkg/appkit/mech`——业务代码只声明业务，装配知识不进业务目录。
 
-对外口径是「**声明式装配**」并标注等级：装配拓扑由纯函数算出并打印。当前 L1–L4 达成（L4 = 节点级 `ReloadPolicy` + `Drift` + `Reconcile`，含 `biz.<path>` 业务段），L5 在生成物维度达成（`_example/bald` 已迁入生成树，`gen app` 与 `gen domain --no-bind` 的 `--check` 均零差异）。判据与口径见 [Bald 装配计划与 doctor](docs/guide/zh-CN/Bald%20装配计划与%20doctor.md)。
+对外口径是「**声明式装配**」并标注等级：装配拓扑由纯函数算出并打印。当前 L1–L4 达成（L4 = 节点级 `ReloadPolicy` + `Drift` + `Reconcile`，含 `biz.<path>` 业务段），L5 在生成物维度达成（`_example/bald` 已迁入生成树，`gen app` 与 `gen domain` 的 `--check` 均零差异，域 REST 面走默认绑定）。判据与口径见 [Bald 装配计划与 doctor](docs/guide/zh-CN/Bald%20装配计划与%20doctor.md)。
 
 ## 文档三层导览
 

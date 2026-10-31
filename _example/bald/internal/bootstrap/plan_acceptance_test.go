@@ -27,13 +27,16 @@ func TestPlan_ReferenceProject(t *testing.T) {
 		t.Errorf("OpaqueCount = %d, want <= 2 (std server construction + programmatic registry)", p.OpaqueCount)
 	}
 
-	// 域 RouteTable 必须进计划，而不是只存在于闭包里。
+	// 域 RouteTable 必须进计划，而不是只存在于闭包里。示例用 gen domain 生成的
+	// routes.Greet（注解派生的两个入口），清单与 BindGreet 的实际注册同源。
 	routes := map[string]bool{}
 	for _, r := range p.Routes {
 		routes[r.Domain+" "+r.Method+" "+r.Path] = true
 	}
-	if !routes["greet POST /v1/greet"] {
-		t.Errorf("Plan.Routes = %+v, want greet POST /v1/greet", p.Routes)
+	for _, want := range []string{"greet POST /v1/greet", "greet GET /v1/greet/:name"} {
+		if !routes[want] {
+			t.Errorf("Plan.Routes = %+v, want %s", p.Routes, want)
+		}
 	}
 
 	// 变体声明恒进计划；Active 只在对应 tag 编进来时为真。

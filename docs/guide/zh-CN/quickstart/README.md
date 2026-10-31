@@ -102,7 +102,7 @@ router.GET("/v1/hello", func(c *gin.Context) {
 curl -i http://127.0.0.1:8080/v1/hello
 ```
 
-更完整的路由写法（路由分组、中间件链、结构化绑定与校验、错误到 HTTP 状态码的映射）直接照抄示例 [`_example/bald/internal/apiserver/router.go`](https://github.com/kalandramo/bald/blob/main/_example/bald/internal/apiserver/router.go) 的 `exampleRoutes`。
+更完整的路由写法（路由分组、中间件链、结构化绑定与校验、错误到 HTTP 状态码的映射）直接照抄示例 [`_example/bald/internal/apiserver/apiserver.go`](https://github.com/kalandramo/bald/blob/main/_example/bald/internal/apiserver/apiserver.go) 的 `exampleRoutes`。
 
 ### 6. 加一个配置项：契约校验当场拦截
 
@@ -145,6 +145,6 @@ config: unknown contract keys (typo? or declare in AllowBusinessSections): serve
 - [用 bald CLI 起步新服务](../用%20bald%20CLI%20起步新服务.md)：AppSpec 逐字段参考、三道门与 rerun 语义、gen domain / gen proto、授权接线、故障排查表。
 - [产品介绍](../introduction/README.md)：设计理念。
 - [Bald 配置系统](../Bald%20配置系统.md)：四源优先级链、env 命名规则、热更新粒度。
-- [新增业务域 - Domain 与 gen domain](../新增业务域%20-%20Domain%20与%20gen%20domain.md)：把业务域挂进服务（域自持路由与 gRPC 注册，装配改动 0）。
+- [新增业务域 - Domain 与 gen domain](../新增业务域%20-%20Domain%20与%20gen%20domain.md)：把业务域挂进服务（REST 绑定从注解生成、gRPC 注册由域自持，装配改动 0）。
 - [Provider 接入 - contract.AppProvider 与段 Provider](../Provider%20接入%20-%20contract.AppProvider%20与段%20Provider.md)：接数据库等第三方后端（范本 `contrib/store-gorm`）。
 

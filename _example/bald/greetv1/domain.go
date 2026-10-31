@@ -9,6 +9,8 @@ import (
 	"fmt"
 
 	"github.com/kalandramo/bald/pkg/appkit"
+
+	routes "github.com/kalandramo/bald/example/bald/internal/apiserver/routes"
 )
 
 // Domain 是 greet 域的装配声明值。
@@ -18,10 +20,10 @@ var Domain = appkit.Domain{
 	ApplyNode: applyNode,
 	Reconcile: reconcileNode,
 	Services:  registerService,
-	// 原生 gin 面只挂 POST /v1/greet；GET /v1/greet/{name} 走 grpc-gateway 转码。
-	RouteTable: []appkit.Route{
-		{Method: "POST", Path: "/v1/greet", RPC: "Greet"},
-	},
+	// 注解派生的路由清单（gen domain 生成）：POST /v1/greet 与
+	// GET /v1/greet/:name。执行体是 routes 节点里的 BindGreet——清单与
+	// 实际注册同源，--plan/doctor 列出的就是挂上去的。
+	RouteTable: routes.Greet,
 }
 
 // declare 声明域拓扑：biz 节点恒有；HTTP 面存在（非网关让位）才有路由节点。

@@ -14,6 +14,16 @@
       "hash": "52f55a95e9c9f949029b43c2a51030cc26f4c3b847cfc7764142bbf619208662"
     },
     {
+      "path": "internal/apiserver/handler/gin/greet.bind.gen.go",
+      "ownership": "owned",
+      "hash": "a1411645f9698d9e7acfd252f6e798ede8d89731ea607b97e34fe4387bf12140"
+    },
+    {
+      "path": "internal/apiserver/routes/greet.gen.go",
+      "ownership": "owned",
+      "hash": "481486319d2990fea90d3b7deed2c74356f4918329de14f77ff063b4ecb2eb56"
+    },
+    {
       "path": "internal/bootstrap/domains.gen.go",
       "ownership": "owned",
       "hash": "db0138b48e45e4d8f5cad85195abbe84fe943bb1b25121ed4b7eea1ac0234eb7"

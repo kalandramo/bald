@@ -15,10 +15,10 @@ import (
 
 	"github.com/kalandramo/bald/berrors"
 	baldv1 "github.com/kalandramo/bald/example/bald/api/gen"
+	ginhandler "github.com/kalandramo/bald/example/bald/internal/apiserver/handler/gin"
 	"github.com/kalandramo/bald/pkg/appkit"
 	mid "github.com/kalandramo/bald/pkg/middleware/gin"
 	"github.com/kalandramo/bald/pkg/validation"
-	"github.com/kalandramo/bald/transport/web"
 )
 
 // greeter 是 greet 域的核心能力：问候前缀来自 biz.greet.greeting。
@@ -90,31 +90,35 @@ func registerService(s *grpc.Server) {
 	baldv1.RegisterGreetServiceServer(s, &greetService{})
 }
 
-// registerRoutes 把域 REST 路由挂到应用 HTTP 面（routes 节点执行体）。
+// registerRoutes 把注解派生的 REST 绑定挂到应用 HTTP 面（routes 节点执行体）。
+// 生成的 BindGreet 只做 protojson 编解码，不跑校验；这里用适配器复用同一个
+// Validator——REST 与 gRPC 两层入口的规则必须一致，否则换个协议就能绕过。
 func registerRoutes(h http.Handler) error {
 	e, ok := h.(*gin.Engine)
 	if !ok {
 		return fmt.Errorf("greetv1: HTTP face is %T, want *gin.Engine (the domain owns its router coupling)", h)
 	}
-	v1 := e.Group("/v1", mid.CORS(mid.DefaultCORS()))
-
-	type greetReq struct {
-		Name string `json:"name"`
-	}
-	type greetResp struct {
-		Greet string `json:"greet"`
-	}
-	v1.POST("/greet", func(c *gin.Context) {
-		web.HandleJSONRequest[greetReq, greetResp](c,
-			func(_ context.Context, g *greetReq) (greetResp, error) {
-				if g.Name == "" {
-					return greetResp{}, berrors.BadRequest("EMPTY_NAME").
-						WithMessage("name 不能为空")
-				}
-				return greetResp{Greet: sayHello(c.Request.Context(), g.Name)}, nil
-			})
-	})
+	ginhandler.BindGreet(e.Group("/", mid.CORS(mid.DefaultCORS())), validatedService{inner: &greetService{}})
 	return nil
+}
+
+// validatedService 在生成的绑定与域实现之间执行校验契约。
+type validatedService struct {
+	inner *greetService
+}
+
+func (s validatedService) Greet(ctx context.Context, req *baldv1.GreetRequest) (*baldv1.GreetResponse, error) {
+	if err := Validator(ctx, req); err != nil {
+		return nil, err
+	}
+	return s.inner.Greet(ctx, req)
+}
+
+func (s validatedService) GreetGet(ctx context.Context, req *baldv1.GreetGetRequest) (*baldv1.GreetResponse, error) {
+	if err := Validator(ctx, req); err != nil {
+		return nil, err
+	}
+	return s.inner.GreetGet(ctx, req)
 }
 
 // protoValidator 是预热实例：init 预编译注解中的 CEL，注解写错在启动期暴露。

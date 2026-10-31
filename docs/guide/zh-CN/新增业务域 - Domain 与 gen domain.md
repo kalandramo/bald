@@ -83,17 +83,19 @@ func wire(_ context.Context, app *appkit.App) error {
 // require_unimplemented_servers），service 实现的端口由 Wire 构造。
 func registerService(s *grpc.Server) { baldv1.RegisterGreetServiceServer(s, &greetService{}) }
 
-// REST 面：参数是 WithHTTP 声明的 handler；路由器耦合域自持断言。
+// REST 面：gen domain 已从 google.api.http 注解生成 BindGreet。
+// 绑定只做编解码、不跑校验；适配器复用域 Validator，REST 与 gRPC 同规则。
 func registerRoutes(h http.Handler) error {
     e, ok := h.(*gin.Engine)
     if !ok {
         return fmt.Errorf("greetv1: HTTP face is %T, want *gin.Engine (the domain owns its router coupling)", h)
     }
-    v1 := e.Group("/v1", mid.CORS(mid.DefaultCORS()))
-    v1.POST("/greet", ...) // web.HandleJSONRequest + berrors.BadRequest("EMPTY_NAME")
+    ginhandler.BindGreet(e, validatedService{inner: &greetService{}})
     return nil
 }
 ```
+
+`BindGreet` 与路由清单 `routes.Greet` 同源于注解：不想要绑定就传 `--no-bind` 手写整个 REST 面；只想要手写清单就传 `--no-routes`。
 
 **文件三：域包 `<域>v1/domain.go`（域声明值）**——全文就一个值。这是 bald-admin 域化（tenantd/userd 等样板域）定型的模板语义，_example 的 greetv1 是 bald 仓范本（`greetv1/domain.go`）：
 
@@ -101,9 +103,10 @@ func registerRoutes(h http.Handler) error {
 var Domain = appkit.Domain{
     Name:      "greet",
     Declare:   declare,      // 声明节点：biz 挂 biz.greet + ReloadReconcile，routes 挂 server.http
-    ApplyNode: applyNode,    // 按计划序执行：biz 构造端口，routes 挂 REST 路由
+    ApplyNode: applyNode,    // 按计划序执行：biz 构造端口，routes 挂 BindGreet
     Reconcile: reconcileNode,// 配置热更：biz 节点按新快照重建端口
     Services:  registerService, // 延迟注册：server 构建时注册 gRPC service
+    RouteTable: routes.Greet,   // 生成清单：--plan/doctor 看见的就是 BindGreet 注册的
 }
 ```
 
