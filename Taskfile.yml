@@ -84,53 +84,33 @@ tasks:
       - buf generate
 
   # ---------------------------------------------------------------------------
-  # _example 是独立 module（module github.com/kalandramo/bald/example，见 P5 治理），
-  # 且目录以下划线开头 —— Go 工具链会忽略它，因此默认的 `go build ./...` /
-  # `go test ./...` / `go mod tidy` 都**不会**覆盖 example。
-  # 这是它的编译错误曾长期被掩盖的根因，故这里提供显式任务供 CI 使用。
+  # _example/bald 是独立 module（module github.com/kalandramo/bald/example/bald），
+  # 且目录以下划线开头 —— Go 工具链会忽略它，因此核心 module 的
+  # `go build ./...` / `go test ./...` / `go mod tidy` 都**不会**覆盖示例。
+  # 这里提供显式任务供 CI 使用。检查用 `go vet`：`go build ./...` 会把每个
+  # package main 的可执行文件写进源码目录。
   # ---------------------------------------------------------------------------
 
   example-tidy:
-    desc: 整理 _example 模块依赖（重依赖只进该模块，不进核心）
-    dir: _example
+    desc: 整理示例模块依赖（重依赖只进该模块，不进核心）
+    dir: _example/bald
     cmds:
       - go mod tidy
 
-  example-build:
-    desc: 编译 _example（默认 tag）
-    dir: _example
-    cmds:
-      - go build ./...
-
-  # grpcgw 路径需要 protoc 生成产物（gen/，已 gitignore），故先生成再编译。
-  # 这是唯一能验证 register_grpcgw.go 的任务 —— 该文件带 build tag，平时不参与编译。
-  example-build-grpcgw:
-    desc: 编译 _example（grpcgw tag，需 buf + 生成产物）
-    deps: [proto-example]
-    dir: _example
-    cmds:
-      - go build -tags grpcgw ./...
-
-  example-vet:
-    desc: 静态检查 _example（默认 tag，仅外层 module）
-    dir: _example
-    cmds:
-      - go vet ./...
-
-  # _example/bald 是**嵌套** module（github.com/kalandramo/bald/example/bald），
-  # 不在外层 _example 模块的 `go build ./...` / `go vet ./...` 范围内——上面的
-  # example-build/example-vet 实际只覆盖 _example 自身的包。扇出形态
-  # （cmd/bald-demo 与 cmd/bald-demo-worker 两个入口 + internal/bootstrap 的
-  # Options(role)）此前只有 example-e2e（带 grpcgw tag、需 buf 产物）这一条
-  # 编译路径，默认 tag 下从未被类型检查过。本任务补上：`go vet ./...` 会编译
-  # 全部包（含两个 package main），且不落可执行文件——`go build ./...` 会把
-  # bald-demo.exe 写进源码目录（_example 下遗留的 bald-gin.exe 就是同一个坑，
-  # 与上面 cobramcp examples 的取舍一致）。跨目录只能用任务级 dir（Task 3.52）。
   example-bald-vet:
-    desc: 静态检查 _example/bald 嵌套 module（默认 tag，覆盖两个角色入口）
+    desc: 静态检查 _example/bald（默认 tag，覆盖两个角色入口）
     dir: _example/bald
     cmds:
       - go vet ./...
+
+  # grpcgw 路径需要 proto 生成产物（api/gen，已 gitignore），故先生成再检查。
+  # 这是唯一能验证 register_grpcgw.go 的任务 —— 该文件带 build tag，平时不参与编译。
+  example-bald-vet-grpcgw:
+    desc: 静态检查 _example/bald（grpcgw tag，需 buf）
+    deps: [proto-example]
+    dir: _example/bald
+    cmds:
+      - go vet -tags grpcgw ./...
 
   # e2e：启动**真实的**应用（MustServe 装配，HTTP + gRPC + 校验链路），用 gRPC 客户端调用，
   # 验证请求校验的两层机制都生效（proto 注解 + 手写 Go）。
@@ -331,7 +311,7 @@ tasks:
       - go test ./...
 
   build:
-    desc: 编译核心模块全部包（不含 _example，见 example-build）
+    desc: 编译核心模块全部包（不含 _example，见 example-bald-vet）
     cmds:
       - go build ./...
 
@@ -357,6 +337,6 @@ tasks:
   # CI 建议跑这个，而不是只跑 `go build ./...`。
   verify:
     desc: 全量验证（核心 + example + bconf + cobramcp + retry/ratelimit/broker/circuitbreaker）
-    deps: [build, test, bconf-verify, example-build, example-vet, example-bald-vet, cobramcp-verify, encoding-verify, retry-verify, ratelimit-verify, broker-verify, circuitbreaker-verify]
+    deps: [build, test, bconf-verify, example-bald-vet, cobramcp-verify, encoding-verify, retry-verify, ratelimit-verify, broker-verify, circuitbreaker-verify]
     cmds:
-      - cmd: 'echo "verify: core + example + nested modules OK（grpcgw 需 buf，见 example-build-grpcgw）"'
+      - cmd: 'echo "verify: core + example + nested modules OK（grpcgw 需 buf，见 example-bald-vet-grpcgw）"'

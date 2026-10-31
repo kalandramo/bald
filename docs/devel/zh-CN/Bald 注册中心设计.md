@@ -339,7 +339,7 @@ Discovery / Watcher 目前没有消费方、注册只在 `_example` 里跑通，
 | 方案 | 放弃原因 |
 | --- | --- |
 | 继续桥接第三方 registry 抽象 | 其 nacos 实现有 SDK v1/v2 分裂，多一层间接换不来隔离，只是把别人的技术债变成自己的；桥接已移除，不重开 |
-| 在主模块留 type alias 兼容垫片 | 消费者全部在自家仓库（主模块 7 文件 + `_example` 两 module + bald-admin 1 处），为不存在的第三方留永久垫片是拿长期成本换短期便利 |
+| 在主模块留 type alias 兼容垫片 | 消费者全部在自家仓库（主模块 7 文件 + `_example/bald` + bald-admin 1 处），为不存在的第三方留永久垫片是拿长期成本换短期便利 |
 | 只下放契约、后端留在 `contrib/registry` | 契约在顶层、实现在 contrib，与 cache / broker / log / metrics 形态不一致，"后端放哪"会永远得到两个答案 |
 | 目录挪到 `registry/` 但不建 go.mod | Go 的模块边界只认 go.mod，顶层目录不含 go.mod 仍是主模块的一部分——依赖隔离收益为零，还破坏"顶层目录 = 独立 module"的既有约定 |
 | Provider 只返回 cleanup（最省事形态） | 把注册这个目的交给调用方手动调，等于把"忘记 Register"变成默认失败模式 |
