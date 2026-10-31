@@ -394,6 +394,29 @@ tasks:
       - cmd: go test -tags grpcgw ./internal/bootstrap -run TestPlan_ReferenceProject
         dir: _example/bald
 
+  # 多模块发布：先提交业务改动，再按 plan → sync → changelog → tag 顺序执行。
+  # 计划文件写在 .bald/（已忽略）；各任务默认 dry-run，写操作经 {{.CLI_ARGS}} 传入
+  # （例：task release-sync -- --write）。规则见 docs/devel/zh-CN/多模块发布与变更日志.md。
+  release-plan:
+    desc: 计算待发布模块与下一版本，写入 .bald/release-plan.json
+    cmds:
+      - go run ./cmd/bald release plan {{.CLI_ARGS}}
+
+  release-sync:
+    desc: 归位计划内模块的内部依赖（默认只看；加 -- --write 写入）
+    cmds:
+      - go run ./cmd/bald release sync {{.CLI_ARGS}}
+
+  release-changelog:
+    desc: 把计划写入 CHANGELOG.md（默认只看；加 -- --write 写入）
+    cmds:
+      - go run ./cmd/bald release changelog {{.CLI_ARGS}}
+
+  release-tag:
+    desc: 按计划打 tag（默认 dry-run；加 -- --apply 创建，--push 推送）
+    cmds:
+      - go run ./cmd/bald release tag {{.CLI_ARGS}}
+
   # 全量验证：核心 + example（默认 tag 与 grpcgw tag）+ 嵌套 module。
   # CI 建议跑这个，而不是只跑 `go build ./...`。
   verify:

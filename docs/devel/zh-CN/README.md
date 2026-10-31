@@ -10,6 +10,7 @@
 | 装配系统（计划、阶段、Provider、收敛） | [Bald 声明式装配设计](./Bald%20声明式装配设计.md) |
 | 某个包对外承诺了什么 | [框架契约总览](./框架契约总览.md) |
 | 「保留还是删除」「要不要 fail-closed」这类判断 | [设计判据](./设计判据.md) |
+| 发版、看某版改了什么 | [多模块发布与变更日志](./多模块发布与变更日志.md) |
 | 新增一个能力后端怎么接进装配 | guide 的 [Provider 接入](../../guide/zh-CN/Provider%20接入%20-%20contract.AppProvider%20与段%20Provider.md) |
 
 ### 装配与配置
@@ -61,6 +62,10 @@
 - [Bald 智能模型设计](./Bald%20智能模型设计.md)：openai/langchaingo/eino 三个独立 module，能力面刻意不统一；契约段三声明 = 三实现。
 - [Bald Cobra MCP 桥接设计](./Bald%20Cobra%20MCP%20桥接设计.md)：`cobramcp`（工具从哪来）与 `transport/mcp`（工具怎么对外）的分层、进程内/子进程双模型、宿主装配入口 `appkit.WithExtraServerFunc`。
 - [示例前后端契约同步设计](./示例前后端契约同步设计.md)：proto 单一真相源 + buf 按消费者扇出（Go/TS/OpenAPI），消灭契约双写。
+
+### 发布与维护
+
+- [多模块发布与变更日志](./多模块发布与变更日志.md)：`bald release` 的 plan / sync / changelog / tag 四步、版本推导规则、tag 守卫与一次完整发布的命令序列。
 
 ### 质量与记录
 
