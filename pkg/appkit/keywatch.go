@@ -1,5 +1,5 @@
-// keywatch.go 实现 R1 配置增量协调的第一子集：key 级变更订阅
-// （docs/devel/zh-CN/架构优化路线.md）。
+// keywatch.go 实现配置增量协调的第一层：key 级变更订阅
+// （见 docs/devel/zh-CN/应用框架设计.md）。
 //
 // 背景：appkit.OnConfigChange 是全量回调——配置任何变更都触发，业务在其中
 // 重新 Unmarshal 完成热重载。多数热更新场景只关心个别 key（日志级别、监听
@@ -61,7 +61,7 @@ func (a *App) armKeyWatchers() {
 }
 
 // wrapKeyWatch 包装用户全量回调：先跑全量（保留既有行为），再分发 key 订阅，
-// 最后跑 R1-2 期望态协调（配置变更是协调的主要触发源）。
+// 最后跑期望态协调（配置变更是协调的主要触发源）。
 func (a *App) wrapKeyWatch(user func(map[string]any)) func(map[string]any) {
 	return func(m map[string]any) {
 		if user != nil {

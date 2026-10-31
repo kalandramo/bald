@@ -1,4 +1,4 @@
-// Package bundle 是横切关注点门面（见 docs/devel/zh-CN/架构优化路线.md）。
+// Package bundle 是横切关注点门面（见 docs/devel/zh-CN/Bald 中间件设计.md）。
 //
 // 解决的问题：pkg/middleware/{gin,grpc} 的中间件/拦截器此前只能散装手挂，
 // 正确链序（Error 最外、Authn→Audit→Authz）只活在文档与纪律里，是坑清单中

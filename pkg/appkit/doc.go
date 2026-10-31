@@ -37,25 +37,25 @@
 //
 // # 扩展机制的职责边界（何时用哪个）
 //
-// App 有四组「可组合性原语」（T1/S1/C1/A1+R1，见
-// docs/devel/zh-CN/架构优化路线.md）。它们与既有生命周期钩子易混淆，
+// App 有四组「可组合性原语」（效应账本、能力声明、组件生命周期、运行期挂载
+// 与配置协调，见 docs/devel/zh-CN/应用框架设计.md）。它们与既有生命周期钩子易混淆，
 // 下表给出选择判据：
 //
 //	| 你要做的事                         | 用哪个                           | 为什么                                      |
 //	|------------------------------------|----------------------------------|---------------------------------------------|
 //	| 改共享全局状态（SetLogger/注册表） | Effect                       | 登记**逆操作**；停机阶段 0 逆序回放，失败亦可回滚 |
 //	| 建/关一个有生命周期的实例          | Components / ComponentFunc   | 顺序 Start + 逆序 Dispose；panic 隔离、独立超时  |
-//	| 声明启动前依赖的能力               | Provides / Requires(S1)          | Resolve 启动期 fail-fast，替代运行时 nil panic  |
+//	| 声明启动前依赖的能力               | Provides / Requires              | Resolve 启动期 fail-fast，替代运行时 nil panic  |
 //	| 运行期动态挂载/卸载                | MountComponent / Registry.Mount | 可逆；装配期 Register 只增不减（重名报错）  |
-//	| 配置变更时对个别 key 做定点响应    | OnKeyChange(R1)                  | 仅该 key 真变化才触发；无需全量 Unmarshal       |
-//	| 让实际态收敛到配置声明的期望态     | Reconcile(R1-2)                  | diff-apply，失败下次补齐（K8s controller 语义） |
+//	| 配置变更时对个别 key 做定点响应    | OnKeyChange                      | 仅该 key 真变化才触发；无需全量 Unmarshal       |
+//	| 让实际态收敛到配置声明的期望态     | Reconcile                        | diff-apply，失败下次补齐（K8s controller 语义） |
 //	| 纯生命周期时机（无逆操作、无实例） | BeforeStart/AfterStart/...       | 只需「在某个时刻跑一段代码」时的最轻选择         |
 //
 // 判据归纳：
 //   - 有**逆操作**要登记 → Effect（账本管全局注册表的撤销，低级/细粒度）；
 //   - 有**实例**要建关 → Component（管生命周期，高级/结构化）；
 //   - 只是**时机**（不写全局、不建实例）→ 生命周期钩子；
-//   - 变更来源是**配置** → R1（key 级）/ R1-2（期望态）。
+//   - 变更来源是**配置** → key 级订阅（事件）/ 期望态协调（状态）。
 //
 // 钩子 vs 组件：钩子是一次性回调（运行后无状态）；组件有 name 与
 // Start/Dispose 对，进入停机序列、可 ListComponents 观测、可运行期热插拔。

@@ -6,9 +6,9 @@
 >
 > Author(s): bald 团队
 >
-> Last updated: 2026-09-18
+> Last updated: 2026-11-01
 >
-> Status: Accepted（bundle 链序由 11 个契约测试固化；shared 收敛随 P9/R1 落地）
+> Status: Accepted（bundle 链序由 11 个契约测试固化；shared 收敛已完成）
 
 ## 摘要
 
@@ -26,20 +26,20 @@
 
 合计 2248 行、**50 个测试**（bundle 11 / gin 13 / grpc 20 / shared 4 / 顶层 2）。
 
-> 本文是 `pkg/middleware` 的权威设计文档；Bundle 链序的原始决策另见《架构优化路线》P10，认证/授权抽象见《认证与授权抽象设计》。
+> 本文是 `pkg/middleware` 的权威设计文档；认证/授权抽象见《认证与授权抽象设计》。
 
 ## 背景与动机
 
 ### 隐性知识税：链序只活在纪律里
 
-`pkg/middleware/gin` 的 13 个中间件与 grpc 的对应拦截器此前**全部散装手挂**，而正确链序只写在文档与坑清单里——《架构优化路线》P10 的原话：「正确链序只活在文档里……是当前最大的『隐性知识税』」（该文档记坑清单中 2 条即链序）。
+`pkg/middleware/gin` 的 13 个中间件与 grpc 的对应拦截器此前**全部散装手挂**，正确链序只写在文档与坑清单里——「正确链序只活在文档里」本身就是最大的「隐性知识税」。
 
 链序为什么重要：**顺序错了不会报错，只会静默失效**。例如审计若注册在认证外侧，就永远读不到认证注入的 subject；错误收口若不在最外层，`*berrors.Error` 会被 `status.Convert` 兜底成空 `Unknown`。
 
 ### 两处真实故障驱动
 
 1. **重复税**：gin 与 grpc 两份 `observability.go` 曾逐行重复——trace header 常量、`TraceInjectionMode`、`matchWildcard`、`injectTrace` 各一份。同一处修复要改两遍，合并后才消除这份维护成本。
-2. **双命名空间**（P9 前）：REST 与 gRPC 的 RBAC 用不同 object/action 命名（HTTP 用 path、gRPC 用 FullMethod），同一份策略无法通用。
+2. **双命名空间**：REST 与 gRPC 的 RBAC 用不同 object/action 命名（HTTP 用 path、gRPC 用 FullMethod），同一份策略无法通用。
 
 ## 设计
 
@@ -47,7 +47,7 @@
 
 ```mermaid
 flowchart TB
-    subgraph 门面["bundle（P10 门面）"]
+    subgraph 门面["bundle（横切门面）"]
         B["Bundle.New(...)<br/>链序固化"]
         BG["Gin() []gin.HandlerFunc"]
         BGR["GRPCChain() []grpc.ServerOption"]
@@ -168,7 +168,7 @@ Bundle 覆盖常见链序，但不强制。理由：①渐进迁移（存量部�
 
 `bundle.New()` 的 `normalized` **默认 true**——而 `Normalized()` Option 保留为显式声明（幂等），`Raw()` 供 opt-out。
 
-理由（注释原文）：「P9 的核心收益——根治 REST/gRPC 双命名空间 RBAC——不应依赖调用方记得 opt-in」。这是**安全相关的默认值选择**：默认正确（归一化）优于默认兼容（原始双命名空间）。
+理由（注释原文）：「根治 REST/gRPC 双命名空间 RBAC 的核心收益，不应依赖调用方记得 opt-in」。这是**安全相关的默认值选择**：默认正确（归一化）优于默认兼容（原始双命名空间）。
 
 ## 兼容性
 
@@ -190,7 +190,7 @@ gin/grpc 的共享收口通过类型别名 + 常量别名实现，两侧既有�
 
 | 包 | 测试数 | 覆盖重点 |
 |---|---|---|
-| `bundle` | 11 | **链序契约**（allow/deny 双路径）、Authn→Authz subject 传递、审计对 deny/error 的捕获、Error 最外层 berrors→status 收口、未开归一化时的 P7 兼容 |
+| `bundle` | 11 | **链序契约**（allow/deny 双路径）、Authn→Authz subject 传递、审计对 deny/error 的捕获、Error 最外层 berrors→status 收口、未开归一化时的原始语义兼容 |
 | `grpc` | 20 | 各拦截器 + Error 收口 + Observability SpanKind + Validator 不绑库 |
 | `gin` | 13 | 各中间件 + authz deny |
 | `shared` | 4 | `InjectTrace` 四模式 × 采样位 × 自定义 header × 无效 spanCtx；`MatchWildcard` 通配矩阵 |
@@ -200,9 +200,8 @@ gin/grpc 的共享收口通过类型别名 + 常量别名实现，两侧既有�
 
 | 文档 | 关系 |
 |---|---|
-| 架构优化路线 | P10 Bundle 的原始决策与链序记录 |
 | [设计判据](./设计判据.md) J2 | shared 收敛遵循「重复税」判据 |
-| [认证与授权抽象设计](./认证与授权抽象设计.md) | `Authn*`/`Authz*` 中间件依赖的 P7/P9 抽象 |
+| [认证与授权抽象设计](./认证与授权抽象设计.md) | `Authn*`/`Authz*` 中间件依赖的认证/授权抽象 |
 | [Bald 审计设计](./Bald%20审计设计.md) | 审计中间件的后端契约与 D3 盲区 |
 | [Bald 指标设计](./Bald%20指标设计.md) | 审计中间件同源 emit 的指标 |
 | [框架契约总览](./框架契约总览.md) | §9 中间件速查表（§9.1 符号名已对齐） |

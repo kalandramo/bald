@@ -1,5 +1,5 @@
 // Package authzcasbin 实现基于 casbin 的 bald authz.Authorizer 桥接
-// （docs/devel/zh-CN/架构优化路线.md）。
+// （见 docs/devel/zh-CN/认证与授权抽象设计.md）。
 //
 // 设计约束：
 //   - 实现 bald 核心的 authz.Authorizer 接口，作为业务侧桥接子模块；

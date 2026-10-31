@@ -1,5 +1,5 @@
 // Package trace 是 bald 的 OpenTelemetry trace 远端直推桥接
-// （docs/devel/zh-CN/架构优化路线.md）。
+// （见 docs/devel/zh-CN/Bald 指标设计.md 的装配面分工）。
 //
 // 核心 grpc/gin 中间件（bald/pkg/middleware/{grpc,gin}.Observability）已起 span 并注入
 // trace_id/span_id，但仅当全局 TracerProvider 被设置时才会真正采样导出；未设置则 otel.Tracer

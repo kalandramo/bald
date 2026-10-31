@@ -1,9 +1,9 @@
-// reconcile.go 实现 R1 第二子集：期望态 diff-apply 协调器
-// （docs/devel/zh-CN/架构优化路线.md §3 R1；与 Kubernetes declarative
+// reconcile.go 实现期望态 diff-apply 协调器
+// （见 docs/devel/zh-CN/应用框架设计.md；与 Kubernetes declarative
 // reconcile 循环同型）。
 //
-// R1-1（OnKeyChange）是**事件驱动**：框架告诉你「key 从 A 变 B」，业务自己决定
-// 怎么响应。R1-2 是**状态驱动**：业务只声明「期望是什么样」，框架拿期望态与实际态
+// key 级订阅（OnKeyChange）是**事件驱动**：框架告诉你「key 从 A 变 B」，业务自己决定
+// 怎么响应。协调器是**状态驱动**：业务只声明「期望是什么样」，框架拿期望态与实际态
 // 做差集，只增/删/改差异部分，反复执行直到收敛。
 //
 // 核心差异是**收敛性**：事件模型下连续变更/部分失败/乱序会留下中间态，业务回调
@@ -125,7 +125,7 @@ func NewReconcileCtx(app *App, name string, settings map[string]any) *ReconcileC
 	return &ReconcileCtx{Settings: settings, Name: name, app: app}
 }
 
-// reconcileOpt 注册一个期望态协调器（mech.Reconcile 的引擎内部写入面，R1-2）。
+// reconcileOpt 注册一个期望态协调器（mech.Reconcile 的引擎内部写入面）。
 // 多个协调器按注册序依次执行；单个协调器返回 error 时其余继续（隔离），
 // 错误仅记日志——协调是收敛过程，失败由下次协调补齐，不因单点失败阻断整机。
 func reconcileOpt(name string, fn ReconcileFunc) Option {
@@ -228,7 +228,7 @@ func (a *App) reconUnmount(ctx context.Context, recon, name string) error {
 	return a.UnmountComponent(ctx, name)
 }
 
-// auditReconcile 旁路发出协调审计事件（与 A1 挂载/卸载同源，Object="reconciler"；
+// auditReconcile 旁路发出协调审计事件（与运行期挂载/卸载同源，Object="reconciler"；
 // 后端经 D4 resolveAuditor 单一解析，与请求级审计同源）。
 func (a *App) auditReconcile(ctx context.Context, action, name string, err error) {
 	defer func() {

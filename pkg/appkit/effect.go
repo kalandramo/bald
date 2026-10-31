@@ -1,4 +1,4 @@
-// effect.go 实现 T1 效应账本（见 docs/devel/zh-CN/架构优化路线.md）。
+// effect.go 实现效应账本（见 docs/devel/zh-CN/应用框架设计.md）。
 //
 // 背景（对照 Cordis 论文的时间可组合性）：bald 的全局注册点
 // （store.RegisterTenant / log.SetLogger 等进程级注册点）

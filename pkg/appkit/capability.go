@@ -1,8 +1,8 @@
-// capability.go 实现 S1 能力声明与解析（docs/devel/zh-CN/架构优化路线.md）。
+// capability.go 实现能力声明与解析（见 docs/devel/zh-CN/应用框架设计.md）。
 //
 // 背景：组件互相依赖若不声明、不解析，依赖缺失要到运行时第 N 个请求才炸
-// （真实案例：issueToken 在 InitBridges 之前调用 → Signer nil panic）。
-// S1 把依赖显式化：
+// （真实案例：鉴权依赖在桥接初始化之前被调用 → 空指针 panic）。
+// 能力声明把依赖显式化：
 // 装配期声明 Provides/Requires，启动早期 Resolve 校验，缺依赖 fail-fast：
 //
 //	app := appkit.NewApp(
@@ -12,8 +12,8 @@
 //	// 若漏声明 Provides("db")，Run 启动即失败：
 //	// appkit: unresolved capabilities: capability "db" (required by audit.store); provided: []
 //
-// 能力是纯声明符号（不做实例管理——那是 C1 Component 的职责），Resolve 只校验
-// 装配一致性，为 C1/R1 的组件图打底。
+// 能力是纯声明符号（不做实例管理——那是 Component 的职责），Resolve 只校验
+// 装配一致性，为组件图打底。
 //
 // 导出构造面在 pkg/appkit/mech（mech.Provides/mech.Requires）；本文件
 // 的未导出 providesOpt/requiresOpt 是引擎透传与包内测试共用的写入面。

@@ -192,7 +192,7 @@ type PlainBinder interface {
 //
 // 背景：仅调用 AddFlags(pflag.CommandLine, ...) 只把 flag 注册到全局 flagset，
 // config.Load 拿不到它们，flag 层实际只有 --config 生效
-// （见 docs/devel/zh-CN/配置中心设计.md 第 9.1 节）。Bind 即为此缺口的修复。
+// （见 docs/devel/zh-CN/Bald 配置系统设计.md §3.6「层优先级 = 注册序」）。Bind 即为此缺口的修复。
 //
 // 两种 opt：
 //  1. proto.Message（全栈 proto 驱动推荐）：Bind("http", &bootstrap.Http)。
@@ -364,7 +364,7 @@ func ConfigLayers(ls ...config.Layer) Option {
 }
 
 // Env 设置运行环境（dev/test/prod...）。非空时本地按 Name-Env.yaml 选择默认文件，
-// 远程 path 由后端构造时拼接（多环境路线 1，详见 docs/config-center-design.md）。
+// 远程 path 由后端构造时拼接（多环境文件发现见 docs/devel/zh-CN/Bald Bootstrap 设计.md）。
 func Env(env string) Option {
 	return optionFunc(func(d *Decl) { d.Env = env })
 }

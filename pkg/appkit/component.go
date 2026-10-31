@@ -1,13 +1,14 @@
-// component.go 实现 C1 Server ⊂ Component（docs/devel/zh-CN/架构优化路线.md）。
+// component.go 实现 Server ⊂ Component 的生命周期契约
+// （见 docs/devel/zh-CN/应用框架设计.md）。
 //
 // 背景（对照 Cordis 论文「万物皆插件」的 bald 可翻译子集）：trace provider、
 // metrics exporter、审计后端、缓存连接池等进程内基础设施此前是散装全局
 // （Setup + 手工 BeforeStop flush），忘挂 BeforeStop 就丢数据（trace 退出前
-// 必须 shutdown 否则丢尾批 span）。C1 把它们统一为有生命周期的组件，与 servers
+// 必须 shutdown 否则丢尾批 span）。组件契约把它们统一为有生命周期的实体，与 servers
 // 一起纳入 appkit 编排：顺序 Start（注册序=依赖建立序）、逆序 Dispose（停机
 // 对称）、panic 隔离、独立超时——「trace 忘 flush 丢批」从文档知识变成结构保证。
 //
-// Component 与 T1 效应账本互补：账本管全局注册表的逆操作（低级、细粒度），
+// Component 与效应账本互补：账本管全局注册表的逆操作（低级、细粒度），
 // 组件管实例生命周期（高级、结构化）。典型用法：
 //
 //	traceShutdown, _ := trace.Setup(...)
@@ -41,7 +42,7 @@ type Component interface {
 	// 注册序即依赖建立序）。
 	Start(ctx context.Context) error
 	// Dispose 释放组件（stopAll 最后一阶段，AfterStop 之后，逆序执行）。
-	// 语义与 T1 效应的 undo 对称：调用后组件对共享环境的影响应完全撤销。
+	// 语义与效应账本的 undo 对称：调用后组件对共享环境的影响应完全撤销。
 	Dispose(ctx context.Context) error
 }
 
@@ -82,7 +83,7 @@ func (a *App) startComponents(ctx context.Context) error {
 // 重复调用无副作用）。单个组件超时或 panic 仅记日志，不中断其余销毁（旁路语义，
 // 与审计/效应撤销一致）。
 //
-// A1 竞态闭环：置位 disposed（锁内）后才快照销毁——此后 MountComponent 被
+// 运行期挂载的竞态闭环：置位 disposed（锁内）后才快照销毁——此后 MountComponent 被
 // 拒绝（并回滚其 Start），保证销毁后不再有组件逃逸出停机序列。
 func (a *App) disposeComponents(parent context.Context) {
 	a.startedMu.Lock()

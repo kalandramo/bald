@@ -1,6 +1,6 @@
 // Package config 提供 bald 的配置加载层。
 //
-// 设计来源与核心思想见 docs/config-center-design.md。
+// 设计见 docs/devel/zh-CN/Bald 配置系统设计.md 与 Bald 配置源层设计.md。
 // 这里定义远程配置源抽象 RemoteSource，并内置一个把 Kratos 的
 // config.Source 适配成 RemoteSource 的桥接器（FromKratosSource），
 // 从而直接复用 kratos contrib 中已实现的 etcd/consul/nacos/apollo 等后端，

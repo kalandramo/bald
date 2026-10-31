@@ -1,12 +1,12 @@
-// mount.go 实现 A1 运行时可逆挂载（docs/devel/zh-CN/架构优化路线.md §6，
-// agent-native 最小前置，同时是 R1 期望态 diff-apply 的底层支撑）。
+// mount.go 实现运行时可逆挂载（见 docs/devel/zh-CN/应用框架设计.md；
+// agent-native 的最小前置，也是期望态 diff-apply 的底层支撑）。
 //
 // 设计（对照论文时间可组合性在运行期的延伸）：
 //   - mech.Registry[T].Mount/Unmount：
 //     装配期 Register（不可逆、冲突报错）的**运行期对偶**——可逆挂载、
 //     undo 幂等。两个语义必须分开：装配期错误
 //     应 fail-fast（panic 合理），运行期变更必须可回滚（效应账本语义）。
-//   - App.MountComponent/UnmountComponent：把 C1 组件生命周期扩展到运行期——
+//   - App.MountComponent/UnmountComponent：把组件生命周期扩展到运行期——
 //     挂载即 Start 并纳入停机序列（stopAll 阶段 4 逆序 Dispose），卸载即移除并
 //     立即 Dispose。管理面热插拔、agent 工具挂载共用此原语。
 //   - 运行时重组天然一条审计事件（§6.2 自修改审计）：AuditEvent{Object:"component",
