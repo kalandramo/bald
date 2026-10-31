@@ -184,9 +184,7 @@ func brokenLinks(root string) ([]string, error) {
 		if err != nil {
 			rel = path
 		}
-		for _, b := range checkFile(path, filepath.ToSlash(rel), string(src)) {
-			broken = append(broken, b)
-		}
+		broken = append(broken, checkFile(path, filepath.ToSlash(rel), string(src))...)
 		return nil
 	})
 	return broken, err

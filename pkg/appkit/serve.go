@@ -105,7 +105,7 @@ func MustServe(ctx context.Context, opts ...Option) {
 // 启动，由各自的消费方（业务 flag、cobra）负责报错。
 func parseConfigFlag(defaultPath string) string {
 	fs := pflag.NewFlagSet("bald", pflag.ContinueOnError)
-	fs.ParseErrorsWhitelist.UnknownFlags = true
+	fs.ParseErrorsAllowlist.UnknownFlags = true
 	var cfgFile string
 	fs.StringVar(&cfgFile, "config", defaultPath, "config file")
 	_ = fs.Parse(os.Args[1:])
@@ -122,7 +122,7 @@ type planFlagOutput struct {
 // pflag 容错：ContinueOnError + 未知 flag 白名单 + 解析错误忽略）。
 func parsePlanFlag() planFlagOutput {
 	fs := pflag.NewFlagSet("bald", pflag.ContinueOnError)
-	fs.ParseErrorsWhitelist.UnknownFlags = true
+	fs.ParseErrorsAllowlist.UnknownFlags = true
 	out := planFlagOutput{format: "text"}
 	fs.BoolVar(&out.enabled, "plan", false, "print the assembly plan and exit")
 	fs.StringVar(&out.format, "plan-format", out.format, "plan output format: text or json")
@@ -146,7 +146,7 @@ func preloadContract(cfg *bootstrapv1.BootstrapConfig, name, cfgFile string) (st
 	if err != nil {
 		return "", nil, fmt.Errorf("appkit: preload config: %w", err)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	// 第一遍：探针契约只用于解析 app.name（不落入正式契约，避免二次
 	// Unmarshal 的合并语义纠缠）。

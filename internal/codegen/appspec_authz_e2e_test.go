@@ -86,7 +86,7 @@ func TestTree_AuthzClosedLoop(t *testing.T) {
 	go func() { done <- cmd.Wait() }()
 	stopAndDump := func(format string, args ...any) {
 		_ = cmd.Process.Kill()
-		<-done
+		_ = <-done
 		t.Fatalf(format+"\n--- app output ---\n%s", append(args, out.String())...)
 	}
 
@@ -129,7 +129,7 @@ func TestTree_AuthzClosedLoop(t *testing.T) {
 		}
 	case <-time.After(30 * time.Second):
 		_ = cmd.Process.Kill()
-		<-done
+		_ = <-done
 		t.Fatal("graceful shutdown did not finish within 30s")
 	}
 }
@@ -148,7 +148,7 @@ func requestStatus(method, url, token string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	_, _ = io.Copy(io.Discard, resp.Body)
 	return resp.StatusCode, nil
 }

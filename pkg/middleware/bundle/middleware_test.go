@@ -64,7 +64,7 @@ func TestFromMiddleware_CORSEnforced(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer closeFn()
+	defer func() { _ = closeFn() }()
 
 	r := gf.New()
 	r.Use(New(opts...).Gin()...)
@@ -107,7 +107,7 @@ func TestFromMiddleware_RecoveryStackTrace(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer closeFn()
+		defer func() { _ = closeFn() }()
 		r := gf.New()
 		r.Use(New(opts...).Gin()...)
 		r.GET("/boom", func(*gf.Context) { panic("x") })
@@ -132,7 +132,7 @@ func TestFromMiddleware_RequestIDHeader(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer closeFn()
+	defer func() { _ = closeFn() }()
 
 	r := gf.New()
 	r.Use(New(opts...).Gin()...)
@@ -152,7 +152,7 @@ func TestFromMiddleware_TimeoutEnforcedAndFailsFast(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer closeFn()
+	defer func() { _ = closeFn() }()
 	r := gf.New()
 	r.Use(New(opts...).Gin()...)
 	r.GET("/slow", func(c *gf.Context) { time.Sleep(250 * time.Millisecond); c.Status(200) })
@@ -175,7 +175,7 @@ func TestFromMiddleware_RateLimitEnforced(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer closeFn()
+	defer func() { _ = closeFn() }()
 
 	r := gf.New()
 	r.Use(New(opts...).Gin()...)
@@ -211,7 +211,7 @@ func TestFromMiddleware_AllSevenSegments(t *testing.T) {
 	if err != nil {
 		t.Fatalf("全段声明不应报错: %v", err)
 	}
-	defer closeFn()
+	defer func() { _ = closeFn() }()
 
 	// 期望 7 个 Option（recovery/cors/logging/request_id/tracing/rate_limit/timeout）。
 	if len(opts) != 7 {
@@ -251,7 +251,7 @@ func TestFromMiddleware_CORSValidateEnforced(t *testing.T) {
 	if err != nil {
 		t.Fatalf("显式来源 + 凭证应合法: %v", err)
 	}
-	defer closeFn()
+	defer func() { _ = closeFn() }()
 
 	// 合法组合：通配来源 + 无凭证 → 通过（默认形态）。
 	mw = mustMiddleware(t, `{"cors":{"allowedOrigins":["*"]}}`)
@@ -259,5 +259,5 @@ func TestFromMiddleware_CORSValidateEnforced(t *testing.T) {
 	if err != nil {
 		t.Fatalf("通配来源 + 无凭证应合法: %v", err)
 	}
-	defer closeFn2()
+	defer func() { _ = closeFn2() }()
 }

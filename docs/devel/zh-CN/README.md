@@ -73,5 +73,6 @@
 - [设计判据](./设计判据.md)：跨模块复用的裁决原则（零调用与死代码的区分、重复税、身份缺失 fail-closed、默认超时、协议只承诺协议形状等），新代码按此判断。
 - [性能基准](./性能基准.md)：装配期与运行期关键路径的基准口径与数字。
 - [测试工具设计](./测试工具设计.md)：`pkg/testkit` 的 e2e 复用工具。
+- 质量门禁：每个 module 跑 `golangci-lint`（根 `.golangci.yml`，只拦正确性/死代码）与 `govulncheck`（代码可达漏洞）；本地入口 `task lint` / `task vuln`。
 
 > 文档一致性由 `internal/docscheck` 在 `go test ./...` 中守卫：Markdown 相对链接与 Go 注释里的 `docs/` 路径必须存在。

@@ -230,7 +230,7 @@ func formatKey(key any) string {
 	}
 
 	t := reflect.TypeOf(key)
-	if t.Kind() == reflect.Struct || t.Kind() == reflect.Ptr {
+	if t.Kind() == reflect.Struct || t.Kind() == reflect.Pointer {
 		return t.String()
 	}
 

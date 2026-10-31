@@ -98,7 +98,7 @@ func (h *HTTPChecker) Check(ctx context.Context) Result {
 			Message: fmt.Sprintf("http request %s: %v", h.url, err),
 		}
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 200 && resp.StatusCode < 400 {
 		return Result{Status: StatusUp}

@@ -1,0 +1,47 @@
+# golangci-lint 配置：CI 的 lint job 与本机 `task lint` 共用。
+# 只开默认五类检查（errcheck/govet/ineffassign/staticcheck/unused）：lint 拦
+# 正确性问题与死代码，风格交给 gofmt，避免意见型 linter 把维护成本转成噪音。
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+
+  settings:
+    errcheck:
+      # CLI 输出写到 stdout/stderr，错误由进程退出码与管道消费方体现；
+      # 逐处检查只会制造噪音。其余 error（含 Close/Flush）必须显式处理。
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+    staticcheck:
+      # 保留 SA*（正确性）与 S1*（可简化）。ST/QF 是风格与 quickfix 建议：
+      # gofmt 已覆盖主要风格，且 QF1011 会把 `var _ Iface = impl` 这类
+      # 编译期断言判成冗余（去掉后断言就失效），属误报。
+      checks:
+        - all
+        - -ST*
+        - -QF*
+        # errcheck 要求 error 型 channel 的接收显式丢弃（`_ = <-done`），
+        # S1005 会把同一写法判成冗余赋值；两者冲突时保留 errcheck。
+        - -S1005
+        # log.Logger 的 ctx 参数可为 nil（实现显式处理，见 log.ContextAttrs）；
+        # 与请求无关的日志适配器传 nil 是契约内用法。
+        - -SA1012
+
+  exclusions:
+    rules:
+      # 测试里的资源清理与临时文件写入不属于被测行为；生产代码的
+      # errcheck 仍然强制（防止漏检真实错误）。
+      - path: _test\.go
+        linters:
+          - errcheck

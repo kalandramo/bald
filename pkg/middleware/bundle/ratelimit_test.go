@@ -65,7 +65,7 @@ func TestRateLimitFromMiddleware_ValidBuilds(t *testing.T) {
 	if rl == nil {
 		t.Fatal("合法配置应返回非 nil limiter")
 	}
-	defer rl.Close()
+	defer func() { _ = rl.Close() }()
 	if !rl.Wait() {
 		t.Error("wait=true 应反映到 limiter")
 	}
@@ -78,7 +78,7 @@ func TestGinChain_RateLimitEnforced(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rl.Close()
+	defer func() { _ = rl.Close() }()
 
 	var hits int64
 	b := New(RateLimit(rl))
@@ -132,7 +132,7 @@ func TestGinChain_RateLimitAfterAuthz(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rl.Close()
+	defer func() { _ = rl.Close() }()
 
 	b := New(Authz(az), RateLimit(rl))
 	r := gf.New()

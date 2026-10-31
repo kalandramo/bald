@@ -249,10 +249,7 @@ func (b *kafkaBroker) Connect() error {
 	}
 	b.RUnlock()
 
-	kAddrs := make([]string, 0, len(b.options.Addrs))
-	for _, addr := range b.options.Addrs {
-		kAddrs = append(kAddrs, addr)
-	}
+	kAddrs := append([]string(nil), b.options.Addrs...)
 
 	if len(kAddrs) == 0 {
 		return errors.New("no available brokers")
@@ -299,30 +296,24 @@ func (b *kafkaBroker) initPublishOption(writer *kafkaGo.Writer, options broker.P
 		default:
 		case LeastBytesBalancer:
 			writer.Balancer = &kafkaGo.LeastBytes{}
-			break
 		case RoundRobinBalancer:
 			writer.Balancer = &kafkaGo.RoundRobin{}
-			break
 		case HashBalancer:
 			writer.Balancer = &kafkaGo.Hash{
 				Hasher: value.Hasher,
 			}
-			break
 		case ReferenceHashBalancer:
 			writer.Balancer = &kafkaGo.ReferenceHash{
 				Hasher: value.Hasher,
 			}
-			break
 		case Crc32Balancer:
 			writer.Balancer = &kafkaGo.CRC32Balancer{
 				Consistent: value.Consistent,
 			}
-			break
 		case Murmur2Balancer:
 			writer.Balancer = &kafkaGo.Murmur2Balancer{
 				Consistent: value.Consistent,
 			}
-			break
 		}
 	}
 }

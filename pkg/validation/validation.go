@@ -76,7 +76,7 @@ func (v *Validator) Register(validators any) error {
 				name, mt.In(1))
 		}
 		reqIn := mt.In(2)
-		if reqIn.Kind() != reflect.Ptr {
+		if reqIn.Kind() != reflect.Pointer {
 			return fmt.Errorf("validation: method %q second arg must be a request pointer, got %s",
 				name, reqIn)
 		}
@@ -123,7 +123,7 @@ func RequestTypeName(request any) string {
 	if t == nil {
 		return ""
 	}
-	if t.Kind() == reflect.Ptr {
+	if t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
 	return t.Name()

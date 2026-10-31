@@ -65,6 +65,8 @@ bald/
 
 多 module 仓库：在每个 `go.mod` 所在目录内 `go test ./...`。
 
+质量门禁：`task lint` / `task vuln` 检查核心模块；CI 用 `find` 循环对每个 module 跑 `golangci-lint`（根 `.golangci.yml`）与 `govulncheck`（只拦代码可达漏洞）。
+
 ## 可运行示例
 
 | 目录 | 定位 |

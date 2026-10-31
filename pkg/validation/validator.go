@@ -90,7 +90,7 @@ func isEmpty(v any) bool {
 		return rv.Len() == 0
 	case reflect.Map, reflect.Slice, reflect.Array:
 		return rv.Len() == 0
-	case reflect.Ptr:
+	case reflect.Pointer:
 		return rv.IsNil()
 	}
 	return false

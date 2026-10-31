@@ -184,7 +184,7 @@ func TestNewRequestAuth(t *testing.T) {
 	defer client.Close()
 
 	if _, err := client.GetWorkflow(context.Background(), "any", "ns1"); err == nil {
-		// fake 里没有该 workflow，404 属预期；这里只验证请求已带认证头。
+		t.Fatal("fake 里没有该 workflow，应返回错误")
 	}
 	if f.auth != "Bearer tok-abc" {
 		t.Fatalf("Authorization = %q, want %q", f.auth, "Bearer tok-abc")

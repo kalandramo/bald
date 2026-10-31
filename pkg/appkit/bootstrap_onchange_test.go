@@ -43,7 +43,10 @@ func TestAssemble_UserOnConfigChangeFires(t *testing.T) {
 	t.Cleanup(func() {
 		cancel()
 		select {
-		case <-done:
+		case err := <-done:
+			if err != nil {
+				t.Errorf("Run: %v", err)
+			}
 		case <-time.After(5 * time.Second):
 			t.Error("Run did not return")
 		}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"log"
 
 	"github.com/kalandramo/bald/cobramcp"
 	"github.com/spf13/cobra"
@@ -28,8 +29,13 @@ func main() {
 		Name:    "test",
 		Version: "0.1",
 	}
-	s, _ := cobramcp.NewMCPServer(cfg, buildRootCmd)
-	s.Start(context.Background())
+	s, err := cobramcp.NewMCPServer(cfg, buildRootCmd)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err := s.Start(context.Background()); err != nil {
+		log.Fatal(err)
+	}
 }
 
 // buildRootCmd constructs the full command tree that will be exposed as MCP

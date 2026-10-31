@@ -860,15 +860,8 @@ func TestAssemble_PassthroughComponents(t *testing.T) {
 	cfg.GetServer().GetHttp().Addr = "127.0.0.1:0"
 
 	var started, disposed atomic.Bool
-	a := assembleForTest(t, cfg,
-		WithHTTP(new(http.ServeMux)),
-		componentsOpt(testDisposeComp{"test.comp", func(context.Context) error {
-			started.Store(true)
-			return nil
-		}}),
-	)
 	// Dispose 观测：包一层组件捕获。
-	a = assembleForTest(t, cfg,
+	a := assembleForTest(t, cfg,
 		WithHTTP(new(http.ServeMux)),
 		componentsOpt(&disposeProbe{disposed: &disposed}, testDisposeComp{"test.comp2", func(context.Context) error {
 			started.Store(true)

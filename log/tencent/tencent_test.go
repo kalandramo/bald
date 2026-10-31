@@ -91,8 +91,8 @@ func TestLog(t *testing.T) {
 
 func TestNewString(t *testing.T) {
 	ptr := newString("")
-	if kind := reflect.TypeOf(ptr).Kind(); kind != reflect.Ptr {
-		t.Errorf("want type: %v, got type: %v", reflect.Ptr, kind)
+	if kind := reflect.TypeOf(ptr).Kind(); kind != reflect.Pointer {
+		t.Errorf("want type: %v, got type: %v", reflect.Pointer, kind)
 	}
 }
 

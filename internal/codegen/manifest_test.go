@@ -74,13 +74,13 @@ func TestGen_CheckClean(t *testing.T) {
 	dir := t.TempDir()
 	specPath := writeSpecJSON(t, dir, guardFixture())
 
-	streams, out := testStreams()
+	streams, _ := testStreams()
 	if err := runGenAppSpec(specPath, dir, false, false, streams); err != nil {
 		t.Fatalf("first gen: %v", err)
 	}
 
 	// 干净：--check 成功且不写盘。
-	streams, out = testStreams()
+	streams, out := testStreams()
 	if err := runGenAppSpec(specPath, dir, false, true, streams); err != nil {
 		t.Fatalf("clean tree must pass --check, got: %v", err)
 	}

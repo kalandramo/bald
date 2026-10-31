@@ -205,7 +205,7 @@ func (l *lokiLog) flush() error {
 	if err != nil {
 		return fmt.Errorf("loki: push: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 400 {
 		return fmt.Errorf("loki: push returned status %d", resp.StatusCode)

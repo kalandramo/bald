@@ -96,7 +96,7 @@ func writeDoctor(w io.Writer, p *Plan, tags []string, cache *planCacheBaseline, 
 	for _, name := range names {
 		fmt.Fprintf(tw, "  phase %s\t%d\n", name, phases[name])
 	}
-	tw.Flush()
+	_ = tw.Flush()
 	sort.Strings(opaque)
 	if len(opaque) > 0 {
 		fmt.Fprintf(w, "  opaque: %s\n", strings.Join(opaque, ", "))

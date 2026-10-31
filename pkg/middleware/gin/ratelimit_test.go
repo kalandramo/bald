@@ -43,7 +43,7 @@ func newLimitedRouter(t *testing.T, cfg RateLimitConfig, hits *int64) (*gf.Engin
 func TestRateLimit_RejectsBeyondBurst(t *testing.T) {
 	var hits int64
 	r, rl := newLimitedRouter(t, RateLimitConfig{Rate: 0.0001, Burst: 2}, &hits)
-	defer rl.Close()
+	defer func() { _ = rl.Close() }()
 
 	codes := make([]int, 0, 5)
 	for i := 0; i < 5; i++ {
@@ -74,7 +74,7 @@ func TestRateLimit_RejectsBeyondBurst(t *testing.T) {
 func TestRateLimit_AllowsWithinBurst(t *testing.T) {
 	var hits int64
 	r, rl := newLimitedRouter(t, RateLimitConfig{Rate: 1, Burst: 3}, &hits)
-	defer rl.Close()
+	defer func() { _ = rl.Close() }()
 
 	for i := 0; i < 3; i++ {
 		w := httptest.NewRecorder()
@@ -93,7 +93,7 @@ func TestRateLimit_AllowsWithinBurst(t *testing.T) {
 func TestRateLimit_WaitModeDoesNotReject(t *testing.T) {
 	var hits int64
 	r, rl := newLimitedRouter(t, RateLimitConfig{Rate: 1000, Burst: 1, Wait: true}, &hits)
-	defer rl.Close()
+	defer func() { _ = rl.Close() }()
 
 	for i := 0; i < 5; i++ {
 		w := httptest.NewRecorder()
@@ -142,7 +142,7 @@ func TestRateLimit_ConcurrentBurstExact(t *testing.T) {
 	const burst = 20
 	var hits int64
 	r, rl := newLimitedRouter(t, RateLimitConfig{Rate: 0.0001, Burst: burst}, &hits)
-	defer rl.Close()
+	defer func() { _ = rl.Close() }()
 
 	var wg sync.WaitGroup
 	var ok int64

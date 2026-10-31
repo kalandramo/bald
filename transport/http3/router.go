@@ -43,7 +43,7 @@ func (r *Router) Handle(method, relativePath string, h HandlerFunc, filters ...F
 		ctx := r.pool.Get().(Context)
 		ctx.Reset(res, req)
 		if err := h(ctx); err != nil {
-			r.srv.ene(res, req, err)
+			_ = r.srv.ene(res, req, err)
 		}
 		ctx.Reset(nil, nil)
 		r.pool.Put(ctx)

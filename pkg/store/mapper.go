@@ -49,13 +49,13 @@ func (m *CopierMapper[DTO, Entity]) ToDTO(entity Entity) (DTO, error) {
 
 // copyFields 把 src 的同名导出字段复制到 dst（dst 必须可寻址或可分配指针）。
 func copyFields(dst, src reflect.Value) error {
-	if src.Kind() == reflect.Ptr {
+	if src.Kind() == reflect.Pointer {
 		if src.IsNil() {
 			return nil
 		}
 		src = src.Elem()
 	}
-	if dst.Kind() == reflect.Ptr {
+	if dst.Kind() == reflect.Pointer {
 		if dst.IsNil() {
 			// 目标是指针类型但当前为 nil：分配一个新实例再继续。
 			dst.Set(reflect.New(dst.Type().Elem()))

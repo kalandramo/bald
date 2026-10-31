@@ -192,7 +192,7 @@ func TestParseIP(t *testing.T) {
 func TestParseUrl(t *testing.T) {
 	IP1 := "www.baidu.com"
 	IP2 := "127.0.0.1"
-	IP3 := "127.0.0.1:8080"
+	rawAddr := "127.0.0.1:8080"
 	IP4 := "tcp://127.0.0.1:8080"
 
 	parsedIP1, err := url.Parse(IP1)
@@ -203,7 +203,7 @@ func TestParseUrl(t *testing.T) {
 	assert.Nil(t, err)
 	assert.Equal(t, parsedIP2.Path, "127.0.0.1")
 
-	parsedIP3, err := url.Parse(IP3)
+	parsedIP3, err := url.Parse(rawAddr) //nolint:staticcheck // 负例：无 scheme 的地址必须被拒绝
 	assert.NotNil(t, err)
 	assert.Nil(t, parsedIP3)
 

@@ -63,7 +63,7 @@ func Compose(ctx context.Context, backs ...NamedBackend) (Auditor, func(context.
 		cleanups []func(context.Context) error
 		rollback = func() {
 			for i := len(cleanups) - 1; i >= 0; i-- {
-				cleanups[i](ctx) // 失败路径尽力释放，错误忽略
+				_ = cleanups[i](ctx) // 失败路径尽力释放，错误忽略
 			}
 		}
 	)

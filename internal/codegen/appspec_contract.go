@@ -144,7 +144,7 @@ func messageToMap(m protoreflect.Message) (any, error) {
 func scalarToConfig(fd protoreflect.FieldDescriptor, v protoreflect.Value) (any, error) {
 	if fd.Kind() == protoreflect.MessageKind {
 		msg := v.Message()
-		if msg == nil || !msg.IsValid() {
+		if !msg.IsValid() {
 			return nil, nil
 		}
 		switch name := msg.Descriptor().FullName(); name {

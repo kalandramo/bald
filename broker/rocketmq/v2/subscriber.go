@@ -36,8 +36,7 @@ func (s *subscriber) Unsubscribe(removeFromManager bool) error {
 	s.Lock()
 	defer s.Unlock()
 
-	var err error
-	err = s.reader.Unsubscribe(s.topic)
+	err := s.reader.Unsubscribe(s.topic)
 
 	s.closed = true
 

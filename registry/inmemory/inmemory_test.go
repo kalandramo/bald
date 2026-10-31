@@ -96,8 +96,8 @@ func TestRegistrar_RegisterNilInstance(t *testing.T) {
 	// nil 在 map 赋值会 panic，这里验证实现是否防御；当前实现直接写入会 panic，
 	// 因此该用例登记为"已知行为"，仅作文档化：调用方不应传 nil。
 	defer func() {
-		if recover() == nil {
-			// 未 panic 说明实现已防御，符合预期。
+		if r := recover(); r != nil {
+			t.Logf("Register(nil) panicked (known behavior): %v", r)
 		}
 	}()
 	_ = r.Register(context.Background(), nil)

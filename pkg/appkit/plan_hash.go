@@ -22,17 +22,17 @@ func nodeDesiredHash(cfg *bootstrapv1.BootstrapConfig, settings map[string]any, 
 		return ""
 	}
 	h := sha256.New()
-	io.WriteString(h, "key="+string(n.Key)+"\nkind="+n.Kind+"\n")
+	_, _ = io.WriteString(h, "key="+string(n.Key)+"\nkind="+n.Kind+"\n")
 	for _, seg := range sortedUnique(n.Segments) {
-		io.WriteString(h, "segment="+seg+"\n")
+		_, _ = io.WriteString(h, "segment="+seg+"\n")
 		// 解析用完整路径（biz 是合并快照里的顶层段，与 yaml 层级一致）。
 		if _, ok := bizSegmentPath(seg); ok {
 			if v, ok := settingsAtPath(settings, seg); ok {
 				writeSettingsSubtree(h, v)
 			} else {
-				io.WriteString(h, "absent")
+				_, _ = io.WriteString(h, "absent")
 			}
-			io.WriteString(h, "\n")
+			_, _ = io.WriteString(h, "\n")
 			continue
 		}
 		if msg := segmentMessage(cfg, seg); msg != nil {
@@ -40,7 +40,7 @@ func nodeDesiredHash(cfg *bootstrapv1.BootstrapConfig, settings map[string]any, 
 				_, _ = h.Write(b)
 			}
 		}
-		io.WriteString(h, "\n")
+		_, _ = io.WriteString(h, "\n")
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }

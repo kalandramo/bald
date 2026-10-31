@@ -68,7 +68,10 @@ func TestServe_NamespaceDerivedFromContractAndEnvWorks(t *testing.T) {
 	defer func() {
 		cancel()
 		select {
-		case <-errCh:
+		case err := <-errCh:
+			if err != nil {
+				t.Errorf("Serve: %v", err)
+			}
 		case <-time.After(10 * time.Second):
 			t.Error("app did not stop within timeout")
 		}

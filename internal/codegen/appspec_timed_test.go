@@ -83,7 +83,7 @@ func TestTree_EndToEndTimed(t *testing.T) {
 	go func() { done <- cmd.Wait() }()
 	stopAndDump := func(format string, args ...any) {
 		_ = cmd.Process.Kill()
-		<-done
+		_ = <-done
 		t.Fatalf(format+"\n--- app output ---\n%s", append(args, out.String())...)
 	}
 
@@ -110,7 +110,7 @@ func TestTree_EndToEndTimed(t *testing.T) {
 		}
 	case <-time.After(30 * time.Second):
 		_ = cmd.Process.Kill()
-		<-done
+		_ = <-done
 		t.Fatal("graceful shutdown did not finish within 30s")
 	}
 
@@ -129,7 +129,7 @@ func freePort(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("reserve free port: %v", err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	return strconv.Itoa(ln.Addr().(*net.TCPAddr).Port)
 }
 

@@ -118,13 +118,12 @@ func (b *pubsubBroker) Connect() error {
 		},
 	}
 
-	// 探活（修复，2026-09-22）：redigo 的 Pool 是**懒连接**——上面的
-	// Dial 只在首次 pool.Get() 时才真正建连。故此处若不探活，Redis 不可达时
-	// 本方法会返回 nil（**假成功**），故障被推迟到首次 Publish/Subscribe 才
-	// 暴露，误导启动期健康检查。这里取一条连接并 PING，把「连不上」提前到
-	// 本方法的返回值。
+	// redigo 的 Pool 是懒连接：Dial 只在首次 pool.Get() 时才真正建连。
+	// 不在这里探活的话，Redis 不可达时本方法会返回 nil（假成功），故障被
+	// 推迟到首次 Publish/Subscribe 才暴露。取一条连接 PING，把「连不上」
+	// 提前到本方法的返回值。
 	conn := b.pool.Get()
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	if _, err := conn.Do("PING"); err != nil {
 		// 探活失败：丢弃 pool（下次 Connect 重建），返回错误。
 		_ = b.pool.Close()

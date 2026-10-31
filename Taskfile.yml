@@ -18,6 +18,8 @@ version: "3"
 
 vars:
   PROTOC_GEN_DEFAULTS_VERSION: v0.0.2 # protoc-gen-defaults pin（原 .bingo 记录的 commit pin 无效，已核实取 v0.0.2）
+  GOLANGCI_LINT_VERSION: v2.15.0 # lint 规则集升级是显式动作，避免上游新检查静默漂移
+  GOVULNCHECK_VERSION: v1.9.0
 
 # Windows 下用 pwsh，其余用 bash；命令缺省走 bash 即可，需 shell 特性时显式指定。
 tasks:
@@ -37,6 +39,22 @@ tasks:
   tools:
     desc: 安装生成期工具链（protoc-gen-defaults 等）
     deps: [tools-protoc-gen-defaults]
+
+  tools-golangci-lint:
+    desc: 确保 golangci-lint 在 PATH；缺失则按 pin 版本安装到 GOBIN
+    cmds:
+      - cmd: command -v golangci-lint >/dev/null 2>&1 || go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@{{.GOLANGCI_LINT_VERSION}}
+        platforms: [linux, darwin]
+      - cmd: where golangci-lint >nul 2>nul || go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@{{.GOLANGCI_LINT_VERSION}}
+        platforms: [windows]
+
+  tools-govulncheck:
+    desc: 确保 govulncheck 在 PATH；缺失则按 pin 版本安装到 GOBIN
+    cmds:
+      - cmd: command -v govulncheck >/dev/null 2>&1 || go install golang.org/x/vuln/cmd/govulncheck@{{.GOVULNCHECK_VERSION}}
+        platforms: [linux, darwin]
+      - cmd: where govulncheck >nul 2>nul || go install golang.org/x/vuln/cmd/govulncheck@{{.GOVULNCHECK_VERSION}}
+        platforms: [windows]
 
   proto:
     desc: 生成全部 Protobuf 代码
@@ -311,6 +329,32 @@ tasks:
     desc: 运行核心模块全部测试（不含 _example，见 example-* 任务）
     cmds:
       - go test ./...
+
+  # 静态检查与漏洞扫描：与 `test` 同口径只跑核心模块；子模块用
+  # task lint-module MOD=<dir> / task vuln-module MOD=<dir>（CI 用 find 循环全仓）。
+  lint:
+    desc: golangci-lint 检查核心模块（配置 .golangci.yml）
+    deps: [tools-golangci-lint]
+    cmds:
+      - golangci-lint run ./...
+
+  lint-module:
+    internal: true
+    dir: "{{.MOD}}"
+    cmds:
+      - golangci-lint run ./...
+
+  vuln:
+    desc: govulncheck 扫描核心模块（代码可达漏洞；需访问 vuln.go.dev）
+    deps: [tools-govulncheck]
+    cmds:
+      - govulncheck ./...
+
+  vuln-module:
+    internal: true
+    dir: "{{.MOD}}"
+    cmds:
+      - govulncheck ./...
 
   # 竞态检测：普通 test 不启用 race detector。范围 = 并发密集模块（session
   # manager / 热重载 / 计划缓存 / 限流器）；新增此类模块时加行，CI 的 race

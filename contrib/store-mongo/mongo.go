@@ -21,8 +21,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/kalandramo/bald/pkg/store"
 	storev1 "github.com/kalandramo/bald/bconf/gen/go/bald/store/v1"
+	"github.com/kalandramo/bald/pkg/store"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
@@ -70,9 +70,9 @@ func NewMongoProvider[T any](db *mongo.Database, collection string, keyOf func(*
 // DB 返回 MongoDB Queryable（会话绑定到 T 的集合）。
 func (p *Provider[T]) DB(_ context.Context) (store.Queryable[T], error) {
 	return &mongoQuery[T]{
-		col:      p.db.Collection(p.collection),
-		keyOf:    p.keyOf,
-		keyField: p.keyField,
+		col:        p.db.Collection(p.collection),
+		keyOf:      p.keyOf,
+		keyField:   p.keyField,
 		fieldTypes: fieldTypeMap[T](),
 	}, nil
 }
@@ -396,7 +396,7 @@ func coerceByType(s string, t reflect.Type) any {
 func fieldTypeMap[T any]() map[string]reflect.Type {
 	var zero T
 	t := reflect.TypeOf(zero)
-	for t != nil && t.Kind() == reflect.Ptr {
+	for t != nil && t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
 	m := make(map[string]reflect.Type)

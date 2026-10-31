@@ -106,7 +106,7 @@ func TestTranslate_ExprTreePassThrough(t *testing.T) {
 func TestPaging_TranslateMetadata(t *testing.T) {
 	s := NewStore[int](nil) // provider 不参与分页元数据计算，传 nil 不影响 translate
 	// 页码分页元数据
-	where, meta, err := s.translate(context.Background(), &storev1.PagingRequest{Page: u32p(2), PageSize: u32p(10)})
+	_, meta, err := s.translate(context.Background(), &storev1.PagingRequest{Page: u32p(2), PageSize: u32p(10)})
 	require.NoError(t, err)
 	assert.Equal(t, uint32(2), meta.GetCurrentPage().GetValue())
 	assert.Equal(t, uint32(10), meta.GetPageSize())
@@ -114,7 +114,7 @@ func TestPaging_TranslateMetadata(t *testing.T) {
 	assert.Empty(t, meta.GetNextToken())
 
 	// 偏移分页元数据
-	where, meta, err = s.translate(context.Background(), &storev1.PagingRequest{Offset: u64p(20), Limit: u32p(5)})
+	where, meta, err := s.translate(context.Background(), &storev1.PagingRequest{Offset: u64p(20), Limit: u32p(5)})
 	require.NoError(t, err)
 	assert.Equal(t, uint64(20), meta.GetCurrentOffset().GetValue())
 	assert.Equal(t, uint32(5), meta.GetPageSize())

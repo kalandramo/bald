@@ -3,8 +3,6 @@ package env
 import (
 	"context"
 	"testing"
-
-	"github.com/kalandramo/bald/bconfig"
 )
 
 // TestNew_NoError 钉住 New 的失败面：当前实现只填默认 options，永不返回 error。
@@ -23,10 +21,10 @@ func TestNew_NoError(t *testing.T) {
 // 显式 key 优先于默认 key；prefix 非空且 key 非空时加前缀。
 func TestResolveKey(t *testing.T) {
 	cases := []struct {
-		name   string
-		opts   []Option
-		key    string
-		want   string
+		name string
+		opts []Option
+		key  string
+		want string
 	}{
 		{"显式 key 直通", nil, "FOO", "FOO"},
 		{"空 key 用默认 key", []Option{WithKey("DEF")}, "", "DEF"},
@@ -150,13 +148,5 @@ func TestLoad_ExplicitKeyWithoutPrefix(t *testing.T) {
 	}
 	if string(data) != "raw-value" {
 		t.Errorf("Load() = %q, want raw-value", data)
-	}
-}
-
-// TestSource_ImplementsReader 编译期断言的运行时对照（断言本身在 env.go）。
-func TestSource_ImplementsReader(t *testing.T) {
-	var src bconfig.Reader = &source{}
-	if src == nil {
-		t.Fatal("source should implement bconfig.Reader")
 	}
 }

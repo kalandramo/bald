@@ -1,4 +1,4 @@
-# ci：全模块 build + vet + test + tidy 闸门（模块自动发现，find 循环为准，零维护）。
+# ci：全模块 build + vet + test + tidy + lint + vuln 闸门（模块自动发现，find 循环为准，零维护）。
 # 说明：
 # - 多模块仓库：shell 循环 find go.mod，模块增删零维护；_example 是
 #   验证用独立 module（GOFLAGS=-mod=mod 特殊装载），排除。
@@ -9,25 +9,23 @@
 #   testing.Short() 惯例）；超时防挂死测试拖垮整个 job。
 # - 基准冒烟：每模块追加 go test -bench . -benchtime=1x -run '^$'——编译
 #   并单迭代跑一轮基准，拦「基准编译坏/基准 panic」回归；无基准 module
-#   空跑零成本，有基准 module（root/bootstrap/bconf/casbin）各秒级。
-#   分配剖面回归不在此拦：由各包 alloc_guard_test.go（testing.Benchmark
-#   直取既有基准断言）随 -short 主循环守卫，不经 CI 解析基准输出。
-# - 判据④端到端计时（TestTree_EndToEndTimed：gen→tidy→build→serve→
-#   停机 ≤1800s）分钟级墙钟且起真实服务，不适合 -short 主循环：测试内
-#   testing.Short 跳过，循环后独立 step 全跑（-count=1 -timeout 15m；
-#   循环内构建缓存已温热，15m 对残余冷态余量充分）。
-# - 依赖面闸门：模块循环内 go mod tidy -diff——go.mod/go.sum 与代码 import 漂移
-#   即红（本仓此前无此闸门，29 模块 go.mod 真实漂移静默累积到评估日才被发现）。-diff
-#   只报告不落盘，故不影响后续 build 的 -mod=readonly 默认。
-# - 依赖预下载 + 3 次重试：proxy.golang.org 偶发 HTTP/2 瞬断
-#   （stream INTERNAL_ERROR，2026-09-12 log/aliyun 即此挂掉），
+#   空跑零成本。分配剖面回归由各包 alloc_guard_test.go 随 -short 主循环
+#   守卫，不经 CI 解析基准输出。
+# - 端到端计时（TestTree_EndToEndTimed / TestTree_AuthzClosedLoop：
+#   gen→tidy→build→serve→停机）分钟级墙钟且起真实服务，不适合 -short
+#   主循环：测试内 testing.Short 跳过，循环后独立 step 全跑。
+# - 依赖面闸门：循环内 go mod tidy -diff，go.mod/go.sum 与代码 import
+#   漂移即红；-diff 只报告不落盘，不影响后续 build。
+# - lint 门禁：golangci-lint 按模块循环（配置在根 .golangci.yml，子模块
+#   目录自动向上发现）；只拦正确性/死代码，风格交给 gofmt。
+# - 漏洞门禁：govulncheck 按模块扫描「代码可达」漏洞（stdlib 漏洞随
+#   setup-go 的补丁版本修复；依赖漏洞升到 fixed 版本）。
+# - 依赖预下载 + 3 次重试：proxy.golang.org 偶发 HTTP/2 中流 INTERNAL_ERROR，
 #   下载完成后 build/vet/test 全程离线稳定。
-# - GOPROXY 主源 goproxy.io：aliyun-log-go-sdk v0.1.117.zip 经
-#   proxy.golang.org 在 GitHub runner（Azure US）网络上中流 HTTP/2
-#   INTERNAL_ERROR 持续失败（三轮同点位复现）；| 故障转移对该错误
-#   类不生效（本地容器实测连接级错误可转移，故保留 proxy.golang.org
-#   为备源）。goproxy.io 全球 CDN，容器内实测可完整服务本仓依赖；
-#   sumdb 校验不受 proxy 切换影响。
+# - GOPROXY 主源 goproxy.io：proxy.golang.org 在 GitHub runner（Azure US）
+#   上对大依赖包的中流 HTTP/2 错误持续复现，且 | 故障转移不覆盖该错误类；
+#   保留 proxy.golang.org 为备源（连接级错误可转移）。sumdb 校验不受
+#   proxy 切换影响。
 name: ci
 
 on:
@@ -46,23 +44,20 @@ jobs:
   test:
     runs-on: ubuntu-latest
     env:
-      # goproxy.io 主源（proxy.golang.org 对 aliyun sdk zip 在 runner
-      # 网络上持续中流失败且 | 转移不覆盖该错误类），| 后接备源
+      # 主源 goproxy.io、备源 proxy.golang.org（理由见文件头）
       GOPROXY: "https://goproxy.io|https://proxy.golang.org,direct"
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.27.1"
+          go-version: "1.27.3"
 
       - name: build + vet + test all modules
         run: |
           set -e
           # 失败时在日志中打出所在模块（自诊断）
           trap 'echo "### FAILED AT MODULE: $mod"; echo "::error::FAILED AT MODULE: $mod"' ERR
-          # test 已知红清零（2026-09-12 六模块修复：手工测试加 Short 守卫、
-          # codec nil 显式报错、http3 跨用例连接合并），全部恢复 test
           for mod in $(find . -name go.mod -not -path "./.git/*" -not -path "./_example*" | xargs -n1 dirname | sort); do
             echo "=== $mod ==="
             # 预下载依赖（重试 3 次防 proxy 瞬断），之后构建/测试离线稳定
@@ -83,7 +78,7 @@ jobs:
             fi
           done
 
-      - name: TestTree_EndToEndTimed full-chain timed (criterion ④, outside -short)
+      - name: TestTree_EndToEndTimed / TestTree_AuthzClosedLoop (outside -short)
         run: go test ./internal/codegen/ -run 'TestTree_(EndToEndTimed|AuthzClosedLoop)' -count=1 -timeout 15m
 
   # 竞态门禁：普通 test 不启用 race detector，session manager / 热重载 /
@@ -99,7 +94,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.27.1"
+          go-version: "1.27.3"
 
       - name: go test -race (concurrency-sensitive modules)
         run: |
@@ -111,4 +106,71 @@ jobs:
                      bootstrap registry cache cache/redis broker broker/redis log metrics health; do
             echo "=== race: $mod ==="
             (cd "$mod" && go mod download && go test -short -race -timeout 10m ./...)
+          done
+
+  # 静态检查：golangci-lint 逐模块运行（零维护的 find 循环）。配置在根
+  # .golangci.yml，子模块目录会向上发现；新增模块无需改本 job。
+  lint:
+    runs-on: ubuntu-latest
+    env:
+      GOPROXY: "https://goproxy.io|https://proxy.golang.org,direct"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.3"
+
+      # 版本 pin：升级 lint 规则集是显式动作，避免上游新检查静默漂移。
+      - name: install golangci-lint
+        run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
+
+      - name: golangci-lint all modules
+        run: |
+          set -e
+          trap 'echo "### FAILED AT MODULE: $mod"; echo "::error::FAILED AT MODULE: $mod"' ERR
+          for mod in $(find . -name go.mod -not -path "./.git/*" -not -path "./_example*" | xargs -n1 dirname | sort); do
+            echo "=== lint: $mod ==="
+            n=0
+            while true; do
+              if (cd "$mod" && go mod download); then break; fi
+              n=$((n+1))
+              if [ $n -ge 3 ]; then echo "::error::$mod 依赖下载失败"; exit 1; fi
+              echo "::warning::$mod 依赖下载瞬断，15s 后重试（第 $n/2 次）"
+              sleep 15
+            done
+            (cd "$mod" && golangci-lint run ./...)
+          done
+
+  # 漏洞门禁：govulncheck 只报告「代码真正可达」的漏洞（非模块级清单），
+  # 因此可以 fail-closed；标准库漏洞由 setup-go 的补丁版本修复。
+  vuln:
+    runs-on: ubuntu-latest
+    env:
+      GOPROXY: "https://goproxy.io|https://proxy.golang.org,direct"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.3"
+
+      - name: install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
+
+      - name: govulncheck all modules
+        run: |
+          set -e
+          trap 'echo "### FAILED AT MODULE: $mod"; echo "::error::FAILED AT MODULE: $mod"' ERR
+          for mod in $(find . -name go.mod -not -path "./.git/*" -not -path "./_example*" | xargs -n1 dirname | sort); do
+            echo "=== vuln: $mod ==="
+            n=0
+            while true; do
+              if (cd "$mod" && go mod download); then break; fi
+              n=$((n+1))
+              if [ $n -ge 3 ]; then echo "::error::$mod 依赖下载失败"; exit 1; fi
+              echo "::warning::$mod 依赖下载瞬断，15s 后重试（第 $n/2 次）"
+              sleep 15
+            done
+            (cd "$mod" && govulncheck ./...)
           done

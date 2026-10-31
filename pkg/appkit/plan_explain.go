@@ -63,7 +63,7 @@ func (p *Plan) Explain(w io.Writer) {
 			fmt.Fprintf(tw, "\t\t\tdependsOn=%s\n", strings.Join(deps, ","))
 		}
 	}
-	tw.Flush()
+	_ = tw.Flush()
 
 	fmt.Fprintf(w, "opaque: %d node(s)\n", p.OpaqueCount)
 

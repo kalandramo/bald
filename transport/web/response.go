@@ -99,7 +99,7 @@ func codeOf(err error) uint32 {
 func isEmpty[T any](data T) bool {
 	v := reflect.ValueOf(data)
 	switch v.Kind() {
-	case reflect.Ptr, reflect.Slice, reflect.Map, reflect.Func, reflect.Chan, reflect.Interface:
+	case reflect.Pointer, reflect.Slice, reflect.Map, reflect.Func, reflect.Chan, reflect.Interface:
 		return v.IsNil()
 	default:
 		return false

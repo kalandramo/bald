@@ -119,7 +119,7 @@ func TestAssemble_ExplicitRegistrarWins(t *testing.T) {
 	go func() { done <- a.Run(ctx) }()
 	time.Sleep(300 * time.Millisecond)
 	cancel()
-	<-done
+	_ = <-done
 
 	if a.registrarValue() != registry.Registrar(explicit) {
 		t.Fatalf("explicit registrar should win, got %T", a.registrarValue())

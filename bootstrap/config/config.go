@@ -255,7 +255,7 @@ func Load(opts Options) (*Store, error) {
 	if opts.StrictContract {
 		if unknown := bconf.FindUnknownKeys(s.merged, bconf.NewBootstrap(),
 			opts.AllowBusinessSections...); len(unknown) > 0 {
-			s.Close()
+			_ = s.Close()
 			return nil, fmt.Errorf("config: unknown contract keys (typo? or declare in AllowBusinessSections): %s",
 				strings.Join(unknown, ", "))
 		}
@@ -263,7 +263,7 @@ func Load(opts Options) (*Store, error) {
 
 	// 5) 热更新监听。
 	if err := s.setupWatch(opts); err != nil {
-		s.Close()
+		_ = s.Close()
 		return nil, err
 	}
 	return s, nil

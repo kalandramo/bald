@@ -89,7 +89,7 @@ func (s *Server) Start(ctx context.Context) error {
 }
 
 func (s *Server) Stop(ctx context.Context) error {
-	if s.started.Load() == false {
+	if !s.started.Load() {
 		return nil
 	}
 

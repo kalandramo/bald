@@ -313,7 +313,7 @@ func snake(name string) string {
 // fieldString 经反射读取 obj 的导出字段值并格式化为字符串（大小写不敏感匹配字段名）。
 func fieldString[T any](obj *T, field string) string {
 	v := reflect.ValueOf(obj)
-	for v.Kind() == reflect.Ptr {
+	for v.Kind() == reflect.Pointer {
 		if v.IsNil() {
 			return ""
 		}

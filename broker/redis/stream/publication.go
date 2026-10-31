@@ -39,7 +39,7 @@ func (p *publication) Ack() error {
 	}
 
 	conn := p.pool.Get()
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	_, err := conn.Do("XACK", p.topic, p.group, p.msgID)
 	if err != nil {

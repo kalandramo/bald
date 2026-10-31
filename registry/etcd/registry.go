@@ -277,7 +277,7 @@ func (r *Registry) heartBeat(ctx context.Context, leaseID clientv3.LeaseID, key 
 				case <-time.After(3 * time.Second):
 					cancel()
 					continue
-				case <-errChan:
+				case _ = <-errChan:
 					continue
 				case curLeaseID = <-idChan:
 				}

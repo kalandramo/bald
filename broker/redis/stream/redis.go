@@ -119,7 +119,7 @@ func (b *streamBroker) Connect() error {
 	// 不探活则 Redis 不可达时本方法返回 nil（假成功），故障推迟到首次
 	// Publish/Subscribe 才暴露。取一条连接 PING，把失败提前到返回值。
 	conn := b.pool.Get()
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	if _, err := conn.Do("PING"); err != nil {
 		_ = b.pool.Close()
 		b.pool = nil
@@ -180,7 +180,7 @@ func (b *streamBroker) publish(_ context.Context, stream string, msg *broker.Mes
 	}
 
 	conn := b.pool.Get()
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	args := []any{stream}
 
@@ -271,7 +271,7 @@ func (b *streamBroker) Subscribe(topic string, handler broker.Handler, binder br
 // ensureGroup 确保消费组存在，不存在则创建
 func (b *streamBroker) ensureGroup(stream, group string) error {
 	conn := b.pool.Get()
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// XGROUP CREATE stream group $ MKSTREAM
 	_, err := conn.Do("XGROUP", "CREATE", stream, group, "$", "MKSTREAM")

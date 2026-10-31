@@ -26,7 +26,7 @@ func BindForm(req *http.Request, obj any) error {
 // bindURLValues maps url.Values to a struct using reflection.
 func bindURLValues(values url.Values, obj any) error {
 	v := reflect.ValueOf(obj)
-	if v.Kind() != reflect.Ptr || v.IsNil() {
+	if v.Kind() != reflect.Pointer || v.IsNil() {
 		return nil
 	}
 	v = v.Elem()
@@ -102,7 +102,7 @@ func setField(field reflect.Value, value string) error {
 			return err
 		}
 		field.SetBool(b)
-	case reflect.Ptr:
+	case reflect.Pointer:
 		if field.IsNil() {
 			field.Set(reflect.New(field.Type().Elem()))
 		}

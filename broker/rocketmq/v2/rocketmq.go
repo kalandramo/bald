@@ -277,11 +277,6 @@ func (b *rocketmqBroker) createConsumer(options *broker.SubscribeOptions) (rocke
 	if err != nil {
 		return nil, err
 	}
-
-	if c == nil {
-		return nil, errors.New("create consumer error")
-	}
-
 	return c, nil
 }
 

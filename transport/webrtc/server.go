@@ -374,7 +374,7 @@ func (s *Server) signalHandler(res http.ResponseWriter, req *http.Request) {
 		_ = writeSignalError(res, err)
 		return
 	}
-	defer req.Body.Close()
+	defer func() { _ = req.Body.Close() }()
 
 	var signalReq signalRequest
 	if err = json.Unmarshal(body, &signalReq); err != nil {
@@ -638,7 +638,7 @@ func (s *Server) handleICECandidate(candidate *webrtc.ICECandidateInit, res http
 	// TODO: 需要 session ID 来找到对应的 PeerConnection
 	// 这里简化处理，实际需要通过 WebSocket 或其他方式维护 session 映射
 	res.WriteHeader(http.StatusOK)
-	res.Write([]byte(`{"status":"ok"}`))
+	_, _ = res.Write([]byte(`{"status":"ok"}`))
 	logDebug("ICE candidate received")
 }
 

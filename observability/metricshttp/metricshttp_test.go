@@ -39,7 +39,7 @@ func TestStart(t *testing.T) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d", resp.StatusCode)
 	}

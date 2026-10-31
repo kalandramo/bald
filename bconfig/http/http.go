@@ -107,7 +107,7 @@ func (c *Config) Load(ctx context.Context, key string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("http: request %s: %w", redactURL(url), err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusNotModified {
 		return nil, nil
@@ -198,7 +198,7 @@ func (c *Config) fetchWithETag(ctx context.Context, url, etag string) (data []by
 	if err != nil {
 		return nil, "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	respETag = resp.Header.Get("ETag")
 

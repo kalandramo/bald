@@ -12,7 +12,7 @@ import (
 
 // NewChatModel 根据配置创建 Eino ChatModel。
 // 支持云端模型（OpenAI 兼容 API）和本地模型（Ollama）。
-func NewChatModel(ctx context.Context, cfg *Config, opts ...Option) (model.ChatModel, error) {
+func NewChatModel(ctx context.Context, cfg *Config, opts ...Option) (model.ToolCallingChatModel, error) {
 	if cfg == nil {
 		return nil, errors.New("ai model config is nil")
 	}
@@ -82,7 +82,7 @@ func newLocalChatModelConfig(cfg *Config) (*einoOpenai.ChatModelConfig, error) {
 }
 
 // newCloudChatModel 创建云端模型（基于 Eino OpenAI 实现）。
-func newCloudChatModel(ctx context.Context, cfg *Config, o *options) (model.ChatModel, error) {
+func newCloudChatModel(ctx context.Context, cfg *Config, o *options) (model.ToolCallingChatModel, error) {
 	config, err := newCloudChatModelConfig(cfg)
 	if err != nil {
 		return nil, err
@@ -91,7 +91,7 @@ func newCloudChatModel(ctx context.Context, cfg *Config, o *options) (model.Chat
 }
 
 // newOllamaChatModel 创建本地模型（基于 Eino OpenAI 实现，兼容 Ollama）。
-func newOllamaChatModel(ctx context.Context, cfg *Config, o *options) (model.ChatModel, error) {
+func newOllamaChatModel(ctx context.Context, cfg *Config, o *options) (model.ToolCallingChatModel, error) {
 	config, err := newLocalChatModelConfig(cfg)
 	if err != nil {
 		return nil, err

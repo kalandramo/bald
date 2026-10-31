@@ -343,12 +343,10 @@ func isFatalError(s *subscriber, err error) bool {
 	if s != nil && s.IsClosed() {
 		return true
 	}
-	// net.Error 非临时错误视为致命（例如永久连接失败）
+	// 非超时的 net.Error 视为致命（例如永久连接失败）；超时按可重试处理。
 	var ne net.Error
-	if errors.As(err, &ne) {
-		if !ne.Temporary() {
-			return true
-		}
+	if errors.As(err, &ne) && !ne.Timeout() {
+		return true
 	}
 	// io.EOF 通常是连接断开（broker 重启、rebalance、网络波动等），
 	// kafka-go Reader 内部会自动重建连接，只需退避重试即可，不应退出。

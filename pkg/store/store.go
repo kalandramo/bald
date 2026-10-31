@@ -184,7 +184,7 @@ func injectWriteTenant(ctx context.Context, obj any) {
 		return
 	}
 	rv := reflect.ValueOf(obj)
-	if rv.Kind() != reflect.Ptr || rv.IsNil() {
+	if rv.Kind() != reflect.Pointer || rv.IsNil() {
 		return
 	}
 	rv = rv.Elem()

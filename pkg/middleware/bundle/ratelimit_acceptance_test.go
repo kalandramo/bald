@@ -52,7 +52,7 @@ func TestAcceptanceD5_ConfigDrivenRateLimitEnforced(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RateLimitFromMiddleware: %v", err)
 	}
-	defer rl.Close()
+	defer func() { _ = rl.Close() }()
 
 	// 3) limiter → bundle → gin 链。
 	var hits int64

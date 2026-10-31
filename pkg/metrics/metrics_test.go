@@ -57,8 +57,8 @@ func wantAttr(t *testing.T, set attribute.Set, key, val string) {
 	t.Helper()
 	got, ok := set.Value(attribute.Key(key))
 	// Emit 输出值的字符串形式（int 200 → "200"），兼容 string/int 属性。
-	if !ok || got.Emit() != val {
-		t.Errorf("attr %s: want %q, got %q (found=%v)", key, val, got.Emit(), ok)
+	if !ok || got.String() != val {
+		t.Errorf("attr %s: want %q, got %q (found=%v)", key, val, got.String(), ok)
 	}
 }
 

@@ -133,7 +133,7 @@ func (a *kratosSourceAdapter) Watch(ctx context.Context, onChange func([]byte, s
 		return fmt.Errorf("config: kratos source Watch: %w", err)
 	}
 	go func() {
-		defer w.Stop() // ctx 取消后退出循环即停止 watcher，避免独立 goroutine 泄漏
+		defer func() { _ = w.Stop() }() // ctx 取消后退出循环即停止 watcher，避免独立 goroutine 泄漏
 		for {
 			kvs, err := w.Next()
 			if err != nil {

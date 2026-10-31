@@ -478,7 +478,7 @@ func (a *App) loadConfig() error {
 		"Read configuration from specified FILE (JSON/YAML); "+
 			"also supports remote provider if RemoteConfig is set.")
 	// 白名单忽略未知 flag，避免未注册的 flag 中断解析。
-	fs.ParseErrorsWhitelist.UnknownFlags = true
+	fs.ParseErrorsAllowlist.UnknownFlags = true
 
 	// 注册业务 flag：必须进入本 FlagSet（而非仅 pflag.CommandLine），
 	// 它才会被 config.Options.Flags 传入装载器落到 flag 层（仅 Changed 的 flag

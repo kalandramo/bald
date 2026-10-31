@@ -1182,7 +1182,7 @@ func TestTree_GeneratedProjectRuns(t *testing.T) {
 		// 3s 仍存活：装配正确，Run 正常阻塞在信号等待。
 	}
 	_ = cmd.Process.Kill()
-	<-done
+	_ = <-done
 }
 
 // joinErrs 聚合错误列表为可断言文本。
