@@ -49,7 +49,7 @@ type Decl struct {
 	// ---- 配置源（ConfigFile/RemoteConfig/ConfigLayers/Env/WatchConfigFile/
 	// StrictContract/OnConfigChange/Bind Option） ----
 	// configNamespace 配置命名空间（env 前缀 / 多环境文件名来源）——**内部派生
-	// 值**（B6）：Serve 路径由契约 app.name 两遍合并派生，
+	// 值**：Serve 路径由契约 app.name 两遍合并派生，
 	// NewApp 路径回退 Name。不再有公开声明口。
 	configNamespace string
 	ConfigFile      string
@@ -220,7 +220,7 @@ func defaultDecl() Decl {
 
 // newFromDecl 从声明构造 App（构造期拷贝：引擎消费的运行态字段从 Decl
 // 逐字段拷入，运行期追加与并发保护仍归 App 私有字段）。效应账本按声明
-// 序入账——运行期 addEffect 在同一账本继续追加，逆序回放顺序与旧实现一致。
+// 序入账——运行期 addEffect 在同一账本继续追加，停机按入账逆序回放。
 func newFromDecl(d Decl) *App {
 	a := &App{
 		id:               d.ID,

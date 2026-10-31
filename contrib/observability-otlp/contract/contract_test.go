@@ -45,8 +45,8 @@ func TestNewPrometheusProvider(t *testing.T) {
 		t.Error("conflicting otlp endpoint should fail")
 	}
 
-	// 干净声明：暴露端 + shutdown 非 nil（B7：产物为可关闭暴露端，监听面
-	// 归 metricshttp——addr 用 :0 避免与缺省 :9091 冲突）。
+	// 干净声明：暴露端 + shutdown 非 nil（产物为可关闭暴露端，监听面归
+	// metricshttp——addr 用 :0 避免与缺省 :9091 冲突）。
 	exp, shutdown, err := p(context.Background(), &bootstrapv1.Metrics{
 		Type:       TypePrometheus,
 		Prometheus: &bootstrapv1.Metrics_Prometheus{Addr: "127.0.0.1:0"},
@@ -75,7 +75,7 @@ func TestNewOTLPProvider(t *testing.T) {
 
 	// endpoint 有值：双通道构造成功（exporter 构造不连网；shutdown 会强制
 	// flush 到远端，本地无 collector 故只断言非 nil，不真调）。暴露端监听
-	// :0（B7：监听面归 metricshttp，见 TestNewPrometheusProvider）。
+	// :0（监听面归 metricshttp，见 TestNewPrometheusProvider）。
 	exp, shutdown, err := p(context.Background(), &bootstrapv1.Metrics{
 		Type: TypeOTLP,
 		Otlp: &bootstrapv1.Metrics_Otlp{

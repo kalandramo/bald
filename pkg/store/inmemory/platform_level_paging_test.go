@@ -11,15 +11,12 @@ import (
 )
 
 // TestStore_PlatformLevel_ListWithPagingSkipsIsolation 锁定 WithPlatformLevel
-// 对 **ListWithPaging** 同样生效（2026-09-24，暗雷修复）。
+// 对 **ListWithPaging** 同样生效。
 //
-// 背景（为什么这条测试必须存在）：
-//   - `applyIsolation`（store.go:293）有 `if !s.opts.platformLevel` 守卫；
-//   - 但 `translate`（store.go:413，ListWithPaging 的翻译入口）**直接调
-//     mergeTenant，无任何守卫**。
-//
-// 两条读路径不对称 → 声明平台级的 Store 若改用 ListWithPaging，仍会被注入
-// `tenant_id = ?`。对**无 tenant_id 列**的平台级表（如 bald-admin 的
+// 为什么这条测试必须存在：租户隔离有两条读出路径——applyIsolation（Get/List/
+// Count/Delete）与 translate（ListWithPaging 的翻译入口）。两者若对平台级豁免
+// 判断不一致，声明平台级的 Store 改用 ListWithPaging 后仍会被注入
+// `tenant_id = ?`；对**无 tenant_id 列**的平台级表（如全平台共享的
 // Menu/Language/Permission/Role），这会直接 `no such column: tenant_id`。
 //
 // 本测试用 platformDoc（**无 TenantID 字段**，对齐真实平台级表）锁定：

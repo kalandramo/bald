@@ -111,8 +111,8 @@ func (r *Registry) Close() error {
 
 // Register 注册一个实例：按 endpoint 逐个注册（服务名带协议后缀 name.scheme）。
 func (r *Registry) Register(_ context.Context, si *registry.ServiceInstance) error {
-	// D15 前置闸门（单一真相源，见 registry.ServiceInstance.Validate）——
-	// 统一收编原先的内联 `si.Name == ""` 判断，并补上此前缺失的 ID 校验。
+	// Register 首行经契约层 ServiceInstance.Validate 前置校验（单一真相源）：
+	// 缺 Name/ID 直接报错，避免注册到 `<ns>//<id>` 这类畸形 key。
 	if err := si.Validate(); err != nil {
 		return err
 	}

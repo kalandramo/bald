@@ -21,8 +21,7 @@ type RecoveryConfig struct {
 // 而不是 gin 默认的纯文本栈。返回 500。
 //
 // 可选 RecoveryConfig（变参以保持既有 Recovery() 调用零改动）：
-// cfg.StackTrace=true 时在响应体附带调用栈。缺省（不传或空 cfg）行为与
-// 此前完全一致——响应体不含栈。
+// cfg.StackTrace=true 时在响应体附带调用栈。缺省（不传或空 cfg）响应体不含栈。
 func Recovery(cfg ...RecoveryConfig) gin.HandlerFunc {
 	var c RecoveryConfig
 	if len(cfg) > 0 {

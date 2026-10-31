@@ -20,7 +20,7 @@ func testStreams() (ioStreams, *bytes.Buffer) {
 	return ioStreams{In: os.Stdin, Out: &out, ErrOut: io.Discard}, &out
 }
 
-// ---- writeGuarded 三态归属（D2 §5.1 回归生成语义）----
+// ---- writeGuarded 三态归属（回归生成语义）----
 
 // TestWriteGuarded_OwnedRefusesOverwrite owned 防覆盖底线：目标已存在且无
 // --force 即拒绝，原文件分毫不动，错误信息自带 --force 指引。
@@ -130,7 +130,7 @@ func TestWriteGuarded_WritesNew(t *testing.T) {
 	}
 }
 
-// ---- 越权直写回归锁（D2 §5.3）：gofmt 失败绝不触碰目标 ----
+// ---- 越权直写回归锁：gofmt 失败绝不触碰目标 ----
 
 // TestWriteFileFormatted_GofmtFailureNeverTouchesTarget gofmt 失败时目标文件
 // 字节不变、诊断原文写 <path>.rej、错误里附 .rej 路径。此场景若直接

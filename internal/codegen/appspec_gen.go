@@ -1,11 +1,10 @@
 package codegen
 
-// appspec_gen.go 是 gen app --spec 的目标目录树生成器（D2-target-codegen.md
-// §2.1）：单角色 15 个落盘项（10 生成物 + 5 生成一次，随声明裁剪；
+// appspec_gen.go 是 gen app --spec 的目标目录树生成器：单角色 15 个落盘项（10 生成物 + 5 生成一次，随声明裁剪；
 // configs/<app>.yaml 是 Gate2 派生追加项，实证见 appspec_budget_test.go 的
 // 15 行清单），装配收敛到 assemble.gen.go 的唯一 Options()；生成器表达不了
 // 的接线经 seeded 钩子（bootstrap/custom.go、cmd/<app>/app/custom.go）追加
-// ——生成物只调用、从不覆盖（设计 §7.3 的自定义接线扩展）。
+// ——生成物只调用、从不覆盖（自定义接线的扩展面）。
 //
 // 本文件没有 appspecData——模板直接吃 *appspecv1.AppSpec
 // （加派生的段存在性布尔）；契约配置树整棵由 protoreflect 反射派生
@@ -29,7 +28,7 @@ import (
 // genFile 是目标目录树的一个落盘项。
 type genFile struct {
 	Path  string    // 相对产出根的路径
-	Own   ownership // 归属三态（D2 §5.1）
+	Own   ownership // 归属三态
 	Raw   []byte    // 内容
 	GoSrc bool      // .go 源码：gofmt 后落盘，gofmt 失败写 .rej 绝不触碰目标
 }
@@ -127,7 +126,7 @@ func buildTreeView(as *appspecv1.AppSpec, bs *bootstrapv1.BootstrapConfig) *tree
 	v.HasHTTP = httpSeg != nil && !v.HasGateway
 	v.HasGRPC = bs.GetServer().GetGrpc() != nil
 	v.AnyFace = v.HasHTTP || v.HasGRPC || v.HasGateway
-	// proto3 optional 保 presence：未声明 = true（D2 §3.2 LayoutSpec 默认值）。
+	// proto3 optional 保 presence：未声明 = true（LayoutSpec 默认值）。
 	lc := as.GetLayout()
 	v.Strict = lc == nil || lc.StrictContract == nil || lc.GetStrictContract()
 	v.Gen = `"bald gen app --spec"`
@@ -200,7 +199,7 @@ func (v *treeView) buildRoles(as *appspecv1.AppSpec, bs *bootstrapv1.BootstrapCo
 		}
 		if srv := r.GetServer(); srv != nil {
 			// 声明了 server 即以此为准：空 ServerSpec = 该角色不开任何传输面
-			// （runner 的契约里因此没有 server 段，L3 段覆盖不会拦）。
+			// （runner 的契约里因此没有 server 段，段覆盖不会拦）。
 			s.HasGateway = srv.GetGateway()
 			s.HasHTTP = srv.GetHttp() && !s.HasGateway
 			s.HasGRPC = srv.GetGrpc()

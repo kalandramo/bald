@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// M4 回归：buildFlagArgs 输出必须确定性——同一输入多次调用得到完全相同的
+// buildFlagArgs 输出必须确定性——同一输入多次调用得到完全相同的
 // 参数序列（map 迭代顺序在 Go 中是随机的，不排序会导致顺序漂移）。
 func TestBuildFlagArgs_DeterministicOrder(t *testing.T) {
 	flags := map[string]any{
@@ -38,7 +38,7 @@ func TestBuildFlagArgs_DeterministicOrder(t *testing.T) {
 	assert.Less(t, deltaIdx, gammaIdx, "flag 应按名称排序输出")
 }
 
-// L1 回归：未知工具名必须 fail-closed，而不是退化为执行 root 命令。
+// 未知工具名必须 fail-closed，而不是退化为执行 root 命令。
 func TestRunInProcess_UnknownToolFailsClosed(t *testing.T) {
 	var executed string
 
@@ -61,5 +61,5 @@ func TestRunInProcess_UnknownToolFailsClosed(t *testing.T) {
 	require.Error(t, err, "未知工具名必须返回错误")
 	assert.Contains(t, err.Error(), "does_not_exist")
 	assert.Equal(t, "", executed, "未知工具名不得执行任何命令（尤其不得退化执行 root）")
-	fmt.Printf("L1: unknown tool rejected: %v\n", err)
+	fmt.Printf("unknown tool rejected: %v\n", err)
 }

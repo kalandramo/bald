@@ -32,7 +32,6 @@ type pubsubBroker struct {
 // `invalid redis URL scheme:`（错误信息具误导性：scheme 明明给了，实际是
 // addr 未初始化）。这与框架内其他 broker（kafka/rabbitmq/rocketmq）一致，
 // 各 contract 的 Provider 都是 NewBroker → Init → Connect 三步。
-// 见框架缺陷报告 D13.1。
 func NewBroker(opts ...broker.Option) broker.Broker {
 	commonOpts := &redisOption.CommonOptions{
 		MaxIdle:        redisOption.DefaultMaxIdle,
@@ -136,10 +135,8 @@ func (b *pubsubBroker) Connect() error {
 
 // Disconnect 关闭连接池并清理订阅者。
 //
-// **pool 为 nil 时须直接返回**（2026-09-22 修复）：D13.2 让 Connect 在探活
-// 失败时丢弃 pool（`b.pool = nil`），此后调用 Disconnect 会 `(*Pool)(nil).Close()`
-// **panic**——修复「假成功」却让「失败后清理」崩掉，是更糟的回归。
-// stream driver 的 Disconnect 一直有此 nil 防护，本处补齐以保持对称。
+// pool 为 nil 时直接返回：Connect 探活失败会丢弃 pool（`b.pool = nil`），
+// 调用方随后清理时不能触发 `(*Pool)(nil).Close()` panic。stream driver 同此约定。
 func (b *pubsubBroker) Disconnect() error {
 	if b.pool == nil {
 		return nil

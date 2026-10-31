@@ -77,7 +77,7 @@ func TestAssemble_MergesUserConfigLayers(t *testing.T) {
 
 // TestAssemble_ForwardsRemainingDeclSurfaces 是 kitOpts 重建完整性的第二组
 // 钉子：钩子链、配置源声明、能力声明与严格契约白名单同样必须逐项透传——
-// 漏传即 Serve 路径静默丢声明（与 OnConfigChange/AfterStop 同类缺陷）。
+// 漏传即 Serve 路径静默丢声明。
 func TestAssemble_ForwardsRemainingDeclSurfaces(t *testing.T) {
 	// 框架自身的 beforeStart（契约装载链）也在链上，用无用户钩子的基线做差。
 	base := assembleForTest(t, bconf.NewBootstrap())

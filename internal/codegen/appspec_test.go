@@ -257,7 +257,7 @@ func TestContractBootstrap(t *testing.T) {
 	}
 }
 
-// TestGate1_RemovedShortcutFieldsRejected Q6：旧快捷方式字段已从 AppSpec 移除，
+// TestGate1_RemovedShortcutFieldsRejected：旧快捷方式字段已从 AppSpec 移除，
 // protojson 解析必须拒绝（否则声明面会静默丢字段）。
 func TestGate1_RemovedShortcutFieldsRejected(t *testing.T) {
 	cases := map[string]string{
@@ -491,7 +491,7 @@ func genFixtureTree(t *testing.T, dir string, adopt bool) (*bytes.Buffer, error)
 	return out, err
 }
 
-// TestTree_Layout 断言目标目录树的路径集合与归属（D2 §2.1）。
+// TestTree_Layout 断言目标目录树的路径集合与归属。
 func TestTree_Layout(t *testing.T) {
 	dir := t.TempDir()
 	out, err := genFixtureTree(t, dir, false)
@@ -542,7 +542,7 @@ func TestTree_Layout(t *testing.T) {
 	}
 }
 
-// TestTree_LineBudget main.go ≤25 行（D2 §2.1 预算）。
+// TestTree_LineBudget main.go ≤25 行。
 func TestTree_LineBudget(t *testing.T) {
 	dir := t.TempDir()
 	if _, err := genFixtureTree(t, dir, false); err != nil {
@@ -609,7 +609,7 @@ func TestTree_OwnershipAcrossRegenerations(t *testing.T) {
 	}
 }
 
-// TestGenApp_VariantsProjectedToPlan Q7：AppSpec.variants 落
+// TestGenApp_VariantsProjectedToPlan：AppSpec.variants 落
 // internal/bootstrap/variants.gen.go（声明恒进计划，不带 tag 也能审计），
 // 每个变体另落一份 variant_<name>.gen.go（//go:build 与声明同源，命中即把
 // 实现注册进 variantImpls）；未声明 variants 的树两份产物都不落、
@@ -736,7 +736,7 @@ func TestGenApp_VariantsPrunedWhenUndeclared(t *testing.T) {
 // **恒**出现在 doctor 的 variants 段（不带 tag 也能审计「命中会加什么」），
 // 但只有带 -tags 构建的二进制把变体标为 active 并把增量并入装配（组件节点、
 // 契约补丁）——命中的唯一依据是这个二进制实际怎么编的，不是生成期猜的 tag
-// 组合；已声明变体不进 ambient（I11）。
+// 组合；已声明变体不进 ambient。
 func TestTree_VariantsProjectedAtRuntime(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("go toolchain not in PATH")
@@ -783,7 +783,7 @@ func TestTree_VariantsProjectedAtRuntime(t *testing.T) {
 			if applied != tc.want {
 				t.Errorf("variant effects applied = %v, want %v:\n%s", applied, tc.want, out)
 			}
-			// I11：已声明变体不再产 ambient 旁白。
+			// 已声明变体不得产 ambient 旁白。
 			if has := strings.Contains(string(out), "ambient [variant:grpcgw]"); has {
 				t.Errorf("declared variants must not emit ambient diagnostics:\n%s", out)
 			}
@@ -821,17 +821,15 @@ func TestTree_VariantsProjectedAtRuntime(t *testing.T) {
 // go.mod 逐行改写（module 行换名、replace 相对路径转绝对），go.sum 原样复制
 // ——依赖闭包与 _example 完全一致，离线可构建。
 //
-// hermetic 化（Linux CI 修复）：_example/bald/go.mod 的 kratos fork replace
-// （../../../kratos/...）指向 bald 仓库的**兄弟目录** checkout——只在本机
-// 存在，GitHub runner 只有仓库本身（checkout 在 <workspace>/bald，兄弟目录
-// 解析到 <workspace>/kratos，不存在），go mod tidy 加载模块图即炸。这是
-// TestTree_* 全红的唯一直因（「reading
-// .../kratos/contrib/config/nacos/go.mod: no such file or directory」）。
-// 处置：replace 目标缺 go.mod 的整行剔除，并连带剔除该模块的零时间占位版本
-// require（v?…-00010101000000-000000000000 只可能经 replace 满足，留 require
-// 去 replace 在 proxy 上必 404）。剔除判据 = 目标缺 go.mod **或逃出仓库
-// checkout**（与 TestScaffoldModule_ReplacesAreHermetic 同一不变量——只判
-// 存在性会漏掉本机恰有兄弟 checkout 的机器）。生成树不 import kratos
+// hermetic 化：_example/bald/go.mod 的 kratos fork replace（../../../kratos/...）
+// 指向 bald 仓库的**兄弟目录** checkout，只在开发机上存在；GitHub runner 只有
+// 仓库本身（checkout 在 <workspace>/bald，兄弟目录解析到 <workspace>/kratos，
+// 不存在），go mod tidy 加载模块图即失败。剔除规则：replace 目标缺 go.mod 的
+// 整行剔除，并连带剔除该模块的零时间占位版本 require
+// （v?…-00010101000000-000000000000 只可能经 replace 满足，留 require 去 replace
+// 在 proxy 上必 404）。剔除判据 = 目标缺 go.mod **或逃出仓库 checkout**（与
+// TestScaffoldModule_ReplacesAreHermetic 同一不变量——只判存在性会漏掉本机恰有
+// 兄弟 checkout 的机器）。生成树不 import kratos
 // contrib fork（夹具无 registry/nacos 配置，本仓 registry/nacos 也只依赖
 // 真版本 kratos v3.0.0），剔除不改变被测生成物的依赖闭包；_example/bald
 // 本体（用户面）不动。

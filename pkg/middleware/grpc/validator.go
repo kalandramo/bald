@@ -42,8 +42,8 @@ type MessageValidator func(ctx context.Context, rq any) error
 
 // ValidatorInterceptor 是 gRPC 拦截器，在 handler 之前对请求执行校验。
 //
-// validate 为 nil 时拦截器退化为空操作（不做校验）；这与旧实现「传 nil 校验器
-// 导致全部请求静默放行」不同——现在的语义是显式、可见的：要么传回调，要么不挂拦截器。
+// validate 为 nil 时拦截器退化为空操作（不做校验）。语义保持显式可见：
+// 要么传回调，要么不挂拦截器——不存在「挂了拦截器却暗中放行」的中间态。
 func ValidatorInterceptor(validate MessageValidator) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, rq any, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		if validate != nil {

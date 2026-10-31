@@ -10,7 +10,7 @@
 //     载体，不再经 App 的注册方法中转（register.go 已随 Decl 导出移除）。
 //   - 引擎消费的类型（Component、ReconcileCtx、ReconcileFunc 等）仍归
 //     appkit，本包经 appkit.X 引用；运行期登记（addEffect 等持锁路径）
-//     不经 Decl，保持原样。ComponentFunc 适配器自 B5 起归本包（仅实现
+//     不经 Decl，保持原样。ComponentFunc 适配器归本包（仅实现
 //     appkit.Component 导出接口、无引擎状态依赖）；Registry[T] 见 registry.go。
 //   - 机制引擎本身（UndoEffects/Resolve/startComponents/dispatchKeyWatch/
 //     runReconcilers）留在 appkit，行为与本包构造器无关。
@@ -115,7 +115,7 @@ func Components(comps ...appkit.Component) appkit.Option {
 }
 
 // ComponentFunc 把一个无启动逻辑的清理函数（如 otel TracerProvider.Shutdown、
-// database/sql Close）适配为 appkit.Component（B5 自 appkit 下沉：仅实现
+// database/sql Close）适配为 appkit.Component（仅实现
 // 导出接口，无引擎状态依赖，类型与适配器同迁）。
 func ComponentFunc(name string, dispose func(context.Context) error) appkit.Component {
 	return componentFunc{name: name, dispose: dispose}

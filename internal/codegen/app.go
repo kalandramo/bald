@@ -140,7 +140,7 @@ func runGenAppSpec(spec, out string, adopt, check bool, streams ioStreams) error
 	return nil
 }
 
-// roleContracts 为每个角色派生一份契约 YAML（决策 D2=b：每角色一份
+// roleContracts 为每个角色派生一份契约 YAML（每角色一份
 // configs/<app>-<role>.yaml）。单角色直接复用 Gate2 已算出的 base——这是
 // 「roles 为空时生成物逐字节不变」的保证点。
 //

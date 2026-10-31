@@ -103,7 +103,7 @@ func validateApp(a *bootstrapv1.App) error {
 //
 // filter_keys 与 backends 两个 repeated 字段逐项校验：前者先做（脱敏对
 // 全部后端生效），项非空；后者校验 type 非空与六种后端段的段级规则
-//（slog/charm/loki/sentry/aliyun/tencent，见各自的 validate*Section）。
+// （slog/charm/loki/sentry/aliyun/tencent，见各自的 validate*Section）。
 func validateLogger(l *bootstrapv1.Logger) error {
 	if l == nil {
 		return nil
@@ -184,8 +184,8 @@ func validateSlogSection(s *bootstrapv1.Logger_Slog, prefix string) error {
 	// 「两者都空时装配层回退默认 stdout」一致）。空串有明确定义的语义，
 	// 不是漏配；与 charm 段的 output_path 空串放行同款。
 	//
-	// 历史：此处曾 fail-fast（理由「显式给了 Slog 段却不给输出目标，更可能是
-	// 漏配」）。但那是猜测而非事实，且与 repeated 字段的替换语义叠加后代价过高：
+	// 这里刻意不 fail-fast：「显式给了 Slog 段却不给输出目标，更可能是漏配」
+	// 是猜测而非事实，且与 repeated 字段的替换语义叠加后代价过高：
 	// logger.backends 是 repeated，配置中出现的列表**整体替换**默认列表、新元素
 	// 不继承默认项任何字段（见 bconf/unmarshal.go 的 clearPresentLists）——用户
 	// 只想改 format 就必须额外补 output_path，否则在几百行外报一个看不懂的错。
@@ -211,12 +211,12 @@ func validateSlogSection(s *bootstrapv1.Logger_Slog, prefix string) error {
 }
 
 // validateCharmSection 校验后端声明项的 charm 段规则：level/format 值域
-//（空串放行，装配层回退默认，与 slog 段一致）。
+// （空串放行，装配层回退默认，与 slog 段一致）。
 //
 // 值域校验的必要性：charm contract 对未知值静默回退默认——level "fatal"
 // 落 info、format "console" 落 text，错配无任何报错；契约层把静默错配变
 // 启动报错。output_path 空串放行：contract 明确空值与 "stderr" 等价
-//（终端美化日志走 stderr 是 charmbracelet 惯例），不是漏配。
+// （终端美化日志走 stderr 是 charmbracelet 惯例），不是漏配。
 func validateCharmSection(s *bootstrapv1.Logger_Charm, prefix string) error {
 	if v := s.GetLevel(); v != "" {
 		switch v {

@@ -207,9 +207,9 @@ func TestAssemble_ServerSubSegmentWithCoProvider(t *testing.T) {
 	}
 }
 
-// M5：白名单名字必须是契约里真实存在的段路径（BootstrapConfig 字段链，
+// 白名单名字必须是契约里真实存在的段路径（BootstrapConfig 字段链，
 // 中间节点必须是 message）——拼错在计划期报错，而不是静默制造一个不存在的
-// 豁免（L4：宣称可校验）。
+// 豁免。
 func TestPlan_RejectsUnknownWhitelistSegment(t *testing.T) {
 	cfgPath := writePlanConfig(t, "plan-whitelist-typo", "script:\n  options:\n    enabled: true\n")
 

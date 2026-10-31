@@ -13,11 +13,11 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// D7：casbin 授权器的运行期策略重载
+// casbin 授权器的运行期策略重载
 //
-// 缺陷：策略在构造期一次性装载，新注册用户的角色绑定（g 行）不在其中 →
-// 注册后立即访问受保护资源返回 403，须重启才生效。
-// 修法：实现 authz.ReloadableAuthorizer，从策略源重新装载（写锁独占）。
+// 契约：策略在构造期装载，但运行期新增的角色绑定（g 行）必须能通过 Reload
+// 生效——否则注册后立即访问受保护资源返回 403，须重启才生效。
+// 实现：authz.ReloadableAuthorizer，从策略源重新装载（写锁独占）。
 // ---------------------------------------------------------------------------
 
 const modelConf = `
@@ -84,7 +84,7 @@ func TestCasbin_ReloadPicksUpNewRoleBinding(t *testing.T) {
 		t.Fatalf("Reload: %v", err)
 	}
 
-	// Reload 后 u-2 立即放行——D7 的核心收益。
+	// Reload 后 u-2 立即放行——运行期策略变更生效的核心收益。
 	ok, err := a.Authorize(ctx, "u-2", "secret", "get")
 	if err != nil {
 		t.Fatalf("Reload 后判定出错: %v", err)

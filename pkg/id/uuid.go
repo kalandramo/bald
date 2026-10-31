@@ -1,9 +1,8 @@
 // Package id 提供框架内置的 ID 生成能力。
 //
-// 自 bald-utils/id 吸收 UUID 子集（2026-09-10，transport/{tcp,webrtc} session
-// ID 生成的既成依赖）：仅保留纯 google/uuid 依赖的 v4/v7，其余变体
-// （ShortUUID/KSUID/XID/MongoObjectID/snowflake/sonyflake）仍留在 bald-utils
-// ——按「核心零依赖」纪律，不为无消费方的能力引入第三方库。
+// 只提供纯 google/uuid 依赖的 v4/v7（transport/{tcp,webrtc} session ID 的
+// 需要），其余变体（ShortUUID/KSUID/XID/MongoObjectID/snowflake/sonyflake）
+// 不在此实现——按「核心零依赖」纪律，不为无消费方的能力引入第三方库。
 package id
 
 import (

@@ -31,11 +31,11 @@ func newLimitedRouter(t *testing.T, cfg RateLimitConfig, hits *int64) (*gf.Engin
 }
 
 // ---------------------------------------------------------------------------
-// D5：配置 server.http.rate_limit → 限流实际生效
+// 配置 server.http.rate_limit → 限流实际生效
 //
-// 用户级验收（task-anchor）：配置 rate_limit 段后，并发/连续超限请求被 429 拒绝
-// （而非全部放行）。以下测试直接驱动真实 gin 引擎 + httptest，验证 HTTP 层
-// 可观察行为，而非内部函数分支。
+// 验收：配置 rate_limit 段后，并发/连续超限请求被 429 拒绝（而非全部放行）。
+// 以下测试直接驱动真实 gin 引擎 + httptest，验证 HTTP 层可观察行为，而非
+// 内部函数分支。
 // ---------------------------------------------------------------------------
 
 // TestRateLimit_RejectsBeyondBurst 验收核心：burst=2 的桶，前 2 个请求放行

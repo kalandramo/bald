@@ -73,7 +73,7 @@ func TestStdAuditProvider_Build(t *testing.T) {
 // TestAssemble_AuditProductBecomesAppAuditor 引擎编排断言：audit 段 Provider
 // 的产物落资源面（Resource("audit")）并成为 appkit 自身审计事件的兜底 sink
 // （显式注入优先、不被产物覆盖），cleanup 经 canonical 槽位停机兑现
-// （appkit:audit-restore 逆序回放最后执行；B8 起无「恢复装配前全局」步骤
+// （appkit:audit-restore 逆序回放最后执行；无「恢复装配前全局」步骤
 // ——全局审计器已删除）。
 func TestAssemble_AuditProductBecomesAppAuditor(t *testing.T) {
 	var cleaned int
@@ -110,9 +110,8 @@ func TestAssemble_AuditProductBecomesAppAuditor(t *testing.T) {
 	}
 }
 
-// TestAssemble_AuditProviderSeesDatabases 迁移自 audit_wiring_order_test.go
-// 的核心断言（该文件整体并入此处）：audit Provider 构造时经 scope.App 取到
-// 已就绪的 database 客户端——audit 段 canonical 序必须排在 database 之后。
+// TestAssemble_AuditProviderSeesDatabases：audit Provider 构造时经 scope.App
+// 取到已就绪的 database 客户端——audit 段 canonical 序必须排在 database 之后。
 func TestAssemble_AuditProviderSeesDatabases(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })

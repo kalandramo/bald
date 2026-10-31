@@ -20,7 +20,7 @@ func (m MultiAuditor) Record(ctx context.Context, event AuditEvent) {
 }
 
 // NewMultiAuditor 组合多个后端为一个广播审计器：过滤 nil 成员，全空时
-// 返回 Nop（零副作用）。R1-2 协调器按后端名排序重建全局审计器时使用，
+// 返回 Nop（零副作用）。运行期协调器按后端名排序重建全局审计器时使用，
 // 保证「多后端共存」场景一次注入即可全量生效。
 func NewMultiAuditor(auditors ...Auditor) Auditor {
 	list := make([]Auditor, 0, len(auditors))

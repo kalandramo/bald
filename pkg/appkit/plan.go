@@ -2,7 +2,7 @@
 //
 // Plan 是装配的**可检视投影**：Provider 声明、域、组件、能力接管与契约段
 // 消费被编译成一组带阶段/优先级/依赖的节点，供 `--plan`、测试与未来的
-// `bald doctor` 使用。M1 起节点即执行顺序的唯一来源：引擎按计划构建
+// `bald doctor` 使用。节点即执行顺序的唯一来源：引擎按计划构建
 // Provider，顺序来自 Node 的 Phase/Priority/DependsOn（无手工排序表）。
 //
 // 纯函数边界：Compile 只读契约与声明，不写文件、不改全局 logger、不构建

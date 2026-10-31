@@ -1,7 +1,7 @@
 // Package bslog 基于标准库 log/slog 实现 bald 日志契约（log.Logger）。
 //
-// 包名 bslog 取 bald+slog 之意，目录与包名一致（2026-09-13 由 slog/slogadapter
-// 改名而来），既规避与标准库 log/slog 的名字冲突，又免去了消费点的强制导入别名。
+// 包名 bslog 取 bald+slog 之意，目录与包名一致：既规避与标准库 log/slog 的
+// 名字冲突，又免去了消费点的强制导入别名。
 // 本包可携带 slog 生态依赖（lumberjack/errgroup 等）；契约核心 log 包保持零三方依赖。
 package bslog
 

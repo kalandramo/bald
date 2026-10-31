@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// 本文件钉住 B6 两遍合并的配置命名空间语义：
+// 本文件钉住两遍合并的配置命名空间语义：
 //
 //   - Serve 路径：命名空间由**契约 app.name 派生**——第一遍装载文件/远程层
 //     解析 app.name，第二遍以它为前缀挂 env 层。env 前缀 NAME_* 不变是红线
@@ -19,8 +19,8 @@ import (
 //   - NewApp 路径：命名空间回退 Name（其值来自调用方源码，代码层稳定源）；
 //   - 契约无 app.name → fail-fast 且错误可行动（指明 app.name 必填）。
 //
-// 历史：曾要求显式声明（ConfigNamespace Option）以避开 env 前缀自指；两遍
-// 合并落地后该 Option 已删除，本文件的两条 Serve 测试即其替代的回归锁。
+// 命名空间由契约 app.name 派生，不需要显式声明（显式声明会引入 env 前缀
+// 自指）；本文件的两条 Serve 测试即该契约的回归锁。
 
 // TestServe_AppNameRequired 契约无 app.name 时入口 fail-fast，错误指明必填。
 func TestServe_AppNameRequired(t *testing.T) {

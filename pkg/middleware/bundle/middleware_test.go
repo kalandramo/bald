@@ -168,8 +168,8 @@ func TestFromMiddleware_TimeoutEnforcedAndFailsFast(t *testing.T) {
 	}
 }
 
-// TestFromMiddleware_RateLimitEnforced rate_limit 段 → 超限 429（与 D5 一致，
-// 此处验证经统一桥仍生效）。
+// TestFromMiddleware_RateLimitEnforced rate_limit 段 → 超限 429
+// （此处验证经统一桥仍生效）。
 func TestFromMiddleware_RateLimitEnforced(t *testing.T) {
 	opts, closeFn, err := FromMiddleware(mustMiddleware(t, `{"rateLimit":{"rate":0.0001,"burst":2,"wait":false}}`))
 	if err != nil {

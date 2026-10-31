@@ -31,7 +31,7 @@ func newDocStore(t *testing.T) *store.Store[Doc] {
 }
 
 // TestMongo_ArrayContains 锁定 ARRAY_CONTAINS 原生实现（MongoDB 数组字段含元素）。
-// 原缺陷：走 default 恒真（全放行），条件被忽略。
+// 若不实现，条件会落到 default 分支恒真（全放行），过滤被忽略。
 func TestMongo_ArrayContains(t *testing.T) {
 	repo := newDocStore(t)
 	ctx := context.Background()

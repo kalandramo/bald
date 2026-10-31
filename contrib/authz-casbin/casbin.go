@@ -39,7 +39,7 @@ var defaultModel string
 
 // Authorizer 是基于 casbin 的 RBAC 授权器，实现 authz.Authorizer。
 //
-// 自 D7 起额外实现 authz.ReloadableAuthorizer：策略（.csv）可在运行期重载，
+// 额外实现 authz.ReloadableAuthorizer：策略（.csv）可在运行期重载，
 // 无需重启进程。策略源是「构造时注入的策略文本/适配器」——Reload 从**同一
 // 适配器**重新装载（见 Reload）。
 type Authorizer struct {
@@ -101,7 +101,7 @@ func NewWithModel(modelConf, policyCSV string) (*Authorizer, error) {
 //
 // 判定结果经有界 LRU 缓存（见 [enforceCache]）：Web 流量对同一 (subject,
 // object, action) 高度重入（同一用户反复访问同资源），命中路径不经引擎、
-// 零分配。命中返回的是**曾依据当时策略算出的结果**——策略在 Reload 时整体
+// 零分配。命中返回的是**依据缓存时策略算出的结果**——策略在 Reload 时整体
 // 失效（见 [Authorizer.Reload]），错误永不入缓存；未命中照常评估，评估语义
 // fail-closed 不变。键含 ToLower 后的 action，大小写变体共享同一判定。
 //

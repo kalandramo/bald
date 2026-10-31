@@ -120,17 +120,18 @@ func TestRoundTrip_ECDSA(t *testing.T) {
 	assert.Equal(t, "u-1", got.Subject)
 }
 
-// TestIssueToken_UniqueJTI —— D6：同一秒内相同 claims 签发必须得到**不同** token。
+// TestIssueToken_UniqueJTI —— 同一秒内相同 claims 签发必须得到**不同** token。
 //
-// 缺陷背景（框架缺陷报告 D6，严重度：严重）：
-//   - toJWT 不设 RegisteredClaims.ID（JWT 标准 jti）；
+// 为什么需要 jti：
+//   - 不设 RegisteredClaims.ID（JWT 标准 jti）；
 //   - iat/nbf/exp 均为秒级 NumericDate；
 //   - RS256 对同一输入签名确定（无随机盐）。
+//
 // 三者叠加 → 同秒同 claims ⇒ 字节完全相同的 token。后果：
 //   - 连续刷新拿到的「新」access_token 与旧值相同（有效期不延展，客户端立即过期）；
 //   - 轮换出的 refresh_token 可能与刚被消费的旧值重合，一次性语义失效。
 //
-// 修法：toJWT 填 ID = uuid.NewString()。
+// 因此 toJWT 填 ID = uuid.NewString()。
 func TestIssueToken_UniqueJTI(t *testing.T) {
 	a := NewAuthenticator(WithHMACSecret([]byte("s")))
 
@@ -165,12 +166,11 @@ func TestIssueToken_UniqueJTI(t *testing.T) {
 	assert.NotEqual(t, jc1.ID, jc2.ID, "两次签发的 jti 应互异")
 }
 
-// TestJWTClaims_PlatformRoundTrip 锁定 Platform 字段的双向映射（2026-09-24）。
+// TestJWTClaims_PlatformRoundTrip 锁定 Platform 字段的双向映射。
 //
-// 背景：authn.AuthClaims 新增 Platform 字段（平台级身份）后，本桥接层的
-// jwtClaims **未同步**——签发时静默丢弃、解析时无从恢复，表现为「设置了
-// Platform=true 但认证后恒为 false」。此缺口由 bald-admin 的 e2e 探针
-// 实测暴露（whoami 回显 Platform=false 而 token 是以 true 签发的）。
+// authn.AuthClaims 的 Platform 是平台级身份声明；jwtClaims 是它的全量镜像，
+// 签发与解析都必须保真。漏映射的表现为「设置了 Platform=true 但认证后恒为
+// false」——静默丢弃，极难排查。
 //
 // 本测试同时是**加字段纪律**的回归门：jwtClaims 是 AuthClaims 的全量镜像，
 // 核心侧新增字段必须在此同步映射。
@@ -233,7 +233,7 @@ func TestJWTClaims_AllCoreFieldsRoundTrip(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// 字段集自动同步守护（2026-09-24）
+// 字段集自动同步守护
 // ---------------------------------------------------------------------------
 
 // claimFieldSyncExempt 是**允许不同步**的字段白名单（键为 AuthClaims 字段名）。
@@ -254,9 +254,8 @@ var claimFieldSyncExempt = map[string]string{
 // TestJWTClaims_FieldSetSync 用**反射**比对 AuthClaims 与 jwtClaims 的字段集，
 // 核心侧新增字段而未同步到桥接层时**自动失败**。
 //
-// 存在理由（2026-09-24）：本桥接层曾漏同步 Platform 字段（v0.13.0 新增），
-// 导致以 Platform=true 签发的 token 认证后恒为 false——「设置了却不生效」，
-// 极难排查。此前靠类型注释约定「必须同步」，无机制强制；本测试把它变成硬门禁。
+// 存在理由：jwtClaims 是 AuthClaims 的全量镜像，漏同步会让「设置了却不生效」
+// 且没有任何报错。类型注释约定「必须同步」无法强制，本测试把它变成硬门禁。
 //
 // 规则：
 //  1. AuthClaims 的每个字段，要么在 jwtClaims 中有**同名字段**（含内嵌
@@ -332,5 +331,5 @@ var jwtStandardOnly = map[string]bool{
 	"Audience":  true, // aud：本框架不用受众
 	"NotBefore": true, // nbf：由库按签发时刻自动填
 	"IssuedAt":  true, // iat：同上
-	"ID":        true, // jti：toJWT 内部生成（D6 修复），非业务字段
+	"ID":        true, // jti：toJWT 内部生成，非业务字段
 }

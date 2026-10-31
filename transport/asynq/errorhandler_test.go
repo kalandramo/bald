@@ -9,15 +9,14 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// D9：asynq 对「无对应处理器的任务类型」静默丢弃
+// asynq 对「无对应处理器的任务类型」静默丢弃
 //
-// 缺陷：用无处理器的 typeName 注册周期任务，注册**成功**，但消费时
-// asynq 找不到 handler → 不触发、**无显式日志**（实测：等 70 秒无任何输出；
-// 换成有处理器的 type 立刻触发）。属「注册成功但永不执行」的静默失败。
+// 契约：用无处理器的 typeName 注册周期任务会注册**成功**，但消费时
+// asynq 找不到 handler → 不触发、无显式日志，属「注册成功但永不执行」。
 //
-// 修法：NewServer 装默认 ErrorHandler——把 asynq 抛回的 ErrHandlerNotFound
-// **提升为显式 WARN**（低风险：只加可观测性，不改变「是否触发」的语义，
-// 因为类型定义可先于处理器存在是刻意的设计张力，见 D9 报告）。
+// 设计：NewServer 装默认 ErrorHandler，把 asynq 抛回的 ErrHandlerNotFound
+// 提升为显式 WARN。只加可观测性，不改变任务是否触发——类型定义可先于
+// 处理器存在是刻意的设计张力。
 // ---------------------------------------------------------------------------
 
 // captureErrHandler 捕获默认 ErrorHandler 收到的 (task, err)。
@@ -41,7 +40,7 @@ func TestDefaultErrorHandler_ReportsHandlerNotFound(t *testing.T) {
 	srv := NewServer(WithSchedulerEnabled(false))
 
 	if srv.asynqConfig.ErrorHandler == nil {
-		t.Fatal("D9：NewServer 应装默认 ErrorHandler（否则 asynq 的静默失败无人知晓）")
+		t.Fatal("NewServer 应装默认 ErrorHandler（否则 asynq 的静默失败无人知晓）")
 	}
 
 	// 模拟 asynq 消费一个无处理器的类型。

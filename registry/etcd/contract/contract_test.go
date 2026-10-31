@@ -1,8 +1,6 @@
 package contract
 
-// contract_test.go —— 补零测试：etcd registry 契约装配。
-//
-// 本包此前 `[no test files]`（go test 输出证实）。
+// contract_test.go —— etcd registry 契约装配测试。
 //
 // ## 覆盖
 //

@@ -48,7 +48,7 @@ func TestAssemble_ObservabilityProviderLifecycle(t *testing.T) {
 		flushAt                atomic.Int64
 	)
 	exp := &fakeExposure{seq: &seq}
-	// metrics Provider：产物为暴露端 + flush cleanup（B7 契约形状）。
+	// metrics Provider：产物为暴露端 + flush cleanup（契约形状）。
 	metrics := segProvider{segs: []string{"metrics"}, build: func(_ context.Context, s ApplyScope) (any, Cleanup, error) {
 		if s.Config.GetMetrics() == nil {
 			t.Fatal("metrics provider must see the metrics section")

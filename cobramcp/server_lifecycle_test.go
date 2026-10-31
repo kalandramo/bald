@@ -32,7 +32,7 @@ func newDemoFactory() func() *cobra.Command {
 	}
 }
 
-// TestMCPServer_ServesCobraToolsOverTransport 覆盖 L2 融合后的完整链路：
+// TestMCPServer_ServesCobraToolsOverTransport 覆盖完整链路：
 // Cobra 命令树 → 工具注册到 bald/transport/mcp → SSE 服务端 → MCP 客户端可见并可调用。
 func TestMCPServer_ServesCobraToolsOverTransport(t *testing.T) {
 	srv, err := NewMCPServer(MCPOptions{

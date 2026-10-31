@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// H3 回归：位置参数与 flag 同名时必须拒绝注册并报错。
+// 位置参数与 flag 同名时必须拒绝注册并报错。
 //
 // 背景：扁平 Schema 把 flag 与位置参数都平铺为顶层属性。若某个位置参数的
 // 规范化名字（normaliseName 结果）与某个 flag 名相同，二者会争用同一个属性名，

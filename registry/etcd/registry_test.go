@@ -1,10 +1,6 @@
 package etcd
 
-// registry_test.go —— 补零测试：etcd 注册中心。
-//
-// 计划 4.6：「补零测试能力轴的测试：`bald/ratelimit/sentinel/`、
-// `bald/registry/{etcd,consul,kubernetes}/`」——本包此前 **0 测试**
-// （`ls *_test.go` 无输出）。
+// registry_test.go —— etcd 注册中心测试。
 //
 // ## 验证策略
 //
@@ -132,12 +128,9 @@ func TestRegisterDiscoverDeregister(t *testing.T) {
 	t.Log("注销成功：实例已从 etcd 消失")
 }
 
-// TestRegister_MissingNameIsRejected —— **D15 已修**（2026-10-08）：
-// Register 经契约层 ServiceInstance.Validate 前置校验，缺 Name 时**报错**，
-// 不再静默注册到 `<ns>//<id>` 这类畸形 key。
+// TestRegister_MissingNameIsRejected：Register 经契约层 ServiceInstance.Validate
+// 前置校验，缺 Name 时报错，不会静默注册到 `<ns>//<id>` 这类畸形 key。
 //
-// 原测试（TestRegister_MissingNameIsAccepted）断言的是**修复前**的行为
-// （静默接受）以锁定事实；修复后该断言失真，故改本测试钉住新行为。
 // 闸门收敛在 registry.ServiceInstance.Validate（单一真相源），四个后端
 // （etcd/consul/nacos/kubernetes）的 Register 首行共用它。
 func TestRegister_MissingNameIsRejected(t *testing.T) {
@@ -147,15 +140,15 @@ func TestRegister_MissingNameIsRejected(t *testing.T) {
 
 	err := r.Register(ctx, inst)
 	if err == nil {
-		t.Fatal("缺 Name 必须被拒绝（D15：此前静默注册到畸形 key）")
+		t.Fatal("缺 Name 必须被拒绝（否则静默注册到畸形 key）")
 	}
 	if !strings.Contains(err.Error(), "Name") {
 		t.Errorf("错误信息应指明 Name，got: %v", err)
 	}
 }
 
-// TestRegister_MissingIDIsRejected 缺 ID 同样被拒（的姊妹场景：
-// 此前会拼出 `<ns>/<name>/` 畸形 key）。
+// TestRegister_MissingIDIsRejected 缺 ID 同样被拒（否则会拼出
+// `<ns>/<name>/` 畸形 key）。
 func TestRegister_MissingIDIsRejected(t *testing.T) {
 	r := newTestRegistry(t)
 	ctx := context.Background()

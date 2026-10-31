@@ -18,8 +18,8 @@ import (
 // TestMain 显式注册 json codec。
 //
 // encoding 注册表要求显式注册（框架不用 init() 自注册）；契约装配路径经
-// broker.NewOptions() 惰性查表默认 json，未注册时 broker.Marshal 会 fail-fast
-// （修复自「DefaultCodec 恒 nil → 静默走 gob」）。故测试须先注册。
+// broker.NewOptions() 惰性查表默认 json，未注册时 broker.Marshal 会 fail-fast。
+// 故测试须先注册。
 func TestMain(m *testing.M) {
 	if encoding.GetCodec("json") == nil {
 		encoding.MustRegister(jsoncodec.New())

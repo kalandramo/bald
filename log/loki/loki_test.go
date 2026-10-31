@@ -91,7 +91,7 @@ func TestContextAttrsKeyPrecedence(t *testing.T) {
 }
 
 // With 携带的 extra 与 ctx 属性流共存；派生实例写入共享缓冲，
-// 从原实例即可观测（修复前派生实例持有独立缓冲）。
+// 从原实例即可观测。
 func TestWithAndContextAttrs(t *testing.T) {
 	l := newTestLogger(t)
 
@@ -108,7 +108,7 @@ func TestWithAndContextAttrs(t *testing.T) {
 }
 
 // 缓冲共享端到端验证：派生实例的日志经原实例 Close 全量送达，
-// 不形成孤岛缓冲（2026-09-13 修复的缺陷回归测试）。
+// 不形成孤岛缓冲。
 func TestSharedBufferFlushOnParentClose(t *testing.T) {
 	var mu sync.Mutex
 	received := 0

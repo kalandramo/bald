@@ -159,7 +159,7 @@ func TestErrorRateBelowThreshold_DoesNotTrip(t *testing.T) {
 	}
 }
 
-// --- 半开态：转移与探针（回归：曾因 fallthrough 自拒而永久锁死）---
+// --- 半开态：转移与探针（fallthrough 自拒会永久锁死）---
 
 func TestAllow_HalfOpenAdmitsProbe(t *testing.T) {
 	b := newTestBreaker()

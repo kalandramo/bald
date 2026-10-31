@@ -1,6 +1,6 @@
 package config
 
-// env_twopass_test.go 钉住两遍合并（装配层评估 B6）的两条红线：
+// env_twopass_test.go 钉住两遍合并的两条红线：
 //
 //  1. env 前缀由第一遍（文件层）解析出的配置名派生——现有用户的 NAME_ 前缀
 //     env 必须原样生效（覆盖文件值）；

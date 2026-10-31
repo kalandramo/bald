@@ -100,7 +100,7 @@ func (s *stubRecorder) RecordActive(context.Context, metrics.Event, metrics.Tran
 
 // newFullBundle 构造四层全开的 Bundle（含归一化）。
 // 注意：所有桩必须带 log（缺 log 会让桩内 nil deref panic 被 recordSafely
-// 静默 recover，表现为「audit 不触发」——曾在此踩坑）。
+// 静默 recover，表现为「audit 不触发」）。
 func newFullBundle(log *callLog, allow bool) (*Bundle, *stubAuthz, *stubRecorder, *stubAuditor) {
 	az := &stubAuthz{log: log, allow: allow}
 	rec := &stubRecorder{log: log}
@@ -142,7 +142,7 @@ func TestGinChainOrder_Allow(t *testing.T) {
 	if got := log.snapshot(); !equal(got, want) {
 		t.Fatalf("gin chain order = %v, want %v", got, want)
 	}
-	// 契约：authz 拿到 authn 注入的 subject + P9 归一化 object/action。
+	// 契约：authz 拿到 authn 注入的 subject + 归一化 object/action。
 	if az.last.subject != "u-1" {
 		t.Errorf("authz subject = %q, want u-1 (authn must run first)", az.last.subject)
 	}
@@ -200,7 +200,7 @@ func TestGinRawDefaults_WithoutNormalization(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	log := &callLog{}
 	az := &stubAuthz{log: log, allow: true}
-	b := New(Authn(&stubAuthn{log: log}), Authz(az), Raw()) // 显式 opt-out 原始语义（D7 起默认归一化）
+	b := New(Authn(&stubAuthn{log: log}), Authz(az), Raw()) // 显式 opt-out 原始语义（默认归一化）
 
 	r := gin.New()
 	r.Use(b.Gin()...)
@@ -377,7 +377,7 @@ func equal(a, b []string) bool {
 	return true
 }
 
-// ---- D3 契约：认证失败（authn abort）必产生审计事件 ----
+// ---- 契约：认证失败（authn abort）必产生审计事件 ----
 
 // failingAuthn 认证失败桩：始终拒绝。
 type failingAuthn struct{}
@@ -391,7 +391,7 @@ func (failingAuthn) AuthenticateToken(string) (*authn.AuthClaims, error) {
 }
 
 // TestDefaultNormalized 契约：New 不显式传 Normalized 也默认归一化——
-// P9 的双命名空间根治不应依赖调用方记得 opt-in；Raw() 显式关闭。
+// 双命名空间根治不应依赖调用方记得 opt-in；Raw() 显式关闭。
 func TestDefaultNormalized(t *testing.T) {
 	log := &callLog{}
 	az := &stubAuthz{log: log, allow: true}

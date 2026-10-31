@@ -1,6 +1,6 @@
 // resource.go 是统一资源面的内部实现：段驱动 Provider 的产物按**契约段路径**
-// 存取，访问统一走类型化句柄 Key[T]（key.go）；字符串入口已按 B2 删除
-// （v0.28），lookup 仅对包内与 Key[T] 可见。
+// 存取，访问统一走类型化句柄 Key[T]（key.go）；不提供字符串入口，
+// lookup 仅对包内与 Key[T] 可见。
 //
 // 分工（契约段 → 实例的构造归 Provider，运行期编排归 appkit）：
 //   - Provider（范本：contrib/store-gorm 的 Provider）：按契约子段构建；

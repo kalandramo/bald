@@ -9,12 +9,12 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// Fix2：Server.Stop 必须关闭已建立会话
+// Server.Stop 必须关闭已建立会话
 //
-// 缺陷：Stop（server.go）此前只关 listener，不遍历关闭已建会话——每会话持有的
-// 2 个 pump goroutine + net.Conn 在「远端保持连接但空闲」时不会被释放
-// （readPump 阻塞在 conn.Read，对端不断开就一直挂着）。
-// 触发面：运行期热插拔/重建 server（WithExtraServerFunc）；整机退出时由进程终止兜底。
+// Stop 只关 listener 时，每会话持有的 2 个 pump goroutine + net.Conn 在
+// 「远端保持连接但空闲」时不会被释放（readPump 阻塞在 conn.Read，对端不断开
+// 就一直挂着）。触发面：运行期热插拔/重建 server（WithExtraServerFunc）；
+// 整机退出时由进程终止兜底。
 //
 // Session.Close 已 closeOnce 幂等，故遍历关闭是安全的。
 // ---------------------------------------------------------------------------

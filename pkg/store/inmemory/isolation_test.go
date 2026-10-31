@@ -17,9 +17,9 @@ type tenantDoc struct {
 	Name     string
 }
 
-// TestStore_IsolationOnGetListCountDelete 锁定边界 1 收敛：Get/List/Count/Delete
-// 也必须自动注入租户隔离（原缺陷：隔离仅覆盖 ListWithPaging，Get/List/Count/Delete
-// 直接透传 Where，多租户应用若忘了 where.T(ctx) 会读到/删到全租户数据）。
+// TestStore_IsolationOnGetListCountDelete 锁定：Get/List/Count/Delete 也必须
+// 自动注入租户隔离（若隔离仅覆盖 ListWithPaging，Get/List/Count/Delete 直接
+// 透传 Where，多租户应用忘了 where.T(ctx) 会读到/删到全租户数据）。
 //
 // 触发条件与 ListWithPaging 一致：仅当 ctx 携带租户值且维度已注册时注入；非多租户
 // 应用（未注册维度）零影响。

@@ -7,18 +7,18 @@ import (
 	"testing"
 )
 
-// TestTree_D2Budgets 把参考夹具的目标目录树逐文件与 D2 §2.1 行数预算对账
-// （判据 2 的生成器侧回归锁）：main.go ≤25 行为硬断言；其余以 t.Log 输出
-// 实测表供验收记录引用。装配物（assemble.gen.go + bootstrap/domains.gen.go）
-// 的行数不随域/能力数量线性增长——新增 bconf 段/域时重跑本测试观察增量。
-func TestTree_D2Budgets(t *testing.T) {
+// TestTree_LineBudgets 把参考夹具的目标目录树逐文件与行数预算对账：
+// main.go ≤25 行为硬断言；其余以 t.Log 输出实测表供验收记录引用。
+// 装配物（assemble.gen.go + bootstrap/domains.gen.go）的行数不随域/能力数量
+// 线性增长——新增 bconf 段/域时重跑本测试观察增量。
+func TestTree_LineBudgets(t *testing.T) {
 	dir := t.TempDir()
 	if _, err := genFixtureTree(t, dir, false); err != nil {
 		t.Fatalf("gen: %v", err)
 	}
 	type row struct {
 		path string
-		buy  string // D2 §2.1 预算口径
+		buy  string // 行数预算口径
 	}
 	rows := []row{
 		{filepath.Join("cmd", "demoapp", "main.go"), "≤25"},
@@ -45,7 +45,7 @@ func TestTree_D2Budgets(t *testing.T) {
 		lines := strings.Count(strings.TrimRight(string(data), "\n"), "\n") + 1
 		t.Logf("%-52s %3d 行（预算 %s）", r.path, lines, r.buy)
 	}
-	// 硬断言：入口文件行数预算（D2 §2.1）。
+	// 硬断言：入口文件行数预算。
 	data, err := os.ReadFile(filepath.Join(dir, "cmd", "demoapp", "main.go"))
 	if err != nil {
 		t.Fatalf("read main.go: %v", err)

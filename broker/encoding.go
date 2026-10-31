@@ -28,9 +28,8 @@ func derefAnyPointer(outValue any) any {
 // errNoCodec 在既无 codec、消息体又不是可直通的 []byte/string 时返回。
 //
 // 刻意 fail-fast 而非静默兜底：encoding 注册表是显式注册的（见
-// [encoding.MustRegister]），未注册时 GetCodec 返回 nil。旧实现此时静默走
-// gob 编码，于是「配了 JSON 心智、实际发 gob 字节」的错配会一路潜行到
-// 跨语言消费端才炸。与 transport/tcp、transport/sse、transport/websocket、
+// [encoding.MustRegister]），未注册时 GetCodec 返回 nil。若此时退回 gob 编码，
+// 「配了 JSON 心智、实际发 gob 字节」的错配会一路潜行到跨语言消费端才炸。与 transport/tcp、transport/sse、transport/websocket、
 // transport/asynq 的同类错误保持一致。
 var errNoCodec = errors.New("codec is nil (nothing registered); register one via encoding.MustRegister, e.g. encoding.MustRegister(json.New())")
 

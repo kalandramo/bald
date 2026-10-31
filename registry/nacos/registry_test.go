@@ -18,9 +18,8 @@ func (f *fakeNamingClient) CloseClient() { f.closeCalls.Add(1) }
 
 // TestClose_OwnedClientIsClosed 自建模式（New / newRegistry(owned=true)）：
 // Close 必须关闭 naming client——否则 gRPC 长连接与心跳/订阅协程在停机时泄漏。
-//
-// 回归背景：此前 Close 是纯 no-op，注释称「SDK 未暴露 client 级 Close」，
-// 但 nacos-sdk-go v2 的 INamingClient 暴露 CloseClient()——注释与事实相反。
+// nacos-sdk-go v2 的 INamingClient 暴露 CloseClient()，自建 client 必须调用它；
+// 注入模式下 client 归调用方（见 TestClose_InjectedClientIsNotClosed）。
 func TestClose_OwnedClientIsClosed(t *testing.T) {
 	cli := &fakeNamingClient{}
 	r := newRegistry(cli, newOptions(), true)

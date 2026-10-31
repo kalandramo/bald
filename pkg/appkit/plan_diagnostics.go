@@ -7,7 +7,7 @@ import (
 )
 
 // overrideWarnings 把「同一段路径被多次声明、末者胜」的隐式覆盖显式化。
-// 段级覆盖在 v0.26 仅告警；节点级同 Key 冲突走 resolveNodeConflicts
+// 段级覆盖仅产生告警（不改变末者胜）；节点级同 Key 冲突走 resolveNodeConflicts
 // （Override + Reason 裁决），本函数让隐式段覆盖在计划里同样可见。
 func overrideWarnings(d *Decl) []Diagnostic {
 	owners := map[string][]int{}

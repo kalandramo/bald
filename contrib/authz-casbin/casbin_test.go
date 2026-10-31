@@ -10,8 +10,8 @@ import (
 var testPolicy string
 
 // TestEmptyPolicy_FailClosed 空策略是合法初始态：构造成功且对一切请求拒绝
-//（fail-closed——授权不因缺数据而放开；此前 stringadapter 对空文本报
-// invalid line，框架层容错为无策略 enforcer）。
+// （fail-closed——授权不因缺数据而放开；stringadapter 对空文本报 invalid line，
+// 故框架层把空白策略归一到「无策略 enforcer」）。
 func TestEmptyPolicy_FailClosed(t *testing.T) {
 	for name, csv := range map[string]string{"empty": "", "blank": "  \n  "} {
 		az, err := New(csv)
@@ -39,7 +39,7 @@ func TestAuthorizer_RBAC(t *testing.T) {
 	cases := []struct {
 		name   string
 		sub    string
-		object string // 归一化后的资源名（拦截器层已翻译，见 P9 反哺）
+		object string // 归一化后的资源名（拦截器层已翻译）
 		action string // 归一化后的动作（get/delete/list/write）
 		want   bool
 	}{

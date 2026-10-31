@@ -236,7 +236,7 @@ func planFrom(ctx context.Context, d *Decl, cfg *bootstrapv1.BootstrapConfig, se
 
 	// 命令式槽位可见化（effect/keyWatch/reconcile/hook）：闭包不进节点拓扑，
 	// 但计划必须如实列出声明——配置热更订阅者、停机效果与生命周期钩子不因
-	//「不可分析」而消失（P1：BeforeStart 等函数字段让「会起什么」不可回答）。
+	//「不可分析」而消失（BeforeStart 等函数字段让「会起什么」不可回答）。
 	// 按 (Kind, Name) 排序，保持置换不变性。
 	for _, e := range d.Effects {
 		p.Imperative = append(p.Imperative, Imperative{Kind: "effect", Name: e.Name})
@@ -314,12 +314,12 @@ func planFrom(ctx context.Context, d *Decl, cfg *bootstrapv1.BootstrapConfig, se
 	}
 
 	// 期望态摘要：可协调节点（logger/audit/组件）由契约段内容与节点身份求得，
-	// 供配置变更 diff 与 Drift 判定（M3）。其余节点（重启生效/静态）不产生摘要。
+	// 供配置变更 diff 与 Drift 判定。其余节点（重启生效/静态）不产生摘要。
 	for i := range p.Nodes {
 		p.Nodes[i].DesiredHash = nodeDesiredHash(cfg, settings, p.Nodes[i])
 	}
 
-	// 逃逸舱可见化：覆盖 / 白名单 / 同 Key 裁决（I4/I10 的 M1 子集）+ 预算 +
+	// 逃逸舱可见化：覆盖 / 白名单 / 同 Key 裁决（I4/I10）+ 预算 +
 	// 环境注入（build tag / init() 接线，WithAmbient 显式声明）。已声明的
 	// 构建期变体不进 ambient（I11：它们的增量在节点/路由上带来源），ambient
 	// 只留给第三方 init() 这类无法声明化的接线。

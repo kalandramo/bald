@@ -30,7 +30,7 @@ func customOptions(role string) []appkit.Option {
 //	func init() { variantOpts["grpcgw"] = []appkit.Option{...} }
 //
 // 生成物 variant_<name>.gen.go 的 init 经 customVariantOpts 取出——变体
-// 声明/实现对账（I12）仍由生成物负责，业务只在命中时提供接线。
+// 声明/实现对账仍由生成物负责，业务只在命中时提供接线。
 var variantOpts = map[string][]appkit.Option{}
 
 // customVariantOpts 返回变体 name 的自定义接线（未登记返回 nil）。
@@ -73,7 +73,7 @@ func NewRouter() *gin.Engine {
 	// 未注入的层自动省略（零开销）。
 	router.Use(bundle.New(
 {{- if and .Spec.Bundle .Spec.Bundle.Normalized}}
-		bundle.Normalized(), // P9 归一化：审计 object/action 双传输同源
+		bundle.Normalized(), // 归一化：审计 object/action 双传输同源
 {{- end}}
 	).Gin()...)
 	// TODO: 业务全局中间件（Recovery/RequestID/Logging…）与根路由组。

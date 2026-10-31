@@ -11,7 +11,7 @@ import (
 	appspecv1 "github.com/kalandramo/bald/bconf/gen/go/bald/appspec/v1"
 )
 
-// appspec_roles_test.go 钉 Gate1 的 roles 校验块（B2）。负面用例缺一不可：
+// appspec_roles_test.go 钉 Gate1 的 roles 校验块。负面用例缺一不可：
 // 重名 / 引用不存在的域 / 并集缺域——没有失败用例的校验等于没写。正面用例
 // 钉「roles 为空 = 单角色，零迁移」：旧 spec 一条不许被新规则误伤。
 
@@ -88,7 +88,7 @@ func TestGate1_RolesValidMultiRole(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// B4 · 角色扇出：机器守卫下探 / 目录树布局 / 每角色契约 / 确定性 / 编译
+// 角色扇出：机器守卫下探 / 目录树布局 / 每角色契约 / 确定性 / 编译
 // ---------------------------------------------------------------------------
 
 // fanoutFixture 扩到两域两角色：api 承载 greet 并开 HTTP 面，runner 承载
@@ -160,7 +160,7 @@ func pathsOf(files []genFile) []string {
 
 // TestMachineGuard_RoleFieldsConsumed 让守卫真正下探 meta.roles：roles 非空
 // 时 checkFieldConsumers 才会进入 repeated 元素，逐字段要求消费者登记。
-// 没有本用例，B2 登记的 9 个 meta.roles.* 键等于没被验证过（拼错也无人知）。
+// 没有本用例，登记的 9 个 meta.roles.* 键等于没被验证过（拼错也无人知）。
 func TestMachineGuard_RoleFieldsConsumed(t *testing.T) {
 	_, rendered := renderAppTree(t, fanoutFixture(t))
 	// 变体字段的消费者只在声明了 variants 时落盘：追加一份带变体的渲染，
@@ -267,7 +267,7 @@ func TestTree_RoleFanoutDiverges(t *testing.T) {
 	}
 }
 
-// TestTree_RoleFanoutConfigs 钉 D2=(b) 的实质：runner 的契约里没有 server 段。
+// TestTree_RoleFanoutConfigs 钉住每角色一份契约的实质：runner 的契约里没有 server 段。
 // serverCovered 只在段存在时才要求覆盖，段缺席即无从要求——「不装 HTTP」
 // 因此不依赖任何运行期豁免。
 func TestTree_RoleFanoutConfigs(t *testing.T) {

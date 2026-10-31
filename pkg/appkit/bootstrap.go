@@ -322,7 +322,7 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig, settings map[string]
 	kitOpts := []Option{
 		ID(cfg.GetApp().GetId()),
 		Name(orDefault(cfg.GetApp().GetName(), "bald-app")),
-		configNamespaceOpt(spec.configNamespace), // B6：Serve 已按契约 app.name 派生
+		configNamespaceOpt(spec.configNamespace), // Serve 已按契约 app.name 派生
 		Version(orDefault(cfg.GetApp().GetVersion(), "v0.0.0")),
 		Env(cfg.GetApp().GetEnv()),
 		StopTimeout(orDuration(cfg.GetApp().GetStopTimeout().AsDuration(), 30*time.Second)),
@@ -362,7 +362,7 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig, settings map[string]
 	}
 	// 框架停机 Effect：按计划推导的停机序逆序注册（I5）——回放即停机序
 	//（audit-restore 由 TeardownAfter ["*"] 排到最后：stream 尾批审计事件在
-	// 指标/span flush 之后收集；B8 起无「恢复装配前全局」步骤——全局审计器
+	// 指标/span flush 之后收集；无「恢复装配前全局」步骤——全局审计器
 	// 已删除）。
 	kitOpts = append(kitOpts, slots.effects(oldLogger, &curCleanup)...)
 	if httpCfg != nil {
@@ -396,7 +396,7 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig, settings map[string]
 	// 业务透传：钩子/协调器/能力声明/订阅/效果——追加在框架装配之后
 	//（beforeStart 在内部装载链后执行，可读契约终值；Effect 逆序回放先于
 	// 框架 Effect——业务资源先收）。声明经 mech.* 等导出构造面写入 Decl，
-	// 引擎经未导出 *Opt 写入面透传（B5 后导出构造面归 mech）。
+	// 引擎经未导出 *Opt 写入面透传（导出构造面归 mech）。
 	for _, fn := range spec.BeforeStart {
 		kitOpts = append(kitOpts, BeforeStart(fn))
 	}
@@ -421,7 +421,7 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig, settings map[string]
 	// 即执行序，故本钩子在业务钩子后执行，此时业务已建成运行期资源（DB/
 	// 仓储/biz/handler），register 回调（gRPC service 注册）与 HTTP handler
 	// 消费它们即拿到真实依赖。构造失败的错误经 Run 的 beforeStart 失败路径
-	// 回滚（Effect 逆序回放配置层与阶段 A Logger），与旧实现等价。
+	// 回滚（Effect 逆序回放配置层与阶段 A Logger）。
 	if len(plan.late) > 0 {
 		kitOpts = append(kitOpts, BeforeStart(func(ctx context.Context) error {
 			_, err := runProviderNodes(ctx, plan.late, ApplyScope{Config: cfg, Decl: spec, Role: spec.Role, App: a},
@@ -501,7 +501,7 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig, settings map[string]
 	// 故 ApplyNode 域的路由挂载入口在此补上——与 provider 看同一份 spec。
 	a.httpHandler = spec.HTTPHandler
 
-	// M3 计划快照 + 节点协调器：计划是配置变更 diff 的基线；可协调的 Provider
+	// 计划快照 + 节点协调器：计划是配置变更 diff 的基线；可协调的 Provider
 	// 节点（audit 等）在配置变更时按同一 Provider 重建产物并替换 cleanup 槽位。
 	fullPlan, err := planFrom(context.Background(), spec, cfg, settings, plan, vp)
 	if err != nil {
@@ -707,7 +707,7 @@ func storeProductWith(a *App, r buildResult, put func(ResourceKey, Cleanup)) err
 		// 停机回收）。
 		put(r.node.Key, r.cleanup)
 	case "metrics":
-		// 产物为可关闭的暴露端（B7：MetricsProvider 返回 MetricsExposure 而非
+		// 产物为可关闭的暴露端（MetricsProvider 返回 MetricsExposure 而非
 		// 裸 Handler，监听面归 metricshttp 能力包）。停机序「先停暴露端再
 		// flush」由引擎在此合成进 cleanup 槽位——Provider 只需返回 (端点, flush)。
 		var exp MetricsExposure
@@ -735,7 +735,7 @@ func storeProductWith(a *App, r buildResult, put func(ResourceKey, Cleanup)) err
 		}
 		put(r.node.Key, slot)
 	default:
-		// 表外段：cleanup 照常入账，产物按统一约定落资源面（B4 收口）：
+		// 表外段：cleanup 照常入账，产物按统一约定落资源面：
 		// map 产物按 "<顶层段>.<子段>" 展开、非 map 产物落 "<顶层段>"。
 		a.setResources(top, r.product)
 		put(r.node.Key, r.cleanup)
@@ -744,7 +744,7 @@ func storeProductWith(a *App, r buildResult, put func(ResourceKey, Cleanup)) err
 	return nil
 }
 
-// setResources 把段产物落进统一资源面（B4）：map[string]any 产物按
+// setResources 把段产物落进统一资源面：map[string]any 产物按
 // "<top>.<子段>" 逐键展开（与六域产物的段路径约定同构，nil 值跳过），
 // 其余产物整体落 "<top>"。写入点有两处：BeforeStart（阶段 B）与运行期
 // 配置协调（storeProductReplacing），因此以 resourcesMu 保护。
@@ -850,7 +850,7 @@ func composeOnConfigChange(framework, user func(map[string]any)) func(map[string
 }
 
 // hotReload 热更新：默认值试装载 + 校验 + 计划重算，通过后整契约原子落盘、
-// 重建 Logger 并按计划差异协调节点（M3）。任一步失败都降级记日志、保留旧
+// 重建 Logger 并按计划差异协调节点。任一步失败都降级记日志、保留旧
 // 契约，不阻断热更新流程（与审计旁路同哲学）。
 // Unmarshal 只做结构转换、不校验取值，坏值必须由 Validate 拦在落盘之前。
 //

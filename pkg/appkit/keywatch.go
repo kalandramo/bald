@@ -24,7 +24,7 @@
 // 合并树已重建完毕）。fn 应轻量（改状态、切引用、记日志），不要在其中调用
 // config 重载/注入类操作或长时间阻塞。
 //
-// 导出构造面在 pkg/appkit/mech（mech.OnKeyChange，B5 下沉）；本文件的未导出
+// 导出构造面在 pkg/appkit/mech（mech.OnKeyChange）；本文件的未导出
 // onKeyChangeOpt 是引擎透传与包内测试共用的写入面。
 package appkit
 

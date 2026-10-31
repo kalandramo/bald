@@ -1,13 +1,12 @@
 package stream
 
-// stream_nilpool_test.go —— pool 为 nil 时的防护（缺陷族守护，stream driver）。
+// stream_nilpool_test.go —— pool 为 nil 时的防护。
 //
 // 与 pubsub 侧同源：`b.pool = nil`（未 Connect / Connect 探活失败 / 已
 // Disconnect）后 publish/Subscribe/ensureGroup 直接 `b.pool.Get()` →
 // `(*Pool)(nil).Get()` **panic**。
 //
-// stream 的 Disconnect 一直有 nil 防护（与 pubsub 不同），但 publish/
-// Subscribe 两处同样遗漏。
+// Disconnect 有 nil 防护；publish/Subscribe 两处必须同样防护。
 
 import (
 	"context"

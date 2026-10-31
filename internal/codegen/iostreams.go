@@ -89,9 +89,8 @@ func writeGuarded(path string, content []byte, own ownership, force bool, stream
 
 // writeFileFormatted 是 .go 生成物的落盘通道：先 gofmt 再走 writeGuarded。
 //
-// gofmt 失败时**绝不触碰目标路径**（修掉原 renderAppSpec 的越权直写缺陷：
-// 旧实现在 gofmt 失败时 os.WriteFile 目标路径，无 --force 也截断重写用户
-// 文件）；诊断性原文写 <path>.rej 并在错误里附路径，交由用户排查。
+// gofmt 失败时**绝不触碰目标路径**（避免无 --force 也截断重写用户文件）；
+// 诊断性原文写 <path>.rej 并在错误里附路径，交由用户排查。
 func writeFileFormatted(path string, raw []byte, own ownership, force bool, streams ioStreams) error {
 	formatted, err := prepareContent(genFile{Path: path, Raw: raw, GoSrc: true})
 	if err != nil {

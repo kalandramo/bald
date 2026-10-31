@@ -38,8 +38,8 @@ func HygrothermographHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // TestServerAndClient 端到端：本地起 HTTP/3 server → QUIC 客户端 GET/POST。
-// 原实现拆成 TestServer/TestClient 两个用例跨用例连接——server 随 TestServer
-// 结束（defer cancel）已停，TestClient 必然 IdleTimeout，已合并为单用例内起停。
+// 起停在同一个用例内完成：server 生命周期与连接生命周期绑定，跨用例复用
+// 连接会因 server 已停（defer cancel）而必然 IdleTimeout。
 func TestServerAndClient(t *testing.T) {
 	srv := NewServer(
 		WithAddress("127.0.0.1:8800"),

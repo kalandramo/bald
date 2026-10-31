@@ -33,12 +33,10 @@ func (o *recordObserver) OnSessionAdded(*Session) {
 }
 func (o *recordObserver) OnSessionRemoved(*Session) {}
 
-// 回归：rangeSessions 必须尊重 fn 的返回值——返回 true 继续、false 停止。
+// rangeSessions 必须尊重 fn 的返回值——返回 true 继续、false 停止。
 //
-// 此前实现完全忽略返回值（注释却声称 "returns true, the iteration is stopped"），
-// 与 websocket.RangeSessions（尊重返回值）语义相反；调用方 BroadcastRawData
-// 传 return false 期望「继续」，一旦实现改为尊重返回值就会只广播第一个会话。
-// 本测试钉住统一后的约定：return true = 继续。
+// 约定与 websocket.RangeSessions 一致；调用方 BroadcastRawData 传 return true
+// 才会广播全部会话。本测试钉住该约定：return true = 继续。
 func TestRangeSessions_RespectsReturnValue(t *testing.T) {
 	sm := NewSessionManager(nil)
 	for i := 0; i < 3; i++ {
@@ -68,8 +66,7 @@ func TestRangeSessions_RespectsReturnValue(t *testing.T) {
 	})
 }
 
-// 回归：observer 的注册与读取必须并发安全（此前无任何同步）。
-// 用 -race 运行本测试可检出竞争。
+// observer 的注册与读取必须并发安全。用 -race 运行本测试可检出竞争。
 func TestSessionManager_ObserverConcurrentSafety(t *testing.T) {
 	sm := NewSessionManager(nil)
 
@@ -95,8 +92,8 @@ func TestSessionManager_ObserverConcurrentSafety(t *testing.T) {
 	wg.Wait()
 }
 
-// 回归：同一 session 重复 add 时 observer 只应收到一次通知（幂等）。
-// 此前用裸 Store，重复 add 会重复触发 OnSessionAdded。
+// 同一 session 重复 add 时 observer 只应收到一次通知（幂等）：
+// 去重靠 addSession 的 LoadOrStore，不能依赖调用方不重复添加。
 func TestSessionManager_AddIsIdempotent(t *testing.T) {
 	obs := &recordObserver{}
 	sm := NewSessionManager(obs)

@@ -60,13 +60,13 @@ func (m *mockServer) Stop(ctx context.Context) error {
 }
 
 // Endpoint 返回带端口的地址——**真实 server 的 endpoint 必有端口**（这是
-// 可注册的前提，见 D16）。mock 若返回无端口地址（如 `mock://reg1`），
+// 可注册的前提）。mock 若返回无端口地址（如 `mock://reg1`），
 // 会被 buildInstance 的可注册性过滤剔除，与真实行为不符。
 func (m *mockServer) Endpoint() string { return "mock://" + m.addr + ":9999" }
 
-// BUG-1: Stop 必须接收未取消的 ctx，stopTimeout 才生效。
+// Stop 必须接收未取消的 ctx，stopTimeout 才生效。
 // stopTimeout=50ms，server Stop 耗时 30ms，应当正常返回（未触发超时）。
-func TestBug1_StopTimeoutRespected(t *testing.T) {
+func TestStop_TimeoutRespected(t *testing.T) {
 	srv := newMock("s1")
 	srv.stopDelay = 30 * time.Millisecond
 
@@ -90,8 +90,8 @@ func TestBug1_StopTimeoutRespected(t *testing.T) {
 	}
 }
 
-// BUG-3: 某 server Start 崩溃，其余 server 必须被级联停止。
-func TestBug3_CrashCascadeStop(t *testing.T) {
+// 某 server Start 崩溃，其余 server 必须被级联停止。
+func TestStart_CrashCascadeStop(t *testing.T) {
 	good := newMock("good")
 	bad := newMock("bad")
 	bad.startErr = errors.New("boom")
@@ -213,9 +213,8 @@ func TestObservability_DoneAndErr(t *testing.T) {
 // TestRun_ConfigLoadFailureAllowsRetry 验证配置加载失败可回收重入槽：
 // 失败时归还 running 但不 close done，因此后续仍可重试 Run。
 //
-// 这是 loadConfig 移到防重入 CAS 之后时必须保住的语义：原实现把 loadConfig
-// 放在 CAS 之前正是为了「配置失败不占用 running/done」，改顺序后需用
-// 「显式归还 running + 不注册 defer close」来等价实现。
+// loadConfig 在防重入 CAS 之后，失败路径必须显式归还 running 且不注册
+// defer close——否则一次配置失败就会永久占住 running/done，后续 Run 无法重试。
 func TestRun_ConfigLoadFailureAllowsRetry(t *testing.T) {
 	withArgs(t, []string{})
 
@@ -246,9 +245,8 @@ func TestRun_ConfigLoadFailureAllowsRetry(t *testing.T) {
 
 // TestRun_ConcurrentLoadConfigSafe 回归防护：并发 Run 不得并发执行 loadConfig。
 //
-// 修复前 loadConfig 位于防重入 CAS 之前，两个并发 Run 会同时执行它，
-// 并发写 a.cfg.cfgFile（pflag 绑定了该字段的地址）与 a.cfg.v，
-// go test -race 可稳定复现。
+// loadConfig 抢在防重入 CAS 之前执行时，两个并发 Run 会同时执行它，并发写
+// a.cfg.cfgFile（pflag 绑定了该字段的地址）与 a.cfg.v，go test -race 可稳定复现。
 func TestRun_ConcurrentLoadConfigSafe(t *testing.T) {
 	withArgs(t, []string{})
 
@@ -566,7 +564,7 @@ func TestAppKit_MultiServerEndpointAggregation(t *testing.T) {
 			t.Fatalf("endpoint still :0, dynamic port not resolved: %q", ep)
 		}
 		// 注册地址必须对调用方可达：host 不能是通配符 / 空 / 环回地址。
-		// 此前直接返回 ln.Addr()（=0.0.0.0:port），其他节点无法直连——此断言固化修复。
+		// 直接返回 ln.Addr() 会得到 0.0.0.0:port，其他节点无法直连。
 		u, err := url.Parse(ep)
 		if err != nil {
 			t.Fatalf("parse endpoint %q: %v", ep, err)
@@ -592,16 +590,16 @@ func TestAppKit_MultiServerEndpointAggregation(t *testing.T) {
 	}
 }
 
-// --- D16 回归：不可注册的 endpoint 不得进 ServiceInstance ---
+// --- 回归：不可注册的 endpoint 不得进 ServiceInstance ---
 
-// D16：进程内组件（cron 定时调度器）的 Endpoint() 返回描述性字符串
+// 进程内组件（cron 定时调度器）的 Endpoint() 返回描述性字符串
 // `cron://scheduler`——非空但**无端口**。注册中心对 endpoint 取
 // url.Host 后调 net.SplitHostPort，无端口即报 "missing port in address"
 // 并中止注册 → **启动失败**。
 //
-// 修复：buildInstance 只收集可注册的 endpoint（host 含端口）。
-// 本测试锁住该行为——若回归，注册阶段会重新崩。
-func TestD16_NonRegistrableEndpointFiltered(t *testing.T) {
+// buildInstance 只收集可注册的 endpoint（host 含端口）；本测试锁住该行为
+// ——若回归，注册阶段会重新崩。
+func TestBuildInstance_NonRegistrableEndpointFiltered(t *testing.T) {
 	// 直接构造 App（不 Run）：buildInstance 是纯函数，无需启动 server。
 	app := NewApp(
 		ID("node-d16"),
@@ -632,8 +630,8 @@ func TestD16_NonRegistrableEndpointFiltered(t *testing.T) {
 	}
 }
 
-// TestD16_RegistrableEndpointPredicate 锁住判定函数本身。
-func TestD16_RegistrableEndpointPredicate(t *testing.T) {
+// TestRegistrableEndpointPredicate 锁住判定函数本身。
+func TestRegistrableEndpointPredicate(t *testing.T) {
 	cases := []struct {
 		ep   string
 		want bool

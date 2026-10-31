@@ -6,15 +6,14 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// D10：RemovePeriodicTask 的参数语义歧义
+// RemovePeriodicTask 的参数语义
 //
-// 缺陷：`NewPeriodicTask(...) (string, error)` **返回 entryID**，而
-// `RemovePeriodicTask(taskId string)` **收 taskId（任务类型名）**并内部反查——
-// 两个方法一个返 entryID、一个收 taskId，不对称且方法名未体现差异，
-// 极易误传（实测踩坑：传 entryID → `periodic task not found`，且以 500 返回）。
+// `NewPeriodicTask(...) (string, error)` 返回 entryID，而
+// `RemovePeriodicTask(taskId string)` 收 taskId（任务类型名）并内部反查——
+// 方法名未体现差异，容易把 entryID 误传进来（得到 `periodic task not found`）。
 //
-// 修法（不破坏既有调用方）：新增语义对称的 `RemovePeriodicTaskByEntryID`
-// ——直接接受 NewPeriodicTask 的返回值；同时把两者的契约写进方法文档。
+// 对称入口 `RemovePeriodicTaskByEntryID` 直接接受 NewPeriodicTask 的返回值；
+// 两者契约已写进方法文档。
 // ---------------------------------------------------------------------------
 
 // newBookkeepingServer 构造一个 scheduler 为 nil 的 Server——用于确定性地测
@@ -63,10 +62,8 @@ func TestRemovePeriodicTask_MissingTaskIDErrors(t *testing.T) {
 	}
 }
 
-// TestRemovePeriodicTaskByEntryID_SymmetricWithNewPeriodicTask 新增的对称方法：
+// TestRemovePeriodicTaskByEntryID_SymmetricWithNewPeriodicTask 对称方法：
 // 直接接受 NewPeriodicTask 的返回值（entryID），无需调用方知道 taskId。
-//
-// 这是 D10 的正面修复——让「返 entryID 的方法」与「收 entryID 的方法」配对。
 func TestRemovePeriodicTaskByEntryID_SymmetricWithNewPeriodicTask(t *testing.T) {
 	srv := newBookkeepingServer()
 

@@ -16,9 +16,7 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// D5 用户级验收
-//
-// task-anchor 成功判据：「配置 server.http.rate_limit 段 → 限流实际生效
+// 用户级验收：「配置 server.http.rate_limit 段 → 限流实际生效
 // （并发超限被拒）」。
 //
 // 本测试刻意从**配置文本**出发（而非直接构造 proto 结构体），走完整链路：
@@ -31,9 +29,9 @@ import (
 // 不是内部函数分支。
 // ---------------------------------------------------------------------------
 
-// TestAcceptanceD5_ConfigDrivenRateLimitEnforced 并发超限被拒，且放行数恰好等于
+// TestAcceptance_ConfigDrivenRateLimitEnforced 并发超限被拒，且放行数恰好等于
 // 突发容量（令牌桶守恒——既不放行超发，也不误伤）。
-func TestAcceptanceD5_ConfigDrivenRateLimitEnforced(t *testing.T) {
+func TestAcceptance_ConfigDrivenRateLimitEnforced(t *testing.T) {
 	// 1) 从配置文本解析出契约段（模拟 bootstrap 配置加载）。
 	const cfgJSON = `{"rateLimit":{"rate":0.0001,"burst":8,"wait":false}}`
 	mw := &bootstrapv1.Server_Http_Middleware{}

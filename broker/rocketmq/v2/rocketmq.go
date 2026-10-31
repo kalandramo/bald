@@ -151,8 +151,8 @@ func (b *rocketmqBroker) Disconnect() error {
 	}
 	b.producers = make(map[string]rocketmq.Producer)
 
-	// 注销并清空全部订阅者：此前只关 producers，consumer 与其消费 goroutine
-	// 不被注销（对齐 kafka 的 subscribers.Clear() 范式）。
+	// 注销并清空全部订阅者：consumer 与其消费 goroutine 必须随 Disconnect
+	// 注销（对齐 kafka 的 subscribers.Clear() 范式）。
 	if b.subscribers != nil {
 		b.subscribers.Clear()
 	}

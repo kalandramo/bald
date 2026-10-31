@@ -30,8 +30,8 @@ func writeCfg(t *testing.T, body string) string {
 // TestBind_FlagOverridesFile 验证经 appkit.Bind 注册的业务 flag
 // 进入配置装载 flag 层，能压过本地配置文件。
 //
-// 修复前：业务 flag 只注册到 pflag.CommandLine，config.Load 拿不到它们，
-// 优先级链中的 flag 层实际为空（见 docs/devel/zh-CN/Bald 配置系统设计.md §3.6）。
+// 若业务 flag 只注册到 pflag.CommandLine，config.Load 拿不到它们，
+// 优先级链中的 flag 层会实际为空（见 docs/devel/zh-CN/Bald 配置系统设计.md §3.6）。
 func TestBind_FlagOverridesFile(t *testing.T) {
 	cfgFile := writeCfg(t, "http:\n  addr: \":8080\"\ngrpc:\n  addr: \":9090\"\n")
 	withArgs(t, []string{"--config=" + cfgFile, "--http.addr=:18080"})

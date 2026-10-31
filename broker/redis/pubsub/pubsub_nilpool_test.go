@@ -1,21 +1,16 @@
 package pubsub
 
-// pubsub_nilpool_test.go —— pool 为 nil 时的防护（缺陷族守护）。
+// pubsub_nilpool_test.go —— pool 为 nil 时的防护。
 //
-// ## 缺陷族（2026-09-23 勘探）
-//
-// `b.pool = nil` 表示「未连接」状态，有三条路径会置 nil：
+// `b.pool = nil` 表示「未连接」，有三条路径会置 nil：
 //   1. 从未 Connect
-//   2. Connect 探活失败（起，v0.1.1）
+//   2. Connect 探活失败
 //   3. 已 Disconnect
 //
 // 而 publish/Subscribe 直接 `b.pool.Get()` → `(*Pool)(nil).Get()`
 // **panic: invalid memory address or nil pointer dereference**。
-//
-// 归因：v0.1.0 起 Disconnect 即置 nil，故路径 1/3 一直可触发（既有缺陷）；
-// D13.2 让 Connect 失败也置 nil，**扩大了触发面**（无需先 Disconnect）。
-// 框架内 publication.go / subscriber.go 已有 `if pool == nil` 防护先例，
-// 但 publish/Subscribe 两处遗漏。
+// 框架内 publication.go / subscriber.go 已有 `if pool == nil` 防护，
+// publish/Subscribe 两处必须同样防护。
 //
 // 本测试锁定：nil pool 下 publish/Subscribe 必须返回 error 而非 panic。
 

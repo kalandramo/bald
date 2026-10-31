@@ -64,7 +64,7 @@ func TestLoad_WithStub(t *testing.T) {
 func TestWatchValue_WithStub(t *testing.T) {
 	// 必须经 newStubClient 初始化 listen/cancelled 通道：
 	// 零值桩的 nil channel 会让 CancelListenConfig 的 select 发送永不就绪，
-	// 反注册信号发不出来（曾导致本测试超时误报）。
+	// 反注册信号发不出来（会导致本测试超时）。
 	stub := newStubClient()
 	src, err := NewWithClient(stub, WithDataID("app.yaml"))
 	if err != nil {

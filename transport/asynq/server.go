@@ -115,12 +115,12 @@ func NewServer(opts ...Option) *Server {
 		redisConnOpt: newRedisClientOpt(),
 		asynqConfig: asynq.Config{
 			Concurrency: defaultConcurrency,
-			// D9：默认 ErrorHandler——把 asynq 的静默失败提升为显式日志。
-			// 关键场景：消费一个**无对应处理器**的任务类型时，asynq 抛
+			// 默认 ErrorHandler——把 asynq 的静默失败提升为显式日志。
+			// 关键场景：消费无对应处理器的任务类型时，asynq 抛
 			// ErrHandlerNotFound 且默认不打印 → 表现为「注册成功但永不执行、
-			// 无任何输出」（实测等 70 秒静默）。此处至少留下可观测痕迹。
-			// 仅加可观测性，不改变「是否触发」——类型定义可先于处理器存在
-			// 是刻意的设计张力（见《框架缺陷报告》D9）。
+			// 无任何输出」。此处至少留下可观测痕迹。
+			// 仅加可观测性，不改变任务是否触发：类型定义可先于处理器存在
+			// 是刻意的设计张力。
 			ErrorHandler: asynq.ErrorHandlerFunc(defaultErrorHandler),
 		},
 		schedulerOpts: &asynq.SchedulerOpts{},
@@ -714,7 +714,8 @@ func (s *Server) RemovePeriodicTask(taskId string) error {
 }
 
 // RemovePeriodicTaskByEntryID 按 **entryID（NewPeriodicTask 的返回值）** 移除
-// 周期任务——与 [Server.NewPeriodicTask] 的返回类型对称，消除 D10 的误传风险。
+// 周期任务——与 [Server.NewPeriodicTask] 的返回类型对称，避免调用方把 entryID
+// 误传给收 taskId 的 RemovePeriodicTask。
 //
 // 幂等：entryID 不存在（或对应的 taskId 已不在反查表）时返回 nil——移除本就不
 // 存在的东西是成功的（与 Store.Delete 的幂等语义一致），而非报错。

@@ -219,8 +219,8 @@ func (o *domainOptions) protoPkgReady(gomod, protoPkg string) bool {
 }
 
 // runProtoStage 在 --out 根执行 proto 生成命令（默认 buf generate）。绑定文件
-// 从注解派生、与其内容无关，但 import 的 Go 类型必须就位——这是 Q5 D1 把
-// proto 阶段纳入 gen domain 的原因：一条命令产出一棵可编译的树。
+// 从注解派生、与其内容无关，但 import 的 Go 类型必须就位——这是 gen domain
+// 把 proto 阶段纳入生成流程的原因：一条命令产出一棵可编译的树。
 func (o *domainOptions) runProtoStage(protoPkg string) error {
 	fmt.Fprintf(o.Out, "proto: proto Go package %q is missing; running `%s` in %s\n", protoPkg, o.ProtoCmd, o.OutDir)
 	if err := runShellCommand(o.OutDir, o.ProtoCmd, o.Out, o.ErrOut); err != nil {

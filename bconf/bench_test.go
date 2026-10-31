@@ -2,24 +2,23 @@ package bconf
 
 import "testing"
 
-// bench_test.go 为 bconf 契约核心的基准套件。三项均与 v0.24.0 可比
-// （API 未断裂），对照方法与口径见 docs/devel/zh-CN/性能基准.md。
+// bench_test.go 为 bconf 契约核心的基准套件。对照方法与口径见
+// docs/devel/zh-CN/性能基准.md。
 //
 // 口径纪律：
 //   - fixture 构造全部在计时外（b.Loop 之前）；
 //   - 热路径无 fmt/日志；
 //   - 契约树以 JSON name 规范形书写。UnmarshalMap 会把输入树写回规范形
-//     （coerceMessage/foldPath），首轮迭代后为稳态——两版同口径，不影响对照。
+//     （coerceMessage/foldPath），首轮迭代后为稳态，后续轮次口径一致。
 
 // benchFullContractTree 构造全 15 段契约树（bootstrap.proto 顶层段：app/server/
 // config/registry/logger/tracer/metrics/broker/storage/ai/workflow/cache/script/
 // database/audit），每段取 1-2 个代表性子段，覆盖标量/duration/enum/repeated/
 // 嵌套消息 coerce 分支。键统一 JSON name（protojson 规范形）。
 //
-// 刻意不含 map<string,string> 字段（otlp.headers / loki.labels）：
-// clearPresentLists 对 map 字段的「替换」修复仅落在 HEAD（v0.24.0 同位置仍
-// panic），对照要求两版跑完全相同的树——map 路径由
-// TestUnmarshalMap_MapFieldReplace 单独覆盖。
+// 刻意不含 map<string,string> 字段（otlp.headers / loki.labels）：map 路径
+// 由 TestUnmarshalMap_MapFieldReplace 单独覆盖，此处保持 fixture 聚焦在
+// 标量/duration/enum/repeated/嵌套消息的 coerce 分支上。
 func benchFullContractTree() map[string]any {
 	return map[string]any{
 		"app": map[string]any{
@@ -157,17 +156,16 @@ func benchFullContractTree() map[string]any {
 
 // BenchmarkUnmarshalMap_FullContract 度量 UnmarshalMap 的全 15 段契约反序列化
 // 完整成本：coerce 类型规范化 → json.Marshal → protojson.Unmarshal →
-// clearPresentLists → proto.Merge 进带默认值的契约（unmarshal.go:126 的主路径，
-// 即配置装载的出口成本）。
+// clearPresentLists → proto.Merge 进带默认值的契约，即配置装载的出口成本。
 //
 // 每 op 经 NewBootstrap() 取带默认值的空契约（含 os.Hostname 取默认 App.Id——
 // 与真实装配路径一致）；契约树构造在计时外，重用同一棵（首轮写回规范形后为
-// 稳态，两版口径一致）。
+// 稳态）。
 func BenchmarkUnmarshalMap_FullContract(b *testing.B) {
 	tree := benchFullContractTree()
 	// 计时外自检：15 段必须全部落位。字段名写错会被 protojson 的
-	// DiscardUnknown 静默丢弃——这里 fail-fast，防止基准悄悄缩水或两版
-	// proto 漂移导致对照口径失真。
+	// DiscardUnknown 静默丢弃——这里 fail-fast，防止基准悄悄缩水导致
+	// 数字失真。
 	{
 		probe := NewBootstrap()
 		if err := UnmarshalMap(benchFullContractTree(), probe); err != nil {
@@ -217,11 +215,11 @@ func BenchmarkFindUnknownKeys_StrictScan(b *testing.B) {
 }
 
 // TestUnmarshalMap_MapFieldReplace 钉住 map 字段替换语义的回归测试：
-// clearPresentLists 曾把 map 字段落入 MessageKind 分支（map 字段的 Kind 是
-// 合成 entry 消息），Mutable(fd).Message() 对 map 直接 panic——契约里任何
-// 非空 map<string,string>（tracer.otlp.headers、logger.loki.labels）都会
-// 崩溃。map 与 repeated 同为
-// 「替换」语义：二次 Unmarshal 的 map 整体覆盖，不残留首次条目。
+// map 字段的 Kind 是合成 entry 消息，若被落入 MessageKind 分支，
+// Mutable(fd).Message() 对 map 直接 panic——契约里任何非空
+// map<string,string>（tracer.otlp.headers、logger.loki.labels）都会崩溃。
+// map 与 repeated 同为「替换」语义：二次 Unmarshal 的 map 整体覆盖，不残留
+// 首次条目。
 func TestUnmarshalMap_MapFieldReplace(t *testing.T) {
 	cfg := NewBootstrap()
 	first := map[string]any{
@@ -254,7 +252,7 @@ func TestUnmarshalMap_MapFieldReplace(t *testing.T) {
 	}
 }
 
-// BenchmarkValidate_FullContract 度量 bconf.Validate（bootstrap.go:62）对全契约
+// BenchmarkValidate_FullContract 度量 bconf.Validate 对全契约
 // 的启动前校验成本：app 段非空、server 双地址格式、logger 六种后端段级规则
 // （slog+loki 两项，覆盖 repeated 逐项校验）。
 //

@@ -36,7 +36,7 @@
 //	    ...
 //	)
 //
-// 导出构造面在 pkg/appkit/mech（mech.Reconcile，B5 下沉）；本文件的未导出
+// 导出构造面在 pkg/appkit/mech（mech.Reconcile）；本文件的未导出
 // reconcileOpt 是引擎透传与包内测试共用的写入面。ReconcileCtx/ReconcileFunc
 // 与协调引擎（runReconcilers 等）归 appkit——接收者方法与引擎私有状态。
 package appkit
@@ -229,7 +229,7 @@ func (a *App) reconUnmount(ctx context.Context, recon, name string) error {
 }
 
 // auditReconcile 旁路发出协调审计事件（与运行期挂载/卸载同源，Object="reconciler"；
-// 后端经 D4 resolveAuditor 单一解析，与请求级审计同源）。
+// 后端经 resolveAuditor 单一解析，与请求级审计同源）。
 func (a *App) auditReconcile(ctx context.Context, action, name string, err error) {
 	defer func() {
 		if r := recover(); r != nil {

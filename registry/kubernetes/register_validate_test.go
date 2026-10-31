@@ -8,10 +8,8 @@ import (
 	"github.com/kalandramo/bald/registry"
 )
 
-// TestRegister_RejectsInvalidInstance 是 D15 在 kubernetes 后端的**离线**接线验证。
-//
-// D15 是同族缺陷（四个 registry 后端原先都缺前置校验）。kubernetes 此前无任何
-// 测试文件，其接线从未被断言。
+// TestRegister_RejectsInvalidInstance 验证 kubernetes 后端在触网前接入
+// registry.ServiceInstance.Validate 单一闸门。
 //
 // 离线构造：用零值 &Registry{}（本测试在包内，可直接构造）。Register 的 Validate
 // 闸门是第一行——在任何 clientSet/informer/podLister 访问之前返回，故零值结构体
@@ -22,12 +20,12 @@ func TestRegister_RejectsInvalidInstance(t *testing.T) {
 	ctx := context.Background()
 
 	if err := r.Register(ctx, &registry.ServiceInstance{ID: "id-only"}); err == nil {
-		t.Fatal("D15：kubernetes.Register 缺 Name 必须返回错误")
+		t.Fatal("kubernetes.Register 缺 Name 必须返回错误")
 	} else if !strings.Contains(err.Error(), "Name") {
 		t.Errorf("应为校验错误（提及 Name），got: %v", err)
 	}
 
 	if err := r.Register(ctx, &registry.ServiceInstance{Name: "svc"}); err == nil {
-		t.Error("D15：kubernetes.Register 缺 ID 也必须被拒")
+		t.Error("kubernetes.Register 缺 ID 也必须被拒")
 	}
 }

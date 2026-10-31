@@ -9,7 +9,7 @@
 //	    audit.NamedBackend{Name: "stream", New: newStream},
 //	)
 //
-// 语义与原先 appkit 内联实现逐字一致：按声明序构造（顺序即广播序）；
+// 语义：按声明序构造（顺序即广播序）；
 // 任一单元失败（重复名或构造出错）逆序回滚已构造单元的 cleanup；成功时
 // 单后端直接返回、多后端经 NewMultiAuditor 合并，cleanup 聚合为逆序回放。
 package audit

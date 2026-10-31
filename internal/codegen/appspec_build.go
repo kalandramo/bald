@@ -49,7 +49,7 @@ func buildTree(v *treeView, cfgs map[string][]byte) ([]genFile, error) {
 			return nil, err
 		}
 		// 每变体一份 //go:build 实现文件：文件本身就是「编译进来即命中」的
-		// 证明，与声明同源（同一 spec 的 when 派生），appkit 计划期对账 I12。
+		// 证明，与声明同源（同一 spec 的 when 派生），appkit 计划期对账。
 		for _, vs := range v.Variants {
 			vv := *v
 			vv.Variant = vs
@@ -92,7 +92,7 @@ func buildTree(v *treeView, cfgs map[string][]byte) ([]genFile, error) {
 	if err := add("taskfile.yml", taskfileTmpl, owned, false); err != nil {
 		return nil, err
 	}
-	// 每角色一份契约（决策 D2=b）：runner 的 configs 里没有 server 段，
+	// 每角色一份契约：runner 的 configs 里没有 server 段，
 	// 「不装 HTTP」因此不依赖任何运行期豁免。单角色仍落 configs/<app>.yaml。
 	for _, slot := range v.Roles {
 		cfgYAML, ok := cfgs[slot.Name]

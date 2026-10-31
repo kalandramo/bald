@@ -9,11 +9,10 @@ import (
 	"github.com/kalandramo/bald/pkg/store/inmemory"
 )
 
-// TestStore_DeleteIdempotent 锁定 Delete 的**幂等契约**（2026-09-23 决策）。
+// TestStore_DeleteIdempotent 锁定 Delete 的**幂等契约**。
 //
-// 背景：Delete 原先对 0 行匹配返回 ErrNotFound，混用「单条删除的存在性断言」
-// 与「集合删除的批量执行」两种语义（框架缺陷报告 D12）。现改为返回受影响
-// 行数：0 行 = (0, nil)，删除不存在的资源是合法结果。
+// Delete 返回受影响行数：0 行 = (0, nil)，删除不存在的资源是合法结果——它表达
+// 「集合删除的批量执行」，而不是「单条删除的存在性断言」。
 //
 // 需要「必须存在才能删」的调用方，判 rows == 0 自行实现（无需额外 Get 往返）。
 func TestStore_DeleteIdempotent(t *testing.T) {

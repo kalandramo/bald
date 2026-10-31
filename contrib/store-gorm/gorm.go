@@ -48,8 +48,8 @@ func NewGormProvider[T any](db *gorm.DB, keyOf func(*T) string) *Provider[T] {
 // DB 返回 GORM Queryable（会话绑定到 T 的表与请求 ctx）。
 //
 // ctx 通过 `WithContext` 绑定到会话——所有后续操作（Create/Get/List/...）自动
-// 继承该 ctx，使请求取消/超时能传播到数据库驱动（原缺陷：ctx 被 `_` 丢弃，
-// 取消的请求仍照常执行 DB 操作）。
+// 继承该 ctx，使请求取消/超时能传播到数据库驱动（ctx 若被 `_` 丢弃，取消的
+// 请求仍会照常执行 DB 操作）。
 func (p *Provider[T]) DB(ctx context.Context) (store.Queryable[T], error) {
 	return &gormQuery[T]{db: p.db.WithContext(ctx), keyOf: p.keyOf}, nil
 }
@@ -302,7 +302,7 @@ func condSQL(c *storev1.FilterCondition) (string, []any) {
 	// JSON_CONTAINS / ARRAY_CONTAINS / EXISTS / SEARCH 依赖引擎方言，通用桥接
 	// 不做猜测式翻译（安全忽略，恒真）。
 	//
-	// 为何不在本桥接补这三个（2026-09-24 评估，详见《Bald 存储设计》§操作符覆盖）：
+	// 为何不在本桥接补这三个（详见《Bald 存储设计》§操作符覆盖）：
 	// 本桥接刻意保持**方言无关**（condSQL 生成硬编码 SQL，不检测 dialect）。补这些
 	// 需引入「操作符 × 方言」矩阵——JSON_CONTAINS 在 MySQL/PG/SQLite 语法各异、
 	// ARRAY_CONTAINS 多数方言无直接对应、EXISTS 的 proto 语义（子查询/存在性）在

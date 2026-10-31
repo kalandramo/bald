@@ -12,7 +12,7 @@
 //   - StandardAuditProvider：audit.backends 的 "log" 项——核心 LoggerAuditor
 //     零依赖开箱即用；
 //   - StandardLoggerProvider：logger 段——bslog（标准库 slog）后端，阶段 A
-//     引导 logger 的持有者（B7：默认日志分派删除后的唯一内置通道）。
+//     引导 logger 的持有者（默认日志分派的唯一内置通道）。
 //
 // 其余各段（registry/database/.../config/tracer/metrics）没有内置默认接线，
 // 不设内置 Provider（段存在而无 Provider = L3 启动期报错）。

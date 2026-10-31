@@ -1,8 +1,7 @@
 // Package stringcase 提供命名风格转换。
 //
-// 自 bald-utils/stringcase 吸收最小闭包（2026-09-10）：仅 snake_case 转换及
-// 其分词依赖（fieldmaskutil 路径规范化的既成依赖），camel/kebab 及其余变体
-// 仍留在 bald-utils——不为无消费方的能力扩边界。
+// 只保留 snake_case 转换及其分词依赖（fieldmaskutil 路径规范化的需要），
+// camel/kebab 及其余变体不在此实现——不为无消费方的能力扩边界。
 package stringcase
 
 import (

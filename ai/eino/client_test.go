@@ -8,7 +8,7 @@ import (
 // TestResolveTimeout 钉住三后端统一的超时默认语义：
 // >0 用指定值，否则回退 30s 默认（与 ai/openai、ai/langchaingo 一致）。
 //
-// 缺陷背景：修复前 eino 仅在 TimeoutSeconds>0 时设 Timeout，未配置时
+// 为什么必须回退：若仅在 TimeoutSeconds>0 时设 Timeout，未配置时
 // config.Timeout=0 → eino-ext 构造 `&http.Client{Timeout: 0}`（永不超时），
 // 服务端无响应即永久挂起。openai/langchaingo 同场景走 30s 默认。
 func TestResolveTimeout(t *testing.T) {
@@ -42,7 +42,7 @@ func TestCloudConfigCarriesTimeout(t *testing.T) {
 		t.Fatalf("newCloudChatModelConfig: %v", err)
 	}
 	if c.Timeout != 30*time.Second {
-		t.Errorf("未配置超时：ChatModelConfig.Timeout = %v, want 30s（修复前为 0=永不超时）", c.Timeout)
+		t.Errorf("未配置超时：ChatModelConfig.Timeout = %v, want 30s（0 即永不超时）", c.Timeout)
 	}
 
 	c, err = newCloudChatModelConfig(&Config{

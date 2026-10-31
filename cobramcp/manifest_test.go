@@ -291,7 +291,7 @@ func readManifest(t *testing.T, ctx context.Context, mcpClient *client.Client) s
 
 	resources, err := mcpClient.ListResources(ctx, mcp.ListResourcesRequest{})
 	require.NoError(t, err)
-	require.Len(t, resources.Resources, 1, "P2 只暴露一个清单 Resource（不做逐工具 Resource）")
+	require.Len(t, resources.Resources, 1, "只暴露一个清单 Resource（不做逐工具 Resource）")
 
 	resource := resources.Resources[0]
 	require.Equal(t, ManifestResourceURI, resource.URI)

@@ -1,4 +1,4 @@
-// key_test.go —— 类型化资源句柄（I9 的运行时面）。
+// key_test.go —— 类型化资源句柄的运行时行为。
 package appkit
 
 import "testing"

@@ -66,7 +66,7 @@ func newReconSettings(want string) map[string]any {
 }
 
 // diffStrings 是 mech.DiffStrings 的测试内联副本（仅用于本文件期望值计算）：
-// B5 后 DiffStrings 导出面归 mech，而 in-package 测试不可 import mech
+// DiffStrings 导出面归 mech，而 in-package 测试不可 import mech
 // （appkit→mech→appkit 导入环）。
 func diffStrings(want, have []string) (add, remove []string) {
 	wantSet := make(map[string]struct{}, len(want))
@@ -278,7 +278,7 @@ func (m *reconAuditMem) snapshot() []audit.AuditEvent {
 }
 
 // TestReconcile_AuditEvent 协调产生审计事件（Object="reconciler"）。
-// B8 起无全局审计器——sink 经显式注入（此处直设 App.auditor，等价 auditorOpt）。
+// 无全局审计器——sink 经显式注入（此处直设 App.auditor，等价 auditorOpt）。
 func TestReconcile_AuditEvent(t *testing.T) {
 	am := &reconAuditMem{}
 

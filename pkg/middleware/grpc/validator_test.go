@@ -60,9 +60,8 @@ func TestValidatorInterceptor_PassesThrough(t *testing.T) {
 // TestValidatorInterceptor_NilCallback 回归防护：nil 回调是「不做校验」的显式语义，
 // 拦截器应直接放行，不得 panic。
 //
-// 这与旧实现的缺陷形成对照：旧实现传 `validation.NewValidator(nil)` 会得到一个
-// 「看似注册了、实际什么都不校验」的校验器，问题被隐藏。改造后 nil 就是 nil，
-// 不挂校验这件事在调用处是可见的。
+// nil 刻意不包装成「看似注册了、实际什么都不校验」的校验器——不挂校验这件事
+// 必须在调用处可见。
 func TestValidatorInterceptor_NilCallback(t *testing.T) {
 	interceptor := ValidatorInterceptor(nil)
 	handler := func(_ context.Context, rq any) (any, error) {

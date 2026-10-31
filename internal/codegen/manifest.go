@@ -1,6 +1,6 @@
 package codegen
 
-// manifest.go 是生成清单与「生成物是否干净」的判定（M4，I8）。
+// manifest.go 是生成清单与「生成物是否干净」的判定。
 //
 // 清单记录一次生成的三件事：声明文件的内容摘要、每个非用户文件（owned/
 // seeded）的归属与落盘字节摘要、以及格式版本。它把「生成物最新」从不可判定
@@ -8,7 +8,7 @@ package codegen
 //   - --check：按当前声明在内存里重算整棵树，与磁盘逐字节比对（零写入），
 //     任何 owned 差异 / 缺失 / 清单缺失或过期都判为不干净并列出差异路径；
 //   - --adopt：覆盖 owned 文件（seeded 文件播种后归用户，永不覆盖）并重写
-//     清单，是旧 --force 的替代语义（B5）；同时删除「上次清单记为 owned、
+//     清单（--adopt 的覆盖语义）；同时删除「上次清单记为 owned、
 //     本次不再生成」的旧产物——生成物是声明的函数，陈旧的绑定/路由清单
 //     不能继续编译而 --check 看不见。
 //
@@ -105,7 +105,7 @@ func buildManifest(tool, specPath string, files []genFile) (*genManifest, []byte
 	return m, append(raw, '\n'), nil
 }
 
-// checkTree 校验磁盘生成物与「按当前声明重新生成」的结果一致（I8）：
+// checkTree 校验磁盘生成物与「按当前声明重新生成」的结果一致：
 // 零写入，差异按生成计划顺序收集为一条错误（列出路径与类别）。
 // seeded 文件只判存在性——播种后归用户，内容差异是合法的。
 func checkTree(root, manifestName string, files []genFile, wantRaw []byte, streams ioStreams) error {

@@ -13,7 +13,7 @@ import (
 )
 
 func TestSimpleViewer_ViewMutualExclusion(t *testing.T) {
-	// 平台视图必须**显式声明** Platform（2026-09-25，见《待处理事项》#2）。
+	// 平台视图必须**显式声明** Platform。
 	platform := &crudbridge.SimpleViewer{Platform: true}
 	assert.True(t, platform.IsPlatformContext())
 	assert.False(t, platform.IsTenantContext())
@@ -30,16 +30,15 @@ func TestSimpleViewer_ViewMutualExclusion(t *testing.T) {
 	assert.False(t, system.IsPlatformContext())
 }
 
-// TestSimpleViewer_EmptyTenantIsNotPlatform 锁定方案 D 的核心语义（2026-09-25）：
-// 空租户**不再被推断为平台视图**。
+// TestSimpleViewer_EmptyTenantIsNotPlatform 锁定「显式平台」契约：空租户
+// **不得被推断为平台视图**。
 //
-// 修复前：IsPlatformContext() = (TenantIDValue == "")——空租户即平台视图 → fail-open
-// （已认证但租户为空的身份会看到全部租户数据）。这是《待处理事项》#2 指出的
-// 「隐式推断」缺陷。修复后平台身份必须显式声明，空租户落入「身份不完整」，
-// 经 EnforceTenant fail-closed。
+// 若 IsPlatformContext() 依赖 TenantIDValue == ""，空租户即平台视图 → fail-open
+// （已认证但租户为空的身份会看到全部租户数据）。平台身份必须显式声明，空租户
+// 落入「身份不完整」，经 EnforceTenant fail-closed。
 func TestSimpleViewer_EmptyTenantIsNotPlatform(t *testing.T) {
 	v := &crudbridge.SimpleViewer{} // 空租户、未声明 Platform
-	assert.False(t, v.IsPlatformContext(), "空租户不得被推断为平台视图（fail-open 缺陷）")
+	assert.False(t, v.IsPlatformContext(), "空租户不得被推断为平台视图（否则 fail-open）")
 	assert.False(t, v.IsTenantContext(), "空租户不是租户业务视图")
 	assert.False(t, v.IsSystemContext())
 }
@@ -53,18 +52,16 @@ func TestEnforceTenant_EmptySimpleViewerFailsClosed(t *testing.T) {
 	assert.True(t, errors.Is(err, viewer.ErrMissingViewer))
 }
 
-// TestSimpleViewer_NonNumericTenantIsTenantView 锁定 2026-09-24 的类型统一修复。
+// TestSimpleViewer_NonNumericTenantIsTenantView 锁定 TenantID 的 string 契约。
 //
-// 修复前：viewer.Context.TenantID 为 uint64，非数字租户 ID（如 "t-default"）经
-// strconv.ParseUint 解析失败被静默留 0 → IsPlatformContext() 为真 → EnforceTenant
-// 放行 → 租户隔离静默失效（安全缺陷）。旧测试曾把该行为「锁定」为期望。
-//
-// 修复后：TenantID 统一 string，非数字租户 ID 原样透传，仍是租户视图。
+// viewer.Context.TenantID 若为数值类型，非数字租户 ID（如 "t-default"）解析
+// 失败后会留零值，进而被 IsPlatformContext() 当作平台视图放行，租户隔离
+// 静默失效。TenantID 为 string 且原样透传时，非数字租户 ID 仍是租户视图。
 func TestSimpleViewer_NonNumericTenantIsTenantView(t *testing.T) {
 	v := &crudbridge.SimpleViewer{TenantIDValue: "t-default"}
 	assert.Equal(t, "t-default", v.TenantID(), "非数字租户 ID 应原样保留，不得降级为 0/空")
 	assert.True(t, v.IsTenantContext(), "非数字租户 ID 仍是租户视图——不得被误判为平台视图")
-	assert.False(t, v.IsPlatformContext(), "误判为平台视图会跳过租户强制（安全缺陷）")
+	assert.False(t, v.IsPlatformContext(), "误判为平台视图会跳过租户强制")
 }
 
 func TestSimpleViewer_HasPermission(t *testing.T) {
@@ -97,7 +94,7 @@ func TestViewerFromContext(t *testing.T) {
 		assert.True(t, v.IsTenantContext())
 	})
 
-	t.Run("非数字租户原样透传为租户视图（2026-09-24 修复）", func(t *testing.T) {
+	t.Run("非数字租户原样透传为租户视图", func(t *testing.T) {
 		ctx := contextx.WithTenantID(context.Background(), "acme")
 		v := crudbridge.ViewerFromContext(ctx)
 		assert.Equal(t, "acme", v.TenantID())
@@ -143,8 +140,7 @@ func TestViewerFromIdentity(t *testing.T) {
 	})
 
 	t.Run("有权限但空租户且非平台 → 既非平台也非租户（身份不完整）", func(t *testing.T) {
-		// 2026-09-25 语义收紧：此前该身份被推断为平台视图（fail-open），
-		// 现在必须显式 platform 才是平台视图。
+		// 空租户且非平台：既非平台也非租户（身份不完整），平台视图必须显式 platform。
 		v := crudbridge.ViewerFromIdentity("", "", "trace-9", []string{"read:report"}, nil, false)
 		assert.False(t, v.IsPlatformContext(), "空租户不得被推断为平台视图")
 		assert.False(t, v.IsTenantContext())
@@ -166,7 +162,7 @@ func TestEnforceTenant_Integration(t *testing.T) {
 		assert.Equal(t, "1001", dec.TenantID)
 	})
 
-	t.Run("非数字租户 ID → 仍强制注入（2026-09-24 修复）", func(t *testing.T) {
+	t.Run("非数字租户 ID → 仍强制注入", func(t *testing.T) {
 		ctx := crudbridge.InjectViewerFromContext(contextx.WithTenantID(context.Background(), "t-default"))
 		dec, err := viewer.EnforceTenant(ctx)
 		require.NoError(t, err)

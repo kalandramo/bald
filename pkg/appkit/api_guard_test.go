@@ -1,11 +1,11 @@
-// api_guard_test.go —— I9：本仓生产代码不出现未类型化资源访问。
+// api_guard_test.go —— 守卫：本仓生产代码不出现未类型化资源访问。
 //
 // 守卫范围：仓库根下所有非测试 .go 文件，AST 扫描 `X.Resource("字面量")`
 // 形态的调用。类型化句柄 `Key[T].Resource(app)` 的唯一实参是 *App，不可能
-// 是字符串字面量，因此不会误报。B2 到期后 App.Resource(string) 已删除，
+// 是字符串字面量，因此不会误报。App.Resource(string) 已删除，
 // 守卫同时以反射钉住「公开方法不存在」——字符串入口无法再悄悄回来。
 //
-// bald-admin 是仓外消费方，其迁移由 M2 的独立验收覆盖，不在本守卫范围。
+// bald-admin 是仓外消费方，其迁移不在本守卫范围。
 package appkit
 
 import (
@@ -68,7 +68,7 @@ func TestAPI_NoUntypedResource(t *testing.T) {
 			strings.Join(violations, "\n"))
 	}
 
-	// B2：字符串入口已删除——公开 API 面不得再长出 Resource(string)。
+	// 字符串入口已删除——公开 API 面不得再长出 Resource(string)。
 	if m, ok := reflect.TypeOf(&App{}).MethodByName("Resource"); ok {
 		t.Fatalf("App.Resource must stay deleted (found method %s); typed keys are the only resource access", m.Type)
 	}

@@ -8,11 +8,11 @@ import (
 	"github.com/kalandramo/bald/registry"
 )
 
-// TestRegister_RejectsInvalidInstance 是 D15 在 consul 后端的**离线**接线验证。
+// TestRegister_RejectsInvalidInstance 验证 consul 后端在触网前接入
+// registry.ServiceInstance.Validate 单一闸门。
 //
-// D15 是**同族缺陷**：四个 registry 后端（etcd/consul/nacos/kubernetes）原先
-// 都缺前置校验。修法用单一闸门（registry.ServiceInstance.Validate），但「每个
-// 后端确实调了它」需要逐后端断言——只验一个后端不足以证明其余接线。
+// 为什么逐后端断言：Validate 是单一真相源，但「每个后端确实调了它」需要
+// 逐后端证明——只验一个后端不足以证明其余接线。
 //
 // 本测试离线（newRegistry(nil)，无真实 consul）：
 //   - Register 的 Validate 闸门是第一行，在接触 client 之前返回；
@@ -23,12 +23,12 @@ func TestRegister_RejectsInvalidInstance(t *testing.T) {
 	ctx := context.Background()
 
 	if err := r.Register(ctx, &registry.ServiceInstance{ID: "id-only"}); err == nil {
-		t.Fatal("D15：consul.Register 缺 Name 必须返回错误（而非静默注册到畸形 key）")
+		t.Fatal("consul.Register 缺 Name 必须返回错误（而非静默注册到畸形 key）")
 	} else if !strings.Contains(err.Error(), "Name") {
 		t.Errorf("应为校验错误（提及 Name），got: %v", err)
 	}
 
 	if err := r.Register(ctx, &registry.ServiceInstance{Name: "svc"}); err == nil {
-		t.Error("D15：consul.Register 缺 ID 也必须被拒")
+		t.Error("consul.Register 缺 ID 也必须被拒")
 	}
 }

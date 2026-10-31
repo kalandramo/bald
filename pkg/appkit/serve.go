@@ -13,7 +13,7 @@ package appkit
 // --plan 解析走同款容错：--plan 打印装配计划（text）并返回 nil（退出码 0），
 // --plan-format=json 输出机读格式；打印发生在任何副作用之前（见 plan.go）。
 //
-// 配置命名空间（B6）：命名空间（env 前缀 NAME_* 与多环境
+// 配置命名空间：命名空间（env 前缀 NAME_* 与多环境
 // 文件名来源）由**契约 app.name 派生**，不再有显式声明口。
 //
 //	第一遍：预装载文件/远程层（env 层延迟）→ Unmarshal 解析契约 app.name；

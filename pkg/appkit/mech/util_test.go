@@ -4,7 +4,7 @@ import (
 	"testing"
 )
 
-// TestDiffStrings 差集工具契约（B5 自 appkit 迁入，实现体在本包）：有序、
+// TestDiffStrings 差集工具契约（实现体在本包）：有序、
 // 去重、无交集。
 func TestDiffStrings(t *testing.T) {
 	add, remove := DiffStrings([]string{"a", "b"}, []string{"b", "c"})

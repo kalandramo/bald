@@ -5,7 +5,7 @@
 //     （落库 / 发 Kafka / 写 ES 等外置为桥接子模块）。
 //   - 审计是旁路（side-effect），永远不阻断业务请求：即便 Auditor 报错也仅记日志，
 //     不向上游返回错误。
-//   - 审计三元组 (subject, object, action) 复用 P9 的 authz.ObjectResolver/ActionResolver
+//   - 审计三元组 (subject, object, action) 复用 authz.ObjectResolver/ActionResolver
 //     归一化原语，使 REST/gRPC 在同一份审计语义下被记录（谁在何时对什么资源做了什么）。
 //
 // 缺省后端为 nop（静默）；注入为显式构造器注入（拦截器/中间件/bundle 传入
@@ -52,9 +52,9 @@ type AuditEvent struct {
 	// 框架层不预设具体值。若落库后端按租户隔离读取，空值事件会查不到，
 	// 故兜底应在**落库汇聚点**（如 RecordMapper）统一完成，一处覆盖全部调用方。
 	TenantID string
-	// Object 被审计的资源（经 P9 归一化，如 "secret" "auth"）。
+	// Object 被审计的资源（经归一化，如 "secret" "auth"）。
 	Object string
-	// Action 被审计的动作（经 P9 归一化，如 "get" "delete" "list" "write"）。
+	// Action 被审计的动作（经归一化，如 "get" "delete" "list" "write"）。
 	Action string
 	// Result 动作结果分类（allow/deny/error）。
 	Result Result

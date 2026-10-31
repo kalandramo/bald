@@ -7,10 +7,10 @@ import (
 )
 
 // Option 配置 Cron 服务器。所有 Option 在 NewServer 内**统一求值后**一次性
-// 构造 scheduler——修复了此前「每个 Option 各自重建 scheduler」的缺陷：
-//   - 重建会丢弃 NewServer 装配的 Recover 保护链；
-//   - 多个重建型 Option 互相覆盖（顺序敏感，结果取决于最后一个）；
-//   - WithSeconds 因此无法生效（parser 被后序 Option 硬编码的 6 字段冲掉）。
+// 构造 scheduler：
+//   - Recover 保护链只装配一次，不会被后序 Option 丢弃；
+//   - 多个 Option 互不覆盖，语义与传入顺序无关；
+//   - WithSeconds 直接决定 parser 的字段数，不会被硬编码值冲掉。
 type Option func(*options)
 
 // options 是 NewServer 求值 Option 后得到的完整配置。
@@ -37,8 +37,6 @@ func WithLocation(loc *time.Location) Option {
 // 默认**启用**（保持既有行为与 README 示例：`*/10 * * * * *`）。传 false 关闭后，
 // 只接受标准 5 字段表达式（分 时 日 月 周）与描述符（`@every 5s` 等）——
 // 对应契约字段 `server.cron.seconds`。
-//
-// 修复前此选项是空实现（parser 在 NewServer 内硬编码含秒），配了完全无效。
 func WithSeconds(enable bool) Option {
 	return func(o *options) { o.seconds = enable }
 }

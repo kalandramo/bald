@@ -1,4 +1,4 @@
-// Package testkit 收编跨项目复用的测试工具（见 docs/devel/zh-CN/测试工具设计.md）。
+// Package testkit 提供跨项目复用的测试工具（见 docs/devel/zh-CN/测试工具设计.md）。
 //
 // freeAddr 供新 e2e 直接 import。
 package testkit

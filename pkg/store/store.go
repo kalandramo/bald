@@ -281,7 +281,7 @@ func cutPrefix(s, prefix string) (string, bool) {
 // 即使调用方未显式 where.T(ctx) 也生效——避免多租户应用用 Get/List/Count/Delete
 // 直查时忘了隔离而读写全租户数据（安全边界，已知边界 1）。
 //
-// **平台级豁免（2026-09-24）**：若本 Store 经 WithPlatformLevel 显式声明为平台级
+// **平台级豁免**：若本 Store 经 WithPlatformLevel 显式声明为平台级
 // （表无租户维度），则**跳过租户条件注入**，仅注入数据范围——否则对无 tenant_id
 // 列的表会产生 `no such column: tenant_id`。豁免是显式的、fail-closed 的：未声明
 // 即隔离生效。
@@ -294,11 +294,10 @@ func cutPrefix(s, prefix string) (string, bool) {
 // shouldIsolate 是租户隔离的**唯一闸门**——所有读路径（applyIsolation 与
 // translate）必须经它判断是否注入租户条件。
 //
-// 存在意义（2026-09-24 暗雷修复）：此前 applyIsolation 有 platformLevel 守卫，
-// 而 translate 直接调 mergeTenant 无守卫——同一不变量的两个违反点只修了一个，
-// 导致「声明平台级的实体改用 ListWithPaging 仍被注入 tenant_id = ?」
-// （对无该列的表即 `no such column: tenant_id`）。统一到本方法后，
-// 新增读路径只需调用它，不会再出现不对称。
+// 所有读路径（applyIsolation 与 translate）都必须经本方法判断，避免同一不变量
+// 出现不对称实现：平台级实体改用 ListWithPaging 时若绕过守卫，仍会被注入
+// tenant_id = ?，对无该列的表即 `no such column: tenant_id`。新增读路径只需
+// 调用它，不要再自行判断。
 //
 // 返回 true 表示**应注入**租户隔离（fail-closed 默认）。
 func (s *Store[T]) shouldIsolate(ctx context.Context) bool {
@@ -335,8 +334,8 @@ func (s *Store[T]) applyIsolation(ctx context.Context, where *Where) *Where {
 // Delete 按条件删除，返回受影响行数。
 //
 // **幂等语义**：对 0 行匹配返回 `(0, nil)`，不报错——删除不存在的资源是合法
-// 结果，集合删除本就为空亦然（REST DELETE 幂等标准）。这消除了旧语义下
-// 「集合删除被误报为 not found」的缺陷（框架缺陷报告 D12）。
+// 结果，集合删除本就为空亦然（REST DELETE 幂等标准），不应把这种情况
+// 误报为 not found。
 //
 // 需要「必须存在才能删」的调用方，**由上层显式实现**——判 `rows == 0` 即可，
 // 无需额外的 `Get` 往返：
@@ -433,8 +432,8 @@ func (s *Store[T]) translate(ctx context.Context, req *storev1.PagingRequest) (*
 
 	// 多租户隔离：租户条件下沉 DAL，自动注入（优先于业务条件，不可被覆盖）。
 	// 即使 NoPaging 全量列出也必须隔离，防止跨租户数据泄漏。
-	// 经 shouldIsolate 统一闸门——与 applyIsolation 同源（2026-09-24 暗雷修复：
-	// 此前本处无 platformLevel 守卫，与 applyIsolation 不对称）。
+	// 经 shouldIsolate 统一闸门——与 applyIsolation 同源，平台级实体在两条
+	// 读路径上得到一致的豁免判断。
 	if s.shouldIsolate(ctx) {
 		mergeTenant(where, ctx)
 	}

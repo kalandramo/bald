@@ -19,7 +19,7 @@ func withE2ESysProcAttr(cmd *exec.Cmd) {
 
 // shutdownE2EProcess 触发优雅停机：向被测进程组投递 CTRL_BREAK 控制台事件
 // ——Go 运行时把它转成 os.Interrupt，命中 App.Run 的 signal.Notify(SIGINT,
-// SIGTERM) 优雅停机分支（POSIX SIGTERM 判据口径的 Windows 等价实现）。
+// SIGTERM) 优雅停机分支（POSIX SIGTERM 的 Windows 等价实现）。
 func shutdownE2EProcess(t *testing.T, cmd *exec.Cmd) error {
 	t.Helper()
 	proc := syscall.NewLazyDLL("kernel32.dll").NewProc("GenerateConsoleCtrlEvent")

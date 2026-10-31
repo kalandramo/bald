@@ -6,16 +6,14 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// D15：ServiceInstance.Validate —— Register 前置校验的**单一闸门**
+// ServiceInstance.Validate —— Register 前置校验的**单一闸门**
 //
-// 缺陷：四个 backend（etcd/consul/nacos/kubernetes）的 Register 都直接把
-// instance.Name / instance.ID 拼进注册 key，**无任何前置校验**——缺 Name 时
-// 静默成功、注册到 `<ns>//<id>` 这类畸形 key（不可按正常语义发现），缺 ID 时
-// 同样静默接受。对照同组件其它入口（etcd.New 缺 endpoint 报错、
-// contract.Provider 缺段报错）质量不一致。
+// 四个 backend（etcd/consul/nacos/kubernetes）的 Register 都会把
+// instance.Name / instance.ID 拼进注册 key。不做前置校验的话，缺 Name 会
+// 注册到 `<ns>//<id>` 这类畸形 key（不可按正常语义发现），缺 ID 同样静默成功。
 //
-// 修法：把校验收敛到契约层的 Validate()，各 backend 的 Register 首行调用——
-// 单一真相源，避免「四个后端各自判断」（本项目最高频缺陷族）。
+// 校验放在契约层的 Validate()，各 backend 的 Register 首行调用——单一真相源，
+// 避免「四个后端各自判断」。
 // ---------------------------------------------------------------------------
 
 func TestValidate_OK(t *testing.T) {
@@ -47,7 +45,7 @@ func TestValidate_RejectsEmptyName(t *testing.T) {
 	si := &ServiceInstance{ID: "i-1"}
 	err := si.Validate()
 	if err == nil {
-		t.Fatal("缺 Name 必须被拒（D15 的核心场景：静默注册到畸形 key）")
+		t.Fatal("缺 Name 必须被拒（否则静默注册到畸形 key）")
 	}
 	if !strings.Contains(err.Error(), "Name") {
 		t.Errorf("错误信息应指明 Name，got: %v", err)

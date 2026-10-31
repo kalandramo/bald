@@ -8,9 +8,9 @@ import (
 
 // RateLimitFromMiddleware 从契约 `server.http.middleware` 段构造应用级限流器。
 //
-// 背景：`server.http.middleware.rate_limit`（字段 rate/burst/wait）
-// 此前**零消费者**——契约里声明了限流段，解析得到值却无人使用，业务只能自持
-// 配置段绕行（bald-admin 的 `login.rate_limit.*` 即此绕行的产物）。本函数是
+// 背景：`server.http.middleware.rate_limit`（字段 rate/burst/wait）需要真正的
+// 消费者——否则契约里声明了限流段，解析得到值却无人使用，业务只能自持配置段
+// 绕行（bald-admin 的 `login.rate_limit.*` 即此绕行的产物）。本函数是
 // 「契约段 → 中间件」的正式桥。
 //
 // 语义：

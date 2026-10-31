@@ -11,8 +11,6 @@ import (
 // TestGet_DegradeOnError 钉住降级语义（opt-in）：
 // 开启 WithDegradeOnError 后，backend 的非 ErrNotFound 错误（如 Redis 停机）
 // 不再上抛，而是降级走 loader——缓存故障不放大为业务故障。
-//
-// 迁移自 contrib/cache-redis 的 TestCache_Get_DegradedOnRedisDown。
 func TestGet_DegradeOnError(t *testing.T) {
 	failing := &errCache{err: errors.New("redis: connection refused")}
 	loaderCalls := 0

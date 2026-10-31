@@ -398,7 +398,7 @@ func readRepoFile(t *testing.T, rel string) string {
 	return string(data)
 }
 
-// TestGenDomain_BindingsDefaultOn 钉住 Q5 D1 生成侧：绑定与路由清单默认生成
+// TestGenDomain_BindingsDefaultOn 钉住生成侧默认绑定：绑定与路由清单默认生成
 // （注解是唯一真相源，不生成等于把 REST 面留给手写代码）；--no-bind 是显式
 // 逃生口，切走时旧产物必须随 --adopt 退场。产物语法有效并纳入 --check 对账。
 func TestGenDomain_BindingsDefaultOn(t *testing.T) {
@@ -483,7 +483,7 @@ func TestGenDomain_BindingsDefaultOn(t *testing.T) {
 	}
 }
 
-// TestGenDomain_NoRoutes --no-routes 是 Q5 的逃逸面：绑定照常生成，但不产
+// TestGenDomain_NoRoutes --no-routes 是逃逸面：绑定照常生成，但不产
 // appkit.Route 清单（域保留手写 RouteTable）；与 --no-bind 连用是空操作，
 // 必须拒绝而不是静默。
 func TestGenDomain_NoRoutes(t *testing.T) {
@@ -601,7 +601,7 @@ func TestGenDomain_Bind_RequiresTransportWeb(t *testing.T) {
 
 // TestGenDomain_ProtoStageOrchestrated 绑定前置（proto Go 类型）缺失时，
 // gen domain 按 --proto-cmd 编排 proto 阶段；成功后继续生成绑定并保持
-// --check 干净——一条命令产出一棵可编译的树（Q5 D1）。
+// --check 干净——一条命令产出一棵可编译的树。
 func TestGenDomain_ProtoStageOrchestrated(t *testing.T) {
 	dir, specPath := runGenAppInTemp(t, guardFixture())
 	pkgDir := filepath.Join(dir, "api", "gen", "go", "greet", "v1")
@@ -706,7 +706,7 @@ func TestGenDomain_CheckDoesNotRunProtoStage(t *testing.T) {
 	}
 }
 
-// TestGenDomain_Bind_Deterministic Q5 生成物同样受「双跑字节一致」约束：
+// TestGenDomain_Bind_Deterministic 绑定生成物同样受「双跑字节一致」约束：
 // 同一份声明在两个临时树里各生成一遍，绑定文件、路由清单与其余产物逐字节相同。
 // 直接以绝对 --out 调用（不依赖 CWD），避免单测里两次 t.Chdir。
 func TestGenDomain_Bind_Deterministic(t *testing.T) {

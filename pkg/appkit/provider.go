@@ -21,7 +21,7 @@
 //  1. 解析声明：收集全部 Provider，按**精确段路径**做末者胜（后声明的 Provider
 //     接管同一路径——std.Standard() 的默认后端由此可被用户 Provider 覆盖；
 //     不同路径并存——server.http 与 server.asynq 可同时由不同 Provider 供给）；
-//     段归属重复在计划中以 override 警告显式化（B3：v0.26 告警、v0.27 报错）。
+//     段归属重复在计划中以 override 警告显式化（只告警，不改变末者胜）。
 //  2. 节点归一：每个 Provider 的 Plan 产出一个节点（Phase/Priority/Key/…）；
 //     引擎校验节点阶段与段族一致（config→Configure、server→Serve、其余→
 //     Bootstrap），按节点对同 Key 冲突做 I4 裁决（唯一 Override + Reason 胜出，
@@ -96,7 +96,7 @@ type ApplyScope struct {
 //
 // Plan 必须是纯函数：不写文件、不发网络、不改全局、不构造实例。返回的节点
 // 必须包含 Key 与 Phase；Segments 缺省取 Segments()；Kind/Origin/Reload 缺省
-// 由引擎填充。M1 支持每个 Provider 恰好一个节点。
+// 由引擎填充。每个 Provider 恰好一个节点。
 //
 // Build 仅在「至少一条声明路径实际出现于契约」时被调用（段缺失 = 跳过，
 // 合法语义）；config 段无条件构建。Build 失败 = fail-fast，启动中止。
@@ -110,7 +110,7 @@ type Provider interface {
 	Option
 	// Segments 声明本 Provider 消费的契约段路径（非空；空路径装配期报错）。
 	Segments() []string
-	// Plan 返回本 Provider 的资源节点（M1：恰好一个）。
+	// Plan 返回本 Provider 的资源节点（恰好一个）。
 	Plan(ctx context.Context, s PlanScope) ([]Node, error)
 	// Build 构建节点产物。产物形状按顶层段约定（见 storeProduct）：registry
 	// 段为 registry.Registrar，六资源域为 map[string]any（键=子段名），
@@ -399,7 +399,7 @@ func newProviderPlan(ctx context.Context, d *Decl, cfg *bootstrapv1.BootstrapCon
 			return nil, fmt.Errorf("appkit: provider %v: plan: %w", segs, err)
 		}
 		if len(planned) != 1 {
-			return nil, fmt.Errorf("appkit: provider %v returned %d plan nodes; M1 requires exactly one", segs, len(planned))
+			return nil, fmt.Errorf("appkit: provider %v returned %d plan nodes; exactly one is required", segs, len(planned))
 		}
 		node, err := plan.normalizeNode(p, planned[0])
 		if err != nil {

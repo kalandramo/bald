@@ -154,8 +154,8 @@ func TestAuditInterceptor_PanickingAuditorSafe(t *testing.T) {
 	// Auditor panic 不应影响业务响应。
 	bad := &panicAuditor{}
 	info := &grpc.UnaryServerInfo{FullMethod: "/admin.v1.SecretService/GetSecret"}
-	// D6 修正：panicAuditor 经 AuditWithAuditor 真实注入（此前传给被丢弃的首参，
-	// 实际执行全局 nop，本测试对 recover 逻辑零覆盖而"假通过"）。
+	// panicAuditor 必须经 AuditWithAuditor 真实注入：若误传到被丢弃的首参，
+	// 实际执行的是全局 nop，本测试对 recover 逻辑零覆盖而"假通过"。
 	inter := AuditInterceptor(
 		AuditWithAuditor(bad),
 		AuditWithObjectResolver(authz.DefaultGRPCObject),
@@ -169,7 +169,7 @@ func TestAuditInterceptor_PanickingAuditorSafe(t *testing.T) {
 	}
 }
 
-// TestAuditInterceptor_MetricsEmitted 验证 M8：审计同源 emit 指标（计数+维度）。
+// TestAuditInterceptor_MetricsEmitted 验证审计同源 emit 指标（计数+维度）。
 func TestAuditInterceptor_MetricsEmitted(t *testing.T) {
 	a := &auditMem{}
 	m := &metricsMem{}

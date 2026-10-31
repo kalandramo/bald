@@ -1,9 +1,7 @@
 // Package crudbridge 提供 bald 身份体系（pkg/contextx）到 bald-crud viewer 体系的桥接。
 //
 // bald 的请求级身份是 string 型（contextx.UserID/TenantID），bald-crud 的 viewer.Context
-// 承载权限/数据范围/视图判定。2026-09-24 起两侧 TenantID 统一为 string——此前
-// viewer 侧为 uint64，桥接需 strconv.ParseUint，非数字租户 ID 解析失败会静默
-// 降级为平台视图（安全缺陷）。统一后转换消失，无失败路径。
+// 承载权限/数据范围/视图判定。两侧 TenantID 均为 string，桥接不做数值解析，无失败路径。
 //
 // 推荐接入点：AuthnInterceptor 认证成功后（与 contextx.WithTenantID 同一位置）调用
 // InjectViewerFromContext，或由业务用 JWT claims 显式构造 SimpleViewer 注入。
@@ -12,10 +10,9 @@
 //   - viewer.Context.IsSystemContext() == true 会被 bald-crud 的 EnforceTenant
 //     视为系统视图而跳过租户强制。因此本包的 System 标志必须显式设置，
 //     绝不基于「UserID 为空」等隐式条件推断，防止匿名请求绕过租户隔离。
-//   - TenantID 原样透传（2026-09-24 起）：viewer.Context.TenantID 已统一为 string，
-//     与 bald 生态（contextx/authn/jwt/audit）一致。此前 uint64 版本对非数字租户 ID
-//     解析失败会静默留 0，被 IsPlatformContext 误判为平台视图而跳过隔离——该有损
-//     转换已移除，不存在「解析失败」这一路径。
+//   - TenantID 原样透传：viewer.Context.TenantID 与 bald 生态
+//     （contextx/authn/jwt/audit）同为 string。任何数值化转换都会让非数字
+//     租户 ID 解析失败后留零值，进而被误判为平台视图而跳过隔离。
 package crudbridge
 
 import (
@@ -41,10 +38,9 @@ type SimpleViewer struct {
 	System bool
 	// Platform 显式声明平台级身份（跨租户视图，如平台管理员）。
 	//
-	// 语义（2026-09-25，见《待处理事项》#2）：平台身份**必须显式声明**，
-	// 绝不基于「TenantID 为空」推断——空租户同时表示「匿名/未认证」与
-	// 「平台视图」两种相反语义，靠推断会 fail-open。与 System 同纪律。
-	// 置位后 EnforceTenant 放行（跨租户可见）。
+	// 平台身份必须显式声明，绝不基于「TenantID 为空」推断——空租户同时表示
+	// 「匿名/未认证」与「平台视图」两种相反语义，推断会 fail-open。
+	// 与 System 同纪律。置位后 EnforceTenant 放行（跨租户可见）。
 	Platform bool
 	// Auditable 显式声明是否需要审计记录。
 	Auditable bool
@@ -76,11 +72,9 @@ func (s *SimpleViewer) HasPermission(action, resource string) bool {
 
 // IsPlatformContext 平台管理视图：**显式声明** Platform 且非系统任务。
 //
-// 2026-09-25 语义收紧（《待处理事项》#2，方案 D）：此前为
-// `!System && TenantIDValue == ""`——把「空租户」**推断**为平台视图。
-// 空租户同时表示「匿名/未认证」与「平台视图」两种相反语义，推断会 fail-open
-// （已认证但租户为空的身份会看到全部租户数据）。改为显式 Platform 字段后，
-// 空租户不再被推断为平台视图——它落入「身份不完整」，经 EnforceTenant
+// 不能用「TenantID 为空」推断平台视图：空租户同时表示「匿名/未认证」与
+// 「平台视图」两种相反语义，推断会 fail-open（已认证但租户为空的身份会
+// 看到全部租户数据）。空租户落入「身份不完整」，经 EnforceTenant
 // fail-closed。与 bald 侧 contextx.WithPlatform 的「显式声明」纪律对齐。
 func (s *SimpleViewer) IsPlatformContext() bool { return !s.System && s.Platform }
 
@@ -99,11 +93,10 @@ func (s *SimpleViewer) ShouldAudit() bool { return s.Auditable }
 // 这是认证中间件的推荐入口：transport 层（gin/gRPC）认证成功拿到 claims 后，
 // 把字段平铺传入（本包不依赖 authn，避免 crudbridge ↔ authn 循环依赖）。
 //   - userID 为 string，解析为 uint64；解析失败按 0；
-//   - tenantID 为 string，**原样透传**（2026-09-24 统一）：此前解析为 uint64，
-//     非数字租户 ID（如 "t-default"）解析失败被静默当作平台视图，导致隔离失效；
-//   - platform 显式声明平台级身份（2026-09-25，见《待处理事项》#2）：由调用方
-//     从 claims.Platform 透传，绝不基于空租户推断——否则已认证但租户为空的
-//     身份会被当作平台视图（fail-open）；
+//   - tenantID 为 string，**原样透传**，不做数值解析：非数字租户 ID（如
+//     "t-default"）一旦解析失败被置零，就会被当作平台视图而使隔离失效；
+//   - platform 显式声明平台级身份：由调用方从 claims.Platform 透传，绝不基于
+//     空租户推断——否则已认证但租户为空的身份会被当作平台视图（fail-open）；
 //   - perms 建议传 OAuth scopes（"user:read" 格式，直接对上 HasPermission）；
 //   - 全部字段为空且非平台时返回 noop（三视图全 false → EnforceTenant fail-closed）。
 func ViewerFromIdentity(userID, tenantID, traceID string, perms, roles []string, platform bool) viewer.Context {

@@ -168,7 +168,7 @@ func Observability(opts ...Option) gin.HandlerFunc {
 		logTraceID, logSpanID := middleware.LogTraceIDs(ctx)
 		// 审计-链路关联：trace_id 同时进 ctx 属性流（日志
 		// 自动携带）与 contextx（audit/authn/crudbridge 的 TraceIDFromContext
-		// 消费）——此前只进前者，审计事件 trace_id 字段恒空。与日志同源
+		// 消费）——只进前者会让审计事件 trace_id 字段恒空。与日志同源
 		// （LogTraceIDs 产物，no-op tracer 时同为兜底随机 ID）。
 		ctx = contextx.WithTraceID(ctx, logTraceID)
 		ctx = log.ContextWithAttrs(ctx,

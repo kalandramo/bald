@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestGormDeleteIdempotent 锁定 Delete 的**幂等契约**（2026-09-23 决策，与
-// inmemory 侧对称）。0 行匹配返回 (0, nil) 而非 ErrNotFound——两 provider 行为一致。
+// TestGormDeleteIdempotent 锁定 Delete 的**幂等契约**（与 inmemory 侧对称）。
+// 0 行匹配返回 (0, nil) 而非 ErrNotFound——两 provider 行为一致。
 func TestGormDeleteIdempotent(t *testing.T) {
 	p := newTestProvider(t)
 	ctx := context.Background()

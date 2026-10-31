@@ -127,7 +127,7 @@ func NewWithClient(clientSet *kubernetes.Clientset, opts ...Option) *Registry {
 // Note that on Kubernetes, it can only be used to update the id/name/version/metadata/protocols of the current service,
 // but it cannot be used to update node.
 func (s *Registry) Register(ctx context.Context, service *registry.ServiceInstance) error {
-	// D15 前置闸门（单一真相源，见 registry.ServiceInstance.Validate）。
+	// 前置闸门（单一真相源，见 registry.ServiceInstance.Validate）。
 	if err := service.Validate(); err != nil {
 		return err
 	}

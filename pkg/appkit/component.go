@@ -1,9 +1,9 @@
 // component.go 实现 Server ⊂ Component 的生命周期契约
 // （见 docs/devel/zh-CN/应用框架设计.md）。
 //
-// 背景（对照 Cordis 论文「万物皆插件」的 bald 可翻译子集）：trace provider、
-// metrics exporter、审计后端、缓存连接池等进程内基础设施此前是散装全局
-// （Setup + 手工 BeforeStop flush），忘挂 BeforeStop 就丢数据（trace 退出前
+// 背景：trace provider、metrics exporter、审计后端、缓存连接池等进程内
+// 基础设施若是散装全局（Setup + 手工 BeforeStop flush），忘挂 BeforeStop
+// 就丢数据（trace 退出前
 // 必须 shutdown 否则丢尾批 span）。组件契约把它们统一为有生命周期的实体，与 servers
 // 一起纳入 appkit 编排：顺序 Start（注册序=依赖建立序）、逆序 Dispose（停机
 // 对称）、panic 隔离、独立超时——「trace 忘 flush 丢批」从文档知识变成结构保证。
@@ -18,7 +18,7 @@
 //	)
 //
 // 导出构造面在 pkg/appkit/mech（mech.Components/mech.ComponentFunc/
-// mech.ComponentTimeout，B5 下沉）；本文件的未导出 componentsOpt/
+// mech.ComponentTimeout）；本文件的未导出 componentsOpt/
 // componentTimeoutOpt 是引擎透传与包内测试共用的写入面。Component 接口与
 // 引擎（startComponents/disposeComponents/MountComponent）归 appkit——
 // Decl.Components 的消费方，且 mech 单向 import appkit。

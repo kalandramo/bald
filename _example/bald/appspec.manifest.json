@@ -91,17 +91,17 @@
     {
       "path": "internal/bootstrap/variant_grpcgw.gen.go",
       "ownership": "owned",
-      "hash": "f8d17a7fbabb36dff4b1b6cbff55bfc9980711d56842e257e44f7d9f3645a4dd"
+      "hash": "6e0f64e007adc3c271b9bf6b845dcbf4832da8e735a4ac65de336459e2a1df41"
     },
     {
       "path": "internal/bootstrap/variant_nacos.gen.go",
       "ownership": "owned",
-      "hash": "4a29ecd7e3fa611bc955712dc9b9c72b51b35b79803bc232fb5b5ccd2afdee1a"
+      "hash": "5b337becc7415f7dc95bbb292e4be7d008891248ea04ff578708352915e21999"
     },
     {
       "path": "internal/bootstrap/variants.gen.go",
       "ownership": "owned",
-      "hash": "5a7560e1bd3e2e6984004be0cc9d83c9e4d922f40c19e51f319b6f220b78c218"
+      "hash": "506bc8c7e07f167b07c7c868a5d410a39671badf12db39a09a05db75ec7215b6"
     },
     {
       "path": "taskfile.yml",

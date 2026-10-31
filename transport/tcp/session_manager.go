@@ -52,7 +52,7 @@ func (sm *SessionManager) Clean() {
 // 不停止 pump goroutine**）；CloseAll 逐个调用 Session.Close（closeOnce 幂等），
 // 真正释放每会话持有的 net.Conn 与 read/write pump goroutine。
 //
-// 服务于 Server.Stop：此前 Stop 只关 listener，远端保持连接但空闲的会话
+// 服务于 Server.Stop：只关 listener 的话，远端保持连接但空闲的会话
 // （readPump 阻塞在 conn.Read）会一直挂着——运行期热插拔/重建 server 时泄漏。
 func (sm *SessionManager) CloseAll() {
 	var sessions []*Session
@@ -127,8 +127,7 @@ func (sm *SessionManager) getSession(sessionId SessionID) *Session {
 // rangeSessions 遍历所有会话并对其应用 fn。
 //
 // fn 返回 true 表示继续遍历、返回 false 表示停止——与 websocket.RangeSessions
-// 同一约定。此前实现忽略返回值（注释却声称 true 会停止），两处语义相反；
-// 现已统一，调用方（BroadcastRawData）须传 return true 以遍历全部会话。
+// 同一约定。调用方（BroadcastRawData）须传 return true 以遍历全部会话。
 //
 // 先快照再遍历：避免在 fn 内改动 sessions 时影响 sync.Map.Range 的遍历。
 func (sm *SessionManager) rangeSessions(fn func(SessionID, *Session) bool) {

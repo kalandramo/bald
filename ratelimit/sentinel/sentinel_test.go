@@ -1,13 +1,8 @@
 package sentinel
 
-// sentinel_test.go —— 补零测试：Sentinel 限流适配器。
+// sentinel_test.go —— Sentinel 限流适配器测试。
 //
-// ## 为何补这个测试
-//
-// 计划 4.6：「补零测试能力轴的测试：`bald/ratelimit/sentinel/`、
-// `bald/registry/{etcd,consul,kubernetes}/`」——这些包此前 **0 测试**。
-//
-// ## 本测试覆盖的核心语义
+// ## 本测试锁定的核心语义
 //
 //  1. **无规则时放行**（Sentinel 默认语义：未配规则的资源不拦截）；
 //  2. **QPS 规则生效**：超阈值时 `Allow()` 返回 `ErrLimited`；
@@ -108,9 +103,9 @@ func TestSentinel_FlowRuleRejects(t *testing.T) {
 // TestSentinel_WaitBlocksThenAdmits —— Wait 阻塞至窗口过去后放行。
 //
 // ⚠️ 窗口需足够大：本测试断言「Wait 阻塞 ≥100ms」，前提是 `Allow()` 用掉配额后
-// 配额窗口**尚未滚过**。若窗口过短（曾用 300ms），慢 runner 上 `Allow()` 与
-// `Wait()` 之间的调度延迟可能已跨过窗口 → 配额自然恢复 → Wait 立即放行 →
-// 断言失败（CI flaky，实测 ~7% 失败率）。故窗口取 2s，远大于两次调用间的
+// 配额窗口**尚未滚过**。若窗口过短，慢 runner 上 `Allow()` 与 `Wait()` 之间
+// 的调度延迟可能已跨过窗口 → 配额自然恢复 → Wait 立即放行 → 断言失败。
+// 故窗口取 2s，远大于两次调用间的
 // 合理调度延迟，使「用尽配额 → Wait 被拒」稳定成立。
 func TestSentinel_WaitBlocksThenAdmits(t *testing.T) {
 	initSentinel(t)

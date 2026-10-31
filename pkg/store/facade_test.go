@@ -14,10 +14,9 @@ import (
 // ---------------------------------------------------------------------------
 // 门面层（Store[T]）直测
 //
-// 补测动机：门面方法里 `q, err := s.provider.DB(ctx); if err != nil { return err }`
-// 这条**错误传播分支**此前零覆盖（跨包 coverpkg 口径实测 :122/:161 等块 count=0）
-// ——现有测试都经 inmemory.Provider（DB 恒返回 nil error），从未构造过 provider
-// 故障。故本文件用 mock DBProvider 专门驱动该分支，并顺带锁定隔离注入链路。
+// 为什么单列：门面方法里 `q, err := s.provider.DB(ctx); if err != nil { return err }`
+// 这条**错误传播分支**难以经 inmemory.Provider 触达（DB 恒返回 nil error）。
+// 故本文件用 mock DBProvider 专门驱动该分支，并顺带锁定隔离注入链路。
 //
 // 为何不能只靠 inmemory 集成测试：inmemory 的 DB() 永不失败，provider 故障
 // 路径（连接池耗尽、引擎不可达等）在生产是真实存在的，其传播行为需独立钉住。
@@ -312,7 +311,7 @@ func TestFacade_QueryableErrorPropagates(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Option 构造（此前 0% 覆盖）
+// Option 构造
 // ---------------------------------------------------------------------------
 
 func TestNewStore_Options(t *testing.T) {

@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// H1 回归：子进程模型的命令路径还原。
+// 子进程模型的命令路径还原：注册期预存路径，执行期不得反解。
 //
 // 工具名由 CommandPath 的空格替换为下划线生成（selector.go toolName），该编码
 // 不是双射——命令名本身可能含下划线。因此执行期绝不能从工具名反解命令路径，

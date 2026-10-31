@@ -65,7 +65,7 @@ func NewTracerProvider(serviceName string) appkit.TracerProvider {
 // （metrics.type=prometheus：otlp.endpoint 必须为空，配置了直推端点属矛盾
 // 声明，fail-fast 提示改用 type "otlp"）。
 //
-// B7：产物为可关闭的暴露端（appkit.MetricsExposure，实现是 metricshttp.Server）
+// 产物为可关闭的暴露端（appkit.MetricsExposure，实现是 metricshttp.Server）
 // ——监听面由本包经 metricshttp.Start 在独立端口起停（addr/path 取契约
 // metrics.prometheus 段，空值走缺省 :9091 / /metrics）；引擎保证停机序
 // 「先停暴露端、再 flush」。
@@ -86,7 +86,7 @@ func NewPrometheusProvider(serviceName string) appkit.MetricsProvider {
 // NewOTLPProvider 返回绑定 serviceName 的「抓取 + 直推双通道」指标 Provider
 // （metrics.type=otlp：endpoint 必填，缺省 fail-fast；prometheus 段的
 // addr/path 由本 Provider 经 metricshttp.Start 消费起暴露端，见
-// NewPrometheusProvider 的 B7 说明）。
+// NewPrometheusProvider 的暴露端说明）。
 func NewOTLPProvider(serviceName string) appkit.MetricsProvider {
 	return func(_ context.Context, cfg *bootstrapv1.Metrics) (appkit.MetricsExposure, func(context.Context) error, error) {
 		otlp := cfg.GetOtlp()

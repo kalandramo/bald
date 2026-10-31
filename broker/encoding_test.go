@@ -56,7 +56,7 @@ func TestUnmarshal_NoCodecPassthrough(t *testing.T) {
 	}
 }
 
-// NewOptions 惰性查表：注册后能拿到真实 codec（修复前包级 var 恒 nil）。
+// NewOptions 惰性查表：注册后能拿到真实 codec（注册表为空时 Codec 为 nil）。
 func TestNewOptions_LazyCodecLookup(t *testing.T) {
 	if encoding.GetCodec("json") == nil {
 		encoding.MustRegister(jsonProbeCodec{})

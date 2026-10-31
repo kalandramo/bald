@@ -2,7 +2,7 @@
 //
 // 把 mongo-driver v2 的 *mongo.Database 适配为 bald 核心的 store.DBProvider[T] +
 // store.Queryable[T]，使业务能以统一的泛型 Store[T] 姿态访问 MongoDB，而 bald
-// 核心不引入任何 MongoDB 依赖（遵循 P5 零后端耦合）。
+// 核心不引入任何 MongoDB 依赖（核心零后端耦合）。
 //
 // 用法：
 //

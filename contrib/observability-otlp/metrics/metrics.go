@@ -77,8 +77,8 @@ func WithHeaders(headers map[string]string) Option {
 // 抓取端点）与 shutdown（flush OTLP 直推缓冲并释放 Provider，进程退出前调用）。
 // 应在拦截器构建**之前**调用一次（使埋点接入 exporter；Recorder 惰性创建
 // instruments，晚创建亦不丢数据）；handler 由暴露端能力包挂独立端口
-// （observability/metricshttp.Start——contract 包的 Provider 已内置；B7 起
-// appkit 不再持有监听面）。
+// （observability/metricshttp.Start——contract 包的 Provider 已内置；
+// appkit 不持有监听面）。
 func Setup(opts ...Option) (http.Handler, func(context.Context) error, error) {
 	cfg := options{serviceName: defaultServiceName, interval: defaultInterval}
 	for _, opt := range opts {

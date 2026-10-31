@@ -202,9 +202,9 @@ func (a *Authenticator) keyfunc(token *jwt.Token) (any, error) {
 // 静默丢弃、解析时无从恢复（表现为「设置了却不生效」，极难排查）。
 // `TestJWTClaims_RoundTripAllFields` 锁定这一不变量。
 type jwtClaims struct {
-	Subject  string   `json:"sub"`
-	Name     string   `json:"name,omitempty"`
-	TenantID string   `json:"tid,omitempty"`
+	Subject  string `json:"sub"`
+	Name     string `json:"name,omitempty"`
+	TenantID string `json:"tid,omitempty"`
 	// Platform 平台级身份（跨租户视图）。与 authn.AuthClaims.Platform 同步；
 	// 缺省 false（fail-closed），故用 omitempty 不污染普通 token 体积。
 	Platform bool     `json:"plt,omitempty"`
@@ -216,13 +216,14 @@ type jwtClaims struct {
 
 // toJWT 把核心声明映射到 jwt 桥接类型。
 //
-// **jti（RegisteredClaims.ID）必填**（修复，2026-09-22）：不设 jti 时，
-// 同一秒内对相同 claims 签发会得到**字节完全相同**的 token——因为
-// iat/nbf/exp 均为秒级 NumericDate，且 RS256/HS256 对同一输入签名确定
-// （无随机盐）。后果有两处真实危害：
+// **jti（RegisteredClaims.ID）必填**：不设 jti 时，同一秒内对相同 claims
+// 签发会得到**字节完全相同**的 token——因为 iat/nbf/exp 均为秒级
+// NumericDate，且 RS256/HS256 对同一输入签名确定（无随机盐）。后果有两处
+// 真实危害：
 //   - 连续刷新拿到的「新」access_token 与旧值相同 → 有效期不延展，
 //     客户端拿到即过期；
 //   - 轮换出的 refresh_token 可能与刚被消费的旧值重合 → 一次性语义失效。
+//
 // jti 的取值只需**唯一**，无需 UUID 格式——故用 crypto/rand 生成随机串，
 // 不为本子 module 引入额外依赖。
 func toJWT(c authn.AuthClaims) jwtClaims {

@@ -125,7 +125,7 @@ func UnaryObservability(opts ...Option) grpc.UnaryServerInterceptor {
 		logTraceID, logSpanID := middleware.LogTraceIDs(ctx)
 		// 审计-链路关联：trace_id 同时进 ctx 属性流与
 		// contextx（audit/authn/crudbridge 的 TraceIDFromContext 消费）——
-		// 此前只进前者，审计事件 trace_id 字段恒空。与日志同源。
+		// 只进前者会让审计事件的 trace_id 字段恒空。与日志同源。
 		ctx = contextx.WithTraceID(ctx, logTraceID)
 		ctx = log.ContextWithAttrs(ctx,
 			slog.String("trace_id", logTraceID),
@@ -242,9 +242,9 @@ func StreamObservability(opts ...Option) grpc.StreamServerInterceptor {
 			newMD := injectTraceMetadata(md, spanCtx, config)
 			ctx = metadata.NewIncomingContext(ctx, newMD)
 		}
-		// 无论有无 incoming metadata 都包装流（修正：此前仅在含 metadata 时
-		// 包装，无 metadata 流的 handler 读不到 enriched ctx——trace_id 与
-		// 日志属性注入对整类流失效）。
+		// 无论有无 incoming metadata 都包装流：仅在含 metadata 时包装会让无
+		// metadata 流的 handler 读不到 enriched ctx——trace_id 与日志属性注入
+		// 对整类流失效。
 		ss = &traceStream{ServerStream: ss, ctx: ctx}
 
 		err := handler(srv, ss)

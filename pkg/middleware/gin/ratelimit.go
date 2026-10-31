@@ -14,8 +14,8 @@ import (
 // ---------------------------------------------------------------------------
 // 配置驱动的限流中间件
 //
-// 背景：契约 `server.http.middleware.rate_limit`（字段 rate/burst/wait）此前
-// **零消费者**——`RateLimit` 段解析得到值却无人使用，业务只能自持配置段
+// 背景：契约 `server.http.middleware.rate_limit`（字段 rate/burst/wait）需要
+// 真正的消费者——否则解析得到值却无处落地，业务只能自持配置段
 // （bald-admin 的 `login.rate_limit.*`）绕行。本文件把该契约段接上真正的
 // 中间件。
 //

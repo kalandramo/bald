@@ -13,10 +13,9 @@ import (
 // ---------------------------------------------------------------------------
 // 布尔树版数据范围（RegisterDataScopeExpr / mergeDataScopeExpr）
 //
-// 补测动机：`RegisterDataScopeExpr` 此前 0% 覆盖、`mergeDataScopeExpr` 仅 50%
-// ——而这是 **crudbridge 五级数据范围（SELF/USER/UNIT/ALL/NONE）的下沉路径**
-// （crudbridge.RegisterDataScope → store.RegisterDataScopeExpr）。它的语义
-// 错误会静默导致越权可见，值得独立钉住。
+// 为什么单列：这是 **crudbridge 五级数据范围（SELF/USER/UNIT/ALL/NONE）的
+// 下沉路径**（crudbridge.RegisterDataScope → store.RegisterDataScopeExpr）。
+// 它的语义错误会静默导致越权可见，值得独立钉住。
 // ---------------------------------------------------------------------------
 
 // resetScopes 清空已注册的数据范围策略（全局状态，测试间须隔离）。

@@ -57,7 +57,7 @@ const (
 // （与 audit.Auditor 对称——旁路）。
 type Recorder interface {
 	// Record 记录一次请求的指标（协议延迟 + 审计事件计数）。
-	// ev 是 M7 的审计事件视图（object/action/result/error）+ 协议维度（Request）；
+	// ev 是审计事件视图（object/action/result/error）+ 协议维度（Request）；
 	// transport 标识来源；durationSeconds 为本次请求耗时（秒）。
 	Record(ctx context.Context, ev Event, transport Transport, durationSeconds float64)
 

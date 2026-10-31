@@ -9,9 +9,9 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// D4：State() 的 StateClosed 分支不可达性 —— **特征化测试**
+// State() 的 StateClosed 分支不可达性 —— **特征化测试**
 //
-// 缺陷（报告结论成立）：SRE 算法的接受率
+// SRE 算法的接受率
 //
 //	accept = (requests - k*errors) / (requests + 1)
 //
@@ -19,12 +19,11 @@ import (
 // `accept >= 1 → StateClosed` 的分支**永不可达**；`accept < 1 → StateHalfOpen`
 // 则恒真。即：只要有过请求，State 就只可能是 HalfOpen 或 Open，绝不返回 Closed。
 //
-// **本组测试不改变语义**（改算法会破坏既有调用方对三态的使用假设，超出缺陷
-// 修复范围）——它把「已存在但不可达的状态」钉住为**可知事实**，并防止后人
-// 误以为 StateClosed 会在统计上出现而写出依赖它的代码。
+// **本组测试不改变语义**（改算法会破坏既有调用方对三态的使用假设）——它把
+// 「已存在但不可达的状态」钉住为**可知事实**，并防止后人误以为 StateClosed
+// 会在统计上出现而写出依赖它的代码。
 //
-// 若要真正的三态语义，应改用阈值式实现（circuitbreaker/hystrix）——
-// 见《框架缺陷报告》D4 的「应用层绕行：改用 hystrix」。
+// 若要真正的三态语义，应改用阈值式实现（circuitbreaker/hystrix）。
 // ---------------------------------------------------------------------------
 
 // TestState_ClosedOnlyWhenNoRequests 唯一可达 StateClosed 的路径：零请求。
@@ -38,7 +37,7 @@ func TestState_ClosedOnlyWhenNoRequests(t *testing.T) {
 }
 
 // TestState_ClosedUnreachableOnceRequestsExist 一旦产生请求（哪怕全成功），
-// StateClosed 即不可达——这是 D4 的核心事实。
+// StateClosed 即不可达——这是 SRE 公式的直接推论。
 func TestState_ClosedUnreachableOnceRequestsExist(t *testing.T) {
 	b := New()
 	defer b.Close()
@@ -53,7 +52,7 @@ func TestState_ClosedUnreachableOnceRequestsExist(t *testing.T) {
 	// 必然已产生请求。
 	s := b.State()
 	if s == circuitbreaker.StateClosed {
-		t.Fatal("D4：一旦有请求，accept=(r-k*e)/(r+1) < 1，StateClosed 应不可达")
+		t.Fatal("一旦有请求，accept=(r-k*e)/(r+1) < 1，StateClosed 应不可达")
 	}
 	// 全成功场景下应落到 HalfOpen（accept<1 且 >0）。
 	if s != circuitbreaker.StateHalfOpen {
@@ -86,7 +85,7 @@ func TestAcceptFormula_NeverReachesOne(t *testing.T) {
 			}
 			accept := (requests - k*errors) / (requests + 1)
 			if accept >= 1 {
-				t.Fatalf("accept(%v req, %v err) = %v — 若 >=1 则 StateClosed 可达，D4 结论被推翻", requests, errors, accept)
+				t.Fatalf("accept(%v req, %v err) = %v — 若 >=1 则 StateClosed 可达，公式性质被推翻", requests, errors, accept)
 			}
 		}
 	}

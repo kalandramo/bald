@@ -57,7 +57,7 @@ type App struct {
 	// cfgNamespace 是**配置命名空间**——派生 env 前缀（BALD_DEMO_*）与多环境
 	// 文件名（bald-demo-prod.yaml）的稳定标识（见 loadConfig 的 config.Options.Name）。
 	//
-	// 取值（B6 两遍合并）：Serve 路径由契约 app.name 派生
+	// 取值（两遍合并）：Serve 路径由契约 app.name 派生
 	// （先装载文件/远程层解析 app.name，再按它挂 env 层——自指由两遍顺序消解，
 	// env 名不变）；NewApp 路径回退 Name（代码层稳定源，无自指）。
 	cfgNamespace string
@@ -114,7 +114,7 @@ type App struct {
 	reconItems  map[string][]reconItem // reconciler 名 → 其管理的组件（实际态）
 	reconMu     sync.Mutex
 
-	// M3 计划快照与实际态：当前生效计划（配置变更时整体替换）、可协调节点的
+	// 计划快照与实际态：当前生效计划（配置变更时整体替换）、可协调节点的
 	// 已应用期望态摘要（启动落账、Drift 依据），以及节点级协调器（引擎内置，
 	// 如 audit 重建）。
 	plan            *Plan
@@ -192,7 +192,8 @@ type PlainBinder interface {
 //
 // 背景：仅调用 AddFlags(pflag.CommandLine, ...) 只把 flag 注册到全局 flagset，
 // config.Load 拿不到它们，flag 层实际只有 --config 生效
-// （见 docs/devel/zh-CN/Bald 配置系统设计.md §3.6「层优先级 = 注册序」）。Bind 即为此缺口的修复。
+// （见 docs/devel/zh-CN/Bald 配置系统设计.md §3.6「层优先级 = 注册序」）。Bind
+// 正是为补上这条链而存在。
 //
 // 两种 opt：
 //  1. proto.Message（全栈 proto 驱动推荐）：Bind("http", &bootstrap.Http)。
@@ -303,9 +304,9 @@ func Registrar(r registry.Registrar) Option {
 	return optionFunc(func(d *Decl) { d.Registrar = r })
 }
 
-// configNamespaceOpt 写入配置命名空间（B6 取消导出：原 ConfigNamespace Option
-// 删除，命名空间转为内部派生值——Serve 由契约 app.name 派生、NewApp 回退
-// Name）。保留为引擎与包内测试的写入面。
+// configNamespaceOpt 写入配置命名空间（命名空间是内部派生值：Serve 由契约
+// app.name 派生、NewApp 回退 Name，无公开声明口）。保留为引擎与包内测试的
+// 写入面。
 func configNamespaceOpt(ns string) Option {
 	return optionFunc(func(d *Decl) { d.configNamespace = ns })
 }
@@ -398,7 +399,7 @@ func Servers(servers ...transport.Server) Option {
 	return optionFunc(func(d *Decl) { d.Servers = append(d.Servers, servers...) })
 }
 
-// auditorOpt 注入运行期审计后端（B7 取消导出：审计器显式注入归应用——经
+// auditorOpt 注入运行期审计后端（审计器显式注入归应用——经
 // bundle.Audit / 中间件 AuditWithAuditor 等构造器注入；appkit 自身审计事件的
 // sink 缺省由契约 audit 段产物兜底，见 storeProduct，最终兜底 Nop）。
 func auditorOpt(a audit.Auditor) Option {
@@ -461,7 +462,7 @@ func newDecl(opts ...Option) *Decl {
 // 拷入运行态（newFromDecl），不消费契约段、不派生服务器注册与框架钩子链。
 func NewApp(opts ...Option) *App {
 	d := newDecl(opts...)
-	// 配置命名空间回退（B6：声明口已删，回退即唯一来源）：取 d.Name——
+	// 配置命名空间回退（声明口已删，回退即唯一来源）：取 d.Name——
 	// 本路径下由调用方源码提供，代码层稳定值，无自指。
 	if d.configNamespace == "" {
 		d.configNamespace = d.Name
@@ -553,8 +554,7 @@ func (a *App) Err() error {
 func (a *App) Run(ctx context.Context) error {
 	// 先占坑（防重入），再加载配置——顺序重要，不可调换。
 	//
-	// 曾把 loadConfig 放在 CAS 之前，理由是「配置失败不属于运行中状态，不应占用
-	// running/done」。但那样做有数据竞争：两个并发 Run 会同时执行 loadConfig，
+	// loadConfig 必须受防重入保护：若放在 CAS 之前，两个并发 Run 会同时执行它，
 	// 并发写 a.cfg.cfgFile（pflag 绑定了其地址）与 a.cfg.store（go test -race 可复现）。
 	// loadConfig 是 Run 的一部分，理应受防重入保护。
 	if !a.running.CompareAndSwap(false, true) {
@@ -613,7 +613,7 @@ func (a *App) Run(ctx context.Context) error {
 	}
 
 	// 用 errgroup 并发启动所有服务器：任一 Start 返回非 nil 错误会自动取消
-	// gctx，从而级联停止其余服务器（BUG-3 行为）。
+	// gctx，从而级联停止其余服务器。
 	g, gctx := errgroup.WithContext(ctx)
 	for _, s := range a.servers {
 		s := s
@@ -681,7 +681,7 @@ func (a *App) Run(ctx context.Context) error {
 	}
 	_ = a.deregister(context.Background())
 
-	// 优雅停机：传入未取消的新 ctx（带 stopTimeout），这是 BUG-1 防坑点。
+	// 优雅停机：传入未取消的新 ctx（带 stopTimeout），否则取消信号会让停机立即放弃等待。
 	a.stopAll(context.Background())
 
 	// 收集启动错误：仅非 ctx 取消的错误视为致命，返回给调用方。
@@ -755,13 +755,10 @@ func (a *App) runHook(parent context.Context, timeout time.Duration, name string
 
 // buildInstance 聚合所有 Server 的 Endpoint 构造 ServiceInstance。
 //
-// **D16 修复**：只收集**可注册**的 endpoint（有 scheme 且 host 含端口）。
+// 只收集**可注册**的 endpoint（有 scheme 且 host 含端口）。
 // 进程内组件（如 cron 定时调度器）的 `Endpoint()` 返回描述性字符串
 // （`cron://scheduler`）——非空但**无端口**，注册中心 `net.SplitHostPort`
-// 会直接报错并致**启动失败**。原先仅判 `ep != ""`，不足以过滤。
-//
-// 与既有过滤意图一致（`ep != ""` 只是想跳过「无端点」的 server），
-// 此处把「非空」收紧为「可注册」。
+// 会直接报错并致**启动失败**。故「非空」不足以过滤，须收紧为「可注册」。
 func (a *App) buildInstance() *registry.ServiceInstance {
 	var eps []string
 	for _, s := range a.servers {

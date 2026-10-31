@@ -15,8 +15,7 @@ type CORSConfig struct {
 	AllowCredentials bool
 	MaxAge           int
 	// ExposedHeaders 是暴露给浏览器的响应头（逗号分隔）。
-	// 对应契约 fields `exposed_headers`（此前 CORSConfig 无此字段，该契约字段
-	// 无处落地——补上以让契约段完整生效）。
+	// 对应契约字段 `exposed_headers`——契约段需要完整落地。
 	ExposedHeaders string
 }
 

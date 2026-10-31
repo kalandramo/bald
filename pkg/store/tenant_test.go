@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/kalandramo/bald/pkg/authn"
 	storev1 "github.com/kalandramo/bald/bconf/gen/go/bald/store/v1"
+	"github.com/kalandramo/bald/pkg/authn"
 	"github.com/kalandramo/bald/pkg/contextx"
 	"github.com/stretchr/testify/assert"
 )
@@ -85,9 +85,9 @@ func TestUnregisterTenant(t *testing.T) {
 	assert.Empty(t, w3.Filters)
 }
 
-// TestWhere_T_PreservesExpr 锁定 Where.T 必须保留 Expr（边界 2 修复）：
-// T() 构造副本时曾只复制 Sorting/Offset/Limit/Filters，静默丢弃业务布尔树——
-// 一旦业务用 where.T(ctx) 显式隔离，OR 树会被吞掉。修复后 Expr 应原样保留。
+// TestWhere_T_PreservesExpr 锁定 Where.T 必须保留 Expr：T() 构造副本时若只
+// 复制 Sorting/Offset/Limit/Filters，会静默丢弃业务布尔树——一旦业务用
+// where.T(ctx) 显式隔离，OR 树会被吞掉。
 func TestWhere_T_PreservesExpr(t *testing.T) {
 	RegisterTenant("tenant_id", DefaultTenantFunc)
 	t.Cleanup(func() { UnregisterTenant("tenant_id") })
@@ -101,7 +101,7 @@ func TestWhere_T_PreservesExpr(t *testing.T) {
 
 	got := w.T(ctx)
 
-	// Expr 必须保留（原缺陷：丢失 → 业务 OR 树被静默丢弃）。
+	// Expr 必须保留（丢失 → 业务 OR 树被静默丢弃）。
 	assert.Same(t, orTree, got.Expr, "Where.T 必须保留 Expr（业务布尔树）")
 	// 租户条件注入到 Filters，与 Expr 按 AND 连接。
 	assert.Len(t, got.Filters, 1)
@@ -111,4 +111,3 @@ func TestWhere_T_PreservesExpr(t *testing.T) {
 	// 原对象不被修改（返回副本）。
 	assert.Nil(t, w.Filters)
 }
-

@@ -70,7 +70,7 @@ func TestGrpcServerProvider_UnaryFuncNotCalledWhenUnconfigured(t *testing.T) {
 // TestMergeUnary_StaticBeforeDeferred 断言合并顺序：静态选项在**前**、延迟在**后**。
 //
 // 为什么用真实调用观测：`grpc.ServerOption` 是接口，测试无法构造「可比较的替身」
-// （EmptyServerOption 是空结构体，所有值相等——用它写断言会得到恒真测试，曾踩此坑）。
+// （EmptyServerOption 是空结构体，所有值相等——用它写断言会得到恒真测试）。
 // 故改用拦截器实际执行序：grpc 按声明序执行 unary 拦截器，故「静态链的标记先于
 // 延迟链的标记」即证明合并顺序正确。
 func TestMergeUnary_StaticBeforeDeferred(t *testing.T) {

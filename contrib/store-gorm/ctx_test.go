@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestCtx_PropagatedToGorm 锁定 ctx 必须传播到 GORM 操作（原缺陷：gorm.go 所有
-// 方法把 ctx 参数写成 `_` 丢弃——请求取消/超时无法传播，DB 操作照常执行）。
+// TestCtx_PropagatedToGorm 锁定 ctx 必须传播到 GORM 操作：把 ctx 参数写成 `_`
+// 丢弃会让请求取消/超时无法传播，DB 操作照常执行。
 //
 // 验证方式：传入已取消的 ctx，GORM 应返回 context.Canceled（而非静默成功）。
 func TestCtx_PropagatedToGorm(t *testing.T) {

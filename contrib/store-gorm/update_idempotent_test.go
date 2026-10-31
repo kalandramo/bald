@@ -12,9 +12,8 @@ import (
 
 // TestGorm_UpdateIdempotent 锁定 Update 的**幂等契约**（与 Delete 对称）。
 //
-// 背景：Update 原先对 `RowsAffected == 0` 返回 store.ErrNotFound——把 SQL 原生
-// 「更新 0 行是正常执行」误判为错误。现改为返回受影响行数：0 行 = (0, nil)。
-// 更新的目标是让数据变成目标值，本来就是目标值，操作本身成功。
+// Update 返回受影响行数：0 行 = (0, nil)。SQL 原生「更新 0 行」是正常执行，
+// 不是 not found——更新的目标是让数据变成目标值，本来就是目标值，操作本身成功。
 //
 // 需要「必须存在才能更新」的调用方，判 rows == 0 自行实现（无需额外 Get 往返）。
 func TestGorm_UpdateIdempotent(t *testing.T) {

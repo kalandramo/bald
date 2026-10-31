@@ -10,10 +10,9 @@ import (
 
 // TestStore_UpdateIdempotent 锁定 Update 的**幂等契约**（与 Delete 对称）。
 //
-// 背景：Update 原先对「目标记录不存在」返回 ErrNotFound，与 SQL 原生语义
-// 冲突——更新 0 行是正常执行，ORM 不擅自增加底层没有的错误。现改为返回受影响
-// 行数：0 行 = (0, nil)。更新的目标是让数据变成目标值，本来就是目标值，
-// 操作本身成功。
+// Update 返回受影响行数：0 行 = (0, nil)。更新 0 行是正常执行，ORM 不擅自
+// 增加底层没有的「目标记录不存在」错误——更新的目标是让数据变成目标值，
+// 本来就是目标值，操作本身成功。
 //
 // 需要「必须存在才能更新」的调用方，判 rows == 0 自行实现（无需额外 Get 往返）。
 func TestStore_UpdateIdempotent(t *testing.T) {

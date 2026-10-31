@@ -88,7 +88,7 @@ func TestMechRequiresFailFast(t *testing.T) {
 	}
 }
 
-// TestComponentFunc 纯清理组件（B5 自 appkit 迁入）：Start no-op，Dispose 调用
+// TestComponentFunc 纯清理组件：Start no-op，Dispose 调用
 // 注入函数；nil dispose 安全。
 func TestComponentFunc(t *testing.T) {
 	called := false

@@ -354,7 +354,7 @@ func TestParsePlanFlag(t *testing.T) {
 	}
 }
 
-// TestPlan_RegistrarTakeoverVisible 钉住 I10 的 M0 子集：程序化接管产生合成
+// TestPlan_RegistrarTakeoverVisible 钉住 I10 的程序化接管可见性：程序化接管产生合成
 // registry 节点（Override + Reason）与警告，regmap 段仍列为被该节点读取。
 func TestPlan_RegistrarTakeoverVisible(t *testing.T) {
 	cfgPath := writePlanConfig(t, "plan-registrar", "registry:\n  type: \"nacos\"\n  nacos:\n    server_addrs: [\"127.0.0.1:8848\"]\n")

@@ -8,12 +8,12 @@ import (
 // ---------------------------------------------------------------------------
 // WithSeconds 契约
 //
-// 契约声明 `server.cron.seconds`「是否启用秒级精度，默认 false」，但
-// WithSeconds 此前是空实现——配了完全无效。且 parser 在 NewServer 内构造、
-// Options 在其后才应用，WithLocation/WithLogger 会**重建 scheduler** 并各自
-// 硬编码 6 字段 parser（丢弃 NewServer 的 Recover 链、互相覆盖、顺序敏感）。
+// 契约字段 `server.cron.seconds` 控制是否接受秒级（6 字段）表达式；本实现
+// 默认启用（保持既有行为与文档示例）。Option 在 NewServer 内统一求值，
+// 不得因 WithLocation/WithLogger 而重建 scheduler——否则 Recover 链会丢失，
+// 且结果取决于选项顺序。
 //
-// 本组测试钉住修复后的语义：seconds 开关生效、默认行为不变、选项顺序无关。
+// 本组测试钉住：seconds 开关生效、默认行为不变、选项顺序无关。
 // ---------------------------------------------------------------------------
 
 // TestWithSeconds_DefaultAcceptsSixField 默认（不传 WithSeconds）仍支持 6 字段
@@ -49,8 +49,8 @@ func TestWithSeconds_DescriptorStillWorks(t *testing.T) {
 	}
 }
 
-// TestWithSeconds_OrderIndependent 选项顺序不影响结果（原实现顺序敏感，
-// 因为每个重建型 Option 都会覆盖前一个）。
+// TestWithSeconds_OrderIndependent 选项顺序不影响结果：每个重建型 Option
+// 都从零重建 scheduler，若简单叠加，后序 Option 就会冲掉先应生效的设置。
 func TestWithSeconds_OrderIndependent(t *testing.T) {
 	a := NewServer(WithSeconds(false), WithLocation(time.UTC))
 	b := NewServer(WithLocation(time.UTC), WithSeconds(false))
@@ -66,7 +66,7 @@ func TestWithSeconds_OrderIndependent(t *testing.T) {
 }
 
 // TestWithLocation_DoesNotResetParser WithLocation 不得重置 parser 语义
-// （原实现会用自带的 6 字段 parser 重建 scheduler，覆盖 seconds=false）。
+// （若用自带的 6 字段 parser 重建 scheduler，会覆盖 seconds=false）。
 func TestWithLocation_DoesNotResetParser(t *testing.T) {
 	srv := NewServer(WithSeconds(false), WithLocation(time.UTC))
 	if _, err := srv.NewTimerJob("*/10 * * * * *", func() {}); err == nil {

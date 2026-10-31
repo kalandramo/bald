@@ -154,7 +154,7 @@ func (f auditorFunc) Record(ctx context.Context, ev audit.AuditEvent) { f(ctx, e
 
 // TestResolveAuditor_InjectedOverridesContractProduct 契约：显式注入（auditorOpt）
 // 优先于契约 audit 段产物（storeProduct 兜底写入不覆盖已注入值）——split-brain
-// sink 从结构上消除；零注入时回退 Nop（B8：无全局兜底），永不返回 nil。
+// sink 从结构上消除；零注入时回退 Nop（无全局兜底），永不返回 nil。
 func TestResolveAuditor_InjectedOverridesContractProduct(t *testing.T) {
 	injected := &mountAuditMem{}
 	app := NewApp(auditorOpt(injected))

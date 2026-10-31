@@ -20,7 +20,7 @@ type AuthnOption func(*authnOptions)
 
 type authnOptions struct {
 	// auditor 指定认证失败审计事件的接收后端；nil 时退化为 NopAuditor
-	// （B8：全局审计器已删除，显式注入是唯一通道——bundle 自动注入）。
+	// （显式注入是唯一通道——bundle 自动注入）。
 	// 由 bundle 注入（与请求审计同一后端），保证 authn abort 路径与业务审计同源。
 	auditor audit.Auditor
 }
@@ -81,8 +81,7 @@ func AuthnMiddleware(authenticator authn.Authenticator, opts ...AuthnOption) gin
 		}
 		// 内置注入 viewer.Context（bald-crud EnforceTenant / DataScope 的身份来源）：
 		// scopes 映射为权限（"user:read" 格式对上 HasPermission），业务零配置。
-		// platform 透传 claims.Platform——平台身份必须显式声明，绝不基于空租户推断
-		// （2026-09-25，见《待处理事项》#2）。
+		// platform 透传 claims.Platform——平台身份必须显式声明，绝不基于空租户推断。
 		ctx = crudbridge.InjectViewerFromIdentity(ctx,
 			claims.Subject, claims.TenantID, contextx.TraceIDFromContext(ctx),
 			claims.Scopes, claims.Roles, claims.Platform)

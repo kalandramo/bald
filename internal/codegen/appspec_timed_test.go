@@ -20,18 +20,18 @@ import (
 // 优雅退出 → T1，要求 T1-T0 ≤ 1800s。
 //
 // 业务端点是「域自持路由」用户槽位的最小接线（greet 域手写文件实现
-// Domain.Routes，挂判据口径的 /v1/demo）——生成物开箱只有探针与空路由表，
+// Domain.Routes，挂验收口径的 /v1/demo）——生成物开箱只有探针与空路由表，
 // 业务端点本就归手写文件，本测试按生成器的真实使用流程补齐这一步。
 //
 // SIGTERM 口径的跨平台实现：POSIX 直接投递 SIGTERM；Windows 无此信号，
 // 以 CTRL_BREAK 控制台事件代之（Go 运行时转成 os.Interrupt，命中 App.Run
 // 的 signal.Notify(SIGINT, SIGTERM) 优雅停机分支——同一代码路径）。
 func TestTree_EndToEndTimed(t *testing.T) {
-	// 判据④端到端计时 -short 跳过，由 CI 独立 step 全跑：全链路（gen→
+	// 端到端计时 -short 跳过，由 CI 独立 step 全跑：全链路（gen→
 	// tidy→build→serve→停机）分钟级墙钟且起真实服务，不混入 -short 主
 	// 循环；ci.yml 在模块循环后以独立 step 全跑本测试。
 	if testing.Short() {
-		t.Skip("判据④端到端计时 -short 跳过，由 CI 独立 step 全跑")
+		t.Skip("端到端计时 -short 跳过，由 CI 独立 step 全跑")
 	}
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("go toolchain not in PATH")
@@ -46,7 +46,7 @@ func TestTree_EndToEndTimed(t *testing.T) {
 	dir, _ := runGenAppInTemp(t, as)
 	t.Logf("stage gen app+domain: %s", time.Since(start))
 
-	// 2. 用户槽位最小接线：业务端点 /v1/demo（判据口径的 200 探针）。
+	// 2. 用户槽位最小接线：业务端点 /v1/demo（200 探针）。
 	writeDemoRoute(t, dir)
 
 	// 3. go mod tidy
@@ -115,7 +115,7 @@ func TestTree_EndToEndTimed(t *testing.T) {
 	}
 
 	elapsed := time.Since(start) // T1
-	t.Logf("T1-T0 = %s（判据 ④ 口径：<= 1800s）", elapsed)
+	t.Logf("T1-T0 = %s（计时上限：<= 1800s）", elapsed)
 	if elapsed > 1800*time.Second {
 		t.Errorf("T1-T0 = %s exceeds the 1800s criterion", elapsed)
 	}
@@ -156,8 +156,8 @@ func pollOK(url string, timeout time.Duration) error {
 }
 
 // writeDemoRoute 在生成树的 greet 域包落一个手写文件，实现 Domain.Routes
-// （生成一次、此后归你维护的用户槽位）：挂 GET /v1/demo 返回 200——判据 ④
-// 计时脚本的业务端点探针，与「域自持路由」惯用法同构。
+// （生成一次、此后归你维护的用户槽位）：挂 GET /v1/demo 返回 200——计时脚本
+// 的业务端点探针，与「域自持路由」惯用法同构。
 func writeDemoRoute(t *testing.T, dir string) {
 	t.Helper()
 	path := filepath.Join(dir, "internal", "apiserver", "greetv1", "demo_routes.go")
@@ -170,7 +170,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// demoRoutes 是判据 ④ 计时脚本的业务端点接线：greet 域手写文件实现
+// demoRoutes 是计时脚本的业务端点接线：greet 域手写文件实现
 // Domain.Routes（引擎在 Wire 之后、server 构建之前调用，见 pkg/appkit/domain.go）。
 func init() {
 	Domain.Routes = func(h http.Handler) error {

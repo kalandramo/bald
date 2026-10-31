@@ -9,7 +9,7 @@ package bootstrap
 import "github.com/kalandramo/bald/pkg/appkit"
 
 // variantImpls 由 variant_<name>.gen.go 的 init() 追加：只有 //go:build 命中
-// 才编译进来的实现集合。appkit 在计划期对账「实现必须已声明且命中」（I12），
+// 才编译进来的实现集合。appkit 在计划期对账「实现必须已声明且命中」，
 // 条件漂移会让启动失败而不是静默偏差。
 var variantImpls []appkit.VariantImpl
 

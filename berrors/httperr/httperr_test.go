@@ -37,8 +37,8 @@ func TestStatusCode(t *testing.T) {
 	}
 }
 
-// 裂缝4 回归：正向表里每个 HTTP 码都应在反向表中有对应（对称性）。
-// 曾漏 499（Canceled→499 有正向，HTTPToCode(499) 却兜底 Unknown）。
+// 回归：正向表里每个 HTTP 码都应在反向表中有对应（对称性）；
+// 不对称会让反向映射兜底 Unknown（例如 Canceled→499 有正向，反向却丢失）。
 func TestHTTPMappingSymmetry(t *testing.T) {
 	codes := []uint32{
 		berrors.CodeOK, berrors.CodeCanceled, berrors.CodeUnknown,

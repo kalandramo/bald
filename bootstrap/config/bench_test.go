@@ -90,9 +90,9 @@ func BenchmarkStoreRemerge_Layers(b *testing.B) {
 	}
 }
 
-// BenchmarkStoreMountEnv 度量 MountEnv（config.go:325，B6 两遍合并第二遍）
+// BenchmarkStoreMountEnv 度量 MountEnv（两遍合并第二遍）
 // 的完整成本：env 前缀派生（os.Environ 全表扫描 + 前缀过滤）+ env 层重建 +
-// 全量重合并（含写锁）。仅基线项：MountEnv 为本版新增 API，v0.24.0 无对应路径。
+// 全量重合并（含写锁）。
 //
 // 注意：os.Environ 扫描成本随进程环境表大小浮动——绝对值只在同机同环境下
 // 复跑可比；对照表的 remerge 项不含此成本。

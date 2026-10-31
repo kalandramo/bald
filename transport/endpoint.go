@@ -21,7 +21,8 @@ import (
 //   - host 显式且非通配符 → 原样保留（尊重用户指定的发布 IP）；
 //   - host 为空或通配符 → 枚举网卡取首个可达 IP 替换。
 //
-// 该逻辑是服务注册可达性的关键修复点，请勿退回为裸 s.ln.Addr().String()。
+// 该逻辑是服务注册可达性的关键：端口 0 必须换成 listener 实际端口，通配 host
+// 必须换成可达 IP。请勿退回为裸 s.ln.Addr().String()。
 func Extract(hostPort string, ln net.Listener) (string, error) {
 	addr, portStr, err := net.SplitHostPort(hostPort)
 	if err != nil && ln == nil {

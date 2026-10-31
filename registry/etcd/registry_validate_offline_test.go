@@ -9,11 +9,12 @@ import (
 	"github.com/kalandramo/bald/registry"
 )
 
-// TestRegister_RejectsInvalidInstanceBeforeNetwork 是 D15 的**离线**接线验证。
+// TestRegister_RejectsInvalidInstanceBeforeNetwork 验证 etcd 后端在触网前
+// 接入 Validate 闸门。
 //
-// 为什么单独存在：既有的 TestRegister_MissingNameIsRejected 走 newTestRegistry，
+// 为什么单列：TestRegister_MissingNameIsRejected 走 newTestRegistry，
 // 需要真实 etcd（:2379），环境缺失即 SKIP——于是「etcd 后端确实接了 Validate
-// 闸门」这一点在无 etcd 的环境里从未被断言过（vet 只保证能编译，不保证调用点
+// 闸门」这一点在无 etcd 的环境里不会被断言（vet 只保证能编译，不保证调用点
 // 存在）。本测试用**不可达**端点构造 registry：
 //
 //   - clientv3.New 是惰性建连（不在 New 时触网，见 newTestRegistry 注释）；
@@ -42,7 +43,7 @@ func TestRegister_RejectsInvalidInstanceBeforeNetwork(t *testing.T) {
 	elapsed := time.Since(start)
 
 	if err == nil {
-		t.Fatal("D15：etcd.Register 缺 Name 必须返回错误（而非静默注册到 `<ns>//<id>` 畸形 key）")
+		t.Fatal("etcd.Register 缺 Name 必须返回错误（而非静默注册到 `<ns>//<id>` 畸形 key）")
 	}
 	if !strings.Contains(err.Error(), "Name") {
 		t.Errorf("应为校验错误（提及 Name），got: %v", err)
@@ -55,7 +56,7 @@ func TestRegister_RejectsInvalidInstanceBeforeNetwork(t *testing.T) {
 
 	// 缺 ID 同样被拒。
 	if err := r.Register(ctx, &registry.ServiceInstance{Name: "svc"}); err == nil {
-		t.Error("D15：缺 ID 也必须被拒")
+		t.Error("缺 ID 也必须被拒")
 	}
 
 	// 反例对照：合法实例**会**越过闸门（进入网络路径）——用不可达端点则报

@@ -15,14 +15,14 @@ import (
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
 )
 
-// appspec_validate.go 是 Gate1（生成期 schema 门，D2-target-codegen.md §3.5）：
+// appspec_validate.go 是 Gate1（生成期 schema 门）：
 // 在任何文件落盘之前校验 AppSpec 声明——kind 白名单 / name 唯一 /
-// requires⊆provides / app.name 只声明一处。此前这些违例要到运行期才炸
-// （unknown component kind / unresolved capabilities），或根本无人校验。
-// 契约段的唯一真相源是 bootstrap（Q6 起旧快捷方式字段已移除，无投影对账）。
+// requires⊆provides / app.name 只声明一处。不校验则这些违例要到运行期才炸
+// （unknown component kind / unresolved capabilities），或根本无人发现。
+// 契约段的唯一真相源是 bootstrap（旧快捷方式字段已移除，无投影对账）。
 
 // componentKinds 是生成器已实现组件工厂的 kind 白名单（Gate1）。白名单外
-// 的 kind 生成期即报错——此前 db/redis 等到运行期才炸 unknown component kind。
+// 的 kind 生成期即报错——否则 db/redis 等要到运行期才炸 unknown component kind。
 var componentKinds = map[string]bool{
 	"heartbeat": true,
 }
@@ -165,7 +165,7 @@ func validateAppSpec(as *appspecv1.AppSpec) []error {
 		}
 	}
 
-	// ---- variants：build tag 分叉进声明（Q7）----
+	// ---- variants：build tag 分叉进声明 ----
 	globalComp := map[string]bool{}
 	for _, c := range as.GetComponents() {
 		globalComp[c.GetName()] = true
@@ -265,8 +265,8 @@ func validateAppSpec(as *appspecv1.AppSpec) []error {
 }
 
 // projectServer 把角色传输面（RoleSpec.server）投影为该角色的契约 server
-// 段。未声明任何传输面时返回 nil：段缺席即「该角色不开传输面」，L3 段
-// 覆盖检查无从要求覆盖。
+// 段。未声明任何传输面时返回 nil：段缺席即「该角色不开传输面」，段覆盖
+// 检查无从要求覆盖。
 func projectServer(sv *appspecv1.ServerSpec) *bootstrapv1.Server {
 	if sv == nil {
 		return nil
@@ -298,12 +298,12 @@ func contractBootstrap(as *appspecv1.AppSpec) *bootstrapv1.BootstrapConfig {
 }
 
 // ---------------------------------------------------------------------------
-// 字段消费机器守卫（D2 §3.5 G8 的通用解：声明字段必须有消费者）
+// 字段消费机器守卫（声明字段必须有消费者）
 // ---------------------------------------------------------------------------
 
 // fieldConsumers 是「声明字段 → 生成物标记」表：key = proto 字段全名，
 // value = 消费者必须在生成物文本中留下的标记。遍历 proto 描述符逐字段校验，
-// ServerSpec.gateway 型死声明从此不可能再上线（新增字段忘接消费者 = 测试红）。
+// ServerSpec.gateway 型死声明不可能上线（新增字段忘接消费者 = 测试红）。
 var fieldConsumers = map[string]string{
 	"bald.appspec.v1.AppSpec.meta.name":                     "demoapp", // 标记按 guardFixture 取值断言（同包测试夹具）
 	"bald.appspec.v1.AppSpec.meta.module":                   "demo.example/app",
@@ -367,7 +367,7 @@ var builderConsumed = map[string]bool{
 
 // appspecLocal 报告消息是否属于 appspec 本地声明面（守卫只遍历 AppSpec
 // 根上的本地消息；bootstrap 子树是 bconf 契约自己的对账域——其每个字段的
-// 消费由 bconf 的契约测试与 L3 覆盖检查守卫，不在本表重复登记）。
+// 消费由 bconf 的契约测试与段覆盖检查守卫，不在本表重复登记）。
 func appspecLocal(name protoreflect.FullName) bool {
 	return strings.HasPrefix(string(name), "bald.appspec.v1.")
 }
@@ -393,8 +393,8 @@ func checkFieldConsumers(rendered string) []error {
 					list := msg.Get(fd).List()
 					if list.Len() == 0 {
 						// 空列表也必须按元素类型下钻一次：守卫管的是声明面，
-						// 与实例是否置位无关。此前空列表直接跳过，重复消息的
-						// 子字段（domains/components/capability.requires/roles）全在
+						// 与实例是否置位无关。否则重复消息的子字段
+						// （domains/components/capability.requires/roles）会落在
 						// 盲区——登记写错、字段漏接消费者都不会报红。
 						walk(full, dynamicpb.NewMessage(fd.Message()).ProtoReflect())
 						continue

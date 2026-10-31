@@ -1,6 +1,6 @@
 package appkit
 
-// 约定装配层（assemble，经 Serve 触达）的单测（2026-09-06）。
+// 约定装配层（assemble，经 Serve 触达）的单测。
 //
 // 覆盖：元数据契约驱动、能力声明 fail-fast、服务器构造、日志两阶段生命周期
 // （阶段 A 默认 → 阶段 B 契约重建 → 停机恢复）、config Provider 层装配与
@@ -84,7 +84,7 @@ func TestResolveLoggerSource(t *testing.T) {
 	}
 }
 
-// 内置 slog Provider 分派（B7：原默认路径整体迁入 StandardLoggerProvider）：
+// 内置 slog Provider 分派（默认日志路径由 StandardLoggerProvider 承担）：
 // 阶段 A 回退；type=slog 直构；其余 type（含远端后端）fail-fast 教学报错
 // （错误给出 logger Provider 用法），绝不静默降级。
 func TestStandardLoggerProvider(t *testing.T) {
@@ -263,8 +263,7 @@ func (c *countingLogSrc) calls() int {
 	return len(c.args)
 }
 
-// funcLogSrc 以工厂函数构造 loggerSource（测试桩；B7 删除 defaultLoggerFactory
-// 后工厂类型不再存在，桩直接内联 func 字段）。
+// funcLogSrc 以工厂函数构造 loggerSource（测试桩；工厂类型不存在，桩直接内联 func 字段）。
 type funcLogSrc struct {
 	fn func(ctx context.Context, l *bootstrapv1.Logger) (lg log.Logger, cleanup func(), err error)
 }
@@ -835,7 +834,7 @@ func TestAssemble_PassthroughCapabilityFailFast(t *testing.T) {
 }
 
 // testDisposeComp 适配无启动逻辑的清理函数为 Component——mech.ComponentFunc
-// 的包内测试替代（B5 下沉后 in-package 测试不可 import mech：导入环约束）。
+// 的包内测试替代（in-package 测试不可 import mech：导入环约束）。
 type testDisposeComp struct {
 	name    string
 	dispose func(context.Context) error

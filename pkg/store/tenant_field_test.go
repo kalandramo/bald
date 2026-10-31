@@ -12,9 +12,9 @@ import (
 // ---------------------------------------------------------------------------
 // tenantFieldIndex 的 tag 解析优先级
 //
-// 补测动机：`splitTag`/`cutPrefix` 两个辅助函数此前 0% 覆盖——它们只在
-// **gorm tag 分支**可达，而既有测试实体（tenantEntity）走的是 json tag 与
-// 字段名推断。gorm tag 是生产 gorm 后端的真实写法，其解析路径需独立钉住。
+// 为什么单列：`splitTag`/`cutPrefix` 两个辅助函数只在 **gorm tag 分支**可达，
+// 而既有测试实体（tenantEntity）走的是 json tag 与字段名推断。gorm tag 是
+// 生产 gorm 后端的真实写法，其解析路径需独立钉住。
 //
 // 匹配优先级（tenantFieldIndex 注释）：gorm column tag > json tag > 字段名转 snake。
 // ---------------------------------------------------------------------------

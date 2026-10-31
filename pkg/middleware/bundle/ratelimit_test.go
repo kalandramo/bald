@@ -26,7 +26,7 @@ func mwWithRateLimit(rate float64, burst int32, wait bool) *bootstrapv1.Server_H
 }
 
 // ---------------------------------------------------------------------------
-// D5：契约段 server.http.middleware.rate_limit → 限流实际生效
+// 契约段 server.http.middleware.rate_limit → 限流实际生效
 // ---------------------------------------------------------------------------
 
 // TestRateLimitFromMiddleware_NilOrAbsentIsDisabled 未配置段 = 禁用（nil, nil），
@@ -72,7 +72,7 @@ func TestRateLimitFromMiddleware_ValidBuilds(t *testing.T) {
 }
 
 // TestGinChain_RateLimitEnforced 端到端：契约段 → bundle.RateLimit → gin 链，
-// 超限请求被 429 拒绝。这是 task-anchor 的 D5 成功判据的单元化表达。
+// 超限请求被 429 拒绝。这是「配置段 → 可观察行为」验收的单元化表达。
 func TestGinChain_RateLimitEnforced(t *testing.T) {
 	rl, err := RateLimitFromMiddleware(mwWithRateLimit(0.0001, 2, false))
 	if err != nil {

@@ -194,7 +194,7 @@ func (b *Breaker) Execute(ctx context.Context, fn func() error) error {
 
 // State implements [circuitbreaker.CircuitBreaker].
 //
-// ⚠️ **D4 语义提示**：SRE 的接受率 `accept = (requests - k*errors) / (requests + 1)`
+// ⚠️ **语义提示**：SRE 的接受率 `accept = (requests - k*errors) / (requests + 1)`
 // 对任何 `requests > 0` 都恒 `< 1`（分母比分子大 1），故：
 //   - `StateClosed` **仅在零请求时可达**（下方早退分支）；
 //   - 一旦产生过请求，只可能是 `StateHalfOpen`（accept<1 且 >0）或

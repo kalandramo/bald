@@ -14,7 +14,7 @@ import (
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
 )
 
-// appspec_contract.go 是 Gate2（生成期契约门，D2-target-codegen.md §3.5）与
+// appspec_contract.go 是 Gate2（生成期契约门）与
 // 契约配置的发射器：configs/<app>.yaml 的整棵树由 AppSpec.bootstrap 经
 // protoreflect 派生——配置键来自字段描述符（fd.Name()，bconf 装载器的键口径），
 // 模板与生成器不写任何裸配置键。这是「加一个 bconf 段 = 0 处生成器改动」的
@@ -173,7 +173,7 @@ func scalarToConfig(fd protoreflect.FieldDescriptor, v protoreflect.Value) (any,
 	return v.Interface(), nil
 }
 
-// contractGate 执行 Gate2 全流程（D2 §3.5 Gate2 的 1-3 步）：bootstrap 段 →
+// contractGate 执行 Gate2 全流程：bootstrap 段 →
 // 描述符派生配置树 → 未知键校验 → YAML 渲染 → 回读复检。第 1-2 步管声明面，
 // 第 3 步（回读）是回归锁——键由描述符派生时它结构上不可能失败，任何绕过
 // 描述符的键路径都会在此爆红。返回 configs/<app>.yaml 的落盘内容。

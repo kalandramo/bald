@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// 业务配置段（设计 §8.2 Q8）：`biz.<path>` 指向合并后的 Settings 快照
+// 业务配置段：`biz.<path>` 指向合并后的 Settings 快照
 // （app.Settings()），而不是 BootstrapConfig 字段——域自有业务配置由此进入
 // 可协调节点的期望态。计划期对子树做确定性序列化算 DesiredHash；热更时同一
 // 路径取新快照，摘要变化即触发 Domain.Reconcile。

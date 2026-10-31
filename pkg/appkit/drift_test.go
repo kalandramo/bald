@@ -26,7 +26,7 @@ func planNodeByKey(p *Plan, key ResourceKey) *Node {
 	return nil
 }
 
-// M3：可协调节点（logger/audit/组件）声明 ReloadReconcile 并带期望态摘要；
+// 可协调节点（logger/audit/组件）声明 ReloadReconcile 并带期望态摘要；
 // 重启/静态节点不产生摘要。
 func TestPlan_ReloadPoliciesAndHashes(t *testing.T) {
 	cfgPath := writePlanConfig(t, "plan-reload",

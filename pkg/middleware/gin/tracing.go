@@ -9,7 +9,7 @@ import (
 
 // Tracing 返回只做链路追踪、不写请求日志的 gin 中间件。
 //
-// 为什么需要它：契约 `server.http.middleware.tracing` 段此前**零实现**——而
+// 为什么需要它：契约 `server.http.middleware.tracing` 需要独立实现——
 // `Logging()`（= Observability(WithSkipMetrics())）把「起 span / 注入 trace 头」
 // 与「写请求日志」耦合在一起，无法只要追踪不要日志。本中间件拆出前者：
 //

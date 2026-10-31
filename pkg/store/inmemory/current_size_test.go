@@ -7,9 +7,9 @@ import (
 	storev1 "github.com/kalandramo/bald/bconf/gen/go/bald/store/v1"
 )
 
-// TestStore_ListWithPaging_CurrentSize 锁定 PaginationResponseMeta.CurrentSize 被填充
-// （边界 6 修复）：它表示「当前页实际返回条数」，与 len(Items) 一致。
-// 原缺陷：fillTotal 只回填 Total/TotalPages/NextToken，CurrentSize 恒为 nil（读出 0）。
+// TestStore_ListWithPaging_CurrentSize 锁定 PaginationResponseMeta.CurrentSize 被填充：
+// 它表示「当前页实际返回条数」，与 len(Items) 一致。若 fillTotal 只回填
+// Total/TotalPages/NextToken，CurrentSize 会恒为 nil（读出 0）。
 func TestStore_ListWithPaging_CurrentSize(t *testing.T) {
 	ctx := context.Background()
 	s := newStore()

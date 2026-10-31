@@ -17,7 +17,7 @@ import (
 )
 
 // AuditOption 配置 AuditMiddleware 的请求→审计三元组提取方式（与 AuthzMiddleware 对称）。
-// 复用 P9 归一化原语，使审计与授权在同一份语义下记录。
+// 复用归一化原语，使审计与授权在同一份语义下记录。
 type AuditOption func(*auditOptions)
 
 type auditOptions struct {
@@ -58,7 +58,7 @@ func AuditWithMetrics(rec metrics.Recorder) AuditOption {
 //
 // 在 c.Next() 返回后记录一条 AuditEvent：subject/tenant 来自 AuthClaims，object/action
 // 默认取自 path/HTTP 方法（与 AuthzMiddleware 默认一致），可用 AuditWithObjectResolver/
-// AuditWithActionResolver 接入 P9 归一化；Result 由响应状态码推导（401/403→deny、
+// AuditWithActionResolver 接入归一化；Result 由响应状态码推导（401/403→deny、
 // >=500→error、其余→allow）。审计写入失败仅降级记日志，不影响响应。
 //
 // 典型用法（与 AuthzMiddleware 归一化对称）：
@@ -120,8 +120,8 @@ func AuditMiddleware(opts ...AuditOption) gin.HandlerFunc {
 			ev.Error = c.Errors.ByType(gin.ErrorTypePrivate).String()
 		}
 		recordSafely(auditor, c.Request.Context(), ev)
-		// M8 指标埋点：协议维度走 semconv 指标，审计三元组走 bald_audit_events_total
-		// （正交拆分，见《Bald 指标设计》），旁路不阻断。
+		// 指标埋点：协议维度走 semconv 指标，审计三元组走 bald_audit_events_total
+		// （正交拆分，见 docs/devel/zh-CN/Bald 指标设计.md），旁路不阻断。
 		reqInfo.StatusCode = c.Writer.Status()
 		emitMetricsSafely(rec, c.Request.Context(), metrics.Event{
 			Object:  object,
@@ -134,7 +134,7 @@ func AuditMiddleware(opts ...AuditOption) gin.HandlerFunc {
 }
 
 // emitMetricsSafely 指标旁路记录：Recorder panic 仅降级记日志，绝不影响响应
-// （与 auditor 的 recordSafely 同一纪律，此前 metrics.Record 未被保护）。
+// （与 auditor 的 recordSafely 同一纪律；不加保护时 panic 会打穿 HTTP 链）。
 func emitMetricsSafely(rec metrics.Recorder, ctx context.Context, ev metrics.Event, transport metrics.Transport, seconds float64) {
 	if rec == nil {
 		return

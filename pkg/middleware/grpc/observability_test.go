@@ -35,8 +35,8 @@ func (s *fakeServerStream) SendMsg(any) error        { return nil }
 func (s *fakeServerStream) RecvMsg(any) error        { return nil }
 
 // TestObservability_SpanKindServer：inbound gRPC span（unary 与 stream）必须
-// SpanKindServer（OTel 语义；spanmetrics 服务端聚合与服务拓扑图依赖该值——
-// 回归：曾缺省 internal 被漏计）。同包测试直接替换包级 tracer。
+// SpanKindServer（OTel 语义；spanmetrics 服务端聚合与服务拓扑图依赖该值）；
+// 缺省 internal 会被漏计。同包测试直接替换包级 tracer。
 func TestObservability_SpanKindServer(t *testing.T) {
 	rec := &spanKindRecorder{}
 	prev := tracer
@@ -69,10 +69,10 @@ func TestObservability_SpanKindServer(t *testing.T) {
 }
 
 // TestObservability_TraceIDInContext：unary 与 stream 的 handler ctx 内
-// contextx.TraceIDFromContext 必须非空非全零（审计-链路关联修复防回归
-// 锚点——audit/authn/crudbridge 的 TraceIDFromContext 消费依赖）。
-// stream 用例刻意不带 incoming metadata：回归此前「仅含 metadata 才包装
-// 流」导致整类流的 enriched ctx（trace_id/日志属性）丢失。
+// contextx.TraceIDFromContext 必须非空非全零（audit/authn/crudbridge 的
+// TraceIDFromContext 消费依赖）。
+// stream 用例刻意不带 incoming metadata：锁住「无 metadata 的流同样被包装」，
+// 防止整类流的 enriched ctx（trace_id/日志属性）丢失。
 func TestObservability_TraceIDInContext(t *testing.T) {
 	// unary
 	var unaryTID string

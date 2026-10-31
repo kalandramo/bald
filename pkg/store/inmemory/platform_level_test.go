@@ -17,12 +17,11 @@ type platformDoc struct {
 	Name string
 }
 
-// TestStore_PlatformLevel_SkipsTenantIsolation 锁定 WithPlatformLevel 豁免
-// （2026-09-24，缺陷 D20）。
+// TestStore_PlatformLevel_SkipsTenantIsolation 锁定 WithPlatformLevel 豁免。
 //
-// 背景：Get/List/Count/Delete 无条件调 applyIsolation → mergeTenant
-// 自动注入 `tenant_id = ?`。对**无 tenant_id 列**的平台级表，这会产生
-// `no such column: tenant_id`（bald-admin 实测 13 个 e2e 500）。
+// Get/List/Count/Delete 会无条件调 applyIsolation → mergeTenant 自动注入
+// `tenant_id = ?`。对**无 tenant_id 列**的平台级表（全平台共享数据，表里没有
+// 租户维度），这会产生 `no such column: tenant_id`。
 //
 // 本测试在 inmemory 后端锁定「豁免生效」：声明 WithPlatformLevel 后，带租户 ctx
 // 的查询**不再被租户条件收窄**（本实体也无 TenantID 字段可供收窄）。

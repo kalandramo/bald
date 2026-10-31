@@ -12,10 +12,9 @@ import (
 
 // TestEnv_UnderscoreContractField 锁住 env 表达含下划线契约字段的能力。
 //
-// 背景：environMap 把 env 名的下划线当点路径分隔符，于是
-// BALD_ADMIN_CONFIG_NACOS_SERVER_ADDRS 落成 config.nacos.server.addrs（4 层），
-// 而契约字段名是 server_addrs（3 层）——lookupField 平级匹配失败，
-// DiscardUnknown 静默丢弃。本测试即该缺陷的回归锁。
+// 契约：environMap 把 env 名的下划线当点路径分隔符，而契约字段名本身
+// 可能含下划线（如 server_addrs）。lookupField 必须平级匹配成功，
+// 否则该值会被 DiscardUnknown 静默丢弃。本测试即该契约的回归锁。
 func TestEnv_UnderscoreContractField(t *testing.T) {
 	t.Setenv("BALD_ADMIN_CONFIG_NACOS_SERVER_ADDRS", "10.0.0.1:8848")
 	t.Setenv("BALD_ADMIN_CONFIG_NACOS_DATA_ID", "app.yaml")

@@ -1,6 +1,6 @@
 package codegen
 
-// manifest_test.go 覆盖 M4 / I8：生成确定性（双跑字节一致）与清单校验
+// manifest_test.go 覆盖生成确定性（双跑字节一致）与清单校验
 // （--check 干净时零差异、有差异时失败并列出路径；--adopt 是唯一覆盖语义）。
 
 import (
@@ -40,7 +40,7 @@ func snapshotTree(t *testing.T, root string) map[string][]byte {
 }
 
 // TestGen_Deterministic 双跑字节一致（含清单）：同一份声明两次生成到不同目录，
-// 文件集合与每个文件的字节完全相同——I8「生成确定」。
+// 文件集合与每个文件的字节完全相同——生成确定性。
 func TestGen_Deterministic(t *testing.T) {
 	dirA, dirB, specDir := t.TempDir(), t.TempDir(), t.TempDir()
 	specPath := writeSpecJSON(t, specDir, guardFixture())
@@ -69,7 +69,7 @@ func TestGen_Deterministic(t *testing.T) {
 }
 
 // TestGen_CheckClean 首次生成后 --check 干净；owned 文件被改动、清单缺失或
-// 清单过期时 --check 失败并指出差异路径（I8「--check 零 diff」）。
+// 清单过期时 --check 失败并指出差异路径（--check 零 diff）。
 func TestGen_CheckClean(t *testing.T) {
 	dir := t.TempDir()
 	specPath := writeSpecJSON(t, dir, guardFixture())

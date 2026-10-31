@@ -30,8 +30,8 @@
 //	除本地文件 + 环境变量之外，配置装载器还提供 RemoteSource 抽象与统一热更新钩子。
 //
 // 关键契约（见 appkit_test.go 的回归测试）：
-//   - BUG-1：stopAll 传入未取消的 ctx，stopTimeout 才真正生效；
-//   - BUG-3：任一服务器 Start 崩溃，其余服务器被级联停止；
+//   - stopAll 传入未取消的 ctx，stopTimeout 才真正生效；
+//   - 任一服务器 Start 崩溃，其余服务器被级联停止；
 //   - 防重入：重复 Run 返回 ErrAlreadyRunning；
 //   - 可观察：Run 结束后 Done() 关闭，Err() 反映退出错误。
 //

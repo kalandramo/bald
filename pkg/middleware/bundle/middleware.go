@@ -10,11 +10,11 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// 契约桥：server.http.middleware.* → bundle Option（的根因修复）
+// 契约桥：server.http.middleware.* → bundle Option
 //
-// 背景：本仓库曾有一个**系统性缺口**——契约 `server.http.middleware` 下七个
-// 子段（recovery/cors/logging/request_id/tracing/rate_limit/timeout）在生成
-// 代码之外**全部零消费者**（grep GetRecovery/GetCors/... 无命中）。后果分三类：
+// 背景：契约 `server.http.middleware` 下七个子段
+// （recovery/cors/logging/request_id/tracing/rate_limit/timeout）若无消费者，
+// 后果分三类：
 //
 //  1. 能力在跑但**配置面未接线**（recovery/request_id/logging）：bundle.Gin()
 //     无条件挂这三个中间件，但用的是硬编码/零参版本，契约字段
@@ -24,7 +24,7 @@ import (
 //  3. **能力完全不存在**（tracing/timeout）：连中间件都没有。
 //
 // 根因是缺一座桥——没有任何框架组件把契约段翻译成链。本文件提供它：
-// FromMiddleware 一次翻译全部七段（逐段实现见各 wave 注释）。
+// FromMiddleware 一次翻译全部七段（逐段实现见各段注释）。
 // ---------------------------------------------------------------------------
 
 // FromMiddleware 把契约 `server.http.middleware` 段翻译为一组 bundle Option。

@@ -55,7 +55,7 @@ func FindUnknownKeys(m map[string]any, msg proto.Message, allowTop ...string) []
 // fieldLookupCache 按 message 描述符缓存「小写键名 → 字段描述符」查找表
 // （proto 原名与 JSON name 两个形态）。FindUnknownKeys 的调用节奏是启动期
 // 一次 + 每次配置热更重校验，每次全树扫描都经过同一批契约 message——
-// 逐层重建查找表（map 分配随深度×段数放大）曾是其分配的最大来源之一。
+// 逐层重建查找表（map 分配随深度×段数放大）是其主要分配来源。
 //
 // 缓存键是 protoreflect.MessageDescriptor，值完全由该描述符派生：proto
 // 描述符进程内不可变（compiled proto 的 filedesc 注册后只读，dynamicpb
@@ -67,8 +67,8 @@ type fieldLookup struct {
 	byName map[string]protoreflect.FieldDescriptor
 }
 
-// lookupFields 返回 md 的查找表，首次访问时构建。构建逻辑与旧的「逐层重建」
-// 版本逐字一致：同序遍历字段、先小写 proto 名后小写 JSON 名，同名键后写覆盖。
+// lookupFields 返回 md 的查找表，首次访问时构建。遍历顺序与键覆盖规则：
+// 同序遍历字段、先小写 proto 名后小写 JSON 名，同名键后写覆盖。
 func lookupFields(md protoreflect.MessageDescriptor) *fieldLookup {
 	if v, ok := fieldLookupCache.Load(md); ok {
 		return v.(*fieldLookup)
@@ -91,8 +91,7 @@ func lookupFields(md protoreflect.MessageDescriptor) *fieldLookup {
 //
 // isTop 为 true 时，未知键先查白名单——命中则整棵子树跳过（业务段）。
 // 参数是描述符而非消息实例：扫描只需要字段元信息，传 MessageDescriptor
-// 免去每层递归构造 dynamicpb 消息的分配（旧实现 dynamicpb.NewMessage 的
-// 唯一用途就是取它的 Descriptor）。
+// 免去每层递归构造 dynamicpb 消息只为取 Descriptor 的分配。
 func findUnknown(md protoreflect.MessageDescriptor, m map[string]any, path string,
 	allowed map[string]bool, isTop bool, out *[]string) {
 
@@ -108,9 +107,9 @@ func findUnknown(md protoreflect.MessageDescriptor, m map[string]any, path strin
 			*out = append(*out, path+"."+k)
 			continue
 		}
-		// 路径串推迟到实际使用处拼接（未知键收集或下钻递归）：旧实现
-		// 「先拼后用」对每个已知标量叶键也付一次 path+"."+k 分配，
-		// 而该值在这些路径上从不被读取——两种写法产出的路径串逐字节相同。
+		// 路径串推迟到实际使用处拼接（未知键收集或下钻递归）：已知标量
+		// 叶键上该值从不被读取，提前拼接等于用一次分配换一个没人读的串，
+		// 且两种写法产出的路径串逐字节相同。
 		switch {
 		case fd.IsList():
 			if child := fd.Message(); child != nil {

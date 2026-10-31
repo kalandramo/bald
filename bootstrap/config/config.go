@@ -1,11 +1,11 @@
 // Package config 提供 bald 的配置装载器（merge-store 内核，viper 已退役）。
 //
-// 定位（2026-09-05 收编自独立 module bald/config）：配置装载的事实方向是
+// 定位：配置装载的事实方向是
 // bootstrap 根包的 Registry（契约 Config 段 → bconfig 源装配）；本包是
 // appkit 现行依赖的统一装载内核，基于「命名层（Layer）+ map 深合并」实现，
 // 类型规范化交由 bconf.UnmarshalMap。
 //
-// 归一模型（2026-09-05）：Store 只有一种动态源机制——命名层。远程桥、
+// 归一模型：Store 只有一种动态源机制——命名层。远程桥、
 // 契约源（Registry 装配）、本地文件都是 layerM 中的一层；各层 reader 实现
 // bconfig.ValueWatcher 即参与热更新（变更 → decode → 层缓存 → 全量重合并）。
 //
@@ -116,8 +116,8 @@ type Options struct {
 	// 这是刻意的：要放行它们，应把键挪到独立顶层段，而非让框架猜。
 	//
 	// 开启后能捕获的最有价值场景：env / 配置文件里把 server.http 写成
-	// server.htpp 这类笔误——此前被 DiscardUnknown 静默丢弃（进程照常启动、
-	// 行为却不对），是本项目退役 viper 的原始动因。
+	// server.htpp 这类笔误——默认会被 DiscardUnknown 静默丢弃（进程照常
+	// 启动、行为却不对）。
 	StrictContract bool
 }
 
@@ -319,7 +319,7 @@ func (s *Store) remerge() map[string]any {
 }
 
 // MountEnv 以 name 派生 env 前缀（NAME_ 语义）挂载 env 层并全量重合并
-// （两遍合并的第二遍，装配层评估 B6）。与 DeferEnv 配对使用；对已含 env 层的
+// （两遍合并的第二遍）。与 DeferEnv 配对使用；对已含 env 层的
 // Store 调用等价于换前缀重建 env 层（幂等收口在 remerge，快照发布语义不变）。
 // 之后任一层 watch 触发的重合并照常叠加 env 层——热更语义不因延迟挂载回归。
 func (s *Store) MountEnv(name string) {

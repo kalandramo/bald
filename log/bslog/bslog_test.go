@@ -44,8 +44,8 @@ func TestFilterRedactsSensitiveKey(t *testing.T) {
 	}
 }
 
-// TestFilterRedactsViaWith 验证 D2：logger.With 固化的敏感属性同样被脱敏
-// （修复前 filterHandler.WithAttrs 不过滤，属性绕过 Handle 直接落盘）。
+// TestFilterRedactsViaWith 验证 logger.With 固化的敏感属性同样被脱敏——
+// 属性若绕过 Handle 直接落盘，过滤形同虚设。
 func TestFilterRedactsViaWith(t *testing.T) {
 	buf := &bytes.Buffer{}
 	l := New(NewOptions(), withWriter(buf), WithFilter(FilterKey("password")))
@@ -60,7 +60,7 @@ func TestFilterRedactsViaWith(t *testing.T) {
 	}
 }
 
-// TestFilterRedactsViaWithAttrsOption 验证 D2：构造期 WithAttrs Option 固化的
+// TestFilterRedactsViaWithAttrsOption 验证构造期 WithAttrs Option 固化的
 // 敏感属性同样被脱敏。
 func TestFilterRedactsViaWithAttrsOption(t *testing.T) {
 	buf := &bytes.Buffer{}

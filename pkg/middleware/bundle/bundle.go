@@ -1,15 +1,15 @@
 // Package bundle 是横切关注点门面（见 docs/devel/zh-CN/Bald 中间件设计.md）。
 //
-// 解决的问题：pkg/middleware/{gin,grpc} 的中间件/拦截器此前只能散装手挂，
-// 正确链序（Error 最外、Authn→Audit→Authz）只活在文档与纪律里，是坑清单中
-// 最大的「隐性知识税」。Bundle 一次构造、双传输产出、链序由框架固化：
+// 解决的问题：pkg/middleware/{gin,grpc} 的中间件/拦截器若散装手挂，
+// 正确链序（Error 最外、Authn→Audit→Authz）只活在文档与纪律里，是最大的
+// 「隐性知识税」。Bundle 一次构造、双传输产出、链序由框架固化：
 //
 //	b := bundle.New(
 //	    bundle.Authn(authenticator),   // 依赖实例经构造器注入（全局 audit 兜底已删除）
 //	    bundle.Authz(authorizer),
 //	    bundle.Audit(auditor),
 //	    bundle.Metrics(recorder),
-//	    bundle.Normalized(),          // 内置 P9 归一化默认（双命名空间回归从结构上杜绝）
+//	    bundle.Normalized(),          // 内置传输中立归一化默认（双命名空间回归从结构上杜绝）
 //	)
 //	router.Use(b.Gin()...)
 //	grpcSrv := server.NewGRPCServerWithRegister(grpcCfg, b.GRPCChain(), register)
@@ -51,7 +51,7 @@ type Bundle struct {
 	auditor       audit.Auditor
 	recorder      metrics.Recorder
 
-	// normalized 开启 P9 传输中立归一化：HTTP 侧接 authz.DefaultHTTPObject/
+	// normalized 开启传输中立归一化：HTTP 侧接 authz.DefaultHTTPObject/
 	// DefaultHTTPAction，gRPC 侧接 authz.DefaultGRPCObject/DefaultGRPCAction，
 	// 使 REST 与 gRPC 在同一份 RBAC 策略/审计语义下工作。
 	normalized bool
@@ -69,7 +69,7 @@ type Bundle struct {
 	// tracing 为 true 时挂 span-only 追踪层（契约 tracing 段存在即启用）。
 	tracing bool
 
-	// rateLimiter 是配置驱动的限流层（gin 专属，D5）。契约
+	// rateLimiter 是配置驱动的限流层（gin 专属）。契约
 	// server.http.middleware.rate_limit 经 RateLimitFromMiddleware 构造后经
 	// RateLimit 注入；nil 表示未启用。gRPC 链无对应段（契约 Grpc.Middleware
 	// 不含 rate_limit）。
@@ -95,7 +95,7 @@ func Audit(a audit.Auditor) Option { return func(b *Bundle) { b.auditor = a } }
 // （审计中间件是指标埋点的载体，两者同源 emit）。
 func Metrics(r metrics.Recorder) Option { return func(b *Bundle) { b.recorder = r } }
 
-// Normalized 显式开启 P9 归一化默认（authz.Default{HTTP,GRPC}{Object,Action}）。
+// Normalized 显式开启归一化默认（authz.Default{HTTP,GRPC}{Object,Action}）。
 // 归一化默认开启（核心收益——根治 REST/gRPC 双命名空间 RBAC——不应
 // 依赖调用方记得 opt-in），本 Option 保留为显式声明（幂等）。
 func Normalized() Option { return func(b *Bundle) { b.normalized = true } }
@@ -110,7 +110,7 @@ func CORS(cfg *ginmw.CORSConfig) Option { return func(b *Bundle) { b.corsCfg = c
 // Secure 附加 gin 安全响应头中间件（gRPC 链无对应层）。
 func Secure() Option { return func(b *Bundle) { b.secure = true } }
 
-// RateLimit 附加配置驱动的限流层（gin 专属，D5）。rl 通常来自
+// RateLimit 附加配置驱动的限流层（gin 专属）。rl 通常来自
 // [RateLimitFromMiddleware]（契约 server.http.middleware.rate_limit → 中间件）。
 // 传 nil 等同不设置（与 CORS 惯例一致：缺省不装配）。
 //
@@ -216,7 +216,7 @@ func (b *Bundle) Gin() []gin.HandlerFunc {
 //
 // Recovery 紧随 Error（第二外层）：handler/内层拦截器 panic 被捕获并转为
 // *berrors.Internal，由最外层 Error 收口为 gRPC status（与 gin 链首道
-// Recovery 对称，D5）。
+// Recovery 对称）。
 //
 // 需自行组装 *grpc.Server 时用：
 //
@@ -248,7 +248,7 @@ func (b *Bundle) GRPCChain() []grpc.ServerOption {
 
 // ginAuthn 组装 gin 认证中间件：把 bundle 的 auditor 注入 authn 层——审计中间件
 // 注册在 Authn 内侧，认证失败 abort 后不再执行，authn abort 路径的审计事件由
-// authn 层显式发出（与请求审计同一后端，D3）。
+// authn 层显式发出（与请求审计同一后端）。
 func (b *Bundle) ginAuthn() gin.HandlerFunc {
 	var opts []ginmw.AuthnOption
 	if b.auditor != nil {
@@ -266,7 +266,7 @@ func (b *Bundle) grpcAuthn() grpc.UnaryServerInterceptor {
 	return grpcmw.AuthnInterceptor(b.authenticator, opts...)
 }
 
-// ginAuthz 组装 gin 授权中间件（按需注入 P9 归一化 resolver）。
+// ginAuthz 组装 gin 授权中间件（按需注入归一化 resolver）。
 func (b *Bundle) ginAuthz() gin.HandlerFunc {
 	var opts []ginmw.AuthzOption
 	if b.normalized {
@@ -299,7 +299,7 @@ func (b *Bundle) ginAudit() gin.HandlerFunc {
 	return ginmw.AuditMiddleware(opts...)
 }
 
-// grpcAuthz 组装 gRPC 授权拦截器（按需注入 P9 归一化 resolver）。
+// grpcAuthz 组装 gRPC 授权拦截器（按需注入归一化 resolver）。
 func (b *Bundle) grpcAuthz() grpc.UnaryServerInterceptor {
 	var opts []grpcmw.AuthzOption
 	if b.normalized {

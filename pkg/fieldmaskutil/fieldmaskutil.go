@@ -1,8 +1,8 @@
 // Package fieldmaskutil 提供 proto FieldMask 的过滤、剪除、覆写与校验。
 //
-// 自 bald-utils/fieldmaskutil 吸收（2026-09-10）：proto FieldMask 与 bald
-// proto 契约（storev1/crudbridge）天然相关，PATCH 部分更新是 CRUD 标配。
-// 原实现基于 protoreflect 递归遍历，支持标量/消息/重复字段/map。
+// proto FieldMask 与 bald proto 契约（storev1/crudbridge）天然相关，PATCH
+// 部分更新是 CRUD 标配。实现基于 protoreflect 递归遍历，支持标量/消息/
+// 重复字段/map。
 package fieldmaskutil
 
 import (

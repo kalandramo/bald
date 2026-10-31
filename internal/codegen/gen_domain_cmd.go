@@ -34,7 +34,7 @@ api/protos、proto），失配报错指明域、proto 文件与实际声明。�
 （--adopt 覆盖）；域包骨架 seeded（生成一次）。--check 零写校验生成物与
 清单（domains.manifest.json）是否同声明一致。
 
-绑定生成（Q5 D1 默认开启）：bind 文件 import proto 的 Go 类型与
+绑定生成（默认开启）：bind 文件 import proto 的 Go 类型与
 bald/transport/web。两条前置由生成期校验：transport/web 缺失给出 go get 修法；
 proto Go 类型缺失时先在 --out 根执行 --proto-cmd（默认 buf generate），执行
 失败或仍无产物即硬错误。--check 只读，不执行外部命令，缺失时直接给出修法。

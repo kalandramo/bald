@@ -1,6 +1,6 @@
 package metricshttp
 
-// metricshttp_test.go 从 appkit/observability_test.go 迁入（B7 下沉）：
+// metricshttp_test.go 覆盖暴露端监听面契约：
 // 监听面契约（Start 起独立端口、自定义路径生效、缺省值钉住）。
 
 import (

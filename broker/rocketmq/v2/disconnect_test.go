@@ -23,9 +23,8 @@ func (f *fakeSubscriber) Unsubscribe(removeFromManager bool) error {
 
 // TestDisconnect_ClosesSubscribers Disconnect 必须注销并清空全部订阅者。
 //
-// 缺陷：Disconnect 此前只 Shutdown producers，完全不管 b.subscribers——
-// consumer 与其消费 goroutine 在停机时不被注销（对齐 kafka 的
-// `b.subscribers.Clear()` 才是正确范式）。字段 subscribers 归一化存在却没人清。
+// consumer 与其消费 goroutine 必须随停机注销（对齐 kafka 的
+// `b.subscribers.Clear()`），否则订阅者只增不减、消费协程泄漏。
 func TestDisconnect_ClosesSubscribers(t *testing.T) {
 	b := NewBroker().(*rocketmqBroker)
 	b.connected = true

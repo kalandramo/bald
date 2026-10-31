@@ -36,11 +36,10 @@ func TestTree_AuthzClosedLoop(t *testing.T) {
 	}
 	// -short 跳过，与计时测试（TestTree_EndToEndTimed）同口径：全链路
 	// （gen→tidy→build→serve→停机）分钟级墙钟且起真实服务，不混入 -short
-	// 主循环（ci.yml 对 -short 全家仅给 5m 包级超时；本测试此前无守卫随
-	// -short 上 runner，曾致家族红）。CI 全跑
-	// 需在 ci.yml 独立 step 并列 -run——脚手架外改动，另行处理。
+	// 主循环（ci.yml 对 -short 全家仅给 5m 包级超时）。CI 全跑
+	// 需在 ci.yml 独立 step 并列 -run。
 	if testing.Short() {
-		t.Skip("生成工程 authz 闭环 -short 跳过，与判据④计时同口径由 CI 独立 step 全跑")
+		t.Skip("生成工程 authz 闭环 -short 跳过，与端到端计时同口径由 CI 独立 step 全跑")
 	}
 
 	// 1. gen app + gen domain（参考夹具；端口换空闲值，避免并发会话冲突）。

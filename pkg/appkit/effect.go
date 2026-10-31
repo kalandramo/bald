@@ -1,10 +1,9 @@
 // effect.go 实现效应账本（见 docs/devel/zh-CN/应用框架设计.md）。
 //
-// 背景（对照 Cordis 论文的时间可组合性）：bald 的全局注册点
-// （store.RegisterTenant / log.SetLogger 等进程级注册点）
-// 此前都是不可逆效应——对共享环境的写入没有逆操作记录，覆盖即丢弃旧值。
+// 背景：bald 的全局注册点（store.RegisterTenant / log.SetLogger 等进程级
+// 注册点）若没有逆操作记录，对共享环境的写入就是不可逆效应——覆盖即丢弃旧值。
 // 进程级优雅停机（三阶段）已经落地，但组件级（进程内）的「卸载零残骸」
-// 完全缺失，导致：e2e 测试全局污染、重复注册语义靠约定（InitBridges 幂等）。
+// 仍缺失，导致：e2e 测试全局污染、重复注册语义靠约定（InitBridges 幂等）。
 //
 // 效应账本把这些约定变成结构保证：任何全局写入配套登记一条逆操作（undo），
 // 停机（或启动失败回滚）时逆序回放，系统恢复到装配前的干净状态
@@ -39,8 +38,8 @@ type effectEntry struct {
 	undo func(ctx context.Context) error
 }
 
-// effectOpt 登记一条可逆效应（mech.Effect 的引擎内部写入面，B5 下沉后
-// appkit 侧不再导出）。undo 在停机（stopAll 阶段 0，先于 BeforeStop 钩子）
+// effectOpt 登记一条可逆效应（mech.Effect 的引擎内部写入面，
+// appkit 侧不导出）。undo 在停机（stopAll 阶段 0，先于 BeforeStop 钩子）
 // 或启动失败回滚时**逆序**执行（后注册的先撤销，与依赖建立顺序对称）。
 //
 // 契约（由 effect_test.go 固化）：

@@ -160,7 +160,7 @@ func (m *metricsMem) all() []metricsCall {
 	return out
 }
 
-// TestAuditMiddleware_MetricsEmitted 验证 M8：REST 审计同源 emit 指标。
+// TestAuditMiddleware_MetricsEmitted 验证 REST 审计同源 emit 指标。
 func TestAuditMiddleware_MetricsEmitted(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	a := &auditMem{}

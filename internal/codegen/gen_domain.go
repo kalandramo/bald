@@ -11,14 +11,13 @@ package codegen
 //   - handler/convert/<d>.gen.go：逐 RPC 授权动作投影（与
 //     pkg/authz.DefaultGRPCAction 同源）；seed 策略行与 authz/alias.gen.go 的
 //     DefaultActions 以此对账。
-//   - authz/alias.gen.go：授权归一化别名表 + 默认动作聚合（proto service 派生，
-//     D2 §2.4 #14）。
+//   - authz/alias.gen.go：授权归一化别名表 + 默认动作聚合（proto service 派生）。
 //   - 路由与 gRPC 注册的执行权在引擎，域声明值自持（appkit.Domain.Routes /
 //     Services）；生成物不再产出 apiserver 侧的挂载镜像。
 //   - <go_package>/domain.gen.go：域声明值骨架（生成一次，仅当域包尚无导出
 //     Domain 时落盘；既有域包（如 _example/bald/greetv1）消费不覆盖）。
 //   - handler/gin/<d>.bind.gen.go + routes/<d>.gen.go：google.api.http 注解派生
-//     的 gin 绑定与 appkit.Route 清单（Q5 D1 起**默认生成**——注解是唯一真相源，
+//     的 gin 绑定与 appkit.Route 清单（**默认生成**——注解是唯一真相源，
 //     不生成绑定等于把 REST 面留给手写代码）。前置缺失时按 --proto-cmd 编排
 //     proto 阶段；--no-bind 是显式逃生口，--check 零写入故只报修法不执行。
 //
@@ -46,17 +45,17 @@ type domainOptions struct {
 	OutDir       string // --out：产出根（默认 .）
 	Manifest     string // --manifest：域清单落盘路径（默认 internal/bootstrap/domains.gen.go）
 	APIServerDir string // --apiserver-dir：apiserver 目录名（默认取 layout.apiserver_dir 否则 apiserver；传 - 跳过 apiserver 侧产物）
-	Adopt        bool   // --adopt：覆盖已存在的 owned 文件（--force 的替代，B5）
-	Check        bool   // --check：只校验不落盘（I8；有差异即失败）
+	Adopt        bool   // --adopt：覆盖已存在的 owned 文件
+	Check        bool   // --check：只校验不落盘（有差异即失败）
 	// NoBind 关闭 google.api.http 注解派的 gin 绑定与路由清单（--no-bind）。
 	// 绑定默认生成：注解是唯一真相源；显式逃生口留给「proto 阶段不归本命令管」
 	// 或「REST 面完全手写」的树。
 	NoBind bool
-	// RESTBind 是 --rest-bind 的历史开关（Q5 D1 之前绑定默认关闭）。绑定默认
-	// 生成后它等价于不给——保留只为旧脚本继续可用，给 --no-bind 会让它自相矛盾。
+	// RESTBind 是 --rest-bind 兼容开关（绑定已默认生成）。它等价于不给——
+	// 保留只为旧脚本继续可用，给 --no-bind 会让它自相矛盾。
 	RESTBind bool
 	// NoRoutes 与绑定生成连用：只产 handler 绑定，跳过 appkit.Route 清单——
-	// 域保留手写 RouteTable（Q5 的逃逸面：生成执行、清单自持）。
+	// 域保留手写 RouteTable（逃逸面：生成执行、清单自持）。
 	NoRoutes bool
 	// ProtoCmd 是绑定前置（proto 的 Go 类型）缺失时执行的 proto 生成命令，
 	// 在 --out 根以 shell 语义执行。默认 "buf generate"。

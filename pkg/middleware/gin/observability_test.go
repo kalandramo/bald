@@ -15,7 +15,7 @@ import (
 
 // TestObservability_NoOpTraceIDs：未装配全局 TracerProvider（no-op tracer）时，
 // 中间件挂到 ctx 属性流的 trace_id/span_id 必须是随机 ID 而非全零，且每请求唯一
-// ——否则日志无法按请求关联（回归：曾恒为 32/16 个 0）。
+// ——否则日志无法按请求关联（全零 ID 会失去关联能力）。
 func TestObservability_NoOpTraceIDs(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -68,8 +68,8 @@ func (r *spanKindRecorder) Start(ctx context.Context, name string, opts ...trace
 }
 
 // TestObservability_SpanKindServer：inbound HTTP span 必须 SpanKindServer
-// （OTel 语义；spanmetrics 服务端聚合与服务拓扑图依赖该值——回归：曾缺省
-// internal 被漏计）。同包测试直接替换包级 tracer，零全局 provider 污染。
+// （OTel 语义；spanmetrics 服务端聚合与服务拓扑图依赖该值；缺省 internal
+// 会被漏计）。同包测试直接替换包级 tracer，零全局 provider 污染。
 func TestObservability_SpanKindServer(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := &spanKindRecorder{}
@@ -91,10 +91,10 @@ func TestObservability_SpanKindServer(t *testing.T) {
 }
 
 // TestObservability_TraceIDInContext：Observability 必须把 trace_id 注入
-// contextx（审计-链路关联修复的防回归锚点）——handler 内
-// contextx.TraceIDFromContext 必须非空且与日志属性流的 trace_id 同值。
-// 背景：此前 trace_id 只进日志属性流，audit/authn/crudbridge
-// 五处 TraceIDFromContext 消费恒读空，审计事件 trace_id 字段恒空。
+// contextx——handler 内 contextx.TraceIDFromContext 必须非空且与日志属性流的
+// trace_id 同值。
+// 若只进日志属性流，audit/authn/crudbridge 五处 TraceIDFromContext 消费将
+// 恒读空，审计事件 trace_id 字段恒空。
 func TestObservability_TraceIDInContext(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()

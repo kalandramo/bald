@@ -18,15 +18,15 @@ import (
 )
 
 // AuditOption 配置 AuditInterceptor 的请求→审计三元组提取方式（与 AuthzInterceptor 对称）。
-// 复用 P9 的归一化原语，使审计与授权在同一份语义（object/action）下记录。
+// 复用归一化原语，使审计与授权在同一份语义（object/action）下记录。
 type AuditOption func(*auditOptions)
 
 type auditOptions struct {
 	objectResolver  authz.ObjectResolver
 	actionResolver  authz.ActionResolver
 	subjectResolver func(ctx context.Context, info *grpc.UnaryServerInfo) string
-	// auditor 指定审计后端；nil 时退化为 NopAuditor（B8：全局审计器已删除，
-	// 显式注入是唯一通道——bundle 自动注入；独立构造经 AuditWithAuditor）。
+	// auditor 指定审计后端；nil 时退化为 NopAuditor（显式注入是唯一通道——
+	// bundle 自动注入；独立构造经 AuditWithAuditor）。
 	auditor audit.Auditor
 	// metricsRecorder 同步 emit 指标（与审计同源）；nil 时 no-op。
 	metricsRecorder metrics.Recorder
@@ -62,7 +62,7 @@ func AuditWithMetrics(rec metrics.Recorder) AuditOption {
 //
 // 在 handler 返回后记录一条 AuditEvent：subject/tenant 来自 AuthClaims，object/action
 // 默认取自 FullMethod/"CALL"（与 AuthzInterceptor 默认一致），可用 AuditWithObjectResolver/
-// AuditWithActionResolver 接入 P9 归一化；Result 由返回 error 推导（PermissionDenied→deny、
+// AuditWithActionResolver 接入归一化；Result 由返回 error 推导（PermissionDenied→deny、
 // 其它 error→error、nil→allow）。审计写入失败仅记日志，不影响响应。
 //
 // 典型用法（与 AuthzInterceptor 归一化对称）：
@@ -113,10 +113,10 @@ func AuditInterceptor(opts ...AuditOption) grpc.UnaryServerInterceptor {
 			ev.Error = err.Error()
 		}
 		recordSafely(auditor, ctx, ev)
-		// M8 指标埋点：协议维度走 semconv 指标（rpc.server.call.duration，
+		// 指标埋点：协议维度走 semconv 指标（rpc.server.call.duration，
 		// rpc.method=FullMethod、rpc.response.status_code=codes.Code(err)），
-		// 审计三元组走 bald_audit_events_total（正交拆分，见《Bald 指标
-		// 设计》），旁路不阻断。gRPC 无 active_requests 语义
+		// 审计三元组走 bald_audit_events_total（正交拆分，见
+		// docs/devel/zh-CN/Bald 指标设计.md），旁路不阻断。gRPC 无 active_requests 语义
 		// （semconv 未定义），不调 RecordActive。
 		emitMetricsSafely(rec, ctx, metrics.Event{
 			Object: object,
@@ -133,8 +133,8 @@ func AuditInterceptor(opts ...AuditOption) grpc.UnaryServerInterceptor {
 }
 
 // emitMetricsSafely 指标旁路记录：Recorder panic 仅降级记日志，绝不影响响应
-// （与 auditor 的 recordSafely 同一纪律，此前 metrics.Record 未被保护，
-// panic 会打穿 gRPC 链——gRPC 此前也没有 Recovery 兜底）。
+// （与 auditor 的 recordSafely 同一纪律；不加保护时 panic 会打穿 gRPC 链，
+// 且链上的 Recovery 只能兜底、无法保留已写入的响应）。
 func emitMetricsSafely(rec metrics.Recorder, ctx context.Context, ev metrics.Event, transport metrics.Transport, seconds float64) {
 	if rec == nil {
 		return

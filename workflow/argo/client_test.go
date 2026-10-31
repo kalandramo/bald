@@ -221,9 +221,9 @@ func TestPhaseIsTerminal(t *testing.T) {
 	}
 }
 
-// H3 回归：GetWorkflowLogs 此前绕过 doRequest 直接 io.ReadAll，不检查 HTTP
-// 状态码——401/404/500 的错误响应体被当正常日志正文返回且 err=nil。
-// 契约：非 2xx 必须返回 error（与同文件 doRequest 一致）。
+// 契约：GetWorkflowLogs 必须检查 HTTP 状态码——非 2xx 返回 error
+// （与同文件 doRequest 一致），而非把 401/404/500 的错误响应体当正常日志正文
+// 返回且 err=nil。
 func TestGetWorkflowLogs_RejectsNon2xx(t *testing.T) {
 	cases := []struct {
 		name   string
