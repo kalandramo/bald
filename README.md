@@ -16,12 +16,34 @@
 
 ## 30 秒最小路径
 
-```bash
-go install github.com/kalandramo/bald/cmd/bald@latest
-bald gen app --spec appspec.json
+在 Go module 根目录放一份 `appspec.json`（最小声明只需 `meta` + `bootstrap.server`）：
+
+```json
+{
+  "meta": {
+    "name": "demo-svc",
+    "module": "github.com/you/demo-svc",
+    "desc": "我的第一个 bald 服务"
+  },
+  "bootstrap": {
+    "server": {
+      "http": { "addr": ":8080" },
+      "grpc": { "addr": ":9090" }
+    }
+  }
+}
 ```
 
-声明一份最小 AppSpec，一条命令生成整套可编译骨架。分步指南见[快速入门](docs/guide/zh-CN/quickstart/README.md)与[用 bald CLI 起步新服务](docs/guide/zh-CN/用%20bald%20CLI%20起步新服务.md)。
+然后生成、拉起：
+
+```bash
+go install github.com/kalandramo/bald/cmd/bald@latest
+go mod init github.com/you/demo-svc   # 尚未 init 时执行，与 meta.module 一致
+bald gen app --spec appspec.json
+go mod tidy && go run ./cmd/demo-svc
+```
+
+一条命令生成整套可编译骨架，`curl :8080/healthz` 即验证探针。审计、组件、能力、业务域等更完整的声明见[快速入门](docs/guide/zh-CN/quickstart/README.md)与[用 bald CLI 起步新服务](docs/guide/zh-CN/用%20bald%20CLI%20起步新服务.md)。
 
 ## 仓库结构
 
