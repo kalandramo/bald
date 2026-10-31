@@ -6,12 +6,6 @@
 
 对外口径是「**声明式装配**」并标注等级：装配拓扑由纯函数算出并打印。当前 L1–L4 达成（L4 = 节点级 `ReloadPolicy` + `Drift` + `Reconcile`，含 `biz.<path>` 业务段），L5 在生成物维度达成（`_example/bald` 已迁入生成树，`gen app` 与 `gen domain --no-bind` 的 `--check` 均零差异）。判据与口径见 [Bald 装配计划与 doctor](docs/guide/zh-CN/Bald%20装配计划与%20doctor.md)。
 
-融合三方设计精华：
-
-- **onexstack/pkg/app**：启动期 Options + 配置理念（`--config` 由调用方注入）。
-- **Kratos**：`transport.Server` 契约与 `registry.Registrar` 接口形态（注册后端 2026-09-06 起改直连 SDK provider，不再依赖 kratos）。
-- **go-lulu (`wind`)**：自研 App 层精髓——errgroup 并发启停、优雅停机防坑、崩溃级联停止、Run 防重入、可观察通道、`Endpoint()` 动态端口注册。
-
 ## 文档三层导览
 
 | 层 | 回答什么 | 入口 |
