@@ -8,7 +8,7 @@ replace github.com/kalandramo/bald/transport/mcp => ../transport/mcp
 
 require (
 	github.com/google/jsonschema-go v0.4.2
-	github.com/kalandramo/bald/log v0.5.1
+	github.com/kalandramo/bald/log v0.5.4
 	github.com/kalandramo/bald/transport/mcp v0.4.0
 	github.com/mark3labs/mcp-go v1.1.0
 	github.com/spf13/cobra v1.10.2

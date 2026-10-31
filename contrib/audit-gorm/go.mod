@@ -4,9 +4,9 @@ go 1.27.1
 
 require (
 	github.com/glebarez/sqlite v1.11.0
-	github.com/kalandramo/bald v0.29.0
-	github.com/kalandramo/bald/bconf v0.13.0
-	github.com/kalandramo/bald/log v0.5.2
+	github.com/kalandramo/bald v0.32.0
+	github.com/kalandramo/bald/bconf v0.14.0
+	github.com/kalandramo/bald/log v0.5.4
 	gorm.io/gorm v1.25.12
 )
 
@@ -92,14 +92,14 @@ require (
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
-	github.com/kalandramo/bald/bconfig v0.1.0 // indirect
-	github.com/kalandramo/bald/bootstrap v0.13.1 // indirect
+	github.com/kalandramo/bald/bconfig v0.2.1 // indirect
+	github.com/kalandramo/bald/bootstrap v0.13.2 // indirect
 	github.com/kalandramo/bald/health v0.1.1 // indirect
-	github.com/kalandramo/bald/registry v0.3.0 // indirect
+	github.com/kalandramo/bald/registry v0.3.1 // indirect
 	github.com/kalandramo/bald/transport v0.4.0 // indirect
-	github.com/kalandramo/bald/transport/gateway v0.4.0 // indirect
+	github.com/kalandramo/bald/transport/gateway v0.4.1 // indirect
 	github.com/kalandramo/bald/transport/grpc v0.1.1 // indirect
-	github.com/kalandramo/bald/transport/http v0.1.1 // indirect
+	github.com/kalandramo/bald/transport/http v0.1.3 // indirect
 	github.com/magiconair/properties v1.8.5 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect
 	github.com/mattn/go-isatty v0.0.22 // indirect

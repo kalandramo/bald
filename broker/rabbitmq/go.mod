@@ -4,9 +4,9 @@ go 1.27.1
 
 require (
 	github.com/google/uuid v1.6.0
-	github.com/kalandramo/bald/bconf v0.7.2
+	github.com/kalandramo/bald/bconf v0.14.0
 	github.com/kalandramo/bald/broker v0.1.0
-	github.com/kalandramo/bald/log v0.5.1
+	github.com/kalandramo/bald/log v0.5.4
 	github.com/rabbitmq/amqp091-go v1.14.0
 )
 

@@ -3,8 +3,8 @@ module github.com/kalandramo/bald/contrib/store-mongo
 go 1.27.1
 
 require (
-	github.com/kalandramo/bald v0.11.0
-	github.com/kalandramo/bald/bconf v0.13.0
+	github.com/kalandramo/bald v0.32.0
+	github.com/kalandramo/bald/bconf v0.14.0
 	github.com/stretchr/testify v1.12.1
 	go.mongodb.org/mongo-driver/v2 v2.8.0
 )
