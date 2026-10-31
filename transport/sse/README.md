@@ -2,7 +2,7 @@
 
 Server-Sent Events（SSE）是一种基于 HTTP 协议的服务器推送机制。客户端打开一个长连接，服务器通过简单的 `field: value\n` 文本格式持续推送事件。
 
-本模块实现了 `go-wind/transport.Server` 接口，支持多命名流、订阅者管理、事件重放（Last-Event-ID）和可选鉴权。由于 SSE 基于 HTTP，服务器包装了标准 `http.Server`，支持与 `transport/http` 相同的中间件类型，可以与 `go-wind` 应用框架无缝集成。
+本模块实现了 `bald/transport.Server` 接口，支持多命名流、订阅者管理、事件重放（Last-Event-ID）和可选鉴权。由于 SSE 基于 HTTP，服务器包装了标准 `http.Server`，支持与 `transport/http` 相同的中间件类型，可直接纳入 `pkg/appkit` 的生命周期编排。
 
 ## 核心特性
 
@@ -14,7 +14,7 @@ Server-Sent Events（SSE）是一种基于 HTTP 协议的服务器推送机制�
 - **鉴权支持**：内置 Token 提取和鉴权拦截
 - **自定义编解码**：基于 `encoding.Codec` 支持 JSON / Proto / MsgPack 等多种格式
 - **CORS 支持**：可配置 `Access-Control-Allow-Origin`
-- **阻塞式生命周期**：`Start` 阻塞直到 context 取消，兼容 `go-wind` App
+- **阻塞式生命周期**：`Start` 阻塞直到 context 取消，兼容按 Start/Stop 编排的 App 生命周期
 
 ## SSE vs WebSocket
 

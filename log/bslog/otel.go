@@ -20,7 +20,7 @@ import "log/slog"
 //	h := otelslog.NewHandler("bald", otelslog.WithLoggerProvider(provider))
 //	logger := bslog.New(opts, bslog.WithOTelHandler(h))
 //
-// 级别与属性映射复用 onexstack/pkg/otelslog 的 convert 逻辑（slog.Record → OTel log.Record）。
+// 级别与属性映射走 slog.Record → OTel log.Record 的常规转换。
 func WithOTelHandler(h slog.Handler) Option {
 	return WithHandler(h)
 }

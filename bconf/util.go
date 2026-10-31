@@ -96,7 +96,7 @@ func parseFloat64(s string) (float64, error) {
 }
 
 // hostname 返回当前主机名；失败时返回 "unknown"。
-// 供 NewBootstrap 填 App.Id 默认值（对齐 onexstack 的 AppInfo 语义）。
+// 供 NewBootstrap 填 App.Id 默认值。
 func hostname() string {
 	h, err := os.Hostname()
 	if err != nil {

@@ -238,9 +238,9 @@ err := r.Do(ctx, func(ctx context.Context) error {
 
 **代价我们承认**：放弃了它成熟的 `PermanentError` 与 HTTP `Retry-After` 语义，也放弃了社区验证过的边界处理。将来若要支持 `Retry-After`，得自己加扩展点（见「开放问题」）。
 
-### 我们没选 kratos `middleware/retry`
+### 我们没选第三方传输中间件的重试
 
-`kratos/v3` 在本仓只是 `// indirect`（`go.mod`），唯一用途是配置源桥接；`middleware/retry` 全仓零引用。选它会把重试和 HTTP/gRPC 传输绑死——而最需要重试的三处（kafka、etcd、apollo）**都不是 kratos 的传输层**。
+第三方传输中间件的重试全仓零引用。选它会把重试和 HTTP/gRPC 传输绑死——而最需要重试的三处（kafka、etcd、apollo）**都不在那些传输层里**。
 
 ### 我们没选 gRPC 的 service-config 重试
 

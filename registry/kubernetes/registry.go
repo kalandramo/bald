@@ -25,7 +25,7 @@ import (
 )
 
 // Defines the key name of specific fields
-// Kratos needs to cooperate with the following fields to run properly on Kubernetes:
+// The registry needs the following fields to work properly on Kubernetes:
 // bald-service-id: define the ID of the service
 // bald-service-app: define the name of the service
 // bald-service-version: define the version of the service
@@ -74,7 +74,7 @@ const (
 	// AnnotationsKeyMetadata is used to define the metadata of the service
 	AnnotationsKeyMetadata = "bald-service-metadata"
 	// AnnotationsKeyProtocolMap is used to define the protocols of the service
-	// Through the value of this field; Kratos can obtain the application layer protocol corresponding to the port
+	// Through the value of this field; the application layer protocol of each port is obtained
 	// Example value: {"80": "http", "8081": "grpc"}
 	AnnotationsKeyProtocolMap = "bald-service-protocols"
 )

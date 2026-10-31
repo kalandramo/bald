@@ -2,7 +2,7 @@
 
 TCP（传输控制协议）是一种面向连接的、可靠的、基于字节流的传输层通信协议。
 
-本模块提供了一个基于 TCP 的 Socket 服务器，实现了 `go-wind/transport.Server` 接口，支持会话管理、消息类型路由和广播，可以与 `go-wind` 应用框架无缝集成。
+本模块提供了一个基于 TCP 的 Socket 服务器，实现了 `bald/transport.Server` 接口，支持会话管理、消息类型路由和广播，可直接纳入 `pkg/appkit` 的生命周期编排。
 
 ## 核心特性
 
@@ -10,7 +10,7 @@ TCP（传输控制协议）是一种面向连接的、可靠的、基于字节�
 - **消息类型路由**：通过 `RegisterMessageHandler` 注册不同消息类型的处理器
 - **自定义编解码**：基于 `encoding.Codec` 支持 JSON / Proto / MsgPack 等多种格式
 - **广播 / 定向发送**：支持向所有客户端广播或向指定 Session 发送消息
-- **阻塞式生命周期**：`Start` 阻塞直到 context 取消，兼容 `go-wind` App
+- **阻塞式生命周期**：`Start` 阻塞直到 context 取消，兼容按 Start/Stop 编排的 App 生命周期
 
 ## 安装
 

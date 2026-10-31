@@ -18,22 +18,22 @@
 
 ## 背景与动机
 
-### go-wind 的 RegistryAction 把实例丢掉了，注册生命周期没人管
+### 只返回 cleanup 的注册抽象把实例丢掉了，注册生命周期没人管
 
-最初我们想直接复用 go-wind 的注册抽象，直到看清它装配侧的写法：builder 返回的是 cleanup，注册出来的实例被 `_ = reg` 丢弃——于是"谁在启动后 Register、谁在停机前 Deregister"没有答案。`bootstrap/registrar.go`（当时在 `pkg/appkit`）的包注释把这一条写成了设计原则：
+最初我们想直接复用现成的注册抽象，直到看清它装配侧的写法：builder 返回的是 cleanup，注册出来的实例被 `_ = reg` 丢弃——于是"谁在启动后 Register、谁在停机前 Deregister"没有答案。`bootstrap/registrar.go`（当时在 `pkg/appkit`）的包注释把这一条写成了设计原则：
 
 ```go
 //  2. Provider 必须返回注册中心**实例**（而非仅 cleanup）——真正的
 //     Register/Deregister 生命周期由 appkit 驱动（start 后注册、stopAll
-//     前反注册），这是 go-wind RegistryAction（实例被 `_ = reg` 丢弃）
+//     前反注册），这是只返回 cleanup 的注册抽象（实例被 `_ = reg` 丢弃）
 //     缺失的一环。cleanup 只负责 client 生命周期，停机 Effect 回放。
 ```
 
-**Provider 必须返回实例**，这是本设计与 go-wind 的第一处分叉。抄抽象面，不抄装配缺陷。
+**Provider 必须返回实例**，这是本设计的第一处分叉：抄抽象面，不抄装配缺陷。
 
-### kratos 桥接把 SDK 版本分裂传染给我们
+### 桥接第三方 registry 把 SDK 版本分裂传染给我们
 
-更早的路线是桥接 kratos 的 registry。我们删掉了它，原因不是抽象不好，而是 kratos contrib 的 nacos 实现同时存在 SDK v1/v2 两套代码路径，我们被迫跟着维护版本判断。多一层间接换来的不是隔离，是把别人的技术债变成自己的。
+更早的路线是桥接第三方 registry 体系。我们删掉了它，原因不是抽象不好，而是它的 nacos 实现同时存在 SDK v1/v2 两套代码路径，我们被迫跟着维护版本判断。多一层间接换来的不是隔离，是把别人的技术债变成自己的。
 
 ### 契约挂在主模块上，四个后端为四个名字拖进整棵依赖树
 
@@ -73,7 +73,7 @@ require (
 ```go
 // Package registry 定义 bald 框架的服务注册/发现抽象。
 //
-// 设计理念（对齐 go-wind 的抽象面）：
+// 设计理念：
 //   - Registrar 服务注册 + Discovery 服务发现 + Watcher 实例变更监听，
 //     不绑定任何具体注册中心（etcd/consul/nacos/kubernetes...）；
 //   - 具体后端以直连 SDK 的 provider 形式放 registry/<backend>
@@ -296,7 +296,7 @@ options 映射 `Provider` + `const Type` + 段驱动 `AppProvider`）；要用�
 
 ### 为什么 Provider 必须返回实例，而不是只返回 cleanup？
 
-这是 go-wind 的形态，也是最省事的形态（装配层不用管注册）。我们否掉它：注册是整个能力的目的，把目的交给调用方手动调，等于把"忘记 Register"变成默认失败模式。**cleanup 与实例分离**是这条决策的具体形态——cleanup 只管 client 生死，由停机 Effect 回放；实例由 appkit 驱动 Register / Deregister，顺序固定为"Deregister → stopAll → Effect 回放"。
+这是最省事的形态（装配层不用管注册）。我们否掉它：注册是整个能力的目的，把目的交给调用方手动调，等于把"忘记 Register"变成默认失败模式。**cleanup 与实例分离**是这条决策的具体形态——cleanup 只管 client 生死，由停机 Effect 回放；实例由 appkit 驱动 Register / Deregister，顺序固定为"Deregister → stopAll → Effect 回放"。
 
 ### 为什么契约只留 Registrar 不够，要连 Discovery / Watcher 一起收下？
 
@@ -338,11 +338,11 @@ Discovery / Watcher 目前没有消费方、注册只在 `_example` 里跑通，
 
 | 方案 | 放弃原因 |
 | --- | --- |
-| 继续留在 kratos registry 抽象上 | contrib 的 nacos 有 SDK v1/v2 分裂，多一层间接换不来隔离，只是把别人的技术债变成自己的；kratos registry 桥接已移除，不重开 |
+| 继续桥接第三方 registry 抽象 | 其 nacos 实现有 SDK v1/v2 分裂，多一层间接换不来隔离，只是把别人的技术债变成自己的；桥接已移除，不重开 |
 | 在主模块留 type alias 兼容垫片 | 消费者全部在自家仓库（主模块 7 文件 + `_example` 两 module + bald-admin 1 处），为不存在的第三方留永久垫片是拿长期成本换短期便利 |
 | 只下放契约、后端留在 `contrib/registry` | 契约在顶层、实现在 contrib，与 cache / broker / log / metrics 形态不一致，"后端放哪"会永远得到两个答案 |
 | 目录挪到 `registry/` 但不建 go.mod | Go 的模块边界只认 go.mod，顶层目录不含 go.mod 仍是主模块的一部分——依赖隔离收益为零，还破坏"顶层目录 = 独立 module"的既有约定 |
-| Provider 只返回 cleanup（go-wind 形态） | 把注册这个目的交给调用方手动调，等于把"忘记 Register"变成默认失败模式 |
+| Provider 只返回 cleanup（最省事形态） | 把注册这个目的交给调用方手动调，等于把"忘记 Register"变成默认失败模式 |
 | 契约只留 `Registrar`，砍掉 Discovery / Watcher | 接口零成本、后端已实现；砍掉省不下多少，以后补是 breaking |
 
 ---

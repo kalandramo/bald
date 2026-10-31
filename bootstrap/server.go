@@ -26,11 +26,11 @@ const DriverGrpcGateway = "grpc-gateway"
 // 返回值语义：出错短路；nil server 表示该协议未在契约中配置（跳过）；
 // cleanup 释放资源，可为 nil。
 //
-// 与 go-wind 的差异：业务依赖（拦截器链、service 注册器、健康检查数据源）
-// 经 Provider 工厂的 Option 显式注入，不用包级全局变量 + Bootstrap 前副作用调用。
+// 业务依赖（拦截器链、service 注册器、健康检查数据源）经 Provider 工厂的 Option
+// 显式注入，不用包级全局变量 + Bootstrap 前副作用调用。
 type ServerProvider func(ctx context.Context, cfg *bootstrapv1.Server) (transport.Server, func(), error)
 
-// GRPCServerOption 配置 GRPCServerProvider 的业务依赖（显式注入，替代 go-wind 包级变量）。
+// GRPCServerOption 配置 GRPCServerProvider 的业务依赖（显式注入，不用包级变量）。
 type GRPCServerOption func(*grpcServerDeps)
 
 type grpcServerDeps struct {

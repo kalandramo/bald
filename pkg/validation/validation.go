@@ -1,4 +1,4 @@
-// Package validation 提供基于反射的「按请求类型名」分发校验能力（移植自 onexstack）。
+// Package validation 提供基于反射的「按请求类型名」分发校验能力。
 //
 // 约定：业务为每个请求类型 XxxRequest 实现一个方法 ValidateXxxRequest(ctx, *XxxRequest) error，
 // 并把它注册到 Validator。每次请求进入时调用 Validator.Validate(ctx, req)，自动按 req 的类型名

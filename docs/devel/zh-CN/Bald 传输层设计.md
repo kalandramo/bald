@@ -16,13 +16,13 @@
 
 1. **契约极窄**。`transport.Server` 只有 `Start(ctx) error` / `Stop(ctx) error` / `Endpoint() string`。任何带生命周期的服务器都能满足它——`appkit` 只依赖这一条契约（`servers []transport.Server`）。
 2. **一个后端一个 module**。19 个 `go.mod` 各自维护依赖，用哪个引哪个。代价是本地 `task verify` 必须逐个显式列出（CI 用 `find go.mod` 自动发现）。
-3. **兼容 kratos**。契约刻意兼容 `github.com/go-kratos/kratos/v3/transport.Server`（Start/Stop），并**扩展** `Endpoint()` 以支持动态端口（`:0`）的服务注册。
+3. **可替换既有实现**。Start/Stop 两方法是最小交集，任何带生命周期的服务器都能直接接入；契约在此之上**扩展** `Endpoint()`，以支持动态端口（`:0`）的服务注册。
 
 ## 背景与动机
 
 ### 为什么 `Endpoint()` 是必需的扩展
 
-kratos 的 `Server` 只有 Start/Stop。bald 加上 `Endpoint()` 是为了解决**服务注册**问题：服务绑定 `:0`（动态端口）时，必须能从 listener 取回真实端口，否则注册到服务发现的地址是 `:0`——其他节点无法直连。
+只有 Start/Stop 的生命周期契约不足以支撑服务注册。bald 加上 `Endpoint()` 是为了解决**服务注册**问题：服务绑定 `:0`（动态端口）时，必须能从 listener 取回真实端口，否则注册到服务发现的地址是 `:0`——其他节点无法直连。
 
 `transport/endpoint.go` 的注释明确写着：
 
@@ -151,7 +151,7 @@ func Extract(hostPort string, ln net.Listener) (string, error)
 
 ## 实现与验证
 
-`transport.Server` 三方法契约（Start/Stop/Endpoint，兼容 kratos 并扩展 Endpoint）、`transport.Extract`、18 个后端全部落地。同一 `SessionManager` 在三处独立实现，但都满足三条不变量：`observer` 读写有锁、add/remove 幂等、`rangeSessions` 以 **true = 继续** 为语义。
+`transport.Server` 三方法契约（Start/Stop/Endpoint，Endpoint 为扩展）、`transport.Extract`、18 个后端全部落地。同一 `SessionManager` 在三处独立实现，但都满足三条不变量：`observer` 读写有锁、add/remove 幂等、`rangeSessions` 以 **true = 继续** 为语义。
 
 编译期断言 18 个后端中仅 6 个具备（`var _ transport.Server = ...`）；补齐属零风险改动。
 

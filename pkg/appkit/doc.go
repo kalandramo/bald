@@ -1,16 +1,15 @@
 // Package appkit 是 bald 框架的组合层（App 层），负责多服务器生命周期编排。
 //
-// 设计融合三方之长：
-//   - onexstack/pkg/app 的 Options + 配置理念（启动期由调用方注入 --config；
-//     本包经配置装载器子包 github.com/kalandramo/bald/bootstrap/config 实现四源
-//     合并（bconfig/file 源 + map 深合并内核），额外支持远程配置中心与统一热更新
-//     回调）；
-//   - Kratos 的 transport.Server 契约与 registry.Registrar 接口（可插拔复用）；
-//   - go-lulu 的自研 App 层精髓：errgroup 并发启停、优雅停机防坑（Stop 传入未取消
-//     ctx 使 stopTimeout 生效）、崩溃级联停止、Run 防重入、可观察通道、Endpoint 动态
+// 设计要点：
+//   - 启动期 Options + 配置注入：--config 由调用方注入，本包经配置装载器子包
+//     github.com/kalandramo/bald/bootstrap/config 实现四源合并（bconfig/file 源 +
+//     map 深合并内核），额外支持远程配置中心与统一热更新回调；
+//   - 可插拔生命周期契约：transport.Server 与 registry.Registrar 只要求最小方法集；
+//   - App 层编排：errgroup 并发启停、优雅停机防坑（Stop 传入未取消 ctx 使
+//     stopTimeout 生效）、崩溃级联停止、Run 防重入、可观察通道、Endpoint 动态
 //     端口注册。
 //
-// 启动期配置（onexstack 风格 + 远程）：
+// 启动期配置（本地 + 环境变量 + flag + 远程）：
 //
 //	App 在 Run 的最早阶段调用 loadConfig：读取 --config 本地文件（yaml/json）、
 //	环境变量（前缀 NAME_）、业务 flag（仅显式传入的参与合并）、可选远程配置中心
@@ -28,8 +27,7 @@
 //	配置契约推荐用 Protobuf：bconf.UnmarshalMap(app.Settings(), bconf.NewBootstrap())，
 //	详见 docs/devel/zh-CN/Bald 配置契约设计.md。
 //
-//	注意：onexstack 原 AddConfigFlag 仅支持本地文件 + 环境变量，并不支持远程配置中心；
-//	bald 在同样风格上补齐了 RemoteSource 抽象与统一热更新钩子。
+//	除本地文件 + 环境变量之外，配置装载器还提供 RemoteSource 抽象与统一热更新钩子。
 //
 // 关键契约（见 appkit_test.go 的回归测试）：
 //   - BUG-1：stopAll 传入未取消的 ctx，stopTimeout 才真正生效；

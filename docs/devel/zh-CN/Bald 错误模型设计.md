@@ -27,10 +27,9 @@ import `berrors` 而不链接任何传输框架**。为此我们放弃了「把 
 
 ## 背景与动机
 
-### 两个参考实现各有一半正确
+### 两类现成实现各有一半正确
 
-go-lulu `WindError` 的骨架是对的——零依赖 + 不可变 builder 让 sentinel 派生
-安全：
+一类把骨架做对了——零依赖 + 不可变 builder 让 sentinel 派生安全：
 
 ```go
 var ErrOrderNotFound = errors.NotFound("ORDER_NOT_FOUND")
@@ -40,18 +39,18 @@ return ErrOrderNotFound.WithDetails(map[string]string{"id": id}) // 新实例，
 但它缺两块：没有面向用户的 `Message`；gRPC 方向半通——发送要手写
 `codes.Code(wErr.Code)`，接收端无法反向解析，跨服务语义丢失。
 
-onexstack `ErrorX` 补上了这两块（`Message` 字段、`GRPCStatus()` 自动附
-`errdetails.ErrorInfo`、`FromError` 反向解析），但把核心包绑死 Kratos + gRPC，
+另一类补上了这两块（`Message` 字段、`GRPCStatus()` 自动附
+`errdetails.ErrorInfo`、`FromError` 反向解析），但把核心包绑死某个传输框架 + gRPC，
 `Code` 直接是 HTTP 状态码，且 builder 可变——sentinel 被就地污染是真实
 bug 源：
 
 ```go
-// onexstack：就地修改，sentinel 被污染，后续所有调用方共享上一次的 id。
+// 就地修改：sentinel 被污染，后续所有调用方共享上一次的 id。
 return ErrOrderNotFound.WithMetadata(map[string]string{"id": id})
 ```
 
-一句话定性：bald 需要「go-lulu 的骨头 + errorsx 的血肉」——零依赖、不可变、
-带 Message、gRPC 双向闭环，且不能让根包背上任何传输依赖。
+一句话定性：bald 需要「零依赖不可变的骨头 + 带 Message、gRPC 双向闭环的血肉」，
+且不能让根包背上任何传输依赖。
 
 ### 两次身份变化
 
@@ -126,8 +125,8 @@ return berrors.NotFound("ORDER_NOT_FOUND").WithMessage("订单 %s 不存在", id
 ```
 
 11 个工厂覆盖最常用传输类别；`New(code, reason)` 只留给工厂之外的场景。
-**栈捕获发生在 `New` 构造点**（`errors.go`：「构造即捕获失败点调用栈（对齐
-go-lulu WindError），无需等 With* 才记录」）。`With*` 上的
+**栈捕获发生在 `New` 构造点**（`errors.go`：「构造即捕获失败点调用栈，无需
+等 With* 才记录」）。`With*` 上的
 `captureStack` 是幂等保护，不覆盖构造点栈。
 
 ### 不可变 builder：sentinel 永远安全
@@ -169,7 +168,7 @@ func StatusCode(e *berrors.Error) int   // CodeToHTTP(e.Code)
 刻意用 `int` 而非 `http.StatusCode`；`StatusCode` 刻意是函数而非方法——挂
 在类型上会让根包反向 import `httperr`（循环依赖）。
 
-### grpcerr：gRPC 双向闭环与 Kratos 互通
+### grpcerr：gRPC 双向闭环与 ErrorInfo 互通
 
 ```go
 func ToStatus(err error) *status.Status   // + errdetails.ErrorInfo{Reason, Metadata}
@@ -182,8 +181,9 @@ status 取，`Reason` **留空**——刻意不把可变的 status 文本塞进 
 因为 `Reason` 是 `Is` 的匹配键、必须稳定——文本塞进 `Reason` 会让两个
 同类失败因文本不同而无法互相 `Is` 匹配。带 `ErrorInfo`
 时 `Reason`/`Details` 完整还原。
-- 其二，Kratos 互通是天然的：两边都产/认 `ErrorInfo`，`FromStatus` 能解析 Kratos 错误，`ToStatus` 的
-产出也能被 Kratos 客户端理解——不依赖 Kratos 包。
+- 其二，标准 `ErrorInfo` 互通是天然的：`FromStatus` 能解析任何带 `ErrorInfo`
+  的 status（不依赖对方用什么错误包），`ToStatus` 的产出也只要求对端识别标准
+  `ErrorInfo`——不依赖任何特定框架包。
 
 集成纪律（`pkg/middleware/grpc/error.go`）：`ErrorInterceptor` 必须放在拦截
 器链**最外层**，内层（校验、认证）的错误才能全部被收口；否则 gRPC 框架的
@@ -214,7 +214,7 @@ status 取，`Reason` **留空**——刻意不把可变的 status 文本塞进 
 
 **决策①：根包零依赖、桥接拆子包——承重墙。** 纯 HTTP 服务、CLI（`cmd/bald`
 自己就是）、单元测试都不该为一个错误类型背上 gRPC。被放弃：把
-`GRPCStatus()` 挂在核心类型上（errorsx 做法）——省 20 行，根包从此依赖
+`GRPCStatus()` 挂在核心类型上——省 20 行，根包从此依赖
 grpc + genproto，不用 gRPC 的调用方也被迫链接。
 
 **决策②：`Code` 是传输中立 `uint32`，不是 HTTP 码。** 一个错误要能以 HTTP
@@ -224,14 +224,14 @@ grpc + genproto，不用 gRPC 的调用方也被迫链接。
 **决策③：不可变 builder。** 可变 builder 的 sentinel 污染是真实 bug 源（跨
 请求串数据）。代价是每次派生一次小分配——错误构造不是热路径。
 
-**决策④：`Is` 只比 `Reason`。** errorsx 比 `Code + Reason` 混入易变维度，
+**决策④：`Is` 只比 `Reason`。** 比 `Code + Reason` 会混入易变维度，
 跨服务不可靠。被放弃：比全部字段——`Details` 每次派生都不同，sentinel
 匹配直接失效。
 
 **决策⑤：`Message` 与 `Details` 并存。** 两个消费方两种载体：前者给用户看
 完整一句话，后者给前端做 i18n 模板。只留一个都有缺口。
 
-**决策⑥：不照搬 go-lulu 整包、也不包 wrapper。** vendor 它等于把两个缺口
+**决策⑥：不 vendor 现成实现、也不包 wrapper。** vendor 它等于把两个缺口
 （Message、gRPC 反向解析）也搬进来；wrapper 破坏 `errors.Is` 链与
 `ErrorInfo` 透传。
 
@@ -240,7 +240,7 @@ grpc + genproto，不用 gRPC 的调用方也被迫链接。
 （该提案未落地过代码，零迁移成本）。
 
 **决策⑧：HTTP 错误响应体 = google.rpc.Status JSON。** 三面一份契约，细节见
-「设计」末节。被放弃：Kratos 信封 `{code, data, message}` 一切 200——破坏
+「设计」末节。被放弃：`{code, data, message}` 信封（一切 200）——破坏
 proto3 JSON 契约（TS 生成类型需解包层）；HTTP 语义丢失（浏览器/网关/监控
 看不到真实状态码）；httperr 双向映射表整个失效。
 
@@ -262,7 +262,7 @@ module 回归零第三方 require——下游几乎必有 grpc，收益有限而
 **已知代价（诚实列出）：**
 
 - 用 gRPC 的项目必须显式 import `grpcerr` 并在拦截器/客户端各写一行转换
-  ——比 errorsx「开箱即用」多 2 行样板，决策①的明码标价。
+  ——比把转换内置在错误类型里「开箱即用」多 2 行样板，决策①的明码标价。
 - web 层取状态码是 `httperr.StatusCode(e)` 而非 `e.StatusCode()`——多一次
   包前缀，决策①在 HTTP 侧的对称延伸。
 - `Error()` 输出（`code/reason/cause`）是日志取向，`Message` 刻意不混入
@@ -280,7 +280,7 @@ module 回归零第三方 require——下游几乎必有 grpc，收益有限而
 | `errors.go` | `Error` 全套（类型/构造/builder/匹配/桥接/栈） | sentinel 不可污染、Is 三态、FromError 三态、栈含调用帧 |
 | `code.go` | 17 常量 + 11 工厂 | 经工厂间接覆盖 |
 | `httperr/httperr.go` | 两张映射表 + 三函数 | 典型映射、未知双向兜底 |
-| `grpcerr/grpcerr.go` | `ToStatus`/`FromStatus` | RoundTrip 含 Is 跨栈命中、Kratos 风格 ErrorInfo 解析 |
+| `grpcerr/grpcerr.go` | `ToStatus`/`FromStatus` | RoundTrip 含 Is 跨栈命中、标准 ErrorInfo 解析 |
 
 **消费面（全仓 6 处 import）：** `transport/web`（决策⑧响应体契约）、
 `pkg/middleware/grpc`（ErrorInterceptor 收口）、`pkg/middleware/gin`
@@ -310,8 +310,8 @@ module 回归零第三方 require——下游几乎必有 grpc，收益有限而
 **为什么不把 grpcerr/httperr 并进根包？** 决策⑨：技术上可行，但
 `import berrors` 会链接 grpc 全家桶，零依赖承诺作废。省一个包前缀不值。
 
-**和 Kratos `api/errors` 是什么关系？** 平行实现，经 `grpcerr` 互转；不依
-赖它——自带 gRPC 依赖，违反决策①。
+**和现成的框架错误包是什么关系？** 平行实现，经 `grpcerr` 与标准 `ErrorInfo`
+互转；不依赖它们——要么自带 gRPC 依赖违反决策①，要么缺 gRPC 反向解析。
 
 **栈是构造时捕获还是 With* 时捕获？** 构造时（`New` 即 `captureStack`），
 `With*` 只克隆已有栈，不会重新捕获。

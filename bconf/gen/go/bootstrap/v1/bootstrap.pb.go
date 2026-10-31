@@ -21,9 +21,9 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// BootstrapConfig 是 go-wind-bootstrap 的顶层配置，
+// BootstrapConfig 是应用的顶层配置契约，
 // 声明式描述一个应用的完整拓扑：传输层、配置中心、注册中心、日志、追踪、指标、消息代理。
-// bootstrap 引擎将此配置解析为 wind.Option 链，最终创建并运行 wind.App。
+// 装配层把它解码为各契约段（server/config/registry/...）后交给段驱动 Provider 消费。
 type BootstrapConfig struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// 应用元数据。

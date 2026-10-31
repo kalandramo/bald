@@ -1,6 +1,6 @@
 // Package registry 定义 bald 框架的服务注册/发现抽象。
 //
-// 设计理念（对齐 go-wind 的抽象面）：
+// 设计理念：
 //   - Registrar 服务注册 + Discovery 服务发现 + Watcher 实例变更监听，
 //     不绑定任何具体注册中心（etcd/consul/nacos/kubernetes...）；
 //   - 具体后端以直连 SDK 的 provider 形式放 registry/<backend>

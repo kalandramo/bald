@@ -10,7 +10,7 @@
 // 注册生命周期由 appkit 驱动：start 后 Register、stopAll 前 Deregister、
 // Effect 回放时 Close。heartBeat 断链自动重试（指数退避，上限 maxRetry）。
 //
-// 移植自 go-wind-plugins/registry/etcd，实例类型换用 registry.ServiceInstance。
+// 实例类型为 registry.ServiceInstance。
 package etcd
 
 import (

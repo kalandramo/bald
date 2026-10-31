@@ -1,7 +1,7 @@
 // Package grpc 提供 bald 框架在 gRPC 拦截器层的可观测性中间件。
 //
-// 移植自 onexstack/pkg/middleware/grpc，日志输出由 log/slog 改为 bald 的
-// pkg/log（项目统一日志契约），其余 trace 注入与路径跳过逻辑保持一致。
+// 日志输出走 bald 的 pkg/log（项目统一日志契约），trace 注入与路径跳过逻辑
+// 内聚在本包。
 package grpc
 
 import (

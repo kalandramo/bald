@@ -12,8 +12,8 @@ import (
 )
 
 // Option 配置 AuthzInterceptor 的请求→授权三元组（subject/object/action）提取方式。
-// 借鉴 go-lulu 的 ResolverFunc 模式，将传输层请求翻译为授权语义的职责从拦截器
-// 内部（原本焊死 action="CALL"）外置为可插拔函数，使 REST 与 gRPC 可共用同一份
+// 将传输层请求翻译为授权语义的职责从拦截器内部（原本焊死 action="CALL"）
+// 外置为可插拔函数（Resolver 模式），使 REST 与 gRPC 可共用同一份
 // RBAC 策略（见 pkg/authz 的 DefaultGRPCObject/DefaultGRPCAction 归一化原语）。
 type AuthzOption func(*authzOptions)
 

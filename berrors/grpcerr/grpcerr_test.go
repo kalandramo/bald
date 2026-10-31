@@ -40,7 +40,7 @@ func TestToStatusPlainError(t *testing.T) {
 	}
 }
 
-func TestFromStatusWithKratosLikeErrorInfo(t *testing.T) {
+func TestFromStatusWithStandardErrorInfo(t *testing.T) {
 	st, _ := status.New(codes.PermissionDenied, "no").
 		WithDetails(&errdetails.ErrorInfo{Reason: "FORBIDDEN", Metadata: map[string]string{"k": "v"}})
 	back := FromStatus(st)

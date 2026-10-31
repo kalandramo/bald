@@ -5,9 +5,9 @@
 // 调用方在传输边界各写一行——server 拦截器收口用 ToStatus，client 收到错误用
 // FromStatus。核心包因此保持零 gRPC 依赖。
 //
-// Kratos 的 api/errors 同样实现 GRPCStatus() + ErrorInfo，故 FromStatus 天然
-// 能解析 Kratos 错误；反过来 ToStatus 产出的 status 也能被 Kratos 客户端理解，
-// 实现跨生态互通。
+// 互通依据是标准 errdetails.ErrorInfo：FromStatus 能解析任何带 ErrorInfo 的
+// status（不依赖对方用什么错误包），ToStatus 产出的 status 也只要求对端识别
+// 标准 ErrorInfo，实现跨生态互通。
 package grpcerr
 
 import (

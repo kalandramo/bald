@@ -79,7 +79,7 @@ type Options struct {
 	// 列表首元素优先级最高（对齐 Registry 注册序），合并时从列表尾向头叠加；
 	// 整体位于本地文件/env/flag 之下、远程桥之上。
 	Layers []Layer
-	// Remote 远程配置源（kratos 桥便捷入口）；为空表示不启用。
+	// Remote 远程配置源（经 FromKratosSource 桥接或自定义实现）；为空表示不启用。
 	// 内部被适配为最低优先级的基准层；契约源层由 Layers 声明（推荐）。
 	Remote RemoteSource
 	// WatchLocalFile 是否监听本地配置文件变更（fsnotify，经 bconfig/file 源）。
@@ -186,7 +186,7 @@ func Load(opts Options) (*Store, error) {
 		return assembleLayer(ctx, l)
 	}
 
-	// 1) 远程桥（kratos 桥便捷入口）→ 最低优先级基准层。
+	// 1) 远程桥 → 最低优先级基准层。
 	if opts.Remote != nil {
 		ls, err := assemble(Layer{
 			Name:   "remote",
@@ -480,7 +480,7 @@ func (s *Store) Unmarshal(msg proto.Message) error {
 // discoverLocalFile 按规则查找本地配置文件。
 // 查找顺序：显式 ConfigFile > Name-Env.yaml/json > Name.yaml/json；
 // 搜索目录：. / ./configs / $HOME/.config/Name（对齐旧 viper AddConfigPath 语义）。
-// 找不到返回空串（不报错，onexstack 行为：允许纯远程/纯 flag 配置）。
+// 找不到返回空串（不报错：允许纯远程/纯 flag 配置）。
 func discoverLocalFile(opts Options) string {
 	if opts.ConfigFile != "" {
 		return opts.ConfigFile

@@ -1,9 +1,9 @@
 // Package appkit 是 bald 框架的组合层（App 层）。
 //
-// 设计融合三方之长：
-//   - onexstack/pkg/app 的 Options + 配置理念（启动期由调用方注入 --config/配置装载器）；
-//   - Kratos 的 transport.Server 契约与 registry.Registrar 接口（可插拔复用）；
-//   - go-lulu 的自研 App 层精髓：自管 errgroup、优雅停机防坑（Stop 传入未取消 ctx）、
+// 设计要点：
+//   - 启动期 Options + 配置注入：--config 由调用方注入/配置装载器装载；
+//   - 可插拔生命周期契约：transport.Server 与 registry.Registrar 只要求最小方法集；
+//   - App 层编排：自管 errgroup、优雅停机防坑（Stop 传入未取消 ctx）、
 //     崩溃级联停止、Run 防重入、可观察通道、Endpoint 动态端口注册。
 //
 // 用法（单一装配入口，契约驱动的约定装配，见 serve.go）：
@@ -312,7 +312,7 @@ func configNamespaceOpt(ns string) Option {
 // client cleanup 由调用方挂停机 Effect 回放（Deregister 先于 Effect，顺序安全）。
 func (a *App) SetRegistrar(r registry.Registrar) { a.registrar = r }
 
-// ConfigFile 指定 --config 配置文件路径（onexstack 风格）。
+// ConfigFile 指定 --config 配置文件路径。
 func ConfigFile(f string) Option {
 	return optionFunc(func(d *Decl) { d.ConfigFile = f })
 }
@@ -528,7 +528,7 @@ func (a *App) Err() error {
 // Run 启动应用：并发启停所有服务器，处理信号，注册/反注册。
 // 当传入的 ctx 被取消或收到 SIGINT/SIGTERM 信号时触发优雅停机。
 //
-// 行为（参照 go-lulu 固化的契约）：
+// 行为：
 //   - 防重入：重复调用返回 ErrAlreadyRunning；
 //   - 任一服务器 Start 失败 -> 其余服务器都被 Stop（崩溃级联）；
 //   - Stop 传入的 ctx 是未取消的新 ctx（带 stopTimeout），stopTimeout 才有效；
@@ -677,7 +677,7 @@ func (a *App) Run(ctx context.Context) error {
 	return nil
 }
 
-// stopAll 分五阶段优雅停机（对照 go-lulu 分阶段停机骨架）：
+// stopAll 分五阶段优雅停机：
 //  0. 效应账本逆序回放（撤销装配期全局写入，先于一切停机钩子）
 //  1. BeforeStop 钩子（独立超时 defaultHookTimeout，panic 安全不拖垮整机）
 //  2. 各 Server.Stop 并发（独立超时 stopTimeout）

@@ -91,7 +91,7 @@ func BuildRoot(use, short string, runE func(*cobra.Command, []string) error, opt
 	// --config / --log.* 等框架 flag 由 MustServe 内化的 parseConfigFlag
 	// 自行扫描 os.Args，cobra 不得拒绝它们。
 	root.FParseErrWhitelist.UnknownFlags = true
-	// k8s 风格 flag 错误 UX（借 onexstack/pkg/app 的做法）：平时静默
+	// k8s 风格 flag 错误 UX：平时静默
 	// usage——运行期错误只留报错本身；仅 flag 解析失败时回显 usage。
 	root.SilenceUsage = true
 	root.SetFlagErrorFunc(func(cmd *cobra.Command, err error) error {

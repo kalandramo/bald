@@ -33,7 +33,7 @@ type Config struct {
 }
 
 // New 创建自建模式的 Apollo 配置源（appid/endpoint 必填）。
-// 与 go-wind 版不同：连接失败返回 error，不 panic。
+// 连接失败返回 error，不 panic。
 func New(opts ...Option) (*Config, error) {
 	o := options{}
 	for _, opt := range opts {

@@ -2,8 +2,8 @@
 //
 // 设计取舍：本包强绑定 gin（直接消费 *gin.Context），因此只支持 gin 与
 // grpc-gateway（后者复用同一套 biz/handler 逻辑，经 grpc-gateway 的 HTTP
-// transcoding 落到 gin 之外的标准库 http）。这与 onexstack 的 pkg/core 思路一致，
-// 但错误语义复用 bald 自有的 pkg/berrors（传输中立的 Code/Reason）。
+// transcoding 落到 gin 之外的标准库 http）。业务 handler 与传输层解耦，错误语义
+// 复用 bald 自有的 pkg/berrors（传输中立的 Code/Reason）。
 //
 // 业务只需实现一个 Handler：
 //
@@ -15,7 +15,7 @@
 //	    web.HandleJSONRequest(c, h, myValidator)
 //	})
 //
-// 也可用方法值直接传 biz 层实现，参考 miniblog handler/http 分层。
+// 也可用方法值直接传 biz 层实现（handler 分层）。
 package web
 
 import (
@@ -27,7 +27,6 @@ import (
 )
 
 // Handler 是业务处理函数：接收已绑定并校验的请求指针 *T，返回响应 R 或 error。
-// 与 onexstack core.Handler 完全一致。
 type Handler[T any, R any] func(ctx context.Context, req *T) (R, error)
 
 // Validator 是请求校验器。校验错误应返回 pkg/berrors 中标识为校验错误的错误

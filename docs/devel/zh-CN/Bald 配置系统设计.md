@@ -206,9 +206,9 @@ bald/bconf/                       module github.com/kalandramo/bald/bconf
 
 | 方案 | 配置形状定义 | 取舍 |
 |---|---|---|
-| go-lulu | Go struct + yaml tag | 键名错误同样静默；无默认值/校验的单一来源 |
-| go-wind | proto 契约（conf module）+ 各 provider 自注册 | **契约先行**：形状、默认值、校验注解一处声明——方向一致 |
-| onexstack | `IOptions` 接口 + 手写 NewXxxOptions | 每加一个配置项要改 3-4 处（interface/struct/flags/New），样板爆炸 |
+| Go struct + yaml tag | 结构体字段 | 键名错误同样静默；无默认值/校验的单一来源 |
+| proto 契约 + provider 自注册 | proto 契约 | **契约先行**：形状、默认值、校验注解一处声明 |
+| 接口式 Options + 手写构造 | `IOptions` 接口 | 每加配置项改 3-4 处（interface/struct/flags/New），样板爆炸 |
 | **bald** | **proto 契约（bootstrapv1）+ buf 生成** | 强类型 + 默认值 + validate 注解 + flag 绑定全走同一份描述符 |
 
 **proto 契约换来的能力**
@@ -422,7 +422,7 @@ func EnvProvider() Provider {
 
 ### 3.6 层优先级 = 注册序
 
-`order` 切片即层优先级：**先注册的源优先级高**（排在 `[]config.Layer` 列表首位）。这与 `bootstrap/config` 子包 `Store`（桥接 kratos config 体系）的层合并约定一致——层列表从尾向头叠加（低→高），列表首元素最后合并、覆盖其余层。
+`order` 切片即层优先级：**先注册的源优先级高**（排在 `[]config.Layer` 列表首位）。这与 `bootstrap/config` 的 `Store`（含远程源桥接）的层合并约定一致——层列表从尾向头叠加（低→高），列表首元素最后合并、覆盖其余层。
 
 选注册序而非给 `Provider` 加 `Priority int` 字段的理由：注册序已能表达全部场景（主程序按想要的顺序 `MustRegister` 即可），引入 `Priority` 字段只会在「同优先级又需排第二序」时再加一层规则，徒增复杂度。
 

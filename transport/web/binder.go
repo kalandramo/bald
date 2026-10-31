@@ -15,8 +15,8 @@ type Defaulter interface {
 
 // ShouldBindAll 依次绑定 URI → Query → JSON，后者覆盖前者。
 //
-// 动机：沿用 onexstack binding.Bind 的多源合并，但修正其顺序陷阱——先绑定
-// 再校验会让部分填充的结构体触发假的必填错误。本实现先完成全部绑定（URI
+// 动机：多源合并的顺序陷阱——先绑定再校验会让部分填充的结构体触发假的必填
+// 错误。本实现先完成全部绑定（URI
 // 优先级最低、JSON 最高），随后若 obj 实现了 Defaulter 则调用 Default()，
 // 最后才交由业务校验器执行。
 //

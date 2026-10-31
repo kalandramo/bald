@@ -14,7 +14,7 @@ type LoggingConfig struct {
 }
 
 // Logging 是 gin HTTP 请求日志中间件（基于 Observability，默认注入 trace-id 且
-// 跳过健康检查等高频端点）。等价于 onexstack/pkg/middleware/gin 的 Logging。
+// 跳过健康检查等高频端点）。
 //
 // 可选 LoggingConfig（变参以保持既有 Logging() 调用零改动）：
 // cfg.SkipPaths 追加契约声明的跳过路径（logging.skip_paths）。

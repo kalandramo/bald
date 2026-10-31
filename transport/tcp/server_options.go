@@ -85,7 +85,7 @@ func WithTracer(t trace.Tracer) Option {
 // WithTracerProvider 从全局 TracerProvider 创建并设置 tracer。
 func WithTracerProvider() Option {
 	return func(s *Server) {
-		s.tracer = otel.GetTracerProvider().Tracer("go-wind/plugins/tcp")
+		s.tracer = otel.GetTracerProvider().Tracer("bald/transport/tcp")
 	}
 }
 

@@ -1,16 +1,16 @@
 // Package berrors 提供 bald 的传输中立错误模型。
 //
 // 设计要点（详见 docs/devel/zh-CN/Bald 错误模型设计.md）：
-//   - 核心包零依赖：不 import gRPC、net/http、kratos，任意场景（纯 HTTP、
-//     gRPC、CLI、测试）都可 import 而不拖进一个传输框架。
+//   - 核心包零依赖：不 import 任何传输框架（gRPC、net/http 等），任意场景
+//     （纯 HTTP、gRPC、CLI、测试）都可 import 而不拖进一个传输框架。
 //   - Code 是 uint32 而非 gRPC codes.Code，HTTP 映射由子包 httperr
 //     在边界提供（CodeToHTTP），gRPC 转换由子包 grpcerr 在边界提供。
 //   - 所有 With* 构建器不可变：返回新实例，接收者绝不被修改，sentinel 安全。
 //   - Is 按 Reason 匹配（忽略易变的 Code/Message/Details/cause）。
 //
-// 标准库桥接：本包名为 errors，遮蔽标准库 errors，故重导出最常用的
-// Is/As/Unwrap/Join。注意 New 不重导出（项目 New(code, reason) 与标准库
-// New(string) 签名冲突）；需要标准库 New 时别名 import。
+// 标准库桥接：重导出最常用的 Is/As/Unwrap/Join 便于与标准库混用。
+// 注意 New 不重导出（项目 New(code, reason) 与标准库 New(string) 签名冲突）；
+// 需要标准库 New 时别名 import。
 package berrors
 
 import (
@@ -33,7 +33,7 @@ type Error struct {
 
 // New 用给定的传输类别与 Reason 构造一个 *Error。
 // 需要用户文案时链上 WithMessage；需要动态变量时链上 WithDetails。
-// 构造即捕获失败点调用栈（对齐 go-lulu WindError），无需等 With* 才记录。
+// 构造即捕获失败点调用栈，无需等 With* 才记录。
 func New(code uint32, reason string) *Error {
 	e := &Error{
 		Code:   code,

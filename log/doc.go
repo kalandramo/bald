@@ -10,6 +10,6 @@
 //	// logger 段 Provider 的 Build 产物即已调用 log.SetLogger 的实例
 //	appkit.MustServe(ctx, std.Standard(), myLoggerProvider())
 //
-// 设计对齐 go-wind/log 三层架构的契约层（接口 + 全局表 + nop 默认），
+// 设计为三层架构的契约层（接口 + 全局表 + nop 默认），
 // 依赖反转：全部框架代码只 import 本包，具体后端（slog/zap/...）经适配器注入。
 package log

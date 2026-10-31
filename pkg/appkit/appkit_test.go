@@ -501,8 +501,7 @@ func readSetting(a *App, key string) string {
 	return config.String(v)
 }
 
-// TestAppKit_ConfigMissingFileNoError：本地文件缺失不报错（onexstack 行为），
-// 远程基准生效。
+// TestAppKit_ConfigMissingFileNoError：本地文件缺失不报错，远程基准生效。
 func TestAppKit_ConfigMissingFileNoError(t *testing.T) {
 	remote := &memRemoteSource{data: []byte("http:\n  addr: \":7070\""), format: "yaml"}
 	srv := newMock("cfg2")
@@ -510,7 +509,7 @@ func TestAppKit_ConfigMissingFileNoError(t *testing.T) {
 	var app *App
 	app = NewApp(
 		Name("cfg-demo"),
-		// 不传 ConfigFile：纯远程/纯 flag 配置，本地文件缺失不应报错（onexstack 风格）。
+		// 不传 ConfigFile：纯远程/纯 flag 配置，本地文件缺失不应报错。
 		RemoteConfig(remote),
 		Servers(srv),
 		BeforeStart(func(_ context.Context) error {

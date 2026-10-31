@@ -177,7 +177,7 @@ bconf.BindFlags(fs, cfg, "server")   // 递归注册 --server.http.addr 等层�
 | 方案 | 放弃原因 |
 | --- | --- |
 | Go struct + mapstructure | flag 压不过文件、写错键名静默落零值（TLS 失效实锤），不可根治 |
-| onexstack 式 IOptions + 手写构造 | 每加配置项改 3-4 处（interface/struct/flags/New），样板爆炸 |
+| 接口式 Options + 手写构造 | 每加配置项改 3-4 处（interface/struct/flags/New），样板爆炸 |
 | proto default 注解 | 生成代码不物化，运行期反射读，复杂度无收益 |
 | 契约层校验后端注册名单 | 必须 import 全部后端 SDK，依赖爆炸且违反三层定位 |
 | rawDesc 手工修补 | 内嵌描述符带长度前缀，改字符串会让长度错位、运行期 panic |
@@ -203,7 +203,7 @@ bconf.BindFlags(fs, cfg, "server")   // 递归注册 --server.http.addr 等层�
 
 - [x] 契约 18 proto：bootstrap.v1 框架级 16 个 + 域级 store.v1（分页/过滤/排序，pkg/store 消费）+ appspec.v1（应用规格，`gen app --spec` 消费）。
 - [x] buf v2 module（`buf.build/kalandramo/bald-bconf`）+ managed mode 生成，生成物入库。
-- [x] `NewBootstrap` 默认值（hostname 作 App.Id，对齐 onexstack AppInfo）。
+- [x] `NewBootstrap` 默认值（hostname 作 App.Id）。
 - [x] `UnmarshalMap` 合并桥接：coerce 规范化 + DiscardUnknown + clearPresentLists + proto.Merge；Duration/repeated/presence 三坑内建防御。
 - [x] `Validate` 形状校验：addr 格式（:0 动态端口放行）、backends 非空、六种后端段级规则（值域/必填连接目标/数值非负，凭证走 env 链不校）、filter_keys/output_paths 空串项 fail-fast，错误带 `backends[i].<seg>` 定位。
 - [x] `BindFlags` 描述符驱动：八种标量 + Duration 字符串化，nil 子消息跳过防 TLS 误启用，FlagSet 作用域可控；repeated/map 注册隐藏指引 flag（误用报「怎么办」、自定义 binder 让位）。

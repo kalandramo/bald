@@ -2,7 +2,7 @@
 
 WebRTC（Web Real‑Time Communication）是 Google 开源的实时通信技术栈，支持浏览器与设备之间无需插件即可进行低延迟音视频通话与数据传输。
 
-本模块提供了一个基于 WebRTC 的 SFU（Selective Forwarding Unit）服务器，实现了 `go-wind/transport.Server` 接口，支持音视频流转发、P2P 数据通道、会话管理，可以与 `go-wind` 应用框架无缝集成。底层使用 [Pion WebRTC](https://pion.ly/) v4。
+本模块提供了一个基于 WebRTC 的 SFU（Selective Forwarding Unit）服务器，实现了 `bald/transport.Server` 接口，支持音视频流转发、P2P 数据通道、会话管理，可直接纳入 `pkg/appkit` 的生命周期编排。底层使用 [Pion WebRTC](https://pion.ly/) v4。
 
 ## 核心特性
 
@@ -13,7 +13,7 @@ WebRTC（Web Real‑Time Communication）是 Google 开源的实时通信技术�
 - **自定义编解码**：基于 `encoding.Codec` 支持 JSON / Proto / MsgPack 等格式
 - **CORS 支持**：可配置跨域策略
 - **鉴权支持**：内置 Token 提取
-- **阻塞式生命周期**：`Start` 阻塞直到 context 取消，兼容 `go-wind` App
+- **阻塞式生命周期**：`Start` 阻塞直到 context 取消，兼容按 Start/Stop 编排的 App 生命周期
 
 ## 安装
 
@@ -244,7 +244,7 @@ tracks := cli.GetRemoteTracks()
 ### Go 客户端
 
 ```powershell
-Push-Location "go-wind-plugins\transport\webrtc"
+Push-Location "transport/webrtc"
 go run ./cmd/test_client -signal "http://127.0.0.1:9999/signal" -type 1 -mode binary -payload '{"type":1,"sender":"go","message":"hello"}'
 Pop-Location
 ```

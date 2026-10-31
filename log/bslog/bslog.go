@@ -89,7 +89,7 @@ func NewWithCleanup(o *Options, opts ...Option) (log.Logger, func()) {
 	} else {
 		level, err := parseLevel(o.Level)
 		if err != nil {
-			// 配置非法时回退 info，避免崩溃（不采用 onexstack 的 panic 做法）。
+			// 配置非法时回退 info，避免崩溃。
 			level = slogLevelInfo
 		}
 		w := cfg.writer

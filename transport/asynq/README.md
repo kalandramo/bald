@@ -1,6 +1,6 @@
 # Asynq
 
-基于 [hibiken/asynq](https://github.com/hibiken/asynq) 的分布式异步任务队列服务器，实现了 `go-wind/transport.Server` 接口。使用 Redis 作为后端，集成消费者（Server）、生产者（Client）、定时调度器（Scheduler）和任务巡检器（Inspector）于一体。
+基于 [hibiken/asynq](https://github.com/hibiken/asynq) 的分布式异步任务队列服务器，实现了 `bald/transport.Server` 接口。使用 Redis 作为后端，集成消费者（Server）、生产者（Client）、定时调度器（Scheduler）和任务巡检器（Inspector）于一体。
 
 ## 核心特性
 
@@ -12,7 +12,7 @@
 - **Redis 多模式**：单节点、Cluster、Sentinel 三种部署模式
 - **组件可开关**：Server / Client / Scheduler 可独立启用/禁用
 - **自定义编解码**：基于 `encoding.Codec` 支持 JSON / Proto / MsgPack 等
-- **阻塞式生命周期**：`Start` 阻塞直到 context 取消，兼容 `go-wind` App
+- **阻塞式生命周期**：`Start` 阻塞直到 context 取消，兼容按 Start/Stop 编排的 App 生命周期
 
 ## 安装
 

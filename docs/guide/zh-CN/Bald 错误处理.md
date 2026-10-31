@@ -174,7 +174,7 @@ if berr, ok := berrors.FromError(restored); ok {
 }
 ```
 
-Kratos 互通是天然的：两边都产/认 `ErrorInfo`，无需引 Kratos 包。
+互通是天然的：只要对方识别标准 `ErrorInfo`，无需引入对方的错误包。
 
 ## 5. 三包 API 速查
 

@@ -1,4 +1,4 @@
-// Package store 的可选 DTO↔Entity 映射（对照 go-crud gorm/repository.go 的 Mapper）。
+// Package store 的可选 DTO↔Entity 映射。
 //
 // bald 默认 Store[T] 直接操作实体 T（含 gorm tag），足够轻量。当业务需要
 // 「对外 DTO / 对内 Entity」分离时，可用 Mapper 在 Provider 层桥接：Provider 构造
@@ -20,7 +20,7 @@ type Mapper[DTO any, Entity any] interface {
 	ToDTO(entity Entity) (DTO, error)
 }
 
-// CopierMapper 基于反射的同名字段复制实现（对齐 go-crud mapper.CopierMapper）。
+// CopierMapper 基于反射的同名字段复制实现。
 // 仅复制导出字段中名字相同且可赋值（kind 兼容）的字段；不匹配字段被忽略。
 type CopierMapper[DTO any, Entity any] struct{}
 

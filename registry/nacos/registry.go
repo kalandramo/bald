@@ -5,8 +5,7 @@
 //     （Close 时关闭）——契约装配路径；
 //   - NewWithClient(cli, opts...)：注入既有 INamingClient，不负责关闭。
 //
-// 契约装配走子包 contract。移植自 go-wind-plugins/registry/nacos，
-// 实例类型换用 registry.ServiceInstance。
+// 契约装配走子包 contract；实例类型为 registry.ServiceInstance。
 package nacos
 
 import (

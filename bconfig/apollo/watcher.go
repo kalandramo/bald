@@ -66,7 +66,7 @@ func newWatchValueChannel(ctx context.Context, a *Config, namespace string) (<-c
 	}
 	a.client.AddChangeListener(listener)
 
-	// ctx 取消后反注册监听器再关闭通道（修正 go-wind 版注册后立即反注册的 bug）。
+	// ctx 取消后先反注册监听器再关闭通道，避免漏掉撤销前到达的变更。
 	go func() {
 		defer close(out)
 		defer a.client.RemoveChangeListener(listener)

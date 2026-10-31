@@ -1,9 +1,9 @@
 // Package log 定义 bald 框架级日志契约与全局句柄。
 //
-// 设计参照：
-//   - go-lulu/log：极简接口 + 全局注册 + 零后端默认（nop）
-//   - kratos/log：标准库 log/slog 薄封装 + 上下文属性流
-//   - onexstack/pkg/otelslog：slog.Handler 桥接 OpenTelemetry Logs（可选后端）
+// 设计取向：
+//   - 极简接口 + 全局注册 + 零后端默认（nop）
+//   - 标准库 log/slog 薄封装 + 上下文属性流
+//   - slog.Handler 桥接 OpenTelemetry Logs（可选后端）
 //
 // 本包核心（log.go / global.go / nop.go）不依赖任何具体日志库；
 // 默认后端为 nop（静默），由用户在应用装配期经 log.SetLogger 注入具体实现。

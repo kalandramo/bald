@@ -17,7 +17,7 @@
 ### 1. 启动 SFU 服务器
 
 ```bash
-cd go-wind-plugins\transport\webrtc\cmd\sfu_server
+cd transport/webrtc/cmd/sfu_server
 go run main.go
 ```
 
@@ -27,7 +27,7 @@ go run main.go
 
 在浏览器中打开：
 ```
-file:///D:/GoProject/go-wind-plugins/transport/webrtc/test_client.html
+file:///<绝对路径>/transport/webrtc/test_client.html
 ```
 
 或者使用本地服务器：

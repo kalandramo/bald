@@ -2,8 +2,8 @@
 // 「绑定/校验/响应」复用强绑定 gin 的 transport/web 流水线。
 //
 // 关键点：web 包直接消费 *gin.Context，因此只支持 gin 与 grpc-gateway
-// （后者经 grpc-gateway 的 HTTP transcoding 落到标准库 http）。这与 onexstack
-// 的 pkg/core 思路一致，业务 handler 与传输层解耦（参考 miniblog handler 分层）。
+// （后者经 grpc-gateway 的 HTTP transcoding 落到标准库 http）。业务 handler 与
+// 传输层解耦，同一份 logic 可被 gin 与 grpc-gateway 两条路径复用。
 //
 // 配置契约：bootstrapv1（bconf.NewBootstrap），协议实现与其同源——
 // server 直接消费 BootstrapConfig 的 Server_Http 子消息，无桥接层。

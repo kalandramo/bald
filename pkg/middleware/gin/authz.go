@@ -11,7 +11,7 @@ import (
 )
 
 // Option 配置 AuthzMiddleware 的请求→授权三元组提取方式（与 pkg/middleware/grpc 对称）。
-// 借鉴 go-lulu 的 ResolverFunc 模式，将传输层请求翻译为授权语义的职责外置为可插拔函数。
+// 将传输层请求翻译为授权语义的职责外置为可插拔函数（Resolver 模式）。
 type AuthzOption func(*authzOptions)
 
 type authzOptions struct {

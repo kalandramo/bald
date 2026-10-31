@@ -1,4 +1,4 @@
-// Package codegen 是 bald CLI（cmd/bald）的轻量代码生成脚手架（对照 osbuilder 的嵌入模板范式）。
+// Package codegen 是 bald CLI（cmd/bald）的轻量代码生成脚手架（嵌入模板范式）。
 //
 // 提供四个子命令，演示「配置驱动 + 嵌入模板」生成骨架：
 //   - bald gen proto   <name>  生成 api/proto/<name>/v1/<name>.proto（CRUD 六件套：

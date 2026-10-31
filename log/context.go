@@ -9,7 +9,7 @@ import (
 type ctxKey struct{}
 
 // ContextWithAttrs 将结构化属性挂载到 ctx，使该 ctx 范围内的所有日志自动携带。
-// 用法对齐 kratos/log 的 ContextWithAttrs。
+// 用法：把请求级属性挂到 ctx，由后续日志自动带上。
 func ContextWithAttrs(ctx context.Context, attrs ...slog.Attr) context.Context {
 	existing := ContextAttrs(ctx)
 	if len(existing) == 0 {

@@ -51,7 +51,7 @@ func NewOptions() *Options {
 	}
 }
 
-// AddFlags 将日志配置注册为命令行 flag，对齐 onexstack/pkg/log 的 --log.* 形态。
+// AddFlags 将日志配置注册为命令行 flag（--log.* 形态）。
 func (o *Options) AddFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&o.Level, "log.level", o.Level, "log level: debug|info|warn|error")
 	fs.StringVar(&o.Format, "log.format", o.Format, "log format: console|json")

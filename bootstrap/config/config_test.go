@@ -124,7 +124,7 @@ name: remote`, "yaml")
 }
 
 func TestLoad_NoLocalFileAllowed(t *testing.T) {
-	// 远程有值、无本地文件时不应报错（onexstack 行为）。
+	// 远程有值、无本地文件时不应报错。
 	remote := newMemSource(`http:
   addr: ":7070"`, "yaml")
 	s, err := Load(Options{Name: "bald-demo", Remote: remote})

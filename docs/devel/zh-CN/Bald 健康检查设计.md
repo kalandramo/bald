@@ -26,7 +26,7 @@ health 是 bald 的健康检查 module：一个接口、三态状态机、两层
 陋实现经常把它们混成一个 `/healthz`——依赖挂了 liveness 也失败，K8s 重启
 进程，而重启解决不了 Redis 断连，只制造重启风暴。
 
-### 移植背景
+### 模块边界
 
 本 module 是独立 module，`github.com/kalandramo/bald/health`：tag 已发（消费方引 `health/v0.1.1`）；
 探针与就绪的装配由 `bootstrap`/`appkit` 承担（协议层不含健康检查域），见本文「探针与就绪的归属」。

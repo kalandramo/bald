@@ -1,7 +1,7 @@
 // Package contextx 提供 bald 框架在 context 中存取请求级元信息的便捷函数。
 //
-// 设计对齐 onexstack 的 internal/pkg/contextx，但作为框架级共享工具独立成包，
-// 供 pkg/middleware 的 gin/grpc 子包与业务 handler 共同引用，避免重复的私有键定义。
+// 作为框架级共享工具独立成包，供 pkg/middleware 的 gin/grpc 子包与业务 handler
+// 共同引用，避免重复的私有键定义。
 package contextx
 
 import "context"

@@ -122,7 +122,7 @@ bootstrap.HttpServerProvider(
 flag > env > 本地文件 > 契约源层（Layers 首元素最高）> 远程桥（基准）
 ```
 
-- **远程桥**（`Options.Remote`，kratos 桥便捷入口）垫底为基准层；
+- **远程桥**（`Options.Remote`，远程源桥便捷入口）垫底为基准层；
 - **契约源层**（`Options.Layers`）在本地文件之下、远程桥之上；列表首元素优先级最高，合并时从尾向头叠加；
 - **本地文件**由 `discoverLocalFile` 按规则查找（显式 `ConfigFile` > `Name-Env.yaml/json` > `Name.yaml/json`，搜 `.` / `./configs` / `$HOME/.config/Name`），缺失不报错（允许纯远程/纯 flag 应用）；
 - **env 与 flag** 是静态层。
@@ -156,9 +156,9 @@ watch 转发（`config.go`）：源关闭通道时退避 1s 重建监听，重�
 
 被放弃方案：`import _ "x/apollo"` + `init()` 注册进全局 map。三处硬伤：依赖不透明（读代码看不出装了什么）、装配顺序由 Go 导入图决定（无法表达层优先级）、与全仓显式装配哲学冲突（`appkit` 的 Provider/Option 全是显式声明）。显式工厂的代价是调用方多写几行，换来依赖图写在代码里、每个测试自有实例。
 
-### 配置侧保留 kratos 桥，注册中心侧直连
+### 配置侧保留远程源桥，注册中心侧直连
 
-配置侧保留桥（`source.go`）：kratos contrib 的 etcd/consul/nacos/apollo 后端成熟，重写没有增量价值。注册中心侧走 `registry/<backend>` 直连，因为 naming 语义（健康检查、实例订阅）与 config 语义差异大，桥接层反而碍事。这个不对称是务实取舍。
+配置侧保留桥（`source.go`）：既有配置源后端生态（etcd/consul/nacos/apollo）成熟，重写没有增量价值。注册中心侧走 `registry/<backend>` 直连，因为 naming 语义（健康检查、实例订阅）与 config 语义差异大，桥接层反而碍事。这个不对称是务实取舍。
 
 ### 为什么不把装配也收进来
 
@@ -166,7 +166,7 @@ watch 转发（`config.go`）：源关闭通道时退避 1s 重建监听，重�
 
 ## 实现与验证
 
-- `go test ./...`（bootstrap module）：配置源 provider 矩阵（Unconfigured / ParameterFail / ContractMapping 三类用例，http/vault 另有 httptest 端到端）、config 内核（优先级链、快照隔离、双向热更新、flag 显式语义、坏配置保留旧值、kratos 桥多 KV 合并）、服务器装配（多选、gateway 模式分支、reflection 开关）、gRPC health 叠加器。
+- `go test ./...`（bootstrap module）：配置源 provider 矩阵（Unconfigured / ParameterFail / ContractMapping 三类用例，http/vault 另有 httptest 端到端）、config 内核（优先级链、快照隔离、双向热更新、flag 显式语义、坏配置保留旧值、远程桥多 KV 合并）、服务器装配（多选、gateway 模式分支、reflection 开关）、gRPC health 叠加器。
 - `_example/bald` 经 appkit 消费本包的配置源工厂与服务器 Provider，e2e 与生产共用同一构造函数。
 
 ### 与其他文档的分工

@@ -1,6 +1,6 @@
 # Cron Server
 
-基于 [robfig/cron/v3](https://github.com/robfig/cron) 的定时任务服务器，实现了 `go-wind/transport.Server` 接口，支持秒级 cron 表达式和描述符语法，可以与 `go-wind` 应用框架无缝集成。
+基于 [robfig/cron/v3](https://github.com/robfig/cron) 的定时任务服务器，实现了 `bald/transport.Server` 接口，支持秒级 cron 表达式和描述符语法，可直接纳入 `pkg/appkit` 的生命周期编排。
 
 ## 核心特性
 
@@ -9,7 +9,7 @@
 - **动态任务管理**：运行时动态添加、移除单个或全部任务
 - **优雅关闭**：等待正在运行的任务执行完毕后再退出
 - **时区支持**：可自定义时区
-- **阻塞式生命周期**：`Start` 阻塞直到 context 取消，兼容 `go-wind` App
+- **阻塞式生命周期**：`Start` 阻塞直到 context 取消，兼容按 Start/Stop 编排的 App 生命周期
 
 ## 安装
 

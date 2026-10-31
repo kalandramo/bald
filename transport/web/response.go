@@ -35,7 +35,7 @@ type ErrorInfoBody struct {
 }
 
 // WriteResponse 写入统一 JSON 响应：若 err 非 nil 则转写错误响应，否则写入 data。
-// data 为 nil（或零值引用）时仅置 200，不写 body，对齐 onexstack core.WriteResponse。
+// data 为 nil（或零值引用）时仅置 200，不写 body。
 func WriteResponse[T any](c *gin.Context, data T, err error) {
 	if err != nil {
 		ErrorResponse(c, err)

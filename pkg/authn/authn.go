@@ -3,8 +3,7 @@
 // 设计原则（见 docs/devel/zh-CN/架构演进路线.md §0.5）：
 //   - 核心只定义 Authenticator 接口与 AuthClaims 结构，不 import 任何具体验签库
 //     （jwt / oidc / casbin / JWKS 等外置为桥接子模块）。
-//   - AuthClaims 为强类型结构（对齐 go-lulu plugins/security/authn/claims.go），
-//     而非弱类型 map，保证 proto-first / 类型真相源。
+//   - AuthClaims 为强类型结构而非弱类型 map，保证 proto-first / 类型真相源。
 //   - 认证成功后把 Claims 注入 context，下游（多租户、授权、审计）从 context 读取。
 package authn
 

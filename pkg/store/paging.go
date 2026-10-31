@@ -1,4 +1,4 @@
-// Package store 的分页策略（对照 go-crud pagination/paginator.go）。
+// Package store 的分页策略。
 //
 // PagingRequest 同时携带三类分页参数：Page/PageSize（页码）、Offset/Limit（偏移）、
 // Token（游标）。本文件把"如何从中算出 offset/limit"抽成可替换的 Paginator 策略，

@@ -12,7 +12,7 @@ import "context"
 //
 // 空参数时返回的实例广播无目标（等价 nop），Enabled 恒为 false。
 // 仅依赖契约本身（纯 Logger 装饰器），故放在契约层顶层，
-// 对应 transport 顶层 Serve 的通用设施位置；对应 go-wind-plugins/log 的 MultiLogger。
+// 对应 transport 顶层 Serve 的通用设施位置。
 type MultiLogger struct {
 	loggers []Logger
 }
