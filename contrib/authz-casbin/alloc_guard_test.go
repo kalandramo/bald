@@ -6,6 +6,11 @@ import "testing"
 // testing.Benchmark() 直取 bench_test.go 既有基准定义（同包函数值直用），
 // 在测试进程内断言分配不变量——本地与 CI 同 go 1.27.1，确定性成立。
 //
+// -race 档实测：零分配三条路径两档都是 0 allocs（断言照旧成立），
+// NewRows_LoadPolicy 由 2,578 → 2,701 allocs/op（race 分配器的额外对象），
+// 所以下面 3,000 的余量按 -race 看只有 ×1.11——升级 casbin 或改装载口径时
+// 先重测两档，别只盯着非 race 的数字调阈值。
+//
 // 阈值出处：性能基准.md 存档 v1 实测值（headroom 依据逐行注释）。
 // 不加 testing.Short 守卫：单文件秒级，照常参与 -short 主循环。
 // 修改基准口径时，同步重测本文件阈值。

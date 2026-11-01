@@ -6,6 +6,11 @@ import "testing"
 // 以 testing.Benchmark() 直取 bench_test.go 既有基准定义（同包函数值直用），
 // 在测试进程内断言分配不变量——本地与 CI 同 go 1.27.1，确定性成立。
 //
+// 本包断言只有零分配不变量与 allocs 上界，实测 -race 与非 race 逐位相同
+// （DeclApply 1,320 B / 16 allocs、Resource_* 0/0、TopLevelSnapshot 336 B / 2
+// allocs 两档一致），故无需为 -race 另开口径；日后若加 B/op 阈值，先看性能
+// 基准.md 的 race 档说明——大树上 race 分配器会让 B/op 上移约一成。
+//
 // 阈值出处：性能基准.md 存档 v1 实测值（headroom 依据逐行注释）。
 // 不加 testing.Short 守卫：单文件秒级，照常参与 -short 主循环。
 // 修改基准口径时，同步重测本文件阈值。
