@@ -56,8 +56,10 @@ func NewBroker(opts ...broker.Option) broker.Broker {
 			Balancer:     &kafkaGo.LeastBytes{},
 			Logger:       nil,
 			ErrorLogger:  ErrorLogger{},
-			BatchTimeout: defaultBatchTimeout, // 内部默认为1秒，那么会造成什么情况呢？同步发送的时候，发送一次要等待1秒的时间。
-			Async:        true,                // 默认设置为异步发送，效率比较高。
+			BatchTimeout: defaultBatchTimeout,
+			// 同步发送：kafka-go 的异步写不返回错误（broker 不可达也报成功），
+			// 且缓冲区无界。默认同步 + 10ms 批量窗口，调用方能感知失败。
+			Async: false,
 		},
 		options:      options,
 		retriesCount: defaultRetriesCount,

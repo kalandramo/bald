@@ -140,7 +140,10 @@ func WithBatchBytes(by int64) broker.Option {
 	return broker.OptionContextWithValue(batchBytesKey{}, by)
 }
 
-// WithAsync 异步发送消息 default：true
+// WithAsync 异步发送消息 default：false
+//
+// 异步模式下 WriteMessages 不返回错误（broker 不可达也报成功）且缓冲区无界；
+// 需要「丢消息可接受、只求吞吐」时才显式开启。
 func WithAsync(enable bool) broker.Option {
 	return broker.OptionContextWithValue(asyncKey{}, enable)
 }
