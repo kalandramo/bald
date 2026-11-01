@@ -64,6 +64,16 @@ func TestStopConcurrentCalls(t *testing.T) {
 	startDone := make(chan error, 1)
 	go func() { startDone <- srv.Start(ctx) }()
 
+	// 等 Start 真正进入运行态再并发 Stop；否则 Stop 可能先关闭停机标记，
+	// Start 的「停机后不可重启」检查会让它直接返回错误。
+	deadline := time.Now().Add(2 * time.Second)
+	for !srv.started.Load() {
+		if time.Now().After(deadline) {
+			t.Fatal("Start did not reach running state")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
 	var wg sync.WaitGroup
 	for i := 0; i < 3; i++ {
 		wg.Add(1)

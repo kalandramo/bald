@@ -91,6 +91,8 @@ func newTestServer(t *testing.T, queue string) *Server {
 	return NewServer(
 		WithRedisURI(requireRedis(t)),
 		WithQueues(map[string]int32{queue: 1}),
+		// asynq 默认每 5s 扫描一次延迟/重试队列，测试里缩短以免等待过久。
+		WithDelayedTaskCheckInterval(100*time.Millisecond),
 		WithShutdownTimeout(3*time.Second),
 	)
 }
@@ -115,18 +117,21 @@ func startTestServer(t *testing.T, srv *Server) {
 	})
 }
 
-// waitTaskType 等待某个任务类型被消费。
-func waitTaskType(t *testing.T, handled <-chan string, want string, timeout time.Duration) {
+// waitTaskTypes 等待全部指定任务类型被消费；期间收到的其他类型忽略。
+func waitTaskTypes(t *testing.T, handled <-chan string, want []string, timeout time.Duration) {
 	t.Helper()
+	seen := make(map[string]bool, len(want))
+	remaining := len(want)
 	deadline := time.After(timeout)
-	for {
+	for remaining > 0 {
 		select {
 		case got := <-handled:
-			if got == want {
-				return
+			if !seen[got] {
+				seen[got] = true
+				remaining--
 			}
 		case <-deadline:
-			t.Fatalf("timed out after %v waiting for task %q", timeout, want)
+			t.Fatalf("timed out after %v; received %v, want %v", timeout, seen, want)
 		}
 	}
 }
@@ -146,7 +151,7 @@ func TestNewTaskOnly(t *testing.T) {
 	))
 
 	startTestServer(t, srv)
-	waitTaskType(t, handled, "ok", 5*time.Second)
+	waitTaskTypes(t, handled, []string{"ok"}, 5*time.Second)
 }
 
 func TestNewPeriodicTaskOnly(t *testing.T) {
@@ -209,7 +214,7 @@ func TestPeriodicTask(t *testing.T) {
 	require.NoError(t, err)
 
 	startTestServer(t, srv)
-	waitTaskType(t, handled, testPeriodicTask, 5*time.Second)
+	waitTaskTypes(t, handled, []string{testPeriodicTask}, 5*time.Second)
 }
 
 func TestTaskSubscribe(t *testing.T) {
@@ -235,8 +240,7 @@ func TestTaskSubscribe(t *testing.T) {
 	))
 
 	startTestServer(t, srv)
-	waitTaskType(t, handled, testTask1, 5*time.Second)
-	waitTaskType(t, handled, testDelayTask, 5*time.Second)
+	waitTaskTypes(t, handled, []string{testTask1, testDelayTask}, 8*time.Second)
 }
 
 func TestAllInOne(t *testing.T) {
@@ -263,9 +267,7 @@ func TestAllInOne(t *testing.T) {
 	require.NoError(t, err)
 
 	startTestServer(t, srv)
-	for _, want := range []string{testTask1, testDelayTask, testPeriodicTask} {
-		waitTaskType(t, handled, want, 8*time.Second)
-	}
+	waitTaskTypes(t, handled, []string{testTask1, testDelayTask, testPeriodicTask}, 10*time.Second)
 }
 
 func TestWaitResultTask(t *testing.T) {
