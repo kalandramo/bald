@@ -11,7 +11,6 @@ import (
 
 	apiserver "github.com/kalandramo/bald/example/bald/internal/apiserver"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/kalandramo/bald/health"
 	"github.com/kalandramo/bald/pkg/appkit"
@@ -39,12 +38,12 @@ func Options(role string) []appkit.Option {
 	// 的全部差异点（域清单见 domains.gen.go 的 domainOptionsForRole）。
 	switch role {
 	case "api":
-		opts = append(opts, appkit.WithGRPC(registerGRPCService, newGRPCServerOptions()...))
+		opts = append(opts, appkit.WithGRPC(registerGRPCService))
 		opts = append(opts, appkit.WithHTTP(apiserver.NewRouter()))
 		opts = append(opts, appkit.WithHealth(healthChecker))
 		opts = append(opts, domainOptionsForRole(role)...)
 	case "worker":
-		opts = append(opts, appkit.WithGRPC(registerGRPCService, newGRPCServerOptions()...))
+		opts = append(opts, appkit.WithGRPC(registerGRPCService))
 		opts = append(opts, appkit.WithHealth(healthChecker))
 		opts = append(opts, domainOptionsForRole(role)...)
 	default:
@@ -91,8 +90,3 @@ func ready(_ context.Context) error { return nil }
 
 // registerGRPCService 注册业务 gRPC service（TODO）。
 func registerGRPCService(s *grpc.Server) {}
-
-// newGRPCServerOptions 构造 gRPC server 拦截器链（业务可扩展）。
-func newGRPCServerOptions() []grpc.ServerOption {
-	return []grpc.ServerOption{grpc.Creds(insecure.NewCredentials())}
-}

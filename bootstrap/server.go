@@ -34,30 +34,26 @@ type ServerProvider func(ctx context.Context, cfg *bootstrapv1.Server) (transpor
 type GRPCServerOption func(*grpcServerDeps)
 
 type grpcServerDeps struct {
-	unary          []grpc.ServerOption
+	// optionFuncs 是 gRPC 服务端选项工厂，**按登记顺序**在 server 构造点求值。
+	// 只此一条路径：链序 = 登记顺序，没有「静态在前、延迟在后」的合并规则。
+	optionFuncs    []func() []grpc.ServerOption
 	register       func(s *grpc.Server)
 	health         *health.Health
 	healthInterval time.Duration
-	// unaryFn 是运行期求值的选项工厂（WithGRPCUnaryFunc）。在 provider 闭包内
-	// （Run 期、server 构造时）调用，与静态 unary 累加——静态在前。
-	unaryFn func() []grpc.ServerOption
 }
 
-// WithGRPCUnary 注入 gRPC 服务端选项（拦截器链、credentials 等）。
-// 典型：bundle 归一化链（authn→audit→authz）经 bmiddlewaregrpc.ChainUnary 产出。
+// WithGRPCUnaryFunc 注入 gRPC 服务端选项工厂（拦截器链、credentials 等）。
+// fn 在 provider 闭包内（Run 期、server 构造时）调用，故可读 beforeStart
+// 建立的运行期资源（认证器/授权器/仓储）。多次登记按登记顺序累加。
 //
-// 注意：opts 在**调用点**即求值（Go 变参语义）。若选项构造依赖运行期资源
-// （认证器/授权器/仓储），请改用 [WithGRPCUnaryFunc]。
-func WithGRPCUnary(opts ...grpc.ServerOption) GRPCServerOption {
-	return func(d *grpcServerDeps) { d.unary = append(d.unary, opts...) }
-}
-
-// WithGRPCUnaryFunc 注入**延迟求值**的 gRPC 服务端选项。fn 在 provider 闭包内
-// （Run 期、server 构造时）调用，故可读 beforeStart 建立的运行期资源——这是
-// 应用层「构造期占位 + 请求期解析」代理的替代品。与 [WithGRPCUnary] 的静态选项
-// 累加（静态在前、本项在后）。
+// 典型：bundle 归一化链（authn→audit→authz）经 bmiddlewaregrpc.ChainUnary 产出。
+// 注意链序是安全策略的一部分（ErrorInterceptor 须在最外层），登记顺序即链序。
 func WithGRPCUnaryFunc(fn func() []grpc.ServerOption) GRPCServerOption {
-	return func(d *grpcServerDeps) { d.unaryFn = fn }
+	return func(d *grpcServerDeps) {
+		if fn != nil {
+			d.optionFuncs = append(d.optionFuncs, fn)
+		}
+	}
 }
 
 // WithGRPCRegister 注入业务 service 注册回调（pb.RegisterXxxServer）。
@@ -78,17 +74,16 @@ func WithGRPCHealth(h *health.Health, interval time.Duration) GRPCServerOption {
 	}
 }
 
-// mergeUnary 合并静态与延迟求值的 unary 选项：**静态在前、延迟在后**。
+// applyOptions 按登记顺序求值各选项工厂并串成一条链。
 //
 // 链序是安全策略的一部分（如 ErrorInterceptor 须挂最外层），故顺序不可漂移；
-// 抽成函数以便测试直接断言顺序（provider 的 deps 非导出，外部无法观测）。
-// 拷贝静态切片，避免 append 污染 deps.unary（provider 可能被多次调用）。
-func mergeUnary(deps *grpcServerDeps) []grpc.ServerOption {
-	unary := deps.unary
-	if deps.unaryFn == nil {
-		return unary
+// 抽成函数以便测试直接断言（provider 的 deps 非导出，外部无法观测）。
+func applyOptions(deps *grpcServerDeps) []grpc.ServerOption {
+	var opts []grpc.ServerOption
+	for _, fn := range deps.optionFuncs {
+		opts = append(opts, fn()...)
 	}
-	return append(append([]grpc.ServerOption(nil), unary...), deps.unaryFn()...)
+	return opts
 }
 
 // GrpcServerProvider 返回 gRPC 协议服务器工厂（契约 Server.Grpc 段）。
@@ -115,9 +110,9 @@ func GrpcServerProvider(opts ...GRPCServerOption) ServerProvider {
 				deps.register(s)
 			}
 		}
-		// 延迟求值的选项（WithGRPCUnaryFunc）在**此处**调用——本闭包即 server
-		// 构造点（Run 期、业务 beforeStart 之后），故可读运行期资源。
-		srv := grpcserver.NewGRPCServerWithRegister(c, mergeUnary(deps), register)
+		// 选项工厂在**此处**求值——本闭包即 server 构造点（Run 期、业务
+		// beforeStart 之后），故工厂内可读运行期资源。
+		srv := grpcserver.NewGRPCServerWithRegister(c, applyOptions(deps), register)
 		if deps.health == nil {
 			return srv, nil, nil
 		}

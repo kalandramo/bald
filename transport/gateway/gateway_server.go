@@ -2,13 +2,16 @@ package gateway
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"sync"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
+	"github.com/kalandramo/bald/bconf/tlsconf"
 	"github.com/kalandramo/bald/transport/http"
 )
 
@@ -62,6 +65,19 @@ func NewGatewayServer(
 	}, nil
 }
 
+// dialOpts 按被代理 gRPC 段的 tls 声明决定传输凭据：契约写了 tls 即 TLS，
+// 否则明文。与被代理端读同一段配置，服务端开 TLS 后 gateway 不会连不上。
+func dialOpts(tlsCfg *bootstrapv1.Server_TLS) ([]grpc.DialOption, error) {
+	if tlsCfg == nil {
+		return []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}, nil
+	}
+	tc, err := tlsconf.Client(tlsCfg)
+	if err != nil {
+		return nil, fmt.Errorf("gateway backend tls: %w", err)
+	}
+	return []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tc))}, nil
+}
+
 // Start 在真正启动前建立到后端 gRPC 的连接并注册 handler（延迟解析地址）。
 func (s *GatewayServer) Start(ctx context.Context) error {
 	s.mu.Lock()
@@ -69,7 +85,12 @@ func (s *GatewayServer) Start(ctx context.Context) error {
 		s.mu.Unlock()
 		return s.HTTPServer.Start(ctx)
 	}
-	conn, err := grpc.NewClient(s.backend.GetAddr(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	opts, err := dialOpts(s.backend.GetTls())
+	if err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	conn, err := grpc.NewClient(s.backend.GetAddr(), opts...)
 	if err != nil {
 		s.mu.Unlock()
 		return err

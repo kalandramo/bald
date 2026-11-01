@@ -16,10 +16,9 @@ import (
 
 // WithGRPCOptions：gRPC 选项工厂必须在 **Run 期**求值，而非装配构造期。
 //
-// 为什么：选项常含拦截器链，而链需要认证器/授权器——它们在业务 beforeStart 才建立。
-// WithGRPC 的 unary 变参在调用点即求值（Go 语义），构造期只能拿到 nil，业务被迫用
-// 「请求期解析」代理（lateAuthn/lateAuthz）。WithGRPCOptions 收工厂函数，延后到
-// server 构造钩子内调用，使选项可见运行期资源。
+// 为什么：选项含拦截器链，而链需要认证器/授权器——它们在业务 beforeStart 才建立。
+// WithGRPCOptions 收工厂函数，延后到 server 构造点调用，使选项可见运行期资源；
+// 多次登记按登记顺序串成一条链，顺序即业务声明顺序（链序是安全策略）。
 //
 // 断言（RED 时期望失败）：
 //   - 构造期：选项工厂**未被调用**；

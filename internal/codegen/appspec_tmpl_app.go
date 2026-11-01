@@ -97,9 +97,6 @@ import (
 {{- if or .HasGRPC .HasGateway}}
 	"google.golang.org/grpc"
 {{- end}}
-{{- if .HasGRPC}}
-	"google.golang.org/grpc/credentials/insecure"
-{{- end}}
 {{- if .HasGateway}}
 	gatewayRuntime "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 {{- end}}
@@ -140,9 +137,11 @@ func Options() []appkit.Option {
 {{- if not .MultiRole}}
 {{- if .HasGRPC}}
 	// gRPC 能力声明：service 注册（业务 TODO；域 service 经 Domain.Services
-	// 并入注册回调——业务在前、域按声明序在后）+ 拦截器链（链序是安全策略，
-	// 归业务自持；ErrorInterceptor 须挂最外层）。
-	opts = append(opts, appkit.WithGRPC(registerGRPCService, newGRPCServerOptions()...))
+	// 并入注册回调——业务在前、域按声明序在后）。拦截器链与 TLS 不在这里：
+	// 链序是安全策略、归业务自持，写在 custom.go 的 customOptions 里用
+	// appkit.WithGRPCOptions 登记（ErrorInterceptor 须挂最外层）；TLS 由框架
+	// 从契约 server.grpc.tls 段出。
+	opts = append(opts, appkit.WithGRPC(registerGRPCService))
 {{- end}}
 {{- if .HasHTTP}}
 	// HTTP 能力声明：业务 handler 由 apiserver.NewRouter 提供（生成一次、
@@ -192,7 +191,7 @@ func Options() []appkit.Option {
 {{- range .Roles}}
 	case {{ q .Name }}:
 {{- if .HasGRPC}}
-		opts = append(opts, appkit.WithGRPC(registerGRPCService, newGRPCServerOptions()...))
+		opts = append(opts, appkit.WithGRPC(registerGRPCService))
 {{- end}}
 {{- if .HasHTTP}}
 		opts = append(opts, appkit.WithHTTP(apiserver.NewRouter()))
@@ -282,11 +281,6 @@ func ready(_ context.Context) error { return nil }
 
 // registerGRPCService 注册业务 gRPC service（TODO）。
 func registerGRPCService(s *grpc.Server) {}
-
-// newGRPCServerOptions 构造 gRPC server 拦截器链（业务可扩展）。
-func newGRPCServerOptions() []grpc.ServerOption {
-	return []grpc.ServerOption{grpc.Creds(insecure.NewCredentials())}
-}
 {{- end}}
 {{- if .HasGateway}}
 

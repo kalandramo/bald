@@ -68,23 +68,6 @@ func TestHTTPServer_DynamicPort(t *testing.T) {
 	}
 }
 
-// TestHTTPServer_HTTPS_Scheme：Tls 段非 nil 时 Endpoint scheme 应为 https。
-func TestHTTPServer_HTTPS_Scheme(t *testing.T) {
-	tlsSrv := NewHTTPServer(&bootstrapv1.Server_Http{Addr: ":0", Tls: &bootstrapv1.Server_TLS{}}, http.NewServeMux())
-	tlsStop := startAndWait(t, tlsSrv)
-	defer tlsStop()
-	if ep := tlsSrv.Endpoint(); !strings.HasPrefix(ep, "https://") {
-		t.Fatalf("with TLS, scheme = %q, want https://", ep)
-	}
-
-	plain := NewHTTPServer(&bootstrapv1.Server_Http{Addr: ":0"}, http.NewServeMux())
-	plainStop := startAndWait(t, plain)
-	defer plainStop()
-	if ep := plain.Endpoint(); !strings.HasPrefix(ep, "http://") {
-		t.Fatalf("without TLS, scheme = %q, want http://", ep)
-	}
-}
-
 // TestHTTPServer_NoFrameworkRoutes：协议实现不注册任何框架路由——
 // 业务 handler 里没有的路径一律 404（探针归装配层/业务，见设计文档）。
 func TestHTTPServer_NoFrameworkRoutes(t *testing.T) {

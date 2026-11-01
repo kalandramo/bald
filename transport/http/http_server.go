@@ -2,6 +2,7 @@ package httpserver
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"net"
@@ -9,12 +10,13 @@ import (
 	"sync"
 
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
+	"github.com/kalandramo/bald/bconf/tlsconf"
 	"github.com/kalandramo/bald/transport"
 )
 
 // HTTPServer 封装标准库 net/http，实现 transport.Server 契约。
 // 基于 proto 的 bootstrapv1.Server_Http：Tls 段非 nil 时为 HTTPS
-// （file/config 双模证书来源，见 resolveTLS）。
+// （file/config 双模证书来源，语义见 bconf/tlsconf）。
 //
 // 本包只做协议：**不注册任何框架路由**（包括健康/就绪探针），路由表完全由
 // 业务 handler 拥有——探针由装配层（`appkit.WithHealth`）或业务自行挂载，
@@ -60,6 +62,16 @@ func (s *HTTPServer) AttachHandler(h http.Handler) {
 
 // Start 启动 HTTP(S) 服务器（阻塞）。
 func (s *HTTPServer) Start(ctx context.Context) error {
+	// TLS 配置先于监听器构造：契约写错（缺证书/PEM 非法）应在启动期报错退场，
+	// 而不是先占端口再失败——否则 Endpoint 会报告一个已关闭的地址。
+	var tlsConfig *tls.Config
+	if s.cfg.GetTls() != nil {
+		var terr error
+		if tlsConfig, terr = tlsconf.Server(s.cfg.GetTls()); terr != nil {
+			return fmt.Errorf("build http tls config: %w", terr)
+		}
+	}
+
 	lis, err := net.Listen("tcp", s.cfg.GetAddr())
 	if err != nil {
 		return fmt.Errorf("http listen %s: %w", s.cfg.GetAddr(), err)
@@ -69,14 +81,7 @@ func (s *HTTPServer) Start(ctx context.Context) error {
 	s.ln = lis
 	s.mu.Unlock()
 
-	if s.cfg.GetTls() != nil {
-		tlsConfig, terr := resolveTLS(s.cfg.GetTls())
-		if terr != nil {
-			// 监听器已创建，构建 TLS 配置失败属于启动失败路径，
-			// 必须关闭监听器，否则造成文件描述符泄漏。
-			_ = lis.Close()
-			return fmt.Errorf("build http tls config: %w", terr)
-		}
+	if tlsConfig != nil {
 		s.TLSConfig = tlsConfig
 		err = s.ServeTLS(lis, "", "")
 	} else {

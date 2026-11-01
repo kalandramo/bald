@@ -238,10 +238,20 @@ func main() {
         appkit.ConfigFile("configs/app.yaml"),        // 本地文件源（也可省略，按 Name 规则发现）
         appkit.WatchConfigFile(true),                 // 监听文件变更（热更新）
         appkit.WithHTTP(router),                      // 声明 HTTP 能力
-        appkit.WithGRPCOptions(newGRPCServerOptions), // gRPC 拦截器链
+        appkit.WithGRPC(registerGRPCService),         // 声明 gRPC 能力（服务注册回调）
+        // 拦截器链等运行期选项：登记工厂，在 Run 期构造点求值（能看到 beforeStart
+        // 建立的依赖）。多次登记按登记序累加。TLS 不在这里——见下方说明。
+        appkit.WithGRPCOptions(func() []grpc.ServerOption {
+            return b.GRPCChain()
+        }),
     )
 }
 ```
+
+gRPC 的 TLS 没有代码入口，由契约 `server.grpc.tls` 段决定：段缺失 = 明文监听；
+段存在则经 `bconf/tlsconf` 构造 `*tls.Config`（`file` 走证书路径、`config` 走内联
+PEM、给了 `ca` 即强制校验客户端证书）。HTTP 侧同源同语义，网关出站到 gRPC 后端也读
+同一段——一处配置，三处生效。
 
 flag 侧框架内化两件事：
 

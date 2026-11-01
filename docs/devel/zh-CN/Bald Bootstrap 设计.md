@@ -86,7 +86,7 @@ type ServerProvider func(ctx context.Context, cfg *bootstrapv1.Server) (transpor
 
 bootstrap.GrpcServerProvider(
 	bootstrap.WithGRPCRegister(registerGRPCService),
-	bootstrap.WithGRPCUnary(grpcOpts...),
+	bootstrap.WithGRPCUnaryFunc(newGRPCChain), // 选项工厂：Run 期 server 构造点求值
 	bootstrap.WithGRPCHealth(h, interval),
 )
 bootstrap.HttpServerProvider(

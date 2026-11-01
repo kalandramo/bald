@@ -2,6 +2,8 @@ package grpcserver
 
 import (
 	"context"
+	"crypto/tls"
+	"fmt"
 	"net"
 	"sync"
 
@@ -10,6 +12,7 @@ import (
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
+	"github.com/kalandramo/bald/bconf/tlsconf"
 	"github.com/kalandramo/bald/transport"
 )
 
@@ -76,11 +79,30 @@ func (s *GRPCServer) HealthServer() *health.Server { return s.healthSrv }
 // 这是 GRPCServer 的额外访问器。
 func (s *GRPCServer) Options() any { return s.cfg }
 
-// Start 启动 gRPC 服务器（阻塞）。
+// Start 启动 gRPC 服务器（阻塞）。契约 tls 段非 nil 时监听器包一层 TLS，
+// 证书语义与 HTTP 同源（见 bconf/tlsconf）。
 func (s *GRPCServer) Start(_ context.Context) error {
+	// TLS 配置先于监听器构造：契约写错（缺证书/PEM 非法）应在启动期报错退场，
+	// 而不是先占端口再失败。
+	var tlsConfig *tls.Config
+	if s.cfg.GetTls() != nil {
+		var terr error
+		if tlsConfig, terr = tlsconf.Server(s.cfg.GetTls()); terr != nil {
+			return fmt.Errorf("build grpc tls config: %w", terr)
+		}
+		// grpc-go ≥1.67 强制校验 ALPN：服务端不声明 h2 时握手成功但连接被判失败
+		// （"missing selected ALPN property"）。这是协议要求，不是契约字段。
+		if len(tlsConfig.NextProtos) == 0 {
+			tlsConfig.NextProtos = []string{"h2"}
+		}
+	}
+
 	lis, err := net.Listen("tcp", s.cfg.GetAddr())
 	if err != nil {
 		return err
+	}
+	if tlsConfig != nil {
+		lis = tls.NewListener(lis, tlsConfig)
 	}
 
 	s.mu.Lock()
