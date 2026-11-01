@@ -48,6 +48,10 @@ type Server struct {
 
 	sessionManager *SessionManager
 
+	// signalSessions 保存信令阶段创建的会话，覆盖 DataChannel 打开之前的窗口。
+	// sessionManager 只登记 DataChannel 打开后的会话，而 ICE candidate 可能先到达。
+	signalSessions sync.Map // SessionID -> *Session
+
 	sfuRouter *SFURouter
 
 	payloadType PayloadType
@@ -383,7 +387,7 @@ func (s *Server) signalHandler(res http.ResponseWriter, req *http.Request) {
 
 	// 处理 ICE Candidate
 	if signalReq.Candidate != nil {
-		s.handleICECandidate(signalReq.Candidate, res)
+		s.handleICECandidate(signalReq.SessionID, signalReq.Candidate, res)
 		return
 	}
 
@@ -408,6 +412,7 @@ func (s *Server) signalHandler(res http.ResponseWriter, req *http.Request) {
 	}
 
 	session := NewSession(s, pc, vars)
+	s.trackSignalSession(session)
 
 	// 设置 ICE Candidate 回调
 	pc.OnICECandidate(func(candidate *webrtc.ICECandidate) {
@@ -487,7 +492,7 @@ func (s *Server) signalHandler(res http.ResponseWriter, req *http.Request) {
 	}
 
 	res.Header().Set("Content-Type", "application/json")
-	if err = encodeSignalResponse(res, &signalResponse{Answer: *local, SessionID: session.SessionID()}); err != nil {
+	if err = encodeSignalResponse(res, &signalResponse{Answer: local, SessionID: session.SessionID()}); err != nil {
 		session.Close()
 	}
 }
@@ -608,6 +613,7 @@ func (s *Server) Stop(ctx context.Context) error {
 
 	err := s.Shutdown(ctx)
 	s.sessionManager.closeAllAndWait()
+	s.closeSignalSessions()
 
 	s.stateMu.Lock()
 	s.err = nil
@@ -621,6 +627,10 @@ func (s *Server) Stop(ctx context.Context) error {
 
 // removeSession removes a session from the manager, used by SessionHooks.
 func (s *Server) removeSession(session *Session) {
+	if session == nil {
+		return
+	}
+	s.signalSessions.Delete(session.SessionID())
 	if s.sessionManager == nil {
 		return
 	}
@@ -631,13 +641,75 @@ func (s *Server) getPayloadType() PayloadType {
 	return s.payloadType
 }
 
-// handleICECandidate 处理 ICE Candidate
-func (s *Server) handleICECandidate(candidate *webrtc.ICECandidateInit, res http.ResponseWriter) {
-	// TODO: 需要 session ID 来找到对应的 PeerConnection
-	// 这里简化处理，实际需要通过 WebSocket 或其他方式维护 session 映射
-	res.WriteHeader(http.StatusOK)
-	_, _ = res.Write([]byte(`{"status":"ok"}`))
-	logDebug("ICE candidate received")
+// trackSignalSession 登记信令阶段创建的会话，使其在 DataChannel 打开前也能接收 ICE candidate。
+func (s *Server) trackSignalSession(session *Session) {
+	if session == nil {
+		return
+	}
+	s.signalSessions.Store(session.SessionID(), session)
+}
+
+func (s *Server) getSignalSession(sessionID SessionID) *Session {
+	if sessionID == "" {
+		return nil
+	}
+	if v, ok := s.signalSessions.Load(sessionID); ok {
+		return v.(*Session)
+	}
+	return nil
+}
+
+// closeSignalSessions 关闭未进入 SessionManager 的会话（例如 DataChannel 始终未打开）。
+func (s *Server) closeSignalSessions() {
+	s.signalSessions.Range(func(_, v any) bool {
+		v.(*Session).Close()
+		return true
+	})
+}
+
+// handleICECandidate 把远端 ICE candidate 应用到 session_id 对应的 PeerConnection。
+func (s *Server) handleICECandidate(sessionID SessionID, candidate *webrtc.ICECandidateInit, res http.ResponseWriter) {
+	if sessionID == "" {
+		res.WriteHeader(http.StatusBadRequest)
+		_ = writeSignalError(res, errors.New("session_id is required for ice candidate"))
+		return
+	}
+	if candidate == nil {
+		res.WriteHeader(http.StatusBadRequest)
+		_ = writeSignalError(res, errors.New("candidate is required"))
+		return
+	}
+
+	session := s.getSignalSession(sessionID)
+	if session == nil {
+		res.WriteHeader(http.StatusNotFound)
+		_ = writeSignalError(res, fmt.Errorf("session not found: %s", sessionID))
+		return
+	}
+
+	pc := session.PeerConnection()
+	if pc == nil {
+		res.WriteHeader(http.StatusNotFound)
+		_ = writeSignalError(res, fmt.Errorf("session closed: %s", sessionID))
+		return
+	}
+
+	if err := pc.AddICECandidate(*candidate); err != nil {
+		status := http.StatusBadRequest
+		if errors.Is(err, webrtc.ErrNoRemoteDescription) {
+			status = http.StatusConflict
+		}
+		res.WriteHeader(status)
+		_ = writeSignalError(res, err)
+		return
+	}
+
+	logDebugf("ICE candidate applied to session %s", sessionID)
+
+	res.Header().Set("Content-Type", "application/json")
+	if err := encodeSignalResponse(res, &signalResponse{SessionID: sessionID, MessageType: "candidate"}); err != nil {
+		logErrorf("write ice candidate response failed: %s", err)
+	}
 }
 
 func (s *Server) OnSessionAdded(session *Session) {

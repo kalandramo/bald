@@ -39,7 +39,9 @@ func startServerAsync(t *testing.T, srv *Server) chan error {
 	}()
 
 	waitUntil(t, 2*time.Second, func() bool {
-		return srv.lis != nil && srv.running
+		srv.stateMu.RLock()
+		defer srv.stateMu.RUnlock()
+		return srv.running
 	})
 
 	return errCh

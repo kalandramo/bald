@@ -189,6 +189,52 @@ cli.AddLocalTrack(localTrack)
 tracks := cli.GetRemoteTracks()
 ```
 
+## 信令协议
+
+信令走 HTTP `POST {path}`（默认 `/signal`），请求与响应均为 JSON。
+
+### 建立连接
+
+请求：
+
+```json
+{"offer": {"type": "offer", "sdp": "v=0\r\n..."}}
+```
+
+响应带回 `session_id`，后续 ICE candidate 需要用它定位会话：
+
+```json
+{"answer": {"type": "answer", "sdp": "v=0\r\n..."}, "session_id": "..."}
+```
+
+### 追加 ICE Candidate
+
+请求：
+
+```json
+{
+  "session_id": "...",
+  "candidate": {
+    "candidate": "candidate:1 1 udp 2130706431 192.0.2.10 50000 typ host",
+    "sdpMid": "0",
+    "sdpMLineIndex": 0
+  }
+}
+```
+
+服务端把 candidate 应用到该会话的 PeerConnection，成功响应：
+
+```json
+{"session_id": "...", "message_type": "candidate"}
+```
+
+- candidate 可以在 DataChannel 打开前送达，服务端在会话创建时就已登记。
+- `400`：缺少 `session_id` 或 `candidate`。
+- `404`：会话不存在或已关闭。
+- `409`：远端描述尚未就绪（candidate 先于 offer 到达），可稍后重试。
+
+服务端默认等待 ICE 收集完成后才返回 answer，因此内置 Go 客户端无需 trickle；上面的 candidate 接口用于浏览器等会持续上报 candidate 的客户端。
+
 ## 协议格式
 
 数据通道支持两种应用层包格式：

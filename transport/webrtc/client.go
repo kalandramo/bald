@@ -243,8 +243,8 @@ func (c *Client) sendOffer(offer webrtc.SessionDescription) (webrtc.SessionDescr
 	}
 
 	var wrapped signalResponse
-	if err = json.Unmarshal(respBody, &wrapped); err == nil && wrapped.Answer.Type != 0 {
-		return wrapped.Answer, nil
+	if err = json.Unmarshal(respBody, &wrapped); err == nil && wrapped.Answer != nil {
+		return *wrapped.Answer, nil
 	}
 
 	var answer webrtc.SessionDescription
