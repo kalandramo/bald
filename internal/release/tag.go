@@ -7,6 +7,9 @@ import (
 	"strings"
 )
 
+// tagPushBatch 是单次 git push 的 tag 上限，见 Tag 内注释。
+const tagPushBatch = 3
+
 // Tag 按计划在 HEAD 打 tag。默认只打印将执行的命令；apply 为 true 时才真正
 // 创建 tag，push 为 true 时再推送到 origin。
 //
@@ -67,10 +70,15 @@ func Tag(root string, plan *Plan, apply, push bool, out io.Writer) error {
 		for _, c := range plan.Changes {
 			tags = append(tags, c.Tag)
 		}
-		if _, err := r.git(append([]string{"push", "origin"}, tags...)...); err != nil {
-			return err
+		// 分批推送：GitHub 对一次推送超过 3 个 tag 不产生 push 事件，按 tag
+		// 过滤的流水线（如 publish-bconf）会静默漏跑。
+		for start := 0; start < len(tags); start += tagPushBatch {
+			batch := tags[start:min(start+tagPushBatch, len(tags))]
+			if _, err := r.git(append([]string{"push", "origin"}, batch...)...); err != nil {
+				return err
+			}
+			_, _ = fmt.Fprintf(out, "pushed: %s\n", strings.Join(batch, " "))
 		}
-		_, _ = fmt.Fprintf(out, "pushed: %s\n", strings.Join(tags, " "))
 	} else if apply {
 		_, _ = fmt.Fprintln(out, "\n未推送；确认后执行 git push origin <tag>…")
 	}

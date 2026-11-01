@@ -516,6 +516,37 @@ func TestTag_ApplyAndGuards(t *testing.T) {
 	}
 }
 
+func TestTag_PushesInBatches(t *testing.T) {
+	root := newRepo(t)
+	for _, name := range []string{"a", "b", "c", "d"} {
+		writeFile(t, root, name+"/go.mod", "module example.com/m/"+name+"\n\ngo 1.22\n")
+		writeFile(t, root, name+"/x.go", "package "+name+"\n")
+	}
+	commit(t, root, "feat: add four modules", "")
+
+	plan := planFor(t, root)
+	if len(plan.Changes) != 4 {
+		t.Fatalf("changes = %d, want 4: %+v", len(plan.Changes), plan.Changes)
+	}
+
+	remote := filepath.Join(t.TempDir(), "remote.git")
+	runGit(t, root, "init", "--bare", remote)
+	runGit(t, root, "remote", "add", "origin", remote)
+
+	var out bytes.Buffer
+	if err := Tag(root, plan, true, true, &out); err != nil {
+		t.Fatalf("tag and push: %v", err)
+	}
+	if got := strings.Count(out.String(), "pushed:"); got != 2 {
+		t.Errorf("push batches = %d, want 2 (3 tags max per push):\n%s", got, out.String())
+	}
+	for _, c := range plan.Changes {
+		if got := strings.TrimSpace(runGit(t, root, "-C", remote, "tag", "--list", c.Tag)); got != c.Tag {
+			t.Errorf("tag %s missing on remote", c.Tag)
+		}
+	}
+}
+
 func TestTag_RejectsUnrelatedHeadMovement(t *testing.T) {
 	root := newRepo(t)
 	writeFile(t, root, "root.go", "package m\n\n// fix\n")

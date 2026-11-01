@@ -187,16 +187,22 @@ func (r *Repo) git(args ...string) (string, error) {
 // owner 返回拥有 file 的最深 module；根模块兜底。
 func (r *Repo) owner(file string) *Module {
 	var best *Module
+	bestDepth := -1
 	for _, m := range r.Modules {
 		if m.Dir == "." {
 			if best == nil {
 				best = m
+				bestDepth = 0
 			}
 			continue
 		}
 		if file == m.Dir || strings.HasPrefix(file, m.Dir+"/") {
-			if best == nil || len(m.Dir) > len(best.Dir) {
+			// 按路径段数而非字符长度比较：单字符目录（如 a）与根的 "."
+			// 长度相同，用长度会漏掉更深层模块。
+			depth := strings.Count(m.Dir, "/") + 1
+			if best == nil || depth > bestDepth {
 				best = m
+				bestDepth = depth
 			}
 		}
 	}
