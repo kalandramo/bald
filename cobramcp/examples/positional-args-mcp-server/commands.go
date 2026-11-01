@@ -432,4 +432,3 @@ func newChatCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&isTest, "test", false, "启用测试模式")
 	return cmd
 }
-

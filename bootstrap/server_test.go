@@ -42,7 +42,9 @@ func TestGrpcServerProvider_ReflectionFlag(t *testing.T) {
 			closer()
 		}
 		// 有无 health 包装都满足该接口（grpcHealthServer 内嵌 *grpcserver.GRPCServer）。
-		infoer, ok := srv.(interface{ GetServiceInfo() map[string]grpc.ServiceInfo })
+		infoer, ok := srv.(interface {
+			GetServiceInfo() map[string]grpc.ServiceInfo
+		})
 		if !ok {
 			t.Fatalf("server %T does not expose GetServiceInfo", srv)
 		}

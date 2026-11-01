@@ -3,8 +3,8 @@ package kafka
 import (
 	"fmt"
 
-	kafkaGo "github.com/segmentio/kafka-go"
 	"github.com/kalandramo/bald/log"
+	kafkaGo "github.com/segmentio/kafka-go"
 )
 
 const logKey = "[kafka]"

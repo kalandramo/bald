@@ -77,7 +77,9 @@ func TestProvider_CloudBuild(t *testing.T) {
 	if cleanup != nil {
 		t.Error("langchaingo model has no pool to close, cleanup should be nil")
 	}
-	if _, ok := cli.(interface{ Call(ctx context.Context, prompt string, opts ...any) (string, error) }); !ok && cli == nil {
+	if _, ok := cli.(interface {
+		Call(ctx context.Context, prompt string, opts ...any) (string, error)
+	}); !ok && cli == nil {
 		t.Fatalf("instance should be non-nil llms.Model, got %T", cli)
 	}
 }

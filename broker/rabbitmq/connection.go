@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/kalandramo/bald/broker"
+	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 var (

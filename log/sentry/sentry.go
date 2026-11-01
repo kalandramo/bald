@@ -24,7 +24,7 @@ type Logger interface {
 //
 // Sentry 是业界领先的错误追踪和日志聚合平台。本适配器将日志事件
 // 通过 Sentry SDK 发送到 Sentry 平台，Error 级别作为事件上报
-//（带堆栈），其余级别（Warn/Info/Debug）作为 breadcrumb 记录。
+// （带堆栈），其余级别（Warn/Info/Debug）作为 breadcrumb 记录。
 //
 // Example:
 //

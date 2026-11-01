@@ -100,7 +100,7 @@ func BuildRoot(use, short string, runE func(*cobra.Command, []string) error, opt
 	})
 	root.Flags().SortFlags = true
 	if v := resolveVersion(c); v != "" {
-		root.Version = v // cobra 据此自动挂 --version
+		root.Version = v              // cobra 据此自动挂 --version
 		root.InitDefaultVersionFlag() // 构建期即挂，不拖到 Execute
 		root.AddCommand(&cobra.Command{
 			Use:   "version",
