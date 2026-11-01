@@ -431,6 +431,21 @@ func TestChangelog_PrependsBeforeHistory(t *testing.T) {
 	}
 }
 
+func TestChangelog_MergesSameDayIntoOneHeading(t *testing.T) {
+	existing := "# 变更日志\n\n说明。\n\n## 2026-01-02\n\n### sub v0.2.0\n\n- `def` feat: existing\n"
+	got := insertSections(existing, "## 2026-01-02\n\n### root v0.1.1\n\n- `abc` fix: new\n")
+
+	if n := strings.Count(got, "## 2026-01-02"); n != 1 {
+		t.Errorf("date heading count = %d, want 1:\n%s", n, got)
+	}
+	if strings.Index(got, "### root v0.1.1") > strings.Index(got, "### sub v0.2.0") {
+		t.Errorf("same-day new version must be first:\n%s", got)
+	}
+	if strings.Contains(got, "\n\n\n") {
+		t.Errorf("merged section must not contain extra blank lines:\n%s", got)
+	}
+}
+
 func TestTag_ApplyAndGuards(t *testing.T) {
 	root := newRepo(t)
 	writeFile(t, root, "root.go", "package m\n\n// fix\n")

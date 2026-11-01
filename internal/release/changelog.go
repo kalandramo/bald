@@ -75,14 +75,50 @@ func planDate(plan *Plan) string {
 }
 
 // insertSections 把新版本放在文件头部说明之后、最早的历史版本之前。
+// 同一天再次发布时并入已有日期节（新版本在前），避免重复的日期标题。
 func insertSections(existing, sections string) string {
 	if strings.TrimSpace(existing) == "" {
 		return changelogHeader + "\n" + sections
 	}
 	existing = strings.TrimRight(existing, "\n") + "\n"
+
+	heading, body := splitDateSection(sections)
+	if idx := dateHeadingIndex(existing, heading); idx >= 0 {
+		rest := strings.TrimLeft(existing[idx+len(heading):], "\n")
+		out := existing[:idx] + heading + "\n\n" + body + "\n"
+		if rest != "" {
+			out += "\n" + rest
+		}
+		return strings.TrimRight(out, "\n") + "\n"
+	}
+
 	if idx := strings.Index(existing, "\n## "); idx >= 0 {
 		head := strings.TrimRight(existing[:idx], "\n")
-		return head + "\n\n" + sections + "\n" + existing[idx+1:]
+		return head + "\n\n" + strings.TrimSpace(sections) + "\n\n" + existing[idx+1:]
 	}
 	return existing + "\n" + sections
+}
+
+// splitDateSection 拆出 "## <date>" 标题与其后的版本节内容。
+func splitDateSection(sections string) (heading, body string) {
+	trimmed := strings.TrimSpace(sections)
+	heading, body, found := strings.Cut(trimmed, "\n")
+	if !found || !strings.HasPrefix(heading, "## ") {
+		return "", trimmed
+	}
+	return heading, strings.TrimSpace(body)
+}
+
+// dateHeadingIndex 返回日期标题所在行的起始下标；标题必须独占一行。
+func dateHeadingIndex(existing, heading string) int {
+	if heading == "" {
+		return -1
+	}
+	if strings.HasPrefix(existing, heading+"\n") {
+		return 0
+	}
+	if idx := strings.Index(existing, "\n"+heading+"\n"); idx >= 0 {
+		return idx + 1
+	}
+	return -1
 }
