@@ -237,6 +237,28 @@ type Where struct {
   
   技术上**可行**（`gorm.DB` 内嵌 `*Config`，`Config.Dialector.Name()` 返回 `mysql`/`postgres`/`sqlite`，可据此分支），但代价是：方言矩阵 + **当前测试引擎 SQLite 覆盖不了多数分支**（需真实 MySQL/PostgreSQL 环境）+ 这 3 个操作符**全仓零生产调用方**（`crudbridge` 不用）。**成本/收益不成立，判定不做**。若将来有真实需求，路径是：`condSQL` 改方法持有 `*gorm.DB` 取 `Dialector.Name()`，按方言分支，并补真实 MySQL/PostgreSQL 测试。
 
+### GORM 桥接：列名与主键解析
+
+`contrib/store-gorm` 在 `Provider.DB(ctx)` 时按实体类型构建一次 `modelMeta`（`gorm.go`），进程级缓存于 `sync.Map`；后续 `Where` / `Sorting` / `Update` 复用同一份映射。
+
+**列名解析**（`modelMeta.column`，`gorm.go`）：
+
+1. 过滤/排序的 `Field` 先按 **Go 字段名**查映射表，命中则用声明的列名；
+2. 未命中时按 **snake_case 约定**翻译（`UserID` → `user_id`、`HTTPServer` → `http_server`）；
+3. 字段自身列名：`gorm:"column:xxx"` > 字段名 snake_case；
+4. `gorm:"-..."` 字段不参与映射与更新；匿名嵌入或带 `gorm:"embedded"` 的结构体展平，`embeddedPrefix` 作为列名前缀；
+5. 映射表以 Go 字段名为 key（重名取首个声明），直接传与列名一致的字符串同样可用。
+
+**主键解析**（`buildModelMeta`，`gorm.go`）：
+
+1. 第一个带 `gorm:"primaryKey"` 的字段；
+2. 否则取名为 `ID` 的字段；
+3. 都没有时回退列名 `id`（即 `keyOf` 的返回值写入 `id` 列）。
+
+主键映射只服务于 `Update`：`gormQuery.Update` 用 `meta.primaryKey = ?` 加 `keyOf(obj)` 定位行，并把主键列从更新字段中剔除（主键不可变）。`Get` / `Delete` / `List` 不依赖主键映射，完全由 `Where` 决定。`column_mapping_test.go` 的 `TestCustomColumnAndPrimaryKey` / `TestEmbeddedStructColumns` / `TestModelMetaPrimaryKeyFallback` 锁定上述优先级。
+
+**复合主键限制**：`modelMeta` 只保存**一个**主键列。实体声明多个 `primaryKey` 字段时，仅第一个（按字段声明顺序）参与 `Update` 定位——该列单独不唯一时会命中多行。当前桥接不支持复合主键定位；此类实体应改为单列主键，或绕开 `Store.Update`，直接调 `DB(ctx).Update(ctx, obj, where)` 在 `Where` 中补齐其余主键分量。
+
 ### 分页策略：四策略自动识别
 
 分页做成可替换的 `Paginator` 策略（`paging.go`），由 `detectStrategy`（`paging.go`）按请求字段自动选择，**优先级：NoPaging > Token > Page > Offset > 默认页码**：
@@ -502,6 +524,7 @@ sequenceDiagram
 | token 是偏移游标 | base64 编码的十进制偏移量（兼容裸十进制），不是基于主键/排序键的真游标；深翻页时 `OFFSET` 成本仍随页数增长。升级为 last-key 游标的路径已在 `paging.go` 预留，调用方无感知。 |
 | 字符串型数字列走字典序 | `cmpNum`（`inmemory.go`）对无法 `ParseFloat` 的值按字典序比较，故 `"10" < "9"`。仅影响 inmemory 后端的排序/范围比较（gorm 由数据库类型系统决定）。 |
 | `rows == 0` 不是「记录不存在」 | `Update`/`Delete` 返回受影响行数，且跨后端不一致：MySQL 默认对「更新为相同值」返回 0（行存在），SQLite 返回 1。需要存在性判断时应显式 `Get`（`Update` 注释已载明正误对照）。 |
+| GORM 桥接不支持复合主键定位 | `modelMeta` 只保留一个主键列（首个 `primaryKey` 字段）；`Update` 用它 + `keyOf` 定位行，复合主键实体会命中多行。解析优先级与规避方式见「GORM 桥接：列名与主键解析」。 |
 
 ### 安全边界（当前不变量）
 
