@@ -18,6 +18,7 @@ package baldgorm
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"strings"
 	"sync"
@@ -110,10 +111,22 @@ func (q *gormQuery[T]) Create(ctx context.Context, obj *T) error {
 // where（租户/数据范围隔离谓词）与主键条件 AND 连接：行不属于当前租户或越出
 // 数据范围时匹配 0 行，不会修改数据。
 func (q *gormQuery[T]) Update(ctx context.Context, obj *T, where *store.Where) (int64, error) {
-	k := q.keyOf(obj)
+	tx := q.applyWhere(where).WithContext(ctx).Model(new(T))
 	// 用 map 形式更新：避免 GORM 对零值字段的"跳过"行为，并把主键列排除，
 	// 防止主键被改写导致行错位。语义：主键不可变，零值字段也会被写入。
-	tx := q.applyWhere(where).WithContext(ctx).Model(new(T)).Where(q.meta.primaryKey+" = ?", k)
+	// 单列主键沿用 keyOf 的定位值；复合主键没有单一 keyOf，改用实体各主键字段值。
+	if len(q.meta.pkFields) > 1 {
+		v := reflect.ValueOf(obj).Elem()
+		for _, pk := range q.meta.pkFields {
+			fv, ok := fieldByIndex(v, pk.index)
+			if !ok {
+				return 0, fmt.Errorf("baldgorm: cannot resolve composite primary key column %q", pk.column)
+			}
+			tx = tx.Where(pk.column+" = ?", fv.Interface())
+		}
+	} else {
+		tx = tx.Where(q.meta.primaryKey+" = ?", q.keyOf(obj))
+	}
 	res := tx.Updates(toUpdateMap[T](obj, q.meta))
 	if res.Error != nil {
 		if isUniqueViolation(res.Error) {
@@ -124,7 +137,7 @@ func (q *gormQuery[T]) Update(ctx context.Context, obj *T, where *store.Where) (
 	return res.RowsAffected, nil
 }
 
-// toUpdateMap 将对象反射为更新用的字段映射（列名→值），剔除主键列。
+// toUpdateMap 将对象反射为更新用的字段映射（列名→值），剔除全部主键列。
 // 这样 Updates(map) 会写入所有导出字段（含零值），且不会误改主键。
 // `gorm:"-"`（及 "-:..."）字段是内存态/关联态（如树形 Children），非表列，跳过——
 // 否则 Updates(map) 会生成不存在的列（SQLite/PG 直接报 no such column）。
@@ -132,7 +145,7 @@ func toUpdateMap[T any](obj *T, meta *modelMeta) map[string]any {
 	m := make(map[string]any, len(meta.fields))
 	v := reflect.ValueOf(obj).Elem()
 	for _, f := range meta.fields {
-		if f.column == meta.primaryKey {
+		if meta.isPrimaryKey(f.column) {
 			continue
 		}
 		fv, ok := fieldByIndex(v, f.index)
@@ -148,8 +161,19 @@ func toUpdateMap[T any](obj *T, meta *modelMeta) map[string]any {
 // 列名优先取 gorm:"column:..."，否则按 snake_case 约定；嵌入结构体展开。
 type modelMeta struct {
 	primaryKey string
+	pkFields   []columnField
 	fields     []columnField
 	columns    map[string]columnField // Go 字段名 → 字段
+}
+
+// isPrimaryKey 判断列名是否属于主键（复合主键时可能是多列）。
+func (m *modelMeta) isPrimaryKey(column string) bool {
+	for _, pk := range m.pkFields {
+		if pk.column == column {
+			return true
+		}
+	}
+	return column == m.primaryKey
 }
 
 // columnField 描述一个可持久化字段：从实体根出发的字段索引链与列名。
@@ -190,12 +214,13 @@ func buildModelMeta(t reflect.Type) *modelMeta {
 	if t.Kind() == reflect.Struct {
 		collectModelFields(t, nil, "", m)
 	}
-	if m.primaryKey == "" {
+	if len(m.pkFields) == 0 {
 		if f, ok := m.columns["ID"]; ok {
+			m.pkFields = append(m.pkFields, f)
 			m.primaryKey = f.column
 		}
 	}
-	if m.primaryKey == "" {
+	if len(m.pkFields) == 0 {
 		// 无主键信息时沿用交付约定：keyOf 的值定位 id 列。
 		m.primaryKey = toColumn("id")
 	}
@@ -233,8 +258,11 @@ func collectModelFields(t reflect.Type, index []int, prefix string, m *modelMeta
 		if _, exists := m.columns[f.Name]; !exists {
 			m.columns[f.Name] = cf
 		}
-		if tag.primaryKey && m.primaryKey == "" {
-			m.primaryKey = col
+		if tag.primaryKey {
+			m.pkFields = append(m.pkFields, cf)
+			if m.primaryKey == "" {
+				m.primaryKey = col
+			}
 		}
 	}
 }

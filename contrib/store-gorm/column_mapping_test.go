@@ -129,3 +129,52 @@ func TestModelMetaPrimaryKeyFallback(t *testing.T) {
 		t.Fatalf("customIDColumn primaryKey = %q, want uid", got)
 	}
 }
+
+// compositeDoc 使用 (org_id, seq) 复合主键。
+type compositeDoc struct {
+	OrgID string `gorm:"column:org_id;primaryKey"`
+	Seq   int    `gorm:"primaryKey"`
+	Name  string
+}
+
+// TestCompositePrimaryKeyUpdate 锁定：复合主键按全部主键列定位，
+// 只命中一行，且主键列不会被写入更新字段。
+func TestCompositePrimaryKeyUpdate(t *testing.T) {
+	// 复合主键下 keyOf 不参与定位，任取一个值即可。
+	p := newTypedProvider[compositeDoc](t, func(d *compositeDoc) string { return d.OrgID })
+	ctx := context.Background()
+	repo := store.NewStore[compositeDoc](p)
+
+	require.NoError(t, repo.Create(ctx, &compositeDoc{OrgID: "o1", Seq: 1, Name: "a"}))
+	require.NoError(t, repo.Create(ctx, &compositeDoc{OrgID: "o1", Seq: 2, Name: "b"}))
+	require.NoError(t, repo.Create(ctx, &compositeDoc{OrgID: "o2", Seq: 1, Name: "c"}))
+
+	rows, err := repo.Update(ctx, &compositeDoc{OrgID: "o1", Seq: 1, Name: "a2"})
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), rows)
+
+	// 主键列不得进入更新字段。
+	updateMap := toUpdateMap(&compositeDoc{OrgID: "o1", Seq: 1, Name: "a2"}, modelMetaOf[compositeDoc]())
+	assert.NotContains(t, updateMap, "org_id")
+	assert.NotContains(t, updateMap, "seq")
+
+	pick := func(org string) map[int]*compositeDoc {
+		t.Helper()
+		items, _, err := repo.List(ctx, &store.Where{Filters: []*storev1.FilterCondition{
+			store.Eq("OrgID", org),
+		}})
+		require.NoError(t, err)
+		bySeq := make(map[int]*compositeDoc, len(items))
+		for _, item := range items {
+			bySeq[item.Seq] = item
+		}
+		return bySeq
+	}
+	o1 := pick("o1")
+	require.Len(t, o1, 2)
+	assert.Equal(t, "a2", o1[1].Name)
+	assert.Equal(t, "b", o1[2].Name)
+	o2 := pick("o2")
+	require.Len(t, o2, 1)
+	assert.Equal(t, "c", o2[1].Name)
+}
