@@ -27,6 +27,7 @@ replace github.com/kalandramo/bald/transport/grpc => ../../transport/grpc
 require (
 	github.com/kalandramo/bald v0.34.1
 	github.com/kalandramo/bald/bconf v0.15.3
+	github.com/kalandramo/bald/health v0.1.1
 	github.com/kalandramo/bald/transport v0.4.0
 	github.com/kalandramo/bald/transport/http v0.1.4
 	google.golang.org/grpc v1.83.2
@@ -112,7 +113,6 @@ require (
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/kalandramo/bald/bconfig v0.2.1 // indirect
 	github.com/kalandramo/bald/bootstrap v0.13.4 // indirect
-	github.com/kalandramo/bald/health v0.1.1 // indirect
 	github.com/kalandramo/bald/log v0.5.4 // indirect
 	github.com/kalandramo/bald/registry v0.3.1 // indirect
 	github.com/kalandramo/bald/transport/grpc v0.1.3 // indirect

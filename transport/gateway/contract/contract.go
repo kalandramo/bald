@@ -29,8 +29,12 @@ import (
 // Type 是契约 server 段中 gateway 后端的段名。
 const Type = "gateway"
 
+// DriverGRPCGateway 是契约 server.http.driver 的转码模式值：该值下 HTTP 端口
+// 即转码面（[HTTPProvider] 接管 server.http 段的准入条件；留空同义）。
+const DriverGRPCGateway = "grpc-gateway"
+
 // RegisterFunc 是 grpc-gateway 转码注册回调：业务在此建 runtime.ServeMux 并组合
-// pb.RegisterXxxHandler。与 bootstrap.HTTPServerOption 的 WithGatewayRegister 同签名。
+// pb.RegisterXxxHandler。
 type RegisterFunc func(ctx context.Context, conn *grpc.ClientConn) (http.Handler, error)
 
 // Provider 返回契约驱动的 gateway 工厂函数。

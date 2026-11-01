@@ -13,16 +13,26 @@
 // 放置说明（与 store-gorm 的结构差异）：本模块的契约映射逻辑在 contract
 // 包（gateway 包保持零契约依赖），root 包反向 import 本包——段驱动导出
 // 只能落在这里，复用既有 Provider 而非复制映射。
+//
+// 两个面的分工：[AppProvider] 消费 server.gateway 段（独立转码面，与 gin
+// 主面并存）；[HTTPProvider] 接管 server.http 段（同端口单面：HTTP 端口即
+// 转码面）。bootstrap 不硬编 grpc-gateway，同端口模式只能由本段 Provider
+// 表达（声明序末者胜：业务在 std.Standard() 之后声明即接管 server.http 的
+// HTTP 面）。
 package contract
 
 import (
 	"context"
 	"fmt"
+	"net/http"
+
+	"google.golang.org/grpc"
 
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
-
+	"github.com/kalandramo/bald/health"
 	"github.com/kalandramo/bald/pkg/appkit"
 	"github.com/kalandramo/bald/transport"
+	gateway "github.com/kalandramo/bald/transport/gateway"
 )
 
 // AppProvider 返回消费契约 server.gateway 段的 appkit.Provider（段路径
@@ -81,4 +91,99 @@ func adaptCleanup(cleanup func()) appkit.Cleanup {
 		return nil
 	}
 	return func(context.Context) error { cleanup(); return nil }
+}
+
+// ---------------------------------------------------------------------------
+// server.http 段 Provider：同端口单面的 grpc-gateway 转码面
+// ---------------------------------------------------------------------------
+
+// HTTPProvider 返回接管契约 server.http 段的 appkit.Provider：HTTP 端口即
+// REST → gRPC 转码面（gin 主面被替代）。
+//
+// 接管语义（声明序末者胜）：业务在 std.Standard() **之后**声明本 Provider 即
+// 覆盖 std 的 HTTP 面；gRPC 面由独立的 server.grpc Provider 承载，不受影响。
+//
+// register 必供（转码面是业务内容，契约段表达不了）；nil 时构造期 fail-fast。
+func HTTPProvider(register RegisterFunc) appkit.Provider {
+	return httpProvider{register: register}
+}
+
+// httpProvider 消费 server.http 段（driver 必须为 grpc-gateway 或留空）。
+type httpProvider struct {
+	// register 转码注册回调；WithHealth 声明时在外层补探针。
+	register RegisterFunc
+}
+
+func (httpProvider) Segments() []string { return []string{"server.http"} }
+
+// Apply 把自身追加进声明（Provider 即 Option）。
+func (p httpProvider) Apply(d *appkit.Decl) { d.Providers = append(d.Providers, p) }
+
+// Plan 声明 HTTP 服务器节点（同 std HTTP 面的阶段：业务 BeforeStart 之后）。
+//
+// Opaque 与 std 的 server 节点同理：转码路由是回调内容，计划只能看到边界。
+func (httpProvider) Plan(context.Context, appkit.PlanScope) ([]appkit.Node, error) {
+	return []appkit.Node{{
+		Key:      "server.http",
+		Kind:     "server",
+		Segments: []string{"server.http"},
+		Phase:    appkit.PhaseServe,
+		Reload:   appkit.ReloadStatic,
+		Opaque:   true,
+	}}, nil
+}
+
+// Build 按 server.http 段构造转码面服务器。
+//
+// driver 校验在此（显式 > 隐式）：非 grpc-gateway 的显式值说明业务把转码能力
+// 接到了不消费它的面上，属配置与能力不匹配，构造期失败而非静默降级。
+//
+// 上游地址取契约 server.grpc.addr（同进程 gRPC 面）——与原 bootstrap 的
+// gateway 模式同参：httpCfg 定面与 TLS、grpc 段定上游。
+//
+// 探针：WithHealth 声明时把双探针包在转码 handler 外层——协议实现不注册框架
+// 路由，探针由面 Provider 负责（与 appkit 的 HTTP 面同源）。
+func (p httpProvider) Build(ctx context.Context, s appkit.ApplyScope, _ appkit.Node) (any, appkit.Cleanup, error) {
+	serverSec := s.Config.GetServer()
+	if serverSec == nil {
+		return nil, nil, fmt.Errorf("transport/gateway: server section is missing " +
+			"(provider matched by segment path; report this as a bug)")
+	}
+	httpCfg := serverSec.GetHttp()
+	if httpCfg == nil {
+		return nil, nil, fmt.Errorf("gateway: HTTPProvider declared but contract server.http is nil")
+	}
+	if d := httpCfg.GetDriver(); d != "" && d != DriverGRPCGateway {
+		return nil, nil, fmt.Errorf("gateway: HTTPProvider declared but server.http.driver = %q, want %q or empty",
+			d, DriverGRPCGateway)
+	}
+	if p.register == nil {
+		return nil, nil, fmt.Errorf("gateway: HTTPProvider declared with a nil register func (transcoding face undefined)")
+	}
+	register := p.register
+	if h := s.Decl.Health; h != nil {
+		register = withProbes(register, h, s.Decl.ProbeLivePath, s.Decl.ProbeReadyPath)
+	}
+	srv, err := gateway.NewGatewayServer(httpCfg, serverSec.GetGrpc(), register)
+	if err != nil {
+		return nil, nil, fmt.Errorf("gateway: build: %w", err)
+	}
+	return srv, nil, nil
+}
+
+// withProbes 在转码 handler 外层挂双探针（liveness 常量 + readiness 取健康源）。
+func withProbes(register RegisterFunc, h *health.Health, live, ready string) RegisterFunc {
+	return func(ctx context.Context, conn *grpc.ClientConn) (http.Handler, error) {
+		business, err := register(ctx, conn)
+		if err != nil {
+			return nil, err
+		}
+		mux := http.NewServeMux()
+		mux.Handle(live, health.NewLivenessHandler())
+		mux.Handle(ready, health.NewHandler(h))
+		if business != nil {
+			mux.Handle("/", business)
+		}
+		return mux, nil
+	}
 }
