@@ -6,7 +6,7 @@ require (
 	github.com/alicebob/miniredis/v2 v2.39.0
 	github.com/gomodule/redigo v1.9.2
 	github.com/kalandramo/bald v0.32.0
-	github.com/kalandramo/bald/bconf v0.14.0
+	github.com/kalandramo/bald/bconf v0.15.1
 	github.com/kalandramo/bald/broker v0.3.0
 	github.com/kalandramo/bald/encoding v0.1.0
 	github.com/kalandramo/bald/encoding/json v0.1.1

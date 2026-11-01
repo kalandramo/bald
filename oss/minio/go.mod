@@ -4,7 +4,7 @@ go 1.27.1
 
 require (
 	github.com/kalandramo/bald v0.32.0
-	github.com/kalandramo/bald/bconf v0.14.0
+	github.com/kalandramo/bald/bconf v0.15.1
 	github.com/kalandramo/bald/log v0.5.4
 	github.com/minio/minio-go/v7 v7.3.0
 )
