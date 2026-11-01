@@ -124,11 +124,13 @@ func (q *mongoQuery[T]) Create(ctx context.Context, obj *T) error {
 // 语义不同：Mongo 的 MatchedCount 对「更新到相同值」仍返回 1（记录存在即算匹配），
 // 因此 Mongo 后端下 `rows == 0` 反而**可以**作为「记录不存在」的判据。这是跨后端
 // 差异，业务若依赖该判据需注意后端选择（详见 store.Store.Update 注释）。
-func (q *mongoQuery[T]) Update(ctx context.Context, obj *T) (int64, error) {
-	k := q.keyOf(obj)
+//
+// where（租户/数据范围隔离谓词）与主键条件 AND 连接：文档不属于当前租户或越出
+// 数据范围时匹配 0 个，不会修改数据。
+func (q *mongoQuery[T]) Update(ctx context.Context, obj *T, where *store.Where) (int64, error) {
 	// 用 $set 更新全部字段（排除主键，防止主键被改写导致文档错位）。
 	set := toUpdateDoc(obj, q.keyField)
-	res, err := q.col.UpdateOne(ctx, bson.D{{Key: q.keyField, Value: k}}, bson.D{{Key: "$set", Value: set}})
+	res, err := q.col.UpdateOne(ctx, q.updateFilter(where, q.keyOf(obj)), bson.D{{Key: "$set", Value: set}})
 	if err != nil {
 		if isDuplicateKey(err) {
 			return 0, store.ErrConflict
@@ -136,6 +138,16 @@ func (q *mongoQuery[T]) Update(ctx context.Context, obj *T) (int64, error) {
 		return 0, err
 	}
 	return res.MatchedCount, nil
+}
+
+// updateFilter 把隔离谓词与主键条件按 AND 组合。
+func (q *mongoQuery[T]) updateFilter(where *store.Where, key string) bson.D {
+	keyCond := bson.D{{Key: q.keyField, Value: key}}
+	f := q.buildFilter(where)
+	if len(f) == 0 {
+		return keyCond
+	}
+	return bson.D{{Key: "$and", Value: bson.A{f, keyCond}}}
 }
 
 // Delete 按条件删除，返回受影响行数。

@@ -92,6 +92,58 @@ func TestStore_IsolationOnGetListCountDelete(t *testing.T) {
 	}
 }
 
+// TestStore_UpdateIsolation 锁定：Update 也自动注入租户隔离——更新他租户记录
+// 返回 (0, nil) 且数据不被改动（否则越权者可凭主键改写他租户数据并把归属
+// 迁到自己租户）。
+func TestStore_UpdateIsolation(t *testing.T) {
+	store.RegisterTenant("tenant_id", store.DefaultTenantFunc)
+	t.Cleanup(func() { store.UnregisterTenant("tenant_id") })
+
+	p := inmemory.NewProvider[tenantDoc](func(d *tenantDoc) string { return d.ID })
+	s := store.NewStore[tenantDoc](p)
+	bg := context.Background()
+	if err := s.Create(bg, &tenantDoc{ID: "1", TenantID: "t-1", Name: "a"}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if err := s.Create(bg, &tenantDoc{ID: "2", TenantID: "t-2", Name: "b"}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	t1 := contextx.WithTenantID(bg, "t-1")
+
+	// 跨租户更新：id=2 属于 t-2，t-1 的身份不得改写它。
+	rows, err := s.Update(t1, &tenantDoc{ID: "2", Name: "hijacked"})
+	if err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if rows != 0 {
+		t.Fatalf("跨租户 Update rows=%d, want 0（隔离应挡住）", rows)
+	}
+	got, err := s.Get(bg, &store.Where{Filters: []*storev1.FilterCondition{store.Eq("id", "2")}})
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.Name != "b" || got.TenantID != "t-2" {
+		t.Fatalf("他租户记录被改写: %+v", got)
+	}
+
+	// 本租户更新：命中 1 行，租户归属保持在 t-1。
+	rows, err = s.Update(t1, &tenantDoc{ID: "1", Name: "a2"})
+	if err != nil {
+		t.Fatalf("update own: %v", err)
+	}
+	if rows != 1 {
+		t.Fatalf("本租户 Update rows=%d, want 1", rows)
+	}
+	got, err = s.Get(bg, &store.Where{Filters: []*storev1.FilterCondition{store.Eq("id", "1")}})
+	if err != nil {
+		t.Fatalf("get own: %v", err)
+	}
+	if got.Name != "a2" || got.TenantID != "t-1" {
+		t.Fatalf("本租户记录更新异常: %+v", got)
+	}
+}
+
 // TestStore_Isolation_NoTenantCtxUnaffected 锁定：ctx 无租户值时（非多租户应用
 // 或匿名请求），Get/List/Count/Delete 行为不变——隔离注入不产生副作用。
 func TestStore_Isolation_NoTenantCtxUnaffected(t *testing.T) {

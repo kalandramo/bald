@@ -99,11 +99,15 @@ func (q *gormQuery[T]) Create(ctx context.Context, obj *T) error {
 // 返回的是 GORM `RowsAffected`（**受影响行数**，直接透传驱动），**不是匹配行数**
 // ——MySQL 默认对「UPDATE 到与现有值相同」返回 0，故 `rows == 0` 不能作为
 // 「记录不存在」的判据（详见 `store.Store.Update` 注释）。
-func (q *gormQuery[T]) Update(ctx context.Context, obj *T) (int64, error) {
+//
+// where（租户/数据范围隔离谓词）与主键条件 AND 连接：行不属于当前租户或越出
+// 数据范围时匹配 0 行，不会修改数据。
+func (q *gormQuery[T]) Update(ctx context.Context, obj *T, where *store.Where) (int64, error) {
 	k := q.keyOf(obj)
 	// 用 map 形式更新：避免 GORM 对零值字段的"跳过"行为，并把主键列排除，
 	// 防止主键被改写导致行错位。语义：主键不可变，零值字段也会被写入。
-	res := q.db.WithContext(ctx).Model(new(T)).Where(toColumn("id")+" = ?", k).Updates(toMapExcludeKey(obj))
+	tx := q.applyWhere(where).WithContext(ctx).Model(new(T)).Where(toColumn("id")+" = ?", k)
+	res := tx.Updates(toMapExcludeKey(obj))
 	if res.Error != nil {
 		if isUniqueViolation(res.Error) {
 			return 0, store.ErrConflict

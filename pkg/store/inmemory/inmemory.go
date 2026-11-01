@@ -74,14 +74,18 @@ func (q *memQuery[T]) Create(_ context.Context, obj *T) error {
 // **幂等语义**（与 Delete 一致）：键不存在时返回 (0, nil)，不报错——更新的目标
 // 是让数据变成目标值，本来就是目标值，操作本身成功。
 //
-// 注意 `rows == 0` **不能**作为「记录不存在」的判据：本实现返回的是「键是否存在」
-// （0/1），而 gorm 后端返回驱动的受影响行数（MySQL 下「更新到相同值」也返回 0）
-// ——跨后端语义不一致，需要精确存在性判断请显式 `Get`。
-func (q *memQuery[T]) Update(_ context.Context, obj *T) (int64, error) {
+// where（租户/数据范围隔离谓词）按 AND 连接到主键条件：现有行不满足谓词时
+// 视为未命中，返回 (0, nil) 且不改动数据。
+//
+// 注意 `rows == 0` **不能**作为「记录不存在」的判据：本实现返回的是「键是否存在
+// 且命中隔离条件」（0/1），而 gorm 后端返回驱动的受影响行数（MySQL 下「更新到
+// 相同值」也返回 0）——跨后端语义不一致，需要精确存在性判断请显式 `Get`。
+func (q *memQuery[T]) Update(_ context.Context, obj *T, where *store.Where) (int64, error) {
 	q.p.mu.Lock()
 	defer q.p.mu.Unlock()
 	k := q.p.keyOf(obj)
-	if _, ok := q.p.data[k]; !ok {
+	cur, ok := q.p.data[k]
+	if !ok || !matchWhere(cur, where) {
 		return 0, nil
 	}
 	q.p.data[k] = obj
@@ -153,18 +157,20 @@ func (q *memQuery[T]) Count(_ context.Context, where *store.Where) (int64, error
 // 语义：AND(Filters..., Expr)，与 store.Where 的契约一致。
 func (q *memQuery[T]) matchAll(where *store.Where) []*T {
 	out := make([]*T, 0, len(q.p.data))
-	var conds []*storev1.FilterCondition
-	var expr *storev1.FilterExpr
-	if where != nil {
-		conds = where.Filters
-		expr = where.Expr
-	}
 	for _, v := range q.p.data {
-		if matchFilters(v, conds) && matchExpr(v, expr) {
+		if matchWhere(v, where) {
 			out = append(out, v)
 		}
 	}
 	return out
+}
+
+// matchWhere 判断单条记录是否满足 where（nil 视为无条件）。
+func matchWhere[T any](obj *T, where *store.Where) bool {
+	if where == nil {
+		return true
+	}
+	return matchFilters(obj, where.Filters) && matchExpr(obj, where.Expr)
 }
 
 // matchFilters 对单条记录评估全部扁平过滤条件（AND 语义）。

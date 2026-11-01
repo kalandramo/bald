@@ -61,8 +61,9 @@ type recordingQuery struct{ p *recordingProvider }
 func (r *recordingQuery) Create(ctx context.Context, obj *facadeEntity) error {
 	return r.p.q.Create(ctx, obj)
 }
-func (r *recordingQuery) Update(ctx context.Context, obj *facadeEntity) (int64, error) {
-	return r.p.q.Update(ctx, obj)
+func (r *recordingQuery) Update(ctx context.Context, obj *facadeEntity, w *Where) (int64, error) {
+	r.p.last = w
+	return r.p.q.Update(ctx, obj, w)
 }
 func (r *recordingQuery) Delete(ctx context.Context, w *Where) (int64, error) {
 	r.p.last = w
@@ -97,7 +98,7 @@ type stubQueryable struct {
 }
 
 func (s *stubQueryable) Create(context.Context, *facadeEntity) error { return s.createErr }
-func (s *stubQueryable) Update(context.Context, *facadeEntity) (int64, error) {
+func (s *stubQueryable) Update(context.Context, *facadeEntity, *Where) (int64, error) {
 	return s.rows, s.updateErr
 }
 func (s *stubQueryable) Delete(context.Context, *Where) (int64, error) {
@@ -211,11 +212,15 @@ func TestFacade_InjectsTenantIsolationBeforeProvider(t *testing.T) {
 
 	ctx := contextx.WithTenantID(context.Background(), "t-42")
 
-	// 覆盖所有走 applyIsolation 的读路径。
+	// 覆盖所有走 applyIsolation 的路径（含写路径 Update）。
 	reads := []struct {
 		name string
 		call func(s *Store[facadeEntity], ctx context.Context) error
 	}{
+		{"Update", func(s *Store[facadeEntity], ctx context.Context) error {
+			_, err := s.Update(ctx, &facadeEntity{ID: "1"})
+			return err
+		}},
 		{"Get", func(s *Store[facadeEntity], ctx context.Context) error {
 			_, err := s.Get(ctx, nil)
 			return err

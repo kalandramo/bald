@@ -30,7 +30,9 @@ const MaxPageSize = 100
 // 各自实现。
 type Queryable[T any] interface {
 	Create(ctx context.Context, obj *T) error
-	Update(ctx context.Context, obj *T) (rows int64, err error)
+	// Update 按主键定位并更新 obj；where 为附加隔离谓词，与主键条件按 AND 连接
+	// （命中 0 行即不做修改）。后端不得忽略 where。
+	Update(ctx context.Context, obj *T, where *Where) (rows int64, err error)
 	Delete(ctx context.Context, where *Where) (rows int64, err error)
 	Get(ctx context.Context, where *Where) (*T, error)
 	List(ctx context.Context, where *Where) (items []*T, total int64, err error)
@@ -155,13 +157,17 @@ func (s *Store[T]) Create(ctx context.Context, obj *T) error {
 //
 // `rows` 仍适合「本次是否真的改变了数据」这类**观测**用途（如决定要不要触发
 // 下游副作用）——注意该观测同样受上述跨后端差异影响。
+//
+// **多租户隔离**：更新条件自动注入租户/数据范围隔离（见 applyIsolation），与
+// 主键条件按 AND 连接——多租户应用改不到他租户、越出数据范围的记录（返回
+// `(0, nil)`）。写路径同时经 injectWriteTenant 覆写实体租户字段，读写两侧闭环。
 func (s *Store[T]) Update(ctx context.Context, obj *T) (int64, error) {
 	injectWriteTenant(ctx, obj) // 写路径多租户：自动覆写租户，防止越权更新改租户归属
 	q, err := s.provider.DB(ctx)
 	if err != nil {
 		return 0, err
 	}
-	return q.Update(ctx, obj)
+	return q.Update(ctx, obj, s.applyIsolation(ctx, nil))
 }
 
 // injectWriteTenant 写路径多租户注入：依据全局租户注册表，把 ctx 中解析到的各租户

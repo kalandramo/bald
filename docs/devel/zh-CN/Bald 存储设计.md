@@ -104,7 +104,7 @@ flowchart TB
 // Queryable 是后端对具体存储引擎的 CRUD 实现契约（依赖倒置）。
 type Queryable[T any] interface {
     Create(ctx context.Context, obj *T) error
-    Update(ctx context.Context, obj *T) (rows int64, err error)
+    Update(ctx context.Context, obj *T, where *Where) (rows int64, err error) // where 与主键条件 AND
     Delete(ctx context.Context, where *Where) (rows int64, err error)
     Get(ctx context.Context, where *Where) (*T, error)
     List(ctx context.Context, where *Where) (items []*T, total int64, err error)
@@ -153,7 +153,7 @@ type Store[T any] struct {
 
 #### 隔离闸门：`shouldIsolate` 是唯一判断点
 
-所有读路径注入租户条件前，**必须**经 `shouldIsolate(ctx)`（`store.go`）判断——`applyIsolation`（`store.go`，服务 `Get`/`List`/`Count`/`Delete`）与 `translate`（`store.go`，服务 `ListWithPaging`）共用它。
+所有注入租户条件的路径，**必须**经 `shouldIsolate(ctx)`（`store.go`）判断——`applyIsolation`（`store.go`，服务 `Get`/`List`/`Count`/`Delete`/`Update`）与 `translate`（`store.go`，服务 `ListWithPaging`）共用它。
 
 **为什么要有这个函数**：两条读取路径若**各自判断**，`applyIsolation` 有 `platformLevel` 守卫、`translate` 没有，同一不变量就有两个违反点——「声明平台级的实体改用 `ListWithPaging` 仍被注入 `tenant_id = ?`」（对无该列的表即 `no such column: tenant_id`）。
 
@@ -264,9 +264,11 @@ store.RegisterTenant("tenant_id", store.DefaultTenantFunc) // 显式开启，不
 
 **为什么不在 `init` 中隐式注册？** 因为对存量非多租户业务静默注入隔离条件会造成"查询突然查不到数据"的诡异故障。显式注册把开启时机交给业务，代价为零（`tenant.go`–`tenant.go` 注释）。`DefaultTenantFunc`（`tenant.go`）从 `contextx.TenantIDFromContext` 取值——认证中间件（`pkg/middleware/{gin,grpc}/authn.go`）在认证通过后写入。
 
-**读路径**：`ListWithPaging` 经 `translate` 在构造 `Where` 后立即调用 `mergeTenant`（`store.go` 起）与 `mergeDataScope`/`mergeDataScopeExpr`；`Get`/`List`/`Count`/`Delete` 经 `applyIsolation`（`store.go`）注入同源隔离条件（四条读写路径同一套隔离逻辑）。`mergeTenant`（`tenant.go`）把每个已注册维度的等值条件追加进 `Filters`，并**去重业务已手写的同名条件**——业务若已写该租户列（任一操作符，如 `NEQ`），系统不再叠加 `EQ`，避免 `EQ + NEQ` 叠加产生恒假或歧义（`tenant_test.go:TestMergeTenant` 锁定）。**触发条件**：仅当 ctx 携带租户值（维度已注册）或 `AuthClaims` 时注入，非多租户应用/匿名请求零影响。
+**读路径**：`ListWithPaging` 经 `translate` 在构造 `Where` 后立即调用 `mergeTenant`（`store.go` 起）与 `mergeDataScope`/`mergeDataScopeExpr`；`Get`/`List`/`Count`/`Delete` 经 `applyIsolation`（`store.go`）注入同源隔离条件（四条读路径同一套隔离逻辑）。`mergeTenant`（`tenant.go`）把每个已注册维度的等值条件追加进 `Filters`，并**去重业务已手写的同名条件**——业务若已写该租户列（任一操作符，如 `NEQ`），系统不再叠加 `EQ`，避免 `EQ + NEQ` 叠加产生恒假或歧义（`tenant_test.go:TestMergeTenant` 锁定）。**触发条件**：仅当 ctx 携带租户值（维度已注册）或 `AuthClaims` 时注入，非多租户应用/匿名请求零影响。
 
 **写路径**：`Create`/`Update`（`store.go`/`store.go`）在委托后端前调用 `injectWriteTenant`（`store.go`），反射把 ctx 解析到的租户值写回实体字段。字段匹配优先级（`tenantFieldIndex`，`store.go`）：`gorm:"column:tenant_id"` tag > `json:"tenant_id"` tag > 字段名 CamelCase→snake_case 直接相等（`fieldToSnake`，`store.go`）。**语义是无条件覆写**（`store.go` 的 `fd.SetString`）——业务试图写入他租户值（越权改归属）会被 ctx 真实租户覆盖，`write_tenant_test.go:TestInjectWriteTenant` 明确锁定"越权租户值应被 ctx 租户覆盖"。
+
+`Update` 除回填归属外，还经 `applyIsolation` 把租户/数据范围谓词交给 `Queryable.Update`，与主键条件 **AND** 连接——只回填归属不足以阻止越权：攻击者仍可凭他租户记录的主键把该行改写并迁入自己租户。隔离谓词落在 `WHERE` 上才能让这类更新匹配 0 行（三后端 `update_isolation_test.go` 锁定）。
 
 读写两路径**对称闭环**：读不泄漏、写不改归属。这是本模块的核心安全承诺。
 
