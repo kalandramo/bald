@@ -3,7 +3,7 @@ digraph bald_modules {
     node [fontname="Helvetica", fontsize=11, shape=box, style="rounded,filled", fillcolor="#f2f5fa"];
     edge [fontname="Helvetica", fontsize=9, color="#5b6b7f", arrowsize=0.6];
     graph [fontname="Helvetica", fontsize=12, ranksep=0.55, nodesep=0.35, labelloc=t,
-           label="bald 模块依赖分层（93 个 go.mod）— 2026-11-01，只画已核实的边；红=跨层回边（模块环）"];
+           label="bald 模块依赖分层（93 个 go.mod）— 2026-11-01，只画已核实的边；红=跨层回边（模块环）\n（已用 dot -Tsvg 渲染校验，graphviz 16.1.0）"];
 
     // ---- Layer: SPI 契约（无 bald 内部依赖） ----
     subgraph cluster_spi {
@@ -109,6 +109,4 @@ digraph bald_modules {
     c_ad -> root [label="cache/redis", color="#b00", style=dotted];
     b_ad -> root [label="broker/redis", color="#b00", style=dotted];
 
-    // ---- 未接线标注 ----
-    { rank=same; retry; cb; }
 }

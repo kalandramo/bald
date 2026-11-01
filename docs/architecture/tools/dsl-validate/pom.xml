@@ -1,0 +1,22 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>check</groupId>
+  <artifactId>dslcheck</artifactId>
+  <version>1.0</version>
+  <properties>
+    <maven.compiler.release>21</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+  </properties>
+  <dependencies>
+    <dependency>
+      <groupId>com.structurizr</groupId>
+      <artifactId>structurizr-dsl</artifactId>
+      <version>6.2.4</version>
+    </dependency>
+    <dependency>
+      <groupId>com.structurizr</groupId>
+      <artifactId>structurizr-export</artifactId>
+      <version>6.2.4</version>
+    </dependency>
+  </dependencies>
+</project>

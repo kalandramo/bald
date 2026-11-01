@@ -1,7 +1,7 @@
 digraph bald_flows {
     rankdir=TB;
     graph [fontname="Helvetica", fontsize=12, labelloc=t, ranksep=0.5, nodesep=0.4,
-           label="bald 三条主流程：入站请求 / 消息 / 生命周期 — 2026-11-01, main@ca981b1（行号经脚本回读核对；DOT 未渲染）"];
+           label="bald 三条主流程：入站请求 / 消息 / 生命周期 — 2026-11-01, main@ca981b1（行号经脚本回读核对；已用 dot -Tsvg 渲染校验，graphviz 16.1.0）"];
     node [fontname="Helvetica", fontsize=10, shape=box, style="rounded,filled", fillcolor="#eef3fa"];
     edge [fontname="Helvetica", fontsize=9, arrowsize=0.6];
 
