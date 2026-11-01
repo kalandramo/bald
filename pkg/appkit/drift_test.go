@@ -280,6 +280,28 @@ func TestPlan_RejectsReconcileOnNonBootstrapProvider(t *testing.T) {
 	}
 }
 
+// waitForNoDrift 轮询到漂移收敛为空。Drift 比的是「已落账摘要」，而探针在
+// Build 进入时就发信号/计数，落账发生在返回之后——单次读取会把「尚未落账」
+// 读成 missing（CI 的 -race 调度下已实际出现）。不变量本身不放宽：到不了空
+// 漂移仍然判失败。
+func waitForNoDrift(t *testing.T, a *App, where string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		drift, err := a.Drift(context.Background())
+		if err != nil {
+			t.Fatalf("%s: Drift: %v", where, err)
+		}
+		if len(drift) == 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%s drift = %+v; want none", where, drift)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
 // e2e：契约层变更 → 计划重算 → 可协调节点重建 → Drift 收敛为空。
 func TestHotReload_ReconcilesPlan(t *testing.T) {
 	old := log.GetLogger()
@@ -327,9 +349,7 @@ func TestHotReload_ReconcilesPlan(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("initial plan did not build the reconcile node")
 	}
-	if drift, err := a.Drift(context.Background()); err != nil || len(drift) != 0 {
-		t.Fatalf("initial drift = %+v, err=%v; want none", drift, err)
-	}
+	waitForNoDrift(t, a, "initial")
 
 	time.Sleep(20 * time.Millisecond)
 	writeConfig(false)
@@ -341,7 +361,5 @@ func TestHotReload_ReconcilesPlan(t *testing.T) {
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	if drift, err := a.Drift(context.Background()); err != nil || len(drift) != 0 {
-		t.Fatalf("drift after reload = %+v, err=%v; want none", drift, err)
-	}
+	waitForNoDrift(t, a, "after reload")
 }
