@@ -79,12 +79,10 @@ func insertSections(existing, sections string) string {
 	if strings.TrimSpace(existing) == "" {
 		return changelogHeader + "\n" + sections
 	}
-	if !strings.HasSuffix(existing, "\n") {
-		existing += "\n"
-	}
+	existing = strings.TrimRight(existing, "\n") + "\n"
 	if idx := strings.Index(existing, "\n## "); idx >= 0 {
-		idx++ // 指向 "## "
-		return existing[:idx] + "\n" + sections + "\n" + existing[idx:]
+		head := strings.TrimRight(existing[:idx], "\n")
+		return head + "\n\n" + sections + "\n" + existing[idx+1:]
 	}
 	return existing + "\n" + sections
 }

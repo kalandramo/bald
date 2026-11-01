@@ -426,6 +426,9 @@ func TestChangelog_PrependsBeforeHistory(t *testing.T) {
 	if !strings.Contains(got, "# 变更日志") || !strings.Contains(got, "### old v0.0.1") {
 		t.Errorf("existing content lost:\n%s", got)
 	}
+	if strings.Contains(got, "\n\n\n") {
+		t.Errorf("insertion must not accumulate blank lines:\n%s", got)
+	}
 }
 
 func TestTag_ApplyAndGuards(t *testing.T) {
