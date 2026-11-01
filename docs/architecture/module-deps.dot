@@ -3,7 +3,7 @@ digraph bald_modules {
     node [fontname="Helvetica", fontsize=11, shape=box, style="rounded,filled", fillcolor="#f2f5fa"];
     edge [fontname="Helvetica", fontsize=9, color="#5b6b7f", arrowsize=0.6];
     graph [fontname="Helvetica", fontsize=12, ranksep=0.55, nodesep=0.35, labelloc=t,
-           label="bald 模块依赖分层（93 个 go.mod）— 2026-11-02，只画已核实的边；红=适配器指回根 module 的单向回边（原 gateway 模块环已断，实测图为 DAG）\n（已用 dot -Tsvg 渲染校验，graphviz 16.1.0）"];
+           label="bald 模块依赖分层（93 个 go.mod）— 2026-11-02 重核（main @ 5f771e0），只画已核实的边；红=适配器指回根 module 的单向回边（原 gateway 模块环已断，实测图为 DAG）\n直接 require 根 module 的 22 个非示例模块全部落边：transport 6 + registry 4 + cache 1 + broker 1 + oss 2 + contrib 8\n（已用 dot -Tsvg 渲染校验，graphviz 16.1.0）"];
 
     // ---- Layer: SPI 契约（无 bald 内部依赖） ----
     subgraph cluster_spi {
@@ -51,6 +51,8 @@ digraph bald_modules {
         c_ad [label="cache/{local,redis,loadable}"];
         r_ad [label="registry/{nacos,consul,etcd,kubernetes}"];
         x_ad [label="log/* metrics/* encoding/*\nratelimit/* circuitbreaker/*"];
+        oss_ad [label="oss/{s3,minio}"];
+        y_ad [label="ai/* workflow/argo cobramcp\n（无根回边）", color="#9aa7b8"];
         contract [label="*/contract × 30\nappkit v2 Provider 注册包", fillcolor="#e8f0e0"];
         contrib [label="contrib/*", fillcolor="#e8f0e0"];
         codegen [label="cmd/bald + internal/codegen（根 module）", fillcolor="#e8f0e0"];
@@ -95,18 +97,26 @@ digraph bald_modules {
     x_ad -> blog;
     x_ad -> ratelimit;
     x_ad -> cb;
+    oss_ad -> bconf;
+    oss_ad -> blog;
+    y_ad -> bconf;
+    y_ad -> blog;
+    y_ad -> transport [label="代表性：cobramcp 引入 transport/mcp", style=dashed];
     bconfig -> ext_sr [style=dashed, label="watch 配置"];
     r_ad -> ext_sr [label="注册"];
     b_ad -> ext_mq;
     t_ad -> ext_mq [style=dashed, label="transport/{kafka,rabbitmq,rocketmq,redis}"];
 
-    // ---- 根 module 的下行 + 上行（环） ----
-    root -> transport [label="go.mod require", color="#006400"];
+    // ---- 根 module 的下行 + 上行（单向扇入，已不成环） ----
+    root -> transport [label="go.mod require\ntransport{/,/grpc,/http,/web}", color="#006400"];
     root -> bootstrap [color="#006400"];
     root -> bconf [color="#006400"];
-    t_ad -> root [label="transport/{sse,asynq,cron,tcp,webrtc,gateway}\nrequire 根 module v0.34.0", color="#b00", penwidth=1.6, fontcolor="#b00"];
+    t_ad -> root [label="transport/{sse,asynq,cron,tcp,webrtc,gateway}\nrequire 根 module v0.34.1", color="#b00", penwidth=1.6, fontcolor="#b00"];
     r_ad -> root [label="registry/{nacos,consul,etcd,kubernetes}", color="#b00", style=dotted];
     c_ad -> root [label="cache/redis", color="#b00", style=dotted];
     b_ad -> root [label="broker/redis", color="#b00", style=dotted];
+    oss_ad -> root [label="oss/{s3,minio}", color="#b00", style=dotted];
+    contrib -> root [color="#b00", penwidth=1.4, fontcolor="#b00",
+                     label="8 个 contrib 模块 require 根 module\n（含 config-nacos 另 require bootstrap）"];
 
 }

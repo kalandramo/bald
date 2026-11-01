@@ -33,7 +33,7 @@ bald 是一个 **SPI + 适配器 + 声明式装配** 的 Go 多模块框架：�
 | SPI | `transport` `broker` `cache` `metrics` `registry` `ratelimit` `circuitbreaker` `retry` `encoding` `log` `health` `berrors` | 只有接口与少量通用工具 | `transport/server.go:14-22`、`broker/broker.go:9-33`、`cache/cache.go:28-69`、`registry/registry.go:62-75` |
 | 适配器 | `transport/*`(18) `broker/*`(4) `cache/*`(3) `registry/*`(4) `log/*`(5) `metrics/*`(3) `encoding/*`(12) `ratelimit/*`(3) `circuitbreaker/*`(4) `oss/{minio,s3}` `ai/*`(3) `workflow/argo` `cobramcp` | 每个后端一个 module | 各 `*/go.mod` |
 | 接入子包 | `*/contract`（30 个目录） | 把适配器注册成 appkit v2 Provider —— **这是适配器与装配层唯一的接缝** | `transport/gateway/contract/provider.go:24`、`registry/etcd/contract/provider.go:16`、`oss/minio/contract/provider.go:17` |
-| 扩展 | `contrib/*` | store-gorm/mongo、audit-*、authn-jwt、authz-casbin、config-nacos、observability-otlp、database | `contrib/*/go.mod` |
+| 扩展 | `contrib/*`（8 个独立 module） | store-gorm/mongo、audit-*、authn-jwt、authz-casbin、config-nacos、observability-otlp；`contrib/database` **无独立 `go.mod`**，属根 module | `contrib/*/go.mod` |
 | 代码生成 | `cmd/bald` + `internal/codegen` | `gen app/domain/proto/store`，从 `appspec.json` 产出 owned/seeded 文件树 | `internal/codegen/appspec_tmpl_*.go` |
 | 样例 | `_example/bald` | 已迁入生成树的真实消费方 | `_example/bald/internal/bootstrap/assemble.gen.go:1-7,42-47` |
 
