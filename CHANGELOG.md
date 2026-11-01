@@ -6,6 +6,44 @@
 
 ## 2026-11-01
 
+### bald v0.34.1
+
+- `a2552696` docs(architecture): 风险登记册记下 6.5/6.1/4.1/4.2 的消解证据
+- `ffa15ffc` test(bconf): 分配剖面守卫按实测重定基线，并写明 -race 档
+- `92de7dc6` fix(bundle,codegen): 认证姿态未决定不再静默开放
+- `8afe0f3e` fix(appkit): 停机各阶段预算派生自唯一起停入口，反注册失败不再被吞
+- `2e9b2d2c` fix(bconf,tls): 契约驱动 TLS 覆盖 gRPC，收敛 gRPC 选项注入路径
+- `ad54cdc2` docs(architecture): 入库 5 张渲染快照 SVG
+- `70f3f55a` docs(architecture): 装齐工具真实渲染/解析校验，修正图源缺陷
+- `344a4c7c` docs(architecture): 新增现状架构、主流程与风险评审制品
+- `ca981b14` fix(release): tag 分批推送，避免触发流水线漏跑
+
+### bconf v0.15.3
+
+- `ffa15ffc` test(bconf): 分配剖面守卫按实测重定基线，并写明 -race 档
+- `2e9b2d2c` fix(bconf,tls): 契约驱动 TLS 覆盖 gRPC，收敛 gRPC 选项注入路径
+
+### bootstrap v0.13.4
+
+- `2e9b2d2c` fix(bconf,tls): 契约驱动 TLS 覆盖 gRPC，收敛 gRPC 选项注入路径
+
+### transport/gateway v0.4.2
+
+- `2e9b2d2c` fix(bconf,tls): 契约驱动 TLS 覆盖 gRPC，收敛 gRPC 选项注入路径
+- `875755c3` chore: 发布 bald v0.34.0 等 13 个模块
+- `ec4223fd` chore(deps): 归位 bconf v0.15.1 的消费者 require
+
+### transport/grpc v0.1.3
+
+- `2e9b2d2c` fix(bconf,tls): 契约驱动 TLS 覆盖 gRPC，收敛 gRPC 选项注入路径
+- `875755c3` chore: 发布 bald v0.34.0 等 13 个模块
+- `fd1a864c` chore(ci): 引入 golangci-lint 与 govulncheck 全模块门禁
+
+### transport/http v0.1.4
+
+- `2e9b2d2c` fix(bconf,tls): 契约驱动 TLS 覆盖 gRPC，收敛 gRPC 选项注入路径
+- `875755c3` chore: 发布 bald v0.34.0 等 13 个模块
+
 ### bald v0.34.0
 
 - `89a6a94f` fix(release): 未发版模块也跟随归位内部依赖

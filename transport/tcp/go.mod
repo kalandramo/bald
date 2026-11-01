@@ -15,7 +15,7 @@ replace github.com/kalandramo/bald/metrics => ../../metrics
 replace github.com/kalandramo/bald/transport => ..
 
 require (
-	github.com/kalandramo/bald v0.34.0
+	github.com/kalandramo/bald v0.34.1
 	github.com/kalandramo/bald/encoding v0.1.0
 	github.com/kalandramo/bald/metrics v0.1.2
 	github.com/kalandramo/bald/transport v0.4.0

@@ -8,10 +8,10 @@ require (
 	github.com/gin-gonic/gin v1.12.0
 	github.com/go-kratos/kratos/v3/contrib/config/nacos/v3 v3.0.0-00010101000000-000000000000
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.29.0
-	github.com/kalandramo/bald v0.34.0
-	github.com/kalandramo/bald/bconf v0.15.2
+	github.com/kalandramo/bald v0.34.1
+	github.com/kalandramo/bald/bconf v0.15.3
 	github.com/kalandramo/bald/berrors v0.1.1
-	github.com/kalandramo/bald/bootstrap v0.13.3
+	github.com/kalandramo/bald/bootstrap v0.13.4
 	github.com/kalandramo/bald/contrib/store-gorm v0.4.0
 	github.com/kalandramo/bald/health v0.1.1
 	github.com/kalandramo/bald/log v0.5.4
@@ -131,9 +131,9 @@ require (
 	github.com/kalandramo/bald/ratelimit v0.1.0 // indirect
 	github.com/kalandramo/bald/ratelimit/tokenbucket v0.1.0 // indirect
 	github.com/kalandramo/bald/transport v0.4.0 // indirect
-	github.com/kalandramo/bald/transport/gateway v0.4.1 // indirect
-	github.com/kalandramo/bald/transport/grpc v0.1.1 // indirect
-	github.com/kalandramo/bald/transport/http v0.1.3 // indirect
+	github.com/kalandramo/bald/transport/gateway v0.4.2 // indirect
+	github.com/kalandramo/bald/transport/grpc v0.1.3 // indirect
+	github.com/kalandramo/bald/transport/http v0.1.4 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/magiconair/properties v1.8.5 // indirect

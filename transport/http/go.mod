@@ -7,7 +7,7 @@ replace github.com/kalandramo/bald/bconf => ../../bconf
 replace github.com/kalandramo/bald/transport => ..
 
 require (
-	github.com/kalandramo/bald/bconf v0.15.2
+	github.com/kalandramo/bald/bconf v0.15.3
 	github.com/kalandramo/bald/transport v0.2.1
 )
 
