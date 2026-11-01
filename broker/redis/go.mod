@@ -5,8 +5,8 @@ go 1.27.1
 require (
 	github.com/alicebob/miniredis/v2 v2.39.0
 	github.com/gomodule/redigo v1.9.2
-	github.com/kalandramo/bald v0.32.0
-	github.com/kalandramo/bald/bconf v0.15.1
+	github.com/kalandramo/bald v0.34.0
+	github.com/kalandramo/bald/bconf v0.15.2
 	github.com/kalandramo/bald/broker v0.3.0
 	github.com/kalandramo/bald/encoding v0.1.0
 	github.com/kalandramo/bald/encoding/json v0.1.1
@@ -92,7 +92,7 @@ require (
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/kalandramo/bald/bconfig v0.2.1 // indirect
-	github.com/kalandramo/bald/bootstrap v0.13.2 // indirect
+	github.com/kalandramo/bald/bootstrap v0.13.3 // indirect
 	github.com/kalandramo/bald/health v0.1.1 // indirect
 	github.com/kalandramo/bald/registry v0.3.1 // indirect
 	github.com/kalandramo/bald/transport v0.4.0 // indirect

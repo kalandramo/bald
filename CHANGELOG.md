@@ -6,6 +6,89 @@
 
 ## 2026-11-01
 
+### bald v0.34.0
+
+- `89a6a94f` fix(release): 未发版模块也跟随归位内部依赖
+- `682739d8` fix(appkit): 测试等启动完成再取消，避免慢机器误报
+- `0940278a` test(appkit): 构建约束用例不再依赖宿主平台
+- `a3ae07e5` fix(store-gorm): 支持复合主键定位更新
+- `50bffe78` docs(store): 补 GORM 桥接的列名与主键解析规则
+- `77caa1f5` fix(store)!: Update 注入租户/数据范围隔离谓词 **(breaking)**
+- `bba2d0b6` chore(docs): 移除文档头部的 Last updated 元数据
+- `fe9fdeac` fix(appkit): 路由冲突检查识别段内通配
+- `07904069` style: 清理全仓 gofmt 漂移
+- `651e23ed` fix(release): changelog 同日版本合并到同一日期节
+
+### bconf v0.15.2
+
+- `e34875ce` fix(bconf,config): 反序列化不改入参，热更新回调串行化
+- `bba2d0b6` chore(docs): 移除文档头部的 Last updated 元数据
+
+### bootstrap v0.13.3
+
+- `ec4223fd` chore(deps): 归位 bconf v0.15.1 的消费者 require
+- `e34875ce` fix(bconf,config): 反序列化不改入参，热更新回调串行化
+- `07904069` style: 清理全仓 gofmt 漂移
+
+### broker/kafka v0.2.2
+
+- `5ef63d05` fix(kafka): 默认同步发送，避免异步模式静默丢消息
+- `07904069` style: 清理全仓 gofmt 漂移
+
+### cache/local v0.1.3
+
+- `a7ddd5f7` fix(cache/local): SetNX 原子化，亚秒 TTL 不再退化为永不过期
+
+### contrib/store-gorm v0.4.0
+
+- `a3ae07e5` fix(store-gorm): 支持复合主键定位更新
+- `befb5fb1` fix(store-gorm): 尊重 gorm column tag 与实体真实主键
+- `18df9544` test(store-gorm): 补 Update 数据范围隔离回归
+- `77caa1f5` fix(store)!: Update 注入租户/数据范围隔离谓词 **(breaking)**
+- `b910c0f6` docs(comments): 清理 Go 注释与测试名中的缺陷编号和历史叙事
+- `fd1a864c` chore(ci): 引入 golangci-lint 与 govulncheck 全模块门禁
+
+### contrib/store-mongo v0.2.0
+
+- `77caa1f5` fix(store)!: Update 注入租户/数据范围隔离谓词 **(breaking)**
+
+### registry/consul v0.1.4
+
+- `c293c67d` fix(registry): 注销只停实例心跳；修 etcd 心跳重试阻塞
+
+### registry/etcd v0.3.2
+
+- `c293c67d` fix(registry): 注销只停实例心跳；修 etcd 心跳重试阻塞
+
+### transport/asynq v0.6.0
+
+- `1ad24b56` feat(asynq): 等待任务结果支持 ctx 取消
+- `23981a1f` test(asynq): 修正集成测试时序与延迟队列等待
+- `efa9d142` test(asynq): 集成测试改为可配置 Redis 并自动跳过
+- `bb790612` fix(cron,asynq): 修正停机标记的一次性语义
+- `5b43967e` fix(asynq,cron): 停机不再忽略 ctx 截止时间
+- `f1a966ff` chore(deps): 对齐 asynq/cron 的 bconf 本地 replace 版本
+
+### transport/cron v0.6.2
+
+- `bb790612` fix(cron,asynq): 修正停机标记的一次性语义
+- `5b43967e` fix(asynq,cron): 停机不再忽略 ctx 截止时间
+- `f1a966ff` chore(deps): 对齐 asynq/cron 的 bconf 本地 replace 版本
+
+### transport/sse v0.5.0
+
+- `be8ac071` test(sse): 慢订阅者用例逐条消费，消除调度抖动
+- `9086bae4` feat(sse): 补慢订阅者与回放截断的可观测性
+- `06260f3f` fix(sse): 慢订阅者不再阻塞整流，回放日志改为有界
+
+### transport/webrtc v0.2.1
+
+- `4af0003f` fix(webrtc): 删除未使用的 logDebug
+- `9b2aec2a` fix(webrtc): 按 session_id 应用 ICE candidate
+- `b910c0f6` docs(comments): 清理 Go 注释与测试名中的缺陷编号和历史叙事
+- `fd1a864c` chore(ci): 引入 golangci-lint 与 govulncheck 全模块门禁
+- `ed2e4440` docs: 全仓去除来源引用，只留取舍理由与功能设计
+
 ### bald v0.33.1
 
 - `e7b50ef6` fix(release): 变更日志插入不再累积空行
