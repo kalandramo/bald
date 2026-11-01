@@ -9,6 +9,7 @@ import (
 // Subscriber represents a single client connected to an SSE stream.
 type Subscriber struct {
 	quit       chan *Subscriber
+	streamQuit <-chan struct{}
 	connection chan *Event
 	removed    chan struct{}
 	eventId    string
@@ -17,10 +18,19 @@ type Subscriber struct {
 }
 
 // close deregisters the subscriber from its stream.
+//
+// 流已关闭时注销通道不再有接收方，故同时等待 streamQuit，避免注销永久阻塞
+// （请求结束 goroutine 泄漏）。
 func (s *Subscriber) close() {
-	s.quit <- s
+	select {
+	case s.quit <- s:
+	case <-s.streamQuit:
+	}
 	if s.removed != nil {
-		<-s.removed
+		select {
+		case <-s.removed:
+		case <-s.streamQuit:
+		}
 	}
 }
 

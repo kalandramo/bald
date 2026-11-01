@@ -83,6 +83,7 @@ func main() {
 | `WithBufferSize(n)`           | 每个流事件通道缓冲大小   | `1024`    |
 | `WithAutoStream(enable)`      | 自动创建流         | `false`   |
 | `WithAutoReplay(enable)`      | 事件重放          | `true`    |
+| `WithEventLogSize(n)`         | 每流回放日志保留条数    | `1024`    |
 | `WithEncodeBase64(enable)`    | Base64 编码事件数据 | `false`   |
 | `WithSplitData(enable)`       | 按换行符分割事件数据    | `false`   |
 | `WithEventTTL(d)`             | 事件有效期         | `0`（不过期）  |

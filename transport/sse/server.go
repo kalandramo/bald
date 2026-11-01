@@ -50,6 +50,10 @@ const KindSSE = "sse"
 // DefaultBufferSize 是每个流事件通道的默认缓冲大小。
 const DefaultBufferSize = 1024
 
+// DefaultEventLogSize 是每个流回放日志默认保留的事件条数。上限避免长连接
+// 服务持续发布时事件日志无界增长；更早的事件不再支持 Last-Event-ID 回放。
+const DefaultEventLogSize = 1024
+
 // 确保 Server 实现了 wind transport.Server 接口。
 var _ transport.Server = (*Server)(nil)
 
@@ -78,9 +82,10 @@ type Server struct {
 	path        string
 	streamIdKey string
 
-	headers    map[string]string
-	eventTTL   time.Duration
-	bufferSize int
+	headers      map[string]string
+	eventTTL     time.Duration
+	bufferSize   int
+	eventLogSize int
 
 	encodeBase64 bool
 	splitData    bool
@@ -108,6 +113,7 @@ func NewServer(addr string, opts ...Option) *Server {
 		path:            "/events",
 		streamIdKey:     "stream",
 		bufferSize:      DefaultBufferSize,
+		eventLogSize:    DefaultEventLogSize,
 		corsAllowOrigin: "*",
 		autoReplay:      true,
 		headers:         map[string]string{},
@@ -250,7 +256,7 @@ func (s *Server) StreamCount() int {
 }
 
 func (s *Server) createStream(streamId StreamID) *Stream {
-	stream := newStream(streamId, s.bufferSize, s.autoReplay, s.autoStream, s.subscribeFunc, s.unsubscribeFunc)
+	stream := newStream(streamId, s.bufferSize, s.eventLogSize, s.autoReplay, s.autoStream, s.subscribeFunc, s.unsubscribeFunc)
 	stream.run()
 	return stream
 }

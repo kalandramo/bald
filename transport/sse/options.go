@@ -56,6 +56,13 @@ func WithBufferSize(size int) Option {
 	return func(s *Server) { s.bufferSize = size }
 }
 
+// WithEventLogSize 设置每个流回放日志保留的事件条数（默认 1024）。
+// 超出后最旧事件被丢弃，不再支持 Last-Event-ID 回放；显式传 0 表示不裁剪
+// （无界保留，慎用——事件量随运行时长线性增长）。
+func WithEventLogSize(size int) Option {
+	return func(s *Server) { s.eventLogSize = size }
+}
+
 // WithEncodeBase64 启用或禁用事件数据的 base64 编码。
 func WithEncodeBase64(enable bool) Option {
 	return func(s *Server) { s.encodeBase64 = enable }

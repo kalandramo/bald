@@ -809,7 +809,7 @@ func TestStreamManager(t *testing.T) {
 		t.Errorf("Count() = %d, want 0", mgr.Count())
 	}
 
-	s := newStream("test", 1024, true, false, nil, nil)
+	s := newStream("test", 1024, DefaultEventLogSize, true, false, nil, nil)
 	s.run()
 	mgr.Add(s)
 

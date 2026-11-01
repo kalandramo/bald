@@ -10,6 +10,11 @@ import (
 // StreamID uniquely identifies an SSE stream.
 type StreamID string
 
+// defaultSubscriberBuffer 是单个订阅者连接通道的缓冲条数。写满即判定为
+// 慢客户端（HTTP 连接消费不过来），该订阅者会被移出并断开，避免其阻塞
+// 整条流上的其他订阅者。
+const defaultSubscriberBuffer = 64
+
 // SubscriberFunction is invoked when a subscriber is added to or removed from a stream.
 type SubscriberFunction func(streamID StreamID, sub *Subscriber)
 
@@ -17,10 +22,11 @@ type SubscriberFunction func(streamID StreamID, sub *Subscriber)
 type Stream struct {
 	id StreamID
 
-	event    chan *Event
-	quit     chan struct{}
-	quitOnce sync.Once
-	eventLog EventLog
+	event        chan *Event
+	quit         chan struct{}
+	quitOnce     sync.Once
+	eventLog     EventLog
+	eventLogSize int
 
 	autoReplay bool
 	autoStream bool
@@ -36,7 +42,7 @@ type Stream struct {
 }
 
 // newStream creates a stream instance with subscriber callbacks and buffering settings.
-func newStream(id StreamID, buffSize int, replay, autoStream bool, onSubscribe, onUnsubscribe SubscriberFunction) *Stream {
+func newStream(id StreamID, buffSize, eventLogSize int, replay, autoStream bool, onSubscribe, onUnsubscribe SubscriberFunction) *Stream {
 	return &Stream{
 		id:            id,
 		autoStream:    autoStream,
@@ -47,6 +53,7 @@ func newStream(id StreamID, buffSize int, replay, autoStream bool, onSubscribe, 
 		event:         make(chan *Event, buffSize),
 		quit:          make(chan struct{}),
 		eventLog:      make(EventLog, 0),
+		eventLogSize:  eventLogSize,
 		onSubscribe:   onSubscribe,
 		onUnsubscribe: onUnsubscribe,
 	}
@@ -65,15 +72,16 @@ func (s *Stream) run() {
 			case subscriber := <-stream.register:
 				stream.subscribers = append(stream.subscribers, subscriber)
 				if stream.autoReplay {
-					stream.eventLog.Replay(subscriber)
+					stream.replay(subscriber)
 				}
 
 			case subscriber := <-stream.deregister:
 				i := stream.getSubIndex(subscriber)
-				if i != -1 {
-					stream.removeSubscriber(i)
+				if i == -1 {
+					// 已被慢客户端策略移除：不再重复触发回调。
+					continue
 				}
-
+				stream.removeSubscriber(i)
 				if stream.onUnsubscribe != nil {
 					go stream.onUnsubscribe(stream.id, subscriber)
 				}
@@ -81,10 +89,9 @@ func (s *Stream) run() {
 			case event := <-stream.event:
 				if stream.autoReplay {
 					stream.eventLog.Add(event)
+					stream.eventLog.Trim(stream.eventLogSize)
 				}
-				for i := range stream.subscribers {
-					stream.subscribers[i].connection <- event
-				}
+				stream.dispatch(event)
 
 			case <-stream.quit:
 				stream.removeAllSubscribers()
@@ -92,6 +99,50 @@ func (s *Stream) run() {
 			}
 		}
 	}(s)
+}
+
+// dispatch 非阻塞地把事件投递给所有订阅者。写缓冲已满的订阅者视为慢客户端，
+// 移出并断开（客户端可按 Last-Event-ID 重连回放），保证单条慢连接不会阻塞
+// 整条流。
+func (s *Stream) dispatch(event *Event) {
+	for i := 0; i < len(s.subscribers); {
+		sub := s.subscribers[i]
+		if s.trySend(sub, event) {
+			i++
+			continue
+		}
+		s.removeSubscriber(i)
+		if s.onUnsubscribe != nil {
+			go s.onUnsubscribe(s.id, sub)
+		}
+	}
+}
+
+// replay 按 Last-Event-ID 回放历史事件；缓冲写满时同样按慢客户端断开处理，
+// 避免回放期间卡住事件循环。
+func (s *Stream) replay(sub *Subscriber) {
+	for _, ev := range s.eventLog.Since(sub.eventId) {
+		if s.trySend(sub, ev) {
+			continue
+		}
+		if i := s.getSubIndex(sub); i != -1 {
+			s.removeSubscriber(i)
+		}
+		if s.onUnsubscribe != nil {
+			go s.onUnsubscribe(s.id, sub)
+		}
+		return
+	}
+}
+
+// trySend 尝试投递一次，订阅者缓冲满时立即返回 false（不阻塞事件循环）。
+func (s *Stream) trySend(sub *Subscriber, event *Event) bool {
+	select {
+	case sub.connection <- event:
+		return true
+	default:
+		return false
+	}
 }
 
 // close stops the stream event loop once.
@@ -111,8 +162,6 @@ func (s *Stream) getSubIndex(sub *Subscriber) int {
 }
 
 func (s *Stream) addSubscriber(eventId string, req *http.Request) *Subscriber {
-	atomic.AddInt32(&s.subscriberCount, 1)
-
 	var requestURL *url.URL
 	var header http.Header
 	if req != nil {
@@ -126,7 +175,8 @@ func (s *Stream) addSubscriber(eventId string, req *http.Request) *Subscriber {
 	sub := &Subscriber{
 		eventId:    eventId,
 		quit:       s.deregister,
-		connection: make(chan *Event, 64),
+		streamQuit: s.quit,
+		connection: make(chan *Event, defaultSubscriberBuffer),
 		URL:        requestURL,
 		Header:     header,
 	}
@@ -135,7 +185,15 @@ func (s *Stream) addSubscriber(eventId string, req *http.Request) *Subscriber {
 		sub.removed = make(chan struct{}, 1)
 	}
 
-	s.register <- sub
+	atomic.AddInt32(&s.subscriberCount, 1)
+	select {
+	case s.register <- sub:
+	case <-s.quit:
+		// 流已关闭：返回已关闭连接的订阅者，调用方读取即刻结束，不阻塞。
+		close(sub.connection)
+		atomic.AddInt32(&s.subscriberCount, -1)
+		return sub
+	}
 
 	if s.onSubscribe != nil {
 		go s.onSubscribe(s.id, sub)
