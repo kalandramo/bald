@@ -50,9 +50,10 @@ func OpenRepo() (*Repo, error) {
 	return Discover(strings.TrimSpace(string(out)))
 }
 
-// Discover 从 root 开始查找 go.mod，排除消费者示例（_example）、隐藏目录、
-// vendor 与 node_modules。examples 下的 module 会被标记为不可发布，但仍保留在
-// 模块表中——它们占据的文件不应算到外层模块的变更里。
+// Discover 从 root 开始查找 go.mod，排除隐藏目录、vendor 与 node_modules。
+// examples 与 _example 下的 module 会被标记为不可发布，但仍保留在模块表
+// 中——它们占据的文件不应算到外层模块的变更里，且 go.mod 里的内部依赖需要
+// 随发布归位（见 ConsumerUpdate）。
 func Discover(root string) (*Repo, error) {
 	r := &Repo{Root: root}
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
@@ -75,7 +76,7 @@ func Discover(root string) (*Repo, error) {
 			r.Modules = append(r.Modules, &Module{
 				Dir:        dir,
 				Path:       modulePath,
-				Releasable: !hasSegment(dir, "examples"),
+				Releasable: !isExampleDir(dir),
 			})
 			return nil
 		}
@@ -83,7 +84,7 @@ func Discover(root string) (*Repo, error) {
 			return nil
 		}
 		name := d.Name()
-		if name == "_example" || name == "vendor" || name == "node_modules" || strings.HasPrefix(name, ".") {
+		if name == "vendor" || name == "node_modules" || strings.HasPrefix(name, ".") {
 			return fs.SkipDir
 		}
 		return nil
@@ -126,6 +127,11 @@ func hasSegment(path, segment string) bool {
 		}
 	}
 	return false
+}
+
+// isExampleDir 判断 module 是否位于演示/消费者示例目录下。
+func isExampleDir(dir string) bool {
+	return hasSegment(dir, "examples") || hasSegment(dir, "_example")
 }
 
 // latestTag 返回该 module 最近的正式版本 tag。只看 HEAD 可达的 tag，避免

@@ -15,15 +15,16 @@ import (
 )
 
 // PlanVersion 是计划文件的 schema 版本；字段结构变化时递增，旧计划会被拒绝。
-const PlanVersion = 1
+const PlanVersion = 2
 
 // Plan 是一次发布计算的结果。Head 记录计算时的提交，tag 阶段用它判断
 // HEAD 是否只多了「发布提交」（go.mod 归位 + CHANGELOG）以外的改动。
 type Plan struct {
-	Version     int      `json:"version"`
-	Head        string   `json:"head"`
-	GeneratedAt string   `json:"generated_at"`
-	Changes     []Change `json:"changes"`
+	Version     int              `json:"version"`
+	Head        string           `json:"head"`
+	GeneratedAt string           `json:"generated_at"`
+	Changes     []Change         `json:"changes"`
+	Consumers   []ConsumerUpdate `json:"consumers,omitempty"`
 }
 
 // Change 是一个待发布模块：当前版本、下一版本与触发它的提交。
@@ -51,6 +52,14 @@ type RequireUpdate struct {
 	Module string `json:"module"`
 	From   string `json:"from"`
 	To     string `json:"to"`
+}
+
+// ConsumerUpdate 是不发版、但需要随本轮发布归位内部依赖的模块
+// （_example 与 examples 下的消费者/演示程序）。
+type ConsumerUpdate struct {
+	Module   string          `json:"module"`
+	Dir      string          `json:"dir"`
+	Requires []RequireUpdate `json:"requires"`
 }
 
 var conventionalPattern = regexp.MustCompile(`^([A-Za-z]+)(?:\([^)]*\))?(!)?:`)
@@ -109,6 +118,11 @@ func (r *Repo) BuildPlan(now time.Time) (*Plan, error) {
 		}
 		plan.Changes[i].Requires = updates
 	}
+	consumers, err := r.consumerUpdates(byPath)
+	if err != nil {
+		return nil, err
+	}
+	plan.Consumers = consumers
 	return plan, nil
 }
 
@@ -328,14 +342,20 @@ func hasBreakingFooter(body string) bool {
 // 只关心计划内的模块——不发版的依赖即使版本更旧也不动，避免把发布范围
 // 无限扩大。
 func (r *Repo) requireUpdates(c *Change, byPath map[string]*Change) ([]RequireUpdate, error) {
-	data, err := os.ReadFile(filepath.Join(r.Root, c.Dir, "go.mod"))
+	return r.requireUpdatesFor(c.Dir, c.Module, byPath)
+}
+
+// requireUpdatesFor 计算 dir 下 go.mod 对计划内模块的 require 归位，
+// 排除模块自身。
+func (r *Repo) requireUpdatesFor(dir, modulePath string, byPath map[string]*Change) ([]RequireUpdate, error) {
+	data, err := os.ReadFile(filepath.Join(r.Root, dir, "go.mod"))
 	if err != nil {
 		return nil, err
 	}
 	var updates []RequireUpdate
 	for _, req := range parseRequires(string(data)) {
 		dep, ok := byPath[req.Path]
-		if !ok || req.Path == c.Module {
+		if !ok || req.Path == modulePath {
 			continue
 		}
 		if compareVersion(req.Version, dep.Next) < 0 {
@@ -344,6 +364,26 @@ func (r *Repo) requireUpdates(c *Change, byPath map[string]*Change) ([]RequireUp
 	}
 	sort.Slice(updates, func(i, j int) bool { return updates[i].Module < updates[j].Module })
 	return updates, nil
+}
+
+// consumerUpdates 列出不发版但需要跟随本轮发布归位的消费者模块。
+// 消费者没有自己的 tag，因此不进 Changes；只同步它们对计划内模块的 require。
+func (r *Repo) consumerUpdates(byPath map[string]*Change) ([]ConsumerUpdate, error) {
+	var consumers []ConsumerUpdate
+	for _, m := range r.Modules {
+		if m.Releasable {
+			continue
+		}
+		updates, err := r.requireUpdatesFor(m.Dir, m.Path, byPath)
+		if err != nil {
+			return nil, err
+		}
+		if len(updates) == 0 {
+			continue
+		}
+		consumers = append(consumers, ConsumerUpdate{Module: m.Path, Dir: m.Dir, Requires: updates})
+	}
+	return consumers, nil
 }
 
 type requirement struct {
@@ -413,14 +453,28 @@ func PrintPlan(w io.Writer, plan *Plan, root string) error {
 				_, _ = fmt.Fprintln(w, "\n依赖归位（bald release sync --write）：")
 				anyRequires = true
 			}
-			gomod := "go.mod"
-			if c.Dir != "." {
-				gomod = c.Dir + "/go.mod"
+			_, _ = fmt.Fprintf(w, "  %s: require %s %s -> %s\n", goModPath(c.Dir), u.Module, u.From, u.To)
+		}
+	}
+
+	anyConsumers := false
+	for _, c := range plan.Consumers {
+		for _, u := range c.Requires {
+			if !anyConsumers {
+				_, _ = fmt.Fprintln(w, "\n消费者归位（bald release sync --write）：")
+				anyConsumers = true
 			}
-			_, _ = fmt.Fprintf(w, "  %s: require %s %s -> %s\n", gomod, u.Module, u.From, u.To)
+			_, _ = fmt.Fprintf(w, "  %s: require %s %s -> %s\n", goModPath(c.Dir), u.Module, u.From, u.To)
 		}
 	}
 	return nil
+}
+
+func goModPath(dir string) string {
+	if dir == "." {
+		return "go.mod"
+	}
+	return dir + "/go.mod"
 }
 
 // WritePlan 把计划写成 JSON；目录不存在时自动创建。

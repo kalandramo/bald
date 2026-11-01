@@ -296,6 +296,86 @@ func TestDiscover_ExamplesAreNotReleasable(t *testing.T) {
 	}
 }
 
+// TestBuildPlan_ConsumerRequiresAndSync 验证 _example 消费者：自身不发版、
+// 改动不泄漏到外层模块，但其 go.mod 对同批发布模块的 require 会随 sync 归位。
+func TestBuildPlan_ConsumerRequiresAndSync(t *testing.T) {
+	root := newRepo(t)
+	writeFile(t, root, "_example/demo/go.mod", `module example.com/m/example/demo
+
+go 1.22
+
+require (
+	example.com/m v0.1.0
+	example.com/m/sub v0.1.0
+	other.example/x v1.0.0
+)
+
+replace example.com/m => ../..
+
+replace example.com/m/sub => ../../sub
+`)
+	writeFile(t, root, "_example/demo/main.go", "package main\n")
+	commit(t, root, "fix: demo tweak", "")
+
+	writeFile(t, root, "root.go", "package m\n\n// fix\n")
+	commit(t, root, "fix: root bug", "")
+	writeFile(t, root, "sub/sub.go", "package sub\n\n// feature\n")
+	commit(t, root, "feat: sub feature", "")
+
+	repo, err := Discover(root)
+	if err != nil {
+		t.Fatalf("discover: %v", err)
+	}
+	var demo *Module
+	for _, m := range repo.Modules {
+		if m.Dir == "_example/demo" {
+			demo = m
+		}
+	}
+	if demo == nil || demo.Releasable {
+		t.Fatalf("_example/demo = %+v, want discovered but non-releasable", demo)
+	}
+
+	plan := planFor(t, root)
+	if len(plan.Changes) != 2 {
+		t.Fatalf("changes = %d, want root + sub: %+v", len(plan.Changes), plan.Changes)
+	}
+	if got := subjects(changeByDir(t, plan, ".").Commits); len(got) != 1 || got[0] != "fix: root bug" {
+		t.Errorf("root commits = %v, want only root fix (consumer files must not leak)", got)
+	}
+
+	if len(plan.Consumers) != 1 {
+		t.Fatalf("consumers = %+v, want one consumer module", plan.Consumers)
+	}
+	consumer := plan.Consumers[0]
+	if consumer.Dir != "_example/demo" || consumer.Module != "example.com/m/example/demo" {
+		t.Errorf("consumer = %+v", consumer)
+	}
+	want := []RequireUpdate{
+		{Module: "example.com/m", From: "v0.1.0", To: "v0.1.1"},
+		{Module: "example.com/m/sub", From: "v0.1.0", To: "v0.2.0"},
+	}
+	if len(consumer.Requires) != len(want) {
+		t.Fatalf("consumer requires = %+v, want %+v", consumer.Requires, want)
+	}
+	for i := range want {
+		if consumer.Requires[i] != want[i] {
+			t.Errorf("consumer requires[%d] = %+v, want %+v", i, consumer.Requires[i], want[i])
+		}
+	}
+
+	var out bytes.Buffer
+	if err := Sync(root, plan, true, &out); err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+	data := readFile(t, root, "_example/demo/go.mod")
+	for _, s := range []string{"example.com/m v0.1.1", "example.com/m/sub v0.2.0", "other.example/x v1.0.0"} {
+		if !strings.Contains(data, s) {
+			t.Errorf("consumer go.mod missing %q:\n%s", s, data)
+		}
+	}
+}
+
 func TestPlanFileRoundTrip(t *testing.T) {
 	root := newRepo(t)
 	writeFile(t, root, "root.go", "package m\n\n// fix\n")

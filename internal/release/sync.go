@@ -8,54 +8,40 @@ import (
 	"strings"
 )
 
-// Sync 把计划内模块 go.mod 中对其他待发模块的 require 升到下一版本。
+// Sync 把计划内模块 go.mod 中对其他待发模块的 require 升到下一版本，
+// 并同步消费者模块（_example 与 examples）对计划内模块的 require。
 //
 // 为什么必须做：模块 A 的源码若用到了同批发布的 B 的新 API，A 在 tag 上的
 // go.mod 仍写着 B 的旧版本，下游 `go get A@新版本` 会按旧 B 编译而失败。
-// 只处理计划内模块——不发版的模块不动，发布范围不会因为一条 require 无限扩散。
+// 只处理计划内模块与消费者——不发版的普通模块不动，发布范围不会因为一条
+// require 无限扩散。
 //
 // write 为 false 时只打印将要做的修改（默认路径），便于先看 diff。
 func Sync(root string, plan *Plan, write bool, out io.Writer) error {
-	changedFiles := 0
+	type target struct {
+		dir      string
+		requires []RequireUpdate
+	}
+	targets := make([]target, 0, len(plan.Changes)+len(plan.Consumers))
 	for _, c := range plan.Changes {
-		if len(c.Requires) == 0 {
+		targets = append(targets, target{dir: c.Dir, requires: c.Requires})
+	}
+	for _, c := range plan.Consumers {
+		targets = append(targets, target{dir: c.Dir, requires: c.Requires})
+	}
+
+	changedFiles := 0
+	for _, t := range targets {
+		if len(t.requires) == 0 {
 			continue
 		}
-		rel := "go.mod"
-		if c.Dir != "." {
-			rel = c.Dir + "/go.mod"
-		}
-		path := filepath.Join(root, filepath.FromSlash(rel))
-		data, err := os.ReadFile(path)
+		rel := goModPath(t.dir)
+		changed, err := syncGoMod(root, rel, t.requires, write, out)
 		if err != nil {
-			return fmt.Errorf("%s: %w", rel, err)
+			return err
 		}
-		content := string(data)
-		changed := false
-		for _, u := range c.Requires {
-			next, err := setRequireVersion(content, u.Module, u.From, u.To)
-			if err != nil {
-				return fmt.Errorf("%s: %w", rel, err)
-			}
-			if next == content {
-				continue
-			}
-			content = next
-			changed = true
-			verb := "would update"
-			if write {
-				verb = "updated"
-			}
-			_, _ = fmt.Fprintf(out, "%s: %s require %s %s -> %s\n", rel, verb, u.Module, u.From, u.To)
-		}
-		if !changed {
-			continue
-		}
-		changedFiles++
-		if write {
-			if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-				return fmt.Errorf("%s: %w", rel, err)
-			}
+		if changed {
+			changedFiles++
 		}
 	}
 	if changedFiles == 0 {
@@ -64,6 +50,42 @@ func Sync(root string, plan *Plan, write bool, out io.Writer) error {
 		_, _ = fmt.Fprintln(out, "\n未写入文件；确认后加 --write。")
 	}
 	return nil
+}
+
+// syncGoMod 把 rel 指向的 go.mod 中给定 require 归位；返回是否真的改动了文件。
+func syncGoMod(root, rel string, requires []RequireUpdate, write bool, out io.Writer) (bool, error) {
+	path := filepath.Join(root, filepath.FromSlash(rel))
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false, fmt.Errorf("%s: %w", rel, err)
+	}
+	content := string(data)
+	changed := false
+	for _, u := range requires {
+		next, err := setRequireVersion(content, u.Module, u.From, u.To)
+		if err != nil {
+			return false, fmt.Errorf("%s: %w", rel, err)
+		}
+		if next == content {
+			continue
+		}
+		content = next
+		changed = true
+		verb := "would update"
+		if write {
+			verb = "updated"
+		}
+		_, _ = fmt.Fprintf(out, "%s: %s require %s %s -> %s\n", rel, verb, u.Module, u.From, u.To)
+	}
+	if !changed {
+		return false, nil
+	}
+	if write {
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			return false, fmt.Errorf("%s: %w", rel, err)
+		}
+	}
+	return true, nil
 }
 
 // setRequireVersion 改写 go.mod 中某个 module 的 require 版本。
