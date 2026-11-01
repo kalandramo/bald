@@ -39,8 +39,8 @@
 同一 bundle，形态换成拦截器：`Error → Recovery → RequestID → Observability → Authn → Audit → Authz`（`pkg/middleware/bundle/bundle.go:224-241`）。
 - `ErrorInterceptor` 必须最外层，`RecoveryInterceptor` 紧随其后把 panic 转成 `*berrors.Internal` 再由外层收口为 gRPC status（`pkg/middleware/bundle/bundle.go:217-219`）。
 - **gRPC 链上没有 RateLimit、没有 Timeout、没有 CORS/Secure** —— 与 gin 链不对称。
-- 链接入方式：`appkit.WithGRPC`（`pkg/appkit/bootstrap.go:77`）→ `bootstrap.WithGRPCUnary`（`bootstrap/server.go:51`）→ `pkg/appkit/standard.go:176-189`；服务端构造 `transport/grpc/grpc_server.go:51-63,80-91`。
-- **TLS 不对称**：HTTP 按契约 `server.http.tls` 启 TLS（`transport/http/http_server.go:72-84`），gRPC 不看 `server.grpc.tls`——`GrpcServerProvider` 只读 `GetReflection()`（`bootstrap/server.go:100-126`），生成物硬编码 `grpc.Creds(insecure.NewCredentials())`（`internal/codegen/appspec_tmpl_app.go:288`）。详见 `risk-review.md` §6.5。
+- 链接入方式：`appkit.WithGRPC(register)` 声明服务注册、`appkit.WithGRPCOptions(fn)` 登记选项工厂（`pkg/appkit/bootstrap.go:79,93`）→ 阶段 B 逐工厂累加进 `bootstrap.WithGRPCUnaryFunc`（`pkg/appkit/standard.go:176-189`）→ `applyOptions` 按登记序串成一条 `[]grpc.ServerOption`（`bootstrap/server.go:81-95`）→ `transport/grpc/grpc_server.go` 构造 server。工厂在 Run 期求值，因此看得到 beforeStart 建立的运行期依赖；不再有第二条注入路径（原 `WithGRPCUnary` 值切片与 `mergeUnary` 已删）。
+- **TLS 双传输对称**：HTTP 与 gRPC 都读各自的契约段（`server.http.tls` / `server.grpc.tls`）经同一 `bconf/tlsconf.Server`（`bconf/tlsconf/tlsconf.go:26`）构造——段缺失即明文，段给 `ca` 即强制校验客户端证书。gRPC 侧额外补 `NextProtos=["h2"]`（`transport/grpc/grpc_server.go:90-97`，grpc-go ≥1.67 强制 ALPN）。网关出站按 `server.grpc.tls` 选 `credentials.NewTLS` 或明文（`transport/gateway/gateway_server.go:70-80`）。
 
 ---
 

@@ -95,7 +95,7 @@ appspec.json / bconf 契约
 | SPI | 位置 | 方法 | 实现数 |
 |---|---|---|---|
 | `transport.Server` | `transport/server.go:14-22` | `Start(ctx)` `Stop(ctx)` `Endpoint()` | `transport/*` 的 18 个模块（`mcp` 同样实现：`transport/mcp/server.go:106,186,233`） |
-| `transport.Endpoint` 解析 | `transport/endpoint.go:26` `Extract` | 支持 `:0` 动态端口 | 由 `appkit.waitForEndpoints` 消费（`appkit.go:809-829`） |
+| `transport.Endpoint` 解析 | `transport/endpoint.go:26` `Extract` | 支持 `:0` 动态端口 | 由 `appkit.waitForEndpoints` 消费（`appkit.go:816-848`） |
 | `broker.Broker` | `broker/broker.go:9-33` | `Name/Options/Address/Init/Connect/Disconnect/Publish/Subscribe` + 泛型 `Subscribe[T]`(:36) | kafka/rabbitmq/redis/rocketmq |
 | `cache.Cache` | `cache/cache.go:28-69` | `Get/Set/SetNX/GetMulti/Delete…` | local/redis（loadable 是**读穿组合器**，不是后端） |
 | `registry.Registry` | `registry/registry.go:62-75` | `Registrar`(:62-67) + `Discovery`(:70-75，含 `GetService`/`Watch`) | etcd/consul/nacos/kubernetes |
@@ -110,9 +110,9 @@ appspec.json / bconf 契约
 
 - `retry/` —— 全仓唯一提及是文档注释（`ratelimit/bbr/bbr.go:68`），**零 importer**。
 - `circuitbreaker/` —— 只被自己的 4 个后端 import（`circuitbreaker/{hystrix,vegas,sres,sentinel}/*.go`），**无 transport / middleware / appkit 消费方**。
-- `registry.Discovery` —— `GetService` 的调用点只出现在 registry 后端自身与其测试；`appkit` 只用 `Registrar`/Deregister（`pkg/appkit/appkit.go:686-690,840`）。**服务发现目前是生产侧半环：会注册，不会解析。**
+- `registry.Discovery` —— `GetService` 的调用点只出现在 registry 后端自身与其测试；`appkit` 只用 `Registrar`/Deregister（`pkg/appkit/appkit.go:643,659,690`）。**服务发现目前是生产侧半环：会注册，不会解析。**
 - gRPC 链上没有 `RateLimit` 与 `Timeout` 层（对比 `pkg/middleware/bundle/bundle.go:199-209` 的 gin 链，`:224-241` 的 gRPC 链到 Authz 就结束）。
-- 契约 `server.grpc.tls`（`bconf/proto/bootstrap/v1/server.proto:138`）**无人消费**：`GrpcServerProvider` 只读 reflection（`bootstrap/server.go:100-126`），生成物硬编码 `grpc.Creds(insecure.NewCredentials())`（`internal/codegen/appspec_tmpl_app.go:288`），gateway 出站也硬编码明文（`transport/gateway/gateway_server.go:72`）。HTTP 侧的 TLS 是真接的（`transport/http/http_server.go:72-84`），两侧不对称。详见 `risk-review.md` §6.5。
+- 中间件依赖未注入即整层省略：`bundle.New()` 不给 `Authn` 时链中静默无认证层（风险 §6.1）。现已要求显式表态——`bundle.Public()` 声明有意公开，否则 `Bundle.Verify()` 报错、出链时告警（`pkg/middleware/bundle/bundle.go:185-212`）；生成脚手架默认写出 `bundle.Public()` 并留 TODO。
 
 ## 7. 阅读顺序建议
 

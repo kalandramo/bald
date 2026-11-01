@@ -7,22 +7,22 @@
 
 ## 严重度概览
 
-| # | 风险 | 严重度 | 置信度 |
-|---|---|---|---|
-| 6.5 | gRPC 的 `tls` 契约字段**未接线**，生成物硬编码明文；gateway 出站也硬编码明文 | **高** | ✅ 已核对源码 |
-| 3.1 | 根 module ↔ 适配器 **模块环**，靠互相 `replace` 才编译 | **高** | ✅ 已核对 go.mod/import |
-| 6.1 | 鉴权 **fail-open**：未注入即整层消失，无 default-deny、无告警 | **高** | ✅ 已核对源码 |
-| 2 | **发布面 ≫ 使用面**：retry / circuitbreaker / Discovery 等无消费方 | 中 | ✅ 全仓 grep |
-| 7.1 | **CI 全量只跑 `-short`**，集成测试在 CI 中从不执行 | 中 | ✅ 已核对 `.github/workflows/ci.yml` |
-| 1.1 | race 作业是两处手工清单，webrtc/kafka 均缺失 | 中 | ✅ 已核对 `.github/workflows/ci.yml` / `Taskfile.yml` |
-| 1.3 | kafka / rabbitmq 适配器 **零测试文件** | 中 | ✅ 实测计数 |
-| 5 | `berrors` 分类法未在 transport/broker/appkit 落地 | 中 | ✅ 实测计数 |
-| 6.2 | gRPC 链无限流、无超时（与 gin 链不对称） | 中 | ✅ 已核对源码 |
-| 6.3 | 限流位于认证之后，认证层自身不受保护 | 中 | ✅ 已核对注释与实现 |
-| 3.2 | 21 个 module 同时 require 同一库的两个 major（`// indirect`） | 低 | ✅ 脚本实测 |
-| 4.1 | 停机期 `_ = deregister(...)` 吞错 | 低-中 | ✅ 已核对源码 |
-| 4.2 | 端点上界 5s、hook 超时 5s 为常量（Stop 超时本身可配） | 低 | ✅ 已核对源码 |
-| 8 | `docscheck` 只校验链接完整性，测不出描述过期 | 低 | ✅ 已核对测试 |
+| # | 风险 | 严重度 | 置信度 | 状态 |
+|---|---|---|---|---|
+| 6.5 | gRPC 的 `tls` 契约字段**未接线**，生成物硬编码明文；gateway 出站也硬编码明文 | **高** | ✅ 已核对源码 | **已修** |
+| 3.1 | 根 module ↔ 适配器 **模块环**，靠互相 `replace` 才编译 | **高** | ✅ 已核对 go.mod/import | 未修 |
+| 6.1 | 鉴权 **fail-open**：未注入即整层消失，无 default-deny、无告警 | **高** | ✅ 已核对源码 | **已修** |
+| 2 | **发布面 ≫ 使用面**：retry / circuitbreaker / Discovery 等无消费方 | 中 | ✅ 全仓 grep | 未修 |
+| 7.1 | **CI 全量只跑 `-short`**，集成测试在 CI 中从不执行 | 中 | ✅ 已核对 `.github/workflows/ci.yml` | 未修 |
+| 1.1 | race 作业是两处手工清单，webrtc/kafka 均缺失 | 中 | ✅ 已核对 `.github/workflows/ci.yml` / `Taskfile.yml` | 未修 |
+| 1.3 | kafka / rabbitmq 适配器 **零测试文件** | 中 | ✅ 实测计数 | 未修 |
+| 5 | `berrors` 分类法未在 transport/broker/appkit 落地 | 中 | ✅ 实测计数 | 未修 |
+| 6.2 | gRPC 链无限流、无超时（与 gin 链不对称） | 中 | ✅ 已核对源码 | 未修 |
+| 6.3 | 限流位于认证之后，认证层自身不受保护 | 中 | ✅ 已核对注释与实现 | 未修 |
+| 3.2 | 21 个 module 同时 require 同一库的两个 major（`// indirect`） | 低 | ✅ 脚本实测 | 未修 |
+| 4.1 | 停机期 `_ = deregister(...)` 吞错 | 低-中 | ✅ 已核对源码 | **已修** |
+| 4.2 | 端点上界 5s、hook 超时 5s 为常量（Stop 超时本身可配） | 低 | ✅ 已核对源码 | **已修** |
+| 8 | `docscheck` 只校验链接完整性，测不出描述过期 | 低 | ✅ 已核对测试 | 未修 |
 
 ---
 
@@ -32,6 +32,7 @@
 `.github/workflows/ci.yml:103-107` 手工枚举 23 个模块（`. transport transport/grpc transport/http transport/http3 transport/tcp transport/websocket transport/sse transport/web retry ratelimit ratelimit/tokenbucket ratelimit/bbr ratelimit/sentinel bootstrap registry cache cache/redis broker broker/redis log metrics health`），`Taskfile.yml:368-416` 镜像同一份清单。
 实测 `grep -n webrtc .github/workflows/ci.yml` → **无匹配**：`transport/webrtc` 有 15 个非测试文件 + 8 个测试文件，含 `signalSessions` 共享会话表与 PeerConnection 生命周期（正是 race 该覆盖的形态），却不在 race 清单里。`broker/kafka`、`contrib/*` 同样缺席。
 - 影响：并发回归只能在本地偶发发现。
+- 本地全仓 `go test -race` 实测（bconf / 根 module / contrib/authz-casbin / 示例 module）：未见数据竞争，唯一失败是 `bconf` 分配剖面守卫的阈值与 race 分配器错配（非 race 45,680 B/op → race 51,337，见 `bconf/alloc_guard_test.go` 头）。也就是说这个缺口当前漏掉的正是这类只在 -race 下才响的报警。
 - 消解：webrtc/kafka 加入 race；或把 race 也改成 `find` 循环 + 一份「跳过清单」，让默认值是「跑」而不是「不跑」。
 
 **1.2 CI 的模块发现是健壮的，本地 `task verify` 不是** ✅
@@ -124,12 +125,12 @@ kafka 适配器核心文件 639 行，含 writer 重建重试（`broker/kafka/ka
 
 **先说好的部分**：`appkit.Run` 是全仓成熟度最高的代码——CAS 重入保护、`Resolve` fail-fast、errgroup 启动失败级联取消、`:0` 端口轮询带 5s 上界、`stopAll` 五阶段带逐阶段独立超时、`runHook` recover panic（`pkg/appkit/appkit.go:561-703,715-750,753-761`）。停机用未取消的新 ctx（`:692-693` 注释明确解释了为什么不能用被取消的信号 ctx）。
 
-**4.1 停机期吞掉反注册错误** ✅ `pkg/appkit/appkit.go:690`：`_ = a.deregister(context.Background())`。失败时注册中心的残留条目不可见，后果是流量继续打到已停实例——恰是它想避免的事。afterStart 失败路径同样（`:659`）。
-- 消解：`log.Error` 记录（不改变返回语义即可）。
+**4.1 停机期吞掉反注册错误** ✅ 已修 原状：`pkg/appkit/appkit.go` 两处 `_ = a.deregister(context.Background())`（主停机路径与 afterStart 失败路径），失败时注册中心的残留条目不可见，后果是流量继续打到已停实例——恰是它想避免的事。
+- 消解：`logDeregister(ctx, err)`（`pkg/appkit/appkit.go:868-874`）在两个调用点记录 `appkit deregister failed` + 底层错误，返回值语义不变（停机期没有可返回错误的调用方）。回归由 `pkg/appkit/deregister_log_test.go` 固化：经真实装配路径（`StandardLoggerProvider` + buffer handler）断言两条路径各出一条含底层错误的日志，且 `Run` 仍返回 `nil` / afterStart 原错误。
 
-**4.2 端点上界与 hook 超时不可配** ✅ `waitForEndpoints` 的 5s 是函数内常量（`pkg/appkit/appkit.go:810-813`）；`defaultHookTimeout = 5 * time.Second`（`pkg/appkit/types.go:9`），`appkit.go:65-66` 的注释明确写着 before/afterStop 钩子「固定 defaultHookTimeout……不再可配置」。**Stop 阶段超时本身是可配的**：`appkit.StopTimeout(d)`（`pkg/appkit/appkit.go:416-418`）→ `Decl.StopTimeout`（`pkg/appkit/decl.go:81`）→ 构造期写入 `stopTimeout`（`decl.go:230`），默认 `defaultStopTimeout = 10s`（`pkg/appkit/types.go:6`）。
+**4.2 端点上界与 hook 超时不可配** ✅ 已修 原状：`waitForEndpoints` 的 5s 是函数内常量；`defaultHookTimeout = 5 * time.Second` 封顶 before/afterStop 钩子，而 `appkit.StopTimeout(d)`（→ `Decl.StopTimeout` → `stopTimeout`，契约默认 30s）本身是可配的——于是唯一的可调入口管不到这些阶段。
 - 影响：慢监听（如需要初始化大量连接的 broker transport）会中止启动而无调整入口；慢钩子同理。
-- 消解：把这两处常量提升为 `Run`/`Decl` 的 Option。
+- 消解（已落地，未新增 Option）：删掉 `defaultHookTimeout`，阶段预算统一由 `phaseBudgetFor(stopTimeout) = stopTimeout/2` 派生（`pkg/appkit/types.go:13-22`）——钩子（`appkit.go:715-750`）、单条 undo、组件 Start/Dispose（`decl.go:221-240` 缺省即派生，显式声明优先）、端点等待四处同缩放；端点等待另优先取调用方 ctx 的截止期（`appkit.go:810-822`），框架不缩短调用方给的预算。回归见 `pkg/appkit/phase_budget_test.go`（含「stopTimeout 200ms → 100ms 上界报错」这条对旧实现的反证）。
 
 **4.3 registry 心跳** ✅ 未见泄漏：`registry/etcd/registry.go:245-324` 的 `heartBeat` 有 `maxRetry` 上界（`:258`）、重试循环与各等待点都检查 `ctx.Done`（`:259,277,294`）、`stopCtx` 也参与 select（`:320`），cancel handle 在 mutex 下跟踪并在 `Deregister` 关闭（`:163-181`）。残余风险仅在 clientv3 `KeepAlive` 阻塞超过 cancel，属推测。
 
@@ -152,10 +153,12 @@ kafka 适配器核心文件 639 行，含 writer 重建重试（`broker/kafka/ka
 
 ## 6. 安全
 
-**6.1 鉴权 fail-open（高）** ✅
-`pkg/middleware/bundle/bundle.go:170` 的注释把设计说得很清楚：「未注入的依赖对应层直接省略（零开销），**如未设 Authn 则链中无认证层**」，实现即 `:190-192`、`:196-198` 的条件 `append`。
-后果：**一个没配 authenticator 的 bundle 就是一个无认证服务器，且没有任何启动告警**。零开销是优点，默认开放是风险——两者被同一个 `if` 绑在一起。
-- 消解（不改变零开销设计）：在 `Bundle.Gin()`/`GRPCInterceptors()` 构造时，若 `authenticator == nil` 且服务非公开，打印一条明确警告或在 `Resolve` 期报错；契约层加一个 `public: true` 的显式 opt-out，把「我知道我在关鉴权」变成声明而非疏漏。
+**6.1 鉴权 fail-open（高）** ✅ 已修
+原状：`pkg/middleware/bundle/bundle.go` 的注释把设计说得很清楚——「未注入的依赖对应层直接省略（零开销），如未设 Authn 则链中无认证层」，实现即条件 `append`。后果：**一个没配 authenticator 的 bundle 就是一个无认证服务器，且没有任何启动告警**。零开销是优点，默认开放是风险，两者被同一个 `if` 绑在一起。
+- 消解（已落地，零开销设计不变）：认证姿态必须被决定——`bundle.Authn(...)` 或 `bundle.Public()` 二者之一。`Bundle.Verify()`（`pkg/middleware/bundle/bundle.go:185-212`）在两者都没给时报 `AUTHN_UNDECLARED`，`Gin()`/`GRPCInterceptors()` 出链时对未决定的姿态告警一次；业务想要硬失败就在装配期调 `Verify()`。生成脚手架写出 `bundle.Public()` + TODO，使「本服务无认证层」成为一行显式声明而不是疏漏。
+- 为什么不是构造期 panic：链是零开销省略的载体，`New()` 直接失败会让「先起链、再决定」的既有形态无处安放，也会让新 `gen app` 出的最小示例跑不起来（最小路径必须可复制即跑）。
+- 回归：`pkg/middleware/bundle/authn_posture_test.go`（Authn/Public/两者都不给/只给 Authz 四种判定；两个出链点对未决定出声、对已决定不出声）。
+- 未修：契约侧仍没有 authn 段（`server.*.middleware` 只有 recovery/cors/logging/request_id/tracing/rate_limit/timeout），认证器实例仍只能代码注入；`Server.Http.Middleware` 整体是「业务自取」的参考段，无框架消费者。
 
 **6.2 gRPC 链缺限流与超时（中）** ✅ `pkg/middleware/bundle/bundle.go:224-241` 到 Authz 即结束；gin 链另有 RateLimit + Timeout（`:199-209`）。gRPC 面上的暴力尝试与慢 handler 无框架级保护。
 
@@ -163,24 +166,33 @@ kafka 适配器核心文件 639 行，含 writer 重建重试（`broker/kafka/ka
 
 **6.4 CORS / Secure 默认关闭（低-中）** ✅ `b.corsCfg != nil` 才挂 CORS、`b.secure` 默认 false（`pkg/middleware/bundle/bundle.go:184-189`；`New()` 只默认 `logging`/`normalized`，`:159`）。
 
-**6.5 gRPC TLS 契约字段未接线（高）** ✅ 逐点核对源码
+**6.5 gRPC TLS 契约字段未接线（高）** ✅ 已修
 
-契约声明了 TLS，但没有任何代码消费它：
+原状：契约声明了 TLS，但没有任何代码消费它——
 
-| 环节 | 事实 | 证据 |
+| 环节 | 事实（修复前） |
+|---|---|
+| 契约字段 | `Server.Grpc` 声明 `TLS tls = 3;`（`bconf/proto/bootstrap/v1/server.proto:138`） |
+| 装配层 | `GrpcServerProvider` 只读 `GetReflection()`，从不读 `GetTls()` |
+| 服务端构造 | `grpc.NewServer(unary...)` + 裸 `net.Listen`，无 `grpc.Creds` |
+| 生成物默认 | 硬编码 `grpc.Creds(insecure.NewCredentials())`，且在 **owned** 的 `assemble.gen.go` 里，注释却写「业务可扩展」 |
+| gateway 出站 | 硬编码 `insecure.NewCredentials()` |
+
+- 影响：在契约里写 `server.grpc.tls` **不会生效**，gRPC 仍是明文；与 HTTP 行为不一致，按 HTTP 心智配置的人会误判「我已开 TLS」。
+
+修复后的消费面（同一 `tlsconf` 语义，四处生效）：
+
+| 环节 | 现在的消费者 | 证据 |
 |---|---|---|
-| 契约字段 | `Server.Grpc` 声明 `TLS tls = 3;` | `bconf/proto/bootstrap/v1/server.proto:138` |
-| 装配层 | `GrpcServerProvider` 只读 `GetReflection()`，从不读 `GetTls()` | `bootstrap/server.go:100-126`（`:111` 为 reflection） |
-| 全仓 `GetTls()` 消费点 | 只有 HTTP 段：`transport/http/http_server.go:72-73,100`；gateway 只把 **HTTP 段**的 TLS 透传给内嵌 HTTPServer | `transport/gateway/contract/contract.go:69` |
-| 服务端构造 | `grpc.NewServer(unary...)`，`Start` 直接 `net.Listen` + `Serve`，无 `grpc.Creds` | `transport/grpc/grpc_server.go:56,80-91` |
-| 生成物默认 | 硬编码 `grpc.Creds(insecure.NewCredentials())` | `internal/codegen/appspec_tmpl_app.go:288`、`_example/bald/internal/bootstrap/assemble.gen.go:97` |
-| gateway 出站 | 硬编码 `grpc.WithTransportCredentials(insecure.NewCredentials())` | `transport/gateway/gateway_server.go:72` |
-| 对照 | HTTP 真的按契约启 TLS | `transport/http/http_server.go:72-84` |
+| TLS 材料→`*tls.Config` | `tlsconf.Server`（cert+key 必需；给 `ca` 即 `ClientCAs`+`RequireAndVerifyClientCert`；MinVersion TLS1.2；忽略 `insecure_skip_verify`） | `bconf/tlsconf/tlsconf.go:26-59` |
+| gRPC 服务端 | `Start` 读 `s.cfg.GetTls()` 构造 `tls.Config`，监听器套 `tls.NewListener`，并补 `NextProtos=["h2"]`（grpc-go ≥1.67 强制 ALPN，否则客户端报 missing selected ALPN property） | `transport/grpc/grpc_server.go:88-101` |
+| HTTP 服务端 | 同一入口，`net.Listen` 前先构 TLS 配置（失败 fail-fast，端点保持空） | `transport/http/http_server.go:66-79` |
+| gateway 出站 | `dialOpts(backend.GetTls())`：无段 → insecure，有段 → `credentials.NewTLS(tlsconf.Client(..))`，错误上抛 | `transport/gateway/gateway_server.go:68-86` |
+| 生成物 | `newGRPCServerOptions` 的 insecure stub 与 `insecure` import 一并删除，改为 `appkit.WithGRPC(registerGRPCService)`；TLS 不再是业务可选项 | `internal/codegen/appspec_tmpl_app.go:144,194`、`_example/bald/internal/bootstrap/assemble.gen.go` 已按 `--adopt` 重生成 |
 
-- 影响：在契约里写 `server.grpc.tls` **不会生效**，gRPC 仍是明文；服务暴露在非 loopback 网络时这是一条静默的明文面。与 HTTP 行为不一致，按 HTTP 心智配置的人会误判「我已开 TLS」。
-- 范围：这是**契约 `tls` 字段普遍未被消费**，不是 gRPC 独有——`bconf/gen` 为 Http3/Graphql/Sse/Websocket/Tcp/Thrift/Webtransport/Signalr/Socketio/Webrtc 都生成了 `GetTls()`，但全仓只有 HTTP 段在读它。差异在于：SSE contract 明确写了「不加载证书，需业务注入 `*tls.Config`」（`transport/sse/contract/contract.go:71`）；HTTP3 连 contract 包都没有，`generateTLSConfig` 无条件自签（`transport/http3/server.go:169`）。gRPC 之所以单列高危，是**声明式装配里唯一默认明文、并把「契约写了 tls」静默忽略**的服务端协议，且 gateway 出站同为明文。
-- 现有逃生：`grpc.Creds` 是普通 ServerOption，后 apply 者覆盖前者（grpc-go v1.83.2 的 `Creds` 直接赋值 `o.creds = c`）。装配层的合并顺序是「静态选项在前、`WithGRPCOptions` 的运行期选项在后」（`bootstrap/server.go:86-92`），所以业务经 `appkit.WithGRPCOptions`（`pkg/appkit/bootstrap.go:92`）追加 `grpc.Creds(...)` 能盖掉生成物的 insecure。**不要用第二次 `appkit.WithGRPC`**：它整体赋值 `GRPCRegister`/`GRPCUnary`（`pkg/appkit/bootstrap.go:77`），会把生成的 register 回调顶掉。这仍属程序化覆盖，不是契约行为。
-- 消解：`GrpcServerProvider` 读 `c.GetTls()` 并构造 `grpc.Creds(credentials.NewTLS(cfg))`（与 `transport/http/tls.go` 的解析语义抽公共实现）；契约缺 `tls` 时，若监听地址非 loopback 至少输出一条「gRPC 明文」告警。gateway 出站需同时按同一段配置决定是否 TLS（否则服务端开 TLS 后 gateway 立即连不上）。顺带把 `assemble.gen.go` 里 `newGRPCServerOptions` 的 insecure 默认值要么改为读契约、要么搬进 seeded 的 custom 钩子文件（生成规则见 `internal/codegen/appspec_build.go:66`，示例见 `_example/bald/internal/bootstrap/custom.go`）——它现在在 **owned** 的 `assemble.gen.go` 里（`internal/codegen/appspec_build.go:42`），注释却写着「业务可扩展」，业务改了会在下次 `gen app --adopt` 被覆盖。
+- 三处语义变化，接手者需要知道：① 服务端 `tls.ca` 从「写了没用」变成「写了就强制校验客户端证书」；② `tls` 段存在但材料不全 → 启动期 fail-fast（旧行为是静默明文）；③ gRPC TLS 依赖 h2 ALPN，业务自持 `*tls.Config` 时必须自己带上（框架只在字段为空时补）。
+- 未修的范围（刻意保留）：契约 `tls` 字段在 Http3/Graphql/Sse/Websocket/Tcp/Thrift/Webtransport/Signalr/Socketio/Webrtc 仍无消费者（`bconf/gen` 都生成了 `GetTls()`）。SSE contract 明确写了「不加载证书，需业务注入 `*tls.Config`」（`transport/sse/contract/contract.go:71`）；HTTP3 的 `generateTLSConfig` 无条件自签（`transport/http3/server.go:169`）。这些适配器没有 `contract` 之外的框架装配路径，属 §2「发布面 ≫ 使用面」的同一议题。
+- 回归：`bconf/tlsconf/tlsconf_test.go`（文件/内联 PEM 等价、材料不全逐条报错、真实 mTLS 握手、服务端拒绝无客户端证书、客户端拒绝不可信服务端）+ `transport/{http,grpc}/…_tls_test.go`、`transport/gateway/gateway_tls_test.go`、`bootstrap/grpc_tls_test.go`（装配层端到端）。证书由 `bconf/tlsconf/tlstest` 现发（一次性 CA + 叶子证书，产出即契约 `TLS` 段），因此每条断言走的都是真实契约路径而非 mock。
 
 **6.6 机密** ✅ 未发现机密被写日志的证据；脱敏有文档化缺口：不覆盖 `slog.Attr` 形态（如 `slog.String("password", v)`），见 `bconf/gen/go/bootstrap/v1/log.pb.go:36` 的说明。**govulncheck 是 fail-closed 且覆盖全模块**（`.github/workflows/ci.yml:159` 固定 v1.9.0，vuln 作业用 `find` 循环）——这一项没有问题。
 
