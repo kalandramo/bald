@@ -11,14 +11,16 @@
 //	provider := baldgorm.NewGormProvider[User](db, func(u *User) string { return u.ID })
 //	repo := store.NewStore[User](provider)
 //
-// 字段映射：Where.Filters 的 Field 是 DTO/Entity 的 Go 字段名（或
-// gorm.Column 名），经 toColumn 翻译成数据库列名（默认 snake_case）。
+// 字段映射：Where.Filters 的 Field 优先按 Go 字段名解析（识别
+// gorm:"column:..." 自定义列名），也接受直接传入的数据库列名；未命中
+// 时才按默认 snake_case 约定翻译。
 package baldgorm
 
 import (
 	"context"
 	"reflect"
 	"strings"
+	"sync"
 
 	storev1 "github.com/kalandramo/bald/bconf/gen/go/bald/store/v1"
 	"github.com/kalandramo/bald/pkg/store"
@@ -51,7 +53,11 @@ func NewGormProvider[T any](db *gorm.DB, keyOf func(*T) string) *Provider[T] {
 // 继承该 ctx，使请求取消/超时能传播到数据库驱动（ctx 若被 `_` 丢弃，取消的
 // 请求仍会照常执行 DB 操作）。
 func (p *Provider[T]) DB(ctx context.Context) (store.Queryable[T], error) {
-	return &gormQuery[T]{db: p.db.WithContext(ctx), keyOf: p.keyOf}, nil
+	return &gormQuery[T]{
+		db:    p.db.WithContext(ctx),
+		keyOf: p.keyOf,
+		meta:  modelMetaOf[T](),
+	}, nil
 }
 
 // Close 空实现（GORM 连接池由调用方管理生命周期）。
@@ -71,6 +77,7 @@ func (p *Provider[T]) Migrate(ctx context.Context, models ...any) error {
 type gormQuery[T any] struct {
 	db    *gorm.DB
 	keyOf func(*T) string
+	meta  *modelMeta
 }
 
 // Migrate 委托给会话级 AutoMigrate。
@@ -106,8 +113,8 @@ func (q *gormQuery[T]) Update(ctx context.Context, obj *T, where *store.Where) (
 	k := q.keyOf(obj)
 	// 用 map 形式更新：避免 GORM 对零值字段的"跳过"行为，并把主键列排除，
 	// 防止主键被改写导致行错位。语义：主键不可变，零值字段也会被写入。
-	tx := q.applyWhere(where).WithContext(ctx).Model(new(T)).Where(toColumn("id")+" = ?", k)
-	res := tx.Updates(toMapExcludeKey(obj))
+	tx := q.applyWhere(where).WithContext(ctx).Model(new(T)).Where(q.meta.primaryKey+" = ?", k)
+	res := tx.Updates(toUpdateMap[T](obj, q.meta))
 	if res.Error != nil {
 		if isUniqueViolation(res.Error) {
 			return 0, store.ErrConflict
@@ -117,29 +124,173 @@ func (q *gormQuery[T]) Update(ctx context.Context, obj *T, where *store.Where) (
 	return res.RowsAffected, nil
 }
 
-// toMapExcludeKey 将对象反射为更新用的字段映射（列名→值），剔除主键列 id。
+// toUpdateMap 将对象反射为更新用的字段映射（列名→值），剔除主键列。
 // 这样 Updates(map) 会写入所有导出字段（含零值），且不会误改主键。
 // `gorm:"-"`（及 "-:..."）字段是内存态/关联态（如树形 Children），非表列，跳过——
 // 否则 Updates(map) 会生成不存在的列（SQLite/PG 直接报 no such column）。
-func toMapExcludeKey(obj any) map[string]any {
-	m := make(map[string]any)
+func toUpdateMap[T any](obj *T, meta *modelMeta) map[string]any {
+	m := make(map[string]any, len(meta.fields))
 	v := reflect.ValueOf(obj).Elem()
-	t := v.Type()
+	for _, f := range meta.fields {
+		if f.column == meta.primaryKey {
+			continue
+		}
+		fv, ok := fieldByIndex(v, f.index)
+		if !ok {
+			continue
+		}
+		m[f.column] = fv.Interface()
+	}
+	return m
+}
+
+// modelMeta 是实体 T 的字段映射缓存：Go 字段名 → 列名、主键列名。
+// 列名优先取 gorm:"column:..."，否则按 snake_case 约定；嵌入结构体展开。
+type modelMeta struct {
+	primaryKey string
+	fields     []columnField
+	columns    map[string]columnField // Go 字段名 → 字段
+}
+
+// columnField 描述一个可持久化字段：从实体根出发的字段索引链与列名。
+type columnField struct {
+	index  []int
+	column string
+}
+
+// column 解析过滤/排序字段名：先按 Go 字段名查（识别 gorm column tag），
+// 未命中时把入参视作列名/字段名按 snake_case 约定翻译。
+func (m *modelMeta) column(field string) string {
+	if field == "" || m == nil {
+		return toColumn(field)
+	}
+	if f, ok := m.columns[field]; ok {
+		return f.column
+	}
+	return toColumn(field)
+}
+
+var metaCache sync.Map // reflect.Type -> *modelMeta
+
+func modelMetaOf[T any]() *modelMeta {
+	t := reflect.TypeOf((*T)(nil)).Elem()
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	if cached, ok := metaCache.Load(t); ok {
+		return cached.(*modelMeta)
+	}
+	m := buildModelMeta(t)
+	metaCache.Store(t, m)
+	return m
+}
+
+func buildModelMeta(t reflect.Type) *modelMeta {
+	m := &modelMeta{columns: make(map[string]columnField)}
+	if t.Kind() == reflect.Struct {
+		collectModelFields(t, nil, "", m)
+	}
+	if m.primaryKey == "" {
+		if f, ok := m.columns["ID"]; ok {
+			m.primaryKey = f.column
+		}
+	}
+	if m.primaryKey == "" {
+		// 无主键信息时沿用交付约定：keyOf 的值定位 id 列。
+		m.primaryKey = toColumn("id")
+	}
+	return m
+}
+
+func collectModelFields(t reflect.Type, index []int, prefix string, m *modelMeta) {
 	for i := 0; i < t.NumField(); i++ {
 		f := t.Field(i)
 		if !f.IsExported() {
 			continue
 		}
-		if name := strings.TrimSpace(strings.SplitN(f.Tag.Get("gorm"), ",", 2)[0]); name == "-" {
+		tag := parseGormTag(f.Tag.Get("gorm"))
+		if tag.ignore {
 			continue
 		}
-		col := toColumn(f.Name)
-		if col == toColumn("id") {
+
+		idx := append(append([]int(nil), index...), i)
+		ft := f.Type
+		for ft.Kind() == reflect.Pointer {
+			ft = ft.Elem()
+		}
+		if ft.Kind() == reflect.Struct && (f.Anonymous || tag.embedded) {
+			collectModelFields(ft, idx, prefix+tag.embeddedPrefix, m)
 			continue
 		}
-		m[col] = v.Field(i).Interface()
+
+		col := tag.column
+		if col == "" {
+			col = toColumn(f.Name)
+		}
+		col = prefix + col
+		cf := columnField{index: idx, column: col}
+		m.fields = append(m.fields, cf)
+		if _, exists := m.columns[f.Name]; !exists {
+			m.columns[f.Name] = cf
+		}
+		if tag.primaryKey && m.primaryKey == "" {
+			m.primaryKey = col
+		}
 	}
-	return m
+}
+
+// gormTag 是从 gorm tag 中解析出的与本桥接相关的设置。
+type gormTag struct {
+	column         string
+	primaryKey     bool
+	embedded       bool
+	embeddedPrefix string
+	ignore         bool
+}
+
+// parseGormTag 解析 `gorm:"column:uid;primaryKey;embedded;embeddedPrefix:org_"`。
+// 首段以 '-' 开头的字段（"-"、"-:migration"、" -:all" 等）视为不参与写入。
+func parseGormTag(tag string) gormTag {
+	var g gormTag
+	for _, part := range strings.Split(tag, ";") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		if part[0] == '-' {
+			g.ignore = true
+			continue
+		}
+		key, value, _ := strings.Cut(part, ":")
+		switch strings.ToLower(key) {
+		case "column":
+			g.column = value
+		case "primarykey":
+			g.primaryKey = true
+		case "embedded":
+			g.embedded = true
+		case "embeddedprefix":
+			g.embeddedPrefix = value
+		}
+	}
+	return g
+}
+
+// fieldByIndex 按索引链取值；遇到 nil 嵌入指针时返回 false 而不是 panic。
+func fieldByIndex(v reflect.Value, index []int) (reflect.Value, bool) {
+	for _, i := range index {
+		if v.Kind() == reflect.Pointer {
+			if v.IsNil() {
+				return reflect.Value{}, false
+			}
+			v = v.Elem()
+		}
+		if v.Kind() != reflect.Struct || i >= v.NumField() {
+			return reflect.Value{}, false
+		}
+		v = v.Field(i)
+	}
+	return v, true
 }
 
 // Delete 按条件删除，返回受影响行数。
@@ -214,7 +365,7 @@ func (q *gormQuery[T]) buildExpr(fe *storev1.FilterExpr) (string, []any) {
 	parts := make([]string, 0, len(fe.GetConditions())+len(fe.GetGroups()))
 	var args []any
 	for _, c := range fe.GetConditions() {
-		sql, cargs := condSQL(c)
+		sql, cargs := condSQL(q.meta, c)
 		parts = append(parts, sql)
 		args = append(args, cargs...)
 	}
@@ -246,8 +397,8 @@ func condArg(c *storev1.FilterCondition) any {
 }
 
 // condSQL 翻译单条过滤条件为 SQL 片段（占位符参数化，杜绝字符串拼接值）。
-func condSQL(c *storev1.FilterCondition) (string, []any) {
-	col := toColumn(c.GetField())
+func condSQL(meta *modelMeta, c *storev1.FilterCondition) (string, []any) {
+	col := meta.column(c.GetField())
 	v := condArg(c)
 	switch c.GetOp() {
 	case storev1.Operator_EQ, storev1.Operator_EXACT:
@@ -321,7 +472,7 @@ func condSQL(c *storev1.FilterCondition) (string, []any) {
 
 // applyFilter 翻译单条过滤条件（扁平 AND 路径复用 condSQL）。
 func (q *gormQuery[T]) applyFilter(tx *gorm.DB, c *storev1.FilterCondition) *gorm.DB {
-	sql, args := condSQL(c)
+	sql, args := condSQL(q.meta, c)
 	if len(args) == 0 {
 		return tx.Where(sql)
 	}
@@ -331,7 +482,7 @@ func (q *gormQuery[T]) applyFilter(tx *gorm.DB, c *storev1.FilterCondition) *gor
 // applySorting 翻译排序规则。
 func (q *gormQuery[T]) applySorting(tx *gorm.DB, sorting []*storev1.Sorting) *gorm.DB {
 	for _, s := range sorting {
-		col := toColumn(s.GetField())
+		col := q.meta.column(s.GetField())
 		dir := "ASC"
 		if s.GetDirection() == storev1.Sorting_DESC {
 			dir = "DESC"
@@ -356,8 +507,8 @@ func (q *gormQuery[T]) applyPaging(tx *gorm.DB, where *store.Where) *gorm.DB {
 }
 
 // toColumn 把 Go 字段名翻译为数据库列名（默认 snake_case）。
-// 业务可用 gorm.Column tag 覆盖；本桥接不读 tag，仅做命名约定转换，
-// 足够演示与常见约定；如需精确列名，Where.Filter 直接传列名即可。
+// gorm:"column:..." 自定义列名由 modelMeta 先解析；本函数只是未命中时的
+// 命名约定兜底，也可直接用于传入的原始列名。
 func toColumn(field string) string {
 	if field == "" {
 		return field
