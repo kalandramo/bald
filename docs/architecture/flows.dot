@@ -1,0 +1,84 @@
+digraph bald_flows {
+    rankdir=TB;
+    graph [fontname="Helvetica", fontsize=12, labelloc=t, ranksep=0.5, nodesep=0.4,
+           label="bald 三条主流程：入站请求 / 消息 / 生命周期 — 2026-11-01, main@ca981b1（行号经脚本回读核对；DOT 未渲染）"];
+    node [fontname="Helvetica", fontsize=10, shape=box, style="rounded,filled", fillcolor="#eef3fa"];
+    edge [fontname="Helvetica", fontsize=9, arrowsize=0.6];
+
+    // ================= 子图 1：入站请求 =================
+    subgraph cluster_req {
+        label="① 入站请求（HTTP/gin）　绿=已接线　红=存在但未接线";
+        style=rounded; color="#9aa7b8";
+
+        client [label="客户端请求", shape=ellipse, fillcolor="#fff"];
+        listen [label="HTTPServer.Start\nnet.Listen + Serve\n transport/http/http_server.go:62-89"];
+        build [label="stdServerProvider.Build\n取 Decl.HTTPHandler（*gin.Engine）\nwithProbes 包装\n pkg/appkit/standard.go:204-229\n pkg/appkit/health.go:60-80\n → bootstrap.HttpServerProvider\n bootstrap/server.go:154-173"];
+        rec [label="Recovery\n pkg/middleware/bundle/bundle.go:177"];
+        rid [label="RequestID\n pkg/middleware/bundle/bundle.go:177"];
+        trc [label="Tracing（仅 b.tracing）\n span = tracer.Start\n pkg/middleware/gin/observability.go:154"];
+        lg [label="Logging（New() 默认开）\n pkg/middleware/bundle/bundle.go:159,181-183"];
+        cors [label="CORS（仅 corsCfg≠nil）\n pkg/middleware/bundle/bundle.go:184-186"];
+        sec [label="Secure（仅 b.secure）\n pkg/middleware/bundle/bundle.go:187-189"];
+        authn [label="Authn（仅 authenticator≠nil）\n pkg/middleware/bundle/bundle.go:190-192\n 未注入 ⇒ 链中无认证层"];
+        audit [label="Audit + metrics 发射\n pkg/middleware/gin/audit.go:138\n pkg/middleware/bundle/bundle.go:193-195"];
+        authz [label="Authz（仅 authorizer≠nil）\n pkg/middleware/bundle/bundle.go:196-198"];
+        rl [label="RateLimit（仅 rateLimiter≠nil）\n r.Handler()\n pkg/middleware/gin/ratelimit.go:81\n 位于 Authz 之后\n pkg/middleware/bundle/bundle.go:199-204"];
+        to [label="Timeout（仅 timeoutCfg≠nil）\n最内层，只计业务耗时\n pkg/middleware/bundle/bundle.go:205-209"];
+        hdl [label="transport/web 泛型绑定\nbind → validators → handler(ctx,&req)\n transport/web/handler.go:37-51"];
+        resp [label="WriteResponse / ErrorResponse\nberrors → HTTP code 映射\n transport/web/handler.go:50\n transport/web/response.go:56-93"];
+
+        retry_box [label="retry\n零 importer\n（唯一提及 ratelimit/bbr/bbr.go:68 注释）", color="#c33", fontcolor="#c33", fillcolor="#fff"];
+        cb_box [label="circuitbreaker\n无 transport / middleware 消费方", color="#c33", fontcolor="#c33", fillcolor="#fff"];
+        grpc_tls [label="gRPC 分支\n契约 server.grpc.tls 无人消费\nbootstrap/server.go:100-126 只读 reflection\n生成物硬编码 insecure\n internal/codegen/appspec_tmpl_app.go:288\n详见 risk-review.md §6.5", shape=note, color="#c33", fontcolor="#c33", fillcolor="#fff"];
+
+        client -> listen -> build -> rec;
+        rec -> rid -> trc -> lg -> cors -> sec -> authn -> audit -> authz -> rl -> to -> hdl -> resp;
+        rl -> retry_box [style=dashed, color="#c33", label="未被请求路径使用", fontcolor="#c33"];
+        to -> cb_box [style=dashed, color="#c33", label="未被请求路径使用", fontcolor="#c33"];
+        build -> grpc_tls [style=dotted, color="#c33", label="协议对称性缺口", fontcolor="#c33"];
+    }
+
+    // ================= 子图 2：消息流 =================
+    subgraph cluster_msg {
+        label="② 消息（broker/kafka）";
+        style=rounded; color="#9aa7b8";
+        pub [label="Broker.Publish\n broker/broker.go:29"];
+        pubmw [label="发布中间件链\n broker/publish.go:12\n broker/kafka/kafka.go:329-330"];
+        marshal [label="broker.Marshal(codec, msg.Body)\n缺 codec fail-fast errNoCodec\n broker/encoding.go:34,40"];
+        write [label="writer.WriteMessages\n broker/kafka/kafka.go:398\n失败→重建 writer + retriesCount：419-428"];
+        sub [label="Broker.Subscribe\n broker/kafka/kafka.go:524-639\ngo sub.run()：632-633"];
+        poll [label="FetchMessage 阻塞轮询\n退避 backoffSleep（312-331）\n broker/kafka/subscriber.go:221-258"];
+        unmarshal [label="binder 分配类型化 body\nbroker.Unmarshal：284\n broker/kafka/subscriber.go:268-307"];
+        handler [label="s.handler(ctx, pub)\n broker/kafka/subscriber.go:294"];
+        ack [label="AutoAck 默认 true（broker/kafka/kafka.go:532）\ns.options.AutoAck：broker/kafka/subscriber.go:299\n→ pub.Ack → CommitMessages\n broker/kafka/publication.go:48-53"];
+        dlq [label="UNKNOWN\n无重投递 / 无死信队列\n（代码中未发现）", shape=note, color="#c33", fontcolor="#c33", fillcolor="#fff"];
+        tsk [label="transport/kafka 把队列包成 transport.Server\nStart：transport/kafka/server.go:60-111\nRegisterSubscriber：118"];
+
+        pub -> pubmw -> marshal -> write;
+        write -> sub [label="broker 侧异步"];
+        sub -> poll -> unmarshal -> handler -> ack;
+        handler -> dlq [style=dashed, color="#c33", label="handler 报错仅跳过 ack", fontcolor="#c33"];
+        sub -> tsk [style=dotted];
+    }
+
+    // ================= 子图 3：生命周期 =================
+    subgraph cluster_life {
+        label="③ 生命周期（pkg/appkit/appkit.go:561-703 Run）";
+        style=rounded; color="#9aa7b8";
+        l1 [label="loadConfig → Resolve fail-fast\n pkg/appkit/appkit.go:574-598"];
+        l2 [label="beforeStart hooks\n pkg/appkit/appkit.go:604"];
+        l3 [label="components 按序启动\n pkg/appkit/appkit.go:614"];
+        l4 [label="errgroup 并发 Start 所有 Server\n pkg/appkit/appkit.go:624-630"];
+        l5 [label="waitForEndpoints（:0 解析，5s 上界）\n pkg/appkit/appkit.go:809-829"];
+        l6 [label="register 到发现服务\n pkg/appkit/appkit.go:643,840"];
+        l7 [label="afterStart → startedCh\n pkg/appkit/appkit.go:655-672"];
+        l8 [label="signal.Notify(SIGINT,SIGTERM)\n pkg/appkit/appkit.go:675-684"];
+        l9 [label="deregister（_ = 忽略错误）\n pkg/appkit/appkit.go:686-690"];
+        l10 [label="stopAll 五阶段\n pkg/appkit/appkit.go:715-750"];
+        l1 -> l2 -> l3 -> l4 -> l5 -> l6 -> l7 -> l8 -> l9 -> l10;
+    }
+
+    // 跨子图接缝（不强制布局）
+    l4 -> listen [style=dotted, color="#666", label="启动的是同一批 transport.Server", constraint=false];
+    l6 -> poll [style=dotted, color="#666", label="注册与消费共用 registry/broker", constraint=false];
+}

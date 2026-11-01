@@ -1,0 +1,114 @@
+digraph bald_modules {
+    rankdir=TB;
+    node [fontname="Helvetica", fontsize=11, shape=box, style="rounded,filled", fillcolor="#f2f5fa"];
+    edge [fontname="Helvetica", fontsize=9, color="#5b6b7f", arrowsize=0.6];
+    graph [fontname="Helvetica", fontsize=12, ranksep=0.55, nodesep=0.35, labelloc=t,
+           label="bald 模块依赖分层（93 个 go.mod）— 2026-11-01，只画已核实的边；红=跨层回边（模块环）"];
+
+    // ---- Layer: SPI 契约（无 bald 内部依赖） ----
+    subgraph cluster_spi {
+        label="SPI 契约层（只有接口）";
+        style=rounded; color="#9aa7b8";
+        transport [label="transport\nServer SPI\n transport/server.go:14-22"];
+        broker [label="broker\nBroker SPI\n broker/broker.go:9-33"];
+        cache [label="cache\n cache/cache.go:28-69"];
+        metrics [label="metrics\n metrics/metrics.go:15-19"];
+        registry [label="registry\nRegistrar + Discovery\n registry/registry.go:62-75"];
+        ratelimit [label="ratelimit"];
+        cb [label="circuitbreaker\n（仅自身后端消费）", color="#d66", fontcolor="#b00"];
+        retry [label="retry\n（零 importer）", color="#d66", fontcolor="#b00",
+               tooltip="全仓唯一提及是注释 ratelimit/bbr/bbr.go:68"];
+        encoding [label="encoding"];
+        blog [label="log"];
+        health [label="health"];
+        berrors [label="berrors"];
+    }
+
+    // ---- Layer: 配置 ----
+    subgraph cluster_cfg {
+        label="配置契约 / 配置源";
+        style=rounded; color="#9aa7b8";
+        bconf [label="bconf\nprotobuf 契约\n bconf/proto → bconf/gen"];
+        bconfig [label="bconfig\nReader/Closer/Watcher/Decoder\n bconfig/bconfig.go:3-16,17,42,78"];
+    }
+
+    // ---- Layer: 装配 ----
+    subgraph cluster_asm {
+        label="装配层（根 module 内包 + bootstrap module）";
+        style=rounded; color="#9aa7b8";
+        bootstrap [label="bootstrap\n分层合并 + ServerProvider\n bootstrap/config/config.go:1-17\n bootstrap/server.go:31,100,154"];
+        appkit [label="pkg/appkit\nv2 Provider Plan/Build + Run/stopAll\n pkg/appkit/provider.go\n pkg/appkit/appkit.go:561-703"];
+        bundle [label="pkg/middleware/bundle\nGin() / GRPCInterceptors()\n pkg/middleware/bundle/bundle.go:171-211,224-241"];
+        rootpkg [label="pkg/{audit,authn,authz,metrics}\n（根 module 内包）", fillcolor="#e8f0e0"];
+    }
+
+    // ---- Layer: 适配器 ----
+    subgraph cluster_ad {
+        label="适配器层（各自独立 module）";
+        style=rounded; color="#9aa7b8";
+        t_ad [label="transport/{grpc,http,http3,ws,webrtc,sse,\ngraphql,tcp,cron,asynq,mcp,gateway,subscribe,web}"];
+        b_ad [label="broker/{kafka,rabbitmq,redis,rocketmq}"];
+        c_ad [label="cache/{local,redis,loadable}"];
+        r_ad [label="registry/{nacos,consul,etcd,kubernetes}"];
+        x_ad [label="log/* metrics/* encoding/*\nratelimit/* circuitbreaker/*"];
+        contract [label="*/contract × 30\nappkit v2 Provider 注册包", fillcolor="#e8f0e0"];
+        contrib [label="contrib/*", fillcolor="#e8f0e0"];
+        codegen [label="cmd/bald + internal/codegen（根 module）", fillcolor="#e8f0e0"];
+    }
+
+    ext_mq [label="Kafka/RabbitMQ/RocketMQ/Redis", shape=cylinder, fillcolor="#fff"];
+    ext_sr [label="etcd/consul/nacos/k8s", shape=cylinder, fillcolor="#fff"];
+    root [label="根 module github.com/kalandramo/bald\n= pkg/* + cmd/ + internal/ + observability/\n19 条本地 replace", fillcolor="#fdf6e3"];
+
+    // ---- 已核实的装配边 ----
+    appkit -> bootstrap;
+    appkit -> bconf;
+    appkit -> registry;
+    appkit -> transport;
+    bootstrap -> bconf;
+    bootstrap -> bconfig;
+    bootstrap -> transport;
+    bootstrap -> health;
+    bootstrap -> blog;
+    bundle -> berrors;
+    bundle -> bconf [label="bconf/gen"];
+    bundle -> rootpkg [label="audit/authn/authz/metrics"];
+    contract -> appkit [color="#b00", penwidth=1.4, label="回边（30 个子包）", fontcolor="#b00"];
+    contract -> bconf;
+    contract -> transport [label="代表性：gateway/contract 引入", style=dashed];
+    contrib -> appkit [color="#b00", penwidth=1.4, fontcolor="#b00"];
+    codegen -> appkit;
+
+    // ---- 已核实的适配器→SPI 边 ----
+    t_ad -> transport;
+    t_ad -> bconf;
+    t_ad -> blog;
+    t_ad -> encoding;
+    b_ad -> broker;
+    b_ad -> bconf;
+    broker -> encoding;
+    c_ad -> cache;
+    c_ad -> bconf;
+    r_ad -> registry;
+    r_ad -> bconf;
+    x_ad -> metrics;
+    x_ad -> blog;
+    x_ad -> ratelimit;
+    x_ad -> cb;
+    bconfig -> ext_sr [style=dashed, label="watch 配置"];
+    r_ad -> ext_sr [label="注册"];
+    b_ad -> ext_mq;
+    t_ad -> ext_mq [style=dashed, label="transport/{kafka,rabbitmq,rocketmq,redis}"];
+
+    // ---- 根 module 的下行 + 上行（环） ----
+    root -> transport [label="go.mod require", color="#006400"];
+    root -> bootstrap [color="#006400"];
+    root -> bconf [color="#006400"];
+    t_ad -> root [label="transport/{sse,asynq,cron,tcp,webrtc,gateway}\nrequire 根 module v0.34.0", color="#b00", penwidth=1.6, fontcolor="#b00"];
+    r_ad -> root [label="registry/{nacos,consul,etcd,kubernetes}", color="#b00", style=dotted];
+    c_ad -> root [label="cache/redis", color="#b00", style=dotted];
+    b_ad -> root [label="broker/redis", color="#b00", style=dotted];
+
+    // ---- 未接线标注 ----
+    { rank=same; retry; cb; }
+}
