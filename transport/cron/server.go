@@ -26,6 +26,7 @@ import (
 	"log"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/robfig/cron/v3"
 
@@ -56,7 +57,15 @@ type Server struct {
 	cronMu   sync.Mutex
 
 	gracefullyShutdown bool
+	shutdownTimeout    time.Duration
+
+	// stopDone 在首次停机完成后关闭，供并发调用方等待停机结束。
+	stopDone chan struct{}
 }
+
+// defaultShutdownTimeout 是 Start 因 ctx 取消触发的停机窗口默认值。
+// 与 appkit 默认 stopTimeout 对齐，避免服务器停机拖过引擎的停机预算。
+const defaultShutdownTimeout = 10 * time.Second
 
 // NewServer 创建一个 Cron 服务器实例。
 // 默认使用支持秒级表达式和描述符的解析器（可用 [WithSeconds] 关闭秒级）。
@@ -89,6 +98,11 @@ func NewServer(opts ...Option) *Server {
 		cronScheduler:      cron.New(schedulerOpts...),
 		entryIDs:           sync.Map{},
 		gracefullyShutdown: o.gracefullyShutdown,
+		shutdownTimeout:    o.shutdownTimeout,
+		stopDone:           make(chan struct{}),
+	}
+	if srv.shutdownTimeout <= 0 {
+		srv.shutdownTimeout = defaultShutdownTimeout
 	}
 
 	return srv
@@ -99,63 +113,76 @@ func NewServer(opts ...Option) *Server {
 // ---------------------------------------------------------------------------
 
 // Start 启动 Cron 调度器，阻塞直到 ctx 被取消。
+// ctx 取消后使用 shutdownTimeout 作为优雅停机窗口，不会无限等待运行中的任务。
 func (s *Server) Start(ctx context.Context) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if s.started.Load() {
+		s.mu.Unlock()
 		return nil
 	}
 
 	log.Println("[cron] scheduler starting...")
 	s.cronScheduler.Start()
 	s.started.Store(true)
+	s.mu.Unlock()
 	log.Printf("[cron] scheduler started, %d job(s) registered", s.GetJobCount())
 
 	// 阻塞等待 ctx 取消
 	<-ctx.Done()
-	s.started.Store(false)
 
-	return s.stopInternal(context.Background())
+	s.mu.Lock()
+	s.started.Store(false)
+	s.mu.Unlock()
+
+	// ctx 已取消，不能直接复用；保留其值并换上有界的停机窗口。
+	stopCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), s.shutdownTimeout)
+	defer cancel()
+	return s.stopInternal(stopCtx)
 }
 
-// Stop 优雅关闭 Cron 调度器。
+// Stop 优雅关闭 Cron 调度器。ctx 携带停机超时（必须未取消）。
 func (s *Server) Stop(ctx context.Context) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if !s.started.Load() && !s.stopping.Load() {
-		return s.stopInternal(ctx)
-	}
-
 	s.started.Store(false)
+	s.mu.Unlock()
+
 	return s.stopInternal(ctx)
 }
 
 func (s *Server) stopInternal(ctx context.Context) error {
-	if s.stopping.Load() {
+	select {
+	case <-s.stopDone:
+		return nil
+	default:
+	}
+
+	if !s.stopping.CompareAndSwap(false, true) {
+		// 另一个调用方正在停机：等待其结束，同时尊重本次调用的截止时间。
+		select {
+		case <-s.stopDone:
+		case <-ctx.Done():
+		}
 		return nil
 	}
-	s.stopping.Store(true)
 	defer func() {
 		s.stopping.Store(false)
+		close(s.stopDone)
 	}()
 
 	log.Println("[cron] scheduler stopping...")
 
-	stopCh := make(chan struct{})
-	go func() {
-		// Stop 返回一个 context，等待正在运行的任务执行完成
-		stopCtx := s.cronScheduler.Stop()
-		<-stopCtx.Done()
-		close(stopCh)
-	}()
+	// Stop 会立即停止调度，并返回一个在运行中任务全部结束后取消的 ctx。
+	stopped := s.cronScheduler.Stop()
+	if !s.gracefullyShutdown {
+		log.Println("[cron] not waiting for running jobs")
+		return nil
+	}
 
 	select {
-	case <-stopCh:
+	case <-stopped.Done():
 		log.Println("[cron] all jobs stopped gracefully")
 	case <-ctx.Done():
-		log.Println("[cron] shutdown timeout, force stopped")
+		log.Println("[cron] shutdown timeout, running jobs abandoned")
 	}
 
 	return nil

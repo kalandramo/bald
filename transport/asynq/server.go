@@ -67,7 +67,12 @@ const (
 type Server struct {
 	mu sync.Mutex
 
-	started atomic.Bool
+	started  atomic.Bool
+	stopping atomic.Bool
+
+	// stopDone 在首次停机完成后关闭，供并发调用方等待停机结束。
+	stopDone chan struct{}
+	stopErr  error
 
 	server    *asynq.Server
 	client    *asynq.Client
@@ -130,6 +135,8 @@ func NewServer(opts ...Option) *Server {
 
 		entryIDs:    make(map[string]string),
 		mtxEntryIDs: sync.RWMutex{},
+
+		stopDone: make(chan struct{}),
 
 		serverEnabled:    true,
 		clientEnabled:    true,
@@ -301,22 +308,29 @@ func (s *Server) updateRedisFailoverClientOpt(opt *asynq.RedisFailoverClientOpt)
 // transport.Server 实现
 // ---------------------------------------------------------------------------
 
+// defaultShutdownTimeout 是 Start 因 ctx 取消触发的停机窗口默认值
+// （asynq.Config.ShutdownTimeout 未设置时使用）。
+// 与 appkit 默认 stopTimeout 对齐，避免停机拖过引擎的停机预算。
+const defaultShutdownTimeout = 10 * time.Second
+
 // Start 启动 Asynq 服务器（消费者、调度器），阻塞直到 ctx 被取消。
+// ctx 取消后使用有界停机窗口，运行中的任务不会让退出无限挂起。
 func (s *Server) Start(ctx context.Context) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if s.started.Load() {
+		s.mu.Unlock()
 		return nil
 	}
 
 	if s.server == nil {
 		if err := s.createAsynqServer(); err != nil {
+			s.mu.Unlock()
 			return err
 		}
 	}
 	if s.scheduler == nil {
 		if err := s.createAsynqScheduler(); err != nil {
+			s.mu.Unlock()
 			return err
 		}
 	}
@@ -327,6 +341,7 @@ func (s *Server) Start(ctx context.Context) error {
 	if s.schedulerEnabled && s.scheduler != nil {
 		if err := s.scheduler.Start(); err != nil {
 			s.started.Store(false)
+			s.mu.Unlock()
 			return fmt.Errorf("asynq scheduler start failed: %w", err)
 		}
 		log.Println("[asynq] scheduler started")
@@ -343,37 +358,81 @@ func (s *Server) Start(ctx context.Context) error {
 		}()
 		log.Println("[asynq] server started")
 	}
+	s.mu.Unlock()
 
 	// 阻塞等待 ctx 取消
 	<-ctx.Done()
 	s.started.Store(false)
 
-	return s.stopInternal(context.Background())
+	// ctx 已取消，不能直接复用；保留其值并换上有界的停机窗口。
+	stopCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), s.shutdownTimeout())
+	defer cancel()
+	return s.shutdown(stopCtx)
 }
 
-// Stop 优雅关闭服务器及其所有组件。
+// Stop 优雅关闭服务器及其所有组件。ctx 携带停机超时（必须未取消）。
+// 多次调用只执行一次实际停机，各调用方按自己的 ctx 等待。
 func (s *Server) Stop(ctx context.Context) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.started.Store(false)
+	return s.shutdown(ctx)
+}
 
-	if !s.started.Load() {
-		return s.stopInternal(ctx)
+func (s *Server) shutdownTimeout() time.Duration {
+	if s.asynqConfig.ShutdownTimeout > 0 {
+		return s.asynqConfig.ShutdownTimeout
+	}
+	return defaultShutdownTimeout
+}
+
+// shutdown 首次调用时在后台执行停机，其余调用方等待其完成或 ctx 到期。
+func (s *Server) shutdown(ctx context.Context) error {
+	select {
+	case <-s.stopDone:
+		return nil
+	default:
 	}
 
-	s.started.Store(false)
-	return s.stopInternal(ctx)
+	if !s.stopping.CompareAndSwap(false, true) {
+		select {
+		case <-s.stopDone:
+		case <-ctx.Done():
+		}
+		return nil
+	}
+
+	go func() {
+		s.stopErr = s.stopInternal(ctx)
+		s.stopping.Store(false)
+		close(s.stopDone)
+	}()
+
+	select {
+	case <-s.stopDone:
+		return s.stopErr
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (s *Server) stopInternal(ctx context.Context) error {
 	var stopErr error
 
-	// 1. 清理定时任务注册表
-	s.removeAllPeriodicTaskInternal()
+	// 1. 清理定时任务注册表（逐条检查 ctx，避免 Redis 不可达时拖过停机预算）
+	s.removeAllPeriodicTaskInternal(ctx)
 
 	// 2. 关闭调度器
 	if s.scheduler != nil {
-		s.scheduler.Shutdown()
-		log.Println("[asynq] scheduler stopped")
+		done := make(chan struct{})
+		go func() {
+			s.scheduler.Shutdown()
+			close(done)
+		}()
+		select {
+		case <-done:
+			log.Println("[asynq] scheduler stopped")
+		case <-ctx.Done():
+			log.Println("[asynq] scheduler shutdown timeout, abandoned")
+		}
 	}
 
 	// 3. 关闭消费者
@@ -736,16 +795,20 @@ func (s *Server) RemovePeriodicTaskByEntryID(entryID string) error {
 
 // RemoveAllPeriodicTask 移除所有定时任务。
 func (s *Server) RemoveAllPeriodicTask() {
-	s.removeAllPeriodicTaskInternal()
+	s.removeAllPeriodicTaskInternal(context.Background())
 }
 
-func (s *Server) removeAllPeriodicTaskInternal() {
+func (s *Server) removeAllPeriodicTaskInternal(ctx context.Context) {
 	s.mtxEntryIDs.Lock()
 	ids := s.entryIDs
 	s.entryIDs = make(map[string]string)
 	s.mtxEntryIDs.Unlock()
 
 	for _, v := range ids {
+		if ctx.Err() != nil {
+			log.Println("[asynq] periodic task cleanup aborted: context done")
+			return
+		}
 		_ = s.unregisterPeriodicTask(v)
 	}
 }

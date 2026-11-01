@@ -256,7 +256,7 @@ srv.RemoveAllPeriodicTask()
 | `WithConcurrency(n)` | 并发工作协程数 | `20` |
 | `WithQueues(queues)` | 队列及权重 | `default: 1` |
 | `WithStrictPriority(val)` | 严格优先级模式 | `false` |
-| `WithShutdownTimeout(d)` | 关闭超时时间 | - |
+| `WithShutdownTimeout(d)` | 停机等待窗口（影响 asynq 内部等待与 Start 取消后的停机） | `10s` |
 | `WithGracefullyShutdown(val)` | 优雅关闭 | `false` |
 | `WithMiddleware(mw...)` | asynq 中间件 | - |
 | `WithErrorHandler(fn)` | 错误处理器 | - |

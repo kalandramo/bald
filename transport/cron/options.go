@@ -19,12 +19,23 @@ type options struct {
 	location           *time.Location // nil = cron 默认（本地时区）
 	logger             cron.Logger    // nil = cron 默认（标准输出）
 	gracefullyShutdown bool
+	shutdownTimeout    time.Duration
 }
 
 // WithGracefullyShutdown 设置是否启用优雅关闭模式。
-// 启用时，Stop 会等待正在运行的任务执行完成后再返回。
+// 启用时，Stop 会等待正在运行的任务执行完成后再返回（最多 shutdownTimeout）。
 func WithGracefullyShutdown(enable bool) Option {
 	return func(o *options) { o.gracefullyShutdown = enable }
+}
+
+// WithShutdownTimeout 设置 Start 因 ctx 取消而触发的优雅停机窗口（默认 10s）。
+// 超过窗口仍在运行的任务会被放弃等待；显式 Stop(ctx) 仍以调用方 ctx 为准。
+func WithShutdownTimeout(timeout time.Duration) Option {
+	return func(o *options) {
+		if timeout > 0 {
+			o.shutdownTimeout = timeout
+		}
+	}
 }
 
 // WithLocation 设置 cron 调度器的时区。

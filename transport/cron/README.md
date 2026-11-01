@@ -61,6 +61,7 @@ func main() {
 | 选项                               | 说明               | 默认值     |
 |----------------------------------|------------------|---------|
 | `WithGracefullyShutdown(enable)` | 是否等待运行中任务完成后再退出  | `true`  |
+| `WithShutdownTimeout(d)`         | Start 触发的停机等待窗口   | `10s`   |
 | `WithLocation(loc)`              | 设置时区             | 系统本地时区  |
 | `WithSeconds(enable)`            | 是否使用秒级表达式（默认已启用） | `true`  |
 | `WithLogger(logger)`             | 自定义 cron 日志记录器   | 标准库 log |
@@ -114,8 +115,8 @@ entries := srv.GetEntries()
 
 ## 生命周期说明
 
-1. `Start(ctx)`：启动 cron 调度器，阻塞等待 ctx 取消
-2. `Stop(ctx)`：优雅停止调度器，等待运行中任务执行完毕
+1. `Start(ctx)`：启动 cron 调度器，阻塞等待 ctx 取消；取消后用 `WithShutdownTimeout` 指定的窗口等待运行中任务，超时即放弃等待
+2. `Stop(ctx)`：优雅停止调度器，等待运行中任务执行完毕或 ctx 到期
 3. 应用退出时通过取消 context 触发关闭
 
 ## 适用场景
