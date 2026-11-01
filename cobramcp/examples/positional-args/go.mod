@@ -18,7 +18,7 @@ require (
 require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
-	github.com/kalandramo/bald/log v0.5.1 // indirect
+	github.com/kalandramo/bald/log v0.5.4 // indirect
 	github.com/kalandramo/bald/transport/mcp v0.4.0 // indirect
 	github.com/mark3labs/mcp-go v1.1.0 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2 // indirect
