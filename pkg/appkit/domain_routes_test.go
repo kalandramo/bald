@@ -148,6 +148,12 @@ func TestPlan_DomainRoutesGinShapeConflict(t *testing.T) {
 			}},
 			want: []string{`domain "greet" declares conflicting REST routes`, "one wildcard name per position"},
 		},
+		{
+			name: "mid-segment wildcard names differ",
+			a:    &Domain{Name: "alpha", RouteTable: []Route{{Method: "GET", Path: "/v1/users/x:id"}}},
+			b:    &Domain{Name: "beta", RouteTable: []Route{{Method: "GET", Path: "/v1/users/x:name"}}},
+			want: []string{`GET /v1/users/x:id`, `GET /v1/users/x:name`, "one wildcard name per position"},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -177,6 +183,10 @@ func TestPlan_DomainRoutesGinShapeCompatible(t *testing.T) {
 		{Method: "GET", Path: "/v1/users/:id"},
 		{Method: "GET", Path: "/v1/users/:id/profile"},
 		{Method: "GET", Path: "/v1/users/me"},
+		{Method: "GET", Path: "/v1/items/x:id"},
+		{Method: "GET", Path: "/v1/items/x:id/detail"},
+		{Method: "GET", Path: "/v1/items/xfoo:name"},
+		{Method: "GET", Path: "/v1/items/:id"},
 		{Method: "POST", Path: "/v1/users/:name"},
 	}}
 	beta := Domain{Name: "beta", RouteTable: []Route{
@@ -187,8 +197,8 @@ func TestPlan_DomainRoutesGinShapeCompatible(t *testing.T) {
 	if err != nil {
 		t.Fatalf("compatible gin shapes must compile, got: %v", err)
 	}
-	if len(p.Routes) != 6 {
-		t.Fatalf("routes = %+v, want 6", p.Routes)
+	if len(p.Routes) != 10 {
+		t.Fatalf("routes = %+v, want 10", p.Routes)
 	}
 }
 
@@ -208,7 +218,13 @@ func TestRouteShapeConflict(t *testing.T) {
 		{"/files/*path", "/files/x/y", true},
 		{"/a/:id/b", "/a/:id/c", false},
 		{"/a/:id/b", "/a/:name/c", true},
-		{"/v1/users/{id}", "/v1/users/:name", true},
+		{"/v1/users/{id}", "/v1/users/:name", true}, // {id} 按参数保守处理
+		{"/v1/users/x:id", "/v1/users/x:name", true},
+		{"/v1/users/x:id", "/v1/users/x:id/profile", false},
+		{"/v1/users/x:id", "/v1/users/:id", false},
+		{"/v1/users/x:id", "/v1/users/xfoo:name", false},
+		{"/v1/users/x:id", "/v1/users/y:name", false},
+		{"/v1/users/x", "/v1/users/x:id", false},
 		{"/a", "/a/", false},
 	}
 	for _, tc := range cases {

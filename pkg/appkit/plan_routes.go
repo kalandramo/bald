@@ -136,44 +136,52 @@ func mergeRoutes(base, extra []Route) ([]Route, error) {
 }
 
 // routeSeg 是路由路径的一个段：静态字面量、参数（:name / {name}）或
-// catch-all（*name）。{name} 是 proto 注解形态，生成器已转成 :name，这里
-// 一并识别，避免同一路由的两种写法绕过冲突检查。
+// catch-all（*name）。参数可带静态前缀（x:id）；{name} 是 proto 注解形态，
+// 生成器已转成 :name，这里按参数参与比较——gin 会把它当字面量注册，保留
+// 保守判定是为了让「同一逻辑路由的两种写法」不能绕过冲突检查。
 type routeSeg struct {
-	kind byte   // 's' static, 'p' param, 'a' catch-all
-	name string // 通配名（静态段为空）
-	text string // 原始段文本，用于报错
+	kind   byte   // 's' static, 'p' param, 'a' catch-all
+	prefix string // 通配符之前的静态前缀；静态段为整段文本
+	name   string // 通配名（静态段为空）
+	text   string // 原始段文本，用于报错
 }
 
 func splitRoutePath(path string) []routeSeg {
 	raw := strings.Split(strings.TrimPrefix(path, "/"), "/")
 	segs := make([]routeSeg, len(raw))
 	for i, s := range raw {
-		switch {
-		case strings.HasPrefix(s, "*"):
-			segs[i] = routeSeg{kind: 'a', name: s[1:], text: s}
-		case strings.HasPrefix(s, ":"):
-			segs[i] = routeSeg{kind: 'p', name: s[1:], text: s}
-		case strings.HasPrefix(s, "{") && strings.HasSuffix(s, "}"):
+		if strings.HasPrefix(s, "{") && strings.HasSuffix(s, "}") {
 			name := strings.TrimSuffix(strings.TrimPrefix(s, "{"), "}")
 			name, _, _ = strings.Cut(name, "=")
 			segs[i] = routeSeg{kind: 'p', name: name, text: s}
-		default:
-			segs[i] = routeSeg{kind: 's', text: s}
+			continue
 		}
+
+		k := strings.IndexAny(s, ":*")
+		if k < 0 {
+			segs[i] = routeSeg{kind: 's', prefix: s, text: s}
+			continue
+		}
+		kind := byte('p')
+		if s[k] == '*' {
+			kind = 'a'
+		}
+		segs[i] = routeSeg{kind: kind, prefix: s[:k], name: s[k+1:], text: s}
 	}
 	return segs
 }
 
 // routeShapeConflict 按 gin 的注册语义比两条同方法路径，返回冲突原因
 // （空串表示可以并存）：
-//   - 静态兄弟与通配兄弟可以并存（gin 回溯匹配，静态优先），不同静态段
+//   - 静态兄弟与通配兄弟可以并存（gin v1.12 回溯匹配，静态优先），不同静态段
 //     一旦分叉就再无交集；
-//   - 同一位置两个参数必须同名——gin 的树按通配文本共享节点，:id 与
-//     :name 会在注册时 panic；
+//   - 两个参数只有在静态前缀与通配名都相同时才共享节点；前缀不同即分叉
+//     （x:id 与 :id、x:id 与 xfoo:name 都能并存），前缀相同但名字不同会 panic；
 //   - catch-all 吞掉其后所有段，与任何同前缀的更具体路径都不能并存，
 //     无论注册先后。
 //
-// 只识别整段通配（:name / {name} / *name），段内混排通配不在检查范围。
+// 段内参数（x:id）按「静态前缀 + 通配」比较；同一段出现多个通配由
+// validateRouteShape 拒绝。
 func routeShapeConflict(a, b string) string {
 	sa, sb := splitRoutePath(a), splitRoutePath(b)
 	for i := 0; i < len(sa) && i < len(sb); i++ {
@@ -188,6 +196,9 @@ func routeShapeConflict(a, b string) string {
 		case x.kind == 's' || y.kind == 's':
 			return ""
 		default:
+			if x.prefix != y.prefix {
+				return ""
+			}
 			if x.name != y.name {
 				return fmt.Sprintf("segment %d uses wildcards %q and %q, and gin requires one wildcard name per position", i+1, x.text, y.text)
 			}
@@ -213,6 +224,9 @@ func validateRouteShape(domain, method, path string) error {
 			if s.name == "" {
 				return fmt.Errorf("appkit: domain %q route %s %s: catch-all %q must be named", domain, method, path, s.text)
 			}
+			if s.prefix != "" {
+				return fmt.Errorf("appkit: domain %q route %s %s: catch-all %q must start a path segment", domain, method, path, s.text)
+			}
 			if i != len(segs)-1 {
 				return fmt.Errorf("appkit: domain %q route %s %s: catch-all %q must be the last path segment", domain, method, path, s.text)
 			}
@@ -226,9 +240,6 @@ func validateRouteShape(domain, method, path string) error {
 		}
 		if n := strings.Count(s.text, ":") + strings.Count(s.text, "*"); n > 1 {
 			return fmt.Errorf("appkit: domain %q route %s %s: segment %q has %d wildcards; gin allows at most one per segment", domain, method, path, s.text, n)
-		}
-		if k := strings.IndexByte(s.text, '*'); k > 0 {
-			return fmt.Errorf("appkit: domain %q route %s %s: catch-all %q must start a path segment", domain, method, path, s.text)
 		}
 	}
 	return nil
