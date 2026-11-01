@@ -2,6 +2,7 @@ package asynq
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -100,5 +101,37 @@ func TestShutdownTimeoutResolution(t *testing.T) {
 	srv := newIdleServer(WithShutdownTimeout(3 * time.Second))
 	if got := srv.shutdownTimeout(); got != 3*time.Second {
 		t.Fatalf("shutdownTimeout() = %v, want 3s", got)
+	}
+}
+
+// TestRestartAfterStopIsRejected 锁定：asynq 的 Server/Scheduler 停机后不可重启，
+// 再次 Start 必须立即返回明确错误，而不是静默空转。
+func TestRestartAfterStopIsRejected(t *testing.T) {
+	srv := newIdleServer()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- srv.Start(ctx) }()
+
+	time.Sleep(20 * time.Millisecond)
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("first Start: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("first Start did not return")
+	}
+
+	restartDone := make(chan error, 1)
+	go func() { restartDone <- srv.Start(context.Background()) }()
+	select {
+	case err := <-restartDone:
+		if err == nil || !strings.Contains(err.Error(), "already stopped") {
+			t.Fatalf("restart Start error = %v, want error containing \"already stopped\"", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("restart Start hung instead of returning an error")
 	}
 }

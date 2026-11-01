@@ -3,6 +3,7 @@ package cron
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -132,5 +133,56 @@ func TestStopBeforeStartIsPrompt(t *testing.T) {
 
 	if err := srv.Stop(context.Background()); err != nil {
 		t.Fatalf("second Stop: %v", err)
+	}
+}
+
+// TestRestartAfterStop 锁定：Stop 后再次 Start，新一轮调度仍可运行，
+// 且第二次停机真的会停下任务（停机完成标记按轮重置）。
+func TestRestartAfterStop(t *testing.T) {
+	srv := NewServer(WithGracefullyShutdown(false))
+
+	var runs atomic.Int64
+	if _, err := srv.NewTimerJob("@every 50ms", func() { runs.Add(1) }); err != nil {
+		t.Fatalf("NewTimerJob: %v", err)
+	}
+
+	runOnce := func() int64 {
+		base := runs.Load()
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan error, 1)
+		go func() { done <- srv.Start(ctx) }()
+
+		deadline := time.Now().Add(3 * time.Second)
+		for runs.Load() == base && time.Now().Before(deadline) {
+			time.Sleep(10 * time.Millisecond)
+		}
+		if runs.Load() == base {
+			cancel()
+			<-done
+			t.Fatal("job did not run after start")
+		}
+
+		cancel()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("Start: %v", err)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatal("Start did not return after cancel")
+		}
+
+		stopped := runs.Load()
+		time.Sleep(200 * time.Millisecond)
+		if got := runs.Load(); got != stopped {
+			t.Fatalf("job kept running after stop: %d -> %d", stopped, got)
+		}
+		return stopped
+	}
+
+	first := runOnce()
+	second := runOnce()
+	if second <= first {
+		t.Fatalf("second run did not execute job: first=%d second=%d", first, second)
 	}
 }

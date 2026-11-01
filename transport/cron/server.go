@@ -59,7 +59,8 @@ type Server struct {
 	gracefullyShutdown bool
 	shutdownTimeout    time.Duration
 
-	// stopDone 在首次停机完成后关闭，供并发调用方等待停机结束。
+	// stopDone 在当前一轮运行停机完成后关闭，供并发调用方等待停机结束。
+	// 每轮 Start 换新通道，因此 Stop→Start→Stop 的第二次停机仍然生效。
 	stopDone chan struct{}
 }
 
@@ -120,6 +121,12 @@ func (s *Server) Start(ctx context.Context) error {
 		s.mu.Unlock()
 		return nil
 	}
+	// 上一轮已停机：换一个新的停机完成通道，让本轮 Stop 重新生效。
+	select {
+	case <-s.stopDone:
+		s.stopDone = make(chan struct{})
+	default:
+	}
 
 	log.Println("[cron] scheduler starting...")
 	s.cronScheduler.Start()
@@ -150,8 +157,9 @@ func (s *Server) Stop(ctx context.Context) error {
 }
 
 func (s *Server) stopInternal(ctx context.Context) error {
+	done := s.currentStopDone()
 	select {
-	case <-s.stopDone:
+	case <-done:
 		return nil
 	default:
 	}
@@ -159,14 +167,14 @@ func (s *Server) stopInternal(ctx context.Context) error {
 	if !s.stopping.CompareAndSwap(false, true) {
 		// 另一个调用方正在停机：等待其结束，同时尊重本次调用的截止时间。
 		select {
-		case <-s.stopDone:
+		case <-done:
 		case <-ctx.Done():
 		}
 		return nil
 	}
 	defer func() {
 		s.stopping.Store(false)
-		close(s.stopDone)
+		close(done)
 	}()
 
 	log.Println("[cron] scheduler stopping...")
@@ -186,6 +194,13 @@ func (s *Server) stopInternal(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// currentStopDone 返回本轮的停机完成通道；Start 换轮时由 mu 保护。
+func (s *Server) currentStopDone() chan struct{} {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.stopDone
 }
 
 // Endpoint 返回服务器的访问端点描述。

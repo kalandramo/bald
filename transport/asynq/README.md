@@ -278,6 +278,13 @@ srv.RemoveAllPeriodicTask()
 | `WithSchedulerEnabled(val)` | 启用/禁用调度器 | `true` |
 | `WithCodec(name)` | 编解码器名称 | `json` |
 
+## 生命周期说明
+
+1. `Start(ctx)`：启动调度器与消费者，阻塞等待 ctx 取消；取消后在有界窗口内完成停机（窗口优先取 `asynq.Config.ShutdownTimeout`，未配置时为 10s）
+2. `Stop(ctx)`：显式优雅停机，等待组件停止或 ctx 到期；并发调用只执行一次实际停机
+3. **不可重启**：asynq 的 Server/Scheduler 停机后无法再次启动，停机后再调用 `Start` 会立即返回 `already stopped` 错误；需要重新运行时请创建新的 `Server` 实例
+4. 应用退出时通过取消 context 触发关闭
+
 ## 管理工具
 
 ### CLI 工具

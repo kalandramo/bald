@@ -315,11 +315,20 @@ const defaultShutdownTimeout = 10 * time.Second
 
 // Start 启动 Asynq 服务器（消费者、调度器），阻塞直到 ctx 被取消。
 // ctx 取消后使用有界停机窗口，运行中的任务不会让退出无限挂起。
+//
+// 生命周期是一次性的：底层 asynq 的 Server/Scheduler 停机后不可重启，
+// 因此 Stop 之后再次 Start 会直接返回错误，而不是启动一组永远无法停机的组件。
 func (s *Server) Start(ctx context.Context) error {
 	s.mu.Lock()
 	if s.started.Load() {
 		s.mu.Unlock()
 		return nil
+	}
+	select {
+	case <-s.stopDone:
+		s.mu.Unlock()
+		return errors.New("asynq: server already stopped; create a new Server to restart")
+	default:
 	}
 
 	if s.server == nil {
@@ -388,13 +397,14 @@ func (s *Server) shutdownTimeout() time.Duration {
 func (s *Server) shutdown(ctx context.Context) error {
 	select {
 	case <-s.stopDone:
-		return nil
+		return s.stopErr
 	default:
 	}
 
 	if !s.stopping.CompareAndSwap(false, true) {
 		select {
 		case <-s.stopDone:
+			return s.stopErr
 		case <-ctx.Done():
 		}
 		return nil

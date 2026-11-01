@@ -117,7 +117,8 @@ entries := srv.GetEntries()
 
 1. `Start(ctx)`：启动 cron 调度器，阻塞等待 ctx 取消；取消后用 `WithShutdownTimeout` 指定的窗口等待运行中任务，超时即放弃等待
 2. `Stop(ctx)`：优雅停止调度器，等待运行中任务执行完毕或 ctx 到期
-3. 应用退出时通过取消 context 触发关闭
+3. 停机后可再次调用 `Start` 重启：每轮 `Start/Stop` 使用独立的停机完成标记，`Stop` 每轮都会重新生效
+4. 应用退出时通过取消 context 触发关闭
 
 ## 适用场景
 
