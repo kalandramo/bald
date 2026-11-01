@@ -80,13 +80,10 @@ func TestStream_SlowSubscriberDoesNotBlockOthers(t *testing.T) {
 	fast := stream.addSubscriber("", nil)
 
 	const total = 200
-	go func() {
-		for i := 0; i < total; i++ {
-			srv.Publish(context.Background(), "slow", &Event{Data: []byte(fmt.Sprintf("e%d", i))})
-		}
-	}()
-
+	// 逐条发布并立即消费：fast 的缓冲始终接近空，不会因调度滞后被
+	// 当成慢订阅者断开；slow 不消费，照旧在缓冲写满后被策略移除。
 	for i := 0; i < total; i++ {
+		srv.Publish(context.Background(), "slow", &Event{Data: []byte(fmt.Sprintf("e%d", i))})
 		ev := recvEvent(t, fast.connection, 3*time.Second)
 		if want := fmt.Sprintf("e%d", i); string(ev.Data) != want {
 			t.Fatalf("fast subscriber event %d = %q, want %q", i, ev.Data, want)
