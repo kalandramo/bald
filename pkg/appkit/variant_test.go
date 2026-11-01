@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"net/http"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -196,8 +197,8 @@ func TestEvaluateBuildConstraint(t *testing.T) {
 		want bool
 	}{
 		{"", true},
-		{"linux || darwin", true},
-		{"linux && !darwin", false},
+		{runtime.GOOS, true},
+		{"!" + runtime.GOOS, false},
 		{"go1.1", true},
 	} {
 		got, err := EvaluateBuildConstraint(tc.expr)
