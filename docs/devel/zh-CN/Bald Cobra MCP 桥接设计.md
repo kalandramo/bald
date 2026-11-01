@@ -2,8 +2,6 @@
 
 > Author(s): bald 团队
 >
-> Last updated: 2026-09-20
->
 > Discussion at: 源码 `cobramcp/`、`transport/mcp/`；模块内部设计见 `cobramcp/docs/design.md`；操作手册见 `docs/guide/zh-CN/Bald Cobra MCP 桥接使用.md`
 >
 > Status: Accepted（已落地）

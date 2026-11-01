@@ -6,8 +6,6 @@
 >
 > Author(s): bald 团队
 >
-> Last updated: 2026-11-01
->
 > Status: Accepted（bundle 链序由 11 个契约测试固化；shared 收敛已完成）
 
 ## 摘要

@@ -2,8 +2,6 @@
 
 > Author(s): bald 团队
 >
-> Last updated: 2026-09-18
->
 > Discussion at: 源码 `transport/{server,endpoint}.go` 与 18 个子 module；装配面 `pkg/appkit/bootstrap.go`（servers 启动 + Endpoint 轮询）、`bootstrap/server.go`；契约 `bconf/proto/bootstrap/v1/server.proto`
 >
 > Status: Accepted（契约与 18 后端已落地；Endpoint 语义统一待单独设计，见「边界与已知缺口」第 1 条）

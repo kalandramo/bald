@@ -2,8 +2,6 @@
 
 > Author(s): bald 团队
 >
-> Last updated: 2026-09-18
->
 > Discussion at: 源码 `circuitbreaker/{circuitbreaker.go,circuitbreaker_test.go}` 与四个实现 `circuitbreaker/{hystrix,sentinel,sres,vegas}/`；对照 `retry/retry.go`（组合位置）、`ratelimit/ratelimit.go`（姊妹契约的接口拆分先例）
 >
 > Status: Accepted（契约与四实现已落地；**全仓零调用点**。三个行为边界的正确形态——`hystrix` 半开转移、`vegas` 开态经接口恢复、`sentinel` entry 并发释放——见「边界与不变量」）

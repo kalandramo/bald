@@ -2,8 +2,6 @@
 
 > Author(s): bald 团队
 >
-> Last updated: 2026-10-30
->
 > 适用包：`oss/minio`、`oss/s3`（各自独立 module，含 `contract/` 子包）；契约 `bconf/proto/bootstrap/v1/storage.proto`
 >
 > Status: Accepted

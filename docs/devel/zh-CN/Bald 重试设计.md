@@ -2,8 +2,6 @@
 
 > Author(s): bald 团队
 >
-> Last updated: 2026-09-17
->
 > Discussion at: 源码 `retry/{go.mod,retry.go,retry_test.go}`；对照 `broker/kafka/subscriber.go`、`registry/etcd/registry.go`、`bconfig/apollo/apollo.go`
 >
 > Status: Accepted（已落地、零依赖；Taskfile/README 已登记；**尚未接入任何调用点**，见「实现与验证」）

@@ -6,8 +6,6 @@
 >
 > Author(s): bald 团队
 >
-> Last updated: 2026-09-24
->
 > Status: Accepted（已实现）
 >
 > Discussion at: `bald` 的 `pkg/crudbridge` 与 `bald-crud` 的 `viewer`/`pagination` 契约

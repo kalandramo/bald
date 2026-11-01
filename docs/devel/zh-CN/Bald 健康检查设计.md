@@ -4,8 +4,6 @@
 >
 > Author(s): bald 团队
 >
-> Last updated: 2026-10-30
->
 > Status: Accepted（对应实现 `health` module；tag 已发且消费方引 `health/v0.1.1`）
 
 ## 摘要

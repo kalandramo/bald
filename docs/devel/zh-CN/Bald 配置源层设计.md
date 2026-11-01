@@ -2,8 +2,6 @@
 
 > Author(s): bald 团队
 >
-> Last updated: 2026-09-14
->
 > Discussion at: `Bald 配置契约设计.md`（兄弟篇：契约层专属展开）、`Bald 配置系统设计.md`（全景：三层定位、四源优先级与装配层）
 >
 > Status: Accepted（已实现，随 bald bconfig module 演进）

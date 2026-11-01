@@ -2,8 +2,6 @@
 
 > Author(s): bald 团队
 >
-> Last updated: 2026-09-17
->
 > Discussion at: 源码 `ratelimit/{go.mod,ratelimit.go,ratelimit_test.go}` 与三个实现 `ratelimit/{tokenbucket,bbr,sentinel}/`；对照 `bconf/proto/bootstrap/v1/server.proto` 的 `Middleware.RateLimit`、`pkg/middleware/bundle/bundle.go`
 >
 > Status: Accepted（契约与三实现已落地；**全仓零调用点**。并发型限流器的释放面由 `InflightLimiter` 表达，见「设计」与「契约边界」）

@@ -2,8 +2,6 @@
 
 > Author(s): bald 团队
 >
-> Last updated: 2026-09-16
->
 > Discussion at: 本文档替代《缓存抽象设计.md》（决策沿革见 git 历史）
 >
 > Status: Accepted（已实现，随 cache/v0.1.0 + cache/loadable/v0.1.0 发布）

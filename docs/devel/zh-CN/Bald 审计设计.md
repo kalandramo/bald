@@ -8,8 +8,6 @@
 >
 > 关联文档：[Bald 指标设计](./Bald%20指标设计.md)（审计三元组同源 emit `bald_audit_events_total`）、[Bald 日志设计](./Bald%20日志设计.md)（零后端耦合同纪律）、[Bald Bootstrap 设计](./Bald%20Bootstrap%20设计.md)（契约装配链）、[认证与授权抽象设计](./认证与授权抽象设计.md)（P9 归一化同源）、[框架契约总览](./框架契约总览.md)（§9 中间件表）
 >
-> Last updated: 2026-10-30
->
 > Status: Accepted（以当前代码为准）
 
 ## 摘要

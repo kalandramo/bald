@@ -4,8 +4,6 @@
 >
 > Author(s): bald 团队
 >
-> Last updated: 2026-10-30
->
 > Status: Accepted（对应实现 `bootstrap` module）
 
 ## 摘要

@@ -4,8 +4,6 @@
 >
 > Author(s): bald 团队
 >
-> Last updated: 2026-09-15
->
 > Status: Accepted（对应实现 `berrors` module，tag `berrors/v0.1.0`）
 
 ## 摘要

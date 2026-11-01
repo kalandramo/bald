@@ -2,8 +2,6 @@
 
 > Author(s): bald 团队
 >
-> Last updated: 2026-09-18
->
 > Discussion at: 源码 `encoding/{encoding,encoding_test}.go`、12 个格式子包 `encoding/{json,xml,yaml,toml,proto,msgpack,bson,cbor,gob,thrift,avro,flatbuffers}/`；消费面 `transport/{tcp,websocket,sse,asynq,webrtc,redis,kafka,rabbitmq,rocketmq}/`、`broker/`；姊妹篇 [Bald 消息代理设计](./Bald%20消息代理设计.md)
 >
 > Status: Accepted（契约与 12 格式已落地，13/13 module 有测试）

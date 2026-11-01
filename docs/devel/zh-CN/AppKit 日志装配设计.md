@@ -2,8 +2,6 @@
 
 > Author(s): bald 团队
 >
-> Last updated: 2026-10-30
->
 > Discussion at: 源码 `pkg/appkit/standard.go`、`pkg/appkit/bootstrap.go`（`loggerSource`）
 >
 > Status: Accepted

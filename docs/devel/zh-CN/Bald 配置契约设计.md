@@ -2,8 +2,6 @@
 
 > Author(s): bald 团队
 >
-> Last updated: 2026-09-14
->
 > Discussion at: `Bald 配置源层设计.md`（兄弟篇：源层专属展开）、`Bald 日志设计.md`（logger 域契约）
 >
 > Status: Accepted（已实现，随 bald bconf v0.6.0 发布）

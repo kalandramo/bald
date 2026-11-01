@@ -6,8 +6,6 @@
 >
 > Author(s): bald 团队
 >
-> Last updated: 2026-09-18
->
 > Status: Accepted（已实现；自 bald-utils/fieldmaskutil 吸收）
 
 ## 摘要

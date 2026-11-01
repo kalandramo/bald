@@ -2,8 +2,6 @@
 
 > Author(s): bald 团队
 >
-> Last updated: 2026-10-30
->
 > Discussion at: 源码 `broker/`（契约根 module）与 `broker/{kafka,rabbitmq,redis,rocketmq}/`（后端 module，各带 `contract/` 子包）；契约 `bconf/proto/bootstrap/v1/broker.proto`；装配面 `pkg/appkit`（`broker.<backend>` 段 Provider）
 >
 > Status: Accepted

@@ -2,8 +2,6 @@
 
 > Author(s): bald 团队
 >
-> Last updated: 2026-09-24
->
 > Discussion at: 源码 `pkg/store/{store,where,paging,tenant,scope,errors,mapper,logger}.go` + 内置实现 `pkg/store/inmemory/`；桥接子模块 `contrib/store-gorm/`；契约 `bconf/proto/bald/store/v1/store.proto`（生成至 `bconf/gen/go/bald/store/v1`）；消费方 `pkg/crudbridge/data_scope.go`、`_example/bald/user/`
 >
 > Status: Accepted（核心契约 + inmemory 实现已落地；桥接子模块 GORM / MongoDB 已落地；本文为 `pkg/store` 模块的现状设计文档）

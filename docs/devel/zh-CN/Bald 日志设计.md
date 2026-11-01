@@ -2,8 +2,6 @@
 
 > Author(s): bald 团队
 >
-> Last updated: 2026-10-30
->
 > Discussion at: 源码 `log/`、`log/bslog/`、`log/*/contract/`
 >
 > Status: Accepted（已实现）
