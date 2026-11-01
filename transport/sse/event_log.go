@@ -37,6 +37,16 @@ func (e *EventLog) Since(eventID string) []*Event {
 	return out
 }
 
+// TruncatedBefore reports whether events newer than eventID may have been
+// trimmed from the log, i.e. the client's Last-Event-ID predates the retained
+// window. eventID 为空表示从头回放，不算截断。
+func (e *EventLog) TruncatedBefore(eventID string) bool {
+	if eventID == "" || len(*e) == 0 {
+		return false
+	}
+	return string((*e)[0].ID) > eventID
+}
+
 // Replay sends all events with ID >= subscriber's last event ID to the subscriber.
 //
 // 投递是阻塞的，仅供直接调用；服务器事件循环改用 [Since] + 非阻塞投递，

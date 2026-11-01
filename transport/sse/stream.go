@@ -1,6 +1,7 @@
 package sse
 
 import (
+	"log"
 	"net/http"
 	"net/url"
 	"sync"
@@ -111,6 +112,7 @@ func (s *Stream) dispatch(event *Event) {
 			i++
 			continue
 		}
+		log.Printf("[sse] stream %q: disconnect slow subscriber (send buffer full)", s.id)
 		s.removeSubscriber(i)
 		if s.onUnsubscribe != nil {
 			go s.onUnsubscribe(s.id, sub)
@@ -121,10 +123,15 @@ func (s *Stream) dispatch(event *Event) {
 // replay 按 Last-Event-ID 回放历史事件；缓冲写满时同样按慢客户端断开处理，
 // 避免回放期间卡住事件循环。
 func (s *Stream) replay(sub *Subscriber) {
+	if s.eventLog.TruncatedBefore(sub.eventId) {
+		log.Printf("[sse] stream %q: replay gap, Last-Event-ID %q predates retained events (oldest %q)",
+			s.id, sub.eventId, string(s.eventLog[0].ID))
+	}
 	for _, ev := range s.eventLog.Since(sub.eventId) {
 		if s.trySend(sub, ev) {
 			continue
 		}
+		log.Printf("[sse] stream %q: disconnect slow subscriber during replay (send buffer full)", s.id)
 		if i := s.getSubIndex(sub); i != -1 {
 			s.removeSubscriber(i)
 		}

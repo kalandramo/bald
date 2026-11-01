@@ -93,6 +93,15 @@ func main() {
 | `WithCORSAllowOrigin(origin)` | CORS 允许来源     | `*`       |
 | `WithMiddleware(mw...)`       | HTTP 中间件      | -         |
 
+## 回放窗口与慢客户端
+
+回放日志按流保留最近 `WithEventLogSize(n)` 条（默认 1024）。客户端携带的 `Last-Event-ID`
+早于窗口起点时，只能拿到窗口内的事件，服务端会打印一条 `replay gap` 日志，便于从日志侧
+确认客户端可能丢失的事件区间；需要更长回溯时调大 `WithEventLogSize`。
+
+慢客户端（发送缓冲写满）会被移出并断开，期间其他订阅者不受影响；服务端会打印
+`disconnect slow subscriber` 日志。客户端按 `Last-Event-ID` 重连即可回到窗口内继续接收。
+
 ## 流管理
 
 ```go
