@@ -156,12 +156,19 @@ func findUnknown(md protoreflect.MessageDescriptor, m map[string]any, path strin
 // 因此若某字段的默认值是非零值（如 http.addr 默认 ":8080"），配置里显式写
 // 空字符串并不会覆盖它——这是 proto3 的固有行为，不是本函数的缺陷。确实需要
 // 三态语义时，请在 proto 中用 optional 关键字启用 field presence。
+//
+// 不修改入参：类型规范化会改名（snake_case → JSON name）、搬移折叠键，
+// 若直接作用于调用方的 map，热更新回调里对同一快照的多次反序列化
+// （契约 + 业务各一次）会互相破坏。故先深拷贝再规范化。
 func UnmarshalMap(m map[string]any, msg proto.Message) error {
 	if msg == nil {
 		return fmt.Errorf("bconf: proto message is nil")
 	}
 
-	settings := m
+	settings, _ := cloneTree(m).(map[string]any)
+	if settings == nil {
+		settings = map[string]any{}
+	}
 
 	// 关键：先按 msg 的字段描述符做类型规范化，再交给 protojson。
 	// 原因是 env（AutomaticEnv）与 flag（pflag 的 *Var 系列）的值在 viper 里
@@ -196,6 +203,27 @@ func UnmarshalMap(m map[string]any, msg proto.Message) error {
 
 	proto.Merge(msg, parsed)
 	return nil
+}
+
+// cloneTree 深拷贝配置树中会被规范化改写的容器（map / slice）。
+// 标量按值返回：coerce 只替换键值，不会原地修改标量。
+func cloneTree(v any) any {
+	switch x := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(x))
+		for k, vv := range x {
+			out[k] = cloneTree(vv)
+		}
+		return out
+	case []any:
+		out := make([]any, len(x))
+		for i, vv := range x {
+			out[i] = cloneTree(vv)
+		}
+		return out
+	default:
+		return v
+	}
 }
 
 // clearPresentLists 对 src 中显式出现（长度 > 0）的 repeated 与 map 字段，

@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -213,6 +214,53 @@ func TestStore_Close_StopsWatch(t *testing.T) {
 	// Close 幂等。
 	if err := s.Close(); err != nil {
 		t.Fatalf("second Close: %v", err)
+	}
+}
+
+// TestLoad_Layers_OnChangeSerialized：多个层并发推送时，OnChange 不得重入。
+// 回调里通常要重建契约、换 Logger、重算计划——并发执行会互相覆盖。
+func TestLoad_Layers_OnChangeSerialized(t *testing.T) {
+	first := newStubLayerReader("a: 1")
+	second := newStubLayerReader("b: 2")
+
+	var active, maxActive int32
+	done := make(chan struct{}, 4)
+
+	s, err := Load(Options{
+		Name: "serial",
+		Layers: []Layer{
+			{Name: "first", Reader: first, Watch: true},
+			{Name: "second", Reader: second, Watch: true},
+		},
+		OnChange: func(map[string]any) {
+			n := atomic.AddInt32(&active, 1)
+			for {
+				cur := atomic.LoadInt32(&maxActive)
+				if n <= cur || atomic.CompareAndSwapInt32(&maxActive, cur, n) {
+					break
+				}
+			}
+			time.Sleep(20 * time.Millisecond)
+			atomic.AddInt32(&active, -1)
+			done <- struct{}{}
+		},
+	})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	defer s.Close()
+
+	first.push("a: 2")
+	second.push("b: 3")
+	for i := 0; i < 2; i++ {
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+			t.Fatal("timeout waiting for OnChange")
+		}
+	}
+	if got := atomic.LoadInt32(&maxActive); got != 1 {
+		t.Fatalf("OnChange ran concurrently (max %d), want serialized", got)
 	}
 }
 

@@ -140,7 +140,11 @@ type Store struct {
 	envM   map[string]any // env 层缓存
 	flagM  map[string]any // flag 层缓存（flag 层静态：进程运行期不变）
 
-	onChange    func(map[string]any)
+	onChange func(map[string]any)
+	// notifyMu 串行化「重合并 → 快照 → OnChange」：多个层的 watch goroutine
+	// 并发触发时，回调里的状态修改（契约、Logger、计划）必须一次只发生一个，
+	// 且发布顺序与合并顺序一致。
+	notifyMu    sync.Mutex
 	watchCancel context.CancelFunc // 取消所有层 watcher（Close 调用）
 	watchWG     sync.WaitGroup     // 转发 goroutine 生命周期
 	selfClosers []io.Closer        // Store 自建源（本地文件 watch 源），Close 释放
@@ -364,6 +368,9 @@ func (s *Store) setupWatch(opts Options) error {
 			// 解析失败（如编辑中途半写状态）：保留旧层缓存，仍通知以便观测。
 			apply := func(data []byte) {
 				m, derr := decodeDocument(data, layerFormat(ls))
+				s.notifyMu.Lock()
+				defer s.notifyMu.Unlock()
+
 				s.mu.Lock()
 				if derr == nil {
 					ls.m = m // 解析成功：更新该层缓存（其余层覆盖保留——重合并叠加）
