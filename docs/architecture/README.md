@@ -10,6 +10,7 @@
 | `flows.md` | 请求/消息/生命周期/发现/缓存/可观测/WebRTC 怎么流；哪些真接线 | 现状，引用已逐条核对 |
 | `flows.dot` | 上述三条主流程的图源 | **已渲染**：`dot -Tsvg` 退出码 0、stderr 为空（40 节点 / 39 边） |
 | `risk-review.md` | 哪里有风险、严重度、消解条件、动手顺序 | 含自评局限一节（§9） |
+| `render/*.svg` | 上面两份 `.dot` 与 `.dsl` 三张视图的渲染快照 | 由 graphviz 16.1.0 生成，改源后需重跑（见「校验工具与命令」） |
 
 > 「引用已逐条核对」= 用脚本把制品里的每个 `路径:行号` 抽出来（行内省略文件名的简写按就近文件解析），逐条打开源文件回读该行内容并人工比对叙述；不是抽样。本轮结果：**308 条唯一 `文件:行号`（其中 78 条由简写解析得到），0 条无法解析、0 条越界**。
 >
@@ -24,9 +25,9 @@
 python3 docs/architecture/tools/check_cites.py            # 末尾打印 checked/problems
 # 2) DOT 结构自检（括号配平、边两端均已声明）
 python3 docs/architecture/tools/check_dot.py docs/architecture/module-deps.dot docs/architecture/flows.dot
-# 3) 真实渲染（需 graphviz）
-dot -Tsvg docs/architecture/module-deps.dot -o /tmp/module-deps.svg
-dot -Tsvg docs/architecture/flows.dot -o /tmp/flows.svg
+# 3) 真实渲染（需 graphviz），产物入库到 render/
+dot -Tsvg docs/architecture/module-deps.dot -o docs/architecture/render/module-deps.svg
+dot -Tsvg docs/architecture/flows.dot -o docs/architecture/render/flows.svg
 # 4) C4 DSL 解析 + 视图导出（需 JDK 21 + Maven；structurizr-cli 不在 Maven Central，故用官方库）
 mvn -f docs/architecture/tools/dsl-validate/pom.xml \
     org.apache.maven.plugins:maven-dependency-plugin:3.7.1:copy-dependencies -DoutputDirectory=libs
@@ -34,8 +35,12 @@ javac -cp "docs/architecture/tools/dsl-validate/libs/*" -d /tmp/dslclasses \
     docs/architecture/tools/dsl-validate/Validate.java
 java -cp "/tmp/dslclasses:docs/architecture/tools/dsl-validate/libs/*" Validate \
     docs/architecture/bald-c4.dsl /tmp/c4out   # 打印 PARSE OK / 视图清单 / VALIDATION: n problems
-for f in /tmp/c4out/*.dot; do dot -Tsvg "$f" -o "$f.svg"; done   # 导出物再渲染一遍
+dot -Tsvg /tmp/c4out/landscape.dot -o docs/architecture/render/c4-landscape.svg
+dot -Tsvg /tmp/c4out/services_view.dot -o docs/architecture/render/c4-services_view.svg
+dot -Tsvg /tmp/c4out/modules_view.dot -o docs/architecture/render/c4-modules_view.svg
 ```
+
+`render/` 是上面这些命令的渲染快照（5 张矢量 SVG），入库是为了不装 graphviz 也能看图；改了 `.dot` / `.dsl` 之后请重跑 3)、4) 一并更新，否则快照会与源不一致。
 
 本轮实测环境：graphviz 16.1.0、Temurin JDK 21.0.13+9、Maven 3.9.16、`structurizr-dsl`/`structurizr-export` 6.2.4。
 
