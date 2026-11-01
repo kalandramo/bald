@@ -33,9 +33,13 @@
 package bundle
 
 import (
+	"context"
+	"errors"
+
 	"github.com/gin-gonic/gin"
 	"google.golang.org/grpc"
 
+	"github.com/kalandramo/bald/log"
 	"github.com/kalandramo/bald/pkg/audit"
 	"github.com/kalandramo/bald/pkg/authn"
 	"github.com/kalandramo/bald/pkg/authz"
@@ -55,6 +59,10 @@ type Bundle struct {
 	// DefaultHTTPAction，gRPC 侧接 authz.DefaultGRPCObject/DefaultGRPCAction，
 	// 使 REST 与 gRPC 在同一份 RBAC 策略/审计语义下工作。
 	normalized bool
+
+	// public 显式声明「有意不做认证」（见 Public）。与 authenticator==nil 一起
+	// 决定认证姿态：两者都没给 = 未决定的公开服务，[Bundle.Verify] 报错。
+	public bool
 
 	// gin 专属（gRPC 无对应语义）。
 	corsCfg *ginmw.CORSConfig
@@ -99,6 +107,13 @@ func Metrics(r metrics.Recorder) Option { return func(b *Bundle) { b.recorder = 
 // 归一化默认开启（核心收益——根治 REST/gRPC 双命名空间 RBAC——不应
 // 依赖调用方记得 opt-in），本 Option 保留为显式声明（幂等）。
 func Normalized() Option { return func(b *Bundle) { b.normalized = true } }
+
+// Public 声明「本服务有意不做认证」。
+//
+// 为什么需要它：未注入 Authn 时链里就没有认证层（零开销设计的代价），
+// 「忘了配」与「有意公开」在链上完全同形，出一个无认证服务器不需要任何
+// 决定。声明 Public 把后者变成显式表态，Verify 也因此能区分两者（见 [Bundle.Verify]）。
+func Public() Option { return func(b *Bundle) { b.public = true } }
 
 // Raw 关闭归一化，回到原始语义（HTTP object=path、gRPC object=FullMethod），
 // 供依赖该语义的存量部署 opt-out（配套）。
@@ -155,6 +170,10 @@ func NoLogging() Option { return func(b *Bundle) { b.logging = false } }
 
 // New 构造 Bundle。归一化默认开启——REST/gRPC 共用同一份 RBAC 语义是
 // 默认正确行为；需旧原始语义时显式 Raw() opt-out。
+//
+// 认证姿态不在这里 fail-fast：链是构造期产物、也是零开销省略的载体，构造即
+// panic 会让「先起链、再决定」的用法无处安放。姿态由 [Bundle.Verify] 判定，
+// [Bundle.Gin]/[Bundle.GRPCInterceptors] 在产出链时对未决定的姿态告警一次。
 func New(opts ...Option) *Bundle {
 	b := &Bundle{logging: true, normalized: true}
 	for _, o := range opts {
@@ -163,12 +182,43 @@ func New(opts ...Option) *Bundle {
 	return b
 }
 
+// errUndeclaredAuthn 是「认证姿态未决定」的错误（风险 6.1）。
+//
+// 用 errors.New 而非 berrors：这是给接手者的接线错误，不面向最终用户，也不经
+// 传输收口；berrors.Error 的 Error() 刻意不含文案（见 berrors/errors.go），
+// 而这里要的正是日志与返回值里都能读出两条出路。
+var errUndeclaredAuthn = errors.New("bundle: AUTHN_UNDECLARED —— 未注入 Authn 也未声明 Public：" +
+	"链中无认证层，服务等同公开。要么 bundle.Authn(<authenticator>) 接认证，" +
+	"要么 bundle.Public() 显式声明有意公开")
+
+// Verify 检查认证姿态是否已被决定：注入了 Authn（有认证层）或显式声明了
+// Public（有意公开）二者之一。两者都没给 → 返回错误——此时链里静默地没有
+// 认证层，等于一个无认证服务器。
+//
+// 调用点：业务在 main/装配期调它并 fail-fast（推荐），或交给 Gin/
+// GRPCInterceptors 产出链时告警（见 warnIfUndeclaredAuthn）。
+func (b *Bundle) Verify() error {
+	if b.authenticator != nil || b.public {
+		return nil
+	}
+	return errUndeclaredAuthn
+}
+
+// warnIfUndeclaredAuthn 在产出链时对未决定的认证姿态告警一次。
+func (b *Bundle) warnIfUndeclaredAuthn() {
+	if err := b.Verify(); err != nil {
+		log.Warn(context.Background(), err.Error())
+	}
+}
+
 // Gin 返回链序固化的 gin 中间件链（外→内）：
 //
 //	Recovery → RequestID → Logging → CORS → Secure → Authn → Audit → Authz
 //
-// 未注入的依赖对应层直接省略（零开销），如未设 Authn 则链中无认证层。
+// 未注入的依赖对应层直接省略（零开销），如未设 Authn 则链中无认证层——但
+// 前提是该姿态已被决定（Authn 或 Public，见 [Bundle.Verify]），否则这里先告警。
 func (b *Bundle) Gin() []gin.HandlerFunc {
+	b.warnIfUndeclaredAuthn()
 	// 契约段的 chain 位置（外→内）：
 	//   Recovery → RequestID → Tracing → Logging → CORS → Secure → Authn → Audit
 	//   → Authz → RateLimit → Timeout
@@ -221,7 +271,10 @@ func (b *Bundle) Gin() []gin.HandlerFunc {
 // 需自行组装 *grpc.Server 时用：
 //
 //	grpc.NewServer(grpc.ChainUnaryInterceptor(b.GRPCInterceptors()...))
+//
+// 与 Gin 一样：认证姿态未决定（既无 Authn 也未 Public）时先告警再出链。
 func (b *Bundle) GRPCInterceptors() []grpc.UnaryServerInterceptor {
+	b.warnIfUndeclaredAuthn()
 	chain := []grpc.UnaryServerInterceptor{grpcmw.ErrorInterceptor()} // 必须最外层
 	chain = append(chain, grpcmw.RecoveryInterceptor())               // 第二外层：panic 兜底
 	chain = append(chain, grpcmw.RequestIDInterceptor())

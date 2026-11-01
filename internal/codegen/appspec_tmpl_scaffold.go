@@ -71,7 +71,13 @@ func NewRouter() *gin.Engine {
 	// 横切关注点链：bundle 一次构造、HTTP 产出中间件链，链序由框架固化。
 	// 业务依赖（Authn/Authz/Audit/Metrics）经 bundle.New 选项注入，
 	// 未注入的层自动省略（零开销）。
+	//
+	// 认证姿态必须显式决定：要么注入 bundle.Authn(...)，要么保留下面的
+	// bundle.Public()（= 本服务有意公开、链中无认证层）。两者都不给时
+	// bundle.Verify() 报错、出链时告警——「忘了配认证」不该静默变成
+	// 一个无认证服务器。
 	router.Use(bundle.New(
+		bundle.Public(), // TODO: 接入认证后删除本行，改为 bundle.Authn(<authenticator>)
 {{- if and .Spec.Bundle .Spec.Bundle.Normalized}}
 		bundle.Normalized(), // 归一化：审计 object/action 双传输同源
 {{- end}}
