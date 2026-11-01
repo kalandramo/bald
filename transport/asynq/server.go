@@ -681,9 +681,19 @@ func (s *Server) NewTask(typeName string, msg any, opts ...asynq.Option) error {
 }
 
 // NewWaitResultTask 将一个新任务入队，并等待结果。
+// 等待窗口固定为 5 分钟；需要响应取消/超时时用 [Server.NewWaitResultTaskWithContext]。
 func (s *Server) NewWaitResultTask(typeName string, msg any, opts ...asynq.Option) error {
+	return s.NewWaitResultTaskWithContext(context.Background(), typeName, msg, opts...)
+}
+
+// NewWaitResultTaskWithContext 将一个新任务入队，并等待结果。
+// 等待期间响应 ctx 取消或超时：ctx 先于任务完成结束则立即返回 ctx 的错误。
+func (s *Server) NewWaitResultTaskWithContext(ctx context.Context, typeName string, msg any, opts ...asynq.Option) error {
 	if typeName == "" {
 		return errors.New("typeName cannot be empty")
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("[%s] wait result canceled: %w", typeName, err)
 	}
 
 	if s.client == nil {
@@ -713,7 +723,7 @@ func (s *Server) NewWaitResultTask(typeName string, msg any, opts ...asynq.Optio
 		}
 	}
 
-	if _, err = waitResult(s.inspector, taskInfo); err != nil {
+	if _, err = waitResult(ctx, s.inspector, taskInfo); err != nil {
 		return fmt.Errorf("[%s] wait result failed: %w", typeName, err)
 	}
 
@@ -910,8 +920,10 @@ const (
 	defaultWaitResultTimeout      = 5 * time.Minute
 )
 
-func waitResult(intor *asynq.Inspector, info *asynq.TaskInfo) (*asynq.TaskInfo, error) {
-	deadline := time.Now().Add(defaultWaitResultTimeout)
+// waitResult 轮询任务状态直到完成、进入终态、ctx 结束或达到等待上限。
+func waitResult(ctx context.Context, intor *asynq.Inspector, info *asynq.TaskInfo) (*asynq.TaskInfo, error) {
+	deadline := time.NewTimer(defaultWaitResultTimeout)
+	defer deadline.Stop()
 
 	for {
 		taskInfo, err := intor.GetTaskInfo(info.Queue, info.ID)
@@ -928,11 +940,16 @@ func waitResult(intor *asynq.Inspector, info *asynq.TaskInfo) (*asynq.TaskInfo, 
 			return nil, fmt.Errorf("task state is %s", taskInfo.State.String())
 		}
 
-		if time.Now().After(deadline) {
+		poll := time.NewTimer(defaultWaitResultPollInterval)
+		select {
+		case <-ctx.Done():
+			poll.Stop()
+			return nil, ctx.Err()
+		case <-deadline.C:
+			poll.Stop()
 			return nil, fmt.Errorf("wait result timed out after %v (task state: %s)",
 				defaultWaitResultTimeout, taskInfo.State.String())
+		case <-poll.C:
 		}
-
-		time.Sleep(defaultWaitResultPollInterval)
 	}
 }

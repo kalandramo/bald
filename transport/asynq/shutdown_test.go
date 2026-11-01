@@ -2,6 +2,7 @@ package asynq
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -143,5 +144,23 @@ func TestRestartAfterStopIsRejected(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("restart Start hung instead of returning an error")
+	}
+}
+
+// TestNewWaitResultTaskWithCanceledContext 锁定：ctx 已取消时等待立即返回，
+// 不会先触达 Redis 或进入 5 分钟轮询。
+func TestNewWaitResultTaskWithCanceledContext(t *testing.T) {
+	srv := newIdleServer()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	start := time.Now()
+	err := srv.NewWaitResultTaskWithContext(ctx, "test_task", nil)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context.Canceled", err)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("canceled wait took %v", elapsed)
 	}
 }

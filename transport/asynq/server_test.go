@@ -288,3 +288,31 @@ func TestWaitResultTask(t *testing.T) {
 	)
 	require.NoError(t, err)
 }
+
+func TestWaitResultTaskCancellation(t *testing.T) {
+	queue := testQueue("waitcancel")
+	srv := newTestServer(t, queue)
+
+	release := make(chan struct{})
+	require.NoError(t, RegisterSubscriber(srv, testTask1, func(string, *TaskPayload) error {
+		<-release
+		return nil
+	}))
+	startTestServer(t, srv)
+	// 先于服务器停机关闭，避免优雅停机等待被阻塞的处理器。
+	t.Cleanup(func() { close(release) })
+
+	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	err := srv.NewWaitResultTaskWithContext(ctx, testTask1,
+		&TaskPayload{Message: "blocked task"},
+		asynq.Queue(queue),
+		asynq.Timeout(time.Minute),
+	)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	if elapsed := time.Since(start); elapsed > 3*time.Second {
+		t.Fatalf("canceled wait took %v, expected it to honor the ctx deadline", elapsed)
+	}
+}

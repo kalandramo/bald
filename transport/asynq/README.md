@@ -8,7 +8,7 @@
 - **类型化处理器**：基于任务类型（task type）的分发，支持泛型自动反序列化
 - **定时任务**：内置 cron 调度器，动态注册/移除定时任务
 - **任务重试**：失败自动重试，可自定义重试延迟策略
-- **结果等待**：`NewWaitResultTask` 同步等待任务执行完成
+- **结果等待**：`NewWaitResultTask` / `NewWaitResultTaskWithContext` 同步等待任务执行完成
 - **Redis 多模式**：单节点、Cluster、Sentinel 三种部署模式
 - **组件可开关**：Server / Client / Scheduler 可独立启用/禁用
 - **自定义编解码**：基于 `encoding.Codec` 支持 JSON / Proto / MsgPack 等
@@ -219,6 +219,11 @@ srv.NewTask("email:send", payload,
 ```go
 // 入队并同步等待任务完成（轮询模式，最长等待 5 分钟）
 err := srv.NewWaitResultTask("email:send", payload)
+
+// 需要响应请求取消/超时：ctx 先结束则立即返回 ctx 的错误
+ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+defer cancel()
+err = srv.NewWaitResultTaskWithContext(ctx, "email:send", payload)
 ```
 
 ## 定时任务管理
