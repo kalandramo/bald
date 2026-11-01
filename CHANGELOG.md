@@ -4,6 +4,29 @@
 条目取自该版本区间内的提交标题（Conventional Commits），不要手工调整顺序。
 发布流程见 [多模块发布与变更日志](docs/devel/zh-CN/多模块发布与变更日志.md)。
 
+
+## 2026-11-01
+
+### bald v0.33.0
+
+- `bf1f8674` feat: P1 消费侧复用能力落地
+
+### bconf v0.15.0
+
+- `bf1f8674` feat: P1 消费侧复用能力落地
+
+### cache/redis v0.4.0
+
+- `bf1f8674` feat: P1 消费侧复用能力落地
+
+### contrib/config-nacos v0.1.0
+
+- `bf1f8674` feat: P1 消费侧复用能力落地
+
+### contrib/observability-otlp v0.4.0
+
+- `bf1f8674` feat: P1 消费侧复用能力落地
+
 ## 2026-10-31
 
 ### bald v0.32.0

@@ -8,8 +8,8 @@ require (
 	github.com/gin-gonic/gin v1.12.0
 	github.com/go-kratos/kratos/v3/contrib/config/nacos/v3 v3.0.0-00010101000000-000000000000
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.29.0
-	github.com/kalandramo/bald v0.32.0
-	github.com/kalandramo/bald/bconf v0.14.0
+	github.com/kalandramo/bald v0.33.0
+	github.com/kalandramo/bald/bconf v0.15.0
 	github.com/kalandramo/bald/berrors v0.1.1
 	github.com/kalandramo/bald/bootstrap v0.13.2
 	github.com/kalandramo/bald/contrib/store-gorm v0.0.0-00010101000000-000000000000
