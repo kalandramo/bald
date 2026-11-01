@@ -9,7 +9,7 @@ import (
 )
 
 // Sync 把计划内模块 go.mod 中对其他待发模块的 require 升到下一版本，
-// 并同步消费者模块（_example 与 examples）对计划内模块的 require。
+// 并同步不进本轮发布的其他模块（消费者与未发版模块）对计划内模块的 require。
 //
 // 为什么必须做：模块 A 的源码若用到了同批发布的 B 的新 API，A 在 tag 上的
 // go.mod 仍写着 B 的旧版本，下游 `go get A@新版本` 会按旧 B 编译而失败。

@@ -296,10 +296,21 @@ func TestDiscover_ExamplesAreNotReleasable(t *testing.T) {
 	}
 }
 
-// TestBuildPlan_ConsumerRequiresAndSync 验证 _example 消费者：自身不发版、
-// 改动不泄漏到外层模块，但其 go.mod 对同批发布模块的 require 会随 sync 归位。
+// TestBuildPlan_ConsumerRequiresAndSync 验证不进本轮发布的两个场景：
+// _example 消费者（自身不发版、改动不泄漏到外层模块）与无发版提交的可发布
+// 模块——二者的 go.mod 对同批发布模块的 require 都会随 sync 归位。
 func TestBuildPlan_ConsumerRequiresAndSync(t *testing.T) {
 	root := newRepo(t)
+	writeFile(t, root, "lib/go.mod", `module example.com/m/lib
+
+go 1.22
+
+require example.com/m v0.1.0
+`)
+	writeFile(t, root, "lib/lib.go", "package lib\n")
+	commit(t, root, "chore: add lib", "") // chore 不触发发版
+	runGit(t, root, "tag", "lib/v0.1.0")
+
 	writeFile(t, root, "_example/demo/go.mod", `module example.com/m/example/demo
 
 go 1.22
@@ -344,11 +355,11 @@ replace example.com/m/sub => ../../sub
 		t.Errorf("root commits = %v, want only root fix (consumer files must not leak)", got)
 	}
 
-	if len(plan.Consumers) != 1 {
-		t.Fatalf("consumers = %+v, want one consumer module", plan.Consumers)
+	if len(plan.Consumers) != 2 {
+		t.Fatalf("consumers = %+v, want _example/demo + lib", plan.Consumers)
 	}
-	consumer := plan.Consumers[0]
-	if consumer.Dir != "_example/demo" || consumer.Module != "example.com/m/example/demo" {
+	consumer := consumerByDir(t, plan, "_example/demo")
+	if consumer.Module != "example.com/m/example/demo" {
 		t.Errorf("consumer = %+v", consumer)
 	}
 	want := []RequireUpdate{
@@ -364,6 +375,12 @@ replace example.com/m/sub => ../../sub
 		}
 	}
 
+	// lib 可发布但本轮无发版提交：不进 Changes，仍需跟随归位。
+	if got := consumerByDir(t, plan, "lib"); len(got.Requires) != 1 ||
+		got.Requires[0] != (RequireUpdate{Module: "example.com/m", From: "v0.1.0", To: "v0.1.1"}) {
+		t.Errorf("lib requires = %+v, want root bump only", got.Requires)
+	}
+
 	var out bytes.Buffer
 	if err := Sync(root, plan, true, &out); err != nil {
 		t.Fatalf("sync: %v", err)
@@ -374,6 +391,21 @@ replace example.com/m/sub => ../../sub
 			t.Errorf("consumer go.mod missing %q:\n%s", s, data)
 		}
 	}
+	if data := readFile(t, root, "lib/go.mod"); !strings.Contains(data, "example.com/m v0.1.1") {
+		t.Errorf("unreleased module go.mod not synced:\n%s", data)
+	}
+}
+
+// consumerByDir 在计划的消费者/未发版模块里按目录查找。
+func consumerByDir(t *testing.T, plan *Plan, dir string) ConsumerUpdate {
+	t.Helper()
+	for _, c := range plan.Consumers {
+		if c.Dir == dir {
+			return c
+		}
+	}
+	t.Fatalf("no consumer entry for dir %q in %+v", dir, plan.Consumers)
+	return ConsumerUpdate{}
 }
 
 func TestPlanFileRoundTrip(t *testing.T) {

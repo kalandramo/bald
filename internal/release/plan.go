@@ -54,8 +54,9 @@ type RequireUpdate struct {
 	To     string `json:"to"`
 }
 
-// ConsumerUpdate 是不发版、但需要随本轮发布归位内部依赖的模块
-// （_example 与 examples 下的消费者/演示程序）。
+// ConsumerUpdate 是不进本轮 Changes、但需要随本轮发布归位内部依赖的模块：
+// 消费者/演示程序（_example 与 examples），以及本次没有会触发发版提交的
+// 可发布模块——它们的 go.mod 也要跟上新版本，否则 tidy 闸门报漂移。
 type ConsumerUpdate struct {
 	Module   string          `json:"module"`
 	Dir      string          `json:"dir"`
@@ -366,12 +367,14 @@ func (r *Repo) requireUpdatesFor(dir, modulePath string, byPath map[string]*Chan
 	return updates, nil
 }
 
-// consumerUpdates 列出不发版但需要跟随本轮发布归位的消费者模块。
-// 消费者没有自己的 tag，因此不进 Changes；只同步它们对计划内模块的 require。
+// consumerUpdates 列出不进本轮 Changes、但需要跟随归位的模块：消费者
+// （_example / examples，无 tag）与本次不发布的可发布模块。后者同样要归位
+// 对计划内模块的 require，否则其 go.mod 会停在旧版本、CI 的
+// `go mod tidy -diff` 闸门报漂移。
 func (r *Repo) consumerUpdates(byPath map[string]*Change) ([]ConsumerUpdate, error) {
 	var consumers []ConsumerUpdate
 	for _, m := range r.Modules {
-		if m.Releasable {
+		if _, releasing := byPath[m.Path]; releasing {
 			continue
 		}
 		updates, err := r.requireUpdatesFor(m.Dir, m.Path, byPath)
@@ -461,7 +464,7 @@ func PrintPlan(w io.Writer, plan *Plan, root string) error {
 	for _, c := range plan.Consumers {
 		for _, u := range c.Requires {
 			if !anyConsumers {
-				_, _ = fmt.Fprintln(w, "\n消费者归位（bald release sync --write）：")
+				_, _ = fmt.Fprintln(w, "\n消费者与非发版模块归位（bald release sync --write）：")
 				anyConsumers = true
 			}
 			_, _ = fmt.Fprintf(w, "  %s: require %s %s -> %s\n", goModPath(c.Dir), u.Module, u.From, u.To)
