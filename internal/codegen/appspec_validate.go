@@ -52,6 +52,31 @@ var variantTagRe = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.]*$`)
 // 约定一致；独立端口拓扑直接声明 bootstrap.server.gateway）。
 const gatewayDriver = "grpc-gateway"
 
+// domainServices 返回域声明的有效 gRPC service 全名：services[] 优先，退化为
+// 单数 service；http_only 域与未声明任何 service 的域返回 nil。声明形态的
+// 合法性由 Gate1 保证（三态互斥），生成器只按此口径消费。
+func domainServices(d *appspecv1.DomainSpec) []string {
+	if d.GetHttpOnly() {
+		return nil
+	}
+	if ss := d.GetServices(); len(ss) > 0 {
+		return ss
+	}
+	if s := d.GetService(); s != "" {
+		return []string{s}
+	}
+	return nil
+}
+
+// serviceShortName 返回 service 全名的最后一段（greet.v1.GreetService →
+// GreetService）：绑定的 Go 接口按它命名。
+func serviceShortName(full string) string {
+	if i := strings.LastIndexByte(full, '.'); i >= 0 {
+		return full[i+1:]
+	}
+	return full
+}
+
 // validateAppSpec 校验 AppSpec 声明（Gate1），返回全部违例（聚合报错，
 // 每条含字段路径与非法值）。在 contractBootstrap 之前调用。
 func validateAppSpec(as *appspecv1.AppSpec) []error {
@@ -95,7 +120,7 @@ func validateAppSpec(as *appspecv1.AppSpec) []error {
 		}
 	}
 
-	// ---- domains：name 非空且唯一 + go_package 必填 + import 别名不冲突 ----
+	// ---- domains：name 非空且唯一 + 声明形态三选一 + go_package 必填 + 别名不冲突 ----
 	seenDomain := map[string]int{}
 	seenAlias := map[string]int{}
 	for i, d := range as.GetDomains() {
@@ -107,6 +132,47 @@ func validateAppSpec(as *appspecv1.AppSpec) []error {
 			add("domains[%d].name %q duplicates domains[%d].name (field domains.name must be unique)", i, d.GetName(), prev)
 		} else {
 			seenDomain[d.GetName()] = i
+		}
+		// 声明形态三选一：service（单数）| services（复数）| http_only。
+		// http_only 没有 proto 契约可派生，因此不能同时声明 proto 字段；
+		// 非 http_only 域必须给出至少一个 service（否则 gen domain 无从派生）。
+		svcs := d.GetServices()
+		switch {
+		case d.GetHttpOnly():
+			if d.GetService() != "" || len(svcs) > 0 || d.GetProtoPackage() != "" {
+				add("domains[%d] (%s): http_only domains must not declare service, services or proto_package "+
+					"(a pure-HTTP domain has no proto contract to derive from)", i, d.GetName())
+			}
+		case d.GetService() != "" && len(svcs) > 0:
+			add("domains[%d] (%s): service and services are mutually exclusive "+
+				"(declare the singular service, the services list, or http_only)", i, d.GetName())
+		case d.GetService() == "" && len(svcs) == 0:
+			add("domains[%d] (%s): declare service or services, or set http_only for a domain without a proto service", i, d.GetName())
+		}
+		// services 逐项形状 + 域内唯一；短名也须唯一——绑定的 Go 接口按短名命名。
+		seenSvc := map[string]int{}
+		seenShort := map[string]string{}
+		for j, s := range svcs {
+			switch {
+			case strings.TrimSpace(s) == "":
+				add("domains[%d].services[%d] is empty", i, j)
+				continue
+			case strings.TrimSpace(s) != s:
+				add("domains[%d].services[%d] %q has surrounding whitespace", i, j, s)
+				continue
+			}
+			if prev, dup := seenSvc[s]; dup {
+				add("domains[%d].services[%d] %q duplicates domains[%d].services[%d]", i, j, s, i, prev)
+			} else {
+				seenSvc[s] = j
+			}
+			short := serviceShortName(s)
+			if prev, dup := seenShort[short]; dup {
+				add("domains[%d].services[%d] %q and %q share the short name %q (bindings name their Go interface after it; short names must be unique within a domain)",
+					i, j, prev, s, short)
+			} else {
+				seenShort[short] = s
+			}
 		}
 		if d.GetGoPackage() == "" {
 			add("domains[%d] (%s): go_package is required (the import path of the package exporting its appkit.Domain value)", i, d.GetName())
@@ -321,7 +387,11 @@ var fieldConsumers = map[string]string{
 	"bald.appspec.v1.AppSpec.domains.name":                  "greet",
 	"bald.appspec.v1.AppSpec.domains.proto_package":         "greet.v1",
 	"bald.appspec.v1.AppSpec.domains.service":               "greet.v1.GreetService",
+	"bald.appspec.v1.AppSpec.domains.services":              "greet.v1.GreetAdminService",
 	"bald.appspec.v1.AppSpec.domains.go_package":            "demo.example/app/internal/apiserver/greetv1",
+	// http_only 的消费是 seed 策略的显式跳过注释（负向分支也必须可从生成物
+	// 读到——否则「域没有策略行」会被误读为生成器漏接）。
+	"bald.appspec.v1.AppSpec.domains.http_only": "http_only domain",
 	// variants.gen.go 是 gofmt 后的 VariantDecl 字面量：name 的标记带上
 	// 字段名与对齐空格，避免与 when 的 `"grpcgw"` 标记混淆（两个字段
 	// 各留一个独立标记，任一字段漏接消费者都能单独报红）。build_tags 是

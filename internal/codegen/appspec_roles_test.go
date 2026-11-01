@@ -166,7 +166,9 @@ func TestMachineGuard_RoleFieldsConsumed(t *testing.T) {
 	// 变体字段的消费者只在声明了 variants 时落盘：追加一份带变体的渲染，
 	// 守卫才能核对 variants.* 的标记（角色夹具本身不声明变体，布局集合不变）。
 	_, vrendered := renderAppTree(t, variantFixture(fanoutFixture(t)))
-	if errs := checkFieldConsumers(rendered + vrendered); len(errs) != 0 {
+	// 域声明形态（services[] / http_only）同理：各追加一份带声明的渲染。
+	_, krendered := renderAppTree(t, domainKindsFixture(fanoutFixture(t)))
+	if errs := checkFieldConsumers(rendered + vrendered + krendered); len(errs) != 0 {
 		t.Fatalf("roles 的每个字段都必须有消费者，got:\n%s", joinErrs(errs))
 	}
 }

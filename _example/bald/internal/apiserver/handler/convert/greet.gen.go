@@ -2,7 +2,8 @@
 //
 // bald.v1.GreetService 的授权动作投影（gen domain 产物；规则与
 // pkg/authz.DefaultGRPCAction 同源——Delete→delete、List→list、
-// Create/Update/Set/Put→write、其余→get）。授权策略默认行
+// Create/Update/Set/Put→write、其余→get）。一个域聚合多个 service 时本表
+// 合并它们的逐 RPC 动作（FullMethod 键全局唯一）。授权策略默认行
 // （internal/bootstrap/seed/policies.go）与 authz/alias.gen.go 以此对账。
 package convert
 

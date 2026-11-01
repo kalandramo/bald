@@ -52,17 +52,19 @@ func StandardAuditProvider() Provider { return stdAuditProvider{} }
 //     MultiLogger 合并，出口包 FilterLogger）；非 slog 项 fail-fast
 //     教学报错；backends 为空 fail-fast。
 //
-// 需要装饰器或多后端时的自定义 logger Provider 自持装饰，经段路径末者胜
-// 整体覆盖本 Provider。
-func StandardLoggerProvider() Provider { return stdLoggerProvider{} }
+// deco 是装饰钩子（bslog.Option），在阶段 A 与阶段 B 的每个 slog 构造点统一
+// 应用——Attrs 脱敏（bslog.WithFilter）与固定结构化属性等关注点不必再复制
+// 整份分派逻辑。装饰只需替换默认 Provider：std.Standard() 后追传本构造器
+// 即可（Provider 即 Option，段路径末者胜）。
+func StandardLoggerProvider(deco ...bslog.Option) Provider { return stdLoggerProvider{deco: deco} }
 
 // stdLoggerProvider 消费 logger 段。
-type stdLoggerProvider struct{}
+type stdLoggerProvider struct{ deco []bslog.Option }
 
 func (stdLoggerProvider) Segments() []string { return []string{"logger"} }
 
 // Apply 把自身追加进声明（Provider 即 Option）。
-func (stdLoggerProvider) Apply(d *Decl) { d.Providers = append(d.Providers, stdLoggerProvider{}) }
+func (p stdLoggerProvider) Apply(d *Decl) { d.Providers = append(d.Providers, p) }
 
 // Plan 声明日志节点：阶段 B 引导位（PriorityLogger 先于其它阶段 B 资源）；
 // 停机 Effect 名 appkit:bootstrap-logger。
@@ -85,11 +87,11 @@ func (stdLoggerProvider) Plan(context.Context, PlanScope) ([]Node, error) {
 
 // Build 构造日志后端。产物为 log.Logger（引擎 loggerSource 协议消费；
 // cleanup 交 curCleanup 原子换槽——文件/轮转句柄的释放与热更重建不泄漏）。
-func (stdLoggerProvider) Build(_ context.Context, s ApplyScope, _ Node) (any, Cleanup, error) {
+func (p stdLoggerProvider) Build(_ context.Context, s ApplyScope, _ Node) (any, Cleanup, error) {
 	// l==nil：阶段 A（契约装载前）或契约无 logger 段——回退引导 bslog。
 	l := s.Config.GetLogger()
 	if l == nil {
-		return bslog.New(baldbootstrap.LogOptions(nil)), nil, nil
+		return bslog.New(baldbootstrap.LogOptions(nil), p.deco...), nil, nil
 	}
 	bs := l.GetBackends()
 	if len(bs) == 0 {
@@ -99,7 +101,7 @@ func (stdLoggerProvider) Build(_ context.Context, s ApplyScope, _ Node) (any, Cl
 	var cleanups []func()
 	for i, b := range bs {
 		if b.GetType() == "slog" {
-			lg, c := bslog.NewWithCleanup(baldbootstrap.LogOptions(b))
+			lg, c := bslog.NewWithCleanup(baldbootstrap.LogOptions(b), p.deco...)
 			loggers = append(loggers, lg)
 			cleanups = append(cleanups, c)
 			continue

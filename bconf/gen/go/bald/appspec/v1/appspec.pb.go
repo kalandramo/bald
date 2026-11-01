@@ -471,18 +471,31 @@ func (x *BundleSpec) GetNormalized() bool {
 }
 
 // DomainSpec 声明一个业务域（域清单进 AppSpec）。
+//
+// 域有三种声明形态，Gate1 强制三选一：
+//   - service（单数）：一个 proto gRPC service；
+//   - services（复数）：同一域聚合多个 proto gRPC service（与 service 互斥）；
+//   - http_only：无 proto service，REST 面由域包手写（与另两者互斥）。
 type DomainSpec struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// 域名（全应用唯一；域装配次序 = 声明序）。
 	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	// 域的 proto 包名（如 "greet.v1"）。
+	// 域的 proto 包名（如 "greet.v1"；http_only 域必须为空）。
 	ProtoPackage string `protobuf:"bytes,2,opt,name=proto_package,json=protoPackage,proto3" json:"proto_package,omitempty"`
 	// 域的 gRPC service 全名（如 "greet.v1.GreetService"；gen domain
-	// 校验其与实际 proto 匹配并派生路由/授权策略）。
+	// 校验其与实际 proto 匹配并派生路由/授权策略）。与 services 互斥。
 	Service string `protobuf:"bytes,3,opt,name=service,proto3" json:"service,omitempty"`
 	// 域声明值所在的 Go import 路径（该包须导出 appkit.Domain 值，
 	// 对照 _example/bald/domains.gen.go）。
-	GoPackage     string `protobuf:"bytes,5,opt,name=go_package,json=goPackage,proto3" json:"go_package,omitempty"`
+	GoPackage string `protobuf:"bytes,5,opt,name=go_package,json=goPackage,proto3" json:"go_package,omitempty"`
+	// 域的多个 gRPC service 全名（同一 proto 包或跨包均可）。非空时忽略
+	// service（二者互斥，Gate1 拒绝同给）；gen domain 为每个 service 派生
+	// 绑定/路由/授权动作，接口与绑定函数按 service 短名命名。
+	Services []string `protobuf:"bytes,6,rep,name=services,proto3" json:"services,omitempty"`
+	// 纯 HTTP 域：不声明任何 proto service（service/services/proto_package
+	// 必须为空），REST 面、授权与路由由域包的 appkit.Domain 自持——gen
+	// domain 跳过该域的全部 proto 派生产物，seed 策略也不为它生成行。
+	HttpOnly      bool `protobuf:"varint,7,opt,name=http_only,json=httpOnly,proto3" json:"http_only,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -543,6 +556,20 @@ func (x *DomainSpec) GetGoPackage() string {
 		return x.GoPackage
 	}
 	return ""
+}
+
+func (x *DomainSpec) GetServices() []string {
+	if x != nil {
+		return x.Services
+	}
+	return nil
+}
+
+func (x *DomainSpec) GetHttpOnly() bool {
+	if x != nil {
+		return x.HttpOnly
+	}
+	return false
 }
 
 // AppMeta 生成代码的标识信息。
@@ -1005,14 +1032,16 @@ const file_bald_appspec_v1_appspec_proto_rawDesc = "" +
 	"BundleSpec\x12\x1e\n" +
 	"\n" +
 	"normalized\x18\x01 \x01(\bR\n" +
-	"normalized\"\x8b\x01\n" +
+	"normalized\"\xc4\x01\n" +
 	"\n" +
 	"DomainSpec\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12#\n" +
 	"\rproto_package\x18\x02 \x01(\tR\fprotoPackage\x12\x18\n" +
 	"\aservice\x18\x03 \x01(\tR\aservice\x12\x1d\n" +
 	"\n" +
-	"go_package\x18\x05 \x01(\tR\tgoPackageJ\x04\b\x04\x10\x05R\x05model\"z\n" +
+	"go_package\x18\x05 \x01(\tR\tgoPackage\x12\x1a\n" +
+	"\bservices\x18\x06 \x03(\tR\bservices\x12\x1b\n" +
+	"\thttp_only\x18\a \x01(\bR\bhttpOnlyJ\x04\b\x04\x10\x05R\x05model\"z\n" +
 	"\aAppMeta\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x16\n" +
 	"\x06module\x18\x02 \x01(\tR\x06module\x12\x12\n" +

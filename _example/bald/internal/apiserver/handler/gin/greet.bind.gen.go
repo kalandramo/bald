@@ -2,13 +2,15 @@
 //
 // greet 域的 REST 绑定（默认生成）：路由、请求编解码、错误映射
 // 都从 proto 的 google.api.http 注解与 rpc 签名生成——注解是唯一真相源，改
-// proto 后重新生成，手写 REST handler 归零。前置条件（生成期校验）：
+// proto 后重新生成，手写 REST handler 归零。一个域可声明多个 service：
+// 每个 service 一份 Go 接口与 Bind 函数（接口名 = service 短名）。前置条件
+// （生成期校验）：
 //   - proto 的 Go 类型已由 proto 阶段产出（默认 --proto-cmd "buf generate"；
 //     本文件 import 其 go_package）；
 //   - 消费者 module 依赖 github.com/kalandramo/bald/transport/web。
 //
-// 本文件是 appkit.Domain.Routes 的生成替代：把 BindGreet(engine, impl)
-// 挂进装配即可；同时保留手写 Domain.Routes 会把同一路由注册两次。
+// 本文件是 appkit.Domain.Routes 的生成替代：把每个 Bind 函数挂进装配即可；
+// 同时保留手写 Domain.Routes 会把同一路由注册两次。
 // 计划可见的路由清单在同批生成的 github.com/kalandramo/bald/example/bald/internal/apiserver/routes（RouteTable: routes.Greet）。
 package gin
 
@@ -32,10 +34,6 @@ type GreetService interface {
 // BindGreet 把 bald.v1.GreetService 的 REST 面挂到 r 上：路径/查询/body 按
 // google.api.http 注解绑定（web.BindProtoRequest），响应按 protojson 编码
 // （web.WriteProtoResponse，与 grpc-gateway 同形）。
-//
-// 计划可见性：同批注解已派生为 github.com/kalandramo/bald/example/bald/internal/apiserver/routes 的清单，域声明值
-// 用 RouteTable: routes.Greet 引用（见该文件头注释）——挂载与清单
-// 同源，--plan/doctor 列出的就是这里注册的。
 func BindGreet(r gin.IRouter, svc GreetService) {
 	r.POST("/v1/greet", func(c *gin.Context) {
 		req := &baldv1.GreetRequest{}

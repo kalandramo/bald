@@ -268,6 +268,13 @@ src := config.FromKratosSource(nacosconfig.NewConfigSource(cli))
 appkit.MustServe(ctx, appkit.RemoteConfig(src), /* 其余 Option */)
 ```
 
+nacos 源也可走段驱动装配，免去手写桥接：`confignacos.AppProvider()` 消费契约
+`config.nacos` 段（`format` 透传、参与热更新），未配置该段时返回空层列表：
+
+```go
+appkit.MustServe(ctx, std.Standard(), confignacos.AppProvider(), /* 其余 Option */)
+```
+
 **② `ConfigLayers` 契约源层**：手里已有层列表（如经 bootstrap Registry 的 `Build` 从契约
 `config` 段产出）时显式传入：
 

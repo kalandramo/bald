@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/alicebob/miniredis/v2"
+	goredis "github.com/redis/go-redis/v9"
 
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
 
@@ -57,5 +58,52 @@ func TestAppProvider_ProductExposesNativeClient(t *testing.T) {
 	}
 	if err := rdb.Ping(ctx).Err(); err == nil || !strings.Contains(err.Error(), "closed") {
 		t.Fatalf("after cleanup Ping err = %v, want closed (same instance the cleanup owns)", err)
+	}
+}
+
+// 注入 client：Provider 不建连、不校验地址，只应用契约 key_prefix；cleanup
+// 为空，注入实例仍可用（所有权归调用方）。
+func TestAppProvider_WithClient(t *testing.T) {
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("miniredis: %v", err)
+	}
+	defer mr.Close()
+
+	rdb := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
+	defer rdb.Close()
+
+	scope := appkit.ApplyScope{Config: &bootstrapv1.BootstrapConfig{
+		Cache: &bootstrapv1.Cache{
+			Redis: &bootstrapv1.Cache_Redis{KeyPrefix: "injected:"},
+		},
+	}}
+	product, cleanup, err := AppProvider(WithClient(rdb)).Build(context.Background(), scope, appkit.Node{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if cleanup != nil {
+		t.Fatal("cleanup should be nil for injected client (caller owns it)")
+	}
+	m, ok := product.(map[string]any)
+	if !ok {
+		t.Fatalf("product type = %T, want map[string]any", product)
+	}
+	rc, ok := m["redis"].(*rediscache.Cache)
+	if !ok {
+		t.Fatalf("product[redis] type = %T, want *rediscache.Cache", m["redis"])
+	}
+	if rc.Client() != rdb {
+		t.Fatal("Client() should return the injected instance")
+	}
+	ctx := context.Background()
+	if err := rc.Set(ctx, "k", []byte("v"), 0); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	if !mr.Exists("injected:k") {
+		t.Fatal("contract key_prefix should apply to the injected client")
+	}
+	if err := rdb.Ping(ctx).Err(); err != nil {
+		t.Fatalf("injected client should stay open: %v", err)
 	}
 }

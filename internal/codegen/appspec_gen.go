@@ -252,6 +252,7 @@ var treeFuncs = template.FuncMap{
 	"q":          func(s string) string { return fmt.Sprintf("%q", s) },
 	"title":      title,                                     // 首字母大写（域函数名派生：greet → MountGreet）
 	"grpcObject": grpcObjectOf,                              // service 全名 → 授权 object（pkg/authz.DefaultGRPCObject 同源规则）
+	"services":   domainServices,                            // 域声明 → 有效 service 全名（services[] 优先；http_only 为空）
 	"list":       func(ss ...string) []string { return ss }, // 模板内联字面量列表
 }
 

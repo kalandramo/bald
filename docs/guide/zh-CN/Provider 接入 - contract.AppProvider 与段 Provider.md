@@ -29,7 +29,7 @@ type Provider interface {
 
 ### 2.1 标准能力：直接用 contract.AppProvider()
 
-标准能力包已导出现成 Provider（逐一核对 `func AppProvider` 共 11 处，段路径逐个对过 `Segments()`）：
+标准能力包已导出现成 Provider（段路径逐个对过 `Segments()`）：
 
 | 能力 | 构造 | 消费段 |
 | --- | --- | --- |
@@ -37,6 +37,8 @@ type Provider interface {
 | broker/redis | `rediscontract.AppProvider()` | broker.redis |
 | registry/nacos、registry/etcd | `contract.AppProvider()` | registry.nacos / registry.etcd |
 | contrib/store-gorm | `storegorm.AppProvider(opts ...Option)` | database.sql（Option 透传） |
+| contrib/observability-otlp | `otlpcontract.AppProviders(serviceName)` | tracer / metrics |
+| contrib/config-nacos | `confignacos.AppProvider()` | config（nacos 源） |
 | transport/{sse,cron,asynq} | `contract.AppProvider(opts ...Option)` | server.sse / server.cron / server.asynq |
 | transport/gateway | `contract.AppProvider(register RegisterFunc)` | server.gateway |
 | oss/{s3,minio} | `contract.AppProvider()` | storage.s3 / storage.minio |

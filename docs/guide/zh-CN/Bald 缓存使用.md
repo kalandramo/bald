@@ -19,8 +19,8 @@
 | 时机 | 启动期一次性（阶段 B，业务钩子之前） | 业务代码任意时点 |
 | 参数来源 | yaml `cache.redis` 段 | Option 链代码声明 |
 | 生命周期 | 框架管（停机 Effect：缓存先关、数据库最后关） | 业务管（Close 自理） |
-| redis client | contract 自建 + Ping 校验 + 停机关闭 | 注入已有 client，Close 不关它 |
-| 实例取用 | `rediscontract.Redis.Resource(app)`（域 Wire 内） | 自己持有返回值 |
+| redis client | contract 自建 + Ping 校验 + 停机关闭；或 `WithClient` 注入（不关闭） | 注入已有 client，Close 不关它 |
+| 实例取用 | `rediscontract.Redis.Resource(app)`（域 Wire 内），原生 client 走 `.Client()` | 自己持有返回值 |
 | 适合 | 大多数项目：启动即正确 | 测试 / 复用已有连接 / 细粒度控参 |
 
 ## 0. 什么都不做：默认行为
@@ -66,6 +66,21 @@ appkit.MustServe(ctx,
 Ping fail-fast（不产半成品实例）→ 产物 `map{"redis": 实例}` 落引擎 cache
 资源面 → cleanup 关闭底层连接池（停机逆序回放：缓存先关、数据库最后关）。
 没有 `init()` 自注册——接入必须显式出现在你的代码里。
+
+**复用既有 client**：调用方已自建连接池（多消费方共享、降级逻辑自持、
+测试注入）时传 `rediscontract.WithClient(rdb)`——Provider 不再按段 dial/Ping，
+只把 `cache.redis.key_prefix` 应用到适配器；`addr`/`password`/`cluster`/
+`sentinel` 被忽略。**所有权不转移**：cleanup 为空，注入实例的连接生命周期
+归调用方：
+
+```go
+rdb := redis.NewUniversalClient(&redis.UniversalOptions{Addrs: addrs})
+appkit.MustServe(ctx,
+    std.Standard(),
+    rediscontract.AppProvider(rediscontract.WithClient(rdb)), // 不关闭 rdb
+    // ...
+)
+```
 
 **步骤 3：yaml 声明**：
 
@@ -142,9 +157,9 @@ rdb := rc.Client()                // goredis.UniversalClient，与适配器同�
 n, err := rdb.Incr(ctx, "captcha:attempts").Result()
 ```
 
-- **所有权不转移**：契约轨（AppProvider / Provider）的 client 归构造期
-  注册的 cleanup（停机关闭连接池），业务持句柄时勿再 Close；直用轨（`New`
-  注入）归调用方，`Cache.Close` 不关它。
+- **所有权不转移**：契约轨自建时 client 归构造期注册的 cleanup（停机关闭
+  连接池），业务持句柄时勿再 Close；契约轨 `WithClient` 注入与直用轨（`New`
+  注入）归调用方，`Cache.Close` 与 Provider cleanup 都不关它。
 - **keyPrefix 只对适配器方法生效**：经本句柄读写的裸键不经过前缀——同
   一键空间里两套键名规则，跨轨排查时留意。
 - **集群 / 哨兵部署**下动态类型是 `*goredis.ClusterClient` /

@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -111,6 +112,118 @@ func TestGenDomain_EndToEnd(t *testing.T) {
 	after, _ := os.ReadFile(filepath.Join(dir, "internal", "bootstrap", "domains.gen.go"))
 	if string(before) != string(after) {
 		t.Error("gen domain regeneration must be deterministic (byte-identical)")
+	}
+}
+
+// TestGenDomain_MultiService services[] 域：一个域聚合多个 proto service——
+// 绑定文件按 service 各一份 Go 接口与 Bind 函数（接口名 = service 短名），
+// 路由清单与授权动作在域级聚合。
+func TestGenDomain_MultiService(t *testing.T) {
+	dir := t.TempDir()
+	as := guardFixture()
+	as.Domains[0].Service = ""
+	as.Domains[0].Services = []string{"greet.v1.GreetService", "greet.v1.GreetAdminService"}
+	scaffoldModule(t, dir, as.GetMeta().GetModule())
+	specPath := writeSpecJSON(t, dir, as)
+	writeFixtureProto(t, dir)
+	runGenDomain(t, dir, specPath, "--adopt")
+
+	read := func(parts ...string) string {
+		t.Helper()
+		raw, err := os.ReadFile(filepath.Join(append([]string{dir}, parts...)...))
+		if err != nil {
+			t.Fatalf("read %v: %v", parts, err)
+		}
+		return string(raw)
+	}
+
+	conv := read("internal", "apiserver", "handler", "convert", "greet.gen.go")
+	for _, want := range []string{
+		"var GreetActions = map[string]string{",
+		`"greet.v1.GreetService/Greet"`,
+		`"greet.v1.GreetAdminService/AdminGreet"`,
+	} {
+		if !strings.Contains(conv, want) {
+			t.Errorf("convert must aggregate every service; missing %q:\n%s", want, conv)
+		}
+	}
+
+	bind := read("internal", "apiserver", "handler", "gin", "greet.bind.gen.go")
+	for _, want := range []string{
+		"type GreetService interface {",
+		"type GreetAdminService interface {",
+		"func BindGreet(r gin.IRouter, svc GreetService) {",
+		"func BindGreetAdmin(r gin.IRouter, svc GreetAdminService) {",
+	} {
+		if !strings.Contains(bind, want) {
+			t.Errorf("bind file missing %q:\n%s", want, bind)
+		}
+	}
+
+	routes := read("internal", "apiserver", "routes", "greet.gen.go")
+	for _, want := range []string{
+		`{Method: "POST", Path: "/v1/greets"`,
+		`{Method: "GET", Path: "/v1/greets/:name"`,
+		`{Method: "GET", Path: "/v1/admin/greets/:name"`,
+	} {
+		if !strings.Contains(routes, want) {
+			t.Errorf("route table must aggregate every service; missing %q:\n%s", want, routes)
+		}
+	}
+
+	authz := read("internal", "apiserver", "authz", "alias.gen.go")
+	for _, pattern := range []string{
+		`"greet":\s+"greets"`,
+		`"greetadmin":\s+"admin"`,
+	} {
+		if !regexp.MustCompile(pattern).MatchString(authz) {
+			t.Errorf("authz projection missing %q:\n%s", pattern, authz)
+		}
+	}
+	if !strings.Contains(authz, "var DefaultActions = mergeActions(convert.GreetActions)") {
+		t.Errorf("authz projection must aggregate the domain's convert table:\n%s", authz)
+	}
+}
+
+// TestGenDomain_HTTPOnly http_only 域没有 proto 契约：不产 convert/bind/routes，
+// authz 聚合不引用它，域清单照常登记（REST 面由域包自持）。
+func TestGenDomain_HTTPOnly(t *testing.T) {
+	dir := t.TempDir()
+	as := guardFixture()
+	as.Domains = []*appspecv1.DomainSpec{{
+		Name:      "portal",
+		HttpOnly:  true,
+		GoPackage: "demo.example/app/internal/apiserver/portalv1",
+	}}
+	specPath := writeSpecJSON(t, dir, as)
+	runGenDomain(t, dir, specPath, "--adopt")
+
+	for _, rel := range [][]string{
+		{"internal", "apiserver", "handler", "convert", "portal.gen.go"},
+		{"internal", "apiserver", "handler", "gin", "portal.bind.gen.go"},
+		{"internal", "apiserver", "routes", "portal.gen.go"},
+	} {
+		if _, err := os.Stat(filepath.Join(append([]string{dir}, rel...)...)); !os.IsNotExist(err) {
+			t.Errorf("http_only domain must not derive %v: %v", rel, err)
+		}
+	}
+
+	authz, err := os.ReadFile(filepath.Join(dir, "internal", "apiserver", "authz", "alias.gen.go"))
+	if err != nil {
+		t.Fatalf("read authz: %v", err)
+	}
+	if !strings.Contains(string(authz), "var DefaultActions = map[string]string{}") {
+		t.Errorf("http_only-only app must aggregate no actions:\n%s", authz)
+	}
+
+	manifest, err := os.ReadFile(filepath.Join(dir, "internal", "bootstrap", "domains.gen.go"))
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	for _, want := range []string{"portalv1 \"demo.example/app/internal/apiserver/portalv1\"", "portalv1.Domain,"} {
+		if !strings.Contains(string(manifest), want) {
+			t.Errorf("manifest must register the http_only domain; missing %q:\n%s", want, manifest)
+		}
 	}
 }
 
@@ -506,7 +619,7 @@ func TestGenDomain_NoRoutes(t *testing.T) {
 		t.Fatalf("read bind file: %v", err)
 	}
 	src := string(raw)
-	if !strings.Contains(src, "--no-routes 跳过了路由清单") {
+	if !strings.Contains(src, "--no-routes 跳过") {
 		t.Errorf("bind header must explain the skipped manifest:\n%s", src)
 	}
 	if strings.Contains(src, "routes.Greet") {
@@ -806,7 +919,7 @@ func TestBindViewOf_RejectsDuplicateGinShape(t *testing.T) {
 		},
 	}
 	d := &appspecv1.DomainSpec{Name: "greet", Service: "greet.v1.GreetService"}
-	if _, err := bindViewOf("Greet", d, svc); err == nil || !strings.Contains(err.Error(), "identical shapes") {
+	if _, err := bindViewOf("Greet", d, []protoService{svc}); err == nil || !strings.Contains(err.Error(), "identical shapes") {
 		t.Fatalf("err = %v, want duplicate gin shape error", err)
 	}
 }
@@ -816,7 +929,7 @@ func TestBindViewOf_RejectsDuplicateGinShape(t *testing.T) {
 func TestBindViewOf_NoAnnotatedRoutes(t *testing.T) {
 	svc := protoService{Package: "greet.v1", Name: "GreetService", Methods: []protoMethod{{Name: "Ping"}}}
 	d := &appspecv1.DomainSpec{Name: "greet", Service: "greet.v1.GreetService"}
-	view, err := bindViewOf("Greet", d, svc)
+	view, err := bindViewOf("Greet", d, []protoService{svc})
 	if err != nil || view != nil {
 		t.Fatalf("view = %v, err = %v; want nil, nil", view, err)
 	}
@@ -893,15 +1006,15 @@ func TestBindViewOf_AdditionalBindingsOneInterface(t *testing.T) {
 		}},
 	}
 	d := &appspecv1.DomainSpec{Name: "greet", Service: "greet.v1.GreetService"}
-	view, err := bindViewOf("Greet", d, svc)
+	view, err := bindViewOf("Greet", d, []protoService{svc})
 	if err != nil {
 		t.Fatalf("bindViewOf: %v", err)
 	}
 	if len(view.Routes) != 2 {
 		t.Fatalf("routes = %+v, want 2 (primary + additional binding)", view.Routes)
 	}
-	if len(view.Methods) != 1 {
-		t.Fatalf("interface methods = %+v, want 1 (deduped by rpc)", view.Methods)
+	if len(view.Services[0].Methods) != 1 {
+		t.Fatalf("interface methods = %+v, want 1 (deduped by rpc)", view.Services[0].Methods)
 	}
 }
 
@@ -916,7 +1029,7 @@ func TestBindViewOf_StreamingRejected(t *testing.T) {
 		}},
 	}
 	d := &appspecv1.DomainSpec{Name: "greet", Service: "greet.v1.GreetService"}
-	if _, err := bindViewOf("Greet", d, svc); err == nil || !strings.Contains(err.Error(), "streaming") {
+	if _, err := bindViewOf("Greet", d, []protoService{svc}); err == nil || !strings.Contains(err.Error(), "streaming") {
 		t.Fatalf("err = %v, want streaming rejection", err)
 	}
 }
@@ -996,7 +1109,7 @@ func TestBindViewOf_RejectsUnsupportedAnnotationFields(t *testing.T) {
 		},
 	}
 	d := &appspecv1.DomainSpec{Name: "greet", Service: "greet.v1.GreetService"}
-	_, err := bindViewOf("Greet", d, svc)
+	_, err := bindViewOf("Greet", d, []protoService{svc})
 	if err == nil || !strings.Contains(err.Error(), "response_body") {
 		t.Fatalf("err = %v, want rejection naming response_body", err)
 	}
@@ -1007,7 +1120,7 @@ func TestBindViewOf_RejectsUnsupportedAnnotationFields(t *testing.T) {
 	// custom-only 的 service：没有任何可识别路由，也必须报错而不是返回 nil。
 	only := svc
 	only.Methods = svc.Methods[1:]
-	if _, err := bindViewOf("Greet", d, only); err == nil || !strings.Contains(err.Error(), "custom") {
+	if _, err := bindViewOf("Greet", d, []protoService{only}); err == nil || !strings.Contains(err.Error(), "custom") {
 		t.Fatalf("err = %v, want rejection naming custom", err)
 	}
 }

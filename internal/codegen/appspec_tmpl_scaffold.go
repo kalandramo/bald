@@ -131,12 +131,13 @@ var seedPoliciesTmpl = `// Package seed 承载授权策略行（bald gen app 生
 // 重生成跳过本文件）。
 //
 // 默认策略从 proto 的 service/method 派生（归一化口径与 pkg/authz 同源）：
-// 每域 object = Service 段去 Service 后缀转小写（DefaultGRPCObject）；动作 =
-// **六元组**——REST 动词（get/post/put/delete）+ gRPC 动作（list/write）双面
-// 对齐。教训：只写四条 REST 动词，补 gRPC 面时 List(→list)/Create(→write)
-// 因缺策略行 403。viewer 只读
-// （get/list）；gen domain 产物 authz/alias.gen.go 的 DefaultActions 是本表
-// 的对账面。只有自定义策略才需要登记在本文件。
+// 每个 service 一个 object = Service 段去 Service 后缀转小写
+// （DefaultGRPCObject）；动作 = **六元组**——REST 动词（get/post/put/delete）+
+// gRPC 动作（list/write）双面对齐。教训：只写四条 REST 动词，补 gRPC 面时
+// List(→list)/Create(→write) 因缺策略行 403。viewer 只读
+// （get/list）；http_only 域无 proto service，不派生策略行。
+// gen domain 产物 authz/alias.gen.go 的 DefaultActions 是本表的对账面。只有
+// 自定义策略才需要登记在本文件。
 //
 // 消费入口（行为不在生成物里）：contrib/authz-casbin 的 NewRows——本表行
 // 映射为 authzcasbin.PolicyRow 装载（见该包文档；角色绑定 g 行是运行期
@@ -153,12 +154,18 @@ type PolicyRow struct {
 // Rows 是默认授权策略行（AppSpec.domains 声明序；object 由域 service 派生）。
 var Rows = []PolicyRow{
 {{- range $d := .Spec.Domains }}
-	// {{ $d.Name }}（{{ $d.Service }} → object {{ grpcObject $d.Service }}）
+{{- if $d.HttpOnly }}
+	// {{ $d.Name }}: http_only domain (REST surface is owned by the domain package; no proto service, so no policy rows are derived)
+{{- else }}
+{{- range $svc := services $d }}
+	// {{ $d.Name }}（{{ $svc }} → object {{ grpcObject $svc }}）
 {{- range $a := list "get" "list" "write" "delete" "post" "put" }}
-	{Role: "admin", Object: {{ grpcObject $d.Service | q }}, Action: {{ $a | q }}},
+	{Role: "admin", Object: {{ grpcObject $svc | q }}, Action: {{ $a | q }}},
 {{- end }}
 {{- range $a := list "get" "list" }}
-	{Role: "viewer", Object: {{ grpcObject $d.Service | q }}, Action: {{ $a | q }}},
+	{Role: "viewer", Object: {{ grpcObject $svc | q }}, Action: {{ $a | q }}},
+{{- end }}
+{{- end }}
 {{- end }}
 {{- end }}
 }

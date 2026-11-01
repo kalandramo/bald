@@ -3,8 +3,8 @@
 //
 // 单独成包的原因：redis 包保持零契约依赖（纯适配，client 由调用方注入），
 // 只有本包 import bconf——业务按需 import，依赖图全程可见。
-// client 生命周期归 Provider：自建（New，负责关闭）；复用注入场景请绕过
-// contract 直接用 redis 包的 New（同 contrib 先例 NewWithClient 语义）。
+// client 生命周期归 Provider：自建（New，负责关闭）；复用既有 client 走
+// AppProvider(WithClient(...))（cleanup 不关闭注入实例）。
 //
 // 三种部署模式按契约段选建（互斥，fail-fast）：
 //   - cluster 段存在  → Redis Cluster（NewClusterClient，种子节点自动发现）；

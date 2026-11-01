@@ -138,10 +138,10 @@ bald gen domain --spec appspec.json [--adopt] [--proto-cmd "buf generate"]
 | 产物 | 归属 | 说明 |
 | --- | --- | --- |
 | `internal/bootstrap/domains.gen.go` | owned | 域清单聚合（与 gen app 共用同一模板——单模板源不漂移） |
-| `internal/<apiserver_dir>/handler/gin/<域>.bind.gen.go` | owned | 注解派生绑定：`<Name>Service` 接口 + `Bind<Name>(gin.IRouter, impl)`（protojson 编解码；**默认生成**，`--no-bind` 跳过） |
-| `internal/<apiserver_dir>/routes/<域>.gen.go` | owned | 同批注解的 `appkit.Route` 清单（域引用 `RouteTable: routes.<Name>` 即获计划可见性；`--no-routes` 跳过） |
-| `internal/<apiserver_dir>/handler/convert/<域>.gen.go` | owned | 逐 RPC 授权动作投影（与 pkg/authz 默认规则同源） |
-| `internal/<apiserver_dir>/authz/alias.gen.go` | owned | 授权别名表（仅列 gRPC/HTTP 两侧归一化不一致的域）+ 默认动作聚合 |
+| `internal/<apiserver_dir>/handler/gin/<域>.bind.gen.go` | owned | 注解派生绑定：**每个 service 一份** `<Service 短名>` 接口 + `Bind<短名去 Service 后缀>(gin.IRouter, impl)`（`greet.v1.GreetService` → `GreetService` / `BindGreet`，单 service 域与旧产物同名）。一个域一个文件，`services[]` 的接口都在其中（protojson 编解码；**默认生成**，`--no-bind` 跳过） |
+| `internal/<apiserver_dir>/routes/<域>.gen.go` | owned | 同批注解的 `appkit.Route` 清单，**按域聚合**（多 service 的路由合入同一张表；域引用 `RouteTable: routes.<Name>` 即获计划可见性；`--no-routes` 跳过） |
+| `internal/<apiserver_dir>/handler/convert/<域>.gen.go` | owned | 逐 RPC 授权动作投影，按域聚合（与 pkg/authz 默认规则同源） |
+| `internal/<apiserver_dir>/authz/alias.gen.go` | owned | 授权别名表（仅列 gRPC/HTTP 两侧归一化不一致的域）+ 默认动作聚合；http_only 域不在表内（`DefaultActions` 保持空表） |
 | `<go_package>/domain.gen.go` | seeded | 域声明值骨架：生成一次；域包已导出 Domain 时跳过（kept:），既有域包（如 greetv1）消费不覆盖 |
 
 **绑定生成的前置（Q5 D1，默认开启）**：bind 文件 import proto 的 `go_package` 与 `github.com/kalandramo/bald/transport/web`。`go_package` 目录无 Go 文件时，生成器先在 `--out` 根执行 `--proto-cmd` 并复查产物——命令失败或仍无产物即生成期硬错误，错误点名命令、缺失包与 `--proto-cmd`/`--no-bind` 两条修法。`--check` 零写入，不执行外部命令，缺失时直接报修法。`transport/web` 缺失给 `go get` 修法（生成器不改消费方 `go.mod`）。绑定内容只由注解与 rpc 签名决定，与 proto 生成物内容无关：是否在本机跑过 buf 不改变生成字节。
@@ -150,7 +150,18 @@ bald gen domain --spec appspec.json [--adopt] [--proto-cmd "buf generate"]
 
 **何时重跑**：新增/删除域（改 domains[]）、改域 proto 的 service 或 http 注解（路由表、绑定与授权投影跟随派生）之后，`bald gen domain --spec appspec.json --adopt`。命令收尾提示即工作流原文：add a domain = hand-write its proto + domain package, declare it in domains[], rerun with --check to verify or --adopt to regenerate (assembly files stay untouched)。
 
-AppSpec.domains 字段参考（protojson 字段名；范本 `_example/bald/appspec.json`）：`name` / `protoPackage` / `service` / `goPackage`。
+AppSpec.domains 字段参考（protojson 字段名；范本 `_example/bald/appspec.json`）：`name` / `goPackage` 必填，`protoPackage` 可选（缺省从 service 全名反推），声明形态三选一（Gate1 强制互斥）：
+
+| 形态 | 声明 | gen domain 派生 |
+| --- | --- | --- |
+| 单 service | `service: "<package>.<Service>"` | convert / bind / routes / authz 全部按该 service 派生（默认形态） |
+| 多 service 聚合 | `services: ["<package>.<Service>", …]` | 同域聚合：一个 bind 文件里每个 service 各一份接口与 Bind 函数，路由清单、convert 动作、authz 默认动作按域合并 |
+| 纯 HTTP 域 | `httpOnly: true` | 不产 convert / bind / routes；`authz/alias.gen.go` 仍产但该域不进 `DefaultActions`；seed 策略只留说明注释。REST 面、授权与路由全部由域包的 `appkit.Domain` 自持 |
+
+- `httpOnly` 与 `service` / `services` / `protoPackage` 互斥——纯 HTTP 域没有 proto 契约可派生，同时声明即 Gate1 报错。
+- 非 `httpOnly` 域必须给出 `service` 或 `services`（否则生成器无从派生），且两者只能选一个。
+- `services[]` 每项须是非空、无首尾空白的 `<package>.<Service>` 全名，域内不得重复；**短名也须唯一**——绑定的 Go 接口按短名命名，重名会撞接口。
+- `services[]` 可跨 proto package：省略 `protoPackage` 时每个 service 各自从全名反推包名；声明了 `protoPackage` 则全部 service 必须属于该包。
 
 **操作序列：新增一个 order 域**（对照 §2 的三个文件与上表产物）：
 
@@ -161,13 +172,32 @@ AppSpec.domains 字段参考（protojson 字段名；范本 `_example/bald/appsp
 5. 把三槽实现在域包手写文件里挂进声明值（先手写 domain.go 亦可——骨架 seeded 自动 kept: 跳过）。
 6. 自检：`git status` 应只见手写文件与生成物变化——装配文件零 diff 即判据①达成。
 
+另外两种声明形态的 appspec 片段：
+
+```jsonc
+// 一个域聚合多个 proto service：绑定产物里是 OrgService/BindOrg 与
+// OrgMemberService/BindOrgMember，路由表仍只有一张 routes.Org。
+{"name": "org", "services": ["org.v1.OrgService", "org.v1.OrgMemberService"], "goPackage": "<module>/internal/apiserver/orgv1"}
+
+// 纯 HTTP 域：没有 proto service，REST handler 全部手写在域包里，
+// appkit.Domain.Routes 自持路由；生成器只落域清单与域包骨架。
+{"name": "dashboard", "httpOnly": true, "goPackage": "<module>/internal/apiserver/dashboardv1"}
+```
+
 ## 5. 报错速查
 
-**生成期（Gate1 强化：domains.service ↔ 实际 proto，`gen_domain.go`）**——扫描根为 api/proto、api/protos、proto（存在即扫，gen/ 生成目录跳过）：
+**生成期（Gate1 强化：domains.service/services ↔ 实际 proto，`gen_domain.go`）**——扫描根为 api/proto、api/protos、proto（存在即扫，gen/ 生成目录跳过）；`httpOnly` 域没有 proto 契约，跳过本项对账：
 
-- `Gate1 (domains.service vs proto): domains[0] (greet): service "bald.v1.GreetService" not found in proto package "bald.v1" (… declares: …)`——domains.service 必须是扫描根下某 proto 的 `<package>.<Service>`；报错列出该包实际声明，改声明或改 proto。
-- `domains[0] (greet): proto package "bald.v2" not found (scanned roots: …; N proto file(s) declaring packages: …) -- domains.service must be <package>.<Service> of a proto under the scanned roots`——protoPackage 拼错，或 proto 不在扫描根下。
-- `domains[0] (greet): service is required (field domains.service; gen domain derives handlers and authorization from it)`。
+- `domains[0] (greet): service "bald.v1.GreetService" not found in proto package "bald.v1" (… declares: …)`——`service` 或 `services[]` 的每一项都必须是扫描根下某 proto 的 `<package>.<Service>`；报错列出该包实际声明，改声明或改 proto。
+- `domains[0] (greet): proto package "bald.v2" not found (scanned roots: …; N proto file(s) declaring packages: …) -- domains.service/services must name <package>.<Service> of a proto under the scanned roots`——protoPackage 拼错，或 proto 不在扫描根下。
+- `domains[0] (greet): service is required (field domains.service/services; gen domain derives handlers and authorization from it)`——非 `httpOnly` 域既没写 `service` 也没写 `services`；补声明，或纯 HTTP 域改设 `httpOnly: true`。
+
+**声明形态（`validateAppSpec`，Gate1）**：
+
+- `domains[0] (dashboard): http_only domains must not declare service, services or proto_package (a pure-HTTP domain has no proto contract to derive from)`——去掉 proto 字段，或取消 `httpOnly`。
+- `service and services are mutually exclusive (declare the singular service, the services list, or http_only)`——三种形态只能选一种。
+- `domains[0].services[1] "org.v1.OrgService" duplicates domains[0].services[0]` / `services[1] is empty` / `has surrounding whitespace`——`services[]` 逐项清理。
+- `domains[0].services[1] "a.v1.GreetService" and "b.v1.GreetService" share the short name "GreetService" (bindings name their Go interface after it; short names must be unique within a domain)`——同域内 service 短名重复会让生成的 Go 接口撞名；改名或拆域。
 
 **运行期（域声明校验与执行）**：
 

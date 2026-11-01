@@ -7,7 +7,9 @@ package appkit
 // cleanup 停机释放、热更新重建 Logger。
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -231,6 +233,58 @@ func TestStandardLoggerProvider_FilterKeys(t *testing.T) {
 	}
 	if !strings.Contains(string(data2), `"password":"***"`) {
 		t.Fatalf("backends 路径脱敏应生效: %s", data2)
+	}
+}
+
+// TestStandardLoggerProvider_Decoration 装饰钩子在阶段 A 与阶段 B 两个构造点
+// 生效：Attrs 固定属性与 WithFilter 脱敏都不依赖调用方复制分派逻辑。
+func TestStandardLoggerProvider_Decoration(t *testing.T) {
+	var buf bytes.Buffer
+	prov := StandardLoggerProvider(
+		bslog.WithHandler(slog.NewTextHandler(&buf, nil)),
+		bslog.WithAttrs(slog.String("service.name", "deco-app")),
+		bslog.WithFilter(bslog.FilterKey("password")),
+	)
+	build := func(l *bootstrapv1.Logger) log.Logger {
+		t.Helper()
+		product, cleanup, err := prov.Build(context.Background(),
+			ApplyScope{Config: &bootstrapv1.BootstrapConfig{Logger: l}, Decl: &Decl{}}, Node{})
+		if err != nil {
+			t.Fatalf("build: %v", err)
+		}
+		t.Cleanup(func() {
+			if cleanup != nil {
+				_ = cleanup(context.Background())
+			}
+		})
+		lg, ok := product.(log.Logger)
+		if !ok {
+			t.Fatalf("provider product %T, want log.Logger", product)
+		}
+		return lg
+	}
+
+	for _, tc := range []struct {
+		name string
+		cfg  *bootstrapv1.Logger
+	}{
+		{"phaseA", nil},
+		{"phaseB", &bootstrapv1.Logger{Backends: []*bootstrapv1.Logger_Backend{
+			{Type: "slog", Slog: &bootstrapv1.Logger_Slog{Level: "info", Format: "json", OutputPath: "stdout"}},
+		}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			buf.Reset()
+			lg := build(tc.cfg)
+			lg.Info(context.Background(), "login", "password", "secret", "user", "alice")
+			out := buf.String()
+			if !strings.Contains(out, "service.name=deco-app") {
+				t.Fatalf("固定属性未应用: %s", out)
+			}
+			if !strings.Contains(out, "password=***") || !strings.Contains(out, "user=alice") {
+				t.Fatalf("脱敏未应用: %s", out)
+			}
+		})
 	}
 }
 

@@ -45,7 +45,7 @@ AppSpec 用一份 JSON 声明应用的装配形态——开通哪些 server、�
 | `layout.apiserverDir` | string | apiserver 目录名（默认 `apiserver`） |
 | `layout.strictContract` | bool | 生成物是否 emit `appkit.StrictContract()`（proto3 optional 保 presence：未声明 = **true**） |
 | `bundle.normalized` | bool | 装配期 bundle 归一化声明（audit object/action 双传输同源） |
-| `domains[]` | 数组 | 显式域清单 `{name, protoPackage, service, goPackage}`（§6） |
+| `domains[]` | 数组 | 显式域清单 `{name, goPackage}` + 声明形态三选一：`service`（单数）/ `services`（复数，同域聚合多个 proto service）/ `httpOnly`（纯 HTTP 域，无 proto 派生）；`protoPackage` 可选（§6） |
 | `variants[]` | 数组 | 构建期变体 `{name, when, buildTags[], description, effects{components[], patches[]}}`：`when` 是 `go/build/constraint` 表达式（如 `grpcgw && !nacos`），`buildTags` 是 && 糖（与 `when` 互斥）；声明恒进计划（`--plan`/`doctor` 的 `variants:` 段按 `declared`/`active` 列出并展示增量），命中的变体把 `effects`（组件 + bootstrap 字段补丁）并入真实装配；`//go:build` 实现由独立 tag 文件注册，与声明计划期对账（漂移即启动失败），不再产 `ambient` |
 
 契约段纪律：传输面、审计后端等一律声明在 `bootstrap`（唯一真相源）。旧快捷方式字段 `server` / `auditBackends` / `bundleNormalized` 已移除（Q6）——protojson 解析会直接报 `unknown field`，请把对应声明迁到 `bootstrap.server` / `bootstrap.audit.backends` / `bundle.normalized`。
@@ -146,7 +146,7 @@ go run ./cmd/my-service
 
 1. **域 proto**：落在 `api/proto`、`api/protos` 或 `proto` 任一候选根下（`google.api.http` 注解会被派生成 REST 路由表与授权动作投影）。
 2. **域包**：在 `domains[].goPackage` 指向的包里导出 `appkit.Domain` 声明值——钩子由引擎在既定时点消费：`Declare`/`ApplyNode`（声明节点并按计划执行：读自己的配置段、构造能力、挂 REST 路由）、`Reconcile`（热更协调）、`Services`（gRPC 注册自持）。逐行范本：[`_example/bald/greetv1/domain.go`](https://github.com/kalandramo/bald/blob/main/_example/bald/greetv1/domain.go)。
-3. **声明**：在 AppSpec 的 `domains[]` 加 `{name, protoPackage, service, goPackage}`，`service` 必须是实际 proto 的 `<package>.<Service>` 全名。
+3. **声明**：在 AppSpec 的 `domains[]` 加 `{name, protoPackage, service, goPackage}`，`service` 必须是实际 proto 的 `<package>.<Service>` 全名。一个域聚合多个 service 用 `services: [...]`（与 `service` 互斥）；没有 proto、REST 面纯手写的域用 `httpOnly: true`（与两者及 `protoPackage` 互斥）。
 
 然后生成：
 
@@ -236,7 +236,8 @@ router.Use(bundle.New(
 | `unresolved capabilities: capability "db" (required by audit.store)` | `capability.requires` 声明的能力不在 `provides`；补齐声明 |
 | `<path> already exists, refusing to overwrite (pass --adopt ... --force ...)` | 生成物已存在；树生成器（gen app/domain）用 `--adopt` 收敛，单文件生成器（gen proto/store）确认手改已备份后加 `--force` |
 | 输出 `kept:` 但文件没更新 | 该文件是生成一次（`seed/`、`apiserver.go`、域骨架）——`--force` 也不覆盖，直接手改 |
-| `Gate1 (domains.service vs proto): service "..." not found ...` | `domains[].service` 与实际 proto 失配；按报错对齐声明或 proto（§6） |
+| `Gate1 (domains.service vs proto): service "..." not found ...` | `domains[].service` / `services[]` 与实际 proto 失配；按报错对齐声明或 proto（§6） |
+| `service and services are mutually exclusive` / `declare service or services, or set http_only ...` | 域声明形态三选一写错：`service`、`services`、`httpOnly` 只能选一种；纯 HTTP 域设 `httpOnly: true`（§6） |
 | `go install` 报 sumdb 404 | 新 tag 校验和收录延迟，数小时后重试（§2） |
 
 ## 10. 下一步

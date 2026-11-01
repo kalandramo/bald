@@ -20,13 +20,28 @@ import (
 	"context"
 	"fmt"
 
+	goredis "github.com/redis/go-redis/v9"
+
 	rediscache "github.com/kalandramo/bald/cache/redis"
 	"github.com/kalandramo/bald/pkg/appkit"
 )
 
 // Redis 是 cache.redis 资源的类型化句柄（消费侧经 Redis.Resource(app) 取
-// *rediscache.Cache）。
+// *rediscache.Cache，再经 Client() 取原生 go-redis client）。
 var Redis = appkit.NewKey[*rediscache.Cache]("cache.redis")
+
+// Option 定制 AppProvider 的构造行为。
+type Option func(*appProvider)
+
+// WithClient 注入既有 go-redis client：Provider 不再按契约段 dial/Ping，
+// 契约 cache.redis 段只保留 key_prefix 语义（addr/password/cluster/sentinel
+// 被忽略）。
+//
+// 所有权不转移：cleanup 不关闭注入的 client，连接生命周期归调用方。用于
+// 调用方已自建 client 的场景（多消费方共享、降级语义自持、测试注入）。
+func WithClient(client goredis.UniversalClient) Option {
+	return func(p *appProvider) { p.client = client }
+}
 
 // AppProvider 返回消费契约 cache.redis 段的 appkit.Provider（段路径
 // "cache.redis"；段缺失即被引擎跳过，合法）。
@@ -35,18 +50,25 @@ var Redis = appkit.NewKey[*rediscache.Cache]("cache.redis")
 // Provider 标识符且保留不动，故段驱动装配的导出名取 AppProvider。
 //
 // Build 语义：cache.redis 段在 → 经既有 Provider 构造（validate/dial/Ping
-// fail-fast，不产半成品实例）→ 产物 map[string]any{"redis": client} 落引擎
-// cache 资源面（Run 后经 Redis.Resource(app) 取用）→ cleanup 关闭底层连接池（停机逆序
-// 回放：缓存先关、数据库最后关）。
-func AppProvider() appkit.Provider { return appProvider{} }
+// fail-fast，不产半成品实例）→ 产物 map[string]any{"redis": *rediscache.Cache}
+// 落引擎 cache 资源面（Run 后经 Redis.Resource(app) 取用）→ cleanup 关闭底层
+// 连接池（停机逆序回放：缓存先关、数据库最后关）。WithClient 注入时跳过
+// 建连，产物同形、cleanup 为空。
+func AppProvider(opts ...Option) appkit.Provider {
+	p := appProvider{}
+	for _, opt := range opts {
+		opt(&p)
+	}
+	return p
+}
 
 // appProvider 消费 cache.redis 段。
-type appProvider struct{}
+type appProvider struct{ client goredis.UniversalClient }
 
 func (appProvider) Segments() []string { return []string{"cache.redis"} }
 
 // Apply 把自身追加进声明（Provider 即 Option，可直接作为 MustServe 变参项）。
-func (appProvider) Apply(d *appkit.Decl) { d.Providers = append(d.Providers, appProvider{}) }
+func (p appProvider) Apply(d *appkit.Decl) { d.Providers = append(d.Providers, p) }
 
 // Plan 声明段节点（cache.redis；阶段由段族决定）。
 func (appProvider) Plan(context.Context, appkit.PlanScope) ([]appkit.Node, error) {
@@ -60,12 +82,20 @@ func (appProvider) Plan(context.Context, appkit.PlanScope) ([]appkit.Node, error
 	}}, nil
 }
 
-// Build 复用既有 Provider 构造 Redis 缓存并落资源容器。
-func (appProvider) Build(ctx context.Context, s appkit.ApplyScope, _ appkit.Node) (any, appkit.Cleanup, error) {
+// Build 复用既有 Provider 构造 Redis 缓存并落资源容器；注入 client 时只
+// 应用契约的 key_prefix。
+func (p appProvider) Build(ctx context.Context, s appkit.ApplyScope, _ appkit.Node) (any, appkit.Cleanup, error) {
 	cacheSec := s.Config.GetCache()
 	if cacheSec == nil {
 		return nil, nil, fmt.Errorf("cache/redis: cache section is missing " +
 			"(provider matched by segment path; report this as a bug)")
+	}
+	if p.client != nil {
+		var opts []rediscache.Option
+		if kp := cacheSec.GetRedis().GetKeyPrefix(); kp != "" {
+			opts = append(opts, rediscache.WithKeyPrefix(kp))
+		}
+		return map[string]any{"redis": rediscache.New(p.client, opts...)}, nil, nil
 	}
 	cli, cleanup, err := Provider(ctx, cacheSec)
 	if err != nil {

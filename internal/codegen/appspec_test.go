@@ -127,7 +127,7 @@ func TestGate1_Domains(t *testing.T) {
 
 	as3 := guardFixture()
 	as3.Domains = append(as3.Domains, &appspecv1.DomainSpec{
-		Name: "greet2", GoPackage: "demo.example/app/internal/apiserver/greetv2",
+		Name: "greet2", HttpOnly: true, GoPackage: "demo.example/app/internal/apiserver/greetv2",
 	})
 	// greetv2 基名不同 → 别名不冲突，应通过。
 	if errs := validateAppSpec(as3); len(errs) != 0 {
@@ -137,6 +137,63 @@ func TestGate1_Domains(t *testing.T) {
 	msg = joinErrs(validateAppSpec(as3))
 	if !strings.Contains(msg, "import alias") {
 		t.Errorf("alias collision not reported: %s", msg)
+	}
+}
+
+// TestGate1_DomainServiceKinds 域声明三选一：service（单数）/ services（复数）/
+// http_only。互斥、必填、逐项唯一与短名唯一都在 Gate1 报出——这些错误若留到
+// 生成物里才会以“少了绑定文件”或“接口重名”暴露，定位代价高。
+func TestGate1_DomainServiceKinds(t *testing.T) {
+	if errs := validateAppSpec(domainKindsFixture(guardFixture())); len(errs) != 0 {
+		t.Fatalf("fixture with services[] and http_only domains must pass Gate1: %v", errs)
+	}
+
+	cases := map[string]struct {
+		mutate func(*appspecv1.DomainSpec)
+		want   string
+	}{
+		"singular and list": {
+			func(d *appspecv1.DomainSpec) { d.Services = []string{"greet.v1.GreetService"} },
+			"service and services are mutually exclusive",
+		},
+		"neither": {
+			func(d *appspecv1.DomainSpec) { d.Service = "" },
+			"declare service or services, or set http_only",
+		},
+		"http_only with service": {
+			func(d *appspecv1.DomainSpec) { d.HttpOnly = true },
+			"http_only domains must not declare service, services or proto_package",
+		},
+		"http_only with proto package": {
+			func(d *appspecv1.DomainSpec) {
+				d.HttpOnly, d.Service, d.ProtoPackage = true, "", "greet.v1"
+			},
+			"http_only domains must not declare service, services or proto_package",
+		},
+		"empty services entry": {
+			func(d *appspecv1.DomainSpec) { d.Service, d.Services = "", []string{""} },
+			"services[0] is empty",
+		},
+		"duplicate service": {
+			func(d *appspecv1.DomainSpec) {
+				d.Service, d.Services = "", []string{"greet.v1.GreetService", "greet.v1.GreetService"}
+			},
+			"duplicates domains[0].services[0]",
+		},
+		"duplicate short name": {
+			func(d *appspecv1.DomainSpec) {
+				d.Service, d.Services = "", []string{"a.v1.UserService", "b.v1.UserService"}
+			},
+			"share the short name",
+		},
+	}
+	for name, tc := range cases {
+		as := guardFixture()
+		tc.mutate(as.Domains[0])
+		msg := joinErrs(validateAppSpec(as))
+		if !strings.Contains(msg, tc.want) {
+			t.Errorf("%s: error %q missing %q", name, msg, tc.want)
+		}
 	}
 }
 
@@ -380,11 +437,34 @@ func variantFixture(as *appspecv1.AppSpec) *appspecv1.AppSpec {
 
 // renderedFixture 把参考夹具走完整树构建（Gate1 → 归一化 → Gate2 → buildTree），
 // 拼接全部生成物文本——机器守卫的断言面。变体字段的消费者只在声明了
-// variants 时才落盘（variants.gen.go / assemble.gen.go 的调用），所以追加
-// 一份带 variants 的渲染，让守卫能按标记核对这三个字段。
+// variants 时才落盘（variants.gen.go / assemble.gen.go 的调用），域声明形态的
+// 消费者（services[] / http_only）只在声明了对应域时才出现，所以各追加一份
+// 带声明的渲染。
 func renderedFixture(t *testing.T) string {
 	t.Helper()
-	return renderSpecForGuard(t, guardFixture()) + renderSpecForGuard(t, variantFixture(guardFixture()))
+	return renderSpecForGuard(t, guardFixture()) +
+		renderSpecForGuard(t, variantFixture(guardFixture())) +
+		renderSpecForGuard(t, domainKindsFixture(guardFixture()))
+}
+
+// domainKindsFixture 在参考夹具上追加 services[] 与 http_only 域：机器守卫
+// 据此核对域声明三种形态的消费者标记（见 fieldConsumers），Gate1 校验三态
+// 互斥时也复用它。
+func domainKindsFixture(base *appspecv1.AppSpec) *appspecv1.AppSpec {
+	as := proto.Clone(base).(*appspecv1.AppSpec)
+	as.Domains = append(as.Domains,
+		&appspecv1.DomainSpec{
+			Name:      "admin",
+			Services:  []string{"greet.v1.GreetAdminService"},
+			GoPackage: "demo.example/app/internal/apiserver/greetadminv1",
+		},
+		&appspecv1.DomainSpec{
+			Name:      "portal",
+			HttpOnly:  true,
+			GoPackage: "demo.example/app/internal/apiserver/portalv1",
+		},
+	)
+	return as
 }
 
 // renderSpecForGuard 是 renderedFixture 的单份渲染。
@@ -1039,7 +1119,8 @@ func runGenAppInTemp(t *testing.T, as *appspecv1.AppSpec) (string, string) {
 // proto（package greet.v1 + GreetService + google.api.http 注解）：service
 // 全名与 guardFixture.domains[0].service 对账；REST 资源段用复数 greets，
 // 使 gRPC 面（greet）与 HTTP 面（greets）归一化结果不同——授权别名表的
-// 非空路径由此得到真实输入。
+// 非空路径由此得到真实输入。第二个 service（GreetAdminService）供 services[]
+// 聚合测试声明，未声明的测试不受影响。
 func writeFixtureProto(t *testing.T, dir string) {
 	t.Helper()
 	path := filepath.Join(dir, "api", "proto", "greet", "v1", "greet.proto")
@@ -1066,6 +1147,15 @@ service GreetService {
   rpc GreetGet(GreetGetRequest) returns (GreetResponse) {
     option (google.api.http) = {
       get: "/v1/greets/{name}"
+    };
+  }
+}
+
+// GreetAdminService 是 services[] 聚合测试的第二个 service。
+service GreetAdminService {
+  rpc AdminGreet(GreetGetRequest) returns (GreetResponse) {
+    option (google.api.http) = {
+      get: "/v1/admin/greets/{name}"
     };
   }
 }

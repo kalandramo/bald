@@ -11,12 +11,12 @@
     {
       "path": "internal/apiserver/handler/convert/greet.gen.go",
       "ownership": "owned",
-      "hash": "52f55a95e9c9f949029b43c2a51030cc26f4c3b847cfc7764142bbf619208662"
+      "hash": "b092cf329839ebe0ee8b8184c16875b255c21f6521abb5aa790d5dfbcbe67fbd"
     },
     {
       "path": "internal/apiserver/handler/gin/greet.bind.gen.go",
       "ownership": "owned",
-      "hash": "6331c5fd3470f575ace520698caa1d683a848c6c1a778c7cb2877b424761bd48"
+      "hash": "997d2b328b6cf529b9e8175223b8f461f7a7f24fbeff3c45414bc2b1ab3a5e71"
     },
     {
       "path": "internal/apiserver/routes/greet.gen.go",

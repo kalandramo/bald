@@ -302,42 +302,48 @@ func containsStr(list []string, s string) bool {
 	return false
 }
 
-// validateDomainServices 是 Gate1 的 gen domain 强化：每个域的
+// validateDomainServices 是 Gate1 的 gen domain 强化：每个域声明的每个
 // service 全名必须与实际 proto 匹配。报错指明哪个域的 service 在哪个 proto 里
-// 缺失、该 proto 实际声明了什么（可行动：改声明或改 proto）。
+// 缺失、该 proto 实际声明了什么（可行动：改声明或改 proto）。http_only 域
+// 没有 proto 契约，跳过。
 func validateDomainServices(as *appspecv1.AppSpec, scan *protoScan, roots []string) []error {
 	var errs []error
 	for i, d := range as.GetDomains() {
-		svcFull := d.GetService()
-		if svcFull == "" {
-			errs = append(errs, fmt.Errorf("domains[%d] (%s): service is required (field domains.service; gen domain derives handlers and authorization from it)", i, d.GetName()))
-			continue
-		}
-		pkg := d.GetProtoPackage()
-		if pkg == "" {
-			pkg = svcFull
-			if j := strings.LastIndexByte(pkg, '.'); j > 0 {
-				pkg = pkg[:j]
-			}
-		}
-		var files, svcs []string
-		for _, f := range scan.Files {
-			if f.Package != pkg {
+		svcs := domainServices(d)
+		if len(svcs) == 0 {
+			if d.GetHttpOnly() {
 				continue
 			}
-			files = append(files, f.Path)
-			for _, s := range f.Services {
-				svcs = append(svcs, s.Package+"."+s.Name)
-			}
-		}
-		if len(files) == 0 {
-			errs = append(errs, fmt.Errorf("domains[%d] (%s): proto package %q not found (scanned roots: %s; %d proto file(s) declaring packages: %s) -- "+
-				"domains.service must be <package>.<Service> of a proto under the scanned roots", i, d.GetName(), pkg, strings.Join(roots, ", "), len(scan.Files), strings.Join(scan.Packages, ", ")))
+			errs = append(errs, fmt.Errorf("domains[%d] (%s): service is required (field domains.service/services; gen domain derives handlers and authorization from it)", i, d.GetName()))
 			continue
 		}
-		if !containsStr(svcs, svcFull) {
-			errs = append(errs, fmt.Errorf("domains[%d] (%s): service %q not found in proto package %q (%s declares: %s)",
-				i, d.GetName(), svcFull, pkg, strings.Join(files, ", "), strings.Join(svcs, ", ")))
+		for _, svcFull := range svcs {
+			pkg := d.GetProtoPackage()
+			if pkg == "" {
+				pkg = svcFull
+				if j := strings.LastIndexByte(pkg, '.'); j > 0 {
+					pkg = pkg[:j]
+				}
+			}
+			var files, found []string
+			for _, f := range scan.Files {
+				if f.Package != pkg {
+					continue
+				}
+				files = append(files, f.Path)
+				for _, s := range f.Services {
+					found = append(found, s.Package+"."+s.Name)
+				}
+			}
+			if len(files) == 0 {
+				errs = append(errs, fmt.Errorf("domains[%d] (%s): proto package %q not found (scanned roots: %s; %d proto file(s) declaring packages: %s) -- "+
+					"domains.service/services must name <package>.<Service> of a proto under the scanned roots", i, d.GetName(), pkg, strings.Join(roots, ", "), len(scan.Files), strings.Join(scan.Packages, ", ")))
+				continue
+			}
+			if !containsStr(found, svcFull) {
+				errs = append(errs, fmt.Errorf("domains[%d] (%s): service %q not found in proto package %q (%s declares: %s)",
+					i, d.GetName(), svcFull, pkg, strings.Join(files, ", "), strings.Join(found, ", ")))
+			}
 		}
 	}
 	return errs
