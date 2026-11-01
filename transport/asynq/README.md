@@ -306,6 +306,16 @@ docker run -d -p 8080:8080 hibiken/asynqmon:latest \
     --redis-addr=host.docker.internal:6379
 ```
 
+## 集成测试
+
+集成测试需要可用的 Redis，默认连接 `127.0.0.1:6379`，可用 `BALD_TEST_REDIS_URI` 覆盖：
+
+```bash
+BALD_TEST_REDIS_URI='redis://:password@127.0.0.1:6379/0' go test -race ./...
+```
+
+Redis 不可达或使用 `-short` 时，集成用例自动跳过；不依赖 Redis 的生命周期用例照常运行。
+
 ## 参考资料
 
 - [hibiken/asynq](https://github.com/hibiken/asynq)
