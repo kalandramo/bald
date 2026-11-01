@@ -91,13 +91,12 @@ bootstrap.GrpcServerProvider(
 )
 bootstrap.HttpServerProvider(
 	bootstrap.WithHTTPHandler(handler),
-	bootstrap.WithGatewayRegister(gatewayRegister),
 )
 ```
 
 分工：**地址 / TLS / 超时 / driver 来自契约，路由 / 拦截器 / service 注册 / 探针来自代码**。契约里配了 grpc 段但代码没有 `WithGRPC`，服务器缺失是明确的配置错误，不会静默启动一个空端口。
 
-**gateway 是模式不是服务器**：`HttpServerProvider` 按「注入了 `WithGatewayRegister` 且契约 `server.http.driver` 为 `grpc-gateway`（或留空）」分支——走 `gateway.NewGatewayServer`（REST→gRPC 转码）或纯 `httpserver.NewHTTPServer`。同一个 `server.http` 段只跑一个面。driver 为其他值或两个声明同时留空时构造期报错（显式 > 隐式）。
+**gateway 是 `server.http` 段的另一个 Provider，不是本包的分支**：`HttpServerProvider` 只按 handler 构 Plain HTTP 面；REST→gRPC 转码由 `transport/gateway/contract` 的 `HTTPProvider` 承载（同一个 `server.http` 段只跑一个面，段路径末者胜）。准入判据（driver 非 `grpc-gateway` 的显式值、register 为 nil）在转码面自己的构造期报错（显式 > 隐式）——bootstrap 因此不 import 任何转码实现。
 
 `GrpcServerProvider` 还负责 reflection 的契约注册（`server.grpc.reflection=true` 时框架注册，业务勿重复注册）。
 

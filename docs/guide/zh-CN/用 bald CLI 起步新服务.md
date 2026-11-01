@@ -110,7 +110,7 @@ my-service/
 └─ taskfile.yml                                    # 生成物：task run / verify / proto
 ```
 
-入口链只有三跳：`main.go`（≤25 行硬预算，预算表见 `internal/codegen/appspec_budget_test.go`）→ `app.Execute()`（cobra 根）→ `appkit.MustServe(context.Background(), bootstrap.Options()...)`。装配知识全部在 `internal/bootstrap/assemble.gen.go` 的 `Options()`：`std.Standard()`（server/audit/logger 三类框架自有后端的段驱动 Provider）+ `ConfigFile`/`WatchConfigFile` + `appkit.StrictContract()` + 传输面能力声明（`WithGRPC`/`WithHTTP`/`WithGatewayRegister`，按声明裁剪）+ `WithHealth`（双探针 + gRPC health 联动）+ `mech.Provides/Requires`（能力）+ `mech.Components`（组件）+ `domainOptions(role)`（域清单变参直传）。
+入口链只有三跳：`main.go`（≤25 行硬预算，预算表见 `internal/codegen/appspec_budget_test.go`）→ `app.Execute()`（cobra 根）→ `appkit.MustServe(context.Background(), bootstrap.Options()...)`。装配知识全部在 `internal/bootstrap/assemble.gen.go` 的 `Options()`：`std.Standard()`（server/audit/logger 三类框架自有后端的段驱动 Provider）+ `ConfigFile`/`WatchConfigFile` + `appkit.StrictContract()` + 传输面能力声明（`WithGRPC`/`WithHTTP`，按声明裁剪）+ `WithHealth`（双探针 + gRPC health 联动）+ `mech.Provides/Requires`（能力）+ `mech.Components`（组件）+ `domainOptions(role)`（域清单变参直传）。
 
 生成器表达不了的接线（第三方 Provider、`Registrar`、`WithGRPCOptions`、`WithHealth` 覆盖、`WithOpaqueBudget`、业务 CLI 子命令、变体的应用级接线）放在两个 seeded 钩子文件里：`internal/bootstrap/custom.go` 的 `customOptions(role)` 追加在 `Options()` 末尾（同名单值字段末者胜），`cmd/<app>/app/custom.go` 的 `customSubcommands()` 与默认 serve 并存；带 `//go:build` 的文件在 `init()` 里登记 `variantOpts["<name>"]`，生成物 `variant_<name>.gen.go` 经 `customVariantOpts` 取出。
 

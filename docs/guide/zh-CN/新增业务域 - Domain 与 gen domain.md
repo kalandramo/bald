@@ -37,7 +37,7 @@ var Domain = appkit.Domain{
 
 完整装配时序（`domain.go` 包注释钉住，wiring_order 测试族断言）：框架钩子（契约装载 + 阶段 B Provider 循环 + 段覆盖检查）→ 业务 BeforeStart → 逐域 Wire → Routes（多域按声明序）→ 迟后阶段（server Provider 构建时调 Services）。任一域 Wire/Routes 失败 fail-fast（错误带域名），已建资源经 Run 的回滚账本回收。
 
-声明期校验（构造期 fail-fast，先于阶段 A 一切副作用）：Name 为空或重复报错；声明了 Routes 而应用未声明 HTTP 面（WithHTTP/WithGatewayRegister 至少其一）报错；声明了 Services 而契约 server.grpc 段缺失报错。报错原文见 §5。
+声明期校验（构造期 fail-fast，先于阶段 A 一切副作用）：Name 为空或重复报错；声明了 Routes 而应用没有 HTTP 面（`WithHTTP` 或接管 `server.http` 的转码 Provider）报错；声明了 Services 而契约 server.grpc 段缺失报错。报错原文见 §5。
 
 没有的槽位同样是设计决定：迁移不做槽位（appkit 不 import 存储栈——需要迁移的域在 Wire 内经类型化句柄 `storegorm.SQL.Resource(app)` 取连接自行执行）；ConfigKeys 不做槽位（业务配置段只进 Settings 快照、不进契约，与 L3 段覆盖检查无交互）。
 
@@ -202,7 +202,7 @@ AppSpec.domains 字段参考（protojson 字段名；范本 `_example/bald/appsp
 **运行期（域声明校验与执行）**：
 
 - `appkit: duplicate domain name "greet" (each domain must be declared once)`——域名重复。
-- `appkit: domain "greet" declares Routes but no HTTP face is declared (use appkit.WithHTTP or appkit.WithGatewayRegister)`。
+- `appkit: domain "greet" declares Routes but no HTTP face is declared (use appkit.WithHTTP, or declare a grpc-gateway provider for server.http)`。
 - `appkit: domain "greet" declares Services but bootstrap.server.grpc is nil`。
 - 域执行失败：`appkit: domain "greet": <原因>`（Wire）/ `appkit: domain "greet" routes: <原因>`——fail-fast，已建资源经回滚账本回收。
 

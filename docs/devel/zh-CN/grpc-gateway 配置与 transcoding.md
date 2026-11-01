@@ -1,6 +1,6 @@
 # grpc-gateway 配置与 transcoding
 
-本文给出 bald 接入 **grpc-gateway** 的完整示例：用一份 proto 同时定义 gRPC 接口与 REST/JSON 映射（transcoding），业务只实现一次。网关不是独立服务器：契约 `server.http.driver=grpc-gateway` 时，`server.http` 端口即网关转码面（gin 演示路由让位），由 `appkit.WithGatewayRegister` 声明能力。
+本文给出 bald 接入 **grpc-gateway** 的完整示例：用一份 proto 同时定义 gRPC 接口与 REST/JSON 映射（transcoding），业务只实现一次。网关不是独立服务器：转码面由 `transport/gateway/contract` 的 `HTTPProvider` 承载，它接管契约 `server.http` 段——HTTP 端口即转码面（gin 面让位），`driver` 留空或写 `grpc-gateway` 都准入。
 
 > 前置：本仓库**不内置 protoc 工具链与 grpc-gateway 依赖**。`_example/bald` 下的示例代码用 `//go:build grpcgw` build tag 保护，默认 `go build` 不编译它。请在本机安装工具链后生成代码并启用（见下文）。
 
@@ -100,11 +100,13 @@ transport module（自 pkg/server 迁入）提供两个载体：
 ```go
 //go:build grpcgw
 
+import gatewaycontract "github.com/kalandramo/bald/transport/gateway/contract"
+
 func init() {
 	variantOpts["grpcgw"] = []appkit.Option{
 		appkit.OnRole(RoleAPI,
-			appkit.WithHTTP(nil),                      // 让出 gin 面
-			appkit.WithGatewayRegister(registerGateway), // server.http 改走转码
+			appkit.WithHTTP(nil),                        // 让出 gin 面
+			gatewaycontract.HTTPProvider(registerGateway), // 接管 server.http 段
 		),
 	}
 }
@@ -129,9 +131,9 @@ func registerGateway(ctx context.Context, conn *grpc.ClientConn) (http.Handler, 
 默认构建走 gin 业务面（`apiserver.NewRouter()` + 域自持 REST 路由）。启用完整
 transcoding 只需 `-tags grpcgw`：`variant_grpcgw.gen.go` 编入实现，`register_grpcgw.go`
 把增量登记到 `variantOpts["grpcgw"]`，`assemble.gen.go` 的 `variantOptions()` 在
-`Options()` 调用期展开——API 角色经 `WithHTTP(nil)` 让出 gin 面，
-`WithGatewayRegister` 使 `server.http` 端口装配为网关转码面（契约 `server.http.driver`
-为空时选网关面）。
+`Options()` 调用期展开——API 角色经 `WithHTTP(nil)` 让出 gin 面，`HTTPProvider`
+声明在 `std.Standard()` 之后即按段路径末者胜接管 `server.http`，该端口装配为
+网关转码面。
 
 ```bash
 cd _example/bald
@@ -163,5 +165,5 @@ curl -i http://127.0.0.1:8080/v1/greet/bald
 1. **transcoding 规则写在 proto 的 `google.api.http` 注解里**，不要手写 REST handler。
 2. **biz 函数与传输层解耦**：gRPC 实现层只做"取字段 → 调 biz → 组装响应"的薄适配。
 3. **gateway 与 gRPC 同进程**：`GatewayServer` 在 `Start` 时读 `grpcBackend.GetAddr()` 连本进程 gRPC，无需独立部署。
-4. **网关由契约 driver 驱动**：`WithGatewayRegister` 声明能力 + `server.http.driver=grpc-gateway` 选择模式；与 `WithHTTP` 同时声明时 driver 必须显式（构造期 fail-fast），`WithExtraServerFunc` 是契约形状表达不了的服务器的通用逃生舱。
+4. **转码面是 `server.http` 段的 Provider**：`HTTPProvider(register)` 声明在 `std.Standard()` 之后即接管该段；同时保留 `WithHTTP` 的业务 handler 时 `server.http.driver` 必须显式写 `grpc-gateway`（构造期 fail-fast，显式 > 隐式）。独立端口拓扑（gin 主面 + 并存转码面）改用 `server.gateway` 段 + `AppProvider(register)`。`WithExtraServerFunc` 是契约形状表达不了的服务器的通用逃生舱。
 5. **启用需 build tag**：示例接线文件用 `//go:build grpcgw` 保护，避免无 protoc 环境编译失败。
