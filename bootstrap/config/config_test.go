@@ -389,24 +389,21 @@ func TestLoad_LocalFileWatchTriggersOnChange(t *testing.T) {
 		t.Fatalf("rewrite local: %v", err)
 	}
 
+	// 等到「带上重写后值」的那次回调，而不是任意一次：多个 watch 源串行化后
+	// 可能先递来一次尚未含本地层的合并（CI 实测收到过 :8080）。
 	deadline := time.After(3 * time.Second)
 	for {
 		mu.Lock()
-		c := changed
+		addr := lastAddr
 		mu.Unlock()
-		if c > 0 {
-			break
+		if addr == ":9091" {
+			return
 		}
 		select {
 		case <-deadline:
-			t.Fatalf("local file OnChange not triggered within timeout")
+			t.Fatalf("local file OnChange 未在超时内递到重写后的值（回调 %d 次，最后收到 %q）", changed, addr)
 		case <-time.After(20 * time.Millisecond):
 		}
-	}
-	mu.Lock()
-	defer mu.Unlock()
-	if lastAddr != ":9091" {
-		t.Fatalf("after local watch, http.addr = %q, want :9091", lastAddr)
 	}
 }
 
