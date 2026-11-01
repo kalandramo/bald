@@ -12,7 +12,7 @@
 | # | 步骤 | 证据 | sync/协议 |
 |---|---|---|---|
 | 1 | `HTTPServer.Start`：`net.Listen` + `Serve/ServeTLS`，在 appkit errgroup goroutine 中阻塞 | `transport/http/http_server.go:62-89` | sync / HTTP/1.1 |
-| 2 | 服务构造：`stdServerProvider.Build` 取 `Decl.HTTPHandler`（业务用 `appkit.WithHTTP` 传入的 `*gin.Engine`），按需包健康探针，交给 `bootstrap.HttpServerProvider` | `pkg/appkit/standard.go:204-229`、`pkg/appkit/health.go:60-80`、`bootstrap/server.go:154-173`、`_example/bald/internal/apiserver/apiserver.go:15` | in-process |
+| 2 | 服务构造：`stdHTTPProvider.Build` 取 `Decl.HTTPHandler`（业务用 `appkit.WithHTTP` 传入的 `*gin.Engine`），按需包健康探针，交给 `bootstrap.HttpServerProvider` | `pkg/appkit/standard.go:168-188`、`pkg/appkit/health.go:72-80`、`bootstrap/server.go:137-149`、`_example/bald/internal/apiserver/apiserver.go:15` | in-process |
 | 3 | 中间件链（**顺序由 bundle 固化，外→内**）：Recovery → RequestID → Tracing → Logging → CORS → Secure → Authn → Audit → Authz → RateLimit → Timeout | `pkg/middleware/bundle/bundle.go:171-211` | in-process |
 | 4 | 路由 → 泛型 handler：绑定 → 校验 → `handler(c.Request.Context(), &req)` | `transport/web/handler.go:37-51` | sync |
 | 5 | 响应：`WriteResponse`/`ErrorResponse`，错误经 `berrors` 映射为 HTTP code（兜底 INTERNAL） | `transport/web/handler.go:50`、`transport/web/response.go:56-93` | sync |
@@ -74,7 +74,7 @@
 | 注册 | **REAL** | `appkit.register`（`pkg/appkit/appkit.go:840`）→ `registry.Registrar` 契约（`registry/registry.go:62-67`）→ etcd：Validate → lease Grant → Put `<ns>/<name>/<id>` → 后台 `heartBeat`（`registry/etcd/registry.go:108-160`，goroutine 在 `:157`） |
 | 注销 | **REAL** | `registry/etcd/registry.go:163-181`（删 key、取消心跳、关租约） |
 | 发现 | **未消费** | `registry.Discovery`（`registry/registry.go:70-75`）+ `Watch`（`registry/etcd/registry.go:212`）有实现，但 `GetService` 的调用点只在 registry 后端自身与测试里。**仓内没有 gRPC resolver / HTTP client 消费它。** |
-| 实际服务间调用 | 配置地址直连 | gateway 拨号 `s.backend.GetAddr()`（`transport/gateway/gateway_server.go:72`），地址取自契约 `Grpc.addr`（`bootstrap/server.go:159-165`） |
+| 实际服务间调用 | 配置地址直连 | gateway 拨号 `s.backend.GetAddr()`（`transport/gateway/gateway_server.go:93`），地址取自契约 `Grpc.addr`（`transport/gateway/contract/provider.go:167`） |
 
 > 结论：**bald 目前只解决「被找到」，不解决「找到别人」。** 置信度 medium——外部消费方（bald-admin）是否自研了解析层，本次未核验。
 

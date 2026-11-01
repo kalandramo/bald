@@ -10,7 +10,7 @@
 | # | 风险 | 严重度 | 置信度 | 状态 |
 |---|---|---|---|---|
 | 6.5 | gRPC 的 `tls` 契约字段**未接线**，生成物硬编码明文；gateway 出站也硬编码明文 | **高** | ✅ 已核对源码 | **已修** |
-| 3.1 | 根 module ↔ 适配器 **模块环**，靠互相 `replace` 才编译 | **高** | ✅ 已核对 go.mod/import | 未修 |
+| 3.1 | 根 module ↔ 适配器 **模块环**，靠互相 `replace` 才编译 | **高** | ✅ 已核对 go.mod/import | **已修**（删重复机制后实测 89 模块为 DAG；22 个适配器单向 require 根的扇入耦合仍在） |
 | 6.1 | 鉴权 **fail-open**：未注入即整层消失，无 default-deny、无告警 | **高** | ✅ 已核对源码 | **已修** |
 | 2 | **发布面 ≫ 使用面**：retry / circuitbreaker / Discovery 等无消费方 | 中 | ✅ 全仓 grep | 未修 |
 | 7.1 | **CI 全量只跑 `-short`**，集成测试在 CI 中从不执行 | 中 | ✅ 已核对 `.github/workflows/ci.yml` | 未修 |
@@ -64,7 +64,7 @@ kafka 适配器核心文件 639 行，含 writer 重建重试（`broker/kafka/ka
 | `registry.Discovery` | 接口 + 4 实现 | **无外部调用者** | `GetService` 调用点仅出现在 registry 后端自身（`registry/kubernetes/registry.go:206` 自调用、`registry/nacos/watcher.go:68` 是 nacos SDK 同名方法）与测试 |
 | `transport/graphql`、`workflow/argo`、`ai/{openai,eino,langchaingo}`、`oss/{s3,minio}` | 7 | 仓内 0 | 全仓 grep 仅 `transport/mcp/options.go:14` 的注释提到 graphql；其余无命中。有 `*/contract` Provider 但无消费者或示例 |
 
-**为什么这是风险而不是「可扩展性好」**：这些模块进发布 tag、进 vuln/lint CI、进 `CHANGELOG.md`，但只有构造函数级测试（或没有测试）在触碰它们，**会静默腐烂**。Discovery 尤其值得单列——它让「服务发现」在 README 与契约里存在，而实际服务间调用走配置地址直连（`transport/gateway/gateway_server.go:72` 用 `s.backend.GetAddr()` 拨号，地址来自契约 `Grpc.addr`，见 `bootstrap/server.go:164-165`），使用者容易误判。
+**为什么这是风险而不是「可扩展性好」**：这些模块进发布 tag、进 vuln/lint CI、进 `CHANGELOG.md`，但只有构造函数级测试（或没有测试）在触碰它们，**会静默腐烂**。Discovery 尤其值得单列——它让「服务发现」在 README 与契约里存在，而实际服务间调用走配置地址直连（`transport/gateway/gateway_server.go:93` 用 `s.backend.GetAddr()` 拨号，地址来自契约 `Grpc.addr`，见 `transport/gateway/contract/provider.go:167`），使用者容易误判。
 
 消解路径（按成本排序，任选其一，不要默认「留着以后用」）：
 1. 接进 `pkg/appkit/std` 的标准角色（retry/circuitbreaker 作为可选 bundle 层，Discovery 作为 gRPC resolver）；
@@ -75,9 +75,9 @@ kafka 适配器核心文件 639 行，含 writer 重建重试（`broker/kafka/ka
 
 ## 3. 依赖治理
 
-**3.1 根 module ↔ 适配器的模块环** ✅ —— 本次评审的最高风险之一。
+**3.1 根 module ↔ 适配器的模块环** ✅ —— 本次评审的最高风险之一。（环已断，见本节末「修复」；剩下的是适配器单向 require 根的扇入耦合）
 
-双向都落到实处：
+修复前的双向拓扑（评审当时的实测，现已变化）：
 
 ```
 根 module ──require──▶ 适配器
@@ -94,14 +94,49 @@ kafka 适配器核心文件 639 行，含 writer 重建重试（`broker/kafka/ka
   cache/redis、oss/{minio,s3}、contrib/*、broker/redis、transport/{sse,asynq,cron,tcp,webrtc}  同样
 ```
 
-实测：**22 个非示例模块直接 require 根 module**（另有 `_example/bald`，合计 23），根 module 自身有 19 条本地 `replace`（`go.mod` 中 17 条在 `:5-37`，另有 `:229,:231` 两条 ratelimit 相关），每个 require 根的适配器也都写了 `replace github.com/kalandramo/bald => ../..`。Go 允许 module 图成环（按包级加载），所以它**能编译**——但代价是：
+实测：**22 个非示例模块直接 require 根 module**（另有 `_example/bald`，合计 23），根 module 自身有 19 条本地 `replace`（`go.mod` 中 17 条在 `:5-37`，另有 `:228,:230` 两条 ratelimit 相关），每个 require 根的适配器也都写了 `replace github.com/kalandramo/bald => ../..`。Go 允许 module 图成环（按包级加载），所以修复前它**能编译**——但代价是：
 
-- 环被本地 `replace` 遮蔽：改 `pkg/appkit` 的导出 API，根的 `go mod tidy` 与根自己的测试都看不出下游会断；断裂只在**给下游模块 bump require 到不存在的 tag 之前**都不显现。
+- 回边被本地 `replace` 遮蔽：改 `pkg/appkit` 的导出 API，根的 `go mod tidy` 与根自己的测试都看不出下游会断；断裂只在**给下游模块 bump require 到不存在的 tag 之前**都不显现。
 - 发版顺序变成人工约束。近期提交正是这条链的症状：`ca981b1`「tag 分批推送，避免触发流水线漏跑」、`ec4223f`「归位 bconf 的消费者 require」、`89a6a94`「未发版模块也跟随归位内部依赖」。
 - `*/contract` 子包是回边的主要载体（30 个目录），**这也是唯一可下刀的地方**。
 
-- 消解（方向，非承诺）：把 v2 Provider 所需的最小面（`Provider`/`Node`/`PlanScope`/`ApplyScope`/`Cleanup`/`Option`）抽到一个叶子 module（例如 `pkg/appkit` 独立成 `github.com/kalandramo/bald/appkit`，或新建中立的契约 module），让适配器只依赖叶子而非聚合根；环即断，且 `replace` 数量下降。
+- 消解（方向，非承诺）：把 v2 Provider 所需的最小面（`Provider`/`Node`/`PlanScope`/`ApplyScope`/`Cleanup`/`Option`）抽到一个叶子 module（例如 `pkg/appkit` 独立成 `github.com/kalandramo/bald/appkit`，或新建中立的契约 module），让适配器只依赖叶子而非聚合根；收益是 `replace` 数量与版本追赶下降、下游对根 API 变更解耦。**注意：gateway 那条断掉后图里已无环，这一步是解耦而非断环。**
 - 消解条件：任何适配器不再 `require github.com/kalandramo/bald`（仅剩 `pkg/` 内不参与 Provider 的包可以例外）。
+
+**3.1 修复（gateway 这一条环）✅ 已修**
+
+原评审把这条环写成「22 个模块互相环」是夸大了。按 `go list` 解析每个模块的真实
+import（模板字符串里的 import 字面量不算）后实测：环只有一个 3-模块 SCC
+`{. , bootstrap, transport/gateway}`，由两条边撑起——
+
+| 边 | 载体 | 现状 |
+|---|---|---|
+| A `transport/gateway → 根` | `transport/gateway/contract/provider.go` import `pkg/appkit`（Provider 接入面，方向正确） | 保留 |
+| B `bootstrap → transport/gateway` | `bootstrap/server.go` 的 `HttpServerProvider` 内建 gateway 分支 + `WithGatewayRegister` + `DriverGrpcGateway` | **已删** |
+| C `根 → transport/gateway` | `pkg/appkit` 的 `Decl.GatewayRegister` / `WithGatewayRegister` / `StandardServerProvider` 的网关分支，及其包内测试 import gateway | **已删** |
+
+B、C 是同一套机制的两份实现（命令式能力声明 vs 段驱动 Provider），删掉的是**重复**
+而不是能力：转码面改由 `transport/gateway/contract` 的两个段 Provider 表达——
+`HTTPProvider(register)` 接管 `server.http`（同端口单面），`AppProvider(register)`
+消费 `server.gateway`（独立端口并存）。为让「接管 HTTP」不误伤 gRPC，
+`std` 的 server Provider 拆成 `StandardHTTPProvider` + `StandardGRPCProvider`
+（段路径末者胜是按 Provider 整体驱逐的，合并成一个节点就会两面一起被顶掉）。
+
+- 配套：`driver` 的准入判据从 bootstrap 移到转码面自己（构造期 fail-fast 不变）；
+  `WithHTTP` 与转码 Provider 同时声明且 `driver` 留空仍构造期报错（显式 > 隐式）；
+  探针包装随实现迁到 gateway；`--plan` 的 `serverCapability` 不再投影 gateway
+  （它现在是真实节点）；codegen 模板与 `_example` 的 `grpcgw` 变体改出新写法。
+- 计划节点键随之变化（breaking）：`server` → `server.http` / `server.grpc`。
+- 验活：`go list` 图脚本在修复前的同一提交上抓到 SCC（168 条内部边），修复后
+  非测试与含测试两遍均为 `NONE (DAG)`（168 / 177 条边）；`_example` 的 `grpcgw`
+  变体真实起进程，`GET /v1/greet/bald` 经转码面返回 200，gin 专属路由 `/v1/ping`
+  在该面上 404，`/healthz` 200 且挂 Down 检查器后 `/readyz` 503。
+- 刻意没做：删掉重复机制就够断环了，没有为其余适配器动刀。`registry/*`、`contrib/*`、
+  `oss/*` 等 22 个模块仍然 require 根 module（单向回边，实测图已是 DAG，不再成环），
+  它们的版本追赶/编辑期不可见要靠抽 `appkit` 叶子 module 才能消——独立 breaking
+  动作，仍待 owner 决策。根与 `bootstrap` 的 `go.mod` 里指向 `transport/gateway` 的
+  本地 `replace` 一并保留（已无对应 require，留着是为将来复用不必重新接线）。
+- 还不能证明：CI 的 Linux 全量与 race 清单未因本次改动扩展（§1.1 的缺口照旧）。
 
 **3.2 依赖卫生：多 major 并存（低）** ✅ 脚本实测
 
@@ -192,7 +227,7 @@ kafka 适配器核心文件 639 行，含 writer 重建重试（`broker/kafka/ka
 
 - 三处语义变化，接手者需要知道：① 服务端 `tls.ca` 从「写了没用」变成「写了就强制校验客户端证书」；② `tls` 段存在但材料不全 → 启动期 fail-fast（旧行为是静默明文）；③ gRPC TLS 依赖 h2 ALPN，业务自持 `*tls.Config` 时必须自己带上（框架只在字段为空时补）。
 - 未修的范围（刻意保留）：契约 `tls` 字段在 Http3/Graphql/Sse/Websocket/Tcp/Thrift/Webtransport/Signalr/Socketio/Webrtc 仍无消费者（`bconf/gen` 都生成了 `GetTls()`）。SSE contract 明确写了「不加载证书，需业务注入 `*tls.Config`」（`transport/sse/contract/contract.go:71`）；HTTP3 的 `generateTLSConfig` 无条件自签（`transport/http3/server.go:169`）。这些适配器没有 `contract` 之外的框架装配路径，属 §2「发布面 ≫ 使用面」的同一议题。
-- 回归：`bconf/tlsconf/tlsconf_test.go`（文件/内联 PEM 等价、材料不全逐条报错、真实 mTLS 握手、服务端拒绝无客户端证书、客户端拒绝不可信服务端）+ `transport/{http,grpc}/…_tls_test.go`、`transport/gateway/gateway_tls_test.go`、`bootstrap/grpc_tls_test.go`（装配层端到端）。证书由 `bconf/tlsconf/tlstest` 现发（一次性 CA + 叶子证书，产出即契约 `TLS` 段），因此每条断言走的都是真实契约路径而非 mock。
+- 回归：`bconf/tlsconf/tlsconf_test.go`（文件/内联 PEM 等价、材料不全逐条报错、真实 mTLS 握手、服务端拒绝无客户端证书、客户端拒绝不可信服务端）+ `transport/http/http_tls_test.go`、`transport/grpc/grpc_tls_test.go`、`transport/gateway/gateway_tls_test.go`、`bootstrap/grpc_tls_test.go`（装配层端到端）。证书由 `bconf/tlsconf/tlstest` 现发（一次性 CA + 叶子证书，产出即契约 `TLS` 段），因此每条断言走的都是真实契约路径而非 mock。
 
 **6.6 机密** ✅ 未发现机密被写日志的证据；脱敏有文档化缺口：不覆盖 `slog.Attr` 形态（如 `slog.String("password", v)`），见 `bconf/gen/go/bootstrap/v1/log.pb.go:36` 的说明。**govulncheck 是 fail-closed 且覆盖全模块**（`.github/workflows/ci.yml:159` 固定 v1.9.0，vuln 作业用 `find` 循环）——这一项没有问题。
 
@@ -239,4 +274,4 @@ kafka 适配器核心文件 639 行，含 writer 重建重试（`broker/kafka/ka
 5. **kafka 的 writer 重建 + 订阅退避补测试**（§1.3）——为第 4 步的 race 覆盖提供可跑内容。
 6. **给 §2 的未接线面做决策**（接线 / 标注 reference-only / 删除）——需要 owner 口径。
 7. **`berrors` 边界口径**（§5）与 **Discovery 消费侧**（§2）——设计级，先出方案再动码。
-8. **抽离 appkit 契约面断开模块环**（§3.1）——breaking，放在最后，且只在 §5/§6 的口径定清之后做。
+8. **抽离 appkit 契约面，把适配器从「require 聚合根」解耦**（§3.1）——breaking，放在最后，且只在 §5/§6 的口径定清之后做。模块环已由 gateway 那一条的重复机制删除而断开（实测图为 DAG），这条剩下的收益是 `replace` 数量与版本追赶，不再是断环。

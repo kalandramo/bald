@@ -23,7 +23,7 @@ workspace "bald" "bald Go 多模块框架 — 当前架构" {
             spi_core = container "spi_core" "SPI 契约模块 — 只定义接口。transport/server.go:14-22 = Start/Stop/Endpoint；broker/broker.go:9-33 = Broker；cache/cache.go:28-69；registry/registry.go:62-75；metrics/metrics.go:15-19" "Go module"
             bconf = container "bconf" "bconf 配置契约 — protobuf 生成的强类型契约（bconf/proto → bconf/gen）：bootstrapv1.BootstrapConfig + appspec/v1" "Go module"
             bconfig = container "bconfig" "bconfig 配置源抽象 — Reader（bconfig/bconfig.go:17）/ Watcher（:42）/ Decoder（:78）+ file/env/etcd/consul/nacos/vault/apollo" "Go module"
-            bootstrap = container "bootstrap" "bootstrap 装配桥 — 分层合并内核（bootstrap/config/config.go:1-17，优先级自高至低：flag、env、file、contract source、remote bridge）+ ServerProvider 工厂（bootstrap/server.go:31,100,154）+ 远程配置驱动" "Go module"
+            bootstrap = container "bootstrap" "bootstrap 装配桥 — 分层合并内核（bootstrap/config/config.go:1-17，优先级自高至低：flag、env、file、contract source、remote bridge）+ ServerProvider 工厂（bootstrap/server.go:25,89,137）+ 远程配置驱动" "Go module"
             appkit = container "appkit" "pkg/appkit 组合层 — v2 Provider Plan/Build + Segments（pkg/appkit/provider.go:1-24）、Run/stopAll 生命周期（pkg/appkit/appkit.go:561-703,715-750）、std 标准装配" "根 module 内包"
             middleware = container "middleware" "pkg/middleware 横切层 — bundle 链序固化：Gin() / GRPCInterceptors()（pkg/middleware/bundle/bundle.go:171-211,224-241）" "根 module 内包"
             adapters = container "adapters" "适配器模块 — transport/*(18) broker/*(4) cache/*(3) registry/*(4) log/*(5) metrics/*(3) encoding/*(12) ratelimit/*(3) circuitbreaker/*(4) oss ai workflow cobramcp" "Go module × N"

@@ -12,7 +12,7 @@ digraph bald_flows {
 
         client [label="客户端请求", shape=ellipse, fillcolor="#fff"];
         listen [label="HTTPServer.Start\nnet.Listen + Serve\n transport/http/http_server.go:62-89"];
-        build [label="stdServerProvider.Build\n取 Decl.HTTPHandler（*gin.Engine）\nwithProbes 包装\n pkg/appkit/standard.go:204-229\n pkg/appkit/health.go:60-80\n → bootstrap.HttpServerProvider\n bootstrap/server.go:154-173"];
+        build [label="stdHTTPProvider.Build\n取 Decl.HTTPHandler（*gin.Engine）\nwithProbes 包装\n pkg/appkit/standard.go:168-188\n pkg/appkit/health.go:72-80\n → bootstrap.HttpServerProvider\n bootstrap/server.go:137-149"];
         rec [label="Recovery\n pkg/middleware/bundle/bundle.go:177"];
         rid [label="RequestID\n pkg/middleware/bundle/bundle.go:177"];
         trc [label="Tracing（仅 b.tracing）\n span = tracer.Start\n pkg/middleware/gin/observability.go:154"];
@@ -29,13 +29,13 @@ digraph bald_flows {
 
         retry_box [label="retry\n零 importer\n（唯一提及 ratelimit/bbr/bbr.go:68 注释）", color="#c33", fontcolor="#c33", fillcolor="#fff"];
         cb_box [label="circuitbreaker\n无 transport / middleware 消费方", color="#c33", fontcolor="#c33", fillcolor="#fff"];
-        grpc_tls [label="gRPC 分支\n契约 server.grpc.tls 无人消费\nbootstrap/server.go:100-126 只读 reflection\n生成物硬编码 insecure\n internal/codegen/appspec_tmpl_app.go:288\n详见 risk-review.md §6.5", shape=note, color="#c33", fontcolor="#c33", fillcolor="#fff"];
+        grpc_tls [label="gRPC 分支同样契约驱动\nserver.grpc.tls → bconf/tlsconf.Server\n transport/grpc/grpc_server.go:88-97\n网关出站按同一段选凭据\n transport/gateway/gateway_server.go:70-79\n（§6.5 已修：协议两侧对称）", shape=note, color="#3a7", fontcolor="#2a6", fillcolor="#eef8f1"];
 
         client -> listen -> build -> rec;
         rec -> rid -> trc -> lg -> cors -> sec -> authn -> audit -> authz -> rl -> to -> hdl -> resp;
         rl -> retry_box [style=dashed, color="#c33", label="未被请求路径使用", fontcolor="#c33"];
         to -> cb_box [style=dashed, color="#c33", label="未被请求路径使用", fontcolor="#c33"];
-        build -> grpc_tls [style=dotted, color="#c33", label="协议对称性缺口", fontcolor="#c33"];
+        build -> grpc_tls [style=dotted, color="#3a7", label="TLS 对称（已修）", fontcolor="#2a6"];
     }
 
     // ================= 子图 2：消息流 =================

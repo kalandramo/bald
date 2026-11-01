@@ -146,7 +146,7 @@
 <text xml:space="preserve" text-anchor="start" x="3751.2" y="-1311.08" font-family="Arial" font-size="24.00" fill="#444444">分层合并内核（bootstrap/config/config.go:1&#45;17，优先级自高至低：flag、env、file、contract</text>
 <text xml:space="preserve" text-anchor="start" x="4100.7" y="-1287.08" font-family="Arial" font-size="24.00" fill="#444444">source、remote bridge）+</text>
 <text xml:space="preserve" text-anchor="start" x="4162.58" y="-1263.08" font-family="Arial" font-size="24.00" fill="#444444">ServerProvider</text>
-<text xml:space="preserve" text-anchor="start" x="4020.08" y="-1239.08" font-family="Arial" font-size="24.00" fill="#444444">工厂（bootstrap/server.go:31,100,154）+</text>
+<text xml:space="preserve" text-anchor="start" x="4026.83" y="-1239.08" font-family="Arial" font-size="24.00" fill="#444444">工厂（bootstrap/server.go:25,89,137）+</text>
 <text xml:space="preserve" text-anchor="start" x="4171.2" y="-1215.08" font-family="Arial" font-size="24.00" fill="#444444">远程配置驱动</text>
 </g>
 <!-- 11&#45;&gt;10 -->

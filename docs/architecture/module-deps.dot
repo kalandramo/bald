@@ -3,7 +3,7 @@ digraph bald_modules {
     node [fontname="Helvetica", fontsize=11, shape=box, style="rounded,filled", fillcolor="#f2f5fa"];
     edge [fontname="Helvetica", fontsize=9, color="#5b6b7f", arrowsize=0.6];
     graph [fontname="Helvetica", fontsize=12, ranksep=0.55, nodesep=0.35, labelloc=t,
-           label="bald 模块依赖分层（93 个 go.mod）— 2026-11-01，只画已核实的边；红=跨层回边（模块环）\n（已用 dot -Tsvg 渲染校验，graphviz 16.1.0）"];
+           label="bald 模块依赖分层（93 个 go.mod）— 2026-11-02，只画已核实的边；红=适配器指回根 module 的单向回边（原 gateway 模块环已断，实测图为 DAG）\n（已用 dot -Tsvg 渲染校验，graphviz 16.1.0）"];
 
     // ---- Layer: SPI 契约（无 bald 内部依赖） ----
     subgraph cluster_spi {
@@ -36,7 +36,7 @@ digraph bald_modules {
     subgraph cluster_asm {
         label="装配层（根 module 内包 + bootstrap module）";
         style=rounded; color="#9aa7b8";
-        bootstrap [label="bootstrap\n分层合并 + ServerProvider\n bootstrap/config/config.go:1-17\n bootstrap/server.go:31,100,154"];
+        bootstrap [label="bootstrap\n分层合并 + ServerProvider\n bootstrap/config/config.go:1-17\n bootstrap/server.go:25,89,137"];
         appkit [label="pkg/appkit\nv2 Provider Plan/Build + Run/stopAll\n pkg/appkit/provider.go\n pkg/appkit/appkit.go:561-703"];
         bundle [label="pkg/middleware/bundle\nGin() / GRPCInterceptors()\n pkg/middleware/bundle/bundle.go:171-211,224-241"];
         rootpkg [label="pkg/{audit,authn,authz,metrics}\n（根 module 内包）", fillcolor="#e8f0e0"];

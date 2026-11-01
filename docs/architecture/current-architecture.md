@@ -24,10 +24,10 @@ bald 是一个 **SPI + 适配器 + 声明式装配** 的 Go 多模块框架：�
 
 | 层 | 模块 | 角色 | 证据 |
 |---|---|---|---|
-| 聚合根 | `github.com/kalandramo/bald` | 同时是 **`pkg/` 库**（appkit、store、audit、authn、authz、middleware、contextx、id、crudbridge、validation、testkit）、`cmd/bald`、`internal/{codegen,docscheck,release}`、`observability/` 的宿主，以及 19 条本地 `replace` 的聚合点 | `go.mod:1,5-37,229,231` |
+| 聚合根 | `github.com/kalandramo/bald` | 同时是 **`pkg/` 库**（appkit、store、audit、authn、authz、middleware、contextx、id、crudbridge、validation、testkit）、`cmd/bald`、`internal/{codegen,docscheck,release}`、`observability/` 的宿主，以及 19 条本地 `replace` 的聚合点 | `go.mod:1,5-37,228,230` |
 | 配置契约 | `bconf` | protobuf 生成的强类型配置契约（`bootstrapv1.BootstrapConfig`、`appspec/v1`） | `bconf/proto/`、`bconf/gen/`、Taskfile `proto-contract`（`Taskfile.yml:63-67`） |
 | 配置源 | `bconfig` | 配置「从哪里读」：Reader/Watcher/Decoder + file/env/etcd/consul/nacos/vault/apollo | `bconfig/bconfig.go:3-16` |
-| 装配桥 | `bootstrap` | 分层合并内核（viper 已退役）+ `ServerProvider` 工厂 + 远程配置驱动 | `bootstrap/config/config.go:1-17`、`bootstrap/server.go:31,100,154` |
+| 装配桥 | `bootstrap` | 分层合并内核（viper 已退役）+ `ServerProvider` 工厂 + 远程配置驱动 | `bootstrap/config/config.go:1-17`、`bootstrap/server.go:25,89,137` |
 | 组合层 | `pkg/appkit`（根 module 内） | v2 Provider `Plan`/`Build`/`Segments`、`Run`/`stopAll` 生命周期、`std` 标准装配、`mech`/`appcli`/`Domain` | `pkg/appkit/provider.go:1-24`、`pkg/appkit/appkit.go:561-703` |
 | 横切层 | `pkg/middleware/{bundle,gin,grpc}` | 链序固化的 gin 中间件链与 gRPC 拦截器链 | `pkg/middleware/bundle/bundle.go:171-211,224-241` |
 | SPI | `transport` `broker` `cache` `metrics` `registry` `ratelimit` `circuitbreaker` `retry` `encoding` `log` `health` `berrors` | 只有接口与少量通用工具 | `transport/server.go:14-22`、`broker/broker.go:9-33`、`cache/cache.go:28-69`、`registry/registry.go:62-75` |
@@ -37,7 +37,7 @@ bald 是一个 **SPI + 适配器 + 声明式装配** 的 Go 多模块框架：�
 | 代码生成 | `cmd/bald` + `internal/codegen` | `gen app/domain/proto/store`，从 `appspec.json` 产出 owned/seeded 文件树 | `internal/codegen/appspec_tmpl_*.go` |
 | 样例 | `_example/bald` | 已迁入生成树的真实消费方 | `_example/bald/internal/bootstrap/assemble.gen.go:1-7,42-47` |
 
-`transport/` 与 `transport/grpc` 的区别是理解本仓库的钥匙：前者是 **接口**（`Server`：`Start(ctx)/Stop(ctx)/Endpoint()`），后者是 **一个实现**。`transport/gateway` 是复合体——它内嵌 `*httpserver.HTTPServer` 再加 grpc→REST 反向代理（`transport/gateway/gateway_server.go:16-24`），`transport/mcp` 则直接包装 `mark3labs/mcp-go`，但同样实现了 `Start/Stop/Endpoint`（`transport/mcp/server.go:106,186,233`）。
+`transport/` 与 `transport/grpc` 的区别是理解本仓库的钥匙：前者是 **接口**（`Server`：`Start(ctx)/Stop(ctx)/Endpoint()`），后者是 **一个实现**。`transport/gateway` 是复合体——它内嵌 `*httpserver.HTTPServer` 再加 grpc→REST 反向代理（`transport/gateway/gateway_server.go:20-24`），`transport/mcp` 则直接包装 `mark3labs/mcp-go`，但同样实现了 `Start/Stop/Endpoint`（`transport/mcp/server.go:106,186,233`）。
 
 ## 3. 装配主干（配置 → 计划 → 运行）
 
@@ -60,33 +60,40 @@ appspec.json / bconf 契约
 ```
 
 关键接缝：
-- `bootstrap.ServerProvider func(ctx, *bootstrapv1.Server) (transport.Server, func(), error)`（`bootstrap/server.go:31`），配 `GrpcServerProvider`/`HttpServerProvider`（:100,:154）。
+- `bootstrap.ServerProvider func(ctx, *bootstrapv1.Server) (transport.Server, func(), error)`（`bootstrap/server.go:25`），配 `GrpcServerProvider`/`HttpServerProvider`（:89,:137）。
 - `appkit.Provider` 接口（`pkg/appkit/provider.go:1-24`）：`Option` + `Segments()` + `Plan()` + `Build()`。自 v0.31.0 起 **只有 v2**，`AdaptLegacy`/`LegacyProvider` 等 v1 兼容面已删除。
 - 变体（Q7）：`AppSpec.Variant.when` 用 `go/build/constraint` 表达式，命中后 effects 并入真实装配；`variantImpls`/`WithVariantImpl` 与声明在 plan 期对账（I12）。
 - 自定义接线（Q9）：`customOptions(role)` / `customVariantOpts(name)` / `customSubcommands()` 三个 seeded 钩子承载声明表达不了的接线，`assemble.gen.go` 把 `customOptions` 放最后 → last-wins。
 
-## 4. 拓扑事实：根 module 是「枢纽」，也是环
+## 4. 拓扑事实：根 module 是「枢纽」（单向扇入，已不成环）
 
-**这是本架构最需要理解的一点。** 根 module 既聚合又提供 `pkg/`，而 22 个适配器 module 把它当普通库引用：
+**这是本架构最需要理解的一点。** 根 module 既聚合又提供 `pkg/`，而 23 个适配器 module 把它当普通库引用：
 
 ```
-根 module (go.mod:51-53)          适配器 module
-  require transport v0.4.0   ◀──▶   transport/gateway/go.mod:28  require github.com/kalandramo/bald v0.34.0
-  require transport/gateway        transport/gateway/contract/provider.go:24  import .../pkg/appkit
-  require transport/grpc           registry/etcd/contract/provider.go:16      import .../pkg/appkit
-  require bootstrap                oss/minio/contract/provider.go:17          import .../pkg/appkit
-  bootstrap/server.go:15-17 ──▶ transport/{gateway,grpc,http}
+根 module 侧（只 require 叶子契约与装配模块）
+  go.mod:43-54  bconf / berrors / bootstrap / health / log / ratelimit(+tokenbucket) /
+                registry / transport / transport{/,/grpc,/http,/web}
+  bootstrap/server.go:13-15  ──▶ transport{,grpc,http}
   bootstrap/health.go:13     ──▶ transport/grpc
   pkg/middleware/gin/authn.go:15 ─▶ transport/web
+
+适配器 module 侧（单向指回根，根不认识它们）
+  transport/gateway/go.mod:28            require github.com/kalandramo/bald v0.34.1
+  transport/gateway/contract/provider.go:24  import github.com/kalandramo/bald/pkg/appkit
+  registry/etcd/contract/provider.go:16      import github.com/kalandramo/bald/pkg/appkit
+  oss/minio/contract/provider.go:17          import github.com/kalandramo/bald/pkg/appkit
 ```
+
+**曾经存在的环**：`根 → bootstrap → transport/gateway → 根`（`bootstrap/server.go` 里硬编 gateway 分支 + `pkg/appkit` 的 `WithGatewayRegister`）。转码面已整体交给 `transport/gateway/contract` 的 Provider，根与 `bootstrap` 不再 require `transport/gateway`，上述链已断。实测（`go list -e` 逐模块取 import，按最长前缀归到属主 module）：**89 个模块的内部依赖图是 DAG，含测试导入也无环**。
 
 直接 require 根 module 的模块（**22 个非示例模块**，实测 `grep -E "^\s+github.com/kalandramo/bald v"`；另有 `_example/bald`，合计 23）：
 `broker/redis`、`transport/{sse,asynq,tcp,webrtc,gateway,cron}`、`cache/redis`、`registry/{nacos,consul,etcd,kubernetes}`、`oss/{s3,minio}`、`contrib/{config-nacos,store-mongo,store-gorm,audit-stream,audit-gorm,authn-jwt,authz-casbin,observability-otlp}`、`_example/bald`。
 其余 transport（`websocket`、`web`、`kafka`、`rabbitmq`、`redis`、`rocketmq`、`subscribe`、`mcp`）**不依赖根 module**，只依赖 `transport`/`encoding`/`broker`/`berrors`/`log` 这些叶子契约模块。
 
-环之所以能编译，是因为**双方都写了互相指向的 `replace`**（根 `go.mod:5-37`，各适配器形如 `replace github.com/kalandramo/bald => ../..`，实测无一个缺失）。代价：
-- 根 API 变更在**编辑期不可见**，只在打 tag 时炸；
+反向要求根 module 的模块与根自己 require 的模块**交集为空**，所以环不会回来；代价只是枢纽型依赖：
+- 根 API 变更对 23 个消费者在**编辑期不可见**，只在打 tag 时炸；
 - 发版顺序成为人工约束（对应近期提交 `ca981b1` "tag 分批推送，避免触发流水线漏跑"、`ec4223f` "归位 bconf 的消费者 require"）。
+- `go.mod:5-37` 与 `bootstrap/go.mod` 仍保留指向 `transport/gateway` 的本地 `replace`（已无对应 require，属遗留；保留是为了将来复用不必重新接线）。
 
 严重度评估见 `risk-review.md` §3.1。
 
@@ -126,7 +133,7 @@ appspec.json / bconf 契约
 
 | 项 | 置信度 | 说明 |
 |---|---|---|
-| 「服务间调用不使用 Discovery，走配置地址直连」 | medium | 依据：gateway 用契约 `Grpc.addr` 拨号（`transport/gateway/gateway_server.go:72`，地址来自 `bootstrap/server.go:159-165`）；仓内无 resolver。外部消费方（bald-admin）是否有自研解析未在本次范围内核验 |
+| 「服务间调用不使用 Discovery，走配置地址直连」 | medium | 依据：gateway 用契约 `Grpc.addr` 拨号（`transport/gateway/gateway_server.go:93`，地址由 `transport/gateway/contract/provider.go:167` 从契约 `server.grpc` 段传入）；仓内无 resolver。外部消费方（bald-admin）是否有自研解析未在本次范围内核验 |
 | 「93 个模块的真实可运行面远小于发布面」 | high | 见 §6 与 `risk-review.md` §2 |
 | Windows 周界 | unknown | `.github/workflows/windows.yml` 每周一/手动 dispatch；该面本轮未验证 |
 | 运行时拓扑（进程实际部署形态、副本、网络边界） | unknown | 仓内无 IaC/清单，本次未做 `deployment-topology-analyzer` |
