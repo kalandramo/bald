@@ -24,12 +24,7 @@ const (
 // Config 描述配置中心来源。
 // 配置可以混合使用，同一 Config 中可同时设置多种配置源。
 //
-// 2026-09-05 瘦身：移除未实现 provider 的死源（fs/redis/zookeeper/
-// oss/polaris，字段号 2/8/9/13/14 reserved 防复用，见文末声明）。
-// fs 源的 fsys 是编译期资源无法经契约表达（bconfig/fs 走代码 API）；
-// vault 同日实现（KV v1/v2 + 轮询 watch，恢复字段号 10——原契约从未
-// 发布，无历史数据风险）；redis/zookeeper/oss/polaris 按需实现时以
-// 新字段号追加。
+// 只声明有 provider 实现的源；未实现的字段号 reserved 防复用（见末尾）。
 type Config struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	File          *Config_File           `protobuf:"bytes,1,opt,name=file,proto3,oneof" json:"file,omitempty"`
