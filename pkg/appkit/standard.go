@@ -7,8 +7,10 @@
 // 器同时允许高级用户单独取用或覆盖单个默认。
 //
 // 成员清单（框架内置默认，不多不少）：
-//   - StandardServerProvider：server.http / server.grpc——能力声明在代码
-//     （WithHTTP/WithGatewayRegister/WithGRPC），契约段驱动地址/TLS/driver；
+//   - StandardHTTPProvider / StandardGRPCProvider：server.http 与 server.grpc
+//     各一个节点——能力声明在代码（WithHTTP/WithGRPC），契约段驱动地址/TLS；
+//     分两个 Provider 是为了让第三方转码面能只接管 server.http 而不挤掉 gRPC
+//     面（见 stdHTTPProvider 上方注释）；
 //   - StandardAuditProvider：audit.backends 的 "log" 项——核心 LoggerAuditor
 //     零依赖开箱即用；
 //   - StandardLoggerProvider：logger 段——bslog（标准库 slog）后端，阶段 A
@@ -21,23 +23,13 @@ package appkit
 import (
 	"context"
 	"fmt"
-	"net/http"
-
-	"google.golang.org/grpc"
 
 	baldbootstrap "github.com/kalandramo/bald/bootstrap"
-	"github.com/kalandramo/bald/health"
 	log "github.com/kalandramo/bald/log"
 	"github.com/kalandramo/bald/log/bslog"
 	"github.com/kalandramo/bald/pkg/audit"
 	"github.com/kalandramo/bald/transport"
 )
-
-// StandardServerProvider 返回框架内置协议服务器 Provider（server.http /
-// server.grpc 段；std.Standard() 成员）。构建时机为迟后阶段（业务
-// BeforeStart 钩子之后——register 回调与 handler 消费业务建好的运行期资源，
-// wiring_order_test 钉住该时序）。
-func StandardServerProvider() Provider { return stdServerProvider{} }
 
 // StandardAuditProvider 返回框架内置审计 Provider（audit 段 "log" 后端；
 // std.Standard() 成员）。第三方 store/stream 后端经用户 audit Provider
@@ -127,30 +119,41 @@ func (p stdLoggerProvider) Build(_ context.Context, s ApplyScope, _ Node) (any, 
 }
 
 // ---------------------------------------------------------------------------
-// server Provider：server.http / server.grpc
+// server Providers：server.http 与 server.grpc 各自一个节点
 // ---------------------------------------------------------------------------
 
-// stdServerProvider 消费 server.http / server.grpc 段（引擎按顶层段
-// "server" 归入迟后阶段）：能力声明（WithHTTP/WithGRPC）决定构造哪些协议面，
-// 契约段只驱动地址/TLS/driver。
-type stdServerProvider struct{}
+// stdServerProvider 拆成两个面 Provider 的原因：段归属是**整 Provider** 级的
+// 末者胜（见 provider.go），单一 Provider 同时声明 server.http + server.grpc
+// 时，第三方转码面想接管 HTTP 端口就会把 gRPC 面一起挤掉。拆开后「同端口单面
+// 的 grpc-gateway 拓扑」只接管 server.http，gRPC 面留在 std——这是 bootstrap
+// 不再硬编 grpc-gateway（模块环边）后该拓扑唯一的表达通道。
 
-func (stdServerProvider) Segments() []string { return []string{"server.http", "server.grpc"} }
+// StandardHTTPProvider 返回框架内置 HTTP 面 Provider（server.http 段）。
+func StandardHTTPProvider() Provider { return stdHTTPProvider{} }
+
+// StandardGRPCProvider 返回框架内置 gRPC 面 Provider（server.grpc 段）。
+func StandardGRPCProvider() Provider { return stdGRPCProvider{} }
+
+// stdHTTPProvider 消费 server.http 段：能力声明（WithHTTP）决定构不构面，
+// 契约段驱动地址/TLS。
+type stdHTTPProvider struct{}
+
+func (stdHTTPProvider) Segments() []string { return []string{"server.http"} }
 
 // Apply 把自身追加进声明（Provider 即 Option，可直接作为 MustServe 变参项）。
-func (stdServerProvider) Apply(d *Decl) { d.Providers = append(d.Providers, stdServerProvider{}) }
+func (stdHTTPProvider) Apply(d *Decl) { d.Providers = append(d.Providers, stdHTTPProvider{}) }
 
-// Plan 声明协议服务器节点：迟后阶段（PhaseServe）——业务 BeforeStart 钩子
-// 之后构造，register 回调与 handler 消费业务建好的运行期资源。
+// Plan 声明 HTTP 服务器节点：迟后阶段（PhaseServe）——业务 BeforeStart 钩子
+// 之后构造，handler 消费业务建好的运行期资源。
 //
-// 保持 Opaque：server 段只声明地址/TLS/driver，真正装进去的 REST 路由与
-// gRPC service 由 WithHTTP/WithGRPC 的回调注册，计划看不见；这里的逃逸舱
-// 是诚实标记而非待办（生成式路由见设计 Q5）。
-func (stdServerProvider) Plan(context.Context, PlanScope) ([]Node, error) {
+// 保持 Opaque：server 段只声明地址/TLS/driver，真正装进去的 REST 路由由
+// WithHTTP 的 handler 承载，计划看不见；这里的逃逸舱是诚实标记而非待办
+// （生成式路由见设计 Q5）。
+func (stdHTTPProvider) Plan(context.Context, PlanScope) ([]Node, error) {
 	return []Node{{
-		Key:      "server",
+		Key:      "server.http",
 		Kind:     "server",
-		Segments: []string{"server.grpc", "server.http"},
+		Segments: []string{"server.http"},
 		Phase:    PhaseServe,
 		Reload:   ReloadStatic,
 		Opaque:   true,
@@ -158,87 +161,91 @@ func (stdServerProvider) Plan(context.Context, PlanScope) ([]Node, error) {
 	}}, nil
 }
 
-// Build 按能力声明构造协议服务器（gRPC 先于 HTTP：保持服务器列表序与停机
-// 聚合序稳定）。产物为 []transport.Server（零能力声明 = 空切片，跳过构造
-// 合法：纯后台进程）；cleanup 聚合逆序释放（后建先收，与 runClosers 栈式
-// 语义一致）。
-func (p stdServerProvider) Build(ctx context.Context, s ApplyScope, _ Node) (any, Cleanup, error) {
+// Build 按能力声明构造 HTTP 服务器。
+//
+// 健康检查默认装配在此落地：探针包在业务 handler 外层（协议实现不注册任何
+// 框架路由），见《Bald 健康检查装配设计》。
+func (stdHTTPProvider) Build(ctx context.Context, s ApplyScope, _ Node) (any, Cleanup, error) {
 	d := s.Decl
-	if d.HTTPHandler == nil && d.GatewayRegister == nil && d.GRPCRegister == nil {
-		return nil, nil, nil // 零能力声明：跳过构造（纯后台进程合法）
+	if d.HTTPHandler == nil {
+		return nil, nil, nil // 无 HTTP 能力声明：跳过构造
 	}
-
-	var (
-		servers []transport.Server
-		closers []func()
-	)
-	// gRPC：service 注册 + 选项工厂（按登记顺序）+ 健康状态。
-	if d.GRPCRegister != nil {
-		grpcOpts := []baldbootstrap.GRPCServerOption{
-			baldbootstrap.WithGRPCRegister(d.GRPCRegister),
-		}
-		// 工厂在 server 构造时逐个求值（见 bootstrap.GrpcServerProvider），彼时
-		// 业务 beforeStart 已建好认证器；登记顺序即最终链序。
-		for _, fn := range d.GRPCOptionFuncs {
-			grpcOpts = append(grpcOpts, baldbootstrap.WithGRPCUnaryFunc(fn))
-		}
-		if d.Health != nil {
-			grpcOpts = append(grpcOpts, baldbootstrap.WithGRPCHealth(d.Health, d.HealthInterval))
-		}
-		srv, closer, err := baldbootstrap.GrpcServerProvider(grpcOpts...)(ctx, s.Config.GetServer())
-		if err != nil {
-			runClosers(closers)
-			return nil, nil, err
-		}
-		if srv != nil {
-			servers = append(servers, srv)
-		}
-		if closer != nil {
-			closers = append(closers, closer)
-		}
+	handler := d.HTTPHandler
+	if d.Health != nil {
+		handler = withProbes(handler, d.Health, d.ProbeLivePath, d.ProbeReadyPath)
 	}
-	// HTTP：业务 handler 或网关转码面（driver 由契约 server.http.driver 选择）。
-	// 健康检查默认装配在此落地：探针包在业务 handler 外层（协议实现不注册
-	// 任何框架路由），见《Bald 健康检查装配设计》。
-	if d.HTTPHandler != nil || d.GatewayRegister != nil {
-		var httpOpts []baldbootstrap.HTTPServerOption
-		handler := d.HTTPHandler
-		if d.Health != nil && handler != nil {
-			handler = withProbes(handler, d.Health, d.ProbeLivePath, d.ProbeReadyPath)
-		}
-		httpOpts = append(httpOpts, baldbootstrap.WithHTTPHandler(handler))
-		if d.GatewayRegister != nil {
-			gatewayRegister := d.GatewayRegister
-			if d.Health != nil {
-				gatewayRegister = withGatewayProbes(gatewayRegister, d.Health, d.ProbeLivePath, d.ProbeReadyPath)
-			}
-			httpOpts = append(httpOpts, baldbootstrap.WithGatewayRegister(gatewayRegister))
-		}
-		srv, closer, err := baldbootstrap.HttpServerProvider(httpOpts...)(ctx, s.Config.GetServer())
-		if err != nil {
-			runClosers(closers)
-			return nil, nil, err
-		}
-		if srv != nil {
-			servers = append(servers, srv)
-		}
-		if closer != nil {
-			closers = append(closers, closer)
-		}
+	srv, closer, err := baldbootstrap.HttpServerProvider(
+		baldbootstrap.WithHTTPHandler(handler))(ctx, s.Config.GetServer())
+	if err != nil {
+		return nil, nil, err
 	}
-
 	var cleanup Cleanup
-	if len(closers) > 0 {
-		cleanup = func(context.Context) error { runClosers(closers); return nil }
+	if closer != nil {
+		cleanup = func(context.Context) error { closer(); return nil }
 	}
-	return servers, cleanup, nil
+	return serverList(srv), cleanup, nil
 }
 
-// runClosers 逆序执行清理函数：后构造的资源先释放（栈式释放）。
-func runClosers(closers []func()) {
-	for i := len(closers) - 1; i >= 0; i-- {
-		closers[i]()
+// stdGRPCProvider 消费 server.grpc 段：能力声明（WithGRPC/WithGRPCOptions）
+// 决定构不构面，契约段驱动地址/TLS/reflection。
+type stdGRPCProvider struct{}
+
+func (stdGRPCProvider) Segments() []string { return []string{"server.grpc"} }
+
+// Apply 把自身追加进声明（Provider 即 Option）。
+func (stdGRPCProvider) Apply(d *Decl) { d.Providers = append(d.Providers, stdGRPCProvider{}) }
+
+// Plan 声明 gRPC 服务器节点（与 HTTP 面同阶段；节点序由 Priority/Key 决定，
+// gRPC 排在 HTTP 前以保持既有的服务器列表序与停机聚合序）。
+func (stdGRPCProvider) Plan(context.Context, PlanScope) ([]Node, error) {
+	return []Node{{
+		Key:      "server.grpc",
+		Kind:     "server",
+		Segments: []string{"server.grpc"},
+		Phase:    PhaseServe,
+		Priority: -1,
+		Reload:   ReloadStatic,
+		Opaque:   true,
+		Origin:   OriginStd,
+	}}, nil
+}
+
+// Build 按能力声明构造 gRPC 服务器：service 注册 + 选项工厂（按登记顺序）+
+// 健康状态。
+func (stdGRPCProvider) Build(ctx context.Context, s ApplyScope, _ Node) (any, Cleanup, error) {
+	d := s.Decl
+	if d.GRPCRegister == nil {
+		return nil, nil, nil // 无 gRPC 能力声明：跳过构造
 	}
+	grpcOpts := []baldbootstrap.GRPCServerOption{
+		baldbootstrap.WithGRPCRegister(d.GRPCRegister),
+	}
+	// 工厂在 server 构造时逐个求值（见 bootstrap.GrpcServerProvider），彼时
+	// 业务 beforeStart 已建好认证器；登记顺序即最终链序。
+	for _, fn := range d.GRPCOptionFuncs {
+		grpcOpts = append(grpcOpts, baldbootstrap.WithGRPCUnaryFunc(fn))
+	}
+	if d.Health != nil {
+		grpcOpts = append(grpcOpts, baldbootstrap.WithGRPCHealth(d.Health, d.HealthInterval))
+	}
+	srv, closer, err := baldbootstrap.GrpcServerProvider(grpcOpts...)(ctx, s.Config.GetServer())
+	if err != nil {
+		return nil, nil, err
+	}
+	var cleanup Cleanup
+	if closer != nil {
+		cleanup = func(context.Context) error { closer(); return nil }
+	}
+	return serverList(srv), cleanup, nil
+}
+
+// serverList 把单个服务器产物包成既有的 []transport.Server 形态（引擎按切片
+// 追加服务器列表；nil server = 契约段缺失，空切片即跳过）。
+func serverList(srv transport.Server) []transport.Server {
+	if srv == nil {
+		return nil
+	}
+	return []transport.Server{srv}
 }
 
 // ---------------------------------------------------------------------------
@@ -304,20 +311,4 @@ func (stdAuditProvider) Build(ctx context.Context, s ApplyScope, _ Node) (any, C
 		return nil, nil, fmt.Errorf("appkit: build audit: %w", err)
 	}
 	return a2, cleanup, nil
-}
-
-// withGatewayProbes 包装 gateway 转码注册回调：转码 handler 由业务在 Start 期
-// 才产出，探针包在返回值外层（与纯 HTTP 面复用 withProbes）。
-func withGatewayProbes(
-	register func(ctx context.Context, conn *grpc.ClientConn) (http.Handler, error),
-	h *health.Health,
-	live, ready string,
-) func(ctx context.Context, conn *grpc.ClientConn) (http.Handler, error) {
-	return func(ctx context.Context, conn *grpc.ClientConn) (http.Handler, error) {
-		business, err := register(ctx, conn)
-		if err != nil {
-			return nil, err
-		}
-		return withProbes(business, h, live, ready), nil
-	}
 }

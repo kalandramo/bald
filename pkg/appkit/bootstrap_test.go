@@ -23,11 +23,10 @@ import (
 
 	bconf "github.com/kalandramo/bald/bconf"
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
-	baldbootstrap "github.com/kalandramo/bald/bootstrap"
 	baldconfig "github.com/kalandramo/bald/bootstrap/config"
 	log "github.com/kalandramo/bald/log"
 	"github.com/kalandramo/bald/log/bslog"
-	gateway "github.com/kalandramo/bald/transport/gateway"
+	"github.com/kalandramo/bald/transport"
 )
 
 // fakeReader 内存配置源桩（整文档源，key 恒为空串）。
@@ -450,7 +449,7 @@ func TestAssemble_ServersConstructed(t *testing.T) {
 	a := assembleForTest(t, cfg,
 		WithHTTP(new(http.ServeMux)),
 		WithGRPC(func(*grpc.Server) {}),
-		StandardServerProvider(),
+		StandardHTTPProvider(), StandardGRPCProvider(),
 	)
 	// 构造期未构建（语义：延后到 Run）。
 	if len(a.servers) != 0 {
@@ -463,13 +462,13 @@ func TestAssemble_ServersConstructed(t *testing.T) {
 
 	cfg2 := bconf.NewBootstrap()
 	dynamicAddr(cfg2)
-	a2 := assembleForTest(t, cfg2, WithHTTP(new(http.ServeMux)), StandardServerProvider())
+	a2 := assembleForTest(t, cfg2, WithHTTP(new(http.ServeMux)), StandardHTTPProvider(), StandardGRPCProvider())
 	runBriefly(t, a2, 50*time.Millisecond)
 	if len(a2.servers) != 1 {
 		t.Fatalf("servers = %d, want 1", len(a2.servers))
 	}
 
-	a3 := assembleForTest(t, bconf.NewBootstrap(), StandardServerProvider())
+	a3 := assembleForTest(t, bconf.NewBootstrap(), StandardHTTPProvider(), StandardGRPCProvider())
 	// 零能力声明：运行前后都无 server（合法：纯后台进程）。
 	runBriefly(t, a3, 30*time.Millisecond)
 	if len(a3.servers) != 0 {
@@ -477,62 +476,58 @@ func TestAssemble_ServersConstructed(t *testing.T) {
 	}
 }
 
-// gateway 能力声明的 driver 语义：网关是 server.http 段的一种模式
-// （契约 server.http.driver 选择），不是独立服务器。
-func TestAssemble_GatewayDriver(t *testing.T) {
+// server.http 段被非内置 Provider 接管（转码面形态）时的三条引擎侧判据。
+// 网关自身的构造校验（register/driver 值/探针）在 transport/gateway/contract。
+func TestAssemble_HTTPFaceProviderTakeover(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
 
-	gwRegister := func(context.Context, *grpc.ClientConn) (http.Handler, error) {
-		return new(http.ServeMux), nil
-	}
+	// gwLike 是转码面 Provider 的桩：声明 server.http，产物一个 probeServer。
+	var builds atomic.Int32
+	gwLike := segProvider{segs: []string{"server.http"}, build: func(context.Context, ApplyScope) (any, Cleanup, error) {
+		builds.Add(1)
+		return []transport.Server{&probeServer{name: "gateway", started: &atomic.Bool{}, mark: func(string) {}}}, nil, nil
+	}}
 
-	// ① gateway 能力声明但 server.http 段缺失 → 构造期 fail-fast。
-	cfgNoHttp := bconf.NewBootstrap()
-	cfgNoHttp.Server.Http = nil
-	if _, err := assembleForTestErr(cfgNoHttp, WithGatewayRegister(gwRegister)); err == nil {
-		t.Fatal("expected error: WithGatewayRegister declared but server.http is nil")
-	}
-
-	// ② 单声明 + driver 留空 → 默认转码面（GatewayServer 承载 server.http 段）。
-	//    构造延后到 Run，故驱动 Run 后观察 server 类型。
-	cfg2 := bconf.NewBootstrap()
-	dynamicAddr(cfg2)
-	a := assembleForTest(t, cfg2, WithGatewayRegister(gwRegister), StandardServerProvider())
-	runBriefly(t, a, 50*time.Millisecond)
-	if len(a.servers) != 1 {
-		t.Fatalf("servers = %d, want 1", len(a.servers))
-	}
-	if _, ok := a.servers[0].(*gateway.GatewayServer); !ok {
-		t.Fatalf("server type = %T, want *gateway.GatewayServer", a.servers[0])
-	}
-
-	// ③ 双能力声明 + driver 留空 → fail-fast：两个能力竞争同一端口，
-	//    必须由配置显式表态（显式 > 隐式）。
+	// ① WithHTTP 与接管 Provider 同时声明、driver 留空 → fail-fast：两个面竞争
+	//    同一端口，必须由配置显式表态（显式 > 隐式）。
 	_, err := assembleForTestErr(bconf.NewBootstrap(),
-		WithHTTP(new(http.ServeMux)), WithGatewayRegister(gwRegister))
+		StandardHTTPProvider(), StandardGRPCProvider(),
+		WithHTTP(new(http.ServeMux)), gwLike)
 	if err == nil || !strings.Contains(err.Error(), "driver") {
 		t.Fatalf("expected driver fail-fast, got %v", err)
 	}
-
-	// ④ 双能力声明 + driver=grpc-gateway → 转码面生效（handler 被显式替代）。
-	cfg4 := bconf.NewBootstrap()
-	dynamicAddr(cfg4)
-	cfg4.GetServer().GetHttp().Driver = baldbootstrap.DriverGrpcGateway
-	a4 := assembleForTest(t, cfg4, WithHTTP(new(http.ServeMux)), WithGatewayRegister(gwRegister), StandardServerProvider())
-	runBriefly(t, a4, 50*time.Millisecond)
-	if len(a4.servers) == 0 {
-		t.Fatal("servers = 0, want >=1 after Run")
-	}
-	if _, ok := a4.servers[0].(*gateway.GatewayServer); !ok {
-		t.Fatalf("server type = %T, want *gateway.GatewayServer", a4.servers[0])
+	if builds.Load() != 0 {
+		t.Fatalf("takeover provider built %d times before fail-fast", builds.Load())
 	}
 
-	// ⑤ gateway 能力声明 + driver=其他值 → fail-fast（转码能力无消费面）。
-	cfg5 := bconf.NewBootstrap()
-	cfg5.GetServer().GetHttp().Driver = "gin"
-	if _, err := assembleForTestErr(cfg5, WithGatewayRegister(gwRegister)); err == nil {
-		t.Fatal("expected error: gateway register declared but driver not grpc-gateway")
+	// ② 同样双声明 + driver=grpc-gateway → 段归属末者胜：接管 Provider 独占
+	//    HTTP 面，gin handler 被显式替代（std HTTP 不构造）。
+	cfg2 := bconf.NewBootstrap()
+	dynamicAddr(cfg2)
+	cfg2.GetServer().GetHttp().Driver = driverGRPCGateway
+	a2 := assembleForTest(t, cfg2,
+		StandardHTTPProvider(), StandardGRPCProvider(),
+		WithHTTP(new(http.ServeMux)), gwLike)
+	runBriefly(t, a2, 50*time.Millisecond)
+	if got := builds.Load(); got != 1 {
+		t.Fatalf("takeover provider builds = %d, want 1", got)
+	}
+	if len(a2.servers) != 1 {
+		t.Fatalf("servers = %d, want 1 (std HTTP evicted by the takeover)", len(a2.servers))
+	}
+	if _, ok := a2.servers[0].(*probeServer); !ok {
+		t.Fatalf("server type = %T, want the takeover product", a2.servers[0])
+	}
+
+	// ③ 仅接管 Provider（无 WithHTTP）：server 段仍算已消费（L3 不误报），
+	//    域路由的 HTTP 面判据同源于此。
+	cfg3 := bconf.NewBootstrap()
+	dynamicAddr(cfg3)
+	a3 := assembleForTest(t, cfg3, StandardHTTPProvider(), StandardGRPCProvider(), gwLike)
+	runBriefly(t, a3, 50*time.Millisecond)
+	if len(a3.servers) != 1 {
+		t.Fatalf("servers = %d, want 1", len(a3.servers))
 	}
 }
 

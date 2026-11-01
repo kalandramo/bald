@@ -51,7 +51,7 @@ func TestAssemble_ErrorsUnconsumedScript(t *testing.T) {
 
 	a := assembleForTest(t, cfg,
 		WithHTTP(new(http.ServeMux)),
-		StandardServerProvider())
+		StandardHTTPProvider(), StandardGRPCProvider())
 	runExpectErr(t, a, "no consumer", "script", "WithUnimplementedSegments")
 }
 
@@ -68,7 +68,7 @@ func TestAssemble_WhitelistExemptsScript(t *testing.T) {
 	a := assembleForTest(t, cfg,
 		WithHTTP(new(http.ServeMux)),
 		WithUnimplementedSegments("script"),
-		StandardServerProvider())
+		StandardHTTPProvider(), StandardGRPCProvider())
 	runBriefly(t, a, 30*time.Millisecond) // Run 无错 = 白名单豁免生效
 }
 
@@ -88,7 +88,7 @@ func TestAssemble_NoErrorWhenAllConsumed(t *testing.T) {
 		"db", nil)
 
 	a := assembleForTest(t, cfg,
-		prov, StandardServerProvider())
+		prov, StandardHTTPProvider(), StandardGRPCProvider())
 	runBriefly(t, a, 50*time.Millisecond)
 }
 
@@ -108,7 +108,7 @@ func TestAssemble_ErrorsScriptFromConfigLayer(t *testing.T) {
 
 	a := assembleForTest(t, cfg,
 		WithHTTP(new(http.ServeMux)),
-		prov, StandardServerProvider())
+		prov, StandardHTTPProvider(), StandardGRPCProvider())
 	runExpectErr(t, a, "no consumer", "script")
 }
 
@@ -151,7 +151,7 @@ func TestAssemble_ServerSubSegmentWithoutProvider(t *testing.T) {
 	cfg.Server.Asynq = &bootstrapv1.Server_Asynq{RedisAddress: "127.0.0.1:6379"}
 
 	a := assembleForTest(t, cfg,
-		WithHTTP(new(http.ServeMux)), StandardServerProvider())
+		WithHTTP(new(http.ServeMux)), StandardHTTPProvider(), StandardGRPCProvider())
 	runExpectErr(t, a, "server.asynq is configured but has no implementation")
 }
 
@@ -167,7 +167,7 @@ func TestAssemble_WhitelistExemptsServerSubSegment(t *testing.T) {
 	a := assembleForTest(t, cfg,
 		WithHTTP(new(http.ServeMux)),
 		WithUnimplementedSegments("server.asynq"),
-		StandardServerProvider())
+		StandardHTTPProvider(), StandardGRPCProvider())
 	runBriefly(t, a, 30*time.Millisecond)
 }
 
@@ -190,7 +190,7 @@ func TestAssemble_ServerSubSegmentWithCoProvider(t *testing.T) {
 
 	a := assembleForTest(t, cfg,
 		WithHTTP(new(http.ServeMux)),
-		StandardServerProvider(), asynq)
+		StandardHTTPProvider(), StandardGRPCProvider(), asynq)
 	runBriefly(t, a, 50*time.Millisecond)
 
 	if !buildCalled.Load() {

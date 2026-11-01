@@ -31,7 +31,6 @@ require (
 	github.com/kalandramo/bald/health v0.1.1
 	github.com/kalandramo/bald/log v0.5.4
 	github.com/kalandramo/bald/transport v0.4.0
-	github.com/kalandramo/bald/transport/gateway v0.4.2
 	github.com/kalandramo/bald/transport/grpc v0.1.3
 	github.com/kalandramo/bald/transport/http v0.1.4
 	github.com/spf13/pflag v1.0.10

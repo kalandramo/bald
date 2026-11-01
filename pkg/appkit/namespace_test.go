@@ -64,7 +64,7 @@ func TestServe_NamespaceDerivedFromContractAndEnvWorks(t *testing.T) {
 	errCh := make(chan error, 1)
 	started := make(chan struct{})
 	go func() {
-		errCh <- Serve(ctx, StandardServerProvider(), ConfigFile(yamlPath), WithHTTP(new(http.ServeMux)),
+		errCh <- Serve(ctx, StandardHTTPProvider(), StandardGRPCProvider(), ConfigFile(yamlPath), WithHTTP(new(http.ServeMux)),
 			AfterStart(func(context.Context) error {
 				close(started)
 				return nil

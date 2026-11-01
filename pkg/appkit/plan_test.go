@@ -23,12 +23,14 @@ import (
 // standardProviders 等价于 std.Standard()，但避免包内测试 import std
 // （std import appkit，包内测试再 import std 即环）。
 func standardProviders() Option {
-	return Providers(StandardServerProvider(), StandardAuditProvider(), StandardLoggerProvider())
+	return Providers(StandardHTTPProvider(), StandardGRPCProvider(), StandardAuditProvider(), StandardLoggerProvider())
 }
 
-// TestStandardProviders_OpaqueBoundary 钉住 std 三 Provider 的逃逸舱边界：
-// 契约派生的 logger/audit 节点不是 Opaque（期望态可派生、可 diff），server
-// 节点保持 Opaque——注册回调装进去的路由/service 计划不可见（设计 Q5）。
+// TestStandardProviders_OpaqueBoundary 钉住 std 四 Provider 的逃逸舱边界：
+// 契约派生的 logger/audit 节点不是 Opaque（期望态可派生、可 diff），两个
+// server 面节点保持 Opaque——注册回调装进去的路由/service 计划不可见（设计
+// Q5）。HTTP/gRPC 分成两节点是段路径末者胜的前提（转码面只接管 server.http，
+// gRPC 面不受影响）。
 func TestStandardProviders_OpaqueBoundary(t *testing.T) {
 	cfgPath := writePlanConfig(t, "std-opaque",
 		"audit:\n  backends: [\"log\"]\n"+
@@ -51,15 +53,24 @@ func TestStandardProviders_OpaqueBoundary(t *testing.T) {
 			t.Fatalf("node %q must be reconcilable with a desired hash: %+v", key, *n)
 		}
 	}
-	server := nodeByKey(p, "server")
-	if server == nil {
-		t.Fatalf("server node missing: %+v", p.Nodes)
+	for _, key := range []ResourceKey{"server.http", "server.grpc"} {
+		n := nodeByKey(p, key)
+		if n == nil {
+			t.Fatalf("server node %q missing: %+v", key, p.Nodes)
+		}
+		if !n.Opaque {
+			t.Fatalf("server node %q must stay Opaque (registered routes/services are closures)", key)
+		}
+		if n.Kind != "server" {
+			t.Fatalf("server node %q kind = %q, want server", key, n.Kind)
+		}
 	}
-	if !server.Opaque {
-		t.Fatal("server node must stay Opaque (registered routes/services are closures)")
+	if p.OpaqueCount != 2 {
+		t.Fatalf("opaque count = %d, want 2 (std http + grpc faces)", p.OpaqueCount)
 	}
-	if p.OpaqueCount != 1 {
-		t.Fatalf("opaque count = %d, want 1 (std server only)", p.OpaqueCount)
+	// 面序即既有的服务器列表序：gRPC 排在 HTTP 前（停机聚合序同源）。
+	if nodeByKey(p, "server.grpc").Priority >= nodeByKey(p, "server.http").Priority {
+		t.Fatal("server.grpc must be ordered before server.http")
 	}
 }
 

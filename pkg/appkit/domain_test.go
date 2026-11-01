@@ -93,7 +93,7 @@ func TestDomain_WireWindow(t *testing.T) {
 
 	a := assembleForTest(t, cfg,
 		WithHTTP(new(http.ServeMux)),
-		StandardServerProvider(),
+		StandardHTTPProvider(), StandardGRPCProvider(),
 		stubScriptProvider{rec: rec},
 		WithGRPC(func(*grpc.Server) {
 			rec.mark("register")
@@ -227,7 +227,7 @@ func TestDomain_ServicesComposed(t *testing.T) {
 	rec := &recorder{}
 	var wired bool
 	a := assembleForTest(t, cfg,
-		StandardServerProvider(),
+		StandardHTTPProvider(), StandardGRPCProvider(),
 		WithGRPC(func(*grpc.Server) { rec.mark("register:business") }),
 		Domain{
 			Name: "svc",
@@ -258,7 +258,7 @@ func TestDomain_ServicesAloneBuildsGRPC(t *testing.T) {
 
 	rec := &recorder{}
 	a := assembleForTest(t, cfg,
-		StandardServerProvider(),
+		StandardHTTPProvider(), StandardGRPCProvider(),
 		Domain{Name: "svc", Services: func(*grpc.Server) { rec.mark("register:domain") }},
 	)
 	runBriefly(t, a, 50*time.Millisecond)

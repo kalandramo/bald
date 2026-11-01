@@ -55,10 +55,10 @@ func compilePlan(ctx context.Context, d *Decl, cfg *bootstrapv1.BootstrapConfig,
 	if err != nil {
 		return nil, err
 	}
-	if err := validateDomains(d, cfg.GetServer().GetGrpc() != nil); err != nil {
+	if err := validateDomains(d, pp, cfg.GetServer().GetGrpc() != nil); err != nil {
 		return nil, err
 	}
-	if err := validateCapabilities(d, cfg); err != nil {
+	if err := validateCapabilities(d, cfg, pp); err != nil {
 		return nil, err
 	}
 	if err := checkSegmentCoverage(cfg, d, pp); err != nil {
@@ -271,14 +271,15 @@ func planFrom(ctx context.Context, d *Decl, cfg *bootstrapv1.BootstrapConfig, se
 			Kind: "serverFunc", Name: fmt.Sprintf("extraServer[%d]", i),
 		})
 	}
-	// 服务器能力声明（WithHTTP/WithGatewayRegister/WithGRPC/WithGRPCOptions）：
+	// 服务器能力声明（WithHTTP/WithGRPC/WithGRPCOptions）：
 	// 注册回调装进去的路由/service 计划看不见，但「声明了哪一面」必须可见——
 	// 否则纯 gRPC 与纯 HTTP 应用的 --plan 完全相同。
+	// 转码面不在这里投影：它是一个接管 server.http 的 Provider，已经以节点形态
+	// 出现在计划里（Origin=provider），比 imperative 旁白更可核对。
 	for _, c := range []struct {
 		name    string
 		present bool
 	}{
-		{"gateway", d.GatewayRegister != nil},
 		{"grpc", d.GRPCRegister != nil},
 		{"grpcOptions", len(d.GRPCOptionFuncs) > 0},
 		{"http", d.HTTPHandler != nil},

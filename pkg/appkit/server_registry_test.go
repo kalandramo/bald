@@ -48,7 +48,7 @@ func TestAssemble_ServerCoProviderDeferred(t *testing.T) {
 	var called, started atomic.Bool
 	a := assembleForTest(t, cfg,
 		WithHTTP(new(http.ServeMux)),
-		StandardServerProvider(), asynqCoProvider(&called, &started))
+		StandardHTTPProvider(), StandardGRPCProvider(), asynqCoProvider(&called, &started))
 	// 构造期：co-provider 不应被调用（服务器构造延后到 Run 期迟后阶段）。
 	if called.Load() {
 		t.Fatal("co-provider called during construction, want deferred to Run")
@@ -108,7 +108,7 @@ func TestAssemble_BuiltinStdServerProvider(t *testing.T) {
 
 	a := assembleForTest(t, cfg,
 		WithHTTP(new(http.ServeMux)),
-		StandardServerProvider())
+		StandardHTTPProvider(), StandardGRPCProvider())
 
 	runBriefly(t, a, 50*time.Millisecond)
 

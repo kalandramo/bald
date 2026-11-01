@@ -103,6 +103,9 @@ import (
 
 	"github.com/kalandramo/bald/pkg/appkit"
 	"github.com/kalandramo/bald/pkg/appkit/std"
+{{- if .HasGateway}}
+	gatewaycontract "github.com/kalandramo/bald/transport/gateway/contract"
+{{- end}}
 {{- if .AnyFace}}
 	"github.com/kalandramo/bald/health"
 {{- end}}
@@ -150,9 +153,10 @@ func Options() []appkit.Option {
 {{- end}}
 {{- if .HasGateway}}
 	// 网关转码面（契约 server.http.driver=grpc-gateway）：REST → gRPC。
-	// 网关不是独立服务器——server.http 端口即转码面（同端口单面语义；
-	// 与 WithHTTP 同时声明会让两个能力竞争同一端口，启动期 fail-fast）。
-	opts = append(opts, appkit.WithGatewayRegister(registerGateway))
+	// 它是一个接管 server.http 段的 Provider（声明在 std.Standard() 之后 =
+	// 段归属末者胜，HTTP 面由转码承载）——同端口单面语义：与 WithHTTP 同时
+	// 声明且 driver 留空会在启动期 fail-fast，显式写 driver 才算声明了取舍。
+	opts = append(opts, gatewaycontract.HTTPProvider(registerGateway))
 {{- end}}
 {{- if .AnyFace}}
 	// 健康检查默认装配：HTTP 双探针 + gRPC health 状态对称联动。
@@ -197,7 +201,9 @@ func Options() []appkit.Option {
 		opts = append(opts, appkit.WithHTTP(apiserver.NewRouter()))
 {{- end}}
 {{- if .HasGateway}}
-		opts = append(opts, appkit.WithGatewayRegister(registerGateway))
+		// 该角色的 HTTP 端口由转码面承载（接管 server.http 段，声明在
+		// std.Standard() 之后 = 段归属末者胜）。
+		opts = append(opts, gatewaycontract.HTTPProvider(registerGateway))
 {{- end}}
 {{- if .AnyFace}}
 		opts = append(opts, appkit.WithHealth(healthChecker))

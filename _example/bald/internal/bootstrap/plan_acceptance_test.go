@@ -5,6 +5,8 @@ package bootstrap
 import (
 	"context"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/kalandramo/bald/pkg/appkit"
@@ -22,9 +24,19 @@ func TestPlan_ReferenceProject(t *testing.T) {
 		t.Fatalf("Compile(api): %v", err)
 	}
 
-	// 示例自设预算 2：std server 构造 + 程序化 registry。
-	if p.OpaqueCount > 2 {
-		t.Errorf("OpaqueCount = %d, want <= 2 (std server construction + programmatic registry)", p.OpaqueCount)
+	// 逃逸舱按**清单**钉死，不按计数：计数放宽到 3 只是 std 的 server 节点
+	// 按段拆分（http/grpc 各自可被第三方 Provider 接管），新增的舱才会变动
+	// 这张表。预算与之一致（custom.go 的 WithOpaqueBudget）。
+	var opaque []string
+	for _, n := range p.Nodes {
+		if n.Opaque {
+			opaque = append(opaque, string(n.Key))
+		}
+	}
+	slices.Sort(opaque)
+	wantOpaque := []string{"registry", "server.grpc", "server.http"}
+	if !reflect.DeepEqual(opaque, wantOpaque) {
+		t.Errorf("opaque nodes = %v, want %v (new escape hatch or lost accounting)", opaque, wantOpaque)
 	}
 
 	// 域 RouteTable 必须进计划，而不是只存在于闭包里。示例用 gen domain 生成的

@@ -595,6 +595,27 @@ func containsString(in []string, want string) bool {
 // ownsPath 报告活跃集合中是否有 Provider 最终拥有 path。
 func (p *providerPlan) ownsPath(path string) bool { return p.byPath[path] > 0 }
 
+// ownerOf 返回 path 的最终归属 Provider（无归属 = nil）。
+func (p *providerPlan) ownerOf(path string) Provider {
+	i := p.byPath[path]
+	if i == 0 {
+		return nil
+	}
+	return p.active[i-1]
+}
+
+// httpFaceTakenByProvider 报告 server.http 段是否由**非内置** Provider 承载——
+// grpc-gateway 转码面接管 HTTP 端口即此形态（gin 面让位，域路由不再挂载）。
+// 内置 std HTTP Provider 拥有该段不算接管：它只在 WithHTTP 声明时才构面。
+func (p *providerPlan) httpFaceTakenByProvider() bool {
+	owner := p.ownerOf("server.http")
+	if owner == nil {
+		return false
+	}
+	_, std := owner.(stdHTTPProvider)
+	return !std
+}
+
 // triggeredPaths 收集「活跃 Provider 声明路径中、实际出现于契约」的路径集合
 // （供 L3 覆盖检查静态判定，不依赖构建结果）。
 func (p *providerPlan) triggeredPaths(cfg *bootstrapv1.BootstrapConfig) map[string]bool {

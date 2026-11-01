@@ -3,9 +3,10 @@
 // std.Standard() 返回一个 Option，内含框架**自有**后端的段驱动 Provider
 // （对账基准 = 框架自有后端的实际默认接线，不多不少）：
 //
-//   - server（server.http / server.grpc）：协议服务器构造——能力声明在代码
-//     （WithHTTP/WithGatewayRegister/WithGRPC），契约段驱动地址/TLS/driver
-//     （appkit.StandardServerProvider）；
+//   - server（server.http / server.grpc 两个成员）：协议服务器构造——能力声明在
+//     代码（WithHTTP/WithGRPC），契约段驱动地址/TLS
+//     （appkit.StandardHTTPProvider / appkit.StandardGRPCProvider；分成两个成员
+//     是为了让接管 server.http 的第三方转码面不挤掉 gRPC 面）；
 //   - audit（audit.backends 中的 "log" 项）：结构化日志审计后端，核心包
 //     零依赖开箱即用（appkit.StandardAuditProvider；store/stream 属第三方
 //     集成，见下）；
@@ -46,9 +47,13 @@ import (
 
 // Standard 返回框架自有后端的默认 Provider 集合（一个 Option；成员可被
 // 后声明的同段 Provider 覆盖——段路径末者胜，见 appkit.Provider）。
+//
+// HTTP 与 gRPC 是两个成员：第三方转码面接管 server.http 时只换掉 HTTP 面，
+// gRPC 面照旧（单成员同时声明两段会让接管把两面一起挤掉）。
 func Standard() appkit.Option {
 	return appkit.Providers(
-		appkit.StandardServerProvider(),
+		appkit.StandardHTTPProvider(),
+		appkit.StandardGRPCProvider(),
 		appkit.StandardAuditProvider(),
 		appkit.StandardLoggerProvider(),
 	)

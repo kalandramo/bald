@@ -8,9 +8,9 @@
 // 启动期报错并列出段名。L4（段名拼错）由同一次检查覆盖：拼错 ⇒ 该段无人覆盖。
 //
 // server 段的双层判定：
-//   - 顶层：声明了协议能力（WithHTTP/WithGatewayRegister/WithGRPC）、存在
-//     非内置协议的 Provider（server.asynq 等）、或段与 bconf.NewBootstrap()
-//     预填默认 proto.Equal 深相等（预填是框架自己的行为，对其报错属自相
+//   - 顶层：声明了协议能力（WithHTTP/WithGRPC，或转码面 Provider 接管
+//     server.http）、存在非内置协议的 Provider（server.asynq 等）、或段与
+//     bconf.NewBootstrap() 预填默认 proto.Equal 深相等（预填是框架自己的行为，对其报错属自相
 //     矛盾的噪音）→ 已消费；用户改过任一子字段且零能力声明 → 报错。
 //   - 子段：非内置子段（http/grpc 之外）若被某 Provider 以 "server.X" 路径
 //     接管则合法，否则报错（替代 bootstrap.validateServerSections 的
@@ -105,8 +105,8 @@ func checkSegmentCoverage(cfg *bootstrapv1.BootstrapConfig, spec *Decl, plan *pr
 //     为已消费（程序化接管 = 刻意覆盖）。
 //   - config：仅经 config 段 Provider 消费（构造期产层）。ConfigFile /
 //     RemoteConfig 走本地文件与远程桥通道，不是契约 config 段。
-//   - server：能力声明（WithHTTP/WithGatewayRegister/WithGRPC）、非内置
-//     协议 Provider 触发、或与 bconf.NewBootstrap() 预填默认深相等
+//   - server：能力声明（WithHTTP/WithGRPC）、接管 server.http 的转码面
+//     Provider、非内置协议 Provider 触发、或与 bconf.NewBootstrap() 预填默认深相等
 //     （proto.Equal 预填豁免）→ 已消费；零能力声明且用户改过任一
 //     子字段即报错（该段配置确实不产生任何服务器）。
 //
@@ -134,8 +134,13 @@ func consumedSegments(cfg *bootstrapv1.BootstrapConfig, spec *Decl, plan *provid
 
 // serverCovered 按预填豁免语义判定 server 段是否已消费（见包注释）。
 func serverCovered(cfg *bootstrapv1.BootstrapConfig, spec *Decl, plan *providerPlan) bool {
-	if spec.HTTPHandler != nil || spec.GatewayRegister != nil || spec.GRPCRegister != nil {
+	if spec.HTTPHandler != nil || spec.GRPCRegister != nil {
 		return true // 能力声明在代码：内置 server Provider 必然构造对应面
+	}
+	// server.http 被非内置 Provider 接管（grpc-gateway 转码面）时该段有消费者，
+	// 但 builtinServerSegments 按段名把 "http" 归为内置——归属者才是判据。
+	if plan.httpFaceTakenByProvider() {
+		return true
 	}
 	if proto.Equal(cfg.GetServer(), bconf.NewBootstrap().GetServer()) {
 		return true // 预填豁免：框架自填非用户意图

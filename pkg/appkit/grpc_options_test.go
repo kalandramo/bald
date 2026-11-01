@@ -50,7 +50,7 @@ func TestAssemble_GRPCOptionsEvaluatedAtRunTime(t *testing.T) {
 			mark("optionsFn")
 			return nil // 只验时机，不注入真拦截器
 		}),
-		StandardServerProvider(),
+		StandardHTTPProvider(), StandardGRPCProvider(),
 		BeforeStart(func(context.Context) error { mark("beforeStart"); return nil }),
 	)
 

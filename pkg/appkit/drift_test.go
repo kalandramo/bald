@@ -51,7 +51,7 @@ func TestPlan_ReloadPoliciesAndHashes(t *testing.T) {
 			t.Errorf("%s has no DesiredHash", key)
 		}
 	}
-	for _, key := range []ResourceKey{"app", "server"} {
+	for _, key := range []ResourceKey{"app", "server.http", "server.grpc"} {
 		n := planNodeByKey(p, key)
 		if n == nil {
 			t.Fatalf("node %q missing from plan", key)

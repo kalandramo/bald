@@ -17,6 +17,7 @@ require (
 	github.com/kalandramo/bald/log v0.5.4
 	github.com/kalandramo/bald/registry v0.3.1
 	github.com/kalandramo/bald/registry/nacos v0.3.0
+	github.com/kalandramo/bald/transport/gateway v0.4.2
 	github.com/kalandramo/bald/transport/web v0.2.0
 	github.com/nacos-group/nacos-sdk-go v1.1.6
 	github.com/spf13/cobra v1.10.2
@@ -131,7 +132,6 @@ require (
 	github.com/kalandramo/bald/ratelimit v0.1.0 // indirect
 	github.com/kalandramo/bald/ratelimit/tokenbucket v0.1.0 // indirect
 	github.com/kalandramo/bald/transport v0.4.0 // indirect
-	github.com/kalandramo/bald/transport/gateway v0.4.2 // indirect
 	github.com/kalandramo/bald/transport/grpc v0.1.3 // indirect
 	github.com/kalandramo/bald/transport/http v0.1.4 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect

@@ -21,8 +21,9 @@ package appkit
 // 约定清单（assemble 的行为，经 Serve 触达）：
 //   - App 元数据取自契约 app 段（空值回退默认）；
 //   - server.http / server.grpc 段非 nil 即 Bind（flag --server.* 可覆盖契约）；
-//     注意：契约有段但业务未用 WithHTTP/WithGRPC/WithGatewayRegister 声明能力时，
-//     对应 flag 变更不产生效果（没有 server 消费）——能力声明在代码，是刻意的；
+//     注意：契约有段但业务未用 WithHTTP/WithGRPC 声明能力（也没给第三方协议
+//     面 Provider）时，对应 flag 变更不产生效果（没有 server 消费）——能力声明
+//     在代码，是刻意的；
 //   - Bind --log.* flag 壳：仅注册 flag 定义，终值以契约 logger 段为准；
 //   - 启动期先用默认 Logger（阶段 A），BeforeStart 完成装载+校验后按契约
 //     logger 段重建（阶段 B），停机经 Effect 恢复原 Logger 并释放后端；
@@ -55,21 +56,6 @@ import (
 // WithHTTP 声明启用 HTTP 服务器，业务 handler 必供（探针路径由框架兜底）。
 func WithHTTP(handler http.Handler) Option {
 	return optionFunc(func(s *Decl) { s.HTTPHandler = handler })
-}
-
-// WithGatewayRegister 声明 grpc-gateway 转码能力：REST → gRPC 转码注册回调，
-// 业务自建 runtime.ServeMux、组合 pb.RegisterXxxHandler 后交回 http.Handler。
-//
-// 网关不是独立服务器，而是 server.http 段的一种模式，由契约 server.http.driver
-// 驱动装配（std server Provider 的模式分支）：
-//   - driver 为 "grpc-gateway"（或留空）→ HTTP 端口即网关转码面；
-//   - driver 为其他值 → 构造期 fail-fast（转码能力无消费面）。
-//
-// 与 WithHTTP 同时声明时 driver 必须显式为 "grpc-gateway"（显式 > 隐式，
-// 留空会让两个能力静默竞争同一端口）；handler 由此被转码面替代，业务要
-// 混合路由时在回调里返回组合 handler。
-func WithGatewayRegister(fn func(context.Context, *grpc.ClientConn) (http.Handler, error)) Option {
-	return optionFunc(func(s *Decl) { s.GatewayRegister = fn })
 }
 
 // WithGRPC 声明启用 gRPC 服务器并注册业务 service（单值，末者胜）。
@@ -169,18 +155,22 @@ func resolveLoggerSource(spec *Decl, plan *providerPlan) loggerSource {
 	return providerLoggerSource{prov: plan.loggerProv, node: plan.loggerNode, spec: spec}
 }
 
+// driverGRPCGateway 是契约 server.http.driver 的转码模式值。与
+// transport/gateway/contract.DriverGRPCGateway 同值——appkit 不 import
+// gateway（根模块与适配器模块互 require 即成模块环），对偶值在此独立声明，
+// 准入校验由 gateway 的 HTTPProvider 在构造期兑现。
+const driverGRPCGateway = "grpc-gateway"
+
 // validateCapabilities 校验代码侧能力声明与契约段的对偶关系（纯函数，无
-// 副作用）：WithHTTP/Gateway 需 server.http 段、WithGRPC 需 server.grpc 段、
-// 探针路径不得相同、网关 driver 只能由 grpc-gateway 消费。assemble 与 Compile
-// 共用——`--plan` 的预检与真实启动对同一批错误 fail-fast。
-func validateCapabilities(spec *Decl, cfg *bootstrapv1.BootstrapConfig) error {
+// 副作用）：WithHTTP 需 server.http 段、WithGRPC 需 server.grpc 段、探针路径
+// 不得相同；WithHTTP 与接管 server.http 的转码面 Provider 同时声明时 driver
+// 必须显式。assemble 与 Compile 共用——`--plan` 的预检与真实启动对同一批
+// 错误 fail-fast。
+func validateCapabilities(spec *Decl, cfg *bootstrapv1.BootstrapConfig, pp *providerPlan) error {
 	httpCfg := cfg.GetServer().GetHttp()
 	grpcCfg := cfg.GetServer().GetGrpc()
 	if spec.HTTPHandler != nil && httpCfg == nil {
 		return errors.New("appkit: WithHTTP declared but bootstrap.server.http is nil")
-	}
-	if spec.GatewayRegister != nil && httpCfg == nil {
-		return errors.New("appkit: WithGatewayRegister declared but bootstrap.server.http is nil")
 	}
 	if spec.GRPCRegister != nil && grpcCfg == nil {
 		return errors.New("appkit: WithGRPC declared but bootstrap.server.grpc is nil")
@@ -189,16 +179,12 @@ func validateCapabilities(spec *Decl, cfg *bootstrapv1.BootstrapConfig) error {
 		// 探针要挂在同一个 mux 上，同路径注册会 panic——启动期 fail-fast 暴露。
 		return fmt.Errorf("appkit: WithHealth probe paths must differ, got %q twice", spec.ProbeLivePath)
 	}
-	if spec.GatewayRegister != nil {
-		// 网关面由 server.http.driver 选择：非 grpc-gateway 的显式值 = 转码能力
-		// 无消费面；与 WithHTTP 同时声明且留空 = 两个能力静默竞争同一端口。
-		// 都属启动期错误，fail-fast 暴露（显式 > 隐式）。
-		switch d := httpCfg.GetDriver(); {
-		case d != "" && d != baldbootstrap.DriverGrpcGateway:
-			return fmt.Errorf("appkit: WithGatewayRegister declared but server.http.driver = %q, want %q or empty", d, baldbootstrap.DriverGrpcGateway)
-		case spec.HTTPHandler != nil && d == "":
-			return fmt.Errorf("appkit: WithHTTP and WithGatewayRegister are both declared; set server.http.driver = %q to serve the transcoding face", baldbootstrap.DriverGrpcGateway)
-		}
+	if spec.HTTPHandler != nil && pp.httpFaceTakenByProvider() && httpCfg.GetDriver() == "" {
+		// 业务同时给了 gin handler 和转码面 Provider：段归属按声明序末者胜，
+		// 不报错就是 handler 被静默替代。显式写 driver 才算声明了取舍
+		// （显式 > 隐式）。
+		return fmt.Errorf("appkit: WithHTTP and a grpc-gateway provider both claim server.http; "+
+			"set server.http.driver = %q to keep the transcoding face", driverGRPCGateway)
 	}
 	return nil
 }
@@ -229,14 +215,14 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig, settings map[string]
 	// 域声明解析（机制见 domain.go）：装配期校验 fail-fast
 	// 先于阶段 A Logger 等一切副作用；Services 并入 gRPC 注册回调（先于下方
 	// 能力声明检查——域提供的注册回调与 WithGRPC 声明同权）。
-	if err := validateDomains(spec, cfg.GetServer().GetGrpc() != nil); err != nil {
+	if err := validateDomains(spec, plan, cfg.GetServer().GetGrpc() != nil); err != nil {
 		return nil, err
 	}
 	composeDomainServices(spec)
 
 	httpCfg := cfg.GetServer().GetHttp()
 	grpcCfg := cfg.GetServer().GetGrpc()
-	if err := validateCapabilities(spec, cfg); err != nil {
+	if err := validateCapabilities(spec, cfg, plan); err != nil {
 		return nil, err
 	}
 

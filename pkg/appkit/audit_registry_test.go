@@ -140,7 +140,7 @@ func TestAssemble_AuditProviderSeesDatabases(t *testing.T) {
 	})
 
 	a := assembleForTest(t, cfg, WithHTTP(new(http.ServeMux)),
-		StandardServerProvider(), dbProv, prov)
+		StandardHTTPProvider(), StandardGRPCProvider(), dbProv, prov)
 	runBriefly(t, a, 50*time.Millisecond)
 
 	if !sawDB {

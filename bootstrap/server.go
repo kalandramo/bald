@@ -2,7 +2,6 @@ package bootstrap
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"time"
 
@@ -12,14 +11,9 @@ import (
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
 	"github.com/kalandramo/bald/health"
 	"github.com/kalandramo/bald/transport"
-	gateway "github.com/kalandramo/bald/transport/gateway"
 	grpcserver "github.com/kalandramo/bald/transport/grpc"
 	httpserver "github.com/kalandramo/bald/transport/http"
 )
-
-// DriverGrpcGateway 是契约 Http.driver 的 grpc-gateway 模式值。
-// 留空时若注入了 WithGatewayRegister 也按此模式装配（向后兼容默认值）。
-const DriverGrpcGateway = "grpc-gateway"
 
 // ServerProvider 是协议服务器工厂：从契约的 Server 配置构造 transport.Server。
 //
@@ -124,8 +118,7 @@ func GrpcServerProvider(opts ...GRPCServerOption) ServerProvider {
 type HTTPServerOption func(*httpServerDeps)
 
 type httpServerDeps struct {
-	handler         http.Handler
-	gatewayRegister func(ctx context.Context, conn *grpc.ClientConn) (http.Handler, error)
+	handler http.Handler
 }
 
 // WithHTTPHandler 注入业务 HTTP handler（gin.Engine 等，直接作为根 handler）。
@@ -135,17 +128,12 @@ func WithHTTPHandler(h http.Handler) HTTPServerOption {
 	return func(d *httpServerDeps) { d.handler = h }
 }
 
-// WithGatewayRegister 注入 gateway 转码注册回调（pb.RegisterXxxHTTPServer 组合）。
-// 非 nil 时走 grpc-gateway 反向代理模式（契约 Http.driver 或 provider 选择）。
-func WithGatewayRegister(register func(ctx context.Context, conn *grpc.ClientConn) (http.Handler, error)) HTTPServerOption {
-	return func(d *httpServerDeps) { d.gatewayRegister = register }
-}
-
 // HttpServerProvider 返回 HTTP 协议服务器工厂（契约 Server.Http 段）。
-// 模式选择：deps 注入了 WithGatewayRegister 且契约 Http.driver 为
-// "grpc-gateway"（或留空）时走 GatewayServer（gin 转码 + 反向代理），
-// 否则走纯 HTTPServer（业务 handler 直挂）。
 // 契约段缺失时返回 nil server（引擎跳过该 provider 产物）。
+//
+// grpc-gateway 转码面不在这里：本包不 import 任何具体后端之外的转码实现，
+// 同端口单面的转码拓扑由 transport/gateway/contract 的 HTTPProvider 接管
+// server.http 段表达（见《Bald 传输层设计》）。
 func HttpServerProvider(opts ...HTTPServerOption) ServerProvider {
 	deps := &httpServerDeps{}
 	for _, o := range opts {
@@ -155,13 +143,6 @@ func HttpServerProvider(opts ...HTTPServerOption) ServerProvider {
 		c := cfg.GetHttp()
 		if c == nil {
 			return nil, nil, nil // 未配置 http，跳过
-		}
-		if deps.gatewayRegister != nil && (c.GetDriver() == "" || c.GetDriver() == DriverGrpcGateway) {
-			gw, err := gateway.NewGatewayServer(c, cfg.GetGrpc(), deps.gatewayRegister)
-			if err != nil {
-				return nil, nil, fmt.Errorf("bootstrap: build gateway server: %w", err)
-			}
-			return gw, nil, nil
 		}
 		return httpserver.NewHTTPServer(c, deps.handler), nil, nil
 	}

@@ -30,8 +30,10 @@ func customOptions(_ string) []appkit.Option {
 		newLoggerProvider(),
 		// biz.* 是业务配置段（域经 Settings 快照读取），不在 bconf 契约里。
 		appkit.StrictContract("biz"),
-		// 逃逸舱预算：程序化 registry 与 std server 两个框架节点。
-		appkit.WithOpaqueBudget(2),
+		// 逃逸舱预算：程序化 registry + std 的两个 server 面（server.http、
+		// server.grpc 各一节点，注册回调装在闭包里）。计量口径是节点数，
+		// 分段声明的面各自计——转码面接管 server.http 时仍是 3（同键替换）。
+		appkit.WithOpaqueBudget(3),
 	}
 }
 

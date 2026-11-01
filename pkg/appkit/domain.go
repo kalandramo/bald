@@ -89,8 +89,8 @@ type Domain struct {
 	// Routes HTTP 路由注册：参数是 WithHTTP 声明的业务 handler（gin 场景即
 	// *gin.Engine，域自行断言路由器类型——appkit 不 import 路由器）。在 Wire
 	// 之后、server 构建之前调用，注册的路由随该 handler 一起挂载。gateway
-	// 转码面占用 server.http 端口时整体让位（不调用——同端口单面语义，与
-	// WithHTTP/WithGatewayRegister 的既有约定一致）。
+	// 转码面接管 server.http 段时整体让位（不调用——同端口单面语义，与
+	// WithHTTP 独占该段的既有约定一致）。
 	Routes func(h http.Handler) error
 
 	// RouteTable 是 Routes/ApplyNode 实际挂载的 REST 路由清单（计划数据，
@@ -102,7 +102,7 @@ type Domain struct {
 	//
 	// 它是清单而不是实现：Routes 闭包没有 RouteTable 时计划列不出来，
 	// Compile 给 custom-routes 警告（Q5 的 --no-routes/--no-bind 逃逸）。声明了
-	// RouteTable 就必须有 HTTP 面（WithHTTP/WithGatewayRegister），否则
+	// RouteTable 就必须有 HTTP 面（WithHTTP 或接管 server.http 的转码面），否则
 	// 装配期 fail-fast——路由无处可挂。
 	RouteTable []Route
 
@@ -150,15 +150,23 @@ type Domain struct {
 // MustServe/NewApp 的变参项）。
 func (d Domain) Apply(decl *Decl) { decl.Domains = append(decl.Domains, d) }
 
+// httpFacePresent 报告 server.http 上是否存在可挂路由的面：WithHTTP 声明的业务
+// handler，或第三方 Provider 接管该段（转码面即此形态——端口有面，gin 路由让位）。
+// 判据来自已解析的 Provider 计划，与执行同源：`--plan` 预检和真实启动对同一批
+// 域声明给出同一个结论。
+func httpFacePresent(d *Decl, pp *providerPlan) bool {
+	return d.HTTPHandler != nil || pp.httpFaceTakenByProvider()
+}
+
 // validateDomains 装配期校验域声明（构造期 fail-fast，先于阶段 A Logger 等
 // 一切副作用）：
 //   - Name 必填且唯一（生成期校验「name 唯一」的运行期镜像）；
 //   - ApplyNode 需有 Declare 可执行，且不与 Wire/Routes 混用（否则接线跑
 //     两遍；Services 是延迟注册回调，不在此列）；
-//   - Routes 需有 HTTP 面可挂（WithHTTP/WithGatewayRegister 至少其一——
-//     gateway 面运行期让位语义见 Routes 字段注释）；
+//   - Routes 需有 HTTP 面可挂（WithHTTP 的业务 handler，或转码面 Provider 接管
+//     server.http——gateway 面运行期让位语义见 Routes 字段注释）；
 //   - Services 需契约 server.grpc 段存在（与 WithGRPC 的既有 fail-fast 同语义）。
-func validateDomains(d *Decl, grpcPresent bool) error {
+func validateDomains(d *Decl, pp *providerPlan, grpcPresent bool) error {
 	seen := map[string]bool{}
 	for i, dom := range d.Domains {
 		if dom.Name == "" {
@@ -177,17 +185,17 @@ func validateDomains(d *Decl, grpcPresent bool) error {
 					"(wiring would run twice; move the construction into the declared nodes)", dom.Name)
 			}
 		}
-		if dom.Routes != nil && d.HTTPHandler == nil && d.GatewayRegister == nil {
+		if dom.Routes != nil && !httpFacePresent(d, pp) {
 			return fmt.Errorf("appkit: domain %q declares Routes but no HTTP face is declared "+
-				"(use appkit.WithHTTP or appkit.WithGatewayRegister)", dom.Name)
+				"(use appkit.WithHTTP, or declare a grpc-gateway provider for server.http)", dom.Name)
 		}
 		if dom.Services != nil && !grpcPresent {
 			return fmt.Errorf("appkit: domain %q declares Services but bootstrap.server.grpc is nil", dom.Name)
 		}
 		if len(dom.RouteTable) > 0 {
-			if d.HTTPHandler == nil && d.GatewayRegister == nil {
+			if !httpFacePresent(d, pp) {
 				return fmt.Errorf("appkit: domain %q declares RouteTable but no HTTP face is declared "+
-					"(use appkit.WithHTTP or appkit.WithGatewayRegister)", dom.Name)
+					"(use appkit.WithHTTP, or declare a grpc-gateway provider for server.http)", dom.Name)
 			}
 			for i, r := range dom.RouteTable {
 				method := strings.ToUpper(strings.TrimSpace(r.Method))

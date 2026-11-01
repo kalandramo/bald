@@ -48,8 +48,8 @@ var variantNameRe = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 var variantTagRe = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.]*$`)
 
 // gatewayDriver 是角色传输面 gateway 的契约投影值：同端口单面语义
-// （server.http.driver = "grpc-gateway"，与 WithGatewayRegister 的既有
-// 约定一致；独立端口拓扑直接声明 bootstrap.server.gateway）。
+// （server.http.driver = "grpc-gateway"，生成物以 transport/gateway/contract 的
+// HTTPProvider 接管 server.http 段承载；独立端口拓扑直接声明 bootstrap.server.gateway）。
 const gatewayDriver = "grpc-gateway"
 
 // domainServices 返回域声明的有效 gRPC service 全名：services[] 优先，退化为

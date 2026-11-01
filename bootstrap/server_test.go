@@ -3,7 +3,6 @@ package bootstrap
 import (
 	"context"
 	"errors"
-	"net"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -17,6 +16,7 @@ import (
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
 	"github.com/kalandramo/bald/health"
 	"github.com/kalandramo/bald/transport"
+	httpserver "github.com/kalandramo/bald/transport/http"
 )
 
 // TestGrpcServerProvider_Unconfigured 契约无 Grpc 段 → nil server。
@@ -181,31 +181,22 @@ func TestHttpServerProvider_PlainHandler(t *testing.T) {
 	}
 }
 
-// TestHttpServerProvider_GatewayMode 注入 WithGatewayRegister + driver 留空 → gateway 模式。
-func TestHttpServerProvider_GatewayMode(t *testing.T) {
-	// 真实 gRPC 后端（gateway 需要拨号）。
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	backend := ln.Addr().String()
-	_ = ln.Close() // gateway 用 grpc.NewClient 懒连接，端口无需真实监听
-
+// TestHttpServerProvider_IgnoresGatewayDriver 钉住本包的边界：driver 归转码面
+// Provider 消费，HttpServerProvider 只按 handler 构 Plain HTTP 面。
+func TestHttpServerProvider_IgnoresGatewayDriver(t *testing.T) {
+	// server.http.driver 写什么都不改变产物（转码拓扑见 transport/gateway/contract）。
 	cfg := &bootstrapv1.Server{
-		Http: &bootstrapv1.Server_Http{Addr: ":0", Driver: DriverGrpcGateway},
-		Grpc: &bootstrapv1.Server_Grpc{Addr: backend},
+		Http: &bootstrapv1.Server_Http{Addr: ":0", Driver: "grpc-gateway"},
+		Grpc: &bootstrapv1.Server_Grpc{Addr: "127.0.0.1:0"},
 	}
-	srv, closer, err := HttpServerProvider(
-		WithGatewayRegister(func(ctx context.Context, conn *grpc.ClientConn) (http.Handler, error) {
-			return http.NewServeMux(), nil
-		}),
-	)(context.Background(), cfg)
+	srv, closer, err := HttpServerProvider(WithHTTPHandler(http.NewServeMux()))(context.Background(), cfg)
 	if err != nil || srv == nil {
-		t.Fatalf("provider = (%v, %v), want non-nil gateway server", srv, err)
+		t.Fatalf("provider = (%v, %v), want plain HTTP server", srv, err)
 	}
 	if closer != nil {
 		defer closer()
 	}
-	// gateway 是 *transport/gateway.GatewayServer——只验证类型装配合法。
-	_ = srv
+	if _, ok := srv.(*httpserver.HTTPServer); !ok {
+		t.Fatalf("server type = %T, want *httpserver.HTTPServer (driver is not consumed here)", srv)
+	}
 }

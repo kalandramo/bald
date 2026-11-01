@@ -147,12 +147,10 @@ type Decl struct {
 	// 记录计划基线，doctor 只读对比；缓存不是执行依据（见 plan_cache.go）。
 	PlanCache string
 
-	// ---- 协议面（WithHTTP/WithGatewayRegister/WithGRPC/WithGRPCOptions
-	// 声明；能力声明在代码，契约 server 段驱动装配） ----
+	// ---- 协议面（WithHTTP/WithGRPC/WithGRPCOptions 声明；能力声明在代码，
+	// 契约 server 段驱动装配。转码面不走这里：由 transport/gateway/contract
+	// 的 HTTPProvider 接管 server.http 段表达） ----
 	HTTPHandler http.Handler
-	// GatewayRegister grpc-gateway 转码注册回调（server.http 的一种模式，
-	// 由契约 server.http.driver 选择，见 WithGatewayRegister）。
-	GatewayRegister func(context.Context, *grpc.ClientConn) (http.Handler, error)
 	// GRPCRegister gRPC service 注册回调。GRPCOptionFuncs 是服务端选项工厂
 	// （拦截器链等），按登记顺序在 server 构造点求值——链序 = 登记顺序。
 	GRPCRegister    func(*grpc.Server)
