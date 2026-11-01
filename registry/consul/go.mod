@@ -5,7 +5,7 @@ go 1.27.1
 require (
 	github.com/hashicorp/consul/api v1.34.4
 	github.com/kalandramo/bald v0.32.0
-	github.com/kalandramo/bald/bconf v0.14.0
+	github.com/kalandramo/bald/bconf v0.15.1
 	github.com/kalandramo/bald/registry v0.3.1
 )
 

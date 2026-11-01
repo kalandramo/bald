@@ -274,6 +274,9 @@ func (r *Registry) heartBeat(ctx context.Context, leaseID clientv3.LeaseID, key 
 				}()
 
 				select {
+				case <-ctx.Done():
+					cancel()
+					return
 				case <-time.After(3 * time.Second):
 					cancel()
 					continue
@@ -287,7 +290,15 @@ func (r *Registry) heartBeat(ctx context.Context, leaseID clientv3.LeaseID, key 
 					break
 				}
 				retreat = append(retreat, 1<<retryCnt)
-				time.Sleep(time.Duration(retreat[rnd.Intn(len(retreat))]) * time.Second)
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(time.Duration(retreat[rnd.Intn(len(retreat))]) * time.Second):
+				}
+			}
+			if kac == nil {
+				// 重试耗尽：KeepAlive 出错时返回 nil channel，直接接收会永久阻塞。
+				return
 			}
 			if _, ok := <-kac; !ok {
 				// retry failed

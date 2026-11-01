@@ -2,13 +2,13 @@ package consul
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"math/rand"
 	"net"
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"log"
@@ -42,6 +42,12 @@ type Client struct {
 	deregisterCriticalServiceAfter int
 	// serviceChecks  user custom checks
 	serviceChecks api.AgentServiceChecks
+
+	// hbMu 保护 heartbeats：每个已注册实例一条独立心跳，Deregister 只停
+	// 该实例的心跳，不能取消所有实例共用的 ctx（否则注销一个实例会让其余
+	// 实例停止续约并被 Consul 逐出）。
+	hbMu       sync.Mutex
+	heartbeats map[string]context.CancelFunc
 }
 
 func defaultResolver(_ context.Context, entries []*api.ServiceEntry) []*registry.ServiceInstance {
@@ -196,41 +202,45 @@ func (c *Client) Register(_ context.Context, svc *registry.ServiceInstance, enab
 		return err
 	}
 	if c.heartbeat {
+		hbCtx, hbCancel := context.WithCancel(c.ctx)
+		c.setHeartbeat(svc.ID, hbCancel)
 		go func() {
-			time.Sleep(time.Second)
-			err = c.cli.Agent().UpdateTTL("service:"+svc.ID, "pass", "pass")
-			if err != nil {
-				log.Printf("[Consul] update ttl heartbeat to consul failed! err=%v", err)
+			defer hbCancel()
+
+			select {
+			case <-hbCtx.Done():
+				_ = c.cli.Agent().ServiceDeregister(svc.ID)
+				return
+			case <-time.After(time.Second):
 			}
+			if herr := c.cli.Agent().UpdateTTL("service:"+svc.ID, "pass", "pass"); herr != nil {
+				log.Printf("[Consul] update ttl heartbeat to consul failed! err=%v", herr)
+			}
+
 			ticker := time.NewTicker(time.Second * time.Duration(c.healthcheckInterval))
 			defer ticker.Stop()
 			for {
 				select {
-				case <-c.ctx.Done():
-					_ = c.cli.Agent().ServiceDeregister(svc.ID)
-					return
-				default:
-				}
-				select {
-				case <-c.ctx.Done():
+				case <-hbCtx.Done():
 					_ = c.cli.Agent().ServiceDeregister(svc.ID)
 					return
 				case <-ticker.C:
-					// ensure that unregistered services will not be re-registered by mistake
-					if errors.Is(c.ctx.Err(), context.Canceled) || errors.Is(c.ctx.Err(), context.DeadlineExceeded) {
+					herr := c.cli.Agent().UpdateTTL("service:"+svc.ID, "pass", "pass")
+					if herr == nil {
+						continue
+					}
+					log.Printf("[Consul] update ttl heartbeat to consul failed! err=%v", herr)
+					// when the previous report fails, try to re register the service
+					select {
+					case <-hbCtx.Done():
 						_ = c.cli.Agent().ServiceDeregister(svc.ID)
 						return
+					case <-time.After(time.Duration(rand.Intn(5)) * time.Second):
 					}
-					err = c.cli.Agent().UpdateTTL("service:"+svc.ID, "pass", "pass")
-					if err != nil {
-						log.Printf("[Consul] update ttl heartbeat to consul failed! err=%v", err)
-						// when the previous report fails, try to re register the service
-						time.Sleep(time.Duration(rand.Intn(5)) * time.Second)
-						if err := c.cli.Agent().ServiceRegister(asr); err != nil {
-							log.Printf("[Consul] re registry service failed! err=%v", err)
-						} else {
-							log.Printf("[Consul] re registry of service occurred success")
-						}
+					if rerr := c.cli.Agent().ServiceRegister(asr); rerr != nil {
+						log.Printf("[Consul] re registry service failed! err=%v", rerr)
+					} else {
+						log.Printf("[Consul] re registry of service occurred success")
 					}
 				}
 			}
@@ -239,8 +249,33 @@ func (c *Client) Register(_ context.Context, svc *registry.ServiceInstance, enab
 	return nil
 }
 
+// setHeartbeat 登记实例的独立心跳取消函数；同名实例重复注册时先停旧心跳。
+func (c *Client) setHeartbeat(id string, cancel context.CancelFunc) {
+	c.hbMu.Lock()
+	defer c.hbMu.Unlock()
+	if c.heartbeats == nil {
+		c.heartbeats = make(map[string]context.CancelFunc)
+	}
+	if old := c.heartbeats[id]; old != nil {
+		old()
+	}
+	c.heartbeats[id] = cancel
+}
+
+// takeHeartbeat 取出并移除实例的心跳取消函数。
+func (c *Client) takeHeartbeat(id string) context.CancelFunc {
+	c.hbMu.Lock()
+	defer c.hbMu.Unlock()
+	cancel := c.heartbeats[id]
+	delete(c.heartbeats, id)
+	return cancel
+}
+
 // Deregister service by service ID
 func (c *Client) Deregister(_ context.Context, serviceID string) error {
-	defer c.cancel()
+	// 只停该实例的心跳：c.ctx 由所有实例共享，取消它会让其余服务停止续约。
+	if cancel := c.takeHeartbeat(serviceID); cancel != nil {
+		cancel()
+	}
 	return c.cli.Agent().ServiceDeregister(serviceID)
 }
