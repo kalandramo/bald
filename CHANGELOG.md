@@ -4,6 +4,17 @@
 条目取自该版本区间内的提交标题（Conventional Commits），不要手工调整顺序。
 发布流程见 [多模块发布与变更日志](docs/devel/zh-CN/多模块发布与变更日志.md)。
 
+## 2026-11-01
+
+### bald v0.33.1
+
+- `e7b50ef6` fix(release): 变更日志插入不再累积空行
+- `7de0202f` fix(release): sync 归位消费者模块的内部依赖
+- `3ad6cdd0` fix(appkit): 启动失败在日志后端就绪前兜底写 stderr
+
+### bconf v0.15.1
+
+- `27f43ba9` fix(bconf): 清理契约注释中的日期与批次叙事
 
 ## 2026-11-01
 
