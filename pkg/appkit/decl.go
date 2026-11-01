@@ -246,6 +246,7 @@ func newFromDecl(d Decl) *App {
 		applied:          make(map[ResourceKey]string),
 		nodeReconcilers:  make(map[ResourceKey]NodeReconciler),
 		done:             make(chan struct{}),
+		startedCh:        make(chan struct{}),
 		cfg: appConfig{
 			cfgFile:          d.ConfigFile,
 			remote:           d.RemoteConfig,

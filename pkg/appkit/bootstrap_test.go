@@ -330,12 +330,26 @@ func (f funcLogSrc) contractLogger(ctx context.Context, cfg *bootstrapv1.Bootstr
 	return f.fn(ctx, cfg.GetLogger())
 }
 
-// runBriefly 启动 app 并在延迟后取消 ctx，等待 Run 返回（完整生命周期：BeforeStart→运行→停机回放）。
+// runBriefly 启动 app，等进入运行态后延迟取消 ctx，等待 Run 返回（完整
+// 生命周期：BeforeStart→运行→停机回放）。等 started 而不是固定延迟：
+// 慢机器上固定延迟可能落在 waitForEndpoints 窗口内，取消会被当成启动失败。
 func runBriefly(t *testing.T, a *App, delay time.Duration) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- a.Run(ctx) }()
+	select {
+	case <-a.startedCh:
+	case err := <-done:
+		cancel()
+		if err != nil {
+			t.Fatalf("Run returned error: %v", err)
+		}
+		return
+	case <-time.After(5 * time.Second):
+		cancel()
+		t.Fatal("Run did not start within 5s")
+	}
 	time.Sleep(delay)
 	cancel()
 	select {

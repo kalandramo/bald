@@ -149,8 +149,15 @@ type App struct {
 	// 可观察性。
 	running  atomic.Bool
 	done     chan struct{}
-	doneOnce sync.Once    // 防「成功后重试」double-close（fail-safe，见 Run 内 defer）
-	runErr   atomic.Value // error
+	doneOnce sync.Once // 防「成功后重试」double-close（fail-safe，见 Run 内 defer）
+
+	// startedCh 在启动完成（afterStart 与首次协调之后、进入主等待之前）关闭，
+	// 供测试与内部协调判断「已进入运行态」——固定短延迟在慢机器上会落在
+	// waitForEndpoints 窗口内，取消被当成启动失败。
+	startedCh   chan struct{}
+	startedOnce sync.Once
+
+	runErr atomic.Value // error
 }
 
 // appConfig 收敛 App 的配置装配输入与加载结果。
@@ -662,6 +669,7 @@ func (a *App) Run(ctx context.Context) error {
 	a.runReconcilers(gctx)
 
 	log.Info(ctx, "appkit started", "servers", len(a.servers))
+	a.startedOnce.Do(func() { close(a.startedCh) })
 
 	// 主等待：任一服务器崩溃（gctx 取消）、外部 ctx 取消、或系统信号。
 	sig := make(chan os.Signal, 1)

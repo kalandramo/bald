@@ -62,8 +62,13 @@ func TestServe_NamespaceDerivedFromContractAndEnvWorks(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
+	started := make(chan struct{})
 	go func() {
-		errCh <- Serve(ctx, StandardServerProvider(), ConfigFile(yamlPath), WithHTTP(new(http.ServeMux)))
+		errCh <- Serve(ctx, StandardServerProvider(), ConfigFile(yamlPath), WithHTTP(new(http.ServeMux)),
+			AfterStart(func(context.Context) error {
+				close(started)
+				return nil
+			}))
 	}()
 	defer func() {
 		cancel()
@@ -76,6 +81,13 @@ func TestServe_NamespaceDerivedFromContractAndEnvWorks(t *testing.T) {
 			t.Error("app did not stop within timeout")
 		}
 	}()
+
+	// 等进入运行态再取消：启动期取消会被 waitForEndpoints 当成失败返回。
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Serve did not reach running state (startup failed, see Serve error)")
+	}
 
 	// 就绪判据：env 覆盖的端口可连（文件值 :18443 不得被绑定）。
 	deadline := time.Now().Add(5 * time.Second)

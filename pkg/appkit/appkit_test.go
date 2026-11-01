@@ -544,9 +544,15 @@ func TestAppKit_MultiServerEndpointAggregation(t *testing.T) {
 	)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	// 等待 server 真正监听并注册完成后再取消，验证优雅退出路径。
-	// 取消过早会撞在 waitForEndpoints 阶段，导致 Run 返回 context 错误。
-	go func() { time.Sleep(300 * time.Millisecond); cancel() }()
+	// 等真正进入运行态（注册已完成）再取消，验证优雅退出路径；固定延迟在
+	// 慢机器上可能落在 waitForEndpoints 阶段，导致 Run 返回 context 错误。
+	go func() {
+		select {
+		case <-app.startedCh:
+		case <-time.After(5 * time.Second):
+		}
+		cancel()
+	}()
 	if err := app.Run(ctx); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
