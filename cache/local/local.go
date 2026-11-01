@@ -17,6 +17,8 @@ package local
 
 import (
 	"context"
+	"math"
+	"sync"
 	"time"
 
 	"github.com/coocood/freecache"
@@ -47,6 +49,36 @@ func New(opts ...Option) *Cache {
 type Cache struct {
 	fc  *freecache.Cache
 	cfg *config
+
+	// nxLocks 按 key 分段保护 SetNX 的 check-then-set（FreeCache 无原生
+	// SetNX）。只保护 SetNX 自身，Get/Set 仍走 FreeCache 的分段锁。
+	nxLocks [setnxStripes]sync.Mutex
+}
+
+const setnxStripes = 64
+
+// expireSeconds 把 TTL 换算成 FreeCache 的整秒过期时间（0 表示永不过期）。
+// FreeCache 精度为秒且 0 是「永不过期」，亚秒 TTL 必须向上取整——直接截断
+// 会得到 0，把 500ms 的锁变成永不过期的锁。
+func expireSeconds(ttl time.Duration) int {
+	if ttl <= 0 {
+		return 0
+	}
+	sec := int(math.Ceil(ttl.Seconds()))
+	if sec < 1 {
+		sec = 1
+	}
+	return sec
+}
+
+func nxStripe(key string) int {
+	// FNV-1a 32 位，避免 hash/fnv 的分配。
+	h := uint32(2166136261)
+	for i := 0; i < len(key); i++ {
+		h ^= uint32(key[i])
+		h *= 16777619
+	}
+	return int(h % setnxStripes)
 }
 
 // Get implements [cache.Cache].
@@ -68,7 +100,7 @@ func (c *Cache) Set(_ context.Context, key string, value []byte, ttl time.Durati
 	if ttl <= 0 {
 		ttl = c.cfg.defaultTTL
 	}
-	expire := int(ttl.Seconds())
+	expire := expireSeconds(ttl)
 	return c.fc.Set([]byte(key), value, expire)
 }
 
@@ -77,9 +109,12 @@ func (c *Cache) Set(_ context.Context, key string, value []byte, ttl time.Durati
 // Returns true if the key was set, false if it already existed.
 //
 // Because FreeCache does not expose a native SetNX, we implement it via
-// a check-then-set guarded by a per-segment spin-lock. FreeCache's internal
-// 256-segment design means lock contention is extremely low.
+// a check-then-set guarded by a striped mutex keyed on the cache key.
 func (c *Cache) SetNX(_ context.Context, key string, value []byte, ttl time.Duration) (bool, error) {
+	mu := &c.nxLocks[nxStripe(key)]
+	mu.Lock()
+	defer mu.Unlock()
+
 	kb := []byte(key)
 
 	// Check existence (this acquires the segment read-lock internally)
@@ -96,7 +131,7 @@ func (c *Cache) SetNX(_ context.Context, key string, value []byte, ttl time.Dura
 	if ttl <= 0 {
 		ttl = c.cfg.defaultTTL
 	}
-	expire := int(ttl.Seconds())
+	expire := expireSeconds(ttl)
 	if err := c.fc.Set(kb, value, expire); err != nil {
 		return false, err
 	}
@@ -153,7 +188,7 @@ func (c *Cache) SetMulti(_ context.Context, items []cache.Item) error {
 		if ttl <= 0 {
 			ttl = c.cfg.defaultTTL
 		}
-		expire := int(ttl.Seconds())
+		expire := expireSeconds(ttl)
 		if err := c.fc.Set([]byte(item.Key), item.Value, expire); err != nil {
 			return err
 		}

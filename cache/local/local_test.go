@@ -3,6 +3,8 @@ package local
 import (
 	"context"
 	"errors"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -107,6 +109,60 @@ func TestSetNX_ExistingKey(t *testing.T) {
 	val, _ := c.Get(ctx, "exists")
 	if string(val) != "original" {
 		t.Errorf("value after failed SetNX = %q, want %q", val, "original")
+	}
+}
+
+func TestSetNX_ConcurrentOnlyOneWinner(t *testing.T) {
+	c := New(WithSize(1024 * 1024))
+	defer c.Close()
+	ctx := context.Background()
+
+	const callers = 32
+	var (
+		wg      sync.WaitGroup
+		winners atomic.Int32
+	)
+	start := make(chan struct{})
+	for i := 0; i < callers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			ok, err := c.SetNX(ctx, "contended", []byte("v"), time.Minute)
+			if err != nil {
+				t.Errorf("SetNX() error = %v", err)
+				return
+			}
+			if ok {
+				winners.Add(1)
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	if got := winners.Load(); got != 1 {
+		t.Fatalf("SetNX winners = %d, want exactly 1", got)
+	}
+}
+
+// TestSetNX_SubSecondTTLExpires 钉住亚秒 TTL 不被截断成 0（FreeCache 的 0
+// 表示永不过期）。
+func TestSetNX_SubSecondTTLExpires(t *testing.T) {
+	c := New(WithSize(1024 * 1024))
+	defer c.Close()
+	ctx := context.Background()
+
+	if ok, err := c.SetNX(ctx, "short-ttl", []byte("v"), 200*time.Millisecond); err != nil || !ok {
+		t.Fatalf("SetNX() = (%v, %v), want (true, nil)", ok, err)
+	}
+
+	// 向上取整为 1 秒，留足调度余量。
+	time.Sleep(1500 * time.Millisecond)
+
+	_, err := c.Get(ctx, "short-ttl")
+	if !errors.Is(err, cache.ErrNotFound) {
+		t.Errorf("Get() after sub-second TTL error = %v, want ErrNotFound", err)
 	}
 }
 
