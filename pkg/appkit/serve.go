@@ -94,8 +94,18 @@ func Serve(ctx context.Context, opts ...Option) error {
 // 供 main 使用——main 之外不调用（退出不可返回、不可测试）。
 func MustServe(ctx context.Context, opts ...Option) {
 	if err := Serve(ctx, opts...); err != nil {
-		log.Error(ctx, "appkit: serve failed", "error", err.Error())
+		reportServeFailure(ctx, err)
 		os.Exit(1)
+	}
+}
+
+// reportServeFailure 把启动失败写到日志，并在日志后端未启用 Error 级时兜底
+// 写 stderr。装配完成前的失败（典型：配置文件读不到）发生在日志后端注入之
+// 前，此时全局后端仍是静默的 nop——只写日志会让进程「无声」退出，只剩退出码。
+func reportServeFailure(ctx context.Context, err error) {
+	log.Error(ctx, "appkit: serve failed", "error", err.Error())
+	if !log.GetLogger().Enabled(log.LevelError) {
+		_, _ = fmt.Fprintf(os.Stderr, "appkit: serve failed: %v\n", err)
 	}
 }
 
