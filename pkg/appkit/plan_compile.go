@@ -280,7 +280,7 @@ func planFrom(ctx context.Context, d *Decl, cfg *bootstrapv1.BootstrapConfig, se
 	}{
 		{"gateway", d.GatewayRegister != nil},
 		{"grpc", d.GRPCRegister != nil},
-		{"grpcOptions", d.GRPCOptionsFn != nil},
+		{"grpcOptions", len(d.GRPCOptionFuncs) > 0},
 		{"http", d.HTTPHandler != nil},
 	} {
 		if c.present {

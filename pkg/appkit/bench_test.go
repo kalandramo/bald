@@ -282,7 +282,7 @@ func BenchmarkEffectUndo_Ledger(b *testing.B) {
 	ctx := context.Background()
 	b.ReportAllocs()
 	for b.Loop() {
-		a := &App{effectTimeout: defaultHookTimeout}
+		a := &App{effectTimeout: phaseBudgetFor(defaultStopTimeout)}
 		for i := 0; i < 32; i++ {
 			a.addEffect("bench-effect", func(context.Context) error { return nil })
 		}

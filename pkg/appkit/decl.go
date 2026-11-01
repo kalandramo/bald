@@ -88,12 +88,13 @@ type Decl struct {
 	// Provides/Requires/Components/ComponentTimeout/OnKeyChange/Reconcile
 	// 经 Apply 直写；引擎透传见 assemble 的未导出 *Opt 写入面） ----
 	Effects []EffectDecl
-	// EffectTimeout 效应撤销阶段的独立超时（单槽）。
+	// EffectTimeout 效应撤销阶段的独立超时（单槽；0=未声明，从 stopTimeout 派生）。
 	EffectTimeout time.Duration
 	Provides      []string
 	Requires      []RequireDecl
 	Components    []Component
-	// ComponentTimeout 组件 Start/Dispose 的独立超时（单槽）。
+	// ComponentTimeout 组件 Start/Dispose 的独立超时（单槽；0=未声明，从
+	// stopTimeout 派生）。
 	ComponentTimeout time.Duration
 	KeyWatches       []KeyWatchDecl
 	Reconciles       []ReconcileDecl
@@ -152,13 +153,10 @@ type Decl struct {
 	// GatewayRegister grpc-gateway 转码注册回调（server.http 的一种模式，
 	// 由契约 server.http.driver 选择，见 WithGatewayRegister）。
 	GatewayRegister func(context.Context, *grpc.ClientConn) (http.Handler, error)
-	// GRPCRegister gRPC service 注册回调；GRPCUnary 拦截器链（值切片，
-	// 调用点求值）。
-	GRPCRegister func(*grpc.Server)
-	GRPCUnary    []grpc.ServerOption
-	// GRPCOptionsFn 运行期求值的 gRPC 选项工厂（WithGRPCOptions；与
-	// GRPCUnary 累加，静态在前）。
-	GRPCOptionsFn func() []grpc.ServerOption
+	// GRPCRegister gRPC service 注册回调。GRPCOptionFuncs 是服务端选项工厂
+	// （拦截器链等），按登记顺序在 server 构造点求值——链序 = 登记顺序。
+	GRPCRegister    func(*grpc.Server)
+	GRPCOptionFuncs []func() []grpc.ServerOption
 
 	// ---- 健康检查（WithHealth/WithProbePaths/WithHealthPollInterval 声明；
 	// 探针路径仅 WithHealth 置默认值，空值 = 未声明） ----
@@ -206,15 +204,15 @@ type BindDecl struct {
 
 // defaultDecl 返回带缺省值的空声明（NewApp 与 assemble 的 kitOpts 共用的构造起点；
 // 缺省值与旧 New 的结构体字面量逐字段一致：ID 随机实例后缀，元数据默认值，
-// 超时默认值。探针路径刻意不预填——空值即「未声明」，由 WithHealth 置默认）。
+// 停机预算默认值。EffectTimeout/ComponentTimeout 刻意留 0=未声明，由
+// newFromDecl 从 stopTimeout 派生；探针路径同样不预填——空值即「未声明」，由
+// WithHealth 置默认）。
 func defaultDecl() Decl {
 	return Decl{
-		ID:               defaultInstanceID(),
-		Name:             "bald-app",
-		Version:          "v0.0.0",
-		StopTimeout:      defaultStopTimeout,
-		EffectTimeout:    defaultHookTimeout,
-		ComponentTimeout: defaultHookTimeout,
+		ID:          defaultInstanceID(),
+		Name:        "bald-app",
+		Version:     "v0.0.0",
+		StopTimeout: defaultStopTimeout,
 	}
 }
 
@@ -222,6 +220,9 @@ func defaultDecl() Decl {
 // 逐字段拷入，运行期追加与并发保护仍归 App 私有字段）。效应账本按声明
 // 序入账——运行期 addEffect 在同一账本继续追加，停机按入账逆序回放。
 func newFromDecl(d Decl) *App {
+	// 阶段预算的单一来源：未显式声明的 EffectTimeout/ComponentTimeout 从
+	// stopTimeout 派生（见 phaseBudgetFor）。
+	budget := phaseBudgetFor(d.StopTimeout)
 	a := &App{
 		id:               d.ID,
 		name:             d.Name,
@@ -234,10 +235,10 @@ func newFromDecl(d Decl) *App {
 		afterStart:       d.AfterStart,
 		beforeStop:       d.BeforeStop,
 		afterStop:        d.AfterStop,
-		effectTimeout:    d.EffectTimeout,
+		effectTimeout:    orDuration(d.EffectTimeout, budget),
 		provides:         d.Provides,
 		components:       d.Components,
-		componentTimeout: d.ComponentTimeout,
+		componentTimeout: orDuration(d.ComponentTimeout, budget),
 		auditor:          d.Auditor,
 		identity:         d.Identity,
 		httpHandler:      d.HTTPHandler,

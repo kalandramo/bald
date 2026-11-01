@@ -72,25 +72,30 @@ func WithGatewayRegister(fn func(context.Context, *grpc.ClientConn) (http.Handle
 	return optionFunc(func(s *Decl) { s.GatewayRegister = fn })
 }
 
-// WithGRPC 声明启用 gRPC 服务器。register 注册业务 service；unary 为完整
-// 拦截器链（链序是安全策略，归业务：ErrorInterceptor 须挂最外层）。
-func WithGRPC(register func(*grpc.Server), unary ...grpc.ServerOption) Option {
-	return optionFunc(func(s *Decl) { s.GRPCRegister, s.GRPCUnary = register, unary })
+// WithGRPC 声明启用 gRPC 服务器并注册业务 service（单值，末者胜）。
+//
+// 服务端选项（拦截器链、credentials）一律经 [WithGRPCOptions] 登记；TLS 由框架
+// 从契约 server.grpc.tls 段构造，不在选项里配。
+func WithGRPC(register func(*grpc.Server)) Option {
+	return optionFunc(func(s *Decl) { s.GRPCRegister = register })
 }
 
-// WithGRPCOptions 注册**运行期求值**的 gRPC 服务器选项。
+// WithGRPCOptions 登记一个 gRPC 服务端选项工厂，在 Run 期 server 构造点求值。
 //
-// 与 WithGRPC 的 unary 参数差别：后者是值切片，在**调用点**即求值（Go 变参语义），
-// 若选项构造依赖 beforeStart 建立的运行期资源（认证器/授权器/仓储），构造期拿到的
-// 是 nil。本 Option 登记一个工厂函数，在 Run 期 server 构造钩子内调用——此时业务
-// beforeStart 已跑完，依赖就绪。可与 WithGRPC 的 unary 并用（二者累加，静态在前）。
+// 用途：选项构造依赖 beforeStart 建立的运行期资源（认证器/授权器/仓储）时，
+// 值切片拿到的会是 nil，工厂函数则看到就绪后的依赖。多次登记按登记顺序累加，
+// 与 [WithGRPC] 的 unary 同队列。
 //
-// 典型用法（消除「请求期解析」的认证代理）：
+// 典型用法：
 //
 //	appkit.WithGRPC(registerSvc)                  // 只声明 service 注册
 //	appkit.WithGRPCOptions(newInterceptorChain)   // 拦截器链延到 Run 期构造
 func WithGRPCOptions(fn func() []grpc.ServerOption) Option {
-	return optionFunc(func(s *Decl) { s.GRPCOptionsFn = fn })
+	return optionFunc(func(s *Decl) {
+		if fn != nil {
+			s.GRPCOptionFuncs = append(s.GRPCOptionFuncs, fn)
+		}
+	})
 }
 
 // WithExtraServerFunc 注册**运行期构造**的附加服务器。

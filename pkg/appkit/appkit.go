@@ -10,7 +10,7 @@
 //
 //	appkit.MustServe(context.Background(),
 //	    appkit.WithHTTP(handler),
-//	    appkit.WithGRPC(register, opts...),
+//	    appkit.WithGRPC(register),
 //	)
 //
 // Serve/MustServe 内部完成 --config 解析 → 契约装载 → 命名空间解析 →
@@ -62,8 +62,8 @@ type App struct {
 	// env 名不变）；NewApp 路径回退 Name（代码层稳定源，无自指）。
 	cfgNamespace string
 
-	// 服务器 Stop 阶段超时（before/afterStop 钩子固定 defaultHookTimeout：
-	// runHook 独立超时安全网保留、不再可配置——慢钩子应在钩子内自控 ctx）。
+	// 优雅停机总预算（契约 app.stop_timeout / StopTimeout Option）。其余生命周期
+	// 阶段（钩子、效应回放、组件启停、端点等待）的预算由 phaseBudgetFor 从它派生。
 	stopTimeout time.Duration
 
 	// registrar 可由 SetRegistrar/契约 registry 段在运行期写入，register/
@@ -656,7 +656,7 @@ func (a *App) Run(ctx context.Context) error {
 	for _, fn := range a.afterStart {
 		if err := fn(gctx); err != nil {
 			cancel()
-			_ = a.deregister(context.Background())
+			logDeregister(ctx, a.deregister(context.Background()))
 			a.stopAll(context.Background())
 			a.runErr.Store(err)
 			log.Error(ctx, "appkit afterStart hook failed", "error", err)
@@ -687,7 +687,7 @@ func (a *App) Run(ctx context.Context) error {
 	if a.registrarValue() != nil {
 		log.Info(ctx, "appkit deregistering", "name", a.name, "id", a.id)
 	}
-	_ = a.deregister(context.Background())
+	logDeregister(ctx, a.deregister(context.Background()))
 
 	// 优雅停机：传入未取消的新 ctx（带 stopTimeout），否则取消信号会让停机立即放弃等待。
 	a.stopAll(context.Background())
@@ -704,21 +704,25 @@ func (a *App) Run(ctx context.Context) error {
 
 // stopAll 分五阶段优雅停机：
 //  0. 效应账本逆序回放（撤销装配期全局写入，先于一切停机钩子）
-//  1. BeforeStop 钩子（独立超时 defaultHookTimeout，panic 安全不拖垮整机）
+//  1. BeforeStop 钩子（独立超时 = 阶段预算，panic 安全不拖垮整机）
 //  2. 各 Server.Stop 并发（独立超时 stopTimeout）
-//  3. AfterStop 钩子（独立超时 defaultHookTimeout，panic 安全）
+//  3. AfterStop 钩子（独立超时 = 阶段预算，panic 安全）
 //  4. 组件 Dispose 逆序（AfterStop 之后——钩子期间组件仍可用，最后收尾）
 //
 // 每个阶段使用各自独立的 WithTimeout ctx，互不影响；parent 取消会级联缩短各阶段。
+// 阶段预算 = phaseBudgetFor(stopTimeout)，即停机总预算的一半，随契约
+// app.stop_timeout / StopTimeout Option 一起缩放。
 // waitForEndpoints / register / afterStart / 组件启动失败路径也经本函数回滚
 // （含效应回放与组件 Dispose）。
 func (a *App) stopAll(parent context.Context) {
+	budget := phaseBudgetFor(a.stopTimeout)
+
 	// 阶段 0：效应账本逆序回放（幂等，已回放过则无操作）。
 	a.UndoEffects(parent)
 
 	// 阶段 1：BeforeStop 钩子。
 	for _, fn := range a.beforeStop {
-		if err := a.runHook(parent, defaultHookTimeout, "beforeStop", fn); err != nil {
+		if err := a.runHook(parent, budget, "beforeStop", fn); err != nil {
 			log.Error(parent, "appkit beforeStop hook failed", "error", err)
 		}
 	}
@@ -740,7 +744,7 @@ func (a *App) stopAll(parent context.Context) {
 
 	// 阶段 3：AfterStop 钩子。
 	for _, fn := range a.afterStop {
-		if err := a.runHook(parent, defaultHookTimeout, "afterStop", fn); err != nil {
+		if err := a.runHook(parent, budget, "afterStop", fn); err != nil {
 			log.Error(parent, "appkit afterStop hook failed", "error", err)
 		}
 	}
@@ -806,11 +810,18 @@ func registrableEndpoint(ep string) bool {
 // waitForEndpoints 轮询直到所有 server 的 Endpoint 解析出真实端口（非 ":0"），
 // 或 ctx 取消/超时。这避免了把 ":0" 这样的未绑定地址注册到服务发现。
 // 对于显式绑定固定端口的 server，Endpoint 一开始就非 ":0"，会立即通过。
+//
+// 上界：调用方 ctx 带截止期时按它计（框架既不缩短调用方给的预算，也不越过它
+// 等待——更早的 ctx.Done 仍会立刻结束轮询）；无截止期时用阶段预算
+// （= stopTimeout/2，见 phaseBudgetFor）。
 func (a *App) waitForEndpoints(ctx context.Context) error {
-	const (
-		pollInterval = 10 * time.Millisecond
-		timeout      = 5 * time.Second // 单个 server 监听准备上限
-	)
+	const pollInterval = 10 * time.Millisecond
+	timeout := phaseBudgetFor(a.stopTimeout)
+	if dl, ok := ctx.Deadline(); ok {
+		if remain := time.Until(dl); remain > 0 {
+			timeout = remain
+		}
+	}
 	deadline := time.Now().Add(timeout)
 	for {
 		ready := true
@@ -852,4 +863,12 @@ func (a *App) deregister(ctx context.Context) error {
 		return nil
 	}
 	return r.Deregister(ctx, a.buildInstance())
+}
+
+// logDeregister 记录反注册失败：注册中心留有条目 = 流量继续打到已停实例，
+// 这正是反注册想避免的事。停机路径不改返回语义（失败不阻断停机），但必须可见。
+func logDeregister(ctx context.Context, err error) {
+	if err != nil {
+		log.Error(ctx, "appkit deregister failed", "error", err)
+	}
 }

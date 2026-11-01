@@ -172,16 +172,15 @@ func (p stdServerProvider) Build(ctx context.Context, s ApplyScope, _ Node) (any
 		servers []transport.Server
 		closers []func()
 	)
-	// gRPC：service 注册 + 拦截器链（静态在前）+ 运行期选项工厂 + 健康状态。
+	// gRPC：service 注册 + 选项工厂（按登记顺序）+ 健康状态。
 	if d.GRPCRegister != nil {
 		grpcOpts := []baldbootstrap.GRPCServerOption{
-			baldbootstrap.WithGRPCUnary(d.GRPCUnary...),
 			baldbootstrap.WithGRPCRegister(d.GRPCRegister),
 		}
-		// WithGRPCOptions：运行期求值的选项工厂在 server 构造时调用（见
-		// bootstrap.GrpcServerProvider），彼时业务 beforeStart 已建好认证器。
-		if d.GRPCOptionsFn != nil {
-			grpcOpts = append(grpcOpts, baldbootstrap.WithGRPCUnaryFunc(d.GRPCOptionsFn))
+		// 工厂在 server 构造时逐个求值（见 bootstrap.GrpcServerProvider），彼时
+		// 业务 beforeStart 已建好认证器；登记顺序即最终链序。
+		for _, fn := range d.GRPCOptionFuncs {
+			grpcOpts = append(grpcOpts, baldbootstrap.WithGRPCUnaryFunc(fn))
 		}
 		if d.Health != nil {
 			grpcOpts = append(grpcOpts, baldbootstrap.WithGRPCHealth(d.Health, d.HealthInterval))

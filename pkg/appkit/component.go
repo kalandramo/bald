@@ -52,7 +52,8 @@ func componentsOpt(comps ...Component) Option {
 	return optionFunc(func(d *Decl) { d.Components = append(d.Components, comps...) })
 }
 
-// componentTimeoutOpt 设置组件 Start/Dispose 的独立超时（默认 defaultHookTimeout）。
+// componentTimeoutOpt 设置组件 Start/Dispose 的独立超时（未声明时 = 阶段预算
+// stopTimeout/2）。
 func componentTimeoutOpt(d time.Duration) Option {
 	return optionFunc(func(decl *Decl) { decl.ComponentTimeout = d })
 }

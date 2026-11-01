@@ -43,7 +43,7 @@ type effectEntry struct {
 // 或启动失败回滚时**逆序**执行（后注册的先撤销，与依赖建立顺序对称）。
 //
 // 契约（由 effect_test.go 固化）：
-//   - undo 每条独立超时（effectTimeoutOpt，默认 defaultHookTimeout）；
+//   - undo 每条独立超时（effectTimeoutOpt，未声明时 = 阶段预算 stopTimeout/2）；
 //   - undo panic 被隔离，不拖垮其余撤销与整机停机；
 //   - 回放幂等：执行后账本清空，重复调用无副作用。
 func effectOpt(name string, undo func(ctx context.Context) error) Option {
