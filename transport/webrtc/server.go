@@ -320,8 +320,6 @@ func (s *Server) defaultUnmarshalNetPacket(buf []byte) (handler *MessageHandlerD
 		}
 	}
 
-	//logDebug(string(rawPayload))
-
 	return
 }
 

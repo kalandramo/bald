@@ -14,10 +14,6 @@ const (
 /// logger
 ///
 
-func logDebug(args ...any) {
-	log.Debug(nil, fmt.Sprintf("%s %s", logKey, fmt.Sprint(args...)))
-}
-
 func logInfo(args ...any) {
 	log.Info(nil, fmt.Sprintf("%s %s", logKey, fmt.Sprint(args...)))
 }
