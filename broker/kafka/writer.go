@@ -101,7 +101,9 @@ func (w *Writer) Close() {
 		_ = writer.Close()
 	}
 	w.Writer = nil
-	w.Writers = nil
+	// 复位成空 map 而不是 nil：Disconnect→Connect 之后发布路径还要往
+	// Writers[topic] 里写元素，nil map 赋值是直接 panic。
+	w.Writers = make(map[string]*kafkaGo.Writer)
 }
 
 // CreateProducer create kafka-go Writer

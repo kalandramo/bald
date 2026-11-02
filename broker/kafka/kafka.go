@@ -350,6 +350,14 @@ func (b *kafkaBroker) internalPublish(ctx context.Context, topic string, msg *br
 	}
 }
 
+// shouldRetryFreshWriter 判定「刚新建的 writer 首次写入失败」是不是 broker 侧的
+// 瞬时错误：协议里的 retriable 集合（Temporary）且不是 RequestTimedOut（Timeout）。
+// 命中就原地重试一次；缓存命中的失败走重建路径，不由这个判据决定。
+func shouldRetryFreshWriter(err error) bool {
+	var kerr kafkaGo.Error
+	return errors.As(err, &kerr) && kerr.Temporary() && !kerr.Timeout()
+}
+
 // publishMultipleWriter publishes message with multiple writers (one topic one writer)
 func (b *kafkaBroker) publishMultipleWriter(ctx context.Context, topic string, msg *broker.Message, opts ...broker.PublishOption) error {
 	b.RLock()
@@ -400,18 +408,17 @@ func (b *kafkaBroker) publishMultipleWriter(ctx context.Context, topic string, m
 		logErrorf("WriteMessages error: %s", err.Error())
 		switch cached {
 		case false:
-			var kerr kafkaGo.Error
-			if errors.As(err, &kerr) {
-				if kerr.Temporary() && !kerr.Timeout() {
-					time.Sleep(200 * time.Millisecond)
-					err = writer.WriteMessages(options.Context, kMsg)
-				}
+			if shouldRetryFreshWriter(err) {
+				time.Sleep(200 * time.Millisecond)
+				err = writer.WriteMessages(options.Context, kMsg)
 			}
 		case true:
+			// 命中缓存的坏 writer：先关闭并摘除，再换新 writer 按 retriesCount 重建。
+			// Close 的错误只记日志，不覆盖写失败本身——否则 retriesCount==0 时
+			// 重试循环一次也不跑，Publish 会对一条从未写出的消息返回 nil。
 			b.Lock()
-			if err = writer.Close(); err != nil {
-				b.Unlock()
-				break
+			if cerr := writer.Close(); cerr != nil {
+				logErrorf("close broken writer error: %s", cerr.Error())
 			}
 			delete(b.writer.Writers, topic)
 			b.Unlock()
@@ -484,19 +491,15 @@ func (b *kafkaBroker) publishOneWriter(ctx context.Context, topic string, msg *b
 		logErrorf("WriteMessages error: %s", err.Error())
 		switch cached {
 		case false:
-			var kerr kafkaGo.Error
-			if errors.As(err, &kerr) {
-				if kerr.Temporary() && !kerr.Timeout() {
-					time.Sleep(200 * time.Millisecond)
-					err = b.writer.Writer.WriteMessages(options.Context, kMsg)
-				}
+			if shouldRetryFreshWriter(err) {
+				time.Sleep(200 * time.Millisecond)
+				err = b.writer.Writer.WriteMessages(options.Context, kMsg)
 			}
 
 		case true:
 			b.Lock()
-			if err = b.writer.Writer.Close(); err != nil {
-				b.Unlock()
-				break
+			if cerr := b.writer.Writer.Close(); cerr != nil {
+				logErrorf("close broken writer error: %s", cerr.Error())
 			}
 			b.writer.Writer = nil
 			b.Unlock()

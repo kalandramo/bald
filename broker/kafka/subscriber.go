@@ -120,9 +120,11 @@ func (s *subscriber) closeLocked() error {
 
 	if s.done != nil {
 		close(s.done)
-		s.done = nil
 	}
 
+	// done 保持关闭状态、不置 nil：run() 的 select 不加锁地读这个字段，
+	// 事后改写它就是数据竞争；而且「永远就绪」正是循环需要退出信号。
+	// 二次 close 由上面的 closed 标志挡住。
 	return err
 }
 
@@ -182,6 +184,7 @@ func (s *subscriber) processBatchMessage() {
 				// 先判断是否需要立即退出
 				if isFatalError(s, err) {
 					logErrorf("fatal FetchMessage error, exiting: %v", err)
+					_ = s.close()
 					return
 				}
 
@@ -238,6 +241,7 @@ func (s *subscriber) processSingleMessage() {
 				// 立即退出的情况
 				if isFatalError(s, err) {
 					logErrorf("fatal FetchMessage error, exiting: %v", err)
+					_ = s.close()
 					return
 				}
 
@@ -306,17 +310,16 @@ func (s *subscriber) handleMessage(km kafkaGo.Message) bool {
 	return false
 }
 
-var randSrc = rand.New(rand.NewSource(time.Now().UnixNano()))
-
-// 简单的指数退避（带抖动），attempt 从 0 开始
-func backoffSleep(attempt int, min, max time.Duration) {
+// backoffDuration 计算第 attempt 次退避的时长：指数增长（2 为基数）截到 max，
+// 再叠加 [0, d/2] 的抖动，结果落在 [d/2, d]。拆成纯函数是为了能确定性断言边界，
+// 不必拿墙上时钟去猜。
+func backoffDuration(attempt int, min, max time.Duration, rand63n func(int64) int64) time.Duration {
 	if min <= 0 {
 		min = 50 * time.Millisecond
 	}
 	if max < min {
 		max = min
 	}
-	// 指数增长（以 2 为基数），限制最大值
 	d := min << uint(attempt)
 	if d < min {
 		d = min
@@ -324,10 +327,14 @@ func backoffSleep(attempt int, min, max time.Duration) {
 	if d > max {
 		d = max
 	}
-	// 添加抖动，范围 [d/2, d)
-	jitter := time.Duration(randSrc.Int63n(int64(d/2 + 1)))
-	sleepDur := d/2 + jitter
-	time.Sleep(sleepDur)
+	return d/2 + time.Duration(rand63n(int64(d/2+1)))
+}
+
+// backoffSleep 按 backoffDuration 睡一觉。抖动取 math/rand 的全局函数：每个订阅
+// 各自跑在一个 goroutine 上，这里会并发调用，而 rand.New(rand.NewSource(..))
+// 得到的自建源不是并发安全的。
+func backoffSleep(attempt int, min, max time.Duration) {
+	time.Sleep(backoffDuration(attempt, min, max, rand.Int63n))
 }
 
 // helper: 判断是否为不可恢复/致命错误，需立即退出
