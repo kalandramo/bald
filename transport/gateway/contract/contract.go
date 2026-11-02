@@ -52,6 +52,10 @@ type RegisterFunc func(ctx context.Context, conn *grpc.ClientConn) (http.Handler
 // opts 透传给 gateway.NewGatewayServer（如 gateway.WithDiscovery），用于把
 // backend_grpc_addr 里的 discovery:///<服务名> 接到注册中心；不传则维持直连。
 // 契约字段仍是 string，地址语义由字符串自身表达。
+//
+// 本工厂没有装配作用域可看，因此不自动派生发现来源——段驱动路径
+// （[AppProvider]）才接这根线（见 discovery.go）；直接用本工厂时显式传
+// gateway.WithDiscovery。
 func Provider(register RegisterFunc, opts ...gateway.Option) func(context.Context, *bootstrapv1.Server) (transport.Server, func(), error) {
 	return func(_ context.Context, cfg *bootstrapv1.Server) (transport.Server, func(), error) {
 		sec := cfg.GetGateway()

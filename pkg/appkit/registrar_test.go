@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
 	"github.com/kalandramo/bald/log"
 	"github.com/kalandramo/bald/registry"
+	"github.com/kalandramo/bald/transport"
 )
 
 // bconfNewBootstrapWithRegistry 构造带 registry 段的契约（type 指向后端）。
@@ -146,7 +148,6 @@ func TestAssemble_RegistrySectionWithoutTable(t *testing.T) {
 }
 
 // --- New 构造路径：SetRegistrar 运行期注入 ---
-
 // BeforeStart 里按契约构造 + SetRegistrar（NewApp 路径的注册中心接线自持），
 // cleanup 挂停机 Effect：断言 register 发生（SetRegistrar 在 register 窗口
 // 之前即时生效）、停机 Deregister + cleanup 恰好各一次。
@@ -208,5 +209,66 @@ func TestNew_SetRegistrarLifecycle(t *testing.T) {
 	defer mu.Unlock()
 	if cleaned != 1 {
 		t.Fatalf("cleanup called %d times, want 1", cleaned)
+	}
+}
+
+// 公开读取口是消费方取「注册中心的另一半能力」（registry.Discovery）的通路：
+// 必须与内部值同源、随 SetRegistrar 即时更新、未装配时返回 nil——返回包了 nil
+// 指针的非空接口会让调用方的 `r == nil` 判据失效，把「没装配」当成「已装配」。
+func TestApp_RegistrarAccessor(t *testing.T) {
+	if got := NewApp(Name("acc")).Registrar(); got != nil {
+		t.Fatalf("未装配时 Registrar() = %T(%v), want nil", got, got)
+	}
+
+	stub := &stubRegistrar{}
+	a := NewApp(Name("acc"), Registrar(stub))
+	if a.Registrar() != registry.Registrar(stub) {
+		t.Fatalf("Registrar() = %T, want 显式装配的实例", a.Registrar())
+	}
+
+	other := &stubRegistrar{}
+	a.SetRegistrar(other)
+	if a.Registrar() != registry.Registrar(other) {
+		t.Fatal("Registrar() 应反映运行期 SetRegistrar")
+	}
+	if typed, ok := a.Registrar().(*stubRegistrar); !ok || typed != other {
+		t.Fatal("Registrar() 返回的应是原实例，不是包装")
+	}
+}
+
+// registry 段产物必须在 server 段 Provider 的 Build **之前**已可读（阶段 B 早于
+// 迟后阶段）。这是消费侧接线的前提：转码面在 Build 里经 App.Registrar() 取发现
+// 半边（transport/gateway/contract 的 discoveryScopeOption），时序晚一步就取到
+// nil——「装配了注册中心却接不上」不会自己显现，故在此钉住顺序。
+func TestAssemble_RegistrarVisibleToServePhaseBuild(t *testing.T) {
+	old := log.GetLogger()
+	t.Cleanup(func() { log.SetLogger(old) })
+
+	stub := &stubRegistrar{}
+	var (
+		mu     sync.Mutex
+		seen   registry.Registrar
+		builds atomic.Int32
+	)
+	face := segProvider{segs: []string{"server.http"}, build: func(_ context.Context, s ApplyScope) (any, Cleanup, error) {
+		builds.Add(1)
+		mu.Lock()
+		seen = s.App.Registrar()
+		mu.Unlock()
+		return []transport.Server{&probeServer{name: "face", started: &atomic.Bool{}, mark: func(string) {}}}, nil, nil
+	}}
+
+	cfg := bconfNewBootstrapWithRegistry("fake")
+	dynamicAddr(cfg)
+	a := assembleForTest(t, cfg, stubRegistrarProvider(stub, nil), face)
+	runBriefly(t, a, 100*time.Millisecond)
+
+	if got := builds.Load(); got != 1 {
+		t.Fatalf("server 段 Provider 构建 %d 次, want 1", got)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if seen != registry.Registrar(stub) {
+		t.Fatalf("server 段 Build 看到的 Registrar = %v, want 阶段 B 的 registry 段产物", seen)
 	}
 }

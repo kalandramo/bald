@@ -19,16 +19,22 @@ import (
 // GatewayServer 是 grpc-gateway 反向代理：把 REST 请求转发到被代理的 gRPC 服务。
 // 复用 HTTPServer 承载 mux，实现 Server 契约。
 //
-// 后端地址默认按配置直连；注入 WithDiscovery 后，`discovery:///<服务名>` 形式的
-// 地址改由注册中心解析（见 discovery.go）。
+// 后端地址默认按配置直连；地址写成 `discovery:///<服务名>` 时必须提供发现来源
+// （[WithDiscovery] 直给实例，或 [WithDiscoverySource] 延迟取），否则 Start
+// 直接失败——见 [GatewayServer.resolveDiscovery]。
 type GatewayServer struct {
 	*httpserver.HTTPServer
 	backend   *bootstrapv1.Server_Grpc // 被代理的 gRPC 配置（实时读 addr，避免构造期快照与 env 覆盖脱节）
 	register  func(ctx context.Context, conn *grpc.ClientConn) (http.Handler, error)
 	discovery registry.Discovery // 非空则注册 discovery:/// 解析器（见 WithDiscovery）
-	conn      *grpc.ClientConn   // 到后端 gRPC 的连接，Stop 时关闭
-	closeOnce sync.Once
-	mu        sync.Mutex
+	// discoverySource 按地址决定是否调用：只有 backend addr 用 discovery scheme
+	// 且未显式注入 Discovery 时才取（见 resolveDiscovery）。段驱动装配用它——
+	// 装配作用域（App/Decl 上的注册中心）在构造期对契约层不可见，而调用方
+	// 自带的 WithDiscovery 只能靠「谁被真正用上」裁决，不能靠选项顺序猜。
+	discoverySource func() (registry.Discovery, error)
+	conn            *grpc.ClientConn // 到后端 gRPC 的连接，Stop 时关闭
+	closeOnce       sync.Once
+	mu              sync.Mutex
 }
 
 // Option 是 GatewayServer 的构造选项。未设置的项一律保持「配置地址直连」的
@@ -36,8 +42,7 @@ type GatewayServer struct {
 type Option func(*GatewayServer)
 
 // WithDiscovery 让 backend_grpc_addr 里的 `discovery:///<服务名>` 目标经
-// registry.Discovery 解析端点，未注入时该 scheme 无法解析（gRPC 报 unsupported
-// scheme），直连写法不受影响。
+// registry.Discovery 解析端点，直连写法不受影响。
 //
 // 地址语义由字符串自己表达，这里不改契约字段类型：`Server_Grpc.addr` 仍是
 // string，填 host:port 走原生 dns，填 discovery:///name 走注册中心。
@@ -46,6 +51,14 @@ type Option func(*GatewayServer)
 // 而非负载均衡；要多副本分摊流量，拨号侧需另配 round_robin 服务。
 func WithDiscovery(d registry.Discovery) Option {
 	return func(s *GatewayServer) { s.discovery = d }
+}
+
+// WithDiscoverySource 注入「需要时才取」的发现来源，用于装配期拿不到实例的接线
+// （段驱动 Provider 在 Start 时才看地址，从已装配的注册中心取 Discovery）。
+//
+// 优先级低于 [WithDiscovery]：显式实例已在，不必再派生一份同源的。
+func WithDiscoverySource(source func() (registry.Discovery, error)) Option {
+	return func(s *GatewayServer) { s.discoverySource = source }
 }
 
 // NewGatewayServer 构造网关服务器。
@@ -105,6 +118,35 @@ func dialOpts(tlsCfg *bootstrapv1.Server_TLS) ([]grpc.DialOption, error) {
 	return []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tc))}, nil
 }
 
+// resolveDiscovery 定下这次拨号用哪个发现来源：显式实例 > 延迟来源 > 无。
+//
+// 地址写了 discovery scheme 却取不到来源时在这里失败，而不是把目标交给 gRPC：
+// 未注册的 scheme 会退回默认 dns resolver，一个必然拨不通的名字就被静默当成
+// 主机名——失败要出现在拨号前。
+//
+// 延迟来源只在地址确实是 discovery:/// 时才调用：装配面上取注册中心不是零成本，
+// 直连配置不该付这笔钱。
+func (s *GatewayServer) resolveDiscovery() (registry.Discovery, error) {
+	if s.discovery != nil {
+		return s.discovery, nil
+	}
+	target := s.backend.GetAddr()
+	if !usesDiscoveryTarget(target) {
+		return nil, nil
+	}
+	if s.discoverySource == nil {
+		return nil, fmt.Errorf("gateway: backend %q uses the %q scheme but no discovery is available (gateway.WithDiscovery / WithDiscoverySource)", target, DiscoveryScheme)
+	}
+	d, err := s.discoverySource()
+	if err != nil {
+		return nil, fmt.Errorf("gateway: discovery for backend %q: %w", target, err)
+	}
+	if d == nil {
+		return nil, fmt.Errorf("gateway: discovery for backend %q: source returned nil", target)
+	}
+	return d, nil
+}
+
 // Start 在真正启动前建立到后端 gRPC 的连接并注册 handler（延迟解析地址）。
 func (s *GatewayServer) Start(ctx context.Context) error {
 	s.mu.Lock()
@@ -117,8 +159,13 @@ func (s *GatewayServer) Start(ctx context.Context) error {
 		s.mu.Unlock()
 		return err
 	}
-	if s.discovery != nil {
-		opts = append(opts, grpc.WithResolvers(newDiscoveryBuilder(s.discovery)))
+	d, err := s.resolveDiscovery()
+	if err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	if d != nil {
+		opts = append(opts, grpc.WithResolvers(newDiscoveryBuilder(d)))
 	}
 	conn, err := grpc.NewClient(s.backend.GetAddr(), opts...)
 	if err != nil {

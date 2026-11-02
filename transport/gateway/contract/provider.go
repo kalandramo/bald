@@ -28,10 +28,8 @@ import (
 
 	"google.golang.org/grpc"
 
-	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
 	"github.com/kalandramo/bald/health"
 	"github.com/kalandramo/bald/pkg/appkit"
-	"github.com/kalandramo/bald/transport"
 	gateway "github.com/kalandramo/bald/transport/gateway"
 )
 
@@ -45,21 +43,25 @@ import (
 // 必填、backend_grpc_addr 缺省回退 server.grpc.addr，均 fail-fast）→
 // 产物 transport.Server 落服务器列表 → cleanup 透传（gateway 工厂当前不产
 // 停机清理，nil 合法；连接生命周期归 Start/Stop）。
+//
+// backend_grpc_addr 写成 discovery:///<服务名> 时经装配作用域自动取发现来源，
+// 消费方只改一行配置（见 [discoveryScopeOption]）。派生要看 scope，故本
+// Provider 保存构造参数（register + opts）而不是预绑工厂。
 func AppProvider(register RegisterFunc, opts ...gateway.Option) appkit.Provider {
-	factory := Provider(register, opts...)
-	return appProvider{factory: factory}
+	return appProvider{register: register, opts: opts}
 }
 
 // appProvider 消费 server.gateway 段。
 type appProvider struct {
-	factory func(context.Context, *bootstrapv1.Server) (transport.Server, func(), error)
+	register RegisterFunc
+	opts     []gateway.Option
 }
 
 func (appProvider) Segments() []string { return []string{"server.gateway"} }
 
 // Apply 把自身追加进声明（Provider 即 Option，可直接作为 MustServe 变参项）。
-// 追加的是携带 factory 的接收者本身——工厂经 AppProvider 变参构造，落声明
-// 时不能丢。
+// 追加的是携带 register/opts 的接收者本身——构造参数经 AppProvider 变参收集，
+// 落声明时不能丢。
 func (p appProvider) Apply(d *appkit.Decl) { d.Providers = append(d.Providers, p) }
 
 // Plan 声明段节点（server.gateway；阶段由段族决定）。
@@ -71,14 +73,16 @@ func (appProvider) Plan(context.Context, appkit.PlanScope) ([]appkit.Node, error
 	}}, nil
 }
 
-// Build 复用既有工厂构造 gateway 服务器。
+// Build 复用既有工厂构造 gateway 服务器；发现来源由当次 scope 补上，排在调用方
+// opts 之前（显式注入的 WithDiscovery 优先）。
 func (p appProvider) Build(ctx context.Context, s appkit.ApplyScope, _ appkit.Node) (any, appkit.Cleanup, error) {
 	serverSec := s.Config.GetServer()
 	if serverSec == nil {
 		return nil, nil, fmt.Errorf("transport/gateway: server section is missing " +
 			"(provider matched by segment path; report this as a bug)")
 	}
-	srv, cleanup, err := p.factory(ctx, serverSec)
+	opts := append([]gateway.Option{discoveryScopeOption(s)}, p.opts...)
+	srv, cleanup, err := Provider(p.register, opts...)(ctx, serverSec)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -112,7 +116,7 @@ func HTTPProvider(register RegisterFunc, opts ...gateway.Option) appkit.Provider
 type httpProvider struct {
 	// register 转码注册回调；WithHealth 声明时在外层补探针。
 	register RegisterFunc
-	opts    []gateway.Option
+	opts     []gateway.Option
 }
 
 func (httpProvider) Segments() []string { return []string{"server.http"} }

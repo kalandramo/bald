@@ -2392,6 +2392,11 @@ type Server_Gateway struct {
 	// 网关监听地址，如 ":8081"。
 	Addr string `protobuf:"bytes,1,opt,name=addr,proto3" json:"addr,omitempty"`
 	// 后端 gRPC 服务地址（须可连接，不能是 ":0"）。留空使用 server.grpc.addr。
+	//
+	// 两种形态：host:port 直连（原生 dns 解析）；或 discovery:///<服务名>，
+	// 由注册中心解析端点（transport/gateway 的 discovery resolver，段驱动装配
+	// 自动取本次装配的注册中心，无需代码）。discovery:// 形态下若装配里没有
+	// 注册中心、或其实现不含 registry.Discovery，Start 直接失败而不是静默回落。
 	BackendGrpcAddr string `protobuf:"bytes,2,opt,name=backend_grpc_addr,json=backendGrpcAddr,proto3" json:"backend_grpc_addr,omitempty"`
 	// TLS 配置。
 	Tls           *Server_TLS `protobuf:"bytes,3,opt,name=tls,proto3" json:"tls,omitempty"`

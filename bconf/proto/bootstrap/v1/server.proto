@@ -465,6 +465,11 @@ message Server {
     // 网关监听地址，如 ":8081"。
     string addr = 1;
     // 后端 gRPC 服务地址（须可连接，不能是 ":0"）。留空使用 server.grpc.addr。
+    //
+    // 两种形态：host:port 直连（原生 dns 解析）；或 discovery:///<服务名>，
+    // 由注册中心解析端点（transport/gateway 的 discovery resolver，段驱动装配
+    // 自动取本次装配的注册中心，无需代码）。discovery:// 形态下若装配里没有
+    // 注册中心、或其实现不含 registry.Discovery，Start 直接失败而不是静默回落。
     string backend_grpc_addr = 2;
     // TLS 配置。
     TLS tls = 3;

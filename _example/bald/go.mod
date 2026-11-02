@@ -16,6 +16,7 @@ require (
 	github.com/kalandramo/bald/health v0.1.1
 	github.com/kalandramo/bald/log v0.5.4
 	github.com/kalandramo/bald/registry v0.3.1
+	github.com/kalandramo/bald/registry/etcd v0.0.0-00010101000000-000000000000
 	github.com/kalandramo/bald/registry/nacos v0.3.0
 	github.com/kalandramo/bald/transport/gateway v0.4.2
 	github.com/kalandramo/bald/transport/web v0.2.0
@@ -246,3 +247,5 @@ replace github.com/kalandramo/bald/registry/nacos => ../../registry/nacos
 replace github.com/go-kratos/kratos/v3/contrib/config/nacos/v3 => ../../../kratos/contrib/config/nacos
 
 replace github.com/go-kratos/kratos/v3/contrib/registry/nacos/v3 => ../../../kratos/contrib/registry/nacos
+
+replace github.com/kalandramo/bald/registry/etcd => ../../registry/etcd

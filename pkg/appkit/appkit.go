@@ -329,6 +329,18 @@ func (a *App) SetRegistrar(r registry.Registrar) {
 	a.registrar = r
 }
 
+// Registrar 返回装配好的注册中心实例：显式 `Registrar(...)` Option，或 registry
+// 段 Provider 的产物（阶段 B 经 SetRegistrar 写入）。未装配时返回 nil。
+//
+// 为什么需要公开读取口：段 Provider 的产物只按契约类型（registry.Registrar）
+// 存入 App，其实现往往还带另一半能力（registry.Discovery，服务发现）。消费方
+// 若拿不到实例，只能对同一个注册中心再连一次——「已装配」与「可用」断开。
+// 返回接口本身不扩面；调用方按需要的能力做类型断言，断不出来即不支持。
+//
+// 时序：registry 段产物在阶段 B 落地，早于 server 段（PhaseServe）Provider 的
+// Build，因此 server 段 Provider 在此读到的是已装配实例。并发安全（registrarMu 保护）。
+func (a *App) Registrar() registry.Registrar { return a.registrarValue() }
+
 // registrarValue 是注册中心的内部读取口：register/deregister/日志与测试
 // 共用，避免绕开 registrarMu 直读字段。
 func (a *App) registrarValue() registry.Registrar {
