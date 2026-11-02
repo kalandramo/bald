@@ -12,18 +12,40 @@ import (
 
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
 	"github.com/kalandramo/bald/bconf/tlsconf"
+	"github.com/kalandramo/bald/registry"
 	"github.com/kalandramo/bald/transport/http"
 )
 
-// GatewayServer 是 grpc-gateway 反向代理：将 REST 请求转发到本地 gRPC 服务。
+// GatewayServer 是 grpc-gateway 反向代理：把 REST 请求转发到被代理的 gRPC 服务。
 // 复用 HTTPServer 承载 mux，实现 Server 契约。
+//
+// 后端地址默认按配置直连；注入 WithDiscovery 后，`discovery:///<服务名>` 形式的
+// 地址改由注册中心解析（见 discovery.go）。
 type GatewayServer struct {
 	*httpserver.HTTPServer
 	backend   *bootstrapv1.Server_Grpc // 被代理的 gRPC 配置（实时读 addr，避免构造期快照与 env 覆盖脱节）
 	register  func(ctx context.Context, conn *grpc.ClientConn) (http.Handler, error)
-	conn      *grpc.ClientConn // 到后端 gRPC 的连接，Stop 时关闭
+	discovery registry.Discovery // 非空则注册 discovery:/// 解析器（见 WithDiscovery）
+	conn      *grpc.ClientConn   // 到后端 gRPC 的连接，Stop 时关闭
 	closeOnce sync.Once
 	mu        sync.Mutex
+}
+
+// Option 是 GatewayServer 的构造选项。未设置的项一律保持「配置地址直连」的
+// 既有行为，零开销。
+type Option func(*GatewayServer)
+
+// WithDiscovery 让 backend_grpc_addr 里的 `discovery:///<服务名>` 目标经
+// registry.Discovery 解析端点，未注入时该 scheme 无法解析（gRPC 报 unsupported
+// scheme），直连写法不受影响。
+//
+// 地址语义由字符串自己表达，这里不改契约字段类型：`Server_Grpc.addr` 仍是
+// string，填 host:port 走原生 dns，填 discovery:///name 走注册中心。
+//
+// 解析出的多实例由 gRPC 默认 balancer（pick_first）按顺序取主备——这是故障转移
+// 而非负载均衡；要多副本分摊流量，拨号侧需另配 round_robin 服务。
+func WithDiscovery(d registry.Discovery) Option {
+	return func(s *GatewayServer) { s.discovery = d }
 }
 
 // NewGatewayServer 构造网关服务器。
@@ -57,12 +79,17 @@ func NewGatewayServer(
 	httpCfg *bootstrapv1.Server_Http,
 	backend *bootstrapv1.Server_Grpc,
 	register func(ctx context.Context, conn *grpc.ClientConn) (http.Handler, error),
+	opts ...Option,
 ) (*GatewayServer, error) {
-	return &GatewayServer{
+	s := &GatewayServer{
 		HTTPServer: httpserver.NewHTTPServer(httpCfg, nil),
 		backend:    backend,
 		register:   register,
-	}, nil
+	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s, nil
 }
 
 // dialOpts 按被代理 gRPC 段的 tls 声明决定传输凭据：契约写了 tls 即 TLS，
@@ -89,6 +116,9 @@ func (s *GatewayServer) Start(ctx context.Context) error {
 	if err != nil {
 		s.mu.Unlock()
 		return err
+	}
+	if s.discovery != nil {
+		opts = append(opts, grpc.WithResolvers(newDiscoveryBuilder(s.discovery)))
 	}
 	conn, err := grpc.NewClient(s.backend.GetAddr(), opts...)
 	if err != nil {

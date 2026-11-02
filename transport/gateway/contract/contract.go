@@ -48,7 +48,11 @@ type RegisterFunc func(ctx context.Context, conn *grpc.ClientConn) (http.Handler
 //
 // 段后端地址解析：sec.backend_grpc_addr 非空时用它，否则回退 cfg.server.grpc.addr
 // ——后者覆盖「gateway 与 gRPC 同进程」的常见拓扑（无需重复声明地址）。
-func Provider(register RegisterFunc) func(context.Context, *bootstrapv1.Server) (transport.Server, func(), error) {
+//
+// opts 透传给 gateway.NewGatewayServer（如 gateway.WithDiscovery），用于把
+// backend_grpc_addr 里的 discovery:///<服务名> 接到注册中心；不传则维持直连。
+// 契约字段仍是 string，地址语义由字符串自身表达。
+func Provider(register RegisterFunc, opts ...gateway.Option) func(context.Context, *bootstrapv1.Server) (transport.Server, func(), error) {
 	return func(_ context.Context, cfg *bootstrapv1.Server) (transport.Server, func(), error) {
 		sec := cfg.GetGateway()
 		if sec == nil {
@@ -73,7 +77,7 @@ func Provider(register RegisterFunc) func(context.Context, *bootstrapv1.Server) 
 		httpCfg := &bootstrapv1.Server_Http{Addr: sec.GetAddr(), Tls: sec.GetTls()}
 		backendCfg := &bootstrapv1.Server_Grpc{Addr: backend}
 
-		gw, err := gateway.NewGatewayServer(httpCfg, backendCfg, register)
+		gw, err := gateway.NewGatewayServer(httpCfg, backendCfg, register, opts...)
 		if err != nil {
 			return nil, nil, fmt.Errorf("gateway: build: %w", err)
 		}

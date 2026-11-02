@@ -19,6 +19,7 @@ import (
 
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
 
+	"github.com/kalandramo/bald/pkg/appkit"
 	"github.com/kalandramo/bald/transport/gateway"
 )
 
@@ -100,5 +101,47 @@ func TestProvider_ExplicitBackendAddrUsed(t *testing.T) {
 	}
 	if srv == nil {
 		t.Fatal("srv = nil, want *gateway.GatewayServer")
+	}
+}
+
+// opts 必须透传到 gateway.NewGatewayServer：契约层不解释地址语义，注入的
+// Discovery（或任何 Option）只由 gateway 自己消费。两条构造路径都要覆盖。
+func TestProviderThreadsGatewayOptions(t *testing.T) {
+	var applied int
+	opt := func(*gateway.GatewayServer) { applied++ }
+
+	factory := Provider(okRegister, opt)
+	cfg := &bootstrapv1.Server{Gateway: &bootstrapv1.Server_Gateway{
+		Addr: ":8081", BackendGrpcAddr: "discovery:///backend",
+	}}
+	if _, _, err := factory(context.Background(), cfg); err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if applied != 1 {
+		t.Fatalf("Option 被调用 %d 次, want 1", applied)
+	}
+}
+
+func TestHTTPProviderThreadsGatewayOptions(t *testing.T) {
+	var applied int
+	opt := func(*gateway.GatewayServer) { applied++ }
+
+	p := HTTPProvider(stubRegister, opt)
+	if applied != 0 {
+		t.Fatalf("构造 Provider 阶段就调用了 Option（%d 次）", applied)
+	}
+	srv, cleanup, err := p.Build(context.Background(),
+		httpScope(httpServerCfg(DriverGRPCGateway), &appkit.Decl{}), appkit.Node{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if cleanup != nil {
+		_ = cleanup(context.Background())
+	}
+	if srv == nil {
+		t.Fatal("srv = nil")
+	}
+	if applied != 1 {
+		t.Fatalf("Option 被调用 %d 次, want 1", applied)
 	}
 }

@@ -45,8 +45,8 @@ import (
 // 必填、backend_grpc_addr 缺省回退 server.grpc.addr，均 fail-fast）→
 // 产物 transport.Server 落服务器列表 → cleanup 透传（gateway 工厂当前不产
 // 停机清理，nil 合法；连接生命周期归 Start/Stop）。
-func AppProvider(register RegisterFunc) appkit.Provider {
-	factory := Provider(register)
+func AppProvider(register RegisterFunc, opts ...gateway.Option) appkit.Provider {
+	factory := Provider(register, opts...)
 	return appProvider{factory: factory}
 }
 
@@ -104,14 +104,15 @@ func adaptCleanup(cleanup func()) appkit.Cleanup {
 // 覆盖 std 的 HTTP 面；gRPC 面由独立的 server.grpc Provider 承载，不受影响。
 //
 // register 必供（转码面是业务内容，契约段表达不了）；nil 时构造期 fail-fast。
-func HTTPProvider(register RegisterFunc) appkit.Provider {
-	return httpProvider{register: register}
+func HTTPProvider(register RegisterFunc, opts ...gateway.Option) appkit.Provider {
+	return httpProvider{register: register, opts: opts}
 }
 
 // httpProvider 消费 server.http 段（driver 必须为 grpc-gateway 或留空）。
 type httpProvider struct {
 	// register 转码注册回调；WithHealth 声明时在外层补探针。
 	register RegisterFunc
+	opts    []gateway.Option
 }
 
 func (httpProvider) Segments() []string { return []string{"server.http"} }
@@ -164,7 +165,7 @@ func (p httpProvider) Build(ctx context.Context, s appkit.ApplyScope, _ appkit.N
 	if h := s.Decl.Health; h != nil {
 		register = withProbes(register, h, s.Decl.ProbeLivePath, s.Decl.ProbeReadyPath)
 	}
-	srv, err := gateway.NewGatewayServer(httpCfg, serverSec.GetGrpc(), register)
+	srv, err := gateway.NewGatewayServer(httpCfg, serverSec.GetGrpc(), register, p.opts...)
 	if err != nil {
 		return nil, nil, fmt.Errorf("gateway: build: %w", err)
 	}
