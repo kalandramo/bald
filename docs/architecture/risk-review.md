@@ -15,7 +15,7 @@
 | 2 | **发布面 ≫ 使用面**：retry / circuitbreaker / Discovery 等无消费方 | 中 | ✅ 全仓 grep | 未修 |
 | 7.1 | **CI 全量只跑 `-short`**，集成测试在 CI 中从不执行 | 中 | ✅ 已核对 `.github/workflows/ci.yml` | 未修 |
 | 1.1 | race 作业是两处手工清单，webrtc/kafka 均缺失 | 中 | ✅ 已核对 `.github/workflows/ci.yml` / `Taskfile.yml` | **已修**（改成 find 派生 + 单份排除清单；扩范围实测揪出并修掉 graphql 自身的竞争） |
-| 1.3 | kafka / rabbitmq 适配器 **零测试文件** | 中 | ✅ 实测计数 | 未修 |
+| 1.3 | kafka / rabbitmq 适配器 **零测试文件** | 中 | ✅ 实测计数 | **已修**（两个适配器各有一份测试，14 / 7 个测试；补测试当场揪出 4 个生产缺陷） |
 | 5 | `berrors` 分类法未在 transport/broker/appkit 落地 | 中 | ✅ 实测计数 | 未修 |
 | 6.2 | gRPC 链无限流、无超时（与 gin 链不对称） | 中 | ✅ 已核对源码 | 未修 |
 | 6.3 | 限流位于认证之后，认证层自身不受保护 | 中 | ✅ 已核对注释与实现 | 未修 |
@@ -68,17 +68,45 @@ CI 用 `find . -name go.mod ... | xargs -n1 dirname | sort`（`.github/workflows
 - 严重度低（CI 兜底），但作者等待时间被拉长到 CI 才发现问题。
 - 消解：本地 `test/lint/vuln` 复用同一条 `find` 循环。
 
-**1.3 零测试的网络适配器** ✅ 实测
+**1.3 零测试的网络适配器** ✅ 已修（kafka / rabbitmq）
 
-| 模块 | 非测试 .go | 测试 .go |
+| 模块 | 非测试 .go | 测试 .go（修前 → 修后） |
 |---|---|---|
-| `broker/kafka` | 9 | **0** |
-| `broker/rabbitmq` | 11 | **0** |
-| `transport/subscribe` | 1 | **0** |
+| `broker/kafka` | 9 | **0 → 2**（14 个测试 + 32 个子用例） |
+| `broker/rabbitmq` | 11 | **0 → 1**（7 个测试 + 6 个子用例） |
+| `transport/subscribe` | 1 | **0**（单文件 13 行选项，未补） |
 | `retry` | 1 | 1 |
 
-kafka 适配器核心文件 639 行，含 writer 重建重试（`broker/kafka/kafka.go:419-428`）与订阅退避逻辑（`broker/kafka/subscriber.go:312-331`）与致命错误判定（`:334-355`）——这些分支从未被执行过。CI 对它只做到「能编译、vet 干净、空测试通过」。
-- 消解：优先给 `Publish` 的 writer 失败重建路径与 `Subscribe` 的退避/致命错误规则补测试（可用 kafka 的 in-memory 接口或拆出纯函数）。
+修前：kafka 适配器核心文件 639 行，含 writer 重建重试（`broker/kafka/kafka.go:415-437`）与订阅退避逻辑（`broker/kafka/subscriber.go:316-339`）与致命错误判定（`:341-362`）——这些分支从未被执行过。CI 对它只做到「能编译、vet 干净、空测试通过」。
+
+- 修法：不起真实 broker，用「本地端口 listen 后立刻 close」造确定 ECONNREFUSED，
+  失败分支全部在 `-short` 下可跑；把不可测的形态先拆成可测的——判据抽成
+  `shouldRetryFreshWriter`（`broker/kafka/kafka.go:356-359`，两条发布路径共用），
+  退避时长抽成纯函数 `backoffDuration`（`broker/kafka/subscriber.go:316-331`，注入随机源
+  才能钉住边界）。发布侧覆盖缓存 writer 摘除与重建、`retriesCount=0`、热更重连后再发布、
+  单 writer 分支（`broker/kafka/kafka.go:447`）、编码失败短路；订阅侧覆盖退避边界、`isFatalError` 真值表、
+  致命退出与取消退出、close 幂等、`Unsubscribe(true)` 摘除注册表（`broker/kafka/subscriber.go:91-101`）。
+  rabbitmq 只补不联网也能钉住的那层：`Init` 的地址归一化、三个未连接入口报错不 panic、
+  Connect 失败后 `Disconnect` 仍能收尾、`rabbitHeaderToMap` 对非字符串 header 丢成空串。
+- 补测试当场揪出 4 个生产缺陷（`fix(broker/kafka)` 7545f8c），每个都按「把缺陷改回去、测试必须红」验活：
+  1. `Writer.Close` 把容器置成 nil map（`broker/kafka/writer.go:96-107`），热更重连后第一次发布
+     往 nil map 写元素直接 panic（`broker/kafka/kafka.go:399`、`:431`）；panic 落在 `b.Lock()`
+     窗口内，写锁永久泄漏，随后的 `Disconnect` 卡在 `RLock`（`broker/kafka/kafka.go:271`）——
+     现场表现是测试既不失败也不通过，而是挂到超时。
+  2. 重建路径 `if err = writer.Close(); err != nil { break }` 用 Close 的返回值顶掉写失败本身；
+     `retriesCount == 0` 时重试循环一次不跑，`Publish` 对一条从未写出的消息返回 nil。
+  3. `closeLocked` 关掉 `done` 后又把字段置 nil（`broker/kafka/subscriber.go:109-129`），
+     而两条 process 循环的 `select` 不加锁读它（`:166`、`:234`）——`-race` 直接命中
+     （`Unsubscribe` 与订阅 goroutine 并发）。`closed` 标志本就挡得住二次 close，改写是多余的。
+  4. 致命错误分支 `return` 前没有 close（`broker/kafka/subscriber.go:185-188`、`:242-245`），
+     reader 与 `done` 泄漏，订阅者还留在 `b.subscribers` 里。
+  另附一条只有 race 闸门扩到全量后才会暴露的：退避原先用包级
+  `rand.New(rand.NewSource(..))` 自建源（非并发安全，每个订阅各自一个 goroutine），已换成
+  `math/rand` 全局函数。
+- 刻意没做：`transport/subscribe` 只有一个 13 行的选项文件，不值得单独立一份测试；
+  `retriesCount` 没有对外 Option（`retriesCountKey` 只被读、从没被写），测试按包内白盒直接改字段，
+  没有为它新增公开 API；rabbitmq 的连接/通道/重订阅面要真实 AMQP server 才谈得上覆盖，本次未做；
+  致命错误退出后订阅者仍留在 `b.subscribers`（只有 `Disconnect` 会清），要收的是「谁负责摘」的口径。
 
 ---
 
@@ -266,7 +294,7 @@ B、C 是同一套机制的两份实现（命令式能力声明 vs 段驱动 Pro
 叠加既有事实：asynq 集成测试需要 `BALD_TEST_REDIS_URI`，Redis 不可达时自动跳过——**注入与否决定这批用例是否真的跑过**。
 - 消解：明确哪些接缝必须有集成覆盖（至少 store/registry/broker 各一条），为它们开一个按需注入依赖的 CI job，而不是继续在 `-short` 里假定绿。
 
-**7.2 无覆盖率闸门** ✅ 所有 workflow grep `coverage|codecov` → 无匹配。根 module 有 365 个测试文件（绝对量可观），但没有任何比例约束，且 §1.3 的零测试模块不会因此暴露。
+**7.2 无覆盖率闸门** ✅ 所有 workflow grep `coverage|codecov` → 无匹配。根 module 有 365 个测试文件（绝对量可观），但没有任何比例约束，零测试模块不会因此暴露——§1.3 那两个适配器是评审时数测试文件点数出来的，不是闸门响出来的。
 
 **7.3 已具备的成熟度**（避免只报负面）：`-timeout 5m/10m`、codegen 树的端到端用例拆成独立步骤单独给 15m 预算（`.github/workflows/ci.yml:82`）、依赖下载 retry×3（`.github/workflows/ci.yml:64-71`）、golangci-lint/govulncheck 版本 pin（`.github/workflows/ci.yml:126,159`）、基准冒烟编译每模块跑（`.github/workflows/ci.yml:75,77`）。核心包（`pkg/appkit`、`bconf`、`bconfig`、`transport/http`、`pkg/middleware`）非测试代码里 **TODO/FIXME/HACK = 0 命中**——干净到更像是「债务存在但没标记」，而非没有债务。
 
@@ -298,7 +326,7 @@ B、C 是同一套机制的两份实现（命令式能力声明 vs 段驱动 Pro
 2. **`bundle` 加未配 Authn 的显式警告/契约开关**（§6.1）——改动小，风险面最高。✅
 3. **`_ = deregister` 补日志**（§4.1）——一行。✅（连带 §4.2 的等待上界）
 4. **race 清单去人工化**（§1.1）✅：两处手写清单已换成同一条 `find` 派生 + 单份 `.github/race-skip.txt`，webrtc/kafka/contrib 全量入闸，`metrics` 这类死条目随派生自然消失；扩范围当场抓到并修掉 `transport/graphql` 自身的生命周期竞争。剩：本地 `task verify` 改用同一条 `find` 循环（§1.2）未做。
-5. **kafka 的 writer 重建 + 订阅退避补测试**（§1.3）——race 已经覆盖 `broker/kafka`，缺的是可跑内容。
+5. **kafka 的 writer 重建 + 订阅退避补测试**（§1.3）✅：`broker/kafka` 与 `broker/rabbitmq` 各有了第一份测试，全部不起真实 broker（死端口造 ECONNREFUSED）。过程中揪出并修掉 4 个生产缺陷，其中「重连后发布 panic + 写锁泄漏」和「`retriesCount=0` 吞掉写失败」都只在失败/热更路径上，原先没有任何执行证据。
 6. **给 §2 的未接线面做决策**（接线 / 标注 reference-only / 删除）——需要 owner 口径。
 7. **`berrors` 边界口径**（§5）与 **Discovery 消费侧**（§2）——设计级，先出方案再动码。
 8. **抽离 appkit 契约面，把适配器从「require 聚合根」解耦**（§3.1）——breaking，放在最后，且只在 §5/§6 的口径定清之后做。模块环已由 gateway 那一条的重复机制删除而断开（实测图为 DAG），这条剩下的收益是 `replace` 数量与版本追赶，不再是断环。

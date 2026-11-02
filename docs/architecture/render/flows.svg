@@ -294,80 +294,80 @@
 <!-- pub -->
 <g id="node20" class="node">
 <title>pub</title>
-<path fill="#eef3fa" stroke="black" d="M1061.12,-1500.25C1061.12,-1500.25 982.88,-1500.25 982.88,-1500.25 976.88,-1500.25 970.88,-1494.25 970.88,-1488.25 970.88,-1488.25 970.88,-1476.25 970.88,-1476.25 970.88,-1470.25 976.88,-1464.25 982.88,-1464.25 982.88,-1464.25 1061.12,-1464.25 1061.12,-1464.25 1067.12,-1464.25 1073.12,-1470.25 1073.12,-1476.25 1073.12,-1476.25 1073.12,-1488.25 1073.12,-1488.25 1073.12,-1494.25 1067.12,-1500.25 1061.12,-1500.25"/>
-<text xml:space="preserve" text-anchor="middle" x="1022" y="-1484" font-family="Helvetica,sans-Serif" font-size="10.00">Broker.Publish</text>
-<text xml:space="preserve" text-anchor="middle" x="1022" y="-1472.75" font-family="Helvetica,sans-Serif" font-size="10.00"> broker/broker.go:29</text>
+<path fill="#eef3fa" stroke="black" d="M1065.12,-1500.25C1065.12,-1500.25 986.88,-1500.25 986.88,-1500.25 980.88,-1500.25 974.88,-1494.25 974.88,-1488.25 974.88,-1488.25 974.88,-1476.25 974.88,-1476.25 974.88,-1470.25 980.88,-1464.25 986.88,-1464.25 986.88,-1464.25 1065.12,-1464.25 1065.12,-1464.25 1071.12,-1464.25 1077.12,-1470.25 1077.12,-1476.25 1077.12,-1476.25 1077.12,-1488.25 1077.12,-1488.25 1077.12,-1494.25 1071.12,-1500.25 1065.12,-1500.25"/>
+<text xml:space="preserve" text-anchor="middle" x="1026" y="-1484" font-family="Helvetica,sans-Serif" font-size="10.00">Broker.Publish</text>
+<text xml:space="preserve" text-anchor="middle" x="1026" y="-1472.75" font-family="Helvetica,sans-Serif" font-size="10.00"> broker/broker.go:29</text>
 </g>
 <!-- pubmw -->
 <g id="node21" class="node">
 <title>pubmw</title>
-<path fill="#eef3fa" stroke="black" d="M1085.5,-1427.25C1085.5,-1427.25 958.5,-1427.25 958.5,-1427.25 952.5,-1427.25 946.5,-1421.25 946.5,-1415.25 946.5,-1415.25 946.5,-1393.75 946.5,-1393.75 946.5,-1387.75 952.5,-1381.75 958.5,-1381.75 958.5,-1381.75 1085.5,-1381.75 1085.5,-1381.75 1091.5,-1381.75 1097.5,-1387.75 1097.5,-1393.75 1097.5,-1393.75 1097.5,-1415.25 1097.5,-1415.25 1097.5,-1421.25 1091.5,-1427.25 1085.5,-1427.25"/>
-<text xml:space="preserve" text-anchor="middle" x="1022" y="-1413.75" font-family="Helvetica,sans-Serif" font-size="10.00">发布中间件链</text>
-<text xml:space="preserve" text-anchor="middle" x="1022" y="-1398.75" font-family="Helvetica,sans-Serif" font-size="10.00"> broker/publish.go:12</text>
-<text xml:space="preserve" text-anchor="middle" x="1022" y="-1387.5" font-family="Helvetica,sans-Serif" font-size="10.00"> broker/kafka/kafka.go:329&#45;330</text>
+<path fill="#eef3fa" stroke="black" d="M1089.5,-1427.25C1089.5,-1427.25 962.5,-1427.25 962.5,-1427.25 956.5,-1427.25 950.5,-1421.25 950.5,-1415.25 950.5,-1415.25 950.5,-1393.75 950.5,-1393.75 950.5,-1387.75 956.5,-1381.75 962.5,-1381.75 962.5,-1381.75 1089.5,-1381.75 1089.5,-1381.75 1095.5,-1381.75 1101.5,-1387.75 1101.5,-1393.75 1101.5,-1393.75 1101.5,-1415.25 1101.5,-1415.25 1101.5,-1421.25 1095.5,-1427.25 1089.5,-1427.25"/>
+<text xml:space="preserve" text-anchor="middle" x="1026" y="-1413.75" font-family="Helvetica,sans-Serif" font-size="10.00">发布中间件链</text>
+<text xml:space="preserve" text-anchor="middle" x="1026" y="-1398.75" font-family="Helvetica,sans-Serif" font-size="10.00"> broker/publish.go:12</text>
+<text xml:space="preserve" text-anchor="middle" x="1026" y="-1387.5" font-family="Helvetica,sans-Serif" font-size="10.00"> broker/kafka/kafka.go:329&#45;331</text>
 </g>
 <!-- pub&#45;&gt;pubmw -->
 <g id="edge19" class="edge">
 <title>pub&#45;&gt;pubmw</title>
-<path fill="none" stroke="black" d="M1022,-1464.06C1022,-1455.43 1022,-1444.74 1022,-1434.87"/>
-<polygon fill="black" stroke="black" points="1024.1,-1435.03 1022,-1429.03 1019.9,-1435.03 1024.1,-1435.03"/>
+<path fill="none" stroke="black" d="M1026,-1464.06C1026,-1455.43 1026,-1444.74 1026,-1434.87"/>
+<polygon fill="black" stroke="black" points="1028.1,-1435.03 1026,-1429.03 1023.9,-1435.03 1028.1,-1435.03"/>
 </g>
 <!-- marshal -->
 <g id="node22" class="node">
 <title>marshal</title>
-<path fill="#eef3fa" stroke="black" d="M1091.12,-1319.62C1091.12,-1319.62 952.88,-1319.62 952.88,-1319.62 946.88,-1319.62 940.88,-1313.62 940.88,-1307.62 940.88,-1307.62 940.88,-1286.12 940.88,-1286.12 940.88,-1280.12 946.88,-1274.12 952.88,-1274.12 952.88,-1274.12 1091.12,-1274.12 1091.12,-1274.12 1097.12,-1274.12 1103.12,-1280.12 1103.12,-1286.12 1103.12,-1286.12 1103.12,-1307.62 1103.12,-1307.62 1103.12,-1313.62 1097.12,-1319.62 1091.12,-1319.62"/>
-<text xml:space="preserve" text-anchor="middle" x="1022" y="-1306.12" font-family="Helvetica,sans-Serif" font-size="10.00">broker.Marshal(codec, msg.Body)</text>
-<text xml:space="preserve" text-anchor="middle" x="1022" y="-1294.88" font-family="Helvetica,sans-Serif" font-size="10.00">缺 codec fail&#45;fast errNoCodec</text>
-<text xml:space="preserve" text-anchor="middle" x="1022" y="-1279.88" font-family="Helvetica,sans-Serif" font-size="10.00"> broker/encoding.go:34,40</text>
+<path fill="#eef3fa" stroke="black" d="M1095.12,-1319.62C1095.12,-1319.62 956.88,-1319.62 956.88,-1319.62 950.88,-1319.62 944.88,-1313.62 944.88,-1307.62 944.88,-1307.62 944.88,-1286.12 944.88,-1286.12 944.88,-1280.12 950.88,-1274.12 956.88,-1274.12 956.88,-1274.12 1095.12,-1274.12 1095.12,-1274.12 1101.12,-1274.12 1107.12,-1280.12 1107.12,-1286.12 1107.12,-1286.12 1107.12,-1307.62 1107.12,-1307.62 1107.12,-1313.62 1101.12,-1319.62 1095.12,-1319.62"/>
+<text xml:space="preserve" text-anchor="middle" x="1026" y="-1306.12" font-family="Helvetica,sans-Serif" font-size="10.00">broker.Marshal(codec, msg.Body)</text>
+<text xml:space="preserve" text-anchor="middle" x="1026" y="-1294.88" font-family="Helvetica,sans-Serif" font-size="10.00">缺 codec fail&#45;fast errNoCodec</text>
+<text xml:space="preserve" text-anchor="middle" x="1026" y="-1279.88" font-family="Helvetica,sans-Serif" font-size="10.00"> broker/encoding.go:34,40</text>
 </g>
 <!-- pubmw&#45;&gt;marshal -->
 <g id="edge20" class="edge">
 <title>pubmw&#45;&gt;marshal</title>
-<path fill="none" stroke="black" d="M1022,-1381.36C1022,-1365.58 1022,-1344.22 1022,-1327.06"/>
-<polygon fill="black" stroke="black" points="1024.1,-1327.5 1022,-1321.5 1019.9,-1327.5 1024.1,-1327.5"/>
+<path fill="none" stroke="black" d="M1026,-1381.36C1026,-1365.58 1026,-1344.22 1026,-1327.06"/>
+<polygon fill="black" stroke="black" points="1028.1,-1327.5 1026,-1321.5 1023.9,-1327.5 1028.1,-1327.5"/>
 </g>
 <!-- write -->
 <g id="node23" class="node">
 <title>write</title>
-<path fill="#eef3fa" stroke="black" d="M1110.62,-1178.12C1110.62,-1178.12 933.38,-1178.12 933.38,-1178.12 927.38,-1178.12 921.38,-1172.12 921.38,-1166.12 921.38,-1166.12 921.38,-1144.62 921.38,-1144.62 921.38,-1138.62 927.38,-1132.62 933.38,-1132.62 933.38,-1132.62 1110.62,-1132.62 1110.62,-1132.62 1116.62,-1132.62 1122.62,-1138.62 1122.62,-1144.62 1122.62,-1144.62 1122.62,-1166.12 1122.62,-1166.12 1122.62,-1172.12 1116.62,-1178.12 1110.62,-1178.12"/>
-<text xml:space="preserve" text-anchor="middle" x="1022" y="-1164.62" font-family="Helvetica,sans-Serif" font-size="10.00">writer.WriteMessages</text>
-<text xml:space="preserve" text-anchor="middle" x="1022" y="-1153.38" font-family="Helvetica,sans-Serif" font-size="10.00"> broker/kafka/kafka.go:398</text>
-<text xml:space="preserve" text-anchor="middle" x="1022" y="-1142.12" font-family="Helvetica,sans-Serif" font-size="10.00">失败→重建 writer + retriesCount：419&#45;428</text>
+<path fill="#eef3fa" stroke="black" d="M1125.5,-1178.12C1125.5,-1178.12 926.5,-1178.12 926.5,-1178.12 920.5,-1178.12 914.5,-1172.12 914.5,-1166.12 914.5,-1166.12 914.5,-1144.62 914.5,-1144.62 914.5,-1138.62 920.5,-1132.62 926.5,-1132.62 926.5,-1132.62 1125.5,-1132.62 1125.5,-1132.62 1131.5,-1132.62 1137.5,-1138.62 1137.5,-1144.62 1137.5,-1144.62 1137.5,-1166.12 1137.5,-1166.12 1137.5,-1172.12 1131.5,-1178.12 1125.5,-1178.12"/>
+<text xml:space="preserve" text-anchor="middle" x="1026" y="-1164.62" font-family="Helvetica,sans-Serif" font-size="10.00">writer.WriteMessages</text>
+<text xml:space="preserve" text-anchor="middle" x="1026" y="-1153.38" font-family="Helvetica,sans-Serif" font-size="10.00"> broker/kafka/kafka.go:406</text>
+<text xml:space="preserve" text-anchor="middle" x="1026" y="-1142.12" font-family="Helvetica,sans-Serif" font-size="10.00">失败→关闭摘除+按 retriesCount 重建：415&#45;437</text>
 </g>
 <!-- marshal&#45;&gt;write -->
 <g id="edge21" class="edge">
 <title>marshal&#45;&gt;write</title>
-<path fill="none" stroke="black" d="M1022,-1273.77C1022,-1250 1022,-1212.08 1022,-1185.79"/>
-<polygon fill="black" stroke="black" points="1024.1,-1185.89 1022,-1179.89 1019.9,-1185.89 1024.1,-1185.89"/>
+<path fill="none" stroke="black" d="M1026,-1273.77C1026,-1250 1026,-1212.08 1026,-1185.79"/>
+<polygon fill="black" stroke="black" points="1028.1,-1185.89 1026,-1179.89 1023.9,-1185.89 1028.1,-1185.89"/>
 </g>
 <!-- sub -->
 <g id="node24" class="node">
 <title>sub</title>
-<path fill="#eef3fa" stroke="black" d="M1085.5,-1061.75C1085.5,-1061.75 958.5,-1061.75 958.5,-1061.75 952.5,-1061.75 946.5,-1055.75 946.5,-1049.75 946.5,-1049.75 946.5,-1028.25 946.5,-1028.25 946.5,-1022.25 952.5,-1016.25 958.5,-1016.25 958.5,-1016.25 1085.5,-1016.25 1085.5,-1016.25 1091.5,-1016.25 1097.5,-1022.25 1097.5,-1028.25 1097.5,-1028.25 1097.5,-1049.75 1097.5,-1049.75 1097.5,-1055.75 1091.5,-1061.75 1085.5,-1061.75"/>
-<text xml:space="preserve" text-anchor="middle" x="1022" y="-1048.25" font-family="Helvetica,sans-Serif" font-size="10.00">Broker.Subscribe</text>
-<text xml:space="preserve" text-anchor="middle" x="1022" y="-1037" font-family="Helvetica,sans-Serif" font-size="10.00"> broker/kafka/kafka.go:524&#45;639</text>
-<text xml:space="preserve" text-anchor="middle" x="1022" y="-1025.75" font-family="Helvetica,sans-Serif" font-size="10.00">go sub.run()：632&#45;633</text>
+<path fill="#eef3fa" stroke="black" d="M1089.5,-1061.75C1089.5,-1061.75 962.5,-1061.75 962.5,-1061.75 956.5,-1061.75 950.5,-1055.75 950.5,-1049.75 950.5,-1049.75 950.5,-1028.25 950.5,-1028.25 950.5,-1022.25 956.5,-1016.25 962.5,-1016.25 962.5,-1016.25 1089.5,-1016.25 1089.5,-1016.25 1095.5,-1016.25 1101.5,-1022.25 1101.5,-1028.25 1101.5,-1028.25 1101.5,-1049.75 1101.5,-1049.75 1101.5,-1055.75 1095.5,-1061.75 1089.5,-1061.75"/>
+<text xml:space="preserve" text-anchor="middle" x="1026" y="-1048.25" font-family="Helvetica,sans-Serif" font-size="10.00">Broker.Subscribe</text>
+<text xml:space="preserve" text-anchor="middle" x="1026" y="-1037" font-family="Helvetica,sans-Serif" font-size="10.00"> broker/kafka/kafka.go:527&#45;642</text>
+<text xml:space="preserve" text-anchor="middle" x="1026" y="-1025.75" font-family="Helvetica,sans-Serif" font-size="10.00">go sub.run()：635&#45;636</text>
 </g>
 <!-- write&#45;&gt;sub -->
 <g id="edge22" class="edge">
 <title>write&#45;&gt;sub</title>
-<path fill="none" stroke="black" d="M1022,-1132.32C1022,-1114.44 1022,-1089.08 1022,-1069.46"/>
-<polygon fill="black" stroke="black" points="1024.1,-1069.5 1022,-1063.5 1019.9,-1069.5 1024.1,-1069.5"/>
-<text xml:space="preserve" text-anchor="middle" x="1049.75" y="-1084.7" font-family="Helvetica,sans-Serif" font-size="9.00">broker 侧异步</text>
+<path fill="none" stroke="black" d="M1026,-1132.32C1026,-1114.44 1026,-1089.08 1026,-1069.46"/>
+<polygon fill="black" stroke="black" points="1028.1,-1069.5 1026,-1063.5 1023.9,-1069.5 1028.1,-1069.5"/>
+<text xml:space="preserve" text-anchor="middle" x="1053.75" y="-1084.7" font-family="Helvetica,sans-Serif" font-size="9.00">broker 侧异步</text>
 </g>
 <!-- poll -->
 <g id="node25" class="node">
 <title>poll</title>
 <path fill="#eef3fa" stroke="black" d="M982.62,-977.38C982.62,-977.38 835.38,-977.38 835.38,-977.38 829.38,-977.38 823.38,-971.38 823.38,-965.38 823.38,-965.38 823.38,-940.12 823.38,-940.12 823.38,-934.12 829.38,-928.12 835.38,-928.12 835.38,-928.12 982.62,-928.12 982.62,-928.12 988.62,-928.12 994.62,-934.12 994.62,-940.12 994.62,-940.12 994.62,-965.38 994.62,-965.38 994.62,-971.38 988.62,-977.38 982.62,-977.38"/>
 <text xml:space="preserve" text-anchor="middle" x="909" y="-963.88" font-family="Helvetica,sans-Serif" font-size="10.00">FetchMessage 阻塞轮询</text>
-<text xml:space="preserve" text-anchor="middle" x="909" y="-948.88" font-family="Helvetica,sans-Serif" font-size="10.00">退避 backoffSleep（312&#45;331）</text>
-<text xml:space="preserve" text-anchor="middle" x="909" y="-933.88" font-family="Helvetica,sans-Serif" font-size="10.00"> broker/kafka/subscriber.go:221&#45;258</text>
+<text xml:space="preserve" text-anchor="middle" x="909" y="-948.88" font-family="Helvetica,sans-Serif" font-size="10.00">退避 backoffSleep（316&#45;339）</text>
+<text xml:space="preserve" text-anchor="middle" x="909" y="-933.88" font-family="Helvetica,sans-Serif" font-size="10.00"> broker/kafka/subscriber.go:224&#45;262</text>
 </g>
 <!-- sub&#45;&gt;poll -->
 <g id="edge23" class="edge">
 <title>sub&#45;&gt;poll</title>
-<path fill="none" stroke="black" d="M992.31,-1015.86C978.46,-1005.53 961.8,-993.12 947.04,-982.11"/>
-<polygon fill="black" stroke="black" points="948.55,-980.62 942.48,-978.71 946.04,-983.98 948.55,-980.62"/>
+<path fill="none" stroke="black" d="M995.26,-1015.86C980.91,-1005.53 963.67,-993.12 948.38,-982.11"/>
+<polygon fill="black" stroke="black" points="949.73,-980.49 943.64,-978.69 947.28,-983.9 949.73,-980.49"/>
 </g>
 <!-- tsk -->
 <g id="node30" class="node">
@@ -380,16 +380,16 @@
 <!-- sub&#45;&gt;tsk -->
 <g id="edge28" class="edge">
 <title>sub&#45;&gt;tsk</title>
-<path fill="none" stroke="black" stroke-dasharray="1,5" d="M1049.59,-1015.86C1061.71,-1006.14 1076.14,-994.56 1089.24,-984.05"/>
-<polygon fill="black" stroke="black" points="1090.21,-985.96 1093.58,-980.57 1087.58,-982.69 1090.21,-985.96"/>
+<path fill="none" stroke="black" stroke-dasharray="1,5" d="M1052.54,-1015.86C1064.09,-1006.22 1077.83,-994.77 1090.34,-984.33"/>
+<polygon fill="black" stroke="black" points="1091.56,-986.05 1094.82,-980.59 1088.87,-982.82 1091.56,-986.05"/>
 </g>
 <!-- unmarshal -->
 <g id="node26" class="node">
 <title>unmarshal</title>
 <path fill="#eef3fa" stroke="black" d="M991.62,-889.25C991.62,-889.25 844.38,-889.25 844.38,-889.25 838.38,-889.25 832.38,-883.25 832.38,-877.25 832.38,-877.25 832.38,-852 832.38,-852 832.38,-846 838.38,-840 844.38,-840 844.38,-840 991.62,-840 991.62,-840 997.62,-840 1003.62,-846 1003.62,-852 1003.62,-852 1003.62,-877.25 1003.62,-877.25 1003.62,-883.25 997.62,-889.25 991.62,-889.25"/>
 <text xml:space="preserve" text-anchor="middle" x="918" y="-875.75" font-family="Helvetica,sans-Serif" font-size="10.00">binder 分配类型化 body</text>
-<text xml:space="preserve" text-anchor="middle" x="918" y="-860.75" font-family="Helvetica,sans-Serif" font-size="10.00">broker.Unmarshal：284</text>
-<text xml:space="preserve" text-anchor="middle" x="918" y="-845.75" font-family="Helvetica,sans-Serif" font-size="10.00"> broker/kafka/subscriber.go:268&#45;307</text>
+<text xml:space="preserve" text-anchor="middle" x="918" y="-860.75" font-family="Helvetica,sans-Serif" font-size="10.00">broker.Unmarshal：288</text>
+<text xml:space="preserve" text-anchor="middle" x="918" y="-845.75" font-family="Helvetica,sans-Serif" font-size="10.00"> broker/kafka/subscriber.go:272&#45;311</text>
 </g>
 <!-- poll&#45;&gt;unmarshal -->
 <g id="edge24" class="edge">
@@ -402,7 +402,7 @@
 <title>handler</title>
 <path fill="#eef3fa" stroke="black" d="M1007.25,-803C1007.25,-803 878.75,-803 878.75,-803 872.75,-803 866.75,-797 866.75,-791 866.75,-791 866.75,-779 866.75,-779 866.75,-773 872.75,-767 878.75,-767 878.75,-767 1007.25,-767 1007.25,-767 1013.25,-767 1019.25,-773 1019.25,-779 1019.25,-779 1019.25,-791 1019.25,-791 1019.25,-797 1013.25,-803 1007.25,-803"/>
 <text xml:space="preserve" text-anchor="middle" x="943" y="-786.75" font-family="Helvetica,sans-Serif" font-size="10.00">s.handler(ctx, pub)</text>
-<text xml:space="preserve" text-anchor="middle" x="943" y="-775.5" font-family="Helvetica,sans-Serif" font-size="10.00"> broker/kafka/subscriber.go:294</text>
+<text xml:space="preserve" text-anchor="middle" x="943" y="-775.5" font-family="Helvetica,sans-Serif" font-size="10.00"> broker/kafka/subscriber.go:298</text>
 </g>
 <!-- unmarshal&#45;&gt;handler -->
 <g id="edge25" class="edge">
@@ -414,8 +414,8 @@
 <g id="node28" class="node">
 <title>ack</title>
 <path fill="#eef3fa" stroke="black" d="M1050.75,-717.5C1050.75,-717.5 835.25,-717.5 835.25,-717.5 829.25,-717.5 823.25,-711.5 823.25,-705.5 823.25,-705.5 823.25,-667.5 823.25,-667.5 823.25,-661.5 829.25,-655.5 835.25,-655.5 835.25,-655.5 1050.75,-655.5 1050.75,-655.5 1056.75,-655.5 1062.75,-661.5 1062.75,-667.5 1062.75,-667.5 1062.75,-705.5 1062.75,-705.5 1062.75,-711.5 1056.75,-717.5 1050.75,-717.5"/>
-<text xml:space="preserve" text-anchor="middle" x="943" y="-704" font-family="Helvetica,sans-Serif" font-size="10.00">AutoAck 默认 true（broker/kafka/kafka.go:532）</text>
-<text xml:space="preserve" text-anchor="middle" x="943" y="-689" font-family="Helvetica,sans-Serif" font-size="10.00">s.options.AutoAck：broker/kafka/subscriber.go:299</text>
+<text xml:space="preserve" text-anchor="middle" x="943" y="-704" font-family="Helvetica,sans-Serif" font-size="10.00">AutoAck 默认 true（broker/kafka/kafka.go:535）</text>
+<text xml:space="preserve" text-anchor="middle" x="943" y="-689" font-family="Helvetica,sans-Serif" font-size="10.00">s.options.AutoAck：broker/kafka/subscriber.go:303</text>
 <text xml:space="preserve" text-anchor="middle" x="943" y="-674" font-family="Helvetica,sans-Serif" font-size="10.00">→ pub.Ack → CommitMessages</text>
 <text xml:space="preserve" text-anchor="middle" x="943" y="-661.25" font-family="Helvetica,sans-Serif" font-size="10.00"> broker/kafka/publication.go:48&#45;53</text>
 </g>

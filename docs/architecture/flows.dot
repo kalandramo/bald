@@ -43,14 +43,14 @@ digraph bald_flows {
         label="② 消息（broker/kafka）";
         style=rounded; color="#9aa7b8";
         pub [label="Broker.Publish\n broker/broker.go:29"];
-        pubmw [label="发布中间件链\n broker/publish.go:12\n broker/kafka/kafka.go:329-330"];
+        pubmw [label="发布中间件链\n broker/publish.go:12\n broker/kafka/kafka.go:329-331"];
         marshal [label="broker.Marshal(codec, msg.Body)\n缺 codec fail-fast errNoCodec\n broker/encoding.go:34,40"];
-        write [label="writer.WriteMessages\n broker/kafka/kafka.go:398\n失败→重建 writer + retriesCount：419-428"];
-        sub [label="Broker.Subscribe\n broker/kafka/kafka.go:524-639\ngo sub.run()：632-633"];
-        poll [label="FetchMessage 阻塞轮询\n退避 backoffSleep（312-331）\n broker/kafka/subscriber.go:221-258"];
-        unmarshal [label="binder 分配类型化 body\nbroker.Unmarshal：284\n broker/kafka/subscriber.go:268-307"];
-        handler [label="s.handler(ctx, pub)\n broker/kafka/subscriber.go:294"];
-        ack [label="AutoAck 默认 true（broker/kafka/kafka.go:532）\ns.options.AutoAck：broker/kafka/subscriber.go:299\n→ pub.Ack → CommitMessages\n broker/kafka/publication.go:48-53"];
+        write [label="writer.WriteMessages\n broker/kafka/kafka.go:406\n失败→关闭摘除+按 retriesCount 重建：415-437"];
+        sub [label="Broker.Subscribe\n broker/kafka/kafka.go:527-642\ngo sub.run()：635-636"];
+        poll [label="FetchMessage 阻塞轮询\n退避 backoffSleep（316-339）\n broker/kafka/subscriber.go:224-262"];
+        unmarshal [label="binder 分配类型化 body\nbroker.Unmarshal：288\n broker/kafka/subscriber.go:272-311"];
+        handler [label="s.handler(ctx, pub)\n broker/kafka/subscriber.go:298"];
+        ack [label="AutoAck 默认 true（broker/kafka/kafka.go:535）\ns.options.AutoAck：broker/kafka/subscriber.go:303\n→ pub.Ack → CommitMessages\n broker/kafka/publication.go:48-53"];
         dlq [label="UNKNOWN\n无重投递 / 无死信队列\n（代码中未发现）", shape=note, color="#c33", fontcolor="#c33", fillcolor="#fff"];
         tsk [label="transport/kafka 把队列包成 transport.Server\nStart：transport/kafka/server.go:60-111\nRegisterSubscriber：118"];
 
