@@ -1,0 +1,29 @@
+schema_version: 1
+module_path: contrib_store_impls
+title: 存储层后端适配器（GORM / MongoDB）
+scope:
+    - contrib/store-gorm/
+    - contrib/store-mongo/
+source_files: []
+depends_on: []
+related_to:
+    - path: example_app
+      reason: 示例应用的 user 实体通过 contrib/store-gorm 实现 store.DBProvider[User]，以统一泛型 Store[T] 访问 SQLite 后端。
+kk_module_id: 837fb93b-24b5-4303-8929-13af0e9280fc
+kk_ordinal: 22
+kk_cards:
+    architecture_design:
+        id: 2cb315c7-6156-43a3-8230-01d85f9ed32d
+        title: 存储层后端适配器（GORM / MongoDB）
+    coding_conventions:
+        id: bd99670b-546b-40cc-9229-b0e140221631
+        title: 存储层后端适配器（GORM / MongoDB）
+    overview:
+        id: 08008578-a6bb-4fba-9fd8-d2bb24e0ab9d
+        title: 存储层后端适配器（GORM / MongoDB）
+    tech_stack:
+        id: 3599b322-f93f-4992-b261-5b9619d145aa
+        title: 存储层后端适配器（GORM / MongoDB）
+    unique_setup_and_commands:
+        id: 9a3a2dcb-8c93-45ba-9ca2-be37a5e41151
+        title: 存储层后端适配器（GORM / MongoDB）

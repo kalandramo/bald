@@ -1,0 +1,25 @@
+schema_version: 1
+module_path: contrib_extensions
+title: 认证/授权/配置三方适配器（contrib）
+scope:
+    - contrib/authn-jwt/
+    - contrib/authz-casbin/
+    - contrib/config-nacos/
+source_files: []
+depends_on: []
+related_to: []
+kk_module_id: d2617d6c-646d-4370-9226-d8bd0f5b088b
+kk_ordinal: 20
+kk_cards:
+    architecture_design:
+        id: 13fb65e1-84ea-4705-89ad-c901826c4f08
+        title: 认证/授权/配置三方适配器（contrib）
+    coding_conventions:
+        id: e9c68448-96c2-47f7-a555-c9d2b76692a9
+        title: 认证/授权/配置三方适配器（contrib）
+    overview:
+        id: ede4579e-d31c-4237-ad2e-ae9f3e010db5
+        title: 认证/授权/配置三方适配器（contrib）
+    tech_stack:
+        id: 7d4b2634-e689-4132-8206-0cd9bbc76683
+        title: 认证/授权/配置三方适配器（contrib）

@@ -1,0 +1,565 @@
+# 知识卡导出索引文件
+schema_version: 1
+locale: zh-CN
+commit: 2f62f6614ddb9e619f3a0cfc3cce7eb1ab1360ed
+branch: main
+exported_at: "2026-11-02T14:32:30Z"
+modules:
+    ai_libraries:
+        dir_name: AI 模型后端适配库（OpenAI _ Eino _ LangChainGo）
+        title: AI 模型后端适配库（OpenAI / Eino / LangChainGo）
+        scope:
+            - ai/openai/
+            - ai/eino/
+            - ai/langchaingo/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    appkit_framework:
+        dir_name: Bald 应用组合层（App 框架核心）
+        title: Bald 应用组合层（App 框架核心）
+        scope:
+            - pkg/appkit/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: protocol_transport
+              reason: AppKit 使用 transport.Server 契约装配 GraphQL/MCP/TCP 协议传输实现，并依赖 subscribe 占位结构完成 broker.Subscribe 参数绑定。
+            - path: http_transport
+              reason: App 组合层通过 transport.Server 契约装配 HTTP/gRPC/HTTP3 传输适配器，作为多服务器生命周期编排的入口。
+            - path: core_runtime
+              reason: AppKit 的 Provider 装配层依赖 bootstrap/config 提供的 Layer/Store 契约，通过两遍预装载完成配置合并与快照发布。
+            - path: service_registry
+              reason: AppKit 在 Provider 装配阶段将 Consul/etcd/Kubernetes/Nacos 注册中心接入，配合各传输 Server 暴露服务发现地址。
+            - path: codegen_and_release
+              reason: bald gen 子命令生成 AppSpec 驱动的代码（Domain/Provides/Requires），与 appkit 组合层装配原语一一对应。
+            - path: messaging_transport
+              reason: AppKit 使用 transport.Server 契约装配 Kafka/RabbitMQ/Redis/RocketMQ 消息传输后端，统一编排其 Start/Stop 生命周期。
+            - path: streaming_transport
+              reason: AppKit 以 transport.Server 契约装配 SSE/WebRTC/WebSocket 长连接传输后端，纳入多服务器生命周期管理。
+            - path: task_transport
+              reason: AppKit 通过 transport.Server 契约装配 Asynq/Cron/Gateway 三类任务传输适配器，纳入统一启动与优雅停机流程。
+            - path: example_app
+              reason: 示例应用通过 AppSpec 调用 appkit.Domain/Provides/Requires 等原语装配 greet 域，是框架组合层的最直接消费方。
+            - path: workflow_engine
+              reason: workflow/argo 暴露 bootstrapv1.Workflow → argo.ClientOptions 的 Provider 装配函数，被 AppKit 段驱动装配引擎消费。
+            - path: ai_libraries
+              reason: ai/openai/eino/langchaingo 暴露 bootstrapv1.Ai Provider，被 AppKit 段驱动装配引擎注入为 LLM 后端。
+    binary_encoding:
+        dir_name: 二进制编码适配器集合
+        title: 二进制编码适配器集合
+        scope:
+            - encoding/proto/
+            - encoding/avro/
+            - encoding/bson/
+            - encoding/cbor/
+            - encoding/flatbuffers/
+            - encoding/gob/
+            - encoding/msgpack/
+            - encoding/thrift/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    cache_layer:
+        dir_name: 缓存抽象与本地_Redis 适配器
+        title: 缓存抽象与本地/Redis 适配器
+        scope:
+            - cache/local/
+            - cache/redis/
+            - cache/loadable/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+        version_of:
+            - path: object_storage
+              reason: 两者均提供「本地 + 远端」双后端模式（freecache/go-redis vs S3/MinIO），但 cache 面向键值缓存、OSS 面向对象文件存储，属不同业务领域。
+    circuit_breaker:
+        dir_name: 熔断器算法实现集（Hystrix _ Sentinel _ SRE _ Vegas）
+        title: 熔断器算法实现集（Hystrix / Sentinel / SRE / Vegas）
+        scope:
+            - circuitbreaker/hystrix/
+            - circuitbreaker/sentinel/
+            - circuitbreaker/sres/
+            - circuitbreaker/vegas/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    cli_tool_cobramcp:
+        dir_name: Cobra→MCP 工具桥接库（cobramcp）
+        title: Cobra→MCP 工具桥接库（cobramcp）
+        scope:
+            - cobramcp/
+        source_files: []
+        children:
+            - cli_tool_cobramcp/auth_and_rest
+            - cli_tool_cobramcp/cfgmgr_cli
+            - cli_tool_cobramcp/cli_flags_and_args
+            - cli_tool_cobramcp/cobra_mcp_bridge
+            - cli_tool_cobramcp/examples
+            - cli_tool_cobramcp/mcp_server_lifecycle
+            - cli_tool_cobramcp/tool_execution
+            - cli_tool_cobramcp/tool_metadata
+        depends_on: []
+        related_to: []
+    cli_tool_cobramcp/auth_and_rest:
+        dir_name: Cobra CLI 认证与 REST 适配层
+        title: Cobra CLI 认证与 REST 适配层
+        scope:
+            - cobramcp/auth.go
+            - cobramcp/rest.go
+            - cobramcp/root.go
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: cli_tool_cobramcp/tool_execution
+              reason: REST 适配层在自进程重入执行 Cobra 工具前调用 Bearer Token 认证中间件，形成「认证 → REST → 工具执行」的调用链。
+    cli_tool_cobramcp/cfgmgr_cli:
+        dir_name: MCP 服务器配置 CLI（Cursor_VSCode 双适配器）
+        title: MCP 服务器配置 CLI（Cursor/VSCode 双适配器）
+        scope:
+            - cobramcp/internal/cfgmgr/
+        source_files: []
+        children:
+            - cli_tool_cobramcp/cfgmgr_cli/cursor_adapter
+            - cli_tool_cobramcp/cfgmgr_cli/shared_manager
+            - cli_tool_cobramcp/cfgmgr_cli/vscode_adapter
+        depends_on: []
+        related_to: []
+    cli_tool_cobramcp/cfgmgr_cli/cursor_adapter:
+        dir_name: Cursor MCP 服务器配置 CLI 与适配器
+        title: Cursor MCP 服务器配置 CLI 与适配器
+        scope:
+            - cobramcp/internal/cfgmgr/cmd/cursor/
+            - cobramcp/internal/cfgmgr/manager/cursor/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    cli_tool_cobramcp/cfgmgr_cli/shared_manager:
+        dir_name: MCP 服务器配置管理器（VSCode_Cursor 共享层）
+        title: MCP 服务器配置管理器（VSCode/Cursor 共享层）
+        scope:
+            - cobramcp/internal/cfgmgr/manager/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: cli_tool_cobramcp/cfgmgr_cli/cursor_adapter
+              reason: Cursor 适配器通过共享 manager 加载/保存 .cursor/mcp.json，复用 enable/disable/list 的通用逻辑。
+            - path: cli_tool_cobramcp/cfgmgr_cli/vscode_adapter
+              reason: VSCode 适配器通过共享 manager 加载/保存 .vscode/mcp.json，复用 enable/disable/list 的通用逻辑。
+    cli_tool_cobramcp/cfgmgr_cli/vscode_adapter:
+        dir_name: VSCode MCP 服务器配置 CLI 与适配器
+        title: VSCode MCP 服务器配置 CLI 与适配器
+        scope:
+            - cobramcp/internal/cfgmgr/cmd/vscode/
+            - cobramcp/internal/cfgmgr/manager/vscode/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    cli_tool_cobramcp/cli_flags_and_args:
+        dir_name: Cobra 命令到 MCP 工具的转换与 CLI 启动配置
+        title: Cobra 命令到 MCP 工具的转换与 CLI 启动配置
+        scope:
+            - cobramcp/args.go
+            - cobramcp/config.go
+            - cobramcp/logger.go
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    cli_tool_cobramcp/cobra_mcp_bridge:
+        dir_name: Cobra Flag 到 JSON Schema 的桥接器
+        title: Cobra Flag 到 JSON Schema 的桥接器
+        scope:
+            - cobramcp/internal/bridge/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: cli_tool_cobramcp/tool_metadata
+              reason: tool_metadata 在解析 Cobra 注解生成 MCP Tool JSON Schema 时调用 internal/bridge/flags 将 pflag 定义翻译为 jsonschema-go Schema。
+    cli_tool_cobramcp/examples:
+        dir_name: cobra MCP 集成示例集
+        title: cobra MCP 集成示例集
+        scope:
+            - cobramcp/examples/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    cli_tool_cobramcp/mcp_server_lifecycle:
+        dir_name: Cobra MCP 服务器生命周期与 CLI 入口
+        title: Cobra MCP 服务器生命周期与 CLI 入口
+        scope:
+            - cobramcp/server.go
+            - cobramcp/start.go
+            - cobramcp/stream.go
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    cli_tool_cobramcp/tool_execution:
+        dir_name: MCP 工具执行与 REST 适配层
+        title: MCP 工具执行与 REST 适配层
+        scope:
+            - cobramcp/tools.go
+            - cobramcp/execute.go
+            - cobramcp/restcmd.go
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: cli_tool_cobramcp/mcp_server_lifecycle
+              reason: mcp start/stream 生命周期入口启动后注册 cobra 命令为 MCP tools，实际执行委托给 tool_execution 的自进程重入逻辑。
+    cli_tool_cobramcp/tool_metadata:
+        dir_name: Cobra→MCP 工具元数据与选择器
+        title: Cobra→MCP 工具元数据与选择器
+        scope:
+            - cobramcp/annotations.go
+            - cobramcp/schema.go
+            - cobramcp/selector.go
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    codegen_and_release:
+        dir_name: 代码生成与多模块发布工具（bald gen _ bald release）
+        title: 代码生成与多模块发布工具（bald gen / bald release）
+        scope:
+            - internal/codegen/
+            - internal/release/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    contrib_audit_observability:
+        dir_name: 审计与可观测性适配器（audit-gorm _ audit-stream _ observability-otlp）
+        title: 审计与可观测性适配器（audit-gorm / audit-stream / observability-otlp）
+        scope:
+            - contrib/audit-gorm/
+            - contrib/audit-stream/
+            - contrib/observability-otlp/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: pkg_utilities
+              reason: pkg/audit 定义 Auditor 契约，contrib/audit-gorm 与 contrib/audit-stream 提供 gorm/Redis Stream 后端实现，扩展同一审计抽象。
+    contrib_database:
+        dir_name: 数据库后端适配（GORM _ MongoDB）
+        title: 数据库后端适配（GORM / MongoDB）
+        scope:
+            - contrib/database/gorm/
+            - contrib/database/mongodb/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+        similar_to:
+            - path: contrib_store_impls
+              reason: 两者均对 GORM/MongoDB 做适配，但前者实现 pkg/store.DBProvider[T] 泛型存储接口，后者实现 bootstrapv1.Database 装配契约并暴露 bald-crud 客户端直连封装。
+    contrib_extensions:
+        dir_name: 认证_授权_配置三方适配器（contrib）
+        title: 认证/授权/配置三方适配器（contrib）
+        scope:
+            - contrib/authn-jwt/
+            - contrib/authz-casbin/
+            - contrib/config-nacos/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    contrib_store_impls:
+        dir_name: 存储层后端适配器（GORM _ MongoDB）
+        title: 存储层后端适配器（GORM / MongoDB）
+        scope:
+            - contrib/store-gorm/
+            - contrib/store-mongo/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: example_app
+              reason: 示例应用的 user 实体通过 contrib/store-gorm 实现 store.DBProvider[User]，以统一泛型 Store[T] 访问 SQLite 后端。
+    core_runtime:
+        dir_name: Bald 框架引导期配置契约、KV 抽象与 Provider 装配层
+        title: Bald 框架引导期配置契约、KV 抽象与 Provider 装配层
+        scope:
+            - bconf/
+            - bconfig/
+            - bootstrap/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: documentation
+              reason: docs/ 下的架构说明与 C4/Graphviz 图源以 bootstrap/v1 bconf 配置契约为权威事实源，描述进程引导期装配流程。
+            - path: contrib_extensions
+              reason: contrib/config-nacos 为 bconfig.Reader 提供 Nacos 远程配置源实现，由 bootstrap/config 组合进 deepMerge 链。
+    documentation:
+        dir_name: Bald 框架文档与架构制品
+        title: Bald 框架文档与架构制品
+        scope:
+            - docs/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    encoding_formats:
+        dir_name: 编码格式适配器（JSON_YAML_TOML_XML）
+        title: 编码格式适配器（JSON/YAML/TOML/XML）
+        scope:
+            - encoding/json/
+            - encoding/yaml/
+            - encoding/toml/
+            - encoding/xml/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+        version_of:
+            - path: binary_encoding
+              reason: 两者均实现根模块 encoding.Codec 契约，但前者面向 JSON/YAML/TOML/XML 文本格式，后者面向 protobuf/Avro/BSON/CBOR 等二进制序列化。
+    example_app:
+        dir_name: bald 框架示例应用（双角色 greet 域）
+        title: bald 框架示例应用（双角色 greet 域）
+        scope:
+            - _example/bald/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    http_transport:
+        dir_name: 传输层适配器（HTTP_gRPC_HTTP3_Web）
+        title: 传输层适配器（HTTP/gRPC/HTTP3/Web）
+        scope:
+            - transport/grpc/
+            - transport/http/
+            - transport/http3/
+            - transport/web/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: workflow_engine
+              reason: workflow/argo 通过 HTTP REST 调用 Argo Server，与 transport/http 同属 HTTP 客户端侧；其 bootstrapv1.Workflow 段由 appkit 装配。
+    log_backends:
+        dir_name: 日志后端适配器集合（Aliyun SLS _ Charm _ Loki _ Sentry _ Tencent CLS）
+        title: 日志后端适配器集合（Aliyun SLS / Charm / Loki / Sentry / Tencent CLS）
+        scope:
+            - log/aliyun/
+            - log/charm/
+            - log/loki/
+            - log/sentry/
+            - log/tencent/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    message_broker:
+        dir_name: 消息代理后端适配器集（Kafka_RabbitMQ_Redis_RocketMQ）
+        title: 消息代理后端适配器集（Kafka/RabbitMQ/Redis/RocketMQ）
+        scope:
+            - broker/kafka/
+            - broker/rabbitmq/
+            - broker/redis/
+            - broker/rocketmq/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+        similar_to:
+            - path: messaging_transport
+              reason: 两者均为 Kafka/RabbitMQ/Redis/RocketMQ 四实现，但前者面向 transport.Server（进程内订阅者生命周期），后者面向 broker.Broker（消息中间件连接与发布订阅）。
+    messaging_transport:
+        dir_name: 消息传输适配器（Kafka_RabbitMQ_Redis_RocketMQ）
+        title: 消息传输适配器（Kafka/RabbitMQ/Redis/RocketMQ）
+        scope:
+            - transport/kafka/
+            - transport/rabbitmq/
+            - transport/redis/
+            - transport/rocketmq/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    metrics_backends:
+        dir_name: 指标后端适配器（Prometheus _ Datadog _ OpenTelemetry）
+        title: 指标后端适配器（Prometheus / Datadog / OpenTelemetry）
+        scope:
+            - metrics/prometheus/
+            - metrics/datadog/
+            - metrics/otel/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: pkg_utilities
+              reason: pkg/middleware/observability 中间件消费根模块 metrics.Metrics 契约，metrics_backends 提供 Prometheus/Datadog/OpenTelemetry 三种可插拔后端。
+    object_storage:
+        dir_name: 对象存储 OSS 适配器（S3 _ MinIO）
+        title: 对象存储 OSS 适配器（S3 / MinIO）
+        scope:
+            - oss/s3/
+            - oss/minio/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    pkg_misc_utilities:
+        dir_name: 通用工具包集合（pkg_）
+        title: 通用工具包集合（pkg/*）
+        scope:
+            - pkg/authz/
+            - pkg/crudbridge/
+            - pkg/contextx/
+            - pkg/fieldmaskutil/
+            - pkg/id/
+            - pkg/metrics/
+            - pkg/stringcase/
+            - pkg/testkit/
+            - pkg/validation/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    pkg_utilities:
+        dir_name: 审计、中间件与存储抽象（Audit _ Middleware _ Store）
+        title: 审计、中间件与存储抽象（Audit / Middleware / Store）
+        scope:
+            - pkg/audit/
+            - pkg/middleware/
+            - pkg/store/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: log_backends
+              reason: pkg/middleware/logging 中间件消费根模块 log.Logger 契约，log_backends 将 SLS/Charm/Loki/Sentry/CLS SDK 适配为该契约。
+            - path: contrib_extensions
+              reason: pkg/middleware/authn/authz 中间件消费根模块 authn/authz 契约，contrib/authn-jwt 与 contrib/authz-casbin 提供 JWT/Casbin RBAC 实现。
+    protocol_transport:
+        dir_name: 传输适配器集合（GraphQL _ MCP _ TCP _ Subscribe）
+        title: 传输适配器集合（GraphQL / MCP / TCP / Subscribe）
+        scope:
+            - transport/graphql/
+            - transport/tcp/
+            - transport/mcp/
+            - transport/subscribe/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: cli_tool_cobramcp
+              reason: cobramcp 通过根模块 transport/mcp 子包启动 MCP Server（stdio/SSE/StreamableHTTP），将 Cobra 命令注册为 MCP Tool。
+            - path: example_app
+              reason: 示例应用使用 transport/mcp 实现暴露 MCP Server（stdio/SSE），并通过 transport/web/gin 提供 HTTP API 与 gRPC gateway。
+    rate_limiting:
+        dir_name: 限流器实现与适配器（ratelimit）
+        title: 限流器实现与适配器（ratelimit）
+        scope:
+            - ratelimit/tokenbucket/
+            - ratelimit/bbr/
+            - ratelimit/sentinel/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+        version_of:
+            - path: circuit_breaker
+              reason: 两者均实现根模块可插拔算法契约（CircuitBreaker vs Limiter），但前者面向熔断策略（Hystrix/Sentinel/SRE/Vegas），后者面向限流策略（令牌桶/BBR/Sentinel）。
+    root:
+        dir_name: Bald 框架仓库根（契约与适配器生态）
+        title: Bald 框架仓库根（契约与适配器生态）
+        scope:
+            - go.mod
+            - go.sum
+            - .golangci.yml
+            - .github/
+            - scripts/
+        source_files: []
+        children:
+            - ai_libraries
+            - appkit_framework
+            - binary_encoding
+            - cache_layer
+            - circuit_breaker
+            - cli_tool_cobramcp
+            - codegen_and_release
+            - contrib_audit_observability
+            - contrib_database
+            - contrib_extensions
+            - contrib_store_impls
+            - core_runtime
+            - documentation
+            - encoding_formats
+            - example_app
+            - http_transport
+            - log_backends
+            - message_broker
+            - messaging_transport
+            - metrics_backends
+            - object_storage
+            - pkg_misc_utilities
+            - pkg_utilities
+            - protocol_transport
+            - rate_limiting
+            - service_registry
+            - streaming_transport
+            - task_transport
+            - workflow_engine
+        depends_on: []
+        related_to: []
+    service_registry:
+        dir_name: 注册中心适配器（Consul _ etcd _ Kubernetes _ Nacos）
+        title: 注册中心适配器（Consul / etcd / Kubernetes / Nacos）
+        scope:
+            - registry/consul/
+            - registry/etcd/
+            - registry/kubernetes/
+            - registry/nacos/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    streaming_transport:
+        dir_name: 流式传输适配器（SSE _ WebRTC _ WebSocket）
+        title: 流式传输适配器（SSE / WebRTC / WebSocket）
+        scope:
+            - transport/sse/
+            - transport/webrtc/
+            - transport/websocket/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    task_transport:
+        dir_name: 传输层适配器（Asynq _ Cron _ Gateway）
+        title: 传输层适配器（Asynq / Cron / Gateway）
+        scope:
+            - transport/asynq/
+            - transport/cron/
+            - transport/gateway/
+        source_files: []
+        children: []
+        depends_on:
+            - path: service_registry
+              reason: transport/gateway require registry（go.mod 实测）：target 写成 `discovery:///<服务名>` 时由 `registry.Discovery` 的 GetService/Watch 解析后端端点；直连 host:port 仍走 gRPC 原生 dns，不消费注册中心。
+        related_to: []
+    workflow_engine:
+        dir_name: Argo Workflows REST 客户端与契约装配
+        title: Argo Workflows REST 客户端与契约装配
+        scope:
+            - workflow/argo/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []

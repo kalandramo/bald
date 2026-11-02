@@ -1,0 +1,25 @@
+schema_version: 1
+module_path: cli_tool_cobramcp/cobra_mcp_bridge
+title: Cobra Flag 到 JSON Schema 的桥接器
+scope:
+    - cobramcp/internal/bridge/
+source_files: []
+depends_on: []
+related_to:
+    - path: cli_tool_cobramcp/tool_metadata
+      reason: tool_metadata 在解析 Cobra 注解生成 MCP Tool JSON Schema 时调用 internal/bridge/flags 将 pflag 定义翻译为 jsonschema-go Schema。
+kk_module_id: 0b9b6f52-b027-4d72-99ac-ab51e266803f
+kk_ordinal: 5
+kk_cards:
+    architecture_design:
+        id: 7f24c2b2-0437-496c-97bb-21cf4919de26
+        title: Cobra Flag 到 JSON Schema 的桥接器
+    coding_conventions:
+        id: b43d8000-c527-42cc-a6c1-9758c7a77d13
+        title: Cobra Flag 到 JSON Schema 的桥接器
+    overview:
+        id: 72b05252-c54f-4238-960b-c480ebec94bd
+        title: Cobra Flag 到 JSON Schema 的桥接器
+    tech_stack:
+        id: 8afece60-87ce-4168-92f5-4a388dd18206
+        title: Cobra Flag 到 JSON Schema 的桥接器

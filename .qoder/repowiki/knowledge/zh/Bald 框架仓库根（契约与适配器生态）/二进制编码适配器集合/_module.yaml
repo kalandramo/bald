@@ -1,0 +1,30 @@
+schema_version: 1
+module_path: binary_encoding
+title: 二进制编码适配器集合
+scope:
+    - encoding/proto/
+    - encoding/avro/
+    - encoding/bson/
+    - encoding/cbor/
+    - encoding/flatbuffers/
+    - encoding/gob/
+    - encoding/msgpack/
+    - encoding/thrift/
+source_files: []
+depends_on: []
+related_to: []
+kk_module_id: 71b4305f-6dd7-4fde-9627-af000070ee9e
+kk_ordinal: 16
+kk_cards:
+    architecture_design:
+        id: 55985e6b-8d93-4d97-973a-cde24552a6c9
+        title: 二进制编码适配器集合
+    coding_conventions:
+        id: 4a2044b0-ad6b-4b46-aeec-459c6fe2b428
+        title: 二进制编码适配器集合
+    overview:
+        id: 7b1801ab-5dbb-44a0-9904-1353f4d484da
+        title: 二进制编码适配器集合
+    tech_stack:
+        id: 56d1870e-b2ba-41e3-89ff-d6f847589f4c
+        title: 二进制编码适配器集合

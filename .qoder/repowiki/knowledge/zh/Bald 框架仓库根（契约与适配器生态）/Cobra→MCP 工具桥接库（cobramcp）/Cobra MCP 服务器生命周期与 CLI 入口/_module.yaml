@@ -1,0 +1,25 @@
+schema_version: 1
+module_path: cli_tool_cobramcp/mcp_server_lifecycle
+title: Cobra MCP 服务器生命周期与 CLI 入口
+scope:
+    - cobramcp/server.go
+    - cobramcp/start.go
+    - cobramcp/stream.go
+source_files: []
+depends_on: []
+related_to: []
+kk_module_id: c0d27ad4-70d8-4d70-b3ec-eaadfc83d4d6
+kk_ordinal: 1
+kk_cards:
+    architecture_design:
+        id: c7c3a827-2779-4096-93b8-459fceb789d8
+        title: Cobra MCP 服务器生命周期与 CLI 入口
+    coding_conventions:
+        id: 0caaf182-7796-4a07-a657-d8aaafa00127
+        title: Cobra MCP 服务器生命周期与 CLI 入口
+    overview:
+        id: 2a82b6ac-8fae-417c-a0e6-e0dc34fe7496
+        title: Cobra MCP 服务器生命周期与 CLI 入口
+    tech_stack:
+        id: 78c75e4f-7480-434e-9f84-11ce0530f4e3
+        title: Cobra MCP 服务器生命周期与 CLI 入口

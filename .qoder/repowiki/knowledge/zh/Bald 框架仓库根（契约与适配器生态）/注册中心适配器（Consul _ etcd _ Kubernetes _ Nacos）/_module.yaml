@@ -1,0 +1,29 @@
+schema_version: 1
+module_path: service_registry
+title: 注册中心适配器（Consul / etcd / Kubernetes / Nacos）
+scope:
+    - registry/consul/
+    - registry/etcd/
+    - registry/kubernetes/
+    - registry/nacos/
+source_files: []
+depends_on: []
+related_to: []
+kk_module_id: 73577dca-c31f-4ff7-b5b8-084a024e2283
+kk_ordinal: 4
+kk_cards:
+    architecture_design:
+        id: 15d205d4-2a66-45ab-be28-9a3a44496d6e
+        title: 注册中心适配器（Consul / etcd / Kubernetes / Nacos）
+    coding_conventions:
+        id: 47844645-4e39-4e65-8413-20fcfa86d8ec
+        title: 注册中心适配器（Consul / etcd / Kubernetes / Nacos）
+    overview:
+        id: c335f346-b661-41ca-9746-4a6af0255ee1
+        title: 注册中心适配器（Consul / etcd / Kubernetes / Nacos）
+    tech_stack:
+        id: a8a22ec6-cc41-4530-a128-7f222702f563
+        title: 注册中心适配器（Consul / etcd / Kubernetes / Nacos）
+    unique_setup_and_commands:
+        id: 52dc355e-da66-4b26-b84b-8b5aa5cc9298
+        title: 注册中心适配器（Consul / etcd / Kubernetes / Nacos）

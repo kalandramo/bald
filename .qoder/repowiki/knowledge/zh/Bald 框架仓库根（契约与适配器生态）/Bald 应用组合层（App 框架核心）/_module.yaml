@@ -1,0 +1,45 @@
+schema_version: 1
+module_path: appkit_framework
+title: Bald 应用组合层（App 框架核心）
+scope:
+    - pkg/appkit/
+source_files: []
+depends_on: []
+related_to:
+    - path: protocol_transport
+      reason: AppKit 使用 transport.Server 契约装配 GraphQL/MCP/TCP 协议传输实现，并依赖 subscribe 占位结构完成 broker.Subscribe 参数绑定。
+    - path: http_transport
+      reason: App 组合层通过 transport.Server 契约装配 HTTP/gRPC/HTTP3 传输适配器，作为多服务器生命周期编排的入口。
+    - path: core_runtime
+      reason: AppKit 的 Provider 装配层依赖 bootstrap/config 提供的 Layer/Store 契约，通过两遍预装载完成配置合并与快照发布。
+    - path: service_registry
+      reason: AppKit 在 Provider 装配阶段将 Consul/etcd/Kubernetes/Nacos 注册中心接入，配合各传输 Server 暴露服务发现地址。
+    - path: codegen_and_release
+      reason: bald gen 子命令生成 AppSpec 驱动的代码（Domain/Provides/Requires），与 appkit 组合层装配原语一一对应。
+    - path: messaging_transport
+      reason: AppKit 使用 transport.Server 契约装配 Kafka/RabbitMQ/Redis/RocketMQ 消息传输后端，统一编排其 Start/Stop 生命周期。
+    - path: streaming_transport
+      reason: AppKit 以 transport.Server 契约装配 SSE/WebRTC/WebSocket 长连接传输后端，纳入多服务器生命周期管理。
+    - path: task_transport
+      reason: AppKit 通过 transport.Server 契约装配 Asynq/Cron/Gateway 三类任务传输适配器，纳入统一启动与优雅停机流程。
+    - path: example_app
+      reason: 示例应用通过 AppSpec 调用 appkit.Domain/Provides/Requires 等原语装配 greet 域，是框架组合层的最直接消费方。
+    - path: workflow_engine
+      reason: workflow/argo 暴露 bootstrapv1.Workflow → argo.ClientOptions 的 Provider 装配函数，被 AppKit 段驱动装配引擎消费。
+    - path: ai_libraries
+      reason: ai/openai/eino/langchaingo 暴露 bootstrapv1.Ai Provider，被 AppKit 段驱动装配引擎注入为 LLM 后端。
+kk_module_id: 1a5119d7-4651-4306-adb7-f8938d8eb9ca
+kk_ordinal: 1
+kk_cards:
+    architecture_design:
+        id: 4de53e79-8887-46ff-8196-8979a2ce9d7c
+        title: Bald 应用组合层（App 框架核心）
+    coding_conventions:
+        id: 2d94323f-7db0-4b5c-a854-6fbdbdf7ce80
+        title: Bald 应用组合层（App 框架核心）
+    overview:
+        id: 2b119e5e-11ae-4f78-b5d4-4abe9744f6bd
+        title: Bald 应用组合层（App 框架核心）
+    tech_stack:
+        id: 7209c2d2-c4f8-4a2e-94b7-02afac594610
+        title: Bald 应用组合层（App 框架核心）

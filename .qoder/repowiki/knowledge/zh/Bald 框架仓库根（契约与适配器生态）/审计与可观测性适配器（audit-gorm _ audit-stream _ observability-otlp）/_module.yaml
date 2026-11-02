@@ -1,0 +1,27 @@
+schema_version: 1
+module_path: contrib_audit_observability
+title: 审计与可观测性适配器（audit-gorm / audit-stream / observability-otlp）
+scope:
+    - contrib/audit-gorm/
+    - contrib/audit-stream/
+    - contrib/observability-otlp/
+source_files: []
+depends_on: []
+related_to:
+    - path: pkg_utilities
+      reason: pkg/audit 定义 Auditor 契约，contrib/audit-gorm 与 contrib/audit-stream 提供 gorm/Redis Stream 后端实现，扩展同一审计抽象。
+kk_module_id: 058c4ace-0fe2-42bc-a136-9586cd7b0395
+kk_ordinal: 23
+kk_cards:
+    architecture_design:
+        id: 37364e70-13a5-4aca-ad05-988d15f58352
+        title: 审计与可观测性适配器（audit-gorm / audit-stream / observability-otlp）
+    coding_conventions:
+        id: 1bad57cb-5d0d-412b-b264-db7f821c3191
+        title: 审计与可观测性适配器（audit-gorm / audit-stream / observability-otlp）
+    overview:
+        id: dac85f9a-ce71-4a99-91dd-7b84220a49f7
+        title: 审计与可观测性适配器（audit-gorm / audit-stream / observability-otlp）
+    tech_stack:
+        id: 643285c1-9031-473d-8b6d-421a4d3c7786
+        title: 审计与可观测性适配器（audit-gorm / audit-stream / observability-otlp）

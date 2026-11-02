@@ -1,0 +1,31 @@
+schema_version: 1
+module_path: core_runtime
+title: Bald 框架引导期配置契约、KV 抽象与 Provider 装配层
+scope:
+    - bconf/
+    - bconfig/
+    - bootstrap/
+source_files: []
+depends_on: []
+related_to:
+    - path: documentation
+      reason: docs/ 下的架构说明与 C4/Graphviz 图源以 bootstrap/v1 bconf 配置契约为权威事实源，描述进程引导期装配流程。
+    - path: contrib_extensions
+      reason: contrib/config-nacos 为 bconfig.Reader 提供 Nacos 远程配置源实现，由 bootstrap/config 组合进 deepMerge 链。
+kk_module_id: 5fc77480-bfaa-4697-b81a-da5c90e7f3ca
+kk_cards:
+    architecture_design:
+        id: ba974575-c926-43e0-90af-2dfc649fca7d
+        title: Bald 框架引导期配置契约、KV 抽象与 Provider 装配层
+    coding_conventions:
+        id: 81530107-dd3f-4a38-961d-86a3bac19d31
+        title: Bald 框架引导期配置契约、KV 抽象与 Provider 装配层
+    overview:
+        id: 8228d348-0222-4f17-9575-b7d6fab95fc8
+        title: Bald 框架引导期配置契约、KV 抽象与 Provider 装配层
+    tech_stack:
+        id: 825db324-1a85-4b34-86be-9ac502d6a3a1
+        title: Bald 框架引导期配置契约、KV 抽象与 Provider 装配层
+    unique_setup_and_commands:
+        id: 06361a18-38bc-4db6-893e-b415ccf693f9
+        title: Bald 框架引导期配置契约、KV 抽象与 Provider 装配层

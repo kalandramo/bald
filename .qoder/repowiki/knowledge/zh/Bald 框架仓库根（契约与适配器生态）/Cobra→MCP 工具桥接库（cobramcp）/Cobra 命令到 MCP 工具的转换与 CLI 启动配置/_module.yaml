@@ -1,0 +1,24 @@
+schema_version: 1
+module_path: cli_tool_cobramcp/cli_flags_and_args
+title: Cobra 命令到 MCP 工具的转换与 CLI 启动配置
+scope:
+    - cobramcp/args.go
+    - cobramcp/config.go
+    - cobramcp/logger.go
+source_files: []
+depends_on: []
+related_to: []
+kk_module_id: ead12307-6aee-405c-88ea-b18da1da97a9
+kk_cards:
+    architecture_design:
+        id: 83ba2f06-b2bd-4a52-8aed-7c0a54f468f5
+        title: Cobra 命令到 MCP 工具的转换与 CLI 启动配置
+    coding_conventions:
+        id: b8154a7f-8766-4ed3-b769-ee5f6b0ce987
+        title: Cobra 命令到 MCP 工具的转换与 CLI 启动配置
+    overview:
+        id: 81640c0d-f3bc-4406-b00f-2522c4cd8329
+        title: Cobra 命令到 MCP 工具的转换与 CLI 启动配置
+    tech_stack:
+        id: 741e2ec1-3229-49ac-8716-0f116d24576d
+        title: Cobra 命令到 MCP 工具的转换与 CLI 启动配置

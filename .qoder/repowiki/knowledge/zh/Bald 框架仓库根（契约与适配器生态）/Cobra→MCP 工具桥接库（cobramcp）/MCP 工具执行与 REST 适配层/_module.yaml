@@ -1,0 +1,27 @@
+schema_version: 1
+module_path: cli_tool_cobramcp/tool_execution
+title: MCP 工具执行与 REST 适配层
+scope:
+    - cobramcp/tools.go
+    - cobramcp/execute.go
+    - cobramcp/restcmd.go
+source_files: []
+depends_on: []
+related_to:
+    - path: cli_tool_cobramcp/mcp_server_lifecycle
+      reason: mcp start/stream 生命周期入口启动后注册 cobra 命令为 MCP tools，实际执行委托给 tool_execution 的自进程重入逻辑。
+kk_module_id: a84e64a5-20c3-40cf-81d0-4193603cf89e
+kk_ordinal: 2
+kk_cards:
+    architecture_design:
+        id: 969b1b30-3752-4db2-975b-629a5931d538
+        title: MCP 工具执行与 REST 适配层
+    coding_conventions:
+        id: 58e0feaf-ec1b-4ab9-abc2-53685fc9f62e
+        title: MCP 工具执行与 REST 适配层
+    overview:
+        id: de79f1b5-966e-40e1-94b4-404ffb668d75
+        title: MCP 工具执行与 REST 适配层
+    tech_stack:
+        id: 6de7d4c2-5c8c-42d9-bf2c-c0497954cd4b
+        title: MCP 工具执行与 REST 适配层

@@ -1,0 +1,23 @@
+schema_version: 1
+module_path: cli_tool_cobramcp/cfgmgr_cli/cursor_adapter
+title: Cursor MCP 服务器配置 CLI 与适配器
+scope:
+    - cobramcp/internal/cfgmgr/cmd/cursor/
+    - cobramcp/internal/cfgmgr/manager/cursor/
+source_files: []
+depends_on: []
+related_to: []
+kk_module_id: b7d0227b-4df0-448f-927b-439bc3fdd190
+kk_cards:
+    architecture_design:
+        id: 29faad20-652b-413b-97aa-913d9574eda1
+        title: Cursor MCP 服务器配置 CLI 与适配器
+    coding_conventions:
+        id: 83cb3252-bf23-44ad-8fdc-3308f34184d3
+        title: Cursor MCP 服务器配置 CLI 与适配器
+    overview:
+        id: 9842c049-02f1-4784-b4ef-584a4a83170c
+        title: Cursor MCP 服务器配置 CLI 与适配器
+    tech_stack:
+        id: fd5a4899-d975-47ac-b96b-e73f639108e7
+        title: Cursor MCP 服务器配置 CLI 与适配器

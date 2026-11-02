@@ -1,0 +1,28 @@
+schema_version: 1
+module_path: http_transport
+title: 传输层适配器（HTTP/gRPC/HTTP3/Web）
+scope:
+    - transport/grpc/
+    - transport/http/
+    - transport/http3/
+    - transport/web/
+source_files: []
+depends_on: []
+related_to:
+    - path: workflow_engine
+      reason: workflow/argo 通过 HTTP REST 调用 Argo Server，与 transport/http 同属 HTTP 客户端侧；其 bootstrapv1.Workflow 段由 appkit 装配。
+kk_module_id: 53f5fd05-47b6-452e-90c4-4f02b9731a6a
+kk_ordinal: 5
+kk_cards:
+    architecture_design:
+        id: 2c2fe64f-e986-41e2-a381-f214830ec05f
+        title: 传输层适配器（HTTP/gRPC/HTTP3/Web）
+    coding_conventions:
+        id: 37824d1e-db31-4304-a8ba-cba5b165c716
+        title: 传输层适配器（HTTP/gRPC/HTTP3/Web）
+    overview:
+        id: 5aa7dca2-33f9-4e4f-a42f-88c0262255f5
+        title: 传输层适配器（HTTP/gRPC/HTTP3/Web）
+    tech_stack:
+        id: 78e2b99d-4833-4dbb-95cb-0e056c2514b8
+        title: 传输层适配器（HTTP/gRPC/HTTP3/Web）

@@ -1,0 +1,27 @@
+schema_version: 1
+module_path: metrics_backends
+title: 指标后端适配器（Prometheus / Datadog / OpenTelemetry）
+scope:
+    - metrics/prometheus/
+    - metrics/datadog/
+    - metrics/otel/
+source_files: []
+depends_on: []
+related_to:
+    - path: pkg_utilities
+      reason: pkg/middleware/observability 中间件消费根模块 metrics.Metrics 契约，metrics_backends 提供 Prometheus/Datadog/OpenTelemetry 三种可插拔后端。
+kk_module_id: a9613799-c269-45da-b2dc-738ab7001e61
+kk_ordinal: 13
+kk_cards:
+    architecture_design:
+        id: 11812032-a5a3-4cc7-bbb9-3a349ddfe01a
+        title: 指标后端适配器（Prometheus / Datadog / OpenTelemetry）
+    coding_conventions:
+        id: 01a06213-abd2-4a28-959d-3029eb05d8ec
+        title: 指标后端适配器（Prometheus / Datadog / OpenTelemetry）
+    overview:
+        id: e0f15376-f768-4bb8-a535-e7841dc69c06
+        title: 指标后端适配器（Prometheus / Datadog / OpenTelemetry）
+    tech_stack:
+        id: d88ec910-c1fa-441a-bec0-3907f7545b34
+        title: 指标后端适配器（Prometheus / Datadog / OpenTelemetry）

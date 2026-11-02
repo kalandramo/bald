@@ -1,0 +1,25 @@
+schema_version: 1
+module_path: cli_tool_cobramcp/tool_metadata
+title: Cobra→MCP 工具元数据与选择器
+scope:
+    - cobramcp/annotations.go
+    - cobramcp/schema.go
+    - cobramcp/selector.go
+source_files: []
+depends_on: []
+related_to: []
+kk_module_id: 273b9b34-e9ca-4db7-9653-be9e13511870
+kk_ordinal: 3
+kk_cards:
+    architecture_design:
+        id: 31b1be6c-6d04-44fe-b27a-00a710eade35
+        title: Cobra→MCP 工具元数据与选择器
+    coding_conventions:
+        id: 44f8f6c8-88bb-471c-b16b-b2a20ad0f483
+        title: Cobra→MCP 工具元数据与选择器
+    overview:
+        id: 18b0b3cc-31ea-4213-850c-0670fbf0b427
+        title: Cobra→MCP 工具元数据与选择器
+    tech_stack:
+        id: ea5f7435-58fa-47c8-a4cc-e161dfb98d4e
+        title: Cobra→MCP 工具元数据与选择器

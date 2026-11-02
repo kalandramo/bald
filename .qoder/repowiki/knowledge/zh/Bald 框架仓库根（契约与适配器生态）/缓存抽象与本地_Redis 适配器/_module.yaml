@@ -1,0 +1,28 @@
+schema_version: 1
+module_path: cache_layer
+title: 缓存抽象与本地/Redis 适配器
+scope:
+    - cache/local/
+    - cache/redis/
+    - cache/loadable/
+source_files: []
+depends_on: []
+related_to: []
+version_of:
+    - path: object_storage
+      reason: 两者均提供「本地 + 远端」双后端模式（freecache/go-redis vs S3/MinIO），但 cache 面向键值缓存、OSS 面向对象文件存储，属不同业务领域。
+kk_module_id: 9b20d2f1-212a-4cca-93f2-3cfb24f87151
+kk_ordinal: 11
+kk_cards:
+    architecture_design:
+        id: d6289bd9-93fb-44ca-b216-819c8fda15e3
+        title: 缓存抽象与本地/Redis 适配器
+    coding_conventions:
+        id: 81f6df33-60a2-4a75-930b-a3ba26c07110
+        title: 缓存抽象与本地/Redis 适配器
+    overview:
+        id: 9c08c676-3505-411f-a6a6-0de715907ae6
+        title: 缓存抽象与本地/Redis 适配器
+    tech_stack:
+        id: ca914c26-4d70-416f-8839-1117c6b7dc4b
+        title: 缓存抽象与本地/Redis 适配器

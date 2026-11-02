@@ -1,0 +1,24 @@
+schema_version: 1
+module_path: object_storage
+title: 对象存储 OSS 适配器（S3 / MinIO）
+scope:
+    - oss/s3/
+    - oss/minio/
+source_files: []
+depends_on: []
+related_to: []
+kk_module_id: fa5572cf-7b4d-4fad-a0da-ec0f1afb8319
+kk_ordinal: 12
+kk_cards:
+    architecture_design:
+        id: d31093d4-28ce-4ef0-b5ec-76a18249e367
+        title: 对象存储 OSS 适配器（S3 / MinIO）
+    coding_conventions:
+        id: dfa99106-0ec4-45d8-8c3c-5511299c3df7
+        title: 对象存储 OSS 适配器（S3 / MinIO）
+    overview:
+        id: 2c32bb26-3d7c-443a-b818-f2a9962c7a51
+        title: 对象存储 OSS 适配器（S3 / MinIO）
+    tech_stack:
+        id: 9e95b57f-7b8a-47ff-8c9b-a8b9caa3f3ed
+        title: 对象存储 OSS 适配器（S3 / MinIO）

@@ -1,0 +1,30 @@
+schema_version: 1
+module_path: protocol_transport
+title: 传输适配器集合（GraphQL / MCP / TCP / Subscribe）
+scope:
+    - transport/graphql/
+    - transport/tcp/
+    - transport/mcp/
+    - transport/subscribe/
+source_files: []
+depends_on: []
+related_to:
+    - path: cli_tool_cobramcp
+      reason: cobramcp 通过根模块 transport/mcp 子包启动 MCP Server（stdio/SSE/StreamableHTTP），将 Cobra 命令注册为 MCP Tool。
+    - path: example_app
+      reason: 示例应用使用 transport/mcp 实现暴露 MCP Server（stdio/SSE），并通过 transport/web/gin 提供 HTTP API 与 gRPC gateway。
+kk_module_id: 23f0d746-d622-4a2d-a7ec-9b0b8f93d08b
+kk_ordinal: 9
+kk_cards:
+    architecture_design:
+        id: 0740fee3-4c14-4f82-b979-79ad59b59242
+        title: 传输适配器集合（GraphQL / MCP / TCP / Subscribe）
+    coding_conventions:
+        id: e92f8d2c-be1d-4acc-a067-4a955f8c02ed
+        title: 传输适配器集合（GraphQL / MCP / TCP / Subscribe）
+    overview:
+        id: 241956d8-5f29-4ca4-86ed-ddb14e11114e
+        title: 传输适配器集合（GraphQL / MCP / TCP / Subscribe）
+    tech_stack:
+        id: 8ca2faaa-fbd6-48fe-94a4-bf0ce29df916
+        title: 传输适配器集合（GraphQL / MCP / TCP / Subscribe）

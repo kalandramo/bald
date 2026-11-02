@@ -1,0 +1,27 @@
+schema_version: 1
+module_path: contrib_database
+title: 数据库后端适配（GORM / MongoDB）
+scope:
+    - contrib/database/gorm/
+    - contrib/database/mongodb/
+source_files: []
+depends_on: []
+related_to: []
+similar_to:
+    - path: contrib_store_impls
+      reason: 两者均对 GORM/MongoDB 做适配，但前者实现 pkg/store.DBProvider[T] 泛型存储接口，后者实现 bootstrapv1.Database 装配契约并暴露 bald-crud 客户端直连封装。
+kk_module_id: 60678a50-e672-48a9-8e29-e45634d762ac
+kk_ordinal: 21
+kk_cards:
+    architecture_design:
+        id: 47eb0a20-abf5-44c3-b63f-a7dbc542b67e
+        title: 数据库后端适配（GORM / MongoDB）
+    coding_conventions:
+        id: 127260a2-abf4-4ee0-9bfa-b9ab886a734b
+        title: 数据库后端适配（GORM / MongoDB）
+    overview:
+        id: c3ca15f0-65bd-4bce-b50d-6713fe669ac3
+        title: 数据库后端适配（GORM / MongoDB）
+    tech_stack:
+        id: c5141f63-469c-4347-8076-97ea80f380e4
+        title: 数据库后端适配（GORM / MongoDB）

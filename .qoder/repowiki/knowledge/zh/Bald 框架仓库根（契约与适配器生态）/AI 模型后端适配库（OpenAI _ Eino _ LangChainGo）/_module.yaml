@@ -1,0 +1,28 @@
+schema_version: 1
+module_path: ai_libraries
+title: AI 模型后端适配库（OpenAI / Eino / LangChainGo）
+scope:
+    - ai/openai/
+    - ai/eino/
+    - ai/langchaingo/
+source_files: []
+depends_on: []
+related_to: []
+kk_module_id: fdc057a2-02e4-4cfb-a9a7-9d714e3d6e9e
+kk_ordinal: 19
+kk_cards:
+    architecture_design:
+        id: eeac029d-d93f-48c3-98dd-5577842806fe
+        title: AI 模型后端适配库（OpenAI / Eino / LangChainGo）
+    coding_conventions:
+        id: e8e5bd76-fc9b-44cb-b57d-8a9fdb4f4c8a
+        title: AI 模型后端适配库（OpenAI / Eino / LangChainGo）
+    overview:
+        id: fa7a863e-7993-4b9e-b917-58d4903f4f05
+        title: AI 模型后端适配库（OpenAI / Eino / LangChainGo）
+    tech_stack:
+        id: 24253644-fdf5-4ef5-9b64-f58f703c9550
+        title: AI 模型后端适配库（OpenAI / Eino / LangChainGo）
+    unique_setup_and_commands:
+        id: b166f857-fe24-4470-8640-3d469fdae6af
+        title: AI 模型后端适配库（OpenAI / Eino / LangChainGo）

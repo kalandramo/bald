@@ -1,0 +1,26 @@
+schema_version: 1
+module_path: example_app
+title: bald 框架示例应用（双角色 greet 域）
+scope:
+    - _example/bald/
+source_files: []
+depends_on: []
+related_to: []
+kk_module_id: d1c9755c-c734-4f29-a43c-e56a328c86f4
+kk_ordinal: 27
+kk_cards:
+    architecture_design:
+        id: 08cbb7e9-7521-4822-965f-f9a13e0a6e17
+        title: bald 框架示例应用（双角色 greet 域）
+    coding_conventions:
+        id: 911c21af-62dc-4240-a117-b65a103a9910
+        title: bald 框架示例应用（双角色 greet 域）
+    overview:
+        id: 94206408-32d0-4eca-b445-7fae9e719fc4
+        title: bald 框架示例应用（双角色 greet 域）
+    tech_stack:
+        id: f3c6884b-5f12-41d8-84de-10ad055000f2
+        title: bald 框架示例应用（双角色 greet 域）
+    unique_setup_and_commands:
+        id: 4b1c3092-9d57-4425-bf79-88fd9792d4cb
+        title: bald 框架示例应用（双角色 greet 域）

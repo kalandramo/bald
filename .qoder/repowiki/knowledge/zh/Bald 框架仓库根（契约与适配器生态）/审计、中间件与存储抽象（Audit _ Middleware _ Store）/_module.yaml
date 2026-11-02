@@ -1,0 +1,29 @@
+schema_version: 1
+module_path: pkg_utilities
+title: 审计、中间件与存储抽象（Audit / Middleware / Store）
+scope:
+    - pkg/audit/
+    - pkg/middleware/
+    - pkg/store/
+source_files: []
+depends_on: []
+related_to:
+    - path: log_backends
+      reason: pkg/middleware/logging 中间件消费根模块 log.Logger 契约，log_backends 将 SLS/Charm/Loki/Sentry/CLS SDK 适配为该契约。
+    - path: contrib_extensions
+      reason: pkg/middleware/authn/authz 中间件消费根模块 authn/authz 契约，contrib/authn-jwt 与 contrib/authz-casbin 提供 JWT/Casbin RBAC 实现。
+kk_module_id: a9c75c63-126a-43dd-9e62-d0a1849cdd2c
+kk_ordinal: 2
+kk_cards:
+    architecture_design:
+        id: 1c463294-4850-4ec5-b55a-2a2e2bed1547
+        title: 审计、中间件与存储抽象（Audit / Middleware / Store）
+    coding_conventions:
+        id: e9d95dad-dbf2-421b-8ddc-02b2de4cda47
+        title: 审计、中间件与存储抽象（Audit / Middleware / Store）
+    overview:
+        id: 367abd4f-1809-4f32-906e-3b43e0e25e2b
+        title: 审计、中间件与存储抽象（Audit / Middleware / Store）
+    tech_stack:
+        id: c309311a-9b98-4f6d-a64c-5be58614fbe7
+        title: 审计、中间件与存储抽象（Audit / Middleware / Store）

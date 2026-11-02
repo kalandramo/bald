@@ -1,0 +1,24 @@
+schema_version: 1
+module_path: cli_tool_cobramcp/cfgmgr_cli/vscode_adapter
+title: VSCode MCP 服务器配置 CLI 与适配器
+scope:
+    - cobramcp/internal/cfgmgr/cmd/vscode/
+    - cobramcp/internal/cfgmgr/manager/vscode/
+source_files: []
+depends_on: []
+related_to: []
+kk_module_id: c779ff1e-ce29-4650-9df8-4b44a7c7b6ca
+kk_ordinal: 1
+kk_cards:
+    architecture_design:
+        id: ae6e6e30-0898-484d-8014-6f404218af50
+        title: VSCode MCP 服务器配置 CLI 与适配器
+    coding_conventions:
+        id: 61bf4e3c-ad3d-479f-94ca-91886a258a8f
+        title: VSCode MCP 服务器配置 CLI 与适配器
+    overview:
+        id: 4f8021ef-eb1d-4555-9358-b8daa128c416
+        title: VSCode MCP 服务器配置 CLI 与适配器
+    tech_stack:
+        id: 67798baf-7dc3-4137-95d1-841b21a1df0d
+        title: VSCode MCP 服务器配置 CLI 与适配器

@@ -1,0 +1,29 @@
+schema_version: 1
+module_path: encoding_formats
+title: 编码格式适配器（JSON/YAML/TOML/XML）
+scope:
+    - encoding/json/
+    - encoding/yaml/
+    - encoding/toml/
+    - encoding/xml/
+source_files: []
+depends_on: []
+related_to: []
+version_of:
+    - path: binary_encoding
+      reason: 两者均实现根模块 encoding.Codec 契约，但前者面向 JSON/YAML/TOML/XML 文本格式，后者面向 protobuf/Avro/BSON/CBOR 等二进制序列化。
+kk_module_id: 703e590e-33ed-4b42-b346-5c45f69240b2
+kk_ordinal: 15
+kk_cards:
+    architecture_design:
+        id: 3e957926-04c8-4a6a-8e6c-5a20efb862eb
+        title: 编码格式适配器（JSON/YAML/TOML/XML）
+    coding_conventions:
+        id: 7c0ab00f-521b-421e-b4bd-5d66c286cf23
+        title: 编码格式适配器（JSON/YAML/TOML/XML）
+    overview:
+        id: 3171d8bd-9d88-400e-8595-ca7d0491be53
+        title: 编码格式适配器（JSON/YAML/TOML/XML）
+    tech_stack:
+        id: 5387e0a5-1bd4-40ea-9764-a26b42ee117d
+        title: 编码格式适配器（JSON/YAML/TOML/XML）

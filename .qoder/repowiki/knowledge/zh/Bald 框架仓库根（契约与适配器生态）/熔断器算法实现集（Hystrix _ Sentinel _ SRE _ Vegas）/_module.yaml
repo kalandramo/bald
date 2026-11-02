@@ -1,0 +1,26 @@
+schema_version: 1
+module_path: circuit_breaker
+title: 熔断器算法实现集（Hystrix / Sentinel / SRE / Vegas）
+scope:
+    - circuitbreaker/hystrix/
+    - circuitbreaker/sentinel/
+    - circuitbreaker/sres/
+    - circuitbreaker/vegas/
+source_files: []
+depends_on: []
+related_to: []
+kk_module_id: 850ab28e-be42-4afb-b490-24a52cceb4a7
+kk_ordinal: 17
+kk_cards:
+    architecture_design:
+        id: 55611d46-a39c-40fa-8a40-3ee0b1166fd1
+        title: 熔断器算法实现集（Hystrix / Sentinel / SRE / Vegas）
+    coding_conventions:
+        id: 52c3c734-1079-4e18-a3e4-41c32a09f2e3
+        title: 熔断器算法实现集（Hystrix / Sentinel / SRE / Vegas）
+    overview:
+        id: 612d2325-07df-4194-8028-9917d43ab7c1
+        title: 熔断器算法实现集（Hystrix / Sentinel / SRE / Vegas）
+    tech_stack:
+        id: 3d9acc13-a25a-4e32-bed9-cc025bda0ef2
+        title: 熔断器算法实现集（Hystrix / Sentinel / SRE / Vegas）

@@ -1,0 +1,26 @@
+schema_version: 1
+module_path: cli_tool_cobramcp/examples
+title: cobra MCP 集成示例集
+scope:
+    - cobramcp/examples/
+source_files: []
+depends_on: []
+related_to: []
+kk_module_id: 87f62fa7-b1df-487f-974c-75bd26c4d480
+kk_ordinal: 7
+kk_cards:
+    architecture_design:
+        id: 615ad138-a885-4d6a-af9c-8fb6d290aac8
+        title: cobra MCP 集成示例集
+    coding_conventions:
+        id: fc17d9a0-9877-409d-bcc7-79764dcf253c
+        title: cobra MCP 集成示例集
+    overview:
+        id: 255e211c-6d0b-409c-a848-ba04e3472148
+        title: cobra MCP 集成示例集
+    tech_stack:
+        id: d05afc01-2fb5-44ca-8f89-ad381d81cf5c
+        title: cobra MCP 集成示例集
+    unique_setup_and_commands:
+        id: 2fed41ec-7763-451c-b6be-91c690906ed4
+        title: cobra MCP 集成示例集

@@ -1,0 +1,23 @@
+schema_version: 1
+module_path: cli_tool_cobramcp/cfgmgr_cli
+title: MCP 服务器配置 CLI（Cursor/VSCode 双适配器）
+scope:
+    - cobramcp/internal/cfgmgr/
+source_files: []
+depends_on: []
+related_to: []
+kk_module_id: 0fd8086e-64d4-4e90-b8ac-62483ccafbe4
+kk_ordinal: 6
+kk_cards:
+    architecture_design:
+        id: f999faa7-dea3-402c-8a4b-a75227a68f31
+        title: MCP 服务器配置 CLI（Cursor/VSCode 双适配器）
+    coding_conventions:
+        id: 94f48889-7811-47be-b16b-b80472d4806c
+        title: MCP 服务器配置 CLI（Cursor/VSCode 双适配器）
+    overview:
+        id: da4d6e81-d5e7-4233-a9de-4b430dd310bf
+        title: MCP 服务器配置 CLI（Cursor/VSCode 双适配器）
+    tech_stack:
+        id: 649e6bb0-4190-4eaf-bd3f-938bcd8d5569
+        title: MCP 服务器配置 CLI（Cursor/VSCode 双适配器）
