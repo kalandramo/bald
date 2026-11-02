@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"sync"
 
 	"github.com/99designs/gqlgen/graphql"
 	"github.com/99designs/gqlgen/graphql/handler"
@@ -48,13 +49,20 @@ var _ transport.Server = (*Server)(nil)
 type Middleware = func(http.Handler) http.Handler
 
 // Server 是基于 gqlgen 的 GraphQL 服务器，实现 transport.Server 接口。
+// addr / tlsConfig / mux / middlewares 只在 Start 之前写（Use 与 Handle 的
+// 前置约定），listener 与 server 是运行期状态，由 mu 保护。
 type Server struct {
 	addr        string
 	tlsConfig   *tls.Config
-	listener    net.Listener
 	mux         *http.ServeMux
-	server      *http.Server
 	middlewares []Middleware
+
+	// mu 保护 listener 与 server：Start 在调用方 goroutine 里写入，
+	// Stop / Endpoint 由装配面在另一个 goroutine 读取（停机与端点等待
+	// 都会并发命中）。
+	mu       sync.RWMutex
+	listener net.Listener
+	server   *http.Server
 }
 
 // NewServer 创建一个 GraphQL 服务器实例。
@@ -95,7 +103,6 @@ func (s *Server) Start(ctx context.Context) error {
 	if s.tlsConfig != nil {
 		ln = tls.NewListener(ln, s.tlsConfig)
 	}
-	s.listener = ln
 
 	// 应用中间件链
 	h := http.Handler(s.mux)
@@ -103,14 +110,19 @@ func (s *Server) Start(ctx context.Context) error {
 		h = s.middlewares[i](h)
 	}
 
-	s.server = &http.Server{Handler: h}
-	s.server.BaseContext = func(net.Listener) context.Context { return ctx }
+	hs := &http.Server{Handler: h}
+	hs.BaseContext = func(net.Listener) context.Context { return ctx }
+
+	s.mu.Lock()
+	s.listener = ln
+	s.server = hs
+	s.mu.Unlock()
 
 	fmt.Printf("[%s] server listening on: %s\n", KindGraphQL, ln.Addr().String())
 
 	errChan := make(chan error, 1)
 	go func() {
-		if err := s.server.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := hs.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errChan <- err
 			return
 		}
@@ -121,16 +133,19 @@ func (s *Server) Start(ctx context.Context) error {
 	case err := <-errChan:
 		return err
 	case <-ctx.Done():
-		return s.server.Shutdown(context.Background())
+		return hs.Shutdown(context.Background())
 	}
 }
 
 // Stop 优雅关闭服务器。
 func (s *Server) Stop(ctx context.Context) error {
-	if s.server == nil {
+	s.mu.RLock()
+	hs := s.server
+	s.mu.RUnlock()
+	if hs == nil {
 		return nil
 	}
-	return s.server.Shutdown(ctx)
+	return hs.Shutdown(ctx)
 }
 
 // Endpoint 返回服务器的访问地址。
@@ -140,8 +155,11 @@ func (s *Server) Endpoint() string {
 		scheme = "https"
 	}
 	addr := s.addr
-	if s.listener != nil {
-		addr = s.listener.Addr().String()
+	s.mu.RLock()
+	ln := s.listener
+	s.mu.RUnlock()
+	if ln != nil {
+		addr = ln.Addr().String()
 	}
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil || port == "" {

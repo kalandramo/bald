@@ -55,6 +55,21 @@ func TestServer_Endpoint_NormalizeWildcard(t *testing.T) {
 // Start + Stop lifecycle
 // ---------------------------------------------------------------------------
 
+// waitEndpoint 轮询 Endpoint() 直到 Start() 把监听地址发布出来。
+// 配 ":0" 时 Start 之前 Endpoint() 以 ":0" 结尾，拿到真实端口即就绪。
+// 取代旧的「固定 sleep + 直接读 s.listener」：后者与 Start 的写入构成数据竞争。
+func waitEndpoint(t *testing.T, s *Server) string {
+	t.Helper()
+	for i := 0; i < 500; i++ {
+		if ep := s.Endpoint(); !strings.HasSuffix(ep, ":0") {
+			return ep
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("Start() did not publish a listener within 5s")
+	return ""
+}
+
 func TestServer_StartStop(t *testing.T) {
 	srv := NewServer("127.0.0.1:0")
 
@@ -71,15 +86,9 @@ func TestServer_StartStop(t *testing.T) {
 		errCh <- srv.Start(ctx)
 	}()
 
-	time.Sleep(100 * time.Millisecond)
+	ep := waitEndpoint(t, srv)
 
-	if srv.listener == nil {
-		t.Fatal("expected listener to be set after Start")
-	}
-
-	addr := srv.listener.Addr().String()
-
-	resp, err := http.Get("http://" + addr + "/health")
+	resp, err := http.Get(ep + "/health")
 	if err != nil {
 		t.Fatalf("HTTP GET failed: %v", err)
 	}
@@ -104,11 +113,16 @@ func TestServer_StartStop(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestServer_Middleware(t *testing.T) {
-	var headerSeen string
+	// 中间件在服务端 goroutine 里观察请求头，须经 channel 交给测试
+	// goroutine；裸共享变量的读写本身就是一次数据竞争。
+	headerCh := make(chan string, 1)
 
 	mw := func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			headerSeen = r.Header.Get("X-Test")
+			select {
+			case headerCh <- r.Header.Get("X-Test"):
+			default:
+			}
 			next.ServeHTTP(w, r)
 		})
 	}
@@ -122,16 +136,22 @@ func TestServer_Middleware(t *testing.T) {
 	defer cancel()
 
 	go srv.Start(ctx)
-	time.Sleep(100 * time.Millisecond)
 
-	addr := srv.listener.Addr().String()
-	req, _ := http.NewRequest("GET", "http://"+addr+"/test", nil)
+	ep := waitEndpoint(t, srv)
+	req, _ := http.NewRequest("GET", ep+"/test", nil)
 	req.Header.Set("X-Test", "middleware-works")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
 	defer resp.Body.Close()
+
+	var headerSeen string
+	select {
+	case headerSeen = <-headerCh:
+	case <-time.After(5 * time.Second):
+		t.Fatal("middleware was never invoked")
+	}
 
 	if headerSeen != "middleware-works" {
 		t.Errorf("middleware did not see header, got %q", headerSeen)
@@ -161,10 +181,9 @@ func TestServer_Use(t *testing.T) {
 	defer cancel()
 
 	go srv.Start(ctx)
-	time.Sleep(100 * time.Millisecond)
 
-	addr := srv.listener.Addr().String()
-	resp, err := http.Get("http://" + addr + "/check")
+	ep := waitEndpoint(t, srv)
+	resp, err := http.Get(ep + "/check")
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
