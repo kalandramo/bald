@@ -226,6 +226,18 @@ func TestConcurrentExecute(t *testing.T) {
 	b := New()
 	defer b.Close()
 
+	// 先灌满窗口：accept = requests/(requests+1) 里的 requests 是**已 MarkSuccess
+	// 的条数**，不 prime 的话早期每一次 Allow 都落在 requests=0..3 上，单次拒绝率
+	// 高达 1/2，放行数就变成 Allow 与 Mark 交错次序的函数——实测本机 -count=400
+	// 最低放行 87（旧断言「≥90」红 15 次＝3.75%），CI 也因它红过一次
+	// （run 41388597082 的 test 作业）。prime 之后单次拒绝率上界恰为 1/1001，且
+	// MarkSuccess 只会压低它、窗口轮转清空计数只会把 accept 抬回 1，所以「≥90」
+	// 成了一个有界的断言：100 次里要 ≥11 次拒绝才红，按 p=1/1001 的二项尾概率
+	// 约 1.3e-19。本机 -count=1000 实测放行分布 98..100（最低 98）。
+	for i := 0; i < 1000; i++ {
+		b.MarkSuccess()
+	}
+
 	ctx := context.Background()
 	errs := make(chan error, 100)
 	for i := 0; i < 100; i++ {
@@ -235,12 +247,85 @@ func TestConcurrentExecute(t *testing.T) {
 	}
 	var allowed int
 	for i := 0; i < 100; i++ {
-		if err := <-errs; err == nil {
+		err := <-errs
+		switch {
+		case err == nil:
+			allowed++
+		case errors.Is(err, circuitbreaker.ErrCircuitOpen):
+			// 概率性拒绝是 SRE 的既定行为
+		default:
+			t.Errorf("concurrent Execute() 返回非预期错误：%v", err)
+		}
+	}
+	t.Logf("并发放行 = %d/100", allowed)
+	if allowed < 90 {
+		t.Errorf("健康窗口并发 Execute 放行 = %d/100, want >= 90（单次拒绝率应 ≤ 1/1001）", allowed)
+	}
+}
+
+// TestConcurrentExecuteRejectedErrorKind 在「必然被拒」的状态下并发跑，钉住错
+// 型：K=2 时全失败使 accept=(requests-2*errors)/(requests+1)<0，每个 Execute 都
+// 必须以 ErrCircuitOpen 失败。这条不能挂在 TestConcurrentExecute 上——prime 后
+// 拒绝率 ≤1/1001，100 个 goroutine 大概率一次都不被拒（变异「拒绝改返回别的错误」
+// 实测能溜过去）。
+func TestConcurrentExecuteRejectedErrorKind(t *testing.T) {
+	b := New()
+	defer b.Close()
+
+	for i := 0; i < 10; i++ {
+		b.MarkFailure()
+	}
+	if s := b.State(); s != circuitbreaker.StateOpen {
+		t.Fatalf("灌满失败后 State() = %v，期望 Open（accept<=0）", s)
+	}
+
+	ctx := context.Background()
+	errs := make(chan error, 100)
+	for i := 0; i < 100; i++ {
+		go func() {
+			errs <- b.Execute(ctx, func() error { return nil })
+		}()
+	}
+	for i := 0; i < 100; i++ {
+		if err := <-errs; !errors.Is(err, circuitbreaker.ErrCircuitOpen) {
+			t.Fatalf("并发 Execute 在 accept=0 的窗口返回 %v，want ErrCircuitOpen", err)
+		}
+	}
+}
+
+// TestHealthyWindowAcceptanceNearOne 把「健康窗口几乎全放行」变成可断言的性
+// 质。先灌满 prime 条成功：此时单次拒绝概率恰为 1/(prime+1)，而 Allow 不往窗口
+// 里计数（prime 不会掉），所以 calls 次调用是独立的 Bernoulli(1/1001)，拒绝数
+// R≈Poisson(λ=2000/1001≈2.0)。
+// 阈值出处：minPass=1985 即容忍 R≤15，按该分布 P(R≥16)≈4.7e-10。本机
+// -count=1000 实测 R 落在 0..7、均值 2.06（分布 164/274/265/166/82/36/7/6），
+// 与 λ=2 的 Poisson 吻合；最低放行 1993，样本外余量 8。这条仍然有牙：把公式
+// 分母的 +1 改成 +100（单次拒绝率升到 1/11）实测放行 1816/2000，红。
+func TestHealthyWindowAcceptanceNearOne(t *testing.T) {
+	const (
+		prime   = 1000
+		calls   = 2000
+		minPass = 1985
+	)
+	b := New()
+	defer b.Close()
+
+	for i := 0; i < prime; i++ {
+		b.MarkSuccess()
+	}
+	// SRE 的 accept 对 requests>0 恒 <1，故灌满后必然是 HalfOpen。
+	if s := b.State(); s != circuitbreaker.StateHalfOpen {
+		t.Fatalf("prime 后 State() = %v，期望 HalfOpen", s)
+	}
+
+	var allowed int
+	for i := 0; i < calls; i++ {
+		if b.Allow() == nil {
 			allowed++
 		}
 	}
-	// SRE 的 accept 恒 < 1，并发下必有少量拒绝；全成功场景放行率应 ≥90%。
-	if allowed < 90 {
-		t.Errorf("concurrent Execute() allowed = %d/100, want >= 90", allowed)
+	t.Logf("放行 = %d/%d（阈值 %d）", allowed, calls, minPass)
+	if allowed < minPass {
+		t.Errorf("健康窗口放行 = %d/%d，want >= %d（单次拒绝率应为 1/%d）", allowed, calls, minPass, prime+1)
 	}
 }

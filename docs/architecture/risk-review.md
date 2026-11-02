@@ -14,6 +14,7 @@
 | 6.1 | 鉴权 **fail-open**：未注入即整层消失，无 default-deny、无告警 | **高** | ✅ 已核对源码 | **已修** |
 | 2 | **发布面 ≫ 使用面**：retry / circuitbreaker 等无消费方 | 中 | ✅ 全仓 grep | **部分收口**（Discovery 接线半已落地＝§2「选项 1」的 Discovery 分支；retry/circuitbreaker 仍 reference-only；移出发布批次未做） |
 | 7.1 | **CI 全量只跑 `-short`**，集成测试在 CI 中从不执行 | 中 | ✅ 已核对 `.github/workflows/ci.yml` | **已修（registry/store/队列三条接缝）**：新增 `integration` 作业注入 etcd/redis/mongo，探活 + 逐条断言判据真的 PASS；作业文件自身另开 `workflow-lint` 作业（actionlint）把关，见 §7.1 收口；示例侧（etcd/nacos 服务发现）仍只在本地跑 |
+| 7.4 | **统计量当不变量断言**：`circuitbreaker/sres` 并发用例钉「放行 ≥90/100」，而该值取决于 Allow 与 Mark 的交错 | 中 | ✅ 本机 `-count=400` 实测 + CI 红过一次（run 41388597082） | **已修**：先灌满窗口使单次拒绝率有上界 1/1001，「≥90」因此成为可证的界；另补 accept=0 状态下的并发错型用例，见 §7.4 |
 | 1.1 | race 作业是两处手工清单，webrtc/kafka 均缺失 | 中 | ✅ 已核对 `.github/workflows/ci.yml` / `Taskfile.yml` | **已修**（改成 find 派生 + 单份排除清单；扩范围实测揪出并修掉 graphql 自身的竞争） |
 | 1.3 | kafka / rabbitmq 适配器 **零测试文件** | 中 | ✅ 实测计数 | **已修**（两个适配器各有一份测试，15 / 7 个测试；补测试当场揪出 4 个生产缺陷；订阅者摘除口径已定并由测试钉住） |
 | 1.2 | 本地 `task verify` 手写清单，静默跳过约 40 模块 | 低-中 | ✅ 已核对 `Taskfile.yml` | **已修**（CI 与本地共用 `scripts/list-modules.sh` 单条派生；全量 92 模块实测 exit=0） |
@@ -376,11 +377,21 @@ B、C 是同一套机制的两份实现（命令式能力声明 vs 段驱动 Pro
 - 验活：三个步骤从 YAML 里导出后用 bash 原样执行过（GitHub 默认 shell 同为 bash），正向三件套全绿（`READY etcd/redis/mongo` → 套件 ok → 五条判据逐条 PASS）；反向两条如上。三处描述「CI 无 etcd / 无 mongod」的过期注释（`registry/etcd/registry_test.go`、`registry/etcd/contract/contract_test.go`、`contrib/store-mongo/testutil.go`）改成指向 `integration` 作业。**原话里「YAML 由解析器加载通过」这条判据已被证明无效**（Psych 接受而 GitHub 拒绝，见上），取而代之的是 actionlint 的 schema 校验：`task ci-workflow-lint` 与容器内 `actionlint + shellcheck` 双双 exit 0。
 - 验活（新闸门自身的变异）：① 把 `args:` 加回 `services.etcd` → `unexpected key "args" for "services" section. expected one of "credentials", "env", "image", "options", "ports", "volumes"`，exit 1；② 新写的 `workflow-lint.yml` 自身两处错误被同一类闸门当场拦下——`run: "$(go env GOPATH)/bin/actionlint" -no-color` 是 YAML 解析错（引号标量后还有内容），改成整体单引号后又报 SC2046（命令替换未加引号），最终形态 `"$(go env GOPATH)/bin/actionlint" -no-color` 才干净；③ 探活循环里未使用的 `i` 触发 SC2034 → 改为 `local ... tries=60` 的 while 计数；④ `find` 派生为空时任务打出「未发现作业文件，闸门未覆盖任何东西」并 exit 1（与 lint/vuln/race 同一防静默失效口径）。
 - 刻意没做：① **`_example/bald` 不进 CI**——那里的服务发现端到端（etcd + nacos）只在本地跑，因为 `_example/bald/go.mod` 把两个 kratos contrib 模块 `replace` 到**仓库外**的同级检出（`../../kratos/contrib/{config,registry}/nacos`），干净检出装载不出模块图；要在 CI 跑示例得先给它们找到已发布版本，属另一件事。② 没有 `task integration` 本地入口——命令以 `integration` 作业与 README 为准，再加一份清单就是再造一条会漂移的真相。③ 不覆盖 consul / kubernetes / nacos 后端（`bconfig/kubernetes` 需要真集群，用 `BALD_KUBE_INTEGRATION` 显式开关，保持现状）。④ Kafka/RabbitMQ 的 broker 接缝没有可在 CI 里跑的集成用例（仓内那批是等信号手动用例，`broker/kafka` 的测试不需要真 Kafka）——§7.1 原话里「broker 一条」由 `transport/asynq`（Redis 队列）代。⑤ 未加覆盖率闸门（§7.2 另议）。
-- 还不能证明：**GitHub Actions 上的实际作业结果**——`services:` 的镜像可用性、bridge 网络下 etcd 的端口映射、runner 的 Go 1.27.3 与本地 1.27.1 的差异、`workflow-lint` 作业的触发路径过滤，都只能在推送后以流水线为准。本地验证覆盖的是命令语义、判据逻辑与作业文件的 schema/shellcheck，不含 GitHub 的运行环境。另：Windows 周界作业用的 `go-version: 1.27.1` 与主 ci.yml 的 `1.27.3` 不一致，属既有状态，本轮未动。
+- 已证（GitHub 实测，不再是「以流水线为准」的悬置项）：推送 `cab08e3` 后 `ci` run 41413712267 **五个作业全部 completed/success**（`test`、`integration`、`lint`、`vuln`、`race`）；`workflow-lint` 是另一条流水线，同样 success。`integration` 作业第一次在 GitHub 上真实执行：三个 `services:` 镜像可拉起、bridge 网络下 etcd 端口映射生效、runner 的 Go 1.27.3 与本地 1.27.1 无差异、`workflow-lint` 的 `paths:` 过滤按预期触发。
+- 未验证（仍悬置）：Windows 周界作业（`windows.yml` 每周一/手动 dispatch）不覆盖这三个后端服务，也没有 `integration` 对偶；它用的 `go-version: 1.27.1` 与主 ci.yml 的 `1.27.3` 不一致，属既有状态，本轮未动。
 
 **7.2 无覆盖率闸门** ✅ 所有 workflow grep `coverage|codecov` → 无匹配。根 module 有 365 个测试文件（绝对量可观），但没有任何比例约束，零测试模块不会因此暴露——§1.3 那两个适配器是评审时数测试文件点数出来的，不是闸门响出来的。
 
 **7.3 已具备的成熟度**（避免只报负面）：`-timeout 5m/10m`、codegen 树的端到端用例拆成独立步骤单独给 15m 预算（`test` 作业的 `TestTree_*` step）、依赖下载 retry×3、golangci-lint/govulncheck 版本 pin（`install *` 两步）、基准冒烟编译每模块跑（均在 `.github/workflows/ci.yml`，行号随作业增删漂移，故按 step 名指）。核心包（`pkg/appkit`、`bconf`、`bconfig`、`transport/http`、`pkg/middleware`）非测试代码里 **TODO/FIXME/HACK = 0 命中**——干净到更像是「债务存在但没标记」，而非没有债务。
+
+**7.4 统计量被当不变量断言（中）** ✅ 发现路径不在评审时，而在推送后：`test` 作业红过一次（run 41388597082：`circuitbreaker/sres` 的 `TestConcurrentExecute` 报 `allowed = 89/100, want >= 90`）。这类问题只有跑够次数才暴露，静态评审看不出来。
+
+- 根因不是「阈值定得太严」：`Allow` 里 `accept = requests/(requests+1)`，`requests` 是**已 MarkSuccess 的条数**。100 个 goroutine 并发时，第 k 次 `Allow` 看到的 `requests` 取决于 Allow 与 Mark 的交错，落在 `requests=1` 那一档时单次拒绝率是 1/2——放行数本来就是调度次序的函数，`≥90` 只是大概率成立。本机实测 `go test -count=400` 红 15 次（**3.75%**），最低放行 87；与 CI 观察（约 8 次运行红 1 次）同量级。
+- 修法（**阈值 `≥90` 一字未动**，改的是前置状态）：并发 burst 之前先 `MarkSuccess` 1000 条灌满窗口。此后单次拒绝率上界恰为 `1/1001`，而且两个方向只会更松——`MarkSuccess` 让 `requests` 只增（accept 上移），窗口轮转把计数清零后走 `requests==0 → accept=1` 的早退分支。于是「100 次里拒绝 ≥11 次」的概率按 `p=1/1001` 的二项尾算得 `1.3e-19`，`≥90` 第一次成为**可证的界**。
+- 顺带补上一条真空：拒绝分支的**错型**在并发面根本没被跑到——prime 后 100 个 goroutine 大概率一次都不被拒（变异「拒绝改返回别的错误」实测溜过了整条用例）。新增 `TestConcurrentExecuteRejectedErrorKind`：把窗口灌成 `accept<=0` 的全失败状态，100 个并发 `Execute` 必须全部以 `ErrCircuitOpen` 失败，这条是确定性的。
+- 验活（正向）：三条用例 `-count=1000` 全跑 **0 失败**；并发放行实测分布 98..100（阈值 90，最低 98）。新用例 `TestHealthyWindowAcceptanceNearOne` 的阈值出处写在注释里：拒绝数 ≈ Poisson(λ=2000/1001≈2.0)，`minPass=1985`（容忍 ≤15 次拒绝）对应 `P(R≥16)≈4.7e-10`；同批 1000 次实测 R 落在 0..7、均值 2.06，最低放行 1993（样本外余量 8），分布形状与 λ=2 吻合——这条界是算出来再被实测确认的，不是拍脑袋放宽的。`-race -count=100` 三条全绿。
+- 验活（变异，四条）：① 拒绝分支恒拒绝 → 并发用例红 `放行 = 0/100`、窗口用例红 `0/2000`；② 拒绝率升约两个数量级（公式分母 `+1` 改 `+100`：prime 后单次拒绝率 `1/1001 → 1/11`）→ 并发用例红 `87/100`、窗口用例红 `1816/2000`；③ 拒绝改返回别的错误 → 新增错型用例红 `want ErrCircuitOpen`；④ 忽略 `closed` 标志 → 既有 `TestClose_RejectsAfterClose` 红（对照组，说明既有覆盖没被这次改动削弱）。
+- 刻意没做：① 不给 breaker 加可注入随机源——那能让比例断言完全确定，但属生产 API 变更，与「修一条假红」不成比例；② 不放宽阈值来消红；③ 同类写法已 `grep` 核对：非测试代码里用随机源的只有 `circuitbreaker/sres`、`retry`、`registry/consul`、`broker/kafka`（后者退避抖动已由 `fixedRand` 注入变成确定断言），`retry` 与 `registry/consul` 的测试里没有比例阈值断言（实测 grep 为空）。
 
 ---
 
@@ -425,4 +436,5 @@ B、C 是同一套机制的两份实现（命令式能力声明 vs 段驱动 Pro
 10. **限流链序**（§6.3）✅ 口径已定：保持「认证之后」，落文档；改默认会把按 subject 的配额静默变成全局配额。顺带修掉设计文档里写反的链序。
 11. **文档漂移闸门**（§8）✅ 清单半：`module-list` 围栏 + 双向断言 + 与脚本逐行比对（三条变异实测）。「描述已删除 API」半仍未覆盖。
 12. **依赖卫生只读报告**（§3.2）✅：`scripts/multi-major.sh` + `task deps-multi-major`，再用 `go list -deps` 把「是否真同链」从推测改成证据；不加 exclude/replace。
-13. **CI 集成作业**（§7.1）与 **覆盖率闸门**（§7.2）——未做，见各节。
+13. **CI 集成作业**（§7.1）✅：`integration` 作业注入 etcd/redis/mongo 跑三条接缝的非 `-short` 套件，并以「判据必须出现 `--- PASS`」兜住不可达即 Skip 的静默失效；作业文件自身的 schema 闸门另开 `workflow-lint`。GitHub 实测五个作业全绿。
+14. **覆盖率闸门**（§7.2）——未做。**统计量断言的复查**（§7.4）✅：`sres` 并发用例的假红已按「灌满窗口」修掉，阈值一字未动；同类写法已 grep 核过其余四个用随机源的包。
