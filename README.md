@@ -65,9 +65,29 @@ bald/
 
 多 module 仓库：在每个 `go.mod` 所在目录内 `go test ./...`。
 
-质量门禁：`task lint` / `task vuln` / `task race` 与 CI 共用同一条模块派生（`scripts/list-modules.sh`），新增 module 不用顺手改清单；每个 module 跑 `golangci-lint`（根 `.golangci.yml`）与 `govulncheck`（只拦代码可达漏洞）。
+质量门禁：`task lint` / `task vuln` / `task race` 与 CI 共用同一条模块派生（`scripts/list-modules.sh`），新增 module 不用顺手改清单；每个 module 跑 `golangci-lint`（根 `.golangci.yml`）与 `govulncheck`（只拦代码可达漏洞）。主循环跑 `go test -short`，**非 `-short` 的集成用例由 CI 的 `integration` 作业注入真 etcd/redis/mongo 跑**（registry / store / 队列三条接缝），并先探活、后逐条断言判据真的 `--- PASS`——服务没起来是作业失败，不是二十几条 Skip。
 
-**未接线能力（reference-only）**：`retry`、`circuitbreaker` 的 4 个后端、`registry.Discovery`（会注册、不会解析）、`transport/graphql`、`workflow/argo`、`ai/*`、`oss/{s3,minio}` 在仓内没有消费方。它们照常随仓库发布、按 reference-only 保留——不删除，也不在文档里假装已接线。清单与可复现判据见[当前架构 §6](docs/architecture/current-architecture.md)。
+**未接线能力（reference-only）**：`retry`、`circuitbreaker` 的 4 个后端、`transport/graphql`、`workflow/argo`、`ai/*`、`oss/{s3,minio}` 在仓内没有消费方。它们照常随仓库发布、按 reference-only 保留——不删除，也不在文档里假装已接线。清单与可复现判据见[当前架构 §6](docs/architecture/current-architecture.md)。
+
+**服务发现已接线**：`registry.Discovery` 不再是「只注册不解析」——gRPC 反向代理的后端地址写成 `discovery:///<服务名>` 即由注册中心解析端点（写 `host:port` 仍走直连），段驱动装配会自动取装配好的注册中心，消费方只改一行配置。服务名按后端的真实命名写：内存与 etcd 用注册时的 `Name`，nacos 用 `<名>.grpc`。示例可当场跑：
+
+```bash
+cd _example/bald
+
+# 内存注册中心：完整起一个应用，REST 经转码面打到 gRPC 面（无需外部服务）
+go test ./internal/bootstrap/ -run TestGatewayBackendViaDiscovery -v
+
+# 真注册中心（opt-in，起容器后可跑；不可达即 Skip，不算失败）
+docker run -d --name etcd -p 127.0.0.1:2379:2379 quay.io/coreos/etcd:v3.5.14 /usr/local/bin/etcd \
+  --advertise-client-urls http://127.0.0.1:2379 --listen-client-urls http://0.0.0.0:2379
+go test ./internal/bootstrap/ -run TestGatewayDiscoveryEtcd -v
+
+docker run -d --name nacos -p 127.0.0.1:8848:8848 -p 127.0.0.1:9848:9848 \
+  -e MODE=standalone -e NACOS_AUTH_ENABLE=false --platform linux/amd64 nacos/nacos-server:v2.3.2
+go test ./internal/bootstrap/ -run 'TestGatewayDiscoveryNacos|TestNacosDiscovery' -v
+```
+
+见[当前架构 §6](docs/architecture/current-architecture.md) 与[流程快照 §③](docs/architecture/flows.md)。
 
 ## 可运行示例
 

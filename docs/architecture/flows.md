@@ -63,20 +63,21 @@
 - HTTP：`Shutdown`（`transport/http/http_server.go:92-94`）
 - `runHook` 会 recover panic（`pkg/appkit/appkit.go:753-761`）
 
-健壮性上这是全仓最成熟的一块（CAS 重入保护、逐阶段独立超时）。两处小裂缝见 `risk-review.md` §4：`_ = a.deregister(...)` 吞错（`pkg/appkit/appkit.go:690`）、5s 端点上界与 hook 超时是不可配常量（`pkg/appkit/appkit.go:812`、`pkg/appkit/types.go:9`）。
+健壮性上这是全仓最成熟的一块（CAS 重入保护、逐阶段独立预算派生）。曾经的裂缝 `_ = a.deregister(...)` 吞错与「5s 端点上界/hook 超时不可配」均已修：反注册失败经 `logDeregister` 上报（`pkg/appkit/appkit.go:671,702`），端点等待与钩子预算统一由 `phaseBudgetFor`（`pkg/appkit/types.go:11`）从 `app.stop_timeout` 派生，调用方 ctx 带截止期时以它为准（`pkg/appkit/appkit.go:829`）。见 `risk-review.md` §4。
 
 ---
 
-## ③ 出站调用与服务发现（生产侧半环）
+## ③ 出站调用与服务发现
 
 | 环节 | 状态 | 证据 |
 |---|---|---|
-| 注册 | **REAL** | `appkit.register`（`pkg/appkit/appkit.go:840`）→ `registry.Registrar` 契约（`registry/registry.go:62-67`）→ etcd：Validate → lease Grant → Put `<ns>/<name>/<id>` → 后台 `heartBeat`（`registry/etcd/registry.go:108-160`，goroutine 在 `:157`） |
+| 注册 | **REAL** | `appkit.register`（`pkg/appkit/appkit.go:863`）→ `registry.Registrar` 契约（`registry/registry.go:62-67`）→ etcd：Validate → lease Grant → Put `<ns>/<name>/<id>` → 后台 `heartBeat`（`registry/etcd/registry.go:108-160`，goroutine 在 `:157`） |
 | 注销 | **REAL** | `registry/etcd/registry.go:163-181`（删 key、取消心跳、关租约） |
-| 发现 | **未消费** | `registry.Discovery`（`registry/registry.go:70-75`）+ `Watch`（`registry/etcd/registry.go:212`）有实现，但 `GetService` 的调用点只在 registry 后端自身与测试里。**仓内没有 gRPC resolver / HTTP client 消费它。** |
-| 实际服务间调用 | 配置地址直连 | gateway 拨号 `s.backend.GetAddr()`（`transport/gateway/gateway_server.go:93`），地址取自契约 `Grpc.addr`（`transport/gateway/contract/provider.go:167`） |
+| 发现 | **REAL（gateway 出站拨号）** | 地址以 `discovery://` 开头时装上 resolver（`GatewayServer.Start` → `grpc.WithResolvers(newDiscoveryBuilder(d))`，`transport/gateway/gateway_server.go:168`）→ `Build` 内 `GetService` 首次快照 + `Watch` 持续订阅（`transport/gateway/discovery.go:63,64`）；解析出的端点先归一化——`grpc://` 剥前缀、`http(s)://` 等其它面丢弃（`grpcAddressOf`，bald 注册的端点本来就带 scheme）。快照为空或快照报错都**只上报错误、不结束订阅**，后端注册后由推送自动接住 |
+| 发现的接线方式 | 配置驱动，消费方零代码 | `server.gateway.backend_grpc_addr` 写成 `discovery:///<服务名>` 即生效：`AppProvider.Build` 按当次 `ApplyScope` 注入惰性来源（`transport/gateway/contract/provider.go:84`），来源从 `App.Registrar()` 断言出 `registry.Discovery`（`discoveryFromScope`）；写 `host:port` 仍走原生 dns。服务名要按后端的真实命名写：内存/etcd 用 `ServiceInstance.Name`，**nacos 用 `<名>.<scheme>`**，故那里得写 `discovery:///<服务名>.grpc`。端到端判据：`discovery_e2e_test.go`（真应用注册 `grpc://` 端点 → 转码面 REST 拿到 gRPC 响应）+ `discovery_registry_e2e_test.go`（**etcd、nacos 各一轮真机**：注册前 503 → 注册后 200 → 注销后仍 200 → 后端下线 503） |
+| 未接线的面 | HTTP 主面、业务自拨 | `gatewaycontract.HTTPProvider` 不自动派生来源（它的上游是本进程 gRPC 面自己的绑定地址，填 `discovery:///` 属配置错误）；`transport/grpc` 客户端侧、`transport/http` 出站仍无 resolver，需要时业务自行 `gateway.WithDiscovery` |
 
-> 结论：**bald 目前只解决「被找到」，不解决「找到别人」。** 置信度 medium——外部消费方（bald-admin）是否自研了解析层，本次未核验。
+> 结论：**bald 现在既解决「被找到」，也让 gateway 能「找到别人」**——但消费面只有 grpc-gateway 出站一处，不是全局服务间调用层。置信度 high（判据：`GetService` 的非测试调用点现在只有 `transport/gateway/discovery.go` 的 `discoveryBuilder.Build` 与 registry 后端自身；四个生产后端里 etcd、nacos 已真机跑通，consul、kubernetes 仍是代码阅读）。多副本默认 `pick_first` 故障转移，非负载均衡。
 
 ---
 

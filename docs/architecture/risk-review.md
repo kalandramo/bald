@@ -12,10 +12,10 @@
 | 6.5 | gRPC 的 `tls` 契约字段**未接线**，生成物硬编码明文；gateway 出站也硬编码明文 | **高** | ✅ 已核对源码 | **已修** |
 | 3.1 | 根 module ↔ 适配器 **模块环**，靠互相 `replace` 才编译 | **高** | ✅ 已核对 go.mod/import | **已修**（删重复机制后实测 89 模块为 DAG；22 个适配器单向 require 根的扇入耦合仍在） |
 | 6.1 | 鉴权 **fail-open**：未注入即整层消失，无 default-deny、无告警 | **高** | ✅ 已核对源码 | **已修** |
-| 2 | **发布面 ≫ 使用面**：retry / circuitbreaker / Discovery 等无消费方 | 中 | ✅ 全仓 grep | **口径已定**（reference-only 标注已落 README + 当前架构 §6；移出发布批次与接线两项未做，见 §2） |
-| 7.1 | **CI 全量只跑 `-short`**，集成测试在 CI 中从不执行 | 中 | ✅ 已核对 `.github/workflows/ci.yml` | 未修 |
+| 2 | **发布面 ≫ 使用面**：retry / circuitbreaker 等无消费方 | 中 | ✅ 全仓 grep | **部分收口**（Discovery 接线半已落地＝§2「选项 1」的 Discovery 分支；retry/circuitbreaker 仍 reference-only；移出发布批次未做） |
+| 7.1 | **CI 全量只跑 `-short`**，集成测试在 CI 中从不执行 | 中 | ✅ 已核对 `.github/workflows/ci.yml` | **已修（registry/store/队列三条接缝）**：新增 `integration` 作业注入 etcd/redis/mongo，探活 + 逐条断言判据真的 PASS；示例侧（etcd/nacos 服务发现）仍只在本地跑，见 §7.1 收口 |
 | 1.1 | race 作业是两处手工清单，webrtc/kafka 均缺失 | 中 | ✅ 已核对 `.github/workflows/ci.yml` / `Taskfile.yml` | **已修**（改成 find 派生 + 单份排除清单；扩范围实测揪出并修掉 graphql 自身的竞争） |
-| 1.3 | kafka / rabbitmq 适配器 **零测试文件** | 中 | ✅ 实测计数 | **已修**（两个适配器各有一份测试，14 / 7 个测试；补测试当场揪出 4 个生产缺陷） |
+| 1.3 | kafka / rabbitmq 适配器 **零测试文件** | 中 | ✅ 实测计数 | **已修**（两个适配器各有一份测试，15 / 7 个测试；补测试当场揪出 4 个生产缺陷；订阅者摘除口径已定并由测试钉住） |
 | 1.2 | 本地 `task verify` 手写清单，静默跳过约 40 模块 | 低-中 | ✅ 已核对 `Taskfile.yml` | **已修**（CI 与本地共用 `scripts/list-modules.sh` 单条派生；全量 92 模块实测 exit=0） |
 | 附 | `tokenbucket.Close()` 不唤醒 `Wait`，与 gin 侧注释承诺相反 | 中 | ✅ 读源码 + 变异验证 | **已修**（`Close` 内 `close(notify)` + 幂等；判据 `TestClose_WakesBlockedWait`） |
 | 5 | `berrors` 分类法未在 transport/broker/appkit 落地 | 中 | ✅ 实测计数 | **口径已定**（选项 b：定位为边界投影模型；不改码，兜底不对称与硬规则见 §5） |
@@ -79,7 +79,7 @@ race 该覆盖的形态）、`broker/kafka`、`contrib/*` 全部缺席，而 `me
 
 | 模块 | 非测试 .go | 测试 .go（修前 → 修后） |
 |---|---|---|
-| `broker/kafka` | 9 | **0 → 2**（14 个测试 + 32 个子用例） |
+| `broker/kafka` | 9 | **0 → 2**（15 个测试 + 32 个子用例） |
 | `broker/rabbitmq` | 11 | **0 → 1**（7 个测试 + 6 个子用例） |
 | `transport/subscribe` | 1 | **0**（单文件 13 行选项，未补） |
 | `retry` | 1 | 1 |
@@ -112,8 +112,19 @@ race 该覆盖的形态）、`broker/kafka`、`contrib/*` 全部缺席，而 `me
   `math/rand` 全局函数。
 - 刻意没做：`transport/subscribe` 只有一个 13 行的选项文件，不值得单独立一份测试；
   `retriesCount` 没有对外 Option（`retriesCountKey` 只被读、从没被写），测试按包内白盒直接改字段，
-  没有为它新增公开 API；rabbitmq 的连接/通道/重订阅面要真实 AMQP server 才谈得上覆盖，本次未做；
-  致命错误退出后订阅者仍留在 `b.subscribers`（只有 `Disconnect` 会清），要收的是「谁负责摘」的口径。
+  没有为它新增公开 API；rabbitmq 的连接/通道/重订阅面要真实 AMQP server 才谈得上覆盖，本次未做。
+- **「致命退出后订阅者还留在 `b.subscribers`」的口径已定（不改码）**：摘除责任在**调用方**，
+  订阅 goroutine 自己只释放资源、不动注册表——`Unsubscribe(true)` 与 `Disconnect` 是仅有的两条摘除路径。
+  三条理由：① 注册表按 topic 键且 `Add` 是覆盖式，退出中的订阅者无从判断「表里这条还是不是我」，
+  自摘会在调用方已为重订阅换上新订阅者时把新的误摘掉；② kafka / rabbitmq / redis pubsub / redis stream /
+  rocketmq 五个 broker 形态一致，只改 kafka 等于让同一问题在不同后端有不同答案；③ 残留条目对清理无害，
+  `Disconnect` → `Clear` → `Unsubscribe(false)`，而 close 已幂等。**代价如实写明**：
+  `broker.SubscriberSyncMap` 的 `Topics()/Len()/Has()` 是公开 API，会把已死的订阅算进「当前订阅」上报；
+  仓内无人读它，判存活要看返回的订阅者本身（kafka 的 `IsClosed()`，不在 `broker.Subscriber` 接口上）。
+  这条口径由 `TestSubscriberExitKeepsRegistryEntry` 钉住（fatal 退出后条目仍在、同 topic 重订阅覆盖而非累积、
+  带死条目 `Disconnect` 仍清空且不报错）；变异验证：在两处致命分支加自摘 → 恰好红在
+  「致命退出不得自行摘除注册表条目」这一条，复原后 `go test -race ./broker/kafka/` ok。
+  真要改成「自摘」是行为变更（公开 API 可见性变了），得把上面三条理由都翻过来才做。
 
 ---
 
@@ -123,10 +134,10 @@ race 该覆盖的形态）、`broker/kafka`、`contrib/*` 全部缺席，而 `me
 |---|---|---|---|
 | `retry/` | 1 | **无** | 全仓 `grep kalandramo/bald/retry` 唯一命中是注释 `ratelimit/bbr/bbr.go:68` |
 | `circuitbreaker/` | 1 + 4 后端 | 仅自己的后端 | `circuitbreaker/{hystrix,vegas,sres,sentinel}/*.go`；无 transport/middleware/appkit 引入 |
-| `registry.Discovery` | 接口 + 4 实现 | **无外部调用者** | `GetService` 调用点仅出现在 registry 后端自身（`registry/kubernetes/registry.go:206` 自调用、`registry/nacos/watcher.go:68` 是 nacos SDK 同名方法）与测试 |
+| `registry.Discovery` | 接口 + 4 实现 | **已接**（gateway 出站） | 评审初值「无外部调用者」成立；现非测试的 `GetService` 调用点新增在 `transport/gateway/discovery.go` 的 `discoveryBuilder.Build`（watch-based resolver），消费方是 `transport/gateway` 段驱动装配；etcd 与 nacos 两个后端已真机跑通注册→推送→拨通 |
 | `transport/graphql`、`workflow/argo`、`ai/{openai,eino,langchaingo}`、`oss/{s3,minio}` | 7 | 仓内 0 | 全仓 grep 仅 `transport/mcp/options.go:14` 的注释提到 graphql；其余无命中。有 `*/contract` Provider 但无消费者或示例 |
 
-**为什么这是风险而不是「可扩展性好」**：这些模块进发布 tag、进 vuln/lint CI、进 `CHANGELOG.md`，但只有构造函数级测试（或没有测试）在触碰它们，**会静默腐烂**。Discovery 尤其值得单列——它让「服务发现」在 README 与契约里存在，而实际服务间调用走配置地址直连（`transport/gateway/gateway_server.go:93` 用 `s.backend.GetAddr()` 拨号，地址来自契约 `Grpc.addr`，见 `transport/gateway/contract/provider.go:167`），使用者容易误判。
+**为什么这是风险而不是「可扩展性好」**：这些模块进发布 tag、进 vuln/lint CI、进 `CHANGELOG.md`，但只有构造函数级测试（或没有测试）在触碰它们，**会静默腐烂**。Discovery 尤其值得单列——它让「服务发现」在 README 与契约里存在，而评审当时实际服务间调用走配置地址直连（`transport/gateway/gateway_server.go` 用 `s.backend.GetAddr()` 拨号，地址来自契约段），使用者容易误判。**这一条的误判面已由下面的「接线半」消解**：同一地址现在可写 `discovery:///<服务名>` 并真的被解析。
 
 消解路径（按成本排序，任选其一，不要默认「留着以后用」）：
 1. 接进 `pkg/appkit/std` 的标准角色（retry/circuitbreaker 作为可选 bundle 层，Discovery 作为 gRPC resolver）；
@@ -137,8 +148,25 @@ race 该覆盖的形态）、`broker/kafka`、`contrib/*` 全部缺席，而 `me
 
 - 修法：`README.md` 仓库结构段下新增「未接线能力（reference-only）」一条，点名 retry / circuitbreaker 后端 / `registry.Discovery` / graphql / argo / ai/* / oss 并说明「照常发布、不删除、不假装已接线」；`docs/architecture/current-architecture.md` §6 标题改为「未接线面（reference-only）」，补上 `transport/graphql`+`workflow/argo`+`ai/*`+`oss/*` 这一组（评审初值只列了前三项）与**可复现判据**（`find` 非测试文件 + 排除自身目录的 grep），并把两处随 §6.2 漂移的行号引用换成符号名。
 - 验活：README 的链接与 §6 锚点由 `internal/docscheck` 校验通过；表内每条能力重新 grep 一遍，消费方仍为 0（`retry` 唯一命中还是 `ratelimit/bbr/bbr.go:68` 的注释）。
-- 刻意没做：① **移出主线发布批次**——「哪些模块进 tag」由 `internal/release/repo.go`（`isExampleDir` 是唯一的范围规则，且只排除 `_example`）决定，改它等于改变下游能拉到什么，属对外行为变更，要 owner 单独定；② 未接线 ≠ 下架，标注不改变任何包的公开性；③ 接线（选项 1）没做——那是给 retry/circuitbreaker 造 bundle 层、给 Discovery 造 gRPC resolver，属新增能力，不在「清遗留」范围。
+- 刻意没做：① **移出主线发布批次**——「哪些模块进 tag」由 `internal/release/repo.go`（`isExampleDir` 是唯一的范围规则，且只排除 `_example`）决定，改它等于改变下游能拉到什么，属对外行为变更，要 owner 单独定；② 未接线 ≠ 下架，标注不改变任何包的公开性；③ 接线（选项 1）里 **retry/circuitbreaker 的 bundle 层没做**（要定「默认开还是 opt-in」的失败语义，属产品决策）；Discovery 分支已单独落地，见下。
 - 还不能证明：仓外消费方（bald-admin 及其它下游）是否已在用这些包。本轮只核了 bald-admin 的 berrors 采用面，未核它对 retry/circuitbreaker/oss 的 import，所以「零消费方」的严格含义是**仓内零消费方**。
+
+**接线半（选项 1 的 Discovery 分支）已落地**：owner 后续口径是「接线吧，用 bald-admin 作为消费者」，所以这里不是标注，是真接。
+
+- 修法（六层；1–4 是 source-compatible 的新增，5–6 是 resolver 内部**行为变更**、非 API 变更）：
+  1. **读取口**：`App.Registrar()`（`pkg/appkit/appkit.go:342`）。此前段 Provider 产物经 `SetRegistrar` 只落在 `App` 私有字段上，装配好的注册中心对外**没有读取口**——消费方要 Discovery 只能按配置重连一次。
+  2. **地址判据**：`usesDiscoveryTarget`（`transport/gateway/discovery.go:33`）把「是否走发现」交给地址字符串自己表达，契约字段 `backend_grpc_addr` 仍是 `string`，不改类型、不加新段；判定与 `DiscoveryScheme` 同文件，避免规则两处漂移。契约注释同步写下两种形态（`bconf/proto/bootstrap/v1/server.proto` 的 `Gateway.backend_grpc_addr`，随 `task proto-contract-local` 重生成 `gen/go`，`task bconf-verify` 含生成物一致性检查，绿）。
+  3. **优先级在拨号点裁决**：`GatewayServer.resolveDiscovery`（`transport/gateway/gateway_server.go:129`）＝**显式实例 > 惰性来源 > fail-fast**。新选项 `WithDiscoverySource`（`:60`）是「需要时才取」的闭包——只有 addr 真用了 `discovery://` 且没显式 `WithDiscovery` 才被调用。这层延迟不是装饰：`scope.App` 是活指针，注册中心可以在 server 段 `Build` 之后才被 `SetRegistrar` 换上（NewApp 路径把注册中心交给应用自持即如此），`Build` 时派生会把「那一刻没有」固化成错误；而「谁被真正用上」只能按地址判，不能按选项顺序猜。addr 用 `discovery://` 而来源缺失时 **Start 直接失败并报明确错误**，不再让 gRPC 回落到默认 dns resolver 去解析一个不存在的主机名。
+  4. **段驱动装配**：`gatewaycontract.AppProvider` 改为保存构造参数（`register` + `opts`）而不是预绑工厂，`Build` 时按当次 `ApplyScope` 前置注入 `discoveryScopeOption`（`transport/gateway/contract/provider.go:84`、`contract/discovery.go:35,46`）；来源从 `App.Registrar()`（次选 `Decl.Registrar`）断言 `registry.Discovery`。**消费方因此只改一行配置。**
+  5. **端点归一化（接线的实测缺陷，不是一处装饰）**：`grpcAddressOf`（`transport/gateway/discovery.go:133`）——resolver 原样把注册端点交给 gRPC 拨号，而 **bald 自己注册的端点是带 scheme 的**（`transport/grpc/grpc_server.go:143` 交 `grpc://host:port`，HTTP 面交 `http(s)://host:port`，同实例混排）。gRPC 只吃 `host:port`，带 scheme 直接 `too many colons in address`——**即按 §6 判据「已接线」写完前，真实注册形态一个都拨不通**（既有单测都用裸 `host:port` 造实例，恰好绕过了这条）。现在 `grpc://` 剥前缀、其它 scheme 丢弃、裸地址照用；只剩非 gRPC 面的实例整体出局（走「无实例」路径并报订阅错误，而不是给出必然拨不通的地址）。
+  6. **首次快照失败不再交回 gRPC（真机跑出来的第二个缺陷）**：`Build`（`transport/gateway/discovery.go:57`）原来把 `GetService` 的错误当成构建失败返回。「后端还没注册」到底是空集还是错误，是各后端的自由——内存与 etcd 返空集，**nacos 直接报 `instance list is empty!`**。而 gRPC 对构建失败的 resolver **不会在近期内重新解析**（实测：客户端只解析一次，45s 窗口内一次都没有重建），所以返回错误等于放弃恢复：实例后来注册上了也接不住。nacos 那轮端到端因此稳定 503 到超时。现改为「`cc.ReportError` 上报原因 + 保留订阅」，与「解析成功但实例为 0」走同一条路径，由 `Watch` 的推送把实例带回来；仍然返回错误的只剩两种确定不可能的情况——服务名为空（配置写错）与 `Watch` 建不起来（没有推送通道，重建 resolver 是唯一恢复路径）。**这条是「网关先于后端启动」这一常见时序的前提**，而 nacos 正是 bald-admin 用的注册中心。
+- 验活：`transport/gateway`（含 `contract`）与 `pkg/appkit` 全量 `-race` 绿；判据共 **23 条新测试**（+1 条改写）——网关侧 10 条（`discovery://` 无来源 fail-fast、来源返回 `(nil,nil)` fail-fast、来源报错使 Start 失败并 wrap 原错、惰性来源拨通、直连 addr 不调来源、显式实例胜过来源、带 scheme 端点归一化、全是非 gRPC 面时报「无实例」、按真实注册形态拨通进 READY、**首次快照报错后仍能被推送救回**），装配侧 7 条（真 `grpc.Server` + `inmemory.Registrar` 端到端进 READY、`Decl.Registrar` 路径、无注册中心 fail-fast、注册中心不实现 Discovery 时 fail-fast、直连不需注册中心、显式 `WithDiscovery` 不被要求装配注册中心、`HTTPProvider` 确实不派生），appkit 侧 2 条（`App.Registrar()` 读取口 + 「registry 段阶段 B 产物在 server 段 `Build` 时可见」的时序不变量），**端到端 4 条**：
+  - 消费者闭环 `_example/bald/internal/bootstrap/discovery_e2e_test.go`（默认构建，进 `task verify` 清单）起真应用——`appkit.register` 把 `grpc://` 端点注册进 inmemory，配置里 `backend_grpc_addr: discovery:///bald-demo`，REST 打到转码面拿到 `hello, discovery`。
+  - 生产注册中心 `_example/bald/internal/bootstrap/discovery_registry_e2e_test.go`（**opt-in**：`-short` 跳过、地址不可达即 `t.Skip`，所以 CI 的 `-short` 作业不会因此变红；文件头给了可复制的 etcd/nacos 起法与 `BALD_E2E_ETCD_ADDR`、`BALD_E2E_NACOS_ADDR` 覆盖）——etcd 一轮、nacos 一轮，加一条把「nacos 的服务名带 `.grpc` 后缀」这个命名事实单独钉住的判据（裸名解析到 0 个、`<名>.grpc` 解析到 1 个且端点仍是 `grpc://`）。两轮的注册都刻意把**无人监听的 `http://` 面排在 `grpc://` 前面**，因此「拨通了」同时证明过滤在生效。
+- **真机侧的状态机**（etcd、nacos 各跑一遍，四条断言按序）：注册前 503 → 注册后 200 且拿到 `hello, registry`（greeting 带回本用例自带的后端，排除了打到注册中心里残留的同名实例；Watch 推送 + 端点过滤同时成立）→ 注销后**仍 200**（钉住「空快照不下发」这条既定语义，不是遗漏）→ 后端进程下线后 503。
+- **21 处改坏点逐条变异验证**（fail-fast 三个分支、scheme 判据、惰性/显式优先级、resolver 未安装、`App`/`Decl` 两条取源、两个错误分支、scope 选项被丢、`HTTPProvider` 误接线、`App.Registrar()` 返回 nil、把阶段 B 循环移到 late 钩子之后、scheme 不剥、非 gRPC 面不丢、示例 e2e 依赖解析、**删空快照守卫**、**首次快照失败改回返回错误**）——每条都是「基线 pass / 变异后恰好对应判据转红」，时序那条精确红在 `seen == nil` 的断言上；真机三条红法分别是：不剥 scheme → etcd 轮 `dial tcp: address grpc://127.0.0.1:… : too many colons in address`；删空快照下发守卫 → etcd 轮阶段③ `bad resolver state`；快照报错返回给 gRPC → 单测红 `Build(discovery:///svc): gateway: discovery svc: instance list is empty!`（这一条原先只能靠 nacos 那轮 45s 超时暴露）。`golangci-lint` 三模块 0 命中、`gofmt` 干净、`go mod tidy` 无差异、`task verify`（92 模块 + example）exit=0。
+- 刻意没做：① `gatewaycontract.HTTPProvider`（转码面接管 `server.http`）**不派生来源**——它的上游是本进程 gRPC 面自己的绑定地址，填 `discovery:///` 是配置错误，测试 `TestHTTPProviderDoesNotAutoDeriveDiscovery` 把这条钉住；② 裸工厂 `contract.Provider` 不自动派生（它没有 scope，看不到装配作用域），用它的人显式传 `gateway.WithDiscovery`；③ 不改 resolver 的负载均衡语义——多实例交给 gRPC 默认 `pick_first`，是故障转移不是分摊流量，要 round_robin 得在拨号侧另配；④ **来源只在 Start 取一次**，不做「注册中心被换掉后重取」：resolver 的生命周期跟 `ClientConn` 而不是跟装配，Start 之后再 `SetRegistrar` 换实例，已建连接仍指向旧实例。现契约下这条路是闭合的——registry 段既没有 `ReloadReconcile` 也没有 reconciler（reconciler 只由 domain 节点与组件注册，`pkg/appkit/bootstrap.go:508,534`），热更新真重建的只有 logger 段，所以换注册中心本来就要重启进程；⑤ 不动 `transport/http` 与业务自拨 gRPC 客户端（那是另一个消费面，需要独立的 client 抽象）；⑥ 不手工写 CHANGELOG 条目——该文件由 `bald release changelog` 从提交生成。
+- 还不能证明：① **`Watch` 真机验证只覆盖四个生产后端里的两个**——etcd、nacos 各跑通上面那台状态机（全量快照推送、断线后自愈的 `reWatch` 只读到代码，未被本轮触发）；**consul、kubernetes 仍是代码阅读**。且两轮验的都是「客户端主动注册/注销」这条正向：nacos 服务端健康检查踢掉实例、etcd 租约过期后是否推空集，都没有造出那个故障场景，也未验多实例并发变更下的顺序。② **bald-admin 的真实消费未跑通**——它 pin `bald v0.34.0` 且零 `replace`，本次新增的 API 要模块 tag 才可用，而 tag 是对外共享状态、需 owner 决策；③ 本轮改动的 CI 结果（提交后以流水线为准）；④ nacos 那轮是在 `--platform linux/amd64` 模拟下跑的（官方镜像无 arm64 manifest），功能语义不受影响，但不是原生 arm64 的时序。
 
 ---
 
@@ -328,19 +356,28 @@ B、C 是同一套机制的两份实现（命令式能力声明 vs 段驱动 Pro
 - 未修的范围（刻意保留）：契约 `tls` 字段在 Http3/Graphql/Sse/Websocket/Tcp/Thrift/Webtransport/Signalr/Socketio/Webrtc 仍无消费者（`bconf/gen` 都生成了 `GetTls()`）。SSE contract 明确写了「不加载证书，需业务注入 `*tls.Config`」（`transport/sse/contract/contract.go:71`）；HTTP3 的 `generateTLSConfig` 无条件自签（`transport/http3/server.go:169`）。这些适配器没有 `contract` 之外的框架装配路径，属 §2「发布面 ≫ 使用面」的同一议题。
 - 回归：`bconf/tlsconf/tlsconf_test.go`（文件/内联 PEM 等价、材料不全逐条报错、真实 mTLS 握手、服务端拒绝无客户端证书、客户端拒绝不可信服务端）+ `transport/http/http_tls_test.go`、`transport/grpc/grpc_tls_test.go`、`transport/gateway/gateway_tls_test.go`、`bootstrap/grpc_tls_test.go`（装配层端到端）。证书由 `bconf/tlsconf/tlstest` 现发（一次性 CA + 叶子证书，产出即契约 `TLS` 段），因此每条断言走的都是真实契约路径而非 mock。
 
-**6.6 机密** ✅ 未发现机密被写日志的证据；脱敏有文档化缺口：不覆盖 `slog.Attr` 形态（如 `slog.String("password", v)`），见 `bconf/gen/go/bootstrap/v1/log.pb.go:36` 的说明。**govulncheck 是 fail-closed 且覆盖全模块**（`.github/workflows/ci.yml:159` 固定 v1.9.0，vuln 作业用 `find` 循环）——这一项没有问题。
+**6.6 机密** ✅ 未发现机密被写日志的证据；脱敏有文档化缺口：不覆盖 `slog.Attr` 形态（如 `slog.String("password", v)`），见 `bconf/gen/go/bootstrap/v1/log.pb.go:36` 的说明。**govulncheck 是 fail-closed 且覆盖全模块**（`vuln` 作业的 `install govulncheck` step 固定 v1.9.0，逐模块循环消费 `scripts/list-modules.sh`）——这一项没有问题。
 
 ---
 
 ## 7. 测试与验证策略
 
-**7.1 CI 全量只跑 `-short`（中）** ✅ `.github/workflows/ci.yml:75,77,108` 的每模块命令都是 `go test -short`。按 CI 自己的注释（`:8`），`-short` 的语义是**跳过集成测试**。因此 kafka/redis/nacos 之类的真实后端交互在 CI 里从不执行；唯一非 `-short` 的是 `.github/workflows/ci.yml:82` 的 `internal/codegen` 两条 Tree 端到端用例。
+**7.1 CI 全量只跑 `-short`（中）** ✅ 评审初值：`test` 与 `race` 作业的每模块命令都是 `go test -short`（`.github/workflows/ci.yml` 的「build + vet + test all modules」/「go test -race (all modules)」两步）。按 CI 自己的注释，`-short` 的语义是**跳过集成测试**。因此 kafka/redis/nacos 之类的真实后端交互在 CI 里从不执行；唯一非 `-short` 的是「TestTree_EndToEndTimed / TestTree_AuthzClosedLoop」这一步的 `internal/codegen` 两条端到端用例。
 叠加既有事实：asynq 集成测试需要 `BALD_TEST_REDIS_URI`，Redis 不可达时自动跳过——**注入与否决定这批用例是否真的跑过**。
 - 消解：明确哪些接缝必须有集成覆盖（至少 store/registry/broker 各一条），为它们开一个按需注入依赖的 CI job，而不是继续在 `-short` 里假定绿。
 
+**7.1 收口（已落地：`integration` 作业）**
+
+- 修法：`.github/workflows/ci.yml` 新增 `integration` 作业，`services:` 注入 **etcd（quay.io/coreos/etcd:v3.5.14）/ redis:7-alpine / mongo:7**，三个后端地址由 `env:` 显式给出（`BALD_E2E_ETCD_ADDR`、`BALD_TEST_REDIS_URI`、`BALD_MONGO_URI`），跑三条接缝的非 `-short` 套件：`registry/etcd`（含其 `contract` 包，同 module）、`contrib/store-mongo`、`transport/asynq`。三步结构：探活 → 逐套件 `-v` 留档 → 按 EXPECTED 逐条断言 `--- PASS`。
+- **为什么必须有第三步**（这是新增闸门最容易自欺的地方）：这些用例写的是「不可达即 `t.Skip`」，所以服务挂了作业照样绿。本地实测反证：把三个地址都指向死端口，**跑套件这一步 exit=0、23 条 SKIP**，而断言步骤 exit=1 并逐条点名五条判据。探活步同样实测：加一条指向 27018 的检查 → `::error::deadservice 未就绪`，作业在跑测试之前就失败，而不是放行成一片 Skip。EXPECTED 只列「非真服务不可证」的判据（`TestRegisterDiscoverDeregister`、`TestWatch_ReceivesChanges`、`TestProvider_BuildsUsableRegistrar`、`TestMongoCRUD`、`TestTaskSubscribe`），普通单测不重复列。
+- 主循环为什么仍留 `-short`：`transport/{redis,kafka,rabbitmq,rocketmq,tcp,webrtc}` 的 `TestServer`/`TestClient` 是等信号的手动用例（`t.Skip("manual test: blocks on signal…")`），去掉 `-short` 会把作业挂到 timeout。集成作业因此**点名套件**而不是全仓扫。
+- 验活：三个步骤从 YAML 里导出后用 bash 原样执行过（GitHub 默认 shell 同为 bash），正向三件套全绿（`READY etcd/redis/mongo` → 套件 ok → 五条判据逐条 PASS）；反向两条如上。YAML 由解析器加载通过（作业顺序 test/race/integration/lint/vuln）。三处描述「CI 无 etcd / 无 mongod」的过期注释（`registry/etcd/registry_test.go`、`registry/etcd/contract/contract_test.go`、`contrib/store-mongo/testutil.go`）改成指向 `integration` 作业。
+- 刻意没做：① **`_example/bald` 不进 CI**——那里的服务发现端到端（etcd + nacos）只在本地跑，因为 `_example/bald/go.mod` 把两个 kratos contrib 模块 `replace` 到**仓库外**的同级检出（`../../kratos/contrib/{config,registry}/nacos`），干净检出装载不出模块图；要在 CI 跑示例得先给它们找到已发布版本，属另一件事。② 没有 `task integration` 本地入口——命令以 `integration` 作业与 README 为准，再加一份清单就是再造一条会漂移的真相。③ 不覆盖 consul / kubernetes / nacos 后端（`bconfig/kubernetes` 需要真集群，用 `BALD_KUBE_INTEGRATION` 显式开关，保持现状）。④ Kafka/RabbitMQ 的 broker 接缝没有可在 CI 里跑的集成用例（仓内那批是等信号手动用例，`broker/kafka` 的测试不需要真 Kafka）——§7.1 原话里「broker 一条」由 `transport/asynq`（Redis 队列）代。⑤ 未加覆盖率闸门（§7.2 另议）。
+- 还不能证明：**GitHub Actions 上的实际作业结果**——`services:` 的镜像可用性、bridge 网络下 etcd/nacos 的端口映射、runner 的 Go 1.27.3 与本地 1.27.1 的差异，都只能在推送后以流水线为准。本地验证覆盖的是命令语义与判据逻辑，不含 GitHub 的运行环境。
+
 **7.2 无覆盖率闸门** ✅ 所有 workflow grep `coverage|codecov` → 无匹配。根 module 有 365 个测试文件（绝对量可观），但没有任何比例约束，零测试模块不会因此暴露——§1.3 那两个适配器是评审时数测试文件点数出来的，不是闸门响出来的。
 
-**7.3 已具备的成熟度**（避免只报负面）：`-timeout 5m/10m`、codegen 树的端到端用例拆成独立步骤单独给 15m 预算（`.github/workflows/ci.yml:82`）、依赖下载 retry×3（`.github/workflows/ci.yml:64-71`）、golangci-lint/govulncheck 版本 pin（`.github/workflows/ci.yml:126,159`）、基准冒烟编译每模块跑（`.github/workflows/ci.yml:75,77`）。核心包（`pkg/appkit`、`bconf`、`bconfig`、`transport/http`、`pkg/middleware`）非测试代码里 **TODO/FIXME/HACK = 0 命中**——干净到更像是「债务存在但没标记」，而非没有债务。
+**7.3 已具备的成熟度**（避免只报负面）：`-timeout 5m/10m`、codegen 树的端到端用例拆成独立步骤单独给 15m 预算（`test` 作业的 `TestTree_*` step）、依赖下载 retry×3、golangci-lint/govulncheck 版本 pin（`install *` 两步）、基准冒烟编译每模块跑（均在 `.github/workflows/ci.yml`，行号随作业增删漂移，故按 step 名指）。核心包（`pkg/appkit`、`bconf`、`bconfig`、`transport/http`、`pkg/middleware`）非测试代码里 **TODO/FIXME/HACK = 0 命中**——干净到更像是「债务存在但没标记」，而非没有债务。
 
 ---
 
@@ -378,8 +415,8 @@ B、C 是同一套机制的两份实现（命令式能力声明 vs 段驱动 Pro
 3. **`_ = deregister` 补日志**（§4.1）——一行。✅（连带 §4.2 的等待上界）
 4. **race 清单去人工化**（§1.1）✅：两处手写清单已换成同一条 `find` 派生 + 单份 `.github/race-skip.txt`，webrtc/kafka/contrib 全量入闸，`metrics` 这类死条目随派生自然消失；扩范围当场抓到并修掉 `transport/graphql` 自身的生命周期竞争。本地 `task verify`（§1.2）也已接上同一条派生（`scripts/list-modules.sh`，92 模块实测 exit=0）。
 5. **kafka 的 writer 重建 + 订阅退避补测试**（§1.3）✅：`broker/kafka` 与 `broker/rabbitmq` 各有了第一份测试，全部不起真实 broker（死端口造 ECONNREFUSED）。过程中揪出并修掉 4 个生产缺陷，其中「重连后发布 panic + 写锁泄漏」和「`retriesCount=0` 吞掉写失败」都只在失败/热更路径上，原先没有任何执行证据。
-6. **给 §2 的未接线面做决策** ✅ 口径已定：reference-only 保留 + README/当前架构 §6 标注。移出发布批次与接线两项按 §2「刻意没做」留给 owner。
-7. **`berrors` 边界口径**（§5）✅ 选 (b)：定位为边界投影模型，不改码。**Discovery 消费侧**（§2）仍未做——那是新增 gRPC resolver 能力，不在清遗留范围。
+6. **给 §2 的未接线面做决策** ✅ 口径已定：reference-only 保留 + README/当前架构 §6 标注；其中 **Discovery 走的是选项 1（接线）而不是标注**——`transport/gateway` 出站现在真消费 `GetService`/`Watch`（见 §2「接线半」）。retry/circuitbreaker 的 bundle 层与「移出发布批次」仍按 §2「刻意没做」留给 owner。
+7. **`berrors` 边界口径**（§5）✅ 选 (b)：定位为边界投影模型，不改码。**Discovery 消费侧**（§2）已做——watch-based resolver + 装配作用域自动派生来源，消费方只改一行配置。
 8. **抽离 appkit 契约面，把适配器从「require 聚合根」解耦**（§3.1）——breaking，放在最后，且只在 §5/§6 的口径定清之后做。模块环已由 gateway 那一条的重复机制删除而断开（实测图为 DAG），这条剩下的收益是 `replace` 数量与版本追赶，不再是断环。
 9. **gRPC 链补限流与超时**（§6.2）✅ unary 面：`RateLimitInterceptor`/`TimeoutInterceptor` + bundle 两侧共用同一对 Option，当场揪出并修掉 `tokenbucket.Close()` 不唤醒 `Wait` 的真缺陷。剩 stream 面、gRPC 独立契约段、自动装配三项（见 §6.2「未修」）。
 10. **限流链序**（§6.3）✅ 口径已定：保持「认证之后」，落文档；改默认会把按 subject 的配额静默变成全局配额。顺带修掉设计文档里写反的链序。

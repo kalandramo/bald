@@ -18,7 +18,7 @@
 
 bald 是一个 **SPI + 适配器 + 声明式装配** 的 Go 多模块框架：契约层只定义接口（`transport.Server`、`broker.Broker`、`cache.Cache`、`registry.Registry`…），每种协议/后端各占一个独立 module 实现契约，`bconf` 用 protobuf 把「服务该怎么装配」固化成强类型配置，`bootstrap` 做分层合并，`pkg/appkit` 的 **v2 Provider** 把声明解析成执行计划（Plan）再逐个构建（Build），最终由 `appkit.Run` 统一启动与停机。
 
-仓库有 **93 个 `go.mod`**（`find . -name go.mod`），无 `go.work`；模块间靠每个子 module 的相对 `replace` 组成可编译闭包，CI 用 `find` 自动发现全部模块（`.github/workflows/ci.yml:61`）。
+仓库有 **93 个 `go.mod`**（`find . -name go.mod`），无 `go.work`；模块间靠每个子 module 的相对 `replace` 组成可编译闭包，CI 与本地 Taskfile 共用同一条模块派生（`scripts/list-modules.sh`，内部是 `find`）。
 
 ## 2. 分层与模块清单
 
@@ -32,12 +32,12 @@ bald 是一个 **SPI + 适配器 + 声明式装配** 的 Go 多模块框架：�
 | 横切层 | `pkg/middleware/{bundle,gin,grpc}` | 链序固化的 gin 中间件链与 gRPC 拦截器链 | `pkg/middleware/bundle/bundle.go` `Gin()`/`GRPCInterceptors()` |
 | SPI | `transport` `broker` `cache` `metrics` `registry` `ratelimit` `circuitbreaker` `retry` `encoding` `log` `health` `berrors` | 只有接口与少量通用工具 | `transport/server.go:14-22`、`broker/broker.go:9-33`、`cache/cache.go:28-69`、`registry/registry.go:62-75` |
 | 适配器 | `transport/*`(18) `broker/*`(4) `cache/*`(3) `registry/*`(4) `log/*`(5) `metrics/*`(3) `encoding/*`(12) `ratelimit/*`(3) `circuitbreaker/*`(4) `oss/{minio,s3}` `ai/*`(3) `workflow/argo` `cobramcp` | 每个后端一个 module | 各 `*/go.mod` |
-| 接入子包 | `*/contract`（30 个目录） | 把适配器注册成 appkit v2 Provider —— **这是适配器与装配层唯一的接缝** | `transport/gateway/contract/provider.go:24`、`registry/etcd/contract/provider.go:16`、`oss/minio/contract/provider.go:17` |
+| 接入子包 | `*/contract`（30 个目录） | 把适配器注册成 appkit v2 Provider —— **这是适配器与装配层唯一的接缝** | `transport/gateway/contract/provider.go:32`、`registry/etcd/contract/provider.go:16`、`oss/minio/contract/provider.go:17` |
 | 扩展 | `contrib/*`（8 个独立 module） | store-gorm/mongo、audit-*、authn-jwt、authz-casbin、config-nacos、observability-otlp；`contrib/database` **无独立 `go.mod`**，属根 module | `contrib/*/go.mod` |
 | 代码生成 | `cmd/bald` + `internal/codegen` | `gen app/domain/proto/store`，从 `appspec.json` 产出 owned/seeded 文件树 | `internal/codegen/appspec_tmpl_*.go` |
 | 样例 | `_example/bald` | 已迁入生成树的真实消费方 | `_example/bald/internal/bootstrap/assemble.gen.go:1-7,42-47` |
 
-`transport/` 与 `transport/grpc` 的区别是理解本仓库的钥匙：前者是 **接口**（`Server`：`Start(ctx)/Stop(ctx)/Endpoint()`），后者是 **一个实现**。`transport/gateway` 是复合体——它内嵌 `*httpserver.HTTPServer` 再加 grpc→REST 反向代理（`transport/gateway/gateway_server.go:20-24`），`transport/mcp` 则直接包装 `mark3labs/mcp-go`，但同样实现了 `Start/Stop/Endpoint`（`transport/mcp/server.go:106,186,233`）。
+`transport/` 与 `transport/grpc` 的区别是理解本仓库的钥匙：前者是 **接口**（`Server`：`Start(ctx)/Stop(ctx)/Endpoint()`），后者是 **一个实现**。`transport/gateway` 是复合体——它内嵌 `*httpserver.HTTPServer` 再加 grpc→REST 反向代理（`transport/gateway/gateway_server.go:25`），`transport/mcp` 则直接包装 `mark3labs/mcp-go`，但同样实现了 `Start/Stop/Endpoint`（`transport/mcp/server.go:106,186,233`）。
 
 <details>
 <summary>完整 module 清单（92 个，与 <code>scripts/list-modules.sh</code> 同源）</summary>
@@ -220,6 +220,7 @@ appspec.json / bconf 契约
 
 置信度 **high**。口径：**这些按 reference-only 保留**——不删除、不降级为示例、
 不假装已接线；文档与 README 明确标未接线，改动它们时以「仓外消费方可能存在」为前提。
+接了线的项从本清单移出，但在末尾留一行去向（清单必须与上面那条 grep 判据一致，否则宁可删条目也不留过期状态）。
 判据可复现（根 module 之外的每个包都算一次 importer）：
 
 ```bash
@@ -229,10 +230,13 @@ find . -name '*.go' ! -name '*_test.go' -not -path './.git/*' -not -path './<pkg
 
 - `retry/` —— 全仓唯一提及是文档注释（`ratelimit/bbr/bbr.go:68`），**零 importer**。
 - `circuitbreaker/` —— 只被自己的 4 个后端 import（`circuitbreaker/{hystrix,vegas,sres,sentinel}/*.go`），**无 transport / middleware / appkit 消费方**。
-- `registry.Discovery` —— `GetService` 的调用点只出现在 registry 后端自身与其测试；`appkit` 只用 `Registrar`/Deregister（`pkg/appkit/appkit.go:643,659,690`）。**服务发现目前是生产侧半环：会注册，不会解析。**服务间调用走契约地址直连（§8）。
 - `transport/graphql`、`workflow/argo`、`ai/{openai,eino,langchaingo}`、`oss/{s3,minio}` —— 有 `*/contract` Provider，仓内零消费者、零示例（`transport/mcp/options.go:14` 的注释是 graphql 唯一命中）。
 - 中间件依赖未注入即整层省略：`bundle.New()` 不给 `Authn` 时链中静默无认证层（风险 §6.1）。现已要求显式表态——`bundle.Public()` 声明有意公开，否则 `Bundle.Verify()` 报错、出链时告警（`pkg/middleware/bundle/bundle.go` 的 `Verify`）；生成脚手架默认写出 `bundle.Public()` 并留 TODO。
 - `server.http.middleware` 的 `rate_limit` / `timeout` 两段此前**只投影到 gin 链**；gRPC 链现由 `GRPCInterceptors()` 挂上同名层（`ratelimit.go` / `timeout.go`，见《Bald 中间件设计》）。未接线的是**装配来源**：gRPC 没有自己的契约段，仍复用 HTTP 侧配置（风险 §6.2「未修」项）。
+
+**已接线的原未接线项**（去向留在此处，避免与上面的判据脱节）：
+
+- `registry.Discovery` —— 原「会注册、不会解析」的生产侧半环已闭合：`transport/gateway` 的 resolver 消费 `GetService`+`Watch`（`transport/gateway/discovery.go:63,64`），解析出的端点先归一化（`grpc://` 剥前缀、其它 scheme 的面丢弃，`grpcAddressOf`——bald 自己注册的端点就带 scheme）。`server.gateway.backend_grpc_addr` 填 `discovery:///<服务名>` 即由注册中心解析，来源由装配作用域自动派生（`discoveryFromScope`，`transport/gateway/contract/discovery.go`；读取口是本次新增的 `App.Registrar()`，`pkg/appkit/appkit.go:342`），消费方**只改配置、不改代码**。两条容易踩的实现语义已写进代码注释：① 服务名要按后端真实命名写，nacos 把一个实例按端点拆成 `<名>.<scheme>`，那里得写 `discovery:///<服务名>.grpc`；② 首次快照失败（如 nacos 对未注册服务直接报 `instance list is empty!`）**不**返回给 gRPC，只 `ReportError` 保订阅——resolver 重建只在重连退避到期才发生，返回错误等于放弃恢复。仓内消费者：`discovery_e2e_test.go`（真应用 + inmemory，跑 REST→转码→gRPC）、`discovery_registry_e2e_test.go`（etcd、nacos 各一轮真机，opt-in：`-short` 跳过、服务不可达即 Skip）。仍未覆盖的：`transport/http` 与业务自拨的 gRPC 客户端没有 resolver；`gatewaycontract.HTTPProvider` 按设计**故意不**派生来源（它的上游是本进程 gRPC 面自己的绑定地址，填 `discovery:///` 是配置错误）；consul、kubernetes 两个后端只有代码阅读。判据：`grep -rn '\.GetService(' --include='*.go' . | grep -v _test.go` 的非 registry 命中只有 `transport/gateway/discovery.go`。
 
 ## 7. 阅读顺序建议
 
@@ -246,7 +250,7 @@ find . -name '*.go' ! -name '*_test.go' -not -path './.git/*' -not -path './<pkg
 
 | 项 | 置信度 | 说明 |
 |---|---|---|
-| 「服务间调用不使用 Discovery，走配置地址直连」 | medium | 依据：gateway 用契约 `Grpc.addr` 拨号（`transport/gateway/gateway_server.go:93`，地址由 `transport/gateway/contract/provider.go:167` 从契约 `server.grpc` 段传入）；仓内无 resolver。外部消费方（bald-admin）是否有自研解析未在本次范围内核验 |
+| 「服务间调用不使用 Discovery，走配置地址直连」 | **已被推翻**（2026-11-02） | 评审当时的依据：gateway 用契约 `Grpc.addr` 拨号（`transport/gateway/gateway_server.go:170`，地址由 `transport/gateway/contract/contract.go` 从契约 `server.gateway.backend_grpc_addr` 传入，缺省回退 `server.grpc.addr`）。现在该地址可写 `discovery:///<服务名>` 并经装配作用域解析（§6 末「已接线的原未接线面」）；直连仍是默认。外部消费方（bald-admin）实际采用面未在本文核验 |
 | 「93 个模块的真实可运行面远小于发布面」 | high | 见 §6 与 `risk-review.md` §2 |
 | Windows 周界 | unknown | `.github/workflows/windows.yml` 每周一/手动 dispatch；该面本轮未验证 |
 | 运行时拓扑（进程实际部署形态、副本、网络边界） | unknown | 仓内无 IaC/清单，本次未做 `deployment-topology-analyzer` |
