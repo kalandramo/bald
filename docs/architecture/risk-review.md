@@ -311,16 +311,30 @@ Go 源码零改动（除下面第 ① 条）。根 module 里 `pkg/` 之外唯�
   `ambiguous import: found package github.com/kalandramo/bald/pkg/appkit in multiple modules`。
   所以下游迁移是**替换**而非新增：去掉对根的 require，换成 `pkg`；`bald-admin` 这类本地联调还需补一条
   `replace github.com/kalandramo/bald/pkg => ../../bald/pkg`（该仓本轮未动）。
+- 下游那条已经实测（2026-11-03）：`bald-admin/backend` 在补 replace 之前 `go build ./...` 全仓失败，报错是
+  `github.com/kalandramo/bald/pkg@v0.0.0-00010101000000-000000000000: ... i/o timeout`——它把 `../../bald` 的
+  各模块 `replace` 到了本仓检出，而那些模块现在 require `bald/pkg`，而 `bald-admin` 里没有对应的 replace，
+  于是 Go 去代理找一个根本不存在的伪版本。补上 `replace github.com/kalandramo/bald/pkg => ../../bald/pkg`
+  后 `go mod tidy` + `go build ./...` + `go vet ./...` 全过，且 tidy 自动把 `github.com/kalandramo/bald v0.34.1`
+  这条 require 删掉了（`bald-admin` 只用得到 `pkg/*` 路径）——即上面那句「替换而非新增」在真实下游仓库上成立。
+  **这条 replace 只进本地联调叠加层**：bald-admin 仓库 backend 模块提交进去的依赖形态是「零 replace、按 tag 消费」，
+  它要改成 require `github.com/kalandramo/bald/pkg <tag>`，前提是 `pkg/v0.1.0` 存在（见下）。
 - 还没做 / 待 owner：`pkg` 尚无 tag——`internal/release` 对未发版 module 报 `initial, v0.1.0`（`internal/release/plan.go`），首个 tag 即
   `pkg/v0.1.0`；它与 23 个消费者的 require 归位是同一次发版动作，属共享状态，按既定规则需 owner 决策。
   **现在 23 个消费者带的是零伪版本** `github.com/kalandramo/bald/pkg v0.0.0-00010101000000-000000000000` +
   本地 `replace`（改前它们是真实 tag `bald v0.34.1` + `replace`），所以这批在 tag 之前**不可发布**——
   发布物里的伪版本会解析不到（`ec4223f`「归位 bconf 的消费者 require」是同一条纪律）。
   同理，本分支全靠本地 `replace` 才自洽，**tag 之前「published 形态」不可验证**：下游此刻只看得到旧根 zip，
-  而旧根里没有 `pkg` 这个 module。
+  而旧根里没有 `pkg` 这个 module。发版工具不需要改：`bald release plan` 在 `96582bf` 上实测列出 30 个待发包，
+  其中 `pkg` 报 `- → v0.1.0 initial`，23 个消费者的零伪版本已被逐条计划归位
+  （`require github.com/kalandramo/bald/pkg v0.0.0-00010101000000-000000000000 -> v0.1.0`），根报 `v0.34.1 → v0.35.0 minor`。
 - 刻意没做：① 没有只抽 appkit 的最小面（选项曾列 `Provider`/`Node`/`PlanScope`/`ApplyScope`/`Cleanup`/`Option`
   六个符号）——那要把 `pkg/appkit` 从 `pkg/middleware` 等既有互相依赖里摘出来，改动面比整切更大；
   ② 没动 `bald-admin`；③ 没重跑 `.dsl` 的 C4 机器校验（本机 JDK/Maven 已失踪，`.dsl` 未改）。
+- 还不能证明：① **「published 形态」整条链路**——`pkg` 没有 tag，本仓自洽全靠本地 `replace`，代理上 `bald/pkg`
+  至今 404，所以「外部消费者按 tag 装得上」这件事在 `pkg/v0.1.0` 之前无法验证，只能在发版后复跑；
+  ② Windows 周界（`ci-windows` 只跑 3 个 module、按周/手动 dispatch，`pkg` 不在其中，本轮没在 Windows 上
+  执行过这批 go.mod）；③ 本条提交推上 main 后的远端五作业以流水线为准，不在本文档里宣称。
 - 顺手发现（不在任何闸门范围内，本轮未修）：`_example/bald` 被清单谓词 `-not -path "./_example*"` 排除在
   lint/race/vuln 之外，按 1.27.3 单跑 `golangci-lint` 得 2 条既存问题——`user/cmd.go` 的 `p.Close` 未查返回值
   （errcheck）、`internal/bootstrap/e2e_helpers_test.go` 的 `newClient` 无人用（unused）。登记在此，免得下次
@@ -526,7 +540,7 @@ Go 源码零改动（除下面第 ① 条）。根 module 里 `pkg/` 之外唯�
 | 引用核对方式 | `路径:行号` 由脚本从三份制品中抽出后逐条打开源文件核对（含 `.dot` 中被 `\n` 拆行的标签）。散文结论（如「零 importer」「13 个 importer」）靠全仓 grep 计数。行号会随代码演进漂移，`README.md` 列了重核锚点。 |
 | 依赖结论的边界 | §3.2 只解析各 `go.mod` 的 `require` 行，未展开 `go mod graph`，也未验证最终二进制是否同时链接两个 major。 |
 | 外部消费方未纳入 | bald-admin 在另一仓库。§2/§3 的「无消费方」仅指 bald 仓库内；若 bald-admin 使用了某能力，结论需下调。 |
-| 建议≠授权 | §3.1 的抽叶子 module 是 breaking 动作（涉及 22 个模块的 require 与发版批次），按既定规则需 owner 决策后才动——owner 2026-11-02 选定 C-A（整个 `pkg/` 成 module）并要求跑 `task verify`，代码侧已落地；**发版批次（tag）仍未授权**，见 §3.1 收口。 |
+| 建议≠授权 | §3.1 的抽叶子 module 是 breaking 动作（涉及 22 个模块的 require 与发版批次），按既定规则需 owner 决策后才动——owner 2026-11-02 选定 C-A（整个 `pkg/` 成 module）并要求跑 `task verify`；代码与文档已在 2026-11-03 以 `96582bf` 进入 main（四道闸门本机全绿，其中 verify/vuln 按 CI 的 go1.27.3 复跑）；**发版批次（tag）仍未授权**，见 §3.1 收口。 |
 
 ## 10. 如果要动手，按这个顺序
 
