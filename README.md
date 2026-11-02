@@ -55,11 +55,13 @@ bald/
 ├── bootstrap/                # 装配期载体与配置装载内核（config/ 子包：层模型装载器）
 ├── registry/                 # 注册/发现契约（inmemory 内置；etcd/consul/nacos/kubernetes 直连 SDK）
 ├── retry/  ratelimit/  broker/  circuitbreaker/   # 契约 + 多实现，各自独立 module
-├── pkg/                      # appkit 装配编排（MustServe + 段驱动 Provider + Domain + mech）；
-│                             #   berrors/log/store/authn/authz/audit/metrics 等抽象与 middleware
+├── pkg/                      # 独立 module（github.com/kalandramo/bald/pkg）：appkit 装配编排
+│                             #   （MustServe + 段驱动 Provider + Domain + mech）与 store/authn/
+│                             #   authz/audit/metrics/middleware 等能力包；适配器都 require 它而非根
 ├── contrib/                  # 独立 module 桥接（authn-jwt / store-gorm / authz-casbin / audit-gorm /
 │                             #   audit-stream / observability-otlp / database）
-├── cmd/bald/                 # 官方 CLI：bald gen proto / store / app / domain
+├── cmd/bald/                 # 官方 CLI：bald gen proto / store / app / domain（与 internal/ 同属根 module，
+│                             #   根 module 现在只剩这些本仓工具）
 └── _example/bald/            # 最小示例（MustServe + std + 域声明，HTTP/gRPC 双协议）
 ```
 

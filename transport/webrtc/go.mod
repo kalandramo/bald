@@ -14,19 +14,17 @@ replace github.com/kalandramo/bald/log => ../../log
 
 replace github.com/kalandramo/bald/metrics => ../../metrics
 
-replace github.com/kalandramo/bald => ../../
-
 replace github.com/kalandramo/bald/registry => ../../registry
 
 replace github.com/kalandramo/bald/transport => ..
 
 require (
-	github.com/kalandramo/bald v0.34.1
 	github.com/kalandramo/bald/broker v0.1.0
 	github.com/kalandramo/bald/encoding v0.1.0
 	github.com/kalandramo/bald/encoding/json v0.1.1
 	github.com/kalandramo/bald/log v0.5.4
 	github.com/kalandramo/bald/metrics v0.1.0
+	github.com/kalandramo/bald/pkg v0.0.0-00010101000000-000000000000
 	github.com/pion/webrtc/v4 v4.2.12
 )
 
@@ -53,3 +51,5 @@ require (
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 )
+
+replace github.com/kalandramo/bald/pkg => ../../pkg

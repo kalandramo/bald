@@ -5,12 +5,12 @@ go 1.27.1
 require (
 	github.com/alicebob/miniredis/v2 v2.39.0
 	github.com/gomodule/redigo v1.9.2
-	github.com/kalandramo/bald v0.34.1
 	github.com/kalandramo/bald/bconf v0.15.3
 	github.com/kalandramo/bald/broker v0.3.0
 	github.com/kalandramo/bald/encoding v0.1.0
 	github.com/kalandramo/bald/encoding/json v0.1.1
 	github.com/kalandramo/bald/log v0.5.4
+	github.com/kalandramo/bald/pkg v0.0.0-00010101000000-000000000000
 )
 
 require (
@@ -162,8 +162,6 @@ require (
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
 
-replace github.com/kalandramo/bald => ../../
-
 replace github.com/kalandramo/bald/bconf => ../../bconf
 
 replace github.com/kalandramo/bald/broker => ../
@@ -193,3 +191,5 @@ replace github.com/kalandramo/bald/transport/gateway => ../../transport/gateway
 replace github.com/kalandramo/bald/transport/grpc => ../../transport/grpc
 
 replace github.com/kalandramo/bald/transport/http => ../../transport/http
+
+replace github.com/kalandramo/bald/pkg => ../../pkg

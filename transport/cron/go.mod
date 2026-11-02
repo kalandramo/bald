@@ -6,8 +6,6 @@ replace github.com/kalandramo/bald/transport => ..
 
 replace github.com/kalandramo/bald/bconf => ../../bconf
 
-replace github.com/kalandramo/bald => ../..
-
 replace github.com/kalandramo/bald/bconfig => ../../bconfig
 
 replace github.com/kalandramo/bald/berrors => ../../berrors
@@ -27,8 +25,8 @@ replace github.com/kalandramo/bald/transport/grpc => ../../transport/grpc
 replace github.com/kalandramo/bald/transport/http => ../../transport/http
 
 require (
-	github.com/kalandramo/bald v0.34.1
 	github.com/kalandramo/bald/bconf v0.15.3
+	github.com/kalandramo/bald/pkg v0.0.0-00010101000000-000000000000
 	github.com/kalandramo/bald/transport v0.4.0
 	github.com/robfig/cron/v3 v3.0.1
 )
@@ -180,3 +178,5 @@ require (
 	sigs.k8s.io/structured-merge-diff/v6 v6.4.2 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
+
+replace github.com/kalandramo/bald/pkg => ../../pkg

@@ -29,7 +29,7 @@ import (
 	obmetrics "github.com/kalandramo/bald/contrib/observability-otlp/metrics"
 	obtrace "github.com/kalandramo/bald/contrib/observability-otlp/trace"
 
-	"github.com/kalandramo/bald/observability/metricshttp"
+	"github.com/kalandramo/bald/pkg/metricshttp"
 )
 
 // 契约段 type 字段的取值。

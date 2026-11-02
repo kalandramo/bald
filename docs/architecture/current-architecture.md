@@ -18,29 +18,30 @@
 
 bald 是一个 **SPI + 适配器 + 声明式装配** 的 Go 多模块框架：契约层只定义接口（`transport.Server`、`broker.Broker`、`cache.Cache`、`registry.Registry`…），每种协议/后端各占一个独立 module 实现契约，`bconf` 用 protobuf 把「服务该怎么装配」固化成强类型配置，`bootstrap` 做分层合并，`pkg/appkit` 的 **v2 Provider** 把声明解析成执行计划（Plan）再逐个构建（Build），最终由 `appkit.Run` 统一启动与停机。
 
-仓库有 **93 个 `go.mod`**（`find . -name go.mod`），无 `go.work`；模块间靠每个子 module 的相对 `replace` 组成可编译闭包，CI 与本地 Taskfile 共用同一条模块派生（`scripts/list-modules.sh`，内部是 `find`）。
+仓库有 **94 个 `go.mod`**（`find . -name go.mod`），无 `go.work`；模块间靠每个子 module 的相对 `replace` 组成可编译闭包，CI 与本地 Taskfile 共用同一条模块派生（`scripts/list-modules.sh`，内部是 `find`）。
 
 ## 2. 分层与模块清单
 
 | 层 | 模块 | 角色 | 证据 |
 |---|---|---|---|
-| 聚合根 | `github.com/kalandramo/bald` | 同时是 **`pkg/` 库**（appkit、store、audit、authn、authz、middleware、contextx、id、crudbridge、validation、testkit）、`cmd/bald`、`internal/{codegen,docscheck,release}`、`observability/` 的宿主，以及 19 条本地 `replace` 的聚合点 | `go.mod:1,5-37,228,230` |
+| 装配 module | `github.com/kalandramo/bald/pkg` | **`pkg/` 全体的宿主 module**：appkit、store、audit、authn、authz、middleware、contextx、id、crudbridge、validation、testkit、metricshttp（原 `observability/`），加 13 条本地 `replace` | `pkg/go.mod:1` |
+| 聚合根 | `github.com/kalandramo/bald` | 只剩本仓工具：`cmd/bald` + `internal/{codegen,docscheck,release}`（`go list ./...` 实测 4 个包）、19 条本地 `replace`；**已无任何模块 require 它** | `go.mod:1`、`go list ./...` |
 | 配置契约 | `bconf` | protobuf 生成的强类型配置契约（`bootstrapv1.BootstrapConfig`、`appspec/v1`） | `bconf/proto/`、`bconf/gen/`、Taskfile `proto-contract`（`Taskfile.yml:63-67`） |
 | 配置源 | `bconfig` | 配置「从哪里读」：Reader/Watcher/Decoder + file/env/etcd/consul/nacos/vault/apollo | `bconfig/bconfig.go:3-16` |
 | 装配桥 | `bootstrap` | 分层合并内核（viper 已退役）+ `ServerProvider` 工厂 + 远程配置驱动 | `bootstrap/config/config.go:1-17`、`bootstrap/server.go:25,89,137` |
-| 组合层 | `pkg/appkit`（根 module 内） | v2 Provider `Plan`/`Build`/`Segments`、`Run`/`stopAll` 生命周期、`std` 标准装配、`mech`/`appcli`/`Domain` | `pkg/appkit/provider.go:1-24`、`pkg/appkit/appkit.go:561-703` |
+| 组合层 | `pkg/appkit`（`pkg` module 内） | v2 Provider `Plan`/`Build`/`Segments`、`Run`/`stopAll` 生命周期、`std` 标准装配、`mech`/`appcli`/`Domain` | `pkg/appkit/provider.go:1-24`、`pkg/appkit/appkit.go:561-703` |
 | 横切层 | `pkg/middleware/{bundle,gin,grpc}` | 链序固化的 gin 中间件链与 gRPC 拦截器链 | `pkg/middleware/bundle/bundle.go` `Gin()`/`GRPCInterceptors()` |
 | SPI | `transport` `broker` `cache` `metrics` `registry` `ratelimit` `circuitbreaker` `retry` `encoding` `log` `health` `berrors` | 只有接口与少量通用工具 | `transport/server.go:14-22`、`broker/broker.go:9-33`、`cache/cache.go:28-69`、`registry/registry.go:62-75` |
 | 适配器 | `transport/*`(18) `broker/*`(4) `cache/*`(3) `registry/*`(4) `log/*`(5) `metrics/*`(3) `encoding/*`(12) `ratelimit/*`(3) `circuitbreaker/*`(4) `oss/{minio,s3}` `ai/*`(3) `workflow/argo` `cobramcp` | 每个后端一个 module | 各 `*/go.mod` |
 | 接入子包 | `*/contract`（30 个目录） | 把适配器注册成 appkit v2 Provider —— **这是适配器与装配层唯一的接缝** | `transport/gateway/contract/provider.go:32`、`registry/etcd/contract/provider.go:16`、`oss/minio/contract/provider.go:17` |
-| 扩展 | `contrib/*`（8 个独立 module） | store-gorm/mongo、audit-*、authn-jwt、authz-casbin、config-nacos、observability-otlp；`contrib/database` **无独立 `go.mod`**，属根 module | `contrib/*/go.mod` |
+| 扩展 | `contrib/*`（8 个独立 module） | store-gorm/mongo、audit-*、authn-jwt、authz-casbin、config-nacos、observability-otlp；`contrib/database` 只是目录（无 `.go` 也无 `go.mod`） | `contrib/*/go.mod` |
 | 代码生成 | `cmd/bald` + `internal/codegen` | `gen app/domain/proto/store`，从 `appspec.json` 产出 owned/seeded 文件树 | `internal/codegen/appspec_tmpl_*.go` |
 | 样例 | `_example/bald` | 已迁入生成树的真实消费方 | `_example/bald/internal/bootstrap/assemble.gen.go:1-7,42-47` |
 
 `transport/` 与 `transport/grpc` 的区别是理解本仓库的钥匙：前者是 **接口**（`Server`：`Start(ctx)/Stop(ctx)/Endpoint()`），后者是 **一个实现**。`transport/gateway` 是复合体——它内嵌 `*httpserver.HTTPServer` 再加 grpc→REST 反向代理（`transport/gateway/gateway_server.go:25`），`transport/mcp` 则直接包装 `mark3labs/mcp-go`，但同样实现了 `Start/Stop/Endpoint`（`transport/mcp/server.go:106,186,233`）。
 
 <details>
-<summary>完整 module 清单（92 个，与 <code>scripts/list-modules.sh</code> 同源）</summary>
+<summary>完整 module 清单（93 个，与 <code>scripts/list-modules.sh</code> 同源）</summary>
 
 下面这块是**机器校验的**：`internal/docscheck` 的 `TestModuleListMatchesDerivation`
 把它逐行与 `scripts/list-modules.sh` 的派生结果比对（同一条谓词：仓库内含 `go.mod`
@@ -110,6 +111,7 @@ metrics/otel
 metrics/prometheus
 oss/minio
 oss/s3
+pkg
 ratelimit
 ratelimit/bbr
 ratelimit/sentinel
@@ -170,35 +172,48 @@ appspec.json / bconf 契约
 - 变体（Q7）：`AppSpec.Variant.when` 用 `go/build/constraint` 表达式，命中后 effects 并入真实装配；`variantImpls`/`WithVariantImpl` 与声明在 plan 期对账（I12）。
 - 自定义接线（Q9）：`customOptions(role)` / `customVariantOpts(name)` / `customSubcommands()` 三个 seeded 钩子承载声明表达不了的接线，`assemble.gen.go` 把 `customOptions` 放最后 → last-wins。
 
-## 4. 拓扑事实：根 module 是「枢纽」（单向扇入，已不成环）
+## 4. 拓扑事实：`pkg` module 是「枢纽」（单向扇入，无环）
 
-**这是本架构最需要理解的一点。** 根 module 既聚合又提供 `pkg/`，而 23 个适配器 module 把它当普通库引用：
+**这是本架构最需要理解的一点。** 装配层与能力包现在自成一个 module `github.com/kalandramo/bald/pkg`，23 个适配器 module 把它当普通库引用；聚合根 `github.com/kalandramo/bald` 退成只装本仓工具的 module，实测已无任何模块 require 它。
 
 ```
-根 module 侧（只 require 叶子契约与装配模块）
-  go.mod:43-54  bconf / berrors / bootstrap / health / log / ratelimit(+tokenbucket) /
-                registry / transport / transport{/,/grpc,/http,/web}
-  bootstrap/server.go:13-15  ──▶ transport{,grpc,http}
-  bootstrap/health.go:13     ──▶ transport/grpc
-  pkg/middleware/gin/authn.go:15 ─▶ transport/web
+pkg module 侧（require 13 个兄弟 module）
+  bconf / berrors / bootstrap / health / log / ratelimit(+tokenbucket) /
+  registry / transport / transport{/,/grpc,/http,/web}
+  pkg/appkit/provider.go          ──▶ bootstrap 契约 + bconf/gen
+  pkg/middleware/bundle           ──▶ transport{,grpc,http,web}（经 std 装配）
 
-适配器 module 侧（单向指回根，根不认识它们）
-  transport/gateway/go.mod:28            require github.com/kalandramo/bald v0.34.1
-  transport/gateway/contract/provider.go:24  import github.com/kalandramo/bald/pkg/appkit
-  registry/etcd/contract/provider.go:16      import github.com/kalandramo/bald/pkg/appkit
-  oss/minio/contract/provider.go:17          import github.com/kalandramo/bald/pkg/appkit
+适配器 module 侧（单向指回 pkg，pkg 不认识它们）
+  transport/gateway/go.mod            require github.com/kalandramo/bald/pkg
+  transport/gateway/contract/provider.go  import github.com/kalandramo/bald/pkg/appkit
+  registry/etcd/contract/provider.go      import github.com/kalandramo/bald/pkg/appkit
+  oss/minio/contract/provider.go          import github.com/kalandramo/bald/pkg/appkit
 ```
 
-**曾经存在的环**：`根 → bootstrap → transport/gateway → 根`（`bootstrap/server.go` 里硬编 gateway 分支 + `pkg/appkit` 的 `WithGatewayRegister`）。转码面已整体交给 `transport/gateway/contract` 的 Provider，根与 `bootstrap` 不再 require `transport/gateway`，上述链已断。实测（`go list -e` 逐模块取 import，按最长前缀归到属主 module）：**89 个模块的内部依赖图是 DAG，含测试导入也无环**。
+**曾经存在的环**：`根 → bootstrap → transport/gateway → 根`（`bootstrap/server.go` 里硬编 gateway 分支 + `pkg/appkit` 的 `WithGatewayRegister`）。转码面整体交给 `transport/gateway/contract` 的 Provider 先断掉那条链；随后 `pkg/` 独立成 module，把「适配器 require 聚合根」的 22 条边整体改指 `pkg`。实测（同一份 Tarjan 脚本读各 `go.mod` 的 require 边；改前取 `git archive main` 的快照，改后取工作树）：
 
-直接 require 根 module 的模块（**22 个非示例模块**，实测 `grep -E "^\s+github.com/kalandramo/bald v"`；另有 `_example/bald`，合计 23）：
+| 量 | 拆分前（main） | 拆分后 |
+|---|---|---|
+| `go.mod` 总数 / CI 派生 module 数 | 93 / 92 | 94 / 93 |
+| 根 module 内的包（`go list ./...`） | 27 | 4 |
+| require 根 module 的非示例模块 | 22 | **0** |
+| require `bald/pkg` 的模块（含 `_example/bald`） | — | 23 |
+| 根自己 require 的同仓 module | 13 | 1（`bconf`） |
+| module require 边总数 | 311 | 312 |
+| 大小 >1 的 SCC | 无（DAG） | 无（DAG） |
+| 全仓本地 `replace` 条数（除 `_example`） | 410 | 423 |
+
+require `bald/pkg` 的模块（**22 个非示例模块** + `_example/bald`）：
 `broker/redis`、`transport/{sse,asynq,tcp,webrtc,gateway,cron}`、`cache/redis`、`registry/{nacos,consul,etcd,kubernetes}`、`oss/{s3,minio}`、`contrib/{config-nacos,store-mongo,store-gorm,audit-stream,audit-gorm,authn-jwt,authz-casbin,observability-otlp}`、`_example/bald`。
-其余 transport（`websocket`、`web`、`kafka`、`rabbitmq`、`redis`、`rocketmq`、`subscribe`、`mcp`）**不依赖根 module**，只依赖 `transport`/`encoding`/`broker`/`berrors`/`log` 这些叶子契约模块。
+其余 transport（`websocket`、`web`、`kafka`、`rabbitmq`、`redis`、`rocketmq`、`subscribe`、`mcp`）**不依赖 `pkg`**，只依赖 `transport`/`encoding`/`broker`/`berrors`/`log` 这些叶子契约模块。
 
-反向要求根 module 的模块与根自己 require 的模块**交集为空**，所以环不会回来；代价只是枢纽型依赖：
-- 根 API 变更对 23 个消费者在**编辑期不可见**，只在打 tag 时炸；
-- 发版顺序成为人工约束（对应近期提交 `ca981b1` "tag 分批推送，避免触发流水线漏跑"、`ec4223f` "归位 bconf 的消费者 require"）。
-- `go.mod:5-37` 与 `bootstrap/go.mod` 仍保留指向 `transport/gateway` 的本地 `replace`（已无对应 require，属遗留；保留是为了将来复用不必重新接线）。
+扇入的代价换了对象，没有消掉：
+
+- `pkg` 的 API 变更对 23 个消费者在**编辑期不可见**，只在打 tag 时炸；发版顺序仍是人工约束（对应提交 `ca981b1` "tag 分批推送，避免触发流水线漏跑"、`ec4223f` "归位 bconf 的消费者 require"）。
+- 真正消掉的是另一条：`cmd/bald` 与 `internal/{codegen,docscheck,release}` 只有本仓工具在用，它们改动不再产出适配器必须追的 tag；根也不再靠 13 条兄弟 require 撑着（只剩 `bconf`）。
+- **不降反升的一条**：全仓 `replace` 从 410 涨到 423——`pkg/go.mod` 自己新增 13 条，适配器侧是 1:1 平移。评审当时把「`replace` 数量下降」记作收益，实测不成立，见 `risk-review.md` §3.1 收口。
+- 下游若在同一个 build 里既 require 根 `v0.34.1`（最后一个含 `pkg/*` 的 tag）又 require `bald/pkg`，会 `ambiguous import`。迁移动作是**替换**而非新增依赖。
+- `go.mod` 与 `bootstrap/go.mod` 仍保留指向 `transport/gateway` 的本地 `replace`（已无对应 require，属遗留；保留是为了将来复用不必重新接线）。
 
 严重度评估见 `risk-review.md` §3.1。
 
@@ -221,7 +236,7 @@ appspec.json / bconf 契约
 置信度 **high**。口径：**这些按 reference-only 保留**——不删除、不降级为示例、
 不假装已接线；文档与 README 明确标未接线，改动它们时以「仓外消费方可能存在」为前提。
 接了线的项从本清单移出，但在末尾留一行去向（清单必须与上面那条 grep 判据一致，否则宁可删条目也不留过期状态）。
-判据可复现（根 module 之外的每个包都算一次 importer）：
+判据可复现（属主包之外的每个包都算一次 importer）：
 
 ```bash
 find . -name '*.go' ! -name '*_test.go' -not -path './.git/*' -not -path './<pkg>/*' \
@@ -244,13 +259,13 @@ find . -name '*.go' ! -name '*_test.go' -not -path './.git/*' -not -path './<pkg
 2. 想加一个新后端 → 读 §2 的 `*/contract` 说明 + `pkg/appkit/provider.go`；
 3. 想改配置语义 → 读 `bconf/proto` → `bootstrap/config/config.go` → `pkg/appkit` 的 Resolve；
 4. 想知道请求怎么流 → `flows.md`；
-5. 想动根 module 的 `pkg/` API → 先读 §4 与 `risk-review.md` §3.1。
+5. 想动 `pkg` module 的 API → 先读 §4 与 `risk-review.md` §3.1。
 
 ## 8. 假设与缺口
 
 | 项 | 置信度 | 说明 |
 |---|---|---|
 | 「服务间调用不使用 Discovery，走配置地址直连」 | **已被推翻**（2026-11-02） | 评审当时的依据：gateway 用契约 `Grpc.addr` 拨号（`transport/gateway/gateway_server.go:170`，地址由 `transport/gateway/contract/contract.go` 从契约 `server.gateway.backend_grpc_addr` 传入，缺省回退 `server.grpc.addr`）。现在该地址可写 `discovery:///<服务名>` 并经装配作用域解析（§6 末「已接线的原未接线面」）；直连仍是默认。外部消费方（bald-admin）实际采用面未在本文核验 |
-| 「93 个模块的真实可运行面远小于发布面」 | high | 见 §6 与 `risk-review.md` §2 |
+| 「94 个 `go.mod` 的真实可运行面远小于发布面」 | high | 见 §6 与 `risk-review.md` §2 |
 | Windows 周界 | unknown | `.github/workflows/windows.yml` 每周一/手动 dispatch；该面本轮未验证 |
 | 运行时拓扑（进程实际部署形态、副本、网络边界） | unknown | 仓内无 IaC/清单，本次未做 `deployment-topology-analyzer` |

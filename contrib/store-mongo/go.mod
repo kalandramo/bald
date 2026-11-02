@@ -3,8 +3,8 @@ module github.com/kalandramo/bald/contrib/store-mongo
 go 1.27.1
 
 require (
-	github.com/kalandramo/bald v0.34.1
 	github.com/kalandramo/bald/bconf v0.15.3
+	github.com/kalandramo/bald/pkg v0.0.0-00010101000000-000000000000
 	github.com/stretchr/testify v1.12.1
 	go.mongodb.org/mongo-driver/v2 v2.8.0
 )
@@ -22,8 +22,8 @@ require (
 	google.golang.org/protobuf v1.36.12 // indirect
 )
 
-replace github.com/kalandramo/bald => ../..
-
 replace github.com/kalandramo/bald/bconf => ../../bconf
 
 replace github.com/kalandramo/bald/registry => ../../registry
+
+replace github.com/kalandramo/bald/pkg => ../../pkg

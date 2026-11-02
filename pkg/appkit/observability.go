@@ -6,7 +6,7 @@
 // Build 内按契约 type 单选分发（契约语义就是单选：tracer.type ∈ {"otlp"}，
 // metrics.type ∈ {"prometheus","otlp"}）。
 //
-// metrics 暴露端的**监听面归能力包**：公开包 observability/metricshttp 持有
+// metrics 暴露端的**监听面归能力包**：公开包 pkg/metricshttp 持有
 // Start/Stop（App 层不自建 http.Server）。MetricsProvider 契约是「返回可
 // 关闭的暴露端（MetricsExposure）」：后端
 // 的 Build 内起监听（metricshttp.Start），把端点句柄交回引擎；引擎把停机
@@ -39,7 +39,7 @@ type TracerProvider func(ctx context.Context, cfg *bootstrapv1.Tracer) (func(con
 
 // MetricsExposure 是 metrics 暴露端（Prometheus 抓取独立监听面）的可关闭
 // 句柄——MetricsProvider 产物契约。实现由能力包
-// observability/metricshttp 提供（metricshttp.Start 返回的 *Server 天然满足）；
+// pkg/metricshttp 提供（metricshttp.Start 返回的 *Server 天然满足）；
 // 引擎保证停机序「先 Stop 暴露端、再执行 MetricsProvider 的 flush」。
 type MetricsExposure interface {
 	// Stop 停止暴露端：关闭监听、排空在途请求。不 flush 指标——flush 归
@@ -49,7 +49,7 @@ type MetricsExposure interface {
 
 // MetricsProvider 按契约 Metrics 段装配指标后端。
 // 返回 (exposure, flush)：exposure 是 Prometheus 抓取暴露端（实现自起独立
-// 监听，推荐经 observability/metricshttp.Start；无暴露面的实现返回 nil）；
+// 监听，推荐经 pkg/metricshttp.Start；无暴露面的实现返回 nil）；
 // flush 关闭 OTLP 直推通道并释放 MeterProvider（进程退出前调用，引擎保证
 // 其在 Stop 暴露端之后执行）。
 type MetricsProvider func(ctx context.Context, cfg *bootstrapv1.Metrics) (MetricsExposure, func(context.Context) error, error)

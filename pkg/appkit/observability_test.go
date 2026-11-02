@@ -1,5 +1,5 @@
 // observability_test.go —— tracer/metrics 段装配契约（暴露端监听面单测在
-// observability/metricshttp 包；本文件保留引擎对 MetricsExposure 产物的编排
+// pkg/metricshttp 包；本文件保留引擎对 MetricsExposure 产物的编排
 // 断言——cleanup 槽位合成「先停暴露端再 flush」的停机序）。
 package appkit
 

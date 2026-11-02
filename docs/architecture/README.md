@@ -23,17 +23,29 @@
 依赖图与拓扑叙述不变，但 `flows.md` §④ 与 `flows.dot` 里 kafka 发布/订阅的行号引用因这些改动整体位移，
 已按新行号重核并重渲染 `render/flows.svg`；`check_cites.py` 输出 `checked cites: 335, problems: 0, bare-resolved: 68`。
 
+**2026-11-02 五次重核**（§3.1 收口：`pkg/` 独立成 module `github.com/kalandramo/bald/pkg`）：
+`current-architecture.md` §2/§4 的枢纽叙述改指 `pkg`，`module-deps.dot` 的 22 条红边目标随之重画并重渲染，
+`flows.md` 与 `Bald 指标设计.md` 里 `observability/metricshttp` 的旧路径更新为 `pkg/metricshttp`；
+`risk-review.md` §3.1 加了「收口」一节，按 `git archive main` 快照与工作树各跑一遍同一段 Tarjan 脚本，
+把 require 根的适配器 22→0、`replace` 410→423（**不降反升，当年那句「收益是 replace 数量下降」已撤回**）
+写成可复现数字。拆分本身由 `internal/docscheck` 新增的三条闸门守住（`TestNoModuleRequiresAggregateRoot` /
+`TestPkgModuleIsLeaf` / `TestModuleOfImport`），五条变异实测与四道闸门（`verify` / `race` / `lint` / `vuln`）的
+本机结果——含 `task lint` 首跑红在我自己新增的测试代码上、`task vuln` 本机红在 go1.27.1 标准库这两件不体面的事——
+都记在 `risk-review.md` §3.1「验活」。
+
 | 文件 | 回答的问题 | 状态 |
 |---|---|---|
 | `current-architecture.md` | 这个仓库现在是什么结构？分层、SPI、装配主干、模块拓扑 | 现状，引用已逐条核对 |
 | `bald-c4.dsl` | C4 landscape / 服务上下文 / 模块容器视图源 | **已机器校验**：`structurizr-dsl` 6.2.4 解析通过，3 张视图导出 + graphviz 渲染均无告警 |
-| `module-deps.dot` | 93 个模块的依赖分层，跨层回边高亮 | **已渲染**：`dot -Tsvg` 退出码 0、stderr 为空（31 节点 / 50 边） |
+| `module-deps.dot` | 94 个 `go.mod` 的依赖分层，跨层回边高亮 | **已渲染**：`dot -Tsvg` 退出码 0、stderr 为空（32 节点 / 52 边；回边目标已由聚合根改为 `pkg` module） |
 | `flows.md` | 请求/消息/生命周期/发现/缓存/可观测/WebRTC 怎么流；哪些真接线 | 现状，引用已逐条核对 |
 | `flows.dot` | 上述三条主流程的图源 | **已渲染**：`dot -Tsvg` 退出码 0、stderr 为空（40 节点 / 39 边） |
 | `risk-review.md` | 哪里有风险、严重度、消解条件、动手顺序 | 含自评局限一节（§9） |
 | `render/*.svg` | 上面两份 `.dot` 与 `.dsl` 三张视图的渲染快照 | 由 graphviz 16.1.0 生成，改源后需重跑（见「校验工具与命令」） |
 
-> 「引用已逐条核对」= 用脚本把制品里的每个 `路径:行号` 抽出来（行内省略文件名的简写按就近文件解析），逐条打开源文件回读该行内容并人工比对叙述；不是抽样。最新一次重跑（脚本原始输出）：**`checked cites: 335, problems: 0, bare-resolved: 68, bare-unresolved: 0`**。
+> 「引用已逐条核对」= 用脚本把制品里的每个 `路径:行号` 抽出来（行内省略文件名的简写按就近文件解析），逐条打开源文件回读该行内容并人工比对叙述；不是抽样。最新一次重跑（§3.1 收口后，脚本原始输出）：**`checked cites: 325, problems: 12, bare-resolved: 65, bare-unresolved: 0`**。
+> 这 12 条不是本轮引入：与拆分前的 `main` 逐条比对，同一集合：多包同名的裸文件名（测试文件、中间件里的超时与限流实现）与只写了裸文件名的 workflow 作业文件，本轮新增 0 条；
+> 上面那句 `problems: 0` 是 §7.5 Windows 那轮之前的状态，之后写进风险登记册的若干裸文件名引用把它带成了 12，此前没人重跑这条校验。
 >
 > 这个检查的边界：它只能证明「被写成引用的那些行号」对得上，**不能证明叙述本身正确**——没有行号的定性判断（如「零 importer」「性能更好」）仍需人工复核。同理，渲染/解析通过只证明图源语法与视图装配合法，不证明建模判断正确。
 

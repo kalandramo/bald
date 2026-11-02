@@ -7,9 +7,9 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.33.3
 	github.com/aws/aws-sdk-go-v2/credentials v1.20.3
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.111.0
-	github.com/kalandramo/bald v0.34.1
 	github.com/kalandramo/bald/bconf v0.15.3
 	github.com/kalandramo/bald/log v0.5.4
+	github.com/kalandramo/bald/pkg v0.0.0-00010101000000-000000000000
 )
 
 require (
@@ -178,8 +178,6 @@ replace github.com/kalandramo/bald/log => ../../log
 
 replace github.com/kalandramo/bald/bconf => ../../bconf
 
-replace github.com/kalandramo/bald => ../..
-
 replace github.com/kalandramo/bald/bconfig => ../../bconfig
 
 replace github.com/kalandramo/bald/berrors => ../../berrors
@@ -197,3 +195,5 @@ replace github.com/kalandramo/bald/transport/gateway => ../../transport/gateway
 replace github.com/kalandramo/bald/transport/grpc => ../../transport/grpc
 
 replace github.com/kalandramo/bald/transport/http => ../../transport/http
+
+replace github.com/kalandramo/bald/pkg => ../../pkg

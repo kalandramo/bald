@@ -10,10 +10,10 @@ replace github.com/kalandramo/bald/encoding/json => ../../encoding/json
 
 require (
 	github.com/google/uuid v1.6.0
-	github.com/kalandramo/bald v0.34.1
 	github.com/kalandramo/bald/bconf v0.15.3
 	github.com/kalandramo/bald/encoding v0.1.0
 	github.com/kalandramo/bald/encoding/json v0.1.1
+	github.com/kalandramo/bald/pkg v0.0.0-00010101000000-000000000000
 	github.com/kalandramo/bald/transport v0.4.0
 )
 
@@ -166,8 +166,6 @@ require (
 
 replace github.com/kalandramo/bald/bconf => ../../bconf
 
-replace github.com/kalandramo/bald => ../..
-
 replace github.com/kalandramo/bald/bconfig => ../../bconfig
 
 replace github.com/kalandramo/bald/berrors => ../../berrors
@@ -185,3 +183,5 @@ replace github.com/kalandramo/bald/transport/gateway => ../../transport/gateway
 replace github.com/kalandramo/bald/transport/grpc => ../../transport/grpc
 
 replace github.com/kalandramo/bald/transport/http => ../../transport/http
+
+replace github.com/kalandramo/bald/pkg => ../../pkg

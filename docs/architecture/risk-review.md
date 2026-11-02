@@ -10,7 +10,7 @@
 | # | 风险 | 严重度 | 置信度 | 状态 |
 |---|---|---|---|---|
 | 6.5 | gRPC 的 `tls` 契约字段**未接线**，生成物硬编码明文；gateway 出站也硬编码明文 | **高** | ✅ 已核对源码 | **已修** |
-| 3.1 | 根 module ↔ 适配器 **模块环**，靠互相 `replace` 才编译 | **高** | ✅ 已核对 go.mod/import | **已修**（删重复机制后实测 89 模块为 DAG；22 个适配器单向 require 根的扇入耦合仍在） |
+| 3.1 | 根 module ↔ 适配器 **模块环**，靠互相 `replace` 才编译 | **高** | ✅ 已核对 go.mod/import | **已修（两轮）**：删重复机制后实测图为 DAG；`pkg/` 独立成 module 后 require 根的适配器 22→0，见 §3.1「收口」 |
 | 6.1 | 鉴权 **fail-open**：未注入即整层消失，无 default-deny、无告警 | **高** | ✅ 已核对源码 | **已修** |
 | 2 | **发布面 ≫ 使用面**：retry / circuitbreaker 等无消费方 | 中 | ✅ 全仓 grep | **部分收口**（Discovery 接线半已落地＝§2「选项 1」的 Discovery 分支；retry/circuitbreaker 仍 reference-only；移出发布批次未做） |
 | 7.1 | **CI 全量只跑 `-short`**，集成测试在 CI 中从不执行 | 中 | ✅ 已核对 `.github/workflows/ci.yml` | **已修（registry/store/队列三条接缝）**：新增 `integration` 作业注入 etcd/redis/mongo，探活 + 逐条断言判据真的 PASS；作业文件自身另开 `workflow-lint` 作业（actionlint）把关，见 §7.1 收口；示例侧（etcd/nacos 服务发现）仍只在本地跑 |
@@ -193,13 +193,13 @@ race 该覆盖的形态）、`broker/kafka`、`contrib/*` 全部缺席，而 `me
   cache/redis、oss/{minio,s3}、contrib/*、broker/redis、transport/{sse,asynq,cron,tcp,webrtc}  同样
 ```
 
-实测：**22 个非示例模块直接 require 根 module**（另有 `_example/bald`，合计 23），根 module 自身有 19 条本地 `replace`（`go.mod` 中 17 条在 `:5-37`，另有 `:228,:230` 两条 ratelimit 相关），每个 require 根的适配器也都写了 `replace github.com/kalandramo/bald => ../..`。Go 允许 module 图成环（按包级加载），所以修复前它**能编译**——但代价是：
+实测：**22 个非示例模块直接 require 根 module**（另有 `_example/bald`，合计 23），根 module 自身有 19 条本地 `replace`（17 条聚在 require 块前，另两条是 ratelimit 相关），每个 require 根的适配器也都写了 `replace github.com/kalandramo/bald => ../..`。Go 允许 module 图成环（按包级加载），所以修复前它**能编译**——但代价是：
 
 - 回边被本地 `replace` 遮蔽：改 `pkg/appkit` 的导出 API，根的 `go mod tidy` 与根自己的测试都看不出下游会断；断裂只在**给下游模块 bump require 到不存在的 tag 之前**都不显现。
 - 发版顺序变成人工约束。近期提交正是这条链的症状：`ca981b1`「tag 分批推送，避免触发流水线漏跑」、`ec4223f`「归位 bconf 的消费者 require」、`89a6a94`「未发版模块也跟随归位内部依赖」。
 - `*/contract` 子包是回边的主要载体（30 个目录），**这也是唯一可下刀的地方**。
 
-- 消解（方向，非承诺）：把 v2 Provider 所需的最小面（`Provider`/`Node`/`PlanScope`/`ApplyScope`/`Cleanup`/`Option`）抽到一个叶子 module（例如 `pkg/appkit` 独立成 `github.com/kalandramo/bald/appkit`，或新建中立的契约 module），让适配器只依赖叶子而非聚合根；收益是 `replace` 数量与版本追赶下降、下游对根 API 变更解耦。**注意：gateway 那条断掉后图里已无环，这一步是解耦而非断环。**
+- 消解（方向，非承诺）：把 v2 Provider 所需的最小面（`Provider`/`Node`/`PlanScope`/`ApplyScope`/`Cleanup`/`Option`）抽到一个叶子 module（例如 `pkg/appkit` 独立成 `github.com/kalandramo/bald/appkit`，或新建中立的契约 module），让适配器只依赖叶子而非聚合根；收益是版本追赶下降、下游对根 API 变更解耦。**注意：gateway 那条断掉后图里已无环，这一步是解耦而非断环。**（落地时按最宽切法做了整个 `pkg/`，见下节；当年这句里并列的「`replace` 数量下降」实测不成立，已在收口节撤回。）
 - 消解条件：任何适配器不再 `require github.com/kalandramo/bald`（仅剩 `pkg/` 内不参与 Provider 的包可以例外）。
 
 **3.1 修复（gateway 这一条环）✅ 已修**
@@ -235,7 +235,96 @@ B、C 是同一套机制的两份实现（命令式能力声明 vs 段驱动 Pro
   它们的版本追赶/编辑期不可见要靠抽 `appkit` 叶子 module 才能消——独立 breaking
   动作，仍待 owner 决策。根与 `bootstrap` 的 `go.mod` 里指向 `transport/gateway` 的
   本地 `replace` 一并保留（已无对应 require，留着是为将来复用不必重新接线）。
-- 还不能证明：断环带来的实际收益只有「版本追赶不再成对」这一条，已经过 Linux CI（`5f771e0`：test/race/lint/vuln 全绿）与 `_example` 起进程实测。扇入本身没消：根 module 一次改动仍要让 22 个适配器重编，那要抽 `appkit` 叶子 module 才做得到，仍是 owner 决策项。
+- 还不能证明：断环带来的实际收益只有「版本追赶不再成对」这一条，已经过 Linux CI（`5f771e0`：test/race/lint/vuln 全绿）与 `_example` 起进程实测。扇入本身没消：根 module 一次改动仍要让 22 个适配器重编，那要抽 `appkit` 叶子 module 才做得到——已落地，见下节。
+
+**3.1 收口（`pkg/` 独立成 module）✅ 已落地，发版待 owner**
+
+按上面的「消解条件」动刀，取最宽的切法：整个 `pkg/`（22 个包）成为 module
+`github.com/kalandramo/bald/pkg`。**import 路径一字未改**——`github.com/kalandramo/bald/pkg/appkit`
+本来就是嵌套路径，Go 按最长 module 前缀解析，所以变的只有各模块 `go.mod` 的 require/replace 指向，
+Go 源码零改动（除下面第 ① 条）。根 module 里 `pkg/` 之外唯一被适配器 import 的包
+`observability/metricshttp` 随迁为 `pkg/metricshttp`（`git mv` 两个文件，内容不动）——不迁它就仍要
+单独 require 根，消解条件破功。
+
+实测（同一份 Tarjan 脚本读 `go.mod` 的 require 边；改前取 `git archive main` 快照，改后取工作树）：
+
+| 量 | main | 本分支 |
+|---|---|---|
+| `go.mod` 总数 / CI 派生 module 数 | 93 / 92 | 94 / 93（新增 `pkg`） |
+| 根 module 内的包（`go list ./...`） | 27 | 4（`cmd/bald` + `internal/{codegen,docscheck,release}`） |
+| require 根 module 的非示例模块 | 22 | **0** |
+| require `github.com/kalandramo/bald/pkg` 的模块 | — | 23（22 适配器 + `_example/bald`） |
+| 根自己 require 的同仓 module | 13 | 1（`bconf`） |
+| module require 边总数 | 311 | 312 |
+| 大小 >1 的 SCC | 无（已是 DAG） | 无（仍是 DAG） |
+| 全仓本地 `replace` 条数（除 `_example`） | 410 | **423** |
+
+- 改了什么：① `observability/metricshttp` → `pkg/metricshttp`，并改掉 `contrib/observability-otlp/contract`
+  的 import 与 5 处旧路径文字（`pkg/appkit/observability{,_test}.go`、`contrib/observability-otlp/metrics`、
+  `Bald 指标设计.md`、`flows.md`）；② `pkg/go.mod` 新建（13 条本地 `replace`，seed 根的兄弟 require）；
+  ③ 22 个适配器 + `_example/bald` 的 `go mod edit -droprequire/-dropreplace github.com/kalandramo/bald` 换成
+  `bald/pkg` + `replace => ../../pkg`，逐个 `go mod tidy`（23/23 无失败）；④ 根的 require 收敛到 `bconf`，
+  原先为它加的 `bald/pkg` require/replace 实测是死的（根不再 import `pkg/*`），已删；
+  ⑤ `docs/architecture/module-deps.dot` 的 22 条红边目标改为 `pkg` 并重渲染。
+- 验活：`task verify`（`scripts/list-modules.sh` 派生的 93 个 module + `_example`，每模块一次
+  `go mod tidy -diff`）**exit=0，0 FAIL，0 diff**；`go test ./internal/docscheck/` 过（`module-list` 围栏
+  已加 `pkg` 行，92→93 双向断言不响即证明围栏真的在数）；`pkg` 与 `_example/bald` 各自 `go build ./...` + `go vet ./...` 干净。
+- 验活（其余三道闸门，本机）：`task race` 覆盖 93 个派生 module 减去 `.github/race-skip.txt` 的 1 个
+  （`log/aliyun`，上游 SDK 自带竞争）= 92 次 `-race`，**0 FAIL、0 `DATA RACE`、exit=0**，新 `pkg` 在清单内。
+  `task lint` **首跑是红的**，红在我这次新增的代码上：`internal/docscheck` 的 `importBlockRe` 用双引号串写正则，
+  staticcheck `S1007` 要求 raw string；改成反引号后重跑 93/93 模块 `0 issues`、exit=0。改完不放过这条改正
+  可能带来的漏判——重新变异一次：往 `pkg/appkit/observability.go` 的 `import (...)` 块塞
+  `github.com/kalandramo/bald/internal/codegen` → `TestPkgModuleIsLeaf` 立刻红，复原 → 绿。
+- 验活（`task vuln`）：本机 exit=201，红在 `ai/eino`——4 条**标准库**漏洞（GO-2026-6603/6611/6613/6617，
+  `net/http` 与 `net/http/internal/http2`，官方在 go1.27.2 修），而本机是 go1.27.1、CI 的 vuln 作业是
+  `.github/workflows/ci.yml` 里的 1.27.3。与本次拆分无关有两条证据：`ai/eino` 本轮 0 个文件改动；取
+  `git archive main` 快照在同一个 `ai/eino` 跑 `govulncheck` 得到**同样这 4 条**。用 CI 的 1.27.3 工具链
+  （`GOTOOLCHAIN=go1.27.3`）重跑：`ai/eino` → `No vulnerabilities found`，新 `pkg` module → 0 条可达；
+  按 1.27.3 跑**全量** `task vuln` → 93 次扫描、exit=0。也就是说本机那条红是工具链版本差，不是这批改动带来的。
+- 最后按 CI 的口径（`GOTOOLCHAIN=go1.27.3`，与 `.github/workflows/ci.yml` 的 `go-version` 一致）重跑了一遍**全量 `task verify`**：
+  96 次 `go mod tidy -diff` + 各模块 build/vet/`test -short`，**exit=0、0 FAIL、0 diff**。
+  踩到的环境坑（接手要用 1.27.3 时同样会碰到）：`GOTOOLCHAIN=go1.27.3` 与 `GOSUMDB=off` 互斥——
+  工具链本身是 `golang.org/toolchain` 这个 module，关掉校验和库会让它拒绝解包
+  （`verifying module: checksum database disabled by GOSUMDB=off`，`task verify` 因此在第一个测试步骤就 exit=201）。
+  走 goproxy.cn 时把 `GOSUMDB` 设回 `sum.golang.org` 即可，代理会一并转发校验数据。
+- 新增三条闸门（`internal/docscheck`），逐条变异验证后才复原：
+  - `TestNoModuleRequiresAggregateRoot`——任何非示例模块的 `go.mod` 再出现 `require github.com/kalandramo/bald`
+    （含 `// indirect`）即红。变异：给 `cache/redis` 加回 `require github.com/kalandramo/bald v0.34.1` →
+    恰好红在它身上；复原后 `go mod tidy` 连那两行 go.sum 一起清空。这条是必需的：本地 `replace` 让违反它的代码
+    照样编译，CI 的 build/vet/test 全绿，扇入复辟只在发版时显现。
+  - `TestPkgModuleIsLeaf`——① 根 module 的包集合必须恰为 `cmd/bald` + `internal/{codegen,docscheck,release}`，
+    ② `pkg/` 下任何 `.go` 的**真实 import**（不含注释与模板字符串）不得归到根 module，另带「扫到 <50 个文件即
+    `t.Fatal`」的防空转。变异三次：往 `pkg/id/uuid.go` 塞 `_ "…/internal/release"` → 红在②；临时在根下建一个空的 `scratchleaf` 包
+    → 红在①「预期外的包」；把 `importBlockRe` 从双引号串改成 raw string（`task lint` 的 `S1007` 要求）之后，
+    再往 `pkg/appkit/observability.go` 的 `import (...)` 块塞 `github.com/kalandramo/bald/internal/codegen` →
+    仍红在②，证明改正没把括号块那条解析路径改坏。
+  - `TestModuleOfImport`——锚定归属判定的最长前缀语义，故意含一组**乱序**输入。这一条当场抓出我第一版实现的
+    真缺陷（拿候选 module 路径长度与「目录串」长度比，`transport/grpc` 会被后面的 `transport` 顶掉）；改成
+    `bestLen` 后，把判据换成「后到者胜」立刻红在乱序组上，证明比较真的在起作用。
+- **收益比原评审写的窄，且有一条反向代价**：appkit/middleware/audit 等现在在 `pkg`，改它们照样要 22 个
+  适配器追 require，只是追的对象从 `bald` 换成 `bald/pkg`——**全仓 `replace` 不降反升（410→423）**，
+  当年那句「收益是 `replace` 数量与版本追赶下降」的前半实测不成立，撤回。真正消掉的是：
+  `cmd/bald`、`internal/*` 这些只有本仓工具在用的包，改动不再产出适配器必须追的根 tag；
+  根的 `go mod tidy` 也不再需要 13 条兄弟 require 撑着。这是解耦，不是断环（图本来就是 DAG）。
+- 新出现的下游后果（已实测复现，不是推测）：根的最后一个含 `pkg/*` 的 tag 是 `v0.34.1`，那份 zip 里包还在。
+  同一个 build 里同时 require `github.com/kalandramo/bald v0.34.1` 与 `github.com/kalandramo/bald/pkg` 会直接
+  `ambiguous import: found package github.com/kalandramo/bald/pkg/appkit in multiple modules`。
+  所以下游迁移是**替换**而非新增：去掉对根的 require，换成 `pkg`；`bald-admin` 这类本地联调还需补一条
+  `replace github.com/kalandramo/bald/pkg => ../../bald/pkg`（该仓本轮未动）。
+- 还没做 / 待 owner：`pkg` 尚无 tag——`internal/release` 对未发版 module 报 `initial, v0.1.0`（`internal/release/plan.go`），首个 tag 即
+  `pkg/v0.1.0`；它与 23 个消费者的 require 归位是同一次发版动作，属共享状态，按既定规则需 owner 决策。
+  **现在 23 个消费者带的是零伪版本** `github.com/kalandramo/bald/pkg v0.0.0-00010101000000-000000000000` +
+  本地 `replace`（改前它们是真实 tag `bald v0.34.1` + `replace`），所以这批在 tag 之前**不可发布**——
+  发布物里的伪版本会解析不到（`ec4223f`「归位 bconf 的消费者 require」是同一条纪律）。
+  同理，本分支全靠本地 `replace` 才自洽，**tag 之前「published 形态」不可验证**：下游此刻只看得到旧根 zip，
+  而旧根里没有 `pkg` 这个 module。
+- 刻意没做：① 没有只抽 appkit 的最小面（选项曾列 `Provider`/`Node`/`PlanScope`/`ApplyScope`/`Cleanup`/`Option`
+  六个符号）——那要把 `pkg/appkit` 从 `pkg/middleware` 等既有互相依赖里摘出来，改动面比整切更大；
+  ② 没动 `bald-admin`；③ 没重跑 `.dsl` 的 C4 机器校验（本机 JDK/Maven 已失踪，`.dsl` 未改）。
+- 顺手发现（不在任何闸门范围内，本轮未修）：`_example/bald` 被清单谓词 `-not -path "./_example*"` 排除在
+  lint/race/vuln 之外，按 1.27.3 单跑 `golangci-lint` 得 2 条既存问题——`user/cmd.go` 的 `p.Close` 未查返回值
+  （errcheck）、`internal/bootstrap/e2e_helpers_test.go` 的 `newClient` 无人用（unused）。登记在此，免得下次
+  当成拆分引入的新问题；它们与本批改动无关（`_example/bald` 只动了 `go.mod` 的 require/replace）。
 
 **3.2 依赖卫生：多 major 并存（低）** ✅ 脚本实测
 
@@ -419,7 +508,7 @@ B、C 是同一套机制的两份实现（命令式能力声明 vs 段驱动 Pro
 - 缺口：**它只测链接完整性**，测不出「文字在描述已删除的 API」或「新增模块没进文档」。§2 那些未接线模块正是这类漂移的候选。
 - 消解：加一条模块清单断言（`find` 结果 vs docs 中列举的模块集合），成本极低且能自动失效。
 
-**8 收口（已落地，只覆盖「清单」这一半）**：`docs/architecture/current-architecture.md` §2 末尾加了一块 ` ```module-list ` 围栏（92 行，与 `scripts/list-modules.sh` 同源），`internal/docscheck` 新增两条断言：
+**8 收口（已落地，只覆盖「清单」这一半）**：`docs/architecture/current-architecture.md` §2 末尾加了一块 ` ```module-list ` 围栏（与 `scripts/list-modules.sh` 同源，加 `pkg` 后 93 行），`internal/docscheck` 新增两条断言：
 
 - `TestModuleListMatchesDerivation`——Go 侧复刻同一条谓词（含 `go.mod` 的目录，排除 `.git`/`node_modules`/`vendor`/`_example*`，根记作 `.`），与文档块**双向**比对；另带两条防空转断言（派生数 <50、文档块为空 → `t.Fatal`），谓词一旦被改坏是响而不是静默通过。
 - `TestModuleDerivationMatchesScript`——直接 `sh scripts/list-modules.sh` 与 Go 复刻逐行比对，把「测试里的谓词」钉在「CI 用的那一条派生」上，Windows 跳过（无 POSIX sh）。
@@ -437,7 +526,7 @@ B、C 是同一套机制的两份实现（命令式能力声明 vs 段驱动 Pro
 | 引用核对方式 | `路径:行号` 由脚本从三份制品中抽出后逐条打开源文件核对（含 `.dot` 中被 `\n` 拆行的标签）。散文结论（如「零 importer」「13 个 importer」）靠全仓 grep 计数。行号会随代码演进漂移，`README.md` 列了重核锚点。 |
 | 依赖结论的边界 | §3.2 只解析各 `go.mod` 的 `require` 行，未展开 `go mod graph`，也未验证最终二进制是否同时链接两个 major。 |
 | 外部消费方未纳入 | bald-admin 在另一仓库。§2/§3 的「无消费方」仅指 bald 仓库内；若 bald-admin 使用了某能力，结论需下调。 |
-| 建议≠授权 | §3.1 的抽叶子 module 是 breaking 动作（涉及 22 个模块的 require 与发版批次），按既定规则需 owner 决策后才动。 |
+| 建议≠授权 | §3.1 的抽叶子 module 是 breaking 动作（涉及 22 个模块的 require 与发版批次），按既定规则需 owner 决策后才动——owner 2026-11-02 选定 C-A（整个 `pkg/` 成 module）并要求跑 `task verify`，代码侧已落地；**发版批次（tag）仍未授权**，见 §3.1 收口。 |
 
 ## 10. 如果要动手，按这个顺序
 
@@ -448,7 +537,7 @@ B、C 是同一套机制的两份实现（命令式能力声明 vs 段驱动 Pro
 5. **kafka 的 writer 重建 + 订阅退避补测试**（§1.3）✅：`broker/kafka` 与 `broker/rabbitmq` 各有了第一份测试，全部不起真实 broker（死端口造 ECONNREFUSED）。过程中揪出并修掉 4 个生产缺陷，其中「重连后发布 panic + 写锁泄漏」和「`retriesCount=0` 吞掉写失败」都只在失败/热更路径上，原先没有任何执行证据。
 6. **给 §2 的未接线面做决策** ✅ 口径已定：reference-only 保留 + README/当前架构 §6 标注；其中 **Discovery 走的是选项 1（接线）而不是标注**——`transport/gateway` 出站现在真消费 `GetService`/`Watch`（见 §2「接线半」）。retry/circuitbreaker 的 bundle 层与「移出发布批次」仍按 §2「刻意没做」留给 owner。
 7. **`berrors` 边界口径**（§5）✅ 选 (b)：定位为边界投影模型，不改码。**Discovery 消费侧**（§2）已做——watch-based resolver + 装配作用域自动派生来源，消费方只改一行配置。
-8. **抽离 appkit 契约面，把适配器从「require 聚合根」解耦**（§3.1）——breaking，放在最后，且只在 §5/§6 的口径定清之后做。模块环已由 gateway 那一条的重复机制删除而断开（实测图为 DAG），这条剩下的收益是 `replace` 数量与版本追赶，不再是断环。
+8. **抽离 appkit 契约面，把适配器从「require 聚合根」解耦**（§3.1）✅ 已落地（owner 选定 C-A：整个 `pkg/` 成 module，非最小面）：require 根的适配器 22→0，`task verify` 全绿。收益按实测收窄——`replace` 数量不降反升（410→423，那句旧表述已撤回），真正消掉的只有「本仓工具的改动不再产出适配器要追的根 tag」；发版批次待 owner。
 9. **gRPC 链补限流与超时**（§6.2）✅ unary 面：`RateLimitInterceptor`/`TimeoutInterceptor` + bundle 两侧共用同一对 Option，当场揪出并修掉 `tokenbucket.Close()` 不唤醒 `Wait` 的真缺陷。剩 stream 面、gRPC 独立契约段、自动装配三项（见 §6.2「未修」）。
 10. **限流链序**（§6.3）✅ 口径已定：保持「认证之后」，落文档；改默认会把按 subject 的配额静默变成全局配额。顺带修掉设计文档里写反的链序。
 11. **文档漂移闸门**（§8）✅ 清单半：`module-list` 围栏 + 双向断言 + 与脚本逐行比对（三条变异实测）。「描述已删除 API」半仍未覆盖。

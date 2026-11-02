@@ -4,7 +4,7 @@ go 1.27.1
 
 require (
 	github.com/casbin/casbin/v2 v2.128.0
-	github.com/kalandramo/bald v0.34.1
+	github.com/kalandramo/bald/pkg v0.0.0-00010101000000-000000000000
 )
 
 require (
@@ -13,6 +13,6 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 )
 
-replace github.com/kalandramo/bald => ../..
-
 replace github.com/kalandramo/bald/registry => ../../registry
+
+replace github.com/kalandramo/bald/pkg => ../../pkg

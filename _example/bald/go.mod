@@ -8,13 +8,13 @@ require (
 	github.com/gin-gonic/gin v1.12.0
 	github.com/go-kratos/kratos/v3/contrib/config/nacos/v3 v3.0.0-00010101000000-000000000000
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.29.0
-	github.com/kalandramo/bald v0.34.1
 	github.com/kalandramo/bald/bconf v0.15.3
 	github.com/kalandramo/bald/berrors v0.1.1
 	github.com/kalandramo/bald/bootstrap v0.13.4
 	github.com/kalandramo/bald/contrib/store-gorm v0.4.0
 	github.com/kalandramo/bald/health v0.1.1
 	github.com/kalandramo/bald/log v0.5.4
+	github.com/kalandramo/bald/pkg v0.0.0-00010101000000-000000000000
 	github.com/kalandramo/bald/registry v0.3.1
 	github.com/kalandramo/bald/registry/etcd v0.0.0-00010101000000-000000000000
 	github.com/kalandramo/bald/registry/nacos v0.3.0
@@ -214,8 +214,6 @@ require (
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
 
-replace github.com/kalandramo/bald => ../..
-
 replace github.com/kalandramo/bald/bconf => ../../bconf
 
 replace github.com/kalandramo/bald/bconfig => ../../bconfig
@@ -249,3 +247,5 @@ replace github.com/go-kratos/kratos/v3/contrib/config/nacos/v3 => ../../../krato
 replace github.com/go-kratos/kratos/v3/contrib/registry/nacos/v3 => ../../../kratos/contrib/registry/nacos
 
 replace github.com/kalandramo/bald/registry/etcd => ../../registry/etcd
+
+replace github.com/kalandramo/bald/pkg => ../../pkg

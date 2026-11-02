@@ -108,7 +108,7 @@
 |---|---|---|
 | span | **中间件层，不是 transport 层**：gin `tracer.Start`（`pkg/middleware/gin/observability.go:154`，`otel.Tracer("bald/gin")` `:28`，SpanKindServer）；gRPC `UnaryObservability`/`StreamObservability`（`pkg/middleware/grpc/observability.go:92,196`） | 无全局 TracerProvider 时 otel 为 no-op（安全默认，`pkg/appkit/observability.go:23`） |
 | metrics | 契约 `metrics.Metrics`（`metrics/metrics.go:15-19`）；**请求路径上的发射点在 Audit 中间件里**（`pkg/middleware/gin/audit.go:138-148` `emitMetricsSafely`，recorder 由 `bundle.Metrics` 注入） | 后端：`metrics/prometheus`（含 `promhttp.Handler()`）、`metrics/otel`（OTLP grpc/http）、`metrics/datadog`（statsd） |
-| 暴露 | 独立端口 `:9091`（`observability/metricshttp/metricshttp.go:36-53`），由 contrib provider 的 Build 启动（`contrib/observability-otlp/contract/contract.go:73-85,91-111`），以 `appkit.MetricsExposure` 返回（`pkg/appkit/observability.go:44-55`） | 停机顺序「先停暴露 → 再 flush」由引擎保证（`metricshttp.go:55-56` 注释、`pkg/appkit/observability.go:19-20`） |
+| 暴露 | 独立端口 `:9091`（`pkg/metricshttp/metricshttp.go:36-53`），由 contrib provider 的 Build 启动（`contrib/observability-otlp/contract/contract.go:73-85,91-111`），以 `appkit.MetricsExposure` 返回（`pkg/appkit/observability.go:44-55`） | 停机顺序「先停暴露 → 再 flush」由引擎保证（`metricshttp.go:55-56` 注释、`pkg/appkit/observability.go:19-20`） |
 
 ---
 

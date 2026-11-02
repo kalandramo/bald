@@ -170,7 +170,7 @@ func (p metricsProvider) Build(ctx context.Context, s appkit.ApplyScope, _ appki
 ```
 
 - `metrics.type` 单选：`prometheus` = 仅本地抓取，`otlp` = 抓取 + 直推双通道；段缺省 → 不装配；段存在而无 Provider → L3 启动期报错。
-- 暴露端归能力包 `observability/metricshttp`（独立监听，`metrics.prometheus.addr/path`，缺省 `:9091` `/metrics`）。产物是 `appkit.MetricsExposure`（可关闭句柄），引擎合成停机序：**先 Stop 暴露端、再执行 flush**——尾批指标不因监听面先收而丢失。
+- 暴露端归能力包 `pkg/metricshttp`（独立监听，`metrics.prometheus.addr/path`，缺省 `:9091` `/metrics`）。产物是 `appkit.MetricsExposure`（可关闭句柄），引擎合成停机序：**先 Stop 暴露端、再执行 flush**——尾批指标不因监听面先收而丢失。
 - `metrics` 段不支持热更新（`ReloadStatic`）。
 - serviceName 即时绑定：构造器收 `serviceName string`，构造时求值——resource 的 `service.name` 来自应用而非契约段，故导出构造器而非包级变量。
 

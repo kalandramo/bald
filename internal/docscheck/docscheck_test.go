@@ -438,3 +438,232 @@ func TestModuleDerivationMatchesScript(t *testing.T) {
 		}
 	}
 }
+
+// rootModulePath 是聚合根的 module 声明路径。
+const rootModulePath = "github.com/kalandramo/bald"
+
+// moduleOfImport 按最长前缀把 import 路径归到属主 module（返回其在仓库里的
+// 目录，根 module 为 "."）；不属于本仓任何 module 的外部导入返回 ""。
+func moduleOfImport(importPath string, mods []string) string {
+	bestDir, bestLen := "", -1
+	for _, dir := range mods {
+		mp := rootModulePath
+		if dir != "." {
+			mp += "/" + dir
+		}
+		if importPath == mp || strings.HasPrefix(importPath, mp+"/") {
+			if len(mp) > bestLen {
+				bestDir, bestLen = dir, len(mp)
+			}
+		}
+	}
+	return bestDir
+}
+
+// importPathsFromGoSource 取真实 import 声明里的路径（单行与括号块两种形态），
+// 不看注释与字符串字面量——模板字符串里的 import 字面量不是依赖。
+func importPathsFromGoSource(src string) []string {
+	var out []string
+	for _, m := range singleImportRe.FindAllStringSubmatch(src, -1) {
+		out = append(out, m[1])
+	}
+	for _, blk := range importBlockRe.FindAllStringSubmatch(src, -1) {
+		for _, m := range importSpecRe.FindAllStringSubmatch(blk[1], -1) {
+			out = append(out, m[1])
+		}
+	}
+	return out
+}
+
+var (
+	singleImportRe = regexp.MustCompile(`(?m)^import\s+(?:[\w_.]+\s+)?"([^"]+)"`)
+	importBlockRe  = regexp.MustCompile(`(?ms)^import\s*\(\n(.*?)^\)`)
+	importSpecRe   = regexp.MustCompile(`(?m)^\s*(?:[\w_.]+\s+)?"([^"]+)"\s*(?://.*)?$`)
+)
+
+// TestPkgModuleIsLeaf 钉住 §3.1 收口的两个条件：① 聚合根只剩本仓工具包；
+// ② `pkg` module 不 import 任何归根 module 的包。本地 `replace` 让违反②的代码
+// 照样能编译，扇入复辟在 CI 上是静默的——只有发版时才炸，所以必须在此断言。
+func TestPkgModuleIsLeaf(t *testing.T) {
+	root := repoRoot(t)
+	mods := derivedModules(root)
+	if !slices.Contains(mods, "pkg") {
+		t.Fatal("pkg 不是独立 module：派生清单里没有 pkg/")
+	}
+
+	// ① 根 module 的包集合。
+	wantRootPkgs := []string{"cmd/bald", "internal/codegen", "internal/docscheck", "internal/release"}
+	gotRootPkgs := map[string]bool{}
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			switch d.Name() {
+			case ".git", "node_modules", "vendor":
+				return filepath.SkipDir
+			}
+			if strings.HasPrefix(filepath.Base(path), "_example") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if filepath.Ext(path) != ".go" {
+			return nil
+		}
+		dir, err := filepath.Rel(root, filepath.Dir(path))
+		if err != nil {
+			return err
+		}
+		slash := filepath.ToSlash(dir)
+		if slash == "." {
+			return nil
+		}
+		for _, m := range mods {
+			if m != "." && (slash == m || strings.HasPrefix(slash, m+"/")) {
+				return nil
+			}
+		}
+		gotRootPkgs[slash] = true
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("scan root packages: %v", err)
+	}
+	var extra, missing []string
+	for p := range gotRootPkgs {
+		if !slices.Contains(wantRootPkgs, p) {
+			extra = append(extra, p)
+		}
+	}
+	for _, p := range wantRootPkgs {
+		if !gotRootPkgs[p] {
+			missing = append(missing, p)
+		}
+	}
+	if len(extra) > 0 {
+		sort.Strings(extra)
+		t.Errorf("聚合根里出现了预期外的包 %v：根 module 应只剩本仓工具（risk-review.md §3.1）", extra)
+	}
+	if len(missing) > 0 {
+		sort.Strings(missing)
+		t.Errorf("聚合根里预期的包不见了 %v：判据已过期，请核对 §3.1 后更新本清单", missing)
+	}
+
+	// ② pkg 不得 import 根 module 的包。
+	hits := 0
+	pkgDir := filepath.Join(root, "pkg")
+	err = filepath.WalkDir(pkgDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if d.Name() == ".git" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if filepath.Ext(path) != ".go" {
+			return nil
+		}
+		src, err := readText(path)
+		if err != nil {
+			return err
+		}
+		hits++
+		rel, _ := filepath.Rel(root, path)
+		for _, imp := range importPathsFromGoSource(string(src)) {
+			if moduleOfImport(imp, mods) == "." {
+				t.Errorf("%s imports %s：pkg module 反向依赖聚合根，扇入复辟", filepath.ToSlash(rel), imp)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("scan pkg imports: %v", err)
+	}
+	if hits < 50 {
+		t.Fatalf("只扫到 %d 个 pkg/ 下的 .go 文件——遍历失效，本闸门已空转", hits)
+	}
+}
+
+// TestModuleOfImport 锚定归属判定本身：嵌套 module 必须按最长前缀胜出，
+// 否则上面的叶子判据会把 `pkg/...` 误判成根依赖（或反过来漏判）。
+// 第二组故意把长前缀排在短前缀之前——只靠「后到的匹配覆盖」的实现会在这组上红，
+// 从而证明长度比较真的在起作用。
+func TestModuleOfImport(t *testing.T) {
+	cases := []struct {
+		imp, want string
+	}{
+		{"github.com/kalandramo/bald/pkg/appkit", "pkg"},
+		{"github.com/kalandramo/bald/transport/grpc", "transport/grpc"},
+		{"github.com/kalandramo/bald/transport", "transport"},
+		{"github.com/kalandramo/bald/log", "log"},
+		{"github.com/kalandramo/bald/internal/codegen", "."},
+		{"github.com/you/other", ""},
+	}
+	for _, mods := range [][]string{
+		{".", "log", "pkg", "transport", "transport/grpc"},
+		{"transport/grpc", ".", "transport", "pkg", "log"},
+	} {
+		for _, c := range cases {
+			if got := moduleOfImport(c.imp, mods); got != c.want {
+				t.Errorf("moduleOfImport(%q, %v) = %q, want %q", c.imp, mods, got, c.want)
+			}
+		}
+	}
+}
+
+// requiresModulePath 判断 go.mod 是否 require 了指定 module（单行与 require 块
+// 两种形态都算，`// indirect` 同样命中——它意味着该 module 真的在构建图里）。
+func requiresModulePath(raw []byte, mod string) bool {
+	inBlock := false
+	for _, line := range strings.Split(string(raw), "\n") {
+		f := strings.Fields(line)
+		if len(f) == 0 {
+			continue
+		}
+		if f[0] == "require" {
+			if len(f) >= 3 && f[1] == mod {
+				return true
+			}
+			inBlock = f[len(f)-1] == "("
+			continue
+		}
+		if inBlock {
+			if f[0] == ")" {
+				inBlock = false
+				continue
+			}
+			if f[0] == mod {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// TestNoModuleRequiresAggregateRoot 钉住 risk-review.md §3.1 的消解条件：任何
+// 非示例模块都不再 require 聚合根。这条必须硬失败——本地 `replace` 让违反它的
+// 代码照样编译通过，CI 的 build/vet/test 全绿，扇入复辟只有到发版才显现。
+func TestNoModuleRequiresAggregateRoot(t *testing.T) {
+	root := repoRoot(t)
+	checked := 0
+	for _, m := range derivedModules(root) {
+		if m == "." {
+			continue
+		}
+		raw, err := readText(filepath.Join(root, filepath.FromSlash(m), "go.mod"))
+		if err != nil {
+			t.Fatalf("read %s/go.mod: %v", m, err)
+		}
+		checked++
+		if requiresModulePath(raw, rootModulePath) {
+			t.Errorf("module %s require 了聚合根 %s：应改 require %s/pkg（risk-review.md §3.1）",
+				m, rootModulePath, rootModulePath)
+		}
+	}
+	if checked < 50 {
+		t.Fatalf("只检查了 %d 个非根 module，明显低于仓库实际数量——派生已空转", checked)
+	}
+}

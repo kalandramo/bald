@@ -4,8 +4,8 @@ go 1.27.1
 
 require (
 	github.com/hashicorp/consul/api v1.34.4
-	github.com/kalandramo/bald v0.34.1
 	github.com/kalandramo/bald/bconf v0.15.3
+	github.com/kalandramo/bald/pkg v0.0.0-00010101000000-000000000000
 	github.com/kalandramo/bald/registry v0.3.1
 )
 
@@ -160,8 +160,6 @@ replace github.com/kalandramo/bald/bconf => ../../bconf
 
 replace github.com/kalandramo/bald/registry => ..
 
-replace github.com/kalandramo/bald => ../..
-
 replace github.com/kalandramo/bald/bconfig => ../../bconfig
 
 replace github.com/kalandramo/bald/berrors => ../../berrors
@@ -179,3 +177,5 @@ replace github.com/kalandramo/bald/transport/gateway => ../../transport/gateway
 replace github.com/kalandramo/bald/transport/grpc => ../../transport/grpc
 
 replace github.com/kalandramo/bald/transport/http => ../../transport/http
+
+replace github.com/kalandramo/bald/pkg => ../../pkg
