@@ -4,6 +4,7 @@
 package docscheck
 
 import (
+	"bytes"
 	"net/url"
 	"os"
 	"os/exec"
@@ -82,7 +83,7 @@ func TestGoCommentsReferenceExistingDocs(t *testing.T) {
 		if filepath.Ext(path) != ".go" {
 			return nil
 		}
-		src, err := os.ReadFile(path)
+		src, err := readText(path)
 		if err != nil {
 			return err
 		}
@@ -180,7 +181,7 @@ func brokenLinks(root string) ([]string, error) {
 		if filepath.Ext(path) != ".md" {
 			return nil
 		}
-		src, err := os.ReadFile(path)
+		src, err := readText(path)
 		if err != nil {
 			return err
 		}
@@ -260,6 +261,30 @@ func isIdentChar(b byte) bool {
 	return b == '_' || (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9')
 }
 
+// moduleLine 取 go.mod 的 module 声明路径（无声明返回空串）。
+// 按行解析而不是匹配 `"module <path>\n"`：Windows runner 的检出默认
+// core.autocrlf=true，go.mod 落盘成 CRLF 时精确换行匹配会让仓库根
+// 「找不到」，三条用例一起红（2026-11-02 ci-windows schedule 实测）。
+func moduleLine(raw []byte) string {
+	for _, line := range strings.Split(string(raw), "\n") {
+		if f := strings.Fields(line); len(f) >= 2 && f[0] == "module" {
+			return f[1]
+		}
+	}
+	return ""
+}
+
+// readText 读文本文件并把 CRLF 归一成 LF。Windows runner 的检出默认
+// core.autocrlf=true，正文带 CR 会让 module-list 围栏正则与链接目标判定
+// 失真（2026-11-02 ci-windows schedule 实测「清单消失」）。
+func readText(path string) ([]byte, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return bytes.ReplaceAll(raw, []byte("\r\n"), []byte("\n")), nil
+}
+
 // repoRoot 从测试工作目录（包目录）上溯到含主 module go.mod 的仓库根。
 func repoRoot(t *testing.T) string {
 	t.Helper()
@@ -269,7 +294,7 @@ func repoRoot(t *testing.T) string {
 	}
 	for {
 		if b, err := os.ReadFile(filepath.Join(dir, "go.mod")); err == nil &&
-			strings.Contains(string(b), "module github.com/kalandramo/bald\n") {
+			moduleLine(b) == "github.com/kalandramo/bald" {
 			return dir
 		}
 		parent := filepath.Dir(dir)
@@ -337,7 +362,7 @@ func documentedModules(t *testing.T, root string) map[string]string {
 		if d.IsDir() || filepath.Ext(path) != ".md" {
 			return nil
 		}
-		src, err := os.ReadFile(path)
+		src, err := readText(path)
 		if err != nil {
 			return err
 		}

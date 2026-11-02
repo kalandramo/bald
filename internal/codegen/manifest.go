@@ -115,10 +115,14 @@ func checkTree(root, manifestName string, files []genFile, wantRaw []byte, strea
 			continue
 		}
 		path := filepath.Join(root, f.Path)
+		// 差异按清单身份（slash）报告：清单本身写的是 ToSlash(f.Path)，
+		// 用本机分隔符会让 Windows 上的 `out-of-date: cmd\...` 与调用方按
+		// 清单路径匹配的上游文案对不上。
+		id := filepath.ToSlash(f.Path)
 		got, err := os.ReadFile(path)
 		switch {
 		case os.IsNotExist(err):
-			diffs = append(diffs, "missing: "+f.Path)
+			diffs = append(diffs, "missing: "+id)
 			continue
 		case err != nil:
 			return fmt.Errorf("read %s: %w", path, err)
@@ -131,7 +135,7 @@ func checkTree(root, manifestName string, files []genFile, wantRaw []byte, strea
 			return err
 		}
 		if !bytes.Equal(got, want) {
-			diffs = append(diffs, "out-of-date: "+f.Path)
+			diffs = append(diffs, "out-of-date: "+id)
 		}
 	}
 	manifestPath := filepath.Join(root, manifestName)

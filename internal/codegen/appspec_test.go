@@ -831,7 +831,9 @@ func TestTree_VariantsProjectedAtRuntime(t *testing.T) {
 		{"untagged", nil, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			bin := filepath.Join(t.TempDir(), "demoapp")
+			// 带扩展名：Windows 上 `go build -o <无扩展名>` 会另存成
+			// `<name>.exe`，exec 原路径直接失败（同包的另三处构建同样用 .bin）。
+			bin := filepath.Join(t.TempDir(), "demoapp.bin")
 			args := []string{"build"}
 			if len(tc.tags) > 0 {
 				args = append(args, "-tags", strings.Join(tc.tags, ","))

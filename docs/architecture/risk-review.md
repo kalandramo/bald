@@ -15,6 +15,7 @@
 | 2 | **发布面 ≫ 使用面**：retry / circuitbreaker 等无消费方 | 中 | ✅ 全仓 grep | **部分收口**（Discovery 接线半已落地＝§2「选项 1」的 Discovery 分支；retry/circuitbreaker 仍 reference-only；移出发布批次未做） |
 | 7.1 | **CI 全量只跑 `-short`**，集成测试在 CI 中从不执行 | 中 | ✅ 已核对 `.github/workflows/ci.yml` | **已修（registry/store/队列三条接缝）**：新增 `integration` 作业注入 etcd/redis/mongo，探活 + 逐条断言判据真的 PASS；作业文件自身另开 `workflow-lint` 作业（actionlint）把关，见 §7.1 收口；示例侧（etcd/nacos 服务发现）仍只在本地跑 |
 | 7.4 | **统计量当不变量断言**：`circuitbreaker/sres` 并发用例钉「放行 ≥90/100」，而该值取决于 Allow 与 Mark 的交错 | 中 | ✅ 本机 `-count=400` 实测 + CI 红过一次（run 41388597082） | **已修**：先灌满窗口使单次拒绝率有上界 1/1001，「≥90」因此成为可证的界；另补 accept=0 状态下的并发错型用例，见 §7.4 |
+| 7.5 | **Windows 只在周界作业里跑，一跑就红**：产物扩展名、清单差异的路径身份、检出 CRLF 三处平台适配缺陷 | 中 | ✅ `ci-windows` schedule 实测红（run 41428497056）+ 本机 CRLF 克隆复现 | **已修**：`.bin` 产物名、`checkTree` 差异按清单 slash 身份输出、`moduleLine`/`readText` 对行尾不敏感，并用 `.gitattributes`（`eol=lf`）收口检出形态，见 §7.5 |
 | 1.1 | race 作业是两处手工清单，webrtc/kafka 均缺失 | 中 | ✅ 已核对 `.github/workflows/ci.yml` / `Taskfile.yml` | **已修**（改成 find 派生 + 单份排除清单；扩范围实测揪出并修掉 graphql 自身的竞争） |
 | 1.3 | kafka / rabbitmq 适配器 **零测试文件** | 中 | ✅ 实测计数 | **已修**（两个适配器各有一份测试，15 / 7 个测试；补测试当场揪出 4 个生产缺陷；订阅者摘除口径已定并由测试钉住） |
 | 1.2 | 本地 `task verify` 手写清单，静默跳过约 40 模块 | 低-中 | ✅ 已核对 `Taskfile.yml` | **已修**（CI 与本地共用 `scripts/list-modules.sh` 单条派生；全量 92 模块实测 exit=0） |
@@ -378,7 +379,7 @@ B、C 是同一套机制的两份实现（命令式能力声明 vs 段驱动 Pro
 - 验活（新闸门自身的变异）：① 把 `args:` 加回 `services.etcd` → `unexpected key "args" for "services" section. expected one of "credentials", "env", "image", "options", "ports", "volumes"`，exit 1；② 新写的 `workflow-lint.yml` 自身两处错误被同一类闸门当场拦下——`run: "$(go env GOPATH)/bin/actionlint" -no-color` 是 YAML 解析错（引号标量后还有内容），改成整体单引号后又报 SC2046（命令替换未加引号），最终形态 `"$(go env GOPATH)/bin/actionlint" -no-color` 才干净；③ 探活循环里未使用的 `i` 触发 SC2034 → 改为 `local ... tries=60` 的 while 计数；④ `find` 派生为空时任务打出「未发现作业文件，闸门未覆盖任何东西」并 exit 1（与 lint/vuln/race 同一防静默失效口径）。
 - 刻意没做：① **`_example/bald` 不进 CI**——那里的服务发现端到端（etcd + nacos）只在本地跑，因为 `_example/bald/go.mod` 把两个 kratos contrib 模块 `replace` 到**仓库外**的同级检出（`../../kratos/contrib/{config,registry}/nacos`），干净检出装载不出模块图；要在 CI 跑示例得先给它们找到已发布版本，属另一件事。② 没有 `task integration` 本地入口——命令以 `integration` 作业与 README 为准，再加一份清单就是再造一条会漂移的真相。③ 不覆盖 consul / kubernetes / nacos 后端（`bconfig/kubernetes` 需要真集群，用 `BALD_KUBE_INTEGRATION` 显式开关，保持现状）。④ Kafka/RabbitMQ 的 broker 接缝没有可在 CI 里跑的集成用例（仓内那批是等信号手动用例，`broker/kafka` 的测试不需要真 Kafka）——§7.1 原话里「broker 一条」由 `transport/asynq`（Redis 队列）代。⑤ 未加覆盖率闸门（§7.2 另议）。
 - 已证（GitHub 实测，不再是「以流水线为准」的悬置项）：推送 `cab08e3` 后 `ci` run 41413712267 **五个作业全部 completed/success**（`test`、`integration`、`lint`、`vuln`、`race`）；`workflow-lint` 是另一条流水线，同样 success。`integration` 作业第一次在 GitHub 上真实执行：三个 `services:` 镜像可拉起、bridge 网络下 etcd 端口映射生效、runner 的 Go 1.27.3 与本地 1.27.1 无差异、`workflow-lint` 的 `paths:` 过滤按预期触发。
-- 未验证（仍悬置）：Windows 周界作业（`windows.yml` 每周一/手动 dispatch）不覆盖这三个后端服务，也没有 `integration` 对偶；它用的 `go-version: 1.27.1` 与主 ci.yml 的 `1.27.3` 不一致，属既有状态，本轮未动。
+- 未验证（仍悬置）：Windows 周界作业（`windows.yml`）不覆盖这三个后端服务，也没有 `integration` 对偶；它用的 `go-version: 1.27.1` 与主 ci.yml 的 `1.27.3` 不一致，属既有状态，本轮未动。**这条「未验证」在 2026-11-02 的周界 schedule 里变成了真红**，见 §7.5。
 
 **7.2 无覆盖率闸门** ✅ 所有 workflow grep `coverage|codecov` → 无匹配。根 module 有 365 个测试文件（绝对量可观），但没有任何比例约束，零测试模块不会因此暴露——§1.3 那两个适配器是评审时数测试文件点数出来的，不是闸门响出来的。
 
@@ -393,6 +394,20 @@ B、C 是同一套机制的两份实现（命令式能力声明 vs 段驱动 Pro
 - 验活（变异，四条）：① 拒绝分支恒拒绝 → 并发用例红 `放行 = 0/100`、窗口用例红 `0/2000`；② 拒绝率升约两个数量级（公式分母 `+1` 改 `+100`：prime 后单次拒绝率 `1/1001 → 1/11`）→ 并发用例红 `87/100`、窗口用例红 `1816/2000`；③ 拒绝改返回别的错误 → 新增错型用例红 `want ErrCircuitOpen`；④ 忽略 `closed` 标志 → 既有 `TestClose_RejectsAfterClose` 红（对照组，说明既有覆盖没被这次改动削弱）。
 - 刻意没做：① 不给 breaker 加可注入随机源——那能让比例断言完全确定，但属生产 API 变更，与「修一条假红」不成比例；② 不放宽阈值来消红；③ 同类写法已 `grep` 核对：非测试代码里用随机源的只有 `circuitbreaker/sres`、`retry`、`registry/consul`、`broker/kafka`（后者退避抖动已由 `fixedRand` 注入变成确定断言），`retry` 与 `registry/consul` 的测试里没有比例阈值断言（实测 grep 为空）。
 - GitHub 实测：修复合入后 `ci` run 41416339090（head `80edb7b`）五个作业 `test`/`integration`/`lint`/`vuln`/`race` 全部 success——这条用例红的是 `test` 作业，现在同一作业在带 prime 的版本上通过，且 `race` 作业（覆盖 `circuitbreaker/sres`）也过。剩下唯一没被证过的仍是次数：CI 每次 push 只跑一遍，误红率是算出来的（`1.3e-19` / `4.7e-10`），不是跑出来的。
+
+**7.5 Windows 周界作业的真红（中）** ✅ 已修：本周一的 `ci-windows` schedule（run 41428497056，head `5585a21`）把上面那条「Windows 未验证」的悬置项变成了一次真实执行——它跑 `root` + `bootstrap` + `contrib/authz-casbin` 三个窄口径 module，root module 的 `go test -short` 直接红，四类失败全是跨平台适配，不是产品语义：
+
+| 失败点 | 根因 | 修法 |
+|---|---|---|
+| `internal/codegen` `TestTree_VariantsProjectedAtRuntime`（tagged/untagged） | 测试用 `go build -o <无扩展名路径>` 再 `exec` 该路径；Windows 上产物是 `<name>.exe`，于是 `executable file not found in %PATH%` | 改用带扩展名的 `demoapp.bin`，与同包另三处构建口径一致 |
+| `internal/codegen` `TestGen_CheckClean` | `--check` 的差异文案打的是**本机分隔符**路径（`out-of-date: cmd\demoapp\app\command.go`），而清单与调用方按 **slash 身份**匹配（清单写入时用 `filepath.ToSlash`） | `checkTree` 的 `missing:`/`out-of-date:` 统一按清单身份（slash）输出；Linux 无变化，Windows 才显形 |
+| `internal/docscheck` 三条用例 | 仓库根发现用精确串 `"module github.com/kalandramo/bald\n"`；Windows runner 的 git 默认 `core.autocrlf=true`，go.mod 落盘成 CRLF → 「repo root not found」 | 按行解析 module 声明（`moduleLine`），对行尾形态不敏感 |
+| 同一 CRLF 条件的另一半 | 文档正文也是 CRLF，`module-list` 围栏正则与链接判定失真 | 读文本统一走 `readText`（CRLF→LF 归一） |
+
+- **系统性收口是 `.gitattributes`（`* text=auto eol=lf`）**：只固定检出形态，不改变任何已提交内容（实测全仓文本 blob 里 CR 命中为 0）。没有它，任何按字节比对检出文件的测试都会在 Windows 上重演同一件事。
+- 复现与验活（本机做，不等 Windows）：`git -c core.autocrlf=true clone` 出一份 CRLF 工作树，`go.mod` 首行实测 `d \r \n`——**旧代码在同一棵树上红 4 条，报的正是 CI 那句 `repo root (go.mod with module github.com/kalandramo/bald) not found`**（先复现根因再改）。改后同一棵树只剩 `TestModuleDerivationMatchesScript` 红：CRLF 的 `scripts/list-modules.sh` 被 `sh` 拒掉（exit 2）——这条在 Windows 上本就 `t.Skip`，而 `.gitattributes` 让检出根本不产生 CRLF；带该文件的克隆实测 `go.mod` 首行回到 `d \n`。
+- 刻意没做：① 不在产品里为 Windows 造第二套路径策略——清单身份就是 slash，其余人类可读输出（`generated:` 等）保持本机形态；② 不动 `windows.yml` 的 `go-version: 1.27.1`（与主 ci 的 `1.27.3` 不一致是既有状态）；③ 不把周界作业扩成多 module（窄口径是既定设计，全量归 ubuntu）。
+- 还不能证明：`bootstrap` 与 `contrib/authz-casbin` 两步这个周期从未执行（step 4 一红，后面整段 `skipped`），`TestTree_EndToEndTimed` 的 CTRL_BREAK 停机链路同理——本轮修法只保证了上面四条断言的根因与改法。这三条要推送后手动 `workflow_dispatch` 一次才有结论。
 
 ---
 
@@ -438,4 +453,4 @@ B、C 是同一套机制的两份实现（命令式能力声明 vs 段驱动 Pro
 11. **文档漂移闸门**（§8）✅ 清单半：`module-list` 围栏 + 双向断言 + 与脚本逐行比对（三条变异实测）。「描述已删除 API」半仍未覆盖。
 12. **依赖卫生只读报告**（§3.2）✅：`scripts/multi-major.sh` + `task deps-multi-major`，再用 `go list -deps` 把「是否真同链」从推测改成证据；不加 exclude/replace。
 13. **CI 集成作业**（§7.1）✅：`integration` 作业注入 etcd/redis/mongo 跑三条接缝的非 `-short` 套件，并以「判据必须出现 `--- PASS`」兜住不可达即 Skip 的静默失效；作业文件自身的 schema 闸门另开 `workflow-lint`。GitHub 实测五个作业全绿。
-14. **覆盖率闸门**（§7.2）——未做。**统计量断言的复查**（§7.4）✅：`sres` 并发用例的假红已按「灌满窗口」修掉，阈值一字未动；同类写法已 grep 核过其余四个用随机源的包。
+14. **覆盖率闸门**（§7.2）——未做。**统计量断言的复查**（§7.4）✅：`sres` 并发用例的假红已按「灌满窗口」修掉，阈值一字未动；同类写法已 grep 核过其余四个用随机源的包。**Windows 周界适配**（§7.5）✅：schedule 实测红的三条（产物扩展名 / 清单差异的路径身份 / 检出 CRLF）已修，并用 `.gitattributes` 收口检出形态。

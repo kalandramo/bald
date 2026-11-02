@@ -1,0 +1,7 @@
+# 检出恒用 LF。Windows runner 上的 git 默认 core.autocrlf=true，会把文本
+# 文件落盘成 CRLF，于是「按字节/按行比对」的闸门在 Windows 上失真：
+# docscheck 的 module-list 围栏与链接判定、codegen 清单差异的路径文案、
+# 以及任何 exec 检出脚本的测试都吃过这一条（2026-11-02 ci-windows 周界作业
+# 实测红）。仓库内所有文本 blob 本就是 LF（git grep -Il $'\r' HEAD → 0 命中），
+# 所以这里只固定检出形态，不改变任何已提交内容。
+* text=auto eol=lf
