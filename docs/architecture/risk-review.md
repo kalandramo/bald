@@ -14,7 +14,7 @@
 | 6.1 | 鉴权 **fail-open**：未注入即整层消失，无 default-deny、无告警 | **高** | ✅ 已核对源码 | **已修** |
 | 2 | **发布面 ≫ 使用面**：retry / circuitbreaker / Discovery 等无消费方 | 中 | ✅ 全仓 grep | 未修 |
 | 7.1 | **CI 全量只跑 `-short`**，集成测试在 CI 中从不执行 | 中 | ✅ 已核对 `.github/workflows/ci.yml` | 未修 |
-| 1.1 | race 作业是两处手工清单，webrtc/kafka 均缺失 | 中 | ✅ 已核对 `.github/workflows/ci.yml` / `Taskfile.yml` | 未修 |
+| 1.1 | race 作业是两处手工清单，webrtc/kafka 均缺失 | 中 | ✅ 已核对 `.github/workflows/ci.yml` / `Taskfile.yml` | **已修**（改成 find 派生 + 单份排除清单；扩范围实测揪出并修掉 graphql 自身的竞争） |
 | 1.3 | kafka / rabbitmq 适配器 **零测试文件** | 中 | ✅ 实测计数 | 未修 |
 | 5 | `berrors` 分类法未在 transport/broker/appkit 落地 | 中 | ✅ 实测计数 | 未修 |
 | 6.2 | gRPC 链无限流、无超时（与 gin 链不对称） | 中 | ✅ 已核对源码 | 未修 |
@@ -28,16 +28,43 @@
 
 ## 1. 模块面 vs 构建/验证面
 
-**1.1 race 作业是手写清单，且两处重复** ✅
-`.github/workflows/ci.yml:103-107` 手工枚举 23 个模块（`. transport transport/grpc transport/http transport/http3 transport/tcp transport/websocket transport/sse transport/web retry ratelimit ratelimit/tokenbucket ratelimit/bbr ratelimit/sentinel bootstrap registry cache cache/redis broker broker/redis log metrics health`），`Taskfile.yml:368-416` 镜像同一份清单。
-实测 `grep -n webrtc .github/workflows/ci.yml` → **无匹配**：`transport/webrtc` 有 15 个非测试文件 + 8 个测试文件，含 `signalSessions` 共享会话表与 PeerConnection 生命周期（正是 race 该覆盖的形态），却不在 race 清单里。`broker/kafka`、`contrib/*` 同样缺席。
-- 影响：并发回归只能在本地偶发发现。
-- 本地全仓 `go test -race` 实测（bconf / 根 module / contrib/authz-casbin / 示例 module）：未见数据竞争，唯一失败是 `bconf` 分配剖面守卫的阈值与 race 分配器错配（非 race 45,680 B/op → race 51,337，见 `bconf/alloc_guard_test.go` 头）。也就是说这个缺口当前漏掉的正是这类只在 -race 下才响的报警。
-- 消解：webrtc/kafka 加入 race；或把 race 也改成 `find` 循环 + 一份「跳过清单」，让默认值是「跑」而不是「不跑」。
+**1.1 race 作业是手写清单，且两处重复** ✅ 已修
+
+原状：`.github/workflows/ci.yml` 的 race 作业手工枚举 23 个模块，`Taskfile.yml`
+的 `race` 镜像同一份清单（两处必须同步改）。`transport/webrtc`（15 个非测试文件
++ 8 个测试文件，含 `signalSessions` 共享会话表与 PeerConnection 生命周期，正是
+race 该覆盖的形态）、`broker/kafka`、`contrib/*` 全部缺席，而 `metrics` 是零测试
+文件的死条目。
+
+- 修法：两处都改成**从仓库派生**——复用 test/lint/vuln 作业那条
+  `find . -name go.mod -not -path "./.git/*" -not -path "./_example*" | xargs -n1 dirname | sort`，
+  再减去 `.github/race-skip.txt`（单份排除清单，每条必须自带理由）。默认值从
+  「不跑」变成「跑」：新增 module 两处都不用改。Taskfile 侧用 `vars.MODS` 的 `sh:`
+  + `for:` 派生，逐模块仍走内部 `race-module` 的 task 级 `dir:`（go-task 3.52 会
+  静默忽略「逐命令 dir」和「for 循环内的 dir」），并加 `platforms: [linux, darwin]`
+  ——派生要 POSIX shell，Windows 下整个任务跳过，反正 `-race` 本身要 cgo、
+  `.github/workflows/windows.yml` 也从不跑 race。
+- 验活：按 CI 谓词共 **92 个 module**（89 个库模块 + `cobramcp/examples/` 下 3 个
+  示例模块），本机逐模块 `go test -short -race` 全量一遍 = 90 通过 / 2 失败，
+  串行合计 351s（race 作业原先 23 个模块在 CI 上 4.5 分钟，扩到全量的代价可接受）。
+- 扩范围立刻抓到的第一个真 bug 在 `transport/graphql`（此前从未被 race 覆盖）：
+  `Start()` 在调用方 goroutine 里写 `s.listener` / `s.server`（`transport/graphql/server.go:116-119`），
+  `Stop()`（`:141-148`）与 `Endpoint()`（`:152-163`）却无同步地读。接进装配面就命中：
+  `Start` 跑在 `pkg/appkit/appkit.go:627` 的 `g.Go` 里，端点等待（`:634` → `waitForEndpoints` 轮询 `s.Endpoint()`，`:829`）
+  在同一个 goroutine 上并发读；停机阶段每个 server 的 `Stop` 也各自起 goroutine
+  （`pkg/appkit/appkit.go:736`）。改法：`mu sync.RWMutex`
+  只保护这两个运行期字段（`:63`），`Serve`/`Shutdown` 改用局部 `hs`；测试里三处
+  「固定 sleep + 直接读 `srv.listener`」换成轮询 `Endpoint()` 判就绪，中间件用例的
+  共享变量 `headerSeen` 换成 channel 传递。
+- 刻意没做：`log/aliyun` 的竞争在上游 `aliyun-log-go-sdk v0.1.131`（已核实是最新版，
+  无升级可解）内部——`Start()` 起 `monitor.reportThread` goroutine，`Close()` 里
+  `monitor.Stop()` 写同一字段，两者无同步。bald 的 `Close` 只是转调，要规避必须先
+  关掉运行期指标上报（删能力），因此进排除清单并写明理由，而不是改代码掩盖。上游
+  哪天修好，这条就该删。
 
 **1.2 CI 的模块发现是健壮的，本地 `task verify` 不是** ✅
 CI 用 `find . -name go.mod ... | xargs -n1 dirname | sort`（`.github/workflows/ci.yml:61`，lint/vuln 作业各复用同一循环 `:132,:165`）零维护地发现全部模块（**注意循环排除了 `./_example*`**），并逐模块 `go mod download` + `go mod tidy -diff` 闸门 + build + vet + test + bench 编译。
-但 `Taskfile.yml:328-331` 的 `test` 只跑根 module，`verify`（`:466-470`）手写依赖清单只覆盖 bconf/cobramcp/retry/ratelimit/broker/circuitbreaker/encoding/example —— `contrib/*`、`registry/*`、`transport/http|grpc|web`、`oss/*`、`ai/*`、log/metrics 后端**不在任何本地任务里**。只跑 `task verify` 会静默跳过约 40 个模块。
+但 `Taskfile.yml:328-331` 的 `test` 只跑根 module，`verify`（`:432-436`）手写依赖清单只覆盖 bconf/cobramcp/retry/ratelimit/broker/circuitbreaker/encoding/example —— `contrib/*`、`registry/*`、`transport/http|grpc|web`、`oss/*`、`ai/*`、log/metrics 后端**不在任何本地任务里**。只跑 `task verify` 会静默跳过约 40 个模块。
 - 严重度低（CI 兜底），但作者等待时间被拉长到 CI 才发现问题。
 - 消解：本地 `test/lint/vuln` 复用同一条 `find` 循环。
 
@@ -136,7 +163,7 @@ B、C 是同一套机制的两份实现（命令式能力声明 vs 段驱动 Pro
   它们的版本追赶/编辑期不可见要靠抽 `appkit` 叶子 module 才能消——独立 breaking
   动作，仍待 owner 决策。根与 `bootstrap` 的 `go.mod` 里指向 `transport/gateway` 的
   本地 `replace` 一并保留（已无对应 require，留着是为将来复用不必重新接线）。
-- 还不能证明：CI 的 Linux 全量与 race 清单未因本次改动扩展（§1.1 的缺口照旧）。
+- 还不能证明：断环带来的实际收益只有「版本追赶不再成对」这一条，已经过 Linux CI（`5f771e0`：test/race/lint/vuln 全绿）与 `_example` 起进程实测。扇入本身没消：根 module 一次改动仍要让 22 个适配器重编，那要抽 `appkit` 叶子 module 才做得到，仍是 owner 决策项。
 
 **3.2 依赖卫生：多 major 并存（低）** ✅ 脚本实测
 
@@ -267,11 +294,11 @@ B、C 是同一套机制的两份实现（命令式能力声明 vs 段驱动 Pro
 
 ## 10. 如果要动手，按这个顺序
 
-1. **接上 gRPC TLS**（§6.5）——静默明文是本轮最该先修的项，改动集中在 `GrpcServerProvider` + 生成模板 + gateway 出站三处。
-2. **`bundle` 加未配 Authn 的显式警告/契约开关**（§6.1）——改动小，风险面最高。
-3. **`_ = deregister` 补日志**（§4.1）——一行。
-4. **webrtc + kafka 进 race 清单**（§1.1），本地 `task verify` 改用 `find` 循环（§1.2）——消除双份人工清单的开始。
-5. **kafka 的 writer 重建 + 订阅退避补测试**（§1.3）——为第 4 步的 race 覆盖提供可跑内容。
+1. **接上 gRPC TLS**（§6.5）——静默明文是本轮最该先修的项，改动集中在 `GrpcServerProvider` + 生成模板 + gateway 出站三处。✅
+2. **`bundle` 加未配 Authn 的显式警告/契约开关**（§6.1）——改动小，风险面最高。✅
+3. **`_ = deregister` 补日志**（§4.1）——一行。✅（连带 §4.2 的等待上界）
+4. **race 清单去人工化**（§1.1）✅：两处手写清单已换成同一条 `find` 派生 + 单份 `.github/race-skip.txt`，webrtc/kafka/contrib 全量入闸，`metrics` 这类死条目随派生自然消失；扩范围当场抓到并修掉 `transport/graphql` 自身的生命周期竞争。剩：本地 `task verify` 改用同一条 `find` 循环（§1.2）未做。
+5. **kafka 的 writer 重建 + 订阅退避补测试**（§1.3）——race 已经覆盖 `broker/kafka`，缺的是可跑内容。
 6. **给 §2 的未接线面做决策**（接线 / 标注 reference-only / 删除）——需要 owner 口径。
 7. **`berrors` 边界口径**（§5）与 **Discovery 消费侧**（§2）——设计级，先出方案再动码。
 8. **抽离 appkit 契约面，把适配器从「require 聚合根」解耦**（§3.1）——breaking，放在最后，且只在 §5/§6 的口径定清之后做。模块环已由 gateway 那一条的重复机制删除而断开（实测图为 DAG），这条剩下的收益是 `replace` 数量与版本追赶，不再是断环。

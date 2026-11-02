@@ -120,7 +120,7 @@
 3. **服务端主动下发**：`SendMessage`/`Broadcast` 按 session id（`transport/webrtc/server.go:254,264`），**无请求关联**。SFU 媒体路由：`SubscribeToPublisher`（`:734`）+ 重协商 `sendRenegotiation`（`:814`）。
 4. 生命周期仍守 `transport.Server`：`Start`（`transport/webrtc/server.go:559`）、`Stop`（`transport/webrtc/server.go:602`）。
 
-> 注意：WebRTC 有 15 个非测试文件与共享会话表，却**不在 CI race 作业的模块清单里**，详见 `risk-review.md` §1.1。
+> 注意：WebRTC 有 15 个非测试文件与共享会话表，是 race 门禁该覆盖的形态。CI 的 race 作业现已改成 `find` 派生的全量清单（`risk-review.md` §1.1 已修），这块并发在闸内。
 
 ---
 

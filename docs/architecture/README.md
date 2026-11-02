@@ -11,6 +11,12 @@
 `module-deps.dot` 补上了此前漏画的根扇入：`oss/{s3,minio}` 两个节点及其 SPI/回边、`contrib → 根 module` 回边，
 使图上 22 条根回边与 `current-architecture.md` §4 的叙述一致；版本串 `v0.34.0` 更正为 `v0.34.1`，快照已重渲染。
 
+**2026-11-02 三次重核**（§1.1 race 门禁去人工化）：CI 的 race 作业与 `task race` 改成同一条
+`find` 派生（按 CI 谓词 92 个 module）+ 单份 `.github/race-skip.txt`；全量 `-race` 实测 90 通过 /
+2 失败，失败之一的 `transport/graphql` 是本轮新覆盖到的真实竞争（`Start` 写、`Stop`/`Endpoint` 读，
+无同步），已修；另一条 `log/aliyun` 的竞争在上游 SDK 内部，进排除清单。依赖图与拓扑叙述不变
+（修复只加 `sync` 导入），行号引用重核后 `checked cites: 317, problems: 0`。
+
 | 文件 | 回答的问题 | 状态 |
 |---|---|---|
 | `current-architecture.md` | 这个仓库现在是什么结构？分层、SPI、装配主干、模块拓扑 | 现状，引用已逐条核对 |
