@@ -15,7 +15,7 @@
 | 2 | **发布面 ≫ 使用面**：retry / circuitbreaker 等无消费方 | 中 | ✅ 全仓 grep | **部分收口**（Discovery 接线半已落地＝§2「选项 1」的 Discovery 分支；retry/circuitbreaker 仍 reference-only；移出发布批次未做） |
 | 7.1 | **CI 全量只跑 `-short`**，集成测试在 CI 中从不执行 | 中 | ✅ 已核对 `.github/workflows/ci.yml` | **已修（registry/store/队列三条接缝）**：新增 `integration` 作业注入 etcd/redis/mongo，探活 + 逐条断言判据真的 PASS；作业文件自身另开 `workflow-lint` 作业（actionlint）把关，见 §7.1 收口；示例侧（etcd/nacos 服务发现）仍只在本地跑 |
 | 7.4 | **统计量当不变量断言**：`circuitbreaker/sres` 并发用例钉「放行 ≥90/100」，而该值取决于 Allow 与 Mark 的交错 | 中 | ✅ 本机 `-count=400` 实测 + CI 红过一次（run 41388597082） | **已修**：先灌满窗口使单次拒绝率有上界 1/1001，「≥90」因此成为可证的界；另补 accept=0 状态下的并发错型用例，见 §7.4 |
-| 7.5 | **Windows 只在周界作业里跑，一跑就红**：产物扩展名、清单差异的路径身份、检出 CRLF 三处平台适配缺陷 | 中 | ✅ `ci-windows` schedule 实测红（run 41428497056）+ 本机 CRLF 克隆复现 | **已修**：`.bin` 产物名、`checkTree` 差异按清单 slash 身份输出、`moduleLine`/`readText` 对行尾不敏感，并用 `.gitattributes`（`eol=lf`）收口检出形态，见 §7.5 |
+| 7.5 | **Windows 只在周界作业里跑，一跑就红**：产物扩展名、清单差异的路径身份、检出 CRLF 三处平台适配缺陷 | 中 | ✅ `ci-windows` schedule 实测红（run 41428497056）+ 本机 CRLF 克隆复现；修后 dispatch run 41445557462 七 step 全绿 | **已修**：`.bin` 产物名、`checkTree` 差异按清单 slash 身份输出、`moduleLine`/`readText` 对行尾不敏感，并用 `.gitattributes`（`eol=lf`）收口检出形态，见 §7.5 |
 | 1.1 | race 作业是两处手工清单，webrtc/kafka 均缺失 | 中 | ✅ 已核对 `.github/workflows/ci.yml` / `Taskfile.yml` | **已修**（改成 find 派生 + 单份排除清单；扩范围实测揪出并修掉 graphql 自身的竞争） |
 | 1.3 | kafka / rabbitmq 适配器 **零测试文件** | 中 | ✅ 实测计数 | **已修**（两个适配器各有一份测试，15 / 7 个测试；补测试当场揪出 4 个生产缺陷；订阅者摘除口径已定并由测试钉住） |
 | 1.2 | 本地 `task verify` 手写清单，静默跳过约 40 模块 | 低-中 | ✅ 已核对 `Taskfile.yml` | **已修**（CI 与本地共用 `scripts/list-modules.sh` 单条派生；全量 92 模块实测 exit=0） |
@@ -407,7 +407,8 @@ B、C 是同一套机制的两份实现（命令式能力声明 vs 段驱动 Pro
 - **系统性收口是 `.gitattributes`（`* text=auto eol=lf`）**：只固定检出形态，不改变任何已提交内容（实测全仓文本 blob 里 CR 命中为 0）。没有它，任何按字节比对检出文件的测试都会在 Windows 上重演同一件事。
 - 复现与验活（本机做，不等 Windows）：`git -c core.autocrlf=true clone` 出一份 CRLF 工作树，`go.mod` 首行实测 `d \r \n`——**旧代码在同一棵树上红 4 条，报的正是 CI 那句 `repo root (go.mod with module github.com/kalandramo/bald) not found`**（先复现根因再改）。改后同一棵树只剩 `TestModuleDerivationMatchesScript` 红：CRLF 的 `scripts/list-modules.sh` 被 `sh` 拒掉（exit 2）——这条在 Windows 上本就 `t.Skip`，而 `.gitattributes` 让检出根本不产生 CRLF；带该文件的克隆实测 `go.mod` 首行回到 `d \n`。
 - 刻意没做：① 不在产品里为 Windows 造第二套路径策略——清单身份就是 slash，其余人类可读输出（`generated:` 等）保持本机形态；② 不动 `windows.yml` 的 `go-version: 1.27.1`（与主 ci 的 `1.27.3` 不一致是既有状态）；③ 不把周界作业扩成多 module（窄口径是既定设计，全量归 ubuntu）。
-- 还不能证明：`bootstrap` 与 `contrib/authz-casbin` 两步这个周期从未执行（step 4 一红，后面整段 `skipped`），`TestTree_EndToEndTimed` 的 CTRL_BREAK 停机链路同理——本轮修法只保证了上面四条断言的根因与改法。这三条要推送后手动 `workflow_dispatch` 一次才有结论。
+- 已证（dispatch run 41445557462，head `474a939`，7m5s completed/success）：上面「从未执行」的三步第一次真跑，全绿——`TestTree_EndToEndTimed`（CTRL_BREAK 停机链路）、`bootstrap` build+vet+test、`contrib/authz-casbin` build+vet+test。同一 head 的主 `ci`（run 41445554812）五个作业亦全绿。本轮修法覆盖到 Windows 周界作业的全部 step，不再有余下未执行段。
+- 仍不能证明：`ci-windows` 的窄口径（root + bootstrap + casbin 三个 module）不等于全仓 Windows 兼容——其余 89 个 module 在 Windows 上从未跑过，ubuntu 上的全量清单不含它们。周界作业的人工设计（「全量归 ubuntu」）本身就承认这一层，不是本轮能收口的证据缺口。
 
 ---
 
@@ -453,4 +454,4 @@ B、C 是同一套机制的两份实现（命令式能力声明 vs 段驱动 Pro
 11. **文档漂移闸门**（§8）✅ 清单半：`module-list` 围栏 + 双向断言 + 与脚本逐行比对（三条变异实测）。「描述已删除 API」半仍未覆盖。
 12. **依赖卫生只读报告**（§3.2）✅：`scripts/multi-major.sh` + `task deps-multi-major`，再用 `go list -deps` 把「是否真同链」从推测改成证据；不加 exclude/replace。
 13. **CI 集成作业**（§7.1）✅：`integration` 作业注入 etcd/redis/mongo 跑三条接缝的非 `-short` 套件，并以「判据必须出现 `--- PASS`」兜住不可达即 Skip 的静默失效；作业文件自身的 schema 闸门另开 `workflow-lint`。GitHub 实测五个作业全绿。
-14. **覆盖率闸门**（§7.2）——未做。**统计量断言的复查**（§7.4）✅：`sres` 并发用例的假红已按「灌满窗口」修掉，阈值一字未动；同类写法已 grep 核过其余四个用随机源的包。**Windows 周界适配**（§7.5）✅：schedule 实测红的三条（产物扩展名 / 清单差异的路径身份 / 检出 CRLF）已修，并用 `.gitattributes` 收口检出形态。
+14. **覆盖率闸门**（§7.2）——未做。**统计量断言的复查**（§7.4）✅：`sres` 并发用例的假红已按「灌满窗口」修掉，阈值一字未动；同类写法已 grep 核过其余四个用随机源的包。**Windows 周界适配**（§7.5）✅：schedule 实测红的三条（产物扩展名 / 清单差异的路径身份 / 检出 CRLF）已修，并用 `.gitattributes` 收口检出形态；dispatch run 41445557462 实测该作业七个 step 全绿，含上次被连坐跳过的 `bootstrap`、`contrib/authz-casbin`、`TestTree_EndToEndTimed`。
