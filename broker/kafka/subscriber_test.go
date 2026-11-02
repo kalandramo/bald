@@ -314,17 +314,7 @@ func TestSubscriberClose_Idempotent(t *testing.T) {
 // TestSubscriberUnsubscribe_RemovesFromBroker 走 removeFromManager=true：
 // 订阅者要从 broker 的注册表里摘掉，否则 Disconnect 时对着已关订阅再清一次。
 func TestSubscriberUnsubscribe_RemovesFromBroker(t *testing.T) {
-	b, ok := NewBroker(broker.WithAddress(refusedAddr(t)), WithEnableErrorLogger(false)).(*kafkaBroker)
-	if !ok {
-		t.Fatal("NewBroker 返回了非 *kafkaBroker")
-	}
-	if err := b.Init(); err != nil {
-		t.Fatalf("Init: %v", err)
-	}
-	if err := b.Connect(); err != nil {
-		t.Fatalf("Connect: %v", err)
-	}
-	t.Cleanup(func() { _ = b.Disconnect() })
+	b := newConnectedBroker(t)
 
 	const topic = "bald.sub.unlink"
 	sub, err := b.Subscribe(topic, noopHandler, nil)
@@ -340,5 +330,93 @@ func TestSubscriberUnsubscribe_RemovesFromBroker(t *testing.T) {
 	}
 	if b.subscribers.Has(topic) {
 		t.Fatal("Unsubscribe(true) 后注册表应已摘除该 topic")
+	}
+}
+
+// newConnectedBroker 造一个「已 Connect、后端地址无人监听」的 broker：够用来走
+// 订阅注册表的两条路（调用方摘 / Disconnect 清），不需要真 Kafka。
+// Disconnect 挂在 Cleanup 上且忽略错误——本文件的用例要么不取错误，要么自己先调一次。
+func newConnectedBroker(t *testing.T) *kafkaBroker {
+	t.Helper()
+
+	b, ok := NewBroker(broker.WithAddress(refusedAddr(t)), WithEnableErrorLogger(false)).(*kafkaBroker)
+	if !ok {
+		t.Fatal("NewBroker 返回了非 *kafkaBroker")
+	}
+	if err := b.Init(); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	if err := b.Connect(); err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	t.Cleanup(func() { _ = b.Disconnect() })
+	return b
+}
+
+// TestSubscriberExitKeepsRegistryEntry 钉住「谁负责摘」的口径：订阅 goroutine 因
+// 致命错误退出时只释放自己的资源，**不动**注册表。摘除的责任在调用方
+// （`Unsubscribe(true)`）或 `Disconnect` 的清理。
+//
+// 这是有理由的选择，不是「先留着」：
+//   - 注册表按 topic 键且 `Add` 是覆盖式——致命退出的那个订阅者无从判断「表里这条还是
+//     不是我」，自摘会在调用方已经为重订阅换上新订阅者时把新的误摘掉；
+//   - kafka / rabbitmq / redis pubsub / redis stream / rocketmq 五个 broker 都是同一
+//     形态，只改 kafka 等于让「谁负责摘」在不同后端给出不同答案；
+//   - 残留条目对清理路径无害：`Disconnect` → `Clear` → `Unsubscribe(false)`，而 close
+//     已幂等（`TestSubscriberClose_Idempotent`）。
+//
+// 代价如实记下：`broker.SubscriberSyncMap` 的 `Topics()/Len()/Has()` 是公开 API，会把
+// 这个已死的订阅算进「当前订阅」上报。仓内无人读它；要判存活得看返回的订阅者本身
+// （kafka 的 `IsClosed()`，它不在 `broker.Subscriber` 接口上）。
+//
+// 把这条改成「自摘」是行为变更（公开 API 的可见性变了），要让上面三条理由都翻过来才做。
+func TestSubscriberExitKeepsRegistryEntry(t *testing.T) {
+	b := newConnectedBroker(t)
+
+	const topic = "bald.sub.dead-entry"
+	sub, err := b.Subscribe(topic, noopHandler, nil)
+	if err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+	ks, ok := sub.(*subscriber)
+	if !ok {
+		t.Fatalf("Subscribe 返回了 %T，不是 *subscriber", sub)
+	}
+
+	// 等到 run() 真因致命错误退出（地址无人监听 → 非超时 net.Error）。实测约 10s，
+	// 那是 reader 自带 MaxAttempts 的退避耗时，不是本用例的等待策略。
+	deadline := time.Now().Add(30 * time.Second)
+	for !ks.IsClosed() {
+		if time.Now().After(deadline) {
+			t.Fatal("订阅 goroutine 未在 30s 内因致命错误退出")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	if !b.subscribers.Has(topic) {
+		t.Fatal("致命退出不得自行摘除注册表条目——摘除是调用方或 Disconnect 的责任")
+	}
+	if n := b.subscribers.Len(); n != 1 {
+		t.Fatalf("注册表应有 1 条，得到 %d", n)
+	}
+
+	// 同 topic 重订阅：条目被覆盖而不是累积，死订阅不会挡住后面的重订阅。
+	sub2, err := b.Subscribe(topic, noopHandler, nil)
+	if err != nil {
+		t.Fatalf("re-Subscribe: %v", err)
+	}
+	if n := b.subscribers.Len(); n != 1 {
+		t.Fatalf("重订阅后注册表仍是 1 条，得到 %d", n)
+	}
+	if got := b.subscribers.Get(topic); got != sub2 {
+		t.Fatal("重订阅应覆盖注册表条目，表里应是新订阅者")
+	}
+
+	// 带着死条目收尾：Disconnect 必须清干净且不报错（close 幂等兜住重复清理）。
+	if err := b.Disconnect(); err != nil {
+		t.Fatalf("Disconnect 对残留死订阅应可收尾: %v", err)
+	}
+	if n := b.subscribers.Len(); n != 0 {
+		t.Fatalf("Disconnect 后注册表应为空，得到 %d", n)
 	}
 }

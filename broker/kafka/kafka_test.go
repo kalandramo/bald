@@ -2,8 +2,8 @@ package kafka
 
 import (
 	"context"
-	"errors"
 	stdjson "encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
