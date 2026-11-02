@@ -5,7 +5,8 @@ package etcd
 // ## 验证策略
 //
 // **真实 etcd 依赖**（Docker `bald-etcd`，:2379）。**集成测试，-short 下跳过**
-// （CI 无 etcd 服务；`go test -short` 是 CI 与本地快速回归的约定）。
+// （test 作业无 etcd；`go test -short` 是 test/race 作业与本地快速回归的约定，
+// 真 etcd 由 ci.yml 的 integration 作业注入）。
 // 不 mock——注册中心的语义（租约、watch、KV 前缀）无法用 mock 有意义地覆盖。
 //
 // 覆盖：构造校验 / Register→GetService→Deregister 全链路 /
@@ -31,7 +32,7 @@ func etcdEndpoint() string {
 
 // newTestRegistry 构造连接到真实 etcd 的 Registry。
 //
-// 集成测试：-short 下跳过——CI 无 etcd 服务（见 .github/workflows/ci.yml），
+// 集成测试：-short 下跳过——test 作业无 etcd（etcd 由 ci.yml 的 integration 作业注入），
 // `go test -short` 是 CI 与本地快速回归的约定，集成测试须以此守卫。
 // 非 -short 模式下 etcd 不可达同样跳过（环境缺失，非实现缺陷）。
 func newTestRegistry(t *testing.T, opts ...Option) *Registry {

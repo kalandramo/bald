@@ -9,7 +9,8 @@ package contract
 //  3. **fail-fast**：`type=etcd` 但缺 etcd 段 → 明确报错；
 //  4. 正常构造（真实 etcd）返回可用 Registrar + cleanup。
 //
-// 真实 etcd 依赖（:2379）。**集成测试，-short 下跳过**（CI 无 etcd 服务）；
+// 真实 etcd 依赖（:2379）。**集成测试，-short 下跳过**（test 作业无 etcd；ci.yml 的
+// integration 作业注入真 etcd 并断言本文件判据真的跑过）；
 // 非 -short 且 etcd 不可达时同样 Skip——契约装配的「可用性」无法用 mock 证明。
 // `TestType_Constant` / `TestProvider_MissingSectionFailsFast` / `TestProvider_ConfigMapping`
 // 不连 etcd，-short 下仍运行。
@@ -50,7 +51,7 @@ func TestProvider_MissingSectionFailsFast(t *testing.T) {
 
 // TestProvider_BuildsUsableRegistrar —— 正常构造（真实 etcd）。
 //
-// 集成测试：-short 下跳过（CI 无 etcd 服务，见 .github/workflows/ci.yml）。
+// 集成测试：-short 下跳过（etcd 由 ci.yml 的 integration 作业注入，见该 job 注释）。
 func TestProvider_BuildsUsableRegistrar(t *testing.T) {
 	if testing.Short() {
 		t.Skip("集成测试：依赖真实 etcd（:2379），-short 下跳过")

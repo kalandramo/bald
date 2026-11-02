@@ -20,7 +20,8 @@ func testURI() string {
 // newTestDB 连接测试 MongoDB 并返回一个每次调用唯一命名的 database，
 // 测试结束自动 Drop + Disconnect。每个测试独立 database，无跨测试串扰。
 //
-// 集成测试：-short 下跳过（CI 无 mongod 服务，见 .github/workflows/ci.yml）；
+// 集成测试：-short 下跳过（ci.yml 的 test 作业无 mongod；真 mongod 由同文件的 integration
+// 作业注入，那里不可达会被判据断言拦住而不是静默 Skip）；
 // 非 -short 且 mongod 不可达时同样 Skip（环境缺失，非实现缺陷）。
 func newTestDB(t *testing.T) *mongo.Database {
 	t.Helper()

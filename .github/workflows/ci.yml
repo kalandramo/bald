@@ -9,6 +9,8 @@
 #   注释），MessageState 含 Mutex 属 vet 误报区。
 # - go test -short + -timeout 5m：-short 跳过集成测试（各模块
 #   testing.Short() 惯例）；超时防挂死测试拖垮整个 job。
+#   「-short 之外」不是没人管：integration 作业按套件点名注入 etcd/redis/mongo 跑
+#   非 -short 用例，并以「判据必须出现 PASS」兜住不可达即 Skip 的静默失效（见该 job 注释）。
 # - 基准冒烟：每模块追加 go test -bench . -benchtime=1x -run '^$'——编译
 #   并单迭代跑一轮基准，拦「基准编译坏/基准 panic」回归；无基准 module
 #   空跑零成本。分配剖面回归由各包 alloc_guard_test.go 随 -short 主循环
@@ -112,6 +114,108 @@ jobs:
             echo "=== race: $mod ==="
             (cd "$mod" && go mod download && go test -short -race -timeout 10m ./...)
           done
+
+  # 集成作业（风险 §7.1）：注入真服务，跑「非 -short」的那批用例——registry / store /
+  # 队列三条接缝各至少一条。
+  #
+  # 为什么不是把 test 作业改成非 -short：`transport/{redis,kafka,rabbitmq,rocketmq,tcp,webrtc}`
+  # 的 `TestServer`/`TestClient` 是等信号的手动用例（非 -short 会挂到 timeout），主循环必须
+  # 留在 -short。这里按套件点名跑，清单外的包一概不碰。
+  #
+  # 刻意不含 `_example/bald`：那里的 etcd/nacos 服务发现端到端**只在本地跑**（README 有可复制
+  # 命令）。原因是 `_example/bald/go.mod` 把两个 kratos contrib 模块 replace 到**仓库外**的
+  # 同级检出（`../../kratos/contrib/{config,registry}/nacos`），干净检出上那两条路径不存在，
+  # 模块图都装载不出来。要在 CI 跑示例，得先给那两个 replace 找到已发布版本——那是独立一件事。
+  #
+  # 三档防「静默失效」（这是新增闸门最容易自欺的地方）：
+  #   1. **服务探活失败 = 作业失败**。这批用例的写法是「不可达即 Skip」，不探活的话服务起不
+  #      来作业照样绿，等于白加一个 job。
+  #   2. 逐套件 `-v` 全量输出留档，末尾按 EXPECTED 逐条断言真的出现 `--- PASS`：Skip、改名、
+  #      被删都拦得住。EXPECTED 只列「非真服务不可证」的判据，普通单测不在里面（它们已由
+  #      -short 主循环覆盖）。
+  #   3. EXPECTED 与套件一一对应写在同一个 step 里，加套件忘加判据时至少肉眼在同一屏能看见。
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GOPROXY: "https://goproxy.io|https://proxy.golang.org,direct"
+      # 三个后端的地址都显式给：测试里的默认值恰好也是这些，但作业不靠默认值成立
+      BALD_E2E_ETCD_ADDR: "127.0.0.1:2379"
+      BALD_TEST_REDIS_URI: "redis://127.0.0.1:6379"
+      BALD_MONGO_URI: "mongodb://127.0.0.1:27017"
+    services:
+      etcd:
+        image: quay.io/coreos/etcd:v3.5.14
+        ports: ["2379:2379"]
+        args: >-
+          --advertise-client-urls http://127.0.0.1:2379
+          --listen-client-urls http://0.0.0.0:2379
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+      mongo:
+        image: mongo:7
+        ports: ["27017:27017"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.3"
+
+      - name: 服务探活（探不到即失败，不放行成 Skip）
+        run: |
+          set -e
+          wait_tcp() { # host port 名称
+            for i in $(seq 1 60); do
+              if (echo > "/dev/tcp/$1/$2") 2>/dev/null; then echo "READY $3 ($1:$2)"; return 0; fi
+              sleep 2
+            done
+            echo "::error::$3 未就绪（$1:$2）"
+            return 1
+          }
+          wait_tcp 127.0.0.1 2379 etcd
+          wait_tcp 127.0.0.1 6379 redis
+          wait_tcp 127.0.0.1 27017 mongo
+
+      - name: 集成套件（非 -short，逐条判据留档）
+        run: |
+          set -e
+          mkdir -p /tmp/int
+          # registry/etcd/contract 不是独立 module（无自己的 go.mod），./... 已带上它
+          (cd registry/etcd       && go mod download && go test -count=1 -timeout 10m -v ./... > /tmp/int/registry-etcd.log 2>&1) || { cat /tmp/int/registry-etcd.log; exit 1; }
+          (cd contrib/store-mongo && go mod download && go test -count=1 -timeout 10m -v ./... > /tmp/int/store-mongo.log 2>&1) || { cat /tmp/int/store-mongo.log; exit 1; }
+          (cd transport/asynq     && go mod download && go test -count=1 -timeout 10m -v ./... > /tmp/int/asynq.log 2>&1) || { cat /tmp/int/asynq.log; exit 1; }
+          cat /tmp/int/*.log
+
+      - name: 判据必须真的跑过（Skip 不算通过）
+        run: |
+          set -e
+          # 每条格式 <日志>|<测试名>；名字来自上面各套件的 -v 输出
+          EXPECTED="
+          /tmp/int/registry-etcd.log|TestRegisterDiscoverDeregister
+          /tmp/int/registry-etcd.log|TestWatch_ReceivesChanges
+          /tmp/int/registry-etcd.log|TestProvider_BuildsUsableRegistrar
+          /tmp/int/store-mongo.log|TestMongoCRUD
+          /tmp/int/asynq.log|TestTaskSubscribe
+          "
+          miss=0
+          for row in $EXPECTED; do
+            [ "$row" = "" ] && continue
+            log=${row%%|*}
+            name=${row##*|}
+            if grep -q -- "--- PASS: $name" "$log"; then
+              echo "PASS  $name  ($log)"
+            else
+              echo "::error::判据 $name 没有 PASS 记录（Skip / 改名 / 未编译都会落到这里）"
+              miss=$((miss + 1))
+            fi
+          done
+          if [ "$miss" != 0 ]; then
+            echo "--- 留档输出（便于看是 Skip 还是没跑）---"
+            grep -E '^(--- (SKIP|FAIL|PASS)|ok|FAIL)' /tmp/int/*.log | tail -60
+            exit 1
+          fi
 
   # 静态检查：golangci-lint 逐模块运行（清单来自 scripts/list-modules.sh，零维护）。配置在根
   # .golangci.yml，子模块目录会向上发现；新增模块无需改本 job。
