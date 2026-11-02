@@ -83,8 +83,11 @@ jobs:
 
   # 竞态门禁：普通 test 不启用 race detector，session manager / 热重载 /
   # 计划缓存 / 限流器等并发路径的竞争只能在这里被发现（代码注释里的
-  # 「-race 可检出」不是保险）。范围 = 并发密集模块，新增此类模块时加行；
-  # 其余模块的常规测试仍由 test job 覆盖。
+  # 「-race 可检出」不是保险）。
+  # 范围 = 与 test / lint / vuln 作业同一条 find 循环派生的全部 module，默认值
+  # 是「跑」而不是「不跑」：新增 module 无需改这里，也不再维护第二份清单
+  # （Taskfile 的 `task race` 用同一份派生 + 同一个 .github/race-skip.txt）。
+  # 零测试文件的 module 只多付一次竞态化构建的成本（go test 打 no test files）。
   race:
     runs-on: ubuntu-latest
     env:
@@ -96,14 +99,14 @@ jobs:
         with:
           go-version: "1.27.3"
 
-      - name: go test -race (concurrency-sensitive modules)
+      - name: go test -race (all modules)
         run: |
           set -e
           trap 'echo "### FAILED AT MODULE: $mod"; echo "::error::FAILED AT MODULE: $mod"' ERR
-          for mod in . transport transport/grpc transport/http transport/http3 \
-                     transport/tcp transport/websocket transport/sse transport/web \
-                     retry ratelimit ratelimit/tokenbucket ratelimit/bbr ratelimit/sentinel \
-                     bootstrap registry cache cache/redis broker broker/redis log metrics health; do
+          mods=$(find . -name go.mod -not -path "./.git/*" -not -path "./_example*" | xargs -n1 dirname | sort | grep -vxF -f .github/race-skip.txt)
+          # 派生为空 = 这个闸门静默失效（find 谓词或排除清单被改坏），必须响。
+          if [ -z "$mods" ]; then echo "::error::race 清单派生为空，闸门未覆盖任何 module"; exit 1; fi
+          for mod in $mods; do
             echo "=== race: $mod ==="
             (cd "$mod" && go mod download && go test -short -race -timeout 10m ./...)
           done

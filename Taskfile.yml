@@ -356,64 +356,32 @@ tasks:
     cmds:
       - govulncheck ./...
 
-  # 竞态检测：普通 test 不启用 race detector。范围 = 并发密集模块（session
-  # manager / 热重载 / 计划缓存 / 限流器）；新增此类模块时加行，CI 的 race
-  # job 用同一份清单。不进 `verify`：本地全量跑会显著变慢。
+  # 竞态检测：普通 test 不启用 race detector。范围与 CI 的 race job 同源——
+  # 同一条 find 派生流水线 + 同一份 .github/race-skip.txt，默认值是「跑」而不是
+  # 「不跑」，新增 module 无需改这里。不进 `verify`：全量 -race 需 cgo 且明显变慢。
   race-module:
     internal: true
     dir: "{{.MOD}}"
     cmds:
       - go test -short -race -timeout 10m ./...
 
+  # 派生用 POSIX shell（find/xargs/grep/tr），故限制 linux/darwin；Windows 下整个
+  # 任务跳过——-race 本身要 cgo，且 Windows 周界作业（windows.yml）不跑 race。
+  # 「逐命令 dir」和「for 循环内的 dir」都会被 go-task 3.52 静默忽略，所以覆盖
+  # 必须走 race-module 这条 task 级 dir 的内部任务。
   race:
-    desc: 竞态检测（root + 并发密集模块，需 cgo）
+    desc: 竞态检测（find 派生的全部 module，需 cgo + POSIX shell；与 CI race job 同源）
+    platforms: [linux, darwin]
+    vars:
+      MODS:
+        sh: find . -name go.mod -not -path "./.git/*" -not -path "./_example*" | xargs -n1 dirname | sort | grep -vxF -f .github/race-skip.txt | tr '\n' ' '
     cmds:
-      - task: race-module
-        vars: { MOD: . }
-      - task: race-module
-        vars: { MOD: transport }
-      - task: race-module
-        vars: { MOD: transport/grpc }
-      - task: race-module
-        vars: { MOD: transport/http }
-      - task: race-module
-        vars: { MOD: transport/http3 }
-      - task: race-module
-        vars: { MOD: transport/tcp }
-      - task: race-module
-        vars: { MOD: transport/websocket }
-      - task: race-module
-        vars: { MOD: transport/sse }
-      - task: race-module
-        vars: { MOD: transport/web }
-      - task: race-module
-        vars: { MOD: retry }
-      - task: race-module
-        vars: { MOD: ratelimit }
-      - task: race-module
-        vars: { MOD: ratelimit/tokenbucket }
-      - task: race-module
-        vars: { MOD: ratelimit/bbr }
-      - task: race-module
-        vars: { MOD: ratelimit/sentinel }
-      - task: race-module
-        vars: { MOD: bootstrap }
-      - task: race-module
-        vars: { MOD: registry }
-      - task: race-module
-        vars: { MOD: cache }
-      - task: race-module
-        vars: { MOD: cache/redis }
-      - task: race-module
-        vars: { MOD: broker }
-      - task: race-module
-        vars: { MOD: broker/redis }
-      - task: race-module
-        vars: { MOD: log }
-      - task: race-module
-        vars: { MOD: metrics }
-      - task: race-module
-        vars: { MOD: health }
+      # 派生为空 = 闸门静默失效（find 谓词或排除清单被改坏），必须响。
+      - cmd: '[ -n "{{trim .MODS}}" ] || { echo "race: 清单派生为空，未覆盖任何 module"; exit 1; }'
+      - for: { var: MODS }
+        task: race-module
+        vars:
+          MOD: '{{.ITEM}}'
 
   build:
     desc: 编译核心模块全部包（不含 _example，见 example-bald-vet）

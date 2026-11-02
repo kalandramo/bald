@@ -1,0 +1,15 @@
+# race 作业的模块排除清单（唯一真相源：.github/workflows/ci.yml 的 race job 与
+# Taskfile.yml 的 `task race` 用同一条 find 派生流水线消费本文件）。
+#
+# 格式：一行一个模块路径，与 `find . -name go.mod -not -path "./.git/*" -not -path
+# "./_example*" | xargs -n1 dirname` 的输出逐字一致（含前导 ./）。过滤用
+# `grep -vxF -f`（整行精确匹配），所以以 # 开头的注释行与空行不可能命中真实路径。
+#
+# 每条排除都必须写清「为什么不能进 race」，且理由只能是 race detector 之外无法
+# 解决的东西（上游库自带竞争、平台无 cgo 等）。bald 自己的竞争要修，不进这里。
+
+# 上游 aliyun-log-go-sdk v0.1.131（已核实为当时最新版）的 producer 生命周期自带
+# 数据竞争：Start() 里 go monitor.reportThread()（producer.go:308）与 Close() 里
+# monitor.Stop()（producer.go:314）对同一字段无同步。bald 的 Close 只是转调
+# producer.Close()，规避它得先关掉运行期指标上报（删能力），故按排除处理。
+./log/aliyun
