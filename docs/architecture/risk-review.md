@@ -186,9 +186,9 @@ race 该覆盖的形态）、`broker/kafka`、`contrib/*` 全部缺席，而 `me
   bootstrap/health.go:13      import transport/grpc
   pkg/middleware/gin/authn.go:15  import transport/web
 
-适配器 ──require──▶ 根 module
-  transport/gateway/go.mod:28   require github.com/kalandramo/bald v0.34.0
-  transport/gateway/contract/provider.go:24  import github.com/kalandramo/bald/pkg/appkit
+适配器 ──require──▶ 根 module（以下四行是评审当时 `v0.34.0` 的快照，行号已随两轮修改失效，现值见「3.1 收口」）
+  transport/gateway/go.mod   require github.com/kalandramo/bald v0.34.0
+  transport/gateway/contract/provider.go  import github.com/kalandramo/bald/pkg/appkit
   registry/{etcd,nacos,consul,kubernetes}/contract/provider.go  import pkg/appkit
   cache/redis、oss/{minio,s3}、contrib/*、broker/redis、transport/{sse,asynq,cron,tcp,webrtc}  同样
 ```
@@ -233,7 +233,7 @@ B、C 是同一套机制的两份实现（命令式能力声明 vs 段驱动 Pro
 - 刻意没做：删掉重复机制就够断环了，没有为其余适配器动刀。`registry/*`、`contrib/*`、
   `oss/*` 等 22 个模块仍然 require 根 module（单向回边，实测图已是 DAG，不再成环），
   它们的版本追赶/编辑期不可见要靠抽 `appkit` 叶子 module 才能消——独立 breaking
-  动作，仍待 owner 决策。根与 `bootstrap` 的 `go.mod` 里指向 `transport/gateway` 的
+  动作，owner 2026-11-02 选定 C-A，落地见下面「3.1 收口」（这一条是第一轮当时的状态，现已不成立）。根与 `bootstrap` 的 `go.mod` 里指向 `transport/gateway` 的
   本地 `replace` 一并保留（已无对应 require，留着是为将来复用不必重新接线）。
 - 还不能证明：断环带来的实际收益只有「版本追赶不再成对」这一条，已经过 Linux CI（`5f771e0`：test/race/lint/vuln 全绿）与 `_example` 起进程实测。扇入本身没消：根 module 一次改动仍要让 22 个适配器重编，那要抽 `appkit` 叶子 module 才做得到——已落地，见下节。
 
