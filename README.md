@@ -65,7 +65,9 @@ bald/
 
 多 module 仓库：在每个 `go.mod` 所在目录内 `go test ./...`。
 
-质量门禁：`task lint` / `task vuln` 检查核心模块；CI 用 `find` 循环对每个 module 跑 `golangci-lint`（根 `.golangci.yml`）与 `govulncheck`（只拦代码可达漏洞）。
+质量门禁：`task lint` / `task vuln` / `task race` 与 CI 共用同一条模块派生（`scripts/list-modules.sh`），新增 module 不用顺手改清单；每个 module 跑 `golangci-lint`（根 `.golangci.yml`）与 `govulncheck`（只拦代码可达漏洞）。
+
+**未接线能力（reference-only）**：`retry`、`circuitbreaker` 的 4 个后端、`registry.Discovery`（会注册、不会解析）、`transport/graphql`、`workflow/argo`、`ai/*`、`oss/{s3,minio}` 在仓内没有消费方。它们照常随仓库发布、按 reference-only 保留——不删除，也不在文档里假装已接线。清单与可复现判据见[当前架构 §6](docs/architecture/current-architecture.md)。
 
 ## 可运行示例
 

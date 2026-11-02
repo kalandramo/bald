@@ -1,7 +1,9 @@
-# ci：全模块 build + vet + test + tidy + lint + vuln 闸门（模块自动发现，find 循环为准，零维护）。
+# ci：全模块 build + vet + test + tidy + lint + vuln 闸门（模块自动发现，零维护）。
 # 说明：
-# - 多模块仓库：shell 循环 find go.mod，模块增删零维护；_example 是
-#   验证用独立 module（GOFLAGS=-mod=mod 特殊装载），排除。
+# - 多模块仓库：模块清单只有一条派生 —— `scripts/list-modules.sh`（本地 Taskfile
+#   的 lint/vuln/race/verify 消费同一个脚本，两侧覆盖范围不可能漂移）。清单为空
+#   时脚本自身非零退出，闸门不会静默失效。`_example` 是验证用独立 module
+#   （GOFLAGS=-mod=mod 特殊装载），由脚本排除、由 Taskfile 的 example-* 任务覆盖。
 # - 根模块 vet 降级 -copylocks=false：appkit hotReload 的 `*cfg = *candidate`
 #   proto 顶层浅拷贝是既定设计（字段皆指针、无别名问题，见 bootstrap.go
 #   注释），MessageState 含 Mutex 属 vet 误报区。
@@ -58,7 +60,7 @@ jobs:
           set -e
           # 失败时在日志中打出所在模块（自诊断）
           trap 'echo "### FAILED AT MODULE: $mod"; echo "::error::FAILED AT MODULE: $mod"' ERR
-          for mod in $(find . -name go.mod -not -path "./.git/*" -not -path "./_example*" | xargs -n1 dirname | sort); do
+          for mod in $(sh scripts/list-modules.sh); do
             echo "=== $mod ==="
             # 预下载依赖（重试 3 次防 proxy 瞬断），之后构建/测试离线稳定
             n=0
@@ -84,9 +86,9 @@ jobs:
   # 竞态门禁：普通 test 不启用 race detector，session manager / 热重载 /
   # 计划缓存 / 限流器等并发路径的竞争只能在这里被发现（代码注释里的
   # 「-race 可检出」不是保险）。
-  # 范围 = 与 test / lint / vuln 作业同一条 find 循环派生的全部 module，默认值
-  # 是「跑」而不是「不跑」：新增 module 无需改这里，也不再维护第二份清单
-  # （Taskfile 的 `task race` 用同一份派生 + 同一个 .github/race-skip.txt）。
+  # 范围 = `scripts/list-modules.sh` 派生的全部 module 减去 .github/race-skip.txt，
+  # 与 test / lint / vuln 作业同源、与本地 `task race` 同一条派生 + 同一份排除清单。
+  # 默认值是「跑」而不是「不跑」：新增 module 无需改这里，也不再维护第二份清单。
   # 零测试文件的 module 只多付一次竞态化构建的成本（go test 打 no test files）。
   race:
     runs-on: ubuntu-latest
@@ -103,7 +105,7 @@ jobs:
         run: |
           set -e
           trap 'echo "### FAILED AT MODULE: $mod"; echo "::error::FAILED AT MODULE: $mod"' ERR
-          mods=$(find . -name go.mod -not -path "./.git/*" -not -path "./_example*" | xargs -n1 dirname | sort | grep -vxF -f .github/race-skip.txt)
+          mods=$(sh scripts/list-modules.sh | grep -vxF -f .github/race-skip.txt)
           # 派生为空 = 这个闸门静默失效（find 谓词或排除清单被改坏），必须响。
           if [ -z "$mods" ]; then echo "::error::race 清单派生为空，闸门未覆盖任何 module"; exit 1; fi
           for mod in $mods; do
@@ -111,7 +113,7 @@ jobs:
             (cd "$mod" && go mod download && go test -short -race -timeout 10m ./...)
           done
 
-  # 静态检查：golangci-lint 逐模块运行（零维护的 find 循环）。配置在根
+  # 静态检查：golangci-lint 逐模块运行（清单来自 scripts/list-modules.sh，零维护）。配置在根
   # .golangci.yml，子模块目录会向上发现；新增模块无需改本 job。
   lint:
     runs-on: ubuntu-latest
@@ -132,7 +134,7 @@ jobs:
         run: |
           set -e
           trap 'echo "### FAILED AT MODULE: $mod"; echo "::error::FAILED AT MODULE: $mod"' ERR
-          for mod in $(find . -name go.mod -not -path "./.git/*" -not -path "./_example*" | xargs -n1 dirname | sort); do
+          for mod in $(sh scripts/list-modules.sh); do
             echo "=== lint: $mod ==="
             n=0
             while true; do
@@ -165,7 +167,7 @@ jobs:
         run: |
           set -e
           trap 'echo "### FAILED AT MODULE: $mod"; echo "::error::FAILED AT MODULE: $mod"' ERR
-          for mod in $(find . -name go.mod -not -path "./.git/*" -not -path "./_example*" | xargs -n1 dirname | sort); do
+          for mod in $(sh scripts/list-modules.sh); do
             echo "=== vuln: $mod ==="
             n=0
             while true; do

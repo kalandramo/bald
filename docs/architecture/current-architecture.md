@@ -29,7 +29,7 @@ bald 是一个 **SPI + 适配器 + 声明式装配** 的 Go 多模块框架：�
 | 配置源 | `bconfig` | 配置「从哪里读」：Reader/Watcher/Decoder + file/env/etcd/consul/nacos/vault/apollo | `bconfig/bconfig.go:3-16` |
 | 装配桥 | `bootstrap` | 分层合并内核（viper 已退役）+ `ServerProvider` 工厂 + 远程配置驱动 | `bootstrap/config/config.go:1-17`、`bootstrap/server.go:25,89,137` |
 | 组合层 | `pkg/appkit`（根 module 内） | v2 Provider `Plan`/`Build`/`Segments`、`Run`/`stopAll` 生命周期、`std` 标准装配、`mech`/`appcli`/`Domain` | `pkg/appkit/provider.go:1-24`、`pkg/appkit/appkit.go:561-703` |
-| 横切层 | `pkg/middleware/{bundle,gin,grpc}` | 链序固化的 gin 中间件链与 gRPC 拦截器链 | `pkg/middleware/bundle/bundle.go:171-211,224-241` |
+| 横切层 | `pkg/middleware/{bundle,gin,grpc}` | 链序固化的 gin 中间件链与 gRPC 拦截器链 | `pkg/middleware/bundle/bundle.go` `Gin()`/`GRPCInterceptors()` |
 | SPI | `transport` `broker` `cache` `metrics` `registry` `ratelimit` `circuitbreaker` `retry` `encoding` `log` `health` `berrors` | 只有接口与少量通用工具 | `transport/server.go:14-22`、`broker/broker.go:9-33`、`cache/cache.go:28-69`、`registry/registry.go:62-75` |
 | 适配器 | `transport/*`(18) `broker/*`(4) `cache/*`(3) `registry/*`(4) `log/*`(5) `metrics/*`(3) `encoding/*`(12) `ratelimit/*`(3) `circuitbreaker/*`(4) `oss/{minio,s3}` `ai/*`(3) `workflow/argo` `cobramcp` | 每个后端一个 module | 各 `*/go.mod` |
 | 接入子包 | `*/contract`（30 个目录） | 把适配器注册成 appkit v2 Provider —— **这是适配器与装配层唯一的接缝** | `transport/gateway/contract/provider.go:24`、`registry/etcd/contract/provider.go:16`、`oss/minio/contract/provider.go:17` |
@@ -38,6 +38,111 @@ bald 是一个 **SPI + 适配器 + 声明式装配** 的 Go 多模块框架：�
 | 样例 | `_example/bald` | 已迁入生成树的真实消费方 | `_example/bald/internal/bootstrap/assemble.gen.go:1-7,42-47` |
 
 `transport/` 与 `transport/grpc` 的区别是理解本仓库的钥匙：前者是 **接口**（`Server`：`Start(ctx)/Stop(ctx)/Endpoint()`），后者是 **一个实现**。`transport/gateway` 是复合体——它内嵌 `*httpserver.HTTPServer` 再加 grpc→REST 反向代理（`transport/gateway/gateway_server.go:20-24`），`transport/mcp` 则直接包装 `mark3labs/mcp-go`，但同样实现了 `Start/Stop/Endpoint`（`transport/mcp/server.go:106,186,233`）。
+
+<details>
+<summary>完整 module 清单（92 个，与 <code>scripts/list-modules.sh</code> 同源）</summary>
+
+下面这块是**机器校验的**：`internal/docscheck` 的 `TestModuleListMatchesDerivation`
+把它逐行与 `scripts/list-modules.sh` 的派生结果比对（同一条谓词：仓库内含 `go.mod`
+的目录，排除 `.git/` 与 `_example*`）。新增 module 没同步这里，`go test ./...` 就响。
+根模块写作 `.`。
+
+```module-list
+.
+ai/eino
+ai/langchaingo
+ai/openai
+bconf
+bconfig
+berrors
+bootstrap
+broker
+broker/kafka
+broker/rabbitmq
+broker/redis
+broker/rocketmq
+cache
+cache/loadable
+cache/local
+cache/redis
+circuitbreaker
+circuitbreaker/hystrix
+circuitbreaker/sentinel
+circuitbreaker/sres
+circuitbreaker/vegas
+cobramcp
+cobramcp/examples/positional-args
+cobramcp/examples/positional-args-mcp-server
+cobramcp/examples/task
+contrib/audit-gorm
+contrib/audit-stream
+contrib/authn-jwt
+contrib/authz-casbin
+contrib/config-nacos
+contrib/database/gorm
+contrib/database/mongodb
+contrib/observability-otlp
+contrib/store-gorm
+contrib/store-mongo
+encoding
+encoding/avro
+encoding/bson
+encoding/cbor
+encoding/flatbuffers
+encoding/gob
+encoding/json
+encoding/msgpack
+encoding/proto
+encoding/thrift
+encoding/toml
+encoding/xml
+encoding/yaml
+health
+log
+log/aliyun
+log/charm
+log/loki
+log/sentry
+log/tencent
+metrics
+metrics/datadog
+metrics/otel
+metrics/prometheus
+oss/minio
+oss/s3
+ratelimit
+ratelimit/bbr
+ratelimit/sentinel
+ratelimit/tokenbucket
+registry
+registry/consul
+registry/etcd
+registry/kubernetes
+registry/nacos
+retry
+transport
+transport/asynq
+transport/cron
+transport/gateway
+transport/graphql
+transport/grpc
+transport/http
+transport/http3
+transport/kafka
+transport/mcp
+transport/rabbitmq
+transport/redis
+transport/rocketmq
+transport/sse
+transport/subscribe
+transport/tcp
+transport/web
+transport/webrtc
+transport/websocket
+workflow/argo
+```
+
+</details>
 
 ## 3. 装配主干（配置 → 计划 → 运行）
 
@@ -111,15 +216,23 @@ appspec.json / bconf 契约
 | `encoding.Codec` | `encoding/` + 12 个格式 module | 编解码注册表，`broker.Marshal` 缺 codec 时 fail-fast（`broker/encoding.go:34`） | 12 |
 | `appkit.Provider` (v2) | `pkg/appkit/provider.go:1-24` | `Option`+`Segments`+`Plan`+`Build` | `std` + 30 个 `*/contract` + 业务自定义 |
 
-## 6. 未接线面（存在但无人调用）
+## 6. 未接线面（reference-only：存在但仓内无人调用）
 
-置信度 **high**（全仓 grep 复核，非推断）：
+置信度 **high**。口径：**这些按 reference-only 保留**——不删除、不降级为示例、
+不假装已接线；文档与 README 明确标未接线，改动它们时以「仓外消费方可能存在」为前提。
+判据可复现（根 module 之外的每个包都算一次 importer）：
+
+```bash
+find . -name '*.go' ! -name '*_test.go' -not -path './.git/*' -not -path './<pkg>/*' \
+  | xargs grep -l 'kalandramo/bald/<pkg>' | grep -v '^./<pkg>/'
+```
 
 - `retry/` —— 全仓唯一提及是文档注释（`ratelimit/bbr/bbr.go:68`），**零 importer**。
 - `circuitbreaker/` —— 只被自己的 4 个后端 import（`circuitbreaker/{hystrix,vegas,sres,sentinel}/*.go`），**无 transport / middleware / appkit 消费方**。
-- `registry.Discovery` —— `GetService` 的调用点只出现在 registry 后端自身与其测试；`appkit` 只用 `Registrar`/Deregister（`pkg/appkit/appkit.go:643,659,690`）。**服务发现目前是生产侧半环：会注册，不会解析。**
-- gRPC 链上没有 `RateLimit` 与 `Timeout` 层（对比 `pkg/middleware/bundle/bundle.go:199-209` 的 gin 链，`:224-241` 的 gRPC 链到 Authz 就结束）。
-- 中间件依赖未注入即整层省略：`bundle.New()` 不给 `Authn` 时链中静默无认证层（风险 §6.1）。现已要求显式表态——`bundle.Public()` 声明有意公开，否则 `Bundle.Verify()` 报错、出链时告警（`pkg/middleware/bundle/bundle.go:185-212`）；生成脚手架默认写出 `bundle.Public()` 并留 TODO。
+- `registry.Discovery` —— `GetService` 的调用点只出现在 registry 后端自身与其测试；`appkit` 只用 `Registrar`/Deregister（`pkg/appkit/appkit.go:643,659,690`）。**服务发现目前是生产侧半环：会注册，不会解析。**服务间调用走契约地址直连（§8）。
+- `transport/graphql`、`workflow/argo`、`ai/{openai,eino,langchaingo}`、`oss/{s3,minio}` —— 有 `*/contract` Provider，仓内零消费者、零示例（`transport/mcp/options.go:14` 的注释是 graphql 唯一命中）。
+- 中间件依赖未注入即整层省略：`bundle.New()` 不给 `Authn` 时链中静默无认证层（风险 §6.1）。现已要求显式表态——`bundle.Public()` 声明有意公开，否则 `Bundle.Verify()` 报错、出链时告警（`pkg/middleware/bundle/bundle.go` 的 `Verify`）；生成脚手架默认写出 `bundle.Public()` 并留 TODO。
+- `server.http.middleware` 的 `rate_limit` / `timeout` 两段此前**只投影到 gin 链**；gRPC 链现由 `GRPCInterceptors()` 挂上同名层（`ratelimit.go` / `timeout.go`，见《Bald 中间件设计》）。未接线的是**装配来源**：gRPC 没有自己的契约段，仍复用 HTTP 侧配置（风险 §6.2「未修」项）。
 
 ## 7. 阅读顺序建议
 

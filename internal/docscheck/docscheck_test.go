@@ -6,8 +6,12 @@ package docscheck
 import (
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
+	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -273,5 +277,139 @@ func repoRoot(t *testing.T) string {
 			t.Fatal("repo root (go.mod with module github.com/kalandramo/bald) not found")
 		}
 		dir = parent
+	}
+}
+
+// moduleListRe 抓取 Markdown 里以 ```module-list 开栏的代码块——文档中的
+// module 清单与派生结果的接缝（见 current-architecture.md §2）。
+var moduleListRe = regexp.MustCompile("(?ms)^```module-list\n(.*?)\n```")
+
+// derivedModules 复刻 scripts/list-modules.sh 的谓词：仓库内含 go.mod 的目录，
+// 排除 .git/ 与 _example*，根模块记作 "."，字典序返回（相对根、slash 分隔）。
+func derivedModules(root string) []string {
+	var mods []string
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			return relErr
+		}
+		slash := filepath.ToSlash(rel)
+		if d.IsDir() {
+			if slash == ".git" || d.Name() == ".git" || d.Name() == "node_modules" || d.Name() == "vendor" {
+				return filepath.SkipDir
+			}
+			if strings.HasPrefix(slash, "_example") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.Name() == "go.mod" {
+			dir, relErr := filepath.Rel(root, filepath.Dir(path))
+			if relErr != nil {
+				return relErr
+			}
+			if dir == "." {
+				mods = append(mods, ".")
+			} else {
+				mods = append(mods, filepath.ToSlash(dir))
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil
+	}
+	sort.Strings(mods)
+	return mods
+}
+
+// documentedModules 返回全部 Markdown 里 module-list 代码块声明的模块集合。
+func documentedModules(t *testing.T, root string) map[string]string {
+	t.Helper()
+	doc := map[string]string{}
+	err := filepath.WalkDir(filepath.Join(root, "docs"), func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || filepath.Ext(path) != ".md" {
+			return nil
+		}
+		src, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			rel = path
+		}
+		for _, m := range moduleListRe.FindAllStringSubmatch(string(src), -1) {
+			for _, line := range strings.Split(m[1], "\n") {
+				if name := strings.TrimSpace(line); name != "" {
+					doc[name] = filepath.ToSlash(rel)
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("scan module-list blocks: %v", err)
+	}
+	return doc
+}
+
+// TestModuleListMatchesDerivation 把文档里的 module 清单钉在真实派生结果上：
+// 「新增模块没进文档」这类漂移光靠链接检查测不出来，此处逐条比对两个方向。
+func TestModuleListMatchesDerivation(t *testing.T) {
+	root := repoRoot(t)
+	mods := derivedModules(root)
+	if len(mods) < 50 {
+		t.Fatalf("派生到 %d 个 module，明显低于仓库实际数量——谓词失效，本闸门已空转", len(mods))
+	}
+	doc := documentedModules(t, root)
+	if len(doc) == 0 {
+		t.Fatal("没有任何 ```module-list 代码块：清单消失，闸门已空转")
+	}
+	for _, m := range mods {
+		if _, ok := doc[m]; !ok {
+			t.Errorf("module %s 未出现在文档清单里", m)
+		}
+	}
+	for m, where := range doc {
+		if !slices.Contains(mods, m) {
+			t.Errorf("文档清单里的 %s（%s）在仓库中不是 module", m, where)
+		}
+	}
+}
+
+// TestModuleDerivationMatchesScript 用真实脚本给上面的复刻背书：Go 侧谓词必须
+// 与 scripts/list-modules.sh（CI 与 Taskfile 唯一的清单来源）逐行一致。
+// Windows 无 POSIX sh，跳过。
+func TestModuleDerivationMatchesScript(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("scripts/list-modules.sh 需要 POSIX sh")
+	}
+	root := repoRoot(t)
+	out, err := exec.Command("sh", filepath.Join(root, "scripts", "list-modules.sh")).Output()
+	if err != nil {
+		t.Fatalf("run scripts/list-modules.sh: %v", err)
+	}
+	var want []string
+	for _, line := range strings.Split(string(out), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			want = append(want, strings.TrimPrefix(line, "./"))
+		}
+	}
+	sort.Strings(want)
+	got := derivedModules(root)
+	if len(got) != len(want) {
+		t.Fatalf("Go 派生 %d 个，脚本派生 %d 个", len(got), len(want))
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			t.Errorf("derivation[%d] = %s, want %s", i, got[i], want[i])
+		}
 	}
 }

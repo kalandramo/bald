@@ -16,7 +16,8 @@
 biz 构造、补偿/降级分支的匹配、DAL 包装、CLI 与测试断言——全部只
 `import berrors`；投影段已由框架收口（HTTP 侧 `web.ErrorResponse`、gRPC 侧
 `ErrorInterceptor`），**业务代码几乎不需要碰桥接子包**。下游 bald-admin
-后端 25 个文件 import 根包、0 处 import 桥接子包，即此结构的实证。
+全仓 38 个 `.go` 文件 import 根包、0 处 import `grpcerr`/`httperr`，即此结构的
+实证（计数谓词：`find . -name '*.go' | xargs grep -l '"github.com/kalandramo/bald/berrors"'`）。
 
 ## 0. 引依赖
 

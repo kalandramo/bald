@@ -11,6 +11,11 @@
 # - 所有跨目录命令改用 `dir:` 字段而非 `cd`，避免 Windows cmd/pwsh 的 cd/shell 差异。
 # - 平台相关检测（如「命令是否在 PATH」）用 `task` 内置的 `sh`/`bash` 平台判定，
 #   而非 Make 的 `@command -v`，从而 Windows 下也能跑。
+# - 模块清单不在这里手写：`scripts/list-modules.sh` 是全仓唯一派生，CI
+#   （.github/workflows/ci.yml）与本文件的 lint/vuln/race/verify 都消费它，
+#   本地与 CI 的覆盖范围因此不会再漂移（§1.2）。派生需要 POSIX shell，
+#   Windows 下这些 sweep 显式失败（不是静默跳过），逐模块请用
+#   `task verify-module MOD=<dir>`。
 # - protoc-gen-defaults 的版本 pin 在下方 vars.PROTOC_GEN_DEFAULTS_VERSION（唯一真相源；
 #   升级时改这里，勿再散落 .bingo 之类的旁支文件）。
 
@@ -20,6 +25,9 @@ vars:
   PROTOC_GEN_DEFAULTS_VERSION: v0.0.2 # protoc-gen-defaults pin（原 .bingo 记录的 commit pin 无效，已核实取 v0.0.2）
   GOLANGCI_LINT_VERSION: v2.15.0 # lint 规则集升级是显式动作，避免上游新检查静默漂移
   GOVULNCHECK_VERSION: v1.9.0
+  # 全仓 module 清单（与 CI 同一条派生）。空格分隔便于 `for: { var: }`。
+  MODULES:
+    sh: sh scripts/list-modules.sh | tr '\n' ' '
 
 # Windows 下用 pwsh，其余用 bash；命令缺省走 bash 即可，需 shell 特性时显式指定。
 tasks:
@@ -147,11 +155,8 @@ tasks:
   # cobramcp 是独立 module（github.com/kalandramo/bald/cobramcp，与 transport/mcp
   # 平级），其 examples/ 下另有 3 个独立 module（task / positional-args /
   # positional-args-mcp-server）。嵌套 module 不在根模块的 `go build ./...` /
-  # `go test ./...` 范围内 —— 与 _example 同一个坑（见上），故这里显式列出。
-  # CI（.github/workflows/ci.yml 用 find go.mod 自动发现）已覆盖这些 module，
-  # 本组任务供本地/手动验证；其余兄弟 module 需要时按同样方式 cd 进去跑。
-  # examples 只跑 vet + test、不跑 `go build ./...`：它们全是 package main，
-  # 构建会把 task.exe 之类的可执行文件落到示例目录里（同 _example 的收尾清理问题）。
+  # `go test ./...` 范围内 —— 与 _example 同一个坑（见上），故这里显式给出入口；
+  # 清单本身仍由 scripts/list-modules.sh 派生，CI 的同一条派生已覆盖它们。
   # ---------------------------------------------------------------------------
 
   cobramcp-build:
@@ -172,189 +177,167 @@ tasks:
     cmds:
       - go test ./...
 
-  # 单示例 module 的 vet + test。**目录切换只能靠任务级 dir**：实测 Task 3.52 下
-  # 「逐命令 dir」和「for 循环内的 dir」都会被静默忽略（命令会在 Taskfile 所在目录
-  # 执行，看起来「通过」其实检查错了 module），故这里用 vars 传参 + 任务级 dir，
-  # 由 cobramcp-example-verify 依次调用。
-  cobramcp-example-check:
-    internal: true
-    dir: cobramcp/examples/{{.EXAMPLE}}
-    cmds:
-      - go vet ./...
-      - go test ./...
-
+  # 单示例 module 的验证走派生清单（与其余 module 同一条谓词），不再手写三个
+  # 名字。**目录切换只能靠任务级 dir**：实测 Task 3.52 下「逐命令 dir」和
+  # 「for 循环内的 dir」都会被静默忽略（命令会在 Taskfile 所在目录执行，看起来
+  # 「通过」其实检查错了 module），故 verify-module 用 vars 传参 + 任务级 dir。
   cobramcp-example-verify:
-    desc: 校验 cobramcp 的 3 个示例 module（vet + test；不跑 go build，避免落可执行文件）
+    desc: 校验 cobramcp 的示例 module（派生 cobramcp/examples/ 下全部 module）
     cmds:
-      - task: cobramcp-example-check
-        vars: { EXAMPLE: task }
-      - task: cobramcp-example-check
-        vars: { EXAMPLE: positional-args }
-      - task: cobramcp-example-check
-        vars: { EXAMPLE: positional-args-mcp-server }
+      - task: verify-scope
+        vars: { PREFIX: cobramcp/examples }
 
   cobramcp-verify:
     desc: cobramcp 全量验证（主模块 + 3 个示例 module）
     deps: [cobramcp-build, cobramcp-vet, cobramcp-test, cobramcp-example-verify]
 
   # ---------------------------------------------------------------------------
-  # retry / ratelimit / broker 是嵌套独立 module，不在根模块 `go build ./...`
-  # 范围内（与 _example、cobramcp 同一个坑），故这里显式列出，否则本地
-  # `task verify` 会假绿。CI（.github/workflows/ci.yml 用 find go.mod 自动发现）
-  # 已覆盖，本组任务供本地/手动验证。
-  # ratelimit 有 4 个 module（根 + tokenbucket/bbr/sentinel）；broker 有 5 个
-  # （根 + kafka/rabbitmq/redis/rocketmq，各带 contract 子包）——用 `...` 通配
-  # 覆盖子目录，但跨 module 边界时 `./...` 只在当前 module 内生效，故逐 module
-  # 列出。注意 Task 3.52：跨目录只能用任务级 `dir:`。
+  # 按目录前缀的验证组。清单同样从 scripts/list-modules.sh 派生（按前缀过滤），
+  # 不再手写「根 + 各后端」的 module 名单——原来 broker-verify 少列一个后端、
+  # encoding-verify 少列一个格式就会本地假绿（§1.2）。
+  # 这些 module 不在根模块 `go build ./...` 范围内（嵌套独立 module，与 _example、
+  # cobramcp 同一个坑），所以本地要么用这一组、要么直接 task verify-modules。
+  # 注意 Task 3.52：跨目录只能用任务级 `dir:`（见 verify-module）。
   # ---------------------------------------------------------------------------
+
+  verify-scope:
+    desc: 验证指定目录前缀下的全部 module（PREFIX=<dir>，例：task verify-scope PREFIX=transport）
+    vars:
+      MODS:
+        sh: sh scripts/list-modules.sh | grep -E '^\./{{.PREFIX | default ""}}(/|$)' | tr '\n' ' '
+    cmds:
+      - cmd: '[ -n "{{trim (.PREFIX | default "")}}" ] || { echo "verify-scope: 需要 PREFIX=<dir>，例：task verify-scope PREFIX=broker"; exit 1; }'
+      # 前缀下派生为空 = 目录改名了或谓词被改坏，必须响而不是「通过」。
+      - cmd: '[ -n "{{trim .MODS}}" ] || { echo "verify-scope: {{.PREFIX | default ""}} 下未派生出任何 module"; exit 1; }'
+      - for: { var: MODS }
+        task: verify-module
+        vars:
+          MOD: '{{.ITEM}}'
 
   retry-verify:
-    desc: retry 全量验证（build + vet + test）
-    dir: retry
+    desc: retry 全量验证（派生 retry/ 下全部 module）
     cmds:
-      - go build ./...
-      - go vet ./...
-      - go test ./...
-
-  # ---------------------------------------------------------------------------
-  # encoding 是「根 module + 12 个格式 module」结构（json/xml/yaml/toml/proto/
-  # msgpack/bson/cbor/gob/thrift/avro/flatbuffers），与 ratelimit/broker 同一个
-  # 嵌套 module 的坑：子 module 不在根模块 `go build ./...` 范围内，本地
-  # `task verify` 不显式列出就会假绿。CI（find go.mod）已覆盖，本组供本地验证。
-  # ---------------------------------------------------------------------------
+      - task: verify-scope
+        vars: { PREFIX: retry }
 
   encoding-verify:
-    desc: encoding 全量验证（根 module + 12 个格式 module）
+    desc: encoding 全量验证（派生 encoding/ 下全部 module：根 + 各格式）
     cmds:
-      - task: encoding-module-verify
-        vars: { MOD: . }
-      - task: encoding-module-verify
-        vars: { MOD: json }
-      - task: encoding-module-verify
-        vars: { MOD: xml }
-      - task: encoding-module-verify
-        vars: { MOD: yaml }
-      - task: encoding-module-verify
-        vars: { MOD: toml }
-      - task: encoding-module-verify
-        vars: { MOD: proto }
-      - task: encoding-module-verify
-        vars: { MOD: msgpack }
-      - task: encoding-module-verify
-        vars: { MOD: bson }
-      - task: encoding-module-verify
-        vars: { MOD: cbor }
-      - task: encoding-module-verify
-        vars: { MOD: gob }
-      - task: encoding-module-verify
-        vars: { MOD: thrift }
-      - task: encoding-module-verify
-        vars: { MOD: avro }
-      - task: encoding-module-verify
-        vars: { MOD: flatbuffers }
-
-  encoding-module-verify:
-    internal: true
-    dir: encoding/{{.MOD}}
-    cmds:
-      - go build ./...
-      - go vet ./...
-      - go test ./...
+      - task: verify-scope
+        vars: { PREFIX: encoding }
 
   ratelimit-verify:
-    desc: ratelimit 全量验证（根 + tokenbucket/bbr/sentinel 四 module）
+    desc: ratelimit 全量验证（派生 ratelimit/ 下全部 module：根 + 各后端）
     cmds:
-      - task: ratelimit-module-verify
-        vars: { MOD: . }
-      - task: ratelimit-module-verify
-        vars: { MOD: tokenbucket }
-      - task: ratelimit-module-verify
-        vars: { MOD: bbr }
-      - task: ratelimit-module-verify
-        vars: { MOD: sentinel }
-
-  ratelimit-module-verify:
-    internal: true
-    dir: ratelimit/{{.MOD}}
-    cmds:
-      - go build ./...
-      - go vet ./...
-      - go test ./...
+      - task: verify-scope
+        vars: { PREFIX: ratelimit }
 
   broker-verify:
-    desc: broker 全量验证（根 + kafka/rabbitmq/redis/rocketmq 五 module）
+    desc: broker 全量验证（派生 broker/ 下全部 module：根 + 各后端）
     cmds:
-      - task: broker-module-verify
-        vars: { MOD: . }
-      - task: broker-module-verify
-        vars: { MOD: kafka }
-      - task: broker-module-verify
-        vars: { MOD: rabbitmq }
-      - task: broker-module-verify
-        vars: { MOD: redis }
-      - task: broker-module-verify
-        vars: { MOD: rocketmq }
-
-  broker-module-verify:
-    internal: true
-    dir: broker/{{.MOD}}
-    cmds:
-      - go build ./...
-      - go vet ./...
-      - go test ./...
+      - task: verify-scope
+        vars: { PREFIX: broker }
 
   circuitbreaker-verify:
-    desc: circuitbreaker 全量验证（根 + hystrix/sentinel/sres/vegas 五 module）
+    desc: circuitbreaker 全量验证（派生 circuitbreaker/ 下全部 module：根 + 各后端）
     cmds:
-      - task: circuitbreaker-module-verify
-        vars: { MOD: . }
-      - task: circuitbreaker-module-verify
-        vars: { MOD: hystrix }
-      - task: circuitbreaker-module-verify
-        vars: { MOD: sentinel }
-      - task: circuitbreaker-module-verify
-        vars: { MOD: sres }
-      - task: circuitbreaker-module-verify
-        vars: { MOD: vegas }
-
-  circuitbreaker-module-verify:
-    internal: true
-    dir: circuitbreaker/{{.MOD}}
-    cmds:
-      - go build ./...
-      - go vet ./...
-      - go test ./...
+      - task: verify-scope
+        vars: { PREFIX: circuitbreaker }
 
   test:
-    desc: 运行核心模块全部测试（不含 _example，见 example-* 任务）
+    desc: 运行核心模块全部测试（只根 module；全仓用 task verify-modules）
     cmds:
       - go test ./...
 
-  # 静态检查与漏洞扫描：与 `test` 同口径只跑核心模块；子模块用
-  # task lint-module MOD=<dir> / task vuln-module MOD=<dir>（CI 用 find 循环全仓）。
+  # 静态检查与漏洞扫描：范围 = scripts/list-modules.sh 派生的全部 module，与 CI 的
+  # lint/vuln 作业逐模块同口径（原来只跑核心 module，是 §1.2 的假绿来源之一）。
+  # 只想要单模块的快速检查用 task lint-module MOD=<dir> / task vuln-module MOD=<dir>。
   lint:
-    desc: golangci-lint 检查核心模块（配置 .golangci.yml）
+    desc: golangci-lint 检查全部 module（与 CI lint 作业同范围；单模块用 task lint-module）
     deps: [tools-golangci-lint]
+    vars:
+      MODS: "{{.MODULES}}"
     cmds:
-      - golangci-lint run ./...
+      - cmd: '[ -n "{{trim .MODS}}" ] || { echo "lint: 清单派生为空，未覆盖任何 module"; exit 1; }'
+        platforms: [linux, darwin]
+      # 派生要 POSIX shell。Windows 下显式失败，绝不能「跳过并打印 OK」。
+      - cmd: 'echo "lint: 模块清单派生需要 POSIX shell；Windows 下逐模块跑 task lint-module MOD=<dir>"; exit 1'
+        platforms: [windows]
+      - for: { var: MODS }
+        task: lint-module
+        vars:
+          MOD: '{{.ITEM}}'
 
   lint-module:
-    internal: true
+    desc: golangci-lint 检查单个 module（MOD=<dir>）
     dir: "{{.MOD}}"
     cmds:
       - golangci-lint run ./...
 
   vuln:
-    desc: govulncheck 扫描核心模块（代码可达漏洞；需访问 vuln.go.dev）
+    desc: govulncheck 扫描全部 module（代码可达漏洞；需访问 vuln.go.dev）
     deps: [tools-govulncheck]
+    vars:
+      MODS: "{{.MODULES}}"
     cmds:
-      - govulncheck ./...
+      - cmd: '[ -n "{{trim .MODS}}" ] || { echo "vuln: 清单派生为空，未覆盖任何 module"; exit 1; }'
+        platforms: [linux, darwin]
+      - cmd: 'echo "vuln: 模块清单派生需要 POSIX shell；Windows 下逐模块跑 task vuln-module MOD=<dir>"; exit 1'
+        platforms: [windows]
+      - for: { var: MODS }
+        task: vuln-module
+        vars:
+          MOD: '{{.ITEM}}'
 
   vuln-module:
-    internal: true
     dir: "{{.MOD}}"
     cmds:
       - govulncheck ./...
+
+  # 逐模块验证，命令与 CI 的 test 作业同口径：tidy -diff（依赖面漂移）+ build +
+  # vet + go test -short。两处本地专属的差别：
+  # - build 的产物落到临时目录而不是源码树——派生清单里有 package main
+  #   （cmd/bald、cobramcp/examples/*），CI 用的是用完即弃的 runner，本地会把
+  #   可执行文件直接吐进仓库（.gitignore 只挡 bald.exe）。
+  # - 根模块的 vet 同样带 -copylocks=false（见 ci.yml 文件头对 appkit 顶层浅拷贝
+  #   的说明），否则本地比 CI 更严、假红。
+  verify-module:
+    desc: 验证单个 module（tidy -diff + build + vet + test -short；MOD=<dir>）
+    dir: "{{.MOD}}"
+    cmds:
+      - go mod tidy -diff
+      # 有 package main 时把可执行文件丢到临时目录：`go build ./...` 对纯库包
+      # 不产出文件，但对 main 包会吐在源码目录里（cmd/bald、cobramcp/examples/*），
+      # .gitignore 只挡 bald.exe。`-o <dir>` 只在确有 main 包时合法，
+      # 纯库包会报 "no main packages to build"，故分支。
+      # （判据用 go list -json 而不是 -f '{{.Name}}'：花括号会被 go-task 当模板渲染。）
+      - cmd: |
+          if go list -json ./... | grep -q '"Name": "main"'; then
+            go build -o "$(mktemp -d)" ./...
+          else
+            go build ./...
+          fi
+      - cmd: |
+          if [ "{{.MOD}}" = "." ] || [ "{{.MOD}}" = "./" ]; then
+            go vet -copylocks=false ./...
+          else
+            go vet ./...
+          fi
+      - go test -short -timeout 5m ./...
+
+  verify-modules:
+    desc: 逐模块验证派生出的全部 module（与 CI test 作业同范围，不含 _example）
+    vars:
+      MODS: "{{.MODULES}}"
+    cmds:
+      - cmd: '[ -n "{{trim .MODS}}" ] || { echo "verify: 清单派生为空，未覆盖任何 module"; exit 1; }'
+        platforms: [linux, darwin]
+      - cmd: 'echo "verify: 模块清单派生需要 POSIX shell；Windows 下逐模块跑 task verify-module MOD=<dir>"; exit 1'
+        platforms: [windows]
+      - for: { var: MODS }
+        task: verify-module
+        vars:
+          MOD: '{{.ITEM}}'
 
   # 竞态检测：普通 test 不启用 race detector。范围与 CI 的 race job 同源——
   # 同一条 find 派生流水线 + 同一份 .github/race-skip.txt，默认值是「跑」而不是
@@ -370,18 +353,24 @@ tasks:
   # 「逐命令 dir」和「for 循环内的 dir」都会被 go-task 3.52 静默忽略，所以覆盖
   # 必须走 race-module 这条 task 级 dir 的内部任务。
   race:
-    desc: 竞态检测（find 派生的全部 module，需 cgo + POSIX shell；与 CI race job 同源）
+    desc: 竞态检测（scripts/list-modules.sh 派生的全部 module，需 cgo + POSIX shell；与 CI race job 同源）
     platforms: [linux, darwin]
     vars:
       MODS:
-        sh: find . -name go.mod -not -path "./.git/*" -not -path "./_example*" | xargs -n1 dirname | sort | grep -vxF -f .github/race-skip.txt | tr '\n' ' '
+        sh: sh scripts/list-modules.sh | grep -vxF -f .github/race-skip.txt | tr '\n' ' '
     cmds:
-      # 派生为空 = 闸门静默失效（find 谓词或排除清单被改坏），必须响。
+      # 派生为空 = 闸门静默失效（脚本谓词或排除清单被改坏），必须响。
       - cmd: '[ -n "{{trim .MODS}}" ] || { echo "race: 清单派生为空，未覆盖任何 module"; exit 1; }'
       - for: { var: MODS }
         task: race-module
         vars:
           MOD: '{{.ITEM}}'
+
+  deps-multi-major:
+    desc: 只读报告——同一库两个 major 并存的 module（go mod edit -json 解析，不改 go.mod、不作闸门）
+    platforms: [linux, darwin]
+    cmds:
+      - sh scripts/multi-major.sh
 
   build:
     desc: 编译核心模块全部包（不含 _example，见 example-bald-vet）
@@ -429,10 +418,13 @@ tasks:
     cmds:
       - go run ./cmd/bald release tag {{.CLI_ARGS}}
 
-  # 全量验证：核心 + example（默认 tag 与 grpcgw tag）+ 嵌套 module。
-  # CI 建议跑这个，而不是只跑 `go build ./...`。
+  # 全量验证：派生出的**全部** module（与 CI 的 test/lint/vuln 同范围）+ _example
+  # + 根/bconf/cobramcp 的非 -short 全量测试（旧 verify 就有，保留不降级）。
+  # 原来这里是手写清单，只覆盖 bconf/cobramcp/retry/ratelimit/broker/
+  # circuitbreaker/encoding/example —— contrib/*、registry/*、transport/*、oss/*、
+  # ai/*、log/* 等约 40 个 module 被静默跳过（§1.2）。
   verify:
-    desc: 全量验证（核心 + example + bconf + cobramcp + retry/ratelimit/broker/circuitbreaker）
-    deps: [build, test, bconf-verify, example-bald-vet, cobramcp-verify, encoding-verify, retry-verify, ratelimit-verify, broker-verify, circuitbreaker-verify]
+    desc: 全量验证（scripts/list-modules.sh 派生的全部 module + _example）
+    deps: [verify-modules, test, bconf-verify, cobramcp-verify, example-bald-vet]
     cmds:
-      - cmd: 'echo "verify: core + example + nested modules OK（grpcgw 需 buf，见 example-bald-vet-grpcgw）"'
+      - cmd: 'echo "verify: 派生清单全部 module + example OK（grpcgw 需 buf，见 example-bald-vet-grpcgw）"'

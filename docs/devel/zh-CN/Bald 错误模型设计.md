@@ -280,13 +280,36 @@ module 回归零第三方 require——下游几乎必有 grpc，收益有限而
 | `httperr/httperr.go` | 两张映射表 + 三函数 | 典型映射、未知双向兜底 |
 | `grpcerr/grpcerr.go` | `ToStatus`/`FromStatus` | RoundTrip 含 Is 跨栈命中、标准 ErrorInfo 解析 |
 
-**消费面（全仓 6 处 import）：** `transport/web`（决策⑧响应体契约）、
-`pkg/middleware/grpc`（ErrorInterceptor 收口）、`pkg/middleware/gin`
-（authn/authz 取 401/403）、`_example/bald`（e2e 验证透传）——全部是投影
-收口点或测试。对照面（统计）：bald 内只 import 根包的消费文件
-16 个；下游 bald-admin 后端 25 个（biz 八域 + gin/grpc handler），桥接子包
-0 处。投影被框架收口后业务仓库与桥接天然解耦——这就是决策①零依赖承诺
-的兑现面。
+**采用面（计数谓词：非测试 `.go` 文件，排除 `berrors/` 自身与 `_example/`）：**
+框架内 import `berrors`（含子包）的文件 **12 个**——`transport/web` 4（响应体契约，
+决策⑧）、`pkg/middleware/grpc` 6（`ErrorInterceptor` 收口 + authn/authz/audit/recovery
+/限流的错误构造）、`pkg/middleware/gin` 2（authn/authz 取 401/403）。桥接子包更窄：
+`grpcerr` 1 个文件、`httperr` 3 个。全部是投影收口点。
+
+对照面：bald-admin 38 个 `.go` 文件 import 根包、`grpcerr`/`httperr` **0 处**。
+投影被框架收口后业务仓库与桥接天然解耦——这就是决策①零依赖承诺的兑现面。
+
+### 采用边界：berrors 是边界投影模型，不是全仓错误构造规范
+
+必须说清它**不覆盖**哪里，否则按「框架有统一错误模型」的心智去读代码会误判：
+
+| 面 | 现状 | 后果 |
+|---|---|---|
+| `transport/http`、`transport/grpc`、`transport/gateway`、`broker/*`、`pkg/appkit`、`registry/*` | `berrors` **0 引用**，错误一律 `fmt.Errorf`/`errors.New` 包装（`transport`+`broker`+`pkg` 三个目录的非测试文件里 `fmt.Errorf` 279 处、`errors.New` 103 处） | 这些面上的失败没有 Code/Reason，到不了 `Is` 匹配 |
+| gRPC 边界兜底 | `ErrorInterceptor` 对**非** `*berrors.Error` 走 `grpcerr.ToStatus` → `status.Convert`：已是 status 的原样保留，原生 error 退化成 **`codes.Unknown`** | 调用方看到 Unknown 而不是 INTERNAL，无法据此判断是服务端故障 |
+| HTTP 边界兜底 | `web.ErrorResponse` 对非 `*berrors.Error` 显式兜底 `berrors.Internal`（`transport/web/response.go:56-93`） | 与 gRPC 面**不对称**：同一处裸 error，HTTP 得 500/INTERNAL，gRPC 得 Unknown |
+| broker 错误哨兵 | `broker/` 没有导出哨兵（只有未导出的 `errNoCodec`，`broker/encoding.go:34`） | 消费方只能匹配字符串 |
+
+口径（决策，不是疏漏）：**`berrors` 只服务两个收口点**——`transport/web` 的响应体投影
+与 gRPC 拦截器链。其余子系统返回包装后的原生 error 是允许的，因为它们不跨进程
+投影错误语义，`errors.Is/As` 沿 `Unwrap` 链在进程内仍然可用。
+
+由此推出两条给接手者的硬规则：
+
+1. 要在 gRPC 上携带 Code/Reason，错误必须**在拦截器链内侧**被构造成
+   `*berrors.Error`；在链外（如 `transport/grpc` 自身）返回裸 error 只会得到 Unknown。
+2. 想消掉那两处不对称（gRPC 的 Unknown 兜底 vs HTTP 的 INTERNAL 兜底），改的是
+   `grpcerr.ToStatus` 的兜底分支——那是行为变更，需要单独决策，不是顺手统一。
 
 ### 不变量与回归测试
 
