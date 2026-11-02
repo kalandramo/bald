@@ -1,0 +1,46 @@
+# workflow-lint：作业文件自身的闸门（只检查 .github/workflows/*.yml）。
+# 为什么需要它：GitHub 的作业文件在**编译期**解析，任何未登记的键（例如
+# services 下的 `args`）都会让整个文件被拒——表现为「0 个 job、瞬间失败、
+# API 里只留一句 workflow file issue」，而 Psych/PyYAML 这类通用解析器照样
+# 接受。也就是说 ci.yml 自己坏了的时候，ci.yml 里加的检查永远不会响；把
+# 检查放到这个独立文件里，它只需自身保持合法就能替整个周界报错。
+# 口径：actionlint 同时做 schema 校验与（runner 上预装的）shellcheck 检查；
+# 版本 pin 与 golangci-lint/govulncheck 同理——升级规则集是显式动作。
+# 本地同一条命令：`task ci-workflow-lint`（改作业文件后先跑它再推）。
+name: workflow-lint
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/**"
+  pull_request:
+    paths:
+      - ".github/workflows/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: workflow-lint-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  actionlint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GOPROXY: "https://goproxy.io|https://proxy.golang.org,direct"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.3"
+
+      # 版本 pin：与 Taskfile 的 ACTIONLINT_VERSION 保持一致。
+      - name: install actionlint
+        run: go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+
+      - name: actionlint all workflow files
+        run: '"$(go env GOPATH)/bin/actionlint" -no-color'
