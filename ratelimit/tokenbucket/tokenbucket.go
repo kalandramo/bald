@@ -124,11 +124,20 @@ func (l *Limiter) Wait(ctx context.Context) error {
 }
 
 // Close stops the limiter and wakes up any goroutine blocked on Wait.
+//
+// Closing the notify channel is the wake-up: a blocked Wait re-enters the loop,
+// sees closed and returns ErrLimited instead of sleeping out its computed wait.
+// Idempotent — the second call is a no-op (closing an already-closed channel
+// would panic).
 func (l *Limiter) Close() error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
+	if l.closed {
+		return nil
+	}
 	l.closed = true
+	close(l.notify)
 	return nil
 }
 

@@ -4,7 +4,7 @@
 >
 > Discussion at: 源码 `ratelimit/{go.mod,ratelimit.go,ratelimit_test.go}` 与三个实现 `ratelimit/{tokenbucket,bbr,sentinel}/`；对照 `bconf/proto/bootstrap/v1/server.proto` 的 `Middleware.RateLimit`、`pkg/middleware/bundle/bundle.go`
 >
-> Status: Accepted（契约与三实现已落地；**全仓零调用点**。并发型限流器的释放面由 `InflightLimiter` 表达，见「设计」与「契约边界」）
+> Status: Accepted（契约与三实现已落地，并被 `pkg/middleware/{gin,grpc}` + `pkg/middleware/bundle` 消费；`bbr`/`sentinel` 仍是业务自持实现，框架链只内置 `tokenbucket`。并发型限流器的释放面由 `InflightLimiter` 表达，见「设计」与「契约边界」）
 
 ## 摘要
 
@@ -24,7 +24,7 @@
 2. **算法可插拔且互不感知**。换算法只改构造那一行，调用点不动；`tokenbucket` 不知道 `bbr` 存在，`bbr` 也不 import 任何限流库。
 3. **「需要释放」是类型能表达的事**。并发型限流器不会假装成普通 `Limiter`——它多实现一个 `InflightLimiter`，调用方一次类型断言就能发现「这个限流器必须成对调用」。基础 `Limiter` 上不留一个多数实现为空的 `Done()`。
 
-需要先说清现状：**全仓零 import**——`bconf` 契约里有 `server.http.middleware.rate_limit` 三个字段（`rate`/`burst`/`wait`），但没有任何 Go 代码去读它；`pkg/middleware/bundle` 的 gin 链里也没有限流层。
+需要先说清现状：契约段 `server.http.middleware.rate_limit` 有正式消费者——`bundle.FromMiddleware` 把它翻译成 `bundle.RateLimit`，`bundle.Gin()` 与 `bundle.GRPCInterceptors()` 共用同一个 limiter 实例。**没有接的是自动装配**：框架不会在启动时自己读这一段，业务必须显式走 `FromMiddleware`（或自己构造 `ginmw.NewRateLimit` 注入 `bundle.RateLimit`）。契约侧 gRPC 也仍没有 rate_limit 段，gRPC 生效只能靠这对 gin 配置驱动的 Option 顺带挂上。
 
 ## 背景与动机
 
@@ -44,7 +44,7 @@ message RateLimit {
 }
 ```
 
-字段名与 `tokenbucket.New(rate, burst)` 的参数一一对应，`wait` 显然是为 `Wait(ctx)` 准备的。但全仓搜 `GetRateLimit` 只命中生成的 `server.pb.go`——**契约写完了，装配没写**。于是「配置文件里写 `rate_limit: {rate: 100}` 就能限流」这件事，今天做不到。
+字段名与 `tokenbucket.New(rate, burst)` 的参数一一对应，`wait` 显然是为 `Wait(ctx)` 准备的。设计时全仓搜 `GetRateLimit` 只命中生成的 `server.pb.go`——**契约写完了，装配没写**，「配置文件里写 `rate_limit: {rate: 100}` 就能限流」当时做不到。这座桥后来由 `bundle.FromMiddleware` 补上（见「接入顺序」）。
 
 ### 三方法接口对并发型限流器不够用
 
@@ -294,19 +294,25 @@ type InflightLimiter interface {
 
 `tokenbucket.Allow()` 在 `closed` 时返回 `ErrLimited`，`bbr` 同样。调用方无法区分「该退避重试」和「该停止发送」。拆哨兵是破坏性变更，留待有调用方时再定。
 
-### 2. `tokenbucket.Close()` 不唤醒 `Wait`（未修）
+### 2. `tokenbucket.Close()` 的唤醒语义（已补齐）
 
-`Close` 只置 `closed = true`；`Wait` 的 `select` 里虽然有 `case <-l.notify`，但 `notify` 从创建后从未被写入——等待者要等自己那轮 `time.After(wait)` 到期才会重新看到 `closed`。注释与代码必须有一个改：要么在 `Close` 里关闭/通知 channel，要么改注释。`TestClose_WaitReturnsErrAfterClose` 通过是因为 `New(1, 1)` 的 `wait` 恰好 1 秒，测试等满 1 秒后才重入循环——它通过了，但不是因为 Close 生效。
+`Close` 的对外承诺来自消费方：`pkg/middleware/gin/ratelimit.go` 写明「停机时调用 `Close` 会唤醒阻塞在 `Wait` 上的调用者」。兑现方式是 `Close` 在锁内 `close(l.notify)`——阻塞在 `select` 的等待者立刻被唤醒，重新入循环后在 `closed` 分支返回 `ErrLimited`。`closed` 标志同时保证幂等：第二次 `Close` 是 no-op，不会 double-close panic。
 
-### 3. 没有存量调用点
+判据测试是 `TestClose_WakesBlockedWait`：冻结时钟 + `rate=0.0001` 让算出的 wait 约一万秒，`Close` 后必须在 2 秒内返回。`TestClose_WaitReturnsErrAfterClose` 单独不够——`New(1, 1)` 的 wait 恰好 1 秒，等满 1 秒后重入循环也能通过，它通过不代表唤醒生效。另有 `TestClose_IsIdempotent` 钉住二次 `Close` 不 panic。
 
-四个 module 均未被任何其他 module require。要落地的是**接入**：把 `tokenbucket` 挂到 HTTP 中间件链、让 `bconf` 的 `rate_limit` 字段真正生效。接入前必须先决定 `wait` 字段映射到 `Allow` 还是 `Wait`——对客户端是两种不同行为（立刻 429 vs 排队变慢），不能靠默认值糊过去。
+### 3. 调用点：框架链内置 `tokenbucket`，另两个留给业务
+
+`ratelimit`（契约）由 `pkg/middleware/{gin,grpc}` 与 `pkg/middleware/bundle` require；`tokenbucket` 是配置驱动那一层的内置实现（`ginmw.NewRateLimit` 直接构造）。`bbr`/`sentinel` 仍无框架消费者，属业务自持实现——框架链不替业务选算法。
+
+`wait` 字段的映射已定，且两侧一致：`wait=false`（默认口径）走 `Allow()`，超限立即以 429 / `RESOURCE_EXHAUSTED` 拒绝；`wait=true` 走 `Wait(ctx)`，排队到令牌可用，ctx 取消同样按限流结束。两条路径都不需要业务改构造。
+
+框架层挂的是 `ratelimit.Limiter`，`Done(rtt)` 属于可选能力（`InflightLimiter`），gin 与 gRPC 两侧**都不做配对上报**。用 `bbr` 并发规则的业务必须自己按下面的片段配对——换成 `bbr` 而指望框架配对，会得到一个永久只允许 1 个 inflight 的限流器。
 
 ## 实现与验证
 
-`ratelimit` 根 module（契约 + `InflightLimiter` + 测试）+ `tokenbucket`/`bbr`/`sentinel` 三个实现 module，共 4 个 module。测试 27 个：根 4 + `tokenbucket` 11 + `bbr` 6 + `sentinel` 6。
+`ratelimit` 根 module（契约 + `InflightLimiter` + 测试）+ `tokenbucket`/`bbr`/`sentinel` 三个实现 module，共 4 个 module。测试 29 个：根 4 + `tokenbucket` 13 + `bbr` 6 + `sentinel` 6。
 
-`Taskfile.yml` 的 `ratelimit-verify` 逐 module 挂入 `verify`；根 `README.md` 已登记模块树；CI 用 `find . -name go.mod` 自动发现全部 module。
+`Taskfile.yml` 的 `ratelimit-verify` 委托给 `verify-scope PREFIX=ratelimit`；模块清单由 `scripts/list-modules.sh` 单点派生，CI 的 test/lint/vuln/race 作业与本地 `task verify` 消费同一条派生。
 
 **三个 `WithClock` 的语义不同（刻意）**：`tokenbucket`/`bbr` 的时钟决定**状态演进**（令牌补充、桶旋转），而 `retry.WithClock` 只影响 `maxTotalWait` 的 elapsed 计算（睡眠仍走真实计时器）。
 
@@ -319,10 +325,27 @@ cd ratelimit/bbr && go vet ./... && go test -count=1 -v ./...       # 6
 cd ratelimit/sentinel && go vet ./... && go test -count=1 ./...     # 6
 ```
 
-## 接入顺序
+## 链序与两侧口径
 
-1. **HTTP 中间件**：位置在 `pkg/middleware/gin/ratelimit.go` + `bundle` 链，读 `bconf` 的 `server.http.middleware.rate_limit`。链序放在 `Recovery` 之后、`Authn` 之前——限流是保护自己的，不该等到认证之后才生效；这也意味着它必须能处理「未认证的洪水流量」。
-2. **gRPC 侧**：`bconf` 的 gRPC `Middleware` 段目前只有 `recovery`/`logging`/`tracing`，没有限流字段——要加就得动契约。
+限流层住在 `pkg/middleware/gin/ratelimit.go`（HTTP）与 `pkg/middleware/grpc/ratelimit.go`（gRPC），由 `bundle` 的同一对 Option 驱动：`bundle.RateLimit(rl)` 一个 limiter 实例喂两条链（gRPC 经 `RateLimiter.Limiter()` 取底层实现，没有第二份配置、也没有第二个桶），`bundle.FromMiddleware` 负责把契约段 `server.http.middleware.rate_limit` 翻译成它。
+
+**链序（实测实现，不是提案）**：认证/授权**之后**、超时**之前**，两面同序。
+
+```
+gin :  Recovery → RequestID → Logging → CORS → Secure → Authn → Audit → Authz → RateLimit → Timeout
+gRPC:  Error → Recovery → RequestID → Observability → Authn → Audit → Authz → RateLimit → Timeout
+```
+
+这个位置付的是双向代价，两边都必须知道：
+
+- 挂在认证之后，是因为限流要看得见 subject——为「按主体配额」留位；顺带保证被拒的多是已认证的有配额主体，`403` 与 `429` 不会互相改写。
+- 代价是**认证层自身不受这一层保护**：匿名洪水会先穿过认证、审计、授权才撞到限流，认证开销照付。这是明知取舍，不是疏漏。
+
+没有把默认位置挪到认证之前，理由不是「懒得改」：挪动会让现有部署的语义静默变形——今天按 subject 计的配额（或业务据此预设的配额）一旦搬到认证之前，就只能看到全局流量，等价于把按主体限流悄悄换成全局限流，且没有任何报错。要保护认证层的部署，显式把 `ginmw.RateLimit` / `grpcmw.RateLimitInterceptor` 挂到自己链首即可，两个中间件都不要求认证上下文。
+
+拒绝的表达按传输各自地道：gin 立即 `429`，gRPC 立即 `RESOURCE_EXHAUSTED` 并带 `Reason=RATE_LIMITED`（经链首 `ErrorInterceptor` 收口，接收端 `grpcerr.FromStatus` 可还原）。两侧都不触达 handler。
+
+契约面仍有一处不对称：`Server.Http.Middleware` 有 `rate_limit`/`timeout` 两段，`Server.Grpc.Middleware` 只有 `recovery`/`logging`/`tracing`/`validate`。所以「写配置就能给 gRPC 限流/超时」目前不成立——gRPC 吃到的是同一对 Option，配置来源仍是 HTTP 那一段。补 gRPC 契约段要动 proto 并重发 `bconf`，属独立决策。
 
 中间件里用 `bbr` 时，配对必须只挂在放行成功的分支上：
 
@@ -383,6 +406,5 @@ c.Next()
 
 1. **`bbr` / `sentinel` 的构造签名要不要统一成返回 error？** 统一意味着 `bbr.WithCPUThreshold(1.5)` 从「静默用默认值」变成「构造失败」。这是行为变更，但对「配置写错要 fail-fast」的既有原则更自洽。
 2. **`ErrLimited` 要不要拆成两个哨兵？** 例如 `ErrLimited`（超限）+ `ErrClosed`（已关闭）。调用方需要区分「退避重试」和「停止发送」时，现在的单哨兵不够用。属于破坏性变更，需要单独决策。
-3. **`tokenbucket` 的 `notify` 死字段怎么处理？** 删掉，还是实现「Close 时唤醒等待者」？后者要小心——关闭已关闭的 channel 会 panic，正确做法是 `close(done)` + `select`。现状是注释承诺了未实现的行为，注释与代码必须有一个改。
 4. **`sentinel` 要不要也走 `InflightLimiter`？** 那需要把 `Allow` 改成返回句柄，动的是基础契约。当前折中是「句柄式释放留在具体类型上」，代价是调用方得知道自己的规则是 QPS 还是并发型。
 5. **HTTP 中间件的 `wait` 字段映射到什么？** `Allow`（立刻 429）与 `Wait`（排队变慢）对客户端是两种行为。`bconf` 里这个 `bool` 必须有一个明确语义，不能靠默认值。

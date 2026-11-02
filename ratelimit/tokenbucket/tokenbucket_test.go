@@ -141,6 +141,47 @@ func TestClose_WaitReturnsErrAfterClose(t *testing.T) {
 	}
 }
 
+// TestClose_WakesBlockedWait pins the wake-up itself. The clock is frozen and the
+// refill rate is 0.0001/s, so the waiter's computed wait is ~10000s: without
+// Close signalling the channel it would sit in time.After and only notice the
+// closed flag hours later. (The weaker case above passes even without the
+// wake-up, because New(1, 1) happens to compute a 1s wait.)
+func TestClose_WakesBlockedWait(t *testing.T) {
+	frozen := time.Now()
+	l, _ := New(0.0001, 1, WithClock(func() time.Time { return frozen }))
+
+	l.Allow() // exhaust the only token
+
+	done := make(chan error, 1)
+	go func() { done <- l.Wait(context.Background()) }()
+
+	time.Sleep(20 * time.Millisecond) // let the waiter park in the select
+	if err := l.Close(); err != nil {
+		t.Fatalf("Close() = %v, want nil", err)
+	}
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, ratelimit.ErrLimited) {
+			t.Errorf("Wait() after Close = %v, want ErrLimited", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Wait() still blocked 2s after Close — waiter was not woken")
+	}
+}
+
+// TestClose_IsIdempotent second Close must not panic (the wake-up channel is
+// closed exactly once) and must not report an error.
+func TestClose_IsIdempotent(t *testing.T) {
+	l, _ := New(10, 1)
+	if err := l.Close(); err != nil {
+		t.Fatalf("first Close() = %v, want nil", err)
+	}
+	if err := l.Close(); err != nil {
+		t.Errorf("second Close() = %v, want nil", err)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Wait — blocks then succeeds
 // ---------------------------------------------------------------------------

@@ -70,25 +70,28 @@ flowchart TB
 
 ### Bundle：链序由构造固化
 
-`bundle.New(opts...)` 一次构造，`Gin()` 与 `GRPCChain()` 双传输产出。**依赖经构造器注入**（`bundle.Authn(a)`/`Authz`/`Audit`/`Metrics`），未注入的层直接省略（零开销）。
+`bundle.New(opts...)` 一次构造，`Gin()` 与 `GRPCChain()` 双传输产出。**依赖经构造器注入**（`bundle.Authn(a)`/`Authz`/`Audit`/`Metrics`），未注入的层直接省略（零开销）。契约段由 `bundle.FromMiddleware` 翻译成 Option，`bundle.RateLimit`/`bundle.Timeout` 这一对**同时驱动两条链**（同一个 limiter 实例、同一份超时配置）。
 
 **gin 链序（注册序即外→内）**：
 
 ```
-Recovery → RequestID → Logging → CORS → Secure → Authn → Audit → Authz
+Recovery → RequestID → Logging → CORS → Secure → Authn → Audit → Authz → RateLimit → Timeout
 ```
 
 **gRPC 链序（slice 序即外→内）**：
 
 ```
-Error → Recovery → RequestID → Observability → Authn → Audit → Authz
+Error → Recovery → RequestID → Observability → Authn → Audit → Authz → RateLimit → Timeout
 ```
 
-两条链的三个**关键位置**及其理由（bundle.go 注释原文）：
+两条链的四个**关键位置**及其理由（bundle.go 注释原文）：
 
 - **Audit 夹在 Authn 与 Authz 之间**：在 Authn 内侧（注册序靠后）才能从 ctx 读到 Authn 注入的 subject/tenant；在 Authz 外侧（注册序靠前）才能在 `c.Next()`/handler 返回后捕获 deny 的最终 result。**两个约束夹出一个位置**——这是链序里最不显然的一条。
 - **Error 必须 gRPC 最外层**：handler/内层拦截器返回的 `*berrors.Error` 若不经 `grpcerr.ToStatus` 收口，会被 `status.Convert` 兜底成空 `Unknown`。
 - **Recovery 紧随 Error（第二外层）**：panic 被捕获并转为 `*berrors.Internal`，再由最外层 Error 收口为 gRPC status——与 gin 链首道 Recovery 对称（决策 D5）。
+- **RateLimit 在授权之后、Timeout 在最内层（两面同序）**：限流要看得见 subject，代价是不保护认证层自身（详见《Bald 限流设计》「链序与两侧口径」）。Timeout 放最内是只计业务处理耗时，不把上层开销算进预算。
+
+两面同序但**语义不同**，别当同一个东西：gin 的 Timeout 硬性提前返回 `503`（响应按时结束，工作不一定停止），gRPC 的只给 handler 一个会到期的 ctx（不缩短调用方已给的 deadline）；gin 的限流拒绝是 `429`，gRPC 的是 `RESOURCE_EXHAUSTED` + `Reason=RATE_LIMITED`。`DefaultTimeoutMs <= 0` 时两面既有行为也不同：gin 照旧挂一个立即 503 的层，gRPC 省略该层。
 
 **零破坏**：散装手挂路径完整保留，Bundle 只是预组装。业务可继续手动 `router.Use(...)`。
 
@@ -137,8 +140,13 @@ R1 合并把两份 `observability.go` 的共性抽到 `shared`：
 | `authn.go` | `AuthnMiddleware`、`AuthnWithAuditor` |
 | `authz.go` | `AuthzMiddleware`、`With{Object,Action,Subject}Resolver` |
 | `audit.go` | `AuditMiddleware`、`AuditWith{Object,Action,Subject}Resolver`、`AuditWithAuditor`、`AuditWithMetrics` |
+| `ratelimit.go` | `RateLimitConfig`、`RateLimiter`、`NewRateLimit`、`RateLimit` |
+| `timeout.go` | `TimeoutConfig`、`Timeout`、`DefaultTimeoutStatusCode` |
+| `tracing.go` | `Tracing` |
 
-**grpc**：`ErrorInterceptor`、`RecoveryInterceptor`、`RequestIDInterceptor`、`UnaryObservability`/`StreamObservability`、`AuthnInterceptor`、`AuthzInterceptor`、`AuditInterceptor`、`DefaulterInterceptor`、`ValidatorInterceptor`，各带 `With*` Option。
+**grpc**：`ErrorInterceptor`、`RecoveryInterceptor`、`RequestIDInterceptor`、`UnaryObservability`/`StreamObservability`、`AuthnInterceptor`、`AuthzInterceptor`、`AuditInterceptor`、`DefaulterInterceptor`、`ValidatorInterceptor`、`RateLimitInterceptor`、`TimeoutInterceptor`，各带 `With*` Option。
+
+gRPC 侧的 `RateLimitInterceptor`/`TimeoutInterceptor` 只覆盖 unary（`bundle.GRPCChain()` 产出的就是 unary 链）。流式调用要限流/超时得业务自建 stream 拦截器——框架没有，别假设它默默生效。
 
 ### 顶层 tracing：零配置也有可关联日志
 
@@ -184,13 +192,13 @@ gin/grpc 的共享收口通过类型别名 + 常量别名实现，两侧既有�
 
 ## 实现与验证
 
-### 测试覆盖（50 个）
+### 测试覆盖（98 个）
 
 | 包 | 测试数 | 覆盖重点 |
 |---|---|---|
-| `bundle` | 11 | **链序契约**（allow/deny 双路径）、Authn→Authz subject 传递、审计对 deny/error 的捕获、Error 最外层 berrors→status 收口、未开归一化时的原始语义兼容 |
-| `grpc` | 20 | 各拦截器 + Error 收口 + Observability SpanKind + Validator 不绑库 |
-| `gin` | 13 | 各中间件 + authz deny |
+| `bundle` | 34 | **链序契约**（allow/deny 双路径）、Authn→Authz subject 传递、审计对 deny/error 的捕获、Error 最外层 berrors→status 收口、未开归一化时的原始语义兼容、`FromMiddleware` 七段翻译、限流/超时在两条链上的挂载与零开销省略 |
+| `grpc` | 32 | 各拦截器 + Error 收口 + Observability SpanKind + Validator 不绑库 + `RateLimitInterceptor`（拒绝码/Reason/排队 ctx）+ `TimeoutInterceptor`（补 deadline、绝不缩短调用方预算、非正值放过、cancel 不泄漏） |
+| `gin` | 26 | 各中间件 + authz deny + `RateLimit`（429、wait 模式）+ `Timeout`（缓冲 writer、超时后写入静默丢弃） |
 | `shared` | 4 | `InjectTrace` 四模式 × 采样位 × 自定义 header × 无效 spanCtx；`MatchWildcard` 通配矩阵 |
 | 顶层 | 2 | `LogTraceIDs` |
 
@@ -207,7 +215,7 @@ gin/grpc 的共享收口通过类型别名 + 常量别名实现，两侧既有�
 ### FAQ
 
 **Q：为什么 gin 链与 gRPC 链的层数不同？**
-gin 有 CORS/Secure（HTTP 特有），gRPC 有 Error/Defaulter（协议特有）；共有的 Recovery/RequestID/Logging/Authn/Audit/Authz 两层结构对称。
+gin 有 CORS/Secure（HTTP 特有），gRPC 有 Error/Defaulter（协议特有）；共有的 Recovery/RequestID/Logging/Authn/Audit/Authz 两层结构对称，RateLimit/Timeout 也已两面同序（同一个 limiter、同一份超时配置）。剩下的不对称在**配置来源**：契约只有 `server.http.middleware` 有 `rate_limit`/`timeout` 段，gRPC 侧靠 `bundle` 的这对 Option 顺带生效，写 gRPC 配置不会自己长出这两层。
 
 **Q：`DefaulterInterceptor` 与 `ValidatorInterceptor` 为何不在 Bundle 链里？**
 它们是**业务参数处理**（默认值填充、消息校验），与链序无关——业务在自己的 handler 前按需挂载，不属于横切关注点门面的范围。

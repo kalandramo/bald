@@ -18,9 +18,13 @@
 //
 // 链序契约（由测试固化，见 bundle_test.go）：
 //   - gin（注册序即外→内）：Recovery → RequestID → Logging → CORS → Secure →
-//     Authn → Audit → Authz
+//     Authn → Audit → Authz → RateLimit → Timeout
 //   - gRPC（slice 序即外→内）：Error → Recovery → RequestID → Observability →
-//     Authn → Audit → Authz
+//     Authn → Audit → Authz → RateLimit → Timeout
+//
+// 两条链的 RateLimit/Timeout 由同一对 Option 驱动（零开销省略），面不对称已经
+// 收口；仍不对称的是配置来源——契约只有 server.http.middleware 有 rate_limit/
+// timeout 段，gRPC 侧要生效必须由代码注入（见 RateLimit/Timeout 的注释）。
 //
 // 为什么 Audit 夹在 Authn 与 Authz 之间：
 //   - 在 Authn 内侧（注册序靠后）才能从 ctx 读到 Authn 注入的 subject/tenant；
@@ -35,6 +39,7 @@ package bundle
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"google.golang.org/grpc"
@@ -77,10 +82,11 @@ type Bundle struct {
 	// tracing 为 true 时挂 span-only 追踪层（契约 tracing 段存在即启用）。
 	tracing bool
 
-	// rateLimiter 是配置驱动的限流层（gin 专属）。契约
-	// server.http.middleware.rate_limit 经 RateLimitFromMiddleware 构造后经
-	// RateLimit 注入；nil 表示未启用。gRPC 链无对应段（契约 Grpc.Middleware
-	// 不含 rate_limit）。
+	// rateLimiter 是配置驱动的限流层，gin 与 gRPC 共用同一个 limiter
+	// （gRPC 侧经 Limiter() 取底层实例，见 GRPCInterceptors）。契约
+	// server.http.middleware.rate_limit 经 RateLimitFromMiddleware 构造后由
+	// RateLimit 注入；nil 表示两条链都不启用。契约侧 gRPC 仍没有 rate_limit
+	// 段，gRPC 要限流只能由代码注入本 Option。
 	rateLimiter *ginmw.RateLimiter
 
 	// logging 控制请求日志/可观测中间件（默认开启）。
@@ -125,12 +131,13 @@ func CORS(cfg *ginmw.CORSConfig) Option { return func(b *Bundle) { b.corsCfg = c
 // Secure 附加 gin 安全响应头中间件（gRPC 链无对应层）。
 func Secure() Option { return func(b *Bundle) { b.secure = true } }
 
-// RateLimit 附加配置驱动的限流层（gin 专属）。rl 通常来自
-// [RateLimitFromMiddleware]（契约 server.http.middleware.rate_limit → 中间件）。
+// RateLimit 附加配置驱动的限流层（gin 与 gRPC 共用同一个 limiter）。rl 通常来自
+// [RateLimitFromMiddleware]（契约 server.http.middleware.rate_limit → 中间件）；
+// 契约没有对应的 gRPC 段，gRPC 侧要用限流只能由代码注入本 Option。
 // 传 nil 等同不设置（与 CORS 惯例一致：缺省不装配）。
 //
 // 链序：限流挂在业务 handler 之前、认证/授权之后（见 Gin 的链序说明）——
-// 先认证再限流，避免匿名流量耗尽配额拖垮已认证用户。
+// 先认证再限流，避免匿名流量耗尽配额拖垮已认证用户。gRPC 链同序。
 //
 // 生命周期：Bundle 不持有 rl 的关闭职责（与 CORS 同）——调用方在停机时
 // 调 rl.Close()（RateLimiter.Close 幂等）。
@@ -154,8 +161,15 @@ func Logging(cfg ginmw.LoggingConfig) Option {
 	return func(b *Bundle) { b.loggingCfg = cfg }
 }
 
-// Timeout 附加请求超时层（契约 middleware.timeout 段）。传 nil 等同不设置。
-// 链序：挂在内层（业务 handler 之前、限流之后）——超时应覆盖业务处理本身。
+// Timeout 附加请求超时层（契约 middleware.timeout 段；段本身在 server.http 下，
+// gRPC 侧同样吃这份配置里的 default_timeout_ms，其 status_code 字段是 HTTP 专属、
+// gRPC 无对应落点）。传 nil 等同两条链都不挂。
+// 链序：挂在最内层（业务 handler 之前）——超时应覆盖业务处理本身。
+//
+// DefaultTimeoutMs <= 0 时两面的既有语义不同，这里都不去动它：gin 侧照旧挂上
+// 一个「立即超时」的层（配置写了段却没给时长在 HTTP 面就是 503，属既定行为），
+// gRPC 侧的 interceptor 见到非正值直接放过。要两面对齐得先决定是否给
+// TimeoutConfig 加 Validate，那是独立的 API 决策。
 func Timeout(cfg *ginmw.TimeoutConfig) Option {
 	return func(b *Bundle) { b.timeoutCfg = cfg }
 }
@@ -263,10 +277,16 @@ func (b *Bundle) Gin() []gin.HandlerFunc {
 // GRPCInterceptors 返回链序固化的 unary 拦截器链（slice 序即外→内）：
 //
 //	Error → Recovery → RequestID → Observability → Authn → Audit → Authz
+//	→ RateLimit → Timeout
 //
 // Recovery 紧随 Error（第二外层）：handler/内层拦截器 panic 被捕获并转为
 // *berrors.Internal，由最外层 Error 收口为 gRPC status（与 gin 链首道
 // Recovery 对称）。
+//
+// RateLimit/Timeout 与 gin 侧同源同序：都只在对应 Option 给了之后才挂
+// （零开销省略），限流在授权之后、超时在最内层。两面的语义差别：gin 的
+// Timeout 会硬性提前返回 503，gRPC 的只给 handler 一个会到期的 ctx（见
+// grpcmw.TimeoutInterceptor）；gin 的拒绝是 429，gRPC 的是 RESOURCE_EXHAUSTED。
 //
 // 需自行组装 *grpc.Server 时用：
 //
@@ -289,6 +309,17 @@ func (b *Bundle) GRPCInterceptors() []grpc.UnaryServerInterceptor {
 	}
 	if b.authorizer != nil {
 		chain = append(chain, b.grpcAuthz())
+	}
+	if b.rateLimiter != nil {
+		// 与 gin 同序：授权之后、超时之前，共用同一个 limiter（gin 侧的
+		// RateLimiter 把底层 limiter 经 Limiter() 暴露出来）。
+		chain = append(chain, grpcmw.RateLimitInterceptor(b.rateLimiter.Limiter(), b.rateLimiter.Wait()))
+	}
+	if b.timeoutCfg != nil && b.timeoutCfg.DefaultTimeoutMs > 0 {
+		// 最内层。gRPC 侧的超时只约束 handler 可见的 ctx（不硬中断响应），
+		// 与 gin 的 Timeout 语义差别写在 grpcmw.TimeoutInterceptor 的注释里。
+		// StatusCode 是 HTTP 专属字段，这里无从落地——gRPC 用 status code。
+		chain = append(chain, grpcmw.TimeoutInterceptor(time.Duration(b.timeoutCfg.DefaultTimeoutMs)*time.Millisecond))
 	}
 	return chain
 }
