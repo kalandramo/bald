@@ -16,6 +16,7 @@
 | 7.1 | **CI 全量只跑 `-short`**，集成测试在 CI 中从不执行 | 中 | ✅ 已核对 `.github/workflows/ci.yml` | **已修（registry/store/队列三条接缝）**：新增 `integration` 作业注入 etcd/redis/mongo，探活 + 逐条断言判据真的 PASS；作业文件自身另开 `workflow-lint` 作业（actionlint）把关，见 §7.1 收口；示例侧（etcd/nacos 服务发现）仍只在本地跑 |
 | 7.4 | **统计量当不变量断言**：`circuitbreaker/sres` 并发用例钉「放行 ≥90/100」，而该值取决于 Allow 与 Mark 的交错 | 中 | ✅ 本机 `-count=400` 实测 + CI 红过一次（run 41388597082） | **已修**：先灌满窗口使单次拒绝率有上界 1/1001，「≥90」因此成为可证的界；另补 accept=0 状态下的并发错型用例，见 §7.4 |
 | 7.5 | **Windows 只在周界作业里跑，一跑就红**：产物扩展名、清单差异的路径身份、检出 CRLF 三处平台适配缺陷 | 中 | ✅ `ci-windows` schedule 实测红（run 41428497056）+ 本机 CRLF 克隆复现；修后 dispatch run 41445557462 七 step 全绿 | **已修**：`.bin` 产物名、`checkTree` 差异按清单 slash 身份输出、`moduleLine`/`readText` 对行尾不敏感，并用 `.gitattributes`（`eol=lf`）收口检出形态，见 §7.5 |
+| 7.6 | **配置热更把「写到一半」当变更派发**：`bconfig/file` 的就地重写会漏出 0 字节快照，消费侧解成「这一层没有 key」 | 中 | ✅ `race` 作业实测红（run 41485136191）+ 本机 linux/arm64 容器量化；修后 Linux `-count=10` 全绿、两种退化各自转红 | **已修**：派发前等内容稳定（`readSettled`），空载荷另加递进确认；`ValueWatcher` 契约补上「连续变更允许合并」，见 §7.6 |
 | 1.1 | race 作业是两处手工清单，webrtc/kafka 均缺失 | 中 | ✅ 已核对 `.github/workflows/ci.yml` / `Taskfile.yml` | **已修**（改成 find 派生 + 单份排除清单；扩范围实测揪出并修掉 graphql 自身的竞争） |
 | 1.3 | kafka / rabbitmq 适配器 **零测试文件** | 中 | ✅ 实测计数 | **已修**（两个适配器各有一份测试，15 / 7 个测试；补测试当场揪出 4 个生产缺陷；订阅者摘除口径已定并由测试钉住） |
 | 1.2 | 本地 `task verify` 手写清单，静默跳过约 40 模块 | 低-中 | ✅ 已核对 `Taskfile.yml` | **已修**（CI 与本地共用 `scripts/list-modules.sh` 单条派生；全量 92 模块实测 exit=0） |
@@ -512,6 +513,18 @@ Go 源码零改动（除下面第 ① 条）。根 module 里 `pkg/` 之外唯�
 - 刻意没做：① 不在产品里为 Windows 造第二套路径策略——清单身份就是 slash，其余人类可读输出（`generated:` 等）保持本机形态；② 不动 `windows.yml` 的 `go-version: 1.27.1`（与主 ci 的 `1.27.3` 不一致是既有状态）；③ 不把周界作业扩成多 module（窄口径是既定设计，全量归 ubuntu）。
 - 已证（dispatch run 41445557462，head `474a939`，7m5s completed/success）：上面「从未执行」的三步第一次真跑，全绿——`TestTree_EndToEndTimed`（CTRL_BREAK 停机链路）、`bootstrap` build+vet+test、`contrib/authz-casbin` build+vet+test。同一 head 的主 `ci`（run 41445554812）五个作业亦全绿。本轮修法覆盖到 Windows 周界作业的全部 step，不再有余下未执行段。
 - 仍不能证明：`ci-windows` 的窄口径（root + bootstrap + casbin 三个 module）不等于全仓 Windows 兼容——其余 89 个 module 在 Windows 上从未跑过，ubuntu 上的全量清单不含它们。周界作业的人工设计（「全量归 ubuntu」）本身就承认这一层，不是本轮能收口的证据缺口。
+
+**7.6 热更把「写到一半」当变更派发（中）** ✅ 已修：发现路径不在评审时，而在又一次推送后——`d515fa0`（**纯文档提交**）的 `ci` run 41485136191 里 `race` 作业红在 `bconfig`：`--- FAIL: TestWatchValue`（`github.com/kalandramo/bald/bconfig/file`，`FAILED AT MODULE: ./bconfig`）。同一个 run 的 `lint` 也红，但红在依赖安装步骤（`goproxy.io/sumdb/sum.golang.org/... read: connection reset by peer`），是 runner 侧网络，与仓内代码无关——两条分开记，不要把一条的绿拿来解释另一条。
+
+- 根因：`os.WriteFile` 是 O_TRUNC 之后再写，就地重写期间存在一个「文件 0 字节」的窗口，而 inotify 在 truncate 那一刻就已经发事件；`WatchValue` 收到事件直接 `os.ReadFile`，于是把空载荷当成一次变更派发出去。消费侧 `bootstrap/config` 的 `apply` → `decodeDocument` 对 `len(data)==0` 返回 `(nil, nil)`（不是错误）→ 这一层缓存被清空并触发一次 `OnChange`。如果这是最后一次写（CI 那次正是），配置会一直缺项到下一次真实变更为止。
+- 量化（把 `readSettled` 退化回「直接派发第一次读」即可复现，`-race`）：**Linux 容器** 50 轮 50ms 间隔重写有 **14/18/18** 轮次派发过空内容（即约 30% 的写），200 轮 2ms 间隔有 **15~31/约 340** 次派发是空的；**darwin** 用 CI 那种「单次重写」形态 5 次探针都复现不出来（都只有 `["v2"]`），但 2ms 风暴形态照样漏（29/200）。所以「本地跑不出来」不等于没问题——CI 那条红是只在 Linux 稳定暴露的产品缺陷。
+- 修法：派发前等内容稳定（`readSettled`：连续两次读到一致才认，间隔 5ms、最多 4 次）；用完仍不一致就**放弃这次事件**——最后一次写的事件后面没人再抢，必然落定，最终值不会丢。空载荷再单独递进确认（`confirmEmpty`：50ms×4）：只靠 5ms 一致判定在高频重写里仍然漏（darwin 实测 2/11、2/8 次空派发），因为 `-race` 能把 O_TRUNC 与 Write 之间的间隔本身拉到 5ms 以上。
+- 契约口径：`bconfig.ValueWatcher` 的注释补了一句「连续变更允许合并：通道收到的一定是某一时刻的完整值，但不保证每个中间值都送达」。这条字面承诺（「每当发生变更……收到新的原始字节值」）对文件源本来就兑现不了——是文档过度承诺，不是这次把行为改坏了。合并对唯一消费方 `bootstrap/config.setupWatch` 无害：它每收到一个载荷都重算整层，少收几次只是少几次 `OnChange`。
+- **确认窗放宽到 400ms 无效，而且不该那样断言**（这一条是本轮最值得记的方法论）：先把 `emptyConfirmWait` 从 50ms×4 提到 100ms×4 想让风暴场景归零——Linux `-count=30` 实测泄漏次数没变（50ms×4 是 8 次/30 轮，100ms×4 是 3 次/30 轮，每轮 200 次写，同量级）。加了「确认窗读满后再复读一次」的诊断才看清机制：**8 次泄漏里 3 次立刻读到了 4 字节内容**，即那是写入方被调度停摆 >200ms 造成的**真实空窗**，读侧无论把窗开多大都会把它误判成「文件被清空」（代价还要摊给合法清空场景）。于是判据改成断**伤害**而不是断次数：`TestWatchValue_StormSettlesFinal` 只要求「末次派发必须是最后一个真实值」——空载荷落在中间会被下一轮纠正，**落在最后**才是配置永久缺项（CI 首次红就是这一种）。诊断用的临时 `println` 与放宽的常量都已回退，未进任何提交。
+- 验活（正向）：`TestWatchValue_NoTornEmptySnapshot`（50 轮 × 50ms：0 次空 + **50 个值全部都要派发** + 末值正确）、`TestWatchValue_StormSettlesFinal`（200 轮 × 2ms：允许合并/丢弃，末次派发必须是 `v199`）、`TestWatchValue_ClearedFileStillDispatches`（被真正清空的文件仍要派发空载荷，最坏多等 200ms）。Linux 容器 `-race -count=10` 与 `-count=3` 全绿，darwin `-race -count=3` 全绿，`bconfig` 全模块 `-race` 全绿；消费侧 `bootstrap/config` 在 darwin `-race` 与 Linux `-short -race` 都过。
+- 验活（变异，两条独立的退化）：**M1「直接派发第一次读」**（= 修法前的行为）→ `TestWatchValue_NoTornEmptySnapshot` Linux `-count=3` **三轮全红**（20/19/16 次空派发），风暴与清空两条绿——空快照这条判据确实由新闸门承担；**M2「所有事件都按未落定丢弃」**→ 前两条**同时红**（50 个值「从未被派发」+ 风暴「一次都没有派发」），证明判据不是只盯空值、把派发路径删掉不能蒙混过关。既有的 `TestWatchValue`（CI 首红那条）在 M1 三轮里也是绿的：它是概率性用例，确定性覆盖来自新增两条，这点要如实记下而不是拿来充数。
+- 刻意没做：① 不在消费侧把空载荷当「忽略」，也没在 `apply` 里加「空载荷先回读一次再认」——那会把「这一层被清空」和「写到一半」混成一件事，属删能力；**如果 owner 认为风暴场景的瞬态缺项也要消掉，那是一条需要单独拍板的口径**（读侧已证明无法区分，只能靠写入方原子发布或消费侧改语义）；② 不在 `file` 源里造第二套写入协议（临时文件 + rename 由写入方负责，写入方不在仓内；本源 watch 的就是父目录，那种写法不丢事件）；③ 不动 `Load`（启动期一次读，没有中间态问题）。
+- 固有上限（不是未修，是读侧方案的边界）：写入方在 O_TRUNC 与 Write 之间停摆超过整个确认窗（200ms）时，读侧看到的就是一个真空文件，无法与「运维真的清空了配置」区分——这种派发仍然会发生（实测 Linux 风暴场景 8 次/30 轮），但一定跟在真实内容之前，末次派发是最终值。CI 每次 push 只跑一遍，新闸门的漏检率没有像 §7.4 那样给出千次量级的实测分布；风暴场景的残余概率我只量到「每轮 200 次写里 0~2 次瞬态」这个粒度。
 
 ---
 

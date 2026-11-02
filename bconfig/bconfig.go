@@ -61,6 +61,7 @@ type ReadWatcher interface {
 // 只能给出变更信号的后端请实现 [Watcher]，并自行在 provider 内部 Load 回读后转推值。
 type ValueWatcher interface {
 	// WatchValue 返回一个通道，每当键对应的数据发生变更时，通道会收到新的原始字节值。
+	// 连续变更允许合并：通道收到的一定是某一时刻的完整值，但不保证每个中间值都送达。
 	// 当监听器停止或者上下文被取消时，该通道会被关闭。
 	WatchValue(ctx context.Context, key string) (<-chan []byte, error)
 }

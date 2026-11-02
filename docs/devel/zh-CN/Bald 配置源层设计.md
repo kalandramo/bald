@@ -108,7 +108,7 @@ all, _    := bconfig.NewFallbackReader(fileSrc, remote)     // 本地 > 远程�
 |---|---|---|---|
 | `env` | `Load` | — | `New(opts...)` |
 | `fs` | `Load` | —（编译期资源，静态） | `New(fsys, opts...)` |
-| `file` | `Load`+`Close`+`ValueWatcher` | fsnotify watch **父目录**（编辑器原子 rename 不丢事件） | `New(opts...)` |
+| `file` | `Load`+`Close`+`ValueWatcher` | fsnotify watch **父目录**（编辑器原子 rename 不丢事件）；派发前按 `readSettled` 等内容稳定，撕裂的中间态（尤其 0 字节）不派发，连续重写允许合并 | `New(opts...)` |
 | `http` | `Load`+`Close`+`ValueWatcher` | ETag 条件轮询（`If-None-Match`） | 双模式 |
 | `etcd` | `Load`+`Close`+`ValueWatcher` | 原生 watch 推送 | 双模式 |
 | `consul` | `Load`+`Close`+`ValueWatcher` | watch plan 推送 | 双模式 |
