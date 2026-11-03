@@ -54,8 +54,59 @@ import (
 )
 
 // WithHTTP 声明启用 HTTP 服务器，业务 handler 必供（探针路径由框架兜底）。
+//
+// handler 在装配期即定型，因此看不到契约——要按 server.http.middleware 段配
+// 横切链用 [WithHTTPContract]。传 nil = 撤掉 HTTP 面（变体让位转码面用这条），
+// 同时清掉契约钩子声明，否则钩子会把面装回来。
 func WithHTTP(handler http.Handler) Option {
-	return optionFunc(func(s *Decl) { s.HTTPHandler = handler })
+	return optionFunc(func(s *Decl) {
+		s.HTTPHandler = handler
+		if handler == nil {
+			s.HTTPContract = nil
+		}
+	})
+}
+
+// HTTPContractFunc 是 HTTP 面的契约钩子：在契约装载后、域接线与 server 构造
+// 之前求值一次（见 contract_faces.go 的求值时点说明）。
+//
+// 入参 mw 是契约 server.http.middleware 段（nil = 未配置该段），可直接喂
+// bundle.FromMiddleware；返回 (handler, close, err)——close 释放钩子构造的资源
+// （如桥新建的限流器，可为 nil，框架挂成停机 Effect 逆序回放），err 非 nil
+// 即启动失败。middleware 段属静态面：热更不重求值本钩子，改配置要重启。
+type HTTPContractFunc func(mw *bootstrapv1.Server_Http_Middleware) (handler http.Handler, close func() error, err error)
+
+// WithHTTPContract 声明启用 HTTP 服务器，并把 handler 的构造延到契约装载之后。
+//
+// 这是契约 server.http.middleware 段的正式消费口：横切链的参数（限流桶容量、
+// 超时预算、CORS 白名单、日志跳过路径…）来自配置文件，而链本身与认证姿态仍是
+// 代码里的显式声明——框架不代替业务决定「公开还是接认证」（契约里没有 authn 段）。
+//
+// 与 [WithHTTP] 二选一：两条口同时给 = 启动报错（不是末者胜，避免「配了链
+// 却被另一条覆盖」）。
+func WithHTTPContract(fn HTTPContractFunc) Option {
+	return optionFunc(func(s *Decl) { s.HTTPContract = fn })
+}
+
+// GRPCOptionsContractFunc 是 gRPC 服务端选项的契约钩子。
+//
+// 入参 mw 是契约 server.grpc.middleware 段（nil = 未配置该段），可直接喂
+// bundle.FromGRPCMiddleware；其余契约与 [HTTPContractFunc] 一致。
+type GRPCOptionsContractFunc func(mw *bootstrapv1.Server_Grpc_Middleware) (opts []grpc.ServerOption, close func() error, err error)
+
+// WithGRPCOptionsContract 登记一个按契约 server.grpc.middleware 段构造的 gRPC
+// 服务端选项工厂（多次登记按登记顺序累加，与 [WithGRPCOptions] 同队列）。
+//
+// 与 [WithGRPCOptions] 的差别只有一个入参：本钩子拿到契约段，故
+// bundle.FromGRPCMiddleware 翻译出来的层配置真的会进链——这是该段的正式消费口。
+// 两条口混用时链序 = 先全部无参工厂、后全部契约工厂（求值时点不同，见
+// Decl.GRPCOptionContractFns 注释）；要精确交错，只用一条。
+func WithGRPCOptionsContract(fn GRPCOptionsContractFunc) Option {
+	return optionFunc(func(s *Decl) {
+		if fn != nil {
+			s.GRPCOptionContractFns = append(s.GRPCOptionContractFns, fn)
+		}
+	})
 }
 
 // WithGRPC 声明启用 gRPC 服务器并注册业务 service（单值，末者胜）。
@@ -169,8 +220,8 @@ const driverGRPCGateway = "grpc-gateway"
 func validateCapabilities(spec *Decl, cfg *bootstrapv1.BootstrapConfig, pp *providerPlan) error {
 	httpCfg := cfg.GetServer().GetHttp()
 	grpcCfg := cfg.GetServer().GetGrpc()
-	if spec.HTTPHandler != nil && httpCfg == nil {
-		return errors.New("appkit: WithHTTP declared but bootstrap.server.http is nil")
+	if hasHTTPFace(spec) && httpCfg == nil {
+		return errors.New("appkit: HTTP face declared (WithHTTP/WithHTTPContract) but bootstrap.server.http is nil")
 	}
 	if spec.GRPCRegister != nil && grpcCfg == nil {
 		return errors.New("appkit: WithGRPC declared but bootstrap.server.grpc is nil")
@@ -179,7 +230,7 @@ func validateCapabilities(spec *Decl, cfg *bootstrapv1.BootstrapConfig, pp *prov
 		// 探针要挂在同一个 mux 上，同路径注册会 panic——启动期 fail-fast 暴露。
 		return fmt.Errorf("appkit: WithHealth probe paths must differ, got %q twice", spec.ProbeLivePath)
 	}
-	if spec.HTTPHandler != nil && pp.httpFaceTakenByProvider() && httpCfg.GetDriver() == "" {
+	if hasHTTPFace(spec) && pp.httpFaceTakenByProvider() && httpCfg.GetDriver() == "" {
 		// 业务同时给了 gin handler 和转码面 Provider：段归属按声明序末者胜，
 		// 不报错就是 handler 被静默替代。显式写 driver 才算声明了取舍
 		// （显式 > 隐式）。
@@ -195,15 +246,35 @@ func validateCapabilities(spec *Decl, cfg *bootstrapv1.BootstrapConfig, pp *prov
 // spec 为业务能力声明（With*/Providers 写入的 Decl，调用方已 Apply 完毕）；
 // cfg 为契约，必须非 nil——Serve 路径由内部契约装载产出（bconf.NewBootstrap +
 // 预装载），包内测试经显式注入 cfg 复用同一构造期语义。返回的 App 已完成全部约定装配，直接 Run 即可。
-func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig, settings map[string]any) (*App, error) {
+func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig, settings map[string]any) (out *App, err error) {
 	if cfg == nil {
 		return nil, errors.New("appkit: assemble: bootstrap config is nil")
 	}
+	// 契约钩子求值（机制见 contract_faces.go）：两面的 handler / 选项链按契约
+	// middleware 段构造——排在变体之前，故变体的 WrapHTTP 包到真 handler 上。
+	faces, err := resolveContractFaces(spec, cfg)
+	if err != nil {
+		return nil, err
+	}
+	// 求值到装配成功之间的任何失败路径都要释放钩子建的资源（限流器桶等）：
+	// 成功时释放函数改由下面的停机 Effect 兑现，这里只兜错误路径。
+	defer func() {
+		if err != nil && faces.close != nil {
+			_ = faces.close()
+		}
+	}()
 	// 构建期变体（Q7）：命中变体的增量并入 Decl/契约——必须在 Provider 计划
 	// 与能力校验之前（补丁可能改 server.http.driver 等段值）。与 Compile 同源。
 	vp, err := applyVariantEffects(spec, cfg)
 	if err != nil {
 		return nil, err
+	}
+	// 变体不得补丁钩子已经读过的 middleware 段（补丁在求值之后重放，改了不
+	// 改变链——静默失效比报错更坏，见 contract_faces.go 的求值时点说明）。
+	if faces.guard != nil {
+		if err := faces.guard(cfg); err != nil {
+			return nil, err
+		}
 	}
 	// 段驱动装配计划：路径末者胜 → Provider.Plan → 节点冲突裁决 + 统一排序
 	//（机制见 provider.go）。计划是执行顺序的唯一来源。
@@ -381,6 +452,13 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig, settings map[string]
 		kitOpts = append(kitOpts, effectOpt("appkit:config-layers", func(context.Context) error {
 			layersCleanup()
 			return nil
+		}))
+	}
+	// 契约钩子建的资源（桥新建的限流器等）：登记为框架 Effect——不进 spec.Effects
+	// （那是用户声明面，计划据此投影；框架自有 Effect 与 config-layers 同列）。
+	if faces.close != nil {
+		kitOpts = append(kitOpts, effectOpt("appkit:middleware-chain", func(context.Context) error {
+			return faces.close()
 		}))
 	}
 

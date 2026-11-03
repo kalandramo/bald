@@ -336,10 +336,14 @@ func applyVariantEffects(d *Decl, cfg *bootstrapv1.BootstrapConfig) (*variantPla
 			if !hasImpl || impl.WrapHTTP == nil {
 				return nil, fmt.Errorf("appkit: variant %q declares %d route(s) but the implementation provides no WrapHTTP", v.Name, len(eff.Routes))
 			}
-			if d.HTTPHandler == nil {
-				return nil, fmt.Errorf("appkit: variant %q declares REST routes but the app has no HTTP face (WithHTTP)", v.Name)
+			if !hasHTTPFace(d) {
+				return nil, fmt.Errorf("appkit: variant %q declares REST routes but the app has no HTTP face (WithHTTP/WithHTTPContract)", v.Name)
 			}
-			d.HTTPHandler = impl.WrapHTTP(d.HTTPHandler)
+			if d.HTTPHandler != nil {
+				d.HTTPHandler = impl.WrapHTTP(d.HTTPHandler)
+			}
+			// handler 仍为 nil 只可能是契约钩子形态在 --plan 路径上（计划期不执行
+			// 用户代码）：路由清单照记，包装留到真实装配那一次求值后落。
 			for _, r := range eff.Routes {
 				vp.routes = append(vp.routes, Route{
 					Domain:  "variant:" + v.Name,

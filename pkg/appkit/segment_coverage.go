@@ -134,7 +134,7 @@ func consumedSegments(cfg *bootstrapv1.BootstrapConfig, spec *Decl, plan *provid
 
 // serverCovered 按预填豁免语义判定 server 段是否已消费（见包注释）。
 func serverCovered(cfg *bootstrapv1.BootstrapConfig, spec *Decl, plan *providerPlan) bool {
-	if spec.HTTPHandler != nil || spec.GRPCRegister != nil {
+	if hasHTTPFace(spec) || spec.GRPCRegister != nil {
 		return true // 能力声明在代码：内置 server Provider 必然构造对应面
 	}
 	// server.http 被非内置 Provider 接管（grpc-gateway 转码面）时该段有消费者，

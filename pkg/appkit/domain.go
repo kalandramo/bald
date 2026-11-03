@@ -150,12 +150,13 @@ type Domain struct {
 // MustServe/NewApp 的变参项）。
 func (d Domain) Apply(decl *Decl) { decl.Domains = append(decl.Domains, d) }
 
-// httpFacePresent 报告 server.http 上是否存在可挂路由的面：WithHTTP 声明的业务
-// handler，或第三方 Provider 接管该段（转码面即此形态——端口有面，gin 路由让位）。
+// httpFacePresent 报告 server.http 上是否存在可挂路由的面：WithHTTP/
+// WithHTTPContract 声明的业务 handler，或第三方 Provider 接管该段（转码面即此
+// 形态——端口有面，gin 路由让位）。
 // 判据来自已解析的 Provider 计划，与执行同源：`--plan` 预检和真实启动对同一批
 // 域声明给出同一个结论。
 func httpFacePresent(d *Decl, pp *providerPlan) bool {
-	return d.HTTPHandler != nil || pp.httpFaceTakenByProvider()
+	return hasHTTPFace(d) || pp.httpFaceTakenByProvider()
 }
 
 // validateDomains 装配期校验域声明（构造期 fail-fast，先于阶段 A Logger 等
@@ -334,7 +335,7 @@ func domainCompatNode(dom Domain, spec *Decl) (Node, bool) {
 		return Node{}, false // 节点由引擎逐条执行，构造不再不透明
 	}
 	var segs []string
-	if dom.Routes != nil && spec.HTTPHandler != nil {
+	if dom.Routes != nil && hasHTTPFace(spec) {
 		segs = append(segs, "server.http") // 与 wireDomains 的调用条件同源
 	}
 	if dom.Services != nil {

@@ -147,14 +147,22 @@ type Decl struct {
 	// 记录计划基线，doctor 只读对比；缓存不是执行依据（见 plan_cache.go）。
 	PlanCache string
 
-	// ---- 协议面（WithHTTP/WithGRPC/WithGRPCOptions 声明；能力声明在代码，
-	// 契约 server 段驱动装配。转码面不走这里：由 transport/gateway/contract
-	// 的 HTTPProvider 接管 server.http 段表达） ----
+	// ---- 协议面（WithHTTP/WithHTTPContract/WithGRPC/WithGRPCOptions/
+	// WithGRPCOptionsContract 声明；能力声明在代码，契约 server 段驱动装配。
+	// 转码面不走这里：由 transport/gateway/contract 的 HTTPProvider 接管
+	// server.http 段表达） ----
 	HTTPHandler http.Handler
+	// HTTPContract 是 HTTP 面的契约钩子（WithHTTPContract）：与 HTTPHandler
+	// 二选一——handler 在契约装载后构造，故能按 server.http.middleware 段配链。
+	// 声明恒保留（计划投影据此认面），求值结果落进 HTTPHandler。
+	HTTPContract HTTPContractFunc
 	// GRPCRegister gRPC service 注册回调。GRPCOptionFuncs 是服务端选项工厂
 	// （拦截器链等），按登记顺序在 server 构造点求值——链序 = 登记顺序。
-	GRPCRegister    func(*grpc.Server)
-	GRPCOptionFuncs []func() []grpc.ServerOption
+	// GRPCOptionContractFns 是同一条队列的契约钩子形态（装配期求值后并入
+	// GRPCOptionFuncs 的末尾，故与无参工厂混用时顺序 = 先无参、后契约）。
+	GRPCRegister          func(*grpc.Server)
+	GRPCOptionFuncs       []func() []grpc.ServerOption
+	GRPCOptionContractFns []GRPCOptionsContractFunc
 
 	// ---- 健康检查（WithHealth/WithProbePaths/WithHealthPollInterval 声明；
 	// 探针路径仅 WithHealth 置默认值，空值 = 未声明） ----

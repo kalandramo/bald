@@ -150,7 +150,7 @@ func planFrom(ctx context.Context, d *Decl, cfg *bootstrapv1.BootstrapConfig, se
 			Opaque: true,
 			Origin: OriginDomain,
 		})
-		if dom.Routes != nil && d.HTTPHandler != nil {
+		if dom.Routes != nil && hasHTTPFace(d) {
 			// gateway 面占用 server.http 时 Routes 让位（wireDomains 的条件同源）。
 			p.Nodes = append(p.Nodes, Node{
 				Key:       ResourceKey("domain." + dom.Name + ".routes"),
@@ -271,9 +271,12 @@ func planFrom(ctx context.Context, d *Decl, cfg *bootstrapv1.BootstrapConfig, se
 			Kind: "serverFunc", Name: fmt.Sprintf("extraServer[%d]", i),
 		})
 	}
-	// 服务器能力声明（WithHTTP/WithGRPC/WithGRPCOptions）：
+	// 服务器能力声明（WithHTTP/WithHTTPContract/WithGRPC/WithGRPCOptions/
+	// WithGRPCOptionsContract）：
 	// 注册回调装进去的路由/service 计划看不见，但「声明了哪一面」必须可见——
 	// 否则纯 gRPC 与纯 HTTP 应用的 --plan 完全相同。
+	// 契约钩子形态与无参形态同判据（hasHTTPFace/hasGRPCChain）：计划期不执行
+	// 用户代码，只看声明——真实装配求值后仍是同一条投影（I2）。
 	// 转码面不在这里投影：它是一个接管 server.http 的 Provider，已经以节点形态
 	// 出现在计划里（Origin=provider），比 imperative 旁白更可核对。
 	for _, c := range []struct {
@@ -281,8 +284,8 @@ func planFrom(ctx context.Context, d *Decl, cfg *bootstrapv1.BootstrapConfig, se
 		present bool
 	}{
 		{"grpc", d.GRPCRegister != nil},
-		{"grpcOptions", len(d.GRPCOptionFuncs) > 0},
-		{"http", d.HTTPHandler != nil},
+		{"grpcOptions", hasGRPCChain(d)},
+		{"http", hasHTTPFace(d)},
 	} {
 		if c.present {
 			p.Imperative = append(p.Imperative, Imperative{Kind: "serverCapability", Name: c.name})
