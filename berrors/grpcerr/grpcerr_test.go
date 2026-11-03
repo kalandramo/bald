@@ -1,6 +1,9 @@
 package grpcerr
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"testing"
 
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
@@ -37,6 +40,34 @@ func TestToStatusPlainError(t *testing.T) {
 	st := ToStatus(status.Error(codes.Internal, "boom"))
 	if st.Code() != codes.Internal {
 		t.Fatalf("expected Internal, got %v", st.Code())
+	}
+	if st.Message() != "boom" {
+		t.Errorf("已是 gRPC status 的文本应原样保留，got=%q", st.Message())
+	}
+}
+
+// TestToStatusContextErrors 钉住 ctx 两个哨兵的码：服务端契约 timeout 段到期时
+// handler 交出的就是裸 context.DeadlineExceeded，兜成 Unknown 等于「超时看起来
+// 不像超时」——而 grpc-go 不经本桥时给的是 DEADLINE_EXCEEDED。
+func TestToStatusContextErrors(t *testing.T) {
+	deadline := ToStatus(context.DeadlineExceeded)
+	if deadline.Code() != codes.DeadlineExceeded {
+		t.Errorf("context.DeadlineExceeded → %v, want DeadlineExceeded", deadline.Code())
+	}
+	canceled := ToStatus(context.Canceled)
+	if canceled.Code() != codes.Canceled {
+		t.Errorf("context.Canceled → %v, want Canceled", canceled.Code())
+	}
+
+	// 包装一层也要认出来（handler 常带上下文再交出去）。
+	wrapped := ToStatus(fmt.Errorf("greet handler: %w", context.DeadlineExceeded))
+	if wrapped.Code() != codes.DeadlineExceeded {
+		t.Errorf("wrapped context.DeadlineExceeded → %v, want DeadlineExceeded", wrapped.Code())
+	}
+
+	// 原生 error 仍然兜 Unknown（这条不许被上面的映射顺手改掉）。
+	if got := ToStatus(errors.New("plain")).Code(); got != codes.Unknown {
+		t.Errorf("plain error → %v, want Unknown", got)
 	}
 }
 

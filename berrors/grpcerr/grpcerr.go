@@ -11,6 +11,9 @@
 package grpcerr
 
 import (
+	"context"
+	"errors"
+
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -22,7 +25,9 @@ import (
 // errdetails.ErrorInfo{Reason, Details}。
 //
 //   - 命中 *berrors.Error：用其 Code（→ gRPC codes）、Message、Reason、Details 构造。
-//   - 未命中（原生 error 或 gRPC status）：退回 Unknown + err.Error()，语义不丢。
+//   - 已是 gRPC status：原样透传，调用方给的码不许改。
+//   - context 的两个哨兵（DeadlineExceeded / Canceled）：给对应的 gRPC 码。
+//   - 其余原生 error：退回 Unknown + err.Error()。
 func ToStatus(err error) *status.Status {
 	if err == nil {
 		return status.New(codes.OK, "")
@@ -37,6 +42,21 @@ func ToStatus(err error) *status.Status {
 			}
 		}
 		return st
+	}
+
+	if st, ok := status.FromError(err); ok {
+		return st
+	}
+
+	// ctx 的截止期/取消是 error 值而不是 gRPC status，落到 status.Convert 会被兜成
+	// Unknown——而 grpc-go 不经本桥时给的是 DEADLINE_EXCEEDED / CANCELLED。服务端
+	// 契约 server.grpc.middleware.timeout 到期正是这条路（handler 交出 ctx.Err()），
+	// 兜成 Unknown 等于「超时看起来不像超时」，比不装收口拦截器更差。
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return status.New(codes.DeadlineExceeded, err.Error())
+	case errors.Is(err, context.Canceled):
+		return status.New(codes.Canceled, err.Error())
 	}
 
 	return status.Convert(err)
