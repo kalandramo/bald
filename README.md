@@ -37,11 +37,17 @@
 然后生成、拉起：
 
 ```bash
-go install github.com/kalandramo/bald/cmd/bald@latest
+# CLI 只能从源码检出安装：根模块 go.mod 带指向目录的 replace，go install @tag 会被拒
+git clone https://github.com/kalandramo/bald.git && cd bald
+go install ./cmd/bald        # 需要指定版本：git checkout v0.37.0 后再 install
+cd -                          # 回到你的服务目录
+
 go mod init github.com/you/demo-svc   # 尚未 init 时执行，与 meta.module 一致
 bald gen app --spec appspec.json
 go mod tidy && go run ./cmd/demo-svc
 ```
+
+`go mod tidy` 拉的是库本身，可以锁到 release tag：`go get github.com/kalandramo/bald@v0.37.0`。
 
 一条命令生成整套可编译骨架，`curl :8080/healthz` 即验证探针。审计、组件、能力、业务域等更完整的声明见[快速入门](docs/guide/zh-CN/quickstart/README.md)与[用 bald CLI 起步新服务](docs/guide/zh-CN/用%20bald%20CLI%20起步新服务.md)。
 

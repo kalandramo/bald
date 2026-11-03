@@ -2,9 +2,13 @@
 // 提供 gen proto / gen store / gen app / gen domain 生成子命令，以及维护者
 // 使用的 release 发布子命令（计划 / 依赖归位 / 变更日志 / 打 tag）。
 //
-// 安装：
+// 安装：只能从源码检出安装。根模块 go.mod 带指向目录的 replace，Go 拒绝
+// 以 go install <module>/cmd/<name>@tag 的形式安装含 replace 的发布物。
 //
-//	go install github.com/kalandramo/bald/cmd/bald@latest
+//	git clone https://github.com/kalandramo/bald.git && cd bald
+//	go install ./cmd/bald
+//
+// 库本身可以按 tag 引用：go get github.com/kalandramo/bald@v0.37.0
 //
 // 用法：
 //

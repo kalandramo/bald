@@ -6,10 +6,11 @@
 
 - Go 1.27+（bald `go.mod` 声明 `go 1.27.1`）
 - 一个 Go module 项目（下文假定已执行 `go mod init github.com/you/demo-svc`，按需替换）
-- 官方 CLI（一次性安装；业务代码只依赖 bald 库）：
+- 官方 CLI（一次性安装；业务代码只依赖 bald 库）。根模块 `go.mod` 带目录 `replace`，Go 拒绝把这样的发布物按命名包安装，所以只能源码检出装：
 
 ```bash
-go install github.com/kalandramo/bald/cmd/bald@v0.31.0
+git clone https://github.com/kalandramo/bald.git
+cd bald && git checkout v0.37.0 && go install ./cmd/bald
 ```
 
 ### 2. 声明 + 一条命令生成
@@ -69,7 +70,7 @@ demo-svc/
 ### 4. 拉依赖、起服务
 
 ```bash
-go get github.com/kalandramo/bald@v0.31.0
+go get github.com/kalandramo/bald@v0.37.0
 go mod tidy
 go run ./cmd/demo-svc
 ```

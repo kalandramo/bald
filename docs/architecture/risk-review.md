@@ -28,6 +28,7 @@
 | 6.3 | 限流位于认证之后，认证层自身不受保护 | 中 | ✅ 已核对注释与实现 | **口径已定**（保持现位置 + 落文档；不改默认的理由与自保姿势见 §6.3） |
 | 3.2 | 21 个 module 同时 require 同一库的两个 major（`// indirect`） | 低 | ✅ 脚本实测 | **已修（只读面）**：`scripts/multi-major.sh` + `task deps-multi-major`；`go list -deps` 实测确认真正同链的是 2 条，见 §3.2 |
 | 3.3 | 根 `v0.35.0` **发得出去、装不出来**：仓库里的生成物文件名让代理建不出模块 zip | **高** | ✅ `goproxy.cn` 实测 404 `create zip: malformed file path … invalid char '（'`，230 条路径逐条核对 | **已修**：`.qoder/` 导出移出版本库（磁盘副本保留），`bald release tag` 新增路径闸门（实测在坏树上拦下 230 条、落 0 个 tag）；`v0.35.0` 按「已发布不可重发」保留不用，由 `v0.36.0` 取代，见 §3.3 |
+| 3.4 | 官方 CLI **文档里的安装方式从未装成功过**：`go install …/cmd/bald@tag` 被 Go 直接拒绝 | 中 | ✅ `v0.31.0`/`v0.36.0`/`v0.37.0` 三个 tag 实测同一条错误；判据取自本机 Go 1.27.1 源码 `load/pkg.go` | **文档改成可跑姿势，缺陷未修**：根 `go.mod` 有 19 条 `replace`，Go 对「按命名包安装外部模块」拒绝任何含 `replace` 的发布物（不看是否生效）；两条解法都是结构性改动，待拍板，见 §3.4 |
 | 4.1 | 停机期 `_ = deregister(...)` 吞错 | 低-中 | ✅ 已核对源码 | **已修** |
 | 4.2 | 端点上界 5s、hook 超时 5s 为常量（Stop 超时本身可配） | 低 | ✅ 已核对源码 | **已修** |
 | 8 | `docscheck` 只校验链接完整性，测不出描述过期 | 低 | ✅ 已核对测试 | **已修（清单半）**：`module-list` 围栏 + 双向断言 + 与脚本逐行比对，三条变异实测；「描述已删除 API」半仍未覆盖，见 §8 |
@@ -411,6 +412,29 @@ Go 源码零改动（除下面第 ① 条）。根 module 里 `pkg/` 之外唯�
   根 `v0.36.0` 的 zip 直接取回解包：139 条，`.qoder/**` 0 条、`pkg/**` 0 条——zip 判据缺陷与拆分前的 ambiguous
   import 两条都不在这份发布物里。`v0.35.0` 仍确定性 404 `create zip: malformed`，与「保留不用」一致。
 
+**3.4 官方 CLI 按 tag 装不出来：`go install` 拒绝含 `replace` 的 module**（中，未修）
+
+- 现象：五处文档——`README.md`、`docs/guide/zh-CN/quickstart/README.md`、《用 bald CLI 起步新服务》、《代码生成工具设计》摘要、`cmd/bald/main.go` 的 doc comment——都写着 `go install github.com/kalandramo/bald/cmd/bald@latest`（或 `@vX.Y.Z`）。这条命令**从未成功过**。本机对三个已发布 tag 各跑一次（`v0.31.0` 在 `pkg/` 拆分前、`v0.36.0`/`v0.37.0` 在拆分后），报错逐字相同：
+
+  ```
+  go: github.com/kalandramo/bald/cmd/bald@v0.37.0 (in github.com/kalandramo/bald@v0.37.0):
+      The go.mod file for the module providing named packages contains one or
+      more replace directives. It must not contain directives that would cause
+      it to be interpreted differently than if it were the main module.
+  ```
+
+- 判据（取自本机 GOROOT 源码，不是国内镜像私有规则）：`cmd/go/internal/load/pkg.go` 在安装命名包时抓取目标 module 的**已发布 go.mod**，`if len(f.Replace) > 0` 即报错（紧接着对 `Exclude` 同一判据）。它看的是**存在性**，与该 replace 是否真被 build 用到无关——根 `go.mod` 现有 19 条 `replace`，其中只有 `bconf` 一条有对应 require（`go list -deps ./cmd/bald` 实测同仓依赖只剩 `bconf v0.17.0`），另外 18 条是 §3.1 注脚里「已无对应 require，留着为将来复用」的，它们对编译是惰性的，照样让这条命令失败。
+- 范围：只坏在 **CLI 分发**这一条路径，库侧不受影响——`go get github.com/kalandramo/bald@v0.37.0` 与 `bald/pkg`、各适配器按 tag 解析都正常（§3.3 的零 `replace` scratch module 已实测 31 个 tag 可装载并编译）。所以这是「官方工具入口的可复制性」缺陷，不是发布物缺陷。
+- 为什么长期没暴露：安装路径不在任何闸门里。`task verify` 与 CI 都在带 `replace` 的检出里跑 `go build ./...`，走的永远是本地替换；`bald release tag` 的三道守卫查 tag 是否已存在、zip 路径是否合规、工作树是否干净，不查「文档给的命令装不装得上」。这正是 §8「docscheck 测不出描述过期」的一个实例——只是这次过期的是**命令**而不是描述。
+- 当前处置（已落地）：五处安装说明改成源码检出姿势（`git clone` → `cd bald` → `go install ./cmd/bald`，要固定版本先 `git checkout vX.Y.Z`），库侧明写可按 tag 引用（`go get github.com/kalandramo/bald@v0.37.0`）。验活：`go install ./cmd/bald` 在本地检出跑通，产物 `/Users/…/go/bin/bald` 存在且 `bald --help` 正常输出四个 `gen` 子命令与 `release`；`git clone` 那一步本机到 github 直连不通（代理只服务 module 下载），未在干净克隆上端到端复跑。
+- 防回归（已落地）：`internal/docscheck` 新增闸门 `TestDocsInstallsAreReplaceFree`——Markdown **代码围栏**里出现的 `go install <path>@<ver>`，若 `<path>` 按最长前缀归到本仓某个 module，则该 module 的 `go.mod` 不得含任何 `replace`（与 Go 的判据同一条）。围栏内才算「承诺复制即可跑」，内联 code 与围栏外的裸行不参与——文档要引用那条失败命令做说明（《用 bald CLI 起步新服务》§2 正是这么写的）。四次变异逐条验活、全部复原：① 合成夹具里删掉那条 `replace` → 违规消失，证明判据真在读 go.mod 而非认模块名；② 给夹具的 `bconf/go.mod` 加一条 `replace` → 违规 1 条变 2 条，证明读的是**每个 module 自己的** go.mod；③ 去掉 `inFence` 守卫 → 围栏外那行裸命令也被抓，证明围栏这条边界是承重的；④ 往真实 `README.md` 塞回 `go install github.com/kalandramo/bald/cmd/bald@latest` 的代码块 → 立刻红并报出「19 条 replace」，证明全仓扫描不是空转。
+- 未修（结构性改动，待拍板）：两条候选代价不同——
+  - **A. 剥掉根 `go.mod` 的全部 `replace`**，同仓未发版的消费改走 `go.work`（workspace 文件不进发布物，`go install @version` 只看 module 自己的 go.mod）。代价：含 `go.work` 的检出里 CI 会静默用本地替换，正好废掉 §3.3 那类「published 形态」判据，要靠 `GOWORK=off` 显式区分两种跑法并给 CI 加断言；且根对 `bconf` 的消费变成「bconf 未发版就编不过」。
+  - **B. 把 `cmd/bald` + `internal/{codegen,docscheck,release}` 抽成独立 module**，安装路径变成 `go install github.com/kalandramo/bald/<x>/cmd/bald@vX.Y.Z`。代价：同样只能按 tag 消费 `bconf`，外加 CI 脚本、`Taskfile`、`bald release` 自身所在 module 的归属要重排——发布工具发自己，升级必然滞后一代。
+  - 共同未定项：CLI 的版本号是否跟根 tag 同步。
+  - 为什么不一并做：两条都动 module 边界或 CI 契约，与 §3.1 的 `pkg/` 拆分同级；先例里这类切法由 owner 选定（C-A）。
+- 还不能证明：① `git clone` + `go install ./cmd/bald` 的端到端（本机 github 直连不通，只验了后半段）；② 方案 A 的「零 `replace` 根检出能否从代理解析」只在依赖闭包层面成立（同仓只剩 `bconf v0.17.0` 一个真实 tag），没有实跑过零 `replace` 检出的 `go build ./...`。
+
 ---
 
 ## 4. 并发与生命周期
@@ -639,6 +663,7 @@ Go 源码零改动（除下面第 ① 条）。根 module 里 `pkg/` 之外唯�
 - `TestModuleDerivationMatchesScript`——直接 `sh scripts/list-modules.sh` 与 Go 复刻逐行比对，把「测试里的谓词」钉在「CI 用的那一条派生」上，Windows 跳过（无 POSIX sh）。
 - 变异验证（三条都实测过再复原）：删文档块里 `workflow/argo` → 「module workflow/argo 未出现在文档清单里」；塞 `not/a/real/module` → 「在仓库中不是 module」；把 Go 侧 `_example` 跳过改成 `if false &&` → 「Go 派生 93 个，脚本派生 92 个」。复原后 `go test ./internal/docscheck/` → ok。
 - **未覆盖**：「文字描述已删除的 API」这半仍然测不出——那要逐条把散文里的断言映射到符号，成本与误报都不划算。现在的兜底是人肉：本轮 §2/§5/§6.2/§6.3 的每处过期描述都逐条 grep 复核过，行号引用优先改成符号名（`bundle.go:171-211,224-241` 这类漂移点已换成 `Gin()`/`GRPCInterceptors()`）。
+- 补上的一类（§3.4 的教训）：**文档给的命令装不装得上**现在能自动失效——`TestDocsInstallsAreReplaceFree` 把围栏里的 `go install <path>@<ver>` 与目标 module 的 `go.mod` 对上（Go 判据 `len(f.Replace) > 0`）。它测的不是描述而是承诺，成本一条断言；四次变异验活见 §3.4。同类缺口还有「围栏里的 `curl`/`bald gen` 参数是否还存在」，那要跑真命令，未做。
 
 ---
 
@@ -662,8 +687,8 @@ Go 源码零改动（除下面第 ① 条）。根 module 里 `pkg/` 之外唯�
 5. **kafka 的 writer 重建 + 订阅退避补测试**（§1.3）✅：`broker/kafka` 与 `broker/rabbitmq` 各有了第一份测试，全部不起真实 broker（死端口造 ECONNREFUSED）。过程中揪出并修掉 4 个生产缺陷，其中「重连后发布 panic + 写锁泄漏」和「`retriesCount=0` 吞掉写失败」都只在失败/热更路径上，原先没有任何执行证据。
 6. **给 §2 的未接线面做决策** ✅ 口径已定：reference-only 保留 + README/当前架构 §6 标注；其中 **Discovery 走的是选项 1（接线）而不是标注**——`transport/gateway` 出站现在真消费 `GetService`/`Watch`（见 §2「接线半」）。retry/circuitbreaker 的 bundle 层与「移出发布批次」仍按 §2「刻意没做」留给 owner。
 7. **`berrors` 边界口径**（§5）✅ 选 (b)：定位为边界投影模型，不改码。**Discovery 消费侧**（§2）已做——watch-based resolver + 装配作用域自动派生来源，消费方只改一行配置。
-8. **抽离 appkit 契约面，把适配器从「require 聚合根」解耦**（§3.1）✅ 已落地（owner 选定 C-A：整个 `pkg/` 成 module，非最小面）：require 根的适配器 22→0，`task verify` 全绿。收益按实测收窄——`replace` 数量不降反升（410→423，那句旧表述已撤回），真正消掉的只有「本仓工具的改动不再产出适配器要追的根 tag」；发版批次待 owner。
-9. **gRPC 链补限流与超时**（§6.2）✅ unary 面：`RateLimitInterceptor`/`TimeoutInterceptor` + bundle 两侧共用同一对 Option，当场揪出并修掉 `tokenbucket.Close()` 不唤醒 `Wait` 的真缺陷。✅ stream 面：`GRPCStreamInterceptors()` 出 `Error → RateLimit`，`GRPCChain()` 仅在 gRPC 面有限流时附带 stream 选项；按「每流建立一令牌」计费、与 unary 同桶、超时按口径不默认挂。✅ 契约面：`Server.Grpc.Middleware` 补 rate_limit/timeout 两段 + `FromGRPCMiddleware` 桥（gRPC 段产出只作用于 gRPC 的 Option，「更具体的段管更具体的面」）。✅ **装配面（对称收口）**：`appkit.WithHTTPContract`/`WithGRPCOptionsContract` 把「谁在启动时读那两个段」做成装配的固定环节，codegen 两面脚手架对称改形（seeded 的 `NewRouter(mw)` 与 `newGRPCChain(mw)`），角色契约经 `inheritMiddleware` 继承两段；`_example` 起真进程实测 429 / `RESOURCE_EXHAUSTED` / 提前 503 / `DEADLINE_EXCEEDED`，六处删接线逐个转红。接线过程中另修掉一处真缺陷：`grpcerr.ToStatus` 把 `context.DeadlineExceeded` 兜成 `codes.Unknown`（比不装收口拦截器更差——超时看起来不像超时）。**发版批次（owner 已授权，按 `bconf` 先行的次序执行）**：`bconf` 需先出 tag，`pkg` 才能跟上；本轮的破面在**根模块的生成模板**——seeded 的 `NewRouter` 签名变了，存量生成工程重跑 `bald gen app` 后编译失败（迁移见 §6.2）；`pkg` 自己的 Go API 是纯新增（`WithHTTPContract`/`WithGRPCOptionsContract`/两个拦截器），所以对已发布 API 的消费者不算破。`bald release plan` 现值（HEAD `8b83ccd`，5 个模块）：`bconf v0.16.0→v0.17.0`、`berrors v0.1.1→v0.1.2`、`bootstrap v0.13.5→v0.13.6`（新增：§7.7 的 `envLayer` 落在这里）、`pkg v0.1.0→v0.2.0`、`bald v0.36.0→v0.37.0`。`bconfig` **不在**批次里：它自 `v0.2.2` 以来只有测试改动（`test(...)` 属 `nonReleasingTypes`，不触发发版）。后续的 sync+CHANGELOG 提交是 `chore:` 型，同样不改变这份批次。**发版说明要手写破**：`v0.36.0..HEAD` 与 `pkg/v0.1.0..HEAD` 两段里没有任何提交带 `!` 或 `BREAKING CHANGE:` 页脚，所以 CHANGELOG 的 **(breaking)** 徽标一个都不会出现——工具给 `pkg` 定的 minor 本身没错（0.x 的破由 minor 承载），漏的是提交标记，只能在 CHANGELOG 正文里显式写「重跑 `bald gen app` 后 seeded 文件编译失败，迁移三步见《代码生成工具设计》§8」。
+8. **抽离 appkit 契约面，把适配器从「require 聚合根」解耦**（§3.1）✅ 已落地（owner 选定 C-A：整个 `pkg/` 成 module，非最小面）：require 根的适配器 22→0，`task verify` 全绿。收益按实测收窄——`replace` 数量不降反升（410→423，那句旧表述已撤回），真正消掉的只有「本仓工具的改动不再产出适配器要追的根 tag」；发版批次已随 2026-11-03 的整批 tag 落地。
+9. **gRPC 链补限流与超时**（§6.2）✅ unary 面：`RateLimitInterceptor`/`TimeoutInterceptor` + bundle 两侧共用同一对 Option，当场揪出并修掉 `tokenbucket.Close()` 不唤醒 `Wait` 的真缺陷。✅ stream 面：`GRPCStreamInterceptors()` 出 `Error → RateLimit`，`GRPCChain()` 仅在 gRPC 面有限流时附带 stream 选项；按「每流建立一令牌」计费、与 unary 同桶、超时按口径不默认挂。✅ 契约面：`Server.Grpc.Middleware` 补 rate_limit/timeout 两段 + `FromGRPCMiddleware` 桥（gRPC 段产出只作用于 gRPC 的 Option，「更具体的段管更具体的面」）。✅ **装配面（对称收口）**：`appkit.WithHTTPContract`/`WithGRPCOptionsContract` 把「谁在启动时读那两个段」做成装配的固定环节，codegen 两面脚手架对称改形（seeded 的 `NewRouter(mw)` 与 `newGRPCChain(mw)`），角色契约经 `inheritMiddleware` 继承两段；`_example` 起真进程实测 429 / `RESOURCE_EXHAUSTED` / 提前 503 / `DEADLINE_EXCEEDED`，六处删接线逐个转红。接线过程中另修掉一处真缺陷：`grpcerr.ToStatus` 把 `context.DeadlineExceeded` 兜成 `codes.Unknown`（比不装收口拦截器更差——超时看起来不像超时）。**发版批次已落地（2026-11-03，owner 授权后按 `bconf` 先行的次序推送）**：`bconf/v0.17.0`、`berrors/v0.1.2`、`bootstrap/v0.13.6`、`pkg/v0.2.0`、根 `v0.37.0` 五个 tag 全部指向发布提交 `63f2cec`。该提交是 `release sync`（44 个 `go.mod` 的 require 归位）+ `release changelog` 的产物，`chore:` 型因而不改变批次；tag 之前它那一轮 GitHub `ci` 五作业（test/integration/lint/vuln/race）与 `publish-bconf` 实测全 success，且 push 到 tag 之间没有再推任何东西（`concurrency` + `cancel-in-progress` 会把未跑完的 job 取消，绿证就作废）。破面在**根模块的生成模板**——seeded 的 `NewRouter` 签名变了，存量生成工程重跑 `bald gen app` 后编译失败（迁移见 §6.2）；`pkg` 自己的 Go API 是纯新增（`WithHTTPContract`/`WithGRPCOptionsContract`/两个拦截器），所以对已发布 API 的消费者不算破。`bconfig` **不在**批次里：它自 `v0.2.2` 以来只有测试改动（`test(...)` 属 `nonReleasingTypes`，不触发发版）。**代理侧已证**：零 `replace` 的 scratch module 按 `GOPROXY=https://goproxy.cn` 解析全部五个新版本并 `go build` 通过，运行期打出 `FoldEnvKeys` 折回后的 `burst=7`、`grpcerr.ToStatus(context.DeadlineExceeded)` 返回 `DeadlineExceeded`——`bconf` 的新 API 与 `berrors` 的修复确实在 published 形态里；tag 推完立刻探测会拿到 `404 not found: temporarily unavailable`，代理侧要等几分钟才建好条目。**发版说明的破面是手写的**：`v0.36.0..HEAD` 与 `pkg/v0.1.0..HEAD` 两段里没有任何提交带 `!` 或 `BREAKING CHANGE:` 页脚，CHANGELOG 的 **(breaking)** 徽标一个都不会出现，所以在 `63f2cec` 里给根 `v0.37.0` 一节显式补了一段「重跑 `bald gen app` 后 seeded 文件编译失败，迁移三步见《代码生成工具设计》§8」——工具的 bump 等级本身没错（0.x 的破由 minor 承载），漏的是提交标记。
 10. **限流链序**（§6.3）✅ 口径已定：保持「认证之后」，落文档；改默认会把按 subject 的配额静默变成全局配额。顺带修掉设计文档里写反的链序。
 11. **文档漂移闸门**（§8）✅ 清单半：`module-list` 围栏 + 双向断言 + 与脚本逐行比对（三条变异实测）。「描述已删除 API」半仍未覆盖。
 12. **依赖卫生只读报告**（§3.2）✅：`scripts/multi-major.sh` + `task deps-multi-major`，再用 `go list -deps` 把「是否真同链」从推测改成证据；不加 exclude/replace。
@@ -671,3 +696,4 @@ Go 源码零改动（除下面第 ① 条）。根 module 里 `pkg/` 之外唯�
 14. **覆盖率闸门**（§7.2）——未做。**统计量断言的复查**（§7.4）✅：`sres` 并发用例的假红已按「灌满窗口」修掉，阈值一字未动；同类写法已 grep 核过其余四个用随机源的包。**Windows 周界适配**（§7.5）✅：schedule 实测红的三条（产物扩展名 / 清单差异的路径身份 / 检出 CRLF）已修，并用 `.gitattributes` 收口检出形态；dispatch run 41445557462 实测该作业七个 step 全绿，含上次被连坐跳过的 `bootstrap`、`contrib/authz-casbin`、`TestTree_EndToEndTimed`。
 15. **env 表达不出契约的多词键**（§7.7）✅ 已修：`bconf` 新增 `FoldEnvKeys`，env 层在**合树之前**按契约描述符把下划线切出的嵌套链折回规范键（`bootstrap/config` 的 `envLayer`，`Load` 与 `MountEnv` 两条挂载路径同走）。严格门禁不再把合法注入判成笔误，env > file 的优先级也不再被文件层的规范键倒压。示例两条 env 姿势的 e2e（HTTP `429` / gRPC `RESOURCE_EXHAUSTED`）是产品级实证；业务自持键因没有描述符可折仍避开下划线。
 16. **`TestWatchValue_NoTornEmptySnapshot` 的逐值断言强于 `ValueWatcher` 契约**（§7.8）✅ 已按「断伤害」放宽：删掉「每个中间值都要被派发」，换成 0 次空载荷 / 派发序单调不减 / 末值必为真实终值三条时序无关的不变量；三条变异各自只打中一条判据（补发历史快照那条**只**红回退判据，证明它有独立牙齿）。今后这条再红，先按 §7.8 的机制核对，不要靠重跑消音。
+17. **官方 CLI 按 tag 装不出来**（§3.4）——文档五处已改成源码检出姿势（`git clone` → `go install ./cmd/bald`），`internal/docscheck` 新增安装路径闸门（围栏里的 `go install <path>@<ver>` 不得指向含 `replace` 的本仓 module，四次变异验活）。**结构性解法待拍板**：A 剥掉根 `go.mod` 的 19 条 `replace` 改用 `go.work`（代价是 CI 会静默走本地替换，得给 `GOWORK=off` 加断言）；B 把 `cmd/bald` + `internal/{codegen,docscheck,release}` 抽成独立 module（代价是只能按 tag 消费 `bconf`，且发布工具发自己滞后一代）。

@@ -15,13 +15,16 @@
 
 ## 2. 安装 CLI
 
+CLI 目前**只能从源码检出安装**，`go install github.com/kalandramo/bald/cmd/bald@vX.Y.Z` 装不上——根模块 `go.mod` 里有 19 条指向目录的 `replace`，Go 对「按命名包安装的外部模块」明确拒绝带 replace 的发布物（实测 `v0.31.0`/`v0.36.0`/`v0.37.0` 三个版本同一条错误：`The go.mod file for the module providing named packages contains one or more replace directives`）。这条限制登记在[风险评审 §3.4](../../architecture/risk-review.md)，解法（把 `cmd/bald` 抽成独立 module）属结构性改动，待拍板。
+
 ```bash
-go install github.com/kalandramo/bald/cmd/bald@v0.31.0
+git clone https://github.com/kalandramo/bald.git
+cd bald && go install ./cmd/bald
 bald --help   # 验证安装
 ```
 
-- `@latest` 解析最新 release tag（本文锚定 `v0.31.0`；固定版本用 `@v0.31.0`）。
-- 新 tag 发布后 sum.golang.org 校验和收录有延迟（数小时），期间安装可能报 `verifying module ...: 404 Not Found`——属正常现象，稍后重试即可。
+- 检出的 ref 决定生成器的行为：要 `v0.37.0` 的形态就 `git checkout v0.37.0`。库侧不受这条限制影响，`github.com/kalandramo/bald@v0.37.0` 按 tag 消费是能装上的（见 §5）。
+- 新 tag 发布后 sum.golang.org 校验和收录有延迟（数小时），期间 §5 的 `go get` 可能报 `verifying module ...: 404 Not Found`——属正常现象，稍后重试即可；源码检出安装不走这条路。
 - CLI 提供 4 个生成子命令：`gen app`（装配骨架目录树）、`gen domain`（域驱动生成物）、`gen proto`（CRUD proto 骨架）、`gen store`（实体骨架）。
 
 ## 3. AppSpec：装配的单一真相源
@@ -152,7 +155,7 @@ gRPC 侧把原来的 `appkit.WithGRPCOptions(自建链)` 搬进 seeded 的 `inte
 ## 5. 起服务
 
 ```bash
-go get github.com/kalandramo/bald@v0.31.0
+go get github.com/kalandramo/bald@v0.37.0
 go mod tidy
 go run ./cmd/my-service
 ```
@@ -264,7 +267,7 @@ router.Use(bundle.New(
 | 输出 `kept:` 但文件没更新 | 该文件是生成一次（`seed/`、`apiserver.go`、域骨架）——`--force` 也不覆盖，直接手改 |
 | `Gate1 (domains.service vs proto): service "..." not found ...` | `domains[].service` / `services[]` 与实际 proto 失配；按报错对齐声明或 proto（§6） |
 | `service and services are mutually exclusive` / `declare service or services, or set http_only ...` | 域声明形态三选一写错：`service`、`services`、`httpOnly` 只能选一种；纯 HTTP 域设 `httpOnly: true`（§6） |
-| `go install` 报 sumdb 404 | 新 tag 校验和收录延迟，数小时后重试（§2） |
+| `go: ... verifying module: ... 404 Not Found` | 库按 tag 消费（`go get`）时新 tag 的校验和收录有延迟，数小时后重试（§2）；CLI 本身不走这条路，它只能从源码检出安装 |
 
 ## 10. 下一步
 
