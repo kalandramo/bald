@@ -3055,11 +3055,13 @@ func (x *Server_Http_Middleware_Timeout) GetStatusCode() int32 {
 
 // gRPC 中间件配置。
 type Server_Grpc_Middleware struct {
-	state         protoimpl.MessageState           `protogen:"open.v1"`
-	Recovery      *Server_Grpc_Middleware_Recovery `protobuf:"bytes,1,opt,name=recovery,proto3,oneof" json:"recovery,omitempty"`
-	Logging       *Server_Grpc_Middleware_Logging  `protobuf:"bytes,2,opt,name=logging,proto3,oneof" json:"logging,omitempty"`
-	Tracing       *Server_Grpc_Middleware_Tracing  `protobuf:"bytes,3,opt,name=tracing,proto3,oneof" json:"tracing,omitempty"`
-	Validate      *Server_Grpc_Middleware_Validate `protobuf:"bytes,4,opt,name=validate,proto3,oneof" json:"validate,omitempty"`
+	state         protoimpl.MessageState            `protogen:"open.v1"`
+	Recovery      *Server_Grpc_Middleware_Recovery  `protobuf:"bytes,1,opt,name=recovery,proto3,oneof" json:"recovery,omitempty"`
+	Logging       *Server_Grpc_Middleware_Logging   `protobuf:"bytes,2,opt,name=logging,proto3,oneof" json:"logging,omitempty"`
+	Tracing       *Server_Grpc_Middleware_Tracing   `protobuf:"bytes,3,opt,name=tracing,proto3,oneof" json:"tracing,omitempty"`
+	Validate      *Server_Grpc_Middleware_Validate  `protobuf:"bytes,4,opt,name=validate,proto3,oneof" json:"validate,omitempty"`
+	RateLimit     *Server_Grpc_Middleware_RateLimit `protobuf:"bytes,5,opt,name=rate_limit,json=rateLimit,proto3,oneof" json:"rate_limit,omitempty"`
+	Timeout       *Server_Grpc_Middleware_Timeout   `protobuf:"bytes,6,opt,name=timeout,proto3,oneof" json:"timeout,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3118,6 +3120,20 @@ func (x *Server_Grpc_Middleware) GetTracing() *Server_Grpc_Middleware_Tracing {
 func (x *Server_Grpc_Middleware) GetValidate() *Server_Grpc_Middleware_Validate {
 	if x != nil {
 		return x.Validate
+	}
+	return nil
+}
+
+func (x *Server_Grpc_Middleware) GetRateLimit() *Server_Grpc_Middleware_RateLimit {
+	if x != nil {
+		return x.RateLimit
+	}
+	return nil
+}
+
+func (x *Server_Grpc_Middleware) GetTimeout() *Server_Grpc_Middleware_Timeout {
+	if x != nil {
+		return x.Timeout
 	}
 	return nil
 }
@@ -3270,11 +3286,131 @@ func (*Server_Grpc_Middleware_Validate) Descriptor() ([]byte, []int) {
 	return file_bootstrap_v1_server_proto_rawDescGZIP(), []int{0, 3, 0, 3}
 }
 
+// RateLimit 限流中间件。与 HTTP 侧同字段，但配额是**这一面自己的**：
+// 只写 server.http.middleware.rate_limit 时，gRPC 沿用 HTTP 那个限流器
+// （共用一个桶）；本段存在时 gRPC 换用自己的桶，HTTP 面不受影响。
+// 见 pkg/middleware/bundle 的 GRPCRateLimit。
+type Server_Grpc_Middleware_RateLimit struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 每秒允许的请求数。
+	Rate float64 `protobuf:"fixed64,1,opt,name=rate,proto3" json:"rate,omitempty"`
+	// 突发容量。
+	Burst int32 `protobuf:"varint,2,opt,name=burst,proto3" json:"burst,omitempty"`
+	// 是否使用等待模式（平滑限流）。
+	Wait          bool `protobuf:"varint,3,opt,name=wait,proto3" json:"wait,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Server_Grpc_Middleware_RateLimit) Reset() {
+	*x = Server_Grpc_Middleware_RateLimit{}
+	mi := &file_bootstrap_v1_server_proto_msgTypes[49]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Server_Grpc_Middleware_RateLimit) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Server_Grpc_Middleware_RateLimit) ProtoMessage() {}
+
+func (x *Server_Grpc_Middleware_RateLimit) ProtoReflect() protoreflect.Message {
+	mi := &file_bootstrap_v1_server_proto_msgTypes[49]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Server_Grpc_Middleware_RateLimit.ProtoReflect.Descriptor instead.
+func (*Server_Grpc_Middleware_RateLimit) Descriptor() ([]byte, []int) {
+	return file_bootstrap_v1_server_proto_rawDescGZIP(), []int{0, 3, 0, 4}
+}
+
+func (x *Server_Grpc_Middleware_RateLimit) GetRate() float64 {
+	if x != nil {
+		return x.Rate
+	}
+	return 0
+}
+
+func (x *Server_Grpc_Middleware_RateLimit) GetBurst() int32 {
+	if x != nil {
+		return x.Burst
+	}
+	return 0
+}
+
+func (x *Server_Grpc_Middleware_RateLimit) GetWait() bool {
+	if x != nil {
+		return x.Wait
+	}
+	return false
+}
+
+// Timeout 服务端默认超时（毫秒）。
+//
+// 语义与 HTTP 侧不同，别当同一个东西：gRPC 只给 handler 一个会到期的
+// ctx（不缩短调用方已带的 deadline），也不会硬性提前返回响应；且**只
+// 作用于 unary**——流式调用不挂默认超时，否则这里会变成「流的最大存活
+// 时长」，长订阅到点被砍且没有可区分的错误。
+//
+// 没有 status_code 字段：那是 HTTP 专属概念，gRPC 用 status code。
+type Server_Grpc_Middleware_Timeout struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 默认超时时间（毫秒）。
+	DefaultTimeoutMs int64 `protobuf:"varint,1,opt,name=default_timeout_ms,json=defaultTimeoutMs,proto3" json:"default_timeout_ms,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *Server_Grpc_Middleware_Timeout) Reset() {
+	*x = Server_Grpc_Middleware_Timeout{}
+	mi := &file_bootstrap_v1_server_proto_msgTypes[50]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Server_Grpc_Middleware_Timeout) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Server_Grpc_Middleware_Timeout) ProtoMessage() {}
+
+func (x *Server_Grpc_Middleware_Timeout) ProtoReflect() protoreflect.Message {
+	mi := &file_bootstrap_v1_server_proto_msgTypes[50]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Server_Grpc_Middleware_Timeout.ProtoReflect.Descriptor instead.
+func (*Server_Grpc_Middleware_Timeout) Descriptor() ([]byte, []int) {
+	return file_bootstrap_v1_server_proto_rawDescGZIP(), []int{0, 3, 0, 5}
+}
+
+func (x *Server_Grpc_Middleware_Timeout) GetDefaultTimeoutMs() int64 {
+	if x != nil {
+		return x.DefaultTimeoutMs
+	}
+	return 0
+}
+
 var File_bootstrap_v1_server_proto protoreflect.FileDescriptor
 
 const file_bootstrap_v1_server_proto_rawDesc = "" +
 	"\n" +
-	"\x19bootstrap/v1/server.proto\x12\fbootstrap.v1\"\x81=\n" +
+	"\x19bootstrap/v1/server.proto\x12\fbootstrap.v1\"\xc1?\n" +
 	"\x06Server\x122\n" +
 	"\x04http\x18\x01 \x01(\v2\x19.bootstrap.v1.Server.HttpH\x00R\x04http\x88\x01\x01\x125\n" +
 	"\x05http3\x18\x02 \x01(\v2\x1a.bootstrap.v1.Server.Http3H\x01R\x05http3\x88\x01\x01\x122\n" +
@@ -3390,7 +3526,7 @@ const file_bootstrap_v1_server_proto_rawDesc = "" +
 	"\b_timeout\x1aG\n" +
 	"\x05Http3\x12\x12\n" +
 	"\x04addr\x18\x01 \x01(\tR\x04addr\x12*\n" +
-	"\x03tls\x18\x02 \x01(\v2\x18.bootstrap.v1.Server.TLSR\x03tls\x1a\xd5\x04\n" +
+	"\x03tls\x18\x02 \x01(\v2\x18.bootstrap.v1.Server.TLSR\x03tls\x1a\x95\a\n" +
 	"\x04Grpc\x12\x12\n" +
 	"\x04addr\x18\x01 \x01(\tR\x04addr\x12\x1e\n" +
 	"\n" +
@@ -3399,25 +3535,37 @@ const file_bootstrap_v1_server_proto_rawDesc = "" +
 	"\x03tls\x18\x03 \x01(\v2\x18.bootstrap.v1.Server.TLSR\x03tls\x12D\n" +
 	"\n" +
 	"middleware\x18\x04 \x01(\v2$.bootstrap.v1.Server.Grpc.MiddlewareR\n" +
-	"middleware\x1a\xa6\x03\n" +
+	"middleware\x1a\xe6\x05\n" +
 	"\n" +
 	"Middleware\x12N\n" +
 	"\brecovery\x18\x01 \x01(\v2-.bootstrap.v1.Server.Grpc.Middleware.RecoveryH\x00R\brecovery\x88\x01\x01\x12K\n" +
 	"\alogging\x18\x02 \x01(\v2,.bootstrap.v1.Server.Grpc.Middleware.LoggingH\x01R\alogging\x88\x01\x01\x12K\n" +
 	"\atracing\x18\x03 \x01(\v2,.bootstrap.v1.Server.Grpc.Middleware.TracingH\x02R\atracing\x88\x01\x01\x12N\n" +
-	"\bvalidate\x18\x04 \x01(\v2-.bootstrap.v1.Server.Grpc.Middleware.ValidateH\x03R\bvalidate\x88\x01\x01\x1a\n" +
+	"\bvalidate\x18\x04 \x01(\v2-.bootstrap.v1.Server.Grpc.Middleware.ValidateH\x03R\bvalidate\x88\x01\x01\x12R\n" +
+	"\n" +
+	"rate_limit\x18\x05 \x01(\v2..bootstrap.v1.Server.Grpc.Middleware.RateLimitH\x04R\trateLimit\x88\x01\x01\x12K\n" +
+	"\atimeout\x18\x06 \x01(\v2,.bootstrap.v1.Server.Grpc.Middleware.TimeoutH\x05R\atimeout\x88\x01\x01\x1a\n" +
 	"\n" +
 	"\bRecovery\x1a\t\n" +
 	"\aLogging\x1a\t\n" +
 	"\aTracing\x1a\n" +
 	"\n" +
-	"\bValidateB\v\n" +
+	"\bValidate\x1aI\n" +
+	"\tRateLimit\x12\x12\n" +
+	"\x04rate\x18\x01 \x01(\x01R\x04rate\x12\x14\n" +
+	"\x05burst\x18\x02 \x01(\x05R\x05burst\x12\x12\n" +
+	"\x04wait\x18\x03 \x01(\bR\x04wait\x1a7\n" +
+	"\aTimeout\x12,\n" +
+	"\x12default_timeout_ms\x18\x01 \x01(\x03R\x10defaultTimeoutMsB\v\n" +
 	"\t_recoveryB\n" +
 	"\n" +
 	"\b_loggingB\n" +
 	"\n" +
 	"\b_tracingB\v\n" +
-	"\t_validate\x1aI\n" +
+	"\t_validateB\r\n" +
+	"\v_rate_limitB\n" +
+	"\n" +
+	"\b_timeout\x1aI\n" +
 	"\aGraphql\x12\x12\n" +
 	"\x04addr\x18\x01 \x01(\tR\x04addr\x12*\n" +
 	"\x03tls\x18\x02 \x01(\v2\x18.bootstrap.v1.Server.TLSR\x03tls\x1aY\n" +
@@ -3600,7 +3748,7 @@ func file_bootstrap_v1_server_proto_rawDescGZIP() []byte {
 	return file_bootstrap_v1_server_proto_rawDescData
 }
 
-var file_bootstrap_v1_server_proto_msgTypes = make([]protoimpl.MessageInfo, 49)
+var file_bootstrap_v1_server_proto_msgTypes = make([]protoimpl.MessageInfo, 51)
 var file_bootstrap_v1_server_proto_goTypes = []any{
 	(*Server)(nil),                           // 0: bootstrap.v1.Server
 	(*Server_TLS)(nil),                       // 1: bootstrap.v1.Server.TLS
@@ -3651,6 +3799,8 @@ var file_bootstrap_v1_server_proto_goTypes = []any{
 	(*Server_Grpc_Middleware_Logging)(nil),   // 46: bootstrap.v1.Server.Grpc.Middleware.Logging
 	(*Server_Grpc_Middleware_Tracing)(nil),   // 47: bootstrap.v1.Server.Grpc.Middleware.Tracing
 	(*Server_Grpc_Middleware_Validate)(nil),  // 48: bootstrap.v1.Server.Grpc.Middleware.Validate
+	(*Server_Grpc_Middleware_RateLimit)(nil), // 49: bootstrap.v1.Server.Grpc.Middleware.RateLimit
+	(*Server_Grpc_Middleware_Timeout)(nil),   // 50: bootstrap.v1.Server.Grpc.Middleware.Timeout
 }
 var file_bootstrap_v1_server_proto_depIdxs = []int32{
 	2,  // 0: bootstrap.v1.Server.http:type_name -> bootstrap.v1.Server.Http
@@ -3713,11 +3863,13 @@ var file_bootstrap_v1_server_proto_depIdxs = []int32{
 	46, // 57: bootstrap.v1.Server.Grpc.Middleware.logging:type_name -> bootstrap.v1.Server.Grpc.Middleware.Logging
 	47, // 58: bootstrap.v1.Server.Grpc.Middleware.tracing:type_name -> bootstrap.v1.Server.Grpc.Middleware.Tracing
 	48, // 59: bootstrap.v1.Server.Grpc.Middleware.validate:type_name -> bootstrap.v1.Server.Grpc.Middleware.Validate
-	60, // [60:60] is the sub-list for method output_type
-	60, // [60:60] is the sub-list for method input_type
-	60, // [60:60] is the sub-list for extension type_name
-	60, // [60:60] is the sub-list for extension extendee
-	0,  // [0:60] is the sub-list for field type_name
+	49, // 60: bootstrap.v1.Server.Grpc.Middleware.rate_limit:type_name -> bootstrap.v1.Server.Grpc.Middleware.RateLimit
+	50, // 61: bootstrap.v1.Server.Grpc.Middleware.timeout:type_name -> bootstrap.v1.Server.Grpc.Middleware.Timeout
+	62, // [62:62] is the sub-list for method output_type
+	62, // [62:62] is the sub-list for method input_type
+	62, // [62:62] is the sub-list for extension type_name
+	62, // [62:62] is the sub-list for extension extendee
+	0,  // [0:62] is the sub-list for field type_name
 }
 
 func init() { file_bootstrap_v1_server_proto_init() }
@@ -3741,7 +3893,7 @@ func file_bootstrap_v1_server_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bootstrap_v1_server_proto_rawDesc), len(file_bootstrap_v1_server_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   49,
+			NumMessages:   51,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

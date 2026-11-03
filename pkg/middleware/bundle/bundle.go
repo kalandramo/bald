@@ -23,8 +23,9 @@
 //     Authn → Audit → Authz → RateLimit → Timeout
 //
 // 两条链的 RateLimit/Timeout 由同一对 Option 驱动（零开销省略），面不对称已经
-// 收口；仍不对称的是配置来源——契约只有 server.http.middleware 有 rate_limit/
-// timeout 段，gRPC 侧要生效必须由代码注入（见 RateLimit/Timeout 的注释）。
+// 收口；gRPC 面另有 GRPCRateLimit/GRPCTimeout 两个只作用于自己的 Option，对应
+// 契约 server.grpc.middleware 的同名段（给了它们，gRPC 换用自己的桶/预算，gin
+// 面照旧用 RateLimit/Timeout——见这两个 Option 的注释）。
 //
 // 为什么 Audit 夹在 Authn 与 Authz 之间：
 //   - 在 Authn 内侧（注册序靠后）才能从 ctx 读到 Authn 注入的 subject/tenant；
@@ -85,9 +86,15 @@ type Bundle struct {
 	// rateLimiter 是配置驱动的限流层，gin 与 gRPC 共用同一个 limiter
 	// （gRPC 侧经 Limiter() 取底层实例，见 GRPCInterceptors）。契约
 	// server.http.middleware.rate_limit 经 RateLimitFromMiddleware 构造后由
-	// RateLimit 注入；nil 表示两条链都不启用。契约侧 gRPC 仍没有 rate_limit
-	// 段，gRPC 要限流只能由代码注入本 Option。
+	// RateLimit 注入；nil 表示两条链都不启用。
 	rateLimiter *ginmw.RateLimiter
+
+	// grpcRateLimiter / grpcTimeout 只作用于 gRPC 两面（契约
+	// server.grpc.middleware 的同名段经 FromGRPCMiddleware 注入）。非 nil /
+	// >0 时**替换** gRPC 面上 rateLimiter / timeoutCfg 的位置，gin 面不受影响。
+	// 见 [Bundle.grpcLimiter] / [Bundle.grpcBudget]。
+	grpcRateLimiter *ginmw.RateLimiter
+	grpcTimeout     time.Duration
 
 	// logging 控制请求日志/可观测中间件（默认开启）。
 	logging bool
@@ -132,8 +139,7 @@ func CORS(cfg *ginmw.CORSConfig) Option { return func(b *Bundle) { b.corsCfg = c
 func Secure() Option { return func(b *Bundle) { b.secure = true } }
 
 // RateLimit 附加配置驱动的限流层（gin 与 gRPC 共用同一个 limiter）。rl 通常来自
-// [RateLimitFromMiddleware]（契约 server.http.middleware.rate_limit → 中间件）；
-// 契约没有对应的 gRPC 段，gRPC 侧要用限流只能由代码注入本 Option。
+// [RateLimitFromMiddleware]（契约 server.http.middleware.rate_limit → 中间件）。
 // 传 nil 等同不设置（与 CORS 惯例一致：缺省不装配）。
 //
 // 链序：限流挂在业务 handler 之前、认证/授权之后（见 Gin 的链序说明）——
@@ -141,7 +147,30 @@ func Secure() Option { return func(b *Bundle) { b.secure = true } }
 //
 // 生命周期：Bundle 不持有 rl 的关闭职责（与 CORS 同）——调用方在停机时
 // 调 rl.Close()（RateLimiter.Close 幂等）。
+//
+// 与 [GRPCRateLimit] 的关系：本 Option 是「一面给全部」——不另给 GRPCRateLimit
+// 时，gRPC 的 unary 与 stream 都从同一个桶扣配额。
 func RateLimit(rl *ginmw.RateLimiter) Option { return func(b *Bundle) { b.rateLimiter = rl } }
+
+// GRPCRateLimit 附加**只作用于 gRPC**（unary + stream 两面）的限流层。rl 通常
+// 来自 [GRPCRateLimitFromMiddleware]（契约 server.grpc.middleware.rate_limit）。
+// 传 nil 等同不设置。
+//
+// 为什么要有它：契约的 rate_limit 段原本只有 server.http 下有，「给 gRPC 配
+// 限流」只能靠代码注入，而 gRPC 与 HTTP 的流量形状本就不同（一条长流 vs 一次
+// 短请求），共用一个桶时无法各自设容量。
+//
+// 覆盖关系（这是本 Option 的全部意义，务必看清）：
+//   - 只给 [RateLimit]：gin 与 gRPC 共用那个 limiter（既有行为，不变）。
+//   - 只给 GRPCRateLimit：gRPC 两面用它，**gin 面没有限流**——各面独立，
+//     不互相兜底。
+//   - 两个都给：gRPC 用 GRPCRateLimit（更具体的段管更具体的面），gin 用
+//     RateLimit，两个桶互不影响。不存在「后写的 Option 静默盖掉前一个」。
+//
+// stream 面的计费口径（每条流建立扣一个令牌）见 [Bundle.GRPCStreamInterceptors]。
+func GRPCRateLimit(rl *ginmw.RateLimiter) Option {
+	return func(b *Bundle) { b.grpcRateLimiter = rl }
+}
 
 // Recovery 配置 panic 恢复层（契约 middleware.recovery 段）。
 // 不设时保留既有默认（同款恢复行为、不含栈）。
@@ -162,16 +191,35 @@ func Logging(cfg ginmw.LoggingConfig) Option {
 }
 
 // Timeout 附加请求超时层（契约 middleware.timeout 段；段本身在 server.http 下，
-// gRPC 侧同样吃这份配置里的 default_timeout_ms，其 status_code 字段是 HTTP 专属、
-// gRPC 无对应落点）。传 nil 等同两条链都不挂。
+// 未另给 [GRPCTimeout] 时 gRPC unary 同样吃这份配置里的 default_timeout_ms，其
+// status_code 字段是 HTTP 专属、gRPC 无对应落点）。传 nil 等同两条链都不挂。
 // 链序：挂在最内层（业务 handler 之前）——超时应覆盖业务处理本身。
 //
 // DefaultTimeoutMs <= 0 时两面的既有语义不同，这里都不去动它：gin 侧照旧挂上
 // 一个「立即超时」的层（配置写了段却没给时长在 HTTP 面就是 503，属既定行为），
-// gRPC 侧的 interceptor 见到非正值直接放过。要两面对齐得先决定是否给
-// TimeoutConfig 加 Validate，那是独立的 API 决策。
+// gRPC 侧省略该层。要两面对齐得先决定是否给 TimeoutConfig 加 Validate，那是
+// 独立的 API 决策。
 func Timeout(cfg *ginmw.TimeoutConfig) Option {
 	return func(b *Bundle) { b.timeoutCfg = cfg }
+}
+
+// GRPCTimeout 附加**只作用于 gRPC unary** 的服务端默认超时。d <= 0 等同不设置。
+// 通常来自 FromGRPCMiddleware（契约 server.grpc.middleware.timeout）。
+//
+// 为什么参数是 time.Duration 而不是 *ginmw.TimeoutConfig：TimeoutConfig 里的
+// status_code 在 gRPC 上没有落点，把它端给 gRPC 配置只会多一个「写了不生效」
+// 的字段（见 [Timeout]）。
+//
+// 语义与 gin 侧不同，别当同一个东西：本层只给 handler 一个会到期的 ctx，
+// 不缩短调用方已带的 deadline，也不硬性提前返回响应（见 grpcmw.
+// TimeoutInterceptor）。**stream 面不挂超时**——流的生命周期就是整条流，
+// 把请求级预算套上去会静默变成「流的最大存活时长」，长订阅到点被砍且没有
+// 可区分的错误（见 [Bundle.GRPCStreamInterceptors]）。
+//
+// 与 [Timeout] 的覆盖关系同 GRPCRateLimit：两个都给时 gRPC 用本 Option 的值，
+// gin 用 Timeout 的值；只给本 Option 时 gin 面没有超时层。
+func GRPCTimeout(d time.Duration) Option {
+	return func(b *Bundle) { b.grpcTimeout = d }
 }
 
 // Tracing 附加 span-only 追踪层（契约 middleware.tracing 段，空 message、存在即
@@ -274,6 +322,28 @@ func (b *Bundle) Gin() []gin.HandlerFunc {
 	return chain
 }
 
+// grpcLimiter 返回 gRPC 两面实际使用的限流器：[GRPCRateLimit] 优先，否则回落到
+// [RateLimit]（那时与 gin 同桶）。两者都没给返回 nil = 不挂层。
+func (b *Bundle) grpcLimiter() *ginmw.RateLimiter {
+	if b.grpcRateLimiter != nil {
+		return b.grpcRateLimiter
+	}
+	return b.rateLimiter
+}
+
+// grpcBudget 返回 gRPC unary 实际使用的超时预算：[GRPCTimeout] 优先（<=0 视为
+// 未设置，回落），否则取 [Timeout] 的 default_timeout_ms。返回 0 = 不挂层。
+// gin 侧非正值仍挂「立即 503」的层，那是 [Timeout] 记下的既有差异，本函数不管。
+func (b *Bundle) grpcBudget() time.Duration {
+	if b.grpcTimeout > 0 {
+		return b.grpcTimeout
+	}
+	if b.timeoutCfg == nil || b.timeoutCfg.DefaultTimeoutMs <= 0 {
+		return 0
+	}
+	return time.Duration(b.timeoutCfg.DefaultTimeoutMs) * time.Millisecond
+}
+
 // GRPCInterceptors 返回链序固化的 unary 拦截器链（slice 序即外→内）：
 //
 //	Error → Recovery → RequestID → Observability → Authn → Audit → Authz
@@ -283,10 +353,12 @@ func (b *Bundle) Gin() []gin.HandlerFunc {
 // *berrors.Internal，由最外层 Error 收口为 gRPC status（与 gin 链首道
 // Recovery 对称）。
 //
-// RateLimit/Timeout 与 gin 侧同源同序：都只在对应 Option 给了之后才挂
-// （零开销省略），限流在授权之后、超时在最内层。两面的语义差别：gin 的
-// Timeout 会硬性提前返回 503，gRPC 的只给 handler 一个会到期的 ctx（见
-// grpcmw.TimeoutInterceptor）；gin 的拒绝是 429，gRPC 的是 RESOURCE_EXHAUSTED。
+// RateLimit/Timeout 与 gin 侧同序：都只在对应 Option 给了之后才挂（零开销省略），
+// 限流在授权之后、超时在最内层。默认两面同源（同一个 limiter、同一份
+// default_timeout_ms），给了 GRPCRateLimit/GRPCTimeout 则 gRPC 用自己的那份。
+// 两面的语义差别：gin 的 Timeout 会硬性提前返回 503，gRPC 的只给 handler 一个
+// 会到期的 ctx（见 grpcmw.TimeoutInterceptor）；gin 的拒绝是 429，gRPC 的是
+// RESOURCE_EXHAUSTED。
 //
 // 需自行组装 *grpc.Server 时用：
 //
@@ -310,16 +382,17 @@ func (b *Bundle) GRPCInterceptors() []grpc.UnaryServerInterceptor {
 	if b.authorizer != nil {
 		chain = append(chain, b.grpcAuthz())
 	}
-	if b.rateLimiter != nil {
-		// 与 gin 同序：授权之后、超时之前，共用同一个 limiter（gin 侧的
-		// RateLimiter 把底层 limiter 经 Limiter() 暴露出来）。
-		chain = append(chain, grpcmw.RateLimitInterceptor(b.rateLimiter.Limiter(), b.rateLimiter.Wait()))
+	if rl := b.grpcLimiter(); rl != nil {
+		// 与 gin 同序：授权之后、超时之前。默认与 gin 共用同一个 limiter
+		// （gin 侧的 RateLimiter 把底层 limiter 经 Limiter() 暴露出来），
+		// 给了 GRPCRateLimit 才换成 gRPC 自己的桶。
+		chain = append(chain, grpcmw.RateLimitInterceptor(rl.Limiter(), rl.Wait()))
 	}
-	if b.timeoutCfg != nil && b.timeoutCfg.DefaultTimeoutMs > 0 {
+	if d := b.grpcBudget(); d > 0 {
 		// 最内层。gRPC 侧的超时只约束 handler 可见的 ctx（不硬中断响应），
 		// 与 gin 的 Timeout 语义差别写在 grpcmw.TimeoutInterceptor 的注释里。
 		// StatusCode 是 HTTP 专属字段，这里无从落地——gRPC 用 status code。
-		chain = append(chain, grpcmw.TimeoutInterceptor(time.Duration(b.timeoutCfg.DefaultTimeoutMs)*time.Millisecond))
+		chain = append(chain, grpcmw.TimeoutInterceptor(d))
 	}
 	return chain
 }
@@ -327,7 +400,7 @@ func (b *Bundle) GRPCInterceptors() []grpc.UnaryServerInterceptor {
 // GRPCStreamInterceptors 返回 stream 面的拦截器链（外→内），与
 // [Bundle.GRPCInterceptors] 共用同一份依赖：
 //
-//	Error → RateLimit（仅当给了 RateLimit Option）
+//	Error → RateLimit（仅当 gRPC 面有限流器：RateLimit 或 GRPCRateLimit）
 //
 // 只有这两层，且这是刻意的口径，三条都得知道：
 //   - **Error 在最外层不是可选的**：*berrors.Error 没实现 `GRPCStatus()`，
@@ -335,7 +408,8 @@ func (b *Bundle) GRPCInterceptors() []grpc.UnaryServerInterceptor {
 //     `Unknown`。少了它，被限流的调用方看不出自己是「被限流」而不是「服务坏了」。
 //   - **限流按「每条流建立一次」计费**，流内后续消息不再消耗令牌。它挡的是
 //     建流洪水，挡不了一条流里狂发（见 grpcmw.RateLimitStreamInterceptor）。
-//     与 unary 共用同一个桶，所以配额不会被两条链各扣一份。
+//     用的是 [Bundle.grpcLimiter]，与 unary 面同一个桶，所以 gRPC 的配额不会被
+//     两条链各扣一份。
 //   - **超时不在这里**：stream handler 的生命周期就是整条流，把 unary 式的
 //     默认超时套上去会把它静默变成「流的最大存活时长」，长订阅/watch 到点被砍
 //     且没有可区分的错误。要这个语义请显式挂
@@ -347,21 +421,22 @@ func (b *Bundle) GRPCInterceptors() []grpc.UnaryServerInterceptor {
 // 返回空 slice 表示没有任何 stream 层需要挂，[Bundle.GRPCChain] 据此省略
 // ChainStreamInterceptor 这个 ServerOption，保持零配置时的选项数不变。
 func (b *Bundle) GRPCStreamInterceptors() []grpc.StreamServerInterceptor {
-	if b.rateLimiter == nil {
+	rl := b.grpcLimiter()
+	if rl == nil {
 		return nil
 	}
 	return []grpc.StreamServerInterceptor{
 		grpcmw.ErrorStreamInterceptor(), // 必须最外层：收口内层产生的 *berrors.Error
-		grpcmw.RateLimitStreamInterceptor(b.rateLimiter.Limiter(), b.rateLimiter.Wait()),
+		grpcmw.RateLimitStreamInterceptor(rl.Limiter(), rl.Wait()),
 	}
 }
 
 // GRPCChain 返回可直接传给 server.NewGRPCServerWithRegister 的 []grpc.ServerOption
 // （内含 ChainUnaryInterceptor 装配的整条 unary 链）。
 //
-// 给了 RateLimit 时额外附带一条 ChainStreamInterceptor（内容见
-// [Bundle.GRPCStreamInterceptors]）；未给时选项数量与以前完全一致，
-// 现有部署不受影响。
+// gRPC 面有限流器（RateLimit 或 GRPCRateLimit）时额外附带一条
+// ChainStreamInterceptor（内容见 [Bundle.GRPCStreamInterceptors]）；没有时选项
+// 数量与以前完全一致，现有部署不受影响。
 func (b *Bundle) GRPCChain() []grpc.ServerOption {
 	opts := []grpc.ServerOption{grpc.ChainUnaryInterceptor(b.GRPCInterceptors()...)}
 	if stream := b.GRPCStreamInterceptors(); len(stream) > 0 {

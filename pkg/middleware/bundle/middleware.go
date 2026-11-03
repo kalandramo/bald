@@ -3,6 +3,7 @@ package bundle
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
 
@@ -24,7 +25,9 @@ import (
 //  3. **能力完全不存在**（tracing/timeout）：连中间件都没有。
 //
 // 根因是缺一座桥——没有任何框架组件把契约段翻译成链。本文件提供它：
-// FromMiddleware 一次翻译全部七段（逐段实现见各段注释）。
+// FromMiddleware 一次翻译全部七段（逐段实现见各段注释）；
+// FromGRPCMiddleware 翻译 gRPC 侧的 rate_limit/timeout 两段，产出只作用于
+// gRPC 面的 Option（见该函数注释：另四段是空 message，无行为可翻译）。
 // ---------------------------------------------------------------------------
 
 // FromMiddleware 把契约 `server.http.middleware` 段翻译为一组 bundle Option。
@@ -109,6 +112,62 @@ func FromMiddleware(mw *bootstrapv1.Server_Http_Middleware) (opts []Option, clos
 	// tracing 段无字段（空 message）：存在即启用 span-only 追踪层。
 	if mw.GetTracing() != nil {
 		opts = append(opts, Tracing())
+	}
+
+	return opts, close, nil
+}
+
+// FromGRPCMiddleware 把契约 `server.grpc.middleware` 段翻译为一组只作用于 gRPC
+// 面的 bundle Option。与 [FromMiddleware] 的分工：那一个读 HTTP 段、产出「一面
+// 给全部」的 Option；这一个读 gRPC 段、产出 gRPC 自己的 Option，两个面因此可以
+// 各自设容量。
+//
+// 返回契约与 FromMiddleware 一致：opts 直接并入 bundle.New；close 总是非 nil
+// （无资源可释放时为 no-op），业务在停机路径直接调用；err 仅在**显式声明了段却
+// 给了非法值**时报错（启动期 fail-fast）。
+//
+// 只翻译两段：
+//   - rate_limit → [GRPCRateLimit]（gRPC unary + stream 两面共用这一个桶）；
+//   - timeout → [GRPCTimeout]（**只 unary**：流的生命周期就是整条流，请求级
+//     预算套在流上会静默变成「流的最大存活时长」，见 grpcmw.TimeoutStreamInterceptor）。
+//
+// recovery/logging/tracing/validate 四段本桥**不翻译**，也不是「翻译了不生效」：
+// 它们在 proto 里是空 message（没有可映射字段），而 bundle 的 gRPC 链本就无条件
+// 挂 Recovery/RequestID，Observability 由 [NoLogging] 控制。写这四段目前不改变
+// 任何行为——这是登记在册的既有边界，别把它们当成配置面。
+func FromGRPCMiddleware(mw *bootstrapv1.Server_Grpc_Middleware) (opts []Option, close func() error, err error) {
+	closers := []func() error{}
+	close = func() error {
+		var firstErr error
+		for _, c := range closers {
+			if e := c(); e != nil && firstErr == nil {
+				firstErr = e
+			}
+		}
+		return firstErr
+	}
+	if mw == nil {
+		return nil, close, nil
+	}
+
+	if rl := mw.GetRateLimit(); rl != nil {
+		lim, lerr := GRPCRateLimitFromMiddleware(mw)
+		if lerr != nil {
+			return nil, close, fmt.Errorf("bundle: grpc.middleware.rate_limit: %w", lerr)
+		}
+		if lim != nil {
+			opts = append(opts, GRPCRateLimit(lim))
+			closers = append(closers, lim.Close)
+		}
+	}
+
+	if t := mw.GetTimeout(); t != nil {
+		ms := t.GetDefaultTimeoutMs()
+		if ms <= 0 {
+			return nil, close, fmt.Errorf(
+				"bundle: grpc.middleware.timeout.default_timeout_ms must be > 0, got %d", ms)
+		}
+		opts = append(opts, GRPCTimeout(time.Duration(ms)*time.Millisecond))
 	}
 
 	return opts, close, nil

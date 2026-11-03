@@ -30,20 +30,29 @@ import (
 //	b := bundle.New(bundle.RateLimit(rl)) // rl 为 nil 时不挂该层
 //	router.Use(b.Gin()...)
 func RateLimitFromMiddleware(mw *bootstrapv1.Server_Http_Middleware) (*ginmw.RateLimiter, error) {
-	if mw == nil {
-		return nil, nil
-	}
 	rl := mw.GetRateLimit()
 	if rl == nil {
 		return nil, nil
 	}
-	lim, err := ginmw.NewRateLimit(ginmw.RateLimitConfig{
-		Rate:  rl.GetRate(),
-		Burst: float64(rl.GetBurst()),
-		Wait:  rl.GetWait(),
-	})
-	if err != nil {
-		return nil, err
+	return newRateLimiter(rl.GetRate(), rl.GetBurst(), rl.GetWait())
+}
+
+// GRPCRateLimitFromMiddleware 从契约 `server.grpc.middleware.rate_limit` 段构造
+// **只喂 gRPC 面**的限流器（经 [GRPCRateLimit] 注入）。缺段 → (nil, nil)。
+//
+// 字段、校验与缺省语义与 HTTP 侧逐条相同（同一个 newRateLimiter）——两面差在
+// 「桶归谁」，不差在配置口径。注意它与 [RateLimitFromMiddleware] 各造一个
+// limiter：两个段都声明时是两个互不相干的桶。
+func GRPCRateLimitFromMiddleware(mw *bootstrapv1.Server_Grpc_Middleware) (*ginmw.RateLimiter, error) {
+	rl := mw.GetRateLimit()
+	if rl == nil {
+		return nil, nil
 	}
-	return lim, nil
+	return newRateLimiter(rl.GetRate(), rl.GetBurst(), rl.GetWait())
+}
+
+// newRateLimiter 把一段 rate_limit 配置建成 limiter；非法值返回错误（启动期
+// fail-fast）。两面共用，保证 HTTP 与 gRPC 的字段口径不会各自漂移。
+func newRateLimiter(rate float64, burst int32, wait bool) (*ginmw.RateLimiter, error) {
+	return ginmw.NewRateLimit(ginmw.RateLimitConfig{Rate: rate, Burst: float64(burst), Wait: wait})
 }

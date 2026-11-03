@@ -24,7 +24,7 @@
 2. **算法可插拔且互不感知**。换算法只改构造那一行，调用点不动；`tokenbucket` 不知道 `bbr` 存在，`bbr` 也不 import 任何限流库。
 3. **「需要释放」是类型能表达的事**。并发型限流器不会假装成普通 `Limiter`——它多实现一个 `InflightLimiter`，调用方一次类型断言就能发现「这个限流器必须成对调用」。基础 `Limiter` 上不留一个多数实现为空的 `Done()`。
 
-需要先说清现状：契约段 `server.http.middleware.rate_limit` 有正式消费者——`bundle.FromMiddleware` 把它翻译成 `bundle.RateLimit`，`bundle.Gin()`、`bundle.GRPCInterceptors()` 与 `bundle.GRPCStreamInterceptors()` 共用同一个 limiter 实例。**没有接的是自动装配**：框架不会在启动时自己读这一段，业务必须显式走 `FromMiddleware`（或自己构造 `ginmw.NewRateLimit` 注入 `bundle.RateLimit`）。契约侧 gRPC 也仍没有 rate_limit 段，gRPC 生效只能靠这对 gin 配置驱动的 Option 顺带挂上。
+需要先说清现状：契约段 `server.http.middleware.rate_limit` 有正式消费者——`bundle.FromMiddleware` 把它翻译成 `bundle.RateLimit`，`bundle.Gin()`、`bundle.GRPCInterceptors()` 与 `bundle.GRPCStreamInterceptors()` 共用同一个 limiter 实例。gRPC 侧另有自己的段：`bundle.FromGRPCMiddleware` 把 `server.grpc.middleware.rate_limit` 翻译成 `bundle.GRPCRateLimit`，只喂 gRPC 两面。**没有接的是自动装配**：框架不会在启动时自己读这两段，业务必须显式走桥（或自己构造 `ginmw.NewRateLimit` 注入 Option）。
 
 ## 背景与动机
 
@@ -350,7 +350,13 @@ gRPC:  Error → Recovery → RequestID → Observability → Authn → Audit �
 - stream 链上必须有 `ErrorStreamInterceptor` 在最外：`*berrors.Error` 不实现 `GRPCStatus()`，缺这层时拒绝会被 grpc-go 兜底成 `Unknown`（实测客户端收到 `code = Unknown desc = code: 8, reason: RATE_LIMITED`）。
 - `bundle.GRPCStreamInterceptors()` 只产出 `Error → RateLimit`，**认证/授权/审计不在 stream 链上**（本包这三层至今只有 unary 形态）。stream 上的调用因此是匿名的，按 subject 配额在这面无从谈起——这是既有边界，此前 stream 面整条链为空，同样没有认证。
 
-契约面仍有一处不对称：`Server.Http.Middleware` 有 `rate_limit`/`timeout` 两段，`Server.Grpc.Middleware` 只有 `recovery`/`logging`/`tracing`/`validate`。所以「写配置就能给 gRPC 限流/超时」目前不成立——gRPC 吃到的是同一对 Option，配置来源仍是 HTTP 那一段。补 gRPC 契约段要动 proto 并重发 `bconf`，属独立决策。
+契约两面现在各有 `rate_limit` 段：`Server.Http.Middleware.rate_limit` 经 `FromMiddleware` → `RateLimit`（gin + gRPC 共桶），`Server.Grpc.Middleware.rate_limit` 经 `FromGRPCMiddleware` → `GRPCRateLimit`（只喂 gRPC 的 unary + stream）。组合规则是「更具体的段管更具体的面」，三条都要记住：
+
+- 只配 HTTP 段 → gRPC 两面照旧吃那个桶（存量部署不会因为新增 gRPC 段而失去兜底）。
+- 只配 gRPC 段 → **gin 面没有限流**。各面独立，不互相兜底。
+- 两个都配 → 两个互不相干的桶（gRPC 用小容量时 HTTP 不会被它拖住，反之亦然）。不存在「后写的 Option 静默盖掉前一个」。
+
+段的字段口径（`rate`/`burst`/`wait`）与校验两侧共用同一个构造函数，非法值一律启动期 fail-fast——差异只在「桶归谁」，不在「怎么配」。
 
 中间件里用 `bbr` 时，配对必须只挂在放行成功的分支上：
 

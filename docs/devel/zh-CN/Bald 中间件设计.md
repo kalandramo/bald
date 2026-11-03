@@ -70,7 +70,7 @@ flowchart TB
 
 ### Bundle：链序由构造固化
 
-`bundle.New(opts...)` 一次构造，`Gin()` 与 `GRPCChain()` 双传输产出。**依赖经构造器注入**（`bundle.Authn(a)`/`Authz`/`Audit`/`Metrics`），未注入的层直接省略（零开销）。契约段由 `bundle.FromMiddleware` 翻译成 Option，`bundle.RateLimit`/`bundle.Timeout` 这一对**同时驱动两条链**（同一个 limiter 实例、同一份超时配置）。
+`bundle.New(opts...)` 一次构造，`Gin()` 与 `GRPCChain()` 双传输产出。**依赖经构造器注入**（`bundle.Authn(a)`/`Authz`/`Audit`/`Metrics`），未注入的层直接省略（零开销）。契约段由 `bundle.FromMiddleware`（`server.http.middleware` 七段）与 `bundle.FromGRPCMiddleware`（`server.grpc.middleware` 的 rate_limit/timeout 两段）翻译成 Option。`bundle.RateLimit`/`bundle.Timeout` 这一对**同时驱动两条链**（同一个 limiter 实例、同一份超时配置）；`bundle.GRPCRateLimit`/`bundle.GRPCTimeout` 只作用于 gRPC，给了就替换 gRPC 面上的那一份——两个段都给就是两个独立的桶。
 
 **gin 链序（注册序即外→内）**：
 
@@ -84,7 +84,7 @@ Recovery → RequestID → Logging → CORS → Secure → Authn → Audit → A
 Error → Recovery → RequestID → Observability → Authn → Audit → Authz → RateLimit → Timeout
 ```
 
-**gRPC stream 链（`GRPCStreamInterceptors()`，只在给了 `RateLimit` 时才产出）**：
+**gRPC stream 链（`GRPCStreamInterceptors()`，只在 gRPC 面有限流器时才产出——`RateLimit` 或 `GRPCRateLimit` 任一）**：
 
 ```
 Error → RateLimit
@@ -92,7 +92,7 @@ Error → RateLimit
 
 stream 面只有这两层，三条都是口径而非疏漏：
 - **Error 必须在最外**：`*berrors.Error` 没实现 `GRPCStatus()`，流返回的 error 交给 grpc-go 的 `status.Convert` 会把 Code/Reason 丢成 `Unknown`——被拒的调用方分不清「我被限流」还是「服务坏了」。
-- **没有 Timeout**：流 handler 的生命周期就是整条流，把 unary 的 `default_timeout_ms` 套上去等于把它静默改成「流的最大存活时长」，长订阅到点被砍且没有可区分的错误。要这个语义自己挂 `grpcmw.TimeoutStreamInterceptor`。
+- **没有 Timeout**：流 handler 的生命周期就是整条流，把 unary 的 `default_timeout_ms` 套上去等于把它静默改成「流的最大存活时长」，长订阅到点被砍且没有可区分的错误。契约的 `server.grpc.middleware.timeout` 同口径——`FromGRPCMiddleware` 译出的 `GRPCTimeout` 只挂 unary。要流上超时自己挂 `grpcmw.TimeoutStreamInterceptor`。
 - **没有 Authn/Authz/Audit**：本包这三层只有 unary 形态（stream 版拦截器至今不存在）。这是既有边界——此前 stream 面整条链为空，同样没有认证。
 
 两条链的四个**关键位置**及其理由（bundle.go 注释原文）：
@@ -203,12 +203,12 @@ gin/grpc 的共享收口通过类型别名 + 常量别名实现，两侧既有�
 
 ## 实现与验证
 
-### 测试覆盖（98 个）
+### 测试覆盖（126 个）
 
 | 包 | 测试数 | 覆盖重点 |
 |---|---|---|
-| `bundle` | 34 | **链序契约**（allow/deny 双路径）、Authn→Authz subject 传递、审计对 deny/error 的捕获、Error 最外层 berrors→status 收口、未开归一化时的原始语义兼容、`FromMiddleware` 七段翻译、限流/超时在两条链上的挂载与零开销省略 |
-| `grpc` | 32 | 各拦截器 + Error 收口 + Observability SpanKind + Validator 不绑库 + `RateLimitInterceptor`（拒绝码/Reason/排队 ctx）+ `TimeoutInterceptor`（补 deadline、绝不缩短调用方预算、非正值放过、cancel 不泄漏） |
+| `bundle` | 48 | **链序契约**（allow/deny 双路径）、Authn→Authz subject 传递、审计对 deny/error 的捕获、Error 最外层 berrors→status 收口、未开归一化时的原始语义兼容、`FromMiddleware` 七段翻译与 `FromGRPCMiddleware` 两段翻译（gRPC 段只作用 gRPC、覆盖关系、fail-fast）、限流/超时在两条链上的挂载与零开销省略、stream 面的每流一令牌与真 `grpc.NewServer` 端到端 |
+| `grpc` | 46 | 各拦截器 + Error 收口 + Observability SpanKind + Validator 不绑库 + `RateLimitInterceptor`（拒绝码/Reason/排队 ctx）+ `TimeoutInterceptor`（补 deadline、绝不缩短调用方预算、非正值放过、cancel 不泄漏）+ 三个 stream 对偶（每流一令牌、与 unary 同桶、流 ctx 替换与取消不泄漏） |
 | `gin` | 26 | 各中间件 + authz deny + `RateLimit`（429、wait 模式）+ `Timeout`（缓冲 writer、超时后写入静默丢弃） |
 | `shared` | 4 | `InjectTrace` 四模式 × 采样位 × 自定义 header × 无效 spanCtx；`MatchWildcard` 通配矩阵 |
 | 顶层 | 2 | `LogTraceIDs` |
@@ -226,7 +226,7 @@ gin/grpc 的共享收口通过类型别名 + 常量别名实现，两侧既有�
 ### FAQ
 
 **Q：为什么 gin 链与 gRPC 链的层数不同？**
-gin 有 CORS/Secure（HTTP 特有），gRPC 有 Error/Defaulter（协议特有）；共有的 Recovery/RequestID/Logging/Authn/Audit/Authz 两层结构对称，RateLimit/Timeout 也已两面同序（同一个 limiter、同一份超时配置）。剩下的不对称在**配置来源**：契约只有 `server.http.middleware` 有 `rate_limit`/`timeout` 段，gRPC 侧靠 `bundle` 的这对 Option 顺带生效，写 gRPC 配置不会自己长出这两层。
+gin 有 CORS/Secure（HTTP 特有），gRPC 有 Error/Defaulter（协议特有）；共有的 Recovery/RequestID/Logging/Authn/Audit/Authz 两层结构对称，RateLimit/Timeout 也已两面同序。契约来源同样对称：`server.http.middleware` 与 `server.grpc.middleware` 各有 `rate_limit`/`timeout` 两段。剩下的不对称在**覆盖面**：gRPC 的限流吃 unary + stream 两面，超时只吃 unary；而 Authn/Authz/Audit 至今只有 unary 形态，stream 链上没有认证层。
 
 **Q：`DefaulterInterceptor` 与 `ValidatorInterceptor` 为何不在 Bundle 链里？**
 它们是**业务参数处理**（默认值填充、消息校验），与链序无关——业务在自己的 handler 前按需挂载，不属于横切关注点门面的范围。

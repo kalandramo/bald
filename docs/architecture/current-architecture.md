@@ -247,7 +247,7 @@ find . -name '*.go' ! -name '*_test.go' -not -path './.git/*' -not -path './<pkg
 - `circuitbreaker/` —— 只被自己的 4 个后端 import（`circuitbreaker/{hystrix,vegas,sres,sentinel}/*.go`），**无 transport / middleware / appkit 消费方**。
 - `transport/graphql`、`workflow/argo`、`ai/{openai,eino,langchaingo}`、`oss/{s3,minio}` —— 有 `*/contract` Provider，仓内零消费者、零示例（`transport/mcp/options.go:14` 的注释是 graphql 唯一命中）。
 - 中间件依赖未注入即整层省略：`bundle.New()` 不给 `Authn` 时链中静默无认证层（风险 §6.1）。现已要求显式表态——`bundle.Public()` 声明有意公开，否则 `Bundle.Verify()` 报错、出链时告警（`pkg/middleware/bundle/bundle.go` 的 `Verify`）；生成脚手架默认写出 `bundle.Public()` 并留 TODO。
-- `server.http.middleware` 的 `rate_limit` / `timeout` 两段此前**只投影到 gin 链**；gRPC 面现由 `GRPCInterceptors()` 挂上同名层，并由 `GRPCStreamInterceptors()` 挂 stream 限流（`ratelimit.go` / `timeout.go`，见《Bald 中间件设计》）。未接线的是**装配来源**：gRPC 没有自己的契约段，仍复用 HTTP 侧配置；stream 面则**只有**限流（超时按口径不默认挂，认证/授权/审计只有 unary 形态）（风险 §6.2「未修」项）。
+- `server.http.middleware` 的 `rate_limit` / `timeout` 两段此前**只投影到 gin 链**；gRPC 面现由 `GRPCInterceptors()` 挂上同名层，并由 `GRPCStreamInterceptors()` 挂 stream 限流。契约对称也已补齐：`server.grpc.middleware` 有自己的 `rate_limit`/`timeout` 两段，经 `bundle.FromGRPCMiddleware` 翻译成**只作用于 gRPC** 的 `GRPCRateLimit`/`GRPCTimeout`（见《Bald 中间件设计》）。仍未接线的是**谁来读它**：两座桥都要业务显式调用，框架不会在启动时自己读配置段；stream 面也**只有**限流（超时按口径不默认挂，认证/授权/审计只有 unary 形态）（风险 §6.2）。
 
 **已接线的原未接线项**（去向留在此处，避免与上面的判据脱节）：
 

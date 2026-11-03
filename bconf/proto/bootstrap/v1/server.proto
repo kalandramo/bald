@@ -125,10 +125,38 @@ message Server {
       // Validate 参数校验中间件。
       message Validate {}
 
+      // RateLimit 限流中间件。与 HTTP 侧同字段，但配额是**这一面自己的**：
+      // 只写 server.http.middleware.rate_limit 时，gRPC 沿用 HTTP 那个限流器
+      // （共用一个桶）；本段存在时 gRPC 换用自己的桶，HTTP 面不受影响。
+      // 见 pkg/middleware/bundle 的 GRPCRateLimit。
+      message RateLimit {
+        // 每秒允许的请求数。
+        double rate = 1;
+        // 突发容量。
+        int32 burst = 2;
+        // 是否使用等待模式（平滑限流）。
+        bool wait = 3;
+      }
+
+      // Timeout 服务端默认超时（毫秒）。
+      //
+      // 语义与 HTTP 侧不同，别当同一个东西：gRPC 只给 handler 一个会到期的
+      // ctx（不缩短调用方已带的 deadline），也不会硬性提前返回响应；且**只
+      // 作用于 unary**——流式调用不挂默认超时，否则这里会变成「流的最大存活
+      // 时长」，长订阅到点被砍且没有可区分的错误。
+      //
+      // 没有 status_code 字段：那是 HTTP 专属概念，gRPC 用 status code。
+      message Timeout {
+        // 默认超时时间（毫秒）。
+        int64 default_timeout_ms = 1;
+      }
+
       optional Recovery recovery = 1;
       optional Logging logging = 2;
       optional Tracing tracing = 3;
       optional Validate validate = 4;
+      optional RateLimit rate_limit = 5;
+      optional Timeout timeout = 6;
     }
 
     // 监听地址，如 ":9000"。
