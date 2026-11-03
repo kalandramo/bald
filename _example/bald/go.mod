@@ -14,7 +14,7 @@ require (
 	github.com/kalandramo/bald/contrib/store-gorm v0.4.1
 	github.com/kalandramo/bald/health v0.1.1
 	github.com/kalandramo/bald/log v0.5.4
-	github.com/kalandramo/bald/pkg v0.2.0
+	github.com/kalandramo/bald/pkg v0.2.1
 	github.com/kalandramo/bald/registry v0.4.0
 	github.com/kalandramo/bald/registry/etcd v0.3.3
 	github.com/kalandramo/bald/registry/nacos v0.3.2

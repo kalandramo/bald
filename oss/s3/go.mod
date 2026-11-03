@@ -9,7 +9,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.111.0
 	github.com/kalandramo/bald/bconf v0.17.0
 	github.com/kalandramo/bald/log v0.5.4
-	github.com/kalandramo/bald/pkg v0.2.0
+	github.com/kalandramo/bald/pkg v0.2.1
 )
 
 require (

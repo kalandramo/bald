@@ -6,6 +6,22 @@
 
 ## 2026-11-03
 
+### bald v0.37.1
+
+- `7c345a9d` refactor(cli): 拆出 cli 独立 module（go.mod 零 replace）——§3.4 的 B-iii 落地
+- `0d414b0b` docs(architecture): §3.4 记 e4a61bb 的远端绿证与新闸门所在的 test 作业
+- `e4a61bbc` docs(architecture): §3.4 标题写清「缺陷未修、文档与闸门已落地」，验活证据去掉个人绝对路径
+- `34ac4201` docs: 登记 §3.4 并把 CLI 安装姿势改成真的跑得通的源码检出
+- `d1765b5b` test(docscheck): 安装路径闸门——文档围栏里的 go install 不得指向含 replace 的本仓 module
+
+### cli v0.1.0
+
+- `7c345a9d` refactor(cli): 拆出 cli 独立 module（go.mod 零 replace）——§3.4 的 B-iii 落地
+
+### pkg v0.2.1
+
+- `7c345a9d` refactor(cli): 拆出 cli 独立 module（go.mod 零 replace）——§3.4 的 B-iii 落地
+
 ### bald v0.37.0
 
 - `57f3b099` docs(architecture): §10 项 9 更新发版批次现值（5 个模块，bootstrap 入批）

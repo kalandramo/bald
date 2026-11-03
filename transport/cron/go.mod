@@ -26,7 +26,7 @@ replace github.com/kalandramo/bald/transport/http => ../../transport/http
 
 require (
 	github.com/kalandramo/bald/bconf v0.17.0
-	github.com/kalandramo/bald/pkg v0.2.0
+	github.com/kalandramo/bald/pkg v0.2.1
 	github.com/kalandramo/bald/transport v0.4.0
 	github.com/robfig/cron/v3 v3.0.1
 )

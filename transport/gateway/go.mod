@@ -25,7 +25,7 @@ replace github.com/kalandramo/bald/transport/grpc => ../../transport/grpc
 require (
 	github.com/kalandramo/bald/bconf v0.17.0
 	github.com/kalandramo/bald/health v0.1.1
-	github.com/kalandramo/bald/pkg v0.2.0
+	github.com/kalandramo/bald/pkg v0.2.1
 	github.com/kalandramo/bald/registry v0.4.0
 	github.com/kalandramo/bald/transport v0.4.0
 	github.com/kalandramo/bald/transport/http v0.1.4
