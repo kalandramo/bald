@@ -334,9 +334,13 @@ Go 源码零改动（除下面第 ① 条）。根 module 里 `pkg/` 之外唯�
   `go build ./...` 退出码 0；13 条同仓 require 全部命中已存在 tag（脚本逐条比对 `git tag --list`，missing = none）；
   `go mod tidy` 只补一条 `transport/gateway v0.4.2 // indirect`，版本一个没被抬高——即 `pkg` 在 HEAD 的源码
   不依赖任何未发版的兄弟 API，这是「能不能单发」的真正判据，不是「它自己能不能编译」。
-  **其余 30 个模块未发**：`bald release plan` 现值仍列 31 个待发布模块（`bald v0.34.1 → v0.35.0`、`registry → v0.4.0`、
-  `transport/gateway → v0.5.0` 等），23 个消费者继续带零伪版本 + 本地 `replace`，等 `release sync --write` 那次批次归位。
-  `_example/bald:17` 也**没有**改成按 tag 消费：它在 CI 里测的是工作树代码，钉到 `v0.1.0` 等于把端到端降级成测已发布版本。
+  **其余 30 个模块已发（2026-11-03，owner 授权整批发版）**：`9cf17db` 一次发布根 `v0.35.0` 加 29 个
+  适配器/中间层，23 个消费者的零伪版本由 `release sync --write` 归位到真实 tag，归位后全仓同仓 require
+  逐条命中「已发布 tag ∪ 本批 next」，零伪版本占位 0 条；tag 前 HEAD 那轮 `ci` 五作业 completed/success。
+  **但根 `v0.35.0` 事后被证明装不出来**（`.qoder/` 导出文件名让代理建不出 zip），已由 `v0.36.0` 取代，
+  根因、判据与新增的 tag 闸门见 §3.3——这条是本节「还不能证明 ①（published 形态整条链路）」被实测打脸的地方。
+  `_example/bald:17` 也**没有**改成按 tag 消费：它在 CI 里测的是工作树代码，钉到 tag 等于把端到端降级成测已发布版本；
+  它需要补齐对被顶版兄弟的 `replace`，否则整批发版在 tag 前就绿不了，见《多模块发布与变更日志》的叠加层前置条件。
 - 刻意没做：① 没有只抽 appkit 的最小面（选项曾列 `Provider`/`Node`/`PlanScope`/`ApplyScope`/`Cleanup`/`Option`
   六个符号）——那要把 `pkg/appkit` 从 `pkg/middleware` 等既有互相依赖里摘出来，改动面比整切更大；
   ② 没动 `bald-admin`；③ 没重跑 `.dsl` 的 C4 机器校验（本机 JDK/Maven 已失踪，`.dsl` 未改）。
@@ -398,6 +402,12 @@ Go 源码零改动（除下面第 ① 条）。根 module 里 `pkg/` 之外唯�
   输出 `230 条文件路径进不了模块 zip`、`git tag --points-at HEAD` 为 0，与独立脚本的 230 条计数一致。
 - `v0.35.0` 怎么处理：按「tag 一经推送不可重发」保留，不做删除也不移动（代理缓存的失败记录删不干净，
   移动会让已缓存它的下游拿到错版）；由 `v0.36.0` 取代（`feat(release)` 按 Conventional Commits 升 minor，不是 patch），本条即是它的出处说明。
+- 发版后的外部装载校验（2026-11-03 复跑，收口上面那句「剩下的是回源延迟」）：干净 scratch module、零 `replace`、
+  `GOPROXY=https://goproxy.cn`、`GOSUMDB=off`、新 `GOMODCACHE`，`go get` 本轮 31 个 tag（根 `v0.36.0` + `pkg/v0.1.0`
+  + 29 个适配器/中间层，不含 `v0.35.0`）退出码 0，逐条比对 `go.mod` 落到的版本与计划版本 31/31 一致，
+  `go mod verify` 通过，import `pkg/stringcase` + `ratelimit/tokenbucket` `go build ./...` 与 `go run` 均退出码 0。
+  根 `v0.36.0` 的 zip 直接取回解包：139 条，`.qoder/**` 0 条、`pkg/**` 0 条——zip 判据缺陷与拆分前的 ambiguous
+  import 两条都不在这份发布物里。`v0.35.0` 仍确定性 404 `create zip: malformed`，与「保留不用」一致。
 
 ---
 
