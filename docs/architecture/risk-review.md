@@ -475,6 +475,7 @@ Go 源码零改动（除下面第 ① 条）。根 module 里 `pkg/` 之外唯�
 - 发现路径：bald-admin 的装配 e2e（`cmd/bald-admin/app/assembly_e2e_test.go`）在 GitHub 共享 runner 上红过一次（run `41675043918`），本地 `-count=30` 复现不了；`Serve` 直接返回错误、不经 `MustServe` 的 stderr 兜底，故整轮 CI 除了那句文案没有任何线索。
 - 消解：`abortStartup(callerCtx, g, stepErr)`（`pkg/appkit/appkit.go`）在三处失败分支（端点等待 / 服务注册 / afterStart 钩子）统一分级——先 `g.Wait()` 取非取消的 server 错误（必须在 `stopAll` 之后：gRPC 的 `Start` 只在 Server 被 Stop 后才返回），其次 `callerCtx.Err() != nil` 判「调用方取消」返回 `nil`，其余（等待超时、注册/钩子自身失败）原样返回。判据读的是**调用方**的 ctx：分支自己会 `cancel()`，被遮蔽的派生 ctx 此后恒为已取消，读不出区别。
 - 回归：`pkg/appkit/boot_cancel_test.go` 两条确定性用例（不等机器快慢：一个端点永不定型的 server + 调用方 50ms 取消 / 另一个 server 直接 `Start` 返回 boom）。两条各自只被一条判据打中——去掉 `g.Wait` 那条只红崩溃用例，去掉 `callerCtx` 那条只红取消用例，实测各红一次后恢复。
+- 已证（远端）：本仓 `0561cc9` 的 `ci` run 41682211384 五作业 `test`/`race`/`lint`/`vuln`/`integration` 全 success。下游 `bald-admin` 侧同时把装配 e2e 的就绪判据从「只 Dial HTTP 端口」收紧为「逐个已声明 server 端口各连一次」（`4a40298`，backend run 41682275441 success，上一 head `6d117a3` 的红消失）——注意它消费的仍是 `pkg v0.2.1`，也就是**残余②③那条框架分级还没进任何已发布 tag**，下游要拿到分级得等下一个 `pkg` 版本。
 - 残余（如实记下，不是已解决）：① `beforeStart` 钩子与 `startComponents` 两处窗口（errgroup 尚未建立）内取消仍按错误退出——那里不存在「崩溃被掩盖」的问题，是否统一成「取消即正常停机」是口径决策，未单方面改；② 这三处的 `log.Error` 仍在 `stopAll` 之后，而 logger 效应在停机时把全局后端还原为 nop，故该日志**必然被吞**（生产 main 走 `MustServe` → `reportServeFailure` 有 stderr 兜底，直接调 `Serve` 的测试路径没有）；③ 外部消费者没有「已进入运行态」的可等信号——`App.startedCh` 未导出，`Serve` 也不交回 App 句柄，判据只能退到「自己声明的每个 server 端口都可连」。
 
 ---
