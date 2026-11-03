@@ -283,11 +283,16 @@ func coerceMessage(msg protoreflect.Message, m map[string]any) error {
 
 // lookupField 按候选键名在 map 中查找（不区分 "-" 与 "_" 的差异）。
 //
-// 折叠匹配（fold fallback）：env 层把下划线当路径分隔符（bootstrap/config 的
-// environMap），于是 SERVER_ADDRS 落成嵌套 {server:{addrs:...}}；而契约字段名
-// 本身含下划线（server_addrs）——同一字符在两处语义冲突，平级匹配必然失败。
-// 故平级匹配全试过之后，把「候选名的下划线段」当嵌套路径逐层下钻再试一次
+// 折叠匹配（fold fallback）：候选字段名含下划线（server_addrs）而配置树把它写
+// 成了嵌套形状 {server:{addrs:...}} 时，平级匹配必然失败。故平级匹配全试过之后，
+// 把「候选名的下划线段」当嵌套路径逐层下钻再试一次
 // （server_addrs → m["server"]["addrs"]）。
+//
+// env 层不再依赖这条：bootstrap/config 在合树之前就用 [FoldEnvKeys] 按契约把
+// 下划线切出的嵌套链折回规范键（§7.7）——env 与文件由此落在同一个键上，分层
+// 优先级才成立，严格门禁看到的也是契约规范名。本兜底留给另外两类输入：直接把
+// 嵌套形状喂给 UnmarshalMap 的调用方（bconf 是独立库，不经 config.Store），
+// 以及没开 StrictContract 的文件/远程层里手写的嵌套契约键。
 //
 // 命中时把值**搬移到平级键**并删除原嵌套链：env 路径下会残留 {server:{addrs:...}}，
 // 而 Nacos 消息并无 server 字段——残留键会被下游判为未知键（严格模式下即报错），

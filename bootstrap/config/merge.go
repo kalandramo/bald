@@ -9,6 +9,8 @@ import (
 
 	"github.com/spf13/pflag"
 	"gopkg.in/yaml.v3"
+
+	"github.com/kalandramo/bald/bconf"
 )
 
 // deepMerge 返回 src 覆盖 dst 后的新 map（递归合并嵌套 map，叶子值覆盖）。
@@ -89,9 +91,9 @@ func flattenFlags(fs *pflag.FlagSet) map[string]any {
 // ⚠ 已知限制：契约字段名**大量含下划线**（server_addrs / data_id /
 // max_open_connections …，共 179 个字段分布于 62 个 message），与本函数
 // 「下划线即分隔符」的规则直接冲突——SERVER_ADDRS 会被切成 {server:{addrs}},
-// 而契约字段是 server_addrs。二者靠 bconf.lookupField 的**折叠匹配**弥合
-// （平级匹配失败后把下划线段当嵌套路径下钻并搬回平级键，见 bconf/unmarshal.go）。
-// 因此本函数无须感知契约；但**业务键**若含下划线仍会被误切，业务键请用点路径
+// 而契约字段是 server_addrs。弥合方式是落树后立刻按契约把嵌套链折回规范键
+// （[envLayer] → [bconf.FoldEnvKeys]），因此本函数本身无须感知契约。
+// **业务自持键**没有契约描述符可折，含下划线仍会被误切，业务键请用点路径
 // （yaml/flag 覆盖）或避免下划线命名。
 func environMap(name string) map[string]any {
 	// 前缀规范化：连字符转下划线（name "bald-demo" → 前缀 "BALD_DEMO_"），
@@ -113,6 +115,22 @@ func environMap(name string) map[string]any {
 	if len(m) == 0 {
 		return nil
 	}
+	return m
+}
+
+// envLayer 构造 env 层：[environMap] 落树之后立刻按框架契约把「下划线被当分隔符」
+// 切出的嵌套链折回规范字段名（[bconf.FoldEnvKeys]）。
+//
+// 为什么在合树之前：合并之后 env 的折叠链与文件层的规范键同处一棵树，读侧的
+// 「平级匹配优先」让 env 永远输给它——env > file 的分层承诺静默失效；而严格门禁
+// 的未知键扫描没有折叠兜底，会把这条合法的注入姿势判成笔误并拒绝启动。折在任何
+// 一层落树之前，两个后果一起消失。
+func envLayer(name string) map[string]any {
+	m := environMap(name)
+	if m == nil {
+		return nil
+	}
+	bconf.FoldEnvKeys(m, bconf.NewBootstrap())
 	return m
 }
 

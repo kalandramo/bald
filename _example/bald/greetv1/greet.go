@@ -68,8 +68,8 @@ func readOwnConfig(app *appkit.App) (domainConfig, error) {
 		c.greeting = v
 	}
 	// 键名写作 delay（不含下划线）：env 覆盖把下划线一律当路径分隔符，
-	// delay_ms 会被切成 delay.ms 落进业务子树——契约字段有折叠匹配兜底，
-	// 业务键没有。
+	// delay_ms 会被切成 delay.ms 落进业务子树。契约字段在合树前按契约折回
+	// 规范键（bconf.FoldEnvKeys），业务键没有描述符可折——只能避开下划线。
 	if v, ok := m["delay"].(string); ok && v != "" {
 		d, err := time.ParseDuration(v)
 		if err != nil {

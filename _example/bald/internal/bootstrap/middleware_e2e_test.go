@@ -9,11 +9,12 @@
 // FromMiddleware / FromGRPCMiddleware 桥）都会让对应断言变红，而不是悄悄回到
 // 200 / OK。
 //
-// 参数走临时契约文件而不是 env：契约的多词叶子键（rate_limit、
-// default_timeout_ms）在 env 里表达不出来——environMap 把下划线一律当路径分隔符，
-// 落树成 .server.http.middleware.rate.limit，而严格门禁不认折叠匹配，启动直接报
-// 「未知契约键 .server.http.middleware.rate」。同款绕行先例见
-// discovery_e2e_test.go 的 roleConfigWithGateway。
+// 多词契约键（rate_limit、default_timeout_ms）两种注入姿势都走得通：文件面
+// 用临时契约 YAML（下面的 TestE2E_HTTPContract* 用它注入极值，避免改动
+// owned 的 configs/*.yaml），env 面用 BALD_DEMO_SERVER_HTTP_MIDDLEWARE_RATE_LIMIT_BURST
+// ——environMap 按下划线切出的嵌套链在合树前由 bconf.FoldEnvKeys 折回规范键
+// （§7.7），因此 env 覆盖与文件同键时是正常的高层压低层，见
+// TestE2E_EnvOverridesContractRateLimit / TestE2E_EnvOverridesContractGRPCRateLimit。
 //
 // 只跑默认构建：-tags grpcgw 时 server.http 由转码面接管，那条面按设计不挂 gin
 // 链（所以 AppSpec 的 http middleware 段也不继承给网关角色，见 codegen
@@ -212,7 +213,7 @@ func setContractMiddleware(t *testing.T, doc map[string]any, face string, mw map
 }
 
 // setBizGreetDelay 拧上演示旋钮 biz.greet.delay（handler 占用时长）。
-// 键名不带下划线：env 会把下划线当路径分隔符，业务子树没有折叠匹配兜底。
+// 键名不带下划线：env 会把下划线当路径分隔符，业务子树没有契约描述符可折。
 func setBizGreetDelay(t *testing.T, doc map[string]any, delay string) {
 	t.Helper()
 	biz, _ := doc["biz"].(map[string]any)
@@ -229,4 +230,60 @@ func setBizGreetDelay(t *testing.T, doc map[string]any, delay string) {
 		t.Fatal("biz.greet.delay already set in the shipped config — the test would be overriding itself")
 	}
 	greet["delay"] = delay
+}
+
+// TestE2E_EnvOverridesContractRateLimit 钉 env 面对多词契约键的覆盖能力：角色
+// 文件已写 server.http.middleware.rate_limit {rate: 1000, burst: 200}，env 把它
+// 压到 {1, 1} 后第二个请求必须 429。
+//
+// §7.7 之前这一条红在另一个方向：environMap 把 env 切成
+// middleware.rate.limit.{rate,burst}，与文件层的规范键 middleware.rate_limit
+// 不同名，读侧「平级匹配优先」让 env 说了不算——两个请求都是 200。折叠发生在
+// 合树之前，所以 env > file 的分层承诺在这里第一次可测。
+func TestE2E_EnvOverridesContractRateLimit(t *testing.T) {
+	t.Setenv("BALD_DEMO_SERVER_HTTP_MIDDLEWARE_RATE_LIMIT_RATE", "1")
+	t.Setenv("BALD_DEMO_SERVER_HTTP_MIDDLEWARE_RATE_LIMIT_BURST", "1")
+
+	_, httpAddr, stop := startRole(t, RoleAPI)
+	defer stop()
+
+	if code, body := postGreet(t, httpAddr, greetPayload); code != http.StatusOK {
+		t.Fatalf("first POST /v1/greet = %d %s, want 200（env 若把桶配坏了，这条先红）", code, body)
+	}
+	if code, body := postGreet(t, httpAddr, greetPayload); code != http.StatusTooManyRequests {
+		t.Errorf("second POST /v1/greet = %d %s, want 429 — env 的 middleware.rate_limit 没覆盖文件的 {1000,200}（§7.7 的优先级倒置）", code, body)
+	}
+}
+
+// TestE2E_EnvOverridesContractGRPCRateLimit 是它的 gRPC 对偶：env 压
+// server.grpc.middleware.rate_limit，拒绝形态仍是 RESOURCE_EXHAUSTED +
+// Reason=RATE_LIMITED。
+func TestE2E_EnvOverridesContractGRPCRateLimit(t *testing.T) {
+	t.Setenv("BALD_DEMO_SERVER_GRPC_MIDDLEWARE_RATE_LIMIT_RATE", "1")
+	t.Setenv("BALD_DEMO_SERVER_GRPC_MIDDLEWARE_RATE_LIMIT_BURST", "1")
+
+	grpcAddr, _, stop := startRole(t, RoleAPI)
+	defer stop()
+
+	cli := newClient(t, grpcAddr)
+	ctx := context.Background()
+	if _, err := cli.Greet(ctx, &baldv1.GreetRequest{Name: "env-ratelimit"}); err != nil {
+		t.Fatalf("first Greet = %v, want OK", err)
+	}
+
+	_, err := cli.Greet(ctx, &baldv1.GreetRequest{Name: "env-ratelimit"})
+	if err == nil {
+		t.Fatal("second Greet succeeded, want RESOURCE_EXHAUSTED — env 的 grpc middleware.rate_limit 没覆盖文件")
+	}
+	if got := status.Code(err); got != codes.ResourceExhausted {
+		t.Errorf("status code = %v, want ResourceExhausted", got)
+	}
+	restored := grpcerr.FromStatus(status.Convert(err))
+	berr, ok := berrors.FromError(restored)
+	if !ok {
+		t.Fatalf("restored error is not *berrors.Error: %T", restored)
+	}
+	if berr.Reason != "RATE_LIMITED" {
+		t.Errorf("reason = %q, want RATE_LIMITED", berr.Reason)
+	}
 }

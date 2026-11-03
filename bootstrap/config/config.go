@@ -248,7 +248,7 @@ func Load(opts Options) (*Store, error) {
 	// 4) env 与 flag 层（进程运行期静态）。DeferEnv 时 env 层缺位，由调用方
 	// 派生配置名后经 MountEnv 挂载（两遍合并第二遍）。
 	if !opts.DeferEnv {
-		s.envM = environMap(opts.Name)
+		s.envM = envLayer(opts.Name)
 	}
 	s.flagM = flattenFlags(opts.Flags)
 
@@ -329,7 +329,7 @@ func (s *Store) remerge() map[string]any {
 func (s *Store) MountEnv(name string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.envM = environMap(name)
+	s.envM = envLayer(name)
 	s.merged = s.remerge()
 }
 

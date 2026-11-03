@@ -54,8 +54,9 @@ func TestGatewayBackendViaDiscovery(t *testing.T) {
 	gwAddr := freeAddr(t)
 	t.Setenv("BALD_DEMO_SERVER_GRPC_ADDR", grpcAddr)
 
-	// 契约段走文件而不是 env：env 的键名按 `_` 分层（Bald 的多词叶子键
-	// backend_grpc_addr 表达不出，会被 strict 门禁判成未知键 .server.gateway.backend）。
+	// 网关段走临时契约文件：§7.7 起 env 也能表达多词键（backend_grpc_addr 在
+	// 合树前折回规范键），但这里要同时改监听地址和后端（换成服务名），一份补丁
+	// 文件比两个 env 更贴近网关配置本来的书写面。
 	// 唯一的改动点：后端不写 host:port，写服务名。
 	cfg := roleConfigWithGateway(t, configFileForRole(RoleAPI), gwAddr, "discovery:///bald-demo")
 
