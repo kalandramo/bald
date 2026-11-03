@@ -38,3 +38,6 @@ _example/bald/*.db
 /cobramcp/examples/positional-args/positional-args.exe
 /cobramcp/examples/positional-args-mcp-server/positional-args-mcp-server
 /cobramcp/examples/positional-args-mcp-server/positional-args-mcp-server.exe
+# 知识中心（Repo Wiki / 知识卡）的磁盘导出：生成物，且中文目录名里的全角括号
+# 不在 x/mod 的模块文件路径白名单内，进仓会让根模块的 zip 在代理上建不出来。
+.qoder/
