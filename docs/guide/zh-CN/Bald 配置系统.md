@@ -171,9 +171,20 @@ BALD_DEMO_CACHE_REDIS_ADDR  →  cache.redis.addr
 两个必须知道的约束：
 
 - **前缀不可省**。没有 `BALD_DEMO_` 前缀的变量根本不会被读（枚举驱动，非查询驱动）。
-- **多词键（含下划线的契约字段）经 env 是一条半通的路**。契约里 179 个字段名含下划线（分布于 62 个 message：`rate_limit` / `server_addrs` / `max_open_connections` …），而 env 负载里的 `_` 一律先切成路径分隔符——`BALD_DEMO_SERVER_HTTP_MIDDLEWARE_RATE_LIMIT_RATE` 变成 `server.http.middleware.rate.limit.rate`。读的一腿靠 `bconf.lookupField` 的**折叠兜底**弥合（平级匹配失败后把下划线段当嵌套路径下钻并搬回平级键）；但 `appkit.StrictContract` 的未知键判据（`bconf.FindUnknownKeys`）**没有同款兜底**，所以生成树默认开启严格门禁时，这类 env 会让启动直接报 `unknown contract keys`。这条缺陷已登记（[风险评审 §7.7](../../architecture/risk-review.md)），未修。
-  - 需要按环境改契约多词段（限流/超时/`server_addrs` 这类）：**改契约文件本身**，不要改 env。可运行的绕行姿势见示例 `_example/bald/internal/bootstrap/middleware_e2e_test.go` 的 `roleConfigOver`（读角色 YAML、改一段、写进临时目录再追加一个 `appkit.ConfigFile` 覆盖，同名单值字段末者胜）。
-  - **业务自有键同理**：业务段（`biz.*`）连折叠兜底都没有，请用点路径命名或避免下划线——示例里 `greetv1.readOwnConfig` 用的是 `biz.greet.delay`，不是 `delay_ms`。
+- **契约多词键（含下划线的字段名）经 env 直接写就行**。契约里 179 个字段名含下划线（分布于 62 个 message：`rate_limit` / `server_addrs` / `max_open_connections` …），而 env 负载里的 `_` 一律先切成路径分隔符——`BALD_DEMO_SERVER_HTTP_MIDDLEWARE_RATE_LIMIT_BURST` 落树成 `server.http.middleware.rate.limit.burst`。`bootstrap/config` 的 `envLayer` 在**合树之前**用 `bconf.FoldEnvKeys` 按契约描述符把这条链折回规范键 `rate_limit.burst`，于是 env 与文件写的是同一个键：env 照常压过文件，生成物默认开启的严格门禁（`appkit.StrictContract`）看到的也是契约名。
+
+  可复制即跑（把角色文件里的 `{rate: 1000, burst: 200}` 压成 `{1, 1}`，第二个请求即被拒）：
+
+  ```bash
+  export BALD_DEMO_SERVER_HTTP_MIDDLEWARE_RATE_LIMIT_RATE=1
+  export BALD_DEMO_SERVER_HTTP_MIDDLEWARE_RATE_LIMIT_BURST=1
+  export BALD_DEMO_SERVER_GRPC_MIDDLEWARE_TIMEOUT_DEFAULT_TIMEOUT_MS=50
+  ```
+
+  端到端实证：`_example/bald/internal/bootstrap/middleware_e2e_test.go` 的 `TestE2E_EnvOverridesContractRateLimit` / `TestE2E_EnvOverridesContractGRPCRateLimit`（`429` / `RESOURCE_EXHAUSTED`）。
+  - 折叠只在**唯一链**上发生，平级规范名优先，且规范键已被另一种形状（proto 名或 JSON 名）占据时不折——真嵌套键不会被抢走，笔误（如 `RAT_LIMIT`）折不出来就照旧由严格门禁指名。
+  - **业务自有键（`biz.*`）没有契约描述符可折**，含下划线仍会被切成嵌套路径：请用点路径命名或避免下划线——示例里 `greetv1.readOwnConfig` 用的是 `biz.greet.delay`，不是 `delay_ms`。
+  - 一次改整段配置仍可改契约文件并用 `appkit.ConfigFile` 追加覆盖（同名单值字段末者胜），姿势见示例的 `roleConfigOver`；文件面写整段比拼多个 env 更贴近配置的本来书写面，env 这条路现在只是**也可用**，不再是被迫绕行。
 
 > **没有 `${VAR}` 插值与 `.env` 自动加载**。配置值不做变量替换，也不读 `.env` 文件——
 > 环境变量经 `os.Environ()` 直接枚举（`merge.go` 的 `environMap`）。

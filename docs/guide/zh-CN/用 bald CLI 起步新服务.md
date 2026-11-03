@@ -157,7 +157,7 @@ go mod tidy
 go run ./cmd/my-service
 ```
 
-- **配置**：`configs/my-service.yaml` 已由 AppSpec 派生（`app.name` 缺省取 `meta.name` 写入）。四源覆盖同一条键路径：flag `--server.http.addr=:18080` ⇔ 环境变量 `MY_SERVICE_SERVER_HTTP_ADDR` ⇔ yaml `server.http.addr`（优先级 flag > env > 本地文件 > 远程；详见[Bald 配置系统](Bald%20配置系统.md)）。**env 这条路对多词契约键走不通**：环境变量里的下划线全被当路径分隔符，`MY_SERVICE_SERVER_HTTP_MIDDLEWARE_RATE_LIMIT_RATE` 落树成 `.…middleware.rate.limit`，而生成物默认开的 `StrictContract` 不认这种折叠形态，启动直接报「未知契约键」。按环境改中间件段目前只能改契约文件（或 `ConfigFile` 追加一层），详见风险评审 §7.7。
+- **配置**：`configs/my-service.yaml` 已由 AppSpec 派生（`app.name` 缺省取 `meta.name` 写入）。四源覆盖同一条键路径：flag `--server.http.addr=:18080` ⇔ 环境变量 `MY_SERVICE_SERVER_HTTP_ADDR` ⇔ yaml `server.http.addr`（优先级 flag > env > 本地文件 > 远程；详见[Bald 配置系统](Bald%20配置系统.md)）。多词契约键（`rate_limit`、`max_open_connections`）也能直接走 env：env 层在合树前按契约描述符把被 `_` 切开的链折回规范键，`MY_SERVICE_SERVER_HTTP_MIDDLEWARE_RATE_LIMIT_RATE=1` 就是限流速率覆盖，`StrictContract` 门禁认它。折叠只在「链唯一」时发生——同层还有别的键就说明切分点不止一处，宁可留红不误合（判据：`bootstrap/config/env_contract_test.go`）。**业务自持键（`biz.*`）没有描述符可折**，含下划线仍会被切开，命名请用点路径或避开下划线。
 - **探针**：`/healthz`（存活）与 `/readyz`（就绪，依赖未就绪 503）由框架默认挂载，数据源是生成物的 `healthChecker`。
 - **业务端点**：加在 `internal/apiserver/apiserver.go` 的 `NewRouter`（生成一次、归你维护）。
 - **启动日志**：引擎打印 `appkit starting` → `appkit started`（声明组件后还有 `appkit component started`；注册中心生效时还有 `appkit registered`，含最终 endpoints）。

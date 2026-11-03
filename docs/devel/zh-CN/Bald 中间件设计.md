@@ -157,7 +157,7 @@ owned 的 `assemble.gen.go` 登记 `appkit.WithHTTPContract(apiserver.NewRouter)
 
 **存量工程迁移（本轮是 breaking）**：旧的 `func NewRouter() *gin.Engine` 与新 `assemble.gen.go` 不兼容，重跑 `bald gen app` 后直接编译失败——有意如此，让「配置写了不生效」必须经过一次显式改写而不是静默降级。改法：签名收 `mw`、链改走 `bundle.FromMiddleware(mw)`、返回 `(http.Handler, func() error, error)`；gRPC 侧把原来的 `WithGRPCOptions(自建链)` 搬进 `newGRPCChain(mw)`，段用 `bundle.FromGRPCMiddleware(mw)` 译。
 
-**生效的实证**：`_example/bald/internal/bootstrap/middleware_e2e_test.go` 起真进程（`appkit.Serve` + 真 gin + 真 `grpc.NewServer`），从契约 YAML 断到 `429` / `RESOURCE_EXHAUSTED`（含 `Reason=RATE_LIMITED` 跨边界还原）/ 提前 `503` / `DEADLINE_EXCEEDED`；删任一处接线（appkit 注册、codegen 脚手架、bundle 桥、handler 尊重 ctx）都让对应面的断言转红，另两面保持绿。参数走临时契约文件而不是 env，原因见风险 §7.7。
+**生效的实证**：`_example/bald/internal/bootstrap/middleware_e2e_test.go` 起真进程（`appkit.Serve` + 真 gin + 真 `grpc.NewServer`），从契约 YAML 断到 `429` / `RESOURCE_EXHAUSTED`（含 `Reason=RATE_LIMITED` 跨边界还原）/ 提前 `503` / `DEADLINE_EXCEEDED`；删任一处接线（appkit 注册、codegen 脚手架、bundle 桥、handler 尊重 ctx）都让对应面的断言转红，另两面保持绿。极值注入有两条等价路径：文件面用临时契约 YAML（不改 owned 的 `configs/*.yaml`），env 面用 `BALD_DEMO_SERVER_HTTP_MIDDLEWARE_RATE_LIMIT_*`——多词键在 env 里被 `_` 切成的嵌套链由 `bconf.FoldEnvKeys` 在合树前折回规范键（机制见[Bald 配置系统](../../guide/zh-CN/Bald%20配置系统.md)）。
 
 ### 显式注入，不吃全局兜底
 
