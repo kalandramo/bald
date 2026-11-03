@@ -6,6 +6,13 @@
 
 ## 2026-11-03
 
+### bald v0.36.0
+
+- `e0894924` docs(architecture): §3.3 的补救版本号对齐计划实算的 v0.36.0
+- `11adba17` docs: 登记 §3.3 根 v0.35.0 装载缺陷，发布流程补两条实测前置
+- `ed0927e9` feat(release): tag 前校验模块文件路径能否进 zip
+- `b8d609d0` fix(modules): 知识中心导出不进版本库，根模块 zip 恢复可建
+
 ### bald v0.35.0
 
 - `73e52dc5` docs(release): tag 前必须确认 HEAD 那轮 CI completed/success
