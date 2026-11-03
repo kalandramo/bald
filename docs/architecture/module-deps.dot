@@ -3,7 +3,7 @@ digraph bald_modules {
     node [fontname="Helvetica", fontsize=11, shape=box, style="rounded,filled", fillcolor="#f2f5fa"];
     edge [fontname="Helvetica", fontsize=9, color="#5b6b7f", arrowsize=0.6];
     graph [fontname="Helvetica", fontsize=12, ranksep=0.55, nodesep=0.35, labelloc=t,
-           label="bald 模块依赖分层（94 个 go.mod）— 2026-11-02 重核（`pkg/` 独立成 module 后），只画已核实的边；红=适配器 require `github.com/kalandramo/bald/pkg` 的回边\n（根 module 已无人 require：22 条适配器回边的目标从聚合根换成 `pkg` module，实测模块图仍是 DAG）\n直接 require `bald/pkg` 的 22 个非示例模块全部落边：transport 6 + registry 4 + cache 1 + broker 1 + oss 2 + contrib 8\n（已用 dot -Tsvg 渲染校验，graphviz 16.1.0）"];
+           label="bald 模块依赖分层（95 个 go.mod）— 2026-11-03 重核（`pkg/` 与 `cli/` 各自独立成 module 后），只画已核实的边；红=适配器 require `github.com/kalandramo/bald/pkg` 的回边\n（根 module 已无人 require：22 条适配器回边的目标从聚合根换成 `pkg` module，实测模块图仍是 DAG）\n直接 require `bald/pkg` 的 22 个非示例模块全部落边：transport 6 + registry 4 + cache 1 + broker 1 + oss 2 + contrib 8\n（已用 dot -Tsvg 渲染校验，graphviz 16.1.0）"];
 
     // ---- Layer: SPI 契约（无 bald 内部依赖） ----
     subgraph cluster_spi {
@@ -55,12 +55,12 @@ digraph bald_modules {
         y_ad [label="ai/* workflow/argo cobramcp\n（无根回边）", color="#9aa7b8"];
         contract [label="*/contract × 30\nappkit v2 Provider 注册包", fillcolor="#e8f0e0"];
         contrib [label="contrib/*", fillcolor="#e8f0e0"];
-        codegen [label="cmd/bald + internal/codegen（根 module）", fillcolor="#e8f0e0"];
+        codegen [label="cli/cmd/bald + cli/internal/{codegen,release}\n（独立 module github.com/kalandramo/bald/cli，零 replace）", fillcolor="#e8f0e0"];
     }
 
     ext_mq [label="Kafka/RabbitMQ/RocketMQ/Redis", shape=cylinder, fillcolor="#fff"];
     ext_sr [label="etcd/consul/nacos/k8s", shape=cylinder, fillcolor="#fff"];
-    root [label="根 module github.com/kalandramo/bald\n= cmd/bald + internal/{codegen,docscheck,release}\n19 条本地 replace，已无人 require 它", fillcolor="#fdf6e3"];
+    root [label="根 module github.com/kalandramo/bald\n= internal/docscheck（本仓文档闸门）\n19 条本地 replace、0 条 require，已无人 require 它", fillcolor="#fdf6e3"];
     pkgmod [label="module github.com/kalandramo/bald/pkg\n= pkg/*（含 pkg/metricshttp，原 observability/）\n13 条本地 replace", fillcolor="#fdf6e3"];
 
     // ---- 已核实的装配边 ----
@@ -80,7 +80,7 @@ digraph bald_modules {
     contract -> bconf;
     contract -> transport [label="代表性：gateway/contract 引入", style=dashed];
     contrib -> appkit [color="#b00", penwidth=1.4, fontcolor="#b00"];
-    codegen -> appkit [style=dashed, label="模板产出的 import\n（根 module 自己不 require pkg）"];
+    codegen -> appkit [style=dashed, label="模板产出的 import\n（生成物按 tag require bald/pkg）"];
 
     // ---- 已核实的适配器→SPI 边 ----
     t_ad -> transport;
@@ -113,7 +113,7 @@ digraph bald_modules {
     pkgmod -> bconf [color="#006400"];
     pkgmod -> registry [color="#006400"];
     pkgmod -> transport [color="#006400", label="代表性：pkg 共 require 13 个兄弟 module"];
-    root -> bconf [color="#006400", label="拆分后根只剩这一条兄弟 require"];
+    codegen -> bconf [color="#006400", label="cli 按 tag 消费 bconf\n（本仓唯一没有目录 replace 的同仓消费者）"];
     t_ad -> pkgmod [label="transport/{sse,asynq,cron,tcp,webrtc,gateway}\nrequire github.com/kalandramo/bald/pkg", color="#b00", penwidth=1.6, fontcolor="#b00"];
     r_ad -> pkgmod [label="registry/{nacos,consul,etcd,kubernetes}", color="#b00", style=dotted];
     c_ad -> pkgmod [label="cache/redis", color="#b00", style=dotted];

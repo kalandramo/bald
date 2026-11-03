@@ -21,6 +21,14 @@
 
 version: "3"
 
+# B-iii（risk-review.md §3.4）：`cli/` 与 `bconf/` 的联合开发靠**本地不提交**的
+# go.work（见 .gitignore）。这些任务代表 CI 口径，必须按「发布形态」判，所以在此
+# 显式关掉工作区——否则一次 `go work use ./cli ./bconf` 就让 tidy/build/vet 全部
+# 改吃磁盘代码，§3.3 那类 published-form 判据当场失效且不留痕迹。
+# 仓库里没有 go.work 时 GOWORK=off 是无害 no-op；CI 的检出永远没有它。
+env:
+  GOWORK: "off"
+
 vars:
   PROTOC_GEN_DEFAULTS_VERSION: v0.0.2 # protoc-gen-defaults pin（原 .bingo 记录的 commit pin 无效，已核实取 v0.0.2）
   GOLANGCI_LINT_VERSION: v2.15.0 # lint 规则集升级是显式动作，避免上游新检查静默漂移
@@ -254,9 +262,13 @@ tasks:
         vars: { PREFIX: circuitbreaker }
 
   test:
-    desc: 运行核心模块全部测试（只根 module；全仓用 task verify-modules）
+    desc: 运行根与 cli 两个 module 的全部测试（非 -short；全仓用 task verify-modules）
     cmds:
       - go test ./...
+      # codegen/release 自 B-iii 起在 cli module 里：这条腿不能省，否则
+      # 生成物端到端用例（TestTree_*）与发布工具测试在本任务里静默消失。
+      - cmd: go test ./...
+        dir: cli
 
   # 静态检查与漏洞扫描：范围 = scripts/list-modules.sh 派生的全部 module，与 CI 的
   # lint/vuln 作业逐模块同口径（原来只跑核心 module，是 §1.2 的假绿来源之一）。
@@ -319,7 +331,7 @@ tasks:
   # 逐模块验证，命令与 CI 的 test 作业同口径：tidy -diff（依赖面漂移）+ build +
   # vet + go test -short。两处本地专属的差别：
   # - build 的产物落到临时目录而不是源码树——派生清单里有 package main
-  #   （cmd/bald、cobramcp/examples/*），CI 用的是用完即弃的 runner，本地会把
+  #   （cli/cmd/bald、cobramcp/examples/*），CI 用的是用完即弃的 runner，本地会把
   #   可执行文件直接吐进仓库（.gitignore 只挡 bald.exe）。
   # - 根模块的 vet 同样带 -copylocks=false（见 ci.yml 文件头对 appkit 顶层浅拷贝
   #   的说明），否则本地比 CI 更严、假红。
@@ -329,7 +341,7 @@ tasks:
     cmds:
       - go mod tidy -diff
       # 有 package main 时把可执行文件丢到临时目录：`go build ./...` 对纯库包
-      # 不产出文件，但对 main 包会吐在源码目录里（cmd/bald、cobramcp/examples/*），
+      # 不产出文件，但对 main 包会吐在源码目录里（cli/cmd/bald、cobramcp/examples/*），
       # .gitignore 只挡 bald.exe。`-o <dir>` 只在确有 main 包时合法，
       # 纯库包会报 "no main packages to build"，故分支。
       # （判据用 go list -json 而不是 -f '{{.Name}}'：花括号会被 go-task 当模板渲染。）
@@ -352,6 +364,11 @@ tasks:
     vars:
       MODS: "{{.MODULES}}"
     cmds:
+      # 发布形态前置（见文件头 env.GOWORK）：那条注入一旦被删而本地还留着
+      # go.work，逐模块的 tidy/build/vet 会静默改吃磁盘代码。让它当场响，
+      # 而不是绿到发版才发现。
+      - cmd: '[ "$(go env GOWORK)" = "off" ] || { echo "verify-modules: GOWORK 未关，逐模块判据不再是发布形态"; exit 1; }'
+        platforms: [linux, darwin]
       - cmd: '[ -n "{{trim .MODS}}" ] || { echo "verify: 清单派生为空，未覆盖任何 module"; exit 1; }'
         platforms: [linux, darwin]
       - cmd: 'echo "verify: 模块清单派生需要 POSIX shell；Windows 下逐模块跑 task verify-module MOD=<dir>"; exit 1'
@@ -395,9 +412,11 @@ tasks:
       - sh scripts/multi-major.sh
 
   build:
-    desc: 编译核心模块全部包（不含 _example，见 example-bald-vet）
+    desc: 编译核心模块全部包（根 + cli；不含 _example，见 example-bald-vet）
     cmds:
       - go build ./...
+      - cmd: go build ./...
+        dir: cli
 
   # 设计 §7.2「验收脚本」的可执行形态（声明性指标的主门）。
   # 只跑 go test，跨平台；参考工程的计划口径在 _example 独立 module 内断言。
@@ -409,7 +428,8 @@ tasks:
       - go test ./pkg/appkit -run 'TestDrift'
       - go test ./pkg/appkit -run 'TestPlanCache_|TestVariantProjection_|TestVariantEffects_|TestOption_OnRoleScoping|TestDoctor_'
       - go test ./pkg/appkit -run 'TestAPI_'
-      - go test ./internal/codegen -run 'TestGen_(Deterministic|CheckClean)|TestGenDomain_(Bind|Proto|NoRoutes|CheckDoesNotRunProtoStage)|TestGenApp_Variants|TestTree_Variants|TestPruneStaleOwned|TestCheckTree_'
+      - cmd: go test ./internal/codegen -run 'TestGen_(Deterministic|CheckClean)|TestGenDomain_(Bind|Proto|NoRoutes|CheckDoesNotRunProtoStage)|TestGenApp_Variants|TestTree_Variants|TestPruneStaleOwned|TestCheckTree_'
+        dir: cli
       - cmd: go test . -run TestGeneratedMatchesProto
         dir: bconf
       - cmd: go test ./internal/bootstrap -run TestPlan_ReferenceProject
@@ -420,25 +440,32 @@ tasks:
   # 多模块发布：先提交业务改动，再按 plan → sync → changelog → tag 顺序执行。
   # 计划文件写在 .bald/（已忽略）；各任务默认 dry-run，写操作经 {{.CLI_ARGS}} 传入
   # （例：task release-sync -- --write）。规则见 docs/devel/zh-CN/多模块发布与变更日志.md。
+  # 四步都带绝对计划路径：`bald release` 自 B-iii 起住在 cli module 里，任务必须
+  # 在 cli/ 下执行 go 命令，而计划路径默认相对 cwd——不写绝对路径的话中间产物会
+  # 落到 cli/.bald/，与文档承诺的仓库根 .bald/ 漂移。
   release-plan:
     desc: 计算待发布模块与下一版本，写入 .bald/release-plan.json
+    dir: cli
     cmds:
-      - go run ./cmd/bald release plan {{.CLI_ARGS}}
+      - go run ./cmd/bald release plan --out {{.ROOT_DIR}}/.bald/release-plan.json {{.CLI_ARGS}}
 
   release-sync:
     desc: 归位计划内模块的内部依赖（默认只看；加 -- --write 写入）
+    dir: cli
     cmds:
-      - go run ./cmd/bald release sync {{.CLI_ARGS}}
+      - go run ./cmd/bald release sync --plan {{.ROOT_DIR}}/.bald/release-plan.json {{.CLI_ARGS}}
 
   release-changelog:
     desc: 把计划写入 CHANGELOG.md（默认只看；加 -- --write 写入）
+    dir: cli
     cmds:
-      - go run ./cmd/bald release changelog {{.CLI_ARGS}}
+      - go run ./cmd/bald release changelog --plan {{.ROOT_DIR}}/.bald/release-plan.json {{.CLI_ARGS}}
 
   release-tag:
     desc: 按计划打 tag（默认 dry-run；加 -- --apply 创建，--push 推送）
+    dir: cli
     cmds:
-      - go run ./cmd/bald release tag {{.CLI_ARGS}}
+      - go run ./cmd/bald release tag --plan {{.ROOT_DIR}}/.bald/release-plan.json {{.CLI_ARGS}}
 
   # 全量验证：派生出的**全部** module（与 CI 的 test/lint/vuln 同范围）+ _example
   # + 根/bconf/cobramcp 的非 -short 全量测试（旧 verify 就有，保留不降级）。

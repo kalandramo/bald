@@ -44,6 +44,13 @@ on:
 permissions:
   contents: read
 
+# 逐模块的 tidy/build/vet/test 全部必须是「发布形态」判据。go.work 会把同仓依赖
+# 改吃磁盘代码（§3.3 那类 published-form 判据随之失效），而 B-iii 允许本地放一个
+# 不入库的 go.work 用于 cli+bconf 联合开发。这里显式关死：CI 的判据不受工作区影响。
+# 检出里没有 go.work 时 GOWORK=off 是无害 no-op。
+env:
+  GOWORK: "off"
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -87,6 +94,8 @@ jobs:
           done
 
       - name: TestTree_EndToEndTimed / TestTree_AuthzClosedLoop (outside -short)
+        # codegen 自 B-iii（risk-review.md §3.4）起住在 cli module 里，须在该目录执行。
+        working-directory: cli
         run: go test ./internal/codegen/ -run 'TestTree_(EndToEndTimed|AuthzClosedLoop)' -count=1 -timeout 15m
 
   # 竞态门禁：普通 test 不启用 race detector，session manager / 热重载 /

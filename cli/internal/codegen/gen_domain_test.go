@@ -11,7 +11,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -494,16 +493,15 @@ func writeAll(t *testing.T, files map[string]string) {
 	}
 }
 
-// readRepoFile 读仓库内文件（相对 bald 仓库根）。根以本文件源码路径定位
-// （runtime.Caller）——本包测试会用 t.Chdir 切走进程 cwd，repoRoot 的
-// 「cwd 恒为包目录」前提在这些测试里不成立。
+// readRepoFile 读仓库内文件（相对 bald 仓库根）。根以本包源码路径定位而非 cwd
+// ——本包测试会用 t.Chdir 切走进程 cwd，repoRoot 的「cwd 在包目录下」前提在
+// 那些测试里不成立。
 func readRepoFile(t *testing.T, rel string) string {
 	t.Helper()
-	_, thisFile, _, ok := runtime.Caller(0)
+	root, ok := findRepoRoot(pkgSourceDir(t))
 	if !ok {
-		t.Fatal("runtime.Caller failed")
+		t.Fatalf("repo root (go.mod declaring %s) not found", rootModuleGoPath)
 	}
-	root := filepath.Clean(filepath.Join(filepath.Dir(thisFile), "..", ".."))
 	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
 	if err != nil {
 		t.Fatalf("read repo file %s: %v", rel, err)

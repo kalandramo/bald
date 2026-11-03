@@ -94,7 +94,7 @@ object 命名空间由业务自选
 
 ## 端到端三态：401 / 403 / 200
 
-internal/codegen 的 `TestTree_AuthzClosedLoop` 在真实生成的工程里钉住
+cli/internal/codegen 的 `TestTree_AuthzClosedLoop` 在真实生成的工程里钉住
 整条链（gen app + gen domain + 用户槽位接线 + 真实起服打请求）。三态的
 区分由链路天然给出：Authn 在前、Authz 在后，中间件顺序错了三态就乱：
 
@@ -110,7 +110,7 @@ internal/codegen 的 `TestTree_AuthzClosedLoop` 在真实生成的工程里钉�
 
 最后一行是别名表价值的端到端证明：HTTP 面归一化 object 是 greets（注解
 路径首段），策略行走 gRPC 命名 greet——没有别名反查，这个只读请求就是
-403。四件接线源文（`internal/codegen/testdata/authz/*.go.tmpl`）即
+403。四件接线源文（`cli/internal/codegen/testdata/authz/*.go.tmpl`）即
 「生成一次、归你维护」用户槽位的消费示范：bridge.go（seed.Rows → NewRows
 + ObjectAliases → NewAlias）、demo_authn.go（认证桩）、apiserver.go
 （bundle.Authn + bundle.Authz 链）、greets_routes.go（域自持受保护端点，

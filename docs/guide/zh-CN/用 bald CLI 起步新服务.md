@@ -15,16 +15,17 @@
 
 ## 2. 安装 CLI
 
-CLI 目前**只能从源码检出安装**，`go install github.com/kalandramo/bald/cmd/bald@vX.Y.Z` 装不上——根模块 `go.mod` 里有 19 条指向目录的 `replace`，Go 对「按命名包安装的外部模块」明确拒绝带 replace 的发布物（实测 `v0.31.0`/`v0.36.0`/`v0.37.0` 三个版本同一条错误：`The go.mod file for the module providing named packages contains one or more replace directives`）。这条限制登记在[风险评审 §3.4](../../architecture/risk-review.md)，解法（把 `cmd/bald` 抽成独立 module）属结构性改动，待拍板。
+CLI 住在独立 module `github.com/kalandramo/bald/cli`。这条拆分（风险评审 §3.4 的方案 B）是为安装路径服务的：Go 为命名包按版本安装时读取目标 module 的**已发布** `go.mod`，含任何 `replace` 就拒绝（实测拆分前的 `v0.31.0`/`v0.36.0`/`v0.37.0` 三个根 tag 同一条错误：`The go.mod file for the module providing named packages contains one or more replace directives`——根 `go.mod` 有 19 条指向目录的 `replace`）。`cli/go.mod` 因此必须零 `replace`，仓库根做不到。
 
 ```bash
 git clone https://github.com/kalandramo/bald.git
-cd bald && go install ./cmd/bald
+cd bald/cli && go install ./cmd/bald
 bald --help   # 验证安装
 ```
 
-- 检出的 ref 决定生成器的行为：要 `v0.37.0` 的形态就 `git checkout v0.37.0`。库侧不受这条限制影响，`github.com/kalandramo/bald@v0.37.0` 按 tag 消费是能装上的（见 §5）。
-- 新 tag 发布后 sum.golang.org 校验和收录有延迟（数小时），期间 §5 的 `go get` 可能报 `verifying module ...: 404 Not Found`——属正常现象，稍后重试即可；源码检出安装不走这条路。
+- 按 tag 安装是 `go install github.com/kalandramo/bald/cli/cmd/bald@vX.Y.Z`，但**要等 `cli/vX.Y.Z` 这个 tag 发出来、并且你用的代理索引到它**才能装上；在那之前源码检出是唯一可复制即跑的路径。
+- 检出的 ref 决定生成器的行为：要某个版本的形态就 `git checkout <ref>`，注意 `cli/` 目录只在拆分之后的 ref 上存在（拆分前的 tag 没有这条路径）。库侧不受这条限制影响，各模块按自己的 tag 消费（见 §5）。
+- 新 tag 发布后 sum.golang.org 校验和收录有延迟（数小时），期间 §5 的装载可能报 `verifying module ...: 404 Not Found`——属正常现象，稍后重试即可；源码检出安装不走这条路。
 - CLI 提供 4 个生成子命令：`gen app`（装配骨架目录树）、`gen domain`（域驱动生成物）、`gen proto`（CRUD proto 骨架）、`gen store`（实体骨架）。
 
 ## 3. AppSpec：装配的单一真相源
@@ -113,7 +114,7 @@ my-service/
 └─ taskfile.yml                                    # 生成物：task run / verify / proto
 ```
 
-入口链只有三跳：`main.go`（≤25 行硬预算，预算表见 `internal/codegen/appspec_budget_test.go`）→ `app.Execute()`（cobra 根）→ `appkit.MustServe(context.Background(), bootstrap.Options()...)`。装配知识全部在 `internal/bootstrap/assemble.gen.go` 的 `Options()`：`std.Standard()`（server/audit/logger 三类框架自有后端的段驱动 Provider）+ `ConfigFile`/`WatchConfigFile` + `appkit.StrictContract()` + 传输面能力声明（`WithGRPC` 注册服务、`WithHTTPContract(apiserver.NewRouter)` 出 HTTP 面，按声明裁剪）+ `WithHealth`（双探针 + gRPC health 联动）+ `mech.Provides/Requires`（能力）+ `mech.Components`（组件）+ `domainOptions(role)`（域清单变参直传）。
+入口链只有三跳：`main.go`（≤25 行硬预算，预算表见 `cli/internal/codegen/appspec_budget_test.go`）→ `app.Execute()`（cobra 根）→ `appkit.MustServe(context.Background(), bootstrap.Options()...)`。装配知识全部在 `internal/bootstrap/assemble.gen.go` 的 `Options()`：`std.Standard()`（server/audit/logger 三类框架自有后端的段驱动 Provider）+ `ConfigFile`/`WatchConfigFile` + `appkit.StrictContract()` + 传输面能力声明（`WithGRPC` 注册服务、`WithHTTPContract(apiserver.NewRouter)` 出 HTTP 面，按声明裁剪）+ `WithHealth`（双探针 + gRPC health 联动）+ `mech.Provides/Requires`（能力）+ `mech.Components`（组件）+ `domainOptions(role)`（域清单变参直传）。
 
 **HTTP 与 gRPC 两条横切链都是契约驱动的**，但登记点不同：HTTP 的 `WithHTTPContract(apiserver.NewRouter)` 由 owned 的 `Options()` 出，gRPC 的 `WithGRPCOptionsContract(newGRPCChain)` 由 seeded 的 `customOptions(role)` 出（按角色分叉，只给有 gRPC 面的角色）。两个钩子函数本身都在 seeded 文件里——`internal/apiserver/apiserver.go` 的 `NewRouter(mw)` 与 `internal/bootstrap/custom.go` 的 `newGRPCChain(mw)`，它们在契约装载后拿到 `server.{http,grpc}.middleware` 段并调 `bundle.FromMiddleware`/`FromGRPCMiddleware`，所以 `configs/<app>.yaml` 里写的 `rate_limit`/`timeout` 真的会挡请求、真的会给 handler 一个会到期的 ctx（端到端判据 `_example/bald/internal/bootstrap/middleware_e2e_test.go`）。链序与认证姿态仍归你：改的是 seeded 那两个文件，契约里没有 `authn` 段，`bundle.Public()` 是显式的一行。旧工程的 `NewRouter() *gin.Engine` 在重生成后编译失败，迁移三步见《代码生成工具设计》§8 与本指南 §4.4。
 
@@ -155,8 +156,7 @@ gRPC 侧把原来的 `appkit.WithGRPCOptions(自建链)` 搬进 seeded 的 `inte
 ## 5. 起服务
 
 ```bash
-go get github.com/kalandramo/bald@v0.37.0
-go mod tidy
+go mod tidy     # 生成物 import 了哪些 bald 模块就拉哪些（pkg / bootstrap / bconf / berrors / health / log …），各按自己的 tag 解析
 go run ./cmd/my-service
 ```
 
@@ -167,7 +167,7 @@ go run ./cmd/my-service
 - **启动前审阅**：`go run ./cmd/my-service --plan` 打印装配计划（节点/相位/依赖/段覆盖/hash）；`go run ./cmd/my-service doctor` 输出逃逸舱诊断。两者与真实启动同源、只读，详见[装配计划与 doctor](Bald%20装配计划与%20doctor.md)。
 - **计划基线**：生成物默认声明 `appkit.WithPlanCache(".bald/plan-cache.json")`——真实启动记录计划基线，`doctor` 报告相对上次的节点级差异。`.bald/` 是本地目录，记得进 `.gitignore`。
 
-端到端路径：gen → tidy → build → 起服务 → `GET /readyz` 200 → 优雅退出（`internal/codegen/appspec_timed_test.go` 可复跑）。
+端到端路径：gen → tidy → build → 起服务 → `GET /readyz` 200 → 优雅退出（`cli/internal/codegen/appspec_timed_test.go` 可复跑）。
 
 ## 6. gen domain：新增业务域
 
@@ -217,7 +217,7 @@ bald gen store greet   # → ./greet.go（gorm tag + keyOf）
 - `internal/bootstrap/seed/policies.go`：默认策略行，从域 proto service 派生（object = service 全名去 `Service` 后缀转小写）：`admin` 覆盖六元组 get/list/write/delete/post/put，`viewer` 只读 get/list。只写 REST 四动词的历史教训是补 gRPC 面时 403——生成物已按六元组预置。
 - `internal/apiserver/authz/alias.gen.go`：`ObjectAliases` 别名表（仅列 gRPC/HTTP 两侧归一化不一致的域）+ `DefaultActions` 逐 RPC 动作聚合。
 
-装载经 `contrib/authz-casbin`（生成物只产数据、桥产行为），以下逐语句对照真实接线范本 `internal/codegen/testdata/authz/bridge.go.tmpl`：
+装载经 `contrib/authz-casbin`（生成物只产数据、桥产行为），以下逐语句对照真实接线范本 `cli/internal/codegen/testdata/authz/bridge.go.tmpl`：
 
 ```go
 // internal/apiserver/authz/bridge.go（package authz，与 alias.gen.go 同包，ObjectAliases 直接可见）
@@ -238,7 +238,7 @@ func NewAuthorizer() (baldauthz.Authorizer, error) {
 }
 ```
 
-再把桥挂进 `internal/apiserver/apiserver.go` 的 `NewRouter`（对照范本 `internal/codegen/testdata/authz/apiserver.go.tmpl`）：
+再把桥挂进 `internal/apiserver/apiserver.go` 的 `NewRouter`（对照范本 `cli/internal/codegen/testdata/authz/apiserver.go.tmpl`）：
 
 ```go
 authorizer, err := demoauthz.NewAuthorizer() // demoauthz = <module>/internal/apiserver/authz

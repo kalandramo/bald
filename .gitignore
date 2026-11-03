@@ -1,8 +1,15 @@
 # 编译生成的可执行文件
 bin/
 bald.exe
+/cli/bald
 /_example/*.exe
 _example/**/*.exe
+
+# 本地联合开发用的 Go 工作区（risk-review.md §3.4 B-iii）：`cli` 按 tag 消费
+# `bconf`，同时改两处时在本地 `go work use ./cli ./bconf` 即可。绝不入库——
+# 入库后 CI 的检出带着工作区，逐模块的 tidy/build/vet 会静默改吃磁盘代码。
+go.work
+go.work.sum
 
 # 装配计划缓存（appkit.WithPlanCache 的本地基线文件）：每台机器各自记录，
 # 不入库——它是「上次启动看到的计划」，不是生成物。

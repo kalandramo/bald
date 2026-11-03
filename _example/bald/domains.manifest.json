@@ -1,7 +1,7 @@
 {
   "version": 1,
   "tool": "bald gen domain",
-  "spec": "1f6590def434fbe8ed9a29a0855661220f06aba6e70b3b4968a8d5f19858aa8c",
+  "spec": "fea363f043bf4dedae76d186f9d2e22651cf413cd073153b92610387dff12e65",
   "files": [
     {
       "path": "internal/apiserver/authz/alias.gen.go",

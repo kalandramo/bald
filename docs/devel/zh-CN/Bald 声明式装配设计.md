@@ -445,7 +445,7 @@ func (a *App) Drift(ctx context.Context) ([]Drift, error)
 - `appkit.Compile(ctx, opts...) (*Plan, error)`：公开纯函数，供测试、CLI、`doctor` 使用。
 - `Serve` 识别 `--plan` / `--plan-format=json`（与 `--config` 同一 pflag 容错路径），打印后 `exit 0`，**在任何副作用之前**。
 - `bald doctor`（新子命令）输出：计划摘要、`Opaque` 节点数、域迁移进度（`domains:` 的 `declared`/`legacy` 计数与名单）、白名单段、被覆盖的段、build tag 分叉、`gen --check` 结果。
-  - **实现偏差**：`gen --check` 结果以「出口提示」呈现而非代跑——运行期二进制不 import `internal/codegen`（生成器是另一个执行体）；`doctor` 保持只读，CI 里两条命令并列执行。
+  - **实现偏差**：`gen --check` 结果以「出口提示」呈现而非代跑——运行期二进制不 import `cli/internal/codegen`（生成器是另一个执行体）；`doctor` 保持只读，CI 里两条命令并列执行。
   - **build tag 分叉**：`doctor` 的 `build tags:` 行来自 `debug.ReadBuildInfo`（构建事实）；应用侧语义由变体声明（`WithVariantDecls` / `AppSpec.variants`）承担——条件按 `go/build/constraint` 求值，声明与增量恒进计划（未命中可审计），命中即并入装配（Q7 终态，§8.3）；已声明变体不再走 `ambient`。尚未迁移的手写分叉仍可用 `WithAmbient` 显式登记，进 `Plan.Warnings` 的 `ambient` 诊断——计划不嗅探 build tag，只记录声明者告诉它的事实。重名裁决在计划期完成：同 `Name` 同 `Detail` 合并为一条诊断（与声明序无关），同 `Name` 不同 `Detail` 报错，避免同一身份出现两种描述。
 - 计划缓存：按 `(Role, InputHash)` 写入 `.bald/plan-cache.json`，仅作对比基线，不作为执行依据。**已实现**：`appkit.WithPlanCache(path)` 声明路径（生成物 `bootstrap.Options()` 默认声明 `.bald/plan-cache.json`），`Serve` 装配成功后记录、`doctor` 只读对比（无缓存整行省略；缺失/损坏只提示）；写入按 16 条上限去重裁剪，原子 rename。对比的「plan unchanged」判据限定为装配声明投影（节点 + `Plan.Imperative` 槽位 + `Plan.Routes` 路由清单 + `Plan.Variants` 变体声明，报告行显式标注这一范围，不断言整份 `Plan.Hash` 相等）：节点身份对比为空但 effect/keyWatch/reconcile 槽位变了时逐条报增删（`imperative slots changed`）；路由清单变化单列 `routes changed`（逐条 + / -——路由是声明面的一部分，「节点没变」不再掩盖换路径）；变体声明的增删、`tags` 改写与命中态翻转单列 `variants changed`（Q7 对账口径——未命中的变体不产诊断，只有进装配判据才不被「节点没变」掩盖）；节点属性变化报 `plan changed: node attributes (...)`（路由/变体已单列时不再冒用），不谎报未变；诊断（`Plan.Warnings`，含 `ambient`）按身份 diff 单列 `diagnostics changed`；InputHash/段视图各有独立报告行。
 
@@ -572,7 +572,7 @@ go test ./pkg/appkit -run 'TestAPI_'   # Resource(string) 调用点、手工排�
 
 # 生成确定性：生成器自有树（guard 夹具）双跑一致 + --check 零 diff
 # （绑定/路由清单默认生成、--no-bind/--no-routes 两态、proto 阶段编排与生成期前置拒绝同受约束；--adopt 清理过期 owned）
-go test ./internal/codegen -run 'TestGen_(Deterministic|CheckClean)|TestGenDomain_(Bind|Proto|NoRoutes|CheckDoesNotRunProtoStage)|TestGenApp_Variants|TestTree_Variants|TestPruneStaleOwned|TestCheckTree_|TestTree_CustomWiring'
+(cd cli && go test ./internal/codegen -run 'TestGen_(Deterministic|CheckClean)|TestGenDomain_(Bind|Proto|NoRoutes|CheckDoesNotRunProtoStage)|TestGenApp_Variants|TestTree_Variants|TestPruneStaleOwned|TestCheckTree_|TestTree_CustomWiring')
 
 # 契约层生成物与 proto 同步（本地 buf + protoc-gen-go；工具链缺失时跳过）
 (cd bconf && go test . -run TestGeneratedMatchesProto)
@@ -583,8 +583,10 @@ go test ./internal/codegen -run 'TestGen_(Deterministic|CheckClean)|TestGenDomai
 (cd _example/bald && go test -tags grpcgw ./internal/bootstrap -run TestPlan_ReferenceProject)
 
 # 示例生成树与声明零差异（appspec.json 是唯一真相源）
-go run ./cmd/bald gen app --spec _example/bald/appspec.json --out _example/bald --check
-go run ./cmd/bald gen domain --spec _example/bald/appspec.json --out _example/bald --check
+# CLI 自 §3.4 走 B 起住在 cli module，路径按该目录为基准写
+# 前提：`_example/bald/api/gen` 已生成（`task proto-example`）——bind 段要读 proto 产物，缺了 --check 直接拒绝而不是放行
+(cd cli && go run ./cmd/bald gen app --spec ../_example/bald/appspec.json --out ../_example/bald --check)
+(cd cli && go run ./cmd/bald gen domain --spec ../_example/bald/appspec.json --out ../_example/bald --check)
 
 # 综合诊断
 bald doctor --config configs/bald-demo-api.yaml

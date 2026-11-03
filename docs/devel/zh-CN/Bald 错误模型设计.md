@@ -210,7 +210,7 @@ status 取，`Reason` **留空**——刻意不把可变的 status 文本塞进 
 
 ## 理由与取舍
 
-**决策①：根包零依赖、桥接拆子包——承重墙。** 纯 HTTP 服务、CLI（`cmd/bald`
+**决策①：根包零依赖、桥接拆子包——承重墙。** 纯 HTTP 服务、CLI（`cli/cmd/bald`
 自己就是）、单元测试都不该为一个错误类型背上 gRPC。被放弃：把
 `GRPCStatus()` 挂在核心类型上——省 20 行，根包从此依赖
 grpc + genproto，不用 gRPC 的调用方也被迫链接。

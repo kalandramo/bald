@@ -482,26 +482,34 @@ var (
 	importSpecRe   = regexp.MustCompile(`(?m)^\s*(?:[\w_.]+\s+)?"([^"]+)"\s*(?://.*)?$`)
 )
 
-// TestPkgModuleIsLeaf 钉住 §3.1 收口的两个条件：① 聚合根只剩本仓工具包；
-// ② `pkg` module 不 import 任何归根 module 的包。本地 `replace` 让违反②的代码
-// 照样能编译，扇入复辟在 CI 上是静默的——只有发版时才炸，所以必须在此断言。
-func TestPkgModuleIsLeaf(t *testing.T) {
-	root := repoRoot(t)
-	mods := derivedModules(root)
-	if !slices.Contains(mods, "pkg") {
-		t.Fatal("pkg 不是独立 module：派生清单里没有 pkg/")
+// moduleOfDir 按最长前缀把仓库内目录（slash 相对根）归到属主 module；没有更长的
+// module 前缀命中时归根 module（"."）。与 moduleOfImport 同源，只是输入是目录。
+func moduleOfDir(dirSlash string, mods []string) string {
+	bestDir, bestLen := ".", -1
+	for _, m := range mods {
+		if m == "." {
+			continue
+		}
+		if dirSlash == m || strings.HasPrefix(dirSlash, m+"/") {
+			if len(m) > bestLen {
+				bestDir, bestLen = m, len(m)
+			}
+		}
 	}
+	return bestDir
+}
 
-	// ① 根 module 的包集合。
-	wantRootPkgs := []string{"cmd/bald", "internal/codegen", "internal/docscheck", "internal/release"}
-	gotRootPkgs := map[string]bool{}
+// packagesByModule 把仓库里每个 .go 文件所在目录归到属主 module，返回
+// module → 包目录集合（slash 相对根）。仓库根目录本身不参与（根不是包目录）。
+func packagesByModule(root string, mods []string) (map[string]map[string]bool, error) {
+	pkgs := map[string]map[string]bool{}
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if d.IsDir() {
 			switch d.Name() {
-			case ".git", "node_modules", "vendor":
+			case ".git", ".qoder", "node_modules", "vendor":
 				return filepath.SkipDir
 			}
 			if strings.HasPrefix(filepath.Base(path), "_example") {
@@ -520,41 +528,78 @@ func TestPkgModuleIsLeaf(t *testing.T) {
 		if slash == "." {
 			return nil
 		}
-		for _, m := range mods {
-			if m != "." && (slash == m || strings.HasPrefix(slash, m+"/")) {
-				return nil
-			}
+		owner := moduleOfDir(slash, mods)
+		if pkgs[owner] == nil {
+			pkgs[owner] = map[string]bool{}
 		}
-		gotRootPkgs[slash] = true
+		pkgs[owner][slash] = true
 		return nil
 	})
-	if err != nil {
-		t.Fatalf("scan root packages: %v", err)
-	}
-	var extra, missing []string
-	for p := range gotRootPkgs {
-		if !slices.Contains(wantRootPkgs, p) {
+	return pkgs, err
+}
+
+// diffPkgs 比对包集合：返回预期外的（extra）与不见了的（missing），各自字典序。
+func diffPkgs(got map[string]bool, want []string) (extra, missing []string) {
+	for p := range got {
+		if !slices.Contains(want, p) {
 			extra = append(extra, p)
 		}
 	}
-	for _, p := range wantRootPkgs {
-		if !gotRootPkgs[p] {
+	for _, p := range want {
+		if !got[p] {
 			missing = append(missing, p)
 		}
 	}
-	if len(extra) > 0 {
-		sort.Strings(extra)
-		t.Errorf("聚合根里出现了预期外的包 %v：根 module 应只剩本仓工具（risk-review.md §3.1）", extra)
+	sort.Strings(extra)
+	sort.Strings(missing)
+	return extra, missing
+}
+
+// TestModulePackageSets 钉住 risk-review.md §3.1 与 §3.4 的收口形态：聚合根只剩
+// 本仓工具包，CLI 住在自己的 module 里。包集合是逐字比对的——挪走或新增包都会红，
+// 因为「根只剩工具」这句话只有在根真的没有别人时才成立。
+func TestModulePackageSets(t *testing.T) {
+	root := repoRoot(t)
+	mods := derivedModules(root)
+	pkgs, err := packagesByModule(root, mods)
+	if err != nil {
+		t.Fatalf("scan packages: %v", err)
 	}
-	if len(missing) > 0 {
-		sort.Strings(missing)
-		t.Errorf("聚合根里预期的包不见了 %v：判据已过期，请核对 §3.1 后更新本清单", missing)
+	if len(pkgs) < 50 {
+		t.Fatalf("只归集到 %d 个 module 的包，明显低于仓库实际数量——遍历失效，本闸门已空转", len(pkgs))
+	}
+	wantPkgs := map[string][]string{
+		".":   {"internal/docscheck"},
+		"cli": {"cli/cmd/bald", "cli/internal/codegen", "cli/internal/release"},
+	}
+	for mod, want := range wantPkgs {
+		if !slices.Contains(mods, mod) {
+			t.Fatalf("派生清单里没有 module %s：包集合无从比对", mod)
+		}
+		extra, missing := diffPkgs(pkgs[mod], want)
+		if len(extra) > 0 {
+			t.Errorf("module %s 里出现了预期外的包 %v：应归属哪个 module？（risk-review.md §3.1/§3.4）", mod, extra)
+		}
+		if len(missing) > 0 {
+			t.Errorf("module %s 里预期的包不见了 %v：判据已过期，请核对 §3.1/§3.4 后更新本清单", mod, missing)
+		}
+	}
+}
+
+// TestPkgModuleIsLeaf 钉住 §3.1 的第二个条件：`pkg` module 不 import 任何归根
+// module 的包。本地 `replace` 让违反它的代码照样能编译，扇入复辟在 CI 上是静默的
+// ——只有发版时才炸，所以必须在此断言。
+func TestPkgModuleIsLeaf(t *testing.T) {
+	root := repoRoot(t)
+	mods := derivedModules(root)
+	if !slices.Contains(mods, "pkg") {
+		t.Fatal("pkg 不是独立 module：派生清单里没有 pkg/")
 	}
 
-	// ② pkg 不得 import 根 module 的包。
+	// pkg 不得 import 根 module 的包。
 	hits := 0
 	pkgDir := filepath.Join(root, "pkg")
-	err = filepath.WalkDir(pkgDir, func(path string, d os.DirEntry, err error) error {
+	err := filepath.WalkDir(pkgDir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -600,12 +645,14 @@ func TestModuleOfImport(t *testing.T) {
 		{"github.com/kalandramo/bald/transport/grpc", "transport/grpc"},
 		{"github.com/kalandramo/bald/transport", "transport"},
 		{"github.com/kalandramo/bald/log", "log"},
-		{"github.com/kalandramo/bald/internal/codegen", "."},
+		{"github.com/kalandramo/bald/cli/internal/codegen", "cli"},
+		{"github.com/kalandramo/bald/cli", "cli"},
+		{"github.com/kalandramo/bald/internal/docscheck", "."},
 		{"github.com/you/other", ""},
 	}
 	for _, mods := range [][]string{
-		{".", "log", "pkg", "transport", "transport/grpc"},
-		{"transport/grpc", ".", "transport", "pkg", "log"},
+		{".", "cli", "log", "pkg", "transport", "transport/grpc"},
+		{"transport/grpc", ".", "cli", "transport", "pkg", "log"},
 	} {
 		for _, c := range cases {
 			if got := moduleOfImport(c.imp, mods); got != c.want {
@@ -824,5 +871,70 @@ func TestInstallGateJudgesReplacesNotPaths(t *testing.T) {
 	}
 	if !strings.Contains(violations[0], "docs/guide.md:4") || !strings.Contains(violations[0], "cmd/bald@v1.0.0") {
 		t.Fatalf("violation should name the fenced root-module target, got %q", violations[0])
+	}
+}
+
+// TestCliModuleIsReplaceFree 是 §3.4 走 B（CLI 拆成独立 module）的机器保证。
+// Go 为命名包安装某个版本时抓取目标 module 的**已发布** go.mod，只要里面有任意一条
+// replace 就直接拒绝（本机 Go 1.27.1 的 cmd/go/internal/load/pkg.go：
+// `if len(f.Replace) > 0`），与这条 replace 是否被 build 用到无关。
+// 「零 replace」是 cli 唯一的卖点，所以必须钉死：日后顺手加一条
+// `replace github.com/kalandramo/bald/bconf => ../bconf` 能让本地 build、task test
+// 与 CI 全绿，同时把 go install @tag 永久变红。
+func TestCliModuleIsReplaceFree(t *testing.T) {
+	root := repoRoot(t)
+	if !slices.Contains(derivedModules(root), "cli") {
+		t.Fatal("派生清单里没有 cli/：CLI 还没独立成 module（risk-review.md §3.4 走 B）")
+	}
+	raw, err := readText(filepath.Join(root, "cli", "go.mod"))
+	if err != nil {
+		t.Fatalf("read cli/go.mod: %v", err)
+	}
+	if n := goModReplaceCount(raw); n > 0 {
+		t.Errorf("cli/go.mod 含 %d 条 replace：Go 会拒绝为它安装命名包，"+
+			"go install github.com/kalandramo/bald/cli/cmd/bald@<tag> 永远装不上（§3.4）", n)
+	}
+	// 入口得真的存在，否则「零 replace 的 module」是空的，装机承诺无从谈起。
+	if _, err := os.Stat(filepath.Join(root, "cli", "cmd", "bald", "main.go")); err != nil {
+		t.Errorf("cli/cmd/bald/main.go 缺失：闸门失去判定对象（%v）", err)
+	}
+}
+
+// goWorkTracked 从文件名清单里挑出 go.work / go.work.sum（按 basename，子目录也算）。
+func goWorkTracked(files []string) []string {
+	var out []string
+	for _, f := range files {
+		switch filepath.Base(f) {
+		case "go.work", "go.work.sum":
+			out = append(out, filepath.ToSlash(f))
+		}
+	}
+	return out
+}
+
+// TestGoWorkIsNotTracked 钉住 B-iii 的联合开发姿势：go.work 只存在于本机，绝不进
+// 版本库。一旦提交，CI 的逐模块 go mod tidy -diff / build / vet 会优先吃到磁盘上的
+// 同仓代码，「已发布形态」的判据静默退化成「本机形态」。
+func TestGoWorkIsNotTracked(t *testing.T) {
+	// 判据本身先验活：夹具命中数不对，后面的实仓断言就是空转。
+	if got := goWorkTracked([]string{"README.md", "go.work", "cli/go.work.sum"}); len(got) != 2 {
+		t.Fatalf("goWorkTracked 夹具命中 %v，want 2 项——判据失效", got)
+	}
+	root := repoRoot(t)
+	out, err := exec.Command("git", "-C", root, "ls-files").Output()
+	if err != nil {
+		t.Fatalf("git ls-files: %v（本闸门需要版本库，无 git 检出时不要指望它绿）", err)
+	}
+	var files []string
+	for _, line := range strings.Split(string(out), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			files = append(files, line)
+		}
+	}
+	if len(files) < 100 {
+		t.Fatalf("git ls-files 只返回 %d 个文件——清单异常，本闸门已空转", len(files))
+	}
+	if got := goWorkTracked(files); len(got) > 0 {
+		t.Errorf("go.work 进了版本库 %v：应删掉并加进 .gitignore，否则 CI 的逐模块判据不再是发布形态（§3.4）", got)
 	}
 }

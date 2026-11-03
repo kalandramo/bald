@@ -1,7 +1,8 @@
 # ci-windows：Windows 周界守卫（窄口径）。不复制主 ci.yml 的全量模块
 # 清单（其数量由主 ci.yml 的 find 循环决定，随模块增删变化，不在此钉死）：
-# 每周窗口内只跑跨平台敏感的三个 module——
-#   - root：含 internal/codegen（全链路 e2e）与 pkg/appkit（装配引擎）；
+# 每周窗口内只跑跨平台敏感的四个 module——
+#   - root：docscheck（文档链接/路径的 CRLF 与分隔符口径）；
+#   - cli：代码生成与发布工具，含 CTRL_BREAK 全链路 e2e（B-iii 起自根模块拆出）；
 #   - bootstrap：装配/配置装载（含 bootstrap/config 基准包）；
 #   - contrib/authz-casbin：桥接外部引擎（casbin）的策略装载与授权路径。
 # 其余模块不触碰 Windows 特有分支（信号/控制台/路径语义），全量覆盖归
@@ -25,6 +26,10 @@ on:
 permissions:
   contents: read
 
+# 与 ci.yml 同一口径：判据必须是发布形态，go.work 不参与（见 ci.yml 的同名注释）。
+env:
+  GOWORK: "off"
+
 jobs:
   test:
     runs-on: windows-latest
@@ -41,7 +46,14 @@ jobs:
       - name: root module go test -short
         run: go test -short -timeout 10m ./...
 
+      # codegen 的 -short 全家（路径身份/分隔符/.exe 断言）原先随根模块跑，
+      # B-iii 拆出 cli 后必须单独一条——否则 Windows 上这条覆盖面静默消失。
+      - name: cli module go test -short
+        working-directory: cli
+        run: go test -short -timeout 10m ./...
+
       - name: TestTree_EndToEndTimed full-chain timed (CTRL_BREAK shutdown path)
+        working-directory: cli
         run: go test ./internal/codegen/ -run TestTree_EndToEndTimed -count=1 -timeout 20m
 
       - name: bootstrap module build + vet + test

@@ -6,12 +6,14 @@
 
 - Go 1.27+（bald `go.mod` 声明 `go 1.27.1`）
 - 一个 Go module 项目（下文假定已执行 `go mod init github.com/you/demo-svc`，按需替换）
-- 官方 CLI（一次性安装；业务代码只依赖 bald 库）。根模块 `go.mod` 带目录 `replace`，Go 拒绝把这样的发布物按命名包安装，所以只能源码检出装：
+- 官方 CLI（一次性安装；业务代码只依赖 bald 库）。CLI 住在独立 module `github.com/kalandramo/bald/cli`，源码检出装法：
 
 ```bash
 git clone https://github.com/kalandramo/bald.git
-cd bald && git checkout v0.37.0 && go install ./cmd/bald
+cd bald/cli && go install ./cmd/bald
 ```
+
+  要锁定生成器行为就 `git checkout <ref>` 再 install，但**该 ref 必须在 CLI 拆分之后**——拆分前仓库里没有 `cli/` 目录，而旧路径 `go install github.com/kalandramo/bald/cmd/bald@v0.37.0` 从来装不上（根 `go.mod` 带 19 条目录 `replace`，Go 拒绝为含 `replace` 的发布物安装命名包，见[风险评审 §3.4](../../../architecture/risk-review.md)）。`cli/vX.Y.Z` 的 tag 发出来并在代理可解析之后，可以直接 `go install github.com/kalandramo/bald/cli/cmd/bald@vX.Y.Z`，不必再走源码检出。
 
 ### 2. 声明 + 一条命令生成
 
@@ -70,8 +72,7 @@ demo-svc/
 ### 4. 拉依赖、起服务
 
 ```bash
-go get github.com/kalandramo/bald@v0.37.0
-go mod tidy
+go mod tidy     # 生成物 import 了哪些 bald 模块就拉哪些（pkg / bootstrap / bconf / berrors / health / log …），各按自己的 tag 解析
 go run ./cmd/demo-svc
 ```
 

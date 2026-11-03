@@ -1,6 +1,6 @@
 // util.go 是协调配套的纯工具函数（不依赖 App 任何状态）。
 //
-// DiffStrings 供协调逻辑做集合差；生成物（internal/codegen 模板）也经
+// DiffStrings 供协调逻辑做集合差；生成物（cli/internal/codegen 的模板）也经
 // mech.DiffStrings 调用。
 package mech
 

@@ -2,13 +2,14 @@
 // 提供 gen proto / gen store / gen app / gen domain 生成子命令，以及维护者
 // 使用的 release 发布子命令（计划 / 依赖归位 / 变更日志 / 打 tag）。
 //
-// 安装：只能从源码检出安装。根模块 go.mod 带指向目录的 replace，Go 拒绝
-// 以 go install <module>/cmd/<name>@tag 的形式安装含 replace 的发布物。
+// 安装：CLI 是独立 module github.com/kalandramo/bald/cli，其 go.mod 零 replace，
+// 因此既能从源码检出安装，也可以按 tag 安装（后者要等 cli/ 的 tag 在代理解析得到）：
 //
-//	git clone https://github.com/kalandramo/bald.git && cd bald
+//	git clone https://github.com/kalandramo/bald.git && cd bald/cli
 //	go install ./cmd/bald
 //
-// 库本身可以按 tag 引用：go get github.com/kalandramo/bald@v0.37.0
+// 库按各自的 module 路径引用（如 github.com/kalandramo/bald/pkg）；仓库根模块
+// 只剩本仓工具包，不对外提供可导入包。
 //
 // 用法：
 //
@@ -27,8 +28,8 @@ package main
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/kalandramo/bald/internal/codegen"
-	"github.com/kalandramo/bald/internal/release"
+	"github.com/kalandramo/bald/cli/internal/codegen"
+	"github.com/kalandramo/bald/cli/internal/release"
 )
 
 func main() {

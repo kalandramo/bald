@@ -44,7 +44,7 @@ func TestTree_AuthzClosedLoop(t *testing.T) {
 
 	// 1. gen app + gen domain（参考夹具；端口换空闲值，避免并发会话冲突）。
 	baldRoot := repoRoot(t) // Chdir 前取仓库根（Chdir 后 Getwd 是临时产出根）
-	tplDir := filepath.Join(baldRoot, "internal", "codegen", "testdata", "authz")
+	tplDir := filepath.Join(pkgSourceDir(t), "testdata", "authz")
 	as := guardFixture()
 	port := freePort(t)
 	as.Bootstrap.Server.Http.Addr = ":" + port
