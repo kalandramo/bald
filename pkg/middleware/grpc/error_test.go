@@ -87,3 +87,62 @@ func TestErrorInterceptor_Usable(t *testing.T) {
 		_ grpc.ServerOption           = grpc.ChainUnaryInterceptor(ErrorInterceptor())
 	)
 }
+
+// TestErrorStreamInterceptor_ConvertsBizError stream 面同样必须收口：
+// *berrors.Error 没实现 GRPCStatus()，grpc-go 对流返回错误做 status.Convert 时
+// 会把它兜成 Unknown，Code/Reason 全丢。这条断的是 RESOURCE_EXHAUSTED +
+// Reason 真的到了客户端——限流层（RateLimitStreamInterceptor）的拒绝语义完全
+// 依赖它，否则「被限流」和「服务坏了」在调用方眼里一模一样。
+func TestErrorStreamInterceptor_ConvertsBizError(t *testing.T) {
+	bizErr := berrors.ResourceExhausted(ReasonRateLimited).WithMessage("grpc: rate limit exceeded")
+
+	err := callStream(ErrorStreamInterceptor(), &fakeStream{ctx: context.Background()},
+		func(grpc.ServerStream) error { return bizErr })
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if got := status.Code(err); got != codes.ResourceExhausted {
+		t.Fatalf("code = %v, want ResourceExhausted（收口未生效即退化成 Unknown）", got)
+	}
+	recovered := grpcerr.FromStatus(status.Convert(err))
+	berr, ok := berrors.FromError(recovered)
+	if !ok || berr.Reason != ReasonRateLimited {
+		t.Fatalf("应还原出 Reason=%s，got %+v (err=%v)", ReasonRateLimited, berr, err)
+	}
+}
+
+// TestErrorStreamInterceptor_PassThroughNilAndPlain 与 unary 同口径：nil 原样
+// nil；已是 gRPC status 的错误 **保住自己的 code**（这是「不丢语义」的实质）；
+// 原生 error 的文本仍在（`grpcerr.ToStatus` 对非 *berrors.Error 走
+// `status.Convert`，落 Unknown——这与 grpc-go 自己的兜底一致，不是本层新增的损失）。
+func TestErrorStreamInterceptor_PassThroughNilAndPlain(t *testing.T) {
+	if err := callStream(ErrorStreamInterceptor(), &fakeStream{ctx: context.Background()},
+		func(grpc.ServerStream) error { return nil }); err != nil {
+		t.Fatalf("nil 应原样返回 nil, got %v", err)
+	}
+
+	want := status.Error(codes.NotFound, "gone")
+	err := callStream(ErrorStreamInterceptor(), &fakeStream{ctx: context.Background()},
+		func(grpc.ServerStream) error { return want })
+	if status.Code(err) != codes.NotFound {
+		t.Fatalf("已是 status 的错误应保住 code：got %v (err=%v)", status.Code(err), err)
+	}
+	if msg := status.Convert(err).Message(); msg != "gone" {
+		t.Errorf("message = %q, want gone", msg)
+	}
+
+	plain := errors.New("boom")
+	err = callStream(ErrorStreamInterceptor(), &fakeStream{ctx: context.Background()},
+		func(grpc.ServerStream) error { return plain })
+	if msg := status.Convert(err).Message(); msg != "boom" {
+		t.Fatalf("原生 error 的文本不该丢, got %q", msg)
+	}
+}
+
+// TestErrorStreamInterceptor_Usable 契约测试：可直接用于 ChainStreamInterceptor。
+func TestErrorStreamInterceptor_Usable(t *testing.T) {
+	var (
+		_ grpc.StreamServerInterceptor = ErrorStreamInterceptor()
+		_ grpc.ServerOption            = grpc.ChainStreamInterceptor(ErrorStreamInterceptor())
+	)
+}

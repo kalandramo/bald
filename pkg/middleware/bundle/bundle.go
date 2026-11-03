@@ -324,10 +324,50 @@ func (b *Bundle) GRPCInterceptors() []grpc.UnaryServerInterceptor {
 	return chain
 }
 
+// GRPCStreamInterceptors 返回 stream 面的拦截器链（外→内），与
+// [Bundle.GRPCInterceptors] 共用同一份依赖：
+//
+//	Error → RateLimit（仅当给了 RateLimit Option）
+//
+// 只有这两层，且这是刻意的口径，三条都得知道：
+//   - **Error 在最外层不是可选的**：*berrors.Error 没实现 `GRPCStatus()`，
+//     grpc-go 对流返回的 error 做 `status.Convert` 会把 Code/Reason 全丢成
+//     `Unknown`。少了它，被限流的调用方看不出自己是「被限流」而不是「服务坏了」。
+//   - **限流按「每条流建立一次」计费**，流内后续消息不再消耗令牌。它挡的是
+//     建流洪水，挡不了一条流里狂发（见 grpcmw.RateLimitStreamInterceptor）。
+//     与 unary 共用同一个桶，所以配额不会被两条链各扣一份。
+//   - **超时不在这里**：stream handler 的生命周期就是整条流，把 unary 式的
+//     默认超时套上去会把它静默变成「流的最大存活时长」，长订阅/watch 到点被砍
+//     且没有可区分的错误。要这个语义请显式挂
+//     grpcmw.TimeoutStreamInterceptor（自己组 grpc.ChainStreamInterceptor）。
+//   - 认证/授权/审计**不在 stream 链上**——本包的 Authn/Authz/Audit 只有 unary
+//     形态（stream 版拦截器至今不存在）。这是 §6.2 记录下来的既有边界，不是
+//     这次引入的：此前 stream 面整条链都是空的，同样没有认证。
+//
+// 返回空 slice 表示没有任何 stream 层需要挂，[Bundle.GRPCChain] 据此省略
+// ChainStreamInterceptor 这个 ServerOption，保持零配置时的选项数不变。
+func (b *Bundle) GRPCStreamInterceptors() []grpc.StreamServerInterceptor {
+	if b.rateLimiter == nil {
+		return nil
+	}
+	return []grpc.StreamServerInterceptor{
+		grpcmw.ErrorStreamInterceptor(), // 必须最外层：收口内层产生的 *berrors.Error
+		grpcmw.RateLimitStreamInterceptor(b.rateLimiter.Limiter(), b.rateLimiter.Wait()),
+	}
+}
+
 // GRPCChain 返回可直接传给 server.NewGRPCServerWithRegister 的 []grpc.ServerOption
-// （内含 ChainUnaryInterceptor 装配的整条链）。
+// （内含 ChainUnaryInterceptor 装配的整条 unary 链）。
+//
+// 给了 RateLimit 时额外附带一条 ChainStreamInterceptor（内容见
+// [Bundle.GRPCStreamInterceptors]）；未给时选项数量与以前完全一致，
+// 现有部署不受影响。
 func (b *Bundle) GRPCChain() []grpc.ServerOption {
-	return []grpc.ServerOption{grpc.ChainUnaryInterceptor(b.GRPCInterceptors()...)}
+	opts := []grpc.ServerOption{grpc.ChainUnaryInterceptor(b.GRPCInterceptors()...)}
+	if stream := b.GRPCStreamInterceptors(); len(stream) > 0 {
+		opts = append(opts, grpc.ChainStreamInterceptor(stream...))
+	}
+	return opts
 }
 
 // ginAuthn 组装 gin 认证中间件：把 bundle 的 auditor 注入 authn 层——审计中间件

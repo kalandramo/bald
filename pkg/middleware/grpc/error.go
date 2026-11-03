@@ -41,3 +41,22 @@ func ErrorInterceptor() grpc.UnaryServerInterceptor {
 		return resp, grpcerr.ToStatus(err).Err()
 	}
 }
+
+// ErrorStreamInterceptor 是 [ErrorInterceptor] 的 stream 面对偶，转换规则完全相同。
+//
+// 为什么 stream 面也需要它：grpc-go 在流结束时对返回的 error 做
+// `status.Convert(err)`，而 *berrors.Error **没有**实现 `GRPCStatus()`，
+// 于是 Code/Reason/Details 全丢、只剩文本落进 `Unknown`。没有这一层，
+// [RateLimitStreamInterceptor] 的拒绝就到客户端时已经不是
+// `RESOURCE_EXHAUSTED` 了——即「加了限流却看不出是被限流」。
+//
+// 链位同 unary：必须最外层。本包的 stream 拦截器目前只有收口与限流两个
+// （认证/授权/审计至今只有 unary 形态）。
+func ErrorStreamInterceptor() grpc.StreamServerInterceptor {
+	return func(srv any, ss grpc.ServerStream, _ *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		if err := handler(srv, ss); err != nil {
+			return grpcerr.ToStatus(err).Err()
+		}
+		return nil
+	}
+}

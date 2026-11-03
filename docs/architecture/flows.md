@@ -36,9 +36,9 @@
 
 ### gRPC 路径的差异
 
-同一 bundle，形态换成拦截器：`Error → Recovery → RequestID → Observability → Authn → Audit → Authz`（`pkg/middleware/bundle/bundle.go:224-241`）。
-- `ErrorInterceptor` 必须最外层，`RecoveryInterceptor` 紧随其后把 panic 转成 `*berrors.Internal` 再由外层收口为 gRPC status（`pkg/middleware/bundle/bundle.go:217-219`）。
-- **gRPC 链上没有 RateLimit、没有 Timeout、没有 CORS/Secure** —— 与 gin 链不对称。
+同一 bundle，形态换成拦截器：unary 链 `Error → Recovery → RequestID → Observability → Authn → Audit → Authz → RateLimit → Timeout`（`pkg/middleware/bundle/bundle.go:296-325`）；stream 链 `Error → RateLimit`，只在挂了限流时产出（`bundle.go:349-357`）。
+- `ErrorInterceptor` 必须最外层，`RecoveryInterceptor` 紧随其后把 panic 转成 `*berrors.Internal` 再由外层收口为 gRPC status（`pkg/middleware/bundle/bundle.go:282-284`）。stream 链的首层同样是 `ErrorStreamInterceptor`——少了它，限流拒绝的 `*berrors.Error` 会被 grpc-go 兜底成空 `Unknown`。
+- **RateLimit/Timeout 与 gin 同源同序，但覆盖面不同**：`bundle.RateLimit` 的同一个 limiter 实例同时喂 gin 与 gRPC（unary 逐调用、stream 逐建流），`bundle.Timeout` 只作用于 gin 与 gRPC unary——stream 面不挂默认超时，否则 unary 的 `default_timeout_ms` 会静默变成「流的最大存活时长」。gRPC 链仍没有 CORS/Secure（HTTP 专属概念）。
 - 链接入方式：`appkit.WithGRPC(register)` 声明服务注册、`appkit.WithGRPCOptions(fn)` 登记选项工厂（`pkg/appkit/bootstrap.go:79,93`）→ 阶段 B 逐工厂累加进 `bootstrap.WithGRPCUnaryFunc`（`pkg/appkit/standard.go:176-189`）→ `applyOptions` 按登记序串成一条 `[]grpc.ServerOption`（`bootstrap/server.go:81-95`）→ `transport/grpc/grpc_server.go` 构造 server。工厂在 Run 期求值，因此看得到 beforeStart 建立的运行期依赖；不再有第二条注入路径（原 `WithGRPCUnary` 值切片与 `mergeUnary` 已删）。
 - **TLS 双传输对称**：HTTP 与 gRPC 都读各自的契约段（`server.http.tls` / `server.grpc.tls`）经同一 `bconf/tlsconf.Server`（`bconf/tlsconf/tlsconf.go:26`）构造——段缺失即明文，段给 `ca` 即强制校验客户端证书。gRPC 侧额外补 `NextProtos=["h2"]`（`transport/grpc/grpc_server.go:90-97`，grpc-go ≥1.67 强制 ALPN）。网关出站按 `server.grpc.tls` 选 `credentials.NewTLS` 或明文（`transport/gateway/gateway_server.go:70-80`）。
 

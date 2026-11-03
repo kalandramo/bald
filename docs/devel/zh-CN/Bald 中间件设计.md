@@ -84,6 +84,17 @@ Recovery → RequestID → Logging → CORS → Secure → Authn → Audit → A
 Error → Recovery → RequestID → Observability → Authn → Audit → Authz → RateLimit → Timeout
 ```
 
+**gRPC stream 链（`GRPCStreamInterceptors()`，只在给了 `RateLimit` 时才产出）**：
+
+```
+Error → RateLimit
+```
+
+stream 面只有这两层，三条都是口径而非疏漏：
+- **Error 必须在最外**：`*berrors.Error` 没实现 `GRPCStatus()`，流返回的 error 交给 grpc-go 的 `status.Convert` 会把 Code/Reason 丢成 `Unknown`——被拒的调用方分不清「我被限流」还是「服务坏了」。
+- **没有 Timeout**：流 handler 的生命周期就是整条流，把 unary 的 `default_timeout_ms` 套上去等于把它静默改成「流的最大存活时长」，长订阅到点被砍且没有可区分的错误。要这个语义自己挂 `grpcmw.TimeoutStreamInterceptor`。
+- **没有 Authn/Authz/Audit**：本包这三层只有 unary 形态（stream 版拦截器至今不存在）。这是既有边界——此前 stream 面整条链为空，同样没有认证。
+
 两条链的四个**关键位置**及其理由（bundle.go 注释原文）：
 
 - **Audit 夹在 Authn 与 Authz 之间**：在 Authn 内侧（注册序靠后）才能从 ctx 读到 Authn 注入的 subject/tenant；在 Authz 外侧（注册序靠前）才能在 `c.Next()`/handler 返回后捕获 deny 的最终 result。**两个约束夹出一个位置**——这是链序里最不显然的一条。
@@ -144,9 +155,9 @@ R1 合并把两份 `observability.go` 的共性抽到 `shared`：
 | `timeout.go` | `TimeoutConfig`、`Timeout`、`DefaultTimeoutStatusCode` |
 | `tracing.go` | `Tracing` |
 
-**grpc**：`ErrorInterceptor`、`RecoveryInterceptor`、`RequestIDInterceptor`、`UnaryObservability`/`StreamObservability`、`AuthnInterceptor`、`AuthzInterceptor`、`AuditInterceptor`、`DefaulterInterceptor`、`ValidatorInterceptor`、`RateLimitInterceptor`、`TimeoutInterceptor`，各带 `With*` Option。
+**grpc**：`ErrorInterceptor`、`RecoveryInterceptor`、`RequestIDInterceptor`、`UnaryObservability`/`StreamObservability`、`AuthnInterceptor`、`AuthzInterceptor`、`AuditInterceptor`、`DefaulterInterceptor`、`ValidatorInterceptor`、`RateLimitInterceptor`、`TimeoutInterceptor`，各带 `With*` Option。流式对偶：`ErrorStreamInterceptor`、`RateLimitStreamInterceptor`、`TimeoutStreamInterceptor`，外加替换流 ctx 的 `ServerStreamWithContext`。
 
-gRPC 侧的 `RateLimitInterceptor`/`TimeoutInterceptor` 只覆盖 unary（`bundle.GRPCChain()` 产出的就是 unary 链）。流式调用要限流/超时得业务自建 stream 拦截器——框架没有，别假设它默默生效。
+`bundle.GRPCChain()` 现在同时产出 unary 与 stream 两条链（`ChainUnaryInterceptor` + 条件性的 `ChainStreamInterceptor`）。限流两面**共用同一个桶**，按「每条流建立消耗一个令牌」计费——流内后续消息不再扣，所以它挡建流洪水，不挡一条流里狂发。stream 面的超时不在 bundle 默认链上（理由见上），要挂得业务自己组。
 
 ### 顶层 tracing：零配置也有可关联日志
 

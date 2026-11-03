@@ -22,7 +22,7 @@
 | 1.2 | 本地 `task verify` 手写清单，静默跳过约 40 模块 | 低-中 | ✅ 已核对 `Taskfile.yml` | **已修**（CI 与本地共用 `scripts/list-modules.sh` 单条派生；全量 92 模块实测 exit=0） |
 | 附 | `tokenbucket.Close()` 不唤醒 `Wait`，与 gin 侧注释承诺相反 | 中 | ✅ 读源码 + 变异验证 | **已修**（`Close` 内 `close(notify)` + 幂等；判据 `TestClose_WakesBlockedWait`） |
 | 5 | `berrors` 分类法未在 transport/broker/appkit 落地 | 中 | ✅ 实测计数 | **口径已定**（选项 b：定位为边界投影模型；不改码，兜底不对称与硬规则见 §5） |
-| 6.2 | gRPC 链无限流、无超时（与 gin 链不对称） | 中 | ✅ 已核对源码 | **已修**（unary 面；契约段、stream、自动装配三项未修，见 §6.2） |
+| 6.2 | gRPC 链无限流、无超时（与 gin 链不对称） | 中 | ✅ 已核对源码 | **已修**（unary + stream 面；契约段、自动装配两项未修，见 §6.2） |
 | 6.3 | 限流位于认证之后，认证层自身不受保护 | 中 | ✅ 已核对注释与实现 | **口径已定**（保持现位置 + 落文档；不改默认的理由与自保姿势见 §6.3） |
 | 3.2 | 21 个 module 同时 require 同一库的两个 major（`// indirect`） | 低 | ✅ 脚本实测 | **已修（只读面）**：`scripts/multi-major.sh` + `task deps-multi-major`；`go list -deps` 实测确认真正同链的是 2 条，见 §3.2 |
 | 3.3 | 根 `v0.35.0` **发得出去、装不出来**：仓库里的生成物文件名让代理建不出模块 zip | **高** | ✅ `goproxy.cn` 实测 404 `create zip: malformed file path … invalid char '（'`，230 条路径逐条核对 | **已修**：`.qoder/` 导出移出版本库（磁盘副本保留），`bald release tag` 新增路径闸门（实测在坏树上拦下 230 条、落 0 个 tag）；`v0.35.0` 按「已发布不可重发」保留不用，由 `v0.36.0` 取代，见 §3.3 |
@@ -457,7 +457,7 @@ Go 源码零改动（除下面第 ① 条）。根 module 里 `pkg/` 之外唯�
 - 回归：`pkg/middleware/bundle/authn_posture_test.go`（Authn/Public/两者都不给/只给 Authz 四种判定；两个出链点对未决定出声、对已决定不出声）。
 - 未修：契约侧仍没有 authn 段（`server.*.middleware` 只有 recovery/cors/logging/request_id/tracing/rate_limit/timeout），认证器实例仍只能代码注入；`Server.Http.Middleware` 整体是「业务自取」的参考段，无框架消费者。
 
-**6.2 gRPC 链缺限流与超时（中）** ✅ 已修（unary 面）
+**6.2 gRPC 链缺限流与超时（中）** ✅ 已修（unary + stream 面）
 
 原状：`pkg/middleware/bundle/bundle.go` 的 `GRPCInterceptors()` 到 Authz 即结束，而 `Gin()` 另有 RateLimit + Timeout 两层。gRPC 面上的暴力尝试与慢 handler 没有任何框架级保护——同一对 `bundle.RateLimit`/`bundle.Timeout` Option 在 gRPC 侧被静默吃掉。
 
@@ -465,7 +465,14 @@ Go 源码零改动（除下面第 ① 条）。根 module 里 `pkg/` 之外唯�
 - 语义差别全部写在注释里而不是抹平：拒绝 = gin `429` vs gRPC `RESOURCE_EXHAUSTED`+`Reason=RATE_LIMITED`；超时 = gin 硬性提前 `503` vs gRPC 只给 handler 一个会到期的 ctx，**且绝不缩短调用方已带的 deadline**（`d<=0` 时 gRPC 省略该层，gin 照旧挂立即 503 的层——这是 gin 的既有行为，动它需要独立决策）。
 - 为什么 gRPC 超时不把 handler 丢进 goroutine 提前返回：那样 panic 会绕过外层 `RecoveryInterceptor`（只覆盖自己调用栈），进程直接崩。代价（响应不保证按时结束）如实写进注释。
 - 回归：`pkg/middleware/grpc/timeout_test.go`(6) + `ratelimit_test.go`(6) 逐条钉住上述语义；`pkg/middleware/bundle/grpc_contract_test.go`(6) 钉住链上真实生效——含「配额耗尽时授权拒绝仍以 `PERMISSION_DENIED` 返回」（限流确在授权之后）与「被限流的调用不穿过超时层」（Timeout 确在最内层）。三处判据均按变异验证会失败：删 deadline 保留分支 / 删非正值守卫 / 删 `defer cancel()` / 删 `err != nil` 拒绝 / 把 bundle 两处 `append` 短路。
-- 未修（三项，都不是这次能顺手收的）：① **契约不对称仍在**——`Server.Grpc.Middleware` 没有 rate_limit/timeout 段，「写 gRPC 配置就能限流」依然不成立，gRPC 吃到的是 HTTP 那一段的 Option；补段要动 proto 并重发 `bconf`。② **stream 拦截器没有**——`GRPCChain()` 只出 unary 链，流式调用的限流/超时要业务自建。③ **bundle 的 gRPC 链没有自动装配**——std server 构造不吃 bundle，业务必须显式 `appkit.WithGRPCOptions(b.GRPCChain()...)`；把链默认塞进 std 服务器会连带改变 §6.1 的认证姿态默认，属行为变更。
+- 已修（stream 面）：`GRPCChain()` 此前只出 unary 链，流式调用**整条链是空的**——限流、超时没有，连认证也没有。
+  - 新增 `grpcmw.RateLimitStreamInterceptor(limiter, wait)`、`grpcmw.TimeoutStreamInterceptor(d)`（+ `ServerStreamWithContext`，替换流 ctx 必须包一层）、`grpcmw.ErrorStreamInterceptor()`；bundle 侧出 `(*Bundle).GRPCStreamInterceptors()`，链为 `Error → RateLimit`。
+  - **零配置零开销的口径延续**：`GRPCChain()` 只在给了 `RateLimit` 时追加 `ChainStreamInterceptor` 这一个 ServerOption；没给时选项数与之前完全一致。
+  - 计费口径：**每条流建立消耗一个令牌**，流内后续消息不扣。挡建流洪水，不挡一条流里狂发。与 unary **共用同一个桶**，不会两条链各扣一份配额。
+  - **stream 超时刻意不进 bundle 默认链**：unary 的 `default_timeout_ms` 套在流上会静默变成「流的最大存活时长」，长订阅/watch 到点被砍且没有可区分的错误。要这个语义得业务自己挂 `TimeoutStreamInterceptor`。
+  - 保留的既有边界（不是这次引入）：Authn/Authz/Audit 只有 unary 形态，stream 链上仍没有认证层——此前 stream 面整条为空，同样没有认证。
+  - 回归：`pkg/middleware/grpc/{ratelimit,timeout,error}_test.go` 的 stream 用例（每流一令牌、与 unary 共享桶、wait 收到的是流 ctx 且取消即刻拒、`d<=0` 不挂、不缩短调用方 deadline、handler 返回即 cancel、错误原样透传）；`bundle/grpc_stream_contract_test.go`（链位、未配置时选项数、"unary 超时不漏进流"）；`bundle/grpc_stream_server_test.go`（真 `grpc.NewServer(b.GRPCChain()...)` + 真 client 的端到端拒绝）。八处变异逐个落地复核均为红：删 stream Error 层 / 删限流层 / 无条件挂 `ChainStreamInterceptor` / 超时不包装流 ctx / 去 nil 守卫 / 去拒绝分支 / 不发 stream option / e2e 删 Error 层（客户端实测收到 `code = Unknown desc = code: 8, reason: RATE_LIMITED`，正是这条收口必须存在的理由）。
+- 未修（两项，都不是这次能顺手收的）：① **契约不对称仍在**——`Server.Grpc.Middleware` 没有 rate_limit/timeout 段，「写 gRPC 配置就能限流」依然不成立，gRPC 吃到的是 HTTP 那一段的 Option；补段要动 proto 并重发 `bconf`。② **bundle 的 gRPC 链没有自动装配**——std server 构造不吃 bundle，业务必须显式 `appkit.WithGRPCOptions(b.GRPCChain()...)`；把链默认塞进 std 服务器会连带改变 §6.1 的认证姿态默认，属行为变更。stream 面同样依赖这次动的只是「链的产出」，装配点未变。
 
 - 附带修掉一处真缺陷：`tokenbucket.Close()` 过去只置 `closed`，从不写 `notify`，而 `pkg/middleware/gin/ratelimit.go` 承诺「`Close` 会唤醒阻塞在 `Wait` 的调用者」——停机时 `wait=true` 的请求会挂到自己那轮 `time.After(wait)` 到期（rate 低时是小时级）。现在 `Close` 在锁内 `close(notify)` 并以 `closed` 保证幂等。判据 `TestClose_WakesBlockedWait`（冻结时钟 + `rate=0.0001`，wait 算出约一万秒，`Close` 后必须 2 秒内返回）；原有 `TestClose_WaitReturnsErrAfterClose` 通过是因为 `New(1,1)` 的 wait 恰好 1 秒，**不是因为唤醒生效**。
 
@@ -610,7 +617,7 @@ Go 源码零改动（除下面第 ① 条）。根 module 里 `pkg/` 之外唯�
 6. **给 §2 的未接线面做决策** ✅ 口径已定：reference-only 保留 + README/当前架构 §6 标注；其中 **Discovery 走的是选项 1（接线）而不是标注**——`transport/gateway` 出站现在真消费 `GetService`/`Watch`（见 §2「接线半」）。retry/circuitbreaker 的 bundle 层与「移出发布批次」仍按 §2「刻意没做」留给 owner。
 7. **`berrors` 边界口径**（§5）✅ 选 (b)：定位为边界投影模型，不改码。**Discovery 消费侧**（§2）已做——watch-based resolver + 装配作用域自动派生来源，消费方只改一行配置。
 8. **抽离 appkit 契约面，把适配器从「require 聚合根」解耦**（§3.1）✅ 已落地（owner 选定 C-A：整个 `pkg/` 成 module，非最小面）：require 根的适配器 22→0，`task verify` 全绿。收益按实测收窄——`replace` 数量不降反升（410→423，那句旧表述已撤回），真正消掉的只有「本仓工具的改动不再产出适配器要追的根 tag」；发版批次待 owner。
-9. **gRPC 链补限流与超时**（§6.2）✅ unary 面：`RateLimitInterceptor`/`TimeoutInterceptor` + bundle 两侧共用同一对 Option，当场揪出并修掉 `tokenbucket.Close()` 不唤醒 `Wait` 的真缺陷。剩 stream 面、gRPC 独立契约段、自动装配三项（见 §6.2「未修」）。
+9. **gRPC 链补限流与超时**（§6.2）✅ unary 面：`RateLimitInterceptor`/`TimeoutInterceptor` + bundle 两侧共用同一对 Option，当场揪出并修掉 `tokenbucket.Close()` 不唤醒 `Wait` 的真缺陷。✅ stream 面：`GRPCStreamInterceptors()` 出 `Error → RateLimit`，`GRPCChain()` 仅在给了限流时附带 stream 选项；按「每流建立一令牌」计费、与 unary 同桶、超时按口径不默认挂。剩 gRPC 独立契约段、自动装配两项（见 §6.2「未修」）。
 10. **限流链序**（§6.3）✅ 口径已定：保持「认证之后」，落文档；改默认会把按 subject 的配额静默变成全局配额。顺带修掉设计文档里写反的链序。
 11. **文档漂移闸门**（§8）✅ 清单半：`module-list` 围栏 + 双向断言 + 与脚本逐行比对（三条变异实测）。「描述已删除 API」半仍未覆盖。
 12. **依赖卫生只读报告**（§3.2）✅：`scripts/multi-major.sh` + `task deps-multi-major`，再用 `go list -deps` 把「是否真同链」从推测改成证据；不加 exclude/replace。

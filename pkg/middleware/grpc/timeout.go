@@ -40,3 +40,50 @@ func TimeoutInterceptor(d time.Duration) grpc.UnaryServerInterceptor {
 		return handler(ctx, rq)
 	}
 }
+
+// TimeoutStreamInterceptor 给 stream 调用挂服务端默认超时，规则与
+// [TimeoutInterceptor] 逐条相同（不腰斩调用方的 deadline、d<=0 等同不装配、
+// 到期只体现在 handler 可见的 ctx 上、不把 handler 丢进 goroutine 提前返回）。
+// 区别在于 ctx 要经 [ServerStreamWithContext] 换进流本身，否则 handler 里
+// `ss.Context()` 拿到的还是原来那个没有截止期的上下文。
+//
+// **它不在 bundle 的默认 stream 链上，这是有意的**：stream handler 的生命周期
+// 就是整条流，所以「一个 d」在 unary 上是请求超时，在流上会静默变成
+// 「流的最大存活时长」——一条订阅/watch/双向会话到点就被砍。HTTP 侧那段
+// `server.http.middleware.timeout` 的语义是「单次请求」，把它原样套到流上
+// 等于替业务做一个它没做过的决定，而且长流被砍不报错、只表现为「流莫名结束」。
+// 要这个语义就显式挂它（自己组 grpc.ChainStreamInterceptor）：
+//
+//	grpc.ChainStreamInterceptor(grpcmw.TimeoutStreamInterceptor(30*time.Second))
+//
+// 真想要「按活动计而不按总时长计」的空闲超时（idle），那是另一种旋钮
+// （每次 Recv/Send 成功就重置截止期），不在本层；放在这里会让「timeout」
+// 一个字段同时表达两种完全不同的预算，业务无法预期。
+func TimeoutStreamInterceptor(d time.Duration) grpc.StreamServerInterceptor {
+	return func(srv any, ss grpc.ServerStream, _ *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		if d <= 0 {
+			return handler(srv, ss)
+		}
+		ctx := ss.Context()
+		if _, ok := ctx.Deadline(); ok {
+			return handler(srv, ss)
+		}
+		ctx, cancel := context.WithTimeout(ctx, d)
+		defer cancel()
+		return handler(srv, ServerStreamWithContext(ss, ctx))
+	}
+}
+
+// ServerStreamWithContext 返回一个只替换 Context() 的 grpc.ServerStream 视图。
+// 其余方法（SetHeader/SendMsg/RecvMsg…）全部内嵌委托给 ss 本身，因此包装
+// 不改变流的收发行为——只有取上下文的动作换了来源。
+func ServerStreamWithContext(ss grpc.ServerStream, ctx context.Context) grpc.ServerStream {
+	return &streamContext{ServerStream: ss, ctx: ctx}
+}
+
+type streamContext struct {
+	grpc.ServerStream
+	ctx context.Context
+}
+
+func (s *streamContext) Context() context.Context { return s.ctx }

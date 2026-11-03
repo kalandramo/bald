@@ -31,7 +31,7 @@ const ReasonRateLimited = "RATE_LIMITED"
 //
 // 未覆盖：[ratelimit.InflightLimiter] 的 `Done(rtt)` 配对上报（BBR 自适应需要）。
 // gin 侧同样没做，两面口径保持一致；要用 BBR 的 RTT 反馈得在链外自行配对，
-// 别指望这里。stream 拦截器也不在本层范围（bundle 目前只出 unary 链）。
+// 别指望这里。stream 面见 [RateLimitStreamInterceptor]。
 func RateLimitInterceptor(l ratelimit.Limiter, wait bool) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, rq any, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		if l == nil {
@@ -53,5 +53,43 @@ func RateLimitInterceptor(l ratelimit.Limiter, wait bool) grpc.UnaryServerInterc
 			return nil, berrors.ResourceExhausted(ReasonRateLimited).WithMessage("grpc: rate limit exceeded")
 		}
 		return handler(ctx, rq)
+	}
+}
+
+// RateLimitStreamInterceptor 是 [RateLimitInterceptor] 的 stream 面对偶，与它
+// 共用同一个 limiter，所以一条流与一次 unary 调用扣的是同一份配额——不会出现
+// 「HTTP 打满了，gRPC 流还能无限建」这种半边漏风的限流。
+//
+// 计费口径：**每条流建立时扣一个令牌，之后不再计**。这不是偷懒，是这一层的
+// 语义边界——stream 拦截器只在流建立时被调用一次，handler 里的
+// Send/Recv 循环在它之下自由运行。要按消息限流属于业务层的背压
+// （或 [ratelimit.InflightLimiter] 的 inflight 口径），别指望这里：一条长活
+// 流（订阅、watch、双向会话）此后占用多少消息都不再消耗令牌。后果要清楚：
+// 洪水型「建了就断」的流会被这一层挡住，洪水型「一条流里狂发」的不会。
+//
+// wait=true 时排队用的是 ss.Context()，客户端断开即退出等待（与 unary 同）。
+// 拒绝的错误形态与 unary 完全一致：RESOURCE_EXHAUSTED + [ReasonRateLimited]，
+// 经链首 [ErrorStreamInterceptor] 收口后可跨服务还原。
+func RateLimitStreamInterceptor(l ratelimit.Limiter, wait bool) grpc.StreamServerInterceptor {
+	return func(srv any, ss grpc.ServerStream, _ *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		if l == nil {
+			return handler(srv, ss)
+		}
+		if wait {
+			if err := l.Wait(ss.Context()); err != nil {
+				return berrors.ResourceExhausted(ReasonRateLimited).
+					WithMessage("grpc: rate limit stream wait failed: %v", err).WithCause(err)
+			}
+			return handler(srv, ss)
+		}
+		ok, err := l.Allow()
+		if err != nil {
+			return berrors.ResourceExhausted(ReasonRateLimited).
+				WithMessage("grpc: rate limiter unavailable: %v", err).WithCause(err)
+		}
+		if !ok {
+			return berrors.ResourceExhausted(ReasonRateLimited).WithMessage("grpc: rate limit exceeded")
+		}
+		return handler(srv, ss)
 	}
 }
