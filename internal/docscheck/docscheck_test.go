@@ -5,6 +5,7 @@ package docscheck
 
 import (
 	"bytes"
+	"fmt"
 	"net/url"
 	"os"
 	"os/exec"
@@ -665,5 +666,163 @@ func TestNoModuleRequiresAggregateRoot(t *testing.T) {
 	}
 	if checked < 50 {
 		t.Fatalf("只检查了 %d 个非根 module，明显低于仓库实际数量——派生已空转", checked)
+	}
+}
+
+// goInstallRe 匹配代码围栏内的 `go install <path>@<version>` 行。围栏是文档承诺
+// 「复制即可跑」的边界：正文里用内联 code 引用同一条命令往往是在说明它失败
+// （《用 bald CLI 起步新服务》§2 正是这么写的），那种不算承诺。
+var goInstallRe = regexp.MustCompile(`^[ \t]*go[ \t]+install[ \t]+(\S+@\S+)`)
+
+// goModReplaceCount 数 go.mod 里的 replace 指令条数：单行 `replace a => b` 与
+// `replace ( … )` 块内每一行都算。Go 的判据只看条数是否大于 0，与某条 replace
+// 是否真被 build 用到无关，所以这里也只数不筛。
+func goModReplaceCount(raw []byte) int {
+	inBlock, n := false, 0
+	for _, line := range strings.Split(string(raw), "\n") {
+		f := strings.Fields(line)
+		if len(f) == 0 {
+			continue
+		}
+		if inBlock {
+			if f[0] == ")" {
+				inBlock = false
+				continue
+			}
+			n++
+			continue
+		}
+		if f[0] != "replace" {
+			continue
+		}
+		if f[len(f)-1] == "(" {
+			inBlock = true
+			continue
+		}
+		n++
+	}
+	return n
+}
+
+// installViolations 返回全部 Markdown 代码围栏里「指向本仓 module、而该 module 的
+// go.mod 含 replace」的 `go install <path>@<ver>` 行。Go 安装命名包时会抓取目标
+// module 的**已发布** go.mod，只要有任何 replace 指令就直接拒绝（本机 Go 1.27.1 的
+// cmd/go/internal/load/pkg.go：`if len(f.Replace) > 0`），因此这种命令永远装不上。
+// 根模块因 19 条同仓 replace 中招的实况见 risk-review.md §3.4。
+func installViolations(root string) ([]string, error) {
+	mods := derivedModules(root)
+	counts := make(map[string]int, len(mods))
+	var out []string
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			switch d.Name() {
+			case ".git", ".qoder", "node_modules", "vendor":
+				// .qoder/ 是知识中心的导出物，已 gitignore、随时重生成，
+				// 闸门管不到它，也不能让它把仓库自己的文档判红。
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if filepath.Ext(path) != ".md" {
+			return nil
+		}
+		src, err := readText(path)
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			rel = path
+		}
+		rel = filepath.ToSlash(rel)
+		inFence := false
+		for i, line := range strings.Split(string(src), "\n") {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
+				inFence = !inFence
+				continue
+			}
+			if !inFence {
+				continue
+			}
+			m := goInstallRe.FindStringSubmatch(trimmed)
+			if m == nil {
+				continue
+			}
+			dir := moduleOfImport(strings.SplitN(m[1], "@", 2)[0], mods)
+			if dir == "" {
+				continue // 外部 module，不在本闸范围
+			}
+			if _, ok := counts[dir]; !ok {
+				raw, err := readText(filepath.Join(root, filepath.FromSlash(dir), "go.mod"))
+				if err != nil {
+					return err
+				}
+				counts[dir] = goModReplaceCount(raw)
+			}
+			if counts[dir] > 0 {
+				out = append(out, fmt.Sprintf("%s:%d: go install %s → 本仓 module %s（其 go.mod 有 %d 条 replace，Go 拒绝为它安装命名包，见 risk-review.md §3.4）",
+					rel, i+1, m[1], dir, counts[dir]))
+			}
+		}
+		return nil
+	})
+	return out, err
+}
+
+// TestDocsInstallsAreReplaceFree 钉住「文档给的安装命令真的装得上」：仓库 Markdown
+// 的围栏里不得出现指向含 replace 之本仓 module 的 go install。
+func TestDocsInstallsAreReplaceFree(t *testing.T) {
+	violations, err := installViolations(repoRoot(t))
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	for _, v := range violations {
+		t.Errorf("%s", v)
+	}
+}
+
+// TestInstallGateJudgesReplacesNotPaths 锚定判据本身，两个方向都要有：含 replace 的
+// 目标必须红（把命令改成合法路径、但 module 仍带 replace 也不行）、零 replace 的
+// 目标必须绿、外部 module 与围栏外的命令不参与。缺了后半，这条闸会退化成
+// 「凡本仓 module 一律红」；缺了前半，它会在扫描器失效时空转。
+func TestInstallGateJudgesReplacesNotPaths(t *testing.T) {
+	root := t.TempDir()
+	write := func(rel, content string) {
+		t.Helper()
+		path := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("go.mod", "module github.com/kalandramo/bald\n\ngo 1.27.1\n\nreplace github.com/kalandramo/bald/bconf => ./bconf\n")
+	write("bconf/go.mod", "module github.com/kalandramo/bald/bconf\n\ngo 1.27.1\n")
+	write("docs/guide.md", strings.Join([]string{
+		// 围栏外的裸命令与内联 code 一样只是正文引用，不构成「复制即可跑」的承诺。
+		"go install github.com/kalandramo/bald/cmd/bald@v0.36.0",
+		"正文里的 `go install github.com/kalandramo/bald/cmd/bald@v1.0.0` 是在说明它装不上，不算承诺。",
+		"```bash",
+		"go install github.com/kalandramo/bald/cmd/bald@v1.0.0",
+		"go install github.com/kalandramo/bald/bconf@v0.17.0",
+		"go install github.com/hibiken/asynq/tools/asynq@latest",
+		"go install ./cmd/bald",
+		"```",
+	}, "\n"))
+
+	violations, err := installViolations(root)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if len(violations) != 1 {
+		t.Fatalf("want exactly 1 violation, got %v", violations)
+	}
+	if !strings.Contains(violations[0], "docs/guide.md:4") || !strings.Contains(violations[0], "cmd/bald@v1.0.0") {
+		t.Fatalf("violation should name the fenced root-module target, got %q", violations[0])
 	}
 }
