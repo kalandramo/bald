@@ -153,7 +153,10 @@ type App struct {
 
 	// startedCh 在启动完成（afterStart 与首次协调之后、进入主等待之前）关闭，
 	// 供测试与内部协调判断「已进入运行态」——固定短延迟在慢机器上会落在
-	// waitForEndpoints 窗口内，取消被当成启动失败。
+	// waitForEndpoints 窗口内（真实 gRPC server 在 net.Listen 完成前
+	// Endpoint() 为空，慢机器上这个窗口可以到几百毫秒）。
+	// 该窗口内的取消现在按正常停机退出（见 abortStartup）；本通道未导出，
+	// 外部消费者判「运行态」仍只能等自己声明的每个 server 端口都可连。
 	startedCh   chan struct{}
 	startedOnce sync.Once
 
@@ -599,6 +602,10 @@ func (a *App) Run(ctx context.Context) error {
 	defer a.doneOnce.Do(func() { close(a.done) })
 	defer a.cfg.closeStore() // 释放配置监听资源（fsnotify watcher）
 
+	// callerCtx 保留调用方传进来的 ctx：下一行就用 WithCancel 遮蔽了形参，
+	// 而启动失败分支自己会 cancel()——派生 ctx 此后恒为已取消，读不出
+	// 「调用方取消」与「框架主动取消」的区别（abortStartup 的判据要用它）。
+	callerCtx := ctx
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -647,18 +654,22 @@ func (a *App) Run(ctx context.Context) error {
 	if err := a.waitForEndpoints(gctx); err != nil {
 		cancel()
 		a.stopAll(context.Background())
-		a.runErr.Store(err)
-		log.Error(ctx, "appkit wait for endpoints failed", "error", err)
-		return err
+		if abort := a.abortStartup(callerCtx, g, err); abort != nil {
+			log.Error(ctx, "appkit wait for endpoints failed", "error", abort)
+			return abort
+		}
+		return nil
 	}
 
 	// 服务注册（使用 Endpoint 解析后的真实地址，支持 :0 动态端口）。
 	if err := a.register(gctx); err != nil {
 		cancel()
 		a.stopAll(context.Background())
-		a.runErr.Store(err)
-		log.Error(ctx, "appkit register failed", "error", err)
-		return err
+		if abort := a.abortStartup(callerCtx, g, err); abort != nil {
+			log.Error(ctx, "appkit register failed", "error", abort)
+			return abort
+		}
+		return nil
 	}
 	if a.registrarValue() != nil {
 		log.Info(ctx, "appkit registered",
@@ -671,9 +682,11 @@ func (a *App) Run(ctx context.Context) error {
 			cancel()
 			logDeregister(ctx, a.deregister(context.Background()))
 			a.stopAll(context.Background())
-			a.runErr.Store(err)
-			log.Error(ctx, "appkit afterStart hook failed", "error", err)
-			return err
+			if abort := a.abortStartup(callerCtx, g, err); abort != nil {
+				log.Error(ctx, "appkit afterStart hook failed", "error", abort)
+				return abort
+			}
+			return nil
 		}
 	}
 
@@ -713,6 +726,32 @@ func (a *App) Run(ctx context.Context) error {
 	}
 	log.Info(ctx, "appkit stopped")
 	return nil
+}
+
+// abortStartup 归类「启动序列（servers 已并发启动之后）某一步失败」的结局，
+// 由 Run 的端点等待/服务注册/afterStart 三处失败分支调用；调用方已做完
+// cancel 与 stopAll，本函数只负责判据与记账。三条判据按优先级：
+//
+//  1. servers 里有非取消的启动错误 → 返回它。这是必需的：errgroup 在任一
+//     Start 失败时取消 gctx，端点等待/注册/钩子随即报「context canceled」，
+//     真实失败（如 bind 端口冲突）会被那句文案整条抹掉。
+//  2. 调用方 ctx（callerCtx）已取消 → 返回 nil：SIGTERM 打在仍在启动的进程上
+//     是常规停机，与主等待一侧对 context.Canceled 的过滤同口径，不是装配错误。
+//     判据必须读调用方的 ctx——启动失败分支先调了 cancel()，派生 ctx 此后恒为已取消。
+//  3. 其余（端点等待超时、注册/钩子自身的失败）→ 原样返回。
+//
+// g.Wait 必须在 stopAll 之后调用：gRPC 的 Start 只在 Server 被 Stop 后才返回，
+// 先 Wait 会死等。
+func (a *App) abortStartup(callerCtx context.Context, g *errgroup.Group, stepErr error) error {
+	if serr := g.Wait(); serr != nil && !errors.Is(serr, context.Canceled) {
+		a.runErr.Store(serr)
+		return serr
+	}
+	if callerCtx.Err() != nil {
+		return nil
+	}
+	a.runErr.Store(stepErr)
+	return stepErr
 }
 
 // stopAll 分五阶段优雅停机：

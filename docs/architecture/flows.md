@@ -63,7 +63,7 @@
 - HTTP：`Shutdown`（`transport/http/http_server.go:92-94`）
 - `runHook` 会 recover panic（`pkg/appkit/appkit.go:753-761`）
 
-健壮性上这是全仓最成熟的一块（CAS 重入保护、逐阶段独立预算派生）。曾经的裂缝 `_ = a.deregister(...)` 吞错与「5s 端点上界/hook 超时不可配」均已修：反注册失败经 `logDeregister` 上报（`pkg/appkit/appkit.go:671,702`），端点等待与钩子预算统一由 `phaseBudgetFor`（`pkg/appkit/types.go:11`）从 `app.stop_timeout` 派生，调用方 ctx 带截止期时以它为准（`pkg/appkit/appkit.go:829`）。见 `risk-review.md` §4。
+健壮性上这是全仓最成熟的一块（CAS 重入保护、逐阶段独立预算派生）。曾经的裂缝 `_ = a.deregister(...)` 吞错与「5s 端点上界/hook 超时不可配」均已修：反注册失败经 `logDeregister` 上报（`pkg/appkit/appkit.go`），端点等待与钩子预算统一由 `phaseBudgetFor`（`pkg/appkit/types.go:11`）从 `app.stop_timeout` 派生，调用方 ctx 带截止期时以它为准（`waitForEndpoints`）。启动窗口内「调用方取消」与「某个 server 启动崩溃」也不再共用一条 `wait for endpoints canceled` 文案——三处失败分支（端点等待/服务注册/afterStart 钩子）经 `abortStartup` 分级：崩溃优先返回真实错误，调用方取消按正常停机退出 `nil`。见 `risk-review.md` §4。
 
 ---
 

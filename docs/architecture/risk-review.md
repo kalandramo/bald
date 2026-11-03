@@ -31,6 +31,7 @@
 | 3.4 | 官方 CLI **文档里的安装方式从未装成功过**：`go install …/cmd/bald@tag` 被 Go 直接拒绝 | 中 | ✅ `v0.31.0`/`v0.36.0`/`v0.37.0` 三个 tag 实测同一条错误；判据取自本机 Go 1.27.1 源码 `load/pkg.go` | **已修（走 B）**：CLI 拆成独立 module `github.com/kalandramo/bald/cli`，`cli/go.mod` 零 `replace`，另加两条机器闸门（`TestCliModuleIsReplaceFree`/`TestGoWorkIsNotTracked`）；`cli/v0.1.0` 已于 2026-11-03 发出，零 `replace` 夹具实测 `go install …/cli/cmd/bald@v0.1.0` 装得上、生成的骨架跑得起来，五处文档改回默认按 tag，见 §3.4 |
 | 4.1 | 停机期 `_ = deregister(...)` 吞错 | 低-中 | ✅ 已核对源码 | **已修** |
 | 4.2 | 端点上界 5s、hook 超时 5s 为常量（Stop 超时本身可配） | 低 | ✅ 已核对源码 | **已修** |
+| 4.4 | 启动窗口内「调用方取消」与「server 启动崩溃」共用一条 `wait for endpoints canceled` 文案：前者被当装配错误退出，后者真实失败被整条抹掉 | 中 | ✅ 本机两条确定性用例先红后绿；bald-admin 装配 e2e 在共享 runner 上红过一次（run `41675043918`），报的就是这句 | **已修**：`abortStartup` 三判据分级，见 §4.4 |
 | 8 | `docscheck` 只校验链接完整性，测不出描述过期 | 低 | ✅ 已核对测试 | **已修（清单半）**：`module-list` 围栏 + 双向断言 + 与脚本逐行比对，三条变异实测；「描述已删除 API」半仍未覆盖，见 §8 |
 
 ---
@@ -59,9 +60,9 @@ race 该覆盖的形态）、`broker/kafka`、`contrib/*` 全部缺席，而 `me
 - 扩范围立刻抓到的第一个真 bug 在 `transport/graphql`（此前从未被 race 覆盖）：
   `Start()` 在调用方 goroutine 里写 `s.listener` / `s.server`（`transport/graphql/server.go:116-119`），
   `Stop()`（`:141-148`）与 `Endpoint()`（`:152-163`）却无同步地读。接进装配面就命中：
-  `Start` 跑在 `pkg/appkit/appkit.go:627` 的 `g.Go` 里，端点等待（`:634` → `waitForEndpoints` 轮询 `s.Endpoint()`，`:829`）
+  `Start` 跑在 `pkg/appkit/appkit.go` 的 `Run` 里那个 `g.Go`，端点等待（`waitForEndpoints` 轮询 `s.Endpoint()`）
   在同一个 goroutine 上并发读；停机阶段每个 server 的 `Stop` 也各自起 goroutine
-  （`pkg/appkit/appkit.go:736`）。改法：`mu sync.RWMutex`
+  （`stopAll` 的 server 停止阶段）。改法：`mu sync.RWMutex`
   只保护这两个运行期字段（`:63`），`Serve`/`Shutdown` 改用局部 `hs`；测试里三处
   「固定 sleep + 直接读 `srv.listener`」换成轮询 `Endpoint()` 判就绪，中间件用例的
   共享变量 `headerSeen` 换成 channel 传递。
@@ -448,6 +449,7 @@ Go 源码零改动（除下面第 ① 条）。根 module 里 `pkg/` 之外唯�
   - 最小路径端到端：用**这个从代理装来的 CLI**在 `/tmp` 空目录跑 README 的那份 appspec → `bald gen app --spec appspec.json` → 生成的 `go.mod` 0 条 `replace` → `go mod tidy` 解析到 `pkg v0.2.1` 等 11 个本仓模块 → `go build ./...` 通过 → `go run ./cmd/demo-svc` 起 2 个 server → `curl :8080/healthz` 返 200。「文档给的命令装得上」与「装上之后生成的东西跑得起来」是两件事，这次两件都验了。
   - 远端：`ci` run 41659194548（head `d4396185`）五作业 `lint`/`test`/`race`/`vuln`/`integration` 全 success；本轮改过的 `windows.yml` 另手动 dispatch 一轮 run 41663096754 → success（它只有 cron 与手动两个入口，不补这一轮，`working-directory: cli` 与新增的 cli 测试步骤要等到下周一才第一次真跑）。
 - 发版当轮新记录的代理陷阱（写进了《用 bald CLI 起步新服务》§2）：同一时刻 `cli/v0.1.0` 在 goproxy.cn 是 200，`pkg/v0.2.1` 与根 `v0.37.1` 却先返 `temporarily unavailable`（goproxy.io 三者都 200）。滞后期内 `go get github.com/kalandramo/bald/pkg@v0.2.1` 报的不是「找不到版本」，而是 `module github.com/kalandramo/bald@v0.2.1 found, but does not contain package github.com/kalandramo/bald/pkg`——根模块历史里有 v0.1.0…v0.2.9 这批同名 tag，子模块没被索引时路径解析就落到父模块。这是遮蔽，不是 tag 丢了；换代理或等索引即可，别照字面去「修 pkg」。
+- 外部消费者侧的兑现（B-iii PR3，2026-11-04，bald-admin `6d117a3`）：下游仓库改成**零 `replace`、全按 tag 消费**，三个新事实只在真实下游才暴露：① 旧路径 `go run github.com/kalandramo/bald/cmd/bald` 在消费者侧报 `no required module provides package github.com/kalandramo/bald/cmd/bald; to add it: go get …`——拆分对下游是**破面**，凡是指向旧路径的 `go run`/`go install` 都要改成 `…/cli/cmd/bald`（bald-admin 三处：`Taskfile.yml` 的 `gen:domain`/`gen:check` 与 `backend.yml` 的 Domain manifest in sync）。② 迁移是**替换**：`go mod tidy` 会把根模块 `github.com/kalandramo/bald` 的 require 判成不需要而删掉（下游 import 的全是子模块路径，`appkit` 在 `bald/pkg`）。③ **CLI 是纯工具依赖时 tidy 看不见它**：`bald/cli` 不是任何源码的 import，`go mod why` 报「main module does not need package」，tidy 因此删掉它的 require、`go run` 当场断——bald-admin 用 `backend/tools/tools.go`（build tag `tools` 的 blank import）钉住版本。这是「发布工具发自己滞后一代」之外**另一条没预见到**的代价，任何同仓 CLI 的消费者都会撞上。
 - 仍未复跑（如实记下）：本机到 github 直连不通，`git clone` 那半段端到端仍没跑过。它现在只影响备选姿势那一半——默认路径（按 tag 装）已在本机走通，且 Go 的判据与 clone 无关。
 - 已证（远端）：`e4a61bb`（含 `TestDocsInstallsAreReplaceFree` 的 `d1765b5` 与五处文档改动）的 GitHub run 41632332664 五作业 `test`/`integration`/`lint`/`vuln`/`race` 全部 success。它前一个 head `34ac420` 那轮（41631889618）按 `concurrency` + `cancel-in-progress` 被取消，当时无 tag 待打，作废绿证没有代价。
 - 一处刻意不动的过期引用：`bconf/proto/bald/appspec/v1/appspec.proto:109` 的注释仍写 `internal/codegen`。改它要重跑 `buf generate` 并把 `bconf` 拖进本轮发版，而 `bconf/v*` 的 tag 会触发 BSR 契约推送——为一条注释动用共享状态不值。`bconf/gen/**` 是生成物，手改必与 `TestGeneratedMatchesProto`（本机因 `buf` 不在 PATH 而 Skip）对不上，所以只能整体重生成，不能就地补。
@@ -456,16 +458,24 @@ Go 源码零改动（除下面第 ① 条）。根 module 里 `pkg/` 之外唯�
 
 ## 4. 并发与生命周期
 
-**先说好的部分**：`appkit.Run` 是全仓成熟度最高的代码——CAS 重入保护、`Resolve` fail-fast、errgroup 启动失败级联取消、`:0` 端口轮询带 5s 上界、`stopAll` 五阶段带逐阶段独立超时、`runHook` recover panic（`pkg/appkit/appkit.go:561-703,715-750,753-761`）。停机用未取消的新 ctx（`:692-693` 注释明确解释了为什么不能用被取消的信号 ctx）。
+**先说好的部分**：`appkit.Run` 是全仓成熟度最高的代码——CAS 重入保护、`Resolve` fail-fast、errgroup 启动失败级联取消、`:0` 端口轮询带上界、`stopAll` 五阶段带逐阶段独立超时、`runHook` recover panic（`pkg/appkit/appkit.go` 的 `Run`/`stopAll`/`runHook`）。停机用未取消的新 ctx（`Run` 主等待之后那个 `stopAll` 调用点的注释明确解释了为什么不能用被取消的信号 ctx）。
 
 **4.1 停机期吞掉反注册错误** ✅ 已修 原状：`pkg/appkit/appkit.go` 两处 `_ = a.deregister(context.Background())`（主停机路径与 afterStart 失败路径），失败时注册中心的残留条目不可见，后果是流量继续打到已停实例——恰是它想避免的事。
-- 消解：`logDeregister(ctx, err)`（`pkg/appkit/appkit.go:868-874`）在两个调用点记录 `appkit deregister failed` + 底层错误，返回值语义不变（停机期没有可返回错误的调用方）。回归由 `pkg/appkit/deregister_log_test.go` 固化：经真实装配路径（`StandardLoggerProvider` + buffer handler）断言两条路径各出一条含底层错误的日志，且 `Run` 仍返回 `nil` / afterStart 原错误。
+- 消解：`logDeregister`（`pkg/appkit/appkit.go`）在两个调用点记录 `appkit deregister failed` + 底层错误，返回值语义不变（停机期没有可返回错误的调用方）。回归由 `pkg/appkit/deregister_log_test.go` 固化：经真实装配路径（`StandardLoggerProvider` + buffer handler）断言两条路径各出一条含底层错误的日志，且 `Run` 仍返回 `nil` / afterStart 原错误。
 
 **4.2 端点上界与 hook 超时不可配** ✅ 已修 原状：`waitForEndpoints` 的 5s 是函数内常量；`defaultHookTimeout = 5 * time.Second` 封顶 before/afterStop 钩子，而 `appkit.StopTimeout(d)`（→ `Decl.StopTimeout` → `stopTimeout`，契约默认 30s）本身是可配的——于是唯一的可调入口管不到这些阶段。
 - 影响：慢监听（如需要初始化大量连接的 broker transport）会中止启动而无调整入口；慢钩子同理。
-- 消解（已落地，未新增 Option）：删掉 `defaultHookTimeout`，阶段预算统一由 `phaseBudgetFor(stopTimeout) = stopTimeout/2` 派生（`pkg/appkit/types.go:13-22`）——钩子（`appkit.go:715-750`）、单条 undo、组件 Start/Dispose（`decl.go:221-240` 缺省即派生，显式声明优先）、端点等待四处同缩放；端点等待另优先取调用方 ctx 的截止期（`appkit.go:810-822`），框架不缩短调用方给的预算。回归见 `pkg/appkit/phase_budget_test.go`（含「stopTimeout 200ms → 100ms 上界报错」这条对旧实现的反证）。
+- 消解（已落地，未新增 Option）：删掉 `defaultHookTimeout`，阶段预算统一由 `phaseBudgetFor(stopTimeout) = stopTimeout/2` 派生（`pkg/appkit/types.go:13-22`）——`stopAll` 的钩子阶段、单条 undo、组件 Start/Dispose（`newFromDecl` 缺省即派生，显式声明优先）、端点等待四处同缩放；端点等待另优先取调用方 ctx 的截止期（`waitForEndpoints` 的 `ctx.Deadline()` 分支），框架不缩短调用方给的预算。回归见 `pkg/appkit/phase_budget_test.go`（含「stopTimeout 200ms → 100ms 上界报错」这条对旧实现的反证）。
 
 **4.3 registry 心跳** ✅ 未见泄漏：`registry/etcd/registry.go:245-324` 的 `heartBeat` 有 `maxRetry` 上界（`:258`）、重试循环与各等待点都检查 `ctx.Done`（`:259,277,294`）、`stopCtx` 也参与 select（`:320`），cancel handle 在 mutex 下跟踪并在 `Deregister` 关闭（`:163-181`）。残余风险仅在 clientv3 `KeepAlive` 阻塞超过 cancel，属推测。
+
+**4.4 启动窗口内的取消与真实启动失败同文案** ✅ 已修 原状：`Run` 在 servers 并发启动后要等端点定型（`waitForEndpoints`），而这个窗口对任何带 gRPC 面的进程都真实存在——`transport/grpc` 的 `Endpoint()` 在 `net.Listen` 完成前返回空串，慢机器上可到几百毫秒。窗口内 `gctx` 被取消有两条来源，旧实现只有一条文案 `appkit: wait for endpoints canceled: context canceled`：
+- 调用方取消（SIGTERM 打在仍在启动的进程）——主等待一侧早已把 `context.Canceled` 当正常停机，启动一侧却当装配错误返回，同一个信号因落地时刻差几毫秒而结局不同；
+- errgroup 因某个 server 的 `Start` 失败而取消 gctx——真实失败（如端口 bind 冲突）被这句「取消」整条抹掉，日志与返回值都不含它。
+- 发现路径：bald-admin 的装配 e2e（`cmd/bald-admin/app/assembly_e2e_test.go`）在 GitHub 共享 runner 上红过一次（run `41675043918`），本地 `-count=30` 复现不了；`Serve` 直接返回错误、不经 `MustServe` 的 stderr 兜底，故整轮 CI 除了那句文案没有任何线索。
+- 消解：`abortStartup(callerCtx, g, stepErr)`（`pkg/appkit/appkit.go`）在三处失败分支（端点等待 / 服务注册 / afterStart 钩子）统一分级——先 `g.Wait()` 取非取消的 server 错误（必须在 `stopAll` 之后：gRPC 的 `Start` 只在 Server 被 Stop 后才返回），其次 `callerCtx.Err() != nil` 判「调用方取消」返回 `nil`，其余（等待超时、注册/钩子自身失败）原样返回。判据读的是**调用方**的 ctx：分支自己会 `cancel()`，被遮蔽的派生 ctx 此后恒为已取消，读不出区别。
+- 回归：`pkg/appkit/boot_cancel_test.go` 两条确定性用例（不等机器快慢：一个端点永不定型的 server + 调用方 50ms 取消 / 另一个 server 直接 `Start` 返回 boom）。两条各自只被一条判据打中——去掉 `g.Wait` 那条只红崩溃用例，去掉 `callerCtx` 那条只红取消用例，实测各红一次后恢复。
+- 残余（如实记下，不是已解决）：① `beforeStart` 钩子与 `startComponents` 两处窗口（errgroup 尚未建立）内取消仍按错误退出——那里不存在「崩溃被掩盖」的问题，是否统一成「取消即正常停机」是口径决策，未单方面改；② 这三处的 `log.Error` 仍在 `stopAll` 之后，而 logger 效应在停机时把全局后端还原为 nop，故该日志**必然被吞**（生产 main 走 `MustServe` → `reportServeFailure` 有 stderr 兜底，直接调 `Serve` 的测试路径没有）；③ 外部消费者没有「已进入运行态」的可等信号——`App.startedCh` 未导出，`Serve` 也不交回 App 句柄，判据只能退到「自己声明的每个 server 端口都可连」。
 
 ---
 
@@ -475,7 +485,7 @@ Go 源码零改动（除下面第 ① 条）。根 module 里 `pkg/` 之外唯�
 - 全仓非测试文件 import `berrors`：**13 个**（`berrors/` 自身除外）。
 - `transport/http`：**0**　`broker/kafka`：**0**　`pkg/appkit`：**0**
 - 同期 `transport` + `broker` + `pkg` 三个目录下非测试文件里 `fmt.Errorf` **278** 处、`errors.New` **102** 处。
-- appkit 直接返回裸包装错误，如 `appkit.go:829` `fmt.Errorf("appkit: servers not ready within %s …")`。
+- appkit 直接返回裸包装错误，如 `waitForEndpoints` 里的 `fmt.Errorf("appkit: servers not ready within %s …")`。
 
 例外（说明能力是真的）：`transport/web` 统一经 `berrors.FromError` + `httperr.CodeToHTTP` 映射并兜底 INTERNAL（`transport/web/response.go:56-93`）；gRPC 有集中式 `grpcmw.ErrorInterceptor`（链首，`pkg/middleware/bundle/bundle.go:298`）。
 
