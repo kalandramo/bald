@@ -25,6 +25,7 @@
 | 6.2 | gRPC 链无限流、无超时（与 gin 链不对称） | 中 | ✅ 已核对源码 | **已修**（unary 面；契约段、stream、自动装配三项未修，见 §6.2） |
 | 6.3 | 限流位于认证之后，认证层自身不受保护 | 中 | ✅ 已核对注释与实现 | **口径已定**（保持现位置 + 落文档；不改默认的理由与自保姿势见 §6.3） |
 | 3.2 | 21 个 module 同时 require 同一库的两个 major（`// indirect`） | 低 | ✅ 脚本实测 | **已修（只读面）**：`scripts/multi-major.sh` + `task deps-multi-major`；`go list -deps` 实测确认真正同链的是 2 条，见 §3.2 |
+| 3.3 | 根 `v0.35.0` **发得出去、装不出来**：仓库里的生成物文件名让代理建不出模块 zip | **高** | ✅ `goproxy.cn` 实测 404 `create zip: malformed file path … invalid char '（'`，230 条路径逐条核对 | **已修**：`.qoder/` 导出移出版本库（磁盘副本保留），`bald release tag` 新增路径闸门（实测在坏树上拦下 230 条、落 0 个 tag）；`v0.35.0` 按「已发布不可重发」保留不用，由 `v0.35.1` 取代，见 §3.3 |
 | 4.1 | 停机期 `_ = deregister(...)` 吞错 | 低-中 | ✅ 已核对源码 | **已修** |
 | 4.2 | 端点上界 5s、hook 超时 5s 为常量（Stop 超时本身可配） | 低 | ✅ 已核对源码 | **已修** |
 | 8 | `docscheck` 只校验链接完整性，测不出描述过期 | 低 | ✅ 已核对测试 | **已修（清单半）**：`module-list` 围栏 + 双向断言 + 与脚本逐行比对，三条变异实测；「描述已删除 API」半仍未覆盖，见 §8 |
@@ -374,6 +375,29 @@ Go 源码零改动（除下面第 ① 条）。根 module 里 `pkg/` 之外唯�
 - **把「二进制里到底链了几个」这一条从推测变成证据**（原「未测」项）：`go list -deps ./...` 在根 module 与 `_example/bald` 各自展开后，`go.yaml.in/yaml/v2` + `/v3` **与** `pelletier/go-toml` + `/v2` 都真的同时进入依赖集——即同一二进制确实链接两套实现；`cenkalti/backoff/v5`、`nacos-sdk-go/v1` 则没有（被 MVS 剪掉），`tea-utils` 两个 major 都不在根的依赖图里（只在 `require` 清单里挂着）。
 - 因此优先级口径落定：值得跟的不是「require 里并存」（43 条里多数是上游 SDK 传递），而是**「`go list -deps` 同时命中两个 major」这 2 条**——它们是能观测到行为差异/类型互不兼容的那一类。后续新增按此判据筛。
 - 刻意没做：不加 `exclude`/`replace`（与上游 SDK 冲突，且会掩盖真实传递链）；不把报告接进 CI 阻断（它今天 43 条全属已知，接成闸门只会让 CI 长期红）。
+
+**3.3 发布出去的版本装不出来：模块 zip 的文件名判据不在任何闸门里**（高，已修）
+
+- 现象：`bald release` 打出 30 个 tag 后做外部装载校验，`goproxy.cn` 对根模块回
+  `404 not found: create zip: .qoder/repowiki/knowledge/zh/Bald 框架仓库根（契约与适配器生态）/…: malformed file path …: invalid char '（'`。
+  同一时刻本地 `task verify` 全量绿、远端 `ci` 五作业全绿——**这条路径没有任何闸门覆盖**：Go 的
+  build/vet/test 都不校验文件名能否进模块 zip，只有代理在建 zip 时校验。
+- 判据（权威出处，不是镜像私有规则）：`golang.org/x/mod/module` 的 `fileNameOK`——ASCII 只放行字母数字
+  与 `!#$%&()+,-.=@[]^_{}~ `，非 ASCII **必须是 `unicode.IsLetter`**。中文汉字过关（是字母类），
+  全角括号 `（）`、顿号 `、` 不过关（标点类）。官方代理与所有镜像同一条判据，所以这不是国内镜像特例。
+- 范围实测：`git ls-tree -r v0.35.0` 共 1662 条路径，其中 **230 条不合规，全部落在 `.qoder/` 下**（知识中心
+  导出的目录名带全角括号），非 `.qoder` 的不合规路径 0 条。所以只污染**根模块**：其余 29 个子模块的子树
+  里没有这些路径，逐个问代理已实测 25 个 `HTTP 200` 可装载，剩下的是回源延迟（`temporarily unavailable`）
+  而非 zip 问题。`v0.34.1` 早于导出提交，所以 `v0.35.0` 是首个被污染的根 tag。
+- 修法（两层）：① `.qoder/` 加进 `.gitignore` 并 `git rm -r --cached`——只脱离索引，磁盘副本保留；
+  生成物本就不该进发布模块的文件树。② `bald release tag` 加路径闸门（`internal/release/tag.go`
+  的 `checkZipPaths`）：按 `plan.Changes` 的模块归属，把 `HEAD` 每个待发模块的文件路径逐段过判据，
+  不合规即拒绝且**一个 tag 都不落**。判据用 stdlib 复刻而非 require `x/mod`——根模块的兄弟 require
+  刚收到 0（§3.1），不值得为一个发布期检查再引入依赖，代价是上游若放宽需人工跟。
+- 验活（不是只跑单测）：把新 `tag.go` 放到 `9cf17db` 那份坏的文件树上跑 `release plan && release tag`，
+  输出 `230 条文件路径进不了模块 zip`、`git tag --points-at HEAD` 为 0，与独立脚本的 230 条计数一致。
+- `v0.35.0` 怎么处理：按「tag 一经推送不可重发」保留，不做删除也不移动（代理缓存的失败记录删不干净，
+  移动会让已缓存它的下游拿到错版）；由 `v0.35.1` 取代，本条即是它的出处说明。
 
 ---
 
