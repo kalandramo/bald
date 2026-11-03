@@ -4,7 +4,7 @@ go 1.27.1
 
 require (
 	github.com/kalandramo/bald-crud/gorm v0.3.0
-	github.com/kalandramo/bald/bconf v0.16.0
+	github.com/kalandramo/bald/bconf v0.17.0
 )
 
 require (

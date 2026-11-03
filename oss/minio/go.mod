@@ -3,9 +3,9 @@ module github.com/kalandramo/bald/oss/minio
 go 1.27.1
 
 require (
-	github.com/kalandramo/bald/bconf v0.16.0
+	github.com/kalandramo/bald/bconf v0.17.0
 	github.com/kalandramo/bald/log v0.5.4
-	github.com/kalandramo/bald/pkg v0.1.0
+	github.com/kalandramo/bald/pkg v0.2.0
 	github.com/minio/minio-go/v7 v7.3.0
 )
 
@@ -89,7 +89,7 @@ require (
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/kalandramo/bald/bconfig v0.2.2 // indirect
-	github.com/kalandramo/bald/bootstrap v0.13.5 // indirect
+	github.com/kalandramo/bald/bootstrap v0.13.6 // indirect
 	github.com/kalandramo/bald/health v0.1.1 // indirect
 	github.com/kalandramo/bald/registry v0.4.0 // indirect
 	github.com/kalandramo/bald/transport v0.4.0 // indirect

@@ -3,9 +3,9 @@ module github.com/kalandramo/bald/contrib/config-nacos
 go 1.27.1
 
 require (
-	github.com/kalandramo/bald/bconf v0.16.0
-	github.com/kalandramo/bald/bootstrap v0.13.5
-	github.com/kalandramo/bald/pkg v0.1.0
+	github.com/kalandramo/bald/bconf v0.17.0
+	github.com/kalandramo/bald/bootstrap v0.13.6
+	github.com/kalandramo/bald/pkg v0.2.0
 )
 
 require (

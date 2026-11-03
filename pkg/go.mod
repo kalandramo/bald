@@ -32,9 +32,9 @@ require (
 	github.com/gin-gonic/gin v1.12.0
 	github.com/google/uuid v1.6.0
 	github.com/kalandramo/bald-crud/viewer v0.3.0
-	github.com/kalandramo/bald/bconf v0.16.0
-	github.com/kalandramo/bald/berrors v0.1.1
-	github.com/kalandramo/bald/bootstrap v0.13.5
+	github.com/kalandramo/bald/bconf v0.17.0
+	github.com/kalandramo/bald/berrors v0.1.2
+	github.com/kalandramo/bald/bootstrap v0.13.6
 	github.com/kalandramo/bald/health v0.1.1
 	github.com/kalandramo/bald/log v0.5.4
 	github.com/kalandramo/bald/ratelimit v0.1.0

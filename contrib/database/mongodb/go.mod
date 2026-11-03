@@ -4,7 +4,7 @@ go 1.27.1
 
 require (
 	github.com/kalandramo/bald-crud/mongodb v0.3.0
-	github.com/kalandramo/bald/bconf v0.16.0
+	github.com/kalandramo/bald/bconf v0.17.0
 )
 
 require (
@@ -13,7 +13,7 @@ require (
 	github.com/kalandramo/bald-crud/viewer v0.3.0 // indirect
 	github.com/kalandramo/bald-utils v0.1.0 // indirect
 	github.com/kalandramo/bald-utils/mapper v0.1.0 // indirect
-	github.com/kalandramo/bald/berrors v0.1.1 // indirect
+	github.com/kalandramo/bald/berrors v0.1.2 // indirect
 	github.com/kalandramo/bald/encoding v0.1.0 // indirect
 	github.com/kalandramo/bald/encoding/json v0.1.1 // indirect
 	github.com/kalandramo/bald/log v0.5.4 // indirect

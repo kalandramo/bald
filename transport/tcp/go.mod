@@ -15,7 +15,7 @@ replace github.com/kalandramo/bald/transport => ..
 require (
 	github.com/kalandramo/bald/encoding v0.1.0
 	github.com/kalandramo/bald/metrics v0.1.2
-	github.com/kalandramo/bald/pkg v0.1.0
+	github.com/kalandramo/bald/pkg v0.2.0
 	github.com/kalandramo/bald/transport v0.4.0
 	go.opentelemetry.io/otel v1.46.0
 	go.opentelemetry.io/otel/trace v1.46.0

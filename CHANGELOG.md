@@ -6,6 +6,46 @@
 
 ## 2026-11-03
 
+### bald v0.37.0
+
+- `57f3b099` docs(architecture): §10 项 9 更新发版批次现值（5 个模块，bootstrap 入批）
+- `8b83ccd7` docs: §7.7 收口——env 多词契约键从「走不通」改成可复制即跑的写法
+- `b5748896` test(bconfig/file): §7.8 收口——逐值断言换成三条时序无关的不变量
+- `63235718` docs(architecture): 更正 §3.1 发版状态与本轮破面的归属
+- `0a0d8622` docs(architecture): §10 项 9 登记发版前置的 release plan 现值
+- `7a0767be` docs(architecture): 登记 §7.8 假红灯与 §7.7 补全，行号引用换成符号名
+- `fc64f3c2` docs(middleware,appkit): §6.2③ 收口——「框架不读 middleware 段」的旧口径全线作废
+- `2d094ca8` feat(codegen): 两面脚手架改吃契约段 + _example 端到端实证限流
+- `99462a70` feat(middleware,bconf): gRPC 契约段补 rate_limit/timeout（§6.2 未修项①）
+- `f2a8652b` feat(middleware): gRPC stream 面补限流与超时（§6.2 未修项②）
+- `51aa0048` docs(architecture): §3.3 补发版后的外部装载校验实测
+
+> **破坏性变更**（本区间的提交都没带 `!` 或 `BREAKING CHANGE:` 页脚，所以工具不会给这些条目挂 (breaking) 徽标，破面只能在正文里显式写）：seeded 的 `internal/apiserver.NewRouter` 签名从 `func() *gin.Engine` 变成 `func(mw *bootstrapv1.Server_Http_Middleware) (http.Handler, func() error, error)`，gRPC 面新增 seeded 的 `newGRPCChain(mw)`。存量生成工程**重跑 `bald gen app` 后编译失败**——有意如此，让「配置写了不生效」必须经过一次显式改写而不是静默降级。迁移三步见《代码生成工具设计》§8；改完后 `server.{http,grpc}.middleware` 两段由框架读取，继续用 `WithHTTP`/`WithGRPCOptions` 自建链的工程仍在 API 面上，但那两个段对其不生效。
+
+### bconf v0.17.0
+
+- `ca4fb343` fix(bconf,bootstrap): env 多词契约键在合树前折回规范名（§7.7）
+- `99462a70` feat(middleware,bconf): gRPC 契约段补 rate_limit/timeout（§6.2 未修项①）
+
+### berrors v0.1.2
+
+- `ca6d1c2d` fix(berrors): grpcerr.ToStatus 不再把 ctx 截止期兜成 Unknown
+- `b910c0f6` docs(comments): 清理 Go 注释与测试名中的缺陷编号和历史叙事
+- `ed2e4440` docs: 全仓去除来源引用，只留取舍理由与功能设计
+- `843d3d2a` chore: 清理注释中的批次/排期/迁移痕迹——只留代码逻辑注释
+
+### bootstrap v0.13.6
+
+- `ca4fb343` fix(bconf,bootstrap): env 多词契约键在合树前折回规范名（§7.7）
+
+### pkg v0.2.0
+
+- `fc64f3c2` docs(middleware,appkit): §6.2③ 收口——「框架不读 middleware 段」的旧口径全线作废
+- `b149fbf7` feat(appkit): 契约钩子求值两面装配，server.*.middleware 段有了消费者（§6.2 未修项③）
+- `99462a70` feat(middleware,bconf): gRPC 契约段补 rate_limit/timeout（§6.2 未修项①）
+- `f2a8652b` feat(middleware): gRPC stream 面补限流与超时（§6.2 未修项②）
+- `9cf17db1` chore: 发布 30 个模块（含根 v0.35.0）
+
 ### bald v0.36.0
 
 - `e0894924` docs(architecture): §3.3 的补救版本号对齐计划实算的 v0.36.0
