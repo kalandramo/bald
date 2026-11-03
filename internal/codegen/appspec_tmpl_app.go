@@ -141,15 +141,16 @@ func Options() []appkit.Option {
 {{- if .HasGRPC}}
 	// gRPC 能力声明：service 注册（业务 TODO；域 service 经 Domain.Services
 	// 并入注册回调——业务在前、域按声明序在后）。拦截器链与 TLS 不在这里：
-	// 链序是安全策略、归业务自持，写在 custom.go 的 customOptions 里用
-	// appkit.WithGRPCOptions 登记（ErrorInterceptor 须挂最外层）；TLS 由框架
-	// 从契约 server.grpc.tls 段出。
+	// 链序是安全策略、归业务自持，写在 custom.go 的 newGRPCChain 里经
+	// appkit.WithGRPCOptionsContract 按契约 server.grpc.middleware 段构造
+	// （ErrorInterceptor 须挂最外层）；TLS 由框架从契约 server.grpc.tls 段出。
 	opts = append(opts, appkit.WithGRPC(registerGRPCService))
 {{- end}}
 {{- if .HasHTTP}}
-	// HTTP 能力声明：业务 handler 由 apiserver.NewRouter 提供（生成一次、
-	// 归用户维护的装配钩子）；域路由经 appkit.Domain.Routes 挂到同一 handler。
-	opts = append(opts, appkit.WithHTTP(apiserver.NewRouter()))
+	// HTTP 能力声明：业务 handler 由 apiserver.NewRouter 提供（生成一次、归用户
+	// 维护的装配钩子，签名是契约钩子——按 server.http.middleware 段配链）；
+	// 域路由经 appkit.Domain.Routes 挂到同一 handler。
+	opts = append(opts, appkit.WithHTTPContract(apiserver.NewRouter))
 {{- end}}
 {{- if .HasGateway}}
 	// 网关转码面（契约 server.http.driver=grpc-gateway）：REST → gRPC。
@@ -198,7 +199,8 @@ func Options() []appkit.Option {
 		opts = append(opts, appkit.WithGRPC(registerGRPCService))
 {{- end}}
 {{- if .HasHTTP}}
-		opts = append(opts, appkit.WithHTTP(apiserver.NewRouter()))
+		// HTTP 面按契约钩子出（apiserver.NewRouter 读 server.http.middleware 段）。
+		opts = append(opts, appkit.WithHTTPContract(apiserver.NewRouter))
 {{- end}}
 {{- if .HasGateway}}
 		// 该角色的 HTTP 端口由转码面承载（接管 server.http 段，声明在

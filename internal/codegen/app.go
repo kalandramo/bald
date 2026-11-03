@@ -162,6 +162,7 @@ func roleContracts(as *appspecv1.AppSpec, bs *bootstrapv1.BootstrapConfig, base 
 		}
 		roleBs := proto.Clone(bs).(*bootstrapv1.BootstrapConfig)
 		roleBs.Server = projectServer(sv)
+		inheritMiddleware(roleBs.Server, bs.GetServer())
 		cy, err := contractGate(as, roleBs)
 		if err != nil {
 			return nil, fmt.Errorf("role %q: %w", slot.Name, err)
@@ -169,6 +170,30 @@ func roleContracts(as *appspecv1.AppSpec, bs *bootstrapv1.BootstrapConfig, base 
 		cfgs[slot.Name] = cy
 	}
 	return cfgs, nil
+}
+
+// inheritMiddleware 把 AppSpec.bootstrap.server 的两段 middleware 继承进角色的
+// server 段：角色的 server 快捷方式只投影 addr/driver 的取舍，横切链的配置不在
+// 其中。不继承就是「在 bootstrap 里配了限流，角色契约文件里静默消失」——配置面
+// 与链之间又缺一次调用，正是 WithHTTPContract / WithGRPCOptionsContract 要消灭
+// 的那类静默。
+//
+// 只在角色真开了那个面时继承：转码面（driver=grpc-gateway）接管 server.http 但
+// 不挂 gin 链，把 HTTP 的 middleware 段带进它的契约就是「写进契约却没有消费者」。
+func inheritMiddleware(roleSrv, baseSrv *bootstrapv1.Server) {
+	if roleSrv == nil || baseSrv == nil {
+		return
+	}
+	if h := roleSrv.GetHttp(); h != nil && h.Driver == "" {
+		if mw := baseSrv.GetHttp().GetMiddleware(); mw != nil {
+			h.Middleware = proto.Clone(mw).(*bootstrapv1.Server_Http_Middleware)
+		}
+	}
+	if g := roleSrv.GetGrpc(); g != nil {
+		if mw := baseSrv.GetGrpc().GetMiddleware(); mw != nil {
+			g.Middleware = proto.Clone(mw).(*bootstrapv1.Server_Grpc_Middleware)
+		}
+	}
 }
 
 // roleServer 返回指定角色声明的 server 快捷方式（不存在时返回 nil = 继承）。

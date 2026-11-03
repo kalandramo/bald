@@ -25,5 +25,17 @@ registry:
 server:
     grpc:
         addr: :9090
+        middleware:
+            rate_limit:
+                burst: 200
+                rate: 1000
+            timeout:
+                default_timeout_ms: 5000
     http:
         addr: :8080
+        middleware:
+            rate_limit:
+                burst: 200
+                rate: 1000
+            request_id:
+                header_name: x-request-id

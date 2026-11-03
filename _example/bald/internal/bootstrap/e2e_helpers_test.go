@@ -20,6 +20,14 @@ import (
 
 func startRole(t *testing.T, role string) (grpcAddr, httpAddr string, stop func()) {
 	t.Helper()
+	return startRoleWithConfig(t, role, "")
+}
+
+// startRoleWithConfig 与 startRole 同构，额外接受一份契约文件覆盖
+// （appkit.ConfigFile 追加在 Options(role) 之后：同名单值字段末者胜）；
+// cfg 为空则用角色自己的 configs/<app>-<role>.yaml。
+func startRoleWithConfig(t *testing.T, role, cfg string) (grpcAddr, httpAddr string, stop func()) {
+	t.Helper()
 
 	t.Chdir("../..")
 
@@ -36,9 +44,14 @@ func startRole(t *testing.T, role string) (grpcAddr, httpAddr string, stop func(
 		t.Setenv("BALD_DEMO_SERVER_HTTP_ADDR", httpAddr)
 	}
 
+	opts := Options(role)
+	if cfg != "" {
+		opts = append(opts, appkit.ConfigFile(cfg))
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
-	go func() { errCh <- appkit.Serve(ctx, Options(role)...) }()
+	go func() { errCh <- appkit.Serve(ctx, opts...) }()
 
 	stop = func() {
 		cancel()

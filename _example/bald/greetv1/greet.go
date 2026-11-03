@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"buf.build/go/protovalidate"
 	"github.com/gin-gonic/gin"
@@ -22,8 +23,13 @@ import (
 )
 
 // greeter 是 greet 域的核心能力：问候前缀来自 biz.greet.greeting。
+//
+// delay 是演示旋钮（biz.greet.delay）：让 handler 真的占住一段时间，
+// server.*.middleware.timeout 段才有可观测的行为——秒回的 handler 无论
+// 超时接没接线都返回 200，那条链就成了「配了不生效且不吭声」。
 type greeter struct {
 	greeting string
+	delay    time.Duration
 }
 
 func (g *greeter) Greet(name string) string {
@@ -45,33 +51,60 @@ func currentGreeter() *greeter {
 
 type domainConfig struct {
 	greeting string
+	delay    time.Duration
 }
 
-func readOwnConfig(app *appkit.App) domainConfig {
+func readOwnConfig(app *appkit.App) (domainConfig, error) {
 	c := domainConfig{greeting: "hello"}
 	biz, ok := app.Settings()["biz"].(map[string]any)
 	if !ok {
-		return c
+		return c, nil
 	}
 	m, ok := biz["greet"].(map[string]any)
 	if !ok {
-		return c
+		return c, nil
 	}
 	if v, ok := m["greeting"].(string); ok && v != "" {
 		c.greeting = v
 	}
-	return c
+	// 键名写作 delay（不含下划线）：env 覆盖把下划线一律当路径分隔符，
+	// delay_ms 会被切成 delay.ms 落进业务子树——契约字段有折叠匹配兜底，
+	// 业务键没有。
+	if v, ok := m["delay"].(string); ok && v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return c, fmt.Errorf("greetv1: biz.greet.delay %q: %w", v, err)
+		}
+		c.delay = d
+	}
+	return c, nil
 }
 
 // wire 是 biz 节点（domain.greet.biz）的执行体，同时是热更协调体。
 func wire(_ context.Context, app *appkit.App) error {
-	cfg := readOwnConfig(app)
-	port.Store(&greeter{greeting: cfg.greeting})
+	cfg, err := readOwnConfig(app)
+	if err != nil {
+		return err
+	}
+	port.Store(&greeter{greeting: cfg.greeting, delay: cfg.delay})
 	return nil
 }
 
-func sayHello(ctx context.Context, name string) string {
-	return currentGreeter().Greet(name)
+// sayHello 按 biz.greet.delay 占用一段时间，并让调用方的截止期说话：
+// 到期即返回 ctx.Err()（经链首 ErrorInterceptor 收口成 DEADLINE_EXCEEDED），
+// 而不是傻等到 delay 满了再回一份「迟到但成功」。
+func sayHello(ctx context.Context, name string) (string, error) {
+	g := currentGreeter()
+	if g.delay > 0 {
+		timer := time.NewTimer(g.delay)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	}
+	return g.Greet(name), nil
 }
 
 type greetService struct {
@@ -79,11 +112,19 @@ type greetService struct {
 }
 
 func (s *greetService) Greet(ctx context.Context, req *baldv1.GreetRequest) (*baldv1.GreetResponse, error) {
-	return &baldv1.GreetResponse{Greet: sayHello(ctx, req.GetName())}, nil
+	msg, err := sayHello(ctx, req.GetName())
+	if err != nil {
+		return nil, err
+	}
+	return &baldv1.GreetResponse{Greet: msg}, nil
 }
 
 func (s *greetService) GreetGet(ctx context.Context, req *baldv1.GreetGetRequest) (*baldv1.GreetResponse, error) {
-	return &baldv1.GreetResponse{Greet: sayHello(ctx, req.GetName())}, nil
+	msg, err := sayHello(ctx, req.GetName())
+	if err != nil {
+		return nil, err
+	}
+	return &baldv1.GreetResponse{Greet: msg}, nil
 }
 
 func registerService(s *grpc.Server) {

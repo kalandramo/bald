@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	appspecv1 "github.com/kalandramo/bald/bconf/gen/go/bald/appspec/v1"
+	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
 )
 
 // appspec_roles_test.go 钉 Gate1 的 roles 校验块。负面用例缺一不可：
@@ -366,5 +367,58 @@ func TestTree_RoleFanoutCompiles(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(dir, p)); err != nil {
 			t.Errorf("生成树缺少 %s: %v", p, err)
 		}
+	}
+}
+
+// TestTree_MiddlewareInheritedByRoles 钉住横切链配置的角色继承：角色的
+// server 快捷方式只投影 addr/driver，middleware 两段必须从 AppSpec.bootstrap
+// 继承进每份角色契约——否则「在 AppSpec 里配了限流」在角色契约文件里静默消失，
+// 配置面与链之间又缺一次调用（WithHTTPContract/WithGRPCOptionsContract 要消灭
+// 的正是这类静默）。
+//
+// 反面同样要钉：转码面（driver=grpc-gateway）不挂 gin 链，HTTP 的 middleware
+// 段不得进它的契约——「写进契约却没有消费者」和不继承一样坏。
+func TestTree_MiddlewareInheritedByRoles(t *testing.T) {
+	as := rolesOn(
+		&appspecv1.RoleSpec{Name: "api", Domains: []string{"greet"},
+			Server: &appspecv1.ServerSpec{Http: true, HttpAddr: ":18080", Grpc: true, GrpcAddr: ":19090"}},
+		&appspecv1.RoleSpec{Name: "task", Server: &appspecv1.ServerSpec{Grpc: true, GrpcAddr: ":19091"}},
+		&appspecv1.RoleSpec{Name: "gw", Server: &appspecv1.ServerSpec{Gateway: true, HttpAddr: ":18081"}},
+	)
+	as.Bootstrap = contractBootstrap(as)
+	as.Bootstrap.Server = &bootstrapv1.Server{
+		Http: &bootstrapv1.Server_Http{Middleware: &bootstrapv1.Server_Http_Middleware{
+			RateLimit: &bootstrapv1.Server_Http_Middleware_RateLimit{Rate: 50, Burst: 10},
+		}},
+		Grpc: &bootstrapv1.Server_Grpc{Middleware: &bootstrapv1.Server_Grpc_Middleware{
+			Timeout: &bootstrapv1.Server_Grpc_Middleware_Timeout{DefaultTimeoutMs: 800},
+		}},
+	}
+	if errs := validateAppSpec(as); len(errs) != 0 {
+		t.Fatalf("夹具必须通过 Gate1:\n%s", joinErrs(errs))
+	}
+	files, _ := renderAppTree(t, as)
+
+	apiCfg := fileAt(t, files, "configs", "demoapp-api.yaml")
+	for _, want := range []string{"rate_limit:", "rate: 50", "burst: 10", "timeout:", "default_timeout_ms: 800"} {
+		if !strings.Contains(apiCfg, want) {
+			t.Errorf("api 契约必须继承两面配置段 %q，got:\n%s", want, apiCfg)
+		}
+	}
+
+	taskCfg := fileAt(t, files, "configs", "demoapp-task.yaml")
+	if !strings.Contains(taskCfg, "default_timeout_ms: 800") {
+		t.Errorf("纯 gRPC 角色必须继承 grpc 链配置，got:\n%s", taskCfg)
+	}
+	if strings.Contains(taskCfg, "rate_limit") {
+		t.Errorf("该角色没有 HTTP 面，不得带进 http 链配置，got:\n%s", taskCfg)
+	}
+
+	gwCfg := fileAt(t, files, "configs", "demoapp-gw.yaml")
+	if !strings.Contains(gwCfg, "driver: grpc-gateway") {
+		t.Errorf("网关角色契约必须投影 driver，got:\n%s", gwCfg)
+	}
+	if strings.Contains(gwCfg, "middleware") {
+		t.Errorf("转码面不挂 gin 链，middleware 段不得进它的契约，got:\n%s", gwCfg)
 	}
 }

@@ -6,6 +6,9 @@ package codegen
 // bootstrapCustomTmpl 是 internal/bootstrap/custom.go（生成一次，归用户维护）：
 // 自定义接线扩展的唯一落点。生成物只调用钩子、从不覆盖本文件——这是
 // 「AppSpec 表达不了的接线」与「生成物确定性」并存的方式（设计 §7.3）。
+//
+// gRPC 面的契约链钩子（newGRPCChain）也落在这里：与 HTTP 面的 apiserver.NewRouter
+// 对称——链序是安全策略、归业务自持，但链的参数来自契约 server.grpc.middleware 段。
 var bootstrapCustomTmpl = `// Package bootstrap 的自定义接线（bald gen app 生成一次，此后归你维护；
 // 重生成跳过本文件）。
 //
@@ -14,15 +17,63 @@ var bootstrapCustomTmpl = `// Package bootstrap 的自定义接线（bald gen ap
 // 收敛在本文件——装配的声明面仍然只有 Options() 一个入口。
 package bootstrap
 
-import "github.com/kalandramo/bald/pkg/appkit"
+import (
+{{- if .HasGRPC}}
+	"google.golang.org/grpc"
+
+	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
+	"github.com/kalandramo/bald/pkg/middleware/bundle"
+{{- end}}
+
+	"github.com/kalandramo/bald/pkg/appkit"
+)
 
 // customOptions 返回应用自定义接线，生成物在 Options() 末尾展开它：追加
 // 在末尾 = 同名单值字段末者胜，因此可以覆盖生成的面/健康检查/拦截器默认值。
 //
 // 多角色树里 role 是当前角色名（接线按角色分叉），单角色树为空串。
 func customOptions(role string) []appkit.Option {
+{{- if .MultiRole}}
+	switch role {
+{{- range .Roles}}
+{{- if .HasGRPC}}
+	case {{ q .Name }}:
+		// 本角色有 gRPC 面：拦截器链按契约段构造（newGRPCChain）。
+		return []appkit.Option{appkit.WithGRPCOptionsContract(newGRPCChain)}
+{{- end}}
+{{- end}}
+	}
+{{- else if .HasGRPC}}
+	// gRPC 拦截器链按契约段构造（newGRPCChain）。
+	return []appkit.Option{appkit.WithGRPCOptionsContract(newGRPCChain)}
+{{- end}}
 	return nil
 }
+{{- if .HasGRPC}}
+
+// newGRPCChain 按契约 server.grpc.middleware 段构造 gRPC 服务端选项链（由
+// customOptions 的 WithGRPCOptionsContract 在契约装载后求值一次）。
+//
+// 链序由 bundle 固化（Error 最外层——*berrors.Error 不实现 GRPCStatus()，
+// 少了它错误码在 gRPC 边界全丢成 Unknown），rate_limit/timeout 两段的参数
+// 来自配置文件。返回的 close 释放桥构造的资源（限流器桶），框架在停机与启动
+// 失败两条路径回放它。
+func newGRPCChain(mw *bootstrapv1.Server_Grpc_Middleware) ([]grpc.ServerOption, func() error, error) {
+	// 契约段 → bundle Option：段的翻译在桥里做，本函数只决定链的姿态。
+	// mw 为 nil（未配置该段）时零 Option，链回到 bundle 的既有默认。
+	opts, closeChain, err := bundle.FromGRPCMiddleware(mw)
+	if err != nil {
+		return nil, nil, err
+	}
+	// 认证姿态与 HTTP 面同理由业务在这一行宣布（契约里没有 authn 段）。
+	chain := bundle.New(append([]bundle.Option{
+		bundle.Public(), // TODO: 接入认证后删除本行，改为 bundle.Authn(<authenticator>)
+	}, opts...)...).GRPCChain()
+	// TODO: 业务自有拦截器（Defaulter/Validator…）在这里追加——再给一条
+	// grpc.ChainUnaryInterceptor 即可，它在 bundle 链的内侧靠近 handler。
+	return chain, closeChain, nil
+}
+{{- end}}
 
 // variantOpts 是构建期变体的应用级接线表（键 = AppSpec.variants.name）。
 // 变体实现随 //go:build 文件编入时，在带 tag 的文件里登记：
@@ -52,21 +103,42 @@ func customSubcommands() []*cobra.Command { return nil }
 
 // apiserverTmpl 是 internal/<apiserver_dir>/apiserver.go（生成一次，仅当
 // 声明 HTTP 面）：路由分组/中间件挂载点——业务唯一的 HTTP 装配钩子。
+//
+// 签名是 appkit.HTTPContractFunc：本函数在契约装载之后求值一次，入参就是
+// server.http.middleware 段——配置面与链之间的那次调用在这里，固定发生。
 var apiserverTmpl = `// Package {{ .APIDir }} 是 HTTP 面的业务装配钩子（bald gen app 生成一次，
 // 此后归你维护——重生成跳过本文件；中间件链是安全策略，归业务自持）。
 //
 // 域路由经 appkit.Domain.Routes 挂到本 handler 上（域清单见
 // internal/bootstrap/domains.gen.go；域自我接线、路由自持）。
+//
+// 本函数由 internal/bootstrap/assemble.gen.go 的 appkit.WithHTTPContract 消费：
+// 求值点在契约装载之后、域接线与服务器构造之前，因此入参拿到的是装载后的
+// server.http.middleware 段——配置文件里写的限流/超时/CORS/日志跳过路径经
+// bundle.FromMiddleware 真的进链，不存在「写了不生效」的中间件段。
 package {{ .APIDir }}
 
 import (
+	"net/http"
+
 	"github.com/gin-gonic/gin"
+
+	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
 	"github.com/kalandramo/bald/pkg/middleware/bundle"
 )
 
-// NewRouter 组织业务 HTTP 路由（gin 引擎 + 横切链）。被
-// internal/bootstrap/assemble.gen.go 的 WithHTTP 声明消费。
-func NewRouter() *gin.Engine {
+// NewRouter 按契约段组织业务 HTTP 路由（gin 引擎 + 横切链）。
+//
+// 返回的 close 释放桥构造的资源（限流器桶）——框架把它挂成停机 Effect，启动
+// 失败与优雅停机两条路径都会回放；err 非 nil 即启动失败（显式配了非法段值，
+// 不降级成「没有链」）。
+func NewRouter(mw *bootstrapv1.Server_Http_Middleware) (http.Handler, func() error, error) {
+	// 契约段 → bundle Option：七段的翻译在桥里做，本函数只决定链的姿态。
+	// mw 为 nil（未配置该段）时零 Option，链回到 bundle 的既有默认。
+	opts, closeChain, err := bundle.FromMiddleware(mw)
+	if err != nil {
+		return nil, nil, err
+	}
 	router := gin.New()
 	// 横切关注点链：bundle 一次构造、HTTP 产出中间件链，链序由框架固化。
 	// 业务依赖（Authn/Authz/Audit/Metrics）经 bundle.New 选项注入，
@@ -75,15 +147,16 @@ func NewRouter() *gin.Engine {
 	// 认证姿态必须显式决定：要么注入 bundle.Authn(...)，要么保留下面的
 	// bundle.Public()（= 本服务有意公开、链中无认证层）。两者都不给时
 	// bundle.Verify() 报错、出链时告警——「忘了配认证」不该静默变成
-	// 一个无认证服务器。
-	router.Use(bundle.New(
+	// 一个无认证服务器。契约里没有 authn 段，所以这个姿态只能由业务在这一行
+	// 宣布，框架不代替它决定。
+	router.Use(bundle.New(append([]bundle.Option{
 		bundle.Public(), // TODO: 接入认证后删除本行，改为 bundle.Authn(<authenticator>)
 {{- if and .Spec.Bundle .Spec.Bundle.Normalized}}
 		bundle.Normalized(), // 归一化：审计 object/action 双传输同源
 {{- end}}
-	).Gin()...)
+	}, opts...)...).Gin()...)
 	// TODO: 业务全局中间件（Recovery/RequestID/Logging…）与根路由组。
-	return router
+	return router, closeChain, nil
 }
 `
 

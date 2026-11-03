@@ -36,7 +36,7 @@ func declare(_ context.Context, s appkit.PlanScope) ([]appkit.Node, error) {
 		Priority: 10,
 		Reload:   appkit.ReloadReconcile,
 	}}
-	if s.Decl.HTTPHandler != nil {
+	if s.Decl.HasHTTPFace() {
 		nodes = append(nodes, appkit.Node{
 			Key:       "domain.greet.routes",
 			Segments:  []string{"server.http"},

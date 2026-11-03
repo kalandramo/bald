@@ -6,7 +6,9 @@
     "roles": [
       {
         "name": "api",
-        "domains": ["greet"],
+        "domains": [
+          "greet"
+        ],
         "server": {
           "http": true,
           "grpc": true,
@@ -50,11 +52,37 @@
     "registry": {
       "type": "nacos",
       "nacos": {
-        "serverAddrs": ["127.0.0.1:8848"],
+        "serverAddrs": [
+          "127.0.0.1:8848"
+        ],
         "namespace": "public",
         "group": "DEFAULT_GROUP",
         "clusterName": "DEFAULT",
         "defaultKind": "grpc"
+      }
+    },
+    "server": {
+      "http": {
+        "middleware": {
+          "request_id": {
+            "headerName": "x-request-id"
+          },
+          "rate_limit": {
+            "rate": 1000,
+            "burst": 200
+          }
+        }
+      },
+      "grpc": {
+        "middleware": {
+          "rate_limit": {
+            "rate": 1000,
+            "burst": 200
+          },
+          "timeout": {
+            "defaultTimeoutMs": 5000
+          }
+        }
       }
     }
   },

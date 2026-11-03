@@ -24,8 +24,11 @@ func customOptions(_ string) []appkit.Option {
 		// 默认构建用进程内注册中心；-tags nacos 时由 nacos 变体的段驱动
 		// Provider 接管（显式实例优先于契约，二者不同时生效）。
 		appkit.Registrar(inmemory.New()),
-		// 拦截器链是安全策略，归应用自持（ErrorInterceptor 必须在最外层）。
-		appkit.WithGRPCOptions(newGRPCChain),
+		// 拦截器链是安全策略，归应用自持（ErrorInterceptor 必须在最外层）；
+		// 链的限流/超时参数来自契约 server.grpc.middleware 段——
+		// WithGRPCOptionsContract 是该段的消费口，与 HTTP 面的
+		// WithHTTPContract(apiserver.NewRouter) 对称。
+		appkit.WithGRPCOptionsContract(newGRPCChain),
 		// Attr 层脱敏 + 服务标识：覆盖 std 的默认 logger Provider。
 		newLoggerProvider(),
 		// biz.* 是业务配置段（域经 Settings 快照读取），不在 bconf 契约里。

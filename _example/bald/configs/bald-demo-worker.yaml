@@ -25,3 +25,9 @@ registry:
 server:
     grpc:
         addr: :9091
+        middleware:
+            rate_limit:
+                burst: 200
+                rate: 1000
+            timeout:
+                default_timeout_ms: 5000

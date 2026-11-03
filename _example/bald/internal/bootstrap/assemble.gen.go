@@ -39,7 +39,8 @@ func Options(role string) []appkit.Option {
 	switch role {
 	case "api":
 		opts = append(opts, appkit.WithGRPC(registerGRPCService))
-		opts = append(opts, appkit.WithHTTP(apiserver.NewRouter()))
+		// HTTP 面按契约钩子出（apiserver.NewRouter 读 server.http.middleware 段）。
+		opts = append(opts, appkit.WithHTTPContract(apiserver.NewRouter))
 		opts = append(opts, appkit.WithHealth(healthChecker))
 		opts = append(opts, domainOptionsForRole(role)...)
 	case "worker":

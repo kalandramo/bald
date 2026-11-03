@@ -3,29 +3,38 @@
 //
 // 本文件按「authz 链路接线」改写（用户槽位的真实用法）：bundle.Authn 注入
 // 认证桩、bundle.Authz 注入 casbin 桥（桥由 internal/apiserver/authz 从生成物
-// 装配：seed.Rows + ObjectAliases）。
+// 装配：seed.Rows + ObjectAliases）。契约 middleware 段仍经
+// bundle.FromMiddleware 进链——业务注入与配置面各管一半，不互相覆盖。
 package apiserver
 
 import (
+	"net/http"
+
 	"github.com/gin-gonic/gin"
+
+	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
 	"github.com/kalandramo/bald/pkg/middleware/bundle"
 
 	demoauthz "{{MODULE}}/internal/apiserver/authz"
 )
 
-// NewRouter 组织业务 HTTP 路由（gin 引擎 + 横切链）。被
-// internal/bootstrap/assemble.gen.go 的 WithHTTP 声明消费。
-func NewRouter() *gin.Engine {
+// NewRouter 按契约段组织业务 HTTP 路由（gin 引擎 + 横切链）。被
+// internal/bootstrap/assemble.gen.go 的 WithHTTPContract 声明消费。
+func NewRouter(mw *bootstrapv1.Server_Http_Middleware) (http.Handler, func() error, error) {
 	authorizer, err := demoauthz.NewAuthorizer()
 	if err != nil {
 		// 策略装载失败启动即崩（fail-fast；真实业务在此记日志并退出）。
 		panic(err)
 	}
+	opts, closeChain, err := bundle.FromMiddleware(mw)
+	if err != nil {
+		return nil, nil, err
+	}
 	router := gin.New()
-	router.Use(bundle.New(
+	router.Use(bundle.New(append([]bundle.Option{
 		bundle.Normalized(), // P9 归一化：object/action 双传输同源
 		bundle.Authn(demoAuthn{}),
 		bundle.Authz(authorizer),
-	).Gin()...)
-	return router
+	}, opts...)...).Gin()...)
+	return router, closeChain, nil
 }

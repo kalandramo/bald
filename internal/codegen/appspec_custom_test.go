@@ -158,3 +158,76 @@ func withDatabaseSegment(as *appspecv1.AppSpec) *appspecv1.AppSpec {
 	}
 	return as
 }
+
+// TestTree_ContractHookScaffold 钉两面脚手架的对称形状：HTTP 面的 seeded 钩子
+// 是契约签名（server.http.middleware 经桥进链），gRPC 面的链在 custom.go 里
+// 同点求值（server.grpc.middleware 同理），生成物登记的都是 Contract 形态。
+// 「配置文件与链之间缺一次调用」正是本项修复消灭的缺陷，判据要能在接线被删时
+// 变红；负面判据同样要紧：没有那条面的树不得带上钩子与相应导入（unused import
+// 让生成物编译失败），转码面不挂 gin 链因此也不带 WithHTTPContract。
+func TestTree_ContractHookScaffold(t *testing.T) {
+	files, _ := renderAppTree(t, guardFixture()) // 单角色，仅 HTTP 面
+	api := fileAt(t, files, "internal", "apiserver", "apiserver.go")
+	for _, want := range []string{
+		"func NewRouter(mw *bootstrapv1.Server_Http_Middleware) (http.Handler, func() error, error)",
+		"bundle.FromMiddleware(mw)",
+		"bundle.Public()", // 认证姿态仍写在业务看得见的那一行
+	} {
+		if !strings.Contains(api, want) {
+			t.Errorf("apiserver.go 缺契约钩子形态 %q:\n%s", want, api)
+		}
+	}
+	assemble := fileAt(t, files, "internal", "bootstrap", "assemble.gen.go")
+	if !strings.Contains(assemble, "appkit.WithHTTPContract(apiserver.NewRouter)") {
+		t.Errorf("HTTP 面必须以契约钩子登记:\n%s", assemble)
+	}
+	if strings.Contains(assemble, "appkit.WithHTTP(apiserver.NewRouter())") {
+		t.Errorf("装配声明还停在旧形状（看不到契约段）:\n%s", assemble)
+	}
+	custom := fileAt(t, files, "internal", "bootstrap", "custom.go")
+	for _, forbidden := range []string{"newGRPCChain", "bundle.", "google.golang.org/grpc"} {
+		if strings.Contains(custom, forbidden) {
+			t.Errorf("纯 HTTP 树的 custom.go 不得出现 %q:\n%s", forbidden, custom)
+		}
+	}
+
+	gwSpec := guardFixture()
+	gwSpec.Bootstrap.Server.Http.Driver = gatewayDriver
+	gwFiles, _ := renderAppTree(t, gwSpec)
+	gwAssemble := fileAt(t, gwFiles, "internal", "bootstrap", "assemble.gen.go")
+	if strings.Contains(gwAssemble, "WithHTTPContract") {
+		t.Errorf("转码面接管 server.http（不挂 gin 链），不得登记 WithHTTPContract:\n%s", gwAssemble)
+	}
+
+	grpcSpec := guardFixture()
+	grpcSpec.Bootstrap.Server.Grpc = &bootstrapv1.Server_Grpc{Addr: ":19090"}
+	grpcFiles, _ := renderAppTree(t, grpcSpec)
+	grpcCustom := fileAt(t, grpcFiles, "internal", "bootstrap", "custom.go")
+	for _, want := range []string{
+		"func newGRPCChain(mw *bootstrapv1.Server_Grpc_Middleware) ([]grpc.ServerOption, func() error, error)",
+		"bundle.FromGRPCMiddleware(mw)",
+		"appkit.WithGRPCOptionsContract(newGRPCChain)",
+		"bundle.Public()",
+	} {
+		if !strings.Contains(grpcCustom, want) {
+			t.Errorf("gRPC 树的 custom.go 缺 %q:\n%s", want, grpcCustom)
+		}
+	}
+	if strings.Contains(grpcCustom, "switch role") {
+		t.Errorf("单角色树不该按角色分叉:\n%s", grpcCustom)
+	}
+
+	multiSpec := rolesOn(
+		&appspecv1.RoleSpec{Name: "api", Domains: []string{"greet"},
+			Server: &appspecv1.ServerSpec{Http: true, HttpAddr: ":18080", Grpc: true, GrpcAddr: ":19090"}},
+		&appspecv1.RoleSpec{Name: "runner", Server: &appspecv1.ServerSpec{Grpc: true, GrpcAddr: ":19091"}},
+	)
+	multiFiles, _ := renderAppTree(t, multiSpec)
+	multiCustom := fileAt(t, multiFiles, "internal", "bootstrap", "custom.go")
+	if !strings.Contains(multiCustom, "switch role") || strings.Count(multiCustom, "WithGRPCOptionsContract(newGRPCChain)") != 2 {
+		t.Errorf("多角色树必须按角色各出一条链钩子接线:\n%s", multiCustom)
+	}
+	if !strings.Contains(multiCustom, `case "api":`) || !strings.Contains(multiCustom, `case "runner":`) {
+		t.Errorf("两个 gRPC 角色都要进 switch:\n%s", multiCustom)
+	}
+}
