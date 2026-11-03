@@ -171,8 +171,9 @@ BALD_DEMO_CACHE_REDIS_ADDR  →  cache.redis.addr
 两个必须知道的约束：
 
 - **前缀不可省**。没有 `BALD_DEMO_` 前缀的变量根本不会被读（枚举驱动，非查询驱动）。
-- **业务键别用下划线**。`_` 与 `-` 都被解释为路径分隔符，所以业务自定义键请用点路径命名，
-  或干脆走 yaml / flag 覆盖——契约字段名都是单词，不受影响。
+- **多词键（含下划线的契约字段）经 env 是一条半通的路**。契约里 179 个字段名含下划线（分布于 62 个 message：`rate_limit` / `server_addrs` / `max_open_connections` …），而 env 负载里的 `_` 一律先切成路径分隔符——`BALD_DEMO_SERVER_HTTP_MIDDLEWARE_RATE_LIMIT_RATE` 变成 `server.http.middleware.rate.limit.rate`。读的一腿靠 `bconf.lookupField` 的**折叠兜底**弥合（平级匹配失败后把下划线段当嵌套路径下钻并搬回平级键）；但 `appkit.StrictContract` 的未知键判据（`bconf.FindUnknownKeys`）**没有同款兜底**，所以生成树默认开启严格门禁时，这类 env 会让启动直接报 `unknown contract keys`。这条缺陷已登记（[风险评审 §7.7](../../architecture/risk-review.md)），未修。
+  - 需要按环境改契约多词段（限流/超时/`server_addrs` 这类）：**改契约文件本身**，不要改 env。可运行的绕行姿势见示例 `_example/bald/internal/bootstrap/middleware_e2e_test.go` 的 `roleConfigOver`（读角色 YAML、改一段、写进临时目录再追加一个 `appkit.ConfigFile` 覆盖，同名单值字段末者胜）。
+  - **业务自有键同理**：业务段（`biz.*`）连折叠兜底都没有，请用点路径命名或避免下划线——示例里 `greetv1.readOwnConfig` 用的是 `biz.greet.delay`，不是 `delay_ms`。
 
 > **没有 `${VAR}` 插值与 `.env` 自动加载**。配置值不做变量替换，也不读 `.env` 文件——
 > 环境变量经 `os.Environ()` 直接枚举（`merge.go` 的 `environMap`）。
@@ -247,6 +248,15 @@ func main() {
     )
 }
 ```
+
+上面是「业务自建链再交给框架」的形态。配置表达不了的只有链的**姿态**（认证/授权依赖注不注得进），链的**内容**如今也能由契约段驱动——把两个回调换成契约钩子，`server.http.middleware` / `server.grpc.middleware` 两段就在装配期被读：
+
+```go
+appkit.WithHTTPContract(apiserver.NewRouter),        // NewRouter(mw) 内 bundle.FromMiddleware(mw)
+appkit.WithGRPCOptionsContract(newGRPCChain),         // newGRPCChain(mw) 内 bundle.FromGRPCMiddleware(mw)
+```
+
+钩子在契约装载后、变体与域接线之前求值一次（早于业务 `BeforeStart`，因此拿不到运行期资源——需要那类资源就继续用 `WithGRPCOptions(fn)`，两条可在同一工程并存）。`WithHTTP(handler)` 与 `WithHTTPContract` 互斥，双写报错。生成的树默认走钩子形态，口径详见[Bald 中间件设计](../../devel/zh-CN/Bald%20中间件设计.md)「契约段谁来读」。
 
 gRPC 的 TLS 没有代码入口，由契约 `server.grpc.tls` 段决定：段缺失 = 明文监听；
 段存在则经 `bconf/tlsconf` 构造 `*tls.Config`（`file` 走证书路径、`config` 走内联

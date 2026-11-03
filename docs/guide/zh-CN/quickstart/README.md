@@ -48,7 +48,7 @@ demo-svc/
 ├─ cmd/demo-svc/app/custom.go                      # 生成一次：CLI 自定义接线（customSubcommands）
 ├─ internal/bootstrap/assemble.gen.go              # 生成物：Options() 是装配的全部
 ├─ internal/bootstrap/domains.gen.go               # 生成物：业务域清单（暂空，占位）
-├─ internal/bootstrap/custom.go                    # 生成一次：装配自定义接线（customOptions / variantOpts）
+├─ internal/bootstrap/custom.go                    # 生成一次：装配自定义接线（customOptions / newGRPCChain / variantOpts）
 ├─ internal/bootstrap/seed/seed.go                 # 生成一次：演示种子数据
 ├─ internal/bootstrap/seed/policies.go             # 生成一次：默认授权策略行
 ├─ internal/apiserver/apiserver.go                 # 生成一次：HTTP 装配钩子（加业务路由处）
@@ -64,7 +64,7 @@ demo-svc/
 - **生成一次**（`internal/bootstrap/seed/`、`internal/apiserver/apiserver.go`、两个 `custom.go` 接线钩子）：只在该文件不存在时落盘，重生成输出 `kept:` 跳过（`--adopt` 也不覆盖）——此后归你维护。
 - **用户物**：`appspec.json` 与你的业务代码，生成器永不读写。
 
-入口链只有三跳：`main.go`（行数硬预算 ≤25）→ `app.Execute()`（cobra 根）→ `appkit.MustServe(context.Background(), bootstrap.Options()...)`。装配知识全部在 `internal/bootstrap/assemble.gen.go` 的 `Options()`：`std.Standard()`（server/audit/logger 三类框架自有后端的段驱动 Provider）+ `ConfigFile`/`WatchConfigFile` + `appkit.StrictContract()`（生成物默认开启，见 §6）+ 传输面能力声明（`WithHTTP`/`WithGRPC`）+ 探针装配。地址、日志、TLS 等可配置项不写死在代码里——由 `configs/demo-svc.yaml` 按契约键驱动。
+入口链只有三跳：`main.go`（行数硬预算 ≤25）→ `app.Execute()`（cobra 根）→ `appkit.MustServe(context.Background(), bootstrap.Options()...)`。装配知识全部在 `internal/bootstrap/assemble.gen.go` 的 `Options()`：`std.Standard()`（server/audit/logger 三类框架自有后端的段驱动 Provider）+ `ConfigFile`/`WatchConfigFile` + `appkit.StrictContract()`（生成物默认开启，见 §6）+ 传输面能力声明（HTTP 是 `WithHTTPContract(apiserver.NewRouter)`；gRPC 面由 `WithGRPC` 注册服务，链钩子 `WithGRPCOptionsContract(newGRPCChain)` 在 seeded 的 `customOptions` 里登记）+ 探针装配。地址、日志、TLS 等可配置项不写死在代码里——由 `configs/demo-svc.yaml` 按契约键驱动。`server.http.middleware` / `server.grpc.middleware` 两段同样是真的会被读的：钩子在契约装载后求值，段经 `bundle.FromMiddleware` / `bundle.FromGRPCMiddleware` 进链，改 YAML 里的 `rate_limit` 当场能测出来（见[用 bald CLI 起步新服务](../用%20bald%20CLI%20起步新服务.md) §4.2）。
 
 ### 4. 拉依赖、起服务
 
@@ -88,7 +88,7 @@ CLI 机制层内置在 `pkg/appkit/appcli`：生成物 `cmd/demo-svc/app/command
 
 ### 5. 加第一个业务端点
 
-生成的树不含业务路由——HTTP 装配钩子是 `internal/apiserver/apiserver.go`（生成一次、归你维护）。在 `NewRouter` 的 `return router` 之前加一条路由：
+生成的树不含业务路由——HTTP 装配钩子是 `internal/apiserver/apiserver.go`（生成一次、归你维护）。它的签名是 `NewRouter(mw *bootstrapv1.Server_Http_Middleware) (http.Handler, func() error, error)`：入参即装载后的 `server.http.middleware` 段，函数体内 `bundle.FromMiddleware(mw)` 把它翻成链选项，末尾 `return router, closeChain, nil`。加一条路由就是在这行 `return` 之前：
 
 ```go
 router.GET("/v1/hello", func(c *gin.Context) {

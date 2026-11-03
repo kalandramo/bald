@@ -98,7 +98,7 @@ my-service/
 ├─ cmd/my-service/app/custom.go                    # 生成一次：CLI 自定义接线（customSubcommands）
 ├─ internal/bootstrap/assemble.gen.go              # 生成物：Options() 是装配的全部
 ├─ internal/bootstrap/domains.gen.go               # 生成物：业务域清单（暂空，占位）
-├─ internal/bootstrap/custom.go                    # 生成一次：装配自定义接线（customOptions / variantOpts）
+├─ internal/bootstrap/custom.go                    # 生成一次：装配自定义接线（customOptions / newGRPCChain / variantOpts）
 ├─ internal/bootstrap/variants.gen.go              # 生成物：仅 appspec.variants 非空时落盘（声明 + 增量数据，恒进计划）
 ├─ internal/bootstrap/variant_<name>.gen.go        # 生成物：每变体一份，//go:build 条件编译的 init() 注册实现
 ├─ internal/bootstrap/seed/seed.go                 # 生成一次：演示种子数据
@@ -110,9 +110,11 @@ my-service/
 └─ taskfile.yml                                    # 生成物：task run / verify / proto
 ```
 
-入口链只有三跳：`main.go`（≤25 行硬预算，预算表见 `internal/codegen/appspec_budget_test.go`）→ `app.Execute()`（cobra 根）→ `appkit.MustServe(context.Background(), bootstrap.Options()...)`。装配知识全部在 `internal/bootstrap/assemble.gen.go` 的 `Options()`：`std.Standard()`（server/audit/logger 三类框架自有后端的段驱动 Provider）+ `ConfigFile`/`WatchConfigFile` + `appkit.StrictContract()` + 传输面能力声明（`WithGRPC`/`WithHTTP`，按声明裁剪）+ `WithHealth`（双探针 + gRPC health 联动）+ `mech.Provides/Requires`（能力）+ `mech.Components`（组件）+ `domainOptions(role)`（域清单变参直传）。
+入口链只有三跳：`main.go`（≤25 行硬预算，预算表见 `internal/codegen/appspec_budget_test.go`）→ `app.Execute()`（cobra 根）→ `appkit.MustServe(context.Background(), bootstrap.Options()...)`。装配知识全部在 `internal/bootstrap/assemble.gen.go` 的 `Options()`：`std.Standard()`（server/audit/logger 三类框架自有后端的段驱动 Provider）+ `ConfigFile`/`WatchConfigFile` + `appkit.StrictContract()` + 传输面能力声明（`WithGRPC` 注册服务、`WithHTTPContract(apiserver.NewRouter)` 出 HTTP 面，按声明裁剪）+ `WithHealth`（双探针 + gRPC health 联动）+ `mech.Provides/Requires`（能力）+ `mech.Components`（组件）+ `domainOptions(role)`（域清单变参直传）。
 
-生成器表达不了的接线（第三方 Provider、`Registrar`、`WithGRPCOptions`、`WithHealth` 覆盖、`WithOpaqueBudget`、业务 CLI 子命令、变体的应用级接线）放在两个 seeded 钩子文件里：`internal/bootstrap/custom.go` 的 `customOptions(role)` 追加在 `Options()` 末尾（同名单值字段末者胜），`cmd/<app>/app/custom.go` 的 `customSubcommands()` 与默认 serve 并存；带 `//go:build` 的文件在 `init()` 里登记 `variantOpts["<name>"]`，生成物 `variant_<name>.gen.go` 经 `customVariantOpts` 取出。
+**HTTP 与 gRPC 两条横切链都是契约驱动的**，但登记点不同：HTTP 的 `WithHTTPContract(apiserver.NewRouter)` 由 owned 的 `Options()` 出，gRPC 的 `WithGRPCOptionsContract(newGRPCChain)` 由 seeded 的 `customOptions(role)` 出（按角色分叉，只给有 gRPC 面的角色）。两个钩子函数本身都在 seeded 文件里——`internal/apiserver/apiserver.go` 的 `NewRouter(mw)` 与 `internal/bootstrap/custom.go` 的 `newGRPCChain(mw)`，它们在契约装载后拿到 `server.{http,grpc}.middleware` 段并调 `bundle.FromMiddleware`/`FromGRPCMiddleware`，所以 `configs/<app>.yaml` 里写的 `rate_limit`/`timeout` 真的会挡请求、真的会给 handler 一个会到期的 ctx（端到端判据 `_example/bald/internal/bootstrap/middleware_e2e_test.go`）。链序与认证姿态仍归你：改的是 seeded 那两个文件，契约里没有 `authn` 段，`bundle.Public()` 是显式的一行。旧工程的 `NewRouter() *gin.Engine` 在重生成后编译失败，迁移三步见《代码生成工具设计》§8 与本指南 §4.4。
+
+生成器表达不了的接线（第三方 Provider、`Registrar`、gRPC 链钩子 `newGRPCChain` 的登记、`WithGRPCOptions`（要在链里用业务 `BeforeStart` 建的运行期资源才需要它）、`WithHealth` 覆盖、`WithOpaqueBudget`、业务 CLI 子命令、变体的应用级接线）放在两个 seeded 钩子文件里：`internal/bootstrap/custom.go` 的 `customOptions(role)` 追加在 `Options()` 末尾（同名单值字段末者胜），`cmd/<app>/app/custom.go` 的 `customSubcommands()` 与默认 serve 并存；带 `//go:build` 的文件在 `init()` 里登记 `variantOpts["<name>"]`，生成物 `variant_<name>.gen.go` 经 `customVariantOpts` 取出。
 
 归属三态语义：**生成物（owned）**——每次重写，已存在时需 `--adopt` 放行；**生成一次（seeded）**——`seed/`、`apiserver.go` 与两个 `custom.go` 接线钩子，不存在才落盘（重生成输出 `kept:`，`--adopt` 也不覆盖），此后归你维护；**用户物**——`appspec.json` 与业务代码，生成器永不读写。
 
@@ -123,6 +125,30 @@ vim appspec.json
 bald gen app --spec appspec.json --adopt   # owned 重写；seeded 输出 kept: 跳过；用户物不动
 ```
 
+### 4.4 从旧版 `NewRouter() *gin.Engine` 迁移
+
+链脚手架改成契约驱动后（《代码生成工具设计》§8），重跑 `bald gen app --adopt` 会让旧 seeded 文件编译失败——`assemble.gen.go` 现在按 `appkit.WithHTTPContract(apiserver.NewRouter)` 消费它，而 `WithHTTPContract` 要求钩子收契约段。改三处即可，业务路由本身不动：
+
+```go
+// 旧：func NewRouter() *gin.Engine { … return router }
+func NewRouter(mw *bootstrapv1.Server_Http_Middleware) (http.Handler, func() error, error) {
+	opts, closeChain, err := bundle.FromMiddleware(mw)   // 契约段 → 横切层
+	if err != nil {
+		return nil, nil, err
+	}
+	router := gin.New()
+	router.Use(bundle.New(append([]bundle.Option{
+		bundle.Public(), // 认证姿态仍由业务显式宣布
+	}, opts...)...).Gin()...)
+	exampleRoutes(router)                                // 你的业务路由原样保留
+	return router, closeChain, nil
+}
+```
+
+gRPC 侧把原来的 `appkit.WithGRPCOptions(自建链)` 搬进 seeded 的 `internal/bootstrap/custom.go`（新版脚手架就把 `newGRPCChain(mw *bootstrapv1.Server_Grpc_Middleware)` 生成在那里，落点随你），用 `bundle.FromGRPCMiddleware(mw)` 译 `server.grpc.middleware` 段，再在同一个文件的 `customOptions` 里登记 `appkit.WithGRPCOptionsContract(newGRPCChain)`；业务自持的 Defaulter/Validator 继续挂在 bundle 链内侧。
+
+也可以不改：`WithHTTP`/`WithGRPCOptions` 仍在 API 面上，只是 `server.*.middleware` 段从此对你不生效（写了不报错，也不挡请求）。多角色工程还要确认角色的 `configs/<app>-<role>.yaml` 里有 middleware 段——新版生成器会从 `AppSpec.bootstrap.server` 继承，旧文件得重生成。
+
 ## 5. 起服务
 
 ```bash
@@ -131,7 +157,7 @@ go mod tidy
 go run ./cmd/my-service
 ```
 
-- **配置**：`configs/my-service.yaml` 已由 AppSpec 派生（`app.name` 缺省取 `meta.name` 写入）。四源覆盖同一条键路径：flag `--server.http.addr=:18080` ⇔ 环境变量 `MY_SERVICE_SERVER_HTTP_ADDR` ⇔ yaml `server.http.addr`（优先级 flag > env > 本地文件 > 远程；详见[Bald 配置系统](Bald%20配置系统.md)）。
+- **配置**：`configs/my-service.yaml` 已由 AppSpec 派生（`app.name` 缺省取 `meta.name` 写入）。四源覆盖同一条键路径：flag `--server.http.addr=:18080` ⇔ 环境变量 `MY_SERVICE_SERVER_HTTP_ADDR` ⇔ yaml `server.http.addr`（优先级 flag > env > 本地文件 > 远程；详见[Bald 配置系统](Bald%20配置系统.md)）。**env 这条路对多词契约键走不通**：环境变量里的下划线全被当路径分隔符，`MY_SERVICE_SERVER_HTTP_MIDDLEWARE_RATE_LIMIT_RATE` 落树成 `.…middleware.rate.limit`，而生成物默认开的 `StrictContract` 不认这种折叠形态，启动直接报「未知契约键」。按环境改中间件段目前只能改契约文件（或 `ConfigFile` 追加一层），详见风险评审 §7.7。
 - **探针**：`/healthz`（存活）与 `/readyz`（就绪，依赖未就绪 503）由框架默认挂载，数据源是生成物的 `healthChecker`。
 - **业务端点**：加在 `internal/apiserver/apiserver.go` 的 `NewRouter`（生成一次、归你维护）。
 - **启动日志**：引擎打印 `appkit starting` → `appkit started`（声明组件后还有 `appkit component started`；注册中心生效时还有 `appkit registered`，含最终 endpoints）。

@@ -549,7 +549,8 @@ func (a *App) Settings() map[string]any {
 	return a.cfg.store.Settings()
 }
 
-// HTTPHandler 返回 WithHTTP 声明的业务 handler（域 ApplyNode 挂路由的
+// HTTPHandler 返回 HTTP 面的业务 handler：[WithHTTP] 直接声明的值，或
+// [WithHTTPContract] 在契约装载后求值出的 handler（域 ApplyNode 挂路由的
 // 入口——路由注册在域窗口内完成，参数即这里返回的 handler）。网关转码面
 // 或未声明 HTTP 能力时为 nil。
 func (a *App) HTTPHandler() http.Handler { return a.httpHandler }

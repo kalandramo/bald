@@ -128,12 +128,14 @@ func registerGateway(ctx context.Context, conn *grpc.ClientConn) (http.Handler, 
 
 ## 5. 启用示例
 
-默认构建走 gin 业务面（`apiserver.NewRouter()` + 域自持 REST 路由）。启用完整
+默认构建走 gin 业务面（`appkit.WithHTTPContract(apiserver.NewRouter)` + 域自持 REST 路由，横切链按契约 `server.http.middleware` 段构造）。启用完整
 transcoding 只需 `-tags grpcgw`：`variant_grpcgw.gen.go` 编入实现，`register_grpcgw.go`
 把增量登记到 `variantOpts["grpcgw"]`，`assemble.gen.go` 的 `variantOptions()` 在
 `Options()` 调用期展开——API 角色经 `WithHTTP(nil)` 让出 gin 面，`HTTPProvider`
 声明在 `std.Standard()` 之后即按段路径末者胜接管 `server.http`，该端口装配为
 网关转码面。
+
+一处已知成本：契约钩子的求值点在变体之前（`pkg/appkit/contract_faces.go`），所以转码形态下 `apiserver.NewRouter` 仍会被调用一次，建出的 gin 链与限流桶随后由 `WithHTTP(nil)` 弃用（该 Option 同时清掉钩子声明，面不会被装回来）。`close` 照常进停机 Effect，不泄漏，只是白建一次；`server.http.middleware` 段在这条路径上不影响转码面——转码面没有 gin 链。
 
 ```bash
 cd _example/bald

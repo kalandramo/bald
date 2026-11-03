@@ -19,7 +19,7 @@
 | --- | --- | --- |
 | `Declare` | `func(ctx context.Context, s PlanScope) ([]Node, error)` | **计划期纯函数**（不构造实例）：返回的节点进入装配计划且非 Opaque，声明域自有资源、依赖与重载策略。Phase 必须落在 wire 或其后（configure/bootstrap 归框架 Provider），Key 必填且全应用唯一 |
 | `Wire` | `func(ctx context.Context, app *App) error` | 域装配钩子（业务 BeforeStart 之后、server 构建之前），带 ctx；此时资源面已就绪（`storegorm.SQL.Resource(app)` 等类型化句柄可取阶段 B 产物），业务钩子建立的运行期资源也可消费 |
-| `Routes` | `func(h http.Handler) error` | Wire 之后、server 构建之前；参数是 WithHTTP 声明的业务 handler（gin 场景即 `*gin.Engine`，路由器耦合域自持断言）；gateway 转码面占用 server.http 端口时整体让位（不调用——同端口单面语义） |
+| `Routes` | `func(h http.Handler) error` | Wire 之后、server 构建之前；参数是 HTTP 面的业务 handler——`WithHTTP` 直接声明的值，或 `WithHTTPContract` 在契约装载后求值出的值（gin 场景即 `*gin.Engine`，路由器耦合域自持断言）；gateway 转码面占用 server.http 端口时整体让位（不调用——同端口单面语义） |
 | `Services` | `func(s *grpc.Server)` | 并入 server 构建的注册回调（业务注册在前、域按声明序在后）；调用发生在迟后阶段 server Provider 构建时——彼时 Wire 已完成，域端口就绪 |
 
 **Declare 与兼容钩子的关系**（Domain v2 迁移期形态，设计 §4.6）：`Declare` 只声明拓扑，构造仍由 Wire/Routes/Services 完成。声明了 `Declare` 的域，引擎不再逐槽位合成 Opaque 节点，而是把它们塌缩成**一个** `domain.<name>.wire` Opaque 节点——`--plan` 能看到 non-opaque 的 routes/services 节点与依赖，`bald doctor` 的 `opaque` 清单则如实指出构造仍不透明。省略 `Declare` 的域保持既有逐槽位投影（`domain.<name>` / `.routes` / `.services` 三个 Opaque 节点）。
@@ -37,7 +37,7 @@ var Domain = appkit.Domain{
 
 完整装配时序（`domain.go` 包注释钉住，wiring_order 测试族断言）：框架钩子（契约装载 + 阶段 B Provider 循环 + 段覆盖检查）→ 业务 BeforeStart → 逐域 Wire → Routes（多域按声明序）→ 迟后阶段（server Provider 构建时调 Services）。任一域 Wire/Routes 失败 fail-fast（错误带域名），已建资源经 Run 的回滚账本回收。
 
-声明期校验（构造期 fail-fast，先于阶段 A 一切副作用）：Name 为空或重复报错；声明了 Routes 而应用没有 HTTP 面（`WithHTTP` 或接管 `server.http` 的转码 Provider）报错；声明了 Services 而契约 server.grpc 段缺失报错。报错原文见 §5。
+声明期校验（构造期 fail-fast，先于阶段 A 一切副作用）：Name 为空或重复报错；声明了 Routes 而应用没有 HTTP 面报错——面的判据是 `hasHTTPFace`（`WithHTTP` 与 `WithHTTPContract` 任一即算）或接管 `server.http` 的转码 Provider；声明了 Services 而契约 server.grpc 段缺失报错。报错原文见 §5（提示语只举了 `appkit.WithHTTP` 这一种形态，契约钩子形态同样满足判据）。
 
 没有的槽位同样是设计决定：迁移不做槽位（appkit 不 import 存储栈——需要迁移的域在 Wire 内经类型化句柄 `storegorm.SQL.Resource(app)` 取连接自行执行）；ConfigKeys 不做槽位（业务配置段只进 Settings 快照、不进契约，与 L3 段覆盖检查无交互）。
 
@@ -216,6 +216,6 @@ AppSpec.domains 字段参考（protojson 字段名；范本 `_example/bald/appsp
 
 - **新增域要动 main.go 吗？** 不。域清单是生成文件，声明值变参直传；main 装配面的域相关增量只有一次性的形态迁移（批 3 实测两行）。
 - **域包已有 Domain 声明，gen domain 会覆盖吗？** 不会——骨架是 seeded 且仅当域包尚无导出 Domain 时落盘；greetv1 这类既有域包消费不覆盖。
-- **域的 REST 路由挂在哪？** 挂上 WithHTTP 声明的业务 handler；gateway 转码面占用 server.http 端口时 Routes 整体让位（REST 走转码，同端口单面语义）。
+- **域的 REST 路由挂在哪？** 挂上 HTTP 面的业务 handler——`WithHTTP` 直接给的，或 `WithHTTPContract` 按 `server.http.middleware` 段求值出的（生成脚手架走后者，见[用 bald CLI 起步新服务](用%20bald%20CLI%20起步新服务.md) §4.2）；gateway 转码面占用 server.http 端口时 Routes 整体让位（REST 走转码，同端口单面语义）。
 - **三个槽位必须全实现吗？** 不。三槽全可选，nil 即不声明该面；但声明了 Routes 需应用有 HTTP 面、声明了 Services 需契约 server.grpc 段（§1）。
 

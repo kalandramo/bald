@@ -28,7 +28,7 @@
 ### 请求路径
 
 - [Bald 传输层设计](./Bald%20传输层设计.md)：一条极窄契约 `transport.Server` + `transport.Extract`；各传输各自独立 module，监听与非监听服务（broker 家族）的差别。
-- [Bald 中间件设计](./Bald%20中间件设计.md)：gin/gRPC 双传输的横切装配与链序固化——Audit 夹在 Authn 与 Authz 之间的双约束、Error 最外层收口、shared 子包承载传输无关核心、显式注入不吃全局。
+- [Bald 中间件设计](./Bald%20中间件设计.md)：gin/gRPC 双传输的横切装配与链序固化——Audit 夹在 Authn 与 Authz 之间的双约束、Error 最外层收口、shared 子包承载传输无关核心、显式注入不吃全局、`server.*.middleware` 段由两面契约钩子在装配期读。
 - [认证与授权抽象设计](./认证与授权抽象设计.md)：`pkg/authn`（Authenticator/AuthClaims）与 `pkg/authz`（Authorizer）的双接口、引擎桥接外置，P9 归一化让 REST/gRPC 共用同一策略空间。
 - [Bald 错误模型设计](./Bald%20错误模型设计.md)：`berrors` 传输中立错误（Code/Reason/Message/Details + cause/栈）与 grpc/HTTP 对等桥接；不可变 builder 与按 Reason 匹配。
 - [校验设计](./校验设计.md)：按请求类型名分发的 `Validate` 约定与轻量规则校验，与 proto `buf.validate` 注解互补。

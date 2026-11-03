@@ -134,7 +134,7 @@ appkit: bootstrap config declares sections with no consumer:
 
 | 内置 | 段路径 | 说明 |
 | --- | --- | --- |
-| StandardHTTPProvider / StandardGRPCProvider | server.http / server.grpc（各一个 Provider） | 能力声明在代码（WithHTTP / WithGRPC+WithGRPCOptions），契约段驱动地址/TLS；迟后阶段构建。分成两个是为了让第三方按段接管其中一面——转码面即 `transport/gateway/contract` 的 `HTTPProvider` 接管 `server.http`，gRPC 面不受影响 |
+| StandardHTTPProvider / StandardGRPCProvider | server.http / server.grpc（各一个 Provider） | 能力声明在代码（`WithHTTP`/`WithHTTPContract` 与 `WithGRPC` + `WithGRPCOptions`/`WithGRPCOptionsContract`——钩子形态与直给形态写进同一个 `Decl` 字段，Provider 看不出区别），契约段驱动地址/TLS；迟后阶段构建。分成两个是为了让第三方按段接管其中一面——转码面即 `transport/gateway/contract` 的 `HTTPProvider` 接管 `server.http`，gRPC 面不受影响 |
 | StandardAuditProvider | audit | audit.backends 的 "log" 项：结构化日志审计后端，核心包零依赖开箱即用 |
 | StandardLoggerProvider | logger | bslog（标准库 slog）——阶段 A 引导 logger 的持有者；两阶段重建 + 热更协议仍在引擎 |
 

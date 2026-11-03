@@ -24,7 +24,7 @@
 2. **算法可插拔且互不感知**。换算法只改构造那一行，调用点不动；`tokenbucket` 不知道 `bbr` 存在，`bbr` 也不 import 任何限流库。
 3. **「需要释放」是类型能表达的事**。并发型限流器不会假装成普通 `Limiter`——它多实现一个 `InflightLimiter`，调用方一次类型断言就能发现「这个限流器必须成对调用」。基础 `Limiter` 上不留一个多数实现为空的 `Done()`。
 
-需要先说清现状：契约段 `server.http.middleware.rate_limit` 有正式消费者——`bundle.FromMiddleware` 把它翻译成 `bundle.RateLimit`，`bundle.Gin()`、`bundle.GRPCInterceptors()` 与 `bundle.GRPCStreamInterceptors()` 共用同一个 limiter 实例。gRPC 侧另有自己的段：`bundle.FromGRPCMiddleware` 把 `server.grpc.middleware.rate_limit` 翻译成 `bundle.GRPCRateLimit`，只喂 gRPC 两面。**没有接的是自动装配**：框架不会在启动时自己读这两段，业务必须显式走桥（或自己构造 `ginmw.NewRateLimit` 注入 Option）。
+需要先说清现状：两段契约都有正式消费者，而且**启动时真有人读它们**。`bundle.FromMiddleware` 把 `server.http.middleware.rate_limit` 翻译成 `bundle.RateLimit`，`bundle.Gin()`、`bundle.GRPCInterceptors()` 与 `bundle.GRPCStreamInterceptors()` 共用同一个 limiter 实例；gRPC 侧另有自己的段，`bundle.FromGRPCMiddleware` 把 `server.grpc.middleware.rate_limit` 翻译成 `bundle.GRPCRateLimit`，只喂 gRPC 两面。读段的时机由 `appkit.WithHTTPContract` / `appkit.WithGRPCOptionsContract` 固化成装配环节（`pkg/appkit/contract_faces.go`），`bald gen app` 出的脚手架在 seeded 文件里调这两座桥——手写装配的工程仍可显式调桥，或自己构造 `ginmw.NewRateLimit` 注入 Option。端到端判据：`_example/bald/internal/bootstrap/middleware_e2e_test.go` 从契约 YAML 断到 `429` 与 `RESOURCE_EXHAUSTED`（`Reason=RATE_LIMITED` 跨 gRPC 边界还原）。
 
 ## 背景与动机
 
@@ -44,7 +44,7 @@ message RateLimit {
 }
 ```
 
-字段名与 `tokenbucket.New(rate, burst)` 的参数一一对应，`wait` 显然是为 `Wait(ctx)` 准备的。设计时全仓搜 `GetRateLimit` 只命中生成的 `server.pb.go`——**契约写完了，装配没写**，「配置文件里写 `rate_limit: {rate: 100}` 就能限流」当时做不到。这座桥后来由 `bundle.FromMiddleware` 补上（见「接入顺序」）。
+字段名与 `tokenbucket.New(rate, burst)` 的参数一一对应，`wait` 显然是为 `Wait(ctx)` 准备的。设计时全仓搜 `GetRateLimit` 只命中生成的 `server.pb.go`——**契约写完了，装配没写**，「配置文件里写 `rate_limit: {rate: 100}` 就能限流」当时做不到。这座桥后来由 `bundle.FromMiddleware` 补上（见「接入顺序」）；再后来发现桥之后还缺一次调用——框架里没有任何组件在启动时读那两个段，补齐它的是 `appkit.WithHTTPContract`/`WithGRPCOptionsContract`（《Bald 中间件设计》「契约段谁来读」）。
 
 ### 三方法接口对并发型限流器不够用
 
@@ -327,7 +327,7 @@ cd ratelimit/sentinel && go vet ./... && go test -count=1 ./...     # 6
 
 ## 链序与两侧口径
 
-限流层住在 `pkg/middleware/gin/ratelimit.go`（HTTP）与 `pkg/middleware/grpc/ratelimit.go`（gRPC，unary + stream 两个拦截器），由 `bundle` 的同一对 Option 驱动：`bundle.RateLimit(rl)` 一个 limiter 实例喂 gin、gRPC unary、gRPC stream 三面（gRPC 经 `RateLimiter.Limiter()` 取底层实现，没有第二份配置、也没有第二个桶），`bundle.FromMiddleware` 负责把契约段 `server.http.middleware.rate_limit` 翻译成它。
+限流层住在 `pkg/middleware/gin/ratelimit.go`（HTTP）与 `pkg/middleware/grpc/ratelimit.go`（gRPC，unary + stream 两个拦截器），由 `bundle` 的同一对 Option 驱动：`bundle.RateLimit(rl)` 一个 limiter 实例喂 gin、gRPC unary、gRPC stream 三面（gRPC 经 `RateLimiter.Limiter()` 取底层实现，没有第二份配置、也没有第二个桶）。契约段到 Option 的翻译是 `bundle.FromMiddleware`，而**调用它的时机**在装配钩子里：`appkit.WithHTTPContract`/`WithGRPCOptionsContract` 于契约装载后把段交给业务钩子，生成的脚手架在钩子里调桥（手写装配的工程自己显式调）。也就是说「配了不生效」这条路已经封死——`_example/bald/internal/bootstrap/middleware_e2e_test.go` 起真进程断言 `server.http.middleware.rate_limit` 让第二个请求吃 `429`、`server.grpc.middleware.rate_limit` 让第二个调用吃 `RESOURCE_EXHAUSTED`，删任一处接线对应面的断言立刻转红。
 
 **链序（实测实现，不是提案）**：认证/授权**之后**、超时**之前**，两面同序。
 

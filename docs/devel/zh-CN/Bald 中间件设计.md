@@ -16,13 +16,13 @@
 
 | 子包 | 行数 | 职责 |
 |---|---|---|
-| `gin/` | 903 | gin 中间件实现（13 个） |
-| `grpc/` | 948 | gRPC 拦截器实现（unary + stream） |
-| `bundle/` | 258 | **门面**：一次构造、双传输产出、链序固化 |
+| `gin/` | 1330 | gin 中间件实现（13 个文件） |
+| `grpc/` | 1154 | gRPC 拦截器实现（unary + stream） |
+| `bundle/` | 807 | **门面**：一次构造、双传输产出、链序固化，外加契约段的两侧翻译（`FromMiddleware`/`FromGRPCMiddleware`） |
 | `shared/` | 104 | **传输无关核心**：trace header 常量、注入模式、通配匹配 |
-| 顶层 `tracing.go` | — | `LogTraceIDs`（跨协议日志关联） |
+| 顶层 `tracing.go` | 35 | `LogTraceIDs`（跨协议日志关联） |
 
-合计 2248 行、**50 个测试**（bundle 11 / gin 13 / grpc 20 / shared 4 / 顶层 2）。
+合计 3395 行、**126 个测试**（bundle 48 / gin 26 / grpc 46 / shared 4 / 顶层 2）。契约钩子的装配侧判据不在本包，见「契约段谁来读」一节（`pkg/appkit/contract_faces_test.go` 14 个 + `_example` 的 4 个端到端）。
 
 > 本文是 `pkg/middleware` 的权威设计文档；认证/授权抽象见《认证与授权抽象设计》。
 
@@ -98,13 +98,66 @@ stream 面只有这两层，三条都是口径而非疏漏：
 两条链的四个**关键位置**及其理由（bundle.go 注释原文）：
 
 - **Audit 夹在 Authn 与 Authz 之间**：在 Authn 内侧（注册序靠后）才能从 ctx 读到 Authn 注入的 subject/tenant；在 Authz 外侧（注册序靠前）才能在 `c.Next()`/handler 返回后捕获 deny 的最终 result。**两个约束夹出一个位置**——这是链序里最不显然的一条。
-- **Error 必须 gRPC 最外层**：handler/内层拦截器返回的 `*berrors.Error` 若不经 `grpcerr.ToStatus` 收口，会被 `status.Convert` 兜底成空 `Unknown`。
+- **Error 必须 gRPC 最外层**：handler/内层拦截器返回的 `*berrors.Error` 若不经 `grpcerr.ToStatus` 收口，会被 `status.Convert` 兜底成空 `Unknown`。同一条收口也负责 ctx 错误：`context.DeadlineExceeded`/`context.Canceled` 不是 gRPC status，`ToStatus` 一度把它们兜成 `Unknown`——装了收口拦截器反而让「超时看起来不像超时」，比不装更差。现在两条 ctx 语义显式映射成 `DEADLINE_EXCEEDED`/`CANCELLED`，已是 `status` 的错误原样透传，只有裸 error 仍落 `Unknown`（判据 `berrors/grpcerr` 的 `TestToStatusContextErrors`）。
 - **Recovery 紧随 Error（第二外层）**：panic 被捕获并转为 `*berrors.Internal`，再由最外层 Error 收口为 gRPC status——与 gin 链首道 Recovery 对称（决策 D5）。
 - **RateLimit 在授权之后、Timeout 在最内层（两面同序）**：限流要看得见 subject，代价是不保护认证层自身（详见《Bald 限流设计》「链序与两侧口径」）。Timeout 放最内是只计业务处理耗时，不把上层开销算进预算。
 
 两面同序但**语义不同**，别当同一个东西：gin 的 Timeout 硬性提前返回 `503`（响应按时结束，工作不一定停止），gRPC 的只给 handler 一个会到期的 ctx（不缩短调用方已给的 deadline）；gin 的限流拒绝是 `429`，gRPC 的是 `RESOURCE_EXHAUSTED` + `Reason=RATE_LIMITED`。`DefaultTimeoutMs <= 0` 时两面既有行为也不同：gin 照旧挂一个立即 503 的层，gRPC 省略该层。
 
+这条不对称有两个可测的后果，写断言时必须知道：
+
+- **gin 侧要测响应头时间，不是读完 body 的时间**。`ginmw.Timeout` 在提前返回前显式 Flush 头，之后仍等 handler goroutine；`net/http` 要到整条链返回才结束 chunked 响应。所以「50ms 预算」实测的是**首字节**（`http.Post` 返回即头已到），把 body 读完再计时会得到 handler 的真实耗时（示例里是 603ms 而不是 50ms）——那是在测别的东西。
+- **gRPC 侧的超时依赖 handler 配合**。`TimeoutInterceptor` 只换 ctx，不提前返回；handler 不检查 `ctx.Done()` 就照旧在 delay 满后返回 `OK`。因此 gRPC 的 `DEADLINE_EXCEEDED` 断言同时是「链装了」「handler 尊重 ctx」两件事的证据——删任一条都转红（示例的 `sayHello` 显式 `select` 在 `<-ctx.Done()` 上，注释写明理由：不傻等到点再回一份迟到但成功的响应）。
+
 **零破坏**：散装手挂路径完整保留，Bundle 只是预组装。业务可继续手动 `router.Use(...)`。
+
+### 契约段谁来读：两面装配钩子
+
+两座桥只负责「段 → Option」，它们本身不是装配环节——**框架侧此前没有读段的那一步**。`server.http.middleware` / `server.grpc.middleware` 长期是 write-only 配置：YAML 写了、契约解出来了、没有任何组件在启动时把段交给桥。「配置文件里写了限流」与「限流生效」之间缺一次调用，两面同病，所以两面同时补，形态对称：
+
+```go
+appkit.WithHTTPContract(fn)
+//   fn(mw *bootstrapv1.Server_Http_Middleware)  (http.Handler, func() error, error)
+appkit.WithGRPCOptionsContract(fn)
+//   fn(mw *bootstrapv1.Server_Grpc_Middleware)  ([]grpc.ServerOption, func() error, error)
+```
+
+五个设计点（实现只有一处：`pkg/appkit/contract_faces.go` 的 `resolveContractFaces`）：
+
+- **求值点 = 装配期**：契约已装载、变体与域接线之前。HTTP 必须在此定型——域接线（`Domain.Routes` 把路由挂到 handler）在 `BeforeStart` 链末尾、迟后阶段（server 构造）之前，那个窗口要求 handler 已存在；gRPC 与它同点求值，为了让「两面的链由同一份契约段驱动」只有一个实现点，而不是各挂各的钩子。
+- **`close` 是链的一部分**：钩子造出的限流器一类的资源由框架在停机 Effect 里释放，启动失败回滚时同样释放。只在成功路径归还等于把泄漏留给失败路径。
+- **计划与执行同源**：面存在性判据是 `hasHTTPFace`/`hasGRPCChain`（`WithHTTP` 或契约钩子任一即算），且钩子声明字段求值后**不清空**。`--plan` 不执行用户代码——契约钩子形态在计划期只有声明、还没有 handler，直接读 `Decl.HTTPHandler` 会让 `--plan` 漏掉域的路由节点而真实启动装上它，两份计划不一致比缺一面更难查。
+- **认证姿态不进契约**：钩子拿到的是 middleware 段，链上公开还是认证仍由业务在钩子里显式写 `bundle.Public()` / `bundle.Authn(…)`（§「显式注入，不吃全局兜底」与风险 §6.1）。契约没有 `authn` 段，框架不代替业务宣布「本服务公开」。
+- **变体不能偷偷改链**：钩子求值后若 build variant 再 patch 这两个段，深拷贝快照核验直接报错「链已由补丁前的段构建」——那是「配置变了却不改变链」的静默形态，比报错糟。未声明钩子时不建快照、不核验（零开销不变）。
+
+生成脚手架把这两处写成用户自持的 seeded 文件（`bald gen app` 生成一次，之后归业务）：
+
+```go
+// internal/apiserver/apiserver.go —— HTTP 面
+func NewRouter(mw *bootstrapv1.Server_Http_Middleware) (http.Handler, func() error, error) {
+	opts, closeChain, err := bundle.FromMiddleware(mw)
+	if err != nil {
+		return nil, nil, err
+	}
+	router := gin.New()
+	router.Use(bundle.New(append([]bundle.Option{
+		bundle.Public(), // 认证姿态是业务显式声明的一行
+	}, opts...)...).Gin()...)
+	return router, closeChain, nil
+}
+
+// internal/bootstrap/custom.go —— gRPC 面（示例工程把函数另拆进 grpc.go，落点归业务）
+func newGRPCChain(mw *bootstrapv1.Server_Grpc_Middleware) ([]grpc.ServerOption, func() error, error) {
+	opts, closeChain, err := bundle.FromGRPCMiddleware(mw)
+	...
+}
+```
+
+owned 的 `assemble.gen.go` 登记 `appkit.WithHTTPContract(apiserver.NewRouter)`，`custom.go` 登记 `appkit.WithGRPCOptionsContract(newGRPCChain)`。角色的 `configs/<app>-<role>.yaml` 从 `AppSpec.bootstrap.server` 继承两段 middleware（codegen `inheritMiddleware`）——此前只继承地址段，角色文件里写限流没有任何路径到链上，是同一个缺陷在配置侧的形状。接管 `server.http` 的网关角色不挂 gin 链，因此**不**登记 HTTP 钩子、也不继承 http 段。
+
+**存量工程迁移（本轮是 breaking）**：旧的 `func NewRouter() *gin.Engine` 与新 `assemble.gen.go` 不兼容，重跑 `bald gen app` 后直接编译失败——有意如此，让「配置写了不生效」必须经过一次显式改写而不是静默降级。改法：签名收 `mw`、链改走 `bundle.FromMiddleware(mw)`、返回 `(http.Handler, func() error, error)`；gRPC 侧把原来的 `WithGRPCOptions(自建链)` 搬进 `newGRPCChain(mw)`，段用 `bundle.FromGRPCMiddleware(mw)` 译。
+
+**生效的实证**：`_example/bald/internal/bootstrap/middleware_e2e_test.go` 起真进程（`appkit.Serve` + 真 gin + 真 `grpc.NewServer`），从契约 YAML 断到 `429` / `RESOURCE_EXHAUSTED`（含 `Reason=RATE_LIMITED` 跨边界还原）/ 提前 `503` / `DEADLINE_EXCEEDED`；删任一处接线（appkit 注册、codegen 脚手架、bundle 桥、handler 尊重 ctx）都让对应面的断言转红，另两面保持绿。参数走临时契约文件而不是 env，原因见风险 §7.7。
 
 ### 显式注入，不吃全局兜底
 

@@ -22,7 +22,8 @@
 | 1.2 | 本地 `task verify` 手写清单，静默跳过约 40 模块 | 低-中 | ✅ 已核对 `Taskfile.yml` | **已修**（CI 与本地共用 `scripts/list-modules.sh` 单条派生；全量 92 模块实测 exit=0） |
 | 附 | `tokenbucket.Close()` 不唤醒 `Wait`，与 gin 侧注释承诺相反 | 中 | ✅ 读源码 + 变异验证 | **已修**（`Close` 内 `close(notify)` + 幂等；判据 `TestClose_WakesBlockedWait`） |
 | 5 | `berrors` 分类法未在 transport/broker/appkit 落地 | 中 | ✅ 实测计数 | **口径已定**（选项 b：定位为边界投影模型；不改码，兜底不对称与硬规则见 §5） |
-| 6.2 | gRPC 链无限流、无超时（与 gin 链不对称） | 中 | ✅ 已核对源码 | **已修**（unary + stream + 契约面；自动装配未修，见 §6.2） |
+| 6.2 | gRPC 链无限流、无超时（与 gin 链不对称） | 中 | ✅ 已核对源码；装配半另经生成树 e2e 实测（429 / `RESOURCE_EXHAUSTED` / 提前 503 / `DEADLINE_EXCEEDED`） | **已修**（unary + stream + 契约面 + 两面契约驱动装配，见 §6.2） |
+| 7.7 | env 覆盖表达不出契约的多词键：严格门禁下启动即报，非严格下优先级反转 | 中 | ✅ 本轮写 e2e 时实测撞上（四条用例全红在 `unknown contract keys`），根因读到 `environMap`/`lookupField`/`findUnknown` 三处 | **未修**（绕行已落代码；修法要动 `bconf` + `bootstrap/config` 的键名规范化口径，见 §7.7） |
 | 6.3 | 限流位于认证之后，认证层自身不受保护 | 中 | ✅ 已核对注释与实现 | **口径已定**（保持现位置 + 落文档；不改默认的理由与自保姿势见 §6.3） |
 | 3.2 | 21 个 module 同时 require 同一库的两个 major（`// indirect`） | 低 | ✅ 脚本实测 | **已修（只读面）**：`scripts/multi-major.sh` + `task deps-multi-major`；`go list -deps` 实测确认真正同链的是 2 条，见 §3.2 |
 | 3.3 | 根 `v0.35.0` **发得出去、装不出来**：仓库里的生成物文件名让代理建不出模块 zip | **高** | ✅ `goproxy.cn` 实测 404 `create zip: malformed file path … invalid char '（'`，230 条路径逐条核对 | **已修**：`.qoder/` 导出移出版本库（磁盘副本保留），`bald release tag` 新增路径闸门（实测在坏树上拦下 230 条、落 0 个 tag）；`v0.35.0` 按「已发布不可重发」保留不用，由 `v0.36.0` 取代，见 §3.3 |
@@ -455,9 +456,9 @@ Go 源码零改动（除下面第 ① 条）。根 module 里 `pkg/` 之外唯�
 - 消解（已落地，零开销设计不变）：认证姿态必须被决定——`bundle.Authn(...)` 或 `bundle.Public()` 二者之一。`Bundle.Verify()`（`pkg/middleware/bundle/bundle.go:185-212`）在两者都没给时报 `AUTHN_UNDECLARED`，`Gin()`/`GRPCInterceptors()` 出链时对未决定的姿态告警一次；业务想要硬失败就在装配期调 `Verify()`。生成脚手架写出 `bundle.Public()` + TODO，使「本服务无认证层」成为一行显式声明而不是疏漏。
 - 为什么不是构造期 panic：链是零开销省略的载体，`New()` 直接失败会让「先起链、再决定」的既有形态无处安放，也会让新 `gen app` 出的最小示例跑不起来（最小路径必须可复制即跑）。
 - 回归：`pkg/middleware/bundle/authn_posture_test.go`（Authn/Public/两者都不给/只给 Authz 四种判定；两个出链点对未决定出声、对已决定不出声）。
-- 未修：契约侧仍没有 authn 段（`server.http.middleware` 只有 recovery/cors/logging/request_id/tracing/rate_limit/timeout；`server.grpc.middleware` 另有 validate 与 §6.2 这次补的 rate_limit/timeout），认证器实例仍只能代码注入；`Server.Http.Middleware` 整体是「业务自取」的参考段，无框架消费者。
+- 未修：契约侧仍没有 authn 段（`server.http.middleware` 只有 recovery/cors/logging/request_id/tracing/rate_limit/timeout；`server.grpc.middleware` 另有 validate 与 §6.2 这次补的 rate_limit/timeout），认证器实例仍只能代码注入。补一句改口径：`Server.Http.Middleware` 不再是「无框架消费者的参考段」——§6.2③ 之后两面各有一条契约驱动的装配路径（`appkit.WithHTTPContract`/`WithGRPCOptionsContract` 在契约装载后把段交给业务钩子，生成脚手架默认经 `bundle.FromMiddleware`/`FromGRPCMiddleware` 翻译）。段的「业务自取」性质只剩一处：**认证姿态**仍是业务代码里的一行显式声明（`bundle.Public()` 或 `bundle.Authn(...)`），框架不代替业务宣布「本服务公开」，要把它搬进配置得先加 `middleware.auth` 段，属独立一轮。
 
-**6.2 gRPC 链缺限流与超时（中）** ✅ 已修（unary + stream + 契约面）
+**6.2 gRPC 链缺限流与超时（中）** ✅ 已修（unary + stream + 契约面 + 两面装配面）
 
 原状：`pkg/middleware/bundle/bundle.go` 的 `GRPCInterceptors()` 到 Authz 即结束，而 `Gin()` 另有 RateLimit + Timeout 两层。gRPC 面上的暴力尝试与慢 handler 没有任何框架级保护——同一对 `bundle.RateLimit`/`bundle.Timeout` Option 在 gRPC 侧被静默吃掉。
 
@@ -479,7 +480,26 @@ Go 源码零改动（除下面第 ① 条）。根 module 里 `pkg/` 之外唯�
   - 诚实边界：`recovery`/`logging`/`tracing`/`validate` 四段本桥**不翻译**（空 message，没有可映射字段；bundle 的 gRPC 链本就无条件挂 Recovery/RequestID）。写这四段目前不改变任何行为——`FromGRPCMiddleware` 的注释与本节都这么记，别当成配置面。
   - 回归：`pkg/middleware/bundle/grpc_middleware_bridge_test.go`(8) 从配置文本出发断桥——段只加在 gRPC 面（gin 链长度=基线、gin 请求全放行）、stream 面同受段管、gRPC 段盖过 HTTP 桶且 HTTP 桶不被吃、只给 HTTP 段时三面仍共桶（存量回落）、超时不外溢到流也不外溢到 gin、非法值 fail-fast、空段零开销，外加一条真 `grpc.NewServer` 的流式端到端。判据按变异验证会红：`grpcLimiter`/`grpcBudget` 的优先级分支各删一次、stream 改用 `b.rateLimiter`、桥的 fail-fast 守卫删掉、桥把 gRPC 段错译成 HTTP 的 `Timeout`（泄漏到 gin 链）。
   - **发版前置**：`pkg` 的这段新代码引用 `bconf` 生成物里的新类型，`bconf` 必须先出 tag，`pkg` 才能出 tag（`bald release sync` 会把这条依赖排进批次）。`bconf/v*` tag 另会触发 BSR 推送，属 owner 授权动作。
-- 未修（一项）：**bundle 的 gRPC 链没有自动装配**——std server 构造不吃 bundle，业务必须显式 `appkit.WithGRPCOptions(b.GRPCChain()...)`；把链默认塞进 std 服务器会连带改变 §6.1 的认证姿态默认，属行为变更。契约段这次补齐了「配置从哪来」，但「谁去读它」仍是业务的一次显式调用（`FromGRPCMiddleware` 与 `FromMiddleware` 一样，框架不会在启动时自己读）。
+- 已修（装配面）：缺陷的真实形态不是「gRPC 链没自动装配」这一条，而是**两个 middleware 段都没有框架消费者**——HTTP 面拿 `WithHTTP(handler)` 收一个业务自己建好的 `*gin.Engine`，gRPC 面拿 `WithGRPCOptions(fn)` 收一条业务自己建好的链，两座桥（`FromMiddleware`/`FromGRPCMiddleware`）翻译得对，但没有任何组件在启动时读那两个段。「配置文件里写了限流」与「限流生效」之间缺一次调用，两面同病，所以按 owner 定的**对称做**收口。
+  - 新 API：`appkit.WithHTTPContract(fn)` / `appkit.WithGRPCOptionsContract(fn)`，钩子入参就是对应的 middleware 段，返回（handler 或选项链，`close`，error）。求值点在装配期——契约已装载、变体与域接线之前（`pkg/appkit/contract_faces.go`）。HTTP 必须在此定型：域接线（`dom.Routes` 挂到 handler）在 `BeforeStart` 链末尾、迟后阶段（server 构造）之前，那个窗口要求 handler 已存在；gRPC 与它同点求值，为了「两面的链由同一份契约段驱动」只有一个实现点。
+  - 面存在性判据统一走 `hasHTTPFace`/`hasGRPCChain`（两条口任一即算），钩子声明字段求值后**不清空**：`--plan` 不执行用户代码，契约钩子形态在计划期只有声明、还没有 handler——直接读 `Decl.HTTPHandler` 会让 `--plan` 漏掉路由节点而真实启动装上它，计划与执行必须同源（I2）。
+  - 三条 fail-fast：`WithHTTP` 与 `WithHTTPContract` 双写报错；钩子返回 nil handler 报错（「想要无链的 handler 请用 WithHTTP」）；钩子错误包成 `appkit: WithHTTPContract: …` 让启动失败。钩子给出的 `close` 进停机 Effect，启动失败回滚同样释放——限流器这类资源不在成功路径上才归还。
+  - 变体不能偷偷改链：钩子求值后若 build variant 再打 `server.*.middleware` 段，深拷贝快照核验报错「链已由补丁前的段构建」。这不是「变体没生效」，是「变体改了配置却不改变链」那种静默行为，必须显式拦下；未声明钩子时快照与核验全部跳过（零开销）。
+  - 一条已知成本（不是缺陷）：`WithHTTP(nil)` 让位转码面的形态（`_example/bald` 的 `grpcgw` 变体）下，HTTP 钩子仍会在变体之前求值一次——gin 链与限流桶建出来后被 `WithHTTP(nil)` 弃用（该 Option 同时清掉 `HTTPContract` 声明，钩子不会把面装回来），`close` 仍由停机 Effect 兑现所以不泄漏，代价是白建一次。要省掉它得把「变体让位」提前到求值之前可知，属 Decl 相位顺序的事，本轮不动。
+  - 生成脚手架对称改形（**breaking**，存量工程见下方迁移条）：seeded 的 `internal/apiserver/apiserver.go` 里 `NewRouter()` 从 `func() *gin.Engine` 改成 `func NewRouter(mw *bootstrapv1.Server_Http_Middleware) (http.Handler, func() error, error)`，owned 的 `assemble.gen.go` 相应从 `appkit.WithHTTP(apiserver.NewRouter())` 改成 `appkit.WithHTTPContract(apiserver.NewRouter)`；gRPC 面在 seeded 的 `internal/bootstrap/custom.go` 里新增 `newGRPCChain(mw)` 并经 `appkit.WithGRPCOptionsContract(newGRPCChain)` 登记。接管 `server.http` 的网关角色不挂 gin 链，因此**不**登记 `WithHTTPContract`（仍按转码口径走），middleware 段也不继承给该角色。
+  - 角色的 `configs/<app>-<role>.yaml` 现在从 `AppSpec.bootstrap.server` 继承两段 middleware（codegen `inheritMiddleware`）。此前多角色契约只继承地址段、middleware 段恒空——那是同一个缺陷在配置侧的形状：在角色文件里写限流没有任何路径能到链上。
+  - 认证姿态**刻意不进契约**：脚手架两面各出一行 `bundle.Public()` 加注释。§6.1 的结论在此延续——框架不代替业务宣布「本服务公开」；要做成配置得先有 `middleware.auth` 段（以及认证器如何按名实例化），属独立一轮。
+  - 回归：`pkg/appkit/contract_faces_test.go`(14) 钉住两面钩子真收到装载后的段、双写/nil/错误三条 fail-fast、`close` 在停机与启动失败两条路径上都被调用、装配出错时回滚释放、变体补丁守卫（有补丁必红、无补丁必静默）、`--plan` 只声明不执行、求值出的 handler 真能出响应。变异判据：把传给钩子的段实参改成 nil（两面用例同红）/ 删双写守卫 / 删 nil handler 守卫 / 删补丁守卫 / 让计划路径执行钩子。
+  - 存量工程迁移（一行签名，故意不做兼容）：`func NewRouter() *gin.Engine` 的工程重跑 `bald gen app` 后，`assemble.gen.go` 会按 `WithHTTPContract` 消费 `NewRouter`，旧签名直接编译失败——这是有意的，让「配置写了不生效」必须经过一次显式改写，而不是静默降级回不读段的形态。改法：签名收 `mw *bootstrapv1.Server_Http_Middleware`，链改由 `bundle.FromMiddleware(mw)` 出，返回 `(http.Handler, func() error, error)`；gRPC 侧把原有的 `WithGRPCOptions(自建链)` 搬进 `newGRPCChain(mw)`，用 `bundle.FromGRPCMiddleware(mw)` 译段。
+  - 端到端实证：`_example/bald/internal/bootstrap/middleware_e2e_test.go`(4) 起真进程（`appkit.Serve` + 真 gin + 真 `grpc.NewServer`），从契约 YAML 出发断言四条——
+    | 用例 | 契约段（临时文件覆盖） | 实测 |
+    | --- | --- | --- |
+    | HTTP 限流 | `server.http.middleware.rate_limit{rate:1,burst:1}` | 首个 POST `200`，次个 `429` |
+    | gRPC 限流 | `server.grpc.middleware.rate_limit{rate:1,burst:1}` | 首个 Greet `OK`，次个 `RESOURCE_EXHAUSTED`，且经 `grpcerr.FromStatus` 还原出 `Reason=RATE_LIMITED` |
+    | HTTP 超时 | `timeout{default_timeout_ms:50}` + `biz.greet.delay: 600ms` | `503`，**响应头**在 500ms 内到达（gin 层提前返回并 Flush）|
+    | gRPC 超时 | 同参数在 gRPC 面 | `DEADLINE_EXCEEDED`，往返 ≤500ms（handler 收到会到期的 ctx 后自行退出）|
+    六个删接线变异逐个实测（本轮重跑，非沿用）：① 生成物退回 `WithHTTP(NewRouter(nil))` → 两条 HTTP 用例红成 `200`/`200`（响应头 603ms），启动一切健康——正是「配置写下去没人读」的复现；② `custom.go` 摘掉 `WithGRPCOptionsContract` → 两条 gRPC 用例红，HTTP 绿；③ `apiserver.go` 的桥改成 `FromMiddleware(nil)` → 两条 HTTP 用例红；④ `grpc.go` 的桥改成 `FromGRPCMiddleware(nil)` → 两条 gRPC 用例红；⑤ handler 不看 ctx（`select` 换 `time.Sleep`）→ **只有** `TestE2E_GRPCContractTimeout` 红，HTTP 的 `503` 照旧绿（gin 提前返回不依赖 handler 配合，gRPC 依赖——这条不对称由变异本身钉住）；⑥ 删 `grpcerr.ToStatus` 的 `DeadlineExceeded` 分支 → e2e 收到 `code = Unknown`（52ms 就返回），`berrors/grpcerr` 单测两处同红。
+- 附带修掉一处真缺陷（超时接线的直接后果）：`berrors/grpcerr.ToStatus` 对 `context.DeadlineExceeded`/`context.Canceled` 走到兜底 `status.Convert`，两者都不是 gRPC status → 落 `codes.Unknown`。grpc-go 自己不经这座桥时给的是 `DEADLINE_EXCEEDED`/`CANCELLED`，所以「装了收口拦截器」比「不装」更差：超时看起来不像超时，客户端按码重试/告警的策略全部失效。现在两条 ctx 语义显式映射，`status` 原样透传的分支也补在前面（`status.FromError` 命中即返回，不再兜 Unknown），裸 error 仍落 Unknown。回归 `TestToStatusContextErrors` + 上面变异⑥。
 
 - 附带修掉一处真缺陷：`tokenbucket.Close()` 过去只置 `closed`，从不写 `notify`，而 `pkg/middleware/gin/ratelimit.go` 承诺「`Close` 会唤醒阻塞在 `Wait` 的调用者」——停机时 `wait=true` 的请求会挂到自己那轮 `time.After(wait)` 到期（rate 低时是小时级）。现在 `Close` 在锁内 `close(notify)` 并以 `closed` 保证幂等。判据 `TestClose_WakesBlockedWait`（冻结时钟 + `rate=0.0001`，wait 算出约一万秒，`Close` 后必须 2 秒内返回）；原有 `TestClose_WaitReturnsErrAfterClose` 通过是因为 `New(1,1)` 的 wait 恰好 1 秒，**不是因为唤醒生效**。
 
@@ -585,6 +605,14 @@ Go 源码零改动（除下面第 ① 条）。根 module 里 `pkg/` 之外唯�
 - 固有上限（不是未修，是读侧方案的边界）：写入方在 O_TRUNC 与 Write 之间停摆超过整个确认窗（200ms）时，读侧看到的就是一个真空文件，无法与「运维真的清空了配置」区分——这种派发仍然会发生（实测 Linux 风暴场景 8 次/30 轮），但一定跟在真实内容之前，末次派发是最终值。CI 每次 push 只跑一遍，新闸门的漏检率没有像 §7.4 那样给出千次量级的实测分布；风暴场景的残余概率我只量到「每轮 200 次写里 0~2 次瞬态」这个粒度。
 - 已证（GitHub 实测）：推送 `95db197` 后 `ci` run 41495509820 **五个作业 `test`/`integration`/`lint`/`vuln`/`race` 全部 success**——`race` 正是首红的靶子。上一轮 `d515fa0` 红在 `lint` 的依赖安装步骤（sumdb 连接重置），同一个步骤在这次 run 上正常通过，反过来印证那次确实是 runner 侧网络而不是仓内问题。推送前本地同批闸门：`task verify` 全量派生清单 exit=0、`task lint` 93 module `0 issues` exit=0、`task race` exit=0（0 条 DATA RACE）；`bconfig` 全模块 `-race` 与 Linux 容器 `-race -count=10` 的监听用例全绿，消费侧 `bootstrap/config` 在 darwin `-race`、Linux `-short -race` 都过。
 
+**7.7 env 覆盖表达不出契约的多词键（中）** ⚠ 未修（发现路径：§6.2③ 写端到端实证时，四条用例想按最省事的姿势从 `BALD_SERVER_HTTP_MIDDLEWARE_RATE_LIMIT_*` 注入参数，四条全部在启动期被严格门禁拦死）
+
+- 现象：`environMap`（`bootstrap/config/merge.go:96-107`）用 `NewReplacer("_", ".", "-", ".")` 把变量名里的下划线**和**连字符一律当路径分隔符，于是 `BALD_SERVER_HTTP_MIDDLEWARE_RATE_LIMIT_RATE` 落树成 `.server.http.middleware.rate.limit.rate`。装载侧 `lookupField`（`bconf/unmarshal.go:299-323`）有 `foldPath` 折叠兜底，能把 `rate_limit` 这种契约字段名重新按段下钻找回来——所以「env 能覆盖多词键」在**关掉严格门禁时**基本成立。撞死的是另一侧：`FindUnknownKeys`/`findUnknown`（`bconf/unmarshal.go:41,95`）**没有折叠兜底**，而严格门禁（`appkit.StrictContract`，生成物默认开启）在 unmarshal 之前跑，逐层比对字段描述符，`.server.http.middleware.rate` 这一层就判定「未知契约键」并终止启动。实测报错原文：`config: unknown contract keys (typo? or declare in AllowBusinessSections): .server.http.middleware.rate`。
+- 两个后果，性质不同：① **开了严格门禁 → env 只能覆盖单词契约键**（`server.http.addr` 这类），多词键全数启动期失败。这是「安全闸门反过来阉割了配置层」——门禁把一种合法的注入姿势判成了笔误。② **没开严格门禁 → 优先级反转**：`lookupField` 的口径是「平级匹配优先于折叠」（注释明写，为的是真嵌套键不被折叠抢走），所以文件层已写 `rate_limit` 时，env 的折叠链永远排在其后被读到，env > file 的分层承诺静默失效——不报错，只是 env 说了不算。
+- 为什么不本轮修：真正的修法是把「键名规范化」下移到**合树之前**（每层各自折叠成契约规范名，或在 `findUnknown` 里补同款 `foldPath` 兜底并处理「部分匹配不算命中」的歧义），涉及 `bconf` + `bootstrap/config` 两个模块的既有口径，而 `lookupField` 的「平级优先」与「无 `a_b` 标量 / `a` 子消息同层共存」的全契约前提（179 个下划线字段 × 62 个 message 已核验）都要重新审视——不是加个 if 的量。
+- 现有绕行（已落代码，不是临时 hack）：需要按环境改契约段的测试与部署都改**契约文件本身**而不是 env。示例见 `_example/bald/internal/bootstrap/discovery_e2e_test.go` 的 `roleConfigWithGateway` 与 `middleware_e2e_test.go` 的 `roleConfigOver`（读角色的 YAML、改一段、写进 `t.TempDir()`，再追加一个 `appkit.ConfigFile` 覆盖——同名单值字段末者胜）。业务自有段（`biz.*`）同理要避开下划线：`greetv1.readOwnConfig` 用 `biz.greet.delay` 而不是 `delay_ms`，因为业务键连折叠兜底都没有。
+- 已证的判据（不是推测）：四条 e2e 用例在 env 注入形态下全部红在上述启动错误，改文件覆盖形态后全部绿；`bconf` 侧的折叠语义由 `lookupField`/`foldPath` 既有测试钉住，本轮未改动这两个函数。
+
 ---
 
 ## 8. 文档漂移
@@ -624,7 +652,7 @@ Go 源码零改动（除下面第 ① 条）。根 module 里 `pkg/` 之外唯�
 6. **给 §2 的未接线面做决策** ✅ 口径已定：reference-only 保留 + README/当前架构 §6 标注；其中 **Discovery 走的是选项 1（接线）而不是标注**——`transport/gateway` 出站现在真消费 `GetService`/`Watch`（见 §2「接线半」）。retry/circuitbreaker 的 bundle 层与「移出发布批次」仍按 §2「刻意没做」留给 owner。
 7. **`berrors` 边界口径**（§5）✅ 选 (b)：定位为边界投影模型，不改码。**Discovery 消费侧**（§2）已做——watch-based resolver + 装配作用域自动派生来源，消费方只改一行配置。
 8. **抽离 appkit 契约面，把适配器从「require 聚合根」解耦**（§3.1）✅ 已落地（owner 选定 C-A：整个 `pkg/` 成 module，非最小面）：require 根的适配器 22→0，`task verify` 全绿。收益按实测收窄——`replace` 数量不降反升（410→423，那句旧表述已撤回），真正消掉的只有「本仓工具的改动不再产出适配器要追的根 tag」；发版批次待 owner。
-9. **gRPC 链补限流与超时**（§6.2）✅ unary 面：`RateLimitInterceptor`/`TimeoutInterceptor` + bundle 两侧共用同一对 Option，当场揪出并修掉 `tokenbucket.Close()` 不唤醒 `Wait` 的真缺陷。✅ stream 面：`GRPCStreamInterceptors()` 出 `Error → RateLimit`，`GRPCChain()` 仅在 gRPC 面有限流时附带 stream 选项；按「每流建立一令牌」计费、与 unary 同桶、超时按口径不默认挂。✅ 契约面：`Server.Grpc.Middleware` 补 rate_limit/timeout 两段 + `FromGRPCMiddleware` 桥（gRPC 段产出只作用于 gRPC 的 Option，「更具体的段管更具体的面」）。**待 owner 授权**：`bconf` 需先出 tag，`pkg` 才能跟上。剩自动装配一项（见 §6.2「未修」）。
+9. **gRPC 链补限流与超时**（§6.2）✅ unary 面：`RateLimitInterceptor`/`TimeoutInterceptor` + bundle 两侧共用同一对 Option，当场揪出并修掉 `tokenbucket.Close()` 不唤醒 `Wait` 的真缺陷。✅ stream 面：`GRPCStreamInterceptors()` 出 `Error → RateLimit`，`GRPCChain()` 仅在 gRPC 面有限流时附带 stream 选项；按「每流建立一令牌」计费、与 unary 同桶、超时按口径不默认挂。✅ 契约面：`Server.Grpc.Middleware` 补 rate_limit/timeout 两段 + `FromGRPCMiddleware` 桥（gRPC 段产出只作用于 gRPC 的 Option，「更具体的段管更具体的面」）。✅ **装配面（对称收口）**：`appkit.WithHTTPContract`/`WithGRPCOptionsContract` 把「谁在启动时读那两个段」做成装配的固定环节，codegen 两面脚手架对称改形（seeded 的 `NewRouter(mw)` 与 `newGRPCChain(mw)`），角色契约经 `inheritMiddleware` 继承两段；`_example` 起真进程实测 429 / `RESOURCE_EXHAUSTED` / 提前 503 / `DEADLINE_EXCEEDED`，六处删接线逐个转红。接线过程中另修掉一处真缺陷：`grpcerr.ToStatus` 把 `context.DeadlineExceeded` 兜成 `codes.Unknown`（比不装收口拦截器更差——超时看起来不像超时）。**待 owner 授权**：`bconf` 需先出 tag，`pkg` 才能跟上；本轮 `pkg` 是 **breaking**（seeded 文件签名变了，存量生成工程重跑 `bald gen app` 后编译失败，迁移见 §6.2）。
 10. **限流链序**（§6.3）✅ 口径已定：保持「认证之后」，落文档；改默认会把按 subject 的配额静默变成全局配额。顺带修掉设计文档里写反的链序。
 11. **文档漂移闸门**（§8）✅ 清单半：`module-list` 围栏 + 双向断言 + 与脚本逐行比对（三条变异实测）。「描述已删除 API」半仍未覆盖。
 12. **依赖卫生只读报告**（§3.2）✅：`scripts/multi-major.sh` + `task deps-multi-major`，再用 `go list -deps` 把「是否真同链」从推测改成证据；不加 exclude/replace。
