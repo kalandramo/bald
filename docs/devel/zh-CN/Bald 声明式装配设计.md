@@ -546,7 +546,7 @@ func Routes(h http.Handler) error {
 | 冲突可见 | `TestPlan_Conflict` + doctor：重复 Key / override / 白名单全部出现在计划与 doctor |
 | 资源访问类型化 | `TestAPI_NoUntypedResource`（AST 守卫）：`Resource(string)` 调用点 = 0 |
 | 收敛覆盖 | `TestDrift*`：`ReloadReconcile` 节点数 ≥ 组件 + logger + audit |
-| 生成确定性 | `TestGen_Deterministic`/`TestGen_CheckClean`（guard 夹具）双跑字节一致；`_example/bald` 的 `appspec.json` 声明 roles/bootstrap/domains/variants，`gen app --check` 与 `gen domain --check` 均零差异；手写部分只留在 seeded 钩子（`custom.go`/`apiserver.go`/`cmd/*/app/custom.go`）与域包；自定义接线扩展（§8.5）由 `TestTree_CustomWiringHooks`/`TestTree_CustomWiringReachesPlan` 钉住；那两条 `--check` 不再靠人工——`ci.yml` 的 `test` 作业与 `task acceptance` 每次都跑，改声明忘了重生成即红（判据与变异见风险评审 §8） |
+| 生成确定性 | `TestGen_Deterministic`/`TestGen_CheckClean`（guard 夹具）双跑字节一致；`_example/bald` 的 `appspec.json` 声明 roles/bootstrap/domains/variants，`gen app --check` 零差异；`gen domain --check` 要 buf（bind 文件前置是 proto 的 Go 产物，而 `_example/bald/api/gen` 已 gitignore），只在本地 `task acceptance-example-domain-check` 跑——CI 里那半边由 `TestExampleManifestsMatchSpecAndDisk` 兜住（两份清单的 `spec` 摘要对当前声明、owned 条目摘要对磁盘字节）；手写部分只留在 seeded 钩子（`custom.go`/`apiserver.go`/`cmd/*/app/custom.go`）与域包；自定义接线扩展（§8.5）由 `TestTree_CustomWiringHooks`/`TestTree_CustomWiringReachesPlan` 钉住；`--check` 不再靠人工——`ci.yml` 的 `test` 作业与 `task acceptance` 每次都跑，改声明忘了重生成即红（判据与变异见风险评审 §8） |
 | `Opaque` 预算 | 参考工程 ≤ 3 个（当前：std server + 程序化 registry），超预算由 `WithOpaqueBudget` 报错 |
 
 ### 7.2 验收脚本

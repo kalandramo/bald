@@ -98,15 +98,19 @@ jobs:
         working-directory: cli
         run: go test ./internal/codegen/ -run 'TestTree_(EndToEndTimed|AuthzClosedLoop)' -count=1 -timeout 15m
 
-      - name: 真实示例的生成树与声明不漂移（gen app/domain --check）
+      - name: 真实示例的装配骨架与声明不漂移（gen app --check）
         # 上面那步吃的是合成声明；这条钉的是 _example/bald 这份**真实**声明。
-        # 判据是逐字节比对清单（含 spec 摘要），所以改声明忘了重生成会当场红——
-        # domains.manifest.json 的旧摘要潜伏过 13 个提交（risk-review.md §8）。
-        # --check 不写文件，也不跑 proto 阶段，因此不需要 buf/protoc。
+        # 判据是逐字节比对（含清单的 spec 摘要），改声明忘了重生成会当场红。
+        # --check 不写文件、不跑 proto 阶段，因此不需要 buf/protoc。
+        # 域那半边（gen domain --check）**不在这里**：bind 文件的前置是 proto 的
+        # Go 产物，而 _example/bald/api/gen 已 gitignore，干净检出里没有——实跑
+        # 红在 `bindings import proto Go package ..., but its generated Go files
+        # are missing`。--no-bind 也不是替代（它改期望文件集合，已入库的 bind/路由
+        # 被判 stale）。该面拆成两处：清单与磁盘字节的比对在
+        # cli/internal/codegen/example_manifest_test.go（随上面的 go test 跑），
+        # 重算级校验在需要 buf 的 task acceptance-example-domain-check。见 §8。
         working-directory: cli
-        run: |
-          go run ./cmd/bald gen app --spec ../_example/bald/appspec.json --out ../_example/bald --check
-          go run ./cmd/bald gen domain --spec ../_example/bald/appspec.json --out ../_example/bald --check
+        run: go run ./cmd/bald gen app --spec ../_example/bald/appspec.json --out ../_example/bald --check
 
   # 竞态门禁：普通 test 不启用 race detector，session manager / 热重载 /
   # 计划缓存 / 限流器等并发路径的竞争只能在这里被发现（代码注释里的

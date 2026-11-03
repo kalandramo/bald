@@ -471,10 +471,22 @@ tasks:
 
   acceptance-example-check:
     internal: true
-    desc: 验收：_example/bald 这份真实声明与生成树不漂移（CI 的 test 作业同内容）
+    desc: 验收：_example/bald 的真实声明与生成树/清单不漂移（与 CI 的 test 作业同口径，不需 buf）
     dir: cli
     cmds:
+      # 骨架那半边整树重算比对（gen app 不碰 proto，干净检出也能跑）。
       - go run ./cmd/bald gen app --spec ../_example/bald/appspec.json --out ../_example/bald --check
+      # 域那半边在 CI 只能退成「清单 vs 磁盘字节」的比对（测试里），因为 bind 的
+      # 前置是 gitignore 的 proto 产物；重算级校验见 acceptance-example-domain-check。
+      - go test ./internal/codegen -run TestExampleManifestsMatchSpecAndDisk -count=1
+
+  # 需要 buf 与 proto 产物（_example/bald/api/gen 已 gitignore），所以不进 CI、
+  # 也不被 acceptance 默认调用；改域声明或 proto 注解后本地跑一次。
+  acceptance-example-domain-check:
+    desc: 验收：对真实示例重算 gen domain 全量产物（含 bind，需 buf）
+    deps: [proto-example]
+    dir: cli
+    cmds:
       - go run ./cmd/bald gen domain --spec ../_example/bald/appspec.json --out ../_example/bald --check
 
   acceptance-bconf:
