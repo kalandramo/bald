@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -106,10 +108,18 @@ func TestWatchValue(t *testing.T) {
 	}
 }
 
-// TestWatchValue_NoTornEmptySnapshot 钉住「就地重写不得派发空快照」，且每一次真实
-// 重写都要被派发出去（少了后半条，把派发路径整个删掉也能绿）。
-// 修法前 Linux 上概率性红（`bootstrap/config` 的 apply 会把空载荷当成「这一层没有
-// key」，配置缺一层直到下一个事件），见 [readSettled] 注释里的实测数字。
+// TestWatchValue_NoTornEmptySnapshot 钉住三条与事件时序无关的不变量：
+//  1. 一次都不派发空载荷——轮间隔（50ms）远大于落定窗口（最坏 5ms×4），撕裂中间态没有
+//     借口混进来；派发出去的一定是某一时刻的**完整**值。
+//  2. 派发序按重写轮次单调不减——同一个 source 只有一个事件循环，读的一定是当时的
+//     最新内容，出现更旧的值只能是把缓存当成了现读。
+//  3. 末次派发是最后一个真实值，且至少派发过一次。
+//
+// 这里刻意**不**断言「每个重写过的值都要被派发」：`ValueWatcher` 的字面契约就是
+// 「连续变更允许合并……不保证每个中间值都送达」，而每个事件只做一次落定读，一个被
+// 调度延后的事件必然读到更新的内容（-race 与共享 runner 上因此会偶发漏掉某个中间值）。
+// 拿比契约还强的断言当门禁，红的是测试不是产品；真正不可接受的是「最后一次写是撕裂的
+// 就永久缺项」（不变量 3）与「空快照被当成一层没有 key」（不变量 1）。
 func TestWatchValue_NoTornEmptySnapshot(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "rapid.yaml")
@@ -155,29 +165,33 @@ func TestWatchValue_NoTornEmptySnapshot(t *testing.T) {
 	<-drained
 	close(emitted)
 
-	empties := 0
-	seen := map[string]bool{}
-	last := ""
+	empties, total := 0, 0
+	last, prev := -1, -1
 	for data := range emitted {
-		if len(bytes.TrimSpace(data)) == 0 {
+		v := string(bytes.TrimSpace(data))
+		if v == "" {
 			empties++
 			continue
 		}
-		v := string(data)
-		seen[v] = true
-		last = v
+		n, err := strconv.Atoi(strings.TrimPrefix(v, "v"))
+		if err != nil {
+			t.Errorf("派发了不属于重写序列的内容 %q", v)
+			continue
+		}
+		total++
+		if n < prev {
+			t.Errorf("派发序回退：第 %d 轮出现在第 %d 轮之后（读到更旧的值）", n, prev)
+		}
+		prev, last = n, n
 	}
 	if empties > 0 {
 		t.Errorf("%d 次派发出空内容（撕裂写中间态漏给了消费者）", empties)
 	}
-	for i := range rounds {
-		want := fmt.Sprintf("v%d", i)
-		if !seen[want] {
-			t.Errorf("重写过的 %q 从未被派发", want)
-		}
+	if total == 0 {
+		t.Fatal("50 轮重写一次都没有派发（派发路径整体停摆）")
 	}
-	if last != fmt.Sprintf("v%d", rounds-1) {
-		t.Errorf("最后一次派发 %q，期望 %q", last, fmt.Sprintf("v%d", rounds-1))
+	if last != rounds-1 {
+		t.Errorf("末次派发第 %d 轮，期望第 %d 轮（共 %d 次非空派发）", last, rounds-1, total)
 	}
 }
 
