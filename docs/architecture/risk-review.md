@@ -24,6 +24,7 @@
 | 5 | `berrors` 分类法未在 transport/broker/appkit 落地 | 中 | ✅ 实测计数 | **口径已定**（选项 b：定位为边界投影模型；不改码，兜底不对称与硬规则见 §5） |
 | 6.2 | gRPC 链无限流、无超时（与 gin 链不对称） | 中 | ✅ 已核对源码；装配半另经生成树 e2e 实测（429 / `RESOURCE_EXHAUSTED` / 提前 503 / `DEADLINE_EXCEEDED`） | **已修**（unary + stream + 契约面 + 两面契约驱动装配，见 §6.2） |
 | 7.7 | env 覆盖表达不出契约的多词键：严格门禁下启动即报，非严格下优先级反转 | 中 | ✅ 本轮写 e2e 时实测撞上（四条用例全红在 `unknown contract keys`），根因读到 `environMap`/`lookupField`/`findUnknown` 三处 | **未修**（绕行已落代码；修法要动 `bconf` + `bootstrap/config` 的键名规范化口径，见 §7.7） |
+| 7.8 | `TestWatchValue_NoTornEmptySnapshot` 断得比 `ValueWatcher` 契约还强，共享 runner 上偶发红 | 低-中 | ✅ 远端实测：run 41597365828（head `b149fbf`）`test` 作业红在 `bconfig/file`，仅此一条断言失败（`重写过的 "v21" 从未被派发`），同一用例在后续 run 全绿 | **未修**（要先拍板：放宽到 §7.6 的「断伤害」口径，还是保留强断言并接受偶发红，见 §7.8） |
 | 6.3 | 限流位于认证之后，认证层自身不受保护 | 中 | ✅ 已核对注释与实现 | **口径已定**（保持现位置 + 落文档；不改默认的理由与自保姿势见 §6.3） |
 | 3.2 | 21 个 module 同时 require 同一库的两个 major（`// indirect`） | 低 | ✅ 脚本实测 | **已修（只读面）**：`scripts/multi-major.sh` + `task deps-multi-major`；`go list -deps` 实测确认真正同链的是 2 条，见 §3.2 |
 | 3.3 | 根 `v0.35.0` **发得出去、装不出来**：仓库里的生成物文件名让代理建不出模块 zip | **高** | ✅ `goproxy.cn` 实测 404 `create zip: malformed file path … invalid char '（'`，230 条路径逐条核对 | **已修**：`.qoder/` 导出移出版本库（磁盘副本保留），`bald release tag` 新增路径闸门（实测在坏树上拦下 230 条、落 0 个 tag）；`v0.35.0` 按「已发布不可重发」保留不用，由 `v0.36.0` 取代，见 §3.3 |
@@ -607,11 +608,18 @@ Go 源码零改动（除下面第 ① 条）。根 module 里 `pkg/` 之外唯�
 
 **7.7 env 覆盖表达不出契约的多词键（中）** ⚠ 未修（发现路径：§6.2③ 写端到端实证时，四条用例想按最省事的姿势从 `BALD_SERVER_HTTP_MIDDLEWARE_RATE_LIMIT_*` 注入参数，四条全部在启动期被严格门禁拦死）
 
-- 现象：`environMap`（`bootstrap/config/merge.go:96-107`）用 `NewReplacer("_", ".", "-", ".")` 把变量名里的下划线**和**连字符一律当路径分隔符，于是 `BALD_SERVER_HTTP_MIDDLEWARE_RATE_LIMIT_RATE` 落树成 `.server.http.middleware.rate.limit.rate`。装载侧 `lookupField`（`bconf/unmarshal.go:299-323`）有 `foldPath` 折叠兜底，能把 `rate_limit` 这种契约字段名重新按段下钻找回来——所以「env 能覆盖多词键」在**关掉严格门禁时**基本成立。撞死的是另一侧：`FindUnknownKeys`/`findUnknown`（`bconf/unmarshal.go:41,95`）**没有折叠兜底**，而严格门禁（`appkit.StrictContract`，生成物默认开启）在 unmarshal 之前跑，逐层比对字段描述符，`.server.http.middleware.rate` 这一层就判定「未知契约键」并终止启动。实测报错原文：`config: unknown contract keys (typo? or declare in AllowBusinessSections): .server.http.middleware.rate`。
+- 现象：`bootstrap/config/merge.go` 的 `environMap` 用 `NewReplacer("_", ".", "-", ".")` 把变量名里的下划线**和**连字符一律当路径分隔符，于是 `BALD_SERVER_HTTP_MIDDLEWARE_RATE_LIMIT_RATE` 落树成 `.server.http.middleware.rate.limit.rate`。装载侧 `bconf/unmarshal.go` 的 `lookupField` 有 `foldPath` 折叠兜底，能把 `rate_limit` 这种契约字段名重新按段下钻找回来——所以「env 能覆盖多词键」在**关掉严格门禁时**基本成立。撞死的是另一侧：同一文件的 `FindUnknownKeys`/`findUnknown` **没有折叠兜底**，而严格门禁（`appkit.StrictContract`，生成物默认开启）在 unmarshal 之前跑（调用点在 `bootstrap/config/config.go` 的装载流程里），逐层比对字段描述符，`.server.http.middleware.rate` 这一层就判定「未知契约键」并终止启动。实测报错原文：`config: unknown contract keys (typo? or declare in AllowBusinessSections): .server.http.middleware.rate`。
 - 两个后果，性质不同：① **开了严格门禁 → env 只能覆盖单词契约键**（`server.http.addr` 这类），多词键全数启动期失败。这是「安全闸门反过来阉割了配置层」——门禁把一种合法的注入姿势判成了笔误。② **没开严格门禁 → 优先级反转**：`lookupField` 的口径是「平级匹配优先于折叠」（注释明写，为的是真嵌套键不被折叠抢走），所以文件层已写 `rate_limit` 时，env 的折叠链永远排在其后被读到，env > file 的分层承诺静默失效——不报错，只是 env 说了不算。
 - 为什么不本轮修：真正的修法是把「键名规范化」下移到**合树之前**（每层各自折叠成契约规范名，或在 `findUnknown` 里补同款 `foldPath` 兜底并处理「部分匹配不算命中」的歧义），涉及 `bconf` + `bootstrap/config` 两个模块的既有口径，而 `lookupField` 的「平级优先」与「无 `a_b` 标量 / `a` 子消息同层共存」的全契约前提（179 个下划线字段 × 62 个 message 已核验）都要重新审视——不是加个 if 的量。
 - 现有绕行（已落代码，不是临时 hack）：需要按环境改契约段的测试与部署都改**契约文件本身**而不是 env。示例见 `_example/bald/internal/bootstrap/discovery_e2e_test.go` 的 `roleConfigWithGateway` 与 `middleware_e2e_test.go` 的 `roleConfigOver`（读角色的 YAML、改一段、写进 `t.TempDir()`，再追加一个 `appkit.ConfigFile` 覆盖——同名单值字段末者胜）。业务自有段（`biz.*`）同理要避开下划线：`greetv1.readOwnConfig` 用 `biz.greet.delay` 而不是 `delay_ms`，因为业务键连折叠兜底都没有。
 - 已证的判据（不是推测）：四条 e2e 用例在 env 注入形态下全部红在上述启动错误，改文件覆盖形态后全部绿；`bconf` 侧的折叠语义由 `lookupField`/`foldPath` 既有测试钉住，本轮未改动这两个函数。
+
+**7.8 `TestWatchValue_NoTornEmptySnapshot` 断得比契约还强（低-中）** ⚠ 未修（发现路径：§6.2③ 期间 `b149fbf` 的 `ci` run 41597365828 里 `test` 作业红在 `bconfig/file`——`file_test.go` 的「重写过的 `"v21"` 从未被派发」，同用例的另两条判据（0 次空载荷、末值 = `v49`）都过，同 run 其余四个作业亦全绿；后续两个 head 同一用例转绿）
+
+- 不是产品缺陷：`bconfig.ValueWatcher` 的契约注释明写「连续变更允许合并：通道收到的一定是某一时刻的完整值，但**不保证每个中间值都送达**」。丢一个中间值 `v21` 是契约内的行为，红的是断言强度。
+- 根因（读代码可得，不必等复现）：事件循环每收到一条 fsnotify 事件才去 `readSettled`（`bconfig/file` 的 `WatchValue`），而落定本身要花时间——非空最快是连续两次一致（`settleInterval` 5ms 一轮），空载荷还要再递进确认 `emptyConfirmWait×emptyConfirmAttempt` = 200ms；输出通道只有 1 格缓冲，消费慢时事件还会在 fsnotify 队列里排队。**一条被延迟的事件读到的必然是当时的最新内容**，于是它替前面那几个还没处理的写各发了一次同样的最新值，中间值根本没被读到过。50ms 的轮间隔只在「处理一条事件快于 50ms」时才等价于逐值送达——`-race` 与共享 runner 的调度抖动不保证这一点。所以这条红是时序性的，同一段代码本地 `-count=10` 全绿而 CI 偶发。
+- 为什么先登记不改测试：两条修法都要拍板。① 把它对齐到 §7.6 已确立的「断伤害」口径（只保留 0 次空载荷 + 末值正确，删掉「50 个值全到」这条）——判据变弱，但 `readSettled` 的丢弃路径仍由变异 M2（一次实测里就让 50 个值全部「从未被派发」并转红）与 `TestWatchValue_StormSettlesFinal` 的末值判据兜住；② 保留强断言、把轮间隔提到明显大于最坏处理耗时（空路径 200ms，取 300~400ms；50 轮就是 15~20s，还要给 `ci` 的 `test` 作业让出预算）。我倾向 ①：契约已经承诺不了逐值送达，测试断一个兑现不了的强度只会长期制造假红灯，而假红灯的代价是让人学会忽略它。
+- 需要 owner 决定后再动；在此之前，任何 `test` 作业红在这条用例上，都要按上面两条核对是不是同一机制，不要直接重跑绿灯当作不存在。
 
 ---
 
@@ -658,3 +666,5 @@ Go 源码零改动（除下面第 ① 条）。根 module 里 `pkg/` 之外唯�
 12. **依赖卫生只读报告**（§3.2）✅：`scripts/multi-major.sh` + `task deps-multi-major`，再用 `go list -deps` 把「是否真同链」从推测改成证据；不加 exclude/replace。
 13. **CI 集成作业**（§7.1）✅：`integration` 作业注入 etcd/redis/mongo 跑三条接缝的非 `-short` 套件，并以「判据必须出现 `--- PASS`」兜住不可达即 Skip 的静默失效；作业文件自身的 schema 闸门另开 `workflow-lint`。GitHub 实测五个作业全绿。
 14. **覆盖率闸门**（§7.2）——未做。**统计量断言的复查**（§7.4）✅：`sres` 并发用例的假红已按「灌满窗口」修掉，阈值一字未动；同类写法已 grep 核过其余四个用随机源的包。**Windows 周界适配**（§7.5）✅：schedule 实测红的三条（产物扩展名 / 清单差异的路径身份 / 检出 CRLF）已修，并用 `.gitattributes` 收口检出形态；dispatch run 41445557462 实测该作业七个 step 全绿，含上次被连坐跳过的 `bootstrap`、`contrib/authz-casbin`、`TestTree_EndToEndTimed`。
+15. **env 表达不出契约的多词键**（§7.7）——未修，属 `bconf` + `bootstrap/config` 的键名规范化口径（要么每层在合树前折叠成契约规范名，要么给 `findUnknown` 补同款兜底并处理歧义）。当前绕行是「改契约文件而不是改 env」，已作为示例的正式写法落进代码与文档。
+16. **`TestWatchValue_NoTornEmptySnapshot` 的逐值断言强于 `ValueWatcher` 契约**（§7.8）——待拍板：按「断伤害」放宽（推荐），还是把轮间隔拉到明显大于最坏事件处理耗时。当前它在共享 runner 上偶发红（实测 run 41597365828 红过一次，后续 head 转绿），红的是测试而不是产品；每次遇到都要按 §7.8 的机制核对一遍再决定，不要靠重跑消音。
