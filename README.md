@@ -37,20 +37,19 @@
 然后生成、拉起：
 
 ```bash
-# CLI 住在独立 module github.com/kalandramo/bald/cli（go.mod 零 replace）。
-# 源码检出装法最快，不依赖代理索引：
-git clone https://github.com/kalandramo/bald.git && cd bald/cli
-go install ./cmd/bald        # 要钉生成器行为：先 git checkout <ref>，注意 `cli/` 只在拆分后的 ref 上存在
-cd -                        # 回到你的服务目录
+# CLI 住在独立 module github.com/kalandramo/bald/cli（go.mod 零 replace），
+# 所以这一条装得上——它曾经是纸面承诺，原因见风险评审 §3.4：
+go install github.com/kalandramo/bald/cli/cmd/bald@latest
 
+cd /path/to/demo-svc        # 进你的服务目录
 go mod init github.com/you/demo-svc   # 尚未 init 时执行，与 meta.module 一致
 bald gen app --spec appspec.json
 go mod tidy && go run ./cmd/demo-svc
 ```
 
-按 tag 安装是 `go install github.com/kalandramo/bald/cli/cmd/bald@vX.Y.Z`——`cli` 的 `go.mod` 零 `replace`，Go 不会拒绝它；前提是 `cli/vX.Y.Z` 这个 tag 已发出且在你用的代理上解析得到（仓库根做不到这一点，它带着 19 条同仓 `replace`，见[风险评审 §3.4](docs/architecture/risk-review.md)）。
+把 `@latest` 换成 `@v0.1.0` 就钉住生成器行为。只有要改生成器本身、或你用的代理还没索引到新 tag 时才需要源码检出：`git clone https://github.com/kalandramo/bald.git && cd bald/cli && go install ./cmd/bald`——注意 `cli/` 目录只在拆分之后的 ref 上存在。
 
-`go mod tidy` 拉的是库模块，按各自的 tag 锁版本，例如 `go get github.com/kalandramo/bald/pkg@v0.2.0`（appkit 装配编排与能力包都住这里）。仓库根模块只提供本仓工具，没有可导入的包，别把它当依赖。
+`go mod tidy` 拉的是库模块，按各自的 tag 锁版本，例如 `go get github.com/kalandramo/bald/pkg@v0.2.1`（appkit 装配编排与能力包都住这里）。仓库根模块只提供本仓工具，没有可导入的包，别把它当依赖。
 
 一条命令生成整套可编译骨架，`curl :8080/healthz` 即验证探针。审计、组件、能力、业务域等更完整的声明见[快速入门](docs/guide/zh-CN/quickstart/README.md)与[用 bald CLI 起步新服务](docs/guide/zh-CN/用%20bald%20CLI%20起步新服务.md)。
 

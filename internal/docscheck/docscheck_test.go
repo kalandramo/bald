@@ -938,3 +938,36 @@ func TestGoWorkIsNotTracked(t *testing.T) {
 		t.Errorf("go.work 进了版本库 %v：应删掉并加进 .gitignore，否则 CI 的逐模块判据不再是发布形态（§3.4）", got)
 	}
 }
+
+// TestTaskfileNoPerCommandDir 钉住 Taskfile.yml 的形状：`dir` 只有写在**任务级**
+// 才生效，go-task 会静默忽略 `cmds` 条目里的 `dir`（实测 3.52.0：`- cmd: pwd` 配
+// `dir: sub` 打印的仍是任务目录）。被忽略时不报错也不失败，于是跨目录的
+// `go test ./...` 退化成「把根 module 再跑一遍」——覆盖面凭空消失而结果全绿，
+// 正是 §8 那一类假绿。跨目录一律拆成带任务级 dir 的 internal 子任务。
+func TestTaskfileNoPerCommandDir(t *testing.T) {
+	root := repoRoot(t)
+	raw, err := readText(filepath.Join(root, "Taskfile.yml"))
+	if err != nil {
+		t.Fatalf("read Taskfile.yml: %v", err)
+	}
+	var perCmd, taskLevel []int
+	for i, line := range strings.Split(string(raw), "\n") {
+		trimmed := strings.TrimLeft(line, " \t")
+		if !strings.HasPrefix(trimmed, "dir:") {
+			continue
+		}
+		lineNo := i + 1
+		if len(line)-len(trimmed) > 4 {
+			perCmd = append(perCmd, lineNo)
+		} else {
+			taskLevel = append(taskLevel, lineNo)
+		}
+	}
+	// 防空转：任务级 dir 是这条判据的对照物，一个都没有说明解析没落到形状上。
+	if len(taskLevel) == 0 {
+		t.Fatal("Taskfile.yml 里没有一条任务级 dir——判据失去对照，本闸门在空转")
+	}
+	for _, lineNo := range perCmd {
+		t.Errorf("Taskfile.yml:%d 在 cmds 条目里写了 dir，go-task 会忽略它；把这条腿拆成带任务级 dir 的 internal 子任务再用 task: 调用", lineNo)
+	}
+}

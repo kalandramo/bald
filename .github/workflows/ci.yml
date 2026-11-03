@@ -98,6 +98,16 @@ jobs:
         working-directory: cli
         run: go test ./internal/codegen/ -run 'TestTree_(EndToEndTimed|AuthzClosedLoop)' -count=1 -timeout 15m
 
+      - name: 真实示例的生成树与声明不漂移（gen app/domain --check）
+        # 上面那步吃的是合成声明；这条钉的是 _example/bald 这份**真实**声明。
+        # 判据是逐字节比对清单（含 spec 摘要），所以改声明忘了重生成会当场红——
+        # domains.manifest.json 的旧摘要潜伏过 13 个提交（risk-review.md §8）。
+        # --check 不写文件，也不跑 proto 阶段，因此不需要 buf/protoc。
+        working-directory: cli
+        run: |
+          go run ./cmd/bald gen app --spec ../_example/bald/appspec.json --out ../_example/bald --check
+          go run ./cmd/bald gen domain --spec ../_example/bald/appspec.json --out ../_example/bald --check
+
   # 竞态门禁：普通 test 不启用 race detector，session manager / 热重载 /
   # 计划缓存 / 限流器等并发路径的竞争只能在这里被发现（代码注释里的
   # 「-race 可检出」不是保险）。

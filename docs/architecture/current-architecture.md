@@ -204,7 +204,7 @@ pkg module 侧（require 13 个兄弟 module）
 | 大小 >1 的 SCC | 无（DAG） | 无（DAG） |
 | 全仓本地 `replace` 条数（除 `_example`） | 410 | 423 |
 
-CLI 拆分（风险评审 §3.4 走 B）在这张表之上又动了一次，2026-11-03 实测：`go.mod` 总数 94 → **95**、派生 module 93 → **94**（新增 `cli`）；根 module 内的包 4 → **1**（只剩 `internal/docscheck`）；根自己 require 的同仓 module 1（`bconf`）→ **0**（`bconf`/cobra/protobuf/yaml 四条 require 随 CLI 迁进 `cli/go.mod`）；全仓 `replace` **仍是 423**——根那 19 条一条没动，`cli` 新增的是 0 条。唯一变的是消费姿势：`cli` 是本仓第一个**没有目录 `replace` 兜底**的同仓消费者，它按 tag 拉 `bconf`。
+CLI 拆分（风险评审 §3.4 走 B）在这张表之上又动了一次，2026-11-03 实测：`go.mod` 总数 94 → **95**、派生 module 93 → **94**（新增 `cli`）；根 module 内的包 4 → **1**（只剩 `internal/docscheck`）；根自己 require 的同仓 module 1（`bconf`）→ **0**（`bconf`/cobra/protobuf/yaml 四条 require 随 CLI 迁进 `cli/go.mod`）；全仓 `replace` **仍是 423**——根那 19 条一条没动，`cli` 新增的是 0 条。唯一变的是消费姿势：`cli` 是本仓第一个**没有目录 `replace` 兜底**的同仓消费者，它按 tag 拉 `bconf`。`cli/v0.1.0` 已于同日随根 `v0.37.1`、`pkg/v0.2.1` 一起发出（`d4396185`），零 `replace` 夹具里 `go install github.com/kalandramo/bald/cli/cmd/bald@v0.1.0` 实测装得上且生成的骨架能起进程——§3.4 那条缺陷到此闭环。
 
 require `bald/pkg` 的模块（**22 个非示例模块** + `_example/bald`）：
 `broker/redis`、`transport/{sse,asynq,tcp,webrtc,gateway,cron}`、`cache/redis`、`registry/{nacos,consul,etcd,kubernetes}`、`oss/{s3,minio}`、`contrib/{config-nacos,store-mongo,store-gorm,audit-stream,audit-gorm,authn-jwt,authz-casbin,observability-otlp}`、`_example/bald`。

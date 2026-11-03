@@ -3,7 +3,11 @@
 // 使用的 release 发布子命令（计划 / 依赖归位 / 变更日志 / 打 tag）。
 //
 // 安装：CLI 是独立 module github.com/kalandramo/bald/cli，其 go.mod 零 replace，
-// 因此既能从源码检出安装，也可以按 tag 安装（后者要等 cli/ 的 tag 在代理解析得到）：
+// 所以 Go 的「按版本装命名包」不会拒它（根模块带着同仓 replace，拒的就是那条）：
+//
+//	go install github.com/kalandramo/bald/cli/cmd/bald@latest
+//
+// 要改生成器本身才从源码检出装：
 //
 //	git clone https://github.com/kalandramo/bald.git && cd bald/cli
 //	go install ./cmd/bald

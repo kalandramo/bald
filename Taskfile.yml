@@ -9,6 +9,12 @@
 #
 # 说明：
 # - 所有跨目录命令改用 `dir:` 字段而非 `cd`，避免 Windows cmd/pwsh 的 cd/shell 差异。
+#   **`dir` 只能写在任务级**：go-task 不认 `cmds` 条目里的 `dir`（实测 3.52.0，
+#   `- cmd: pwd` 配 `dir: sub` 打印的仍是任务目录）。写成 per-cmd 形式时它不报错，
+#   只是静默按任务的目录跑——`go test ./...` 这类命令因此变成「把根 module 跑两遍」，
+#   覆盖当场消失且全绿（§8 记的正是这一类）。跨目录一律拆成带 task 级 `dir`
+#   的 internal 子任务，由 `task: <名字>` 调用。internal/docscheck 有一条闸门
+#   （TestTaskfileNoPerCommandDir）盯住这个形状，防止再写回去。
 # - 平台相关检测（如「命令是否在 PATH」）用 `task` 内置的 `sh`/`bash` 平台判定，
 #   而非 Make 的 `@command -v`，从而 Windows 下也能跑。
 # - 模块清单不在这里手写：`scripts/list-modules.sh` 是全仓唯一派生，CI
@@ -267,8 +273,14 @@ tasks:
       - go test ./...
       # codegen/release 自 B-iii 起在 cli module 里：这条腿不能省，否则
       # 生成物端到端用例（TestTree_*）与发布工具测试在本任务里静默消失。
-      - cmd: go test ./...
-        dir: cli
+      - task: test-cli
+
+  test-cli:
+    internal: true
+    desc: cli module 的全部测试（test 的跨目录腿）
+    dir: cli
+    cmds:
+      - go test ./...
 
   # 静态检查与漏洞扫描：范围 = scripts/list-modules.sh 派生的全部 module，与 CI 的
   # lint/vuln 作业逐模块同口径（原来只跑核心 module，是 §1.2 的假绿来源之一）。
@@ -415,27 +427,70 @@ tasks:
     desc: 编译核心模块全部包（根 + cli；不含 _example，见 example-bald-vet）
     cmds:
       - go build ./...
-      - cmd: go build ./...
-        dir: cli
+      - task: build-cli
+
+  build-cli:
+    internal: true
+    desc: 编译 cli module 全部包（build 的跨目录腿）
+    dir: cli
+    cmds:
+      - go build ./...
 
   # 设计 §7.2「验收脚本」的可执行形态（声明性指标的主门）。
   # 只跑 go test，跨平台；参考工程的计划口径在 _example 独立 module 内断言。
   acceptance:
-    desc: 声明式装配验收（§7.2：计划纯净/顺序无关/停机序与回滚/漂移/计划缓存与变体（含 -tags 两态）/生成确定性/API 守卫/参考工程计划）
+    desc: 声明式装配验收（§7.2：计划纯净/顺序无关/停机序与回滚/漂移/计划缓存与变体（含 -tags 两态）/生成确定性/API 守卫/参考工程计划/真实示例的生成树 --check）
     cmds:
-      - go test ./pkg/appkit -run 'TestPlan_(NoSideEffects|OrderInvariant|SegmentCoverage|Conflict|DomainRoutes|CustomRoutesWarning)|TestRouteShapeConflict'
-      - go test ./pkg/appkit -run 'TestTeardownOrder_|TestProviderPlan_StdTeardownOrder|TestComponent_StartFailureRollback|TestMountComponent_MountFailureRollback'
-      - go test ./pkg/appkit -run 'TestDrift'
-      - go test ./pkg/appkit -run 'TestPlanCache_|TestVariantProjection_|TestVariantEffects_|TestOption_OnRoleScoping|TestDoctor_'
-      - go test ./pkg/appkit -run 'TestAPI_'
-      - cmd: go test ./internal/codegen -run 'TestGen_(Deterministic|CheckClean)|TestGenDomain_(Bind|Proto|NoRoutes|CheckDoesNotRunProtoStage)|TestGenApp_Variants|TestTree_Variants|TestPruneStaleOwned|TestCheckTree_'
-        dir: cli
-      - cmd: go test . -run TestGeneratedMatchesProto
-        dir: bconf
-      - cmd: go test ./internal/bootstrap -run TestPlan_ReferenceProject
-        dir: _example/bald
-      - cmd: go test -tags grpcgw ./internal/bootstrap -run TestPlan_ReferenceProject
-        dir: _example/bald
+      - task: acceptance-appkit
+      - task: acceptance-codegen
+      - task: acceptance-example-check
+      - task: acceptance-bconf
+      - task: acceptance-example-plan
+
+  # 下面五个是 acceptance 的跨目录腿，分属不同 module，只能拆成带任务级 dir 的
+  # internal 子任务（原因见文件头）。appkit 这五条曾经写的是根目录下的
+  # `go test ./pkg/appkit`——`pkg/` 独立成 module（`96582bf`）之后就一直 setup failed，
+  # 红了一整轮没人发现，因为没有任何任务或作业调用 acceptance。
+  acceptance-appkit:
+    internal: true
+    desc: 验收：pkg/appkit 的计划/停机/漂移/缓存与变体/API 守卫
+    dir: pkg
+    cmds:
+      - go test ./appkit -run 'TestPlan_(NoSideEffects|OrderInvariant|SegmentCoverage|Conflict|DomainRoutes|CustomRoutesWarning)|TestRouteShapeConflict'
+      - go test ./appkit -run 'TestTeardownOrder_|TestProviderPlan_StdTeardownOrder|TestComponent_StartFailureRollback|TestMountComponent_MountFailureRollback'
+      - go test ./appkit -run 'TestDrift'
+      - go test ./appkit -run 'TestPlanCache_|TestVariantProjection_|TestVariantEffects_|TestOption_OnRoleScoping|TestDoctor_'
+      - go test ./appkit -run 'TestAPI_'
+
+  acceptance-codegen:
+    internal: true
+    desc: 验收：cli/internal/codegen 的生成确定性与清单判定（合成声明）
+    dir: cli
+    cmds:
+      - go test ./internal/codegen -run 'TestGen_(Deterministic|CheckClean)|TestGenDomain_(Bind|Proto|NoRoutes|CheckDoesNotRunProtoStage)|TestGenApp_Variants|TestTree_Variants|TestPruneStaleOwned|TestCheckTree_'
+
+  acceptance-example-check:
+    internal: true
+    desc: 验收：_example/bald 这份真实声明与生成树不漂移（CI 的 test 作业同内容）
+    dir: cli
+    cmds:
+      - go run ./cmd/bald gen app --spec ../_example/bald/appspec.json --out ../_example/bald --check
+      - go run ./cmd/bald gen domain --spec ../_example/bald/appspec.json --out ../_example/bald --check
+
+  acceptance-bconf:
+    internal: true
+    desc: 验收：bconf 的生成物与 proto 契约一致
+    dir: bconf
+    cmds:
+      - go test . -run TestGeneratedMatchesProto
+
+  acceptance-example-plan:
+    internal: true
+    desc: 验收：参考工程的装配计划（含 grpcgw 两态）
+    dir: _example/bald
+    cmds:
+      - go test ./internal/bootstrap -run TestPlan_ReferenceProject
+      - go test -tags grpcgw ./internal/bootstrap -run TestPlan_ReferenceProject
 
   # 多模块发布：先提交业务改动，再按 plan → sync → changelog → tag 顺序执行。
   # 计划文件写在 .bald/（已忽略）；各任务默认 dry-run，写操作经 {{.CLI_ARGS}} 传入
