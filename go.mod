@@ -37,7 +37,7 @@ replace github.com/kalandramo/bald/transport/http => ./transport/http
 replace github.com/kalandramo/bald/transport/web => ./transport/web
 
 require (
-	github.com/kalandramo/bald/bconf v0.15.3
+	github.com/kalandramo/bald/bconf v0.16.0
 	github.com/spf13/cobra v1.10.2
 	google.golang.org/protobuf v1.36.12
 	gopkg.in/yaml.v3 v3.0.1

@@ -4,7 +4,7 @@ go 1.27.1
 
 require (
 	github.com/coocood/freecache v1.2.7
-	github.com/kalandramo/bald/bconf v0.15.3
+	github.com/kalandramo/bald/bconf v0.16.0
 	github.com/kalandramo/bald/cache v0.1.1
 )
 

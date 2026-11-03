@@ -6,6 +6,226 @@
 
 ## 2026-11-03
 
+### bald v0.35.0
+
+- `73e52dc5` docs(release): tag 前必须确认 HEAD 那轮 CI completed/success
+- `c44c3059` docs(architecture): §3.1 记入 pkg/v0.1.0 单发的装载校验与 ambiguous 边界收窄
+- `83148878` chore: 发布 pkg/v0.1.0
+- `1cdc8ac2` docs(architecture): §7.6 补上 GitHub 五作业实测与推送前本地闸门
+- `95db197e` fix(bconfig): 文件源不再把撕裂写的空快照当变更派发（§7.6）
+- `7f6db20f` docs(architecture): 清掉两处已失效的拓扑描述，行号快照改为不带行号
+- `d515fa04` docs(architecture): §3.1 补齐闸门实测、下游 replace 证据与未证明面
+- `96582bfb` refactor(modules): pkg/ 独立成 module，require 聚合根的适配器 22→0（§3.1）
+- `44f13690` docs(repowiki): 入库知识中心生成产物（Wiki 314 页 + 知识卡导出）
+- `2f62f661` docs(architecture): §7.5 三段从未执行的 Windows step 补上 dispatch 实测
+- `474a939e` build(ci): 检出恒用 LF，并把 Windows 上三处平台适配缺陷修掉
+- `5585a21c` docs(architecture): §7.4 记下 GitHub 实测，并写清还差哪一层证据
+- `80edb7b8` docs(repowiki): 知识生成前置配置，钉住三条主题与两条禁用模式
+- `29d053e9` test(circuitbreaker/sres): 并发放行数不再是无界的断言（§7.4）
+- `cab08e31` build(ci): integration 作业改 services.env，另开闸门守作业文件自身
+- `cb085551` docs(architecture): §2/§1.3/§7.1 三处收口，行号引用换符号名
+- `4c251c0d` build(ci): 开 integration 作业注入真 etcd/redis/mongo（§7.1）
+- `983639b0` build(verify): 本地清单与 CI 同源，文档补模块清单闸门
+- `89fbb20f` feat(middleware): gRPC 链补限流与超时两层（§6.2）
+- `c54b4639` docs(architecture): §1.3 收口，按 broker/kafka 新行号重核引用与渲染快照
+- `5c630f74` docs(architecture): 记录 §1.1 收口与 race 扩范围抓到的竞争
+- `291e4a1b` ci: race 清单改为 find 派生，两处手写清单收成一份排除表
+- `cf0a11ba` docs(architecture): 按 5f771e0 重核制品，补全 module-deps 的根扇入
+- `e5c17d6a` docs(architecture): 记录 §3.1 断环并重核引用与渲染快照
+- `b96f5f39` docs: 转码面口径改为 server.http 段 Provider
+- `dd2123f4` refactor: 转码面收归 gateway 段 Provider，断开根模块与适配器的模块环
+
+### bconf v0.16.0
+
+- `10741ca8` feat(gateway): 把服务发现接到装配上，并在真注册中心上验活
+
+### bconfig v0.2.2
+
+- `95db197e` fix(bconfig): 文件源不再把撕裂写的空快照当变更派发（§7.6）
+
+### bootstrap v0.13.5
+
+- `dd2123f4` refactor: 转码面收归 gateway 段 Provider，断开根模块与适配器的模块环
+- `24e27077` test(bootstrap/config): 本地 watch 断言等「含新值」的回调，不等「任意回调」
+
+### broker/kafka v0.2.3
+
+- `79c0c51a` test(broker/kafka): 钉住致命退出后「谁负责摘订阅者」的口径
+- `f8b40b7a` test(broker/kafka): 给 writer 重建与订阅退避补上第一份测试
+- `7545f8cb` fix(broker/kafka): 补齐发布与订阅生命周期上的四处缺陷
+- `dd75622e` chore: 发布 bald v0.34.1 等 6 个模块
+
+### broker/redis v0.4.2
+
+- `96582bfb` refactor(modules): pkg/ 独立成 module，require 聚合根的适配器 22→0（§3.1）
+- `5f771e03` chore(deps): 归位 16 个模块的 transport/gateway 间接 require
+- `dd75622e` chore: 发布 bald v0.34.1 等 6 个模块
+- `875755c3` chore: 发布 bald v0.34.0 等 13 个模块
+- `ec4223fd` chore(deps): 归位 bconf v0.15.1 的消费者 require
+
+### cache/redis v0.4.1
+
+- `96582bfb` refactor(modules): pkg/ 独立成 module，require 聚合根的适配器 22→0（§3.1）
+- `5f771e03` chore(deps): 归位 16 个模块的 transport/gateway 间接 require
+- `dd75622e` chore: 发布 bald v0.34.1 等 6 个模块
+- `875755c3` chore: 发布 bald v0.34.0 等 13 个模块
+- `ec4223fd` chore(deps): 归位 bconf v0.15.1 的消费者 require
+
+### contrib/audit-gorm v0.2.3
+
+- `96582bfb` refactor(modules): pkg/ 独立成 module，require 聚合根的适配器 22→0（§3.1）
+- `5f771e03` chore(deps): 归位 16 个模块的 transport/gateway 间接 require
+- `dd75622e` chore: 发布 bald v0.34.1 等 6 个模块
+- `875755c3` chore: 发布 bald v0.34.0 等 13 个模块
+- `ec4223fd` chore(deps): 归位 bconf v0.15.1 的消费者 require
+
+### contrib/audit-stream v0.4.2
+
+- `96582bfb` refactor(modules): pkg/ 独立成 module，require 聚合根的适配器 22→0（§3.1）
+- `5f771e03` chore(deps): 归位 16 个模块的 transport/gateway 间接 require
+- `dd75622e` chore: 发布 bald v0.34.1 等 6 个模块
+- `875755c3` chore: 发布 bald v0.34.0 等 13 个模块
+- `ec4223fd` chore(deps): 归位 bconf v0.15.1 的消费者 require
+
+### contrib/authn-jwt v0.3.1
+
+- `96582bfb` refactor(modules): pkg/ 独立成 module，require 聚合根的适配器 22→0（§3.1）
+- `dd75622e` chore: 发布 bald v0.34.1 等 6 个模块
+- `875755c3` chore: 发布 bald v0.34.0 等 13 个模块
+- `b910c0f6` docs(comments): 清理 Go 注释与测试名中的缺陷编号和历史叙事
+- `fd1a864c` chore(ci): 引入 golangci-lint 与 govulncheck 全模块门禁
+
+### contrib/authz-casbin v0.2.3
+
+- `96582bfb` refactor(modules): pkg/ 独立成 module，require 聚合根的适配器 22→0（§3.1）
+- `dd75622e` chore: 发布 bald v0.34.1 等 6 个模块
+- `ffa15ffc` test(bconf): 分配剖面守卫按实测重定基线，并写明 -race 档
+- `875755c3` chore: 发布 bald v0.34.0 等 13 个模块
+- `b910c0f6` docs(comments): 清理 Go 注释与测试名中的缺陷编号和历史叙事
+- `c2e57346` docs: 删除历史路线文档，增加文档路径一致性检查
+- `843d3d2a` chore: 清理注释中的批次/排期/迁移痕迹——只留代码逻辑注释
+
+### contrib/config-nacos v0.1.1
+
+- `96582bfb` refactor(modules): pkg/ 独立成 module，require 聚合根的适配器 22→0（§3.1）
+- `5f771e03` chore(deps): 归位 16 个模块的 transport/gateway 间接 require
+- `dd75622e` chore: 发布 bald v0.34.1 等 6 个模块
+- `875755c3` chore: 发布 bald v0.34.0 等 13 个模块
+- `ec4223fd` chore(deps): 归位 bconf v0.15.1 的消费者 require
+
+### contrib/observability-otlp v0.4.1
+
+- `96582bfb` refactor(modules): pkg/ 独立成 module，require 聚合根的适配器 22→0（§3.1）
+- `5f771e03` chore(deps): 归位 16 个模块的 transport/gateway 间接 require
+- `dd75622e` chore: 发布 bald v0.34.1 等 6 个模块
+- `875755c3` chore: 发布 bald v0.34.0 等 13 个模块
+- `ec4223fd` chore(deps): 归位 bconf v0.15.1 的消费者 require
+
+### contrib/store-gorm v0.4.1
+
+- `96582bfb` refactor(modules): pkg/ 独立成 module，require 聚合根的适配器 22→0（§3.1）
+- `5f771e03` chore(deps): 归位 16 个模块的 transport/gateway 间接 require
+- `dd75622e` chore: 发布 bald v0.34.1 等 6 个模块
+
+### contrib/store-mongo v0.2.1
+
+- `96582bfb` refactor(modules): pkg/ 独立成 module，require 聚合根的适配器 22→0（§3.1）
+- `4c251c0d` build(ci): 开 integration 作业注入真 etcd/redis/mongo（§7.1）
+- `dd75622e` chore: 发布 bald v0.34.1 等 6 个模块
+
+### oss/minio v0.3.2
+
+- `96582bfb` refactor(modules): pkg/ 独立成 module，require 聚合根的适配器 22→0（§3.1）
+- `5f771e03` chore(deps): 归位 16 个模块的 transport/gateway 间接 require
+- `dd75622e` chore: 发布 bald v0.34.1 等 6 个模块
+- `875755c3` chore: 发布 bald v0.34.0 等 13 个模块
+- `ec4223fd` chore(deps): 归位 bconf v0.15.1 的消费者 require
+
+### oss/s3 v0.3.2
+
+- `96582bfb` refactor(modules): pkg/ 独立成 module，require 聚合根的适配器 22→0（§3.1）
+- `5f771e03` chore(deps): 归位 16 个模块的 transport/gateway 间接 require
+- `dd75622e` chore: 发布 bald v0.34.1 等 6 个模块
+- `875755c3` chore: 发布 bald v0.34.0 等 13 个模块
+- `ec4223fd` chore(deps): 归位 bconf v0.15.1 的消费者 require
+
+### ratelimit/tokenbucket v0.2.0
+
+- `89fbb20f` feat(middleware): gRPC 链补限流与超时两层（§6.2）
+
+### registry v0.4.0
+
+- `77565623` feat(registry): inmemory 补齐发现侧，注册/发现不再半环
+
+### registry/consul v0.1.5
+
+- `96582bfb` refactor(modules): pkg/ 独立成 module，require 聚合根的适配器 22→0（§3.1）
+- `5f771e03` chore(deps): 归位 16 个模块的 transport/gateway 间接 require
+- `dd75622e` chore: 发布 bald v0.34.1 等 6 个模块
+
+### registry/etcd v0.3.3
+
+- `96582bfb` refactor(modules): pkg/ 独立成 module，require 聚合根的适配器 22→0（§3.1）
+- `4c251c0d` build(ci): 开 integration 作业注入真 etcd/redis/mongo（§7.1）
+- `5f771e03` chore(deps): 归位 16 个模块的 transport/gateway 间接 require
+- `dd75622e` chore: 发布 bald v0.34.1 等 6 个模块
+
+### registry/kubernetes v0.1.5
+
+- `96582bfb` refactor(modules): pkg/ 独立成 module，require 聚合根的适配器 22→0（§3.1）
+- `5f771e03` chore(deps): 归位 16 个模块的 transport/gateway 间接 require
+- `dd75622e` chore: 发布 bald v0.34.1 等 6 个模块
+- `875755c3` chore: 发布 bald v0.34.0 等 13 个模块
+- `ec4223fd` chore(deps): 归位 bconf v0.15.1 的消费者 require
+
+### registry/nacos v0.3.2
+
+- `96582bfb` refactor(modules): pkg/ 独立成 module，require 聚合根的适配器 22→0（§3.1）
+- `5f771e03` chore(deps): 归位 16 个模块的 transport/gateway 间接 require
+- `dd75622e` chore: 发布 bald v0.34.1 等 6 个模块
+- `875755c3` chore: 发布 bald v0.34.0 等 13 个模块
+- `ec4223fd` chore(deps): 归位 bconf v0.15.1 的消费者 require
+
+### transport/asynq v0.6.1
+
+- `96582bfb` refactor(modules): pkg/ 独立成 module，require 聚合根的适配器 22→0（§3.1）
+- `5f771e03` chore(deps): 归位 16 个模块的 transport/gateway 间接 require
+- `dd75622e` chore: 发布 bald v0.34.1 等 6 个模块
+
+### transport/cron v0.6.3
+
+- `96582bfb` refactor(modules): pkg/ 独立成 module，require 聚合根的适配器 22→0（§3.1）
+- `5f771e03` chore(deps): 归位 16 个模块的 transport/gateway 间接 require
+- `dd75622e` chore: 发布 bald v0.34.1 等 6 个模块
+
+### transport/gateway v0.5.0
+
+- `96582bfb` refactor(modules): pkg/ 独立成 module，require 聚合根的适配器 22→0（§3.1）
+- `10741ca8` feat(gateway): 把服务发现接到装配上，并在真注册中心上验活
+- `4c1e6e45` feat(gateway): 后端地址可走服务发现（discovery:///服务名）
+- `7d477287` feat(gateway): HTTPProvider 以段 Provider 接管 server.http 转码面
+
+### transport/graphql v0.1.1
+
+- `a7463908` fix(transport/graphql): 生命周期字段加锁，端点等待与停机不再竞争
+
+### transport/sse v0.5.1
+
+- `96582bfb` refactor(modules): pkg/ 独立成 module，require 聚合根的适配器 22→0（§3.1）
+- `5f771e03` chore(deps): 归位 16 个模块的 transport/gateway 间接 require
+- `dd75622e` chore: 发布 bald v0.34.1 等 6 个模块
+
+### transport/tcp v0.1.3
+
+- `96582bfb` refactor(modules): pkg/ 独立成 module，require 聚合根的适配器 22→0（§3.1）
+- `dd75622e` chore: 发布 bald v0.34.1 等 6 个模块
+- `875755c3` chore: 发布 bald v0.34.0 等 13 个模块
+
+### transport/webrtc v0.2.2
+
+- `96582bfb` refactor(modules): pkg/ 独立成 module，require 聚合根的适配器 22→0（§3.1）
+- `dd75622e` chore: 发布 bald v0.34.1 等 6 个模块
+
 ### pkg v0.1.0
 
 - `96582bfb` refactor(modules): pkg/ 独立成 module，require 聚合根的适配器 22→0（§3.1）
