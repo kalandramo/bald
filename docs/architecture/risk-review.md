@@ -412,7 +412,7 @@ Go 源码零改动（除下面第 ① 条）。根 module 里 `pkg/` 之外唯�
   根 `v0.36.0` 的 zip 直接取回解包：139 条，`.qoder/**` 0 条、`pkg/**` 0 条——zip 判据缺陷与拆分前的 ambiguous
   import 两条都不在这份发布物里。`v0.35.0` 仍确定性 404 `create zip: malformed`，与「保留不用」一致。
 
-**3.4 官方 CLI 按 tag 装不出来：`go install` 拒绝含 `replace` 的 module**（中，未修）
+**3.4 官方 CLI 按 tag 装不出来：`go install` 拒绝含 `replace` 的 module**（中，缺陷未修——文档姿势与闸门已落地，结构性解法待拍板）
 
 - 现象：五处文档——`README.md`、`docs/guide/zh-CN/quickstart/README.md`、《用 bald CLI 起步新服务》、《代码生成工具设计》摘要、`cmd/bald/main.go` 的 doc comment——都写着 `go install github.com/kalandramo/bald/cmd/bald@latest`（或 `@vX.Y.Z`）。这条命令**从未成功过**。本机对三个已发布 tag 各跑一次（`v0.31.0` 在 `pkg/` 拆分前、`v0.36.0`/`v0.37.0` 在拆分后），报错逐字相同：
 
@@ -426,7 +426,7 @@ Go 源码零改动（除下面第 ① 条）。根 module 里 `pkg/` 之外唯�
 - 判据（取自本机 GOROOT 源码，不是国内镜像私有规则）：`cmd/go/internal/load/pkg.go` 在安装命名包时抓取目标 module 的**已发布 go.mod**，`if len(f.Replace) > 0` 即报错（紧接着对 `Exclude` 同一判据）。它看的是**存在性**，与该 replace 是否真被 build 用到无关——根 `go.mod` 现有 19 条 `replace`，其中只有 `bconf` 一条有对应 require（`go list -deps ./cmd/bald` 实测同仓依赖只剩 `bconf v0.17.0`），另外 18 条是 §3.1 注脚里「已无对应 require，留着为将来复用」的，它们对编译是惰性的，照样让这条命令失败。
 - 范围：只坏在 **CLI 分发**这一条路径，库侧不受影响——`go get github.com/kalandramo/bald@v0.37.0` 与 `bald/pkg`、各适配器按 tag 解析都正常（§3.3 的零 `replace` scratch module 已实测 31 个 tag 可装载并编译）。所以这是「官方工具入口的可复制性」缺陷，不是发布物缺陷。
 - 为什么长期没暴露：安装路径不在任何闸门里。`task verify` 与 CI 都在带 `replace` 的检出里跑 `go build ./...`，走的永远是本地替换；`bald release tag` 的三道守卫查 tag 是否已存在、zip 路径是否合规、工作树是否干净，不查「文档给的命令装不装得上」。这正是 §8「docscheck 测不出描述过期」的一个实例——只是这次过期的是**命令**而不是描述。
-- 当前处置（已落地）：五处安装说明改成源码检出姿势（`git clone` → `cd bald` → `go install ./cmd/bald`，要固定版本先 `git checkout vX.Y.Z`），库侧明写可按 tag 引用（`go get github.com/kalandramo/bald@v0.37.0`）。验活：`go install ./cmd/bald` 在本地检出跑通，产物 `/Users/…/go/bin/bald` 存在且 `bald --help` 正常输出四个 `gen` 子命令与 `release`；`git clone` 那一步本机到 github 直连不通（代理只服务 module 下载），未在干净克隆上端到端复跑。
+- 当前处置（已落地）：五处安装说明改成源码检出姿势（`git clone` → `cd bald` → `go install ./cmd/bald`，要固定版本先 `git checkout vX.Y.Z`），库侧明写可按 tag 引用（`go get github.com/kalandramo/bald@v0.37.0`）。验活：`go install ./cmd/bald` 在本地检出跑通，产物落在 `$(go env GOPATH)/bin/bald` 且 `bald --help` 正常输出 `gen` 四个子命令与 `release`；`git clone` 那一步本机到 github 直连不通（代理只服务 module 下载），未在干净克隆上端到端复跑。
 - 防回归（已落地）：`internal/docscheck` 新增闸门 `TestDocsInstallsAreReplaceFree`——Markdown **代码围栏**里出现的 `go install <path>@<ver>`，若 `<path>` 按最长前缀归到本仓某个 module，则该 module 的 `go.mod` 不得含任何 `replace`（与 Go 的判据同一条）。围栏内才算「承诺复制即可跑」，内联 code 与围栏外的裸行不参与——文档要引用那条失败命令做说明（《用 bald CLI 起步新服务》§2 正是这么写的）。四次变异逐条验活、全部复原：① 合成夹具里删掉那条 `replace` → 违规消失，证明判据真在读 go.mod 而非认模块名；② 给夹具的 `bconf/go.mod` 加一条 `replace` → 违规 1 条变 2 条，证明读的是**每个 module 自己的** go.mod；③ 去掉 `inFence` 守卫 → 围栏外那行裸命令也被抓，证明围栏这条边界是承重的；④ 往真实 `README.md` 塞回 `go install github.com/kalandramo/bald/cmd/bald@latest` 的代码块 → 立刻红并报出「19 条 replace」，证明全仓扫描不是空转。
 - 未修（结构性改动，待拍板）：两条候选代价不同——
   - **A. 剥掉根 `go.mod` 的全部 `replace`**，同仓未发版的消费改走 `go.work`（workspace 文件不进发布物，`go install @version` 只看 module 自己的 go.mod）。代价：含 `go.work` 的检出里 CI 会静默用本地替换，正好废掉 §3.3 那类「published 形态」判据，要靠 `GOWORK=off` 显式区分两种跑法并给 CI 加断言；且根对 `bconf` 的消费变成「bconf 未发版就编不过」。
