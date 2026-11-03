@@ -516,6 +516,29 @@ func TestTag_ApplyAndGuards(t *testing.T) {
 	}
 }
 
+func TestTag_RejectsZipIllegalPath(t *testing.T) {
+	root := newRepo(t)
+	writeFile(t, root, "root.go", "package m\n\n// fix\n")
+	commit(t, root, "fix: root bug", "")
+	// 生成物导出常见的那种目录名：全角括号不是字母，代理建 zip 时整模块失败，
+	// 而本地 build 与 CI 都照绿——只能在这里拦。
+	writeFile(t, root, "docs/模块（示例）/概述.md", "# 概述\n")
+	commit(t, root, "docs: 入库生成物", "")
+
+	plan := planFor(t, root)
+	var out bytes.Buffer
+	err := Tag(root, plan, true, false, &out)
+	if err == nil || !strings.Contains(err.Error(), "进不了模块 zip") {
+		t.Fatalf("want zip-path rejection, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "docs/模块（示例）/概述.md") {
+		t.Errorf("error must name the offending path, got %v", err)
+	}
+	if got := strings.TrimSpace(runGit(t, root, "tag", "--list", "v0.1.1")); got != "" {
+		t.Errorf("illegal zip path must not create tags, found %q", got)
+	}
+}
+
 func TestTag_PushesInBatches(t *testing.T) {
 	root := newRepo(t)
 	for _, name := range []string{"a", "b", "c", "d"} {
