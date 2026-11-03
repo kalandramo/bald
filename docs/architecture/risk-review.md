@@ -433,6 +433,7 @@ Go 源码零改动（除下面第 ① 条）。根 module 里 `pkg/` 之外唯�
   - **B. 把 `cmd/bald` + `internal/{codegen,docscheck,release}` 抽成独立 module**，安装路径变成 `go install github.com/kalandramo/bald/<x>/cmd/bald@vX.Y.Z`。代价：同样只能按 tag 消费 `bconf`，外加 CI 脚本、`Taskfile`、`bald release` 自身所在 module 的归属要重排——发布工具发自己，升级必然滞后一代。
   - 共同未定项：CLI 的版本号是否跟根 tag 同步。
   - 为什么不一并做：两条都动 module 边界或 CI 契约，与 §3.1 的 `pkg/` 拆分同级；先例里这类切法由 owner 选定（C-A）。
+- 已证（远端）：`e4a61bb`（含新闸门的 `d1765b5` 与五处文档改动）的 GitHub run 41632332664 五作业 `test`/`integration`/`lint`/`vuln`/`race` 全部 success——新那条 `TestDocsInstallsAreReplaceFree` 就是在这个 `test` 作业里跑过的。它前一个 head `34ac420` 那轮（41631889618）按 `concurrency` + `cancel-in-progress` 被取消，当时无 tag 待打，作废绿证没有代价。
 - 还不能证明：① `git clone` + `go install ./cmd/bald` 的端到端（本机 github 直连不通，只验了后半段）；② 方案 A 的「零 `replace` 根检出能否从代理解析」只在依赖闭包层面成立（同仓只剩 `bconf v0.17.0` 一个真实 tag），没有实跑过零 `replace` 检出的 `go build ./...`。
 
 ---
