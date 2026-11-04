@@ -6,6 +6,7 @@ require (
 	github.com/kalandramo/bald/bconf v0.18.0
 	github.com/kalandramo/bald/pkg v0.3.0
 	github.com/kalandramo/bald/registry v0.4.0
+	github.com/kalandramo/bald/retry v0.2.0
 	go.etcd.io/etcd/client/v3 v3.7.1
 )
 
@@ -179,3 +180,5 @@ replace github.com/kalandramo/bald/transport/grpc => ../../transport/grpc
 replace github.com/kalandramo/bald/transport/http => ../../transport/http
 
 replace github.com/kalandramo/bald/pkg => ../../pkg
+
+replace github.com/kalandramo/bald/retry => ../../retry

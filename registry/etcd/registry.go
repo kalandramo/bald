@@ -25,6 +25,7 @@ import (
 	clientv3 "go.etcd.io/etcd/client/v3"
 
 	registry "github.com/kalandramo/bald/registry"
+	"github.com/kalandramo/bald/retry"
 )
 
 var (
@@ -241,7 +242,8 @@ func (r *Registry) registerWithKV(ctx context.Context, key string, value string)
 	return grant.ID, nil
 }
 
-// heartBeat 循环消费 KeepAlive 响应；断链后指数退避重试重注册（上限 maxRetry）。
+// heartBeat 循环消费 KeepAlive 响应；断链后重试重注册，次数上限 maxRetry、
+// 每次之间的等待见 [retreatDelay]（指数曲线 + FullJitter，截到 defaultRetreatMax）。
 func (r *Registry) heartBeat(ctx context.Context, leaseID clientv3.LeaseID, key string, value string) {
 	curLeaseID := leaseID
 	kac, err := r.client.KeepAlive(ctx, leaseID)
@@ -249,12 +251,9 @@ func (r *Registry) heartBeat(ctx context.Context, leaseID clientv3.LeaseID, key 
 		curLeaseID = 0
 	}
 
-	rnd := rand.New(rand.NewSource(time.Now().UnixNano()))
-
 	for {
 		if curLeaseID == 0 {
 			// try to registerWithKV
-			var retreat []int
 			for retryCnt := 0; retryCnt < r.opts.maxRetry; retryCnt++ {
 				if ctx.Err() != nil {
 					return
@@ -289,11 +288,10 @@ func (r *Registry) heartBeat(ctx context.Context, leaseID clientv3.LeaseID, key 
 				if err == nil {
 					break
 				}
-				retreat = append(retreat, 1<<retryCnt)
 				select {
 				case <-ctx.Done():
 					return
-				case <-time.After(time.Duration(retreat[rnd.Intn(len(retreat))]) * time.Second):
+				case <-time.After(retreatDelay(retryCnt, rand.Float64)):
 				}
 			}
 			if kac == nil {
@@ -321,6 +319,35 @@ func (r *Registry) heartBeat(ctx context.Context, leaseID clientv3.LeaseID, key 
 			return
 		}
 	}
+}
+
+// defaultRetreatMax 是单次重注册退避的上界（抖动前）。
+//
+// 曲线按 2^attempt 秒增长，而 max_retry 来自契约 registry.etcd.max_retry——
+// 配置值直接决定最后一次能睡多久，实测（本机，纯算术）：
+//   - attempt=9 → 8m32s；attempt=20 → 291h；attempt=33 → 272 年。
+//     睡过 TTL 的几倍就是「心跳 goroutine 还活着，注册项早没了」。
+//   - attempt≥34 起秒数×1e9 溢出成**负** duration，time.After 立刻返回，
+//     退避反转成忙轮询——同一个配置键既能把服务睡死、又能把它打爆。
+//
+// 封顶到这里意味着：更大的 max_retry 只多买几次重试，不多买一次长睡。
+const defaultRetreatMax = 5 * time.Minute
+
+// retreatDelay 是第 attempt 次重注册失败之后的等待：1s 起、每次翻倍、
+// 截到 [defaultRetreatMax]，再叠加 [0, d) 的 FullJitter。
+//
+// 换掉的是原先「retreat = [1,2,4,…,2^attempt] 秒里等概率取一档」的写法。
+// 三条口径差别都写在这儿，不是实现细节：
+//   - 上界：attempt≤8 时同为 2^attempt 秒（曲线未触顶），≥9 起截到 5min。
+//     默认 max_retry=5（最高档 16s）落在未触顶区，行为不变。
+//   - 分布：档位取样在 attempt 很大时仍有 1/(n+1) 的概率只退 1s——注册中心
+//     恢复瞬间成百上千个实例一起重连，正是要靠 FullJitter 打散的那种同步风暴。
+//   - 下限：不再保 1s，低 attempt 的探测更轻（rng 接近 0 时近乎立刻重试一次）。
+//
+// 纯函数 + 注入 rng 是为了能确定性断言边界，不必拿墙钟去猜。
+func retreatDelay(attempt int, rng func() float64) time.Duration {
+	exp := retry.ExponentialBackoff{Initial: time.Second, Factor: 2, Max: defaultRetreatMax}
+	return retry.FullJitter(exp.Delay(attempt), rng)
 }
 
 // isConnError 判断错误是否为连接/服务不可达类。
