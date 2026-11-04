@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"time"
 
 	"github.com/nacos-group/nacos-sdk-go/v2/clients"
 	"github.com/nacos-group/nacos-sdk-go/v2/clients/config_client"
@@ -129,20 +130,81 @@ func (c *Config) resolveDataID(key string) string {
 	return c.opts.dataID
 }
 
+// loadRetryAttempts 是 [Config.Load] 的查询上界。出处见 [loadRetryInterval]。
+const loadRetryAttempts = 4
+
+// loadRetryInterval 是重试间隔：250ms。
+//
+// 这个数不是拍的，钉的是 nacos-sdk-go 自己的**进程内**令牌桶
+// （config_client/limiter.go:42-56：`rate.NewLimiter(5, 5)`，按
+// `dataId@@group@@namespace` 分键、包级变量 ⇒ 同进程所有 client 共享）。超出桶的
+// 查询**根本不发包**就被拒，错误串 "ConfigQueryRequest is limited"。
+//
+// 实测（v2.3.5 + nacos-server v2.3.2 standalone，本机，一次一进程）：
+//   - 纯本地：连续调 IsLimited 同一个键，20 次里恰好放行第 0..4 次，之后全判限；
+//   - 同一个 client 连续 60 次查询：54 次判限，首次落在第 6 次；每次「新建 client +
+//     查询」重复 60 次也**全拒且耗时 0s**（零往返，拒绝在本地）——换 client 不换桶，
+//     所以多应用共用一个 dataID 时必然互踩；
+//   - 单个许可的回填：突发停住后每 50ms 重试，三轮分别在第 3/3/4 次成功，
+//     即 **160ms / 170ms / 220ms**。
+//
+// 250ms 是实测上界 220ms 的余量，4 次约 1 秒覆盖一次完整回填周期。
+// 变量而非常量：时序用例把它调小，不为测试新增公开旋钮。
+var loadRetryInterval = 250 * time.Millisecond
+
 // Load 实现 [bconfig.Reader]：返回 dataID（或默认值）下的原始配置内容。
+//
+// 带有限重试，因为 "is limited" 是**自我施加且会回填**的：一个进程里连续起多个
+// 应用（装配测试、多角色示例）时，同一个 dataID 的查询会攒到桶外，第一次失败隔
+// 一个回填周期就该成功。ctx 取消或到期立刻退出，不等下一次重试。
 func (c *Config) Load(ctx context.Context, key string) ([]byte, error) {
 	if err := c.init(); err != nil {
 		return nil, err
 	}
 	dataID := c.resolveDataID(key)
-	content, err := c.client.GetConfig(vo.ConfigParam{
-		DataId: dataID,
-		Group:  c.opts.group,
-	})
-	if err != nil {
-		return nil, err
+	var lastErr error
+	for attempt := 1; attempt <= loadRetryAttempts; attempt++ {
+		if attempt > 1 {
+			if err := sleepCtx(ctx, loadRetryInterval); err != nil {
+				return nil, fmt.Errorf("nacos: load %q: %w", dataID, err)
+			}
+		}
+		content, err := c.client.GetConfig(vo.ConfigParam{
+			DataId: dataID,
+			Group:  c.opts.group,
+		})
+		if err == nil {
+			return []byte(content), nil
+		}
+		lastErr = err
 	}
-	return []byte(content), nil
+	return nil, loadFailed(dataID, lastErr)
+}
+
+// sleepCtx 等 d，期间 ctx 取消/到期就返回其错误。
+func sleepCtx(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// loadFailed 把重试上界和**候选真因**都写进错误。
+//
+// 必须自带提示：SDK 在快照缺失时把拒绝原因换成了缓存文件的错误
+// （config_client.go:200-215 —— 查询失败后读盘，读盘也失败就只把 readDiskErr 拼进
+// 文案，服务端/本地桶的原因被丢弃、只在 SDK 日志里）。消费方拿到
+// 「read config from both server and cache fail」是查不到真因的。
+//
+// 同一处还有第二条：默认（不禁快照）时读盘**成功**就返回陈旧快照且 err == nil，
+// 限流就此静默变成「配置没变」。那条要动 DisableUseSnapShot，是删能力，未动。
+func loadFailed(dataID string, err error) error {
+	return fmt.Errorf("nacos: load %q failed after %d attempts: %w; a local rejection is also possible, since nacos-sdk-go allows only 5 config queries per second per data id in one process",
+		dataID, loadRetryAttempts, err)
 }
 
 // WatchValue 实现 [bconfig.ValueWatcher]：dataID（或默认值）配置变更时推送

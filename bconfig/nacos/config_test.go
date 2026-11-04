@@ -2,6 +2,8 @@ package nacos
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -60,6 +62,132 @@ func TestLoad_WithStub(t *testing.T) {
 	}
 }
 
+// quickLoadRetry 把重试间隔压到毫秒级，让「重试了几次」这类判据不必真的等 250ms。
+// 动的是包内变量，不为测试新增公开旋钮。
+func quickLoadRetry(t *testing.T) {
+	t.Helper()
+	restore := loadRetryInterval
+	loadRetryInterval = time.Millisecond
+	t.Cleanup(func() { loadRetryInterval = restore })
+}
+
+// allErrors 造 n 次都返回同一个错误的序列（模拟持续判限/持续不可达）。
+func allErrors(err error, n int) []error {
+	out := make([]error, n)
+	for i := range out {
+		out[i] = err
+	}
+	return out
+}
+
+// TestLoad_RetriesUntilTheBucketRefills 瞬态判限必须被重试吃掉。
+//
+// 判限来自 nacos-sdk-go 自己的进程内令牌桶（config_client/limiter.go:42-56，按
+// dataId@@group@@namespace 分键、5 次/秒）：同一个 dataID 在一个进程里连续起多个
+// 应用时，多出来的那次查询**不发包**就被拒，隔一个回填周期就该成功。所以「首错
+// 后成 ⇒ Load 成功」是产品语义，不是运气。calls==3 钉住它真的重试了而不是碰巧。
+func TestLoad_RetriesUntilTheBucketRefills(t *testing.T) {
+	quickLoadRetry(t)
+	limited := errors.New("read config from both server and cache fail, err=config file not exist")
+	stub := &stubClient{
+		content: "log:\n  level: debug",
+		getErrs: []error{limited, limited},
+	}
+	src, err := NewWithClient(stub, WithDataID("app.yaml"))
+	if err != nil {
+		t.Fatalf("NewWithClient: %v", err)
+	}
+
+	data, err := src.Load(context.Background(), "")
+	if err != nil {
+		t.Fatalf("Load: %v（两次判限后应回填成功）", err)
+	}
+	if string(data) != "log:\n  level: debug" {
+		t.Errorf("Load() = %q", data)
+	}
+	if stub.calls != 3 {
+		t.Errorf("GetConfig 调了 %d 次，want 3（两次判限 + 回填后一次成功）", stub.calls)
+	}
+}
+
+// TestLoad_NoRetryWhenFirstQuerySucceeds 成功即止：不把上界烧完，也不给健康的
+// 配置源加无谓的第二跳。
+func TestLoad_NoRetryWhenFirstQuerySucceeds(t *testing.T) {
+	quickLoadRetry(t)
+	stub := &stubClient{content: "a: 1"}
+	src, err := NewWithClient(stub, WithDataID("app.yaml"))
+	if err != nil {
+		t.Fatalf("NewWithClient: %v", err)
+	}
+	if _, err := src.Load(context.Background(), ""); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if stub.calls != 1 {
+		t.Errorf("GetConfig 调了 %d 次，want 1", stub.calls)
+	}
+}
+
+// TestLoad_GivesUpAtTheBoundAndNamesTheCandidateCause 上界与错误文案。
+//
+// 每次查询都错 ⇒ 恰好 loadRetryAttempts 次、不再无限重试。文案必须同时带住两头：
+//   - 原错误（%w 包装，errors.Is 判得出，消费方还能按 SDK 的串匹配）；
+//   - 「可能是本地桶」这句候选真因 —— SDK 在该 dataID 没有本地快照时，会把拒绝
+//     原因换成缓存文件的错误（config_client.go:200-215），照原话报错等于把真因丢了。
+func TestLoad_GivesUpAtTheBoundAndNamesTheCandidateCause(t *testing.T) {
+	quickLoadRetry(t)
+	sdkErr := errors.New("read config from both server and cache fail, err=config file not exist")
+	stub := &stubClient{getErrs: allErrors(sdkErr, loadRetryAttempts)}
+	src, err := NewWithClient(stub, WithDataID("app.yaml"))
+	if err != nil {
+		t.Fatalf("NewWithClient: %v", err)
+	}
+
+	_, err = src.Load(context.Background(), "")
+	if err == nil {
+		t.Fatal("持续判限时 Load 不该成功")
+	}
+	if stub.calls != loadRetryAttempts {
+		t.Errorf("GetConfig 调了 %d 次，want 上界 %d", stub.calls, loadRetryAttempts)
+	}
+	if !errors.Is(err, sdkErr) {
+		t.Errorf("没有用 %%w 带上原错误: %v", err)
+	}
+	if !strings.Contains(err.Error(), "5 config queries per second") {
+		t.Errorf("错误里没有候选真因（本地桶）这句: %v", err)
+	}
+	if !strings.Contains(err.Error(), "app.yaml") {
+		t.Errorf("错误里没带 dataID: %v", err)
+	}
+}
+
+// TestLoad_CancellationAbortsTheRetryWait ctx 取消后不再烧重试上界。
+//
+// 这条也顺带把 Load 的 ctx 从「摆设」变成真听：改动前 ctx 完全没被用到。
+// 这里**故意不压小间隔**——要判的是「等待被取消打断」，间隔压到 1ms 会让等待自己
+// 先过去，判据就空转了。ctx 已取消 ⇒ select 只有一路就绪，没有竞速。
+func TestLoad_CancellationAbortsTheRetryWait(t *testing.T) {
+	stub := &stubClient{getErrs: allErrors(errors.New("ConfigQueryRequest is limited"), loadRetryAttempts)}
+	src, err := NewWithClient(stub, WithDataID("app.yaml"))
+	if err != nil {
+		t.Fatalf("NewWithClient: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	start := time.Now()
+	_, err = src.Load(ctx, "")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Load 的错误 = %v，want context.Canceled", err)
+	}
+	if stub.calls != 1 {
+		t.Errorf("GetConfig 调了 %d 次，want 1（取消后不该继续重试）", stub.calls)
+	}
+	if d := time.Since(start); d > 100*time.Millisecond {
+		t.Errorf("取消后仍等了 %s，want 立刻退出", d)
+	}
+}
+
 // TestWatchValue_WithStub 桩注入：ListenConfig 注册 + ctx 取消反注册。
 func TestWatchValue_WithStub(t *testing.T) {
 	// 必须经 newStubClient 初始化 listen/cancelled 通道：
@@ -103,6 +231,10 @@ type stubClient struct {
 	listen    chan struct{}
 	cancelled chan struct{}
 	lastParam vo.ConfigParam
+	// getErrs 逐次返回：非 nil 即本次 GetConfig 失败，越界后一律成功。
+	// calls 记 GetConfig 的总调用次数（重试上界的判据就读它）。
+	getErrs []error
+	calls   int
 }
 
 func newStubClient() *stubClient {
@@ -111,6 +243,11 @@ func newStubClient() *stubClient {
 
 func (s *stubClient) GetConfig(param vo.ConfigParam) (string, error) {
 	s.lastParam = param
+	i := s.calls
+	s.calls++
+	if i < len(s.getErrs) && s.getErrs[i] != nil {
+		return "", s.getErrs[i]
+	}
 	return s.content, nil
 }
 
