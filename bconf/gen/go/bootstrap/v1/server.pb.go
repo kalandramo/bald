@@ -2577,16 +2577,17 @@ func (x *Server_TLS_Config) GetCaPem() []byte {
 
 // HTTP 中间件配置。
 type Server_Http_Middleware struct {
-	state         protoimpl.MessageState            `protogen:"open.v1"`
-	Recovery      *Server_Http_Middleware_Recovery  `protobuf:"bytes,1,opt,name=recovery,proto3,oneof" json:"recovery,omitempty"`
-	Cors          *Server_Http_Middleware_Cors      `protobuf:"bytes,2,opt,name=cors,proto3,oneof" json:"cors,omitempty"`
-	Logging       *Server_Http_Middleware_Logging   `protobuf:"bytes,3,opt,name=logging,proto3,oneof" json:"logging,omitempty"`
-	RequestId     *Server_Http_Middleware_RequestId `protobuf:"bytes,4,opt,name=request_id,json=requestId,proto3,oneof" json:"request_id,omitempty"`
-	Tracing       *Server_Http_Middleware_Tracing   `protobuf:"bytes,5,opt,name=tracing,proto3,oneof" json:"tracing,omitempty"`
-	RateLimit     *Server_Http_Middleware_RateLimit `protobuf:"bytes,6,opt,name=rate_limit,json=rateLimit,proto3,oneof" json:"rate_limit,omitempty"`
-	Timeout       *Server_Http_Middleware_Timeout   `protobuf:"bytes,7,opt,name=timeout,proto3,oneof" json:"timeout,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState                 `protogen:"open.v1"`
+	Recovery       *Server_Http_Middleware_Recovery       `protobuf:"bytes,1,opt,name=recovery,proto3,oneof" json:"recovery,omitempty"`
+	Cors           *Server_Http_Middleware_Cors           `protobuf:"bytes,2,opt,name=cors,proto3,oneof" json:"cors,omitempty"`
+	Logging        *Server_Http_Middleware_Logging        `protobuf:"bytes,3,opt,name=logging,proto3,oneof" json:"logging,omitempty"`
+	RequestId      *Server_Http_Middleware_RequestId      `protobuf:"bytes,4,opt,name=request_id,json=requestId,proto3,oneof" json:"request_id,omitempty"`
+	Tracing        *Server_Http_Middleware_Tracing        `protobuf:"bytes,5,opt,name=tracing,proto3,oneof" json:"tracing,omitempty"`
+	RateLimit      *Server_Http_Middleware_RateLimit      `protobuf:"bytes,6,opt,name=rate_limit,json=rateLimit,proto3,oneof" json:"rate_limit,omitempty"`
+	Timeout        *Server_Http_Middleware_Timeout        `protobuf:"bytes,7,opt,name=timeout,proto3,oneof" json:"timeout,omitempty"`
+	CircuitBreaker *Server_Http_Middleware_CircuitBreaker `protobuf:"bytes,8,opt,name=circuit_breaker,json=circuitBreaker,proto3,oneof" json:"circuit_breaker,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *Server_Http_Middleware) Reset() {
@@ -2664,6 +2665,13 @@ func (x *Server_Http_Middleware) GetRateLimit() *Server_Http_Middleware_RateLimi
 func (x *Server_Http_Middleware) GetTimeout() *Server_Http_Middleware_Timeout {
 	if x != nil {
 		return x.Timeout
+	}
+	return nil
+}
+
+func (x *Server_Http_Middleware) GetCircuitBreaker() *Server_Http_Middleware_CircuitBreaker {
+	if x != nil {
+		return x.CircuitBreaker
 	}
 	return nil
 }
@@ -3053,22 +3061,131 @@ func (x *Server_Http_Middleware_Timeout) GetStatusCode() int32 {
 	return 0
 }
 
-// gRPC 中间件配置。
-type Server_Grpc_Middleware struct {
-	state         protoimpl.MessageState            `protogen:"open.v1"`
-	Recovery      *Server_Grpc_Middleware_Recovery  `protobuf:"bytes,1,opt,name=recovery,proto3,oneof" json:"recovery,omitempty"`
-	Logging       *Server_Grpc_Middleware_Logging   `protobuf:"bytes,2,opt,name=logging,proto3,oneof" json:"logging,omitempty"`
-	Tracing       *Server_Grpc_Middleware_Tracing   `protobuf:"bytes,3,opt,name=tracing,proto3,oneof" json:"tracing,omitempty"`
-	Validate      *Server_Grpc_Middleware_Validate  `protobuf:"bytes,4,opt,name=validate,proto3,oneof" json:"validate,omitempty"`
-	RateLimit     *Server_Grpc_Middleware_RateLimit `protobuf:"bytes,5,opt,name=rate_limit,json=rateLimit,proto3,oneof" json:"rate_limit,omitempty"`
-	Timeout       *Server_Grpc_Middleware_Timeout   `protobuf:"bytes,6,opt,name=timeout,proto3,oneof" json:"timeout,omitempty"`
+// CircuitBreaker 熔断中间件（服务端入口的自我防护，**opt-in**：本段缺在
+// 那里就等于不挂这一层，现有部署行为不变）。
+//
+// 算法：`circuitbreaker/hystrix`——滑窗失败率 + 最小样本量 + 固定休眠窗，
+// 字段与本段一一对应。sres/vegas/sentinel 三种没有各自的契约段：sres 无
+// 请求量下限（单次失败就开始概率性拒流，低流量服务不可用）、vegas 按出站
+// RTT 膨胀判定（入口面没有「下游」可测）、sentinel 要引第三方规则中心。
+// 它们照常发布，换算法属代码级注入（见《Bald 熔断设计》的接线节）。
+//
+// 链序：限流之后、超时之前。三个判据决定它不能更外也不能更内：
+//   - 必须在认证/授权之后：否则匿名流量就能把失败率打满、替所有人开窗；
+//   - 必须限流之后：配额先拒（便宜），熔断只判「这次还值不值得真做」；
+//   - 必须超时之外：内层 Timeout 写出的 503 要被记成失败——「handler 总是
+//     超时」正是熔断该抓的形状，挂在超时内侧就只能看到成功返回的 handler。
+//
+// 失败口径（HTTP 面）：响应状态码 >= 500 记失败，其余（含 4xx 与被本层自己
+// 拒掉的 503）记成功或不上报。4xx 是调用方的错，计入会让一个坏客户端替全体
+// 用户开窗；本层自己的拒绝发生在 Allow 之前，按契约不欠上报。
+// handler panic 也记失败：上报在 defer 里，panic 沿链向外层 Recovery 传播时
+// 仍然完成上报——少了那次上报，半开态的「在途探针」标记永不复位，熔断会
+// 永久拒绝（契约里「放行即欠一次上报」这条义务的失效点）。
+// 0 的读法（proto3 没有字段存在性，「写 0」与「没写」不可区分）：一律
+// 按「未设置」取下面注明的默认值。因此本段可以只写一两个字段、其余留
+// 默认；负值、error_threshold > 1、status_code 非 5xx 才是配置错误，
+// 启动期 fail-fast（显式配了熔断却静默不生效是最坏结果）。
+type Server_Http_Middleware_CircuitBreaker struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 开窗的失败率阈值，取值 (0,1]（0.2 = 两成失败）。0 → 默认 0.5。
+	ErrorThreshold float64 `protobuf:"fixed64,1,opt,name=error_threshold,json=errorThreshold,proto3" json:"error_threshold,omitempty"`
+	// 参与判定的最小样本量：滑窗内请求数低于它就不开窗。这是低流量服务
+	// 不被一次失败打穿的地板。0 → 默认 20。
+	MinRequests int32 `protobuf:"varint,2,opt,name=min_requests,json=minRequests,proto3" json:"min_requests,omitempty"`
+	// 开窗时长（毫秒），到期后半开、只放一个探针。0 → 默认 5000。
+	OpenDurationMs int64 `protobuf:"varint,3,opt,name=open_duration_ms,json=openDurationMs,proto3" json:"open_duration_ms,omitempty"`
+	// 失败率统计滑窗长度（毫秒）。0 → 默认 10000。
+	WindowMs int64 `protobuf:"varint,4,opt,name=window_ms,json=windowMs,proto3" json:"window_ms,omitempty"`
+	// 开态（含半开被拒）返回的 HTTP 状态码。0 → 默认 503；给非 0 值时
+	// 必须是 5xx——用 4xx 表达「我坏了」会让客户端库把它当业务错误处理。
+	StatusCode    int32 `protobuf:"varint,5,opt,name=status_code,json=statusCode,proto3" json:"status_code,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
+func (x *Server_Http_Middleware_CircuitBreaker) Reset() {
+	*x = Server_Http_Middleware_CircuitBreaker{}
+	mi := &file_bootstrap_v1_server_proto_msgTypes[44]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Server_Http_Middleware_CircuitBreaker) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Server_Http_Middleware_CircuitBreaker) ProtoMessage() {}
+
+func (x *Server_Http_Middleware_CircuitBreaker) ProtoReflect() protoreflect.Message {
+	mi := &file_bootstrap_v1_server_proto_msgTypes[44]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Server_Http_Middleware_CircuitBreaker.ProtoReflect.Descriptor instead.
+func (*Server_Http_Middleware_CircuitBreaker) Descriptor() ([]byte, []int) {
+	return file_bootstrap_v1_server_proto_rawDescGZIP(), []int{0, 1, 0, 7}
+}
+
+func (x *Server_Http_Middleware_CircuitBreaker) GetErrorThreshold() float64 {
+	if x != nil {
+		return x.ErrorThreshold
+	}
+	return 0
+}
+
+func (x *Server_Http_Middleware_CircuitBreaker) GetMinRequests() int32 {
+	if x != nil {
+		return x.MinRequests
+	}
+	return 0
+}
+
+func (x *Server_Http_Middleware_CircuitBreaker) GetOpenDurationMs() int64 {
+	if x != nil {
+		return x.OpenDurationMs
+	}
+	return 0
+}
+
+func (x *Server_Http_Middleware_CircuitBreaker) GetWindowMs() int64 {
+	if x != nil {
+		return x.WindowMs
+	}
+	return 0
+}
+
+func (x *Server_Http_Middleware_CircuitBreaker) GetStatusCode() int32 {
+	if x != nil {
+		return x.StatusCode
+	}
+	return 0
+}
+
+// gRPC 中间件配置。
+type Server_Grpc_Middleware struct {
+	state          protoimpl.MessageState                 `protogen:"open.v1"`
+	Recovery       *Server_Grpc_Middleware_Recovery       `protobuf:"bytes,1,opt,name=recovery,proto3,oneof" json:"recovery,omitempty"`
+	Logging        *Server_Grpc_Middleware_Logging        `protobuf:"bytes,2,opt,name=logging,proto3,oneof" json:"logging,omitempty"`
+	Tracing        *Server_Grpc_Middleware_Tracing        `protobuf:"bytes,3,opt,name=tracing,proto3,oneof" json:"tracing,omitempty"`
+	Validate       *Server_Grpc_Middleware_Validate       `protobuf:"bytes,4,opt,name=validate,proto3,oneof" json:"validate,omitempty"`
+	RateLimit      *Server_Grpc_Middleware_RateLimit      `protobuf:"bytes,5,opt,name=rate_limit,json=rateLimit,proto3,oneof" json:"rate_limit,omitempty"`
+	Timeout        *Server_Grpc_Middleware_Timeout        `protobuf:"bytes,6,opt,name=timeout,proto3,oneof" json:"timeout,omitempty"`
+	CircuitBreaker *Server_Grpc_Middleware_CircuitBreaker `protobuf:"bytes,7,opt,name=circuit_breaker,json=circuitBreaker,proto3,oneof" json:"circuit_breaker,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
 func (x *Server_Grpc_Middleware) Reset() {
 	*x = Server_Grpc_Middleware{}
-	mi := &file_bootstrap_v1_server_proto_msgTypes[44]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3080,7 +3197,7 @@ func (x *Server_Grpc_Middleware) String() string {
 func (*Server_Grpc_Middleware) ProtoMessage() {}
 
 func (x *Server_Grpc_Middleware) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_server_proto_msgTypes[44]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3138,6 +3255,13 @@ func (x *Server_Grpc_Middleware) GetTimeout() *Server_Grpc_Middleware_Timeout {
 	return nil
 }
 
+func (x *Server_Grpc_Middleware) GetCircuitBreaker() *Server_Grpc_Middleware_CircuitBreaker {
+	if x != nil {
+		return x.CircuitBreaker
+	}
+	return nil
+}
+
 // Recovery 中间件：捕获 panic 并返回 Internal 错误。
 type Server_Grpc_Middleware_Recovery struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -3147,7 +3271,7 @@ type Server_Grpc_Middleware_Recovery struct {
 
 func (x *Server_Grpc_Middleware_Recovery) Reset() {
 	*x = Server_Grpc_Middleware_Recovery{}
-	mi := &file_bootstrap_v1_server_proto_msgTypes[45]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3159,7 +3283,7 @@ func (x *Server_Grpc_Middleware_Recovery) String() string {
 func (*Server_Grpc_Middleware_Recovery) ProtoMessage() {}
 
 func (x *Server_Grpc_Middleware_Recovery) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_server_proto_msgTypes[45]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3184,7 +3308,7 @@ type Server_Grpc_Middleware_Logging struct {
 
 func (x *Server_Grpc_Middleware_Logging) Reset() {
 	*x = Server_Grpc_Middleware_Logging{}
-	mi := &file_bootstrap_v1_server_proto_msgTypes[46]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3196,7 +3320,7 @@ func (x *Server_Grpc_Middleware_Logging) String() string {
 func (*Server_Grpc_Middleware_Logging) ProtoMessage() {}
 
 func (x *Server_Grpc_Middleware_Logging) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_server_proto_msgTypes[46]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3221,7 +3345,7 @@ type Server_Grpc_Middleware_Tracing struct {
 
 func (x *Server_Grpc_Middleware_Tracing) Reset() {
 	*x = Server_Grpc_Middleware_Tracing{}
-	mi := &file_bootstrap_v1_server_proto_msgTypes[47]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3233,7 +3357,7 @@ func (x *Server_Grpc_Middleware_Tracing) String() string {
 func (*Server_Grpc_Middleware_Tracing) ProtoMessage() {}
 
 func (x *Server_Grpc_Middleware_Tracing) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_server_proto_msgTypes[47]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3258,7 +3382,7 @@ type Server_Grpc_Middleware_Validate struct {
 
 func (x *Server_Grpc_Middleware_Validate) Reset() {
 	*x = Server_Grpc_Middleware_Validate{}
-	mi := &file_bootstrap_v1_server_proto_msgTypes[48]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3270,7 +3394,7 @@ func (x *Server_Grpc_Middleware_Validate) String() string {
 func (*Server_Grpc_Middleware_Validate) ProtoMessage() {}
 
 func (x *Server_Grpc_Middleware_Validate) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_server_proto_msgTypes[48]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3304,7 +3428,7 @@ type Server_Grpc_Middleware_RateLimit struct {
 
 func (x *Server_Grpc_Middleware_RateLimit) Reset() {
 	*x = Server_Grpc_Middleware_RateLimit{}
-	mi := &file_bootstrap_v1_server_proto_msgTypes[49]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3316,7 +3440,7 @@ func (x *Server_Grpc_Middleware_RateLimit) String() string {
 func (*Server_Grpc_Middleware_RateLimit) ProtoMessage() {}
 
 func (x *Server_Grpc_Middleware_RateLimit) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_server_proto_msgTypes[49]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3371,7 +3495,7 @@ type Server_Grpc_Middleware_Timeout struct {
 
 func (x *Server_Grpc_Middleware_Timeout) Reset() {
 	*x = Server_Grpc_Middleware_Timeout{}
-	mi := &file_bootstrap_v1_server_proto_msgTypes[50]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3383,7 +3507,7 @@ func (x *Server_Grpc_Middleware_Timeout) String() string {
 func (*Server_Grpc_Middleware_Timeout) ProtoMessage() {}
 
 func (x *Server_Grpc_Middleware_Timeout) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_server_proto_msgTypes[50]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3406,11 +3530,107 @@ func (x *Server_Grpc_Middleware_Timeout) GetDefaultTimeoutMs() int64 {
 	return 0
 }
 
+// CircuitBreaker 熔断中间件（服务端入口的自我防护，**opt-in**：本段缺在
+// 那里就等于不挂这一层）。算法、字段含义与链序理由同 HTTP 侧的
+// Server_Http_Middleware.CircuitBreaker（见 pkg/middleware/bundle 的
+// GRPCCircuitBreaker），差别只在下面两条这一面独有的口径：
+//
+// 失败口径：按 handler 返回的 status code 判，只有服务侧的错才算失败——
+// Internal / Unknown / Unavailable / DeadlineExceeded / DataLoss。客户端
+// 侧的错（InvalidArgument、NotFound、PermissionDenied……）记成功：一个坏
+// 客户端反复提交非法参数不该替所有人开窗。ResourceExhausted 也不算——那是
+// 本服务自己的限流答案，把它计入失败等于让熔断消费自己的拒流。
+//
+// 拒绝码：开态返回 Unavailable（客户端库按可重试处理），没有 status_code
+// 字段可调，理由与 Timeout 那节相同。
+//
+// **只作用于 unary**，且不是漏掉：一条流的「失败」没有一致答案——建流成功
+// 之后流还能跑十分钟，按建流算则开窗与真实退化无关，按流终态算则一条长流
+// 会长期占用半开探针。要这一语义请自己组 ChainStreamInterceptor。
+// 字段的 0 读法同 HTTP 侧（0 = 未设置，取注释里的默认值）。
+//
+// 与 HTTP 段的覆盖关系同 rate_limit：只写 server.http.middleware
+// .circuit_breaker 时，gRPC 沿用 HTTP 那一个熔断器（同一份滑窗，HTTP 的
+// 5xx 与 gRPC 的服务侧错误一起计入）；本段存在时 gRPC 换用自己的实例，
+// HTTP 面不受影响。
+type Server_Grpc_Middleware_CircuitBreaker struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 开窗的失败率阈值，取值 (0,1]（0.2 = 两成失败）。0 → 默认 0.5。
+	ErrorThreshold float64 `protobuf:"fixed64,1,opt,name=error_threshold,json=errorThreshold,proto3" json:"error_threshold,omitempty"`
+	// 参与判定的最小样本量：滑窗内请求数低于它就不开窗。这是低流量服务
+	// 不被一次失败打穿的地板。0 → 默认 20。
+	MinRequests int32 `protobuf:"varint,2,opt,name=min_requests,json=minRequests,proto3" json:"min_requests,omitempty"`
+	// 开窗时长（毫秒），到期后半开、只放一个探针。0 → 默认 5000。
+	OpenDurationMs int64 `protobuf:"varint,3,opt,name=open_duration_ms,json=openDurationMs,proto3" json:"open_duration_ms,omitempty"`
+	// 失败率统计滑窗长度（毫秒）。0 → 默认 10000。
+	WindowMs      int64 `protobuf:"varint,4,opt,name=window_ms,json=windowMs,proto3" json:"window_ms,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Server_Grpc_Middleware_CircuitBreaker) Reset() {
+	*x = Server_Grpc_Middleware_CircuitBreaker{}
+	mi := &file_bootstrap_v1_server_proto_msgTypes[52]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Server_Grpc_Middleware_CircuitBreaker) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Server_Grpc_Middleware_CircuitBreaker) ProtoMessage() {}
+
+func (x *Server_Grpc_Middleware_CircuitBreaker) ProtoReflect() protoreflect.Message {
+	mi := &file_bootstrap_v1_server_proto_msgTypes[52]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Server_Grpc_Middleware_CircuitBreaker.ProtoReflect.Descriptor instead.
+func (*Server_Grpc_Middleware_CircuitBreaker) Descriptor() ([]byte, []int) {
+	return file_bootstrap_v1_server_proto_rawDescGZIP(), []int{0, 3, 0, 6}
+}
+
+func (x *Server_Grpc_Middleware_CircuitBreaker) GetErrorThreshold() float64 {
+	if x != nil {
+		return x.ErrorThreshold
+	}
+	return 0
+}
+
+func (x *Server_Grpc_Middleware_CircuitBreaker) GetMinRequests() int32 {
+	if x != nil {
+		return x.MinRequests
+	}
+	return 0
+}
+
+func (x *Server_Grpc_Middleware_CircuitBreaker) GetOpenDurationMs() int64 {
+	if x != nil {
+		return x.OpenDurationMs
+	}
+	return 0
+}
+
+func (x *Server_Grpc_Middleware_CircuitBreaker) GetWindowMs() int64 {
+	if x != nil {
+		return x.WindowMs
+	}
+	return 0
+}
+
 var File_bootstrap_v1_server_proto protoreflect.FileDescriptor
 
 const file_bootstrap_v1_server_proto_rawDesc = "" +
 	"\n" +
-	"\x19bootstrap/v1/server.proto\x12\fbootstrap.v1\"\xc1?\n" +
+	"\x19bootstrap/v1/server.proto\x12\fbootstrap.v1\"\x9cD\n" +
 	"\x06Server\x122\n" +
 	"\x04http\x18\x01 \x01(\v2\x19.bootstrap.v1.Server.HttpH\x00R\x04http\x88\x01\x01\x125\n" +
 	"\x05http3\x18\x02 \x01(\v2\x1a.bootstrap.v1.Server.Http3H\x01R\x05http3\x88\x01\x01\x122\n" +
@@ -3468,14 +3688,14 @@ const file_bootstrap_v1_server_proto_rawDesc = "" +
 	"\b_key_pemB\t\n" +
 	"\a_ca_pemB\a\n" +
 	"\x05_fileB\t\n" +
-	"\a_config\x1a\x80\v\n" +
+	"\a_config\x1a\xbe\r\n" +
 	"\x04Http\x12\x12\n" +
 	"\x04addr\x18\x01 \x01(\tR\x04addr\x12\x16\n" +
 	"\x06driver\x18\x02 \x01(\tR\x06driver\x12*\n" +
 	"\x03tls\x18\x03 \x01(\v2\x18.bootstrap.v1.Server.TLSR\x03tls\x12D\n" +
 	"\n" +
 	"middleware\x18\x04 \x01(\v2$.bootstrap.v1.Server.Http.MiddlewareR\n" +
-	"middleware\x1a\xd9\t\n" +
+	"middleware\x1a\x97\f\n" +
 	"\n" +
 	"Middleware\x12N\n" +
 	"\brecovery\x18\x01 \x01(\v2-.bootstrap.v1.Server.Http.Middleware.RecoveryH\x00R\brecovery\x88\x01\x01\x12B\n" +
@@ -3486,7 +3706,8 @@ const file_bootstrap_v1_server_proto_rawDesc = "" +
 	"\atracing\x18\x05 \x01(\v2,.bootstrap.v1.Server.Http.Middleware.TracingH\x04R\atracing\x88\x01\x01\x12R\n" +
 	"\n" +
 	"rate_limit\x18\x06 \x01(\v2..bootstrap.v1.Server.Http.Middleware.RateLimitH\x05R\trateLimit\x88\x01\x01\x12K\n" +
-	"\atimeout\x18\a \x01(\v2,.bootstrap.v1.Server.Http.Middleware.TimeoutH\x06R\atimeout\x88\x01\x01\x1a@\n" +
+	"\atimeout\x18\a \x01(\v2,.bootstrap.v1.Server.Http.Middleware.TimeoutH\x06R\atimeout\x88\x01\x01\x12a\n" +
+	"\x0fcircuit_breaker\x18\b \x01(\v23.bootstrap.v1.Server.Http.Middleware.CircuitBreakerH\aR\x0ecircuitBreaker\x88\x01\x01\x1a@\n" +
 	"\bRecovery\x12$\n" +
 	"\vstack_trace\x18\x01 \x01(\bH\x00R\n" +
 	"stackTrace\x88\x01\x01B\x0e\n" +
@@ -3513,6 +3734,13 @@ const file_bootstrap_v1_server_proto_rawDesc = "" +
 	"\aTimeout\x12,\n" +
 	"\x12default_timeout_ms\x18\x01 \x01(\x03R\x10defaultTimeoutMs\x12\x1f\n" +
 	"\vstatus_code\x18\x02 \x01(\x05R\n" +
+	"statusCode\x1a\xc4\x01\n" +
+	"\x0eCircuitBreaker\x12'\n" +
+	"\x0ferror_threshold\x18\x01 \x01(\x01R\x0eerrorThreshold\x12!\n" +
+	"\fmin_requests\x18\x02 \x01(\x05R\vminRequests\x12(\n" +
+	"\x10open_duration_ms\x18\x03 \x01(\x03R\x0eopenDurationMs\x12\x1b\n" +
+	"\twindow_ms\x18\x04 \x01(\x03R\bwindowMs\x12\x1f\n" +
+	"\vstatus_code\x18\x05 \x01(\x05R\n" +
 	"statusCodeB\v\n" +
 	"\t_recoveryB\a\n" +
 	"\x05_corsB\n" +
@@ -3523,10 +3751,11 @@ const file_bootstrap_v1_server_proto_rawDesc = "" +
 	"\b_tracingB\r\n" +
 	"\v_rate_limitB\n" +
 	"\n" +
-	"\b_timeout\x1aG\n" +
+	"\b_timeoutB\x12\n" +
+	"\x10_circuit_breaker\x1aG\n" +
 	"\x05Http3\x12\x12\n" +
 	"\x04addr\x18\x01 \x01(\tR\x04addr\x12*\n" +
-	"\x03tls\x18\x02 \x01(\v2\x18.bootstrap.v1.Server.TLSR\x03tls\x1a\x95\a\n" +
+	"\x03tls\x18\x02 \x01(\v2\x18.bootstrap.v1.Server.TLSR\x03tls\x1a\xb2\t\n" +
 	"\x04Grpc\x12\x12\n" +
 	"\x04addr\x18\x01 \x01(\tR\x04addr\x12\x1e\n" +
 	"\n" +
@@ -3535,7 +3764,7 @@ const file_bootstrap_v1_server_proto_rawDesc = "" +
 	"\x03tls\x18\x03 \x01(\v2\x18.bootstrap.v1.Server.TLSR\x03tls\x12D\n" +
 	"\n" +
 	"middleware\x18\x04 \x01(\v2$.bootstrap.v1.Server.Grpc.MiddlewareR\n" +
-	"middleware\x1a\xe6\x05\n" +
+	"middleware\x1a\x83\b\n" +
 	"\n" +
 	"Middleware\x12N\n" +
 	"\brecovery\x18\x01 \x01(\v2-.bootstrap.v1.Server.Grpc.Middleware.RecoveryH\x00R\brecovery\x88\x01\x01\x12K\n" +
@@ -3544,7 +3773,8 @@ const file_bootstrap_v1_server_proto_rawDesc = "" +
 	"\bvalidate\x18\x04 \x01(\v2-.bootstrap.v1.Server.Grpc.Middleware.ValidateH\x03R\bvalidate\x88\x01\x01\x12R\n" +
 	"\n" +
 	"rate_limit\x18\x05 \x01(\v2..bootstrap.v1.Server.Grpc.Middleware.RateLimitH\x04R\trateLimit\x88\x01\x01\x12K\n" +
-	"\atimeout\x18\x06 \x01(\v2,.bootstrap.v1.Server.Grpc.Middleware.TimeoutH\x05R\atimeout\x88\x01\x01\x1a\n" +
+	"\atimeout\x18\x06 \x01(\v2,.bootstrap.v1.Server.Grpc.Middleware.TimeoutH\x05R\atimeout\x88\x01\x01\x12a\n" +
+	"\x0fcircuit_breaker\x18\a \x01(\v23.bootstrap.v1.Server.Grpc.Middleware.CircuitBreakerH\x06R\x0ecircuitBreaker\x88\x01\x01\x1a\n" +
 	"\n" +
 	"\bRecovery\x1a\t\n" +
 	"\aLogging\x1a\t\n" +
@@ -3556,7 +3786,12 @@ const file_bootstrap_v1_server_proto_rawDesc = "" +
 	"\x05burst\x18\x02 \x01(\x05R\x05burst\x12\x12\n" +
 	"\x04wait\x18\x03 \x01(\bR\x04wait\x1a7\n" +
 	"\aTimeout\x12,\n" +
-	"\x12default_timeout_ms\x18\x01 \x01(\x03R\x10defaultTimeoutMsB\v\n" +
+	"\x12default_timeout_ms\x18\x01 \x01(\x03R\x10defaultTimeoutMs\x1a\xa3\x01\n" +
+	"\x0eCircuitBreaker\x12'\n" +
+	"\x0ferror_threshold\x18\x01 \x01(\x01R\x0eerrorThreshold\x12!\n" +
+	"\fmin_requests\x18\x02 \x01(\x05R\vminRequests\x12(\n" +
+	"\x10open_duration_ms\x18\x03 \x01(\x03R\x0eopenDurationMs\x12\x1b\n" +
+	"\twindow_ms\x18\x04 \x01(\x03R\bwindowMsB\v\n" +
 	"\t_recoveryB\n" +
 	"\n" +
 	"\b_loggingB\n" +
@@ -3565,7 +3800,8 @@ const file_bootstrap_v1_server_proto_rawDesc = "" +
 	"\t_validateB\r\n" +
 	"\v_rate_limitB\n" +
 	"\n" +
-	"\b_timeout\x1aI\n" +
+	"\b_timeoutB\x12\n" +
+	"\x10_circuit_breaker\x1aI\n" +
 	"\aGraphql\x12\x12\n" +
 	"\x04addr\x18\x01 \x01(\tR\x04addr\x12*\n" +
 	"\x03tls\x18\x02 \x01(\v2\x18.bootstrap.v1.Server.TLSR\x03tls\x1aY\n" +
@@ -3748,59 +3984,61 @@ func file_bootstrap_v1_server_proto_rawDescGZIP() []byte {
 	return file_bootstrap_v1_server_proto_rawDescData
 }
 
-var file_bootstrap_v1_server_proto_msgTypes = make([]protoimpl.MessageInfo, 51)
+var file_bootstrap_v1_server_proto_msgTypes = make([]protoimpl.MessageInfo, 53)
 var file_bootstrap_v1_server_proto_goTypes = []any{
-	(*Server)(nil),                           // 0: bootstrap.v1.Server
-	(*Server_TLS)(nil),                       // 1: bootstrap.v1.Server.TLS
-	(*Server_Http)(nil),                      // 2: bootstrap.v1.Server.Http
-	(*Server_Http3)(nil),                     // 3: bootstrap.v1.Server.Http3
-	(*Server_Grpc)(nil),                      // 4: bootstrap.v1.Server.Grpc
-	(*Server_Graphql)(nil),                   // 5: bootstrap.v1.Server.Graphql
-	(*Server_Sse)(nil),                       // 6: bootstrap.v1.Server.Sse
-	(*Server_Websocket)(nil),                 // 7: bootstrap.v1.Server.Websocket
-	(*Server_Tcp)(nil),                       // 8: bootstrap.v1.Server.Tcp
-	(*Server_Udp)(nil),                       // 9: bootstrap.v1.Server.Udp
-	(*Server_Kcp)(nil),                       // 10: bootstrap.v1.Server.Kcp
-	(*Server_Thrift)(nil),                    // 11: bootstrap.v1.Server.Thrift
-	(*Server_Trpc)(nil),                      // 12: bootstrap.v1.Server.Trpc
-	(*Server_Webtransport)(nil),              // 13: bootstrap.v1.Server.Webtransport
-	(*Server_Cron)(nil),                      // 14: bootstrap.v1.Server.Cron
-	(*Server_Hptimer)(nil),                   // 15: bootstrap.v1.Server.Hptimer
-	(*Server_Mcp)(nil),                       // 16: bootstrap.v1.Server.Mcp
-	(*Server_Signalr)(nil),                   // 17: bootstrap.v1.Server.Signalr
-	(*Server_Socketio)(nil),                  // 18: bootstrap.v1.Server.Socketio
-	(*Server_Webrtc)(nil),                    // 19: bootstrap.v1.Server.Webrtc
-	(*Server_Asynq)(nil),                     // 20: bootstrap.v1.Server.Asynq
-	(*Server_Machinery)(nil),                 // 21: bootstrap.v1.Server.Machinery
-	(*Server_Kafka)(nil),                     // 22: bootstrap.v1.Server.Kafka
-	(*Server_Rabbitmq)(nil),                  // 23: bootstrap.v1.Server.Rabbitmq
-	(*Server_RedisServer)(nil),               // 24: bootstrap.v1.Server.RedisServer
-	(*Server_Nats)(nil),                      // 25: bootstrap.v1.Server.Nats
-	(*Server_Mqtt)(nil),                      // 26: bootstrap.v1.Server.Mqtt
-	(*Server_Pulsar)(nil),                    // 27: bootstrap.v1.Server.Pulsar
-	(*Server_Activemq)(nil),                  // 28: bootstrap.v1.Server.Activemq
-	(*Server_Azuresb)(nil),                   // 29: bootstrap.v1.Server.Azuresb
-	(*Server_Nsq)(nil),                       // 30: bootstrap.v1.Server.Nsq
-	(*Server_Rocketmq)(nil),                  // 31: bootstrap.v1.Server.Rocketmq
-	(*Server_Sqs)(nil),                       // 32: bootstrap.v1.Server.Sqs
-	(*Server_Gateway)(nil),                   // 33: bootstrap.v1.Server.Gateway
-	(*Server_TLS_File)(nil),                  // 34: bootstrap.v1.Server.TLS.File
-	(*Server_TLS_Config)(nil),                // 35: bootstrap.v1.Server.TLS.Config
-	(*Server_Http_Middleware)(nil),           // 36: bootstrap.v1.Server.Http.Middleware
-	(*Server_Http_Middleware_Recovery)(nil),  // 37: bootstrap.v1.Server.Http.Middleware.Recovery
-	(*Server_Http_Middleware_Cors)(nil),      // 38: bootstrap.v1.Server.Http.Middleware.Cors
-	(*Server_Http_Middleware_Logging)(nil),   // 39: bootstrap.v1.Server.Http.Middleware.Logging
-	(*Server_Http_Middleware_RequestId)(nil), // 40: bootstrap.v1.Server.Http.Middleware.RequestId
-	(*Server_Http_Middleware_Tracing)(nil),   // 41: bootstrap.v1.Server.Http.Middleware.Tracing
-	(*Server_Http_Middleware_RateLimit)(nil), // 42: bootstrap.v1.Server.Http.Middleware.RateLimit
-	(*Server_Http_Middleware_Timeout)(nil),   // 43: bootstrap.v1.Server.Http.Middleware.Timeout
-	(*Server_Grpc_Middleware)(nil),           // 44: bootstrap.v1.Server.Grpc.Middleware
-	(*Server_Grpc_Middleware_Recovery)(nil),  // 45: bootstrap.v1.Server.Grpc.Middleware.Recovery
-	(*Server_Grpc_Middleware_Logging)(nil),   // 46: bootstrap.v1.Server.Grpc.Middleware.Logging
-	(*Server_Grpc_Middleware_Tracing)(nil),   // 47: bootstrap.v1.Server.Grpc.Middleware.Tracing
-	(*Server_Grpc_Middleware_Validate)(nil),  // 48: bootstrap.v1.Server.Grpc.Middleware.Validate
-	(*Server_Grpc_Middleware_RateLimit)(nil), // 49: bootstrap.v1.Server.Grpc.Middleware.RateLimit
-	(*Server_Grpc_Middleware_Timeout)(nil),   // 50: bootstrap.v1.Server.Grpc.Middleware.Timeout
+	(*Server)(nil),                                // 0: bootstrap.v1.Server
+	(*Server_TLS)(nil),                            // 1: bootstrap.v1.Server.TLS
+	(*Server_Http)(nil),                           // 2: bootstrap.v1.Server.Http
+	(*Server_Http3)(nil),                          // 3: bootstrap.v1.Server.Http3
+	(*Server_Grpc)(nil),                           // 4: bootstrap.v1.Server.Grpc
+	(*Server_Graphql)(nil),                        // 5: bootstrap.v1.Server.Graphql
+	(*Server_Sse)(nil),                            // 6: bootstrap.v1.Server.Sse
+	(*Server_Websocket)(nil),                      // 7: bootstrap.v1.Server.Websocket
+	(*Server_Tcp)(nil),                            // 8: bootstrap.v1.Server.Tcp
+	(*Server_Udp)(nil),                            // 9: bootstrap.v1.Server.Udp
+	(*Server_Kcp)(nil),                            // 10: bootstrap.v1.Server.Kcp
+	(*Server_Thrift)(nil),                         // 11: bootstrap.v1.Server.Thrift
+	(*Server_Trpc)(nil),                           // 12: bootstrap.v1.Server.Trpc
+	(*Server_Webtransport)(nil),                   // 13: bootstrap.v1.Server.Webtransport
+	(*Server_Cron)(nil),                           // 14: bootstrap.v1.Server.Cron
+	(*Server_Hptimer)(nil),                        // 15: bootstrap.v1.Server.Hptimer
+	(*Server_Mcp)(nil),                            // 16: bootstrap.v1.Server.Mcp
+	(*Server_Signalr)(nil),                        // 17: bootstrap.v1.Server.Signalr
+	(*Server_Socketio)(nil),                       // 18: bootstrap.v1.Server.Socketio
+	(*Server_Webrtc)(nil),                         // 19: bootstrap.v1.Server.Webrtc
+	(*Server_Asynq)(nil),                          // 20: bootstrap.v1.Server.Asynq
+	(*Server_Machinery)(nil),                      // 21: bootstrap.v1.Server.Machinery
+	(*Server_Kafka)(nil),                          // 22: bootstrap.v1.Server.Kafka
+	(*Server_Rabbitmq)(nil),                       // 23: bootstrap.v1.Server.Rabbitmq
+	(*Server_RedisServer)(nil),                    // 24: bootstrap.v1.Server.RedisServer
+	(*Server_Nats)(nil),                           // 25: bootstrap.v1.Server.Nats
+	(*Server_Mqtt)(nil),                           // 26: bootstrap.v1.Server.Mqtt
+	(*Server_Pulsar)(nil),                         // 27: bootstrap.v1.Server.Pulsar
+	(*Server_Activemq)(nil),                       // 28: bootstrap.v1.Server.Activemq
+	(*Server_Azuresb)(nil),                        // 29: bootstrap.v1.Server.Azuresb
+	(*Server_Nsq)(nil),                            // 30: bootstrap.v1.Server.Nsq
+	(*Server_Rocketmq)(nil),                       // 31: bootstrap.v1.Server.Rocketmq
+	(*Server_Sqs)(nil),                            // 32: bootstrap.v1.Server.Sqs
+	(*Server_Gateway)(nil),                        // 33: bootstrap.v1.Server.Gateway
+	(*Server_TLS_File)(nil),                       // 34: bootstrap.v1.Server.TLS.File
+	(*Server_TLS_Config)(nil),                     // 35: bootstrap.v1.Server.TLS.Config
+	(*Server_Http_Middleware)(nil),                // 36: bootstrap.v1.Server.Http.Middleware
+	(*Server_Http_Middleware_Recovery)(nil),       // 37: bootstrap.v1.Server.Http.Middleware.Recovery
+	(*Server_Http_Middleware_Cors)(nil),           // 38: bootstrap.v1.Server.Http.Middleware.Cors
+	(*Server_Http_Middleware_Logging)(nil),        // 39: bootstrap.v1.Server.Http.Middleware.Logging
+	(*Server_Http_Middleware_RequestId)(nil),      // 40: bootstrap.v1.Server.Http.Middleware.RequestId
+	(*Server_Http_Middleware_Tracing)(nil),        // 41: bootstrap.v1.Server.Http.Middleware.Tracing
+	(*Server_Http_Middleware_RateLimit)(nil),      // 42: bootstrap.v1.Server.Http.Middleware.RateLimit
+	(*Server_Http_Middleware_Timeout)(nil),        // 43: bootstrap.v1.Server.Http.Middleware.Timeout
+	(*Server_Http_Middleware_CircuitBreaker)(nil), // 44: bootstrap.v1.Server.Http.Middleware.CircuitBreaker
+	(*Server_Grpc_Middleware)(nil),                // 45: bootstrap.v1.Server.Grpc.Middleware
+	(*Server_Grpc_Middleware_Recovery)(nil),       // 46: bootstrap.v1.Server.Grpc.Middleware.Recovery
+	(*Server_Grpc_Middleware_Logging)(nil),        // 47: bootstrap.v1.Server.Grpc.Middleware.Logging
+	(*Server_Grpc_Middleware_Tracing)(nil),        // 48: bootstrap.v1.Server.Grpc.Middleware.Tracing
+	(*Server_Grpc_Middleware_Validate)(nil),       // 49: bootstrap.v1.Server.Grpc.Middleware.Validate
+	(*Server_Grpc_Middleware_RateLimit)(nil),      // 50: bootstrap.v1.Server.Grpc.Middleware.RateLimit
+	(*Server_Grpc_Middleware_Timeout)(nil),        // 51: bootstrap.v1.Server.Grpc.Middleware.Timeout
+	(*Server_Grpc_Middleware_CircuitBreaker)(nil), // 52: bootstrap.v1.Server.Grpc.Middleware.CircuitBreaker
 }
 var file_bootstrap_v1_server_proto_depIdxs = []int32{
 	2,  // 0: bootstrap.v1.Server.http:type_name -> bootstrap.v1.Server.Http
@@ -3841,7 +4079,7 @@ var file_bootstrap_v1_server_proto_depIdxs = []int32{
 	36, // 35: bootstrap.v1.Server.Http.middleware:type_name -> bootstrap.v1.Server.Http.Middleware
 	1,  // 36: bootstrap.v1.Server.Http3.tls:type_name -> bootstrap.v1.Server.TLS
 	1,  // 37: bootstrap.v1.Server.Grpc.tls:type_name -> bootstrap.v1.Server.TLS
-	44, // 38: bootstrap.v1.Server.Grpc.middleware:type_name -> bootstrap.v1.Server.Grpc.Middleware
+	45, // 38: bootstrap.v1.Server.Grpc.middleware:type_name -> bootstrap.v1.Server.Grpc.Middleware
 	1,  // 39: bootstrap.v1.Server.Graphql.tls:type_name -> bootstrap.v1.Server.TLS
 	1,  // 40: bootstrap.v1.Server.Sse.tls:type_name -> bootstrap.v1.Server.TLS
 	1,  // 41: bootstrap.v1.Server.Websocket.tls:type_name -> bootstrap.v1.Server.TLS
@@ -3859,17 +4097,19 @@ var file_bootstrap_v1_server_proto_depIdxs = []int32{
 	41, // 53: bootstrap.v1.Server.Http.Middleware.tracing:type_name -> bootstrap.v1.Server.Http.Middleware.Tracing
 	42, // 54: bootstrap.v1.Server.Http.Middleware.rate_limit:type_name -> bootstrap.v1.Server.Http.Middleware.RateLimit
 	43, // 55: bootstrap.v1.Server.Http.Middleware.timeout:type_name -> bootstrap.v1.Server.Http.Middleware.Timeout
-	45, // 56: bootstrap.v1.Server.Grpc.Middleware.recovery:type_name -> bootstrap.v1.Server.Grpc.Middleware.Recovery
-	46, // 57: bootstrap.v1.Server.Grpc.Middleware.logging:type_name -> bootstrap.v1.Server.Grpc.Middleware.Logging
-	47, // 58: bootstrap.v1.Server.Grpc.Middleware.tracing:type_name -> bootstrap.v1.Server.Grpc.Middleware.Tracing
-	48, // 59: bootstrap.v1.Server.Grpc.Middleware.validate:type_name -> bootstrap.v1.Server.Grpc.Middleware.Validate
-	49, // 60: bootstrap.v1.Server.Grpc.Middleware.rate_limit:type_name -> bootstrap.v1.Server.Grpc.Middleware.RateLimit
-	50, // 61: bootstrap.v1.Server.Grpc.Middleware.timeout:type_name -> bootstrap.v1.Server.Grpc.Middleware.Timeout
-	62, // [62:62] is the sub-list for method output_type
-	62, // [62:62] is the sub-list for method input_type
-	62, // [62:62] is the sub-list for extension type_name
-	62, // [62:62] is the sub-list for extension extendee
-	0,  // [0:62] is the sub-list for field type_name
+	44, // 56: bootstrap.v1.Server.Http.Middleware.circuit_breaker:type_name -> bootstrap.v1.Server.Http.Middleware.CircuitBreaker
+	46, // 57: bootstrap.v1.Server.Grpc.Middleware.recovery:type_name -> bootstrap.v1.Server.Grpc.Middleware.Recovery
+	47, // 58: bootstrap.v1.Server.Grpc.Middleware.logging:type_name -> bootstrap.v1.Server.Grpc.Middleware.Logging
+	48, // 59: bootstrap.v1.Server.Grpc.Middleware.tracing:type_name -> bootstrap.v1.Server.Grpc.Middleware.Tracing
+	49, // 60: bootstrap.v1.Server.Grpc.Middleware.validate:type_name -> bootstrap.v1.Server.Grpc.Middleware.Validate
+	50, // 61: bootstrap.v1.Server.Grpc.Middleware.rate_limit:type_name -> bootstrap.v1.Server.Grpc.Middleware.RateLimit
+	51, // 62: bootstrap.v1.Server.Grpc.Middleware.timeout:type_name -> bootstrap.v1.Server.Grpc.Middleware.Timeout
+	52, // 63: bootstrap.v1.Server.Grpc.Middleware.circuit_breaker:type_name -> bootstrap.v1.Server.Grpc.Middleware.CircuitBreaker
+	64, // [64:64] is the sub-list for method output_type
+	64, // [64:64] is the sub-list for method input_type
+	64, // [64:64] is the sub-list for extension type_name
+	64, // [64:64] is the sub-list for extension extendee
+	0,  // [0:64] is the sub-list for field type_name
 }
 
 func init() { file_bootstrap_v1_server_proto_init() }
@@ -3886,14 +4126,14 @@ func file_bootstrap_v1_server_proto_init() {
 	file_bootstrap_v1_server_proto_msgTypes[36].OneofWrappers = []any{}
 	file_bootstrap_v1_server_proto_msgTypes[37].OneofWrappers = []any{}
 	file_bootstrap_v1_server_proto_msgTypes[40].OneofWrappers = []any{}
-	file_bootstrap_v1_server_proto_msgTypes[44].OneofWrappers = []any{}
+	file_bootstrap_v1_server_proto_msgTypes[45].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bootstrap_v1_server_proto_rawDesc), len(file_bootstrap_v1_server_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   51,
+			NumMessages:   53,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

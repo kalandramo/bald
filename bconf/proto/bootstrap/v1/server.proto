@@ -84,6 +84,46 @@ message Server {
         int32 status_code = 2;
       }
 
+      // CircuitBreaker 熔断中间件（服务端入口的自我防护，**opt-in**：本段缺在
+      // 那里就等于不挂这一层，现有部署行为不变）。
+      //
+      // 算法：`circuitbreaker/hystrix`——滑窗失败率 + 最小样本量 + 固定休眠窗，
+      // 字段与本段一一对应。sres/vegas/sentinel 三种没有各自的契约段：sres 无
+      // 请求量下限（单次失败就开始概率性拒流，低流量服务不可用）、vegas 按出站
+      // RTT 膨胀判定（入口面没有「下游」可测）、sentinel 要引第三方规则中心。
+      // 它们照常发布，换算法属代码级注入（见《Bald 熔断设计》的接线节）。
+      //
+      // 链序：限流之后、超时之前。三个判据决定它不能更外也不能更内：
+      //   - 必须在认证/授权之后：否则匿名流量就能把失败率打满、替所有人开窗；
+      //   - 必须限流之后：配额先拒（便宜），熔断只判「这次还值不值得真做」；
+      //   - 必须超时之外：内层 Timeout 写出的 503 要被记成失败——「handler 总是
+      //     超时」正是熔断该抓的形状，挂在超时内侧就只能看到成功返回的 handler。
+      //
+      // 失败口径（HTTP 面）：响应状态码 >= 500 记失败，其余（含 4xx 与被本层自己
+      // 拒掉的 503）记成功或不上报。4xx 是调用方的错，计入会让一个坏客户端替全体
+      // 用户开窗；本层自己的拒绝发生在 Allow 之前，按契约不欠上报。
+      // handler panic 也记失败：上报在 defer 里，panic 沿链向外层 Recovery 传播时
+      // 仍然完成上报——少了那次上报，半开态的「在途探针」标记永不复位，熔断会
+      // 永久拒绝（契约里「放行即欠一次上报」这条义务的失效点）。
+      // 0 的读法（proto3 没有字段存在性，「写 0」与「没写」不可区分）：一律
+      // 按「未设置」取下面注明的默认值。因此本段可以只写一两个字段、其余留
+      // 默认；负值、error_threshold > 1、status_code 非 5xx 才是配置错误，
+      // 启动期 fail-fast（显式配了熔断却静默不生效是最坏结果）。
+      message CircuitBreaker {
+        // 开窗的失败率阈值，取值 (0,1]（0.2 = 两成失败）。0 → 默认 0.5。
+        double error_threshold = 1;
+        // 参与判定的最小样本量：滑窗内请求数低于它就不开窗。这是低流量服务
+        // 不被一次失败打穿的地板。0 → 默认 20。
+        int32 min_requests = 2;
+        // 开窗时长（毫秒），到期后半开、只放一个探针。0 → 默认 5000。
+        int64 open_duration_ms = 3;
+        // 失败率统计滑窗长度（毫秒）。0 → 默认 10000。
+        int64 window_ms = 4;
+        // 开态（含半开被拒）返回的 HTTP 状态码。0 → 默认 503；给非 0 值时
+        // 必须是 5xx——用 4xx 表达「我坏了」会让客户端库把它当业务错误处理。
+        int32 status_code = 5;
+      }
+
       optional Recovery recovery = 1;
       optional Cors cors = 2;
       optional Logging logging = 3;
@@ -91,6 +131,7 @@ message Server {
       optional Tracing tracing = 5;
       optional RateLimit rate_limit = 6;
       optional Timeout timeout = 7;
+      optional CircuitBreaker circuit_breaker = 8;
     }
 
     // 监听地址，如 ":8080"。
@@ -151,12 +192,48 @@ message Server {
         int64 default_timeout_ms = 1;
       }
 
+      // CircuitBreaker 熔断中间件（服务端入口的自我防护，**opt-in**：本段缺在
+      // 那里就等于不挂这一层）。算法、字段含义与链序理由同 HTTP 侧的
+      // Server_Http_Middleware.CircuitBreaker（见 pkg/middleware/bundle 的
+      // GRPCCircuitBreaker），差别只在下面两条这一面独有的口径：
+      //
+      // 失败口径：按 handler 返回的 status code 判，只有服务侧的错才算失败——
+      // Internal / Unknown / Unavailable / DeadlineExceeded / DataLoss。客户端
+      // 侧的错（InvalidArgument、NotFound、PermissionDenied……）记成功：一个坏
+      // 客户端反复提交非法参数不该替所有人开窗。ResourceExhausted 也不算——那是
+      // 本服务自己的限流答案，把它计入失败等于让熔断消费自己的拒流。
+      //
+      // 拒绝码：开态返回 Unavailable（客户端库按可重试处理），没有 status_code
+      // 字段可调，理由与 Timeout 那节相同。
+      //
+      // **只作用于 unary**，且不是漏掉：一条流的「失败」没有一致答案——建流成功
+      // 之后流还能跑十分钟，按建流算则开窗与真实退化无关，按流终态算则一条长流
+      // 会长期占用半开探针。要这一语义请自己组 ChainStreamInterceptor。
+      // 字段的 0 读法同 HTTP 侧（0 = 未设置，取注释里的默认值）。
+      //
+      // 与 HTTP 段的覆盖关系同 rate_limit：只写 server.http.middleware
+      // .circuit_breaker 时，gRPC 沿用 HTTP 那一个熔断器（同一份滑窗，HTTP 的
+      // 5xx 与 gRPC 的服务侧错误一起计入）；本段存在时 gRPC 换用自己的实例，
+      // HTTP 面不受影响。
+      message CircuitBreaker {
+        // 开窗的失败率阈值，取值 (0,1]（0.2 = 两成失败）。0 → 默认 0.5。
+        double error_threshold = 1;
+        // 参与判定的最小样本量：滑窗内请求数低于它就不开窗。这是低流量服务
+        // 不被一次失败打穿的地板。0 → 默认 20。
+        int32 min_requests = 2;
+        // 开窗时长（毫秒），到期后半开、只放一个探针。0 → 默认 5000。
+        int64 open_duration_ms = 3;
+        // 失败率统计滑窗长度（毫秒）。0 → 默认 10000。
+        int64 window_ms = 4;
+      }
+
       optional Recovery recovery = 1;
       optional Logging logging = 2;
       optional Tracing tracing = 3;
       optional Validate validate = 4;
       optional RateLimit rate_limit = 5;
       optional Timeout timeout = 6;
+      optional CircuitBreaker circuit_breaker = 7;
     }
 
     // 监听地址，如 ":9000"。
