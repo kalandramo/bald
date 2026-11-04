@@ -122,7 +122,6 @@ func New(opts ...Option) *Breaker {
 		cfg:            cfg,
 		bucketDuration: bucketDuration,
 		buckets:        make([]hystrixBucket, cfg.bucketCount),
-		lastRotate:     time.Now(),
 		state:          circuitbreaker.StateClosed,
 	}
 }
@@ -133,11 +132,15 @@ type Breaker struct {
 	cfg            *config
 	bucketDuration time.Duration
 	buckets        []hystrixBucket
-	lastRotate     time.Time
-	state          circuitbreaker.State
-	openedAt       time.Time
-	halfOpenIn     bool // true if a half-open trial is in progress
-	closed         bool
+	// lastSample/lastIdx 记的是**上一发样本**的时刻与桶：旋转按它数跨过的边界。
+	// 不能用「距上一次旋转的时长」——见 rotateLocked。
+	lastSample time.Time
+	lastIdx    int
+	hasSample  bool
+	state      circuitbreaker.State
+	openedAt   time.Time
+	halfOpenIn bool // true if a half-open trial is in progress
+	closed     bool
 }
 
 type hystrixBucket struct {
@@ -290,24 +293,34 @@ func (b *Breaker) evaluateLocked() {
 	}
 }
 
+// rotateLocked 清掉「距上一发样本之后新跨过的桶」，包括正要写入的当前桶（它装
+// 的是整整一圈前的过期数据）。
+//
+// 基准必须是**上一发样本**（lastSample/lastIdx），不能是上一次旋转的时刻：桶号按
+// 绝对时间取模，而「时长 / 桶长」数出的边界数和实际跨过的格点会在锚点落在桶中间时
+// 错位一格，于是清掉上一发刚写进去的那个桶——样本被抹掉，滑窗系统性少计，
+// min_requests 该凑满时凑不满，熔断该开窗时不开。稀疏而持续到来的流量（间隔 ≈
+// 0.5~1 个桶长）会反复踩到，而低流量正是 min_requests 这道地板要保护的对象。
+// 判据见 TestSlidingWindow_SameBucketSamplesAreNotLost。
 func (b *Breaker) rotateLocked(now time.Time) {
-	elapsed := now.Sub(b.lastRotate)
-	steps := int(elapsed / b.bucketDuration)
-	if steps <= 0 {
+	cur := b.bucketIndexLocked(now)
+	if !b.hasSample {
+		b.hasSample, b.lastSample, b.lastIdx = true, now, cur
 		return
 	}
 	n := len(b.buckets)
-	if steps >= n {
-		for i := range b.buckets {
-			b.buckets[i] = hystrixBucket{}
-		}
+	if now.Sub(b.lastSample) >= b.cfg.window {
+		// 整个窗都没有样本：每一格都过期了。
+		b.resetBucketsLocked()
 	} else {
-		for i := 0; i < steps; i++ {
-			idx := (b.bucketIndexLocked(now) - steps + i + 1 + n) % n
-			b.buckets[idx] = hystrixBucket{}
+		// 距上一发样本不足一窗 ⇒ 跨过的边界数 < n ⇒ 这个差就是精确格点数，取模
+		// 不会产生歧义。清 (lastIdx, cur] 这一段，**不含**上一发样本所在的格。
+		steps := (cur - b.lastIdx + n) % n
+		for i := 1; i <= steps; i++ {
+			b.buckets[(b.lastIdx+i)%n] = hystrixBucket{}
 		}
 	}
-	b.lastRotate = now
+	b.lastSample, b.lastIdx = now, cur
 }
 
 func (b *Breaker) bucketIndexLocked(now time.Time) int {
