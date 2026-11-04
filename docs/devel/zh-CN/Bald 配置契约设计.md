@@ -93,6 +93,24 @@ cd bconf && bin=$(mktemp -d) \
 
 **v0.6.0 新增 `audit` 域**：声明审计后端配置（`Audit` 消息）。与 `logger` 同属「可插拔后端」家族但语义不同——审计是**一次性装配、不支持热更新**（运行期热切走 R1-2 协调器的 `audit.backends` 期望态，双轨并存）。该域自身也经历了一次单选→多选迁移：`string type = 1`（v0.5.0 单选）在 v0.6.0 废弃并 `reserved`，改为 `backends` 列表；旧键被装载器 `DiscardUnknown` 丢弃后剩空段，**启动期显式报错**（静默失效变显式迁移提示，与 §兼容性 的字段号纪律同调）。
 
+### `server.{http,grpc}.middleware`：横切链的配置面
+
+`server.http.middleware` 有八段、`server.grpc.middleware` 有七段（`recovery`/`logging`/`tracing` 两面都有，HTTP 另有 `cors`/`request_id`，gRPC 另有 `validate`）。其中**带字段的只有三段**，两面各一份：
+
+| 段 | 字段 | 读法 |
+|---|---|---|
+| `rate_limit` | `rate`/`burst`/`wait` | 存在即挂限流层；两面各一份，给了 gRPC 段就用它自己的桶 |
+| `timeout` | `default_timeout_ms`（HTTP 另有 `status_code`） | 存在即挂超时层；gRPC 面**不镜像** `status_code`——那是 HTTP 专属概念，gRPC 的拒绝码是协议的一部分 |
+| `circuit_breaker` | `error_threshold`/`min_requests`/`open_duration_ms`/`window_ms`（HTTP 另有 `status_code`） | 存在即挂熔断层，**opt-in**：默认不挂（默认开会让「一次 5xx」在没人要求的场合变成整站拒绝） |
+
+三条形状口径：
+
+1. **段的 presence 就是「挂不挂这一层」**，不是「用什么值挂」——与 `server.http.tls` 同一个三态纪律：没写 = 不挂，写了 = 挂并用段内值。剩下四段（`recovery`/`logging`/`tracing`/`validate`）目前是空 message，写与不写都不改变行为：`recovery`/`request_id` 两面恒挂，`logging` 由 `bundle.NoLogging` 控制。这是登记在册的边界，不是待补的洞。
+2. **段内字段没有 presence，0 一律读成「未设置」取默认**：proto3 的标量字段区分不了「写了 0」和「没写」，而 `error_threshold: 0` 若按字面读会让任何一次失败都开窗。因此这五/六个字段全是裸标量并约定 0 = 默认；要表达「真的想设 0」的语义才需要 `optional` 包装，目前没有这种需求。
+3. **契约层不校验这些值**：`bconf.Validate` 只校形状（addr 格式、后端段级规则），middleware 段的合法性由消费侧的桥（`bundle.FromMiddleware`/`FromGRPCMiddleware`）在装配期 fail-fast——校验放在「知道这段怎么被翻译」的那一层，才不会两处口径漂移。
+
+字段号纪律：`server.grpc.middleware` 的 `rate_limit`/`timeout`/`circuit_breaker` 是 5/6/7 纯新增，没动既有号；HTTP 面同理 `circuit_breaker` 取 8。
+
 ### API 一：NewBootstrap——默认值的单一来源
 
 ```go
@@ -220,7 +238,7 @@ bconf.BindFlags(fs, cfg, "server")   // 递归注册 --server.http.addr 等层�
 - [x] `BindFlags` 描述符驱动：八种标量 + Duration 字符串化，nil 子消息跳过防 TLS 误启用，FlagSet 作用域可控；repeated/map 注册隐藏指引 flag（误用报「怎么办」、自定义 binder 让位）。
 - [x] 测试 14 例锁语义：默认值快照、合并语义、标量 coerce、Duration 格式化、backends/filter_keys/output_paths/五后端段级校验、指引 flag 五态（零感知/隐藏/误用指引/map/让位）。
 
-**版本演进（v0.1.0 → v0.6.0）**：
+**版本演进（节选，全量在根 `CHANGELOG.md`）**：
 
 | 版本 | 契约变更 | 性质 |
 | --- | --- | --- |
@@ -230,6 +248,10 @@ bconf.BindFlags(fs, cfg, "server")   // 递归注册 --server.http.addr 等层�
 | v0.4.0 | `filter_keys` 全局脱敏清单（空串项 fail-fast） | 增量 |
 | v0.5.0 | 契约唯一化瘦身：删单 type 选法、八个未实现后端段、NOP；字段重排 | **破坏性** |
 | v0.6.0 | 新增 `audit` 域（`Audit audit = 15`）；`Audit.type` 单选改 `backends` 列表 | 增量 + 域内破坏性 |
+| v0.9.0 | `server.cron`/`server.asynq` 扩字段 + 新增 `server.gateway` 段；其中的布尔字段用 `optional` 三态——空段不反转实现默认 | 增量 |
+| v0.16.0 | gateway 出站地址接受 `discovery:///<服务名>` 形态（由注册中心解析，无注册中心则启动失败而非静默回落） | 增量 |
+| v0.17.0 | `server.grpc.middleware` 补 `rate_limit`/`timeout` 两段（此前只有四个空段，「写 gRPC 配置就能限流」不成立）；同版 env 覆盖能表达多词契约键 | 增量 |
+| v0.18.0 | 两面各补 `circuit_breaker` 段（HTTP 五字段 / gRPC 四字段，不带 `status_code`） | 增量 |
 
 NOP 枚举加了又删是诚实的记录：v0.2.x 为「契约层可声明静默日志」加了 `type: nop`，v0.5.0 收缩时查证零业务消费——nop 是框架内部默认行为（未注入时的全局句柄），不需要配置入口，删。
 

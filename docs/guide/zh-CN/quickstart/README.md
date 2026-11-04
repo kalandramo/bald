@@ -66,7 +66,7 @@ demo-svc/
 - **生成一次**（`internal/bootstrap/seed/`、`internal/apiserver/apiserver.go`、两个 `custom.go` 接线钩子）：只在该文件不存在时落盘，重生成输出 `kept:` 跳过（`--adopt` 也不覆盖）——此后归你维护。
 - **用户物**：`appspec.json` 与你的业务代码，生成器永不读写。
 
-入口链只有三跳：`main.go`（行数硬预算 ≤25）→ `app.Execute()`（cobra 根）→ `appkit.MustServe(context.Background(), bootstrap.Options()...)`。装配知识全部在 `internal/bootstrap/assemble.gen.go` 的 `Options()`：`std.Standard()`（server/audit/logger 三类框架自有后端的段驱动 Provider）+ `ConfigFile`/`WatchConfigFile` + `appkit.StrictContract()`（生成物默认开启，见 §6）+ 传输面能力声明（HTTP 是 `WithHTTPContract(apiserver.NewRouter)`；gRPC 面由 `WithGRPC` 注册服务，链钩子 `WithGRPCOptionsContract(newGRPCChain)` 在 seeded 的 `customOptions` 里登记）+ 探针装配。地址、日志、TLS 等可配置项不写死在代码里——由 `configs/demo-svc.yaml` 按契约键驱动。`server.http.middleware` / `server.grpc.middleware` 两段同样是真的会被读的：钩子在契约装载后求值，段经 `bundle.FromMiddleware` / `bundle.FromGRPCMiddleware` 进链，改 YAML 里的 `rate_limit` 当场能测出来（见[用 bald CLI 起步新服务](../用%20bald%20CLI%20起步新服务.md) §4.2）。
+入口链只有三跳：`main.go`（行数硬预算 ≤25）→ `app.Execute()`（cobra 根）→ `appkit.MustServe(context.Background(), bootstrap.Options()...)`。装配知识全部在 `internal/bootstrap/assemble.gen.go` 的 `Options()`：`std.Standard()`（server/audit/logger 三类框架自有后端的段驱动 Provider）+ `ConfigFile`/`WatchConfigFile` + `appkit.StrictContract()`（生成物默认开启，见 §6）+ 传输面能力声明（HTTP 是 `WithHTTPContract(apiserver.NewRouter)`；gRPC 面由 `WithGRPC` 注册服务，链钩子 `WithGRPCOptionsContract(newGRPCChain)` 在 seeded 的 `customOptions` 里登记）+ 探针装配。地址、日志、TLS 等可配置项不写死在代码里——由 `configs/demo-svc.yaml` 按契约键驱动。`server.http.middleware` / `server.grpc.middleware` 两段同样是真的会被读的：钩子在契约装载后求值，段经 `bundle.FromMiddleware` / `bundle.FromGRPCMiddleware` 进链，改 YAML 里的 `rate_limit` 当场能测出来，写一段 `circuit_breaker` 则多一层下游持续 5xx 时的拒绝（见[用 bald CLI 起步新服务](../用%20bald%20CLI%20起步新服务.md) §4.2）。
 
 ### 4. 拉依赖、起服务
 

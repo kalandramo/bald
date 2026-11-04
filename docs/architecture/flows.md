@@ -13,13 +13,14 @@
 |---|---|---|---|
 | 1 | `HTTPServer.Start`：`net.Listen` + `Serve/ServeTLS`，在 appkit errgroup goroutine 中阻塞 | `transport/http/http_server.go:62-89` | sync / HTTP/1.1 |
 | 2 | 服务构造：`stdHTTPProvider.Build` 取 `Decl.HTTPHandler`，按需包健康探针，交给 `bootstrap.HttpServerProvider`。`HTTPHandler` 有两条来源：业务直接用 `appkit.WithHTTP` 传一个建好的 handler；或声明 `appkit.WithHTTPContract(fn)`，由 `resolveContractFaces` 在契约装载后把 `server.http.middleware` 段交给 `fn`，产出的 handler 写回同一字段（域接线与 server 构造看到的形态一致） | `pkg/appkit/standard.go` 的 `stdHTTPProvider.Build`、`pkg/appkit/contract_faces.go` 的 `resolveContractFaces`、`pkg/appkit/health.go:72-80`、`bootstrap/server.go:137-149`、`_example/bald/internal/apiserver/apiserver.go` 的 `NewRouter` | in-process |
-| 3 | 中间件链（**顺序由 bundle 固化，外→内**）：Recovery → RequestID → Tracing → Logging → CORS → Secure → Authn → Audit → Authz → RateLimit → Timeout | `pkg/middleware/bundle/bundle.go` 的 `Gin()` | in-process |
+| 3 | 中间件链（**顺序由 bundle 固化，外→内**）：Recovery → RequestID → Tracing → Logging → CORS → Secure → Authn → Audit → Authz → RateLimit → CircuitBreaker → Timeout | `pkg/middleware/bundle/bundle.go` 的 `Gin()` | in-process |
 | 4 | 路由 → 泛型 handler：绑定 → 校验 → `handler(c.Request.Context(), &req)` | `transport/web/handler.go:37-51` | sync |
 | 5 | 响应：`WriteResponse`/`ErrorResponse`，错误经 `berrors` 映射为 HTTP code（兜底 INTERNAL） | `transport/web/handler.go:50`、`transport/web/response.go:56-93` | sync |
 
-**链序的两个刻意设计**（不是 bug）：
+**链序的三个刻意设计**（不是 bug）：
 - Tracing 在 Logging **之外**：两者并存时 logging 起的 span 是 tracing span 的子（`pkg/middleware/bundle/bundle.go` 的 `Gin()`）。
-- RateLimit 在 Authz **之后**、Timeout 之前：为了能看到认证后的 subject（为按用户限流留位），**代价是不保护认证/授权层自身**（同上，`Gin()` 内的追加序）。要保护认证层需业务自己把 `ginmw.RateLimit` 挂到链首。
+- RateLimit 在 Authz **之后**、CircuitBreaker/Timeout 之前：为了能看到认证后的 subject（为按用户限流留位），**代价是不保护认证/授权层自身**（同上，`Gin()` 内的追加序）。要保护认证层需业务自己把 `ginmw.RateLimit` 挂到链首。
+- CircuitBreaker 夹在 RateLimit 与 Timeout 之间，三条判据缺一不可：更外（认证之前）匿名流量就能把失败率打满、替所有人开窗；更内（限流之前）被限流拒掉的请求会先进熔断，两层拒绝互相喂养；更内（超时之内）Timeout 写出的 503 就在它下面，熔断只看见「handler 都成功返回」——而「handler 总是超时」正是熔断该抓的形状。
 
 **真实接线 vs 存在但未接线**（本仓库最重要的架构事实之一）：
 
@@ -28,17 +29,17 @@
 | recovery / requestid | **REAL**，恒挂（链的前两层） | `pkg/middleware/bundle/bundle.go` 的 `Gin()` |
 | logging / tracing | **REAL**，但开关不同：logging 由 `New()` 默认开、可 `NoLogging()` 关；tracing 默认关、须显式 `Tracing()` | `pkg/middleware/bundle/bundle.go` 的 `New()`/`Gin()`、`pkg/middleware/gin/tracing.go` 的 `Tracing`、`pkg/middleware/gin/observability.go` |
 | ratelimit | **REAL**，契约驱动到链：`server.{http,grpc}.middleware.rate_limit` 经 `bundle.FromMiddleware`/`FromGRPCMiddleware` 出 Option，两座桥由生成脚手架在契约钩子里调用（`_example/bald/internal/bootstrap/middleware_e2e_test.go` 从 YAML 断到 429 / `RESOURCE_EXHAUSTED`）；后端来自 `ratelimit/tokenbucket` | `pkg/middleware/gin/ratelimit.go` 的 `NewRateLimit`、`pkg/middleware/bundle/middleware.go` 的 `RateLimit`、`pkg/middleware/bundle` 的 `FromMiddleware`/`FromGRPCMiddleware` |
+| circuitbreaker | **REAL**，契约驱动到链（hystrix 一个实现）：`server.{http,grpc}.middleware.circuit_breaker` 经 `bundle.CircuitBreakerFromMiddleware`/`GRPCCircuitBreakerFromMiddleware` 出 Option，缺段即不挂这一层（opt-in）；HTTP 拒 503、gRPC 拒 `UNAVAILABLE`+`Reason=CIRCUIT_OPEN`；**stream 面刻意不挂**（一条流的「失败」没有一致答案）。`vegas`/`sres`/`sentinel` 三个后端没有契约段，换算法经 `bundle.CircuitBreaker(...)` 代码级注入 | `pkg/middleware/gin/circuitbreaker.go`、`pkg/middleware/grpc/circuitbreaker.go`、`pkg/middleware/bundle/circuitbreaker.go`、`_example/bald/internal/bootstrap/middleware_e2e_test.go`（4 条端到端） |
 | authn / authz / audit / metrics 发射 | **REAL**（metrics 随 audit 事件发射） | `pkg/middleware/gin/audit.go:138-148` |
-| Authn/Authz/CORS/Secure/RateLimit/Timeout | **条件装配**：未注入即整层消失（零开销是既定设计）。CORS/Secure/RateLimit/Timeout 仍静默省略；**Authn 不再能靠疏漏开放**——`Authn(…)` 与 `Public()` 二者必居其一，否则 `Bundle.Verify()` 报 `AUTHN_UNDECLARED`、出链点告警一次，生成脚手架显式写 `bundle.Public()` | `pkg/middleware/bundle/bundle.go` 的 `Verify`/`Gin()`/`GRPCInterceptors()`（风险 §6.1） |
+| Authn/Authz/CORS/Secure/RateLimit/CircuitBreaker/Timeout | **条件装配**：未注入即整层消失（零开销是既定设计）。CORS/Secure/RateLimit/CircuitBreaker/Timeout 仍静默省略；**Authn 不再能靠疏漏开放**——`Authn(…)` 与 `Public()` 二者必居其一，否则 `Bundle.Verify()` 报 `AUTHN_UNDECLARED`、出链点告警一次，生成脚手架显式写 `bundle.Public()` | `pkg/middleware/bundle/bundle.go` 的 `Verify`/`Gin()`/`GRPCInterceptors()`（风险 §6.1） |
 | `retry/` | **未接线**：全仓零 importer，唯一提及是注释 `ratelimit/bbr/bbr.go:68` | 全仓 grep 复核 |
-| `circuitbreaker/` | **未接线**：只被自己的 4 个后端 import | `circuitbreaker/{hystrix,vegas,sres,sentinel}` |
 | health | 接在**启动/注册**期，不在每请求路径 | `pkg/appkit/health.go:60-80` |
 
 ### gRPC 路径的差异
 
-同一 bundle，形态换成拦截器：unary 链 `Error → Recovery → RequestID → Observability → Authn → Audit → Authz → RateLimit → Timeout`（`pkg/middleware/bundle/bundle.go` 的 `GRPCInterceptors()`）；stream 链 `Error → RateLimit`，只在挂了限流时产出（`GRPCStreamInterceptors()`，由 `GRPCChain()` 追加）。
+同一 bundle，形态换成拦截器：unary 链 `Error → Recovery → RequestID → Observability → Authn → Audit → Authz → RateLimit → CircuitBreaker → Timeout`（`pkg/middleware/bundle/bundle.go` 的 `GRPCInterceptors()`）；stream 链 `Error → RateLimit`，只在挂了限流时产出（`GRPCStreamInterceptors()`，由 `GRPCChain()` 追加）。
 - `ErrorInterceptor` 必须最外层，`RecoveryInterceptor` 紧随其后把 panic 转成 `*berrors.Internal` 再由外层收口为 gRPC status（`GRPCInterceptors()` 的链首两层）。stream 链的首层同样是 `ErrorStreamInterceptor`——少了它，限流拒绝的 `*berrors.Error` 会被 grpc-go 兜底成空 `Unknown`。
-- **RateLimit/Timeout 与 gin 同源同序，但覆盖面不同**：`bundle.RateLimit` 的同一个 limiter 实例同时喂 gin 与 gRPC（unary 逐调用、stream 逐建流），`bundle.Timeout` 只作用于 gin 与 gRPC unary——stream 面不挂默认超时，否则 unary 的 `default_timeout_ms` 会静默变成「流的最大存活时长」。gRPC 链仍没有 CORS/Secure（HTTP 专属概念）。两面的超时形态不对称，实测口径见《Bald 中间件设计》与 §6.2 的 e2e 表：gin 的 Timeout **提前返回 503**（不等 handler，响应头即刻 Flush），gRPC 的 Timeout **只给 handler 一个会到期的 ctx**（绝不提前返回，否则 panic 绕过 `RecoveryInterceptor`）——所以 gRPC 侧的超时断言依赖 handler 尊重 ctx，示例的 `sayHello` 因此显式 `select` 在 `<-ctx.Done()` 上。
+- **RateLimit/CircuitBreaker/Timeout 与 gin 同源同序，但覆盖面不同**：`bundle.RateLimit` 的同一个 limiter 实例同时喂 gin 与 gRPC（unary 逐调用、stream 逐建流），`bundle.CircuitBreaker` 与 `bundle.Timeout` 只作用于 gin 与 gRPC unary——stream 面不挂默认超时（否则 unary 的 `default_timeout_ms` 会静默变成「流的最大存活时长」），也不挂熔断（一条流的「失败」没有一致答案：按建流算则开窗与真实退化无关，按流终态算则一条长流长期占住半开探针、把其它流全拒）。gRPC 链仍没有 CORS/Secure（HTTP 专属概念）。两面的超时形态不对称，实测口径见《Bald 中间件设计》与 §6.2 的 e2e 表：gin 的 Timeout **提前返回 503**（不等 handler，响应头即刻 Flush），gRPC 的 Timeout **只给 handler 一个会到期的 ctx**（绝不提前返回，否则 panic 绕过 `RecoveryInterceptor`）——所以 gRPC 侧的超时断言依赖 handler 尊重 ctx，示例的 `sayHello` 因此显式 `select` 在 `<-ctx.Done()` 上。熔断的拒绝码同理按面成形：gin 可配状态码（默认 503），gRPC 固定 `UNAVAILABLE`。
 - 链接入方式：`appkit.WithGRPC(register)` 声明服务注册；服务端选项有两条登记口——`appkit.WithGRPCOptions(fn)` 传运行期求值的工厂，`appkit.WithGRPCOptionsContract(fn)` 传按契约 `server.grpc.middleware` 段构造的钩子（`pkg/appkit/bootstrap.go`）。后者由 `resolveContractFaces` 在装配期求值一次，产出的选项包成工厂**并入同一条 `GRPCOptionFuncs` 通道**，之后与 `WithGRPCOptions` 走完全相同的路：阶段 B 逐工厂累加进 `bootstrap.WithGRPCUnaryFunc`（`pkg/appkit/standard.go`）→ `applyOptions` 按登记序串成一条 `[]grpc.ServerOption`（`bootstrap/server.go`）→ `transport/grpc/grpc_server.go` 构造 server。不再有第二条注入路径（原 `WithGRPCUnary` 值切片与 `mergeUnary` 已删）。
 - **TLS 双传输对称**：HTTP 与 gRPC 都读各自的契约段（`server.http.tls` / `server.grpc.tls`）经同一 `bconf/tlsconf.Server`（`bconf/tlsconf/tlsconf.go:26`）构造——段缺失即明文，段给 `ca` 即强制校验客户端证书。gRPC 侧额外补 `NextProtos=["h2"]`（`transport/grpc/grpc_server.go:90-97`，grpc-go ≥1.67 强制 ALPN）。网关出站按 `server.grpc.tls` 选 `credentials.NewTLS` 或明文（`transport/gateway/gateway_server.go:70-80`）。
 

@@ -332,9 +332,11 @@ cd ratelimit/sentinel && go vet ./... && go test -count=1 ./...     # 6
 **链序（实测实现，不是提案）**：认证/授权**之后**、超时**之前**，两面同序。
 
 ```
-gin :  Recovery → RequestID → Logging → CORS → Secure → Authn → Audit → Authz → RateLimit → Timeout
-gRPC:  Error → Recovery → RequestID → Observability → Authn → Audit → Authz → RateLimit → Timeout
+gin :  Recovery → RequestID → Logging → CORS → Secure → Authn → Audit → Authz → RateLimit → CircuitBreaker → Timeout
+gRPC:  Error → Recovery → RequestID → Observability → Authn → Audit → Authz → RateLimit → CircuitBreaker → Timeout
 ```
+
+熔断那一层在限流之内（见《Bald 熔断设计》的接线节）：配额先拒（便宜），熔断只判「这次还值不值得真做」——反过来挂会让被限流拒掉的请求先进熔断，两层的拒绝互相喂养。
 
 这个位置付的是双向代价，两边都必须知道：
 

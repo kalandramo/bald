@@ -173,15 +173,16 @@ BALD_DEMO_CACHE_REDIS_ADDR  →  cache.redis.addr
 - **前缀不可省**。没有 `BALD_DEMO_` 前缀的变量根本不会被读（枚举驱动，非查询驱动）。
 - **契约多词键（含下划线的字段名）经 env 直接写就行**。契约里 179 个字段名含下划线（分布于 62 个 message：`rate_limit` / `server_addrs` / `max_open_connections` …），而 env 负载里的 `_` 一律先切成路径分隔符——`BALD_DEMO_SERVER_HTTP_MIDDLEWARE_RATE_LIMIT_BURST` 落树成 `server.http.middleware.rate.limit.burst`。`bootstrap/config` 的 `envLayer` 在**合树之前**用 `bconf.FoldEnvKeys` 按契约描述符把这条链折回规范键 `rate_limit.burst`，于是 env 与文件写的是同一个键：env 照常压过文件，生成物默认开启的严格门禁（`appkit.StrictContract`）看到的也是契约名。
 
-  可复制即跑（把角色文件里的 `{rate: 1000, burst: 200}` 压成 `{1, 1}`，第二个请求即被拒）：
+  可复制即跑（前两行把角色文件里的 `{rate: 1000, burst: 200}` 压成 `{1, 1}`，第二个请求即被拒；第三行改的是 gRPC 面的超时；末行演示的是另一件事，与前三行不同场景——角色文件里**没有**熔断段，单写一个 env 键就能把这一层开出来，因为「段是否存在」也由分层合并决定。要看到它真的开窗，把限流两行去掉、再给 handler 加一次 5xx）：
 
   ```bash
   export BALD_DEMO_SERVER_HTTP_MIDDLEWARE_RATE_LIMIT_RATE=1
   export BALD_DEMO_SERVER_HTTP_MIDDLEWARE_RATE_LIMIT_BURST=1
   export BALD_DEMO_SERVER_GRPC_MIDDLEWARE_TIMEOUT_DEFAULT_TIMEOUT_MS=50
+  export BALD_DEMO_SERVER_HTTP_MIDDLEWARE_CIRCUIT_BREAKER_MIN_REQUESTS=1
   ```
 
-  端到端实证：`_example/bald/internal/bootstrap/middleware_e2e_test.go` 的 `TestE2E_EnvOverridesContractRateLimit` / `TestE2E_EnvOverridesContractGRPCRateLimit`（`429` / `RESOURCE_EXHAUSTED`）。
+  端到端实证：`_example/bald/internal/bootstrap/middleware_e2e_test.go` 的 `TestE2E_EnvOverridesContractRateLimit` / `TestE2E_EnvOverridesContractGRPCRateLimit`（`429` / `RESOURCE_EXHAUSTED`）与 `TestE2E_EnvOverridesContractCircuitBreaker`——角色文件里**不写**熔断段，只靠 env 写 `min_requests`/`open_duration_ms`/`window_ms` 就把这一层开出来（多词键靠 §7.7 的折叠在合树前与规范键同名），一次 504 之后第二发即 `503`。
   - 折叠只在**唯一链**上发生，平级规范名优先，且规范键已被另一种形状（proto 名或 JSON 名）占据时不折——真嵌套键不会被抢走，笔误（如 `RAT_LIMIT`）折不出来就照旧由严格门禁指名。
   - **业务自有键（`biz.*`）没有契约描述符可折**，含下划线仍会被切成嵌套路径：请用点路径命名或避免下划线——示例里 `greetv1.readOwnConfig` 用的是 `biz.greet.delay`，不是 `delay_ms`。
   - 一次改整段配置仍可改契约文件并用 `appkit.ConfigFile` 追加覆盖（同名单值字段末者胜），姿势见示例的 `roleConfigOver`；文件面写整段比拼多个 env 更贴近配置的本来书写面，env 这条路现在只是**也可用**，不再是被迫绕行。

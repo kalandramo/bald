@@ -79,7 +79,28 @@ bald/
 
 质量门禁：`task lint` / `task vuln` / `task race` 与 CI 共用同一条模块派生（`scripts/list-modules.sh`），新增 module 不用顺手改清单；每个 module 跑 `golangci-lint`（根 `.golangci.yml`）与 `govulncheck`（只拦代码可达漏洞）。主循环跑 `go test -short`，**非 `-short` 的集成用例由 CI 的 `integration` 作业注入真 etcd/consul/redis/mongo 跑，registry 的 kubernetes 后端另由 `integration-kubernetes` 作业起真 kind 集群跑**（registry / store / 队列三条接缝），并先探活、后逐条断言判据真的 `--- PASS`——服务没起来是作业失败，不是二十几条 Skip。改 `.github/workflows/*.yml` 后先跑 `task ci-workflow-lint`（CI 侧是同内容的 `workflow-lint` 作业）：GitHub 在编译期解析作业文件，一个未登记的键（比如 `services` 下的 `args`）会让整个文件被拒，只留「workflow file issue」和 0 个 job，本地 YAML 解析器看不出任何问题。
 
-**未接线能力（reference-only）**：`retry`、`circuitbreaker` 的 4 个后端、`transport/graphql`、`workflow/argo`、`ai/*`、`oss/{s3,minio}` 在仓内没有消费方。它们照常随仓库发布、按 reference-only 保留——不删除，也不在文档里假装已接线。清单与可复现判据见[当前架构 §6](docs/architecture/current-architecture.md)。
+**未接线能力（reference-only）**：`retry`、`circuitbreaker` 的 `vegas`/`sres`/`sentinel` 三个后端、`transport/graphql`、`workflow/argo`、`ai/*`、`oss/{s3,minio}` 在仓内没有消费方。它们照常随仓库发布、按 reference-only 保留——不删除，也不在文档里假装已接线。清单与可复现判据见[当前架构 §6](docs/architecture/current-architecture.md)。
+
+**熔断已接进入口链**：`server.http.middleware.circuit_breaker` / `server.grpc.middleware.circuit_breaker` 写上一段，两面就各挂一层 hystrix 熔断（HTTP 拒绝回 503、gRPC 回 `UNAVAILABLE` + `Reason=CIRCUIT_OPEN`），缺段即不挂这一层。链序固定在授权之后、限流之内、超时之外——由 `pkg/middleware/bundle` 构造，不靠业务遵守文档。gRPC 的 stream 面刻意不挂（一条流的「失败」没有一致答案）。最小写法：
+
+```yaml
+server:
+  http:
+    middleware:
+      circuit_breaker:
+        error_threshold: 0.5   # 窗内失败率过此值开窗
+        min_requests: 20       # 窗内样本不足时不开窗（地板保护）
+        open_duration_ms: 5000 # 开窗后的休眠时长，到期转半开放一个探针
+        window_ms: 10000       # 滑窗时长（hystrix 按绝对格点分桶推进）
+  grpc:
+    middleware:
+      circuit_breaker:         # 字段同上，没有 status_code——gRPC 的拒绝码是协议的一部分
+        error_threshold: 0.5
+```
+
+上面四个值是 hystrix 的默认值，写出来只为示意字段；段内任何字段留 0 都读作「用默认」（proto3 分不出「写了 0」和「没写」），只有负值、`error_threshold > 1`、`status_code` 非 5xx 才是配置错误——启动期直接失败，不静默降级。
+
+`vegas`（按 RTT 膨胀）/`sres`（概率判据）/`sentinel`（规则中心）三个后端没有契约段，换算法经 `bundle.CircuitBreaker(hystrix-替代品)` 代码级注入——它们没段不是缺陷：sres 无请求量下限、vegas 在入口面没有「下游」可测、sentinel 要引第三方规则中心，各有各的不可声明理由。
 
 **服务发现已接线**：`registry.Discovery` 不再是「只注册不解析」——gRPC 反向代理的后端地址写成 `discovery:///<服务名>` 即由注册中心解析端点（写 `host:port` 仍走直连），段驱动装配会自动取装配好的注册中心，消费方只改一行配置。服务名按后端的真实命名写：内存与 etcd 用注册时的 `Name`，nacos 用 `<名>.grpc`。示例可当场跑：
 
