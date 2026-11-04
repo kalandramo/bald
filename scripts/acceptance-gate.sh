@@ -68,6 +68,9 @@ rows() {
     $'ci\tpkg\t./appkit\tTestPlanCache_|TestVariantProjection_|TestVariantEffects_|TestOption_OnRoleScoping|TestDoctor_\t' \
     $'ci\tpkg\t./appkit\tTestAPI_\t' \
     $'ci\tcli\t./internal/codegen\tTestGen_(Deterministic|CheckClean)|TestGenDomain_(Bind|Proto|NoRoutes|CheckDoesNotRunProtoStage)|TestGenApp_Variants|TestTree_Variants|TestTree_CustomWiring|TestPruneStaleOwned|TestCheckTree_\t' \
+    $'ci\tregistry/etcd\t.\tTestRetreatDelay_|TestRetreatPolicy_\t' \
+    $'ci\tregistry/etcd\t./contract\tTestRetreat_|TestProvider_BackoffSection\t' \
+    $'ci\tbconf\t.\tTestUnmarshalNestedBackoffSection|TestUnmarshalAbsentBackoffStaysNil|TestUnmarshalDurationSpellings|TestCoerceDurationFormat\t' \
     $'no\tbconf\t.\tTestGeneratedMatchesProto\t' \
     $'no\t_example/bald\t./internal/bootstrap\tTestPlan_ReferenceProject\t' \
     $'no\t_example/bald\t./internal/bootstrap\tTestPlan_ReferenceProject\tgrpcgw'

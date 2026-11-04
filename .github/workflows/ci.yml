@@ -290,6 +290,10 @@ jobs:
           # 下面那条 case 分支是给这种写法兜底的：它直接点名「非判据项」。
           EXPECTED="
           /tmp/int/registry-etcd.log|TestRegisterDiscoverDeregister
+          /tmp/int/registry-etcd.log|TestRegister_MissingNameIsRejected
+          /tmp/int/registry-etcd.log|TestRegister_MissingIDIsRejected
+          /tmp/int/registry-etcd.log|TestGetService_NotFound
+          /tmp/int/registry-etcd.log|TestNamespacePrefix
           /tmp/int/registry-etcd.log|TestWatch_ReceivesChanges
           /tmp/int/registry-etcd.log|TestProvider_BuildsUsableRegistrar
           /tmp/int/registry-consul.log|TestRegisterDiscoverDeregister
@@ -304,6 +308,14 @@ jobs:
           "
           # consul 那五条里，后两条是 consul 后端独有的语义，只有真 agent 能判：
           # 心跳按实例隔离（注销一个不该带走其余实例）与「发现只返回 passing 实例」。
+          #
+          # etcd 那七条：这个套件按 `go test ./...`（非 -short）整包跑，所以四条
+          # 「-short 下跳过」的用例（Missing*IsRejected / GetService_NotFound /
+          # NamespacePrefix）以前只是顺带跑过了，没有判据盯着。docscheck 的
+          # `TestAcceptanceTableCoversShortSkippedTests` 不接受「顺带跑过」——它要求每条
+          # -short 跳过的用例要么进 scripts/acceptance-gate.sh 的判据表，要么被作业点名。
+          # 这四条的真 etcd 依赖不适合进表（表里的腿在 test 作业跑，无 etcd），
+          # 所以走「点名」这条路，同时让它们从这里开始真的被断言而不是被记录。
           miss=0
           for row in $EXPECTED; do
             [ "$row" = "" ] && continue
