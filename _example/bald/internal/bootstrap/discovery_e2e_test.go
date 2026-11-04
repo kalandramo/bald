@@ -29,6 +29,7 @@ import (
 	gatewaycontract "github.com/kalandramo/bald/transport/gateway/contract"
 
 	"github.com/kalandramo/bald/pkg/appkit"
+	"github.com/kalandramo/bald/registry/inmemory"
 
 	baldv1 "github.com/kalandramo/bald/example/bald/api/gen"
 )
@@ -65,7 +66,16 @@ func TestGatewayBackendViaDiscovery(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
-	opts := append(Options(RoleAPI), appkit.ConfigFile(cfg), gatewaycontract.AppProvider(registerGreet))
+	// 注册中心显式钉成内存实例：本条断的是「同一次装配里注册进去的端点被网关解析
+	// 回来」这条接线，不是后端语义。不钉它就跟着构建形态漂——-tags nacos 下同一次
+	// 装配接的是真 nacos，服务名口径变成 <名>.grpc（见
+	// TestNacosDiscoveryNameCarriesSchemeSuffix），discovery:///bald-demo 就一个实例
+	// 也拿不到。后端本身由 discovery_registry_e2e_test.go 按契约段那三条判。
+	opts := append(Options(RoleAPI),
+		appkit.ConfigFile(cfg),
+		appkit.Registrar(inmemory.New()),
+		gatewaycontract.AppProvider(registerGreet),
+	)
 	go func() { errCh <- appkit.Serve(ctx, opts...) }()
 	t.Cleanup(func() {
 		cancel()

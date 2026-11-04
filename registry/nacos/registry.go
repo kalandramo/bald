@@ -53,6 +53,12 @@ func New(opts ...Option) (*Registry, error) {
 		return nil, errors.New("nacos: server addrs is required")
 	}
 	// v2 SDK 的 ClientConfig 为字段直赋（无函数式选项）。
+	//
+	// NamespaceId 原样透传，**不**做 bconfig/nacos 那样的 "public"→"" 折叠：实测
+	// （nacos v2.3.2 单机）命名 API 里两者是同一个租户——按 ns="public" 注册的实例
+	// 用 ns="" 查得到，反之亦然，SDK 也在 naming_client 里把空 NamespaceId 归一成
+	// DEFAULT_NAMESPACE_ID。配置 API 相反（tenant=public 会静默拿到空内容），所以
+	// 只有配置侧需要折叠。
 	clientConfig := constant.ClientConfig{
 		NamespaceId:         op.namespace,
 		TimeoutMs:           uint64(op.timeout.Milliseconds()),

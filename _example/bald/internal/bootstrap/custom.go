@@ -7,7 +7,6 @@ package bootstrap
 import (
 	storegorm "github.com/kalandramo/bald/contrib/store-gorm"
 	"github.com/kalandramo/bald/pkg/appkit"
-	"github.com/kalandramo/bald/registry/inmemory"
 )
 
 // 角色名（对应 AppSpec.meta.roles[].name）。
@@ -18,12 +17,14 @@ const (
 
 // customOptions 返回应用自定义接线（两个角色相同；按角色分叉时可读 role）。
 func customOptions(_ string) []appkit.Option {
-	return []appkit.Option{
+	opts := []appkit.Option{
 		// database.sql 段 → GORM 连接池（资源容器取用，停机释放）。
 		storegorm.AppProvider(),
-		// 默认构建用进程内注册中心；-tags nacos 时由 nacos 变体的段驱动
-		// Provider 接管（显式实例优先于契约，二者不同时生效）。
-		appkit.Registrar(inmemory.New()),
+	}
+	// 注册中心按构建形态接：见 registrar_inmemory.go（默认）与
+	// register_nacos.go（-tags nacos）。
+	opts = append(opts, registrarOptions()...)
+	return append(opts,
 		// 拦截器链是安全策略，归应用自持（ErrorInterceptor 必须在最外层）；
 		// 链的限流/超时参数来自契约 server.grpc.middleware 段——
 		// WithGRPCOptionsContract 是该段的消费口，与 HTTP 面的
@@ -33,11 +34,13 @@ func customOptions(_ string) []appkit.Option {
 		newLoggerProvider(),
 		// biz.* 是业务配置段（域经 Settings 快照读取），不在 bconf 契约里。
 		appkit.StrictContract("biz"),
-		// 逃逸舱预算：程序化 registry + std 的两个 server 面（server.http、
+		// 逃逸舱预算：进程内 registry + std 的两个 server 面（server.http、
 		// server.grpc 各一节点，注册回调装在闭包里）。计量口径是节点数，
 		// 分段声明的面各自计——转码面接管 server.http 时仍是 3（同键替换）。
+		// -tags nacos 时 registry 由契约段派生，不是舱（实测 2 个）；预算是上界，
+		// 少一个不响，plan_acceptance_test.go 那条按构建形态派生的清单才是判据。
 		appkit.WithOpaqueBudget(3),
-	}
+	)
 }
 
 // variantOpts 是构建期变体的应用级接线表（键 = AppSpec.variants.name）：

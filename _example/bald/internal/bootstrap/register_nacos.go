@@ -22,6 +22,14 @@ const (
 	nacosConfigNS     = "public"
 )
 
+// registrarOptions 在 nacos 变体里**不**钉注册中心实例：把 registry 段整个留给
+// 契约（`registry.type: nacos` + `registry.nacos.*`）驱动的 nacosRegistrarProvider。
+//
+// 为什么留空而不是钉一个 nacos 实例：显式 Registrar 会把该段判成「已消费」，段驱
+// 动 Provider 于是计划期跳过——那样这个构建形态里「用了 nacos」只是契约上写着，
+// 实际注册进的是内存实例，而停机/发现/心跳全都不经后端。留空才是「变体生效」。
+func registrarOptions() []appkit.Option { return nil }
+
 // nacos 变体：注册中心段驱动 Provider + 配置中心远程源。两角色都生效。
 func init() {
 	variantOpts["nacos"] = nacosBootstrapOptions()
