@@ -8,6 +8,7 @@ require (
 	github.com/kalandramo/bald/broker v0.1.0
 	github.com/kalandramo/bald/encoding v0.1.0
 	github.com/kalandramo/bald/log v0.5.4
+	github.com/kalandramo/bald/retry v0.2.0
 	github.com/segmentio/kafka-go v0.4.49
 )
 
@@ -36,3 +37,5 @@ replace github.com/kalandramo/bald/encoding => ../../encoding
 replace github.com/kalandramo/bald/encoding/json => ../../encoding/json
 
 replace github.com/kalandramo/bald/encoding/proto => ../../encoding/proto
+
+replace github.com/kalandramo/bald/retry => ../../retry

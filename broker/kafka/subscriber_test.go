@@ -15,41 +15,20 @@ import (
 	"github.com/kalandramo/bald/broker"
 )
 
-// fixedRand 把抖动变成可断言的确定值，同时记下传给它的上界，
-// 于是「指数增长 + 截到 max + [d/2, d) 抖动」这条规则能逐边界核对。
-type fixedRand struct {
-	mu     sync.Mutex
-	nCalls []int64
-	fn     func(n int64) int64
-}
-
-func newZeroRand() *fixedRand {
-	return &fixedRand{fn: func(int64) int64 { return 0 }}
-}
-
-func (f *fixedRand) int63n(n int64) int64 {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.nCalls = append(f.nCalls, n)
-	return f.fn(n)
-}
-
-func (f *fixedRand) lastN() int64 {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if len(f.nCalls) == 0 {
-		return -1
-	}
-	return f.nCalls[len(f.nCalls)-1]
-}
+// 抖动 stub：把 [retry.EqualJitter] 的随机源钉成确定值，于是
+// 「指数增长 + 截到 max + [d/2, d] 抖动」这条规则能逐边界核对，
+// 不必拿墙上时钟去猜。rng=0 落在下界，rng=1 落在上界。
+var (
+	zeroJitter = func() float64 { return 0 }
+	fullJitter = func() float64 { return 1 }
+	midJitter  = func() float64 { return 0.5 }
+)
 
 func TestBackoffDuration(t *testing.T) {
 	const (
 		min50  = 50 * time.Millisecond
 		max500 = 500 * time.Millisecond
 	)
-
-	full := &fixedRand{fn: func(n int64) int64 { return n - 1 }}
 
 	cases := []struct {
 		name string
@@ -65,10 +44,10 @@ func TestBackoffDuration(t *testing.T) {
 		// 400ms*2 越过 max，必须截在 500ms
 		{"attempt 4 截到 max", 4, min50, max500, max500},
 		{"attempt 6 截到 max", 6, min50, max500, max500},
-		// min<<attempt 溢出成 0 时回到 min。run() 里计数封顶在 6，
-		// 但退避函数不该依赖调用方记得封顶。
-		{"attempt 64 位移溢出", 64, min50, max500, min50},
-		{"attempt 100 位移溢出", 100, min50, max500, min50},
+		// 高位数：曲线越过 max 后停在 max，不回落到 min。
+		// run() 里计数封顶在 6，但退避函数不该依赖调用方记得封顶。
+		{"attempt 64 越过 max", 64, min50, max500, max500},
+		{"attempt 100 越过 max", 100, min50, max500, max500},
 		// 非法配置自兜底：min<=0 用 50ms
 		{"min 为零", 0, 0, max500, min50},
 		{"min 为负", 0, -1, max500, min50},
@@ -79,17 +58,14 @@ func TestBackoffDuration(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			// 零抖动 = 区间下界 d/2
-			r := newZeroRand()
-			if got := backoffDuration(c.attempt, c.min, c.max, r.int63n); got != c.wantD/2 {
+			if got := backoffDuration(c.attempt, c.min, c.max, zeroJitter); got != c.wantD/2 {
 				t.Fatalf("零抖动: backoffDuration(%d, %v, %v) = %v, want %v",
 					c.attempt, c.min, c.max, got, c.wantD/2)
 			}
-			// 随机数取上界最大值 d/2 时落在 d，所以区间是 [d/2, d] 双闭
-			if got := backoffDuration(c.attempt, c.min, c.max, full.int63n); got != c.wantD {
+			// rng=1 时 EqualJitter 恰好返回入参，所以这一条同时钉住了
+			// 「喂给抖动的目标时长就是 wantD」；真实 [0,1) 随机源取不到上端点。
+			if got := backoffDuration(c.attempt, c.min, c.max, fullJitter); got != c.wantD {
 				t.Fatalf("满抖动: got %v, want %v", got, c.wantD)
-			}
-			if n := r.lastN(); n != int64(c.wantD/2)+1 {
-				t.Fatalf("抖动上界参数 = %d, want %d（rand63n 的入参）", n, int64(c.wantD/2)+1)
 			}
 		})
 	}
@@ -97,27 +73,25 @@ func TestBackoffDuration(t *testing.T) {
 
 // TestBackoffDuration_StaysInJitterBand 扫一遍 attempt/配置组合，
 // 确认退避始终落在 [d/2, d]，d 为截断后的目标时长（max<min 时上界抬到 min）。
+// 期望区间按位运算独立算一遍，不复用实现里的曲线，这样曲线本身被换掉时能判红。
 func TestBackoffDuration_StaysInJitterBand(t *testing.T) {
-	mid := (&fixedRand{fn: func(n int64) int64 { return n / 2 }}).int63n
-
 	for attempt := 0; attempt < 10; attempt++ {
 		for _, min := range []time.Duration{50 * time.Millisecond, time.Second} {
 			for _, max := range []time.Duration{500 * time.Millisecond, 5 * time.Second} {
-				// 与实现同口径的自兜底，用来算期望区间
 				effMin := min
+				if effMin <= 0 {
+					effMin = 50 * time.Millisecond
+				}
 				effMax := max
 				if effMax < effMin {
 					effMax = effMin
 				}
-				d := min << uint(attempt)
-				if d < effMin {
-					d = effMin
-				}
+				d := effMin << uint(attempt)
 				if d > effMax {
 					d = effMax
 				}
 
-				got := backoffDuration(attempt, min, max, mid)
+				got := backoffDuration(attempt, min, max, midJitter)
 				if got < d/2 || got > d {
 					t.Fatalf("attempt=%d min=%v max=%v: 退避 %v 不在 [%v, %v] 内",
 						attempt, min, max, got, d/2, d)

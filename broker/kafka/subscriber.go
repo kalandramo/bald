@@ -11,6 +11,7 @@ import (
 	kafkaGo "github.com/segmentio/kafka-go"
 
 	"github.com/kalandramo/bald/broker"
+	"github.com/kalandramo/bald/retry"
 )
 
 const (
@@ -311,30 +312,28 @@ func (s *subscriber) handleMessage(km kafkaGo.Message) bool {
 }
 
 // backoffDuration 计算第 attempt 次退避的时长：指数增长（2 为基数）截到 max，
-// 再叠加 [0, d/2] 的抖动，结果落在 [d/2, d]。拆成纯函数是为了能确定性断言边界，
-// 不必拿墙上时钟去猜。
-func backoffDuration(attempt int, min, max time.Duration, rand63n func(int64) int64) time.Duration {
+// 再叠加 [d/2, d] 的抖动。曲线与抖动都取 [retry] 的实现，本函数只负责
+// kafka 侧的两条自兜底：
+//   - min<=0 用 50ms（retry 的零值兜底目标是 200ms，这里保持订阅侧原口径）；
+//   - max<min 抬到 min，避免出现「上界小于下界」的空区间。
+//
+// 拆成纯函数（rng 注入）是为了能确定性断言边界，不必拿墙上时钟去猜。
+func backoffDuration(attempt int, min, max time.Duration, rng func() float64) time.Duration {
 	if min <= 0 {
 		min = 50 * time.Millisecond
 	}
 	if max < min {
 		max = min
 	}
-	d := min << uint(attempt)
-	if d < min {
-		d = min
-	}
-	if d > max {
-		d = max
-	}
-	return d/2 + time.Duration(rand63n(int64(d/2+1)))
+	exp := retry.ExponentialBackoff{Initial: min, Factor: 2, Max: max}
+	return retry.EqualJitter(exp.Delay(attempt), rng)
 }
 
 // backoffSleep 按 backoffDuration 睡一觉。抖动取 math/rand 的全局函数：每个订阅
 // 各自跑在一个 goroutine 上，这里会并发调用，而 rand.New(rand.NewSource(..))
 // 得到的自建源不是并发安全的。
 func backoffSleep(attempt int, min, max time.Duration) {
-	time.Sleep(backoffDuration(attempt, min, max, rand.Int63n))
+	time.Sleep(backoffDuration(attempt, min, max, rand.Float64))
 }
 
 // helper: 判断是否为不可恢复/致命错误，需立即退出
