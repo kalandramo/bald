@@ -165,7 +165,7 @@ kubernetes 这一行的诚实说明，源码自己就写着（`registry/kubernet
 // It has not been verified in the production environment and is currently for reference only
 ```
 
-它的 `New` 走 `rest.InClusterConfig()`，集群外必须在注入路径上用 `NewWithClient`。`Deregister` 自己发一次 strategic merge patch，把三个 `bald-service-*` 标签与两份注解一起置 null（该 patch 类型里**值为 null 的键就是删除该键**）；标签与注解要一起清，只清标签会留下一份无人认领的 annotation。这里有过一次真实的坑：旧实现是「借道 `Register` 传一个空实例回去」，而契约层的 `ServiceInstance.Validate` 闸门第一句就拒空 Name，于是**注销从来没生效过**，且没有任何测试能响（那个提交里这个模块一个测试文件都没有）——现在它由真 kind 集群上的 `TestDeregister_RemovesPodFromDiscovery` 钉住（CI 作业 `integration-kubernetes`）。nacos 的 `Close` 是 no-op：SDK v2 未暴露 client 级关闭，ephemeral 实例随连接断开自动注销。
+它的 `New` 走 `rest.InClusterConfig()`，集群外必须在注入路径上用 `NewWithClient`。`Deregister` 自己发一次 strategic merge patch，把三个 `bald-service-*` 标签与两份注解一起置 null（该 patch 类型里**值为 null 的键就是删除该键**）；标签与注解要一起清，只清标签会留下一份无人认领的 annotation。这里有过一次真实的坑：旧实现是「借道 `Register` 传一个空实例回去」，而契约层的 `ServiceInstance.Validate` 闸门第一句就拒空 Name，于是**注销从来没生效过**，且没有任何测试能响（那个提交里这个模块一个测试文件都没有）——现在它由真 kind 集群上的 `TestDeregister_RemovesPodFromDiscovery` 钉住（CI 作业 `integration-kubernetes`）。nacos 的 `Close` 是 no-op：SDK v2 未暴露 client 级关闭，ephemeral 实例随连接断开自动注销。nacos 这一行还有一条**未证的未知**：`Register` 把契约的 `registry.nacos.namespace` 原样塞进 SDK 的 `NamespaceId`，而同一家 nacos 的**配置 API** 已实测「默认命名空间必须是空串，写显示名 `public` 会静默拿到空内容」（见《Bald 配置系统设计》§1.6）；命名 API 是否同形状还没判出来——HTTP 探针在非 ephemeral 注册上返回「service not found」，要走 SDK 的 ephemeral 注册才有答案。风险形状值得写清：若命名侧同样需要折叠而没做，注册会静默落到另一个租户，`GetService` 永远列不到，而启动不报错。登记与取证姿势见风险评审 §7.10。
 
 ### 装配层：段驱动 Provider（`registry.<backend>`）
 

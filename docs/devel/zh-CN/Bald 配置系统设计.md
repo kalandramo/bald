@@ -160,6 +160,8 @@ all, _ := NewFallbackReader(fileSrc, remote)
 
 双模式构造 `New(opts...)`（从连接参数自建 client，契约装配路径）+ `NewWithClient(c, opts...)`（注入已有 client 复用既有连接，本源不负责关闭）存在于 etcd / consul / nacos / apollo / vault / http（补齐远程五家）；kubernetes 是例外——仅 `New`，kubeconfig / master URL 经 Option 注入（集群内 ServiceAccount 零配置直连）。watch 语义：etcd 原生 watch / consul watch plan / nacos ListenConfig / apollo 变更事件 / kubernetes ConfigMap watch 为**推送**；vault 无推送能力，以轮询模拟（与 http 的 ETag 轮询同型）。apollo 后端的行为约定：`New` 连接失败返回 error（不 panic）；watcher 不会在注册后立即反注册。
 
+nacos 源的默认命名空间口径：契约/Option 里写的 `public` 是**显示名**，装载前折成 SDK 认的空 `NamespaceId`（`bconfig/nacos` 的 `namespaceID`）。不折就是静默失效——实测 nacos-server v2.3.2：`NamespaceId="public"` 时 `GetConfig` **返回空内容且不报错**，远端源接上了、启动不响、一个键也没进来；同一份内容用 `NamespaceId=""` 拿到全文。自建 namespace 的 ID 是用户自己起的字符串，原样透传。这一条由 `TestNamespaceID_DefaultNameFoldsToEmpty` 与 `TestClientConfig_NamespaceIsFolded` 钉住。注册中心侧（`registry/nacos` 直接 `NamespaceId: op.namespace`）是否有同一形状仍未实测——它需要真 nacos，见风险登记册 §7.1 的 nacos 注册中心腿。
+
 > 契约瘦身记录：`bootstrapv1.Config` 砍掉无 provider 的死源 fs/redis/zookeeper/oss/polaris（字段号 reserved 防复用）。fs 源的 `fsys` 是编译期资源无法经契约表达（`bconfig/fs` 走代码 API）；其余按需实现时以新字段号追加。vault 同日实现（KV v1/v2 + 轮询 watch），恢复字段号 10（原契约从未发布，无历史数据风险），并砍掉原契约中无消费者的 `mount_path` 字段。**契约字段须全有消费者**：nacos 的 namespace/server_addrs、kubernetes 的 config_map_name/key（WithConfigMapName/WithDataKey 回填空 key 装配默认值）均在此原则下补齐实现。
 
 ---

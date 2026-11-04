@@ -290,14 +290,18 @@ flag 走的是平行解析路径，**不参与**配置合并。
 
 本地文件 + env + flag 之外还有两路远端配置，按需选择：
 
-**① `RemoteConfig` 远程桥（现行范本）**：把实现 `config.RemoteSource` 的后端接进来，
+**① `RemoteConfig` 远程桥**：把实现 `config.RemoteSource` 的后端接进来，
 内部适配为**最低优先级的基准层**。kratos contrib 的 `config.Source` 经
-`config.FromKratosSource` 一行桥接（见 `_example/bald/internal/bootstrap/register_nacos.go`，build tag `nacos`）：
+`config.FromKratosSource` 一行桥接：
 
 ```go
 src := config.FromKratosSource(nacosconfig.NewConfigSource(cli))
 appkit.MustServe(ctx, appkit.RemoteConfig(src), /* 其余 Option */)
 ```
+
+这条桥的代价是要引第三方 contrib module（nacos 那两个 contrib 各自拖一棵依赖树），
+所以**仓内现在没有消费者**：`_example/bald` 的 nacos 变体已改走 ② 的源层（见下）。
+能力按 reference-only 保留，接已发布的 contrib 时才用得上。
 
 nacos 源也可走段驱动装配，免去手写桥接：`confignacos.AppProvider()` 消费契约
 `config.nacos` 段（`format` 透传、参与热更新），未配置该段时返回空层列表：
@@ -306,8 +310,52 @@ nacos 源也可走段驱动装配，免去手写桥接：`confignacos.AppProvide
 appkit.MustServe(ctx, std.Standard(), confignacos.AppProvider(), /* 其余 Option */)
 ```
 
+> 段驱动形态要求装配里**有 config 段 Provider**：`std.Standard()` 不带它，
+> 于是带 `config.nacos` 的默认构建会在启动期被判「段无消费者」而失败
+> （`appkit: bootstrap config declares sections with no consumer: config`）。
+> 只接一个远程源、又不想引 Provider 集合，就用下面的 ②。
+
 **② `ConfigLayers` 契约源层**：手里已有层列表（如经 bootstrap Registry 的 `Build` 从契约
-`config` 段产出）时显式传入：
+`config` 段产出）时显式传入。现行范本是 `_example/bald` 的 nacos 变体
+（`internal/bootstrap/register_nacos.go`，build tag `nacos`）——它直接用仓内的
+`bconfig/nacos` 造一层，不引任何仓库外依赖：
+
+```go
+src, err := nacos.New(
+    nacos.WithServerAddrs("127.0.0.1:8848"),
+    nacos.WithNamespace("public"), // 默认命名空间的显示名，装载时折成空 tenant
+    nacos.WithGroup("DEFAULT_GROUP"),
+    nacos.WithDataID("bald-demo.yaml"),
+)
+layer := config.Layer{Name: "nacos", Reader: src, Format: "yaml", Watch: true}
+appkit.MustServe(ctx, appkit.ConfigLayers(layer), /* 其余 Option */)
+```
+
+这条范本可当场跑通（本机实测：读到 `biz.greet.greeting`，再发布一版**不重启**即生效）：
+
+```bash
+docker run -d --name nacos -p 127.0.0.1:8848:8848 -p 127.0.0.1:9848:9848 \
+  -e MODE=standalone -e NACOS_AUTH_ENABLE=false --platform linux/amd64 nacos/nacos-server:v2.3.2
+
+# 默认命名空间在 HTTP 参数里是空 tenant（不是 "public"，见上面的折叠口径）
+curl -X POST "http://127.0.0.1:8848/nacos/v1/cs/configs" \
+  --data-urlencode "dataId=bald-demo.yaml" --data-urlencode "group=DEFAULT_GROUP" \
+  --data-urlencode "tenant=" --data-urlencode "type=yaml" \
+  --data-urlencode "content=biz:
+    greet:
+        greeting: from-nacos"
+
+cd _example/bald && go build -tags nacos -o /tmp/demo-api ./cmd/bald-demo-api && /tmp/demo-api &
+curl -s http://127.0.0.1:8080/v1/greet/alice   # {"greet":"from-nacos, alice"}
+```
+
+改一次 `content` 再 POST 同一坐标，几秒内同一个端口的响应跟着变——这就是 `Watch: true` 经
+`ValueWatcher` 走到的「变更 → 全量重合并」路径。`biz.*` 是业务自持段，必须在
+`appkit.StrictContract("biz")` 的白名单里（§7.1），否则严格校验把它当未知键拦下。
+
+经 bootstrap Registry 产层的通用写法（契约 `config` 段一次产出多层）：
+
+经 bootstrap Registry 产层的那条通用写法：
 
 ```go
 layers, cleanup, err := registry.Build(ctx, bootCfg) // 契约 config 段 → bconfig 源
