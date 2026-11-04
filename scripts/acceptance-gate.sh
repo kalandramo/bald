@@ -19,17 +19,20 @@
 #                   - `_example/bald` 的参考工程计划要编译 `api/gen` 的 proto
 #                     产物，而它已 gitignore（同 §7.1「刻意不含 `_example`」），
 #                     干净检出装载不了；
-#                   - `bconf` 的 `TestGeneratedMatchesProto` 判的是「本机 buf +
+#                   - `bconf` 的 `TestGeneratedMatchesProto` 判的是「buf +
 #                     protoc-gen-go 重出的产物与入库字节一致」，**这个字节判据绑
 #                     工具链**：进字节的排版变量是**编译 protoc-gen-go 用的那把 Go**
 #                     （go1.26.5 给中文注释的 `//` 补一个空格，go1.27.1/go1.27.3 与
 #                     入库零差异；BSR 容器里的同名插件补空格也是同一成因），buf 的
 #                     版本号实测对这一处中性（1.50.0 与 1.57.2 配同一把插件都零差
-#                     异）。三把 pin 现在都成文并机器判了（`bconf/buf.version` +
+#                     异）。三把 pin 都成文并机器判了（`bconf/buf.version` +
 #                     产物头部的 protoc-gen-go 版本行 + `bconf/protoc-gen-go.goversion`，
-#                     三条都在字节比对之前单独判红），但 CI 仍不该为此装 buf：装
-#                     什么版本都是「用工具链换一条绿」，而且插件还得按 pin 的 Go 现编。
-#                     见登记册 §7.9 第四轮。
+#                     三条都在字节比对之前单独判红）。
+#                     本作业**不装 buf**：它的工具链前提与 `_example` 那两条不同，
+#                     已经由专职作业 `proto-contract` 满足并取证（官方 buf 发行
+#                     二进制按 `bconf/buf.sha256` 校验 + 插件按产物头部声明的版本现编
+#                     + 「没有顶层 PASS 即红」），见登记册 §7.9 第五轮。本表留 `no`
+#                     是为了不在两条作业里各装一遍工具链——不是「这条腿没有远端证据」。
 #
 # 表列以 TAB 分隔，**tags 放最后**（TAB 属 IFS 空白，连续 TAB 会被折叠成一个分隔符，
 # 中间列留空就会串位；可空列只能放在行尾）。

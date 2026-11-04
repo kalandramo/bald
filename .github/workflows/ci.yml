@@ -41,6 +41,11 @@ on:
   push:
     branches: [main]
   pull_request:
+  # 手动触发（与 ci-windows.yml 同口径）。它还多承担一件事：新加一条闸门时，
+  # 「在分支上按 ref 手动跑一遍再合 main」是唯一能既不把 main 弄红、又拿到真
+  # runner 证据的路径——`push` 只认 main，`pull_request` 要建 PR（对外可见）。
+  # 例：`gh workflow run ci.yml --ref <branch>`。
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -456,8 +461,9 @@ jobs:
   #
   # scope=ci 刻意不含两条本地腿：`_example/bald` 的计划两态要编译 gitignore 的
   # proto 产物；`bconf` 的产物字节一致判据绑工具链——具体是**编译 protoc-gen-go 用的
-  # Go**（go1.26.5 给中文注释补空格、go1.27.x 不补；buf 版本号实测对字节中性），
-  # 未改 proto 也会因工具链换代而红。理由逐条写在 scripts/acceptance-gate.sh 头。
+  # Go**（go1.26.5 给中文注释补空格、go1.27.x 不补；buf 版本号实测对字节中性）。
+  # 后者**不是「没有远端证据」**：装工具链这件事由下面的 `proto-contract` 作业专职做，
+  # 本作业不重复装第二遍。理由逐条写在 scripts/acceptance-gate.sh 头。
   acceptance:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -472,6 +478,103 @@ jobs:
 
       - name: 声明式装配验收（清单来自 -list，判据必须出现顶层 PASS）
         run: bash scripts/acceptance-gate.sh ci
+
+  # 契约层字节判据进 CI（风险登记册 §7.9 未闭合①）。这条腿判的是「用登记过的工具链
+  # 重出 bconf/proto 的产物，与入库的 gen/go 逐字节一致」。它此前只在本机跑，而
+  # 「buf 不在 PATH 即 t.Skip」使 CI 永远看不见它——正是 §7.12 记的那类「本地腿没有
+  # 远端证据」的形状。
+  #
+  # 为什么现在敢给 runner 装这套工具链：§7.9 第四轮把进字节的变量收窄到**编译
+  # protoc-gen-go 用的那把 Go**（buf 的版本号与来源实测对字节中性），而 runner 的 Go
+  # 已由 `test` 作业 pin 成 1.27.3，正好落在与入库产物零差异的那一档。于是这条作业
+  # 不是「用工具链换一条绿」：判据在字节比对之前先单独比三把 pin（buf 版本 / 插件
+  # module 版本 / 编译插件的 Go major.minor），任何一把不符先响在那把工具上。
+  #
+  # 本机同形状的取证（2026-11-04，两种架构各一轮，跑的是从本文件抽出的 step 原文）：
+  # `golang:1.27` 容器（go1.27.3，arm64 与 amd64 各一次）+ 官方 buf 1.50.0 发行二进制
+  # （按 bconf/buf.sha256 校摘要）+ 由那把 Go 现编的 protoc-gen-go v1.36.12 → 判据步
+  # exit 0 且日志有顶层 `--- PASS: TestGeneratedMatchesProto`；三组变异（撤掉工具链 →
+  # 红在 PASS 断言、给产物追加一个字节 → 红在字节门、把 buf pin 改成不存在的版本 →
+  # 红在第一轴）各自只打中对应那一层。逐条数字与边界见登记册 §7.9 第五轮。
+  proto-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GOPROXY: "https://goproxy.io|https://proxy.golang.org,direct"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.3"
+
+      # 装 buf 的口径：版本读 bconf/buf.version（与判据同一出处，不在这里抄第二份），
+      # 完整性读 bconf/buf.sha256。判据本身不校验来源——本机怎么装（Homebrew、源码、
+      # 官方发行）不该被一条字节判据绑死（§7.9 未闭合③）；但 runner 下载的是公网资产，
+      # 所以这里必须校验摘要，而不是「下到就算装好」。
+      - name: 装 pin 的 buf（官方发行二进制，按 bconf/buf.sha256 校验）
+        run: |
+          set -e
+          v=$(tr -d '[:space:]' < bconf/buf.version)
+          if [ -z "$v" ]; then
+            echo "::error::bconf/buf.version 是空的——这条腿的前提是版本有据"
+            exit 1
+          fi
+          want=$(awk '$1 == "Linux-x86_64" {print $2}' bconf/buf.sha256)
+          if [ -z "$want" ]; then
+            echo "::error::bconf/buf.sha256 里没有 Linux-x86_64 这一行——装不了就别放行"
+            exit 1
+          fi
+          curl -fsSL -o "$RUNNER_TEMP/buf" \
+            "https://github.com/bufbuild/buf/releases/download/v${v}/buf-Linux-x86_64"
+          echo "$want  $RUNNER_TEMP/buf" | sha256sum --check --status
+          mkdir -p "$RUNNER_TEMP/bin"
+          mv "$RUNNER_TEMP/buf" "$RUNNER_TEMP/bin/buf"
+          chmod +x "$RUNNER_TEMP/bin/buf"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+          # 判据自己会再比一次版本；这里先打出来，红的时候不用猜是摘要层还是判据层。
+          echo "buf --version -> $("$RUNNER_TEMP/bin/buf" --version)"
+
+      # 插件版本不写在作业里，读自入库产物的头部注释——那是判据用的同一份真相。写死
+      # 在这里会让「产物声明 vN 而作业装 vN-1」变成一条永远红、且根因看不出来的腿。
+      - name: 现编 pin 的 protoc-gen-go（版本读自入库产物头部）
+        run: |
+          set -e
+          f=$(find bconf/gen/go -name '*.pb.go' | LC_ALL=C sort | head -1)
+          if [ -z "$f" ]; then
+            echo "::error::bconf/gen/go 里没有 .pb.go——插件版本没有出处可取"
+            exit 1
+          fi
+          p=$(grep -m1 -oE 'protoc-gen-go v[0-9.]+' "$f" | awk '{print $2}')
+          if [ -z "$p" ]; then
+            echo "::error::$f 头部没有 protoc-gen-go 版本行"
+            exit 1
+          fi
+          echo "入库产物声明的插件版本：$p（出处 $f）"
+          GOBIN="$RUNNER_TEMP/bin" go install "google.golang.org/protobuf/cmd/protoc-gen-go@${p}"
+          # 第三把 pin（编译插件用的 Go）由判据去比；这里只把它打进日志，红的时候
+          # 一眼分得清「工具链换代」还是「契约漂移」。
+          go version -m "$RUNNER_TEMP/bin/protoc-gen-go" | head -1
+
+      # 与 `integration` 作业同一条口径：跑完还要断言「这条判据真的产生了顶层 PASS」。
+      # 只 `go test` 不看日志的话，工具链没装上（→ Skip）或用例改名都会留下一片绿。
+      - name: 字节判据必须真的跑过（Skip 不算通过）
+        run: |
+          set -e
+          export PATH="$RUNNER_TEMP/bin:$PATH"
+          if ! (cd bconf && go mod download && go test . -run TestGeneratedMatchesProto -count=1 -timeout 10m -v) \
+            > /tmp/proto-contract.log 2>&1; then
+            cat /tmp/proto-contract.log
+            echo "::error::bconf 的契约层字节判据失败（三把 pin 不符 / 产物与 proto 不一致）"
+            exit 1
+          fi
+          if ! grep -qE '^--- PASS: TestGeneratedMatchesProto \(' /tmp/proto-contract.log; then
+            echo "::error::TestGeneratedMatchesProto 没有顶层 PASS 记录（Skip / 改名 / 用例被删都会落到这里）"
+            grep -E '^(    )?(--- )?(SKIP|FAIL|PASS|BENCH|RESULT): TestGeneratedMatchesProto' /tmp/proto-contract.log || true
+            tail -20 /tmp/proto-contract.log
+            exit 1
+          fi
+          cat /tmp/proto-contract.log
 
   # 静态检查：golangci-lint 逐模块运行（清单来自 scripts/list-modules.sh，零维护）。配置在根
   # .golangci.yml，子模块目录会向上发现；新增模块无需改本 job。

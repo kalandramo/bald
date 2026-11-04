@@ -1,0 +1,13 @@
+# 官方 buf 发行二进制的 SHA-256，按 release **asset 名**索引（不是按版本号索引——
+# 版本号由 bconf/buf.version 单独 pin，升级时两处一起改，本表里没有的那一版就装不上）。
+#
+# 谁用它：只有 `.github/workflows/ci.yml` 的 `proto-contract` 作业。判据本身
+# （`bconf/gen_repro_test.go`）不校验来源，因为本机怎么装 buf（Homebrew / 源码 /
+# 官方发行）不该被一条字节判据绑死——§7.9 第四轮实测 buf 的版本号与来源对产物字节
+# 都是中性的，进字节的是**编译 protoc-gen-go 用的那把 Go**。
+#
+# 值从哪来：2026-11-04 从 GitHub 的 release 资产流式下载 v1.50.0 的两个 Linux 资产，
+# 字节数与 API 声明一致（42754200 / 41418904），`buf --version` 自报 1.50.0，
+# 然后 `sha256sum` 得到下面两行。
+Linux-x86_64 154ea883ce098eac4fa106ff9ee4e4964bb97f809dd8ec9c34a432b466ce1494
+Linux-aarch64 5d630153d4d7aae1093f964ed15f1391ce9288f2d4192a4818c18443b3565bbf
