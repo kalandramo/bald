@@ -9,8 +9,9 @@
 #   注释），MessageState 含 Mutex 属 vet 误报区。
 # - go test -short + -timeout 5m：-short 跳过集成测试（各模块
 #   testing.Short() 惯例）；超时防挂死测试拖垮整个 job。
-#   「-short 之外」不是没人管：integration 作业按套件点名注入 etcd/redis/mongo 跑
-#   非 -short 用例，并以「判据必须出现 PASS」兜住不可达即 Skip 的静默失效（见该 job 注释）。
+#   「-short 之外」不是没人管：integration 作业按套件点名注入 etcd/consul/redis/mongo
+#   跑非 -short 用例，integration-kubernetes 作业另起真 kind 集群跑 registry 的第三条
+#   后端腿，两侧都以「判据必须出现 PASS」兜住不可达即 Skip 的静默失效（见各 job 注释）。
 # - 基准冒烟：每模块追加 go test -bench . -benchtime=1x -run '^$'——编译
 #   并单迭代跑一轮基准，拦「基准编译坏/基准 panic」回归；无基准 module
 #   空跑零成本。分配剖面回归由各包 alloc_guard_test.go 随 -short 主循环
@@ -143,7 +144,9 @@ jobs:
           done
 
   # 集成作业（风险 §7.1）：注入真服务，跑「非 -short」的那批用例——registry / store /
-  # 队列三条接缝各至少一条（registry 现为 etcd + consul 两个后端）。
+  # 队列三条接缝各至少一条（registry 现为 etcd + consul + kubernetes 三个后端；前两个
+  # 由本作业的 `services:` 注入，第三个要真 apiserver，独立成 `integration-kubernetes`，
+  # 理由见那个作业的注释）。
   #
   # 为什么不是把 test 作业改成非 -short：`transport/{redis,kafka,rabbitmq,rocketmq,tcp,webrtc}`
   # 的 `TestServer`/`TestClient` 是等信号的手动用例（非 -short 会挂到 timeout），主循环必须
@@ -202,6 +205,8 @@ jobs:
         with:
           go-version: "1.27.3"
 
+      # kubernetes 后端不是「服务容器」能表达的形状（要真 apiserver + kubelet），那条腿
+      # 独立成下面的 `integration-kubernetes` 作业；不在这里起集群的理由见那个作业的头注释。
       - name: 服务探活（探不到即失败，不放行成 Skip）
         run: |
           set -e
@@ -227,8 +232,9 @@ jobs:
         run: |
           set -e
           mkdir -p /tmp/int
-          # registry/etcd/contract 与 registry/consul/contract 都不是独立 module（无自己的
-          # go.mod），各自父模块的 ./... 已把它们带上
+          # 两个 registry/*/contract（etcd、consul）都不是独立 module（无自己的
+          # go.mod），各自父模块的 ./... 已把它们带上；kubernetes 那个 contract 同理由
+          # `integration-kubernetes` 作业的 ./... 带上
           (cd registry/etcd       && go mod download && go test -count=1 -timeout 10m -v ./... > /tmp/int/registry-etcd.log 2>&1) || { cat /tmp/int/registry-etcd.log; exit 1; }
           (cd registry/consul     && go mod download && go test -count=1 -timeout 10m -v ./... > /tmp/int/registry-consul.log 2>&1) || { cat /tmp/int/registry-consul.log; exit 1; }
           (cd contrib/store-mongo && go mod download && go test -count=1 -timeout 10m -v ./... > /tmp/int/store-mongo.log 2>&1) || { cat /tmp/int/store-mongo.log; exit 1; }
@@ -256,6 +262,133 @@ jobs:
           "
           # consul 那五条里，后两条是 consul 后端独有的语义，只有真 agent 能判：
           # 心跳按实例隔离（注销一个不该带走其余实例）与「发现只返回 passing 实例」。
+          miss=0
+          for row in $EXPECTED; do
+            [ "$row" = "" ] && continue
+            case "$row" in
+              *"|"*) ;;
+              *)
+                echo "::error::EXPECTED 里有非 <日志>|<测试名> 的项：「$row」——注释别写进这个字符串"
+                miss=$((miss + 1))
+                continue
+                ;;
+            esac
+            log=${row%%|*}
+            name=${row##*|}
+            if grep -q -- "--- PASS: $name" "$log"; then
+              echo "PASS  $name  ($log)"
+            else
+              echo "::error::判据 $name 没有 PASS 记录（Skip / 改名 / 未编译都会落到这里）"
+              miss=$((miss + 1))
+            fi
+          done
+          if [ "$miss" != 0 ]; then
+            echo "--- 留档输出（便于看是 Skip 还是没跑）---"
+            grep -E '^(--- (SKIP|FAIL|PASS)|ok|FAIL)' /tmp/int/*.log | tail -60
+            exit 1
+          fi
+
+  # kubernetes 注册中心真机腿（风险 §7.1；registry 四后端里第三条有 CI 真机证据的，
+  # 剩 nacos 仍没有，理由见 §7.1 的「刻意没做」）。
+  #
+  # 为什么不并进 `integration`：本作业要下载并启动真 kube-apiserver + kubelet（kind），
+  # 失败面是「Docker Hub 拉不到 kindest/node」「runner 上集群起不来」这类平台问题，
+  # 与四条服务腿无关。两种失败面放进同一个作业，第一次平台抖动就让整个作业的结论
+  # 作废，etcd/consul/redis/mongo 那四条腿得重跑一遍才能取证——而这种「不是我们的
+  # 代码坏了」的红最难维护：下一个接手人加的是 `continue-on-error`，不是修集群。
+  # 拆开后两边的判据都还是硬门，谁红查谁。
+  #
+  # 为什么非真集群不可（fake clientset 判不出这三条）：
+  #   1. `Deregister` 靠 strategic merge patch 的「值为 null 即删键」摘标签，
+  #      fake 的 fixture tracker 不实现这套合并语义——键删不掉，但测试照样绿。
+  #   2. 发现侧只列 `Phase == Running` 的 Pod；phase 是 kubelet 写回的状态，
+  #      fake 里由测试自己 set，判不出「真跑起来的才可发现」。
+  #   3. `Watch` 依赖真 watch 的事件序列（informer 缓存不与已存在的对象重放）。
+  # 这三条正是这个后端的产品语义，所以证据只能来自真 apiserver。
+  integration-kubernetes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GOPROXY: "https://goproxy.io|https://proxy.golang.org,direct"
+      # 版本与本机取证一致（kind v0.27.0 + kindest/node:v1.31.0）。该组合下
+      # registry/kubernetes 三条真机判据全绿，且五条变异各自把对应判据打红。
+      KIND_VERSION: "v0.27.0"
+      K8S_NODE_IMAGE: "kindest/node:v1.31.0"
+      K8S_CLUSTER: "bald-e2e"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.3"
+
+      - name: 起 kind 集群（kubernetes 后端要真 apiserver + kubelet）
+        run: |
+          set -e
+          bindir="${RUNNER_TEMP}/bin"
+          mkdir -p "$bindir"
+          curl -fsSL -o "${bindir}/kind" \
+            "https://github.com/kubernetes-sigs/kind/releases/download/${KIND_VERSION}/kind-linux-amd64"
+          chmod +x "${bindir}/kind"
+          echo "$bindir" >> "$GITHUB_PATH"
+          # --wait 180s 等控制面就绪；失败时打出控制面容器日志再退出——集群没起来
+          # 时这是唯一线索，否则只能看到「kind create failed」一句话。
+          if ! "${bindir}/kind" create cluster --name "${K8S_CLUSTER}" \
+              --image "${K8S_NODE_IMAGE}" --wait 180s; then
+            echo "--- 控制面容器日志（集群没起来时唯一的线索）---"
+            docker logs "${K8S_CLUSTER}-control-plane" 2>&1 | tail -40
+            exit 1
+          fi
+          "${bindir}/kind" get kubeconfig --name "${K8S_CLUSTER}" > "${RUNNER_TEMP}/kubeconfig"
+          echo "KUBECONFIG=${RUNNER_TEMP}/kubeconfig" >> "$GITHUB_ENV"
+
+      - name: API 探活（探不到即失败，不放行成 Skip）
+        run: |
+          set -e
+          # kubernetes 没有明文 TCP 端口可探：apiserver 是 HTTPS 且自签证书。
+          # /version 允许匿名读（本机 kind 实测），拿它当就绪探针正好——kind --wait
+          # 已等过 Ready，这一条防的是「集群起来了但 API 打不通」那类半死状态。
+          # 这一条不能省：测试的形状是「连不上即 Skip」，没有它整个作业会在
+          # 零证据的情况下变绿。
+          k8s_api=$(kind get kubeconfig --name "${K8S_CLUSTER}" | sed -n 's/.*server: //p' | head -1)
+          tries=60
+          while [ "$tries" -gt 0 ]; do
+            if curl -fsSk --max-time 3 "${k8s_api}/version" >/dev/null; then
+              echo "READY kubernetes (${k8s_api})"
+              break
+            fi
+            tries=$((tries - 1))
+            sleep 2
+          done
+          if [ "$tries" = 0 ]; then
+            echo "::error::kubernetes 未就绪（${k8s_api}）"
+            exit 1
+          fi
+
+      - name: 集成套件（非 -short，逐条判据留档）
+        run: |
+          set -e
+          mkdir -p /tmp/int
+          # registry/kubernetes/contract 不是独立 module（无自己的 go.mod），
+          # 父模块的 ./... 已把它带上
+          (cd registry/kubernetes && go mod download && go test -count=1 -timeout 10m -v ./... > /tmp/int/registry-kubernetes.log 2>&1) || { cat /tmp/int/registry-kubernetes.log; exit 1; }
+          cat /tmp/int/registry-kubernetes.log
+
+      - name: 判据必须真的跑过（Skip 不算通过）
+        run: |
+          set -e
+          # 每条格式 <日志>|<测试名>；名字来自上一步的 -v 输出。同 §7.1 的
+          # integration 作业：**这个字符串里只能放判据行**，注释写在外面。
+          EXPECTED="
+          /tmp/int/registry-kubernetes.log|TestRegister_WritesPodIdentityAndDiscovery
+          /tmp/int/registry-kubernetes.log|TestDeregister_RemovesPodFromDiscovery
+          /tmp/int/registry-kubernetes.log|TestGetService_ExcludesNonRunningPod
+          "
+          # 三条各钉一件只有真 apiserver 能判的事：
+          #   Register → 标签/注解/端点往返 + Watch 收到（注册方向）
+          #   Deregister → 标签与注解真的被删掉、发现侧随后列不到（注销方向；
+          #     这条是 §7.1 那个「自校验闸门类起就没生效过」缺陷的回归）
+          #   非 Running Pod 被 phase 过滤（不依赖测试自己伪造的 phase 也要成立）
           miss=0
           for row in $EXPECTED; do
             [ "$row" = "" ] && continue

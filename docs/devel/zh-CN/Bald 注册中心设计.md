@@ -165,7 +165,7 @@ kubernetes 这一行的诚实说明，源码自己就写着（`registry/kubernet
 // It has not been verified in the production environment and is currently for reference only
 ```
 
-它的 `New` 走 `rest.InClusterConfig()`，集群外必须在注入路径上用 `NewWithClient`；`Deregister` 是把空实例 Patch 回去，等价于清掉那几个 label / annotation——语义上说得通，但请当成参考实现看待。nacos 的 `Close` 是 no-op：SDK v2 未暴露 client 级关闭，ephemeral 实例随连接断开自动注销。
+它的 `New` 走 `rest.InClusterConfig()`，集群外必须在注入路径上用 `NewWithClient`。`Deregister` 自己发一次 strategic merge patch，把三个 `bald-service-*` 标签与两份注解一起置 null（该 patch 类型里**值为 null 的键就是删除该键**）；标签与注解要一起清，只清标签会留下一份无人认领的 annotation。这里有过一次真实的坑：旧实现是「借道 `Register` 传一个空实例回去」，而契约层的 `ServiceInstance.Validate` 闸门第一句就拒空 Name，于是**注销从来没生效过**，且没有任何测试能响（那个提交里这个模块一个测试文件都没有）——现在它由真 kind 集群上的 `TestDeregister_RemovesPodFromDiscovery` 钉住（CI 作业 `integration-kubernetes`）。nacos 的 `Close` 是 no-op：SDK v2 未暴露 client 级关闭，ephemeral 实例随连接断开自动注销。
 
 ### 装配层：段驱动 Provider（`registry.<backend>`）
 
@@ -387,7 +387,10 @@ Discovery / Watcher 目前没有消费方、注册只在 `_example` 里跑通，
 - [x] registry 单选在计划期强制（双 Provider 触发即编译错误）。
 - [x] 契约瘦身：四个无实现预留段删除，号与名 reserved。
 - [ ] **Discovery / Watcher 无消费方**：实现已在，等 client-side LB 需求。
-- [ ] **kubernetes 为参考实现**：`New` 依赖 in-cluster 配置，未在生产验证。
+- [ ] **kubernetes 部分验证**：三条独有语义（strategic merge 删键、只列 Running Pod、
+      真 watch 事件序列）已由真 kind 集群上的 CI 作业 `integration-kubernetes` 取证；
+      仍未覆盖的是 `New()` 的 in-cluster 配置与 serviceaccount namespace 文件（都在
+      Pod 外无法成立），以及真集群的 RBAC。
 
 验证（每个 module 各跑一遍即可穷尽 import/依赖问题）：
 
@@ -411,9 +414,13 @@ go test ./pkg/appkit/...
 直接报错（`registry is single-select`），不会出现后建者静默覆盖先建者。
 
 **kubernetes 后端能直接上生产吗？**
-先按参考实现看待。它没有真注册（是 Patch 自己的 Pod），`New` 依赖 in-cluster
-配置，源码注释自述未在生产验证。要用它，请用 `NewWithClient` 注入 clientset
-并自测。
+它的三条独有语义（注销靠 strategic merge 删键、发现只列 Running Pod、订阅靠真
+watch 事件序列）已在真 kind 集群上取证，CI 里每次推送都复跑（作业
+`integration-kubernetes`）。但源码那句自述「未在生产验证」仍然算数——这条腿给的是
+单节点集群上的行为证据，不是生产证据；`New()` 依赖 in-cluster 配置、`GetNamespace()`
+读 serviceaccount 文件，这两段代码只有 Pod 内才执行得到。要用它，请用
+`NewWithClient` 注入 clientset，并自备 `pods` 的 get/list/watch/patch 权限（权限不足
+时 informer 缓存同步不了，测试侧会直接 Fatal 而不是假绿）。
 
 **新增一个注册中心后端要动哪些文件？**
 三处，都不在主模块里：①`registry/<backend>` 建独立 module，实现 `Registrar`

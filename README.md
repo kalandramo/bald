@@ -77,7 +77,7 @@ bald/
 
 多 module 仓库：在每个 `go.mod` 所在目录内 `go test ./...`。
 
-质量门禁：`task lint` / `task vuln` / `task race` 与 CI 共用同一条模块派生（`scripts/list-modules.sh`），新增 module 不用顺手改清单；每个 module 跑 `golangci-lint`（根 `.golangci.yml`）与 `govulncheck`（只拦代码可达漏洞）。主循环跑 `go test -short`，**非 `-short` 的集成用例由 CI 的 `integration` 作业注入真 etcd/redis/mongo 跑**（registry / store / 队列三条接缝），并先探活、后逐条断言判据真的 `--- PASS`——服务没起来是作业失败，不是二十几条 Skip。改 `.github/workflows/*.yml` 后先跑 `task ci-workflow-lint`（CI 侧是同内容的 `workflow-lint` 作业）：GitHub 在编译期解析作业文件，一个未登记的键（比如 `services` 下的 `args`）会让整个文件被拒，只留「workflow file issue」和 0 个 job，本地 YAML 解析器看不出任何问题。
+质量门禁：`task lint` / `task vuln` / `task race` 与 CI 共用同一条模块派生（`scripts/list-modules.sh`），新增 module 不用顺手改清单；每个 module 跑 `golangci-lint`（根 `.golangci.yml`）与 `govulncheck`（只拦代码可达漏洞）。主循环跑 `go test -short`，**非 `-short` 的集成用例由 CI 的 `integration` 作业注入真 etcd/consul/redis/mongo 跑，registry 的 kubernetes 后端另由 `integration-kubernetes` 作业起真 kind 集群跑**（registry / store / 队列三条接缝），并先探活、后逐条断言判据真的 `--- PASS`——服务没起来是作业失败，不是二十几条 Skip。改 `.github/workflows/*.yml` 后先跑 `task ci-workflow-lint`（CI 侧是同内容的 `workflow-lint` 作业）：GitHub 在编译期解析作业文件，一个未登记的键（比如 `services` 下的 `args`）会让整个文件被拒，只留「workflow file issue」和 0 个 job，本地 YAML 解析器看不出任何问题。
 
 **未接线能力（reference-only）**：`retry`、`circuitbreaker` 的 4 个后端、`transport/graphql`、`workflow/argo`、`ai/*`、`oss/{s3,minio}` 在仓内没有消费方。它们照常随仓库发布、按 reference-only 保留——不删除，也不在文档里假装已接线。清单与可复现判据见[当前架构 §6](docs/architecture/current-architecture.md)。
 

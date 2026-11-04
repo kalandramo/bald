@@ -173,11 +173,43 @@ func (s *Registry) Register(ctx context.Context, service *registry.ServiceInstan
 	return nil
 }
 
-// Deregister the registration.
+// Deregister 摘掉**本 Pod** 上的 bald-service-* 标签与注解，让发现侧再也列不到它。
+//
+// 入参用不上：k8s 后端的注册对象就是「我自己这个 Pod」（Register 打的也是
+// GetNamespace()/GetPodName()），注销自然只有这一个目标。
+//
+// 为什么不再借道 Register：Register 首行是 registry.ServiceInstance.Validate 闸门
+// （见 registry/registry.go 的单一真相源口径）。旧实现传一个只有空 Metadata 的实例
+// 进来，自闸门落地那次提交起必然被拒在 "Name is required"——也就是 k8s 后端的注销
+// 从来没生效过，而且按 §4.1「反注册失败不再被吞掉」的口径，它现在每次优雅停机都会
+// 报出来。真机用例 TestDeregister_RemovesPodFromDiscovery 就是这条的复现与回归。
+//
+// strategic merge patch 里值为 null 的键表示删除该键；注解与标签一起清，只清标签会
+// 留下一份无人认领的 annotation。
 func (s *Registry) Deregister(ctx context.Context, _ *registry.ServiceInstance) error {
-	return s.Register(ctx, &registry.ServiceInstance{
-		Metadata: map[string]string{},
+	patchBytes, err := jsoniter.Marshal(map[string]any{
+		"metadata": map[string]any{
+			"labels": map[string]any{
+				LabelsKeyServiceID:      nil,
+				LabelsKeyServiceName:    nil,
+				LabelsKeyServiceVersion: nil,
+			},
+			"annotations": map[string]any{
+				AnnotationsKeyMetadata:    nil,
+				AnnotationsKeyProtocolMap: nil,
+			},
+		},
 	})
+	if err != nil {
+		return err
+	}
+	if _, err = s.clientSet.
+		CoreV1().
+		Pods(GetNamespace()).
+		Patch(ctx, GetPodName(), types.StrategicMergePatchType, patchBytes, metav1.PatchOptions{}); err != nil {
+		return err
+	}
+	return nil
 }
 
 // GetService return the service instances in memory according to the service name.
