@@ -36,6 +36,7 @@
 | 4.4 | 启动窗口内「调用方取消」与「server 启动崩溃」共用一条 `wait for endpoints canceled` 文案：前者被当装配错误退出，后者真实失败被整条抹掉 | 中 | ✅ 本机四条确定性用例先红后绿（三条判据各自只红相应用例）；bald-admin 装配 e2e 在共享 runner 上红过一次（run `41675043918`），报的就是这句 | **已修**：`startupOutcome` 一条判据挂到五处启动分支（含 errgroup 之前的 beforeStart/组件启动），见 §4.4 |
 | 7.10 | `-tags nacos` 的**注册中心接管是死的**：示例一边钉住内存 Registrar，一边在契约里选 nacos，Provider 按设计被计划期跳过 | 中 | ✅ 三条独立证据（doctor 的 `programmatic-takeover` 告警 / 真 nacos `service/list` 返回 `count=0` / `custom.go` 里无条件的 `appkit.Registrar(inmemory.New())`）；同形状的 `registry/nacos` 命名侧 `namespace` 语义**已实测**：`public` 与 `""` 同一租户，无需折叠（与配置 API 相反） | **已修**：钉住按构建形态拆成 `registrar_inmemory.go`（`!nacos`）/`register_nacos.go`（`nacos` 留空）；装配侧新增 `TestNacosAssemblyRegistersIntoBackend`（真 nacos 断两面上册 + 停机摘除，查询走独立 HTTP 口）；计划门的 opaque 清单与 `programmatic-takeover` 告警改成按变体激活双向判；变异一次三红。装配那条仍只有本机证据（`-tags nacos` 不是 CI 的构建形态，示例 module 又进不了 CI）；两条**机制**判据同日下沉到 `registry/nacos/contract` 并由 `integration` 作业注入真 nacos 判，见 §7.10 第三轮 |
 | 7.11 | **§7.4 同一形状的第二次红**：`sres` 冷窗口用例钉「放行 ≥180/200」，而冷窗口的拒绝自我强化 ⇒ 精确 DP 给 P(红)=8.4e-5 | 中 | ✅ 远端实测：`race` 作业 run 41806067800 红（`allowed 179/200`）；本机 `-race -count=3001` 最低 178、均值 194.21（DP 均值 194.16） | **已修**：比例 90% 一字未动，样本 200→500 ⇒ 阈值 450，DP P(红)=2.0e-13、均值 493.22（本机 `-race -count=3000` min=478、mean=493.16）；两道变异各红（`MarkSuccess` 记 error → 1/500、分母 `+1`→`*2+1` → 250/500），见 §7.11 |
+| 7.12 | `cli` 里那条「真 `buf build` 编译生成的六件套」自 `691929c` 起**结构性判红**：夹具写 v1 `buf.yaml`，复制来的 `buf.lock` 已是 v2 | 中 | ✅ 未改动的树上实测红（`got a v2 buf.lock file for a v1 buf.yaml`），buf 1.50.0 与 1.57.2 都拒——与工具链版本无关；远端一直没红是因为这条腿在 buf 缺席时 `t.Skip`，CI runner 不装 buf（§7.9 同一口径） | **已修**：夹具的 `buf.yaml` 改 v2（`modules: path: .`），耦合点写进注释；改后两个 buf 版本各 `--- PASS`、`cli` module 全量绿。判据本身一字未动，见 §7.12 |
 | 8 | `docscheck` 只校验链接完整性，测不出描述过期 | 低 | ✅ 已核对测试 | **已修（清单半 + acceptance 进 CI）**：`module-list` 围栏 + 双向断言 + 与脚本逐行比对，三条变异实测；`acceptance` 判据由 `scripts/acceptance-gate.sh` 交出并接进 `ci.yml` 的 `acceptance` 作业（清单取自 `go test -list`、逐条断言顶层 PASS），两条本地腿的理由成文；「描述已删除 API」半仍未覆盖，见 §8 |
 
 ---
@@ -848,6 +849,16 @@ Go 源码零改动（除下面第 ① 条）。根 module 里 `pkg/` 之外唯�
   - 复原后 `go vet` + `go test -race -count=1 ./...` 该 module 绿（`ok 1.089s`），`gofmt -l` 空。
 - 同类写法复扫（这次把**同文件**也算进去）：全仓非测试代码的随机源仍只有 `circuitbreaker/sres`、`retry`、`registry/consul`、`broker/kafka` 四处；测试侧的比例/计数型断言除本条与 §7.4 那三条外，`retry`/`registry/consul`/`kafka` 里没有新增（grep `rand.Float64|rand.Intn|rand.Int63` 的测试命中只有 `transport/{redis,rabbitmq,rocketmq,http3}` 的 payload 抖动取值，与判据无关）。
 - 没做的：① 不给 breaker 加可注入随机源让断言完全确定（同 §7.4 的理由——生产 API 变更与「修一条假红」不成比例）；② 不把 90% 降到 85% 来消红（那是把判据的语义改掉）；③ 远端绿证以本次推送后的 `race` 作业为准（尾巴是 2e-13 级，远端一次绿只是「没撞」，真正立得住的是上面那两组 `-count≥3000` 实测 + DP）。
+
+**7.12 `cli` 的 buf 真编译判据自 691929c 起结构性判红（中）** ✅ 已修（2026-11-04；发现路径：§7.9 第四轮在本机追工具链归因时，顺手把装 buf 才会跑的其余腿逐条点名——`TestGenProto_CRUD_BufBuild` 在**未改动的树**上就红）
+
+- 现象：`--- FAIL: TestGenProto_CRUD_BufBuild … buf build must compile the CRUD six-piece proto: exit status 1 / Failure: got a v2 buf.lock file for a v1 buf.yaml - this is not allowed, run buf mod update to update your buf.lock file`。
+- 根因与工具链无关：夹具自己写 `api/proto/buf.yaml: version: v1`（`cli/internal/codegen/gen_domain_test.go`），而它复制的 lock 来自 `_example/bald/api/buf.lock`——那份 lock 自 `691929c`（示例迁生成树时被新版 buf 重出）起是 `version: v2`。buf 对「v1 配置 + v2 lock」直接拒绝，两个 buf 版本（1.50.0 与 1.57.2）实测都拒。
+- 为什么远端一直没红：这条腿在 `buf` 缺席时 `t.Skip`，而 CI runner 不装 buf（§7.9 同一口径）。所以 691929c 之后它只在**装了 buf 的人**身上红——正是 §7.9 记的那类「本地腿没有远端证据」的形状，只是这次红的是夹具自己而不是判据强度。
+- 修法：夹具的 `buf.yaml` 改成 v2（`version: v2` + `modules: [{path: ., name: buf.build/kalandramo/genproto-check}]`，deps/lint 原样），并把「lock 是 v2 ⇒ 配置必须 v2」写进夹具上方的注释——下次谁再动那份 lock 的格式，红的时候能一眼看到耦合在哪。判据本身一字未动（仍是真 `buf build` 出链接描述符）。
+- 验活：两个 buf 版本各跑一次，`--- PASS (0.07s)` / `--- PASS (0.04s)`；`cli` module 全量 `go test -count=1 ./...` 绿（前置合规 PATH 的 buf 1.50.0）。
+- 顺带扫了仓内其余 buf 配置的版本一致性：`bconf/buf.yaml`、`_example/bald/api/buf.yaml` 都是 v2，且仓内只有那一份 `buf.lock`——没有第二处同类耦合。
+- 没做的：① 没给 CI 装 buf 来拿这条腿的远端证据（它要的是 BSR 依赖解析，属 §7.9 未闭合①同一件事）；② 没把「lock 与配置的版本必须匹配」做成 docscheck 闸门——那需要解析 buf 的 config schema，收益抵不上为一个夹具再加一层元校验；红的时候文案已经指到耦合点。
 
 ---
 
