@@ -147,15 +147,31 @@ func TestExecute_HighFailureRateThrottles(t *testing.T) {
 	t.Logf("rejected %d/%d requests under sustained failures", rejected, totalReq)
 }
 
+// TestExecute_AllSuccessNotThrottled 钉「全成功不把熔断打开」——即成功必须记成
+// 成功，不能被当成错误。
+//
+// 阈值出处（冷窗口的拒绝是**自我强化**的：被拒不往 requests 里计数，同一个低
+// accept 会被重复采样，所以左尾比独立二项式厚得多，不能按「90% 离均值很远」估）：
+//   - total=200 时按精确 DP（下面这条注释所述过程，逐步 r→r+1 概率 r/(r+1)）
+//     均值 194.16，P(放行 ≤179)＝8.4e-5 ＝ 约每 1.2e4 次红一次。旧判据
+//     `allowed < total*9/10` 正落在这个尾巴上：本机 `-race -count=3000` 实测
+//     最低 178（2 次红）、均值 194.21（与 DP 的 194.16 吻合），CI 的 race 作业
+//     实际红过一次（run 41806067800：`allowed 179/200`）。
+//   - 保留「绝大多数放行」这条语义（不降比例）而是加大样本：total=500、比例仍
+//     取 90% ⇒ 阈值 450，同一 DP 下 P(放行 ≤449)＝2.0e-13（约 5e12 次跑一红）、
+//     均值 493.22。
+//
+// 牙齿：把 `MarkSuccess` 改成同时 `errors++` 使 accept=(r-2r)/(r+1)<0 ⇒ 放行恒为
+// 1（首次 requests=0 的早退分支），红；把分母 `requests+1` 改成 `2*requests+1`
+// 使 accept≈1/2 ⇒ 放行约 250/500，红。
 func TestExecute_AllSuccessNotThrottled(t *testing.T) {
+	const (
+		total      = 500
+		minAllowed = total * 9 / 10
+	)
 	b := New()
 	defer b.Close()
 
-	// The SRE breaker is probabilistic: accept = requests / (requests+1).
-	// With all successes, accept approaches 1 but never reaches it,
-	// so a tiny fraction of requests may still be rejected.
-	// We verify that the vast majority (>90%) are allowed.
-	total := 200
 	allowed := 0
 	for i := 0; i < total; i++ {
 		err := b.Execute(context.Background(), func() error { return nil })
@@ -163,7 +179,7 @@ func TestExecute_AllSuccessNotThrottled(t *testing.T) {
 			allowed++
 		}
 	}
-	if allowed < total*9/10 {
+	if allowed < minAllowed {
 		t.Errorf("allowed %d/%d — expected at least 90%%", allowed, total)
 	}
 	t.Logf("allowed %d/%d under all-success", allowed, total)

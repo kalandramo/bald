@@ -35,6 +35,7 @@
 | 4.2 | 端点上界 5s、hook 超时 5s 为常量（Stop 超时本身可配） | 低 | ✅ 已核对源码 | **已修** |
 | 4.4 | 启动窗口内「调用方取消」与「server 启动崩溃」共用一条 `wait for endpoints canceled` 文案：前者被当装配错误退出，后者真实失败被整条抹掉 | 中 | ✅ 本机四条确定性用例先红后绿（三条判据各自只红相应用例）；bald-admin 装配 e2e 在共享 runner 上红过一次（run `41675043918`），报的就是这句 | **已修**：`startupOutcome` 一条判据挂到五处启动分支（含 errgroup 之前的 beforeStart/组件启动），见 §4.4 |
 | 7.10 | `-tags nacos` 的**注册中心接管是死的**：示例一边钉住内存 Registrar，一边在契约里选 nacos，Provider 按设计被计划期跳过 | 中 | ✅ 三条独立证据（doctor 的 `programmatic-takeover` 告警 / 真 nacos `service/list` 返回 `count=0` / `custom.go` 里无条件的 `appkit.Registrar(inmemory.New())`）；同形状的 `registry/nacos` 命名侧 `namespace` 语义**已实测**：`public` 与 `""` 同一租户，无需折叠（与配置 API 相反） | **已修**：钉住按构建形态拆成 `registrar_inmemory.go`（`!nacos`）/`register_nacos.go`（`nacos` 留空）；装配侧新增 `TestNacosAssemblyRegistersIntoBackend`（真 nacos 断两面上册 + 停机摘除，查询走独立 HTTP 口）；计划门的 opaque 清单与 `programmatic-takeover` 告警改成按变体激活双向判；变异一次三红。装配那条仍只有本机证据（`-tags nacos` 不是 CI 的构建形态，示例 module 又进不了 CI）；两条**机制**判据同日下沉到 `registry/nacos/contract` 并由 `integration` 作业注入真 nacos 判，见 §7.10 第三轮 |
+| 7.11 | **§7.4 同一形状的第二次红**：`sres` 冷窗口用例钉「放行 ≥180/200」，而冷窗口的拒绝自我强化 ⇒ 精确 DP 给 P(红)=8.4e-5 | 中 | ✅ 远端实测：`race` 作业 run 41806067800 红（`allowed 179/200`）；本机 `-race -count=3001` 最低 178、均值 194.21（DP 均值 194.16） | **已修**：比例 90% 一字未动，样本 200→500 ⇒ 阈值 450，DP P(红)=2.0e-13、均值 493.22（本机 `-race -count=3000` min=478、mean=493.16）；两道变异各红（`MarkSuccess` 记 error → 1/500、分母 `+1`→`*2+1` → 250/500），见 §7.11 |
 | 8 | `docscheck` 只校验链接完整性，测不出描述过期 | 低 | ✅ 已核对测试 | **已修（清单半 + acceptance 进 CI）**：`module-list` 围栏 + 双向断言 + 与脚本逐行比对，三条变异实测；`acceptance` 判据由 `scripts/acceptance-gate.sh` 交出并接进 `ci.yml` 的 `acceptance` 作业（清单取自 `go test -list`、逐条断言顶层 PASS），两条本地腿的理由成文；「描述已删除 API」半仍未覆盖，见 §8 |
 
 ---
@@ -705,6 +706,7 @@ Go 源码零改动（除下面第 ① 条）。根 module 里 `pkg/` 之外唯�
 - 验活（正向）：三条用例 `-count=1000` 全跑 **0 失败**；并发放行实测分布 98..100（阈值 90，最低 98）。新用例 `TestHealthyWindowAcceptanceNearOne` 的阈值出处写在注释里：拒绝数 ≈ Poisson(λ=2000/1001≈2.0)，`minPass=1985`（容忍 ≤15 次拒绝）对应 `P(R≥16)≈4.7e-10`；同批 1000 次实测 R 落在 0..7、均值 2.06，最低放行 1993（样本外余量 8），分布形状与 λ=2 吻合——这条界是算出来再被实测确认的，不是拍脑袋放宽的。`-race -count=100` 三条全绿。
 - 验活（变异，四条）：① 拒绝分支恒拒绝 → 并发用例红 `放行 = 0/100`、窗口用例红 `0/2000`；② 拒绝率升约两个数量级（公式分母 `+1` 改 `+100`：prime 后单次拒绝率 `1/1001 → 1/11`）→ 并发用例红 `87/100`、窗口用例红 `1816/2000`；③ 拒绝改返回别的错误 → 新增错型用例红 `want ErrCircuitOpen`；④ 忽略 `closed` 标志 → 既有 `TestClose_RejectsAfterClose` 红（对照组，说明既有覆盖没被这次改动削弱）。
 - 刻意没做：① 不给 breaker 加可注入随机源——那能让比例断言完全确定，但属生产 API 变更，与「修一条假红」不成比例；② 不放宽阈值来消红；③ 同类写法已 `grep` 核对：非测试代码里用随机源的只有 `circuitbreaker/sres`、`retry`、`registry/consul`、`broker/kafka`（后者退避抖动已由 `fixedRand` 注入变成确定断言），`retry` 与 `registry/consul` 的测试里没有比例阈值断言（实测 grep 为空）。
+  - **这条收口当时留了一个同文件的缺口**：③ 那句核对的是「别的包有没有比例阈值断言」，没回看 `sres_test.go` 自己。同文件里 `TestExecute_AllSuccessNotThrottled`（冷窗口、不 prime）仍是同形状的统计判据，2026-11-04 在 `race` 作业红出——见 §7.11。
 - GitHub 实测：修复合入后 `ci` run 41416339090（head `80edb7b`）五个作业 `test`/`integration`/`lint`/`vuln`/`race` 全部 success——这条用例红的是 `test` 作业，现在同一作业在带 prime 的版本上通过，且 `race` 作业（覆盖 `circuitbreaker/sres`）也过。剩下唯一没被证过的仍是次数：CI 每次 push 只跑一遍，误红率是算出来的（`1.3e-19` / `4.7e-10`），不是跑出来的。
 
 **7.5 Windows 周界作业的真红（中）** ✅ 已修：本周一的 `ci-windows` schedule（run 41428497056，head `5585a21`）把上面那条「Windows 未验证」的悬置项变成了一次真实执行——它跑 `root` + `bootstrap` + `contrib/authz-casbin` 三个窄口径 module，root module 的 `go test -short` 直接红，四类失败全是跨平台适配，不是产品语义：
@@ -833,6 +835,19 @@ Go 源码零改动（除下面第 ① 条）。根 module 里 `pkg/` 之外唯�
 - 仍未闭合（如实记）：① 装配那条（终态守卫，`-tags nacos`）仍只有本机证据——它在示例 module，进 CI 的前置是 §7.9 的 buf 工具链 pin 与 BSR 网络，属独立一件事；它判的又是两条摘除路径的**或**，本来就不是机制判据。② nacos 的两条**机制**判据自本轮起有 CI 形状的执行路径（服务容器 + 逐条 `--- PASS` 点名），远端绿证以推送后那次 `integration` 作业为准。
 - 已证（GitHub 实测）：同批 §7.1 迁移的两个提交（head `b8906b7`）的 `ci` run 41795844844 **七个作业全部 completed/success**（`test`、`race`、`acceptance`、`integration-kubernetes`、`vuln`、`lint`、`integration`）。
 - 本文里那条被实测推翻的表述已改：《Bald 注册中心设计》原写「命名侧 namespace 未证（HTTP 探针判不出）」，现在写的是实测结论（`public` 与空串同租户，`registry/nacos` 无需折叠）。
+
+**7.11 `sres` 冷窗口放行判据在 `race` 作业红（中）** ✅ 已修（2026-11-04；发现路径：§7.10/§7.9 那批提交推送后，run 41806067800 的 `race` 作业唯一红项——`circuitbreaker/sres` `TestExecute_AllSuccessNotThrottled` 报 `allowed 179/200 — expected at least 90%`，其余六个作业全绿；该提交只改 `bconf` 判红文案与文档，与 sres 无因果关系，是这条用例自己的尾巴）
+
+- 形状与 §7.4 同源，机制不同条：`Allow` 的 `accept = requests/(requests+1)`，`requests` 只统计**已放行的**（`Execute` 在被拒时不调 `MarkSuccess`）。冷窗口下 `requests` 从 0 起，于是**拒绝会自我强化**——一次被拒不推进 `requests`，同一个低 `accept` 被重复采样，左尾比「独立二项」薄得多，不能用 `np=195±2` 那种正态估。
+- 判据的准确尾巴用 DP 算（不是估）：状态 `r=已放行数`，`P(拒绝|r)=1/(r+1)`、`r=0` 时走 `stats.requests==0` 的早退分支必放行。逐步精确分布（`Fraction` 无浮点损失）：`total=200` ⇒ 均值 **194.157**、`P(放行≤179)=8.399e-5`（约 **1.19e4 次跑一红**）。旧判据 `< total*9/10` 即 `≤179` ⇒ 每次执行的红率就是它。
+- 本机实测与 DP 对齐（这是「模型没错、环境不特殊」的证据）：`-race -count=3001` ⇒ 均值 **194.21**、min **178**、2 次红；CI 那次 179 落在同一尾巴里，不需要额外假设 runner 负载。
+- 修法（**90% 这个语义一字未动**，扩样本而非松阈值）：`total` 200→**500** ⇒ 阈值 450。同一 DP：均值 **493.22**、`P(放行≤449)=1.994e-13`（约 **5e12 次跑一红**）。本机 `-race -count=3000` 复跑 ⇒ 0 红、min **478**、mean **493.16**（样本外余量 28，DP 与实测再次对齐）。
+- 验活（两道变异，各自 `cp` 备份、`diff <(git show HEAD:circuitbreaker/sres/sres.go)` 核对 0 差异）：
+  - 变异 M1（`MarkSuccess` 也 `errors++`，即「成功被当成失败记账」——这条正是该用例的本职）→ 红 `allowed 1/500`（只有 `requests=0` 那一次早退放行）。
+  - 变异 M2（公式分母 `requests+1` → `2*requests+1`，accept 掉到约 1/2）→ 红 `allowed 250/500`；同一变异下 `TestHealthyWindowAcceptanceNearOne` 也红（`985/2000`），两条判据分别覆盖冷/热窗口。
+  - 复原后 `go vet` + `go test -race -count=1 ./...` 该 module 绿（`ok 1.089s`），`gofmt -l` 空。
+- 同类写法复扫（这次把**同文件**也算进去）：全仓非测试代码的随机源仍只有 `circuitbreaker/sres`、`retry`、`registry/consul`、`broker/kafka` 四处；测试侧的比例/计数型断言除本条与 §7.4 那三条外，`retry`/`registry/consul`/`kafka` 里没有新增（grep `rand.Float64|rand.Intn|rand.Int63` 的测试命中只有 `transport/{redis,rabbitmq,rocketmq,http3}` 的 payload 抖动取值，与判据无关）。
+- 没做的：① 不给 breaker 加可注入随机源让断言完全确定（同 §7.4 的理由——生产 API 变更与「修一条假红」不成比例）；② 不把 90% 降到 85% 来消红（那是把判据的语义改掉）；③ 远端绿证以本次推送后的 `race` 作业为准（尾巴是 2e-13 级，远端一次绿只是「没撞」，真正立得住的是上面那两组 `-count≥3000` 实测 + DP）。
 
 ---
 
