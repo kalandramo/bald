@@ -45,6 +45,8 @@ on:
   # 「在分支上按 ref 手动跑一遍再合 main」是唯一能既不把 main 弄红、又拿到真
   # runner 证据的路径——`push` 只认 main，`pull_request` 要建 PR（对外可见）。
   # 例：`gh workflow run ci.yml --ref <branch>`。
+  # 实测（2026-11-04）这一条不需要任何前置：main 当时还没有 `workflow_dispatch`，
+  # 按分支 ref 触发照样产出 run 41823701064。所以不必先合一个「只加这个键」的使能提交。
   workflow_dispatch:
 
 permissions:
@@ -496,6 +498,10 @@ jobs:
   # exit 0 且日志有顶层 `--- PASS: TestGeneratedMatchesProto`；三组变异（撤掉工具链 →
   # 红在 PASS 断言、给产物追加一个字节 → 红在字节门、把 buf pin 改成不存在的版本 →
   # 红在第一轴）各自只打中对应那一层。逐条数字与边界见登记册 §7.9 第五轮。
+  #
+  # 远端取证（GitHub 真实 runner，2026-11-04，run 41823701064 / job 126552951834）：
+  # 官方 buf 资产下载并过摘要 → `buf --version -> 1.50.0`；插件按产物头部现编 →
+  # `protoc-gen-go: go1.27.3`；判据 `--- PASS: TestGeneratedMatchesProto (0.15s)`。
   proto-contract:
     runs-on: ubuntu-latest
     timeout-minutes: 20

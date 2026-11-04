@@ -842,7 +842,9 @@ Go 源码零改动（除下面第 ① 条）。根 module 里 `pkg/` 之外唯�
   - **M3** 把 `bconf/buf.version` 改成 `1.99.0` → 红在第一轴并点名两个数字，且不进字节比对。
   - 复原后复跑回到绿；`git status` 只剩本轮两处预期改动（`M .github/workflows/ci.yml`、`?? bconf/buf.sha256`），变异留下的字节为零。
 - `scripts/acceptance-gate.sh` 表里 `bconf` 那条**仍标 `no`**，但理由换了：不是「这条腿没有远端证据」，而是「不在两条作业里各装一遍工具链」——真按 scope=ci 在 `acceptance` 作业里跑，runner 没装 buf，测试 Skip，脚本那条「必须逐条 `--- PASS`」会正确地判红。表头注释、§7.2 表格与配置契约设计文档同步换了这个口径。
-- 诚实边界：以上是**容器取证**，不等于 GitHub 真实 runner 取证——`RUNNER_TEMP`、`GITHUB_PATH` 追加、actions 那侧的下载路径只有真跑才碰得到。为了让新门禁先在分支上取证而不把 main 判红，`on:` 临时加了 `workflow_dispatch`（ci.yml 原本只在 `push: main` / `pull_request` 触发）。真实 runner 上那一轮 `--- PASS` 到手之前，本轮不宣称完全闭合。
+- **远端绿证已取得**（2026-11-04，`workflow_dispatch` 打在分支 `ci/proto-contract-leg`（head `f1c7188`）上的 run 41823701064，作业 `proto-contract` = job 126552951834，`success`）：日志逐条交出三把 pin 的取证——`go version go1.27.3 linux/amd64`（`setup-go` 按 `1.27.3` 装）、`buf --version -> 1.50.0`（这一步只有在官方资产下载成功**且 SHA-256 与 `bconf/buf.sha256` 相符**之后才会打印）、`入库产物声明的插件版本：v1.36.12（出处 bconf/gen/go/bald/appspec/v1/appspec.pb.go）` + `/home/runner/work/_temp/bin/protoc-gen-go: go1.27.3`（现编，编译它的那把 Go 就是 runner 那把），最后判据步 `--- PASS: TestGeneratedMatchesProto (0.15s)`、`ok github.com/kalandramo/bald/bconf 0.153s`。这条腿从今天起不再是「只有本机跑过」。
+  - 顺带测掉一条关于取路径本身的假设：`workflow_dispatch` **不需要先在默认分支上存在**——本轮 main 还是 `b8b0a9a`（没有这个键），`gh workflow run ci.yml --ref <branch>` 照样产出 run。曾按「GitHub 读默认分支的触发键」推论必须先合一个只加键的使能提交，为此准备的改动在实测后弃用（未提交、未推送），因为它换来的是一条不存在的约束。
+  - 仍未闭合的那半条（不是这条腿的事）：字节判据只判「与入库产物一致」，判不了「入库产物本身是否落后于 proto」——那由 `task proto-contract` 重生成后 `git status` 无输出来证（第二轮做过，本轮产物一字未动）。
 
 **7.10 `-tags nacos` 的注册中心接管是死的（中）** ✅ 已修（2026-11-04 同日登记并收口；发现路径：§7.1「示例的去仓库外依赖」那条迁移跑真机时——配置侧全绿，注册侧一条都没发生）
 
