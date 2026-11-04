@@ -132,6 +132,7 @@ require (
 	github.com/kalandramo/bald/circuitbreaker/hystrix v0.1.1 // indirect
 	github.com/kalandramo/bald/ratelimit v0.1.0 // indirect
 	github.com/kalandramo/bald/ratelimit/tokenbucket v0.2.0 // indirect
+	github.com/kalandramo/bald/retry v0.2.0 // indirect
 	github.com/kalandramo/bald/transport v0.4.0 // indirect
 	github.com/kalandramo/bald/transport/grpc v0.2.0 // indirect
 	github.com/kalandramo/bald/transport/http v0.2.0 // indirect
