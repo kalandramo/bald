@@ -822,6 +822,7 @@ Go 源码零改动（除下面第 ① 条）。根 module 里 `pkg/` 之外唯�
   - 三轴的机器判据各自验活（都在未改动的树上，`-count=1`）：① 合规组合（buf 1.50.0 + v1.36.12/go1.27.1）→ `--- PASS (0.24s)`；② buf 1.50.0 + v1.36.12/**go1.26.5** → 命中第三轴红（`gen_repro_test.go:81`）；③ 同一环境把 pin 临时改成 `1.26` → 穿过三轴、由字节门报出「内容不一致: bootstrap/v1/log.pb.go」——这条同时证明字节门没有因为新加的轴而空转。pin 文件从 `/tmp` 备份复原，`cmp` 与 `printf '1.27\n'` 一致。
   - 判据强度：三轴都保留 `t.Fatalf`（不是 Skip），字节门原样。加这条轴的净效果是**把「工具链口味」从「契约漂移」里摘出去**——以前它冒充契约红，现在它有名字。
 - 对本机的如实交代：默认 PATH 那把 `protoc-gen-go` 是 9 月装的、由 go1.26.5 编译，且 buf 是 1.57.2 → 本机 `task verify` / `task proto-contract-check` 的 bconf 腿**按设计判红**（第一轴 buf 就拦下）。合规姿势是一条命令：`PATH="/Users/moweilong/go/bin:$PATH" task proto-contract-check`（GOBIN 里那把 buf 1.50.0 + 插件 v1.36.12/go1.27.1，实测 `ok`）；跨机器的通用姿势是 `go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.12` 用 go1.27 编一次。本轮**没有**覆盖那把 9 月的二进制（不在仓内的用户工具，动它不在授权范围）。CI 不受影响：runner 无 buf，这条腿自己跳过。
+- 已证（GitHub 实测，2026-11-04）：本节的三把 pin 与 §7.12 的夹具改动一起推在 head `019dac2`，run 41813828397 **七个作业全部 success**（`test`/`race`/`lint`/`vuln`/`acceptance`/`integration`/`integration-kubernetes`）。这不等于这条腿在远端跑过——runner 无 buf，`TestGeneratedMatchesProto` 依旧自己 Skip，远端能证明的只是「新加的第三轴与文案改动没有把任何现有作业带红」；`acceptance` 作业那侧同轮报 `scope=ci 的 6 条腿、72 条判据全部通过`，其中不含 bconf 那条（表里就标着本地腿）。
 - 仍未闭合：① 这条腿依旧不进 CI（要它进得先给 runner 装 buf + 编译并 pin 一把插件，代价是 §7.9 一直想避开的工具链依赖）；② 更彻底的做法是**在测试里自己 `go build` 出插件**，让三轴全部落在仓内（go.mod 的 protobuf 版本 + 仓的 Go），彻底摆脱 PATH 考古——本轮没做，因为它要求 bconf/go.mod 的 protobuf 从 v1.36.11 升到 v1.36.12（产物头部声明的是 1.36.12），那是发布面变更，得走 sync/CHANGELOG/tag，与「修一条归因」不成比例；③ buf 来源这一轴仍无机器判据（第三轮的结论沿用：pin SHA-256 会误伤 Homebrew/源码安装，而本轮证明来源根本不是那一处空格的成因，这条更低优先级）。
 
 **7.10 `-tags nacos` 的注册中心接管是死的（中）** ✅ 已修（2026-11-04 同日登记并收口；发现路径：§7.1「示例的去仓库外依赖」那条迁移跑真机时——配置侧全绿，注册侧一条都没发生）
@@ -866,7 +867,7 @@ Go 源码零改动（除下面第 ① 条）。根 module 里 `pkg/` 之外唯�
   - docscheck 归属随之改道：第二轮补的两条 `shortSkipExemptions` 删掉，改由「CI 作业文本点名」这条合法归属接住。闸门复跑：`判据腿=9 覆盖包=4 候选=6 进表=0 CI点名=2 豁免=4` 绿。
   - 验活（新落点，三道变异各**只**打红对应那条；`cp` 备份后精确复原并 `diff <(git show HEAD:…)` 核对 0 差异）：变异 A（`Deregister` 的 `ServiceName` 去 `.scheme`）→ 第一条红 10.16s；变异 B（`Deregister` 首行 `return nil`）→ 第一条红 10.15s；变异 C（Provider 的 cleanup 改 `func() {}`）→ 第二条红 10.46s。
   - 本机按 CI 形状跑（真 nacos 容器）：`TestNacosDeregisterRemovesInstanceWithClientOpen` 0.71s、`TestNacosContractCleanupClosesClient` 0.79s；`registry/nacos` `ok 0.553s`、`registry/nacos/contract` `ok 2.116s`。
-- 仍未闭合（如实记）：① 装配那条（终态守卫，`-tags nacos`）仍只有本机证据——它在示例 module，进 CI 的前置是 §7.9 的 buf 工具链 pin 与 BSR 网络，属独立一件事；它判的又是两条摘除路径的**或**，本来就不是机制判据。② nacos 的两条**机制**判据自本轮起有 CI 形状的执行路径（服务容器 + 逐条 `--- PASS` 点名），远端绿证以推送后那次 `integration` 作业为准。
+- 仍未闭合（如实记）：① 装配那条（终态守卫，`-tags nacos`）仍只有本机证据——它在示例 module，进 CI 的前置是 §7.9 的 buf 工具链 pin 与 BSR 网络，属独立一件事；它判的又是两条摘除路径的**或**，本来就不是机制判据。② nacos 的两条**机制**判据自本轮起有 CI 形状的执行路径（服务容器 + 逐条 `--- PASS` 点名）——**远端绿证已取得**（2026-11-04，head `019dac2`，run 41813828397 的 `integration` 作业 126519435965）：日志里 `--- PASS: TestNacosDeregisterRemovesInstanceWithClientOpen (0.89s)`、`--- PASS: TestNacosContractCleanupClosesClient (0.73s)`，随后「判据必须真的跑过」那一步对这两条各打一行 `PASS`；同一 run 七个作业（test/race/lint/vuln/acceptance/integration/integration-kubernetes）全部 success，`acceptance` 报 `scope=ci 的 6 条腿、72 条判据全部通过`。
 - 已证（GitHub 实测）：同批 §7.1 迁移的两个提交（head `b8906b7`）的 `ci` run 41795844844 **七个作业全部 completed/success**（`test`、`race`、`acceptance`、`integration-kubernetes`、`vuln`、`lint`、`integration`）。
 - 本文里那条被实测推翻的表述已改：《Bald 注册中心设计》原写「命名侧 namespace 未证（HTTP 探针判不出）」，现在写的是实测结论（`public` 与空串同租户，`registry/nacos` 无需折叠）。
 
@@ -881,7 +882,7 @@ Go 源码零改动（除下面第 ① 条）。根 module 里 `pkg/` 之外唯�
   - 变异 M2（公式分母 `requests+1` → `2*requests+1`，accept 掉到约 1/2）→ 红 `allowed 250/500`；同一变异下 `TestHealthyWindowAcceptanceNearOne` 也红（`985/2000`），两条判据分别覆盖冷/热窗口。
   - 复原后 `go vet` + `go test -race -count=1 ./...` 该 module 绿（`ok 1.089s`），`gofmt -l` 空。
 - 同类写法复扫（这次把**同文件**也算进去）：全仓非测试代码的随机源仍只有 `circuitbreaker/sres`、`retry`、`registry/consul`、`broker/kafka` 四处；测试侧的比例/计数型断言除本条与 §7.4 那三条外，`retry`/`registry/consul`/`kafka` 里没有新增（grep `rand.Float64|rand.Intn|rand.Int63` 的测试命中只有 `transport/{redis,rabbitmq,rocketmq,http3}` 的 payload 抖动取值，与判据无关）。
-- 没做的：① 不给 breaker 加可注入随机源让断言完全确定（同 §7.4 的理由——生产 API 变更与「修一条假红」不成比例）；② 不把 90% 降到 85% 来消红（那是把判据的语义改掉）；③ 远端绿证以本次推送后的 `race` 作业为准（尾巴是 2e-13 级，远端一次绿只是「没撞」，真正立得住的是上面那两组 `-count≥3000` 实测 + DP）。
+- 没做的：① 不给 breaker 加可注入随机源让断言完全确定（同 §7.4 的理由——生产 API 变更与「修一条假红」不成比例）；② 不把 90% 降到 85% 来消红（那是把判据的语义改掉）；③ ~~远端绿证以本次推送后的 `race` 作业为准~~ **已取得**（2026-11-04，head `019dac2`，run 41813828397 的 `race` 作业 126519436469）：`=== race: ./circuitbreaker/sres ===` → `ok github.com/kalandramo/bald/circuitbreaker/sres 1.017s`，且该作业整体 success——正是 run 41806067800 红掉的那条腿换了样本量之后第一次在远端过。尾巴仍是 2e-13 级，所以真正立得住的还是上面那两组 `-count≥3000` 实测 + DP，远端一次绿只是「没撞」。
 
 **7.12 `cli` 的 buf 真编译判据自 691929c 起结构性判红（中）** ✅ 已修（2026-11-04；发现路径：§7.9 第四轮在本机追工具链归因时，顺手把装 buf 才会跑的其余腿逐条点名——`TestGenProto_CRUD_BufBuild` 在**未改动的树**上就红）
 
@@ -891,6 +892,7 @@ Go 源码零改动（除下面第 ① 条）。根 module 里 `pkg/` 之外唯�
 - 修法：夹具的 `buf.yaml` 改成 v2（`version: v2` + `modules: [{path: ., name: buf.build/kalandramo/genproto-check}]`，deps/lint 原样），并把「lock 是 v2 ⇒ 配置必须 v2」写进夹具上方的注释——下次谁再动那份 lock 的格式，红的时候能一眼看到耦合在哪。判据本身一字未动（仍是真 `buf build` 出链接描述符）。
 - 验活：两个 buf 版本各跑一次，`--- PASS (0.07s)` / `--- PASS (0.04s)`；`cli` module 全量 `go test -count=1 ./...` 绿（前置合规 PATH 的 buf 1.50.0）。
 - 顺带扫了仓内其余 buf 配置的版本一致性：`bconf/buf.yaml`、`_example/bald/api/buf.yaml` 都是 v2，且仓内只有那一份 `buf.lock`——没有第二处同类耦合。
+- 远端能证的部分（2026-11-04，head `019dac2`，run 41813828397 七作业全 success）：这条腿本身在 CI 里仍是 Skip（runner 无 buf），所以远端证明的是「`cli` module 其余判据没被这次改动带红」——同轮 `acceptance` 作业里 `cli → ./internal/codegen` 那条腿的 18 条判据逐条 `--- PASS` 通过。真正的执行证据只有本机那两个 buf 版本各一次。
 - 没做的：① 没给 CI 装 buf 来拿这条腿的远端证据（它要的是 BSR 依赖解析，属 §7.9 未闭合①同一件事）；② 没把「lock 与配置的版本必须匹配」做成 docscheck 闸门——那需要解析 buf 的 config schema，收益抵不上为一个夹具再加一层元校验；红的时候文案已经指到耦合点。
 
 ---
