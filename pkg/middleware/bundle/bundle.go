@@ -18,14 +18,15 @@
 //
 // 链序契约（由测试固化，见 bundle_test.go）：
 //   - gin（注册序即外→内）：Recovery → RequestID → Logging → CORS → Secure →
-//     Authn → Audit → Authz → RateLimit → Timeout
+//     Authn → Audit → Authz → RateLimit → CircuitBreaker → Timeout
 //   - gRPC（slice 序即外→内）：Error → Recovery → RequestID → Observability →
-//     Authn → Audit → Authz → RateLimit → Timeout
+//     Authn → Audit → Authz → RateLimit → CircuitBreaker → Timeout
 //
-// 两条链的 RateLimit/Timeout 由同一对 Option 驱动（零开销省略），面不对称已经
-// 收口；gRPC 面另有 GRPCRateLimit/GRPCTimeout 两个只作用于自己的 Option，对应
-// 契约 server.grpc.middleware 的同名段（给了它们，gRPC 换用自己的桶/预算，gin
-// 面照旧用 RateLimit/Timeout——见这两个 Option 的注释）。
+// 两条链的 RateLimit/CircuitBreaker/Timeout 由同一组 Option 驱动（零开销省略），
+// 面不对称已经收口；gRPC 面另有 GRPCRateLimit/GRPCCircuitBreaker/GRPCTimeout
+// 三个只作用于自己的 Option，对应契约 server.grpc.middleware 的同名段（给了它们，
+// gRPC 换用自己的桶/熔断器/预算，gin 面照旧用 RateLimit/CircuitBreaker/Timeout——
+// 见这几个 Option 的注释）。
 //
 // 为什么 Audit 夹在 Authn 与 Authz 之间：
 //   - 在 Authn 内侧（注册序靠后）才能从 ctx 读到 Authn 注入的 subject/tenant；
@@ -95,6 +96,17 @@ type Bundle struct {
 	// 见 [Bundle.grpcLimiter] / [Bundle.grpcBudget]。
 	grpcRateLimiter *ginmw.RateLimiter
 	grpcTimeout     time.Duration
+
+	// circuitBreaker 是配置驱动的熔断层。与 rateLimiter 同款「一面给全部」：
+	// 不另给 [GRPCCircuitBreaker] 时 gRPC unary 复用同一个熔断器实例（同一份
+	// 滑窗）。契约 server.http.middleware.circuit_breaker 经
+	// [CircuitBreakerFromMiddleware] 构造后由本 Option 注入；nil = 两面都不挂。
+	circuitBreaker *ginmw.CircuitBreaker
+
+	// grpcCircuitBreaker 只作用于 gRPC unary（契约 server.grpc.middleware
+	// .circuit_breaker）。非 nil 时**替换** gRPC 面上 circuitBreaker 的位置，
+	// gin 面不受影响。见 [Bundle.grpcBreaker]。
+	grpcCircuitBreaker *ginmw.CircuitBreaker
 
 	// logging 控制请求日志/可观测中间件（默认开启）。
 	logging bool
@@ -170,6 +182,46 @@ func RateLimit(rl *ginmw.RateLimiter) Option { return func(b *Bundle) { b.rateLi
 // stream 面的计费口径（每条流建立扣一个令牌）见 [Bundle.GRPCStreamInterceptors]。
 func GRPCRateLimit(rl *ginmw.RateLimiter) Option {
 	return func(b *Bundle) { b.grpcRateLimiter = rl }
+}
+
+// CircuitBreaker 附加配置驱动的熔断层（gin 与 gRPC unary 共用同一个熔断器）。
+// cb 通常来自 [CircuitBreakerFromMiddleware]（契约
+// server.http.middleware.circuit_breaker → 中间件）。传 nil 等同不设置。
+//
+// 它与限流的分工：限流判「这个主体还有没有配额」，熔断判「这个服务现在值不
+// 值得真做」——后者只在下游真的在坏的时候开窗，所以两层的拒绝码不同（429/
+// RESOURCE_EXHAUSTED vs 503/UNAVAILABLE）。
+//
+// 链序：授权之后、限流之内、超时之外（见 [Bundle.Gin] 的链序说明）。三条判据
+// 少一条都会让这一层失真：
+//   - 更外（认证之前）：匿名流量就能把失败率打满、替所有人开窗；
+//   - 更内（限流之前）：被限流拒掉的请求会先进熔断，两层的拒绝互相喂养；
+//   - 更内（超时之内）：内层 Timeout 写出的 503 就在这一层之下，熔断只会看到
+//     「handler 都成功返回」——而「handler 总是超时」正是熔断该抓的形状。
+//
+// 生命周期：Bundle 不持有 cb 的关闭职责（与 [RateLimit] 同）——调用方在停机时
+// 调 cb.Close()（幂等）。注意 hystrix 的 Close 之后本层对**所有**请求回开态
+// 状态码，所以 closer 只在服务已停止接收流量之后才有意义。
+//
+// 与 [GRPCCircuitBreaker] 的关系同 [RateLimit]：不给后者时，gRPC unary 从同一个
+// 熔断器进出（HTTP 面的 5xx 与 gRPC 面的服务侧错误一起计入那份滑窗）。
+func CircuitBreaker(cb *ginmw.CircuitBreaker) Option {
+	return func(b *Bundle) { b.circuitBreaker = cb }
+}
+
+// GRPCCircuitBreaker 附加**只作用于 gRPC unary** 的熔断层。cb 通常来自
+// [GRPCCircuitBreakerFromMiddleware]（契约 server.grpc.middleware.circuit_breaker）。
+// 传 nil 等同不设置。
+//
+// 为什么要有它、覆盖关系是什么，与 [GRPCRateLimit] 逐条相同：只给 [CircuitBreaker]
+// → 两面共用一个熔断器；只给它 → gin 面没有熔断；两个都给 → 各用自己的实例、
+// 各判各的失败率，不存在「后写的 Option 静默盖掉前一个」。
+//
+// **stream 面不挂熔断**，且不是漏掉：一条流的「失败」没有一致答案（按建流算则
+// 开窗与真实退化无关，按流终态算则一条长流会长期占住半开探针、把其它流全拒）。
+// 见 [Bundle.GRPCStreamInterceptors] 与 grpcmw.CircuitBreakerInterceptor。
+func GRPCCircuitBreaker(cb *ginmw.CircuitBreaker) Option {
+	return func(b *Bundle) { b.grpcCircuitBreaker = cb }
 }
 
 // Recovery 配置 panic 恢复层（契约 middleware.recovery 段）。
@@ -283,7 +335,7 @@ func (b *Bundle) Gin() []gin.HandlerFunc {
 	b.warnIfUndeclaredAuthn()
 	// 契约段的 chain 位置（外→内）：
 	//   Recovery → RequestID → Tracing → Logging → CORS → Secure → Authn → Audit
-	//   → Authz → RateLimit → Timeout
+	//   → Authz → RateLimit → CircuitBreaker → Timeout
 	// Tracing 在 Logging 之外：若二者并存，logging 起的 span 成为 tracing span 的
 	// child（外层先起的 span 是父）；只追踪不打日志时就只挂 Tracing。
 	chain := []gin.HandlerFunc{ginmw.Recovery(b.recoveryCfg), ginmw.RequestIDMiddleware(b.requestID)}
@@ -313,6 +365,12 @@ func (b *Bundle) Gin() []gin.HandlerFunc {
 		// 的 subject（为将来按用户限流留位）。代价是它不保护认证/授权层自身——
 		// 若需在认证前限流以保护认证层，业务可自行把 ginmw.RateLimit 挂到链首。
 		chain = append(chain, b.rateLimiter.Handler())
+	}
+	if b.circuitBreaker != nil {
+		// 限流之内、超时之外：配额先拒（便宜），熔断只判「这次还值不值得真做」；
+		// 而内层 Timeout 写出的 503 必须被这一层记成失败——「handler 总是超时」
+		// 正是熔断该抓的形状。代价与限流同：不保护认证/授权层自身。
+		chain = append(chain, b.circuitBreaker.Handler())
 	}
 	if b.timeoutCfg != nil {
 		// 超时在最内层（业务 handler 之前）：只计业务处理耗时，不把上层中间件
@@ -347,18 +405,20 @@ func (b *Bundle) grpcBudget() time.Duration {
 // GRPCInterceptors 返回链序固化的 unary 拦截器链（slice 序即外→内）：
 //
 //	Error → Recovery → RequestID → Observability → Authn → Audit → Authz
-//	→ RateLimit → Timeout
+//	→ RateLimit → CircuitBreaker → Timeout
 //
 // Recovery 紧随 Error（第二外层）：handler/内层拦截器 panic 被捕获并转为
 // *berrors.Internal，由最外层 Error 收口为 gRPC status（与 gin 链首道
 // Recovery 对称）。
 //
-// RateLimit/Timeout 与 gin 侧同序：都只在对应 Option 给了之后才挂（零开销省略），
-// 限流在授权之后、超时在最内层。默认两面同源（同一个 limiter、同一份
-// default_timeout_ms），给了 GRPCRateLimit/GRPCTimeout 则 gRPC 用自己的那份。
+// RateLimit/CircuitBreaker/Timeout 与 gin 侧同序：都只在对应 Option 给了之后才挂
+// （零开销省略），限流在授权之后、超时在最内层，熔断夹在两者之间。默认两面同源
+// （同一个 limiter、同一个熔断器、同一份 default_timeout_ms），给了
+// GRPCRateLimit/GRPCCircuitBreaker/GRPCTimeout 则 gRPC 用自己的那份。
 // 两面的语义差别：gin 的 Timeout 会硬性提前返回 503，gRPC 的只给 handler 一个
-// 会到期的 ctx（见 grpcmw.TimeoutInterceptor）；gin 的拒绝是 429，gRPC 的是
-// RESOURCE_EXHAUSTED。
+// 会到期的 ctx（见 grpcmw.TimeoutInterceptor）；gin 的拒绝是 429 / 503，gRPC 的
+// 是 RESOURCE_EXHAUSTED / UNAVAILABLE；gin 的熔断按响应码 >=500 判失败，gRPC 的
+// 按 status code 集合判（见 grpcmw.IsFailureStatus）。
 //
 // 需自行组装 *grpc.Server 时用：
 //
@@ -388,6 +448,14 @@ func (b *Bundle) GRPCInterceptors() []grpc.UnaryServerInterceptor {
 		// 给了 GRPCRateLimit 才换成 gRPC 自己的桶。
 		chain = append(chain, grpcmw.RateLimitInterceptor(rl.Limiter(), rl.Wait()))
 	}
+	if br := b.grpcBreaker(); br != nil {
+		// 与 gin 同序：限流之后、超时之前。默认与 gin 共用同一个熔断器
+		// （给了 GRPCCircuitBreaker 才换成 gRPC 自己的实例）。失败口径由
+		// status code 判，与 HTTP 面的 >=500 不同（见 grpcmw.failureCodes）；
+		// 拒绝码是 UNAVAILABLE 而不是 503——那是 gRPC 里「服务暂时不可用」
+		// 的唯一正确表达，也是客户端库会重试的那个 code。
+		chain = append(chain, grpcmw.CircuitBreakerInterceptor(br.Breaker()))
+	}
 	if d := b.grpcBudget(); d > 0 {
 		// 最内层。gRPC 侧的超时只约束 handler 可见的 ctx（不硬中断响应），
 		// 与 gin 的 Timeout 语义差别写在 grpcmw.TimeoutInterceptor 的注释里。
@@ -395,6 +463,20 @@ func (b *Bundle) GRPCInterceptors() []grpc.UnaryServerInterceptor {
 		chain = append(chain, grpcmw.TimeoutInterceptor(d))
 	}
 	return chain
+}
+
+// grpcBreaker 返回 gRPC unary 实际使用的熔断器：[GRPCCircuitBreaker] 优先，
+// 否则回落到 [CircuitBreaker]（那时与 gin 同一个实例、同一份滑窗）。两者都没给
+// 返回 nil = 不挂层。与 [Bundle.grpcLimiter] 同款回落，两面不会出现在 HTTP 已
+// 开窗、gRPC 还裸奔的半边漏风形状。
+//
+// stream 面不经本函数取熔断器——理由写在 [Bundle.GRPCStreamInterceptors] 与
+// grpcmw.CircuitBreakerInterceptor 的注释里（一条流的失败没有一致答案）。
+func (b *Bundle) grpcBreaker() *ginmw.CircuitBreaker {
+	if b.grpcCircuitBreaker != nil {
+		return b.grpcCircuitBreaker
+	}
+	return b.circuitBreaker
 }
 
 // GRPCStreamInterceptors 返回 stream 面的拦截器链（外→内），与
@@ -417,6 +499,10 @@ func (b *Bundle) GRPCInterceptors() []grpc.UnaryServerInterceptor {
 //   - 认证/授权/审计**不在 stream 链上**——本包的 Authn/Authz/Audit 只有 unary
 //     形态（stream 版拦截器至今不存在）。这是 §6.2 记录下来的既有边界，不是
 //     这次引入的：此前 stream 面整条链都是空的，同样没有认证。
+//   - **熔断也不在 stream 链上**，且这一条是新决定而非既有边界：契约
+//     server.grpc.middleware.circuit_breaker 只作用于 unary。一条流的失败没有
+//     一致答案（见 grpcmw.CircuitBreakerInterceptor），而限流按「建流一次」计费
+//     至少还有个明确形状。
 //
 // 返回空 slice 表示没有任何 stream 层需要挂，[Bundle.GRPCChain] 据此省略
 // ChainStreamInterceptor 这个 ServerOption，保持零配置时的选项数不变。

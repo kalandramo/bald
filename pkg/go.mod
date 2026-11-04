@@ -10,6 +10,10 @@ replace github.com/kalandramo/bald/bootstrap => ../bootstrap
 
 replace github.com/kalandramo/bald/berrors => ../berrors
 
+replace github.com/kalandramo/bald/circuitbreaker => ../circuitbreaker
+
+replace github.com/kalandramo/bald/circuitbreaker/hystrix => ../circuitbreaker/hystrix
+
 replace github.com/kalandramo/bald/health => ../health
 
 replace github.com/kalandramo/bald/log => ../log
@@ -35,6 +39,8 @@ require (
 	github.com/kalandramo/bald/bconf v0.17.0
 	github.com/kalandramo/bald/berrors v0.1.2
 	github.com/kalandramo/bald/bootstrap v0.13.6
+	github.com/kalandramo/bald/circuitbreaker v0.2.0
+	github.com/kalandramo/bald/circuitbreaker/hystrix v0.1.0
 	github.com/kalandramo/bald/health v0.1.1
 	github.com/kalandramo/bald/log v0.5.4
 	github.com/kalandramo/bald/ratelimit v0.1.0
