@@ -283,9 +283,9 @@ bconfig（源）  bootstrap（初始化）
 
 ## 3. 配置初始化
 
-配置初始化层负责把**契约**（`bconf` 的 `*v1.BootstrapConfig`）翻译成**可运行的配置源**（`bconfig` 的 `Reader`），并按优先级装配成命名层列表。它是「读契约 → 建源 → 注册/装配」的桥梁。
+配置初始化层负责把**契约**（`bconf` 的 `*v1.BootstrapConfig`）翻译成**可运行的配置源**（`bconfig` 的 `Reader`），并按优先级装配成命名层列表。它是「读契约 → 建源 → 交回调用方拼装」的桥梁。
 
-本层的核心设计原则：**不用 `init()` + blank import 的隐式全局副作用**，使用显式 `Registry` + 工厂函数 `Provider`。
+本层的核心设计原则：**不用 `init()` + blank import 的隐式全局副作用，也不设任何注册表**——只有一个工厂签名 `ConfigProvider` 和九个实现，层列表由调用方按序拼装（§3.4/§3.6）。
 
 ### 3.1 定位
 
@@ -299,7 +299,7 @@ bconfig（源）  bootstrap（初始化）
 
 ### 3.2 为什么不用 blank import + init()
 
-每个 provider 一个薄 module，在其 `init()` 里调 `bootstrap.MustRegisterConfigAction(ConfigTypeXxx, newAction)`；主程序靠 `_ "bootstrap/config/apollo"` 触发 `init()`，把 apollo 装配进来。
+设想的路长这样（**本仓从未实现，正是本节要否掉的路线**）：每个 provider 一个薄 module，在其 `init()` 里调一个包级 `MustRegisterConfigAction(ConfigTypeXxx, newAction)`；主程序靠 `_ "bootstrap/config/apollo"` 触发 `init()`，把 apollo 装配进来。
 
 这种「全局 map + init 副作用」模式有三个真实代价，与 bald 既有哲学冲突：
 
@@ -313,47 +313,39 @@ bconfig（源）  bootstrap（初始化）
 
 ```text
 bald/bootstrap/                  module github.com/kalandramo/bald/bootstrap
-├── go.mod                       依赖 bconf（契约）+ bconfig（源）+ 各 provider 子包
-├── config/                      Store 内核（Layer 定义、层合并、热更新转发）
-├── registry.go                  Registry + Provider 类型 + Register/MustRegister
-├── build.go                     Build：按注册序装配成层列表（失败回滚）
+├── go.mod                       依赖 bconf（契约）+ bconfig（源）+ bootstrap/config
+├── config.go                    ConfigProvider 类型——唯一的配置源工厂签名
 ├── env.go / file.go / etcd.go / consul.go / nacos.go
 ├── apollo.go / kubernetes.go / vault.go / http.go   ← 9 个契约适配器全部落地
-├── log.go / server.go           日志与服务器装配（另两个 Registry，超出本文范围）
-└── registry_test.go / providers_test.go / providers_remote_test.go
+├── log.go / server.go / health.go   日志 Options、协议服务器 Provider、gRPC 健康服务
+├── config/                      Store 内核
+│   ├── config.go                Layer / Options / Load / Store（校验与优先级都在此）
+│   ├── merge.go                 层合并与格式推断（FormatOf）
+│   └── source.go                远程源桥（FromKratosSource）
+└── providers_test.go / providers_remote_test.go     构造参数校验与装配
 ```
 
-> 状态：**全部落地**。9 个契约适配器（env / file / etcd / consul / nacos / apollo / kubernetes / vault / http）+ Registry / Build + `bootstrap/config` Store 内核均已实现（fs 走代码 API，无契约适配器，见 §1.6 瘦身记录）；远程 provider 的构造参数校验与装配由 `providers_remote_test.go` 覆盖。
+> 状态：**全部落地**。9 个契约适配器（env / file / etcd / consul / nacos / apollo / kubernetes / vault / http）、`ConfigProvider` 工厂签名与 `bootstrap/config` Store 内核均已实现（fs 走代码 API，无契约适配器，见 §1.6 瘦身记录）；远程 provider 的构造参数校验与装配由 `providers_remote_test.go` 覆盖。
+>
+> **配置面没有 `Registry`**（本仓另有 `registry/` 服务发现 module，其 etcd/consul/nacos/kubernetes 四个后端各自导出 `Registry` 结构体——那是注册中心实现，与配置装配无关，别混）。§3.4 曾写过 `ConfigRegistry`/`Register`/`MustRegister`/`Build`（配套 `registry.go`/`build.go` 两个文件），那是 §3.2 刚否掉的「全局 map + 注册序」换了个名字的变体，从未落地：层列表由**消费方**自己按序拼装（§3.7）。文档里凡是「注册序」处，现在都读作「列表序」。
 
-### 3.4 核心类型：`Provider` 与 `Registry`
+### 3.4 核心类型：`ConfigProvider`
 
 ```go
-// Provider 是配置源工厂：从契约顶层结构读一个子配置，
-// 构造并返回一个命名配置层。返回值为 (layer, cleanup, error)：
-//   - layer 为 nil 表示「该源未在契约中配置」，Build 阶段跳过（非错误）；
+// ConfigProvider 是配置源工厂：从契约读取一个子配置，构造并返回一个命名配置层。
+// 返回值语义：
+//   - layer 为 nil 表示「该源未在契约中配置」，调用方跳过（非错误）；
 //   - cleanup 释放 provider 持有的资源（含 reader 本身，Store 不重复关闭），
 //     可为 nil（如 env 无资源）；
-//   - 出错返回 error，Build 短路并回滚已构造的源。
+//   - 出错返回 error，调用方短路并回滚已构造的源。
 type ConfigProvider func(ctx context.Context, cfg *bootstrapv1.BootstrapConfig) (*config.Layer, func(), error)
-
-type ConfigRegistry struct {
-    mu        sync.RWMutex
-    providers map[string]ConfigProvider // key = "file" / "env" / "etcd" ...
-    order     []string            // 注册序 = 默认级联优先级（高优先级在前）
-}
-
-func NewConfigRegistry() *ConfigRegistry { ... }
-
-// Register 注册一个配置源工厂。重名报错（不覆盖，fail-fast）。
-func (r *ConfigRegistry) Register(name string, p ConfigProvider) error { ... }
-
-// MustRegister 是 Register 的 panic 版本，仅用于主程序 main() 内显式注册，
-func (r *ConfigRegistry) MustRegister(name string, p ConfigProvider) { ... }
 ```
 
-与 `ConfigAction`（返回无参 `func()` 清理闭包）的关键差异：
+就这一个类型——**没有 `Registry`、没有 `Register`/`MustRegister`、没有 `Build`**。工厂只回答「给定契约，这一层怎么造」；「造哪几层、什么顺序、失败怎么办」归调用方，因为消费者有两种形态（§3.7）：main 里显式组合，或做成 appkit 的 config 段 Provider。把它们收进一个 `Registry` 等于把优先级语义藏进第二个真相（注册序），与 §3.2 否掉 `init()` 的理由是同一个。
 
-- 本设计的 `Provider` 返回可见的 `*config.Layer`（Reader + Format + Watch），`Build` 按注册序聚合成层列表（§3.7）；每次调用构造一个新实例（多实例可行）；`cleanup` 语义清晰（file 的 `cleanup` 即 `src.Close()`），与 `bconfig.Closer` 对齐。
+与设想中的 `ConfigAction`（返回无参 `func()` 清理闭包、由全局 map 按名分派）的关键差异：
+
+- 本类型返回可见的 `*config.Layer`（Reader + Format + Watch），层列表由调用方按序聚合（§3.7）；每次调用构造一个新实例（多实例可行）；`cleanup` 语义清晰（file 的 `cleanup` 即 `src.Close()`），与 `bconfig.Closer` 对齐。
 
 ### 3.5 适配器：契约字段 → provider Option（放 bootstrap 内部）
 
@@ -361,7 +353,7 @@ func (r *ConfigRegistry) MustRegister(name string, p ConfigProvider) { ... }
 
 ```go
 // bald/bootstrap/file.go（节选）
-func FileProvider() Provider {
+func FileProvider() ConfigProvider {
     return func(ctx context.Context, cfg *bootstrapv1.BootstrapConfig) (*config.Layer, func(), error) {
         c := cfg.GetConfig().GetFile()   // 源配置在顶层 config 字段下
         if c == nil {
@@ -400,7 +392,7 @@ env 适配器同理：
 
 ```go
 // bald/bootstrap/env.go（节选）
-func EnvProvider() Provider {
+func EnvProvider() ConfigProvider {
     return func(_ context.Context, cfg *bootstrapv1.BootstrapConfig) (*config.Layer, func(), error) {
         c := cfg.GetConfig().GetEnv()    // 源配置在顶层 config 字段下
         if c == nil {
@@ -426,90 +418,87 @@ func EnvProvider() Provider {
 
 **为什么适配器不放 provider 子包**：若放进 `bconfig/file`，`file` 包就要 `import bconf`，「只读文件系统的配置源」被迫依赖 protobuf 契约——分层崩塌。翻译职责归 `bootstrap`（它本就是「读契约→建源」层），依赖方向保持 `bootstrap → bconf` / `bootstrap → bconfig/*`，源层纯净。
 
-### 3.6 层优先级 = 注册序
+### 3.6 层优先级 = 列表序
 
-`order` 切片即层优先级：**先注册的源优先级高**（排在 `[]config.Layer` 列表首位）。这与 `bootstrap/config` 的 `Store`（含远程源桥接）的层合并约定一致——层列表从尾向头叠加（低→高），列表首元素最后合并、覆盖其余层。
+`[]config.Layer` 的下标序即层优先级：**列表首元素优先级最高**（`Store` 逆序 append 进内部 `layerM`，索引 0 最低，合并时从尾向头叠加，首元素最后合并、覆盖其余层）。消费者按想要的顺序 append 即得到想要的优先级——契约源层与显式 `appkit.ConfigLayers` 合流时也是同一规则（契约源层居首，见 §3.7）。
 
-选注册序而非给 `Provider` 加 `Priority int` 字段的理由：注册序已能表达全部场景（主程序按想要的顺序 `MustRegister` 即可），引入 `Priority` 字段只会在「同优先级又需排第二序」时再加一层规则，徒增复杂度。
+选列表序而非给 `Provider` 加 `Priority int` 字段的理由：列表序已能表达全部场景（调用方自己排），引入 `Priority` 字段只会在「同优先级又需排第二序」时再加一层规则，徒增复杂度。同理不设 `Registry`：一旦把「注册序」当成优先级载体，就得再造一个数据结构去维护它，而调用方的切片本来就是那个结构。
 
 > 语义归一说明：装配产出曾是 `bconfig.FallbackReader`（key 级 first-wins 回退），现已归一为**命名层列表**。回退语义做不到字段级合并（本地只覆盖部分字段时其余字段无法从远程基准继承），且热更新回读会被高优先级源永久屏蔽（远程变更静默失效）。`FallbackReader` 退守它擅长的域——同一 key 的多候选降级（见 §1.5.4 嵌套示例），不再出现在装配主链路上。
 
-### 3.7 装配：Build 出命名层列表
+### 3.7 装配：层列表由消费者拼，校验兜底在 Store
+
+没有 `Build` 方法。装配分成三段，各自的失败语义不同：
+
+1. **provider**（§3.4/§3.5）：契约某段 → `(*config.Layer, cleanup, error)`。`layer == nil` 是「这段没配」，不是错误。
+2. **消费者**：按优先级序调用工厂、收集 `[]config.Layer` 与 closers、任一出错就回滚已构造的源。两种形态——main 里直接组合（§3.8），或做成 appkit 的 config 段 Provider（仓内参考 `contrib/config-nacos`）：
 
 ```go
-// bald/bootstrap/build.go
-func (r *Registry) Build(ctx context.Context, cfg *bootstrapv1.BootstrapConfig) ([]config.Layer, func(), error) {
-    if cfg == nil {
-        return nil, nil, errors.New("bootstrap: config is nil")
+// contrib/config-nacos/provider.go（节选）：config 段 Provider 的 Build
+func (appProvider) Build(ctx context.Context, s appkit.ApplyScope, _ appkit.Node) (any, appkit.Cleanup, error) {
+    l, closer, err := bootstrap.NacosProvider()(ctx, s.Config)
+    if err != nil {
+        return nil, nil, fmt.Errorf("config source nacos: %w", err)
     }
-    names, providers := r.snapshot() // 快照，Build 不长时间持锁
-
-    var (
-        layers  []config.Layer
-        closers []func()
-    )
-    for _, name := range names {         // 注册序 = 层优先级（首元素最高）
-        l, closer, err := providers[name](ctx, cfg)
-        if err != nil {
-            runClosers(closers)          // 失败回滚已构造的源
-            return nil, nil, fmt.Errorf("bootstrap: provider %s: %w", name, err)
-        }
-        if l == nil {
-            continue // 该源未在契约中配置，跳过
-        }
-        if l.Reader == nil {             // 层 Reader 必填（fail-fast）
-            runClosers(closers)
-            return nil, nil, fmt.Errorf("bootstrap: provider %s: layer Reader is nil", name)
-        }
-        if l.Watch {                     // Watch=true 但 Reader 不实现 ValueWatcher（fail-fast）
-            if _, ok := l.Reader.(bconfig.ValueWatcher); !ok {
-                runClosers(closers)
-                return nil, nil, fmt.Errorf("bootstrap: provider %s: Watch=true but Reader does not implement bconfig.ValueWatcher", name)
-            }
-        }
-        if l.Name == "" {
-            l.Name = name                // Build 回填注册名（层名用于日志/错误定位）
-        }
+    var layers []baldconfig.Layer
+    if l != nil {
         layers = append(layers, *l)
-        if closer != nil {
-            closers = append(closers, closer)
-        }
     }
-    if len(layers) == 0 {
-        return nil, nil, errors.New("bootstrap: no config source configured")
-    }
-    return layers, func() { runClosers(closers) }, nil
+    // closer 挂到节点 cleanup 上，由装配的停机序兑现
+    return layers, cleanup, nil
 }
 ```
 
-层职责划分：provider 填 `Reader`（整文档源，`Load(ctx, "")` 返回整份文档）、`Format`（契约 format 字段或扩展名推断）、`Watch`（契约 watch 字段，reader 须实现 `bconfig.ValueWatcher`，Build 期校验 fail-fast）；`Name` 由 Build 回填注册名。
+   appkit 在 `assemble` 里把段产物断言成 `[]config.Layer`——错型即 `appkit: config provider ... returned %T, want []config.Layer` 并回滚已构造节点；然后把契约源层与显式 `appkit.ConfigLayers` 合流（契约源层居首，声明追加在后）。
+3. **Store**（`bootstrap/config` 的 `Load`）：拿到层列表后做兜底校验与优先级落地，全部 fail-fast——`Reader` 为空报 `config: layer %q: Reader is required`；`Name` 为空回填 `layer-N`（层名只用于日志/错误定位）；`Watch=true` 而 `Reader` 未实现 `bconfig.ValueWatcher` 报错，不做静默降级。
+
+层职责划分因此是：**provider 填** `Reader`（整文档源，`Load(ctx, "")` 返回整份文档）、`Format`（契约 format 字段或扩展名推断）、`Watch`（契约 watch 字段）；**Store 校验** reader 契约与 watch 能力、**回填** `Name`。谁都不维护第二份优先级。
 
 ### 3.8 主程序用法（无 blank import）
 
 ```go
 func main() {
-    reg := bootstrap.NewConfigRegistry()
-    // 显式注册：读代码即知装了什么；注册序即层优先级（先注册者覆盖后注册者）
-    reg.MustRegister("env", bootstrap.EnvProvider())
-    reg.MustRegister("file", bootstrap.FileProvider())
-    // reg.MustRegister("nacos", bootstrap.NacosProvider()) // 按需追加
+    ctx := context.Background()
+    bootCfg := loadBootstrapConfig() // *bootstrapv1.BootstrapConfig，业务自持的引导装载
 
-    var bootCfg bootstrapv1.BootstrapConfig
-    // ... 从引导配置装载 bootCfg ...
-
-    layers, cleanup, err := reg.Build(ctx, &bootCfg)
-    if err != nil { log.Fatal(err) }
-    defer cleanup() // 逆序释放各 provider 资源
+    // 显式组合：读代码即知装了什么；切片序即层优先级（首元素最高，见 §3.6）
+    var (
+        layers  []config.Layer
+        closers []func()
+    )
+    defer func() { // 逆序释放 provider 持有的资源（Store 不重复关闭）
+        for i := len(closers) - 1; i >= 0; i-- {
+            closers[i]()
+        }
+    }()
+    for _, p := range []bootstrap.ConfigProvider{
+        bootstrap.EnvProvider(),
+        bootstrap.FileProvider(),
+        // bootstrap.NacosProvider(), // 按需追加
+    } {
+        l, closer, err := p(ctx, bootCfg)
+        if err != nil {
+            log.Fatal(err) // 已构造的源由上面的 defer 释放
+        }
+        if closer != nil {
+            closers = append(closers, closer)
+        }
+        if l != nil { // nil 表示该源未在契约中配置，跳过
+            layers = append(layers, *l)
+        }
+    }
 
     // 层接入 Store：整体位于本地文件/env/flag 之下、RemoteConfig 远程桥之上
-    app := appkit.New(name,
+    appkit.MustServe(ctx,
+        appkit.Name("demo"),
         appkit.ConfigLayers(layers...),
         appkit.WatchConfigFile(true),
         appkit.OnConfigChange(func(m map[string]any) { /* 重新 Unmarshal */ }),
     )
-    // ...
 }
 ```
+
+这段就是「无 Registry 的显式装配」的样子：优先级是一个切片字面量的顺序，失败回滚是一个 `defer`，两者都在读者眼前。真要做成可复用的部署形态，把同一个循环搬进 config 段 Provider（§3.7 的 `contrib/config-nacos`）即可，appkit 会把层列表接到 `Store` 上并纳入停机序。
 
 Store 侧的完整优先级链（高 → 低）：`flag > env > 本地文件 > 契约源层（列表首最高）> 远程桥（基准）`。任一层实现 `bconfig.ValueWatcher` 即参与热更新：变更 → decode → 层缓存更新 → 全量重合并 → `OnConfigChange`；层 reader 资源归 `Build` 返回的 cleanup 释放，`Store.Close` 只停自己的转发 goroutine 并释放自建源（本地文件 watch 源；构造方职责分离，不重复关闭契约源）。
 

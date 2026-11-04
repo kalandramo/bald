@@ -353,24 +353,47 @@ curl -s http://127.0.0.1:8080/v1/greet/alice   # {"greet":"from-nacos, alice"}
 `ValueWatcher` 走到的「变更 → 全量重合并」路径。`biz.*` 是业务自持段，必须在
 `appkit.StrictContract("biz")` 的白名单里（§7.1），否则严格校验把它当未知键拦下。
 
-经 bootstrap Registry 产层的通用写法（契约 `config` 段一次产出多层）：
-
-经 bootstrap Registry 产层的那条通用写法：
+契约 `config` 段一次产出多层的通用写法——**没有「注册表」这一层**，消费者按想要的优先级把
+`bootstrap.ConfigProvider` 工厂的返回值拼成一个切片：
 
 ```go
-layers, cleanup, err := registry.Build(ctx, bootCfg) // 契约 config 段 → bconfig 源
-if err != nil {
-    log.Fatal(err)
+var layers []config.Layer
+var closers []func()
+for _, p := range []bootstrap.ConfigProvider{
+    bootstrap.EnvProvider(),   // 放前面 = 优先级高
+    bootstrap.FileProvider(),
+} {
+    l, closer, err := p(ctx, cfg) // cfg 是 *bootstrapv1.BootstrapConfig
+    if err != nil {
+        log.Fatal(err)
+    }
+    if closer != nil {
+        closers = append(closers, closer)
+    }
+    if l != nil { // 契约里没配这一类源 → 返回 nil 层，即「无该层」
+        layers = append(layers, *l)
+    }
 }
-defer cleanup()
+defer func() {
+    for _, c := range closers {
+        c()
+    }
+}()
 
-app := appkit.NewApp(appkit.ConfigLayers(layers...))
+appkit.MustServe(ctx, appkit.ConfigLayers(layers...))
 ```
+
+`layers` 就是这个 App 的全部契约源层，顺序即优先级；`closers` 是各源自建的资源（watch 协程、
+客户端连接），由装配方负责释放。契约字段 → provider Option 的翻译在 `bootstrap` 根包里，
+源层（`bconfig/*`）不认识 protobuf 契约。远程中心同理，仓内的现成消费者是
+`contrib/config-nacos` 的 `AppProvider()`——它在 `Build` 里调 `bootstrap.NacosProvider()`，
+产物同样是 `[]config.Layer`，不是往任何全局表里注册。
 
 **层序即优先级：列表首元素最高**，整体位于本地文件/env/flag 之下、`RemoteConfig` 远程桥之上
 （`appkit.ConfigLayers` 文档注释）。任一层 reader 实现 `bconfig.ValueWatcher` 即参与热更新
-（变更 → 全量重合并）。源在契约里没配、或返回空文档时按「无该层」处理——不是错误
-（`assembleLayer` 把空文档视为该层无配置）。
+（变更 → 全量重合并）。两类「没有这一层」都不是错误：契约里没配该类源时 `ConfigProvider`
+返回 nil 层（调用方跳过）；源配了但当前是空文档时 `decodeDocument` 直接把空字节读成 nil map，
+该层什么都不贡献。
 
 契约 `config` 段共 9 类源可混合（§9）；`std.Standard()` 自带的 config Provider
 覆盖本地 file + env 基线。
@@ -417,7 +440,8 @@ appkit.Bind("", logOpts),       // PlainBinder（自带 --log.* 前缀，prefix 
 装配后业务侧读的是**强类型契约对象**，不是 `map[string]any`：
 
 ```go
-addr := bootstrap.GetServer().GetHttp().GetAddr()   // proto getter，nil-safe
+cfg := bconf.NewBootstrap()          // *bootstrapv1.BootstrapConfig，装配期被就地写回
+addr := cfg.GetServer().GetHttp().GetAddr()   // proto getter，nil-safe
 ```
 
 `bootstrap` 子消息**指针直通**：装配期构造的服务器在 `Start` 时实时读契约，

@@ -16,7 +16,7 @@
 
 ## 1. 一句话架构
 
-bald 是一个 **SPI + 适配器 + 声明式装配** 的 Go 多模块框架：契约层只定义接口（`transport.Server`、`broker.Broker`、`cache.Cache`、`registry.Registry`…），每种协议/后端各占一个独立 module 实现契约，`bconf` 用 protobuf 把「服务该怎么装配」固化成强类型配置，`bootstrap` 做分层合并，`pkg/appkit` 的 **v2 Provider** 把声明解析成执行计划（Plan）再逐个构建（Build），最终由 `appkit.Run` 统一启动与停机。
+bald 是一个 **SPI + 适配器 + 声明式装配** 的 Go 多模块框架：契约层只定义接口（`transport.Server`、`broker.Broker`、`cache.Cache`、`registry.Registrar`/`Discovery`…），每种协议/后端各占一个独立 module 实现契约，`bconf` 用 protobuf 把「服务该怎么装配」固化成强类型配置，`bootstrap` 做分层合并，`pkg/appkit` 的 **v2 Provider** 把声明解析成执行计划（Plan）再逐个构建（Build），最终由 `appkit.Run` 统一启动与停机。
 
 仓库有 **95 个 `go.mod`**（`find . -name go.mod`，含 `_example/bald`），派生出 **94 个发布/验证单元**（`scripts/list-modules.sh`，排除 `_example*`），无提交的 `go.work`；模块间靠每个子 module 的相对 `replace` 组成可编译闭包，CI 与本地 Taskfile 共用同一条模块派生（`scripts/list-modules.sh`，内部是 `find`）。唯一没有目录 `replace` 的同仓消费者是 `cli`——它按 tag 消费 `bconf`，这是它存在的理由（风险评审 §3.4）。本机联合开发可以临时建 `go.work`，但它已进 `.gitignore`，且 Taskfile 顶层与 CI 都把 `GOWORK` 置 `off`：`verify-modules` 开头有一条 `[ "$(go env GOWORK)" = "off" ]` 自检，一旦 workspace 生效就地让任务失败，避免逐模块判据从「发布形态」静默退化成「本机形态」。
 
@@ -228,7 +228,7 @@ require `bald/pkg` 的模块（**22 个非示例模块** + `_example/bald`）：
 | `transport.Endpoint` 解析 | `transport/endpoint.go:26` `Extract` | 支持 `:0` 动态端口 | 由 `appkit.waitForEndpoints` 消费（`appkit.go:816-848`） |
 | `broker.Broker` | `broker/broker.go:9-33` | `Name/Options/Address/Init/Connect/Disconnect/Publish/Subscribe` + 泛型 `Subscribe[T]`(:36) | kafka/rabbitmq/redis/rocketmq |
 | `cache.Cache` | `cache/cache.go:28-69` | `Get/Set/SetNX/GetMulti/Delete…` | local/redis（loadable 是**读穿组合器**，不是后端） |
-| `registry.Registry` | `registry/registry.go:62-75` | `Registrar`(:62-67) + `Discovery`(:70-75，含 `GetService`/`Watch`) | etcd/consul/nacos/kubernetes |
+| `registry.Registrar` + `registry.Discovery` | `registry/registry.go:62`、`:70` | `Registrar`: `Register`/`Deregister`；`Discovery`: `GetService`/`Watch`（返回 `Watcher`，:78）。根包**没有一个叫 `Registry` 的类型**（后端实现侧有：`registry/{etcd,consul,nacos,kubernetes}` 各自的 `Registry` 结构体）——两面分开，注册端不必实现发现 | etcd/consul/nacos/kubernetes |
 | `bconfig.Reader/Watcher/Decoder` | `bconfig/bconfig.go:3-16` | 配置源抽象 | file/env/etcd/consul/nacos/vault/apollo |
 | `metrics.Metrics` | `metrics/metrics.go:15-19` | `Counter`/`Histogram` | otel/prometheus/datadog |
 | `encoding.Codec` | `encoding/` + 12 个格式 module | 编解码注册表，`broker.Marshal` 缺 codec 时 fail-fast（`broker/encoding.go:34`） | 12 |

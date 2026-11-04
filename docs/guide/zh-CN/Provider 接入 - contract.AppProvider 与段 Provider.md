@@ -82,7 +82,7 @@ func (p loggerProvider) Build(_ context.Context, s appkit.ApplyScope, _ appkit.N
         return bslog.New(baldbootstrap.LogOptions(nil), p.deco...), nil, nil
     }
     // 阶段 B/热更：按 logger.backends 逐项构造（非 slog 项 fail-fast 教学报错），
-    // 多项经 MultiLogger 合并、契约 filter_keys 外包 FilterLogger。
+    // 多项经 log.NewMultiLogger 合并、契约 filter_keys 出口再包一层 log.NewFilterLogger。
     ...
     return log.NewFilterLogger(out, l.GetFilterKeys()...),
         appkit.Cleanup(func(context.Context) error { merged(); return nil }), nil // cleanup 聚合

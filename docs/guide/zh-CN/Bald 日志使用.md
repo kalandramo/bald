@@ -10,7 +10,7 @@
 项，零代码零配置）；其余五个后端 = 引一个依赖 + 自声明一个 logger Provider
 （Build 里调 contract 包现成部件）+ `backends` 里加一项。段路径末者胜——
 后声明的 Provider 整体覆盖 std 默认；只给 slog 项加装饰时直接用
-`std.StandardLoggerProvider(deco...)` 覆盖，不必重写整份分派。**
+`appkit.StandardLoggerProvider(deco...)` 覆盖，不必重写整份分派。**
 
 | | 默认路径（std 内置 Provider） | 自声明 logger Provider |
 | --- | --- | --- |
@@ -233,8 +233,9 @@ case "mylog":
 
 - **装饰器经 Provider 钩子传入（`WithLogDecorators` 已取消导出）**：要脱敏/
   固定属性，slog 项直接把 `bslog.Option`（`bslog.WithFilter`、
-  `bslog.WithAttrs`）传给 `std.StandardLoggerProvider(deco...)`——它会在阶段 A
-  引导 logger 与阶段 B 每个 slog 构造点统一应用（`std.Standard()` 后追传即可，
+  `bslog.WithAttrs`）传给 `appkit.StandardLoggerProvider(deco...)`——它会在阶段 A
+  引导 logger 与阶段 B 每个 slog 构造点统一应用（在 `std.Standard()` **之后**
+  再声明一次同段 Provider 即可：`appkit.Providers(appkit.StandardLoggerProvider(deco...))`，
   段路径末者胜）；混用非 slog 后端时，在自声明 Provider 的 Build 里把同一批
   `deco` 传给 `bslog.New`/`bslog.NewWithCleanup`，阶段 A 引导分支同样传入。
 - **`filter_keys` 是顶层字段**，与后端清单正交，对全部后端统一生效（出口统一包

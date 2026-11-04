@@ -14,7 +14,7 @@
 
 `pkg/crudbridge` 回答一件事：**bald 的请求身份怎么变成 bald-crud 能用的 viewer**。
 
-两侧的身份体系不同源——bald 的请求级身份是**框架定义的最小集**（`contextx.UserID`/`TenantID`/`TraceID`，从 JWT claims 来），而 bald-crud 的 `viewer.Context` 承载**业务数据层需要的更强身份**：权限集、角色、数据范围、视图判定。不接通，bald-crud 的 `EnforceTenant`（租户强制）与 `DataScope`（行级范围）在 bald 服务的请求链路里就形同虚设。
+两侧的身份体系不同源——bald 的请求级身份是**框架定义的最小集**（`contextx.UserIDFromContext`/`TenantIDFromContext`/`TraceIDFromContext`，从 JWT claims 来），而 bald-crud 的 `viewer.Context` 承载**业务数据层需要的更强身份**：权限集、角色、数据范围、视图判定。不接通，bald-crud 的 `EnforceTenant`（租户强制）与 `DataScope`（行级范围）在 bald 服务的请求链路里就形同虚设。
 
 > **类型约定**：`viewer.Context.TenantID()` 为 **`string`**，与 bald 生态（`contextx`/`authn`/`jwt`/`audit`）一致，非数字租户 ID（UUID、`"t-default"`）可直接使用。接口中 `UserID()` / `OrgUnitID()` 仍为 `uint64`，边界见「兼容性 §类型边界」。
 

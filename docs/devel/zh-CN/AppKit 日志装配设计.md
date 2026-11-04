@@ -70,7 +70,7 @@ appkit: logger.backends[0] type "loki": default path supports only "slog";
 
 ### 脱敏只有一处包装
 
-`filter_keys` 要求全部后端恰好包一层 `log.FilterLogger`。内置 Provider 在出口统一包一次：
+`filter_keys` 要求全部后端恰好包一层 `log.NewFilterLogger`。内置 Provider 在出口统一包一次：
 
 ```go
 return log.NewFilterLogger(out, l.GetFilterKeys()...), cleanup, nil

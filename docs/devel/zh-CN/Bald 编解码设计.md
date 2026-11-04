@@ -80,7 +80,7 @@ flowchart LR
     end
 
     subgraph cfg["构造期（按名字）"]
-        C1["transport.WithCodec('json')"] -->|"GetCodec('json')"| R
+        C1["websocket/sse/broker 的 WithCodec('json')"] -->|"encoding.GetCodec('json')"| R
         C2["broker.WithCodec('proto')"] -->|"GetCodec('proto')"| R
     end
 

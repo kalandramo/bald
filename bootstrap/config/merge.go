@@ -157,7 +157,7 @@ func decodeDocument(data []byte, format string) (map[string]any, error) {
 }
 
 // FormatOf 返回文件扩展名对应的配置格式名（yaml/yml/json）；无法识别时返回空串。
-// 供 Registry 装配契约 file 源时推断层格式。
+// 供 bootstrap 的 file 适配器在契约未声明 format 时推断层格式。
 func FormatOf(path string) string {
 	ext := strings.TrimPrefix(filepath.Ext(path), ".")
 	switch strings.ToLower(ext) {

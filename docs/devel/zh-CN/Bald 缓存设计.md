@@ -114,8 +114,11 @@ func WithTTL(ttl time.Duration) Option // 回填默认 TTL，0=语义同 Set
 用法一行说清：
 
 ```go
-v, _ := app.Cache(rediscontract.Type) // Run 期取回装配实例（段名即契约段名）
-c := loadable.New(v.(cache.Cache), loadFromDB, loadable.WithTTL(5*time.Minute))
+v, ok := rediscontract.Redis.Resource(app) // Run 期经类型化句柄取回装配实例
+if !ok {
+    return errors.New("cache.redis 未装配")
+}
+c := loadable.New(v, loadFromDB, loadable.WithTTL(5*time.Minute))
 val, err := c.Get(ctx, "user:1") // miss → singleflight 合并 → 回填 → 返回
 ```
 

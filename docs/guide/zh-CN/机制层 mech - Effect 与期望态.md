@@ -107,8 +107,8 @@ Resolve 挂在 Run 内紧随配置加载之后——依赖缺失在启动期报�
 
 配套工具 `mech.DiffStrings(want, have)`（util.go）返回期望集与实际集
 的差集（add/remove，均升序稳定），「期望有实际无→挂载、实际有期望无→
-卸载」一句话写完；`mech.ParseStringList` 把配置值解析为字符串列表（薄委托
-config.StringList，新代码直接用它）。
+卸载」一句话写完。配置值 → `[]string` 的解析不在 mech 里，直接用
+`config.StringList(v any) []string`（`[]string`、`[]any` 与逗号分隔字符串都吃，空值返回 nil）。
 
 ## Registry[T]：运行期可逆挂载基座
 
@@ -126,11 +126,13 @@ config.StringList，新代码直接用它）。
   卸载并返回被卸载实例。同名换实现的约定：先 Unmount 旧条目再 Mount 新
   条目（保持配对）。
 
-它不是 bootstrap 那套装配期 fail-fast 注册表（bootstrap/registry.go）——
-两套泛型注册表语义不同、不共用，并存是有意的分工：前者服务
-段驱动装配，`Registry[T]` 的 Mount/Unmount 是装配期 Register 的**运行期
-对偶**（可逆挂载、undo 幂等），与 `App.MountComponent`/`UnmountComponent`
-同属组件热插拔与期望态协调的底层原语。
+它和框架的段驱动装配是两条不同通道：装配期「这一段有没有人接、重名冲突」的
+fail-fast 判据在 `appkit` 的段覆盖检查（`segment_coverage`），不归本表；
+`Registry[T]` 管的是「按名取实例 + 可逆挂载」——`Mount/Unmount` 是装配期
+`Register` 的**运行期对偶**（可逆、undo 幂等），与 `App.MountComponent`/
+`UnmountComponent` 同属组件热插拔与期望态协调的底层原语（设计说明见
+`pkg/appkit/mount.go` 文件头）。框架自带后端不经 `Registry[T]` 装配，它是留给
+业务自持可逆挂载的基座。
 
 ## 三个常见误区
 

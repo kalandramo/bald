@@ -366,18 +366,22 @@ func ConfigFile(f string) Option {
 //	appkit.NewApp(appkit.RemoteConfig(src))
 //
 // 语义：远程桥内部被适配为最低优先级的基准层；契约源层推荐用 ConfigLayers
-// （由 bootstrap Registry 装配，Registry 注册序即优先级）。
+// （调用方按 bootstrap.ConfigProvider 工厂的返回值拼切片，切片序即优先级）。
 func RemoteConfig(src config.RemoteSource) Option {
 	return optionFunc(func(d *Decl) { d.RemoteConfig = src })
 }
 
-// ConfigLayers 接入命名配置源层（契约 Config 段 → bconfig 源，bootstrap
-// Registry.Build 产出）。列表首元素优先级最高（对齐 Registry 注册序）；
+// ConfigLayers 接入命名配置源层（契约 Config 段 → bconfig 源，由调用方调
+// bootstrap 的 ConfigProvider 工厂产出）。列表首元素优先级最高（切片序即优先级）；
 // 整体位于本地文件/env/flag 之下、RemoteConfig 远程桥之上：
 //
-//	layers, cleanup, err := registry.Build(ctx, bootCfg)
-//	defer cleanup()
-//	appkit.NewApp(appkit.ConfigLayers(layers...))
+//	for _, p := range []bootstrap.ConfigProvider{bootstrap.FileProvider()} {
+//		l, cleanup, err := p(ctx, bootCfg) // err/cleanup 由调用方接管
+//		if l != nil {
+//			layers = append(layers, *l)
+//		}
+//	}
+//	appkit.MustServe(ctx, appkit.ConfigLayers(layers...))
 //
 // 任一层 reader 实现 bconfig.ValueWatcher 即参与热更新（变更 → 全量重合并）。
 //
@@ -494,7 +498,7 @@ func NewApp(opts ...Option) *App {
 }
 
 // loadConfig 在启动期加载配置：本地 --config 文件 + 环境变量 + 业务 flag + 可选远程配置中心。
-// 结果是 a.cfg.store（*config.Store），调用方通过 Settings()/Config() 读取并
+// 结果是 a.cfg.store（*config.Store），调用方经 Settings() 取快照并
 // Unmarshal 到业务 options。
 func (a *App) loadConfig() error {
 	fs := pflag.NewFlagSet("bald", pflag.ContinueOnError)

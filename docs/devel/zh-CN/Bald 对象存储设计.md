@@ -44,7 +44,7 @@ flowchart TB
     end
 
     subgraph appkit["运行期胶水"]
-        W["资源面 appkit.NewKey[storage.Storage]("storage.minio")"]
+        W["资源面 contract.MinIO = appkit.NewKey[*minio.Storage](&quot;storage.minio&quot;)"]
         E["停机 Effect（逆序回放 cleanup）"]
     end
 
@@ -53,8 +53,8 @@ flowchart TB
         S["oss/s3.Storage<br/>+ SDK()"]
     end
 
-    P1 -->|MustRegister| R
-    P2 -->|MustRegister| R
+    P1 -->|Providers 声明段| R
+    P2 -->|Providers 声明段| R
     R --> B
     B -->|段 minio| P1
     B -->|段 s3| P2
@@ -93,7 +93,8 @@ flowchart TB
 ### 契约映射（`contract/` 子包）
 
 ```go
-// 签名与 bootstrap.StorageProvider 结构化兼容
+// 与 bootstrap 的段工厂同形（契约段 → 实例 + cleanup），返回值用 any
+// 是因为两后端门面类型不同：*minio.Storage 与 *s3.Storage
 func Provider(ctx context.Context, cfg *bootstrapv1.Storage) (any, func(), error)
 
 // 类型守卫（编译期）

@@ -29,6 +29,7 @@ import (
 //   - cleanup 释放 provider 持有的资源（含 reader 本身，Store 不重复关闭），可为 nil；
 //   - 出错返回 error，调用方短路并回滚已构造的源。
 //
-// 典型用法是自己实现 config 段 Provider，按需组合这些工厂（示例：
-// _example/bald 与 bald-admin 的 remoteConfigProvider），而不是交给框架隐式装配。
+// 典型用法是自己实现 config 段 Provider，按需组合这些工厂（仓内消费者：
+// `contrib/config-nacos` 的 AppProvider 在 Build 里调 `bootstrap.NacosProvider()`），
+// 而不是交给框架隐式装配。
 type ConfigProvider func(ctx context.Context, cfg *bootstrapv1.BootstrapConfig) (*config.Layer, func(), error)

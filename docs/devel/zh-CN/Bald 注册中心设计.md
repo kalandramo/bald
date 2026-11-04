@@ -238,10 +238,10 @@ Run:  servers start → waitForEndpoints（:0 解析真实端口）→ Register 
 
 ```go
 // buildInstance 聚合所有 Server 的 Endpoint 构造 ServiceInstance。
-func (a *AppKit) buildInstance() *registry.ServiceInstance {
+func (a *App) buildInstance() *registry.ServiceInstance {
 	var eps []string
 	for _, s := range a.servers {
-		if ep := s.Endpoint(); ep != "" {
+		if ep := s.Endpoint(); ep != "" && registrableEndpoint(ep) {
 			eps = append(eps, ep)
 		}
 	}

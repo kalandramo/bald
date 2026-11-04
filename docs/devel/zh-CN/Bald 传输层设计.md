@@ -45,7 +45,7 @@ flowchart TB
     end
 
     subgraph appkit["appkit 装配"]
-        B["bootstrap.BuildServers"]
+        B["server 段 Provider 的 Build → []transport.Server<br/>（或 appkit.Servers 直传实例）"]
         G["errgroup: 并发 Start"]
         P["waitForEndpoints: 轮询 Endpoint()"]
     end

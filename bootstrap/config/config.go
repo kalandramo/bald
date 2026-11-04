@@ -1,12 +1,12 @@
 // Package config 提供 bald 的配置装载器（merge-store 内核，viper 已退役）。
 //
 // 定位：配置装载的事实方向是
-// bootstrap 根包的 Registry（契约 Config 段 → bconfig 源装配）；本包是
+// bootstrap 根包的 ConfigProvider 工厂（契约 Config 段 → bconfig 源）；本包是
 // appkit 现行依赖的统一装载内核，基于「命名层（Layer）+ map 深合并」实现，
 // 类型规范化交由 bconf.UnmarshalMap。
 //
 // 归一模型：Store 只有一种动态源机制——命名层。远程桥、
-// 契约源（Registry 装配）、本地文件都是 layerM 中的一层；各层 reader 实现
+// 契约源（调用方按序传入的 Layers）、本地文件都是 layerM 中的一层；各层 reader 实现
 // bconfig.ValueWatcher 即参与热更新（变更 → decode → 层缓存 → 全量重合并）。
 //
 // 加载优先级（高 → 低）：
@@ -31,7 +31,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// Layer 一个命名的配置源层：由 Registry/调用方装配的 bconfig 源。
+// Layer 一个命名的配置源层：由调用方经 bootstrap.ConfigProvider 工厂装配的 bconfig 源。
 //
 // Reader 语义为整文档源：Load(ctx, "") 返回整份配置文档字节；
 // 若 Reader 同时实现 bconfig.ValueWatcher 且 Watch 为 true，则该层参与热更新。
@@ -45,7 +45,7 @@ type Layer struct {
 	//（yaml.v3 是 JSON 超集，JSON 文档天然兼容）。
 	Format string
 	// Watch 是否订阅该层热更新（Reader 须实现 bconfig.ValueWatcher 才生效）。
-	// Registry 装配的契约源默认 true；本地文件层由 Options.WatchLocalFile 控制。
+	// bootstrap 契约源适配器产出的层默认 true；本地文件层由 Options.WatchLocalFile 控制。
 	Watch bool
 }
 
@@ -75,8 +75,9 @@ type Options struct {
 	Env string
 	// Flags 业务命令行参数集合（最高优先级）；仅「用户显式传入」的 flag 参与合并。
 	Flags *pflag.FlagSet
-	// Layers 命名配置源层（契约 Config 段 → bconfig 源，Registry.Build 产出）。
-	// 列表首元素优先级最高（对齐 Registry 注册序），合并时从列表尾向头叠加；
+	// Layers 命名配置源层（契约 Config 段 → bconfig 源，由调用方按 bootstrap.ConfigProvider
+	// 工厂的返回值拼装成切片）。
+	// 列表首元素优先级最高（切片序即优先级），合并时从列表尾向头叠加；
 	// 整体位于本地文件/env/flag 之下、远程桥之上。
 	Layers []Layer
 	// Remote 远程配置源（经 FromKratosSource 桥接或自定义实现）；为空表示不启用。
@@ -418,8 +419,8 @@ func (s *Store) setupWatch(opts Options) error {
 
 // Close 停止所有层的热更新监听并释放 Store 自建的资源（本地文件 watch 源）。
 //
-// 生命周期约定：Store 只负责自己的转发 goroutine 与自建源；Registry 装配的
-// 契约源 reader 资源由 Registry.Build 返回的 cleanup 释放（构造方职责），
+// 生命周期约定：Store 只负责自己的转发 goroutine 与自建源；bootstrap
+// ConfigProvider 工厂返回的 cleanup 负责契约源 reader 的资源（构造方职责），
 // Store 不重复关闭。
 func (s *Store) Close() error {
 	s.mu.Lock()
