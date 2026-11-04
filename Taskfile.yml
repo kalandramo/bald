@@ -175,11 +175,13 @@ tasks:
       - go test -tags grpcgw ./... -v
       # 注册中心真机装配判据：只 -tags nacos 构建形态里才有这条用例。
       # 形状（单条 -run、不是整包）抄的是用例文件自己的头注释：同 tag 的并集跑会红——
-      # 每条用例起的应用都带一个 nacos 配置 client（各自的 gRPC 连接，SDK 不按 ip:port
-      # 复用），一次启动 = 一次 ConfigQueryRequest，连续起多个应用攒成突发，服务端按请求
-      # 类型限流 ⇒ `ConfigQueryRequest is limited` ⇒ 层的首次 Load 判错、应用起不来。
-      # 根因与修法登记在风险册 §7.13。-count=1 是必须的：这条要真 nacos，命中测试缓存的
-      # 「ok」不等于刚刚跑过。没有本机 nacos 时它会 Skip（不是失败）。
+      # 红在 nacos-sdk-go 自己的**进程内**令牌桶（config_client/limiter.go:42-56：
+      # rate.NewLimiter(5, 5)，按 dataId@@group@@namespace 分键、包级共享），不是服务端
+      # 限流，也不是连接复用。每条用例起的应用都带一个 nacos 配置 client，一次启动 = 一次
+      # GetConfig；同键密集查询超过 5/s 时 SDK 直接本地拒绝（一个包都不发）⇒ 层的 Load
+      # 判错、应用起不来。根因、三格实测与归因史登记在风险册 §7.13；`bconfig/nacos.Load`
+      # 现已带上界重试，但重试把突发摊开而不是消掉它，故形状照旧。-count=1 是必须的：这条
+      # 要真 nacos，命中测试缓存的「ok」不等于刚刚跑过。没有本机 nacos 时它会 Skip（不是失败）。
       - go test -tags nacos ./internal/bootstrap -run '^TestNacosAssemblyRegistersIntoBackend$' -count=1 -v
 
   # ---------------------------------------------------------------------------

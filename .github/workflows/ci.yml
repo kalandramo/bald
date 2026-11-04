@@ -573,15 +573,16 @@ jobs:
           set -e
           mkdir -p /tmp/ex
           # -tags nacos 那一态只跑装配那条，形状取自用例文件头注释里的命令。整包（或
-          # `-run 'TestE2E_|TestGateway|^TestNacosDiscovery|…Assembly'` 这种并集）跑在同一条
-          # 命令里会红：那一构建形态下每条用例起的应用都带一个 nacos **配置** client，一次启动
-          # 就是一次 ConfigQueryRequest，同一进程里连续起多个应用攒成突发 ⇒ 服务端按请求类型限流
-          # ⇒ SDK 日志 `get config from server error:ConfigQueryRequest is limited` ⇒ 层的 Load
-          # 直接判错、应用起不来（本机实测：并集 3 次红 2、全量 3 次红 3、单条 12 次全绿）。
-          # 限流在服务端不在客户端：SDK 的 gRPC 连接按 `config-<taskId>-<uid>` 建，uid 是每个
-          # ConfigClient 一个随机 UUID，所以这些 client 各用各的连接，不是复用一个池（v2.3.5
-          # config_proxy.go:182 / config_client.go:145）。根因与修法登记在 §7.13，
-          # `bconfig/nacos` 侧的重试是独立一件事。
+          # `-run 'TestE2E_|TestGateway|^TestNacosDiscovery|…Assembly'` 这种并集）不拆的理由是
+          # nacos-sdk-go 自己的**进程内**令牌桶（config_client/limiter.go:42-56：`rate.NewLimiter(5, 5)`，
+          # 按 `dataId@@group@@namespace` 分键，`checker` 是包级变量 ⇒ 同进程所有 ConfigClient 共用）。
+          # 超出桶的查询**不发包**就被本地拒掉，串是 `ConfigQueryRequest is limited`；同一构建形态里
+          # 每条用例起的应用都带一个 nacos 配置 client，一次启动就是一次查询。实测：整包 13 用例共
+          # 9 次 Load 全落在同一个键上，最密一段是 300ms 里 5 次——正卡在桶容量上，没有余量；同键
+          # 并发 10 次 Load 的对照里，无重试时 10 个有 5 个直接判错（§7.13）。
+          # 归因错过两次：先前记的「服务端按请求类型限流」和「SDK 按 ip:port 复用连接」都不成立——
+          # 拒绝在客户端本地（纯调 IsLimited、零网络也能复现），连接也各用各的（uid 每 client 一个随机
+          # UUID）。`bconfig/nacos.Load` 现已带上界重试，但重试把突发摊开而不是消掉它，故形态照旧。
           # 这不是把判据调窄到能过：现状（task example-e2e）根本不含 nacos 态，这一条是净增。
           (cd _example/bald && go mod download \
             && go test ./... -count=1 -timeout 10m -v > /tmp/ex/default.log 2>&1) || { cat /tmp/ex/default.log; exit 1; }

@@ -162,6 +162,10 @@ all, _ := NewFallbackReader(fileSrc, remote)
 
 nacos 源的默认命名空间口径：契约/Option 里写的 `public` 是**显示名**，装载前折成 SDK 认的空 `NamespaceId`（`bconfig/nacos` 的 `namespaceID`）。不折就是静默失效——实测 nacos-server v2.3.2：`NamespaceId="public"` 时 `GetConfig` **返回空内容且不报错**，远端源接上了、启动不响、一个键也没进来；同一份内容用 `NamespaceId=""` 拿到全文。自建 namespace 的 ID 是用户自己起的字符串，原样透传。这一条由 `TestNamespaceID_DefaultNameFoldsToEmpty` 与 `TestClientConfig_NamespaceIsFolded` 钉住。注册中心侧（`registry/nacos` 直接 `NamespaceId: op.namespace`）**不折叠，也不该折叠**：实测 nacos 的命名 API 里 `public` 与空串是同一个租户（两种写法互相看得到对方注册的实例，`service/list` 返回同一份列表，SDK 也把空 `NamespaceId` 归一成 `DEFAULT_NAMESPACE_ID`），与配置 API 这里是相反的口径；折叠反而会把用户显式写的名字变成看不见的默认值。证据与接线收口见风险登记册 §7.10。
 
+nacos 源的 `Load` 会**自己重试**：上界 4 次、间隔 250ms，`ctx` 取消或到期立刻退出（不烧完上界）。原因是 nacos-sdk-go 在**进程内**给每个 `dataId@@group@@tenant` 键挂了一个 5/s、桶容量 5 的令牌桶（`clients/config_client/limiter.go`，包级变量 ⇒ 同进程所有 `ConfigClient` 共用），超出桶的查询一个包都不发就被本地拒掉。一个进程里叠多层 nacos 源、多 dataID 冷启动或滚动重启窗口内的并发实例都会攒出这种突发，而 SDK 的错误文案在缺快照时只报「本地缓存文件不存在」，所以 `loadFailed` 额外把「可能是本地桶」这句候选真因写进错误里。间隔取 250ms 的出处、三格实测与归因史在风险登记册 §7.13。
+
+同源的另一面**没修**：SDK 在该 dataID **有**本地快照时，查询失败会回落读盘并返回 `err == nil`——限流就此静默变成「配置没变」，应用带着上一份配置正常启动。仓内唯一的开关是 SDK 的 `DisableUseSnapShot`，打开它等于删掉离线快照能力（断网时配置源直接判错），所以不动；接手者要查这类失效请看 SDK 日志里的 `ConfigQueryRequest is limited`，而不是看 `Load` 的返回值。
+
 > 契约瘦身记录：`bootstrapv1.Config` 砍掉无 provider 的死源 fs/redis/zookeeper/oss/polaris（字段号 reserved 防复用）。fs 源的 `fsys` 是编译期资源无法经契约表达（`bconfig/fs` 走代码 API）；其余按需实现时以新字段号追加。vault 同日实现（KV v1/v2 + 轮询 watch），恢复字段号 10（原契约从未发布，无历史数据风险），并砍掉原契约中无消费者的 `mount_path` 字段。**契约字段须全有消费者**：nacos 的 namespace/server_addrs、kubernetes 的 config_map_name/key（WithConfigMapName/WithDataKey 回填空 key 装配默认值）均在此原则下补齐实现。
 
 ---
