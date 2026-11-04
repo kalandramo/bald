@@ -67,6 +67,7 @@ bald/bconf/                       module github.com/kalandramo/bald/bconf
 生成物入库，业务方无需装 buf 工具链即可构建。改 proto 后跑 `task proto-contract` 重新生成——**不要手改 `.pb.go`**：rawDesc 内嵌描述符带长度前缀，改长字符串会让长度错位、运行期 panic。
 
 `task proto-contract` 用 `bconf/buf.gen.local.yaml`（本机 `buf` + `protoc-gen-go`），因为**入库产物出自这条路径**。另一份 `buf.gen.yaml`（BSR 远端插件）只作对照，不能拿来重出提交：实测（2026-11-04）同版本号 v1.36.12 的远端插件会在中文注释的 `//` 后补一个空格，与 `gen/go/bootstrap/v1/log.pb.go` 差一处排版——那是工具差异，不是契约变更。
+同一处排版还有第二个变量：**buf 的来源**。`bconf/buf.version` 钉的是版本字符串，而 `go install github.com/bufbuild/buf/cmd/buf@v1.50.0` 的源码构建与官方发行二进制报同一个 `1.50.0`，产出却差那一处空格（前者字节红、后者零差异，实测 2026-11-04）。所以这条腿红时的取证顺序是：**先用官方发行版复跑**，仍不一致才谈契约漂移；插件侧同理（实测 v1.36.10 不补空格、v1.36.12 补）。
 
 `task proto-contract-check`（`TestGeneratedMatchesProto`，工具链缺失时自动跳过）在字节比对之前先核对两把版本 pin：`buf` 驱动器对 `bconf/buf.version`，`protoc-gen-go` 对产物头部自己声明的版本行。红了会先指名是哪把工具不符；都对上才轮到逐字节判据，报出具体文件。
 

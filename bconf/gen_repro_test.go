@@ -18,7 +18,9 @@ import (
 //   - protoc-gen-go 版本 == 入库产物头部声明的版本
 //
 // 两条判据都在字节比对之前单独判红，是为了让「红」一眼分得清契约漂移还是工具链
-// 换代（口径见风险登记册 §7.9）。
+// 换代（口径见风险登记册 §7.9）。注意版本**字符串**相等不等于来源相同：同版本的
+// 官方发行二进制与源码构建（`go install`）实测产出不同，所以字节红时文案给两条可能，
+// 不直接断「契约漂了」。
 func TestGeneratedMatchesProto(t *testing.T) {
 	if _, err := exec.LookPath("buf"); err != nil {
 		t.Skip("buf 不在 PATH，跳过契约层生成校验")
@@ -80,9 +82,16 @@ func TestGeneratedMatchesProto(t *testing.T) {
 		}
 	}
 	if len(problems) > 0 {
-		// 到这里 buf 版本已核对等于 pin，所以红的是契约本身。插件版本也打进文案：
-		// protoc-gen-go 的版本行就在产物字节里，插件换版同样会表现为「内容不一致」。
-		t.Fatalf("契约层生成物与 proto 不一致（%d 项，前 10 项）：\n  %s\n本机 buf=%s（= bconf/buf.version 的 pin），protoc-gen-go=%s，因此这是契约漂移而不是工具链差异。\n确认是契约变更后用 `buf generate --template buf.gen.local.yaml` 重新生成并提交；要升级 buf，就把 buf.version 与用新版本重生成的 gen/go 一起提交（口径见风险登记册 §7.9）",
+		// 到这里 buf 版本字符串已等于 pin，但**版本相等不等于来源相同**（实测 2026-11-04）：
+		// 官方发行二进制 buf 1.50.0 与 `go install github.com/bufbuild/buf/cmd/buf@v1.50.0`
+		// 的源码构建报同一个版本号，前者与入库产物零差异、后者给中文注释的 `//` 补一个空格
+		// （`bootstrap/v1/log.pb.go`）。所以这里不能断言「一定是契约漂移」——先按文案换
+		// 官方发行版复跑，仍不一致才是契约。插件版本也打进文案：protoc-gen-go 的版本行就在
+		// 产物字节里，插件换代同样表现为「内容不一致」（实测 v1.36.10 不补空格、v1.36.12 补）。
+		t.Fatalf("契约层生成物与 proto 不一致（%d 项，前 10 项）：\n  %s\n本机 buf=%s（= bconf/buf.version 的 pin），protoc-gen-go=%s。\n"+
+			"两条可能：① 契约真的变了——那用 `buf generate --template buf.gen.local.yaml` 重生成并把 gen/go 一起提交；"+
+			"② 工具链来源不等于 pin——同一个版本号的**源码构建**与**官方发行二进制**产出不同（实测差一处注释空格），"+
+			"用官方发行版复跑再判。要升级 buf，就把 buf.version 与用新版本重生成的 gen/go 一起提交，让 diff 自己说话（口径见风险登记册 §7.9）",
 			len(problems), joinLimited(problems, 10), pinned, toolVersion(t, "protoc-gen-go"))
 	}
 }

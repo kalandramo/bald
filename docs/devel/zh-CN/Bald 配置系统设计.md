@@ -160,7 +160,7 @@ all, _ := NewFallbackReader(fileSrc, remote)
 
 双模式构造 `New(opts...)`（从连接参数自建 client，契约装配路径）+ `NewWithClient(c, opts...)`（注入已有 client 复用既有连接，本源不负责关闭）存在于 etcd / consul / nacos / apollo / vault / http（补齐远程五家）；kubernetes 是例外——仅 `New`，kubeconfig / master URL 经 Option 注入（集群内 ServiceAccount 零配置直连）。watch 语义：etcd 原生 watch / consul watch plan / nacos ListenConfig / apollo 变更事件 / kubernetes ConfigMap watch 为**推送**；vault 无推送能力，以轮询模拟（与 http 的 ETag 轮询同型）。apollo 后端的行为约定：`New` 连接失败返回 error（不 panic）；watcher 不会在注册后立即反注册。
 
-nacos 源的默认命名空间口径：契约/Option 里写的 `public` 是**显示名**，装载前折成 SDK 认的空 `NamespaceId`（`bconfig/nacos` 的 `namespaceID`）。不折就是静默失效——实测 nacos-server v2.3.2：`NamespaceId="public"` 时 `GetConfig` **返回空内容且不报错**，远端源接上了、启动不响、一个键也没进来；同一份内容用 `NamespaceId=""` 拿到全文。自建 namespace 的 ID 是用户自己起的字符串，原样透传。这一条由 `TestNamespaceID_DefaultNameFoldsToEmpty` 与 `TestClientConfig_NamespaceIsFolded` 钉住。注册中心侧（`registry/nacos` 直接 `NamespaceId: op.namespace`）是否有同一形状仍未实测——它需要真 nacos，见风险登记册 §7.1 的 nacos 注册中心腿。
+nacos 源的默认命名空间口径：契约/Option 里写的 `public` 是**显示名**，装载前折成 SDK 认的空 `NamespaceId`（`bconfig/nacos` 的 `namespaceID`）。不折就是静默失效——实测 nacos-server v2.3.2：`NamespaceId="public"` 时 `GetConfig` **返回空内容且不报错**，远端源接上了、启动不响、一个键也没进来；同一份内容用 `NamespaceId=""` 拿到全文。自建 namespace 的 ID 是用户自己起的字符串，原样透传。这一条由 `TestNamespaceID_DefaultNameFoldsToEmpty` 与 `TestClientConfig_NamespaceIsFolded` 钉住。注册中心侧（`registry/nacos` 直接 `NamespaceId: op.namespace`）**不折叠，也不该折叠**：实测 nacos 的命名 API 里 `public` 与空串是同一个租户（两种写法互相看得到对方注册的实例，`service/list` 返回同一份列表，SDK 也把空 `NamespaceId` 归一成 `DEFAULT_NAMESPACE_ID`），与配置 API 这里是相反的口径；折叠反而会把用户显式写的名字变成看不见的默认值。证据与接线收口见风险登记册 §7.10。
 
 > 契约瘦身记录：`bootstrapv1.Config` 砍掉无 provider 的死源 fs/redis/zookeeper/oss/polaris（字段号 reserved 防复用）。fs 源的 `fsys` 是编译期资源无法经契约表达（`bconfig/fs` 走代码 API）；其余按需实现时以新字段号追加。vault 同日实现（KV v1/v2 + 轮询 watch），恢复字段号 10（原契约从未发布，无历史数据风险），并砍掉原契约中无消费者的 `mount_path` 字段。**契约字段须全有消费者**：nacos 的 namespace/server_addrs、kubernetes 的 config_map_name/key（WithConfigMapName/WithDataKey 回填空 key 装配默认值）均在此原则下补齐实现。
 
@@ -189,7 +189,7 @@ bald/bconf/                       module github.com/kalandramo/bald/bconf
 
 - **Go 导入路径**：`github.com/kalandramo/bald/bconf/gen/go/...`。
 - **生成方式**：`buf` managed mode（`buf.gen.yaml` 的 `go_package_prefix` 是生成路径的最终裁决者）。各 `.proto` 的 `option go_package` 已与之一致（历史上 store/appspec 两文件曾残留旧 `pkg/conf/gen` 串、靠 managed mode 兜底——已修正，不再依赖兜底）。
-- **改 proto 后**：跑 `task proto-contract` 重新生成 `.pb.go`（本机 `buf` + `protoc-gen-go`，模板 `bconf/buf.gen.local.yaml`）——**不要直接手改 `.pb.go`**，`rawDesc` 内嵌描述符带 protobuf 长度前缀，改长字符串会让长度错位、运行时 panic。（protoc-gen-go 生成 rawDesc 时会剥离 `go_package`，故修正源串不影响生成产物。）别改用 BSR 远端模板 `buf.gen.yaml` 重出提交：同版本插件在容器里会给中文注释的 `//` 补一个空格，与入库产物差一处排版。`task proto-contract-check` 校验生成物与 proto 同步，并在字节比对前先核对两把工具版本 pin（`bconf/buf.version` 与产物头部的 protoc-gen-go 版本行）。
+- **改 proto 后**：跑 `task proto-contract` 重新生成 `.pb.go`（本机 `buf` + `protoc-gen-go`，模板 `bconf/buf.gen.local.yaml`）——**不要直接手改 `.pb.go`**，`rawDesc` 内嵌描述符带 protobuf 长度前缀，改长字符串会让长度错位、运行时 panic。（protoc-gen-go 生成 rawDesc 时会剥离 `go_package`，故修正源串不影响生成产物。）别改用 BSR 远端模板 `buf.gen.yaml` 重出提交：同版本插件在容器里会给中文注释的 `//` 补一个空格，与入库产物差一处排版。`task proto-contract-check` 校验生成物与 proto 同步，并在字节比对前先核对两把工具版本 pin（`bconf/buf.version` 与产物头部的 protoc-gen-go 版本行）。两把 pin 都只钉版本**字符串**：同号的源码构建 buf 与官方发行二进制产出不同（实测差一处注释空格），所以字节红时先用官方发行版复跑再判契约，别急着重生成产物。
 
 ### 2.2 为什么用 proto 作契约（而非 Go struct + mapstructure）
 
