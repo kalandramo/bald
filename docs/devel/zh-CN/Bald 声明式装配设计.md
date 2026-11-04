@@ -554,7 +554,7 @@ func Routes(h http.Handler) error {
 落地形态是 `scripts/acceptance-gate.sh`（只跑 `go test`，跨平台）。**判据清单与执行由同一个脚本交出**：每条腿先 `go test -list <正则>` 取出当前**真实命中**的顶层测试名（命中为空即红），再 `-v` 跑同一正则并逐条断言日志里出现 `--- PASS: <名字>`。这样写的原因很具体：`-run` 命中 0 个测试时**返回 0**，用例改名、被删、正则写错，调用方看到的照样是绿——清单来自 `-list` 而不是手写表格，增删用例不必维护第二份真相，同时改名也瞒不过去。
 
 ```bash
-task acceptance                       # 本地全量（scope=all，含下面标 ✗ 的两条）
+task acceptance                       # 本地全量（scope=all，共 9 条腿：下面 8 行里标 ✗ 的那两行实为三条腿——bconf 一条 + 参考工程计划两态各一条）
 bash scripts/acceptance-gate.sh ci    # CI 的 acceptance 作业跑的就是这一条
 ```
 
