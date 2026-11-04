@@ -12,12 +12,14 @@
 
 ### broker/kafka v0.2.4
 
+- `a2c6e431` chore: 发布 4 个模块（bconf v0.19.0、registry/etcd v0.4.0、broker/kafka v0.2.4、transport/kafka v0.2.1）
 - `3ca50afb` refactor(kafka): 订阅退避改用 retry 的指数曲线 + EqualJitter
 - `8d277c47` chore: 发布 20 个模块（含根 v0.38.0）
 - `63f2cecf` chore: 发布 5 个模块（bconf v0.17.0、berrors v0.1.2、bootstrap v0.13.6、pkg v0.2.0、根 v0.37.0）
 
 ### registry/etcd v0.4.0
 
+- `a2c6e431` chore: 发布 4 个模块（bconf v0.19.0、registry/etcd v0.4.0、broker/kafka v0.2.4、transport/kafka v0.2.1）
 - `8f5a6d44` feat(registry/etcd): 契约退避段桥成 retry 曲线，WithRetreat 覆盖两半
 - `68c74bbc` refactor(etcd): 重注册退避改用 retry 原语，并给曲线封顶
 - `8d277c47` chore: 发布 20 个模块（含根 v0.38.0）
@@ -25,8 +27,27 @@
 - `d4396185` chore: 发布 3 个模块（bald v0.37.1、cli v0.1.0、pkg v0.2.1）
 - `63f2cecf` chore: 发布 5 个模块（bconf v0.17.0、berrors v0.1.2、bootstrap v0.13.6、pkg v0.2.0、根 v0.37.0）
 
+### transport/asynq v0.6.2
+
+- `b99e8cc0` fix(asynq): 停机闸门不再复位——并发 Stop 会二次 close 同一通道
+- `a2c6e431` chore: 发布 4 个模块（bconf v0.19.0、registry/etcd v0.4.0、broker/kafka v0.2.4、transport/kafka v0.2.1）
+- `8d277c47` chore: 发布 20 个模块（含根 v0.38.0）
+- `6f9a3104` chore: 发布 3 个模块（bald v0.37.2、cli v0.1.1、pkg v0.2.2）
+- `d4396185` chore: 发布 3 个模块（bald v0.37.1、cli v0.1.0、pkg v0.2.1）
+- `63f2cecf` chore: 发布 5 个模块（bconf v0.17.0、berrors v0.1.2、bootstrap v0.13.6、pkg v0.2.0、根 v0.37.0）
+
+### transport/gateway v0.5.1
+
+- `cedd00a2` fix(gateway): 解析器不再把内容相同的快照推给 gRPC
+- `a2c6e431` chore: 发布 4 个模块（bconf v0.19.0、registry/etcd v0.4.0、broker/kafka v0.2.4、transport/kafka v0.2.1）
+- `8d277c47` chore: 发布 20 个模块（含根 v0.38.0）
+- `6f9a3104` chore: 发布 3 个模块（bald v0.37.2、cli v0.1.1、pkg v0.2.2）
+- `d4396185` chore: 发布 3 个模块（bald v0.37.1、cli v0.1.0、pkg v0.2.1）
+- `63f2cecf` chore: 发布 5 个模块（bconf v0.17.0、berrors v0.1.2、bootstrap v0.13.6、pkg v0.2.0、根 v0.37.0）
+
 ### transport/kafka v0.2.1
 
+- `a2c6e431` chore: 发布 4 个模块（bconf v0.19.0、registry/etcd v0.4.0、broker/kafka v0.2.4、transport/kafka v0.2.1）
 - `bfe1467b` fix(deps): 补上 retry 进 etcd/kafka 后的 require/go.sum 涟漪
 - `9cf17db1` chore: 发布 30 个模块（含根 v0.35.0）
 - `875755c3` chore: 发布 bald v0.34.0 等 13 个模块
