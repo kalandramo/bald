@@ -55,9 +55,10 @@ bald/bconf/                       module github.com/kalandramo/bald/bconf
 ├── buf.yaml                      buf v2 module：buf.build/kalandramo/bald-bconf
 ├── buf.gen.yaml                  managed mode，go_package_prefix 裁决生成路径
 ├── bootstrap.go / unmarshal.go / bindflags.go / util.go
-├── proto/bootstrap/v1/           框架级契约 16 个（package bootstrap.v1）
-│   └── bootstrap.proto 顶层 BootstrapConfig + app/server/config/registry/
-│       log/tracer/metrics/broker/storage/ai/workflow/cache/script/database/audit
+├── proto/bootstrap/v1/           框架级契约 17 个（package bootstrap.v1）
+│   ├── bootstrap.proto 顶层 BootstrapConfig + app/server/config/registry/
+│   │   log/tracer/metrics/broker/storage/ai/workflow/cache/script/database/audit
+│   └── common.proto    跨域策略段：Backoff（曲线 + 抖动），首个表面 registry.etcd.backoff
 ├── proto/bald/
 │   ├── store/v1/store.proto      分页/过滤/排序契约（pkg/store 消费）
 │   └── appspec/v1/appspec.proto  应用规格契约（代码生成器消费）
@@ -83,12 +84,12 @@ cd bconf && bin=$(mktemp -d) \
 
 ### 契约形状：BootstrapConfig 十五个域
 
-顶层消息声明式描述应用完整拓扑：`app`（元数据，含全契约唯一 Duration 字段 `stop_timeout`）、`server`（HTTP/gRPC 可混合）、`config`（九种配置源可混合）、`registry`、`logger`、`tracer`、`metrics`、`broker`、`storage`、`ai`、`workflow`、`cache`、`script`、`database`、`audit`（v0.6.0 新增，见下）。多态域（配置源、日志后端、传输协议）一律 `optional` 子消息 + `repeated`——「同时配多种」是一等公民。
+顶层消息声明式描述应用完整拓扑：`app`（元数据，含 Duration 字段 `stop_timeout`）、`server`（HTTP/gRPC 可混合）、`config`（九种配置源可混合）、`registry`、`logger`、`tracer`、`metrics`、`broker`、`storage`、`ai`、`workflow`、`cache`、`script`、`database`、`audit`（v0.6.0 新增，见下）。多态域（配置源、日志后端、传输协议）一律 `optional` 子消息 + `repeated`——「同时配多种」是一等公民。
 
 三条形状设计纪律，各对应一类真实语义需求：
 
 1. **三态语义用显式子消息**（如 `server.http.tls` → `message TLS`）：启用 TLS 是未配置/禁用/启用+参数三态，标量 bool 表达不了；子消息天然有 presence，`GetTls() == nil` 即未配置。
-2. **Duration 用 `google.protobuf.Duration`**：换类型安全与 protojson 标准序列化，代价见下文坑 1。无跨语言需求的配置项，秒数 int 字段反而省心——全契约目前仅 `app.stop_timeout` 一处用 Duration。
+2. **Duration 用 `google.protobuf.Duration`**：换类型安全与 protojson 标准序列化，代价见下文坑 1。无跨语言需求的配置项，秒数 int 字段反而省心——全契约目前只有 4 处用 Duration：`app.stop_timeout` 与 `common.Backoff` 的 `initial`/`step`/`max`（其余时长类字段一律 `*_ms` int）。
 3. **repeated 是替换语义**：配置中出现列表整体覆盖默认值而非追加（桥接层保证，见下文）——契约层面无需为「覆盖 vs 追加」引入任何标记。
 
 **v0.6.0 新增 `audit` 域**：声明审计后端配置（`Audit` 消息）。与 `logger` 同属「可插拔后端」家族但语义不同——审计是**一次性装配、不支持热更新**（运行期热切走 R1-2 协调器的 `audit.backends` 期望态，双轨并存）。该域自身也经历了一次单选→多选迁移：`string type = 1`（v0.5.0 单选）在 v0.6.0 废弃并 `reserved`，改为 `backends` 列表；旧键被装载器 `DiscardUnknown` 丢弃后剩空段，**启动期显式报错**（静默失效变显式迁移提示，与 §兼容性 的字段号纪律同调）。
@@ -140,7 +141,7 @@ map → coerce 类型规范化 → json.Marshal
 
 三个坑，实现内建防御，业务侧须知其存在：
 
-1. **Duration 格式化**。protojson 的 Duration 只接受十进制秒 + `"s"` 结尾（`"90s"`）；`time.Duration.String()` 产生 `"1m30s"` 复合表示会解析失败。flag 传入的 Duration 经 `strconv.FormatFloat(d.Seconds(),'f',-1,64)+"s"` 格式化（`coerceDuration` 内建）。
+1. **Duration 格式化**。protojson 的 Duration 只接受十进制秒 + `"s"` 结尾（`"90s"`）；`time.Duration.String()` 产生 `"1m30s"` 复合表示会解析失败。flag 传入的 Duration 经 `strconv.FormatFloat(d.Seconds(),'f',-1,64)+"s"` 格式化（`coerceDuration` 内建）。**字符串来源同样要重排**——这里原先有个真实缺陷：yaml/env 落下来的串只过 `time.ParseDuration` 校验、原样交给 protojson，于是 `1500ms`、`5m`、`1m30s` 这些「Go 合法、protojson 非法」的写法一路走到 protojson 才炸，报错里键名丢失只剩字节偏移（实测 `proto: (line 1:60): invalid google.protobuf.Duration value "1500ms"`）。现在字符串分支 parse 之后同样 `formatDuration` 归一，`10s`/`1.5s`/`1500ms`/`1m30s` 四种写法落进同一个值（`TestUnmarshalDurationSpellings`）。缺陷不限新字段，`app.stop_timeout` 一直在同一条路径上。
 2. **proto.Merge 对 repeated 是 append**。默认值 `["stdout"]` 与配置值 `["stdout"]` 会合并成 `["stdout","stdout"]`——日志向 stdout 写两遍的真实案例。`clearPresentLists` 在合并前清掉「配置中显式出现的」list 字段旧值，使其表现为替换；配置未出现的 list 保留默认值。
 3. **proto3 标量无 presence**。无法区分「未配置」与「显式配置为零值」——`http.addr` 默认 `:8080`，配置里显式写空串**不会**覆盖它。这是 proto3 固有行为不是缺陷；确需三态语义时在 proto 用 `optional` 或显式子消息。
 
@@ -150,7 +151,7 @@ env（AutomaticEnv）与 flag 的值在配置树里可能是字符串或任意�
 
 - 标量：字符串/数字/布尔互转（`"8080"`→int32、`true`→`"true"`），整数字符串按 flag/env 常见写法放行；
 - 枚举：值名（`"json"`）与编号（`0`）都收，非法值列出全部合法名报错；
-- Duration：三种来源形态（yaml 串 / env 串 / flag 的 time.Duration 或纳秒整数）归一；
+- Duration：四种来源形态（yaml 串 / env 串 / flag 的 `time.Duration` / 纳秒整数）全部归一成十进制秒串——串也重排，不只校验（见坑 1）；
 - 键名：`json_name`（camelCase）与 proto 原名（snake_case）都识别，kebab-case（`output-paths`）折叠 `-` 后等价匹配；
 - 边界诚实：float64 精度高于 int64，超界值显式拒绝（边界用 `1<<63` 精确常量——`float64(math.MaxInt64)` 恰为 2^63，`>` 会放过它）；repeated 字段接受单值标量包成单元素切片。
 
@@ -230,13 +231,13 @@ bconf.BindFlags(fs, cfg, "server")   // 递归注册 --server.http.addr 等层�
 
 全部已落地，无过渡安排：
 
-- [x] 契约 18 proto：bootstrap.v1 框架级 16 个 + 域级 store.v1（分页/过滤/排序，pkg/store 消费）+ appspec.v1（应用规格，`gen app --spec` 消费）。
+- [x] 契约 19 proto：bootstrap.v1 框架级 17 个（含 `common.proto` 的跨域策略段 `Backoff`）+ 域级 store.v1（分页/过滤/排序，pkg/store 消费）+ appspec.v1（应用规格，`gen app --spec` 消费）。
 - [x] buf v2 module（`buf.build/kalandramo/bald-bconf`）+ managed mode 生成，生成物入库。
 - [x] `NewBootstrap` 默认值（hostname 作 App.Id）。
 - [x] `UnmarshalMap` 合并桥接：coerce 规范化 + DiscardUnknown + clearPresentLists + proto.Merge；Duration/repeated/presence 三坑内建防御。
 - [x] `Validate` 形状校验：addr 格式（:0 动态端口放行）、backends 非空、六种后端段级规则（值域/必填连接目标/数值非负，凭证走 env 链不校）、filter_keys/output_paths 空串项 fail-fast，错误带 `backends[i].<seg>` 定位。
 - [x] `BindFlags` 描述符驱动：八种标量 + Duration 字符串化，nil 子消息跳过防 TLS 误启用，FlagSet 作用域可控；repeated/map 注册隐藏指引 flag（误用报「怎么办」、自定义 binder 让位）。
-- [x] 测试 14 例锁语义：默认值快照、合并语义、标量 coerce、Duration 格式化、backends/filter_keys/output_paths/五后端段级校验、指引 flag 五态（零感知/隐藏/误用指引/map/让位）。
+- [x] 测试 30 例锁语义：默认值快照、合并语义、入参不被改写、标量 coerce、Duration 格式化与四种写法归一、嵌套策略段解码（`registry.etcd.backoff`，含「缺席必须是 nil」）、backends/filter_keys/output_paths/五后端段级校验、指引 flag 五态（零感知/隐藏/误用指引/map/让位）、env 键折叠六态、契约产物字节门、分配剖面守卫两条。
 
 **版本演进（节选，全量在根 `CHANGELOG.md`）**：
 

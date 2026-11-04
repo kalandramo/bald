@@ -4,7 +4,7 @@
 >
 > Discussion at: 源码 `retry/{go.mod,retry.go,retry_test.go}`；对照 `broker/kafka/subscriber.go`、`registry/etcd/registry.go`、`bconfig/apollo/apollo.go`
 >
-> Status: Accepted（已落地、零依赖；Taskfile/README 已登记；退避原语已接入 `broker/kafka` 与 `registry/etcd`，`Retrier.Do` 尚无调用点，见「实现与验证」）
+> Status: Accepted（已落地、零依赖；Taskfile/README 已登记；退避原语已接入 `broker/kafka` 与 `registry/etcd`，契约侧新增 `bootstrap.v1.Backoff` 并挂上 `registry.etcd.backoff`；`Retrier.Do` 尚无调用点，见「实现与验证」）
 
 ## 摘要
 
@@ -16,7 +16,7 @@
 2. **传输无关**。它只认 `func(ctx) error`，不认 HTTP、gRPC、Kafka、etcd。任何 I/O 都能包进来。
 3. **不吞错误语义**。终止时用 `errors.Join(哨兵, lastErr)`，调用方的 `errors.Is` 与我们的 `ErrMaxAttempts` **同时**成立。
 
-现状分两层说：`retry` 的**退避原语已被两处消费**——`broker/kafka` 的订阅 fetch 退避与 `registry/etcd` 的断链重注册退避，都换成这里的 `ExponentialBackoff` + `Jitter`；而**重试循环 `Retrier.Do` 在仓内仍无调用点**，`bconfig/apollo` 的空文档等待也仍是自己那一套固定间隔。判据：`grep -rl '"github.com/kalandramo/bald/retry"' --include=*.go .` 命中恰为上面两个文件。
+现状分两层说：`retry` 的**退避原语已被两处消费**——`broker/kafka` 的订阅 fetch 退避与 `registry/etcd` 的断链重注册退避，都换成这里的 `ExponentialBackoff` + `Jitter`，后者还把曲线与抖动的形状开成了可覆盖的选项（`WithRetreat`），并由契约段 `registry.etcd.backoff` 驱动；而**重试循环 `Retrier.Do` 在仓内仍无调用点**，`bconfig/apollo` 的空文档等待也仍是自己那一套固定间隔。判据：`grep -rl '"github.com/kalandramo/bald/retry"' --include='*.go' .` 命中 5 个文件——`broker/kafka/subscriber.go`、`registry/etcd/{options,registry}.go`、`registry/etcd/contract/contract.go` 与 `registry/etcd/retreat_policy_test.go`。
 
 ## 背景与动机
 
@@ -42,6 +42,8 @@
 | `bconf/proto/bootstrap/v1/registry.proto` | `Registry.Etcd` | `int32 max_retry` |
 
 **没有任何一个字段能表达退避曲线**——初始值、倍数、上限、抖动策略，一个都写不出来。于是每个后端只能把曲线硬编码在自己代码里，配置文件能调的永远只有「几次」。
+
+今天这条已经闭合：`bconf/proto/bootstrap/v1/common.proto` 有了一条顶层 `Backoff` 消息，第一个表面是 `Registry.Etcd.backoff`，桥在 `registry/etcd/contract`。口径、kafka 为什么暂不挂、以及翻译层的归属与升格条件见「实现与验证 → 契约曲线」。
 
 ### 一句话定性
 
@@ -289,11 +291,40 @@ err := r.Do(ctx, func(ctx context.Context) error {
 | `registry/etcd` 断链重注册退避 | `1,2,4,…,2^n` 秒攒进切片、等概率取一档，无上限 | `ExponentialBackoff{Initial: 1s, Factor: 2, Max: defaultRetreatMax}` + `FullJitter` | **分布变了，如实记账**：默认 `max_retry=5`（最高档 16s）未触顶，所以默认配置的上界不变。变的是三件事——① ≥9 档截到 5min。旧曲线实测（纯算术）attempt=9 → 8m32s、20 → 291h、33 → 272 年，`max_retry` 是契约字段，配置可达；≥34 起「秒 × 1e9」溢出成**负** duration，`time.After` 立刻返回，退避反转成忙轮询。② 不再等概率取档：旧写法在档位很多时仍有 `1/(n+1)` 的概率只退 1s，注册中心恢复瞬间成百上千实例一起重连正是要避免的同步风暴。③ 下限不再保 1s |
 | `bconfig/apollo` 空文档等待 | 固定间隔 `syncWaitInterval`，空文档也算失败 | **不接** | 三条都撞 `Retrier.Do` 的签名：谓词是内容而非 error，`Classifier` 吃不到（要接得先造内部哨兵错误）；「重试耗尽仍为空」是合法结果（返回空文档 + nil error），而 `Do` 的终态是 `errors.Join(ErrMaxAttempts, lastErr)`；取回的 payload 要靠闭包变量带出，`Do` 的返回值里没有它的位置 |
 
-### 契约曲线：下一轮
+### 契约曲线：已落地，第一个表面是 `registry.etcd.backoff`
 
-`bconf` 仍表达不了退避曲线——与重试相关的字段只有 `Broker.Rocketmq.retry_count` 与 `Registry.Etcd.max_retry` 两个标量，即「几次」，不含初始值、倍数、上限与抖动策略。
+`bconf/proto/bootstrap/v1/common.proto` 新增顶层消息 `Backoff`（形状仿已有的 `Server.TLS` / `RateLimit` / `Timeout`——被多处引用的策略段，不是每个后端各抄一份字段）：`initial` / `factor` / `step` / `max` / `curve`（`EXPONENTIAL`、`LINEAR`、`FIXED`）/ `jitter`（`NONE`、`FULL`、`EQUAL`），首个挂点是 `Registry.Etcd.backoff = 7`，由各 `<adapter>/contract` 桥接成 `retry` 的 `Backoff` + `Jitter`。
 
-下一轮加一条可复用的 `Backoff` 消息，形状仿已有的 `Server.TLS` / `RateLimit` / `Timeout`（被多处引用的策略段，不是每个后端各抄一份字段），挂到 `Registry.Etcd` 等表面，由各 `<adapter>/contract` 桥接成 `ExponentialBackoff`。本轮刻意不等它：先把实现归一，否则新增的契约段没有唯一映射目标；而契约变更是独立批次（bconf minor + 契约产物字节门 + 文档 + 发版）。
+**缺省分两层**，这是这份契约里最容易写歪的地方：
+
+| 层 | 口径 |
+|---|---|
+| 段缺席（`optional`） | 整条曲线沿用后端默认——etcd 即 1s 起翻倍、截到 `defaultRetreatMax`、叠 `FullJitter`。「不配置即行为不变」的实现路径是 `retreat(nil)` 返回**两个 nil**，不是零值消息 |
+| 段存在 | `initial` 必填且 `>0`；除 `FIXED` 外 `max` 必填且 `>0`；`factor` 未写（0）由 `retry` 自己按 2 归一；`jitter` 未写（`UNSPECIFIED`）落回 nil，即**只换曲线、不换抖动** |
+
+刻意**不做**「逐字段继承后端默认」。那条口径要求契约层知道每个后端的默认数字——同一个数字同时住在 `bconf` 和后端实现里，两边各自演进必然漂移；代价换成「写了就要写全这条曲线的形状」，可接受。
+
+两个形状因此**不可表达**，直接判配置错而不是静默降级：零原点（`initial<=0`，退避就是忙轮询）与无上界指数（缺 `max`，高位次乘出负 duration，退避反转成忙轮询）。两条反向失效同一个症状，正是 `defaultRetreatMax` 那条注释记过的坑，所以判错文案点名键（`initial` / `max` / `step`），不让运维只看到一层 wrapper。
+
+**kafka 为什么没在这一批挂上**：`broker/kafka` 的退避旋钮是 `SubscribeOption` 里的 `WithReadBackoffMin/Max`，实测**零调用者**，而且 `broker/kafka/contract` 的 `Provider` 不被仓内代码调用。把 `Backoff` 挂到 `broker.kafka` 段，等于在 Provider 层造一个「写了没人读」的字段——那属于风险评审 §2 的 reference-only 口径，不进契约批次。
+
+**翻译层的归属**：本轮只有 1 个消费者，所以 `retreat()` 放在 `registry/etcd/contract`，没有先抽共享包。第二个表面接入时再升格，升格时边方向定为 `retry ← 桥`，不给 `bconf` 加依赖：`bconf → retry` 是侵入性最强的一条边（`bconf` 是只依赖 `pflag` + `protobuf` 的图底，加一条边波及全仓 module 与 `bald release sync` 的涟漪）；`retry → bconf` 则便宜得多，因为能挂契约段的消费者（`registry/etcd`、`broker/kafka`）本来就 require `bconf`。另一条相关约束：`registry/etcd` 根包保持**零契约依赖**，所以 `retreatPolicy` 只能持 `retry.Backoff` / `retry.Jitter`，不能持 bconf 枚举。
+
+**契约变更的涟漪**（本批实测）：`registry/etcd` 与 `broker/kafka` 因为新 require `retry`，把反向依赖推给了 `transport/kafka` 与 `_example/bald`——两处 `go.mod` 缺 `// indirect` 行、`go.sum` 缺条目，CI 的 `test`/`example` 作业直接判红。修法是逐模块 `go mod tidy`，判据本身不动；改完 `find . -name go.mod` 全量 `go mod tidy -diff` 复扫归零。
+
+**证据链（三层，各测一件事）**：
+
+| 层 | 判据 | 钉住的东西 |
+|---|---|---|
+| `bconf` 解码 | `TestUnmarshalNestedBackoffSection`、`TestUnmarshalAbsentBackoffStaysNil`、`TestUnmarshalDurationSpellings` | 契约段**写得进**：三层嵌套 + 嵌套里的 `Duration` WKT + 两个枚举名；缺席必须是 nil；`10s`/`1.5s`/`1500ms`/`1m30s` 四种写法落进同一个值 |
+| `registry/etcd/contract` 桥 | `backoff_test.go` 7 条（缺席、三曲线、抖动映射、非法形状表、Provider fail-fast） | 段**翻得对**，且坏段在建连之前拦下 |
+| `registry/etcd` 策略 | `retreat_test.go` 4 条 + `retreat_policy_test.go` 2 条 | 默认曲线与 `retreatDelay` 逐点相同（防两条路长成两样）、`WithRetreat` 的两半各自独立覆盖 |
+
+这三层各有对应的一条验收腿在 `scripts/acceptance-gate.sh` 的 `scope=ci` 表里（`registry/etcd` 根包、`registry/etcd/contract`、`bconf`），由 `acceptance` 作业逐条断真 `--- PASS`，所以它们不是「本机跑过就算过」。副作用也如实记：`registry/etcd` 根包进了表之后，docscheck 的归属闸门（`TestAcceptanceTableCoversShortSkippedTests`）把这个包里**既有**的四条 `-short` 跳过用例照了出来——它们一直每天在 `integration` 作业里跑，但没被断言。修法是把四条名字加进那条作业的 `EXPECTED`（etcd 那组三条变七条），既不是撤腿也不是写豁免；反向实测（地址指向死端口）套件 `exit=0` 而 7 条 SKIP，断言步 `exit=1` 逐条点名。细节记在风险评审 §7.1 的「etcd 四条 `-short` 判据」补条与 §7.14。
+
+顺带修掉一个**既有产品缺陷**（不止影响新字段）：`bconf` 的 `coerceDuration` 字符串分支原先「只校验合法、不重排格式」，于是 `1500ms`、`5m` 这类合法的 Go duration 写法会被 protojson 拒掉（`invalid google.protobuf.Duration value "1500ms"`）。所有走契约的 `Duration` 字段都受影响，`app.stop_timeout` 是同一条路径上的先例。修法是解析后再 `formatDuration` 输出十进制秒串，`TestUnmarshalDurationSpellings` 把四种写法钉住。
+
+**未闭合的一格（如实记账）**：`Provider` 里把退避段接进 options 的那一行（`opts = append(opts, etcd.WithRetreat(b, j))`）**没有单元判据**。变异验活确认它是**存活变异**——删掉这一行，`registry/etcd/contract` 全部测试仍绿。这一格和契约映射的其它每一行（`endpoints` / `prefix` / `ttl` / `max_retry`）处境相同：能观测到效果的位置要么需要真实 etcd（本仓的 `contract_test.go` 在 etcd 不可达时 `Skip`，`-short` 下也 `Skip`；`integration` 作业带着真 etcd 跑它们，但那里逐条断言的七条 etcd 判据判的是「构造出可用 Registrar」这类既有语义，没有一条会因为删掉这行 `append` 而转红），要么需要给 `Registry` 加只读 accessor 把内部选项暴露出来——后者是为了测试方便污染公开 API，不做。要收这一格，得在 integration 作业里造断链窗口测重注册节奏，属后续批次。
 
 ### 验证
 
@@ -301,9 +332,17 @@ err := r.Do(ctx, func(ctx context.Context) error {
 cd retry && go test -short ./...     # 28 个测试
 cd retry && go test -race ./...      # 并发边界（需 cgo）
 
-# 两个消费侧的退避判据（注入 rng，确定性断边界，不碰墙钟）
-cd broker/kafka && go test -count=1 -run 'TestBackoffDuration' ./...
-cd registry/etcd && go test -count=1 -run 'TestRetreatDelay' ./...
+# 消费侧的退避判据（注入 rng，确定性断边界，不碰墙钟）
+cd broker/kafka && go test -count=1 -run 'TestBackoffDuration' .
+cd registry/etcd && go test -count=1 -run 'TestRetreatDelay|TestRetreatPolicy' .
+cd registry/etcd && go test -count=1 -run 'TestRetreat|TestProvider_BackoffSection' ./contract
+
+# 契约段的解码判据
+cd bconf && go test -count=1 -run 'TestUnmarshal' .
+
+# 上面这几条腿在 CI 里的执行证据：判据表在 scripts/acceptance-gate.sh，
+# 每条先 `go test -list` 取真命中再逐条断 `--- PASS`（命中 0 个即红，Skip 也算红）
+bash scripts/acceptance-gate.sh ci
 ```
 
 ## 附录
