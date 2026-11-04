@@ -243,7 +243,8 @@ func (r *Registry) registerWithKV(ctx context.Context, key string, value string)
 }
 
 // heartBeat 循环消费 KeepAlive 响应；断链后重试重注册，次数上限 maxRetry、
-// 每次之间的等待见 [retreatDelay]（指数曲线 + FullJitter，截到 defaultRetreatMax）。
+// 每次之间的等待见 [retreatPolicy.delay]（默认 1s 起翻倍、截到
+// defaultRetreatMax、叠 FullJitter；契约 registry.etcd.backoff 可改写曲线与抖动）。
 func (r *Registry) heartBeat(ctx context.Context, leaseID clientv3.LeaseID, key string, value string) {
 	curLeaseID := leaseID
 	kac, err := r.client.KeepAlive(ctx, leaseID)
@@ -291,7 +292,7 @@ func (r *Registry) heartBeat(ctx context.Context, leaseID clientv3.LeaseID, key 
 				select {
 				case <-ctx.Done():
 					return
-				case <-time.After(retreatDelay(retryCnt, rand.Float64)):
+				case <-time.After(r.opts.retreat.delay(retryCnt, rand.Float64)):
 				}
 			}
 			if kac == nil {
@@ -331,10 +332,22 @@ func (r *Registry) heartBeat(ctx context.Context, leaseID clientv3.LeaseID, key 
 //     退避反转成忙轮询——同一个配置键既能把服务睡死、又能把它打爆。
 //
 // 封顶到这里意味着：更大的 max_retry 只多买几次重试，不多买一次长睡。
+// 契约 registry.etcd.backoff 能改写这条曲线（形状与必填口径见该消息的注释），
+// 但改写不了「必须有上界」这件事——缺席时用这里的默认，写了就必须自带 max。
 const defaultRetreatMax = 5 * time.Minute
 
-// retreatDelay 是第 attempt 次重注册失败之后的等待：1s 起、每次翻倍、
-// 截到 [defaultRetreatMax]，再叠加 [0, d) 的 FullJitter。
+// retreatPolicy 是一次重注册退避的两个自由度：增长曲线与抖动。
+//
+// 零值不是合法状态——[newOptions] 总会先装入 [defaultRetreatPolicy]，
+// [WithRetreat] 再按项覆盖。两个自由度各自独立覆盖，契约段只写了曲线时
+// 抖动仍是后端的默认形状。
+type retreatPolicy struct {
+	backoff retry.Backoff
+	jitter  retry.Jitter
+}
+
+// defaultRetreatPolicy 是未配置时的形状：1s 起、每次翻倍、截到
+// [defaultRetreatMax]，再叠 [0, d) 的 FullJitter。
 //
 // 换掉的是原先「retreat = [1,2,4,…,2^attempt] 秒里等概率取一档」的写法。
 // 三条口径差别都写在这儿，不是实现细节：
@@ -343,11 +356,23 @@ const defaultRetreatMax = 5 * time.Minute
 //   - 分布：档位取样在 attempt 很大时仍有 1/(n+1) 的概率只退 1s——注册中心
 //     恢复瞬间成百上千个实例一起重连，正是要靠 FullJitter 打散的那种同步风暴。
 //   - 下限：不再保 1s，低 attempt 的探测更轻（rng 接近 0 时近乎立刻重试一次）。
-//
-// 纯函数 + 注入 rng 是为了能确定性断言边界，不必拿墙钟去猜。
+func defaultRetreatPolicy() retreatPolicy {
+	return retreatPolicy{
+		backoff: retry.ExponentialBackoff{Initial: time.Second, Factor: 2, Max: defaultRetreatMax},
+		jitter:  retry.FullJitter,
+	}
+}
+
+// delay 是第 attempt 次重注册失败之后的等待（纯函数 + 注入 rng，为了能把
+// 边界钉死而不必拿墙钟去猜）。
+func (p retreatPolicy) delay(attempt int, rng func() float64) time.Duration {
+	return p.jitter(p.backoff.Delay(attempt), rng)
+}
+
+// retreatDelay 是默认策略下的等待，保留成包级函数是为了让曲线与上界的判据
+// 直接落在纯函数上（见 retreat_test.go）。
 func retreatDelay(attempt int, rng func() float64) time.Duration {
-	exp := retry.ExponentialBackoff{Initial: time.Second, Factor: 2, Max: defaultRetreatMax}
-	return retry.FullJitter(exp.Delay(attempt), rng)
+	return defaultRetreatPolicy().delay(attempt, rng)
 }
 
 // isConnError 判断错误是否为连接/服务不可达类。
