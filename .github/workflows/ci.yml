@@ -159,7 +159,10 @@ jobs:
   #   1. `_example/bald/api/gen` 是 gitignore 的 proto 产物，干净检出里没有；要先 `buf dep update`
   #      + `buf generate` 才编译得了（本机实测：产物生成后 `go test ./...` 默认构建全绿）。
   #      也就是要 pin buf 版本并放开到 BSR 的网络——与 §7.9 的工具链 pin 同一件事。
-  #   2. 那几条用例要真 etcd/真 nacos 才有意义，注入服务后还得配「不可达即 Skip」的反证闸门。
+  #   2. 那几条用例要真 etcd/真 nacos 才有意义。这一半已经动过刀：nacos 的**机制**判据
+  #      （注销走对服务名、契约 cleanup 真关 client）不依赖 proto 产物，已下沉到
+  #      registry/nacos/contract 并由本作业的 nacos 服务容器判；留在示例里的只有装配那条
+  #      （要起整个 api 角色），它判的是终态，且两条摘除路径是「或」，见 §7.10。
   # 要做就是独立一个 `example` 作业（失败面与核心模块隔离），那是独立一件事。
   #
   # 三档防「静默失效」（这是新增闸门最容易自欺的地方）：
@@ -179,6 +182,7 @@ jobs:
       BALD_E2E_CONSUL_ADDR: "127.0.0.1:8500"
       BALD_TEST_REDIS_URI: "redis://127.0.0.1:6379"
       BALD_MONGO_URI: "mongodb://127.0.0.1:27017"
+      BALD_E2E_NACOS_ADDR: "127.0.0.1:8848"
     services:
       etcd:
         image: quay.io/coreos/etcd:v3.5.14
@@ -203,6 +207,21 @@ jobs:
       mongo:
         image: mongo:7
         ports: ["27017:27017"]
+      nacos:
+        # 注册中心的第四个后端。版本与本地取证那台一致（v2.3.2）。
+        #
+        # **9848 必须一起映射**：nacos SDK v2 的 naming 走 gRPC，端口是
+        # `8848 + 1000`；只映射 8848 时 HTTP 口活着、注册却静默上不去，
+        # 判据会红在「注册后 20s 内不可见」这种看起来像时序问题的地方。
+        # MODE=standalone 用内嵌 derby 单库；NACOS_AUTH_ENABLE=false 关掉鉴权，
+        # 与用例不带用户名密码的写法一致。
+        image: nacos/nacos-server:v2.3.2
+        ports: ["8848:8848", "9848:9848"]
+        env:
+          MODE: standalone
+          NACOS_AUTH_ENABLE: "false"
+          JVM_XMS: 256m
+          JVM_XMX: 512m
     steps:
       - uses: actions/checkout@v4
 
@@ -215,8 +234,8 @@ jobs:
       - name: 服务探活（探不到即失败，不放行成 Skip）
         run: |
           set -e
-          wait_tcp() { # host port 名称
-            local host="$1" port="$2" name="$3" tries=60
+          wait_tcp() { # host port 名称 [尝试次数，默认 60 次 ×2s]
+            local host="$1" port="$2" name="$3" tries="${4:-60}"
             while [ "$tries" -gt 0 ]; do
               if (echo > "/dev/tcp/$host/$port") 2>/dev/null; then
                 echo "READY $name ($host:$port)"
@@ -232,6 +251,9 @@ jobs:
           wait_tcp 127.0.0.1 8500 consul
           wait_tcp 127.0.0.1 6379 redis
           wait_tcp 127.0.0.1 27017 mongo
+          # nacos 是 Java 起的，比另外四个慢一个量级；探不到照样判红（这批用例的写法
+          # 是「不可达即 Skip」，不探活就等于白加一个服务）。
+          wait_tcp 127.0.0.1 8848 nacos 90
 
       - name: 集成套件（非 -short，逐条判据留档）
         run: |
@@ -244,6 +266,7 @@ jobs:
           (cd registry/consul     && go mod download && go test -count=1 -timeout 10m -v ./... > /tmp/int/registry-consul.log 2>&1) || { cat /tmp/int/registry-consul.log; exit 1; }
           (cd contrib/store-mongo && go mod download && go test -count=1 -timeout 10m -v ./... > /tmp/int/store-mongo.log 2>&1) || { cat /tmp/int/store-mongo.log; exit 1; }
           (cd transport/asynq     && go mod download && go test -count=1 -timeout 10m -v ./... > /tmp/int/asynq.log 2>&1) || { cat /tmp/int/asynq.log; exit 1; }
+          (cd registry/nacos      && go mod download && go test -count=1 -timeout 10m -v ./... > /tmp/int/registry-nacos.log 2>&1) || { cat /tmp/int/registry-nacos.log; exit 1; }
           cat /tmp/int/*.log
 
       - name: 判据必须真的跑过（Skip 不算通过）
@@ -264,6 +287,8 @@ jobs:
           /tmp/int/registry-consul.log|TestProvider_BuildsUsableRegistrar
           /tmp/int/store-mongo.log|TestMongoCRUD
           /tmp/int/asynq.log|TestTaskSubscribe
+          /tmp/int/registry-nacos.log|TestNacosDeregisterRemovesInstanceWithClientOpen
+          /tmp/int/registry-nacos.log|TestNacosContractCleanupClosesClient
           "
           # consul 那五条里，后两条是 consul 后端独有的语义，只有真 agent 能判：
           # 心跳按实例隔离（注销一个不该带走其余实例）与「发现只返回 passing 实例」。
@@ -293,8 +318,9 @@ jobs:
             exit 1
           fi
 
-  # kubernetes 注册中心真机腿（风险 §7.1；registry 四后端里第三条有 CI 真机证据的，
-  # 剩 nacos 仍没有，理由见 §7.1 的「刻意没做」）。
+  # kubernetes 注册中心真机腿（风险 §7.1）。四个 registry 后端里，etcd/consul 由
+  # `integration` 作业的真服务判，kubernetes 要真 apiserver + kubelet 所以独立成这条；
+  # nacos 的服务容器已经进 `integration`（判注销与 cleanup 两条机制）。
   #
   # 为什么不并进 `integration`：本作业要下载并启动真 kube-apiserver + kubelet（kind），
   # 失败面是「Docker Hub 拉不到 kindest/node」「runner 上集群起不来」这类平台问题，

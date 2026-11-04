@@ -13,9 +13,9 @@
 //     （`<app>.grpc` / `<app>.http`，命名口径见 TestNacosDiscoveryNameCarriesSchemeSuffix），
 //     且实例地址就是本进程实际监听的端口——不是内存实例，也不是配置里写的 :9090。
 //  2. 优雅停机后后端不再留有本进程的实例（终态守卫；它判不到「Deregister 调没调」也
-//     判不到「client 关没关」——两条机制分别由
-//     [TestNacosDeregisterRemovesInstanceWithClientOpen] 与
-//     [TestNacosContractCleanupClosesClient] 钉住，见下面 stop 处的实测）。
+//     判不到「client 关没关」——那两条机制判据在 registry/nacos/contract/
+//     instance_lifecycle_e2e_test.go（本示例 module 进不了 CI，那个 module 能），
+//     见下面 stop 处的实测）。
 //
 // namespace 用契约写的 `public`：命名 API 里它与默认租户是**同一个**租户
 // （registry/nacos 实测：ns=public 注册的实例用 ns="" 也查得到，反之亦然），
@@ -24,7 +24,7 @@
 // 后端不可达即 Skip（环境缺失，不是验证失败）。地址跟着契约文件走：
 // configs/bald-demo-api.yaml 里钉的 `registry.nacos.server_addrs` 就是本用例查的
 // 地址（下面有漂移判据）——这条用例测的正是「那份契约接没接上」，所以
-// BALD_E2E_NACOS_ADDR 对它无效（那只作用于按段构造的 discovery 三条）。
+// BALD_E2E_NACOS_ADDR 对它无效（那只作用于按段构造的 discovery 用例）。
 //
 //	cd _example/bald
 //	go test -tags nacos ./internal/bootstrap/ -run TestNacosAssemblyRegistersIntoBackend -v
@@ -98,8 +98,8 @@ func TestNacosAssemblyRegistersIntoBackend(t *testing.T) {
 	// （Close 后 0.5–0.6s 归零），显式 Deregister 也是同一量级；client 不关**且**不注销
 	// 时心跳把实例续到 75s 之后仍在。所以它是两条路径的**或**——把 Deregister 的服务名
 	// 后缀去掉，或把契约 Provider 的 cleanup 改成空转，这里都照样绿（两轮变异实测均如此）。
-	// 两条机制各自由 [TestNacosDeregisterRemovesInstanceWithClientOpen]（只注销、client
-	// 保持打开）和 [TestNacosContractCleanupClosesClient]（只调 cleanup、不注销）钉住。
+	// 两条机制各自钉在 registry/nacos/contract/instance_lifecycle_e2e_test.go：一条只注销、
+	// client 保持打开，另一条只调 cleanup、不注销。
 	//
 	// 窗口 15s：实测任一单条摘除路径 ≤0.6s，两条都没发生时 75s 仍在——中间隔着两个量级。
 	stop()

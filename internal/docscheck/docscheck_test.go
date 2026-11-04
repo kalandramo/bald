@@ -1258,12 +1258,10 @@ func shortGatedTests(t *testing.T, pkgDir string) map[string]bool {
 // 用例。每条都带具体理由，且下面会验它**仍然成立**——用例改名、被重新排进表或排进
 // CI，这条豁免就变成红，名单不会烂在那里。
 var shortSkipExemptions = map[string]string{
-	"_example/bald|./internal/bootstrap|TestGatewayDiscoveryEtcdWatchPush":                "要真 etcd 才能跑；且示例 module 整体不在 CI（它的测试先要 gitignore 的 api/gen 产物，编译前需 buf + BSR 网络，见 §7.1），进表会让没 etcd 的机器必红",
-	"_example/bald|./internal/bootstrap|TestGatewayDiscoveryNacosWatchPush":               "要真 nacos 才能跑；且示例 module 不在 CI（同上一条：api/gen 是 gitignore 的 proto 产物）",
-	"_example/bald|./internal/bootstrap|TestNacosDiscoveryNameCarriesSchemeSuffix":        "要真 nacos 才能跑；且示例 module 不在 CI（同上一条：api/gen 是 gitignore 的 proto 产物）",
-	"_example/bald|./internal/bootstrap|TestNacosAssemblyRegistersIntoBackend":            "要真 nacos、且要 -tags nacos 构建形态才有意义（CI 两种都不具备：示例 module 不在 CI，见 §7.1；nacos 变体只在本地按需要构建）；执行证据见风险登记册 §7.10",
-	"_example/bald|./internal/bootstrap|TestNacosDeregisterRemovesInstanceWithClientOpen": "要真 nacos；且示例 module 不在 CI（api/gen 是 gitignore 的 proto 产物，见 §7.1）。它判的是「client 保持打开时注销真的摘除」，装配用例那句终态守卫替不了（两条摘除路径是或的关系，实测单条坏掉终态仍绿），见 §7.10",
-	"_example/bald|./internal/bootstrap|TestNacosContractCleanupClosesClient":             "要真 nacos；且示例 module 不在 CI（同上）。判契约 Provider 的 cleanup 真关 naming client，与上一条分工：这条只调 cleanup 不注销。变异证据见 §7.10",
+	"_example/bald|./internal/bootstrap|TestGatewayDiscoveryEtcdWatchPush":         "要真 etcd 才能跑；且示例 module 整体不在 CI（它的测试先要 gitignore 的 api/gen 产物，编译前需 buf + BSR 网络，见 §7.1），进表会让没 etcd 的机器必红",
+	"_example/bald|./internal/bootstrap|TestGatewayDiscoveryNacosWatchPush":        "要真 nacos 才能跑；且示例 module 不在 CI（同上一条：api/gen 是 gitignore 的 proto 产物）",
+	"_example/bald|./internal/bootstrap|TestNacosDiscoveryNameCarriesSchemeSuffix": "要真 nacos 才能跑；且示例 module 不在 CI（同上一条：api/gen 是 gitignore 的 proto 产物）",
+	"_example/bald|./internal/bootstrap|TestNacosAssemblyRegistersIntoBackend":     "要真 nacos、且要 -tags nacos 构建形态才有意义（CI 两种都不具备：示例 module 不在 CI，见 §7.1；nacos 变体只在本地按需要构建）；执行证据见风险登记册 §7.10",
 }
 
 // TestAcceptanceTableCoversShortSkippedTests 是风险登记册 §8 那条「未闭合的形状」的

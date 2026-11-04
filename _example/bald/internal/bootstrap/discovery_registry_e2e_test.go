@@ -12,8 +12,10 @@
 //     nacos 更绕——它按 endpoint 的 scheme 把同一实例拆成 `<服务名>.<scheme>` 两个服务
 //     存，取回时再用 metadata 的 kind 拼回 `<scheme>://ip:port`。原样交给 gRPC 必然
 //     `too many colons in address`，服务名写错形态则一个实例都拿不到。
-//  3. 注销在 client 保持打开时真的摘掉后端实例（[TestNacosDeregisterRemovesInstanceWithClientOpen]）：
-//     装配侧那句「停机后归零」判的是连接释放，判不到 Deregister。
+//  3. 注销与停机摘除的机制判据**不在本文件**：它们只用到 registry/nacos 和它的契约层，
+//     落在 registry/nacos/contract/instance_lifecycle_e2e_test.go（那个 module 不依赖
+//     proto 产物，所以能进 CI 的 integration 作业；这一侧离不开 api/gen，见 §7.1）。
+//     这里只留装配用例那句「停机后归零」——它是两条摘除路径的**或**，只当终态守卫。
 //
 // 后端不可达即 Skip：那是环境缺失，不是验证失败。
 //
@@ -281,154 +283,10 @@ func TestNacosDiscoveryNameCarriesSchemeSuffix(t *testing.T) {
 	}
 }
 
-// TestNacosDeregisterRemovesInstanceWithClientOpen 钉住注销本身：naming client
-// **保持打开**时 Deregister 必须真的把后端里那两个服务名下的实例摘掉。
-//
-// 为什么必须单独判，而不能靠装配用例那句「停机后归零」：实测（nacos v2.3.2）
-// ephemeral 实例随连接断开就被服务端摘掉——只 Close 不注销也在 0.6s 内归零；反过来
-// client 不关、也不注销，心跳能把实例续到 75s 之后仍在。于是「停机后归零」对
-// Deregister 调没调、服务名拼得对不对**毫无分辨力**（把 `.grpc` 后缀去掉照样绿）。
-// 保持 client 打开就只剩一条摘除路径：注销。这才是判 Deregister 的姿势。
-//
-// 也不看返回值：错服务名的 Deregister 实测回 `ok=true, err=nil`（nacos 的删除口对
-// 「实例本来就不存在」幂等），§4.1 那条「反注册失败不再被吞掉」在这条路径上无从判红。
-// 所以判据是绕开 SDK 的 HTTP 查询口（[listNacosHostsAt]）读后端。
-//
-// 窗口 10s：实测正确注销→归零 0.56s、泄漏→75s 仍在，两端差一个数量级以上。
-func TestNacosDeregisterRemovesInstanceWithClientOpen(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	dr := nacosDiscovery(t, ctx)
-
-	addr := envOr("BALD_E2E_NACOS_ADDR", "127.0.0.1:8848")
-	service := uniqueName("bald-nacos-dereg")
-	lis, srv := startRegistryBackend(t)
-	defer srv.Stop()
-
-	inst := &registry.ServiceInstance{
-		ID:        service + "-1",
-		Name:      service,
-		Endpoints: []string{"http://" + lis.Addr().String(), "grpc://" + lis.Addr().String()},
-	}
-	if err := dr.reg.Register(ctx, inst); err != nil {
-		t.Fatalf("register %s: %v", service, err)
-	}
-	// 一个 ServiceInstance 的两个 endpoint 在 nacos 上是**两个服务名**（口径见
-	// TestNacosDiscoveryNameCarriesSchemeSuffix），所以两个名字都得等出来、也都得摘掉。
-	names := []string{service + ".http", service + ".grpc"}
-	var registered []string
-	for _, name := range names {
-		for i := 0; i < 100; i++ {
-			if len(listNacosHostsAt(t, addr, "public", name)) > 0 {
-				registered = append(registered, name)
-				break
-			}
-			time.Sleep(200 * time.Millisecond)
-		}
-	}
-	if len(registered) != len(names) {
-		t.Fatalf("注册后 %v 里只有 %v 在后端可见（注册没到位，注销判据无从谈起）", names, registered)
-	}
-
-	if err := dr.reg.Deregister(ctx, inst); err != nil {
-		t.Fatalf("deregister %s: %v", service, err)
-	}
-	for _, name := range names {
-		deadline := time.Now().Add(10 * time.Second)
-		for {
-			h := listNacosHostsAt(t, addr, "public", name)
-			if len(h) == 0 {
-				break
-			}
-			if time.Now().After(deadline) {
-				t.Fatalf("Deregister 后 10s（client 仍打开）%s 仍有 %d 个实例——注销没发到那个服务名上，"+
-					"命名口径（<服务名>.<scheme>）或 Deregister 的调用本身变了: %+v", name, len(h), h)
-			}
-			time.Sleep(200 * time.Millisecond)
-		}
-	}
-}
-
-// TestNacosContractCleanupClosesClient 钉住契约 Provider 交回的那个 cleanup：调它
-// 必须真的关掉 naming client，实例随后从后端消失。
-//
-// 与上一条用例的分工：这条**只**调 cleanup、不调 Deregister——于是摘除只可能来自
-// 连接释放（实测 ephemeral 实例随连接断开 0.5–0.6s 归零；client 还开着则心跳把实例
-// 续到 75s 之后仍在）。两条合起来才把「停机时到底发生了什么」判全：
-// Deregister 发得对（上一条）+ client 关得掉（本条）。装配用例那句「停机后归零」
-// 是这两条的**或**，任一条单独坏掉它都判不出来，所以只当终态守卫。
-//
-// 窗口 10s：实测 cleanup→归零 ≤0.6s，cleanup 空转→75s 仍在。
-func TestNacosContractCleanupClosesClient(t *testing.T) {
-	if testing.Short() {
-		t.Skip("集成测试：依赖真实 nacos，-short 下跳过")
-	}
-	addr := envOr("BALD_E2E_NACOS_ADDR", "127.0.0.1:8848")
-	probe, err := net.DialTimeout("tcp", addr, 3*time.Second)
-	if err != nil {
-		t.Skipf("nacos %s 不可达，跳过（环境缺失）: %v", addr, err)
-	}
-	_ = probe.Close()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// 走契约构造（与装配同一条路径），cleanup 自己拿着——nacosDiscovery 把它挂进了
-	// t.Cleanup，用例体内拿不到那个时机。
-	reg, closeReg, err := nacoscontract.Provider(ctx, &bootstrapv1.Registry{
-		Type:  nacoscontract.Type,
-		Nacos: &bootstrapv1.Registry_Nacos{ServerAddrs: []string{addr}},
-	})
-	if err != nil {
-		t.Skipf("nacos 注册中心构造失败（环境缺失，非验证失败）: %v", err)
-	}
-	// 兜底：断言失败时也要关掉，否则这个 client 会一直给后面的用例续租残留实例。
-	closed := false
-	t.Cleanup(func() {
-		if !closed {
-			closeReg()
-		}
-	})
-
-	service := uniqueName("bald-nacos-cleanup")
-	lis, srv := startRegistryBackend(t)
-	defer srv.Stop()
-	inst := &registry.ServiceInstance{
-		ID:        service + "-1",
-		Name:      service,
-		Endpoints: []string{"grpc://" + lis.Addr().String()},
-	}
-	if err := reg.Register(ctx, inst); err != nil {
-		t.Fatalf("register %s: %v", service, err)
-	}
-	name := service + ".grpc"
-	visible := false
-	for i := 0; i < 100 && !visible; i++ {
-		if len(listNacosHostsAt(t, addr, "public", name)) > 0 {
-			visible = true
-			break
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
-	if !visible {
-		t.Fatalf("注册后 %s 在后端始终不可见，本用例的摘除判据无从谈起", name)
-	}
-
-	closeReg()
-	closed = true
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		h := listNacosHostsAt(t, addr, "public", name)
-		if len(h) == 0 {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("Provider 的 cleanup 调了但 %s 仍有 %d 个实例（client 没被关掉，Deregister 也没发生）: %+v",
-				name, len(h), h)
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
-}
+// 注销与停机摘除的两条机制判据不在本文件：它们只用到 registry/nacos 与它的契约层，
+// 已下沉到 registry/nacos/contract/instance_lifecycle_e2e_test.go——那里的 module 不依赖
+// proto 产物，能进 CI 的 integration 作业（示例这一侧离不开 api/gen，见 §7.1）。
+// 本文件只留装配用例那句「停机后归零」，它是两条摘除路径的**或**，只当终态守卫。
 
 // startRegistryBackend 起一个只实现 Greet 的真实 gRPC 后端（:0 动态端口）。
 func startRegistryBackend(t *testing.T) (net.Listener, *grpc.Server) {
