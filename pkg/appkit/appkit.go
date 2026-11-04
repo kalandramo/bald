@@ -155,8 +155,9 @@ type App struct {
 	// 供测试与内部协调判断「已进入运行态」——固定短延迟在慢机器上会落在
 	// waitForEndpoints 窗口内（真实 gRPC server 在 net.Listen 完成前
 	// Endpoint() 为空，慢机器上这个窗口可以到几百毫秒）。
-	// 该窗口内的取消现在按正常停机退出（见 abortStartup）；本通道未导出，
-	// 外部消费者判「运行态」仍只能等自己声明的每个 server 端口都可连。
+	// 该窗口内的取消按正常停机退出（见 startupOutcome）。本通道未导出：外部
+	// 消费者的运行态信号是 AfterStart 钩子（注册已完成、端点已定型，只早于
+	// 首次协调一步），不需要再开一个只能靠句柄读取的通道。
 	startedCh   chan struct{}
 	startedOnce sync.Once
 
@@ -604,7 +605,7 @@ func (a *App) Run(ctx context.Context) error {
 
 	// callerCtx 保留调用方传进来的 ctx：下一行就用 WithCancel 遮蔽了形参，
 	// 而启动失败分支自己会 cancel()——派生 ctx 此后恒为已取消，读不出
-	// 「调用方取消」与「框架主动取消」的区别（abortStartup 的判据要用它）。
+	// 「调用方取消」与「框架主动取消」的区别（startupOutcome 的判据要用它）。
 	callerCtx := ctx
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -623,9 +624,8 @@ func (a *App) Run(ctx context.Context) error {
 	// beforeStart 钩子。
 	for _, fn := range a.beforeStart {
 		if err := fn(ctx); err != nil {
-			a.runErr.Store(err)
 			a.UndoEffects(context.Background()) // T1：未到 stopAll 的失败路径也要回滚账本
-			return err
+			return a.startupOutcome(callerCtx, err)
 		}
 	}
 
@@ -634,9 +634,11 @@ func (a *App) Run(ctx context.Context) error {
 	if err := a.startComponents(ctx); err != nil {
 		cancel()
 		a.stopAll(context.Background())
-		a.runErr.Store(err)
-		log.Error(ctx, "appkit component start failed", "error", err)
-		return err
+		if outcome := a.startupOutcome(callerCtx, err); outcome != nil {
+			log.Error(ctx, "appkit component start failed", "error", outcome)
+			return outcome
+		}
+		return nil
 	}
 
 	// 用 errgroup 并发启动所有服务器：任一 Start 返回非 nil 错误会自动取消
@@ -730,15 +732,12 @@ func (a *App) Run(ctx context.Context) error {
 
 // abortStartup 归类「启动序列（servers 已并发启动之后）某一步失败」的结局，
 // 由 Run 的端点等待/服务注册/afterStart 三处失败分支调用；调用方已做完
-// cancel 与 stopAll，本函数只负责判据与记账。三条判据按优先级：
+// cancel 与 stopAll，本函数只负责判据与记账。两条判据按优先级：
 //
 //  1. servers 里有非取消的启动错误 → 返回它。这是必需的：errgroup 在任一
 //     Start 失败时取消 gctx，端点等待/注册/钩子随即报「context canceled」，
 //     真实失败（如 bind 端口冲突）会被那句文案整条抹掉。
-//  2. 调用方 ctx（callerCtx）已取消 → 返回 nil：SIGTERM 打在仍在启动的进程上
-//     是常规停机，与主等待一侧对 context.Canceled 的过滤同口径，不是装配错误。
-//     判据必须读调用方的 ctx——启动失败分支先调了 cancel()，派生 ctx 此后恒为已取消。
-//  3. 其余（端点等待超时、注册/钩子自身的失败）→ 原样返回。
+//  2. 其余交给 startupOutcome（与 beforeStart/组件启动两处窗口同一条判据）。
 //
 // g.Wait 必须在 stopAll 之后调用：gRPC 的 Start 只在 Server 被 Stop 后才返回，
 // 先 Wait 会死等。
@@ -747,7 +746,22 @@ func (a *App) abortStartup(callerCtx context.Context, g *errgroup.Group, stepErr
 		a.runErr.Store(serr)
 		return serr
 	}
-	if callerCtx.Err() != nil {
+	return a.startupOutcome(callerCtx, stepErr)
+}
+
+// startupOutcome 是「启动序列某一步失败」的唯一结局判据，覆盖 Run 的五处启动
+// 分支（beforeStart 钩子、组件启动、端点等待、服务注册、afterStart 钩子）：
+// 调用方已取消**且这一步的错误就是这条取消本身**才算正常停机（返回 nil），
+// 其余一律记账后原样返回。
+//
+// 为什么两个条件都要：只看取消会把「同窗口内真的装配失败」一起放过（fail-fast
+// 是这个框架的既定口径）；只看错误文案会把「SIGTERM 打在仍在启动的进程」判成
+// 装配错误——同一信号在主等待一侧是正常停机，差几毫秒就换结局。
+//
+// 判据读**调用方**的 ctx：各失败分支自己调了 cancel()，被 WithCancel 遮蔽的
+// 派生 ctx 此后恒为已取消，读不出区别。
+func (a *App) startupOutcome(callerCtx context.Context, stepErr error) error {
+	if callerCtx.Err() != nil && errors.Is(stepErr, context.Canceled) {
 		return nil
 	}
 	a.runErr.Store(stepErr)

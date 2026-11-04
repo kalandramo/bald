@@ -31,7 +31,7 @@
 | 3.4 | 官方 CLI **文档里的安装方式从未装成功过**：`go install …/cmd/bald@tag` 被 Go 直接拒绝 | 中 | ✅ `v0.31.0`/`v0.36.0`/`v0.37.0` 三个 tag 实测同一条错误；判据取自本机 Go 1.27.1 源码 `load/pkg.go` | **已修（走 B）**：CLI 拆成独立 module `github.com/kalandramo/bald/cli`，`cli/go.mod` 零 `replace`，另加两条机器闸门（`TestCliModuleIsReplaceFree`/`TestGoWorkIsNotTracked`）；`cli/v0.1.0` 已于 2026-11-03 发出，零 `replace` 夹具实测 `go install …/cli/cmd/bald@v0.1.0` 装得上、生成的骨架跑得起来，五处文档改回默认按 tag，见 §3.4 |
 | 4.1 | 停机期 `_ = deregister(...)` 吞错 | 低-中 | ✅ 已核对源码 | **已修** |
 | 4.2 | 端点上界 5s、hook 超时 5s 为常量（Stop 超时本身可配） | 低 | ✅ 已核对源码 | **已修** |
-| 4.4 | 启动窗口内「调用方取消」与「server 启动崩溃」共用一条 `wait for endpoints canceled` 文案：前者被当装配错误退出，后者真实失败被整条抹掉 | 中 | ✅ 本机两条确定性用例先红后绿；bald-admin 装配 e2e 在共享 runner 上红过一次（run `41675043918`），报的就是这句 | **已修**：`abortStartup` 三判据分级，见 §4.4 |
+| 4.4 | 启动窗口内「调用方取消」与「server 启动崩溃」共用一条 `wait for endpoints canceled` 文案：前者被当装配错误退出，后者真实失败被整条抹掉 | 中 | ✅ 本机四条确定性用例先红后绿（三条判据各自只红相应用例）；bald-admin 装配 e2e 在共享 runner 上红过一次（run `41675043918`），报的就是这句 | **已修**：`startupOutcome` 一条判据挂到五处启动分支（含 errgroup 之前的 beforeStart/组件启动），见 §4.4 |
 | 8 | `docscheck` 只校验链接完整性，测不出描述过期 | 低 | ✅ 已核对测试 | **已修（清单半）**：`module-list` 围栏 + 双向断言 + 与脚本逐行比对，三条变异实测；「描述已删除 API」半仍未覆盖，见 §8 |
 
 ---
@@ -473,10 +473,10 @@ Go 源码零改动（除下面第 ① 条）。根 module 里 `pkg/` 之外唯�
 - 调用方取消（SIGTERM 打在仍在启动的进程）——主等待一侧早已把 `context.Canceled` 当正常停机，启动一侧却当装配错误返回，同一个信号因落地时刻差几毫秒而结局不同；
 - errgroup 因某个 server 的 `Start` 失败而取消 gctx——真实失败（如端口 bind 冲突）被这句「取消」整条抹掉，日志与返回值都不含它。
 - 发现路径：bald-admin 的装配 e2e（`cmd/bald-admin/app/assembly_e2e_test.go`）在 GitHub 共享 runner 上红过一次（run `41675043918`），本地 `-count=30` 复现不了；`Serve` 直接返回错误、不经 `MustServe` 的 stderr 兜底，故整轮 CI 除了那句文案没有任何线索。
-- 消解：`abortStartup(callerCtx, g, stepErr)`（`pkg/appkit/appkit.go`）在三处失败分支（端点等待 / 服务注册 / afterStart 钩子）统一分级——先 `g.Wait()` 取非取消的 server 错误（必须在 `stopAll` 之后：gRPC 的 `Start` 只在 Server 被 Stop 后才返回），其次 `callerCtx.Err() != nil` 判「调用方取消」返回 `nil`，其余（等待超时、注册/钩子自身失败）原样返回。判据读的是**调用方**的 ctx：分支自己会 `cancel()`，被遮蔽的派生 ctx 此后恒为已取消，读不出区别。
-- 回归：`pkg/appkit/boot_cancel_test.go` 两条确定性用例（不等机器快慢：一个端点永不定型的 server + 调用方 50ms 取消 / 另一个 server 直接 `Start` 返回 boom）。两条各自只被一条判据打中——去掉 `g.Wait` 那条只红崩溃用例，去掉 `callerCtx` 那条只红取消用例，实测各红一次后恢复。
+- 消解：判据只有一条——`startupOutcome(callerCtx, stepErr)`（`pkg/appkit/appkit.go`）：**调用方已取消且这一步的错误就是这条取消本身**才算正常停机（返回 `nil`），其余一律记账后原样返回。它挂在 Run 的全部五处启动分支上（`beforeStart` 钩子、组件顺序启动、端点等待、服务注册、afterStart 钩子）；errgroup 建立之后的三处先经 `abortStartup` 取 servers 的非取消启动错误（必须在 `stopAll` 之后 `g.Wait()`：gRPC 的 `Start` 只在 Server 被 Stop 后才返回），再走同一条判据。判据读的是**调用方**的 ctx：各分支自己会 `cancel()`，被遮蔽的派生 ctx 此后恒为已取消，读不出区别。两个条件缺一个都不对——只看取消会把「同窗口内真的装配失败」放过（fail-fast 是既定口径），只看错误就把 SIGTERM 打成装配错误。
+- 回归：`pkg/appkit/boot_cancel_test.go` 四条确定性用例（不等机器快慢：端点永不定型的 server、阻塞到 ctx 结束的 beforeStart 钩子与组件 Start，各自配调用方 50ms 取消；另有一条 server 直接 `Start` 返回 boom，和一条「取消 + 真实失败」必须仍返回真实失败）。三条判据各自只被相应用例打中——去掉 `g.Wait` 那条只红崩溃用例，去掉「这一步错误 = 取消」只红真实失败用例，去掉整条判据红三条取消用例，实测各红一次后恢复。
 - 已证（远端）：本仓 `0561cc9` 的 `ci` run 41682211384 五作业 `test`/`race`/`lint`/`vuln`/`integration` 全 success。下游 `bald-admin` 侧同时把装配 e2e 的就绪判据从「只 Dial HTTP 端口」收紧为「逐个已声明 server 端口各连一次」（`4a40298`，backend run 41682275441 success，上一 head `6d117a3` 的红消失）——注意它消费的仍是 `pkg v0.2.1`，也就是**残余②③那条框架分级还没进任何已发布 tag**，下游要拿到分级得等下一个 `pkg` 版本。
-- 残余（如实记下，不是已解决）：① `beforeStart` 钩子与 `startComponents` 两处窗口（errgroup 尚未建立）内取消仍按错误退出——那里不存在「崩溃被掩盖」的问题，是否统一成「取消即正常停机」是口径决策，未单方面改；② 这三处的 `log.Error` 仍在 `stopAll` 之后，而 logger 效应在停机时把全局后端还原为 nop，故该日志**必然被吞**（生产 main 走 `MustServe` → `reportServeFailure` 有 stderr 兜底，直接调 `Serve` 的测试路径没有）；③ 外部消费者没有「已进入运行态」的可等信号——`App.startedCh` 未导出，`Serve` 也不交回 App 句柄，判据只能退到「自己声明的每个 server 端口都可连」。
+- 残余（如实记下，不是已解决）：① 这三处的 `log.Error` 仍在 `stopAll` 之后，而 logger 效应在停机时把全局后端还原为 nop，故该日志**必然被吞**（生产 main 走 `MustServe` → `reportServeFailure` 有 stderr 兜底，直接调 `Serve` 的测试路径没有）；错误本身没丢——它就在那个返回值里。② 分级只覆盖「会观察到 ctx」的分支：`loadConfig`/`Resolve` 两处失败不来自 ctx，取消不可能被误判成它们，故不在范围内。③ 「已进入运行态」的外部信号是 `AfterStart` 钩子（触发时端点已定型、注册已完成，只早于首次协调一步），经 `Serve` 就能用；`App.startedCh` 未导出、`Serve` 也不交回 App 句柄，但补一条只能靠句柄读的通道与既有钩子重复，没做——这是口径选择，不是缺口。
 
 ---
 

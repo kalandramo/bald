@@ -12,6 +12,10 @@ package appkit
 //     （如 bind 冲突）整条抹掉。
 // 两条都是外部消费者实际会撞上的：bald-admin 的装配 e2e 在共享 runner 上
 // 红过一次，报错正是被取消的那条。
+//
+// 同一条判据（startupOutcome）覆盖 Run 的全部五处启动分支——beforeStart 钩子、
+// 组件顺序启动、端点等待、服务注册、afterStart 钩子；差别只在 errgroup 建立
+// 之后的三处要先取 servers 的真实启动错误。
 
 import (
 	"context"
@@ -69,5 +73,76 @@ func TestRun_StartFailureDuringEndpointWaitSurfacesRealError(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "wait for endpoints") {
 		t.Fatalf("错误文案仍是等待掩盖文案：%v", err)
+	}
+}
+
+// errgroup 建立之前的两处启动窗口（beforeStart 钩子、组件顺序启动）同一条判据：
+// 调用方取消打在这两处时，同一信号的结局不能因为它比端点等待早到几毫秒就从
+// 「正常停机」变成「装配错误」。
+
+// cancelOnStartComp 的 Start 阻塞到 ctx 结束并原样返回 ctx.Err()——取消打断组件启动。
+type cancelOnStartComp struct{ name string }
+
+func (c cancelOnStartComp) Name() string { return c.name }
+func (c cancelOnStartComp) Start(ctx context.Context) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+func (cancelOnStartComp) Dispose(context.Context) error { return nil }
+
+// TestRun_CancelDuringBeforeStartExitsClean beforeStart 窗口内取消 → 干净退出。
+func TestRun_CancelDuringBeforeStartExitsClean(t *testing.T) {
+	app := NewApp(Name("boot-before"), StopTimeout(2*time.Second),
+		BeforeStart(func(ctx context.Context) error {
+			<-ctx.Done()
+			return ctx.Err()
+		}))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+
+	if err := app.Run(ctx); err != nil {
+		t.Fatalf("beforeStart 窗口内取消应干净退出，得 err=%v", err)
+	}
+}
+
+// TestRun_CancelDuringComponentStartExitsClean 组件启动窗口内取消 → 干净退出。
+func TestRun_CancelDuringComponentStartExitsClean(t *testing.T) {
+	app := NewApp(Name("boot-comp"), StopTimeout(2*time.Second),
+		componentsOpt(cancelOnStartComp{"test.cancel"}))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+
+	if err := app.Run(ctx); err != nil {
+		t.Fatalf("组件启动窗口内取消应干净退出，得 err=%v", err)
+	}
+}
+
+// TestRun_CancelledDuringBeforeStartWithRealErrorStillFails 判据的第二半：调用方
+// 确实取消了，但这一步报的是与取消无关的真实失败 → 仍须返回该错误（fail-fast
+// 是这个框架的既定口径，只看「调用方已取消」会把真失败一起放过）。
+func TestRun_CancelledDuringBeforeStartWithRealErrorStillFails(t *testing.T) {
+	boom := errors.New("beforeStart 的真实装配失败")
+	app := NewApp(Name("boot-before-real"), StopTimeout(2*time.Second),
+		BeforeStart(func(ctx context.Context) error {
+			<-ctx.Done()
+			return boom
+		}))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+
+	if err := app.Run(ctx); !errors.Is(err, boom) {
+		t.Fatalf("调用方取消不该吞掉真实装配失败：得 %v，want %v", err, boom)
 	}
 }

@@ -48,22 +48,22 @@
 
 启动（`pkg/appkit/appkit.go:561-703`）：
 
-1. `loadConfig` → `Resolve` fail-fast（`pkg/appkit/appkit.go:574-598`）
-2. `beforeStart` hooks（`pkg/appkit/appkit.go:604`）
-3. components 按序启动（`pkg/appkit/appkit.go:614`）
-4. **errgroup 并发 Start 所有 `transport.Server`**（`pkg/appkit/appkit.go:624-630`），任一失败级联取消
-5. `waitForEndpoints`：轮询 `Endpoint()` 直到 `:0` 解析完成，5s 上界（`pkg/appkit/appkit.go:809-829`）
-6. `register` 到发现服务（`pkg/appkit/appkit.go:643`、`:840-846`）
-7. `afterStart` → reconcilers → 关闭 `startedCh`（`pkg/appkit/appkit.go:655-672`）
-8. `signal.Notify(SIGINT, SIGTERM)`，select 等待信号或 ctx（`pkg/appkit/appkit.go:675-684`）
+1. `loadConfig` → `Resolve` fail-fast（`pkg/appkit/appkit.go`）
+2. `beforeStart` 钩子
+3. `startComponents` 按序启动进程内组件
+4. **errgroup 并发 `Start` 所有 `transport.Server`**（`Run` 里的 `g.Go`），任一失败级联取消
+5. `waitForEndpoints`：轮询 `Endpoint()` 直到 `:0` 解析完成；上界在调用方 ctx 带截止期时按它计，否则取阶段预算 `phaseBudgetFor(stopTimeout)`
+6. `register` 到发现服务（`buildInstance` 只收「可注册」端点，进程内组件的 `cron://scheduler` 这类不参与）
+7. `afterStart` 钩子 → `runReconcilers` → 关闭 `startedCh`
+8. `signal.Notify(SIGINT, SIGTERM)`，`select` 等待 gctx 或信号
 
-停机（`stopAll`，`pkg/appkit/appkit.go:715-750`）：**deregister 先于 stopAll**（`pkg/appkit/appkit.go:686-690`），随后五阶段
-`undo effects → BeforeStop → 并发 Stop（共享超时）→ AfterStop → components Dispose 反序`。
-- gRPC：`GracefulStop` + 超时兜底（`transport/grpc/grpc_server.go:94-107`）
-- HTTP：`Shutdown`（`transport/http/http_server.go:92-94`）
+停机（`stopAll`）：**deregister 先于 stopAll**，随后五阶段
+`undo effects → BeforeStop → 并发 Stop（各自独立预算）→ AfterStop → components Dispose 反序`。
+- gRPC：`GracefulStop` + 超时兜底（`transport/grpc`）
+- HTTP：`Shutdown`（`transport/http`）
 - `runHook` 会 recover panic（`pkg/appkit/appkit.go:753-761`）
 
-健壮性上这是全仓最成熟的一块（CAS 重入保护、逐阶段独立预算派生）。曾经的裂缝 `_ = a.deregister(...)` 吞错与「5s 端点上界/hook 超时不可配」均已修：反注册失败经 `logDeregister` 上报（`pkg/appkit/appkit.go`），端点等待与钩子预算统一由 `phaseBudgetFor`（`pkg/appkit/types.go:11`）从 `app.stop_timeout` 派生，调用方 ctx 带截止期时以它为准（`waitForEndpoints`）。启动窗口内「调用方取消」与「某个 server 启动崩溃」也不再共用一条 `wait for endpoints canceled` 文案——三处失败分支（端点等待/服务注册/afterStart 钩子）经 `abortStartup` 分级：崩溃优先返回真实错误，调用方取消按正常停机退出 `nil`。见 `risk-review.md` §4。
+健壮性上这是全仓最成熟的一块（CAS 重入保护、逐阶段独立预算派生）。曾经的裂缝 `_ = a.deregister(...)` 吞错与「5s 端点上界/hook 超时不可配」均已修：反注册失败经 `logDeregister` 上报（`pkg/appkit/appkit.go`），端点等待与钩子预算统一由 `phaseBudgetFor`（`pkg/appkit/types.go:11`）从 `app.stop_timeout` 派生，调用方 ctx 带截止期时以它为准（`waitForEndpoints`）。启动窗口内「调用方取消」与「某个 server 启动崩溃」也不再共用一条 `wait for endpoints canceled` 文案：`startupOutcome` 一条判据（调用方已取消**且**这一步的错误就是这条取消本身 → 正常停机退出 `nil`）挂在全部五处启动分支上——`beforeStart` 钩子、组件顺序启动、端点等待、服务注册、afterStart 钩子；errgroup 之后的三处先取 servers 的非取消启动错误，崩溃优先返回真实错误。见 `risk-review.md` §4.4。
 
 ---
 
