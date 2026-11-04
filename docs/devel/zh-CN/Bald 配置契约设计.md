@@ -66,12 +66,20 @@ bald/bconf/                       module github.com/kalandramo/bald/bconf
 
 生成物入库，业务方无需装 buf 工具链即可构建。改 proto 后跑 `task proto-contract` 重新生成——**不要手改 `.pb.go`**：rawDesc 内嵌描述符带长度前缀，改长字符串会让长度错位、运行期 panic。
 
-`task proto-contract` 用 `bconf/buf.gen.local.yaml`（本机 `buf` + `protoc-gen-go`），因为**入库产物出自这条路径**。另一份 `buf.gen.yaml`（BSR 远端插件）只作对照，不能拿来重出提交：实测（2026-11-04）同版本号 v1.36.12 的远端插件会在中文注释的 `//` 后补一个空格，与 `gen/go/bootstrap/v1/log.pb.go` 差一处排版——那是工具差异，不是契约变更。
+`task proto-contract` 用 `bconf/buf.gen.local.yaml`（本机 `buf` + `protoc-gen-go`），因为**入库产物出自这条路径**。这条任务拿的是 PATH 上那把插件，而校验腿拿的是 `bconf/go.mod` 现编的那把——两者不同版时产物头部会声明一个 go.mod 编不出的版本，判据红在第二轴。重生成时把产出也对齐到 go.mod（实测幂等，`git status --porcelain bconf/gen` 无输出）：
+
+```
+cd bconf && bin=$(mktemp -d) \
+  && go build -o "$bin/protoc-gen-go" google.golang.org/protobuf/cmd/protoc-gen-go \
+  && PATH="$bin:$PATH" buf generate --template buf.gen.local.yaml
+```
+
+另一份 `buf.gen.yaml`（BSR 远端插件）只作对照，不能拿来重出提交：实测（2026-11-04）同版本号 v1.36.12 的远端插件会在中文注释的 `//` 后补一个空格，与 `gen/go/bootstrap/v1/log.pb.go` 差一处排版——那是工具差异，不是契约变更。
 那一处空格的成因是**编译 `protoc-gen-go` 用的那把 Go**，不是 buf：插件走 protobuf 的 `compiler/protogen`，`(*GeneratedFile).Content()` 用 stdlib `go/parser` + `go/printer` 重排产物，注释排版口味跟着编译它的工具链换代走。实测（2026-11-04）同一版插件 v1.36.12——由 go1.26.5 编译会给中文注释的 `//` 补一个空格，由 go1.27.1 或 go1.27.3 编译则与入库产物零差异；BSR 远端插件补空格是同一件事（容器里编译它用的 Go 更旧）。反过来，把 Go 钉住只换插件版本才叫插件换代：v1.36.10 与 v1.36.12 差在**全部 18 个 `.pb.go`**（含头部版本行），而注释那一行不变。buf 的版本号对这一处空格是中性（1.50.0 与 1.57.2 配同一把插件都零差异），但注释文本由 buf 读 proto 后以 `source_code_info` 投递给插件，换代仍可能改它，所以仍然 pin 住。
 
-`task proto-contract-check`（`TestGeneratedMatchesProto`，工具链缺失时自动跳过）在字节比对之前先核对三把版本 pin：`buf` 驱动器对 `bconf/buf.version`，`protoc-gen-go` 的 module 版本对产物头部自己声明的版本行，**编译该插件用的 Go（major.minor）**对 `bconf/protoc-gen-go.goversion`（取自 `go version -m` 的构建信息——插件自己的 `--version` 看不见这一轴）。红了会先指名是哪把工具不符；三把都对上才轮到逐字节判据，报出具体文件。补齐姿势是一条命令：`go install google.golang.org/protobuf/cmd/protoc-gen-go@v<产物头部声明的版本>`，用 pin 那把 Go 编译。
+`task proto-contract-check`（`TestGeneratedMatchesProto`，`buf` 或 `go` 缺席时自动跳过）在字节比对之前先核对三把版本 pin：`buf` 驱动器对 `bconf/buf.version`——这是这条腿**唯一还读 PATH** 的一轴；插件不再从 PATH 拿，测试在 `bconf` module 里 `go build google.golang.org/protobuf/cmd/protoc-gen-go` **现编**一把，于是另外两轴的出处全在仓内：module 版本由 `bconf/go.mod` 的 protobuf 决定、须等于产物头部自己声明的版本行；**编译该插件用的 Go（major.minor）**由跑这条测试的工具链决定、须等于 `bconf/protoc-gen-go.goversion`（取自 `go version -m` 的构建信息——插件自己的 `--version` 看不见这一轴）。红了会先指名是哪把工具不符；三把都对上才轮到逐字节判据，报出具体文件。补齐姿势因此分两件事：第二轴不符是 `bconf/go.mod` 与入库产物不同步（要么升 require 到产物声明的那版，要么用那版重生成产物并提交）；第三轴不符只换工具链——`GOTOOLCHAIN=go1.27 go test -run TestGeneratedMatchesProto -count=1 .`。这一改动同时撤掉了旧口径「读 PATH 上那把已安装插件」：那种读法下，**仓内 go.mod 与产物头部不一致也能绿**（PATH 恰好装着符合产物的那把就是绿），而「本机 PATH 里那把是哪年装的」能冒充判据通过或判红。
 
-这条判据也有远端证据，由 CI 的 `proto-contract` 作业专职跑，思路是「把三把 pin 在干净机器上装出来，再要求这条腿真的出现过 `--- PASS`」：Go 由 `setup-go` 钉在 1.27.3（第四轮实测的零差异档）；`buf` 从 `bconf/buf.version` 读版本号、下载官方发行二进制、按 `bconf/buf.sha256` 的 asset 名对上 SHA-256 才放行；`protoc-gen-go` 不硬编码版本，从入库产物头部自己声明的那行读出来现编——这样版本信息只有一处真相。校验来源只发生在 CI：判据本身（`bconf/gen_repro_test.go`）不查二进制从哪来，本机用 Homebrew 或源码装的 buf 一样能跑，不能被这条作业的门禁绑住。作业在 `--- PASS` 缺失时判红，所以「runner 上没装 buf → 测试自己 Skip → 作业绿」这类静默失效进不来。远端证据是正向那一条（真 runner 上出现 `--- PASS`）；三条反向变异——摘掉工具链、给某个 `.pb.go` 追加一个字节、把 `buf.version` 改成 1.99.0——在 Linux/amd64 容器里验活，判据与 runner 同构但不等于 runner，细节见《架构风险登记册》§7.9 第五轮。
+这条判据也有远端证据，由 CI 的 `proto-contract` 作业专职跑，思路是「在干净机器上补齐这条腿读不到的那把工具，再要求它真的出现过 `--- PASS`」：Go 由 `setup-go` 钉在 1.27.3（实测的零差异档，也就是第三轴 pin 的那把）；`buf` 从 `bconf/buf.version` 读版本号、下载官方发行二进制、按 `bconf/buf.sha256` 的 asset 名对上 SHA-256 才放行。插件**不由作业安装**——判据自己从 `bconf/go.mod` 现编，所以作业里不存在一份会漂移的插件版本，也不需要「读产物头部再 `go install`」那一步。校验来源只发生在 CI：判据本身（`bconf/gen_repro_test.go`）不查 buf 二进制从哪来，本机用 Homebrew 或源码装的 buf 一样能跑，不能被这条作业的门禁绑住。作业在 `--- PASS` 缺失时判红，所以「runner 上没装 buf → 测试自己 Skip → 作业绿」这类静默失效进不来。反向变异各打中一层：摘掉工具链 → 红在 PASS 断言；给某个 `.pb.go` 追加一个字节 → 红在字节门；把 `buf.version` 改成 1.99.0 → 红在第一轴；把 `bconf/go.mod` 的 protobuf 退回 v1.36.11 → 红在第二轴；把 `protoc-gen-go.goversion` 改成 9.99 → 红在第三轴。细节见《架构风险登记册》§7.9 第五/六轮。
 
 ### 契约形状：BootstrapConfig 十五个域
 
