@@ -97,14 +97,20 @@ tasks:
     cmds:
       - buf generate --template buf.gen.local.yaml
 
-  # 为什么这条用本机模板而不是 BSR 远端插件（实测 2026-11-04，buf 1.50.0 +
-  # protoc-gen-go v1.36.12，版本 pin 在 bconf/buf.version、产物头部与
-  # bconf/protoc-gen-go.goversion 三处）：远端插件与入库产物**不是**逐字节等价——
-  # 差异只有一处，`bootstrap/v1/log.pb.go` 中文注释的 `//` 后多一个空格。成因是
-  # 编译插件用的 Go 不同（插件用 stdlib go/printer 重排产物），不是 buf 的版本号。
-  # 也就是说跑 `buf.gen.yaml` 重出会把排版差异当成契约变更写进 gen/go，随后
+  # 为什么这条用本机模板而不是 BSR 远端插件（实测 2026-11-04）：远端插件与入库产物
+  # **不是**逐字节等价——差异只有一处，`bootstrap/v1/log.pb.go` 中文注释的 `//` 后多一个
+  # 空格。成因是编译插件用的 Go 不同（插件用 stdlib go/printer 重排产物），不是 buf 的
+  # 版本号。也就是说跑 `buf.gen.yaml` 重出会把排版差异当成契约变更写进 gen/go，随后
   # proto-contract-check 判红。入库产物出自本机模板，所以「生成」与「校验」必须是
   # 同一条路径；buf.gen.yaml 保留作 BSR 对照，但不再是产出的真相源。登记册 §7.9。
+  #
+  # 这条任务用的是 PATH 上的 protoc-gen-go，而校验腿在 bconf module 里**现编**一把
+  # （版本取自 bconf/go.mod 的 protobuf）。两者不同版时产物头部会声明一个 go.mod 编不出
+  # 的版本，判据当场红在版本轴并点名 go.mod。要对齐产出路径（macOS/Linux）：
+  #   cd bconf && bin=$(mktemp -d) \
+  #     && go build -o "$bin/protoc-gen-go" google.golang.org/protobuf/cmd/protoc-gen-go \
+  #     && PATH="$bin:$PATH" buf generate --template buf.gen.local.yaml
+  # 跑完 `git status --porcelain bconf/gen` 无输出即产出幂等。
   proto-contract-check:
     desc: 校验契约层生成物与 proto 一致（工具链缺失时测试自动跳过）
     dir: bconf

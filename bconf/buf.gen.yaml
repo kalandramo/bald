@@ -10,7 +10,9 @@ managed:
 # 成因不是「远端 vs 本机」这一类玄学：插件用 stdlib go/printer 重排产物，容器里
 # 编译该插件的 Go 与本机那把不同，注释口味就不同（见风险登记册 §7.9 第四轮）。
 # 产出走 buf.gen.local.yaml（= `task proto-contract`），本模板只用于与 BSR 侧
-# 对齐。插件版本显式钉到产物头部声明的那一版，否则「latest」会随 BSR 发布漂移。
+# 对齐。这里钉的 module 版本与 bconf/go.mod 的 protobuf require 是同一版（v1.36.12）——
+# 校验腿读的是 go.mod 编出的那把，产物头部声明的是产出那把，两边都必须指同一版本，
+# 否则「latest」会随 BSR 发布漂移，而这里的钉版会独自落后。
 plugins:
   - remote: buf.build/protocolbuffers/go:v1.36.12
     out: gen/go

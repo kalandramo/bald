@@ -7,6 +7,6 @@ require (
 	github.com/sashabaranov/go-openai v1.41.2
 )
 
-require google.golang.org/protobuf v1.36.11 // indirect
+require google.golang.org/protobuf v1.36.12 // indirect
 
 replace github.com/kalandramo/bald/bconf => ../../bconf

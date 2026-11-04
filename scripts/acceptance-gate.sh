@@ -30,13 +30,16 @@
 #                     （go1.26.5 给中文注释的 `//` 补一个空格，go1.27.1/go1.27.3 与
 #                     入库零差异；BSR 容器里的同名插件补空格也是同一成因），buf 的
 #                     版本号实测对这一处中性（1.50.0 与 1.57.2 配同一把插件都零差
-#                     异）。三把 pin 都成文并机器判了（`bconf/buf.version` +
-#                     产物头部的 protoc-gen-go 版本行 + `bconf/protoc-gen-go.goversion`，
-#                     三条都在字节比对之前单独判红）。
+#                     异）。三把 pin 都成文并机器判了：`bconf/buf.version`（这条腿
+#                     唯一还读 PATH 的一轴）、插件 module 版本比 `bconf/go.mod` 的
+#                     protobuf **现编**出的那把（再比产物头部的 protoc-gen-go 版本行）、
+#                     编译该插件的 Go major.minor 比 `bconf/protoc-gen-go.goversion`。
+#                     后两轴读 PATH 上已装插件时，「那把是哪年装的」能冒充判据通过或
+#                     判红（登记册 §7.9 前四轮），现编之后 PATH 里那把不再参与。
 #                     本作业**不装 buf**：它的工具链前提与 `_example` 那两条不同，
 #                     已经由专职作业 `proto-contract` 满足并取证（官方 buf 发行
-#                     二进制按 `bconf/buf.sha256` 校验 + 插件按产物头部声明的版本现编
-#                     + 「没有顶层 PASS 即红」），见登记册 §7.9 第五轮。本表留 `no`
+#                     二进制按 `bconf/buf.sha256` 校验 + 判据自己现编插件 +
+#                     「没有顶层 PASS 即红」），见登记册 §7.9 第五/六轮。本表留 `no`
 #                     是为了不在两条作业里各装一遍工具链——不是「这条腿没有远端证据」。
 #
 # 表列以 TAB 分隔，**tags 放最后**（TAB 属 IFS 空白，连续 TAB 会被折叠成一个分隔符，

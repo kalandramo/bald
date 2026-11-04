@@ -7,7 +7,7 @@ require (
 	github.com/kalandramo/bald/log v0.5.4
 )
 
-require google.golang.org/protobuf v1.36.11 // indirect
+require google.golang.org/protobuf v1.36.12 // indirect
 
 replace github.com/kalandramo/bald/bconf => ../../bconf
 

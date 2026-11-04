@@ -11,17 +11,20 @@ import (
 	"testing"
 )
 
-// TestGeneratedMatchesProto 守住契约层生成管线：用本地 buf + protoc-gen-go
-// 按 buf.gen.local.yaml 重新生成，必须与入库的 gen/go 逐字节一致。
-// 工具链缺失时跳过（CI 不必装 buf）；工具链在场则先核对三把 pin，再做字节比对：
-//   - buf 版本 == bconf/buf.version
-//   - protoc-gen-go 的 module 版本 == 入库产物头部声明的版本
-//   - 编译 protoc-gen-go 用的 Go（major.minor）== bconf/protoc-gen-go.goversion
+// TestGeneratedMatchesProto 守住契约层生成管线：在 bconf module 里**自编译**
+// protoc-gen-go，用它按 buf.gen.local.yaml 重新生成，必须与入库的 gen/go 逐字节一致。
+// buf 缺席时跳过（环境缺失，不是判据失败）；buf 在场时判三件事，都在字节比对之前
+// 单独判红，所以红的时候一眼分得清契约漂移还是工具链换代（口径见风险登记册 §7.9）：
+//   - buf 版本 == bconf/buf.version（唯一还读 PATH 的一轴，实测对字节中性）
+//   - 自编译插件的 module 版本 == 入库产物头部声明的版本（版本轴读 **bconf/go.mod**）
+//   - 编译该插件用的 Go（major.minor）== bconf/protoc-gen-go.goversion
 //
-// 三条判据都在字节比对之前单独判红，是为了让「红」一眼分得清契约漂移还是工具链
-// 换代（口径见风险登记册 §7.9）。
+// 后两轴以前是读 PATH 上那把插件的（`protoc-gen-go --version` 加 `go version -m`），
+// 改成自编译之后，插件版本由 go.mod 决定、编译口味由跑这条测试的工具链决定，于是
+// 「本机 PATH 里那把插件是哪年装的」不再能冒充判据通过或判红——§7.9 前四轮的归因
+// 全都栽在这上面。代价是这条腿要能 `go build`（包源就在模块缓存里，离线也行）。
 //
-// 第三条是 2026-11-04 实测补的，它推翻了对前两轴的归因，值得把证据留在原地：
+// 三条判据各自的历史证据（实测，不是猜测）：
 //   - 同一把插件（自报 v1.36.12、`go version -m` 里 module h1 也相同），编译它的 Go
 //     是 go1.26.5 时，产物把 `bootstrap/v1/log.pb.go` 的字段注释 `//（…` 排成
 //     `// （…`（多一个空格）；由 go1.27.1 与 go1.27.3 编译的两把都与入库产物零差异。
@@ -36,8 +39,8 @@ func TestGeneratedMatchesProto(t *testing.T) {
 	if _, err := exec.LookPath("buf"); err != nil {
 		t.Skip("buf 不在 PATH，跳过契约层生成校验")
 	}
-	if _, err := exec.LookPath("protoc-gen-go"); err != nil {
-		t.Skip("protoc-gen-go 不在 PATH，跳过契约层生成校验")
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go 不在 PATH，无法自编译 protoc-gen-go，跳过契约层生成校验")
 	}
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {
@@ -53,6 +56,9 @@ func TestGeneratedMatchesProto(t *testing.T) {
 		t.Fatalf("本机 buf=%s，而 bconf/buf.version pin 的是 %s。这条腿判的是产物**字节**；注释文本由 buf 读 proto 后以 source_code_info 投递给插件，所以 buf 换代**可能**改排版——只是实测这两个版本（1.50.0 与 1.57.2 配同一把插件）整树零差异。判据只在这套登记过的组合上被验证过，所以版本不符时先换 pin 版本复跑取证，别直接读成契约漂移；要升级，就把 buf.version 与用新版本重生成的 gen/go 一起提交，让 diff 自己说话。", got, pinned)
 	}
 
+	// 这条腿唯一可信的那把插件：在 bconf module 里现编，版本轴因此由 go.mod 决定。
+	plugin := selfBuiltPlugin(t, root)
+
 	out := t.TempDir()
 
 	want := filepath.Join(root, "gen", "go")
@@ -63,27 +69,36 @@ func TestGeneratedMatchesProto(t *testing.T) {
 		t.Fatalf("%s 下没有任何生成物——这条腿在比一个空树，判据失效", want)
 	}
 
-	// protoc-gen-go 的版本行就在产物头部注释里，所以「产物声明的版本」即单一真相；
-	// 本机插件版本不符时红的是插件换代，而不是 proto 契约漂移。
+	// 版本轴：自编译用的是 bconf/go.mod 里 require 的那个 protobuf，而「产物声明的版本」
+	// 是入库字节里的头部行。两者不符 ⇒ go.mod 与产物换代不同步；本机 PATH 上装过什么
+	// 插件不参与这一判据（这一轴以前会被 PATH 冒充）。
 	pluginWant := pluginVersion(t, wantFiles)
-	if pluginGot := toolVersion(t, "protoc-gen-go"); pluginGot != pluginWant {
-		t.Fatalf("本机 protoc-gen-go=%s，而入库产物头部声明的是 v%s。插件版本会进产物字节（版本行本身；实测同一把 Go 编译的 v1.36.10 与 v1.36.12 差在全部 18 个 .pb.go），所以这条红只证明生成器换代，不证明契约漂移。要么装 v%s 复跑，要么用 v%s 重新生成并把产物一起提交。",
+	if pluginGot := toolVersion(t, plugin); pluginGot != pluginWant {
+		t.Fatalf("bconf/go.mod 的 protobuf 编出的插件是 v%s，而入库产物头部声明的是 v%s。插件版本会进产物字节（版本行本身；实测同一把 Go 编译的 v1.36.10 与 v1.36.12 差在全部 18 个 .pb.go），所以这条红只证明生成器换代，不证明契约漂移。要么把 go.mod 的 require 升到 v%s 复跑，要么用 v%s 重新生成 gen/go 并把产物一起提交。",
 			pluginGot, pluginWant, pluginWant, pluginGot)
 	}
 
 	// 第三轴：插件是**用哪把 Go 编译的**。它不在 `protoc-gen-go --version` 里，也不在
-	// 产物字节里（产物只写 module 版本），却是注释排版的答案——所以单独读构建信息。
+	// 产物字节里（产物只写 module 版本），却是注释排版的答案——所以读刚编出那把的构建信息
+	// （自编译后这一轴就是「跑这条测试的工具链」，GOTOOLCHAIN 换出的那把也照实读）。
 	pinGo := strings.TrimSpace(string(mustRead(t, filepath.Join(root, "protoc-gen-go.goversion"))))
 	if pinGo == "" {
 		t.Fatal("bconf/protoc-gen-go.goversion 是空的——这条轴没有 pin 就无从判红")
 	}
-	if gotGo := pluginBuildGo(t); gotGo != pinGo {
-		t.Fatalf("本机 protoc-gen-go 由 go%s 编译，而 bconf/protoc-gen-go.goversion pin 的是 go%s。编译插件的 Go 会经 protobuf 的 protogen（Content() 用 stdlib go/printer 重排产物）进产物字节：实测 go1.26.5 那把把中文注释 `//（…` 排成 `// （…`，go%s 那把与入库产物零差异。所以这条红只证明工具链口味，不证明契约。补一把合规的：`go install google.golang.org/protobuf/cmd/protoc-gen-go@v%s`（用 go%s 或该 pin 口味实测一致的补丁版）；要换口味，就把 goversion 与用新插件重生成的 gen/go 一起提交（口径见风险登记册 §7.9）",
-			gotGo, pinGo, pinGo, pluginWant, pinGo)
+	if gotGo := goVersionOfBinary(t, plugin); gotGo != pinGo {
+		t.Fatalf("刚编出的 protoc-gen-go 由 go%s 编译，而 bconf/protoc-gen-go.goversion pin 的是 go%s。编译插件的 Go 会经 protobuf 的 protogen（Content() 用 stdlib go/printer 重排产物）进产物字节：实测 go1.26.5 那把把中文注释 `//（…` 排成 `// （…`，而 go1.27.1 与 go1.27.3 编译的都与入库产物零差异。所以这条红只证明工具链口味，不证明契约。用 pin 那把复跑：`GOTOOLCHAIN=go%s go test -run TestGeneratedMatchesProto .`；要换口味，就把 goversion 与用新插件重生成的 gen/go 一起提交（口径见风险登记册 §7.9）",
+			gotGo, pinGo, pinGo)
 	}
 
+	// 把刚编出的插件所在目录前置到 PATH，让 buf 的 `local: protoc-gen-go` 命中它，
+	// 而不是 PATH 上恰好装着的那把。
+	genPath := filepath.Dir(plugin)
+	if p := os.Getenv("PATH"); p != "" {
+		genPath += string(os.PathListSeparator) + p
+	}
 	cmd := exec.Command("buf", "generate", "--template", "buf.gen.local.yaml", "-o", out)
 	cmd.Dir = root
+	cmd.Env = append(os.Environ(), "PATH="+genPath)
 	if b, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("buf generate 失败: %v\n%s", err, b)
 	}
@@ -104,14 +119,34 @@ func TestGeneratedMatchesProto(t *testing.T) {
 		}
 	}
 	if len(problems) > 0 {
-		// 到这里三把 pin 都已等于本机（buf 版本、插件 module 版本、编译插件的 Go
-		// major.minor），所以这里的红才有「契约」含义。留一条退路：pin 是 major.minor
+		// 到这里三处都已对上（buf 版本 = pin、go.mod 编出的插件版本 = 产物头部声明、
+		// 编译它的 Go major.minor = pin），所以这里的红才有「契约」含义。留一条退路：pin 是 major.minor
 		// 粒度，同一 minor 的补丁位实测无关（go1.27.1 与 go1.27.3 同为零差异），但
 		// **更旧的口味也可能换个补丁位复现**——所以文案仍要求复跑一次，只是复跑的对象
 		// 换成「pin 那套工具链」而不是「另一个版本的同一把工具」。
-		t.Fatalf("契约层生成物与 proto 不一致（%d 项，前 10 项）：\n  %s\n本机 buf=%s（= bconf/buf.version 的 pin），protoc-gen-go=v%s（= 入库产物头部声明），编译它的 Go=go%s（= bconf/protoc-gen-go.goversion 的 pin）。\n三把 pin 都对上还差字节，就是契约真的变了：用 `buf generate --template buf.gen.local.yaml` 重生成并把 gen/go 与 proto 改动一起提交；若怀疑是本机工具链的补丁位口味，先按 §7.9 的矩阵换一把 pin 组合的插件复跑再判",
-			len(problems), joinLimited(problems, 10), pinned, pluginWant, pluginBuildGo(t))
+		t.Fatalf("契约层生成物与 proto 不一致（%d 项，前 10 项）：\n  %s\n本机 buf=%s（= bconf/buf.version 的 pin），自编译的 protoc-gen-go=v%s（= bconf/go.mod 的 protobuf，且等于入库产物头部声明），编译它的 Go=go%s（= bconf/protoc-gen-go.goversion 的 pin）。\n三处都对上还差字节，就是契约真的变了：用 `buf generate --template buf.gen.local.yaml` 重生成并把 gen/go 与 proto 改动一起提交；若怀疑是本机工具链的补丁位口味，先按 §7.9 的矩阵换一把 pin 组合的插件复跑再判",
+			len(problems), joinLimited(problems, 10), pinned, pluginWant, goVersionOfBinary(t, plugin))
 	}
+}
+
+// selfBuiltPlugin 在 bconf module 里现编这条腿唯一可信的那把 protoc-gen-go，返回绝对路径。
+// 版本轴因此由 bconf/go.mod 的 require 决定，口味轴因此由 `go build` 实际解析到的工具链
+// 决定（GOTOOLCHAIN 换出的那把也如实进判据）。包源就在模块缓存里——bconf 的生成物本来就
+// import protobuf，所以离线也能编。
+func selfBuiltPlugin(t *testing.T, moduleDir string) string {
+	t.Helper()
+	name := "protoc-gen-go"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	plugin := filepath.Join(t.TempDir(), name)
+	cmd := exec.Command("go", "build", "-o", plugin, "google.golang.org/protobuf/cmd/protoc-gen-go")
+	cmd.Dir = moduleDir
+	if b, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("自编译 protoc-gen-go 失败（在 %s 里 `go build google.golang.org/protobuf/cmd/protoc-gen-go`）: %v\n%s",
+			moduleDir, err, b)
+	}
+	return plugin
 }
 
 func mustRead(t *testing.T, path string) []byte {
@@ -123,24 +158,13 @@ func mustRead(t *testing.T, path string) []byte {
 	return b
 }
 
-// pluginBuildGo 报出「编译本机 protoc-gen-go 用的 Go」的 major.minor。
+// goVersionOfBinary 报出「编译这把插件用的 Go」的 major.minor。
 // 这一轴在插件自己的 `--version` 里看不见（那只报 protobuf 的 module 版本），
 // 而产物字节恰恰跟着它走，所以从二进制的构建信息里读：`go version -m <插件>` 首行
 // 形如 `/path/protoc-gen-go: go1.27.1`。补丁位实测无关（go1.27.1 与 go1.27.3 编译的
 // 同一版插件都与入库产物零差异），故只取到 major.minor。
-// go 命令缺席时跳过——与 buf/插件缺席同一类（环境缺失，不是判据失败）。
-func pluginBuildGo(t *testing.T) string {
+func goVersionOfBinary(t *testing.T, path string) string {
 	t.Helper()
-	if _, err := exec.LookPath("go"); err != nil {
-		t.Skip("go 不在 PATH，读不到 protoc-gen-go 的构建信息，跳过契约层生成校验")
-	}
-	path, err := exec.LookPath("protoc-gen-go")
-	if err != nil {
-		t.Fatalf("protoc-gen-go 不在 PATH: %v", err)
-	}
-	if resolved, err := filepath.EvalSymlinks(path); err == nil {
-		path = resolved
-	}
 	out, err := exec.Command("go", "version", "-m", path).CombinedOutput()
 	if err != nil {
 		t.Fatalf("`go version -m %s` 失败: %v\n%s", path, err, out)

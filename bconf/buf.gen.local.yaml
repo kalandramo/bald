@@ -1,9 +1,15 @@
 # 契约层产出的真相源（= `task proto-contract`）：与 buf.gen.yaml 同一份 managed
 # mode，只把远端插件换成本机 protoc-gen-go。产出的字节由 proto-contract-check
-# 逐字节守住，版本 pin 有三处：buf 驱动器读 bconf/buf.version，插件的 module 版本
-# 读产物头部的 protoc-gen-go 版本行，**编译该插件用的 Go（major.minor）**读
-# bconf/protoc-gen-go.goversion——三条都在字节比对之前单独判红，所以红的时候分得清
-# 「契约漂了」还是「工具链变了」（风险登记册 §7.9，第三把 pin 是第四轮补的）。
+# 逐字节守住。三处 pin 的出处不同：buf 驱动器读 bconf/buf.version（也是这条腿唯一
+# 还读 PATH 的一轴），而插件的两轴都不在 PATH 上——校验腿在 bconf module 里
+# `go build` 现编一把（module 版本由 bconf/go.mod 的 protobuf 决定，须等于产物头部的
+# protoc-gen-go 版本行；编译它用的 Go 的 major.minor 须等于 bconf/protoc-gen-go.goversion）。
+# 三条都在字节比对之前单独判红，所以红的时候分得清「契约漂了」还是「工具链变了」
+# （风险登记册 §7.9）。
+#
+# 重生成时别直接用 PATH 上恰好装着的那把插件：它的 module 版本若与 bconf/go.mod 不同，
+# 判据会红在版本轴上点名 go.mod。把产出也对齐到 go.mod 的姿势是把现编的插件前置 PATH，
+# 命令见 Taskfile 的 proto-contract 注释。
 #
 # 注意不要改用 buf.gen.yaml 重出提交：BSR 容器里编译同名插件用的 Go 与本机不同，
 # 它会在中文注释的 `//` 后补一个空格——那是工具差异不是契约变更。

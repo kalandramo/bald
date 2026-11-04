@@ -675,27 +675,28 @@ jobs:
       - name: 声明式装配验收（清单来自 -list，判据必须出现顶层 PASS）
         run: bash scripts/acceptance-gate.sh ci
 
-  # 契约层字节判据进 CI（风险登记册 §7.9 未闭合①）。这条腿判的是「用登记过的工具链
-  # 重出 bconf/proto 的产物，与入库的 gen/go 逐字节一致」。它此前只在本机跑，而
+  # 契约层字节判据进 CI（风险登记册 §7.9 未闭合①，第五轮落地）。这条腿判的是「用登记
+  # 过的工具链重出 bconf/proto 的产物，与入库的 gen/go 逐字节一致」。它此前只在本机跑，而
   # 「buf 不在 PATH 即 t.Skip」使 CI 永远看不见它——正是 §7.12 记的那类「本地腿没有
   # 远端证据」的形状。
   #
-  # 为什么现在敢给 runner 装这套工具链：§7.9 第四轮把进字节的变量收窄到**编译
-  # protoc-gen-go 用的那把 Go**（buf 的版本号与来源实测对字节中性），而 runner 的 Go
-  # 已由 `test` 作业 pin 成 1.27.3，正好落在与入库产物零差异的那一档。于是这条作业
-  # 不是「用工具链换一条绿」：判据在字节比对之前先单独比三把 pin（buf 版本 / 插件
-  # module 版本 / 编译插件的 Go major.minor），任何一把不符先响在那把工具上。
+  # 为什么三把 pin 现在只需要 runner 装一把：§7.9 第四轮把进字节的变量收窄到**编译
+  # protoc-gen-go 用的那把 Go**（go1.26.5 给中文注释补空格、go1.27.x 不补；buf 的版本号
+  # 与来源实测对字节中性），第六轮又把另两把从 PATH 搬进仓内——插件由 `bconf/go.mod`
+  # 现编（`selfBuiltPlugin`），于是判据读的三把工具全是仓内可审的出处：
+  # ① buf 版本 = `bconf/buf.version`（本作业用 `scripts/install-buf.sh` 按 `bconf/buf.sha256` 装）；
+  # ② 插件 module 版本 = 那把自编译二进制自报的 v，比入库产物头部的 `protoc-gen-go v…` 行；
+  # ③ 编译插件的 Go major.minor = 同一把二进制的 `go version -m`，比 `bconf/protoc-gen-go.goversion`。
+  # ②③ 旧形状读的是 PATH 上**已安装**的那把插件，所以「本机 PATH 里那把哪年装的」能
+  # 冒充判据通过或判红（§7.9 前四轮都栽在这上面）；改成自编译后 PATH 里的插件不再参与。
+  # 判据在字节比对之前先逐轴比，任何一把不符先响在那把工具上，不是「用工具链换一条绿」。
   #
-  # 本机同形状的取证（2026-11-04，两种架构各一轮，跑的是从本文件抽出的 step 原文）：
-  # `golang:1.27` 容器（go1.27.3，arm64 与 amd64 各一次）+ 官方 buf 1.50.0 发行二进制
-  # （按 bconf/buf.sha256 校摘要）+ 由那把 Go 现编的 protoc-gen-go v1.36.12 → 判据步
-  # exit 0 且日志有顶层 `--- PASS: TestGeneratedMatchesProto`；三组变异（撤掉工具链 →
-  # 红在 PASS 断言、给产物追加一个字节 → 红在字节门、把 buf pin 改成不存在的版本 →
-  # 红在第一轴）各自只打中对应那一层。逐条数字与边界见登记册 §7.9 第五轮。
-  #
-  # 远端取证（GitHub 真实 runner，2026-11-04，run 41823701064 / job 126552951834）：
-  # 官方 buf 资产下载并过摘要 → `buf --version -> 1.50.0`；插件按产物头部现编 →
-  # `protoc-gen-go: go1.27.3`；判据 `--- PASS: TestGeneratedMatchesProto (0.15s)`。
+  # 本机同形状的取证（2026-11-04）：`go test -C bconf -run TestGeneratedMatchesProto` 三轮
+  # `ok`；三条变异各只打中一轴——PATH 放一把假版本插件 → 照样 `ok`（证明 PATH 已出局）、
+  # `bconf/go.mod` 的 protobuf 退回 v1.36.11 → 红在第二轴（v1.36.11 编出的插件自报版本
+  # 与产物头部 v1.36.12 不符）、`bconf/protoc-gen-go.goversion` 改成 9.99 → 红在第三轴。
+  # 第二轴那条是改造前**根本测不到**的洞：旧腿读 PATH 上 v1.36.12 的插件，仓内 pin 与
+  # 产物头部不一致时会静默通过。
   proto-contract:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -720,29 +721,10 @@ jobs:
           sh scripts/install-buf.sh "$RUNNER_TEMP/bin"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
-      # 插件版本不写在作业里，读自入库产物的头部注释——那是判据用的同一份真相。写死
-      # 在这里会让「产物声明 vN 而作业装 vN-1」变成一条永远红、且根因看不出来的腿。
-      - name: 现编 pin 的 protoc-gen-go（版本读自入库产物头部）
-        run: |
-          set -e
-          f=$(find bconf/gen/go -name '*.pb.go' | LC_ALL=C sort | head -1)
-          if [ -z "$f" ]; then
-            echo "::error::bconf/gen/go 里没有 .pb.go——插件版本没有出处可取"
-            exit 1
-          fi
-          p=$(grep -m1 -oE 'protoc-gen-go v[0-9.]+' "$f" | awk '{print $2}')
-          if [ -z "$p" ]; then
-            echo "::error::$f 头部没有 protoc-gen-go 版本行"
-            exit 1
-          fi
-          echo "入库产物声明的插件版本：$p（出处 $f）"
-          GOBIN="$RUNNER_TEMP/bin" go install "google.golang.org/protobuf/cmd/protoc-gen-go@${p}"
-          # 第三把 pin（编译插件用的 Go）由判据去比；这里只把它打进日志，红的时候
-          # 一眼分得清「工具链换代」还是「契约漂移」。
-          go version -m "$RUNNER_TEMP/bin/protoc-gen-go" | head -1
-
       # 与 `integration` 作业同一条口径：跑完还要断言「这条判据真的产生了顶层 PASS」。
       # 只 `go test` 不看日志的话，工具链没装上（→ Skip）或用例改名都会留下一片绿。
+      # 插件不在这一步装：判据自己在 `bconf` 模块里 `go build` 出 protoc-gen-go，
+      # 并把它的目录前置进 `buf generate` 的 PATH——所以这里只需要装 buf。
       - name: 字节判据必须真的跑过（Skip 不算通过）
         run: |
           set -e
