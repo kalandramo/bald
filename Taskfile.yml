@@ -165,13 +165,22 @@ tasks:
   # 两种形态共用同一套 gRPC 客户端用例与校验断言。
   # 这是长期保留的回归测试，改校验链路/proto 注解/拦截器接线后都应重跑。
   # 依赖 proto 生成产物，故 depend on proto-example。
+  # 三条命令与 ci.yml 的 `example` 作业一一对应（那条作业多一条 -count=1 与判据清单）。
   example-e2e:
-    desc: 运行 _example 的 e2e 回归测试（默认 gin 绑定 + grpcgw 转码面）
+    desc: 运行 _example 的 e2e 回归测试（默认 gin 绑定 + grpcgw 转码面 + nacos 装配）
     deps: [proto-example]
     dir: _example/bald
     cmds:
       - go test ./... -v
       - go test -tags grpcgw ./... -v
+      # 注册中心真机装配判据：只 -tags nacos 构建形态里才有这条用例。
+      # 形状（单条 -run、不是整包）抄的是用例文件自己的头注释：同 tag 的并集跑会红——
+      # 每条用例起的应用都带一个 nacos 配置 client（各自的 gRPC 连接，SDK 不按 ip:port
+      # 复用），一次启动 = 一次 ConfigQueryRequest，连续起多个应用攒成突发，服务端按请求
+      # 类型限流 ⇒ `ConfigQueryRequest is limited` ⇒ 层的首次 Load 判错、应用起不来。
+      # 根因与修法登记在风险册 §7.13。-count=1 是必须的：这条要真 nacos，命中测试缓存的
+      # 「ok」不等于刚刚跑过。没有本机 nacos 时它会 Skip（不是失败）。
+      - go test -tags nacos ./internal/bootstrap -run '^TestNacosAssemblyRegistersIntoBackend$' -count=1 -v
 
   # ---------------------------------------------------------------------------
   # cobramcp 是独立 module（github.com/kalandramo/bald/cobramcp，与 transport/mcp

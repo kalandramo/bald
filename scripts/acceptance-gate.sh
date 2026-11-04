@@ -16,9 +16,14 @@
 #
 #   all（默认，本地）：全部腿，含 `_example/bald`。
 #   ci              ：只跑标 ci 的腿。两条 `no` 的各自理由：
-#                   - `_example/bald` 的参考工程计划要编译 `api/gen` 的 proto
-#                     产物，而它已 gitignore（同 §7.1「刻意不含 `_example`」），
-#                     干净检出装载不了；
+#                   - `_example/bald` 的两条计划腿要编译 `api/gen` 的 proto 产物，
+#                     而它已 gitignore——干净检出里连示例 module 都编译不了，本脚本
+#                     不装 buf（装一遍工具链是专职作业的活）。**这不等于「这条腿没有
+#                     远端证据」**：ci.yml 的 `example` 作业按同一把 pin 的 buf
+#                     （scripts/install-buf.sh）生成产物后跑三态构建，两条
+#                     `TestPlan_ReferenceProject`（默认态 + grpcgw 态）都在它的判据
+#                     清单里逐条断言顶层 `--- PASS`（登记册 §7.1）。留 `no` 是为了
+#                     不在两条作业里各装一遍 buf。
 #                   - `bconf` 的 `TestGeneratedMatchesProto` 判的是「buf +
 #                     protoc-gen-go 重出的产物与入库字节一致」，**这个字节判据绑
 #                     工具链**：进字节的排版变量是**编译 protoc-gen-go 用的那把 Go**

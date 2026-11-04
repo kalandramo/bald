@@ -1262,12 +1262,13 @@ func shortGatedTests(t *testing.T, pkgDir string) map[string]bool {
 // shortSkipExemptions 是「既不在判据表里、也没被任何 CI 作业点名」的 -short 跳过
 // 用例。每条都带具体理由，且下面会验它**仍然成立**——用例改名、被重新排进表或排进
 // CI，这条豁免就变成红，名单不会烂在那里。
-var shortSkipExemptions = map[string]string{
-	"_example/bald|./internal/bootstrap|TestGatewayDiscoveryEtcdWatchPush":         "要真 etcd 才能跑；且示例 module 整体不在 CI（它的测试先要 gitignore 的 api/gen 产物，编译前需 buf + BSR 网络，见 §7.1），进表会让没 etcd 的机器必红",
-	"_example/bald|./internal/bootstrap|TestGatewayDiscoveryNacosWatchPush":        "要真 nacos 才能跑；且示例 module 不在 CI（同上一条：api/gen 是 gitignore 的 proto 产物）",
-	"_example/bald|./internal/bootstrap|TestNacosDiscoveryNameCarriesSchemeSuffix": "要真 nacos 才能跑；且示例 module 不在 CI（同上一条：api/gen 是 gitignore 的 proto 产物）",
-	"_example/bald|./internal/bootstrap|TestNacosAssemblyRegistersIntoBackend":     "要真 nacos、且要 -tags nacos 构建形态才有意义（CI 两种都不具备：示例 module 不在 CI，见 §7.1；nacos 变体只在本地按需要构建）；执行证据见风险登记册 §7.10",
-}
+//
+// 现在为空，而且**空本身是判据**：这四条示例用例此前靠豁免存续，理由都写着「示例
+// module 不在 CI（见 §7.1）」；ci.yml 的 `example` 作业把那句话变成假话之后，把它们
+// 留在名单里就是拿一条死条目把判据关掉——`seen` 那侧的过期检查正是为此存在。
+// 要重新加条目，先确认这条腿真的没有任何作业点名它（第 2 判据只查名字在
+// .github/workflows/*.yml 里出现过，方向是误报红，不是误报绿）。
+var shortSkipExemptions = map[string]string{}
 
 // TestAcceptanceTableCoversShortSkippedTests 是风险登记册 §8 那条「未闭合的形状」的
 // 闸门。acceptance 判据按 `-run` 正则挑用例，而 CI 的 test/race 作业跑的是

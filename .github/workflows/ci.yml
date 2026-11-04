@@ -3,7 +3,8 @@
 # - 多模块仓库：模块清单只有一条派生 —— `scripts/list-modules.sh`（本地 Taskfile
 #   的 lint/vuln/race/verify 消费同一个脚本，两侧覆盖范围不可能漂移）。清单为空
 #   时脚本自身非零退出，闸门不会静默失效。`_example` 是验证用独立 module
-#   （GOFLAGS=-mod=mod 特殊装载），由脚本排除、由 Taskfile 的 example-* 任务覆盖。
+#   （GOFLAGS=-mod=mod 特殊装载），由脚本排除；它不进四条主循环，但有自己的
+#   `example` 作业判执行证据（见下面那条作业的注释）。
 # - 根模块 vet 降级 -copylocks=false：appkit hotReload 的 `*cfg = *candidate`
 #   proto 顶层浅拷贝是既定设计（字段皆指针、无别名问题，见 bootstrap.go
 #   注释），MessageState 含 Mutex 属 vet 误报区。
@@ -11,7 +12,8 @@
 #   testing.Short() 惯例）；超时防挂死测试拖垮整个 job。
 #   「-short 之外」不是没人管：integration 作业按套件点名注入 etcd/consul/redis/mongo
 #   跑非 -short 用例，integration-kubernetes 作业另起真 kind 集群跑 registry 的第三条
-#   后端腿，两侧都以「判据必须出现 PASS」兜住不可达即 Skip 的静默失效（见各 job 注释）。
+#   后端腿，example 作业注入 etcd/nacos 跑示例 module 那批要真后端的判据，三处都以
+#   「判据必须出现 PASS」兜住不可达即 Skip 的静默失效（见各 job 注释）。
 # - 基准冒烟：每模块追加 go test -bench . -benchtime=1x -run '^$'——编译
 #   并单迭代跑一轮基准，拦「基准编译坏/基准 panic」回归；无基准 module
 #   空跑零成本。分配剖面回归由各包 alloc_guard_test.go 随 -short 主循环
@@ -159,18 +161,21 @@ jobs:
   # 的 `TestServer`/`TestClient` 是等信号的手动用例（非 -short 会挂到 timeout），主循环必须
   # 留在 -short。这里按套件点名跑，清单外的包一概不碰。
   #
-  # 刻意不含 `_example/bald`：那里的 etcd/nacos 服务发现端到端**只在本地跑**（README 有可复制
-  # 命令）。原先挡住它的第一条原因（go.mod 把两个 kratos contrib 模块 replace 到**仓库外**的同级
-  # 检出，干净检出连模块图都装载不出来）已在 2026-11-04 撤除——示例现在只用仓内模块，实测干净
-  # 检出 `go mod download` 与 `go list -m all` 都通过。剩下的两条是真的：
-  #   1. `_example/bald/api/gen` 是 gitignore 的 proto 产物，干净检出里没有；要先 `buf dep update`
-  #      + `buf generate` 才编译得了（本机实测：产物生成后 `go test ./...` 默认构建全绿）。
-  #      也就是要 pin buf 版本并放开到 BSR 的网络——与 §7.9 的工具链 pin 同一件事。
-  #   2. 那几条用例要真 etcd/真 nacos 才有意义。这一半已经动过刀：nacos 的**机制**判据
-  #      （注销走对服务名、契约 cleanup 真关 client）不依赖 proto 产物，已下沉到
-  #      registry/nacos/contract 并由本作业的 nacos 服务容器判；留在示例里的只有装配那条
-  #      （要起整个 api 角色），它判的是终态，且两条摘除路径是「或」，见 §7.10。
-  # 要做就是独立一个 `example` 作业（失败面与核心模块隔离），那是独立一件事。
+  # 本作业也不含 `_example/bald`，但**不是没人管**：那里的 etcd/nacos 服务发现端到端与三态构建
+  # 由专职的 `example` 作业判（风险 §7.1 已因此收口）。拆成两条的理由与上面
+  # `integration-kubernetes` 同一条：示例要先装 buf 并生成 gitignore 的 `api/gen` 才编译得了，
+  # 那条失败面（BSR 拉不到 / 插件版本漂）与本作业四条服务腿无关，混在一起等于让平台抖动
+  # 定期作废本作业的取证。
+  #
+  # 这个「刻意不含」曾经是真的：原先第一条阻塞（go.mod 把两个 kratos contrib 模块 replace 到
+  # **仓库外**的同级检出，干净检出连模块图都装载不出来）在 2026-11-04 撤除——示例现在只用仓内
+  # 模块，实测干净检出 `go mod download` 与 `go list -m all` 都通过。剩下的两条（要 pin buf 并
+  # 放开 BSR 网络；要真 etcd/真 nacos 才有意义）也都由 `example` 作业解决了：工具链与
+  # `proto-contract` 同源，服务容器与本作业同镜像同参数。
+  #
+  # 顺带一条已动过刀的分工：nacos 的**机制**判据（注销走对服务名、契约 cleanup 真关 client）
+  # 不依赖 proto 产物，下沉在 registry/nacos/contract 由本作业的 nacos 服务容器判；示例里那条
+  # 是**装配**判据（要起整个 api 角色），判的是终态且两条摘除路径是「或」，见 §7.10。
   #
   # 三档防「静默失效」（这是新增闸门最容易自欺的地方）：
   #   1. **服务探活失败 = 作业失败**。这批用例的写法是「不可达即 Skip」，不探活的话服务起不
@@ -453,6 +458,194 @@ jobs:
             exit 1
           fi
 
+  # 示例应用的端到端腿（风险登记册 §7.1 里最后一条「只在本地跑」的判据）。
+  # `integration` 作业的头注释原先写的是「要做就是独立一个 `example` 作业」，理由当时有两条，
+  # 现在都还成立：
+  #   1. 失败面不同。这一条要先装 buf、再 `buf generate` 出 gitignore 的 `_example/bald/api/gen`
+  #      才编译得了——红的时候是「BSR 拉不到 / 插件版本漂」，与核心模块的代码红是两件事。
+  #      混进 `integration` 就等于让平台抖动定期作废 etcd/consul/redis/mongo 那四条腿的取证。
+  #   2. 覆盖面上它是空白。`_example` 以下划线开头且是独立 module，Go 工具链不发现它，
+  #      `scripts/list-modules.sh`（test/race/lint/vuln 四条主循环的唯一清单出处）也按设计排除它，
+  #      所以这个 module 此前**一条远端证据都没有**——`task example-e2e` 只在作者本机跑。
+  #
+  # buf 从哪来：与 `proto-contract` 作业同一把、同一个脚本（版本读 `bconf/buf.version`、
+  # 摘要读 `bconf/buf.sha256`）。装两次内联逻辑时「一处改了摘要另一处没改」不会报错，
+  # 只会让某条作业在错误的二进制上跑绿。
+  #
+  # 为什么 `buf generate` 前面不加 `buf dep update`（Taskfile 的 proto-example 有）：`dep update`
+  # 是给本地「刚改 buf.yaml 想立刻重解析」用的，它会重写受版本管理的 `buf.lock`。CI 要的是
+  # 「按已锁定的依赖生成」，而 buf.lock 已入库，所以只跑 generate；紧接着判一条
+  # `git diff --quiet -- _example/bald/api`——生成这步若动到任何受管理文件（第一个可能就是
+  # buf.lock），说明 pin 在没人决定的情况下漂了，先响在这里而不是响在后面某条用例的错误里。
+  #
+  # 三态构建与各自的判据（本机实测 2026-11-04，名字取自各步 `-v` 原文）：
+  #   默认态    13 条（两个角色的 e2e + etcd/nacos 服务发现 + 契约限流/超时 + env 覆盖）
+  #   grpcgw    10 条（转码面那一套：register_grpcgw.go 只在带这个 tag 时参与编译）
+  #   nacos      1 条（装配真机判据，见下面那条单独的注释）
+  # `internal/apiserver` 的 `TestBizLayerImportsAreBusinessOnly` **不进 EXPECTED**：它的 Skip
+  # 条件是「`internal/apiserver/biz` 目录不存在」（gen domain 才会种它），与服务和工具链无关，
+  # 本地和 CI 一样 Skip——把它写进判据表等于造一条永远红的行。
+  #
+  # 三档防「静默失效」与 `integration` 作业同构：服务探活失败即作业失败（这批用例的写法是
+  # 「不可达即 Skip」）；逐套件 `-v` 留档；末尾按 EXPECTED 逐条断言真的出现 `--- PASS`。
+  # nacos 那条的探活除 8848 外还判 **9848**：SDK v2 的 naming 走 gRPC（8848+1000），只映射
+  # HTTP 口时服务看着活着、注册却静默上不去，红点会落在「注册后 N 秒内不可见」这种看着像
+  # 时序问题的地方。
+  example:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GOPROXY: "https://goproxy.io|https://proxy.golang.org,direct"
+      # 两个后端地址显式给（测试里的默认值恰好也是这两个，但作业不靠默认值成立）。
+      # 装配那条用例不吃 BALD_E2E_NACOS_ADDR——它跟着契约文件 `registry.nacos.server_addrs`
+      # 走，另有漂移判据，见 _example/bald/internal/bootstrap/nacos_assembly_e2e_test.go。
+      BALD_E2E_ETCD_ADDR: "127.0.0.1:2379"
+      BALD_E2E_NACOS_ADDR: "127.0.0.1:8848"
+    services:
+      etcd:
+        # 与 `integration` 作业同一镜像、同一 env 形状（命令行参数不能写成 `args`，
+        # services 只认 credentials/env/image/options/ports/volumes，多任何键整个文件被拒）。
+        image: quay.io/coreos/etcd:v3.5.14
+        ports: ["2379:2379"]
+        env:
+          ETCD_LISTEN_CLIENT_URLS: http://0.0.0.0:2379
+          ETCD_ADVERTISE_CLIENT_URLS: http://127.0.0.1:2379
+      nacos:
+        image: nacos/nacos-server:v2.3.2
+        ports: ["8848:8848", "9848:9848"]
+        env:
+          MODE: standalone
+          NACOS_AUTH_ENABLE: "false"
+          JVM_XMS: 256m
+          JVM_XMX: 512m
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.3"
+
+      - name: 装 pin 的 buf（与 proto-contract 作业同源，摘要按 bconf/buf.sha256 校验）
+        run: |
+          set -e
+          sh scripts/install-buf.sh "$RUNNER_TEMP/bin"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: 生成示例的 proto 产物（api/gen 是 gitignore 的，干净检出没有）
+        run: |
+          set -e
+          export PATH="$RUNNER_TEMP/bin:$PATH"
+          buf --version
+          (cd _example/bald/api && buf generate)
+          # 生成不该动任何受版本管理的文件：动了 = buf.lock / buf.yaml 这层 pin 漂了。
+          if ! git diff --quiet -- _example/bald/api; then
+            echo "::error::buf generate 改动了受版本管理的文件——先看 git status，多半是 buf.lock 被重解析了"
+            git status --porcelain -- _example/bald/api
+            git diff --stat -- _example/bald/api
+            exit 1
+          fi
+          ls _example/bald/api/gen >/dev/null
+
+      - name: 服务探活（探不到即失败，不放行成 Skip）
+        run: |
+          set -e
+          wait_tcp() { # host port 名称 [尝试次数，默认 60 次 ×2s]
+            local host="$1" port="$2" name="$3" tries="${4:-60}"
+            while [ "$tries" -gt 0 ]; do
+              if (echo > "/dev/tcp/$host/$port") 2>/dev/null; then
+                echo "READY $name ($host:$port)"
+                return 0
+              fi
+              tries=$((tries - 1))
+              sleep 2
+            done
+            echo "::error::$name 未就绪（$host:$port）"
+            return 1
+          }
+          wait_tcp 127.0.0.1 2379 etcd
+          wait_tcp 127.0.0.1 8848 nacos 90
+          # 9848 单独判一次：nacos v2 SDK 的 naming 走 gRPC（8848+1000）。这一条是
+          # 「半死的 nacos」唯一的线索——8848 活着而 9848 不通时，注册静默失败。
+          wait_tcp 127.0.0.1 9848 nacos-grpc
+
+      - name: 示例套件（三态构建，逐条判据留档）
+        run: |
+          set -e
+          mkdir -p /tmp/ex
+          # -tags nacos 那一态只跑装配那条，形状取自用例文件头注释里的命令。整包（或
+          # `-run 'TestE2E_|TestGateway|^TestNacosDiscovery|…Assembly'` 这种并集）跑在同一条
+          # 命令里会红：那一构建形态下每条用例起的应用都带一个 nacos **配置** client，一次启动
+          # 就是一次 ConfigQueryRequest，同一进程里连续起多个应用攒成突发 ⇒ 服务端按请求类型限流
+          # ⇒ SDK 日志 `get config from server error:ConfigQueryRequest is limited` ⇒ 层的 Load
+          # 直接判错、应用起不来（本机实测：并集 3 次红 2、全量 3 次红 3、单条 12 次全绿）。
+          # 限流在服务端不在客户端：SDK 的 gRPC 连接按 `config-<taskId>-<uid>` 建，uid 是每个
+          # ConfigClient 一个随机 UUID，所以这些 client 各用各的连接，不是复用一个池（v2.3.5
+          # config_proxy.go:182 / config_client.go:145）。根因与修法登记在 §7.13，
+          # `bconfig/nacos` 侧的重试是独立一件事。
+          # 这不是把判据调窄到能过：现状（task example-e2e）根本不含 nacos 态，这一条是净增。
+          (cd _example/bald && go mod download \
+            && go test ./... -count=1 -timeout 10m -v > /tmp/ex/default.log 2>&1) || { cat /tmp/ex/default.log; exit 1; }
+          (cd _example/bald && go test -tags grpcgw ./... -count=1 -timeout 10m -v > /tmp/ex/grpcgw.log 2>&1) || { cat /tmp/ex/grpcgw.log; exit 1; }
+          (cd _example/bald && go test -tags nacos ./internal/bootstrap -run '^TestNacosAssemblyRegistersIntoBackend$' -count=1 -timeout 10m -v > /tmp/ex/nacos.log 2>&1) || { cat /tmp/ex/nacos.log; exit 1; }
+          grep -E '^(--- (SKIP|FAIL|PASS)|ok|FAIL)' /tmp/ex/*.log
+
+      - name: 判据必须真的跑过（Skip 不算通过）
+        run: |
+          set -e
+          # 每条格式 <日志>|<测试名>；同 integration 作业的口径——**这个字符串里只能放判据行**，
+          # 注释写在外面（按空白拆词，注释混进来会被当成假判据，整个作业判红且报错难懂）。
+          EXPECTED="
+          /tmp/ex/default.log|TestGreet_REST_GeneratedBinding
+          /tmp/ex/default.log|TestGatewayBackendViaDiscovery
+          /tmp/ex/default.log|TestGatewayDiscoveryEtcdWatchPush
+          /tmp/ex/default.log|TestGatewayDiscoveryNacosWatchPush
+          /tmp/ex/default.log|TestNacosDiscoveryNameCarriesSchemeSuffix
+          /tmp/ex/default.log|TestE2E_HTTPContractRateLimit
+          /tmp/ex/default.log|TestE2E_HTTPContractTimeout
+          /tmp/ex/default.log|TestE2E_GRPCContractRateLimit
+          /tmp/ex/default.log|TestE2E_GRPCContractTimeout
+          /tmp/ex/default.log|TestE2E_EnvOverridesContractRateLimit
+          /tmp/ex/default.log|TestE2E_EnvOverridesContractGRPCRateLimit
+          /tmp/ex/default.log|TestPlan_ReferenceProject
+          /tmp/ex/default.log|TestLoggerProviderMasksAttrAndTagsServiceName
+          /tmp/ex/grpcgw.log|TestWorkerRoleServesGRPCOnly
+          /tmp/ex/grpcgw.log|TestUnknownRoleFailsToAssemble
+          /tmp/ex/grpcgw.log|TestGreet_ValidRequest
+          /tmp/ex/grpcgw.log|TestGreet_ProtoAnnotationRules
+          /tmp/ex/grpcgw.log|TestGreet_CustomValidator
+          /tmp/ex/grpcgw.log|TestGreet_REST_SharesSameRules
+          /tmp/ex/grpcgw.log|TestGreet_ErrorMessageIsStructured
+          /tmp/ex/grpcgw.log|TestHealthProbesE2E
+          /tmp/ex/grpcgw.log|TestPlan_ReferenceProject
+          /tmp/ex/grpcgw.log|TestLoggerProviderMasksAttrAndTagsServiceName
+          /tmp/ex/nacos.log|TestNacosAssemblyRegistersIntoBackend
+          "
+          miss=0
+          for row in $EXPECTED; do
+            [ "$row" = "" ] && continue
+            case "$row" in
+              *"|"*) ;;
+              *)
+                echo "::error::EXPECTED 里有非 <日志>|<测试名> 的项：「$row」——注释别写进这个字符串"
+                miss=$((miss + 1))
+                continue
+                ;;
+            esac
+            log=${row%%|*}
+            name=${row##*|}
+            if grep -q -- "--- PASS: $name" "$log"; then
+              echo "PASS  $name  ($log)"
+            else
+              echo "::error::判据 $name 没有 PASS 记录（Skip / 改名 / 未编译都会落到这里）"
+              miss=$((miss + 1))
+            fi
+          done
+          if [ "$miss" != 0 ]; then
+            echo "--- 留档输出（便于看是 Skip 还是没跑）---"
+            grep -E '^(--- (SKIP|FAIL|PASS)|ok|FAIL)' /tmp/ex/*.log | tail -80
+            exit 1
+          fi
+
   # 声明式装配验收（设计 §7.2 的主门；登记册 §8 最后半条「acceptance 没有任何 CI
   # 作业调用它」的收口）。本地与 CI 同一条脚本、同一份判据表，只有 scope 不同。
   #
@@ -514,32 +707,17 @@ jobs:
         with:
           go-version: "1.27.3"
 
-      # 装 buf 的口径：版本读 bconf/buf.version（与判据同一出处，不在这里抄第二份），
-      # 完整性读 bconf/buf.sha256。判据本身不校验来源——本机怎么装（Homebrew、源码、
-      # 官方发行）不该被一条字节判据绑死（§7.9 未闭合③）；但 runner 下载的是公网资产，
-      # 所以这里必须校验摘要，而不是「下到就算装好」。
+      # 装 buf 的口径都收在 scripts/install-buf.sh 里：版本读 bconf/buf.version（与判据
+      # 同一出处，不在这里抄第二份），完整性读 bconf/buf.sha256，架构由 uname 选 asset。
+      # 这个脚本同时被下面的 `example` 作业用——两处装的 buf 必须同源同摘要，内联两份时
+      # 「一处改了摘要另一处没改」不会报错，只会让某个作业在错误的二进制上跑绿。
+      # 判据本身不校验来源——本机怎么装（Homebrew、源码、官方发行）不该被一条字节判据
+      # 绑死（§7.9 未闭合③）；但 runner 下载的是公网资产，所以必须校验摘要而不是「下到就算装好」。
       - name: 装 pin 的 buf（官方发行二进制，按 bconf/buf.sha256 校验）
         run: |
           set -e
-          v=$(tr -d '[:space:]' < bconf/buf.version)
-          if [ -z "$v" ]; then
-            echo "::error::bconf/buf.version 是空的——这条腿的前提是版本有据"
-            exit 1
-          fi
-          want=$(awk '$1 == "Linux-x86_64" {print $2}' bconf/buf.sha256)
-          if [ -z "$want" ]; then
-            echo "::error::bconf/buf.sha256 里没有 Linux-x86_64 这一行——装不了就别放行"
-            exit 1
-          fi
-          curl -fsSL -o "$RUNNER_TEMP/buf" \
-            "https://github.com/bufbuild/buf/releases/download/v${v}/buf-Linux-x86_64"
-          echo "$want  $RUNNER_TEMP/buf" | sha256sum --check --status
-          mkdir -p "$RUNNER_TEMP/bin"
-          mv "$RUNNER_TEMP/buf" "$RUNNER_TEMP/bin/buf"
-          chmod +x "$RUNNER_TEMP/bin/buf"
+          sh scripts/install-buf.sh "$RUNNER_TEMP/bin"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-          # 判据自己会再比一次版本；这里先打出来，红的时候不用猜是摘要层还是判据层。
-          echo "buf --version -> $("$RUNNER_TEMP/bin/buf" --version)"
 
       # 插件版本不写在作业里，读自入库产物的头部注释——那是判据用的同一份真相。写死
       # 在这里会让「产物声明 vN 而作业装 vN-1」变成一条永远红、且根因看不出来的腿。
