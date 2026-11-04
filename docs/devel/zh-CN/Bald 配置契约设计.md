@@ -71,7 +71,7 @@ bald/bconf/                       module github.com/kalandramo/bald/bconf
 
 `task proto-contract-check`（`TestGeneratedMatchesProto`，工具链缺失时自动跳过）在字节比对之前先核对三把版本 pin：`buf` 驱动器对 `bconf/buf.version`，`protoc-gen-go` 的 module 版本对产物头部自己声明的版本行，**编译该插件用的 Go（major.minor）**对 `bconf/protoc-gen-go.goversion`（取自 `go version -m` 的构建信息——插件自己的 `--version` 看不见这一轴）。红了会先指名是哪把工具不符；三把都对上才轮到逐字节判据，报出具体文件。补齐姿势是一条命令：`go install google.golang.org/protobuf/cmd/protoc-gen-go@v<产物头部声明的版本>`，用 pin 那把 Go 编译。
 
-这条判据也有远端证据，由 CI 的 `proto-contract` 作业专职跑，思路是「把三把 pin 在干净机器上装出来，再要求这条腿真的出现过 `--- PASS`」：Go 由 `setup-go` 钉在 1.27.3（第四轮实测的零差异档）；`buf` 从 `bconf/buf.version` 读版本号、下载官方发行二进制、按 `bconf/buf.sha256` 的 asset 名对上 SHA-256 才放行；`protoc-gen-go` 不硬编码版本，从入库产物头部自己声明的那行读出来现编——这样版本信息只有一处真相。校验来源只发生在 CI：判据本身（`bconf/gen_repro_test.go`）不查二进制从哪来，本机用 Homebrew 或源码装的 buf 一样能跑，不能被这条作业的门禁绑住。作业在 `--- PASS` 缺失时判红，所以「runner 上没装 buf → 测试自己 Skip → 作业绿」这类静默失效进不来。
+这条判据也有远端证据，由 CI 的 `proto-contract` 作业专职跑，思路是「把三把 pin 在干净机器上装出来，再要求这条腿真的出现过 `--- PASS`」：Go 由 `setup-go` 钉在 1.27.3（第四轮实测的零差异档）；`buf` 从 `bconf/buf.version` 读版本号、下载官方发行二进制、按 `bconf/buf.sha256` 的 asset 名对上 SHA-256 才放行；`protoc-gen-go` 不硬编码版本，从入库产物头部自己声明的那行读出来现编——这样版本信息只有一处真相。校验来源只发生在 CI：判据本身（`bconf/gen_repro_test.go`）不查二进制从哪来，本机用 Homebrew 或源码装的 buf 一样能跑，不能被这条作业的门禁绑住。作业在 `--- PASS` 缺失时判红，所以「runner 上没装 buf → 测试自己 Skip → 作业绿」这类静默失效进不来。远端证据是正向那一条（真 runner 上出现 `--- PASS`）；三条反向变异——摘掉工具链、给某个 `.pb.go` 追加一个字节、把 `buf.version` 改成 1.99.0——在 Linux/amd64 容器里验活，判据与 runner 同构但不等于 runner，细节见《架构风险登记册》§7.9 第五轮。
 
 ### 契约形状：BootstrapConfig 十五个域
 
