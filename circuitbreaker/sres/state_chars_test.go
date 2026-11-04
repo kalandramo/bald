@@ -16,8 +16,10 @@ import (
 //	accept = (requests - k*errors) / (requests + 1)
 //
 // 分母恒比分子大 1，故对任何 requests>0 都有 accept < 1 —— `State()` 里
-// `accept >= 1 → StateClosed` 的分支**永不可达**；`accept < 1 → StateHalfOpen`
-// 则恒真。即：只要有过请求，State 就只可能是 HalfOpen 或 Open，绝不返回 Closed。
+// `accept >= 1 → StateClosed` 的分支只在**窗内零请求**时可达；`accept < 1 →
+// StateHalfOpen` 则对窗内有请求恒真。即：窗内一旦有请求，State 就只可能是
+// HalfOpen 或 Open，绝不返回 Closed（静默过一整窗后窗内归零，回 Closed 属于
+// 「零请求」那条路，见 TestState_IdleWindowAgesOut）。
 //
 // **本组测试不改变语义**（改算法会破坏既有调用方对三态的使用假设）——它把
 // 「已存在但不可达的状态」钉住为**可知事实**，并防止后人误以为 StateClosed

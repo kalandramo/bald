@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/kalandramo/bald/circuitbreaker"
 )
@@ -209,6 +210,140 @@ func TestState_AllFailuresBecomesOpen(t *testing.T) {
 	s := b.State()
 	if s != circuitbreaker.StateOpen {
 		t.Errorf("State() = %v, want StateOpen after sustained failures", s)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 滑窗记账：旋转按绝对格点算，不按「距上次旋转的时长」算
+// ---------------------------------------------------------------------------
+
+// windowStatsOf 直接读窗内聚合（不经过 accept 公式，避开 rand）。
+func windowStatsOf(b *Breaker) (requests, errors int64) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, bk := range b.buckets {
+		requests += bk.requests
+		errors += bk.errors
+	}
+	return requests, errors
+}
+
+// TestSlidingWindow_SameBucketSamplesAreNotLost 钉住旋转的记账基准。
+//
+// 缺陷形状（修之前这条判据红）：边界数取「距上一次旋转的时长 / 桶长」，而桶号是
+// 绝对时间取模——创建时刻落在桶中间时两个基准会错开一格：两发样本明明同在桶 B，
+// 第二发仍算出 steps=1，清掉的正是 B（第一发刚写进去的那格）⇒ 窗内计数从 2 掉到
+// 1，接受率虚高，服务真在失败却放过去。
+//
+// 时间轴（bucket=window/bucketCount=200ms，创建时刻 c 落在桶 A 的中点）：
+//
+//	t1 = c + 3/4·bucket ⇒ 在桶 B（A+1），旧实现 elapsed<bucket 不旋转，写进 B
+//	t2 = c + 5/4·bucket ⇒ 仍在桶 B，旧实现 elapsed>=bucket ⇒ steps=1，清掉 B
+func TestSlidingWindow_SameBucketSamplesAreNotLost(t *testing.T) {
+	const (
+		window      = 1200 * time.Millisecond
+		bucketCount = 6
+		bucket      = window / bucketCount // 200ms
+	)
+
+	// 先睡到格中点**再**创建：锚点相位就是这个缺陷的触发条件。
+	time.Sleep(time.Duration(int64(bucket) - time.Now().UnixNano()%int64(bucket) + int64(bucket)/2))
+	created := time.Now()
+
+	b := New(WithWindow(window), WithBucketCount(bucketCount))
+	defer b.Close()
+
+	nextStart := ((created.UnixNano() / int64(bucket)) + 1) * int64(bucket)
+	time.Sleep(time.Until(time.Unix(0, nextStart+int64(bucket)/4)))
+	t1 := time.Now()
+	b.MarkFailure()
+	time.Sleep(time.Until(time.Unix(0, nextStart+3*int64(bucket)/4)))
+	t2 := time.Now()
+	b.MarkFailure()
+
+	// 相位自检：这条测的是「同桶两发」，落点不对就没有结论可言。
+	if t1.Sub(created) >= bucket || t2.Sub(created) < bucket {
+		t.Fatalf("相位没摆上：t1-c=%v 需 <bucket、t2-c=%v 需 >=bucket（bucket=%v）——构造失败，不是实现通过",
+			t1.Sub(created), t2.Sub(created), bucket)
+	}
+	if t1.UnixNano()/int64(bucket) != t2.UnixNano()/int64(bucket) {
+		t.Fatalf("相位没摆上：两发落在不同的桶（%d vs %d）——构造失败，不是实现通过",
+			t1.UnixNano()/int64(bucket), t2.UnixNano()/int64(bucket))
+	}
+
+	if req, err := windowStatsOf(b); req != 2 || err != 2 {
+		t.Fatalf("同一桶内两发失败记账成 requests=%d errors=%d，want 2/2 —— "+
+			"第二发的旋转抹掉了同桶内第一发的样本", req, err)
+	}
+}
+
+// TestSlidingWindow_LapOldSampleIsReplaced 钉住 (lastAbs, curAbs] 这段**真的在清**，
+// 且只清该清的：样本一格一格推进、走满一圈后，同一格必须先过期再承接新样本。
+//
+// 每格中点发一发失败，共 8 格（窗 6 格）：窗内总数只能爬到 6 就封顶——
+//   - 不清桶（steps 恒 0）⇒ 第 7 发又写进第 1 发那格，总数变 7 ⇒ 红；
+//   - 每次旋转清空整窗 ⇒ 总数恒为 1 ⇒ 红；
+//   - 清到上一发那格（多清一格）⇒ 第 i 发把第 i-1 发抹掉，总数停在 1 左右 ⇒ 红。
+//
+// 旧实现还有一头是「少清」：锚点落在格尾、下一发落在次格格头时 elapsed<bucket，
+// 于是绝对桶已经推进却不旋转，一圈前的陈旧失败留在窗内——服务早已恢复却被持续
+// 限流。这一头由「总数恰好封顶在 6」同向判出（滞留会让它超过 6）。
+func TestSlidingWindow_LapOldSampleIsReplaced(t *testing.T) {
+	const (
+		window      = 1200 * time.Millisecond
+		bucketCount = 6
+		bucket      = window / bucketCount // 200ms
+		samples     = 8
+	)
+
+	time.Sleep(time.Duration(int64(bucket) - time.Now().UnixNano()%int64(bucket) + int64(bucket)/2))
+	grid := time.Now().UnixNano() / int64(bucket)
+
+	b := New(WithWindow(window), WithBucketCount(bucketCount))
+	defer b.Close()
+
+	for i := 0; i < samples; i++ {
+		time.Sleep(time.Until(time.Unix(0, (grid+int64(i))*int64(bucket)+int64(bucket)/2)))
+		if got := time.Now().UnixNano() / int64(bucket); got != grid+int64(i) {
+			t.Fatalf("相位没摆上：第 %d 发落在绝对桶 %d，期望 %d（bucket=%v）——构造失败，不是实现通过",
+				i, got, grid+int64(i), bucket)
+		}
+		b.MarkFailure()
+
+		want := int64(i + 1)
+		if want > bucketCount {
+			want = bucketCount
+		}
+		if req, err := windowStatsOf(b); req != want || err != want {
+			t.Fatalf("第 %d 发之后窗内 requests=%d errors=%d，want %d/%d（窗 %d 格）",
+				i+1, req, err, want, want, bucketCount)
+		}
+	}
+}
+
+// TestState_IdleWindowAgesOut 钉住 State() 也走旋转：静默过一整个窗之后窗内归零，
+// State 必须回 Closed，与同一时刻 Allow 重新放行口径一致。
+//
+// 修之前 State() 只读桶不旋转：读出来还在限流（Open），发出去却放行——同一个
+// breaker 两个口径。
+func TestState_IdleWindowAgesOut(t *testing.T) {
+	const window = 400 * time.Millisecond
+
+	b := New(WithK(1.0), WithWindow(window), WithBucketCount(4))
+	defer b.Close()
+
+	b.MarkFailure() // k=1、全失败 ⇒ accept=(1-1)/2=0 ⇒ Open
+	if s := b.State(); s != circuitbreaker.StateOpen {
+		t.Fatalf("单发失败后 State() = %v, want Open（判据构造失败）", s)
+	}
+
+	time.Sleep(window + 150*time.Millisecond)
+
+	if s := b.State(); s != circuitbreaker.StateClosed {
+		t.Fatalf("静默一整个窗之后 State() = %v, want Closed —— State 没旋转，读的是过期窗口", s)
+	}
+	if req, err := windowStatsOf(b); req != 0 || err != 0 {
+		t.Fatalf("静默一整个窗之后窗内 requests=%d errors=%d, want 0/0", req, err)
 	}
 }
 

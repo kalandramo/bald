@@ -96,7 +96,6 @@ func New(opts ...Option) *Breaker {
 		cfg:            cfg,
 		bucketDuration: bucketDuration,
 		buckets:        make([]sreBucket, cfg.bucketCount),
-		lastRotate:     time.Now(),
 	}
 }
 
@@ -106,8 +105,11 @@ type Breaker struct {
 	cfg            *config
 	bucketDuration time.Duration
 	buckets        []sreBucket
-	lastRotate     time.Time
-	closed         bool
+	// lastAbs 是上一次旋转所在的**绝对格号**（UnixNano/桶长，不取模）。
+	// 旋转清桶按它算，见 rotateLocked。
+	lastAbs   int64
+	hasRotate bool
+	closed    bool
 }
 
 type sreBucket struct {
@@ -196,16 +198,21 @@ func (b *Breaker) Execute(ctx context.Context, fn func() error) error {
 //
 // ⚠️ **语义提示**：SRE 的接受率 `accept = (requests - k*errors) / (requests + 1)`
 // 对任何 `requests > 0` 都恒 `< 1`（分母比分子大 1），故：
-//   - `StateClosed` **仅在零请求时可达**（下方早退分支）；
-//   - 一旦产生过请求，只可能是 `StateHalfOpen`（accept<1 且 >0）或
+//   - `StateClosed` **仅在窗内零请求时可达**（下方早退分支）；
+//   - 窗内一旦有请求，只可能是 `StateHalfOpen`（accept<1 且 >0）或
 //     `StateOpen`（accept<=0）。
 //
 // 即「本 breaker 是优雅降级而非三态熔断」——需要真正的三态语义请改用
 // 阈值式实现（`circuitbreaker/hystrix`）。该性质由 `state_chars_test.go`
 // 的特征化测试钉住（不改变本实现语义）。
+//
+// 「窗内」是限的：这里同样先旋转，于是静默过一整个窗后 State 回到 Closed——
+// 与 Allow 在该时刻重新放行保持一致（否则读出来还在限流、发出去却放行）。
 func (b *Breaker) State() circuitbreaker.State {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
+	b.rotateLocked(time.Now())
 
 	stats := b.statsLocked()
 	if stats.requests == 0 {
@@ -245,26 +252,53 @@ func (b *Breaker) statsLocked() windowStats {
 	return s
 }
 
+// rotateLocked 按**绝对格点**清桶：两次旋转之间跨过的边界数 = curAbs - lastAbs。
+//
+// 不能拿「距上一次旋转的时长 / 桶长」当边界数：桶号是绝对时间取模，而旋转锚点
+// 落在格内任意位置，两个基准会错开一格。错开方向不定，于是同时存在两种坏结果——
+// 少清：整整一圈前的陈旧样本留在窗内，接受率被已经过期的失败拖着往下压（服务早已
+// 恢复却持续被限）；多清：抹掉上一发刚写进去的那个桶，样本静默丢失，接受率虚高。
+// 判据见 TestSlidingWindow_SameBucketSamplesAreNotLost 与
+// TestSlidingWindow_LapOldSampleIsReplaced。
 func (b *Breaker) rotateLocked(now time.Time) {
-	elapsed := now.Sub(b.lastRotate)
-	steps := int(elapsed / b.bucketDuration)
+	curAbs := now.UnixNano() / int64(b.bucketDuration)
+	if !b.hasRotate {
+		b.hasRotate, b.lastAbs = true, curAbs
+		return
+	}
+	steps := curAbs - b.lastAbs
 	if steps <= 0 {
 		return
 	}
-	n := len(b.buckets)
+	n := int64(len(b.buckets))
 	if steps >= n {
-		for i := range b.buckets {
-			b.buckets[i] = sreBucket{}
-		}
+		b.resetBucketsLocked()
 	} else {
-		for i := 0; i < steps; i++ {
-			idx := (b.bucketIndexLocked(now) - steps + i + 1 + n) % n
-			b.buckets[idx] = sreBucket{}
+		// 清 (lastAbs, curAbs]：含当前格——它装的是一整圈前的过期数据，清完才轮
+		// 到本次样本写进去。**不含** lastAbs：那一格里的样本还在窗内。
+		for i := int64(1); i <= steps; i++ {
+			b.buckets[b.bucketIdxAbsLocked(b.lastAbs+i)] = sreBucket{}
 		}
 	}
-	b.lastRotate = now
+	b.lastAbs = curAbs
+}
+
+// bucketIdxAbsLocked 把绝对格号折到桶下标（对负格号同样成立）。
+func (b *Breaker) bucketIdxAbsLocked(abs int64) int {
+	n := int64(len(b.buckets))
+	m := abs % n
+	if m < 0 {
+		m += n
+	}
+	return int(m)
 }
 
 func (b *Breaker) bucketIndexLocked(now time.Time) int {
-	return int(now.UnixNano()/int64(b.bucketDuration)) % len(b.buckets)
+	return b.bucketIdxAbsLocked(now.UnixNano() / int64(b.bucketDuration))
+}
+
+func (b *Breaker) resetBucketsLocked() {
+	for i := range b.buckets {
+		b.buckets[i] = sreBucket{}
+	}
 }
