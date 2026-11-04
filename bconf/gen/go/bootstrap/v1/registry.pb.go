@@ -276,7 +276,10 @@ type Registry_Etcd struct {
 	// 注册 TTL（秒）。
 	Ttl int32 `protobuf:"varint,5,opt,name=ttl,proto3" json:"ttl,omitempty"`
 	// 最大重试次数。
-	MaxRetry      int32 `protobuf:"varint,6,opt,name=max_retry,json=maxRetry,proto3" json:"max_retry,omitempty"`
+	MaxRetry int32 `protobuf:"varint,6,opt,name=max_retry,json=maxRetry,proto3" json:"max_retry,omitempty"`
+	// 断链后重注册的退避曲线（`max_retry` 管「重试几次」，本段管「每次之间
+	// 等多久」）。缺席即沿用默认：1s 起翻倍、截到 5min、叠 FullJitter。
+	Backoff       *Backoff `protobuf:"bytes,7,opt,name=backoff,proto3,oneof" json:"backoff,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -351,6 +354,13 @@ func (x *Registry_Etcd) GetMaxRetry() int32 {
 		return x.MaxRetry
 	}
 	return 0
+}
+
+func (x *Registry_Etcd) GetBackoff() *Backoff {
+	if x != nil {
+		return x.Backoff
+	}
+	return nil
 }
 
 type Registry_Nacos struct {
@@ -513,8 +523,7 @@ var File_bootstrap_v1_registry_proto protoreflect.FileDescriptor
 
 const file_bootstrap_v1_registry_proto_rawDesc = "" +
 	"\n" +
-	"\x1bbootstrap/v1/registry.proto\x12\fbootstrap.v1\"\xe5\n" +
-	"\n" +
+	"\x1bbootstrap/v1/registry.proto\x12\fbootstrap.v1\x1a\x19bootstrap/v1/common.proto\"\xa7\v\n" +
 	"\bRegistry\x12\x12\n" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x12:\n" +
 	"\x06consul\x18\x02 \x01(\v2\x1d.bootstrap.v1.Registry.ConsulH\x00R\x06consul\x88\x01\x01\x124\n" +
@@ -534,14 +543,17 @@ const file_bootstrap_v1_registry_proto_rawDesc = "" +
 	"!deregister_critical_service_after\x18\b \x01(\x05R\x1ederegisterCriticalServiceAfter\x12\x1e\n" +
 	"\n" +
 	"datacenter\x18\t \x01(\tR\n" +
-	"datacenter\x1a\xa3\x01\n" +
+	"datacenter\x1a\xe5\x01\n" +
 	"\x04Etcd\x12\x1c\n" +
 	"\tendpoints\x18\x01 \x03(\tR\tendpoints\x12\x1a\n" +
 	"\busername\x18\x02 \x01(\tR\busername\x12\x1a\n" +
 	"\bpassword\x18\x03 \x01(\tR\bpassword\x12\x16\n" +
 	"\x06prefix\x18\x04 \x01(\tR\x06prefix\x12\x10\n" +
 	"\x03ttl\x18\x05 \x01(\x05R\x03ttl\x12\x1b\n" +
-	"\tmax_retry\x18\x06 \x01(\x05R\bmaxRetry\x1a\x8c\x02\n" +
+	"\tmax_retry\x18\x06 \x01(\x05R\bmaxRetry\x124\n" +
+	"\abackoff\x18\a \x01(\v2\x15.bootstrap.v1.BackoffH\x00R\abackoff\x88\x01\x01B\n" +
+	"\n" +
+	"\b_backoff\x1a\x8c\x02\n" +
 	"\x05Nacos\x12!\n" +
 	"\fserver_addrs\x18\x01 \x03(\tR\vserverAddrs\x12\x1c\n" +
 	"\tnamespace\x18\x02 \x01(\tR\tnamespace\x12\x14\n" +
@@ -591,17 +603,19 @@ var file_bootstrap_v1_registry_proto_goTypes = []any{
 	(*Registry_Etcd)(nil),       // 3: bootstrap.v1.Registry.Etcd
 	(*Registry_Nacos)(nil),      // 4: bootstrap.v1.Registry.Nacos
 	(*Registry_Kubernetes)(nil), // 5: bootstrap.v1.Registry.Kubernetes
+	(*Backoff)(nil),             // 6: bootstrap.v1.Backoff
 }
 var file_bootstrap_v1_registry_proto_depIdxs = []int32{
 	2, // 0: bootstrap.v1.Registry.consul:type_name -> bootstrap.v1.Registry.Consul
 	3, // 1: bootstrap.v1.Registry.etcd:type_name -> bootstrap.v1.Registry.Etcd
 	4, // 2: bootstrap.v1.Registry.nacos:type_name -> bootstrap.v1.Registry.Nacos
 	5, // 3: bootstrap.v1.Registry.kubernetes:type_name -> bootstrap.v1.Registry.Kubernetes
-	4, // [4:4] is the sub-list for method output_type
-	4, // [4:4] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	6, // 4: bootstrap.v1.Registry.Etcd.backoff:type_name -> bootstrap.v1.Backoff
+	5, // [5:5] is the sub-list for method output_type
+	5, // [5:5] is the sub-list for method input_type
+	5, // [5:5] is the sub-list for extension type_name
+	5, // [5:5] is the sub-list for extension extendee
+	0, // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_bootstrap_v1_registry_proto_init() }
@@ -609,7 +623,9 @@ func file_bootstrap_v1_registry_proto_init() {
 	if File_bootstrap_v1_registry_proto != nil {
 		return
 	}
+	file_bootstrap_v1_common_proto_init()
 	file_bootstrap_v1_registry_proto_msgTypes[0].OneofWrappers = []any{}
+	file_bootstrap_v1_registry_proto_msgTypes[2].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

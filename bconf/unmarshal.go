@@ -619,20 +619,24 @@ func coerceEnum(fd protoreflect.FieldDescriptor, raw any) (any, error) {
 // coerceDuration 把配置值转成 protojson 能接受的 Duration 字符串。
 //
 // 三种来源形态：
-//  1. 本地 yaml/json 文件："10s"、"1.5s" —— 已是合法 duration 串，原样返回；
-//  2. env（AutomaticEnv）：字符串 "10s" —— 同上；
-//  3. flag（pflag.DurationVar）：time.Duration 或纳秒整数 —— 需格式化成 "<seconds>s"。
+//  1. 本地 yaml/json 文件："10s"、"1.5s"、"1500ms"、"1m30s"；
+//  2. env（AutomaticEnv）：同上的字符串；
+//  3. flag（pflag.DurationVar）：time.Duration 或纳秒整数。
 //
-// 注意不能用 time.Duration.String()：它会产生 "1m30s" 这类复合表示，
-// 而 protojson 的 Duration 只接受以 s 结尾的十进制秒数（如 "90s"）。
+// 字符串分支同样要过 formatDuration：protojson 的 Duration 只接受以 s 结尾的
+// 十进制秒数，"1500ms" 与 "1m30s" 是合法 Go 时长串却不是合法 protojson 值。早先
+// 这里只用 time.ParseDuration 校验后原样返回，于是「校验通过」的串仍会在下一步
+// 报错，且报的是不带键名的 protojson 位置（实测 `initial: 1500ms` 红在
+// `line 1:60`）。解析后重排成 "<seconds>s" 让四种写法都能落进同一个字段，
+// 也让那句「提前暴露错误」成立。
 func coerceDuration(raw any) (any, error) {
 	switch v := raw.(type) {
 	case string:
-		// 校验是否为合法 duration 串，提前暴露错误而不是等到 protojson。
-		if _, err := time.ParseDuration(v); err != nil {
+		d, err := time.ParseDuration(v)
+		if err != nil {
 			return nil, fmt.Errorf("invalid duration %q: %w", v, err)
 		}
-		return v, nil
+		return formatDuration(d), nil
 	case time.Duration:
 		return formatDuration(v), nil
 	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:

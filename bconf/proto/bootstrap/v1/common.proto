@@ -1,0 +1,59 @@
+syntax = "proto3";
+
+package bootstrap.v1;
+
+import "google/protobuf/duration.proto";
+
+option go_package = "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1";
+
+// Backoff 描述「两次尝试之间等多久」的形状：一条增长曲线 + 一种抖动。
+//
+// 它是跨后端的通用形状，不属于某一个适配器：任何「失败后重来」的表面都可以
+// 引用它，消费侧经各自的 contract 包把它翻译成同一份退避实现，避免同一个
+// 语义在每个后端里各写一遍。
+//
+// 缺省口径分两层，各由唯一一方持有，不留「同一数字两处写」的漂移面：
+//   - 整个段缺席 → 完全沿用后端自带的曲线（各后端在实现里写明自己的默认）。
+//   - 段一旦出现 → 必须写全这条曲线的形状：`initial` 必填、除 FIXED 外
+//     `max` 必填。不做「只写一个字段、其余沿用后端默认」的逐字段继承，因为
+//     那要求契约层知道每个后端的默认数字——数字就会同时住在契约和实现里。
+//
+// 两个形状刻意不可表达：零原点（`initial` 为 0 即每次立刻重来，是忙轮询）与
+// 无上界的指数曲线（高位次乘出负 duration，等待随即反转成另一场忙轮询）。
+// 两者都不是「更激进的重试」，而是把调用方打死或把自己打爆，所以直接判配置错。
+message Backoff {
+  enum Curve {
+    // 等价于 EXPONENTIAL：缺席即指数曲线，不需要为「我要指数」再写一遍。
+    CURVE_UNSPECIFIED = 0;
+    // initial * factor^attempt，逐次乘，截到 max。
+    EXPONENTIAL = 1;
+    // initial + step*attempt，逐次加，截到 max。step 为 0 表示恒定等待 initial。
+    LINEAR = 2;
+    // 恒为 initial；factor / step / max 一律忽略，因此这一档不要求 max。
+    FIXED = 3;
+  }
+
+  enum Jitter {
+    // 沿用后端默认抖动——这是段内唯一「缺席不等于取零」的字段：抖动不改变
+    // 等待的量级，只决定同一份配置在多个实例间是否同步醒来。
+    JITTER_UNSPECIFIED = 0;
+    // 不抖动：等待严格按曲线取值，便于复现与计时。
+    NONE = 1;
+    // 在 [0, 曲线值) 内均匀取样——最能打散「恢复瞬间一起重连」的风暴，
+    // 代价是可能近乎立刻再试一次。
+    FULL = 2;
+    // 在 [曲线值/2, 曲线值) 内取样：保留一半下界，方差更小。
+    EQUAL = 3;
+  }
+
+  // 第 2 次尝试之前的等待（曲线在 attempt=0 处的取值）。段存在即必填且 >0。
+  google.protobuf.Duration initial = 1;
+  // EXPONENTIAL 的倍率（通常是 2）。0 表示按 2 取值；FIXED / LINEAR 忽略。
+  double factor = 2;
+  // LINEAR 每次尝试的增量，须 ≥0。其它曲线忽略。
+  google.protobuf.Duration step = 3;
+  // 单次等待的上界（抖动前）。除 FIXED 外段存在即必填且 >0。
+  google.protobuf.Duration max = 4;
+  Curve curve = 5;
+  Jitter jitter = 6;
+}

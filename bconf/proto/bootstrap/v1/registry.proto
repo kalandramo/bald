@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package bootstrap.v1;
 
+import "bootstrap/v1/common.proto";
+
 option go_package = "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1";
 
 // Registry 描述服务注册中心配置。
@@ -48,6 +50,9 @@ message Registry {
     int32 ttl = 5;
     // 最大重试次数。
     int32 max_retry = 6;
+    // 断链后重注册的退避曲线（`max_retry` 管「重试几次」，本段管「每次之间
+    // 等多久」）。缺席即沿用默认：1s 起翻倍、截到 5min、叠 FullJitter。
+    optional Backoff backoff = 7;
   }
 
   message Nacos {
