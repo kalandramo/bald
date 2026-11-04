@@ -95,21 +95,15 @@ tasks:
     desc: 生成契约层代码（bconf/proto → bconf/gen/go；bootstrap 配置 + appspec + store 契约）
     dir: bconf
     cmds:
-      - buf generate
-
-  # BSR 远端插件的离线等价物：同一份 managed mode 配置，只把插件换成本机
-  # protoc-gen-go。产物与入库 gen/go 逐字节一致（由 proto-contract-check 守住），
-  # 无 BSR 登录也能复现/校验契约层生成。
-  proto-contract-local:
-    desc: 用本机 buf + protoc-gen-go 重新生成契约层（与 BSR 产物逐字节一致）
-    dir: bconf
-    cmds:
       - buf generate --template buf.gen.local.yaml
 
-  # 字节一致判据**绑 buf 版本的注释排版形态**：入库产物由 buf 1.50.0 复现零差异，
-  # buf 1.57.2 会给中文注释的 `//` 补一个空格（实测 `bootstrap/v1/log.pb.go`），
-  # 于是「没改 proto 也红」。看到这条红先比 `buf --version`，别急着重生成提交——
-  # 用 1.57 重出会把排版差异当成契约变更写进 gen/go。登记册 §7.9。
+  # 为什么这条用本机模板而不是 BSR 远端插件（实测 2026-11-04，buf 1.50.0 +
+  # protoc-gen-go v1.36.12，两个版本号在产物头部与 bconf/buf.version 里）：
+  # 远端插件与入库产物**不是**逐字节等价——差异只有一处，`bootstrap/v1/log.pb.go`
+  # 中文注释的 `//` 后多一个空格。也就是说跑 `buf.gen.yaml` 重出会把排版差异
+  # 当成契约变更写进 gen/go，随后 proto-contract-check 判红。入库产物出自本机
+  # 模板，所以「生成」与「校验」必须是同一条路径；buf.gen.yaml 保留作 BSR 对照，
+  # 但不再是产出的真相源。登记册 §7.9。
   proto-contract-check:
     desc: 校验契约层生成物与 proto 一致（工具链缺失时测试自动跳过）
     dir: bconf

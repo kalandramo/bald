@@ -38,9 +38,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: 读 buf 版本 pin（bconf/buf.version 是契约工具链的单一真相）
+        id: bufver
+        run: echo "version=$(tr -d '[:space:]' < bconf/buf.version)" >> "$GITHUB_OUTPUT"
+
       - uses: bufbuild/buf-setup-action@v1
         with:
           github_token: ${{ github.token }}
+          # lint/build/push 的规则集随 buf 换代而变；跟随后生成判据同一个版本，
+          # 才能让「本地过了 check」与「这里 push 成功」说的是同一件事。
+          buf_version: ${{ steps.bufver.outputs.version }}
 
       # lint 先行：契约不达标不得发布（bconf/buf.yaml 已配 STANDARD +
       # ENUM_VALUE_PREFIX/ENUM_ZERO_VALUE_SUFFIX 两项 except，见该文件注释）。

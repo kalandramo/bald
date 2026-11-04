@@ -566,7 +566,7 @@ bash scripts/acceptance-gate.sh ci    # CI 的 acceptance 作业跑的就是这�
 | `pkg` → `./appkit` | `TestPlanCache_\|TestVariantProjection_\|TestVariantEffects_\|TestOption_OnRoleScoping\|TestDoctor_` | 计划缓存基线与构建变体（Q7 对账口径：变体声明恒进计划、命中按构建约束求值、增量并入装配——I11/I12） | ✅ |
 | `pkg` → `./appkit` | `TestAPI_` | §7.1 两条「= 0」指标的可执行形态（`Resource(string)` 调用点、手工排序表标识符） | ✅ |
 | `cli` → `./internal/codegen` | `TestGen_(Deterministic\|CheckClean)\|TestGenDomain_(Bind\|Proto\|NoRoutes\|CheckDoesNotRunProtoStage)\|TestGenApp_Variants\|TestTree_Variants\|TestTree_CustomWiring\|TestPruneStaleOwned\|TestCheckTree_` | 生成确定性：生成器自有树（guard 夹具）双跑字节一致 + `--check` 零 diff（绑定/路由清单默认生成、`--no-bind`/`--no-routes` 两态、proto 阶段编排与生成期前置拒绝、`--adopt` 清理过期 owned、自定义接线 §8.5） | ✅ |
-| `bconf` → `.` | `TestGeneratedMatchesProto` | 契约层生成物与 proto 源同步 | ✗ 本地 `task proto-contract-check`：这一腿判的是**产物字节**，而字节形态绑本机 buf 版本（风险登记册 §7.9） |
+| `bconf` → `.` | `TestGeneratedMatchesProto` | 契约层生成物与 proto 源同步（字节比对前先比两把工具版本 pin：`bconf/buf.version` 与产物头部的 protoc-gen-go 版本行） | ✗ 本地 `task proto-contract-check`：判的是**产物字节**，而字节形态绑工具链版本；CI 装哪个版本的 buf 都只是用工具版本换一条绿（风险登记册 §7.9） |
 | `_example/bald` → `./internal/bootstrap` | `TestPlan_ReferenceProject`（`-tags grpcgw` 再跑一遍） | 参考工程的计划口径：Opaque 预算、路由可见、无逃逸警告、段覆盖；I12 的「编入但条件为假即失败」 | ✗ 要编译 `api/gen` 的 proto 产物，而它已 gitignore，干净检出装载不了 |
 
 真实示例的生成树（`appspec.json` 是唯一真相源）走另一条腿 `task acceptance-example-check`，与 `ci.yml` 的 `test` 作业同口径且不需要 buf：骨架那半边整树重算比对（`gen app --check`），域那半边比清单摘要与磁盘字节（`TestExampleManifestsMatchSpecAndDisk`）——`gen domain --check` 的 bind 段前置是 proto 的 Go 产物，缺了它 `--check` 直接拒绝而不是放行，因此重算级校验只在本地 `task acceptance-example-domain-check`（dep `proto-example`，需 buf）跑。

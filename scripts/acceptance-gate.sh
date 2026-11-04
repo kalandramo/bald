@@ -20,12 +20,13 @@
 #                     产物，而它已 gitignore（同 §7.1「刻意不含 `_example`」），
 #                     干净检出装载不了；
 #                   - `bconf` 的 `TestGeneratedMatchesProto` 判的是「本机 buf +
-#                     protoc-gen-go 重出的产物与入库字节一致」，而**这个字节判据
-#                     绑 buf 版本的注释排版形态**：buf 1.50.0 复现零差异，1.57.2
-#                     会给中文注释的 `//` 补一个空格（`bootstrap/v1/log.pb.go`
-#                     实测），于是未改动的仓库判红。仓库里 buf 没有任何 pin
-#                     （`publish-bconf.yml` 用 `buf-setup-action@v1`，那是另一条
-#                     只 lint/push 的路径），故这一腿留本地，见登记册 §7.9。
+#                     protoc-gen-go 重出的产物与入库字节一致」，**这个字节判据绑
+#                     工具链**：buf 1.50.0 复现零差异，1.57.2 会给中文注释的 `//`
+#                     补一个空格（`bootstrap/v1/log.pb.go` 实测）；同一插件版本号
+#                     在 BSR 容器里跑也与本机二进制差这一处空格。版本 pin 现在成文
+#                     了（`bconf/buf.version` + 产物头部的 protoc-gen-go 版本行，
+#                     两条都在字节比对之前单独判红），但 CI 仍不该为此装 buf——
+#                     装什么版本都是「用工具链版本换一条绿」，见登记册 §7.9。
 #
 # 表列以 TAB 分隔，**tags 放最后**（TAB 属 IFS 空白，连续 TAB 会被折叠成一个分隔符，
 # 中间列留空就会串位；可空列只能放在行尾）。

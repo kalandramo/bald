@@ -1144,3 +1144,240 @@ func TestModulesWithLogicHaveTests(t *testing.T) {
 	}
 	t.Logf("有逻辑的 module=%d，含测试的 module=%d，总 module=%d", withLogic, tested, len(mods))
 }
+
+// acceptanceTabSep 是 scripts/acceptance-gate.sh 里 $'...' 行的 TAB 字面量——
+// 文件里写的是「反斜杠 + t」两个字符，不是真空白，所以按这两字节切列。
+const acceptanceTabSep = `\t`
+
+// acceptanceLeg 是判据表里的一条腿（列序与脚本文件头一致，tags 恒在最后）。
+type acceptanceLeg struct {
+	scope, dir, pkg, regex string
+}
+
+// acceptanceLegs 从脚本里解析判据表。表与执行在同一个文件里，所以闸门读的是
+// 真跑的那张表，不是文档里抄的第二份。
+func acceptanceLegs(t *testing.T, root string) []acceptanceLeg {
+	t.Helper()
+	raw, err := readText(filepath.Join(root, "scripts", "acceptance-gate.sh"))
+	if err != nil {
+		t.Fatalf("读 acceptance 脚本: %v", err)
+	}
+	var legs []acceptanceLeg
+	for i, line := range strings.Split(string(raw), "\n") {
+		// 表在 `printf '%s\n' \` 的续行里，行尾的反斜杠在引号外面。
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "$'") {
+			continue
+		}
+		trimmed = strings.TrimSuffix(trimmed, `\`)
+		trimmed = strings.TrimSpace(trimmed)
+		if !strings.HasSuffix(trimmed, "'") {
+			continue
+		}
+		cols := strings.Split(strings.TrimSuffix(strings.TrimPrefix(trimmed, "$'"), "'"), acceptanceTabSep)
+		if len(cols) != 5 {
+			t.Fatalf("acceptance-gate.sh:%d 判据行不是 5 列（%q）——列序是 <ci|no>\\t<模块>\\t<包>\\t<-run 正则>\\t<tags>，改了形状要同步本闸门", i+1, trimmed)
+		}
+		if cols[0] != "ci" && cols[0] != "no" {
+			t.Fatalf("acceptance-gate.sh:%d 的 scope 是 %q，只认 ci/no", i+1, cols[0])
+		}
+		legs = append(legs, acceptanceLeg{scope: cols[0], dir: cols[1], pkg: cols[2], regex: cols[3]})
+	}
+	return legs
+}
+
+// shortGatedTests 返回 pkgDir 里在 `-short` 下会跳过的顶层测试名。归因做一层：
+// 守卫写在 helper 里（示例的 etcdDiscovery / nacosDiscovery）也算——「测试函数自己
+// 没调 testing.Short()」不代表它在 -short 下会跑。两层以上不追，仓库里没有那种形状。
+func shortGatedTests(t *testing.T, pkgDir string) map[string]bool {
+	t.Helper()
+	fset := token.NewFileSet()
+	entries, err := os.ReadDir(pkgDir)
+	if err != nil {
+		t.Fatalf("读包目录 %s: %v", pkgDir, err)
+	}
+	guarded := map[string]bool{}
+	calls := map[string][]string{}
+	tests := map[string]bool{}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(fset, filepath.Join(pkgDir, e.Name()), nil, parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatalf("解析 %s: %v", e.Name(), err)
+		}
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Recv != nil || fn.Body == nil {
+				continue
+			}
+			name := fn.Name.Name
+			if strings.HasPrefix(name, "Test") {
+				tests[name] = true
+			}
+			var called []string
+			hasShort := false
+			ast.Inspect(fn.Body, func(n ast.Node) bool {
+				ce, ok := n.(*ast.CallExpr)
+				if !ok {
+					return true
+				}
+				switch f := ce.Fun.(type) {
+				case *ast.SelectorExpr:
+					if recv, ok := f.X.(*ast.Ident); ok && recv.Name == "testing" && f.Sel.Name == "Short" {
+						hasShort = true
+					}
+					called = append(called, f.Sel.Name)
+				case *ast.Ident:
+					called = append(called, f.Name)
+				}
+				return true
+			})
+			guarded[name] = hasShort
+			calls[name] = called
+		}
+	}
+	out := map[string]bool{}
+	for name := range tests {
+		if guarded[name] {
+			out[name] = true
+			continue
+		}
+		for _, c := range calls[name] {
+			if guarded[c] {
+				out[name] = true
+				break
+			}
+		}
+	}
+	return out
+}
+
+// shortSkipExemptions 是「既不在判据表里、也没被任何 CI 作业点名」的 -short 跳过
+// 用例。每条都带具体理由，且下面会验它**仍然成立**——用例改名、被重新排进表或排进
+// CI，这条豁免就变成红，名单不会烂在那里。
+var shortSkipExemptions = map[string]string{
+	"_example/bald|./internal/bootstrap|TestGatewayDiscoveryEtcdWatchPush":         "要真 etcd 才能跑；且示例 module 整体不在 CI（go.mod 里有仓库外的 kratos contrib replace），进表会让没 etcd 的机器必红",
+	"_example/bald|./internal/bootstrap|TestGatewayDiscoveryNacosWatchPush":        "要真 nacos 才能跑；同上，示例 module 不在 CI",
+	"_example/bald|./internal/bootstrap|TestNacosDiscoveryNameCarriesSchemeSuffix": "要真 nacos 才能跑；同上，示例 module 不在 CI",
+}
+
+// TestAcceptanceTableCoversShortSkippedTests 是风险登记册 §8 那条「未闭合的形状」的
+// 闸门。acceptance 判据按 `-run` 正则挑用例，而 CI 的 test/race 作业跑的是
+// `go test -short`——两条口径之间没有任何东西保证「-short 跳过的用例」真被某条
+// 腿接住。原先只能靠人对着包数：本轮实测 appkit 269 个顶层测试里一个都不调
+// testing.Short()（所以那五条 appkit 腿不存在这类洞），洞只可能开在 codegen 与
+// 示例包上；这条闸门把「有没有开」变成机器判。
+//
+// 判据：判据表覆盖的每个包里，-short 下会跳过的顶层测试必须满足三者之一——
+//  1. 被同包的某条腿的正则命中（= 进表）；
+//  2. 名字出现在 .github/workflows/ 里（= 有别的作业点名跑它，比如 ci.yml 的
+//     非 -short 步骤）；
+//  3. 在 shortSkipExemptions 里有理由。
+//
+// 第 2 条故意只查「名字出现过」：换掉那一步的标题或整步删掉都会让它消失，方向是
+// 误报红而不是误报绿。
+func TestAcceptanceTableCoversShortSkippedTests(t *testing.T) {
+	root := repoRoot(t)
+	legs := acceptanceLegs(t, root)
+	// 防空转①：表读不出腿，后面「零违规」就只是没遍历到东西。
+	if len(legs) < 6 {
+		t.Fatalf("只解析出 %d 条判据腿，明显低于脚本里的 9 条——表格式漂了，本闸门已空转", len(legs))
+	}
+
+	pkgRegexes := map[string][]*regexp.Regexp{}
+	pkgDirs := map[string]string{}
+	for _, l := range legs {
+		key := l.dir + "|" + l.pkg
+		if _, ok := pkgDirs[key]; !ok {
+			pkgDirs[key] = filepath.Join(root, filepath.FromSlash(l.dir), filepath.FromSlash(strings.TrimPrefix(l.pkg, "./")))
+			pkgRegexes[key] = nil
+		}
+		re, err := regexp.Compile(l.regex)
+		if err != nil {
+			t.Fatalf("判据腿 %s 的正则编译失败: %v", key, err)
+		}
+		pkgRegexes[key] = append(pkgRegexes[key], re)
+	}
+
+	workflows := ""
+	err := filepath.WalkDir(filepath.Join(root, ".github", "workflows"), func(p string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(p, ".yml") {
+			return err
+		}
+		b, err := readText(p)
+		if err != nil {
+			return err
+		}
+		workflows += string(b)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("读 workflows: %v", err)
+	}
+	// 防空转②：CI 文本读空了，第 2 条判据会退化成「全部违规」；更要紧的是它可能
+	// 被误当成闸门坏了而被反向放宽。
+	if !strings.Contains(workflows, "go test") {
+		t.Fatal("没读到任何含 go test 的 CI 文本——第 2 条判据失去依据")
+	}
+
+	var candidates, inTable, scheduled, exempt int
+	var problems []string
+	keys := make([]string, 0, len(pkgDirs))
+	for k := range pkgDirs {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	seen := map[string]bool{}
+	for _, key := range keys {
+		gated := shortGatedTests(t, pkgDirs[key])
+		names := make([]string, 0, len(gated))
+		for n := range gated {
+			names = append(names, n)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			candidates++
+			seen[key+"|"+name] = true
+			matched := false
+			for _, re := range pkgRegexes[key] {
+				if re.MatchString(name) {
+					matched = true
+					break
+				}
+			}
+			switch {
+			case matched:
+				inTable++
+			case strings.Contains(workflows, name):
+				scheduled++
+			case shortSkipExemptions[key+"|"+name] != "":
+				exempt++
+			default:
+				problems = append(problems, fmt.Sprintf("%s：这条在 -short 下会跳过，既没进判据表也没有 CI 作业点名——它现在没有任何执行证据", key+"|"+name))
+			}
+		}
+	}
+	// 防空转③：一个候选都没扫到，说明归因逻辑没落到文件上。
+	if candidates < 3 {
+		t.Fatalf("只扫到 %d 个 -short 跳过的用例（实测 5：codegen 2 + 示例 3），归因逻辑失效，本闸门已空转", candidates)
+	}
+	// 豁免必须是活的：用例改名/重新排进 CI 后，留在名单里的豁免等于把判据悄悄关掉。
+	var stale []string
+	for k, reason := range shortSkipExemptions {
+		if !seen[k] {
+			stale = append(stale, fmt.Sprintf("%s（理由：%s）", k, reason))
+		}
+	}
+	if len(stale) > 0 {
+		sort.Strings(stale)
+		t.Errorf("shortSkipExemptions 里有 %d 条已经不再是要豁免的用例，请删掉：\n  %s", len(stale), strings.Join(stale, "\n  "))
+	}
+	if len(problems) > 0 {
+		sort.Strings(problems)
+		t.Errorf("-short 跳过的用例落在两条口径之间（表覆盖包=%d，候选=%d，进表=%d，CI点名=%d，豁免=%d）：\n  %s",
+			len(pkgDirs), candidates, inTable, scheduled, exempt, strings.Join(problems, "\n  "))
+	}
+	t.Logf("判据腿=%d 覆盖包=%d 候选=%d 进表=%d CI点名=%d 豁免=%d", len(legs), len(pkgDirs), candidates, inTable, scheduled, exempt)
+}

@@ -4,7 +4,12 @@ managed:
   override:
     - file_option: go_package_prefix
       value: github.com/kalandramo/bald/bconf/gen/go
+# 对照路径，不是入库产出的真相源：BSR 容器里的 protoc-gen-go 与本机同名版本
+# 二进制在中文注释的 `//` 后多一个空格（实测 `bootstrap/v1/log.pb.go`），因此
+# 用本模板重出的产物与 gen/go 有一处排版差异、会被 proto-contract-check 判红。
+# 产出走 buf.gen.local.yaml（= `task proto-contract`），本模板只用于与 BSR 侧
+# 对齐。插件版本显式钉到产物头部声明的那一版，否则「latest」会随 BSR 发布漂移。
 plugins:
-  - remote: buf.build/protocolbuffers/go
+  - remote: buf.build/protocolbuffers/go:v1.36.12
     out: gen/go
     opt: paths=source_relative
