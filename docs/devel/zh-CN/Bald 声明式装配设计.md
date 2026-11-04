@@ -551,46 +551,25 @@ func Routes(h http.Handler) error {
 
 ### 7.2 验收脚本
 
-落地形态是 `task acceptance`（只跑 `go test`，跨平台；逐条对应本节）：
+落地形态是 `scripts/acceptance-gate.sh`（只跑 `go test`，跨平台）。**判据清单与执行由同一个脚本交出**：每条腿先 `go test -list <正则>` 取出当前**真实命中**的顶层测试名（命中为空即红），再 `-v` 跑同一正则并逐条断言日志里出现 `--- PASS: <名字>`。这样写的原因很具体：`-run` 命中 0 个测试时**返回 0**，用例改名、被删、正则写错，调用方看到的照样是绿——清单来自 `-list` 而不是手写表格，增删用例不必维护第二份真相，同时改名也瞒不过去。
 
 ```bash
-# 计划纯净 + 顺序无关 + 路由清单（可见性/冲突/gin 形态校验）
-go test ./pkg/appkit -run 'TestPlan_(NoSideEffects|OrderInvariant|SegmentCoverage|Conflict|DomainRoutes|CustomRoutesWarning)|TestRouteShapeConflict'
-
-# 停机序与回滚（按节点数据推导，不是手工表）
-go test ./pkg/appkit -run 'TestTeardownOrder_|TestProviderPlan_StdTeardownOrder|TestComponent_StartFailureRollback|TestMountComponent_MountFailureRollback'
-
-# 漂移
-go test ./pkg/appkit -run 'TestDrift'
-
-# 计划缓存基线与构建变体（Q7 对账口径：变体声明/命中态变化必须可见；
-# 变体声明恒进计划、命中按构建约束求值、增量并入装配——I11/I12）
-go test ./pkg/appkit -run 'TestPlanCache_|TestVariantProjection_|TestVariantEffects_|TestOption_OnRoleScoping|TestDoctor_'
-
-# API 守卫（§7.1 两条「= 0」指标的可执行形态）
-go test ./pkg/appkit -run 'TestAPI_'   # Resource(string) 调用点、手工排序表标识符
-
-# 生成确定性：生成器自有树（guard 夹具）双跑一致 + --check 零 diff
-# （绑定/路由清单默认生成、--no-bind/--no-routes 两态、proto 阶段编排与生成期前置拒绝同受约束；--adopt 清理过期 owned）
-(cd cli && go test ./internal/codegen -run 'TestGen_(Deterministic|CheckClean)|TestGenDomain_(Bind|Proto|NoRoutes|CheckDoesNotRunProtoStage)|TestGenApp_Variants|TestTree_Variants|TestPruneStaleOwned|TestCheckTree_|TestTree_CustomWiring')
-
-# 契约层生成物与 proto 同步（本地 buf + protoc-gen-go；工具链缺失时跳过）
-(cd bconf && go test . -run TestGeneratedMatchesProto)
-
-# 参考工程的计划口径（Opaque 预算 / 路由可见 / 无逃逸警告 / 段覆盖）
-(cd _example/bald && go test ./internal/bootstrap -run TestPlan_ReferenceProject)
-# 同一属实在 -tags grpcgw 构建下再跑一遍（I12：实现编入但条件求值为假即失败）
-(cd _example/bald && go test -tags grpcgw ./internal/bootstrap -run TestPlan_ReferenceProject)
-
-# 示例生成树与声明零差异（appspec.json 是唯一真相源）
-# CLI 自 §3.4 走 B 起住在 cli module，路径按该目录为基准写
-# 前提：`_example/bald/api/gen` 已生成（`task proto-example`）——bind 段要读 proto 产物，缺了 --check 直接拒绝而不是放行
-(cd cli && go run ./cmd/bald gen app --spec ../_example/bald/appspec.json --out ../_example/bald --check)
-(cd cli && go run ./cmd/bald gen domain --spec ../_example/bald/appspec.json --out ../_example/bald --check)
-
-# 综合诊断
-bald doctor --config configs/bald-demo-api.yaml
+task acceptance                       # 本地全量（scope=all，含下面标 ✗ 的两条）
+bash scripts/acceptance-gate.sh ci    # CI 的 acceptance 作业跑的就是这一条
 ```
+
+| 腿（模块 → 包） | `-run` 正则 | 断言的不变量 | 进 CI |
+|---|---|---|---|
+| `pkg` → `./appkit` | `TestPlan_(NoSideEffects\|OrderInvariant\|SegmentCoverage\|Conflict\|DomainRoutes\|CustomRoutesWarning)\|TestRouteShapeConflict` | 计划纯净、顺序无关、段覆盖、冲突与路由清单可见 | ✅ |
+| `pkg` → `./appkit` | `TestTeardownOrder_\|TestProviderPlan_StdTeardownOrder\|TestComponent_StartFailureRollback\|TestMountComponent_MountFailureRollback` | 停机序按节点数据推导、启动失败与挂载失败各自回滚 | ✅ |
+| `pkg` → `./appkit` | `TestDrift` | 收敛覆盖：`ReloadReconcile` 不遗漏组件 | ✅ |
+| `pkg` → `./appkit` | `TestPlanCache_\|TestVariantProjection_\|TestVariantEffects_\|TestOption_OnRoleScoping\|TestDoctor_` | 计划缓存基线与构建变体（Q7 对账口径：变体声明恒进计划、命中按构建约束求值、增量并入装配——I11/I12） | ✅ |
+| `pkg` → `./appkit` | `TestAPI_` | §7.1 两条「= 0」指标的可执行形态（`Resource(string)` 调用点、手工排序表标识符） | ✅ |
+| `cli` → `./internal/codegen` | `TestGen_(Deterministic\|CheckClean)\|TestGenDomain_(Bind\|Proto\|NoRoutes\|CheckDoesNotRunProtoStage)\|TestGenApp_Variants\|TestTree_Variants\|TestTree_CustomWiring\|TestPruneStaleOwned\|TestCheckTree_` | 生成确定性：生成器自有树（guard 夹具）双跑字节一致 + `--check` 零 diff（绑定/路由清单默认生成、`--no-bind`/`--no-routes` 两态、proto 阶段编排与生成期前置拒绝、`--adopt` 清理过期 owned、自定义接线 §8.5） | ✅ |
+| `bconf` → `.` | `TestGeneratedMatchesProto` | 契约层生成物与 proto 源同步 | ✗ 本地 `task proto-contract-check`：这一腿判的是**产物字节**，而字节形态绑本机 buf 版本（风险登记册 §7.9） |
+| `_example/bald` → `./internal/bootstrap` | `TestPlan_ReferenceProject`（`-tags grpcgw` 再跑一遍） | 参考工程的计划口径：Opaque 预算、路由可见、无逃逸警告、段覆盖；I12 的「编入但条件为假即失败」 | ✗ 要编译 `api/gen` 的 proto 产物，而它已 gitignore，干净检出装载不了 |
+
+真实示例的生成树（`appspec.json` 是唯一真相源）走另一条腿 `task acceptance-example-check`，与 `ci.yml` 的 `test` 作业同口径且不需要 buf：骨架那半边整树重算比对（`gen app --check`），域那半边比清单摘要与磁盘字节（`TestExampleManifestsMatchSpecAndDisk`）——`gen domain --check` 的 bind 段前置是 proto 的 Go 产物，缺了它 `--check` 直接拒绝而不是放行，因此重算级校验只在本地 `task acceptance-example-domain-check`（dep `proto-example`，需 buf）跑。
 
 > `_example/bald` 已迁入生成树：`appspec.json` 是声明真相源，生成物
 > （assemble/variants/domains/授权投影/绑定/路由清单 + configs + taskfile）由

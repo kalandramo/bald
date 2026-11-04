@@ -122,6 +122,8 @@ all, _    := bconfig.NewFallbackReader(fileSrc, remote)     // 本地 > 远程�
 1. **双模式构造**：`New(opts...)` 从连接参数自建 client（契约装配路径，etcd/nacos 惰性建连），`NewWithClient(c, opts...)` 注入既有连接（复用注册发现场景，本源不负责关闭）。自建与否用 `owned` 标记，`Close` 只释放自己建的——注入方保有生命周期主权。两个例外：`kubernetes` 仅有 `New(opts...)`（不返回 error，clientset 由首次 Load/WatchValue 惰性初始化，无注入模式）；`consul` 的 `Close` 为空操作（consul api.Client 无可释放连接池，仅为 owned 语义完整）。
 2. **watch 能力分级诚实**：SDK 本就推送的（etcd/consul/nacos/apollo/kubernetes）直通推送；SDK 不支持的（vault/http）用轮询模拟而不是不实现——调用方拿到的是统一契约，不必关心底下是推送还是轮询。apollo 后端的行为约定：`New` 连接失败返回 error（不 panic）；watcher 不会在注册后立即反注册。
 
+**`file` 源的更新姿势（给重写配置的外部程序）**：用**同目录临时文件 + `rename`** 发布，而不是就地 truncate 再写。理由在读侧：`readSettled` 的确认窗（连续两次一致才派发，空载荷另加递进确认到 200ms）能拦下撕裂的中间态，但拦不下「写入方在两次写之间停摆超过整个窗」——那一刻文件真的是空的，与「运维把配置清空了」在字节上无法区分，于是会派发一次空载荷（下一次事件仍会把最终值纠正回来，永久缺项只发生在「这是最后一次写」时）。改名发布根本没有那个中间态：目录项替换是原子的，而本源 watch 的就是父目录，改名即事件，不丢。vim 默认与 GNU `sed -i` 走的就是改名发布，手工改配置不需要额外动作；自己写的下发脚本（`os.WriteFile` 覆盖）才需要改成这个形状。
+
 ### provider 编写纪律（新增源的五条 checklist）
 
 1. 编译期断言钉能力：`var _ bconfig.Reader = (*source)(nil)`（实现了什么声明什么）；
