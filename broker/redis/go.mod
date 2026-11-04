@@ -10,7 +10,7 @@ require (
 	github.com/kalandramo/bald/encoding v0.1.0
 	github.com/kalandramo/bald/encoding/json v0.1.1
 	github.com/kalandramo/bald/log v0.5.4
-	github.com/kalandramo/bald/pkg v0.2.1
+	github.com/kalandramo/bald/pkg v0.2.2
 )
 
 require (

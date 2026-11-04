@@ -4,7 +4,7 @@ go 1.27.1
 
 require (
 	github.com/kalandramo/bald/bconf v0.17.0
-	github.com/kalandramo/bald/pkg v0.2.1
+	github.com/kalandramo/bald/pkg v0.2.2
 	github.com/kalandramo/bald/registry v0.4.0
 	github.com/nacos-group/nacos-sdk-go/v2 v2.3.5
 )

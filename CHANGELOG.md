@@ -4,6 +4,32 @@
 条目取自该版本区间内的提交标题（Conventional Commits），不要手工调整顺序。
 发布流程见 [多模块发布与变更日志](docs/devel/zh-CN/多模块发布与变更日志.md)。
 
+## 2026-11-04
+
+### bald v0.37.2
+
+- `1ada0f91` fix(appkit): 启动窗口取消判据统一为一条，覆盖 errgroup 之前的两处窗口
+- `b845e8cd` docs(architecture): §4.4 补远端绿证，并写清分级还没进任何已发布 pkg tag
+- `0561cc91` fix(appkit): 启动窗口内「取消」与「server 崩溃」分级——登记册新增 §4.4
+- `326fdd6e` fix(ci): 真实示例的域面闸门换成清单字节比对——gen domain --check 在干净检出跑不动
+- `db9e09f8` docs(cli): §3.4 闭环——安装姿势升格为默认按 tag；顺带修掉 Taskfile 的 per-command dir 假绿
+
+### cli v0.1.1
+
+- `326fdd6e` fix(ci): 真实示例的域面闸门换成清单字节比对——gen domain --check 在干净检出跑不动
+- `db9e09f8` docs(cli): §3.4 闭环——安装姿势升格为默认按 tag；顺带修掉 Taskfile 的 per-command dir 假绿
+
+### pkg v0.2.2
+
+- `1ada0f91` fix(appkit): 启动窗口取消判据统一为一条，覆盖 errgroup 之前的两处窗口
+- `0561cc91` fix(appkit): 启动窗口内「取消」与「server 崩溃」分级——登记册新增 §4.4
+
+行为可见的两条（无 API 变化）：启动序列任一窗口内收到调用方取消（SIGTERM 打在
+仍在启动的进程上），且那一步的错误就是这条取消本身时，`Run`/`Serve` 现在返回
+`nil`（正常停机）而不是装配错误——进程退出码由 1 变 0；同一窗口里某个 server 的
+`Start` 真失败（如端口冲突）时，返回的是那个真实错误，不再是
+`appkit: wait for endpoints canceled: context canceled`。
+
 ## 2026-11-03
 
 ### bald v0.37.1
