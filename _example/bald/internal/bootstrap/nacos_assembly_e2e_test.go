@@ -14,8 +14,8 @@
 //     且实例地址就是本进程实际监听的端口——不是内存实例，也不是配置里写的 :9090。
 //  2. 优雅停机后后端不再留有本进程的实例（终态守卫；它判不到「Deregister 调没调」也
 //     判不到「client 关没关」——那两条机制判据在 registry/nacos/contract/
-//     instance_lifecycle_e2e_test.go（本示例 module 进不了 CI，那个 module 能），
-//     见下面 stop 处的实测）。
+//     instance_lifecycle_e2e_test.go（在 integration 作业里），本用例自己的那条只在
+//     `example` 作业里跑单条装配，见下面 stop 处的实测）。
 //
 // namespace 用契约写的 `public`：命名 API 里它与默认租户是**同一个**租户
 // （registry/nacos 实测：ns=public 注册的实例用 ns="" 也查得到，反之亦然），
@@ -102,20 +102,33 @@ func TestNacosAssemblyRegistersIntoBackend(t *testing.T) {
 	// client 保持打开，另一条只调 cleanup、不注销。
 	//
 	// 窗口 15s：实测任一单条摘除路径 ≤0.6s，两条都没发生时 75s 仍在——中间隔着两个量级。
+	//
+	// **两个面各自都要轮询，不能只等 grpc 归零后一次性查 http**：服务端按
+	// `<服务名>.<scheme>` 分开存这两个实例，摘除是两次独立的删除事件，不保证同一拍落地。
+	// 本机实测（同一条用例隔离跑 8 次，红 1 次）就是栽在单查那一下——grpc 侧已归零、
+	// http 侧还差一拍，`{IP:127.0.0.1 Port:59669 Healthy:true Ephemeral:true}` 被断成
+	// 「HTTP 面的注册没随停机释放」。断言的强度没变（仍是「停机后 15s 内归零」），变的
+	// 是它不再要求两个面同刻消失。
 	stop()
-	deadline := time.Now().Add(15 * time.Second)
+	waitNacosHostsGone(t, appName+".grpc", 15*time.Second)
+	waitNacosHostsGone(t, appName+".http", 15*time.Second)
+}
+
+// waitNacosHostsGone 轮询到该服务名在该后端上没有任何实例为止；超时即判红
+// （留在注册中心里的死地址就是生产事故）。
+func waitNacosHostsGone(t *testing.T, service string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
 	for {
-		h := listNacosHostsAt(t, nacosContractAddr, nacosContractNS, appName+".grpc")
+		h := listNacosHostsAt(t, nacosContractAddr, nacosContractNS, service)
 		if len(h) == 0 {
-			break
+			return
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("停机 15s 后 %s.grpc 仍有 %d 个实例（注册中心 client 没关，心跳还在续租）: %+v", appName, len(h), h)
+			t.Fatalf("停机 %d 秒后 %s 仍有 %d 个实例（注册中心 client 没关，心跳还在续租）: %+v",
+				int(timeout.Seconds()), service, len(h), h)
 		}
 		time.Sleep(200 * time.Millisecond)
-	}
-	if h := listNacosHostsAt(t, nacosContractAddr, nacosContractNS, appName+".http"); len(h) != 0 {
-		t.Fatalf("停机后 %s.http 仍有实例（HTTP 面的注册没随停机释放）: %+v", appName, h)
 	}
 }
 
