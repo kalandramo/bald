@@ -67,7 +67,9 @@ const (
 type Server struct {
 	mu sync.Mutex
 
-	started  atomic.Bool
+	started atomic.Bool
+	// stopping 是一次性闸门：置位后不再复位（见 shutdown 里的说明），
+	// 因为 stopDone 也不重建——这台机器停机后就地报废。
 	stopping atomic.Bool
 
 	// stopDone 在首次停机完成后关闭，供并发调用方等待停机结束。
@@ -410,9 +412,12 @@ func (s *Server) shutdown(ctx context.Context) error {
 		return nil
 	}
 
+	// stopping 不复位：stopDone 在构造时建一次、停机后永不重建（Start 见它已关
+	// 就返回「already stopped」），所以 CAS 是一次性闸门。在 close 之前复位会
+	// 打开「标记已清、通道还没关」的窗口，晚到的调用方在那里过 CAS 起第二个
+	// 停机体——第二次 close 直接 panic，两次 stopErr 写入还与等待方的读并发。
 	go func() {
 		s.stopErr = s.stopInternal(ctx)
-		s.stopping.Store(false)
 		close(s.stopDone)
 	}()
 

@@ -164,3 +164,37 @@ func TestNewWaitResultTaskWithCanceledContext(t *testing.T) {
 		t.Fatalf("canceled wait took %v", elapsed)
 	}
 }
+
+// TestShutdownGateIsOneShot 锁定：首次停机完成后闸门保持闭合。
+//
+// 为什么单列：缺陷形态是「第二个停机体被放行」——它会在 close(stopDone) 之后
+// 再 close 一次并 panic，同时把 stopErr 写在等待方的读旁边。那个窗口只有
+// 「复位标记」与「关通道」两条指令宽，-race 实测 300 轮才命中一次，靠它当
+// 闸门等于没有闸门。本用例断的是不变量本身，不依赖调度，因此恒判得住。
+func TestShutdownGateIsOneShot(t *testing.T) {
+	srv := newIdleServer()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := srv.Stop(ctx); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+
+	select {
+	case <-srv.stopDone:
+	default:
+		t.Fatal("Stop 返回后 stopDone 必须已关闭")
+	}
+	if !srv.stopping.Load() {
+		t.Fatal("stopping 必须在首次停机后保持置位：复位会放行第二个停机体，" +
+			"于是同一通道被 close 两次（panic）且 stopErr 与等待方的读并发")
+	}
+
+	// 再来一次：走 stopDone 分支返回同一结果，不得重新进 CAS。
+	if err := srv.Stop(ctx); err != nil {
+		t.Fatalf("第二次 Stop: %v", err)
+	}
+	if !srv.stopping.Load() {
+		t.Fatal("第二次 Stop 之后闸门仍须置位")
+	}
+}
