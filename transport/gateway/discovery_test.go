@@ -717,3 +717,76 @@ func (r *rejectingClientConn) UpdateState(resolver.State) error {
 	}
 	return errors.New("bad resolver state")
 }
+
+// scriptedDiscovery 让测试自己掌握推送时机。用真 inmemory 判不了去重：
+// 「订阅即投的当前快照」与「第一次变更」哪份先被 run 消费取决于调度，
+// 而这正是下面那条判据要消除的抖动。
+type scriptedDiscovery struct {
+	first []*registry.ServiceInstance
+	push  chan []*registry.ServiceInstance
+}
+
+func (s *scriptedDiscovery) GetService(context.Context, string) ([]*registry.ServiceInstance, error) {
+	return s.first, nil
+}
+
+func (s *scriptedDiscovery) Watch(context.Context, string) (registry.Watcher, error) {
+	return scriptedWatcher{push: s.push}, nil
+}
+
+type scriptedWatcher struct {
+	push chan []*registry.ServiceInstance
+}
+
+func (w scriptedWatcher) Next(ctx context.Context) ([]*registry.ServiceInstance, error) {
+	select {
+	case snap := <-w.push:
+		return snap, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (scriptedWatcher) Stop() error { return nil }
+
+// TestDiscoveryResolverSuppressesIdenticalSnapshot 锁定：地址集没变的快照不再推给 gRPC，
+// 且「同一集换个顺序」也不算变。
+//
+// 判据按「第几次变更落在第几帧」构造，全程不等墙钟：Build 同步发一帧后依次投
+// 五帧——内容相同 / 真多一个实例 / 同集不同序 / 真少一个实例 / 哨兵帧（又一集变更）。
+// 期望恰好四帧状态，内容依次为 [9001] / [9002,9001] / [9002] / [9001]。
+// 哨兵帧的作用是**保证前面五帧都已被消费**（resolver 单 goroutine 串行取），
+// 于是「states 恰为 4」是确定的，不需要等一个静默窗口去猜有没有多余推送：
+// 不去重会得 6 帧，去重却按顺序敏感算指纹会得 5 帧。
+func TestDiscoveryResolverSuppressesIdenticalSnapshot(t *testing.T) {
+	a1 := inst("a1", "svc", "127.0.0.1:9001")
+	a2 := inst("a2", "svc", "127.0.0.1:9002")
+	d := &scriptedDiscovery{
+		first: []*registry.ServiceInstance{a1},
+		push:  make(chan []*registry.ServiceInstance, 5),
+	}
+	_, cc := mustBuild(t, d, DiscoveryScheme+":///svc")
+	cc.waitFor(t, 1, time.Second)
+
+	d.push <- []*registry.ServiceInstance{a1}     // 与已发布的同一集
+	d.push <- []*registry.ServiceInstance{a2, a1} // 真变更：多一个实例
+	d.push <- []*registry.ServiceInstance{a1, a2} // 同一集，只是顺序不同
+	d.push <- []*registry.ServiceInstance{a2}     // 真变更：少一个实例
+	d.push <- []*registry.ServiceInstance{a1}     // 哨兵帧：又是一次真变更
+
+	cc.waitFor(t, 4, 2*time.Second)
+	if states, errs := cc.count(); states != 4 || errs != 0 {
+		t.Fatalf("五帧输入应产出 4 帧状态、0 次错误，got states=%d errs=%v", states, errs)
+	}
+	want := []string{
+		"127.0.0.1:9001",
+		"127.0.0.1:9002,127.0.0.1:9001",
+		"127.0.0.1:9002",
+		"127.0.0.1:9001",
+	}
+	for n, w := range want {
+		if got := strings.Join(cc.addrStrings(t, n), ","); got != w {
+			t.Fatalf("第 %d 帧状态 = %s, want %s", n+1, got, w)
+		}
+	}
+}

@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync/atomic"
 
@@ -92,21 +93,46 @@ type discoveryResolver struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	closed atomic.Bool
+	// lastKey 是上次真正推给 gRPC 的地址集指纹。只有 Build 里那次 publish 与
+	// run 的 goroutine 读写它，而后者由 `go r.run()` 发生在前者之后，无需加锁。
+	lastKey string
 }
 
 // publish 把实例列表换成 resolver 状态。空实例集不调用 UpdateState：
 // gRPC 对空地址集会回 ErrBadResolverState，且会把已有的健康地址一起清掉。
+//
+// 内容没变也不发：Build 已经同步推过一帧，而 watcher 订阅成功时可能**立刻**再带
+// 一份当前快照（`registry/inmemory` 的 Watch 就是这个语义，其它后端属实现自由），
+// 两份重叠就是一帧完全重复的状态。gRPC 收到 UpdateState 就重建 balancer 状态，
+// 重复帧不是「无害的浪费」而是无谓的连接重挑。
+// 指纹只在 UpdateState 成功后记下：失败时同样的快照再来一次仍要重试。
 func (r *discoveryResolver) publish(instances []*registry.ServiceInstance) {
 	addrs := addressesOf(instances)
 	if len(addrs) == 0 {
 		r.cc.ReportError(fmt.Errorf("gateway: discovery %s: no instances", r.service))
 		return
 	}
+	key := addressKey(addrs)
+	if key == r.lastKey {
+		return
+	}
 	// 本实现是 watch-based：UpdateState 失败不需要自己重解析，下一次变更会再发。
 	// 但错误必须上报，否则「解析对了却推不进 ClientConn」会变成静默故障。
 	if err := r.cc.UpdateState(resolver.State{Addresses: addrs}); err != nil {
 		r.cc.ReportError(fmt.Errorf("gateway: publish %s: %w", r.service, err))
+		return
 	}
+	r.lastKey = key
+}
+
+// addressKey 是地址集的指纹：先排序再拼接，所以「后端换了返回顺序」不算变更。
+func addressKey(addrs []resolver.Address) string {
+	seen := make([]string, len(addrs))
+	for i, a := range addrs {
+		seen[i] = a.Addr
+	}
+	sort.Strings(seen)
+	return strings.Join(seen, ",")
 }
 
 // addressesOf 展开实例的端点，只留 gRPC 面且剥掉 scheme（见 grpcAddressOf）。
