@@ -6,6 +6,9 @@ package docscheck
 import (
 	"bytes"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"net/url"
 	"os"
 	"os/exec"
@@ -970,4 +973,174 @@ func TestTaskfileNoPerCommandDir(t *testing.T) {
 	for _, lineNo := range perCmd {
 		t.Errorf("Taskfile.yml:%d 在 cmds 条目里写了 dir，go-task 会忽略它；把这条腿拆成带任务级 dir 的 internal 子任务再用 task: 调用", lineNo)
 	}
+}
+
+// TestWorkflowGoVersionsAgree 钉住「所有作业文件用同一个 Go 补丁版本」。
+// 漂移是真实发生过的：`ci-windows` 建出来时 pin 1.27.1，主 ci 后来升到 1.27.3，
+// 周界作业继续在不发布的那个工具链上取证（登记册 §7.5「刻意没做 ②」）。
+// 只比对 pin 了的文件——`publish-bconf.yml` 不跑 Go 测试，没有这一维。
+func TestWorkflowGoVersionsAgree(t *testing.T) {
+	root := repoRoot(t)
+	dir := filepath.Join(root, ".github", "workflows")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read .github/workflows: %v", err)
+	}
+	pinned := 0
+	byValue := map[string][]string{}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".yml") {
+			continue
+		}
+		raw, err := readText(filepath.Join(dir, e.Name()))
+		if err != nil {
+			t.Fatalf("read %s: %v", e.Name(), err)
+		}
+		for i, line := range strings.Split(string(raw), "\n") {
+			trimmed := strings.TrimSpace(line)
+			value, ok := strings.CutPrefix(trimmed, "go-version:")
+			if !ok {
+				continue
+			}
+			value = strings.Trim(strings.TrimSpace(value), `"'`)
+			if value == "" {
+				t.Errorf("%s:%d go-version 的值为空", e.Name(), i+1)
+				continue
+			}
+			byValue[value] = append(byValue[value], fmt.Sprintf("%s:%d", e.Name(), i+1))
+			pinned++
+		}
+	}
+	// 防空转：仓库现在至少有 ci.yml 与 windows.yml 两条 pin，一条都没有说明
+	// 匹配没落到形状上（比如 pin 换成了 setup-go 的 `go-version-file`）。
+	if pinned < 2 {
+		t.Fatalf("只找到 %d 处 go-version pin——判据失去对照，本闸门已空转", pinned)
+	}
+	if len(byValue) > 1 {
+		t.Errorf("作业文件 pin 了 %d 个不同的 Go 版本 %v——周界/发布取证必须用同一个工具链", len(byValue), byValue)
+	}
+}
+
+// ---- §7.2：有逻辑的 module 必须有测试 ----
+
+// moduleGoFiles 返回 modDir 内**属于该 module** 的 .go 文件（slash 相对路径）。
+// 嵌套 module 各自统计（否则根 module 会把全仓吞进来）；`_example*` 与 CI 的
+// 清单同源地排除；testdata/.git/vendor/node_modules 不参与编译，也不算覆盖。
+func moduleGoFiles(root, modDir string, all map[string]bool) ([]string, error) {
+	var files []string
+	err := filepath.WalkDir(filepath.Join(root, filepath.FromSlash(modDir)), func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		slash := filepath.ToSlash(rel)
+		if d.IsDir() {
+			switch d.Name() {
+			case ".git", "vendor", "node_modules", "testdata":
+				return filepath.SkipDir
+			}
+			if strings.HasPrefix(slash, "_example") {
+				return filepath.SkipDir
+			}
+			if slash != modDir && all[slash] {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if strings.HasSuffix(slash, ".go") {
+			files = append(files, slash)
+		}
+		return nil
+	})
+	sort.Strings(files)
+	return files, err
+}
+
+// topLevelFuncBodies 数出文件里**带函数体**的顶层 func 声明。接口方法没有 Body，
+// 所以「只有 interface/type/const 的契约包」天然是 0——这正是闸门不向纯声明包
+// 索要测试的依据，而不是一份需要人工维护的豁免名单。
+func topLevelFuncBodies(root string, files []string) (int, error) {
+	var n int
+	fset := token.NewFileSet()
+	for _, f := range files {
+		if strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(fset, filepath.Join(root, filepath.FromSlash(f)), nil, parser.SkipObjectResolution)
+		if err != nil {
+			return 0, fmt.Errorf("parse %s: %w", f, err)
+		}
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if ok && fn.Body != nil {
+				n++
+			}
+		}
+	}
+	return n, nil
+}
+
+// TestModulesWithLogicHaveTests 是风险登记册 §7.2 的闸门。「一个 module 有没有测试」
+// 原先只能靠人评审时数文件点数出来——§1.3 那两个零测试适配器（broker/kafka、
+// broker/rabbitmq）就是这么发现的，而不是任何闸门响出来的；修完之后这条判据第一次
+// 能自己响。
+//
+// 谓词分两面：
+//   - 有可执行逻辑（非测试文件里存在顶层带体 func）的 module 必须有测试文件；
+//   - 纯声明 module 不作要求。实测豁免的只有 metrics（两个接口）与
+//     transport/subscribe（两个类型），为它们写「断言接口存在」的用例只会让闸门
+//     变绿，属假覆盖而不是覆盖。
+//
+// 百分比阈值刻意没做：94 个 module 的基线要逐个实测才有出处，而适配器那一半的
+// 分母由「后端不可达即 Skip」主导——先立住「没有逻辑 module 裸奔」这条不变量，
+// 比例约束等它有真实数据之后再谈。
+func TestModulesWithLogicHaveTests(t *testing.T) {
+	root := repoRoot(t)
+	mods := derivedModules(root)
+	if len(mods) < 50 {
+		t.Fatalf("派生到 %d 个 module，明显低于仓库实际数量——谓词失效，本闸门已空转", len(mods))
+	}
+	set := make(map[string]bool, len(mods))
+	for _, m := range mods {
+		set[m] = true
+	}
+	var withLogic, tested int
+	for _, m := range mods {
+		files, err := moduleGoFiles(root, m, set)
+		if err != nil {
+			t.Fatalf("scan %s: %v", m, err)
+		}
+		bodies, err := topLevelFuncBodies(root, files)
+		if err != nil {
+			t.Fatalf("count func bodies in %s: %v", m, err)
+		}
+		var tests int
+		for _, f := range files {
+			if strings.HasSuffix(f, "_test.go") {
+				tests++
+			}
+		}
+		if tests > 0 {
+			tested++
+		}
+		if bodies == 0 {
+			t.Logf("纯声明 module（顶层带体 func=0，测试文件=%d）：%s", tests, m)
+			continue
+		}
+		withLogic++
+		if tests == 0 {
+			t.Errorf("module %s 有 %d 个顶层函数却一个测试文件都没有——§7.2 的口径是每个有逻辑的 module 都要被执行证据覆盖", m, bodies)
+		}
+	}
+	// 防空转：两面判据各自都要有量，否则「零违规」只是遍历没落到文件上。
+	if withLogic < 50 {
+		t.Fatalf("只识别到 %d 个有逻辑的 module，明显低于仓库实际数量——函数体统计失效，本闸门已空转", withLogic)
+	}
+	if tested < 50 {
+		t.Fatalf("只识别到 %d 个含测试文件的 module，明显低于仓库实际数量——测试文件发现失效，本闸门已空转", tested)
+	}
+	t.Logf("有逻辑的 module=%d，含测试的 module=%d，总 module=%d", withLogic, tested, len(mods))
 }
