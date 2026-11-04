@@ -455,8 +455,9 @@ jobs:
   # 清单、再逐条断言顶层 `--- PASS`，判据来自清单而不是手写表格，增删用例不用改这里。
   #
   # scope=ci 刻意不含两条本地腿：`_example/bald` 的计划两态要编译 gitignore 的
-  # proto 产物；`bconf` 的产物字节一致判据绑 buf 版本形态（1.50 零差异、1.57 给
-  # 中文注释补空格 → 未改 proto 也红）。理由逐条写在 scripts/acceptance-gate.sh 头。
+  # proto 产物；`bconf` 的产物字节一致判据绑工具链——具体是**编译 protoc-gen-go 用的
+  # Go**（go1.26.5 给中文注释补空格、go1.27.x 不补；buf 版本号实测对字节中性），
+  # 未改 proto 也会因工具链换代而红。理由逐条写在 scripts/acceptance-gate.sh 头。
   acceptance:
     runs-on: ubuntu-latest
     timeout-minutes: 30

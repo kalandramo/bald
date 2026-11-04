@@ -67,9 +67,9 @@ bald/bconf/                       module github.com/kalandramo/bald/bconf
 生成物入库，业务方无需装 buf 工具链即可构建。改 proto 后跑 `task proto-contract` 重新生成——**不要手改 `.pb.go`**：rawDesc 内嵌描述符带长度前缀，改长字符串会让长度错位、运行期 panic。
 
 `task proto-contract` 用 `bconf/buf.gen.local.yaml`（本机 `buf` + `protoc-gen-go`），因为**入库产物出自这条路径**。另一份 `buf.gen.yaml`（BSR 远端插件）只作对照，不能拿来重出提交：实测（2026-11-04）同版本号 v1.36.12 的远端插件会在中文注释的 `//` 后补一个空格，与 `gen/go/bootstrap/v1/log.pb.go` 差一处排版——那是工具差异，不是契约变更。
-同一处排版还有第二个变量：**buf 的来源**。`bconf/buf.version` 钉的是版本字符串，而 `go install github.com/bufbuild/buf/cmd/buf@v1.50.0` 的源码构建与官方发行二进制报同一个 `1.50.0`，产出却差那一处空格（前者字节红、后者零差异，实测 2026-11-04）。所以这条腿红时的取证顺序是：**先用官方发行版复跑**，仍不一致才谈契约漂移；插件侧同理（实测 v1.36.10 不补空格、v1.36.12 补）。
+那一处空格的成因是**编译 `protoc-gen-go` 用的那把 Go**，不是 buf：插件走 protobuf 的 `compiler/protogen`，`(*GeneratedFile).Content()` 用 stdlib `go/parser` + `go/printer` 重排产物，注释排版口味跟着编译它的工具链换代走。实测（2026-11-04）同一版插件 v1.36.12——由 go1.26.5 编译会给中文注释的 `//` 补一个空格，由 go1.27.1 或 go1.27.3 编译则与入库产物零差异；BSR 远端插件补空格是同一件事（容器里编译它用的 Go 更旧）。反过来，把 Go 钉住只换插件版本才叫插件换代：v1.36.10 与 v1.36.12 差在**全部 18 个 `.pb.go`**（含头部版本行），而注释那一行不变。buf 的版本号对这一处空格是中性（1.50.0 与 1.57.2 配同一把插件都零差异），但注释文本由 buf 读 proto 后以 `source_code_info` 投递给插件，换代仍可能改它，所以仍然 pin 住。
 
-`task proto-contract-check`（`TestGeneratedMatchesProto`，工具链缺失时自动跳过）在字节比对之前先核对两把版本 pin：`buf` 驱动器对 `bconf/buf.version`，`protoc-gen-go` 对产物头部自己声明的版本行。红了会先指名是哪把工具不符；都对上才轮到逐字节判据，报出具体文件。
+`task proto-contract-check`（`TestGeneratedMatchesProto`，工具链缺失时自动跳过）在字节比对之前先核对三把版本 pin：`buf` 驱动器对 `bconf/buf.version`，`protoc-gen-go` 的 module 版本对产物头部自己声明的版本行，**编译该插件用的 Go（major.minor）**对 `bconf/protoc-gen-go.goversion`（取自 `go version -m` 的构建信息——插件自己的 `--version` 看不见这一轴）。红了会先指名是哪把工具不符；三把都对上才轮到逐字节判据，报出具体文件。补齐姿势是一条命令：`go install google.golang.org/protobuf/cmd/protoc-gen-go@v<产物头部声明的版本>`，用 pin 那把 Go 编译。
 
 ### 契约形状：BootstrapConfig 十五个域
 

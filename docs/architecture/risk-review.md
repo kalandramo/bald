@@ -26,7 +26,7 @@
 | 6.2 | gRPC 链无限流、无超时（与 gin 链不对称） | 中 | ✅ 已核对源码；装配半另经生成树 e2e 实测（429 / `RESOURCE_EXHAUSTED` / 提前 503 / `DEADLINE_EXCEEDED`） | **已修**（unary + stream + 契约面 + 两面契约驱动装配，见 §6.2） |
 | 7.7 | env 覆盖表达不出契约的多词键：严格门禁下启动即报，非严格下优先级反转 | 中 | ✅ 本轮写 e2e 时实测撞上（四条用例全红在 `unknown contract keys`），根因读到 `environMap`/`lookupField`/`findUnknown` 三处；修后同一姿势的示例 e2e 转绿、去掉折叠三条消费侧用例必红 | **已修**：env 层在合树前按契约折回规范键（`bconf.FoldEnvKeys` ← `bootstrap/config` 的 `envLayer`），两个后果一起消失；业务自持键仍避开下划线，见 §7.7 |
 | 7.8 | `TestWatchValue_NoTornEmptySnapshot` 断得比 `ValueWatcher` 契约还强，共享 runner 上偶发红 | 低-中 | ✅ 远端实测：run 41597365828（head `b149fbf`）`test` 作业红在 `bconfig/file`，仅此一条断言失败（`重写过的 "v21" 从未被派发`），同一用例在后续 run 全绿 | **已修**：逐值断言换成三条时序无关的不变量（0 次空载荷 / 派发序单调不减 / 末值必为真实终值），三条变异各自只打中一条；Linux 容器 `-race -count=10` 全绿，见 §7.8 |
-| 7.9 | **契约产物的字节判据绑 buf 版本**：本机 buf 与产物来源版本不同就红，而差异只是注释排版 | 中 | ✅ 实测 buf 1.50.0 零差异、1.57.2 给中文注释的 `//` 补空格（`bootstrap/v1/log.pb.go`）；另查出 BSR 远端模板与本机模板不等价（同版本 v1.36.12，差同一处空格），而 `task proto-contract` 原本走远端；第三轮又查出**同版本号的源码构建 buf 与官方发行二进制不等价**（版本门过、字节门红） | **第二轮收口**：版本 pin 成文（`bconf/buf.version` + 产物头部 protoc-gen-go 版本行）并在字节比对前机器判；产出与校验同走本机模板（`task proto-contract` 后 `gen/go` 无 diff）；这条腿仍留本地（脚本标 `no`），不为绿重生成产物、不弱化字节判据，见 §7.9 |
+| 7.9 | **契约产物的字节判据绑工具链**：本机工具与产物不同源就红，而差异只是注释排版 | 中 | ✅ 第一/二/三轮记的是「buf 1.50.0 零差异、1.57.2 补空格」「源码构建 buf 与官方发行二进制不等价」——**这两条已被第四轮的单变量实测推翻**（当时两行之间真正的另变量是 PATH 里那把插件）。第四轮的矩阵：buf 1.50.0 与 1.57.2 配同一把插件都零差异；同一版插件（自报 v1.36.12、module h1 相同）由 go1.26.5 编译时补空格、由 go1.27.1/1.27.3 编译时零差异；把 Go 钉住换插件版本（v1.36.10）则差在全部 18 个文件而注释不变 | **第四轮收口**：字节比对前机器判**三把 pin**——`bconf/buf.version`、产物头部的 protoc-gen-go 版本行、新加的 `bconf/protoc-gen-go.goversion`=1.27（读 `go version -m` 的构建工具链）；机制落在 protobuf `compiler/protogen` 的 `Content()` 用 stdlib `go/printer` 重排。产出与校验同走本机模板；这条腿仍留本地（脚本标 `no`），不为绿重生成产物、不弱化字节判据，见 §7.9 第四轮 |
 | 6.3 | 限流位于认证之后，认证层自身不受保护 | 中 | ✅ 已核对注释与实现 | **口径已定**（保持现位置 + 落文档；不改默认的理由与自保姿势见 §6.3） |
 | 3.2 | 21 个 module 同时 require 同一库的两个 major（`// indirect`） | 低 | ✅ 脚本实测 | **已修（只读面）**：`scripts/multi-major.sh` + `task deps-multi-major`；`go list -deps` 实测确认真正同链的是 2 条，见 §3.2 |
 | 3.3 | 根 `v0.35.0` **发得出去、装不出来**：仓库里的生成物文件名让代理建不出模块 zip | **高** | ✅ `goproxy.cn` 实测 404 `create zip: malformed file path … invalid char '（'`，230 条路径逐条核对 | **已修**：`.qoder/` 导出移出版本库（磁盘副本保留），`bald release tag` 新增路径闸门（实测在坏树上拦下 230 条、落 0 个 tag）；`v0.35.0` 按「已发布不可重发」保留不用，由 `v0.36.0` 取代，见 §3.3 |
@@ -790,6 +790,29 @@ Go 源码零改动（除下面第 ① 条）。根 module 里 `pkg/` 之外唯�
 
 - `publish-bconf.yml` 的 `buf-setup-action` 不再跟随 latest，改成从 `bconf/buf.version` 读（一个 step 输出 → `buf_version` 输入）。理由：`lint` 规则集会随 buf 换代变严，tag push 时被新 buf 判红等于用工具版本绑架发版。本地以 1.50.0 跑 `buf lint`、`buf build` 均绿，`actionlint` 干净。**远端未取证**：该作业只在 `bconf/v*` tag 或手动 dispatch 触发，而 dispatch 会真往 BSR push 产物（共享状态），本轮不为此发 tag——这条 pin 的远端生效要等下一次 bconf 发版顺带验，属已知未闭合。
 - 文档同步：`Bald 配置契约设计.md`（生成姿势 + 两把 pin + 模板不等价的实测）、`Bald 配置系统设计.md`（「改 proto 后」那条）、`Taskfile.yml` 注释、`scripts/acceptance-gate.sh` 的 scope 说明。`bconf` 这条腿仍标 `no`（不进 CI）：CI 装哪个版本的 buf 都只是「用工具版本换一条绿」，判据本身要求的是与产物同源的那套工具链，留在本地由 `task acceptance` / `task proto-contract-check` 跑。
+
+**第四轮（2026-11-04，第三轮那条归因被单变量实验推翻了）** ✅ 字节门的真正驱动变量是**编译 `protoc-gen-go` 用的 Go 工具链**，不是 buf 的版本也不是 buf 的来源
+
+- 触发点：`task verify` 在本机红，而按第三轮的口径「换官方发行版 buf 复跑」跑不通——前置 1.50.0 后 `log.pb.go` 仍然差那一处空格。于是这轮把两个变量拆开，各跑一次、每次都只让一个变量动（临时目录里只放**一把 buf + 一把插件**的符号链接，`PATH="$bin:/usr/bin:/bin"`，避免上一轮那种「PATH 顺序把两行都指向同一把插件」的污染——第三轮的结论就是这么来的）。
+- 实测矩阵（整棵 `gen/go` 逐字节 vs 入库）：
+
+  | buf | `protoc-gen-go` | 编译该插件的 Go | 结果 |
+  |---|---|---|---|
+  | 1.50.0 | v1.36.12 | go1.27.1 | **零差异** |
+  | 1.57.2 | v1.36.12 | go1.27.1 | **零差异** |
+  | 1.50.0 | v1.36.12 | go1.27.3（本轮 `go install` 新编） | **零差异** |
+  | 1.50.0 | v1.36.12 | go1.26.5（本轮 `go install` 新编） | 差 **1 个文件 1 行**：`bootstrap/v1/log.pb.go` 的 `//（…` → `// （…` |
+  | 1.57.2 | v1.36.12 | go1.26.5（本机 9 月那把） | 差同一行 |
+  | 1.50.0 | **v1.36.10** | go1.27.1 | 差 **全部 18 个 `.pb.go`**（头部版本行等），而 `//（…` 那行**不变** |
+
+- 机制在插件里，不在 buf 里：protobuf 的 `compiler/protogen`，`(*GeneratedFile).Content()` 把生成的源码用 stdlib `go/parser` 解析、再用 `go/printer` 重排（`printer.Config{TabIndent|UseSpaces, Tabwidth:8}`）。`go/printer` 是**编译插件那把 Go** 的一部分，所以注释排版跟着工具链换代走，而插件自报的版本号对此毫无表示。
+- 由此撤回三条旧表述（都在本节上面几轮里）：① 「buf 的注释排版会进字节（1.57.2 补空格）」——本轮 1.57.2 配合规插件零差异；② 「同版本号的源码构建 buf 与官方发行二进制不等价」——现存那把 1.50.0 本身就是 `go install` 源码构建（`go version -m` 带 buildinfo），它零差异；当时那对差异里唯一能动的另变量就是 PATH 里的插件，本轮把它钉住了，旧实验无法复现成「buf 来源」差异。③ 「`v1.36.12` 补空格、`v1.36.10` 不补」——同一把 Go 编译时两版都不补，差异在头部版本行（差 18 个文件），不在注释。
+  - 未被推翻的那条：BSR 远端模板与本机模板不等价（远端容器里的 v1.36.12 也补空格）。它现在有了机制解释——容器编译插件用的 Go 与本机不同；也就是说，本节的「远端/来源」类差异和「本机两把」类差异是**同一件事**，旧文档把它们记成了三个来源。
+- 收口：加**第三把 pin** `bconf/protoc-gen-go.goversion` = `1.27`（记 major.minor；补丁位实测无关，1.27.1 与 1.27.3 同为零差异）。测试在字节比对前用 `go version -m <protoc-gen-go>` 读插件的构建信息并比它，不等就判红并点名这条轴 + 补齐姿势（`go install google.golang.org/protobuf/cmd/protoc-gen-go@v<产物头部声明的版本>`）。`go` 命令缺席时 `t.Skip`（与 buf/插件缺席同一类：环境缺失，不是判据失败）。
+  - 三轴的机器判据各自验活（都在未改动的树上，`-count=1`）：① 合规组合（buf 1.50.0 + v1.36.12/go1.27.1）→ `--- PASS (0.24s)`；② buf 1.50.0 + v1.36.12/**go1.26.5** → 命中第三轴红（`gen_repro_test.go:81`）；③ 同一环境把 pin 临时改成 `1.26` → 穿过三轴、由字节门报出「内容不一致: bootstrap/v1/log.pb.go」——这条同时证明字节门没有因为新加的轴而空转。pin 文件从 `/tmp` 备份复原，`cmp` 与 `printf '1.27\n'` 一致。
+  - 判据强度：三轴都保留 `t.Fatalf`（不是 Skip），字节门原样。加这条轴的净效果是**把「工具链口味」从「契约漂移」里摘出去**——以前它冒充契约红，现在它有名字。
+- 对本机的如实交代：默认 PATH 那把 `protoc-gen-go` 是 9 月装的、由 go1.26.5 编译，且 buf 是 1.57.2 → 本机 `task verify` / `task proto-contract-check` 的 bconf 腿**按设计判红**（第一轴 buf 就拦下）。合规姿势是一条命令：`PATH="/Users/moweilong/go/bin:$PATH" task proto-contract-check`（GOBIN 里那把 buf 1.50.0 + 插件 v1.36.12/go1.27.1，实测 `ok`）；跨机器的通用姿势是 `go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.12` 用 go1.27 编一次。本轮**没有**覆盖那把 9 月的二进制（不在仓内的用户工具，动它不在授权范围）。CI 不受影响：runner 无 buf，这条腿自己跳过。
+- 仍未闭合：① 这条腿依旧不进 CI（要它进得先给 runner 装 buf + 编译并 pin 一把插件，代价是 §7.9 一直想避开的工具链依赖）；② 更彻底的做法是**在测试里自己 `go build` 出插件**，让三轴全部落在仓内（go.mod 的 protobuf 版本 + 仓的 Go），彻底摆脱 PATH 考古——本轮没做，因为它要求 bconf/go.mod 的 protobuf 从 v1.36.11 升到 v1.36.12（产物头部声明的是 1.36.12），那是发布面变更，得走 sync/CHANGELOG/tag，与「修一条归因」不成比例；③ buf 来源这一轴仍无机器判据（第三轮的结论沿用：pin SHA-256 会误伤 Homebrew/源码安装，而本轮证明来源根本不是那一处空格的成因，这条更低优先级）。
 
 **7.10 `-tags nacos` 的注册中心接管是死的（中）** ✅ 已修（2026-11-04 同日登记并收口；发现路径：§7.1「示例的去仓库外依赖」那条迁移跑真机时——配置侧全绿，注册侧一条都没发生）
 

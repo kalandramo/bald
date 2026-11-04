@@ -1,11 +1,12 @@
 # 契约层产出的真相源（= `task proto-contract`）：与 buf.gen.yaml 同一份 managed
 # mode，只把远端插件换成本机 protoc-gen-go。产出的字节由 proto-contract-check
-# 逐字节守住，版本 pin 有两处：buf 驱动器读 bconf/buf.version，插件读产物头部
-# 的 protoc-gen-go 版本行——测试先比这两把版本再做字节比对，所以红的时候分得清
-# 「契约漂了」还是「工具链变了」（风险登记册 §7.9）。
+# 逐字节守住，版本 pin 有三处：buf 驱动器读 bconf/buf.version，插件的 module 版本
+# 读产物头部的 protoc-gen-go 版本行，**编译该插件用的 Go（major.minor）**读
+# bconf/protoc-gen-go.goversion——三条都在字节比对之前单独判红，所以红的时候分得清
+# 「契约漂了」还是「工具链变了」（风险登记册 §7.9，第三把 pin 是第四轮补的）。
 #
-# 注意不要改用 buf.gen.yaml 重出提交：BSR 容器里的同名插件会在中文注释的 `//`
-# 后补一个空格，那是工具差异不是契约变更。
+# 注意不要改用 buf.gen.yaml 重出提交：BSR 容器里编译同名插件用的 Go 与本机不同，
+# 它会在中文注释的 `//` 后补一个空格——那是工具差异不是契约变更。
 version: v2
 managed:
   enabled: true

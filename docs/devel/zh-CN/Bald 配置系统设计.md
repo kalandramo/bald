@@ -189,7 +189,7 @@ bald/bconf/                       module github.com/kalandramo/bald/bconf
 
 - **Go 导入路径**：`github.com/kalandramo/bald/bconf/gen/go/...`。
 - **生成方式**：`buf` managed mode（`buf.gen.yaml` 的 `go_package_prefix` 是生成路径的最终裁决者）。各 `.proto` 的 `option go_package` 已与之一致（历史上 store/appspec 两文件曾残留旧 `pkg/conf/gen` 串、靠 managed mode 兜底——已修正，不再依赖兜底）。
-- **改 proto 后**：跑 `task proto-contract` 重新生成 `.pb.go`（本机 `buf` + `protoc-gen-go`，模板 `bconf/buf.gen.local.yaml`）——**不要直接手改 `.pb.go`**，`rawDesc` 内嵌描述符带 protobuf 长度前缀，改长字符串会让长度错位、运行时 panic。（protoc-gen-go 生成 rawDesc 时会剥离 `go_package`，故修正源串不影响生成产物。）别改用 BSR 远端模板 `buf.gen.yaml` 重出提交：同版本插件在容器里会给中文注释的 `//` 补一个空格，与入库产物差一处排版。`task proto-contract-check` 校验生成物与 proto 同步，并在字节比对前先核对两把工具版本 pin（`bconf/buf.version` 与产物头部的 protoc-gen-go 版本行）。两把 pin 都只钉版本**字符串**：同号的源码构建 buf 与官方发行二进制产出不同（实测差一处注释空格），所以字节红时先用官方发行版复跑再判契约，别急着重生成产物。
+- **改 proto 后**：跑 `task proto-contract` 重新生成 `.pb.go`（本机 `buf` + `protoc-gen-go`，模板 `bconf/buf.gen.local.yaml`）——**不要直接手改 `.pb.go`**，`rawDesc` 内嵌描述符带 protobuf 长度前缀，改长字符串会让长度错位、运行时 panic。（protoc-gen-go 生成 rawDesc 时会剥离 `go_package`，故修正源串不影响生成产物。）别改用 BSR 远端模板 `buf.gen.yaml` 重出提交：容器里编译 `protoc-gen-go` 用的 Go 与本机不同，同版本插件会在中文注释的 `//` 后补一个空格，与入库产物差一处排版。`task proto-contract-check` 校验生成物与 proto 同步，并在字节比对前先核对三把工具版本 pin（`bconf/buf.version`、产物头部的 protoc-gen-go 版本行、`bconf/protoc-gen-go.goversion`＝编译该插件用的 Go major.minor）。第三条不是可选项：插件自报的版本号对这一处空格没有表示——实测同一版 v1.36.12 由 go1.26.5 编译会补空格、由 go1.27.1 或 go1.27.3 编译则零差异，而 buf 的版本号（1.50.0 与 1.57.2）对字节是中性的。所以字节红时先读这三把 pin 的判红，别急着重生成产物（风险登记册 §7.9 第四轮）。
 
 ### 2.2 为什么用 proto 作契约（而非 Go struct + mapstructure）
 
