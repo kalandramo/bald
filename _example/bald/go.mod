@@ -246,3 +246,7 @@ replace github.com/kalandramo/bald/registry/etcd => ../../registry/etcd
 replace github.com/kalandramo/bald/pkg => ../../pkg
 
 replace github.com/kalandramo/bald/ratelimit/tokenbucket => ../../ratelimit/tokenbucket
+
+replace github.com/kalandramo/bald/circuitbreaker => ../../circuitbreaker
+
+replace github.com/kalandramo/bald/circuitbreaker/hystrix => ../../circuitbreaker/hystrix
