@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/kalandramo/bald/pkg/appkit"
@@ -51,15 +52,25 @@ func TestPlan_ReferenceProject(t *testing.T) {
 		}
 	}
 
-	// 变体声明恒进计划；Active 只在对应 tag 编进来时为真。
+	// 变体声明恒进计划；Active 必须等于「按本二进制实际构建约束求值 When」。
+	// 判据走 appkit 的求值口（与 go build 同源，含平台/语言隐式 tag），测试不猜
+	// tag 组合，也不按变体名硬编——写死单个变体名会让第二个变体在带自己的 tag
+	// 的构建里假红（nacos 变体就是这么红的）。
 	tags := appkit.BuildTags()
-	grpcgwOn := appkit.HasBuildTags(tags, "grpcgw")
 	if len(p.Variants) != 2 {
 		t.Fatalf("Plan.Variants = %+v, want the two declared build-tag variants", p.Variants)
 	}
 	for _, v := range p.Variants {
-		if want := v.Name == "grpcgw" && grpcgwOn; v.Active != want {
-			t.Errorf("variant %q active = %v, want %v (build tags: %v)", v.Name, v.Active, want, tags)
+		expr := v.When
+		if expr == "" {
+			expr = strings.Join(v.BuildTags, " && ") // BuildTags 糖：等价 && 连接
+		}
+		want, err := appkit.EvaluateBuildConstraint(expr)
+		if err != nil {
+			t.Fatalf("variant %q: When %q is not a build constraint: %v", v.Name, expr, err)
+		}
+		if v.Active != want {
+			t.Errorf("variant %q active = %v, want %v (When=%q, build tags: %v)", v.Name, v.Active, want, expr, tags)
 		}
 	}
 

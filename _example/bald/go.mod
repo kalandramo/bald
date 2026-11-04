@@ -6,9 +6,9 @@ require (
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.12-20260825204119-511051f7f437.1
 	buf.build/go/protovalidate v1.4.0
 	github.com/gin-gonic/gin v1.12.0
-	github.com/go-kratos/kratos/v3/contrib/config/nacos/v3 v3.0.0-00010101000000-000000000000
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.29.0
 	github.com/kalandramo/bald/bconf v0.17.0
+	github.com/kalandramo/bald/bconfig v0.2.2
 	github.com/kalandramo/bald/berrors v0.1.2
 	github.com/kalandramo/bald/bootstrap v0.13.6
 	github.com/kalandramo/bald/contrib/store-gorm v0.4.1
@@ -20,7 +20,6 @@ require (
 	github.com/kalandramo/bald/registry/nacos v0.3.2
 	github.com/kalandramo/bald/transport/gateway v0.5.0
 	github.com/kalandramo/bald/transport/web v0.2.0
-	github.com/nacos-group/nacos-sdk-go v1.1.6
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
 	google.golang.org/genproto/googleapis/api v0.0.0-20260904194346-d0f1323225a4
@@ -79,7 +78,6 @@ require (
 	github.com/gin-contrib/sse v1.1.0 // indirect
 	github.com/glebarez/go-sqlite v1.21.2 // indirect
 	github.com/glebarez/sqlite v1.11.0 // indirect
-	github.com/go-errors/errors v1.5.1 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
 	github.com/go-kratos/kratos/v3 v3.0.0 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
@@ -130,7 +128,6 @@ require (
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/kalandramo/bald-crud/viewer v0.3.0 // indirect
-	github.com/kalandramo/bald/bconfig v0.2.2 // indirect
 	github.com/kalandramo/bald/ratelimit v0.1.0 // indirect
 	github.com/kalandramo/bald/ratelimit/tokenbucket v0.2.0 // indirect
 	github.com/kalandramo/bald/transport v0.4.0 // indirect
@@ -241,10 +238,6 @@ replace github.com/kalandramo/bald/contrib/store-gorm => ../../contrib/store-gor
 replace github.com/kalandramo/bald/registry => ../../registry
 
 replace github.com/kalandramo/bald/registry/nacos => ../../registry/nacos
-
-replace github.com/go-kratos/kratos/v3/contrib/config/nacos/v3 => ../../../kratos/contrib/config/nacos
-
-replace github.com/go-kratos/kratos/v3/contrib/registry/nacos/v3 => ../../../kratos/contrib/registry/nacos
 
 replace github.com/kalandramo/bald/registry/etcd => ../../registry/etcd
 

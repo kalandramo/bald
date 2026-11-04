@@ -63,6 +63,36 @@ func NewWithClient(c config_client.IConfigClient, opts ...Option) (*Config, erro
 	return &Config{opts: o, client: c}, nil
 }
 
+// PublicNamespace 是 nacos 默认命名空间的**显示名**（控制台与文档都这么写）。
+const PublicNamespace = "public"
+
+// namespaceID 把契约/用户写的命名空间折成 SDK 认的 NamespaceId。
+//
+// 只有 "public" 需要折：默认命名空间在 HTTP 参数（tenant）里必须是空串。
+// 实测（nacos-server v2.3.2 standalone，dataID 存在且可读）：
+// NamespaceId="public" → GetConfig 返回**空内容且不报错**，也就是配置源安静地
+// 贡献零个键；同一份内容用 NamespaceId="" → 拿到全文。危害形状正是最难查的那
+// 种——远端配置源接上了、启动不报错、值一个也没进来。其余取值原样透传（自建
+// namespace 的 ID 是用户自己起的字符串）。
+func namespaceID(ns string) string {
+	if ns == PublicNamespace {
+		return ""
+	}
+	return ns
+}
+
+// clientConfig 组装 SDK 客户端参数。命名空间单独走 [namespaceID]——它是这条
+// 路径上唯一会被写错的字段，所以拆成可测的一层，而不是埋在 init 里。
+func clientConfig(o options) constant.ClientConfig {
+	return constant.ClientConfig{
+		NamespaceId: namespaceID(o.namespace),
+		TimeoutMs:   5000,
+		LogLevel:    "warn",
+		Username:    o.username,
+		Password:    o.password,
+	}
+}
+
 // init 惰性建连（仅自建模式）。
 func (c *Config) init() error {
 	if c.client != nil {
@@ -79,13 +109,7 @@ func (c *Config) init() error {
 		}
 		sc = append(sc, constant.ServerConfig{IpAddr: host, Port: uint64(port)})
 	}
-	cc := constant.ClientConfig{
-		NamespaceId: c.opts.namespace,
-		TimeoutMs:   5000,
-		LogLevel:    "warn",
-		Username:    c.opts.username,
-		Password:    c.opts.password,
-	}
+	cc := clientConfig(c.opts)
 	client, err := clients.NewConfigClient(vo.NacosClientParam{
 		ClientConfig:  &cc,
 		ServerConfigs: sc,

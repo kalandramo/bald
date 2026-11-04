@@ -1258,9 +1258,9 @@ func shortGatedTests(t *testing.T, pkgDir string) map[string]bool {
 // 用例。每条都带具体理由，且下面会验它**仍然成立**——用例改名、被重新排进表或排进
 // CI，这条豁免就变成红，名单不会烂在那里。
 var shortSkipExemptions = map[string]string{
-	"_example/bald|./internal/bootstrap|TestGatewayDiscoveryEtcdWatchPush":         "要真 etcd 才能跑；且示例 module 整体不在 CI（go.mod 里有仓库外的 kratos contrib replace），进表会让没 etcd 的机器必红",
-	"_example/bald|./internal/bootstrap|TestGatewayDiscoveryNacosWatchPush":        "要真 nacos 才能跑；同上，示例 module 不在 CI",
-	"_example/bald|./internal/bootstrap|TestNacosDiscoveryNameCarriesSchemeSuffix": "要真 nacos 才能跑；同上，示例 module 不在 CI",
+	"_example/bald|./internal/bootstrap|TestGatewayDiscoveryEtcdWatchPush":         "要真 etcd 才能跑；且示例 module 整体不在 CI（它的测试先要 gitignore 的 api/gen 产物，编译前需 buf + BSR 网络，见 §7.1），进表会让没 etcd 的机器必红",
+	"_example/bald|./internal/bootstrap|TestGatewayDiscoveryNacosWatchPush":        "要真 nacos 才能跑；且示例 module 不在 CI（同上一条：api/gen 是 gitignore 的 proto 产物）",
+	"_example/bald|./internal/bootstrap|TestNacosDiscoveryNameCarriesSchemeSuffix": "要真 nacos 才能跑；且示例 module 不在 CI（同上一条：api/gen 是 gitignore 的 proto 产物）",
 }
 
 // TestAcceptanceTableCoversShortSkippedTests 是风险登记册 §8 那条「未闭合的形状」的

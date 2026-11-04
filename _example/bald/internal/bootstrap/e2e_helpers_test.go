@@ -43,6 +43,12 @@ func startRoleWithConfig(t *testing.T, role, cfg string) (grpcAddr, httpAddr str
 		httpAddr = freeAddr(t)
 		t.Setenv("BALD_DEMO_SERVER_HTTP_ADDR", httpAddr)
 	}
+	// 业务值同样钉在 env 层：-tags nacos 构建带配置中心源层，那份 dataID 里的
+	// biz.greet.greeting 会真实进到 Settings()——端到端断的是绑定/路由/限流，
+	// 不是「本机正好连着的那个 nacos 里写了什么」。env 在声明式源之上（优先级
+	// flag > env > 本地文件 > 源层 > 远程桥），所以这一钉对两种构建形态都成立；
+	// 无 tag 时它等于域内默认值，断言文案不变。
+	t.Setenv("BALD_DEMO_BIZ_GREET_GREETING", "hello")
 
 	opts := Options(role)
 	if cfg != "" {

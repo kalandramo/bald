@@ -136,3 +136,34 @@ func (s *stubClient) push(data []byte) {
 		s.lastParam.OnChange("ns", s.lastParam.Group, s.lastParam.DataId, string(data))
 	}
 }
+
+// TestNamespaceID_DefaultNameFoldsToEmpty 钉住 nacos 默认命名空间的两种写法：
+// 显示名 "public" 必须折成空串（SDK 的 tenant 参数里默认空间是空），自建
+// namespace 的 ID 原样透传。真机实测（v2.3.2 standalone）：NamespaceId="public"
+// 时 GetConfig 返回「空内容 + 无错误」，配置源静默贡献零个键。
+func TestNamespaceID_DefaultNameFoldsToEmpty(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"public", ""},
+		{"", ""},
+		{"7e7197f2-e44d-4c05-a8f6-9e0f3d2b1a4c", "7e7197f2-e44d-4c05-a8f6-9e0f3d2b1a4c"},
+	} {
+		if got := namespaceID(tc.in); got != tc.want {
+			t.Errorf("namespaceID(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// TestClientConfig_NamespaceIsFolded 判折叠真的接进了建连参数（只测纯函数
+// 判不出「init 用了别的字段」这条形状）。
+func TestClientConfig_NamespaceIsFolded(t *testing.T) {
+	cc := clientConfig(options{namespace: "public", username: "u", password: "p"})
+	if cc.NamespaceId != "" {
+		t.Errorf("ClientConfig.NamespaceId = %q, want \"\"（public 折成默认空间）", cc.NamespaceId)
+	}
+	if cc.Username != "u" || cc.Password != "p" || cc.TimeoutMs != 5000 {
+		t.Errorf("ClientConfig = %+v, want 凭证透传 + 5s 超时", cc)
+	}
+	if got := clientConfig(options{namespace: "ns-1"}).NamespaceId; got != "ns-1" {
+		t.Errorf("自建 namespace 被改写: %q", got)
+	}
+}

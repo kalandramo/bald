@@ -153,9 +153,14 @@ jobs:
   # 留在 -short。这里按套件点名跑，清单外的包一概不碰。
   #
   # 刻意不含 `_example/bald`：那里的 etcd/nacos 服务发现端到端**只在本地跑**（README 有可复制
-  # 命令）。原因是 `_example/bald/go.mod` 把两个 kratos contrib 模块 replace 到**仓库外**的
-  # 同级检出（`../../kratos/contrib/{config,registry}/nacos`），干净检出上那两条路径不存在，
-  # 模块图都装载不出来。要在 CI 跑示例，得先给那两个 replace 找到已发布版本——那是独立一件事。
+  # 命令）。原先挡住它的第一条原因（go.mod 把两个 kratos contrib 模块 replace 到**仓库外**的同级
+  # 检出，干净检出连模块图都装载不出来）已在 2026-11-04 撤除——示例现在只用仓内模块，实测干净
+  # 检出 `go mod download` 与 `go list -m all` 都通过。剩下的两条是真的：
+  #   1. `_example/bald/api/gen` 是 gitignore 的 proto 产物，干净检出里没有；要先 `buf dep update`
+  #      + `buf generate` 才编译得了（本机实测：产物生成后 `go test ./...` 默认构建全绿）。
+  #      也就是要 pin buf 版本并放开到 BSR 的网络——与 §7.9 的工具链 pin 同一件事。
+  #   2. 那几条用例要真 etcd/真 nacos 才有意义，注入服务后还得配「不可达即 Skip」的反证闸门。
+  # 要做就是独立一个 `example` 作业（失败面与核心模块隔离），那是独立一件事。
   #
   # 三档防「静默失效」（这是新增闸门最容易自欺的地方）：
   #   1. **服务探活失败 = 作业失败**。这批用例的写法是「不可达即 Skip」，不探活的话服务起不

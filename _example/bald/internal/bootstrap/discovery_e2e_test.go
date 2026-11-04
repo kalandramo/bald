@@ -53,6 +53,9 @@ func TestGatewayBackendViaDiscovery(t *testing.T) {
 	grpcAddr := freeAddr(t)
 	gwAddr := freeAddr(t)
 	t.Setenv("BALD_DEMO_SERVER_GRPC_ADDR", grpcAddr)
+	// 业务问候语钉在 env 层，理由同 startRoleWithConfig：本条断的是「发现解析
+	// 出后端并把 REST 打到 gRPC 面」，不该被 -tags nacos 带进来的配置中心内容改写。
+	t.Setenv("BALD_DEMO_BIZ_GREET_GREETING", "hello")
 
 	// 网关段走临时契约文件：§7.7 起 env 也能表达多词键（backend_grpc_addr 在
 	// 合树前折回规范键），但这里要同时改监听地址和后端（换成服务名），一份补丁

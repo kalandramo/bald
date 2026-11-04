@@ -6,20 +6,21 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/nacos-group/nacos-sdk-go/clients"
-	config_client "github.com/nacos-group/nacos-sdk-go/clients/config_client"
-	v1constant "github.com/nacos-group/nacos-sdk-go/common/constant"
-	v1vo "github.com/nacos-group/nacos-sdk-go/vo"
-
-	nacosconfig "github.com/go-kratos/kratos/v3/contrib/config/nacos/v3"
+	"github.com/kalandramo/bald/bconfig/nacos"
 	"github.com/kalandramo/bald/bootstrap/config"
 	"github.com/kalandramo/bald/pkg/appkit"
 
 	nacoscontract "github.com/kalandramo/bald/registry/nacos/contract"
 )
 
-// 配置中心（桥接路径）的 nacos server 地址；注册中心地址走契约 registry.nacos 段。
-var nacosHost, nacosPort = "127.0.0.1", uint64(8848)
+// 配置中心（远程源）的坐标：整文档 dataID，与注册中心同一台 nacos。
+// 注册中心地址走契约 registry.nacos 段；这一段留在代码里是刻意的——见下。
+const (
+	nacosConfigAddr   = "127.0.0.1:8848"
+	nacosConfigDataID = "bald-demo.yaml"
+	nacosConfigGroup  = "DEFAULT_GROUP"
+	nacosConfigNS     = "public"
+)
 
 // nacos 变体：注册中心段驱动 Provider + 配置中心远程源。两角色都生效。
 func init() {
@@ -68,34 +69,37 @@ func (nacosRegistrarProvider) Build(ctx context.Context, s appkit.ApplyScope, _ 
 	}, nil
 }
 
-// newNacosConfigClient 构造配置中心 client（contrib config/nacos/v3 消费 v1 接口）。
-func newNacosConfigClient() (config_client.IConfigClient, error) {
-	return clients.NewConfigClient(v1vo.NacosClientParam{
-		ClientConfig: &v1constant.ClientConfig{
-			NamespaceId: "public",
-			TimeoutMs:   5000,
-			LogDir:      "/tmp/nacos/log",
-			CacheDir:    "/tmp/nacos/cache",
-			LogLevel:    "info",
-		},
-		ServerConfigs: []v1constant.ServerConfig{*v1constant.NewServerConfig(nacosHost, nacosPort)},
-	})
-}
-
-func nacosConfigSource() config.RemoteSource {
-	cli, err := newNacosConfigClient()
+// nacosConfigLayer 构造配置中心的整文档源层（仓内 bconfig/nacos，自建 client
+// 惰性建连；nacos-sdk-go/v2 无显式关闭接口，层不需要 cleanup）。
+//
+// 为什么不走契约 config.nacos 段（那半条路是 contrib/config-nacos 的
+// AppProvider）：本示例的两个构建形态共用同一份 configs/*.yaml，而契约的
+// config 段只有 config 段 Provider 才有消费者——实测默认（无 tag）构建带着
+// config.nacos 直接起不来：
+//
+//	appkit: bootstrap config declares sections with no consumer: config
+//
+// 把 AppProvider 无条件接进默认构建又能消掉这条错误，但那时默认构建就非得
+// 有一个活的 nacos 才装载得了配置，与「克隆即可跑」的最小路径冲突。所以示例
+// 只在变体内自己造层；契约段留给真有部署（那里的 config 段本来就有消费者）。
+func nacosConfigLayer() config.Layer {
+	src, err := nacos.New(
+		nacos.WithServerAddrs(nacosConfigAddr),
+		nacos.WithNamespace(nacosConfigNS),
+		nacos.WithGroup(nacosConfigGroup),
+		nacos.WithDataID(nacosConfigDataID),
+	)
 	if err != nil {
-		panic("nacos config client: " + err.Error())
+		panic("nacos config source: " + err.Error())
 	}
-	return config.FromKratosSource(nacosconfig.NewConfigSource(cli,
-		nacosconfig.WithDataID("bald-demo.yaml"),
-		nacosconfig.WithGroup("DEFAULT_GROUP"),
-	))
+	// Watch=true：nacos 的 ListenConfig 推送参与热更新（变更 → 全量重合并）。
+	// 层优先级在本地文件/env/flag 之下，与原先的远程桥（最低基准层）同向。
+	return config.Layer{Name: "nacos", Reader: src, Format: "yaml", Watch: true}
 }
 
 func nacosBootstrapOptions() []appkit.Option {
 	return []appkit.Option{
 		nacosRegistrarProvider{},
-		appkit.RemoteConfig(nacosConfigSource()),
+		appkit.ConfigLayers(nacosConfigLayer()),
 	}
 }
