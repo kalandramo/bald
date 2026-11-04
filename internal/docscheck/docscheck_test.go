@@ -1094,9 +1094,14 @@ func topLevelFuncBodies(root string, files []string) (int, error) {
 //     transport/subscribe（两个类型），为它们写「断言接口存在」的用例只会让闸门
 //     变绿，属假覆盖而不是覆盖。
 //
-// 百分比阈值刻意没做：94 个 module 的基线要逐个实测才有出处，而适配器那一半的
-// 分母由「后端不可达即 Skip」主导——先立住「没有逻辑 module 裸奔」这条不变量，
-// 比例约束等它有真实数据之后再谈。
+// 百分比阈值刻意没做，且 2026-11-04 把 94 个 module 的基线实测出来之后仍然不做，
+// 理由换了：分母不是质量的函数。实测里「每 module ≥ X%」会当场判红 `.`、`cache`、
+// `ratelimit` 三个 0.0% —— 它们的 module 根零可执行语句，`go test` 直接报
+// `coverage: [no statements]`；而 `registry/nacos` 同一个 module 在 `-short` 是
+// 29.3%、去掉 `-short`（真 nacos 在场）是 45.7%。要先给它一条阈值，就得先裁决
+// 「零语句 module 算不算分母、生成码算不算、`-short` 算不算」——那是口径裁决而不是
+// 覆盖率问题。两条分布与推导见风险登记册 §7.2「7.2 补」；本闸门管的是那条不会随
+// 口径漂移的缺口：有可执行逻辑却没有一个测试文件。
 func TestModulesWithLogicHaveTests(t *testing.T) {
 	root := repoRoot(t)
 	mods := derivedModules(root)
