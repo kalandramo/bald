@@ -6,6 +6,181 @@
 
 ## 2026-11-04
 
+### bald v0.38.0
+
+- `1b2eee2b` docs: 熔断接线的口径同步（十处）+ §7.9 第六轮的远端绿证
+- `a84a8d23` test(_example): 四条熔断端到端——起真进程从 YAML/env 断到 503 与 CIRCUIT_OPEN
+- `62b5035a` docs(architecture): §7.9 第六轮收口——两轴进仓、撤掉那条「不成比例」的旧理由
+- `1a31bc27` feat(bconf): 契约字节门的插件两轴落进仓内——判据自编译 protoc-gen-go
+- `d9d09c4e` docs(architecture): §8 三处状态口径同步为已收口，并补两条实测边界（行号锚点 102/0/0、repowiki 生成物 3 处滞后）
+- `c74530ab` docs(architecture): §8 另一半收口——用 AST 符号表实测「文档描述已删 API」，改掉 20 个文件里的假引用
+- `f70050b0` docs(architecture): §7.13 收口并归因改判——红在 nacos SDK 的进程内令牌桶，不在服务端
+- `0d3ce802` docs(architecture): example 作业的 main 绿证（run 41834825763 九作业全 success）
+- `6d7eda7a` docs(architecture): 登记 example 作业的远端绿证，并撤掉四处「装配那条没有远端证据」
+- `b57dd1e8` ci(example): 示例 module 进 CI——独立 example 作业，三态构建 24 条判据逐条断真 PASS
+- `55609dff` docs(contract): 配置契约设计补 proto-contract 作业的取证边界——远端只有正向，三条变异在容器里验活
+- `13780ce6` docs(architecture): §7.9 第五轮补远端绿证——proto-contract 在真实 runner 上真 PASS
+- `f1c71884` docs(architecture): 登记 §7.9 第五轮——远端证据的来源、边界与三条旧口径的改判
+- `cc332023` ci(bconf): §7.9 未闭合①——契约字节判据腿接进 CI（专职作业 proto-contract）
+- `b8b0a9a2` docs(architecture): §7.9/7.10/7.11/7.12 补远端绿证——run 41813828397 七作业全 success
+- `bd1cb404` docs(architecture): §7.2 补——把「先有基线再谈阈值」那条债的基线实测出来，阈值仍缓做但理由换成实测
+- `019dac2e` fix(bconf): §7.9 第四轮——字节门的驱动变量是编译 protoc-gen-go 的 Go，不是 buf 版本
+- `ca1b19d0` test(cli): 夹具的 buf.yaml 改成 v2——真 buf build 那条腿自 691929c 起结构性判红
+- `2f4e3405` test(circuitbreaker/sres): 冷窗口放行判据扩样本到 500，堵住 race 作业的 8.4e-5 尾巴
+- `d70c3a41` test(registry/nacos): 两条摘除机制判据搬进 CI，判据不再挂在示例 module 的 proto 产物上
+- `24dd8b78` test(bconf): 字节判据的判红文案不再把工具来源钉死成契约漂移，并登记 §7.9 第三轮
+- `2219637a` fix(example/bald): 拆掉无条件钉住的内存 Registrar，让 -tags nacos 的注册接管真生效
+- `b8906b76` docs(architecture): 登记 §7.1 示例迁移的收口，新登 §7.10 注册接管缺口
+- `691929c8` fix(bconfig/nacos): 默认命名空间写 "public" 会静默空读，改折成空 tenant
+- `8fb4afdc` docs(architecture): §7.1 kubernetes 腿补远端绿证（run 41787082957 七作业全绿）
+- `ea7ffe33` fix(registry/kubernetes): 注销改为自己发删键 patch，并补 kind 真机腿
+- `4c07bac2` test(registry/consul): 真机集成腿进 integration 作业，补 consul 独有语义
+- `93ef9237` fix(bconf): 契约产出路径改走本机模板，并把工具版本 pin 变成机器判据
+- `6b800a17` docs(architecture): 补本轮远端绿证，并撤掉 §7.1 里已被 §7.2 取代的「未加闸门」条
+- `559ac3d6` docs(architecture): 登记 §7.2/§7.9 收口与热更写入方口径（§7.6）——附实测数字与变异证据
+- `974c3a70` ci(acceptance): 验收清单脚本化并接进 CI——堵掉「-run 命中 0 个测试也返回 0」的静默绿
+- `6393d6a7` test(docscheck): 两条结构闸门——有逻辑的 module 必须有测试、作业文件的 Go 版本必须一致
+
+### ai/eino v0.2.0
+
+- `1a31bc27` feat(bconf): 契约字节门的插件两轴落进仓内——判据自编译 protoc-gen-go
+- `63f2cecf` chore: 发布 5 个模块（bconf v0.17.0、berrors v0.1.2、bootstrap v0.13.6、pkg v0.2.0、根 v0.37.0）
+- `9cf17db1` chore: 发布 30 个模块（含根 v0.35.0）
+- `dd75622e` chore: 发布 bald v0.34.1 等 6 个模块
+- `875755c3` chore: 发布 bald v0.34.0 等 13 个模块
+
+### ai/langchaingo v0.2.0
+
+- `1a31bc27` feat(bconf): 契约字节门的插件两轴落进仓内——判据自编译 protoc-gen-go
+- `63f2cecf` chore: 发布 5 个模块（bconf v0.17.0、berrors v0.1.2、bootstrap v0.13.6、pkg v0.2.0、根 v0.37.0）
+- `9cf17db1` chore: 发布 30 个模块（含根 v0.35.0）
+- `dd75622e` chore: 发布 bald v0.34.1 等 6 个模块
+- `875755c3` chore: 发布 bald v0.34.0 等 13 个模块
+- `07904069` style: 清理全仓 gofmt 漂移
+
+### ai/openai v0.2.0
+
+- `1a31bc27` feat(bconf): 契约字节门的插件两轴落进仓内——判据自编译 protoc-gen-go
+- `63f2cecf` chore: 发布 5 个模块（bconf v0.17.0、berrors v0.1.2、bootstrap v0.13.6、pkg v0.2.0、根 v0.37.0）
+- `9cf17db1` chore: 发布 30 个模块（含根 v0.35.0）
+- `dd75622e` chore: 发布 bald v0.34.1 等 6 个模块
+- `875755c3` chore: 发布 bald v0.34.0 等 13 个模块
+
+### bconf v0.18.0
+
+- `3baba002` feat(bconf): 两面契约各补 circuit_breaker 段——熔断进入口配置面
+- `1a31bc27` feat(bconf): 契约字节门的插件两轴落进仓内——判据自编译 protoc-gen-go
+- `cc332023` ci(bconf): §7.9 未闭合①——契约字节判据腿接进 CI（专职作业 proto-contract）
+- `019dac2e` fix(bconf): §7.9 第四轮——字节门的驱动变量是编译 protoc-gen-go 的 Go，不是 buf 版本
+- `24dd8b78` test(bconf): 字节判据的判红文案不再把工具来源钉死成契约漂移，并登记 §7.9 第三轮
+- `93ef9237` fix(bconf): 契约产出路径改走本机模板，并把工具版本 pin 变成机器判据
+- `fe7d2b23` test(bconf): 契约产物判红文案带上本机 buf 版本
+
+### bconfig v0.2.3
+
+- `4b2c21f7` fix(bconfig/nacos): Load 带上界重试——SDK 的进程内令牌桶会把同键第 6 次查询不发一帧就判限
+- `691929c8` fix(bconfig/nacos): 默认命名空间写 "public" 会静默空读，改折成空 tenant
+- `b5748896` test(bconfig/file): §7.8 收口——逐值断言换成三条时序无关的不变量
+
+### cache/local v0.2.0
+
+- `1a31bc27` feat(bconf): 契约字节门的插件两轴落进仓内——判据自编译 protoc-gen-go
+- `63f2cecf` chore: 发布 5 个模块（bconf v0.17.0、berrors v0.1.2、bootstrap v0.13.6、pkg v0.2.0、根 v0.37.0）
+- `9cf17db1` chore: 发布 30 个模块（含根 v0.35.0）
+- `dd75622e` chore: 发布 bald v0.34.1 等 6 个模块
+
+### circuitbreaker/hystrix v0.1.1
+
+- `73dd8ff7` fix(circuitbreaker/hystrix): 滑窗清桶不再错格——同桶样本不再被抹掉
+- `b910c0f6` docs(comments): 清理 Go 注释与测试名中的缺陷编号和历史叙事
+
+### circuitbreaker/sres v0.1.4
+
+- `993a6b0d` fix(circuitbreaker/sres): 同一处滑窗错格，并把 State() 也接到旋转上
+- `2f4e3405` test(circuitbreaker/sres): 冷窗口放行判据扩样本到 500，堵住 race 作业的 8.4e-5 尾巴
+- `29d053e9` test(circuitbreaker/sres): 并发放行数不再是无界的断言（§7.4）
+
+### log/aliyun v0.3.0
+
+- `1a31bc27` feat(bconf): 契约字节门的插件两轴落进仓内——判据自编译 protoc-gen-go
+- `63f2cecf` chore: 发布 5 个模块（bconf v0.17.0、berrors v0.1.2、bootstrap v0.13.6、pkg v0.2.0、根 v0.37.0）
+- `9cf17db1` chore: 发布 30 个模块（含根 v0.35.0）
+- `dd75622e` chore: 发布 bald v0.34.1 等 6 个模块
+- `875755c3` chore: 发布 bald v0.34.0 等 13 个模块
+
+### log/charm v0.3.0
+
+- `1a31bc27` feat(bconf): 契约字节门的插件两轴落进仓内——判据自编译 protoc-gen-go
+- `63f2cecf` chore: 发布 5 个模块（bconf v0.17.0、berrors v0.1.2、bootstrap v0.13.6、pkg v0.2.0、根 v0.37.0）
+- `9cf17db1` chore: 发布 30 个模块（含根 v0.35.0）
+- `dd75622e` chore: 发布 bald v0.34.1 等 6 个模块
+- `875755c3` chore: 发布 bald v0.34.0 等 13 个模块
+
+### log/loki v0.3.0
+
+- `1a31bc27` feat(bconf): 契约字节门的插件两轴落进仓内——判据自编译 protoc-gen-go
+- `63f2cecf` chore: 发布 5 个模块（bconf v0.17.0、berrors v0.1.2、bootstrap v0.13.6、pkg v0.2.0、根 v0.37.0）
+- `9cf17db1` chore: 发布 30 个模块（含根 v0.35.0）
+- `dd75622e` chore: 发布 bald v0.34.1 等 6 个模块
+- `875755c3` chore: 发布 bald v0.34.0 等 13 个模块
+
+### log/sentry v0.3.0
+
+- `1a31bc27` feat(bconf): 契约字节门的插件两轴落进仓内——判据自编译 protoc-gen-go
+- `63f2cecf` chore: 发布 5 个模块（bconf v0.17.0、berrors v0.1.2、bootstrap v0.13.6、pkg v0.2.0、根 v0.37.0）
+- `9cf17db1` chore: 发布 30 个模块（含根 v0.35.0）
+- `dd75622e` chore: 发布 bald v0.34.1 等 6 个模块
+- `875755c3` chore: 发布 bald v0.34.0 等 13 个模块
+- `07904069` style: 清理全仓 gofmt 漂移
+
+### log/tencent v0.3.0
+
+- `1a31bc27` feat(bconf): 契约字节门的插件两轴落进仓内——判据自编译 protoc-gen-go
+- `63f2cecf` chore: 发布 5 个模块（bconf v0.17.0、berrors v0.1.2、bootstrap v0.13.6、pkg v0.2.0、根 v0.37.0）
+- `9cf17db1` chore: 发布 30 个模块（含根 v0.35.0）
+- `dd75622e` chore: 发布 bald v0.34.1 等 6 个模块
+- `875755c3` chore: 发布 bald v0.34.0 等 13 个模块
+
+### pkg v0.3.0
+
+- `99194448` feat(pkg/middleware): 熔断接进两面入口链——契约段到拦截器/中间件的通路闭合
+- `c74530ab` docs(architecture): §8 另一半收口——用 AST 符号表实测「文档描述已删 API」，改掉 20 个文件里的假引用
+
+### registry/kubernetes v0.1.6
+
+- `ea7ffe33` fix(registry/kubernetes): 注销改为自己发删键 patch，并补 kind 真机腿
+- `6f9a3104` chore: 发布 3 个模块（bald v0.37.2、cli v0.1.1、pkg v0.2.2）
+- `d4396185` chore: 发布 3 个模块（bald v0.37.1、cli v0.1.0、pkg v0.2.1）
+- `63f2cecf` chore: 发布 5 个模块（bconf v0.17.0、berrors v0.1.2、bootstrap v0.13.6、pkg v0.2.0、根 v0.37.0）
+
+### registry/nacos v0.3.3
+
+- `d70c3a41` test(registry/nacos): 两条摘除机制判据搬进 CI，判据不再挂在示例 module 的 proto 产物上
+- `2219637a` fix(example/bald): 拆掉无条件钉住的内存 Registrar，让 -tags nacos 的注册接管真生效
+- `6f9a3104` chore: 发布 3 个模块（bald v0.37.2、cli v0.1.1、pkg v0.2.2）
+- `d4396185` chore: 发布 3 个模块（bald v0.37.1、cli v0.1.0、pkg v0.2.1）
+- `63f2cecf` chore: 发布 5 个模块（bconf v0.17.0、berrors v0.1.2、bootstrap v0.13.6、pkg v0.2.0、根 v0.37.0）
+
+### transport/grpc v0.2.0
+
+- `1a31bc27` feat(bconf): 契约字节门的插件两轴落进仓内——判据自编译 protoc-gen-go
+- `63f2cecf` chore: 发布 5 个模块（bconf v0.17.0、berrors v0.1.2、bootstrap v0.13.6、pkg v0.2.0、根 v0.37.0）
+- `9cf17db1` chore: 发布 30 个模块（含根 v0.35.0）
+
+### transport/http v0.2.0
+
+- `1a31bc27` feat(bconf): 契约字节门的插件两轴落进仓内——判据自编译 protoc-gen-go
+- `63f2cecf` chore: 发布 5 个模块（bconf v0.17.0、berrors v0.1.2、bootstrap v0.13.6、pkg v0.2.0、根 v0.37.0）
+- `9cf17db1` chore: 发布 30 个模块（含根 v0.35.0）
+
+### workflow/argo v0.3.0
+
+- `1a31bc27` feat(bconf): 契约字节门的插件两轴落进仓内——判据自编译 protoc-gen-go
+- `63f2cecf` chore: 发布 5 个模块（bconf v0.17.0、berrors v0.1.2、bootstrap v0.13.6、pkg v0.2.0、根 v0.37.0）
+- `9cf17db1` chore: 发布 30 个模块（含根 v0.35.0）
+- `dd75622e` chore: 发布 bald v0.34.1 等 6 个模块
+- `875755c3` chore: 发布 bald v0.34.0 等 13 个模块
+
 ### bald v0.37.2
 
 - `1ada0f91` fix(appkit): 启动窗口取消判据统一为一条，覆盖 errgroup 之前的两处窗口

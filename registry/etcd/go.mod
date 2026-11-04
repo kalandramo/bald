@@ -3,8 +3,8 @@ module github.com/kalandramo/bald/registry/etcd
 go 1.27.1
 
 require (
-	github.com/kalandramo/bald/bconf v0.17.0
-	github.com/kalandramo/bald/pkg v0.2.2
+	github.com/kalandramo/bald/bconf v0.18.0
+	github.com/kalandramo/bald/pkg v0.3.0
 	github.com/kalandramo/bald/registry v0.4.0
 	go.etcd.io/etcd/client/v3 v3.7.1
 )
@@ -87,13 +87,13 @@ require (
 	github.com/hashicorp/vault/api v1.23.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
-	github.com/kalandramo/bald/bconfig v0.2.2 // indirect
+	github.com/kalandramo/bald/bconfig v0.2.3 // indirect
 	github.com/kalandramo/bald/bootstrap v0.13.6 // indirect
 	github.com/kalandramo/bald/health v0.1.1 // indirect
 	github.com/kalandramo/bald/log v0.5.4 // indirect
 	github.com/kalandramo/bald/transport v0.4.0 // indirect
-	github.com/kalandramo/bald/transport/grpc v0.1.3 // indirect
-	github.com/kalandramo/bald/transport/http v0.1.4 // indirect
+	github.com/kalandramo/bald/transport/grpc v0.2.0 // indirect
+	github.com/kalandramo/bald/transport/http v0.2.0 // indirect
 	github.com/magiconair/properties v1.8.5 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect
 	github.com/mattn/go-isatty v0.0.22 // indirect

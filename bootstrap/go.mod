@@ -26,13 +26,13 @@ replace github.com/kalandramo/bald/transport/web => ../transport/web
 
 require (
 	github.com/go-kratos/kratos/v3 v3.0.0
-	github.com/kalandramo/bald/bconf v0.17.0
-	github.com/kalandramo/bald/bconfig v0.2.2
+	github.com/kalandramo/bald/bconf v0.18.0
+	github.com/kalandramo/bald/bconfig v0.2.3
 	github.com/kalandramo/bald/health v0.1.1
 	github.com/kalandramo/bald/log v0.5.4
 	github.com/kalandramo/bald/transport v0.4.0
-	github.com/kalandramo/bald/transport/grpc v0.1.3
-	github.com/kalandramo/bald/transport/http v0.1.4
+	github.com/kalandramo/bald/transport/grpc v0.2.0
+	github.com/kalandramo/bald/transport/http v0.2.0
 	github.com/spf13/pflag v1.0.10
 	google.golang.org/grpc v1.83.2
 	google.golang.org/protobuf v1.36.12
