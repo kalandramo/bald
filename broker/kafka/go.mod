@@ -4,7 +4,7 @@ go 1.27.1
 
 require (
 	github.com/google/uuid v1.6.0
-	github.com/kalandramo/bald/bconf v0.18.0
+	github.com/kalandramo/bald/bconf v0.19.0
 	github.com/kalandramo/bald/broker v0.1.0
 	github.com/kalandramo/bald/encoding v0.1.0
 	github.com/kalandramo/bald/log v0.5.4

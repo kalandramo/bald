@@ -7,7 +7,7 @@ require (
 	buf.build/go/protovalidate v1.4.0
 	github.com/gin-gonic/gin v1.12.0
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.29.0
-	github.com/kalandramo/bald/bconf v0.18.0
+	github.com/kalandramo/bald/bconf v0.19.0
 	github.com/kalandramo/bald/bconfig v0.2.3
 	github.com/kalandramo/bald/berrors v0.1.2
 	github.com/kalandramo/bald/bootstrap v0.13.6
@@ -16,7 +16,7 @@ require (
 	github.com/kalandramo/bald/log v0.5.4
 	github.com/kalandramo/bald/pkg v0.3.0
 	github.com/kalandramo/bald/registry v0.4.0
-	github.com/kalandramo/bald/registry/etcd v0.3.3
+	github.com/kalandramo/bald/registry/etcd v0.4.0
 	github.com/kalandramo/bald/registry/nacos v0.3.3
 	github.com/kalandramo/bald/transport/gateway v0.5.0
 	github.com/kalandramo/bald/transport/web v0.2.0
