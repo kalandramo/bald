@@ -106,6 +106,10 @@ tasks:
     cmds:
       - buf generate --template buf.gen.local.yaml
 
+  # 字节一致判据**绑 buf 版本的注释排版形态**：入库产物由 buf 1.50.0 复现零差异，
+  # buf 1.57.2 会给中文注释的 `//` 补一个空格（实测 `bootstrap/v1/log.pb.go`），
+  # 于是「没改 proto 也红」。看到这条红先比 `buf --version`，别急着重生成提交——
+  # 用 1.57 重出会把排版差异当成契约变更写进 gen/go。登记册 §7.9。
   proto-contract-check:
     desc: 校验契约层生成物与 proto 一致（工具链缺失时测试自动跳过）
     dir: bconf
@@ -437,37 +441,15 @@ tasks:
       - go build ./...
 
   # 设计 §7.2「验收脚本」的可执行形态（声明性指标的主门）。
-  # 只跑 go test，跨平台；参考工程的计划口径在 _example 独立 module 内断言。
+  # 只跑 go test，跨平台；判据清单与执行由 scripts/acceptance-gate.sh 一起交出：
+  # `-run` 命中 0 个测试也返回 0，所以脚本先 `go test -list` 取清单、再逐条断言
+  # 顶层 PASS（原因见脚本文件头）。`task acceptance` 与 `ci.yml` 的 acceptance 作业
+  # 消费同一个脚本，只有 scope 参数不同（all vs ci）。
   acceptance:
     desc: 声明式装配验收（§7.2：计划纯净/顺序无关/停机序与回滚/漂移/计划缓存与变体（含 -tags 两态）/生成确定性/API 守卫/参考工程计划/真实示例的生成树 --check）
     cmds:
-      - task: acceptance-appkit
-      - task: acceptance-codegen
+      - bash scripts/acceptance-gate.sh all
       - task: acceptance-example-check
-      - task: acceptance-bconf
-      - task: acceptance-example-plan
-
-  # 下面五个是 acceptance 的跨目录腿，分属不同 module，只能拆成带任务级 dir 的
-  # internal 子任务（原因见文件头）。appkit 这五条曾经写的是根目录下的
-  # `go test ./pkg/appkit`——`pkg/` 独立成 module（`96582bf`）之后就一直 setup failed，
-  # 红了一整轮没人发现，因为没有任何任务或作业调用 acceptance。
-  acceptance-appkit:
-    internal: true
-    desc: 验收：pkg/appkit 的计划/停机/漂移/缓存与变体/API 守卫
-    dir: pkg
-    cmds:
-      - go test ./appkit -run 'TestPlan_(NoSideEffects|OrderInvariant|SegmentCoverage|Conflict|DomainRoutes|CustomRoutesWarning)|TestRouteShapeConflict'
-      - go test ./appkit -run 'TestTeardownOrder_|TestProviderPlan_StdTeardownOrder|TestComponent_StartFailureRollback|TestMountComponent_MountFailureRollback'
-      - go test ./appkit -run 'TestDrift'
-      - go test ./appkit -run 'TestPlanCache_|TestVariantProjection_|TestVariantEffects_|TestOption_OnRoleScoping|TestDoctor_'
-      - go test ./appkit -run 'TestAPI_'
-
-  acceptance-codegen:
-    internal: true
-    desc: 验收：cli/internal/codegen 的生成确定性与清单判定（合成声明）
-    dir: cli
-    cmds:
-      - go test ./internal/codegen -run 'TestGen_(Deterministic|CheckClean)|TestGenDomain_(Bind|Proto|NoRoutes|CheckDoesNotRunProtoStage)|TestGenApp_Variants|TestTree_Variants|TestPruneStaleOwned|TestCheckTree_'
 
   acceptance-example-check:
     internal: true
@@ -488,21 +470,6 @@ tasks:
     dir: cli
     cmds:
       - go run ./cmd/bald gen domain --spec ../_example/bald/appspec.json --out ../_example/bald --check
-
-  acceptance-bconf:
-    internal: true
-    desc: 验收：bconf 的生成物与 proto 契约一致
-    dir: bconf
-    cmds:
-      - go test . -run TestGeneratedMatchesProto
-
-  acceptance-example-plan:
-    internal: true
-    desc: 验收：参考工程的装配计划（含 grpcgw 两态）
-    dir: _example/bald
-    cmds:
-      - go test ./internal/bootstrap -run TestPlan_ReferenceProject
-      - go test -tags grpcgw ./internal/bootstrap -run TestPlan_ReferenceProject
 
   # 多模块发布：先提交业务改动，再按 plan → sync → changelog → tag 顺序执行。
   # 计划文件写在 .bald/（已忽略）；各任务默认 dry-run，写操作经 {{.CLI_ARGS}} 传入

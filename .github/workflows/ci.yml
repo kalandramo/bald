@@ -253,6 +253,32 @@ jobs:
             exit 1
           fi
 
+  # 声明式装配验收（设计 §7.2 的主门；登记册 §8 最后半条「acceptance 没有任何 CI
+  # 作业调用它」的收口）。本地与 CI 同一条脚本、同一份判据表，只有 scope 不同。
+  #
+  # 为什么不把原来那五条 `go test -run` 直接搬进来：`-run` 命中 0 个测试**返回 0**。
+  # 用例改名/被删/正则写错时作业照样绿——本仓库被这类静默失效咬过两次（§7.1 的
+  # 「不可达即 Skip」、§8 的 per-command `dir`）。脚本改成先 `go test -list` 取
+  # 清单、再逐条断言顶层 `--- PASS`，判据来自清单而不是手写表格，增删用例不用改这里。
+  #
+  # scope=ci 刻意不含两条本地腿：`_example/bald` 的计划两态要编译 gitignore 的
+  # proto 产物；`bconf` 的产物字节一致判据绑 buf 版本形态（1.50 零差异、1.57 给
+  # 中文注释补空格 → 未改 proto 也红）。理由逐条写在 scripts/acceptance-gate.sh 头。
+  acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GOPROXY: "https://goproxy.io|https://proxy.golang.org,direct"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.3"
+
+      - name: 声明式装配验收（清单来自 -list，判据必须出现顶层 PASS）
+        run: bash scripts/acceptance-gate.sh ci
+
   # 静态检查：golangci-lint 逐模块运行（清单来自 scripts/list-modules.sh，零维护）。配置在根
   # .golangci.yml，子模块目录会向上发现；新增模块无需改本 job。
   lint:
