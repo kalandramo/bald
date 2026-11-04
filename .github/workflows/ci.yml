@@ -605,6 +605,10 @@ jobs:
           /tmp/ex/default.log|TestE2E_HTTPContractTimeout
           /tmp/ex/default.log|TestE2E_GRPCContractRateLimit
           /tmp/ex/default.log|TestE2E_GRPCContractTimeout
+          /tmp/ex/default.log|TestE2E_HTTPContractCircuitBreaker
+          /tmp/ex/default.log|TestE2E_HTTPCircuitBreakerAbsentDoesNotTrip
+          /tmp/ex/default.log|TestE2E_GRPCContractCircuitBreaker
+          /tmp/ex/default.log|TestE2E_EnvOverridesContractCircuitBreaker
           /tmp/ex/default.log|TestE2E_EnvOverridesContractRateLimit
           /tmp/ex/default.log|TestE2E_EnvOverridesContractGRPCRateLimit
           /tmp/ex/default.log|TestPlan_ReferenceProject
@@ -697,6 +701,12 @@ jobs:
   # 与产物头部 v1.36.12 不符）、`bconf/protoc-gen-go.goversion` 改成 9.99 → 红在第三轴。
   # 第二轴那条是改造前**根本测不到**的洞：旧腿读 PATH 上 v1.36.12 的插件，仓内 pin 与
   # 产物头部不一致时会静默通过。
+  #
+  # 远端绿证（2026-11-04 的 main push run 41862216627，本作业 job 126686830899 = success）：
+  # 这条腿在这个作业里的结构就是「runner 只有 Go 和 buf，PATH 上没有 protoc-gen-go」，所以
+  # 它绿不可能来自 PATH——上面那条「假版本插件照样 ok」的变异在远端等价成立。判据日志给出
+  # 真 `--- PASS: TestGeneratedMatchesProto (3.02s)`；那 3.02s 里含测试自己 `go build` 插件的
+  # 一次编译（第六轮前由作业步预装、同一处 0.15s），删掉预装步后这个时长本身就是插件出自仓内的旁证。
   proto-contract:
     runs-on: ubuntu-latest
     timeout-minutes: 20

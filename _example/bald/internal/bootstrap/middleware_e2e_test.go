@@ -154,6 +154,141 @@ func TestE2E_GRPCContractTimeout(t *testing.T) {
 	}
 }
 
+// TestE2E_HTTPContractCircuitBreaker 证明 server.http.middleware.circuit_breaker
+// 真的挂在**超时之外**：handler 每次都占满预算被内层 Timeout 判成 504，两次之后
+// 熔断开窗，第三次起直接 503。
+//
+// 为什么这两个码必须分开写：熔断的拒绝码和超时的响应码默认都是 503，那样的
+// 第三发读不出是「熔断拒了」还是「超时又响了一次」。这里把超时改成 504、熔断
+// 留默认 503，于是判据是唯一的——503 只能来自熔断器，而它发生在 Timeout 之前，
+// handler 根本没进。
+//
+// 这一条还顺带钉住链序：若熔断挂在 Timeout **内侧**，它每次都看见 handler 正常
+// 返回（那份 504 是 Timeout 在超时分支写给真实 writer 的，内层读到的是还没被
+// 填过的缓冲），失败率永远打不满，第三发仍是 504。所以「第三发是 503」同时
+// 证明了接线与顺序。
+func TestE2E_HTTPContractCircuitBreaker(t *testing.T) {
+	cfg := roleConfigOver(t, RoleAPI, func(doc map[string]any) {
+		setContractMiddleware(t, doc, "http", map[string]any{
+			"timeout": map[string]any{"default_timeout_ms": 50, "status_code": 504},
+			// window_ms=60000 而不是默认 10000：这一条要的是「两次失败攒够样本」，
+			// 不测滑窗老化。窗 10s 时 hystrix 的桶是 1s 一格，而每条失败请求要占满
+			// 600ms 的 handler——样本间隔与桶长同量级，落点相位决定上一发样本会不会
+			// 被旋转抹掉，实测三轮里红过一次（第三发仍是 504）。桶 6s 后这条用例的
+			// 时间尺度远小于任何旋转，判据只由接线决定；滑窗本身另有单测覆盖。
+			"circuit_breaker": map[string]any{"min_requests": 2, "open_duration_ms": 60000, "window_ms": 60000},
+		})
+		setBizGreetDelay(t, doc, "600ms")
+	})
+
+	_, httpAddr, stop := startRoleWithConfig(t, RoleAPI, cfg)
+	defer stop()
+
+	// 前两发必须真进 handler 并被超时判成 504：min_requests=2 之前不该开窗。
+	for i := 1; i <= 2; i++ {
+		if code, body := postGreet(t, httpAddr, greetPayload); code != http.StatusGatewayTimeout {
+			t.Fatalf("第 %d 个请求 = %d %s, want 504（样本量 2 之前必须放行）", i, code, body)
+		}
+	}
+	for i := 3; i <= 4; i++ {
+		if code, body := postGreet(t, httpAddr, greetPayload); code != http.StatusServiceUnavailable {
+			t.Errorf("第 %d 个请求 = %d %s, want 503 — server.http.middleware.circuit_breaker 没接线或链序在超时内侧", i, code, body)
+		}
+	}
+}
+
+// TestE2E_HTTPCircuitBreakerAbsentDoesNotTrip 是上面那条的对照：只写 timeout 段、
+// 不写 circuit_breaker 段时，同样的 504 可以无限次重复——熔断是 opt-in，缺段就等于
+// 那一层根本不在链上（现有部署行为不变）。少了这条，上一条的 503 就分不清是
+// 「契约段生效」还是「框架默认挂了个熔断器」。
+func TestE2E_HTTPCircuitBreakerAbsentDoesNotTrip(t *testing.T) {
+	cfg := roleConfigOver(t, RoleAPI, func(doc map[string]any) {
+		setContractMiddleware(t, doc, "http", map[string]any{
+			"timeout": map[string]any{"default_timeout_ms": 50, "status_code": 504},
+		})
+		setBizGreetDelay(t, doc, "600ms")
+	})
+
+	_, httpAddr, stop := startRoleWithConfig(t, RoleAPI, cfg)
+	defer stop()
+
+	for i := 1; i <= 4; i++ {
+		if code, body := postGreet(t, httpAddr, greetPayload); code != http.StatusGatewayTimeout {
+			t.Fatalf("第 %d 个请求 = %d %s, want 504 — 没写 circuit_breaker 段却出现别的码，opt-in 口径不成立", i, code, body)
+		}
+	}
+}
+
+// TestE2E_GRPCContractCircuitBreaker 是它的 gRPC 对偶：server.grpc.middleware.
+// circuit_breaker 挂上 unary 链，开窗信号来自 handler 交出的 DEADLINE_EXCEEDED
+// （服务侧失败口径里的一员），拒绝形态是 UNAVAILABLE + Reason=CIRCUIT_OPEN，且
+// 经链首 ErrorInterceptor 收口后 Reason 不丢。
+func TestE2E_GRPCContractCircuitBreaker(t *testing.T) {
+	cfg := roleConfigOver(t, RoleAPI, func(doc map[string]any) {
+		setContractMiddleware(t, doc, "grpc", map[string]any{
+			"timeout":         map[string]any{"default_timeout_ms": 50},
+			"circuit_breaker": map[string]any{"min_requests": 2, "open_duration_ms": 60000, "window_ms": 60000},
+		})
+		setBizGreetDelay(t, doc, "600ms")
+	})
+
+	grpcAddr, _, stop := startRoleWithConfig(t, RoleAPI, cfg)
+	defer stop()
+
+	cli := newClient(t, grpcAddr)
+	ctx := context.Background()
+	for i := 1; i <= 2; i++ {
+		_, err := cli.Greet(ctx, &baldv1.GreetRequest{Name: "circuitbreaker"})
+		if got := status.Code(err); got != codes.DeadlineExceeded {
+			t.Fatalf("第 %d 次 Greet = %v, want DeadlineExceeded（样本量 2 之前必须放行）", i, got)
+		}
+	}
+
+	_, err := cli.Greet(ctx, &baldv1.GreetRequest{Name: "circuitbreaker"})
+	if err == nil {
+		t.Fatal("第三次 Greet succeeded, want UNAVAILABLE — server.grpc.middleware.circuit_breaker 没接线")
+	}
+	if got := status.Code(err); got != codes.Unavailable {
+		t.Errorf("status code = %v, want Unavailable", got)
+	}
+	restored := grpcerr.FromStatus(status.Convert(err))
+	berr, ok := berrors.FromError(restored)
+	if !ok {
+		t.Fatalf("restored error is not *berrors.Error: %T — 拒绝形态丢了结构化语义", restored)
+	}
+	if berr.Reason != "CIRCUIT_OPEN" {
+		t.Errorf("reason = %q, want CIRCUIT_OPEN", berr.Reason)
+	}
+}
+
+// TestE2E_EnvOverridesContractCircuitBreaker 用 env 面拧开这一层：把
+// server.http.middleware.circuit_breaker.min_requests 压到 1，一次 504 之后第二
+// 发就被拒。文件层那份配置不写熔断段，所以这一条同时证明「env 单独就能开出
+// 这一层」——§7.7 的折叠让多词键（min_requests、open_duration_ms）在合树前就与
+// 规范键同名，否则读侧的「平级匹配优先」会让 env 说了不算。
+func TestE2E_EnvOverridesContractCircuitBreaker(t *testing.T) {
+	t.Setenv("BALD_DEMO_SERVER_HTTP_MIDDLEWARE_CIRCUIT_BREAKER_MIN_REQUESTS", "1")
+	t.Setenv("BALD_DEMO_SERVER_HTTP_MIDDLEWARE_CIRCUIT_BREAKER_OPEN_DURATION_MS", "60000")
+	t.Setenv("BALD_DEMO_SERVER_HTTP_MIDDLEWARE_CIRCUIT_BREAKER_WINDOW_MS", "60000")
+
+	cfg := roleConfigOver(t, RoleAPI, func(doc map[string]any) {
+		setContractMiddleware(t, doc, "http", map[string]any{
+			"timeout": map[string]any{"default_timeout_ms": 50, "status_code": 504},
+		})
+		setBizGreetDelay(t, doc, "600ms")
+	})
+
+	_, httpAddr, stop := startRoleWithConfig(t, RoleAPI, cfg)
+	defer stop()
+
+	if code, body := postGreet(t, httpAddr, greetPayload); code != http.StatusGatewayTimeout {
+		t.Fatalf("first POST /v1/greet = %d %s, want 504（这一发负责把失败率打满）", code, body)
+	}
+	if code, body := postGreet(t, httpAddr, greetPayload); code != http.StatusServiceUnavailable {
+		t.Errorf("second POST /v1/greet = %d %s, want 503 — env 的 circuit_breaker.min_requests 没生效", code, body)
+	}
+}
+
 const greetPayload = `{"name":"middleware"}`
 
 // greetStatusAtHeaders 发一次 POST /v1/greet，返回状态码与**响应头到达**的耗时
