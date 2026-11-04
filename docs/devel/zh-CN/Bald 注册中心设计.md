@@ -153,7 +153,7 @@ require (
 
 | 后端 | SDK | Register 的实质 | Watch 的实质 |
 | --- | --- | --- | --- |
-| `etcd` | `go.etcd.io/etcd/client/v3 v3.7.1` | Grant 租约 + `Put` 到 `namespace/name/id`，后台 `KeepAlive` 续约；断链后指数退避重注册（上限 `maxRetry`，默认 5） | `clientv3` watch 前缀 |
+| `etcd` | `go.etcd.io/etcd/client/v3 v3.7.1` | Grant 租约 + `Put` 到 `namespace/name/id`，后台 `KeepAlive` 续约；断链后按指数退避重注册：次数上限 `maxRetry`（默认 5），每次等待从 1s 起翻倍、截到 5min 再叠 FullJitter（曲线取 `retry.ExponentialBackoff`，见 `retreatDelay`） | `clientv3` watch 前缀 |
 | `consul` | `hashicorp/consul/api v1.34.4` | 写服务注册 + TTL 心跳 + 健康检查（`deregister_critical_service_after` 600s） | 1s ticker 轮询 + 索引比对广播（非长轮询） |
 | `nacos` | `nacos-sdk-go/v2 v2.3.5` | 按 endpoint 逐个 `RegisterInstance`，服务名带协议后缀 `name.scheme`，`Ephemeral=true`，weight 从 metadata 取 | SDK 订阅回调 |
 | `kubernetes` | `k8s.io/client-go v0.37.0` | **不是注册**：把 ID/name/version/metadata/protocols `Patch` 进当前 Pod 的 label 与 annotation | informer 事件过滤 + 全量重发 |

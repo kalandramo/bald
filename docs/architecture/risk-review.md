@@ -12,7 +12,7 @@
 | 6.5 | gRPC 的 `tls` 契约字段**未接线**，生成物硬编码明文；gateway 出站也硬编码明文 | **高** | ✅ 已核对源码 | **已修** |
 | 3.1 | 根 module ↔ 适配器 **模块环**，靠互相 `replace` 才编译 | **高** | ✅ 已核对 go.mod/import | **已修（两轮）**：删重复机制后实测图为 DAG；`pkg/` 独立成 module 后 require 根的适配器 22→0，见 §3.1「收口」 |
 | 6.1 | 鉴权 **fail-open**：未注入即整层消失，无 default-deny、无告警 | **高** | ✅ 已核对源码 | **已修** |
-| 2 | **发布面 ≫ 使用面**：retry / circuitbreaker 等无消费方 | 中 | ✅ 全仓 grep | **部分收口**（§2「选项 1」的三条分支里 Discovery 接线半、circuitbreaker 熔断半已落地；`retry` 仍 reference-only 且刻意不进服务入口链；移出发布批次未做。circuitbreaker 接线同时修掉 `hystrix`/`sres` 的滑窗清桶错格，见 §2「熔断半」） |
+| 2 | **发布面 ≫ 使用面**：retry / circuitbreaker 等无消费方 | 中 | ✅ 全仓 grep | **部分收口**（§2「选项 1」的三条分支里 Discovery 接线半、circuitbreaker 熔断半已落地；`retry` 的退避原语已由 `broker/kafka`/`registry/etcd` 两处消费（见 §2「retry 半」，接的同时修掉 etcd 曲线的一处溢出成负 duration 的真缺陷），`Retrier.Do` 与「移出发布批次」仍未做。circuitbreaker 接线同时修掉 `hystrix`/`sres` 的滑窗清桶错格，见 §2「熔断半」） |
 | 7.1 | **CI 全量只跑 `-short`**，集成测试在 CI 中从不执行 | 中 | ✅ 已核对 `.github/workflows/ci.yml` | **已修（registry×3 / store / 队列，五条套件 13 条判据）**：新增 `integration` 作业注入 etcd/consul/redis/mongo，另开 `integration-kubernetes` 作业起真 kind 集群跑第三个 registry 后端；两侧同构——探活 + 逐条断言判据真的 PASS；作业文件自身另开 `workflow-lint` 作业（actionlint）把关，见 §7.1 收口及其 consul / kubernetes / 示例去仓库外依赖 / 示例 module 进 CI 四条补条；~~示例侧（etcd/nacos 服务发现）仍只在本地跑~~ **2026-11-04 起示例有自己的 `example` 作业**（按 pin 装 buf 生成 gitignore 的 `api/gen` + etcd/nacos 服务容器 + 三态构建 24 条判据逐条断真 `--- PASS`），见下面「7.1 补：示例 module 进 CI」 |
 | 7.2 | **无覆盖率/测试存在性闸门**：零测试的 module 不会自己暴露（§1.3 那两个适配器是人数字文件数出来的） | 中 | ✅ 闸门两次变异实测：移走 `broker/kafka` 的测试文件 → 红；把纯声明豁免判据改恒假 → `metrics`/`transport/subscribe` 一起红 | **已修**：`TestModulesWithLogicHaveTests`——「有可执行逻辑的 module 必须有测试」，豁免由 `go/ast` 数带体函数得出而不是名单；比例阈值刻意未做——2026-11-04 已把 94 module 的基线实测出来（逐包 154 个有数字、0% 档 0 个；合并口径最低三档是 0.0% 而它们是零语句模块根），实测反而坐实了「阈值会假红」，见 §7.2 收口与「7.2 补」 |
 | 7.4 | **统计量当不变量断言**：`circuitbreaker/sres` 并发用例钉「放行 ≥90/100」，而该值取决于 Allow 与 Mark 的交错 | 中 | ✅ 本机 `-count=400` 实测 + CI 红过一次（run 41388597082） | **已修**：先灌满窗口使单次拒绝率有上界 1/1001，「≥90」因此成为可证的界；另补 accept=0 状态下的并发错型用例，见 §7.4 |
@@ -98,15 +98,15 @@ race 该覆盖的形态）、`broker/kafka`、`contrib/*` 全部缺席，而 `me
 | `transport/subscribe` | 1 | **0**（单文件 13 行选项，未补） |
 | `retry` | 1 | 1 |
 
-修前：kafka 适配器核心文件 639 行，含 writer 重建重试（`broker/kafka/kafka.go:415-437`）与订阅退避逻辑（`broker/kafka/subscriber.go:316-339`）与致命错误判定（`:341-362`）——这些分支从未被执行过。CI 对它只做到「能编译、vet 干净、空测试通过」。
+修前：kafka 适配器核心文件 639 行，含 writer 重建重试（`broker/kafka/kafka.go:415-437`）与订阅退避逻辑（`broker/kafka/subscriber.go:321-337`）与致命错误判定（`:340-361`）——这些分支从未被执行过。CI 对它只做到「能编译、vet 干净、空测试通过」。
 
 - 修法：不起真实 broker，用「本地端口 listen 后立刻 close」造确定 ECONNREFUSED，
   失败分支全部在 `-short` 下可跑；把不可测的形态先拆成可测的——判据抽成
   `shouldRetryFreshWriter`（`broker/kafka/kafka.go:356-359`，两条发布路径共用），
-  退避时长抽成纯函数 `backoffDuration`（`broker/kafka/subscriber.go:316-331`，注入随机源
+  退避时长抽成纯函数 `backoffDuration`（`broker/kafka/subscriber.go:321-330`，注入随机源
   才能钉住边界）。发布侧覆盖缓存 writer 摘除与重建、`retriesCount=0`、热更重连后再发布、
   单 writer 分支（`broker/kafka/kafka.go:447`）、编码失败短路；订阅侧覆盖退避边界、`isFatalError` 真值表、
-  致命退出与取消退出、close 幂等、`Unsubscribe(true)` 摘除注册表（`broker/kafka/subscriber.go:91-101`）。
+  致命退出与取消退出、close 幂等、`Unsubscribe(true)` 摘除注册表（`broker/kafka/subscriber.go:92-102`）。
   rabbitmq 只补不联网也能钉住的那层：`Init` 的地址归一化、三个未连接入口报错不 panic、
   Connect 失败后 `Disconnect` 仍能收尾、`rabbitHeaderToMap` 对非字符串 header 丢成空串。
 - 补测试当场揪出 4 个生产缺陷（`fix(broker/kafka)` 7545f8c），每个都按「把缺陷改回去、测试必须红」验活：
@@ -116,10 +116,10 @@ race 该覆盖的形态）、`broker/kafka`、`contrib/*` 全部缺席，而 `me
      现场表现是测试既不失败也不通过，而是挂到超时。
   2. 重建路径 `if err = writer.Close(); err != nil { break }` 用 Close 的返回值顶掉写失败本身；
      `retriesCount == 0` 时重试循环一次不跑，`Publish` 对一条从未写出的消息返回 nil。
-  3. `closeLocked` 关掉 `done` 后又把字段置 nil（`broker/kafka/subscriber.go:109-129`），
-     而两条 process 循环的 `select` 不加锁读它（`:166`、`:234`）——`-race` 直接命中
+  3. `closeLocked` 关掉 `done` 后又把字段置 nil（`broker/kafka/subscriber.go:110-131`），
+     而两条 process 循环的 `select` 不加锁读它（`:167`、`:235`）——`-race` 直接命中
      （`Unsubscribe` 与订阅 goroutine 并发）。`closed` 标志本就挡得住二次 close，改写是多余的。
-  4. 致命错误分支 `return` 前没有 close（`broker/kafka/subscriber.go:185-188`、`:242-245`），
+  4. 致命错误分支 `return` 前没有 close（`broker/kafka/subscriber.go:186-190`、`:243-247`），
      reader 与 `done` 泄漏，订阅者还留在 `b.subscribers` 里。
   另附一条只有 race 闸门扩到全量后才会暴露的：退避原先用包级
   `rand.New(rand.NewSource(..))` 自建源（非并发安全，每个订阅各自一个 goroutine），已换成
@@ -146,7 +146,7 @@ race 该覆盖的形态）、`broker/kafka`、`contrib/*` 全部缺席，而 `me
 
 | 能力 | 模块数 | 消费方 | 证据 |
 |---|---|---|---|
-| `retry/` | 1 | **无** | 全仓 `grep kalandramo/bald/retry` 唯一命中是注释 `ratelimit/bbr/bbr.go:68` |
+| `retry/` | 1 | **部分已接**：`broker/kafka` 与 `registry/etcd` 用它的退避原语 | 判据：`find . -name '*.go' ! -name '*_test.go' -not -path './retry/*' \| xargs grep -l 'kalandramo/bald/retry'` → `broker/kafka/subscriber.go`、`registry/etcd/registry.go`，外加 `ratelimit/bbr/bbr.go` 一条**注释**命中（该模块没有 require 它）。`Retrier.Do` 仍无仓内调用方——三处手写退避里剩下的一处（`bconfig/apollo`）刻意不接，见「retry 半」 |
 | `circuitbreaker/` | 1 + 4 后端 | **部分已接**：接口 + `hystrix` 由入口链消费 | 非测试 importer 为 `pkg/middleware/{gin,grpc}/circuitbreaker.go`（判据：`find . -name '*.go' ! -name '*_test.go' -not -path './circuitbreaker/*' \| xargs grep -l 'kalandramo/bald/circuitbreaker'`）；`vegas`/`sres`/`sentinel` 三个后端仍只被自己的测试驱动 |
 | `registry.Discovery` | 接口 + 4 实现 | **已接**（gateway 出站） | 评审初值「无外部调用者」成立；现非测试的 `GetService` 调用点新增在 `transport/gateway/discovery.go` 的 `discoveryBuilder.Build`（watch-based resolver），消费方是 `transport/gateway` 段驱动装配；etcd 与 nacos 两个后端已真机跑通注册→推送→拨通 |
 | `transport/graphql`、`workflow/argo`、`ai/{openai,eino,langchaingo}`、`oss/{s3,minio}` | 7 | 仓内 0 | 全仓 grep 仅 `transport/mcp/options.go:14` 的注释提到 graphql；其余无命中。有 `*/contract` Provider 但无消费者或示例 |
@@ -161,9 +161,12 @@ race 该覆盖的形态）、`broker/kafka`、`contrib/*` 全部缺席，而 `me
 **收口（选 (2) 的标注半，未动发布批次）**：owner 既有口径是「能力不删除——未接线 ≠ 没用，删之前要问」，所以本轮只做「不再假装」：
 
 - 修法：`README.md` 仓库结构段下新增「未接线能力（reference-only）」一条，点名 retry / circuitbreaker 后端 / `registry.Discovery` / graphql / argo / ai/* / oss 并说明「照常发布、不删除、不假装已接线」；`docs/architecture/current-architecture.md` §6 标题改为「未接线面（reference-only）」，补上 `transport/graphql`+`workflow/argo`+`ai/*`+`oss/*` 这一组（评审初值只列了前三项）与**可复现判据**（`find` 非测试文件 + 排除自身目录的 grep），并把两处随 §6.2 漂移的行号引用换成符号名。
-- 验活：README 的链接与 §6 锚点由 `internal/docscheck` 校验通过；表内每条能力重新 grep 一遍，消费方仍为 0（`retry` 唯一命中还是 `ratelimit/bbr/bbr.go:68` 的注释）。
-- 刻意没做：① **移出主线发布批次**——「哪些模块进 tag」由 `cli/internal/release/repo.go`（`isExampleDir` 是唯一的范围规则，且只排除 `_example`）决定，改它等于改变下游能拉到什么，属对外行为变更，要 owner 单独定；② 未接线 ≠ 下架，标注不改变任何包的公开性；③ 接线（选项 1）里 **circuitbreaker 的 bundle 层已落地**（见下「熔断半」，失败语义选 opt-in），**retry 的没做**——而且刻意不接进服务入口链：服务端自动重试会重复执行有副作用的 handler，这不是配个段就能定的事。它的诚实接线处是替换仓内三处手写退避（`broker/kafka` 的 `backoffSleep`、`registry/etcd` 的 `retreat`、`bconfig/apollo` 的 `loadWithSyncWait`），属重构面。
-- 还不能证明：仓外消费方（bald-admin 及其它下游）是否已在用这些包。本轮只核了 bald-admin 的 berrors 采用面，未核它对 retry/circuitbreaker/oss 的 import，所以「零消费方」的严格含义是**仓内零消费方**。
+- 验活：README 的链接与 §6 锚点由 `internal/docscheck` 校验通过；表内每条能力重新 grep 一遍，消费方仍为 0（`retry` 唯一命中还是 `ratelimit/bbr/bbr.go:68` 的注释）。**这条记录的是当时的仓内状态**：此后 `retry` 的退避原语拿到了两个仓内 importer（见下「retry 半」），已从 §6 的未接线清单移出。
+- 刻意没做：① **移出主线发布批次**——「哪些模块进 tag」由 `cli/internal/release/repo.go`（`isExampleDir` 是唯一的范围规则，且只排除 `_example`）决定，改它等于改变下游能拉到什么，属对外行为变更，要 owner 单独定；下面「已核」那条的仓外 import 证据出来后，这一条对 `retry` 与 `oss/{s3,minio}` 已不适用（移出即下游构建失败），其余仍待定；② 未接线 ≠ 下架，标注不改变任何包的公开性；③ 接线（选项 1）里 **circuitbreaker 的 bundle 层已落地**（见下「熔断半」，失败语义选 opt-in）；**retry 走的是「替换仓内手写退避」这条重构面**，见下「retry 半」——服务入口链仍然刻意不接：服务端自动重试会重复执行有副作用的 handler，这不是配个段就能定的事。
+- 还不能证明 → **已核（本轮补）**：「零消费方」的严格含义原本是**仓内零消费方**，仓外未核。现在按下游 bald-admin 的 import 核过一遍（判据：`grep -rEn "kalandramo/bald/(retry|circuitbreaker(/vegas|/sres|/sentinel)?|oss|transport/graphql|workflow|ai/)" --include='*.go' --include='go.mod' .`，在 bald-admin 仓根跑）：
+  - **仓外确有消费者**：`retry`（`backend/internal/apiserver/domains/authd/config.go` 的 `buildLoginRetrier` 用 `New`+`WithClassifier`+`ExponentialBackoff`+`FullJitter`，`biz/v1/auth/auth.go:950` 有真 `Retrier.Do` 调用点——登录查库的瞬时错误重试）、`circuitbreaker` + `circuitbreaker/hystrix`、`oss/{s3,minio}`（文件域三条装配路径）。
+  - **仓外也没有**：`circuitbreaker/{vegas,sres,sentinel}`、`transport/graphql`、`workflow/argo`、`ai/*`（同一判据零命中）。
+  - 直接后果：① 的「移出主线发布批次」对 `retry` 与 `oss/{s3,minio}` **不再成立**——它们已被下游按 tag 拉取（bald-admin `go.mod` 里是 `retry v0.2.0`、`oss/{s3,minio} v0.3.2`），移出即下游构建失败。剩余四类的「reference-only」因此是**发布面承诺**而不是「没人用」，改动它们仍按「仓外可能有消费者」的前提走。
 
 **接线半（选项 1 的 Discovery 分支）已落地**：owner 后续口径是「接线吧，用 bald-admin 作为消费者」，所以这里不是标注，是真接。
 
@@ -182,7 +185,7 @@ race 该覆盖的形态）、`broker/kafka`、`contrib/*` 全部缺席，而 `me
 - 刻意没做：① `gatewaycontract.HTTPProvider`（转码面接管 `server.http`）**不派生来源**——它的上游是本进程 gRPC 面自己的绑定地址，填 `discovery:///` 是配置错误，测试 `TestHTTPProviderDoesNotAutoDeriveDiscovery` 把这条钉住；② 裸工厂 `contract.Provider` 不自动派生（它没有 scope，看不到装配作用域），用它的人显式传 `gateway.WithDiscovery`；③ 不改 resolver 的负载均衡语义——多实例交给 gRPC 默认 `pick_first`，是故障转移不是分摊流量，要 round_robin 得在拨号侧另配；④ **来源只在 Start 取一次**，不做「注册中心被换掉后重取」：resolver 的生命周期跟 `ClientConn` 而不是跟装配，Start 之后再 `SetRegistrar` 换实例，已建连接仍指向旧实例。现契约下这条路是闭合的——registry 段既没有 `ReloadReconcile` 也没有 reconciler（reconciler 只由 domain 节点与组件注册，`pkg/appkit/bootstrap.go:508,534`），热更新真重建的只有 logger 段，所以换注册中心本来就要重启进程；⑤ 不动 `transport/http` 与业务自拨 gRPC 客户端（那是另一个消费面，需要独立的 client 抽象）；⑥ 不手工写 CHANGELOG 条目——该文件由 `bald release changelog` 从提交生成。
 - 还不能证明：① **`Watch` 真机验证只覆盖四个生产后端里的两个**——etcd、nacos 各跑通上面那台状态机（全量快照推送、断线后自愈的 `reWatch` 只读到代码，未被本轮触发）；**consul、kubernetes 仍是代码阅读**。且两轮验的都是「客户端主动注册/注销」这条正向：nacos 服务端健康检查踢掉实例、etcd 租约过期后是否推空集，都没有造出那个故障场景，也未验多实例并发变更下的顺序。② **bald-admin 的真实消费未跑通**——它 pin `bald v0.34.0` 且零 `replace`，本次新增的 API 要模块 tag 才可用，而 tag 是对外共享状态、需 owner 决策；③ 本轮改动的 CI 结果（提交后以流水线为准）；④ nacos 那轮是在 `--platform linux/amd64` 模拟下跑的（官方镜像无 arm64 manifest），功能语义不受影响，但不是原生 arm64 的时序。
 
-**熔断半（选项 1 的 circuitbreaker 分支）已落地**：`retry` 仍按上面的口径留在 reference-only，circuitbreaker 的接线走的是「契约段 → 两面中间件 → bundle → appkit 钩子」这条已为限流/超时铺好的通路，因此不需要新机制。
+**熔断半（选项 1 的 circuitbreaker 分支）已落地**（下面的「retry 半」成文晚于本节，那里已把 `retry` 的退避原语接进两处，它不再留在未接线清单里）：circuitbreaker 的接线走的是「契约段 → 两面中间件 → bundle → appkit 钩子」这条已为限流/超时铺好的通路，因此不需要新机制。
 
 - 修法（五层）：
   1. **契约段**：`server.http.middleware.circuit_breaker`（`error_threshold`/`min_requests`/`open_duration_ms`/`window_ms`/`status_code`，字段号 8）、`server.grpc.middleware.circuit_breaker`（前四个，**不带 `status_code`**）。`Validate` 不碰它——校验放在翻译点，两面共用同一个构造函数，避免两处口径漂移。
@@ -203,6 +206,18 @@ race 该覆盖的形态）、`broker/kafka`、`contrib/*` 全部缺席，而 `me
   - 诚实记录：`sres` 的 `TestSlidingWindow_LapOldSampleIsReplaced` 在**未修实现**下也是绿的（它钉的是另一个错开方向），本轮用 `git show HEAD:circuitbreaker/sres/sres.go` 复现的红灯只有 `SameBucketSamplesAreNotLost` 与 `State_IdleWindowAgesOut` 两条。
 - 刻意没做：① 不给 `vegas`/`sres`/`sentinel` 各配一个契约段——sres 无请求量下限（单次失败就开始概率性拒流，低流量服务不可用）、vegas 按出站 RTT 膨胀判定（入口面没有「下游」可测）、sentinel 要引第三方规则中心；换算法经 `bundle.CircuitBreaker(...)` 代码级注入。契约段要不要提供「实现选择」是开放问题，记在《Bald 熔断设计》。② `Close()` 之后 hystrix 对所有请求回开态，所以 closer 只在停止接收流量之后才有意义——不提供「运行中热关熔断层」。
 - 已发版（2026-11-05 批次）：这批改动随 20 个 tag 落地——`bconf/v0.18.0`（契约段）、`pkg/v0.3.0`（两面桥与中间件）、`circuitbreaker/hystrix/v0.1.1` 与 `circuitbreaker/sres/v0.1.4`（滑窗清桶修复）、`transport/{grpc,http}/v0.2.0`，外加根 `v0.38.0` 与 13 个按版本消费它们的适配器/中间层。外部装载校验：`goproxy.cn` 与 `goproxy.io` 上 20 个 tag 的 `list/.info/.mod/.zip` 四端点全 200，零 `replace`、全新 `GOMODCACHE` 的 scratch module 里 `go get` 到计划版本 20/20 一致并编译通过 21 个包（含 `pkg/middleware/{gin,bundle}` 与 `circuitbreaker/{hystrix,sres}`），根 zip 95 条里 `.qoder/`、`pkg/`、`_example/` 各 0 条。所以**仓外经代理消费的示例侧钉到的已是修好的 `hystrix v0.1.1`**，不再是 `v0.1.0`。
+
+**retry 半（选项 1 的 retry 分支）已接两处、刻意不接一处**：接的是「让退避只有一份实现」，不是「把重试塞进请求链」——入口链那条口径不变。
+
+- 修法（两条，都是把曲线交给 `retry` 的原语，不引入 `Retrier.Do`）：
+  1. `broker/kafka/subscriber.go` 的 `backoffDuration` = `retry.ExponentialBackoff{Initial: min, Factor: 2, Max: max}` + `retry.EqualJitter`。`[d/2, d]` 的抖动区间、`min<=0 → 50ms`、`max<min → 抬到 min` 三条口径逐一对齐；50ms 那条留在 kafka 侧显式写，因为 `retry` 自己的零值兜底目标是 200ms，照抄即行为变更。抖动只对上端点较真：旧写法 `Int63n(d/2+1)` 能恰好取到 `d`，`EqualJitter` 在 `rng∈[0,1)` 下取不到、`rng=1` 才恰好等于 `d`——一个零概率端点，不作行为变更记账。
+  2. `registry/etcd/registry.go` 的 `retreatDelay` = `retry.ExponentialBackoff{Initial: 1s, Factor: 2, Max: defaultRetreatMax}` + `retry.FullJitter`，替掉「把 `1,2,4,…,2^n` 秒攒进切片再等概率取一档」和每个心跳 goroutine 一把 `rand.New`。默认 `max_retry=5`（最高档 16s）落在曲线未触顶区，所以退避范围不变；变的是分布（档位均匀 → `[0, 2^n)` 连续）与不再有 1s 下限。
+- **接的时候掉出来两个真缺陷，但可达性不同**：etcd 那条**配置可达**（`max_retry` 是契约字段，写多大就睡多久）；kafka 那条只在**纯函数边界**上（订阅循环把 `errorAttempt` 封在 6，够不到溢出档），所以它是「曲线一旦被改错方向就会咬人」的潜在缺陷，不是现场故障——如实分开记。
+  - kafka：`min << uint(attempt)` 在 attempt≥64 时位移溢出成 0，而紧跟着的 `if d < min { d = min }` 把「已经连续失败 64 次」的退避**拉回最快档**——溢出兜底反而越修越糟。换成 `retry` 的曲线后越过上限就停在上限。变异回旧曲线恰好红在 `attempt 64`/`attempt 100` 两条，其余 8 条全绿，即证明调用方实际用到的 `[0, 6]` 这段等价。
+  - etcd：`max_retry` 是契约字段，而它乘的是 `1<<retryCnt` **秒**。实测（纯算术）：attempt=9 → 8m32s、20 → 291h、33 → 272 年（睡过 TTL 的几倍＝心跳 goroutine 还活着、注册项早没了）；attempt≥34 起「秒 × 1e9」溢出成**负** duration，`time.After` 立刻返回，退避反转成忙轮询。同一个配置键既能把服务睡死、又能把它打爆。现在曲线封顶 `defaultRetreatMax = 5min`：更大的 `max_retry` 只多买几次重试，不多买一次长睡。
+- 刻意不接：`bconfig/apollo` 的 `loadWithSyncWait`。三条理由：① 它的谓词是**内容**（空文档、`{}` 都算未就绪）而不是 error，`Classifier` 吃不到，要接得先造一个只在内部流转的哨兵错误；② 「重试耗尽仍然为空」是**合法结果**（返回空文档 + nil error），而 `Do` 的终态是 `errors.Join(ErrMaxAttempts, lastErr)`，调用方还得把那条拆回来——循环不缩短反而更长；③ 需要把 payload 从循环里带出来，闭包变量是必需的，而 `Do` 的签名里没有它的位置。同 module 的 `bconfig/nacos`（§7.13 那条 4×250ms）同样不动：它的错误文案带重试上界与候选真因、四条判据依赖 `%w` 的 unwrap 链，换成 `Do` 会拼进 `ErrMaxAttempts`、并把 ctx 取消那条从「裸 ctx 错误」改成「失败 N 次」——两处形状各异，在 `bconfig` 内不构成去重，接进来是改名不是收口。
+- 还不能证明 / 下一步：契约仍然**表达不了退避曲线**，`bconf` 里与重试相关的只有 `retry_count`/`max_retry` 两个「几次」。这轮把两处实现归一，正是为了让将来「`registry.etcd.backoff` 这类段」有唯一映射目标；新增 proto 字段属独立的契约变更轮次（bconf minor + 产物字节门 + 契约文档），口径记在《Bald 重试设计》。另注一条约束：`Retrier.Do` 虽然仓内无调用方，**仓外有**——bald-admin 的登录重试在按 tag（`retry v0.2.0`）用 `New`+`ExponentialBackoff`+`FullJitter`+`Do`，所以它的终态语义（`errors.Join` 那条）不是可以随手改的内部件。
+- 验活：两模块全量 + `-race` 绿；新判据是 `TestRetreatDelay_*` 4 条与 `TestBackoffDuration` 的 10 个子项。三条变异各自恰好红在预期几条上（`cp` 备份 + 精确复原 + `diff -q` 与 `git status` 双核对）：etcd 去掉 `Max` → `CurveAndCap` 与 `StaysWithinCurve` 红、另两条绿；etcd 把 `FullJitter` 换成 `EqualJitter` → 只有 `ZeroAtLowerBound` 红；kafka 退回位移曲线 → 10 个子项里只有 `attempt 64`/`attempt 100` 红，恰好证明调用方用到的 `[0, 6]` 段等价。`internal/docscheck` 绿（文档本地链接、Go 注释指向的文档存在两条闸门覆盖本轮改到的文件）。
 
 ---
 
@@ -494,7 +509,7 @@ Go 源码零改动（除下面第 ① 条）。根 module 里 `pkg/` 之外唯�
 - 影响：慢监听（如需要初始化大量连接的 broker transport）会中止启动而无调整入口；慢钩子同理。
 - 消解（已落地，未新增 Option）：删掉 `defaultHookTimeout`，阶段预算统一由 `phaseBudgetFor(stopTimeout) = stopTimeout/2` 派生（`pkg/appkit/types.go:13-22`）——`stopAll` 的钩子阶段、单条 undo、组件 Start/Dispose（`newFromDecl` 缺省即派生，显式声明优先）、端点等待四处同缩放；端点等待另优先取调用方 ctx 的截止期（`waitForEndpoints` 的 `ctx.Deadline()` 分支），框架不缩短调用方给的预算。回归见 `pkg/appkit/phase_budget_test.go`（含「stopTimeout 200ms → 100ms 上界报错」这条对旧实现的反证）。
 
-**4.3 registry 心跳** ✅ 未见泄漏：`registry/etcd/registry.go:245-324` 的 `heartBeat` 有 `maxRetry` 上界（`:258`）、重试循环与各等待点都检查 `ctx.Done`（`:259,277,294`）、`stopCtx` 也参与 select（`:320`），cancel handle 在 mutex 下跟踪并在 `Deregister` 关闭（`:163-181`）。残余风险仅在 clientv3 `KeepAlive` 阻塞超过 cancel，属推测。
+**4.3 registry 心跳** ✅ 未见泄漏：`registry/etcd/registry.go:247-322` 的 `heartBeat` 有 `maxRetry` 上界（`:257`）、重试循环与各等待点都检查 `ctx.Done`（`:258,276,292`）、`stopCtx` 也参与 select（`:318`），cancel handle 在 mutex 下跟踪并在 `Deregister` 关闭（`:164-187`）。重试之间的等待由 `retreatDelay` 给出，曲线截到 `defaultRetreatMax`，因此上界是「maxRetry × 5min」而不是无界。残余风险仅在 clientv3 `KeepAlive` 阻塞超过 cancel，属推测。
 
 **4.4 启动窗口内的取消与真实启动失败同文案** ✅ 已修 原状：`Run` 在 servers 并发启动后要等端点定型（`waitForEndpoints`），而这个窗口对任何带 gRPC 面的进程都真实存在——`transport/grpc` 的 `Endpoint()` 在 `net.Listen` 完成前返回空串，慢机器上可到几百毫秒。窗口内 `gctx` 被取消有两条来源，旧实现只有一条文案 `appkit: wait for endpoints canceled: context canceled`：
 - 调用方取消（SIGTERM 打在仍在启动的进程）——主等待一侧早已把 `context.Canceled` 当正常停机，启动一侧却当装配错误返回，同一个信号因落地时刻差几毫秒而结局不同；

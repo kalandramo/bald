@@ -4,7 +4,7 @@
 >
 > Discussion at: 源码 `retry/{go.mod,retry.go,retry_test.go}`；对照 `broker/kafka/subscriber.go`、`registry/etcd/registry.go`、`bconfig/apollo/apollo.go`
 >
-> Status: Accepted（已落地、零依赖；Taskfile/README 已登记；**尚未接入任何调用点**，见「实现与验证」）
+> Status: Accepted（已落地、零依赖；Taskfile/README 已登记；退避原语已接入 `broker/kafka` 与 `registry/etcd`，`Retrier.Do` 尚无调用点，见「实现与验证」）
 
 ## 摘要
 
@@ -16,59 +16,21 @@
 2. **传输无关**。它只认 `func(ctx) error`，不认 HTTP、gRPC、Kafka、etcd。任何 I/O 都能包进来。
 3. **不吞错误语义**。终止时用 `errors.Join(哨兵, lastErr)`，调用方的 `errors.Is` 与我们的 `ErrMaxAttempts` **同时**成立。
 
-需要先说清现状：**全仓零 import**——没有任何一处代码在用它。仓内现有的重试行为，仍然散在三个后端里各写各的。
+现状分两层说：`retry` 的**退避原语已被两处消费**——`broker/kafka` 的订阅 fetch 退避与 `registry/etcd` 的断链重注册退避，都换成这里的 `ExponentialBackoff` + `Jitter`；而**重试循环 `Retrier.Do` 在仓内仍无调用点**，`bconfig/apollo` 的空文档等待也仍是自己那一套固定间隔。判据：`grep -rl '"github.com/kalandramo/bald/retry"' --include=*.go .` 命中恰为上面两个文件。
 
 ## 背景与动机
 
-### 仓内有三份互不相识的退避实现，而且没有一份能被复用
+### 设计时：仓内有三份互不相识的退避实现，没有一份能被复用
 
-`broker/kafka` 的消费者自己写了一个退避函数：
+写这份设计时，同一个「等一会儿再试」在三处是三套写法：
 
-```go
-// broker/kafka/subscriber.go
-// 简单的指数退避（带抖动），attempt 从 0 开始
-func backoffSleep(attempt int, min, max time.Duration) {
-	if min <= 0 {
-		min = 50 * time.Millisecond
-	}
-	...
-	d := min << uint(attempt)          // 2^attempt
-	if d > max {
-		d = max
-	}
-	// 添加抖动，范围 [d/2, d)
-	jitter := time.Duration(randSrc.Int63n(int64(d/2 + 1)))
-	sleepDur := d/2 + jitter
-	time.Sleep(sleepDur)
-}
-```
+- `broker/kafka` 的消费者：`d = min << attempt` 截到 `max`，再叠一个 `[d/2, d]` 的半抖动；自带两条兜底——`min <= 0` 用 50ms、`max < min` 把 `max` 抬到 `min`。
+- `registry/etcd` 的 KeepAlive 断链重注册：把 `1, 2, 4, …, 2^n` 秒攒进一个切片，再等概率挑一档——没有上限，也没有曲线，只有档位集合。
+- `bconfig/apollo` 的「空文档等待同步」：固定间隔轮询，且把「空文档」也算作失败，另支持「负数 = 禁用等待」。
 
-`registry/etcd` 的 KeepAlive 断链重注册是另一套——它先把 2^n 秒攒进切片，再随机挑一个：
+三种语义、三种边界，签名和终止条件全不一样，**没有任何一份能被第四处复用**。
 
-```go
-// registry/etcd/registry.go
-retreat = append(retreat, 1<<retryCnt)
-time.Sleep(time.Duration(retreat[rnd.Intn(len(retreat))]) * time.Second)
-```
-
-`bconfig/apollo` 的「空文档等待同步」又是第三套——固定间隔，且把「空文档」也算作失败：
-
-```go
-// bconfig/apollo/apollo.go
-func (c *Config) loadWithSyncWait(ctx context.Context, fetch func() ([]byte, error)) ([]byte, error) {
-	retries := c.opts.syncWaitRetries
-	...
-	for attempt := 0; attempt <= retries; attempt++ {
-		data, err := fetch()
-		if err == nil && hasContent(data) {
-			return data, nil
-		}
-		...
-		case <-time.After(c.opts.syncWaitInterval):
-	}
-```
-
-三份实现，三种语义：kafka 是「`min<<attempt` 加半抖」，etcd 是「预计算 2^n 秒随机取一个」，apollo 是「固定间隔」。它们各自的边界处理也不同——apollo 支持「负数 = 禁用等待」，kafka 支持「`max < min` 时把 max 拉回 min」，etcd 干脆没有上限。**没有任何一份能被第四处复用**，因为三份的函数签名、参数含义、终止条件全不一样。
+今天 kafka 与 etcd 两处已经归一到 `retry` 的 `ExponentialBackoff` + `Jitter`（参数对齐见「实现与验证」），apollo 仍在原地——它撞的不是曲线而是 `Retrier.Do` 的签名（谓词是内容而非 error、「耗尽仍为空」是合法结果、payload 要靠闭包带出），刻意不接的理由记在风险评审 §2「retry 半」。
 
 ### 契约层想表达退避，但无处可写
 
@@ -317,17 +279,31 @@ err := r.Do(ctx, func(ctx context.Context) error {
 
 `Taskfile.yml` 的 `retry-verify` 已挂进根 `verify`；根 `README.md` 已登记模块树；CI 用 `find . -name go.mod` 自动发现全部 module。
 
-### 接入顺序：先新代码，旧实现按「行为敏感度」排队
+### 接入现状：两处退避已归一，参数逐条对齐
 
-- **可以直接接**：新写的网络 I/O、外部 API 调用。
-- **必须先固定现有参数再接**：`registry/etcd` 的 KeepAlive 重注册（2^n 秒 + 随机、无上限）与 `broker/kafka` 的 fetch 退避（`min<<attempt` + 半抖）。这两处是行为敏感区，迁移前要把现有参数逐一对齐到 `retry` 的配置上，否则迁移即行为变更。
-- **不在本设计范围内**：让 `bconf` 契约表达退避曲线。这需要新增 proto 字段，是一次独立的契约变更（当前只有 `retry_count` / `max_retry` 两个标量）。
+迁移按「行为敏感度」排队——先把现有参数钉到 `retry` 的配置上，再换实现。
+
+| 位置 | 旧实现 | 新配置 | 行为差别 |
+|---|---|---|---|
+| `broker/kafka` 订阅 fetch 退避 | `d = min<<attempt` 截 `max`，再取 `[d/2, d]` 的半抖 | `ExponentialBackoff{Initial: min, Factor: 2, Max: max}` + `EqualJitter` | **在调用点上逐点等价**，曲线与抖动区间重合（`rng=1` 恰好取到 `d`，`rng∈[0,1)` 时上端点取不到）。两条 kafka 自兜底留在原处：`min<=0` → 50ms（`retry` 的零值兜底是 200ms，不改它）、`max<min` 抬到 `min`。唯一差别在纯函数边界：旧写法 `min<<attempt` 在 attempt ≥ 64 时位移回绕，被紧随的 `if d < min` 兜回 `min`——退避反转成贴地重试；新写法越过 `max` 就停在 `max`。今天循环里 `errorAttempt` 封顶在 6（最高档早截到 `max`），所以这条差异线上不可达，测试按 attempt 64/100 把它钉住 |
+| `registry/etcd` 断链重注册退避 | `1,2,4,…,2^n` 秒攒进切片、等概率取一档，无上限 | `ExponentialBackoff{Initial: 1s, Factor: 2, Max: defaultRetreatMax}` + `FullJitter` | **分布变了，如实记账**：默认 `max_retry=5`（最高档 16s）未触顶，所以默认配置的上界不变。变的是三件事——① ≥9 档截到 5min。旧曲线实测（纯算术）attempt=9 → 8m32s、20 → 291h、33 → 272 年，`max_retry` 是契约字段，配置可达；≥34 起「秒 × 1e9」溢出成**负** duration，`time.After` 立刻返回，退避反转成忙轮询。② 不再等概率取档：旧写法在档位很多时仍有 `1/(n+1)` 的概率只退 1s，注册中心恢复瞬间成百上千实例一起重连正是要避免的同步风暴。③ 下限不再保 1s |
+| `bconfig/apollo` 空文档等待 | 固定间隔 `syncWaitInterval`，空文档也算失败 | **不接** | 三条都撞 `Retrier.Do` 的签名：谓词是内容而非 error，`Classifier` 吃不到（要接得先造内部哨兵错误）；「重试耗尽仍为空」是合法结果（返回空文档 + nil error），而 `Do` 的终态是 `errors.Join(ErrMaxAttempts, lastErr)`；取回的 payload 要靠闭包变量带出，`Do` 的返回值里没有它的位置 |
+
+### 契约曲线：下一轮
+
+`bconf` 仍表达不了退避曲线——与重试相关的字段只有 `Broker.Rocketmq.retry_count` 与 `Registry.Etcd.max_retry` 两个标量，即「几次」，不含初始值、倍数、上限与抖动策略。
+
+下一轮加一条可复用的 `Backoff` 消息，形状仿已有的 `Server.TLS` / `RateLimit` / `Timeout`（被多处引用的策略段，不是每个后端各抄一份字段），挂到 `Registry.Etcd` 等表面，由各 `<adapter>/contract` 桥接成 `ExponentialBackoff`。本轮刻意不等它：先把实现归一，否则新增的契约段没有唯一映射目标；而契约变更是独立批次（bconf minor + 契约产物字节门 + 文档 + 发版）。
 
 ### 验证
 
 ```bash
 cd retry && go test -short ./...     # 28 个测试
 cd retry && go test -race ./...      # 并发边界（需 cgo）
+
+# 两个消费侧的退避判据（注入 rng，确定性断边界，不碰墙钟）
+cd broker/kafka && go test -count=1 -run 'TestBackoffDuration' ./...
+cd registry/etcd && go test -count=1 -run 'TestRetreatDelay' ./...
 ```
 
 ## 附录

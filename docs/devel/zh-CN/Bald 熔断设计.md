@@ -323,7 +323,7 @@ gRPC **stream 面不挂熔断**，且不是漏掉：一条流的「失败」没�
 
 接线侧的判据分布在三处：实现层（`circuitbreaker/hystrix/hystrix_test.go` 的滑窗四条、半开四条）、中间件层（`pkg/middleware/{gin,grpc}/circuitbreaker_test.go` 的上报配对与失败口径）、端到端（`_example/bald/internal/bootstrap/middleware_e2e_test.go` 的四条契约驱动用例，已按条登记进 `.github/workflows/ci.yml` 的示例作业判据清单——Skip 不算通过）。
 
-**尚未做**：`retry` 尚未接进契约段（服务端重试会重复执行有副作用的 handler，故不进入口链；它的诚实接线处是替换仓内三处手写退避）；`sres`/`vegas`/`sentinel` 尚无生产调用点，选实现的那一步留给契约（当前契约段只驱动 `hystrix`）。
+**尚未做**：`retry` 尚未接进契约段（服务端重试会重复执行有副作用的 handler，故不进入口链）；它作为**退避原语**已替换掉仓内两处手写退避（`broker/kafka` 的订阅 fetch、`registry/etcd` 的断链重注册），第三处 `bconfig/apollo` 刻意不接，理由见《Bald 重试设计》「接入现状」；`sres`/`vegas`/`sentinel` 尚无生产调用点，选实现的那一步留给契约（当前契约段只驱动 `hystrix`）。
 
 ### 验证方式
 

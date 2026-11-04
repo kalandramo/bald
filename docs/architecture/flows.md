@@ -32,7 +32,7 @@
 | circuitbreaker | **REAL**，契约驱动到链（hystrix 一个实现）：`server.{http,grpc}.middleware.circuit_breaker` 经 `bundle.CircuitBreakerFromMiddleware`/`GRPCCircuitBreakerFromMiddleware` 出 Option，缺段即不挂这一层（opt-in）；HTTP 拒 503、gRPC 拒 `UNAVAILABLE`+`Reason=CIRCUIT_OPEN`；**stream 面刻意不挂**（一条流的「失败」没有一致答案）。`vegas`/`sres`/`sentinel` 三个后端没有契约段，换算法经 `bundle.CircuitBreaker(...)` 代码级注入 | `pkg/middleware/gin/circuitbreaker.go`、`pkg/middleware/grpc/circuitbreaker.go`、`pkg/middleware/bundle/circuitbreaker.go`、`_example/bald/internal/bootstrap/middleware_e2e_test.go`（4 条端到端） |
 | authn / authz / audit / metrics 发射 | **REAL**（metrics 随 audit 事件发射） | `pkg/middleware/gin/audit.go:138-148` |
 | Authn/Authz/CORS/Secure/RateLimit/CircuitBreaker/Timeout | **条件装配**：未注入即整层消失（零开销是既定设计）。CORS/Secure/RateLimit/CircuitBreaker/Timeout 仍静默省略；**Authn 不再能靠疏漏开放**——`Authn(…)` 与 `Public()` 二者必居其一，否则 `Bundle.Verify()` 报 `AUTHN_UNDECLARED`、出链点告警一次，生成脚手架显式写 `bundle.Public()` | `pkg/middleware/bundle/bundle.go` 的 `Verify`/`Gin()`/`GRPCInterceptors()`（风险 §6.1） |
-| `retry/` | **未接线**：全仓零 importer，唯一提及是注释 `ratelimit/bbr/bbr.go:68` | 全仓 grep 复核 |
+| `retry/` | **原语已接、循环未接**：`broker/kafka` 的订阅退避与 `registry/etcd` 的重注册退避消费 `ExponentialBackoff` + `EqualJitter`/`FullJitter`；`Retrier.Do` 在仓内零调用方（`ratelimit/bbr/bbr.go` 的那处提及是注释） | `grep -rl '"github.com/kalandramo/bald/retry"' --include=*.go .` 命中 `broker/kafka/subscriber.go`、`registry/etcd/registry.go` 两处 |
 | health | 接在**启动/注册**期，不在每请求路径 | `pkg/appkit/health.go:60-80` |
 
 ### gRPC 路径的差异
@@ -72,8 +72,8 @@
 
 | 环节 | 状态 | 证据 |
 |---|---|---|
-| 注册 | **REAL** | `appkit.register`（`pkg/appkit/appkit.go:863`）→ `registry.Registrar` 契约（`registry/registry.go:62-67`）→ etcd：Validate → lease Grant → Put `<ns>/<name>/<id>` → 后台 `heartBeat`（`registry/etcd/registry.go:108-160`，goroutine 在 `:157`） |
-| 注销 | **REAL** | `registry/etcd/registry.go:163-181`（删 key、取消心跳、关租约） |
+| 注册 | **REAL** | `appkit.register`（`pkg/appkit/appkit.go:863`）→ `registry.Registrar` 契约（`registry/registry.go:62-67`）→ etcd：Validate → lease Grant → Put `<ns>/<name>/<id>` → 后台 `heartBeat`（`registry/etcd/registry.go:109-161`，goroutine 在 `:158`；断链重注册的等待见 `retreatDelay`） |
+| 注销 | **REAL** | `registry/etcd/registry.go:164-187`（删 key、取消心跳、关租约） |
 | 发现 | **REAL（gateway 出站拨号）** | 地址以 `discovery://` 开头时装上 resolver（`GatewayServer.Start` → `grpc.WithResolvers(newDiscoveryBuilder(d))`，`transport/gateway/gateway_server.go:168`）→ `Build` 内 `GetService` 首次快照 + `Watch` 持续订阅（`transport/gateway/discovery.go:63,64`）；解析出的端点先归一化——`grpc://` 剥前缀、`http(s)://` 等其它面丢弃（`grpcAddressOf`，bald 注册的端点本来就带 scheme）。快照为空或快照报错都**只上报错误、不结束订阅**，后端注册后由推送自动接住 |
 | 发现的接线方式 | 配置驱动，消费方零代码 | `server.gateway.backend_grpc_addr` 写成 `discovery:///<服务名>` 即生效：`AppProvider.Build` 按当次 `ApplyScope` 注入惰性来源（`transport/gateway/contract/provider.go:84`），来源从 `App.Registrar()` 断言出 `registry.Discovery`（`discoveryFromScope`）；写 `host:port` 仍走原生 dns。服务名要按后端的真实命名写：内存/etcd 用 `ServiceInstance.Name`，**nacos 用 `<名>.<scheme>`**，故那里得写 `discovery:///<服务名>.grpc`。端到端判据：`discovery_e2e_test.go`（真应用注册 `grpc://` 端点 → 转码面 REST 拿到 gRPC 响应）+ `discovery_registry_e2e_test.go`（**etcd、nacos 各一轮真机**：注册前 503 → 注册后 200 → 注销后仍 200 → 后端下线 503） |
 | 未接线的面 | HTTP 主面、业务自拨 | `gatewaycontract.HTTPProvider` 不自动派生来源（它的上游是本进程 gRPC 面自己的绑定地址，填 `discovery:///` 属配置错误）；`transport/grpc` 客户端侧、`transport/http` 出站仍无 resolver，需要时业务自行 `gateway.WithDiscovery` |
@@ -86,10 +86,10 @@
 
 **发布**（sync）：`Broker.Publish`（`broker/broker.go:29`）→ `kafkaBroker.Publish`（`broker/kafka/kafka.go:326-334`，先过发布中间件链 `:329-331` / `broker/publish.go:12`）→ `internalPublish`（`broker/kafka/kafka.go:337`）→ `broker.Marshal(codec, msg.Body)`（`broker/encoding.go:40`；无 codec 时 fail-fast `errNoCodec` `broker/encoding.go:34`）→ `publishMultipleWriter`（`broker/kafka/kafka.go:362`）→ `writer.WriteMessages`（`broker/kafka/kafka.go:406`）；缓存 writer 失败则关闭并摘除、换新 writer 按 `retriesCount` 重建（`broker/kafka/kafka.go:415-437`），Close 自身的错误只记日志、不覆盖写失败。首次写入的瞬时错误按 `shouldRetryFreshWriter` 原地重试一次（`broker/kafka/kafka.go:356-359`）。
 
-**订阅**（async）：`kafkaBroker.Subscribe`（`broker/kafka/kafka.go:527-642`）构造 ReaderConfig、把 handler 包进 subscriber 中间件链（`:622-624`）、`go sub.run()`（`:635-636`）→ `processSingleMessage`（`broker/kafka/subscriber.go:224-262`）阻塞 `FetchMessage`，出错走抖动指数退避（`:316-339`），致命错误按规则退出并 close 订阅者（`:341-362`）→ `handleMessage`（`:272-311`）：binder 分配类型化 body → `broker.Unmarshal`（`:288`）→ `newPublication` → `s.handler(ctx, pub)`（`:298`）。类型化入口是泛型 `broker.Subscribe[T]`（`broker/broker.go:36-70`）。
+**订阅**（async）：`kafkaBroker.Subscribe`（`broker/kafka/kafka.go:527-642`）构造 ReaderConfig、把 handler 包进 subscriber 中间件链（`:622-624`）、`go sub.run()`（`:635-636`）→ `processSingleMessage`（`broker/kafka/subscriber.go:225-263`）阻塞 `FetchMessage`，出错走抖动指数退避（`:321-337`，曲线取 `retry.ExponentialBackoff` + `retry.EqualJitter`），致命错误按规则退出并 close 订阅者（`:340-361`）→ `handleMessage`（`:273-312`）：binder 分配类型化 body → `broker.Unmarshal`（`:289`）→ `newPublication` → `s.handler(ctx, pub)`（`:299`）。类型化入口是泛型 `broker.Subscribe[T]`（`broker/broker.go:36-70`）。
 
 **ACK**：`pub.Ack()` → `reader.CommitMessages`（`broker/kafka/publication.go:48-53`），`AutoAck` 默认 true（`broker/kafka/kafka.go:535`）。
-**UNKNOWN**：handler 返回错误只是跳过 ack（`broker/kafka/subscriber.go:298-301`），代码中**未发现重投递或死信队列**。
+**UNKNOWN**：handler 返回错误只是跳过 ack（`broker/kafka/subscriber.go:299-302`），代码中**未发现重投递或死信队列**。
 **transport 侧**：`transport/kafka` 把队列包成 `transport.Server`，`RegisterSubscriber` 以 per-topic queue name 作为消费组（`transport/kafka/server.go:60-111,118`）。
 
 ---
