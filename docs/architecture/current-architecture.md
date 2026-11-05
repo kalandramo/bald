@@ -247,7 +247,8 @@ find . -name '*.go' ! -name '*_test.go' -not -path './.git/*' -not -path './<pkg
 ```
 
 - `circuitbreaker/{vegas,sres,sentinel}` —— 契约接口 `circuitbreaker` 与其 `hystrix` 实现**已接线**（见本节末），这三个后端仍只被自己的测试驱动，换算法属代码级注入（`bundle.CircuitBreaker` 接受任意 `circuitbreaker.CircuitBreaker`）。判据同上，按 `circuitbreaker/<后端>` 逐个 grep。
-- `transport/graphql`、`workflow/argo`、`ai/{openai,eino,langchaingo}`、`oss/{s3,minio}` —— 有 `*/contract` Provider，仓内零消费者、零示例（`transport/mcp/options.go:14` 的注释是 graphql 唯一命中）。
+- `workflow/argo`、`ai/{openai,eino,langchaingo}`、`oss/{s3,minio}` —— 有 `*/contract` Provider，仓内零消费者、零示例。
+- `transport/graphql` —— 与上一条**不同形**：实现齐（`NewServer` + `Start`/`Stop`，实测 `transport/graphql/server.go:69,98,141`）但**没有 `contract` 包**，所以「仓内零消费者」在这里是装配面缺席而不是没人用；同类共 7 个（`{graphql,webrtc,mcp,redis,rocketmq,kafka,rabbitmq}`），登记与施工顺序见风险评审 §7.28 方向②第二、三批。
 - 中间件依赖未注入即整层省略：`bundle.New()` 不给 `Authn` 时链中静默无认证层（风险 §6.1）。现已要求显式表态——`bundle.Public()` 声明有意公开，否则 `Bundle.Verify()` 报错、出链时告警（`pkg/middleware/bundle/bundle.go` 的 `Verify`）；生成脚手架默认写出 `bundle.Public()` 并留 TODO。
 - 中间件链上仍未接线的只有 **stream 面的形状**：`GRPCStreamInterceptors()` 出的链是 `Error → RateLimit`——超时按口径不默认挂（unary 的 `default_timeout_ms` 套在流上会静默变成「流的最大存活时长」），认证/授权/审计只有 unary 形态。`server.grpc.middleware` 的 `recovery`/`logging`/`tracing`/`validate` 四段是空 message，`FromGRPCMiddleware` **不翻译**它们（写了不改变任何行为，别当配置面）。契约侧也没有 `authn` 段：认证姿态是业务代码里的一行显式声明（`bundle.Public()` 或 `bundle.Authn(...)`），见 §6.1 与《Bald 中间件设计》。
 

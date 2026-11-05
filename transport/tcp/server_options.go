@@ -19,6 +19,11 @@ func WithAddress(addr string) Option {
 	}
 }
 
+// WithTimeout 写入 s.timeout。
+//
+// 注意：`timeout` 在本模块**没有任何读取点**（实测 `.timeout` 只有下面这一处赋值），
+// 所以写它不改变监听、握手或会话的任何行为。按「能力不删除」的口径先留着不删，
+// 但别把它当配置面用，也不要给它在契约里开段——那会把一个死旋钮变成「写了没人读」的字段。
 func WithTimeout(timeout time.Duration) Option {
 	return func(s *Server) {
 		s.timeout = timeout

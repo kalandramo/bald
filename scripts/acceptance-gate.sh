@@ -130,6 +130,28 @@ esac
 # 头——空凭证得到的是完全未签名的请求，不是「带空身份的签名」（这条与 aliyun 不同形，
 # 那里空 AK 仍签得出 "LOG :<sig>"，所以不能类推、只能各判一次）。`.\t` 那条点名五项
 # 必给的构造期 fail-fast 与「options 层不许有占位默认」。
+# transport/{tcp,websocket,http3}/contract 三条腿（§7.28 方向二·第一批）判的是
+# 三个「契约有段、装配无门」的服务器面首次经 Provider 进计划。三族都离线可判
+# （监听自己起，不需要服务容器），但读法各不相同，不能互相类推：
+#   - tcp：帧格式 4 字节 LE uint32 类型 + 原样 payload，处理器以 nil Creator 注册
+#     即拿到原始字节，因此这条判据不需要注册任何编解码器；tls 腿一律走 tlsDial
+#     （有界握手）——实测无界 tls.Dial 在「tls 守卫被摘掉」的变异下会挂到包级
+#     -timeout 得到一条超时判红，换成有界握手后同一变异点名 4 条 FAIL，真因（明文
+#     端口不回 ServerHello）在消息里；
+#   - websocket：path 在 NewServer 里就进了 mux 注册表，所以「契约 path 顶上默认
+#     /ws」只能靠**真握手**判——正例打契约 path，反例打 /ws 必须 404；空 path 段的
+#     反直觉读法（不追加 WithPath）由「默认 /ws 仍可握手」这条线上腿证；
+#   - http3：QUIC 必须有 TLS，本模块自己的 `(*Server).init`（transport/http3/
+#     server.go）硬编 :443 并在无 tlsConf 时自签，所以 addr 必填的判据
+#     文案里带着 :443（表内 addrguard 变异只红 2 条，正是这两条 fail-fast）；证书
+#     行的分辨力来自「换一张无关根必拒」，自签默认过不了契约根的校验；mTLS 行的
+#     失败原因是远端 `tls: certificate required`，不是本地超时。
+# tcp 那条 TestAppProviderEndToEnd_ 是**本批唯一的真进程端到端腿**：契约 yaml →
+# appkit.Serve → 段命中 AppProvider → 构造 → Start → 线上往返，外加反证「段名写成
+# server.tpc 时 Serve 必须失败」。入口只能是 Serve 不是 NewApp+Run——assemble 只挂在
+# Serve 上，NewApp+Run 会跳过整个段驱动装配（一声不响地把 Provider 丢在计划外）。
+# websocket/http3 的 AppProvider 五条骨架腿（Segments/Apply/Plan/Build/缺席语义）由
+# CI 的 test 作业整包跑，不进本表——它们没有时序窗口，重复点名只会得到两条同证据的腿。
 rows() {
   printf '%s\n' \
     $'ci\tpkg\t./appkit\tTestPlan_(NoSideEffects|OrderInvariant|SegmentCoverage|Conflict|DomainRoutes|CustomRoutesWarning)|TestRouteShapeConflict\t' \
@@ -154,6 +176,9 @@ rows() {
     $'ci\tmetrics/prometheus\t./contract\tTestMappingOffline_|TestProvider_RejectsNilSection\t' \
     $'ci\tmetrics/otel\t./contract\tTestMappingOffline_\t' \
     $'ci\tmetrics/datadog\t./contract\tTestMappingOffline_\t' \
+    $'ci\ttransport/tcp\t./contract\tTestMappingOffline_|TestAppProviderEndToEnd_\t' \
+    $'ci\ttransport/websocket\t./contract\tTestMappingOffline_\t' \
+    $'ci\ttransport/http3\t./contract\tTestMappingOffline_\t' \
     $'ci\tbconf\t.\tTestUnmarshalNestedBackoffSection|TestUnmarshalAbsentBackoffStaysNil|TestUnmarshalDurationSpellings|TestCoerceDurationFormat\t' \
     $'no\tbconf\t.\tTestGeneratedMatchesProto\t' \
     $'no\t_example/bald\t./internal/bootstrap\tTestPlan_ReferenceProject\t' \

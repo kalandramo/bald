@@ -40,6 +40,7 @@ type Provider interface {
 | contrib/observability-otlp | `otlpcontract.AppProviders(serviceName)` | tracer / metrics |
 | contrib/config-nacos | `confignacos.AppProvider()` | config（nacos 源） |
 | transport/{sse,cron,asynq} | `contract.AppProvider(opts ...Option)` | server.sse / server.cron / server.asynq |
+| transport/{tcp,websocket,http3} | `contract.AppProvider(opts ...Option)` | server.tcp / server.websocket / server.http3 |
 | transport/gateway | `contract.AppProvider(register RegisterFunc)` | server.gateway |
 | oss/{s3,minio} | `contract.AppProvider()` | storage.s3 / storage.minio |
 | metrics/{prometheus,otel,datadog} | `<后端>contract.AppProvider()` | instrumentation.prometheus / instrumentation.otlp / instrumentation.datadog |
@@ -61,6 +62,32 @@ cache:
 ```
 
 以 cache/redis 为例的内部语义：段存在 → 校验 / 建连 / Ping fail-fast（不产半成品实例）→ 产物落资源面 → cleanup 关闭底层连接池。落 contract 包的原因：标准能力包被 root 反向依赖会成环（导出范式：落 contract 包、导出名 AppProvider——既有标识符占用）。
+
+服务器段（`server.*`）多一条取用口径：**路由只能在 `WithAfterBuild` 里挂**。`Build` 只构造 `*Server`（监听在 `Start` 才发生），产物随后进引擎的服务器列表，业务代码没有第二次拿到它的机会——所以句柄型接线是契约工厂的唯一入口：
+
+```go
+appkit.MustServe(ctx,
+    std.Standard(),
+    tcpcontract.AppProvider(
+        tcpcontract.WithAfterBuild(func(_ context.Context, s *tcp.Server) error {
+            s.RegisterMessageHandler(MsgTypePing, handlePing, nil) // nil Creator ⇒ handler 收到原始 []byte
+            return nil
+        }),
+    ),
+)
+```
+
+```yaml
+server:
+  tcp:
+    addr: "0.0.0.0:9000"
+```
+
+三段各自的口径差异（都是实现现状，不是设计选择）：
+
+- `server.tcp` / `server.http3`：`addr` 必给，业务侧 `tcp.WithAddress` / `http3.WithAddress` 在契约 Option 之后追加，因此**业务覆盖契约**。`server.http3` 的 `addr` 留空不会报错，而是被本仓 `transport/http3` 自己 `(*Server).init` 里写死的 `":443"` 接住（同一处也是无 `tlsConf` 时的自签来源），所以工厂在构造期就 fail-fast，文案里点名 `:443`。
+- `server.websocket`：`addr` 是 `websocket.NewServer` 的**位置参数**，`WithServerOptions` 里没有覆盖通道 ⇒ 契约段是地址的唯一来源；`path` 留空时工厂**不追加** `WithPath`（恒传空串会把默认 `/ws` 顶成空路径），非空才追加。
+- `tls` 三面同构（`file` 轴给证书路径、`config` 轴给内联 PEM、`ca` 轴开双向认证），且**空 `tls: {}` 段恒为报错**——「写了 tls 却没证书」不能退化成明文监听。唯一例外是 `server.http3` 完全省略 `tls`：QUIC 没有明文选项，实现自带一次性自签证书（生产必须显式给 `tls`）。
 
 ### 2.2 整段自持：自己实现 Provider
 
