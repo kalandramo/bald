@@ -98,7 +98,9 @@ message Logger {
 
   // 阿里云 SLS 日志配置。
   message Aliyun {
-    // SLS Endpoint，如 cn-hangzhou.log.aliyuncs.com。
+    // SLS Endpoint，必须自带 scheme，如 https://cn-hangzhou.log.aliyuncs.com。
+    // 后端在构造期拒绝裸主机名：SDK 对无 scheme 的落点默认走明文 HTTP，
+    // 签名和日志正文会一起裸奔。
     string endpoint = 1;
     // Project 名称。
     string project = 2;

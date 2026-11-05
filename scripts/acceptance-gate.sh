@@ -98,6 +98,22 @@ esac
 # 的构造期 fail-fast 与「options 层不许有占位默认」这条不变量——两者都是本轮的生产改动，
 # 静默失效时最容易被读成「配置照旧能跑」。本模块在 .github/race-skip.txt 里（上游
 # ProducerMonitor.wg 竞争），但这两条腿不依赖 -race，写进本表有意义。
+# metrics/{prometheus,otel,datadog}/contract 三条腿（§7.27）判的是新增的顶层
+# instrumentation 段：三族的观测面都在进程内，都不需要服务容器——
+#   - prometheus：client_golang 的 Registry.Gather() 是纯内存的，namespace/subsystem
+#     读族名拼接，use_default_registry 读族落在**哪个 Gatherer**；
+#   - otel：两把假收集器——httptest 当 OTLP/HTTP 落点（POST /v1/metrics，正文默认
+#     gzip，判前先探 magic），真 gRPC MetricsService 桩当 OTLP/gRPC 落点（能解析出
+#     ExportMetricsServiceRequest 就同时证明了「走 gRPC」和「明文」）；insecure=false
+#     那一格只能看首字节（ClientHello 0x16 0x03），而落点不回话时 cleanup 会按
+#     Provider.Close 的 10s 上限全额等待末次上报，本表这条因此天然带 10s；
+#   - datadog：本机 UDP 监听读 statsd 线格式，buffer_size 是真·单报文上界，
+#     sample_rate 实测只作用 Histogram 一条路径（Counter/Gauge/GaugeAdd 走客户端
+#     聚合，聚合器在 flush 时把 rate 硬编成 1），这条不对称写在 proto 注释和测试
+#     文件头里，不藏。
+# 三行前缀 TestMappingOffline_ 各自命中该包的映射行全集；otel/datadog 的 AppProvider
+# 五条腿（Segments/Apply/Plan/Build/缺席 fail-fast）由 CI 的 test 作业整包跑，不进本表
+# ——它们没有时序窗口，被 -short 影响不到，重复点名只会得到两条同证据的腿。
 rows() {
   printf '%s\n' \
     $'ci\tpkg\t./appkit\tTestPlan_(NoSideEffects|OrderInvariant|SegmentCoverage|Conflict|DomainRoutes|CustomRoutesWarning)|TestRouteShapeConflict\t' \
@@ -117,6 +133,9 @@ rows() {
     $'ci\tbroker/rocketmq\t./v2\tTestLoggerLevelReachesInjectedLogger\t' \
     $'ci\tlog/aliyun\t./contract\tTestMappingOffline_\t' \
     $'ci\tlog/aliyun\t.\tTestNewAliyunLogger_RejectsIncompleteOptions|TestDefaultOptionsHasNoPlaceholderTarget\t' \
+    $'ci\tmetrics/prometheus\t./contract\tTestMappingOffline_|TestProvider_RejectsNilSection\t' \
+    $'ci\tmetrics/otel\t./contract\tTestMappingOffline_\t' \
+    $'ci\tmetrics/datadog\t./contract\tTestMappingOffline_\t' \
     $'ci\tbconf\t.\tTestUnmarshalNestedBackoffSection|TestUnmarshalAbsentBackoffStaysNil|TestUnmarshalDurationSpellings|TestCoerceDurationFormat\t' \
     $'no\tbconf\t.\tTestGeneratedMatchesProto\t' \
     $'no\t_example/bald\t./internal/bootstrap\tTestPlan_ReferenceProject\t' \

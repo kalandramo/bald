@@ -8,7 +8,7 @@
 
 ## 摘要
 
-`bconf` 是配置形状的单一真相源：用 Protobuf 声明「一个应用长什么样」（18 个 proto、15 个顶层配置域），`buf` 生成强类型 Go 包，四个 Go API（`NewBootstrap` 默认值 / `UnmarshalMap` 合并桥接 / `Validate` 启动校验 / `BindFlags` flag 绑定）中，`UnmarshalMap` 与 `BindFlags` 按 proto 描述符自动工作——`--http.addr` 这类层级 flag 真零样板；默认值集中在 `NewBootstrap`、校验规则集中在 `Validate` 各一处维护——新增一个配置项 = 声明形状 + 两处各补内容，无需 interface/struct/flag 多处同步。模块仅依赖 protobuf 与 pflag，不含任何后端 SDK，不读配置（bconfig 的事）、不装配（bootstrap 的事）。本文回答三个问题：为什么用 proto 作契约而不是 Go struct、为什么桥接层要自建类型规范化与合并语义、为什么校验只到形状层不认后端。最重要的承诺：**已知键写错类型、取值越域或枚举名非法，在启动期报错，而不是静默落到零值——配置错误显式暴露。**边界同样如实：拼错的未知键名（`https` 而非 `http`）会像业务自定义段一样被 `DiscardUnknown` 静默放行、落默认值——键名级防呆未实现，代价见 §API 二。
+`bconf` 是配置形状的单一真相源：用 Protobuf 声明「一个应用长什么样」（`bootstrap/v1` 18 个 proto = 16 个顶层配置域 + `bootstrap` + `common`），`buf` 生成强类型 Go 包，四个 Go API（`NewBootstrap` 默认值 / `UnmarshalMap` 合并桥接 / `Validate` 启动校验 / `BindFlags` flag 绑定）中，`UnmarshalMap` 与 `BindFlags` 按 proto 描述符自动工作——`--http.addr` 这类层级 flag 真零样板；默认值集中在 `NewBootstrap`、校验规则集中在 `Validate` 各一处维护——新增一个配置项 = 声明形状 + 两处各补内容，无需 interface/struct/flag 多处同步。模块仅依赖 protobuf 与 pflag，不含任何后端 SDK，不读配置（bconfig 的事）、不装配（bootstrap 的事）。本文回答三个问题：为什么用 proto 作契约而不是 Go struct、为什么桥接层要自建类型规范化与合并语义、为什么校验只到形状层不认后端。最重要的承诺：**已知键写错类型、取值越域或枚举名非法，在启动期报错，而不是静默落到零值——配置错误显式暴露。**边界同样如实：拼错的未知键名（`https` 而非 `http`）会像业务自定义段一样被 `DiscardUnknown` 静默放行、落默认值——键名级防呆未实现，代价见 §API 二。
 
 ---
 

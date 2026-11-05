@@ -473,7 +473,9 @@ func (x *Logger_Sentry) GetServerName() string {
 // 阿里云 SLS 日志配置。
 type Logger_Aliyun struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// SLS Endpoint，如 cn-hangzhou.log.aliyuncs.com。
+	// SLS Endpoint，必须自带 scheme，如 https://cn-hangzhou.log.aliyuncs.com。
+	// 后端在构造期拒绝裸主机名：SDK 对无 scheme 的落点默认走明文 HTTP，
+	// 签名和日志正文会一起裸奔。
 	Endpoint string `protobuf:"bytes,1,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
 	// Project 名称。
 	Project string `protobuf:"bytes,2,opt,name=project,proto3" json:"project,omitempty"`

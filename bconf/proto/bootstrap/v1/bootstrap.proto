@@ -17,6 +17,7 @@ import "bootstrap/v1/cache.proto";
 import "bootstrap/v1/script.proto";
 import "bootstrap/v1/database.proto";
 import "bootstrap/v1/audit.proto";
+import "bootstrap/v1/instrumentation.proto";
 
 option go_package = "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1";
 
@@ -68,4 +69,9 @@ message BootstrapConfig {
 
   // 审计后端：log（结构化日志）/ store（落库）/ stream（Redis Stream）。
   Audit audit = 15;
+
+  // 传输级埋点后端：prometheus / otlp / datadog（metrics.Metrics 三原语）。
+  // 与 metrics 段的分工见 instrumentation.proto——那个是请求级 Recorder，
+  // 这个是 TCP/MQ 这类无「请求」概念路径的手工埋点。
+  Instrumentation instrumentation = 16;
 }

@@ -90,8 +90,13 @@ func New(opts ...Option) (*Provider, error) {
 	}
 
 	clientOpts := []statsd.Option{
-		statsd.WithNamespace(cfg.namespace),
 		statsd.WithAggregationInterval(cfg.flushPeriod),
+	}
+	// 空 namespace 必须**不传**这个 Option：statsd.WithNamespace("") 会把命名
+	// 空间存成 "" + "."，于是每条指标名都带一个前导点（".requests_total:1|c"），
+	// 而「不配前缀」的语义应当是名字原样上线。
+	if cfg.namespace != "" {
+		clientOpts = append(clientOpts, statsd.WithNamespace(cfg.namespace))
 	}
 	if cfg.bufferSize > 0 {
 		clientOpts = append(clientOpts,

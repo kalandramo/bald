@@ -1,0 +1,75 @@
+syntax = "proto3";
+
+package bootstrap.v1;
+
+option go_package = "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1";
+
+// Instrumentation 描述**传输级埋点**后端（metrics.Metrics：Counter/Histogram/
+// Gauge/GaugeAdd，名字与标签由埋点方自定）。
+//
+// 与 metrics 段的分工（两套体系，不是一条链的两层）：
+//   - metrics 段 = 请求级 Recorder，维度固定（OTel semconv + 审计三元组），
+//     由 HTTP/gRPC 中间件自动 emit，配了它就得到双通道暴露；
+//   - 本段 = 传输级埋点，服务 TCP 会话与 Kafka/RabbitMQ/Redis/RocketMQ/WebRTC
+//     这些**没有「请求」概念**的路径，维度是 status/topic/queue 这类自由标签。
+//
+// 判别规则：有「请求」的走 metrics 段，没有的走本段。两者可共存于一个进程。
+// 后端互斥性：本段不按 type 字符串分发，而是「哪个子段存在就装配哪个」，与
+// cache/storage/broker 同构；多个子段同时存在即产出多个实例，各自落在
+// instrumentation.<后端> 段路径上，消费侧按类型化句柄取用后用各 transport
+// server 的 WithMetrics 注入。
+message Instrumentation {
+  // Prometheus 埋点后端（client_golang）。
+  message Prometheus {
+    // 指标名前缀（namespace），如 "myapp"。
+    string namespace = 1;
+    // 指标名副前缀（subsystem），如 "tcp"。
+    string subsystem = 2;
+    // 落进 prometheus.DefaultRegisterer 而非实例私有 Registry。
+    // false（默认）= 私有 Registry，需用 Provider.Registry() 自行挂载暴露端；
+    // true = 默认注册表，标准 promhttp.Handler() 直接能看到这些指标。
+    bool use_default_registry = 3;
+  }
+
+  // OpenTelemetry 埋点后端（OTLP 周期导出）。
+  message Otlp {
+    // OTLP Collector 端点（host:port）。必填：留空会静默导出到库默认的
+    // localhost:4317，导出失败只在后台日志出现，埋点数据一条都不落地。
+    string endpoint = 1;
+    // 资源属性 service.name。留空回落到 app.name。
+    string service_name = 2;
+    // 资源属性 service.version。留空回落到 app.version。
+    string service_version = 3;
+    // 关闭 TLS（明文 gRPC/HTTP）。
+    bool insecure = 4;
+    // 用 OTLP/HTTP 而非 OTLP/gRPC 导出。
+    bool use_http = 5;
+    // 周期导出间隔（秒）。0 = 用后端默认。
+    int32 export_interval_seconds = 6;
+  }
+
+  // Datadog DogStatsD 埋点后端（UDP）。
+  message Datadog {
+    // DogStatsD agent 地址（host:port）。必填：留空会静默 UDP 到库默认的
+    // 127.0.0.1:8125，agent 不在时没有任何同步错误可读到。
+    string address = 1;
+    // 指标名前缀（后端会自动补一个 "." 分隔符，所以不要自带尾点）。
+    // 留空 = 名字原样上线；v0.33.x 之前留空会产出 ".name:1|c" 这种前导点名字。
+    string namespace = 2;
+    // 单个 UDP 报文最多合包多少条指标。0 = 用库默认（实测会自然合到 2–3 行）。
+    // 是真上界：配 1  ⇒ 每报文恰好 1 行；配 2 ⇒ 出现 2 行但绝不出现 3 行。
+    int32 buffer_size = 3;
+    // 客户端聚合节拍（毫秒）：Gauge/Counter 在这个窗口内合并成一条。
+    // 0 = 用库默认 2s，故「比库默认更快」必须显式给值。非正数判红。
+    int32 flush_period_millis = 4;
+    // 采样率 (0, 1]。0 = 全量。
+    // **只对 Histogram 生效**：Counter/Gauge/GaugeAdd 走客户端聚合，聚合器在
+    // flush 时把 rate 硬编成 1（datadog-go v5.8.2 metrics.go 的
+    // countMetric/gaugeMetric flushUnsafe），因此这三条路径的报文不带 |@ 标记。
+    double sample_rate = 5;
+  }
+
+  optional Prometheus prometheus = 1;
+  optional Otlp otlp = 2;
+  optional Datadog datadog = 3;
+}

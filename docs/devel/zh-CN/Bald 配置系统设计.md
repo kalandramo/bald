@@ -181,10 +181,10 @@ bald/bconf/                       module github.com/kalandramo/bald/bconf
 ├── go.mod / go.sum               依赖 google.golang.org/protobuf + spf13/pflag（BindFlags 用）
 ├── buf.yaml                      buf v2 模块定义（path: proto）
 ├── buf.gen.yaml                  managed mode：go_package_prefix 决定生成路径
-├── proto/bootstrap/v1/           框架级契约（15 个，package bootstrap.v1）
+├── proto/bootstrap/v1/           框架级契约（18 个文件 = 16 个顶层配置域 + bootstrap + common，package bootstrap.v1）
 │   ├── bootstrap.proto           顶层 BootstrapConfig
 │   ├── config.proto / server.proto / registry.proto / database.proto
-│   └── ...（app / cache / log / metrics / tracer / ai / broker / storage / script / workflow 共 15 个）
+│   └── ...（app / cache / log / metrics / instrumentation / tracer / ai / broker / storage / script / workflow / audit）
 ├── proto/bald/                   域级契约
 │   ├── store/v1/store.proto      分页/过滤/排序契约（pkg/store 消费）
 │   └── appspec/v1/appspec.proto  应用规格契约（代码生成 appspec_gen.go 消费）

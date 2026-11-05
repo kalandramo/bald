@@ -19,11 +19,11 @@ type Provider interface {
 }
 ```
 
-- **Segments：段路径即契约段**。顶层段名（"database"、"audit"）或子段路径（"database.sql"、"server.http"），精确匹配；段存在性由 protobuf 反射逐级判定（消息型字段非 nil 即 present）。契约共 15 个顶层段。
+- **Segments：段路径即契约段**。顶层段名（"database"、"audit"）或子段路径（"database.sql"、"server.http"），精确匹配；段存在性由 protobuf 反射逐级判定（消息型字段非 nil 即 present）。契约共 16 个顶层段。
 - **Option 同款 Apply**：Provider 嵌入 Option——与 `std.Standard()`、业务域声明值并列传入 MustServe（[新增业务域](./新增业务域%20-%20Domain%20与%20gen%20domain.md) §3 同一手法）。`appkit.Providers(ps ...Provider)` 可把多个 Provider 打包为一个 Option。
 - **Plan 必须纯**：只读契约与声明，不写文件、不发网络、不改全局、不构造实例；返回的节点须带 `Key`/`Phase`（`Segments` 缺省取 `Segments()`，`Kind`/`Origin`/`Reload`/`EffectName` 由引擎补齐）。M1 起每个 Provider 恰好一个节点；`Priority` 用 `appkit.Priority*` 常量声明同阶段次序。
 - **Build 输入 ApplyScope**：Config（阶段 B / server 阶段为已装载定型的完整契约；config 段构造期与 logger 阶段 A 可为 nil）、Decl（只读约定）、App（阶段 B 起非 nil，**前序段产物已填充**——audit 后端经 `storegorm.SQL.Resource(app)` 取连接即依赖此序）、Node（正在应用的节点）。
-- **Build 产物形状按顶层段约定**：registry 段为 registry.Registrar；六资源域（database/cache/storage/ai/workflow/broker）为 map[string]any（键=子段名）；audit 段为 audit.Auditor；server 段为 []transport.Server；config 段为 []config.Layer；无产物可返回 nil。
+- **Build 产物形状按顶层段约定**：registry 段为 registry.Registrar；六资源域（database/cache/storage/ai/workflow/broker）与 instrumentation 段为 map[string]any（键=子段名，instrumentation 的键即后端名 prometheus/otlp/datadog，落 `instrumentation.<后端>`）；audit 段为 audit.Auditor；server 段为 []transport.Server；config 段为 []config.Layer；无产物可返回 nil。
 
 ## 2. 三种接入粒度
 
@@ -42,6 +42,7 @@ type Provider interface {
 | transport/{sse,cron,asynq} | `contract.AppProvider(opts ...Option)` | server.sse / server.cron / server.asynq |
 | transport/gateway | `contract.AppProvider(register RegisterFunc)` | server.gateway |
 | oss/{s3,minio} | `contract.AppProvider()` | storage.s3 / storage.minio |
+| metrics/{prometheus,otel,datadog} | `<后端>contract.AppProvider()` | instrumentation.prometheus / instrumentation.otlp / instrumentation.datadog |
 
 接入三步（以 redis 缓存为例，与 [Bald 缓存使用](./Bald%20缓存使用.md) 同构）：引依赖 → MustServe 变参接一行 → yaml 声明段：
 

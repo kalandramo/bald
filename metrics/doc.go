@@ -11,7 +11,8 @@
 //	本包（github.com/kalandramo/bald/metrics，传输级）
 //	  ├ 手工埋点：业务/传输代码显式调用 Counter/Histogram/Gauge
 //	  ├ 维度自由：name + labels 由埋点方决定
-//	  └ 后端自选：业务 New() 后注入，**不经 bconf 契约**
+//	  └ 后端自选：业务 New() 后注入，或写 bconf `instrumentation.<后端>` 段
+//	    由框架装配（段 Provider 在各后端的 contract 子包）
 //
 //	pkg/metrics（github.com/kalandramo/bald/pkg/metrics，请求级 Recorder）
 //	  ├ 中间件自动 emit：HTTP/gRPC 请求经 AuditWithMetrics 自动记录
@@ -20,6 +21,22 @@
 //
 // 判别规则：**有「请求」的走 pkg/metrics（中间件自动），没有的走本包（手工埋点）。**
 // 完整设计与取舍见 docs/devel/zh-CN/Bald 指标设计.md。
+//
+// # 契约装配（instrumentation 段）
+//
+// 三个后端各自带一个 contract 子包（`metrics/prometheus/contract`、
+// `metrics/otel/contract`、`metrics/datadog/contract`），消费顶层 `instrumentation`
+// 段的同名子段：**子段存在即装配**，没有 type 字符串，与 cache/storage/broker 同构。
+//
+//	instrumentation:
+//	  otlp:                      # 存在即装配 metrics/otel
+//	    endpoint: "collector:4317" # 必填（留空会静默导出到库默认的 localhost:4317）
+//	    insecure: true
+//
+//产物落资源面，消费侧在域 Wire 里按类型化句柄取回后注入 transport：
+//`otelcontract.Otlp.Resource(app)` → `tcp.WithMetrics(m)`。根包与其 contract
+//子包的关系和其余域一致：根包保持零契约依赖（纯后端 SDK 实现），只有
+//contract 子包 import bconf + appkit。
 //
 // # 注意事项
 //

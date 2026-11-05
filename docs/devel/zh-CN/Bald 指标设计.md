@@ -45,7 +45,7 @@ TCP 会话与 MQ 消费循环里没有「请求」这个概念，维度天然是
 | 维度 | 协议维度（semconv v1.43.0）+ 审计三元组（正交两序列） | 自由：埋点方传 name + labels |
 | 指标 | `http.server.request.duration`、`http.server.active_requests`、`rpc.server.call.duration`、`bald_audit_events_total` | 埋点方命名（tcp/kafka 各自一套） |
 | emit 方式 | 中间件自动（`AuditWithMetrics`） | 业务/传输代码手工调用 |
-| 后端装配 | bconf `metrics` 段 → 段 Provider → `observability-otlp/contract` → `Setup` 多 Reader | 业务自选后端 `New()` 直连，**不经契约** |
+| 后端装配 | bconf `metrics` 段 → 段 Provider → `observability-otlp/contract` → `Setup` 多 Reader | 手工 `New()` 直连，或 bconf `instrumentation.<后端>` 段 → 各后端 `contract` 子包 |
 | otel 依赖 | 契约层即 otel API（全局 MeterProvider） | 契约层零依赖，otel 只是三后端之一 |
 | panic 防护 | `emitMetricsSafely` recover 降级 | 无（tcp 直接调用；当前三后端不主动 panic，风险低） |
 | 发版 | 随根模块 | 独立发版：`metrics/v0.1.0` + 三后端 tag |
@@ -271,9 +271,15 @@ metrics/                  module github.com/kalandramo/bald/metrics          （
 
 命名统一为 Prometheus 惯例：小写下划线、Counter 带 `_total`、延迟带 `_seconds`、label key 不含点号（`rpc.system`→`rpc_system`）。broker 系四个传输共用一组指标名，`broker` label（取值 kafka/rabbitmq/redis/rocketmq）区分传输。
 
-#### 与契约装配链的关系：不经 bconf，datadog 无契约位
+#### 与契约装配链的关系：独立顶层段 `instrumentation`
 
-bconf 的 `metrics` 段（`type ∈ {"prometheus", "otlp"}`）驱动的是 `pkg/metrics` 那条链（metrics 段 Provider → `observability-otlp/contract` → `Setup`），**与本接口无关**。本体系的三个后端只能业务手工 `New()` 后注入 transport；datadog 在契约里没有取值，永远走不了配置驱动。
+bconf 的 `metrics` 段（`type ∈ {"prometheus", "otlp"}`）驱动的是 `pkg/metrics` 那条请求级链（metrics 段 Provider → `observability-otlp/contract` → `Setup`），与本接口无关；本体系的三个后端接的是**另一个顶层段 `instrumentation`**，按子段存在即选中分发（`instrumentation.prometheus` / `.otlp` / `.datadog`），与 cache/storage/broker 同构。
+
+为什么单开一段而不是复用 `metrics` 段的 `type` 轴：那条链的段 Provider 对空/未知 `type` 直接 fail-fast，且 `prometheus` 这个取值在两套体系里指的不是同一个东西（Recorder 的后端 vs 埋点的后端）。把它们挂进同一根分发键，等于让一次 `type` 写错同时污染两条语义无关的装配路径；而「子段存在即选中」把「写错后端名」变成 L4 的段名拼错检查（反射枚举无人覆盖的段即启动期报错），配置驱动的静默洞因此少一类。datadog 也在契约里有了取值位——此前「永远走不了配置驱动」的结论是段缺失，不是接不上。
+
+装配形态：每个后端一个 `contract` 子包（根包保持零契约依赖，只有 contract 子包 import bconf + appkit），导出映射函数 `Provider(子段, …)` 与段驱动 `AppProvider()`；产物 `map[string]any{"<后端>": *具体类型}` 经引擎的默认分支展开成 `instrumentation.<后端>` 资源路径，消费侧用同包导出的类型化句柄（`contract.Prometheus` / `contract.Otlp` / `contract.Datadog`）在域 Wire 里取回，再交给各 transport 的 `WithMetrics`。必填与回落口径（`otlp.endpoint`/`datadog.address` 必填、`service_name`/`service_version` 回落 `app.name`/`app.version`）都发生在契约层，库自己的哨兵默认值不动——非破坏性优先于「让默认值也讲道理」。运行期证据见三族的 `mapping_offline_test.go`（进程内假收集器：`Registry.Gather()`、OTLP/HTTP 与 OTLP/gRPC 两个落点、DogStatsD UDP 线格式），已接进 `scripts/acceptance-gate.sh` 的 scope=ci。
+
+**尚未闭合的一格**：段本身不从契约构建 transport server，所以「契约 → 埋点实例 → 具体 server」这条链的后半段仍由业务接线；示例工程里因此没有端到端取用腿，本轮证据到 `AppProvider` 的 Plan/Build 与离线映射为止。
 
 ## 理由与取舍
 
@@ -352,7 +358,7 @@ bconf 的 `metrics` 段（`type ∈ {"prometheus", "otlp"}`）驱动的是 `pkg/
 
 **Q：业务代码该用 `pkg/metrics` 还是 `metrics/`？** HTTP/gRPC 服务用前者（中间件自动，配 bconf `metrics` 段即得双通道）；自起消息服务器（TCP/MQ）用后者（`WithMetrics` 注入，标签自定）。两者可以共存于一个进程，但 otel 侧只能有一个 Provider（见「兼容性」）。
 
-**Q：datadog 后端怎么接？** 只能手工：`datadog.New(datadog.WithAddress(...))` 后 `WithMetrics` 注入。契约段无 `datadog` 取值，配置驱动走不通——若需要，是 bconf `Metrics.Type` 枚举的独立增量提案。
+**Q：datadog 后端怎么接？** 两条路：手工 `datadog.New(datadog.WithAddress(...))` 后 `WithMetrics` 注入；或写 bconf `instrumentation.datadog` 段并在代码里接 `metrics/datadog/contract` 的 `AppProvider()`，实例落资源面再取用。它不进 `metrics` 段的 `type` 枚举——那根 `type` 轴属于请求级 Recorder 链，把埋点后端挂上去会让一个取值同时指两套语义（见「与契约装配链的关系」）。
 
 **Q：为什么六传输指标名是这个形态？** `metrics.Metrics` 对命名零约定，框架内统一约定为 Prometheus 惯例：broker 系四传输共用一组 `broker_*` 名 + `broker` label 区分，client 系按传输前缀（`tcp_client_*`/`webrtc_client_*`）。
 
