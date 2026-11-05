@@ -97,12 +97,13 @@ type fakeEnd struct {
 	mu   sync.Mutex
 	reqs []wireReq
 
-	// open/closes 记「当前挂着的连接数」与「累计关掉的连接数」。本机实测（v2.1.2）：
+	// open 记「当前挂着的连接数」。本机实测（v2.1.2）：
 	// consumer 停机后**假 broker 的连接当场归零**（remoteClient.ShutDown 关掉自己的连接池），
 	// 但名字服务上会留一条已空闲、再也无人发请求的连接——所以「连接归零」只适合当 broker 侧
 	// 的辅助读数；「后台线程退了」的主判据是流水冻结（teardown_offline_test.go 的 assertFlowFrozen）。
-	open   int
-	closes int
+	// 这里刻意不另记「累计关掉的连接数」：假线的读循环自己也会因 30s 读超时退出，
+	// 那个计数分不清「客户端关了」与「我方超时退出」，写进判据只会得到一条永不判红的读数。
+	open int
 }
 
 // newFakeNameServer 起一台会答路由的假名字服务。routeTo 为空时所有主题都「不存在」。
@@ -147,17 +148,11 @@ func (f *fakeEnd) record(r wireReq) {
 	f.mu.Unlock()
 }
 
-// openConns 返回当前仍挂着的连接数；closedConns 返回累计已关掉的连接数（见 fakeEnd 的注释）。
+// openConns 返回当前仍挂着的连接数（用途与局限见 fakeEnd 的注释）。
 func (f *fakeEnd) openConns() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.open
-}
-
-func (f *fakeEnd) closedConns() int {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.closes
 }
 
 // countTopicQuery 返回「查 topic 这个主题的路由请求」条数。retry_count 一条腿就是靠它
@@ -228,7 +223,6 @@ func (f *fakeEnd) handle(c net.Conn) {
 	defer func() {
 		f.mu.Lock()
 		f.open--
-		f.closes++
 		f.mu.Unlock()
 		_ = c.Close()
 	}()
