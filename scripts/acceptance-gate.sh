@@ -74,6 +74,18 @@ esac
 # 服务点名，不进本表；timeout_seconds 一行**只有** `contract_test.go` 的长度判据——上游把
 # 每个操作的截止期写死成 10s，恰好掩掉契约值，运行期两侧都判不到（理由写在该包
 # mapping_backend_test.go 文件头）。
+# broker/rocketmq 那条（§7.24）的离线桩也是进程内的：v2 客户端把每个请求都发成本机监听
+# 端口上的明文 JSON 帧，所以八行（name_servers/name_server_url/access_key/secret_key/
+# security_token/group_name/namespace/instance_name/retry_count/topic）**全部**能在不打
+# 真后端的情况下读出——路由查询（105）的 extFields.topic、心跳（34）body 的 clientID、
+# 发送（10）的 producerGroup、ACL 签名逐条值判。停机两条腿（Unsubscribe/Disconnect 关掉
+# consumer）判的是同一根线上的「停机前流水计数已 ≥2（正向对照）+ 停机后睡满 4s 窗口新增为
+# 0（absence）+ 假 broker 侧连接归零」，所以窗口不是固定 sleep 蒙过去，而是有对照实证的
+# 「确实在长 → 停之后确实停了」。没有要真后端的腿，所以本包不需要进 ci.yml 的 integration
+# 点名。`./v2 TestLoggerLevel` 那一条是本模块第五处生产修复（SDK 日志全局只注入一次、级别
+# 改原子）的确定性腿：它判「级别仍然生效，而且生效在被注入的那一个对象上」，不需要 -race
+# 就判得动；同包另一条 TestLoggerConcurrent 只有 -race 才判得动，而本模块因上游 `close`
+# 竞争在 .github/race-skip.txt 里，把它写进本表只会得到一条永不判红的腿。
 rows() {
   printf '%s\n' \
     $'ci\tpkg\t./appkit\tTestPlan_(NoSideEffects|OrderInvariant|SegmentCoverage|Conflict|DomainRoutes|CustomRoutesWarning)|TestRouteShapeConflict\t' \
@@ -89,6 +101,8 @@ rows() {
     $'ci\tcontrib/database/gorm\t./contract\tTestMapping_|TestAllowedDriversTableShape\t' \
     $'ci\tregistry/nacos\t./contract\tTestMappingOffline_\t' \
     $'ci\tcontrib/database/mongodb\t./contract\tTestMappingOffline_\t' \
+    $'ci\tbroker/rocketmq\t./contract\tTestMappingOffline_\t' \
+    $'ci\tbroker/rocketmq\t./v2\tTestLoggerLevelReachesInjectedLogger\t' \
     $'ci\tbconf\t.\tTestUnmarshalNestedBackoffSection|TestUnmarshalAbsentBackoffStaysNil|TestUnmarshalDurationSpellings|TestCoerceDurationFormat\t' \
     $'no\tbconf\t.\tTestGeneratedMatchesProto\t' \
     $'no\t_example/bald\t./internal/bootstrap\tTestPlan_ReferenceProject\t' \

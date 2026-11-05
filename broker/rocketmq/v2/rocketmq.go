@@ -38,9 +38,21 @@ type rocketmqBroker struct {
 
 	producers   map[string]rocketmq.Producer
 	subscribers *broker.SubscriberSyncMap
-
-	logger *logger
 }
+
+// sdkLogger 是本包注进 SDK 日志全局（rlog 的 `rLog`）的那一个转发器，进程内共用。
+//
+// 为什么共用、且只注入一次：rlog 的读侧不带锁（rlog/log.go:201-225 直接调那个全局接口值），
+// 而接口值是两个字（类型 + 数据）。每次 Init 重写它，在 -race 下是一串 DATA RACE，
+// 在真机上等价于「后台日志线程可能读到半个指针」。SDK 也不会告诉 bald 某行日志出自
+// 哪台 broker，所以「每台 broker 一个 logger」本来就没有可观察的意义。
+//
+// 级别仍是每个 broker 的 Init 能设的（LoggerLevelKey ⇒ setLevel），覆盖语义与改动前一致
+// （后一次 Init 生效），只是读写都走原子。
+var (
+	sdkLogger     = newLogger(log.LevelInfo)
+	publishLogger sync.Once
+)
 
 func NewBroker(opts ...broker.Option) broker.Broker {
 	options := broker.NewOptionsAndApply(opts...)
@@ -50,9 +62,6 @@ func NewBroker(opts ...broker.Option) broker.Broker {
 		retryCount:  2,
 		producers:   make(map[string]rocketmq.Producer),
 		subscribers: broker.NewSubscriberSyncMap(),
-		logger: &logger{
-			level: log.LevelInfo,
-		},
 	}
 }
 
@@ -76,7 +85,9 @@ func (b *rocketmqBroker) Options() broker.Options {
 func (b *rocketmqBroker) Init(opts ...broker.Option) error {
 	b.options.Apply(opts...)
 
-	rlog.SetLogger(b.logger)
+	// 只在本包第一次 Init 时注进 SDK 全局——那一刻本包还没造过任何客户端，
+	// 也就没有并发的读侧（sdkLogger 的注释）。
+	publishLogger.Do(func() { rlog.SetLogger(sdkLogger) })
 
 	if v, ok := b.options.Context.Value(option.NameServersKey{}).([]string); ok {
 		b.nameServers = v
@@ -113,7 +124,7 @@ func (b *rocketmqBroker) Init(opts ...broker.Option) error {
 	}
 
 	if v, ok := b.options.Context.Value(option.LoggerLevelKey{}).(log.Level); ok {
-		b.logger.level = v
+		sdkLogger.setLevel(v)
 	}
 
 	return nil
@@ -151,8 +162,9 @@ func (b *rocketmqBroker) Disconnect() error {
 	}
 	b.producers = make(map[string]rocketmq.Producer)
 
-	// 注销并清空全部订阅者：consumer 与其消费 goroutine 必须随 Disconnect
-	// 注销（对齐 kafka 的 subscribers.Clear() 范式）。
+	// 注销全部订阅者并清空注册表（对齐 kafka 的 subscribers.Clear() 范式）。Clear() 对
+	// 每一条调 Unsubscribe(false)，而 Unsubscribe 会 Shutdown 那个 consumer——消费/拉取/
+	// 心跳线程与到 broker 的连接随之释放，进程里不再留下调用方以为已经摘掉的后台流量。
 	if b.subscribers != nil {
 		b.subscribers.Clear()
 	}
@@ -212,6 +224,11 @@ func (b *rocketmqBroker) createProducer() (rocketmq.Producer, error) {
 
 	opts = append(opts, producer.WithNsResolver(resolver))
 	opts = append(opts, producer.WithRetry(b.retryCount))
+	// namespace 对生产侧同样要落：SDK 在 SendSync 里把 msg.Topic 改成 `ns%topic`，
+	// 少投这一行时生产者发的是裸 topic，与消费侧（createConsumer 一直投这行）落在两个
+	// 主题上——命名空间租户下表现为「发得出去、收不到」。空 namespace 时 SDK 首行判空短路，
+	// 所以对没用这一字段的老用户零影响。
+	opts = append(opts, producer.WithNamespace(b.namespace))
 	if b.instanceName != "" {
 		opts = append(opts, producer.WithInstanceName(b.instanceName))
 	}
@@ -221,13 +238,13 @@ func (b *rocketmqBroker) createProducer() (rocketmq.Producer, error) {
 
 	p, err := rocketmq.NewProducer(opts...)
 	if err != nil {
-		b.logger.Errorf("new producer error: %s", err.Error())
+		sdkLogger.Errorf("new producer error: %s", err.Error())
 		return nil, err
 	}
 
 	err = p.Start()
 	if err != nil {
-		b.logger.Errorf("[rocketmq]: start producer error: %s", err.Error())
+		sdkLogger.Errorf("[rocketmq]: start producer error: %s", err.Error())
 		return nil, err
 	}
 
@@ -359,7 +376,7 @@ func (b *rocketmqBroker) publish(ctx context.Context, topic string, msg *broker.
 	var err error
 	_, err = p.SendSync(ctx, rMsg)
 	if err != nil {
-		b.logger.Errorf("[rocketmq]: send message error: %s\n", err)
+		sdkLogger.Errorf("[rocketmq]: send message error: %s\n", err)
 
 		// If using a cached producer, remove it and retry with a new one
 		if cached {
@@ -418,6 +435,7 @@ func (b *rocketmqBroker) Subscribe(topic string, handler broker.Handler, binder 
 	}
 
 	sub := &subscriber{
+		r:       b,
 		options: options,
 		topic:   topic,
 		handler: handler,
@@ -426,8 +444,6 @@ func (b *rocketmqBroker) Subscribe(topic string, handler broker.Handler, binder 
 
 	if err = c.Subscribe(topic, consumer.MessageSelector{},
 		func(ctx context.Context, msgs ...*primitive.MessageExt) (consumer.ConsumeResult, error) {
-			//b.logger.Infof("[rocketmq] subscribe callback: %v \n", msgs)
-
 			var errSub error
 			hasError := false
 			for _, msg := range msgs {
@@ -441,7 +457,7 @@ func (b *rocketmqBroker) Subscribe(topic string, handler broker.Handler, binder 
 
 					if errSub = broker.Unmarshal(b.options.Codec, msg.Body, &m.Body); errSub != nil {
 						p.err = errSub
-						b.logger.Errorf("%s", errSub.Error())
+						sdkLogger.Errorf("%s", errSub.Error())
 						hasError = true
 						continue
 					}
@@ -450,14 +466,14 @@ func (b *rocketmqBroker) Subscribe(topic string, handler broker.Handler, binder 
 				}
 
 				if errSub = sub.handler(ctx, p); errSub != nil {
-					b.logger.Errorf("process message failed: %v", errSub)
+					sdkLogger.Errorf("process message failed: %v", errSub)
 					hasError = true
 					continue
 				}
 
 				if sub.options.AutoAck {
 					if errSub = p.Ack(); errSub != nil {
-						b.logger.Errorf("unable to commit msg: %v", errSub)
+						sdkLogger.Errorf("unable to commit msg: %v", errSub)
 						hasError = true
 						continue
 					}
@@ -469,14 +485,18 @@ func (b *rocketmqBroker) Subscribe(topic string, handler broker.Handler, binder 
 			}
 			return consumer.ConsumeSuccess, nil
 		}); err != nil {
-		b.logger.Errorf("%s", err.Error())
+		sdkLogger.Errorf("%s", err.Error())
 		return nil, err
 	}
 
 	if err = c.Start(); err != nil {
-		b.logger.Errorf("%s", err.Error())
+		sdkLogger.Errorf("%s", err.Error())
 		return nil, err
 	}
+
+	// 注册表收下这个订阅者，Disconnect 的 Clear() 才注销得掉 consumer；
+	// 条目也是 Unsubscribe(true) 摘除的对象（与 kafka/rabbitmq 的 Subscribe 尾部同形）。
+	b.subscribers.Add(topic, sub)
 
 	return sub, nil
 }

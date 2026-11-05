@@ -6,6 +6,8 @@ require (
 	github.com/apache/rocketmq-client-go/v2 v2.1.2
 	github.com/kalandramo/bald/bconf v0.19.0
 	github.com/kalandramo/bald/broker v0.1.0
+	github.com/kalandramo/bald/encoding v0.1.0
+	github.com/kalandramo/bald/encoding/json v0.0.0-00010101000000-000000000000
 	github.com/kalandramo/bald/log v0.5.4
 )
 
@@ -14,7 +16,6 @@ require (
 	github.com/golang/mock v1.6.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
-	github.com/kalandramo/bald/encoding v0.1.0 // indirect
 	github.com/konsorten/go-windows-terminal-sequences v1.0.1 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee // indirect
