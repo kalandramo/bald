@@ -308,20 +308,22 @@ func TestValidateLoggerFilterKeys(t *testing.T) {
 }
 
 // TestValidateLoggerBackendSections 五种非 slog 后端段的形状校验：合法配置
-// 通过（凭证留空走 SDK env 凭证链是合法路径，不应被校验挡下），漏配连接
-// 目标与越域取值 fail-fast 且错误带 backends[i].<seg> 定位。
+// 通过，漏配落点/凭证、endpoint 缺 scheme 与越域取值 fail-fast 且错误带
+// backends[i].<seg> 定位。
 func TestValidateLoggerBackendSections(t *testing.T) {
-	// 合法：五后端各一项，凭证全部留空。
+	// 合法：五后端各一项。aliyun 的凭证与 scheme 都是必给项（producer 侧没有
+	// 环境变量凭证链，裸 host 走明文，见 validateAliyunSection）；tencent 的凭证
+	// 暂不校验（CLS SDK 的凭证链未实测，见 §7.26）。
 	cfg := NewBootstrap()
 	cfg.GetLogger().Backends = []*bootstrapv1.Logger_Backend{
 		{Type: "charm", Charm: &bootstrapv1.Logger_Charm{Level: "debug", Format: "json"}},
 		{Type: "loki", Loki: &bootstrapv1.Logger_Loki{Endpoint: "http://loki:3100/loki/api/v1/push", BatchSize: 100, FlushInterval: 5000}},
 		{Type: "sentry", Sentry: &bootstrapv1.Logger_Sentry{Dsn: "https://k@o.ingest.sentry.io/1"}},
-		{Type: "aliyun", Aliyun: &bootstrapv1.Logger_Aliyun{Endpoint: "cn-hangzhou.log.aliyuncs.com", Project: "proj", Logstore: "store"}},
+		{Type: "aliyun", Aliyun: &bootstrapv1.Logger_Aliyun{Endpoint: "https://cn-hangzhou.log.aliyuncs.com", Project: "proj", Logstore: "store", AccessKey: "ak", AccessSecret: "sk"}},
 		{Type: "tencent", Tencent: &bootstrapv1.Logger_Tencent{Endpoint: "cls.ap-guangzhou.myqcloud.com", TopicId: "topic-1"}},
 	}
 	if err := Validate(cfg); err != nil {
-		t.Fatalf("五后端合法配置（凭证走 env 链）应通过: %v", err)
+		t.Fatalf("五后端合法配置应通过: %v", err)
 	}
 
 	cases := []struct {
@@ -355,9 +357,36 @@ func TestValidateLoggerBackendSections(t *testing.T) {
 			"backends[0].sentry.dsn",
 		},
 		{
-			"aliyun project 漏配（会静默发往占位默认）",
-			&bootstrapv1.Logger_Backend{Type: "aliyun", Aliyun: &bootstrapv1.Logger_Aliyun{Endpoint: "cn-hangzhou.log.aliyuncs.com"}},
+			// want 带完整措辞：endpoint 空值若被摘掉，scheme 那条也会回一个以
+			// "backends[0].aliyun.endpoint" 开头的错误，只比定位串就判不出是哪一行漂了。
+			"aliyun endpoint 漏配（空值拼出非法 host，日志静默消失）",
+			&bootstrapv1.Logger_Backend{Type: "aliyun", Aliyun: &bootstrapv1.Logger_Aliyun{Project: "proj", Logstore: "store", AccessKey: "ak", AccessSecret: "sk"}},
+			"backends[0].aliyun.endpoint must not be empty",
+		},
+		{
+			"aliyun logstore 漏配（空值得到 /logstores/ 空路径）",
+			&bootstrapv1.Logger_Backend{Type: "aliyun", Aliyun: &bootstrapv1.Logger_Aliyun{Endpoint: "https://cn-hangzhou.log.aliyuncs.com", Project: "proj", AccessKey: "ak", AccessSecret: "sk"}},
+			"backends[0].aliyun.logstore must not be empty",
+		},
+		{
+			"aliyun project 漏配（project 进 host 前缀，空值得到非法落点）",
+			&bootstrapv1.Logger_Backend{Type: "aliyun", Aliyun: &bootstrapv1.Logger_Aliyun{Endpoint: "https://cn-hangzhou.log.aliyuncs.com", Logstore: "store", AccessKey: "ak", AccessSecret: "sk"}},
 			"backends[0].aliyun.project",
+		},
+		{
+			"aliyun endpoint 无 scheme（SDK 默认走明文，签名与正文一起裸奔）",
+			&bootstrapv1.Logger_Backend{Type: "aliyun", Aliyun: &bootstrapv1.Logger_Aliyun{Endpoint: "cn-hangzhou.log.aliyuncs.com", Project: "proj", Logstore: "store", AccessKey: "ak", AccessSecret: "sk"}},
+			"backends[0].aliyun.endpoint",
+		},
+		{
+			"aliyun access_key 漏配（producer 无 env 凭证链，空 AK 签名主体缺失）",
+			&bootstrapv1.Logger_Backend{Type: "aliyun", Aliyun: &bootstrapv1.Logger_Aliyun{Endpoint: "https://cn-hangzhou.log.aliyuncs.com", Project: "proj", Logstore: "store", AccessSecret: "sk"}},
+			"backends[0].aliyun.access_key",
+		},
+		{
+			"aliyun access_secret 漏配（空密钥签出的请求必被服务端拒）",
+			&bootstrapv1.Logger_Backend{Type: "aliyun", Aliyun: &bootstrapv1.Logger_Aliyun{Endpoint: "https://cn-hangzhou.log.aliyuncs.com", Project: "proj", Logstore: "store", AccessKey: "ak"}},
+			"backends[0].aliyun.access_secret",
 		},
 		{
 			"tencent topic_id 漏配",

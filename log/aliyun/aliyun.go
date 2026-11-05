@@ -102,17 +102,45 @@ func (a *aliyunLog) post(ctx context.Context, level, msg string, keyvals []any) 
 }
 
 // NewAliyunLogger 创建 Aliyun SLS 日志记录器。
+//
+// endpoint/project/logstore/access_key/access_secret 五项必须显式给出，且 endpoint
+// 必须自带 scheme。这五项留空都能「构造成功」并一路走到运行期才失败：bald 不消费
+// producer 的失败信号（见 post 里被丢弃的 SendLog 错误），唯一的痕迹是 SDK 自己
+// 打到 stderr 的运行期日志——启动期不挡，运维通常要等到去 SLS 控制台查不到日志
+// 才发现。逐项后果：
+//   - endpoint 为空：SDK 把 host 拼成 "<project>."（project 前缀机制见下），
+//     域名不成立，请求发不出去；
+//   - endpoint 不带 scheme：SDK 只在值以 https:// 开头时才用 TLS，裸 host 走明文
+//     HTTP——Authorization 里的 HMAC 签名与日志正文一起不上 TLS；这个默认还受
+//     SDK 的进程级变量 GlobalForceUsingHTTP 影响，bald 不该把传输安全交给它。
+//     显式写 http:// 仍然放行（内网/代理端点是合法选择），只是要运维自己写出来。
+//   - project 与 logstore 决定落点：实测 URL 形如
+//     "<scheme>://<project>.<endpoint host>/logstores/<logstore>"。project 留空
+//     得到一个以点开头的非法 host，logstore 留空得到 "/logstores/"。这两项若靠
+//     默认值兜底等于凭空捏造一个目标——所以 defaultOptions 刻意不留占位值。
+//   - access_key/access_secret 为空：producer 侧没有任何环境变量凭证链——SDK 的
+//     createClient 只认 CredentialsProvider、UpdateStsToken 回调与两个 plain 字段，
+//     最后兜底仍是静态空凭证（此前这里的注释与 bconf 的校验都按「SDK env 凭证链」
+//     放行空值，那条通道在本路径不存在）。空 AK 在假线上实测得到
+//     "Authorization: LOG :<sig>"（签名主体无身份）；空 SK 用空密钥做 HMAC-SHA1，
+//     形状合法但服务端必然判 401。security_token 不校验：长期 AK/SK 下留空是正常
+//     配置。
 func NewAliyunLogger(options ...Option) (Logger, error) {
 	opts := defaultOptions()
 	for _, o := range options {
 		o(opts)
 	}
 
+	if err := validateRequiredOptions(opts); err != nil {
+		return nil, err
+	}
+
 	producerConfig := producer.GetDefaultProducerConfig()
 	producerConfig.Endpoint = opts.endpoint
 
-	//producerConfig.AccessKeyID = opts.accessKey
-	//producerConfig.AccessKeySecret = opts.accessSecret
+	// 凭证走 CredentialsProvider：SDK 的 producer 只有这一条与「AccessKeyID/Secret
+	// 两个 plain 字段」等价的通道（createClient 末尾的兜底同样是静态凭证），
+	// 用 provider 是为了把 security_token 一起带进去。
 	producerConfig.CredentialsProvider = sls.NewStaticCredentialsProvider(opts.accessKey, opts.accessSecret, opts.securityToken)
 
 	producerInst, err := producer.NewProducer(producerConfig)

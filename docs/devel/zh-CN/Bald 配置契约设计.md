@@ -170,7 +170,8 @@ bconf.Validate(cfg)  // app.id/name 非空、addr 为合法 :port 或 ip:port、
 - **charm**：level（debug|info|warn|error）与 format（json|text）值域——contract 对未知值**静默回退默认**（"fatal" 落 info、"console" 落 text），值域校验把静默错配变启动报错；output_path 空串放行（contract 明确空值与 "stderr" 等价，非漏配）；
 - **loki**：endpoint 必填（contract 同款 required 前移到契约层，错误更早）；batch_size/flush_interval 非负（contract 仅 >0 生效，负数会静默用默认）；
 - **sentry**：dsn 必填（同 loki 前移）；格式不校——Sentry SDK 构造期的解析错误更专业，留在装配层；
-- **aliyun/tencent**：连接目标必填（endpoint/project/logstore 与 endpoint/topic_id）——空值静默发往 options 层占位默认（"projectName"/"app"）或 deferred 到 send 期、且 SendLog 错误被丢弃；**凭证一律不校验非空**——SDK 环境变量凭证链（ALIBABA_CLOUD_ACCESS_KEY_ID 等）是合法配置路径。
+- **aliyun**：落点三项（endpoint 必填**且必须自带 `https://`/`http://`**、project、logstore）+ 凭证两项（access_key、access_secret）全部必填，security_token 可留空（长期 AK/SK 下的正常配置）。两条曾经的旧口径已在 §7.25 被实测推翻并改掉：① options 层曾给 project/logstore 造占位默认（`"projectName"`/`"app"`），漏配因此读起来像配好了——占位默认已删；② 凭证曾按「SDK 环境变量凭证链」放行空值，而 SLS producer 的 `createClient` 只认 `CredentialsProvider`、`UpdateStsToken` 回调与两个 plain 字段，兜底仍是静态空凭证，**这条路径上不存在 env 凭证链**。裸 host 也不放行：SDK 只在值以 `https://` 开头时才上 TLS，其余走明文，且那个默认还受进程级 `GlobalForceUsingHTTP` 影响——传输安全不该交给三方默认。根因同一件事：bald 不消费 producer 的 `SendLog` 错误，构造期不挡就只剩 SDK 打在 stderr 的运行期痕迹。
+- **tencent**：endpoint/topic_id 必填。凭证两项**暂不校验**：CLS SDK 的凭证链是否覆盖本适配器的发送路径还没实测（登记册 §7.26，待取证后按 aliyun 的姿势收口）；这里不沿用 aliyun 那条已被证伪的说法。
 
 两个校验语义的边界裁定：
 

@@ -6,6 +6,7 @@ require (
 	github.com/aliyun/aliyun-log-go-sdk v0.1.131
 	github.com/kalandramo/bald/bconf v0.19.0
 	github.com/kalandramo/bald/log v0.5.4
+	github.com/pierrec/lz4/v4 v4.1.22
 	google.golang.org/protobuf v1.36.12
 )
 
@@ -17,7 +18,6 @@ require (
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/klauspost/compress v1.17.9 // indirect
-	github.com/pierrec/lz4/v4 v4.1.22 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/stretchr/testify v1.9.0 // indirect
 	go.uber.org/atomic v1.11.0 // indirect

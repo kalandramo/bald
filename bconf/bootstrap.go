@@ -2,6 +2,7 @@ package bconf
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
@@ -262,16 +263,22 @@ func validateSentrySection(s *bootstrapv1.Logger_Sentry, prefix string) error {
 	return nil
 }
 
-// validateAliyunSection 校验后端声明项的 aliyun 段规则：连接目标必填，
-// 凭证不校验。
+// validateAliyunSection 校验后端声明项的 aliyun 段规则：落点三项 + 凭证两项必填，
+// endpoint 必须自带 scheme。
 //
-// endpoint/project/logstore 空值会静默发往 options 层占位默认
-// （"projectName"/"app"），且 SendLog 的错误被丢弃——静默丢日志，必须在
-// 启动期挡下。access_key/access_secret/security_token 不校验非空：SDK
-// 环境变量凭证链（ALIBABA_CLOUD_ACCESS_KEY_ID 等）是合法配置路径。
+// 这五项在适配器层是同一套必给项（log/aliyun 的 validateRequiredOptions 逐条
+// 说明后果），这里的价值在于定位到 backends[i].aliyun.<字段>——装配期报错只说
+// 「哪一项有问题」，契约校验层报错能说「配置文件的哪一项」。凭证之所以在必给之列：
+// producer 侧不存在环境变量凭证链（SDK 的 createClient 只认 CredentialsProvider、
+// UpdateStsToken 回调与两个 plain 字段，兜底也是静态空凭证），留空只能得到
+// 「签名合法但服务端 401」的静默丢日志。security_token 不校验：长期 AK/SK 下
+// 留空是正常配置。
 func validateAliyunSection(s *bootstrapv1.Logger_Aliyun, prefix string) error {
 	if s.GetEndpoint() == "" {
 		return fmt.Errorf("%s.endpoint must not be empty", prefix)
+	}
+	if !hasEndpointScheme(s.GetEndpoint()) {
+		return fmt.Errorf("%s.endpoint %s must start with https:// or http:// (a scheme-less endpoint goes to plaintext HTTP, see log/aliyun)", prefix, s.GetEndpoint())
 	}
 	if s.GetProject() == "" {
 		return fmt.Errorf("%s.project must not be empty", prefix)
@@ -279,12 +286,27 @@ func validateAliyunSection(s *bootstrapv1.Logger_Aliyun, prefix string) error {
 	if s.GetLogstore() == "" {
 		return fmt.Errorf("%s.logstore must not be empty", prefix)
 	}
+	if s.GetAccessKey() == "" {
+		return fmt.Errorf("%s.access_key must not be empty (the SLS producer has no credential chain to fall back on)", prefix)
+	}
+	if s.GetAccessSecret() == "" {
+		return fmt.Errorf("%s.access_secret must not be empty (an empty secret signs with an empty key; the service rejects every request)", prefix)
+	}
 	return nil
 }
 
-// validateTencentSection 校验后端声明项的 tencent 段规则：endpoint /
-// topic_id 必填——无默认，空值 deferred 到 send 期且错误同样被丢弃；
-// 凭证不校验（同 aliyun，SDK 环境变量凭证链是合法路径）。
+// hasEndpointScheme 报告端点是否显式带 http(s):// 前缀。裸 host 的传输方式由
+// SDK 的默认（含进程级 GlobalForceUsingHTTP）决定，配置里必须写清楚。
+func hasEndpointScheme(endpoint string) bool {
+	return strings.HasPrefix(endpoint, "https://") || strings.HasPrefix(endpoint, "http://")
+}
+
+// validateTencentSection 校验后端声明项的 tencent 段规则：endpoint / topic_id
+// 必填——无默认，空值 deferred 到 send 期且错误同样被丢弃。
+//
+// 凭证暂不校验：腾讯云 CLS SDK 的凭证链是否覆盖本适配器的发送路径还没实测
+// （登记册 §7.26）；aliyun 那条「env 凭证链」的说法已在 §7.25 被 producer 代码
+// 证伪，不能顺手当成这里的依据。
 func validateTencentSection(s *bootstrapv1.Logger_Tencent, prefix string) error {
 	if s.GetEndpoint() == "" {
 		return fmt.Errorf("%s.endpoint must not be empty", prefix)

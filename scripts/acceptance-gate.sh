@@ -86,6 +86,18 @@ esac
 # 改原子）的确定性腿：它判「级别仍然生效，而且生效在被注入的那一个对象上」，不需要 -race
 # 就判得动；同包另一条 TestLoggerConcurrent 只有 -race 才判得动，而本模块因上游 `close`
 # 竞争在 .github/race-skip.txt 里，把它写进本表只会得到一条永不判红的腿。
+# log/aliyun 那两条（§7.25）的离线桩也是进程内的：SDK 的 producer 把每条日志 POST 到
+# `<scheme>://<project>.<endpoint host>/logstores/<logstore>`，而它的 Transport 是
+# http.DefaultTransport 的 Clone()，换掉进程默认值就能把任意 project 域名拨到本机监听——
+# 签名（V1 HMAC-SHA1）、LZ4 块压缩与 URL 拼装全走 SDK 真码，只有名字解析被改道。六行因此
+# 全部离线可读：endpoint 读「拨到假线端口 + scheme 决定首包是 HTTP 请求行还是 TLS 记录」，
+# project/logstore 读 host 前缀与 path，access_key 读 Authorization 的签名主体，
+# access_secret 由测试独立复算 V1 签名判定（另配一条错密钥对照保证判据有分辨力），
+# security_token 读 x-acs-security-token（留空则该头缺席）。`./contract TestMappingOffline_`
+# 是本包主腿；`./ TestNewAliyunLogger_Rejects...|TestDefaultOptions...` 那一条点名五项必给
+# 的构造期 fail-fast 与「options 层不许有占位默认」这条不变量——两者都是本轮的生产改动，
+# 静默失效时最容易被读成「配置照旧能跑」。本模块在 .github/race-skip.txt 里（上游
+# ProducerMonitor.wg 竞争），但这两条腿不依赖 -race，写进本表有意义。
 rows() {
   printf '%s\n' \
     $'ci\tpkg\t./appkit\tTestPlan_(NoSideEffects|OrderInvariant|SegmentCoverage|Conflict|DomainRoutes|CustomRoutesWarning)|TestRouteShapeConflict\t' \
@@ -103,6 +115,8 @@ rows() {
     $'ci\tcontrib/database/mongodb\t./contract\tTestMappingOffline_\t' \
     $'ci\tbroker/rocketmq\t./contract\tTestMappingOffline_\t' \
     $'ci\tbroker/rocketmq\t./v2\tTestLoggerLevelReachesInjectedLogger\t' \
+    $'ci\tlog/aliyun\t./contract\tTestMappingOffline_\t' \
+    $'ci\tlog/aliyun\t.\tTestNewAliyunLogger_RejectsIncompleteOptions|TestDefaultOptionsHasNoPlaceholderTarget\t' \
     $'ci\tbconf\t.\tTestUnmarshalNestedBackoffSection|TestUnmarshalAbsentBackoffStaysNil|TestUnmarshalDurationSpellings|TestCoerceDurationFormat\t' \
     $'no\tbconf\t.\tTestGeneratedMatchesProto\t' \
     $'no\t_example/bald\t./internal/bootstrap\tTestPlan_ReferenceProject\t' \

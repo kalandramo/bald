@@ -8,10 +8,24 @@
 # 每条排除都必须写清「为什么不能进 race」，且理由只能是 race detector 之外无法
 # 解决的东西（上游库自带竞争、平台无 cgo 等）。bald 自己的竞争要修，不进这里。
 
-# 上游 aliyun-log-go-sdk v0.1.131（已核实为当时最新版）的 producer 生命周期自带
-# 数据竞争：Start() 里 go monitor.reportThread()（producer.go:308）与 Close() 里
-# monitor.Stop()（producer.go:314）对同一字段无同步。bald 的 Close 只是转调
-# producer.Close()，规避它得先关掉运行期指标上报（删能力），故按排除处理。
+# 上游 aliyun-log-go-sdk v0.1.131 的 producer 生命周期自带数据竞争，竞争字段是
+# ProducerMonitor.wg（sync.WaitGroup 内部 state）：Start() 用 `go monitor.reportThread()`
+# 起上报线程（producer/producer.go:308），而 reportThread 的**第一行**才是
+# `m.wg.Add(1)`（producer/monitor.go:88）；Close() 进门第一件事是 monitor.Stop()
+# （producer/producer.go:314 → monitor.go:41 的 `m.wg.Wait()`）。Add 发生在被起的
+# goroutine 里、与 Wait 并发，是 SDK 自己的 WaitGroup 用法错误——任何诚实的
+# 「Start 一次 + Close 一次」都会踩，与 bald 怎么调无关。
+#
+# bald 侧没有可修点：只能转调 producer.Start()/Close()，插不进 SDK 内部把 Add 挪到
+# Start 之前。唯一的规避是 producerConfig.DisableRuntimeMetrics=true，那是把运行期
+# 指标上报能力整个删掉——按「能力不删除」不接受，故按排除处理。
+#
+# 实测（本机，§7.25 闸门落地后，两个包各一轮完整 -race）：
+#   ./log/aliyun            1 块（写 :314 / 读 :308；报告里的 bald 帧 aliyun.go:36
+#                           是 Close 的调用路径，不是竞争访问本身）
+#   ./log/aliyun/contract   1 块（同一对；bald 帧 contract.go:52 是 cleanup 的调用路径）
+# 假线自身的同步（http.DefaultTransport 换装、wire 收集器）在 -race 下没有额外块。
+# 排除只挡住这一对；有人把 bald 侧竞争引进来时，块数会超过 1+1，那时该修的是 bald。
 ./log/aliyun
 
 # 上游 rocketmq-client-go v2.1.2 的 rmqClient `close bool` 自带数据竞争，且落在

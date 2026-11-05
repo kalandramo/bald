@@ -133,7 +133,7 @@ logger:
 | Sentry | `sentry` | `log/sentry` | **dsn 必填**；environment；release；server_name | Flush 事件队列 |
 | Charmbracelet | `charm` | `log/charm` | level（默认 info）；format（text/json，默认 text）；output_path（默认 stderr） | 文件输出时关文件 |
 | 腾讯云 CLS | `tencent` | `log/tencent` | endpoint；topic_id；access_key；access_secret | 冲刷并关闭 producer |
-| 阿里云 SLS | `aliyun` | `log/aliyun` | endpoint；project；logstore；access_key；access_secret；security_token | 冲刷并关闭 producer |
+| 阿里云 SLS | `aliyun` | `log/aliyun` | **endpoint 必填且必须自带 `https://`/`http://`**；**project、logstore、access_key、access_secret 同必填**；security_token 可留空（长期 AK/SK 下的正常配置） | 冲刷并关闭 producer |
 
 yaml 项示例（各后端段名与 type 同名，逐个替换即可）：
 
@@ -151,15 +151,16 @@ logger:                            # Charm：开发终端美化输出
     - type: charm
       charm: { level: debug, format: text, output_path: stderr }
 ---
-logger:                            # 阿里云 SLS（腾讯云 CLS 同形）
+logger:                            # 阿里云 SLS（腾讯云 CLS 字段名同形，必填规则见上表）
   backends:
     - type: aliyun
       aliyun:
-        endpoint: cn-hangzhou.log.aliyuncs.com
+        endpoint: https://cn-hangzhou.log.aliyuncs.com   # scheme 必写：裸 host 走明文 HTTP
         project: my-project
         logstore: app-log
-        access_key: ...            # 云凭据建议经环境变量注入，不落明文 yaml
+        access_key: ...            # 必给；经 env 覆盖注入即可，不落明文 yaml（见 §6）
         access_secret: ...
+        # security_token: 留空即可（长期 AK/SK）；STS 临时凭证才填
 ```
 
 ## 3. 多后端广播：本地 + 远程双写
@@ -210,6 +211,18 @@ log/loki/contract: endpoint is required
 装配 fail-fast；热更新路径改坏则试装载/校验失败直接丢弃本次变更、重建失败
 仅记错误日志——两种情况旧 logger 都继续服役，进程不退。
 
+**aliyun 落点/凭证缺配**（endpoint 无 scheme、project/logstore/凭证留空）：
+
+```text
+log/aliyun: endpoint "cn-hangzhou.log.aliyuncs.com" must start with https:// or http:// (a
+  scheme-less endpoint goes to plaintext HTTP by the SDK's default)
+```
+
+契约层先挡（`Validate` 报 `backends[i].aliyun.<字段> must not be empty`），适配器层
+再挡一次（上面那条），两处都是构造期即失败。这五项留空在改前**能构造成功**：
+producer 不校验、`SendLog` 的错误又被丢弃，唯一的痕迹是 SDK 自己打到 stderr 的行
+——运维通常要等到去 SLS 控制台查不到日志才发现，所以现在按必给项处理。
+
 ## 5. 自定义后端
 
 后端构造函数的签名与内置 contract 部件完全相同：
@@ -241,7 +254,10 @@ case "mylog":
 - **`filter_keys` 是顶层字段**，与后端清单正交，对全部后端统一生效（出口统一包
   `NewFilterLogger`）。
 - **云凭据（access_key/dsn 等）建议经环境变量注入**：配置源 flag > env > yaml
-  的优先级天然支持凭据与代码仓库分离。
+  的优先级天然支持凭据与代码仓库分离。注意注入的是**契约字段的值**——SLS/CLS 的
+  SDK 在自己那条发送路径上不读云厂商的环境变量凭证链（aliyun producer 只认
+  `CredentialsProvider` 与两个 plain 字段，兜底也是静态空凭证），所以
+  `access_key`/`access_secret` 留空不会被「自动补上」，而是启动期 fail-fast。
 - 停机顺序：cleanup 按构造序正放；热切换后端时旧钩子同步兑现，带缓冲后端
   （loki 尾批）不丢日志。
 - **未实现的后端不占契约**：zap/zerolog 等曾是预留段，现已从契约删除——
