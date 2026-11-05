@@ -4,6 +4,24 @@
 条目取自该版本区间内的提交标题（Conventional Commits），不要手工调整顺序。
 发布流程见 [多模块发布与变更日志](docs/devel/zh-CN/多模块发布与变更日志.md)。
 
+## 2026-11-05
+
+### registry/consul v0.1.6
+
+- `c6bae5f2` test(consul): 映射层十行的运行期闸门——进程内假 agent 读回契约值（§7.18）
+- `97903e9c` fix(consul): 契约 health_check_timeout 落到检查体，不再误接发现截止期
+- `a2c6e431` chore: 发布 4 个模块（bconf v0.19.0、registry/etcd v0.4.0、broker/kafka v0.2.4、transport/kafka v0.2.1）
+- `8d277c47` chore: 发布 20 个模块（含根 v0.38.0）
+- `4c07bac2` test(registry/consul): 真机集成腿进 integration 作业，补 consul 独有语义
+- `6f9a3104` chore: 发布 3 个模块（bald v0.37.2、cli v0.1.1、pkg v0.2.2）
+- `d4396185` chore: 发布 3 个模块（bald v0.37.1、cli v0.1.0、pkg v0.2.1）
+- `63f2cecf` chore: 发布 5 个模块（bconf v0.17.0、berrors v0.1.2、bootstrap v0.13.6、pkg v0.2.0、根 v0.37.0）
+
+### registry/etcd v0.4.1
+
+- `273947ed` test(etcd): 契约段的七行映射各自接上运行期判据
+- `59273672` fix(etcd): 断链重注册的三支失败路径都按退避等待，不再只等其中一支
+
 ## 2026-11-04
 
 ### bconf v0.19.0

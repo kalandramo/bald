@@ -16,7 +16,7 @@ require (
 	github.com/kalandramo/bald/log v0.5.4
 	github.com/kalandramo/bald/pkg v0.3.0
 	github.com/kalandramo/bald/registry v0.4.0
-	github.com/kalandramo/bald/registry/etcd v0.4.0
+	github.com/kalandramo/bald/registry/etcd v0.4.1
 	github.com/kalandramo/bald/registry/nacos v0.3.3
 	github.com/kalandramo/bald/transport/gateway v0.5.1
 	github.com/kalandramo/bald/transport/web v0.2.0
