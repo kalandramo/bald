@@ -312,19 +312,27 @@ err := r.Do(ctx, func(ctx context.Context) error {
 
 **契约变更的涟漪**（本批实测）：`registry/etcd` 与 `broker/kafka` 因为新 require `retry`，把反向依赖推给了 `transport/kafka` 与 `_example/bald`——两处 `go.mod` 缺 `// indirect` 行、`go.sum` 缺条目，CI 的 `test`/`example` 作业直接判红。修法是逐模块 `go mod tidy`，判据本身不动；改完 `find . -name go.mod` 全量 `go mod tidy -diff` 复扫归零。
 
-**证据链（三层，各测一件事）**：
+**证据链（四层，各测一件事）**：
 
 | 层 | 判据 | 钉住的东西 |
 |---|---|---|
 | `bconf` 解码 | `TestUnmarshalNestedBackoffSection`、`TestUnmarshalAbsentBackoffStaysNil`、`TestUnmarshalDurationSpellings` | 契约段**写得进**：三层嵌套 + 嵌套里的 `Duration` WKT + 两个枚举名；缺席必须是 nil；`10s`/`1.5s`/`1500ms`/`1m30s` 四种写法落进同一个值 |
 | `registry/etcd/contract` 桥 | `backoff_test.go` 7 条（缺席、三曲线、抖动映射、非法形状表、Provider fail-fast） | 段**翻得对**，且坏段在建连之前拦下 |
-| `registry/etcd` 策略 | `retreat_test.go` 4 条 + `retreat_policy_test.go` 2 条 | 默认曲线与 `retreatDelay` 逐点相同（防两条路长成两样）、`WithRetreat` 的两半各自独立覆盖 |
+| `registry/etcd` 策略 | `retreat_test.go` 4 条 + `retreat_policy_test.go` 2 条 + `heartbeat_retreat_test.go` 2 条 | 默认曲线与 `retreatDelay` 逐点相同（防两条路长成两样）、`WithRetreat` 的两半各自独立覆盖、**每次失败之间真的等了**（不等就落回 §「契约曲线」末尾那条缺陷） |
+| `registry/etcd/contract` 运行期 | `mapping_runtime_test.go` 3 条 | 段**投递得到**：契约值出现在打到后端的那次调用里——`Put` 的 key、`Grant` 的 TTL、`Authenticate` 的 name/password、断链后的尝试**次数**与尝试之间的**间隔** |
 
-这三层各有对应的一条验收腿在 `scripts/acceptance-gate.sh` 的 `scope=ci` 表里（`registry/etcd` 根包、`registry/etcd/contract`、`bconf`），由 `acceptance` 作业逐条断真 `--- PASS`，所以它们不是「本机跑过就算过」。副作用也如实记：`registry/etcd` 根包进了表之后，docscheck 的归属闸门（`TestAcceptanceTableCoversShortSkippedTests`）把这个包里**既有**的四条 `-short` 跳过用例照了出来——它们一直每天在 `integration` 作业里跑，但没被断言。修法是把四条名字加进那条作业的 `EXPECTED`（etcd 那组三条变七条），既不是撤腿也不是写豁免；反向实测（地址指向死端口）套件 `exit=0` 而 7 条 SKIP，断言步 `exit=1` 逐条点名。细节记在风险评审 §7.1 的「etcd 四条 `-short` 判据」补条与 §7.14。
+这四层落在三条验收腿里（`registry/etcd` 根包、`registry/etcd/contract`、`bconf`，见 `scripts/acceptance-gate.sh` 的 `scope=ci` 表——「桥」与「运行期」共用 `contract` 那一条，正则把两批用例一起点名），由 `acceptance` 作业逐条断真 `--- PASS`，所以它们不是「本机跑过就算过」。副作用也如实记：`registry/etcd` 根包进了表之后，docscheck 的归属闸门（`TestAcceptanceTableCoversShortSkippedTests`）把这个包里**既有**的四条 `-short` 跳过用例照了出来——它们一直每天在 `integration` 作业里跑，但没被断言。修法是把四条名字加进那条作业的 `EXPECTED`（etcd 那组三条变七条），既不是撤腿也不是写豁免；反向实测（地址指向死端口）套件 `exit=0` 而 7 条 SKIP，断言步 `exit=1` 逐条点名。细节记在风险评审 §7.1 的「etcd 四条 `-short` 判据」补条与 §7.14。
 
 顺带修掉一个**既有产品缺陷**（不止影响新字段）：`bconf` 的 `coerceDuration` 字符串分支原先「只校验合法、不重排格式」，于是 `1500ms`、`5m` 这类合法的 Go duration 写法会被 protojson 拒掉（`invalid google.protobuf.Duration value "1500ms"`）。所有走契约的 `Duration` 字段都受影响，`app.stop_timeout` 是同一条路径上的先例。修法是解析后再 `formatDuration` 输出十进制秒串，`TestUnmarshalDurationSpellings` 把四种写法钉住。
 
-**未闭合的一格（如实记账）**：`Provider` 里把退避段接进 options 的那一行（`opts = append(opts, etcd.WithRetreat(b, j))`）**没有单元判据**。变异验活确认它是**存活变异**——删掉这一行，`registry/etcd/contract` 全部测试仍绿。这一格和契约映射的其它每一行（`endpoints` / `prefix` / `ttl` / `max_retry`）处境相同：能观测到效果的位置要么需要真实 etcd（本仓的 `contract_test.go` 在 etcd 不可达时 `Skip`，`-short` 下也 `Skip`；`integration` 作业带着真 etcd 跑它们，但那里逐条断言的七条 etcd 判据判的是「构造出可用 Registrar」这类既有语义，没有一条会因为删掉这行 `append` 而转红），要么需要给 `Registry` 加只读 accessor 把内部选项暴露出来——后者是为了测试方便污染公开 API，不做。要收这一格，得在 integration 作业里造断链窗口测重注册节奏，属后续批次。
+**装配那一格已闭合（2026-11-05），并且它是靠换观测方向闭合的**：`Provider` 里把契约段接进 options 的那七行 `append` 原先**没有判据**——变异验活确认删掉 `opts = append(opts, etcd.WithRetreat(b, j))` 后 `registry/etcd/contract` 全部测试仍绿（一条**存活变异**）。当时的判断是「要么需要真实 etcd，要么需要给 `Registry` 加只读 accessor 污染公开 API」，两个都不接受，于是把它挂成后续批次。实际收口既没等真 etcd 也没加 accessor：`mapping_runtime_test.go` 在测试进程里起一个假 etcd gRPC 服务（只实现 `LeaseGrant`/`Put`/`LeaseKeepAlive`/`Authenticate`，其余由 `Unimplemented*Server` 兜住），再让 `LeaseKeepAlive` 响应 `TTL=0` —— clientv3 见 TTL≤0 就关闭用户续约通道（`client/v3/lease.go` 的 handleResponse），于是**断链成了确定事件**，而重注册尝试的次数与到达时刻都由服务端记录。七行字段各有落点：`endpoints`（不接则 `etcd.New` 直接报错）、`prefix`（`Put` 的 key）、`ttl`（`Grant` 的 TTL）、`username`+`password`（`Authenticate` 的请求体）、`max_retry`（断链后恰好几次 `Grant`）、`backoff`（相邻两次 `Grant` 的间隔）。十条变异逐条判红，明细见风险评审 §7.14。
+
+两条口径值得单独记住，因为它们都是**判据设计**的错，不是阈值的错：
+
+- **判「次数」要求把所有可能的尝试都装进观测窗口。** 第一版把「断链后恰好 3 次」写在退避那条腿里，而那条腿是 FIXED 2s——默认 maxRetry=5 的第 4、5 次排在 6s 与 8s，落在 1.2s 收尾窗口之外，于是「契约 3 次」和「默认 5 次」在窗口里同形，`WithMaxRetry` 那行的变异**判绿**。换成 fast 退避（FIXED 50ms）的独立用例后，5 次全在 ~200ms 内抵达，窗口 1.5s，同一条变异才交出「观测到 5 次, want 恰好 2」。
+- **`username`/`password` 只能合并判。** clientv3 的 `getToken` 在两者任一为空时直接返回，不发 `Authenticate`（`client/v3/client.go`），所以任一行缺失的表征都是「零条」，分不出缺哪一行——错误文案照这个事实写，不假装能定位。
+
+还有一条是**行为面**的，写这层判据时才露出来：退避 spy 在一整轮断链里交出 `attempts=[]`——`heartBeat` 的三支失败里只有「重注册成功但 `KeepAlive` 建流失败」那支等退避，另外两支直接进下一次；而实测对不可达端点一次尝试要 18.994s 才失败（clientv3 不快速失败），所以「被 3s 上限掐掉」才是常态路径。也就是说契约字段写得再对，管的也是一条几乎走不到的分支。已修：每次失败之间都等，末次尝试之后不再等（后面没有下一次了）。两处判据与变异记风险评审 §7.17。
 
 ### 验证
 
@@ -335,7 +343,10 @@ cd retry && go test -race ./...      # 并发边界（需 cgo）
 # 消费侧的退避判据（注入 rng，确定性断边界，不碰墙钟）
 cd broker/kafka && go test -count=1 -run 'TestBackoffDuration' .
 cd registry/etcd && go test -count=1 -run 'TestRetreatDelay|TestRetreatPolicy' .
-cd registry/etcd && go test -count=1 -run 'TestRetreat|TestProvider_BackoffSection' ./contract
+
+# 下面两把要碰墙钟（各约 2s / 6s），因为判的是「真的等了」与「字段抵达了那次调用」
+cd registry/etcd && go test -count=1 -run 'TestHeartBeatRetreat' .
+cd registry/etcd && go test -count=1 -run 'TestRetreat|TestProvider_BackoffSection|TestProvider_ContractSections|TestProvider_MaxRetrySection|TestProvider_AuthSection' ./contract
 
 # 契约段的解码判据
 cd bconf && go test -count=1 -run 'TestUnmarshal' .
