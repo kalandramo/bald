@@ -150,6 +150,10 @@ esac
 # appkit.Serve → 段命中 AppProvider → 构造 → Start → 线上往返，外加反证「段名写成
 # server.tpc 时 Serve 必须失败」。入口只能是 Serve 不是 NewApp+Run——assemble 只挂在
 # Serve 上，NewApp+Run 会跳过整个段驱动装配（一声不响地把 Provider 丢在计划外）。
+# 同一前缀下还有 §7.27 收尾的两条 instrumentation 取用腿（InstrumentationSegment
+# ReachesScrapeEndpoint / MetricsSegmentAbsentFailsServe）：段产物经域 Wire 递到
+# after-build，真帧计数出现在独立 metricshttp 监听面上；反证腿判段缺席时消费侧就失败。
+# 它们不改本行的 -run（前缀相同），但让这行的判据数从「工厂形状」扩到「取用链路」。
 # websocket/http3 的 AppProvider 五条骨架腿（Segments/Apply/Plan/Build/缺席语义）由
 # CI 的 test 作业整包跑，不进本表——它们没有时序窗口，重复点名只会得到两条同证据的腿。
 # transport/{graphql,webrtc,mcp}/contract 三条腿（§7.28 方向二·第二批）同判「契约有段、

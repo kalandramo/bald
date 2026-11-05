@@ -187,6 +187,14 @@ appkit.MustServe(ctx,
 （`srv` 是业务自有的变量——把埋点实例交给哪个 transport、什么时候交，本来就是
 业务侧的构造时序；这里只演示「从资源面取类型化实例」这一步。）
 
+这条链在真进程里判过：`transport/tcp/contract` 的
+`TestAppProviderEndToEnd_InstrumentationSegmentReachesScrapeEndpoint` 起一个契约
+`server.tcp` + `instrumentation.prometheus` 的应用，用 `WithAfterBuild` 把段产物交给
+`tcp.WithMetrics`（服务器由契约工厂构造，不再是业务自己 `NewServer`），发三帧后在
+独立的 `metricshttp` 监听面上抓到 `e2em_tcp_messages_total{status="ok"} 3`。反证腿
+`TestAppProviderEndToEnd_MetricsSegmentAbsentFailsServe` 判段缺席时 `Serve` 立即失败并
+点名 `instrumentation.prometheus`。
+
 三个包路径与句柄一一对应：`metrics/prometheus/contract` → `contract.Prometheus`、
 `metrics/otel/contract` → `contract.Otlp`、`metrics/datadog/contract` →
 `contract.Datadog`。句柄是**具体类型**（`*prometheus.Provider` 等），既满足

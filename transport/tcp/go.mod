@@ -16,8 +16,10 @@ require (
 	github.com/kalandramo/bald/bconf v0.19.0
 	github.com/kalandramo/bald/encoding v0.1.0
 	github.com/kalandramo/bald/metrics v0.1.2
+	github.com/kalandramo/bald/metrics/prometheus v0.0.0-00010101000000-000000000000
 	github.com/kalandramo/bald/pkg v0.3.0
 	github.com/kalandramo/bald/transport v0.4.0
+	github.com/prometheus/client_golang v1.23.2
 	github.com/spf13/pflag v1.0.10
 	go.opentelemetry.io/otel v1.46.0
 	go.opentelemetry.io/otel/trace v1.46.0
@@ -121,7 +123,6 @@ require (
 	github.com/orcaman/concurrent-map v0.0.0-20210501183033-44dafcb38ecc // indirect
 	github.com/pelletier/go-toml v1.9.3 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
-	github.com/prometheus/client_golang v1.23.2 // indirect
 	github.com/prometheus/client_model v0.6.2 // indirect
 	github.com/prometheus/common v0.67.5 // indirect
 	github.com/prometheus/procfs v0.16.1 // indirect
@@ -176,3 +177,5 @@ require (
 replace github.com/kalandramo/bald/pkg => ../../pkg
 
 replace github.com/kalandramo/bald/bconf => ../../bconf
+
+replace github.com/kalandramo/bald/metrics/prometheus => ../../metrics/prometheus
