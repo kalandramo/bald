@@ -243,8 +243,12 @@ func (r *Registry) registerWithKV(ctx context.Context, key string, value string)
 }
 
 // heartBeat 循环消费 KeepAlive 响应；断链后重试重注册，次数上限 maxRetry、
-// 每次之间的等待见 [retreatPolicy.delay]（默认 1s 起翻倍、截到
+// 每次**失败**之间的等待见 [retreatPolicy.delay]（默认 1s 起翻倍、截到
 // defaultRetreatMax、叠 FullJitter；契约 registry.etcd.backoff 可改写曲线与抖动）。
+//
+// 「失败」包含三种：单次尝试被 3s 上限掐掉、尝试自己返回错误、重注册成功但
+// KeepAlive 建流失败。三种都必须等——被上限掐掉正是后端不可达时的常态，
+// 若只在最后一种等待，退避等于没接上。末次尝试失败不再等待（后面没有下一次）。
 func (r *Registry) heartBeat(ctx context.Context, leaseID clientv3.LeaseID, key string, value string) {
 	curLeaseID := leaseID
 	kac, err := r.client.KeepAlive(ctx, leaseID)
@@ -255,6 +259,7 @@ func (r *Registry) heartBeat(ctx context.Context, leaseID clientv3.LeaseID, key 
 	for {
 		if curLeaseID == 0 {
 			// try to registerWithKV
+			lastRetry := r.opts.maxRetry - 1
 			for retryCnt := 0; retryCnt < r.opts.maxRetry; retryCnt++ {
 				if ctx.Err() != nil {
 					return
@@ -273,21 +278,25 @@ func (r *Registry) heartBeat(ctx context.Context, leaseID clientv3.LeaseID, key 
 					}
 				}()
 
+				failed := true
 				select {
 				case <-ctx.Done():
 					cancel()
 					return
 				case <-time.After(3 * time.Second):
 					cancel()
-					continue
 				case _ = <-errChan:
-					continue
 				case curLeaseID = <-idChan:
+					// 重注册成功：建流失败仍算一次失败，继续退避重试
+					if kac, err = r.client.KeepAlive(ctx, curLeaseID); err == nil {
+						failed = false
+					}
 				}
-
-				kac, err = r.client.KeepAlive(ctx, curLeaseID)
-				if err == nil {
+				if !failed {
 					break
+				}
+				if retryCnt == lastRetry {
+					break // 末次尝试之后没有下一次，不再等待
 				}
 				select {
 				case <-ctx.Done():
