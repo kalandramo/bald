@@ -554,8 +554,8 @@ func Routes(h http.Handler) error {
 落地形态是 `scripts/acceptance-gate.sh`（只跑 `go test`，跨平台）。**判据清单与执行由同一个脚本交出**：每条腿先 `go test -list <正则>` 取出当前**真实命中**的顶层测试名（命中为空即红），再 `-v` 跑同一正则并逐条断言日志里出现 `--- PASS: <名字>`。这样写的原因很具体：`-run` 命中 0 个测试时**返回 0**，用例改名、被删、正则写错，调用方看到的照样是绿——清单来自 `-list` 而不是手写表格，增删用例不必维护第二份真相，同时改名也瞒不过去。
 
 ```bash
-task acceptance                       # 本地全量（scope=all，共 9 条腿：下面 8 行里标 ✗ 的那两行实为三条腿——bconf 一条 + 参考工程计划两态各一条）
-bash scripts/acceptance-gate.sh ci    # CI 的 acceptance 作业跑的就是这一条
+task acceptance                       # 本地全量（scope=all：脚本表里的每一条腿，含下表标 ✗ 的那三条）
+bash scripts/acceptance-gate.sh ci    # CI 的 acceptance 作业跑的就是这一条（scope=ci = 下表「进 CI」为 ✅ 的那些）
 ```
 
 | 腿（模块 → 包） | `-run` 正则 | 断言的不变量 | 进 CI |
@@ -566,8 +566,16 @@ bash scripts/acceptance-gate.sh ci    # CI 的 acceptance 作业跑的就是这�
 | `pkg` → `./appkit` | `TestPlanCache_\|TestVariantProjection_\|TestVariantEffects_\|TestOption_OnRoleScoping\|TestDoctor_` | 计划缓存基线与构建变体（Q7 对账口径：变体声明恒进计划、命中按构建约束求值、增量并入装配——I11/I12） | ✅ |
 | `pkg` → `./appkit` | `TestAPI_` | §7.1 两条「= 0」指标的可执行形态（`Resource(string)` 调用点、手工排序表标识符） | ✅ |
 | `cli` → `./internal/codegen` | `TestGen_(Deterministic\|CheckClean)\|TestGenDomain_(Bind\|Proto\|NoRoutes\|CheckDoesNotRunProtoStage)\|TestGenApp_Variants\|TestTree_Variants\|TestTree_CustomWiring\|TestPruneStaleOwned\|TestCheckTree_` | 生成确定性：生成器自有树（guard 夹具）双跑字节一致 + `--check` 零 diff（绑定/路由清单默认生成、`--no-bind`/`--no-routes` 两态、proto 阶段编排与生成期前置拒绝、`--adopt` 清理过期 owned、自定义接线 §8.5） | ✅ |
+| `registry/etcd` → `.` | `TestRetreatDelay_\|TestRetreatPolicy_\|TestHeartBeatRetreat` | 退避曲线与 heartBeat 的 retreat 策略（风险登记册 §7.14） | ✅ |
+| `registry/etcd` → `./contract` | `TestRetreat_\|TestProvider_BackoffSection\|TestProvider_ContractSections\|TestProvider_MaxRetrySection\|TestProvider_AuthSection` | 契约 backoff / max_retry / auth 段到 client 的运行期映射（假 etcd，§7.14） | ✅ |
+| `registry/consul` → `./contract` | `TestProvider_RegisterBody\|TestProvider_CheckFlags\|TestProvider_AbsentBools\|TestProvider_AbsentIntervals\|TestProvider_SchemeSection\|TestProvider_DatacenterSection` | 注册请求体、检查标志与 bool/interval 的 absent 语义逐字段判（§7.18） | ✅ |
+| `transport/asynq` → `./contract` | `TestMapping_` | 契约十行到 asynq client 的运行期映射（miniredis 进程内，§7.19） | ✅ |
+| `contrib/database/gorm` → `./contract` | `TestMapping_\|TestAllowedDriversTableShape` | 九行到 gorm 与 `sql.DB` 池的运行期映射 + 合法驱动集表走入口判（纯 Go 的 `go_sqlite` 落 `t.TempDir()`，§7.20） | ✅ |
+| `registry/nacos` → `./contract` | `TestMappingOffline_` | server_addrs / username / password 三行到 naming client 的映射——观测点是构造期那个**同步**登录请求，进程内 HTTP 桩即直读口（§7.22）。同包另六条 `TestMappingBackend_*` 要真后端，**不在本表**，由 `ci.yml` 的 `integration` 作业逐条点名 | ✅ |
 | `bconf` → `.` | `TestGeneratedMatchesProto` | 契约层生成物与 proto 源同步（字节比对前先比三把工具版本 pin：`bconf/buf.version`、`bconf/go.mod` 现编出的插件 module 版本对产物头部声明、`bconf/protoc-gen-go.goversion`＝编译该插件用的 Go） | ✗ **不在 `acceptance` 作业**（那作业不装 buf，判的是**产物字节**，字节形态绑的是编译插件用的那把 Go，不是 buf 版本号）；**远端证据另有专职作业 `proto-contract`**：按 pin 装官方 buf 发行二进制（`bconf/buf.sha256` 校摘要）+ 判据自己在 module 里现编插件 + 「没有顶层 PASS 即红」，见风险登记册 §7.9 |
 | `_example/bald` → `./internal/bootstrap` | `TestPlan_ReferenceProject`（`-tags grpcgw` 再跑一遍） | 参考工程的计划口径：Opaque 预算、路由可见、无逃逸警告、段覆盖；I12 的「编入但条件为假即失败」 | ✗ 要编译 `api/gen` 的 proto 产物，而它已 gitignore，干净检出装载不了 |
+
+本表是导读。**腿数与正则的真相源是 `scripts/acceptance-gate.sh` 里的 `rows()`**，计数不在这里维护（每收口一格 §7.14 同族就加一条腿，写死数字只会漂；`internal/docscheck` 的 `TestAcceptanceTableCoversShortSkippedTests` 判的是「每条 `-short` 跳过的用例要么被表里某条正则命中、要么被某个 CI 作业点名」，它读脚本而不读本表）。
 
 真实示例的生成树（`appspec.json` 是唯一真相源）走另一条腿 `task acceptance-example-check`，与 `ci.yml` 的 `test` 作业同口径且不需要 buf：骨架那半边整树重算比对（`gen app --check`），域那半边比清单摘要与磁盘字节（`TestExampleManifestsMatchSpecAndDisk`）——`gen domain --check` 的 bind 段前置是 proto 的 Go 产物，缺了它 `--check` 直接拒绝而不是放行，因此重算级校验只在本地 `task acceptance-example-domain-check`（dep `proto-example`，需 buf）跑。
 
