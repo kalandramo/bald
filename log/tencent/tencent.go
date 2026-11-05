@@ -101,11 +101,34 @@ func (l *tencentLog) post(ctx context.Context, level, msg string, keyvals []any)
 	_ = l.producer.SendLog(l.opts.topicID, logInst, nil)
 }
 
+// NewTencentLogger 创建腾讯云 CLS 日志记录器。
+//
+// endpoint/topic_id/access_key/access_secret 四项必须显式给出，且 endpoint 必须
+// 自带 scheme。四项留空都能「构造成功」并一路走到运行期才失败：bald 不消费 producer
+// 的失败信号（见 post 里被丢弃的 SendLog 错误），唯一的痕迹是 SDK 自己打到 stderr 的
+// 运行期日志。逐项后果：
+//   - endpoint 为空：SDK 的 validateOptions 本来就会挡（"host cannot be empty"），
+//     但它发生在 NewAsyncProducerClient 内部，错误只回一个字符串，读不出「是配置
+//     里哪一项」；这里统一挡，顺便把 scheme 判掉。不带 scheme 时 SDK 按自己的默认
+//     走明文 HTTP（NewCLSClient 只在值以 https:// 开头时才上 TLS，且一旦上 TLS
+//     就硬编 InsecureSkipVerify: true），签名与日志正文一起裸奔——传输方式不该由
+//     SDK 的默认决定。
+//   - topic_id 为空：落点退化成 /structuredlog?topic_id=，服务端拒绝而 bald 看不见。
+//   - access_key/access_secret 为空：CLS 客户端没有凭证链——validateOptions 里的
+//     凭证校验是注释掉的，Send 只在两个密钥都非空时才加 Authorization 头，所以空
+//     凭证得到的不是「签名里有空身份」而是「一个完全未签名的请求」（在假线上实测，
+//     见 contract 包的 TestSdkAssumption_EmptyCredentialsSendUnsigned）。服务端
+//     必然 401，而 post 不消费错误。
 func NewTencentLogger(options ...Option) (Logger, error) {
 	opts := defaultOptions()
 	for _, o := range options {
 		o(opts)
 	}
+
+	if err := validateRequiredOptions(opts); err != nil {
+		return nil, err
+	}
+
 	producerConfig := cls.GetDefaultAsyncProducerClientConfig()
 	producerConfig.AccessKeyID = opts.accessKey
 	producerConfig.AccessKeySecret = opts.accessSecret

@@ -311,16 +311,15 @@ func TestValidateLoggerFilterKeys(t *testing.T) {
 // 通过，漏配落点/凭证、endpoint 缺 scheme 与越域取值 fail-fast 且错误带
 // backends[i].<seg> 定位。
 func TestValidateLoggerBackendSections(t *testing.T) {
-	// 合法：五后端各一项。aliyun 的凭证与 scheme 都是必给项（producer 侧没有
-	// 环境变量凭证链，裸 host 走明文，见 validateAliyunSection）；tencent 的凭证
-	// 暂不校验（CLS SDK 的凭证链未实测，见 §7.26）。
+	// 合法：五后端各一项。aliyun 与 tencent 的凭证与 scheme 都是必给项——两个 SDK
+	// 都没有凭证链（producer/CLS 客户端只认配置里给的那对密钥），裸 host 都走明文。
 	cfg := NewBootstrap()
 	cfg.GetLogger().Backends = []*bootstrapv1.Logger_Backend{
 		{Type: "charm", Charm: &bootstrapv1.Logger_Charm{Level: "debug", Format: "json"}},
 		{Type: "loki", Loki: &bootstrapv1.Logger_Loki{Endpoint: "http://loki:3100/loki/api/v1/push", BatchSize: 100, FlushInterval: 5000}},
 		{Type: "sentry", Sentry: &bootstrapv1.Logger_Sentry{Dsn: "https://k@o.ingest.sentry.io/1"}},
 		{Type: "aliyun", Aliyun: &bootstrapv1.Logger_Aliyun{Endpoint: "https://cn-hangzhou.log.aliyuncs.com", Project: "proj", Logstore: "store", AccessKey: "ak", AccessSecret: "sk"}},
-		{Type: "tencent", Tencent: &bootstrapv1.Logger_Tencent{Endpoint: "cls.ap-guangzhou.myqcloud.com", TopicId: "topic-1"}},
+		{Type: "tencent", Tencent: &bootstrapv1.Logger_Tencent{Endpoint: "https://cls.ap-guangzhou.myqcloud.com", TopicId: "topic-1", AccessKey: "ak", AccessSecret: "sk"}},
 	}
 	if err := Validate(cfg); err != nil {
 		t.Fatalf("五后端合法配置应通过: %v", err)
@@ -389,9 +388,29 @@ func TestValidateLoggerBackendSections(t *testing.T) {
 			"backends[0].aliyun.access_secret",
 		},
 		{
-			"tencent topic_id 漏配",
-			&bootstrapv1.Logger_Backend{Type: "tencent", Tencent: &bootstrapv1.Logger_Tencent{Endpoint: "cls.ap-guangzhou.myqcloud.com"}},
+			"tencent endpoint 漏配",
+			&bootstrapv1.Logger_Backend{Type: "tencent", Tencent: &bootstrapv1.Logger_Tencent{TopicId: "topic-1", AccessKey: "ak", AccessSecret: "sk"}},
+			"backends[0].tencent.endpoint must not be empty",
+		},
+		{
+			"tencent endpoint 无 scheme（SDK 默认走明文，签名与正文一起裸奔）",
+			&bootstrapv1.Logger_Backend{Type: "tencent", Tencent: &bootstrapv1.Logger_Tencent{Endpoint: "cls.ap-guangzhou.myqcloud.com", TopicId: "topic-1", AccessKey: "ak", AccessSecret: "sk"}},
+			"backends[0].tencent.endpoint cls.ap-guangzhou.myqcloud.com must start with https:// or http://",
+		},
+		{
+			"tencent topic_id 漏配（空值得到 /structuredlog?topic_id=）",
+			&bootstrapv1.Logger_Backend{Type: "tencent", Tencent: &bootstrapv1.Logger_Tencent{Endpoint: "https://cls.ap-guangzhou.myqcloud.com", AccessKey: "ak", AccessSecret: "sk"}},
 			"backends[0].tencent.topic_id",
+		},
+		{
+			"tencent access_key 漏配（CLS 客户端无凭证链，空值发出的是未签名请求）",
+			&bootstrapv1.Logger_Backend{Type: "tencent", Tencent: &bootstrapv1.Logger_Tencent{Endpoint: "https://cls.ap-guangzhou.myqcloud.com", TopicId: "topic-1", AccessSecret: "sk"}},
+			"backends[0].tencent.access_key",
+		},
+		{
+			"tencent access_secret 漏配（同上：SecretKEY 为空就不加 Authorization 头）",
+			&bootstrapv1.Logger_Backend{Type: "tencent", Tencent: &bootstrapv1.Logger_Tencent{Endpoint: "https://cls.ap-guangzhou.myqcloud.com", TopicId: "topic-1", AccessKey: "ak"}},
+			"backends[0].tencent.access_secret",
 		},
 	}
 	for _, tc := range cases {

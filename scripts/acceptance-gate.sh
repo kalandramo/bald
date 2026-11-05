@@ -114,6 +114,22 @@ esac
 # 三行前缀 TestMappingOffline_ 各自命中该包的映射行全集；otel/datadog 的 AppProvider
 # 五条腿（Segments/Apply/Plan/Build/缺席 fail-fast）由 CI 的 test 作业整包跑，不进本表
 # ——它们没有时序窗口，被 -short 影响不到，重复点名只会得到两条同证据的腿。
+# log/tencent 两条腿（§7.26）判的是 tencent 段四行映射 + cleanup + 凭证口径。假线姿势
+# 与 aliyun **不同形**，照抄会得到假绿：CLS 客户端自己 new 一个 *http.Transport，
+# patch http.DefaultTransport 拨不动它——endpoint 是唯一能把请求改道到进程内的入口，
+# 所以假线就是 endpoint 本身（http://127.0.0.1:<port>），签名、lz4 压缩、URL 拼装仍走
+# SDK 真码。逐行读法：endpoint 读假线 host 与 scheme（https 腿配一条反面判据——默认
+# 客户端必因自签证书 x509 失败，而 SDK 的请求仍然到达，因此「连上了」不等于「验了证书」，
+# 上游 TLS 配置硬编 InsecureSkipVerify 这件事被实测钉住）；topic_id 读 query 的
+# topic_id；access_key 读 Authorization 的 q-ak；access_secret 由测试独立复算 CLS V1
+# 签名（另配错密钥对照保证分辨力）；正文 lz4 解回 protobuf LogGroupList 逐字段判；
+# cleanup 判「返回时假线上已有请求」，其分辨力来自 producer 默认 LingerMs=2000——
+# 把 Close 摘掉的那刻起这条判据就红。`TestSdkAssumption_EmptyCredentialsSendUnsigned`
+# 绕过 bald 的构造期校验直接喂 SDK，钉住「凭证升为必给」的前提：SDK 的 validateOptions
+# 里那段凭证校验是注释掉的，Send 只在 SecretID 与 SecretKEY 都非空时才加 Authorization
+# 头——空凭证得到的是完全未签名的请求，不是「带空身份的签名」（这条与 aliyun 不同形，
+# 那里空 AK 仍签得出 "LOG :<sig>"，所以不能类推、只能各判一次）。`.\t` 那条点名五项
+# 必给的构造期 fail-fast 与「options 层不许有占位默认」。
 rows() {
   printf '%s\n' \
     $'ci\tpkg\t./appkit\tTestPlan_(NoSideEffects|OrderInvariant|SegmentCoverage|Conflict|DomainRoutes|CustomRoutesWarning)|TestRouteShapeConflict\t' \
@@ -133,6 +149,8 @@ rows() {
     $'ci\tbroker/rocketmq\t./v2\tTestLoggerLevelReachesInjectedLogger\t' \
     $'ci\tlog/aliyun\t./contract\tTestMappingOffline_\t' \
     $'ci\tlog/aliyun\t.\tTestNewAliyunLogger_RejectsIncompleteOptions|TestDefaultOptionsHasNoPlaceholderTarget\t' \
+    $'ci\tlog/tencent\t./contract\tTestMappingOffline_|TestSdkAssumption_\t' \
+    $'ci\tlog/tencent\t.\tTestNewTencentLoggerRejectsIncompleteOptions|TestDefaultOptionsHasNoDefaults\t' \
     $'ci\tmetrics/prometheus\t./contract\tTestMappingOffline_|TestProvider_RejectsNilSection\t' \
     $'ci\tmetrics/otel\t./contract\tTestMappingOffline_\t' \
     $'ci\tmetrics/datadog\t./contract\tTestMappingOffline_\t' \

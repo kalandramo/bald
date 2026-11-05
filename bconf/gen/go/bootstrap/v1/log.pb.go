@@ -563,16 +563,18 @@ func (x *Logger_Aliyun) GetSecurityToken() string {
 	return ""
 }
 
-// 腾讯云 CLS 日志配置。
+// 腾讯云 CLS 日志配置。四项全部必填；后端在构造期拒绝空值与裸主机名。
 type Logger_Tencent struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// CLS Endpoint。
+	// CLS Endpoint，必须自带 scheme，如 https://cls.ap-guangzhou.myqcloud.com。
+	// SDK 对无 scheme 的落点默认走明文 HTTP；写成 https:// 时 SDK 硬编不校验
+	// 服务端证书（InsecureSkipVerify），bald 侧没有 TLS 配置注入口。
 	Endpoint string `protobuf:"bytes,1,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
 	// 日志主题 ID。
 	TopicId string `protobuf:"bytes,2,opt,name=topic_id,json=topicId,proto3" json:"topic_id,omitempty"`
-	// AccessKey ID。
+	// AccessKey ID。CLS 客户端没有凭证链，留空不会被环境变量补上。
 	AccessKey string `protobuf:"bytes,3,opt,name=access_key,json=accessKey,proto3" json:"access_key,omitempty"`
-	// AccessKey Secret。
+	// AccessKey Secret。留空时 SDK 连 Authorization 头都不发。
 	AccessSecret  string `protobuf:"bytes,4,opt,name=access_secret,json=accessSecret,proto3" json:"access_secret,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

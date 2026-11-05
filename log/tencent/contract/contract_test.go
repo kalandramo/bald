@@ -8,12 +8,13 @@ import (
 )
 
 // Provider 把契约 tencent 段逐字段映射为构造选项；段缺失 fail-fast。
-// 构造本地 producer 不联网（连接在写入时才发生）；cleanup 冲刷空队列即返回。
+// 这里的 endpoint 指向本机一个没人听的端口：构造期不建连接、本用例也不写日志，
+// 所以不会有任何线上动作——四行真落到线上的判据在 mapping_offline_test.go。
 func TestProvider_MapsContractFields(t *testing.T) {
 	cfg := &bootstrapv1.Logger_Backend{
 		Type: "tencent",
 		Tencent: &bootstrapv1.Logger_Tencent{
-			Endpoint:     "ap-guangzhou.cls.tencentcs.com",
+			Endpoint:     "http://127.0.0.1:1",
 			TopicId:      "topic-1234",
 			AccessKey:    "ak",
 			AccessSecret: "sk",

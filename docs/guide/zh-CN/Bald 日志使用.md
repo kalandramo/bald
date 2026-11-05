@@ -132,7 +132,7 @@ logger:
 | Grafana Loki | `loki` | `log/loki` | **endpoint 必填**；labels（map）；batch_size；flush_interval（毫秒） | 冲刷批量缓冲 |
 | Sentry | `sentry` | `log/sentry` | **dsn 必填**；environment；release；server_name | Flush 事件队列 |
 | Charmbracelet | `charm` | `log/charm` | level（默认 info）；format（text/json，默认 text）；output_path（默认 stderr） | 文件输出时关文件 |
-| 腾讯云 CLS | `tencent` | `log/tencent` | endpoint；topic_id；access_key；access_secret | 冲刷并关闭 producer |
+| 腾讯云 CLS | `tencent` | `log/tencent` | **endpoint 必填且必须自带 `https://`/`http://`**；**topic_id、access_key、access_secret 同必填**（CLS 客户端没有凭证链，留空不会被自动补上，见 §6） | 冲刷并关闭 producer（`Close` 上限 5s） |
 | 阿里云 SLS | `aliyun` | `log/aliyun` | **endpoint 必填且必须自带 `https://`/`http://`**；**project、logstore、access_key、access_secret 同必填**；security_token 可留空（长期 AK/SK 下的正常配置） | 冲刷并关闭 producer |
 
 yaml 项示例（各后端段名与 type 同名，逐个替换即可）：
@@ -151,7 +151,7 @@ logger:                            # Charm：开发终端美化输出
     - type: charm
       charm: { level: debug, format: text, output_path: stderr }
 ---
-logger:                            # 阿里云 SLS（腾讯云 CLS 字段名同形，必填规则见上表）
+logger:                            # 阿里云 SLS（腾讯云 CLS 的 endpoint/access_key/access_secret 同形且同样必填，落点字段换成 topic_id）
   backends:
     - type: aliyun
       aliyun:
@@ -223,6 +223,22 @@ log/aliyun: endpoint "cn-hangzhou.log.aliyuncs.com" must start with https:// or 
 producer 不校验、`SendLog` 的错误又被丢弃，唯一的痕迹是 SDK 自己打到 stderr 的行
 ——运维通常要等到去 SLS 控制台查不到日志才发现，所以现在按必给项处理。
 
+**tencent 落点/凭证缺配**（endpoint 无 scheme、topic_id/凭证留空）：
+
+```text
+log/tencent: endpoint "cls.ap-guangzhou.myqcloud.com" must start with https:// or http:// (a
+  scheme-less endpoint goes to plaintext HTTP by the SDK's default)
+```
+
+同样的两层构造期 fail-fast。凭证两项升为必给的依据是实测，不是照抄 aliyun：CLS
+客户端 `validateOptions` 里那段凭证校验是注释掉的，`Send` 只在 SecretID 与 SecretKEY
+都非空时才加 `Authorization` 头——留空得到的不是「带空身份的签名」而是**完全未签名的
+请求**（假线上判，见 `log/tencent/contract` 的 `TestSdkAssumption_EmptyCredentialsSendUnsigned`；
+aliyun 那边空 AK 仍签得出 `LOG :<sig>`，两家的行为不同形，所以各判一次）。还有一条
+上游事实需要知道：endpoint 写 `https://` 时 SDK 硬编不校验服务端证书
+（`InsecureSkipVerify: true`，bald 侧没有注入口），所以「自带 scheme」只保证这条连接
+上了 TLS，不保证对端被验过。
+
 ## 5. 自定义后端
 
 后端构造函数的签名与内置 contract 部件完全相同：
@@ -256,8 +272,10 @@ case "mylog":
 - **云凭据（access_key/dsn 等）建议经环境变量注入**：配置源 flag > env > yaml
   的优先级天然支持凭据与代码仓库分离。注意注入的是**契约字段的值**——SLS/CLS 的
   SDK 在自己那条发送路径上不读云厂商的环境变量凭证链（aliyun producer 只认
-  `CredentialsProvider` 与两个 plain 字段，兜底也是静态空凭证），所以
-  `access_key`/`access_secret` 留空不会被「自动补上」，而是启动期 fail-fast。
+  `CredentialsProvider` 与两个 plain 字段，兜底也是静态空凭证；CLS 客户端的
+  `validateOptions` 里凭证校验是注释掉的，`Send` 遇到空凭证干脆不加
+  `Authorization` 头），所以 `access_key`/`access_secret` 留空不会被「自动补上」，
+  而是启动期 fail-fast。
 - 停机顺序：cleanup 按构造序正放；热切换后端时旧钩子同步兑现，带缓冲后端
   （loki 尾批）不丢日志。
 - **未实现的后端不占契约**：zap/zerolog 等曾是预留段，现已从契约删除——

@@ -301,18 +301,29 @@ func hasEndpointScheme(endpoint string) bool {
 	return strings.HasPrefix(endpoint, "https://") || strings.HasPrefix(endpoint, "http://")
 }
 
-// validateTencentSection 校验后端声明项的 tencent 段规则：endpoint / topic_id
-// 必填——无默认，空值 deferred 到 send 期且错误同样被丢弃。
+// validateTencentSection 校验后端声明项的 tencent 段规则：四项全必填，endpoint
+// 必须自带 scheme——与适配器层（log/tencent 的 validateRequiredOptions）同一套口径。
 //
-// 凭证暂不校验：腾讯云 CLS SDK 的凭证链是否覆盖本适配器的发送路径还没实测
-// （登记册 §7.26）；aliyun 那条「env 凭证链」的说法已在 §7.25 被 producer 代码
-// 证伪，不能顺手当成这里的依据。
+// 凭证进必给之列是实测出来的，不是照抄 aliyun：CLS 客户端没有凭证链——SDK 的
+// validateOptions 里那段凭证校验是注释掉的，Send 只在 SecretID 与 SecretKEY 都非空
+// 时才加 Authorization 头，所以留空得到的不是「带空身份的签名」而是「完全未签名的
+// 请求」（假线上实测，见 log/tencent/contract 的 TestSdkAssumption_*）。服务端必然
+// 401，而投递路径不消费错误。裸 host 按 SDK 默认走明文 HTTP，上不上 TLS 由配置写清楚。
 func validateTencentSection(s *bootstrapv1.Logger_Tencent, prefix string) error {
 	if s.GetEndpoint() == "" {
 		return fmt.Errorf("%s.endpoint must not be empty", prefix)
 	}
+	if !hasEndpointScheme(s.GetEndpoint()) {
+		return fmt.Errorf("%s.endpoint %s must start with https:// or http:// (a scheme-less endpoint goes to plaintext HTTP, see log/tencent)", prefix, s.GetEndpoint())
+	}
 	if s.GetTopicId() == "" {
 		return fmt.Errorf("%s.topic_id must not be empty", prefix)
+	}
+	if s.GetAccessKey() == "" {
+		return fmt.Errorf("%s.access_key must not be empty (the CLS client has no credential chain to fall back on)", prefix)
+	}
+	if s.GetAccessSecret() == "" {
+		return fmt.Errorf("%s.access_secret must not be empty (with an empty secret the CLS client sends the request without any Authorization header)", prefix)
 	}
 	return nil
 }
