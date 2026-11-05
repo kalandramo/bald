@@ -738,6 +738,8 @@ func (s *Server) NewWaitResultTaskWithContext(ctx context.Context, typeName stri
 
 // NewPeriodicTask 注册一个定时（cron）任务。
 // 返回 entryID，可用于后续移除。
+// 调度器被关掉时（[WithSchedulerEnabled] false，即契约 scheduler_enabled=false）
+// 返回错误而不是注册成功——否则该契约字段会被这次调用悄悄顶开。
 func (s *Server) NewPeriodicTask(cronSpec, typeName string, msg any, opts ...asynq.Option) (string, error) {
 	if cronSpec == "" {
 		return "", errors.New("cronSpec cannot be empty")
@@ -747,11 +749,14 @@ func (s *Server) NewPeriodicTask(cronSpec, typeName string, msg any, opts ...asy
 	}
 
 	if s.scheduler == nil {
+		// 契约把调度器关掉时，createAsynqScheduler 原样返回、s.scheduler 仍是 nil，
+		// 下面那句 Register 就是对 nil 接收者取字段——实测直接 panic。改判为明确错误：
+		// scheduler_enabled 是契约字段，周期任务能把它顶开就等于该字段没人读。
+		if !s.schedulerEnabled {
+			return "", errors.New("asynq: scheduler is disabled (server.asynq.scheduler_enabled=false); enable it to register periodic tasks")
+		}
 		if err := s.createAsynqScheduler(); err != nil {
 			return "", err
-		}
-		if !s.schedulerEnabled {
-			s.schedulerEnabled = true
 		}
 	}
 
