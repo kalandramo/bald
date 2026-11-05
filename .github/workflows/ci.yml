@@ -279,6 +279,7 @@ jobs:
           (cd contrib/store-mongo && go mod download && go test -count=1 -timeout 10m -v ./... > /tmp/int/store-mongo.log 2>&1) || { cat /tmp/int/store-mongo.log; exit 1; }
           (cd transport/asynq     && go mod download && go test -count=1 -timeout 10m -v ./... > /tmp/int/asynq.log 2>&1) || { cat /tmp/int/asynq.log; exit 1; }
           (cd registry/nacos      && go mod download && go test -count=1 -timeout 10m -v ./... > /tmp/int/registry-nacos.log 2>&1) || { cat /tmp/int/registry-nacos.log; exit 1; }
+          (cd contrib/database/mongodb && go mod download && go test -count=1 -timeout 10m -v ./... > /tmp/int/contrib-database-mongodb.log 2>&1) || { cat /tmp/int/contrib-database-mongodb.log; exit 1; }
           cat /tmp/int/*.log
 
       - name: 判据必须真的跑过（Skip 不算通过）
@@ -311,6 +312,11 @@ jobs:
           /tmp/int/registry-nacos.log|TestMappingBackend_ZeroWeightFallsBackToDefault
           /tmp/int/registry-nacos.log|TestMappingBackend_NamespaceIsolatesInstance
           /tmp/int/registry-nacos.log|TestMappingBackend_DefaultKindLandsInEndpointScheme
+          /tmp/int/contrib-database-mongodb.log|TestMappingBackend_DatabaseSelectsNamespace
+          /tmp/int/contrib-database-mongodb.log|TestMappingBackend_CredentialsReachAuthHandshake
+          /tmp/int/contrib-database-mongodb.log|TestMappingBackend_UsernameWithoutPasswordIsNoAuth
+          /tmp/int/contrib-database-mongodb.log|TestMappingBackend_HeartbeatIntervalDrivesMonitorTraffic
+          /tmp/int/contrib-database-mongodb.log|TestMappingBackend_MaxConnIdleTimeReapsIdleConnections
           "
           # consul 那五条里，后两条是 consul 后端独有的语义，只有真 agent 能判：
           # 心跳按实例隔离（注销一个不该带走其余实例）与「发现只返回 passing 实例」。

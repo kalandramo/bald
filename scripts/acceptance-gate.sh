@@ -67,6 +67,13 @@ esac
 # SDK 构造期**同步发出**的那个登录请求（server_addrs/username/password 三行的直读口），
 # 所以也不需要服务容器；同一个包另外六条 `TestMappingBackend_*` 要真后端，不进本表，
 # 由 ci.yml 的 integration 作业点名（docscheck 认那条路径）。
+# contrib/database/mongodb 那条（§7.23）的离线桩同样是进程内的——`net.Listen` 出来的
+# 「接受 TCP 但永不回 MongoDB 握手」的假线。八行里 uri / server_selection_timeout /
+# connect_timeout 三行，加上 database 的「缺席语义」，共四条腿能离线读；database 取值、
+# credentials 两态、heartbeat、max_conn_idle 共五条腿要真后端，走 ci.yml 里 mongo:7
+# 服务点名，不进本表；timeout_seconds 一行**只有** `contract_test.go` 的长度判据——上游把
+# 每个操作的截止期写死成 10s，恰好掩掉契约值，运行期两侧都判不到（理由写在该包
+# mapping_backend_test.go 文件头）。
 rows() {
   printf '%s\n' \
     $'ci\tpkg\t./appkit\tTestPlan_(NoSideEffects|OrderInvariant|SegmentCoverage|Conflict|DomainRoutes|CustomRoutesWarning)|TestRouteShapeConflict\t' \
@@ -81,6 +88,7 @@ rows() {
     $'ci\ttransport/asynq\t./contract\tTestMapping_\t' \
     $'ci\tcontrib/database/gorm\t./contract\tTestMapping_|TestAllowedDriversTableShape\t' \
     $'ci\tregistry/nacos\t./contract\tTestMappingOffline_\t' \
+    $'ci\tcontrib/database/mongodb\t./contract\tTestMappingOffline_\t' \
     $'ci\tbconf\t.\tTestUnmarshalNestedBackoffSection|TestUnmarshalAbsentBackoffStaysNil|TestUnmarshalDurationSpellings|TestCoerceDurationFormat\t' \
     $'no\tbconf\t.\tTestGeneratedMatchesProto\t' \
     $'no\t_example/bald\t./internal/bootstrap\tTestPlan_ReferenceProject\t' \

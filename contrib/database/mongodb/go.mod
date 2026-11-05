@@ -5,6 +5,7 @@ go 1.27.1
 require (
 	github.com/kalandramo/bald-crud/mongodb v0.3.0
 	github.com/kalandramo/bald/bconf v0.19.0
+	go.mongodb.org/mongo-driver/v2 v2.8.0
 )
 
 require (
@@ -23,7 +24,6 @@ require (
 	github.com/xdg-go/stringprep v1.0.4 // indirect
 	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78 // indirect
 	go.einride.tech/aip v0.86.3 // indirect
-	go.mongodb.org/mongo-driver/v2 v2.8.0 // indirect
 	golang.org/x/crypto v0.55.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/text v0.41.0 // indirect
