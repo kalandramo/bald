@@ -1290,7 +1290,7 @@ func TestAcceptanceTableCoversShortSkippedTests(t *testing.T) {
 	legs := acceptanceLegs(t, root)
 	// 防空转①：表读不出腿，后面「零违规」就只是没遍历到东西。
 	if len(legs) < 6 {
-		t.Fatalf("只解析出 %d 条判据腿，明显低于脚本里的 9 条——表格式漂了，本闸门已空转", len(legs))
+		t.Fatalf("只解析出 %d 条判据腿，明显低于表里现有的条数——表格式漂了，本闸门已空转", len(legs))
 	}
 
 	pkgRegexes := map[string][]*regexp.Regexp{}

@@ -63,6 +63,10 @@ esac
 # transport/asynq（§7.19）与 contrib/database/gorm（§7.20）两条腿的后端都在**进程内**
 # ——前者是 miniredis，后者是纯 Go 的 go_sqlite 驱动落 t.TempDir() 的文件——都不需要
 # 服务容器，所以它们能直接落进 scope=ci。与 nacos/consul 那类要真服务的腿不同。
+# registry/nacos 那条（§7.22）同理但机制不同：它把 nacos 换成进程内的 HTTP 桩，判的是
+# SDK 构造期**同步发出**的那个登录请求（server_addrs/username/password 三行的直读口），
+# 所以也不需要服务容器；同一个包另外六条 `TestMappingBackend_*` 要真后端，不进本表，
+# 由 ci.yml 的 integration 作业点名（docscheck 认那条路径）。
 rows() {
   printf '%s\n' \
     $'ci\tpkg\t./appkit\tTestPlan_(NoSideEffects|OrderInvariant|SegmentCoverage|Conflict|DomainRoutes|CustomRoutesWarning)|TestRouteShapeConflict\t' \
@@ -76,6 +80,7 @@ rows() {
     $'ci\tregistry/consul\t./contract\tTestProvider_RegisterBody|TestProvider_CheckFlags|TestProvider_AbsentBools|TestProvider_AbsentIntervals|TestProvider_SchemeSection|TestProvider_DatacenterSection\t' \
     $'ci\ttransport/asynq\t./contract\tTestMapping_\t' \
     $'ci\tcontrib/database/gorm\t./contract\tTestMapping_|TestAllowedDriversTableShape\t' \
+    $'ci\tregistry/nacos\t./contract\tTestMappingOffline_\t' \
     $'ci\tbconf\t.\tTestUnmarshalNestedBackoffSection|TestUnmarshalAbsentBackoffStaysNil|TestUnmarshalDurationSpellings|TestCoerceDurationFormat\t' \
     $'no\tbconf\t.\tTestGeneratedMatchesProto\t' \
     $'no\t_example/bald\t./internal/bootstrap\tTestPlan_ReferenceProject\t' \

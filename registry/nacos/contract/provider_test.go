@@ -6,9 +6,14 @@ package contract
 //   3. 子段缺失 / server addrs 必填 / 地址格式非法 → 复用 Provider 的
 //      fail-fast（构造参数映射的离线可验证部分）。
 //
-// 成功构造路径不在此覆盖：nacos v2 SDK 的 naming client 构造即建 gRPC
-// 长连接（离线不可行）——连通性与注册行为由既有 registry_test 覆盖，
-// 本文件按「段缺失跳过 + 参数映射」策略收敛。
+// 成功构造路径不在此覆盖，由 mapping_offline_test.go / mapping_backend_test.go 接住：
+// 本文件判的是**报错形状**（段缺失、必填缺失、地址格式非法）。
+//
+// 这里原先写过一句「成功构造离线不可行（naming client 构造即建 gRPC 长连接）」——实测
+// 不成立：把一个进程内 HTTP 桩当 server 传给契约，Provider 4ms 内返回 nil error，
+// 构造期唯一的一次 HTTP 请求（登录）就落在桩上。gRPC 那条长连接不阻塞构造，所以
+// server_addrs / username / password 三行离线可判；namespace / group / cluster_name /
+// weight / default_kind 五行要真后端。
 
 import (
 	"context"

@@ -97,22 +97,48 @@ func e2EUniqueName(prefix string) string {
 //
 // 字段表按实测回包写：hosts 项只有 healthy / enabled / ephemeral，`valid` 在**回包
 // 顶层**而不是每项上——把它放进本结构会得到一个恒假的零值，判据于是恒红。
+// weight / clusterName 在 hosts 项上实测存在（§7.22 的映射判据读它们），
+// groupName **不在**项上——它在查询参数里，回包项读不回来。
 type nacosE2EHost struct {
-	IP        string `json:"ip"`
-	Port      uint64 `json:"port"`
-	Healthy   bool   `json:"healthy"`
-	Enabled   bool   `json:"enabled"`
-	Ephemeral bool   `json:"ephemeral"`
+	IP          string  `json:"ip"`
+	Port        uint64  `json:"port"`
+	Weight      float64 `json:"weight"`
+	ClusterName string  `json:"clusterName"`
+	Healthy     bool    `json:"healthy"`
+	Enabled     bool    `json:"enabled"`
+	Ephemeral   bool    `json:"ephemeral"`
+}
+
+// nacosE2EQuery 是 v1 instance/list 的三个租户维度。零值即「public + DEFAULT_GROUP
+// + 不限集群」，也就是两条机制用例原本的写法；§7.22 的映射判据要按契约段给的那组
+// 维度读，所以把它做成参数而不是各写一遍查询口。
+type nacosE2EQuery struct {
+	namespace string
+	group     string
+	clusters  string
+}
+
+func (q nacosE2EQuery) withDefaults() nacosE2EQuery {
+	if q.namespace == "" {
+		q.namespace = "public"
+	}
+	if q.group == "" {
+		q.group = "DEFAULT_GROUP"
+	}
+	return q
 }
 
 // listNacosE2EHosts 走 nacos 的 HTTP 查询口，独立于装配用的 SDK。
-func listNacosE2EHosts(t *testing.T, addr, service string) []nacosE2EHost {
+func listNacosE2EHosts(t *testing.T, addr, service string, query nacosE2EQuery) []nacosE2EHost {
 	t.Helper()
 	q := url.Values{
 		"serviceName": {service},
-		"namespaceId": {"public"},
-		"groupName":   {"DEFAULT_GROUP"},
+		"namespaceId": {query.namespace},
+		"groupName":   {query.group},
 		"healthyOnly": {"false"},
+	}
+	if query.clusters != "" {
+		q.Set("clusters", query.clusters)
 	}
 	u := "http://" + addr + "/nacos/v1/ns/instance/list?" + q.Encode()
 
@@ -148,11 +174,11 @@ func listNacosE2EHosts(t *testing.T, addr, service string) []nacosE2EHost {
 
 // waitForNacosE2EHosts 轮询到 want 个实例为止（want=0 即「归零」）。两个方向共用一
 // 个轮询口：注册可见与注销归零是同一个时间竞态的两面，各写一遍必漏一份容忍。
-func waitForNacosE2EHosts(t *testing.T, addr, service string, want int, timeout time.Duration) []nacosE2EHost {
+func waitForNacosE2EHosts(t *testing.T, addr, service string, query nacosE2EQuery, want int, timeout time.Duration) []nacosE2EHost {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	for {
-		hosts := listNacosE2EHosts(t, addr, service)
+		hosts := listNacosE2EHosts(t, addr, service, query.withDefaults())
 		if (want == 0 && len(hosts) == 0) || (want > 0 && len(hosts) >= want) {
 			return hosts
 		}
@@ -193,7 +219,7 @@ func TestNacosDeregisterRemovesInstanceWithClientOpen(t *testing.T) {
 
 	names := []string{service + ".http", service + ".grpc"}
 	for _, name := range names {
-		hosts := waitForNacosE2EHosts(t, addr, name, 1, 20*time.Second)
+		hosts := waitForNacosE2EHosts(t, addr, name, nacosE2EQuery{}, 1, 20*time.Second)
 		if len(hosts) == 0 {
 			t.Fatalf("注册后 20s 内 %s 在后端始终不可见（注册没到位，注销判据无从谈起）", name)
 		}
@@ -211,7 +237,7 @@ func TestNacosDeregisterRemovesInstanceWithClientOpen(t *testing.T) {
 		t.Fatalf("deregister %s: %v", service, err)
 	}
 	for _, name := range names {
-		hosts := waitForNacosE2EHosts(t, addr, name, 0, 10*time.Second)
+		hosts := waitForNacosE2EHosts(t, addr, name, nacosE2EQuery{}, 0, 10*time.Second)
 		if len(hosts) != 0 {
 			t.Fatalf("Deregister 后 10s（client 仍打开）%s 仍有 %d 个实例——注销没发到那个服务名上，"+
 				"命名口径（<服务名>.<scheme>）或 Deregister 的调用本身变了: %+v", name, len(hosts), hosts)
@@ -250,13 +276,13 @@ func TestNacosContractCleanupClosesClient(t *testing.T) {
 		t.Fatalf("register %s: %v", service, err)
 	}
 	name := service + ".grpc"
-	if len(waitForNacosE2EHosts(t, addr, name, 1, 20*time.Second)) == 0 {
+	if len(waitForNacosE2EHosts(t, addr, name, nacosE2EQuery{}, 1, 20*time.Second)) == 0 {
 		t.Fatalf("注册后 20s 内 %s 在后端始终不可见，本用例的摘除判据无从谈起", name)
 	}
 
 	closeReg()
 	closed = true
-	if hosts := waitForNacosE2EHosts(t, addr, name, 0, 10*time.Second); len(hosts) != 0 {
+	if hosts := waitForNacosE2EHosts(t, addr, name, nacosE2EQuery{}, 0, 10*time.Second); len(hosts) != 0 {
 		t.Fatalf("Provider 的 cleanup 调了但 %s 仍有 %d 个实例（client 没被关掉，Deregister 也没发生）: %+v",
 			name, len(hosts), hosts)
 	}

@@ -305,6 +305,12 @@ jobs:
           /tmp/int/asynq.log|TestTaskSubscribe
           /tmp/int/registry-nacos.log|TestNacosDeregisterRemovesInstanceWithClientOpen
           /tmp/int/registry-nacos.log|TestNacosContractCleanupClosesClient
+          /tmp/int/registry-nacos.log|TestMappingBackend_GroupLandsInRegistration
+          /tmp/int/registry-nacos.log|TestMappingBackend_ClusterNameLandsInRegistration
+          /tmp/int/registry-nacos.log|TestMappingBackend_WeightLandsInRegistration
+          /tmp/int/registry-nacos.log|TestMappingBackend_ZeroWeightFallsBackToDefault
+          /tmp/int/registry-nacos.log|TestMappingBackend_NamespaceIsolatesInstance
+          /tmp/int/registry-nacos.log|TestMappingBackend_DefaultKindLandsInEndpointScheme
           "
           # consul 那五条里，后两条是 consul 后端独有的语义，只有真 agent 能判：
           # 心跳按实例隔离（注销一个不该带走其余实例）与「发现只返回 passing 实例」。
