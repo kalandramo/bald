@@ -5,6 +5,8 @@ go 1.27.1
 require (
 	github.com/kalandramo/bald-crud/gorm v0.3.0
 	github.com/kalandramo/bald/bconf v0.19.0
+	go.opentelemetry.io/otel/sdk v1.45.0
+	gorm.io/plugin/opentelemetry v0.1.16
 )
 
 require (
@@ -110,7 +112,6 @@ require (
 	gorm.io/driver/sqlserver v1.6.4 // indirect
 	gorm.io/gorm v1.31.2 // indirect
 	gorm.io/plugin/dbresolver v1.6.2 // indirect
-	gorm.io/plugin/opentelemetry v0.1.16 // indirect
 	gorm.io/plugin/prometheus v0.1.0 // indirect
 	modernc.org/libc v1.75.3 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
