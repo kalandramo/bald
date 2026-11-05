@@ -40,6 +40,11 @@ vars:
   GOLANGCI_LINT_VERSION: v2.15.0 # lint 规则集升级是显式动作，避免上游新检查静默漂移
   GOVULNCHECK_VERSION: v1.9.0
   ACTIONLINT_VERSION: v1.7.12 # 作业文件 schema/shellcheck 闸门（与 .github/workflows/workflow-lint.yml 的 pin 一致）
+  # pin 工具的落地目录 = `go install` 的产物目录（GOBIN，未设则 GOPATH/bin）。
+  # 这些任务的命令一律走这里的绝对路径而不是裸名字：PATH 上只要有一个更早的
+  # 同名旧副本，「在 PATH 里」这种存在性检查就会把它当成 pin 放过（§7.21）。
+  GOBIN_DIR:
+    sh: 'gobin=$(go env GOBIN); [ -n "$gobin" ] || gobin="$(go env GOPATH)/bin"; printf %s "$gobin"'
   # 全仓 module 清单（与 CI 同一条派生）。空格分隔便于 `for: { var: }`。
   MODULES:
     sh: sh scripts/list-modules.sh | tr '\n' ' '
@@ -64,25 +69,26 @@ tasks:
     deps: [tools-protoc-gen-defaults]
 
   tools-golangci-lint:
-    desc: 确保 golangci-lint 在 PATH；缺失则按 pin 版本安装到 GOBIN
+    desc: 确保 GOBIN 里是 pin 版本的 golangci-lint；缺失或版本不符则安装后复读版本确认
     cmds:
-      - cmd: command -v golangci-lint >/dev/null 2>&1 || go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@{{.GOLANGCI_LINT_VERSION}}
+      # v2 的 `--version` 打印不带 v 前缀的号，所以两边都剥掉前缀再比。
+      - cmd: 'bin="{{.GOBIN_DIR}}/golangci-lint"; v="{{.GOLANGCI_LINT_VERSION}}"; "$bin" --version 2>/dev/null | grep -qF "${v#v}" || { go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@"${v}" && "$bin" --version | grep -qF "${v#v}"; } || { echo "golangci-lint: ${bin} 不是 pin 的 ${v}（go install 未落到该目录）"; exit 1; }'
         platforms: [linux, darwin]
       - cmd: where golangci-lint >nul 2>nul || go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@{{.GOLANGCI_LINT_VERSION}}
         platforms: [windows]
 
   tools-govulncheck:
-    desc: 确保 govulncheck 在 PATH；缺失则按 pin 版本安装到 GOBIN
+    desc: 确保 GOBIN 里是 pin 版本的 govulncheck；缺失或版本不符则安装后复读版本确认
     cmds:
-      - cmd: command -v govulncheck >/dev/null 2>&1 || go install golang.org/x/vuln/cmd/govulncheck@{{.GOVULNCHECK_VERSION}}
+      - cmd: 'bin="{{.GOBIN_DIR}}/govulncheck"; v="{{.GOVULNCHECK_VERSION}}"; "$bin" -version 2>/dev/null | grep -qF "v${v#v}" || { go install golang.org/x/vuln/cmd/govulncheck@"${v}" && "$bin" -version | grep -qF "v${v#v}"; } || { echo "govulncheck: ${bin} 不是 pin 的 ${v}（go install 未落到该目录）"; exit 1; }'
         platforms: [linux, darwin]
       - cmd: where govulncheck >nul 2>nul || go install golang.org/x/vuln/cmd/govulncheck@{{.GOVULNCHECK_VERSION}}
         platforms: [windows]
 
   tools-actionlint:
-    desc: 确保 actionlint 在 PATH；缺失则按 pin 版本安装到 GOBIN
+    desc: 确保 GOBIN 里是 pin 版本的 actionlint；缺失或版本不符则安装后复读版本确认
     cmds:
-      - cmd: command -v actionlint >/dev/null 2>&1 || go install github.com/rhysd/actionlint/cmd/actionlint@{{.ACTIONLINT_VERSION}}
+      - cmd: 'bin="{{.GOBIN_DIR}}/actionlint"; v="{{.ACTIONLINT_VERSION}}"; "$bin" -version 2>/dev/null | grep -qF "v${v#v}" || { go install github.com/rhysd/actionlint/cmd/actionlint@"${v}" && "$bin" -version | grep -qF "v${v#v}"; } || { echo "actionlint: ${bin} 不是 pin 的 ${v}（go install 未落到该目录）"; exit 1; }'
         platforms: [linux, darwin]
       - cmd: where actionlint >nul 2>nul || go install github.com/rhysd/actionlint/cmd/actionlint@{{.ACTIONLINT_VERSION}}
         platforms: [windows]
@@ -321,7 +327,11 @@ tasks:
     desc: golangci-lint 检查单个 module（MOD=<dir>）
     dir: "{{.MOD}}"
     cmds:
-      - golangci-lint run ./...
+      # 绝对路径：与 tools-golangci-lint 判定的同一个二进制，PATH 上的旧副本不参与。
+      - cmd: '"{{.GOBIN_DIR}}/golangci-lint" run ./...'
+        platforms: [linux, darwin]
+      - cmd: golangci-lint run ./...
+        platforms: [windows]
 
   # 作业文件自身的闸门（本地侧；CI 侧是 .github/workflows/workflow-lint.yml）。
   # GitHub 在编译期解析 .github/workflows/*.yml，未登记的键会让整个文件被拒且
@@ -334,7 +344,7 @@ tasks:
     platforms: [linux, darwin]
     cmds:
       # 清单为空 = 闸门静默失效，必须响（与 lint/vuln/race 同一口径）。
-      - cmd: 'files=$(find .github/workflows -type f \( -name "*.yml" -o -name "*.yaml" \) | sort); [ -n "$files" ] || { echo "ci-workflow-lint: 未发现作业文件，闸门未覆盖任何东西"; exit 1; }; actionlint -no-color $files'
+      - cmd: 'files=$(find .github/workflows -type f \( -name "*.yml" -o -name "*.yaml" \) | sort); [ -n "$files" ] || { echo "ci-workflow-lint: 未发现作业文件，闸门未覆盖任何东西"; exit 1; }; "{{.GOBIN_DIR}}/actionlint" -no-color $files'
 
   vuln:
     desc: govulncheck 扫描全部 module（代码可达漏洞；需访问 vuln.go.dev）
@@ -354,7 +364,10 @@ tasks:
   vuln-module:
     dir: "{{.MOD}}"
     cmds:
-      - govulncheck ./...
+      - cmd: '"{{.GOBIN_DIR}}/govulncheck" ./...'
+        platforms: [linux, darwin]
+      - cmd: govulncheck ./...
+        platforms: [windows]
 
   # 逐模块验证，命令与 CI 的 test 作业同口径：tidy -diff（依赖面漂移）+ build +
   # vet + go test -short。两处本地专属的差别：
