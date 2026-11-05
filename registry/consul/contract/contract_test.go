@@ -69,9 +69,16 @@ func TestProvider_MissingSectionFailsFast(t *testing.T) {
 
 // TestProvider_FieldMappingRuns —— 契约字段全部非空时映射路径走通。
 //
-// 离线判据：SDK 建 client 不触网，所以这条只判「各字段都被接住、构造不报错」，
-// 字段是否真的生效由 TestProvider_BuildsUsableRegistrar 用真后端判 address 一项，
-// 其余项（scheme/token/datacenter/interval）属 SDK 侧行为，不在本仓承诺范围。
+// 这条只判「各字段都被接住、构造不报错」（`consul.New` 不触网，构造成功不代表
+// 值生效）。字段**是否真的落到后端**由 mapping_runtime_test.go 那六条运行期判据
+// 判（进程内假 agent，从请求体/请求头/查询串读回契约值，§7.18）。
+//
+// 本函数注释原先写着「其余项属 SDK 侧行为，不在本仓承诺范围；address 一项由
+// TestProvider_BuildsUsableRegistrar 用真后端判」——两句都被实测否证：删掉
+// `WithAddress` 那行后，真后端那条集成腿照样 PASS（2026-11-05 实测），因为
+// SDK 的默认地址恰好就是那条用例在用的同一个后端，用例与「错的地址」自洽。
+// 所以 address 在过去也没有判据，只是看不出来。集成腿继续保留它自己的职责：
+// 真 consul 上的注册→发现→注销端到端可用。
 func TestProvider_FieldMappingRuns(t *testing.T) {
 	cfg := &bootstrapv1.Registry{
 		Type: Type,
