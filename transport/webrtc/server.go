@@ -65,6 +65,9 @@ type Server struct {
 	socketRawDataHandler SocketRawDataHandler
 
 	middlewares []Middleware
+	// mux 留存：Start 用它重建 Handler 链，否则 NewServer 之后调用的 Use
+	// （契约装配的接线时机）永远进不了服务链。
+	mux *http.ServeMux
 
 	running   bool
 	stateMu   sync.RWMutex
@@ -121,14 +124,10 @@ func (s *Server) init(opts ...ServerOption) error {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc(s.path, s.signalHandler)
+	s.mux = mux
 
 	// 应用中间件链
-	h := http.Handler(mux)
-	for i := len(s.middlewares) - 1; i >= 0; i-- {
-		h = s.middlewares[i](h)
-	}
-
-	s.Server = &http.Server{TLSConfig: s.tlsConf, Handler: h}
+	s.Server = &http.Server{TLSConfig: s.tlsConf, Handler: s.buildHandler()}
 
 	if s.netPacketMarshaler == nil {
 		s.netPacketMarshaler = s.defaultMarshalNetPacket
@@ -147,6 +146,18 @@ func (s *Server) init(opts ...ServerOption) error {
 	}
 
 	return s.err
+}
+
+// buildHandler 按当前 middlewares 重建信令处理链（先注册的在最外层）。
+//
+// init 里调一次、Start 里再调一次：只有后者能让 NewServer **之后** Use 的中间件
+// 上线——契约装配的接线时机正是「构造之后、Start 之前」（见 contract.WithAfterBuild）。
+func (s *Server) buildHandler() http.Handler {
+	h := http.Handler(s.mux)
+	for i := len(s.middlewares) - 1; i >= 0; i-- {
+		h = s.middlewares[i](h)
+	}
+	return h
 }
 
 func (s *Server) Name() string {
@@ -527,7 +538,12 @@ func (s *Server) listenAndEndpoint() error {
 	}
 
 	if s.endpoint == nil {
+		// 方案必须跟着实际协议走：tlsConf 非空时 Start 走 ServeTLS，
+		// 硬编 "http" 会让注册出去的地址直接连不上（客户端拿 http:// 打 TLS 端口）。
 		scheme := "http"
+		if s.tlsConf != nil {
+			scheme = "https"
+		}
 		addr := s.lis.Addr().String()
 		host, port, err := net.SplitHostPort(addr)
 		if err != nil || port == "" {
@@ -574,6 +590,8 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 
 	lis := s.lis
+	// 重建处理链：Use 在 NewServer 之后（装配期接线）追加的中间件在这里生效。
+	s.Server.Handler = s.buildHandler()
 	s.running = true
 	s.stateMu.Unlock()
 

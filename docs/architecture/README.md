@@ -81,6 +81,9 @@ dot -Tsvg /tmp/c4out/modules_view.dot -o docs/architecture/render/c4-modules_vie
 
 本轮实测环境：graphviz 16.1.0、Temurin JDK 21.0.13+9、Maven 3.9.16、`structurizr-dsl`/`structurizr-export` 6.2.4。
 
+**2026-11-06 增量（声明式装配方向②前两批，代码已改、本目录只动文字）**：`*/contract` 从 30 涨到 **39**（`find . -type d -name contract` 复跑即得；第一批 `transport/{tcp,websocket,http3}`、第二批 `transport/{graphql,webrtc,mcp}`，判据与变异见 `risk-review.md` §7.28 两节）。
+**未重渲染**：`module-deps.dot` 的「回边（30 个子包）」是 2026-11-03 谓词下的聚合标签（当时数的是图上 require `pkg` 的 contract 子包，本轮实测该谓词为 24——两者都已旧），`bald-c4.dsl` 与 `render/*.svg` 同批未动；这三份图源要按「校验工具与命令」整轮重核才有意义，**零散改标签会造出「数字新、边旧」的第三种不一致**。`current-architecture.md` 的 §2/§5/§6 文字已同步（目录计数 39 并带 `find` 判据、方向②剩余清单 7→4）。
+
 ## 重新生成
 
 三份 `.md` 是人工整理的证据结论，不自动重生成。两个 `.dot` 与 `.dsl` 是文本源，改动后按上一节「校验工具与命令」重跑 1)–4)。

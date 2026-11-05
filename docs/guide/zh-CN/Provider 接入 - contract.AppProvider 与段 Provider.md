@@ -41,6 +41,7 @@ type Provider interface {
 | contrib/config-nacos | `confignacos.AppProvider()` | config（nacos 源） |
 | transport/{sse,cron,asynq} | `contract.AppProvider(opts ...Option)` | server.sse / server.cron / server.asynq |
 | transport/{tcp,websocket,http3} | `contract.AppProvider(opts ...Option)` | server.tcp / server.websocket / server.http3 |
+| transport/{graphql,webrtc,mcp} | `contract.AppProvider(opts ...Option)` | server.graphql / server.webrtc / server.mcp |
 | transport/gateway | `contract.AppProvider(register RegisterFunc)` | server.gateway |
 | oss/{s3,minio} | `contract.AppProvider()` | storage.s3 / storage.minio |
 | metrics/{prometheus,otel,datadog} | `<后端>contract.AppProvider()` | instrumentation.prometheus / instrumentation.otlp / instrumentation.datadog |
@@ -88,6 +89,24 @@ server:
 - `server.tcp` / `server.http3`：`addr` 必给，业务侧 `tcp.WithAddress` / `http3.WithAddress` 在契约 Option 之后追加，因此**业务覆盖契约**。`server.http3` 的 `addr` 留空不会报错，而是被本仓 `transport/http3` 自己 `(*Server).init` 里写死的 `":443"` 接住（同一处也是无 `tlsConf` 时的自签来源），所以工厂在构造期就 fail-fast，文案里点名 `:443`。
 - `server.websocket`：`addr` 是 `websocket.NewServer` 的**位置参数**，`WithServerOptions` 里没有覆盖通道 ⇒ 契约段是地址的唯一来源；`path` 留空时工厂**不追加** `WithPath`（恒传空串会把默认 `/ws` 顶成空路径），非空才追加。
 - `tls` 三面同构（`file` 轴给证书路径、`config` 轴给内联 PEM、`ca` 轴开双向认证），且**空 `tls: {}` 段恒为报错**——「写了 tls 却没证书」不能退化成明文监听。唯一例外是 `server.http3` 完全省略 `tls`：QUIC 没有明文选项，实现自带一次性自签证书（生产必须显式给 `tls`）。
+
+第二批（`transport/{graphql,webrtc,mcp}/contract`，2026-11-06）各自的口径差异：
+
+- `server.graphql`：只有 `addr`（必填，`NewServer` 位置参数直进 `net.Listen`，空串会绑到全部网卡的随机端口）与 `tls` 两个字段；schema 路由经 `WithAfterBuild(func(ctx, *graphql.Server) error)` 追加 `Handle`/`HandleFunc`（注册表在 `NewServer` 时冻结，构造前挂不了，构造后、`Start` 前正是这个钩子的时点）。
+- `server.webrtc`：`addr` 必填；`path` 默认 `/signal`。两个取用方必须知道的形状：① `Endpoint()` 返回的 URL **已把 path 嵌进去**（`http://<host>:<port>/signal`），再拼一次就 404；② `Start` 阻塞在 `Serve`，ctx 取消不解除阻塞，停机靠 `Stop`——`AppProvider` 返回的清理闭包已经代劳，直接用手搓 `Provider()` 的调用方要自己接。`codec` 写的是编码注册表的**键名**：该 codec 必须已被业务进程注册过，否则构造期报错。注册是显式的（`encoding.MustRegister(jsoncodec.New())`，在 `init` 或 `main` 早年段跑掉都行）——`encoding/json` 包**不会**因 import 而自注册，所以「YAML 写了 `codec: json`、代码里没人注册」是最常见的第一次失败。
+- `server.mcp`：字段是 `address`（必填）、`name`、`version`。契约**没有 type 字段，工厂强制 HTTP（streamable）**——实现默认 STDIO 不绑任何端口，`address` 会被整个忽略；要 STDIO 就别开这个段（或经 `WithServerOptions(mcp.WithMCPServeType(mcp.ServerTypeStdio))` 显式改回，那时 address 不再决定落点，属业务自担）。`name`/`version` 留空回落实现默认（"MCP Server"/"1.0.0"）而不是置空——MCP 的 `initialize` 响应里 serverInfo.name 是客户端展示必填。工具注册走 `WithAfterBuild` + `RegisterHandlerWithJsonString`，客户端在 `POST <address>/mcp`。契约没有 `tls` 字段（底层 HTTP 层也没有证书通道，两边一致，不是缺口）。
+
+```yaml
+server:
+  graphql:
+    addr: "127.0.0.1:0"
+  webrtc:
+    addr: "127.0.0.1:0"
+    path: /signal
+  mcp:
+    address: "127.0.0.1:0"
+    name: my-mcp
+```
 
 ### 2.2 整段自持：自己实现 Provider
 

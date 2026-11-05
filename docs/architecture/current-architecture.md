@@ -33,7 +33,7 @@ bald 是一个 **SPI + 适配器 + 声明式装配** 的 Go 多模块框架：�
 | 横切层 | `pkg/middleware/{bundle,gin,grpc}` | 链序固化的 gin 中间件链与 gRPC 拦截器链 | `pkg/middleware/bundle/bundle.go` `Gin()`/`GRPCInterceptors()` |
 | SPI | `transport` `broker` `cache` `metrics` `registry` `ratelimit` `circuitbreaker` `retry` `encoding` `log` `health` `berrors` | 只有接口与少量通用工具 | `transport/server.go:14-22`、`broker/broker.go:9-33`、`cache/cache.go:28-69`、`registry/registry.go:62-75` |
 | 适配器 | `transport/*`(18) `broker/*`(4) `cache/*`(3) `registry/*`(4) `log/*`(5) `metrics/*`(3) `encoding/*`(12) `ratelimit/*`(3) `circuitbreaker/*`(4) `oss/{minio,s3}` `ai/*`(3) `workflow/argo` `cobramcp` | 每个后端一个 module | 各 `*/go.mod` |
-| 接入子包 | `*/contract`（30 个目录） | 把适配器注册成 appkit v2 Provider —— **这是适配器与装配层唯一的接缝** | `transport/gateway/contract/provider.go:32`、`registry/etcd/contract/provider.go:16`、`oss/minio/contract/provider.go:17` |
+| 接入子包 | `*/contract`（39 个目录，`find . -type d -name contract` 可复跑） | 把适配器注册成 appkit v2 Provider —— **这是适配器与装配层唯一的接缝** | `transport/gateway/contract/provider.go:32`、`registry/etcd/contract/provider.go:16`、`oss/minio/contract/provider.go:17` |
 | 扩展 | `contrib/*`（8 个独立 module） | store-gorm/mongo、audit-*、authn-jwt、authz-casbin、config-nacos、observability-otlp；`contrib/database` 只是目录（无 `.go` 也无 `go.mod`） | `contrib/*/go.mod` |
 | 代码生成 + 发布工具 | `github.com/kalandramo/bald/cli`（`cli/cmd/bald` + `cli/internal/{codegen,release}`） | `gen app/domain/proto/store` 从 `appspec.json` 产出 owned/seeded 文件树；`release plan/sync/changelog/tag` 驱动多模块发布。该 module 的 `go.mod` **零 `replace`**、按 tag 消费 `bconf`——这是它区别于仓库根的唯一目的（风险评审 §3.4） | `cli/go.mod`、`cli/internal/codegen/appspec_tmpl_*.go` |
 | 样例 | `_example/bald` | 已迁入生成树的真实消费方 | `_example/bald/internal/bootstrap/assemble.gen.go:1-7,42-47` |
@@ -232,7 +232,7 @@ require `bald/pkg` 的模块（**22 个非示例模块** + `_example/bald`）：
 | `bconfig.Reader/Watcher/Decoder` | `bconfig/bconfig.go:3-16` | 配置源抽象 | file/env/etcd/consul/nacos/vault/apollo |
 | `metrics.Metrics` | `metrics/metrics.go:15-19` | `Counter`/`Histogram` | otel/prometheus/datadog |
 | `encoding.Codec` | `encoding/` + 12 个格式 module | 编解码注册表，`broker.Marshal` 缺 codec 时 fail-fast（`broker/encoding.go:34`） | 12 |
-| `appkit.Provider` (v2) | `pkg/appkit/provider.go:1-24` | `Option`+`Segments`+`Plan`+`Build` | `std` + 30 个 `*/contract` + 业务自定义 |
+| `appkit.Provider` (v2) | `pkg/appkit/provider.go:1-24` | `Option`+`Segments`+`Plan`+`Build` | `std` + 39 个 `*/contract` + 业务自定义 |
 
 ## 6. 未接线面（reference-only：存在但仓内无人调用）
 
@@ -248,7 +248,7 @@ find . -name '*.go' ! -name '*_test.go' -not -path './.git/*' -not -path './<pkg
 
 - `circuitbreaker/{vegas,sres,sentinel}` —— 契约接口 `circuitbreaker` 与其 `hystrix` 实现**已接线**（见本节末），这三个后端仍只被自己的测试驱动，换算法属代码级注入（`bundle.CircuitBreaker` 接受任意 `circuitbreaker.CircuitBreaker`）。判据同上，按 `circuitbreaker/<后端>` 逐个 grep。
 - `workflow/argo`、`ai/{openai,eino,langchaingo}`、`oss/{s3,minio}` —— 有 `*/contract` Provider，仓内零消费者、零示例。
-- `transport/graphql` —— 与上一条**不同形**：实现齐（`NewServer` + `Start`/`Stop`，实测 `transport/graphql/server.go:69,98,141`）但**没有 `contract` 包**，所以「仓内零消费者」在这里是装配面缺席而不是没人用；同类共 7 个（`{graphql,webrtc,mcp,redis,rocketmq,kafka,rabbitmq}`），登记与施工顺序见风险评审 §7.28 方向②第二、三批。
+- `transport/{kafka,rabbitmq,redis,rocketmq}` —— 实现齐（`NewServer` + `Start`/`Stop`）但**没有服务器面的 `contract` 工厂**，「仓内零消费者」在这里是装配面缺席而不是没人用；`transport/{graphql,webrtc,mcp}` 曾同在此列，已随 §7.28 方向②第二批补上工厂与判据（2026-11-06）。剩余 4 个是 broker 型服务器面——`Start` 消费订阅/消费者注册表，工厂必须先拿到业务侧 handler，接线形状与 sse 不同，判据按各自观测面重做，见风险评审 §7.28 方向②第三批。
 - 中间件依赖未注入即整层省略：`bundle.New()` 不给 `Authn` 时链中静默无认证层（风险 §6.1）。现已要求显式表态——`bundle.Public()` 声明有意公开，否则 `Bundle.Verify()` 报错、出链时告警（`pkg/middleware/bundle/bundle.go` 的 `Verify`）；生成脚手架默认写出 `bundle.Public()` 并留 TODO。
 - 中间件链上仍未接线的只有 **stream 面的形状**：`GRPCStreamInterceptors()` 出的链是 `Error → RateLimit`——超时按口径不默认挂（unary 的 `default_timeout_ms` 套在流上会静默变成「流的最大存活时长」），认证/授权/审计只有 unary 形态。`server.grpc.middleware` 的 `recovery`/`logging`/`tracing`/`validate` 四段是空 message，`FromGRPCMiddleware` **不翻译**它们（写了不改变任何行为，别当配置面）。契约侧也没有 `authn` 段：认证姿态是业务代码里的一行显式声明（`bundle.Public()` 或 `bundle.Authn(...)`），见 §6.1 与《Bald 中间件设计》。
 

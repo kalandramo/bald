@@ -152,6 +152,20 @@ esac
 # Serve 上，NewApp+Run 会跳过整个段驱动装配（一声不响地把 Provider 丢在计划外）。
 # websocket/http3 的 AppProvider 五条骨架腿（Segments/Apply/Plan/Build/缺席语义）由
 # CI 的 test 作业整包跑，不进本表——它们没有时序窗口，重复点名只会得到两条同证据的腿。
+# transport/{graphql,webrtc,mcp}/contract 三条腿（§7.28 方向二·第二批）同判「契约有段、
+# 装配无门」首次开门，三族的观测面各不相同：
+#   - graphql：真 HTTP 往返——契约 path 上打查询、tls 腿证书 CN 与 mTLS 拒无证书、
+#     业务中间件响应头；
+#   - webrtc：信令 HTTP 状态机——POST {} 得 400 + body「invalid offer」是业务指纹
+#     （变异摘掉 tls 时明文判据正是要**没有**这个 body 才红），GET 405 / 预检 204+CORS /
+#     未注册 404 各判一次；Endpoint() 把 path 嵌进 URL 且 tls 下必须翻 https（缺陷①的
+#     判据），Use 在装配期（NewServer 后）追加的中间件要靠 Start 重建链才上线（缺陷②），
+#     这两条各有一条线上腿与一条源码变异（W8/W9）互相钉住；
+#   - mcp：真 MCP 协议往返——initialize 响应里的 ServerInfo 判 name/version（空字段
+#     回落实现默认而非置空），tools/call 判 afterBuild 注册的工具，Endpoint() 恒空是
+#     STDIO 的判别形状（契约强制 HTTP：STDIO 不绑端口，写了 address 就必须听得见）。
+# 三族都有 TestAppProviderEndToEnd_（契约 yaml → appkit.Serve → 段命中 → 真进程往返 +
+# StrictContract 拼写反证），与 tcp 同口径进表；骨架腿仍由 CI 的 test 作业整包跑。
 rows() {
   printf '%s\n' \
     $'ci\tpkg\t./appkit\tTestPlan_(NoSideEffects|OrderInvariant|SegmentCoverage|Conflict|DomainRoutes|CustomRoutesWarning)|TestRouteShapeConflict\t' \
@@ -179,6 +193,9 @@ rows() {
     $'ci\ttransport/tcp\t./contract\tTestMappingOffline_|TestAppProviderEndToEnd_\t' \
     $'ci\ttransport/websocket\t./contract\tTestMappingOffline_\t' \
     $'ci\ttransport/http3\t./contract\tTestMappingOffline_\t' \
+    $'ci\ttransport/graphql\t./contract\tTestMappingOffline_|TestAppProviderEndToEnd_\t' \
+    $'ci\ttransport/webrtc\t./contract\tTestMappingOffline_|TestAppProviderEndToEnd_\t' \
+    $'ci\ttransport/mcp\t./contract\tTestMappingOffline_|TestAppProviderEndToEnd_\t' \
     $'ci\tbconf\t.\tTestUnmarshalNestedBackoffSection|TestUnmarshalAbsentBackoffStaysNil|TestUnmarshalDurationSpellings|TestCoerceDurationFormat\t' \
     $'no\tbconf\t.\tTestGeneratedMatchesProto\t' \
     $'no\t_example/bald\t./internal/bootstrap\tTestPlan_ReferenceProject\t' \
