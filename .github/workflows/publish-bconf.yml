@@ -38,16 +38,32 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: 读 buf 版本 pin（bconf/buf.version 是契约工具链的单一真相）
-        id: bufver
-        run: echo "version=$(tr -d '[:space:]' < bconf/buf.version)" >> "$GITHUB_OUTPUT"
+      # 装 buf 的口径与 `proto-contract`/`example` 两个作业完全一致：同一个
+      # scripts/install-buf.sh——版本读 bconf/buf.version、字节读 bconf/buf.sha256。
+      # 不接第三方 setup action：那条路径的输入名写错时 GitHub 只发一行
+      # `Unexpected input(s)` 警告、作业照样绿，而 action 自带的默认值恰好等于今天的
+      # pin，于是「pin 没生效」被同一串 1.50.0 洗成看不见的东西。风险 §7.21 那条
+      # 「存在性检查不等于版本判据」在这里是第二次命中，且 actionlint 也判不到第三方
+      # action 的未知输入名（§7.9 第七轮实测）——所以只能由运行期判据兜。用脚本则没有输入名可写错。
+      - name: 装 pin 的 buf（官方发行二进制，按 bconf/buf.sha256 校验）
+        run: |
+          set -e
+          sh scripts/install-buf.sh "$RUNNER_TEMP/bin"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
-      - uses: bufbuild/buf-setup-action@v1
-        with:
-          github_token: ${{ github.token }}
-          # lint/build/push 的规则集随 buf 换代而变；跟随后生成判据同一个版本，
-          # 才能让「本地过了 check」与「这里 push 成功」说的是同一件事。
-          buf_version: ${{ steps.bufver.outputs.version }}
+      # 装完判「PATH 上真正生效的那把 == pin」，而不是判「安装步骤成功」。前者对
+      # 「pin 改了但没装下来」「runner PATH 上另有一把把它顶掉」都敏感；后者只会把
+      # 它们洗成绿。脚本自己的下载 URL 由 pin 派生，所以这条判的是 PATH 生效面。
+      - name: 校验生效的 buf 版本等于 pin
+        run: |
+          set -e
+          want="$(tr -d '[:space:]' < bconf/buf.version)"
+          got="$(buf --version | tr -d '[:space:]')"
+          if [ "$got" != "$want" ]; then
+            echo "::error::buf 版本不等于 pin：实际 $got，期望 $want——生效的那把不是按 pin 装的那把"
+            exit 1
+          fi
+          echo "buf 版本判据通过：$got"
 
       # lint 先行：契约不达标不得发布（bconf/buf.yaml 已配 STANDARD +
       # ENUM_VALUE_PREFIX/ENUM_ZERO_VALUE_SUFFIX 两项 except，见该文件注释）。
