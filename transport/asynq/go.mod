@@ -31,6 +31,7 @@ replace github.com/kalandramo/bald/transport/grpc => ../../transport/grpc
 replace github.com/kalandramo/bald/transport/http => ../../transport/http
 
 require (
+	github.com/alicebob/miniredis/v2 v2.39.0
 	github.com/hibiken/asynq v0.26.0
 	github.com/kalandramo/bald/bconf v0.19.0
 	github.com/kalandramo/bald/encoding v0.1.0
@@ -153,6 +154,7 @@ require (
 	github.com/subosito/gotenv v1.2.0 // indirect
 	github.com/tjfoc/gmsm v1.4.1 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
+	github.com/yuin/gopher-lua v1.1.1 // indirect
 	go.etcd.io/etcd/api/v3 v3.7.1 // indirect
 	go.etcd.io/etcd/client/pkg/v3 v3.7.1 // indirect
 	go.etcd.io/etcd/client/v3 v3.7.1 // indirect

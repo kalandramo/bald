@@ -71,9 +71,14 @@ func TestQueueWeights_DescendingByOrder(t *testing.T) {
 // 这是反向陷阱的直接防护：asynq 的调度器等开关实现默认启用，若 provider 恒传
 // false 会关掉它们。buildOpts 对 nil 字段不追加 Option——体现为切片长度。
 //
-// 为什么断言切片长度而非运行时读回：asynq.Server 的开关字段未导出且无 getter
-// （LSP 实测 SchedulerEnabled undefined），运行时不可观测。Option 是黑盒函数值，
-// 唯一可测的可观测面就是「是否被追加」——长度差正是该语义的等价观测。
+// 这里判的是「nil 时**不追加** Option」这个装配动作本身，长度就是它的直接观测——
+// 追加了但传错值由 mapping_runtime_test.go 的运行期闸门负责（§7.19）。
+//
+// 本文件此前写的理由是「开关字段未导出且无 getter ⇒ 运行时不可观测」，该说法已被
+// 实测推翻：asynq 消费者心跳会把 concurrency / queues 权重 / strict_priority 写进
+// redis，`Inspector.Servers()` 能原样读回；scheduler_enabled 也经 `NewPeriodicTask`
+// 的成功/明确错误显形。留着长度判据是因为它测的是另一件事（不追加 vs 追加），
+// 不是因为运行期判不动。
 func TestBuildOpts_NilBoolsNotApplied(t *testing.T) {
 	// 仅 RedisAddress → 恰好 1 个 Option（nil 的 optional bool 均不追加）。
 	sec := &bootstrapv1.Server_Asynq{RedisAddress: "127.0.0.1:6379"}

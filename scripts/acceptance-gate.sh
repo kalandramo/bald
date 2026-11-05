@@ -60,6 +60,8 @@ all | ci) ;;
   ;;
 esac
 
+# transport/asynq 那条腿的后端是**进程内** miniredis（§7.19），不需要服务容器——
+# 与 nacos/consul 那类要真服务的腿不同，所以它能直接落进 scope=ci 而不给作业加依赖。
 rows() {
   printf '%s\n' \
     $'ci\tpkg\t./appkit\tTestPlan_(NoSideEffects|OrderInvariant|SegmentCoverage|Conflict|DomainRoutes|CustomRoutesWarning)|TestRouteShapeConflict\t' \
@@ -71,6 +73,7 @@ rows() {
     $'ci\tregistry/etcd\t.\tTestRetreatDelay_|TestRetreatPolicy_|TestHeartBeatRetreat\t' \
     $'ci\tregistry/etcd\t./contract\tTestRetreat_|TestProvider_BackoffSection|TestProvider_ContractSections|TestProvider_MaxRetrySection|TestProvider_AuthSection\t' \
     $'ci\tregistry/consul\t./contract\tTestProvider_RegisterBody|TestProvider_CheckFlags|TestProvider_AbsentBools|TestProvider_AbsentIntervals|TestProvider_SchemeSection|TestProvider_DatacenterSection\t' \
+    $'ci\ttransport/asynq\t./contract\tTestMapping_\t' \
     $'ci\tbconf\t.\tTestUnmarshalNestedBackoffSection|TestUnmarshalAbsentBackoffStaysNil|TestUnmarshalDurationSpellings|TestCoerceDurationFormat\t' \
     $'no\tbconf\t.\tTestGeneratedMatchesProto\t' \
     $'no\t_example/bald\t./internal/bootstrap\tTestPlan_ReferenceProject\t' \
