@@ -194,8 +194,19 @@ func (s *Server) doRegisterSubscriberMap() error {
 	return errors.Join(errs...)
 }
 
+// Endpoint 是描述性端点（kafka://addr）——代理型传输不监听本地端口，
+// 地址只在建连成功后才有意义：
+//   - started 前返回 ""：appkit 的 waitForEndpoints 把 "" 判为「未就绪」，
+//     而起动顺序保证 started=true 只在 Connect + 订阅注册全绿之后落；
+//   - Stop 复位 started 后回到 ""（Stop 先 Store(false) 再 Disconnect）。
+//
+// 与 asynq 的 "asynq://" 前缀同形：带 scheme 的描述性端点会被
+// registrableEndpoint 挡在服务注册之外，不影响发现。
 func (s *Server) Endpoint() string {
-	return ""
+	if !s.started.Load() {
+		return ""
+	}
+	return "kafka://" + s.Address()
 }
 
 func (s *Server) wrapHandler(topic string, handler broker.Handler) broker.Handler {

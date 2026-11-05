@@ -186,8 +186,18 @@ func (s *Server) doRegisterSubscriberMap() error {
 	return errors.Join(errs...)
 }
 
+// Endpoint 是描述性端点（rocketmq://addr）——代理型传输不监听本地端口，
+// 地址只在建连成功后才有意义：v2 broker 的 Address() 在 Init 前恒落内置默认
+// 兜底 127.0.0.1:9876（nameServers 要 Init 才从 options.Context 读出），构造期
+// 报任何地址都是假就绪信号。started 未置真即返回空串，appkit 的端点闸门
+// （waitForEndpoints）据此判「未就绪」；Stop 先复位 started 再 Disconnect，
+// 停机后端点回空。
+// （先例：transport/asynq 的 asynq:// 端点、pkg/registrableEndpoint 过滤 scheme 端点。）
 func (s *Server) Endpoint() string {
-	return ""
+	if !s.started.Load() {
+		return ""
+	}
+	return "rocketmq://" + s.Address()
 }
 
 func (s *Server) wrapHandler(topic string, handler broker.Handler) broker.Handler {

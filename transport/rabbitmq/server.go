@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -181,8 +182,29 @@ func (s *Server) doRegisterSubscriberMap() error {
 	return errors.Join(errs...)
 }
 
+// Endpoint 是描述性端点（amqp://host:port）——代理型传输不监听本地端口，
+// 地址只在建连成功后才有意义：rabbitmq broker 的 Address() 读的是
+// options.Addrs[0]，Init 会把裸 host:port 规范化成 amqp:// URL。started 未置真
+// 即返回空串，appkit 的端点闸门（waitForEndpoints）据此判「未就绪」——
+// Start 失败（拨号被拒）时 started 不落真，端点保持空。
+// AMQP URL 常内嵌用户名/密码（DefaultRabbitURL 即 guest:guest），端点会进日志
+// 与服务注册面，凭证必须剥掉。
+// （先例：transport/asynq 的 asynq:// 端点、pkg/registrableEndpoint 过滤 scheme 端点。）
 func (s *Server) Endpoint() string {
-	return ""
+	if !s.started.Load() {
+		return ""
+	}
+	return sanitizeEndpoint(s.Address())
+}
+
+// sanitizeEndpoint 剥掉 URL 的用户信息段；解析不了或本就无凭证时原样返回。
+func sanitizeEndpoint(addr string) string {
+	u, err := url.Parse(addr)
+	if err != nil || u.User == nil {
+		return addr
+	}
+	u.User = nil
+	return u.String()
 }
 
 func (s *Server) wrapHandler(topic string, handler broker.Handler) broker.Handler {

@@ -42,6 +42,7 @@ type Provider interface {
 | transport/{sse,cron,asynq} | `contract.AppProvider(opts ...Option)` | server.sse / server.cron / server.asynq |
 | transport/{tcp,websocket,http3} | `contract.AppProvider(opts ...Option)` | server.tcp / server.websocket / server.http3 |
 | transport/{graphql,webrtc,mcp} | `contract.AppProvider(opts ...Option)` | server.graphql / server.webrtc / server.mcp |
+| transport/{kafka,rabbitmq,redis,rocketmq} | `contract.AppProvider(opts ...Option)` | server.kafka / server.rabbitmq / server.redis_server / server.rocketmq |
 | transport/gateway | `contract.AppProvider(register RegisterFunc)` | server.gateway |
 | oss/{s3,minio} | `contract.AppProvider()` | storage.s3 / storage.minio |
 | metrics/{prometheus,otel,datadog} | `<后端>contract.AppProvider()` | instrumentation.prometheus / instrumentation.otlp / instrumentation.datadog |
@@ -107,6 +108,41 @@ server:
     address: "127.0.0.1:0"
     name: my-mcp
 ```
+
+第三批（`transport/{kafka,rabbitmq,redis,rocketmq}/contract`，2026-11-06）是四个 broker 型服务器面，与前两批同模板、不同接线形状：**工厂不代劳订阅**，`Start` 消费的是订阅/消费者注册表，所以业务侧的 handler 只能在 `WithAfterBuild` 里登记（`Build` 只构造 `*Server`，引擎随后直接 `Start`）：
+
+```go
+appkit.MustServe(ctx,
+    std.Standard(),
+    kafkacontract.AppProvider(
+        kafkacontract.WithAfterBuild(func(ctx context.Context, s *kafka.Server) error {
+            // 签名四族各不相同：kafka 带 groupName 与 disableAutoAck
+            return s.RegisterSubscriber(ctx, "orders", "g1", false, handle, func() any { return &Order{} })
+        }),
+    ),
+)
+```
+
+```yaml
+server:
+  kafka:
+    addrs: ["127.0.0.1:9092"]
+  rabbitmq:
+    addrs: ["amqp://127.0.0.1:5672"]
+  redis_server:
+    addr: "redis://127.0.0.1:6379"
+  rocketmq:
+    name_server_addrs: ["127.0.0.1:9876"]
+    driver_type: v2      # 只收 "" 或 v2：v5/aliyun 没有代码支撑，构造期报错
+```
+
+四族各自的口径差异（实现现状，不是设计选择；`redis_server` 是段名，别写成 `redis`——`broker.redis` 是另一段，那是客户端/资源面）：
+
+- 四族共同：地址**必填 fail-fast**（配了段却不给地址，落点就不由配置决定）；`codec` 三态——留空＝沿用 broker 默认 `json`，写了未注册的名字＝构造期报错（底层 `WithCodec` 对未注册名静默置 nil，第一包才炸，那个失败点离配置太远）；`WithServerOptions` 追加在契约 Option 之后，因此**业务覆盖契约**；`Endpoint()` 三态（构造 `""` → `Start` 后描述性 → `Stop` 后回 `""`），引擎的就绪闸门读的就是这个面，含凭证的 URL 会先脱敏（redis/rabbitmq）。
+- `server.kafka`：`addrs` 是列表且逐元素非空。kafka 的 `Connect` 只翻标志位，所以**没有集群时 `Start` 也绿**（订阅 flush 是懒成功，生产者协程后台重试）——「绿」在这里不代表连上了，取用方要等 `Endpoint()` 而不是等 `Start` 返回值。
+- `server.redis_server`：`addr` 是单个字符串（`redis://host:port`，也接受带 `user:pass` 的 URL——密码不会出现在端点面上）。pubsub 的 `Connect` 是**真拨号 + PING 探针**，所以后端不在时 `Start` 就红，这一族没有「绿但没连上」的形状。
+- `server.rocketmq`：`name_server_addrs` 必填；`driver_type` 只接受 `""` 与 `v2`——proto 注释里那句「默认 v5」后面**没有代码**（`transport/rocketmq` 恒构造 v2 broker），所以配 `v5`/`aliyun` 是构造期报错而不是静默按 v2 跑。`Connect` 同样只翻标志位，但订阅走 SDK 的同步启动（拉路由要真 NameServer），因此**带订阅者的 `Start` 在没有 NameServer 时必红**——与前两条不同形，别按 kafka 的直觉预期它绿。
+- `server.rabbitmq`：`addrs` 必填且**逐元素非空**——broker 的 `Init` 会丢掉空元素，全空时整体换成内置的 `amqp://guest:guest@127.0.0.1:5672`，那是「写了配置却没落」的最坏形状。裸 `host:port` 可以（`Init` 补 `amqp://`）。另有一条实现事实：`Connect` **只拨 `addrs[0]`**，列表其余元素在这个后端是惰的（不像 kafka 那样多节点容错）。AMQP 的 `Connect` 是完整握手，不能像 kafka 那样在没有 broker 时绿。
 
 ### 2.2 整段自持：自己实现 Provider
 

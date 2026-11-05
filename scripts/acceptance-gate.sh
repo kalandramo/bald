@@ -166,6 +166,29 @@ esac
 #     STDIO 的判别形状（契约强制 HTTP：STDIO 不绑端口，写了 address 就必须听得见）。
 # 三族都有 TestAppProviderEndToEnd_（契约 yaml → appkit.Serve → 段命中 → 真进程往返 +
 # StrictContract 拼写反证），与 tcp 同口径进表；骨架腿仍由 CI 的 test 作业整包跑。
+# transport/{kafka,redis,rocketmq,rabbitmq}/contract 四条腿（§7.28 方向二·第三批）同判
+# 「契约有 MQ 段、装配无门」首次开门，但四族的离线可判面**互不相同**，不能互相类推：
+#   - kafka：broker 的 Connect 只翻标志位，因此 Start 离线就绿；订阅 flush 是「懒成功」
+#     （生产者协程后台重试），所以订阅者两腿判的是登记与 live 路径不报错；
+#   - redis：pubsub 的 Connect 是真拨号 + PING 探针，绿 Start 必须有个会回话的对端——
+#     进程内起了个只回 PING/SUBSCRIBE/UNSUBSCRIBE 的最小 RESP 应答器（线格式仍由 redigo
+#     自己解析，不伪造协议以外的东西）。端点剥凭证那条同时钉住「URL 里的 user:pass 不许
+#     泄进就绪面」；另配一条拒连端口腿，判探针红时端点保持空；
+#   - rocketmq：Connect 也只翻标志位 ⇒ 无订阅者的 Start 离线绿；但订阅 flush 走 SDK
+#     PushConsumer 的同步启动（拉路由要真 NameServer），离线必红——两条订阅腿因此判的是
+#     **失败形状**（订阅确实递进了 SDK、失败后 started 不落真）。driver_type 的 proto
+#     注释「默认 v5」与实现（恒 v2）是真漂移，收口成 fail-fast + Broker.Name()=="rocketmqV2"
+#     守卫腿，而不是把注释改绿；
+#   - rabbitmq：Connect 是完整 AMQP 0-9-1 握手，进程内假后端不可信（伪造帧序只会把
+#     「握手过没过」变成自证），所以四行映射的运行期判据是拒连端口上的**拨号目标**——
+#     错误文案里必须出现契约那个 host:port（同时判 Init 的 amqp:// 规范化真写回了
+#     options.Addrs、以及 addrs[1:] 在该后端是惰的）。端点的 started 闸门与 guest:guest
+#     脱敏在包内注入 started 判（表里单独一行 transport/rabbitmq .），因为离线跑不到
+#     Start 成功；「Start 后端点变描述性」「订阅真挂上队列」属真集群判据，本轮不拿假握手冒充。
+# 四族都有 TestAppProviderEndToEnd_（契约 yaml → Serve → 段命中 + StrictContract 拼写反证
+# rmq/rds/kfk/rbmq）；redis/kafka/rocketmq 的真进程腿读到「Start 后的描述性端点」，
+# rabbitmq 那条读到的是「Build 的 fail-fast 一路掀掉 Serve」——差别就是上面那条离线边界。
+# 四族骨架腿（Segments/Apply/Plan/Build/三态跳过）仍由 CI 的 test 作业整包跑，不重复点名。
 rows() {
   printf '%s\n' \
     $'ci\tpkg\t./appkit\tTestPlan_(NoSideEffects|OrderInvariant|SegmentCoverage|Conflict|DomainRoutes|CustomRoutesWarning)|TestRouteShapeConflict\t' \
@@ -196,6 +219,11 @@ rows() {
     $'ci\ttransport/graphql\t./contract\tTestMappingOffline_|TestAppProviderEndToEnd_\t' \
     $'ci\ttransport/webrtc\t./contract\tTestMappingOffline_|TestAppProviderEndToEnd_\t' \
     $'ci\ttransport/mcp\t./contract\tTestMappingOffline_|TestAppProviderEndToEnd_\t' \
+    $'ci\ttransport/kafka\t./contract\tTestMappingOffline_|TestAppProviderEndToEnd_\t' \
+    $'ci\ttransport/redis\t./contract\tTestMappingOffline_|TestAppProviderEndToEnd_\t' \
+    $'ci\ttransport/rocketmq\t./contract\tTestMappingOffline_|TestAppProviderEndToEnd_\t' \
+    $'ci\ttransport/rabbitmq\t./contract\tTestMappingOffline_|TestAppProviderEndToEnd_\t' \
+    $'ci\ttransport/rabbitmq\t.\tTestEndpointAfterStartStripsCredentials|TestSanitizeEndpoint\t' \
     $'ci\tbconf\t.\tTestUnmarshalNestedBackoffSection|TestUnmarshalAbsentBackoffStaysNil|TestUnmarshalDurationSpellings|TestCoerceDurationFormat\t' \
     $'no\tbconf\t.\tTestGeneratedMatchesProto\t' \
     $'no\t_example/bald\t./internal/bootstrap\tTestPlan_ReferenceProject\t' \

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -175,8 +176,30 @@ func (s *Server) doRegisterSubscriberMap() error {
 	return errors.Join(errs...)
 }
 
+// Endpoint 是描述性端点（redis://host:port）——代理型传输不监听本地端口，
+// 地址只在建连成功后才有意义：pubsub broker 的 Address() 在 Init 前是空串、
+// Init 后才规范化为带 scheme 的 URL（缺地址兜底 redis://127.0.0.1:6379）。
+// started 未置真即返回空串，appkit 的端点闸门（waitForEndpoints）据此判「未就绪」
+// 而不是拿旧值蒙混——Stop 先复位 started 再 Disconnect（Disconnect 会清空地址），
+// 所以停机后端点必回空。地址含用户名/密码时脱敏后再返回：端点会进日志与服务
+// 注册面，凭证不能随端点外泄。
+// （先例：transport/asynq 的 asynq:// 端点、pkg/registrableEndpoint 过滤 scheme 端点。）
 func (s *Server) Endpoint() string {
-	return ""
+	if !s.started.Load() {
+		return ""
+	}
+	addr := s.Address()
+	u, err := url.Parse(addr)
+	if err != nil {
+		// Start 成功后地址已由 redigo DialURL 校验过，理论上解析不到不了；
+		// 真发生也不吞掉端点——返回原值好于谎报未就绪。
+		return addr
+	}
+	if u.User == nil {
+		return addr
+	}
+	u.User = nil
+	return u.String()
 }
 
 func (s *Server) wrapHandler(topic string, handler broker.Handler) broker.Handler {
