@@ -74,6 +74,7 @@ func newRegistry(apiClient *api.Client, opts ...Option) *Registry {
 			cli:                            apiClient,
 			resolver:                       defaultResolver,
 			healthcheckInterval:            10,
+			healthCheckTimeout:             5 * time.Second,
 			heartbeat:                      true,
 			deregisterCriticalServiceAfter: 600,
 		},

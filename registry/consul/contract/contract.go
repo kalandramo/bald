@@ -46,17 +46,15 @@ func Provider(ctx context.Context, cfg *bootstrapv1.Registry) (registry.Registra
 			opts = append(opts, consul.WithDatacenter(consul.MultiDatacenter))
 		}
 	}
-	if c.GetEnableHealthCheck() {
-		opts = append(opts, consul.WithHealthCheck(true))
-	} else {
-		opts = append(opts, consul.WithHealthCheck(false))
-	}
+	// proto3 的 bool 没有 presence，「字段没写」== false == 关掉，会覆盖
+	// newRegistry 里的 true 默认值。这是契约口径（见 §7.18），不是 bug。
+	opts = append(opts, consul.WithHealthCheck(c.GetEnableHealthCheck()))
 	opts = append(opts, consul.WithHeartbeat(c.GetHeartbeat()))
 	if iv := int(c.GetHealthCheckInterval()); iv > 0 {
 		opts = append(opts, consul.WithHealthCheckInterval(iv))
 	}
 	if to := int(c.GetHealthCheckTimeout()); to > 0 {
-		opts = append(opts, consul.WithTimeout(time.Duration(to)*time.Second))
+		opts = append(opts, consul.WithHealthCheckTimeout(time.Duration(to)*time.Second))
 	}
 	if dcsa := int(c.GetDeregisterCriticalServiceAfter()); dcsa > 0 {
 		opts = append(opts, consul.WithDeregisterCriticalServiceAfter(dcsa))

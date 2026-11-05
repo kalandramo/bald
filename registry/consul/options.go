@@ -16,9 +16,23 @@ func WithHealthCheck(enable bool) Option {
 }
 
 // WithTimeout with get services timeout option.
+//
+// 它管的是**发现侧**一次 resolve 的截止期（Registry.resolve 里的
+// context.WithTimeout），不是注册到 consul 的健康检查超时——后者见
+// [WithHealthCheckTimeout]。
 func WithTimeout(timeout time.Duration) Option {
 	return func(o *Registry) {
 		o.timeout = timeout
+	}
+}
+
+// WithHealthCheckTimeout 设置注册到 consul 的 TCP 健康检查 timeout，
+// 它出现在 `/v1/agent/service/register` 请求体的检查里。默认 5s。
+func WithHealthCheckTimeout(timeout time.Duration) Option {
+	return func(o *Registry) {
+		if o.cli != nil {
+			o.cli.healthCheckTimeout = timeout
+		}
 	}
 }
 

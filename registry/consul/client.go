@@ -36,6 +36,8 @@ type Client struct {
 	resolver ServiceResolver
 	// healthcheck time interval in seconds
 	healthcheckInterval int
+	// healthCheckTimeout 是 TCP 检查的 timeout（进 register 请求体）
+	healthCheckTimeout time.Duration
 	// heartbeat enable heartbeat
 	heartbeat bool
 	// deregisterCriticalServiceAfter time interval in seconds
@@ -183,7 +185,7 @@ func (c *Client) Register(_ context.Context, svc *registry.ServiceInstance, enab
 				TCP:                            address,
 				Interval:                       fmt.Sprintf("%ds", c.healthcheckInterval),
 				DeregisterCriticalServiceAfter: fmt.Sprintf("%ds", c.deregisterCriticalServiceAfter),
-				Timeout:                        "5s",
+				Timeout:                        c.healthCheckTimeout.String(),
 			})
 		}
 		// custom checks
