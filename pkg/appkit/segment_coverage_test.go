@@ -222,28 +222,25 @@ func TestAssemble_ServerSubSegmentWithCoProvider(t *testing.T) {
 	}
 }
 
-// §7.36 现状钉子（端到端实测，把「L3 子段级判据只在 server 分支里」从代码阅读
-// 升级成跑出来的行为）：cfg 同时配「有专属工厂的子段」与「同族没有工厂的子段」，
-// 只给前者一个 Provider ⇒ 该 Provider 点亮族**顶层**，后一个子段既不报错也不生效。
-// 每族第二个子例是活性对照：撤掉唯一的该族 Provider，同一份 cfg 就判红——证明第一
-// 子例的「不报错」来自同族遮蔽，而不是 L3 整体没跑。
-// 三族分开跑（而非只跑 broker 后推其余）是因为「同一分支」不等于「同一行为」：
-// cache.local 是仓内映射包零注册、database.mongodb 是 contrib 映射包零注册、
-// broker.kafka 是方向① 未实现，遮蔽来源各不相同。
-// owner 若选 §7.36 候选①或②（子段级闸门扩到全族），该翻红的是每族第一子例，届时改
-// 期望而不是改闸门。
-func TestAssemble_SiblingNonServerSubSegmentIsSilent(t *testing.T) {
+// §7.36 收口（owner 选方向①：子段闸门扩到全族）：cfg 同时配「有专属工厂
+// 的子段」与「同族没有工厂的子段」，只给前者一个 Provider ⇒ 族顶层虽被点亮，
+// 未接管的子段仍逐个判红，文案指向精确路径。每族分开跑（而非只跑 broker 后
+// 推其余）：遮蔽来源各不相同（映射包零注册 / 方向① 未实现），同一分支不等于
+// 同一行为。active 对照保留：撤掉唯一的该族 Provider，同一份 cfg 在顶层就判
+// 红——证明子段判红不是顶层闸门的副作用。
+// factory 用 stub 镜像契约包的声明形状（oss/ai/workflow 的构造函数不是
+// Provider，真实装配由用户 Provider 复用），本用例只钉闸门判据。
+func TestAssemble_SiblingSubSegmentWithoutProviderErrors(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
 
-	// 影子子段 = 同族里没被 cfg 点亮却也不会被判红的子段（各族来源不同，见上）。
 	cases := []struct {
 		family string
 		// newCfg 配出「工厂子段 + 影子子段」两者俱在的配置。
 		newCfg func() *bootstrapv1.BootstrapConfig
-		// factory 是工厂子段的 Provider，路径用真实工厂声明的那种（带族前缀）。
+		// factory 是工厂子段的 Provider，路径用契约包声明的子段路径。
 		factory segProvider
-		// shadow 是影子子段名，判红文案里不该出现它（只出现族名）。
+		// shadow 是没接管的子段名，必须出现在判红文案里。
 		shadow string
 	}{
 		{
@@ -294,25 +291,176 @@ func TestAssemble_SiblingNonServerSubSegmentIsSilent(t *testing.T) {
 				func(c *bootstrapv1.BootstrapConfig) bool { return c.GetDatabase().GetSql() != nil },
 				"db", nil),
 		},
+		{
+			family: "storage",
+			shadow: "s3",
+			newCfg: func() *bootstrapv1.BootstrapConfig {
+				cfg := bconf.NewBootstrap()
+				dynamicAddr(cfg)
+				cfg.Storage = &bootstrapv1.Storage{
+					Minio: &bootstrapv1.Storage_Minio{Endpoint: "127.0.0.1:9000"},
+					S3:    &bootstrapv1.Storage_S3{Region: "us-east-1"},
+				}
+				return cfg
+			},
+			factory: stubDomainProvider("storage.minio", "minio",
+				func(c *bootstrapv1.BootstrapConfig) bool { return c.GetStorage().GetMinio() != nil },
+				"storage", nil),
+		},
+		{
+			family: "workflow",
+			shadow: "temporal",
+			newCfg: func() *bootstrapv1.BootstrapConfig {
+				cfg := bconf.NewBootstrap()
+				dynamicAddr(cfg)
+				cfg.Workflow = &bootstrapv1.Workflow{
+					Argo:     &bootstrapv1.Workflow_Argo{ServerUrl: "http://127.0.0.1:2746"},
+					Temporal: &bootstrapv1.Workflow_Temporal{HostPort: "127.0.0.1:7233"},
+				}
+				return cfg
+			},
+			factory: stubDomainProvider("workflow.argo", "argo",
+				func(c *bootstrapv1.BootstrapConfig) bool { return c.GetWorkflow().GetArgo() != nil },
+				"workflow", nil),
+		},
+		{
+			family: "ai",
+			shadow: "eino",
+			newCfg: func() *bootstrapv1.BootstrapConfig {
+				cfg := bconf.NewBootstrap()
+				dynamicAddr(cfg)
+				cfg.Ai = &bootstrapv1.Ai{
+					Openai: &bootstrapv1.Ai_Openai{ModelName: "gpt-4o-mini"},
+					Eino:   &bootstrapv1.Ai_Eino{ModelName: "gpt-4o-mini"},
+				}
+				return cfg
+			},
+			factory: stubDomainProvider("ai.openai", "openai",
+				func(c *bootstrapv1.BootstrapConfig) bool { return c.GetAi().GetOpenai() != nil },
+				"ai", nil),
+		},
 	}
 
 	for _, tc := range cases {
-		t.Run(tc.family+"/工厂子段点亮族顶层，影子子段静默", func(t *testing.T) {
+		t.Run(tc.family+"/未接管的影子子段判红", func(t *testing.T) {
 			a := assembleForTest(t, tc.newCfg(), WithHTTP(new(http.ServeMux)),
 				tc.factory, StandardHTTPProvider(), StandardGRPCProvider())
-			runBriefly(t, a, 30*time.Millisecond)
+			msg := runExpectErr(t, a, tc.family+"."+tc.shadow+" is configured but has no implementation")
+			if strings.Contains(msg, "top-level sections with no consumer") {
+				t.Fatalf("error %q reported the family as unconsumed; the factory sub-segment should cover the top level", msg)
+			}
 		})
 
 		t.Run(tc.family+"/活性对照：撤掉唯一该族 Provider 则顶层判红", func(t *testing.T) {
 			a := assembleForTest(t, tc.newCfg(),
 				WithHTTP(new(http.ServeMux)), StandardHTTPProvider(), StandardGRPCProvider())
-			msg := runExpectErr(t, a, "no consumer", tc.family)
-			// 判红只到族名为止——影子子段被同族遮蔽，连名字都不出现在错误里。
-			if strings.Contains(msg, tc.shadow) {
-				t.Fatalf("error %q names the shadowed sub-segment %q; sub-segment granularity appeared outside the server branch", msg, tc.shadow)
-			}
+			runExpectErr(t, a, "no consumer", tc.family)
 		})
 	}
+}
+
+// 族顶层被 Provider 直接声明（config/tracer/metrics/audit 等）：子段由该
+// Provider 自行解释，不再逐个要求 "<族>.<子段>" Provider——否则按 backends
+// 动态选择后端的 Provider（audit）会被自己声明的选项子段反咬。
+func TestAssemble_TopLevelOwnerCoversFamilyChildren(t *testing.T) {
+	old := log.GetLogger()
+	t.Cleanup(func() { log.SetLogger(old) })
+
+	cfg := bconf.NewBootstrap()
+	dynamicAddr(cfg)
+	cfg.Broker = &bootstrapv1.Broker{
+		Redis: &bootstrapv1.Broker_Redis{Address: "127.0.0.1:6379"},
+		Kafka: &bootstrapv1.Broker_Kafka{Brokers: []string{"127.0.0.1:9092"}},
+	}
+	owner := segProvider{segs: []string{"broker"}, build: func(context.Context, ApplyScope) (any, Cleanup, error) {
+		return map[string]any{"redis": "broker"}, nil, nil
+	}}
+
+	a := assembleForTest(t, cfg,
+		WithHTTP(new(http.ServeMux)), StandardHTTPProvider(), StandardGRPCProvider(), owner)
+	runBriefly(t, a, 30*time.Millisecond)
+}
+
+// audit 是顶层归属者的真实形态：std Audit Provider 声明 "audit"，按
+// audit.backends 选择后端；store/stream 子段是后端选项而非独立实现。
+func TestAssemble_AuditOwnerCoversStoreAndStreamSections(t *testing.T) {
+	old := log.GetLogger()
+	t.Cleanup(func() { log.SetLogger(old) })
+
+	cfg := bconf.NewBootstrap()
+	dynamicAddr(cfg)
+	cfg.Audit = &bootstrapv1.Audit{
+		Backends: []string{"log"},
+		Store:    &bootstrapv1.Audit_Store{Migrate: true},
+		Stream:   &bootstrapv1.Audit_Stream{Stream: "audit.events"},
+	}
+
+	a := assembleForTest(t, cfg,
+		WithHTTP(new(http.ServeMux)), StandardHTTPProvider(), StandardGRPCProvider(), StandardAuditProvider())
+	runBriefly(t, a, 30*time.Millisecond)
+}
+
+// 整族白名单（WithUnimplementedSegments("cache")）延续原有语义：承认整段
+// 不生效，子段不再逐个报——旧口径的整族豁免不被新闸门反咬。
+func TestAssemble_WhitelistedFamilyCoversChildren(t *testing.T) {
+	old := log.GetLogger()
+	t.Cleanup(func() { log.SetLogger(old) })
+
+	cfg := bconf.NewBootstrap()
+	dynamicAddr(cfg)
+	cfg.Cache = &bootstrapv1.Cache{
+		Redis: &bootstrapv1.Cache_Redis{Addr: "127.0.0.1:6379"},
+		Local: &bootstrapv1.Cache_Local{Size: 1 << 20},
+	}
+
+	a := assembleForTest(t, cfg,
+		WithHTTP(new(http.ServeMux)), WithUnimplementedSegments("cache"),
+		StandardHTTPProvider(), StandardGRPCProvider())
+	runBriefly(t, a, 30*time.Millisecond)
+}
+
+// 子段白名单只豁免该子段：同族其它未接管子段照常判红（窄豁免，不是整族）。
+func TestAssemble_WhitelistedChildIsNarrow(t *testing.T) {
+	old := log.GetLogger()
+	t.Cleanup(func() { log.SetLogger(old) })
+
+	cfg := bconf.NewBootstrap()
+	dynamicAddr(cfg)
+	cfg.Broker = &bootstrapv1.Broker{
+		Redis:    &bootstrapv1.Broker_Redis{Address: "127.0.0.1:6379"},
+		Kafka:    &bootstrapv1.Broker_Kafka{Brokers: []string{"127.0.0.1:9092"}},
+		Rabbitmq: &bootstrapv1.Broker_RabbitMQ{},
+	}
+	prov := stubDomainProvider("broker.redis", "redis",
+		func(c *bootstrapv1.BootstrapConfig) bool { return c.GetBroker().GetRedis() != nil },
+		"broker", nil)
+
+	a := assembleForTest(t, cfg,
+		WithHTTP(new(http.ServeMux)), WithUnimplementedSegments("broker.kafka"),
+		prov, StandardHTTPProvider(), StandardGRPCProvider())
+	msg := runExpectErr(t, a, "broker.rabbitmq is configured but has no implementation")
+	if strings.Contains(msg, "broker.kafka") {
+		t.Fatalf("whitelisted child %q still named in error: %s", "broker.kafka", msg)
+	}
+}
+
+// registry 段被 Registrar 显式实例接管：程序化接管 = 刻意覆盖，域内子段不再
+// 逐个判红（Registrar 自行读取契约；纯 registry Provider 在计划期被跳过）。
+func TestAssemble_RegistrarCoversRegistryChildren(t *testing.T) {
+	old := log.GetLogger()
+	t.Cleanup(func() { log.SetLogger(old) })
+
+	cfg := bconf.NewBootstrap()
+	dynamicAddr(cfg)
+	cfg.Registry = &bootstrapv1.Registry{
+		Type: "etcd",
+		Etcd: &bootstrapv1.Registry_Etcd{Endpoints: []string{"127.0.0.1:2379"}},
+	}
+
+	a := assembleForTest(t, cfg,
+		WithHTTP(new(http.ServeMux)), StandardHTTPProvider(), StandardGRPCProvider(),
+		Registrar(testRegistrar{}))
+	runBriefly(t, a, 30*time.Millisecond)
 }
 
 // 白名单名字必须是契约里真实存在的段路径（BootstrapConfig 字段链，

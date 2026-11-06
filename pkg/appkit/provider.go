@@ -225,12 +225,19 @@ func segmentPresent(cfg *bootstrapv1.BootstrapConfig, path string) bool {
 // presentChildSegments 枚举 msg 已出现的直接子段（消息型字段非 nil），
 // 按字段声明序返回段名。供 server 子段覆盖检查使用（替代 bootstrap
 // serverSections 手工枚举表——段名由契约反射给出，新子段自动纳入）。
+//
+// google.protobuf 的 well-known types（Duration/Value/FieldMask 等）是值
+// 类型而非配置段：app.stop_timeout 是 Duration，按子段消费判定会制造
+// 「app.stop_timeout 没有实现」这类噪音，故跳过。
 func presentChildSegments(msg protoreflect.Message) []string {
 	var out []string
 	fields := msg.Descriptor().Fields()
 	for i := 0; i < fields.Len(); i++ {
 		fd := fields.Get(i)
 		if fd.Kind() != protoreflect.MessageKind || fd.IsList() {
+			continue
+		}
+		if strings.HasPrefix(string(fd.Message().FullName()), "google.protobuf.") {
 			continue
 		}
 		if msg.Get(fd).Message().IsValid() {

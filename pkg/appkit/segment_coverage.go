@@ -16,6 +16,13 @@
 //     接管则合法，否则报错（替代 bootstrap.validateServerSections 的
 //     implemented 手工表——子段存在性由反射给出，新子段自动纳入）。
 //
+// 其它族的子段同判：族顶层被消费 ≠ 族内每个子段都有实现。broker.redis 有
+// Provider 不代表 broker.kafka 会被装配——只点亮族顶层会让同族未实现子段
+// 静默失效。因此逐族枚举已出现的子段，要求被 Provider 以 "<族>.<子段>" 精确
+// 路径接管（或白名单豁免）。两种整体接管跳过子段检查：Provider 直接声明族
+// 顶层（config/tracer/metrics/audit 等，域内子段由该 Provider 自行解释）、
+// registry 段被 Registrar 显式实例接管（程序化接管 = 刻意覆盖）。
+//
 // 调用点：assemble 的 BeforeStart 装配链末尾（契约已装载定型、各段消费与
 // 否已见分晓）——文件装载贡献的段（如 config 层带入的 script）在此处才能
 // 被枚举到。热更路径不重跑本检查。
@@ -27,6 +34,7 @@ import (
 	"strings"
 
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
 
 	bconf "github.com/kalandramo/bald/bconf"
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
@@ -66,7 +74,7 @@ func checkSegmentCoverage(cfg *bootstrapv1.BootstrapConfig, spec *Decl, plan *pr
 	// server 非内置子段：无 Provider 接管（或未整体豁免）即报错——契约段
 	// 存在但框架没有对应协议实现，静默启动会让用户误以为协议面已监听
 	// （原 validateServerSections 的语义，检查点与文案措辞保留）。
-	if srv := cfg.GetServer(); srv != nil && !plan.unimplemented["server"] {
+	if srv := cfg.GetServer(); srv != nil && !plan.unimplemented["server"] && !plan.ownsPath("server") {
 		triggered := plan.triggeredPaths(cfg)
 		var sub []string
 		for _, child := range presentChildSegments(srv.ProtoReflect()) {
@@ -84,10 +92,53 @@ func checkSegmentCoverage(cfg *bootstrapv1.BootstrapConfig, spec *Decl, plan *pr
 		problems = append(problems, sub...)
 	}
 
+	problems = append(problems, familySubSegmentProblems(cfg, spec, plan, covered)...)
+
 	if len(problems) == 0 {
 		return nil
 	}
 	return errors.New("appkit: bootstrap config declares sections with no consumer:\n  " + strings.Join(problems, "\n  "))
+}
+
+// familySubSegmentProblems 逐族检查已出现的子段是否有实现（server 由上面的
+// 能力语义单独处理，此处跳过）。整族归属（Provider 直接声明族顶层）、整族
+// 白名单、registry 被 Registrar 程序化接管三种情形跳过——这些情况下子段由
+// 接管方自行解释，框架无从判断域内选项是否生效。
+func familySubSegmentProblems(cfg *bootstrapv1.BootstrapConfig, spec *Decl, plan *providerPlan, covered map[string]bool) []string {
+	triggered := plan.triggeredPaths(cfg)
+	root := cfg.ProtoReflect()
+	fields := root.Descriptor().Fields()
+	var problems []string
+	for i := 0; i < fields.Len(); i++ {
+		fd := fields.Get(i)
+		if fd.Kind() != protoreflect.MessageKind || fd.IsList() {
+			continue
+		}
+		name := fd.TextName()
+		if name == "server" || !covered[name] {
+			continue
+		}
+		if plan.ownsPath(name) || plan.unimplemented[name] {
+			continue
+		}
+		if name == "registry" && spec.Registrar != nil {
+			continue
+		}
+		msg := root.Get(fd).Message()
+		if !msg.IsValid() {
+			continue
+		}
+		for _, child := range presentChildSegments(msg) {
+			path := name + "." + child
+			if triggered[path] || plan.unimplemented[path] {
+				continue
+			}
+			problems = append(problems, fmt.Sprintf(
+				"%s is configured but has no implementation in this repo "+
+					"(remove the section, provide a Provider for %q, or whitelist it via appkit.WithUnimplementedSegments)", path, path))
+		}
+	}
+	return problems
 }
 
 // consumedSegments 计算本次装配真实消费的顶层段。逐条对应段驱动装配的
