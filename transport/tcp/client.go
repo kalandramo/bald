@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"net/url"
+	"sync"
 	"time"
 
 	"github.com/kalandramo/bald/encoding"
@@ -26,7 +27,9 @@ type ClientHandlerData struct {
 type ClientMessageHandlerMap map[NetMessageType]ClientHandlerData
 
 type Client struct {
-	conn net.Conn
+	// connMu 保护 conn：run goroutine 与 Connect/Disconnect/SendRawData 跨 goroutine 访问。
+	connMu sync.Mutex
+	conn   net.Conn
 
 	url      string
 	endpoint *url.URL
@@ -81,19 +84,37 @@ func (c *Client) Connect() error {
 		return err
 	}
 
+	c.connMu.Lock()
 	c.conn = conn
+	c.connMu.Unlock()
 
-	go c.run()
+	go c.run(conn)
 
 	return nil
 }
 
+// release 在 conn 仍是当前连接时清空字段并返回 true；谁持有谁关闭，避免重复 Close。
+func (c *Client) release(conn net.Conn) bool {
+	c.connMu.Lock()
+	defer c.connMu.Unlock()
+	if c.conn != conn {
+		return false
+	}
+	c.conn = nil
+	return true
+}
+
 func (c *Client) Disconnect() {
-	if c.conn != nil {
-		if err := c.conn.Close(); err != nil {
-			log.Printf("[tcp] disconnect error: %s", err)
-		}
-		c.conn = nil
+	c.connMu.Lock()
+	conn := c.conn
+	c.conn = nil
+	c.connMu.Unlock()
+
+	if conn == nil {
+		return
+	}
+	if err := conn.Close(); err != nil {
+		log.Printf("[tcp] disconnect error: %s", err)
 	}
 }
 
@@ -128,7 +149,11 @@ func (c *Client) DeregisterMessageHandler(messageType NetMessageType) {
 }
 
 func (c *Client) SendRawData(message []byte) error {
-	if c.conn == nil {
+	c.connMu.Lock()
+	conn := c.conn
+	c.connMu.Unlock()
+
+	if conn == nil {
 		return errors.New("client is not connected")
 	}
 
@@ -141,7 +166,7 @@ func (c *Client) SendRawData(message []byte) error {
 		c.m.Counter(context.Background(), "tcp_client_messages_sent_total", 1, labels)
 	}
 
-	if _, err := c.conn.Write(message); err != nil {
+	if _, err := conn.Write(message); err != nil {
 		if c.m != nil {
 			c.m.Counter(context.Background(), "tcp_client_messages_errors_total", 1, map[string]string{
 				"rpc_system": "tcp",
@@ -179,13 +204,19 @@ func (c *Client) SendMessage(messageType int, message any) error {
 	return c.SendRawData(buff)
 }
 
-func (c *Client) run() {
-	defer c.Disconnect()
+func (c *Client) run(conn net.Conn) {
+	defer func() {
+		if c.release(conn) {
+			if err := conn.Close(); err != nil {
+				log.Printf("[tcp] disconnect error: %s", err)
+			}
+		}
+	}()
 
 	buf := make([]byte, 102400)
 
 	for {
-		readLen, err := c.conn.Read(buf)
+		readLen, err := conn.Read(buf)
 		if err != nil {
 			log.Printf("[tcp] read message error: %v", err)
 			return
