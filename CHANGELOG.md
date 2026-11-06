@@ -4,6 +4,281 @@
 条目取自该版本区间内的提交标题（Conventional Commits），不要手工调整顺序。
 发布流程见 [多模块发布与变更日志](docs/devel/zh-CN/多模块发布与变更日志.md)。
 
+## 2026-11-06
+
+### bald v0.39.0
+
+- `cd246e78` docs(architecture): 补两轮远端绿证——搬迁 42209301699 与循环改形 42216040684/42216040416
+- `7a601558` ci(ci.yml): test/race/lint 三条主循环改成 continue-and-summarize，收口 §7.40 的循环截断半边
+- `f7cbdba2` docs(architecture): §7.40 发版归属改成 ef8611a 重跑的现值（27 module）并说清 bootstrap 那条是分类器按提交类型算的
+- `ef8611a8` fix(pkg,bootstrap): 修 §7.40——§7.39 的 CLI 覆盖链落点从 bootstrap 搬到 pkg/appkit，不新增跨 module 导出符号
+- `d0978a9a` docs(§7.39): 撤掉「--plan 看到覆盖后终值」这句假边界，改成实测的 --plan 语义
+- `0c128616` docs(architecture): §7.39 状态翻到已修——主表、动作项 53、口径面 ⑥ 与六处 `--log.*` 文档同步
+- `665e2c42` test(bootstrap): 派生闸门化 flag 层的契约外取值路由，登记 §7.39
+- `f85f0cde` docs(architecture): §7.38 口径回指《设计判据》J9
+- `2a848c3a` docs(判据): 新增 J9「配置取值只有契约一条通道」，并修掉 J7 落点里的死符号
+- `325b0380` docs(architecture): 登记 §7.38 配置输入路由面，主表形状与状态直方同步到 55 行
+- `9e1f4121` test(docscheck): §7.38 链外 env 路由闸门——读侧 AST 派生，符号集合含 Environ
+- `3649d835` docs(architecture): §7.37 远端绿证 + 三处口径纠偏（pkg 定级按现值是 minor，不是 patch）
+- `e5d52ce9` docs(architecture): 登记 §7.37（repeated 字段 panic 已修）并把 §7.36 的三族证据与 57 的算式写实
+- `b9d8531f` test(appkit): §7.36 同族子段静默遮蔽从代码阅读升级为端到端钉子测试
+- `4b23fadb` docs(architecture): §7.35 主表列形状做成闸门（转义感知切分），§7.36 登记非服务器面量化
+- `8dbdfaf8` docs(architecture): §7.34 判据改 go/ast 派生＋双档值型口径，§7.33 补分母口径独立复跑
+- `3dc7e7b4` docs(architecture): §7.34 补框架自身装配面——appkit 16 个 Option 里 2 个纯值 knob 连代码外落点都没有
+- `f3548c57` docs(architecture): 登记 §7.34 选项面量化，并把自己第一版不可复跑的数字改成派生口径
+- `cb6c61b9` docs(architecture): 登记 §7.33 叶子级读者清点——462 个标量字段 59 个零读者，唯一真缺口 broker.kafka.group_id
+- `2ec9ac73` test(docscheck): 收口 §7.31 残余①②——全局位写入方改成派生判据，不再靠手写表被想起来
+- `12f66280` ci(workflow-lint): 收口 §7.30 未闭合①——shellcheck 版本 pin 落进仓内，本机与 CI 判同一规则集
+- `138f4aed` docs(architecture): §7.28 方向① C-补闸门 blast radius 实测落定——两仓现实工程都碰不到
+- `cc6ce801` docs(architecture): 补 §7.32 远端绿证，并纠 §7.28 方向①/J7 的子段静默口径
+- `46f5efbc` docs(architecture): 登记 §7.32 过期计划闸门 + 回填 §7.30/§7.31 远端绿证
+- `3d5c5826` fix(cli/release): sync/changelog 拒绝过期计划——「已是最新」那句不能是没检查的伪装（§7.32）
+- `089ee283` docs(architecture): §7.27 表行的「SetMeterProvider 仍未闭合」改指 §7.31
+- `1dfd7674` docs(architecture): 登记 §7.31 与台账 44，并回填 §7.29 远端绿证、标明 §7.30 绿证待下一轮
+- `f8e49e66` fix(appkit): 全局 OTel MeterProvider 计划期单选——metrics 与 instrumentation.otlp 不得同时触发（§7.31）
+- `e8d37c25` docs(architecture): 登记 §7.30（ci-workflow-lint 的 shellcheck 腿静默缺席）+ 台账 43
+- `02c07a36` ci(workflow-lint): 本机缺 shellcheck 时不再静默降级；vuln 计数去掉词分割（§7.30）
+- `01bc892f` docs(architecture): 登记 §7.29（vuln 闸门半盲）+ §7.19 补条远端绿证 + 台账 42
+- `fa213b68` ci(vuln): 去掉 fail-fast，改为逐模块记账 + 清单吐空即失败（§7.29）
+- `eef9dd01` docs(architecture): 登记 §7.19 补条与台账 41，并修掉两处旧口径
+- `b389eee9` ci(publish-bconf): §7.9 第七轮——发布作业的 buf pin 从未生效，改装 pin 的脚本并加版本判据
+- `47f36974` test(transport): §7.27 取用腿跑成真进程——instrumentation 段 → WithMetrics → 抓取端点有数
+- `716decf9` docs(architecture): §7.28 收口三处——方向②远端绿证回填、清点复跑数字、方向①/③ owner 口径
+- `e7f0b6cc` feat(transport): broker 型服务器面的契约工厂（§7.28 方向②第三批，方向②收口到 0）
+- `b4061549` docs(architecture): 补 §7.28 第二批远端九作业绿证与 acceptance 表回填数字
+- `d9fa8d10` feat(transport): graphql/webrtc/mcp 的契约服务器工厂（§7.28 方向②第二批）
+- `258ef88e` feat(transport): tcp/websocket/http3 的契约服务器工厂（§7.28 方向②第一批）
+- `d5dacc3a` docs(architecture): 登记 §7.26 收口——tencent 四行进离线闸门，§7.14 同族九格清完
+- `d09775d0` test(log/tencent): 映射层四行的运行期闸门——进程内假 CLS 线（§7.26）
+- `22d9f754` docs(architecture): 登记 §7.28 覆盖面清点，并纠正 §7.27 里那句「契约不产传输服务器」
+- `0bbb0e98` docs(architecture): §7.27 补远端绿证与本地 race/lint 证据
+- `3c0de299` feat(instrumentation): 新顶层段接通三个埋点后端，判据全离线（§7.27）
+- `da9f0f73` docs(architecture): 登记 §7.25 收口与 §7.26 开项——并补上 §7.24 的远端绿证
+- `9113e630` test(log/aliyun): 映射层六行的运行期闸门——进程内假 SLS 线（§7.25）
+- `90cd6373` docs(architecture): 登记 §7.24 收口——五处缺陷、22 条变异与 race 归因的自我纠正
+- `bcd35db1` test(broker/rocketmq): 映射层八行的运行期闸门——进程内假线 + 五处停机/装配/日志修复（§7.24）
+- `fff80a4a` docs(architecture): §7.23 补远端绿证——九作业全绿，五条后端腿逐名断言且带秒级窗口
+- `0574f02f` docs(architecture): 登记 §7.23——mongodb 八行收口，附 17 条变异与 timeout 的上游掩蔽
+- `303b710b` test(mongodb): 映射层八行的运行期闸门——进程内假线 + mongo:7 读回（§7.23）
+- `696b75d5` docs(architecture): §7.22 补远端绿证——九作业全绿，六条后端腿逐名断言
+- `3f7b328d` docs(architecture): 登记 §7.22——nacos 映射层九行收口，附 12 条变异与 prefix 死字段
+- `52549cbc` test(nacos): 映射层九行的运行期闸门——构造期登录桩 + v1 后端读回（§7.22）
+- `f6047266` docs(architecture): §7.20 补远端绿证（head 7e60c78，run 41968610411 九作业全绿）
+- `cbedbb07` docs(architecture): 登记 §7.21——task 的 pin 被 PATH 旧副本顶掉，改版本判据并配两条变异
+- `ab15639f` fix(tools): task 的 pin 工具链改为按版本判定并走 GOBIN 绝对路径
+- `7e60c788` docs(architecture): 登记 §7.20——gorm 映射层九行收口，附 26 条变异与两条假绿自纠
+- `53cde4ff` test(gorm): 映射层九行的运行期闸门——进程内 go_sqlite + 文件 DSN（§7.20）
+- `09ff3021` docs(architecture): 登记 §7.19——asynq 映射层十条腿的运行期闸门与 NewPeriodicTask 的 nil panic
+- `e7c824f1` test(asynq): 映射层十行的运行期闸门——进程内 miniredis + 心跳 ServerInfo 直读（§7.19）
+- `400cbec3` docs(architecture): 登记 consul v0.1.6 / etcd v0.4.1 发布已执行——tag 落点、代理索引与零 replace 装载取证
+- `b7a81bff` chore: 发布 2 个模块（registry/consul v0.1.6、registry/etcd v0.4.1）
+- `5995be79` docs(architecture): 补 §7.18 远端绿证，并记下 asynq 那格的前提已被探针推翻
+- `97763f40` docs(architecture): 登记 §7.18——consul 映射层十行零判据 + timeout 落点错位
+- `c6bae5f2` test(consul): 映射层十行的运行期闸门——进程内假 agent 读回契约值（§7.18）
+- `0ef07244` docs(architecture): 补 §7.14/§7.17 的远端绿证
+- `0662bc56` docs(architecture): 登记 §7.14/§7.17——映射层的运行期闸门与 heartBeat 的退避缺陷
+- `273947ed` test(etcd): 契约段的七行映射各自接上运行期判据
+- `944e6ecf` docs(architecture): 补 §7.15/§7.16 的远端绿证与发布面
+- `c57f4410` chore: 发布 6 个模块（bconf v0.19.0、registry/etcd v0.4.0、broker/kafka v0.2.4、transport/gateway v0.5.1、transport/asynq v0.6.2、transport/kafka v0.2.1）
+- `fff498af` docs(architecture): 登记 §7.16——gateway 解析器把同内容快照重复推给 gRPC
+- `64b72d2c` docs(architecture): 登记 §7.15——asynq 停机闸门复位放行二次 close
+- `a2c6e431` chore: 发布 4 个模块（bconf v0.19.0、registry/etcd v0.4.0、broker/kafka v0.2.4、transport/kafka v0.2.1）
+- `c72c7f17` docs(retry): 契约退避曲线的口径同步，并登记 §7.14 装配行缺口
+- `ae8eb2bf` ci(acceptance): 三条退避判据腿进表，etcd 的 -short 用例由三条扩到七条
+- `2367d9c6` docs(retry): 接线后的口径同步——移出未接线清单、锚点重测、退避参数对齐表
+- `cb0b948e` docs: 登记 v0.38.0 批次的外部装载收口，并把发布叠加层的两条判据写成人话
+
+### bconf v0.20.0
+
+- `f8e49e66` fix(appkit): 全局 OTel MeterProvider 计划期单选——metrics 与 instrumentation.otlp 不得同时触发（§7.31）
+- `d09775d0` test(log/tencent): 映射层四行的运行期闸门——进程内假 CLS 线（§7.26）
+- `3c0de299` feat(instrumentation): 新顶层段接通三个埋点后端，判据全离线（§7.27）
+- `9113e630` test(log/aliyun): 映射层六行的运行期闸门——进程内假 SLS 线（§7.25）
+
+### bootstrap v0.13.7
+
+- `ef8611a8` fix(pkg,bootstrap): 修 §7.40——§7.39 的 CLI 覆盖链落点从 bootstrap 搬到 pkg/appkit，不新增跨 module 导出符号
+- `d0978a9a` docs(§7.39): 撤掉「--plan 看到覆盖后终值」这句假边界，改成实测的 --plan 语义
+- `7fc24f45` fix(bootstrap,pkg): 修 §7.39——`--log.*` 摘出合并树，改在校验后写进契约 logger 段
+- `665e2c42` test(bootstrap): 派生闸门化 flag 层的契约外取值路由，登记 §7.39
+- `a2c6e431` chore: 发布 4 个模块（bconf v0.19.0、registry/etcd v0.4.0、broker/kafka v0.2.4、transport/kafka v0.2.1）
+- `8d277c47` chore: 发布 20 个模块（含根 v0.38.0）
+- `c74530ab` docs(architecture): §8 另一半收口——用 AST 符号表实测「文档描述已删 API」，改掉 20 个文件里的假引用
+
+### broker/kafka v0.2.5
+
+- `cb6c61b9` docs(architecture): 登记 §7.33 叶子级读者清点——462 个标量字段 59 个零读者，唯一真缺口 broker.kafka.group_id
+- `83cafae9` fix(deps): 7 个模块把 compress/brotli 提到修复版下限（§7.29）
+
+### broker/rocketmq v0.2.2
+
+- `552c84a6` fix(rocketmq): 假线删掉一条永不判红的连接计数——CI lint 红灯的根因
+- `bcd35db1` test(broker/rocketmq): 映射层八行的运行期闸门——进程内假线 + 五处停机/装配/日志修复（§7.24）
+- `a2c6e431` chore: 发布 4 个模块（bconf v0.19.0、registry/etcd v0.4.0、broker/kafka v0.2.4、transport/kafka v0.2.1）
+- `8d277c47` chore: 发布 20 个模块（含根 v0.38.0）
+- `63f2cecf` chore: 发布 5 个模块（bconf v0.17.0、berrors v0.1.2、bootstrap v0.13.6、pkg v0.2.0、根 v0.37.0）
+- `9cf17db1` chore: 发布 30 个模块（含根 v0.35.0）
+- `dd75622e` chore: 发布 bald v0.34.1 等 6 个模块
+- `875755c3` chore: 发布 bald v0.34.0 等 13 个模块
+
+### cli v0.1.2
+
+- `3d5c5826` fix(cli/release): sync/changelog 拒绝过期计划——「已是最新」那句不能是没检查的伪装（§7.32）
+- `3e19ef9d` chore(cli): 归位 bconf v0.19.0——tag 落地后的下一轮 require
+- `3b967189` chore(cli): 归位 bconf require 到 v0.18.0
+- `ca1b19d0` test(cli): 夹具的 buf.yaml 改成 v2——真 buf build 那条腿自 691929c 起结构性判红
+
+### contrib/database/gorm v0.1.2
+
+- `83cafae9` fix(deps): 7 个模块把 compress/brotli 提到修复版下限（§7.29）
+- `53cde4ff` test(gorm): 映射层九行的运行期闸门——进程内 go_sqlite + 文件 DSN（§7.20）
+- `66e50c02` fix(gorm): 驱动枚举闸门挡住 SDK 的静默 sqlite 兜底，migrate:true 不再构造期 panic
+- `a2c6e431` chore: 发布 4 个模块（bconf v0.19.0、registry/etcd v0.4.0、broker/kafka v0.2.4、transport/kafka v0.2.1）
+- `8d277c47` chore: 发布 20 个模块（含根 v0.38.0）
+- `63f2cecf` chore: 发布 5 个模块（bconf v0.17.0、berrors v0.1.2、bootstrap v0.13.6、pkg v0.2.0、根 v0.37.0）
+- `9cf17db1` chore: 发布 30 个模块（含根 v0.35.0）
+- `dd75622e` chore: 发布 bald v0.34.1 等 6 个模块
+- `875755c3` chore: 发布 bald v0.34.0 等 13 个模块
+
+### contrib/database/mongodb v0.1.2
+
+- `83cafae9` fix(deps): 7 个模块把 compress/brotli 提到修复版下限（§7.29）
+- `303b710b` test(mongodb): 映射层八行的运行期闸门——进程内假线 + mongo:7 读回（§7.23）
+- `a2c6e431` chore: 发布 4 个模块（bconf v0.19.0、registry/etcd v0.4.0、broker/kafka v0.2.4、transport/kafka v0.2.1）
+- `8d277c47` chore: 发布 20 个模块（含根 v0.38.0）
+- `63f2cecf` chore: 发布 5 个模块（bconf v0.17.0、berrors v0.1.2、bootstrap v0.13.6、pkg v0.2.0、根 v0.37.0）
+- `9cf17db1` chore: 发布 30 个模块（含根 v0.35.0）
+- `dd75622e` chore: 发布 bald v0.34.1 等 6 个模块
+- `875755c3` chore: 发布 bald v0.34.0 等 13 个模块
+
+### contrib/store-mongo v0.2.2
+
+- `83cafae9` fix(deps): 7 个模块把 compress/brotli 提到修复版下限（§7.29）
+- `a2c6e431` chore: 发布 4 个模块（bconf v0.19.0、registry/etcd v0.4.0、broker/kafka v0.2.4、transport/kafka v0.2.1）
+- `8d277c47` chore: 发布 20 个模块（含根 v0.38.0）
+- `6f9a3104` chore: 发布 3 个模块（bald v0.37.2、cli v0.1.1、pkg v0.2.2）
+- `d4396185` chore: 发布 3 个模块（bald v0.37.1、cli v0.1.0、pkg v0.2.1）
+- `63f2cecf` chore: 发布 5 个模块（bconf v0.17.0、berrors v0.1.2、bootstrap v0.13.6、pkg v0.2.0、根 v0.37.0）
+
+### log/aliyun v0.3.1
+
+- `83cafae9` fix(deps): 7 个模块把 compress/brotli 提到修复版下限（§7.29）
+- `9113e630` test(log/aliyun): 映射层六行的运行期闸门——进程内假 SLS 线（§7.25）
+- `a2c6e431` chore: 发布 4 个模块（bconf v0.19.0、registry/etcd v0.4.0、broker/kafka v0.2.4、transport/kafka v0.2.1）
+
+### log/tencent v0.3.1
+
+- `83cafae9` fix(deps): 7 个模块把 compress/brotli 提到修复版下限（§7.29）
+- `d09775d0` test(log/tencent): 映射层四行的运行期闸门——进程内假 CLS 线（§7.26）
+- `a2c6e431` chore: 发布 4 个模块（bconf v0.19.0、registry/etcd v0.4.0、broker/kafka v0.2.4、transport/kafka v0.2.1）
+
+### metrics v0.2.0
+
+- `f8e49e66` fix(appkit): 全局 OTel MeterProvider 计划期单选——metrics 与 instrumentation.otlp 不得同时触发（§7.31）
+- `3c0de299` feat(instrumentation): 新顶层段接通三个埋点后端，判据全离线（§7.27）
+
+### metrics/datadog v0.2.0
+
+- `6959e657` chore(release): 13 个适配器 module 的发布窗口叠加层（临时）
+- `3c0de299` feat(instrumentation): 新顶层段接通三个埋点后端，判据全离线（§7.27）
+
+### metrics/otel v0.2.0
+
+- `6959e657` chore(release): 13 个适配器 module 的发布窗口叠加层（临时）
+- `f8e49e66` fix(appkit): 全局 OTel MeterProvider 计划期单选——metrics 与 instrumentation.otlp 不得同时触发（§7.31）
+- `3c0de299` feat(instrumentation): 新顶层段接通三个埋点后端，判据全离线（§7.27）
+- `fd1a864c` chore(ci): 引入 golangci-lint 与 govulncheck 全模块门禁
+
+### metrics/prometheus v0.2.0
+
+- `6959e657` chore(release): 13 个适配器 module 的发布窗口叠加层（临时）
+- `3c0de299` feat(instrumentation): 新顶层段接通三个埋点后端，判据全离线（§7.27）
+
+### pkg v0.4.0
+
+- `ef8611a8` fix(pkg,bootstrap): 修 §7.40——§7.39 的 CLI 覆盖链落点从 bootstrap 搬到 pkg/appkit，不新增跨 module 导出符号
+- `7fc24f45` fix(bootstrap,pkg): 修 §7.39——`--log.*` 摘出合并树，改在校验后写进契约 logger 段
+- `db0aeaab` test(appkit): §7.36 同族遮蔽反证从 broker 一族扩成 broker/cache/database 三族
+- `d7fbb775` fix(appkit): 段路径反射不把 repeated 消息字段当段（§7.37）
+- `b9d8531f` test(appkit): §7.36 同族子段静默遮蔽从代码阅读升级为端到端钉子测试
+- `2ec9ac73` test(docscheck): 收口 §7.31 残余①②——全局位写入方改成派生判据，不再靠手写表被想起来
+- `f8e49e66` fix(appkit): 全局 OTel MeterProvider 计划期单选——metrics 与 instrumentation.otlp 不得同时触发（§7.31）
+- `3c0de299` feat(instrumentation): 新顶层段接通三个埋点后端，判据全离线（§7.27）
+- `a2c6e431` chore: 发布 4 个模块（bconf v0.19.0、registry/etcd v0.4.0、broker/kafka v0.2.4、transport/kafka v0.2.1）
+
+### transport/asynq v0.6.3
+
+- `a4de0685` test(transport/asynq): 停机两条腿改判终态——快照判据在 runner 上判红
+- `e7c824f1` test(asynq): 映射层十行的运行期闸门——进程内 miniredis + 心跳 ServerInfo 直读（§7.19）
+- `3deea4ca` fix(asynq): scheduler_enabled=false 时 NewPeriodicTask 返回明确错误，不再 panic
+
+### transport/graphql v0.2.0
+
+- `6959e657` chore(release): 13 个适配器 module 的发布窗口叠加层（临时）
+- `d9fa8d10` feat(transport): graphql/webrtc/mcp 的契约服务器工厂（§7.28 方向②第二批）
+
+### transport/http3 v0.3.0
+
+- `6959e657` chore(release): 13 个适配器 module 的发布窗口叠加层（临时）
+- `258ef88e` feat(transport): tcp/websocket/http3 的契约服务器工厂（§7.28 方向②第一批）
+- `b910c0f6` docs(comments): 清理 Go 注释与测试名中的缺陷编号和历史叙事
+- `fd1a864c` chore(ci): 引入 golangci-lint 与 govulncheck 全模块门禁
+
+### transport/kafka v0.3.0
+
+- `6959e657` chore(release): 13 个适配器 module 的发布窗口叠加层（临时）
+- `83cafae9` fix(deps): 7 个模块把 compress/brotli 提到修复版下限（§7.29）
+- `e7f0b6cc` feat(transport): broker 型服务器面的契约工厂（§7.28 方向②第三批，方向②收口到 0）
+
+### transport/mcp v0.5.0
+
+- `6959e657` chore(release): 13 个适配器 module 的发布窗口叠加层（临时）
+- `d9fa8d10` feat(transport): graphql/webrtc/mcp 的契约服务器工厂（§7.28 方向②第二批）
+- `fd1a864c` chore(ci): 引入 golangci-lint 与 govulncheck 全模块门禁
+
+### transport/rabbitmq v0.3.0
+
+- `6959e657` chore(release): 13 个适配器 module 的发布窗口叠加层（临时）
+- `e7f0b6cc` feat(transport): broker 型服务器面的契约工厂（§7.28 方向②第三批，方向②收口到 0）
+- `ec4223fd` chore(deps): 归位 bconf v0.15.1 的消费者 require
+- `fd1a864c` chore(ci): 引入 golangci-lint 与 govulncheck 全模块门禁
+
+### transport/redis v0.3.0
+
+- `6959e657` chore(release): 13 个适配器 module 的发布窗口叠加层（临时）
+- `e7f0b6cc` feat(transport): broker 型服务器面的契约工厂（§7.28 方向②第三批，方向②收口到 0）
+- `9cf17db1` chore: 发布 30 个模块（含根 v0.35.0）
+
+### transport/rocketmq v0.3.0
+
+- `6959e657` chore(release): 13 个适配器 module 的发布窗口叠加层（临时）
+- `e7f0b6cc` feat(transport): broker 型服务器面的契约工厂（§7.28 方向②第三批，方向②收口到 0）
+- `ec4223fd` chore(deps): 归位 bconf v0.15.1 的消费者 require
+
+### transport/tcp v0.2.0
+
+- `6959e657` chore(release): 13 个适配器 module 的发布窗口叠加层（临时）
+- `47f36974` test(transport): §7.27 取用腿跑成真进程——instrumentation 段 → WithMetrics → 抓取端点有数
+- `258ef88e` feat(transport): tcp/websocket/http3 的契约服务器工厂（§7.28 方向②第一批）
+- `8d277c47` chore: 发布 20 个模块（含根 v0.38.0）
+- `6f9a3104` chore: 发布 3 个模块（bald v0.37.2、cli v0.1.1、pkg v0.2.2）
+- `d4396185` chore: 发布 3 个模块（bald v0.37.1、cli v0.1.0、pkg v0.2.1）
+- `63f2cecf` chore: 发布 5 个模块（bconf v0.17.0、berrors v0.1.2、bootstrap v0.13.6、pkg v0.2.0、根 v0.37.0）
+
+### transport/webrtc v0.3.0
+
+- `6959e657` chore(release): 13 个适配器 module 的发布窗口叠加层（临时）
+- `d9fa8d10` feat(transport): graphql/webrtc/mcp 的契约服务器工厂（§7.28 方向②第二批）
+- `8d277c47` chore: 发布 20 个模块（含根 v0.38.0）
+- `6f9a3104` chore: 发布 3 个模块（bald v0.37.2、cli v0.1.1、pkg v0.2.2）
+- `d4396185` chore: 发布 3 个模块（bald v0.37.1、cli v0.1.0、pkg v0.2.1）
+- `63f2cecf` chore: 发布 5 个模块（bconf v0.17.0、berrors v0.1.2、bootstrap v0.13.6、pkg v0.2.0、根 v0.37.0）
+
+### transport/websocket v0.2.0
+
+- `6959e657` chore(release): 13 个适配器 module 的发布窗口叠加层（临时）
+- `258ef88e` feat(transport): tcp/websocket/http3 的契约服务器工厂（§7.28 方向②第一批）
+
 ## 2026-11-05
 
 ### registry/consul v0.1.6

@@ -4,8 +4,8 @@ go 1.27.1
 
 require (
 	github.com/json-iterator/go v1.1.12
-	github.com/kalandramo/bald/bconf v0.19.0
-	github.com/kalandramo/bald/pkg v0.3.0
+	github.com/kalandramo/bald/bconf v0.20.0
+	github.com/kalandramo/bald/pkg v0.4.0
 	github.com/kalandramo/bald/registry v0.4.0
 	k8s.io/api v0.37.0
 	k8s.io/apimachinery v0.37.0
@@ -90,7 +90,7 @@ require (
 	github.com/hashicorp/vault/api v1.23.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/kalandramo/bald/bconfig v0.2.3 // indirect
-	github.com/kalandramo/bald/bootstrap v0.13.6 // indirect
+	github.com/kalandramo/bald/bootstrap v0.13.7 // indirect
 	github.com/kalandramo/bald/health v0.1.1 // indirect
 	github.com/kalandramo/bald/log v0.5.4 // indirect
 	github.com/kalandramo/bald/transport v0.4.0 // indirect
