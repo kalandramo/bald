@@ -109,17 +109,40 @@ func TestBind_KeyPathAligned(t *testing.T) {
 	}
 }
 
-// TestBind_PlainBinder 验证无前缀 binder（如 log.Options 固定注册 --log.*）。
+// TestBind_PlainBinder 验证「无前缀 binder」这类自带键前缀的 flag 的落点：
+// `--log.*` 的顶层键 `log` 不是契约路径，进合并树会被严格契约校验判成未知键
+// 并终止启动（§7.39），所以它**必须摘出树**；同时 CLI 的终值还得能从 App 保留的
+// 全量 FlagSet 读到 Changed——那是框架把 CLI 值写进契约 logger 段的唯一来源
+// （baldbootstrap.ApplyLogFlagOverrides，见 bootstrap/log_flags.go）。
+// 两个断言缺一侧都会退回缺陷：只查「不进树」会放行「flag 彻底失效」，
+// 只查「能读到」会放行原来的「一用即终止启动」。
 func TestBind_PlainBinder(t *testing.T) {
-	cfgFile := writeCfg(t, "log:\n  level: \"info\"\n")
+	cfgFile := writeCfg(t, "logger:\n  backends:\n    - type: slog\n      slog:\n        level: \"info\"\n")
 	withArgs(t, []string{"--config=" + cfgFile, "--log.level=debug"})
 
-	a := NewApp(Name("bald-test"), Bind("", &plainBinder{}))
+	a := NewApp(Name("bald-test"),
+		StrictContract(),
+		Bind("", &plainBinder{}),
+	)
 	if err := a.loadConfig(); err != nil {
 		t.Fatalf("loadConfig: %v", err)
 	}
-	if got := readSetting(a, "log.level"); got != "debug" {
-		t.Errorf("log.level = %q, want debug", got)
+	// ① 契约外路由不进合并树；文件里的契约段原样保留。
+	// （顶层键判据而非点路径：config.At 不索引 repeated，
+	// `logger.backends[0].slog.level` 无法按字符串路径读取。）
+	snap := a.Settings()
+	if _, ok := snap["log"]; ok {
+		t.Error(`Settings() 含顶层键 "log"：契约外 flag 路由未摘净，严格契约会终止启动`)
+	}
+	if _, ok := snap["logger"]; !ok {
+		t.Error(`Settings() 缺顶层键 "logger"：文件层的契约取值不该被摘掉`)
+	}
+	// ② 覆盖来源仍在：全量 FlagSet 带 Changed 与终值。
+	if !a.cfg.flagSet.Changed("log.level") {
+		t.Error("flagSet.Changed(log.level) = false, want true（CLI 覆盖来源丢失）")
+	}
+	if v, err := a.cfg.flagSet.GetString("log.level"); err != nil || v != "debug" {
+		t.Errorf("flagSet 的 log.level = %q (err %v), want debug", v, err)
 	}
 }
 

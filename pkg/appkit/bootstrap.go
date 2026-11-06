@@ -388,8 +388,8 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig, settings map[string]
 		Version(orDefault(cfg.GetApp().GetVersion(), "v0.0.0")),
 		Env(cfg.GetApp().GetEnv()),
 		StopTimeout(orDuration(cfg.GetApp().GetStopTimeout().AsDuration(), 30*time.Second)),
-		// --log.* flag 壳：仅注册 flag 定义参与合并，终值以契约 logger 段为准
-		//（阶段 B 从契约重建 Logger，flag→合并→Unmarshal→契约的链路经此打通）。
+		// --log.* flag 定义：不进合并树（顶层键 log 不是契约路径，§7.39），终值由
+		// syncBootstrap / hotReload 在校验后按 Changed 写进契约 logger 段。
 		Bind("", baldbootstrap.LogOptions(nil)),
 		ConfigLayers(layers...),
 		Servers(spec.Servers...),
@@ -885,6 +885,10 @@ func syncBootstrap(a *App, cfg *bootstrapv1.BootstrapConfig, spec *Decl, logSrc 
 	if err := bconf.Validate(cfg); err != nil {
 		return fmt.Errorf("appkit: validate bootstrap config: %w", err)
 	}
+	// CLI 覆盖落到契约（§7.39）：`--log.*` 的键名不是契约路径，故不进合并树，而在这里
+	// 按 Changed 写进 logger 段。必须在 compilePlan 与 Logger 重建之前——计划摘要与实建
+	// 后端都得反映终值。
+	baldbootstrap.ApplyLogFlagOverrides(cfg, a.cfg.flagSet)
 	// 以合并后的契约（文件/env/flag/层）重算并安装计划：配置变更 diff 的
 	// 基线必须是真实生效的契约，而非装配前的预装载形态。
 	next, err := compilePlan(context.Background(), spec, cfg, m)
@@ -941,6 +945,8 @@ func hotReload(a *App, cfg *bootstrapv1.BootstrapConfig, spec *Decl, logSrc logg
 		lg.Error(ctx, msg, "err", err)
 		return
 	}
+	// 与冷启动同一处语义：CLI 覆盖在校验后、计划重算前落到候选契约（§7.39）。
+	baldbootstrap.ApplyLogFlagOverrides(candidate, a.cfg.flagSet)
 	// 计划重算在落盘前完成：新契约若无法编译（段覆盖/能力冲突等），整次
 	// 热更新被拒绝，旧契约与旧计划保持一致（不做半生效）。
 	next, err := compilePlan(ctx, spec, candidate, m)

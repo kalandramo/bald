@@ -21,13 +21,23 @@ var plainBinders = map[string]func(fs *pflag.FlagSet){
 }
 
 // offContractFlagRoutes 是「落不进契约的 flag 路由」登记表：键＝契约校验报出的未知键原文，
-// 值＝为什么它还存在 + 未修状态。修好后这些键不再被派生 ⇒ 条目变陈旧 ⇒ 闸门判红，
-// 逼着登记同步，不会留下「已修但文档还说没修」的死角。
+// 值＝为什么它不能进契约 + 现在靠什么生效。
+//
+// 条目什么时候算陈旧（闸门据此判红）：
+//   - 派生不出这个键了（注册器改名/删掉该 flag）⇒ 条目陈旧；
+//   - 派生出新的契约外键却没登记 ⇒ 缺登记；
+//   - 理由为空 ⇒ 判红（本表不允许「先记个键名占位」）。
+//
+// 注意：修复不会让条目消失——`.log` 之所以契约外，是因为 flag 名由 bslog 的注册器给出，
+// 与契约形状无关。修好的是「它有没有生效路径」，写进理由里的是那条路径。
 var offContractFlagRoutes = map[string]string{
-	".log": "§7.39 未修：--log.* 挂在顶层键 log 下，契约字段名是 logger（bootstrap.proto:41），" +
-		"且 slog 旋钮位于 repeated logger.backends[i].slog ⇒ 没有任何标量 flag 名能表达该路径；" +
-		"因此 strict-contract 下传入任意 --log.* 会直接终止启动。改法需 owner 裁决（扩契约 / " +
-		"框架级显式覆盖段 / 撤掉该 flag 面），本闸门只保证它不再静默扩大。",
+	".log": "§7.39 已修（overlay 路由）：契约里日志旋钮的形状是 repeated " +
+		"logger.backends[i].slog ⇒ 没有任何标量 flag 名能表达该路径，因此 --log.* 永远进不了契约。" +
+		"现在的生效路径：loadConfig 按 LogFlagNames 把这些键摘出合并树（不进严格契约校验），" +
+		"再由 ApplyLogFlagOverrides 在 bconf.Validate 之后、计划编译之前按 Changed 写进契约 logger 段" +
+		"（冷启动 syncBootstrap 与热更 hotReload 两处）。残余限制：proto3 标量无 presence ⇒ " +
+		"--log.rotate.enabled=false / --log.rotate.compress=false 压不过契约里已置真的值；" +
+		"真要能置假需契约改成 optional bool（bconf 重出 + 发布裁决）。",
 }
 
 // TestHandwrittenFlagRoutesLandInContract 是 §7.39 的闸门：契约驱动的配置取值链里，

@@ -38,6 +38,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	bconf "github.com/kalandramo/bald/bconf"
+	baldbootstrap "github.com/kalandramo/bald/bootstrap"
 	"github.com/kalandramo/bald/bootstrap/config"
 	"github.com/kalandramo/bald/log"
 	"github.com/kalandramo/bald/pkg/audit"
@@ -178,6 +179,9 @@ type appConfig struct {
 	// strictContract / businessSections 透传到 config.Options（见 StrictContract）。
 	strictContract   bool
 	businessSections []string
+	// flagSet 是 loadConfig 注册并解析过**全部** flag（含 PlainBinder 自带前缀那类）的
+	// 集合：不进合并树的 flag 由它提供 Changed 状态与取值（§7.39）。
+	flagSet *pflag.FlagSet
 }
 
 // closeStore 释放配置仓库的监听资源（fsnotify watcher）；未加载时 no-op。
@@ -232,6 +236,14 @@ type PlainBinder interface {
 //
 // 归 appkit 而非配置仓库：Bind 注册的 flag 进入 **App 的 FlagSet**，由
 // loadConfig 交给配置装载器合并——绑定动作与 App 生命周期同序。
+
+// 合并树落点：Bind 注册的 flag 默认全部进合并树，因此**键名必须能在配置树里落到
+// 契约段或应用自持的业务段**——否则严格契约校验按未知键终止启动（《设计判据》J9）。
+// 唯一的例外由框架自持：`--log.*`（顶层 `log` 不是契约路径，日志旋钮的实际形状是
+// `repeated logger.backends[i].slog`，没有等价的标量键名，见风险登记册 §7.39）由
+// loadConfig 从合并树摘出，改在校验之后按 Changed 写进契约 logger 段
+// （baldbootstrap.ApplyLogFlagOverrides）。新增此类「契约外路由」的 flag 必须同时
+// 登记框架侧映射与理由，否则严格契约下表现为「一用即终止启动」。
 func Bind(prefix string, opt any) Option {
 	return optionFunc(func(a *Decl) { a.Binds = append(a.Binds, BindDecl{Prefix: prefix, Opt: opt}) })
 }
@@ -511,13 +523,38 @@ func (a *App) loadConfig() error {
 	// 注册业务 flag：必须进入本 FlagSet（而非仅 pflag.CommandLine），
 	// 它才会被 config.Options.Flags 传入装载器落到 flag 层（仅 Changed 的 flag
 	// 参与合并），从而压过环境变量、本地文件与远程基准。
+	cfgFS := pflag.NewFlagSet("bald-config", pflag.ContinueOnError)
+	cfgFS.ParseErrorsAllowlist.UnknownFlags = true
+	// pflag 注册后无法摘除，故先注册到 scratch，再按落点白名单过滤进 cfgFS。
+	register := pflag.NewFlagSet("bald-config-register", pflag.ContinueOnError)
 	for _, b := range a.cfg.bindings {
 		if err := bindFlags(fs, b); err != nil {
 			return err
 		}
+		if err := bindFlags(register, b); err != nil {
+			return err
+		}
 	}
+	// 框架的日志 CLI 键摘出合并树：顶层 `log` 不是契约路径（repeated
+	// logger.backends[i].slog 没有任何等价的标量键名），进树必被严格契约
+	// 校验判成未知键（§7.39）。终值改由 syncBootstrap / hotReload 在校验之后
+	// 按 Changed 写进契约 logger 段。其余 flag（含业务 PlainBinder）照常进树，
+	// flag > 环境变量 > 文件 的优先级不变。
+	offTree := make(map[string]struct{}, 8)
+	for _, name := range baldbootstrap.LogFlagNames() {
+		offTree[name] = struct{}{}
+	}
+	register.VisitAll(func(f *pflag.Flag) {
+		if _, ok := offTree[f.Name]; !ok {
+			cfgFS.AddFlag(f)
+		}
+	})
 
 	_ = fs.Parse(os.Args[1:])
+	_ = cfgFS.Parse(os.Args[1:])
+	// flagSet 保留**全量**解析结果（含摘出合并树的 log.*）：不进树的 flag
+	// 由它提供 Changed 状态与取值，见 ApplyLogFlagOverrides。
+	a.cfg.flagSet = fs
 
 	s, err := config.Load(config.Options{
 		// Name 是配置命名空间（env 前缀 / 多环境文件名），非服务身份——
@@ -525,7 +562,7 @@ func (a *App) loadConfig() error {
 		Name:           a.cfgNamespace,
 		Env:            a.cfg.env,
 		ConfigFile:     a.cfg.cfgFile,
-		Flags:          fs,
+		Flags:          cfgFS,
 		Layers:         a.cfg.layers,
 		Remote:         a.cfg.remote,
 		WatchLocalFile: a.cfg.watchFile,
