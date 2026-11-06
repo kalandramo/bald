@@ -58,6 +58,7 @@
 | 7.31 | **两个全局 `otel.MeterProvider` 写入方同时被契约装配点亮，谁赢由装配顺序决定、输的一侧指标全丢**——§7.27 契约化时自己登记的那条新风险，当时以「判据形状还没想清」为由**没有加闸门**；本轮先推翻那句理由（仓里已有一条同族现成机制：registry 计划期单选），再按其形状收口。实测写入面比 §7.27 登记的更宽：`metrics.type` 取 `prometheus` 或 `otlp` 都写全局（两处分支都汇到 `Setup` 里那一行），不只是 otlp | 中 | ✅ 五条判据 + 四条变异全部判红（`provider.go` 事后逐字节复原 `restored: True`）；判据覆盖正反两面（两个段都在⇒红 / 只一个在⇒绿 / prometheus·datadog 子段同在⇒绿 / 一个 Provider 打包两段⇒绿 / 自写接管者不豁免⇒红） | **已修**（2026-11-06）：`pkg/appkit` 的 Provider 计划期新增「全局 MeterProvider 单选」，`metrics` 与 `instrumentation.otlp` 两段同时触发即报错，与 registry 单选同族同位置。因 `newProviderPlan` 只有两个调用点，一次判据同时覆盖真实启动、`--plan` 预检与热更新重算三条路（热更拒绝整次更新、旧契约保留）。粒度上界如实钉成判据：闸门读段路径、看不到 Provider 内部，故自写一个不装全局位的 `metrics` 接管者仍会被拦，本轮不为此开配置侧逃生门。**同日追加**：本节残余①「表按段路径点名、新写入方不会自动进表」已闭合成机器判据（`internal/docscheck` 的 `TestGlobalMeterWritersAreInGateTable`：以 `go/ast` 派生仓内全局 MeterProvider 写入方的**包数**，与 `globalMeterSegments` 字面量键数比对，六条变异验活，含「文件里只有注释提到该 API 时仍判绿」这条反证）；边界如实——判的是条数而不是身份映射，且射程只在仓内，业务代码自己调 `otel.SetMeterProvider` 仍靠文档纪律。见 §7.31 |
 | 7.32 | **`release sync` 与 `release changelog` 从不判计划是否过期**：四步流程把结论绑在算它的那个 HEAD 上（`Plan.Head`），这两步写进仓库的每一行又全由那份 JSON 派生，却没有一步回看 HEAD——旧计划照样交出结论并 exit 0（sync 打「依赖已是最新，无需归位。」、changelog 打「没有待发布模块，变更日志不变。」），等于把「没检查」表达成「检查过且没问题」 | 中 | ✅ 两条判据 + 六道变异全部判红（三个源文件事后逐字节复原 `restored_identical=True`，每次复原后复跑绿）；变异输出直接引用那句假绿 | **已修**（2026-11-06）：库层新增 `CheckPlanFresh`（`cli/internal/release/plan.go:524`），`Sync`/`WriteChangelog` 各自首行调用，计划 HEAD≠当前 HEAD 即拒绝并给两个短哈希；changelog 那条判在「没有待发布模块」早退**之前**。`tag` 保留自己的 `onlyReleaseEdits`（`tag.go:54`）——它的合法窗口本就含 sync/changelog 产生的发布提交，语义是「只允许发布类改动」而不是「HEAD 一字未动」。判据放库层不放命令层：`OpenRepo()` 用 `git rev-parse --show-toplevel`，命令层函数拿不了 `t.TempDir()` 夹具。acceptance 表新增一条 `cli ./internal/release` 腿（本机 35 条腿 / 258 条判据）。**远端绿证**：head `46f5efb` run 42146914490 **九作业全 success**（test/example/race/lint/integration-kubernetes/acceptance/integration/proto-contract/vuln），`acceptance` 跑同一张表含新腿。残余：手工把 JSON 的 `head` 清空即绕过（`Plan()` 恒填，属自伤面）。见 §7.32 |
 | 7.33 | **叶子级清点：契约里 462 个标量字段有 59 个在全仓没有任何读者**——§7.28 方向① 量的是「哪个 message 声明了但没实现」，本节把同一把尺下移到字段级，回答更硬的那句「已实现的后端里是不是每个字段都真起作用」。判据形状：以 `bconf/proto/bootstrap/v1/*.proto` 的括号匹配解析出 (message, 字段) 全集，只取标量类型字段（462 个），一个字段算「有读者」当且仅当全仓**非测试、非生成** Go 源码里出现 `GetCamel()` 或 `.field`/`.Camel` 字段访问 | 中 | ✅ 一次性实测，非闸门（做成闸门与 §7.28 的「L3 下移到子段/叶子」同族，owner 未裁决前不自行加）；两种姿势各踩一个坑并当场纠：只按 getter 计会漏掉映射层的结构体字段读取（`transport/asynq/contract` 用 `sec.StrictPriority` 而不是 `GetStrictPriority()`，误报 3 个 asynq 字段 + 1 个 cron 字段为缺陷），按字段名去重会把不同 message 的同名字段合并计数（`broker.kafka.group_id` 与 server 面无关，但 `brokers`/`auth_type` 这类名字跨域合并会掩盖真缺口）| **已收口（口径注释）**（2026-11-06）：59 个里 **58 个落在「所属 message 自己就无消费者」的 35 个未实现节点内部**（ClickHouse/Doris/Elasticsearch/InfluxDB/OpenSearch/Cassandra、Mqtt/Nsq/Sqs/Stomp/Azuresb/Gcpubsub、Kcp/Machinery/Thrift、Conductor/Temporal/Goworkflows、Script 整域）⇒ 它们是 §7.28 方向① 那笔账的**内容**，不是新的一类缺陷，动它们仍等 owner 裁决。唯一落在**已实现后端**里的是 `broker.kafka.group_id`：无消费者、也无任何说明（全仓只有 proto 那一行提到它）。修法按仓内既有姿势走注释而不是改行为——`broker/kafka/contract` 的 Provider 注释写明它构造的是**发布侧** Broker（Init+Connect 只为出向发布建连），消费组属于订阅侧且其落点是订阅侧代码级参数，故该字段配置了不生效；与 `bootstrap/env.go` 里 `Env.separator` 那条既有的「契约字段暂无对应 Option」同口径（那一处本轮复核**确实**零消费者）。零行为改动、零对外 API 改动 ⇒ 不单独定级，随下一批注释走。见 §7.33 |
+| 7.34 | **选项面的契约化覆盖从未量化**：§7.28 方向② 把「已实现适配器有没有契约工厂」读到 0，但那只闭合了**工厂面**——一个后端进了契约之后，它自己 `With*` 选项里有多少是配置可表达的、有多少进了段，仓里没有过数字。而「没有不在契约外的能力」这句话真正的余量正在这一层 | 中 | ✅ 一次性实测（三条**派生**判据：面集合由 `Segments()` 派生、选项由归属包顶层 `^func With` 派生、段字段数由 protobuf 反射派生）：**16 个已进契约的服务器面 / 15 个归属包 / 205 个导出 `With*`＝值型 129＋注入型 71＋零参 5，对应段内直接字段 53**（最悬殊三个：`server.asynq` 31 值型 vs 段 10 字段、`server.webrtc` 22 vs 5、`server.sse` 18 vs 3；最干净的两个：`server.http`、`server.grpc` 自有值型选项 0——可配项全在 `addr`/`driver`/`tls`/`middleware` 四字段里，别无可配）。同一条选项规则扫全仓得 84 目录 / 649 选项 / 值型 419，但那档含非实例配置的选项，不作余量口径 | **登记为量化事实，不动行为**（2026-11-06）：这一格与 §7.28 方向① 一样属**排期决策**而不是缺陷——把 129 个值型选项里的任意一个搬进契约都是加字段（bconf minor）+ 加映射行 + 加运行期闸门（§7.14 那一族的形状），单个后端的成本就是那几轮的全部成本，所以顺序必须由 owner 按真实消费方定，框架侧不该自己挑。因此本轮只把「余量有多大」量成数字并钉住口径：**「能力不超出契约」这句话现在能说的范围是**——工厂面 0 例外（方向②）、已声明段内叶子字段 59/462 无读者且其中 58 个属未实现节点（§7.33）、选项面 129 个值型 knob 对 53 个段字段位，差值**按设计留在代码级**（注入型 71＋零参 5 从不列入任何口径，因为它不是缺陷也不是余量）。要收这层余量需先由 owner 定「哪些后端值得继续配置化」，与 §7.28 同批裁决。**本轮改写说明**：本条第一版是 230/146/84 与 132 vs 55，包集合手点、message↔dir 手映射，按登记判据重跑对不上（`132` 里混进 `broker/kafka` 这 48 个发布侧选项）；现值全部改由派生规则产出，逐面表见 §7.34。见 §7.34 |
 | 8 | `docscheck` 只校验链接完整性，测不出描述过期 | 低 | ✅ 已核对测试 | **已修（清单半 + acceptance 进 CI）**：`module-list` 围栏 + 双向断言 + 与脚本逐行比对，三条变异实测；`acceptance` 判据由 `scripts/acceptance-gate.sh` 交出并接进 `ci.yml` 的 `acceptance` 作业（清单取自 `go test -list`、逐条断言顶层 PASS），两条本地腿的理由成文；「描述已删除 API」半**已按一次性 AST 测量收口**（2026-11-04）：改掉 12 族假引用，宽松口径对本仓真漂移归零，并量化了「不造永久闸门」的三条理由——见 §8 |
 
 ---
@@ -1630,6 +1631,46 @@ Go 源码零改动（除下面第 ① 条）。根 module 里 `pkg/` 之外唯�
 
 ---
 
+**7.34 选项面的契约化覆盖量化：16 个已进契约的服务器面共 205 个 `With*`（值型 129），对应段内直接字段 53**
+
+- 为什么这一层必须单独量：§7.28 方向② 的结论是「契约外的已实现服务器面 = 0」，那句判的是**有没有工厂**（`server.<x>` 段能否建成一个监听面）。工厂进了契约不等于那个后端可配的东西进了契约——一个后端可能有 31 个值型 knob 而段里只有 10 个字段。所以「没有不在契约外的能力」在工厂面成立、在选项面成立与否**从未有数字**；不给数字，这句话会被读得比实际更宽。
+- 判据形状（三条**派生**规则，本节所有数字都由它们产出，无人工点名）：
+  - 面集合：`grep -rn 'Segments() \[\]string { return \[\]string{' --include='*.go' */contract/` 取形如 `"server.X"` 的段名，归属包取该 `contract/` 的父目录；内置两面（`server.http`/`server.grpc`）由 `pkg/appkit/plan_compile.go:158,171` 自己声明。结果 = **16 面 / 15 个归属包**（`transport/gateway` 同时接 `server.gateway` 与转码面 `server.http`，按包去重计一次）。
+  - 选项侧：归属包**顶层** `*.go`（排 `_test.go`）里 `^func With`，按选项名去重；按**最后一个形参的类型**分三类——值型＝`string|[]string|map[string]string|bool|float*|u?int(8|16|32|64)?|uintptr|time.Duration|*tls.Config`（变参折叠成元素型），零参＝`WithX()` 这种开关，其余（func/interface/结构体指针/库类型）＝注入型。分型的理由是伤害不同：值型没进契约 ⇒ 用户只能改代码；注入型本来不可能进 yaml ⇒ 不算余量。
+  - 契约侧：段内**直接字段数**由 protobuf 反射给出（对 `(&bootstrapv1.Server{}).ProtoReflect().Descriptor()` 逐字段取 `f.Message().Fields().Len()`），不在 Go 侧手解析 `.proto`。
+- 现值（逐面，全表由上述三条产出）：
+
+  | 面 | 归属包 | `With*` | 值型 | 注入 | 零参 | 段直接字段 |
+  |---|---|---|---|---|---|---|
+  | `server.asynq` | `transport/asynq` | 46 | 31 | 15 | 0 | 10 |
+  | `server.webrtc` | `transport/webrtc` | 34 | 22 | 12 | 0 | 5 |
+  | `server.sse` | `transport/sse` | 23 | 18 | 5 | 0 | 3 |
+  | `server.tcp` | `transport/tcp` | 21 | 8 | 9 | 4 | 2 |
+  | `server.websocket` | `transport/websocket` | 17 | 11 | 6 | 0 | 3 |
+  | `server.redis_server` | `transport/redis` | 12 | 9 | 3 | 0 | 2 |
+  | `server.rocketmq` | `transport/rocketmq` | 12 | 9 | 2 | 1 | 3 |
+  | `server.http3` | `transport/http3` | 9 | 4 | 5 | 0 | 2 |
+  | `server.mcp` | `transport/mcp` | 8 | 3 | 5 | 0 | 3 |
+  | `server.kafka` | `transport/kafka` | 7 | 5 | 2 | 0 | 2 |
+  | `server.rabbitmq` | `transport/rabbitmq` | 6 | 4 | 2 | 0 | 2 |
+  | `server.cron` | `transport/cron` | 5 | 3 | 2 | 0 | 3 |
+  | `server.graphql` | `transport/graphql` | 3 | 2 | 1 | 0 | 2 |
+  | `server.gateway` | `transport/gateway` | 与 `server.http` 同包，按包去重只计一次 | | | | 3 |
+  | `server.http` | `transport/gateway`（转码）＋ appkit 内置 | 2 | 0 | 2 | 0 | 4 |
+  | `server.grpc` | appkit 内置（`transport/grpc` 无自有选项） | 0 | 0 | 0 | 0 | 4 |
+  | **合计** | 15 个归属包（去重） | **205** | **129** | **71** | **5** | **53** |
+
+  悬殊前三：`asynq` 31 值型 vs 10 字段、`webrtc` 22 vs 5、`sse` 18 vs 3。最干净的两面是 `http`/`grpc`：自有值型选项为 0，可配项全在段里那 4 个字段（`addr`/`driver`/`tls`/`middleware`）——这是「契约即全部」的形状，也是其余各面若继续配置化要对齐的形状。另跑了一条更宽的口径备查：同一条选项规则扫全仓所有非生成、非测试包目录得 **84 个目录 / 649 个选项 / 值型 419**，但那档把 `pkg/middleware`、`cache`、`registry`、`broker/*` 里并非「实例配置」的选项也算进来了，**不作余量口径**——只有逐面表格里那 205 个与契约可比。
+- 两条计数坑：
+  - **message 名与包目录名不成规则**：`Server.RedisServer` ↔ `transport/redis`，按目录名推段名会得出「redis 服务器面没进契约」这种假缺口；段名↔归属包改由 `Segments()` 派生后这条自动消失（映射在代码里，不在本节手里）。
+  - **第一版本节的整档数字不可复跑**（本节因此改写）：那版写「22 个代表包 230 个选项＝值型 146＋注入型 84」「服务器面值型 132 vs 段字段 55」。包集合是手点的、message↔dir 是手映射的，按登记判据重跑得 205/129/53；差异不是舍入——`132` 那档混进了 `broker/kafka`（48 个选项，属发布侧库，不是契约服务器面），且把部分零参开关计成了值型（现在的口径把零参单列，5 个）。教训对登记册通用：**写「判据可复跑」时，判据必须覆盖到包集合与映射本身，否则只有单行数字可复跑、合计不可复跑。**
+- 为什么本轮不动行为：把任何一个值型 knob 搬进契约 = bconf 加字段（minor）+ 加映射行 + 加一条运行期闸门（§7.14／§7.18／§7.19／§7.22–§7.26 那一族的完整成本）。选哪些后端先做属**产品排期**，判据是真实消费方（bald-admin 与示例工程）用不用得到，这不是框架能自证的取舍；与 §7.28 方向①/③ 同批裁决更省成本，本轮只把余量读成数字并锁住口径。
+- 口径钉死（回答「没有不在契约外的能力吧」这句能说的范围）：① 工厂面 0 例外；② 已声明段的叶子字段 462 个里 59 个无读者，其中 58 个属未实现节点、1 个（`broker.kafka.group_id`）本轮收成注释；③ 选项面 16 面共 129 个值型 knob，对应段内直接字段 53 个 ⇒ **差值按设计留在代码级**，这一条不是缺陷而是未做的排期；④ 注入型 71 个＋零参开关 5 个不计入任何余量口径。四句都各有可复跑判据，缺一句就会把结论读宽。
+- 残余：本节的分型是按签名的**近似**——`*tls.Config` 记成值型（5 个，且已有 `tls` 段承接，属重复计数）；收 `[]byte`/`time.Time`/具名整数类型（`type Level int`）之类罕见形参未列入值型；「段直接字段数」把 `tls`/`middleware` 这类消息型字段各计 1，它们各自展开还有下一层，所以对悬殊最小的几面本节略偏保守；`With*` 之外的配置入口（结构体字面量参数、`New*` 位置参数）不在本节射程，那里若有权重未进契约，本节测不到。
+
+
+---
+
 ## 8. 文档漂移
 
 `README.md`（81 行）**确实**描述了 v2 Provider（「段驱动的 Provider 契约」`:5`，appkit 一行含「段驱动 Provider」`:58`）——我原先的怀疑不成立。
@@ -1734,3 +1775,4 @@ Go 源码零改动（除下面第 ① 条）。根 module 里 `pkg/` 之外唯�
 
 
 46. **契约叶子字段的读者清点（把方向① 那把尺从 message 下移到字段）：462 个标量字段里 59 个零读者，58 个属方向① 的内容、1 个是真缺口**（§7.33）✅ 口径已收（2026-11-06）：这一层的必要性在于 message 粒度会漏——一个后端只要有一个字段被读就不进方向① 名单，其余字段可能全是死的。判据形状可复跑：括号匹配解析 `bconf/proto/bootstrap/v1/*.proto` 取 (message, 标量字段) 全集，读侧取 `GetCamel()` 与 `.field`/`.Camel` 字段访问的**并集**，扫全仓 `*.go` 且排除 `_test.go` 与 `/gen/`。两个坑当场纠：只查 getter ⇒ 误报 5 个（`transport/asynq/contract/contract.go:166,172,175` 与 `transport/cron/contract/contract.go:101,104` 写的是 `if v := sec.StrictPriority; v != nil`，映射层主流是结构体字段读法）；按字段名去重 ⇒ 低估（`brokers`/`addrs`/`auth_type` 跨 message 同名，108 个名字收敛到 59 个字段对）。落点：58 个在「所属 message 自己就无消费者」的 35 个未实现节点内部 ⇒ 不新增缺陷类，只把方向① 的爆炸半径从节点数细化到字段数（删声明要删的是这些字段，补实现每域的真实工作量也由此给出）；唯一落在已实现后端的是 `broker.kafka.group_id`——全仓除 proto 那一行外无任何提及，既无消费者也无说明。修法走仓内既有姿势：`broker/kafka/contract` 的 Provider 注释写明它构造**发布侧** Broker，消费组属于订阅侧且落点是订阅侧代码级参数，故配置不生效，与 `bootstrap/env.go` 里 `Env.separator` 那句既有注释同口径（顺带复核 `Env.separator` 确实零消费者，第一版 sweep 因 `filepath.Separator` 同名片段把它误判成有读者）。边界三条：这是一次性实测**不是闸门**（做成判据与 §7.28 的「L3 下移到叶子」同族，owner 未裁决前不自行加）；只看读不看读得对不对（「读了但落点错」由 §7.14/§7.18/§7.19/§7.22–§7.26 那些运行期闸门管）；静态扫描看不见反射式字段消费，将来若引入通用字段搬运器，本节判据须换成运行期观测面。零行为改动、零对外 API 改动 ⇒ 不单独定级。见 §7.33。
+47. **方向② 只闭合了工厂面：「已实现适配器的契约外例外 = 0」不等于「后端可配的东西都进了契约」——选项面余量本轮才量出数字**（§7.34）✅ 登记为量化事实（2026-11-06）：判据三条全部改成**派生**——面集合由 `*/contract/provider.go` 的 `Segments()` 取 `"server.X"`（内置 `server.http`/`server.grpc` 判在 `pkg/appkit/plan_compile.go:158,171`），选项由归属包顶层 `*.go` 里 `^func With` 去重、按最后一个形参类型分**值型／注入型／零参**，段字段数由 protobuf 反射（`Server` 描述符逐字段取 `Fields().Len()`）给出。现值：**16 面 / 15 个归属包 / 205 个选项＝值型 129＋注入型 71＋零参 5，对应段内直接字段 53**；最悬殊三个是 `server.asynq`（31 vs 10）、`server.webrtc`（22 vs 5）、`server.sse`（18 vs 3），最干净的是 `server.http`/`server.grpc`（各 4 字段、0 个自有值型选项，即「契约即全部」）。**发现路径本身值得记**：本条第一版写的是「22 个代表包 230 选项＝值型 146＋注入型 84」「132 vs 55」，提交前按登记判据重跑对不上——包集合是手点的（`132` 那档把 `broker/kafka` 的 48 个发布侧选项算了进去，那不是契约服务器面）、message↔dir 是手映射的（`Server.RedisServer` ↔ `transport/redis`，按目录名推段会得假缺口），而 `Server.<X>` 手解析 `.proto` 又踩了嵌套消息（`Server.Http` 套在 `Server` 里，正则取直接字段得 0）。改成派生后两个坑自动消失。**教训：登记册里写「判据可复跑」时，判据必须连包集合与映射一起覆盖，否则只有单行数字可复跑、合计不可复跑**——而合计才是会被引用的那一个。为什么不动行为：搬一个值型 knob 进契约的成本＝bconf 加字段＋映射行＋一条 §7.14 族运行期闸门，选谁先做判据在真实消费方（bald-admin／示例工程），属产品排期，与 §7.28 方向①/③ 同批裁决；本轮只把余量读成数字并锁住「没有不在契约外的能力」能说的四条范围（工厂面 0／叶子字段 59 里 58 属未实现节点／选项面 129 值型对 53 段字段位、差值按设计留代码级／注入型 71＋零参 5 不计入）。残余如实留四条：分型按签名近似（`*tls.Config` 那 5 个与已有 `tls` 段重复计数）、罕见形参（`[]byte`/具名整数类型）未列入值型、`tls`/`middleware` 这类消息型字段各只计 1（对最干净的几面略偏保守）、`With*` 之外的配置入口（结构体字面量、`New*` 位置参数）不在射程。见 §7.34。
