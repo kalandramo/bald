@@ -80,28 +80,51 @@ jobs:
 
       - name: build + vet + test all modules
         run: |
-          set -e
-          # 失败时在日志中打出所在模块（自诊断）
-          trap 'echo "### FAILED AT MODULE: $mod"; echo "::error::FAILED AT MODULE: $mod"' ERR
-          for mod in $(sh scripts/list-modules.sh); do
-            echo "=== $mod ==="
-            # 预下载依赖（重试 3 次防 proxy 瞬断），之后构建/测试离线稳定
+          # 不 fail-fast：与上面的 vuln 作业同形（§7.29 定下的姿势，§7.40 补上这一条）。
+          # fail-fast 时「这次改动让几个模块红」这个信息被整个丢掉——实测 2026-11-06：
+          # 远端 run 42199588839 的日志里只有 `FAILED AT MODULE: ./metrics/datadog`
+          # 一行（派生清单里它最靠前），另外 12 个同样红的模块从未被打印过。
+          # 派生为空即失败：清单脚本吐空时下面这个循环跑零个模块并 exit 0——静默绿。
+          failed=""
+          failed_count=0
+          mods=$(sh scripts/list-modules.sh)
+          if [ -z "$mods" ]; then
+            echo "::error::test 闸门失败：模块清单派生为空，一个字都没跑"
+            exit 1
+          fi
+          for mod in $mods; do
+            echo "=== test: $mod ==="
+            # 预下载依赖（重试 3 次防 proxy 瞬断），之后构建/测试离线稳定。
+            # 下载失败与判据失败分开记账：runner 网络瞬断不能被读成代码坏了。
             n=0
+            downloaded=0
             while true; do
-              if (cd "$mod" && go mod download); then break; fi
+              if (cd "$mod" && go mod download); then downloaded=1; break; fi
               n=$((n+1))
-              if [ $n -ge 3 ]; then echo "::error::$mod 依赖下载失败"; exit 1; fi
+              if [ $n -ge 3 ]; then echo "::error::$mod 依赖下载失败"; break; fi
               echo "::warning::$mod 依赖下载瞬断，15s 后重试（第 $n/2 次）"
               sleep 15
             done
+            if [ "$downloaded" -ne 1 ]; then failed="$failed $mod:download"; failed_count=$((failed_count+1)); continue; fi
             # 依赖面闸门：漂移即红（前置依赖已 download，解析全图不额外拉网）
-            (cd "$mod" && go mod tidy -diff)
+            if ! (cd "$mod" && go mod tidy -diff); then failed="$failed $mod:tidy"; failed_count=$((failed_count+1)); continue; fi
             if [ "$mod" = "." ]; then
-              (cd . && go build ./... && go vet -copylocks=false ./... && go test -short -timeout 5m ./... && go test -bench . -benchtime=1x -run '^$' ./...)
+              ok=1
+              (cd . && go build ./... && go vet -copylocks=false ./... && go test -short -timeout 5m ./... && go test -bench . -benchtime=1x -run '^$' ./...) || ok=0
             else
-              (cd "$mod" && go build ./... && go vet ./... && go test -short -timeout 5m ./... && go test -bench . -benchtime=1x -run '^$' ./...)
+              ok=1
+              (cd "$mod" && go build ./... && go vet ./... && go test -short -timeout 5m ./... && go test -bench . -benchtime=1x -run '^$' ./...) || ok=0
             fi
+            if [ "$ok" -ne 1 ]; then failed="$failed $mod:build-vet-test"; failed_count=$((failed_count+1)); fi
           done
+          if [ -n "$failed" ]; then
+            # 计数用显式累加器，不用 `printf '%s\n' $failed | wc -l`（SC2086 会被
+            # actionlint 的 shellcheck 腿判红，且 wc 的左补空分 BSD/GNU 两种读数；
+            # 同一条教训见本文件 vuln 作业）。
+            echo "### FAILED MODULES ($failed_count):$failed"
+            echo "::error::test 闸门失败：$failed_count 个模块判红:$failed"
+            exit 1
+          fi
 
       - name: TestTree_EndToEndTimed / TestTree_AuthzClosedLoop (outside -short)
         # codegen 自 B-iii（risk-review.md §3.4）起住在 cli module 里，须在该目录执行。
@@ -142,15 +165,37 @@ jobs:
 
       - name: go test -race (all modules)
         run: |
-          set -e
-          trap 'echo "### FAILED AT MODULE: $mod"; echo "::error::FAILED AT MODULE: $mod"' ERR
+          # 不 fail-fast：与 test/vuln 作业同形（§7.40）。竞争缺陷常成批出现——
+          # §1.1 那轮一次就揪出 graphql 自身的竞争；第一个红把后面几十个模块
+          # 全部跳过时，「这次改动引入几处竞争」这条信息就没了。
+          # 派生为空即失败（find 谓词或排除清单被改坏 → 零个模块 + exit 0 = 静默绿）。
+          failed=""
+          failed_count=0
           mods=$(sh scripts/list-modules.sh | grep -vxF -f .github/race-skip.txt)
-          # 派生为空 = 这个闸门静默失效（find 谓词或排除清单被改坏），必须响。
           if [ -z "$mods" ]; then echo "::error::race 清单派生为空，闸门未覆盖任何 module"; exit 1; fi
           for mod in $mods; do
             echo "=== race: $mod ==="
-            (cd "$mod" && go mod download && go test -short -race -timeout 10m ./...)
+            # 下载与竞争分开记账（同 test/vuln 作业）：runner 网络瞬断不能被读成竞争缺陷。
+            n=0
+            downloaded=0
+            while true; do
+              if (cd "$mod" && go mod download); then downloaded=1; break; fi
+              n=$((n+1))
+              if [ $n -ge 3 ]; then echo "::error::$mod 依赖下载失败"; break; fi
+              echo "::warning::$mod 依赖下载瞬断，15s 后重试（第 $n/2 次）"
+              sleep 15
+            done
+            if [ "$downloaded" -ne 1 ]; then failed="$failed $mod:download"; failed_count=$((failed_count+1)); continue; fi
+            if ! (cd "$mod" && go test -short -race -timeout 10m ./...); then
+              failed="$failed $mod:race"; failed_count=$((failed_count+1))
+            fi
           done
+          if [ -n "$failed" ]; then
+            # 计数用显式累加器，理由同 vuln 作业（SC2086 + wc 读数的平台差）。
+            echo "### FAILED MODULES ($failed_count):$failed"
+            echo "::error::race 闸门失败：$failed_count 个模块判红:$failed"
+            exit 1
+          fi
 
   # 集成作业（风险 §7.1）：注入真服务，跑「非 -short」的那批用例——registry / store /
   # 队列三条接缝各至少一条（registry 现为 etcd + consul + kubernetes 三个后端；前两个
@@ -796,20 +841,40 @@ jobs:
 
       - name: golangci-lint all modules
         run: |
-          set -e
-          trap 'echo "### FAILED AT MODULE: $mod"; echo "::error::FAILED AT MODULE: $mod"' ERR
-          for mod in $(sh scripts/list-modules.sh); do
+          # 不 fail-fast：与 test/race/vuln 作业同形（§7.40）。lint 的失败常常
+          # 是规则升级或新代码把同一模式复制到多个模块，第一个红即停会让
+          # 「这次要改几处」无从得知。
+          # 派生为空即失败：清单吐空时循环零次并 exit 0——静默绿。
+          failed=""
+          failed_count=0
+          mods=$(sh scripts/list-modules.sh)
+          if [ -z "$mods" ]; then
+            echo "::error::lint 闸门失败：模块清单派生为空，一个字都没扫"
+            exit 1
+          fi
+          for mod in $mods; do
             echo "=== lint: $mod ==="
+            # 下载与 lint 分开记账：runner 网络瞬断不能被读成代码缺陷。
             n=0
+            downloaded=0
             while true; do
-              if (cd "$mod" && go mod download); then break; fi
+              if (cd "$mod" && go mod download); then downloaded=1; break; fi
               n=$((n+1))
-              if [ $n -ge 3 ]; then echo "::error::$mod 依赖下载失败"; exit 1; fi
+              if [ $n -ge 3 ]; then echo "::error::$mod 依赖下载失败"; break; fi
               echo "::warning::$mod 依赖下载瞬断，15s 后重试（第 $n/2 次）"
               sleep 15
             done
-            (cd "$mod" && golangci-lint run ./...)
+            if [ "$downloaded" -ne 1 ]; then failed="$failed $mod:download"; failed_count=$((failed_count+1)); continue; fi
+            if ! (cd "$mod" && golangci-lint run ./...); then
+              failed="$failed $mod:lint"; failed_count=$((failed_count+1))
+            fi
           done
+          if [ -n "$failed" ]; then
+            # 计数用显式累加器，理由同 vuln 作业（SC2086 + wc 读数的平台差）。
+            echo "### FAILED MODULES ($failed_count):$failed"
+            echo "::error::lint 闸门失败：$failed_count 个模块判红:$failed"
+            exit 1
+          fi
 
   # 漏洞门禁：govulncheck 只报告「代码真正可达」的漏洞（非模块级清单），
   # 因此可以 fail-closed；标准库漏洞由 setup-go 的补丁版本修复。
