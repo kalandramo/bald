@@ -23,11 +23,25 @@ import (
 	"github.com/kalandramo/bald/transport"
 )
 
-// runExpectErr 驱动 Run 并断言返回错误包含全部 want 子串（L3 报错发生在
-// BeforeStart 装配链末尾——契约已装载定型，经 Run 失败路径返回）。
-func runExpectErr(t *testing.T, a *App, want ...string) {
+// runExpectErr 驱动 Run 并断言返回错误包含全部 want 子串，返回该错误文本供
+// 调用方补「不该出现」的断言（L3 报错发生在 BeforeStart 装配链末尾——契约已
+// 装载定型，经 Run 失败路径返回）。
+//
+// 有上界地等：报错路径本该秒回，但一旦闸门被关掉，Run 会照常进入「等信号」
+// 的阻塞分支——没有上界就判不了红，只会拖到 go test 的 10 分钟全局超时
+// （变异实跑过这个挂死形状，见 §7.36 M9）。
+func runExpectErr(t *testing.T, a *App, want ...string) string {
 	t.Helper()
-	err := a.Run(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	errc := make(chan error, 1)
+	go func() { errc <- a.Run(ctx) }()
+	var err error
+	select {
+	case err = <-errc:
+	case <-time.After(8 * time.Second):
+		t.Fatal("Run did not return within 8s — startup gate blocked instead of failing fast")
+	}
 	if err == nil {
 		t.Fatal("expected startup error, got nil")
 	}
@@ -36,6 +50,7 @@ func runExpectErr(t *testing.T, a *App, want ...string) {
 			t.Fatalf("error %q does not contain %q", err.Error(), w)
 		}
 	}
+	return err.Error()
 }
 
 // 含 script 段的合法配置：启动期报错、列出的就是 script（原告警测试
@@ -208,40 +223,96 @@ func TestAssemble_ServerSubSegmentWithCoProvider(t *testing.T) {
 }
 
 // §7.36 现状钉子（端到端实测，把「L3 子段级判据只在 server 分支里」从代码阅读
-// 升级成跑出来的行为）：cfg 同时配 broker.redis 与 broker.kafka，只有 broker.redis
-// 有 Provider ⇒ 该 Provider 点亮 broker **顶层**，kafka 子段既不报错也不生效。
-// 第二子例是活性对照：撤掉唯一的 broker Provider，同一份 cfg 就判红——证明第一
+// 升级成跑出来的行为）：cfg 同时配「有专属工厂的子段」与「同族没有工厂的子段」，
+// 只给前者一个 Provider ⇒ 该 Provider 点亮族**顶层**，后一个子段既不报错也不生效。
+// 每族第二个子例是活性对照：撤掉唯一的该族 Provider，同一份 cfg 就判红——证明第一
 // 子例的「不报错」来自同族遮蔽，而不是 L3 整体没跑。
-// owner 若选 §7.36 候选①或②（子段级闸门扩到全族），该翻红的是第一子例，届时改
+// 三族分开跑（而非只跑 broker 后推其余）是因为「同一分支」不等于「同一行为」：
+// cache.local 是仓内映射包零注册、database.mongodb 是 contrib 映射包零注册、
+// broker.kafka 是方向① 未实现，遮蔽来源各不相同。
+// owner 若选 §7.36 候选①或②（子段级闸门扩到全族），该翻红的是每族第一子例，届时改
 // 期望而不是改闸门。
 func TestAssemble_SiblingNonServerSubSegmentIsSilent(t *testing.T) {
 	old := log.GetLogger()
 	t.Cleanup(func() { log.SetLogger(old) })
 
-	newCfg := func() *bootstrapv1.BootstrapConfig {
-		cfg := bconf.NewBootstrap()
-		dynamicAddr(cfg)
-		cfg.Broker = &bootstrapv1.Broker{
-			Redis: &bootstrapv1.Broker_Redis{Address: "127.0.0.1:6379"},
-			Kafka: &bootstrapv1.Broker_Kafka{Brokers: []string{"127.0.0.1:9092"}},
-		}
-		return cfg
+	// 影子子段 = 同族里没被 cfg 点亮却也不会被判红的子段（各族来源不同，见上）。
+	cases := []struct {
+		family string
+		// newCfg 配出「工厂子段 + 影子子段」两者俱在的配置。
+		newCfg func() *bootstrapv1.BootstrapConfig
+		// factory 是工厂子段的 Provider，路径用真实工厂声明的那种（带族前缀）。
+		factory segProvider
+		// shadow 是影子子段名，判红文案里不该出现它（只出现族名）。
+		shadow string
+	}{
+		{
+			family: "broker",
+			shadow: "kafka",
+			newCfg: func() *bootstrapv1.BootstrapConfig {
+				cfg := bconf.NewBootstrap()
+				dynamicAddr(cfg)
+				cfg.Broker = &bootstrapv1.Broker{
+					Redis: &bootstrapv1.Broker_Redis{Address: "127.0.0.1:6379"},
+					Kafka: &bootstrapv1.Broker_Kafka{Brokers: []string{"127.0.0.1:9092"}},
+				}
+				return cfg
+			},
+			factory: stubDomainProvider("broker.redis", "redis",
+				func(c *bootstrapv1.BootstrapConfig) bool { return c.GetBroker().GetRedis() != nil },
+				"broker", nil),
+		},
+		{
+			family: "cache",
+			shadow: "local",
+			newCfg: func() *bootstrapv1.BootstrapConfig {
+				cfg := bconf.NewBootstrap()
+				dynamicAddr(cfg)
+				cfg.Cache = &bootstrapv1.Cache{
+					Redis: &bootstrapv1.Cache_Redis{Addr: "127.0.0.1:6379"},
+					Local: &bootstrapv1.Cache_Local{Size: 1 << 20},
+				}
+				return cfg
+			},
+			factory: stubDomainProvider("cache.redis", "redis",
+				func(c *bootstrapv1.BootstrapConfig) bool { return c.GetCache().GetRedis() != nil },
+				"cache", nil),
+		},
+		{
+			family: "database",
+			shadow: "mongodb",
+			newCfg: func() *bootstrapv1.BootstrapConfig {
+				cfg := bconf.NewBootstrap()
+				dynamicAddr(cfg)
+				cfg.Database = &bootstrapv1.Database{
+					Sql:     &bootstrapv1.Database_SQL{Driver: "sqlite", Source: ":memory:"},
+					Mongodb: &bootstrapv1.Database_MongoDB{Uri: "mongodb://127.0.0.1:27017"},
+				}
+				return cfg
+			},
+			factory: stubDomainProvider("database.sql", "sql",
+				func(c *bootstrapv1.BootstrapConfig) bool { return c.GetDatabase().GetSql() != nil },
+				"db", nil),
+		},
 	}
-	redisProvider := stubDomainProvider("broker.redis", "redis",
-		func(c *bootstrapv1.BootstrapConfig) bool { return c.GetBroker().GetRedis() != nil },
-		"broker", nil)
 
-	t.Run("同族一个 Provider 点亮 broker 顶层，kafka 子段静默", func(t *testing.T) {
-		a := assembleForTest(t, newCfg(), WithHTTP(new(http.ServeMux)),
-			redisProvider, StandardHTTPProvider(), StandardGRPCProvider())
-		runBriefly(t, a, 30*time.Millisecond)
-	})
+	for _, tc := range cases {
+		t.Run(tc.family+"/工厂子段点亮族顶层，影子子段静默", func(t *testing.T) {
+			a := assembleForTest(t, tc.newCfg(), WithHTTP(new(http.ServeMux)),
+				tc.factory, StandardHTTPProvider(), StandardGRPCProvider())
+			runBriefly(t, a, 30*time.Millisecond)
+		})
 
-	t.Run("活性对照：撤掉唯一 broker Provider 则顶层判红", func(t *testing.T) {
-		a := assembleForTest(t, newCfg(),
-			WithHTTP(new(http.ServeMux)), StandardHTTPProvider(), StandardGRPCProvider())
-		runExpectErr(t, a, "no consumer", "broker")
-	})
+		t.Run(tc.family+"/活性对照：撤掉唯一该族 Provider 则顶层判红", func(t *testing.T) {
+			a := assembleForTest(t, tc.newCfg(),
+				WithHTTP(new(http.ServeMux)), StandardHTTPProvider(), StandardGRPCProvider())
+			msg := runExpectErr(t, a, "no consumer", tc.family)
+			// 判红只到族名为止——影子子段被同族遮蔽，连名字都不出现在错误里。
+			if strings.Contains(msg, tc.shadow) {
+				t.Fatalf("error %q names the shadowed sub-segment %q; sub-segment granularity appeared outside the server branch", msg, tc.shadow)
+			}
+		})
+	}
 }
 
 // 白名单名字必须是契约里真实存在的段路径（BootstrapConfig 字段链，
