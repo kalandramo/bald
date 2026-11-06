@@ -1,9 +1,10 @@
-package bootstrap
+package appkit
 
 import (
 	"testing"
 
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
+	baldbootstrap "github.com/kalandramo/bald/bootstrap"
 	"github.com/kalandramo/bald/log/bslog"
 	"github.com/spf13/pflag"
 )
@@ -70,7 +71,7 @@ func TestApplyLogFlagOverrides(t *testing.T) {
 			t.Fatalf("未出现的 format 被 flag 默认值压掉了：%q", got.GetFormat())
 		}
 		// 终值必须真的到达 bslog.Options（否则只是改了个没人读的消息）。
-		if o := LogOptions(cfg.GetLogger().GetBackends()[0]); o.Level != "error" || o.Format != "json" {
+		if o := baldbootstrap.LogOptions(cfg.GetLogger().GetBackends()[0]); o.Level != "error" || o.Format != "json" {
 			t.Fatalf("LogOptions 没拿到覆盖后的值：%+v", o)
 		}
 	})
@@ -78,7 +79,7 @@ func TestApplyLogFlagOverrides(t *testing.T) {
 	t.Run("logger 段缺失时按 flag 物化 slog 后端", func(t *testing.T) {
 		cfg := &bootstrapv1.BootstrapConfig{}
 		ApplyLogFlagOverrides(cfg, parseLogFlags(t, "--log.level=debug"))
-		o := LogOptions(cfg.GetLogger().GetBackends()[0])
+		o := baldbootstrap.LogOptions(cfg.GetLogger().GetBackends()[0])
 		if o.Level != "debug" {
 			t.Fatalf("物化后 level 不对：%+v", o)
 		}
@@ -109,7 +110,7 @@ func TestApplyLogFlagOverrides(t *testing.T) {
 			s.GetRotate().GetCompress() != false {
 			t.Fatalf("rotate 覆盖不全：%+v", s.GetRotate())
 		}
-		o := LogOptions(cfg.GetLogger().GetBackends()[0])
+		o := baldbootstrap.LogOptions(cfg.GetLogger().GetBackends()[0])
 		if len(o.OutputPaths) != 2 || o.OutputPaths[1] != "/tmp/bald.log" {
 			t.Fatalf("多输出没落到 bslog.Options：%+v", o.OutputPaths)
 		}
@@ -138,7 +139,7 @@ func TestApplyLogFlagOverrides(t *testing.T) {
 		if r.GetEnabled() || r.GetCompress() {
 			t.Fatalf("覆盖没写进契约：%+v", r)
 		}
-		o := LogOptions(cfg.GetLogger().GetBackends()[0])
+		o := baldbootstrap.LogOptions(cfg.GetLogger().GetBackends()[0])
 		if !o.Rotate.Enabled {
 			t.Log("已知限制实测成立：--log.rotate.enabled=false 无法关闭契约里已开的轮转")
 		}

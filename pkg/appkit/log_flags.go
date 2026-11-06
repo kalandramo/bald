@@ -1,4 +1,4 @@
-package bootstrap
+package appkit
 
 import (
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
@@ -46,9 +46,18 @@ func LogFlagNames() []string {
 //
 // 作用范围：只覆盖 `type == "slog"` 的后端（CLI 是全局开关，不区分实例）。
 // 契约里整段 `logger` 缺失时按 flag 值物化一个 slog 后端——那条分支本来就是
-// 引导期默认 slog（见 `LogOptions(nil)`），flag 是它唯一的取值来源，静默丢弃会
+// 引导期默认 slog（见 `bootstrap.LogOptions(nil)`），flag 是它唯一的取值来源，静默丢弃会
 // 命中 J7 那类「配了以为生效」。`logger` 段存在但没有 slog 后端时**跳过**：
 // 追加后端会改变日志出口数量，那不是「覆盖一个值」而是「换一种部署」。
+//
+// 为什么住在本包而不是 `bootstrap`：这段逻辑只依赖 `bconf` 类型、`bslog` 注册器与
+// `pflag`，全是 appkit 装配链已有的取值，而它的两个消费者（`Bind` 的摘出过滤、
+// `syncBootstrap`/`hotReload` 的覆盖调用）都在本包。搬进 `bootstrap` 要给 bootstrap
+// 加两个新导出符号，而 13 个适配器 module 是「本地 `pkg` 源码 + 已发布 `bootstrap`
+// 产物」编译的（它们只 `replace` 了 pkg/bconf，没有 replace bootstrap）——新符号在
+// 那些 module 里当场编译失败（本轮实测：`metrics/datadog` 等 13 个红在
+// `undefined: baldbootstrap.ApplyLogFlagOverrides`）。不加对外 API 既避开这一类漂移，
+// 也保留那些 module 作为「pkg 用了兄弟模块未发布 API」的探测器。
 func ApplyLogFlagOverrides(cfg *bootstrapv1.BootstrapConfig, fs *pflag.FlagSet) {
 	if cfg == nil || fs == nil || !hasAnyLogFlag(fs) {
 		return

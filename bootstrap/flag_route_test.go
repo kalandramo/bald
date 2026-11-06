@@ -33,8 +33,8 @@ var plainBinders = map[string]func(fs *pflag.FlagSet){
 var offContractFlagRoutes = map[string]string{
 	".log": "§7.39 已修（overlay 路由）：契约里日志旋钮的形状是 repeated " +
 		"logger.backends[i].slog ⇒ 没有任何标量 flag 名能表达该路径，因此 --log.* 永远进不了契约。" +
-		"现在的生效路径：loadConfig 按 LogFlagNames 把这些键摘出合并树（不进严格契约校验），" +
-		"再由 ApplyLogFlagOverrides 在 bconf.Validate 之后、计划编译之前按 Changed 写进契约 logger 段" +
+		"现在的生效路径：appkit 的 Bind 按 pkg/appkit.LogFlagNames 把这些键摘出合并树（不进严格契约校验），" +
+		"再由 pkg/appkit.ApplyLogFlagOverrides 在 bconf.Validate 之后、计划编译之前按 Changed 写进契约 logger 段" +
 		"（冷启动 syncBootstrap 与热更 hotReload 两处）。残余限制：proto3 标量无 presence ⇒ " +
 		"--log.rotate.enabled=false / --log.rotate.compress=false 压不过契约里已置真的值；" +
 		"真要能置假需契约改成 optional bool（bconf 重出 + 发布裁决）。",

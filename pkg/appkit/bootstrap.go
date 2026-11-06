@@ -888,7 +888,7 @@ func syncBootstrap(a *App, cfg *bootstrapv1.BootstrapConfig, spec *Decl, logSrc 
 	// CLI 覆盖落到契约（§7.39）：`--log.*` 的键名不是契约路径，故不进合并树，而在这里
 	// 按 Changed 写进 logger 段。必须在 compilePlan 与 Logger 重建之前——计划摘要与实建
 	// 后端都得反映终值。
-	baldbootstrap.ApplyLogFlagOverrides(cfg, a.cfg.flagSet)
+	ApplyLogFlagOverrides(cfg, a.cfg.flagSet)
 	// 以合并后的契约（文件/env/flag/层）重算并安装计划：配置变更 diff 的
 	// 基线必须是真实生效的契约，而非装配前的预装载形态。
 	next, err := compilePlan(context.Background(), spec, cfg, m)
@@ -946,7 +946,9 @@ func hotReload(a *App, cfg *bootstrapv1.BootstrapConfig, spec *Decl, logSrc logg
 		return
 	}
 	// 与冷启动同一处语义：CLI 覆盖在校验后、计划重算前落到候选契约（§7.39）。
-	baldbootstrap.ApplyLogFlagOverrides(candidate, a.cfg.flagSet)
+	// 每次热更都要重新施加——候选契约是从合并树全新反序列化的，flag 不在树里，
+	// 少这一次调用就会让第一次热更之后 `--log.*` 静默失效（配了以为生效，J7 那类）。
+	ApplyLogFlagOverrides(candidate, a.cfg.flagSet)
 	// 计划重算在落盘前完成：新契约若无法编译（段覆盖/能力冲突等），整次
 	// 热更新被拒绝，旧契约与旧计划保持一致（不做半生效）。
 	next, err := compilePlan(ctx, spec, candidate, m)

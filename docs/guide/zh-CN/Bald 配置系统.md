@@ -286,7 +286,7 @@ flag 侧框架内化两件事：
 **业务自己的 flag 经 `appkit.Bind` 声明**（§4.3）：`Bind` 把 proto 消息或 `PlainBinder`
 注册进 App 的 FlagSet，装载时进入 flag 层参与四源合并。只注册进 `cobra` / 全局 flagset 的
 flag 走的是平行解析路径，**不参与**配置合并。
-唯一被框架摘出合并树的是 `--log.*` 那 8 个键（清单由 `bootstrap.LogFlagNames()` 从注册器本身派生）；
+唯一被框架摘出合并树的是 `--log.*` 那 8 个键（清单由 `pkg/appkit.LogFlagNames()` 从注册器本身派生）；
 业务 flag 一律照常进树，flag > env > 本地文件的优先级链对它们完整生效。
 
 ### 4.2 远程配置与源层：`RemoteConfig` 桥 / `ConfigLayers` 显式叠层

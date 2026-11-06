@@ -113,7 +113,7 @@ func TestBind_KeyPathAligned(t *testing.T) {
 // `--log.*` 的顶层键 `log` 不是契约路径，进合并树会被严格契约校验判成未知键
 // 并终止启动（§7.39），所以它**必须摘出树**；同时 CLI 的终值还得能从 App 保留的
 // 全量 FlagSet 读到 Changed——那是框架把 CLI 值写进契约 logger 段的唯一来源
-// （baldbootstrap.ApplyLogFlagOverrides，见 bootstrap/log_flags.go）。
+// （本包的 ApplyLogFlagOverrides，见 log_flags.go）。
 // 两个断言缺一侧都会退回缺陷：只查「不进树」会放行「flag 彻底失效」，
 // 只查「能读到」会放行原来的「一用即终止启动」。
 func TestBind_PlainBinder(t *testing.T) {

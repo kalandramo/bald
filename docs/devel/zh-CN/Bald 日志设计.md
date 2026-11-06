@@ -113,7 +113,7 @@ type Options struct {
 }
 // NewOptions / AddFlags(--log.level 等全套) / Validate
 // 注：--log.* 的键落在顶层 log，与契约段 logger 不同名，因此不进配置合并树；
-// 装配层在 bconf.Validate 之后由 bootstrap.ApplyLogFlagOverrides 把 Changed 的键写进
+// 装配层在 bconf.Validate 之后由 pkg/appkit.ApplyLogFlagOverrides 把 Changed 的键写进
 // 契约 logger 段（冷启动与热更新同一路径）。口径与证据见 risk-review.md §7.39。
 // New(o *Options, opts ...Option) log.Logger            // 丢弃 cleanup（进程退出 OS 兜底）
 // NewWithCleanup(o *Options, opts ...) (log.Logger, func()) // 关闭文件/轮转句柄（装配层用）

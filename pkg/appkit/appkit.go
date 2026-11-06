@@ -38,7 +38,6 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	bconf "github.com/kalandramo/bald/bconf"
-	baldbootstrap "github.com/kalandramo/bald/bootstrap"
 	"github.com/kalandramo/bald/bootstrap/config"
 	"github.com/kalandramo/bald/log"
 	"github.com/kalandramo/bald/pkg/audit"
@@ -242,7 +241,7 @@ type PlainBinder interface {
 // 唯一的例外由框架自持：`--log.*`（顶层 `log` 不是契约路径，日志旋钮的实际形状是
 // `repeated logger.backends[i].slog`，没有等价的标量键名，见风险登记册 §7.39）由
 // loadConfig 从合并树摘出，改在校验之后按 Changed 写进契约 logger 段
-// （baldbootstrap.ApplyLogFlagOverrides）。新增此类「契约外路由」的 flag 必须同时
+// （本包的 ApplyLogFlagOverrides，见 log_flags.go）。新增此类「契约外路由」的 flag 必须同时
 // 登记框架侧映射与理由，否则严格契约下表现为「一用即终止启动」。
 func Bind(prefix string, opt any) Option {
 	return optionFunc(func(a *Decl) { a.Binds = append(a.Binds, BindDecl{Prefix: prefix, Opt: opt}) })
@@ -541,7 +540,7 @@ func (a *App) loadConfig() error {
 	// 按 Changed 写进契约 logger 段。其余 flag（含业务 PlainBinder）照常进树，
 	// flag > 环境变量 > 文件 的优先级不变。
 	offTree := make(map[string]struct{}, 8)
-	for _, name := range baldbootstrap.LogFlagNames() {
+	for _, name := range LogFlagNames() {
 		offTree[name] = struct{}{}
 	}
 	register.VisitAll(func(f *pflag.Flag) {
