@@ -1594,3 +1594,88 @@ func TestDefaultRegistryWriterCountIsOne(t *testing.T) {
 		t.Logf("默认注册表写入方=%s（仓内唯一，无可撞对偶 ⇒ 不需要互斥闸门）", d)
 	}
 }
+
+// markdownCells 按 GFM 的规则切一行表格：竖线前的反斜杠是转义（`\|` 属于单元格内容，
+// 不是列分隔符）。用 strings.Split 直接切会把 `.name:1\|c`、`a \| b` 这类代码块里的
+// 竖线读成列边界，从而把一行的列数算多——判据自己就复刻它要防的缺陷。
+func markdownCells(line string) []string {
+	var cells []string
+	var cur strings.Builder
+	for i := 0; i < len(line); i++ {
+		switch {
+		case line[i] == '\\' && i+1 < len(line) && line[i+1] == '|':
+			cur.WriteByte('|')
+			i++
+		case line[i] == '|':
+			cells = append(cells, strings.TrimSpace(cur.String()))
+			cur.Reset()
+		default:
+			cur.WriteByte(line[i])
+		}
+	}
+	cells = append(cells, strings.TrimSpace(cur.String()))
+	return cells
+}
+
+// TestRiskRegisterTableIsWellFormed 钉住风险登记册主表的列形状：每行的列数必须与
+// 表头一致。缺陷形状是真实出现过的——登记册在写「状态」时把两列并成一列（内容整段
+// 落到「置信度」下面，「状态」渲染成空白），以及把带竖线的字面量（如 datadog statsd
+// 的 `.name:1|c`、shell 的 `cmd | wc -l`）写进单元格却没转义，于是那一列之后整体右移。
+// 这张表是「哪些缺陷已修」的唯一交付面，列一错就会把「已修」读成没读、把证据读成状态，
+// 而正文一个字都没变——所以只判形状，不判内容。
+func TestRiskRegisterTableIsWellFormed(t *testing.T) {
+	root := repoRoot(t)
+	path := filepath.Join(root, "docs", "architecture", "risk-review.md")
+	raw, err := readText(path)
+	if err != nil {
+		t.Fatalf("read risk-review.md: %v", err)
+	}
+	lines := strings.Split(string(raw), "\n")
+
+	header := -1
+	for i, line := range lines {
+		if strings.HasPrefix(line, "| #") && strings.Contains(line, "状态") {
+			header = i
+			break
+		}
+	}
+	if header < 0 {
+		t.Fatal("risk-review.md 里找不到主风险表的表头（`| # … 状态 |`）——判据失去对照，本闸门在空转")
+	}
+	headerCells := len(markdownCells(lines[header])) - 2
+	sep := header + 1
+	if sep >= len(lines) || !strings.HasPrefix(lines[sep], "|--") {
+		t.Fatalf("risk-review.md:%d 表头下一行不是分隔行（`|--`）——表格形状已不是本判据假定的 GFM 管道表", sep+1)
+	}
+
+	rows, escaped := 0, 0
+	for i := sep + 1; i < len(lines); i++ {
+		line := lines[i]
+		if !strings.HasPrefix(line, "|") {
+			break // 表格到此结束
+		}
+		cells := markdownCells(line)
+		id := ""
+		if len(cells) > 1 {
+			id = cells[1]
+		}
+		if strings.TrimSpace(id) == "" {
+			t.Fatalf("risk-review.md:%d 主表数据行的编号单元格为空——表格断裂", i+1)
+		}
+		rows++
+		if len(cells)-2 != headerCells {
+			t.Errorf("risk-review.md:%d 行 %q 有 %d 列，表头有 %d 列——列数不一致会让「状态」列错位或留空", i+1, id, len(cells)-2, headerCells)
+		}
+		if strings.Contains(line, `\|`) {
+			escaped++
+		}
+	}
+	if rows == 0 {
+		t.Fatalf("主风险表一条数据行都没有（表头 %d 列）——判据在空转", headerCells)
+	}
+	// 对照物：转义竖线判据只有表里真有一条 `\|` 时才被检验过。
+	if escaped == 0 {
+		t.Fatal("主表里一条转义竖线都没有 ⇒ 「\\| 不算列边界」这条规则没被执行过，判据在空转")
+	}
+	t.Logf("主表 %d 列 × %d 行，其中 %d 行含转义竖线", headerCells, rows, escaped)
+}
