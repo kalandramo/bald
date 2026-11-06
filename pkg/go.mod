@@ -36,7 +36,7 @@ require (
 	github.com/gin-gonic/gin v1.12.0
 	github.com/google/uuid v1.6.0
 	github.com/kalandramo/bald-crud/viewer v0.3.0
-	github.com/kalandramo/bald/bconf v0.20.0
+	github.com/kalandramo/bald/bconf v0.21.0
 	github.com/kalandramo/bald/berrors v0.1.2
 	github.com/kalandramo/bald/bootstrap v0.13.7
 	github.com/kalandramo/bald/circuitbreaker v0.2.0

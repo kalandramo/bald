@@ -4,9 +4,9 @@ go 1.27.1
 
 require (
 	github.com/DataDog/datadog-go/v5 v5.8.2
-	github.com/kalandramo/bald/bconf v0.20.0
+	github.com/kalandramo/bald/bconf v0.21.0
 	github.com/kalandramo/bald/metrics v0.2.0
-	github.com/kalandramo/bald/pkg v0.4.0
+	github.com/kalandramo/bald/pkg v0.5.0
 )
 
 require (

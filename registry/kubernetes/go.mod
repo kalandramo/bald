@@ -4,8 +4,8 @@ go 1.27.1
 
 require (
 	github.com/json-iterator/go v1.1.12
-	github.com/kalandramo/bald/bconf v0.20.0
-	github.com/kalandramo/bald/pkg v0.4.0
+	github.com/kalandramo/bald/bconf v0.21.0
+	github.com/kalandramo/bald/pkg v0.5.0
 	github.com/kalandramo/bald/registry v0.4.0
 	k8s.io/api v0.37.0
 	k8s.io/apimachinery v0.37.0

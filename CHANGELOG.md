@@ -6,6 +6,90 @@
 
 ## 2026-11-06
 
+### bald v0.40.0
+
+- `18de91af` feat(example,docs): client 段取用腿进 example 作业，登记册收口 §7.28 方向③与 §7.41
+- `054e01ea` fix(docscheck,acceptance): 判据表插入注释会截断续行链，表尾的腿静默不跑
+- `76eb47d4` feat(transport/client): 新增 client 段适配器模块
+- `bd082755` docs(release): cli 归位命令不再硬钉 goproxy.cn
+- `e648f061` docs(§7.40): 记下发布窗口内的临时替换例外（已撤回）
+- `ce82033c` docs(release): 把本轮索引实测改成可诊断的形状（list 有、产物 404）
+- `61eb0620` docs(release): 补「go.sum 也被顶掉」的叠加层形状与本轮代理索引实测
+
+### bconf v0.21.0
+
+- `ad2fa9d7` feat(bconf): 新增 client 出站段与 server.tcp.byte_order 契约
+
+### metrics/datadog v0.2.1
+
+- `75d100d3` revert(release): 撤回发布窗口叠加层，改回「本地 pkg + 已发布 bootstrap」
+
+### metrics/otel v0.2.1
+
+- `75d100d3` revert(release): 撤回发布窗口叠加层，改回「本地 pkg + 已发布 bootstrap」
+
+### metrics/prometheus v0.2.1
+
+- `75d100d3` revert(release): 撤回发布窗口叠加层，改回「本地 pkg + 已发布 bootstrap」
+
+### pkg v0.5.0
+
+- `18de91af` feat(example,docs): client 段取用腿进 example 作业，登记册收口 §7.28 方向③与 §7.41
+- `acd60b1c` refactor(pkg,gateway): Discovery 取用口上提到 ApplyScope，resolver 搬进 pkg/grpcdiscovery
+- `0b6e20a4` fix(appkit): L3 子段闸门扩到全族，同族未接管子段不再静默
+
+### transport/client v0.1.0
+
+- `13a579c3` test(transport/client): 半装配失败与清理路径补两条可观测腿
+- `76eb47d4` feat(transport/client): 新增 client 段适配器模块
+
+### transport/gateway v0.5.2
+
+- `acd60b1c` refactor(pkg,gateway): Discovery 取用口上提到 ApplyScope，resolver 搬进 pkg/grpcdiscovery
+- `6c761301` chore: 发布 27 个模块
+
+### transport/graphql v0.2.1
+
+- `75d100d3` revert(release): 撤回发布窗口叠加层，改回「本地 pkg + 已发布 bootstrap」
+
+### transport/http3 v0.3.1
+
+- `75d100d3` revert(release): 撤回发布窗口叠加层，改回「本地 pkg + 已发布 bootstrap」
+
+### transport/kafka v0.3.1
+
+- `75d100d3` revert(release): 撤回发布窗口叠加层，改回「本地 pkg + 已发布 bootstrap」
+
+### transport/mcp v0.5.1
+
+- `75d100d3` revert(release): 撤回发布窗口叠加层，改回「本地 pkg + 已发布 bootstrap」
+
+### transport/rabbitmq v0.3.1
+
+- `75d100d3` revert(release): 撤回发布窗口叠加层，改回「本地 pkg + 已发布 bootstrap」
+
+### transport/redis v0.3.1
+
+- `75d100d3` revert(release): 撤回发布窗口叠加层，改回「本地 pkg + 已发布 bootstrap」
+
+### transport/rocketmq v0.3.1
+
+- `75d100d3` revert(release): 撤回发布窗口叠加层，改回「本地 pkg + 已发布 bootstrap」
+
+### transport/tcp v0.3.0
+
+- `c4fce214` fix(tcp): 客户端连接字段跨 goroutine 加锁（修 race 作业判红）
+- `6daf919f` feat(tcp): 报文头字节序改为按实例配置，全局设置降级为回退默认
+- `75d100d3` revert(release): 撤回发布窗口叠加层，改回「本地 pkg + 已发布 bootstrap」
+
+### transport/webrtc v0.3.1
+
+- `75d100d3` revert(release): 撤回发布窗口叠加层，改回「本地 pkg + 已发布 bootstrap」
+
+### transport/websocket v0.2.1
+
+- `75d100d3` revert(release): 撤回发布窗口叠加层，改回「本地 pkg + 已发布 bootstrap」
+
 ### bald v0.39.0
 
 - `cd246e78` docs(architecture): 补两轮远端绿证——搬迁 42209301699 与循环改形 42216040684/42216040416
