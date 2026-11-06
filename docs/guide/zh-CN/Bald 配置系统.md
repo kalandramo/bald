@@ -31,7 +31,7 @@ app:
 - 没写进文件的字段全部取 **proto 默认值**（`server.http.addr` 等），应用可直接跑起来。
 - 没有环境变量、没有 flag、没有远程源——**一份最小 yaml 即可运行**，这是开发期的默认形态。
 - 框架内化 `--config` flag（指定/覆盖本地配置文件路径），并内化 `Bind`
-  `server.http` / `server.grpc` / `--log.*` 三组 flag（见 §4.1）。业务自定义配置段需自行
+  `server.http` / `server.grpc` / `--log.*` 三组 flag（见 §4.1；**`--log.*` 当前未接线到契约，传入即启动失败，见风险登记册 §7.39**）。业务自定义配置段需自行
   `appkit.Bind`（见 §4.3）。
 
 关键语义：**proto 默认值是基线，可被四源任意一路覆盖**。默认 `server.http.addr` 之后，
@@ -280,7 +280,7 @@ flag 侧框架内化两件事：
 - **`--config` 由 Serve 解析**（`pkg/appkit/serve.go` 的 `parseConfigFlag`）：扫描 `os.Args`
   取路径写回 `ConfigFile`，业务侧无需手写 pflag 扫描；未知/写错的 flag 不阻断启动，
   由各自的消费方负责报错。
-- **`server.http` / `server.grpc` / `--log.*` 三组 flag 由 Serve 内化 `Bind`**
+- **`server.http` / `server.grpc` / `--log.*` 三组 flag 由 Serve 内化 `Bind`**（前两组由契约描述符派生、`--log.*` 是手写的例外，后者未修：见风险登记册 §7.39）
   （现行范本见 `_example/bald/internal/bootstrap/assemble.go` 的装配注释）——这三块的 flag 覆盖开箱即用。
 
 **业务自己的 flag 经 `appkit.Bind` 声明**（§4.3）：`Bind` 把 proto 消息或 `PlainBinder`

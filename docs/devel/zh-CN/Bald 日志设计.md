@@ -35,7 +35,7 @@ flowchart TB
     end
 
     subgraph ADAPT["log/bslog · 适配器层【log module 子包，包名 bslog】"]
-        BS["slog 后端 + Options/--log.* flags<br/>+ FilterKey 脱敏 + lumberjack 轮转"]
+        BS["slog 后端 + Options/--log.* flags（`--log.*` 未接线，见 §7.39）<br/>+ FilterKey 脱敏 + lumberjack 轮转"]
     end
 
     subgraph CORE["log · 契约层【根包源码零三方依赖，独立 module】"]
@@ -112,6 +112,8 @@ type Options struct {
 	Rotate      *RotateOptions // lumberjack：MaxSize=100MB, MaxBackups=7, MaxAge=30d, Compress=true
 }
 // NewOptions / AddFlags(--log.level 等全套) / Validate
+// 注：--log.* 这条 flag 路由当前落不进契约（键在顶层 log，契约段叫 logger），
+// 传入即启动失败，未修——口径与三条改法见 docs/architecture/risk-review.md §7.39。
 // New(o *Options, opts ...Option) log.Logger            // 丢弃 cleanup（进程退出 OS 兜底）
 // NewWithCleanup(o *Options, opts ...) (log.Logger, func()) // 关闭文件/轮转句柄（装配层用）
 ```
