@@ -31,7 +31,7 @@ app:
 - 没写进文件的字段全部取 **proto 默认值**（`server.http.addr` 等），应用可直接跑起来。
 - 没有环境变量、没有 flag、没有远程源——**一份最小 yaml 即可运行**，这是开发期的默认形态。
 - 框架内化 `--config` flag（指定/覆盖本地配置文件路径），并内化 `Bind`
-  `server.http` / `server.grpc` / `--log.*` 三组 flag（见 §4.1；**`--log.*` 当前未接线到契约，传入即启动失败，见风险登记册 §7.39**）。业务自定义配置段需自行
+  `server.http` / `server.grpc` / `--log.*` 三组 flag（见 §4.1；**`--log.*` 的键不进配置合并树，改在契约校验后覆盖 `logger` 段，见风险登记册 §7.39**）。业务自定义配置段需自行
   `appkit.Bind`（见 §4.3）。
 
 关键语义：**proto 默认值是基线，可被四源任意一路覆盖**。默认 `server.http.addr` 之后，
@@ -280,12 +280,14 @@ flag 侧框架内化两件事：
 - **`--config` 由 Serve 解析**（`pkg/appkit/serve.go` 的 `parseConfigFlag`）：扫描 `os.Args`
   取路径写回 `ConfigFile`，业务侧无需手写 pflag 扫描；未知/写错的 flag 不阻断启动，
   由各自的消费方负责报错。
-- **`server.http` / `server.grpc` / `--log.*` 三组 flag 由 Serve 内化 `Bind`**（前两组由契约描述符派生、`--log.*` 是手写的例外，后者未修：见风险登记册 §7.39）
+- **`server.http` / `server.grpc` / `--log.*` 三组 flag 由 Serve 内化 `Bind`**（前两组由契约描述符派生；`--log.*` 是手写的例外：顶层键 `log` 与契约段 `logger` 不同名、且旋钮在 `repeated` 下没有标量路径，故由框架摘出合并树、在契约校验后覆盖 `logger` 段——§7.39 已修）
   （现行范本见 `_example/bald/internal/bootstrap/assemble.go` 的装配注释）——这三块的 flag 覆盖开箱即用。
 
 **业务自己的 flag 经 `appkit.Bind` 声明**（§4.3）：`Bind` 把 proto 消息或 `PlainBinder`
 注册进 App 的 FlagSet，装载时进入 flag 层参与四源合并。只注册进 `cobra` / 全局 flagset 的
 flag 走的是平行解析路径，**不参与**配置合并。
+唯一被框架摘出合并树的是 `--log.*` 那 8 个键（清单由 `bootstrap.LogFlagNames()` 从注册器本身派生）；
+业务 flag 一律照常进树，flag > env > 本地文件的优先级链对它们完整生效。
 
 ### 4.2 远程配置与源层：`RemoteConfig` 桥 / `ConfigLayers` 显式叠层
 

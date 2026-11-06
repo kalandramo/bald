@@ -82,7 +82,7 @@ curl -i http://127.0.0.1:8080/healthz   # 200：存活
 curl -i http://127.0.0.1:8080/readyz    # 200：就绪（依赖未就绪 503，K8s 摘流量）
 ```
 
-CLI 机制层内置在 `pkg/appkit/appcli`：生成物 `cmd/demo-svc/app/command.go` 只有三行委托——根命令构建、`--config`/`--log.*` 的 FParseErr 白名单、flag 错误 UX、`--version` 与 `version` 子命令、kubectl 风格插件转发都由框架承担，不用每个项目手抄。**一个已知未修点**：`--log.*` 目前落不进契约（键在顶层 `log`，契约段叫 `logger`），传它会终止启动，见风险登记册 §7.39。两点需要知道的：
+CLI 机制层内置在 `pkg/appkit/appcli`：生成物 `cmd/demo-svc/app/command.go` 只有三行委托——根命令构建、`--config`/`--log.*` 的 FParseErr 白名单、flag 错误 UX、`--version` 与 `version` 子命令、kubectl 风格插件转发都由框架承担，不用每个项目手抄。**`--log.*` 的取值链**：这 8 个键的顶层键名 `log` 与契约段 `logger` 不同名，所以框架把它们摘出配置合并树，改在契约校验之后写进 `logger` 段（冷启动与热更新同一路径，见风险登记册 §7.39）；因此 `--log.level=error` 是「压过配置文件」的覆盖，而不是「新增一个配置源」。有一点要记住：proto3 标量无 presence，`--log.rotate.enabled=false` 压不过契约里已置真的值。两点需要知道的：
 
 - **版本注入**：构建时 `-ldflags -X github.com/kalandramo/bald/pkg/appkit/appcli.Version=v0.1.0`，`./demo-svc --version` 即打印它；未注入时回退构建信息的模块版本，本地 `go run`（devel）不挂 `--version`，不打印假版本。
 - **插件转发**：`./demo-svc <name>` 在 `<name>` 不是已知子命令时执行 PATH 里的 `demo-svc-<name>`（与 kubectl 同约定，前缀 = 二进制名，`appcli.WithPluginPrefix` 可覆盖）。业务子命令经 `appcli.WithSubcommands(...)` 挂进 command.go，与默认 serve 并存。
