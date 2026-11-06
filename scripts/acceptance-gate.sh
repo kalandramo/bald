@@ -195,7 +195,7 @@ esac
 # 四族骨架腿（Segments/Apply/Plan/Build/三态跳过）仍由 CI 的 test 作业整包跑，不重复点名。
 rows() {
   printf '%s\n' \
-    $'ci\tpkg\t./appkit\tTestPlan_(NoSideEffects|OrderInvariant|SegmentCoverage|Conflict|DomainRoutes|CustomRoutesWarning)|TestRouteShapeConflict\t' \
+    $'ci\tpkg\t./appkit\tTestPlan_(NoSideEffects|OrderInvariant|SegmentCoverage|Conflict|DomainRoutes|CustomRoutesWarning|GlobalMeterProvider)|TestRouteShapeConflict\t' \
     $'ci\tpkg\t./appkit\tTestTeardownOrder_|TestProviderPlan_StdTeardownOrder|TestComponent_StartFailureRollback|TestMountComponent_MountFailureRollback\t' \
     $'ci\tpkg\t./appkit\tTestDrift\t' \
     $'ci\tpkg\t./appkit\tTestPlanCache_|TestVariantProjection_|TestVariantEffects_|TestOption_OnRoleScoping|TestDoctor_\t' \

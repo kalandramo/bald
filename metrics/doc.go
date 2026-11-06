@@ -42,7 +42,10 @@
 //
 //   - ⚠️ otel 全局 MeterProvider 单例位：`metrics/otel.New` 与
 //     `observability-otlp/metrics.Setup` **互斥**——同时调用时后设者生效、
-//     先设者的指标静默丢失。一个进程里二选一。
+//     先设者的指标静默丢失。一个进程里二选一。走契约装配时 appkit 在
+//     计划期兜住这条纪律：`instrumentation.otlp` 与 `metrics` 两段同时
+//     出现即启动失败（`instrumentation.prometheus`/`datadog` 不写全局位，
+//     与 `metrics` 段共存合法）；代码里直接调两个构造函数则框架看不到。
 //   - label keys 首见冻结：同一 name 的 label key 集合必须跨调用恒定
 //     （Prometheus 后端预声明维度，后见的 key 被静默丢弃）。
 //

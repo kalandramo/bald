@@ -339,6 +339,8 @@ bconf 的 `metrics` 段（`type ∈ {"prometheus", "otlp"}`）驱动的是 `pkg/
 
 **全局 MeterProvider 单例位：与 observability-otlp 互斥使用。** `metrics/otel.New` 与 `observability-otlp/metrics.Setup` 都调 `otel.SetMeterProvider`。同时使用时后设者生效、先设者的全部指标静默丢失；`pkg/metrics` 的 Recorder 依赖全局位，被 `metrics/otel` 顶掉后请求级指标也会路由错误。约束：**一个进程里二选一**。要同时要 OTLP 直推和 Prometheus 抓取，用 `Setup` 的多 Reader（它本来就是为此设计的）。
 
+**这条约束在声明式装配路径上由框架强制（计划期单选）。** 两个写入方的段路径是 `instrumentation.otlp`（`metrics/otel/contract`）与 `metrics`（`contrib/observability-otlp/contract`）：两者同时出现在契约、且两个 Provider 都注册时，`pkg/appkit` 在 Provider 计划阶段直接判红，不留到运行期靠装配顺序赌运气。判据在计划而非构造期，因此 `--plan` 预检、真实启动与热更新重算三条路共用同一次拒绝（热更新走 `compilePlan`，编译不过整次更新被丢弃、旧契约保留）。`instrumentation.prometheus` 与 `instrumentation.datadog` 不在这张表里——它们不写全局位，与 `metrics` 段同时出现合法。装配层按段路径点名而不是由 Provider 自声明：appkit 与两个适配器分属不同 module，互 require 即成模块环；代价是第三个全局写入方不会自动进表，见风险登记册 §7.31。直接调用两个构造函数（不经契约装配）仍是业务侧自己的纪律，框架看不到。
+
 **这条约束只在 metrics 内部成立——trace 不受影响，可与 metrics 任意组合。** OTel 的 `MeterProvider` 与 `TracerProvider` 是**两个互相独立的全局单例**（`otel.SetMeterProvider` 与 `otel.SetTracerProvider` 分属不同 API）。全仓的全局设置点证实这一点：
 
 | 设置点 | API | 归属 |

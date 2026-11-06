@@ -319,6 +319,31 @@ type providerPlan struct {
 	warnings []Diagnostic
 }
 
+// globalMeterSegments 点名「其 Provider 会把进程全局 OTel MeterProvider 换成
+// 自己那一个」的契约段。一个进程只有一个 otel.MeterProvider，后建者顶掉先建者
+// 且被顶掉一侧的全部指标静默丢失，故与 registry 同族按单选裁决。
+//
+// 两处写入点均为无条件调用（实测）：metrics/otel 的 New 与
+// contrib/observability-otlp 的 metrics.Setup 各调一次 otel.SetMeterProvider，
+// 后者还在 prometheus/otlp 两个 type 上都走同一条。段路径在此点名而不是由
+// Provider 自声明：appkit 与两个适配器分属不同 module，互 require 即成模块环
+// （同 bootstrap.go 的 driverGRPCGateway 口径）；代价是新写入方不会自动进表，
+// 已登记为残余风险（登记册 §7.31）。
+var globalMeterSegments = map[string]bool{
+	"metrics":              true,
+	"instrumentation.otlp": true,
+}
+
+// providerClaimsGlobalMeter 报告该 Provider 是否声明了全局 MeterProvider 写入段。
+func providerClaimsGlobalMeter(segs []string) (string, bool) {
+	for _, s := range segs {
+		if globalMeterSegments[s] {
+			return s, true
+		}
+	}
+	return "", false
+}
+
 // newProviderPlan 解析 Decl.Providers：路径末者胜 → 段存在性 gate →
 // Provider.Plan → 节点冲突裁决 → 统一排序。校验：空段路径、跨阶段段族、
 // 每 Provider 恰一节点、节点阶段与段族一致。
@@ -372,6 +397,8 @@ func newProviderPlan(ctx context.Context, d *Decl, cfg *bootstrapv1.BootstrapCon
 		// 两者 Provider 都在时，后建者会静默覆盖先建者——计划期直接报错，
 		// 不留给运行期。
 		registryOwners []string
+		// globalMeterOwners 同族单选：见 globalMeterSegments。
+		globalMeterOwners []string
 	)
 	for i, p := range d.Providers {
 		if !owned[i] {
@@ -414,12 +441,21 @@ func newProviderPlan(ctx context.Context, d *Decl, cfg *bootstrapv1.BootstrapCon
 		if segmentTop(segs[0]) == "registry" {
 			registryOwners = append(registryOwners, segs[0])
 		}
+		if s, ok := providerClaimsGlobalMeter(segs); ok {
+			globalMeterOwners = append(globalMeterOwners, s)
+		}
 		allEntries = append(allEntries, providerEntry{prov: p, node: node})
 	}
 
 	if len(registryOwners) > 1 {
 		return nil, fmt.Errorf("appkit: multiple registry providers triggered (%v); registry is single-select "+
 			"(one process registers with one registry center) — remove the extra registry segment or the extra provider", registryOwners)
+	}
+
+	if len(globalMeterOwners) > 1 {
+		return nil, fmt.Errorf("appkit: multiple providers install the process-global OTel MeterProvider (%v); "+
+			"one process has one meter provider — the later build would silently drop every metric of the earlier "+
+			`one. Keep one of these segments ("metrics" or the instrumentation backends that push via OTel)`, globalMeterOwners)
 	}
 
 	// 3. 零 logger 声明回退内置 Provider（阶段 A 引导 logger 的持有者）：

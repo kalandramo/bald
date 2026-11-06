@@ -315,6 +315,12 @@ if c, ok := m.(metrics.Closer); ok {
   后设者顶掉先设者，**被顶掉一侧的全部指标静默丢失**。约束：一个进程
   二选一。要同时要 OTLP 直推和 Prometheus 抓取，用 `Setup` 的多 Reader
   （它本来就是为此设计的）。
+  **走契约装配时这条由框架兜住**：`instrumentation.otlp` 与 `metrics`
+  两段同时出现、且两个段的 Provider 都注册，计划期直接判红（启动、
+  `--plan` 预检与热更新重算三条路共用这次拒绝），不会让你靠装配顺序
+  赌运气。`instrumentation.prometheus`/`instrumentation.datadog` 不写
+  全局位，与 `metrics` 段共存合法。代码里直接调两个构造函数仍然是
+  你自己的纪律——框架看不到。
   **此约束只在两个 metrics 后端之间成立**——trace 用的是独立的
   `otel.SetTracerProvider`，与 metrics 的全局 MeterProvider 互不相干，
   可任意组合（`observability-otlp` 本就同时提供 trace 与 metrics）。

@@ -411,6 +411,93 @@ func TestPlan_MultipleRegistryProvidersFailFast(t *testing.T) {
 	}
 }
 
+// globalMeterYAML 同时给出两个「装进程全局 OTel MeterProvider」的段：
+// metrics（observability-otlp 的 Setup）与 instrumentation.otlp（metrics/otel
+// 的 New）——两处都无条件调 otel.SetMeterProvider，后建者顶掉先建者。
+const globalMeterYAML = "metrics:\n  type: \"prometheus\"\n" +
+	"instrumentation:\n  otlp:\n    endpoint: \"127.0.0.1:4317\"\n"
+
+// TestPlan_GlobalMeterProviderFailFast 钉住全局 MeterProvider 单选：两个写入段
+// 都在契约、两个 Provider 都注册时，计划期即报错，而不是让一侧的指标在运行期
+// 静默全丢（§7.31；同 registry 单选的失败模式）。
+func TestPlan_GlobalMeterProviderFailFast(t *testing.T) {
+	cfgPath := writePlanConfig(t, "plan-global-meter", globalMeterYAML)
+	_, err := Compile(context.Background(), ConfigFile(cfgPath),
+		planCountingProvider{segs: []string{"metrics"}, calls: new(int32)},
+		planCountingProvider{segs: []string{"instrumentation.otlp"}, calls: new(int32)},
+	)
+	if err == nil || !strings.Contains(err.Error(), "global OTel MeterProvider") {
+		t.Fatalf("err = %v, want global meter provider error", err)
+	}
+	for _, want := range []string{"metrics", "instrumentation.otlp"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("err = %v, want it to name segment %q", err, want)
+		}
+	}
+}
+
+// TestPlan_GlobalMeterProviderGatedBySegment 钉住闸门读的是「段是否出现」而不是
+// 「Provider 是否注册」：只给一个段、两个 Provider 都在时不报错（段缺失的
+// Provider 本就被引擎跳过，不会装第二个 MeterProvider）。
+func TestPlan_GlobalMeterProviderGatedBySegment(t *testing.T) {
+	cfgPath := writePlanConfig(t, "plan-global-meter-one", "metrics:\n  type: \"prometheus\"\n")
+	if _, err := Compile(context.Background(), ConfigFile(cfgPath),
+		planCountingProvider{segs: []string{"metrics"}, calls: new(int32)},
+		planCountingProvider{segs: []string{"instrumentation.otlp"}, calls: new(int32)},
+	); err != nil {
+		t.Fatalf("Compile = %v, want nil (single global meter writer)", err)
+	}
+}
+
+// TestPlan_GlobalMeterProviderIgnoresNonOTelBackends 钉住点名表只含 OTel 写入方：
+// instrumentation.prometheus/datadog 用自己的 Registry/statsd，不碰全局位，与
+// metrics 段同时出现时必须放行（把这两行也塞进表里会判红，即误伤合法组合）。
+func TestPlan_GlobalMeterProviderIgnoresNonOTelBackends(t *testing.T) {
+	yamlOf := map[string]string{
+		"prometheus": "instrumentation:\n  prometheus:\n    namespace: \"svc\"\n",
+		"datadog":    "instrumentation:\n  datadog:\n    address: \"127.0.0.1:8125\"\n",
+	}
+	for sub, instrYAML := range yamlOf {
+		cfgPath := writePlanConfig(t, "plan-global-meter-"+sub,
+			"metrics:\n  type: \"prometheus\"\n"+instrYAML)
+		if _, err := Compile(context.Background(), ConfigFile(cfgPath),
+			planCountingProvider{segs: []string{"metrics"}, calls: new(int32)},
+			planCountingProvider{segs: []string{"instrumentation." + sub}, calls: new(int32)},
+		); err != nil {
+			t.Fatalf("instrumentation.%s + metrics: Compile = %v, want nil", sub, err)
+		}
+	}
+}
+
+// TestPlan_GlobalMeterProviderSingleOwnerPerProvider 钉住计数按 Provider 归并：
+// 一个 Provider 同时声明两个写入段（自己就是唯一的接管者）时不算竞争，否则
+// 把两个段打包给同一个 Provider 的写法会被自己的闸门拦下。
+func TestPlan_GlobalMeterProviderSingleOwnerPerProvider(t *testing.T) {
+	cfgPath := writePlanConfig(t, "plan-global-meter-packed", globalMeterYAML)
+	if _, err := Compile(context.Background(), ConfigFile(cfgPath),
+		planCountingProvider{segs: []string{"metrics", "instrumentation.otlp"}, calls: new(int32)},
+	); err != nil {
+		t.Fatalf("Compile = %v, want nil (one provider, one install)", err)
+	}
+}
+
+// TestPlan_GlobalMeterProviderReadsSegmentsNotProviders 把这条闸门的**粒度上界**
+// 钉成判据而不是注释：appkit 只看段路径，看不到 Provider 内部。自写一个装在
+// `metrics` 路径上、其实不写全局位的 Provider，与 instrumentation.otlp 同时出现
+// 时照样判红——这是刻意的粗粒度（末者胜的接管者无法自证清白），本轮没有为它
+// 开配置侧逃生门。给这条组合加判据的用意是：真要放宽时这里必须先红一次。
+func TestPlan_GlobalMeterProviderReadsSegmentsNotProviders(t *testing.T) {
+	cfgPath := writePlanConfig(t, "plan-global-meter-custom-owner", globalMeterYAML)
+	_, err := Compile(context.Background(), ConfigFile(cfgPath),
+		planCountingProvider{segs: []string{"metrics"}, calls: new(int32)},
+		planCountingProvider{segs: []string{"metrics"}, calls: new(int32)},
+		planCountingProvider{segs: []string{"instrumentation.otlp"}, calls: new(int32)},
+	)
+	if err == nil || !strings.Contains(err.Error(), "global OTel MeterProvider") {
+		t.Fatalf("err = %v, want coarse segment-level error (custom metrics owner is not excused)", err)
+	}
+}
+
 // TestPlan_EscapeHatchesReported 钉住 I10：计划可静态观测的逃逸舱都必须
 // 出现在 Plan.Warnings——白名单段、节点 override、程序化 Registrar 接管、
 // 环境注入（WithAmbient：build tag / init() 接线）。计划看不到的域仍由

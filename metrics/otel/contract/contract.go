@@ -11,7 +11,10 @@
 // 一条必须知道的库行为：根包的 New 会调用 otel.SetMeterProvider，把实例
 // 的 MeterProvider 装进**进程全局**。同进程里若还有别的 OTel 指标使用方
 // （例如 contrib/observability-otlp 的请求级通道），后构造者覆盖先构造者。
-// 本包不改变该行为，只在契约层如实登记。
+// 本包不改变该行为（根包仍是纯 SDK 实现）；但走契约装配时，pkg/appkit 在
+// Provider 计划期把 `instrumentation.otlp` 与 `metrics` 两段按全局位单选
+// 裁决——同时出现即启动失败，不留到运行期靠装配顺序赌运气。代码里直接
+// 调两个构造函数仍然是调用方自己的纪律。
 package contract
 
 import (

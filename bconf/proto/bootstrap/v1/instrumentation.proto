@@ -13,7 +13,10 @@ option go_package = "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1";
 //   - 本段 = 传输级埋点，服务 TCP 会话与 Kafka/RabbitMQ/Redis/RocketMQ/WebRTC
 //     这些**没有「请求」概念**的路径，维度是 status/topic/queue 这类自由标签。
 //
-// 判别规则：有「请求」的走 metrics 段，没有的走本段。两者可共存于一个进程。
+// 判别规则：有「请求」的走 metrics 段，没有的走本段。两者可共存于一个进程，
+// 唯一例外是本段的 otlp 子段——它与 metrics 段的后端都无条件把实例装进进程全局
+// otel.MeterProvider（后装者顶掉先装者，被顶掉一侧的指标全丢），因此 appkit 在
+// 计划期把这两条段路径按单选裁决（同时出现即启动失败，不是运行期降级）。
 // 后端互斥性：本段不按 type 字符串分发，而是「哪个子段存在就装配哪个」，与
 // cache/storage/broker 同构；多个子段同时存在即产出多个实例，各自落在
 // instrumentation.<后端> 段路径上，消费侧按类型化句柄取用后用各 transport
