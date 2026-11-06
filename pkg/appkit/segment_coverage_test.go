@@ -207,6 +207,43 @@ func TestAssemble_ServerSubSegmentWithCoProvider(t *testing.T) {
 	}
 }
 
+// §7.36 现状钉子（端到端实测，把「L3 子段级判据只在 server 分支里」从代码阅读
+// 升级成跑出来的行为）：cfg 同时配 broker.redis 与 broker.kafka，只有 broker.redis
+// 有 Provider ⇒ 该 Provider 点亮 broker **顶层**，kafka 子段既不报错也不生效。
+// 第二子例是活性对照：撤掉唯一的 broker Provider，同一份 cfg 就判红——证明第一
+// 子例的「不报错」来自同族遮蔽，而不是 L3 整体没跑。
+// owner 若选 §7.36 候选①或②（子段级闸门扩到全族），该翻红的是第一子例，届时改
+// 期望而不是改闸门。
+func TestAssemble_SiblingNonServerSubSegmentIsSilent(t *testing.T) {
+	old := log.GetLogger()
+	t.Cleanup(func() { log.SetLogger(old) })
+
+	newCfg := func() *bootstrapv1.BootstrapConfig {
+		cfg := bconf.NewBootstrap()
+		dynamicAddr(cfg)
+		cfg.Broker = &bootstrapv1.Broker{
+			Redis: &bootstrapv1.Broker_Redis{Address: "127.0.0.1:6379"},
+			Kafka: &bootstrapv1.Broker_Kafka{Brokers: []string{"127.0.0.1:9092"}},
+		}
+		return cfg
+	}
+	redisProvider := stubDomainProvider("broker.redis", "redis",
+		func(c *bootstrapv1.BootstrapConfig) bool { return c.GetBroker().GetRedis() != nil },
+		"broker", nil)
+
+	t.Run("同族一个 Provider 点亮 broker 顶层，kafka 子段静默", func(t *testing.T) {
+		a := assembleForTest(t, newCfg(), WithHTTP(new(http.ServeMux)),
+			redisProvider, StandardHTTPProvider(), StandardGRPCProvider())
+		runBriefly(t, a, 30*time.Millisecond)
+	})
+
+	t.Run("活性对照：撤掉唯一 broker Provider 则顶层判红", func(t *testing.T) {
+		a := assembleForTest(t, newCfg(),
+			WithHTTP(new(http.ServeMux)), StandardHTTPProvider(), StandardGRPCProvider())
+		runExpectErr(t, a, "no consumer", "broker")
+	})
+}
+
 // 白名单名字必须是契约里真实存在的段路径（BootstrapConfig 字段链，
 // 中间节点必须是 message）——拼错在计划期报错，而不是静默制造一个不存在的
 // 豁免。
