@@ -19,6 +19,11 @@ const changelogHeader = `# 变更日志
 // WriteChangelog 把计划中的版本与提交写入 CHANGELOG.md，新版本插在历史记录之前。
 // 同一模块的同一版本已存在时拒绝写入——重复执行不会制造重复条目。
 func WriteChangelog(root string, plan *Plan, write bool, out io.Writer) error {
+	// 守卫放在「没有待发布模块」那句之前：过期计划最可能的形状就是 changes 为空，
+	// 先打印那句就等于是用一条旧结论把「没检查」说成「检查过」。
+	if err := CheckPlanFresh(root, plan); err != nil {
+		return err
+	}
 	if len(plan.Changes) == 0 {
 		_, _ = fmt.Fprintln(out, "没有待发布模块，变更日志不变。")
 		return nil

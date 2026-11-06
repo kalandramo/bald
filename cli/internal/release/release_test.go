@@ -2,6 +2,7 @@ package release
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -424,6 +425,91 @@ func TestPlanFileRoundTrip(t *testing.T) {
 	}
 	if loaded.Head != plan.Head || len(loaded.Changes) != len(plan.Changes) {
 		t.Errorf("round trip mismatch: %+v vs %+v", loaded, plan)
+	}
+}
+
+// TestSyncAndChangelog_RejectStalePlan 钉住「计划过期时不得交出结论」：sync 与
+// changelog 的写入全部由计划派生，HEAD 领先时它们打出的「已是最新」/「没有待发布
+// 模块」是用一条旧结论把「没检查」说成「检查过」。反向半边（同 HEAD 的新计划照旧
+// 放行）也必须测，否则这条守卫只是恒红。
+func TestSyncAndChangelog_RejectStalePlan(t *testing.T) {
+	root := newRepo(t)
+	writeFile(t, root, "root.go", "package m\n\n// fix\n")
+	commit(t, root, "fix: root bug", "")
+	stale := planFor(t, root)
+
+	// 第二个提交真改了 sub 模块 ⇒ 计划的 changes 会变，过期计划是有害而不只是难看。
+	writeFile(t, root, "sub/sub.go", "package sub\n\n// feature\n")
+	commit(t, root, "feat: sub feature", "")
+	fresh := planFor(t, root)
+	if len(stale.Changes) == len(fresh.Changes) {
+		t.Fatalf("夹具失效：过期计划与新计划的 changes 数相同（%d），这条测试没有区分度", len(stale.Changes))
+	}
+
+	for _, step := range []struct {
+		name string
+		run  func(io.Writer, *Plan) error
+	}{
+		{"sync", func(w io.Writer, p *Plan) error { return Sync(root, p, false, w) }},
+		{"changelog", func(w io.Writer, p *Plan) error { return WriteChangelog(root, p, false, w) }},
+	} {
+		var out bytes.Buffer
+		err := step.run(&out, stale)
+		if err == nil || !strings.Contains(err.Error(), "release plan") {
+			t.Fatalf("%s: 过期计划必须被拒，got err=%v output=%q", step.name, err, out.String())
+		}
+		if out.Len() != 0 {
+			t.Fatalf("%s: 判红之前不得先打印结论，免得「已是最新」那句留在输出里：%q", step.name, out.String())
+		}
+		out.Reset()
+		if err := step.run(&out, fresh); err != nil {
+			t.Fatalf("%s: 新计划必须照旧放行，got %v (output=%q)", step.name, err, out.String())
+		}
+	}
+}
+
+// TestSyncAndChangelog_EmptyStalePlanStillRefused 钉的是同一句结论的两个「最绿形状」：
+// 过期计划的 changes 通常为空（本轮还没算进去），于是 sync 打「依赖已是最新，无需归位。」、
+// changelog 打「没有待发布模块，变更日志不变。」双双 exit 0。守卫必须在早退之前，
+// 否则这两句就是「没检查」的伪装。
+func TestSyncAndChangelog_EmptyStalePlanStillRefused(t *testing.T) {
+	root := newRepo(t)
+	// docs 提交不触发发版 ⇒ 这份计划的 changes 为空，正是要挡的形状。
+	writeFile(t, root, "notes.txt", "unrelated\n")
+	commit(t, root, "docs: notes", "")
+	stale := planFor(t, root)
+	if len(stale.Changes) != 0 {
+		t.Fatalf("夹具失效：期望空计划，实际 %d 个 changes", len(stale.Changes))
+	}
+
+	writeFile(t, root, "sub/sub.go", "package sub\n\n// feature\n")
+	commit(t, root, "feat: sub feature", "")
+	fresh := planFor(t, root)
+	if len(fresh.Changes) == 0 {
+		t.Fatal("夹具失效：新计划也应非空，否则两半都在真空跑")
+	}
+
+	cases := []struct {
+		name string
+		want string // 修之前会打印的那句假绿
+		run  func(io.Writer, *Plan) error
+	}{
+		{"sync", "依赖已是最新", func(w io.Writer, p *Plan) error { return Sync(root, p, false, w) }},
+		{"changelog", "没有待发布模块", func(w io.Writer, p *Plan) error { return WriteChangelog(root, p, false, w) }},
+	}
+	for _, c := range cases {
+		var out bytes.Buffer
+		err := c.run(&out, stale)
+		if err == nil || !strings.Contains(err.Error(), "release plan") {
+			t.Fatalf("%s: 空计划也必须先判过期，got err=%v output=%q", c.name, err, out.String())
+		}
+		if strings.Contains(out.String(), c.want) {
+			t.Fatalf("%s: 假绿那句不得出现在判红之前：%q", c.name, out.String())
+		}
+		out.Reset()
+		if err := c.run(&out, fresh); err != nil {
+			t.Fatalf("%s: 新计划必须放行，got %v", c.name, err)
+		}
 	}
 }
 

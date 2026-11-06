@@ -193,6 +193,11 @@ esac
 # rmq/rds/kfk/rbmq）；redis/kafka/rocketmq 的真进程腿读到「Start 后的描述性端点」，
 # rabbitmq 那条读到的是「Build 的 fail-fast 一路掀掉 Serve」——差别就是上面那条离线边界。
 # 四族骨架腿（Segments/Apply/Plan/Build/三态跳过）仍由 CI 的 test 作业整包跑，不重复点名。
+# cli ./internal/release 那条（§7.32）判的是发布四步里的**过期计划闸门**：`sync` 与
+# `changelog` 的写入全由 release-plan.json 派生，而计划绑一个 HEAD；拿旧计划跑这两步，
+# 原先会打印「依赖已是最新，无需归位。」/「没有待发布模块，变更日志不变。」然后 exit 0，
+# 即把「没干活」伪装成「干完了」。两条腿各自把假绿文案钉成反证（拒绝对话里必须点名
+# release plan，且 stdout 零字节），所以进表的是 `TestSyncAndChangelog_` 前缀而不是整包。
 rows() {
   printf '%s\n' \
     $'ci\tpkg\t./appkit\tTestPlan_(NoSideEffects|OrderInvariant|SegmentCoverage|Conflict|DomainRoutes|CustomRoutesWarning|GlobalMeterProvider)|TestRouteShapeConflict\t' \
@@ -201,6 +206,7 @@ rows() {
     $'ci\tpkg\t./appkit\tTestPlanCache_|TestVariantProjection_|TestVariantEffects_|TestOption_OnRoleScoping|TestDoctor_\t' \
     $'ci\tpkg\t./appkit\tTestAPI_\t' \
     $'ci\tcli\t./internal/codegen\tTestGen_(Deterministic|CheckClean)|TestGenDomain_(Bind|Proto|NoRoutes|CheckDoesNotRunProtoStage)|TestGenApp_Variants|TestTree_Variants|TestTree_CustomWiring|TestPruneStaleOwned|TestCheckTree_\t' \
+    $'ci\tcli\t./internal/release\tTestSyncAndChangelog_\t' \
     $'ci\tregistry/etcd\t.\tTestRetreatDelay_|TestRetreatPolicy_|TestHeartBeatRetreat\t' \
     $'ci\tregistry/etcd\t./contract\tTestRetreat_|TestProvider_BackoffSection|TestProvider_ContractSections|TestProvider_MaxRetrySection|TestProvider_AuthSection\t' \
     $'ci\tregistry/consul\t./contract\tTestProvider_RegisterBody|TestProvider_CheckFlags|TestProvider_AbsentBools|TestProvider_AbsentIntervals|TestProvider_SchemeSection|TestProvider_DatacenterSection\t' \

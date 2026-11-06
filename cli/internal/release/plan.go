@@ -511,6 +511,31 @@ func ReadPlan(path string) (*Plan, error) {
 	return &plan, nil
 }
 
+// CheckPlanFresh 拒绝让 HEAD 已经领先的计划继续派生写入。
+//
+// 为什么单独一条而不是塞进 ReadPlan：tag 的合法窗口里本来就含 sync/changelog
+// 产生的发布提交，它要的是「只允许发布类改动」那种守卫（Tag 里的
+// onlyReleaseEdits），不是「HEAD 一字未动」。sync 与 changelog 则不同——它们
+// 写进仓库的每一行都由计划派生，计划旧了结论就变了。
+//
+// 实测过的失效形状：拿一份 HEAD 落后 25 个模块的计划跑 `release sync`，它打印
+// 「依赖已是最新，无需归位。」并 exit 0。这句绿在这里不是证据，而是把「没检查」
+// 表达成了「检查过且没问题」。
+func CheckPlanFresh(root string, plan *Plan) error {
+	if plan.Head == "" {
+		return nil // 手工构造的计划（测试与脚本）不假设它绑定某个提交
+	}
+	head, err := (&Repo{Root: root}).head()
+	if err != nil {
+		return fmt.Errorf("resolve HEAD: %w", err)
+	}
+	if plan.Head != head {
+		return fmt.Errorf("计划生成于 %s，HEAD 现在是 %s；先重跑 `bald release plan`（本步的写入全由计划派生，过期计划报的「已是最新」不代表真的最新）",
+			shortHash(plan.Head), shortHash(head))
+	}
+	return nil
+}
+
 func changelogLabel(root string, c Change) string {
 	if c.Dir == "." {
 		return filepath.Base(root)

@@ -18,6 +18,9 @@ import (
 //
 // write 为 false 时只打印将要做的修改（默认路径），便于先看 diff。
 func Sync(root string, plan *Plan, write bool, out io.Writer) error {
+	if err := CheckPlanFresh(root, plan); err != nil {
+		return err
+	}
 	type target struct {
 		dir      string
 		requires []RequireUpdate
