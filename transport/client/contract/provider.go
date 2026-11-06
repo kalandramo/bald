@@ -195,6 +195,10 @@ func validateEntry(face string, idx int, e *bootstrapv1.Client_Entry, seen map[s
 	return nil
 }
 
+// newGRPC 是 grpc 条目的构造入口；测试替换它以观察「失败时已建连接是否真的关闭」
+// ——ClientConn 句柄不落任何产物面，失败路径上没有别的可观测点。
+var newGRPC = client.NewGRPC
+
 // buildGRPC 把单条 grpc 条目映射为连接。
 //
 // tls 段存在即经 bconf/tlsconf 解析（与 gateway 出站同一姿势）；缺席即明文。
@@ -217,7 +221,7 @@ func buildGRPC(e *bootstrapv1.Client_Entry, d registry.Discovery, extra []grpc.D
 	if len(extra) > 0 {
 		opts = append(opts, client.WithDialOptions(extra...))
 	}
-	conn, err := client.NewGRPC(e.GetAddr(), opts...)
+	conn, err := newGRPC(e.GetAddr(), opts...)
 	if err != nil {
 		return nil, fmt.Errorf("client.grpc.%s: %w", e.GetName(), err)
 	}

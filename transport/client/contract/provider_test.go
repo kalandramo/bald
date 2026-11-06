@@ -211,7 +211,19 @@ func TestMappingOffline_ValidationFailures(t *testing.T) {
 }
 
 // 半装配失败：前一条已建连接必须当场关闭，不能留在进程里。
+// ClientConn 不落产物面，只能经构造入口取句柄判状态。
 func TestMappingOffline_FailureClosesEarlierConns(t *testing.T) {
+	var built []*grpc.ClientConn
+	prev := newGRPC
+	newGRPC = func(target string, opts ...client.GRPCOption) (*grpc.ClientConn, error) {
+		conn, err := client.NewGRPC(target, opts...)
+		if conn != nil {
+			built = append(built, conn)
+		}
+		return conn, err
+	}
+	t.Cleanup(func() { newGRPC = prev })
+
 	res, cleanup, err := AppProvider().Build(context.Background(), appkit.ApplyScope{
 		Config: cfgWith(&bootstrapv1.Client{
 			Grpc: &bootstrapv1.Client_GRPC{Entries: []*bootstrapv1.Client_Entry{
@@ -225,6 +237,65 @@ func TestMappingOffline_FailureClosesEarlierConns(t *testing.T) {
 	}
 	if res != nil || cleanup != nil {
 		t.Fatalf("failed Build leaked product/cleanup: (%v, %v)", res, cleanup)
+	}
+	if len(built) != 1 {
+		t.Fatalf("built %d conns before failure, want 1", len(built))
+	}
+	if got := built[0].GetState(); got != connectivity.Shutdown {
+		t.Fatalf("earlier conn state = %v, want Shutdown", got)
+	}
+}
+
+// countingTransport 记 CloseIdleConnections 的次数（http.Client 会转发给
+// 实现了该方法的 Transport）。
+type countingTransport struct{ idleCloses int }
+
+func (t *countingTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, errors.New("unexpected request")
+}
+
+func (t *countingTransport) CloseIdleConnections() { t.idleCloses++ }
+
+// 同一失败路径对 http 面：失败前已建的客户端必须释放空闲连接。
+func TestMappingOffline_FailureClosesEarlierHTTPClients(t *testing.T) {
+	tr := &countingTransport{}
+	_, _, err := AppProvider(WithHTTPOptions(client.WithTransport(tr))).Build(context.Background(), appkit.ApplyScope{
+		Config: cfgWith(&bootstrapv1.Client{
+			Http: &bootstrapv1.Client_HTTP{Entries: []*bootstrapv1.Client_Entry{
+				{Name: "good", Addr: "http://127.0.0.1:1"},
+				{Name: "bad"},
+			}},
+		}),
+	}, appkit.Node{})
+	if err == nil {
+		t.Fatal("Build succeeded, want validation error on second entry")
+	}
+	if tr.idleCloses != 1 {
+		t.Fatalf("CloseIdleConnections called %d times, want 1", tr.idleCloses)
+	}
+}
+
+// 正常 cleanup 对 http 面：空闲连接必须释放。
+func TestMappingOffline_CleanupReleasesHTTPIdleConns(t *testing.T) {
+	tr := &countingTransport{}
+	_, cleanup, err := AppProvider(WithHTTPOptions(client.WithTransport(tr))).Build(context.Background(), appkit.ApplyScope{
+		Config: cfgWith(&bootstrapv1.Client{
+			Http: &bootstrapv1.Client_HTTP{Entries: []*bootstrapv1.Client_Entry{
+				{Name: "billing", Addr: "http://127.0.0.1:1"},
+			}},
+		}),
+	}, appkit.Node{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if cleanup == nil {
+		t.Fatal("cleanup is nil, want release func")
+	}
+	if err := cleanup(context.Background()); err != nil {
+		t.Fatalf("cleanup: %v", err)
+	}
+	if tr.idleCloses != 1 {
+		t.Fatalf("CloseIdleConnections called %d times, want 1", tr.idleCloses)
 	}
 }
 
