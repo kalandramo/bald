@@ -26,6 +26,7 @@ package tcp
 import (
 	"context"
 	"crypto/tls"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"log"
@@ -56,6 +57,10 @@ type Server struct {
 	address string
 
 	timeout time.Duration
+
+	// byteOrder 是本实例报文字段（uint32 类型头）的字节序；nil 沿用进程级默认。
+	// 经 WithByteOrder / 契约 server.tcp.byte_order 配置。
+	byteOrder binary.ByteOrder
 
 	codec encoding.Codec
 
@@ -312,6 +317,7 @@ func (s *Server) marshalNetPacket(messageType NetMessageType, message NetMessage
 func (s *Server) defaultMarshalNetPacket(messageType NetMessageType, message NetMessagePayload) ([]byte, error) {
 	var msg NetPacket
 	msg.Type = messageType
+	msg.Order = s.byteOrder
 	var err error
 	if s.codec == nil {
 		return nil, errors.New("codec is nil (nothing registered); register one via encoding.MustRegister, e.g. encoding.MustRegister(json.New())")
@@ -329,6 +335,7 @@ func (s *Server) unmarshalNetPacket(buf []byte) (*MessageHandlerData, NetMessage
 
 func (s *Server) defaultUnmarshalNetPacket(buf []byte) (handler *MessageHandlerData, payload NetMessagePayload, err error) {
 	var msg NetPacket
+	msg.Order = s.byteOrder
 	if err = msg.Unmarshal(buf); err != nil {
 		log.Printf("[tcp] decode message exception: %s", err)
 		return

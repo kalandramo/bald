@@ -6,6 +6,8 @@ replace github.com/kalandramo/bald/registry => ../../registry
 
 replace github.com/kalandramo/bald/encoding => ../../encoding
 
+replace github.com/kalandramo/bald/encoding/json => ../../encoding/json
+
 replace github.com/kalandramo/bald/log => ../../log
 
 replace github.com/kalandramo/bald/metrics => ../../metrics
@@ -15,6 +17,7 @@ replace github.com/kalandramo/bald/transport => ..
 require (
 	github.com/kalandramo/bald/bconf v0.20.0
 	github.com/kalandramo/bald/encoding v0.1.0
+	github.com/kalandramo/bald/encoding/json v0.1.1
 	github.com/kalandramo/bald/metrics v0.2.0
 	github.com/kalandramo/bald/metrics/prometheus v0.2.0
 	github.com/kalandramo/bald/pkg v0.4.0

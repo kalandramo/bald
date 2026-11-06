@@ -12,6 +12,7 @@ package contract
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
@@ -104,6 +105,9 @@ func Provider(opts ...Option) func(context.Context, *bootstrapv1.Server) (transp
 // addr 无条件传（工厂入口已挡空值）；tls 按**段存在与否**决定传不传——空 tls
 // 段（`tls: {}`）不是「不启用 TLS」而是「启用但没证书」，交给 tlsconf 报错，
 // 而不是静默回落明文。
+//
+// byte_order 未指定时不传 Option（实例字段留零值 → 落到 tcp 包的默认小端）；
+// 显式值走 tcp.WithByteOrder——只影响本实例，不动包级默认。
 func buildOpts(sec *bootstrapv1.Server_Tcp) ([]tcp.Option, error) {
 	opts := []tcp.Option{tcp.WithAddress(sec.GetAddr())}
 	if tlsSec := sec.GetTls(); tlsSec != nil {
@@ -112,6 +116,18 @@ func buildOpts(sec *bootstrapv1.Server_Tcp) ([]tcp.Option, error) {
 			return nil, fmt.Errorf("tcp: server.tcp.tls: %w", err)
 		}
 		opts = append(opts, tcp.WithTLSConfig(tc))
+	}
+	switch boom := sec.GetByteOrder(); boom {
+	case bootstrapv1.Server_Tcp_BYTE_ORDER_UNSPECIFIED:
+		// 沿用实例默认（小端），不传 Option。
+	case bootstrapv1.Server_Tcp_LITTLE:
+		opts = append(opts, tcp.WithByteOrder(binary.LittleEndian))
+	case bootstrapv1.Server_Tcp_BIG:
+		opts = append(opts, tcp.WithByteOrder(binary.BigEndian))
+	default:
+		// 枚举值来自契约文件，出现未知值说明 proto 与实现不同步；静默回落
+		// 默认字节序会让报文头静默反解，故直接判配置错。
+		return nil, fmt.Errorf("tcp: server.tcp.byte_order = %d is unknown", int32(boom))
 	}
 	return opts, nil
 }

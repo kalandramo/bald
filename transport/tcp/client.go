@@ -2,6 +2,7 @@ package tcp
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"log"
 	"net"
@@ -38,6 +39,10 @@ type Client struct {
 	m      metrics.Metrics
 
 	timeout time.Duration
+
+	// byteOrder 是本实例报文字段（uint32 类型头）的字节序；nil 沿用进程级默认。
+	// 经 WithClientByteOrder 配置，须与对端 server 一致。
+	byteOrder binary.ByteOrder
 }
 
 func NewClient(opts ...ClientOption) *Client {
@@ -156,6 +161,7 @@ func (c *Client) SendRawData(message []byte) error {
 func (c *Client) SendMessage(messageType int, message any) error {
 	var msg NetPacket
 	msg.Type = NetMessageType(messageType)
+	msg.Order = c.byteOrder
 	var err error
 	if c.codec == nil {
 		return errors.New("codec is nil (nothing registered); register one via encoding.MustRegister, e.g. encoding.MustRegister(json.New())")
@@ -207,6 +213,7 @@ func (c *Client) run() {
 
 func (c *Client) messageHandler(buf []byte) error {
 	var msg NetPacket
+	msg.Order = c.byteOrder
 	if err := msg.Unmarshal(buf); err != nil {
 		log.Printf("[tcp] decode message exception: %s", err)
 		return err
