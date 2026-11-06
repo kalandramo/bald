@@ -829,17 +829,36 @@ jobs:
 
       - name: govulncheck all modules
         run: |
-          set -e
-          trap 'echo "### FAILED AT MODULE: $mod"; echo "::error::FAILED AT MODULE: $mod"' ERR
-          for mod in $(sh scripts/list-modules.sh); do
+          # 不 fail-fast：一个模块判红就把后面几十个模块都不跑，等于把「这次发布的 CVE 波及几个模块」
+          # 这个信息整个丢掉（实测 2026-11-06：闸门停在 broker/kafka，另外 6 个模块没被跑过）。
+          # 下载失败与真漏洞分开记账，免得 runner 网络瞬断被读成 CVE。
+          # 派生为空即失败：清单脚本一旦吐空，下面这个循环跑零个模块并 exit 0——静默绿。
+          # （实测踩出来过：桩脚本写成数据文件而非 echo 脚本时，整轮访问 0 个模块、闸门仍然绿。）
+          failed=""
+          mods=$(sh scripts/list-modules.sh)
+          if [ -z "$mods" ]; then
+            echo "::error::vuln 闸门失败：模块清单派生为空，一个字都没扫"
+            exit 1
+          fi
+          for mod in $mods; do
             echo "=== vuln: $mod ==="
             n=0
+            downloaded=0
             while true; do
-              if (cd "$mod" && go mod download); then break; fi
+              if (cd "$mod" && go mod download); then downloaded=1; break; fi
               n=$((n+1))
-              if [ $n -ge 3 ]; then echo "::error::$mod 依赖下载失败"; exit 1; fi
+              if [ $n -ge 3 ]; then echo "::error::$mod 依赖下载失败"; break; fi
               echo "::warning::$mod 依赖下载瞬断，15s 后重试（第 $n/2 次）"
               sleep 15
             done
-            (cd "$mod" && govulncheck ./...)
+            if [ "$downloaded" -ne 1 ]; then failed="$failed $mod:download"; continue; fi
+            if ! (cd "$mod" && govulncheck ./...); then failed="$failed $mod:vuln"; fi
           done
+          if [ -n "$failed" ]; then
+            # tr 掉空白：BSD `wc -l` 会在数字左边补空格，本地复现与 runner（GNU coreutils）
+            # 的输出因此不同形，汇总行没法逐字比对。
+            count=$(printf '%s\n' $failed | wc -l | tr -d ' ')
+            echo "### FAILED MODULES ($count):$failed"
+            echo "::error::vuln 闸门失败：$count 个模块判红:$failed"
+            exit 1
+          fi
