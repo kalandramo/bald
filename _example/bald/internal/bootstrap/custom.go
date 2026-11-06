@@ -7,6 +7,7 @@ package bootstrap
 import (
 	storegorm "github.com/kalandramo/bald/contrib/store-gorm"
 	"github.com/kalandramo/bald/pkg/appkit"
+	clientcontract "github.com/kalandramo/bald/transport/client/contract"
 )
 
 // 角色名（对应 AppSpec.meta.roles[].name）。
@@ -20,6 +21,9 @@ func customOptions(_ string) []appkit.Option {
 	opts := []appkit.Option{
 		// database.sql 段 → GORM 连接池（资源容器取用，停机释放）。
 		storegorm.AppProvider(),
+		// client 段 → 出站连接（client.<面>.<名字> 资源容器，停机释放）。
+		// 段缺席即无产物，两个角色的既有契约都不含该段。
+		clientcontract.AppProvider(),
 	}
 	// 注册中心按构建形态接：见 registrar_inmemory.go（默认）与
 	// register_nacos.go（-tags nacos）。

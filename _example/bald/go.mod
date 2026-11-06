@@ -18,6 +18,7 @@ require (
 	github.com/kalandramo/bald/registry v0.4.0
 	github.com/kalandramo/bald/registry/etcd v0.4.1
 	github.com/kalandramo/bald/registry/nacos v0.3.3
+	github.com/kalandramo/bald/transport/client v0.0.0
 	github.com/kalandramo/bald/transport/gateway v0.5.1
 	github.com/kalandramo/bald/transport/web v0.2.0
 	github.com/spf13/cobra v1.10.2
@@ -251,3 +252,5 @@ replace github.com/kalandramo/bald/ratelimit/tokenbucket => ../../ratelimit/toke
 replace github.com/kalandramo/bald/circuitbreaker => ../../circuitbreaker
 
 replace github.com/kalandramo/bald/circuitbreaker/hystrix => ../../circuitbreaker/hystrix
+
+replace github.com/kalandramo/bald/transport/client => ../../transport/client

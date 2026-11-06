@@ -680,6 +680,7 @@ jobs:
           /tmp/ex/default.log|TestE2E_EnvOverridesContractCircuitBreaker
           /tmp/ex/default.log|TestE2E_EnvOverridesContractRateLimit
           /tmp/ex/default.log|TestE2E_EnvOverridesContractGRPCRateLimit
+          /tmp/ex/default.log|TestClientGRPCSegmentReachesSelf
           /tmp/ex/default.log|TestPlan_ReferenceProject
           /tmp/ex/default.log|TestLoggerProviderMasksAttrAndTagsServiceName
           /tmp/ex/grpcgw.log|TestWorkerRoleServesGRPCOnly

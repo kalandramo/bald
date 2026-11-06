@@ -1,7 +1,7 @@
 // segment_coverage.go 实现 L3 段覆盖检查（启动期 fail-fast）。
 //
-// 背景：BootstrapConfig 声明 16 个顶层段（bconf/proto/bootstrap/v1/
-// bootstrap.proto:27-76）。「契约段 → 消费者」对应关系靠人工枚举极易漏加，
+// 背景：BootstrapConfig 声明 17 个顶层段（bconf/proto/bootstrap/v1/
+// bootstrap.proto:30-81）。「契约段 → 消费者」对应关系靠人工枚举极易漏加，
 // 漏加即静默无消费——script 段是已发生的实例（全仓零消费者，
 // 用户配置静默失效）。本检查用 protobuf 反射枚举 cfg 中实际出现的顶层段，
 // 减去本次装配真实被消费的段与白名单（WithUnimplementedSegments），剩余即
