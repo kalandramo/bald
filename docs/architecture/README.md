@@ -37,7 +37,7 @@
 |---|---|---|
 | `current-architecture.md` | 这个仓库现在是什么结构？分层、SPI、装配主干、模块拓扑 | 现状，引用已逐条核对 |
 | `bald-c4.dsl` | C4 landscape / 服务上下文 / 模块容器视图源 | **已机器校验**：`structurizr-dsl` 6.2.4 解析通过，3 张视图导出 + graphviz 渲染均无告警 |
-| `module-deps.dot` | 94 个 `go.mod` 的依赖分层，跨层回边高亮 | **已渲染**：`dot -Tsvg` 退出码 0、stderr 为空（32 节点 / 52 边；回边目标已由聚合根改为 `pkg` module） |
+| `module-deps.dot` | 95 个 `go.mod` 的依赖分层，跨层回边高亮 | **已渲染**：`dot -Tsvg` 退出码 0、stderr 为空（32 节点 / 52 边；回边目标已由聚合根改为 `pkg` module） |
 | `flows.md` | 请求/消息/生命周期/发现/缓存/可观测/WebRTC 怎么流；哪些真接线 | 现状，引用已逐条核对 |
 | `flows.dot` | 上述三条主流程的图源 | **已渲染**：`dot -Tsvg` 退出码 0、stderr 为空（40 节点 / 39 边） |
 | `risk-review.md` | 哪里有风险、严重度、消解条件、动手顺序 | 含自评局限一节（§9） |

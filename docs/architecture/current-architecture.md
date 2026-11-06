@@ -18,7 +18,7 @@
 
 bald 是一个 **SPI + 适配器 + 声明式装配** 的 Go 多模块框架：契约层只定义接口（`transport.Server`、`broker.Broker`、`cache.Cache`、`registry.Registrar`/`Discovery`…），每种协议/后端各占一个独立 module 实现契约，`bconf` 用 protobuf 把「服务该怎么装配」固化成强类型配置，`bootstrap` 做分层合并，`pkg/appkit` 的 **v2 Provider** 把声明解析成执行计划（Plan）再逐个构建（Build），最终由 `appkit.Run` 统一启动与停机。
 
-仓库有 **95 个 `go.mod`**（`find . -name go.mod`，含 `_example/bald`），派生出 **94 个发布/验证单元**（`scripts/list-modules.sh`，排除 `_example*`），无提交的 `go.work`；模块间靠每个子 module 的相对 `replace` 组成可编译闭包，CI 与本地 Taskfile 共用同一条模块派生（`scripts/list-modules.sh`，内部是 `find`）。唯一没有目录 `replace` 的同仓消费者是 `cli`——它按 tag 消费 `bconf`，这是它存在的理由（风险评审 §3.4）。本机联合开发可以临时建 `go.work`，但它已进 `.gitignore`，且 Taskfile 顶层与 CI 都把 `GOWORK` 置 `off`：`verify-modules` 开头有一条 `[ "$(go env GOWORK)" = "off" ]` 自检，一旦 workspace 生效就地让任务失败，避免逐模块判据从「发布形态」静默退化成「本机形态」。
+仓库有 **96 个 `go.mod`**（`find . -name go.mod`，含 `_example/bald`），派生出 **95 个发布/验证单元**（`scripts/list-modules.sh`，排除 `_example*`），无提交的 `go.work`；模块间靠每个子 module 的相对 `replace` 组成可编译闭包，CI 与本地 Taskfile 共用同一条模块派生（`scripts/list-modules.sh`，内部是 `find`）。唯一没有目录 `replace` 的同仓消费者是 `cli`——它按 tag 消费 `bconf`，这是它存在的理由（风险评审 §3.4）。本机联合开发可以临时建 `go.work`，但它已进 `.gitignore`，且 Taskfile 顶层与 CI 都把 `GOWORK` 置 `off`：`verify-modules` 开头有一条 `[ "$(go env GOWORK)" = "off" ]` 自检，一旦 workspace 生效就地让任务失败，避免逐模块判据从「发布形态」静默退化成「本机形态」。
 
 ## 2. 分层与模块清单
 
@@ -32,8 +32,8 @@ bald 是一个 **SPI + 适配器 + 声明式装配** 的 Go 多模块框架：�
 | 组合层 | `pkg/appkit`（`pkg` module 内） | v2 Provider `Plan`/`Build`/`Segments`、`Run`/`stopAll` 生命周期、`std` 标准装配、`mech`/`appcli`/`Domain` | `pkg/appkit/provider.go:1-24`、`pkg/appkit/appkit.go:561-703` |
 | 横切层 | `pkg/middleware/{bundle,gin,grpc}` | 链序固化的 gin 中间件链与 gRPC 拦截器链 | `pkg/middleware/bundle/bundle.go` `Gin()`/`GRPCInterceptors()` |
 | SPI | `transport` `broker` `cache` `metrics` `registry` `ratelimit` `circuitbreaker` `retry` `encoding` `log` `health` `berrors` | 只有接口与少量通用工具 | `transport/server.go:14-22`、`broker/broker.go:9-33`、`cache/cache.go:28-69`、`registry/registry.go:62-75` |
-| 适配器 | `transport/*`(18) `broker/*`(4) `cache/*`(3) `registry/*`(4) `log/*`(5) `metrics/*`(3) `encoding/*`(12) `ratelimit/*`(3) `circuitbreaker/*`(4) `oss/{minio,s3}` `ai/*`(3) `workflow/argo` `cobramcp` | 每个后端一个 module | 各 `*/go.mod` |
-| 接入子包 | `*/contract`（43 个目录，`find . -type d -name contract` 可复跑） | 把适配器注册成 appkit v2 Provider —— **这是适配器与装配层唯一的接缝** | `transport/gateway/contract/provider.go:32`、`registry/etcd/contract/provider.go:16`、`oss/minio/contract/provider.go:17` |
+| 适配器 | `transport/*`(19) `broker/*`(4) `cache/*`(3) `registry/*`(4) `log/*`(5) `metrics/*`(3) `encoding/*`(12) `ratelimit/*`(3) `circuitbreaker/*`(4) `oss/{minio,s3}` `ai/*`(3) `workflow/argo` `cobramcp` | 每个后端一个 module | 各 `*/go.mod` |
+| 接入子包 | `*/contract`（44 个目录，`find . -type d -name contract` 可复跑） | 把适配器注册成 appkit v2 Provider —— **这是适配器与装配层唯一的接缝** | `transport/gateway/contract/provider.go:32`、`registry/etcd/contract/provider.go:16`、`oss/minio/contract/provider.go:17` |
 | 扩展 | `contrib/*`（8 个独立 module） | store-gorm/mongo、audit-*、authn-jwt、authz-casbin、config-nacos、observability-otlp；`contrib/database` 只是目录（无 `.go` 也无 `go.mod`） | `contrib/*/go.mod` |
 | 代码生成 + 发布工具 | `github.com/kalandramo/bald/cli`（`cli/cmd/bald` + `cli/internal/{codegen,release}`） | `gen app/domain/proto/store` 从 `appspec.json` 产出 owned/seeded 文件树；`release plan/sync/changelog/tag` 驱动多模块发布。该 module 的 `go.mod` **零 `replace`**、按 tag 消费 `bconf`——这是它区别于仓库根的唯一目的（风险评审 §3.4） | `cli/go.mod`、`cli/internal/codegen/appspec_tmpl_*.go` |
 | 样例 | `_example/bald` | 已迁入生成树的真实消费方 | `_example/bald/internal/bootstrap/assemble.gen.go:1-7,42-47` |
@@ -41,7 +41,7 @@ bald 是一个 **SPI + 适配器 + 声明式装配** 的 Go 多模块框架：�
 `transport/` 与 `transport/grpc` 的区别是理解本仓库的钥匙：前者是 **接口**（`Server`：`Start(ctx)/Stop(ctx)/Endpoint()`），后者是 **一个实现**。`transport/gateway` 是复合体——它内嵌 `*httpserver.HTTPServer` 再加 grpc→REST 反向代理（`transport/gateway/gateway_server.go:25`），`transport/mcp` 则直接包装 `mark3labs/mcp-go`，但同样实现了 `Start/Stop/Endpoint`（`transport/mcp/server.go:106,186,233`）。
 
 <details>
-<summary>完整 module 清单（94 个，与 <code>scripts/list-modules.sh</code> 同源）</summary>
+<summary>完整 module 清单（95 个，与 <code>scripts/list-modules.sh</code> 同源）</summary>
 
 下面这块是**机器校验的**：`internal/docscheck` 的 `TestModuleListMatchesDerivation`
 把它逐行与 `scripts/list-modules.sh` 的派生结果比对（同一条谓词：仓库内含 `go.mod`
@@ -125,6 +125,7 @@ registry/nacos
 retry
 transport
 transport/asynq
+transport/client
 transport/cron
 transport/gateway
 transport/graphql
@@ -224,7 +225,7 @@ require `bald/pkg` 的模块（**33 个非示例模块** + `_example/bald`，可
 
 | SPI | 位置 | 方法 | 实现数 |
 |---|---|---|---|
-| `transport.Server` | `transport/server.go:14-22` | `Start(ctx)` `Stop(ctx)` `Endpoint()` | `transport/*` 的 18 个模块（`mcp` 同样实现：`transport/mcp/server.go:106,186,233`） |
+| `transport.Server` | `transport/server.go:14-22` | `Start(ctx)` `Stop(ctx)` `Endpoint()` | `transport/*` 的 19 个模块（`mcp` 同样实现：`transport/mcp/server.go:106,186,233`） |
 | `transport.Endpoint` 解析 | `transport/endpoint.go:26` `Extract` | 支持 `:0` 动态端口 | 由 `appkit.waitForEndpoints` 消费（`appkit.go:816-848`） |
 | `broker.Broker` | `broker/broker.go:9-33` | `Name/Options/Address/Init/Connect/Disconnect/Publish/Subscribe` + 泛型 `Subscribe[T]`(:36) | kafka/rabbitmq/redis/rocketmq |
 | `cache.Cache` | `cache/cache.go:28-69` | `Get/Set/SetNX/GetMulti/Delete…` | local/redis（loadable 是**读穿组合器**，不是后端） |

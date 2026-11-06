@@ -26,7 +26,7 @@ workspace "bald" "bald Go 多模块框架 — 当前架构" {
             bootstrap = container "bootstrap" "bootstrap 装配桥 — 分层合并内核（bootstrap/config/config.go:1-17，优先级自高至低：flag、env、file、contract source、remote bridge）+ ServerProvider 工厂（bootstrap/server.go:25,89,137）+ 远程配置驱动" "Go module"
             appkit = container "appkit" "pkg/appkit 组合层 — v2 Provider Plan/Build + Segments（pkg/appkit/provider.go:1-24）、Run/stopAll 生命周期（pkg/appkit/appkit.go:561-703,715-750）、std 标准装配" "根 module 内包"
             middleware = container "middleware" "pkg/middleware 横切层 — bundle 链序固化：Gin() / GRPCInterceptors()（pkg/middleware/bundle/bundle.go:171-211,224-241）" "根 module 内包"
-            adapters = container "adapters" "适配器模块 — transport/*(18) broker/*(4) cache/*(3) registry/*(4) log/*(5) metrics/*(3) encoding/*(12) ratelimit/*(3) circuitbreaker/*(4) oss ai workflow cobramcp" "Go module × N"
+            adapters = container "adapters" "适配器模块 — transport/*(19) broker/*(4) cache/*(3) registry/*(4) log/*(5) metrics/*(3) encoding/*(12) ratelimit/*(3) circuitbreaker/*(4) oss ai workflow cobramcp" "Go module × N"
             contract = container "contract" "*/contract Provider 注册包 — 适配器接入 appkit v2 Provider 面的唯一接缝，如 transport/gateway/contract/provider.go:24、registry/etcd/contract/provider.go:16" "适配器 module 内子包 × 30"
             codegen = container "codegen" "cmd/bald + internal/codegen — bald gen app|domain|proto|store：从 appspec.json 产出 owned/seeded 文件树" "根 module"
             contrib = container "contrib" "contrib 扩展 — store-gorm/mongo、audit-*、authn-jwt、authz-casbin、config-nacos、observability-otlp、database" "Go module"

@@ -243,7 +243,7 @@
 <polygon fill="#ffffff" stroke="#444444" points="3686.4,-1010.48 3316.05,-1010.48 3316.05,-732.28 3686.4,-732.28 3686.4,-1010.48"/>
 <text xml:space="preserve" text-anchor="start" x="3435.23" y="-957.58" font-family="Arial" font-size="34.00" fill="#444444">adapters</text>
 <text xml:space="preserve" text-anchor="start" x="3385.73" y="-937.83" font-family="Arial" font-size="19.00" fill="#444444">[Container: Go module × N]</text>
-<text xml:space="preserve" text-anchor="start" x="3344.85" y="-900.08" font-family="Arial" font-size="24.00" fill="#444444">适配器模块 — transport/*(18)</text>
+<text xml:space="preserve" text-anchor="start" x="3344.85" y="-900.08" font-family="Arial" font-size="24.00" fill="#444444">适配器模块 — transport/*(19)</text>
 <text xml:space="preserve" text-anchor="start" x="3385.35" y="-876.08" font-family="Arial" font-size="24.00" fill="#444444">broker/*(4) cache/*(3)</text>
 <text xml:space="preserve" text-anchor="start" x="3396.23" y="-852.08" font-family="Arial" font-size="24.00" fill="#444444">registry/*(4) log/*(5)</text>
 <text xml:space="preserve" text-anchor="start" x="3357.23" y="-828.08" font-family="Arial" font-size="24.00" fill="#444444">metrics/*(3) encoding/*(12)</text>
