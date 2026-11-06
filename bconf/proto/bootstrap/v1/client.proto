@@ -1,0 +1,54 @@
+syntax = "proto3";
+
+package bootstrap.v1;
+
+import "bootstrap/v1/server.proto";
+import "google/protobuf/duration.proto";
+
+option go_package = "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1";
+
+// Client 声明本进程对外部服务的命名出站连接。
+//
+// 与 Server 段对称：契约描述「连到谁」，业务按名字取用
+// （clientcontract.GRPC / clientcontract.HTTP），代码里不出现地址字面量。
+// v1 只覆盖 grpc/http 两种传输；重试、熔断、限流属于调用策略，由业务域在
+// 调用侧组合，不塞进本段。
+message Client {
+  // Entry 是一条命名连接。name 是取用键，同一传输内唯一。
+  message Entry {
+    // 取用名。空名或同传输内重名在装配期报错（不静默覆盖）。
+    string name = 1;
+
+    // 对端地址：
+    //   - grpc：host:port，或 discovery:///<服务名>（经已装配的注册中心解析）；
+    //   - http：http(s)://host[:port][/prefix]（取用时原样作为 BaseURL）。
+    string addr = 2;
+
+    // TLS 段（客户端视角，与 server 段同形状）：非空即启用 TLS。ca 用于校验
+    // 对端证书链，cert+key 提供客户端证书（对端要求 mTLS 时生效），
+    // insecure_skip_verify 跳过对端校验。段缺席即明文——明文是显式选择，
+    // 不是漏配的默认。
+    Server.TLS tls = 3;
+
+    // 单次调用的默认超时：grpc 由拦截器落到每次 RPC 的 context，http 落到
+    // http.Client.Timeout。0 表示不设默认，交给调用方 ctx 控制。
+    google.protobuf.Duration timeout = 4;
+  }
+
+  message GRPC {
+    // 按声明序构建；同传输内 name 重复即装配期报错。
+    repeated Entry entries = 1;
+  }
+
+  message HTTP {
+    // 按声明序构建；同传输内 name 重复即装配期报错。与 grpc 同名合法——
+    // 资源键带传输前缀（client.grpc.<name> / client.http.<name>）。
+    repeated Entry entries = 1;
+  }
+
+  // gRPC 出站连接。
+  GRPC grpc = 1;
+
+  // HTTP 出站连接。
+  HTTP http = 2;
+}

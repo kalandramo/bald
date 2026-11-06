@@ -272,9 +272,19 @@ message Server {
 
   // TCP 传输层。
   message Tcp {
+    // 报文字段（uint32 类型头）的字节序。只作用于本 server 实例：
+    // 同进程的多台 tcp server 可各用各的，不再共享包级默认。
+    enum ByteOrder {
+      // 小端——与历史包级默认一致，缺省即此档。
+      BYTE_ORDER_UNSPECIFIED = 0;
+      LITTLE = 1;
+      BIG = 2;
+    }
+
     // 监听地址，如 ":9000"。
     string addr = 1;
     TLS tls = 2;
+    ByteOrder byte_order = 3;
   }
 
   // UDP 传输层。

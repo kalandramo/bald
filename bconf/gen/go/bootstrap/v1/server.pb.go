@@ -21,6 +21,58 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// 报文字段（uint32 类型头）的字节序。只作用于本 server 实例：
+// 同进程的多台 tcp server 可各用各的，不再共享包级默认。
+type Server_Tcp_ByteOrder int32
+
+const (
+	// 小端——与历史包级默认一致，缺省即此档。
+	Server_Tcp_BYTE_ORDER_UNSPECIFIED Server_Tcp_ByteOrder = 0
+	Server_Tcp_LITTLE                 Server_Tcp_ByteOrder = 1
+	Server_Tcp_BIG                    Server_Tcp_ByteOrder = 2
+)
+
+// Enum value maps for Server_Tcp_ByteOrder.
+var (
+	Server_Tcp_ByteOrder_name = map[int32]string{
+		0: "BYTE_ORDER_UNSPECIFIED",
+		1: "LITTLE",
+		2: "BIG",
+	}
+	Server_Tcp_ByteOrder_value = map[string]int32{
+		"BYTE_ORDER_UNSPECIFIED": 0,
+		"LITTLE":                 1,
+		"BIG":                    2,
+	}
+)
+
+func (x Server_Tcp_ByteOrder) Enum() *Server_Tcp_ByteOrder {
+	p := new(Server_Tcp_ByteOrder)
+	*p = x
+	return p
+}
+
+func (x Server_Tcp_ByteOrder) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (Server_Tcp_ByteOrder) Descriptor() protoreflect.EnumDescriptor {
+	return file_bootstrap_v1_server_proto_enumTypes[0].Descriptor()
+}
+
+func (Server_Tcp_ByteOrder) Type() protoreflect.EnumType {
+	return &file_bootstrap_v1_server_proto_enumTypes[0]
+}
+
+func (x Server_Tcp_ByteOrder) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use Server_Tcp_ByteOrder.Descriptor instead.
+func (Server_Tcp_ByteOrder) EnumDescriptor() ([]byte, []int) {
+	return file_bootstrap_v1_server_proto_rawDescGZIP(), []int{0, 7, 0}
+}
+
 // Server 描述一个传输层实例，对应 wind.WithServer。
 // 同一 Server 消息中可同时包含多种传输层配置，bootstrap 会分别创建对应的实例。
 type Server struct {
@@ -757,8 +809,9 @@ func (x *Server_Websocket) GetTls() *Server_TLS {
 type Server_Tcp struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// 监听地址，如 ":9000"。
-	Addr          string      `protobuf:"bytes,1,opt,name=addr,proto3" json:"addr,omitempty"`
-	Tls           *Server_TLS `protobuf:"bytes,2,opt,name=tls,proto3" json:"tls,omitempty"`
+	Addr          string               `protobuf:"bytes,1,opt,name=addr,proto3" json:"addr,omitempty"`
+	Tls           *Server_TLS          `protobuf:"bytes,2,opt,name=tls,proto3" json:"tls,omitempty"`
+	ByteOrder     Server_Tcp_ByteOrder `protobuf:"varint,3,opt,name=byte_order,json=byteOrder,proto3,enum=bootstrap.v1.Server_Tcp_ByteOrder" json:"byte_order,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -805,6 +858,13 @@ func (x *Server_Tcp) GetTls() *Server_TLS {
 		return x.Tls
 	}
 	return nil
+}
+
+func (x *Server_Tcp) GetByteOrder() Server_Tcp_ByteOrder {
+	if x != nil {
+		return x.ByteOrder
+	}
+	return Server_Tcp_BYTE_ORDER_UNSPECIFIED
 }
 
 // UDP 传输层。
@@ -3630,7 +3690,7 @@ var File_bootstrap_v1_server_proto protoreflect.FileDescriptor
 
 const file_bootstrap_v1_server_proto_rawDesc = "" +
 	"\n" +
-	"\x19bootstrap/v1/server.proto\x12\fbootstrap.v1\"\x9cD\n" +
+	"\x19bootstrap/v1/server.proto\x12\fbootstrap.v1\"\x9eE\n" +
 	"\x06Server\x122\n" +
 	"\x04http\x18\x01 \x01(\v2\x19.bootstrap.v1.Server.HttpH\x00R\x04http\x88\x01\x01\x125\n" +
 	"\x05http3\x18\x02 \x01(\v2\x1a.bootstrap.v1.Server.Http3H\x01R\x05http3\x88\x01\x01\x122\n" +
@@ -3812,10 +3872,17 @@ const file_bootstrap_v1_server_proto_rawDesc = "" +
 	"\tWebsocket\x12\x12\n" +
 	"\x04addr\x18\x01 \x01(\tR\x04addr\x12\x12\n" +
 	"\x04path\x18\x02 \x01(\tR\x04path\x12*\n" +
-	"\x03tls\x18\x03 \x01(\v2\x18.bootstrap.v1.Server.TLSR\x03tls\x1aE\n" +
+	"\x03tls\x18\x03 \x01(\v2\x18.bootstrap.v1.Server.TLSR\x03tls\x1a\xc6\x01\n" +
 	"\x03Tcp\x12\x12\n" +
 	"\x04addr\x18\x01 \x01(\tR\x04addr\x12*\n" +
-	"\x03tls\x18\x02 \x01(\v2\x18.bootstrap.v1.Server.TLSR\x03tls\x1a\x19\n" +
+	"\x03tls\x18\x02 \x01(\v2\x18.bootstrap.v1.Server.TLSR\x03tls\x12A\n" +
+	"\n" +
+	"byte_order\x18\x03 \x01(\x0e2\".bootstrap.v1.Server.Tcp.ByteOrderR\tbyteOrder\"<\n" +
+	"\tByteOrder\x12\x1a\n" +
+	"\x16BYTE_ORDER_UNSPECIFIED\x10\x00\x12\n" +
+	"\n" +
+	"\x06LITTLE\x10\x01\x12\a\n" +
+	"\x03BIG\x10\x02\x1a\x19\n" +
 	"\x03Udp\x12\x12\n" +
 	"\x04addr\x18\x01 \x01(\tR\x04addr\x1a\xbb\x01\n" +
 	"\x03Kcp\x12\x12\n" +
@@ -3984,132 +4051,135 @@ func file_bootstrap_v1_server_proto_rawDescGZIP() []byte {
 	return file_bootstrap_v1_server_proto_rawDescData
 }
 
+var file_bootstrap_v1_server_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
 var file_bootstrap_v1_server_proto_msgTypes = make([]protoimpl.MessageInfo, 53)
 var file_bootstrap_v1_server_proto_goTypes = []any{
-	(*Server)(nil),                                // 0: bootstrap.v1.Server
-	(*Server_TLS)(nil),                            // 1: bootstrap.v1.Server.TLS
-	(*Server_Http)(nil),                           // 2: bootstrap.v1.Server.Http
-	(*Server_Http3)(nil),                          // 3: bootstrap.v1.Server.Http3
-	(*Server_Grpc)(nil),                           // 4: bootstrap.v1.Server.Grpc
-	(*Server_Graphql)(nil),                        // 5: bootstrap.v1.Server.Graphql
-	(*Server_Sse)(nil),                            // 6: bootstrap.v1.Server.Sse
-	(*Server_Websocket)(nil),                      // 7: bootstrap.v1.Server.Websocket
-	(*Server_Tcp)(nil),                            // 8: bootstrap.v1.Server.Tcp
-	(*Server_Udp)(nil),                            // 9: bootstrap.v1.Server.Udp
-	(*Server_Kcp)(nil),                            // 10: bootstrap.v1.Server.Kcp
-	(*Server_Thrift)(nil),                         // 11: bootstrap.v1.Server.Thrift
-	(*Server_Trpc)(nil),                           // 12: bootstrap.v1.Server.Trpc
-	(*Server_Webtransport)(nil),                   // 13: bootstrap.v1.Server.Webtransport
-	(*Server_Cron)(nil),                           // 14: bootstrap.v1.Server.Cron
-	(*Server_Hptimer)(nil),                        // 15: bootstrap.v1.Server.Hptimer
-	(*Server_Mcp)(nil),                            // 16: bootstrap.v1.Server.Mcp
-	(*Server_Signalr)(nil),                        // 17: bootstrap.v1.Server.Signalr
-	(*Server_Socketio)(nil),                       // 18: bootstrap.v1.Server.Socketio
-	(*Server_Webrtc)(nil),                         // 19: bootstrap.v1.Server.Webrtc
-	(*Server_Asynq)(nil),                          // 20: bootstrap.v1.Server.Asynq
-	(*Server_Machinery)(nil),                      // 21: bootstrap.v1.Server.Machinery
-	(*Server_Kafka)(nil),                          // 22: bootstrap.v1.Server.Kafka
-	(*Server_Rabbitmq)(nil),                       // 23: bootstrap.v1.Server.Rabbitmq
-	(*Server_RedisServer)(nil),                    // 24: bootstrap.v1.Server.RedisServer
-	(*Server_Nats)(nil),                           // 25: bootstrap.v1.Server.Nats
-	(*Server_Mqtt)(nil),                           // 26: bootstrap.v1.Server.Mqtt
-	(*Server_Pulsar)(nil),                         // 27: bootstrap.v1.Server.Pulsar
-	(*Server_Activemq)(nil),                       // 28: bootstrap.v1.Server.Activemq
-	(*Server_Azuresb)(nil),                        // 29: bootstrap.v1.Server.Azuresb
-	(*Server_Nsq)(nil),                            // 30: bootstrap.v1.Server.Nsq
-	(*Server_Rocketmq)(nil),                       // 31: bootstrap.v1.Server.Rocketmq
-	(*Server_Sqs)(nil),                            // 32: bootstrap.v1.Server.Sqs
-	(*Server_Gateway)(nil),                        // 33: bootstrap.v1.Server.Gateway
-	(*Server_TLS_File)(nil),                       // 34: bootstrap.v1.Server.TLS.File
-	(*Server_TLS_Config)(nil),                     // 35: bootstrap.v1.Server.TLS.Config
-	(*Server_Http_Middleware)(nil),                // 36: bootstrap.v1.Server.Http.Middleware
-	(*Server_Http_Middleware_Recovery)(nil),       // 37: bootstrap.v1.Server.Http.Middleware.Recovery
-	(*Server_Http_Middleware_Cors)(nil),           // 38: bootstrap.v1.Server.Http.Middleware.Cors
-	(*Server_Http_Middleware_Logging)(nil),        // 39: bootstrap.v1.Server.Http.Middleware.Logging
-	(*Server_Http_Middleware_RequestId)(nil),      // 40: bootstrap.v1.Server.Http.Middleware.RequestId
-	(*Server_Http_Middleware_Tracing)(nil),        // 41: bootstrap.v1.Server.Http.Middleware.Tracing
-	(*Server_Http_Middleware_RateLimit)(nil),      // 42: bootstrap.v1.Server.Http.Middleware.RateLimit
-	(*Server_Http_Middleware_Timeout)(nil),        // 43: bootstrap.v1.Server.Http.Middleware.Timeout
-	(*Server_Http_Middleware_CircuitBreaker)(nil), // 44: bootstrap.v1.Server.Http.Middleware.CircuitBreaker
-	(*Server_Grpc_Middleware)(nil),                // 45: bootstrap.v1.Server.Grpc.Middleware
-	(*Server_Grpc_Middleware_Recovery)(nil),       // 46: bootstrap.v1.Server.Grpc.Middleware.Recovery
-	(*Server_Grpc_Middleware_Logging)(nil),        // 47: bootstrap.v1.Server.Grpc.Middleware.Logging
-	(*Server_Grpc_Middleware_Tracing)(nil),        // 48: bootstrap.v1.Server.Grpc.Middleware.Tracing
-	(*Server_Grpc_Middleware_Validate)(nil),       // 49: bootstrap.v1.Server.Grpc.Middleware.Validate
-	(*Server_Grpc_Middleware_RateLimit)(nil),      // 50: bootstrap.v1.Server.Grpc.Middleware.RateLimit
-	(*Server_Grpc_Middleware_Timeout)(nil),        // 51: bootstrap.v1.Server.Grpc.Middleware.Timeout
-	(*Server_Grpc_Middleware_CircuitBreaker)(nil), // 52: bootstrap.v1.Server.Grpc.Middleware.CircuitBreaker
+	(Server_Tcp_ByteOrder)(0),                     // 0: bootstrap.v1.Server.Tcp.ByteOrder
+	(*Server)(nil),                                // 1: bootstrap.v1.Server
+	(*Server_TLS)(nil),                            // 2: bootstrap.v1.Server.TLS
+	(*Server_Http)(nil),                           // 3: bootstrap.v1.Server.Http
+	(*Server_Http3)(nil),                          // 4: bootstrap.v1.Server.Http3
+	(*Server_Grpc)(nil),                           // 5: bootstrap.v1.Server.Grpc
+	(*Server_Graphql)(nil),                        // 6: bootstrap.v1.Server.Graphql
+	(*Server_Sse)(nil),                            // 7: bootstrap.v1.Server.Sse
+	(*Server_Websocket)(nil),                      // 8: bootstrap.v1.Server.Websocket
+	(*Server_Tcp)(nil),                            // 9: bootstrap.v1.Server.Tcp
+	(*Server_Udp)(nil),                            // 10: bootstrap.v1.Server.Udp
+	(*Server_Kcp)(nil),                            // 11: bootstrap.v1.Server.Kcp
+	(*Server_Thrift)(nil),                         // 12: bootstrap.v1.Server.Thrift
+	(*Server_Trpc)(nil),                           // 13: bootstrap.v1.Server.Trpc
+	(*Server_Webtransport)(nil),                   // 14: bootstrap.v1.Server.Webtransport
+	(*Server_Cron)(nil),                           // 15: bootstrap.v1.Server.Cron
+	(*Server_Hptimer)(nil),                        // 16: bootstrap.v1.Server.Hptimer
+	(*Server_Mcp)(nil),                            // 17: bootstrap.v1.Server.Mcp
+	(*Server_Signalr)(nil),                        // 18: bootstrap.v1.Server.Signalr
+	(*Server_Socketio)(nil),                       // 19: bootstrap.v1.Server.Socketio
+	(*Server_Webrtc)(nil),                         // 20: bootstrap.v1.Server.Webrtc
+	(*Server_Asynq)(nil),                          // 21: bootstrap.v1.Server.Asynq
+	(*Server_Machinery)(nil),                      // 22: bootstrap.v1.Server.Machinery
+	(*Server_Kafka)(nil),                          // 23: bootstrap.v1.Server.Kafka
+	(*Server_Rabbitmq)(nil),                       // 24: bootstrap.v1.Server.Rabbitmq
+	(*Server_RedisServer)(nil),                    // 25: bootstrap.v1.Server.RedisServer
+	(*Server_Nats)(nil),                           // 26: bootstrap.v1.Server.Nats
+	(*Server_Mqtt)(nil),                           // 27: bootstrap.v1.Server.Mqtt
+	(*Server_Pulsar)(nil),                         // 28: bootstrap.v1.Server.Pulsar
+	(*Server_Activemq)(nil),                       // 29: bootstrap.v1.Server.Activemq
+	(*Server_Azuresb)(nil),                        // 30: bootstrap.v1.Server.Azuresb
+	(*Server_Nsq)(nil),                            // 31: bootstrap.v1.Server.Nsq
+	(*Server_Rocketmq)(nil),                       // 32: bootstrap.v1.Server.Rocketmq
+	(*Server_Sqs)(nil),                            // 33: bootstrap.v1.Server.Sqs
+	(*Server_Gateway)(nil),                        // 34: bootstrap.v1.Server.Gateway
+	(*Server_TLS_File)(nil),                       // 35: bootstrap.v1.Server.TLS.File
+	(*Server_TLS_Config)(nil),                     // 36: bootstrap.v1.Server.TLS.Config
+	(*Server_Http_Middleware)(nil),                // 37: bootstrap.v1.Server.Http.Middleware
+	(*Server_Http_Middleware_Recovery)(nil),       // 38: bootstrap.v1.Server.Http.Middleware.Recovery
+	(*Server_Http_Middleware_Cors)(nil),           // 39: bootstrap.v1.Server.Http.Middleware.Cors
+	(*Server_Http_Middleware_Logging)(nil),        // 40: bootstrap.v1.Server.Http.Middleware.Logging
+	(*Server_Http_Middleware_RequestId)(nil),      // 41: bootstrap.v1.Server.Http.Middleware.RequestId
+	(*Server_Http_Middleware_Tracing)(nil),        // 42: bootstrap.v1.Server.Http.Middleware.Tracing
+	(*Server_Http_Middleware_RateLimit)(nil),      // 43: bootstrap.v1.Server.Http.Middleware.RateLimit
+	(*Server_Http_Middleware_Timeout)(nil),        // 44: bootstrap.v1.Server.Http.Middleware.Timeout
+	(*Server_Http_Middleware_CircuitBreaker)(nil), // 45: bootstrap.v1.Server.Http.Middleware.CircuitBreaker
+	(*Server_Grpc_Middleware)(nil),                // 46: bootstrap.v1.Server.Grpc.Middleware
+	(*Server_Grpc_Middleware_Recovery)(nil),       // 47: bootstrap.v1.Server.Grpc.Middleware.Recovery
+	(*Server_Grpc_Middleware_Logging)(nil),        // 48: bootstrap.v1.Server.Grpc.Middleware.Logging
+	(*Server_Grpc_Middleware_Tracing)(nil),        // 49: bootstrap.v1.Server.Grpc.Middleware.Tracing
+	(*Server_Grpc_Middleware_Validate)(nil),       // 50: bootstrap.v1.Server.Grpc.Middleware.Validate
+	(*Server_Grpc_Middleware_RateLimit)(nil),      // 51: bootstrap.v1.Server.Grpc.Middleware.RateLimit
+	(*Server_Grpc_Middleware_Timeout)(nil),        // 52: bootstrap.v1.Server.Grpc.Middleware.Timeout
+	(*Server_Grpc_Middleware_CircuitBreaker)(nil), // 53: bootstrap.v1.Server.Grpc.Middleware.CircuitBreaker
 }
 var file_bootstrap_v1_server_proto_depIdxs = []int32{
-	2,  // 0: bootstrap.v1.Server.http:type_name -> bootstrap.v1.Server.Http
-	3,  // 1: bootstrap.v1.Server.http3:type_name -> bootstrap.v1.Server.Http3
-	4,  // 2: bootstrap.v1.Server.grpc:type_name -> bootstrap.v1.Server.Grpc
-	5,  // 3: bootstrap.v1.Server.graphql:type_name -> bootstrap.v1.Server.Graphql
-	6,  // 4: bootstrap.v1.Server.sse:type_name -> bootstrap.v1.Server.Sse
-	7,  // 5: bootstrap.v1.Server.websocket:type_name -> bootstrap.v1.Server.Websocket
-	8,  // 6: bootstrap.v1.Server.tcp:type_name -> bootstrap.v1.Server.Tcp
-	9,  // 7: bootstrap.v1.Server.udp:type_name -> bootstrap.v1.Server.Udp
-	10, // 8: bootstrap.v1.Server.kcp:type_name -> bootstrap.v1.Server.Kcp
-	11, // 9: bootstrap.v1.Server.thrift:type_name -> bootstrap.v1.Server.Thrift
-	12, // 10: bootstrap.v1.Server.trpc:type_name -> bootstrap.v1.Server.Trpc
-	13, // 11: bootstrap.v1.Server.webtransport:type_name -> bootstrap.v1.Server.Webtransport
-	14, // 12: bootstrap.v1.Server.cron:type_name -> bootstrap.v1.Server.Cron
-	15, // 13: bootstrap.v1.Server.hptimer:type_name -> bootstrap.v1.Server.Hptimer
-	16, // 14: bootstrap.v1.Server.mcp:type_name -> bootstrap.v1.Server.Mcp
-	17, // 15: bootstrap.v1.Server.signalr:type_name -> bootstrap.v1.Server.Signalr
-	18, // 16: bootstrap.v1.Server.socketio:type_name -> bootstrap.v1.Server.Socketio
-	19, // 17: bootstrap.v1.Server.webrtc:type_name -> bootstrap.v1.Server.Webrtc
-	20, // 18: bootstrap.v1.Server.asynq:type_name -> bootstrap.v1.Server.Asynq
-	21, // 19: bootstrap.v1.Server.machinery:type_name -> bootstrap.v1.Server.Machinery
-	22, // 20: bootstrap.v1.Server.kafka:type_name -> bootstrap.v1.Server.Kafka
-	23, // 21: bootstrap.v1.Server.rabbitmq:type_name -> bootstrap.v1.Server.Rabbitmq
-	24, // 22: bootstrap.v1.Server.redis_server:type_name -> bootstrap.v1.Server.RedisServer
-	25, // 23: bootstrap.v1.Server.nats:type_name -> bootstrap.v1.Server.Nats
-	26, // 24: bootstrap.v1.Server.mqtt:type_name -> bootstrap.v1.Server.Mqtt
-	27, // 25: bootstrap.v1.Server.pulsar:type_name -> bootstrap.v1.Server.Pulsar
-	28, // 26: bootstrap.v1.Server.activemq:type_name -> bootstrap.v1.Server.Activemq
-	29, // 27: bootstrap.v1.Server.azuresb:type_name -> bootstrap.v1.Server.Azuresb
-	30, // 28: bootstrap.v1.Server.nsq:type_name -> bootstrap.v1.Server.Nsq
-	31, // 29: bootstrap.v1.Server.rocketmq:type_name -> bootstrap.v1.Server.Rocketmq
-	32, // 30: bootstrap.v1.Server.sqs:type_name -> bootstrap.v1.Server.Sqs
-	33, // 31: bootstrap.v1.Server.gateway:type_name -> bootstrap.v1.Server.Gateway
-	34, // 32: bootstrap.v1.Server.TLS.file:type_name -> bootstrap.v1.Server.TLS.File
-	35, // 33: bootstrap.v1.Server.TLS.config:type_name -> bootstrap.v1.Server.TLS.Config
-	1,  // 34: bootstrap.v1.Server.Http.tls:type_name -> bootstrap.v1.Server.TLS
-	36, // 35: bootstrap.v1.Server.Http.middleware:type_name -> bootstrap.v1.Server.Http.Middleware
-	1,  // 36: bootstrap.v1.Server.Http3.tls:type_name -> bootstrap.v1.Server.TLS
-	1,  // 37: bootstrap.v1.Server.Grpc.tls:type_name -> bootstrap.v1.Server.TLS
-	45, // 38: bootstrap.v1.Server.Grpc.middleware:type_name -> bootstrap.v1.Server.Grpc.Middleware
-	1,  // 39: bootstrap.v1.Server.Graphql.tls:type_name -> bootstrap.v1.Server.TLS
-	1,  // 40: bootstrap.v1.Server.Sse.tls:type_name -> bootstrap.v1.Server.TLS
-	1,  // 41: bootstrap.v1.Server.Websocket.tls:type_name -> bootstrap.v1.Server.TLS
-	1,  // 42: bootstrap.v1.Server.Tcp.tls:type_name -> bootstrap.v1.Server.TLS
-	1,  // 43: bootstrap.v1.Server.Thrift.tls:type_name -> bootstrap.v1.Server.TLS
-	1,  // 44: bootstrap.v1.Server.Webtransport.tls:type_name -> bootstrap.v1.Server.TLS
-	1,  // 45: bootstrap.v1.Server.Signalr.tls:type_name -> bootstrap.v1.Server.TLS
-	1,  // 46: bootstrap.v1.Server.Socketio.tls:type_name -> bootstrap.v1.Server.TLS
-	1,  // 47: bootstrap.v1.Server.Webrtc.tls:type_name -> bootstrap.v1.Server.TLS
-	1,  // 48: bootstrap.v1.Server.Gateway.tls:type_name -> bootstrap.v1.Server.TLS
-	37, // 49: bootstrap.v1.Server.Http.Middleware.recovery:type_name -> bootstrap.v1.Server.Http.Middleware.Recovery
-	38, // 50: bootstrap.v1.Server.Http.Middleware.cors:type_name -> bootstrap.v1.Server.Http.Middleware.Cors
-	39, // 51: bootstrap.v1.Server.Http.Middleware.logging:type_name -> bootstrap.v1.Server.Http.Middleware.Logging
-	40, // 52: bootstrap.v1.Server.Http.Middleware.request_id:type_name -> bootstrap.v1.Server.Http.Middleware.RequestId
-	41, // 53: bootstrap.v1.Server.Http.Middleware.tracing:type_name -> bootstrap.v1.Server.Http.Middleware.Tracing
-	42, // 54: bootstrap.v1.Server.Http.Middleware.rate_limit:type_name -> bootstrap.v1.Server.Http.Middleware.RateLimit
-	43, // 55: bootstrap.v1.Server.Http.Middleware.timeout:type_name -> bootstrap.v1.Server.Http.Middleware.Timeout
-	44, // 56: bootstrap.v1.Server.Http.Middleware.circuit_breaker:type_name -> bootstrap.v1.Server.Http.Middleware.CircuitBreaker
-	46, // 57: bootstrap.v1.Server.Grpc.Middleware.recovery:type_name -> bootstrap.v1.Server.Grpc.Middleware.Recovery
-	47, // 58: bootstrap.v1.Server.Grpc.Middleware.logging:type_name -> bootstrap.v1.Server.Grpc.Middleware.Logging
-	48, // 59: bootstrap.v1.Server.Grpc.Middleware.tracing:type_name -> bootstrap.v1.Server.Grpc.Middleware.Tracing
-	49, // 60: bootstrap.v1.Server.Grpc.Middleware.validate:type_name -> bootstrap.v1.Server.Grpc.Middleware.Validate
-	50, // 61: bootstrap.v1.Server.Grpc.Middleware.rate_limit:type_name -> bootstrap.v1.Server.Grpc.Middleware.RateLimit
-	51, // 62: bootstrap.v1.Server.Grpc.Middleware.timeout:type_name -> bootstrap.v1.Server.Grpc.Middleware.Timeout
-	52, // 63: bootstrap.v1.Server.Grpc.Middleware.circuit_breaker:type_name -> bootstrap.v1.Server.Grpc.Middleware.CircuitBreaker
-	64, // [64:64] is the sub-list for method output_type
-	64, // [64:64] is the sub-list for method input_type
-	64, // [64:64] is the sub-list for extension type_name
-	64, // [64:64] is the sub-list for extension extendee
-	0,  // [0:64] is the sub-list for field type_name
+	3,  // 0: bootstrap.v1.Server.http:type_name -> bootstrap.v1.Server.Http
+	4,  // 1: bootstrap.v1.Server.http3:type_name -> bootstrap.v1.Server.Http3
+	5,  // 2: bootstrap.v1.Server.grpc:type_name -> bootstrap.v1.Server.Grpc
+	6,  // 3: bootstrap.v1.Server.graphql:type_name -> bootstrap.v1.Server.Graphql
+	7,  // 4: bootstrap.v1.Server.sse:type_name -> bootstrap.v1.Server.Sse
+	8,  // 5: bootstrap.v1.Server.websocket:type_name -> bootstrap.v1.Server.Websocket
+	9,  // 6: bootstrap.v1.Server.tcp:type_name -> bootstrap.v1.Server.Tcp
+	10, // 7: bootstrap.v1.Server.udp:type_name -> bootstrap.v1.Server.Udp
+	11, // 8: bootstrap.v1.Server.kcp:type_name -> bootstrap.v1.Server.Kcp
+	12, // 9: bootstrap.v1.Server.thrift:type_name -> bootstrap.v1.Server.Thrift
+	13, // 10: bootstrap.v1.Server.trpc:type_name -> bootstrap.v1.Server.Trpc
+	14, // 11: bootstrap.v1.Server.webtransport:type_name -> bootstrap.v1.Server.Webtransport
+	15, // 12: bootstrap.v1.Server.cron:type_name -> bootstrap.v1.Server.Cron
+	16, // 13: bootstrap.v1.Server.hptimer:type_name -> bootstrap.v1.Server.Hptimer
+	17, // 14: bootstrap.v1.Server.mcp:type_name -> bootstrap.v1.Server.Mcp
+	18, // 15: bootstrap.v1.Server.signalr:type_name -> bootstrap.v1.Server.Signalr
+	19, // 16: bootstrap.v1.Server.socketio:type_name -> bootstrap.v1.Server.Socketio
+	20, // 17: bootstrap.v1.Server.webrtc:type_name -> bootstrap.v1.Server.Webrtc
+	21, // 18: bootstrap.v1.Server.asynq:type_name -> bootstrap.v1.Server.Asynq
+	22, // 19: bootstrap.v1.Server.machinery:type_name -> bootstrap.v1.Server.Machinery
+	23, // 20: bootstrap.v1.Server.kafka:type_name -> bootstrap.v1.Server.Kafka
+	24, // 21: bootstrap.v1.Server.rabbitmq:type_name -> bootstrap.v1.Server.Rabbitmq
+	25, // 22: bootstrap.v1.Server.redis_server:type_name -> bootstrap.v1.Server.RedisServer
+	26, // 23: bootstrap.v1.Server.nats:type_name -> bootstrap.v1.Server.Nats
+	27, // 24: bootstrap.v1.Server.mqtt:type_name -> bootstrap.v1.Server.Mqtt
+	28, // 25: bootstrap.v1.Server.pulsar:type_name -> bootstrap.v1.Server.Pulsar
+	29, // 26: bootstrap.v1.Server.activemq:type_name -> bootstrap.v1.Server.Activemq
+	30, // 27: bootstrap.v1.Server.azuresb:type_name -> bootstrap.v1.Server.Azuresb
+	31, // 28: bootstrap.v1.Server.nsq:type_name -> bootstrap.v1.Server.Nsq
+	32, // 29: bootstrap.v1.Server.rocketmq:type_name -> bootstrap.v1.Server.Rocketmq
+	33, // 30: bootstrap.v1.Server.sqs:type_name -> bootstrap.v1.Server.Sqs
+	34, // 31: bootstrap.v1.Server.gateway:type_name -> bootstrap.v1.Server.Gateway
+	35, // 32: bootstrap.v1.Server.TLS.file:type_name -> bootstrap.v1.Server.TLS.File
+	36, // 33: bootstrap.v1.Server.TLS.config:type_name -> bootstrap.v1.Server.TLS.Config
+	2,  // 34: bootstrap.v1.Server.Http.tls:type_name -> bootstrap.v1.Server.TLS
+	37, // 35: bootstrap.v1.Server.Http.middleware:type_name -> bootstrap.v1.Server.Http.Middleware
+	2,  // 36: bootstrap.v1.Server.Http3.tls:type_name -> bootstrap.v1.Server.TLS
+	2,  // 37: bootstrap.v1.Server.Grpc.tls:type_name -> bootstrap.v1.Server.TLS
+	46, // 38: bootstrap.v1.Server.Grpc.middleware:type_name -> bootstrap.v1.Server.Grpc.Middleware
+	2,  // 39: bootstrap.v1.Server.Graphql.tls:type_name -> bootstrap.v1.Server.TLS
+	2,  // 40: bootstrap.v1.Server.Sse.tls:type_name -> bootstrap.v1.Server.TLS
+	2,  // 41: bootstrap.v1.Server.Websocket.tls:type_name -> bootstrap.v1.Server.TLS
+	2,  // 42: bootstrap.v1.Server.Tcp.tls:type_name -> bootstrap.v1.Server.TLS
+	0,  // 43: bootstrap.v1.Server.Tcp.byte_order:type_name -> bootstrap.v1.Server.Tcp.ByteOrder
+	2,  // 44: bootstrap.v1.Server.Thrift.tls:type_name -> bootstrap.v1.Server.TLS
+	2,  // 45: bootstrap.v1.Server.Webtransport.tls:type_name -> bootstrap.v1.Server.TLS
+	2,  // 46: bootstrap.v1.Server.Signalr.tls:type_name -> bootstrap.v1.Server.TLS
+	2,  // 47: bootstrap.v1.Server.Socketio.tls:type_name -> bootstrap.v1.Server.TLS
+	2,  // 48: bootstrap.v1.Server.Webrtc.tls:type_name -> bootstrap.v1.Server.TLS
+	2,  // 49: bootstrap.v1.Server.Gateway.tls:type_name -> bootstrap.v1.Server.TLS
+	38, // 50: bootstrap.v1.Server.Http.Middleware.recovery:type_name -> bootstrap.v1.Server.Http.Middleware.Recovery
+	39, // 51: bootstrap.v1.Server.Http.Middleware.cors:type_name -> bootstrap.v1.Server.Http.Middleware.Cors
+	40, // 52: bootstrap.v1.Server.Http.Middleware.logging:type_name -> bootstrap.v1.Server.Http.Middleware.Logging
+	41, // 53: bootstrap.v1.Server.Http.Middleware.request_id:type_name -> bootstrap.v1.Server.Http.Middleware.RequestId
+	42, // 54: bootstrap.v1.Server.Http.Middleware.tracing:type_name -> bootstrap.v1.Server.Http.Middleware.Tracing
+	43, // 55: bootstrap.v1.Server.Http.Middleware.rate_limit:type_name -> bootstrap.v1.Server.Http.Middleware.RateLimit
+	44, // 56: bootstrap.v1.Server.Http.Middleware.timeout:type_name -> bootstrap.v1.Server.Http.Middleware.Timeout
+	45, // 57: bootstrap.v1.Server.Http.Middleware.circuit_breaker:type_name -> bootstrap.v1.Server.Http.Middleware.CircuitBreaker
+	47, // 58: bootstrap.v1.Server.Grpc.Middleware.recovery:type_name -> bootstrap.v1.Server.Grpc.Middleware.Recovery
+	48, // 59: bootstrap.v1.Server.Grpc.Middleware.logging:type_name -> bootstrap.v1.Server.Grpc.Middleware.Logging
+	49, // 60: bootstrap.v1.Server.Grpc.Middleware.tracing:type_name -> bootstrap.v1.Server.Grpc.Middleware.Tracing
+	50, // 61: bootstrap.v1.Server.Grpc.Middleware.validate:type_name -> bootstrap.v1.Server.Grpc.Middleware.Validate
+	51, // 62: bootstrap.v1.Server.Grpc.Middleware.rate_limit:type_name -> bootstrap.v1.Server.Grpc.Middleware.RateLimit
+	52, // 63: bootstrap.v1.Server.Grpc.Middleware.timeout:type_name -> bootstrap.v1.Server.Grpc.Middleware.Timeout
+	53, // 64: bootstrap.v1.Server.Grpc.Middleware.circuit_breaker:type_name -> bootstrap.v1.Server.Grpc.Middleware.CircuitBreaker
+	65, // [65:65] is the sub-list for method output_type
+	65, // [65:65] is the sub-list for method input_type
+	65, // [65:65] is the sub-list for extension type_name
+	65, // [65:65] is the sub-list for extension extendee
+	0,  // [0:65] is the sub-list for field type_name
 }
 
 func init() { file_bootstrap_v1_server_proto_init() }
@@ -4132,13 +4202,14 @@ func file_bootstrap_v1_server_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bootstrap_v1_server_proto_rawDesc), len(file_bootstrap_v1_server_proto_rawDesc)),
-			NumEnums:      0,
+			NumEnums:      1,
 			NumMessages:   53,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
 		GoTypes:           file_bootstrap_v1_server_proto_goTypes,
 		DependencyIndexes: file_bootstrap_v1_server_proto_depIdxs,
+		EnumInfos:         file_bootstrap_v1_server_proto_enumTypes,
 		MessageInfos:      file_bootstrap_v1_server_proto_msgTypes,
 	}.Build()
 	File_bootstrap_v1_server_proto = out.File
