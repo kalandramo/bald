@@ -1388,3 +1388,209 @@ func TestAcceptanceTableCoversShortSkippedTests(t *testing.T) {
 	}
 	t.Logf("判据腿=%d 覆盖包=%d 候选=%d 进表=%d CI点名=%d 豁免=%d", len(legs), len(pkgDirs), candidates, inTable, scheduled, exempt)
 }
+
+// ---- §7.31：全局 MeterProvider 写入方必须与闸门表同条数 ----
+
+// otelGlobalImport 是进程全局 MeterProvider 的写入口所在包。
+const otelGlobalImport = "go.opentelemetry.io/otel"
+
+// globalMeterGateKeys 从 pkg/appkit/provider.go 解析 globalMeterSegments 的字面量键。
+// 读源码而不是 import：appkit 与两个适配器分属不同 module，import 即成模块环，
+// 而这个变量是非导出的——计划期互斥闸门的「表」因此只能按文本派生。
+func globalMeterGateKeys(t *testing.T, root string) map[string]bool {
+	t.Helper()
+	path := filepath.Join(root, "pkg", "appkit", "provider.go")
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatalf("parse %s: %v", path, err)
+	}
+	keys := map[string]bool{}
+	var found bool
+	ast.Inspect(file, func(n ast.Node) bool {
+		spec, ok := n.(*ast.ValueSpec)
+		if !ok || len(spec.Names) != 1 || spec.Names[0].Name != "globalMeterSegments" || len(spec.Values) != 1 {
+			return true
+		}
+		lit, ok := spec.Values[0].(*ast.CompositeLit)
+		if !ok {
+			t.Errorf("%s: globalMeterSegments 不是复合字面量——本闸门的派生姿势需跟着改", path)
+			return false
+		}
+		found = true
+		for _, e := range lit.Elts {
+			kv, ok := e.(*ast.KeyValueExpr)
+			if !ok {
+				t.Errorf("%s: globalMeterSegments 里有非键值元素", path)
+				continue
+			}
+			lit, ok := kv.Key.(*ast.BasicLit)
+			if !ok || lit.Kind != token.STRING {
+				t.Errorf("%s: globalMeterSegments 的键不是字符串字面量", path)
+				continue
+			}
+			key, err := strconv.Unquote(lit.Value)
+			if err != nil {
+				t.Errorf("%s: 键 %s 解引用失败: %v", path, lit.Value, err)
+				continue
+			}
+			if keys[key] {
+				t.Errorf("%s: globalMeterSegments 里 %s 出现了两次", path, key)
+			}
+			keys[key] = true
+		}
+		return false
+	})
+	if !found {
+		t.Fatalf("%s 里派生不到 globalMeterSegments——闸门表被改名或删掉时，本条判据必须响而不是空转", path)
+	}
+	if len(keys) == 0 {
+		t.Fatalf("globalMeterSegments 为空——§7.31 的互斥闸门已失效")
+	}
+	return keys
+}
+
+// globalSymbolWriterDirs 派生「在进程全局位上动手」的包目录：非测试源码里以指向
+// importPath 的包名（含 import alias）引用 symbol 的文件，按其所在包目录去重。
+// wantCall=true 只认调用（`otel.SetMeterProvider(...)`），false 认任何取值
+// （`prometheus.DefaultRegisterer` 是变量，传给 Register 才是那条路径）。
+// 判 AST 而不是文本命中：仓里有三处注释也写着 SetMeterProvider，按 grep 计数会把
+// 注释算成写入方（§7.28 那两条「不要按名字/目录猜」的判据卫生问题在这里同样成立）。
+func globalSymbolWriterDirs(t *testing.T, root, importPath, symbol string, wantCall bool) map[string]bool {
+	t.Helper()
+	mods := derivedModules(root)
+	if len(mods) < 50 {
+		t.Fatalf("派生到 %d 个 module，明显低于仓库实际数量——谓词失效，本闸门已空转", len(mods))
+	}
+	all := make(map[string]bool, len(mods))
+	for _, m := range mods {
+		all[m] = true
+	}
+	fset := token.NewFileSet()
+	dirs := map[string]bool{}
+	for _, m := range mods {
+		files, err := moduleGoFiles(root, m, all)
+		if err != nil {
+			t.Fatalf("scan %s: %v", m, err)
+		}
+		for _, f := range files {
+			if strings.HasSuffix(f, "_test.go") {
+				continue
+			}
+			file, err := parser.ParseFile(fset, filepath.Join(root, filepath.FromSlash(f)), nil, parser.SkipObjectResolution)
+			if err != nil {
+				t.Fatalf("parse %s: %v", f, err)
+			}
+			// 该文件里指向 importPath 的包名（无 alias 时按 Go 规则取路径末段）。
+			pkgNames := map[string]bool{}
+			for _, imp := range file.Imports {
+				path, err := strconv.Unquote(imp.Path.Value)
+				if err != nil || path != importPath {
+					continue
+				}
+				if imp.Name != nil {
+					pkgNames[imp.Name.Name] = true
+					continue
+				}
+				pkgNames[filepath.Base(path)] = true
+			}
+			if len(pkgNames) == 0 {
+				continue
+			}
+			ast.Inspect(file, func(n ast.Node) bool {
+				var expr *ast.SelectorExpr
+				switch {
+				case wantCall:
+					call, ok := n.(*ast.CallExpr)
+					if !ok {
+						return true
+					}
+					expr, ok = call.Fun.(*ast.SelectorExpr)
+					if !ok {
+						return true
+					}
+				default:
+					sel, ok := n.(*ast.SelectorExpr)
+					if !ok {
+						return true
+					}
+					expr = sel
+				}
+				if expr.Sel.Name != symbol {
+					return true
+				}
+				pkgIdent, ok := expr.X.(*ast.Ident)
+				if !ok || !pkgNames[pkgIdent.Name] {
+					return true
+				}
+				dirs[filepath.ToSlash(filepath.Dir(f))] = true
+				return true
+			})
+		}
+	}
+	return dirs
+}
+
+// prometheusClientImport 是 client_golang 的包路径，进程默认注册表位在这个包上。
+const prometheusClientImport = "github.com/prometheus/client_golang/prometheus"
+
+// globalMeterWriterDirs 派生「把进程全局 OTel MeterProvider 换成自己那一个」的包目录。
+func globalMeterWriterDirs(t *testing.T, root string) map[string]bool {
+	t.Helper()
+	return globalSymbolWriterDirs(t, root, otelGlobalImport, "SetMeterProvider", true)
+}
+
+// TestGlobalMeterWritersAreInGateTable 是 §7.31 残余①「表按段路径点名，新写入方
+// 不会自动进表」的闸门。
+//
+// 判的是条数而不是身份映射，这是如实的边界：段路径（metrics、instrumentation.otlp）
+// 与包目录（metrics/otel、contrib/observability-otlp/metrics）之间没有可派生的联系，
+// 所以「第三个写入方出现但没进表」和「进了表但配错段」这两种情形里，前者必红、后者判不出。
+// 加它的理由是形状而非概率：§7.27 的契约化让「谁写全局」从业务侧手工调用变成了配置能
+// 点亮的分支，而这个表是手写的——没有闸门时，它只会在新写入方**恰好被人想起来**时才更新。
+func TestGlobalMeterWritersAreInGateTable(t *testing.T) {
+	root := repoRoot(t)
+	keys := globalMeterGateKeys(t, root)
+	dirs := globalMeterWriterDirs(t, root)
+	// 防空转：写入方一条都没派生到，说明遍历或调用识别没落到文件上，
+	// 此时「条数相等」会因为 0==0 而恒绿。
+	if len(dirs) < 2 {
+		t.Fatalf("只派生到 %d 个全局 MeterProvider 写入方（实测 2 个）——谓词失效，本闸门已空转", len(dirs))
+	}
+	var writerList, keyList []string
+	for d := range dirs {
+		writerList = append(writerList, d)
+	}
+	for k := range keys {
+		keyList = append(keyList, k)
+	}
+	sort.Strings(writerList)
+	sort.Strings(keyList)
+	if len(dirs) != len(keys) {
+		t.Errorf("全局 MeterProvider 写入方有 %d 个 %v，但 pkg/appkit 的互斥闸门表只点名 %d 个段 %v——条数不等意味着新写入方没进表，两侧同时被契约装配点亮时仍然按顺序谁赢，§7.31 的缺陷形状回来了",
+			len(dirs), writerList, len(keys), keyList)
+	}
+	t.Logf("写入方=%d %v，闸门表=%d %v", len(dirs), writerList, len(keys), keyList)
+}
+
+// TestDefaultRegistryWriterCountIsOne 把 §7.31 残余②「prometheus 默认注册表没有对偶闸门」
+// 从一句话变成实测判据：仓内引用 `prometheus.DefaultRegisterer` 的非测试包**恰好一个**
+// （现值 `metrics/prometheus`，由 `use_default_registry=true` 点亮）。
+// 之所以不建互斥闸门，是因为根本没有第二个写入方可撞——这句话原来是断言，这条判据让它
+// 变成会被机器复跑的断言。计数为 0 也判红而不是放行：那意味着这条能力被删了或 import
+// 路径漂移，两者都要求同步登记册 §7.31 与 `metrics/prometheus` 的文档，而不是让它静默失效。
+func TestDefaultRegistryWriterCountIsOne(t *testing.T) {
+	root := repoRoot(t)
+	dirs := globalSymbolWriterDirs(t, root, prometheusClientImport, "DefaultRegisterer", false)
+	if len(dirs) != 1 {
+		var list []string
+		for d := range dirs {
+			list = append(list, d)
+		}
+		sort.Strings(list)
+		t.Fatalf("进程默认 Prometheus 注册表的仓内写入方数到 %d 个 %v（实测现值 1：`metrics/prometheus`）——为 0 说明这条能力或 import 路径已漂移，需要同步 §7.31 口径；≥2 说明出现了真正的第二个写入方，此时必须像 `globalMeterSegments` 那样给它建按段互斥闸门，而不是继续判红", len(dirs), list)
+	}
+	for d := range dirs {
+		t.Logf("默认注册表写入方=%s（仓内唯一，无可撞对偶 ⇒ 不需要互斥闸门）", d)
+	}
+}

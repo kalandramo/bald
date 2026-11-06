@@ -327,8 +327,10 @@ type providerPlan struct {
 // contrib/observability-otlp 的 metrics.Setup 各调一次 otel.SetMeterProvider，
 // 后者还在 prometheus/otlp 两个 type 上都走同一条。段路径在此点名而不是由
 // Provider 自声明：appkit 与两个适配器分属不同 module，互 require 即成模块环
-// （同 bootstrap.go 的 driverGRPCGateway 口径）；代价是新写入方不会自动进表，
-// 已登记为残余风险（登记册 §7.31）。
+// （同 bootstrap.go 的 driverGRPCGateway 口径）。代价是新写入方不会自动进表，
+// 但这条代价现在有闸门盯着：internal/docscheck 的
+// TestGlobalMeterWritersAreInGateTable 用 go/ast 从全仓非测试源码派生写入方个数，
+// 与本表的条数比对——漏一条即判红（登记册 §7.31 残余①）。
 var globalMeterSegments = map[string]bool{
 	"metrics":              true,
 	"instrumentation.otlp": true,
