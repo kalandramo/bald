@@ -1679,3 +1679,99 @@ func TestRiskRegisterTableIsWellFormed(t *testing.T) {
 	}
 	t.Logf("主表 %d 列 × %d 行，其中 %d 行含转义竖线", headerCells, rows, escaped)
 }
+
+// envImportPath 是「直接读进程环境变量」的唯一入口包。
+const envImportPath = "os"
+
+// TestEnvironmentVariableRoutesAreRegistered 是 §7.38 的闸门：bald 的配置取值面只允许
+// 一条环境变量通道——契约驱动的 env 层（bconfig/env，键名由 BootstrapConfig 描述符派生，
+// 见 §7.7）。除此以外的每一处 os.Getenv/os.LookupEnv 都是「链外的第二条 env 路由」：
+// 它能在配置文件、契约 env 层、flag 三层之外改写取值，却不出现在契约里、`--plan` 看不见、
+// 热更新不重算，因此必须逐处登记「为什么允许」而不是靠人想起来审计。
+//
+// 两侧都不抄清单：写入方用 go/ast 在全仓非测试源码里派生（与 §7.31 那条同一谓词，
+// 只查真正的调用点，注释里提到 os.Getenv 不算——`cobramcp/config.go:53` 那行被注释掉的
+// os.Getenv("PATH") 就是实测过的反例），登记表键即结果集。
+//
+// 符号集合必须含 Environ：链路上有两条 env 读取**形状**不同——按名查（Getenv/LookupEnv）
+// 与全量枚举（os.Environ）。契约 env 层的本体 `bootstrap/config/merge.go:103` 走的是后者
+// （遍历全部键、按前缀切点路径），只判前两个符号会把那条正路整个漏掉，而漏掉正路的后果不是
+// 「少一条记录」而是**把旁路当唯一路径**：登记表里少一个「这是正路」的锚，将来真旁路进来时
+// 无从对照。
+func TestEnvironmentVariableRoutesAreRegistered(t *testing.T) {
+	root := repoRoot(t)
+	dirs := map[string]bool{}
+	for _, sym := range []string{"Getenv", "LookupEnv", "Environ"} {
+		for d := range globalSymbolWriterDirs(t, root, envImportPath, sym, true) {
+			dirs[d] = true
+		}
+	}
+	// 防空转：一条都没派生到说明谓词失效（bconfig/env 本体必定命中 LookupEnv）。
+	if len(dirs) == 0 {
+		t.Fatal("没有派生到任何读环境变量的包目录 ⇒ 谓词失效，本闸门在空转")
+	}
+	if !dirs["bconfig/env"] {
+		t.Fatal("派生结果里没有 bconfig/env —— 契约 env 层本体必须在集合内，否则谓词已漏掉真路径")
+	}
+	if !dirs["bootstrap/config"] {
+		t.Fatal("派生结果里没有 bootstrap/config —— 全量枚举那条形状（os.Environ）没被读到，" +
+			"说明符号集合退化成只按名查，登记表会漏掉正路本体")
+	}
+
+	var unknown, stale []string
+	for d := range dirs {
+		if _, ok := envRouteExceptions[d]; !ok {
+			unknown = append(unknown, d)
+		}
+	}
+	for d, why := range envRouteExceptions {
+		if !dirs[d] {
+			stale = append(stale, d)
+		} else if strings.TrimSpace(why) == "" {
+			t.Errorf("%s 登记为空理由 ⇒ 每条旁路必须写清为什么允许", d)
+		}
+	}
+	slices.Sort(unknown)
+	slices.Sort(stale)
+	if len(unknown) > 0 {
+		t.Errorf("这些包在未登记的情况下直接读环境变量：%v\n"+
+			"要么把它接进契约（配置取值只有 bconfig/env 一条 env 通道），要么进 envRouteExceptions 写清理由", unknown)
+	}
+	if len(stale) > 0 {
+		t.Errorf("envRouteExceptions 里这些目录已经不再读环境变量：%v（删掉条目，不要留死登记）", stale)
+	}
+	if len(unknown) == 0 {
+		t.Logf("读环境变量的包目录 %d 个，逐条有理由：%v", len(dirs), sortedKeys(dirs))
+	}
+}
+
+// envRouteExceptions 是 §7.38 的登记表：键＝包目录，值＝为什么允许它存在。
+// 五条理由都实测过，不是按包名猜的；其中 contrib/store-gorm 与 registry/kubernetes
+// 两条是**在役**的链外 env 输入，属未裁决的口径问题，不是无害豁免。
+var envRouteExceptions = map[string]string{
+	// 正路本身：键名由 BootstrapConfig 描述符派生（§7.7），三层合并链的一环。
+	"bconfig/env": "契约 env 层本体，它不是旁路而是那条正路",
+	// 同为正路，但形状是**全量枚举**而非按名查：merge.go:103 遍历 os.Environ() 按前缀切点路径。
+	// 两层各判一种形状，缺任何一层的符号，登记表就只剩「按名查」这一条可见的正路。
+	"bootstrap/config": "契约 env 层的前缀枚举本体（BALD_<APP>_ 前缀 → 点路径），三层合并链的一环",
+	// 独立 CLI 产品面：只用于定位 IDE 配置文件路径（USER/USERPROFILE），
+	// 不参与 bald 的取值链；grep 实测两处分别在 *_darwin/*_linux/*_windows.go 里拼路径。
+	"cobramcp/internal/cfgmgr/manager/cursor": "拼 IDE 配置文件路径（$USER/$USERPROFILE），不读配置值",
+	"cobramcp/internal/cfgmgr/manager/vscode": "同上，VSCode 侧",
+	// 测试夹具（非 _test.go 文件名所以进不了编译豁免）：CI 用它注入真后端地址。
+	"contrib/store-mongo": "testutil.go 是集成测试夹具（BALD_MONGO_URI），不在装配路径",
+	// ↓ 两条是在役的链外输入，§7.38 登记为待 owner 裁决，不是「已豁免即已解决」。
+	"contrib/store-gorm": "已知旁路：WithEnv(任意名) 覆盖 database.sql.source 且优先级高于契约段，" +
+		"bald-admin 生产代码在用（backend/internal/bootstrap/bootstrap.go:874）；§7.38",
+	"registry/kubernetes": "已知旁路：GetPodName() 读 HOSTNAME 且在役（registry.go:170,209 的注销 Patch 目标），" +
+		"契约无对应字段；§7.38",
+}
+
+func sortedKeys(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	slices.Sort(out)
+	return out
+}
