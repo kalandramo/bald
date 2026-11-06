@@ -177,8 +177,8 @@ func segmentPathKnown(path string) bool {
 	m := (&bootstrapv1.BootstrapConfig{}).ProtoReflect()
 	for _, name := range strings.Split(path, ".") {
 		fd := m.Descriptor().Fields().ByName(protoreflect.Name(name))
-		if fd == nil || fd.Kind() != protoreflect.MessageKind {
-			return false
+		if fd == nil || fd.Kind() != protoreflect.MessageKind || fd.IsList() {
+			return false // repeated message 不是段：Value.Message() 撞上 list 会 panic
 		}
 		m = m.Get(fd).Message()
 	}
@@ -210,8 +210,8 @@ func segmentPresent(cfg *bootstrapv1.BootstrapConfig, path string) bool {
 			return false
 		}
 		fd := m.Descriptor().Fields().ByName(protoreflect.Name(name))
-		if fd == nil || fd.Kind() != protoreflect.MessageKind {
-			return false // 顶层段与中间层均为消息型；标量不构成段路径
+		if fd == nil || fd.Kind() != protoreflect.MessageKind || fd.IsList() {
+			return false // 顶层段与中间层均为消息型；标量与 repeated 不构成段路径
 		}
 		v := m.Get(fd)
 		if !v.Message().IsValid() {
@@ -230,7 +230,7 @@ func presentChildSegments(msg protoreflect.Message) []string {
 	fields := msg.Descriptor().Fields()
 	for i := 0; i < fields.Len(); i++ {
 		fd := fields.Get(i)
-		if fd.Kind() != protoreflect.MessageKind {
+		if fd.Kind() != protoreflect.MessageKind || fd.IsList() {
 			continue
 		}
 		if msg.Get(fd).Message().IsValid() {

@@ -453,7 +453,7 @@ func bootstrapStringField(cfg *bootstrapv1.BootstrapConfig, path string) (protor
 			}
 			return fd, nil
 		}
-		if fd.Kind() != protoreflect.MessageKind {
+		if fd.Kind() != protoreflect.MessageKind || fd.IsList() {
 			return nil, fmt.Errorf("bootstrap field %q is not a message section", path)
 		}
 		m = m.Get(fd).Message()

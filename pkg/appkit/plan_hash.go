@@ -57,8 +57,8 @@ func segmentMessage(cfg *bootstrapv1.BootstrapConfig, path string) protoreflect.
 			return nil
 		}
 		fd := m.Descriptor().Fields().ByName(protoreflect.Name(name))
-		if fd == nil || fd.Kind() != protoreflect.MessageKind {
-			return nil
+		if fd == nil || fd.Kind() != protoreflect.MessageKind || fd.IsList() {
+			return nil // repeated message 不是段：Value.Message() 撞上 list 会 panic
 		}
 		m = m.Get(fd).Message()
 	}
