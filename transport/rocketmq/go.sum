@@ -408,6 +408,8 @@ github.com/jtolds/gls v4.20.0+incompatible/go.mod h1:QJZ7F/aHp+rZTRtaJ1ow/lLfFfV
 github.com/julienschmidt/httprouter v1.2.0/go.mod h1:SYymIcj16QtmaHHD7aYtjjsJG7VTCxuUUipMqKk8s4w=
 github.com/kalandramo/bald/bconfig v0.2.3 h1:4DSOSDAvmKSAQimaW35PS0Zlyz6/shMITFS4Vzz9p5c=
 github.com/kalandramo/bald/bconfig v0.2.3/go.mod h1:JnyYHH31P6YaQPaqkCnJKM6rn5D8XLGumsEfhDEvgxY=
+github.com/kalandramo/bald/bootstrap v0.13.7 h1:HD7W1e6U8eC8CNuEHsP6WqVkSCwWohwas3vdvdEc6SM=
+github.com/kalandramo/bald/bootstrap v0.13.7/go.mod h1:7jbTQxZ7o/8noL8/X9ujU4hsxwBXKeXxlqzgfXaNbEY=
 github.com/kalandramo/bald/health v0.1.1 h1:Q0sySYkf4XZ6BcSQ3P/Sk1T8FFF3NzKOcu3Q2wsDpUM=
 github.com/kalandramo/bald/health v0.1.1/go.mod h1:+f+lE2uNtgeXlJ6YoqPg7PoDIUZ+VvhJZI9RP+oHNd0=
 github.com/kalandramo/bald/registry v0.4.0 h1:svp+qdKJTMoUM8CgmN+nFukZDdSIU4wWTy6TlEBYtoY=

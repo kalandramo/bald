@@ -164,5 +164,3 @@ replace github.com/kalandramo/bald/metrics => ..
 replace github.com/kalandramo/bald/bconf => ../../bconf
 
 replace github.com/kalandramo/bald/pkg => ../../pkg
-
-replace github.com/kalandramo/bald/bootstrap => ../../bootstrap
