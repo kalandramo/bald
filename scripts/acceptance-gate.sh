@@ -224,8 +224,6 @@ rows() {
     $'ci\tmetrics/otel\t./contract\tTestMappingOffline_\t' \
     $'ci\tmetrics/datadog\t./contract\tTestMappingOffline_\t' \
     $'ci\ttransport/tcp\t./contract\tTestMappingOffline_|TestAppProviderEndToEnd_\t' \
-    # transport/client（批次 2）：client 段 grpc/http 条目 → 连接产物的映射、校验与
-    # discovery 接线面。连接构造不拨号，全部腿离线可判。
     $'ci\ttransport/client\t./contract\tTestMappingOffline_\t' \
     $'ci\ttransport/websocket\t./contract\tTestMappingOffline_\t' \
     $'ci\ttransport/http3\t./contract\tTestMappingOffline_\t' \

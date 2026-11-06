@@ -1167,8 +1167,33 @@ func acceptanceLegs(t *testing.T, root string) []acceptanceLeg {
 	if err != nil {
 		t.Fatalf("读 acceptance 脚本: %v", err)
 	}
+	lines := strings.Split(string(raw), "\n")
+	// 表必须是 `printf '%s\n' \` 之后一串连续的 $'...' 行：续行链一旦被注释或
+	// 空行截断，后面的腿会变成一条独立的「命令找不到」语句——脚本照旧打印
+	// 「全部通过」，而表尾那些腿根本没跑。
+	inRows := false
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "rows() {" {
+			inRows = true
+			continue
+		}
+		if !inRows {
+			continue
+		}
+		if trimmed == "}" {
+			inRows = false
+			continue
+		}
+		if strings.HasPrefix(trimmed, "printf '%s") {
+			continue
+		}
+		if !strings.HasPrefix(trimmed, "$'") {
+			t.Fatalf("acceptance-gate.sh:%d 判据表里出现了非判据行（%q）——printf 的续行链会被截断，后面的腿不会执行但脚本仍报绿", i+1, trimmed)
+		}
+	}
 	var legs []acceptanceLeg
-	for i, line := range strings.Split(string(raw), "\n") {
+	for i, line := range lines {
 		// 表在 `printf '%s\n' \` 的续行里，行尾的反斜杠在引号外面。
 		trimmed := strings.TrimSpace(line)
 		if !strings.HasPrefix(trimmed, "$'") {
