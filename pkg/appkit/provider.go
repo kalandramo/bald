@@ -48,6 +48,7 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
+	"github.com/kalandramo/bald/registry"
 )
 
 // Cleanup 是 Provider 产物的停机释放钩子（Effect 回放执行；nil 表示无资源）。
@@ -86,6 +87,32 @@ type ApplyScope struct {
 	App *App
 	// Node 正在应用的节点（Plan 返回的那一个）。
 	Node Node
+}
+
+// Discovery 取出已装配注册中心的发现半边（服务发现的消费口）。
+//
+// 先读 App：registry 段的产物只落在 App 上（阶段 B 的 SetRegistrar），
+// Decl.Registrar 只承载显式实例那条路；Decl 作回退供无 App 的调用面
+// （手工 Build 的测试/编排器）使用。
+//
+// 消费方（出站客户端、gateway）要排在 registry 节点之后构建——否则取到的
+// 是「那一刻还没有」而不是配置错误。
+func (s ApplyScope) Discovery() (registry.Discovery, error) {
+	var r registry.Registrar
+	if s.App != nil {
+		r = s.App.Registrar()
+	}
+	if r == nil && s.Decl != nil {
+		r = s.Decl.Registrar
+	}
+	if r == nil {
+		return nil, fmt.Errorf("no registry is assembled (declare the registry segment or pass appkit.Registrar(...))")
+	}
+	d, ok := r.(registry.Discovery)
+	if !ok {
+		return nil, fmt.Errorf("assembled registrar %T does not implement registry.Discovery", r)
+	}
+	return d, nil
 }
 
 // Provider 消费契约段并构建该段产物（v2）。
@@ -136,6 +163,9 @@ func Providers(ps ...Provider) Option {
 const (
 	PriorityLogger   = 10 // 阶段 A/B 日志引导（先于其它阶段 B 资源）
 	PriorityRegistry = 20
+	// PriorityClient 紧跟 registry：出站客户端的 discovery 目标要在 Build 期
+	// 取注册中心的发现半边（registry 段产物先落 App），排在它之后才拿得到。
+	PriorityClient   = 25
 	PriorityTracer   = 30
 	PriorityMetrics  = 40
 	PriorityDatabase = 50

@@ -21,8 +21,6 @@
 package contract
 
 import (
-	"fmt"
-
 	"github.com/kalandramo/bald/pkg/appkit"
 	"github.com/kalandramo/bald/registry"
 	gateway "github.com/kalandramo/bald/transport/gateway"
@@ -38,25 +36,9 @@ func discoveryScopeOption(s appkit.ApplyScope) gateway.Option {
 	})
 }
 
-// discoveryFromScope 取出已装配注册中心的发现半边。
-//
-// 先读 App：registry 段的产物只落在 App 上（阶段 B 的 SetRegistrar），
-// Decl.Registrar 只承载显式实例那条路；Decl 作回退供无 App 的调用面
-// （手工 Build 的测试/编排器）使用。
+// discoveryFromScope 取出已装配注册中心的发现半边（规则见
+// [appkit.ApplyScope.Discovery]：App 优先、Decl 回退——无 App 的手工 Build
+// 面用后者）。
 func discoveryFromScope(s appkit.ApplyScope) (registry.Discovery, error) {
-	var r registry.Registrar
-	if s.App != nil {
-		r = s.App.Registrar()
-	}
-	if r == nil && s.Decl != nil {
-		r = s.Decl.Registrar
-	}
-	if r == nil {
-		return nil, fmt.Errorf("no registry is assembled (declare the registry segment or pass appkit.Registrar(...))")
-	}
-	d, ok := r.(registry.Discovery)
-	if !ok {
-		return nil, fmt.Errorf("assembled registrar %T does not implement registry.Discovery", r)
-	}
-	return d, nil
+	return s.Discovery()
 }
