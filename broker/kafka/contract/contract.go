@@ -23,6 +23,11 @@ const Type = "kafka"
 // 返回的 cleanup 断开连接并清理订阅者。供自定义 Provider 的 Build 直接调用。
 //
 // auth_type 取值："none"（默认）、"plain"、"scram-sha256"、"scram-sha512"。
+//
+// 契约 broker.kafka.group_id **没有对应的 broker.Option**：本函数构造的是发布侧
+// Broker（Init + Connect 只为出向发布建连），消费组属于订阅侧，而订阅侧的消费组
+// 来自代码级参数（transport/kafka 服务器注册订阅者时给的 queue），契约里没有它
+// 的落点。写成配置不会生效——与 bootstrap/env.go 里 Env.separator 同口径（登记册 §7.33）。
 func Provider(ctx context.Context, cfg *bootstrapv1.Broker) (any, func(), error) {
 	sec := cfg.GetKafka()
 	if sec == nil {
