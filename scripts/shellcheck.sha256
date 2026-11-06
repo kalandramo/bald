@@ -1,0 +1,12 @@
+# 官方 shellcheck 发行二进制（linux tar.xz）的 SHA-256，按 uname -m 归一的架构名索引
+# （版本号由 scripts/shellcheck.version 单独 pin，升级时两处一起改；本表里没有的架构就装不上）。
+#
+# 谁用它：只有 `.github/workflows/workflow-lint.yml` 的 `actionlint` 作业（经
+# `scripts/install-shellcheck.sh`）。本机不进这条脚本——本机用 Homebrew/已装的 shellcheck，
+# Taskfile 的 `ci-workflow-lint` 那道版本判据（读 scripts/shellcheck.version）保证本机装的
+# 就是同一版本，两侧规则集因此同源。见登记册 §7.30 未闭合①。
+#
+# 值从哪来：2026-11-06 从 GitHub 官方 v0.11.0 release 资产分别流式下载两个 linux tar.xz
+# （x86_64 2559196 字节 / aarch64 6811484 字节），`sha256sum` 得到下面两行。
+x86_64 8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
+aarch64 12b331c1d2db6b9eb13cfca64306b1b157a86eb69db83023e261eaa7e7c14588

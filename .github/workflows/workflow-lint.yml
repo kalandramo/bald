@@ -4,13 +4,15 @@
 # API 里只留一句 workflow file issue」，而 Psych/PyYAML 这类通用解析器照样
 # 接受。也就是说 ci.yml 自己坏了的时候，ci.yml 里加的检查永远不会响；把
 # 检查放到这个独立文件里，它只需自身保持合法就能替整个周界报错。
-# 口径：actionlint 同时做 schema 校验与（runner 上预装的）shellcheck 检查；
-# 版本 pin 与 golangci-lint/govulncheck 同理——升级规则集是显式动作。
-# 本地同一条命令：`task ci-workflow-lint`（改作业文件后先跑它再推）。
-# ⚠ shellcheck 那条腿是 actionlint 外部调用 `shellcheck` 得到的：本机没装时它会
-# 静默跳过，于是「本地绿、这里红」。task 已把 shellcheck 设成前置条件（缺即红，
-# 显式设 BALD_ALLOW_MISSING_SHELLCHECK=1 才放行只跑 schema）——见登记册 §7.30。
-# 仍未闭合：shellcheck 本身没有 pin，本机与镜像预装版本的规则集可以不同。
+# 口径：actionlint 同时做 schema 校验与（PATH 上的）shellcheck 检查；两把都 pin——
+# actionlint 由下面 `go install ...@v1.7.12`，shellcheck 由 scripts/install-shellcheck.sh
+# 按 scripts/shellcheck.version 装并前置进 PATH，覆盖 runner 镜像预装的那把。版本 pin 与
+# golangci-lint/govulncheck 同理——升级规则集是显式动作。
+# 本地同一条命令：`task ci-workflow-lint`（改作业文件后先跑它再推）；它同样按
+# scripts/shellcheck.version 判本机 shellcheck 版本，本机与这里跑的是同一个规则集。
+# ⚠ shellcheck 那条腿是 actionlint 反向调用 PATH 上第一个 `shellcheck` 得到的：本机没装
+# 或版本不对时 task 那道版本判据直接判死（缺即红），显式设 BALD_ALLOW_MISSING_SHELLCHECK=1
+# 才放行只跑 schema——见登记册 §7.30（未闭合① shellcheck pin 已在本轮收口）。
 name: workflow-lint
 
 on:
@@ -45,6 +47,14 @@ jobs:
       # 版本 pin：与 Taskfile 的 ACTIONLINT_VERSION 保持一致。
       - name: install actionlint
         run: go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+
+      # shellcheck pin：runner 镜像预装一把，版本随镜像漂移；这里按 scripts/shellcheck.version
+      # 装官方发行二进制并前置进 PATH，让下面 actionlint 的 run 脚本腿用的是 pin 的那把——与本机
+      # `task ci-workflow-lint` 的版本判据读同一个真相源。摘要不符即 exit 1，不放行。
+      - name: install pinned shellcheck
+        run: |
+          sh scripts/install-shellcheck.sh "$RUNNER_TEMP/bin"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
       - name: actionlint all workflow files
         run: '"$(go env GOPATH)/bin/actionlint" -no-color'
