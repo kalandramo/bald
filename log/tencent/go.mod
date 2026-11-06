@@ -12,7 +12,7 @@ require (
 
 require (
 	github.com/golang/protobuf v1.5.4 // indirect
-	github.com/klauspost/compress v1.18.5 // indirect
+	github.com/klauspost/compress v1.20.2 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
 )
 
