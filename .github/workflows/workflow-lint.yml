@@ -7,6 +7,10 @@
 # 口径：actionlint 同时做 schema 校验与（runner 上预装的）shellcheck 检查；
 # 版本 pin 与 golangci-lint/govulncheck 同理——升级规则集是显式动作。
 # 本地同一条命令：`task ci-workflow-lint`（改作业文件后先跑它再推）。
+# ⚠ shellcheck 那条腿是 actionlint 外部调用 `shellcheck` 得到的：本机没装时它会
+# 静默跳过，于是「本地绿、这里红」。task 已把 shellcheck 设成前置条件（缺即红，
+# 显式设 BALD_ALLOW_MISSING_SHELLCHECK=1 才放行只跑 schema）——见登记册 §7.30。
+# 仍未闭合：shellcheck 本身没有 pin，本机与镜像预装版本的规则集可以不同。
 name: workflow-lint
 
 on:

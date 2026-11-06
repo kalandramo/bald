@@ -336,15 +336,20 @@ tasks:
   # 作业文件自身的闸门（本地侧；CI 侧是 .github/workflows/workflow-lint.yml）。
   # GitHub 在编译期解析 .github/workflows/*.yml，未登记的键会让整个文件被拒且
   # 只报「workflow file issue、0 个 job」——通用 YAML 解析器看不出问题，所以
-  # 这一层只能靠 actionlint 的 schema 校验。run 脚本的 shellcheck 结论只有本机
-  # 装了 shellcheck 时才有（runner 预装，故 CI 侧口径更严）。
+  # 这一层只能靠 actionlint 的 schema 校验。
+  # run 脚本那一半是 actionlint 反向调用 shellcheck 得到的。本机没装 shellcheck
+  # 时它**静默跳过**而不是报错，于是本地「ci-workflow-lint 绿」只等于 schema 绿。
+  # 这个不对称原先写成「接受」（旧注释在这里说 CI 口径更严），本轮被实测推翻：
+  # 一次远端 workflow-lint 红（SC2086）本机跑同一份文件判不出来。所以改成前置条件
+  # 判死——要么装 shellcheck，要么显式设 BALD_ALLOW_MISSING_SHELLCHECK=1 承认只跑
+  # schema 腿；不再让「少装一个可选依赖」这件事以绿色的形式出现。
   ci-workflow-lint:
-    desc: 校验 .github/workflows/*.yml 自身（schema；本机有 shellcheck 时连 run 脚本一起查）
+    desc: 校验 .github/workflows/*.yml 自身（actionlint schema + shellcheck run 脚本；本机缺 shellcheck 即失败）
     deps: [tools-actionlint]
     platforms: [linux, darwin]
     cmds:
       # 清单为空 = 闸门静默失效，必须响（与 lint/vuln/race 同一口径）。
-      - cmd: 'files=$(find .github/workflows -type f \( -name "*.yml" -o -name "*.yaml" \) | sort); [ -n "$files" ] || { echo "ci-workflow-lint: 未发现作业文件，闸门未覆盖任何东西"; exit 1; }; "{{.GOBIN_DIR}}/actionlint" -no-color $files'
+      - cmd: 'command -v shellcheck >/dev/null 2>&1 || { echo "ci-workflow-lint: 本机没有 shellcheck ⇒ actionlint 的 run 脚本腿会静默缺席，而远端 runner 预装它（本地比 CI 松）。装：brew install shellcheck；确认只要 schema 腿时设 BALD_ALLOW_MISSING_SHELLCHECK=1 复跑"; [ "${BALD_ALLOW_MISSING_SHELLCHECK:-0}" = "1" ] || exit 1; }; files=$(find .github/workflows -type f \( -name "*.yml" -o -name "*.yaml" \) | sort); [ -n "$files" ] || { echo "ci-workflow-lint: 未发现作业文件，闸门未覆盖任何东西"; exit 1; }; "{{.GOBIN_DIR}}/actionlint" -no-color $files'
 
   vuln:
     desc: govulncheck 扫描全部 module（代码可达漏洞；需访问 vuln.go.dev）
