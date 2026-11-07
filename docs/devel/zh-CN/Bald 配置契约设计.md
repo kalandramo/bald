@@ -84,12 +84,12 @@ cd bconf && bin=$(mktemp -d) \
 
 ### 契约形状：BootstrapConfig 十五个域
 
-顶层消息声明式描述应用完整拓扑：`app`（元数据，含 Duration 字段 `stop_timeout`）、`server`（HTTP/gRPC 可混合）、`config`（九种配置源可混合）、`registry`、`logger`、`tracer`、`metrics`、`broker`、`storage`、`ai`、`workflow`、`cache`、`script`、`database`、`audit`（v0.6.0 新增，见下）。多态域（配置源、日志后端、传输协议）一律 `optional` 子消息 + `repeated`——「同时配多种」是一等公民。
+顶层消息声明式描述应用完整拓扑：`app`（元数据，含 Duration 字段 `stop_timeout`、`health_poll_interval` 与两条探针路径 `probe_live_path`/`probe_ready_path`）、`server`（HTTP/gRPC 可混合）、`config`（九种配置源可混合）、`registry`、`logger`、`tracer`、`metrics`、`broker`、`storage`、`ai`、`workflow`、`cache`、`script`、`database`、`audit`（v0.6.0 新增，见下）。多态域（配置源、日志后端、传输协议）一律 `optional` 子消息 + `repeated`——「同时配多种」是一等公民。
 
 三条形状设计纪律，各对应一类真实语义需求：
 
 1. **三态语义用显式子消息**（如 `server.http.tls` → `message TLS`）：启用 TLS 是未配置/禁用/启用+参数三态，标量 bool 表达不了；子消息天然有 presence，`GetTls() == nil` 即未配置。
-2. **Duration 用 `google.protobuf.Duration`**：换类型安全与 protojson 标准序列化，代价见下文坑 1。无跨语言需求的配置项，秒数 int 字段反而省心——全契约目前只有 4 处用 Duration：`app.stop_timeout` 与 `common.Backoff` 的 `initial`/`step`/`max`（其余时长类字段一律 `*_ms` int）。
+2. **Duration 用 `google.protobuf.Duration`**：换类型安全与 protojson 标准序列化，代价见下文坑 1。无跨语言需求的配置项，秒数 int 字段反而省心——全契约目前 6 处用 Duration：`app.stop_timeout`、`app.health_poll_interval`、`client.{grpc,http}.timeout` 与 `common.Backoff` 的 `initial`/`step`/`max`（其余时长类字段一律 `*_ms` int）。
 3. **repeated 是替换语义**：配置中出现列表整体覆盖默认值而非追加（桥接层保证，见下文）——契约层面无需为「覆盖 vs 追加」引入任何标记。
 
 **v0.6.0 新增 `audit` 域**：声明审计后端配置（`Audit` 消息）。与 `logger` 同属「可插拔后端」家族但语义不同——审计是**一次性装配、不支持热更新**（运行期热切走 R1-2 协调器的 `audit.backends` 期望态，双轨并存）。该域自身也经历了一次单选→多选迁移：`string type = 1`（v0.5.0 单选）在 v0.6.0 废弃并 `reserved`，改为 `backends` 列表；旧键被装载器 `DiscardUnknown` 丢弃后剩空段，**启动期显式报错**（静默失效变显式迁移提示，与 §兼容性 的字段号纪律同调）。
@@ -238,7 +238,7 @@ bconf.BindFlags(fs, cfg, "server")   // 递归注册 --server.http.addr 等层�
 - [x] `UnmarshalMap` 合并桥接：coerce 规范化 + DiscardUnknown + clearPresentLists + proto.Merge；Duration/repeated/presence 三坑内建防御。
 - [x] `Validate` 形状校验：addr 格式（:0 动态端口放行）、backends 非空、六种后端段级规则（值域/必填连接目标/数值非负，凭证走 env 链不校）、filter_keys/output_paths 空串项 fail-fast，错误带 `backends[i].<seg>` 定位。
 - [x] `BindFlags` 描述符驱动：八种标量 + Duration 字符串化，nil 子消息跳过防 TLS 误启用，FlagSet 作用域可控；repeated/map 注册隐藏指引 flag（误用报「怎么办」、自定义 binder 让位）。
-- [x] 测试 30 例锁语义：默认值快照、合并语义、入参不被改写、标量 coerce、Duration 格式化与四种写法归一、嵌套策略段解码（`registry.etcd.backoff`，含「缺席必须是 nil」）、backends/filter_keys/output_paths/五后端段级校验、指引 flag 五态（零感知/隐藏/误用指引/map/让位）、env 键折叠六态、契约产物字节门、分配剖面守卫两条。
+- [x] 测试 30 例锁语义：默认值快照、合并语义、入参不被改写、标量 coerce、Duration 格式化与四种写法归一、嵌套策略段解码（`registry.etcd.backoff`，含「缺席必须是 nil」）、backends/filter_keys/output_paths/五后端段级校验、指引 flag 五态（零感知/隐藏/误用指引/map/让位）、env 键折叠九态、契约产物字节门、分配剖面守卫两条。
 
 **版本演进（节选，全量在根 `CHANGELOG.md`）**：
 

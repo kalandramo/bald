@@ -265,6 +265,19 @@ appkit.WithHealth(h, appkit.WithProbePaths("/livez", "/readyz"),
 	appkit.WithHealthPollInterval(2*time.Second))
 ```
 
+同样的三个值可以不写代码、只在 YAML 里表态——它们是契约 `app` 段的字段：
+
+```yaml
+app:
+  probe_live_path: /livez          # 默认 /healthz
+  probe_ready_path: /readyz        # 默认 /readyz；与上一行相同即装配期报错
+  health_poll_interval: 2s         # 默认 2s；Duration 字段，显式 0s 按非法值拒绝
+```
+
+env 同一条链也通，前缀按《Bald 配置系统》的口径取 `<APP_NAME>_`：应用名为 `demo-api` 时写 `DEMO_API_APP_PROBE_LIVE_PATH=/livez`、`DEMO_API_APP_PROBE_READY_PATH=/readyz`（两条一起注入是常态，键折叠按分支各自折回规范名，见 §7.43）。次序仍是契约先应用、代码显式 Option 覆盖：`WithProbePaths` 只在传了非空路径时算表态，`WithHealthPollInterval` 只在传了正数时算表态。
+
+三个字段都**只在代码声明了 `WithHealth` 时生效**——健康源是注入对象，契约构造不出它。配了字段却没声明 `WithHealth` 会在装配期 fail-fast（不静默丢掉），`--plan` 预检给出同一条报错；路径相同、路径不以 `/` 开头、间隔非正三种非法值同样提前到装配期报错，而不是留到 server 构造期 panic。
+
 不声明 `WithHealth` 则框架**不挂任何探针**。K8s 下这会让 `livenessProbe` 拿到 404 并反复重启——部署清单必须要么使用 `WithHealth`，要么由业务自挂 handler。
 
 ## 附录：FAQ

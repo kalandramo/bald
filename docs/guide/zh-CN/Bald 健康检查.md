@@ -63,6 +63,17 @@ appkit.WithHealth(h)                                             // HTTP 双探�
 appkit.WithHealth(h, appkit.WithProbePaths("/livez", "/readyz"))  // 自定义路径
 ```
 
+探针路径与 gRPC 轮询间隔也可只在 YAML 里配（契约 `app` 段），不必写代码：
+
+```yaml
+app:
+  probe_live_path: /livez          # 默认 /healthz
+  probe_ready_path: /readyz        # 默认 /readyz
+  health_poll_interval: 2s         # 默认 2s
+```
+
+代码里的 `appkit.WithProbePaths` / `appkit.WithHealthPollInterval` 显式值优先于契约。这三个字段要求代码声明过 `WithHealth`（健康源是注入对象，契约构造不出来）：配了字段却没声明就会启动期报错，`--plan` 预检同判。
+
 不声明则不挂探针（K8s 探针会 404 → 容器永不 Ready）；设计论证见
 `docs/devel/zh-CN/Bald 健康检查设计.md`。
 

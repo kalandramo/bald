@@ -171,7 +171,7 @@ BALD_DEMO_CACHE_REDIS_ADDR  →  cache.redis.addr
 两个必须知道的约束：
 
 - **前缀不可省**。没有 `BALD_DEMO_` 前缀的变量根本不会被读（枚举驱动，非查询驱动）。
-- **契约多词键（含下划线的字段名）经 env 直接写就行**。契约里 179 个字段名含下划线（分布于 62 个 message：`rate_limit` / `server_addrs` / `max_open_connections` …），而 env 负载里的 `_` 一律先切成路径分隔符——`BALD_DEMO_SERVER_HTTP_MIDDLEWARE_RATE_LIMIT_BURST` 落树成 `server.http.middleware.rate.limit.burst`。`bootstrap/config` 的 `envLayer` 在**合树之前**用 `bconf.FoldEnvKeys` 按契约描述符把这条链折回规范键 `rate_limit.burst`，于是 env 与文件写的是同一个键：env 照常压过文件，生成物默认开启的严格门禁（`appkit.StrictContract`）看到的也是契约名。
+- **契约多词键（含下划线的字段名）经 env 直接写就行**。契约里 217 个字段名含下划线（分布于 82 个 message：`rate_limit` / `server_addrs` / `max_open_connections` …；口径＝从 `BootstrapConfig` 描述符递归遍历、按 message 身份去重），而 env 负载里的 `_` 一律先切成路径分隔符——`BALD_DEMO_SERVER_HTTP_MIDDLEWARE_RATE_LIMIT_BURST` 落树成 `server.http.middleware.rate.limit.burst`。`bootstrap/config` 的 `envLayer` 在**合树之前**用 `bconf.FoldEnvKeys` 按契约描述符把这条链折回规范键 `rate_limit.burst`，于是 env 与文件写的是同一个键：env 照常压过文件，生成物默认开启的严格门禁（`appkit.StrictContract`）看到的也是契约名。
 
   可复制即跑（前两行把角色文件里的 `{rate: 1000, burst: 200}` 压成 `{1, 1}`，第二个请求即被拒；第三行改的是 gRPC 面的超时；末行演示的是另一件事，与前三行不同场景——角色文件里**没有**熔断段，单写一个 env 键就能把这一层开出来，因为「段是否存在」也由分层合并决定。要看到它真的开窗，把限流两行去掉、再给 handler 加一次 5xx）：
 
@@ -183,7 +183,7 @@ BALD_DEMO_CACHE_REDIS_ADDR  →  cache.redis.addr
   ```
 
   端到端实证：`_example/bald/internal/bootstrap/middleware_e2e_test.go` 的 `TestE2E_EnvOverridesContractRateLimit` / `TestE2E_EnvOverridesContractGRPCRateLimit`（`429` / `RESOURCE_EXHAUSTED`）与 `TestE2E_EnvOverridesContractCircuitBreaker`——角色文件里**不写**熔断段，只靠 env 写 `min_requests`/`open_duration_ms`/`window_ms` 就把这一层开出来（多词键靠 §7.7 的折叠在合树前与规范键同名），一次 504 之后第二发即 `503`。
-  - 折叠只在**唯一链**上发生，平级规范名优先，且规范键已被另一种形状（proto 名或 JSON 名）占据时不折——真嵌套键不会被抢走，笔误（如 `RAT_LIMIT`）折不出来就照旧由严格门禁指名。
+  - 折叠**逐分支**进行，平级规范名优先，且规范键已被另一种形状（proto 名或 JSON 名）占据时该分支不折——真嵌套键不会被抢走，笔误（如 `RAT_LIMIT`）折不出来就照旧由严格门禁指名。「逐分支」是指同一中间节点下的兄弟分支各自判命中：`BALD_DEMO_APP_PROBE_LIVE_PATH` 与 `BALD_DEMO_APP_PROBE_READY_PATH` 一起注入时，`app.probe` 节点下长出 `live`、`ready` 两个子键，两条各自折回 `probe_live_path`、`probe_ready_path`，只删被消费的叶子路径，折不出来的分支原样留下。
   - **业务自有键（`biz.*`）没有契约描述符可折**，含下划线仍会被切成嵌套路径：请用点路径命名或避免下划线——示例里 `greetv1.readOwnConfig` 用的是 `biz.greet.delay`，不是 `delay_ms`。
   - 一次改整段配置仍可改契约文件并用 `appkit.ConfigFile` 追加覆盖（同名单值字段末者胜），姿势见示例的 `roleConfigOver`；文件面写整段比拼多个 env 更贴近配置的本来书写面，env 这条路现在只是**也可用**，不再是被迫绕行。
 
@@ -550,7 +550,7 @@ proto 契约只约束**框架级**配置，业务自定义段允许自由键，�
 
 | 字段 | 内容 |
 |---|---|
-| `app` | 应用元数据（含 `stop_timeout`） |
+| `app` | 应用元数据（`stop_timeout`、`health_poll_interval`、探针路径 `probe_live_path`/`probe_ready_path`） |
 | `server` | 传输层（http / grpc / 及 31 个协议段，可多选） |
 | `config` | 配置中心来源（9 个源可混合） |
 | `registry` | 服务注册发现 |

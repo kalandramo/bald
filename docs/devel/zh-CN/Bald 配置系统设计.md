@@ -239,7 +239,7 @@ bald/bconf/                       module github.com/kalandramo/bald/bconf
 
 | 字段 | 含义 |
 |---|---|
-| `app` | 应用元数据（含 `stop_timeout`，全契约唯一 `google.protobuf.Duration` 字段） |
+| `app` | 应用元数据（`stop_timeout` 与 `health_poll_interval` 两个 `google.protobuf.Duration` 字段） |
 | `server` | 传输层（HTTP/gRPC/…可同时配置多种） |
 | `config` | 配置中心来源（file / etcd / nacos / consul / apollo / kubernetes / vault / http / env 可混合） |
 | `registry` | 服务注册发现 |
@@ -252,7 +252,7 @@ bald/bconf/                       module github.com/kalandramo/bald/bconf
 **契约设计细节（收编自《proto 配置契约设计.md》）**：
 
 1. **TLS 用显式子消息**（`server.proto` 的 `Server.http.tls` → `message TLS`）：启用 TLS 是三态语义（未配置/禁用/启用+参数），标量 bool 表达不了；显式子消息天然有 presence——`GetTls() == nil` 即未配置。坑位实证：`BindFlags` 走契约前必须 `m.Has(fd)` 判存在再 `Mutable`，否则 nil 子消息被实例化 → TLS 误启用 → e2e 全挂。
-2. **Duration 用 `google.protobuf.Duration`**（现仅 `app.stop_timeout` 一处）：拿到类型安全与 protojson 标准序列化，代价是序列化形态必须遵守 protojson 约定（见 §2.4 坑 1）。若新配置项无跨语言/跨域需求，秒数 int 字段反而更省心。
+2. **Duration 用 `google.protobuf.Duration`**（现 6 处：`app.stop_timeout`、`app.health_poll_interval`、`client.{grpc,http}.timeout`、`common.Backoff` 的 `initial`/`step`/`max`）：拿到类型安全与 protojson 标准序列化，代价是序列化形态必须遵守 protojson 约定（见 §2.4 坑 1）。若新配置项无跨语言/跨域需求，秒数 int 字段反而更省心。
 3. **repeated 字段整体替换语义**：配置中出现列表时覆盖默认值而非追加（`UnmarshalMap` 保证，见 §2.4 坑 2）——契约层面无需为「覆盖 vs 追加」引入任何标记。
 
 ### 2.4 桥接：`bconf.UnmarshalMap` 的合并语义与三个坑
