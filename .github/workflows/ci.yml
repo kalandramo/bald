@@ -145,6 +145,17 @@ jobs:
         working-directory: cli
         run: go run ./cmd/bald gen app --spec ../_example/bald/appspec.json --out ../_example/bald --check
 
+      - name: 蒸馏卡闸门（bald convention check）
+        # AI 规范通道（cli/internal/convention/cards/）的机器闸门：卡集完整性
+        # （front-matter/规则 ID 唯一合法）+ 卡声明的确定性检查器。仓库根检出
+        # 没有 _example/bald 之外的项目级 appspec.json，gen-app-drift 在这里
+        # 会对 cli 目录按 skip 处理——真正盯生成树的是上一步与 acceptance 作业，
+        # 这一步守住的是「卡集本身没坏」与「checker 注册表与卡声明一致」。
+        # 发现问题时退出码 0 是 MCP 语义（客户端要拿完整结果），CI 拦截必须
+        # 显式 --fail-on-findings（onexai convention 第 13 章口径）。
+        working-directory: cli
+        run: go run ./cmd/bald convention check --fail-on-findings
+
   # 竞态门禁：普通 test 不启用 race detector，session manager / 热重载 /
   # 计划缓存 / 限流器等并发路径的竞争只能在这里被发现（代码注释里的
   # 「-race 可检出」不是保险）。
