@@ -4,6 +4,28 @@
 条目取自该版本区间内的提交标题（Conventional Commits），不要手工调整顺序。
 发布流程见 [多模块发布与变更日志](docs/devel/zh-CN/多模块发布与变更日志.md)。
 
+## 2026-11-07
+
+### bald v0.41.0
+
+- `9f0b018f` docs: 登记 §7.42 与六项 owner 口径，Provider 接入补非服务器工厂一节
+- `e5f75745` feat(bconf,transport/sse): sse 段补 auto_stream/auto_replay，按 presence 映射
+
+### bconf v0.22.0
+
+- `e5f75745` feat(bconf,transport/sse): sse 段补 auto_stream/auto_replay，按 presence 映射
+
+### transport/sse v0.6.0
+
+- `e5f75745` feat(bconf,transport/sse): sse 段补 auto_stream/auto_replay，按 presence 映射
+- `73b105f2` chore: 发布 18 个模块（bconf v0.21.0 / pkg v0.5.0 / transport/client v0.1.0 等）
+- `6c761301` chore: 发布 27 个模块
+- `a2c6e431` chore: 发布 4 个模块（bconf v0.19.0、registry/etcd v0.4.0、broker/kafka v0.2.4、transport/kafka v0.2.1）
+- `8d277c47` chore: 发布 20 个模块（含根 v0.38.0）
+- `6f9a3104` chore: 发布 3 个模块（bald v0.37.2、cli v0.1.1、pkg v0.2.2）
+- `d4396185` chore: 发布 3 个模块（bald v0.37.1、cli v0.1.0、pkg v0.2.1）
+- `63f2cecf` chore: 发布 5 个模块（bconf v0.17.0、berrors v0.1.2、bootstrap v0.13.6、pkg v0.2.0、根 v0.37.0）
+
 ## 2026-11-06
 
 ### bald v0.40.0

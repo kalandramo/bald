@@ -4,7 +4,7 @@ go 1.27.1
 
 require (
 	github.com/apache/rocketmq-client-go/v2 v2.1.2
-	github.com/kalandramo/bald/bconf v0.21.0
+	github.com/kalandramo/bald/bconf v0.22.0
 	github.com/kalandramo/bald/broker v0.1.0
 	github.com/kalandramo/bald/encoding v0.1.0
 	github.com/kalandramo/bald/encoding/json v0.0.0-00010101000000-000000000000

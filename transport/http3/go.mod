@@ -8,7 +8,7 @@ replace github.com/kalandramo/bald/transport => ..
 
 require (
 	github.com/gorilla/mux v1.8.1
-	github.com/kalandramo/bald/bconf v0.21.0
+	github.com/kalandramo/bald/bconf v0.22.0
 	github.com/kalandramo/bald/log v0.5.4
 	github.com/kalandramo/bald/pkg v0.5.0
 	github.com/kalandramo/bald/transport v0.4.0

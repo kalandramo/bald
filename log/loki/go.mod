@@ -3,7 +3,7 @@ module github.com/kalandramo/bald/log/loki
 go 1.27.1
 
 require (
-	github.com/kalandramo/bald/bconf v0.21.0
+	github.com/kalandramo/bald/bconf v0.22.0
 	github.com/kalandramo/bald/log v0.5.4
 )
 
