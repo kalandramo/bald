@@ -5,9 +5,9 @@
 // transport/sse 保持零契约依赖（核心不 import bconf），只有本包 import
 // bconf——业务按需 import，依赖图全程可见。
 //
-// 契约段表达传输参数（addr/path/tls）；授权钩子、订阅回调等业务接线经
-// WithServerOptions / WithAfterBuild 注入，在 Provider 的 Build 内应用（时机
-// 在业务 BeforeStart 之后，可读取业务运行期资源）。
+// 契约段表达传输参数（addr/path/tls/auto_stream/auto_replay）；授权钩子、订阅
+// 回调等业务接线经 WithServerOptions / WithAfterBuild 注入，在 Provider 的 Build
+// 内应用（时机在业务 BeforeStart 之后，可读取业务运行期资源）。
 //
 // 与 bootstrap 的关系：本包不 import bootstrap（Provider 返回未命名函数类型，
 // 用 var _ 守卫）。
@@ -106,10 +106,20 @@ func Provider(opts ...Option) func(context.Context, *bootstrapv1.Server) (transp
 // 「未设置」语义：path 为空时**不**调 WithPath——用实现默认值 "/events"
 // （与契约注释 server.proto 的「默认 /events」一致）。这避免「空段 sse: {}
 // 反而把 path 设成空串」的反向陷阱。
+//
+// auto_stream / auto_replay 是 proto3 optional：只有显式写下的值才映射成
+// Option，不表态时保留实现默认。这一区分对 auto_replay 是承重的——实现默认
+// 开启重放，若按 GetAutoReplay() 的真假判断，则契约里永远无法表达「关掉」。
 func buildOpts(sec *bootstrapv1.Server_Sse) []sse.Option {
 	var opts []sse.Option
 	if path := sec.GetPath(); path != "" {
 		opts = append(opts, sse.WithPath(path))
+	}
+	if sec.AutoStream != nil {
+		opts = append(opts, sse.WithAutoStream(*sec.AutoStream))
+	}
+	if sec.AutoReplay != nil {
+		opts = append(opts, sse.WithAutoReplay(*sec.AutoReplay))
 	}
 	return opts
 }

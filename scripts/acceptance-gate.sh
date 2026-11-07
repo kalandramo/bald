@@ -226,6 +226,7 @@ rows() {
     $'ci\ttransport/tcp\t./contract\tTestMappingOffline_|TestAppProviderEndToEnd_\t' \
     $'ci\ttransport/client\t./contract\tTestMappingOffline_\t' \
     $'ci\ttransport/websocket\t./contract\tTestMappingOffline_\t' \
+    $'ci\ttransport/sse\t./contract\tTestBuildOpts_BoolPresenceSemantics|TestProvider_AutoStreamRuntime|TestProvider_AutoReplayRuntime\t' \
     $'ci\ttransport/http3\t./contract\tTestMappingOffline_\t' \
     $'ci\ttransport/graphql\t./contract\tTestMappingOffline_|TestAppProviderEndToEnd_\t' \
     $'ci\ttransport/webrtc\t./contract\tTestMappingOffline_|TestAppProviderEndToEnd_\t' \

@@ -685,8 +685,13 @@ type Server_Sse struct {
 	// 监听地址，如 ":8080"。
 	Addr string `protobuf:"bytes,1,opt,name=addr,proto3" json:"addr,omitempty"`
 	// SSE 事件路径，默认 "/events"。
-	Path          string      `protobuf:"bytes,2,opt,name=path,proto3" json:"path,omitempty"`
-	Tls           *Server_TLS `protobuf:"bytes,3,opt,name=tls,proto3" json:"tls,omitempty"`
+	Path string      `protobuf:"bytes,2,opt,name=path,proto3" json:"path,omitempty"`
+	Tls  *Server_TLS `protobuf:"bytes,3,opt,name=tls,proto3" json:"tls,omitempty"`
+	// 是否自动订阅流（对应 sse.WithAutoStream）。不表态时保留实现默认值。
+	AutoStream *bool `protobuf:"varint,4,opt,name=auto_stream,json=autoStream,proto3,oneof" json:"auto_stream,omitempty"`
+	// 是否自动重放历史事件（对应 sse.WithAutoReplay）。不表态时保留实现默认值
+	// ——实现默认是开启，所以要关掉必须显式写 false，靠 presence 区分。
+	AutoReplay    *bool `protobuf:"varint,5,opt,name=auto_replay,json=autoReplay,proto3,oneof" json:"auto_replay,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -740,6 +745,20 @@ func (x *Server_Sse) GetTls() *Server_TLS {
 		return x.Tls
 	}
 	return nil
+}
+
+func (x *Server_Sse) GetAutoStream() bool {
+	if x != nil && x.AutoStream != nil {
+		return *x.AutoStream
+	}
+	return false
+}
+
+func (x *Server_Sse) GetAutoReplay() bool {
+	if x != nil && x.AutoReplay != nil {
+		return *x.AutoReplay
+	}
+	return false
 }
 
 // WebSocket 传输层。
@@ -3690,7 +3709,7 @@ var File_bootstrap_v1_server_proto protoreflect.FileDescriptor
 
 const file_bootstrap_v1_server_proto_rawDesc = "" +
 	"\n" +
-	"\x19bootstrap/v1/server.proto\x12\fbootstrap.v1\"\x9eE\n" +
+	"\x19bootstrap/v1/server.proto\x12\fbootstrap.v1\"\x8bF\n" +
 	"\x06Server\x122\n" +
 	"\x04http\x18\x01 \x01(\v2\x19.bootstrap.v1.Server.HttpH\x00R\x04http\x88\x01\x01\x125\n" +
 	"\x05http3\x18\x02 \x01(\v2\x1a.bootstrap.v1.Server.Http3H\x01R\x05http3\x88\x01\x01\x122\n" +
@@ -3864,11 +3883,17 @@ const file_bootstrap_v1_server_proto_rawDesc = "" +
 	"\x10_circuit_breaker\x1aI\n" +
 	"\aGraphql\x12\x12\n" +
 	"\x04addr\x18\x01 \x01(\tR\x04addr\x12*\n" +
-	"\x03tls\x18\x02 \x01(\v2\x18.bootstrap.v1.Server.TLSR\x03tls\x1aY\n" +
+	"\x03tls\x18\x02 \x01(\v2\x18.bootstrap.v1.Server.TLSR\x03tls\x1a\xc5\x01\n" +
 	"\x03Sse\x12\x12\n" +
 	"\x04addr\x18\x01 \x01(\tR\x04addr\x12\x12\n" +
 	"\x04path\x18\x02 \x01(\tR\x04path\x12*\n" +
-	"\x03tls\x18\x03 \x01(\v2\x18.bootstrap.v1.Server.TLSR\x03tls\x1a_\n" +
+	"\x03tls\x18\x03 \x01(\v2\x18.bootstrap.v1.Server.TLSR\x03tls\x12$\n" +
+	"\vauto_stream\x18\x04 \x01(\bH\x00R\n" +
+	"autoStream\x88\x01\x01\x12$\n" +
+	"\vauto_replay\x18\x05 \x01(\bH\x01R\n" +
+	"autoReplay\x88\x01\x01B\x0e\n" +
+	"\f_auto_streamB\x0e\n" +
+	"\f_auto_replay\x1a_\n" +
 	"\tWebsocket\x12\x12\n" +
 	"\x04addr\x18\x01 \x01(\tR\x04addr\x12\x12\n" +
 	"\x04path\x18\x02 \x01(\tR\x04path\x12*\n" +
@@ -4189,6 +4214,7 @@ func file_bootstrap_v1_server_proto_init() {
 	}
 	file_bootstrap_v1_server_proto_msgTypes[0].OneofWrappers = []any{}
 	file_bootstrap_v1_server_proto_msgTypes[1].OneofWrappers = []any{}
+	file_bootstrap_v1_server_proto_msgTypes[6].OneofWrappers = []any{}
 	file_bootstrap_v1_server_proto_msgTypes[14].OneofWrappers = []any{}
 	file_bootstrap_v1_server_proto_msgTypes[20].OneofWrappers = []any{}
 	file_bootstrap_v1_server_proto_msgTypes[34].OneofWrappers = []any{}

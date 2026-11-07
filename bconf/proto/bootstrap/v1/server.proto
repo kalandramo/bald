@@ -259,6 +259,11 @@ message Server {
     // SSE 事件路径，默认 "/events"。
     string path = 2;
     TLS tls = 3;
+    // 是否自动订阅流（对应 sse.WithAutoStream）。不表态时保留实现默认值。
+    optional bool auto_stream = 4;
+    // 是否自动重放历史事件（对应 sse.WithAutoReplay）。不表态时保留实现默认值
+    // ——实现默认是开启，所以要关掉必须显式写 false，靠 presence 区分。
+    optional bool auto_replay = 5;
   }
 
   // WebSocket 传输层。
