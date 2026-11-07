@@ -1,0 +1,38 @@
+{
+  "meta": {
+    "name": "my-api",
+    "module": "example.com/my-api",
+    "desc": "webserver 预设：单 api 角色（HTTP+gRPC）。改 meta.name/module 与各处端口后，运行 bald gen app --spec appspec.json",
+    "roles": [
+      {
+        "name": "api",
+        "domains": [],
+        "server": {
+          "http": true,
+          "grpc": true,
+          "httpAddr": ":8080",
+          "grpcAddr": ":9090"
+        }
+      }
+    ]
+  },
+  "bootstrap": {
+    "app": {
+      "version": "v0.1.0",
+      "stopTimeout": "15s"
+    },
+    "logger": {
+      "backends": [
+        {
+          "type": "slog",
+          "slog": {
+            "level": "info",
+            "format": "console",
+            "outputPath": "stdout"
+          }
+        }
+      ]
+    }
+  },
+  "domains": []
+}

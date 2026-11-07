@@ -1,0 +1,36 @@
+{
+  "meta": {
+    "name": "my-worker",
+    "module": "example.com/my-worker",
+    "desc": "worker 预设：单 worker 角色（gRPC，异步任务/消费者骨架）。改 meta.name/module 后，运行 bald gen app --spec appspec.json",
+    "roles": [
+      {
+        "name": "worker",
+        "domains": [],
+        "server": {
+          "grpc": true,
+          "grpcAddr": ":9091"
+        }
+      }
+    ]
+  },
+  "bootstrap": {
+    "app": {
+      "version": "v0.1.0",
+      "stopTimeout": "15s"
+    },
+    "logger": {
+      "backends": [
+        {
+          "type": "slog",
+          "slog": {
+            "level": "info",
+            "format": "console",
+            "outputPath": "stdout"
+          }
+        }
+      ]
+    }
+  },
+  "domains": []
+}

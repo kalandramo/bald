@@ -1,0 +1,52 @@
+{
+  "meta": {
+    "name": "my-app",
+    "module": "example.com/my-app",
+    "desc": "fullstack 预设：api+worker 双角色 + SQLite（内存库，零外部依赖）。改 meta.name/module 后，运行 bald gen app --spec appspec.json",
+    "roles": [
+      {
+        "name": "api",
+        "domains": [],
+        "server": {
+          "http": true,
+          "grpc": true,
+          "httpAddr": ":8080",
+          "grpcAddr": ":9090"
+        }
+      },
+      {
+        "name": "worker",
+        "domains": [],
+        "server": {
+          "grpc": true,
+          "grpcAddr": ":9091"
+        }
+      }
+    ]
+  },
+  "bootstrap": {
+    "app": {
+      "version": "v0.1.0",
+      "stopTimeout": "15s"
+    },
+    "logger": {
+      "backends": [
+        {
+          "type": "slog",
+          "slog": {
+            "level": "info",
+            "format": "console",
+            "outputPath": "stdout"
+          }
+        }
+      ]
+    },
+    "database": {
+      "sql": {
+        "driver": "sqlite",
+        "source": "file::memory:?cache=shared&_fk=1"
+      }
+    }
+  },
+  "domains": []
+}

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -17,6 +19,7 @@ import (
 type appOptions struct {
 	OutRoot string // --out：产出根目录（不可命名 Out，避免遮蔽 ioStreams.Out）
 	Spec    string // --spec：AppSpec JSON 路径（protojson）
+	Preset  string // --preset：预置声明模板名（与 --spec 互斥；落一份 appspec.json 后由用户编辑）
 	Adopt   bool   // --adopt：覆盖 owned 生成物并更新清单
 	Check   bool   // --check：只校验不落盘（有差异即失败）
 
@@ -25,8 +28,11 @@ type appOptions struct {
 
 // Validate 校验必填项与 flag 互斥。
 func (o *appOptions) Validate() error {
-	if o.Spec == "" {
-		return fmt.Errorf("--spec <AppSpec.json> is required")
+	if o.Spec == "" && o.Preset == "" {
+		return fmt.Errorf("--spec <AppSpec.json> is required (or --preset <name> to start from a template)")
+	}
+	if o.Spec != "" && o.Preset != "" {
+		return fmt.Errorf("--spec and --preset are mutually exclusive")
 	}
 	if o.Adopt && o.Check {
 		return fmt.Errorf("--adopt and --check are mutually exclusive")
@@ -34,9 +40,40 @@ func (o *appOptions) Validate() error {
 	return nil
 }
 
-// Run 纯执行：读取 AppSpec 并生成目标目录树。
+// Run 纯执行：--preset 先落声明文件（Seeded 语义），否则读取 AppSpec 生成目录树。
 func (o *appOptions) Run() error {
+	if o.Preset != "" {
+		return runPreset(o.Preset, o.OutRoot, o.ioStreams)
+	}
 	return runGenAppSpec(o.Spec, o.OutRoot, o.Adopt, o.Check, o.ioStreams)
+}
+
+// runPreset 把预置声明写到产出根的 appspec.json：不存在才写（声明是 user 文件，
+// 覆盖别人的声明越权）；已存在即拒绝并指引。写完给下一步指令（改 meta → gen app）。
+func runPreset(name, outRoot string, streams ioStreams) error {
+	raw, err := presetSpec(name)
+	if err != nil {
+		return err
+	}
+	root := outRoot
+	if root == "" {
+		root = "."
+	}
+	specPath := filepath.Join(root, "appspec.json")
+	if _, err := os.Stat(specPath); err == nil {
+		return fmt.Errorf("%s already exists, refusing to overwrite (edit it, or remove it first)", specPath)
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("stat %s: %w", specPath, err)
+	}
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(specPath, raw, 0o644); err != nil {
+		return err
+	}
+	fmt.Fprintln(streams.Out, "generated:", specPath, "(preset "+name+")")
+	fmt.Fprintln(streams.Out, "next: edit meta.name/module (and addrs) in appspec.json, then run `bald gen app --spec appspec.json`")
+	return nil
 }
 
 // CheckAppSpec 是 gen app --check 的程序化入口（零写入校验生成树与清单和声明
@@ -83,6 +120,7 @@ user 文件生成器永不读写。`,
 	}
 	cmd.Flags().StringVar(&o.OutRoot, "out", "", "产出根目录（缺省取 AppSpec.layout.root，再缺省为当前目录）")
 	cmd.Flags().StringVar(&o.Spec, "spec", "", "AppSpec JSON 路径（protojson）")
+	cmd.Flags().StringVar(&o.Preset, "preset", "", "从预置声明模板起步（"+strings.Join(PresetNames(), "/")+"），落 appspec.json 后编辑再 gen app")
 	cmd.Flags().BoolVar(&o.Adopt, "adopt", false, "覆盖 owned 生成物并更新清单（默认拒绝）")
 	cmd.Flags().BoolVar(&o.Check, "check", false, "只校验生成物与清单是否与声明一致（零写入，有差异即失败）")
 	cmd.SetErr(streams.ErrOut)
