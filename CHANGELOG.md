@@ -6,6 +6,15 @@
 
 ## 2026-11-07
 
+### bald v0.44.0
+
+- `d4769e9f` feat(cli): 规范卡收尾六张，卡库 22 张对齐评审目录
+
+### cli v0.4.0
+
+- `f8e1cf60` feat(cli): gen app --preset 预置声明模板集
+- `d4769e9f` feat(cli): 规范卡收尾六张，卡库 22 张对齐评审目录
+
 ### bald v0.43.0
 
 - `5d572c06` test(docscheck): 卡类别枚举补 contract（与 cli 侧解析同步）
