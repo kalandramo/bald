@@ -430,14 +430,14 @@ Taskfile 统一入口照抄 onexai 的 `convention:` target 形态：`bald conve
 6. 规则 ID 可引用：故意违反一条卡规则后，`bald convention check --format json` 的 finding 带该规则 ID，
    且在 AGENTS.md 约束下模型写评审意见时引用同一 ID（如「违反 bconf-r01」），而非「配置不规范」。
 
-### 4.4′ Phase 1 验收记录（2026-11-08 实施）
+### 4.4′ Phase 1 验收记录（2026-11-08 实施，已发 `cli/v0.2.0`）
 
 六条判据的实测结果（本机，`cli` @ 本轮实现）：
 
 | # | 判据 | 结果 |
 |---|---|---|
 | 1 | MCP 工具面 | ✅ `bald mcp tools` 导出 4 个工具（overview/list/get/check），全部 `readOnlyHint: true`；selector 挡住 gen/release |
-| 2 | Claude 会话行为 | ✅ 引导物就位（AGENTS.md「先查规范」+ `/bald` 命令 + SKILL 判定表 + `.mcp.json` stdio 配置）；实际模型行为待真实会话复核 |
+| 2 | AI 会话行为 | ✅ 引导物就位（AGENTS.md「先查规范」+ `/bald` 命令 + SKILL 判定表 + `.mcp.json` stdio 配置）；实际模型行为待真实会话复核 |
 | 3 | 手改生成树 → check 红 | ✅ 改 `_example/bald` 的 owned 文件 → `codegen-r03` finding → `--fail-on-findings` exit 1；还原后零差异 |
 | 4 | docscheck 新闸门 | ✅ `TestConventionCards`（front-matter/sources 可解析/规则 ID 唯一合法/checker 声明⊆注册表且绑定规则存在）；`TestModulePackageSets` 登记新包 |
 | 5 | ide init 幂等 | ✅ 干净目录首跑 generated/updated，二跑 kept/ok 零差异；`.mcp.json` 合并保留既有键 |
@@ -448,6 +448,17 @@ Taskfile 统一入口照抄 onexai 的 `convention:` target 形态：`bald conve
 （零差异门的程序化入口，语义单份）、`internal/docscheck`（卡闸门 + 包集登记）、`Taskfile`（convention target）、
 根 `AGENTS.md` + `llms.txt`。门禁：gofmt/golangci（cli 0 issues）/race（新包 + docscheck）/docscheck 全量/
 `task convention` 全绿。
+
+### 4.4″ Phase 2 增量（2026-11-08 实施，同日发 `cli/v0.3.0`）
+
+- **AI 工具面换成用户实际在用的四件套**：`ide init --ide` 扩到 claude|zcode|trae|qoder|workbuddy。
+  zcode 走权威事实（`.zcode/config.json` 的 `mcp.servers`，严格 schema，条目只含 type/command/args；
+  项目 SKILL 进 `.zcode/skills/`）；trae/qoder 各落规则文件；workbuddy 私有格式未核实、只落公共面不猜路径。
+- **项目级自定义卡**：`.bald/conventions/`（LoadAll 合并，卡 id 冲突即报错——补充不是覆盖）。
+- **卡库扩到 16 张 / 97 条规则**：新增 assembly/appspec/directory/bconf/errors/logging/context/testing/release/doctor
+  （contract 类别入列），每条带母文档锚点；规则提炼自《Go标准化开发体系课》同款方法论（问题清单→【强制】→反模式）。
+- **CI 接闸**：test 作业加 `convention check --fail-on-findings` 步（`task ci-workflow-lint` 过，actionlint
+  v1.7.12 经 goproxy.cn 装到 pin 版）。
 
 ---
 
