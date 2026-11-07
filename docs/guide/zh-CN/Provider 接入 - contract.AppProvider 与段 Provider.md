@@ -144,7 +144,45 @@ server:
 - `server.rocketmq`：`name_server_addrs` 必填；`driver_type` 只接受 `""` 与 `v2`——proto 注释里那句「默认 v5」后面**没有代码**（`transport/rocketmq` 恒构造 v2 broker），所以配 `v5`/`aliyun` 是构造期报错而不是静默按 v2 跑。`Connect` 同样只翻标志位，但订阅走 SDK 的同步启动（拉路由要真 NameServer），因此**带订阅者的 `Start` 在没有 NameServer 时必红**——与前两条不同形，别按 kafka 的直觉预期它绿。
 - `server.rabbitmq`：`addrs` 必填且**逐元素非空**——broker 的 `Init` 会丢掉空元素，全空时整体换成内置的 `amqp://guest:guest@127.0.0.1:5672`，那是「写了配置却没落」的最坏形状。裸 `host:port` 可以（`Init` 补 `amqp://`）。另有一条实现事实：`Connect` **只拨 `addrs[0]`**，列表其余元素在这个后端是惰的（不像 kafka 那样多节点容错）。AMQP 的 `Connect` 是完整握手，不能像 kafka 那样在没有 broker 时绿。
 
-### 2.2 整段自持：自己实现 Provider
+### 2.2 非服务器后端：工厂在函数里，注册要显式
+
+`std.Standard()` 与 §2.1 的 `*contract.AppProvider` 覆盖 **server 面**，以及日志/指标/追踪/注册中心/对象存储这些标准装配。下面 16 个 `contract` 包**不在默认集里**：它们导出的是「段 → 构造」的映射函数，必须由你的 app 在声明里包一层 Provider 才会生效。不注册不会崩（段没有消费者时按「无消费者」处理），所以**漏接的表现通常是「配置写了但后端不存在」**。
+
+| 契约段 | 包 | 导出 | 形状 |
+|---|---|---|---|
+| `ai.openai` / `ai.eino` / `ai.langchaingo` | `ai/{openai,eino,langchaingo}/contract` | `Provider` | `func(ctx, *bootstrapv1.Ai) (any, func(), error)` |
+| `cache.local` | `cache/local/contract` | `Provider` | `func(ctx, *bootstrapv1.Cache) (any, func(), error)` |
+| `database.mongodb` | `contrib/database/mongodb/contract` | `Provider` | `func(ctx, *bootstrapv1.Database) (any, func(), error)` |
+| `workflow.argo` | `workflow/argo/contract` | `Provider` | `func(ctx, *bootstrapv1.Workflow) (any, func(), error)` |
+| `broker.kafka` / `broker.rabbitmq` / `broker.rocketmq` | `broker/{kafka,rabbitmq,rocketmq}/contract` | `Provider` | `func(ctx, *bootstrapv1.Broker) (any, func(), error)` |
+| `logger.backends[i]`（五个远端后端） | `log/{aliyun,charm,loki,sentry,tencent}/contract` | `Provider` | `func(ctx, *bootstrapv1.Logger_Backend) (log.Logger, func(), error)` |
+| `audit.store` | `contrib/audit-gorm/contract` | `NewStoreProvider` | `func(*gorm.DB) appkit.AuditProvider` |
+| `audit.stream` | `contrib/audit-stream/contract` | `NewStreamProvider` | `func(redis.UniversalClient) appkit.AuditProvider` |
+
+前六行的写法一样，只是段名与工厂不同。`Segments`/`Apply`/`Plan` 按 §2.3 的范本写，`Build` 里调工厂：
+
+```go
+func (p kafkaProvider) Build(ctx context.Context, s appkit.ApplyScope, _ appkit.Node) (any, appkit.Cleanup, error) {
+    b, closeFn, err := kafkacontract.Provider(ctx, s.Config.GetBroker())
+    if err != nil {
+        return nil, nil, err
+    }
+    return b, appkit.Cleanup(func(context.Context) error {
+        if closeFn != nil {
+            closeFn()
+        }
+        return nil
+    }), nil
+}
+```
+
+远端日志后端不走这条：`logger` 段由引擎按两阶段协议调用（§2.3 的 loggerProvider 是范本），在那个 Provider 的 `Build` 里按 `logger.backends[i].type` 分派到对应 `log/*/contract.Provider`。
+
+审计两行的姿势见 `bald-admin` 的 `cmd/bald-admin/app/audit_wiring.go`：`audit.NamedBackend` 的 `New` 闭包里调用 provider——`NewStreamProvider(rdb)` 的入参取自资源面（`storegorm.SQL.Resource(app)` / Redis 契约客户端），返回的 `appkit.AuditProvider` 再用 `p(ctx, acfg, app)` 构造后端。
+
+**同族子段漏接现在会报错**：`pkg/appkit` 的 `familySubSegmentProblems` 把「同族只点亮一个子段、其余子段静默」的判据从 `server` 推广到了全部非 server 族（`broker`/`cache`/`database`/`ai`/`workflow`/`audit`/`config`/`log` 等）。例如只注册 `broker.redis` 却写了 `broker.kafka:`，计划期就会点名 `broker.kafka is configured but has no implementation`。确实尚未实现的子段，用 `appkit.WithUnimplementedSegments("broker.nats", …)` 显式声明豁免，别靠「反正会被忽略」活着。
+
+### 2.3 整段自持：自己实现 Provider
 
 范本 `_example/bald/internal/bootstrap/providers.go` 的 loggerProvider（覆盖 std 默认日志通道，行为测试钉住掩码语义）——三件套逐条对账：
 
@@ -174,7 +212,7 @@ func (p loggerProvider) Build(_ context.Context, s appkit.ApplyScope, _ appkit.N
 
 声明序在 std.Standard() 之后 → 段路径末者胜，std 默认被整体接管。没有 init() 自注册——接入必须显式出现在你的代码里。
 
-### 2.3 组合：多后端组装用 audit.Compose
+### 2.4 组合：多后端组装用 audit.Compose
 
 Provider 的 Build 里要组装多个后端时，用 `audit.Compose`（`pkg/audit/compose.go`）：按声明序构造（顺序即广播序）；任一单元失败（重复名或构造出错）逆序回滚已构造单元的 cleanup，返回 `*ComposeError` 定位失败单元；多后端经 NewMultiAuditor 合并且 cleanup 聚合为逆序回放；单后端直接返回（类型断言友好）；空列表返回 NopAuditor。失败回滚与引擎账本同构（§5）。
 
@@ -223,7 +261,7 @@ appkit: bootstrap config declares sections with no consumer:
 
 其余各段（registry/database/cache/storage/ai/workflow/broker/tracer/metrics/config）无默认接线：段存在而无 Provider = L3 启动期报错（§3）。
 
-**顶替方式即末者胜**：声明同段路径的 Provider 写在 std.Standard() 之后即整体接管——audit 段被用户 audit Provider 接管后，store/stream 等第三方后端按自己的语义装配；logger 段特殊：不在 Provider 循环里、由引擎按两阶段 + 热更协议调用，但覆盖仍是同一条末者胜规则（§2.2 的 loggerProvider 即范本——阶段 A 引导日志也带你的装饰）。server.http/server.grpc 按能力声明装配，行为细节见各能力使用页。
+**顶替方式即末者胜**：声明同段路径的 Provider 写在 std.Standard() 之后即整体接管——audit 段被用户 audit Provider 接管后，store/stream 等第三方后端按自己的语义装配；logger 段特殊：不在 Provider 循环里、由引擎按两阶段 + 热更协议调用，但覆盖仍是同一条末者胜规则（§2.3 的 loggerProvider 即范本——阶段 A 引导日志也带你的装饰）。server.http/server.grpc 按能力声明装配，行为细节见各能力使用页。
 
 ## 报错速查
 
