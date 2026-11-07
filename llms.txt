@@ -1,0 +1,29 @@
+# bald
+
+> bald 是一个用 Go 把服务装配「工程化」的框架：装配写成段驱动的 Provider 契约，业务域是一等公民，
+> 代码生成器用三道门守住生成物。本文件是面向 LLM 的仓库索引（documentation 规范的标准件）。
+
+## Docs
+
+- [README](README.md): 仓库结构、30 秒最小路径、质量门禁总览
+- [设计判据](docs/devel/zh-CN/设计判据.md): J1–J9 跨模块裁决原则（保留/删除/收敛/fail-closed）
+- [框架契约总览](docs/devel/zh-CN/框架契约总览.md): API surface 能力地图（appkit/transport/berrors/log/...）
+- [风险登记册](docs/architecture/risk-review.md): 风险、严重度、消解条件、动手顺序
+- [onexai 差距评审](docs/architecture/onexai-gap-review.md): bald AI 化设计（规范蒸馏卡 §5 / CLI 通道 §6）
+- [onexai 工具输出存档](docs/architecture/onex-ai.md): OneX Harness AI Coding 的对照证据（逐字）
+- [用户手册](docs/guide/zh-CN/): quickstart 起的 17 篇使用文档
+- [开发手册](docs/devel/zh-CN/): 32 篇设计文档（Bootstrap/配置/日志/存储/传输/...）
+
+## CLI
+
+- `bald gen proto|store|app|domain`: 代码生成（AppSpec 声明驱动，--check 零差异门禁）
+- `bald convention overview|list|get|check`: 工程规范蒸馏卡查询与确定性检查（AI 规范通道）
+- `bald ide init --ide=claude`: 初始化 AI 会话引导物（AGENTS.md/.mcp.json/.claude）
+- `bald mcp start|stream|tools`: 把 CLI 子命令暴露为 MCP server（cobramcp；工具面只含 convention）
+- `bald release plan|sync|changelog|tag`: 维护者发布工具（从 git 历史推导 semver）
+
+## Conventions
+
+- 规范卡内嵌于 CLI（`cli/internal/convention/cards/`），母文档在 docs/；
+  规则 ID `<卡id>-rNN` 贯穿评审意见、`--rules` 过滤与 check 的 JSON finding
+- 规则级别：[强制] 违反即门禁红或评审必打回（豁免需正式评审）；[建议] 默认遵守、偏离需理由；[参考] 按情境采纳
