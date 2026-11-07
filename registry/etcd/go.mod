@@ -3,8 +3,8 @@ module github.com/kalandramo/bald/registry/etcd
 go 1.27.1
 
 require (
-	github.com/kalandramo/bald/bconf v0.22.0
-	github.com/kalandramo/bald/pkg v0.5.0
+	github.com/kalandramo/bald/bconf v0.23.0
+	github.com/kalandramo/bald/pkg v0.6.0
 	github.com/kalandramo/bald/registry v0.4.0
 	github.com/kalandramo/bald/retry v0.2.0
 	go.etcd.io/etcd/api/v3 v3.7.1

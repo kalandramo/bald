@@ -3,9 +3,9 @@ module github.com/kalandramo/bald/oss/minio
 go 1.27.1
 
 require (
-	github.com/kalandramo/bald/bconf v0.22.0
+	github.com/kalandramo/bald/bconf v0.23.0
 	github.com/kalandramo/bald/log v0.5.4
-	github.com/kalandramo/bald/pkg v0.5.0
+	github.com/kalandramo/bald/pkg v0.6.0
 	github.com/minio/minio-go/v7 v7.3.0
 )
 

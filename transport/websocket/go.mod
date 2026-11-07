@@ -11,10 +11,10 @@ replace github.com/kalandramo/bald/encoding/json => ../../encoding/json
 require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
-	github.com/kalandramo/bald/bconf v0.22.0
+	github.com/kalandramo/bald/bconf v0.23.0
 	github.com/kalandramo/bald/encoding v0.1.0
 	github.com/kalandramo/bald/encoding/json v0.1.1
-	github.com/kalandramo/bald/pkg v0.5.0
+	github.com/kalandramo/bald/pkg v0.6.0
 	github.com/kalandramo/bald/transport v0.4.0
 )
 

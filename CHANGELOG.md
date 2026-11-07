@@ -6,6 +6,24 @@
 
 ## 2026-11-07
 
+### bald v0.42.0
+
+- `34eb7aa1` docs: §7.43 补发版现值与远端绿证（run 42358494632 九作业全 success）
+- `0a114b82` docs: 登记 §7.43 env 键折叠的兄弟字段盲区，收口 §7.34 ③′
+- `fc0118f9` feat(bconf,pkg/appkit): 探针路径与就绪轮询间隔进契约 app 段
+- `cf57a708` docs(architecture): §7.34 决策补远端绿证（bald-admin 546c293 / bald ba9b72b 两 run success）
+- `ba9b72b7` docs(architecture): §7.34 收口 owner 排期决策——139 值型选项都不搬，只迁 SSE 两 bool
+- `5e3cadf2` docs: §7.42 记下已落地的三个 tag 与外部探针结果
+
+### bconf v0.23.0
+
+- `fc0118f9` feat(bconf,pkg/appkit): 探针路径与就绪轮询间隔进契约 app 段
+
+### pkg v0.6.0
+
+- `fc0118f9` feat(bconf,pkg/appkit): 探针路径与就绪轮询间隔进契约 app 段
+- `39f986eb` chore: 发布 3 个模块（bconf v0.22.0 / transport/sse v0.6.0 / 根 v0.41.0）
+
 ### bald v0.41.0
 
 - `9f0b018f` docs: 登记 §7.42 与六项 owner 口径，Provider 接入补非服务器工厂一节
