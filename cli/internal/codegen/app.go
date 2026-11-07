@@ -2,6 +2,7 @@ package codegen
 
 import (
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -36,6 +37,15 @@ func (o *appOptions) Validate() error {
 // Run 纯执行：读取 AppSpec 并生成目标目录树。
 func (o *appOptions) Run() error {
 	return runGenAppSpec(o.Spec, o.OutRoot, o.Adopt, o.Check, o.ioStreams)
+}
+
+// CheckAppSpec 是 gen app --check 的程序化入口（零写入校验生成树与清单和声明
+// 一致，有差异时返回带逐文件清单的错误）。convention check 的 gen-app-drift
+// checker 复用同一道门——零差异语义只有一份实现，不出现第二种口径。
+// outRoot 为空时取 AppSpec.layout.root；out/errOut 是诊断流，调用方不关心
+// 过程时传 io.Discard（差异明细已随 error 返回）。
+func CheckAppSpec(spec, outRoot string, out, errOut io.Writer) error {
+	return runGenAppSpec(spec, outRoot, false, true, ioStreams{Out: out, ErrOut: errOut})
 }
 
 // genAppCmd 按 AppSpec 生成应用装配目录树。
