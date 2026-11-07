@@ -34,9 +34,25 @@ type App struct {
 	// 运行环境：dev / staging / production。
 	Env string `protobuf:"bytes,4,opt,name=env,proto3" json:"env,omitempty"`
 	// 优雅停机超时时间。
-	StopTimeout   *durationpb.Duration `protobuf:"bytes,5,opt,name=stop_timeout,json=stopTimeout,proto3" json:"stop_timeout,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	StopTimeout *durationpb.Duration `protobuf:"bytes,5,opt,name=stop_timeout,json=stopTimeout,proto3" json:"stop_timeout,omitempty"`
+	// 存活探针路径（HTTP 与 grpc-gateway 两面同源）。留空用默认 /healthz。
+	//
+	// 三个健康字段都只在代码声明了 appkit.WithHealth 时生效：健康源是注入对象，
+	// 契约构造不出来。声明了字段却没有 WithHealth 会在装配期 fail-fast，不静默。
+	// 业务的 appkit.WithProbePaths 优先于本字段（契约先应用、业务可覆盖）。
+	//
+	// 用普通 string 而不是 optional：默认值非空，空串正好表达「不表态」，而显式
+	// 空串本就不是可用路径（WithProbePaths 也忽略它），无需 presence 区分。
+	ProbeLivePath string `protobuf:"bytes,6,opt,name=probe_live_path,json=probeLivePath,proto3" json:"probe_live_path,omitempty"`
+	// 就绪探针路径。留空用默认 /readyz。与 probe_live_path 不得相同——两条探针
+	// 挂在同一个 mux 上，同路径注册会 panic，装配期就拦下来。
+	ProbeReadyPath string `protobuf:"bytes,7,opt,name=probe_ready_path,json=probeReadyPath,proto3" json:"probe_ready_path,omitempty"`
+	// gRPC 侧就绪状态同步间隔（后台轮询健康源并 SetServingStatus）。留空用默认
+	// 2s；显式给值必须为正。Duration 是消息型，天然带 presence：不表态与显式 0
+	// 可区分，后者按非法值拒绝而不是悄悄回退默认。
+	HealthPollInterval *durationpb.Duration `protobuf:"bytes,8,opt,name=health_poll_interval,json=healthPollInterval,proto3" json:"health_poll_interval,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *App) Reset() {
@@ -104,17 +120,41 @@ func (x *App) GetStopTimeout() *durationpb.Duration {
 	return nil
 }
 
+func (x *App) GetProbeLivePath() string {
+	if x != nil {
+		return x.ProbeLivePath
+	}
+	return ""
+}
+
+func (x *App) GetProbeReadyPath() string {
+	if x != nil {
+		return x.ProbeReadyPath
+	}
+	return ""
+}
+
+func (x *App) GetHealthPollInterval() *durationpb.Duration {
+	if x != nil {
+		return x.HealthPollInterval
+	}
+	return nil
+}
+
 var File_bootstrap_v1_app_proto protoreflect.FileDescriptor
 
 const file_bootstrap_v1_app_proto_rawDesc = "" +
 	"\n" +
-	"\x16bootstrap/v1/app.proto\x12\fbootstrap.v1\x1a\x1egoogle/protobuf/duration.proto\"\x93\x01\n" +
+	"\x16bootstrap/v1/app.proto\x12\fbootstrap.v1\x1a\x1egoogle/protobuf/duration.proto\"\xb2\x02\n" +
 	"\x03App\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x18\n" +
 	"\aversion\x18\x03 \x01(\tR\aversion\x12\x10\n" +
 	"\x03env\x18\x04 \x01(\tR\x03env\x12<\n" +
-	"\fstop_timeout\x18\x05 \x01(\v2\x19.google.protobuf.DurationR\vstopTimeoutB\xaf\x01\n" +
+	"\fstop_timeout\x18\x05 \x01(\v2\x19.google.protobuf.DurationR\vstopTimeout\x12&\n" +
+	"\x0fprobe_live_path\x18\x06 \x01(\tR\rprobeLivePath\x12(\n" +
+	"\x10probe_ready_path\x18\a \x01(\tR\x0eprobeReadyPath\x12K\n" +
+	"\x14health_poll_interval\x18\b \x01(\v2\x19.google.protobuf.DurationR\x12healthPollIntervalB\xaf\x01\n" +
 	"\x10com.bootstrap.v1B\bAppProtoP\x01Z@github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1;bootstrapv1\xa2\x02\x03BXX\xaa\x02\fBootstrap.V1\xca\x02\fBootstrap\\V1\xe2\x02\x18Bootstrap\\V1\\GPBMetadata\xea\x02\rBootstrap::V1b\x06proto3"
 
 var (
@@ -136,11 +176,12 @@ var file_bootstrap_v1_app_proto_goTypes = []any{
 }
 var file_bootstrap_v1_app_proto_depIdxs = []int32{
 	1, // 0: bootstrap.v1.App.stop_timeout:type_name -> google.protobuf.Duration
-	1, // [1:1] is the sub-list for method output_type
-	1, // [1:1] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	1, // 1: bootstrap.v1.App.health_poll_interval:type_name -> google.protobuf.Duration
+	2, // [2:2] is the sub-list for method output_type
+	2, // [2:2] is the sub-list for method input_type
+	2, // [2:2] is the sub-list for extension type_name
+	2, // [2:2] is the sub-list for extension extendee
+	0, // [0:2] is the sub-list for field type_name
 }
 
 func init() { file_bootstrap_v1_app_proto_init() }

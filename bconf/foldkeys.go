@@ -28,12 +28,20 @@ import (
 // 规则（与 [findUnknown] 的遍历口径一致）：
 //   - 平级规范名优先：键本身就是本层字段名时按原样下钻，绝不折叠——真嵌套键不会
 //     被折叠抢走；
-//   - 只在「唯一链」上折：被消费的每个子节点必须只有一个键，否则切分点不唯一，
-//     保持原样（由严格门禁报未知键，可见比猜对更有价值）；
+//   - 逐分支折叠：一个键下的兄弟分支各自判命中，只删被消费的那条叶子路径并清理
+//     因此掏空的中间节点。拼不出字段名的分支原样留下（由严格门禁报未知键，可见
+//     比猜对更有价值）；
 //   - 逐段拼接的结果必须**恰好**等于某个字段名才算命中，命中即停（最短命中）；
-//   - 规范键已被占用时不折——同层同时出现两种形状是用户自己的歧义，留给门禁；
+//   - 规范键已被占用时该分支不折——同层同时出现两种形状是用户自己的歧义，留给门禁；
 //   - map 字段与业务自持段整棵跳过：框架没有它们的形状知识，业务键含下划线仍然
 //     表达不出来，这条限制不在本函数的能力范围内。
+//
+// 为什么必须逐分支：契约里同一词头下的兄弟字段是常态（`probe_live_path` 与
+// `probe_ready_path`、`max_size`/`max_backups`/`max_age`、`auto_stream`/`auto_replay`）。
+// 两条 env 一起注入时落树成 `probe.{live.path,ready.path}`——同一个 `probe` 节点
+// 有两个子键。按「整棵子树只有一条链才折」判会两条都不折：严格门禁下报未知键，
+// 非严格下 DiscardUnknown 静默丢掉，用户看到的是「env 写了却不生效」。分支之间
+// 没有歧义（各自的拼接路径唯一），不该互相牵连。
 func FoldEnvKeys(m map[string]any, msg proto.Message) {
 	if m == nil || msg == nil {
 		return
@@ -45,26 +53,23 @@ func FoldEnvKeys(m map[string]any, msg proto.Message) {
 func foldMessage(md protoreflect.MessageDescriptor, m map[string]any) {
 	byName := lookupFields(md).byName
 
-	// 折叠会增删键，边遍历边改是未定义行为；先取快照并按字典序处理，
-	// 使结果与 map 迭代序无关。
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-
-	for _, k := range keys {
-		key, fd := k, protoreflect.FieldDescriptor(nil)
-		if f, ok := byName[strings.ToLower(k)]; ok {
-			fd = f
-		} else {
-			var folded bool
-			fd, key, folded = foldChain(byName, m, k)
-			if !folded {
-				continue // 不是契约键：交给 [findUnknown] 判定，不在这里猜
-			}
+	// 两遍：先折出本层的规范键，再下钻（含刚折出来的——字段值本身可能还是多词
+	// 键，只折一层等于没折）。折叠会增删键，边遍历边改是未定义行为；每遍各取
+	// 快照并按字典序处理，使结果与 map 迭代序无关（同层两条链折向同一规范键时，
+	// 字典序在前者赢，后者按「已被占用」留下）。
+	for _, k := range foldSortedKeys(m) {
+		if _, ok := byName[strings.ToLower(k)]; ok {
+			continue // 平级规范名优先
 		}
-		v := m[key]
+		foldBranches(byName, m, k)
+	}
+
+	for _, k := range foldSortedKeys(m) {
+		fd, ok := byName[strings.ToLower(k)]
+		if !ok {
+			continue // 不是契约键：交给 [findUnknown] 判定，不在这里猜
+		}
+		v := m[k]
 
 		switch {
 		case fd.IsMap():
@@ -86,40 +91,56 @@ func foldMessage(md protoreflect.MessageDescriptor, m map[string]any) {
 	}
 }
 
-// foldChain 从键 k 出发沿唯一链逐段拼接，命中本层字段名时把链尾的值搬到规范键上
-// 并删除整条链；命中返回 (字段描述符, 规范键, true)。
-func foldChain(byName map[string]protoreflect.FieldDescriptor, m map[string]any, k string) (protoreflect.FieldDescriptor, string, bool) {
+// foldBranches 从非规范键 k 出发折叠它的整棵子树。子树被掏空时连 k 一起删掉
+// （它是 env 编码造出来的中间节点，不是用户写的键）。
+func foldBranches(byName map[string]protoreflect.FieldDescriptor, m map[string]any, k string) {
 	head, hv, ok := lookupKeyFold(m, k)
 	if !ok {
-		return nil, "", false
+		return
 	}
-	joined := strings.ToLower(head)
-	cur := hv
+	if foldWalk(byName, m, hv, strings.ToLower(head)) {
+		delete(m, head)
+	}
+}
 
-	for {
-		sub, ok := cur.(map[string]any)
-		if !ok || len(sub) != 1 {
-			return nil, "", false // 非唯一链：切分点不止一个，不猜
-		}
-		var childKey string
-		for ck, cv := range sub {
-			childKey, cur = ck, cv
-		}
-		joined += "_" + strings.ToLower(childKey)
-
-		fd, hit := byName[joined]
+// foldWalk 逐段拼接键名沿 cur 下钻，命中的分支把值搬到本层规范键上并删掉叶子。
+// 返回 true 表示 cur 是本次折叠掏空的中间节点，调用方应把它从父 map 删掉；仍有
+// 兄弟键（或本来就是空 map / 标量）时返回 false，原样保留。
+func foldWalk(byName map[string]protoreflect.FieldDescriptor, m map[string]any, cur any, joined string) bool {
+	sub, ok := cur.(map[string]any)
+	if !ok || len(sub) == 0 {
+		return false
+	}
+	for _, ck := range foldSortedKeys(sub) {
+		child := sub[ck]
+		next := joined + "_" + strings.ToLower(ck)
+		fd, hit := byName[next]
 		if !hit {
+			if foldWalk(byName, m, child, next) {
+				delete(sub, ck)
+			}
 			continue
 		}
+		// 命中即停（最短命中）：这条分支不再往深处走，无论折成与否。
 		name := string(fd.Name())
 		if _, _, taken := lookupKeyFold(m, name); taken {
-			return nil, "", false // 规范键已由另一种形状占据
+			continue // 规范键已由另一种形状占据
 		}
 		if _, _, taken := lookupKeyFold(m, fd.JSONName()); taken {
-			return nil, "", false
+			continue
 		}
-		delete(m, head)
-		m[name] = cur
-		return fd, name, true
+		m[name] = child
+		delete(sub, ck)
 	}
+	return len(sub) == 0
+}
+
+// foldSortedKeys 取 map 键的字典序快照（折叠增删键，不能边遍历边改）。
+func foldSortedKeys(m map[string]any) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }

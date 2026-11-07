@@ -22,4 +22,23 @@ message App {
 
   // 优雅停机超时时间。
   google.protobuf.Duration stop_timeout = 5;
+
+  // 存活探针路径（HTTP 与 grpc-gateway 两面同源）。留空用默认 /healthz。
+  //
+  // 三个健康字段都只在代码声明了 appkit.WithHealth 时生效：健康源是注入对象，
+  // 契约构造不出来。声明了字段却没有 WithHealth 会在装配期 fail-fast，不静默。
+  // 业务的 appkit.WithProbePaths 优先于本字段（契约先应用、业务可覆盖）。
+  //
+  // 用普通 string 而不是 optional：默认值非空，空串正好表达「不表态」，而显式
+  // 空串本就不是可用路径（WithProbePaths 也忽略它），无需 presence 区分。
+  string probe_live_path = 6;
+
+  // 就绪探针路径。留空用默认 /readyz。与 probe_live_path 不得相同——两条探针
+  // 挂在同一个 mux 上，同路径注册会 panic，装配期就拦下来。
+  string probe_ready_path = 7;
+
+  // gRPC 侧就绪状态同步间隔（后台轮询健康源并 SetServingStatus）。留空用默认
+  // 2s；显式给值必须为正。Duration 是消息型，天然带 presence：不表态与显式 0
+  // 可区分，后者按非法值拒绝而不是悄悄回退默认。
+  google.protobuf.Duration health_poll_interval = 8;
 }

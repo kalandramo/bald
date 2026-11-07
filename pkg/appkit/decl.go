@@ -171,6 +171,12 @@ type Decl struct {
 	ProbeReadyPath string
 	// HealthInterval gRPC 侧就绪状态同步间隔（0 = 未覆盖，用默认）。
 	HealthInterval time.Duration
+	// probeLiveSet/probeReadySet/healthIntervalSet 记录业务 Option 是否显式表态。
+	// 契约 app 段的三个健康字段只填未表态的位（业务优先）；WithHealth 写的默认
+	// 路径不算表态，否则「只声明 WithHealth」时契约永远改不动路径。
+	probeLiveSet      bool
+	probeReadySet     bool
+	healthIntervalSet bool
 }
 
 // EffectDecl 是一条可逆效应声明（mech.Effect 的写入面；

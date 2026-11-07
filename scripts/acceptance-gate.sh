@@ -198,11 +198,24 @@ esac
 # 原先会打印「依赖已是最新，无需归位。」/「没有待发布模块，变更日志不变。」然后 exit 0，
 # 即把「没干活」伪装成「干完了」。两条腿各自把假绿文案钉成反证（拒绝对话里必须点名
 # release plan，且 stdout 零字节），所以进表的是 `TestSyncAndChangelog_` 前缀而不是整包。
+# bconf . TestFoldEnvKeys_ 那条（§7.43）判的是 env 键折叠的分支形状：同一词头下
+# 的兄弟字段（probe_live_path/probe_ready_path、max_size/max_backups/max_age、
+# auto_stream/auto_replay、access_key/access_secret）一起经 env 注入时各自折回
+# 自己的规范键。判据不只有手工样例：TestFoldEnvKeys_SiblingPrefixPairs 从契约
+# 描述符现扫全部注入点（26 处、41 对），逐条挂哨兵值再验折叠结果与 FindUnknownKeys
+# 归零——契约以后新增兄弟字段会自动进这条腿，不需要维护第二份清单。
+# pkg ./appkit TestContractHealth_ 那条（§7.34 ③′）判的是框架自身两个装配旋钮
+# 进契约后的三件事：契约值只填业务未表态的位（WithProbePaths / WithHealthPollInterval
+# 显式值仍优先）、装配与 --plan 预检对同一批非法值同判（I2，含「映射写在拷贝上」
+# 那条 I1）、以及探针路径与轮询间隔在**真进程**里生效（HTTP 探针走契约路径、
+# gRPC 健康状态按契约间隔翻转）。其中 EnvRoute 那条经真实 Serve 走 env 层，
+# 因此同时是 §7.43 那把折叠的产品级实证。
 rows() {
   printf '%s\n' \
     $'ci\tpkg\t./appkit\tTestPlan_(NoSideEffects|OrderInvariant|SegmentCoverage|Conflict|DomainRoutes|CustomRoutesWarning|GlobalMeterProvider)|TestRouteShapeConflict\t' \
     $'ci\tpkg\t./appkit\tTestTeardownOrder_|TestProviderPlan_StdTeardownOrder|TestComponent_StartFailureRollback|TestMountComponent_MountFailureRollback\t' \
     $'ci\tpkg\t./appkit\tTestDrift\t' \
+    $'ci\tpkg\t./appkit\tTestContractHealth_\t' \
     $'ci\tpkg\t./appkit\tTestPlanCache_|TestVariantProjection_|TestVariantEffects_|TestOption_OnRoleScoping|TestDoctor_\t' \
     $'ci\tpkg\t./appkit\tTestAPI_\t' \
     $'ci\tcli\t./internal/codegen\tTestGen_(Deterministic|CheckClean)|TestGenDomain_(Bind|Proto|NoRoutes|CheckDoesNotRunProtoStage)|TestGenApp_Variants|TestTree_Variants|TestTree_CustomWiring|TestPruneStaleOwned|TestCheckTree_\t' \
@@ -237,6 +250,7 @@ rows() {
     $'ci\ttransport/rabbitmq\t./contract\tTestMappingOffline_|TestAppProviderEndToEnd_\t' \
     $'ci\ttransport/rabbitmq\t.\tTestEndpointAfterStartStripsCredentials|TestSanitizeEndpoint\t' \
     $'ci\tbconf\t.\tTestUnmarshalNestedBackoffSection|TestUnmarshalAbsentBackoffStaysNil|TestUnmarshalDurationSpellings|TestCoerceDurationFormat\t' \
+    $'ci\tbconf\t.\tTestFoldEnvKeys_\t' \
     $'no\tbconf\t.\tTestGeneratedMatchesProto\t' \
     $'no\t_example/bald\t./internal/bootstrap\tTestPlan_ReferenceProject\t' \
     $'no\t_example/bald\t./internal/bootstrap\tTestPlan_ReferenceProject\tgrpcgw'

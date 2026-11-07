@@ -213,10 +213,12 @@ func resolveLoggerSource(spec *Decl, plan *providerPlan) loggerSource {
 const driverGRPCGateway = "grpc-gateway"
 
 // validateCapabilities 校验代码侧能力声明与契约段的对偶关系（纯函数，无
-// 副作用）：WithHTTP 需 server.http 段、WithGRPC 需 server.grpc 段、探针路径
-// 不得相同；WithHTTP 与接管 server.http 的转码面 Provider 同时声明时 driver
-// 必须显式。assemble 与 Compile 共用——`--plan` 的预检与真实启动对同一批
-// 错误 fail-fast。
+// 副作用）：WithHTTP 需 server.http 段、WithGRPC 需 server.grpc 段、健康字段
+// 需 WithHealth 且探针路径可用（见 validateHealthContract）；WithHTTP 与接管
+// server.http 的转码面 Provider 同时声明时 driver 必须显式。assemble 与
+// Compile 共用——`--plan` 的预检与真实启动对同一批错误 fail-fast。
+//
+// 调用前必须先 applyContractHealth：探针路径判的是映射后的值。
 func validateCapabilities(spec *Decl, cfg *bootstrapv1.BootstrapConfig, pp *providerPlan) error {
 	httpCfg := cfg.GetServer().GetHttp()
 	grpcCfg := cfg.GetServer().GetGrpc()
@@ -226,9 +228,8 @@ func validateCapabilities(spec *Decl, cfg *bootstrapv1.BootstrapConfig, pp *prov
 	if spec.GRPCRegister != nil && grpcCfg == nil {
 		return errors.New("appkit: WithGRPC declared but bootstrap.server.grpc is nil")
 	}
-	if spec.Health != nil && spec.ProbeLivePath == spec.ProbeReadyPath {
-		// 探针要挂在同一个 mux 上，同路径注册会 panic——启动期 fail-fast 暴露。
-		return fmt.Errorf("appkit: WithHealth probe paths must differ, got %q twice", spec.ProbeLivePath)
+	if err := validateHealthContract(spec, cfg); err != nil {
+		return err
 	}
 	if hasHTTPFace(spec) && pp.httpFaceTakenByProvider() && httpCfg.GetDriver() == "" {
 		// 业务同时给了 gin handler 和转码面 Provider：段归属按声明序末者胜，
@@ -293,6 +294,9 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig, settings map[string]
 
 	httpCfg := cfg.GetServer().GetHttp()
 	grpcCfg := cfg.GetServer().GetGrpc()
+	// 契约 app 段的健康字段填进业务未表态的位——必须在能力校验与 Provider
+	// Build 之前：校验判的是映射后的路径，两个 HTTP 面消费者读的也是 Decl。
+	applyContractHealth(spec, cfg)
 	if err := validateCapabilities(spec, cfg, plan); err != nil {
 		return nil, err
 	}

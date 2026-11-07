@@ -58,6 +58,9 @@ func compilePlan(ctx context.Context, d *Decl, cfg *bootstrapv1.BootstrapConfig,
 	if err := validateDomains(d, pp, cfg.GetServer().GetGrpc() != nil); err != nil {
 		return nil, err
 	}
+	// 与 assemble 同源的健康字段映射（写的是上面那份拷贝，不动调用方 Decl）：
+	// 预检必须判映射后的路径，否则契约里两条探针同路径会在真实启动才红。
+	applyContractHealth(d, cfg)
 	if err := validateCapabilities(d, cfg, pp); err != nil {
 		return nil, err
 	}
