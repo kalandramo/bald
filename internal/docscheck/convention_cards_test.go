@@ -34,7 +34,7 @@ var (
 	cardFMCategory = regexp.MustCompile(`(?m)^category:\s*(\S+)\s*$`)
 	cardRuleLine   = regexp.MustCompile(`^-\s+\[([a-z]+-r[0-9]{2})\]\s+\[(强制|建议|参考)\]\s+\S`)
 	cardLevels     = map[string]bool{"强制": true, "建议": true, "参考": true}
-	cardCategories = map[string]bool{"core": true, "codegen": true, "ops": true}
+	cardCategories = map[string]bool{"core": true, "contract": true, "codegen": true, "ops": true}
 )
 
 // parseCardFrontMatter 解析单卡 front-matter（--- 围栏内），返回 sources 与
