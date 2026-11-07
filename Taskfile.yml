@@ -304,6 +304,16 @@ tasks:
     cmds:
       - go test ./...
 
+  # AI 规范通道（蒸馏卡）的机器闸门：卡集完整性 + 已注册确定性检查器。
+  # 仓库根没有 appspec.json，gen-app-drift 在这里按 skip 处理；在业务项目根
+  # 跑会真正执行 gen app 的零差异门。发现问题时默认零退出码（MCP 语义），
+  # CI 拦截用：go run ./cmd/bald convention check --fail-on-findings。
+  convention:
+    desc: 跑规范蒸馏卡完整性与确定性检查器（bald convention check）
+    dir: cli
+    cmds:
+      - go run ./cmd/bald convention check
+
   # 静态检查与漏洞扫描：范围 = scripts/list-modules.sh 派生的全部 module，与 CI 的
   # lint/vuln 作业逐模块同口径（原来只跑核心 module，是 §1.2 的假绿来源之一）。
   # 只想要单模块的快速检查用 task lint-module MOD=<dir> / task vuln-module MOD=<dir>。
