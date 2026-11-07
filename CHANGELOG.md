@@ -6,6 +6,23 @@
 
 ## 2026-11-07
 
+### bald v0.43.0
+
+- `5d572c06` test(docscheck): 卡类别枚举补 contract（与 cli 侧解析同步）
+- `1cee2c45` docs(architecture): 评审文档回填 Phase 2 增量记录
+- `fe5a4f2d` chore(ci): test 作业接蒸馏卡闸门
+- `11e8b83a` feat(cli): ide init 多工具适配与项目级自定义卡
+- `efe1c44e` chore(release): CHANGELOG 登记 cli v0.2.0
+- `45e664aa` docs(architecture): 登记风险登记册 §7.43 的发版落地现值
+- `315843d0` docs(architecture): onexai 差距评审与 Phase 1 验收记录
+- `f250d8fb` docs(agents): 仓库根 AGENTS.md 与 llms.txt
+- `ea9a97fa` chore(taskfile): convention target 接入规范卡闸门
+- `1c83d7cd` test(docscheck): 蒸馏卡完整性闸门与 cli 包集登记
+
+### cli v0.3.0
+
+- `11e8b83a` feat(cli): ide init 多工具适配与项目级自定义卡
+
 ### cli v0.2.0
 
 - `578b8a08` feat(cli): ide init 生成 AI 会话引导物
