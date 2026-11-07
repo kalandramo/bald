@@ -31,6 +31,7 @@ import (
 	"embed"
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -46,9 +47,10 @@ const (
 	LevelRecommended = "建议"
 	LevelReference   = "参考"
 
-	categoryCore    = "core"
-	categoryCodegen = "codegen"
-	categoryOps     = "ops"
+	categoryCore     = "core"
+	categoryContract = "contract"
+	categoryCodegen  = "codegen"
+	categoryOps      = "ops"
 )
 
 // Rule 是卡内一条规则。Line 是卡文件内的 1-based 行号，check 的 finding 用它定位。
@@ -78,6 +80,64 @@ var ruleRe = regexp.MustCompile(`^-\s+\[([a-z]+-r[0-9]{2})\]\s+\[(强制|建议|
 // Load 解析内嵌卡库并做集合级完整性校验（卡内规则 ID 前缀、全库唯一、级别合法）。
 // 完整性失败直接报错：卡集本身坏了属于闸门级故障，不是 finding。
 func Load() ([]Card, error) { return LoadFS(cardsFS) }
+
+// ProjectCardsDir 是项目级自定义卡的约定目录（相对项目根）。团队约定放在这里、
+// 随仓库提交（onexai 第 13 章「把团队规范也接进来」的 bald 落地）：AI 与人查的
+// 是同一个位置，且不必 fork bald 就能补充自己的卡。
+const ProjectCardsDir = ".bald/conventions"
+
+// LoadAll = 内嵌基线卡 + 项目级自定义卡（projectDir/.bald/conventions/*.md）。
+// 项目卡是「补充」不是「覆盖」：卡 id 或规则 ID 与基线冲突即报错——遮蔽会让
+// 同一 id 在不同目录下指向不同规则，评审引用与 CI --rules 都会失义。目录不存
+// 在时静默退化为基线（多数项目没有自定义卡）。
+func LoadAll(projectDir string) ([]Card, error) {
+	base, err := Load()
+	if err != nil {
+		return nil, err
+	}
+	local := filepath.Join(projectDir, ProjectCardsDir)
+	entries, err := os.ReadDir(local)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return base, nil
+		}
+		return nil, fmt.Errorf("read %s: %w", local, err)
+	}
+	seen := map[string]string{}
+	for _, c := range base {
+		seen[c.ID] = "embedded"
+		for _, r := range c.Rules {
+			seen[r.ID] = "embedded"
+		}
+	}
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasSuffix(name, ".md") {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(local, name))
+		if err != nil {
+			return nil, fmt.Errorf("read project card %s: %w", name, err)
+		}
+		card, err := parseCard(name, string(raw))
+		if err != nil {
+			return nil, fmt.Errorf("project card %s: %w", name, err)
+		}
+		if prev := seen[card.ID]; prev != "" {
+			return nil, fmt.Errorf("project card %s: id %q already used by %s (project cards supplement, never shadow)", name, card.ID, prev)
+		}
+		seen[card.ID] = "project"
+		for _, r := range card.Rules {
+			if prev := seen[r.ID]; prev != "" {
+				return nil, fmt.Errorf("project card %s: rule id %s already used by %s (project cards supplement, never shadow)", name, r.ID, prev)
+			}
+			seen[r.ID] = "project"
+		}
+		base = append(base, *card)
+	}
+	sortCards(base)
+	return base, nil
+}
 
 // LoadFS 从任意 fs.FS 解析卡库（cards/*.md 的根即 fsys 根），测试注入用。
 func LoadFS(fsys fs.FS) ([]Card, error) {
@@ -194,9 +254,9 @@ func (c *Card) validate() error {
 		return fmt.Errorf("level %q must be one of 强制|建议|参考", c.Level)
 	}
 	switch c.Category {
-	case categoryCore, categoryCodegen, categoryOps:
+	case categoryCore, categoryContract, categoryCodegen, categoryOps:
 	default:
-		return fmt.Errorf("category %q must be one of core|codegen|ops", c.Category)
+		return fmt.Errorf("category %q must be one of core|contract|codegen|ops", c.Category)
 	}
 	return nil
 }
@@ -219,15 +279,17 @@ func (c *Card) parseRules() error {
 	return nil
 }
 
-// categoryRank 决定 overview 与 list 的展示顺序：核心原则 → 生成与门禁 → 运维。
+// categoryRank 决定 overview 与 list 的展示顺序：核心原则 → 契约与编码 → 生成与门禁 → 运维。
 func categoryRank(c string) int {
 	switch c {
 	case categoryCore:
 		return 0
-	case categoryCodegen:
+	case categoryContract:
 		return 1
-	default:
+	case categoryCodegen:
 		return 2
+	default:
+		return 3
 	}
 }
 

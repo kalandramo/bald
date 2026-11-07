@@ -3,13 +3,15 @@
 //
 // 生成的文件分两类归属（与 codegen 的归属三态同思想）：
 //   - Seeded 模板（不存在才写，已存在 kept: 不覆盖，--force 放行）：
-//     AGENTS.md、.claude/commands/bald.md、.claude/skills/bald-conventions/SKILL.md
-//     ——消费者项目的会话引导物，生成一次后归项目维护。
-//   - 合并写入（读现有 JSON，只补 mcpServers.bald 键，其余原样保留）：
-//     .mcp.json（Claude Code 项目级 MCP 配置）。
+//     AGENTS.md 与各工具的规则/SKILL/命令文件——消费者项目的会话引导物，
+//     生成一次后归项目维护。
+//   - 合并写入（读现有 JSON，只补 bald 的键，其余原样保留）：
+//     .mcp.json（MCP 项目级通用配置）与 .zcode/config.json（zcode 的
+//     mcp.servers，schema 严格——我们的条目只含 type/command/args 合法键）。
 //
-// Phase 1 只做 claude（手动 stdio 配置——cobramcp 不管理 Claude 系配置）；
-// VSCode/Cursor 用 cobramcp 现成的 `bald mcp vscode|cursor enable`。
+// 工具面（--ide）：claude / zcode / trae / qoder / workbuddy。所有工具都落
+// AGENTS.md 与 .mcp.json（两者是跨工具的通用约定面）；差异在各工具的私有
+// 规则文件——只有能核实格式的才生成，不猜路径（workbuddy 未知，只给通用面）。
 package ide
 
 import (
@@ -26,24 +28,64 @@ import (
 //go:embed templates
 var tmplFS embed.FS
 
-// mcpEntry 是 .mcp.json 里 bald server 的配置段（stdio 传输）。
+// mcpEntry 是通用 .mcp.json 里 bald server 的配置段（stdio 传输）。
 var mcpEntry = map[string]any{
 	"command": "bald",
 	"args":    []string{"mcp", "start"},
 }
 
-// seededFile 是一份 Seeded 模板：目标路径 + 内嵌模板路径。
+// zcodeMCPEntry 是 .zcode/config.json 的 mcp.servers.bald 条目。schema 严格
+// （未知键整条被丢），只放 type/command/args 三个合法键；zcode 要求 command
+// 是字符串、args 是数组（OpenCode 的数组式 command 会被拒）。
+var zcodeMCPEntry = map[string]any{
+	"type":    "stdio",
+	"command": "bald",
+	"args":    []string{"mcp", "start"},
+}
+
+// seededFile 是一份 Seeded 模板：目标路径 + 内嵌模板路径 + 提示说明。
 type seededFile struct {
 	path    string // 相对项目根
 	tmpl    string // templates/ 内路径
-	comment string // kept/generated 提示的补充说明
+	comment string // generated/kept 提示的补充说明
 }
 
-// seededFiles 是 ide init 的落盘清单（顺序即输出顺序）。
-var seededFiles = []seededFile{
-	{path: "AGENTS.md", tmpl: "templates/agents.md", comment: "会话引导：先查规范 + 最小强制集"},
-	{path: filepath.Join(".claude", "commands", "bald.md"), tmpl: "templates/command_bald.md", comment: "/bald 斜杠命令"},
-	{path: filepath.Join(".claude", "skills", "bald-conventions", "SKILL.md"), tmpl: "templates/skill.md", comment: "规范查询 SKILL（模型自判调用）"},
+// ideSpecs 是每个 --ide 取值的生成面。AGENTS.md 与 .mcp.json 是所有工具的
+// 公共面（在 runInit 里另行处理），这里只登记差异面。
+var ideSpecs = map[string]struct {
+	files []seededFile
+	note  string
+}{
+	"claude": {
+		files: []seededFile{
+			{path: filepath.Join(".claude", "commands", "bald.md"), tmpl: "templates/command_bald.md", comment: "/bald 斜杠命令"},
+			{path: filepath.Join(".claude", "skills", "bald-conventions", "SKILL.md"), tmpl: "templates/skill.md", comment: "规范查询 SKILL（模型自判调用）"},
+		},
+	},
+	"zcode": {
+		files: []seededFile{
+			{path: filepath.Join(".zcode", "skills", "bald-conventions", "SKILL.md"), tmpl: "templates/skill.md", comment: "项目级 SKILL（模型自判调用）"},
+		},
+		note: "MCP 已合并进 .zcode/config.json（zcode 不读 .mcp.json）",
+	},
+	"trae": {
+		files: []seededFile{
+			{path: filepath.Join(".trae", "rules", "project_rules.md"), tmpl: "templates/rules.md", comment: "Trae 项目规则"},
+		},
+	},
+	"qoder": {
+		files: []seededFile{
+			{path: filepath.Join(".qoder", "rules", "bald.md"), tmpl: "templates/rules.md", comment: "Qoder 项目规则"},
+		},
+	},
+	"workbuddy": {
+		note: "workbuddy 的规则/MCP 文件格式未核实，只落通用面（AGENTS.md 与 .mcp.json）；若它读 AGENTS.md 即已覆盖",
+	},
+}
+
+// supportedIDEs 返回 --ide 的合法取值（错误信息与补全用，稳定排序由调用方处理）。
+func supportedIDEs() []string {
+	return []string{"claude", "zcode", "trae", "qoder", "workbuddy"}
 }
 
 // NewCommand 构造 `bald ide` 命令树（当前只有 init 子命令）。
@@ -65,81 +107,104 @@ func initCmd() *cobra.Command {
 	o := &struct {
 		IDE   string
 		Force bool
-	}{IDE: "claude"}
+	}{IDE: "zcode"}
 	cmd := &cobra.Command{
 		Use:   "init",
-		Short: "初始化 AI 会话引导物（AGENTS.md / .mcp.json / .claude）",
-		Long: `在当前目录（业务项目根）生成 bald 的 AI 会话引导物：
+		Short: "初始化 AI 会话引导物（AGENTS.md / MCP 配置 / 工具规则文件）",
+		Long: `在当前目录（业务项目根）生成 bald 的 AI 会话引导物。
 
-  AGENTS.md                                  先查规范 + 最小强制集（Seeded）
-  .mcp.json                                  合并 mcpServers.bald（bald mcp start）
-  .claude/commands/bald.md                   /bald 斜杠命令（Seeded）
-  .claude/skills/bald-conventions/SKILL.md   规范查询 SKILL（Seeded）
+公共面（所有 --ide 都落）：
+  AGENTS.md            先查规范 + 最小强制集（Seeded）
+  .mcp.json            合并 mcpServers.bald（bald mcp start）
 
-Seeded 文件不存在才写，已存在输出 kept: 不覆盖（--force 放行）；.mcp.json
-是合并写入，现有键原样保留。目标一致：让 AI 知道去哪里查规范。
+差异面（按 --ide）：
+  claude      .claude/commands/bald.md + .claude/skills/.../SKILL.md
+  zcode       .zcode/config.json（合并 mcp.servers.bald，严格 schema）
+              + .zcode/skills/bald-conventions/SKILL.md
+  trae        .trae/rules/project_rules.md
+  qoder       .qoder/rules/bald.md
+  workbuddy   仅公共面（私有格式未核实，不猜路径）
 
-VSCode/Cursor 的 MCP 配置用 cobramcp 的现成命令：
-bald mcp vscode enable / bald mcp cursor enable。`,
+Seeded 文件不存在才写，已存在输出 kept: 不覆盖（--force 放行）；JSON 配置
+是合并写入，现有键原样保留。`,
 		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			if o.IDE != "claude" {
-				return fmt.Errorf("--ide %q not supported yet (claude only; vscode/cursor use `bald mcp vscode|cursor enable`)", o.IDE)
+			spec, ok := ideSpecs[o.IDE]
+			if !ok {
+				return fmt.Errorf("--ide %q not supported (available: %v)", o.IDE, supportedIDEs())
 			}
-			return runInit(o.Force)
+			return runInit(o.IDE, spec, o.Force)
 		},
 	}
-	cmd.Flags().StringVar(&o.IDE, "ide", "claude", "AI 编码工具（当前支持 claude）")
+	cmd.Flags().StringVar(&o.IDE, "ide", "zcode", "AI 编码工具：claude | zcode | trae | qoder | workbuddy")
 	cmd.Flags().BoolVar(&o.Force, "force", false, "覆盖已存在的 Seeded 文件（默认保留）")
 	return cmd
 }
 
-// runInit 落盘全部引导物。任一步失败即返回错误（已写文件保留——各文件独立可用）。
-func runInit(force bool) error {
-	for _, f := range seededFiles {
-		content, err := fs.ReadFile(tmplFS, f.tmpl)
-		if err != nil {
-			return fmt.Errorf("read template %s: %w", f.tmpl, err)
-		}
-		switch written, err := seedFile(f.path, content, force); {
-		case err != nil:
+// runInit 落盘公共面 + 差异面。任一步失败即返回错误（已写文件保留——各文件独立可用）。
+func runInit(ide string, spec struct {
+	files []seededFile
+	note  string
+}, force bool) error {
+	// 公共面：AGENTS.md（Seeded）。
+	if err := seed("AGENTS.md", "templates/agents.md", "会话引导：先查规范 + 最小强制集", force); err != nil {
+		return err
+	}
+	// 差异面。
+	for _, f := range spec.files {
+		if err := seed(f.path, f.tmpl, f.comment, force); err != nil {
 			return err
-		case written:
-			fmt.Println("generated:", f.path, "("+f.comment+")")
-		default:
-			fmt.Println("kept:", f.path)
 		}
 	}
-	if err := mergeMCPJSON(); err != nil {
+	// MCP 配置：通用 .mcp.json 所有工具都合并；zcode 额外合并自己的 config.json。
+	if err := mergeMCPJSON(".mcp.json", mcpEntry); err != nil {
 		return err
+	}
+	if ide == "zcode" {
+		if err := mergeMCPJSON(filepath.Join(".zcode", "config.json"), zcodeMCPEntry); err != nil {
+			return err
+		}
+	}
+	if spec.note != "" {
+		fmt.Println("note:", spec.note)
 	}
 	fmt.Println("next: restart your AI session so the new config takes effect; query conventions with `bald convention overview`")
 	return nil
 }
 
-// seedFile 写一份 Seeded 文件：不存在写（true）；存在且未开 --force 则保留（false）；
+// seed 写一份 Seeded 文件：不存在写（true）；存在且未开 --force 则保留（false）；
 // --force 覆盖（true）。
-func seedFile(path string, content []byte, force bool) (bool, error) {
+func seed(path, tmpl, comment string, force bool) error {
+	content, err := fs.ReadFile(tmplFS, tmpl)
+	if err != nil {
+		return fmt.Errorf("read template %s: %w", tmpl, err)
+	}
 	if _, err := os.Stat(path); err == nil {
 		if !force {
-			return false, nil
+			fmt.Println("kept:", path)
+			return nil
 		}
 	} else if !os.IsNotExist(err) {
-		return false, fmt.Errorf("stat %s: %w", path, err)
+		return fmt.Errorf("stat %s: %w", path, err)
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return false, err
+		return err
 	}
 	if err := os.WriteFile(path, content, 0o644); err != nil {
-		return false, err
+		return err
 	}
-	return true, nil
+	fmt.Println("generated:", path, "("+comment+")")
+	return nil
 }
 
-// mergeMCPJSON 把 mcpServers.bald 合并进 .mcp.json：文件不存在则新建；存在则
-// 解析、只补这一个键、原样写回（缩进统一两空格）。内容未变时输出 ok: 不落盘。
-func mergeMCPJSON() error {
-	const path = ".mcp.json"
+// mergeMCPJSON 把 entry 合并进一张 MCP 服务器 JSON 配置：
+//   - .mcp.json 形状：顶层 mcpServers（MCP 通用约定）；
+//   - .zcode/config.json 形状：嵌套 mcp.servers（zcode schema）。
+//
+// 由 entry 的键形判定走哪种合并（zcodeMCPEntry 带 type 键）。文件不存在则新建；
+// 存在则解析、只补 bald 一项、原样写回（缩进统一两空格）。bald 条目已存在且
+// 内容一致时输出 ok: 不落盘。
+func mergeMCPJSON(path string, entry map[string]any) error {
 	root := map[string]any{}
 	if raw, err := os.ReadFile(path); err == nil {
 		if err := json.Unmarshal(raw, &root); err != nil {
@@ -148,20 +213,35 @@ func mergeMCPJSON() error {
 	} else if !os.IsNotExist(err) {
 		return fmt.Errorf("read %s: %w", path, err)
 	}
-	servers, _ := root["mcpServers"].(map[string]any)
-	if servers == nil {
-		servers = map[string]any{}
-		root["mcpServers"] = servers
+
+	// 找到（或建）承载服务器映射的节点：zcode 是 mcp.servers，通用是 mcpServers。
+	var servers map[string]any
+	if _, hasType := entry["type"]; hasType {
+		mcpNode, _ := root["mcp"].(map[string]any)
+		if mcpNode == nil {
+			mcpNode = map[string]any{}
+			root["mcp"] = mcpNode
+		}
+		sv, _ := mcpNode["servers"].(map[string]any)
+		if sv == nil {
+			sv = map[string]any{}
+			mcpNode["servers"] = sv
+		}
+		servers = sv
+	} else {
+		sv, _ := root["mcpServers"].(map[string]any)
+		if sv == nil {
+			sv = map[string]any{}
+			root["mcpServers"] = sv
+		}
+		servers = sv
 	}
-	if cur, ok := servers["bald"].(map[string]any); ok && fmt.Sprint(cur) == fmt.Sprint(mcpEntry) {
-		fmt.Println("ok:", path, "(mcpServers.bald already present)")
+
+	if cur, ok := servers["bald"].(map[string]any); ok && fmt.Sprint(cur) == fmt.Sprint(entry) {
+		fmt.Println("ok:", path, "(bald entry already present)")
 		return nil
 	}
-	changed := false
-	if _, exists := servers["bald"]; !exists {
-		changed = true
-	}
-	servers["bald"] = mcpEntry
+	servers["bald"] = entry
 	raw, err := json.MarshalIndent(root, "", "  ")
 	if err != nil {
 		return err
@@ -169,10 +249,6 @@ func mergeMCPJSON() error {
 	if err := os.WriteFile(path, append(raw, '\n'), 0o644); err != nil {
 		return err
 	}
-	if changed {
-		fmt.Println("updated:", path, "(added mcpServers.bald)")
-	} else {
-		fmt.Println("updated:", path, "(refreshed mcpServers.bald)")
-	}
+	fmt.Println("updated:", path, "(merged bald entry)")
 	return nil
 }

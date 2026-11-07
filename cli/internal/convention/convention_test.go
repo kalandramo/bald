@@ -2,6 +2,8 @@ package convention
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -14,8 +16,8 @@ func TestLoadEmbeddedCards(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if len(cards) != 6 {
-		t.Fatalf("expected 6 cards, got %d: %v", len(cards), cardIDs(cards))
+	if len(cards) != 16 {
+		t.Fatalf("expected 16 cards, got %d: %v", len(cards), cardIDs(cards))
 	}
 	byID := map[string]Card{}
 	for _, c := range cards {
@@ -155,6 +157,53 @@ func TestPrintCheckFormats(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "appspec.json:0: [codegen-r03] 漂移") {
 		t.Errorf("text finding line malformed: %q", out.String())
+	}
+}
+
+// TestLoadAllProjectCards 项目级卡：.bald/conventions/ 下的合法卡并入集合；
+// 卡 id 或规则 id 与基线冲突报错（补充不是覆盖）；目录缺失静默退化为基线。
+func TestLoadAllProjectCards(t *testing.T) {
+	dir := t.TempDir()
+	local := filepath.Join(dir, ProjectCardsDir)
+	if err := os.MkdirAll(local, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	valid := "---\nid: team\ntitle: 团队约定\nlevel: 强制\ncategory: core\nsources: []\nchecks: []\n---\n- [team-r01] [强制] handler 里不允许直接使用 time.Now，必须注入时钟。\n"
+	if err := os.WriteFile(filepath.Join(local, "team.md"), []byte(valid), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cards, err := LoadAll(dir)
+	if err != nil {
+		t.Fatalf("LoadAll: %v", err)
+	}
+	got := map[string]bool{}
+	for _, c := range cards {
+		got[c.ID] = true
+	}
+	if len(cards) != 17 || !got["team"] || !got["judgments"] {
+		t.Errorf("LoadAll: got %v (%d cards), want 16 baseline + team", cardIDs(cards), len(cards))
+	}
+
+	// 卡 id 冲突（id 必须与文件名 stem 一致，冲突文件名取 reuse.md 才能走到
+	// LoadAll 的冲突检查而非 parseCard 的 stem 校验；规则前缀也要同步换）。
+	dup := strings.Replace(valid, "id: team", "id: reuse", 1)
+	dup = strings.Replace(dup, "[team-r01]", "[reuse-r01]", 1)
+	if err := os.WriteFile(filepath.Join(local, "reuse.md"), []byte(dup), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadAll(dir); err == nil || !strings.Contains(err.Error(), "supplement, never shadow") {
+		t.Errorf("duplicate card id: err = %v, want shadow error", err)
+	}
+	if err := os.Remove(filepath.Join(local, "reuse.md")); err != nil {
+		t.Fatal(err)
+	}
+
+	// 规则 id 冲突经公开 API 不可达：parseCard 强制规则前缀 = 卡 id，卡 id 又
+	// 全库唯一 ⇒ 规则 id 天然唯一。LoadAll 里的规则查重是纵深防御，不写测试。
+
+	// 目录缺失：退化基线。
+	if cards, err := LoadAll(filepath.Join(dir, "nonexistent")); err != nil || len(cards) != 16 {
+		t.Errorf("missing project dir: cards=%d err=%v, want 16 baseline", len(cards), err)
 	}
 }
 

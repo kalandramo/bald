@@ -4,8 +4,8 @@
 规范全文走 `bald convention`（本仓自己的蒸馏卡就住在 `cli/internal/convention/cards/`）：
 
 ```bash
-bald convention overview        # 先看有哪些规范卡
-bald convention get <卡id>      # 卡全文（judgments / reuse / catalog / codegen / gates / commit）
+bald convention overview        # 先看有哪些规范卡（16 张，含契约/装配/发布/doctor）
+bald convention get <卡id>      # 卡全文；项目自定义卡放 .bald/conventions/ 自动并入
 ```
 
 ## 仓库事实（动手前必读）

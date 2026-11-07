@@ -67,7 +67,7 @@ func overviewCmd(streams Streams) *cobra.Command {
 		Args:        cobra.NoArgs,
 		Annotations: readOnly("bald 规范总览"),
 		RunE: func(_ *cobra.Command, _ []string) error {
-			cards, err := Load()
+			cards, err := LoadAll(".")
 			if err != nil {
 				return err
 			}
@@ -88,7 +88,7 @@ func listCmd(streams Streams) *cobra.Command {
 		Args:        cobra.NoArgs,
 		Annotations: readOnly("bald 规范卡清单"),
 		RunE: func(_ *cobra.Command, _ []string) error {
-			cards, err := Load()
+			cards, err := LoadAll(".")
 			if err != nil {
 				return err
 			}
@@ -123,7 +123,7 @@ func getCmd(streams Streams) *cobra.Command {
 			cobramcp.AnnotationOutputJSON: "true", // --format json 时 stdout 是 JSON 契约
 		},
 		RunE: func(_ *cobra.Command, args []string) error {
-			cards, err := Load()
+			cards, err := LoadAll(".")
 			if err != nil {
 				return err
 			}

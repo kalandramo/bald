@@ -56,6 +56,8 @@ func categoryTitle(c string) string {
 	switch c {
 	case categoryCore:
 		return "核心原则"
+	case categoryContract:
+		return "契约与编码"
 	case categoryCodegen:
 		return "生成与门禁"
 	default:
