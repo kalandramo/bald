@@ -6,6 +6,15 @@
 
 ## 2026-11-07
 
+### cli v0.2.0
+
+- `578b8a08` feat(cli): ide init 生成 AI 会话引导物
+- `75f6e7c4` feat(cli): 规范蒸馏卡 convention 查询与确定性检查
+- `9eab57b8` chore(cli): bconf require 归位到已发布的 v0.23.0
+- `5b68d929` chore(cli): bconf 归位到 v0.22.0——tag 落地后的下一轮 require
+- `32f088fa` chore(cli): bconf 归位到 v0.21.0——tag 落地后的下一轮 require
+- `e819b5f9` chore(cli): bconf 归位到 v0.20.0
+
 ### bald v0.42.0
 
 - `34eb7aa1` docs: §7.43 补发版现值与远端绿证（run 42358494632 九作业全 success）
