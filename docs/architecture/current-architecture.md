@@ -130,6 +130,7 @@ selector/circuitbreaker
 transport
 transport/asynq
 transport/client
+transport/client/resiliency
 transport/cron
 transport/gateway
 transport/graphql

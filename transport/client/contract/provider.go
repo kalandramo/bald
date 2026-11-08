@@ -55,6 +55,12 @@ type providerConfig struct {
 	grpcDialOpts []grpc.DialOption
 	// httpOpts 同义，作用于全部 http 条目。
 	httpOpts []client.HTTPOption
+	// grpcEntryDialOpts 按条目名追加拨号选项（排在全局选项之后）：出站韧性
+	// 策略（retry/熔断拦截器）按命名条目显式绑定的通道。契约段只描述拓扑，
+	// 调用策略由业务域在调用侧组合（client.proto v1 边界，判据 J8）。
+	grpcEntryDialOpts map[string][]grpc.DialOption
+	// httpEntryOpts 同义，按条目名追加 HTTP 构造选项。
+	httpEntryOpts map[string][]client.HTTPOption
 }
 
 // WithGRPCDialOptions 给全部 grpc 条目追加原生拨号选项。
@@ -68,6 +74,40 @@ func WithGRPCDialOptions(opts ...grpc.DialOption) Option {
 // WithHTTPOptions 给全部 http 条目追加构造选项。
 func WithHTTPOptions(opts ...client.HTTPOption) Option {
 	return func(c *providerConfig) { c.httpOpts = append(c.httpOpts, opts...) }
+}
+
+// WithEntryGRPCDialOptions 给指定名字的 grpc 条目追加拨号选项（排在全局
+// WithGRPCDialOptions 之后）。这是出站韧性策略按命名条目显式绑定的通道：
+//
+//	clientcontract.AppProvider(
+//	    clientcontract.WithEntryGRPCDialOptions("user",
+//	        resiliency.GRPCDialOption(resiliency.Policy{Breaker: cb, Retrier: r})),
+//	)
+//
+// 名字必须真的出现在契约 client.grpc.entries 里——拼错在装配期 fail-fast
+// （静默失效会让策略悄悄不生效）。同名多次调用按序累加。
+func WithEntryGRPCDialOptions(name string, opts ...grpc.DialOption) Option {
+	return func(c *providerConfig) {
+		if c.grpcEntryDialOpts == nil {
+			c.grpcEntryDialOpts = make(map[string][]grpc.DialOption)
+		}
+		c.grpcEntryDialOpts[name] = append(c.grpcEntryDialOpts[name], opts...)
+	}
+}
+
+// WithEntryHTTPOptions 给指定名字的 http 条目追加构造选项（排在全局
+// WithHTTPOptions 之后）。名字须出现在契约 client.http.entries 里，拼错
+// 装配期 fail-fast。典型用法是挂韧性 RoundTripper：
+//
+//	clientcontract.WithEntryHTTPOptions("billing",
+//	    client.WithTransport(resiliency.Transport(policy, http.DefaultTransport)))
+func WithEntryHTTPOptions(name string, opts ...client.HTTPOption) Option {
+	return func(c *providerConfig) {
+		if c.httpEntryOpts == nil {
+			c.httpEntryOpts = make(map[string][]client.HTTPOption)
+		}
+		c.httpEntryOpts[name] = append(c.httpEntryOpts[name], opts...)
+	}
 }
 
 // AppProvider 返回消费契约 client 段的 appkit.Provider。
@@ -116,6 +156,12 @@ func (p appProvider) Build(_ context.Context, s appkit.ApplyScope, _ appkit.Node
 		return nil, nil, nil // 段缺席：无产物
 	}
 
+	// 显式绑定的条目名必须真的出现在契约里——拼错静默失效会让韧性策略悄悄
+	// 不生效，故装配期 fail-fast（先于建连，失败路径无资源可释放）。
+	if err := validateEntryBindings(sec, p.cfg); err != nil {
+		return nil, nil, err
+	}
+
 	var d registry.Discovery
 	if usesDiscovery(sec) {
 		var err error
@@ -140,7 +186,8 @@ func (p appProvider) Build(_ context.Context, s appkit.ApplyScope, _ appkit.Node
 		if err := validateEntry("grpc", i, e, seenGRPC); err != nil {
 			return fail(err)
 		}
-		conn, err := buildGRPC(e, d, p.cfg.grpcDialOpts)
+		extra := append(append([]grpc.DialOption{}, p.cfg.grpcDialOpts...), p.cfg.grpcEntryDialOpts[e.GetName()]...)
+		conn, err := buildGRPC(e, d, extra)
 		if err != nil {
 			return fail(err)
 		}
@@ -152,7 +199,8 @@ func (p appProvider) Build(_ context.Context, s appkit.ApplyScope, _ appkit.Node
 		if err := validateEntry("http", i, e, seenHTTP); err != nil {
 			return fail(err)
 		}
-		hc, err := buildHTTP(e, p.cfg.httpOpts)
+		extra := append(append([]client.HTTPOption{}, p.cfg.httpOpts...), p.cfg.httpEntryOpts[e.GetName()]...)
+		hc, err := buildHTTP(e, extra)
 		if err != nil {
 			return fail(err)
 		}
@@ -191,6 +239,37 @@ func validateEntry(face string, idx int, e *bootstrapv1.Client_Entry, seen map[s
 	}
 	if t := e.GetTimeout(); t != nil && t.AsDuration() < 0 {
 		return fmt.Errorf("client.%s.%s.timeout = %v must be >= 0", face, name, t.AsDuration())
+	}
+	return nil
+}
+
+// validateEntryBindings 校验显式绑定的条目名真的出现在契约对应面上。
+//
+// 拼错（或契约条目已删/改名）在装配期 fail-fast：静默失效会让韧性策略悄悄
+// 不生效，而调用侧看不到任何征兆。两个面各自成表——同名条目可以合法地同时
+// 出现在 grpc 与 http 面上，绑定要落在声明它的那个面上。
+func validateEntryBindings(sec *bootstrapv1.Client, cfg providerConfig) error {
+	if len(cfg.grpcEntryDialOpts) > 0 {
+		names := make(map[string]bool, len(sec.GetGrpc().GetEntries()))
+		for _, e := range sec.GetGrpc().GetEntries() {
+			names[e.GetName()] = true
+		}
+		for name := range cfg.grpcEntryDialOpts {
+			if !names[name] {
+				return fmt.Errorf("client: WithEntryGRPCDialOptions(%q) has no matching client.grpc.entries name", name)
+			}
+		}
+	}
+	if len(cfg.httpEntryOpts) > 0 {
+		names := make(map[string]bool, len(sec.GetHttp().GetEntries()))
+		for _, e := range sec.GetHttp().GetEntries() {
+			names[e.GetName()] = true
+		}
+		for name := range cfg.httpEntryOpts {
+			if !names[name] {
+				return fmt.Errorf("client: WithEntryHTTPOptions(%q) has no matching client.http.entries name", name)
+			}
+		}
 	}
 	return nil
 }

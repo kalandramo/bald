@@ -19,7 +19,7 @@ checks: []
 - [catalog-r05] [建议] 认证/授权/审计：pkg/authn、pkg/authz、pkg/audit；实现桥接 contrib/authn-jwt、authz-casbin、audit-gorm、audit-stream。
 - [catalog-r06] [建议] 消息：broker（kafka/rabbitmq/redis/rocketmq 四实现，契约 + 实现分离）。
 - [catalog-r07] [建议] 注册发现：registry（inmemory 内置；etcd/consul/nacos/kubernetes 直连 SDK）。
-- [catalog-r08] [建议] 韧性：ratelimit（bbr/sentinel/tokenbucket）、circuitbreaker（hystrix/sentinel/sres/vegas）、retry。
+- [catalog-r08] [建议] 韧性：ratelimit（bbr/sentinel/tokenbucket）、circuitbreaker（hystrix/sentinel/sres/vegas）、retry；出站组合用 transport/client/resiliency（retry+熔断接成 gRPC 拦截器/HTTP RoundTripper，按命名条目绑定）。
 - [catalog-r09] [建议] 可观测：metrics（prometheus/otel/datadog）、health（healthz + readiness + checkers）、contrib/observability-otlp、pkg/metricshttp。
 - [catalog-r10] [建议] 基础设施：cache（local/redis/loadable）、encoding（12 种编解码）、oss（minio/s3）。
 - [catalog-r11] [建议] MCP/LLM：cobramcp（任意 Cobra CLI → MCP server）、transport/mcp（应用侧 MCP）、ai/{openai,langchaingo,eino}。

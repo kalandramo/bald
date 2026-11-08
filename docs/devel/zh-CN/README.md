@@ -53,6 +53,8 @@
 - [Bald 重试设计](./Bald%20重试设计.md)：`Backoff`/`Jitter`/`Classifier` 三组正交策略、`Retrier.Do` 单入口、三条终止线与 `errors.Join` 包装。
 - [Bald 限流设计](./Bald%20限流设计.md)：`Limiter` 三方法契约与 tokenbucket/bbr/sentinel 三实现；`InflightLimiter` 为何拆开。
 - [Bald 熔断设计](./Bald%20熔断设计.md)：三态契约与成对上报；sres/vegas/hystrix/sentinel 四实现的判决依据与已知边界。
+- [Bald 节点熔断设计](./Bald%20节点熔断设计.md)：`selector/circuitbreaker` 的按节点硬排除桥接层；`Healthy` 由 `State()` 派生、不走 `Allow` 门控的理由。
+- [Bald 出站韧性设计](./Bald%20出站韧性设计.md)：`transport/client/resiliency` 把 retry+熔断接成出站拦截器/RoundTripper；熔断在外重试在内、按命名条目显式绑定、不做 YAML 子系统的边界。
 
 ### 集成
 

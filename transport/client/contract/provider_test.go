@@ -378,6 +378,168 @@ func TestAccessors_NilApp(t *testing.T) {
 	}
 }
 
+// 按名字绑定的 http 选项只落到该条目，其余条目不受影响。
+func TestEntryBinding_HTTPAppliesOnlyToNamedEntry(t *testing.T) {
+	sentinel := errors.New("bound transport")
+	bound := client.WithTransport(roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return nil, sentinel
+	}))
+	res, cleanup, err := AppProvider(WithEntryHTTPOptions("billing", bound)).Build(context.Background(), appkit.ApplyScope{
+		Config: cfgWith(&bootstrapv1.Client{Http: &bootstrapv1.Client_HTTP{Entries: []*bootstrapv1.Client_Entry{
+			{Name: "billing", Addr: "http://billing.internal"},
+			{Name: "other", Addr: "http://other.internal"},
+		}}}),
+	}, appkit.Node{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	defer func() { _ = cleanup(context.Background()) }()
+
+	billing := product(t, res, "http.billing").(*client.HTTPClient)
+	if _, err := billing.Get(billing.BaseURL); !errors.Is(err, sentinel) {
+		t.Fatalf("billing GET err = %v, want bound-transport sentinel", err)
+	}
+	other := product(t, res, "http.other").(*client.HTTPClient)
+	if other.Transport == billing.Transport {
+		t.Fatal("unbound entry shares billing's transport; binding leaked to other entry")
+	}
+}
+
+// 全局选项在前、条目选项在后：条目绑定可覆盖全局默认。
+func TestEntryBinding_HTTPAppendsAfterGlobal(t *testing.T) {
+	global := errors.New("global")
+	perEntry := errors.New("per-entry")
+	res, cleanup, err := AppProvider(
+		WithHTTPOptions(client.WithTransport(roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return nil, global
+		}))),
+		WithEntryHTTPOptions("billing", client.WithTransport(roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return nil, perEntry
+		}))),
+	).Build(context.Background(), appkit.ApplyScope{
+		Config: cfgWith(&bootstrapv1.Client{Http: &bootstrapv1.Client_HTTP{Entries: []*bootstrapv1.Client_Entry{
+			{Name: "billing", Addr: "http://billing.internal"},
+		}}}),
+	}, appkit.Node{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	defer func() { _ = cleanup(context.Background()) }()
+	hc := product(t, res, "http.billing").(*client.HTTPClient)
+	if _, err := hc.Get(hc.BaseURL); !errors.Is(err, perEntry) {
+		t.Fatalf("GET err = %v, want per-entry transport to win over global", err)
+	}
+}
+
+// grpc 条目绑定：计数拦截器只接到命名条目上，且排在全局拦截器之后执行。
+// 拦截器在 Invoke 时先于传输运行，故无需真实后端即可观察接线。
+func TestEntryBinding_GRPCAppliesOnlyToNamedEntry(t *testing.T) {
+	var order []string
+	record := func(tag string) grpc.UnaryClientInterceptor {
+		return func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+			order = append(order, tag)
+			return invoker(ctx, method, req, reply, cc, opts...)
+		}
+	}
+	res, cleanup, err := AppProvider(
+		WithGRPCDialOptions(grpc.WithChainUnaryInterceptor(record("global"))),
+		WithEntryGRPCDialOptions("user", grpc.WithChainUnaryInterceptor(record("user"))),
+	).Build(context.Background(), appkit.ApplyScope{
+		Config: cfgWith(&bootstrapv1.Client{Grpc: &bootstrapv1.Client_GRPC{Entries: []*bootstrapv1.Client_Entry{
+			{Name: "user", Addr: "127.0.0.1:1"},
+			{Name: "other", Addr: "127.0.0.1:2"},
+		}}}),
+	}, appkit.Node{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	defer func() { _ = cleanup(context.Background()) }()
+
+	user := product(t, res, "grpc.user").(*grpc.ClientConn)
+	other := product(t, res, "grpc.other").(*grpc.ClientConn)
+	// 无后端：Invoke 会在传输层失败，但拦截器已先运行并记录。
+	_ = user.Invoke(context.Background(), "/svc/Method", nil, nil)
+	if strings.Join(order, ",") != "global,user" {
+		t.Fatalf("user call order = %v, want [global user] (per-entry appended after global)", order)
+	}
+	order = nil
+	_ = other.Invoke(context.Background(), "/svc/Method", nil, nil)
+	if strings.Join(order, ",") != "global" {
+		t.Fatalf("other call order = %v, want [global] only (user binding must not leak)", order)
+	}
+}
+
+// 绑定名不在契约里 → 装配期 fail-fast，两个面各自的错误文案。
+func TestEntryBinding_UnknownNameFailsFast(t *testing.T) {
+	cases := []struct {
+		name string
+		opt  Option
+		sec  *bootstrapv1.Client
+		want string
+	}{
+		{
+			"grpc typo", WithEntryGRPCDialOptions("usr", grpc.WithUserAgent("x")),
+			&bootstrapv1.Client{Grpc: &bootstrapv1.Client_GRPC{Entries: []*bootstrapv1.Client_Entry{
+				{Name: "user", Addr: "127.0.0.1:1"},
+			}}},
+			`WithEntryGRPCDialOptions("usr")`,
+		},
+		{
+			"http typo", WithEntryHTTPOptions("bill", client.WithTransport(http.DefaultTransport)),
+			&bootstrapv1.Client{Http: &bootstrapv1.Client_HTTP{Entries: []*bootstrapv1.Client_Entry{
+				{Name: "billing", Addr: "http://billing.internal"},
+			}}},
+			`WithEntryHTTPOptions("bill")`,
+		},
+		{
+			"grpc name only on http face", WithEntryGRPCDialOptions("billing", grpc.WithUserAgent("x")),
+			&bootstrapv1.Client{Http: &bootstrapv1.Client_HTTP{Entries: []*bootstrapv1.Client_Entry{
+				{Name: "billing", Addr: "http://billing.internal"},
+			}}},
+			`WithEntryGRPCDialOptions("billing")`,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			res, cleanup, err := AppProvider(tc.opt).Build(context.Background(), appkit.ApplyScope{
+				Config: cfgWith(tc.sec),
+			}, appkit.Node{})
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err = %v, want containing %q", err, tc.want)
+			}
+			if res != nil || cleanup != nil {
+				t.Fatalf("failed Build leaked product/cleanup: (%v, %v)", res, cleanup)
+			}
+		})
+	}
+}
+
+// 同名条目在两个面上并存时，绑定要各落其面，互不误伤。
+func TestEntryBinding_SameNameBothFaces(t *testing.T) {
+	sentinel := errors.New("http-bound")
+	res, cleanup, err := AppProvider(
+		WithEntryHTTPOptions("x", client.WithTransport(roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return nil, sentinel
+		}))),
+	).Build(context.Background(), appkit.ApplyScope{
+		Config: cfgWith(&bootstrapv1.Client{
+			Grpc: &bootstrapv1.Client_GRPC{Entries: []*bootstrapv1.Client_Entry{{Name: "x", Addr: "127.0.0.1:1"}}},
+			Http: &bootstrapv1.Client_HTTP{Entries: []*bootstrapv1.Client_Entry{{Name: "x", Addr: "http://x.internal"}}},
+		}),
+	}, appkit.Node{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	defer func() { _ = cleanup(context.Background()) }()
+	hc := product(t, res, "http.x").(*client.HTTPClient)
+	if _, err := hc.Get(hc.BaseURL); !errors.Is(err, sentinel) {
+		t.Fatalf("http.x GET err = %v, want http-bound sentinel", err)
+	}
+	if _, ok := product(t, res, "grpc.x").(*grpc.ClientConn); !ok {
+		t.Fatal("grpc.x missing; http binding should not disturb the grpc face")
+	}
+}
+
 // ---- helpers ----
 
 func cfgWith(c *bootstrapv1.Client) *bootstrapv1.BootstrapConfig {
