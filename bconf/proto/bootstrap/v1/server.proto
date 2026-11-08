@@ -596,4 +596,77 @@ message Server {
   }
 
   optional Gateway gateway = 32;
+
+  // 统一中间件段（方案 S）：双协议一份声明。规则按 operation 选择器匹配
+  // （Transporter.Operation()：gRPC 完整方法名或 "METHOD /路由模板"），命中的
+  // 策略经统一链在**双面链头**生效——先于 server.http.middleware /
+  // server.grpc.middleware 两个面段的中间件；统一链中间件短路时面段不执行。
+  //
+  // 本段只承载「双协议同形」的策略（recovery/request_id/rate_limit/
+  // timeout_ctx/validate）：面特有的语义（HTTP 硬返回超时、CORS/安全头、
+  // 熔断的面特有失败口径与 status_code）仍归属两面各自的 middleware 段。
+  // 认证/授权/审计是代码依赖（Authenticator/Authorizer/Auditor 实例注入），
+  // 不经本段配置——由 bundle 的构造器 Option 承载。
+  //
+  // 与两面段的关系是**叠加不是替代**：本段规则先执行，面段中间件随后；两面
+  // 段在本段存在的部署里继续有效。语义冲突（如两面 timeout 与本段 timeout_ctx
+  // 同时声明）按声明组合叠加——各管各的预算，不静默合并。
+  message UnifiedMiddleware {
+    // Rule 是一条路由级策略声明。
+    message Rule {
+      // operation 选择器：精确（"/pkg.Service/Method"、"GET /v1/x"）、前缀
+      // （"/pkg.Service/*"、"GET /v1/admin/*"）、"*" 全部。前缀按声明长度
+      // 降序匹配，长前缀优先。
+      string selector = 1;
+
+      oneof policy {
+        // panic 兜底（统一 Recovery）。
+        Recovery recovery = 2;
+        // 请求 ID（统一 RequestID）。
+        RequestId request_id = 3;
+        // 限流（统一 RateLimit，快速失败口径；wait=true 平滑）。
+        RateLimit rate_limit = 4;
+        // ctx-deadline 语义超时（统一 Timeout）：双协议同形——只保证 handler
+        // 拿到会到期的 ctx，不保证响应按时返回。与两面 timeout 段（HTTP 硬
+        // 返回 / gRPC unary-only）语义都不同，字段名刻意区分。
+        TimeoutCtx timeout = 5;
+        // 请求校验（统一 Validator，回调注入）。
+        Validate validate = 6;
+      }
+    }
+
+    repeated Rule rules = 1;
+
+    // Recovery 策略参数（统一 Recovery 无字段，占位保扩展）。
+    message Recovery {}
+
+    // RequestId 策略参数。
+    message RequestId {
+      // 请求 ID 头名，默认 X-Request-ID。
+      optional string header_name = 1;
+    }
+
+    // RateLimit 策略参数（与两面 rate_limit 段同字段；配额独立于两面）。
+    message RateLimit {
+      // 每秒允许的请求数。
+      double rate = 1;
+      // 突发容量。
+      int32 burst = 2;
+      // 是否使用等待模式（平滑限流）。
+      bool wait = 3;
+    }
+
+    // TimeoutCtx 策略参数。
+    message TimeoutCtx {
+      // 默认超时时间（毫秒）。已有 deadline 的调用原样放过。
+      int64 default_timeout_ms = 1;
+    }
+
+    // Validate 策略参数（校验回调经 Validator 注入，占位保扩展）。
+    message Validate {}
+  }
+
+  // 双协议一份声明的中间件段（见 UnifiedMiddleware 注释）。opt-in：段缺省
+  // 时不挂统一链，两面段行为不变（现有部署零影响）。
+  optional UnifiedMiddleware unified_middleware = 33;
 }

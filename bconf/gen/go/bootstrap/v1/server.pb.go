@@ -76,41 +76,44 @@ func (Server_Tcp_ByteOrder) EnumDescriptor() ([]byte, []int) {
 // Server 描述一个传输层实例，对应 wind.WithServer。
 // 同一 Server 消息中可同时包含多种传输层配置，bootstrap 会分别创建对应的实例。
 type Server struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Http          *Server_Http           `protobuf:"bytes,1,opt,name=http,proto3,oneof" json:"http,omitempty"`
-	Http3         *Server_Http3          `protobuf:"bytes,2,opt,name=http3,proto3,oneof" json:"http3,omitempty"`
-	Grpc          *Server_Grpc           `protobuf:"bytes,3,opt,name=grpc,proto3,oneof" json:"grpc,omitempty"`
-	Graphql       *Server_Graphql        `protobuf:"bytes,4,opt,name=graphql,proto3,oneof" json:"graphql,omitempty"`
-	Sse           *Server_Sse            `protobuf:"bytes,5,opt,name=sse,proto3,oneof" json:"sse,omitempty"`
-	Websocket     *Server_Websocket      `protobuf:"bytes,6,opt,name=websocket,proto3,oneof" json:"websocket,omitempty"`
-	Tcp           *Server_Tcp            `protobuf:"bytes,7,opt,name=tcp,proto3,oneof" json:"tcp,omitempty"`
-	Udp           *Server_Udp            `protobuf:"bytes,8,opt,name=udp,proto3,oneof" json:"udp,omitempty"`
-	Kcp           *Server_Kcp            `protobuf:"bytes,9,opt,name=kcp,proto3,oneof" json:"kcp,omitempty"`
-	Thrift        *Server_Thrift         `protobuf:"bytes,10,opt,name=thrift,proto3,oneof" json:"thrift,omitempty"`
-	Trpc          *Server_Trpc           `protobuf:"bytes,11,opt,name=trpc,proto3,oneof" json:"trpc,omitempty"`
-	Webtransport  *Server_Webtransport   `protobuf:"bytes,12,opt,name=webtransport,proto3,oneof" json:"webtransport,omitempty"`
-	Cron          *Server_Cron           `protobuf:"bytes,13,opt,name=cron,proto3,oneof" json:"cron,omitempty"`
-	Hptimer       *Server_Hptimer        `protobuf:"bytes,14,opt,name=hptimer,proto3,oneof" json:"hptimer,omitempty"`
-	Mcp           *Server_Mcp            `protobuf:"bytes,15,opt,name=mcp,proto3,oneof" json:"mcp,omitempty"`
-	Signalr       *Server_Signalr        `protobuf:"bytes,16,opt,name=signalr,proto3,oneof" json:"signalr,omitempty"`
-	Socketio      *Server_Socketio       `protobuf:"bytes,17,opt,name=socketio,proto3,oneof" json:"socketio,omitempty"`
-	Webrtc        *Server_Webrtc         `protobuf:"bytes,18,opt,name=webrtc,proto3,oneof" json:"webrtc,omitempty"`
-	Asynq         *Server_Asynq          `protobuf:"bytes,19,opt,name=asynq,proto3,oneof" json:"asynq,omitempty"`
-	Machinery     *Server_Machinery      `protobuf:"bytes,20,opt,name=machinery,proto3,oneof" json:"machinery,omitempty"`
-	Kafka         *Server_Kafka          `protobuf:"bytes,21,opt,name=kafka,proto3,oneof" json:"kafka,omitempty"`
-	Rabbitmq      *Server_Rabbitmq       `protobuf:"bytes,22,opt,name=rabbitmq,proto3,oneof" json:"rabbitmq,omitempty"`
-	RedisServer   *Server_RedisServer    `protobuf:"bytes,23,opt,name=redis_server,json=redisServer,proto3,oneof" json:"redis_server,omitempty"`
-	Nats          *Server_Nats           `protobuf:"bytes,24,opt,name=nats,proto3,oneof" json:"nats,omitempty"`
-	Mqtt          *Server_Mqtt           `protobuf:"bytes,25,opt,name=mqtt,proto3,oneof" json:"mqtt,omitempty"`
-	Pulsar        *Server_Pulsar         `protobuf:"bytes,26,opt,name=pulsar,proto3,oneof" json:"pulsar,omitempty"`
-	Activemq      *Server_Activemq       `protobuf:"bytes,27,opt,name=activemq,proto3,oneof" json:"activemq,omitempty"`
-	Azuresb       *Server_Azuresb        `protobuf:"bytes,28,opt,name=azuresb,proto3,oneof" json:"azuresb,omitempty"`
-	Nsq           *Server_Nsq            `protobuf:"bytes,29,opt,name=nsq,proto3,oneof" json:"nsq,omitempty"`
-	Rocketmq      *Server_Rocketmq       `protobuf:"bytes,30,opt,name=rocketmq,proto3,oneof" json:"rocketmq,omitempty"`
-	Sqs           *Server_Sqs            `protobuf:"bytes,31,opt,name=sqs,proto3,oneof" json:"sqs,omitempty"`
-	Gateway       *Server_Gateway        `protobuf:"bytes,32,opt,name=gateway,proto3,oneof" json:"gateway,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	Http         *Server_Http           `protobuf:"bytes,1,opt,name=http,proto3,oneof" json:"http,omitempty"`
+	Http3        *Server_Http3          `protobuf:"bytes,2,opt,name=http3,proto3,oneof" json:"http3,omitempty"`
+	Grpc         *Server_Grpc           `protobuf:"bytes,3,opt,name=grpc,proto3,oneof" json:"grpc,omitempty"`
+	Graphql      *Server_Graphql        `protobuf:"bytes,4,opt,name=graphql,proto3,oneof" json:"graphql,omitempty"`
+	Sse          *Server_Sse            `protobuf:"bytes,5,opt,name=sse,proto3,oneof" json:"sse,omitempty"`
+	Websocket    *Server_Websocket      `protobuf:"bytes,6,opt,name=websocket,proto3,oneof" json:"websocket,omitempty"`
+	Tcp          *Server_Tcp            `protobuf:"bytes,7,opt,name=tcp,proto3,oneof" json:"tcp,omitempty"`
+	Udp          *Server_Udp            `protobuf:"bytes,8,opt,name=udp,proto3,oneof" json:"udp,omitempty"`
+	Kcp          *Server_Kcp            `protobuf:"bytes,9,opt,name=kcp,proto3,oneof" json:"kcp,omitempty"`
+	Thrift       *Server_Thrift         `protobuf:"bytes,10,opt,name=thrift,proto3,oneof" json:"thrift,omitempty"`
+	Trpc         *Server_Trpc           `protobuf:"bytes,11,opt,name=trpc,proto3,oneof" json:"trpc,omitempty"`
+	Webtransport *Server_Webtransport   `protobuf:"bytes,12,opt,name=webtransport,proto3,oneof" json:"webtransport,omitempty"`
+	Cron         *Server_Cron           `protobuf:"bytes,13,opt,name=cron,proto3,oneof" json:"cron,omitempty"`
+	Hptimer      *Server_Hptimer        `protobuf:"bytes,14,opt,name=hptimer,proto3,oneof" json:"hptimer,omitempty"`
+	Mcp          *Server_Mcp            `protobuf:"bytes,15,opt,name=mcp,proto3,oneof" json:"mcp,omitempty"`
+	Signalr      *Server_Signalr        `protobuf:"bytes,16,opt,name=signalr,proto3,oneof" json:"signalr,omitempty"`
+	Socketio     *Server_Socketio       `protobuf:"bytes,17,opt,name=socketio,proto3,oneof" json:"socketio,omitempty"`
+	Webrtc       *Server_Webrtc         `protobuf:"bytes,18,opt,name=webrtc,proto3,oneof" json:"webrtc,omitempty"`
+	Asynq        *Server_Asynq          `protobuf:"bytes,19,opt,name=asynq,proto3,oneof" json:"asynq,omitempty"`
+	Machinery    *Server_Machinery      `protobuf:"bytes,20,opt,name=machinery,proto3,oneof" json:"machinery,omitempty"`
+	Kafka        *Server_Kafka          `protobuf:"bytes,21,opt,name=kafka,proto3,oneof" json:"kafka,omitempty"`
+	Rabbitmq     *Server_Rabbitmq       `protobuf:"bytes,22,opt,name=rabbitmq,proto3,oneof" json:"rabbitmq,omitempty"`
+	RedisServer  *Server_RedisServer    `protobuf:"bytes,23,opt,name=redis_server,json=redisServer,proto3,oneof" json:"redis_server,omitempty"`
+	Nats         *Server_Nats           `protobuf:"bytes,24,opt,name=nats,proto3,oneof" json:"nats,omitempty"`
+	Mqtt         *Server_Mqtt           `protobuf:"bytes,25,opt,name=mqtt,proto3,oneof" json:"mqtt,omitempty"`
+	Pulsar       *Server_Pulsar         `protobuf:"bytes,26,opt,name=pulsar,proto3,oneof" json:"pulsar,omitempty"`
+	Activemq     *Server_Activemq       `protobuf:"bytes,27,opt,name=activemq,proto3,oneof" json:"activemq,omitempty"`
+	Azuresb      *Server_Azuresb        `protobuf:"bytes,28,opt,name=azuresb,proto3,oneof" json:"azuresb,omitempty"`
+	Nsq          *Server_Nsq            `protobuf:"bytes,29,opt,name=nsq,proto3,oneof" json:"nsq,omitempty"`
+	Rocketmq     *Server_Rocketmq       `protobuf:"bytes,30,opt,name=rocketmq,proto3,oneof" json:"rocketmq,omitempty"`
+	Sqs          *Server_Sqs            `protobuf:"bytes,31,opt,name=sqs,proto3,oneof" json:"sqs,omitempty"`
+	Gateway      *Server_Gateway        `protobuf:"bytes,32,opt,name=gateway,proto3,oneof" json:"gateway,omitempty"`
+	// 双协议一份声明的中间件段（见 UnifiedMiddleware 注释）。opt-in：段缺省
+	// 时不挂统一链，两面段行为不变（现有部署零影响）。
+	UnifiedMiddleware *Server_UnifiedMiddleware `protobuf:"bytes,33,opt,name=unified_middleware,json=unifiedMiddleware,proto3,oneof" json:"unified_middleware,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *Server) Reset() {
@@ -363,6 +366,13 @@ func (x *Server) GetSqs() *Server_Sqs {
 func (x *Server) GetGateway() *Server_Gateway {
 	if x != nil {
 		return x.Gateway
+	}
+	return nil
+}
+
+func (x *Server) GetUnifiedMiddleware() *Server_UnifiedMiddleware {
+	if x != nil {
+		return x.UnifiedMiddleware
 	}
 	return nil
 }
@@ -2534,6 +2544,64 @@ func (x *Server_Gateway) GetTls() *Server_TLS {
 	return nil
 }
 
+// 统一中间件段（方案 S）：双协议一份声明。规则按 operation 选择器匹配
+// （Transporter.Operation()：gRPC 完整方法名或 "METHOD /路由模板"），命中的
+// 策略经统一链在**双面链头**生效——先于 server.http.middleware /
+// server.grpc.middleware 两个面段的中间件；统一链中间件短路时面段不执行。
+//
+// 本段只承载「双协议同形」的策略（recovery/request_id/rate_limit/
+// timeout_ctx/validate）：面特有的语义（HTTP 硬返回超时、CORS/安全头、
+// 熔断的面特有失败口径与 status_code）仍归属两面各自的 middleware 段。
+// 认证/授权/审计是代码依赖（Authenticator/Authorizer/Auditor 实例注入），
+// 不经本段配置——由 bundle 的构造器 Option 承载。
+//
+// 与两面段的关系是**叠加不是替代**：本段规则先执行，面段中间件随后；两面
+// 段在本段存在的部署里继续有效。语义冲突（如两面 timeout 与本段 timeout_ctx
+// 同时声明）按声明组合叠加——各管各的预算，不静默合并。
+type Server_UnifiedMiddleware struct {
+	state         protoimpl.MessageState           `protogen:"open.v1"`
+	Rules         []*Server_UnifiedMiddleware_Rule `protobuf:"bytes,1,rep,name=rules,proto3" json:"rules,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Server_UnifiedMiddleware) Reset() {
+	*x = Server_UnifiedMiddleware{}
+	mi := &file_bootstrap_v1_server_proto_msgTypes[34]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Server_UnifiedMiddleware) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Server_UnifiedMiddleware) ProtoMessage() {}
+
+func (x *Server_UnifiedMiddleware) ProtoReflect() protoreflect.Message {
+	mi := &file_bootstrap_v1_server_proto_msgTypes[34]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Server_UnifiedMiddleware.ProtoReflect.Descriptor instead.
+func (*Server_UnifiedMiddleware) Descriptor() ([]byte, []int) {
+	return file_bootstrap_v1_server_proto_rawDescGZIP(), []int{0, 33}
+}
+
+func (x *Server_UnifiedMiddleware) GetRules() []*Server_UnifiedMiddleware_Rule {
+	if x != nil {
+		return x.Rules
+	}
+	return nil
+}
+
 type Server_TLS_File struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	CertPath      *string                `protobuf:"bytes,1,opt,name=cert_path,json=certPath,proto3,oneof" json:"cert_path,omitempty"`
@@ -2545,7 +2613,7 @@ type Server_TLS_File struct {
 
 func (x *Server_TLS_File) Reset() {
 	*x = Server_TLS_File{}
-	mi := &file_bootstrap_v1_server_proto_msgTypes[34]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2557,7 +2625,7 @@ func (x *Server_TLS_File) String() string {
 func (*Server_TLS_File) ProtoMessage() {}
 
 func (x *Server_TLS_File) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_server_proto_msgTypes[34]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2605,7 +2673,7 @@ type Server_TLS_Config struct {
 
 func (x *Server_TLS_Config) Reset() {
 	*x = Server_TLS_Config{}
-	mi := &file_bootstrap_v1_server_proto_msgTypes[35]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2617,7 +2685,7 @@ func (x *Server_TLS_Config) String() string {
 func (*Server_TLS_Config) ProtoMessage() {}
 
 func (x *Server_TLS_Config) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_server_proto_msgTypes[35]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2671,7 +2739,7 @@ type Server_Http_Middleware struct {
 
 func (x *Server_Http_Middleware) Reset() {
 	*x = Server_Http_Middleware{}
-	mi := &file_bootstrap_v1_server_proto_msgTypes[36]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2683,7 +2751,7 @@ func (x *Server_Http_Middleware) String() string {
 func (*Server_Http_Middleware) ProtoMessage() {}
 
 func (x *Server_Http_Middleware) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_server_proto_msgTypes[36]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2766,7 +2834,7 @@ type Server_Http_Middleware_Recovery struct {
 
 func (x *Server_Http_Middleware_Recovery) Reset() {
 	*x = Server_Http_Middleware_Recovery{}
-	mi := &file_bootstrap_v1_server_proto_msgTypes[37]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2778,7 +2846,7 @@ func (x *Server_Http_Middleware_Recovery) String() string {
 func (*Server_Http_Middleware_Recovery) ProtoMessage() {}
 
 func (x *Server_Http_Middleware_Recovery) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_server_proto_msgTypes[37]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2822,7 +2890,7 @@ type Server_Http_Middleware_Cors struct {
 
 func (x *Server_Http_Middleware_Cors) Reset() {
 	*x = Server_Http_Middleware_Cors{}
-	mi := &file_bootstrap_v1_server_proto_msgTypes[38]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2834,7 +2902,7 @@ func (x *Server_Http_Middleware_Cors) String() string {
 func (*Server_Http_Middleware_Cors) ProtoMessage() {}
 
 func (x *Server_Http_Middleware_Cors) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_server_proto_msgTypes[38]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2903,7 +2971,7 @@ type Server_Http_Middleware_Logging struct {
 
 func (x *Server_Http_Middleware_Logging) Reset() {
 	*x = Server_Http_Middleware_Logging{}
-	mi := &file_bootstrap_v1_server_proto_msgTypes[39]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2915,7 +2983,7 @@ func (x *Server_Http_Middleware_Logging) String() string {
 func (*Server_Http_Middleware_Logging) ProtoMessage() {}
 
 func (x *Server_Http_Middleware_Logging) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_server_proto_msgTypes[39]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2949,7 +3017,7 @@ type Server_Http_Middleware_RequestId struct {
 
 func (x *Server_Http_Middleware_RequestId) Reset() {
 	*x = Server_Http_Middleware_RequestId{}
-	mi := &file_bootstrap_v1_server_proto_msgTypes[40]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2961,7 +3029,7 @@ func (x *Server_Http_Middleware_RequestId) String() string {
 func (*Server_Http_Middleware_RequestId) ProtoMessage() {}
 
 func (x *Server_Http_Middleware_RequestId) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_server_proto_msgTypes[40]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2993,7 +3061,7 @@ type Server_Http_Middleware_Tracing struct {
 
 func (x *Server_Http_Middleware_Tracing) Reset() {
 	*x = Server_Http_Middleware_Tracing{}
-	mi := &file_bootstrap_v1_server_proto_msgTypes[41]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3005,7 +3073,7 @@ func (x *Server_Http_Middleware_Tracing) String() string {
 func (*Server_Http_Middleware_Tracing) ProtoMessage() {}
 
 func (x *Server_Http_Middleware_Tracing) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_server_proto_msgTypes[41]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3036,7 +3104,7 @@ type Server_Http_Middleware_RateLimit struct {
 
 func (x *Server_Http_Middleware_RateLimit) Reset() {
 	*x = Server_Http_Middleware_RateLimit{}
-	mi := &file_bootstrap_v1_server_proto_msgTypes[42]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3048,7 +3116,7 @@ func (x *Server_Http_Middleware_RateLimit) String() string {
 func (*Server_Http_Middleware_RateLimit) ProtoMessage() {}
 
 func (x *Server_Http_Middleware_RateLimit) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_server_proto_msgTypes[42]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3098,7 +3166,7 @@ type Server_Http_Middleware_Timeout struct {
 
 func (x *Server_Http_Middleware_Timeout) Reset() {
 	*x = Server_Http_Middleware_Timeout{}
-	mi := &file_bootstrap_v1_server_proto_msgTypes[43]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3110,7 +3178,7 @@ func (x *Server_Http_Middleware_Timeout) String() string {
 func (*Server_Http_Middleware_Timeout) ProtoMessage() {}
 
 func (x *Server_Http_Middleware_Timeout) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_server_proto_msgTypes[43]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3185,7 +3253,7 @@ type Server_Http_Middleware_CircuitBreaker struct {
 
 func (x *Server_Http_Middleware_CircuitBreaker) Reset() {
 	*x = Server_Http_Middleware_CircuitBreaker{}
-	mi := &file_bootstrap_v1_server_proto_msgTypes[44]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3197,7 +3265,7 @@ func (x *Server_Http_Middleware_CircuitBreaker) String() string {
 func (*Server_Http_Middleware_CircuitBreaker) ProtoMessage() {}
 
 func (x *Server_Http_Middleware_CircuitBreaker) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_server_proto_msgTypes[44]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3264,7 +3332,7 @@ type Server_Grpc_Middleware struct {
 
 func (x *Server_Grpc_Middleware) Reset() {
 	*x = Server_Grpc_Middleware{}
-	mi := &file_bootstrap_v1_server_proto_msgTypes[45]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3276,7 +3344,7 @@ func (x *Server_Grpc_Middleware) String() string {
 func (*Server_Grpc_Middleware) ProtoMessage() {}
 
 func (x *Server_Grpc_Middleware) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_server_proto_msgTypes[45]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3350,7 +3418,7 @@ type Server_Grpc_Middleware_Recovery struct {
 
 func (x *Server_Grpc_Middleware_Recovery) Reset() {
 	*x = Server_Grpc_Middleware_Recovery{}
-	mi := &file_bootstrap_v1_server_proto_msgTypes[46]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3362,7 +3430,7 @@ func (x *Server_Grpc_Middleware_Recovery) String() string {
 func (*Server_Grpc_Middleware_Recovery) ProtoMessage() {}
 
 func (x *Server_Grpc_Middleware_Recovery) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_server_proto_msgTypes[46]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3387,7 +3455,7 @@ type Server_Grpc_Middleware_Logging struct {
 
 func (x *Server_Grpc_Middleware_Logging) Reset() {
 	*x = Server_Grpc_Middleware_Logging{}
-	mi := &file_bootstrap_v1_server_proto_msgTypes[47]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3399,7 +3467,7 @@ func (x *Server_Grpc_Middleware_Logging) String() string {
 func (*Server_Grpc_Middleware_Logging) ProtoMessage() {}
 
 func (x *Server_Grpc_Middleware_Logging) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_server_proto_msgTypes[47]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3424,7 +3492,7 @@ type Server_Grpc_Middleware_Tracing struct {
 
 func (x *Server_Grpc_Middleware_Tracing) Reset() {
 	*x = Server_Grpc_Middleware_Tracing{}
-	mi := &file_bootstrap_v1_server_proto_msgTypes[48]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3436,7 +3504,7 @@ func (x *Server_Grpc_Middleware_Tracing) String() string {
 func (*Server_Grpc_Middleware_Tracing) ProtoMessage() {}
 
 func (x *Server_Grpc_Middleware_Tracing) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_server_proto_msgTypes[48]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3461,7 +3529,7 @@ type Server_Grpc_Middleware_Validate struct {
 
 func (x *Server_Grpc_Middleware_Validate) Reset() {
 	*x = Server_Grpc_Middleware_Validate{}
-	mi := &file_bootstrap_v1_server_proto_msgTypes[49]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3473,7 +3541,7 @@ func (x *Server_Grpc_Middleware_Validate) String() string {
 func (*Server_Grpc_Middleware_Validate) ProtoMessage() {}
 
 func (x *Server_Grpc_Middleware_Validate) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_server_proto_msgTypes[49]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3507,7 +3575,7 @@ type Server_Grpc_Middleware_RateLimit struct {
 
 func (x *Server_Grpc_Middleware_RateLimit) Reset() {
 	*x = Server_Grpc_Middleware_RateLimit{}
-	mi := &file_bootstrap_v1_server_proto_msgTypes[50]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3519,7 +3587,7 @@ func (x *Server_Grpc_Middleware_RateLimit) String() string {
 func (*Server_Grpc_Middleware_RateLimit) ProtoMessage() {}
 
 func (x *Server_Grpc_Middleware_RateLimit) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_server_proto_msgTypes[50]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3574,7 +3642,7 @@ type Server_Grpc_Middleware_Timeout struct {
 
 func (x *Server_Grpc_Middleware_Timeout) Reset() {
 	*x = Server_Grpc_Middleware_Timeout{}
-	mi := &file_bootstrap_v1_server_proto_msgTypes[51]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[52]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3586,7 +3654,7 @@ func (x *Server_Grpc_Middleware_Timeout) String() string {
 func (*Server_Grpc_Middleware_Timeout) ProtoMessage() {}
 
 func (x *Server_Grpc_Middleware_Timeout) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_server_proto_msgTypes[51]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[52]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3649,7 +3717,7 @@ type Server_Grpc_Middleware_CircuitBreaker struct {
 
 func (x *Server_Grpc_Middleware_CircuitBreaker) Reset() {
 	*x = Server_Grpc_Middleware_CircuitBreaker{}
-	mi := &file_bootstrap_v1_server_proto_msgTypes[52]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[53]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3661,7 +3729,7 @@ func (x *Server_Grpc_Middleware_CircuitBreaker) String() string {
 func (*Server_Grpc_Middleware_CircuitBreaker) ProtoMessage() {}
 
 func (x *Server_Grpc_Middleware_CircuitBreaker) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_server_proto_msgTypes[52]
+	mi := &file_bootstrap_v1_server_proto_msgTypes[53]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3705,11 +3773,390 @@ func (x *Server_Grpc_Middleware_CircuitBreaker) GetWindowMs() int64 {
 	return 0
 }
 
+// Rule 是一条路由级策略声明。
+type Server_UnifiedMiddleware_Rule struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// operation 选择器：精确（"/pkg.Service/Method"、"GET /v1/x"）、前缀
+	// （"/pkg.Service/*"、"GET /v1/admin/*"）、"*" 全部。前缀按声明长度
+	// 降序匹配，长前缀优先。
+	Selector string `protobuf:"bytes,1,opt,name=selector,proto3" json:"selector,omitempty"`
+	// Types that are valid to be assigned to Policy:
+	//
+	//	*Server_UnifiedMiddleware_Rule_Recovery
+	//	*Server_UnifiedMiddleware_Rule_RequestId
+	//	*Server_UnifiedMiddleware_Rule_RateLimit
+	//	*Server_UnifiedMiddleware_Rule_Timeout
+	//	*Server_UnifiedMiddleware_Rule_Validate
+	Policy        isServer_UnifiedMiddleware_Rule_Policy `protobuf_oneof:"policy"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Server_UnifiedMiddleware_Rule) Reset() {
+	*x = Server_UnifiedMiddleware_Rule{}
+	mi := &file_bootstrap_v1_server_proto_msgTypes[54]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Server_UnifiedMiddleware_Rule) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Server_UnifiedMiddleware_Rule) ProtoMessage() {}
+
+func (x *Server_UnifiedMiddleware_Rule) ProtoReflect() protoreflect.Message {
+	mi := &file_bootstrap_v1_server_proto_msgTypes[54]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Server_UnifiedMiddleware_Rule.ProtoReflect.Descriptor instead.
+func (*Server_UnifiedMiddleware_Rule) Descriptor() ([]byte, []int) {
+	return file_bootstrap_v1_server_proto_rawDescGZIP(), []int{0, 33, 0}
+}
+
+func (x *Server_UnifiedMiddleware_Rule) GetSelector() string {
+	if x != nil {
+		return x.Selector
+	}
+	return ""
+}
+
+func (x *Server_UnifiedMiddleware_Rule) GetPolicy() isServer_UnifiedMiddleware_Rule_Policy {
+	if x != nil {
+		return x.Policy
+	}
+	return nil
+}
+
+func (x *Server_UnifiedMiddleware_Rule) GetRecovery() *Server_UnifiedMiddleware_Recovery {
+	if x != nil {
+		if x, ok := x.Policy.(*Server_UnifiedMiddleware_Rule_Recovery); ok {
+			return x.Recovery
+		}
+	}
+	return nil
+}
+
+func (x *Server_UnifiedMiddleware_Rule) GetRequestId() *Server_UnifiedMiddleware_RequestId {
+	if x != nil {
+		if x, ok := x.Policy.(*Server_UnifiedMiddleware_Rule_RequestId); ok {
+			return x.RequestId
+		}
+	}
+	return nil
+}
+
+func (x *Server_UnifiedMiddleware_Rule) GetRateLimit() *Server_UnifiedMiddleware_RateLimit {
+	if x != nil {
+		if x, ok := x.Policy.(*Server_UnifiedMiddleware_Rule_RateLimit); ok {
+			return x.RateLimit
+		}
+	}
+	return nil
+}
+
+func (x *Server_UnifiedMiddleware_Rule) GetTimeout() *Server_UnifiedMiddleware_TimeoutCtx {
+	if x != nil {
+		if x, ok := x.Policy.(*Server_UnifiedMiddleware_Rule_Timeout); ok {
+			return x.Timeout
+		}
+	}
+	return nil
+}
+
+func (x *Server_UnifiedMiddleware_Rule) GetValidate() *Server_UnifiedMiddleware_Validate {
+	if x != nil {
+		if x, ok := x.Policy.(*Server_UnifiedMiddleware_Rule_Validate); ok {
+			return x.Validate
+		}
+	}
+	return nil
+}
+
+type isServer_UnifiedMiddleware_Rule_Policy interface {
+	isServer_UnifiedMiddleware_Rule_Policy()
+}
+
+type Server_UnifiedMiddleware_Rule_Recovery struct {
+	// panic 兜底（统一 Recovery）。
+	Recovery *Server_UnifiedMiddleware_Recovery `protobuf:"bytes,2,opt,name=recovery,proto3,oneof"`
+}
+
+type Server_UnifiedMiddleware_Rule_RequestId struct {
+	// 请求 ID（统一 RequestID）。
+	RequestId *Server_UnifiedMiddleware_RequestId `protobuf:"bytes,3,opt,name=request_id,json=requestId,proto3,oneof"`
+}
+
+type Server_UnifiedMiddleware_Rule_RateLimit struct {
+	// 限流（统一 RateLimit，快速失败口径；wait=true 平滑）。
+	RateLimit *Server_UnifiedMiddleware_RateLimit `protobuf:"bytes,4,opt,name=rate_limit,json=rateLimit,proto3,oneof"`
+}
+
+type Server_UnifiedMiddleware_Rule_Timeout struct {
+	// ctx-deadline 语义超时（统一 Timeout）：双协议同形——只保证 handler
+	// 拿到会到期的 ctx，不保证响应按时返回。与两面 timeout 段（HTTP 硬
+	// 返回 / gRPC unary-only）语义都不同，字段名刻意区分。
+	Timeout *Server_UnifiedMiddleware_TimeoutCtx `protobuf:"bytes,5,opt,name=timeout,proto3,oneof"`
+}
+
+type Server_UnifiedMiddleware_Rule_Validate struct {
+	// 请求校验（统一 Validator，回调注入）。
+	Validate *Server_UnifiedMiddleware_Validate `protobuf:"bytes,6,opt,name=validate,proto3,oneof"`
+}
+
+func (*Server_UnifiedMiddleware_Rule_Recovery) isServer_UnifiedMiddleware_Rule_Policy() {}
+
+func (*Server_UnifiedMiddleware_Rule_RequestId) isServer_UnifiedMiddleware_Rule_Policy() {}
+
+func (*Server_UnifiedMiddleware_Rule_RateLimit) isServer_UnifiedMiddleware_Rule_Policy() {}
+
+func (*Server_UnifiedMiddleware_Rule_Timeout) isServer_UnifiedMiddleware_Rule_Policy() {}
+
+func (*Server_UnifiedMiddleware_Rule_Validate) isServer_UnifiedMiddleware_Rule_Policy() {}
+
+// Recovery 策略参数（统一 Recovery 无字段，占位保扩展）。
+type Server_UnifiedMiddleware_Recovery struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Server_UnifiedMiddleware_Recovery) Reset() {
+	*x = Server_UnifiedMiddleware_Recovery{}
+	mi := &file_bootstrap_v1_server_proto_msgTypes[55]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Server_UnifiedMiddleware_Recovery) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Server_UnifiedMiddleware_Recovery) ProtoMessage() {}
+
+func (x *Server_UnifiedMiddleware_Recovery) ProtoReflect() protoreflect.Message {
+	mi := &file_bootstrap_v1_server_proto_msgTypes[55]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Server_UnifiedMiddleware_Recovery.ProtoReflect.Descriptor instead.
+func (*Server_UnifiedMiddleware_Recovery) Descriptor() ([]byte, []int) {
+	return file_bootstrap_v1_server_proto_rawDescGZIP(), []int{0, 33, 1}
+}
+
+// RequestId 策略参数。
+type Server_UnifiedMiddleware_RequestId struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 请求 ID 头名，默认 X-Request-ID。
+	HeaderName    *string `protobuf:"bytes,1,opt,name=header_name,json=headerName,proto3,oneof" json:"header_name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Server_UnifiedMiddleware_RequestId) Reset() {
+	*x = Server_UnifiedMiddleware_RequestId{}
+	mi := &file_bootstrap_v1_server_proto_msgTypes[56]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Server_UnifiedMiddleware_RequestId) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Server_UnifiedMiddleware_RequestId) ProtoMessage() {}
+
+func (x *Server_UnifiedMiddleware_RequestId) ProtoReflect() protoreflect.Message {
+	mi := &file_bootstrap_v1_server_proto_msgTypes[56]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Server_UnifiedMiddleware_RequestId.ProtoReflect.Descriptor instead.
+func (*Server_UnifiedMiddleware_RequestId) Descriptor() ([]byte, []int) {
+	return file_bootstrap_v1_server_proto_rawDescGZIP(), []int{0, 33, 2}
+}
+
+func (x *Server_UnifiedMiddleware_RequestId) GetHeaderName() string {
+	if x != nil && x.HeaderName != nil {
+		return *x.HeaderName
+	}
+	return ""
+}
+
+// RateLimit 策略参数（与两面 rate_limit 段同字段；配额独立于两面）。
+type Server_UnifiedMiddleware_RateLimit struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 每秒允许的请求数。
+	Rate float64 `protobuf:"fixed64,1,opt,name=rate,proto3" json:"rate,omitempty"`
+	// 突发容量。
+	Burst int32 `protobuf:"varint,2,opt,name=burst,proto3" json:"burst,omitempty"`
+	// 是否使用等待模式（平滑限流）。
+	Wait          bool `protobuf:"varint,3,opt,name=wait,proto3" json:"wait,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Server_UnifiedMiddleware_RateLimit) Reset() {
+	*x = Server_UnifiedMiddleware_RateLimit{}
+	mi := &file_bootstrap_v1_server_proto_msgTypes[57]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Server_UnifiedMiddleware_RateLimit) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Server_UnifiedMiddleware_RateLimit) ProtoMessage() {}
+
+func (x *Server_UnifiedMiddleware_RateLimit) ProtoReflect() protoreflect.Message {
+	mi := &file_bootstrap_v1_server_proto_msgTypes[57]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Server_UnifiedMiddleware_RateLimit.ProtoReflect.Descriptor instead.
+func (*Server_UnifiedMiddleware_RateLimit) Descriptor() ([]byte, []int) {
+	return file_bootstrap_v1_server_proto_rawDescGZIP(), []int{0, 33, 3}
+}
+
+func (x *Server_UnifiedMiddleware_RateLimit) GetRate() float64 {
+	if x != nil {
+		return x.Rate
+	}
+	return 0
+}
+
+func (x *Server_UnifiedMiddleware_RateLimit) GetBurst() int32 {
+	if x != nil {
+		return x.Burst
+	}
+	return 0
+}
+
+func (x *Server_UnifiedMiddleware_RateLimit) GetWait() bool {
+	if x != nil {
+		return x.Wait
+	}
+	return false
+}
+
+// TimeoutCtx 策略参数。
+type Server_UnifiedMiddleware_TimeoutCtx struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 默认超时时间（毫秒）。已有 deadline 的调用原样放过。
+	DefaultTimeoutMs int64 `protobuf:"varint,1,opt,name=default_timeout_ms,json=defaultTimeoutMs,proto3" json:"default_timeout_ms,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *Server_UnifiedMiddleware_TimeoutCtx) Reset() {
+	*x = Server_UnifiedMiddleware_TimeoutCtx{}
+	mi := &file_bootstrap_v1_server_proto_msgTypes[58]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Server_UnifiedMiddleware_TimeoutCtx) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Server_UnifiedMiddleware_TimeoutCtx) ProtoMessage() {}
+
+func (x *Server_UnifiedMiddleware_TimeoutCtx) ProtoReflect() protoreflect.Message {
+	mi := &file_bootstrap_v1_server_proto_msgTypes[58]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Server_UnifiedMiddleware_TimeoutCtx.ProtoReflect.Descriptor instead.
+func (*Server_UnifiedMiddleware_TimeoutCtx) Descriptor() ([]byte, []int) {
+	return file_bootstrap_v1_server_proto_rawDescGZIP(), []int{0, 33, 4}
+}
+
+func (x *Server_UnifiedMiddleware_TimeoutCtx) GetDefaultTimeoutMs() int64 {
+	if x != nil {
+		return x.DefaultTimeoutMs
+	}
+	return 0
+}
+
+// Validate 策略参数（校验回调经 Validator 注入，占位保扩展）。
+type Server_UnifiedMiddleware_Validate struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Server_UnifiedMiddleware_Validate) Reset() {
+	*x = Server_UnifiedMiddleware_Validate{}
+	mi := &file_bootstrap_v1_server_proto_msgTypes[59]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Server_UnifiedMiddleware_Validate) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Server_UnifiedMiddleware_Validate) ProtoMessage() {}
+
+func (x *Server_UnifiedMiddleware_Validate) ProtoReflect() protoreflect.Message {
+	mi := &file_bootstrap_v1_server_proto_msgTypes[59]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Server_UnifiedMiddleware_Validate.ProtoReflect.Descriptor instead.
+func (*Server_UnifiedMiddleware_Validate) Descriptor() ([]byte, []int) {
+	return file_bootstrap_v1_server_proto_rawDescGZIP(), []int{0, 33, 5}
+}
+
 var File_bootstrap_v1_server_proto protoreflect.FileDescriptor
 
 const file_bootstrap_v1_server_proto_rawDesc = "" +
 	"\n" +
-	"\x19bootstrap/v1/server.proto\x12\fbootstrap.v1\"\x8bF\n" +
+	"\x19bootstrap/v1/server.proto\x12\fbootstrap.v1\"\xfbL\n" +
 	"\x06Server\x122\n" +
 	"\x04http\x18\x01 \x01(\v2\x19.bootstrap.v1.Server.HttpH\x00R\x04http\x88\x01\x01\x125\n" +
 	"\x05http3\x18\x02 \x01(\v2\x1a.bootstrap.v1.Server.Http3H\x01R\x05http3\x88\x01\x01\x122\n" +
@@ -3744,7 +4191,8 @@ const file_bootstrap_v1_server_proto_rawDesc = "" +
 	"\x03nsq\x18\x1d \x01(\v2\x18.bootstrap.v1.Server.NsqH\x1cR\x03nsq\x88\x01\x01\x12>\n" +
 	"\brocketmq\x18\x1e \x01(\v2\x1d.bootstrap.v1.Server.RocketmqH\x1dR\brocketmq\x88\x01\x01\x12/\n" +
 	"\x03sqs\x18\x1f \x01(\v2\x18.bootstrap.v1.Server.SqsH\x1eR\x03sqs\x88\x01\x01\x12;\n" +
-	"\agateway\x18  \x01(\v2\x1c.bootstrap.v1.Server.GatewayH\x1fR\agateway\x88\x01\x01\x1a\xda\x03\n" +
+	"\agateway\x18  \x01(\v2\x1c.bootstrap.v1.Server.GatewayH\x1fR\agateway\x88\x01\x01\x12Z\n" +
+	"\x12unified_middleware\x18! \x01(\v2&.bootstrap.v1.Server.UnifiedMiddlewareH R\x11unifiedMiddleware\x88\x01\x01\x1a\xda\x03\n" +
 	"\x03TLS\x126\n" +
 	"\x04file\x18\x01 \x01(\v2\x1d.bootstrap.v1.Server.TLS.FileH\x00R\x04file\x88\x01\x01\x12<\n" +
 	"\x06config\x18\x02 \x01(\v2\x1f.bootstrap.v1.Server.TLS.ConfigH\x01R\x06config\x88\x01\x01\x120\n" +
@@ -4022,7 +4470,34 @@ const file_bootstrap_v1_server_proto_rawDesc = "" +
 	"\aGateway\x12\x12\n" +
 	"\x04addr\x18\x01 \x01(\tR\x04addr\x12*\n" +
 	"\x11backend_grpc_addr\x18\x02 \x01(\tR\x0fbackendGrpcAddr\x12*\n" +
-	"\x03tls\x18\x03 \x01(\v2\x18.bootstrap.v1.Server.TLSR\x03tlsB\a\n" +
+	"\x03tls\x18\x03 \x01(\v2\x18.bootstrap.v1.Server.TLSR\x03tls\x1a\xfa\x05\n" +
+	"\x11UnifiedMiddleware\x12A\n" +
+	"\x05rules\x18\x01 \x03(\v2+.bootstrap.v1.Server.UnifiedMiddleware.RuleR\x05rules\x1a\xbf\x03\n" +
+	"\x04Rule\x12\x1a\n" +
+	"\bselector\x18\x01 \x01(\tR\bselector\x12M\n" +
+	"\brecovery\x18\x02 \x01(\v2/.bootstrap.v1.Server.UnifiedMiddleware.RecoveryH\x00R\brecovery\x12Q\n" +
+	"\n" +
+	"request_id\x18\x03 \x01(\v20.bootstrap.v1.Server.UnifiedMiddleware.RequestIdH\x00R\trequestId\x12Q\n" +
+	"\n" +
+	"rate_limit\x18\x04 \x01(\v20.bootstrap.v1.Server.UnifiedMiddleware.RateLimitH\x00R\trateLimit\x12M\n" +
+	"\atimeout\x18\x05 \x01(\v21.bootstrap.v1.Server.UnifiedMiddleware.TimeoutCtxH\x00R\atimeout\x12M\n" +
+	"\bvalidate\x18\x06 \x01(\v2/.bootstrap.v1.Server.UnifiedMiddleware.ValidateH\x00R\bvalidateB\b\n" +
+	"\x06policy\x1a\n" +
+	"\n" +
+	"\bRecovery\x1aA\n" +
+	"\tRequestId\x12$\n" +
+	"\vheader_name\x18\x01 \x01(\tH\x00R\n" +
+	"headerName\x88\x01\x01B\x0e\n" +
+	"\f_header_name\x1aI\n" +
+	"\tRateLimit\x12\x12\n" +
+	"\x04rate\x18\x01 \x01(\x01R\x04rate\x12\x14\n" +
+	"\x05burst\x18\x02 \x01(\x05R\x05burst\x12\x12\n" +
+	"\x04wait\x18\x03 \x01(\bR\x04wait\x1a:\n" +
+	"\n" +
+	"TimeoutCtx\x12,\n" +
+	"\x12default_timeout_ms\x18\x01 \x01(\x03R\x10defaultTimeoutMs\x1a\n" +
+	"\n" +
+	"\bValidateB\a\n" +
 	"\x05_httpB\b\n" +
 	"\x06_http3B\a\n" +
 	"\x05_grpcB\n" +
@@ -4061,7 +4536,8 @@ const file_bootstrap_v1_server_proto_rawDesc = "" +
 	"\t_rocketmqB\x06\n" +
 	"\x04_sqsB\n" +
 	"\n" +
-	"\b_gatewayB\xb2\x01\n" +
+	"\b_gatewayB\x15\n" +
+	"\x13_unified_middlewareB\xb2\x01\n" +
 	"\x10com.bootstrap.v1B\vServerProtoP\x01Z@github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1;bootstrapv1\xa2\x02\x03BXX\xaa\x02\fBootstrap.V1\xca\x02\fBootstrap\\V1\xe2\x02\x18Bootstrap\\V1\\GPBMetadata\xea\x02\rBootstrap::V1b\x06proto3"
 
 var (
@@ -4077,7 +4553,7 @@ func file_bootstrap_v1_server_proto_rawDescGZIP() []byte {
 }
 
 var file_bootstrap_v1_server_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_bootstrap_v1_server_proto_msgTypes = make([]protoimpl.MessageInfo, 53)
+var file_bootstrap_v1_server_proto_msgTypes = make([]protoimpl.MessageInfo, 60)
 var file_bootstrap_v1_server_proto_goTypes = []any{
 	(Server_Tcp_ByteOrder)(0),                     // 0: bootstrap.v1.Server.Tcp.ByteOrder
 	(*Server)(nil),                                // 1: bootstrap.v1.Server
@@ -4114,25 +4590,32 @@ var file_bootstrap_v1_server_proto_goTypes = []any{
 	(*Server_Rocketmq)(nil),                       // 32: bootstrap.v1.Server.Rocketmq
 	(*Server_Sqs)(nil),                            // 33: bootstrap.v1.Server.Sqs
 	(*Server_Gateway)(nil),                        // 34: bootstrap.v1.Server.Gateway
-	(*Server_TLS_File)(nil),                       // 35: bootstrap.v1.Server.TLS.File
-	(*Server_TLS_Config)(nil),                     // 36: bootstrap.v1.Server.TLS.Config
-	(*Server_Http_Middleware)(nil),                // 37: bootstrap.v1.Server.Http.Middleware
-	(*Server_Http_Middleware_Recovery)(nil),       // 38: bootstrap.v1.Server.Http.Middleware.Recovery
-	(*Server_Http_Middleware_Cors)(nil),           // 39: bootstrap.v1.Server.Http.Middleware.Cors
-	(*Server_Http_Middleware_Logging)(nil),        // 40: bootstrap.v1.Server.Http.Middleware.Logging
-	(*Server_Http_Middleware_RequestId)(nil),      // 41: bootstrap.v1.Server.Http.Middleware.RequestId
-	(*Server_Http_Middleware_Tracing)(nil),        // 42: bootstrap.v1.Server.Http.Middleware.Tracing
-	(*Server_Http_Middleware_RateLimit)(nil),      // 43: bootstrap.v1.Server.Http.Middleware.RateLimit
-	(*Server_Http_Middleware_Timeout)(nil),        // 44: bootstrap.v1.Server.Http.Middleware.Timeout
-	(*Server_Http_Middleware_CircuitBreaker)(nil), // 45: bootstrap.v1.Server.Http.Middleware.CircuitBreaker
-	(*Server_Grpc_Middleware)(nil),                // 46: bootstrap.v1.Server.Grpc.Middleware
-	(*Server_Grpc_Middleware_Recovery)(nil),       // 47: bootstrap.v1.Server.Grpc.Middleware.Recovery
-	(*Server_Grpc_Middleware_Logging)(nil),        // 48: bootstrap.v1.Server.Grpc.Middleware.Logging
-	(*Server_Grpc_Middleware_Tracing)(nil),        // 49: bootstrap.v1.Server.Grpc.Middleware.Tracing
-	(*Server_Grpc_Middleware_Validate)(nil),       // 50: bootstrap.v1.Server.Grpc.Middleware.Validate
-	(*Server_Grpc_Middleware_RateLimit)(nil),      // 51: bootstrap.v1.Server.Grpc.Middleware.RateLimit
-	(*Server_Grpc_Middleware_Timeout)(nil),        // 52: bootstrap.v1.Server.Grpc.Middleware.Timeout
-	(*Server_Grpc_Middleware_CircuitBreaker)(nil), // 53: bootstrap.v1.Server.Grpc.Middleware.CircuitBreaker
+	(*Server_UnifiedMiddleware)(nil),              // 35: bootstrap.v1.Server.UnifiedMiddleware
+	(*Server_TLS_File)(nil),                       // 36: bootstrap.v1.Server.TLS.File
+	(*Server_TLS_Config)(nil),                     // 37: bootstrap.v1.Server.TLS.Config
+	(*Server_Http_Middleware)(nil),                // 38: bootstrap.v1.Server.Http.Middleware
+	(*Server_Http_Middleware_Recovery)(nil),       // 39: bootstrap.v1.Server.Http.Middleware.Recovery
+	(*Server_Http_Middleware_Cors)(nil),           // 40: bootstrap.v1.Server.Http.Middleware.Cors
+	(*Server_Http_Middleware_Logging)(nil),        // 41: bootstrap.v1.Server.Http.Middleware.Logging
+	(*Server_Http_Middleware_RequestId)(nil),      // 42: bootstrap.v1.Server.Http.Middleware.RequestId
+	(*Server_Http_Middleware_Tracing)(nil),        // 43: bootstrap.v1.Server.Http.Middleware.Tracing
+	(*Server_Http_Middleware_RateLimit)(nil),      // 44: bootstrap.v1.Server.Http.Middleware.RateLimit
+	(*Server_Http_Middleware_Timeout)(nil),        // 45: bootstrap.v1.Server.Http.Middleware.Timeout
+	(*Server_Http_Middleware_CircuitBreaker)(nil), // 46: bootstrap.v1.Server.Http.Middleware.CircuitBreaker
+	(*Server_Grpc_Middleware)(nil),                // 47: bootstrap.v1.Server.Grpc.Middleware
+	(*Server_Grpc_Middleware_Recovery)(nil),       // 48: bootstrap.v1.Server.Grpc.Middleware.Recovery
+	(*Server_Grpc_Middleware_Logging)(nil),        // 49: bootstrap.v1.Server.Grpc.Middleware.Logging
+	(*Server_Grpc_Middleware_Tracing)(nil),        // 50: bootstrap.v1.Server.Grpc.Middleware.Tracing
+	(*Server_Grpc_Middleware_Validate)(nil),       // 51: bootstrap.v1.Server.Grpc.Middleware.Validate
+	(*Server_Grpc_Middleware_RateLimit)(nil),      // 52: bootstrap.v1.Server.Grpc.Middleware.RateLimit
+	(*Server_Grpc_Middleware_Timeout)(nil),        // 53: bootstrap.v1.Server.Grpc.Middleware.Timeout
+	(*Server_Grpc_Middleware_CircuitBreaker)(nil), // 54: bootstrap.v1.Server.Grpc.Middleware.CircuitBreaker
+	(*Server_UnifiedMiddleware_Rule)(nil),         // 55: bootstrap.v1.Server.UnifiedMiddleware.Rule
+	(*Server_UnifiedMiddleware_Recovery)(nil),     // 56: bootstrap.v1.Server.UnifiedMiddleware.Recovery
+	(*Server_UnifiedMiddleware_RequestId)(nil),    // 57: bootstrap.v1.Server.UnifiedMiddleware.RequestId
+	(*Server_UnifiedMiddleware_RateLimit)(nil),    // 58: bootstrap.v1.Server.UnifiedMiddleware.RateLimit
+	(*Server_UnifiedMiddleware_TimeoutCtx)(nil),   // 59: bootstrap.v1.Server.UnifiedMiddleware.TimeoutCtx
+	(*Server_UnifiedMiddleware_Validate)(nil),     // 60: bootstrap.v1.Server.UnifiedMiddleware.Validate
 }
 var file_bootstrap_v1_server_proto_depIdxs = []int32{
 	3,  // 0: bootstrap.v1.Server.http:type_name -> bootstrap.v1.Server.Http
@@ -4167,44 +4650,51 @@ var file_bootstrap_v1_server_proto_depIdxs = []int32{
 	32, // 29: bootstrap.v1.Server.rocketmq:type_name -> bootstrap.v1.Server.Rocketmq
 	33, // 30: bootstrap.v1.Server.sqs:type_name -> bootstrap.v1.Server.Sqs
 	34, // 31: bootstrap.v1.Server.gateway:type_name -> bootstrap.v1.Server.Gateway
-	35, // 32: bootstrap.v1.Server.TLS.file:type_name -> bootstrap.v1.Server.TLS.File
-	36, // 33: bootstrap.v1.Server.TLS.config:type_name -> bootstrap.v1.Server.TLS.Config
-	2,  // 34: bootstrap.v1.Server.Http.tls:type_name -> bootstrap.v1.Server.TLS
-	37, // 35: bootstrap.v1.Server.Http.middleware:type_name -> bootstrap.v1.Server.Http.Middleware
-	2,  // 36: bootstrap.v1.Server.Http3.tls:type_name -> bootstrap.v1.Server.TLS
-	2,  // 37: bootstrap.v1.Server.Grpc.tls:type_name -> bootstrap.v1.Server.TLS
-	46, // 38: bootstrap.v1.Server.Grpc.middleware:type_name -> bootstrap.v1.Server.Grpc.Middleware
-	2,  // 39: bootstrap.v1.Server.Graphql.tls:type_name -> bootstrap.v1.Server.TLS
-	2,  // 40: bootstrap.v1.Server.Sse.tls:type_name -> bootstrap.v1.Server.TLS
-	2,  // 41: bootstrap.v1.Server.Websocket.tls:type_name -> bootstrap.v1.Server.TLS
-	2,  // 42: bootstrap.v1.Server.Tcp.tls:type_name -> bootstrap.v1.Server.TLS
-	0,  // 43: bootstrap.v1.Server.Tcp.byte_order:type_name -> bootstrap.v1.Server.Tcp.ByteOrder
-	2,  // 44: bootstrap.v1.Server.Thrift.tls:type_name -> bootstrap.v1.Server.TLS
-	2,  // 45: bootstrap.v1.Server.Webtransport.tls:type_name -> bootstrap.v1.Server.TLS
-	2,  // 46: bootstrap.v1.Server.Signalr.tls:type_name -> bootstrap.v1.Server.TLS
-	2,  // 47: bootstrap.v1.Server.Socketio.tls:type_name -> bootstrap.v1.Server.TLS
-	2,  // 48: bootstrap.v1.Server.Webrtc.tls:type_name -> bootstrap.v1.Server.TLS
-	2,  // 49: bootstrap.v1.Server.Gateway.tls:type_name -> bootstrap.v1.Server.TLS
-	38, // 50: bootstrap.v1.Server.Http.Middleware.recovery:type_name -> bootstrap.v1.Server.Http.Middleware.Recovery
-	39, // 51: bootstrap.v1.Server.Http.Middleware.cors:type_name -> bootstrap.v1.Server.Http.Middleware.Cors
-	40, // 52: bootstrap.v1.Server.Http.Middleware.logging:type_name -> bootstrap.v1.Server.Http.Middleware.Logging
-	41, // 53: bootstrap.v1.Server.Http.Middleware.request_id:type_name -> bootstrap.v1.Server.Http.Middleware.RequestId
-	42, // 54: bootstrap.v1.Server.Http.Middleware.tracing:type_name -> bootstrap.v1.Server.Http.Middleware.Tracing
-	43, // 55: bootstrap.v1.Server.Http.Middleware.rate_limit:type_name -> bootstrap.v1.Server.Http.Middleware.RateLimit
-	44, // 56: bootstrap.v1.Server.Http.Middleware.timeout:type_name -> bootstrap.v1.Server.Http.Middleware.Timeout
-	45, // 57: bootstrap.v1.Server.Http.Middleware.circuit_breaker:type_name -> bootstrap.v1.Server.Http.Middleware.CircuitBreaker
-	47, // 58: bootstrap.v1.Server.Grpc.Middleware.recovery:type_name -> bootstrap.v1.Server.Grpc.Middleware.Recovery
-	48, // 59: bootstrap.v1.Server.Grpc.Middleware.logging:type_name -> bootstrap.v1.Server.Grpc.Middleware.Logging
-	49, // 60: bootstrap.v1.Server.Grpc.Middleware.tracing:type_name -> bootstrap.v1.Server.Grpc.Middleware.Tracing
-	50, // 61: bootstrap.v1.Server.Grpc.Middleware.validate:type_name -> bootstrap.v1.Server.Grpc.Middleware.Validate
-	51, // 62: bootstrap.v1.Server.Grpc.Middleware.rate_limit:type_name -> bootstrap.v1.Server.Grpc.Middleware.RateLimit
-	52, // 63: bootstrap.v1.Server.Grpc.Middleware.timeout:type_name -> bootstrap.v1.Server.Grpc.Middleware.Timeout
-	53, // 64: bootstrap.v1.Server.Grpc.Middleware.circuit_breaker:type_name -> bootstrap.v1.Server.Grpc.Middleware.CircuitBreaker
-	65, // [65:65] is the sub-list for method output_type
-	65, // [65:65] is the sub-list for method input_type
-	65, // [65:65] is the sub-list for extension type_name
-	65, // [65:65] is the sub-list for extension extendee
-	0,  // [0:65] is the sub-list for field type_name
+	35, // 32: bootstrap.v1.Server.unified_middleware:type_name -> bootstrap.v1.Server.UnifiedMiddleware
+	36, // 33: bootstrap.v1.Server.TLS.file:type_name -> bootstrap.v1.Server.TLS.File
+	37, // 34: bootstrap.v1.Server.TLS.config:type_name -> bootstrap.v1.Server.TLS.Config
+	2,  // 35: bootstrap.v1.Server.Http.tls:type_name -> bootstrap.v1.Server.TLS
+	38, // 36: bootstrap.v1.Server.Http.middleware:type_name -> bootstrap.v1.Server.Http.Middleware
+	2,  // 37: bootstrap.v1.Server.Http3.tls:type_name -> bootstrap.v1.Server.TLS
+	2,  // 38: bootstrap.v1.Server.Grpc.tls:type_name -> bootstrap.v1.Server.TLS
+	47, // 39: bootstrap.v1.Server.Grpc.middleware:type_name -> bootstrap.v1.Server.Grpc.Middleware
+	2,  // 40: bootstrap.v1.Server.Graphql.tls:type_name -> bootstrap.v1.Server.TLS
+	2,  // 41: bootstrap.v1.Server.Sse.tls:type_name -> bootstrap.v1.Server.TLS
+	2,  // 42: bootstrap.v1.Server.Websocket.tls:type_name -> bootstrap.v1.Server.TLS
+	2,  // 43: bootstrap.v1.Server.Tcp.tls:type_name -> bootstrap.v1.Server.TLS
+	0,  // 44: bootstrap.v1.Server.Tcp.byte_order:type_name -> bootstrap.v1.Server.Tcp.ByteOrder
+	2,  // 45: bootstrap.v1.Server.Thrift.tls:type_name -> bootstrap.v1.Server.TLS
+	2,  // 46: bootstrap.v1.Server.Webtransport.tls:type_name -> bootstrap.v1.Server.TLS
+	2,  // 47: bootstrap.v1.Server.Signalr.tls:type_name -> bootstrap.v1.Server.TLS
+	2,  // 48: bootstrap.v1.Server.Socketio.tls:type_name -> bootstrap.v1.Server.TLS
+	2,  // 49: bootstrap.v1.Server.Webrtc.tls:type_name -> bootstrap.v1.Server.TLS
+	2,  // 50: bootstrap.v1.Server.Gateway.tls:type_name -> bootstrap.v1.Server.TLS
+	55, // 51: bootstrap.v1.Server.UnifiedMiddleware.rules:type_name -> bootstrap.v1.Server.UnifiedMiddleware.Rule
+	39, // 52: bootstrap.v1.Server.Http.Middleware.recovery:type_name -> bootstrap.v1.Server.Http.Middleware.Recovery
+	40, // 53: bootstrap.v1.Server.Http.Middleware.cors:type_name -> bootstrap.v1.Server.Http.Middleware.Cors
+	41, // 54: bootstrap.v1.Server.Http.Middleware.logging:type_name -> bootstrap.v1.Server.Http.Middleware.Logging
+	42, // 55: bootstrap.v1.Server.Http.Middleware.request_id:type_name -> bootstrap.v1.Server.Http.Middleware.RequestId
+	43, // 56: bootstrap.v1.Server.Http.Middleware.tracing:type_name -> bootstrap.v1.Server.Http.Middleware.Tracing
+	44, // 57: bootstrap.v1.Server.Http.Middleware.rate_limit:type_name -> bootstrap.v1.Server.Http.Middleware.RateLimit
+	45, // 58: bootstrap.v1.Server.Http.Middleware.timeout:type_name -> bootstrap.v1.Server.Http.Middleware.Timeout
+	46, // 59: bootstrap.v1.Server.Http.Middleware.circuit_breaker:type_name -> bootstrap.v1.Server.Http.Middleware.CircuitBreaker
+	48, // 60: bootstrap.v1.Server.Grpc.Middleware.recovery:type_name -> bootstrap.v1.Server.Grpc.Middleware.Recovery
+	49, // 61: bootstrap.v1.Server.Grpc.Middleware.logging:type_name -> bootstrap.v1.Server.Grpc.Middleware.Logging
+	50, // 62: bootstrap.v1.Server.Grpc.Middleware.tracing:type_name -> bootstrap.v1.Server.Grpc.Middleware.Tracing
+	51, // 63: bootstrap.v1.Server.Grpc.Middleware.validate:type_name -> bootstrap.v1.Server.Grpc.Middleware.Validate
+	52, // 64: bootstrap.v1.Server.Grpc.Middleware.rate_limit:type_name -> bootstrap.v1.Server.Grpc.Middleware.RateLimit
+	53, // 65: bootstrap.v1.Server.Grpc.Middleware.timeout:type_name -> bootstrap.v1.Server.Grpc.Middleware.Timeout
+	54, // 66: bootstrap.v1.Server.Grpc.Middleware.circuit_breaker:type_name -> bootstrap.v1.Server.Grpc.Middleware.CircuitBreaker
+	56, // 67: bootstrap.v1.Server.UnifiedMiddleware.Rule.recovery:type_name -> bootstrap.v1.Server.UnifiedMiddleware.Recovery
+	57, // 68: bootstrap.v1.Server.UnifiedMiddleware.Rule.request_id:type_name -> bootstrap.v1.Server.UnifiedMiddleware.RequestId
+	58, // 69: bootstrap.v1.Server.UnifiedMiddleware.Rule.rate_limit:type_name -> bootstrap.v1.Server.UnifiedMiddleware.RateLimit
+	59, // 70: bootstrap.v1.Server.UnifiedMiddleware.Rule.timeout:type_name -> bootstrap.v1.Server.UnifiedMiddleware.TimeoutCtx
+	60, // 71: bootstrap.v1.Server.UnifiedMiddleware.Rule.validate:type_name -> bootstrap.v1.Server.UnifiedMiddleware.Validate
+	72, // [72:72] is the sub-list for method output_type
+	72, // [72:72] is the sub-list for method input_type
+	72, // [72:72] is the sub-list for extension type_name
+	72, // [72:72] is the sub-list for extension extendee
+	0,  // [0:72] is the sub-list for field type_name
 }
 
 func init() { file_bootstrap_v1_server_proto_init() }
@@ -4217,19 +4707,27 @@ func file_bootstrap_v1_server_proto_init() {
 	file_bootstrap_v1_server_proto_msgTypes[6].OneofWrappers = []any{}
 	file_bootstrap_v1_server_proto_msgTypes[14].OneofWrappers = []any{}
 	file_bootstrap_v1_server_proto_msgTypes[20].OneofWrappers = []any{}
-	file_bootstrap_v1_server_proto_msgTypes[34].OneofWrappers = []any{}
 	file_bootstrap_v1_server_proto_msgTypes[35].OneofWrappers = []any{}
 	file_bootstrap_v1_server_proto_msgTypes[36].OneofWrappers = []any{}
 	file_bootstrap_v1_server_proto_msgTypes[37].OneofWrappers = []any{}
-	file_bootstrap_v1_server_proto_msgTypes[40].OneofWrappers = []any{}
-	file_bootstrap_v1_server_proto_msgTypes[45].OneofWrappers = []any{}
+	file_bootstrap_v1_server_proto_msgTypes[38].OneofWrappers = []any{}
+	file_bootstrap_v1_server_proto_msgTypes[41].OneofWrappers = []any{}
+	file_bootstrap_v1_server_proto_msgTypes[46].OneofWrappers = []any{}
+	file_bootstrap_v1_server_proto_msgTypes[54].OneofWrappers = []any{
+		(*Server_UnifiedMiddleware_Rule_Recovery)(nil),
+		(*Server_UnifiedMiddleware_Rule_RequestId)(nil),
+		(*Server_UnifiedMiddleware_Rule_RateLimit)(nil),
+		(*Server_UnifiedMiddleware_Rule_Timeout)(nil),
+		(*Server_UnifiedMiddleware_Rule_Validate)(nil),
+	}
+	file_bootstrap_v1_server_proto_msgTypes[56].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bootstrap_v1_server_proto_rawDesc), len(file_bootstrap_v1_server_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   53,
+			NumMessages:   60,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
