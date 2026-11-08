@@ -74,9 +74,10 @@ type metadataHeader struct{ metadata.MD }
 // NewMetadataHeader 把 grpc metadata.MD 包装成 Header。
 func NewMetadataHeader(md metadata.MD) Header { return metadataHeader{md} }
 
-// Get 返回 key 的第一个值。与 metadata.MD.Get 不同：键缺失返回 "" 而非 panic。
+// Get 返回 key 的第一个值。走 metadata.MD.Get 的大小写归一（HTTP 头习惯
+// 大写、metadata 规范是小写——调用方不该被迫关心），键缺失返回 ""。
 func (h metadataHeader) Get(key string) string {
-	if vs := h.MD[key]; len(vs) > 0 {
+	if vs := h.MD.Get(key); len(vs) > 0 {
 		return vs[0]
 	}
 	return ""
