@@ -6,6 +6,18 @@
 
 ## 2026-11-08
 
+### pkg v0.11.0
+
+- `6292841d` feat(selector/balancer,pkg): 接线 bald_selector 出站 gRPC 链路
+- `880405c5` chore(release): 6 模块整批发布——根 v0.46.0 / bconf v0.24.1 / cli v0.5.0 / selector/circuitbreaker v0.1.0 / transport/client v0.2.0 / transport/client/resiliency v0.1.0
+- `53f337d9` chore(release): 回退 610dfe4 发布提交
+- `610dfe4b` chore(release): 6 模块整批发布——selector/circuitbreaker 与出站 resiliency 首发
+
+### selector/balancer v0.2.0
+
+- `6292841d` feat(selector/balancer,pkg): 接线 bald_selector 出站 gRPC 链路
+- `1bc52b57` chore(release): 8 模块整批发布——方案 S 收口与 otelslog 自有化
+
 ### bald v0.46.0
 
 - `53f337d9` chore(release): 回退 610dfe4 发布提交
