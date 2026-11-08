@@ -7,7 +7,7 @@ replace github.com/kalandramo/bald/transport => ..
 require (
 	github.com/99designs/gqlgen v0.17.89
 	github.com/kalandramo/bald/bconf v0.23.0
-	github.com/kalandramo/bald/pkg v0.7.0
+	github.com/kalandramo/bald/pkg v0.8.0
 	github.com/kalandramo/bald/transport v0.4.0
 	github.com/spf13/pflag v1.0.10
 )

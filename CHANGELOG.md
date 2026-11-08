@@ -6,6 +6,10 @@
 
 ## 2026-11-08
 
+### pkg v0.8.0
+
+- `c3bdea85` feat(pkg/middleware): 统一内置件三件改写——Recovery/RequestID/Timeout（方案 S 批次 2 开篇）
+
 ### pkg v0.7.0
 
 - `9136c89d` feat(pkg/middleware): 统一中间件契约 + 三桥 + matcher（方案 S 批次 1）
