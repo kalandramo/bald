@@ -396,8 +396,6 @@ github.com/kalandramo/bald/bootstrap v0.13.7 h1:HD7W1e6U8eC8CNuEHsP6WqVkSCwWohwa
 github.com/kalandramo/bald/bootstrap v0.13.7/go.mod h1:7jbTQxZ7o/8noL8/X9ujU4hsxwBXKeXxlqzgfXaNbEY=
 github.com/kalandramo/bald/health v0.1.1 h1:Q0sySYkf4XZ6BcSQ3P/Sk1T8FFF3NzKOcu3Q2wsDpUM=
 github.com/kalandramo/bald/health v0.1.1/go.mod h1:+f+lE2uNtgeXlJ6YoqPg7PoDIUZ+VvhJZI9RP+oHNd0=
-github.com/kalandramo/bald/log v0.5.4 h1:LBg6whOZImgTh2M90q6aqmYVX64Nt66ss/veLYYgHrk=
-github.com/kalandramo/bald/log v0.5.4/go.mod h1:xEw5nXpW1rJM1WYKsR78k4v8urd934jc7rTic26f9LI=
 github.com/kalandramo/bald/registry v0.5.0 h1:evoEUBpR8RkcrJVHJTY/SEZBSmV3orxGehejmKnqI2g=
 github.com/kalandramo/bald/registry v0.5.0/go.mod h1:Qr3Syc/9TEW6SOonGsYLO0FBsMADszFtDgyn2/5yWhE=
 github.com/kalandramo/bald/transport v0.4.0 h1:dNyxlMD2QE80KBICefHWg6DJHvHrWWozPIPSm5wAa+M=

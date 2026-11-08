@@ -398,8 +398,6 @@ github.com/kalandramo/bald/health v0.1.1 h1:Q0sySYkf4XZ6BcSQ3P/Sk1T8FFF3NzKOcu3Q
 github.com/kalandramo/bald/health v0.1.1/go.mod h1:+f+lE2uNtgeXlJ6YoqPg7PoDIUZ+VvhJZI9RP+oHNd0=
 github.com/kalandramo/bald/registry v0.5.0 h1:evoEUBpR8RkcrJVHJTY/SEZBSmV3orxGehejmKnqI2g=
 github.com/kalandramo/bald/registry v0.5.0/go.mod h1:Qr3Syc/9TEW6SOonGsYLO0FBsMADszFtDgyn2/5yWhE=
-github.com/kalandramo/bald/retry v0.3.0 h1:YXV57yqodOCZyFbmO8Hr3v2xZgGDYOgV4LiAduhkAGU=
-github.com/kalandramo/bald/retry v0.3.0/go.mod h1:txNfqsmU9Ypz2HcZXefGIdCJm7F5o7YKrOJ7X+t825s=
 github.com/kalandramo/bald/transport/grpc v0.2.0 h1:jzMQTt8zGgq3QBr4IqtVR04Ux4emx5UeSMnZo4om+XE=
 github.com/kalandramo/bald/transport/grpc v0.2.0/go.mod h1:11iOFg+TPQGoMX3Q/vHf6BNB7M+PC+vbemIM8G7reRo=
 github.com/kalandramo/bald/transport/http v0.2.0 h1:Wx6Bcfmk8+iRf8047b9VnqTMOWhLbv45k1s9ikyuuq8=
