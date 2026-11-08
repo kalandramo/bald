@@ -1,0 +1,71 @@
+# onexmesh 设计盘点 × bald 对照
+
+> 评审日期：2026-11-08。对象：`../onexmesh`（OneXMesh，单 module Go 微服务运行时框架，13 commits / ~23k 行非测试代码）。
+> 信息源：README.md + DESIGN.md（22.6KB）+ 全仓实盘清点（12 维度，证据见文中路径）。
+> 本文回答：onexmesh 的设计是什么、它与 bald 在同一问题域上的**哲学分歧**在哪、双方各自值得借鉴什么。
+
+---
+
+## 1. 一句话定位
+
+| | onexmesh | bald |
+|---|---|---|
+| 是什么 | **运行时框架**：import 即用，业务代码在框架的抽象里跑 | **装配框架**：声明驱动生成 + 装配期收口，业务只写业务 |
+| 哲学 | 运行时统一——Transporter 抹平双协议，一份 Handler 同时服务 gRPC/HTTP | 装配期统一——AppSpec 是唯一真相源，生成树是声明的函数，`--check` 零差异 |
+| 同类比 | kratos（transport/middleware 抽象）+ go-zero（p2c/降载/SRE 熔断）+ go-micro（config/codec/broker）+ dapr（声明式 resiliency）+ client-go（SDK 生成器） | 无直接同类（声明式装配 + 装配等级 L1–L5 是自创口径） |
+| 血统 | onex 体系：复用 onexstack errorsx/token/app，README 锚 miniblog | 同体系但自建：bconf/berrors/bootstrap/appkit 全部自有，只借思想不借实现 |
+
+两者都在孔令飞/OneX 体系内，**是同一问题域（Go 微服务基建）的两条路线**：onexmesh 代表 kratos 式「运行时抽象」路线，bald 代表「声明式装配」路线。
+
+## 2. 逐维度对照
+
+| 维度 | onexmesh | bald | 判断 |
+|---|---|---|---|
+| **装配** | 代码式组合根 `server.NewMeshServer(...)` + `opts.Mesh.Protocol=grpc\|http\|both`；8 处「工厂注册表 + init() 自注册 + 按名创建」习语贯穿（registry/selector/middleware/codec/config source/broker/HTTP 路由/每端点熔断） | AppSpec 声明 → gen 三道门 → appkit 段驱动 Provider → plan/doctor/drift/reconcile；**刻意禁止 init 自注册**（logging-r09/broker-r07/bootstrap-r01：Provider 的 import 就是依赖清单） | **本质分歧①**：onexmesh 用副作用换便利，bald 用显式声明换可审计——同一问题的对立答案 |
+| **传输** | `Transporter` 接口抹平双协议；`NewMethod[Req,Resp]` 泛型把强类型函数擦成统一 Handler；`protoc-gen-onexmesh` 读方法级 `onexmesh.v1.http` 注解生成 `New<Service>Service` 工厂 | transport.Server 契约（Start/Stop/Endpoint）+ 19 个后端独立 module；gen proto 六件套 + buf.validate；proto 是 API 单一真相源 | onexmesh 的「一份业务函数双协议」桥更极致；bald 的「proto 单源 + 生成门禁」更硬。两者其实共享 IDL 驱动思想，落点不同 |
+| **错误** | 直接复用 onexstack errorsx + errno 哨兵 + `RenderError` JSON 包络 + protoc-gen-errno（enum→Reason 构造器） | berrors 传输中立自建：`google.rpc.Status` JSON 三面一份（gRPC/转码/gin），httperr.StatusCode 包函数防循环依赖 | 同源异构：onexmesh 押 onexstack 复用，bald 押自建收口（berrors-r08 vs onexmesh 的 `{code,reason}` 包络——语义目标一致） |
+| **注册发现** | 7 后端全真实现（polaris/etcd/k8s/consul/nacos/eureka/static）+ **cache 缓存层**（singleflight + 服务/节点双 TTL + stale-while-error + 刷新限流 + 可注入时钟）；etcd 有 lease 丢失自动重注册 monitor | registry 5 后端（inmemory 内置）+ 契约 Provider 装配；**无缓存层** | onexmesh 深；bald 简但 fail-fast。缓存层是 bald 的真空白 |
+| **配置** | Source→Loader→Reader→Value 四层抽象 + 注册表；source 仅 file/polaris；热更新到 `Config.Watch` 回调为止（未见 re-validate 联动） | bconf proto 单一真相源 + bconfig 多源 + bootstrap 层模型 + StrictContract 未知键报错 + env 折叠 + 热更新全量重合并 + 判据 J7/J9 fail-fast | bald 的配置是「契约校验型」（错配置启动期死），onexmesh 是「抽象分层型」（错配置静默走默认）——bald-r06/bootstrap-r06 vs onexmesh 的 Source 注册表灵活性 |
+| **韧性/限流** | resilience 全家桶（SRE 熔断/降载/重试/**对冲**/舱壁）+ Dapr 风格声明式 resiliency YAML + selector p2c（EWMA）+ gRPC balancer 适配 + 分布式限流 Store（redis Lua） | retry/circuitbreaker（四实现）/ratelimit（三实现）各自独立 module + mech 高级机制面；**无对冲、无 selector/LB 层、无分布式限流 Store** | onexmesh 全；bald 深但面窄。缺口清单见 §4 |
+| **可观测** | OTel 三信号 + 五态导出（otel/file/console/classic/hybrid）+ otelslog TraceIDHandler + semconv 集中管理（operation 取路由模板防基数爆炸） | log 契约层/bslog + metrics 三原语两套体系（请求级 semconv vs 传输级）+ observability-otlp + health 三态 | 各有亮点：onexmesh 的 slog→OTel log 桥和 semconv 集中文件值得参考；bald 的两套指标分工（observability-r07）更明确 |
+| **代码生成** | 三个 protoc 插件（HTTP 路由 / **client-go 风格 clientset+fake+informer 生成器** / errno）+ golden test | bald gen 四命令 + 三道门 + `--check` 零差异 + PROJECT 账本 | bald 的门禁纪律强；onexmesh 的 clientset 生成器是 bald 没有的能力面（client SDK 生态） |
+| **工程纪律** | Makefile 8 target、无 CI、无 e2e 套件、lint 最小集、无 docs/（全押 DESIGN.md）、grpc 被 replace 钉死 v1.64.0（Polaris 兼容债） | 42+ Taskfile target、CI 九作业（含 kind 真集群）、race 全量、docscheck、风险登记册、release 工具链、22 module 无钉版债 | **本质分歧②**：这是 bald 目前最强的领先面 |
+| **AI 化** | 无（CLI doctor 偏 demo） | 22 张规范卡 + MCP（4 只读工具）+ ide init 五工具 + gen preset + AGENTS.md/llms.txt | bald 独有面 |
+
+## 3. 三个值得写下来的深层观察
+
+1. **init 自注册 vs Provider 显式装配，是两条路线的分水岭。** onexmesh 的 8 处注册表习语（`RegisterBackend`/`RegisterSource`/`middleware.Register`…）让「引入即生效」，代价是依赖关系藏在 blank import 里——这恰好撞上 bald 的三条判据（logging-r09 禁 init 自注册「Provider 里的 import 就是依赖清单」、bootstrap-r01 禁隐式全局注册、J9 禁链外取值）。**不是谁对谁错**：onexmesh 优化的是插件作者体验，bald 优化的是装配可审计与 fail-fast。若两边要靠拢，中间态是 onexmesh 的 `Backend.AddFlags + Decode`（自描述后端，比纯 init 多了显式声明面）。
+
+2. **「错误配置怎么办」暴露了两种框架观。** onexmesh：Source 缺失/字段缺失 → 静默走默认（灵活性优先）；bald：契约有段无消费者 → 启动期死（J7）、未知键报错（StrictContract）、链外取值对账（J9）。bald 的立场源自「配置说了不算是最危险的缺陷」，onexmesh 的立场源自云原生框架惯例（kratos 同款）。对同一用户群，bald 的选择更贵但更可诊断——doctor/unconsumed 分组就是这套立场的产物。
+
+3. **onexmesh 的 clientset 生成器与 bald 的 gen 互补。** onexmesh 能从资源型 IDL 生成 client-go 风格 SDK（clientset/scheme/fake/informers），bald 生成的是服务端骨架。二者若在同一体系内，恰好是「服务端生成 + 客户端生成」的两半——但 onexmesh 用 `rest/v1` 注解、bald 用 bald.store.v1/CRUD 六件套，IDL 契约不通，短期没有合流点。
+
+## 4. 彼此可借鉴清单
+
+**onexmesh → bald（真空白，按价值排序）**：
+
+1. **registry/cache 发现缓存层**（`pkg/registry/cache`，222 行）：singleflight 去重 + 服务/节点双 TTL + stale-while-error 降级 + MinRetryInterval 刷新限流 + 可注入时钟——bald 的 registry 直连 SDK 后端没有这层，`store-r09` 式的发现抖动保护是缺的。
+2. **selector p2c + gRPC balancer 适配**（EWMA 衰减 + 成功率 throttle + address Attributes 传递策略）：bald 无 LB 层，客户端侧负载均衡完全缺位。
+3. **resilience 的对冲（hedge）与舱壁（bulkhead）**：bald retry/circuitbreaker 之外的两个正交韧性维度；Dapr 风格声明式 resiliency YAML 也值得 mech 面评估（与 appkit mech 的显式机制注册哲学需要调和）。
+4. **otelslog 的 slog→OTel log 桥 + TraceIDHandler**：bald log 的 OTel Logs 桥接（log/bslog/otel.go）可以对照它的 record 转换完整度。
+5. **semconv 集中管理文件**（pkg/middleware/semconv.go）：bald 的 semconv 散在 metrics/web 中间件里，集中一处便于对账（对照 observability-r09 的命名纪律）。
+
+**bald → onexmesh（按它自己的缺口排序）**：
+
+1. CI（哪怕先只有 test+lint 两作业）+ e2e：它的后端实现 etcd/polaris/consul/nacos/eureka/redis-store 全部零测试——registry 后端恰是「本地绿远端不一定绿」的高危面。
+2. release 工具链与多 module 拆分路径：grpc 钉死 v1.64.0 的 Polaris 债，拆 module 是唯一解法（bald 的零 replace CLI 先例可参考）。
+3. 装配可诊断性：doctor 式 `--plan`（onexmesh 的 MeshServer build 链出错时只有 stack，无计划视图）。
+4. convention/MCP AI 通道：22 卡模式可平移（它的 8 处注册表习语本身就是 8 张卡的素材）。
+5. docscheck 式文档闸门：DESIGN.md 的目录树已与 `pkg/broker` 漂移——机器闸门能拦住这类腐烂。
+
+## 5. 关系判断与建议
+
+- **不竞争**：onexmesh 是「单服务运行时」，bald 是「装配与治理壳」。同一体系内它们甚至服务不同受众——onexmesh 面向「想快速写一个双协议服务的团队」（kratos 受众），bald 面向「想把装配工程化、AI 化的框架作者」（自创受众）。
+- **短期建议**：onexmesh 优先补 CI 与后端测试（它的 README 承诺了 7 后端，远端无验证）；bald 评估吸收 registry/cache 与 selector 两块（契约 Provider 化后进 contrib 或能力 module，不破零 replace）。
+- **中期悬念**：两条路线是否合流。合流点只有一个方向可行——onexmesh 的 MeshServer 作为 bald `transport.Server` 契约的一个后端（或 appkit 的一个 Provider），前提是 onexmesh 把 `opts.Mesh.Protocol` 的装配决策外移成可声明的段。这是 owner 级裁决，本文只记录形状。
+
+## 附：证据与口径
+
+- onexmesh 侧结论来自 2026-11-08 的 12 维度实盘清点（319 个 Go 文件、22.7k 行非测试代码、71 个 _test、8 处注册表习语逐一核对、go.mod 依赖清单、DESIGN.md 3.7 自述的 IDL 留白）；bald 侧结论来自本仓 docs/architecture/ 三份制品与本轮 22 张规范卡。
+- 两处 bald 事实经当场核实：无 registry/cache 缓存层、无 selector/p2c（grep 全仓确认）；对冲（hedge）同样缺位。
+- 局限：onexmesh 无 CI 运行记录可查（无 .github/），「远端是否绿」不可知；测试质量只按存在性盘点，未逐个评审断言强度。
