@@ -13,6 +13,10 @@
 //
 // 适配器本身不认识契约：调用方（gateway 出站、client 段的 grpc 出站）各自
 // 决定地址里出现 discovery scheme 时是否把它挂上，避免两处各写一份 resolver。
+//
+// 实例的 Metadata 逐键透传成 `resolver.Address.Attributes`（见 attributesOf），
+// 供下游 balancer（如 selector/balancer 的 bald_selector）按约定键读策略/权重。
+// 本包只搬运键值、不解释语义，故仍不 import selector。
 package grpcdiscovery
 
 import (
@@ -22,6 +26,7 @@ import (
 	"strings"
 	"sync/atomic"
 
+	"google.golang.org/grpc/attributes"
 	"google.golang.org/grpc/resolver"
 
 	"github.com/kalandramo/bald/registry"
@@ -129,28 +134,72 @@ func (r *discoveryResolver) publish(instances []*registry.ServiceInstance) {
 }
 
 // addressKey 是地址集的指纹：先排序再拼接，所以「后端换了返回顺序」不算变更。
+// 指纹含每地址的属性串——权重/策略等经属性传给 balancer，只改属性不改地址的
+// 快照必须重发，否则 addressKey 判等会把一次真实的重加权当成「没变」吞掉。
+// 属性由 attributesOf 按键序确定构造，故其 String() 对同一快照稳定。
 func addressKey(addrs []resolver.Address) string {
 	seen := make([]string, len(addrs))
 	for i, a := range addrs {
-		seen[i] = a.Addr
+		seen[i] = addressFingerprint(a)
 	}
 	sort.Strings(seen)
 	return strings.Join(seen, ",")
 }
 
-// addressesOf 展开实例的端点，只留 gRPC 面且剥掉 scheme（见 grpcAddressOf）。
+// addressFingerprint 是单地址的指纹：无属性即裸地址（与历史行为逐字相同），
+// 有属性即拼上属性串。
+func addressFingerprint(a resolver.Address) string {
+	if a.Attributes == nil {
+		return a.Addr
+	}
+	return a.Addr + "\x00" + a.Attributes.String()
+}
+
+// addressesOf 展开实例的端点，只留 gRPC 面且剥掉 scheme（见 grpcAddressOf），
+// 并把实例 Metadata 原样带进 resolver.Address.Attributes。
+//
 // 一个实例只剩非 gRPC 面时整体出局：与其给出必然拨不通的地址，不如让
 // gRPC 报「无实例」并保持订阅。
+//
+// 属性搬运是为了喂 bald 的 selector/balancer：它按 (策略, 服务名) 缓存 selector
+// 实例、按节点权重加权，靠的全是 `resolver.Address.Attributes` 里的约定键。
+// 本适配器不认识那些键——只把注册中心给的 Metadata 逐键透传成字符串属性，键名
+// 由运维在实例 Metadata 里按 balancer 的契约（bald.selector.*）填写。适配器仍
+// 不 import selector，方向不变。
 func addressesOf(instances []*registry.ServiceInstance) []resolver.Address {
 	addrs := make([]resolver.Address, 0, len(instances))
 	for _, in := range instances {
+		attrs := attributesOf(in.Metadata)
 		for _, ep := range in.Endpoints {
 			if addr, ok := grpcAddressOf(ep); ok {
-				addrs = append(addrs, resolver.Address{Addr: addr})
+				addrs = append(addrs, resolver.Address{Addr: addr, Attributes: attrs})
 			}
 		}
 	}
 	return addrs
+}
+
+// attributesOf 把实例 Metadata 换成属性表：空 Metadata 返回 nil（与无属性同义，
+// 保持历史字节行为）。键先排序再链式 WithValue，使同一 Metadata 无论 map 迭代
+// 顺序如何都产出同一属性链——addressKey 的稳定指纹依赖这点。
+func attributesOf(metadata map[string]string) *attributes.Attributes {
+	if len(metadata) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(metadata))
+	for k := range metadata {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var attrs *attributes.Attributes
+	for _, k := range keys {
+		if attrs == nil {
+			attrs = attributes.New(k, metadata[k])
+		} else {
+			attrs = attrs.WithValue(k, metadata[k])
+		}
+	}
+	return attrs
 }
 
 // grpcAddressOf 把注册端点换成 gRPC 可拨地址。

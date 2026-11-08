@@ -10,10 +10,13 @@ package balancer
 
 import (
 	"fmt"
+	"strconv"
 	"sync"
 
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/balancer"
 	"google.golang.org/grpc/balancer/base"
+	"google.golang.org/grpc/resolver"
 
 	"github.com/kalandramo/bald/selector"
 	"github.com/kalandramo/bald/selector/p2c"
@@ -36,14 +39,18 @@ const StrategyKey = "bald.selector.strategy"
 const ServiceKey = "bald.selector.service"
 
 // WeightKey 是 resolver 地址属性键：携带节点静态权重，让 weighted 策略在
-// gRPC 面（不只 HTTP）生效。
+// gRPC 面（不只 HTTP）生效。经 pkg/grpcdiscovery 从实例 Metadata 透传时是
+// 字符串（Metadata 是 map[string]string），故 attrsOf 同时接受 int 与可解析
+// 为 int 的 string。
 const WeightKey = "bald.selector.weight"
 
 // RegisterDefaultStrategies 把四个内置策略显式注册进 selector 全局注册表
-// （bald 习语：显式注册而非 blank import）。与 Register 搭配使用：
+// （bald 习语：显式注册而非 blank import）。手动装配时与 Register 搭配：
 //
 //	balancer.RegisterDefaultStrategies()
 //	balancer.Register()
+//
+// 拨号侧通常直接用 DialOption（内部经 Activate 幂等完成这两步），无需手调。
 //
 // defaultStrategiesOnce 保证默认策略注册幂等（MustRegister 重复注册 panic，
 // 测试与多个调用方共处一个进程时经这里收敛为一次）。
@@ -59,9 +66,43 @@ func RegisterDefaultStrategies() {
 }
 
 // Register 把 bald_selector 的 balancer builder 注册进 grpc 全局注册表。
-// 重复注册 panic（grpc 语义）——进程内只调一次。
+// 重复注册 panic（grpc 语义）——进程内只调一次。多数调用方经 DialOption 使用，
+// 不必直接调本函数。
 func Register() {
 	balancer.Register(base.NewBalancerBuilder(Name, &pickerBuilder{}, base.Config{HealthCheck: false}))
+}
+
+// DefaultServiceConfig 让 gRPC 客户端把 bald_selector 选为负载均衡策略。
+// resolver 未提供 service config 时作为默认值生效（discovery/dns 都不提供），
+// 因此挂它即可覆盖 grpc 内置的 pick_first。
+const DefaultServiceConfig = `{"loadBalancingConfig":[{"` + Name + `":{}}]}`
+
+// activateOnce 把「注册默认策略 + 注册 builder」收敛成进程内一次。DialOption
+// 每次拨号都会走到这里，once 保证 Register 不会因重复注册而 panic。
+var activateOnce sync.Once
+
+// Activate 幂等地注册默认策略与 bald_selector builder。DialOption 内部已调用；
+// 只在自行装配 service config（不用 DialOption）时才需要显式调它。
+// 直接调用 Register/RegisterDefaultStrategies 的调用方无需再调本函数。
+func Activate() {
+	activateOnce.Do(func() {
+		RegisterDefaultStrategies()
+		Register()
+	})
+}
+
+// DialOption 产出激活 bald_selector 的拨号选项：先幂等注册，再返回带上默认
+// service config 的 grpc.WithDefaultServiceConfig。与 resiliency 同款「调用侧
+// 显式组合」——契约段只描述拓扑，负载均衡策略由调用方挂上：
+//
+//	clientcontract.WithGRPCDialOptions(balancer.DialOption())
+//
+// 策略/权重按节点从实例 Metadata 透传（见 pkg/grpcdiscovery.attributesOf）：
+// 运维给实例打 `bald.selector.strategy`/`bald.selector.weight`，picker 即按此
+// 选策略与加权。不带这些键即 round_robin、权重 100。
+func DialOption() grpc.DialOption {
+	Activate()
+	return grpc.WithDefaultServiceConfig(DefaultServiceConfig)
 }
 
 // pickerBuilder 构建委托给 selector.Selector 的 Picker。selector 实例按
@@ -81,15 +122,16 @@ func (b *pickerBuilder) Build(info base.PickerBuildInfo) balancer.Picker {
 	scByAddr := make(map[string]balancer.SubConn, len(info.ReadySCs))
 
 	for sc, sci := range info.ReadySCs {
-		if s, ok := sci.Address.Attributes.Value(StrategyKey).(string); ok && s != "" {
-			strategy = s
+		attrs := attrsOf(sci.Address)
+		if attrs.strategy != "" {
+			strategy = attrs.strategy
 		}
-		if s, ok := sci.Address.Attributes.Value(ServiceKey).(string); ok && s != "" {
-			service = s
+		if attrs.service != "" {
+			service = attrs.service
 		}
 		weight := 100
-		if w, ok := sci.Address.Attributes.Value(WeightKey).(int); ok && w >= 0 {
-			weight = w
+		if attrs.hasWeight {
+			weight = attrs.weight
 		}
 		addr := sci.Address.Addr
 		nodes = append(nodes, selector.NewNode(addr, "", "", weight, nil))
@@ -116,6 +158,43 @@ func newSelector(strategy string) selector.Selector {
 		sel, _ = selector.GetSelector("round_robin")
 	}
 	return sel
+}
+
+// nodeAttrs 是从一个 resolver.Address 读出的选择参数。strategy/service 空串
+// 表示该地址未携带（由调用方决定回退值）；hasWeight 区分「权重 0」与「无权重」。
+type nodeAttrs struct {
+	strategy, service string
+	weight            int
+	hasWeight         bool
+}
+
+// attrsOf 读一个地址的属性表（nil 安全）。策略/服务名按字符串读；权重同时
+// 接受 int 与字符串——经 pkg/grpcdiscovery 从实例 Metadata 透传时是字符串，
+// 直接构造属性表的调用方可给 int。非正或不可解析的权重视为缺失（hasWeight=false），
+// 交回默认 100。
+func attrsOf(a resolver.Address) nodeAttrs {
+	var na nodeAttrs
+	attrs := a.Attributes
+	if attrs == nil {
+		return na
+	}
+	if s, ok := attrs.Value(StrategyKey).(string); ok {
+		na.strategy = s
+	}
+	if s, ok := attrs.Value(ServiceKey).(string); ok {
+		na.service = s
+	}
+	switch w := attrs.Value(WeightKey).(type) {
+	case int:
+		if w >= 0 {
+			na.weight, na.hasWeight = w, true
+		}
+	case string:
+		if n, err := strconv.Atoi(w); err == nil && n >= 0 {
+			na.weight, na.hasWeight = n, true
+		}
+	}
+	return na
 }
 
 // picker 是基于 selector.Selector 的 balancer.Picker。

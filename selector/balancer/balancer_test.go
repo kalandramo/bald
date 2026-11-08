@@ -7,6 +7,10 @@ package balancer
 import (
 	"testing"
 
+	"google.golang.org/grpc/attributes"
+	"google.golang.org/grpc/balancer"
+	"google.golang.org/grpc/resolver"
+
 	"github.com/kalandramo/bald/selector"
 )
 
@@ -52,5 +56,69 @@ func TestContractConstants(t *testing.T) {
 		if k != want {
 			t.Errorf("attribute key = %q, want %q", k, want)
 		}
+	}
+}
+
+// TestAttrsOfWeight 权重从 Metadata 透传时是字符串，直构属性表时可给 int；
+// 非正/不可解析视为缺失（交回默认 100）。
+func TestAttrsOfWeight(t *testing.T) {
+	strAddr := resolver.Address{Attributes: attributes.New(WeightKey, "250")}
+	if na := attrsOf(strAddr); !na.hasWeight || na.weight != 250 {
+		t.Errorf("字符串权重 250: got %+v", na)
+	}
+	intAddr := resolver.Address{Attributes: attributes.New(WeightKey, 7)}
+	if na := attrsOf(intAddr); !na.hasWeight || na.weight != 7 {
+		t.Errorf("整型权重 7: got %+v", na)
+	}
+	bad := resolver.Address{Attributes: attributes.New(WeightKey, "abc")}
+	if na := attrsOf(bad); na.hasWeight {
+		t.Errorf("不可解析权重应判缺失: got %+v", na)
+	}
+	neg := resolver.Address{Attributes: attributes.New(WeightKey, "-5")}
+	if na := attrsOf(neg); na.hasWeight {
+		t.Errorf("负权重应判缺失: got %+v", na)
+	}
+}
+
+// TestAttrsOfStrategyService 策略/服务名按字符串读；缺属性即空串（调用方回退）。
+func TestAttrsOfStrategyService(t *testing.T) {
+	addr := resolver.Address{Attributes: attributes.New(StrategyKey, "p2c").
+		WithValue(ServiceKey, "user")}
+	na := attrsOf(addr)
+	if na.strategy != "p2c" || na.service != "user" {
+		t.Errorf("got %+v, want strategy=p2c service=user", na)
+	}
+	if na := (attrsOf(resolver.Address{})); na.strategy != "" || na.service != "" || na.hasWeight {
+		t.Errorf("nil 属性应全默认: got %+v", na)
+	}
+}
+
+// TestActivateIdempotent Activate 多次调用不 panic（Register 重复注册会 panic，
+// once 收敛为一次）；调用后默认策略与 builder 就位。
+func TestActivateIdempotent(t *testing.T) {
+	Activate()
+	Activate() // 第二次必须不 panic
+	if !selector.Registered("weighted") {
+		t.Error("Activate 后 weighted 策略应已注册")
+	}
+	if balancer.Get(Name) == nil {
+		t.Errorf("Activate 后 %q builder 应已注册进 grpc", Name)
+	}
+}
+
+// TestDialOption 产出非 nil 拨号选项，并顺带完成注册。
+func TestDialOption(t *testing.T) {
+	if DialOption() == nil {
+		t.Fatal("DialOption 不应返回 nil")
+	}
+	if !selector.Registered("round_robin") {
+		t.Error("DialOption 应经 Activate 注册默认策略")
+	}
+}
+
+func TestDefaultServiceConfig(t *testing.T) {
+	const want = `{"loadBalancingConfig":[{"bald_selector":{}}]}`
+	if DefaultServiceConfig != want {
+		t.Errorf("DefaultServiceConfig = %s, want %s", DefaultServiceConfig, want)
 	}
 }
