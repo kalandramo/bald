@@ -6,6 +6,50 @@
 
 ## 2026-11-08
 
+### bald v0.46.0
+
+- `53f337d9` chore(release): 回退 610dfe4 发布提交
+- `610dfe4b` chore(release): 6 模块整批发布——selector/circuitbreaker 与出站 resiliency 首发
+- `9e745713` feat(transport/client): 出站韧性显式组合层 resiliency——retry+熔断接成拦截器/RoundTripper（§3.2-6a）
+- `36659e2d` feat(selector): 节点熔断桥接件——WithCircuitBreaker 按节点硬排除（onexmesh 吸收 §3.2-5）
+
+### bconf v0.24.1
+
+- `39e2dbe7` fix(bconf): buf.sha256 归位 v1.57.2——pin 漂移致 CI 装 buf 摘要不符
+- `a9b2afc6` chore(deps): 依赖树归位——x/sync v0.24.0 级联与示例 go.sum 预热
+
+### cli v0.5.0
+
+- `9e745713` feat(transport/client): 出站韧性显式组合层 resiliency——retry+熔断接成拦截器/RoundTripper（§3.2-6a）
+- `36659e2d` feat(selector): 节点熔断桥接件——WithCircuitBreaker 按节点硬排除（onexmesh 吸收 §3.2-5）
+- `3694198f` chore(deps): 发版后归位——撤回六条发布窗口 replace，cli log 顶 v0.6.0
+- `a9b2afc6` chore(deps): 依赖树归位——x/sync v0.24.0 级联与示例 go.sum 预热
+- `56acd87a` chore(release): CHANGELOG 登记 bconf v0.24.0 / pkg v0.10.0 与依赖归位
+
+### selector/circuitbreaker v0.1.0
+
+- `36659e2d` feat(selector): 节点熔断桥接件——WithCircuitBreaker 按节点硬排除（onexmesh 吸收 §3.2-5）
+
+### transport/client v0.2.0
+
+- `53f337d9` chore(release): 回退 610dfe4 发布提交
+- `610dfe4b` chore(release): 6 模块整批发布——selector/circuitbreaker 与出站 resiliency 首发
+- `9e745713` feat(transport/client): 出站韧性显式组合层 resiliency——retry+熔断接成拦截器/RoundTripper（§3.2-6a）
+- `1bc52b57` chore(release): 8 模块整批发布——方案 S 收口与 otelslog 自有化
+- `a9b2afc6` chore(deps): 依赖树归位——x/sync v0.24.0 级联与示例 go.sum 预热
+- `56acd87a` chore(release): CHANGELOG 登记 bconf v0.24.0 / pkg v0.10.0 与依赖归位
+- `3883406f` chore(release): CHANGELOG 登记 pkg v0.9.0（统一策略面六件）
+- `236b9be0` chore(release): CHANGELOG 登记 pkg v0.8.0
+- `6f1d405a` chore(release): CHANGELOG 登记 pkg v0.7.0 与依赖归位
+- `e7e9c14d` chore(release): CHANGELOG 登记 registry v0.5.0 / retry v0.3.0 / selector v0.1.0 / balancer v0.1.0 与依赖归位
+- `c5be85bb` chore: 发布 3 个模块（bconf v0.23.0 / pkg v0.6.0 / 根 v0.42.0）
+- `39f986eb` chore: 发布 3 个模块（bconf v0.22.0 / transport/sse v0.6.0 / 根 v0.41.0）
+
+### transport/client/resiliency v0.1.0
+
+- `da5de379` fix(transport/client/resiliency): x/net 顶到 v0.60.0——清除可调用 HTTP/2 漏洞
+- `9e745713` feat(transport/client): 出站韧性显式组合层 resiliency——retry+熔断接成拦截器/RoundTripper（§3.2-6a）
+
 ### bald v0.45.0
 
 - `fdfeab05` refactor(pkg/middleware): observability 统一 + shared 退场（方案 S 批次 2 收口）
