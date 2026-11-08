@@ -38,13 +38,13 @@ func RequestID(cfg ...RequestIDConfig) Middleware {
 		header = cfg[0].HeaderName
 	}
 	return func(next Handler) Handler {
-		return func(ctx context.Context, _ interface{}) (interface{}, error) {
+		return func(ctx context.Context, req interface{}) (interface{}, error) {
 			tr, ok := FromServerContext(ctx)
 			if !ok {
 				// 无 Transporter 的调用面（如直调统一链的单测）——生成 ID 仅注
 				// 入 context，不做头读写。
 				requestID := uuid.New().String()
-				return next(contextx.WithRequestID(ctx, requestID), nil)
+				return next(contextx.WithRequestID(ctx, requestID), req)
 			}
 
 			requestID := tr.RequestHeader().Get(header)
@@ -53,7 +53,7 @@ func RequestID(cfg ...RequestIDConfig) Middleware {
 			}
 			tr.ReplyHeader().Set(header, requestID)
 
-			return next(contextx.WithRequestID(ctx, requestID), nil)
+			return next(contextx.WithRequestID(ctx, requestID), req)
 		}
 	}
 }

@@ -25,7 +25,7 @@ import (
 // 才能被外层收口；RequestID 等内层中间件的 panic 均被覆盖。
 func Recovery() Middleware {
 	return func(next Handler) Handler {
-		return func(ctx context.Context, _ interface{}) (resp interface{}, err error) {
+		return func(ctx context.Context, req interface{}) (resp interface{}, err error) {
 			defer func() {
 				if r := recover(); r != nil {
 					operation := "unknown"
@@ -38,7 +38,7 @@ func Recovery() Middleware {
 					resp = nil
 				}
 			}()
-			return next(ctx, nil)
+			return next(ctx, req)
 		}
 	}
 }

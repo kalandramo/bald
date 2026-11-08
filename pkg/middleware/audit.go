@@ -81,7 +81,7 @@ func Audit(opts ...AuditOption) Middleware {
 		rec = metrics.NopRecorder()
 	}
 	return func(next Handler) Handler {
-		return func(ctx context.Context, _ interface{}) (interface{}, error) {
+		return func(ctx context.Context, req interface{}) (interface{}, error) {
 			start := time.Now()
 
 			operation := "unknown"
@@ -96,7 +96,7 @@ func Audit(opts ...AuditOption) Middleware {
 			subject, tenant := auditSubjectTenant(ctx, cfg, operation)
 			object, action := auditObjectAction(cfg, operation, transport)
 
-			resp, err := next(ctx, nil)
+			resp, err := next(ctx, req)
 
 			ev := audit.AuditEvent{
 				Time:     start,

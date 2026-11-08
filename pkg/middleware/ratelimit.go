@@ -30,16 +30,16 @@ const ReasonRateLimited = "RATE_LIMITED"
 // 两侧旧链同样没做，口径一致；要用 BBR 的 RTT 反馈在链外自行配对。
 func RateLimit(l ratelimit.Limiter, wait bool) Middleware {
 	return func(next Handler) Handler {
-		return func(ctx context.Context, _ interface{}) (interface{}, error) {
+		return func(ctx context.Context, req interface{}) (interface{}, error) {
 			if l == nil {
-				return next(ctx, nil)
+				return next(ctx, req)
 			}
 			if wait {
 				if err := l.Wait(ctx); err != nil {
 					return nil, berrors.ResourceExhausted(ReasonRateLimited).
 						WithMessage("rate limit wait failed: %v", err).WithCause(err)
 				}
-				return next(ctx, nil)
+				return next(ctx, req)
 			}
 			ok, err := l.Allow()
 			if err != nil {
@@ -50,7 +50,7 @@ func RateLimit(l ratelimit.Limiter, wait bool) Middleware {
 				return nil, berrors.ResourceExhausted(ReasonRateLimited).
 					WithMessage("rate limit exceeded")
 			}
-			return next(ctx, nil)
+			return next(ctx, req)
 		}
 	}
 }

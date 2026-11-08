@@ -62,9 +62,9 @@ func Authz(authorizer authz.Authorizer, opts ...AuthzOption) Middleware {
 		opt(cfg)
 	}
 	return func(next Handler) Handler {
-		return func(ctx context.Context, _ interface{}) (interface{}, error) {
+		return func(ctx context.Context, req interface{}) (interface{}, error) {
 			if authorizer == nil {
-				return next(ctx, nil)
+				return next(ctx, req)
 			}
 			operation := ""
 			if tr, ok := FromServerContext(ctx); ok {
@@ -102,7 +102,7 @@ func Authz(authorizer authz.Authorizer, opts ...AuthzOption) Middleware {
 					"access denied: subject=%s, object=%s, action=%s", subject, object, action)
 				return nil, e
 			}
-			return next(ctx, nil)
+			return next(ctx, req)
 		}
 	}
 }

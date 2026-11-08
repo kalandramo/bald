@@ -55,9 +55,9 @@ func Authn(authenticator authn.Authenticator, opts ...AuthnOption) Middleware {
 		auditor = audit.NopAuditor()
 	}
 	return func(next Handler) Handler {
-		return func(ctx context.Context, _ interface{}) (interface{}, error) {
+		return func(ctx context.Context, req interface{}) (interface{}, error) {
 			if authenticator == nil {
-				return next(ctx, nil)
+				return next(ctx, req)
 			}
 			token, err := bearerFromTransporter(ctx)
 			if err != nil {
@@ -87,7 +87,7 @@ func Authn(authenticator authn.Authenticator, opts ...AuthnOption) Middleware {
 			ctx = crudbridge.InjectViewerFromIdentity(ctx,
 				claims.Subject, claims.TenantID, contextx.TraceIDFromContext(ctx),
 				claims.Scopes, claims.Roles, claims.Platform)
-			return next(ctx, nil)
+			return next(ctx, req)
 		}
 	}
 }

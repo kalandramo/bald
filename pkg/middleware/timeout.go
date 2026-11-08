@@ -32,16 +32,16 @@ import (
 // 而 0 更常见的原因是配置段留空。
 func Timeout(d time.Duration) Middleware {
 	return func(next Handler) Handler {
-		return func(ctx context.Context, _ interface{}) (interface{}, error) {
+		return func(ctx context.Context, req interface{}) (interface{}, error) {
 			if d <= 0 {
-				return next(ctx, nil)
+				return next(ctx, req)
 			}
 			if _, ok := ctx.Deadline(); ok {
-				return next(ctx, nil)
+				return next(ctx, req)
 			}
 			ctx, cancel := context.WithTimeout(ctx, d)
 			defer cancel()
-			return next(ctx, nil)
+			return next(ctx, req)
 		}
 	}
 }
