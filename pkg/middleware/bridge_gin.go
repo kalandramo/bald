@@ -16,6 +16,7 @@ import (
 
 	"github.com/kalandramo/bald/berrors"
 	berrorshttperr "github.com/kalandramo/bald/berrors/httperr"
+	"github.com/kalandramo/bald/pkg/middleware/response"
 )
 
 // GinHandler 把统一 Middleware 桥接成 gin handler。它注入 Transporter 并让
@@ -52,7 +53,7 @@ func GinHandler(m Middleware) gin.HandlerFunc {
 			// 状态码与 JSON 包络（如 Auth 401、RateLimit 429）。next 已写过
 			// 状态时，状态派生错误不得触发第二次写。
 			if !c.Writer.Written() {
-				renderStatusBody(c, err)
+				response.RenderError(c, err)
 			}
 			// gin 的 c.Next() 是循环：本桥返回后（无论是否调过 c.Next()），gin
 			// 会推进索引继续跑链上剩余的 handler。统一链短路 = 后续 gin 链不得
@@ -149,38 +150,6 @@ func httpStatusReason(status int) string {
 		return "InternalError"
 	}
 	return "InvalidArgument"
-}
-
-// renderStatusBody 把错误按 google.rpc.Status JSON 形态渲染——与
-// transport/web.ErrorResponse 完全同形（errors-r08：三面一份的线型）。
-//
-// J2 登记：这里与 web/response.go 各有一份渲染实现。批次 3 收口时
-// web.ErrorResponse 改为委托本函数（渲染原语归中间件层，web 只剩绑定），
-// 双形即清偿。
-func renderStatusBody(c *gin.Context, err error) {
-	werr, ok := berrors.FromError(err)
-	if !ok {
-		werr = berrors.Internal("").WithMessage("%s", err.Error())
-	}
-	c.JSON(berrorshttperr.CodeToHTTP(werr.Code), gin.H{
-		"code":    werr.Code,
-		"message": werr.Message,
-		"details": statusDetails(werr),
-	})
-}
-
-// statusDetails 构造与 transport/web.StatusBody 同形的 details 数组：
-// Reason 非空或存在 Details 时输出单条 ErrorInfo，否则输出空 slice
-// （protojson 对空 repeated 输出 [] 而非 null 的同款口径）。
-func statusDetails(werr *berrors.Error) []gin.H {
-	if werr.Reason == "" && len(werr.Details) == 0 {
-		return []gin.H{}
-	}
-	return []gin.H{{
-		"@type":    "type.googleapis.com/google.rpc.ErrorInfo",
-		"reason":   werr.Reason,
-		"metadata": werr.Details,
-	}}
 }
 
 // FromGin 把裸 gin.HandlerFunc 提升为统一 Handler，用作中间件链的终端节点。

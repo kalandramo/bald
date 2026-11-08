@@ -6,13 +6,12 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/kalandramo/bald/berrors"
-	"github.com/kalandramo/bald/berrors/httperr"
 	"github.com/kalandramo/bald/log"
 	"github.com/kalandramo/bald/pkg/audit"
 	"github.com/kalandramo/bald/pkg/authn"
 	"github.com/kalandramo/bald/pkg/contextx"
 	"github.com/kalandramo/bald/pkg/crudbridge"
-	"github.com/kalandramo/bald/transport/web"
+	"github.com/kalandramo/bald/pkg/middleware/response"
 )
 
 // AuthnOption 配置 AuthnMiddleware。
@@ -57,7 +56,8 @@ func AuthnMiddleware(authenticator authn.Authenticator, opts ...AuthnOption) gin
 			e := berrors.Unauthenticated("MISSING_TOKEN").WithMessage("%s", err.Error())
 			log.Error(c.Request.Context(), "authentication failed", "error", err)
 			auditAuthnFailure(c, auditor, e.Reason)
-			c.AbortWithStatusJSON(httperr.StatusCode(e), web.StatusOf(e))
+			response.RenderError(c, e)
+			c.Abort()
 			return
 		}
 		ctx := authn.ContextWithToken(c.Request.Context(), token)
@@ -67,7 +67,8 @@ func AuthnMiddleware(authenticator authn.Authenticator, opts ...AuthnOption) gin
 			e := berrors.Unauthenticated("UNAUTHENTICATED").WithMessage("%s", err.Error())
 			log.Error(c.Request.Context(), "authentication failed", "error", err)
 			auditAuthnFailure(c, auditor, e.Reason)
-			c.AbortWithStatusJSON(httperr.StatusCode(e), web.StatusOf(e))
+			response.RenderError(c, e)
+			c.Abort()
 			return
 		}
 		// 过期校验已下沉至 Authenticator.Authenticate（实现契约必须校验 ExpiresAt），

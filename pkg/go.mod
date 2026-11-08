@@ -26,8 +26,6 @@ replace github.com/kalandramo/bald/transport/grpc => ../transport/grpc
 
 replace github.com/kalandramo/bald/transport/http => ../transport/http
 
-replace github.com/kalandramo/bald/transport/web => ../transport/web
-
 replace github.com/kalandramo/bald/ratelimit => ../ratelimit
 
 replace github.com/kalandramo/bald/ratelimit/tokenbucket => ../ratelimit/tokenbucket
@@ -49,7 +47,6 @@ require (
 	github.com/kalandramo/bald/transport v0.4.0
 	github.com/kalandramo/bald/transport/grpc v0.2.0
 	github.com/kalandramo/bald/transport/http v0.2.0
-	github.com/kalandramo/bald/transport/web v0.2.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
 	github.com/stretchr/testify v1.11.1

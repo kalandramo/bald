@@ -51,8 +51,8 @@ import (
 	"github.com/kalandramo/bald/pkg/audit"
 	"github.com/kalandramo/bald/pkg/authn"
 	"github.com/kalandramo/bald/pkg/authz"
-	"github.com/kalandramo/bald/pkg/middleware"
 	"github.com/kalandramo/bald/pkg/metrics"
+	"github.com/kalandramo/bald/pkg/middleware"
 	ginmw "github.com/kalandramo/bald/pkg/middleware/gin"
 	grpcmw "github.com/kalandramo/bald/pkg/middleware/grpc"
 )
@@ -340,6 +340,10 @@ func (b *Bundle) warnIfUndeclaredAuthn() {
 //
 // 未注入的依赖对应层直接省略（零开销），如未设 Authn 则链中无认证层——但
 // 前提是该姿态已被决定（Authn 或 Public，见 [Bundle.Verify]），否则这里先告警。
+//
+// Deprecated: 旧协议耦合链门面，方案 S 批次 4 移除。请改用统一中间件契约
+// （[WithUnifiedMiddleware] 声明 + middleware.GinHandler 桥接）：横切件写一遍、
+// 路由级挂接进契约。本方法保留一个版本期供血，内部已在链头预置统一段。
 func (b *Bundle) Gin() []gin.HandlerFunc {
 	b.warnIfUndeclaredAuthn()
 	// 统一段（方案 S）：双面链头预置统一链（opt-in，段缺省不挂）。规则错误
@@ -444,6 +448,10 @@ func (b *Bundle) grpcBudget() time.Duration {
 //	grpc.NewServer(grpc.ChainUnaryInterceptor(b.GRPCInterceptors()...))
 //
 // 与 Gin 一样：认证姿态未决定（既无 Authn 也未 Public）时先告警再出链。
+//
+// Deprecated: 旧协议耦合链门面，方案 S 批次 4 移除。请改用统一中间件契约
+// （[WithUnifiedMiddleware] 声明 + middleware.UnaryServerInterceptor 桥接）：
+// 横切件写一遍、路由级挂接进契约。本方法保留一个版本期供血，内部已在链头预置统一段。
 func (b *Bundle) GRPCInterceptors() []grpc.UnaryServerInterceptor {
 	b.warnIfUndeclaredAuthn()
 	// 统一段（方案 S）：双面链头预置统一链（opt-in，段缺省不挂）。
@@ -455,7 +463,7 @@ func (b *Bundle) GRPCInterceptors() []grpc.UnaryServerInterceptor {
 	if err != nil {
 		panic(err)
 	}
-	chain = append(chain, grpcmw.ErrorInterceptor()) // 必须最外层
+	chain = append(chain, grpcmw.ErrorInterceptor())    // 必须最外层
 	chain = append(chain, grpcmw.RecoveryInterceptor()) // 第二外层：panic 兜底
 	chain = append(chain, grpcmw.RequestIDInterceptor())
 	if b.logging {
