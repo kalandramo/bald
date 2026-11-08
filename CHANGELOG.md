@@ -4,6 +4,25 @@
 条目取自该版本区间内的提交标题（Conventional Commits），不要手工调整顺序。
 发布流程见 [多模块发布与变更日志](docs/devel/zh-CN/多模块发布与变更日志.md)。
 
+## 2026-11-08
+
+### registry v0.5.0
+
+- `1756ddbc` feat(selector,registry/cache): 发现缓存层与负载均衡策略移植
+
+### retry v0.3.0
+
+- `082b2f9c` feat(retry): Bulkhead 出站调用隔离（舱壁）
+- `49eb343f` feat(retry): Hedger 对冲请求（降低尾延迟）
+
+### selector v0.1.0
+
+- `1756ddbc` feat(selector,registry/cache): 发现缓存层与负载均衡策略移植
+
+### selector/balancer v0.1.0
+
+- `1756ddbc` feat(selector,registry/cache): 发现缓存层与负载均衡策略移植
+
 ## 2026-11-07
 
 ### bald v0.44.0

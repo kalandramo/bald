@@ -15,7 +15,7 @@ require (
 	github.com/kalandramo/bald/health v0.1.1
 	github.com/kalandramo/bald/log v0.5.4
 	github.com/kalandramo/bald/pkg v0.6.0
-	github.com/kalandramo/bald/registry v0.4.0
+	github.com/kalandramo/bald/registry v0.5.0
 	github.com/kalandramo/bald/registry/etcd v0.4.1
 	github.com/kalandramo/bald/registry/nacos v0.3.3
 	github.com/kalandramo/bald/transport/client v0.1.0
@@ -133,7 +133,7 @@ require (
 	github.com/kalandramo/bald/circuitbreaker/hystrix v0.1.1 // indirect
 	github.com/kalandramo/bald/ratelimit v0.1.0 // indirect
 	github.com/kalandramo/bald/ratelimit/tokenbucket v0.2.0 // indirect
-	github.com/kalandramo/bald/retry v0.2.0 // indirect
+	github.com/kalandramo/bald/retry v0.3.0 // indirect
 	github.com/kalandramo/bald/transport v0.4.0 // indirect
 	github.com/kalandramo/bald/transport/grpc v0.2.0 // indirect
 	github.com/kalandramo/bald/transport/http v0.2.0 // indirect

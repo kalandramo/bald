@@ -93,7 +93,7 @@ require (
 	github.com/kalandramo/bald/bootstrap v0.13.7 // indirect
 	github.com/kalandramo/bald/health v0.1.1 // indirect
 	github.com/kalandramo/bald/log v0.5.4 // indirect
-	github.com/kalandramo/bald/registry v0.4.0 // indirect
+	github.com/kalandramo/bald/registry v0.5.0 // indirect
 	github.com/kalandramo/bald/transport v0.4.0 // indirect
 	github.com/kalandramo/bald/transport/grpc v0.2.0 // indirect
 	github.com/kalandramo/bald/transport/http v0.2.0 // indirect
