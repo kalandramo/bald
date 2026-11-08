@@ -13,14 +13,14 @@ require (
 	github.com/kalandramo/bald/bootstrap v0.13.7
 	github.com/kalandramo/bald/contrib/store-gorm v0.4.1
 	github.com/kalandramo/bald/health v0.1.1
-	github.com/kalandramo/bald/log v0.5.4
-	github.com/kalandramo/bald/pkg v0.10.0
+	github.com/kalandramo/bald/log v0.6.0
+	github.com/kalandramo/bald/pkg v0.10.1
 	github.com/kalandramo/bald/registry v0.5.0
 	github.com/kalandramo/bald/registry/etcd v0.4.1
 	github.com/kalandramo/bald/registry/nacos v0.3.3
 	github.com/kalandramo/bald/transport/client v0.1.0
 	github.com/kalandramo/bald/transport/gateway v0.5.2
-	github.com/kalandramo/bald/transport/web v0.2.0
+	github.com/kalandramo/bald/transport/web v0.2.1
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
 	google.golang.org/genproto/googleapis/api v0.0.0-20260904194346-d0f1323225a4
@@ -133,7 +133,7 @@ require (
 	github.com/kalandramo/bald/circuitbreaker/hystrix v0.1.1 // indirect
 	github.com/kalandramo/bald/ratelimit v0.1.0 // indirect
 	github.com/kalandramo/bald/ratelimit/tokenbucket v0.2.0 // indirect
-	github.com/kalandramo/bald/retry v0.3.0 // indirect
+	github.com/kalandramo/bald/retry v0.3.1 // indirect
 	github.com/kalandramo/bald/transport v0.4.0 // indirect
 	github.com/kalandramo/bald/transport/grpc v0.2.0 // indirect
 	github.com/kalandramo/bald/transport/http v0.2.0 // indirect

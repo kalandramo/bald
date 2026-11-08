@@ -32,9 +32,9 @@ require (
 	github.com/kalandramo/bald/broker/kafka v0.2.5
 	github.com/kalandramo/bald/encoding v0.1.0
 	github.com/kalandramo/bald/encoding/json v0.0.0-00010101000000-000000000000
-	github.com/kalandramo/bald/log v0.5.4
+	github.com/kalandramo/bald/log v0.6.0
 	github.com/kalandramo/bald/metrics v0.2.0
-	github.com/kalandramo/bald/pkg v0.10.0
+	github.com/kalandramo/bald/pkg v0.10.1
 	github.com/kalandramo/bald/transport v0.4.0
 	github.com/kalandramo/bald/transport/subscribe v0.1.0
 	github.com/spf13/pflag v1.0.10
@@ -123,7 +123,7 @@ require (
 	github.com/kalandramo/bald/bootstrap v0.13.7 // indirect
 	github.com/kalandramo/bald/health v0.1.1 // indirect
 	github.com/kalandramo/bald/registry v0.5.0 // indirect
-	github.com/kalandramo/bald/retry v0.3.0 // indirect
+	github.com/kalandramo/bald/retry v0.3.1 // indirect
 	github.com/kalandramo/bald/transport/grpc v0.2.0 // indirect
 	github.com/kalandramo/bald/transport/http v0.2.0 // indirect
 	github.com/klauspost/compress v1.20.2 // indirect

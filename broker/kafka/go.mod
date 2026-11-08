@@ -7,8 +7,8 @@ require (
 	github.com/kalandramo/bald/bconf v0.24.0
 	github.com/kalandramo/bald/broker v0.1.0
 	github.com/kalandramo/bald/encoding v0.1.0
-	github.com/kalandramo/bald/log v0.5.4
-	github.com/kalandramo/bald/retry v0.3.0
+	github.com/kalandramo/bald/log v0.6.0
+	github.com/kalandramo/bald/retry v0.3.1
 	github.com/segmentio/kafka-go v0.4.49
 )
 

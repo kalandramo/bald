@@ -17,7 +17,7 @@ require (
 	github.com/kalandramo/bald/berrors v0.1.2 // indirect
 	github.com/kalandramo/bald/encoding v0.1.0 // indirect
 	github.com/kalandramo/bald/encoding/json v0.1.1 // indirect
-	github.com/kalandramo/bald/log v0.5.4 // indirect
+	github.com/kalandramo/bald/log v0.6.0 // indirect
 	github.com/klauspost/compress v1.20.2 // indirect
 	github.com/xdg-go/pbkdf2 v1.0.0 // indirect
 	github.com/xdg-go/scram v1.2.0 // indirect

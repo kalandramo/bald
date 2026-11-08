@@ -4,7 +4,7 @@ go 1.27.1
 
 require (
 	github.com/kalandramo/bald/bconf v0.24.0
-	github.com/kalandramo/bald/pkg v0.10.0
+	github.com/kalandramo/bald/pkg v0.10.1
 	github.com/prometheus/client_golang v1.24.1
 	go.opentelemetry.io/otel v1.46.0
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp v1.46.0
@@ -98,7 +98,7 @@ require (
 	github.com/kalandramo/bald/berrors v0.1.2 // indirect
 	github.com/kalandramo/bald/bootstrap v0.13.7 // indirect
 	github.com/kalandramo/bald/health v0.1.1 // indirect
-	github.com/kalandramo/bald/log v0.5.4 // indirect
+	github.com/kalandramo/bald/log v0.6.0 // indirect
 	github.com/kalandramo/bald/registry v0.5.0 // indirect
 	github.com/kalandramo/bald/transport v0.4.0 // indirect
 	github.com/kalandramo/bald/transport/grpc v0.2.0 // indirect

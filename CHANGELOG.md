@@ -6,6 +6,72 @@
 
 ## 2026-11-08
 
+### bald v0.45.0
+
+- `fdfeab05` refactor(pkg/middleware): observability 统一 + shared 退场（方案 S 批次 2 收口）
+- `d4f8b9f2` feat(log/otelslog): OTel 日志桥自有化——上游 v0.21.0 改编 + 本地级别闸门
+- `098f5eef` refactor(pkg): 请求观测词表收拢 pkg/semconv——span 面与指标面同一实现（observability-r09）
+- `b6fe5064` docs(architecture): 会话交接文档——onexmesh 吸收与方案 S 的成果、阻塞与排期
+- `3ceb5db8` feat(pkg/middleware/bundle): 统一段装配 + gin 桥 Abort 修复（方案 S 批次 3 装配面）
+- `3883406f` chore(release): CHANGELOG 登记 pkg v0.9.0（统一策略面六件）
+- `236b9be0` chore(release): CHANGELOG 登记 pkg v0.8.0
+- `6f1d405a` chore(release): CHANGELOG 登记 pkg v0.7.0 与依赖归位
+- `03961ad5` docs(architecture): module-list 登记 selector 与 selector/balancer
+- `c7148e55` docs(architecture): 移植评估完成度回填——第一批+第二批四 tag 发布
+- `e7e9c14d` chore(release): CHANGELOG 登记 registry v0.5.0 / retry v0.3.0 / selector v0.1.0 / balancer v0.1.0 与依赖归位
+- `a86e75ee` docs(architecture): 传输统一抽象重构评估
+- `73a15a15` docs(architecture): onexmesh 移植评估——决策表与入会费
+- `2b692001` docs(architecture): onexmesh 设计盘点与 bald 路线对照
+
+### contrib/observability-otlp v0.4.2
+
+- `098f5eef` refactor(pkg): 请求观测词表收拢 pkg/semconv——span 面与指标面同一实现（observability-r09）
+- `a9b2afc6` chore(deps): 依赖树归位——x/sync v0.24.0 级联与示例 go.sum 预热
+- `56acd87a` chore(release): CHANGELOG 登记 bconf v0.24.0 / pkg v0.10.0 与依赖归位
+- `3883406f` chore(release): CHANGELOG 登记 pkg v0.9.0（统一策略面六件）
+- `236b9be0` chore(release): CHANGELOG 登记 pkg v0.8.0
+- `6f1d405a` chore(release): CHANGELOG 登记 pkg v0.7.0 与依赖归位
+- `e7e9c14d` chore(release): CHANGELOG 登记 registry v0.5.0 / retry v0.3.0 / selector v0.1.0 / balancer v0.1.0 与依赖归位
+- `c5be85bb` chore: 发布 3 个模块（bconf v0.23.0 / pkg v0.6.0 / 根 v0.42.0）
+- `39f986eb` chore: 发布 3 个模块（bconf v0.22.0 / transport/sse v0.6.0 / 根 v0.41.0）
+- `73b105f2` chore: 发布 18 个模块（bconf v0.21.0 / pkg v0.5.0 / transport/client v0.1.0 等）
+- `6c761301` chore: 发布 27 个模块
+- `a2c6e431` chore: 发布 4 个模块（bconf v0.19.0、registry/etcd v0.4.0、broker/kafka v0.2.4、transport/kafka v0.2.1）
+- `8d277c47` chore: 发布 20 个模块（含根 v0.38.0）
+- `6f9a3104` chore: 发布 3 个模块（bald v0.37.2、cli v0.1.1、pkg v0.2.2）
+- `d4396185` chore: 发布 3 个模块（bald v0.37.1、cli v0.1.0、pkg v0.2.1）
+- `63f2cecf` chore: 发布 5 个模块（bconf v0.17.0、berrors v0.1.2、bootstrap v0.13.6、pkg v0.2.0、根 v0.37.0）
+
+### log v0.6.0
+
+- `d4f8b9f2` feat(log/otelslog): OTel 日志桥自有化——上游 v0.21.0 改编 + 本地级别闸门
+
+### log/otelslog v0.1.0
+
+- `d4f8b9f2` feat(log/otelslog): OTel 日志桥自有化——上游 v0.21.0 改编 + 本地级别闸门
+
+### pkg v0.10.1
+
+- `2d54431f` fix(pkg/middleware): 统一内置件 req 透传——gRPC unary 面不再 nil 化请求消息
+- `fdfeab05` refactor(pkg/middleware): observability 统一 + shared 退场（方案 S 批次 2 收口）
+- `098f5eef` refactor(pkg): 请求观测词表收拢 pkg/semconv——span 面与指标面同一实现（observability-r09）
+- `8bdd45c6` refactor(pkg/middleware): 错误渲染收拢 response 叶子包，pkg↔web 模块环打破（方案 S 收尾）
+
+### retry v0.3.1
+
+- `4c985076` fix(retry,selector): 两处 flaky 测试根修——断言与被测语义对齐
+
+### selector v0.1.1
+
+- `4c985076` fix(retry,selector): 两处 flaky 测试根修——断言与被测语义对齐
+
+### transport/web v0.2.1
+
+- `8bdd45c6` refactor(pkg/middleware): 错误渲染收拢 response 叶子包，pkg↔web 模块环打破（方案 S 收尾）
+- `63f2cecf` chore: 发布 5 个模块（bconf v0.17.0、berrors v0.1.2、bootstrap v0.13.6、pkg v0.2.0、根 v0.37.0）
+- `fd1a864c` chore(ci): 引入 golangci-lint 与 govulncheck 全模块门禁
+- `ed2e4440` docs: 全仓去除来源引用，只留取舍理由与功能设计
+
 ### pkg v0.9.0
 
 - `21e48576` feat(pkg/middleware): 统一策略面六件 + 桥收口——Authn/Authz/Audit/RateLimit/Validator/Defaulter（方案 S 批次 2 完成）
