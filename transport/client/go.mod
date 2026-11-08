@@ -23,7 +23,7 @@ replace github.com/kalandramo/bald/transport/grpc => ../../transport/grpc
 replace github.com/kalandramo/bald/transport/http => ../../transport/http
 
 require (
-	github.com/kalandramo/bald/bconf v0.24.1
+	github.com/kalandramo/bald/bconf v0.24.0
 	github.com/kalandramo/bald/pkg v0.10.1
 	github.com/kalandramo/bald/registry v0.5.0
 	google.golang.org/grpc v1.83.2

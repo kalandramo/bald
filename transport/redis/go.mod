@@ -27,7 +27,7 @@ replace github.com/kalandramo/bald/transport => ..
 replace github.com/kalandramo/bald/transport/subscribe => ../subscribe
 
 require (
-	github.com/kalandramo/bald/bconf v0.24.1
+	github.com/kalandramo/bald/bconf v0.24.0
 	github.com/kalandramo/bald/broker v0.3.0
 	github.com/kalandramo/bald/broker/redis v0.4.2
 	github.com/kalandramo/bald/encoding v0.1.0
