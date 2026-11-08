@@ -104,6 +104,7 @@ log
 log/aliyun
 log/charm
 log/loki
+log/otelslog
 log/sentry
 log/tencent
 metrics
