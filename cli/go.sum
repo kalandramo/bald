@@ -15,8 +15,8 @@ github.com/kalandramo/bald/bconf v0.24.0 h1:COnsuZAt9stKFlTSHNysH4joK0gtBsypigUH
 github.com/kalandramo/bald/bconf v0.24.0/go.mod h1:OBeqyaAMWhms2rRXXwnsjNfjUzEhw7OfxbFngTe+H1Q=
 github.com/kalandramo/bald/cobramcp v0.3.2 h1:+bZ8sAjXVu8ACD/itfL90t0kvOv1jfTp8ERR7kAHgDc=
 github.com/kalandramo/bald/cobramcp v0.3.2/go.mod h1:9Xmx8dh+ew1UVLlNEYSU/OBlgKOx+cfNkewgJaK1Gq8=
-github.com/kalandramo/bald/log v0.5.1 h1:PrjK9yRAOMxJcn+XtDP3TD18VrXyZTXTl2c7lIdz1z8=
-github.com/kalandramo/bald/log v0.5.1/go.mod h1:xEw5nXpW1rJM1WYKsR78k4v8urd934jc7rTic26f9LI=
+github.com/kalandramo/bald/log v0.6.0 h1:Gr2aKSfIJRHJHDaeowLxhFmft1WDZnWqGPlzeoZgu9k=
+github.com/kalandramo/bald/log v0.6.0/go.mod h1:xEw5nXpW1rJM1WYKsR78k4v8urd934jc7rTic26f9LI=
 github.com/kalandramo/bald/transport/mcp v0.3.0 h1:LswQg1sQjWcepFB0ZInDNgZWMa8DsI/4VhvOdbEjU+g=
 github.com/kalandramo/bald/transport/mcp v0.3.0/go.mod h1:Hw7g5BTBYZigc5K/mKPRdyiJVly2JdgVxj7rI1jSZYM=
 github.com/kr/pretty v0.3.1 h1:flRD4NNwYAUpkphVc1HcthR4KEIFJ65n8Mw5qdRn3LE=
