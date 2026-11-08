@@ -5,7 +5,7 @@ go 1.27.1
 require (
 	github.com/kalandramo/bald/bconf v0.23.0
 	github.com/kalandramo/bald/metrics v0.2.0
-	github.com/kalandramo/bald/pkg v0.6.0
+	github.com/kalandramo/bald/pkg v0.7.0
 	github.com/prometheus/client_golang v1.23.2
 )
 

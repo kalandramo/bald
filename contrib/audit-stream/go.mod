@@ -6,7 +6,7 @@ require (
 	github.com/alicebob/miniredis/v2 v2.23.0
 	github.com/kalandramo/bald/bconf v0.23.0
 	github.com/kalandramo/bald/log v0.5.4
-	github.com/kalandramo/bald/pkg v0.6.0
+	github.com/kalandramo/bald/pkg v0.7.0
 	github.com/redis/go-redis/v9 v9.7.0
 )
 

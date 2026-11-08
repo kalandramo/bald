@@ -6,6 +6,11 @@
 
 ## 2026-11-08
 
+### pkg v0.7.0
+
+- `9136c89d` feat(pkg/middleware): 统一中间件契约 + 三桥 + matcher（方案 S 批次 1）
+- `e7e9c14d` chore(release): CHANGELOG 登记 registry v0.5.0 / retry v0.3.0 / selector v0.1.0 / balancer v0.1.0 与依赖归位
+
 ### registry v0.5.0
 
 - `1756ddbc` feat(selector,registry/cache): 发现缓存层与负载均衡策略移植
