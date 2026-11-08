@@ -24,3 +24,4 @@ checks: []
 - [catalog-r10] [建议] 基础设施：cache（local/redis/loadable）、encoding（12 种编解码）、oss（minio/s3）。
 - [catalog-r11] [建议] MCP/LLM：cobramcp（任意 Cobra CLI → MCP server）、transport/mcp（应用侧 MCP）、ai/{openai,langchaingo,eino}。
 - [catalog-r12] [建议] 横切件：pkg/middleware（bundle 门面）、pkg/validation（命令式校验分发）、pkg/fieldmaskutil、pkg/contextx（Trace ID/Logger 上下文）。
+- [catalog-r13] [建议] 节点选择：selector（round_robin/random/weighted/p2c+EWMA）、selector/balancer（gRPC balancer 适配）、selector/circuitbreaker（按节点熔断硬排除，桥接 circuitbreaker）。

@@ -126,6 +126,7 @@ registry/nacos
 retry
 selector
 selector/balancer
+selector/circuitbreaker
 transport
 transport/asynq
 transport/client

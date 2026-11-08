@@ -325,6 +325,8 @@ gRPC **stream 面不挂熔断**，且不是漏掉：一条流的「失败」没�
 
 **尚未做**：`retry` 尚未接进契约段（服务端重试会重复执行有副作用的 handler，故不进入口链）；它作为**退避原语**已替换掉仓内两处手写退避（`broker/kafka` 的订阅 fetch、`registry/etcd` 的断链重注册），第三处 `bconfig/apollo` 刻意不接，理由见《Bald 重试设计》「接入现状」；`sres`/`vegas`/`sentinel` 尚无生产调用点，选实现的那一步留给契约（当前契约段只驱动 `hystrix`）。
 
+**节点级熔断（出站 LB 面）**：入口链的熔断保护的是「下游整体值不值得试」；按节点硬排除是另一面——`selector/circuitbreaker` 把本契约接成 selector 的过滤层（`Registry.Healthy` 由 `State()` 派生，`WithCircuitBreaker` 装饰器反馈 `Mark*`），熔断打开的节点直接不进候选集。它不走 `Allow` 门控（每个调用都是探针，`Mark*` 直接驱动半开 heal/reopen），契约本身零改动。见《[Bald 节点熔断设计](./Bald%20节点熔断设计.md)》。
+
 ### 验证方式
 
 ```bash
