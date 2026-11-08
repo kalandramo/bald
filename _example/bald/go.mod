@@ -254,3 +254,5 @@ replace github.com/kalandramo/bald/circuitbreaker => ../../circuitbreaker
 replace github.com/kalandramo/bald/circuitbreaker/hystrix => ../../circuitbreaker/hystrix
 
 replace github.com/kalandramo/bald/transport/client => ../../transport/client
+
+replace github.com/kalandramo/bald/retry => ../../retry
