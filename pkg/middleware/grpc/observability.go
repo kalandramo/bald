@@ -1,60 +1,53 @@
 // Package grpc 提供 bald 框架在 gRPC 拦截器层的可观测性中间件。
 //
-// 日志输出走 bald 的 pkg/log（项目统一日志契约），trace 注入与路径跳过逻辑
-// 内聚在本包。
+// 实现已并入统一链 middleware.Observability（方案 S 批次 2）：本文件保公共
+// Option 面与方法跳过 matcher，经 middleware.{Unary,Stream}ServerInterceptor
+// 桥委托。日志输出走 bald 的 pkg/log，trace 注入原语在 middleware 统一链。
 package grpc
 
 import (
-	"context"
-	"log/slog"
 	"strings"
-	"time"
 
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/metadata"
-	"google.golang.org/grpc/status"
 
 	"github.com/kalandramo/bald/log"
-	"github.com/kalandramo/bald/pkg/contextx"
 	"github.com/kalandramo/bald/pkg/middleware"
-	"github.com/kalandramo/bald/pkg/middleware/shared"
-	"github.com/kalandramo/bald/pkg/semconv"
 )
 
 // tracer 是 bald gRPC 层使用的 OpenTelemetry tracer。
 // 未设置全局 TracerProvider 时，otel.Tracer 返回 no-op tracer，零配置也能运行。
+// 委托时传入统一件，保住同包测试替换包级 tracer 的能力。
 var tracer = otel.Tracer("bald/grpc")
 
-// Standard trace header keys（定义在 middleware/shared，此处
+// Standard trace header keys（定义在 middleware 统一链，此处
 // 为别名维持既有导出 API 稳定）
 const (
 	// W3C Trace Context standard
-	TraceParentHeaderKey = shared.TraceParentHeaderKey
+	TraceParentHeaderKey = middleware.TraceParentHeaderKey
 
 	// Simple trace ID
-	TraceIDHeaderKey = shared.TraceIDHeaderKey
+	TraceIDHeaderKey = middleware.TraceIDHeaderKey
 
 	// Generic request ID
-	RequestIDHeaderKey = shared.RequestIDHeaderKey
+	RequestIDHeaderKey = middleware.RequestIDHeaderKey
 
 	// Tracestate
-	TraceStateHeaderKey = shared.TraceStateHeaderKey
+	TraceStateHeaderKey = middleware.TraceStateHeaderKey
 )
 
-// TraceInjectionMode defines how trace information is injected（定义在 middleware/shared）
-type TraceInjectionMode = shared.TraceInjectionMode
+// TraceInjectionMode defines how trace information is injected（定义在 middleware 统一链）
+type TraceInjectionMode = middleware.TraceInjectionMode
 
 const (
 	// InjectW3CTraceContext injects full W3C trace context (recommended)
-	InjectW3CTraceContext = shared.InjectW3CTraceContext
+	InjectW3CTraceContext = middleware.InjectW3CTraceContext
 	// InjectTraceIDOnly injects only trace ID
-	InjectTraceIDOnly = shared.InjectTraceIDOnly
+	InjectTraceIDOnly = middleware.InjectTraceIDOnly
 	// InjectBoth injects both W3C format and simple trace ID
-	InjectBoth = shared.InjectBoth
+	InjectBoth = middleware.InjectBoth
 	// InjectNone disables trace injection
-	InjectNone = shared.InjectNone
+	InjectNone = middleware.InjectNone
 )
 
 // ObservabilityOptions holds configuration for trace injection and logging
@@ -79,206 +72,50 @@ func WithLogger(logger log.Logger) Option {
 	}
 }
 
-// resolveLogger 返回生效 Logger：显式 WithLogger 注入优先，否则每次调用惰性取
-// 全局（构造期快照会让运行期 SetLogger 重建对请求日志永久失效）。
-func (o *ObservabilityOptions) resolveLogger() log.Logger {
-	if o.Logger != nil {
-		return o.Logger
+// observabilityMiddleware 把 grpc Option 面翻译成统一件配置（unary/stream 共用）。
+func observabilityMiddleware(config *ObservabilityOptions, extra ...middleware.ObservabilityOption) middleware.Middleware {
+	skipMethods := config.SkipMethods
+	opts := []middleware.ObservabilityOption{
+		middleware.ObservabilityWithTracer(tracer),
+		middleware.ObservabilityWithTraceInjection(config.TraceInjectionMode, config.CustomTraceHeader),
+		middleware.ObservabilityWithLogger(config.Logger),
+		middleware.ObservabilityWithDisableBodyLog(config.DisableBodyLog),
+		middleware.ObservabilityWithSkip(func(tr middleware.Transporter) bool {
+			return shouldSkipMethod(tr.Operation(), skipMethods)
+		}),
 	}
-	return log.GetLogger()
+	opts = append(opts, extra...)
+	return middleware.Observability(opts...)
 }
 
-// UnaryObservability is the gRPC unary interceptor with trace injection
+func defaultOptions() *ObservabilityOptions {
+	return &ObservabilityOptions{
+		TraceInjectionMode: InjectTraceIDOnly,
+		SkipMethods:        []string{"/metrics"},
+		DisableBodyLog:     false,
+	}
+}
+
+// UnaryObservability is the gRPC unary interceptor with trace injection。
+// 委托统一链（经 UnaryServerInterceptor 桥）；unary 记 req/resp 对象作 body。
 func UnaryObservability(opts ...Option) grpc.UnaryServerInterceptor {
-	config := &ObservabilityOptions{
-		TraceInjectionMode: InjectTraceIDOnly,
-		SkipMethods:        []string{"/metrics"},
-		DisableBodyLog:     false,
-	}
-
+	config := defaultOptions()
 	for _, opt := range opts {
 		opt(config)
 	}
-
-	return func(
-		ctx context.Context,
-		req any,
-		info *grpc.UnaryServerInfo,
-		handler grpc.UnaryHandler,
-	) (any, error) {
-		start := time.Now()
-
-		// Skip logging if configured
-		if shouldSkipMethod(info.FullMethod, config.SkipMethods) {
-			return handler(ctx, req)
-		}
-
-		// 真正起一个 span：上游已有 span 则作为 child，否则新建 root。
-		// SpanKindServer：inbound gRPC 的 OTel 语义（spanmetrics/拓扑图依赖）。
-		ctx, span := tracer.Start(ctx, info.FullMethod,
-			trace.WithSpanKind(trace.SpanKindServer))
-		defer span.End()
-
-		// 把 trace_id/span_id 挂到 ctx 属性流，使本请求范围所有日志自动携带。
-		// no-op tracer（未装配全局 TracerProvider）下 SpanContext 恒全零，
-		// LogTraceIDs 兜底随机 ID 作日志关联；真实 tracer 在跑时透传真实值。
-		logTraceID, logSpanID := middleware.LogTraceIDs(ctx)
-		// 审计-链路关联：trace_id 同时进 ctx 属性流与
-		// contextx（audit/authn/crudbridge 的 TraceIDFromContext 消费）——
-		// 只进前者会让审计事件的 trace_id 字段恒空。与日志同源。
-		ctx = contextx.WithTraceID(ctx, logTraceID)
-		ctx = log.ContextWithAttrs(ctx,
-			slog.String("trace_id", logTraceID),
-			slog.String("span_id", logSpanID),
-		)
-
-		// Extract trace information early
-		spanCtx := trace.SpanContextFromContext(ctx)
-
-		// Inject trace headers into outgoing metadata
-		if md, ok := metadata.FromIncomingContext(ctx); ok {
-			newMD := injectTraceMetadata(md, spanCtx, config)
-			ctx = metadata.NewIncomingContext(ctx, newMD)
-		}
-
-		isDebugLevel := config.resolveLogger().Enabled(log.LevelDebug)
-		shouldLogBody := isDebugLevel && !config.DisableBodyLog
-
-		var requestInfo any
-		var responseInfo any
-		if shouldLogBody {
-			requestInfo = req
-		}
-
-		resp, err := handler(ctx, req)
-
-		if shouldLogBody {
-			responseInfo = resp
-		}
-
-		duration := time.Since(start).Seconds()
-
-		// span 属性走 semconv 词表单一实现：rpc.response.status_code（wire 拼写）
-		// + error.type + 平台 reason（err 经 berrors 归类）。旧 "grpc.code" 非约定键。
-		span.SetAttributes(semconv.RPCAttrs(info.FullMethod, status.Code(err), err)...)
-
-		// Build structured log
-		event := map[string]any{"duration": duration}
-		source := map[string]any{"id": logTraceID}
-		grpcData := map[string]any{
-			"service": info.FullMethod,
-			"code":    status.Code(err).String(),
-		}
-		if shouldLogBody {
-			grpcData["request"] = requestInfo
-			grpcData["response"] = responseInfo
-		}
-
-		// ctx 已携带 trace_id/span_id 属性，日志自动附带。
-		if isDebugLevel {
-			config.resolveLogger().Debug(ctx, "gRPC request completed",
-				"event", event,
-				"source", source,
-				"grpc", grpcData,
-			)
-		} else {
-			config.resolveLogger().Info(ctx, "gRPC request completed",
-				"event", event,
-				"source", source,
-				"grpc", grpcData,
-			)
-		}
-
-		return resp, err
-	}
+	return middleware.UnaryServerInterceptor(observabilityMiddleware(config))
 }
 
-// StreamObservability is the gRPC stream interceptor with trace injection
+// StreamObservability is the gRPC stream interceptor with trace injection。
+// 委托统一链（经 StreamServerInterceptor 桥）；流式不记 body（req 是 srv 而非
+// 消息），完成日志用 "gRPC stream completed"。桥用链传播的 ctx 重包流，span/
+// trace_id 注入对整类流生效（含无 incoming metadata 的流）。
 func StreamObservability(opts ...Option) grpc.StreamServerInterceptor {
-	config := &ObservabilityOptions{
-		TraceInjectionMode: InjectTraceIDOnly,
-		SkipMethods:        []string{"/metrics"},
-		DisableBodyLog:     false,
-	}
-
+	config := defaultOptions()
 	for _, opt := range opts {
 		opt(config)
 	}
-
-	return func(
-		srv any,
-		ss grpc.ServerStream,
-		info *grpc.StreamServerInfo,
-		handler grpc.StreamHandler,
-	) error {
-		start := time.Now()
-
-		// Skip logging if configured
-		if shouldSkipMethod(info.FullMethod, config.SkipMethods) {
-			return handler(srv, ss)
-		}
-
-		// 真正起一个 span，并把 trace_id/span_id 挂到 ctx 属性流。
-		ctx := ss.Context()
-		// SpanKindServer：inbound gRPC 的 OTel 语义（spanmetrics/拓扑图依赖）。
-		ctx, span := tracer.Start(ctx, info.FullMethod,
-			trace.WithSpanKind(trace.SpanKindServer))
-		defer span.End()
-		// no-op tracer（未装配全局 TracerProvider）下 SpanContext 恒全零，
-		// LogTraceIDs 兜底随机 ID 作日志关联；真实 tracer 在跑时透传真实值。
-		logTraceID, logSpanID := middleware.LogTraceIDs(ctx)
-		// 审计-链路关联：同 unary 侧——trace_id 进
-		// contextx 供 TraceIDFromContext 消费。
-		ctx = contextx.WithTraceID(ctx, logTraceID)
-		ctx = log.ContextWithAttrs(ctx,
-			slog.String("trace_id", logTraceID),
-			slog.String("span_id", logSpanID),
-		)
-
-		// Extract trace information early
-		spanCtx := trace.SpanContextFromContext(ctx)
-
-		// Inject trace headers into outgoing metadata
-		if md, ok := metadata.FromIncomingContext(ctx); ok {
-			newMD := injectTraceMetadata(md, spanCtx, config)
-			ctx = metadata.NewIncomingContext(ctx, newMD)
-		}
-		// 无论有无 incoming metadata 都包装流：仅在含 metadata 时包装会让无
-		// metadata 流的 handler 读不到 enriched ctx——trace_id 与日志属性注入
-		// 对整类流失效。
-		ss = &traceStream{ServerStream: ss, ctx: ctx}
-
-		err := handler(srv, ss)
-
-		duration := time.Since(start).Seconds()
-
-		// span 属性同 unary 侧：semconv 词表（wire 拼写状态 + error.type + reason）。
-		span.SetAttributes(semconv.RPCAttrs(info.FullMethod, status.Code(err), err)...)
-
-		event := map[string]any{"duration": duration}
-		source := map[string]any{"id": logTraceID}
-		grpcData := map[string]any{
-			"service": info.FullMethod,
-			"code":    status.Code(err).String(),
-		}
-
-		// ctx 已携带 trace_id/span_id 属性，日志自动附带。
-		if config.resolveLogger().Enabled(log.LevelDebug) {
-			config.resolveLogger().Debug(ctx, "gRPC stream completed",
-				"event", event,
-				"source", source,
-				"grpc", grpcData,
-			)
-		} else {
-			config.resolveLogger().Info(ctx, "gRPC stream completed",
-				"event", event,
-				"source", source,
-				"grpc", grpcData,
-			)
-		}
-
-		return err
-	}
+	return middleware.StreamServerInterceptor(observabilityMiddleware(config, middleware.ObservabilityWithStream()))
 }
 
 // shouldSkipMethod checks if a method should be skipped
@@ -298,29 +135,10 @@ func matchMethod(method, pattern string) bool {
 		return true
 	}
 
-	// Wildcard support（通配匹配在 shared.MatchWildcard）
+	// Wildcard support（通配匹配在 middleware.MatchWildcard）
 	if strings.Contains(pattern, "*") {
-		return shared.MatchWildcard(method, pattern)
+		return middleware.MatchWildcard(method, pattern)
 	}
 
 	return false
-}
-
-// injectTraceMetadata injects trace headers into gRPC metadata（header
-// 计算在 shared.InjectTrace，本函数仅剩 md.Set 落点——Set 为
-// 变参签名，闭包适配）
-func injectTraceMetadata(md metadata.MD, spanCtx trace.SpanContext, config *ObservabilityOptions) metadata.MD {
-	shared.InjectTrace(config.TraceInjectionMode, config.CustomTraceHeader, spanCtx,
-		func(key, value string) { md.Set(key, value) })
-	return md
-}
-
-// traceStream wraps grpc.ServerStream to carry the modified context
-type traceStream struct {
-	grpc.ServerStream
-	ctx context.Context
-}
-
-func (s *traceStream) Context() context.Context {
-	return s.ctx
 }

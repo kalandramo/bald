@@ -1,60 +1,53 @@
 // Package gin 提供 bald 框架在 gin HTTP 层的可观测性中间件。
 //
-// 日志输出走 bald 的 pkg/log（项目统一日志契约），trace 注入与路径跳过逻辑
-// 内聚在本包。
+// 实现已并入统一链 middleware.Observability（方案 S 批次 2）：本文件保公共
+// Option 面与跳过 matcher，经 middleware.GinHandler 桥委托。日志输出走 bald
+// 的 pkg/log，trace 注入原语在 middleware 统一链。
 package gin
 
 import (
-	"bytes"
-	"io"
-	"log/slog"
 	"strings"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/trace"
 
 	"github.com/kalandramo/bald/log"
-	"github.com/kalandramo/bald/pkg/contextx"
 	"github.com/kalandramo/bald/pkg/middleware"
-	"github.com/kalandramo/bald/pkg/middleware/shared"
-	"github.com/kalandramo/bald/pkg/semconv"
 )
 
 // tracer 是 bald HTTP 层使用的 OpenTelemetry tracer。
 // 未设置全局 TracerProvider 时，otel.Tracer 返回 no-op tracer（起 span 不报错、不采样），
-// 保证框架在零配置下也能运行——这与"核心零依赖、可观测性由调用方装配"的设计一致。
+// 保证框架在零配置下也能运行。委托时传入统一件，保住同包测试替换包级 tracer 的能力。
 var tracer = otel.Tracer("bald/gin")
 
-// Standard trace header keys（定义在 middleware/shared，此处
+// Standard trace header keys（定义在 middleware 统一链，此处
 // 为别名维持既有导出 API 稳定）
 const (
 	// W3C Trace Context standard (most recommended)
-	TraceParentHeaderKey = shared.TraceParentHeaderKey
+	TraceParentHeaderKey = middleware.TraceParentHeaderKey
 
 	// Simple trace ID (most widely used)
-	TraceIDHeaderKey = shared.TraceIDHeaderKey
+	TraceIDHeaderKey = middleware.TraceIDHeaderKey
 
 	// Generic request ID (universal compatibility)
-	RequestIDHeaderKey = shared.RequestIDHeaderKey
+	RequestIDHeaderKey = middleware.RequestIDHeaderKey
 
 	// Tracestate for additional context
-	TraceStateHeaderKey = shared.TraceStateHeaderKey
+	TraceStateHeaderKey = middleware.TraceStateHeaderKey
 )
 
-// TraceInjectionMode defines how trace information is injected（定义在 middleware/shared）
-type TraceInjectionMode = shared.TraceInjectionMode
+// TraceInjectionMode defines how trace information is injected（定义在 middleware 统一链）
+type TraceInjectionMode = middleware.TraceInjectionMode
 
 const (
 	// InjectW3CTraceContext injects full W3C trace context (recommended)
-	InjectW3CTraceContext = shared.InjectW3CTraceContext
+	InjectW3CTraceContext = middleware.InjectW3CTraceContext
 	// InjectTraceIDOnly injects only trace ID
-	InjectTraceIDOnly = shared.InjectTraceIDOnly
+	InjectTraceIDOnly = middleware.InjectTraceIDOnly
 	// InjectBoth injects both W3C format and simple trace ID
-	InjectBoth = shared.InjectBoth
+	InjectBoth = middleware.InjectBoth
 	// InjectNone disables trace injection
-	InjectNone = shared.InjectNone
+	InjectNone = middleware.InjectNone
 )
 
 // ObservabilityOptions holds configuration for trace injection and logging
@@ -112,158 +105,29 @@ func WithSkipPaths(paths ...string) Option {
 	}
 }
 
-// resolveLogger 返回生效 Logger：显式 WithLogger 注入优先，否则每次请求惰性取
-// 全局（构造期快照会让运行期 SetLogger 重建对请求日志永久失效——示例先默认
-// logger 构造中间件、BeforeStart 再按最终配置重建，快照即分裂）。
-func (o *ObservabilityOptions) resolveLogger() log.Logger {
-	if o.Logger != nil {
-		return o.Logger
-	}
-	return log.GetLogger()
-}
-
-// Observability middleware with configurable trace injection
+// Observability middleware with configurable trace injection。
+// 委托统一链 middleware.Observability（经 GinHandler 桥）：span/trace_id/头注入/
+// 日志核心一份实现，本函数仅翻译 gin Option 面与路径+动词跳过 matcher。
 func Observability(opts ...Option) gin.HandlerFunc {
-	// Default configuration
 	config := &ObservabilityOptions{
 		TraceInjectionMode: InjectTraceIDOnly,
 		SkipPaths:          []string{"/metrics"}, // Default skip /metrics
 		DisableBodyLog:     false,
 	}
-
-	// Apply options
 	for _, opt := range opts {
 		opt(config)
 	}
 
-	return func(c *gin.Context) {
-		start := time.Now()
-		ctx := c.Request.Context()
-
-		// Check if this request should be skipped
-		shouldSkip := shouldSkipPath(c.Request.URL.Path, c.Request.Method, config.SkipPaths)
-		if shouldSkip {
-			c.Next()
-			return
-		}
-
-		// 真正起一个 span：若上游已有 span（如网关/客户端注入）则作为 child，
-		// 否则新建 root。未配置全局 TracerProvider 时为 no-op，零配置也能跑。
-		// SpanKindServer：inbound HTTP 的 OTel 语义（spanmetrics 服务端聚合
-		// 与服务拓扑图依赖该值，缺省 internal 会被漏计）。
-		// span 名取路由模板而非原始 path：span 名是聚合影印机的分组键，带用户
-		// ID 的 path 是每用户一个分组——与指标 operation 同一纪律（有界模板、
-		// raw path 只进属性 url.path）。NoRoute 不经此链，FullPath 空时回退
-		// raw path 作兜底。
-		spanName := c.FullPath()
-		if spanName == "" {
-			spanName = c.Request.URL.Path
-		}
-		ctx, span := tracer.Start(ctx, c.Request.Method+" "+spanName,
-			trace.WithSpanKind(trace.SpanKindServer))
-		defer span.End()
-
-		// 把 span 写入请求 ctx，使后续 handler 与日志处于同一 trace 上下文。
-		c.Request = c.Request.WithContext(ctx)
-
-		// Extract trace information from the (now live) span context.
-		spanCtx := trace.SpanContextFromContext(ctx)
-
-		// 把 trace_id/span_id 挂到 ctx 属性流，使本请求范围内所有经
-		// log.GetLogger() 输出的日志自动携带（slog 后端消费 ContextWithAttrs）。
-		// no-op tracer（未装配全局 TracerProvider）下 SpanContext 恒全零，
-		// LogTraceIDs 兜底随机 ID 作日志关联；真实 tracer 在跑时透传真实值。
-		logTraceID, logSpanID := middleware.LogTraceIDs(ctx)
-		// 审计-链路关联：trace_id 同时进 ctx 属性流（日志
-		// 自动携带）与 contextx（audit/authn/crudbridge 的 TraceIDFromContext
-		// 消费）——只进前者会让审计事件 trace_id 字段恒空。与日志同源
-		// （LogTraceIDs 产物，no-op tracer 时同为兜底随机 ID）。
-		ctx = contextx.WithTraceID(ctx, logTraceID)
-		ctx = log.ContextWithAttrs(ctx,
-			slog.String("trace_id", logTraceID),
-			slog.String("span_id", logSpanID),
-		)
-		c.Request = c.Request.WithContext(ctx)
-
-		// Inject trace headers based on configuration (unless skipping tracing)
-		injectTraceHeaders(c, spanCtx, config)
-
-		var requestBody string
-		var responseBuffer bytes.Buffer
-
-		// Only capture body if Debug is enabled for the logger and body logging
-		// is NOT explicitly disabled.
-		isDebugLevel := config.resolveLogger().Enabled(log.LevelDebug)
-		shouldLogBody := isDebugLevel && !config.DisableBodyLog
-
-		if shouldLogBody && c.Request.Body != nil {
-			bodyBytes, _ := io.ReadAll(c.Request.Body)
-			requestBody = string(bodyBytes)
-			c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
-		}
-
-		if shouldLogBody {
-			writer := &bodyCaptureWriter{ResponseWriter: c.Writer, body: &responseBuffer}
-			c.Writer = writer
-		}
-
-		c.Next()
-
-		duration := time.Since(start).Seconds()
-
-		// span 属性走 semconv 词表单一实现（http.response.status_code 是约定键，
-		// 旧 "http.status_code" 已废）：method 有界化、route 模板、path、协议
-		// 版本、状态与失败类别——与指标面同词表。
-		span.SetAttributes(semconv.HTTPSpanAttrs(
-			c.Request.Method, c.FullPath(), c.Request.URL.Path,
-			strings.TrimPrefix(c.Request.Proto, "HTTP/"),
-			c.Writer.Status(), nil,
-		)...)
-
-		// Build structured log
-		event := map[string]any{"duration": duration}
-		source := map[string]any{"ip": c.ClientIP()}
-		httpData := map[string]any{
-			"request": map[string]any{
-				"method": c.Request.Method,
-				"path":   c.Request.URL.Path,
-				"id":     logTraceID,
-			},
-			"response": map[string]any{
-				"status_code": c.Writer.Status(),
-			},
-		}
-		userAgent := map[string]any{"original": c.Request.UserAgent()}
-
-		if shouldLogBody {
-			httpData["request"].(map[string]any)["body"] = map[string]any{
-				"content": requestBody,
-				"bytes":   len(requestBody),
-			}
-			httpData["response"].(map[string]any)["body"] = map[string]any{
-				"content": responseBuffer.String(),
-				"bytes":   responseBuffer.Len(),
-			}
-		}
-
-		// Use the configured logger instance. ctx 已携带 trace_id/span_id 属性，
-		// 日志自动附带（无需在每条日志手动传 trace_id）。
-		if isDebugLevel {
-			config.resolveLogger().Debug(ctx, "HTTP request completed",
-				"event", event,
-				"source", source,
-				"http", httpData,
-				"user_agent", userAgent,
-			)
-		} else {
-			config.resolveLogger().Info(ctx, "HTTP request completed",
-				"event", event,
-				"source", source,
-				"http", httpData,
-				"user_agent", userAgent,
-			)
-		}
-	}
+	skipPaths := config.SkipPaths
+	return middleware.GinHandler(middleware.Observability(
+		middleware.ObservabilityWithTracer(tracer),
+		middleware.ObservabilityWithTraceInjection(config.TraceInjectionMode, config.CustomTraceHeader),
+		middleware.ObservabilityWithLogger(config.Logger),
+		middleware.ObservabilityWithDisableBodyLog(config.DisableBodyLog),
+		middleware.ObservabilityWithSkip(func(tr middleware.Transporter) bool {
+			return shouldSkipPath(tr.Path(), tr.Method(), skipPaths)
+		}),
+	))
 }
 
 // shouldSkipPath checks if a path should be skipped based on configuration
@@ -303,9 +167,9 @@ func matchPathPattern(path, pattern string) bool {
 		return true
 	}
 
-	// Wildcard support（通配匹配在 shared.MatchWildcard）
+	// Wildcard support（通配匹配在 middleware.MatchWildcard）
 	if strings.Contains(pattern, "*") {
-		return shared.MatchWildcard(path, pattern)
+		return middleware.MatchWildcard(path, pattern)
 	}
 
 	// Prefix match (if pattern ends with /)
@@ -314,21 +178,4 @@ func matchPathPattern(path, pattern string) bool {
 	}
 
 	return false
-}
-
-// injectTraceHeaders injects trace headers based on configuration（header
-// 计算在 shared.InjectTrace，本函数仅剩 gin Header 落点）
-func injectTraceHeaders(c *gin.Context, spanCtx trace.SpanContext, config *ObservabilityOptions) {
-	shared.InjectTrace(config.TraceInjectionMode, config.CustomTraceHeader, spanCtx, c.Header)
-}
-
-// bodyCaptureWriter captures and duplicates written response body
-type bodyCaptureWriter struct {
-	gin.ResponseWriter
-	body *bytes.Buffer
-}
-
-func (w *bodyCaptureWriter) Write(b []byte) (int, error) {
-	w.body.Write(b)
-	return w.ResponseWriter.Write(b)
 }

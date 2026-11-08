@@ -80,11 +80,13 @@ func StreamServerInterceptor(m Middleware) grpc.StreamServerInterceptor {
 		)
 		defer ReleaseTransporter(tr)
 		ctx := NewServerContext(ss.Context(), tr)
-		wrapped := &wrappedServerStream{ServerStream: ss, ctx: ctx}
 
-		// 状态在最内层记录，理由同 UnaryServerInterceptor。
+		// 状态在最内层记录，理由同 UnaryServerInterceptor。流用**链传播的 ctx**
+		// 重包：中间件 enrich 的 span/trace_id/deadline 才能到达业务流 handler
+		// （若在链前捕获 wrapped，这些注入会整类丢失）。ctx 派生自携带
+		// Transporter 的链头 ctx，故 Transporter 仍在流 ctx 内。
 		h := m(func(ctx context.Context, req interface{}) (interface{}, error) {
-			err := handler(srv, wrapped)
+			err := handler(srv, &wrappedServerStream{ServerStream: ss, ctx: ctx})
 			tr.SetGRPCCode(status.Code(err))
 			return nil, err
 		})

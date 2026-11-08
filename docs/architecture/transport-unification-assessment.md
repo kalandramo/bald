@@ -98,6 +98,14 @@ Handler/Middleware 契约 + 五桥核心（~400 行）+ `matcher` 路由级挂�
 
 回归防线：`_example/bald` e2e（真实 HTTP+gRPC 双面）+ acceptance 42 条腿——迁移期间任何一批红都当场可见。
 
+### 实施进展（2026-11-08）
+
+- 批次 1（契约 + 三桥 + matcher）：已进仓（`pkg/v0.7.0`）。
+- 批次 2（内置件改写）：十件统一内置件齐备——Recovery/RequestID/Timeout/Authn/Authz/Audit/RateLimit/Validator/Defaulter（`pkg/v0.8.0`/`v0.9.0`）+ Observability（semconv 收拢 `098f5ee` 后解锁， gin/grpc 经三桥委托 `middleware.Observability`）。`pkg/middleware/shared` 的实现（InjectTrace/MatchWildcard/trace 头常量）退场并入 root `traceinject.go`，shared 降为零消费者 deprecated 别名壳（J2 final 清偿；full 删除随批次 4）。附带修复统一内置件 gRPC unary 面 `next(ctx, nil)` 丢 req 的正确性 bug（改 `next(ctx, req)`，回归测试钉住），及 stream 桥用链传播 ctx 重包流（中间件 enrich 的 span/trace_id 到达业务流 handler）。
+- 批次 3（契约统一段 + bootstrap 适配器）：`server.unified_middleware` 段 + Bundle 适配已进仓（`bconf/v0.24.0`/`pkg/v0.10.0`）；`web.ErrorResponse` 委托 middleware 渲染原语（`8bdd45c`）。
+- 批次 4（旧链移除）：`Gin()`/`GRPCInterceptors()` 已标 deprecated（`8bdd45c`）；旧 authn/authz/audit/recovery/timeout 等链与 shared 壳保留至下一 major 移除——bridge 错误闭包（grpcerr.ToStatus）与 nil info 约束使部分旧链无法薄委托而不破坏钉住行为，故不强改。
+- 文档联动复核：transport/logging/catalog 卡（r05/r06/r02/r12）不含双链实现的陈旧断言，无需改；living doc `current-architecture.md` 横切层条目已更新为统一链口径。
+
 ## 4. 判据与文档联动（实施时同步）
 
 - J2 重复税：统一链落地即 final 清偿——pkg/middleware/shared 退场并入统一链；

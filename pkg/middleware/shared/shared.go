@@ -1,104 +1,46 @@
-// Package shared 收敛 gin/gRPC 可观测性中间件的传输无关核心（trace header
-// 常量、注入模式、header 计算、通配匹配）——gin/gRPC 两份 observability.go
-// 逐行重复的收敛面，修复只改一处、两传输层同时生效。
+// Package shared 是统一链 trace 注入原语的兼容壳（方案 S：逻辑已退场并入
+// pkg/middleware 统一链，见 middleware.InjectTrace/MatchWildcard）。本包不再
+// 持有实现，仅以别名转发，维持既有 import 路径稳定；新代码请直接引用
+// pkg/middleware。
 //
-// 两侧 gin/grpc 子包以类型别名 + 常量别名维持既有导出 API 稳定。
+// Deprecated: 实现已并入 pkg/middleware（J2 重复税 final 清偿）。本包仅为
+// 兼容别名，随方案 S 批次 4 的旧链移除一并退场。
 package shared
 
 import (
-	"fmt"
-	"strings"
-
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/kalandramo/bald/pkg/middleware"
 )
 
-// Standard trace header keys
+// Standard trace header keys（转发至 middleware）。
 const (
-	// TraceParentHeaderKey W3C Trace Context standard (most recommended)
-	TraceParentHeaderKey = "traceparent"
-
-	// TraceIDHeaderKey simple trace ID (most widely used)
-	TraceIDHeaderKey = "X-Trace-Id"
-
-	// RequestIDHeaderKey generic request ID (universal compatibility)
-	RequestIDHeaderKey = "X-Request-Id"
-
-	// TraceStateHeaderKey tracestate for additional context
-	TraceStateHeaderKey = "tracestate"
+	TraceParentHeaderKey = middleware.TraceParentHeaderKey
+	TraceIDHeaderKey     = middleware.TraceIDHeaderKey
+	RequestIDHeaderKey   = middleware.RequestIDHeaderKey
+	TraceStateHeaderKey  = middleware.TraceStateHeaderKey
 )
 
-// TraceInjectionMode defines how trace information is injected
-type TraceInjectionMode int
+// TraceInjectionMode defines how trace information is injected（转发至 middleware）。
+type TraceInjectionMode = middleware.TraceInjectionMode
 
 const (
-	// InjectW3CTraceContext injects full W3C trace context (recommended)
-	InjectW3CTraceContext TraceInjectionMode = iota
-	// InjectTraceIDOnly injects only trace ID
-	InjectTraceIDOnly
-	// InjectBoth injects both W3C format and simple trace ID
-	InjectBoth
-	// InjectNone disables trace injection
-	InjectNone
+	InjectW3CTraceContext = middleware.InjectW3CTraceContext
+	InjectTraceIDOnly     = middleware.InjectTraceIDOnly
+	InjectBoth            = middleware.InjectBoth
+	InjectNone            = middleware.InjectNone
 )
 
-// InjectTrace 按 mode 与 spanCtx 计算待注入的 trace header 并经 set 写出
-// （gin 侧直接传 c.Header——签名恰好 func(key, value string)；gRPC 侧传
-// md.Set 的单值闭包）。spanCtx 无效（no-op tracer 未装配全局
-// TracerProvider）时不注入，与合并前两侧行为一致。
+// InjectTrace 转发至 middleware.InjectTrace。
+//
+// Deprecated: 用 middleware.InjectTrace。
 func InjectTrace(mode TraceInjectionMode, customTraceHeader string, spanCtx trace.SpanContext, set func(key, value string)) {
-	if !spanCtx.IsValid() {
-		return
-	}
-
-	traceID := spanCtx.TraceID().String()
-	spanID := spanCtx.SpanID().String()
-
-	setTraceparent := func() {
-		traceFlags := "01" // sampled
-		if !spanCtx.IsSampled() {
-			traceFlags = "00" // not sampled
-		}
-		set(TraceParentHeaderKey, fmt.Sprintf("00-%s-%s-%s", traceID, spanID, traceFlags))
-	}
-	setTraceID := func() {
-		headerKey := TraceIDHeaderKey
-		if customTraceHeader != "" {
-			headerKey = customTraceHeader
-		}
-		set(headerKey, traceID)
-	}
-
-	switch mode {
-	case InjectW3CTraceContext:
-		setTraceparent()
-	case InjectTraceIDOnly:
-		setTraceID()
-	case InjectBoth:
-		setTraceparent()
-		setTraceID()
-	case InjectNone:
-		// Do nothing
-	}
+	middleware.InjectTrace(mode, customTraceHeader, spanCtx, set)
 }
 
-// MatchWildcard 通配匹配：`*` 全匹配；`*suffix` / `prefix*` / `*substr*`
-// 前后缀与包含匹配；无通配符退化为全等。gin 路径跳过与 gRPC 方法跳过共用。
+// MatchWildcard 转发至 middleware.MatchWildcard。
+//
+// Deprecated: 用 middleware.MatchWildcard。
 func MatchWildcard(text, pattern string) bool {
-	if pattern == "*" {
-		return true
-	}
-
-	if strings.HasPrefix(pattern, "*") && strings.HasSuffix(pattern, "*") {
-		return strings.Contains(text, pattern[1:len(pattern)-1])
-	}
-
-	if strings.HasPrefix(pattern, "*") {
-		return strings.HasSuffix(text, pattern[1:])
-	}
-
-	if strings.HasSuffix(pattern, "*") {
-		return strings.HasPrefix(text, pattern[:len(pattern)-1])
-	}
-
-	return text == pattern
+	return middleware.MatchWildcard(text, pattern)
 }
