@@ -13,6 +13,8 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+
+	"github.com/kalandramo/bald/berrors/grpcerr"
 )
 
 // UnaryServerInterceptor 把统一 Middleware 桥接成 gRPC 服务端一元拦截器。
@@ -49,6 +51,13 @@ func UnaryServerInterceptor(m Middleware) grpc.UnaryServerInterceptor {
 			// 单测环境会失败，桥语义是尽力冲回，不阻断响应。
 			_ = grpc.SetHeader(ctx, replyMD)
 		}
+		// 统一链的收口：*berrors.Error 经 grpcerr.ToStatus 保全 Code/Reason/
+		// Details（*berrors.Error 未实现 GRPCStatus()，裸返回会被 status.Convert
+		// 兜成 Unknown——统一链上中间件（Authn/Authz/限流）的拒绝错误因此
+		// 不再需要单独的 ErrorInterceptor）。
+		if err != nil {
+			err = grpcerr.ToStatus(err).Err()
+		}
 		return resp, err
 	}
 }
@@ -80,6 +89,10 @@ func StreamServerInterceptor(m Middleware) grpc.StreamServerInterceptor {
 			return nil, err
 		})
 		_, err := h(ctx, srv)
+		// 收口同 Unary：统一链中间件的拒绝错误保全 Code/Reason/Details。
+		if err != nil {
+			err = grpcerr.ToStatus(err).Err()
+		}
 		return err
 	}
 }

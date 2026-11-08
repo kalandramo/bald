@@ -36,3 +36,13 @@ func AllowAll() Authorizer {
 func DenyAll() Authorizer {
 	return Func(func(context.Context, string, string, string) (bool, error) { return false, nil })
 }
+
+// AuthorizerFunc 让函数形态的授权逻辑满足 Authorizer 契约（适配器模式）：
+//
+//	authz.Authorizer(func(...)) 等价于 authz.AuthorizerFunc(fn)
+type AuthorizerFunc func(ctx context.Context, subject, object, action string) (bool, error)
+
+// Authorize 满足 Authorizer 契约。
+func (f AuthorizerFunc) Authorize(ctx context.Context, subject, object, action string) (bool, error) {
+	return f(ctx, subject, object, action)
+}

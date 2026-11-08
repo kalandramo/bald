@@ -15,32 +15,45 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 
 	"github.com/kalandramo/bald/berrors"
 	"github.com/kalandramo/bald/pkg/contextx"
 )
 
 // 本文件是方案 S 批次 2 的验收面：统一内置件「写一遍，双协议生效」。每件
-// 用两座桥各走一遍同一断言——这是统一链的核心承诺。
+// 用两座桥各走一遍同一断言——这是统一链的核心承诺。经桥的错误是 gRPC
+// status（桥的 grpcerr 收口），协议面断言用 status.Code；直调统一链才持有
+// berrors。
 
 // --- Recovery ---
 
-// TestRecoveryUnaryAndGin panic 在两条协议上都转成 Internal 错误（gRPC）或
-// 500 状态体（gin 桥渲染），不击穿进程。
+// TestRecoveryUnaryAndGin panic 在两条协议上都转成 Internal（gRPC status /
+// 500 状态体），不击穿进程。
 func TestRecoveryUnaryAndGin(t *testing.T) {
 	boom := func(ctx context.Context, _ interface{}) (interface{}, error) { panic("explode") }
 
+	// gRPC 桥：经 grpcerr 收口后断言协议面。
 	_, err := UnaryServerInterceptor(Recovery())(context.Background(), nil,
 		&grpc.UnaryServerInfo{FullMethod: "/pkg.Svc/M"}, boom)
-	if err == nil {
-		t.Fatal("panic should be converted to error")
+	if status.Code(err) != codes.Internal {
+		t.Fatalf("panic code = %v, want Internal", status.Code(err))
 	}
-	werr, ok := berrors.FromError(err)
-	if !ok || werr.Code != berrors.CodeInternal || werr.Reason != "PANIC" {
-		t.Fatalf("panic error = %v, want Internal/PANIC", err)
+	if !strings.Contains(err.Error(), "internal panic: explode") {
+		t.Errorf("panic message lost: %v", err)
 	}
 
+	// 直调统一链（不经桥）：持有 berrors 本体。
+	_, direct := Recovery()(func(context.Context, interface{}) (interface{}, error) {
+		panic("explode")
+	})(context.Background(), nil)
+	if werr, ok := berrors.FromError(direct); !ok || werr.Reason != "PANIC" {
+		t.Fatalf("direct chain err = %v, want berrors Internal/PANIC", direct)
+	}
+
+	// gin 桥：panic 转成 500 + 状态体。
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.GET("/v1/x", GinHandler(Recovery()), func(c *gin.Context) { panic("explode") })
@@ -61,8 +74,7 @@ func TestRecoveryUnaryAndGin(t *testing.T) {
 func TestRequestIDUnaryAndGin(t *testing.T) {
 	m := RequestID()
 
-	// gRPC：入站带 ID → 注入 context（ReplyHeader 写入侧由 ReplyHeaderRoundTrip
-	// 判据覆盖，flush 分支在真实 gRPC 调用面生效）。
+	// gRPC：入站带 ID → 注入 context（大小写归一由 metadataHeader.Get 承担）。
 	var gotID string
 	in := metadata.NewIncomingContext(context.Background(), metadata.MD{"x-request-id": {"req-42"}})
 	_, _ = UnaryServerInterceptor(m)(in, nil, &grpc.UnaryServerInfo{FullMethod: "/pkg.Svc/M"},
@@ -138,6 +150,8 @@ func TestTimeoutSemantics(t *testing.T) {
 }
 
 // TestTimeoutViaBridges 统一 Timeout 经两座桥都生效（双协议一份实现的证明）。
+// gRPC 面经 grpcerr 收口后是 DeadlineExceeded status；gin 面是 ctx-deadline
+// 语义（handler 的 ctx 会到期——与旧 gin 链「响应硬返回」刻意不同）。
 func TestTimeoutViaBridges(t *testing.T) {
 	m := Timeout(20 * time.Millisecond)
 	sleepy := func(ctx context.Context, _ interface{}) (interface{}, error) {
@@ -145,14 +159,11 @@ func TestTimeoutViaBridges(t *testing.T) {
 		return nil, ctx.Err()
 	}
 
-	// gRPC 桥。
 	_, err := UnaryServerInterceptor(m)(context.Background(), nil, &grpc.UnaryServerInfo{FullMethod: "/pkg.Svc/M"}, sleepy)
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Errorf("grpc: err = %v, want DeadlineExceeded", err)
+	if status.Code(err) != codes.DeadlineExceeded {
+		t.Errorf("grpc: code = %v, want DeadlineExceeded", status.Code(err))
 	}
 
-	// gin 桥（ctx-deadline 语义：handler 的 ctx 会到期——与旧 gin 链的
-	// 「响应硬返回」语义刻意不同，见 timeout.go 的差异说明）。
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	var ginErr error
