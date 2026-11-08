@@ -4,7 +4,7 @@ go 1.27.1
 
 require (
 	github.com/kalandramo/bald-crud/mongodb v0.3.0
-	github.com/kalandramo/bald/bconf v0.24.0
+	github.com/kalandramo/bald/bconf v0.24.1
 	go.mongodb.org/mongo-driver/v2 v2.8.0
 )
 
