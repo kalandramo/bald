@@ -13,13 +13,13 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/kalandramo/bald/log"
 	"github.com/kalandramo/bald/pkg/contextx"
 	"github.com/kalandramo/bald/pkg/middleware"
 	"github.com/kalandramo/bald/pkg/middleware/shared"
+	"github.com/kalandramo/bald/pkg/semconv"
 )
 
 // tracer 是 bald HTTP 层使用的 OpenTelemetry tracer。
@@ -151,7 +151,15 @@ func Observability(opts ...Option) gin.HandlerFunc {
 		// 否则新建 root。未配置全局 TracerProvider 时为 no-op，零配置也能跑。
 		// SpanKindServer：inbound HTTP 的 OTel 语义（spanmetrics 服务端聚合
 		// 与服务拓扑图依赖该值，缺省 internal 会被漏计）。
-		ctx, span := tracer.Start(ctx, c.Request.Method+" "+c.Request.URL.Path,
+		// span 名取路由模板而非原始 path：span 名是聚合影印机的分组键，带用户
+		// ID 的 path 是每用户一个分组——与指标 operation 同一纪律（有界模板、
+		// raw path 只进属性 url.path）。NoRoute 不经此链，FullPath 空时回退
+		// raw path 作兜底。
+		spanName := c.FullPath()
+		if spanName == "" {
+			spanName = c.Request.URL.Path
+		}
+		ctx, span := tracer.Start(ctx, c.Request.Method+" "+spanName,
 			trace.WithSpanKind(trace.SpanKindServer))
 		defer span.End()
 
@@ -203,8 +211,14 @@ func Observability(opts ...Option) gin.HandlerFunc {
 
 		duration := time.Since(start).Seconds()
 
-		// 把状态码作为 span 属性，便于链路追踪侧按状态过滤。
-		span.SetAttributes(attribute.Int("http.status_code", c.Writer.Status()))
+		// span 属性走 semconv 词表单一实现（http.response.status_code 是约定键，
+		// 旧 "http.status_code" 已废）：method 有界化、route 模板、path、协议
+		// 版本、状态与失败类别——与指标面同词表。
+		span.SetAttributes(semconv.HTTPSpanAttrs(
+			c.Request.Method, c.FullPath(), c.Request.URL.Path,
+			strings.TrimPrefix(c.Request.Proto, "HTTP/"),
+			c.Writer.Status(), nil,
+		)...)
 
 		// Build structured log
 		event := map[string]any{"duration": duration}

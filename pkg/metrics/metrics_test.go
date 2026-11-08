@@ -110,8 +110,12 @@ func TestOtelRecorder_SemconvEmit(t *testing.T) {
 	ha := hd.DataPoints[0].Attributes
 	wantAttr(t, ha, "http.request.method", "GET")
 	wantAttr(t, ha, "url.scheme", "http")
-	wantAttr(t, ha, "url.template", "/v1/secret/:id")
+	wantAttr(t, ha, "http.route", "/v1/secret/:id")
 	wantAttr(t, ha, "http.response.status_code", "200")
+	// 成功请求不挂 error.type——它出现必须意味着失败。
+	if _, ok := ha.Value(attribute.Key("error.type")); ok {
+		t.Error("error.type must be absent on a 200 response")
+	}
 
 	// rpc.server.call.duration：属性与值（单位 s，不乘 1000）。
 	rpcDur, ok := metrics["rpc.server.call.duration"]
@@ -128,8 +132,10 @@ func TestOtelRecorder_SemconvEmit(t *testing.T) {
 	ra := rd.DataPoints[0].Attributes
 	wantAttr(t, ra, "rpc.system.name", "grpc")
 	wantAttr(t, ra, "rpc.method", "/pkg.v1.SecretService/GetSecret")
-	// codes.Code.String() 输出驼峰（"PermissionDenied"）——与 otelgrpc 惯例一致。
-	wantAttr(t, ra, "rpc.response.status_code", "PermissionDenied")
+	// rpc.response.status_code 取 gRPC 线上协议/约定的 wire 拼写（"PERMISSION_DENIED"），
+	// 不是 Go codes 包的驼峰；失败时 error.type 同值。
+	wantAttr(t, ra, "rpc.response.status_code", "PERMISSION_DENIED")
+	wantAttr(t, ra, "error.type", "PERMISSION_DENIED")
 
 	// http.server.active_requests：±1 后净 0，属性带 scheme/server。
 	active, ok := metrics["http.server.active_requests"]
@@ -187,14 +193,14 @@ func TestOtelRecorder_SemconvEmit(t *testing.T) {
 	}
 }
 
-// TestOtelRecorder_GrpcStatusCodeUnknown 验证未知码回退不 panic。
+// TestOtelRecorder_GrpcStatusCodeUnknown 验证未知码回退不 panic（词表实现
+// 迁至 pkg/semconv，其 TestGRPCStatusCodeName 钉全值域；此处只保旁路不炸）。
 func TestOtelRecorder_GrpcStatusCodeUnknown(t *testing.T) {
-	if got := grpcStatusCode(99); got == "" {
-		t.Fatal("unknown grpc code must not return empty string")
-	}
-	if got := grpcStatusCode(0); got != "OK" {
-		t.Errorf("code 0: want OK, got %q", got)
-	}
+	r := New("bald/test")
+	r.Record(context.Background(), Event{
+		Object: "secret", Action: "get",
+		Request: RequestInfo{Method: "/pkg.v1.Svc/Method", StatusCode: 99},
+	}, TransportGRPC, 0.01)
 }
 
 func metricNames(m map[string]metricdata.Aggregation) []string {

@@ -39,6 +39,8 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"google.golang.org/grpc/codes"
+
+	"github.com/kalandramo/bald/pkg/semconv"
 )
 
 // Transport 标识请求来源（grpc / http），作为指标维度。
@@ -87,10 +89,10 @@ type RequestInfo struct {
 	Method string
 	// Scheme 是 HTTP scheme（"http"/"https"，url.scheme）；gRPC 空。
 	Scheme string
-	// Template 是 HTTP 路由模板（"/v1/secret/:id"，url.template）；gRPC 空。
+	// Template 是 HTTP 路由模板（"/v1/secret/:id"，http.route）；gRPC 空。
 	Template string
 	// StatusCode 是 HTTP 状态码（200/403…，http.response.status_code）或
-	// gRPC codes.Code 数值（emit 时转 string，rpc.response.status_code）。
+	// gRPC codes.Code 数值（emit 时转 wire 形态 string，rpc.response.status_code）。
 	StatusCode int
 	// ServerAddr 是 HTTP Host 的 host 部分（server.address）；gRPC 空。
 	ServerAddr string
@@ -150,32 +152,18 @@ func (r *otelRecorder) init() {
 	)
 }
 
-// Record 实现 Recorder：按 transport 分流 emit 协议延迟（semconv 属性集），
-// 再统一 emit 审计事件计数（正交的业务维度序列）。
+// Record 实现 Recorder：按 transport 分流 emit 协议延迟（semconv 属性集，
+// 词表取自 pkg/semconv 单一实现），再统一 emit 审计事件计数（正交的业务维度
+// 序列）。审计三元组已承载业务失败分类，协议面 err 恒 nil（reason 不进协议指标）。
 func (r *otelRecorder) Record(ctx context.Context, ev Event, t Transport, dur float64) {
 	r.once.Do(r.init)
 	switch t {
 	case TransportHTTP:
-		attrs := []attribute.KeyValue{
-			attribute.String("http.request.method", ev.Request.Method),
-			attribute.String("url.scheme", ev.Request.Scheme),
-		}
-		if ev.Request.Template != "" {
-			attrs = append(attrs, attribute.String("url.template", ev.Request.Template))
-		}
-		if ev.Request.StatusCode > 0 {
-			attrs = append(attrs, attribute.Int("http.response.status_code", ev.Request.StatusCode))
-		}
+		attrs := semconv.HTTPMetricAttrs(ev.Request.Method, ev.Request.Scheme,
+			ev.Request.Template, "", ev.Request.StatusCode, nil)
 		r.httpDuration.Record(ctx, dur, metric.WithAttributes(attrs...))
 	case TransportGRPC:
-		attrs := []attribute.KeyValue{
-			attribute.String("rpc.system.name", "grpc"),
-		}
-		if ev.Request.Method != "" {
-			attrs = append(attrs, attribute.String("rpc.method", ev.Request.Method))
-		}
-		// semconv v1.43.0 的 rpc.response.status_code 是 string（"OK"/"PERMISSION_DENIED"…）。
-		attrs = append(attrs, attribute.String("rpc.response.status_code", grpcStatusCode(ev.Request.StatusCode)))
+		attrs := semconv.RPCAttrs(ev.Request.Method, codes.Code(ev.Request.StatusCode), nil)
 		r.rpcDuration.Record(ctx, dur, metric.WithAttributes(attrs...))
 	}
 	r.auditEvents.Add(ctx, 1, metric.WithAttributes(
@@ -192,21 +180,6 @@ func (r *otelRecorder) RecordActive(ctx context.Context, ev Event, t Transport, 
 		return
 	}
 	r.once.Do(r.init)
-	attrs := []attribute.KeyValue{
-		attribute.String("url.scheme", ev.Request.Scheme),
-	}
-	if ev.Request.ServerAddr != "" {
-		attrs = append(attrs, attribute.String("server.address", ev.Request.ServerAddr))
-	}
-	if ev.Request.ServerPort > 0 {
-		attrs = append(attrs, attribute.Int("server.port", ev.Request.ServerPort))
-	}
+	attrs := semconv.ActiveRequestAttrs(ev.Request.Scheme, ev.Request.ServerAddr, ev.Request.ServerPort)
 	r.activeReqs.Add(ctx, delta, metric.WithAttributes(attrs...))
-}
-
-// grpcStatusCode 把 gRPC codes.Code 数值转为 semconv string 形态
-// （"OK"/"PERMISSION_DENIED"…）。codes.Code(n).String() 对未知数值回退
-// "Code(N)"（不 panic——旁路纪律）。
-func grpcStatusCode(code int) string {
-	return codes.Code(code).String()
 }

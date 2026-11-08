@@ -64,9 +64,9 @@ TCP 会话与 MQ 消费循环里没有「请求」这个概念，维度天然是
 
 | 指标 | 类型 | 单位 | 属性 | 回答的问题 |
 |---|---|---|---|---|
-| `http.server.request.duration` | Histogram | s | http.request.method、url.scheme、url.template、http.response.status_code | 这个路由慢不慢、错多少（协议视角） |
+| `http.server.request.duration` | Histogram | s | http.request.method、url.scheme、http.route、http.response.status_code、error.type（失败时） | 这个路由慢不慢、错多少（协议视角） |
 | `http.server.active_requests` | UpDownCounter | {request} | url.scheme、server.address、server.port | 当前在途请求数（饱和度） |
-| `rpc.server.call.duration` | Histogram | s | rpc.system.name="grpc"、rpc.method、rpc.response.status_code | 这个 RPC 方法慢不慢、错多少 |
+| `rpc.server.call.duration` | Histogram | s | rpc.system.name="grpc"、rpc.method、rpc.response.status_code、error.type（失败时） | 这个 RPC 方法慢不慢、错多少 |
 | `bald_audit_events_total` | Counter | 1 | transport、object、action、result | 哪类业务操作被拒/出错多少（业务视角，M7 同源） |
 
 被替换：`bald_requests_total`、`bald_request_duration_seconds`（随根模块 v0.6.1 发布过，属破坏性变更，见「兼容性」）。
@@ -77,13 +77,15 @@ TCP 会话与 MQ 消费循环里没有「请求」这个概念，维度天然是
 |---|---|---|
 | gRPC 指标名 | `rpc.server.duration` | **`rpc.server.call.duration`** |
 | gRPC 单位 | ms（历史遗留坑） | **s**（坑已修，与 HTTP 统一） |
-| gRPC 状态属性 | `rpc.grpc.status_code`（int） | **`rpc.response.status_code`**（string，驼峰如 `"PermissionDenied"`，codes.Code.String()） |
+| gRPC 状态属性 | `rpc.grpc.status_code`（int） | **`rpc.response.status_code`**（string，wire 拼写如 `"PERMISSION_DENIED"`——词边界转换，`OK` 保持原样） |
 | gRPC 服务维度 | `rpc.service` | 无此属性——`rpc.method` 直接收 fully-qualified 名 |
-| HTTP 路由属性 | `http.route` / `url.route` | **`url.template`**（httpconv 生成物现行） |
+| HTTP 路由属性 | `url.template`（曾误认 server 面也用它） | **`http.route`**（httpconv 生成物 server 面现行；`url.template` 仅存在于 client 面 instrument） |
 
-HTTP 侧现行定义（`httpconv/metric.go`）：`http.server.request.duration` 必选属性 `http.request.method` + `url.scheme`，可选 `url.template`、`http.response.status_code`、`server.address`、`server.port`、`error.type`；`http.server.active_requests` 属性 `server.address` + `server.port`（+ `url.scheme`）。
+HTTP 侧现行定义（`httpconv/metric.go`）：`http.server.request.duration` 必选属性 `http.request.method` + `url.scheme`，可选 `http.route`、`http.response.status_code`、`server.address`、`server.port`、`error.type`；`http.server.active_requests` 属性 `server.address` + `server.port`（+ `url.scheme`）。
 
 gRPC 侧现行定义（`rpcconv/metric.go`）：`rpc.server.call.duration` 默认桶 0.005~10s，必选属性 `rpc.system.name`（gRPC 取 `"grpc"`），可选 `rpc.method`、`rpc.response.status_code`、`server.address`、`error.type`。
+
+键名与值域的实现收敛在 `pkg/semconv`：span 面与指标面、gin/gRPC 中间件与 `pkg/metrics` 的属性取词只此一份（observability-r09 的纪律——同名指标的标签键必须恒定）。pkg 模块的 otel v1.44.0 不携带 v1.43.0 生成包（v1.45.0 起才有，引入即连带全仓 otel 升版），故以裸 `attribute.Key` 常量钉住键名，otel 升版时可平移到生成物。
 
 #### Recorder 接口与 Event
 
@@ -119,7 +121,7 @@ type Event struct {
 type RequestInfo struct {
     Method     string // HTTP: "GET"；gRPC: FullMethod（rpc.method 收 fully-qualified 名）
     Scheme     string // HTTP: "http"/"https"；gRPC: 空
-    Template   string // HTTP: 路由模板（"/v1/secret/:id"，url.template）；gRPC: 空
+    Template   string // HTTP: 路由模板（"/v1/secret/:id"，http.route）；gRPC: 空
     StatusCode int    // HTTP: 200/403…；gRPC: codes.Code 数值（emit 时转 string）
     ServerAddr string // HTTP: Host 的 host 部分；gRPC: 空
     ServerPort int    // HTTP: Host 的 port 部分（0 = 未知，省略属性）；gRPC: 空
@@ -135,7 +137,7 @@ func NopRecorder() Recorder          // 静默默认
 
 `meterName` 通常为 `"bald/<transport>"`。若调用方未配置全局 `MeterProvider`，otel 的 `MeterProvider()` 返回 no-op，instrument 退化为 no-op，`Record` 不产生副作用——零配置可跑。
 
-otelRecorder 持四 instrument（`httpDuration` / `rpcDuration` / `activeReqs` / `auditEvents`），`Record` 按 transport 分流：HTTP 记 `httpDuration`（method/scheme 必带，template/status 非零补），gRPC 记 `rpcDuration`（system.name="grpc" 必带，method/status 补）；两侧统一再 `auditEvents.Add(1, transport/object/action/result)`。gRPC 的 `rpc.response.status_code` 用 `codes.Code(n).String()`（semconv 定义为 string）。
+otelRecorder 持四 instrument（`httpDuration` / `rpcDuration` / `activeReqs` / `auditEvents`），`Record` 按 transport 分流：HTTP 记 `httpDuration`（method/scheme 必带，route/status 非零补），gRPC 记 `rpcDuration`（system.name="grpc" 必带，method/status 补）；两侧统一再 `auditEvents.Add(1, transport/object/action/result)`。属性构造统一经 `pkg/semconv`（span 面与指标面同一份实现）；gRPC 的 `rpc.response.status_code` 为 wire 拼写 string（`"PERMISSION_DENIED"`；非 OK 时 `error.type` 取同一状态名）。
 
 #### 拦截器协议维度提取
 
@@ -293,13 +295,13 @@ bconf 的 `metrics` 段（`type ∈ {"prometheus", "otlp"}`）驱动的是 `pkg/
 
 **决策②：为什么基于 otel metric 而非自研 instrument？** 指标是 Go 生态最成熟的标准（otel 全局 API），bald 只做"语义维度固化"（命名/维度/单位），不做计量引擎。未配置 provider 自动 no-op 使核心保持零耦合可选——与 `log`/`audit` 的"零后端可跑"纪律一致。
 
-**决策③：为什么审计维度与 semconv 协议维度正交，而非叠加？** 叠加的基数爆炸见「背景与动机」。正交的代价：跨视角查询要经 `url.template ↔ object` 关联（两指标各自查）——接受，因为「按路由看性能」与「按业务看审计」本来就是两个问题、两拨消费者。审计三元组同源的保证不丢：同一请求在审计是 `(secret, get)`，在 `bald_audit_events_total` 就是 `(secret, get)`——按指标排查时能对应审计详情（M7 的教训）。
+**决策③：为什么审计维度与 semconv 协议维度正交，而非叠加？** 叠加的基数爆炸见「背景与动机」。正交的代价：跨视角查询要经 `http.route ↔ object` 关联（两指标各自查）——接受，因为「按路由看性能」与「按业务看审计」本来就是两个问题、两拨消费者。审计三元组同源的保证不丢：同一请求在审计是 `(secret, get)`，在 `bald_audit_events_total` 就是 `(secret, get)`——按指标排查时能对应审计详情（M7 的教训）。
 
 **决策④：`bald_audit_events_total` 与 semconv 指标同批落地（原计划两阶段）。** 原评估拟「审计重构时再补」，实现时发现 `Event` 三元组数据源在切换后依然完整（拦截器本来就构造它），一次落地消除了「按业务维度看指标」的断裂期——阶段二提前，无额外成本。
 
-**决策⑤：属性集取 semconv 必选 + 低基数可选，不追全量。** `error.type`、`network.protocol.version` 等可选属性不采（增量基数、拦截器提取成本）；`server.address/port` 在 active_requests 上尽力提供（Host 拆分，缺失省略）——gin 中间件层拿不到可靠 listener 地址，这是诚实边界而非静默偷工。
+**决策⑤：属性集取 semconv 必选 + 低基数可选，不追全量。** `error.type` 采集但仅失败时（HTTP ≥400 记状态码字符串、gRPC 非 OK 记状态名——两者都是封闭集，基数有界；成功记录不带它，「有 error.type」恒意味着「这次失败了」）；`network.protocol.version` 只进 span 不进指标（span 是一行、付得起；指标属性是标签、每个协议一条永久序列——同一属性两面取舍不同）；`server.address/port` 在 active_requests 上尽力提供（Host 拆分，缺失省略）——gin 中间件层拿不到可靠 listener 地址，这是诚实边界而非静默偷工。
 
-**决策⑥：gRPC 状态码用 string 语义。** semconv v1.43.0 的 `rpc.response.status_code` 是 string，取 `codes.Code(n).String()`（驼峰 `"OK"`/`"PermissionDenied"`——与 otelgrpc 惯例一致），不是旧版 int。与 HTTP 的 int `http.response.status_code` 类型不同——消费侧查询语法注意。
+**决策⑥：gRPC 状态码用 string 语义，且取 wire 拼写。** semconv v1.43.0 的 `rpc.response.status_code` 是 string；bald 取 gRPC 线上协议的拼写（`"PERMISSION_DENIED"` 这类词边界 SCREAMING_SNAKE，`OK` 保持原样——经 `semconv.GRPCStatusCodeName` 转换），不用 Go codes 包的驼峰 `codes.Code.String()`（`"NotFound"`）——两者只差大小写与分隔符，恰好够让一份按 spec 拼写的 dashboard 变量或告警表达式什么都匹配不到。不是旧版 int。与 HTTP 的 int `http.response.status_code` 类型不同——消费侧查询语法注意。
 
 **决策⑦：指标名直接用 semconv 原名（点分隔），不预转 Prometheus 形态。** OTLP 导出后 Prometheus 端自动转 `http_server_request_duration_seconds`（加 `_seconds` 后缀、点转下划线）——预转反而破坏 OTel 原生消费链（如直推 Datadog 的 OTLP intake）。
 

@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
@@ -21,6 +20,7 @@ import (
 	"github.com/kalandramo/bald/pkg/contextx"
 	"github.com/kalandramo/bald/pkg/middleware"
 	"github.com/kalandramo/bald/pkg/middleware/shared"
+	"github.com/kalandramo/bald/pkg/semconv"
 )
 
 // tracer 是 bald gRPC 层使用的 OpenTelemetry tracer。
@@ -158,8 +158,9 @@ func UnaryObservability(opts ...Option) grpc.UnaryServerInterceptor {
 
 		duration := time.Since(start).Seconds()
 
-		// 把状态码作为 span 属性，便于链路追踪侧按状态过滤。
-		span.SetAttributes(attribute.String("grpc.code", status.Code(err).String()))
+		// span 属性走 semconv 词表单一实现：rpc.response.status_code（wire 拼写）
+		// + error.type + 平台 reason（err 经 berrors 归类）。旧 "grpc.code" 非约定键。
+		span.SetAttributes(semconv.RPCAttrs(info.FullMethod, status.Code(err), err)...)
 
 		// Build structured log
 		event := map[string]any{"duration": duration}
@@ -251,8 +252,8 @@ func StreamObservability(opts ...Option) grpc.StreamServerInterceptor {
 
 		duration := time.Since(start).Seconds()
 
-		// 把状态码作为 span 属性。
-		span.SetAttributes(attribute.String("grpc.code", status.Code(err).String()))
+		// span 属性同 unary 侧：semconv 词表（wire 拼写状态 + error.type + reason）。
+		span.SetAttributes(semconv.RPCAttrs(info.FullMethod, status.Code(err), err)...)
 
 		event := map[string]any{"duration": duration}
 		source := map[string]any{"id": logTraceID}
