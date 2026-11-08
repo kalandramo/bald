@@ -78,6 +78,15 @@
 
 **结论：按「移植清单制」四档处理，只搬 bald 的真空白。**
 
+> **完成度（2026-11-08 第一批+第二批落地，随 `registry/v0.5.0`、`retry/v0.3.0`、`selector/v0.1.0`、
+> `selector/balancer/v0.1.0` 四 tag 发布）**：✅ registry/cache（深拷贝不变量测试为新增，上游没有）；
+> ✅ selector 四策略（注册习语改写为显式 MustRegister，p2c 的降权是**概率性**而非硬排除——硬排除归
+> WithCircuitBreaker，该件依赖 onexmesh resilience 的 BreakerRegistry，归入第三批评估）；
+> ✅ selector/balancer（grpc v1.83 把 SubConn 做成外部不可实现——Build 端到端面留集成验证，外部可测面已测）；
+> ✅ hedge（补 4 条上游没有的判据：取消语义/胜负/自适应节流/panic 恢复）；✅ bulkhead（39 行小件）；
+> ❌ shedder 不移植——与 ratelimit/bbr 是同物（自适应降载），重复税；
+> ⏳ semconv 收拢、otelslog 行为对齐、WithCircuitBreaker、resiliency 进 mech、client SDK 立项——下一轮排期（见 §6.3）。
+
 ### 6.1 决策表
 
 | 件 | onexmesh 证据 | 处置 | 方式 | 代价（人日） | 风险 |
