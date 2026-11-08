@@ -64,6 +64,62 @@
 - **短期建议**：onexmesh 优先补 CI 与后端测试（它的 README 承诺了 7 后端，远端无验证）；bald 评估吸收 registry/cache 与 selector 两块（契约 Provider 化后进 contrib 或能力 module，不破零 replace）。
 - **中期悬念**：两条路线是否合流。合流点只有一个方向可行——onexmesh 的 MeshServer 作为 bald `transport.Server` 契约的一个后端（或 appkit 的一个 Provider），前提是 onexmesh 把 `opts.Mesh.Protocol` 的装配决策外移成可声明的段。这是 owner 级裁决，本文只记录形状。
 
+## 6. 移植评估（2026-11-08 增补：要不要复刻它的代码实现）
+
+**前提事实**：onexmesh 是 MIT 许可且远端为同一 owner（`kalandramo/onexmesh`）——法律与归属零障碍，这是自有资产合并。但**整仓复刻不可行也不划算**：它单 module ~23k 行里约六成与 bald 正面重叠（transport/middleware/registry/config/errors 各有对应物），且五个结构性冲突无法绕过：
+
+| 冲突面 | onexmesh 形状 | bald 形状 | 整仓复刻的后果 |
+|---|---|---|---|
+| 仓库结构 | 单 module + Makefile | 22+ module、零 replace CLI、docscheck 钉包集 | 并入 = 重拆 module + 全部过闸 |
+| 注册习语 | 8 处 `RegisterXxx` + init() 自注册 | 判据明令禁止（logging-r09/broker-r07/bootstrap-r01） | 每个包都要改写成 contract/ + Provider 模式 |
+| 错误体系 | 直接依赖 onexstack errorsx（12 文件） | berrors 自建；**bald 全仓零 onexstack 依赖** | 移植即引入外部框架依赖，或逐点改写错误构造 |
+| 传输抽象 | Transporter 统一抹平 | J6：协议只承诺形状，19 后端独立 | transport/middleware/server 三件套与 bald 正面相撞 |
+| 配置 | Source 四层抽象、静默默认 | bconf 契约校验、J7/J9 fail-fast | 两套配置哲学不能共存于一个仓 |
+
+**结论：按「移植清单制」四档处理，只搬 bald 的真空白。**
+
+### 6.1 决策表
+
+| 件 | onexmesh 证据 | 处置 | 方式 | 代价（人日） | 风险 |
+|---|---|---|---|---|---|
+| registry/cache 发现缓存层 | `pkg/registry/cache`（222 行，singleflight+双 TTL+stale-while-error+限流+注入时钟） | **移植** | 接口适配（onexmesh `Discovery` → bald `registry.Discovery` 形状对齐），作为 `registry/cache` 子包 | 1–2 | 低——纯客户端缓存，无后端耦合 |
+| selector（round_robin/random/weighted/p2c+EWMA） | `pkg/selector`（p2c 含成功率 throttle） | **移植** | 新 module `selector`；Discovery 依赖适配；EWMA/cursor 状态随实例缓存 | 2–3 | 低 |
+| gRPC balancer 适配 | `pkg/client/balancer`（selector→picker，策略走 address Attributes，实例按 (strategy,service) 缓存） | **移植** | 跟 selector 同 module 或独立；用 bald 当前 grpc 版本（无钉版债） | 1–2 | 低——balancer API 稳定 |
+| resilience 的 hedge（对冲） | `pkg/resilience/hedge.go`（backup request） | **移植** | 进现有 retry module（正交维度，小件） | 0.5–1 | 低 |
+| resilience 的 bulkhead（舱壁）+ shedder（降载） | `bulkhead.go`（core/limit 信号量）、`shedder.go`（CPU+利特尔法则） | **评估后移植** | bald ratelimit 的 bbr/sentinel 已含入站并发控制；舱壁是**出站调用方隔离**，角色不同——作为 retry/circuitbreaker 同级小件收编；shedder 与 bbr 重叠面需先对比 | 1–3 | 中——与 ratelimit 的语义边界要先写清楚 |
+| otelslog slog→OTel log 桥 + TraceIDHandler | `pkg/otelslog`（642 行） | **行为对齐**（不抄代码） | bald log/bslog/otel.go 已有桥，对照它的 record 转换完整度补缺 | 1 | 低 |
+| semconv 集中管理 | `pkg/middleware/semconv.go` | **组织性重构** | bald 的 semconv 散在 metrics/web 中间件——收拢成单文件（observability-r09 的落地动作） | 0.5 | 低 |
+| 声明式 resiliency YAML（Dapr 风格） | `pkg/resiliency`（策略模板+端点绑定+状态码 matching） | **owner 裁决** | 若要进 bald，应作为 appkit mech 的一个机制（显式注册），不是独立子系统——设计调和 3–5 人日 | 3–5 | 中——与 mech 哲学需调和 |
+| client SDK 面（Dial+resolver+clientset/fake/informers 生成器） | `pkg/client`（1.8k 行）+ `protoc-gen-onexmesh-client`（13 个 generator） | **owner 裁决**（bald 无客户端 SDK 产品面） | 若立项是新产品面不是移植；IDL 契约与 bald.store.v1 不通，需重新设计 | ≥10 | 高——产品级决策 |
+| transport/middleware/server 三件套 | 核心桥 | **不移植** | 与 bald transport 17 子包正面冲突，哲学不兼容 | — | — |
+| config 四层 | `pkg/config` | **不移植** | 与 bconf/bconfig/bootstrap 正面冲突，bald 立场更强 | — | — |
+| errno/errorsx 复用层 | `pkg/errno` | **不移植**（设计可参考） | berrors 已覆盖同语义；Reason 双段命名习惯可借鉴进 berrors 文档 | — | — |
+| registry 的 polaris/eureka 后端 | polaris（watch 最深）/eureka | **暂缓** | polaris 是 grpc 钉版债的根源；bald registry 现有 5 后端够用，加后端独立评估 | — | 中——grpc 版本债 |
+
+### 6.2 每个移植包要付的「入会费」（bald 纪律的固定成本）
+
+无论移植哪件，都叠加以下固定成本（已折算进上表的代价估计）：
+
+1. **module 化**：独立 go.mod + tag + `release sync` 归位（多 module 发布流程一轮）；归属哪个 module 要过 `TestModulePackageSets` 登记。
+2. **注册习语改写**：init 自注册 → `Type 常量 + contract/ Provider(ctx, cfg)`（broker-r07 模式），blank import 清零。
+3. **错误/日志适配**：onexstack errorsx 构造点改 berrors 工厂；slog 调用改 log 契约层包级函数。
+4. **设计文档**：docs/devel/zh-CN/ 一篇（bald 惯例：先有设计文档再有代码）；docscheck 链接闸门生效。
+5. **测试迁移 + race**：自带 _test 迁移改断言目标；`task race`/`lint` 过闸；被 `-short` 跳过的用例登记 acceptance 表（testing-r05）。
+6. **规范卡**：新能力面进 catalog 卡（一行指路条目）。
+
+### 6.3 顺序建议
+
+```
+第一批（约 1 周，拿三大缺口）：registry/cache → selector+balancer → hedge
+第二批（约 1 周）：bulkhead/shedder 对比收编 → semconv 收拢 → otelslog 行为对齐
+第三批（裁决后）：resiliency 声明式进 mech；client SDK 面立项与否
+不做：transport/middleware/server、config 四层、errno、polaris
+```
+
+### 6.4 什么情况下才值得整仓式吸收
+
+只有一种：**放弃 bald 的声明式装配路线**，把 bald 降级为 onexmesh 的组件供应商（或反之，把 onexmesh 作为 bald 的默认运行时）。那是两个框架的合并，是产品战略决策不是工程决策——本文只记录：onexmesh 的 MeshServer 想进 bald 世界，接口上是 `transport.Server` 三方法（小适配）；bald 想进 onexmesh 世界，接口上是 `app.RunFunc`（onexstack 契约，bald 不依赖 onexstack，需桥接）。两个方向的适配面都不大，难的是决定了不回头。
+
 ## 附：证据与口径
 
 - onexmesh 侧结论来自 2026-11-08 的 12 维度实盘清点（319 个 Go 文件、22.7k 行非测试代码、71 个 _test、8 处注册表习语逐一核对、go.mod 依赖清单、DESIGN.md 3.7 自述的 IDL 留白）；bald 侧结论来自本仓 docs/architecture/ 三份制品与本轮 22 张规范卡。
