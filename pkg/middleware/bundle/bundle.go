@@ -46,10 +46,12 @@ import (
 	"github.com/gin-gonic/gin"
 	"google.golang.org/grpc"
 
+	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
 	"github.com/kalandramo/bald/log"
 	"github.com/kalandramo/bald/pkg/audit"
 	"github.com/kalandramo/bald/pkg/authn"
 	"github.com/kalandramo/bald/pkg/authz"
+	"github.com/kalandramo/bald/pkg/middleware"
 	"github.com/kalandramo/bald/pkg/metrics"
 	ginmw "github.com/kalandramo/bald/pkg/middleware/gin"
 	grpcmw "github.com/kalandramo/bald/pkg/middleware/grpc"
@@ -110,6 +112,13 @@ type Bundle struct {
 
 	// logging 控制请求日志/可观测中间件（默认开启）。
 	logging bool
+
+	// unifiedCfg 是契约统一中间件段（server.unified_middleware，方案 S）：
+	// 经 WithUnifiedMiddleware 注入，三座链头预置统一链。nil = 段缺省，不挂。
+	unifiedCfg *bootstrapv1.Server_UnifiedMiddleware
+
+	// unifiedValidator 是统一段 validate 策略的校验回调（代码依赖，实例注入）。
+	unifiedValidator middleware.MessageValidator
 }
 
 // Option 配置 Bundle。
@@ -333,12 +342,22 @@ func (b *Bundle) warnIfUndeclaredAuthn() {
 // 前提是该姿态已被决定（Authn 或 Public，见 [Bundle.Verify]），否则这里先告警。
 func (b *Bundle) Gin() []gin.HandlerFunc {
 	b.warnIfUndeclaredAuthn()
+	// 统一段（方案 S）：双面链头预置统一链（opt-in，段缺省不挂）。规则错误
+	// fail-fast——声明了却静默不生效是最坏结果。
+	matcher, err := b.unifiedMatcher()
+	if err != nil {
+		panic(err)
+	}
+	chain, err := prependUnifiedGin(nil, matcher)
+	if err != nil {
+		panic(err)
+	}
 	// 契约段的 chain 位置（外→内）：
-	//   Recovery → RequestID → Tracing → Logging → CORS → Secure → Authn → Audit
-	//   → Authz → RateLimit → CircuitBreaker → Timeout
+	//   [统一段规则] → Recovery → RequestID → Tracing → Logging → CORS → Secure
+	//   → Authn → Audit → Authz → RateLimit → CircuitBreaker → Timeout
 	// Tracing 在 Logging 之外：若二者并存，logging 起的 span 成为 tracing span 的
 	// child（外层先起的 span 是父）；只追踪不打日志时就只挂 Tracing。
-	chain := []gin.HandlerFunc{ginmw.Recovery(b.recoveryCfg), ginmw.RequestIDMiddleware(b.requestID)}
+	chain = append(chain, ginmw.Recovery(b.recoveryCfg), ginmw.RequestIDMiddleware(b.requestID))
 	if b.tracing {
 		chain = append(chain, ginmw.Tracing())
 	}
@@ -427,8 +446,17 @@ func (b *Bundle) grpcBudget() time.Duration {
 // 与 Gin 一样：认证姿态未决定（既无 Authn 也未 Public）时先告警再出链。
 func (b *Bundle) GRPCInterceptors() []grpc.UnaryServerInterceptor {
 	b.warnIfUndeclaredAuthn()
-	chain := []grpc.UnaryServerInterceptor{grpcmw.ErrorInterceptor()} // 必须最外层
-	chain = append(chain, grpcmw.RecoveryInterceptor())               // 第二外层：panic 兜底
+	// 统一段（方案 S）：双面链头预置统一链（opt-in，段缺省不挂）。
+	matcher, err := b.unifiedMatcher()
+	if err != nil {
+		panic(err)
+	}
+	chain, err := prependUnifiedUnary(nil, matcher)
+	if err != nil {
+		panic(err)
+	}
+	chain = append(chain, grpcmw.ErrorInterceptor()) // 必须最外层
+	chain = append(chain, grpcmw.RecoveryInterceptor()) // 第二外层：panic 兜底
 	chain = append(chain, grpcmw.RequestIDInterceptor())
 	if b.logging {
 		chain = append(chain, grpcmw.UnaryObservability())
@@ -507,14 +535,25 @@ func (b *Bundle) grpcBreaker() *ginmw.CircuitBreaker {
 // 返回空 slice 表示没有任何 stream 层需要挂，[Bundle.GRPCChain] 据此省略
 // ChainStreamInterceptor 这个 ServerOption，保持零配置时的选项数不变。
 func (b *Bundle) GRPCStreamInterceptors() []grpc.StreamServerInterceptor {
+	// 统一段（方案 S）：流面链头也预置统一链（opt-in）——流上的 recovery/
+	// request_id 等经 wrapped stream ctx 生效；rate_limit 按「建流一次」计费。
+	matcher, err := b.unifiedMatcher()
+	if err != nil {
+		panic(err)
+	}
+	chain, err := prependUnifiedStream(nil, matcher)
+	if err != nil {
+		panic(err)
+	}
+
 	rl := b.grpcLimiter()
-	if rl == nil {
-		return nil
+	if rl != nil {
+		chain = append(chain,
+			grpcmw.ErrorStreamInterceptor(), // 必须最外层：收口内层产生的 *berrors.Error
+			grpcmw.RateLimitStreamInterceptor(rl.Limiter(), rl.Wait()),
+		)
 	}
-	return []grpc.StreamServerInterceptor{
-		grpcmw.ErrorStreamInterceptor(), // 必须最外层：收口内层产生的 *berrors.Error
-		grpcmw.RateLimitStreamInterceptor(rl.Limiter(), rl.Wait()),
-	}
+	return chain
 }
 
 // GRPCChain 返回可直接传给 server.NewGRPCServerWithRegister 的 []grpc.ServerOption

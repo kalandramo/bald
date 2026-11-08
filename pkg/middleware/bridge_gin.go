@@ -54,6 +54,10 @@ func GinHandler(m Middleware) gin.HandlerFunc {
 			if !c.Writer.Written() {
 				renderStatusBody(c, err)
 			}
+			// gin 的 c.Next() 是循环：本桥返回后（无论是否调过 c.Next()），gin
+			// 会推进索引继续跑链上剩余的 handler。统一链短路 = 后续 gin 链不得
+			// 执行，必须显式 Abort——否则拒绝响应（401/429）之后面 handler 照跑。
+			c.Abort()
 		}
 	}
 }

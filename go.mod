@@ -36,6 +36,6 @@ replace github.com/kalandramo/bald/transport/http => ./transport/http
 
 replace github.com/kalandramo/bald/transport/web => ./transport/web
 
-replace github.com/kalandramo/bald/ratelimit => ./ratelimit
+replace github.com/kalandramo/bald/ratelimit => /Users/moweilong/Workspace/go/src/github.com/kalandramo/konglingfei/bald/ratelimit
 
 replace github.com/kalandramo/bald/ratelimit/tokenbucket => ./ratelimit/tokenbucket
