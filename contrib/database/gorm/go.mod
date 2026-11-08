@@ -4,7 +4,7 @@ go 1.27.1
 
 require (
 	github.com/kalandramo/bald-crud/gorm v0.3.0
-	github.com/kalandramo/bald/bconf v0.23.0
+	github.com/kalandramo/bald/bconf v0.24.0
 	go.opentelemetry.io/otel/sdk v1.45.0
 	gorm.io/plugin/opentelemetry v0.1.16
 )
