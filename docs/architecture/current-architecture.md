@@ -123,6 +123,8 @@ registry/etcd
 registry/kubernetes
 registry/nacos
 retry
+selector
+selector/balancer
 transport
 transport/asynq
 transport/client
