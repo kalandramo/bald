@@ -43,7 +43,8 @@
 | `risk-review.md` | 哪里有风险、严重度、消解条件、动手顺序 | 含自评局限一节（§9） |
 | `onexai-gap-review.md` | 对照 OneX Harness AI Coding（onexai）的六层依赖清单，bald 有什么、缺什么；含规范蒸馏卡目录（§5）与 `bald convention` CLI + cobramcp 挂载落地设计（§6） | 2026-11-07 首版，结论来自课程 PDF 01–06 + 仓库实盘清点 |
 | `onex-ai.md` | onexai 工具输出的逐字存档（46 convention 描述 / overview 完整输出 / 20 create 命令），补 PDF 文本解析的截断 | 源材料，保持原样不做编辑 |
-| `onexmesh-comparison.md` | 对照 `../onexmesh`（运行时微服务框架）的设计盘点与路线分歧分析：三条深层观察、双向借鉴清单、关系判断 | 2026-11-08 首版，12 维度实盘清点 |
+| `onexmesh-comparison.md` | 对照 `../onexmesh`（运行时微服务框架）的设计盘点与路线分歧分析：三条深层观察、双向借鉴清单、关系判断、移植评估（§6 决策表） | 2026-11-08 首版，12 维度实盘清点 |
+| `transport-unification-assessment.md` | 传输统一抽象重构评估：痛点拆解（handler/错误已统一，真缺口是中间件双链/手写路由双轨/无路由级中间件）、S/M/L 三档方案与代价（S=14–22 人日推荐，L 不推荐）、四批迁移路径 | 2026-11-08 首版 |
 | `render/*.svg` | 上面两份 `.dot` 与 `.dsl` 三张视图的渲染快照 | 由 graphviz 16.1.0 生成，改源后需重跑（见「校验工具与命令」） |
 
 > 「引用已逐条核对」= 用脚本把制品里的每个 `路径:行号` 抽出来（行内省略文件名的简写按就近文件解析），逐条打开源文件回读该行内容并人工比对叙述；不是抽样。最新一次重跑（§3.1 收口后，脚本原始输出）：**`checked cites: 324, problems: 12, bare-resolved: 65, bare-unresolved: 0`**（比上一轮少一条引用：评审快照里那条 go.mod 的行号在两轮改动后已不对应任何事实，改成了不带行号的快照描述）。
