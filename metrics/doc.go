@@ -33,10 +33,10 @@
 //	    endpoint: "collector:4317" # 必填（留空会静默导出到库默认的 localhost:4317）
 //	    insecure: true
 //
-//产物落资源面，消费侧在域 Wire 里按类型化句柄取回后注入 transport：
-//`otelcontract.Otlp.Resource(app)` → `tcp.WithMetrics(m)`。根包与其 contract
-//子包的关系和其余域一致：根包保持零契约依赖（纯后端 SDK 实现），只有
-//contract 子包 import bconf + appkit。
+// 产物落资源面，消费侧在域 Wire 里按类型化句柄取回后注入 transport：
+// `otelcontract.Otlp.Resource(app)` → `tcp.WithMetrics(m)`。根包与其 contract
+// 子包的关系和其余域一致：根包保持零契约依赖（纯后端 SDK 实现），只有
+// contract 子包 import bconf + appkit。
 //
 // # 注意事项
 //

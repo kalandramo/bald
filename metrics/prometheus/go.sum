@@ -398,8 +398,8 @@ github.com/kalandramo/bald/health v0.1.1 h1:Q0sySYkf4XZ6BcSQ3P/Sk1T8FFF3NzKOcu3Q
 github.com/kalandramo/bald/health v0.1.1/go.mod h1:+f+lE2uNtgeXlJ6YoqPg7PoDIUZ+VvhJZI9RP+oHNd0=
 github.com/kalandramo/bald/log v0.5.4 h1:LBg6whOZImgTh2M90q6aqmYVX64Nt66ss/veLYYgHrk=
 github.com/kalandramo/bald/log v0.5.4/go.mod h1:xEw5nXpW1rJM1WYKsR78k4v8urd934jc7rTic26f9LI=
-github.com/kalandramo/bald/registry v0.4.0 h1:svp+qdKJTMoUM8CgmN+nFukZDdSIU4wWTy6TlEBYtoY=
-github.com/kalandramo/bald/registry v0.4.0/go.mod h1:zSUVEOdvsN1ONSde1Yhu/nepExmWiPK0h86P4TBtQ5c=
+github.com/kalandramo/bald/registry v0.5.0 h1:evoEUBpR8RkcrJVHJTY/SEZBSmV3orxGehejmKnqI2g=
+github.com/kalandramo/bald/registry v0.5.0/go.mod h1:Qr3Syc/9TEW6SOonGsYLO0FBsMADszFtDgyn2/5yWhE=
 github.com/kalandramo/bald/transport v0.4.0 h1:dNyxlMD2QE80KBICefHWg6DJHvHrWWozPIPSm5wAa+M=
 github.com/kalandramo/bald/transport v0.4.0/go.mod h1:9NY+2osYepZbxauKAMPhMx29SJjVaH65lBn8SARAVHg=
 github.com/kalandramo/bald/transport/grpc v0.2.0 h1:jzMQTt8zGgq3QBr4IqtVR04Ux4emx5UeSMnZo4om+XE=
@@ -736,8 +736,8 @@ golang.org/x/sync v0.0.0-20201207232520-09787c993a3a/go.mod h1:RxMgew5VJxzue5/jJ
 golang.org/x/sync v0.0.0-20210220032951-036812b2e83c/go.mod h1:RxMgew5VJxzue5/jJTE5uejpjVlOe/izrB70Jof72aM=
 golang.org/x/sync v0.0.0-20220722155255-886fb9371eb4/go.mod h1:RxMgew5VJxzue5/jJTE5uejpjVlOe/izrB70Jof72aM=
 golang.org/x/sync v0.1.0/go.mod h1:RxMgew5VJxzue5/jJTE5uejpjVlOe/izrB70Jof72aM=
-golang.org/x/sync v0.23.0 h1:KameEIfc1IkluZyXWLn39Wd4tURc6GbCiISGiZm2bQk=
-golang.org/x/sync v0.23.0/go.mod h1:sUUOizhqBxiL6pEWpqNLUiaJn1ShEbZ6BBqskPbjZm0=
+golang.org/x/sync v0.24.0 h1:iqiDrGoDgyuvAKrhLQthUEzU/R378N78gXbBjxed7oA=
+golang.org/x/sync v0.24.0/go.mod h1:sUUOizhqBxiL6pEWpqNLUiaJn1ShEbZ6BBqskPbjZm0=
 golang.org/x/sys v0.0.0-20180823144017-11551d06cbcc/go.mod h1:STP8DvDyc/dI5b8T5hshtkjS+E42TnysNCUPdjciGhY=
 golang.org/x/sys v0.0.0-20180830151530-49385e6e1522/go.mod h1:STP8DvDyc/dI5b8T5hshtkjS+E42TnysNCUPdjciGhY=
 golang.org/x/sys v0.0.0-20180905080454-ebe1bf3edb33/go.mod h1:STP8DvDyc/dI5b8T5hshtkjS+E42TnysNCUPdjciGhY=
