@@ -48,22 +48,22 @@ func TestBulkheadReleasesOnPanic(t *testing.T) {
 		_ = b.Do(ctx, func(context.Context) error { panic("boom") })
 	}()
 
-	// panic 后预算必须已归还——并发三连发全部进入（不全部被拒）。
-	var wg sync.WaitGroup
-	entered := make(chan struct{}, 3)
+	// panic 后预算必须已归还。预算为 1 且 fail-fast（同时只容 1 个在途），故用
+	// **顺序**调用验证：每次独占单槽、执行、归还。若 panic 泄漏了槽位，第一次
+	// 后续调用即被拒（entered=0）；归还正确则三次全部进入。并发三连发会与
+	// 「预算 1 快速失败」语义冲突——同时只有 1 个能进，那不是本不变量要钉的。
+	entered := 0
 	for i := 0; i < 3; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			_ = b.Do(ctx, func(context.Context) error {
-				entered <- struct{}{}
-				return nil
-			})
-		}()
+		err := b.Do(ctx, func(context.Context) error {
+			entered++
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("call %d after panic: err = %v, want nil (budget must be released)", i, err)
+		}
 	}
-	wg.Wait()
-	if len(entered) != 3 {
-		t.Fatalf("only %d/3 calls entered after panic release", len(entered))
+	if entered != 3 {
+		t.Fatalf("only %d/3 calls entered after panic release", entered)
 	}
 }
 

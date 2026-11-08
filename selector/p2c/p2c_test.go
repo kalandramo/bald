@@ -6,10 +6,13 @@ package p2c
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/kalandramo/bald/selector"
 )
+
+var errBadNode = errors.New("bad node still failing")
 
 func TestSelect(t *testing.T) {
 	s := New()
@@ -20,7 +23,7 @@ func TestSelect(t *testing.T) {
 		selector.NewNode("c:1", "grpc", "svc", 100, nil),
 	}
 
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 1000; i++ {
 		n, done, err := s.Select(context.Background(), nodes)
 		if err != nil {
 			t.Fatalf("select: %v", err)
@@ -61,17 +64,29 @@ func TestFailureFeedbackDeprioritizes(t *testing.T) {
 	// 三个节点（一坏两好）：健康对采样占主导后，坏节点只经负载平局/forcePick
 	// 偶发被选。注意 p2c 的降权是概率性的（采样到两个健康节点才提前收敛），
 	// 硬排除是 WithCircuitBreaker 的职责——本批未移植。
-	for i := 0; i < 100; i++ {
-		n, _, err := s.Select(context.Background(), []selector.Node{bad, good, good2})
+	//
+	// 必须走完 Select→done 生命周期：done 把 inflight 归还零，否则被频繁选中
+	// 的健康节点 inflight 单调累积、load=sqrt(lag)*(inflight+1) 随之升高，反而
+	// 把选择推回坏节点——那会把降权信号淹没在人为负载里（健康率掉到随机水平
+	// 附近、阈值 flaky）。坏节点每次仍报失败，维持其 success 在阈值之下。
+	//
+	// 样本取 1000 而非 100：forcePick 会偶发把坏节点强制选中，小样本下形成肥
+	// 低尾（100 次时实测最低 68）。1000 次实测均值≈800、最低≈765（50 轮），
+	// 阈值 700 既 safely 低于实测下界、又高于随机基线 667（三节点两好），
+	// 真正钉住「健康节点被偏好」而非碰运气。
+	for i := 0; i < 1000; i++ {
+		n, done, err := s.Select(context.Background(), []selector.Node{bad, good, good2})
 		if err != nil {
 			t.Fatal(err)
 		}
 		if n.Address() == "bad:1" {
+			done(context.Background(), selector.DoneInfo{Err: errBadNode})
 			continue
 		}
 		healthyCount++
+		done(context.Background(), selector.DoneInfo{})
 	}
-	if healthyCount < 70 {
-		t.Fatalf("healthy nodes picked too rarely: %d/100", healthyCount)
+	if healthyCount < 700 {
+		t.Fatalf("healthy nodes picked too rarely: %d/1000", healthyCount)
 	}
 }
