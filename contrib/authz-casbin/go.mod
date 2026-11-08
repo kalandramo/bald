@@ -4,7 +4,7 @@ go 1.27.1
 
 require (
 	github.com/casbin/casbin/v2 v2.128.0
-	github.com/kalandramo/bald/pkg v0.8.0
+	github.com/kalandramo/bald/pkg v0.9.0
 )
 
 require (

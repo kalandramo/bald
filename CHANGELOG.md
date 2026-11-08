@@ -6,6 +6,10 @@
 
 ## 2026-11-08
 
+### pkg v0.9.0
+
+- `21e48576` feat(pkg/middleware): 统一策略面六件 + 桥收口——Authn/Authz/Audit/RateLimit/Validator/Defaulter（方案 S 批次 2 完成）
+
 ### pkg v0.8.0
 
 - `c3bdea85` feat(pkg/middleware): 统一内置件三件改写——Recovery/RequestID/Timeout（方案 S 批次 2 开篇）
