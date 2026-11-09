@@ -203,6 +203,20 @@ func TestOtelRecorder_GrpcStatusCodeUnknown(t *testing.T) {
 	}, TransportGRPC, 0.01)
 }
 
+// TestOtelRecorder_RecordActiveNonHTTPSkipped 验证 gRPC 侧 RecordActive 为 no-op：
+// semconv 仅定义 HTTP active_requests，非 HTTP transport 应提前返回、不创建 instrument。
+func TestOtelRecorder_RecordActiveNonHTTPSkipped(t *testing.T) {
+	reader, restore := withManualProvider(t)
+	defer restore()
+
+	r := New("bald/test")
+	r.RecordActive(context.Background(), Event{}, TransportGRPC, 1)
+
+	if _, ok := collectMetrics(t, reader)["http.server.active_requests"]; ok {
+		t.Error("gRPC RecordActive should not emit http.server.active_requests")
+	}
+}
+
 func metricNames(m map[string]metricdata.Aggregation) []string {
 	names := make([]string, 0, len(m))
 	for k := range m {
