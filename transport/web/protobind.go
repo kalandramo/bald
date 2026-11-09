@@ -163,7 +163,7 @@ func setProtoPath(m protoreflect.Message, path string, values []string, strict b
 		}
 		m = m.Mutable(fd).Message()
 	}
-	return nil
+	return nil //cov:excl 循环最后一跳恒在 i==len-1 处 return setProtoField，segs 永非空，函数尾不可达
 }
 
 // fieldByName 同时接受 proto 字段名与 JSON 名（与 protojson 的宽松口径一致）。
@@ -275,7 +275,7 @@ func scalarValue(m protoreflect.Message, fd protoreflect.FieldDescriptor, s stri
 		}
 		return protoreflect.ValueOfMessage(sub), nil
 	default:
-		return protoreflect.Value{}, fmt.Errorf("unsupported field kind %s", fd.Kind())
+		return protoreflect.Value{}, fmt.Errorf("unsupported field kind %s", fd.Kind()) //cov:excl 上面各 case 已穷举 protoreflect 全部 18 种 Kind，合法 FieldDescriptor 不会走到 default
 	}
 }
 
