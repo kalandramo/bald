@@ -39,7 +39,7 @@ func (f *disableFlags) run() error {
 	if f.serverName == "" {
 		executablePath, err := os.Executable()
 		if err != nil {
-			return fmt.Errorf("failed to determine executable path: %w", err)
+			return fmt.Errorf("failed to determine executable path: %w", err) //cov:excl os.Executable 在测试/CI 下不失败
 		}
 
 		f.serverName = manager.DeriveServerName(executablePath)

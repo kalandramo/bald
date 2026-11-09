@@ -48,7 +48,7 @@ func (f *enableFlags) run(cmd *cobra.Command) error {
 	// Get the current executable path
 	executablePath, err := os.Executable()
 	if err != nil {
-		return fmt.Errorf("failed to determine executable path: %w", err)
+		return fmt.Errorf("failed to determine executable path: %w", err) //cov:excl os.Executable 在测试/CI 下不失败
 	}
 
 	// Build server configuration
