@@ -136,7 +136,7 @@ func (s Selector) buildFlatSchema(cmd *cobra.Command) (*jsonschema.Schema, toolM
 	cmd.InheritedFlags().VisitAll(func(flag *pflag.Flag) {
 		// Skip if already added as local flag.
 		if _, exists := schema.Properties[flag.Name]; exists {
-			return
+			return //cov:excl cobra InheritedFlags 已按 local.Lookup 排除同名本地 flag，此防御性去重恒不触发
 		}
 		if filter(flag) {
 			return
@@ -209,7 +209,7 @@ func (s Selector) createToolFromCmd(cmd *cobra.Command, toolNamePrefix string) (
 	rawSchema, err := json.Marshal(schema)
 	if err != nil {
 		// Fallback to empty object schema on marshalling error.
-		rawSchema = json.RawMessage(`{"type":"object"}`)
+		rawSchema = json.RawMessage(`{"type":"object"}`) //cov:excl schema 仅字符串/布尔/嵌套 Schema，any 字段只经 UnmarshalJSON 注入，Marshal 恒成功
 	}
 
 	tool := &mcp.Tool{

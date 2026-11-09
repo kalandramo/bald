@@ -208,7 +208,7 @@ func NewMCPServer(opts MCPOptions, cmdFactory func() *cobra.Command, serverOpts 
 	// 支持 Resources 的客户端一次拉全，不必逐轮 tools/list。清单从 s.tools
 	// （即上面注册用的同一份切片）派生，不二次构造。
 	if err := registerManifestResource(srv.transport.RegisterResource, srv.tools); err != nil {
-		return nil, err
+		return nil, err //cov:excl toolManifest 编码恒成功（manifest.go:59 同判），RegisterResource 仅 mcpServer 为 nil 报错而构造期恒非 nil
 	}
 
 	return srv, nil
@@ -330,7 +330,7 @@ func (s *MCPServer) registerToolsRecursive(cmd *cobra.Command) error {
 			}
 			return toolOutputToResult(output, toolMeta), nil
 		}); err != nil {
-			baldlog.Error(nil, "register in-process tool failed", "tool", tool.Name, "error", err)
+			baldlog.Error(nil, "register in-process tool failed", "tool", tool.Name, "error", err) //cov:excl RegisterHandler 仅 mcpServer 为 nil 报错，构造期恒非 nil（config.go:223 同判）
 			continue
 		}
 

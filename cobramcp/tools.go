@@ -33,7 +33,7 @@ func toolCommand(config *Config) *cobra.Command {
 			}
 			defer func() {
 				if closeErr := file.Close(); closeErr != nil {
-					cmd.Printf("Warning: failed to close file: %v\n", closeErr)
+					cmd.Printf("Warning: failed to close file: %v\n", closeErr) //cov:excl 成功打开的本地常规文件 Close 恒成功，错误仅 NFS 延迟写回非确定性出现
 				}
 			}()
 
@@ -44,7 +44,7 @@ func toolCommand(config *Config) *cobra.Command {
 			}
 			err = encoder.Encode(config.tools)
 			if err != nil {
-				return fmt.Errorf("failed to encode MCP tools to JSON: %w", err)
+				return fmt.Errorf("failed to encode MCP tools to JSON: %w", err) //cov:excl tools 由 registerTools 即时派生，RawInputSchema 是 Marshal 产物恒合法，编码恒成功
 			}
 
 			cmd.Printf("Successfully exported %d tools to mcp-tools.json\n", len(config.tools))

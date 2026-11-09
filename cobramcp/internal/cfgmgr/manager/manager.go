@@ -124,7 +124,7 @@ func (m *Manager[S, C]) saveConfig() error {
 
 	data, err := json.MarshalIndent(m.config, "", "  ")
 	if err != nil {
-		return fmt.Errorf("failed to marshal configuration to JSON: %w", err)
+		return fmt.Errorf("failed to marshal configuration to JSON: %w", err) //cov:excl config 仅 map[string]Server（字符串/切片/映射字段），json.Marshal 恒成功
 	}
 
 	// backup file
