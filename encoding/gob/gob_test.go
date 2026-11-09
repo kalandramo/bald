@@ -42,3 +42,10 @@ func TestCodec_Registered(t *testing.T) {
 		t.Fatal("GetCodec(\"gob\") returned nil after MustRegister")
 	}
 }
+
+// gob 无法编码 chan → Marshal 错误半边。
+func TestCodec_MarshalError(t *testing.T) {
+	if _, err := (codec{}).Marshal(make(chan int)); err == nil {
+		t.Fatal("Marshal(chan) 应返回 gob 编码错误")
+	}
+}
