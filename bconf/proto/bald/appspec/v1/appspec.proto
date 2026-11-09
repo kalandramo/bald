@@ -186,6 +186,16 @@ message ServerSpec {
   string http_addr = 4;
   // gRPC 监听地址。
   string grpc_addr = 5;
+  // 是否开通 Cron 定时任务面。多角色下该角色的 server 段由本快捷方式
+  // 覆盖投影（projectServer），故 cron 需要在此声明开关，否则全局
+  // bootstrap.server.cron 会在该角色的投影里被整段裁掉。段内容
+  // （seconds/location/gracefully_shutdown）继承全局，本字段只作开关——
+  // AppSpec 不复制 bconf 字段。
+  bool cron = 6;
+  // 是否开通 Asynq 异步任务面。开关语义同 cron；段内容（redis_address/
+  // queues/concurrency…）继承全局 bootstrap.server.asynq，地址等只在全局
+  // 声明一处，角色不复述。
+  bool asynq = 7;
 }
 
 // ComponentSpec 声明一个托管组件。

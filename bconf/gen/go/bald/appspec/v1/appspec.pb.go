@@ -730,7 +730,17 @@ type ServerSpec struct {
 	// HTTP 监听地址。
 	HttpAddr string `protobuf:"bytes,4,opt,name=http_addr,json=httpAddr,proto3" json:"http_addr,omitempty"`
 	// gRPC 监听地址。
-	GrpcAddr      string `protobuf:"bytes,5,opt,name=grpc_addr,json=grpcAddr,proto3" json:"grpc_addr,omitempty"`
+	GrpcAddr string `protobuf:"bytes,5,opt,name=grpc_addr,json=grpcAddr,proto3" json:"grpc_addr,omitempty"`
+	// 是否开通 Cron 定时任务面。多角色下该角色的 server 段由本快捷方式
+	// 覆盖投影（projectServer），故 cron 需要在此声明开关，否则全局
+	// bootstrap.server.cron 会在该角色的投影里被整段裁掉。段内容
+	// （seconds/location/gracefully_shutdown）继承全局，本字段只作开关——
+	// AppSpec 不复制 bconf 字段。
+	Cron bool `protobuf:"varint,6,opt,name=cron,proto3" json:"cron,omitempty"`
+	// 是否开通 Asynq 异步任务面。开关语义同 cron；段内容（redis_address/
+	// queues/concurrency…）继承全局 bootstrap.server.asynq，地址等只在全局
+	// 声明一处，角色不复述。
+	Asynq         bool `protobuf:"varint,7,opt,name=asynq,proto3" json:"asynq,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -798,6 +808,20 @@ func (x *ServerSpec) GetGrpcAddr() string {
 		return x.GrpcAddr
 	}
 	return ""
+}
+
+func (x *ServerSpec) GetCron() bool {
+	if x != nil {
+		return x.Cron
+	}
+	return false
+}
+
+func (x *ServerSpec) GetAsynq() bool {
+	if x != nil {
+		return x.Asynq
+	}
+	return false
 }
 
 // ComponentSpec 声明一个托管组件。
@@ -1050,14 +1074,16 @@ const file_bald_appspec_v1_appspec_proto_rawDesc = "" +
 	"\bRoleSpec\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\adomains\x18\x02 \x03(\tR\adomains\x123\n" +
-	"\x06server\x18\x03 \x01(\v2\x1b.bald.appspec.v1.ServerSpecR\x06server\"\x88\x01\n" +
+	"\x06server\x18\x03 \x01(\v2\x1b.bald.appspec.v1.ServerSpecR\x06server\"\xb2\x01\n" +
 	"\n" +
 	"ServerSpec\x12\x12\n" +
 	"\x04http\x18\x01 \x01(\bR\x04http\x12\x12\n" +
 	"\x04grpc\x18\x02 \x01(\bR\x04grpc\x12\x18\n" +
 	"\agateway\x18\x03 \x01(\bR\agateway\x12\x1b\n" +
 	"\thttp_addr\x18\x04 \x01(\tR\bhttpAddr\x12\x1b\n" +
-	"\tgrpc_addr\x18\x05 \x01(\tR\bgrpcAddr\"\xdb\x01\n" +
+	"\tgrpc_addr\x18\x05 \x01(\tR\bgrpcAddr\x12\x12\n" +
+	"\x04cron\x18\x06 \x01(\bR\x04cron\x12\x14\n" +
+	"\x05asynq\x18\a \x01(\bR\x05asynq\"\xdb\x01\n" +
 	"\rComponentSpec\x12\x12\n" +
 	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12#\n" +
