@@ -103,9 +103,10 @@ func TestContract_ScalarToConfig(t *testing.T) {
 	md := contractTestMessageDesc(t)
 	fd := func(n string) protoreflect.FieldDescriptor { return md.Fields().ByName(protoreflect.Name(n)) }
 
-	// bytes 不可表达为配置 YAML → 报错。
-	if _, err := scalarToConfig(fd("b"), protoreflect.ValueOfBytes([]byte("x"))); err == nil || !strings.Contains(err.Error(), "bytes is not representable") {
-		t.Errorf("bytes: err=%v, want not-representable", err)
+	// bytes → base64 字符串（protojson 与 bconf 装载器的 bytes 口径）；
+	// inline PEM 因此能进契约 YAML。
+	if got, err := scalarToConfig(fd("b"), protoreflect.ValueOfBytes([]byte("x"))); err != nil || got != "eA==" {
+		t.Errorf("bytes: got=%v err=%v, want eA==", got, err)
 	}
 	// 枚举按名序列化。
 	if got, err := scalarToConfig(fd("e"), protoreflect.ValueOfEnum(1)); err != nil || got != "ONE" {
@@ -169,27 +170,31 @@ func TestContract_MessageToMap(t *testing.T) {
 	}
 }
 
-func TestContract_MessageToMap_Errors(t *testing.T) {
+func TestContract_MessageToMap_Bytes(t *testing.T) {
 	md := contractTestMessageDesc(t)
 	f := func(n string) protoreflect.FieldDescriptor { return md.Fields().ByName(protoreflect.Name(n)) }
 
-	// 单数字节字段 → 标量错误传递。
+	// 三种 bytes 形状（标量 / repeated / map 值）都投影成 base64 字符串：
+	// 装载器只认 string，生成器写出其他形态就是一份跑不起来的配置。
 	mb := dynamicpb.NewMessage(md)
 	mb.Set(f("b"), protoreflect.ValueOfBytes([]byte("x")))
-	if _, err := messageToMap(mb.ProtoReflect()); err == nil || !strings.Contains(err.Error(), "ctest.M.b") {
-		t.Errorf("singular bytes: err=%v, want field ctest.M.b", err)
+	tree, err := messageToMap(mb.ProtoReflect())
+	if err != nil || tree.(map[string]any)["b"] != "eA==" {
+		t.Errorf("singular bytes: tree=%v err=%v, want eA==", tree, err)
 	}
-	// repeated bytes → 列表元素错误。
+
 	ml := dynamicpb.NewMessage(md)
 	ml.Mutable(f("blst")).List().Append(protoreflect.ValueOfBytes([]byte("x")))
-	if _, err := messageToMap(ml.ProtoReflect()); err == nil || !strings.Contains(err.Error(), "ctest.M.blst") {
-		t.Errorf("list bytes: err=%v, want field ctest.M.blst", err)
+	tree, err = messageToMap(ml.ProtoReflect())
+	if lst, ok := tree.(map[string]any)["blst"].([]any); err != nil || !ok || len(lst) != 1 || lst[0] != "eA==" {
+		t.Errorf("list bytes: tree=%v err=%v, want [eA==]", tree, err)
 	}
-	// map<string,bytes> → map 值错误。
+
 	mm := dynamicpb.NewMessage(md)
 	mm.Mutable(f("mb")).Map().Set(protoreflect.ValueOfString("k").MapKey(), protoreflect.ValueOfBytes([]byte("x")))
-	if _, err := messageToMap(mm.ProtoReflect()); err == nil || !strings.Contains(err.Error(), "ctest.M.mb") {
-		t.Errorf("map bytes value: err=%v, want field ctest.M.mb", err)
+	tree, err = messageToMap(mm.ProtoReflect())
+	if mp, ok := tree.(map[string]any)["mb"].(map[string]any); err != nil || !ok || mp["k"] != "eA==" {
+		t.Errorf("map bytes value: tree=%v err=%v, want k=eA==", tree, err)
 	}
 }
 

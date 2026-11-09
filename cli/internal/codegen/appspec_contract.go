@@ -1,6 +1,7 @@
 package codegen
 
 import (
+	"encoding/base64"
 	"fmt"
 	"time"
 
@@ -170,7 +171,11 @@ func scalarToConfig(fd protoreflect.FieldDescriptor, v protoreflect.Value) (any,
 		return string(fd.Enum().Values().ByNumber(v.Enum()).Name()), nil // 枚举按名序列化（protojson 口径）
 	}
 	if fd.Kind() == protoreflect.BytesKind {
-		return nil, fmt.Errorf("field %s: bytes is not representable in config yaml", fd.FullName())
+		// bytes 的契约口径是 protojson 的 base64 串：bconf 装载器对 BytesKind
+		// 只认 string（yaml 直接序列化 []byte 会写成 !!binary，装载器拒绝）。
+		// 不转 base64 的话 inline PEM（server.*.tls.config）在生成期即失败，
+		// 声明面存在而配置通道走不通。
+		return base64.StdEncoding.EncodeToString(v.Bytes()), nil
 	}
 	return v.Interface(), nil
 }
