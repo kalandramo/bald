@@ -56,7 +56,7 @@ func toolManifest(tools []*mcp.Tool) ([]byte, error) {
 
 	data, err := json.Marshal(ordered)
 	if err != nil {
-		return nil, fmt.Errorf("cobramcp: encode tool manifest: %w", err)
+		return nil, fmt.Errorf("cobramcp: encode tool manifest: %w", err) //cov:excl 元素均为 cobra 派生的 mcp.Tool（字符串/基础类型字段），json.Marshal 恒成功
 	}
 
 	return data, nil
@@ -78,7 +78,7 @@ type resourceRegistrar func(mcp.Resource, mcpserver.ResourceHandlerFunc) error
 func registerManifestResource(register resourceRegistrar, tools []*mcp.Tool) error {
 	data, err := toolManifest(tools)
 	if err != nil {
-		return err
+		return err //cov:excl toolManifest 的 json.Marshal 错误分支已证不可达，此传递性错误分支同样不可达
 	}
 
 	resource := mcp.NewResource(ManifestResourceURI, manifestResourceName,

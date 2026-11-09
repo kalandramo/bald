@@ -24,7 +24,7 @@ var executablePath = initExecPath()
 func initExecPath() string {
 	path, err := os.Executable()
 	if err != nil {
-		panic(fmt.Sprintf("failed to get executable path: %v", err))
+		panic(fmt.Sprintf("failed to get executable path: %v", err)) //cov:excl 运行中进程 os.Executable 恒成功；错误分支不可达且不可在包内测试
 	}
 
 	return path

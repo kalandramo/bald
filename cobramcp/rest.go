@@ -75,7 +75,7 @@ func (c *Config) serveREST(cmd *cobra.Command, addr, baseURL string) error {
 		name := tool.Name
 		meta, ok := c.toolMetas[name]
 		if !ok {
-			meta = toolMeta{flagNames: make(map[string]struct{})}
+			meta = toolMeta{flagNames: make(map[string]struct{})} //cov:excl registerTools 对 c.tools 与 c.toolMetas 同步同键填充，迭代 c.tools 时 !ok 恒不触发
 		}
 
 		mux.HandleFunc("/"+name, restToolHandler(name, meta))
@@ -118,7 +118,7 @@ func (c *Config) serveREST(cmd *cobra.Command, addr, baseURL string) error {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
 		if err := srv.Shutdown(shutdownCtx); err != nil {
-			baldlog.Error(context.Background(), "REST server shutdown error", "error", err)
+			baldlog.Error(context.Background(), "REST server shutdown error", "error", err) //cov:excl Shutdown 仅在挂起连接撑过 5s 停机超时时报错，非确定性离线可测；启停用例下恒为 nil
 		}
 	}()
 

@@ -129,7 +129,7 @@ func (c *Config) serveStdio(cmd *cobra.Command) error {
 	}
 
 	if err := srv.Start(cmd.Context()); err != nil {
-		return err
+		return err //cov:excl stdio Start 只置 started 标记并把 ServeStdio 丢进协程，绑定错误只在 SSE 分支；此处恒返回 nil，错误分支不可达
 	}
 
 	// stdio 场景下客户端断开（stdin EOF）即服务结束，无需等待进程信号。
@@ -220,9 +220,9 @@ func (c *Config) newTransportServer(cmd *cobra.Command, serverType mcptransport.
 			}
 			return toolOutputToResult(output, meta), nil
 		}); err != nil {
-			baldlog.Error(cmd.Context(), "register subprocess tool failed", "tool", tool.Name, "error", err)
+			baldlog.Error(cmd.Context(), "register subprocess tool failed", "tool", tool.Name, "error", err) //cov:excl RegisterHandler 仅在底层 mcpServer 为 nil 时报错，而它在构造期恒非 nil
 
-			continue
+			continue //cov:excl 同上，注册失败分支结构性不可达
 		}
 
 		registered = append(registered, tool)
@@ -231,7 +231,7 @@ func (c *Config) newTransportServer(cmd *cobra.Command, serverType mcptransport.
 	// 自描述载体：与进程内模型同一实现、同一份数据派生，
 	// 两个模型对客户端暴露的清单语义一致。
 	if err := registerManifestResource(srv.RegisterResource, registered); err != nil {
-		return nil, err
+		return nil, err //cov:excl 仅当 toolManifest 编码或 RegisterResource 失败，二者对 cobra 生成工具与构造期服务端恒成功
 	}
 
 	return srv, nil
