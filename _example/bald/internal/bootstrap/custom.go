@@ -5,7 +5,9 @@
 package bootstrap
 
 import (
+	brokerrediscontract "github.com/kalandramo/bald/broker/redis/contract"
 	storegorm "github.com/kalandramo/bald/contrib/store-gorm"
+	"github.com/kalandramo/bald/example/bald/mqdemo"
 	"github.com/kalandramo/bald/pkg/appkit"
 	clientcontract "github.com/kalandramo/bald/transport/client/contract"
 )
@@ -16,14 +18,25 @@ const (
 	RoleWorker = "worker"
 )
 
-// customOptions 返回应用自定义接线（两个角色相同；按角色分叉时可读 role）。
-func customOptions(_ string) []appkit.Option {
+// customOptions 返回应用自定义接线（broker 面 两个角色都接；消费域按角色分叉）。
+func customOptions(role string) []appkit.Option {
 	opts := []appkit.Option{
 		// database.sql 段 → GORM 连接池（资源容器取用，停机释放）。
 		storegorm.AppProvider(),
 		// client 段 → 出站连接（client.<面>.<名字> 资源容器，停机释放）。
 		// 段缺席即无产物，两个角色的既有契约都不含该段。
 		clientcontract.AppProvider(),
+		// broker.redis 段 → Redis Broker（pub/sub，资源键 broker.redis.redis，
+		// 停机断连）。bootstrap.broker 段全局继承（两角色 YAML 都有），两角色
+		// 都必须接线消费（L3：段存在而无消费者启动期报错）——api 侧仅建连，
+		// worker 侧另经 mqdemo 域订阅。
+		brokerrediscontract.AppProvider(),
+	}
+	if role == RoleWorker {
+		// worker 是 mq 消费角色：mqdemo 域订阅演示主题。它不进
+		// AppSpec.domains（域声明三选一都要求 proto 契约，纯消费域无从
+		// 派生），按本文件的业务接线面装配。
+		opts = append(opts, mqdemo.Domain)
 	}
 	// 注册中心按构建形态接：见 registrar_inmemory.go（默认）与
 	// register_nacos.go（-tags nacos）。

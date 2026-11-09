@@ -1,7 +1,7 @@
 {
   "version": 1,
   "tool": "bald gen app",
-  "spec": "fef49bcd8285fdb77972f41d18edb00d39f934f7b4aa9b4f49c6ac310844f1b9",
+  "spec": "82f7ee1137afb35509877622240f71376662ca107295297bdfd568b974d36ace",
   "files": [
     {
       "path": "api/buf.gen.yaml",
@@ -46,12 +46,12 @@
     {
       "path": "configs/bald-demo-api.yaml",
       "ownership": "owned",
-      "hash": "ab08689f124b0cb54d821612277836ae9847f81fd87ae04c9a6cb488a74d5837"
+      "hash": "e0da2a24a42ea0a6eb65ed0ba74c1b923f3a51d1f113b4f5d0b501d717edc16e"
     },
     {
       "path": "configs/bald-demo-worker.yaml",
       "ownership": "owned",
-      "hash": "4cfad073a3377e6a5672d977edad1e3174314c370abb31d2dc96332b6265d89b"
+      "hash": "8bec3b0386bee635b78412ffc2031624ccc0c70849fd789b775c85afef15ecd2"
     },
     {
       "path": "internal/apiserver/apiserver.go",

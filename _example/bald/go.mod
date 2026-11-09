@@ -11,6 +11,8 @@ require (
 	github.com/kalandramo/bald/bconfig v0.2.3
 	github.com/kalandramo/bald/berrors v0.1.2
 	github.com/kalandramo/bald/bootstrap v0.13.7
+	github.com/kalandramo/bald/broker v0.3.0
+	github.com/kalandramo/bald/broker/redis v0.0.0-00010101000000-000000000000
 	github.com/kalandramo/bald/contrib/store-gorm v0.4.1
 	github.com/kalandramo/bald/health v0.1.1
 	github.com/kalandramo/bald/log v0.6.0
@@ -108,6 +110,7 @@ require (
 	github.com/goccy/go-yaml v1.19.2 // indirect
 	github.com/golang/mock v1.6.0 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
+	github.com/gomodule/redigo v1.9.2 // indirect
 	github.com/google/gnostic-models v0.7.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/hashicorp/consul/api v1.34.4 // indirect
@@ -267,3 +270,7 @@ replace github.com/kalandramo/bald/circuitbreaker/hystrix => ../../circuitbreake
 replace github.com/kalandramo/bald/transport/client => ../../transport/client
 
 replace github.com/kalandramo/bald/retry => ../../retry
+
+replace github.com/kalandramo/bald/broker => ../../broker
+
+replace github.com/kalandramo/bald/broker/redis => ../../broker/redis

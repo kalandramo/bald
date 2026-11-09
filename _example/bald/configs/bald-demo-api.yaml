@@ -2,6 +2,9 @@ app:
     name: bald-demo
     stop_timeout: 15s
     version: v0.1.0
+broker:
+    redis:
+        address: 127.0.0.1:6379
 database:
     sql:
         driver: sqlite
