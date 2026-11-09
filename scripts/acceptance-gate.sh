@@ -275,7 +275,7 @@ while IFS=$(printf '\t') read -r in_ci dir pkg regex tags; do
   log=$(mktemp)
   # 1) 清单：正则当前命中哪些顶层测试。空清单 = 名字漂了，闸门必须响。
   if ! (cd "$dir" && go test -list "$regex" ${tagargs[@]+"${tagargs[@]}"} "$pkg") >"$log" 2>&1; then
-    echo "::error::go test -list 失败（$dir $pkg）"
+    echo "::error::go test -list 失败（$dir ${pkg}）"
     cat "$log"
     fail=$((fail + 1))
     rm -f "$log"
@@ -293,7 +293,7 @@ while IFS=$(printf '\t') read -r in_ci dir pkg regex tags; do
   # 2) 执行并逐条验活。
   log=$(mktemp)
   if ! (cd "$dir" && go test -count=1 -timeout 10m -v -run "$regex" ${tagargs[@]+"${tagargs[@]}"} "$pkg") >"$log" 2>&1; then
-    echo "::error::测试腿失败（$dir $pkg）"
+    echo "::error::测试腿失败（$dir ${pkg}）"
     # 打原文而不是挑行：t.Fatalf 的清单缩进在两空格，按 `^--- ` 过滤会把根因整段吞掉。
     tail -40 "$log"
     fail=$((fail + 1))
