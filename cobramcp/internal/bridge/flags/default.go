@@ -174,9 +174,18 @@ func parseObject(defValue string, schema *jsonschema.Schema) any {
 	// Parse based on item type
 	switch schema.Type {
 	case "integer":
-		return parseIntObj(parts)
+		// parseIntObj 空结果返回 nil map；直接 return 会被装箱成「非 nil 的类型化
+		// nil map」，让调用方 setDefaultFromFlag 的 `obj != nil` 误判为有效并写出
+		// `default: null`。显式折叠为空 → 未导出 nil 接口，保持「无有效默认」。
+		if m := parseIntObj(parts); len(m) > 0 {
+			return m
+		}
+		return nil
 	case "string":
-		return parseStringObj(parts)
+		if m := parseStringObj(parts); len(m) > 0 {
+			return m
+		}
+		return nil
 	default:
 		baldlog.Warn(nil, "unsupported object item type for default value", "type", schema.Type, "value", defValue)
 		return nil

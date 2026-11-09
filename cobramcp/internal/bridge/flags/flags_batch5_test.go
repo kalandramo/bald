@@ -160,6 +160,21 @@ func TestAddFlagToSchema_ObjectDefault(t *testing.T) {
 	}
 }
 
+func TestAddFlagToSchema_MalformedObjectNoDefault(t *testing.T) {
+	// 回归 #39：全非法的 object 默认不得装箱成类型化 nil map 泄漏过 obj!=nil，
+	// 否则会给 object 型 schema 写出 `default: null`（与其声明类型自相矛盾）。
+	s := newSchema()
+	AddFlagToSchema(s, &pflag.Flag{
+		Name:     "m",
+		Usage:    "map",
+		Value:    fakeVal{t: "stringToInt", def: "[a=xyz]"},
+		DefValue: "[a=xyz]",
+	})
+	if d := s.Properties["m"].Default; d != nil {
+		t.Errorf("非法 object 默认不应落账, 得到 %s", string(d))
+	}
+}
+
 func TestParseObject(t *testing.T) {
 	intProp := &jsonschema.Schema{Type: "integer"}
 	strProp := &jsonschema.Schema{Type: "string"}
@@ -176,16 +191,22 @@ func TestParseObject(t *testing.T) {
 	if got := parseObject("[a=x]", strProp); got == nil {
 		t.Error("字符串对象默认应解析成功")
 	}
+	// 字符串对象全非法（无 '='）→ 折叠为 nil（覆盖 string 空结果分支）。
+	if got := parseObject("[foo,bar]", strProp); got != nil {
+		t.Errorf("全非法字符串对象应折叠为 nil, got %#v", got)
+	}
 	// 未知条目类型 → warn 分支返回 nil。
 	if got := parseObject("[a=1]", &jsonschema.Schema{Type: "boolean"}); got != nil {
 		t.Errorf("不支持的条目类型应返回 nil, got %v", got)
 	}
-	// parseIntObj 非法整数：全部跳过 → 空 map。注意 parseObject 直接把该 map 装箱成
-	// any，得到的是「非 nil 的类型化 nil map」（len 为 0），而非 nil 接口。
-	if got := parseObject("[a=xyz]", intProp); got == nil {
-		t.Fatal("非法整数默认应装箱成类型化 nil map（非 nil 接口）")
-	} else if m, ok := got.(map[string]int64); !ok || len(m) != 0 {
-		t.Errorf("非法整数默认应为空 map, got %#v", got)
+	// parseIntObj 非法整数：全部跳过 → 空 map。parseObject 现将其折叠为未导出 nil 接口
+	// （修复类型化 nil map 泄漏：否则 setDefaultFromFlag 会给 object 写出 default:null）。
+	if got := parseObject("[a=xyz]", intProp); got != nil {
+		t.Errorf("非法整数默认应折叠为 nil, got %#v", got)
+	}
+	// 混合有效/无效：有至少一项有效才返回非 nil map。
+	if got := parseObject("[a=1,b=bad]", intProp); got == nil {
+		t.Error("部分有效应返回非 nil map")
 	}
 	// parseStringObj 空片段跳过（覆盖 TrimSpace 空 key 分支）。
 	if got := parseObject("[a=,b=x]", strProp); got == nil {
