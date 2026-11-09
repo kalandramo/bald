@@ -6,6 +6,11 @@
 
 ## 2026-11-09
 
+### cli v0.6.0
+
+- `d06b96cd` feat(cli,example): cron/asynq 升为一等角色传输面并接线 worker 示例
+- `59d8dca4` chore(deps): 发版后归位——cli bconf v0.24.0 → v0.24.1
+
 ### bconf v0.25.0
 
 - `fbebca18` feat(bconf): appspec ServerSpec 新增 cron/asynq 角色面开关
