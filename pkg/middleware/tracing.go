@@ -25,7 +25,7 @@ func LogTraceIDs(ctx context.Context) (traceID, spanID string) {
 	var b [24]byte
 	if _, err := rand.Read(b[:]); err != nil {
 		// crypto/rand 失败极罕见；返回空串比全零诚实（全零会被误读为有效占位）。
-		return "", ""
+		return "", "" //cov:excl crypto/rand.Read 进程内恒成功，无法注入失败
 	}
 	var tid trace.TraceID
 	var sid trace.SpanID
