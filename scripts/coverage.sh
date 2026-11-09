@@ -58,22 +58,31 @@ else
 fi
 
 # 合并 + 去生成物/入口 + 逐包聚合。
+#
+# 并集语义（关键）：同一 block（file:行范围）可能同时出现在 short 腿与 integration 腿
+# 的 profile 里——必须按 block 取「命中次数的最大值」（任一腿命中即算覆盖），而不是把
+# 语句数累加。naive `sum` 会让同时出现在两腿的包分母翻倍、覆盖率失真。disjoint 模块
+# （每包只在一腿）下 max==once，与旧求和逐字节等价，故本地全量基线数字不变。
 cat "$PDIR"/*.out 2>/dev/null | awk -v gate="$GATE" '
 /^mode:/ {next}
 {
   if (NF<3) next
-  loc=$1; stmts=$2+0; cnt=$3+0
-  split(loc, p, ":"); file=p[1]
-  base=file; sub(/.*\//,"",base)
-  if (base ~ /\.pb\.go$/ || base ~ /\.pb\.gw\.go$/ || base ~ /_grpc\.pb\.go$/ ||
-      base ~ /\.pb\.validate\.go$/ || base ~ /\.gen\.go$/ || base=="main.go" ||
-      file ~ /\/mocks?\//) next
-  pkg=file; sub(/\/[^\/]*\.go$/, "", pkg)
-  T[pkg]+=stmts; if (cnt>0) C[pkg]+=stmts
-  GT+=stmts; if (cnt>0) GC+=stmts
+  loc=$1; numstmt=$2+0; cnt=$3+0
+  if (!((loc) in bcnt) || cnt > bcnt[loc]) { bcnt[loc]=cnt; bnum[loc]=numstmt }
 }
 END {
   printf "%-64s %8s %8s %7s\n", "package", "stmts", "cov", "%"
+  for (loc in bcnt) {
+    n=split(loc, a, ":"); if (n<2) continue
+    file=a[1]
+    base=file; sub(/.*\//,"",base)
+    if (base ~ /\.pb\.go$/ || base ~ /\.pb\.gw\.go$/ || base ~ /_grpc\.pb\.go$/ ||
+        base ~ /\.pb\.validate\.go$/ || base ~ /\.gen\.go$/ || base=="main.go" ||
+        file ~ /\/mocks?\//) continue
+    pkg=file; sub(/\/[^\/]*\.go$/, "", pkg)
+    T[pkg]+=bnum[loc]; if (bcnt[loc]>0) C[pkg]+=bnum[loc]
+    GT+=bnum[loc]; if (bcnt[loc]>0) GC+=bnum[loc]
+  }
   for (k in T) {
     pc=(T[k]?C[k]*100/T[k]:100)
     printf "%-64s %8d %8d %6.1f%%\n", k, T[k], C[k], pc

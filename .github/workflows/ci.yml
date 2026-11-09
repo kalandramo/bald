@@ -92,6 +92,8 @@ jobs:
             echo "::error::test 闸门失败：模块清单派生为空，一个字都没跑"
             exit 1
           fi
+          mkdir -p /tmp/cov
+          cov_i=0
           for mod in $mods; do
             echo "=== test: $mod ==="
             # 预下载依赖（重试 3 次防 proxy 瞬断），之后构建/测试离线稳定。
@@ -108,12 +110,14 @@ jobs:
             if [ "$downloaded" -ne 1 ]; then failed="$failed $mod:download"; failed_count=$((failed_count+1)); continue; fi
             # 依赖面闸门：漂移即红（前置依赖已 download，解析全图不额外拉网）
             if ! (cd "$mod" && go mod tidy -diff); then failed="$failed $mod:tidy"; failed_count=$((failed_count+1)); continue; fi
+            cov_i=$((cov_i+1))
+            covf="/tmp/cov/short-m$cov_i.out"
             if [ "$mod" = "." ]; then
               ok=1
-              (cd . && go build ./... && go vet -copylocks=false ./... && go test -short -timeout 5m ./... && go test -bench . -benchtime=1x -run '^$' ./...) || ok=0
+              (cd . && go build ./... && go vet -copylocks=false ./... && go test -short -timeout 5m -covermode=atomic -coverprofile="$covf" ./... && go test -bench . -benchtime=1x -run '^$' ./...) || ok=0
             else
               ok=1
-              (cd "$mod" && go build ./... && go vet ./... && go test -short -timeout 5m ./... && go test -bench . -benchtime=1x -run '^$' ./...) || ok=0
+              (cd "$mod" && go build ./... && go vet ./... && go test -short -timeout 5m -covermode=atomic -coverprofile="$covf" ./... && go test -bench . -benchtime=1x -run '^$' ./...) || ok=0
             fi
             if [ "$ok" -ne 1 ]; then failed="$failed $mod:build-vet-test"; failed_count=$((failed_count+1)); fi
           done
@@ -125,6 +129,13 @@ jobs:
             echo "::error::test 闸门失败：$failed_count 个模块判红:$failed"
             exit 1
           fi
+
+      - name: 上传 -short 覆盖率 profile（供末尾 coverage 作业合并求并集）
+        uses: actions/upload-artifact@v4
+        with:
+          name: cov-short
+          path: /tmp/cov/
+          if-no-files-found: warn
 
       - name: TestTree_EndToEndTimed / TestTree_AuthzClosedLoop (outside -short)
         # codegen 自 B-iii（risk-review.md §3.4）起住在 cli module 里，须在该目录执行。
@@ -327,15 +338,16 @@ jobs:
         run: |
           set -e
           mkdir -p /tmp/int
+          mkdir -p /tmp/int-cov
           # 两个 registry/*/contract（etcd、consul）都不是独立 module（无自己的
           # go.mod），各自父模块的 ./... 已把它们带上；kubernetes 那个 contract 同理由
           # `integration-kubernetes` 作业的 ./... 带上
-          (cd registry/etcd       && go mod download && go test -count=1 -timeout 10m -v ./... > /tmp/int/registry-etcd.log 2>&1) || { cat /tmp/int/registry-etcd.log; exit 1; }
-          (cd registry/consul     && go mod download && go test -count=1 -timeout 10m -v ./... > /tmp/int/registry-consul.log 2>&1) || { cat /tmp/int/registry-consul.log; exit 1; }
-          (cd contrib/store-mongo && go mod download && go test -count=1 -timeout 10m -v ./... > /tmp/int/store-mongo.log 2>&1) || { cat /tmp/int/store-mongo.log; exit 1; }
-          (cd transport/asynq     && go mod download && go test -count=1 -timeout 10m -v ./... > /tmp/int/asynq.log 2>&1) || { cat /tmp/int/asynq.log; exit 1; }
-          (cd registry/nacos      && go mod download && go test -count=1 -timeout 10m -v ./... > /tmp/int/registry-nacos.log 2>&1) || { cat /tmp/int/registry-nacos.log; exit 1; }
-          (cd contrib/database/mongodb && go mod download && go test -count=1 -timeout 10m -v ./... > /tmp/int/contrib-database-mongodb.log 2>&1) || { cat /tmp/int/contrib-database-mongodb.log; exit 1; }
+          (cd registry/etcd       && go mod download && go test -count=1 -timeout 10m -covermode=atomic -coverprofile=/tmp/int-cov/registry-etcd.out -v ./... > /tmp/int/registry-etcd.log 2>&1) || { cat /tmp/int/registry-etcd.log; exit 1; }
+          (cd registry/consul     && go mod download && go test -count=1 -timeout 10m -covermode=atomic -coverprofile=/tmp/int-cov/registry-consul.out -v ./... > /tmp/int/registry-consul.log 2>&1) || { cat /tmp/int/registry-consul.log; exit 1; }
+          (cd contrib/store-mongo && go mod download && go test -count=1 -timeout 10m -covermode=atomic -coverprofile=/tmp/int-cov/store-mongo.out -v ./... > /tmp/int/store-mongo.log 2>&1) || { cat /tmp/int/store-mongo.log; exit 1; }
+          (cd transport/asynq     && go mod download && go test -count=1 -timeout 10m -covermode=atomic -coverprofile=/tmp/int-cov/asynq.out -v ./... > /tmp/int/asynq.log 2>&1) || { cat /tmp/int/asynq.log; exit 1; }
+          (cd registry/nacos      && go mod download && go test -count=1 -timeout 10m -covermode=atomic -coverprofile=/tmp/int-cov/registry-nacos.out -v ./... > /tmp/int/registry-nacos.log 2>&1) || { cat /tmp/int/registry-nacos.log; exit 1; }
+          (cd contrib/database/mongodb && go mod download && go test -count=1 -timeout 10m -covermode=atomic -coverprofile=/tmp/int-cov/contrib-database-mongodb.out -v ./... > /tmp/int/contrib-database-mongodb.log 2>&1) || { cat /tmp/int/contrib-database-mongodb.log; exit 1; }
           cat /tmp/int/*.log
 
       - name: 判据必须真的跑过（Skip 不算通过）
@@ -409,6 +421,13 @@ jobs:
             grep -E '^(--- (SKIP|FAIL|PASS)|ok|FAIL)' /tmp/int/*.log | tail -60
             exit 1
           fi
+
+      - name: 上传集成腿覆盖率 profile
+        uses: actions/upload-artifact@v4
+        with:
+          name: cov-integration
+          path: /tmp/int-cov/
+          if-no-files-found: warn
 
   # kubernetes 注册中心真机腿（风险 §7.1）。四个 registry 后端里，etcd/consul 由
   # `integration` 作业的真服务判，kubernetes 要真 apiserver + kubelet 所以独立成这条；
@@ -492,9 +511,10 @@ jobs:
         run: |
           set -e
           mkdir -p /tmp/int
+          mkdir -p /tmp/int-cov
           # registry/kubernetes/contract 不是独立 module（无自己的 go.mod），
           # 父模块的 ./... 已把它带上
-          (cd registry/kubernetes && go mod download && go test -count=1 -timeout 10m -v ./... > /tmp/int/registry-kubernetes.log 2>&1) || { cat /tmp/int/registry-kubernetes.log; exit 1; }
+          (cd registry/kubernetes && go mod download && go test -count=1 -timeout 10m -covermode=atomic -coverprofile=/tmp/int-cov/registry-kubernetes.out -v ./... > /tmp/int/registry-kubernetes.log 2>&1) || { cat /tmp/int/registry-kubernetes.log; exit 1; }
           cat /tmp/int/registry-kubernetes.log
 
       - name: 判据必须真的跑过（Skip 不算通过）
@@ -537,6 +557,13 @@ jobs:
             grep -E '^(--- (SKIP|FAIL|PASS)|ok|FAIL)' /tmp/int/*.log | tail -60
             exit 1
           fi
+
+      - name: 上传 kubernetes 集成腿覆盖率 profile
+        uses: actions/upload-artifact@v4
+        with:
+          name: cov-integration-kubernetes
+          path: /tmp/int-cov/
+          if-no-files-found: warn
 
   # 示例应用的端到端腿（风险登记册 §7.1 里最后一条「只在本地跑」的判据）。
   # `integration` 作业的头注释原先写的是「要做就是独立一个 `example` 作业」，理由当时有两条，
@@ -941,3 +968,38 @@ jobs:
             echo "::error::vuln 闸门失败：$failed_count 个模块判红:$failed"
             exit 1
           fi
+
+  # 覆盖率并集（advisory——100% 计划的闸门地基，本阶段不阻断）。
+  # 把 test(-short) / integration / integration-kubernetes 三处各腿的 coverprofile
+  # 合并成「全腿并集」，逐包出表 + 聚合（口径同 scripts/coverage.sh：手写代码，排除
+  # 生成物/main/mocks；同一 block 跨腿取命中最大值，不是求和）。
+  # 为什么本地测不出这个数：多数集成强相关包要真后端才跑用例，且 transport/* 那批
+  # 非 -short 是等信号手动例会（本地去掉 -short 会挂）——所以「100%」的真相只能在
+  # CI 的多腿并集里读。
+  # 为什么整条作业不判红：地基阶段先攒趋势与逐包缺口；逐包补到 100% 后，再把下面
+  # coverage.sh 的调用加上 `--gate 100` 翻成硬门（届时 remove continue-on-error）。
+  # checkout 之外的步全设 continue-on-error——下载/artifact 缺失属平台面，不该把 main 弄红。
+  coverage:
+    needs: [test, integration, integration-kubernetes]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 下载三处覆盖率 profile 并合并到同目录
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          pattern: cov-*
+          path: /tmp/cov-all
+          merge-multiple: true
+
+      - name: 覆盖率并集报表（advisory，不判红）
+        continue-on-error: true
+        run: |
+          {
+            echo "## 覆盖率并集（advisory，手写代码，排除生成物/main/mocks）"
+            echo '```'
+            bash scripts/coverage.sh --merge /tmp/cov-all
+            echo '```'
+          } | tee "$GITHUB_STEP_SUMMARY"
