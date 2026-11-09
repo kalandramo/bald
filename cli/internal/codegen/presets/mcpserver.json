@@ -1,0 +1,44 @@
+{
+  "meta": {
+    "name": "my-mcpserver",
+    "module": "example.com/my-mcpserver",
+    "desc": "mcpserver 预设：单 api 角色（HTTP + MCP 服务面）。改 meta.name/module 后，运行 bald gen app --spec appspec.json",
+    "roles": [
+      {
+        "name": "api",
+        "domains": [],
+        "server": {
+          "http": true,
+          "httpAddr": ":8080",
+          "mcp": true
+        }
+      }
+    ]
+  },
+  "bootstrap": {
+    "app": {
+      "version": "v0.1.0",
+      "stopTimeout": "15s"
+    },
+    "logger": {
+      "backends": [
+        {
+          "type": "slog",
+          "slog": {
+            "level": "info",
+            "format": "console",
+            "outputPath": "stdout"
+          }
+        }
+      ]
+    },
+    "server": {
+      "mcp": {
+        "name": "my-mcpserver",
+        "version": "v0.1.0",
+        "address": ":9092"
+      }
+    }
+  },
+  "domains": []
+}
