@@ -119,7 +119,7 @@ func Split(input string, noSplit ...string) []string {
 	for _, v := range inputs {
 		v = strings.TrimSpace(v)
 		if v == "" {
-			continue
+			continue //cov:excl SplitByNonAlphanumeric 经 strings.Fields 产出非空 token，TrimSpace 后恒非空，此 continue 不可达
 		}
 		output = append(output, split(v, noSplit...)...)
 	}

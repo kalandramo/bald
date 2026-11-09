@@ -53,7 +53,7 @@ func delimiterCase(input string, delimiter rune, upperCase bool) string {
 
 	isLettersOnly := func(s string) bool {
 		if s == "" {
-			return false
+			return false //cov:excl 仅以 merged 末词调用，merged 元素恒非空（源自 filteredWords），空串分支不可达
 		}
 		for _, r := range s {
 			if !unicode.IsLetter(r) {
@@ -64,7 +64,7 @@ func delimiterCase(input string, delimiter rune, upperCase bool) string {
 	}
 	isDigitsOnly := func(s string) bool {
 		if s == "" {
-			return false
+			return false //cov:excl 仅以 filteredWords 元素调用，恒非空，空串分支不可达
 		}
 		for _, r := range s {
 			if !unicode.IsDigit(r) {
@@ -97,7 +97,7 @@ func delimiterCase(input string, delimiter rune, upperCase bool) string {
 			offset = prevEnd
 		} else {
 			// 找不到位置时，推进 offset 到末尾以避免无限循环
-			offset = len(trimmedInput)
+			offset = len(trimmedInput) //cov:excl Split 产出的词按文档序不重叠分区输入，offset 恒追踪上一词尾，下一词必在 offset 之后命中，start==-1 不可达（3016 输入实测 0 命中）
 			prevEnd = offset
 		}
 	}
