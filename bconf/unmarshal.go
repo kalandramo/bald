@@ -483,7 +483,7 @@ func coerceScalar(fd protoreflect.FieldDescriptor, raw any) (any, error) {
 		case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
 			n, err := anyToInt64(v)
 			if err != nil {
-				return nil, err
+				return nil, err //cov:excl v 已由 case 标签限定为整型，anyToInt64 对整型恒不报错
 			}
 			return float64(n), nil
 		case string:
@@ -515,7 +515,7 @@ func coerceInt(raw any, kind protoreflect.Kind) (any, error) {
 	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
 		n, err := anyToInt64(v)
 		if err != nil {
-			return nil, err
+			return nil, err //cov:excl v 已由 case 标签限定为整型，anyToInt64 对整型恒不报错
 		}
 		if bits == 32 && (n > math.MaxInt32 || n < math.MinInt32) {
 			return nil, fmt.Errorf("value %d overflows int32", n)
@@ -552,7 +552,7 @@ func coerceUint(raw any) (any, error) {
 	case int, int8, int16, int32, int64:
 		n, err := anyToInt64(v)
 		if err != nil {
-			return nil, err
+			return nil, err //cov:excl v 已由 case 标签限定为整型，anyToInt64 对整型恒不报错
 		}
 		if n < 0 {
 			return nil, fmt.Errorf("expect unsigned integer, got %d", n)
@@ -606,7 +606,7 @@ func coerceEnum(fd protoreflect.FieldDescriptor, raw any) (any, error) {
 	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
 		n, err := anyToInt64(v)
 		if err != nil {
-			return nil, err
+			return nil, err //cov:excl v 已由 case 标签限定为整型，anyToInt64 对整型恒不报错
 		}
 		if values.ByNumber(protoreflect.EnumNumber(n)) != nil {
 			return n, nil
@@ -642,7 +642,7 @@ func coerceDuration(raw any) (any, error) {
 	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
 		n, err := anyToInt64(v)
 		if err != nil {
-			return nil, err
+			return nil, err //cov:excl v 已由 case 标签限定为整型，anyToInt64 对整型恒不报错
 		}
 		return formatDuration(time.Duration(n)), nil
 	case float32, float64:
