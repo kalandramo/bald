@@ -18,9 +18,12 @@ import (
 //
 // 带 127.0.0.1 是刻意的：裸 ":port" 会被 gRPC 客户端解析成 [::1]:port（IPv6），
 // 与监听在 IPv4 的服务不匹配，导致 "connection refused"。
+// listen 抽成变量以便注入监听失败（资源耗尽等环境分支 otherwise 无法稳定触达）。
+var listen = net.Listen
+
 func FreeAddr(tb testing.TB) string {
 	tb.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		tb.Fatalf("testkit.FreeAddr: listen 127.0.0.1:0: %v", err)
 	}

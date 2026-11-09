@@ -1,6 +1,7 @@
 package testkit
 
 import (
+	"errors"
 	"net"
 	"strings"
 	"testing"
@@ -36,5 +37,27 @@ func TestFreeAddr_Unique(t *testing.T) {
 	}
 	if len(addrs) < 2 {
 		t.Logf("注意：5 次分配仅 %d 个唯一地址（内核端口复用，非缺陷）", len(addrs))
+	}
+}
+
+// TestFreeAddr_ListenError：注入监听失败（模拟资源耗尽），FreeAddr 应 Fatalf。
+// Fatalf 经 runtime.Goexit 终结协程，故用 fake-T + goroutine 回收（零值 testing.T
+// 不支持 .Run，但 Helper/Fatalf 可用）。
+func TestFreeAddr_ListenError(t *testing.T) {
+	orig := listen
+	listen = func(string, string) (net.Listener, error) {
+		return nil, errors.New("EMFILE: too many open files")
+	}
+	t.Cleanup(func() { listen = orig })
+
+	done := make(chan struct{})
+	var ft testing.T
+	go func() {
+		defer close(done)
+		FreeAddr(&ft)
+	}()
+	<-done
+	if !ft.Failed() {
+		t.Error("FreeAddr should Fatalf when listen fails")
 	}
 }
