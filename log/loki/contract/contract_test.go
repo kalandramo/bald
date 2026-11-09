@@ -42,3 +42,9 @@ func TestProvider_MissingEndpoint(t *testing.T) {
 		t.Fatal("expected fail-fast on empty endpoint")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// 结构性零覆盖（登记备查）：
+//   - contract.go:47 —— loki.NewLogger 的错误包装：本层已在上方显式拦截空
+//     endpoint（唯一可能让 NewLogger 失败的条件），故该分支不可达。
+// ---------------------------------------------------------------------------
