@@ -84,7 +84,9 @@ func messageToMap(m protoreflect.Message) (any, error) {
 			var mapErr error
 			mv := m.Get(fd).Map()
 			mv.Range(func(k protoreflect.MapKey, v protoreflect.Value) bool {
-				vv, err := scalarToConfig(fd, v)
+				// map 字段本身的 Kind 是 MessageKind（map entry 消息），值类型要看
+				// MapValue()；传 fd 会把标量值误当消息走 v.Message() 而 panic。
+				vv, err := scalarToConfig(fd.MapValue(), v)
 				if err != nil {
 					mapErr = fmt.Errorf("field %s: %w", fd.FullName(), err)
 					return false
