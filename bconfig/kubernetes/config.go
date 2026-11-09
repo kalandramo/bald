@@ -23,7 +23,7 @@ var (
 
 type kube struct {
 	opts   options
-	client *kubernetes.Clientset
+	client kubernetes.Interface
 }
 
 // New new a kubernetes config source.
