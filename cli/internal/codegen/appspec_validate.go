@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/dynamicpb"
 
@@ -333,11 +334,17 @@ func validateAppSpec(as *appspecv1.AppSpec) []error {
 // projectServer 把角色传输面（RoleSpec.server）投影为该角色的契约 server
 // 段。未声明任何传输面时返回 nil：段缺席即「该角色不开传输面」，段覆盖
 // 检查无从要求覆盖。
-func projectServer(sv *appspecv1.ServerSpec) *bootstrapv1.Server {
+func projectServer(sv *appspecv1.ServerSpec, global *bootstrapv1.Server) *bootstrapv1.Server {
 	if sv == nil {
 		return nil
 	}
 	var out *bootstrapv1.Server
+	ensure := func() *bootstrapv1.Server {
+		if out == nil {
+			out = &bootstrapv1.Server{}
+		}
+		return out
+	}
 	if sv.GetHttp() || sv.GetHttpAddr() != "" || sv.GetGateway() {
 		driver := ""
 		if sv.GetGateway() {
@@ -346,10 +353,23 @@ func projectServer(sv *appspecv1.ServerSpec) *bootstrapv1.Server {
 		out = &bootstrapv1.Server{Http: &bootstrapv1.Server_Http{Addr: sv.GetHttpAddr(), Driver: driver}}
 	}
 	if sv.GetGrpc() || sv.GetGrpcAddr() != "" {
-		if out == nil {
-			out = &bootstrapv1.Server{}
+		ensure().Grpc = &bootstrapv1.Server_Grpc{Addr: sv.GetGrpcAddr()}
+	}
+	// cron/asynq 面：ServerSpec 给开关，段内容继承全局（AppSpec 不复制 bconf
+	// 字段——redis_address/location 等只在全局 bootstrap.server 声明一处）。
+	// 开关开但全局无该段时投影为**非空空段**：cron/asynq 的契约 Provider 见
+	// nil 段即跳过该面，空 message 段才表示「用实现默认起这一面」。
+	if sv.GetCron() {
+		ensure().Cron = &bootstrapv1.Server_Cron{}
+		if gc := global.GetCron(); gc != nil {
+			ensure().Cron = proto.Clone(gc).(*bootstrapv1.Server_Cron)
 		}
-		out.Grpc = &bootstrapv1.Server_Grpc{Addr: sv.GetGrpcAddr()}
+	}
+	if sv.GetAsynq() {
+		ensure().Asynq = &bootstrapv1.Server_Asynq{}
+		if ga := global.GetAsynq(); ga != nil {
+			ensure().Asynq = proto.Clone(ga).(*bootstrapv1.Server_Asynq)
+		}
 	}
 	return out
 }
@@ -430,6 +450,11 @@ var builderConsumed = map[string]bool{
 	"bald.appspec.v1.AppSpec.meta.roles.server.gateway":   true,
 	"bald.appspec.v1.AppSpec.meta.roles.server.http_addr": true,
 	"bald.appspec.v1.AppSpec.meta.roles.server.grpc_addr": true,
+	// cron/asynq 面：消费 = projectServer 投影 server.cron/server.asynq 段
+	// （进每角色契约 YAML）+ buildRoles 的 HasCron/HasAsynq 驱动 assemble
+	// 模板的 provider 接线；与 http/grpc 同属树构建器直接消费，不落文本标记。
+	"bald.appspec.v1.AppSpec.meta.roles.server.cron":  true,
+	"bald.appspec.v1.AppSpec.meta.roles.server.asynq": true,
 	// variants.build_tags：消费 = buildVariants 归一为 when（&& 连接），不落
 	// 独立文本标记——与 when 共用同一生成形态。
 	"bald.appspec.v1.AppSpec.variants.build_tags": true,

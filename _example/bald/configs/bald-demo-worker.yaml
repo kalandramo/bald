@@ -23,6 +23,10 @@ registry:
             - 127.0.0.1:8848
     type: nacos
 server:
+    asynq:
+        redis_address: 127.0.0.1:6379
+    cron:
+        location: Asia/Shanghai
     grpc:
         addr: :9091
         middleware:

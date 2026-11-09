@@ -15,6 +15,10 @@ import (
 	"github.com/kalandramo/bald/health"
 	"github.com/kalandramo/bald/pkg/appkit"
 	"github.com/kalandramo/bald/pkg/appkit/std"
+	asynq "github.com/kalandramo/bald/transport/asynq"
+	asynqcontract "github.com/kalandramo/bald/transport/asynq/contract"
+	cron "github.com/kalandramo/bald/transport/cron"
+	croncontract "github.com/kalandramo/bald/transport/cron/contract"
 )
 
 // Options 返回指定角色的装配声明（每个角色一个 cmd，main 路径上唯一
@@ -45,6 +49,10 @@ func Options(role string) []appkit.Option {
 		opts = append(opts, domainOptionsForRole(role)...)
 	case "worker":
 		opts = append(opts, appkit.WithGRPC(registerGRPCService))
+		// 该角色的定时任务面（契约 server.cron 段随角色投影进其 YAML）。
+		opts = append(opts, croncontract.AppProvider(croncontract.WithJobs(cronJobs)))
+		// 该角色的异步任务面（契约 server.asynq 段随角色投影进其 YAML）。
+		opts = append(opts, asynqcontract.AppProvider(asynqcontract.WithHandlers(asynqHandlers)))
 		opts = append(opts, appkit.WithHealth(healthChecker))
 		opts = append(opts, domainOptionsForRole(role)...)
 	default:
@@ -91,3 +99,11 @@ func ready(_ context.Context) error { return nil }
 
 // registerGRPCService 注册业务 gRPC service（TODO）。
 func registerGRPCService(s *grpc.Server) {}
+
+// cronJobs 在 cron 服务器构造后、appkit Start 前注册周期任务（TODO）。
+// 装配期注册避免启动瞬间的调度窗口漏掉任务。
+func cronJobs(_ *cron.Server) error { return nil }
+
+// asynqHandlers 在 asynq 服务器构造后、Start 前注册任务处理器（TODO）——
+// asynq 硬约束 handler 须先于 Start 注册。
+func asynqHandlers(_ context.Context, _ *asynq.Server) error { return nil }

@@ -18,7 +18,9 @@ require (
 	github.com/kalandramo/bald/registry v0.5.0
 	github.com/kalandramo/bald/registry/etcd v0.4.1
 	github.com/kalandramo/bald/registry/nacos v0.3.3
+	github.com/kalandramo/bald/transport/asynq v0.6.3
 	github.com/kalandramo/bald/transport/client v0.2.0
+	github.com/kalandramo/bald/transport/cron v0.6.3
 	github.com/kalandramo/bald/transport/gateway v0.5.2
 	github.com/kalandramo/bald/transport/web v0.2.1
 	github.com/spf13/cobra v1.10.2
@@ -70,6 +72,7 @@ require (
 	github.com/coreos/go-systemd/v22 v22.7.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/deckarep/golang-set v1.8.0 // indirect
+	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/emicklei/go-restful/v3 v3.13.0 // indirect
 	github.com/fatih/color v1.19.0 // indirect
@@ -123,6 +126,7 @@ require (
 	github.com/hashicorp/hcl v1.0.1-vault-7 // indirect
 	github.com/hashicorp/serf v0.10.4 // indirect
 	github.com/hashicorp/vault/api v1.23.0 // indirect
+	github.com/hibiken/asynq v0.26.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
@@ -131,6 +135,7 @@ require (
 	github.com/kalandramo/bald-crud/viewer v0.3.0 // indirect
 	github.com/kalandramo/bald/circuitbreaker v0.2.0 // indirect
 	github.com/kalandramo/bald/circuitbreaker/hystrix v0.1.1 // indirect
+	github.com/kalandramo/bald/encoding v0.1.0 // indirect
 	github.com/kalandramo/bald/ratelimit v0.1.0 // indirect
 	github.com/kalandramo/bald/ratelimit/tokenbucket v0.2.0 // indirect
 	github.com/kalandramo/bald/retry v0.3.1 // indirect
@@ -160,10 +165,12 @@ require (
 	github.com/prometheus/procfs v0.20.1 // indirect
 	github.com/quic-go/qpack v0.6.0 // indirect
 	github.com/quic-go/quic-go v0.59.1 // indirect
+	github.com/redis/go-redis/v9 v9.14.1 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
+	github.com/robfig/cron/v3 v3.0.1 // indirect
 	github.com/ryanuber/go-glob v1.0.0 // indirect
 	github.com/spf13/afero v1.6.0 // indirect
-	github.com/spf13/cast v1.3.1 // indirect
+	github.com/spf13/cast v1.10.0 // indirect
 	github.com/spf13/jwalterweatherman v1.1.0 // indirect
 	github.com/spf13/viper v1.8.1 // indirect
 	github.com/subosito/gotenv v1.2.0 // indirect
@@ -228,6 +235,10 @@ replace github.com/kalandramo/bald/health => ../../health
 replace github.com/kalandramo/bald/log => ../../log
 
 replace github.com/kalandramo/bald/transport => ../../transport
+
+replace github.com/kalandramo/bald/transport/asynq => ../../transport/asynq
+
+replace github.com/kalandramo/bald/transport/cron => ../../transport/cron
 
 replace github.com/kalandramo/bald/transport/gateway => ../../transport/gateway
 

@@ -106,6 +106,14 @@ import (
 {{- if .HasGateway}}
 	gatewaycontract "github.com/kalandramo/bald/transport/gateway/contract"
 {{- end}}
+{{- if .HasCron}}
+	cron "github.com/kalandramo/bald/transport/cron"
+	croncontract "github.com/kalandramo/bald/transport/cron/contract"
+{{- end}}
+{{- if .HasAsynq}}
+	asynq "github.com/kalandramo/bald/transport/asynq"
+	asynqcontract "github.com/kalandramo/bald/transport/asynq/contract"
+{{- end}}
 {{- if .AnyFace}}
 	"github.com/kalandramo/bald/health"
 {{- end}}
@@ -159,6 +167,16 @@ func Options() []appkit.Option {
 	// 声明且 driver 留空会在启动期 fail-fast，显式写 driver 才算声明了取舍。
 	opts = append(opts, gatewaycontract.HTTPProvider(registerGateway))
 {{- end}}
+{{- if .HasCron}}
+	// 定时任务面（契约 server.cron 段）：cronJobs 在装配期（NewServer 后、
+	// Start 前）注册周期任务；面开没开由 server.cron 段声明驱动。
+	opts = append(opts, croncontract.AppProvider(croncontract.WithJobs(cronJobs)))
+{{- end}}
+{{- if .HasAsynq}}
+	// 异步任务面（契约 server.asynq 段）：asynqHandlers 在装配期注册处理器
+	// （asynq 硬约束 handler 须先于 Start）；redis 连接取 server.asynq 段。
+	opts = append(opts, asynqcontract.AppProvider(asynqcontract.WithHandlers(asynqHandlers)))
+{{- end}}
 {{- if .AnyFace}}
 	// 健康检查默认装配：HTTP 双探针 + gRPC health 状态对称联动。
 	opts = append(opts, appkit.WithHealth(healthChecker))
@@ -206,6 +224,14 @@ func Options() []appkit.Option {
 		// 该角色的 HTTP 端口由转码面承载（接管 server.http 段，声明在
 		// std.Standard() 之后 = 段归属末者胜）。
 		opts = append(opts, gatewaycontract.HTTPProvider(registerGateway))
+{{- end}}
+{{- if .HasCron}}
+		// 该角色的定时任务面（契约 server.cron 段随角色投影进其 YAML）。
+		opts = append(opts, croncontract.AppProvider(croncontract.WithJobs(cronJobs)))
+{{- end}}
+{{- if .HasAsynq}}
+		// 该角色的异步任务面（契约 server.asynq 段随角色投影进其 YAML）。
+		opts = append(opts, asynqcontract.AppProvider(asynqcontract.WithHandlers(asynqHandlers)))
 {{- end}}
 {{- if .AnyFace}}
 		opts = append(opts, appkit.WithHealth(healthChecker))
@@ -289,6 +315,18 @@ func ready(_ context.Context) error { return nil }
 
 // registerGRPCService 注册业务 gRPC service（TODO）。
 func registerGRPCService(s *grpc.Server) {}
+{{- end}}
+{{- if .HasCron}}
+
+// cronJobs 在 cron 服务器构造后、appkit Start 前注册周期任务（TODO）。
+// 装配期注册避免启动瞬间的调度窗口漏掉任务。
+func cronJobs(_ *cron.Server) error { return nil }
+{{- end}}
+{{- if .HasAsynq}}
+
+// asynqHandlers 在 asynq 服务器构造后、Start 前注册任务处理器（TODO）——
+// asynq 硬约束 handler 须先于 Start 注册。
+func asynqHandlers(_ context.Context, _ *asynq.Server) error { return nil }
 {{- end}}
 {{- if .HasGateway}}
 

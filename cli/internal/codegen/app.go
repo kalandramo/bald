@@ -209,7 +209,7 @@ func roleContracts(as *appspecv1.AppSpec, bs *bootstrapv1.BootstrapConfig, base 
 			continue
 		}
 		roleBs := proto.Clone(bs).(*bootstrapv1.BootstrapConfig)
-		roleBs.Server = projectServer(sv)
+		roleBs.Server = projectServer(sv, bs.GetServer())
 		inheritMiddleware(roleBs.Server, bs.GetServer())
 		cy, err := contractGate(as, roleBs)
 		if err != nil {

@@ -21,7 +21,9 @@
         "domains": [],
         "server": {
           "grpc": true,
-          "grpcAddr": ":9091"
+          "grpcAddr": ":9091",
+          "cron": true,
+          "asynq": true
         }
       }
     ]
@@ -83,6 +85,12 @@
             "defaultTimeoutMs": 5000
           }
         }
+      },
+      "cron": {
+        "location": "Asia/Shanghai"
+      },
+      "asynq": {
+        "redisAddress": "127.0.0.1:6379"
       }
     }
   },

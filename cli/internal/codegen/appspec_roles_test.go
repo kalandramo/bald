@@ -422,3 +422,159 @@ func TestTree_MiddlewareInheritedByRoles(t *testing.T) {
 		t.Errorf("转码面不挂 gin 链，middleware 段不得进它的契约，got:\n%s", gwCfg)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// 作业面（cron / asynq）：ServerSpec 开关 + 段内容继承全局
+// ---------------------------------------------------------------------------
+
+// jobFacesFixtureOn 在两角色夹具上把作业面开关放到 worker：api 只开 HTTP，
+// worker 开 gRPC + cron + asynq。global 段内容由参数决定（继承语义的证据）。
+func jobFacesFixtureOn(t *testing.T, global *bootstrapv1.Server) *appspecv1.AppSpec {
+	t.Helper()
+	as := rolesOn(
+		&appspecv1.RoleSpec{Name: "api", Domains: []string{"greet"},
+			Server: &appspecv1.ServerSpec{Http: true, HttpAddr: ":18080"}},
+		&appspecv1.RoleSpec{Name: "worker",
+			Server: &appspecv1.ServerSpec{Grpc: true, GrpcAddr: ":19091", Cron: true, Asynq: true}},
+	)
+	as.Bootstrap = contractBootstrap(as)
+	as.Bootstrap.Server = global
+	if errs := validateAppSpec(as); len(errs) != 0 {
+		t.Fatalf("作业面夹具必须通过 Gate1:\n%s", joinErrs(errs))
+	}
+	return as
+}
+
+// TestTree_JobFacesProjectedByRole 钉住「开关进该角色、不进别的角色」：
+// worker 声明 cron+asynq 后其契约必须出这两段，api 未声明则整段缺席——
+// 扇出不是空转，开关是逐角色的。装配侧同时必须按角色 case 出两个 AppProvider。
+func TestTree_JobFacesProjectedByRole(t *testing.T) {
+	files, rendered := renderAppTree(t, jobFacesFixtureOn(t, &bootstrapv1.Server{
+		Cron:  &bootstrapv1.Server_Cron{Location: "Asia/Shanghai"},
+		Asynq: &bootstrapv1.Server_Asynq{RedisAddress: "127.0.0.1:6379"},
+	}))
+	workerCfg := fileAt(t, files, "configs", "demoapp-worker.yaml")
+	apiCfg := fileAt(t, files, "configs", "demoapp-api.yaml")
+	if !strings.Contains(workerCfg, "cron:") || !strings.Contains(workerCfg, "asynq:") {
+		t.Errorf("worker 契约必须有 cron/asynq 两段，got:\n%s", workerCfg)
+	}
+	if strings.Contains(apiCfg, "cron:") || strings.Contains(apiCfg, "asynq:") {
+		t.Errorf("api 未声明作业面，契约不得出 cron/asynq 段，got:\n%s", apiCfg)
+	}
+	// 装配：worker 分支出两个段驱动 Provider，api 分支不出。
+	if !strings.Contains(rendered, "croncontract.AppProvider(croncontract.WithJobs(cronJobs))") {
+		t.Error("worker 角色必须经 croncontract.AppProvider 声明 cron 面")
+	}
+	if !strings.Contains(rendered, "asynqcontract.AppProvider(asynqcontract.WithHandlers(asynqHandlers))") {
+		t.Error("worker 角色必须经 asynqcontract.AppProvider 声明 asynq 面")
+	}
+	if !strings.Contains(rendered, `case "worker":`) {
+		t.Errorf("Options 必须为 worker 出 case，got:\n%s", rendered)
+	}
+	// owned 钩子：作业注册点是生成物的一部分，缺它等于声明无落点。
+	for _, want := range []string{
+		"func cronJobs(_ *cron.Server) error",
+		"func asynqHandlers(_ context.Context, _ *asynq.Server) error",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("装配生成物缺少 owned 钩子 %q", want)
+		}
+	}
+}
+
+// TestTree_JobSegmentContentInheritedGlobal 钉住段内容继承全局：AppSpec 不复制
+// bconf 字段——redis_address / location 只在全局 bootstrap.server 声明一处，
+// 角色 ServerSpec 只给 bool 开关。投影后 worker 契约里的这两值必须来自全局。
+func TestTree_JobSegmentContentInheritedGlobal(t *testing.T) {
+	files, _ := renderAppTree(t, jobFacesFixtureOn(t, &bootstrapv1.Server{
+		Cron:  &bootstrapv1.Server_Cron{Location: "Asia/Shanghai"},
+		Asynq: &bootstrapv1.Server_Asynq{RedisAddress: "127.0.0.1:6379"},
+	}))
+	workerCfg := fileAt(t, files, "configs", "demoapp-worker.yaml")
+	for _, want := range []string{"location: Asia/Shanghai", "redis_address: 127.0.0.1:6379"} {
+		if !strings.Contains(workerCfg, want) {
+			t.Errorf("worker 契约必须继承全局作业段内容 %q，got:\n%s", want, workerCfg)
+		}
+	}
+}
+
+// TestTree_JobSwitchWithoutGlobalSegmentEmitsEmpty 钉住「开关开但全局无段」这条
+// 腿：投影必须出**非空空段**，而不是整段缺席。cron/asynq 的契约 Provider 见
+// nil 段即跳过该面，空段才表示「用实现默认起这一面」——把它投影成 nil 会让
+// 「声明了 cron 却不启动 cron」静默发生。
+func TestTree_JobSwitchWithoutGlobalSegmentEmitsEmpty(t *testing.T) {
+	files, _ := renderAppTree(t, jobFacesFixtureOn(t, &bootstrapv1.Server{}))
+	workerCfg := fileAt(t, files, "configs", "demoapp-worker.yaml")
+	for _, want := range []string{"cron:", "asynq:"} {
+		if !strings.Contains(workerCfg, want) {
+			t.Errorf("开关开但全局无段时仍须投影非空空段 %q，got:\n%s", want, workerCfg)
+		}
+	}
+}
+
+// TestTree_JobFacesSingleRole 钉住单角色路径：作业面不只属于多角色。单角色
+// （roles 为空）时 v.HasCron/HasAsynq 直接来自全局 bootstrap.server，装配的
+// 非多角色分支必须照样出两个段驱动 Provider——否则「一个只想跑定时任务的进程」
+// 拿不到一等声明面，特性只对多角色兑现。
+func TestTree_JobFacesSingleRole(t *testing.T) {
+	as := guardFixture()
+	as.Bootstrap.Server.Cron = &bootstrapv1.Server_Cron{Location: "UTC"}
+	as.Bootstrap.Server.Asynq = &bootstrapv1.Server_Asynq{RedisAddress: "127.0.0.1:6379"}
+	if errs := validateAppSpec(as); len(errs) != 0 {
+		t.Fatalf("单角色作业面夹具必须通过 Gate1:\n%s", joinErrs(errs))
+	}
+	files, rendered := renderAppTree(t, as)
+	if strings.Contains(rendered, "func Options(role string)") {
+		t.Error("单角色不得生成多角色 Options(role) 形状")
+	}
+	for _, want := range []string{
+		"croncontract.AppProvider(croncontract.WithJobs(cronJobs))",
+		"asynqcontract.AppProvider(asynqcontract.WithHandlers(asynqHandlers))",
+		"func cronJobs(_ *cron.Server) error",
+		"func asynqHandlers(_ context.Context, _ *asynq.Server) error",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("单角色装配必须出 %q，got:\n%s", want, rendered)
+		}
+	}
+	cfg := fileAt(t, files, "configs", "demoapp.yaml")
+	for _, want := range []string{"cron:", "location: UTC", "asynq:", "redis_address: 127.0.0.1:6379"} {
+		if !strings.Contains(cfg, want) {
+			t.Errorf("单角色契约必须投影作业面 %q，got:\n%s", want, cfg)
+		}
+	}
+}
+
+// TestMachineGuard_JobRoleFieldsConsumed 让守卫下探 meta.roles.server 的
+// cron/asynq 两个新字段：登记缺失即 no consumer 报红（证明 builderConsumed
+// 里这两条不是摆设）。checkFieldConsumers 扫的是全局字段登记表，文本里没有
+// variants/domain-kinds 标记就红——所以与 TestMachineGuard_RoleFieldsConsumed
+// 一样拼 base+variant+domainKinds 三份渲染，再在其上单独摘 cron/asynq 登记。
+func TestMachineGuard_JobRoleFieldsConsumed(t *testing.T) {
+	job := func() *appspecv1.AppSpec {
+		return jobFacesFixtureOn(t, &bootstrapv1.Server{})
+	}
+	_, base := renderAppTree(t, job())
+	_, vrendered := renderAppTree(t, variantFixture(job()))
+	_, krendered := renderAppTree(t, domainKindsFixture(job()))
+	rendered := base + vrendered + krendered
+	if errs := checkFieldConsumers(rendered); len(errs) != 0 {
+		t.Fatalf("cron/asynq 角色字段都必须有消费者，got:\n%s", joinErrs(errs))
+	}
+	// 逐一摘除登记必须各自报红——否则「因为没登记所以恒绿」。
+	for _, key := range []string{
+		"bald.appspec.v1.AppSpec.meta.roles.server.cron",
+		"bald.appspec.v1.AppSpec.meta.roles.server.asynq",
+	} {
+		saved := builderConsumed[key]
+		if !saved {
+			t.Fatalf("%s 必须登记为 builder 消费（否则上一条正例形同虚设）", key)
+		}
+		delete(builderConsumed, key)
+		msg := joinErrs(checkFieldConsumers(rendered))
+		builderConsumed[key] = saved
+		if !strings.Contains(msg, "no consumer") || !strings.Contains(msg, key[strings.LastIndex(key, ".")+1:]) {
+			t.Errorf("摘除 %s 登记必须点名报 no consumer，got: %s", key, msg)
+		}
+	}
+}
