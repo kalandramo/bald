@@ -60,22 +60,56 @@ func isValidIP(addr string) bool {
 // extractReachableIP 枚举本机网卡，返回首个全局单播 IP 与给定端口拼接的地址。
 // 优先 IPv4；若只有 IPv6 可达则回退。无任何可达 IP 时返回空字符串。
 func extractReachableIP(port string) (string, error) {
-	ifaces, err := net.Interfaces()
+	ifaces, err := loadInterfaces()
 	if err != nil {
 		return "", err
 	}
+	ip := pickReachableIP(ifaces)
+	if ip == nil {
+		return "", nil
+	}
+	return net.JoinHostPort(ip.String(), port), nil
+}
+
+// ifaceView 是网卡枚举的测试接缝：地址延迟读取，保持与原实现一致的调用时机。
+type ifaceView struct {
+	index int
+	up    bool
+	addrs func() ([]net.Addr, error)
+}
+
+// netInterfaces 便于测试注入枚举失败。
+var netInterfaces = net.Interfaces
+
+func loadInterfaces() ([]ifaceView, error) {
+	ifaces, err := netInterfaces()
+	if err != nil {
+		return nil, err
+	}
+	views := make([]ifaceView, 0, len(ifaces))
+	for _, iface := range ifaces {
+		views = append(views, ifaceView{
+			index: iface.Index,
+			up:    iface.Flags&net.FlagUp != 0,
+			addrs: iface.Addrs,
+		})
+	}
+	return views, nil
+}
+
+func pickReachableIP(ifaces []ifaceView) net.IP {
 	var (
 		minIndex int
 		ips      = make([]net.IP, 0, 1)
 	)
 	for _, iface := range ifaces {
-		if iface.Flags&net.FlagUp == 0 {
+		if !iface.up {
 			continue
 		}
-		if iface.Index >= minIndex && len(ips) != 0 {
+		if iface.index >= minIndex && len(ips) != 0 {
 			continue
 		}
-		addrs, err := iface.Addrs()
+		addrs, err := iface.addrs()
 		if err != nil {
 			continue
 		}
@@ -90,7 +124,7 @@ func extractReachableIP(port string) (string, error) {
 				continue
 			}
 			if isValidIP(ip.String()) {
-				minIndex = iface.Index
+				minIndex = iface.index
 				ips = append(ips, ip)
 				if ip.To4() != nil {
 					break
@@ -99,7 +133,7 @@ func extractReachableIP(port string) (string, error) {
 		}
 	}
 	if len(ips) != 0 {
-		return net.JoinHostPort(ips[len(ips)-1].String(), port), nil
+		return ips[len(ips)-1]
 	}
-	return "", nil
+	return nil
 }
