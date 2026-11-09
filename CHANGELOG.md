@@ -4,6 +4,12 @@
 条目取自该版本区间内的提交标题（Conventional Commits），不要手工调整顺序。
 发布流程见 [多模块发布与变更日志](docs/devel/zh-CN/多模块发布与变更日志.md)。
 
+## 2026-11-09
+
+### bconf v0.25.0
+
+- `fbebca18` feat(bconf): appspec ServerSpec 新增 cron/asynq 角色面开关
+
 ## 2026-11-08
 
 ### pkg v0.11.0
