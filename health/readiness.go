@@ -36,7 +36,7 @@ func (h *Health) Readiness(ctx context.Context) error {
 	sort.Strings(failed)
 
 	if len(failed) == 0 {
-		return errors.New("health: not ready")
+		return errors.New("health: not ready") //cov:excl StatusDown 蕴含至少一个 detail 的 status 为 down（Check 聚合不变量），failed 恒非空，此分支不可达
 	}
 	return fmt.Errorf("health: not ready: %s", strings.Join(failed, "; "))
 }
