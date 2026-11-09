@@ -71,6 +71,12 @@ func (s *Server) init(opts ...ServerOption) {
 	s.router.NotFoundHandler = http.DefaultServeMux
 	s.router.MethodNotAllowedHandler = http.DefaultServeMux
 
+	s.buildHandler()
+}
+
+// buildHandler 按当前中间件/过滤器重建入口 handler。
+// NewServer 之后 Use 追加的中间件也必须生效，因此单独抽出来复用。
+func (s *Server) buildHandler() {
 	// 应用中间件链：先应用标准 HTTP 中间件，再应用 FilterFunc
 	h := http.Handler(s.router)
 	for i := len(s.middlewares) - 1; i >= 0; i-- {
@@ -141,6 +147,7 @@ func (s *Server) HandleHeader(key, val string, h http.HandlerFunc) {
 // 必须在 Start 之前调用。
 func (s *Server) Use(middlewares ...Middleware) {
 	s.middlewares = append(s.middlewares, middlewares...)
+	s.buildHandler()
 }
 
 func (s *Server) ServeHTTP(res http.ResponseWriter, req *http.Request) {
