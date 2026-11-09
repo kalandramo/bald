@@ -145,7 +145,7 @@ func resolveVersion(c *config) string {
 		return Version
 	}
 	if bi, ok := debug.ReadBuildInfo(); ok && bi.Main.Version != "" && bi.Main.Version != "(devel)" {
-		return bi.Main.Version
+		return bi.Main.Version //cov:excl go test 二进制里 buildinfo 恒为 (devel)，仅 go install 真构建可达
 	}
 	return ""
 }
