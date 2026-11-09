@@ -100,3 +100,39 @@ func TestAppProvider_TopSectionMissingIsBug(t *testing.T) {
 		t.Fatalf("err = %v, want bug report (engine gates by exact path)", err)
 	}
 }
+
+func TestAppProvider_Plan(t *testing.T) {
+	nodes, err := AppProvider().Plan(context.Background(), appkit.PlanScope{})
+	if err != nil {
+		t.Fatalf("Plan: %v", err)
+	}
+	if len(nodes) != 1 {
+		t.Fatalf("nodes = %d, want 1", len(nodes))
+	}
+	n := nodes[0]
+	if n.Key != "server.sse" || len(n.Segments) != 1 || n.Segments[0] != "server.sse" {
+		t.Errorf("node = %+v, want key/segments server.sse", n)
+	}
+	if n.Phase != appkit.PhaseServe {
+		t.Errorf("phase = %v, want PhaseServe", n.Phase)
+	}
+}
+
+// adaptCleanup 两分支：nil 透传；非 nil 包装为 appkit.Cleanup 并真正调用原闭包。
+// sse 工厂当前恒产 nil cleanup，非 nil 分支只能直测适配函数本身。
+func TestAdaptCleanup(t *testing.T) {
+	if adaptCleanup(nil) != nil {
+		t.Error("adaptCleanup(nil) should pass through nil")
+	}
+	called := false
+	fn := adaptCleanup(func() { called = true })
+	if fn == nil {
+		t.Fatal("adaptCleanup(non-nil) returned nil")
+	}
+	if err := fn(context.Background()); err != nil {
+		t.Fatalf("cleanup err = %v, want nil", err)
+	}
+	if !called {
+		t.Error("cleanup closure did not invoke the original func")
+	}
+}
