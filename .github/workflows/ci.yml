@@ -131,6 +131,7 @@ jobs:
           fi
 
       - name: 上传 -short 覆盖率 profile（供末尾 coverage 作业合并求并集）
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: cov-short
@@ -423,6 +424,7 @@ jobs:
           fi
 
       - name: 上传集成腿覆盖率 profile
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: cov-integration
@@ -559,6 +561,7 @@ jobs:
           fi
 
       - name: 上传 kubernetes 集成腿覆盖率 profile
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: cov-integration-kubernetes
