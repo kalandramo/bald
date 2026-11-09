@@ -371,6 +371,12 @@ func projectServer(sv *appspecv1.ServerSpec, global *bootstrapv1.Server) *bootst
 			ensure().Asynq = proto.Clone(ga).(*bootstrapv1.Server_Asynq)
 		}
 	}
+	if sv.GetMcp() {
+		ensure().Mcp = &bootstrapv1.Server_Mcp{}
+		if gm := global.GetMcp(); gm != nil {
+			ensure().Mcp = proto.Clone(gm).(*bootstrapv1.Server_Mcp)
+		}
+	}
 	return out
 }
 
@@ -455,6 +461,8 @@ var builderConsumed = map[string]bool{
 	// 模板的 provider 接线；与 http/grpc 同属树构建器直接消费，不落文本标记。
 	"bald.appspec.v1.AppSpec.meta.roles.server.cron":  true,
 	"bald.appspec.v1.AppSpec.meta.roles.server.asynq": true,
+	// mcp 面：消费同 cron/asynq（projectServer 投影 + HasMcp 驱动接线）。
+	"bald.appspec.v1.AppSpec.meta.roles.server.mcp": true,
 	// variants.build_tags：消费 = buildVariants 归一为 when（&& 连接），不落
 	// 独立文本标记——与 when 共用同一生成形态。
 	"bald.appspec.v1.AppSpec.variants.build_tags": true,

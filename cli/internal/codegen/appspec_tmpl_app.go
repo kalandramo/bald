@@ -114,6 +114,10 @@ import (
 	asynq "github.com/kalandramo/bald/transport/asynq"
 	asynqcontract "github.com/kalandramo/bald/transport/asynq/contract"
 {{- end}}
+{{- if .HasMcp}}
+	mcp "github.com/kalandramo/bald/transport/mcp"
+	mcpcontract "github.com/kalandramo/bald/transport/mcp/contract"
+{{- end}}
 {{- if .AnyFace}}
 	"github.com/kalandramo/bald/health"
 {{- end}}
@@ -177,6 +181,11 @@ func Options() []appkit.Option {
 	// （asynq 硬约束 handler 须先于 Start）；redis 连接取 server.asynq 段。
 	opts = append(opts, asynqcontract.AppProvider(asynqcontract.WithHandlers(asynqHandlers)))
 {{- end}}
+{{- if .HasMcp}}
+	// MCP 服务面（契约 server.mcp 段）：工具/资源注册经 WithAfterBuild 注入
+	// （业务按需改写本填充点）；服务器形态按契约段驱动。
+	opts = append(opts, mcpcontract.AppProvider())
+{{- end}}
 {{- if .AnyFace}}
 	// 健康检查默认装配：HTTP 双探针 + gRPC health 状态对称联动。
 	opts = append(opts, appkit.WithHealth(healthChecker))
@@ -232,6 +241,10 @@ func Options() []appkit.Option {
 {{- if .HasAsynq}}
 		// 该角色的异步任务面（契约 server.asynq 段随角色投影进其 YAML）。
 		opts = append(opts, asynqcontract.AppProvider(asynqcontract.WithHandlers(asynqHandlers)))
+{{- end}}
+{{- if .HasMcp}}
+		// 该角色的 MCP 服务面（契约 server.mcp 段随角色投影进其 YAML）。
+		opts = append(opts, mcpcontract.AppProvider())
 {{- end}}
 {{- if .AnyFace}}
 		opts = append(opts, appkit.WithHealth(healthChecker))
