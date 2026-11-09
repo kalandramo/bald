@@ -24,7 +24,7 @@ func NewEmbedder(client embeddings.EmbedderClient, opts ...embeddings.Option) (*
 func EmbedQuery(ctx context.Context, client embeddings.EmbedderClient, text string) ([]float32, error) {
 	embedder, err := embeddings.NewEmbedder(client)
 	if err != nil {
-		return nil, err
+		return nil, err //cov:excl embeddings.NewEmbedder 恒返回 nil error（见其源码 return e, nil）
 	}
 	return embedder.EmbedQuery(ctx, text)
 }
@@ -33,7 +33,7 @@ func EmbedQuery(ctx context.Context, client embeddings.EmbedderClient, text stri
 func EmbedDocuments(ctx context.Context, client embeddings.EmbedderClient, texts []string) ([][]float32, error) {
 	embedder, err := embeddings.NewEmbedder(client)
 	if err != nil {
-		return nil, err
+		return nil, err //cov:excl embeddings.NewEmbedder 恒返回 nil error
 	}
 	return embedder.EmbedDocuments(ctx, texts)
 }
