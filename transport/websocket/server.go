@@ -488,7 +488,7 @@ func (s *Server) defaultHandleSocketRawData(sessionId SessionID, buf []byte) err
 
 	handler := s.GetMessageHandler(extractMessageType(buf, s.payloadType))
 	if handler == nil {
-		return errors.New("message handler not found")
+		return errors.New("message handler not found") //cov:excl defaultUnmarshalNetPacket 用同 buf 同 payloadType 已命中 handler，成功返回后此处二次判空恒不触发
 	}
 
 	return handler.Handler(sessionId, payload)

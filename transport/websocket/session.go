@@ -217,7 +217,7 @@ func (s *Session) readPump() {
 
 		switch messageType {
 		case ws.CloseMessage:
-			return
+			return //cov:excl gorilla ReadMessage 只返回 Text/Binary 数据帧；Close 控制帧由库内部转成 ReadMessage 错误，此 case 不可达
 
 		case ws.BinaryMessage:
 			_ = s.hooks.handleSocketRawData(s.SessionID(), data)
@@ -225,9 +225,9 @@ func (s *Session) readPump() {
 		case ws.TextMessage:
 			_ = s.hooks.handleSocketRawData(s.SessionID(), data)
 
-		case ws.PingMessage:
-			if err = s.sendPongMessage(""); err != nil {
-				log.Printf("[websocket] write pong message error: %v", err)
+		case ws.PingMessage: //cov:excl 同上，Ping 控制帧由库自动回 Pong，ReadMessage 永不返回 PingMessage
+			if err = s.sendPongMessage(""); err != nil { //cov:excl ping case 不可达
+				log.Printf("[websocket] write pong message error: %v", err) //cov:excl ping case 不可达
 				return
 			}
 

@@ -23,7 +23,7 @@ type BinaryNetPacket struct {
 func (m *BinaryNetPacket) Marshal() ([]byte, error) {
 	buf := new(bytes.Buffer)
 	if err := binary.Write(buf, binary.LittleEndian, uint32(m.Type)); err != nil {
-		return nil, err
+		return nil, err //cov:excl binary.Write 向 bytes.Buffer 写 uint32 恒成功，错误分支不可达
 	}
 	buf.Write(m.Payload)
 	return buf.Bytes(), nil
