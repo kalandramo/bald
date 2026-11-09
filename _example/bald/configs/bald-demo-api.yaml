@@ -42,3 +42,7 @@ server:
                 rate: 1000
             request_id:
                 header_name: x-request-id
+    mcp:
+        address: :9092
+        name: bald-demo
+        version: v0.1.0

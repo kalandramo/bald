@@ -115,7 +115,6 @@ import (
 	asynqcontract "github.com/kalandramo/bald/transport/asynq/contract"
 {{- end}}
 {{- if .HasMcp}}
-	mcp "github.com/kalandramo/bald/transport/mcp"
 	mcpcontract "github.com/kalandramo/bald/transport/mcp/contract"
 {{- end}}
 {{- if .AnyFace}}

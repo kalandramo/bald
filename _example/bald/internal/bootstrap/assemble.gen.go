@@ -19,6 +19,7 @@ import (
 	asynqcontract "github.com/kalandramo/bald/transport/asynq/contract"
 	cron "github.com/kalandramo/bald/transport/cron"
 	croncontract "github.com/kalandramo/bald/transport/cron/contract"
+	mcpcontract "github.com/kalandramo/bald/transport/mcp/contract"
 )
 
 // Options 返回指定角色的装配声明（每个角色一个 cmd，main 路径上唯一
@@ -45,6 +46,8 @@ func Options(role string) []appkit.Option {
 		opts = append(opts, appkit.WithGRPC(registerGRPCService))
 		// HTTP 面按契约钩子出（apiserver.NewRouter 读 server.http.middleware 段）。
 		opts = append(opts, appkit.WithHTTPContract(apiserver.NewRouter))
+		// 该角色的 MCP 服务面（契约 server.mcp 段随角色投影进其 YAML）。
+		opts = append(opts, mcpcontract.AppProvider())
 		opts = append(opts, appkit.WithHealth(healthChecker))
 		opts = append(opts, domainOptionsForRole(role)...)
 	case "worker":

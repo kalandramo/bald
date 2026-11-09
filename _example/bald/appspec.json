@@ -13,7 +13,8 @@
           "http": true,
           "grpc": true,
           "httpAddr": ":8080",
-          "grpcAddr": ":9090"
+          "grpcAddr": ":9090",
+          "mcp": true
         }
       },
       {
@@ -96,6 +97,11 @@
       },
       "asynq": {
         "redisAddress": "127.0.0.1:6379"
+      },
+      "mcp": {
+        "name": "bald-demo",
+        "version": "v0.1.0",
+        "address": ":9092"
       }
     }
   },
