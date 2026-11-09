@@ -94,6 +94,10 @@ func clientConfig(o options) constant.ClientConfig {
 	}
 }
 
+// newConfigClient 是建连接缝：真实 SDK 构造会起后台服务端列表轮询并写本地日志，
+// 离线单测用桩替换后可以确定性覆盖建连成功/失败两条路径。
+var newConfigClient = clients.NewConfigClient
+
 // init 惰性建连（仅自建模式）。
 func (c *Config) init() error {
 	if c.client != nil {
@@ -111,7 +115,7 @@ func (c *Config) init() error {
 		sc = append(sc, constant.ServerConfig{IpAddr: host, Port: uint64(port)})
 	}
 	cc := clientConfig(c.opts)
-	client, err := clients.NewConfigClient(vo.NacosClientParam{
+	client, err := newConfigClient(vo.NacosClientParam{
 		ClientConfig:  &cc,
 		ServerConfigs: sc,
 	})
