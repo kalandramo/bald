@@ -4,7 +4,7 @@ go 1.27.1
 
 require (
 	github.com/alicebob/miniredis/v2 v2.35.0
-	github.com/kalandramo/bald/bconf v0.24.1
+	github.com/kalandramo/bald/bconf v0.26.0
 	github.com/kalandramo/bald/cache v0.3.0
 	github.com/kalandramo/bald/pkg v0.11.0
 	github.com/redis/go-redis/v9 v9.17.2

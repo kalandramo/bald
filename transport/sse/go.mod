@@ -10,7 +10,7 @@ replace github.com/kalandramo/bald/encoding/json => ../../encoding/json
 
 require (
 	github.com/google/uuid v1.6.0
-	github.com/kalandramo/bald/bconf v0.24.1
+	github.com/kalandramo/bald/bconf v0.26.0
 	github.com/kalandramo/bald/encoding v0.1.0
 	github.com/kalandramo/bald/encoding/json v0.1.1
 	github.com/kalandramo/bald/pkg v0.11.0

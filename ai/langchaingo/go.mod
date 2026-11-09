@@ -3,7 +3,7 @@ module github.com/kalandramo/bald/ai/langchaingo
 go 1.27.1
 
 require (
-	github.com/kalandramo/bald/bconf v0.24.1
+	github.com/kalandramo/bald/bconf v0.26.0
 	github.com/tmc/langchaingo v0.1.14
 )
 

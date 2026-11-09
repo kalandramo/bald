@@ -5,7 +5,7 @@ go 1.27.1
 replace github.com/kalandramo/bald/log => ../../log
 
 require (
-	github.com/kalandramo/bald/bconf v0.24.1
+	github.com/kalandramo/bald/bconf v0.26.0
 	github.com/kalandramo/bald/log v0.6.0
 	github.com/kalandramo/bald/pkg v0.11.0
 	github.com/kalandramo/bald/transport v0.4.0
