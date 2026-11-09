@@ -82,7 +82,7 @@ func lookupFields(md protoreflect.MessageDescriptor) *fieldLookup {
 	}
 	v := &fieldLookup{byName: byName}
 	if actual, loaded := fieldLookupCache.LoadOrStore(md, v); loaded {
-		return actual.(*fieldLookup) // 并发首建：另一份等价表已入缓存
+		return actual.(*fieldLookup) //cov:excl 并发首建「他人抢先入表」分支依赖调度，非确定性可达；行为已由 TestLookupFieldsConcurrentFirstBuild 覆盖
 	}
 	return v
 }
@@ -167,7 +167,7 @@ func UnmarshalMap(m map[string]any, msg proto.Message) error {
 
 	settings, _ := cloneTree(m).(map[string]any)
 	if settings == nil {
-		settings = map[string]any{}
+		settings = map[string]any{} //cov:excl m 静态类型即 map[string]any，cloneTree 恒返回非空 map，settings 不可能为 nil
 	}
 
 	// 关键：先按 msg 的字段描述符做类型规范化，再交给 protojson。
@@ -361,7 +361,7 @@ func foldPath(m map[string]any, n string) (any, bool) {
 		}
 		cur = next
 	}
-	return nil, false
+	return nil, false //cov:excl 末段迭代内必 return（命中/查无/非 map 之一），空 parts 不进入本函数，循环不可能正常退出
 }
 
 // lookupKeyFold 在单层 map 中按键名查找（先精确，再忽略大小写与 "-"/"_" 差异）。
