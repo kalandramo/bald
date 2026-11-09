@@ -1,0 +1,41 @@
+{
+  "meta": {
+    "name": "my-mqserver",
+    "module": "example.com/my-mqserver",
+    "desc": "mqserver 预设：单 worker 角色（gRPC 健康面 + broker.redis 消息代理消费）。订阅/发布经 Key[broker.Broker](\"broker.redis.redis\") 取用；改 meta.name/module 后，运行 bald gen app --spec appspec.json",
+    "roles": [
+      {
+        "name": "worker",
+        "domains": [],
+        "server": {
+          "grpc": true,
+          "grpcAddr": ":9091"
+        }
+      }
+    ]
+  },
+  "bootstrap": {
+    "app": {
+      "version": "v0.1.0",
+      "stopTimeout": "15s"
+    },
+    "logger": {
+      "backends": [
+        {
+          "type": "slog",
+          "slog": {
+            "level": "info",
+            "format": "console",
+            "outputPath": "stdout"
+          }
+        }
+      ]
+    },
+    "broker": {
+      "redis": {
+        "address": "127.0.0.1:6379"
+      }
+    }
+  },
+  "domains": []
+}

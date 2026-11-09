@@ -66,7 +66,7 @@
     {
       "path": "internal/bootstrap/assemble.gen.go",
       "ownership": "owned",
-      "hash": "9ef2c3b719d18129e385fe38da9f509ad456aa8ad0c995edf5f4f3506e8894a7"
+      "hash": "fceffe93bcd678e8b5b36c98f88def550008854eb0e7daafcfbaf39f7dc90f21"
     },
     {
       "path": "internal/bootstrap/custom.go",

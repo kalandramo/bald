@@ -179,7 +179,7 @@
 > | P0-2 AI 会话引导物 | ✅ | 根 AGENTS.md + `bald ide init` 五工具（`cli/v0.2.0`/`v0.3.0`） |
 > | P0-3 复用优先强制规则 | ✅ | reuse 卡 + AGENTS.md 最小强制集 |
 > | P1-4 示例矩阵 | ✅ | cron/asynq worker 示例（`cli/v0.6.0`）+ mq（broker.redis 段 + mqdemo 域）+ mcp（api 角色 mcp 面）（2026-11-10，`bconf/v0.26.0`+`cli/v0.7.x`） |
-> | P1-5 预设脚手架模板 | ✅ 部分 | webserver/worker/fullstack/jobserver 四预设入库（`TestPresetsPassGates` 自动覆盖）；**mqserver 待生成器按 broker 段发 contract provider 接线**（否则预设应用 L3 段覆盖启动期报错）、**clitool 待验证无 server 面角色的启动行为**、mcpserver 契约已定形（mcp 开关+接线全通）待加 |
+> | P1-5 预设脚手架模板 | ✅ 大部分 | webserver/worker/fullstack/jobserver/mcpserver 五预设入库（`TestPresetsPassGates` 自动覆盖）；**mqserver 待生成器按 broker 段发 contract provider 接线**（否则预设应用 L3 段覆盖启动期报错——codegen 发射 vs std 收编需一轮裁决）、**clitool 待验证无 server 面角色的启动行为** |
 > | P1-6 多服务项目模型 | ⏳ | 未做 |
 > | P1-7 PRD/Story/review 工作流 | ⏳ | 未做（Phase 3，依赖 P0 数据层——已就绪） |
 > | P1-8 RAG/语义检索 | ⏳ | 未做（远期兜底） |

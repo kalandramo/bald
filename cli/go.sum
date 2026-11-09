@@ -13,12 +13,12 @@ github.com/inconshreveable/mousetrap v1.1.0 h1:wN+x4NVGpMsO7ErUn/mUI3vEoE6Jt13X2
 github.com/inconshreveable/mousetrap v1.1.0/go.mod h1:vpF70FUmC8bwa3OWnCshd2FqLfsEA9PFc4w1p2J65bw=
 github.com/kalandramo/bald/bconf v0.26.0 h1:WcLZ/cCImgqP8URat8xQJXqOMEXeEY912gGLq782nVM=
 github.com/kalandramo/bald/bconf v0.26.0/go.mod h1:OBeqyaAMWhms2rRXXwnsjNfjUzEhw7OfxbFngTe+H1Q=
-github.com/kalandramo/bald/cobramcp v0.3.4 h1:tCI/zCyadXc7pVsrUltzhot+oZq2GZUBi/qiJkLLrOs=
-github.com/kalandramo/bald/cobramcp v0.3.4/go.mod h1:BjeAGP4Obld+sCuBVN1hT7Acf0gx1Jmj/vitAgIedxk=
+github.com/kalandramo/bald/cobramcp v0.3.5 h1:Av7eDkXwI1ZcQxXexov3ZlFCz/FncD3wTyuNLNS/NCQ=
+github.com/kalandramo/bald/cobramcp v0.3.5/go.mod h1:jveLC3BfLDGCFnUhcmQ241j/0qOCrXX34NVcSadyElA=
 github.com/kalandramo/bald/log v0.6.0 h1:Gr2aKSfIJRHJHDaeowLxhFmft1WDZnWqGPlzeoZgu9k=
 github.com/kalandramo/bald/log v0.6.0/go.mod h1:xEw5nXpW1rJM1WYKsR78k4v8urd934jc7rTic26f9LI=
-github.com/kalandramo/bald/transport/mcp v0.4.0 h1:n3E8IUDyx9+UDbokVi8ysz7sb8ieCoE+3N6wGX2ka4I=
-github.com/kalandramo/bald/transport/mcp v0.4.0/go.mod h1:Hw7g5BTBYZigc5K/mKPRdyiJVly2JdgVxj7rI1jSZYM=
+github.com/kalandramo/bald/transport/mcp v0.5.1 h1:EBqwpx1T/2+vlBRvaXt+OD7DgY3dobwz30R131s82cU=
+github.com/kalandramo/bald/transport/mcp v0.5.1/go.mod h1:jo5A2nvHe1CAEEIx3GOXRm5Jk1pxh7+9s4jwRInZI94=
 github.com/kr/pretty v0.3.1 h1:flRD4NNwYAUpkphVc1HcthR4KEIFJ65n8Mw5qdRn3LE=
 github.com/kr/pretty v0.3.1/go.mod h1:hoEshYVHaxMs3cyo3Yncou5ZscifuDolrwPKZanG3xk=
 github.com/kr/text v0.2.0 h1:5Nx0Ya0ZqY2ygV366QzturHI13Jq95ApcVaJBhpS+AY=

@@ -5,7 +5,6 @@
 package bootstrap
 
 import (
-	brokerrediscontract "github.com/kalandramo/bald/broker/redis/contract"
 	storegorm "github.com/kalandramo/bald/contrib/store-gorm"
 	"github.com/kalandramo/bald/example/bald/mqdemo"
 	"github.com/kalandramo/bald/pkg/appkit"
@@ -18,7 +17,7 @@ const (
 	RoleWorker = "worker"
 )
 
-// customOptions 返回应用自定义接线（broker 面 两个角色都接；消费域按角色分叉）。
+// customOptions 返回应用自定义接线（消费域按角色分叉）。
 func customOptions(role string) []appkit.Option {
 	opts := []appkit.Option{
 		// database.sql 段 → GORM 连接池（资源容器取用，停机释放）。
@@ -26,11 +25,8 @@ func customOptions(role string) []appkit.Option {
 		// client 段 → 出站连接（client.<面>.<名字> 资源容器，停机释放）。
 		// 段缺席即无产物，两个角色的既有契约都不含该段。
 		clientcontract.AppProvider(),
-		// broker.redis 段 → Redis Broker（pub/sub，资源键 broker.redis.redis，
-		// 停机断连）。bootstrap.broker 段全局继承（两角色 YAML 都有），两角色
-		// 都必须接线消费（L3：段存在而无消费者启动期报错）——api 侧仅建连，
-		// worker 侧另经 mqdemo 域订阅。
-		brokerrediscontract.AppProvider(),
+		// broker.redis 段的接线已由生成器从声明派生（assemble.gen.go 公共区，
+		// 资源键 broker.redis.redis）——J2 清偿：同一不变量不再手写第二份。
 	}
 	if role == RoleWorker {
 		// worker 是 mq 消费角色：mqdemo 域订阅演示主题。它不进

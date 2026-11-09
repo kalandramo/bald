@@ -12,6 +12,7 @@ import (
 	apiserver "github.com/kalandramo/bald/example/bald/internal/apiserver"
 	"google.golang.org/grpc"
 
+	brokerrediscontract "github.com/kalandramo/bald/broker/redis/contract"
 	"github.com/kalandramo/bald/health"
 	"github.com/kalandramo/bald/pkg/appkit"
 	"github.com/kalandramo/bald/pkg/appkit/std"
@@ -37,6 +38,9 @@ func Options(role string) []appkit.Option {
 		// 来源）在启动期失败，不在运行期静默回退到默认值。
 		appkit.StrictContract(),
 	}
+	// 消息代理资源（契约 broker.redis 段）：全局段随 bootstrap 原样继承进每个
+	// 角色的契约 YAML——L3 段覆盖要求消费，接线在公共区（不分角色）。
+	opts = append(opts, brokerrediscontract.AppProvider())
 	// 角色进计划与计划缓存键：doctor 的报告与基线对比按角色分核。
 	opts = append(opts, appkit.WithRole(role))
 	// 角色分支：传输面与域清单都按角色选择——这是「一份 AppSpec 两个进程」
