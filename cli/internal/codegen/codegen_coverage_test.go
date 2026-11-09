@@ -9,8 +9,8 @@ import (
 	"testing"
 )
 
-// TestCheckErr_Nil CheckErr 的非 nil 分支以 os.Exit(1) 收口（测试进程内不可
-// 触发）；这里覆盖 err==nil 的静默返回半边——函数从 0% 转成可达。
+// TestCheckErr_Nil 覆盖 CheckErr 的 err==nil 静默返回半边；非 nil 的 os.Exit(1)
+// 半边由 re-exec 子进程真测覆盖（codegen_reexec_test.go）。
 func TestCheckErr_Nil(t *testing.T) {
 	CheckErr(nil) // 不 panic、不退出即通过
 }

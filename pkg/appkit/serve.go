@@ -91,10 +91,11 @@ func Serve(ctx context.Context, opts ...Option) error {
 }
 
 // MustServe 运行 Serve，失败记日志并以非零码退出（os.Exit）。
-// 供 main 使用——main 之外不调用（退出不可返回、不可测试）。
+// 供 main 使用；失败半边（reportServeFailure + os.Exit(1)）由 re-exec 子进程
+// 真测覆盖（serve_reexec_test.go），主测试进程内不可触发。
 func MustServe(ctx context.Context, opts ...Option) {
-	if err := Serve(ctx, opts...); err != nil { //cov:excl 仅供 main：Serve 成功则 Run 永久阻塞，失败则 os.Exit 杀死进程——in-process 不可测
-		reportServeFailure(ctx, err) //cov:excl 同上：os.Exit(1) 不可在主测试进程内返回
+	if err := Serve(ctx, opts...); err != nil {
+		reportServeFailure(ctx, err)
 		os.Exit(1)
 	}
 }

@@ -232,4 +232,5 @@ func TestRunCheck_CheckerPaths(t *testing.T) {
 //   - LoadAll 的 Load 错误、规则 id 冲突：内嵌卡恒合法、卡 id 全库唯一 ⇒ 规则 id
 //     天然唯一（parseCard 强制前缀=卡 id）。
 //   - getCmd 的 marshalCard 错误：json.Marshal 作用于已知类型恒成功。
-// 这些与 os.Exit 半边不同（后者按 owner 决策走 re-exec 真测，见 codegen 包）。
+// 这些与 os.Exit 半边不同（后者按 owner 决策走 re-exec 真测，见
+// convention_reexec_test.go 的 check --fail-on-findings 子进程测试）。
