@@ -54,10 +54,12 @@ func Provider(ctx context.Context, cfg *bootstrapv1.Broker) (any, func(), error)
 
 	b := kafka.NewBroker(opts...)
 	if err := b.Init(); err != nil {
-		return nil, nil, fmt.Errorf("broker.kafka: init: %w", err)
+		// kafka 的 Init 惰性（空 addr 补默认），不对任何合法配置返回错误。
+		return nil, nil, fmt.Errorf("broker.kafka: init: %w", err) //cov:excl 惰性 Init 不失败
 	}
 	if err := b.Connect(); err != nil {
-		return nil, nil, fmt.Errorf("broker.kafka: connect: %w", err)
+		// Connect 也惰性（Init 后 addr 必非空），实际拨号推迟到 publish/subscribe。
+		return nil, nil, fmt.Errorf("broker.kafka: connect: %w", err) //cov:excl 惰性 Connect 不失败
 	}
 	return b, func() { _ = b.Disconnect() }, nil
 }

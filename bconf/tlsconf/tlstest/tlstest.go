@@ -30,21 +30,24 @@ type Certs struct {
 }
 
 // Generate 签一套 CA + 服务端/客户端证书。serial 递增只为区分两张叶子。
+//
+// 下面所有 if err != nil 分支都是 crypto 对「刚生成的合法材料」的错误返回——
+// rand.Reader / x509 签发解析必然成功，正确测试无法构造失败，故 cov:excl 排除。
 func Generate() (*Certs, error) {
 	caKey, caDER, err := newCA()
 	if err != nil {
-		return nil, err
+		return nil, err //cov:excl newCA 对合法输入必然成功
 	}
 	caCert, err := x509.ParseCertificate(caDER)
 	if err != nil {
-		return nil, fmt.Errorf("parse ca cert: %w", err)
+		return nil, fmt.Errorf("parse ca cert: %w", err) //cov:excl 刚 CreateCertificate 的 DER 必然可解析
 	}
 	out := &Certs{CA: encodePEM("CERTIFICATE", caDER)}
 	if out.ServerCert, out.ServerKey, err = newLeaf(caCert, caKey, 2); err != nil {
-		return nil, err
+		return nil, err //cov:excl newLeaf 对合法输入必然成功
 	}
 	if out.ClientCert, out.ClientKey, err = newLeaf(caCert, caKey, 3); err != nil {
-		return nil, err
+		return nil, err //cov:excl newLeaf 对合法输入必然成功
 	}
 	return out, nil
 }
@@ -66,7 +69,7 @@ func (c *Certs) ClientTLS() *bootstrapv1.Server_TLS {
 func newCA() (*ecdsa.PrivateKey, []byte, error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
-		return nil, nil, fmt.Errorf("generate ca key: %w", err)
+		return nil, nil, fmt.Errorf("generate ca key: %w", err) //cov:excl rand.Reader 签发不会失败
 	}
 	tmpl := &x509.Certificate{
 		SerialNumber:          big.NewInt(1),
@@ -79,7 +82,7 @@ func newCA() (*ecdsa.PrivateKey, []byte, error) {
 	}
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
 	if err != nil {
-		return nil, nil, fmt.Errorf("create ca cert: %w", err)
+		return nil, nil, fmt.Errorf("create ca cert: %w", err) //cov:excl 合法模板自签不会失败
 	}
 	return key, der, nil
 }
@@ -88,7 +91,7 @@ func newCA() (*ecdsa.PrivateKey, []byte, error) {
 func newLeaf(ca *x509.Certificate, caKey *ecdsa.PrivateKey, serial int64) (certPEM, keyPEM []byte, err error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
-		return nil, nil, fmt.Errorf("generate leaf key: %w", err)
+		return nil, nil, fmt.Errorf("generate leaf key: %w", err) //cov:excl rand.Reader 签发不会失败
 	}
 	tmpl := &x509.Certificate{
 		SerialNumber: big.NewInt(serial),
@@ -102,11 +105,11 @@ func newLeaf(ca *x509.Certificate, caKey *ecdsa.PrivateKey, serial int64) (certP
 	}
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, ca, &key.PublicKey, caKey)
 	if err != nil {
-		return nil, nil, fmt.Errorf("create leaf cert: %w", err)
+		return nil, nil, fmt.Errorf("create leaf cert: %w", err) //cov:excl 合法模板签发不会失败
 	}
 	keyDER, err := x509.MarshalECPrivateKey(key)
 	if err != nil {
-		return nil, nil, fmt.Errorf("marshal leaf key: %w", err)
+		return nil, nil, fmt.Errorf("marshal leaf key: %w", err) //cov:excl 合法 EC 私钥 marshal 不会失败
 	}
 	return encodePEM("CERTIFICATE", der), encodePEM("EC PRIVATE KEY", keyDER), nil
 }

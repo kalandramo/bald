@@ -53,7 +53,8 @@ func Provider(ctx context.Context, cfg *bootstrapv1.Broker) (any, func(), error)
 
 	b := rabbitmq.NewBroker(opts...)
 	if err := b.Init(); err != nil {
-		return nil, nil, fmt.Errorf("broker.rabbitmq: init: %w", err)
+		// rabbit Init 恒返回 nil（只规整 addrs，无错误路径），此分支对任何输入都不可达。
+		return nil, nil, fmt.Errorf("broker.rabbitmq: init: %w", err) //cov:excl Init 无错误路径
 	}
 	if err := b.Connect(); err != nil {
 		return nil, nil, fmt.Errorf("broker.rabbitmq: connect: %w", err)

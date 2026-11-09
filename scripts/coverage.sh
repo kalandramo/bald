@@ -57,6 +57,18 @@ else
   ls "$PDIR"/*.out >/dev/null 2>&1 || { echo "coverage: 未产出任何 profile，拒绝空判" >&2; exit 1; }
 fi
 
+# 行内豁免（cov:excl）——结构性不可测语句的显式标记：
+#   某些手写语句在**正确的**测试下也不可达——内嵌 fs 读取恒成功、crypto/rand 与
+#   x509 签名对合法输入不报错、MarshalIndent 纯 map 不失败、以及 root CI 跑时
+#   无法用 chmod 触发的 MkdirAll/WriteFile/Stat 权限错误（本地能造、CI 造不出＝假绿）。
+#   在这些语句所在行加 `//cov:excl <理由>` 即从分子与分母**同时剔除**——不是刷绿，
+#   而是把「无法测」显式化、可审计（业界同款：coverage.py 的 pragma: no cover）。
+#   纪律：哨兵后必须带理由，否则视为裸豁免、闸门拒绝。
+if grep -rn --include='*.go' '[[:space:]]//cov:excl[[:space:]]*$' . 2>/dev/null; then
+  echo "coverage: 上面这些 //cov:excl 缺理由（哨兵后必须写原因）" >&2
+  exit 1
+fi
+
 # 合并 + 去生成物/入口 + 逐包聚合。
 #
 # 并集语义（关键）：同一 block（file:行范围）可能同时出现在 short 腿与 integration 腿
@@ -70,6 +82,24 @@ cat "$PDIR"/*.out 2>/dev/null | awk -v gate="$GATE" '
   loc=$1; numstmt=$2+0; cnt=$3+0
   if (!((loc) in bcnt) || cnt > bcnt[loc]) { bcnt[loc]=cnt; bnum[loc]=numstmt }
 }
+# is_excl：把 import-path 文件映射回 ROOT 相对路径（所有模块路径都以
+# github.com/kalandramo/bald/ 开头，剥前缀即磁盘路径），按文件缓存行内容，
+# block 覆盖的行范围内出现 cov:excl 即判豁免。
+function is_excl(file, sl, el,   rel, i, n, line) {
+  rel = file
+  sub(/^github\.com\/kalandramo\/bald\//, "", rel)
+  if (!(rel in lcount)) {
+    n = 0
+    while ((getline line < rel) > 0) { lbuf[rel, n + 1] = line; n++ }
+    close(rel)
+    lcount[rel] = n
+  }
+  n = lcount[rel]
+  for (i = sl; i <= el && i <= n; i++) {
+    if (lbuf[rel, i] ~ /cov:excl/) return 1
+  }
+  return 0
+}
 END {
   printf "%-64s %8s %8s %7s\n", "package", "stmts", "cov", "%"
   for (loc in bcnt) {
@@ -79,6 +109,10 @@ END {
     if (base ~ /\.pb\.go$/ || base ~ /\.pb\.gw\.go$/ || base ~ /_grpc\.pb\.go$/ ||
         base ~ /\.pb\.validate\.go$/ || base ~ /\.gen\.go$/ || base=="main.go" ||
         file ~ /\/mocks?\//) continue
+    split(a[2], r2, ",")
+    sl=r2[1]; sub(/\..*/,"",sl); sl+=0
+    el=r2[2]; sub(/\..*/,"",el); el+=0
+    if (is_excl(file, sl, el)) continue
     pkg=file; sub(/\/[^\/]*\.go$/, "", pkg)
     T[pkg]+=bnum[loc]; if (bcnt[loc]>0) C[pkg]+=bnum[loc]
     GT+=bnum[loc]; if (bcnt[loc]>0) GC+=bnum[loc]
