@@ -740,7 +740,10 @@ type ServerSpec struct {
 	// 是否开通 Asynq 异步任务面。开关语义同 cron；段内容（redis_address/
 	// queues/concurrency…）继承全局 bootstrap.server.asynq，地址等只在全局
 	// 声明一处，角色不复述。
-	Asynq         bool `protobuf:"varint,7,opt,name=asynq,proto3" json:"asynq,omitempty"`
+	Asynq bool `protobuf:"varint,7,opt,name=asynq,proto3" json:"asynq,omitempty"`
+	// 是否开通 MCP 服务面。开关语义同 cron；段内容（kind/addr/…）继承全局
+	// bootstrap.server.mcp，角色不复述。
+	Mcp           bool `protobuf:"varint,8,opt,name=mcp,proto3" json:"mcp,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -820,6 +823,13 @@ func (x *ServerSpec) GetCron() bool {
 func (x *ServerSpec) GetAsynq() bool {
 	if x != nil {
 		return x.Asynq
+	}
+	return false
+}
+
+func (x *ServerSpec) GetMcp() bool {
+	if x != nil {
+		return x.Mcp
 	}
 	return false
 }
@@ -1074,7 +1084,7 @@ const file_bald_appspec_v1_appspec_proto_rawDesc = "" +
 	"\bRoleSpec\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\adomains\x18\x02 \x03(\tR\adomains\x123\n" +
-	"\x06server\x18\x03 \x01(\v2\x1b.bald.appspec.v1.ServerSpecR\x06server\"\xb2\x01\n" +
+	"\x06server\x18\x03 \x01(\v2\x1b.bald.appspec.v1.ServerSpecR\x06server\"\xc4\x01\n" +
 	"\n" +
 	"ServerSpec\x12\x12\n" +
 	"\x04http\x18\x01 \x01(\bR\x04http\x12\x12\n" +
@@ -1083,7 +1093,8 @@ const file_bald_appspec_v1_appspec_proto_rawDesc = "" +
 	"\thttp_addr\x18\x04 \x01(\tR\bhttpAddr\x12\x1b\n" +
 	"\tgrpc_addr\x18\x05 \x01(\tR\bgrpcAddr\x12\x12\n" +
 	"\x04cron\x18\x06 \x01(\bR\x04cron\x12\x14\n" +
-	"\x05asynq\x18\a \x01(\bR\x05asynq\"\xdb\x01\n" +
+	"\x05asynq\x18\a \x01(\bR\x05asynq\x12\x10\n" +
+	"\x03mcp\x18\b \x01(\bR\x03mcp\"\xdb\x01\n" +
 	"\rComponentSpec\x12\x12\n" +
 	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12#\n" +

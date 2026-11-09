@@ -196,6 +196,9 @@ message ServerSpec {
   // queues/concurrency…）继承全局 bootstrap.server.asynq，地址等只在全局
   // 声明一处，角色不复述。
   bool asynq = 7;
+  // 是否开通 MCP 服务面。开关语义同 cron；段内容（kind/addr/…）继承全局
+  // bootstrap.server.mcp，角色不复述。
+  bool mcp = 8;
 }
 
 // ComponentSpec 声明一个托管组件。
