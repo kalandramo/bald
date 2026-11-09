@@ -28,12 +28,12 @@ func (s *selectorImpl) Select(_ context.Context, nodes []selector.Node) (selecto
 	for _, n := range nodes {
 		total += effectiveWeight(n)
 	}
-	if total <= 0 {
-		total = len(nodes)
-	}
 
+	// total ≥ len(nodes) ≥ 1（effectiveWeight 恒 ≥1），rand.IntN(total) 落在
+	// [0, total)。遍历除末节点外的候选：命中当前权重区间即返回、否则扣减；末节点
+	// 兜住剩余全部区间——r < total 保证扣减到末尾时必然落入这里。
 	r := rand.IntN(total)
-	for _, n := range nodes {
+	for _, n := range nodes[:len(nodes)-1] {
 		w := effectiveWeight(n)
 		if r < w {
 			return n, selector.NoopDone, nil
