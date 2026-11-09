@@ -978,3 +978,9 @@ func TestSessionManager_EdgeInputs(t *testing.T) {
 //   - client.go:201 —— SendMessage 中 NetPacket.Marshal 的错误分支：
 //     同上，类型头写入 bytes.Buffer 不可能失败，返回不可达。
 // ---------------------------------------------------------------------------
+
+// 结构性零覆盖（登记备查）：
+//   message.go:30-32 —— NetPacket.Marshal 的 binary.Write 写的是 bytes.Buffer，
+//   其 Write 永不返回错误；该分支是 io.Writer 契约的错误出口，不可达。
+//   client.go:200-202 —— SendMessage 对 msg.Marshal 的错误封装，同一不可达出口
+//   的下游，随上一条一并登记。
