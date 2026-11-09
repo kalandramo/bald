@@ -428,7 +428,7 @@ func TestChains_Order(t *testing.T) {
 }
 
 // 结构性零覆盖（登记备查）：
-//   - server.go generateTLSConfig 的三处 panic：rsa.GenerateKey /
-//     x509.CreateCertificate / tls.X509KeyPair 的入参全部由本函数内部即时生成，
-//     只有在 crypto/rand 熵源损坏时才会失败；无法在不注入故障的前提下触达。
-//     成功路径由 TestServerDefaultTLSConfig 真实覆盖。
+//   - server.go:178-180 / 183-185 / 190-192 generateTLSConfig 的三处 panic：
+//     rsa.GenerateKey / x509.CreateCertificate / tls.X509KeyPair 的入参全部由
+//     本函数内部即时生成，只有在 crypto/rand 熵源损坏时才会失败；无法在不注入
+//     故障的前提下触达。成功路径由 TestServerDefaultTLSConfig 真实覆盖。
