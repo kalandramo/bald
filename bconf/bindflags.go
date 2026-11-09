@@ -270,7 +270,7 @@ type bindFloat32Setter struct {
 // ——属结构性不可测，逐语句 //cov:excl。若将来出现 float32 契约字段，删除豁免即
 // 由 BindFlags 通用遍历自动覆盖。
 func (s *bindFloat32Setter) Set(val string) error {
-	f, err := parseFloat32(val)
+	f, err := parseFloat32(val) //cov:excl bindFloat32Setter 无真实 float32 fd 可构造
 	if err != nil {
 		return err //cov:excl bindFloat32Setter 无真实 float32 fd 可构造
 	}

@@ -30,7 +30,7 @@ func validateAddress(addr string) error {
 		if err != nil {
 			return fmt.Errorf("%q is not a valid port: %w", port, err)
 		}
-		return fmt.Errorf("%q is not a valid port number", port)
+		return fmt.Errorf("%q is not a valid port number", port) //cov:excl LookupPort 成功即 p∈[0,65535]，端口 "0" 已由上方 port=="0" 放行，err==nil 且越界不可达
 	}
 	return nil
 }
@@ -100,7 +100,7 @@ func parseFloat64(s string) (float64, error) {
 func hostname() string {
 	h, err := os.Hostname()
 	if err != nil {
-		return "unknown"
+		return "unknown" //cov:excl os.Hostname 在 darwin/linux 读 uname，进程内不失败，错误分支无法注入
 	}
 	return h
 }

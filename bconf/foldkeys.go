@@ -96,7 +96,7 @@ func foldMessage(md protoreflect.MessageDescriptor, m map[string]any) {
 func foldBranches(byName map[string]protoreflect.FieldDescriptor, m map[string]any, k string) {
 	head, hv, ok := lookupKeyFold(m, k)
 	if !ok {
-		return
+		return //cov:excl k 取自 m 的键快照，lookupKeyFold 精确命中恒真，此早退不可达
 	}
 	if foldWalk(byName, m, hv, strings.ToLower(head)) {
 		delete(m, head)
