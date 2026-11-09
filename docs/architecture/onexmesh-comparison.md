@@ -84,8 +84,13 @@
 > WithCircuitBreaker，该件依赖 onexmesh resilience 的 BreakerRegistry，归入第三批评估）；
 > ✅ selector/balancer（grpc v1.83 把 SubConn 做成外部不可实现——Build 端到端面留集成验证，外部可测面已测）；
 > ✅ hedge（补 4 条上游没有的判据：取消语义/胜负/自适应节流/panic 恢复）；✅ bulkhead（39 行小件）；
-> ❌ shedder 不移植——与 ratelimit/bbr 是同物（自适应降载），重复税；
-> ⏳ semconv 收拢、otelslog 行为对齐、WithCircuitBreaker、resiliency 进 mech、client SDK 立项——下一轮排期（见 §6.3）。
+> ❌ shedder 不移植——与 ratelimit/bbr 是同物（自适应降载），重复税。
+>
+> **完成度（2026-11-10 回填：第三批全部落地）**：✅ semconv 收拢（`pkg/semconv`，observability-r09 落地）；
+> ✅ otelslog 行为对齐（`log/otelslog` 独立 module v0.1.0）；✅ WithCircuitBreaker（`selector/circuitbreaker/v0.1.0`，
+> 硬排除语义接 p2c 的概率降权）；✅ resiliency（`transport/client/resiliency/v0.1.0`，Dapr 风格声明式——
+> 以独立能力模块落地而非进 mech，裁决口径：mech 是进程内装配面，跨进程韧性策略归出站客户端）；
+> ✅ client SDK（`transport/client/v0.2.0` + `selector/balancer/v0.2.0` 接线 bald_selector 出站链路）。
 
 ### 6.1 决策表
 
@@ -124,6 +129,11 @@
 第三批（裁决后）：resiliency 声明式进 mech；client SDK 面立项与否
 不做：transport/middleware/server、config 四层、errno、polaris
 ```
+
+> 三批均已完成（2026-11-10 回填）：第一、二批随首批 tag 落地；第三批的 resiliency 以独立
+> 能力模块（`transport/client/resiliency`）而非 mech 内嵌落地，client SDK 以 `transport/client`
+> + `selector/balancer` 出站接线落地——形态与上表预估不同，裁决理由见 §6 完成度注记。
+> 「不做」清单维持：transport/middleware/server、config 四层、errno、polaris 均未吸收。
 
 ### 6.4 什么情况下才值得整仓式吸收
 

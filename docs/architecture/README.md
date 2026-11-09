@@ -41,10 +41,11 @@
 | `flows.md` | 请求/消息/生命周期/发现/缓存/可观测/WebRTC 怎么流；哪些真接线 | 现状，引用已逐条核对 |
 | `flows.dot` | 上述三条主流程的图源 | **已渲染**：`dot -Tsvg` 退出码 0、stderr 为空（40 节点 / 39 边） |
 | `risk-review.md` | 哪里有风险、严重度、消解条件、动手顺序 | 含自评局限一节（§9） |
-| `onexai-gap-review.md` | 对照 OneX Harness AI Coding（onexai）的六层依赖清单，bald 有什么、缺什么；含规范蒸馏卡目录（§5）与 `bald convention` CLI + cobramcp 挂载落地设计（§6） | 2026-11-07 首版，结论来自课程 PDF 01–06 + 仓库实盘清点 |
+| `onexai-gap-review.md` | 对照 OneX Harness AI Coding（onexai）的六层依赖清单，bald 有什么、缺什么；含规范蒸馏卡目录（§5）与 `bald convention` CLI + cobramcp 挂载落地设计（§6） | 2026-11-07 首版；P0 与 P1-4/5 已落地（§4 状态总览），P1-6…8 与 P2 未做 |
 | `onex-ai.md` | onexai 工具输出的逐字存档（46 convention 描述 / overview 完整输出 / 20 create 命令），补 PDF 文本解析的截断 | 源材料，保持原样不做编辑 |
-| `onexmesh-comparison.md` | 对照 `../onexmesh`（运行时微服务框架）的设计盘点与路线分歧分析：三条深层观察、双向借鉴清单、关系判断、移植评估（§6 决策表） | 2026-11-08 首版，12 维度实盘清点 |
-| `transport-unification-assessment.md` | 传输统一抽象重构评估：痛点拆解（handler/错误已统一，真缺口是中间件双链/手写路由双轨/无路由级中间件）、S/M/L 三档方案与代价（S=14–22 人日推荐，L 不推荐）、四批迁移路径 | 2026-11-08 首版 |
+| `onexmesh-comparison.md` | 对照 `../onexmesh`（运行时微服务框架）的设计盘点与路线分歧分析：三条深层观察、双向借鉴清单、关系判断、移植评估（§6 决策表） | 2026-11-08 首版；三批移植全部落地（§6 完成度已回填） |
+| `transport-unification-assessment.md` | 传输统一抽象重构评估：痛点拆解（handler/错误已统一，真缺口是中间件双链/手写路由双轨/无路由级中间件）、S/M/L 三档方案与代价、四批迁移路径 | 2026-11-08 首版；**方案 S 已全部落地**（§3 实施进展），旧链保留至下一 major |
+| `handoff-session-20261108.md` | 会话成果记录（onexmesh 吸收 × 方案 S 批次 1–3、九 tag）+ 避坑清单（网络工具链/契约生成/运行时陷阱/断言口径） | 交接已闭环（2026-11-10）；时效性章节（阻塞/待办/闸门现状）已移除，避坑清单长期有效 |
 | `render/*.svg` | 上面两份 `.dot` 与 `.dsl` 三张视图的渲染快照 | 由 graphviz 16.1.0 生成，改源后需重跑（见「校验工具与命令」） |
 
 > 「引用已逐条核对」= 用脚本把制品里的每个 `路径:行号` 抽出来（行内省略文件名的简写按就近文件解析），逐条打开源文件回读该行内容并人工比对叙述；不是抽样。最新一次重跑（§3.1 收口后，脚本原始输出）：**`checked cites: 324, problems: 12, bare-resolved: 65, bare-unresolved: 0`**（比上一轮少一条引用：评审快照里那条 go.mod 的行号在两轮改动后已不对应任何事实，改成了不带行号的快照描述）。
@@ -87,6 +88,8 @@ dot -Tsvg /tmp/c4out/modules_view.dot -o docs/architecture/render/c4-modules_vie
 
 **2026-11-06 增量（声明式装配方向②前两批，代码已改、本目录只动文字）**：`*/contract` 从 30 涨到 **39**（`find . -type d -name contract` 复跑即得；第一批 `transport/{tcp,websocket,http3}`、第二批 `transport/{graphql,webrtc,mcp}`，判据与变异见 `risk-review.md` §7.28 两节）。
 **未重渲染**：`module-deps.dot` 的「回边（30 个子包）」是 2026-11-03 谓词下的聚合标签（当时数的是图上 require `pkg` 的 contract 子包，本轮实测该谓词为 24——两者都已旧），`bald-c4.dsl` 与 `render/*.svg` 同批未动；这三份图源要按「校验工具与命令」整轮重核才有意义，**零散改标签会造出「数字新、边旧」的第三种不一致**。`current-architecture.md` 的 §2/§5/§6 文字已同步（目录计数 39 并带 `find` 判据、方向②剩余清单 7→4）。
+
+**2026-11-10 梳理（文档噪音清理，只动过程性文档）**：`handoff-session-20261108.md` 交接闭环——阻塞/待办/闸门现状/检查清单四节时效内容移除，保留成果总览与避坑清单；`onexmesh-comparison.md` §6/§6.3 的 ⏳ 项（semconv/otelslog/circuitbreaker/resiliency/client SDK）回填 ✅（第三批落地，resiliency/client SDK 形态与预估不同，理由见完成度注记）；`transport-unification-assessment.md` 头部加完成态（方案 S 四批全落地）；`onexai-gap-review.md` §4 增状态总览（P0 与 P1-4/5 落地，P1-6…8 与 P2 未做，mqserver/clitool 预设的阻塞条件写明）。`onex-ai.md` 逐字存档维持不动。
 
 ## 重新生成
 

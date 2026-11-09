@@ -171,6 +171,22 @@
 
 ## 4. 缺口清单与建议
 
+> **状态总览（2026-11-10 回填）**——逐项落地进度：
+>
+> | 项 | 状态 | 落地物 |
+> |---|---|---|
+> | P0-1 规范工具化通道 | ✅ | 22 张蒸馏卡 + `bald convention` + cobramcp 挂载（`cli/v0.2.0`，§4.4′） |
+> | P0-2 AI 会话引导物 | ✅ | 根 AGENTS.md + `bald ide init` 五工具（`cli/v0.2.0`/`v0.3.0`） |
+> | P0-3 复用优先强制规则 | ✅ | reuse 卡 + AGENTS.md 最小强制集 |
+> | P1-4 示例矩阵 | ✅ | cron/asynq worker 示例（`cli/v0.6.0`）+ mq（broker.redis 段 + mqdemo 域）+ mcp（api 角色 mcp 面）（2026-11-10，`bconf/v0.26.0`+`cli/v0.7.x`） |
+> | P1-5 预设脚手架模板 | ✅ 部分 | webserver/worker/fullstack/jobserver 四预设入库（`TestPresetsPassGates` 自动覆盖）；**mqserver 待生成器按 broker 段发 contract provider 接线**（否则预设应用 L3 段覆盖启动期报错）、**clitool 待验证无 server 面角色的启动行为**、mcpserver 契约已定形（mcp 开关+接线全通）待加 |
+> | P1-6 多服务项目模型 | ⏳ | 未做 |
+> | P1-7 PRD/Story/review 工作流 | ⏳ | 未做（Phase 3，依赖 P0 数据层——已就绪） |
+> | P1-8 RAG/语义检索 | ⏳ | 未做（远期兜底） |
+> | P2-9…15 工程配套 | ⏳ | 未做（部署模板/compose/pprof/workerpool/分发/protolint/CI AI review） |
+>
+> §4.1–§4.3 原文保留作问题定义；§4.4′/§4.4″ 是 Phase 1/2 的验收记录。
+
 ### 4.1 P0：Harness 效果的直接前提（AI「看不见」bald 的约束）
 
 1. **规范工具化通道**。bald 不缺规范内容（docs/devel 的判据、契约、装配等级文档质量很高），缺的是 AI 感知通道：
@@ -207,10 +223,10 @@
 
 ```
 Phase 1（通道，设计见 §5 + §6）：蒸馏卡 20 张 + bald convention（overview/list/get/check）
-                                  + cobramcp 挂载 + AGENTS.md + ide init
-Phase 2（样子）：_example 补 job/mq/mcp 三示例 + AppSpec 预设模板集
-Phase 3（流程）：bald review 分级编排（依赖 Phase 1 的数据层）
-Phase 4（配套）：Docker/K8s 模板 + compose + 分发
+                                  + cobramcp 挂载 + AGENTS.md + ide init        ✅ 已落地（§4.4′/§4.4″）
+Phase 2（样子）：_example 补 job/mq/mcp 三示例 + AppSpec 预设模板集             ✅ 已落地（2026-11-10 收口）
+Phase 3（流程）：bald review 分级编排（依赖 Phase 1 的数据层）                  ⏳ 未做
+Phase 4（配套）：Docker/K8s 模板 + compose + 分发                               ⏳ 未做
 ```
 
 Phase 1 成本最低而杠杆最大：bald 的文档质量本就是资产，只差「AI 感知数据的通道」——这恰好是课程第 01 章的核心命题。

@@ -3,6 +3,10 @@
 > 评估日期：2026-11-08。动因：owner 的痛点——「bald 的 transport 不统一」，对照对象是 onexmesh 的
 > 统一抽象（`Transporter` + `middleware.Handler` 一份签名服务双协议，见 [onexmesh-comparison.md](onexmesh-comparison.md)）。
 > 本文先把「不统一」拆到层（有两层其实已经统一了），再给三档重构方案的代价与风险。
+>
+> **状态：方案 S 已全部落地**（批次 1–4 见 §3 实施进展，`pkg/v0.7.0`→`v0.10.0`、`bconf/v0.24.0` 已发）。
+> 本文按设计决策记录保留：痛点拆解与三档取舍是当时的裁决依据；人日估算与批次路径已执行完毕，
+> 仅作历史口径。旧链 `Gin()`/`GRPCInterceptors()` 保留至下一 major（§3 批次 4 的登记口径）。
 
 ---
 
