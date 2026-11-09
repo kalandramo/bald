@@ -336,3 +336,8 @@ func TestToAttrs(t *testing.T) {
 //   - otel.go:155 resource.New 错误分支不可达。New 只用 WithAttributes 装配
 //     service.name/version，未挂任何 detector；resource.Detect 的 error 只可能
 //     来自 detector，因此该分支在现有构造下永不触发。
+
+// 结构性零覆盖（登记备查）：
+//   otel.go:154-156 —— resource.New 只挂了静态 WithAttributes，没有会失败的
+//   detector/选项，构造资源对象在该形状下不会返回错误；该分支是 SDK 契约里的
+//   错误出口，保留。
