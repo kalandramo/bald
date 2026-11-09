@@ -165,8 +165,8 @@ func scanProto(relPath string, src []byte) (*protoFile, error) {
 			if m.Verb == "" {
 				// 点式注解回退：option (google.api.http).get = "/v1/x";
 				if mm := reProtoHTTPDot.FindStringSubmatch(seg); mm != nil {
-					m.Verb, m.Path = mm[2], mm[3]
-					m.Rules = []httpRule{{Verb: mm[2], Path: mm[3]}}
+					m.Verb, m.Path = mm[1], mm[2]
+					m.Rules = []httpRule{{Verb: mm[1], Path: mm[2]}}
 				}
 			}
 			// 点式注解未实现字段：option (google.api.http).custom… /
