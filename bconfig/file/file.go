@@ -197,6 +197,10 @@ const (
 	emptyConfirmAttempt = 4
 )
 
+// readFile 是落定读取的测试接缝：分支依赖文件在两次读之间变化，脚本化后可
+// 确定性覆盖全部读写竞态路径。
+var readFile = os.ReadFile
+
 // readSettled 读文件直到连续两次读到一致的内容，两次读之间隔 [settleInterval]；
 // 若一致的结果是空内容，再按 [confirmEmpty] 递进确认。
 // settled=false 表示用完 [settleAttempts] 次仍未一致（文件正被连续重写），
@@ -210,7 +214,7 @@ const (
 // 消除中间态得由写入方原子发布（临时文件 + rename），本源 watch 的正是父目录，
 // 那种写法不会丢事件。
 func readSettled(ctx context.Context, path string) (data []byte, settled bool, err error) {
-	first, err := os.ReadFile(path)
+	first, err := readFile(path)
 	if err != nil {
 		return nil, false, err
 	}
@@ -222,7 +226,7 @@ func readSettled(ctx context.Context, path string) (data []byte, settled bool, e
 			return nil, false, ctx.Err()
 		case <-timer.C:
 		}
-		next, err := os.ReadFile(path)
+		next, err := readFile(path)
 		if err != nil {
 			return nil, false, err
 		}
@@ -249,7 +253,7 @@ func confirmEmpty(ctx context.Context, path string) ([]byte, bool, error) {
 			return nil, false, ctx.Err()
 		case <-timer.C:
 		}
-		again, err := os.ReadFile(path)
+		again, err := readFile(path)
 		if err != nil {
 			return nil, false, err
 		}
