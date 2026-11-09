@@ -121,7 +121,7 @@ func RequestTypeName(request any) string {
 	}
 	t := reflect.TypeOf(request)
 	if t == nil {
-		return ""
+		return "" //cov:excl request 非 nil 时 reflect.TypeOf 恒返回非 nil 类型（nil 接口已在上方拦截），此防御分支不可达
 	}
 	if t.Kind() == reflect.Pointer {
 		t = t.Elem()
