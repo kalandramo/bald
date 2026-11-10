@@ -6,12 +6,15 @@
 //     AGENTS.md 与各工具的规则/SKILL/命令文件——消费者项目的会话引导物，
 //     生成一次后归项目维护。
 //   - 合并写入（读现有 JSON，只补 bald 的键，其余原样保留）：
-//     .mcp.json（MCP 项目级通用配置）与 .zcode/config.json（zcode 的
-//     mcp.servers，schema 严格——我们的条目只含 type/command/args 合法键）。
+//     .mcp.json（MCP 项目级通用配置）、.zcode/config.json（zcode 的
+//     mcp.servers，schema 严格——条目只含 type/command/args 合法键）与
+//     ~/.workbuddy/mcp.json（workbuddy 只有全局作用域，条目 schema 与
+//     CodeBuddy 同源：type/command/args/env/description）。
 //
 // 工具面（--ide）：claude / zcode / trae / qoder / workbuddy。所有工具都落
 // AGENTS.md 与 .mcp.json（两者是跨工具的通用约定面）；差异在各工具的私有
-// 规则文件——只有能核实格式的才生成，不猜路径（workbuddy 未知，只给通用面）。
+// 规则文件——只有能核实格式的才生成，不猜路径（workbuddy 无私有规则文件
+// 格式，其差异面是全局 MCP 配置的合并）。
 package ide
 
 import (
@@ -43,6 +46,24 @@ var zcodeMCPEntry = map[string]any{
 	"args":    []string{"mcp", "start"},
 }
 
+// workbuddyMCPEntry 是 ~/.workbuddy/mcp.json 的 mcpServers.bald 条目（schema
+// 与 CodeBuddy 同源：type/command/args/env/description，command 是字符串）。
+// description 进 workbuddy 连接器管理页的展示文案，帮助人工识别。
+var workbuddyMCPEntry = map[string]any{
+	"type":        "stdio",
+	"command":     "bald",
+	"args":        []string{"mcp", "start"},
+	"description": "bald 规范查询与门禁（convention overview/get/check）",
+}
+
+// mergeMCPJSON 的外壳形状：承载服务器映射的 JSON 节点。显式传参、不从 entry
+// 键形推断（J5）——workbuddy 与 zcode 的条目都带 type 键，但外壳一个是顶层
+// mcpServers、一个是嵌套 mcp.servers。
+const (
+	shapeTopLevel = "top"   // 顶层 mcpServers（.mcp.json / ~/.workbuddy/mcp.json）
+	shapeZcode    = "zcode" // 嵌套 mcp.servers（.zcode/config.json）
+)
+
 // seededFile 是一份 Seeded 模板：目标路径 + 内嵌模板路径 + 提示说明。
 type seededFile struct {
 	path    string // 相对项目根
@@ -50,12 +71,15 @@ type seededFile struct {
 	comment string // generated/kept 提示的补充说明
 }
 
-// ideSpecs 是每个 --ide 取值的生成面。AGENTS.md 与 .mcp.json 是所有工具的
-// 公共面（在 runInit 里另行处理），这里只登记差异面。
-var ideSpecs = map[string]struct {
+// ideSpec 是一个 --ide 取值的生成面。
+type ideSpec struct {
 	files []seededFile
 	note  string
-}{
+}
+
+// ideSpecs 是每个 --ide 取值的生成面。AGENTS.md 与 .mcp.json 是所有工具的
+// 公共面（在 runInit 里另行处理），这里只登记差异面。
+var ideSpecs = map[string]ideSpec{
 	"claude": {
 		files: []seededFile{
 			{path: filepath.Join(".claude", "commands", "bald.md"), tmpl: "templates/command_bald.md", comment: "/bald 斜杠命令"},
@@ -79,7 +103,7 @@ var ideSpecs = map[string]struct {
 		},
 	},
 	"workbuddy": {
-		note: "workbuddy 的规则/MCP 文件格式未核实，只落通用面（AGENTS.md 与 .mcp.json）；若它读 AGENTS.md 即已覆盖",
+		note: "MCP 已合并进 ~/.workbuddy/mcp.json（workbuddy 只有全局作用域：所有会话、所有项目可用 bald 工具）；无私有项目规则文件",
 	},
 }
 
@@ -123,7 +147,7 @@ func initCmd() *cobra.Command {
               + .zcode/skills/bald-conventions/SKILL.md
   trae        .trae/rules/project_rules.md
   qoder       .qoder/rules/bald.md
-  workbuddy   仅公共面（私有格式未核实，不猜路径）
+  workbuddy   ~/.workbuddy/mcp.json（合并 mcpServers.bald；全局作用域）
 
 Seeded 文件不存在才写，已存在输出 kept: 不覆盖（--force 放行）；JSON 配置
 是合并写入，现有键原样保留。`,
@@ -133,7 +157,12 @@ Seeded 文件不存在才写，已存在输出 kept: 不覆盖（--force 放行�
 			if !ok {
 				return fmt.Errorf("--ide %q not supported (available: %v)", o.IDE, supportedIDEs())
 			}
-			return runInit(o.IDE, spec, o.Force)
+			// workbuddy 的 MCP 配置在用户主目录（全局作用域），先解析 home。
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return fmt.Errorf("resolve home dir: %w", err) //cov:excl 正常环境 UserHomeDir 不失败
+			}
+			return runInit(o.IDE, spec, home, o.Force)
 		},
 	}
 	cmd.Flags().StringVar(&o.IDE, "ide", "zcode", "AI 编码工具：claude | zcode | trae | qoder | workbuddy")
@@ -141,11 +170,9 @@ Seeded 文件不存在才写，已存在输出 kept: 不覆盖（--force 放行�
 	return cmd
 }
 
-// runInit 落盘公共面 + 差异面。任一步失败即返回错误（已写文件保留——各文件独立可用）。
-func runInit(ide string, spec struct {
-	files []seededFile
-	note  string
-}, force bool) error {
+// runInit 落盘公共面 + 差异面。home 是用户主目录（workbuddy 的全局 MCP 配置
+// 落在 home 下，其余工具不用它）。任一步失败即返回错误（已写文件保留——各文件独立可用）。
+func runInit(ide string, spec ideSpec, home string, force bool) error {
 	// 公共面：AGENTS.md（Seeded）。
 	// seed 只有在 embed 读失败/I-O 权限错误时才返回错误，正确测试在 root CI 无法构造。
 	if err := seed("AGENTS.md", "templates/agents.md", "会话引导：先查规范 + 最小强制集", force); err != nil {
@@ -157,12 +184,18 @@ func runInit(ide string, spec struct {
 			return err //cov:excl seed 错误分支不可达（见上）
 		}
 	}
-	// MCP 配置：通用 .mcp.json 所有工具都合并；zcode 额外合并自己的 config.json。
-	if err := mergeMCPJSON(".mcp.json", mcpEntry); err != nil {
+	// MCP 配置：通用 .mcp.json 所有工具都合并；zcode 合并自己的 config.json
+	//（项目级）；workbuddy 合并全局 ~/.workbuddy/mcp.json（它无项目级配置）。
+	if err := mergeMCPJSON(".mcp.json", shapeTopLevel, mcpEntry); err != nil {
 		return err
 	}
 	if ide == "zcode" {
-		if err := mergeMCPJSON(filepath.Join(".zcode", "config.json"), zcodeMCPEntry); err != nil {
+		if err := mergeMCPJSON(filepath.Join(".zcode", "config.json"), shapeZcode, zcodeMCPEntry); err != nil {
+			return err
+		}
+	}
+	if ide == "workbuddy" {
+		if err := mergeMCPJSON(filepath.Join(home, ".workbuddy", "mcp.json"), shapeTopLevel, workbuddyMCPEntry); err != nil {
 			return err
 		}
 	}
@@ -200,14 +233,18 @@ func seed(path, tmpl, comment string, force bool) error {
 	return nil
 }
 
-// mergeMCPJSON 把 entry 合并进一张 MCP 服务器 JSON 配置：
-//   - .mcp.json 形状：顶层 mcpServers（MCP 通用约定）；
-//   - .zcode/config.json 形状：嵌套 mcp.servers（zcode schema）。
+// mergeMCPJSON 把 entry 合并进一张 MCP 服务器 JSON 配置。shape 显式指定承载
+// 服务器映射的外壳节点（不从 entry 键形推断——J5，workbuddy 与 zcode 条目都
+// 带 type 键而外壳不同）：
+//   - shapeTopLevel：顶层 mcpServers（.mcp.json 通用约定 / ~/.workbuddy/mcp.json）；
+//   - shapeZcode：嵌套 mcp.servers（.zcode/config.json，zcode schema）。
 //
-// 由 entry 的键形判定走哪种合并（zcodeMCPEntry 带 type 键）。文件不存在则新建；
-// 存在则解析、只补 bald 一项、原样写回（缩进统一两空格）。bald 条目已存在且
-// 内容一致时输出 ok: 不落盘。
-func mergeMCPJSON(path string, entry map[string]any) error {
+// 文件不存在则新建（父目录一并创建）；存在则解析、只补 bald 一项、原样写回
+//（缩进统一两空格）。bald 条目已存在且内容一致时输出 ok: 不落盘。
+func mergeMCPJSON(path, shape string, entry map[string]any) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err //cov:excl root 绕过权限，MkdirAll 不会失败
+	}
 	root := map[string]any{}
 	if raw, err := os.ReadFile(path); err == nil {
 		if err := json.Unmarshal(raw, &root); err != nil {
@@ -218,9 +255,9 @@ func mergeMCPJSON(path string, entry map[string]any) error {
 		return fmt.Errorf("read %s: %w", path, err) //cov:excl root CI 无法构造非 NotExist 的 ReadFile 错误
 	}
 
-	// 找到（或建）承载服务器映射的节点：zcode 是 mcp.servers，通用是 mcpServers。
+	// 找到（或建）承载服务器映射的节点。
 	var servers map[string]any
-	if _, hasType := entry["type"]; hasType {
+	if shape == shapeZcode {
 		mcpNode, _ := root["mcp"].(map[string]any)
 		if mcpNode == nil {
 			mcpNode = map[string]any{}

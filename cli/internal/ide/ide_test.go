@@ -34,7 +34,8 @@ func TestNewCommandHasInit(t *testing.T) {
 }
 
 // TestRunInitAllIDEs 在隔离临时目录里对每个 --ide 取值跑 runInit（非 force），
-// 覆盖公共面 AGENTS.md、各差异面 seed、通用 .mcp.json 合并、zcode 额外合并、note 打印。
+// 覆盖公共面 AGENTS.md 与 .mcp.json、各差异面 seed、zcode 项目级合并、
+// workbuddy 全局合并、note 打印。
 func TestRunInitAllIDEs(t *testing.T) {
 	for _, name := range supportedIDEs() {
 		spec, ok := ideSpecs[name]
@@ -43,19 +44,45 @@ func TestRunInitAllIDEs(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			t.Chdir(t.TempDir())
-			if err := runInit(name, spec, false); err != nil {
+			home := t.TempDir()
+			if err := runInit(name, spec, home, false); err != nil {
 				t.Fatalf("runInit(%q) 出错: %v", name, err)
 			}
 			if _, err := os.Stat("AGENTS.md"); err != nil {
 				t.Fatalf("AGENTS.md 未生成: %v", err)
 			}
+			if _, err := os.Stat(".mcp.json"); err != nil {
+				t.Fatalf(".mcp.json 未生成: %v", err)
+			}
 			if name == "zcode" {
 				if _, err := os.Stat(filepath.Join(".zcode", "config.json")); err != nil {
 					t.Fatalf("zcode config.json 未生成: %v", err)
 				}
-			} else if name != "workbuddy" {
-				if _, err := os.Stat(".mcp.json"); err != nil {
-					t.Fatalf(".mcp.json 未生成: %v", err)
+			}
+			if name == "workbuddy" {
+				// 全局作用域：bald 条目落在 home 下的 workbuddy 配置里，
+				// 形状为 CodeBuddy 同源 schema（type/command/description）。
+				raw, err := os.ReadFile(filepath.Join(home, ".workbuddy", "mcp.json"))
+				if err != nil {
+					t.Fatalf("workbuddy 全局配置未生成: %v", err)
+				}
+				var doc struct {
+					MCPServers map[string]struct {
+						Type        string   `json:"type"`
+						Command     string   `json:"command"`
+						Args        []string `json:"args"`
+						Description string   `json:"description"`
+					} `json:"mcpServers"`
+				}
+				if err := json.Unmarshal(raw, &doc); err != nil {
+					t.Fatalf("workbuddy 全局配置非法 JSON: %v", err)
+				}
+				e, ok := doc.MCPServers["bald"]
+				if !ok {
+					t.Fatal("workbuddy 全局配置缺 bald 条目")
+				}
+				if e.Type != "stdio" || e.Command != "bald" || e.Description == "" || len(e.Args) == 0 {
+					t.Fatalf("bald 条目形状错误: %+v", e)
 				}
 			}
 		})
@@ -84,13 +111,14 @@ func TestSeedKeptAndForce(t *testing.T) {
 	}
 }
 
-// TestMergeMCPJSONBranches 覆盖通用形状新建、zcode 形状新建、内容一致 ok 短路、
-// 以及解析失败的错误分支。
+// TestMergeMCPJSONBranches 覆盖顶层形状新建、zcode 形状新建、workbuddy 条目
+// 形状（带 type 键但外壳仍是顶层 mcpServers）、内容一致 ok 短路、以及解析
+// 失败的错误分支。
 func TestMergeMCPJSONBranches(t *testing.T) {
 	t.Chdir(t.TempDir())
 
-	// 通用 .mcp.json：不存在→新建。
-	if err := mergeMCPJSON(".mcp.json", mcpEntry); err != nil {
+	// 顶层 .mcp.json：不存在→新建。
+	if err := mergeMCPJSON(".mcp.json", shapeTopLevel, mcpEntry); err != nil {
 		t.Fatalf("通用新建出错: %v", err)
 	}
 	var doc map[string]any
@@ -101,17 +129,36 @@ func TestMergeMCPJSONBranches(t *testing.T) {
 		t.Fatal("通用合并未写入 mcpServers")
 	}
 	// 内容一致 → ok 短路。
-	if err := mergeMCPJSON(".mcp.json", mcpEntry); err != nil {
+	if err := mergeMCPJSON(".mcp.json", shapeTopLevel, mcpEntry); err != nil {
 		t.Fatalf("重复合并出错: %v", err)
 	}
 
-	// zcode 形状（带 type 键）→ 走 mcp.servers 嵌套分支。mergeMCPJSON 不建目录
-	// （runInit 里目录由前置 seed 步创建），故先补 .zcode。
-	if err := os.MkdirAll(".zcode", 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := mergeMCPJSON(filepath.Join(".zcode", "config.json"), zcodeMCPEntry); err != nil {
+	// zcode 形状 → 走 mcp.servers 嵌套分支（父目录由 mergeMCPJSON 自建）。
+	if err := mergeMCPJSON(filepath.Join(".zcode", "config.json"), shapeZcode, zcodeMCPEntry); err != nil {
 		t.Fatalf("zcode 合并出错: %v", err)
+	}
+
+	// workbuddy 形状：条目带 type/description，但外壳仍是顶层 mcpServers——
+	// 显式 shape 防止键形推断把它错路由到 zcode 嵌套。
+	wb := filepath.Join("home", ".workbuddy", "mcp.json")
+	if err := mergeMCPJSON(wb, shapeTopLevel, workbuddyMCPEntry); err != nil {
+		t.Fatalf("workbuddy 合并出错: %v", err)
+	}
+	var wbDoc map[string]map[string]map[string]any
+	if raw, err := os.ReadFile(wb); err == nil {
+		if err := json.Unmarshal(raw, &wbDoc); err != nil {
+			t.Fatalf("workbuddy 配置非法 JSON: %v", err)
+		}
+	}
+	e := wbDoc["mcpServers"]["bald"]
+	if e == nil || e["type"] != "stdio" || e["command"] != "bald" {
+		t.Fatalf("workbuddy bald 条目形状错误: %v", e)
+	}
+	if _, ok := e["description"]; !ok {
+		t.Fatal("workbuddy bald 条目缺 description")
+	}
+	if _, hasNested := wbDoc["mcp"]; hasNested {
+		t.Fatal("workbuddy 条目被错误路由到 zcode 嵌套形状")
 	}
 
 	// 非法 JSON → 解析错误分支。
@@ -119,20 +166,20 @@ func TestMergeMCPJSONBranches(t *testing.T) {
 	if err := os.WriteFile(bad, []byte("{not json"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := mergeMCPJSON(bad, mcpEntry); err == nil {
+	if err := mergeMCPJSON(bad, shapeTopLevel, mcpEntry); err == nil {
 		t.Fatal("期望非法 JSON 报错")
 	}
 }
 
-// TestRunInitMergeErrors 覆盖 runInit 把 mergeMCPJSON 解析错误透传的两条分支：
-// 通用 .mcp.json 与 zcode 专有 config.json 各写坏一份。
+// TestRunInitMergeErrors 覆盖 runInit 把 mergeMCPJSON 解析错误透传的分支：
+// 通用 .mcp.json、zcode 专有 config.json 与 workbuddy 全局配置各写坏一份。
 func TestRunInitMergeErrors(t *testing.T) {
 	t.Run("generic", func(t *testing.T) {
 		t.Chdir(t.TempDir())
 		if err := os.WriteFile(".mcp.json", []byte("{bad"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if err := runInit("claude", ideSpecs["claude"], false); err == nil {
+		if err := runInit("claude", ideSpecs["claude"], t.TempDir(), false); err == nil {
 			t.Fatal("期望 .mcp.json 解析错误透传")
 		}
 	})
@@ -144,8 +191,22 @@ func TestRunInitMergeErrors(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(".zcode", "config.json"), []byte("{bad"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if err := runInit("zcode", ideSpecs["zcode"], false); err == nil {
+		if err := runInit("zcode", ideSpecs["zcode"], t.TempDir(), false); err == nil {
 			t.Fatal("期望 zcode config 解析错误透传")
+		}
+	})
+	t.Run("workbuddy", func(t *testing.T) {
+		t.Chdir(t.TempDir())
+		home := t.TempDir()
+		wb := filepath.Join(home, ".workbuddy")
+		if err := os.MkdirAll(wb, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(wb, "mcp.json"), []byte("{bad"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := runInit("workbuddy", ideSpecs["workbuddy"], home, false); err == nil {
+			t.Fatal("期望 workbuddy 全局配置解析错误透传")
 		}
 	})
 }
