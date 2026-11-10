@@ -165,7 +165,7 @@ func TestHandleAllRequestAndBinder(t *testing.T) {
 	}
 
 	// 无 body：hasBody=false 跳过 JSON，仅 uri+query。
-	c, w = ctxWith(t, http.MethodGet, "/x?n=7", "", gin.Params{{Key: "name", Value: "bob"}})
+	c, _ = ctxWith(t, http.MethodGet, "/x?n=7", "", gin.Params{{Key: "name", Value: "bob"}})
 	got = mergeReq{}
 	HandleAllRequest(c, func(_ context.Context, r *mergeReq) (respT, error) {
 		got = *r
