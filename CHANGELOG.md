@@ -4,6 +4,45 @@
 条目取自该版本区间内的提交标题（Conventional Commits），不要手工调整顺序。
 发布流程见 [多模块发布与变更日志](docs/devel/zh-CN/多模块发布与变更日志.md)。
 
+## 2026-11-10
+
+### bald v0.48.0
+
+- `7da39e33` refactor(pkg/middleware): 方案 S 批次 4 标记期收口——shared 壳删除 + 三门面 Deprecated 齐
+- `656bf678` feat(cli): gen app --preset 新增 clitool（P1-5 收口：七预设齐）
+- `11302856` feat(cli): 生成器按 broker.redis 段派生 contract provider 接线 + mqserver 预设（P1-5 收口）
+- `e21c96e6` docs(devel): 能力地图补统一中间件契约面（§9.3）——旧链标 deprecated
+- `35d77554` docs(architecture): 文档梳理——过时设计与遗留任务噪音清理
+
+### cli v0.8.0
+
+- `f65009d6` feat(cli): ide init 补 workbuddy 全局 MCP 合并（~/.workbuddy/mcp.json）
+- `656bf678` feat(cli): gen app --preset 新增 clitool（P1-5 收口：七预设齐）
+- `11302856` feat(cli): 生成器按 broker.redis 段派生 contract provider 接线 + mqserver 预设（P1-5 收口）
+- `02d50947` feat(cli): gen app --preset 新增 mcpserver（api 角色 + server.mcp 段）
+- `318eb9b8` chore(release): 4 模块整批发布——根 v0.47.0 / cobramcp v0.3.5 / contrib/database/gorm v0.2.0 / transport/http3 v0.3.2
+
+### pkg v0.11.1
+
+- `7da39e33` refactor(pkg/middleware): 方案 S 批次 4 标记期收口——shared 壳删除 + 三门面 Deprecated 齐
+- `d3133b4f` chore(release): 2 模块整批发布——bconf v0.26.0 / cli v0.7.0
+- `56399414` test(coverage): 批6 pkg/stringcase 92.9%→100%（全分隔符空串/连续下划线/noSplit 谓词/split 守卫/ContainsFn；isLettersOnly/isDigitsOnly 空串守卫、start==-1、Fields 空 token 四处结构性登记，start==-1 经 3016 输入实测 0 命中）
+- `b0393a9d` test(coverage): 批6 pkg/id 93.8%→100%（fail-first 随机源令 NewV7 失败，真测 v7→v4 回退两种 hyphen 形态）
+- `b94b1336` test(coverage): 批6 pkg/crudbridge 90.7%→100%（Permissions/ShouldAudit 访问器、InjectViewerFromIdentity、ViewerFromContext nil、unit 自定义字段、scopeBranch ALL/未知类型直测）
+- `2e42098a` test(coverage): 批6 pkg/validation 86.7%→100%（Register 入参数/首参错误、Validate nil、RequestTypeName nil/值类型、toInt/toInt64/toFloat64 全类型分支；TypeOf 恒非 nil 防御分支登记）
+- `7a23b26c` test(coverage): 批6 pkg/testkit 85.7%→100%（FreeAddr 加 listen 接缝，注入失败用 fake-T goroutine 真测 Fatalf 资源耗尽分支）
+- `585f9a53` test(coverage): 批6 pkg/metricshttp 76.9%→100%（空 addr/path 缺省回退；占端口触发异步监听失败日志，capturing logger 确定性同步）
+- `b690e20f` test(coverage): 批6 pkg/store/inmemory 75.3%→100%（操作符/反射/排序全分支）
+- `30612850` test(coverage): 批6 pkg/grpcdiscovery 41.6%→100%（Build/publish/run/Close 全分支）
+- `b1919d56` test(coverage): 批6 grpc 中间件 75.4%→99.3%（认证失败/审计旁路/恢复/请求ID）
+- `e0c00bd9` test(coverage): 批6 gin 中间件 72.5%→99.8%（认证/CORS/限流/超时/审计旁路）
+- `98cda885` test(coverage): 批6 os.Exit 分支改判 re-exec 子进程真测
+- `dd9a2da6` test(coverage): 批5k pkg/metrics gRPC RecordActive no-op 分支 94.7%→100%
+- `e04d655f` test(coverage): 批5d pkg/middleware 根包 86.7%→100%
+- `b3b0e7f0` test(coverage): 批5b appkit 0% 函数 90.1%→92.0%
+- `47fec1dc` test(coverage): 批5a appcli 88.7%→100%
+- `6e893053` test(coverage): 批1 零覆盖小包补齐至 100%
+
 ## 2026-11-09
 
 ### cli v0.6.0

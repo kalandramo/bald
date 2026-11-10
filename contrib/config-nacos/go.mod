@@ -5,7 +5,7 @@ go 1.27.1
 require (
 	github.com/kalandramo/bald/bconf v0.26.0
 	github.com/kalandramo/bald/bootstrap v0.13.7
-	github.com/kalandramo/bald/pkg v0.11.0
+	github.com/kalandramo/bald/pkg v0.11.1
 )
 
 require (

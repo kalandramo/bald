@@ -10,7 +10,7 @@ require (
 	github.com/gorilla/mux v1.8.1
 	github.com/kalandramo/bald/bconf v0.26.0
 	github.com/kalandramo/bald/log v0.6.0
-	github.com/kalandramo/bald/pkg v0.11.0
+	github.com/kalandramo/bald/pkg v0.11.1
 	github.com/kalandramo/bald/transport v0.4.0
 	github.com/quic-go/quic-go v0.59.1
 	github.com/stretchr/testify v1.12.1
