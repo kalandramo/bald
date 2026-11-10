@@ -1,0 +1,29 @@
+{
+  "meta": {
+    "name": "my-clitool",
+    "module": "example.com/my-clitool",
+    "desc": "clitool 预设：无传输面角色（纯 CLI/本地作业，serve 驻留 + 业务子命令经 custom.go 接线）。改 meta.name/module 后，运行 bald gen app --spec appspec.json",
+    "roles": [
+      {"name": "cli", "domains": [], "server": {}}
+    ]
+  },
+  "bootstrap": {
+    "app": {
+      "version": "v0.1.0",
+      "stopTimeout": "15s"
+    },
+    "logger": {
+      "backends": [
+        {
+          "type": "slog",
+          "slog": {
+            "level": "info",
+            "format": "console",
+            "outputPath": "stdout"
+          }
+        }
+      ]
+    }
+  },
+  "domains": []
+}
