@@ -78,11 +78,13 @@ func TestMessageMetadataContextBridge(t *testing.T) {
 		t.Fatal("nil-metadata message leaked metadata into ctx")
 	}
 
-	// InjectContext：ctx 值按 key 写进 header（string key 与 struct key 两种形态）。
+	// InjectContext：ctx 值按 key 写进 header（struct key 与自定义 string 类型
+	// key 两种形态；SA1029 禁用内置 string 直接做 key）。
 	type ctxKey struct{}
+	type plainKey string
 	ctx = context.WithValue(context.Background(), ctxKey{}, "sv")
-	ctx = context.WithValue(ctx, "plain", 9)
-	got := NewMessageWithContext(ctx, "b", ctxKey{}, "plain")
+	ctx = context.WithValue(ctx, plainKey("plain"), 9)
+	got := NewMessageWithContext(ctx, "b", ctxKey{}, plainKey("plain"))
 	if got.Headers["broker.ctxKey"] != "sv" {
 		t.Fatalf("struct key header = %q, want broker.ctxKey", got.Headers["broker.ctxKey"])
 	}
@@ -140,16 +142,17 @@ func TestOptionsAssembly(t *testing.T) {
 	nilOpts.Apply(WithAddress("a:1"))
 
 	// NewOptionsAndApply：全部选项落位。
+	type optCtxKey struct{}
 	opts := NewOptionsAndApply(
 		WithAddress("a:1", "a:2"),
 		WithCodec("json"),
 		WithEnableSecure(true),
 		WithTLSConfig(nil),
-		WithOptionContext(context.WithValue(context.Background(), "k", "v")),
+		WithOptionContext(context.WithValue(context.Background(), optCtxKey{}, "v")),
 		WithSubscriberMiddlewares(func(Handler) Handler { return nil }),
 		WithPublishMiddlewares(func(PublishHandler) PublishHandler { return nil }),
 	)
-	if len(opts.Addrs) != 2 || !opts.Secure || opts.Context.Value("k") != "v" {
+	if len(opts.Addrs) != 2 || !opts.Secure || opts.Context.Value(optCtxKey{}) != "v" {
 		t.Fatalf("options mismatch: addrs=%v secure=%v ctx=%v", opts.Addrs, opts.Secure, opts.Context)
 	}
 	if len(opts.SubscriberMiddlewares) != 1 || len(opts.PublishMiddlewares) != 1 {
