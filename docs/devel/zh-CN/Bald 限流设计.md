@@ -24,7 +24,7 @@
 2. **算法可插拔且互不感知**。换算法只改构造那一行，调用点不动；`tokenbucket` 不知道 `bbr` 存在，`bbr` 也不 import 任何限流库。
 3. **「需要释放」是类型能表达的事**。并发型限流器不会假装成普通 `Limiter`——它多实现一个 `InflightLimiter`，调用方一次类型断言就能发现「这个限流器必须成对调用」。基础 `Limiter` 上不留一个多数实现为空的 `Done()`。
 
-需要先说清现状：两段契约都有正式消费者，而且**启动时真有人读它们**。`bundle.FromMiddleware` 把 `server.http.middleware.rate_limit` 翻译成 `bundle.RateLimit`，`bundle.Gin()`、`bundle.GRPCInterceptors()` 与 `bundle.GRPCStreamInterceptors()` 共用同一个 limiter 实例；gRPC 侧另有自己的段，`bundle.FromGRPCMiddleware` 把 `server.grpc.middleware.rate_limit` 翻译成 `bundle.GRPCRateLimit`，只喂 gRPC 两面。读段的时机由 `appkit.WithHTTPContract` / `appkit.WithGRPCOptionsContract` 固化成装配环节（`pkg/appkit/contract_faces.go`），`bald gen app` 出的脚手架在 seeded 文件里调这两座桥——手写装配的工程仍可显式调桥，或自己构造 `ginmw.NewRateLimit` 注入 Option。端到端判据：`_example/bald/internal/bootstrap/middleware_e2e_test.go` 从契约 YAML 断到 `429` 与 `RESOURCE_EXHAUSTED`（`Reason=RATE_LIMITED` 跨 gRPC 边界还原）。
+需要先说清现状：两段契约都有正式消费者，而且**启动时真有人读它们**。`bundle.FromMiddleware` 把 `server.http.middleware.rate_limit` 翻译成 `bundle.RateLimit`，`bundle.Gin()`、`bundle.GRPCInterceptors()` 与 `bundle.GRPCStreamInterceptors()` 共用同一个 limiter 实例；gRPC 侧另有自己的段，`bundle.FromGRPCMiddleware` 把 `server.grpc.middleware.rate_limit` 翻译成 `bundle.GRPCRateLimit`，只喂 gRPC 两面。读段的时机由 `appkit.WithHTTPContract` / `appkit.WithGRPCOptionsContract` 固化成装配环节（`pkg/appkit/contract_faces.go`），`bald gen app` 出的脚手架在 seeded 文件里调这两座桥——手写装配的工程仍可显式调桥，或自己构造 tokenbucket（`tokenbucket.New(rate, burst)`）注入 `bundle.RateLimit(l, wait)`——方案 S 批次 4 后限流是统一件形态（`ratelimit.Limiter` + `wait`），协议耦合包装器已物理移除。端到端判据：`_example/bald/internal/bootstrap/middleware_e2e_test.go` 从契约 YAML 断到 `429` 与 `RESOURCE_EXHAUSTED`（`Reason=RATE_LIMITED` 跨 gRPC 边界还原）。
 
 ## 背景与动机
 
@@ -302,7 +302,7 @@ type InflightLimiter interface {
 
 ### 3. 调用点：框架链内置 `tokenbucket`，另两个留给业务
 
-`ratelimit`（契约）由 `pkg/middleware/{gin,grpc}` 与 `pkg/middleware/bundle` require；`tokenbucket` 是配置驱动那一层的内置实现（`ginmw.NewRateLimit` 直接构造）。`bbr`/`sentinel` 仍无框架消费者，属业务自持实现——框架链不替业务选算法。
+`ratelimit`（契约）由 `pkg/middleware/{gin,grpc}` 与 `pkg/middleware/bundle` require；`tokenbucket` 是配置驱动那一层的内置实现（`bundle.newRateLimiter` 直接构造；批次 4 前经 `ginmw.NewRateLimit` 包装）。`bbr`/`sentinel` 仍无框架消费者，属业务自持实现——框架链不替业务选算法。
 
 `wait` 字段的映射已定，且两侧一致：`wait=false`（默认口径）走 `Allow()`，超限立即以 429 / `RESOURCE_EXHAUSTED` 拒绝；`wait=true` 走 `Wait(ctx)`，排队到令牌可用，ctx 取消同样按限流结束。两条路径都不需要业务改构造。
 
@@ -343,11 +343,11 @@ gRPC:  Error → Recovery → RequestID → Observability → Authn → Audit �
 - 挂在认证之后，是因为限流要看得见 subject——为「按主体配额」留位；顺带保证被拒的多是已认证的有配额主体，`403` 与 `429` 不会互相改写。
 - 代价是**认证层自身不受这一层保护**：匿名洪水会先穿过认证、审计、授权才撞到限流，认证开销照付。这是明知取舍，不是疏漏。
 
-没有把默认位置挪到认证之前，理由不是「懒得改」：挪动会让现有部署的语义静默变形——今天按 subject 计的配额（或业务据此预设的配额）一旦搬到认证之前，就只能看到全局流量，等价于把按主体限流悄悄换成全局限流，且没有任何报错。要保护认证层的部署，显式把 `ginmw.RateLimit` / `grpcmw.RateLimitInterceptor` 挂到自己链首即可，两个中间件都不要求认证上下文。
+没有把默认位置挪到认证之前，理由不是「懒得改」：挪动会让现有部署的语义静默变形——今天按 subject 计的配额（或业务据此预设的配额）一旦搬到认证之前，就只能看到全局流量，等价于把按主体限流悄悄换成全局限流，且没有任何报错。要保护认证层的部署，显式把统一限流件（`middleware.RateLimit(l, wait)` 经 `middleware.GinHandler` / `middleware.UnaryServerInterceptor` 桥）挂到自己链首即可，统一件不要求认证上下文。
 
 拒绝的表达按传输各自地道：gin 立即 `429`，gRPC 立即 `RESOURCE_EXHAUSTED` 并带 `Reason=RATE_LIMITED`（经链首 `ErrorInterceptor` 收口，接收端 `grpcerr.FromStatus` 可还原）。两侧都不触达 handler。
 
-**stream 面的计费口径**：`grpcmw.RateLimitStreamInterceptor` 在**每条流建立时**消耗一个令牌，流内后续消息不再扣——所以它挡的是建流洪水，挡不了一条流里狂发。这不是可以靠调小 `burst` 补上的缺口：消息级配额要的是另一套东西（按消息计数/按字节），框架没有，别指望这一层替你管。三点配套：
+**stream 面的计费口径**：统一限流件经 Stream 桥（`middleware.StreamServerInterceptor(middleware.RateLimit(l, wait))`，批次 4 前是 `grpcmw.RateLimitStreamInterceptor`）在**每条流建立时**消耗一个令牌，流内后续消息不再扣——所以它挡的是建流洪水，挡不了一条流里狂发。这不是可以靠调小 `burst` 补上的缺口：消息级配额要的是另一套东西（按消息计数/按字节），框架没有，别指望这一层替你管。三点配套：
 - stream 与 unary **共用同一个桶**，一次 `bundle.RateLimit` 同时给三面供血，不会出现「HTTP 和 gRPC 各扣一份配额」；`wait` 字段同样生效，`wait=true` 时排队用的是**流的 ctx**，客户端断开即退出排队。
 - stream 链上必须有 `ErrorStreamInterceptor` 在最外：`*berrors.Error` 不实现 `GRPCStatus()`，缺这层时拒绝会被 grpc-go 兜底成 `Unknown`（实测客户端收到 `code = Unknown desc = code: 8, reason: RATE_LIMITED`）。
 - `bundle.GRPCStreamInterceptors()` 只产出 `Error → RateLimit`，**认证/授权/审计不在 stream 链上**（本包这三层至今只有 unary 形态）。stream 上的调用因此是匿名的，按 subject 配额在这面无从谈起——这是既有边界，此前 stream 面整条链为空，同样没有认证。

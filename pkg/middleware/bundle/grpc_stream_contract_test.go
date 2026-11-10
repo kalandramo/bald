@@ -51,13 +51,13 @@ func streamChainInvoke(t *testing.T, ics []grpc.StreamServerInterceptor, ss grpc
 // 链上，且 Error 收口层确实在它**外侧**（把 ErrorStreamInterceptor 从链首删掉，
 // 这里立刻退化成 Unknown，调用方看不出自己是「被限流」还是「服务坏了」）。
 func TestGRPCStreamChain_RateLimitRejectIsReadable(t *testing.T) {
-	rl, err := RateLimitFromMiddleware(mwWithRateLimit(0.0001, 2, false))
+	rl, _, err := RateLimitFromMiddleware(mwWithRateLimit(0.0001, 2, false))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = rl.Close() }()
 
-	b := New(Public(), RateLimit(rl))
+	b := New(Public(), RateLimit(rl, false))
 	ics := b.GRPCStreamInterceptors()
 	if len(ics) != 2 {
 		t.Fatalf("stream 链应为 Error+RateLimit 两层，len=%d", len(ics))
@@ -83,13 +83,13 @@ func TestGRPCStreamChain_RateLimitRejectIsReadable(t *testing.T) {
 // unary 用光配额后流建不起来，反之亦然。若实现改成各链各建 limiter，两条断言
 // 都会红。
 func TestGRPCStreamChain_ShareBucketWithUnary(t *testing.T) {
-	rl, err := RateLimitFromMiddleware(mwWithRateLimit(0.0001, 1, false))
+	rl, _, err := RateLimitFromMiddleware(mwWithRateLimit(0.0001, 1, false))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = rl.Close() }()
 
-	b := New(Public(), RateLimit(rl))
+	b := New(Public(), RateLimit(rl, false))
 	info := &grpc.UnaryServerInfo{FullMethod: "/pkg.Svc/Method"}
 
 	// unary 先吃掉唯一的令牌。
@@ -109,12 +109,12 @@ func TestGRPCStreamChain_ShareBucketWithUnary(t *testing.T) {
 	}
 
 	// 反向：新桶里先建一条流，再打 unary 应被拒。
-	rl2, err := RateLimitFromMiddleware(mwWithRateLimit(0.0001, 1, false))
+	rl2, _, err := RateLimitFromMiddleware(mwWithRateLimit(0.0001, 1, false))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = rl2.Close() }()
-	b2 := New(Public(), RateLimit(rl2))
+	b2 := New(Public(), RateLimit(rl2, false))
 	if err := streamChainInvoke(t, b2.GRPCStreamInterceptors(), &fakeStream{ctx: context.Background()},
 		func(grpc.ServerStream) error { return nil }); err != nil {
 		t.Fatalf("首条流应放行: %v", err)
@@ -139,12 +139,12 @@ func TestGRPCChain_StreamOptionAppearsOnlyWithRateLimit(t *testing.T) {
 		t.Fatalf("没给 RateLimit 时不该出 stream 链，len=%d", len(ics))
 	}
 
-	rl, err := RateLimitFromMiddleware(mwWithRateLimit(0.0001, 5, false))
+	rl, _, err := RateLimitFromMiddleware(mwWithRateLimit(0.0001, 5, false))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = rl.Close() }()
-	if got := len(New(Public(), RateLimit(rl)).GRPCChain()); got != 2 {
+	if got := len(New(Public(), RateLimit(rl, false)).GRPCChain()); got != 2 {
 		t.Fatalf("给了 RateLimit 应有 2 个选项（unary + stream），got %d", got)
 	}
 }
@@ -155,13 +155,13 @@ func TestGRPCChain_StreamOptionAppearsOnlyWithRateLimit(t *testing.T) {
 // 这条断言的作用是让「顺手把超时也加进 stream 链」这个改动必须先过一道显式的
 // 决策，而不是作为对称美学被合进来。
 func TestGRPCStreamChain_UnaryTimeoutDoesNotLeakOntoStreams(t *testing.T) {
-	rl, err := RateLimitFromMiddleware(mwWithRateLimit(0.0001, 5, false))
+	rl, _, err := RateLimitFromMiddleware(mwWithRateLimit(0.0001, 5, false))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = rl.Close() }()
 
-	b := New(Public(), RateLimit(rl), Timeout(&ginmw.TimeoutConfig{DefaultTimeoutMs: 20}))
+	b := New(Public(), RateLimit(rl, false), Timeout(&ginmw.TimeoutConfig{DefaultTimeoutMs: 20}))
 
 	// 对照：unary 侧同一对 Option 确实挂了超时层（放行调用可见截止期）。
 	info := &grpc.UnaryServerInfo{FullMethod: "/pkg.Svc/Method"}

@@ -55,13 +55,13 @@ func serveBundleGRPC(t *testing.T, b *Bundle) *grpc.ClientConn {
 // Watch 建立成功，第二条以 RESOURCE_EXHAUSTED 被拒且 handler 从未执行。
 // 这条断的是「选项有没有落到 grpc.NewServer」——unit 面怎么拼链都证明不了这点。
 func TestGRPCChain_StreamRateLimitEndToEnd(t *testing.T) {
-	rl, err := RateLimitFromMiddleware(mwWithRateLimit(0.0001, 1, false))
+	rl, _, err := RateLimitFromMiddleware(mwWithRateLimit(0.0001, 1, false))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = rl.Close() }()
 
-	conn := serveBundleGRPC(t, New(Public(), RateLimit(rl)))
+	conn := serveBundleGRPC(t, New(Public(), RateLimit(rl, false)))
 	client := grpc_health_v1.NewHealthClient(conn)
 
 	firstCtx, firstCancel := context.WithCancel(context.Background())
@@ -97,13 +97,13 @@ func TestGRPCChain_StreamRateLimitEndToEnd(t *testing.T) {
 // TestGRPCChain_UnaryRateLimitEndToEnd 对照：同一份选项在 unary 面上同样生效，
 // 且与流面共用同一个桶（这条把 unary 的 Check 打进已耗尽的桶）。
 func TestGRPCChain_UnaryRateLimitEndToEnd(t *testing.T) {
-	rl, err := RateLimitFromMiddleware(mwWithRateLimit(0.0001, 1, false))
+	rl, _, err := RateLimitFromMiddleware(mwWithRateLimit(0.0001, 1, false))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = rl.Close() }()
 
-	conn := serveBundleGRPC(t, New(Public(), RateLimit(rl)))
+	conn := serveBundleGRPC(t, New(Public(), RateLimit(rl, false)))
 	client := grpc_health_v1.NewHealthClient(conn)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)

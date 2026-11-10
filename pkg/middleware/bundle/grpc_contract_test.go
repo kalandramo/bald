@@ -21,13 +21,13 @@ import (
 // TestGRPCChain_RateLimitEnforced 契约段 → bundle.RateLimit → gRPC 链：突发容量
 // 内放行，其后以 RESOURCE_EXHAUSTED 拒绝且不触达 handler（与 gin 侧 429 同语义）。
 func TestGRPCChain_RateLimitEnforced(t *testing.T) {
-	rl, err := RateLimitFromMiddleware(mwWithRateLimit(0.0001, 2, false))
+	rl, _, err := RateLimitFromMiddleware(mwWithRateLimit(0.0001, 2, false))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = rl.Close() }()
 
-	b := New(Public(), RateLimit(rl))
+	b := New(Public(), RateLimit(rl, false))
 	info := &grpc.UnaryServerInfo{FullMethod: "/pkg.Svc/Method"}
 	var hits int
 	ics := b.GRPCInterceptors()
@@ -63,7 +63,7 @@ func codesName(cs []codes.Code) []string {
 //	limiter 仍能让授权拒绝返回 PERMISSION_DENIED」——若限流挂在授权外侧，这里会变成
 //	RESOURCE_EXHAUSTED，403/429 语义混淆。
 func TestGRPCChain_RateLimitAfterAuthz(t *testing.T) {
-	rl, err := RateLimitFromMiddleware(mwWithRateLimit(0.0001, 1, false))
+	rl, _, err := RateLimitFromMiddleware(mwWithRateLimit(0.0001, 1, false))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,14 +73,14 @@ func TestGRPCChain_RateLimitAfterAuthz(t *testing.T) {
 	info := &grpc.UnaryServerInfo{FullMethod: "/admin.v1.SecretService/GetSecret"}
 
 	// 先把唯一的令牌用掉。
-	bAllow := New(Authn(&stubAuthn{log: log}), Authz(&stubAuthz{log: log, allow: true}), RateLimit(rl))
+	bAllow := New(Authn(&stubAuthn{log: log}), Authz(&stubAuthz{log: log, allow: true}), RateLimit(rl, false))
 	if _, err := chainInvoke(bAllow.GRPCInterceptors(), info,
 		func(context.Context, any) (any, error) { return "ok", nil }, authedCtx(), nil); err != nil {
 		t.Fatalf("首个调用应放行: %v", err)
 	}
 
 	// 配额已空，但授权拒绝必须先到（= 被拒请求不消耗限流令牌）。
-	bDeny := New(Authn(&stubAuthn{log: log}), Authz(&stubAuthz{log: log, allow: false}), RateLimit(rl))
+	bDeny := New(Authn(&stubAuthn{log: log}), Authz(&stubAuthz{log: log, allow: false}), RateLimit(rl, false))
 	_, err = chainInvoke(bDeny.GRPCInterceptors(), info,
 		func(context.Context, any) (any, error) {
 			t.Error("授权拒绝后不应执行 handler")
@@ -129,7 +129,7 @@ func TestGRPCChain_TimeoutGivesHandlerDeadline(t *testing.T) {
 // （零开销省略，与既有部署二进制兼容）。
 func TestGRPCChain_ZeroOverheadWithoutOptions(t *testing.T) {
 	base := len(New(Public()).GRPCInterceptors())
-	b := New(Public(), RateLimit(nil), Timeout(nil))
+	b := New(Public(), RateLimit(nil, false), Timeout(nil))
 	if got := len(b.GRPCInterceptors()); got != base {
 		t.Fatalf("未配置时限流/超时层不应入链：%d vs 基线 %d", got, base)
 	}
@@ -142,8 +142,8 @@ func TestGRPCChain_TimeoutNonPositiveIsOmitted(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	b := New(Public(), Timeout(&ginmw.TimeoutConfig{DefaultTimeoutMs: 0}))
 
-	if got := len(b.GRPCInterceptors()); got != 4 {
-		t.Fatalf("gRPC 链应省略非正超时层，len=%d want 4", got)
+	if got := len(b.GRPCInterceptors()); got != 2 {
+		t.Fatalf("gRPC 链应省略非正超时层，len=%d want 2", got)
 	}
 
 	r := gin.New()
@@ -160,15 +160,15 @@ func TestGRPCChain_TimeoutNonPositiveIsOmitted(t *testing.T) {
 // 判据用可观察行为：限流拒绝的请求不进入超时层派生的 ctx（无 deadline），
 // 放行的请求才拿到截止期。
 func TestGRPCChain_BothLayersPresent(t *testing.T) {
-	rl, err := RateLimitFromMiddleware(mwWithRateLimit(0.0001, 1, false))
+	rl, _, err := RateLimitFromMiddleware(mwWithRateLimit(0.0001, 1, false))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = rl.Close() }()
 
-	b := New(Public(), RateLimit(rl), Timeout(&ginmw.TimeoutConfig{DefaultTimeoutMs: 40}))
-	if got, want := len(b.GRPCInterceptors()), 6; got != want {
-		t.Fatalf("len=%d want %d（基线 4 + 限流 + 超时）", got, want)
+	b := New(Public(), RateLimit(rl, false), Timeout(&ginmw.TimeoutConfig{DefaultTimeoutMs: 40}))
+	if got, want := len(b.GRPCInterceptors()), 3; got != want {
+		t.Fatalf("len=%d want %d（Error + 统一件面段桥（含限流）+ 超时桥；未给熔断层）", got, want)
 	}
 
 	info := &grpc.UnaryServerInfo{FullMethod: "/pkg.Svc/Method"}

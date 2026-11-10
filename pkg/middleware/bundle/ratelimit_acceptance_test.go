@@ -22,7 +22,7 @@ import (
 // 本测试刻意从**配置文本**出发（而非直接构造 proto 结构体），走完整链路：
 //
 //	JSON 配置 ──protojson.Unmarshal──▶ Server_Http_Middleware
-//	          ──RateLimitFromMiddleware──▶ *ginmw.RateLimiter
+//	          ──RateLimitFromMiddleware──▶ (ratelimit.Limiter, wait)
 //	          ──bundle.RateLimit──▶ bundle ──.Gin()──▶ 真实 gin 引擎 + httptest
 //
 // 断言的是 HTTP 层的可观察结果（状态码分布 + handler 命中数守恒），
@@ -46,7 +46,7 @@ func TestAcceptance_ConfigDrivenRateLimitEnforced(t *testing.T) {
 	}
 
 	// 2) 契约段 → limiter（框架桥）。
-	rl, err := RateLimitFromMiddleware(mw)
+	rl, wait, err := RateLimitFromMiddleware(mw)
 	if err != nil {
 		t.Fatalf("RateLimitFromMiddleware: %v", err)
 	}
@@ -54,7 +54,7 @@ func TestAcceptance_ConfigDrivenRateLimitEnforced(t *testing.T) {
 
 	// 3) limiter → bundle → gin 链。
 	var hits int64
-	b := New(RateLimit(rl))
+	b := New(RateLimit(rl, wait))
 	r := gf.New()
 	r.Use(b.Gin()...)
 	r.GET("/api/x", func(c *gf.Context) {

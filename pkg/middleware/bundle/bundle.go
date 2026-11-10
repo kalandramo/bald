@@ -1,8 +1,8 @@
 // Package bundle 是横切关注点门面（见 docs/devel/zh-CN/Bald 中间件设计.md）。
 //
-// 解决的问题：pkg/middleware/{gin,grpc} 的中间件/拦截器若散装手挂，
-// 正确链序（Error 最外、Authn→Audit→Authz）只活在文档与纪律里，是最大的
-// 「隐性知识税」。Bundle 一次构造、双传输产出、链序由框架固化：
+// 解决的问题：双传输的横切件若散装手挂，正确链序（Error 最外、Authn→Audit→Authz）
+// 只活在文档与纪律里，是最大的「隐性知识税」。Bundle 一次构造、双传输产出、
+// 链序由框架固化：
 //
 //	b := bundle.New(
 //	    bundle.Authn(authenticator),   // 依赖实例经构造器注入（全局 audit 兜底已删除）
@@ -21,6 +21,18 @@
 //     Authn → Audit → Authz → RateLimit → CircuitBreaker → Timeout
 //   - gRPC（slice 序即外→内）：Error → Recovery → RequestID → Observability →
 //     Authn → Audit → Authz → RateLimit → CircuitBreaker → Timeout
+//
+// 件来源（方案 S 批次 4 物理移除后，面段不再有第二份协议耦合实现）：
+//   - **统一件**（middleware.Recovery/RequestID/Timeout/Authn/Audit/Authz/
+//     RateLimit/Observability——一份实现经两座桥同时服务双协议）：RequestID、
+//     Authn/Audit/Authz、RateLimit、gRPC 面的 Recovery/Timeout、限流。
+//   - **HTTP 专属语义件**（留守 ginmw，统一链刻意不收——语义只对 HTTP 有意义，
+//     见 transport 卡 r05）：Recovery（响应体带栈）、Timeout（goroutine 硬切断
+//     + 503，与统一件的 ctx-deadline 语义不同，绝不静默合并）、Tracing（span-only）、
+//     CORS/Secure（浏览器面）。Observability 壳是统一件经桥的 Option 翻译层。
+//   - **gRPC 留守**：Error 拦截器（业务 handler 的 *berrors.Error → status 收口
+//     ——统一桥只收口统一链自己的错误，业务 handler 在桥外）、CircuitBreaker
+//     （统一链无对应件，入站熔断待评估）。
 //
 // 两条链的 RateLimit/CircuitBreaker/Timeout 由同一组 Option 驱动（零开销省略），
 // 面不对称已经收口；gRPC 面另有 GRPCRateLimit/GRPCCircuitBreaker/GRPCTimeout
@@ -55,6 +67,7 @@ import (
 	"github.com/kalandramo/bald/pkg/middleware"
 	ginmw "github.com/kalandramo/bald/pkg/middleware/gin"
 	grpcmw "github.com/kalandramo/bald/pkg/middleware/grpc"
+	"github.com/kalandramo/bald/ratelimit"
 )
 
 // Bundle 是双传输横切关注点门面。构造后只读，可安全共享。
@@ -77,26 +90,27 @@ type Bundle struct {
 	corsCfg *ginmw.CORSConfig
 	secure  bool
 
-	// 契约中间件段的配置化覆盖（零值 = 用既有默认，见 Gin()）。
+	// 契约中间件段的配置化覆盖（零值 = 用既有默认，见 Gin()）。Recovery/Timeout
+	// 是 HTTP 专属语义件留守 ginmw；RequestID/Logging 已换统一件（方案 S 批次 4
+	// 物理移除——gin 面第二份协议耦合实现退场）。
 	recoveryCfg ginmw.RecoveryConfig
-	requestID   ginmw.RequestIDConfig
-	loggingCfg  ginmw.LoggingConfig
+	requestID   middleware.RequestIDConfig
+	loggingSkip []string
 	timeoutCfg  *ginmw.TimeoutConfig
 
 	// tracing 为 true 时挂 span-only 追踪层（契约 tracing 段存在即启用）。
 	tracing bool
 
-	// rateLimiter 是配置驱动的限流层，gin 与 gRPC 共用同一个 limiter
-	// （gRPC 侧经 Limiter() 取底层实例，见 GRPCInterceptors）。契约
-	// server.http.middleware.rate_limit 经 RateLimitFromMiddleware 构造后由
-	// RateLimit 注入；nil 表示两条链都不启用。
-	rateLimiter *ginmw.RateLimiter
+	// rateLimiter 是配置驱动的限流层（统一件形态：limiter + wait 二元组），gin
+	// 与 gRPC 共用同一份。契约 server.http.middleware.rate_limit 经
+	// RateLimitFromMiddleware 构造后由 RateLimit 注入；nil 表示两条链都不启用。
+	rateLimiter *rateLimiterEntry
 
 	// grpcRateLimiter / grpcTimeout 只作用于 gRPC 两面（契约
 	// server.grpc.middleware 的同名段经 FromGRPCMiddleware 注入）。非 nil /
 	// >0 时**替换** gRPC 面上 rateLimiter / timeoutCfg 的位置，gin 面不受影响。
 	// 见 [Bundle.grpcLimiter] / [Bundle.grpcBudget]。
-	grpcRateLimiter *ginmw.RateLimiter
+	grpcRateLimiter *rateLimiterEntry
 	grpcTimeout     time.Duration
 
 	// circuitBreaker 是配置驱动的熔断层。与 rateLimiter 同款「一面给全部」：
@@ -123,6 +137,13 @@ type Bundle struct {
 
 // Option 配置 Bundle。
 type Option func(*Bundle)
+
+// rateLimiterEntry 是统一件形态的限流层（limiter + wait 二元组）——统一件
+// middleware.RateLimit(l, wait) 吃两个独立参数，bundle 以此结构携带。
+type rateLimiterEntry struct {
+	limiter ratelimit.Limiter
+	wait    bool
+}
 
 // Authn 注入认证器（Authenticator）。不设置则 gin/gRPC 链中无认证层（等同公开服务）。
 func Authn(a authn.Authenticator) Option { return func(b *Bundle) { b.authenticator = a } }
@@ -159,23 +180,30 @@ func CORS(cfg *ginmw.CORSConfig) Option { return func(b *Bundle) { b.corsCfg = c
 // Secure 附加 gin 安全响应头中间件（gRPC 链无对应层）。
 func Secure() Option { return func(b *Bundle) { b.secure = true } }
 
-// RateLimit 附加配置驱动的限流层（gin 与 gRPC 共用同一个 limiter）。rl 通常来自
-// [RateLimitFromMiddleware]（契约 server.http.middleware.rate_limit → 中间件）。
-// 传 nil 等同不设置（与 CORS 惯例一致：缺省不装配）。
+// RateLimit 附加配置驱动的限流层（统一件形态，gin 与 gRPC 共用同一份）。l 通常
+// 来自 [RateLimitFromMiddleware]（契约 server.http.middleware.rate_limit → 中间件）。
+// l 为 nil 等同不设置（与 CORS 惯例一致：缺省不装配）。
 //
 // 链序：限流挂在业务 handler 之前、认证/授权之后（见 Gin 的链序说明）——
 // 先认证再限流，避免匿名流量耗尽配额拖垮已认证用户。gRPC 链同序。
 //
-// 生命周期：Bundle 不持有 rl 的关闭职责（与 CORS 同）——调用方在停机时
-// 调 rl.Close()（RateLimiter.Close 幂等）。
+// 生命周期：Bundle 不持有 l 的关闭职责（与 CORS 同）——调用方在停机时
+// 调 l.Close()（Limiter.Close 幂等）。
 //
 // 与 [GRPCRateLimit] 的关系：本 Option 是「一面给全部」——不另给 GRPCRateLimit
 // 时，gRPC 的 unary 与 stream 都从同一个桶扣配额。
-func RateLimit(rl *ginmw.RateLimiter) Option { return func(b *Bundle) { b.rateLimiter = rl } }
+func RateLimit(l ratelimit.Limiter, wait bool) Option {
+	return func(b *Bundle) {
+		if l == nil {
+			return
+		}
+		b.rateLimiter = &rateLimiterEntry{limiter: l, wait: wait}
+	}
+}
 
-// GRPCRateLimit 附加**只作用于 gRPC**（unary + stream 两面）的限流层。rl 通常
+// GRPCRateLimit 附加**只作用于 gRPC**（unary + stream 两面）的限流层。l 通常
 // 来自 [GRPCRateLimitFromMiddleware]（契约 server.grpc.middleware.rate_limit）。
-// 传 nil 等同不设置。
+// l 为 nil 等同不设置。
 //
 // 为什么要有它：契约的 rate_limit 段原本只有 server.http 下有，「给 gRPC 配
 // 限流」只能靠代码注入，而 gRPC 与 HTTP 的流量形状本就不同（一条长流 vs 一次
@@ -189,8 +217,13 @@ func RateLimit(rl *ginmw.RateLimiter) Option { return func(b *Bundle) { b.rateLi
 //     RateLimit，两个桶互不影响。不存在「后写的 Option 静默盖掉前一个」。
 //
 // stream 面的计费口径（每条流建立扣一个令牌）见 [Bundle.GRPCStreamInterceptors]。
-func GRPCRateLimit(rl *ginmw.RateLimiter) Option {
-	return func(b *Bundle) { b.grpcRateLimiter = rl }
+func GRPCRateLimit(l ratelimit.Limiter, wait bool) Option {
+	return func(b *Bundle) {
+		if l == nil {
+			return
+		}
+		b.grpcRateLimiter = &rateLimiterEntry{limiter: l, wait: wait}
+	}
 }
 
 // CircuitBreaker 附加配置驱动的熔断层（gin 与 gRPC unary 共用同一个熔断器）。
@@ -239,16 +272,17 @@ func Recovery(cfg ginmw.RecoveryConfig) Option {
 	return func(b *Bundle) { b.recoveryCfg = cfg }
 }
 
-// RequestID 配置请求 ID 层（契约 middleware.request_id 段）。
-// 不设时用默认头名 X-Request-ID。
-func RequestID(cfg ginmw.RequestIDConfig) Option {
+// RequestID 配置请求 ID 层（契约 middleware.request_id 段；统一件形态，双协议
+// 共用同一实现）。不设时用默认头名 X-Request-ID。
+func RequestID(cfg middleware.RequestIDConfig) Option {
 	return func(b *Bundle) { b.requestID = cfg }
 }
 
-// Logging 配置请求日志层（契约 middleware.logging 段，追加跳过路径）。
-// 不设时仅内置跳过表。
-func Logging(cfg ginmw.LoggingConfig) Option {
-	return func(b *Bundle) { b.loggingCfg = cfg }
+// Logging 配置请求日志层（契约 middleware.logging 段，追加跳过路径，支持通配
+// 如 "/health/*"）。不设时仅内置跳过表。跳过匹配经 ginmw.Observability 壳
+// （统一件经桥的 Option 翻译层）。
+func Logging(skipPaths []string) Option {
+	return func(b *Bundle) { b.loggingSkip = skipPaths }
 }
 
 // Timeout 附加请求超时层（契约 middleware.timeout 段；段本身在 server.http 下，
@@ -341,11 +375,10 @@ func (b *Bundle) warnIfUndeclaredAuthn() {
 // 未注入的依赖对应层直接省略（零开销），如未设 Authn 则链中无认证层——但
 // 前提是该姿态已被决定（Authn 或 Public，见 [Bundle.Verify]），否则这里先告警。
 //
-// Deprecated: 旧协议耦合链门面，随统一中间件契约在下一 major 移除（方案 S
-// 批次 4 裁定：bridge 错误闭包与 nil info 约束使旧链无法薄委托，故过渡到
-// major 才物理删除）。请改用统一中间件契约（[WithUnifiedMiddleware] 声明 +
-// middleware.GinHandler 桥接）：横切件写一遍、路由级挂接进契约。本方法保留
-// 一个版本期供血，内部已在链头预置统一段。
+// 面段件来源（方案 S 批次 4 物理移除后）：RequestID/Authn/Audit/Authz/RateLimit
+// 是统一件经 GinHandler 桥（一份实现双协议共用）；Recovery/Tracing/CORS/Secure/
+// CircuitBreaker/Timeout 是 HTTP 专属语义件留守 ginmw（响应体带栈、span-only、
+// 浏览器面、goroutine 硬切断——统一链刻意不收，见 transport 卡 r05）。
 func (b *Bundle) Gin() []gin.HandlerFunc {
 	b.warnIfUndeclaredAuthn()
 	// 统一段（方案 S）：双面链头预置统一链（opt-in，段缺省不挂）。规则错误
@@ -363,12 +396,16 @@ func (b *Bundle) Gin() []gin.HandlerFunc {
 	//   → Authn → Audit → Authz → RateLimit → CircuitBreaker → Timeout
 	// Tracing 在 Logging 之外：若二者并存，logging 起的 span 成为 tracing span 的
 	// child（外层先起的 span 是父）；只追踪不打日志时就只挂 Tracing。
-	chain = append(chain, ginmw.Recovery(b.recoveryCfg), ginmw.RequestIDMiddleware(b.requestID))
+	chain = append(chain, ginmw.Recovery(b.recoveryCfg))
+	chain = append(chain, middleware.GinHandler(middleware.RequestID(b.requestID)))
 	if b.tracing {
 		chain = append(chain, ginmw.Tracing())
 	}
 	if b.logging {
-		chain = append(chain, ginmw.Logging(b.loggingCfg))
+		// 请求日志走统一 Observability（ginmw.Observability 壳 = 统一件经桥的
+		// gin Option 翻译层，含内置健康端点跳过表与通配路径匹配）。
+		chain = append(chain, ginmw.Observability(
+			ginmw.WithSkipMetrics(), ginmw.WithSkipPaths(b.loggingSkip...)))
 	}
 	if b.corsCfg != nil {
 		chain = append(chain, ginmw.CORS(b.corsCfg))
@@ -376,20 +413,13 @@ func (b *Bundle) Gin() []gin.HandlerFunc {
 	if b.secure {
 		chain = append(chain, ginmw.Secure())
 	}
-	if b.authenticator != nil {
-		chain = append(chain, b.ginAuthn())
-	}
-	if b.auditor != nil || b.recorder != nil {
-		chain = append(chain, b.ginAudit())
-	}
-	if b.authorizer != nil {
-		chain = append(chain, b.ginAuthz())
-	}
-	if b.rateLimiter != nil {
-		// 限流在授权之后、超时之前：目标是对「业务操作」限流，且天然可见认证后
-		// 的 subject（为将来按用户限流留位）。代价是它不保护认证/授权层自身——
-		// 若需在认证前限流以保护认证层，业务可自行把 ginmw.RateLimit 挂到链首。
-		chain = append(chain, b.rateLimiter.Handler())
+	// Authn → Audit → Authz → RateLimit 四件统一件组成一段 Chain，经一座桥注入
+	// gin 链（桥复用逻辑保证 Transporter 全链只创建一次）。限流在授权之后、超时
+	// 之前：目标是对「业务操作」限流，且天然可见认证后的 subject（为将来按用户
+	// 限流留位）。代价是它不保护认证/授权层自身——若需在认证前限流以保护认证层，
+	// 业务可自行把统一 RateLimit 挂到链首。
+	if face := b.ginFace(); len(face) > 0 {
+		chain = append(chain, middleware.GinHandler(middleware.Chain(face[0], face[1:]...)))
 	}
 	if b.circuitBreaker != nil {
 		// 限流之内、超时之外：配额先拒（便宜），熔断只判「这次还值不值得真做」；
@@ -405,9 +435,39 @@ func (b *Bundle) Gin() []gin.HandlerFunc {
 	return chain
 }
 
-// grpcLimiter 返回 gRPC 两面实际使用的限流器：[GRPCRateLimit] 优先，否则回落到
+// ginFace 组装 gin 面的统一件段（Authn→Audit→Authz→RateLimit，外→内）。注入了
+// 对应依赖的件才进链（零开销省略）；四件全空返回 nil。
+func (b *Bundle) ginFace() []middleware.Middleware {
+	var face []middleware.Middleware
+	if b.authenticator != nil {
+		var opts []middleware.AuthnOption
+		if b.auditor != nil {
+			opts = append(opts, middleware.AuthnWithAuditor(b.auditor))
+		}
+		face = append(face, middleware.Authn(b.authenticator, opts...))
+	}
+	if b.auditor != nil || b.recorder != nil {
+		face = append(face, b.unifiedAudit(authz.DefaultHTTPObjectFromOperation, authz.DefaultHTTPActionFromOperation))
+	}
+	if b.authorizer != nil {
+		var opts []middleware.AuthzOption
+		if b.normalized {
+			opts = append(opts,
+				middleware.WithObjectResolver(authz.DefaultHTTPObjectFromOperation),
+				middleware.WithActionResolver(authz.DefaultHTTPActionFromOperation),
+			)
+		}
+		face = append(face, middleware.Authz(b.authorizer, opts...))
+	}
+	if b.rateLimiter != nil {
+		face = append(face, middleware.RateLimit(b.rateLimiter.limiter, b.rateLimiter.wait))
+	}
+	return face
+}
+
+// grpcLimiter 返回 gRPC 两面实际使用的限流层：[GRPCRateLimit] 优先，否则回落到
 // [RateLimit]（那时与 gin 同桶）。两者都没给返回 nil = 不挂层。
-func (b *Bundle) grpcLimiter() *ginmw.RateLimiter {
+func (b *Bundle) grpcLimiter() *rateLimiterEntry {
 	if b.grpcRateLimiter != nil {
 		return b.grpcRateLimiter
 	}
@@ -432,30 +492,29 @@ func (b *Bundle) grpcBudget() time.Duration {
 //	Error → Recovery → RequestID → Observability → Authn → Audit → Authz
 //	→ RateLimit → CircuitBreaker → Timeout
 //
-// Recovery 紧随 Error（第二外层）：handler/内层拦截器 panic 被捕获并转为
-// *berrors.Internal，由最外层 Error 收口为 gRPC status（与 gin 链首道
-// Recovery 对称）。
+// 面段件来源（方案 S 批次 4 物理移除后）：Recovery/RequestID/Observability 之外
+// 的 Authn/Audit/Authz/RateLimit/Timeout 是统一件经 UnaryServerInterceptor 桥
+// （一份实现双协议共用）；Error（业务 handler 的 *berrors.Error → status 收口）
+// 与 CircuitBreaker（统一链无对应件）留守 grpcmw。
+//
+// Recovery 面段第一件（经桥后第二外层）：handler/内层拦截器 panic 被捕获并转为
+// *berrors.Internal，由最外层 Error 收口为 gRPC status（与 gin 链首道 Recovery
+// 对称——gin 面的 Recovery 是 HTTP 专属语义件留守，gRPC 面统一件语义等价）。
 //
 // RateLimit/CircuitBreaker/Timeout 与 gin 侧同序：都只在对应 Option 给了之后才挂
 // （零开销省略），限流在授权之后、超时在最内层，熔断夹在两者之间。默认两面同源
 // （同一个 limiter、同一个熔断器、同一份 default_timeout_ms），给了
 // GRPCRateLimit/GRPCCircuitBreaker/GRPCTimeout 则 gRPC 用自己的那份。
-// 两面的语义差别：gin 的 Timeout 会硬性提前返回 503，gRPC 的只给 handler 一个
-// 会到期的 ctx（见 grpcmw.TimeoutInterceptor）；gin 的拒绝是 429 / 503，gRPC 的
-// 是 RESOURCE_EXHAUSTED / UNAVAILABLE；gin 的熔断按响应码 >=500 判失败，gRPC 的
-// 按 status code 集合判（见 grpcmw.IsFailureStatus）。
+// 两面的语义差别：gin 的 Timeout 会硬性提前返回 503（HTTP 专属语义件留守），
+// gRPC 的统一 Timeout 只给 handler 一个会到期的 ctx；gin 的拒绝是 429 / 503，
+// gRPC 的是 RESOURCE_EXHAUSTED / UNAVAILABLE；gin 的熔断按响应码 >=500 判失败，
+// gRPC 的按 status code 集合判（见 grpcmw.IsFailureStatus）。
 //
 // 需自行组装 *grpc.Server 时用：
 //
 //	grpc.NewServer(grpc.ChainUnaryInterceptor(b.GRPCInterceptors()...))
 //
 // 与 Gin 一样：认证姿态未决定（既无 Authn 也未 Public）时先告警再出链。
-//
-// Deprecated: 旧协议耦合链门面，随统一中间件契约在下一 major 移除（方案 S
-// 批次 4 裁定：bridge 错误闭包与 nil info 约束使旧链无法薄委托，故过渡到
-// major 才物理删除）。请改用统一中间件契约（[WithUnifiedMiddleware] 声明 +
-// middleware.UnaryServerInterceptor 桥接）：横切件写一遍、路由级挂接进契约。
-// 本方法保留一个版本期供血，内部已在链头预置统一段。
 func (b *Bundle) GRPCInterceptors() []grpc.UnaryServerInterceptor {
 	b.warnIfUndeclaredAuthn()
 	// 统一段（方案 S）：双面链头预置统一链（opt-in，段缺省不挂）。
@@ -467,27 +526,11 @@ func (b *Bundle) GRPCInterceptors() []grpc.UnaryServerInterceptor {
 	if err != nil {
 		panic(err)
 	}
-	chain = append(chain, grpcmw.ErrorInterceptor())    // 必须最外层
-	chain = append(chain, grpcmw.RecoveryInterceptor()) // 第二外层：panic 兜底
-	chain = append(chain, grpcmw.RequestIDInterceptor())
-	if b.logging {
-		chain = append(chain, grpcmw.UnaryObservability())
-	}
-	if b.authenticator != nil {
-		chain = append(chain, b.grpcAuthn())
-	}
-	if b.auditor != nil || b.recorder != nil {
-		chain = append(chain, b.grpcAudit())
-	}
-	if b.authorizer != nil {
-		chain = append(chain, b.grpcAuthz())
-	}
-	if rl := b.grpcLimiter(); rl != nil {
-		// 与 gin 同序：授权之后、超时之前。默认与 gin 共用同一个 limiter
-		// （gin 侧的 RateLimiter 把底层 limiter 经 Limiter() 暴露出来），
-		// 给了 GRPCRateLimit 才换成 gRPC 自己的桶。
-		chain = append(chain, grpcmw.RateLimitInterceptor(rl.Limiter(), rl.Wait()))
-	}
+	chain = append(chain, grpcmw.ErrorInterceptor()) // 必须最外层
+	// 面段统一件（Recovery→RequestID→Observability→Authn→Audit→Authz→RateLimit）
+	// 组成一段 Chain，经一座桥注入（Transporter 复用：桥只在链头创建）。
+	face := b.grpcFace()
+	chain = append(chain, middleware.UnaryServerInterceptor(middleware.Chain(face[0], face[1:]...)))
 	if br := b.grpcBreaker(); br != nil {
 		// 与 gin 同序：限流之后、超时之前。默认与 gin 共用同一个熔断器
 		// （给了 GRPCCircuitBreaker 才换成 gRPC 自己的实例）。失败口径由
@@ -497,12 +540,50 @@ func (b *Bundle) GRPCInterceptors() []grpc.UnaryServerInterceptor {
 		chain = append(chain, grpcmw.CircuitBreakerInterceptor(br.Breaker()))
 	}
 	if d := b.grpcBudget(); d > 0 {
-		// 最内层。gRPC 侧的超时只约束 handler 可见的 ctx（不硬中断响应），
-		// 与 gin 的 Timeout 语义差别写在 grpcmw.TimeoutInterceptor 的注释里。
-		// StatusCode 是 HTTP 专属字段，这里无从落地——gRPC 用 status code。
-		chain = append(chain, grpcmw.TimeoutInterceptor(d))
+		// 最内层。统一 Timeout 只约束 handler 可见的 ctx（不硬中断响应），
+		// 与 gin 的 Timeout（HTTP 专属语义件）语义差别见包注释。
+		chain = append(chain, middleware.UnaryServerInterceptor(middleware.Timeout(d)))
 	}
 	return chain
+}
+
+// grpcFace 组装 gRPC unary 面的统一件段（Recovery→RequestID→Observability→
+// Authn→Audit→Authz→RateLimit，外→内）。Recovery/RequestID 无条件挂（既有默认
+// 链序），其余按注入的依赖零开销省略。
+func (b *Bundle) grpcFace() []middleware.Middleware {
+	face := []middleware.Middleware{
+		middleware.Recovery(),
+		middleware.RequestID(b.requestID),
+	}
+	if b.logging {
+		face = append(face, b.grpcObservability())
+	}
+	if b.authenticator != nil {
+		var opts []middleware.AuthnOption
+		if b.auditor != nil {
+			opts = append(opts, middleware.AuthnWithAuditor(b.auditor))
+		}
+		face = append(face, middleware.Authn(b.authenticator, opts...))
+	}
+	if b.auditor != nil || b.recorder != nil {
+		face = append(face, b.unifiedAudit(authz.DefaultGRPCObject, authz.DefaultGRPCAction))
+	}
+	if b.authorizer != nil {
+		var opts []middleware.AuthzOption
+		if b.normalized {
+			opts = append(opts,
+				middleware.WithObjectResolver(authz.DefaultGRPCObject),
+				middleware.WithActionResolver(authz.DefaultGRPCAction),
+			)
+		}
+		face = append(face, middleware.Authz(b.authorizer, opts...))
+	}
+	if rl := b.grpcLimiter(); rl != nil {
+		// 与 gin 同序：授权之后、超时之前。默认与 gin 共用同一份限流层，
+		// 给了 GRPCRateLimit 才换成 gRPC 自己的桶。
+		face = append(face, middleware.RateLimit(rl.limiter, rl.wait))
+	}
+	return face
 }
 
 // grpcBreaker 返回 gRPC unary 实际使用的熔断器：[GRPCCircuitBreaker] 优先，
@@ -546,10 +627,6 @@ func (b *Bundle) grpcBreaker() *ginmw.CircuitBreaker {
 //
 // 返回空 slice 表示没有任何 stream 层需要挂，[Bundle.GRPCChain] 据此省略
 // ChainStreamInterceptor 这个 ServerOption，保持零配置时的选项数不变。
-//
-// Deprecated: 旧协议耦合链门面，随统一中间件契约在下一 major 移除。请改用
-// 统一中间件契约（[WithUnifiedMiddleware] 声明 + middleware.StreamServerInterceptor
-// 桥接）。本方法保留一个版本期供血，内部已在链头预置统一段。
 func (b *Bundle) GRPCStreamInterceptors() []grpc.StreamServerInterceptor {
 	// 统一段（方案 S）：流面链头也预置统一链（opt-in）——流上的 recovery/
 	// request_id 等经 wrapped stream ctx 生效；rate_limit 按「建流一次」计费。
@@ -566,7 +643,9 @@ func (b *Bundle) GRPCStreamInterceptors() []grpc.StreamServerInterceptor {
 	if rl != nil {
 		chain = append(chain,
 			grpcmw.ErrorStreamInterceptor(), // 必须最外层：收口内层产生的 *berrors.Error
-			grpcmw.RateLimitStreamInterceptor(rl.Limiter(), rl.Wait()),
+			// 限流统一件经 Stream 桥：next 在建流时只调一次，「建流一次」计费
+			// 自然成立（批次 4 前是 grpcmw.RateLimitStreamInterceptor 协议耦合实现）。
+			middleware.StreamServerInterceptor(middleware.RateLimit(rl.limiter, rl.wait)),
 		)
 	}
 	return chain
@@ -586,87 +665,33 @@ func (b *Bundle) GRPCChain() []grpc.ServerOption {
 	return opts
 }
 
-// ginAuthn 组装 gin 认证中间件：把 bundle 的 auditor 注入 authn 层——审计中间件
-// 注册在 Authn 内侧，认证失败 abort 后不再执行，authn abort 路径的审计事件由
-// authn 层显式发出（与请求审计同一后端）。
-func (b *Bundle) ginAuthn() gin.HandlerFunc {
-	var opts []ginmw.AuthnOption
-	if b.auditor != nil {
-		opts = append(opts, ginmw.AuthnWithAuditor(b.auditor))
-	}
-	return ginmw.AuthnMiddleware(b.authenticator, opts...)
-}
-
-// grpcAuthn 组装 gRPC 认证拦截器（auditor 注入语义同 ginAuthn）。
-func (b *Bundle) grpcAuthn() grpc.UnaryServerInterceptor {
-	var opts []grpcmw.AuthnOption
-	if b.auditor != nil {
-		opts = append(opts, grpcmw.AuthnWithAuditor(b.auditor))
-	}
-	return grpcmw.AuthnInterceptor(b.authenticator, opts...)
-}
-
-// ginAuthz 组装 gin 授权中间件（按需注入归一化 resolver）。
-func (b *Bundle) ginAuthz() gin.HandlerFunc {
-	var opts []ginmw.AuthzOption
+// unifiedAudit 组装统一审计件（双面共用同一构造，对象/动作 resolver 按面传入）。
+// auditor 未注入时显式接 NopAuditor（Bundle 语义是完全显式注入，不依赖任何全局
+// 审计句柄，避免测试间全局污染）。
+func (b *Bundle) unifiedAudit(obj authz.ObjectResolver, act authz.ActionResolver) middleware.Middleware {
+	var opts []middleware.AuditOption
 	if b.normalized {
 		opts = append(opts,
-			ginmw.WithObjectResolver(authz.DefaultHTTPObject),
-			ginmw.WithActionResolver(authz.DefaultHTTPAction),
-		)
-	}
-	return ginmw.AuthzMiddleware(b.authorizer, opts...)
-}
-
-// ginAudit 组装 gin 审计中间件。auditor 未注入时显式接 NopAuditor（Bundle
-// 语义是完全显式注入，不依赖任何全局审计句柄，避免测试间全局污染）。
-func (b *Bundle) ginAudit() gin.HandlerFunc {
-	var opts []ginmw.AuditOption
-	if b.normalized {
-		opts = append(opts,
-			ginmw.AuditWithObjectResolver(authz.DefaultHTTPObject),
-			ginmw.AuditWithActionResolver(authz.DefaultHTTPAction),
+			middleware.AuditWithObjectResolver(obj),
+			middleware.AuditWithActionResolver(act),
 		)
 	}
 	if b.auditor != nil {
-		opts = append(opts, ginmw.AuditWithAuditor(b.auditor))
+		opts = append(opts, middleware.AuditWithAuditor(b.auditor))
 	} else {
-		opts = append(opts, ginmw.AuditWithAuditor(audit.NopAuditor()))
+		opts = append(opts, middleware.AuditWithAuditor(audit.NopAuditor()))
 	}
 	if b.recorder != nil {
-		opts = append(opts, ginmw.AuditWithMetrics(b.recorder))
+		opts = append(opts, middleware.AuditWithMetrics(b.recorder))
 	}
-	return ginmw.AuditMiddleware(opts...)
+	return middleware.Audit(opts...)
 }
 
-// grpcAuthz 组装 gRPC 授权拦截器（按需注入归一化 resolver）。
-func (b *Bundle) grpcAuthz() grpc.UnaryServerInterceptor {
-	var opts []grpcmw.AuthzOption
-	if b.normalized {
-		opts = append(opts,
-			grpcmw.WithObjectResolver(authz.DefaultGRPCObject),
-			grpcmw.WithActionResolver(authz.DefaultGRPCAction),
-		)
-	}
-	return grpcmw.AuthzInterceptor(b.authorizer, opts...)
-}
-
-// grpcAudit 组装 gRPC 审计拦截器。auditor 未注入时显式接 NopAuditor（同 ginAudit）。
-func (b *Bundle) grpcAudit() grpc.UnaryServerInterceptor {
-	var opts []grpcmw.AuditOption
-	if b.normalized {
-		opts = append(opts,
-			grpcmw.AuditWithObjectResolver(authz.DefaultGRPCObject),
-			grpcmw.AuditWithActionResolver(authz.DefaultGRPCAction),
-		)
-	}
-	if b.auditor != nil {
-		opts = append(opts, grpcmw.AuditWithAuditor(b.auditor))
-	} else {
-		opts = append(opts, grpcmw.AuditWithAuditor(audit.NopAuditor()))
-	}
-	if b.recorder != nil {
-		opts = append(opts, grpcmw.AuditWithMetrics(b.recorder))
-	}
-	return grpcmw.AuditInterceptor(opts...)
+// grpcObservability 组装 gRPC 面统一 Observability：默认跳过 /metrics（与
+// grpcmw 壳的 defaultOptions 一致——壳是统一件的 Option 翻译层，bundle 直挂
+// 统一件补上等价 skip；trace 注入默认模式两处同为 InjectTraceIDOnly）。
+func (b *Bundle) grpcObservability() middleware.Middleware {
+	return middleware.Observability(middleware.ObservabilityWithSkip(func(tr middleware.Transporter) bool {
+		return tr.Operation() == "/metrics"
+	}))
 }

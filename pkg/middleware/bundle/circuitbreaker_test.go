@@ -18,6 +18,8 @@ import (
 	"github.com/kalandramo/bald/berrors"
 	"github.com/kalandramo/bald/berrors/grpcerr"
 	ginmw "github.com/kalandramo/bald/pkg/middleware/gin"
+	"github.com/kalandramo/bald/ratelimit"
+	"github.com/kalandramo/bald/ratelimit/tokenbucket"
 )
 
 // ---------------------------------------------------------------------------
@@ -317,16 +319,18 @@ func TestCircuitBreaker_GinChainPosition(t *testing.T) {
 	defer func() { _ = rl.Close() }()
 
 	chain := New(
-		Public(), RateLimit(rl), CircuitBreaker(br),
+		Public(), RateLimit(rl, false), CircuitBreaker(br),
 		Timeout(&ginmw.TimeoutConfig{DefaultTimeoutMs: 1000}),
 	).Gin()
 
-	iRL, iCB, iTO := ginIndex(chain, rl.Handler()), ginIndex(chain, br.Handler()), ginIndexByName(chain, "Timeout")
-	if iRL < 0 || iCB < 0 || iTO < 0 {
-		t.Fatalf("三层都应挂上：rate=%d breaker=%d timeout=%d", iRL, iCB, iTO)
+	// 批次 4 换血后限流居统一件段桥内（GinHandler 闭包），按桥名定位段位——
+	// 桥段在熔断之前即限流层在熔断之前的既有判据。
+	iFace, iCB, iTO := ginIndexByName(chain, "GinHandler"), ginIndex(chain, br.Handler()), ginIndexByName(chain, "Timeout")
+	if iFace < 0 || iCB < 0 || iTO < 0 {
+		t.Fatalf("三层都应挂上：face=%d breaker=%d timeout=%d", iFace, iCB, iTO)
 	}
-	if !(iRL < iCB && iCB < iTO) {
-		t.Errorf("链序应 RateLimit → CircuitBreaker → Timeout，got %d / %d / %d", iRL, iCB, iTO)
+	if !(iFace < iCB && iCB < iTO) {
+		t.Errorf("链序应 统一件段(含限流) → CircuitBreaker → Timeout，got %d / %d / %d", iFace, iCB, iTO)
 	}
 }
 
@@ -338,17 +342,17 @@ func TestCircuitBreaker_GRPCChainPosition(t *testing.T) {
 	defer func() { _ = rl.Close() }()
 
 	chain := New(
-		Public(), RateLimit(rl), CircuitBreaker(br), GRPCTimeout(time.Second),
+		Public(), RateLimit(rl, false), CircuitBreaker(br), GRPCTimeout(time.Second),
 	).GRPCInterceptors()
 
-	iRL := grpcIndexByName(chain, "RateLimitInterceptor")
-	iCB := grpcIndexByName(chain, "CircuitBreakerInterceptor")
-	iTO := grpcIndexByName(chain, "TimeoutInterceptor")
-	if iRL < 0 || iCB < 0 || iTO < 0 {
-		t.Fatalf("三层都应挂上：rate=%d breaker=%d timeout=%d", iRL, iCB, iTO)
+	// 批次 4 换血后 face 桥（含限流）与 Timeout 桥同为 UnaryServerInterceptor
+	// 闭包——前者在前、后者在后，夹住留守的熔断拦截器，既有判据保序。
+	iFace, iCB, iTO := grpcIndexByName(chain, "UnaryServerInterceptor"), grpcIndexByName(chain, "CircuitBreakerInterceptor"), grpcLastIndexByName(chain, "UnaryServerInterceptor")
+	if iFace < 0 || iCB < 0 || iTO < 0 {
+		t.Fatalf("三层都应挂上：face=%d breaker=%d timeout=%d", iFace, iCB, iTO)
 	}
-	if !(iRL < iCB && iCB < iTO) {
-		t.Errorf("链序应 RateLimit → CircuitBreaker → Timeout，got %d / %d / %d", iRL, iCB, iTO)
+	if !(iFace < iCB && iCB < iTO) {
+		t.Errorf("链序应 统一件段(含限流) → CircuitBreaker → Timeout，got %d / %d / %d", iFace, iCB, iTO)
 	}
 }
 
@@ -363,7 +367,7 @@ func TestGRPCCircuitBreaker_NotOnStreamChain(t *testing.T) {
 	}
 	rl := mustRateLimiter(t)
 	defer func() { _ = rl.Close() }()
-	stream := New(CircuitBreaker(br), RateLimit(rl), Public()).GRPCStreamInterceptors()
+	stream := New(CircuitBreaker(br), RateLimit(rl, false), Public()).GRPCStreamInterceptors()
 	for _, f := range stream {
 		if name := funcTag(f); strings.Contains(name, "CircuitBreaker") {
 			t.Error("熔断不该出现在 stream 链上")
@@ -469,13 +473,13 @@ func mustBreaker(t *testing.T) *ginmw.CircuitBreaker {
 	return br
 }
 
-func mustRateLimiter(t *testing.T) *ginmw.RateLimiter {
+func mustRateLimiter(t *testing.T) ratelimit.Limiter {
 	t.Helper()
-	rl, err := ginmw.NewRateLimit(ginmw.RateLimitConfig{Rate: 1000, Burst: 100})
+	l, err := tokenbucket.New(1000, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return rl
+	return l
 }
 
 // funcTag 取中间件/拦截器的**构造函数名**（闭包形如
@@ -511,6 +515,16 @@ func ginIndexByName(chain []gf.HandlerFunc, name string) int {
 		}
 	}
 	return -1
+}
+
+func grpcLastIndexByName(chain []grpc.UnaryServerInterceptor, name string) int {
+	last := -1
+	for i, f := range chain {
+		if funcTag(f) == name {
+			last = i
+		}
+	}
+	return last
 }
 
 func grpcIndexByName(chain []grpc.UnaryServerInterceptor, name string) int {

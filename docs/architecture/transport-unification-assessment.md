@@ -6,7 +6,9 @@
 >
 > **状态：方案 S 已全部落地**（批次 1–4 见 §3 实施进展，`pkg/v0.7.0`→`v0.10.0`、`bconf/v0.24.0` 已发）。
 > 本文按设计决策记录保留：痛点拆解与三档取舍是当时的裁决依据；人日估算与批次路径已执行完毕，
-> 仅作历史口径。旧链 `Gin()`/`GRPCInterceptors()` 保留至下一 major（§3 批次 4 的登记口径）。
+> 仅作历史口径。**批次 4 物理移除已于 2026-11-11 完成**（提前于原定的下一 major）：九件协议
+> 耦合实现删除，三座门面面段换血统一件经桥（签名不变）；HTTP 专属语义件留守（§9.1）。
+> 门面 API 的进一步收敛（Option 面裁撤）仍留待 major。
 
 ---
 
@@ -107,7 +109,7 @@ Handler/Middleware 契约 + 五桥核心（~400 行）+ `matcher` 路由级挂�
 - 批次 1（契约 + 三桥 + matcher）：已进仓（`pkg/v0.7.0`）。
 - 批次 2（内置件改写）：十件统一内置件齐备——Recovery/RequestID/Timeout/Authn/Authz/Audit/RateLimit/Validator/Defaulter（`pkg/v0.8.0`/`v0.9.0`）+ Observability（semconv 收拢 `098f5ee` 后解锁， gin/grpc 经三桥委托 `middleware.Observability`）。`pkg/middleware/shared` 的实现（InjectTrace/MatchWildcard/trace 头常量）退场并入 root `traceinject.go`，shared 降为零消费者 deprecated 别名壳（J2 final 清偿；full 删除随批次 4）。附带修复统一内置件 gRPC unary 面 `next(ctx, nil)` 丢 req 的正确性 bug（改 `next(ctx, req)`，回归测试钉住），及 stream 桥用链传播 ctx 重包流（中间件 enrich 的 span/trace_id 到达业务流 handler）。
 - 批次 3（契约统一段 + bootstrap 适配器）：`server.unified_middleware` 段 + Bundle 适配已进仓（`bconf/v0.24.0`/`pkg/v0.10.0`）；`web.ErrorResponse` 委托 middleware 渲染原语（`8bdd45c`）。
-- 批次 4（旧链移除）：三座旧门面 `Gin()`/`GRPCInterceptors()`/`GRPCStreamInterceptors()` 已全部标 deprecated（`8bdd45c` 补前两座，stream 面后补），口径统一为「随统一中间件契约在下一 major 移除」；`pkg/middleware/shared` 零消费者别名壳已物理删除（J2 final 清偿收官）；gin/grpc 子包已铺包级过渡声明（除 HTTP 专属常驻件 CORS/Secure 外随旧链 major 移除）。旧链本体保留至下一 major——bridge 错误闭包（grpcerr.ToStatus）与 nil info 约束使部分旧链无法薄委托而不破坏钉住行为，故不强改；符号级 Deprecated 与物理删除同期进行（旧门面尚在跨包调用 ginmw/grpcmw，提前标注会触发 SA1019）。
+- 批次 4（旧链移除）：**2026-11-11 物理移除完成**（用户裁定提前于原定 major）。九件协议耦合实现（ginmw 6 件 + grpcmw 9 件含测试共 25 文件）删除；三座门面 `Gin()/GRPCInterceptors()/GRPCStreamInterceptors()` **面段换血统一件经桥（签名不变）**，`pkg/middleware/shared` 别名壳删除（J2 final 清偿收官）。留守件与理由：gin 面 Recovery/Timeout/Tracing/CORS/Secure 为 HTTP 专属语义（响应体带栈、goroutine 硬切断 503、span-only、浏览器面——统一链刻意不收，transport 卡 r05），gRPC 面 Error（业务 handler 错误收口——统一桥只收统一链错误）与 CircuitBreaker（统一链无对应件）。配置面同步：`RateLimit(l, wait)` 统一件形态、`RateLimitFromMiddleware` 三值返回、authz 包补 `DefaultHTTP{Object,Action}FromOperation`（统一件 resolver 收 operation 整串）、统一 Authn 审计 meta 补 path。钉住旧链行为的测试按统一件口径重写（链序断言改桥形态、Raw 语义 object=Operation、审计 meta 双面同键）。门面 API 进一步收敛（Option 面裁撤）留待 major。
 - 文档联动复核：transport/logging/catalog 卡（r05/r06/r02/r12）不含双链实现的陈旧断言，无需改；living doc `current-architecture.md` 横切层条目已更新为统一链口径。
 
 ## 4. 判据与文档联动（实施时同步）

@@ -214,8 +214,9 @@ func TestGinRawDefaults_WithoutNormalization(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", w.Code)
 	}
-	// 契约（向后兼容）：默认 object=原始路径、action=HTTP 方法（语义）。
-	if az.last.object != "/v1/secret/42" || az.last.action != http.MethodGet {
+	// 契约（Raw 语义，批次 4 统一件口径）：无归一化时 object=Transporter.Operation()
+	// （"METHOD /路由模板"——统一链的路由标识原语）、action=HTTP 方法原样。
+	if az.last.object != "GET /v1/secret/42" || az.last.action != http.MethodGet {
 		t.Fatalf("raw defaults: object=%q action=%q", az.last.object, az.last.action)
 	}
 }
@@ -338,9 +339,9 @@ func TestEmpty_NoOverhead(t *testing.T) {
 		t.Fatalf("gin chain len = %d, want 3", len(ginChain))
 	}
 	grpcChain := b.GRPCInterceptors()
-	// Error + Recovery + RequestID + Observability。
-	if len(grpcChain) != 4 {
-		t.Fatalf("grpc chain len = %d, want 4", len(grpcChain))
+	// Error + 统一件面段桥（Recovery/RequestID/Observability 都在桥内）。
+	if len(grpcChain) != 2 {
+		t.Fatalf("grpc chain len = %d, want 2", len(grpcChain))
 	}
 
 	gin.SetMode(gin.TestMode)
@@ -421,7 +422,7 @@ func TestDefaultNormalized(t *testing.T) {
 	req2.Header.Set("Authorization", "Bearer tk")
 	r2.ServeHTTP(w2, req2)
 
-	if az2.last.object != "/v1/secret/42" || az2.last.action != http.MethodGet {
+	if az2.last.object != "GET /v1/secret/42" || az2.last.action != http.MethodGet {
 		t.Fatalf("Raw() should restore raw semantics: object=%q action=%q", az2.last.object, az2.last.action)
 	}
 }
@@ -509,7 +510,7 @@ func TestGRPCAuthnFailureAudited(t *testing.T) {
 	if ev.Object != "authn" || ev.Action != "authenticate" || ev.Result != audit.ResultDeny {
 		t.Fatalf("audit event = %+v, want {Object:authn, Action:authenticate, Result:deny}", ev)
 	}
-	if ev.Meta["full_method"] != info.FullMethod {
-		t.Fatalf("audit event meta should carry full_method, got %+v", ev.Meta)
+	if ev.Meta["operation"] != info.FullMethod {
+		t.Fatalf("audit event meta should carry operation (统一件 meta 口径，双面同键), got %+v", ev.Meta)
 	}
 }

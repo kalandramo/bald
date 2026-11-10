@@ -50,69 +50,9 @@ func TestRecovery_StackTraceConfig(t *testing.T) {
 
 // --- request_id.header_name ---
 
-func TestRequestID_CustomHeaderName(t *testing.T) {
-	run := func(header string, incoming map[string]string) *httptest.ResponseRecorder {
-		r := gf.New()
-		r.Use(RequestIDMiddleware(RequestIDConfig{HeaderName: header}))
-		r.GET("/x", func(c *gf.Context) { c.Status(200) })
-		req := httptest.NewRequest(http.MethodGet, "/x", nil)
-		for k, v := range incoming {
-			req.Header.Set(k, v)
-		}
-		w := httptest.NewRecorder()
-		r.ServeHTTP(w, req)
-		return w
-	}
-
-	// 自定义头名：读入该头并回写同名头。
-	w := run("X-Trace-Id", map[string]string{"X-Trace-Id": "abc-123"})
-	if got := w.Header().Get("X-Trace-Id"); got != "abc-123" {
-		t.Errorf("request_id.header_name=X-Trace-Id 应读取并回写该头，got %q", got)
-	}
-	if w.Header().Get("X-Request-ID") != "" {
-		t.Error("自定义头名时不应再写默认头 X-Request-ID")
-	}
-
-	// 缺省头名仍是 X-Request-ID。
-	w = run("", nil)
-	if w.Header().Get("X-Request-ID") == "" {
-		t.Error("缺省应使用 X-Request-ID")
-	}
-}
 
 // --- logging.skip_paths ---
 
-func TestLogging_SkipPathsAppendsToBuiltin(t *testing.T) {
-	// 直接验证选项装配：自定义跳过路径应进入 SkipPaths，且内置表仍在。
-	o := &ObservabilityOptions{}
-	WithSkipMetrics()(o)
-	WithSkipPaths("/custom/skip")(o)
-
-	var hasCustom, hasBuiltin bool
-	for _, p := range o.SkipPaths {
-		if p == "/custom/skip" {
-			hasCustom = true
-		}
-		if p == "/healthz" {
-			hasBuiltin = true
-		}
-	}
-	if !hasCustom {
-		t.Error("logging.skip_paths 应进入 SkipPaths")
-	}
-	if !hasBuiltin {
-		t.Error("追加语义：内置跳过表不应被替换掉")
-	}
-
-	// 行为层：跳过路径不发日志。
-	// 用 shouldSkipPath 直接判定（日志输出的捕获依赖全局 logger，脆弱）。
-	if !shouldSkipPath("/custom/skip", http.MethodGet, o.SkipPaths) {
-		t.Error("自定义跳过路径应被 shouldSkipPath 命中")
-	}
-	if !shouldSkipPath("/healthz", http.MethodGet, o.SkipPaths) {
-		t.Error("内置跳过路径应仍命中")
-	}
-}
 
 // --- timeout ---
 

@@ -7,6 +7,7 @@ import (
 
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
 
+	"github.com/kalandramo/bald/pkg/middleware"
 	ginmw "github.com/kalandramo/bald/pkg/middleware/gin"
 )
 
@@ -72,12 +73,12 @@ func FromMiddleware(mw *bootstrapv1.Server_Http_Middleware) (opts []Option, clos
 
 	// --- request_id ---
 	if ri := mw.GetRequestId(); ri != nil {
-		opts = append(opts, RequestID(ginmw.RequestIDConfig{HeaderName: ri.GetHeaderName()}))
+		opts = append(opts, RequestID(middleware.RequestIDConfig{HeaderName: ri.GetHeaderName()}))
 	}
 
 	// --- logging ---
 	if lg := mw.GetLogging(); lg != nil {
-		opts = append(opts, Logging(ginmw.LoggingConfig{SkipPaths: lg.GetSkipPaths()}))
+		opts = append(opts, Logging(lg.GetSkipPaths()))
 	}
 
 	// --- cors ---
@@ -91,12 +92,12 @@ func FromMiddleware(mw *bootstrapv1.Server_Http_Middleware) (opts []Option, clos
 
 	// --- rate_limit ---
 	if rl := mw.GetRateLimit(); rl != nil {
-		lim, lerr := RateLimitFromMiddleware(mw)
+		lim, wait, lerr := RateLimitFromMiddleware(mw)
 		if lerr != nil {
 			return nil, close, fmt.Errorf("bundle: middleware.rate_limit: %w", lerr)
 		}
 		if lim != nil {
-			opts = append(opts, RateLimit(lim))
+			opts = append(opts, RateLimit(lim, wait))
 			closers = append(closers, lim.Close)
 		}
 	}
@@ -174,12 +175,12 @@ func FromGRPCMiddleware(mw *bootstrapv1.Server_Grpc_Middleware) (opts []Option, 
 	}
 
 	if rl := mw.GetRateLimit(); rl != nil {
-		lim, lerr := GRPCRateLimitFromMiddleware(mw)
+		lim, wait, lerr := GRPCRateLimitFromMiddleware(mw)
 		if lerr != nil {
 			return nil, close, fmt.Errorf("bundle: grpc.middleware.rate_limit: %w", lerr)
 		}
 		if lim != nil {
-			opts = append(opts, GRPCRateLimit(lim))
+			opts = append(opts, GRPCRateLimit(lim, wait))
 			closers = append(closers, lim.Close)
 		}
 	}

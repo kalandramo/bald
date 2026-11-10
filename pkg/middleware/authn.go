@@ -95,22 +95,28 @@ func Authn(authenticator authn.Authenticator, opts ...AuthnOption) Middleware {
 // auditAuthnFailure 在 authn 失败路径显式发一条 ResultDeny 审计事件（旁路
 // 语义，绝不影响 Unauthenticated 返回本身）。operation 取自 Transporter
 // （gRPC 完整方法名或 "METHOD /路由模板"，双协议同源）。Subject 为空
-// （认证失败无 claims）。
+// （认证失败无 claims）。meta 的 path 键仅 HTTP 面携带（Transporter.Path
+// 非空时；gRPC 无 path 概念，meta 形状保持不含该键）。
 func auditAuthnFailure(ctx context.Context, auditor audit.Auditor, reason string) {
 	operation := "unknown"
+	meta := map[string]any{
+		"reason":     reason,
+		"operation":  operation,
+		"request_id": contextx.RequestIDFromContext(ctx),
+	}
 	if tr, ok := FromServerContext(ctx); ok {
 		operation = tr.Operation()
+		meta["operation"] = operation
+		if p := tr.Path(); p != "" {
+			meta["path"] = p
+		}
 	}
 	recordSafely(auditor, ctx, audit.AuditEvent{
 		Object: "authn",
 		Action: "authenticate",
 		Result: audit.ResultDeny,
 		Error:  reason,
-		Meta: map[string]any{
-			"reason":     reason,
-			"operation":  operation,
-			"request_id": contextx.RequestIDFromContext(ctx),
-		},
+		Meta:   meta,
 	})
 }
 

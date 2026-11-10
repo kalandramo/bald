@@ -7,6 +7,7 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
 	"github.com/kalandramo/bald/berrors"
@@ -94,7 +95,7 @@ func TestErrorInterceptor_Usable(t *testing.T) {
 // Reason 真的到了客户端——限流层（RateLimitStreamInterceptor）的拒绝语义完全
 // 依赖它，否则「被限流」和「服务坏了」在调用方眼里一模一样。
 func TestErrorStreamInterceptor_ConvertsBizError(t *testing.T) {
-	bizErr := berrors.ResourceExhausted(ReasonRateLimited).WithMessage("grpc: rate limit exceeded")
+	bizErr := berrors.ResourceExhausted("RATE_LIMITED").WithMessage("grpc: rate limit exceeded")
 
 	err := callStream(ErrorStreamInterceptor(), &fakeStream{ctx: context.Background()},
 		func(grpc.ServerStream) error { return bizErr })
@@ -106,8 +107,8 @@ func TestErrorStreamInterceptor_ConvertsBizError(t *testing.T) {
 	}
 	recovered := grpcerr.FromStatus(status.Convert(err))
 	berr, ok := berrors.FromError(recovered)
-	if !ok || berr.Reason != ReasonRateLimited {
-		t.Fatalf("应还原出 Reason=%s，got %+v (err=%v)", ReasonRateLimited, berr, err)
+	if !ok || berr.Reason != "RATE_LIMITED" {
+		t.Fatalf("应还原出 Reason=%s，got %+v (err=%v)", "RATE_LIMITED", berr, err)
 	}
 }
 
@@ -145,4 +146,29 @@ func TestErrorStreamInterceptor_Usable(t *testing.T) {
 		_ grpc.StreamServerInterceptor = ErrorStreamInterceptor()
 		_ grpc.ServerOption            = grpc.ChainStreamInterceptor(ErrorStreamInterceptor())
 	)
+}
+
+// fakeStream 是最小的 grpc.ServerStream：只提供 ctx 与收发计数（原 timeout/
+// rate-limit 测试的伴生助手，批次 4 物理移除后归位于本文件——stream 收口测试
+// 的最小载体）。
+type fakeStream struct {
+	ctx   context.Context
+	sends int
+}
+
+var _ grpc.ServerStream = (*fakeStream)(nil)
+
+func (s *fakeStream) SetHeader(metadata.MD) error  { return nil }
+func (s *fakeStream) SendHeader(metadata.MD) error { return nil }
+func (s *fakeStream) SetTrailer(metadata.MD)       {}
+func (s *fakeStream) Context() context.Context     { return s.ctx }
+func (s *fakeStream) SendMsg(any) error            { s.sends++; return nil }
+func (s *fakeStream) RecvMsg(any) error            { return nil }
+
+// callStream 按 grpc.ChainStreamInterceptor 的语义调用单个 stream 拦截器。
+func callStream(ic grpc.StreamServerInterceptor, ss grpc.ServerStream,
+	handler func(grpc.ServerStream) error,
+) error {
+	info := &grpc.StreamServerInfo{FullMethod: "/pkg.Svc/Stream"}
+	return ic(nil, ss, info, func(_ any, s grpc.ServerStream) error { return handler(s) })
 }

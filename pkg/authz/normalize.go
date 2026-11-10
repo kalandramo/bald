@@ -92,3 +92,20 @@ func DefaultHTTPObject(path string) string {
 func DefaultHTTPAction(method string) string {
 	return strings.ToLower(method)
 }
+
+// DefaultHTTPObjectFromOperation 是统一链口径的 object 归一化默认：统一件
+// （middleware.Authz/Audit）的 resolver 收到的是 Transporter.Operation() 整串
+// （"METHOD /路由模板"），本适配器拆出路径段后走 [DefaultHTTPObject] 的既有
+// 口径（/v1/<resource>/... → resource）。方案 S 批次 4 gin 面换血统一件时，
+// 旧的 path 直传形态由此承接。
+func DefaultHTTPObjectFromOperation(operation string) string {
+	_, path, _ := strings.Cut(operation, " ")
+	return DefaultHTTPObject(path)
+}
+
+// DefaultHTTPActionFromOperation 是统一链口径的 action 归一化默认：拆出
+// "METHOD /路由模板" 的方法段后走 [DefaultHTTPAction]。
+func DefaultHTTPActionFromOperation(operation string) string {
+	method, _, _ := strings.Cut(operation, " ")
+	return DefaultHTTPAction(method)
+}

@@ -92,7 +92,7 @@ Error → RateLimit
 
 stream 面只有这两层，四条都是口径而非疏漏：
 - **Error 必须在最外**：`*berrors.Error` 没实现 `GRPCStatus()`，流返回的 error 交给 grpc-go 的 `status.Convert` 会把 Code/Reason 丢成 `Unknown`——被拒的调用方分不清「我被限流」还是「服务坏了」。
-- **没有 Timeout**：流 handler 的生命周期就是整条流，把 unary 的 `default_timeout_ms` 套上去等于把它静默改成「流的最大存活时长」，长订阅到点被砍且没有可区分的错误。契约的 `server.grpc.middleware.timeout` 同口径——`FromGRPCMiddleware` 译出的 `GRPCTimeout` 只挂 unary。要流上超时自己挂 `grpcmw.TimeoutStreamInterceptor`。
+- **没有 Timeout**：流 handler 的生命周期就是整条流，把 unary 的 `default_timeout_ms` 套上去等于把它静默改成「流的最大存活时长」，长订阅到点被砍且没有可区分的错误。契约的 `server.grpc.middleware.timeout` 同口径——`FromGRPCMiddleware` 译出的 `GRPCTimeout` 只挂 unary。要流上超时自己挂统一件（`middleware.StreamServerInterceptor(middleware.Timeout(d))`——批次 4 后协议耦合实现已物理移除）。
 - **没有 CircuitBreaker**：一条流的「失败」没有一致答案——按建流算则开窗与真实退化无关，按流终态算则一条长流会长期占住半开探针、把其它流全拒。契约的 `server.grpc.middleware.circuit_breaker` 同口径，只挂 unary。
 - **没有 Authn/Authz/Audit**：本包这三层只有 unary 形态（stream 版拦截器至今不存在）。这是既有边界——此前 stream 面整条链为空，同样没有认证。
 
