@@ -3,7 +3,7 @@ module github.com/kalandramo/bald/ai/openai
 go 1.27.1
 
 require (
-	github.com/kalandramo/bald/bconf v0.26.0
+	github.com/kalandramo/bald/bconf v0.27.0
 	github.com/sashabaranov/go-openai v1.41.2
 )
 

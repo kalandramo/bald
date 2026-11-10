@@ -5,9 +5,9 @@ go 1.27.1
 replace github.com/kalandramo/bald/log => ../../log
 
 require (
-	github.com/kalandramo/bald/bconf v0.26.0
+	github.com/kalandramo/bald/bconf v0.27.0
 	github.com/kalandramo/bald/log v0.6.0
-	github.com/kalandramo/bald/pkg v0.12.0
+	github.com/kalandramo/bald/pkg v0.13.0
 	github.com/kalandramo/bald/transport v0.4.0
 	github.com/mark3labs/mcp-go v1.1.0
 	github.com/spf13/pflag v1.0.10

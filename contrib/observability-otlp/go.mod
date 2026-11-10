@@ -3,8 +3,8 @@ module github.com/kalandramo/bald/contrib/observability-otlp
 go 1.27.1
 
 require (
-	github.com/kalandramo/bald/bconf v0.26.0
-	github.com/kalandramo/bald/pkg v0.12.0
+	github.com/kalandramo/bald/bconf v0.27.0
+	github.com/kalandramo/bald/pkg v0.13.0
 	github.com/prometheus/client_golang v1.24.1
 	go.opentelemetry.io/otel v1.46.0
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp v1.46.0

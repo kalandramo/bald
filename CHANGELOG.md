@@ -6,6 +6,19 @@
 
 ## 2026-11-10
 
+### bald v0.50.0
+
+- `d63d5ddd` feat(bconf,pkg)!: 方案 S 收官——统一段补 authn/authz/audit/circuit_breaker 四策略 + 统一熔断件 **(breaking)**
+
+### bconf v0.27.0
+
+- `73228977` fix(bconf): log.pb.go 恢复 pin 工具链口味（go1.27 编译插件产出与入库一致）
+- `d63d5ddd` feat(bconf,pkg)!: 方案 S 收官——统一段补 authn/authz/audit/circuit_breaker 四策略 + 统一熔断件 **(breaking)**
+
+### pkg v0.13.0
+
+- `d63d5ddd` feat(bconf,pkg)!: 方案 S 收官——统一段补 authn/authz/audit/circuit_breaker 四策略 + 统一熔断件 **(breaking)**
+
 ### bald v0.49.0
 
 - `1109d360` refactor(pkg/middleware)!: 方案 S 批次 4 物理移除——九件协议耦合实现删除、门面面段换血统一件 **(breaking)**
