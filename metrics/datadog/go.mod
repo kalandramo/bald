@@ -6,7 +6,7 @@ require (
 	github.com/DataDog/datadog-go/v5 v5.8.2
 	github.com/kalandramo/bald/bconf v0.26.0
 	github.com/kalandramo/bald/metrics v0.2.0
-	github.com/kalandramo/bald/pkg v0.11.1
+	github.com/kalandramo/bald/pkg v0.12.0
 )
 
 require (

@@ -6,6 +6,14 @@
 
 ## 2026-11-10
 
+### bald v0.49.0
+
+- `1109d360` refactor(pkg/middleware)!: 方案 S 批次 4 物理移除——九件协议耦合实现删除、门面面段换血统一件 **(breaking)**
+
+### pkg v0.12.0
+
+- `1109d360` refactor(pkg/middleware)!: 方案 S 批次 4 物理移除——九件协议耦合实现删除、门面面段换血统一件 **(breaking)**
+
 ### bald v0.48.0
 
 - `7da39e33` refactor(pkg/middleware): 方案 S 批次 4 标记期收口——shared 壳删除 + 三门面 Deprecated 齐

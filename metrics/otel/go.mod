@@ -5,7 +5,7 @@ go 1.27.1
 require (
 	github.com/kalandramo/bald/bconf v0.26.0
 	github.com/kalandramo/bald/metrics v0.2.0
-	github.com/kalandramo/bald/pkg v0.11.1
+	github.com/kalandramo/bald/pkg v0.12.0
 	go.opentelemetry.io/otel v1.46.0
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc v1.46.0
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp v1.46.0
