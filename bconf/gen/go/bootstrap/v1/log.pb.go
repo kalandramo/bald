@@ -25,7 +25,7 @@ const (
 type Logger struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// 后端清单：至少一项。装配层逐项构造后经 log.MultiLogger 广播合并
-	// （每条日志复制分流到全部后端）；任一项失败 fail-fast 并回滚已构造项。
+	//（每条日志复制分流到全部后端）；任一项失败 fail-fast 并回滚已构造项。
 	Backends []*Logger_Backend `protobuf:"bytes,1,rep,name=backends,proto3" json:"backends,omitempty"`
 	// 全局脱敏 key 清单：命中 key 的属性值统一替换为 ***（属性保留不丢弃）。
 	// 全局脱敏 key 清单：命中 key 的属性值统一替换为 ***（属性保留不丢弃）。
