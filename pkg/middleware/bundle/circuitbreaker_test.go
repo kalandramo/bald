@@ -170,8 +170,8 @@ func TestFromMiddleware_NoCircuitBreakerSegmentMeansNoLayer(t *testing.T) {
 	if hits != 10 {
 		t.Errorf("handler 命中 = %d, want 10", hits)
 	}
-	if b := New(opts...); ginCBLayers(b.Gin()) != 0 {
-		t.Errorf("缺段时链里不该有熔断层，got %d", ginCBLayers(b.Gin()))
+	if b := New(opts...); ginCBLayers(b) != 0 {
+		t.Errorf("缺段时链里不该有熔断层，got %d", ginCBLayers(b))
 	}
 }
 
@@ -323,14 +323,18 @@ func TestCircuitBreaker_GinChainPosition(t *testing.T) {
 		Timeout(&ginmw.TimeoutConfig{DefaultTimeoutMs: 1000}),
 	).Gin()
 
-	// 批次 4 换血后限流居统一件段桥内（GinHandler 闭包），按桥名定位段位——
-	// 桥段在熔断之前即限流层在熔断之前的既有判据。
-	iFace, iCB, iTO := ginIndexByName(chain, "GinHandler"), ginIndex(chain, br.Handler()), ginIndexByName(chain, "Timeout")
-	if iFace < 0 || iCB < 0 || iTO < 0 {
-		t.Fatalf("三层都应挂上：face=%d breaker=%d timeout=%d", iFace, iCB, iTO)
+	// 方案 S 收官：限流与熔断同居统一件段桥（face），Timeout 是 gin 留守层——
+	// 链序判据（限流/熔断在超时之外）以「face 桥在前、Timeout 在后」保序；
+	// 熔断在 face 桥内的生效由 FieldsMapped（三次 5xx → 开窗 503）行为测试守住。
+	iFace, iTO := ginIndexByName(chain, "GinHandler"), ginIndexByName(chain, "Timeout")
+	if iFace < 0 || iTO < 0 {
+		t.Fatalf("两层都应挂上：face=%d timeout=%d", iFace, iTO)
 	}
-	if !(iFace < iCB && iCB < iTO) {
-		t.Errorf("链序应 统一件段(含限流) → CircuitBreaker → Timeout，got %d / %d / %d", iFace, iCB, iTO)
+	if !(iFace < iTO) {
+		t.Errorf("链序应 统一件段(含限流/熔断) → Timeout，got %d / %d", iFace, iTO)
+	}
+	if n := ginCBLayers(New(Public(), CircuitBreaker(br), RateLimit(rl, false))); n != 1 {
+		t.Errorf("gin 装配面应含一层熔断，got %d", n)
 	}
 }
 
@@ -345,14 +349,15 @@ func TestCircuitBreaker_GRPCChainPosition(t *testing.T) {
 		Public(), RateLimit(rl, false), CircuitBreaker(br), GRPCTimeout(time.Second),
 	).GRPCInterceptors()
 
-	// 批次 4 换血后 face 桥（含限流）与 Timeout 桥同为 UnaryServerInterceptor
-	// 闭包——前者在前、后者在后，夹住留守的熔断拦截器，既有判据保序。
-	iFace, iCB, iTO := grpcIndexByName(chain, "UnaryServerInterceptor"), grpcIndexByName(chain, "CircuitBreakerInterceptor"), grpcLastIndexByName(chain, "UnaryServerInterceptor")
-	if iFace < 0 || iCB < 0 || iTO < 0 {
-		t.Fatalf("三层都应挂上：face=%d breaker=%d timeout=%d", iFace, iCB, iTO)
+	// 方案 S 收官：限流与熔断同居 face 桥，Timeout 是独立桥——链序判据以
+	// 「face 桥在前、Timeout 桥在后」保序；熔断生效由 TripsOnTimeoutBudget
+	// 行为测试守住。
+	iFace, iTO := grpcIndexByName(chain, "UnaryServerInterceptor"), grpcLastIndexByName(chain, "UnaryServerInterceptor")
+	if iFace < 0 || iTO < 0 {
+		t.Fatalf("两层都应挂上：face=%d timeout=%d", iFace, iTO)
 	}
-	if !(iFace < iCB && iCB < iTO) {
-		t.Errorf("链序应 统一件段(含限流) → CircuitBreaker → Timeout，got %d / %d / %d", iFace, iCB, iTO)
+	if !(iFace < iTO) {
+		t.Errorf("链序应 统一件段(含限流/熔断) → Timeout，got %d / %d", iFace, iTO)
 	}
 }
 
@@ -388,8 +393,8 @@ func TestCircuitBreaker_CoverageMatrix(t *testing.T) {
 	if got := shared.grpcBreaker(); got != httpCB {
 		t.Error("只给 HTTP 段时 gRPC 应回落共用同一个熔断器")
 	}
-	if ginIndex(shared.Gin(), httpCB.Handler()) < 0 {
-		t.Error("gin 链应挂 HTTP 那个熔断器")
+	if ginCBLayers(shared) != 1 {
+		t.Error("gin 装配面应挂一层熔断（face 桥内统一件）")
 	}
 
 	// 只给 GRPCCircuitBreaker：gRPC 用它，gin 面没有熔断层（各面独立、不互相兜底）。
@@ -397,7 +402,7 @@ func TestCircuitBreaker_CoverageMatrix(t *testing.T) {
 	if got := grpcOnly.grpcBreaker(); got != grpcCB {
 		t.Error("gRPC 应用自己的实例")
 	}
-	if n := ginCBLayers(grpcOnly.Gin()); n != 0 {
+	if n := ginCBLayers(grpcOnly); n != 0 {
 		t.Errorf("只给 GRPCCircuitBreaker 时 gin 面应无熔断层，got %d", n)
 	}
 
@@ -406,11 +411,8 @@ func TestCircuitBreaker_CoverageMatrix(t *testing.T) {
 	if got := both.grpcBreaker(); got != grpcCB {
 		t.Error("两个都给时 gRPC 应用 GRPCCircuitBreaker 的那个")
 	}
-	if ginIndex(both.Gin(), httpCB.Handler()) < 0 {
-		t.Error("两个都给时 gin 面应仍用 HTTP 那个")
-	}
-	if n := ginCBLayers(both.Gin()); n != 1 {
-		t.Errorf("gin 面应只有一层熔断，got %d", n)
+	if ginCBLayers(both) != 1 {
+		t.Error("两个都给时 gin 装配面应仍只有一层熔断（HTTP 那个）")
 	}
 }
 
@@ -497,16 +499,6 @@ func funcTag(f any) string {
 	return parts[0]
 }
 
-// ginIndex 按闭包身份定位链里的层（同一次 Handler() 返回的闭包指针相同）。
-func ginIndex(chain []gf.HandlerFunc, target gf.HandlerFunc) int {
-	want := reflect.ValueOf(target).Pointer()
-	for i, f := range chain {
-		if reflect.ValueOf(f).Pointer() == want {
-			return i
-		}
-	}
-	return -1
-}
 
 func ginIndexByName(chain []gf.HandlerFunc, name string) int {
 	for i, f := range chain {
@@ -536,10 +528,12 @@ func grpcIndexByName(chain []grpc.UnaryServerInterceptor, name string) int {
 	return -1
 }
 
-func ginCBLayers(chain []gf.HandlerFunc) int {
+// ginCBLayers 数 gin 装配面（ginFace——统一件段，熔断居其中）里的熔断层。
+// 方案 S 收官后面段熔断经桥注入，链上闭包身份不可见，改在装配面数。
+func ginCBLayers(b *Bundle) int {
 	n := 0
-	for _, f := range chain {
-		if funcTag(f) == "CircuitBreakerMiddleware" {
+	for _, f := range b.ginFace() {
+		if funcTag(f) == "CircuitBreaker" {
 			n++
 		}
 	}

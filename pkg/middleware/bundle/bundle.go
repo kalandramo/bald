@@ -59,6 +59,7 @@ import (
 	"google.golang.org/grpc"
 
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
+	berrorshttperr "github.com/kalandramo/bald/berrors/httperr"
 	"github.com/kalandramo/bald/log"
 	"github.com/kalandramo/bald/pkg/audit"
 	"github.com/kalandramo/bald/pkg/authn"
@@ -421,12 +422,8 @@ func (b *Bundle) Gin() []gin.HandlerFunc {
 	if face := b.ginFace(); len(face) > 0 {
 		chain = append(chain, middleware.GinHandler(middleware.Chain(face[0], face[1:]...)))
 	}
-	if b.circuitBreaker != nil {
-		// 限流之内、超时之外：配额先拒（便宜），熔断只判「这次还值不值得真做」；
-		// 而内层 Timeout 写出的 503 必须被这一层记成失败——「handler 总是超时」
-		// 正是熔断该抓的形状。代价与限流同：不保护认证/授权层自身。
-		chain = append(chain, b.circuitBreaker.Handler())
-	}
+	// 熔断已随面段进统一件桥（ginFace 内，限流之后——方案 S 收官换血），
+	// 不再单独挂留守 Handler，避免两层共享同一 hystrix 实例、失败双重计数。
 	if b.timeoutCfg != nil {
 		// 超时在最内层（业务 handler 之前）：只计业务处理耗时，不把上层中间件
 		// 的开销算进超时预算。
@@ -462,7 +459,24 @@ func (b *Bundle) ginFace() []middleware.Middleware {
 	if b.rateLimiter != nil {
 		face = append(face, middleware.RateLimit(b.rateLimiter.limiter, b.rateLimiter.wait))
 	}
+	if b.circuitBreaker != nil {
+		// 熔断在授权之后、限流之内、超时之外（三个判据见 GRPCCircuitBreaker
+		// 的注释）。方案 S 收官：面段熔断也是统一件——失败口径统一为语义码
+		// 集合（gin 面 5xx 经桥哨兵到达），拒绝码由配置的 status_code 逆映射。
+		face = append(face, b.unifiedBreaker(b.circuitBreaker))
+	}
 	return face
+}
+
+// unifiedBreaker 从留守构造产物组装统一熔断件：底层 hystrix 实例经 Breaker()
+// 复用，配置的 status_code（HTTP 专属字段）经 HTTPToCode 逆映射成统一件
+// openCode（503→Unavailable、500→Internal 等价保真），契约字段语义不变。
+func (b *Bundle) unifiedBreaker(cb *ginmw.CircuitBreaker) middleware.Middleware {
+	var opts []middleware.CircuitBreakerOption
+	if sc := cb.StatusCode(); sc > 0 {
+		opts = append(opts, middleware.WithOpenCode(uint32(berrorshttperr.HTTPToCode(sc))))
+	}
+	return middleware.CircuitBreaker(cb.Breaker(), opts...)
 }
 
 // grpcLimiter 返回 gRPC 两面实际使用的限流层：[GRPCRateLimit] 优先，否则回落到
@@ -530,15 +544,9 @@ func (b *Bundle) GRPCInterceptors() []grpc.UnaryServerInterceptor {
 	// 面段统一件（Recovery→RequestID→Observability→Authn→Audit→Authz→RateLimit）
 	// 组成一段 Chain，经一座桥注入（Transporter 复用：桥只在链头创建）。
 	face := b.grpcFace()
+	// 熔断已随面段进统一件桥（grpcFace 内，限流之后——方案 S 收官换血），
+	// 不再单独挂留守拦截器，避免双层熔断互相喂养。
 	chain = append(chain, middleware.UnaryServerInterceptor(middleware.Chain(face[0], face[1:]...)))
-	if br := b.grpcBreaker(); br != nil {
-		// 与 gin 同序：限流之后、超时之前。默认与 gin 共用同一个熔断器
-		// （给了 GRPCCircuitBreaker 才换成 gRPC 自己的实例）。失败口径由
-		// status code 判，与 HTTP 面的 >=500 不同（见 grpcmw.failureCodes）；
-		// 拒绝码是 UNAVAILABLE 而不是 503——那是 gRPC 里「服务暂时不可用」
-		// 的唯一正确表达，也是客户端库会重试的那个 code。
-		chain = append(chain, grpcmw.CircuitBreakerInterceptor(br.Breaker()))
-	}
 	if d := b.grpcBudget(); d > 0 {
 		// 最内层。统一 Timeout 只约束 handler 可见的 ctx（不硬中断响应），
 		// 与 gin 的 Timeout（HTTP 专属语义件）语义差别见包注释。
@@ -582,6 +590,11 @@ func (b *Bundle) grpcFace() []middleware.Middleware {
 		// 与 gin 同序：授权之后、超时之前。默认与 gin 共用同一份限流层，
 		// 给了 GRPCRateLimit 才换成 gRPC 自己的桶。
 		face = append(face, middleware.RateLimit(rl.limiter, rl.wait))
+	}
+	if br := b.grpcBreaker(); br != nil {
+		// 与 gin 同序：限流之后、超时之前（统一 Timeout 在链外的单独桥）。
+		// 统一件拒绝码缺省 Unavailable——与面段熔断拦截器的既有口径一致。
+		face = append(face, middleware.CircuitBreaker(br.Breaker()))
 	}
 	return face
 }

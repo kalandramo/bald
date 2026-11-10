@@ -77,9 +77,18 @@ type CircuitBreaker struct {
 	breaker circuitbreaker.CircuitBreaker
 	handler gin.HandlerFunc
 
+	// statusCode 是开态（含半开被拒）的 HTTP 状态码（cfg.StatusCode 经默认值
+	// 归一后的结果）。批次 4 后面段熔断换统一件（middleware.CircuitBreaker），
+	// 本字段经 StatusCode() 逆映射成统一件的 openCode 语义（HTTPToCode），
+	// 契约 status_code 字段语义在此保真；本件的 Handler() 保留为独立消费面。
+	statusCode int
+
 	closeOnce sync.Once
 	closeErr  error
 }
+
+// StatusCode 返回开态 HTTP 状态码（默认 503；供统一件 openCode 逆映射）。
+func (c *CircuitBreaker) StatusCode() int { return c.statusCode }
 
 // NewCircuitBreaker 按配置构建熔断中间件（含底层 hystrix 熔断器）。
 func NewCircuitBreaker(cfg CircuitBreakerConfig) (*CircuitBreaker, error) {
@@ -99,8 +108,9 @@ func NewCircuitBreaker(cfg CircuitBreakerConfig) (*CircuitBreaker, error) {
 		status = DefaultCircuitBreakerStatusCode
 	}
 	return &CircuitBreaker{
-		breaker: cb,
-		handler: CircuitBreakerMiddleware(cb, status),
+		breaker:    cb,
+		handler:    CircuitBreakerMiddleware(cb, status),
+		statusCode: status,
 	}, nil
 }
 

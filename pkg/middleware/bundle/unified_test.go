@@ -164,6 +164,117 @@ func TestUnifiedRateLimitWaitRule(t *testing.T) {
 	}
 }
 
+
+// TestUnifiedAuthnAuthzAuditMissingFailsFast 段声明 authn/authz/audit 策略而
+// 未注入对应依赖 → 链构建 fail-fast（J7 同形：声明了却静默不生效是最坏结果）。
+func TestUnifiedAuthnAuthzAuditMissingFailsFast(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		rule *bootstrapv1.Server_UnifiedMiddleware_Rule
+		want string
+	}{
+		{"authn", &bootstrapv1.Server_UnifiedMiddleware_Rule{Selector: "*",
+			Policy: &bootstrapv1.Server_UnifiedMiddleware_Rule_Authn{}}, "UNIFIED_AUTHN_MISSING"},
+		{"authz", &bootstrapv1.Server_UnifiedMiddleware_Rule{Selector: "*",
+			Policy: &bootstrapv1.Server_UnifiedMiddleware_Rule_Authz{}}, "UNIFIED_AUTHZ_MISSING"},
+		{"audit", &bootstrapv1.Server_UnifiedMiddleware_Rule{Selector: "*",
+			Policy: &bootstrapv1.Server_UnifiedMiddleware_Rule_Audit{}}, "UNIFIED_AUDIT_MISSING"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &bootstrapv1.Server_UnifiedMiddleware{Rules: []*bootstrapv1.Server_UnifiedMiddleware_Rule{tt.rule}}
+			b := New(Public(), WithUnifiedMiddleware(cfg))
+			defer func() {
+				if r := recover(); r == nil || !strings.Contains(fmtErr(r), tt.want) {
+					t.Fatalf("panic = %v, want %s", r, tt.want)
+				}
+			}()
+			_ = b.Gin()
+		})
+	}
+}
+
+// TestUnifiedAuthnAuthzAuditRulesTakeEffect 注入依赖后三策略在链头生效：
+// authn 缺 token 拒 401（面段未配 authn——拒绝来自统一段规则）、audit 发事件。
+func TestUnifiedAuthnAuthzAuditRulesTakeEffect(t *testing.T) {
+	cfg := &bootstrapv1.Server_UnifiedMiddleware{Rules: []*bootstrapv1.Server_UnifiedMiddleware_Rule{{
+		Selector: "*", Policy: &bootstrapv1.Server_UnifiedMiddleware_Rule_Authn{},
+	}}}
+	b := New(Public(), WithUnifiedMiddleware(cfg), Authn(&stubAuthn{log: &callLog{}}))
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	for _, mw := range b.Gin() {
+		r.Use(mw)
+	}
+	ran := false
+	r.GET("/v1/x", func(c *gin.Context) { ran = true })
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/x", nil)) // 无 Authorization
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("统一段 authn 规则应拒无 token 请求，got %d", w.Code)
+	}
+	if ran {
+		t.Error("handler ran despite unified authn rule")
+	}
+}
+
+// TestUnifiedCircuitBreakerRuleTrips 统一段熔断规则：阈值 0.2/样本 2，两次
+// 5xx 后开窗拒绝（503——open_code 缺省 UNAVAILABLE 经桥渲染）。
+func TestUnifiedCircuitBreakerRuleTrips(t *testing.T) {
+	cfg := &bootstrapv1.Server_UnifiedMiddleware{Rules: []*bootstrapv1.Server_UnifiedMiddleware_Rule{{
+		Selector: "*",
+		Policy: &bootstrapv1.Server_UnifiedMiddleware_Rule_CircuitBreaker{
+			CircuitBreaker: &bootstrapv1.Server_UnifiedMiddleware_CircuitBreaker{
+				ErrorThreshold: 0.2, MinRequests: 2,
+			},
+		},
+	}}}
+	b := New(Public(), WithUnifiedMiddleware(cfg))
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	for _, mw := range b.Gin() {
+		r.Use(mw)
+	}
+	hits := 0
+	r.GET("/v1/x", func(c *gin.Context) { hits++; c.Status(http.StatusInternalServerError) })
+	for i := 0; i < 2; i++ {
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/x", nil))
+		if w.Code != http.StatusInternalServerError {
+			t.Fatalf("第 %d 次应 500，got %d", i+1, w.Code)
+		}
+	}
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/x", nil))
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("开窗后应 503，got %d", w.Code)
+	}
+	if hits != 2 {
+		t.Errorf("开态不该进 handler，命中 = %d, want 2", hits)
+	}
+}
+
+// TestUnifiedCircuitBreakerOpenCodeRejectsNon5xx open_code 配了非 5xx 语义码
+// → 链构建 fail-fast（契约约束：非 5xx 让客户端把「我坏了」当业务错误）。
+func TestUnifiedCircuitBreakerOpenCodeRejectsNon5xx(t *testing.T) {
+	cfg := &bootstrapv1.Server_UnifiedMiddleware{Rules: []*bootstrapv1.Server_UnifiedMiddleware_Rule{{
+		Selector: "*",
+		Policy: &bootstrapv1.Server_UnifiedMiddleware_Rule_CircuitBreaker{
+			CircuitBreaker: &bootstrapv1.Server_UnifiedMiddleware_CircuitBreaker{
+				OpenCode: 3, // InvalidArgument → 4xx 档
+			},
+		},
+	}}}
+	b := New(Public(), WithUnifiedMiddleware(cfg))
+	defer func() {
+		if r := recover(); r == nil || !strings.Contains(fmtErr(r), "非 5xx") {
+			t.Fatalf("panic = %v, want 非 5xx 校验错误", r)
+		}
+	}()
+	_ = b.Gin()
+}
+
 func fmtErr(r any) string { return r.(error).Error() }
 
 // ratelimit 引用保持（denyLimiter 实现该契约）。

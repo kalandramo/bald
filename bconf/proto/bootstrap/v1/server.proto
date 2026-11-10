@@ -632,6 +632,23 @@ message Server {
         TimeoutCtx timeout = 5;
         // 请求校验（统一 Validator，回调注入）。
         Validate validate = 6;
+        // 入站认证（统一 Authn）。认证器经 bundle.Authn 注入——声明本策略而
+        // 未注入认证器在链构建期 fail-fast（UNIFIED_AUTHN_MISSING，J7）。
+        // 注意：认证姿态（Authn 或 Public）仍由 bundle.Verify 判定，统一段
+        // 声明 authn 规则本身就构成「已决定」。
+        Authn authn = 7;
+        // 入站授权（统一 Authz）。授权器经 bundle.Authz 注入；未注入
+        // fail-fast（UNIFIED_AUTHZ_MISSING）。归一化口径与面段一致
+        // （bundle.normalized 决定 Default{HTTP,GRPC} resolver）。
+        Authz authz = 8;
+        // 请求审计（统一 Audit）。审计后端经 bundle.Audit 注入；auditor 与
+        // recorder 都未注入时 fail-fast（UNIFIED_AUDIT_MISSING）。
+        Audit audit = 9;
+        // 入站熔断（统一 CircuitBreaker）。阈值字段与两面 circuit_breaker 段
+        // 同口径；拒绝码语义由 open_code 声明（缺省 UNAVAILABLE），HTTP 面经
+        // CodeToHTTP 渲染、gRPC 面直透——与面段熔断的失败判定共用同一组
+        // 服务侧失败码（Internal/Unknown/Unavailable/DeadlineExceeded/DataLoss）。
+        CircuitBreaker circuit_breaker = 10;
       }
     }
 
@@ -664,6 +681,33 @@ message Server {
 
     // Validate 策略参数（校验回调经 Validator 注入，占位保扩展）。
     message Validate {}
+
+    // Authn 策略参数（认证器经 bundle.Authn 注入，占位保扩展）。
+    message Authn {}
+
+    // Authz 策略参数（授权器经 bundle.Authz 注入，占位保扩展）。
+    message Authz {}
+
+    // Audit 策略参数（审计后端经 bundle.Audit/Metrics 注入，占位保扩展）。
+    message Audit {}
+
+    // CircuitBreaker 策略参数（字段与两面 circuit_breaker 段同口径；0 = 底层
+    // hystrix 默认，负值/超界在链构建期 fail-fast）。
+    message CircuitBreaker {
+      // 开窗的失败率阈值，取值 (0,1]。0 → 默认 0.5。
+      double error_threshold = 1;
+      // 参与判定的最小样本量：滑窗内请求数低于它就不开窗。0 → 默认 20。
+      int32 min_requests = 2;
+      // 开窗时长（毫秒），到期后半开、只放一个探针。0 → 默认 5000。
+      int64 open_duration_ms = 3;
+      // 失败率统计滑窗长度（毫秒）。0 → 默认 10000。
+      int64 window_ms = 4;
+      // 开态拒绝的语义码（google.rpc 码域）。0 → UNAVAILABLE。HTTP 面经
+      // CodeToHTTP 渲染成对应状态码（14 → 503）；非 5xx 语义码（如 3/4xx 档）
+      // 会让客户端把「我坏了」当业务错误处理——与两面段的 status_code 同一
+      // 条约束，配了 5xx 之外的值在链构建期 fail-fast。
+      int32 open_code = 5;
+    }
   }
 
   // 双协议一份声明的中间件段（见 UnifiedMiddleware 注释）。opt-in：段缺省
