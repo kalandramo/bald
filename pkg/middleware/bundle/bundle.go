@@ -341,9 +341,11 @@ func (b *Bundle) warnIfUndeclaredAuthn() {
 // 未注入的依赖对应层直接省略（零开销），如未设 Authn 则链中无认证层——但
 // 前提是该姿态已被决定（Authn 或 Public，见 [Bundle.Verify]），否则这里先告警。
 //
-// Deprecated: 旧协议耦合链门面，方案 S 批次 4 移除。请改用统一中间件契约
-// （[WithUnifiedMiddleware] 声明 + middleware.GinHandler 桥接）：横切件写一遍、
-// 路由级挂接进契约。本方法保留一个版本期供血，内部已在链头预置统一段。
+// Deprecated: 旧协议耦合链门面，随统一中间件契约在下一 major 移除（方案 S
+// 批次 4 裁定：bridge 错误闭包与 nil info 约束使旧链无法薄委托，故过渡到
+// major 才物理删除）。请改用统一中间件契约（[WithUnifiedMiddleware] 声明 +
+// middleware.GinHandler 桥接）：横切件写一遍、路由级挂接进契约。本方法保留
+// 一个版本期供血，内部已在链头预置统一段。
 func (b *Bundle) Gin() []gin.HandlerFunc {
 	b.warnIfUndeclaredAuthn()
 	// 统一段（方案 S）：双面链头预置统一链（opt-in，段缺省不挂）。规则错误
@@ -449,9 +451,11 @@ func (b *Bundle) grpcBudget() time.Duration {
 //
 // 与 Gin 一样：认证姿态未决定（既无 Authn 也未 Public）时先告警再出链。
 //
-// Deprecated: 旧协议耦合链门面，方案 S 批次 4 移除。请改用统一中间件契约
-// （[WithUnifiedMiddleware] 声明 + middleware.UnaryServerInterceptor 桥接）：
-// 横切件写一遍、路由级挂接进契约。本方法保留一个版本期供血，内部已在链头预置统一段。
+// Deprecated: 旧协议耦合链门面，随统一中间件契约在下一 major 移除（方案 S
+// 批次 4 裁定：bridge 错误闭包与 nil info 约束使旧链无法薄委托，故过渡到
+// major 才物理删除）。请改用统一中间件契约（[WithUnifiedMiddleware] 声明 +
+// middleware.UnaryServerInterceptor 桥接）：横切件写一遍、路由级挂接进契约。
+// 本方法保留一个版本期供血，内部已在链头预置统一段。
 func (b *Bundle) GRPCInterceptors() []grpc.UnaryServerInterceptor {
 	b.warnIfUndeclaredAuthn()
 	// 统一段（方案 S）：双面链头预置统一链（opt-in，段缺省不挂）。
@@ -542,6 +546,10 @@ func (b *Bundle) grpcBreaker() *ginmw.CircuitBreaker {
 //
 // 返回空 slice 表示没有任何 stream 层需要挂，[Bundle.GRPCChain] 据此省略
 // ChainStreamInterceptor 这个 ServerOption，保持零配置时的选项数不变。
+//
+// Deprecated: 旧协议耦合链门面，随统一中间件契约在下一 major 移除。请改用
+// 统一中间件契约（[WithUnifiedMiddleware] 声明 + middleware.StreamServerInterceptor
+// 桥接）。本方法保留一个版本期供血，内部已在链头预置统一段。
 func (b *Bundle) GRPCStreamInterceptors() []grpc.StreamServerInterceptor {
 	// 统一段（方案 S）：流面链头也预置统一链（opt-in）——流上的 recovery/
 	// request_id 等经 wrapped stream ctx 生效；rate_limit 按「建流一次」计费。

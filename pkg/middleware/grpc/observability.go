@@ -1,8 +1,15 @@
-// Package grpc 提供 bald 框架在 gRPC 拦截器层的可观测性中间件。
+// Package grpc 提供 bald 框架在 gRPC 拦截器层的中间件（方案 S 前的协议耦合实现）。
 //
-// 实现已并入统一链 middleware.Observability（方案 S 批次 2）：本文件保公共
-// Option 面与方法跳过 matcher，经 middleware.{Unary,Stream}ServerInterceptor
+// 过渡状态（方案 S 批次 4）：本包中间件随 Bundle.GRPCInterceptors()/
+// GRPCStreamInterceptors() 旧链在下一 major 移除，统一实现见 pkg/middleware
+// （九件统一内置件 + 三桥 + matcher + grpcerr 桥内收口）。
+//
+// 可观测性已先行并入统一链 middleware.Observability（方案 S 批次 2）：本文件
+// 保公共 Option 面与方法跳过 matcher，经 middleware.{Unary,Stream}ServerInterceptor
 // 桥委托。日志输出走 bald 的 pkg/log，trace 注入原语在 middleware 统一链。
+//
+// 符号级 Deprecated 标注随物理删除同期进行：旧链门面尚在跨包调用本包，
+// 提前标注会触发 staticcheck SA1019 打红 bundle。
 package grpc
 
 import (

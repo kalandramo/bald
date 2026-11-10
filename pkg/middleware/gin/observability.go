@@ -1,8 +1,16 @@
-// Package gin 提供 bald 框架在 gin HTTP 层的可观测性中间件。
+// Package gin 提供 bald 框架在 gin HTTP 层的中间件（方案 S 前的协议耦合实现）。
 //
-// 实现已并入统一链 middleware.Observability（方案 S 批次 2）：本文件保公共
-// Option 面与跳过 matcher，经 middleware.GinHandler 桥委托。日志输出走 bald
-// 的 pkg/log，trace 注入原语在 middleware 统一链。
+// 过渡状态（方案 S 批次 4）：除 HTTP 专属常驻件（CORS/Secure——统一链刻意
+// 不收 HTTP 面，见 transport 卡 r05）外，本包中间件随 Bundle.Gin() 旧链在
+// 下一 major 移除，统一实现见 pkg/middleware（Recovery/RequestID/Timeout/
+// Authn/Authz/Audit/RateLimit/Observability 等九件 + 三桥 + matcher）。
+//
+// 可观测性已先行并入统一链 middleware.Observability（方案 S 批次 2）：本文件
+// 保公共 Option 面与跳过 matcher，经 middleware.GinHandler 桥委托。日志输出
+// 走 bald 的 pkg/log，trace 注入原语在 middleware 统一链。
+//
+// 符号级 Deprecated 标注随物理删除同期进行：旧链门面尚在跨包调用本包，
+// 提前标注会触发 staticcheck SA1019 打红 bundle。
 package gin
 
 import (
