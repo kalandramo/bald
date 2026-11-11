@@ -2,11 +2,13 @@ package convention
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/kalandramo/bald/cli/internal/codegen"
 )
@@ -32,14 +34,18 @@ type checker func(dir string) (findings []Finding, skip string, err error)
 // 显式的：卡声明 checks 时 docscheck 闸门校验「名字在注册表内、且绑定的规则
 // 真存在于该卡」，卡与注册表漂移时 CI 红。
 var checkerRule = map[string]string{
-	"gen-app-drift": "codegen-r03",
+	"gen-app-drift":    "codegen-r03",
+	"prd-prompt-seam":  "prd-r06",
+	"prd-structure":    "prd-r03",
 }
 
 // registry 是确定性检查器注册表。Phase 1 只收 gen-app-drift（薄封装 gen app
 // --check 这道既有零差异门）；其余卡规则暂无 checker（卡里以级别语义约束，
 // 靠评审落实），后续按需收编。
 var registry = map[string]checker{
-	"gen-app-drift": checkGenAppDrift,
+	"gen-app-drift":    checkGenAppDrift,
+	"prd-prompt-seam":  checkPRDPromptSeam,
+	"prd-structure":    checkPRDStructure,
 }
 
 // checkGenAppDrift 复用 gen app 的零差异门（checkTree）：spec 不存在视为
@@ -70,6 +76,100 @@ func firstLine(s string) string {
 		return s[:i]
 	}
 	return s
+}
+
+// prdDir 是 PRD 工作流产物的约定目录（prompt = 需求描述，prd = 翻译产物）。
+const prdDir = "docs/prd"
+
+// listPRDFiles 返回 dir 下指定后缀的文件名（稳定排序）。目录不存在视为
+// 环境不可判（skip）——没有 PRD 工作流的项目不判这张卡。
+func listPRDFiles(dir, suffix string) ([]string, string, error) {
+	entries, err := os.ReadDir(filepath.Join(dir, prdDir))
+	if err != nil {
+		// 不存在与「dir 本身是文件」（ENOTDIR）都视为环境不可判——与
+		// gen-app-drift 对 appspec 缺失的 skip 语义同款：没有 PRD 工作流的
+		// 项目不判这张卡。
+		if os.IsNotExist(err) || errors.Is(err, syscall.ENOTDIR) {
+			return nil, "no " + prdDir + " in " + dir, nil
+		}
+		return nil, "", fmt.Errorf("readdir %s: %w", prdDir, err)
+	}
+	var names []string
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), suffix) {
+			names = append(names, e.Name())
+		}
+	}
+	return names, "", nil
+}
+
+// checkPRDPromptSeam 钉 prd-r06 的接缝：需求描述（*.prompt.md）尾部必须带
+// 「先查规范。」——不查规范直接翻译 = 产物脱离工程既有契约面。
+func checkPRDPromptSeam(dir string) ([]Finding, string, error) {
+	names, skip, err := listPRDFiles(dir, ".prompt.md")
+	if err != nil || skip != "" {
+		return nil, skip, err
+	}
+	var findings []Finding
+	for _, name := range names {
+		raw, err := os.ReadFile(filepath.Join(dir, prdDir, name))
+		if err != nil {
+			return nil, "", fmt.Errorf("read %s: %w", name, err)
+		}
+		if !strings.Contains(string(raw), "先查规范") {
+			findings = append(findings, Finding{
+				RuleID:     checkerRule["prd-prompt-seam"],
+				Level:      LevelMandatory,
+				File:       prdDir + "/" + name,
+				Message:    "需求描述缺「先查规范」接缝：翻译前必须先查 convention",
+				Suggestion: "在 prompt 尾部补一行「先查规范。」，或运行 bald ide init 接入会话引导物",
+			})
+		}
+	}
+	return findings, "", nil
+}
+
+// checkPRDStructure 钉 prd-r03 的四要素：翻译产物（*.prd.md）的每个用户故事
+// 必须带 Status/Priority/Description/Acceptance Criteria；结构骨架（一级标题、
+// Introduction）由 prd-r01 以卡语义约束、评审落实，这里只收可确定性判定的部分。
+func checkPRDStructure(dir string) ([]Finding, string, error) {
+	names, skip, err := listPRDFiles(dir, ".prd.md")
+	if err != nil || skip != "" {
+		return nil, skip, err
+	}
+	fields := []string{"**Status:**", "**Priority:**", "**Description:**", "**Acceptance Criteria:**"}
+	var findings []Finding
+	for _, name := range names {
+		raw, err := os.ReadFile(filepath.Join(dir, prdDir, name))
+		if err != nil {
+			return nil, "", fmt.Errorf("read %s: %w", name, err)
+		}
+		// 按 "### US-" 切故事节：骨架外的散段不判（可能是标题与概述）。
+		for _, sec := range strings.Split(string(raw), "### US-")[1:] {
+			missing := missingFields(sec, fields)
+			if len(missing) > 0 {
+				findings = append(findings, Finding{
+					RuleID:     checkerRule["prd-structure"],
+					Level:      LevelMandatory,
+					File:       prdDir + "/" + name,
+					Message:    "用户故事缺四要素：" + strings.Join(missing, "、"),
+					Suggestion: "补齐 Status/Priority/Description/Acceptance Criteria 四要素（prd-r03）",
+				})
+			}
+		}
+	}
+	return findings, "", nil
+}
+
+// missingFields 返回段落里缺失的字段标记。
+func missingFields(section string, fields []string) []string {
+	var missing []string
+	for _, f := range fields {
+		if !strings.Contains(section, f) {
+			missing = append(missing, f)
+		}
+	}
+	return missing
 }
 
 // levelRank 把级别映射为可比较的序（强制 0 < 建议 1 < 参考 2）。

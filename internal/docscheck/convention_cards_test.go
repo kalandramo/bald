@@ -25,7 +25,9 @@ import (
 // checkerRuleRegistry 必须与 cli/internal/convention/check.go 的 checkerRule
 // 保持一致：名字清单 + 绑定规则。改动任一侧时同步另一侧（本注释同时钉两边）。
 var checkerRuleRegistry = map[string]string{
-	"gen-app-drift": "codegen-r03",
+	"gen-app-drift":   "codegen-r03",
+	"prd-prompt-seam": "prd-r06",
+	"prd-structure":   "prd-r03",
 }
 
 var (

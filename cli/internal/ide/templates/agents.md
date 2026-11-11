@@ -27,5 +27,6 @@ bald convention get <卡id>      # 取卡全文（MCP 工具：bald_convention_g
 | 写业务域 / 改装配 / 改生成物 | `bald convention get codegen`，再取 `judgments` |
 | 接中间件 / 找能力包 | `bald convention get catalog`，再取 `reuse` |
 | 提交 / 发布 | `bald convention get commit`，再取 `gates` |
+| 写需求 / 产 PRD | `bald convention get prd`（需求翻译前先查规范） |
 
 check 只覆盖可确定性判断的规则：它通过不代表代码一定符合规范，代码评审不可替代。
