@@ -17,7 +17,7 @@ func TestSyncGuardOrphanBumps(t *testing.T) {
 			},
 		}},
 	}
-	if err := guardOrphanBumps(plan); err != nil {
+	if err := CheckOrphanBumps(plan); err != nil {
 		t.Fatalf("closed-circuit plan should pass: %v", err)
 	}
 
@@ -31,7 +31,7 @@ func TestSyncGuardOrphanBumps(t *testing.T) {
 			},
 		}},
 	}
-	err := guardOrphanBumps(trimmed)
+	err := CheckOrphanBumps(trimmed)
 	if err == nil {
 		t.Fatal("trimmed plan must be rejected")
 	}

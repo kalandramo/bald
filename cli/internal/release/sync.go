@@ -21,7 +21,7 @@ func Sync(root string, plan *Plan, write bool, out io.Writer) error {
 	if err := CheckPlanFresh(root, plan); err != nil {
 		return err
 	}
-	if err := guardOrphanBumps(plan); err != nil {
+	if err := CheckOrphanBumps(plan); err != nil {
 		return err
 	}
 	type target struct {
@@ -64,7 +64,7 @@ func Sync(root string, plan *Plan, write bool, out io.Writer) error {
 // 是全树行为，裁剪 plan 只留部分模块时，留下的归位会把 go.mod 推到**没人打
 // tag 的版本**（实证：cli/v0.7.0 因此 require 了未发的 cobramcp v0.3.5 成坏
 // tag）。整批发版才是 plan 的不变量；真要分批，就重跑 plan 让闭包自然成形。
-func guardOrphanBumps(plan *Plan) error {
+func CheckOrphanBumps(plan *Plan) error {
 	pending := make(map[string]string, len(plan.Changes))
 	for _, c := range plan.Changes {
 		pending[c.Module] = c.Tag

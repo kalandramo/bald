@@ -13,15 +13,16 @@ import (
 	"context"
 	"fmt"
 
+	brokerrediscontract "github.com/kalandramo/bald/broker/redis/contract"
+
 	"github.com/kalandramo/bald/broker"
 	"github.com/kalandramo/bald/log"
 	"github.com/kalandramo/bald/pkg/appkit"
 )
 
-// RedisBroker 是 broker.redis 段产物的资源键。map 形产物按 "<top>.<子段>"
-// 展开（appkit.setResources），broker/redis/contract 的 Build 产物是
-// {"redis": Broker}，键即 broker.redis.redis。
-var RedisBroker = appkit.NewKey[broker.Broker]("broker.redis.redis")
+// RedisBroker 是 broker.redis 段产物的资源键（ADR-16：标准键由
+// broker/redis/contract.RedisKey 导出，消费者不再手写魔法串）。
+var RedisBroker = brokerrediscontract.RedisKey
 
 // Topic 是演示主题（pub/sub：发布即广播，worker 角色的订阅者收到后记日志）。
 const Topic = "bald.demo.events"

@@ -13,6 +13,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/kalandramo/bald/broker"
 	"github.com/kalandramo/bald/pkg/appkit"
 )
 
@@ -66,3 +67,8 @@ func (appProvider) Build(ctx context.Context, s appkit.ApplyScope, _ appkit.Node
 
 // 编译期断言：appProvider 满足 appkit.Provider（含 Option 嵌入面）。
 var _ appkit.Provider = appProvider{}
+
+// RedisKey 是 broker.redis 段产物的标准资源键（ADR-16）：map 形产物按
+// "<top>.<子段>" 展开为 broker.redis.redis——消费者直接引用本常量，
+// 不再手写魔法串。appkit.NewKey[broker.Broker] 的类型化包装。
+var RedisKey = appkit.NewKey[broker.Broker]("broker.redis.redis")
