@@ -10,6 +10,8 @@ import (
 
 	"github.com/spf13/cobra"
 	"google.golang.org/protobuf/encoding/protojson"
+
+	"github.com/kalandramo/bald/cobramcp"
 	"google.golang.org/protobuf/proto"
 
 	appspecv1 "github.com/kalandramo/bald/bconf/gen/go/bald/appspec/v1"
@@ -125,6 +127,12 @@ user 文件生成器永不读写。`,
 			}
 			return o.Run()
 		},
+	}
+	// MCP 面的 readOnly 标注：cobramcp 的 selector 已排除 adopt/preset 两个写
+	// flag（cmd/bald/main.go），暴露出去的工具只有 --spec/--out/--check 的
+	// 只读校验形态——注解在该工具面内是准确描述（CLI 本体仍可写）。
+	cmd.Annotations = map[string]string{
+		cobramcp.AnnotationReadOnly: "true",
 	}
 	cmd.Flags().StringVar(&o.OutRoot, "out", "", "产出根目录（缺省取 AppSpec.layout.root，再缺省为当前目录）")
 	cmd.Flags().StringVar(&o.Spec, "spec", "", "AppSpec JSON 路径（protojson）")

@@ -72,12 +72,19 @@ release 面向框架维护者：从 git 提交历史推导待发布模块与版�
 	root.AddCommand(ide.NewCommand())
 	root.AddCommand(prd.NewCommand())
 	root.AddCommand(release.NewCommand(release.NewDefaultIOStreams()))
-	// MCP 面：只放行 convention（查询规范，只读）。gen 是写动作、release 是
-	// 打 tag 的外向动作，都不进 AI 工具面（渐进式放行见 docs/architecture/
-	// onexai-gap-review.md §6.2）。
+	// MCP 面：只读动作进，写动作挡（渐进式放行见 docs/architecture/
+	// onexai-gap-review.md §6.2 与 developer-experience-review.md DX-16）。
+	// - convention：查规范，天然只读；
+	// - gen app：**排除 adopt/preset 两个写 flag 后是纯只读校验**（--check 零
+	//   写入验证生成树与声明一致）——AI 可以自证声明一致性，但不能改树。
+	//   gen 的其它子命令（domain/proto/store）与 release 是写/外向动作，不进。
 	root.AddCommand(cobramcp.Command(&cobramcp.Config{
 		Selectors: []cobramcp.Selector{
 			{CmdSelector: cobramcp.AllowCmdsContaining("convention")},
+			{
+				CmdSelector:       cobramcp.AllowCmdsContaining("gen app"),
+				LocalFlagSelector: cobramcp.ExcludeFlags("adopt", "preset"),
+			},
 		},
 	}))
 	codegen.CheckErr(root.Execute())
