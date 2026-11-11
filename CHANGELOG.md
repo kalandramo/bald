@@ -6,6 +6,20 @@
 
 ## 2026-11-11
 
+### bald v0.54.0
+
+- `c95a1f94` feat(cli): onex harness 示例能力对齐收官——no-panic checker + gen app 后置步骤提示
+- `b21b4628` docs(architecture): DX 体检标注实施进度——11 项快赢落地、6 项未做
+- `4939ca16` docs(guide): quickstart 安装节密度分层（DX-21 快赢 #10）
+- `a508b338` docs(guide/architecture): 术语速查表 + architecture 分流表（DX-22/20 快赢 #11/12）
+- `22db0f55` docs(guide): 统一中间件契约使用指南 + 旧链篇 deprecated 横幅（DX-23 快赢 #8）
+
+### cli v0.12.0
+
+- `c95a1f94` feat(cli): onex harness 示例能力对齐收官——no-panic checker + gen app 后置步骤提示
+- `9901da93` fix(convention): gen-app-drift finding 补 owned 清单与还原指引（DX-8）
+- `51973069` feat(cli): bald_gen_app 进 MCP 工具面（只读形态，DX-16 快赢 #4）
+
 ### bald v0.53.0
 
 - `fad40af0` feat(cli): onex harness 全量课对照补齐——方法论卡两张 + 源码级 checker + prd translate + 斜杠命令
