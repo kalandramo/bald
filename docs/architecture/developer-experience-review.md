@@ -198,3 +198,126 @@ convention check 已有 --json ✓，其余诊断面未跟上。
   （review 工作流）相邻，落地时合并排期。
 - 本文的实证输出（preset next 提示、Gate1 报错、`go build` 崩溃、`--spec is required`）
   采集于 2026-11-10/11，`bald` @ `cli/v0.7.2` 行为；后续修复时以本文条目勾销。
+
+---
+
+## 9. 文档体系体检（DX-18…28，2026-11-11 增补）
+
+> 上述 17 条查的是**框架**对用户不友好的地方；本节把**文档本身**也当用户体验对象体检。
+> 口径：四层文档实盘清点（guide 17 篇/4.7k 行、devel 43 篇/11k 行、architecture 10 篇/3.9k 行、
+> 蒸馏卡 22 张）+ 过时信号扫描（改名 API/旧路径/计数漂移的 grep 实证）+ quickstart 首篇
+> 逐段跟随。DX-27/28 与 risk-review 的文档类风险相邻，落地时合并。
+
+### 结构性
+
+**DX-18 修订日志侵占导航位【实证】【P2】**
+`docs/architecture/README.md` 是架构制品的**索引入口**，但一半篇幅是 2026-11-02 五次
+"重核"修订注记（每次 4–8 行）+ 2026-11-06/10/11 增量——变更史有价值，但它把
+「哪份文档回答什么问题」的导航表挤到中间，新读者要先翻过 40 行历史才看到索引。
+
+**方向**：索引与修订史分离——README 只留索引表 + 校验命令；修订注记收敛到文内
+「修订记录」小节或 architecture 层的 CHANGELOG。
+
+**DX-19 计数型断言无守卫，漂移即过时【实证】【P1】**
+`llms.txt` 写"开发手册 32 篇"——磁盘实际 **43 篇**（11 天内 +11 篇没人回头改）。
+同类：README 的 contract 包计数 30→39（靠人工五次重核追平）、卡数 16→22。
+凡是「N 篇/N 张/N 个」的句子都是未来的过时内容。
+
+**方向**：docscheck 增加计数守卫（llms.txt/README 的篇数断言与 `find` 实数一致）；
+或者文档层面立规：**索引句不写具体计数**（"quickstart 起的使用文档集合"），数字只
+出现在可被闸门校验的地方。
+
+**DX-20 devel 层的导航好，architecture 层缺同款【实证】【P2】**
+`docs/devel/zh-CN/README.md` 有「你关心的事 → 先读哪篇」的分流表（好实践）；
+`docs/guide/zh-CN/README.md` 同款 ✓；architecture 层没有——它的 README 是制品校验
+说明（见 DX-18），"新维护者按问题找文档"的入口缺失。
+
+**方向**：architecture README 头部加同款分流表（~8 行：找风险→risk-review、找当前
+结构→current-architecture、找 AI 化结论→onexai-gap-review…）。
+
+### 可读性
+
+**DX-21 quickstart 是维护者密度，不是新用户密度【实证】【P1】**
+《用 bald CLI 起步新服务》第 2 节（安装 CLI）用三段 200–400 字的段落把**核心命令**
+（`go install` 两行）埋进：module 拆分理由、三个历史 tag 的报错原文、replace 计数取证、
+代理滞后的路径遮蔽案例、tools.go 钉版本的完整惯例（含 tidy 行为机理）、sum.golang.org
+延迟……每条考证都是真金白银的知识，但**新用户在"30 秒最小路径"之后进来的第一篇
+文章就劝退**。字段参考表（§3.1）反而是全文最好读的部分。
+
+**方向**：正文只留可跟随的命令流 + 每步一句「这步在做什么」；考证/历史/避坑下沉到
+「背景与坑」折叠节（`<details>` 或文末附录）——内容不减，密度分层。
+
+**DX-22 术语在 guide 层裸用，定义在两层之外【P2】**
+Gate1/Gate2/Gate3、owned/seeded/user、L3 段覆盖、J1–J9——guide 行文直接使用
+（如「owned 的 `Options()`」「Gate1 校验」），定义散在 devel 设计文档与《设计判据》。
+guide 读者（业务开发者）没有这些前置。
+
+**方向**：guide 首篇或 README 加一张 10 行术语速查表（名词 + 一句定义 + 定义所在文档）；
+或报错/文档首次出现处统一挂锚点（与 DX-6 合并做）。
+
+### 实用性
+
+**DX-23 guide 教的是 deprecated 面，统一链零指南【实证】【P0（文档口径）】**
+方案 S 批次 1–4 落地后：`pkg/middleware` 根的 Handler/Transporter/matcher/三座桥、
+`server.unified_middleware` 契约段、bundle 的 `WithUnifiedMiddleware`——**能力地图已补**
+（框架契约总览 §9.3），但 guide 层**零覆盖**：现有《Bald 中间件设计》与 quickstart 教的
+`bundle.FromMiddleware`/`newGRPCChain` 全是 deprecated 旧链。新应用按 guide 写，
+写出来的就是批次 4 要移除的面。
+
+**方向**：guide 新增《统一中间件契约》一篇（统一段怎么声明、九件内置件怎么配、
+matcher 怎么选路由）；旧链相关篇目头部挂 deprecated 横幅并指向新篇。**这是文档侧
+批次 4 的前置**（与 memory 的批次 4 推进顺序呼应：codegen 统一段生成 → guide 同步）。
+
+**DX-24 CLI 全貌与 guide 覆盖面错位【实证】【P2】**
+`bald --help` 有五个命令族（gen/convention/ide/release/doctor 随 gen），quickstart 的
+安装节结尾写「CLI 提供 4 个生成子命令」——**gen 之外的三个族**（convention 查规范、
+ide init 接 AI 工具、release 发版）在 quickstart 视野之外；「doctor 看装配诊断」这类
+日常高频动作没有 quickstart 级介绍。
+
+**方向**：quickstart 加一节「gen 之外」（每族三行：干什么 + 一条命令 + 卡/手册链接）。
+
+**DX-25 手写 appspec 与预设的关系未讲【P2】**
+quickstart 主线是手写 appspec 全字段；`gen app --preset`（现七预设）是更优起点但
+两者在 guide 里无衔接——什么时候预设、什么时候手写、预设生成后怎么演进，读者要
+自己悟（DX-1 的 go.mod 坑又叠在这一步上）。
+
+**方向**：《用 bald CLI 起步新服务》重排为「预设起步 → 手写字段参考 → 预设到手写的
+演进」三段式。
+
+### 过时内容剔除
+
+**DX-26 逐字存档类的"活性"边界要显式【P2】**
+`onex-ai.md`（逐字存档）口径是"保持原样不编辑" ✓；但同类性质的过时内容散在活性文档里：
+「框架不会自己读段」这句旧口径在契约总览里是唯一带"已作废"标记的——**其它文档的
+作废内容没有标记机制**（grep "已作废/旧口径" 全 devel 仅 1 处命中），读者无从分辨
+哪些句还是现行事实。
+
+**方向**：立一个轻量口径——被替代的段落不删，改写为 `> ⚠️ 已作废（<日期>）：<现行口径>`，
+让"过时"变成显式信号而不是读者自行考古。
+
+**DX-27 能力地图与代码同步靠人工追【实证】【P1】**
+框架契约总览 §9.3 缺统一链面（本会话补上）是实例：能力地图（675 行手写表）的刷新
+依赖"有人想起"，发版流程不含它。同类风险面：模块清单、contract 包计数、卡规则数。
+
+**方向**：release 四步的 sync 环节加一项 checklist（能力地图增量节、llms.txt 篇数、
+README 计数），或对契约总览做「符号存在性」的 docscheck 抽查（表中 `pkg/x.Foo` 必须
+真实存在——check_cites 的同款思路延伸到 API 引用）。
+
+**DX-28 过时扫描的实证记录（本次清扫基线）【P2】**
+本轮 grep 实证：`observability/metricshttp` 旧路径在 docs/**零残留**（指标设计文档已是
+`pkg/metricshttp` 新路径 ✓——五次重核的成果）；`FromMiddleware` 在 guide 的用法描述
+**与代码现状一致**（旧链未删、描述不算错，但按 DX-23 挂 deprecated）；计数漂移仅
+DX-19 一处实证。「已作废」标记仅 1 处（DX-26）。
+
+**方向**：本节作为文档体检的**基线存档**——下次体检对照增量；grep 模式
+（旧路径/作废标记/计数断言）沉淀进 docscheck 或 tools/ 校验器，让"过时扫描"可复跑。
+
+### 文档体检快赢补充（接 §8 表）
+
+| # | 项 | 代价 | 对应 |
+|---|---|---|---|
+| 8 | guide《统一中间件契约》新篇 + 旧链篇挂 deprecated 横幅 | 1–2 人日 | DX-23 |
+| 9 | llms.txt/README 计数守卫进 docscheck（或立"索引不写计数"规） | 0.5 人日 | DX-19 |
+| 10 | quickstart 密度分层（正文命令流 + 背景折叠） | 1 人日 | DX-21 |
+| 11 | guide 术语速查表（10 行） | 0.5 人日 | DX-22 |
+| 12 | architecture README 索引/修订史分离 + 分流表 | 0.5 人日 | DX-18/20 |
