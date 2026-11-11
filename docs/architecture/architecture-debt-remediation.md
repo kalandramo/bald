@@ -8,32 +8,32 @@
 
 ## 批 1（低风险，随手清）
 
-### ADR-1 ✅ `adaptCleanup` 逐字复制 25 份（J2 现行违反）
+### ADR-1 ✅ `adaptCleanup` 逐字复制 25 份（J2 现行违反）——已修（CleanupFrom + 25 包 rewired，35 模块 build/docscheck/lint/race 过）
 
 证据：`grep -rln "func adaptCleanup" --include="*.go" . | wc -l` = 25（metrics/*/contract、
 broker/redis/contract、transport/{websocket,sse,redis,rabbitmq,…}/contract 全中）。
 修正：appkit 导出 `CleanupFrom(cleanup func()) appkit.Cleanup`（nil 透传），25 处改引用
 后逐包删本地定义。代价：0.5 人日（机械，-race + lint 全量过即可）。
 
-### ADR-2 🔧 broker API 同名不同形（选项 `WithMetadata(Metadata)` vs 方法 `WithMetadata(key,value)`）
+### ADR-2 ✅ broker API 同名不同形——已修（同名选项删除：零真实使用，链式方法为唯一构造面）（选项 `WithMetadata(Metadata)` vs 方法 `WithMetadata(key,value)`）
 
 证据：`broker/message.go:310`（选项）与 `:103`（方法）；`WithKey` 同样一对。修正：
 选项改语义名 `WithMetadataMap`/`WithKeyOf`（旧名 Deprecated 保兼容一个 minor），
 文档标 fluent 链为主构造面。代价：0.5 人日。
 
-### ADR-3 ✅ `providerHints` 静态表与派生机制并存
+### ADR-3 ✅ `providerHints` 静态表与派生机制并存——已修（表收敛为例外表）
 
 证据：`pkg/appkit/segment_coverage.go`——表里大半条目可由 `path → path.Replace(".","/")+"/contract"`
 派生，两套机制做一件事。修正：表只留**例外**（database.sql → contrib/...、cache/oss/metrics
 等非规则路径），规则路径全部走派生。代价：0.25 人日。
 
-### ADR-4 ✅ `bridge_gin.go` 200 项享元 error map 过度设计
+### ADR-4 ✅ `bridge_gin.go` 200 项享元 error map 过度设计——已修（sync.Map 按命中惰性缓存，享元语义不变）
 
 证据：400–599 全量预构造，实测热路径只命中 5–6 个状态码，且分配本已对象池化。
 修正：改 `sync.Map` 按需构造 + 命中缓存（首次分配后复用），删预构造循环与三层
 fallback。测试钉住的行为不变（同 error 实例复用语义保留）。代价：0.5 人日。
 
-### ADR-5 ✅ 报错文案中英混排
+### ADR-5 ✅ 报错文案中英混排——已修（hintSuffix 统一中文）
 
 证据：`hintSuffix` 输出 "— framework contract package: … (wire its AppProvider in
 customOptions)" 夹在中文报错流里。修正：错误文案统一语言（与所在错误流的主体一致）。
@@ -116,6 +116,11 @@ DX-21 只修了安装节。修正：guide 全量走查一次（正文命令流 +
   文档声明，随批次 4（旧链移除）一并裁决。
 - `pkg/` 模块无名之实：改名是全仓 import 地震，**永久挂账不修**（代价 >> 收益），
   判据卡里加一行"pkg 是历史名，新聚合勿再入内"。
+
+> **批 1 实施记录（2026-11-11/12）**：五项全部落地。附带发现：transport/mcp、tcp、webrtc
+> 整包 -race 超时挂死（TestServer 类在 `httpSrv.Serve` goroutine 上等待，**非 race 下
+> 也挂**）——与批 1 的等价替换无关（mcp 的 diff 仅删残留定义与调用点换名），归属
+> transport 侧并行批次的引入，**单独排查**（见 memory）。
 
 ## 实施顺序
 
