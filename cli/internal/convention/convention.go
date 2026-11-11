@@ -75,7 +75,7 @@ type Card struct {
 }
 
 // ruleRe 匹配规则行：- [judgments-r01] [强制] 规则正文……
-var ruleRe = regexp.MustCompile(`^-\s+\[([a-z]+-r[0-9]{2})\]\s+\[(强制|建议|参考)\]\s+(.+)$`)
+var ruleRe = regexp.MustCompile(`^-\s+\[([a-z]+(?:-[a-z]+)*-r[0-9]{2})\]\s+\[(强制|建议|参考)\]\s+(.+)$`)
 
 // Load 解析内嵌卡库并做集合级完整性校验（卡内规则 ID 前缀、全库唯一、级别合法）。
 // 完整性失败直接报错：卡集本身坏了属于闸门级故障，不是 finding。

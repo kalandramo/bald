@@ -83,6 +83,8 @@ var ideSpecs = map[string]ideSpec{
 	"claude": {
 		files: []seededFile{
 			{path: filepath.Join(".claude", "commands", "bald.md"), tmpl: "templates/command_bald.md", comment: "/bald 斜杠命令"},
+			{path: filepath.Join(".claude", "commands", "bald-commit.md"), tmpl: "templates/command_bald_commit.md", comment: "/bald-commit 斜杠命令（提交规范 + 门禁前置）"},
+			{path: filepath.Join(".claude", "commands", "bald-review.md"), tmpl: "templates/command_bald_review.md", comment: "/bald-review 斜杠命令（阶段性再规范化）"},
 			{path: filepath.Join(".claude", "skills", "bald-conventions", "SKILL.md"), tmpl: "templates/skill.md", comment: "规范查询 SKILL（模型自判调用）"},
 		},
 	},

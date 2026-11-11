@@ -34,18 +34,20 @@ type checker func(dir string) (findings []Finding, skip string, err error)
 // 显式的：卡声明 checks 时 docscheck 闸门校验「名字在注册表内、且绑定的规则
 // 真存在于该卡」，卡与注册表漂移时 CI 红。
 var checkerRule = map[string]string{
-	"gen-app-drift":    "codegen-r03",
-	"prd-prompt-seam":  "prd-r06",
-	"prd-structure":    "prd-r03",
+	"gen-app-drift":   "codegen-r03",
+	"logging-stdlib":  "logging-r01",
+	"prd-prompt-seam": "prd-r06",
+	"prd-structure":   "prd-r03",
 }
 
 // registry 是确定性检查器注册表。Phase 1 只收 gen-app-drift（薄封装 gen app
 // --check 这道既有零差异门）；其余卡规则暂无 checker（卡里以级别语义约束，
 // 靠评审落实），后续按需收编。
 var registry = map[string]checker{
-	"gen-app-drift":    checkGenAppDrift,
-	"prd-prompt-seam":  checkPRDPromptSeam,
-	"prd-structure":    checkPRDStructure,
+	"gen-app-drift":   checkGenAppDrift,
+	"logging-stdlib":  checkLoggingStdlib,
+	"prd-prompt-seam": checkPRDPromptSeam,
+	"prd-structure":   checkPRDStructure,
 }
 
 // checkGenAppDrift 复用 gen app 的零差异门（checkTree）：spec 不存在视为
@@ -76,6 +78,96 @@ func firstLine(s string) string {
 		return s[:i]
 	}
 	return s
+}
+
+// checkLoggingStdlib 钉 logging-r01 的可判定面：业务代码只 import bald/log
+// 契约层，标准库 log 与 log/slog 直用是被禁止的形态（bald 的 slog 适配面在
+// log 包内部）。递归扫描非测试 Go 源文件，vendor/.git/工具目录跳过。项目里
+// 没有 Go 源文件时视为环境不可判（skip）。
+func checkLoggingStdlib(dir string) ([]Finding, string, error) {
+	root := dir
+	if _, err := os.Stat(filepath.Join(root, "go.mod")); err != nil {
+		if os.IsNotExist(err) {
+			return nil, "no go.mod in " + dir, nil
+		}
+		return nil, "", fmt.Errorf("stat %s: %w", dir, err)
+	}
+	var findings []Finding
+	var scanned int
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil // 单个条目不可读不阻断整体检查
+		}
+		name := d.Name()
+		if d.IsDir() {
+			switch name {
+			case "vendor", ".git", "node_modules", "_example", "testdata":
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			return nil
+		}
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return nil
+		}
+		scanned++
+		for _, bad := range []string{`"log"`, `"log/slog"`} {
+			if importBlockContains(string(raw), bad) {
+				rel, _ := filepath.Rel(root, path)
+				findings = append(findings, Finding{
+					RuleID:     checkerRule["logging-stdlib"],
+					Level:      LevelMandatory,
+					File:       rel,
+					Message:    "业务代码直接 import " + bad + "（logging-r01：只 import bald/log 契约层）",
+					Suggestion: "改用 github.com/kalandramo/bald/log（包级函数 log.Info/Warn/Error(ctx, msg, kv...)）；标准库 slog 是 log 包内部适配面",
+				})
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, "", fmt.Errorf("walk %s: %w", dir, err)
+	}
+	if scanned == 0 {
+		return nil, "no go source files in " + dir, nil
+	}
+	return findings, "", nil
+}
+
+// importBlockContains 判定源文件是否 import 了给定包路径：快筛引号字面量，
+// 再确认它出现在 import 块或单行 import 里（避免误伤注释与字符串常量里的
+// "log" 字样）。
+func importBlockContains(src, pkg string) bool {
+	if !strings.Contains(src, pkg) {
+		return false
+	}
+	for i, line := range strings.Split(src, "\n") {
+		trimmed := strings.TrimSpace(line)
+		isImport := strings.HasPrefix(trimmed, "import") || trimmed == ")" ||
+			(strings.HasPrefix(trimmed, "\"") && inImportBlock(src, i))
+		if isImport && strings.HasSuffix(trimmed, pkg) {
+			return true
+		}
+	}
+	return false
+}
+
+// inImportBlock 判定第 i 行是否处于 import ( ... ) 块内（块头在之前的行）。
+func inImportBlock(src string, i int) bool {
+	lines := strings.Split(src, "\n")
+	for j := i - 1; j >= 0 && j > i-50; j-- {
+		t := strings.TrimSpace(lines[j])
+		if strings.HasPrefix(t, "import (") {
+			return true
+		}
+		if strings.HasPrefix(t, "import ") || t == ")" {
+			return false
+		}
+	}
+	return false
 }
 
 // prdDir 是 PRD 工作流产物的约定目录（prompt = 需求描述，prd = 翻译产物）。

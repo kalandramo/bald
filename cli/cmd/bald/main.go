@@ -44,6 +44,7 @@ import (
 	"github.com/kalandramo/bald/cli/internal/codegen"
 	"github.com/kalandramo/bald/cli/internal/convention"
 	"github.com/kalandramo/bald/cli/internal/ide"
+	"github.com/kalandramo/bald/cli/internal/prd"
 	"github.com/kalandramo/bald/cli/internal/release"
 )
 
@@ -69,6 +70,7 @@ release 面向框架维护者：从 git 提交历史推导待发布模块与版�
 	root.AddCommand(codegen.NewCommand(codegen.NewDefaultIOStreams()))
 	root.AddCommand(convention.NewCommand(convention.NewDefaultStreams()))
 	root.AddCommand(ide.NewCommand())
+	root.AddCommand(prd.NewCommand())
 	root.AddCommand(release.NewCommand(release.NewDefaultIOStreams()))
 	// MCP 面：只放行 convention（查询规范，只读）。gen 是写动作、release 是
 	// 打 tag 的外向动作，都不进 AI 工具面（渐进式放行见 docs/architecture/

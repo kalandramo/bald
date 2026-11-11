@@ -26,6 +26,7 @@ import (
 // 保持一致：名字清单 + 绑定规则。改动任一侧时同步另一侧（本注释同时钉两边）。
 var checkerRuleRegistry = map[string]string{
 	"gen-app-drift":   "codegen-r03",
+	"logging-stdlib":  "logging-r01",
 	"prd-prompt-seam": "prd-r06",
 	"prd-structure":   "prd-r03",
 }
@@ -34,7 +35,7 @@ var (
 	cardFMID       = regexp.MustCompile(`(?m)^id:\s*(\S+)\s*$`)
 	cardFMLevel    = regexp.MustCompile(`(?m)^level:\s*(\S+)\s*$`)
 	cardFMCategory = regexp.MustCompile(`(?m)^category:\s*(\S+)\s*$`)
-	cardRuleLine   = regexp.MustCompile(`^-\s+\[([a-z]+-r[0-9]{2})\]\s+\[(强制|建议|参考)\]\s+\S`)
+	cardRuleLine   = regexp.MustCompile(`^-\s+\[([a-z]+(?:-[a-z]+)*-r[0-9]{2})\]\s+\[(强制|建议|参考)\]\s+\S`)
 	cardLevels     = map[string]bool{"强制": true, "建议": true, "参考": true}
 	cardCategories = map[string]bool{"core": true, "contract": true, "codegen": true, "ops": true}
 )

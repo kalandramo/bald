@@ -16,8 +16,8 @@ func TestLoadEmbeddedCards(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if len(cards) != 23 {
-		t.Fatalf("expected 23 cards, got %d: %v", len(cards), cardIDs(cards))
+	if len(cards) != 25 {
+		t.Fatalf("expected 25 cards, got %d: %v", len(cards), cardIDs(cards))
 	}
 	byID := map[string]Card{}
 	for _, c := range cards {
@@ -180,8 +180,8 @@ func TestLoadAllProjectCards(t *testing.T) {
 	for _, c := range cards {
 		got[c.ID] = true
 	}
-	if len(cards) != 24 || !got["team"] || !got["judgments"] {
-		t.Errorf("LoadAll: got %v (%d cards), want 23 baseline + team", cardIDs(cards), len(cards))
+	if len(cards) != 26 || !got["team"] || !got["judgments"] {
+		t.Errorf("LoadAll: got %v (%d cards), want 25 baseline + team", cardIDs(cards), len(cards))
 	}
 
 	// 卡 id 冲突（id 必须与文件名 stem 一致，冲突文件名取 reuse.md 才能走到
@@ -202,8 +202,8 @@ func TestLoadAllProjectCards(t *testing.T) {
 	// 全库唯一 ⇒ 规则 id 天然唯一。LoadAll 里的规则查重是纵深防御，不写测试。
 
 	// 目录缺失：退化基线。
-	if cards, err := LoadAll(filepath.Join(dir, "nonexistent")); err != nil || len(cards) != 23 {
-		t.Errorf("missing project dir: cards=%d err=%v, want 23 baseline", len(cards), err)
+	if cards, err := LoadAll(filepath.Join(dir, "nonexistent")); err != nil || len(cards) != 25 {
+		t.Errorf("missing project dir: cards=%d err=%v, want 25 baseline", len(cards), err)
 	}
 }
 

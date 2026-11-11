@@ -85,8 +85,8 @@ func TestLoadAll_SkipNonMarkdown(t *testing.T) {
 	dir := t.TempDir()
 	writeProjectCard(t, dir, "notes.txt", "ignored")
 	cards, err := LoadAll(dir)
-	if err != nil || len(cards) != 23 {
-		t.Errorf("non-md skip: cards=%d err=%v, want 23 baseline", len(cards), err)
+	if err != nil || len(cards) != 25 {
+		t.Errorf("non-md skip: cards=%d err=%v, want 25 baseline", len(cards), err)
 	}
 }
 

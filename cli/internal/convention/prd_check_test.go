@@ -140,3 +140,51 @@ func TestPRDCardsThroughRunCheck(t *testing.T) {
 		t.Error("结构完整不应产出 prd-r03 finding")
 	}
 }
+
+// TestCheckLoggingStdlib 覆盖 logging-stdlib checker 的三个分支：stdlib log
+// 直用 → finding（绑 logging-r01）；无 go.mod → skip；测试文件与 bald/log
+// 引用不误报。
+func TestCheckLoggingStdlib(t *testing.T) {
+	t.Run("stdlib log import → finding", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module demo\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		src := "package main\n\nimport (\n\t\"log\"\n)\n\nfunc main() { log.Println(\"hi\") }\n"
+		if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		findings, skip, err := checkLoggingStdlib(dir)
+		if err != nil || skip != "" || len(findings) != 1 {
+			t.Fatalf("findings=%v skip=%q err=%v", findings, skip, err)
+		}
+		if findings[0].RuleID != "logging-r01" {
+			t.Errorf("rule = %s, want logging-r01", findings[0].RuleID)
+		}
+	})
+	t.Run("bald/log and test files → no finding", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module demo\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		ok := "package main\n\nimport \"github.com/kalandramo/bald/log\"\n"
+		if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte(ok), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		tst := "package main\n\nimport \"testing\"\n\nfunc TestX(t *testing.T) { _ = t }\n"
+		if err := os.WriteFile(filepath.Join(dir, "main_test.go"), []byte(tst), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		findings, _, err := checkLoggingStdlib(dir)
+		if err != nil || len(findings) != 0 {
+			t.Fatalf("findings=%v err=%v, want clean", findings, err)
+		}
+	})
+	t.Run("no go.mod → skip", func(t *testing.T) {
+		dir := t.TempDir()
+		_, skip, err := checkLoggingStdlib(dir)
+		if err != nil || skip == "" {
+			t.Fatalf("skip=%q err=%v, want skip", skip, err)
+		}
+	})
+}
