@@ -15,20 +15,44 @@
 
 ## 2. 安装 CLI
 
-CLI 住在独立 module `github.com/kalandramo/bald/cli`。这条拆分（风险评审 §3.4 的方案 B）是为安装路径服务的：Go 为命名包按版本安装时读取目标 module 的**已发布** `go.mod`，含任何 `replace` 就拒绝（实测拆分前的 `v0.31.0`/`v0.36.0`/`v0.37.0` 三个根 tag 同一条错误：`The go.mod file for the module providing named packages contains one or more replace directives`——根 `go.mod` 有 19 条指向目录的 `replace`）。`cli/go.mod` 因此必须零 `replace`，仓库根做不到。
-
 ```bash
 go install github.com/kalandramo/bald/cli/cmd/bald@latest
 bald --help   # 验证安装
 ```
 
-- 按 tag 装是真路径，不是纸面承诺：`cli/v0.1.0`（拆分后第一个 tag）实测过——在一个零 `replace` 的 scratch module 里跑 `go install github.com/kalandramo/bald/cli/cmd/bald@v0.1.0`，二进制落地且 `bald --help` 正常；代理上 `cli/v0.1.0` 的 `go.mod` 原文里 `replace` 条数为 0。要钉生成器行为就把 `@latest` 换成具体 tag。
-- 只有要改生成器本身、或你用的代理还没索引到新 tag 时才走源码检出：`git clone https://github.com/kalandramo/bald.git && cd bald/cli && go install ./cmd/bald`。注意 `cli/` 目录只在拆分之后的 ref 上存在（拆分前的 tag 没有这条路径）；装的 tag 决定生成器行为。
-- 库侧不受这条限制影响，各模块按自己的 tag 消费（见 §5）。
-- 代理索引的滞后是发布后的第一类假失败：2026-11-03 同批发 `cli/v0.1.0`、`pkg/v0.2.1`、根 `v0.37.1`，goproxy.cn 对后两者先返 `temporarily unavailable`，goproxy.io 立即可用。滞后期内 `go get github.com/kalandramo/bald/pkg@v0.2.1` 不会报「找不到版本」，而是退到**同名的根模块老 tag**（根历史里有 v0.1.0…v0.2.9），报 `module github.com/kalandramo/bald@v0.2.1 found, but does not contain package github.com/kalandramo/bald/pkg`——那是路径遮蔽，不是 pkg 的 tag 丢了；换代理或等索引即可。
-- 想**不装二进制**、在既有工程里直接跑生成器，用的是 module 路径 `go run github.com/kalandramo/bald/cli/cmd/bald gen …`。这类工程要额外注意：`bald/cli` 不是任何源码的 import，`go mod tidy` 看不见它，会把 require 删掉（`go mod why` 报 `main module does not need package github.com/kalandramo/bald/cli`），下一次 `go run` 就断。惯例做法是加一个只带 build tag 的工具文件把版本钉住，例如 `tools/tools.go` 内容 `//go:build tools` + `package tools` + `import _ "github.com/kalandramo/bald/cli/cmd/bald"`——它不参与普通构建（`go build ./...` 与 `go vet ./...` 都不会因「import 一个 main 包」报错，只有显式 `-tags tools` 才会），但 tidy 会因此保留 require。bald-admin 就是这么做的（实测四步：`tidy -diff` 零差异、`go build ./...`、`go vet ./...`、`go run …/cli/cmd/bald gen domain … --check` 报 clean）。不想加工具文件就改成命令里带版本的形态 `go run github.com/kalandramo/bald/cli/cmd/bald@v0.1.0 …`（实测同样跑通）——代价是版本落在脚本里而不是 `go.mod`。
-- 新 tag 发布后 sum.golang.org 校验和收录有延迟（数小时），期间 §5 的装载可能报 `verifying module ...: 404 Not Found`——属正常现象，稍后重试即可。
-- CLI 提供 4 个生成子命令：`gen app`（装配骨架目录树）、`gen domain`（域驱动生成物）、`gen proto`（CRUD proto 骨架）、`gen store`（实体骨架）。
+- 要**钉住生成器行为**，把 `@latest` 换成具体 tag（如 `@v0.7.2`）。
+- **不装二进制**、在既有工程里直接跑：`go run github.com/kalandramo/bald/cli/cmd/bald@<tag> gen …`。
+- CLI 提供 4 个生成子命令：`gen app`（装配骨架目录树）、`gen domain`（域驱动生成物）、
+  `gen proto`（CRUD proto 骨架）、`gen store`（实体骨架）。gen 之外还有 `convention`
+  （查规范，AI 会话的规范通道）与 `ide init`（生成 AI 工具的引导物）。
+
+<details>
+<summary>背景与坑：为什么 CLI 独立 module / 代理滞后的假失败 / 既有工程钉版本 / 校验和延迟</summary>
+
+- **为什么 CLI 住在独立 module**：Go 为命名包按版本安装时读取目标 module 的**已发布**
+  `go.mod`，含任何 `replace` 就拒绝（实测拆分前 `v0.31.0`/`v0.36.0`/`v0.37.0` 三个根 tag
+  同一条错误：`The go.mod file for the module providing named packages contains one or
+  more replace directives`——根 `go.mod` 有 19 条指向目录的 `replace`）。`cli/go.mod`
+  因此必须零 `replace`，仓库根做不到（风险评审 §3.4 的方案 B）。
+- **按 tag 装是真路径，不是纸面承诺**：`cli/v0.1.0`（拆分后第一个 tag）实测过——零
+  `replace` 的 scratch module 里安装成功且 `bald --help` 正常；代理上该 tag 的 `go.mod`
+  原文 replace 条数为 0。
+- **源码检出**（改生成器本身，或代理未索引到新 tag）：`git clone https://github.com/kalandramo/bald.git && cd bald/cli && go install ./cmd/bald`。注意 `cli/` 只在拆分之后的 ref 上存在；装的 tag 决定生成器行为。
+- **代理索引滞后是发布后的第一类假失败**：2026-11-03 同批发 `cli/v0.1.0`、`pkg/v0.2.1`、
+  根 `v0.37.1`，goproxy.cn 对后两者先返 `temporarily unavailable`，goproxy.io 立即可用。
+  滞后期内 `go get github.com/kalandramo/bald/pkg@v0.2.1` 不会报「找不到版本」，而是退到
+  **同名的根模块老 tag**（根历史里有 v0.1.0…v0.2.9），报 `module
+  github.com/kalandramo/bald@v0.2.1 found, but does not contain package
+  github.com/kalandramo/bald/pkg`——那是路径遮蔽，不是 tag 丢了；换代理或等索引即可。
+- **既有工程钉住 go run 的版本**：`bald/cli` 不是任何源码的 import，`go mod tidy` 看不见
+  它、会把 require 删掉，下一次 `go run` 就断。惯例是加只带 build tag 的工具文件
+  `tools/tools.go`（`//go:build tools` + `import _ "github.com/kalandramo/bald/cli/cmd/bald"`）——
+  不参与普通构建但 tidy 因此保留 require（bald-admin 实测四步全绿）。不想加工具文件就
+  用 `go run …/cmd/bald@v0.1.0 …`（版本落在脚本里而不是 go.mod）。
+- **新 tag 发布后 sum.golang.org 校验和收录有延迟**（数小时），期间装载可能报
+  `verifying module ...: 404 Not Found`——属正常现象，稍后重试。
+
+</details>
 
 ## 3. AppSpec：装配的单一真相源
 
