@@ -1,6 +1,20 @@
 # bald 开发者体验体检（用户视角）
 
-> 日期：2026-11-11。方法：沿「新用户 → 业务开发者 → 框架维护者 → AI 会话」四类真实用户
+> 日期：2026-11-11。
+>
+> **实施进度（2026-11-11，快赢清单第一批）**：✅ DX-1（gen 落树补 go.mod 骨架 + next
+> 两步出口）、DX-7（cwd 自动发现 appspec.json）、DX-13（L3 报错附 contract 包建议：
+> 静态映射 + server./broker./client./log. 四族前缀派生）、DX-14（release sync 孤儿归位
+> 守卫——归位目标模块必须在本计划 Changes，防坏 tag 复发）、DX-16（`bald_gen_app`
+> 进 MCP 只读形态：ExcludeFlags(adopt,preset)，实测工具入参恰为 spec/out/check）、
+> DX-23（guide《Bald 统一中间件契约》新篇 + 《Bald 中间件设计》/quickstart 挂
+> deprecated 横幅）、DX-8（drift finding 补 owned 清单与还原指引）、DX-19（llms.txt
+> 计数改述 + "索引不写计数"规）、DX-21（quickstart 安装节密度分层：正文命令流 +
+> 考证进 details）、DX-22（guide README 术语速查 8 行）、DX-20（architecture README
+> 分流表）。**未做**：DX-2（doctor self 检查）、DX-4（JSON Schema，2–3 人日）、
+> DX-6（全量报错挂 docs 锚点）、DX-11（版本配套矩阵）、DX-25（预设/手写演进重排）、
+> DX-18 修订史收敛的后半（nav 已前置）。
+方法：沿「新用户 → 业务开发者 → 框架维护者 → AI 会话」四类真实用户
 > 的旅程逐步走查，实证采集 CLI 真实输出与报错（标注【实证】的条目都有当次运行的原始输出
 > 或一手踩坑记录佐证）；与 [risk-review.md](risk-review.md) 不重叠——那里记框架内部风险，
 > 本文只记**使用者感知**的摩擦。每条给优化方向（一句话级，不展开设计），严重度：
