@@ -101,14 +101,16 @@ func checkSegmentCoverage(cfg *bootstrapv1.BootstrapConfig, spec *Decl, plan *pr
 }
 
 
-// providerHints 把框架自有段的「段路径 → 佐证性 contract 包」做成静态映射，
+// providerHints 把框架自有段的「段路径 → 佐证性 contract 包」做成**例外表**，
 // 供 L3 报错指路（DX-13）：报错说 "provide a Provider"，新手下一个问题是
-// "哪个包"。只收录 contract 包**真实存在**的段（本文件编译时与仓库同源，
-// 逐条来自 find -type d -name contract）；三段式路径按前缀匹配（如
-// broker.kafka → broker/kafka/contract）。registry 走 Registrar 接管、
-// logger/audit 的 log 后端由 std 装配，不入表（报错时其文案已另有指引）。
-// 表的完备性不承诺（contrib 侧新增段记得回填）——它是提示不是契约。
+// "哪个包"。规则路径（server.<face>/broker.<backend>/client.*/log.<x>）由
+// providerHint 前缀派生，不入表；registry 走 Registrar 接管、logger/audit
+// 由 std 装配，同样不入表。表的完备性不承诺（新增例外段记得回填）——它是
+// 提示不是契约。
 var providerHints = map[string]string{
+	// 例外表：仅收录**不能**按「server.<face>/broker.<backend>/log.<x> → 对应
+	// contract 包」规则派生的段（database/cache/oss/metrics 的实现不在同名
+	// 一级目录）。规则路径走 providerHint 的前缀派生，不入表。
 	"database.sql":     "contrib/database/gorm/contract",
 	"database.mongodb": "contrib/database/mongodb/contract",
 	"cache.local":      "cache/local/contract",
@@ -150,7 +152,7 @@ func providerHint(path string) string {
 // hintSuffix 组装报错尾部的指路分句（有建议才返回）。
 func hintSuffix(path string) string {
 	if h := providerHint(path); h != "" {
-		return fmt.Sprintf(" — framework contract package: %s (wire its AppProvider in customOptions)", h)
+		return fmt.Sprintf("——框架自带契约包 %s（在 customOptions 里接它的 AppProvider）", h)
 	}
 	return ""
 }
