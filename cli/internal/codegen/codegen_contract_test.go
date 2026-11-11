@@ -232,3 +232,24 @@ func TestContract_Gate2_RealMapField(t *testing.T) {
 		t.Errorf("generated config must carry the map entries, got:\n%s", out)
 	}
 }
+
+// ADR-6 近期段：契约面多于实现——声明了 transport/ 未落地的 server 面，
+// Gate2 生成期即报（点名 ADR-6），不再 gen 庆祝、启动期报丧。
+func TestGate2RejectsUnimplementedFaces(t *testing.T) {
+	as := &appspecv1.AppSpec{
+		Meta:      &appspecv1.AppMeta{Name: "x", Module: "example.com/x"},
+		Bootstrap: &bootstrapv1.BootstrapConfig{Server: &bootstrapv1.Server{
+			Mqtt: &bootstrapv1.Server_Mqtt{},
+		}},
+	}
+	if _, err := contractGate(as, contractBootstrap(as)); err == nil {
+		t.Fatal("unimplemented face must be rejected at Gate2")
+	} else if !strings.Contains(err.Error(), "not implemented") || !strings.Contains(err.Error(), "mqtt") {
+		t.Fatalf("err = %v", err)
+	}
+	// 已实现面不受影响。
+	as.Bootstrap.Server = &bootstrapv1.Server{Http: &bootstrapv1.Server_Http{}}
+	if _, err := contractGate(as, contractBootstrap(as)); err != nil {
+		t.Fatalf("implemented face rejected: %v", err)
+	}
+}

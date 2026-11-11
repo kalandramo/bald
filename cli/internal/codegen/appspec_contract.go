@@ -1,6 +1,7 @@
 package codegen
 
 import (
+	"strings"
 	"encoding/base64"
 	"fmt"
 	"time"
@@ -184,7 +185,60 @@ func scalarToConfig(fd protoreflect.FieldDescriptor, v protoreflect.Value) (any,
 // 描述符派生配置树 → 未知键校验 → YAML 渲染 → 回读复检。第 1-2 步管声明面，
 // 第 3 步（回读）是回归锁——键由描述符派生时它结构上不可能失败，任何绕过
 // 描述符的键路径都会在此爆红。返回 configs/<app>.yaml 的落盘内容。
+
+// implementedServerFaces 是 transport/ 已落地的 server 面白名单（ADR-6 近期段）：
+// 契约（server.proto 33 面）承诺多于实现（J8 反例的止血面）——声明了白名单外的
+// 面在 Gate2 生成期即报（而不是 gen 庆祝、启动期 L3 才报丧）。清单与 transport/
+// 目录同源核对；实现落地一个面就补一个名字，远期随 proto 裁剪（reserved）退役。
+var implementedServerFaces = map[string]bool{
+	"http": true, "http3": true, "grpc": true, "graphql": true, "sse": true,
+	"websocket": true, "tcp": true, "cron": true, "mcp": true, "asynq": true,
+	"gateway": true, "kafka": true, "rabbitmq": true, "redis_server": true,
+	"rocketmq": true, "webrtc": true,
+}
+
+// declaredServerFaces 枚举 server 下实际出现的（消息型、非列表）子段名。
+func declaredServerFaces(srv *bootstrapv1.Server) []string {
+	var out []string
+	msg := srv.ProtoReflect()
+	fields := msg.Descriptor().Fields()
+	for i := 0; i < fields.Len(); i++ {
+		fd := fields.Get(i)
+		if fd.Kind() != protoreflect.MessageKind || fd.IsList() {
+			continue
+		}
+		if msg.Get(fd).Message().IsValid() {
+			out = append(out, fd.TextName())
+		}
+	}
+	return out
+}
+
+// checkImplementedFaces 对已声明的 server 子段跑实现白名单（Gate2 末位）。
+func checkImplementedFaces(bs *bootstrapv1.BootstrapConfig) error {
+	if bs.GetServer() == nil {
+		return nil
+	}
+	var unimplemented []string
+	for _, child := range declaredServerFaces(bs.GetServer()) {
+		if implementedServerFaces[child] || child == "unified_middleware" {
+			continue
+		}
+		unimplemented = append(unimplemented, child)
+	}
+	if len(unimplemented) == 0 {
+		return nil
+	}
+	return fmt.Errorf("server face(s) declared but not implemented in this repo: %s — "+
+		"the contract predates the implementation (ADR-6); remove the section or track its "+
+		"landing, and whitelist via appkit.WithUnimplementedSegments only if you provide your own Provider",
+		strings.Join(unimplemented, ", "))
+}
+
 func contractGate(as *appspecv1.AppSpec, bs *bootstrapv1.BootstrapConfig) ([]byte, error) {
+	if err := checkImplementedFaces(bs); err != nil {
+		return nil, fmt.Errorf("Gate2 (implemented faces): %w", err)
+	}
 	tree, err := contractTree(as, bs)
 	if err != nil {
 		return nil, fmt.Errorf("Gate2 (derive contract tree): %w", err)
