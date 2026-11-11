@@ -9,6 +9,7 @@
 - [设计判据](docs/devel/zh-CN/设计判据.md): J1–J9 跨模块裁决原则（保留/删除/收敛/fail-closed）
 - [框架契约总览](docs/devel/zh-CN/框架契约总览.md): API surface 能力地图（appkit/transport/berrors/log/...）
 - [风险登记册](docs/architecture/risk-review.md): 风险、严重度、消解条件、动手顺序
+- [开发者体验体检](docs/architecture/developer-experience-review.md): 用户视角摩擦点清单（DX-1…17）与快赢排期
 - [onexai 差距评审](docs/architecture/onexai-gap-review.md): bald AI 化设计（规范蒸馏卡 §5 / CLI 通道 §6）
 - [onexai 工具输出存档](docs/architecture/onex-ai.md): OneX Harness AI Coding 的对照证据（逐字）
 - [用户手册](docs/guide/zh-CN/): quickstart 起的 17 篇使用文档
