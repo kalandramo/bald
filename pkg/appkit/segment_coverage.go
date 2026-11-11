@@ -87,7 +87,7 @@ func checkSegmentCoverage(cfg *bootstrapv1.BootstrapConfig, spec *Decl, plan *pr
 			}
 			sub = append(sub, fmt.Sprintf(
 				"server.%s is configured but has no implementation in this repo "+
-					"(remove the section, provide a Provider for %q, or whitelist it via appkit.WithUnimplementedSegments)", child, path))
+					"(remove the section, provide a Provider for %q, or whitelist it via appkit.WithUnimplementedSegments)%s", child, path, hintSuffix(path)))
 		}
 		problems = append(problems, sub...)
 	}
@@ -98,6 +98,61 @@ func checkSegmentCoverage(cfg *bootstrapv1.BootstrapConfig, spec *Decl, plan *pr
 		return nil
 	}
 	return errors.New("appkit: bootstrap config declares sections with no consumer:\n  " + strings.Join(problems, "\n  "))
+}
+
+
+// providerHints 把框架自有段的「段路径 → 佐证性 contract 包」做成静态映射，
+// 供 L3 报错指路（DX-13）：报错说 "provide a Provider"，新手下一个问题是
+// "哪个包"。只收录 contract 包**真实存在**的段（本文件编译时与仓库同源，
+// 逐条来自 find -type d -name contract）；三段式路径按前缀匹配（如
+// broker.kafka → broker/kafka/contract）。registry 走 Registrar 接管、
+// logger/audit 的 log 后端由 std 装配，不入表（报错时其文案已另有指引）。
+// 表的完备性不承诺（contrib 侧新增段记得回填）——它是提示不是契约。
+var providerHints = map[string]string{
+	"database.sql":     "contrib/database/gorm/contract",
+	"database.mongodb": "contrib/database/mongodb/contract",
+	"cache.local":      "cache/local/contract",
+	"cache.redis":      "cache/redis/contract",
+	"oss.s3":           "oss/s3/contract",
+	"oss.minio":        "oss/minio/contract",
+	"metrics.prometheus": "metrics/prometheus/contract",
+	"metrics.otel":     "metrics/otel/contract",
+	"metrics.datadog":  "metrics/datadog/contract",
+}
+
+// providerHint 返回段路径的佐证性提示（最长前缀命中；无匹配返回空串）。
+func providerHint(path string) string {
+	if h, ok := providerHints[path]; ok {
+		return h
+	}
+	// server.<face> 与 broker.<backend> 两族按两段前缀派生 contract 包路径：
+	// server.kafka → transport/kafka/contract；broker.redis → broker/redis/contract。
+	// transport/<face> 的 contract 包与 face 同名成对（见仓库 contract 清单）。
+	if strings.HasPrefix(path, "server.") {
+		face := strings.TrimPrefix(path, "server.")
+		if face == "http" || face == "grpc" {
+			return "" // 内置面，不缺实现
+		}
+		return "transport/" + face + "/contract"
+	}
+	if strings.HasPrefix(path, "broker.") {
+		return "broker/" + strings.TrimPrefix(path, "broker.") + "/contract"
+	}
+	if strings.HasPrefix(path, "client.") {
+		return "transport/client/contract"
+	}
+	if strings.HasPrefix(path, "log.") {
+		return "log/" + strings.TrimPrefix(path, "log.") + "/contract"
+	}
+	return ""
+}
+
+// hintSuffix 组装报错尾部的指路分句（有建议才返回）。
+func hintSuffix(path string) string {
+	if h := providerHint(path); h != "" {
+		return fmt.Sprintf(" — framework contract package: %s (wire its AppProvider in customOptions)", h)
+	}
+	return ""
 }
 
 // familySubSegmentProblems 逐族检查已出现的子段是否有实现（server 由上面的
@@ -135,7 +190,7 @@ func familySubSegmentProblems(cfg *bootstrapv1.BootstrapConfig, spec *Decl, plan
 			}
 			problems = append(problems, fmt.Sprintf(
 				"%s is configured but has no implementation in this repo "+
-					"(remove the section, provide a Provider for %q, or whitelist it via appkit.WithUnimplementedSegments)", path, path))
+					"(remove the section, provide a Provider for %q, or whitelist it via appkit.WithUnimplementedSegments)%s", path, path, hintSuffix(path)))
 		}
 	}
 	return problems
