@@ -18,4 +18,18 @@
 - [Provider 接入 - contract.AppProvider 与段 Provider](./Provider%20接入%20-%20contract.AppProvider%20与段%20Provider.md)：把能力接进装配面的统一契约——实现 appkit.Provider（Segments 声明配置段、Build 产产物与 cleanup）经各能力包 contract.AppProvider() 构造器注入；段在才构建、段缺失跳过（合法），Build 失败 fail-fast，cleanup 入效应账本逆序回放
 - [Bald 装配计划与 doctor](./Bald%20装配计划与%20doctor.md)：启动前审阅装配——`appkit.Compile` 纯函数与 Plan IR（节点/相位/依赖/段覆盖/警告/hash）、`--plan` 与 `--plan-format=json`、`bald doctor` 逃逸舱诊断（Opaque 节点、白名单段、覆盖、build tag）与只读边界、退出码与 CI 组合、当前声明式等级（L1–L5）口径
 - [机制层 mech - Effect 与期望态](./机制层%20mech%20-%20Effect%20与期望态.md)：高级机制面（业务默认不需要，用不到可整页跳过）——Effect 账本（登记/逆序回放/启动失败回滚）、Provides/Requires 能力声明与组件生命周期、OnKeyChange key 订阅与 Reconcile 期望态协调（全量→key 订阅→协调顺序固定）、Registry[T] 运行期可逆挂载
+- [Bald 统一中间件契约](./Bald%20统一中间件契约.md)：新装配的横切规则声明面——`server.unified_middleware` 段、selector 三层语法、五策略、双面链头生效与短路语义、与 deprecated 旧链的关系
+
+## 术语速查（读手册前的最小词表）
+
+| 术语 | 一句话定义 | 详述 |
+|---|---|---|
+| AppSpec | `appspec.json`，装配的唯一声明真相源；改装配=改它再 `bald gen app` | 《用 bald CLI 起步新服务》§3 |
+| 段驱动装配 | 契约段存在 → 对应 contract Provider 构建产物；段缺失跳过（合法） | 《Provider 接入》 |
+| 契约段 | `bootstrap.*` 下的 bconf 契约字段路径（如 `server.http`、`broker.redis`） | 《Bald 配置系统》 |
+| Gate1/2/3 | 生成期 schema 门 / 生成期契约键门 / 运行期未知键门（逐层拦配置笔误） | 《代码生成工具设计》 |
+| owned/seeded/user | 生成物三态：重生成覆盖 / 生成一次归你 / 生成器永不触碰 | 《用 bald CLI 起步新服务》 |
+| L3 段覆盖 | 配置里出现的段必须有消费者，否则启动期报错（不静默失效） | 《Bald 装配计划与 doctor》 |
+| J1–J9 | 框架取舍判据（零调用不是删除依据、配置单通道等九条） | 《设计判据》（devel 层） |
+| 统一中间件契约 | `server.unified_middleware` 段：一份中间件规则服务双协议 + 路由级 selector | 《Bald 统一中间件契约》 |
 - 最佳实践（待补充）

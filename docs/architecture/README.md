@@ -1,5 +1,18 @@
 # docs/architecture — 架构制品索引
 
+## 按问题找文档（先读这里）
+
+| 你关心的事 | 先读 |
+|---|---|
+| 这个仓库现在是什么结构 | [current-architecture.md](current-architecture.md) |
+| 哪里有风险、消解条件与动手顺序 | [risk-review.md](risk-review.md) |
+| 请求/消息/生命周期怎么流 | [flows.md](flows.md) |
+| bald 与 onexai（AI 化）的差距与落地设计 | [onexai-gap-review.md](onexai-gap-review.md) §4 状态总览 |
+| onexmesh 移植了什么、裁决理由 | [onexmesh-comparison.md](onexmesh-comparison.md) §6 完成度 |
+| 传输统一（方案 S）的取舍依据 | [transport-unification-assessment.md](transport-unification-assessment.md) |
+| 框架哪里对用户不友好、快赢排期 | [developer-experience-review.md](developer-experience-review.md) |
+| 历史会话成果与避坑清单 | [handoff-session-20261108.md](handoff-session-20261108.md) §2 |
+
 生成日期 **2026-11-01**（`main` @ `ca981b1`），由架构可视化插件的 `system-modeler` / `flow-visualizer` / `risk-quality-reviewer` 三条场景技能产出，格式源使用 `c4model`（Structurizr DSL）与 `graphviz`（DOT）。
 
 **2026-11-02 修订**：§3.1 的模块环已断（删掉 `bootstrap`/`pkg/appkit` 里与 `transport/gateway/contract` 重复的转码面机制），
