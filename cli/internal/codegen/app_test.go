@@ -154,3 +154,32 @@ func TestGenAppSpec_SeedsGoModOnce(t *testing.T) {
 		t.Fatal("second gen overwrote user-maintained go.mod")
 	}
 }
+
+// DX-7：cwd 自动发现——cwd 有 appspec.json 时 gen app 不带 --spec 也成立；
+// 无则维持原报错。只认精确文件名，不猜通配。
+func TestGenApp_CwdDiscovery(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	spec := `{"meta": {"name": "cwd-demo", "module": "example.com/cwd-demo", "desc": "d"}, "bootstrap": {"audit": {"backends": ["log"]}}}`
+	if err := os.WriteFile("appspec.json", []byte(spec), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out strings.Builder
+	cmd := genAppCmd(ioStreams{Out: &out, ErrOut: &out})
+	cmd.SetArgs([]string{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("cwd discovery should resolve appspec.json: %v", err)
+	}
+	if !strings.Contains(out.String(), "using appspec.json from current directory") {
+		t.Fatalf("discovery notice missing: %s", out.String())
+	}
+
+	// 无 appspec.json 的 cwd：维持原报错。
+	dir2 := t.TempDir()
+	t.Chdir(dir2)
+	cmd2 := genAppCmd(NewDefaultIOStreams())
+	cmd2.SetArgs([]string{})
+	if err := cmd2.Execute(); err == nil || !strings.Contains(err.Error(), "--spec <AppSpec.json> is required") {
+		t.Fatalf("err = %v, want spec-required", err)
+	}
+}

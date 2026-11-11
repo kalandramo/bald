@@ -30,7 +30,14 @@ type appOptions struct {
 // Validate 校验必填项与 flag 互斥。
 func (o *appOptions) Validate() error {
 	if o.Spec == "" && o.Preset == "" {
-		return fmt.Errorf("--spec <AppSpec.json> is required (or --preset <name> to start from a template)")
+		// DX-7：cwd 自动发现——应用目录里跑 `bald gen app` 不该每次都带 --spec。
+		// 只认精确的 appspec.json（不猜 *.json 通配：多候选时猜错比报错更糟）。
+		if _, err := os.Stat("appspec.json"); err == nil {
+			o.Spec = "appspec.json"
+			fmt.Fprintln(o.Out, "using appspec.json from current directory")
+		} else {
+			return fmt.Errorf("--spec <AppSpec.json> is required (or --preset <name> to start from a template)")
+		}
 	}
 	if o.Spec != "" && o.Preset != "" {
 		return fmt.Errorf("--spec and --preset are mutually exclusive")
