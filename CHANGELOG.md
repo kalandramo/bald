@@ -6,6 +6,14 @@
 
 ## 2026-11-11
 
+### bald v0.53.0
+
+- `fad40af0` feat(cli): onex harness 全量课对照补齐——方法论卡两张 + 源码级 checker + prd translate + 斜杠命令
+
+### cli v0.11.0
+
+- `fad40af0` feat(cli): onex harness 全量课对照补齐——方法论卡两张 + 源码级 checker + prd translate + 斜杠命令
+
 ### bald v0.52.0
 
 - `6ec20899` feat(cli): convention 落 PRD 方法论卡（第 23 张）+ 两个确定性 checker（Phase 3）
