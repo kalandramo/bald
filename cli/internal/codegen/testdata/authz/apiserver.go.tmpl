@@ -32,7 +32,7 @@ func NewRouter(mw *bootstrapv1.Server_Http_Middleware) (http.Handler, func() err
 	}
 	router := gin.New()
 	router.Use(bundle.New(append([]bundle.Option{
-		bundle.Normalized(), // P9 归一化：object/action 双传输同源
+		// bundle.Normalized 已裁撤（方案 S 门面收敛）：归一化默认开启、Raw() 显式 opt-out
 		bundle.Authn(demoAuthn{}),
 		bundle.Authz(authorizer),
 	}, opts...)...).Gin()...)

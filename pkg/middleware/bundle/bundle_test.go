@@ -110,7 +110,6 @@ func newFullBundle(log *callLog, allow bool) (*Bundle, *stubAuthz, *stubRecorder
 		Authz(az),
 		Audit(aud),
 		Metrics(rec),
-		Normalized(),
 	)
 	return b, az, rec, aud
 }
@@ -396,7 +395,7 @@ func (failingAuthn) AuthenticateToken(string) (*authn.AuthClaims, error) {
 func TestDefaultNormalized(t *testing.T) {
 	log := &callLog{}
 	az := &stubAuthz{log: log, allow: true}
-	b := New(Authn(&stubAuthn{log: log}), Authz(az)) // 未传 Normalized()
+	b := New(Authn(&stubAuthn{log: log}), Authz(az))
 
 	r := gin.New()
 	r.Use(b.Gin()...)
@@ -457,7 +456,6 @@ func TestGinAuthnFailureAudited(t *testing.T) {
 	b := New(
 		Authn(failingAuthn{}),
 		Audit(aud),
-		Normalized(),
 	)
 
 	r := gin.New()
@@ -490,7 +488,6 @@ func TestGRPCAuthnFailureAudited(t *testing.T) {
 	b := New(
 		Authn(failingAuthn{}),
 		Audit(aud),
-		Normalized(),
 	)
 
 	info := &grpc.UnaryServerInfo{FullMethod: "/admin.v1.SecretService/GetSecret"}

@@ -6,7 +6,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gin-gonic/gin"
 
 	"github.com/kalandramo/bald/circuitbreaker"
 	"github.com/kalandramo/bald/circuitbreaker/hystrix"
@@ -73,14 +72,16 @@ func (c CircuitBreakerConfig) Validate() error {
 // cfg.StatusCode。因此 closer 只能在服务已停止接收流量之后调用；若停机顺序
 // 是「先 close 再 drain」，drain 期间的请求会拿到 503。这是底层实现的既定
 // 语义，本层不改写，也不掩盖。
+// CircuitBreaker 是服务端入口熔断的**构造面**：持有底层 hystrix 实例与配置
+// 归一后的开态状态码。装配面在统一件（middleware.CircuitBreaker 经 bundle
+// 的面段/统一段注入）——本类型不再自带 gin 中间件（J2 重复税裁撤，方案 S
+// 收官后统一熔断件是唯一实现）。
 type CircuitBreaker struct {
 	breaker circuitbreaker.CircuitBreaker
-	handler gin.HandlerFunc
 
 	// statusCode 是开态（含半开被拒）的 HTTP 状态码（cfg.StatusCode 经默认值
-	// 归一后的结果）。批次 4 后面段熔断换统一件（middleware.CircuitBreaker），
-	// 本字段经 StatusCode() 逆映射成统一件的 openCode 语义（HTTPToCode），
-	// 契约 status_code 字段语义在此保真；本件的 Handler() 保留为独立消费面。
+	// 归一后的结果）。面段熔断换统一件后，本字段经 StatusCode() 逆映射成
+	// 统一件的 openCode 语义（HTTPToCode），契约 status_code 字段语义在此保真。
 	statusCode int
 
 	closeOnce sync.Once
@@ -109,13 +110,9 @@ func NewCircuitBreaker(cfg CircuitBreakerConfig) (*CircuitBreaker, error) {
 	}
 	return &CircuitBreaker{
 		breaker:    cb,
-		handler:    CircuitBreakerMiddleware(cb, status),
 		statusCode: status,
 	}, nil
 }
-
-// Handler 返回可直接挂进 gin 链的中间件。
-func (c *CircuitBreaker) Handler() gin.HandlerFunc { return c.handler }
 
 // Breaker 暴露底层熔断器（供 gRPC 面复用、观测与测试）。
 func (c *CircuitBreaker) Breaker() circuitbreaker.CircuitBreaker { return c.breaker }
@@ -129,47 +126,4 @@ func (c *CircuitBreaker) Close() error {
 		}
 	})
 	return c.closeErr
-}
-
-// CircuitBreakerMiddleware 返回基于给定熔断器的 gin 中间件。
-//
-// 与限流（[RateLimit]）的分工：限流判「这个主体还有没有配额」，熔断判
-// 「这台服务现在值不值得真做」。链序上熔断在限流之内、超时之外（见
-// bundle.Gin），三个判据写在契约注释里。
-//
-// 失败口径：响应状态码 >= 500 记失败，其余记成功。4xx 是调用方的错，计入
-// 失败会让一个坏客户端替全体用户开窗。
-//
-// 上报义务：circuitbreaker 契约里「Allow 放行即欠一次 Mark*」，而半开态的
-// 在途探针标记只有 Mark* 会复位——所以 panic 路径也必须在 defer 里上报后
-// 再原样抛出。漏掉这一次上报的后果不是「少统计一条」，是**熔断永久拒绝**：
-// 探针悬着 → halfOpenIn 恒真 → 之后每个请求都被判成「已有探针在途」。
-// 被本层自己拒掉的请求发生在 Allow 之前，按契约不欠上报，也就不能上报
-// （否则拒绝在喂养自己的失败率）。
-func CircuitBreakerMiddleware(cb circuitbreaker.CircuitBreaker, statusCode int) gin.HandlerFunc {
-	if statusCode <= 0 {
-		statusCode = DefaultCircuitBreakerStatusCode
-	}
-	return func(c *gin.Context) {
-		if cb == nil {
-			c.Next()
-			return
-		}
-		if err := cb.Allow(); err != nil {
-			c.AbortWithStatus(statusCode)
-			return
-		}
-		defer func() {
-			if p := recover(); p != nil {
-				cb.MarkFailure()
-				panic(p)
-			}
-			if c.Writer.Status() >= http.StatusInternalServerError {
-				cb.MarkFailure()
-				return
-			}
-			cb.MarkSuccess()
-		}()
-		c.Next()
-	}
 }

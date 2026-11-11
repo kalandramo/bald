@@ -538,7 +538,7 @@ func TestMachineGuard_MarkerNotEmittedRed(t *testing.T) {
 	errs := checkFieldConsumers(sb.String())
 	found := false
 	for _, e := range errs {
-		if strings.Contains(e.Error(), "bundle.Normalized(") {
+		if strings.Contains(e.Error(), "bundle.normalized=true → 归一化默认开启") {
 			found = true
 		}
 	}

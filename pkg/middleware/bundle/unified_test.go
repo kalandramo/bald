@@ -279,3 +279,25 @@ func fmtErr(r any) string { return r.(error).Error() }
 
 // ratelimit 引用保持（denyLimiter 实现该契约）。
 var _ ratelimit.Limiter = denyLimiter{}
+
+// TestVerifyAcceptsUnifiedAuthnRule 统一段声明 authn 规则本身构成「认证姿态
+// 已决定」（路由级认证）——Verify 不再报 AUTHN_UNDECLARED；依赖注入的
+// fail-fast 由 unifiedMatcher 保证（见 TestUnifiedAuthnAuthzAuditMissingFailsFast）。
+func TestVerifyAcceptsUnifiedAuthnRule(t *testing.T) {
+	cfg := &bootstrapv1.Server_UnifiedMiddleware{Rules: []*bootstrapv1.Server_UnifiedMiddleware_Rule{{
+		Selector: "*", Policy: &bootstrapv1.Server_UnifiedMiddleware_Rule_Authn{},
+	}}}
+	if err := New(Public(), WithUnifiedMiddleware(cfg)).Verify(); err != nil {
+		t.Fatalf("统一段 authn 规则应视为姿态已决定，got %v", err)
+	}
+	// 反例：统一段声明的是 rate_limit，不算认证姿态。
+	other := &bootstrapv1.Server_UnifiedMiddleware{Rules: []*bootstrapv1.Server_UnifiedMiddleware_Rule{{
+		Selector: "*",
+		Policy: &bootstrapv1.Server_UnifiedMiddleware_Rule_RateLimit{
+			RateLimit: &bootstrapv1.Server_UnifiedMiddleware_RateLimit{Rate: 1, Burst: 1},
+		},
+	}}}
+	if err := New(WithUnifiedMiddleware(other)).Verify(); err == nil {
+		t.Fatal("非 authn 策略不应构成认证姿态")
+	}
+}

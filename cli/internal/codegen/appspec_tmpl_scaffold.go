@@ -149,11 +149,14 @@ func NewRouter(mw *bootstrapv1.Server_Http_Middleware) (http.Handler, func() err
 	// bundle.Verify() 报错、出链时告警——「忘了配认证」不该静默变成
 	// 一个无认证服务器。契约里没有 authn 段，所以这个姿态只能由业务在这一行
 	// 宣布，框架不代替它决定。
+	// bundle.Normalized 已裁撤（方案 S 门面收敛）：归一化默认开启、Raw() 显式
+	// opt-out——「双传输同源」是缺省正确行为。契约位 bundle.normalized=true
+	// 的消费落点即本注释（声明已读，不再产生 Option 行）。
+{{- if and .Spec.Bundle .Spec.Bundle.Normalized}}
+		// bundle.normalized=true → 归一化默认开启（bundle.Normalized 已裁撤，无 Option 行）
+{{- end}}
 	router.Use(bundle.New(append([]bundle.Option{
 		bundle.Public(), // TODO: 接入认证后删除本行，改为 bundle.Authn(<authenticator>)
-{{- if and .Spec.Bundle .Spec.Bundle.Normalized}}
-		bundle.Normalized(), // 归一化：审计 object/action 双传输同源
-{{- end}}
 	}, opts...)...).Gin()...)
 	// TODO: 业务全局中间件（Recovery/RequestID/Logging…）与根路由组。
 	return router, closeChain, nil

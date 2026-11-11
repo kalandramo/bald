@@ -409,7 +409,7 @@ var fieldConsumers = map[string]string{
 	"bald.appspec.v1.AppSpec.capability.requires.caps":      "db",
 	"bald.appspec.v1.AppSpec.layout.apiserver_dir":          "internal/apiserver",
 	"bald.appspec.v1.AppSpec.layout.strict_contract":        "appkit.StrictContract(",
-	"bald.appspec.v1.AppSpec.bundle.normalized":             "bundle.Normalized(",
+	"bald.appspec.v1.AppSpec.bundle.normalized":             "bundle.normalized=true → 归一化默认开启",
 	"bald.appspec.v1.AppSpec.domains.name":                  "greet",
 	"bald.appspec.v1.AppSpec.domains.proto_package":         "greet.v1",
 	"bald.appspec.v1.AppSpec.domains.service":               "greet.v1.GreetService",

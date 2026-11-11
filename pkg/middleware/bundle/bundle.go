@@ -9,7 +9,6 @@
 //	    bundle.Authz(authorizer),
 //	    bundle.Audit(auditor),
 //	    bundle.Metrics(recorder),
-//	    bundle.Normalized(),          // 内置传输中立归一化默认（双命名空间回归从结构上杜绝）
 //	)
 //	router.Use(b.Gin()...)
 //	grpcSrv := server.NewGRPCServerWithRegister(grpcCfg, b.GRPCChain(), register)
@@ -158,11 +157,6 @@ func Audit(a audit.Auditor) Option { return func(b *Bundle) { b.auditor = a } }
 // Metrics 注入指标记录器（Recorder）。与 Audit 至少设一项才会挂审计层
 // （审计中间件是指标埋点的载体，两者同源 emit）。
 func Metrics(r metrics.Recorder) Option { return func(b *Bundle) { b.recorder = r } }
-
-// Normalized 显式开启归一化默认（authz.Default{HTTP,GRPC}{Object,Action}）。
-// 归一化默认开启（核心收益——根治 REST/gRPC 双命名空间 RBAC——不应
-// 依赖调用方记得 opt-in），本 Option 保留为显式声明（幂等）。
-func Normalized() Option { return func(b *Bundle) { b.normalized = true } }
 
 // Public 声明「本服务有意不做认证」。
 //
@@ -349,17 +343,28 @@ var errUndeclaredAuthn = errors.New("bundle: AUTHN_UNDECLARED —— 未注入 A
 	"链中无认证层，服务等同公开。要么 bundle.Authn(<authenticator>) 接认证，" +
 	"要么 bundle.Public() 显式声明有意公开")
 
-// Verify 检查认证姿态是否已被决定：注入了 Authn（有认证层）或显式声明了
-// Public（有意公开）二者之一。两者都没给 → 返回错误——此时链里静默地没有
-// 认证层，等于一个无认证服务器。
+// Verify 检查认证姿态是否已被决定：注入了 Authn（有认证层）、显式声明了
+// Public（有意公开）、或统一段声明了 authn 规则（路由级认证——依赖注入由
+// unifiedMatcher fail-fast 保证）三者之一。都没给 → 返回错误——此时链里
+// 静默地没有认证层，等于一个无认证服务器。
 //
 // 调用点：业务在 main/装配期调它并 fail-fast（推荐），或交给 Gin/
 // GRPCInterceptors 产出链时告警（见 warnIfUndeclaredAuthn）。
 func (b *Bundle) Verify() error {
-	if b.authenticator != nil || b.public {
+	if b.authenticator != nil || b.public || b.unifiedAuthnDeclared() {
 		return nil
 	}
 	return errUndeclaredAuthn
+}
+
+// unifiedAuthnDeclared 报告统一段是否声明了 authn 规则（路由级认证姿态）。
+func (b *Bundle) unifiedAuthnDeclared() bool {
+	for _, rule := range b.unifiedCfg.GetRules() {
+		if rule.GetAuthn() != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // warnIfUndeclaredAuthn 在产出链时对未决定的认证姿态告警一次。
