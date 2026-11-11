@@ -67,7 +67,7 @@ func checkGenAppDrift(dir string) ([]Finding, string, error) {
 			Level:      LevelMandatory,
 			File:       "appspec.json",
 			Message:    "生成树与 AppSpec 漂移：" + firstLine(err.Error()),
-			Suggestion: "运行 `bald gen app --check` 查看逐文件差异；确认声明无误后用 --adopt 重新生成 owned 文件",
+			Suggestion: "运行 `bald gen app --check` 查看逐文件差异；确认声明无误后用 --adopt 重新生成 owned 文件（owned 清单见 appspec.manifest.json；误改的生成物可 git checkout 还原）",
 		}}, "", nil
 	}
 	return nil, "", nil
