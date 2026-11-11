@@ -55,15 +55,7 @@ func (appProvider) Build(_ context.Context, s appkit.ApplyScope, _ appkit.Node) 
 	if err != nil {
 		return nil, nil, err
 	}
-	return map[string]any{"prometheus": p}, adaptCleanup(cleanup), nil
-}
-
-// adaptCleanup 把既有无参清理闭包适配为 appkit.Cleanup（nil 透传：无资源）。
-func adaptCleanup(cleanup func()) appkit.Cleanup {
-	if cleanup == nil {
-		return nil
-	}
-	return func(context.Context) error { cleanup(); return nil }
+	return map[string]any{"prometheus": p}, appkit.CleanupFrom(cleanup), nil
 }
 
 var _ appkit.Provider = appProvider{}

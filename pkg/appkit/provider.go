@@ -56,6 +56,16 @@ import (
 // 形态——与 Effect 账本的 undo 签名同构，回放路径零适配。
 type Cleanup func(context.Context) error
 
+// CleanupFrom 把无参清理闭包适配为 Cleanup（nil 透传：无资源）。contract
+// 包的既有工厂多为 func() 清理形态——这是它们接入段驱动装配的标准桥，
+// 各 contract 包不再各自维护适配副本（J2：25 份复制的收拢点）。
+func CleanupFrom(cleanup func()) Cleanup {
+	if cleanup == nil {
+		return nil
+	}
+	return func(context.Context) error { cleanup(); return nil }
+}
+
 // noopCleanup 把旧式无参清理闭包适配为 Cleanup（Provider 实现侧的便利件）。
 func noopCleanup(cleanup func()) Cleanup {
 	if cleanup == nil {

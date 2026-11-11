@@ -143,21 +143,4 @@ func TestAppProvider_OptionsPassthrough(t *testing.T) {
 	}
 }
 
-// adaptCleanup 两分支：nil 透传；非 nil 包装为 appkit.Cleanup 并真正调用原闭包。
 // http3 工厂恒产 nil cleanup，非 nil 分支只能直测适配函数本身。
-func TestAdaptCleanup(t *testing.T) {
-	if adaptCleanup(nil) != nil {
-		t.Error("adaptCleanup(nil) should pass through nil")
-	}
-	called := false
-	fn := adaptCleanup(func() { called = true })
-	if fn == nil {
-		t.Fatal("adaptCleanup(non-nil) returned nil")
-	}
-	if err := fn(context.Background()); err != nil {
-		t.Fatalf("cleanup err = %v, want nil", err)
-	}
-	if !called {
-		t.Error("cleanup closure did not invoke the original func")
-	}
-}

@@ -49,7 +49,7 @@ func TestProvider_ByteOrderMapping(t *testing.T) {
 
 func TestAdaptCleanup_NonNil(t *testing.T) {
 	called := false
-	c := adaptCleanup(func() { called = true })
+	c := appkit.CleanupFrom(func() { called = true })
 	if c == nil {
 		t.Fatal("non-nil cleanup must be adapted")
 	}

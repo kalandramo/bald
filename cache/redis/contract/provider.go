@@ -101,15 +101,7 @@ func (p appProvider) Build(ctx context.Context, s appkit.ApplyScope, _ appkit.No
 	if err != nil {
 		return nil, nil, err
 	}
-	return map[string]any{"redis": cli}, adaptCleanup(cleanup), nil
-}
-
-// adaptCleanup 把既有无参清理闭包适配为 appkit.Cleanup（nil 透传：无资源）。
-func adaptCleanup(cleanup func()) appkit.Cleanup {
-	if cleanup == nil {
-		return nil
-	}
-	return func(context.Context) error { cleanup(); return nil }
+	return map[string]any{"redis": cli}, appkit.CleanupFrom(cleanup), nil
 }
 
 // 编译期断言：appProvider 满足 appkit.Provider（含 Option 嵌入面）。
