@@ -36,6 +36,7 @@ type checker func(dir string) (findings []Finding, skip string, err error)
 var checkerRule = map[string]string{
 	"gen-app-drift":   "codegen-r03",
 	"logging-stdlib":  "logging-r01",
+	"no-panic":        "testing-r07",
 	"prd-prompt-seam": "prd-r06",
 	"prd-structure":   "prd-r03",
 }
@@ -46,6 +47,7 @@ var checkerRule = map[string]string{
 var registry = map[string]checker{
 	"gen-app-drift":   checkGenAppDrift,
 	"logging-stdlib":  checkLoggingStdlib,
+	"no-panic":        checkNoPanic,
 	"prd-prompt-seam": checkPRDPromptSeam,
 	"prd-structure":   checkPRDStructure,
 }
@@ -87,7 +89,8 @@ func firstLine(s string) string {
 func checkLoggingStdlib(dir string) ([]Finding, string, error) {
 	root := dir
 	if _, err := os.Stat(filepath.Join(root, "go.mod")); err != nil {
-		if os.IsNotExist(err) {
+		// 不存在与「dir 本身是文件」（ENOTDIR）都视为环境不可判。
+		if os.IsNotExist(err) || errors.Is(err, syscall.ENOTDIR) {
 			return nil, "no go.mod in " + dir, nil
 		}
 		return nil, "", fmt.Errorf("stat %s: %w", dir, err)
@@ -168,6 +171,80 @@ func inImportBlock(src string, i int) bool {
 		}
 	}
 	return false
+}
+
+// checkNoPanic 钉 testing-r07：库代码（非 cmd/ 入口、非 _test.go）禁止 panic
+// ——可预期失败返回 error，panic 让调用方的 error 流失效且跨包恢复不可测试。
+// 扫描口径与 checkLoggingStdlib 同款（vendor/.git/testdata 跳过）；cmd/ 下的
+// main 入口允许 CheckErr/os.Exit 形态的终态处理。
+func checkNoPanic(dir string) ([]Finding, string, error) {
+	root := dir
+	if _, err := os.Stat(filepath.Join(root, "go.mod")); err != nil {
+		if os.IsNotExist(err) || errors.Is(err, syscall.ENOTDIR) {
+			return nil, "no go.mod in " + dir, nil
+		}
+		return nil, "", fmt.Errorf("stat %s: %w", dir, err)
+	}
+	var findings []Finding
+	var scanned int
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		name := d.Name()
+		if d.IsDir() {
+			switch name {
+			case "vendor", ".git", "node_modules", "_example", "testdata":
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			return nil
+		}
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return nil
+		}
+		scanned++
+		rel, _ := filepath.Rel(root, path)
+		inCmdEntry := strings.HasPrefix(rel, "cmd/")
+		for i, line := range strings.Split(string(raw), "\n") {
+			call := panicCall(line)
+			if call == "" || inCmdEntry {
+				continue
+			}
+			findings = append(findings, Finding{
+				RuleID:     checkerRule["no-panic"],
+				Level:      LevelMandatory,
+				File:       rel,
+				Line:       i + 1,
+				Message:    "库代码 panic(" + call + ")——testing-r07：可预期失败返回 error（业务语义用 berrors），不可恢复故障在入口统一处理",
+				Suggestion: "返回 error 让调用方决定；确实不可恢复时在 cmd 入口统一退出",
+			})
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, "", fmt.Errorf("walk %s: %w", dir, err)
+	}
+	if scanned == 0 {
+		return nil, "no go source files in " + dir, nil
+	}
+	return findings, "", nil
+}
+
+// panicCall 提取一行里的 panic( 调用实参首段；不是 panic 调用返回空。
+func panicCall(line string) string {
+	idx := strings.Index(line, "panic(")
+	if idx < 0 {
+		return ""
+	}
+	// 注释里的 panic( 不算调用。
+	if c := strings.Index(line[:idx], "//"); c >= 0 {
+		return ""
+	}
+	return strings.TrimSpace(line[idx+len("panic("):])
 }
 
 // prdDir 是 PRD 工作流产物的约定目录（prompt = 需求描述，prd = 翻译产物）。

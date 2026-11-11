@@ -212,6 +212,10 @@ func runGenAppSpec(spec, out string, adopt, check bool, streams ioStreams) error
 		// 维护版本映射）。
 		fmt.Fprintln(streams.Out, `next: run "go mod tidy" to resolve module requirements (needs network), then "go build ./..."`)
 	}
+	// scaffold 卡（scaffold-r02/r03）的落地：生成后必做步骤显式打印——生成树
+	// 「能编译」不等于「已就绪」，规范通道与门禁接线都在这几步。
+	fmt.Fprintln(streams.Out, `next: run "bald ide init --ide=<你的工具>" to wire the AI session guidance (AGENTS.md/MCP/slash commands)`)
+	fmt.Fprintln(streams.Out, `next: before each commit run "bald convention check --fail-on-findings" plus module lint/tests (see scaffold card: bald convention get scaffold)`)
 	return nil
 }
 

@@ -27,6 +27,7 @@ import (
 var checkerRuleRegistry = map[string]string{
 	"gen-app-drift":   "codegen-r03",
 	"logging-stdlib":  "logging-r01",
+	"no-panic":        "testing-r07",
 	"prd-prompt-seam": "prd-r06",
 	"prd-structure":   "prd-r03",
 }

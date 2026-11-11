@@ -209,7 +209,7 @@ func TestRunCheck_CheckerPaths(t *testing.T) {
 	// 干净树 → OK 汇总；漂移树 → Found 汇总。
 	clean := genAppTree(t)
 	res, err := runCheck(checkOptions{Dir: clean, MinLevel: "mandatory"})
-	if err != nil || len(res.OK) != 1 || len(res.Found) != 0 {
+	if err != nil || len(res.OK) != 3 || len(res.Found) != 0 {
 		t.Fatalf("clean runCheck: ok=%v found=%v err=%v", res.OK, res.Found, err)
 	}
 	if err := os.Remove(filepath.Join(clean, "cmd", "conv-demo", "main.go")); err != nil {

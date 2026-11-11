@@ -5,7 +5,8 @@ level: 强制
 category: contract
 sources:
   - docs/devel/zh-CN/Bald 日志设计.md
-checks: []
+checks:
+  - logging-stdlib
 ---
 # 日志
 
