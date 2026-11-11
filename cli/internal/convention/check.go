@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io"
 	"os"
 	"path/filepath"
@@ -82,102 +85,28 @@ func firstLine(s string) string {
 	return s
 }
 
-// checkLoggingStdlib 钉 logging-r01 的可判定面：业务代码只 import bald/log
-// 契约层，标准库 log 与 log/slog 直用是被禁止的形态（bald 的 slog 适配面在
-// log 包内部）。递归扫描非测试 Go 源文件，vendor/.git/工具目录跳过。项目里
-// 没有 Go 源文件时视为环境不可判（skip）。
+// stdlibLogCalls 是标准库 log 的直打调用名单。
+var stdlibLogCalls = []string{
+	"log.Print", "log.Println", "log.Printf", "log.Fatalf", "log.Fatal", "log.Fatalln",
+	"log.Panicf", "log.Panic", "log.Panicln",
+}
+
+// slogCalls 是 log/slog 的直打调用名单。attr 构造（slog.String/Int/…）不在
+// 名单——它们是传给契约层 log.ContextWithAttrs 的值构造，不是打日志。
+var slogCalls = []string{"slog.Info(", "slog.Warn(", "slog.Error(", "slog.Debug(", "slog.Log("}
+
+// loggingExemptPrefixes 是 logging-stdlib 的职责豁免目录：log/ 是契约层的
+// 实现本体（import slog/log 是本职），cobramcp/ 是独立零依赖 CLI 库（不依赖
+// bald/log，其日志面由自身治理）。
+var loggingExemptPrefixes = []string{"log/", "cobramcp/"}
+
+// checkLoggingStdlib 钉 logging-r01 的可判定面：业务代码的**日志调用**走
+// bald/log 契约层（包级函数 log.Info/Warn/Error(ctx, msg, kv...)），标准库
+// log 直打与 log/slog 直打是禁止的形态。检测是**调用级**而非 import 级——
+// import slog 构造 Attr（slog.String 传给 log.ContextWithAttrs）不违规；
+// import 而不调用（如类型引用）同样不报。职责豁免见 loggingExemptPrefixes。
+// 项目里没有 Go 源文件时视为环境不可判（skip）。
 func checkLoggingStdlib(dir string) ([]Finding, string, error) {
-	root := dir
-	if _, err := os.Stat(filepath.Join(root, "go.mod")); err != nil {
-		// 不存在与「dir 本身是文件」（ENOTDIR）都视为环境不可判。
-		if os.IsNotExist(err) || errors.Is(err, syscall.ENOTDIR) {
-			return nil, "no go.mod in " + dir, nil
-		}
-		return nil, "", fmt.Errorf("stat %s: %w", dir, err)
-	}
-	var findings []Finding
-	var scanned int
-	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return nil // 单个条目不可读不阻断整体检查
-		}
-		name := d.Name()
-		if d.IsDir() {
-			switch name {
-			case "vendor", ".git", "node_modules", "_example", "testdata":
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-			return nil
-		}
-		raw, err := os.ReadFile(path)
-		if err != nil {
-			return nil
-		}
-		scanned++
-		for _, bad := range []string{`"log"`, `"log/slog"`} {
-			if importBlockContains(string(raw), bad) {
-				rel, _ := filepath.Rel(root, path)
-				findings = append(findings, Finding{
-					RuleID:     checkerRule["logging-stdlib"],
-					Level:      LevelMandatory,
-					File:       rel,
-					Message:    "业务代码直接 import " + bad + "（logging-r01：只 import bald/log 契约层）",
-					Suggestion: "改用 github.com/kalandramo/bald/log（包级函数 log.Info/Warn/Error(ctx, msg, kv...)）；标准库 slog 是 log 包内部适配面",
-				})
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, "", fmt.Errorf("walk %s: %w", dir, err)
-	}
-	if scanned == 0 {
-		return nil, "no go source files in " + dir, nil
-	}
-	return findings, "", nil
-}
-
-// importBlockContains 判定源文件是否 import 了给定包路径：快筛引号字面量，
-// 再确认它出现在 import 块或单行 import 里（避免误伤注释与字符串常量里的
-// "log" 字样）。
-func importBlockContains(src, pkg string) bool {
-	if !strings.Contains(src, pkg) {
-		return false
-	}
-	for i, line := range strings.Split(src, "\n") {
-		trimmed := strings.TrimSpace(line)
-		isImport := strings.HasPrefix(trimmed, "import") || trimmed == ")" ||
-			(strings.HasPrefix(trimmed, "\"") && inImportBlock(src, i))
-		if isImport && strings.HasSuffix(trimmed, pkg) {
-			return true
-		}
-	}
-	return false
-}
-
-// inImportBlock 判定第 i 行是否处于 import ( ... ) 块内（块头在之前的行）。
-func inImportBlock(src string, i int) bool {
-	lines := strings.Split(src, "\n")
-	for j := i - 1; j >= 0 && j > i-50; j-- {
-		t := strings.TrimSpace(lines[j])
-		if strings.HasPrefix(t, "import (") {
-			return true
-		}
-		if strings.HasPrefix(t, "import ") || t == ")" {
-			return false
-		}
-	}
-	return false
-}
-
-// checkNoPanic 钉 testing-r07：库代码（非 cmd/ 入口、非 _test.go）禁止 panic
-// ——可预期失败返回 error，panic 让调用方的 error 流失效且跨包恢复不可测试。
-// 扫描口径与 checkLoggingStdlib 同款（vendor/.git/testdata 跳过）；cmd/ 下的
-// main 入口允许 CheckErr/os.Exit 形态的终态处理。
-func checkNoPanic(dir string) ([]Finding, string, error) {
 	root := dir
 	if _, err := os.Stat(filepath.Join(root, "go.mod")); err != nil {
 		if os.IsNotExist(err) || errors.Is(err, syscall.ENOTDIR) {
@@ -208,19 +137,47 @@ func checkNoPanic(dir string) ([]Finding, string, error) {
 		}
 		scanned++
 		rel, _ := filepath.Rel(root, path)
-		inCmdEntry := strings.HasPrefix(rel, "cmd/")
-		for i, line := range strings.Split(string(raw), "\n") {
-			call := panicCall(line)
-			if call == "" || inCmdEntry {
+		for _, prefix := range loggingExemptPrefixes {
+			if strings.HasPrefix(rel, prefix) {
+				return nil
+			}
+		}
+		src := string(raw)
+		hasLog := importsOf(src, "log")
+		hasSlog := importsOf(src, "log/slog")
+		if !hasLog && !hasSlog {
+			return nil
+		}
+		for i, line := range strings.Split(src, "\n") {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "//") {
+				continue
+			}
+			hit := ""
+			if hasLog {
+				for _, c := range stdlibLogCalls {
+					if strings.Contains(line, c+"(") {
+						hit = c
+					}
+				}
+			}
+			if hasSlog && hit == "" {
+				for _, c := range slogCalls {
+					if strings.Contains(line, c) {
+						hit = strings.TrimSuffix(c, "(")
+					}
+				}
+			}
+			if hit == "" {
 				continue
 			}
 			findings = append(findings, Finding{
-				RuleID:     checkerRule["no-panic"],
+				RuleID:     checkerRule["logging-stdlib"],
 				Level:      LevelMandatory,
 				File:       rel,
 				Line:       i + 1,
-				Message:    "库代码 panic(" + call + ")——testing-r07：可预期失败返回 error（业务语义用 berrors），不可恢复故障在入口统一处理",
-				Suggestion: "返回 error 让调用方决定；确实不可恢复时在 cmd 入口统一退出",
+				Message:    "日志直打 " + hit + "（logging-r01：打日志走 bald/log 契约层 log.Info/Warn/Error(ctx, msg, kv...)）",
+				Suggestion: "改用 github.com/kalandramo/bald/log 的包级函数；标准库 log/slog 是 log 包内部适配面",
 			})
 		}
 		return nil
@@ -234,17 +191,133 @@ func checkNoPanic(dir string) ([]Finding, string, error) {
 	return findings, "", nil
 }
 
-// panicCall 提取一行里的 panic( 调用实参首段；不是 panic 调用返回空。
-func panicCall(line string) string {
-	idx := strings.Index(line, "panic(")
-	if idx < 0 {
-		return ""
+// importsOf 报告源文件是否 import 了给定包路径（单行 import 与 import 块都认）。
+func importsOf(src, pkg string) bool {
+	quoted := `"` + pkg + `"`
+	inBlock := false
+	for _, line := range strings.Split(src, "\n") {
+		t := strings.TrimSpace(line)
+		if strings.HasPrefix(t, "import (") {
+			inBlock = true
+			continue
+		}
+		if inBlock {
+			if t == ")" {
+				inBlock = false
+			} else if strings.Contains(t, quoted) {
+				return true
+			}
+			continue
+		}
+		if strings.HasPrefix(t, "import ") && strings.Contains(t, quoted) {
+			return true
+		}
 	}
-	// 注释里的 panic( 不算调用。
-	if c := strings.Index(line[:idx], "//"); c >= 0 {
-		return ""
+	return false
+}
+
+// checkNoPanic 钉 testing-r07 的运行期面：请求处理、中间件链与业务函数里的
+// panic 让调用方的 error 流失效，且跨包恢复不可测试。AST 解析（字符串字面量
+// 里的 "panic("——模板文本、文档建议——天然不误报），三类合法形态豁免：
+//
+//  1. Must 防御：panic("pkg: message")——构造期不变量断言，表达「程序性 bug
+//     而非运行期错误」（Go 生态标准形态，如 regexp.MustCompile）；
+//  2. fail-fast 转发：panic(标识符)——上游错误在装配/初始化期的主动终止
+//     （J7「声明了却静默不生效是最坏结果」的实现手法）；
+//  3. 构造期函数：New*/Must* 前缀命名的函数体。
+//
+// cmd/ 入口豁免（统一出口形态）。项目里没有 Go 源文件时 skip。
+func checkNoPanic(dir string) ([]Finding, string, error) {
+	root := dir
+	if _, err := os.Stat(filepath.Join(root, "go.mod")); err != nil {
+		if os.IsNotExist(err) || errors.Is(err, syscall.ENOTDIR) {
+			return nil, "no go.mod in " + dir, nil
+		}
+		return nil, "", fmt.Errorf("stat %s: %w", dir, err)
 	}
-	return strings.TrimSpace(line[idx+len("panic("):])
+	var findings []Finding
+	var scanned int
+	fset := token.NewFileSet()
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		name := d.Name()
+		if d.IsDir() {
+			switch name {
+			case "vendor", ".git", "node_modules", "_example", "testdata":
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			return nil
+		}
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return nil
+		}
+		f, err := parser.ParseFile(fset, path, raw, 0)
+		if err != nil {
+			return nil // 解析失败的非合法 Go 文件不判
+		}
+		scanned++
+		rel, _ := filepath.Rel(root, path)
+		if strings.HasPrefix(rel, "cobramcp/") {
+			return nil // 独立零依赖 CLI 库，panic/日志面由自身治理（与 logging 豁免同源）
+		}
+		inCmdEntry := strings.HasPrefix(rel, "cmd/")
+		curFn := ""
+		ast.Inspect(f, func(n ast.Node) bool {
+			switch node := n.(type) {
+			case *ast.FuncDecl:
+				curFn = node.Name.Name
+			case *ast.CallExpr:
+				fn, ok := node.Fun.(*ast.Ident)
+				if !ok || fn.Name != "panic" || len(node.Args) != 1 {
+					return true
+				}
+				if curFn != "" && (strings.HasPrefix(curFn, "New") || strings.HasPrefix(curFn, "Must")) {
+					return true // 豁免 3：构造期函数
+				}
+				// 豁免 1：Must 防御——实参子树含 "pkg: message" 形态的字符串
+				// 字面量（纯字面量或与上下文拼接）。
+				hasMustMessage := false
+				ast.Inspect(node.Args[0], func(a ast.Node) bool {
+					if lit, ok := a.(*ast.BasicLit); ok && lit.Kind == token.STRING && strings.Contains(lit.Value, ": ") {
+						hasMustMessage = true
+					}
+					return !hasMustMessage
+				})
+				if hasMustMessage {
+					return true
+				}
+				if _, ok := node.Args[0].(*ast.Ident); ok {
+					return true // 豁免 2：fail-fast 转发（panic(err)）
+				}
+				if inCmdEntry {
+					return true
+				}
+				findings = append(findings, Finding{
+					RuleID:     checkerRule["no-panic"],
+					Level:      LevelMandatory,
+					File:       rel,
+					Line:       fset.Position(node.Pos()).Line,
+					Message:    "运行期路径 panic——testing-r07：可预期失败返回 error（业务语义用 berrors 构造），panic 让调用方的 error 流失效",
+					Suggestion: "返回 error 让调用方决定；构造期不变量用 Must 防御形态（panic(\"pkg: reason\"))，不可恢复故障在 cmd 入口统一退出",
+				})
+			}
+			return true
+		})
+		return nil
+	})
+	if err != nil {
+		return nil, "", fmt.Errorf("walk %s: %w", dir, err)
+	}
+	if scanned == 0 {
+		return nil, "no go source files in " + dir, nil
+	}
+	return findings, "", nil
 }
 
 // prdDir 是 PRD 工作流产物的约定目录（prompt = 需求描述，prd = 翻译产物）。
@@ -445,7 +518,9 @@ func printCheck(res *checkResult, opts checkOptions, streams Streams) (fail bool
 	} else {
 		fmt.Fprintf(streams.Out, "checked: cards integrity (%d cards, %d rules)\n", res.Cards, res.Rules)
 		for _, name := range res.OK {
-			fmt.Fprintln(streams.Out, "ok:", name)
+			// ran 而非 ok：OK 列表是「checker 执行成功」（可能带 finding）——
+			// 是否违规只看 findings 计数，混用会让读者误判。
+			fmt.Fprintln(streams.Out, "ran:", name)
 		}
 		for _, s := range res.Skipped {
 			fmt.Fprintln(streams.Out, "skip:", s)

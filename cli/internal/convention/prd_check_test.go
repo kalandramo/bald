@@ -188,3 +188,68 @@ func TestCheckLoggingStdlib(t *testing.T) {
 		}
 	})
 }
+
+// TestCheckNoPanic AST 判定的豁免矩阵：Must 防御（含拼接形态）、fail-fast
+// 转发、New/Must 构造期函数、cmd 入口豁免；运行期动态 panic 报告。
+func TestCheckNoPanic(t *testing.T) {
+	write := func(t *testing.T, rel, src string) string {
+		t.Helper()
+		dir := t.TempDir()
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, rel)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module demo\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, rel), []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return dir
+	}
+	cases := []struct {
+		name    string
+		rel     string
+		src     string
+		wantHit bool
+	}{
+		{"运行期动态 panic → 报", "svc/x.go", "package svc\n\nimport \"fmt\"\n\nfunc Handle(v any) {\n\tif v == nil {\n\t\tpanic(fmt.Sprintf(\"bad value %v\", v))\n\t}\n}\n", true},
+		{"Must 防御纯字面量 → 豁免", "svc/x.go", "package svc\n\nfunc Load() {\n\tpanic(\"svc: not configured\")\n}\n", false},
+		{"Must 防御拼接形态 → 豁免", "svc/x.go", "package svc\n\nfunc Load(kind string) {\n\tpanic(\"svc: unknown kind \" + kind)\n}\n", false},
+		{"fail-fast 转发 panic(err) → 豁免", "svc/x.go", "package svc\n\nfunc Assemble(err error) {\n\tif err != nil {\n\t\tpanic(err)\n\t}\n}\n", false},
+		{"New 构造期 → 豁免", "svc/x.go", "package svc\n\nimport \"fmt\"\n\nfunc NewSvc(v any) *Svc {\n\tif v == nil {\n\t\tpanic(fmt.Sprint(\"nil\"))\n\t}\n\treturn nil\n}\n", false},
+		{"cmd 入口 → 豁免", "cmd/demo/main.go", "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tpanic(fmt.Sprint(\"boot\"))\n}\n", false},
+		{"模板字面量里的 panic 字样 → 不误报", "svc/tpl.go", "package svc\n\nconst tpl = `func main() { panic(\"generated\") }`\n", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := write(t, tc.rel, tc.src)
+			findings, skip, err := checkNoPanic(dir)
+			if err != nil || skip != "" {
+				t.Fatalf("findings=%v skip=%q err=%v", findings, skip, err)
+			}
+			if got := len(findings) > 0; got != tc.wantHit {
+				t.Errorf("findings=%v, wantHit=%v", findings, tc.wantHit)
+			}
+		})
+	}
+}
+
+// TestCheckLoggingStdlibCallLevel 调用级语义：import slog 但只构造 Attr
+// （slog.String 传给契约层）不违规；slog.Info 直打违规。
+func TestCheckLoggingStdlibCallLevel(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module demo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	src := "package svc\n\nimport (\n\t\"context\"\n\t\"log/slog\"\n\n\t\"github.com/kalandramo/bald/log\"\n)\n\nfunc Ctx() context.Context {\n\treturn log.ContextWithAttrs(context.Background(), slog.String(\"k\", \"v\"))\n}\n\nfunc Bad() {\n\tslog.Info(\"direct log\")\n}\n"
+	if err := os.WriteFile(filepath.Join(dir, "svc.go"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	findings, _, err := checkLoggingStdlib(dir)
+	if err != nil || len(findings) != 1 {
+		t.Fatalf("findings=%v err=%v, want 1（仅 slog.Info 直打）", findings, err)
+	}
+	if !strings.Contains(findings[0].Message, "slog.Info") {
+		t.Errorf("message 应点名 slog.Info，got %s", findings[0].Message)
+	}
+}
