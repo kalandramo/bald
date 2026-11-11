@@ -12,12 +12,11 @@ func TestMessageChainedSetters(t *testing.T) {
 	ackable := &fakeAckableMsg{acked: false}
 	m := NewMessage("body",
 		WithID("id-1"),
-		WithKey("k-1"),
 		WithMsg(ackable),
 		WithPartitionOffset(3, 7),
 		WithHeaders(map[string]string{"h0": "v0"}),
 		WithHeader("h1", "v1"),
-		WithMetadata(Metadata{"m0": 1}),
+		WithMetadataKV("m0", 1),
 		WithMetadataKV("m1", 2),
 	).
 		WithKey("k-2").
@@ -25,7 +24,7 @@ func TestMessageChainedSetters(t *testing.T) {
 		WithMetadata("m2", 3)
 	m.SetDelay("5s")
 
-	if m.ID != "id-1" || m.Key != "k-2" {
+	if m.ID != "id-1" || m.Key != "k-2" { // Key 经链式 WithKey("k-2") 覆盖
 		t.Fatalf("id/key = %s/%s", m.ID, m.Key)
 	}
 	if m.Partition != 3 || m.Offset != 7 {
@@ -105,8 +104,8 @@ func TestMessageMetadataContextBridge(t *testing.T) {
 }
 
 func TestMessageCloneIsolation(t *testing.T) {
-	src := NewMessage("b", WithID("i"), WithKey("k"),
-		WithHeader("h", "v"), WithMetadataKV("m", 1))
+	src := NewMessage("b", WithID("i")).WithKey("k").
+		WithHeader("h", "v").WithMetadata("m", 1)
 	cp := src.Clone()
 	if cp.ID != "i" || cp.Key != "k" || cp.Headers["h"] != "v" || cp.Metadata["m"] != 1 {
 		t.Fatalf("clone mismatch: %+v", cp)

@@ -237,6 +237,10 @@ func formatKey(key any) string {
 	return fmt.Sprintf("%v", key)
 }
 
+// MessageOption 是 NewMessage 的变参选项。**命名纪律（ADR-2）**：与 *Message
+// 方法同名的选项不存在（曾因 WithKey/WithMetadata 同名不同形撞车，已删）——
+// 链式方法（msg.WithKey(...).WithHeader(...)）是首选构造面，选项只承载
+// 方法表达不了的字段（ID/Msg/PartitionOffset）。
 type MessageOption func(*Message)
 
 // NewMessage creates a new Message with the provided body and options
@@ -264,11 +268,6 @@ func NewMessageWithContext(ctx context.Context, body any, keys ...any) *Message 
 // WithID set the message ID
 func WithID(id string) MessageOption {
 	return func(m *Message) { m.ID = id }
-}
-
-// WithKey set the message key
-func WithKey(key string) MessageOption {
-	return func(m *Message) { m.Key = key }
 }
 
 // WithMsg set the original/raw message
@@ -303,21 +302,6 @@ func WithHeaders(h Headers) MessageOption {
 func WithHeader(key, value string) MessageOption {
 	return func(m *Message) {
 		m.SetHeader(key, value)
-	}
-}
-
-// WithMetadata will copy the provided metadata into Message.Metadata (no-op if nil)
-func WithMetadata(md Metadata) MessageOption {
-	return func(m *Message) {
-		if md == nil {
-			return
-		}
-		if m.Metadata == nil {
-			m.Metadata = make(Metadata, len(md))
-		}
-		for k, v := range md {
-			m.Metadata[k] = v
-		}
 	}
 }
 
