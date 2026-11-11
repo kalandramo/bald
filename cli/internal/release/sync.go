@@ -21,6 +21,9 @@ func Sync(root string, plan *Plan, write bool, out io.Writer) error {
 	if err := CheckPlanFresh(root, plan); err != nil {
 		return err
 	}
+	if err := guardOrphanBumps(plan); err != nil {
+		return err
+	}
 	type target struct {
 		dir      string
 		requires []RequireUpdate
@@ -53,6 +56,40 @@ func Sync(root string, plan *Plan, write bool, out io.Writer) error {
 		_, _ = fmt.Fprintln(out, "\n未写入文件；确认后加 --write。")
 	}
 	return nil
+}
+
+
+// guardOrphanBumps 拦截「裁剪计划」造成的孤儿归位（DX-14）：归位目标的每一
+// 条 To 版本，其模块必须在本计划 Changes 里（同批打 tag）——sync 的依赖归位
+// 是全树行为，裁剪 plan 只留部分模块时，留下的归位会把 go.mod 推到**没人打
+// tag 的版本**（实证：cli/v0.7.0 因此 require 了未发的 cobramcp v0.3.5 成坏
+// tag）。整批发版才是 plan 的不变量；真要分批，就重跑 plan 让闭包自然成形。
+func guardOrphanBumps(plan *Plan) error {
+	pending := make(map[string]string, len(plan.Changes))
+	for _, c := range plan.Changes {
+		pending[c.Module] = c.Tag
+	}
+	var orphans []string
+	check := func(r RequireUpdate) {
+		if _, ok := pending[r.Module]; !ok {
+			orphans = append(orphans, fmt.Sprintf("%s -> %s（该模块不在本计划 Changes 里，此版本不会被 tag）", r.Module, r.To))
+		}
+	}
+	for _, c := range plan.Changes {
+		for _, r := range c.Requires {
+			check(r)
+		}
+	}
+	for _, c := range plan.Consumers {
+		for _, r := range c.Requires {
+			check(r)
+		}
+	}
+	if len(orphans) == 0 {
+		return nil
+	}
+	return fmt.Errorf("sync: 存在归位到「不会被打 tag 的版本」的依赖（计划被裁剪？整批发版才是 plan 的不变量）：\n  %s",
+		strings.Join(orphans, "\n  "))
 }
 
 // syncGoMod 把 rel 指向的 go.mod 中给定 require 归位；返回是否真的改动了文件。
