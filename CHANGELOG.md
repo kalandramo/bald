@@ -6,6 +6,21 @@
 
 ## 2026-11-11
 
+### bald v0.52.0
+
+- `6ec20899` feat(cli): convention 落 PRD 方法论卡（第 23 张）+ 两个确定性 checker（Phase 3）
+
+### cli v0.10.0
+
+- `6ec20899` feat(cli): convention 落 PRD 方法论卡（第 23 张）+ 两个确定性 checker（Phase 3）
+- `d091b673` feat(release): sync 增加孤儿归位守卫（DX-14 快赢 #6）
+- `56ab22d8` feat(cli): gen app 自动发现 cwd 的 appspec.json（DX-7 快赢 #2）
+- `bf594166` feat(cli): gen app 落树时补 go.mod 骨架（DX-1 快赢 #1）
+
+### pkg v0.15.0
+
+- `b914666a` feat(appkit): L3 段覆盖报错附 contract 包建议（DX-13 快赢 #3）
+
 ### bald v0.51.0
 
 - `60478bd4` refactor(pkg/middleware)!: 门面 Option 面裁撤——Normalized no-op 删除 + 熔断唯一实现化 + Verify 补统一段判定 **(breaking)**

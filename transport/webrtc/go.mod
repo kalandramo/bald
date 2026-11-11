@@ -25,7 +25,7 @@ require (
 	github.com/kalandramo/bald/encoding/json v0.1.1
 	github.com/kalandramo/bald/log v0.6.0
 	github.com/kalandramo/bald/metrics v0.2.0
-	github.com/kalandramo/bald/pkg v0.14.0
+	github.com/kalandramo/bald/pkg v0.15.0
 	github.com/kalandramo/bald/transport v0.4.0
 	github.com/pion/webrtc/v4 v4.2.12
 	github.com/spf13/pflag v1.0.10
