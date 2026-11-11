@@ -4,7 +4,7 @@ go 1.27.1
 
 require (
 	github.com/kalandramo/bald/bconf v0.27.0
-	github.com/kalandramo/bald/pkg v0.13.0
+	github.com/kalandramo/bald/pkg v0.14.0
 	github.com/stretchr/testify v1.12.1
 	go.mongodb.org/mongo-driver/v2 v2.8.0
 )

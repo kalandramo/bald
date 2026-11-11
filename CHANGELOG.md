@@ -4,6 +4,24 @@
 条目取自该版本区间内的提交标题（Conventional Commits），不要手工调整顺序。
 发布流程见 [多模块发布与变更日志](docs/devel/zh-CN/多模块发布与变更日志.md)。
 
+## 2026-11-11
+
+### bald v0.51.0
+
+- `60478bd4` refactor(pkg/middleware)!: 门面 Option 面裁撤——Normalized no-op 删除 + 熔断唯一实现化 + Verify 补统一段判定 **(breaking)**
+- `a231624c` docs(architecture): DX 体检增补——文档体系结构性/可读性/实用性/过时剔除（DX-18…28）
+- `b2505961` docs(architecture): 开发者体验体检——用户视角摩擦点清单（DX-1…17）留待优化
+
+### cli v0.9.0
+
+- `60478bd4` refactor(pkg/middleware)!: 门面 Option 面裁撤——Normalized no-op 删除 + 熔断唯一实现化 + Verify 补统一段判定 **(breaking)**
+- `f4b57d94` chore(release): bconf v0.27.0 / pkg v0.13.0 / v0.50.0 依赖归位 + 变更日志
+
+### pkg v0.14.0
+
+- `60478bd4` refactor(pkg/middleware)!: 门面 Option 面裁撤——Normalized no-op 删除 + 熔断唯一实现化 + Verify 补统一段判定 **(breaking)**
+- `b2505961` docs(architecture): 开发者体验体检——用户视角摩擦点清单（DX-1…17）留待优化
+
 ## 2026-11-10
 
 ### bald v0.50.0
