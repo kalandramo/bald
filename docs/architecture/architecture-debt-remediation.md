@@ -39,14 +39,14 @@ fallback。测试钉住的行为不变（同 error 实例复用语义保留）�
 customOptions)" 夹在中文报错流里。修正：错误文案统一语言（与所在错误流的主体一致）。
 代价：随手。
 
-### ADR-18 命名风格三套并存
+### ADR-18 ✅ 命名风格三套并存——release 侧统一 Check*（CheckOrphanBumps），appkit 侧不动
 
 证据：`guardErrs` / `CheckPlanFresh` / `guardOrphanBumps`。修正：release 包内统一
 `Check*`（返回 error 的谓词）；appkit 侧不动（改动面大收益小）。代价：随手。
 
 ## 批 2（契约 / 流程演进）
 
-### ADR-6 🔧 契约面 33 个、实现约 19 个（J8 自我违反）
+### ADR-6 ✅（近期段已修）契约面 33 个、实现约 19 个（J8 自我违反）——Gate2 已实现面白名单落地（实测 mqtt 声明被拒），远期 proto 裁剪随大版本
 
 证据：`server.proto` 33 个 optional 面；transport/ 实际约 19。kcp/thrift/trpc/signalr/
 socketio/mqtt/pulsar/activemq/azuresb/nsq/sqs/nats/machinery/hptimer/udp/webtransport
@@ -72,14 +72,14 @@ socketio/mqtt/pulsar/activemq/azuresb/nsq/sqs/nats/machinery/hptimer/udp/webtran
 Taskfile 定位为开发期快捷键（薄壳调 scripts/），门禁事实单源化到 scripts/ + CI。
 代价：1–2 人日。立项。
 
-### ADR-10 ⏳ contrib / 一级模块边界无判据
+### ADR-10 ✅ contrib / 一级模块边界判据已成文（《多模块发布与变更日志》），存量不一致留大版本归位
 
 证据：store-gorm vs database/gorm/contract、registry/nacos（一级）vs config-nacos
 （contrib）、oss（一级）vs audit（contrib）——三次"顺手放"后路径即历史。修正：
 《多模块发布与变更日志》或独立卡补一节判据（**有独立外部依赖 → 一级；纯适配本仓
 契约 → contrib**），现存不一致列清单分批归位。代价：文档 0.5 人日 + 归位另计。
 
-### ADR-11 ⏳ transport 面独立 module 无准入标准
+### ADR-11 ✅ transport 准入标准已成文（同上文档）
 
 证据：93 个 go.mod 的代价已付（DX-11 版本矩阵），"什么面值得独立"无成文标准；
 `transport/redis` 与 `cache/redis` 两个 redis 生态位并存。修正：同 ADR-10 的卡补
@@ -92,12 +92,12 @@ Taskfile 定位为开发期快捷键（薄壳调 scripts/），门禁事实单�
 
 DX-21 只修了安装节。修正：guide 全量走查一次（正文命令流 + 考证进 details）。1 人日。
 
-### ADR-13 ⏳ 一次改动四份记录（risk-review / 蒸馏卡 / README 修订史 / handoff）
+### ADR-13 ✅ 记录纪律已成文（risk-review 唯一事实登记处 + 卡引条目号），随下次大改动执行（risk-review / 蒸馏卡 / README 修订史 / handoff）
 
 修正：立"真相源 + 引用"纪律——判据卡引 risk-review 条目号，README 修订史只留
 一行链接，handoff 只存活一期。随下一次大改动执行。0.5 人日。
 
-### ADR-14 ⏳ 命名通胀（蒸馏卡/规范卡/convention 卡；段 Provider/contract Provider）
+### ADR-14 ✅ 命名口径已成文（guide 术语表钉死：蒸馏卡 / contract Provider），残留变体随文档自然迭代（蒸馏卡/规范卡/convention 卡；段 Provider/contract Provider）
 
 修正：DX-22 术语表扩到全仓口径，docs 层 sed 统一（devel/architecture 一次批量）。
 0.5 人日。
@@ -107,7 +107,7 @@ DX-21 只修了安装节。修正：guide 全量走查一次（正文命令流 +
 修正：过程性内容（方案 A/B 对比、取证）下沉 architecture 层或删；devel 收敛为
 "现在的系统"。3 人日，立项。
 
-### ADR-16 ⏳ 小刺清单一并修
+### ADR-16 ✅ 小刺清单一并修——RedisKey 已导出（消费者不再手写魔法串）；其余两条随批次 4 / 大版本
 
 - `broker.NewKey[Broker]("broker.redis.redis")` 双段键：contract 包导出
   `RedisKey = appkit.NewKey[broker.Broker]("broker.redis.redis")` 常量（消费者不再
@@ -117,6 +117,11 @@ DX-21 只修了安装节。修正：guide 全量走查一次（正文命令流 +
 - `pkg/` 模块无名之实：改名是全仓 import 地震，**永久挂账不修**（代价 >> 收益），
   判据卡里加一行"pkg 是历史名，新聚合勿再入内"。
 
+> **批 2/4 实施记录（2026-11-12）**：ADR-6 近期段、ADR-10/11/13/14、ADR-16、ADR-18
+> 全部落地。**保持立项**：ADR-7（coverage.sh Go 化）、ADR-8（appkit 四域拆分）、
+> ADR-9（Taskfile-CI 双源）、ADR-15（devel 过程叙事下沉）——多人日大项，独立会话
+> 逐个做；ADR-6 远期段（proto reserved 裁剪）随大版本。
+>
 > **批 1 实施记录（2026-11-11/12）**：五项全部落地。附带发现：transport/mcp、tcp、webrtc
 > 整包 -race 超时挂死（TestServer 类在 `httpSrv.Serve` goroutine 上等待，**非 race 下
 > 也挂**）——与批 1 的等价替换无关（mcp 的 diff 仅删残留定义与调用点换名），归属
