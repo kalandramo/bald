@@ -11,6 +11,7 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/gin-gonic/gin"
 
@@ -105,17 +106,12 @@ func protocolVersion(proto string) string {
 	return proto
 }
 
-// httpStatusErrors 预计算 4xx/5xx 哨兵错误（享元模式）：GinHandler 的热路径
-// 错误观测不逐请求分配。berrors 的 Code 是 google.rpc 码域——HTTP 状态经
-// berrorshttperr.HTTPToCode 反查（CodeToHTTP 的逆映射），Reason 取稳定语义名。
-var httpStatusErrors = func() map[int]error {
-	m := make(map[int]error, 200)
-	for status := http.StatusBadRequest; status < 600; status++ {
-		m[status] = berrors.New(berrorshttperr.HTTPToCode(status), httpStatusReason(status)).
-			WithMessage("HTTP request failed with status %d", status)
-	}
-	return m
-}()
+// httpStatusErrors 按**命中**惰性缓存（ADR-4）：实测热路径只落在少数几个状态码
+// （404/401/403/429/500/503），预构造 200 项是过度设计——按需构造一次、并发下经
+// sync.Map 复用同一实例（享元语义不变：同状态码返回同一 error）。berrors 的
+// Code 是 google.rpc 码域——HTTP 状态经 berrorshttperr.HTTPToCode 反查（CodeToHTTP
+// 的逆映射），Reason 取稳定语义名。
+var httpStatusErrors sync.Map // map[int]error
 
 // httpStatusError 把 gin 已写出的响应状态面化成协议无关错误，统一链据此观测
 // HTTP 失败。1xx/2xx/3xx 返回 nil。
@@ -123,11 +119,13 @@ func httpStatusError(status int) error {
 	if status < http.StatusBadRequest {
 		return nil
 	}
-	if e, ok := httpStatusErrors[status]; ok {
-		return e
+	if e, ok := httpStatusErrors.Load(status); ok {
+		return e.(error)
 	}
-	return berrors.New(berrorshttperr.HTTPToCode(status), httpStatusReason(status)).
+	e := berrors.New(berrorshttperr.HTTPToCode(status), httpStatusReason(status)).
 		WithMessage("HTTP request failed with status %d", status)
+	httpStatusErrors.LoadOrStore(status, e)
+	return e
 }
 
 // httpStatusReasons 把少数有稳定语义 Reason 的 HTTP 状态固化映射；其余落到
