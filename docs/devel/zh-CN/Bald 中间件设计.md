@@ -1,5 +1,14 @@
 # Bald 中间件设计
 
+> ⚠️ **部分 deprecated（2026-11-10，方案 S 批次 4）**：本文描述的**面段旧链**
+> （`server.{http,grpc}.middleware` 段 → `bundle.FromMiddleware`/`FromGRPCMiddleware`
+> → `bundle.Gin()`/`GRPCInterceptors()`）已标 deprecated，保留至下一 major 移除；
+> 新装配改用统一中间件契约（`server.unified_middleware` 段 + `pkg/middleware` 根的
+> Handler/Transporter/matcher/三座桥），使用指南见《Bald 统一中间件契约》（guide 层），
+> 统一链的设计与九件内置件见《框架契约总览》§9.3。本文的**链序设计**（Error 最外层、
+> Recovery 第二外层、限流/熔断在授权之后超时之外）、gin/grpc 子包的各件实现与
+> stream 口径**仍是现行事实**——统一内置件即按此链序实现。
+
 > Title: 中间件——横切关注点的双传输装配（gin/gRPC）与链序固化
 >
 > 适用包：`pkg/middleware`（含 `gin` / `grpc` / `bundle` / `shared` 四子包）
