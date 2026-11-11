@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -184,8 +185,39 @@ func runGenAppSpec(spec, out string, adopt, check bool, streams ioStreams) error
 	if err := writeManifest(root, appManifestName, manifestRaw, streams); err != nil {
 		return err
 	}
+	seeded, err := seedGoMod(root, as.GetMeta().GetModule(), streams)
+	if err != nil {
+		return err
+	}
 	fmt.Fprintln(streams.Out, "next: appspec.json is the declaration truth source; edit it and rerun with --check to verify, --adopt to regenerate owned files (seeded files are kept, user files are never touched, stale owned files are removed)")
+	if seeded {
+		// DX-1：新用户第一小时的必卡点——树有了但没有 go.mod，go build 报
+		// "directory prefix does not contain main module" 且无出口。骨架只含
+		// module/go 两行，require 由 go mod tidy 从 import 集推导（权威且免
+		// 维护版本映射）。
+		fmt.Fprintln(streams.Out, `next: run "go mod tidy" to resolve module requirements (needs network), then "go build ./..."`)
+	}
 	return nil
+}
+
+// seedGoMod 在生成树缺 go.mod 时补一份骨架（module + go 两行）。它**不进
+// manifest**：go.mod 落盘即归用户维护（加依赖、改版本都是用户的日常），
+// --check 与 adopt 都不追踪它——gen 只在缺失时补这一次（os.Stat 缺席才写）。
+// go 版本取 runtime.Version()：编译出这把 cli 的 Go 必然 ≥ bald 模块要求的
+// 版本（cli go.mod 的 go 指令是下界），用户的工具链不会低于它。
+func seedGoMod(root, module string, streams ioStreams) (bool, error) {
+	p := filepath.Join(root, "go.mod")
+	if _, err := os.Stat(p); err == nil {
+		return false, nil
+	} else if !os.IsNotExist(err) {
+		return false, fmt.Errorf("stat %s: %w", p, err)
+	}
+	content := fmt.Sprintf("module %s\n\ngo %s\n", module, runtime.Version())
+	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+		return false, err
+	}
+	fmt.Fprintln(streams.Out, "generated:", p, "(skeleton)")
+	return true, nil
 }
 
 // roleContracts 为每个角色派生一份契约 YAML（每角色一份

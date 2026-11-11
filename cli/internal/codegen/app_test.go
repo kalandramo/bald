@@ -115,3 +115,42 @@ func TestGenAppSpec_GeneratesTree(t *testing.T) {
 		}
 	}
 }
+
+// DX-1：生成树缺 go.mod 时补骨架（module/go 两行，require 交给 go mod tidy）。
+// 骨架不进 manifest——落盘即归用户，--check 与 adopt 都不追踪。
+func TestGenAppSpec_SeedsGoModOnce(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir) // 产出根 layout.root="." = 测试目录（不 Chdir 会把树写进 cli/ 自身）
+	specPath := filepath.Join(dir, "appspec.json")
+	spec := `{"meta": {"name": "cli-demo", "module": "example.com/cli-demo", "desc": "d"}, "bootstrap": {"audit": {"backends": ["log"]}}}`
+	if err := os.WriteFile(specPath, []byte(spec), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run := func() {
+		cmd := genAppCmd(NewDefaultIOStreams())
+		cmd.SetArgs([]string{"--spec", specPath, "--adopt"})
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("gen app: %v", err)
+		}
+	}
+	run()
+
+	gm := filepath.Join(dir, "go.mod")
+	raw, err := os.ReadFile(gm)
+	if err != nil {
+		t.Fatalf("go.mod not seeded: %v", err)
+	}
+	if !strings.Contains(string(raw), "module example.com/cli-demo") {
+		t.Fatalf("go.mod missing module line: %s", raw)
+	}
+	// 二跑不改（用户已开始维护它）。
+	before := string(raw)
+	if err := os.WriteFile(gm, []byte(before+"\n// user edit\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run()
+	after, _ := os.ReadFile(gm)
+	if !strings.Contains(string(after), "// user edit") {
+		t.Fatal("second gen overwrote user-maintained go.mod")
+	}
+}
