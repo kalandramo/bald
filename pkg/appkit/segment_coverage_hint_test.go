@@ -9,15 +9,15 @@ import (
 // 未收录的段不带提示（提示不是契约，缺表不报错）。
 func TestProviderHint(t *testing.T) {
 	for path, want := range map[string]string{
-		"database.sql":     "contrib/database/gorm/contract",
-		"cache.redis":      "cache/redis/contract",
-		"oss.minio":        "oss/minio/contract",
-		"server.kafka":     "transport/kafka/contract",
-		"server.webrtc":    "transport/webrtc/contract",
-		"broker.redis":     "broker/redis/contract",
-		"broker.rabbitmq":  "broker/rabbitmq/contract",
-		"client.http.x":    "transport/client/contract",
-		"log.loki":         "log/loki/contract",
+		"database.sql":       "contrib/database/gorm/contract",
+		"cache.redis":        "cache/redis/contract",
+		"oss.minio":          "oss/minio/contract",
+		"server.kafka":       "transport/kafka/contract",
+		"server.webrtc":      "transport/webrtc/contract",
+		"broker.redis":       "broker/redis/contract",
+		"broker.rabbitmq":    "broker/rabbitmq/contract",
+		"client.http.x":      "transport/client/contract",
+		"log.loki":           "log/loki/contract",
 		"metrics.prometheus": "metrics/prometheus/contract",
 	} {
 		if got := providerHint(path); got != want {

@@ -100,7 +100,6 @@ func checkSegmentCoverage(cfg *bootstrapv1.BootstrapConfig, spec *Decl, plan *pr
 	return errors.New("appkit: bootstrap config declares sections with no consumer:\n  " + strings.Join(problems, "\n  "))
 }
 
-
 // providerHints 把框架自有段的「段路径 → 佐证性 contract 包」做成**例外表**，
 // 供 L3 报错指路（DX-13）：报错说 "provide a Provider"，新手下一个问题是
 // "哪个包"。规则路径（server.<face>/broker.<backend>/client.*/log.<x>）由
@@ -111,15 +110,15 @@ var providerHints = map[string]string{
 	// 例外表：仅收录**不能**按「server.<face>/broker.<backend>/log.<x> → 对应
 	// contract 包」规则派生的段（database/cache/oss/metrics 的实现不在同名
 	// 一级目录）。规则路径走 providerHint 的前缀派生，不入表。
-	"database.sql":     "contrib/database/gorm/contract",
-	"database.mongodb": "contrib/database/mongodb/contract",
-	"cache.local":      "cache/local/contract",
-	"cache.redis":      "cache/redis/contract",
-	"oss.s3":           "oss/s3/contract",
-	"oss.minio":        "oss/minio/contract",
+	"database.sql":       "contrib/database/gorm/contract",
+	"database.mongodb":   "contrib/database/mongodb/contract",
+	"cache.local":        "cache/local/contract",
+	"cache.redis":        "cache/redis/contract",
+	"oss.s3":             "oss/s3/contract",
+	"oss.minio":          "oss/minio/contract",
 	"metrics.prometheus": "metrics/prometheus/contract",
-	"metrics.otel":     "metrics/otel/contract",
-	"metrics.datadog":  "metrics/datadog/contract",
+	"metrics.otel":       "metrics/otel/contract",
+	"metrics.datadog":    "metrics/datadog/contract",
 }
 
 // providerHint 返回段路径的佐证性提示（最长前缀命中；无匹配返回空串）。
