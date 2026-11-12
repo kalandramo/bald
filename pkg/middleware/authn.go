@@ -80,7 +80,14 @@ func Authn(authenticator authn.Authenticator, opts ...AuthnOption) Middleware {
 
 			ctx = authn.ContextWithAuthClaims(ctx, claims)
 			// 租户 ID 写入 contextx 供 pkg/store 多租户自动隔离——认证层是唯一
-			// 可信的租户来源。Viewer 注入供 crudbridge EnforceTenant/DataScope。
+			// 可信的租户来源。claims.TenantID 为空时**不写入**：那属「身份不完整」，
+			// 由 store 层返回 ErrMissingTenant 拒绝（fail-closed），而不是按空租户
+			// 过滤——后者看着更"宽松"，实际是跨租户可见。
+			//
+			// 下面注入的 Viewer 只负责**把身份搬到 context**，本仓不消费它的租户判定：
+			// crudbridge/viewer 的 EnforceTenant / DataScope 全仓零生产调用（仅注释与
+			// 测试），真正的隔离由 pkg/store 的租户注册表完成。这段话写在这里，是为了
+			// 不再让人把这行读成「authn 中间件已经做完租户校验」。
 			if claims.TenantID != "" {
 				ctx = contextx.WithTenantID(ctx, claims.TenantID)
 			}

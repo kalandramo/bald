@@ -525,12 +525,48 @@ func TestAuthnNilAndEmptyTenant5d(t *testing.T) {
 		t.Errorf("nil authenticator should pass: called=%v err=%v", called, err)
 	}
 
-	// 有效 token 但空 TenantID → 跳过 WithTenantID 分支。
+	// 有效 token 但空 TenantID → 不得注入**非空**租户维度。
+	//
+	// 这条断言能抓住的是「注入了一个不该有的非空租户」（例如误把 Subject 当 TenantID
+	// 写进 contextx）——那是会造成跨租户可见的真 bug。
+	//
+	// 它**抓不住**「无条件写入空串」：contextx 的 WithTenantID(ctx, "") 与「从未设置」
+	// 在 TenantIDFromContext 眼里返回同一个值，这是 contextx 的既有语义，不是本测试的
+	// 疏漏。空租户的 fail-closed 保证在 store 层（身份缺租户 ⇒ ErrMissingTenant，
+	// 见 pkg/store/tenant_test.go 与 inmemory/isolation_test.go），不在这里重复实现。
+	var emptyTenantCtx context.Context
 	ctx := transporterWithBearer(context.Background(), "good")
 	_, err = Authn(staticAuthenticator{claims: &authn.AuthClaims{Subject: "s"}})(
-		func(context.Context, interface{}) (interface{}, error) { return nil, nil })(ctx, nil)
+		func(c context.Context, _ interface{}) (interface{}, error) {
+			emptyTenantCtx = c
+			return nil, nil
+		})(ctx, nil)
 	if err != nil {
 		t.Fatalf("empty tenant authn: %v", err)
+	}
+	if emptyTenantCtx == nil {
+		t.Fatal("empty tenant: 下游 handler 未被调用，本判据在空转")
+	}
+	if got := contextx.TenantIDFromContext(emptyTenantCtx); got != "" {
+		t.Errorf("空 TenantID 不得写出非空租户，got %q（否则下游会按错误租户隔离）", got)
+	}
+
+	// 非空 TenantID → 必须注入，供 pkg/store 自动隔离。与上一条成对，防止
+	// 「两条分支都不注入」这种整体失效也能过测试。
+	var tenantCtx context.Context
+	_, err = Authn(staticAuthenticator{claims: &authn.AuthClaims{Subject: "s", TenantID: "t-1"}})(
+		func(c context.Context, _ interface{}) (interface{}, error) {
+			tenantCtx = c
+			return nil, nil
+		})(transporterWithBearer(context.Background(), "good"), nil)
+	if err != nil {
+		t.Fatalf("tenant authn: %v", err)
+	}
+	if tenantCtx == nil {
+		t.Fatal("tenant: 下游 handler 未被调用，本判据在空转")
+	}
+	if got := contextx.TenantIDFromContext(tenantCtx); got != "t-1" {
+		t.Errorf("TenantID 应注入 contextx，got %q want t-1", got)
 	}
 
 	// token 存在但校验失败 → Authenticate 错误分支（UNAUTHENTICATED + deny 审计）。
