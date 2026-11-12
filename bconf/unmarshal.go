@@ -426,6 +426,13 @@ func canonicalValue(fd protoreflect.FieldDescriptor, raw any) (any, error) {
 			// 标量单值也接受（如 output-paths: stdout），包成单元素切片。
 			items = []any{raw}
 		}
+		// message 元素列表（含 repeated Duration）：元素本就按 protojson 期望形态
+		// 原样透传（coerceScalar 对 MessageKind 不做变换），整列复用源切片——
+		// 规范树是本调用的暂存物，只读喂给 json.Marshal，与源树共享子树安全；
+		// 免一次切片重建 + 逐元素空转。
+		if fd.Kind() == protoreflect.MessageKind && ok {
+			return raw, nil
+		}
 		out := make([]any, 0, len(items))
 		for i, it := range items {
 			v, err := coerceScalar(fd, it)
