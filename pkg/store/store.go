@@ -121,7 +121,11 @@ func (s *Store[T]) Provider() DBProvider[T] { return s.provider }
 
 // Create 插入一条记录。
 func (s *Store[T]) Create(ctx context.Context, obj *T) error {
-	injectWriteTenant(ctx, obj) // 写路径多租户：自动写入当前租户，避免误建到他租户
+	// 写路径多租户：自动写入当前租户，避免误建到他租户；
+	// 身份缺租户时返回 ErrMissingTenant（不再放行调用方自带的 tenant_id）。
+	if err := injectWriteTenant(ctx, obj); err != nil {
+		return err
+	}
 	q, err := s.provider.DB(ctx)
 	if err != nil {
 		return err
@@ -162,12 +166,19 @@ func (s *Store[T]) Create(ctx context.Context, obj *T) error {
 // 主键条件按 AND 连接——多租户应用改不到他租户、越出数据范围的记录（返回
 // `(0, nil)`）。写路径同时经 injectWriteTenant 覆写实体租户字段，读写两侧闭环。
 func (s *Store[T]) Update(ctx context.Context, obj *T) (int64, error) {
-	injectWriteTenant(ctx, obj) // 写路径多租户：自动覆写租户，防止越权更新改租户归属
+	// 写路径多租户：自动覆写租户，防止越权更新改租户归属；身份缺租户时拒绝。
+	if err := injectWriteTenant(ctx, obj); err != nil {
+		return 0, err
+	}
 	q, err := s.provider.DB(ctx)
 	if err != nil {
 		return 0, err
 	}
-	return q.Update(ctx, obj, s.applyIsolation(ctx, nil))
+	where, err := s.applyIsolation(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	return q.Update(ctx, obj, where)
 }
 
 // injectWriteTenant 写路径多租户注入：依据全局租户注册表，把 ctx 中解析到的各租户
@@ -178,8 +189,13 @@ func (s *Store[T]) Update(ctx context.Context, obj *T) (int64, error) {
 // 仅在 ctx 提供该维度值时注入；非多租户应用未注册维度则无操作。反射写入对实体对应
 // 字段是**无条件覆写**（仅检查字段可导出且为 string 类型）——业务试图写入他租户值会被
 // ctx 真实租户覆盖（`write_tenant_test.go` 锁定「越权值被覆盖」）；若实体无对应字段
-// （如非租户实体）则静默跳过该维度。
-func injectWriteTenant(ctx context.Context, obj any) {
+// （如非租户实体）则跳过该维度。
+//
+// **身份不完整时返回 ErrMissingTenant**：旧实现在取不到租户值时 `continue`，于是
+// Create 保留调用方自带的 `tenant_id` 原样落库——攻击者可主动指定写进哪个租户；
+// Update 则按主键裸更新，可改他租户的行。现在改为拒绝，且**先全量解析再写入**，
+// 不做部分写入（写了一半才报错会留下不一致实体）。
+func injectWriteTenant(ctx context.Context, obj any) error {
 	tenantMu.RLock()
 	extractors := make(map[string]TenantValueFunc, len(tenantExtractors))
 	for k, v := range tenantExtractors {
@@ -187,22 +203,29 @@ func injectWriteTenant(ctx context.Context, obj any) {
 	}
 	tenantMu.RUnlock()
 	if len(extractors) == 0 {
-		return
+		return nil
 	}
 	rv := reflect.ValueOf(obj)
 	if rv.Kind() != reflect.Pointer || rv.IsNil() {
-		return
+		return nil
 	}
 	rv = rv.Elem()
 	if rv.Kind() != reflect.Struct {
-		return
+		return nil
 	}
-	rt := rv.Type()
+
+	// 先解析全部维度值：任一已注册维度取不到值即身份不完整，整体拒绝。
+	vals := make(map[string]string, len(extractors))
 	for key, fn := range extractors {
 		val, ok := fn(ctx)
 		if !ok || val == "" {
-			continue
+			return ErrMissingTenant
 		}
+		vals[key] = val
+	}
+
+	rt := rv.Type()
+	for key, val := range vals {
 		idx := tenantFieldIndex(rt, key)
 		if idx < 0 {
 			continue
@@ -213,6 +236,7 @@ func injectWriteTenant(ctx context.Context, obj any) {
 		}
 		fd.SetString(val)
 	}
+	return nil
 }
 
 // tenantFieldIndex 按租户列名（snake_case，如 "tenant_id"）找到实体字段索引。
@@ -319,7 +343,7 @@ func (s *Store[T]) shouldIsolate(ctx context.Context) bool {
 	return true
 }
 
-func (s *Store[T]) applyIsolation(ctx context.Context, where *Where) *Where {
+func (s *Store[T]) applyIsolation(ctx context.Context, where *Where) (*Where, error) {
 	out := &Where{}
 	if where != nil {
 		out.Offset = where.Offset
@@ -330,11 +354,14 @@ func (s *Store[T]) applyIsolation(ctx context.Context, where *Where) *Where {
 		out.Filters = append([]*storev1.FilterCondition(nil), where.Filters...)
 	}
 	if s.shouldIsolate(ctx) {
-		mergeTenant(out, ctx)
+		// 已注册租户维度但 ctx 取不到值 ⇒ 身份不完整，拒绝而非静默放行。
+		if err := mergeTenant(out, ctx); err != nil {
+			return nil, err
+		}
 	}
 	mergeDataScope(out, ctx)
 	mergeDataScopeExpr(out, ctx)
-	return out
+	return out, nil
 }
 
 // Delete 按条件删除，返回受影响行数。
@@ -359,7 +386,11 @@ func (s *Store[T]) Delete(ctx context.Context, where *Where) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	return q.Delete(ctx, s.applyIsolation(ctx, where))
+	where2, err := s.applyIsolation(ctx, where)
+	if err != nil {
+		return 0, err
+	}
+	return q.Delete(ctx, where2)
 }
 
 // Get 按条件取单条。
@@ -374,7 +405,11 @@ func (s *Store[T]) Get(ctx context.Context, where *Where) (*T, error) {
 	if err != nil {
 		return nil, err
 	}
-	return q.Get(ctx, s.applyIsolation(ctx, where))
+	where2, err := s.applyIsolation(ctx, where)
+	if err != nil {
+		return nil, err
+	}
+	return q.Get(ctx, where2)
 }
 
 // List 按条件列出（含偏移/限制）。
@@ -386,7 +421,11 @@ func (s *Store[T]) List(ctx context.Context, where *Where) ([]*T, int64, error) 
 	if err != nil {
 		return nil, 0, err
 	}
-	return q.List(ctx, s.applyIsolation(ctx, where))
+	where2, err := s.applyIsolation(ctx, where)
+	if err != nil {
+		return nil, 0, err
+	}
+	return q.List(ctx, where2)
 }
 
 // Count 统计符合条件记录数。
@@ -398,7 +437,11 @@ func (s *Store[T]) Count(ctx context.Context, where *Where) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	return q.Count(ctx, s.applyIsolation(ctx, where))
+	where2, err := s.applyIsolation(ctx, where)
+	if err != nil {
+		return 0, err
+	}
+	return q.Count(ctx, where2)
 }
 
 // PagingResult 是带分页元数据的列表结果（Go 层泛型返回）。
@@ -441,7 +484,9 @@ func (s *Store[T]) translate(ctx context.Context, req *storev1.PagingRequest) (*
 	// 经 shouldIsolate 统一闸门——与 applyIsolation 同源，平台级实体在两条
 	// 读路径上得到一致的豁免判断。
 	if s.shouldIsolate(ctx) {
-		mergeTenant(where, ctx)
+		if err := mergeTenant(where, ctx); err != nil {
+			return nil, nil, err
+		}
 	}
 	// 数据权限范围：在租户隔离基础上进一步收窄可见行（Viewer 五级范围；
 	// 布尔树版支持多范围 OR 组合，如「本人 OR 本部门」）。

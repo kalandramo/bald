@@ -26,18 +26,19 @@ type platformDoc struct {
 // 本测试在 inmemory 后端锁定「豁免生效」：声明 WithPlatformLevel 后，带租户 ctx
 // 的查询**不再被租户条件收窄**（本实体也无 TenantID 字段可供收窄）。
 func TestStore_PlatformLevel_SkipsTenantIsolation(t *testing.T) {
-	store.RegisterTenant("tenant_id", store.DefaultTenantFunc)
-	t.Cleanup(func() { store.UnregisterTenant("tenant_id") })
-
 	p := inmemory.NewProvider[platformDoc](func(d *platformDoc) string { return d.ID })
 	s := store.NewStore[platformDoc](p, store.WithPlatformLevel[platformDoc]())
 	bg := context.Background()
 
+	// 先播种（未注册维度），再开启隔离。
 	for _, d := range []*platformDoc{{ID: "menu-1", Name: "系统管理"}, {ID: "menu-2", Name: "日志"}} {
 		if err := s.Create(bg, d); err != nil {
 			t.Fatalf("create: %v", err)
 		}
 	}
+
+	store.RegisterTenant("tenant_id", store.DefaultTenantFunc)
+	t.Cleanup(func() { store.UnregisterTenant("tenant_id") })
 
 	// 带租户 ctx：平台级表应看到**全量**（不被 tenant_id 收窄）。
 	t1 := contextx.WithTenantID(bg, "t-1")
@@ -68,7 +69,9 @@ func TestStore_PlatformLevel_SkipsTenantIsolation(t *testing.T) {
 	// 这正是「不豁免即被隔离」的反证。
 	p2 := inmemory.NewProvider[platformDoc](func(d *platformDoc) string { return d.ID })
 	s2 := store.NewStore[platformDoc](p2) // 无 WithPlatformLevel
-	if err := s2.Create(bg, &platformDoc{ID: "menu-1", Name: "系统管理"}); err != nil {
+	// 用带租户的 ctx 写入：实体无 tenant_id 字段时 injectWriteTenant 跳过该维度
+	// （不会报错），但读路径仍会注入租户条件。
+	if err := s2.Create(t1, &platformDoc{ID: "menu-1", Name: "系统管理"}); err != nil {
 		t.Fatalf("create: %v", err)
 	}
 	n2, err := s2.Count(t1, nil)

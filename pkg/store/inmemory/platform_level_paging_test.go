@@ -22,18 +22,19 @@ import (
 // 本测试用 platformDoc（**无 TenantID 字段**，对齐真实平台级表）锁定：
 // 声明 WithPlatformLevel 后，ListWithPaging 必须与 Count/List/Get 一样豁免。
 func TestStore_PlatformLevel_ListWithPagingSkipsIsolation(t *testing.T) {
-	store.RegisterTenant("tenant_id", store.DefaultTenantFunc)
-	t.Cleanup(func() { store.UnregisterTenant("tenant_id") })
-
 	p := inmemory.NewProvider[platformDoc](func(d *platformDoc) string { return d.ID })
 	s := store.NewStore[platformDoc](p, store.WithPlatformLevel[platformDoc]())
 	bg := context.Background()
 
+	// 先播种（未注册维度），再开启隔离。
 	for _, d := range []*platformDoc{{ID: "menu-1", Name: "系统管理"}, {ID: "menu-2", Name: "日志"}} {
 		if err := s.Create(bg, d); err != nil {
 			t.Fatalf("create: %v", err)
 		}
 	}
+
+	store.RegisterTenant("tenant_id", store.DefaultTenantFunc)
+	t.Cleanup(func() { store.UnregisterTenant("tenant_id") })
 
 	// 带租户 ctx 走 ListWithPaging：平台级表应看到全量（2 条）。
 	t1 := contextx.WithTenantID(bg, "t-1")
@@ -55,14 +56,15 @@ func TestStore_PlatformLevel_ListWithPagingSkipsIsolation(t *testing.T) {
 // TestStore_PlatformLevel_ListWithPaging_NonPlatformStillIsolated 对照锁定：
 // **未**声明平台级的实体走 ListWithPaging 仍被隔离（防止豁免扩大化）。
 func TestStore_PlatformLevel_ListWithPaging_NonPlatformStillIsolated(t *testing.T) {
-	store.RegisterTenant("tenant_id", store.DefaultTenantFunc)
-	t.Cleanup(func() { store.UnregisterTenant("tenant_id") })
-
 	p := inmemory.NewProvider[tenantDoc](func(d *tenantDoc) string { return d.ID })
 	s := store.NewStore[tenantDoc](p) // 无 WithPlatformLevel
 	bg := context.Background()
+	// 先播种（未注册维度），再开启隔离。
 	_ = s.Create(bg, &tenantDoc{ID: "1", TenantID: "t-1", Name: "a"})
 	_ = s.Create(bg, &tenantDoc{ID: "2", TenantID: "t-2", Name: "b"})
+
+	store.RegisterTenant("tenant_id", store.DefaultTenantFunc)
+	t.Cleanup(func() { store.UnregisterTenant("tenant_id") })
 
 	t1 := contextx.WithTenantID(bg, "t-1")
 	res, err := s.ListWithPaging(t1, &storev1.PagingRequest{
