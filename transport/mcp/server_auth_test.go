@@ -125,29 +125,40 @@ func TestServer_MiddlewareNotAppliedToStdio(t *testing.T) {
 }
 
 // TestServer_ProtectedResourceMetadata 验证配置后 well-known 端点返回
-// 正确的 RFC 9728 元数据 JSON。
+// 正确的 RFC 9728 元数据 JSON（SSE 与 Streamable HTTP 形态均生效）。
 func TestServer_ProtectedResourceMetadata(t *testing.T) {
 	prm := mcpserver.ProtectedResourceMetadataConfig{
 		Resource:             "https://mcp.example.com",
 		AuthorizationServers: []string{"https://auth.example.com"},
 		ScopesSupported:      []string{"mcp:read", "mcp:write"},
 	}
-	srv := NewServer(
-		WithMCPServeType(ServerTypeSSE),
-		WithMCPServeAddress("127.0.0.1:0"),
-		WithSSEProtectedResourceMetadata(prm),
-	)
-	require.NoError(t, srv.Start(context.Background()))
-	t.Cleanup(func() { require.NoError(t, srv.Stop(context.Background())) })
 
-	resp, err := http.Get(srv.Endpoint() + mcpserver.WellKnownProtectedResourcePath)
-	require.NoError(t, err)
-	defer func() { _ = resp.Body.Close() }()
+	for _, tc := range []struct {
+		name       string
+		serverType ServerType
+	}{
+		{name: "sse", serverType: ServerTypeSSE},
+		{name: "streamable_http", serverType: ServerTypeHTTP},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := NewServer(
+				WithMCPServeType(tc.serverType),
+				WithMCPServeAddress("127.0.0.1:0"),
+				WithProtectedResourceMetadata(prm),
+			)
+			require.NoError(t, srv.Start(context.Background()))
+			t.Cleanup(func() { require.NoError(t, srv.Stop(context.Background())) })
 
-	require.Equal(t, http.StatusOK, resp.StatusCode)
+			resp, err := http.Get(srv.Endpoint() + mcpserver.WellKnownProtectedResourcePath)
+			require.NoError(t, err)
+			defer func() { _ = resp.Body.Close() }()
 
-	var got mcpserver.ProtectedResourceMetadataConfig
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
-	require.Equal(t, "https://mcp.example.com", got.Resource)
-	require.Equal(t, []string{"https://auth.example.com"}, got.AuthorizationServers)
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+
+			var got mcpserver.ProtectedResourceMetadataConfig
+			require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
+			require.Equal(t, "https://mcp.example.com", got.Resource)
+			require.Equal(t, []string{"https://auth.example.com"}, got.AuthorizationServers)
+		})
+	}
 }

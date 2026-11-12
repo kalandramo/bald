@@ -6,7 +6,7 @@ require (
 	github.com/alicebob/miniredis/v2 v2.35.0
 	github.com/kalandramo/bald/bconf v0.27.0
 	github.com/kalandramo/bald/cache v0.3.0
-	github.com/kalandramo/bald/pkg v0.15.1
+	github.com/kalandramo/bald/pkg v0.15.0
 	github.com/redis/go-redis/v9 v9.17.2
 )
 
@@ -89,7 +89,7 @@ require (
 	github.com/hashicorp/vault/api v1.23.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
-	github.com/kalandramo/bald/bconfig v0.2.4 // indirect
+	github.com/kalandramo/bald/bconfig v0.2.3 // indirect
 	github.com/kalandramo/bald/bootstrap v0.13.7 // indirect
 	github.com/kalandramo/bald/health v0.1.1 // indirect
 	github.com/kalandramo/bald/log v0.6.0 // indirect

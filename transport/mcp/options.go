@@ -58,14 +58,14 @@ func WithMiddleware(mw ...Middleware) ServerOption {
 	}
 }
 
-// WithSSEProtectedResourceMetadata 配置 RFC 9728 的 OAuth 2.0 资源元数据端点
-// （仅 SSE 形态生效），透传给底层 mcp-go 的 SSEServer。元数据在
-// ProtectedResourceMetadataPath(cfg.Resource) 派生的 well-known 路径上暴露。
+// WithProtectedResourceMetadata 配置 RFC 9728 的 OAuth 2.0 资源元数据端点
+// （SSE 与 Streamable HTTP 形态均生效），透传给底层 mcp-go 的对应传输实现。
+// 元数据在 ProtectedResourceMetadataPath(cfg.Resource) 派生的 well-known 路径上暴露。
 //
-// 注意：该端点由 mcp-go 在 SSEServer 内部按路径分发，而 WithMiddleware 的
+// 注意：该端点由 mcp-go 在传输服务内部按路径分发，而 WithMiddleware 的
 // 中间件包在其外层——若同时启用认证，中间件必须放行该 well-known 路径
 // （公开发现端点，客户端未持 token 时也需访问），否则 OAuth 发现流程死锁。
-func WithSSEProtectedResourceMetadata(cfg server.ProtectedResourceMetadataConfig) ServerOption {
+func WithProtectedResourceMetadata(cfg server.ProtectedResourceMetadataConfig) ServerOption {
 	return func(s *Server) {
 		s.prmConfig = &cfg
 	}

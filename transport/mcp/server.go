@@ -42,16 +42,18 @@ type Server struct {
 	// （按注册顺序从外到内包裹）。stdio / in-process 不适用。
 	middlewares []Middleware
 
-	// prmConfig 非 nil 时，在 SSE 形态下启用 RFC 9728 OAuth 资源元数据端点。
+	// prmConfig 非 nil 时，在 SSE / Streamable HTTP 形态下启用 RFC 9728 OAuth
+	// 资源元数据端点。
 	prmConfig *server.ProtectedResourceMetadataConfig
 
 	serverType ServerType
 	serverAddr string
 
 	// 运行期传输句柄：Start 时填充、Stop 时释放（仅 SSE/HTTP 使用）。
-	httpSrv   *http.Server
-	sseServer *server.SSEServer
-	ln        net.Listener
+	httpSrv          *http.Server
+	sseServer        *server.SSEServer
+	streamableServer *server.StreamableHTTPServer
+	ln               net.Listener
 
 	// done 在服务实际结束（stdio 退出）或 Stop 完成后关闭，
 	// 供上层在 CLI 场景判断"客户端已断开、可以退出进程"。
@@ -137,8 +139,9 @@ func (s *Server) Start(ctx context.Context) error {
 		}
 
 		var (
-			handler http.Handler
-			sse     *server.SSEServer
+			handler    http.Handler
+			sse        *server.SSEServer
+			streamable *server.StreamableHTTPServer
 		)
 		if s.serverType == ServerTypeSSE {
 			sseOpts := s.sseOpts
@@ -148,7 +151,12 @@ func (s *Server) Start(ctx context.Context) error {
 			sse = server.NewSSEServer(s.mcpServer, sseOpts...)
 			handler = sse
 		} else {
-			handler = server.NewStreamableHTTPServer(s.mcpServer)
+			var streamableOpts []server.StreamableHTTPOption
+			if s.prmConfig != nil {
+				streamableOpts = append(streamableOpts, server.WithProtectedResourceMetadata(*s.prmConfig))
+			}
+			streamable = server.NewStreamableHTTPServer(s.mcpServer, streamableOpts...)
+			handler = streamable
 		}
 
 		// 应用中间件链：从后往前包裹，使注册顺序 = 执行顺序
@@ -163,6 +171,7 @@ func (s *Server) Start(ctx context.Context) error {
 		s.ln = ln
 		s.httpSrv = httpSrv
 		s.sseServer = sse
+		s.streamableServer = streamable
 		s.endpoint = endpointFromListener(ln, s.serverAddr)
 		s.mu.Unlock()
 
@@ -196,15 +205,20 @@ func (s *Server) Stop(ctx context.Context) error {
 	s.mu.Lock()
 	httpSrv := s.httpSrv
 	sseServer := s.sseServer
+	streamableServer := s.streamableServer
 	ln := s.ln
-	s.httpSrv, s.sseServer, s.ln = nil, nil, nil
+	s.httpSrv, s.sseServer, s.streamableServer, s.ln = nil, nil, nil, nil
 	s.mu.Unlock()
 
 	defer s.markDone()
 
-	// SSE 会话是长连接，必须先关闭会话再 Shutdown，否则会一直等到 ctx 超时。
+	// SSE 与 Streamable HTTP 的会话都是长连接，必须先关闭会话再 Shutdown，
+	// 否则会一直等到 ctx 超时。
 	if sseServer != nil {
 		sseServer.CloseSessions()
+	}
+	if streamableServer != nil {
+		streamableServer.CloseSessions(ctx)
 	}
 
 	// SSE/HTTP 走优雅停机（等待在途请求，超时由 ctx 控制）；
