@@ -76,7 +76,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.27.3"
+          go-version: "1.27.4"
 
       - name: build + vet + test all modules
         run: |
@@ -184,7 +184,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.27.3"
+          go-version: "1.27.4"
 
       - name: go test -race (all modules)
         run: |
@@ -307,7 +307,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.27.3"
+          go-version: "1.27.4"
 
       # kubernetes 后端不是「服务容器」能表达的形状（要真 apiserver + kubelet），那条腿
       # 独立成下面的 `integration-kubernetes` 作业；不在这里起集群的理由见那个作业的头注释。
@@ -464,7 +464,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.27.3"
+          go-version: "1.27.4"
 
       - name: 起 kind 集群（kubernetes 后端要真 apiserver + kubelet）
         run: |
@@ -633,7 +633,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.27.3"
+          go-version: "1.27.4"
 
       - name: 装 pin 的 buf（与 proto-contract 作业同源，摘要按 bconf/buf.sha256 校验）
         run: |
@@ -785,7 +785,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.27.3"
+          go-version: "1.27.4"
 
       - name: 声明式装配验收（清单来自 -list，判据必须出现顶层 PASS）
         run: bash scripts/acceptance-gate.sh ci
@@ -828,7 +828,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.27.3"
+          go-version: "1.27.4"
 
       # 装 buf 的口径都收在 scripts/install-buf.sh 里：版本读 bconf/buf.version（与判据
       # 同一出处，不在这里抄第二份），完整性读 bconf/buf.sha256，架构由 uname 选 asset。
@@ -875,7 +875,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.27.3"
+          go-version: "1.27.4"
 
       # 版本 pin：升级 lint 规则集是显式动作，避免上游新检查静默漂移。
       - name: install golangci-lint
@@ -929,7 +929,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.27.3"
+          go-version: "1.27.4"
 
       - name: install govulncheck
         run: go install golang.org/x/vuln/cmd/govulncheck@v1.9.0

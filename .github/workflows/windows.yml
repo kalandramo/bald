@@ -44,7 +44,7 @@ jobs:
           # 与主 ci.yml 同一补丁版本：周界作业要在**发布用的那个工具链**上取证，
           # 否则「Windows 绿了」证明的是另一个 Go。一致性由 internal/docscheck 的
           # TestWorkflowGoVersionsAgree 钉住，改一处必改另一处。
-          go-version: "1.27.3"
+          go-version: "1.27.4"
 
       - name: root module go test -short
         run: go test -short -timeout 10m ./...
