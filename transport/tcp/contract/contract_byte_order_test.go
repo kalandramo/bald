@@ -3,6 +3,7 @@ package contract
 // contract_byte_order_test.go —— byte_order 枚举分支与非空 cleanup 适配器。
 
 import (
+	"github.com/kalandramo/bald/pkg/appkit"
 	"context"
 	"strings"
 	"testing"

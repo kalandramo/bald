@@ -17,8 +17,10 @@ import (
 )
 
 func TestServer(t *testing.T) {
-	if testing.Short() {
-		t.Skip("manual test: blocks on signal")
+	if testing.Short() || os.Getenv("BALD_MANUAL_TESTS") == "" {
+		// 双门（ADR 批 2 附带修）：非 -short 的全量跑（如 coverage --integration）
+		// 会撞上本测试的常驻监听并挂到超时——默认跳过，显式 env 才跑。
+		t.Skip("manual test: blocks on signal (set BALD_MANUAL_TESTS=1 to run)")
 	}
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
@@ -102,8 +104,8 @@ func TestServer(t *testing.T) {
 }
 
 func TestClient(t *testing.T) {
-	if testing.Short() {
-		t.Skip("manual test: requires running MCP server on :8080")
+	if testing.Short() || os.Getenv("BALD_MANUAL_TESTS") == "" {
+		t.Skip("manual test: requires running MCP server on :8080 (set BALD_MANUAL_TESTS=1 to run)")
 	}
 	ctx := context.Background()
 
@@ -160,8 +162,9 @@ func TestClient(t *testing.T) {
 }
 
 func TestServer_RegisterHandlerWithJsonString(t *testing.T) {
-	if testing.Short() {
-		t.Skip("manual test: blocks on signal")
+	if testing.Short() || os.Getenv("BALD_MANUAL_TESTS") == "" {
+		// 双门（ADR 批 2 附带修）：默认跳过常驻监听的手工测试，显式 env 才跑。
+		t.Skip("manual test: blocks on signal (set BALD_MANUAL_TESTS=1 to run)")
 	}
 	jsonStr := `{
   "name": "echo",
@@ -218,8 +221,9 @@ func TestServer_RegisterHandlerWithJsonString(t *testing.T) {
 }
 
 func TestServer_RegisterHandlerWithJsonSchema(t *testing.T) {
-	if testing.Short() {
-		t.Skip("manual test: blocks on signal")
+	if testing.Short() || os.Getenv("BALD_MANUAL_TESTS") == "" {
+		// 双门（ADR 批 2 附带修）：默认跳过常驻监听的手工测试，显式 env 才跑。
+		t.Skip("manual test: blocks on signal (set BALD_MANUAL_TESTS=1 to run)")
 	}
 	jsonSchemaStr := `{
 	"type": "object",
