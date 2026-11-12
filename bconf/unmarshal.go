@@ -1,6 +1,7 @@
 package bconf
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -20,6 +21,9 @@ const (
 	durationName     = "Duration"
 	durationFullName = "google.protobuf.Duration"
 )
+
+// jsonBufPool 复用 UnmarshalMap 的 marshal 缓冲：契约体量固定，池化后稳态零增长。
+var jsonBufPool = sync.Pool{New: func() any { return new(bytes.Buffer) }}
 
 // FindUnknownKeys 找出配置树中「契约未声明」的键，返回按路径排序的列表。
 //
@@ -177,10 +181,16 @@ func UnmarshalMap(m map[string]any, msg proto.Message) error {
 		return fmt.Errorf("bconf: coerce: %w", err)
 	}
 
-	data, err := json.Marshal(settings)
-	if err != nil {
+	// marshal 缓冲池化：规范树 JSON 体量固定（同一契约），增长到稳态后每 op
+	// 零增长；Encoder 语义与 json.Marshal 一致（HTML 转义同默认，尾部换行是
+	// protojson 接受的空白）。
+	buf := jsonBufPool.Get().(*bytes.Buffer)
+	buf.Reset()
+	if err := json.NewEncoder(buf).Encode(settings); err != nil {
+		jsonBufPool.Put(buf)
 		return fmt.Errorf("bconf: marshal settings: %w", err)
 	}
+	data := buf.Bytes()
 
 	// 先解析到同类型的空消息，再合并进 msg。
 	// 不能直接用 protojson.Unmarshal(data, msg)：它的语义是「替换」，会先重置
@@ -191,8 +201,10 @@ func UnmarshalMap(m map[string]any, msg proto.Message) error {
 	// 不影响框架级配置的解析（proto 只约束框架级配置，见设计文档）。
 	opts := protojson.UnmarshalOptions{DiscardUnknown: true}
 	if err := opts.Unmarshal(data, parsed); err != nil {
+		jsonBufPool.Put(buf)
 		return fmt.Errorf("bconf: unmarshal into %s: %w", msg.ProtoReflect().Descriptor().FullName(), err)
 	}
+	jsonBufPool.Put(buf)
 
 	// 合并前先清掉「配置中显式出现过的 list 字段」在 msg 中的旧值。
 	// 原因：proto.Merge 对 repeated 字段是 append 而非替换，若不清理，
