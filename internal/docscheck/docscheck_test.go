@@ -975,6 +975,81 @@ func TestTaskfileNoPerCommandDir(t *testing.T) {
 	}
 }
 
+// TestTaskfileNoTaskLevelPlatforms 钉住「不要用任务级 platforms 做平台分叉」。
+//
+// go-task 遇到平台不匹配时是**整任务不执行、退出码 0、零输出**——与「跑过并通过」
+// 在 CI 日志里完全无法区分。2026-11-12 核查时 race / ci-workflow-lint /
+// deps-multi-major 三条都是这个写法，直接后果是本地 race 覆盖 0 条腿（98 个 module
+// 一个没跑），而 `task race` 报的是成功。
+//
+// 需要按平台分叉时，把判断写进 cmds：一条 `platforms: [windows]` 做显式失败或提示，
+// 另一条跑真正的逻辑。这样「不跑」这件事本身是可见的。
+func TestTaskfileNoTaskLevelPlatforms(t *testing.T) {
+	root := repoRoot(t)
+	raw, err := readText(filepath.Join(root, "Taskfile.yml"))
+	if err != nil {
+		t.Fatalf("read Taskfile.yml: %v", err)
+	}
+	var taskLevel []int
+	tasks := 0
+	for i, line := range strings.Split(string(raw), "\n") {
+		// 任务定义行：两空格缩进 + 名字 + 冒号（`  race:` / `  tools-golangci-lint:`）。
+		if t := strings.TrimLeft(line, " \t"); len(line)-len(t) == 2 && strings.HasSuffix(t, ":") &&
+			!strings.HasPrefix(t, "#") && !strings.Contains(t, " ") {
+			tasks++
+		}
+		trimmed := strings.TrimLeft(line, " \t")
+		// 注释行不算：本文件头部就用文字解释过这条判据。
+		if strings.HasPrefix(trimmed, "#") || !strings.HasPrefix(trimmed, "platforms:") {
+			continue
+		}
+		indent := len(line) - len(trimmed)
+		// 任务键缩进 2，其属性 4；`- cmd:` 缩进 6，其属性 8。
+		if indent <= 4 {
+			taskLevel = append(taskLevel, i+1)
+		}
+	}
+	// 防空转：先证明解析确实落到了这份文件的形状上。否则「一条任务级 platforms 都
+	// 没找到」可能只是解析失效，而不是文件干净——那正是本闸门要防的假绿。
+	if tasks < 30 {
+		t.Fatalf("只解析到 %d 个任务定义（Taskfile.yml 现有 40+）——解析没落到形状上，本闸门在空转", tasks)
+	}
+	for _, lineNo := range taskLevel {
+		t.Errorf("Taskfile.yml:%d 用了任务级 platforms：go-task 会静默跳过整任务并 exit 0（假绿）。改成 cmds 里按平台分叉，或干脆不按平台分叉", lineNo)
+	}
+}
+
+// TestTaskfileNoCmdExeSyntax 钉住「Taskfile 的命令一律按 POSIX sh 写」。
+//
+// 实测（go-task 3.52 + Git Bash，Windows）：`platforms: [windows]` 的命令同样由 sh
+// 执行——`$HOME` 会展开、`%OS%` 不会。于是 cmd.exe 语法会静默产生副作用或直接失败：
+//   - `where x >nul 2>nul`：sh 把 `>nul` 当重定向，在当前目录落一个名为 `nul` 的
+//     垃圾文件（已复现），而且存在性判断照样返回 0；
+//   - `exit /b 0`：sh 的 exit 不接受两个参数，直接非零退出——「允许失败」变成
+//     「必定失败」（proto-example 的 Windows 腿曾如此）。
+//
+// 两处都已按 sh 改写，这条测试防止再写回去。
+func TestTaskfileNoCmdExeSyntax(t *testing.T) {
+	root := repoRoot(t)
+	raw, err := readText(filepath.Join(root, "Taskfile.yml"))
+	if err != nil {
+		t.Fatalf("read Taskfile.yml: %v", err)
+	}
+	patterns := []string{">nul", "exit /b", "2>nul"}
+	for i, line := range strings.Split(string(raw), "\n") {
+		trimmed := strings.TrimLeft(line, " \t")
+		if strings.HasPrefix(trimmed, "#") {
+			continue // 注释里可以提到这些写法（本节就是在解释它们）
+		}
+		for _, p := range patterns {
+			if strings.Contains(line, p) {
+				t.Errorf("Taskfile.yml:%d 出现 cmd.exe 语法 %q：命令由 go-task 的 shell 执行，这会在当前目录落垃圾文件或直接失败。改写成 POSIX 形式（`command -v` / `>/dev/null 2>&1` / `|| true`）", i+1, p)
+				break // 一行只报一次：`2>nul` 里也含 `>nul`，重复报是噪音
+			}
+		}
+	}
+}
+
 // TestWorkflowGoVersionsAgree 钉住「所有作业文件用同一个 Go 补丁版本」。
 // 漂移是真实发生过的：`ci-windows` 建出来时 pin 1.27.1，主 ci 后来升到 1.27.3，
 // 周界作业继续在不发布的那个工具链上取证（登记册 §7.5「刻意没做 ②」）。

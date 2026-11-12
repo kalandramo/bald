@@ -19,11 +19,22 @@
 #   而非 Make 的 `@command -v`，从而 Windows 下也能跑。
 # - 模块清单不在这里手写：`scripts/list-modules.sh` 是全仓唯一派生，CI
 #   （.github/workflows/ci.yml）与本文件的 lint/vuln/race/verify 都消费它，
-#   本地与 CI 的覆盖范围因此不会再漂移（§1.2）。派生需要 POSIX shell，
-#   Windows 下这些 sweep 显式失败（不是静默跳过），逐模块请用
-#   `task verify-module MOD=<dir>`。
+#   本地与 CI 的覆盖范围因此不会再漂移（§1.2）。
+#   派生只要 POSIX shell，**装了 Git Bash 的 Windows 一样跑得动**（实测 `task --dry
+#   lint` 在 Windows 上展开 101 条 lint-module）。所以这些 sweep 一律**不按平台分叉**：
+#   要么真跑，要么由「清单为空」那条闸门当场响。
+#   ⚠️ 反面教材有两类，2026-11-12 核查时都在仓里：
+#     ① 任务级 `platforms: [linux, darwin]` —— go-task 直接不执行、退出码 0、零输出，
+#        与「跑过并通过」无法区分（race / ci-workflow-lint / deps-multi-major 曾如此）；
+#     ② cmds 里 `platforms: [windows]` + `exit 1` —— 看着很诚实，其实是**假红**：
+#        拦住了一条本来能跑的门禁，而「红」会被当成环境问题略过（lint / vuln /
+#        verify-modules 曾如此）。
 # - protoc-gen-defaults 的版本 pin 在下方 vars.PROTOC_GEN_DEFAULTS_VERSION（唯一真相源；
 #   升级时改这里，勿再散落 .bingo 之类的旁支文件）。
+# - **shell 是 sh，不是 cmd.exe**（实测 go-task 3.52 + Git Bash：`$HOME` 会展开、
+#   `%OS%` 不会）。因此 `platforms: [windows]` 的命令里**不要写 cmd 语法**——
+#   `where x >nul 2>nul` 会在当前目录落一个名为 `nul` 的垃圾文件，`exit /b 0` 会
+#   因 sh 的 exit 不接受多参数而直接失败（这两处都已按 sh 改写）。
 
 version: "3"
 
@@ -49,7 +60,9 @@ vars:
   MODULES:
     sh: sh scripts/list-modules.sh | tr '\n' ' '
 
-# Windows 下用 pwsh，其余用 bash；命令缺省走 bash 即可，需 shell 特性时显式指定。
+# shell 一律按 POSIX sh 写（Windows 上由 Git Bash 提供）。**不要**写 cmd/pwsh 语法：
+# 实测 go-task 3.52 在装了 Git Bash 的 Windows 上，`platforms: [windows]` 的命令
+# 同样由 sh 执行（`$HOME` 展开、`%OS%` 不展开），cmd 语法会静默产生副作用或直接失败。
 tasks:
   help:
     desc: 显示帮助
@@ -59,10 +72,17 @@ tasks:
   tools-protoc-gen-defaults:
     desc: 确保 protoc-gen-defaults 在 PATH；缺失则按 pin 版本安装到 GOBIN
     cmds:
+      # 不再按平台拆两条腿。原因（实测，go-task 3.52 + Git Bash）：
+      #   1. `platforms: [windows]` 那条实际也由 sh 执行，`where x >nul 2>nul` 里的
+      #      `>nul` 会在当前目录落一个名为 `nul` 的垃圾文件（已复现）；
+      #   2. 那条只判存在、不校验 pin 版本，PATH 上的旧副本会被当成 pin 放过。
+      # 而本 Taskfile 的全局 `GOBIN_DIR` 本来就是 `sh:` 派生——Windows 侧早已依赖
+      # POSIX shell，所以一条 POSIX 实现即可覆盖两平台。
+      #
+      # ⚠️ 本任务只判**存在**，不判版本（这条腿在 linux/darwin 上本来也没判过）。
+      # 别把它当版本闸门：protoc-gen-defaults 没有可靠的 --version 输出，判不了。
+      # 真正判版本的是下面三个 tools-* 任务。
       - cmd: command -v protoc-gen-defaults >/dev/null 2>&1 || go install github.com/onexstack/protoc-gen-defaults@{{.PROTOC_GEN_DEFAULTS_VERSION}}
-        platforms: [linux, darwin]
-      - cmd: where protoc-gen-defaults >nul 2>nul || go install github.com/onexstack/protoc-gen-defaults@{{.PROTOC_GEN_DEFAULTS_VERSION}}
-        platforms: [windows]
 
   tools:
     desc: 安装生成期工具链（protoc-gen-defaults 等）
@@ -72,26 +92,22 @@ tasks:
     desc: 确保 GOBIN 里是 pin 版本的 golangci-lint；缺失或版本不符则安装后复读版本确认
     cmds:
       # v2 的 `--version` 打印不带 v 前缀的号，所以两边都剥掉前缀再比。
-      - cmd: 'bin="{{.GOBIN_DIR}}/golangci-lint"; v="{{.GOLANGCI_LINT_VERSION}}"; "$bin" --version 2>/dev/null | grep -qF "${v#v}" || { go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@"${v}" && "$bin" --version | grep -qF "${v#v}"; } || { echo "golangci-lint: ${bin} 不是 pin 的 ${v}（go install 未落到该目录）"; exit 1; }'
-        platforms: [linux, darwin]
-      - cmd: where golangci-lint >nul 2>nul || go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@{{.GOLANGCI_LINT_VERSION}}
-        platforms: [windows]
+      # 单条覆盖两平台（理由见 tools-protoc-gen-defaults）：Windows 原先那条只
+      # `where` 判存在，版本不符的旧副本会被静默放行，而 `task lint-module` 用的是
+      # GOBIN 绝对路径——两条腿判的根本不是同一个二进制。
+      - cmd: 'bin="{{.GOBIN_DIR}}/golangci-lint"; v="{{.GOLANGCI_LINT_VERSION}}"; "$bin" --version 2>/dev/null | grep -qF "${v#v}" || { go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@"${v}" && "$bin" --version | grep -qF "${v#v}"; } || { echo "golangci-lint: 未能确认 ${bin} 是 pin 的 ${v}；实际 --version 输出：$("$bin" --version 2>&1 | head -1)（版本不存在、网络失败、或 go install 未落到该目录都会走到这里）"; exit 1; }'
 
   tools-govulncheck:
     desc: 确保 GOBIN 里是 pin 版本的 govulncheck；缺失或版本不符则安装后复读版本确认
     cmds:
-      - cmd: 'bin="{{.GOBIN_DIR}}/govulncheck"; v="{{.GOVULNCHECK_VERSION}}"; "$bin" -version 2>/dev/null | grep -qF "v${v#v}" || { go install golang.org/x/vuln/cmd/govulncheck@"${v}" && "$bin" -version | grep -qF "v${v#v}"; } || { echo "govulncheck: ${bin} 不是 pin 的 ${v}（go install 未落到该目录）"; exit 1; }'
-        platforms: [linux, darwin]
-      - cmd: where govulncheck >nul 2>nul || go install golang.org/x/vuln/cmd/govulncheck@{{.GOVULNCHECK_VERSION}}
-        platforms: [windows]
+      # 单条覆盖两平台（理由见 tools-protoc-gen-defaults）。
+      - cmd: 'bin="{{.GOBIN_DIR}}/govulncheck"; v="{{.GOVULNCHECK_VERSION}}"; "$bin" -version 2>/dev/null | grep -qF "v${v#v}" || { go install golang.org/x/vuln/cmd/govulncheck@"${v}" && "$bin" -version | grep -qF "v${v#v}"; } || { echo "govulncheck: 未能确认 ${bin} 是 pin 的 ${v}；实际 -version 输出：$("$bin" -version 2>&1 | head -1)（版本不存在、网络失败、或 go install 未落到该目录都会走到这里）"; exit 1; }'
 
   tools-actionlint:
     desc: 确保 GOBIN 里是 pin 版本的 actionlint；缺失或版本不符则安装后复读版本确认
     cmds:
-      - cmd: 'bin="{{.GOBIN_DIR}}/actionlint"; v="{{.ACTIONLINT_VERSION}}"; "$bin" -version 2>/dev/null | grep -qF "v${v#v}" || { go install github.com/rhysd/actionlint/cmd/actionlint@"${v}" && "$bin" -version | grep -qF "v${v#v}"; } || { echo "actionlint: ${bin} 不是 pin 的 ${v}（go install 未落到该目录）"; exit 1; }'
-        platforms: [linux, darwin]
-      - cmd: where actionlint >nul 2>nul || go install github.com/rhysd/actionlint/cmd/actionlint@{{.ACTIONLINT_VERSION}}
-        platforms: [windows]
+      # 单条覆盖两平台（理由见 tools-protoc-gen-defaults）。
+      - cmd: 'bin="{{.GOBIN_DIR}}/actionlint"; v="{{.ACTIONLINT_VERSION}}"; "$bin" -version 2>/dev/null | grep -qF "v${v#v}" || { go install github.com/rhysd/actionlint/cmd/actionlint@"${v}" && "$bin" -version | grep -qF "v${v#v}"; } || { echo "actionlint: 未能确认 ${bin} 是 pin 的 ${v}；实际 -version 输出：$("$bin" -version 2>&1 | head -1)（版本不存在、网络失败、或 go install 未落到该目录都会走到这里）"; exit 1; }'
 
   proto:
     desc: 生成全部 Protobuf 代码
@@ -137,10 +153,10 @@ tasks:
     desc: 生成示例的 gRPC/gRPC-Gateway 服务代码（buf remote 插件）
     dir: _example/bald/api
     cmds:
+      # `buf dep update` 允许失败（离线/无网时降级用已有 buf.lock），故吞掉错误。
+      # 原先 Windows 分支写 `exit /b 0`——那是 cmd.exe 语法，但这条腿实际由 sh 执行，
+      # sh 的 `exit` 不接受两个参数会直接失败，于是「允许失败」变成「必定失败」。
       - cmd: buf dep update || true
-        platforms: [linux, darwin]
-      - cmd: (buf dep update || exit /b 0)
-        platforms: [windows]
       - buf generate
 
   # ---------------------------------------------------------------------------
@@ -183,8 +199,10 @@ tasks:
     deps: [proto-example]
     dir: _example/bald
     cmds:
-      - go test ./... -v
-      - go test -tags grpcgw ./... -v
+      # -count=1 必须带：e2e 是「起服务 → 打请求 → 断言」的回归，命中 go test 缓存
+      # 就等于根本没跑，却照样打 ok（假绿）。下面那条 nacos 腿一直带着它，前两条漏了。
+      - go test ./... -v -count=1
+      - go test -tags grpcgw ./... -v -count=1
       # 注册中心真机装配判据：只 -tags nacos 构建形态里才有这条用例。
       # 形状（单条 -run、不是整包）抄的是用例文件自己的头注释：同 tag 的并集跑会红——
       # 红在 nacos-sdk-go 自己的**进程内**令牌桶（config_client/limiter.go:42-56：
@@ -306,13 +324,17 @@ tasks:
 
   # AI 规范通道（蒸馏卡）的机器闸门：卡集完整性 + 已注册确定性检查器。
   # 仓库根没有 appspec.json，gen-app-drift 在这里按 skip 处理；在业务项目根
-  # 跑会真正执行 gen app 的零差异门。发现问题时默认零退出码（MCP 语义），
-  # CI 拦截用：go run ./cmd/bald convention check --fail-on-findings。
+  # 跑会真正执行 gen app 的零差异门。
+  #
+  # ⚠️ 必须带 --fail-on-findings。底层 `bald convention check` 的默认是**零退出码**
+  # （MCP 语义：把结果交给调用方判），但任务名叫 convention、在 CI 里也是当闸门用
+  # （ci.yml:169 就是这么调的）。不带这个标志时，本任务**永远 exit 0**——有 finding
+  # 也绿，是纯装饰。要「只报告不拦截」请直接跑 `go run ./cmd/bald convention check`。
   convention:
-    desc: 跑规范蒸馏卡完整性与确定性检查器（bald convention check）
+    desc: 跑规范蒸馏卡完整性与确定性检查器（bald convention check，有 finding 即非零退出）
     dir: cli
     cmds:
-      - go run ./cmd/bald convention check
+      - go run ./cmd/bald convention check --fail-on-findings
 
   # 静态检查与漏洞扫描：范围 = scripts/list-modules.sh 派生的全部 module，与 CI 的
   # lint/vuln 作业逐模块同口径（原来只跑核心 module，是 §1.2 的假绿来源之一）。
@@ -323,11 +345,11 @@ tasks:
     vars:
       MODS: "{{.MODULES}}"
     cmds:
+      # 清单派生为空 = 闸门静默失效，必须响。**不按平台分叉**：`scripts/list-modules.sh`
+      # 只要 POSIX shell 就能跑，装了 Git Bash 的 Windows 一样派生得出（实测 101 条
+      # lint-module）。原先那条 `platforms: [windows]` + `exit 1` 是**假红**——把一条
+      # 本来能跑的门禁拦死，比假绿更难发现，因为「红」会被当成环境问题略过。
       - cmd: '[ -n "{{trim .MODS}}" ] || { echo "lint: 清单派生为空，未覆盖任何 module"; exit 1; }'
-        platforms: [linux, darwin]
-      # 派生要 POSIX shell。Windows 下显式失败，绝不能「跳过并打印 OK」。
-      - cmd: 'echo "lint: 模块清单派生需要 POSIX shell；Windows 下逐模块跑 task lint-module MOD=<dir>"; exit 1'
-        platforms: [windows]
       - for: { var: MODS }
         task: lint-module
         vars:
@@ -338,10 +360,9 @@ tasks:
     dir: "{{.MOD}}"
     cmds:
       # 绝对路径：与 tools-golangci-lint 判定的同一个二进制，PATH 上的旧副本不参与。
+      # 原先 Windows 分支用裸 `golangci-lint`，而 tools-golangci-lint 的 Windows 分支
+      # 只 `where` 判存在——于是「判的是 PATH 上哪个」和「跑的是哪个」可以不是同一个。
       - cmd: '"{{.GOBIN_DIR}}/golangci-lint" run ./...'
-        platforms: [linux, darwin]
-      - cmd: golangci-lint run ./...
-        platforms: [windows]
 
   # 作业文件自身的闸门（本地侧；CI 侧是 .github/workflows/workflow-lint.yml）。
   # GitHub 在编译期解析 .github/workflows/*.yml，未登记的键会让整个文件被拒且
@@ -358,10 +379,15 @@ tasks:
   ci-workflow-lint:
     desc: 校验 .github/workflows/*.yml 自身（actionlint schema + shellcheck run 脚本；本机 shellcheck 版本必须等于 scripts/shellcheck.version 的 pin）
     deps: [tools-actionlint]
-    platforms: [linux, darwin]
     cmds:
-      # 清单为空 = 闸门静默失效，必须响（与 lint/vuln/race 同一口径）。
-      - cmd: 'pin=$(tr -d "[:space:]" < scripts/shellcheck.version 2>/dev/null); [ -n "$pin" ] || { echo "ci-workflow-lint: scripts/shellcheck.version 为空 ⇒ pin 没出处，闸门未覆盖任何东西"; exit 1; }; got=$(shellcheck --version 2>/dev/null | sed -n "s/^version: //p"); if [ "$got" != "$pin" ]; then echo "ci-workflow-lint: 本机 shellcheck 版本是 ${got:-没装}，但 pin 要 ${pin} ⇒ actionlint 的 run 脚本腿与远端 workflow-lint（按 scripts/shellcheck.version 装 pin）判的不是同一个规则集。装/升到 pin：brew install shellcheck；确认只要 schema 腿时设 BALD_ALLOW_MISSING_SHELLCHECK=1 复跑"; [ "${BALD_ALLOW_MISSING_SHELLCHECK:-0}" = "1" ] || exit 1; fi; files=$(find .github/workflows -type f \( -name "*.yml" -o -name "*.yaml" \) | sort); [ -n "$files" ] || { echo "ci-workflow-lint: 未发现作业文件，闸门未覆盖任何东西"; exit 1; }; "{{.GOBIN_DIR}}/actionlint" -no-color $files'
+      # 不按平台分叉：缺 shellcheck 时下面那条版本判据会给出可操作的红，比一句
+      # "Windows 不支持" 有用得多。原先任务级 platforms 跳过则是 exit 0 + 零输出。
+      #
+      # ⚠️ 这条腿此前从未真正执行过（shellcheck 分支先 exit 1），放开时踩到：go-task
+      # 在这台机器上用的 shell 是 **gosh（Go coreutils）**，它的 `find` **不支持 `-o`**
+      # （报 `coreutils: flag provided but not defined: -o`）。所以这里用单条 glob
+      # `*.y*ml`（同时命中 .yml/.yaml）而不是 `\( -name "*.yml" -o -name "*.yaml" \)`。
+      - cmd: 'pin=$(tr -d "[:space:]" < scripts/shellcheck.version 2>/dev/null); [ -n "$pin" ] || { echo "ci-workflow-lint: scripts/shellcheck.version 为空 ⇒ pin 没出处，闸门未覆盖任何东西"; exit 1; }; got=$(shellcheck --version 2>/dev/null | sed -n "s/^version: //p"); if [ "$got" != "$pin" ]; then echo "ci-workflow-lint: 本机 shellcheck 版本是 ${got:-没装}，但 pin 要 ${pin} ⇒ actionlint 的 run 脚本腿与远端 workflow-lint（按 scripts/shellcheck.version 装 pin）判的不是同一个规则集。装/升到 pin：macOS brew install shellcheck；Windows 用 scripts/install-shellcheck.sh（或 scoop/choco 装 0.11.0）；确认只要 schema 腿时设 BALD_ALLOW_MISSING_SHELLCHECK=1 复跑"; [ "${BALD_ALLOW_MISSING_SHELLCHECK:-0}" = "1" ] || exit 1; fi; files=$(find .github/workflows -type f -name "*.y*ml" | sort); [ -n "$files" ] || { echo "ci-workflow-lint: 未发现作业文件，闸门未覆盖任何东西"; exit 1; }; "{{.GOBIN_DIR}}/actionlint" -no-color $files'
 
   vuln:
     desc: govulncheck 扫描全部 module（代码可达漏洞；需访问 vuln.go.dev）
@@ -369,10 +395,8 @@ tasks:
     vars:
       MODS: "{{.MODULES}}"
     cmds:
+      # 同 lint：不按平台分叉。原先那条 Windows `exit 1` 是假红。
       - cmd: '[ -n "{{trim .MODS}}" ] || { echo "vuln: 清单派生为空，未覆盖任何 module"; exit 1; }'
-        platforms: [linux, darwin]
-      - cmd: 'echo "vuln: 模块清单派生需要 POSIX shell；Windows 下逐模块跑 task vuln-module MOD=<dir>"; exit 1'
-        platforms: [windows]
       - for: { var: MODS }
         task: vuln-module
         vars:
@@ -381,10 +405,9 @@ tasks:
   vuln-module:
     dir: "{{.MOD}}"
     cmds:
+      # 绝对路径：与 tools-govulncheck 判定的同一个二进制（原先 Windows 分支走 PATH
+      # 上的裸名字，判的和跑的可能不是同一个，与 lint-module 同病）。
       - cmd: '"{{.GOBIN_DIR}}/govulncheck" ./...'
-        platforms: [linux, darwin]
-      - cmd: govulncheck ./...
-        platforms: [windows]
 
   # 逐模块验证，命令与 CI 的 test 作业同口径：tidy -diff（依赖面漂移）+ build +
   # vet + go test -short。两处本地专属的差别：
@@ -416,6 +439,11 @@ tasks:
             go vet ./...
           fi
       - go test -short -timeout 5m ./...
+      # 基准冒烟腿（与 CI ci.yml:117/120 同口径）：`-run '^$'` 不跑任何用例，
+      # 只编译并执行 bench 1 次。存在的理由不是测性能，是**让 bench 代码参与编译**
+      # ——BenchmarkXxx 里的编译错误原先在本地 100 个模块里一个都暴露不出来，
+      # CI 才红。benchtime=1x 把耗时压到可忽略。
+      - go test -run '^$' -bench . -benchtime=1x ./...
 
   verify-modules:
     desc: 逐模块验证派生出的全部 module（与 CI test 作业同范围，不含 _example）
@@ -425,12 +453,10 @@ tasks:
       # 发布形态前置（见文件头 env.GOWORK）：那条注入一旦被删而本地还留着
       # go.work，逐模块的 tidy/build/vet 会静默改吃磁盘代码。让它当场响，
       # 而不是绿到发版才发现。
+      # 同 lint/vuln：不按平台分叉（原先的 Windows `exit 1` 是假红，清单派生在
+      # Git Bash 下正常）。
       - cmd: '[ "$(go env GOWORK)" = "off" ] || { echo "verify-modules: GOWORK 未关，逐模块判据不再是发布形态"; exit 1; }'
-        platforms: [linux, darwin]
       - cmd: '[ -n "{{trim .MODS}}" ] || { echo "verify: 清单派生为空，未覆盖任何 module"; exit 1; }'
-        platforms: [linux, darwin]
-      - cmd: 'echo "verify: 模块清单派生需要 POSIX shell；Windows 下逐模块跑 task verify-module MOD=<dir>"; exit 1'
-        platforms: [windows]
       - for: { var: MODS }
         task: verify-module
         vars:
@@ -445,17 +471,22 @@ tasks:
     cmds:
       - go test -short -race -timeout 10m ./...
 
-  # 派生用 POSIX shell（find/xargs/grep/tr），故限制 linux/darwin；Windows 下整个
-  # 任务跳过——-race 本身要 cgo，且 Windows 周界作业（windows.yml）不跑 race。
+  # 派生用 POSIX shell（find/xargs/grep/tr）。
+  #
+  # ⚠️ 这条任务原来用任务级 `platforms: [linux, darwin]` 跳过 Windows，注释给的理由是
+  # 「-race 本身要 cgo」。2026-11-12 实测推翻了这个理由：本机 CGO_ENABLED=1、
+  # mingw-w64 gcc 16.1.0，`go test -short -race` 直接通过。真实后果不是「Windows 跑不了」，
+  # 而是「本地 race 覆盖 0 条腿，却因为 exit 0 + 零输出看着像通过」。
+  # 所以改成**按实际前提探测**：cgo 关了才失败，并说明怎么开；能跑就跑。
   # 「逐命令 dir」和「for 循环内的 dir」都会被 go-task 3.52 静默忽略，所以覆盖
   # 必须走 race-module 这条 task 级 dir 的内部任务。
   race:
     desc: 竞态检测（scripts/list-modules.sh 派生的全部 module，需 cgo + POSIX shell；与 CI race job 同源）
-    platforms: [linux, darwin]
     vars:
       MODS:
         sh: sh scripts/list-modules.sh | grep -vxF -f .github/race-skip.txt | tr '\n' ' '
     cmds:
+      - cmd: '[ "$(go env CGO_ENABLED)" = "1" ] || { echo "race: CGO_ENABLED=0，-race 需要 cgo + C 编译器（Windows 装 mingw-w64 后重试；CI 的 race 作业覆盖全量）"; exit 1; }'
       # 派生为空 = 闸门静默失效（脚本谓词或排除清单被改坏），必须响。
       - cmd: '[ -n "{{trim .MODS}}" ] || { echo "race: 清单派生为空，未覆盖任何 module"; exit 1; }'
       - for: { var: MODS }
@@ -465,9 +496,11 @@ tasks:
 
   deps-multi-major:
     desc: 只读报告——同一库两个 major 并存的 module（go mod edit -json 解析，不改 go.mod、不作闸门）
-    platforms: [linux, darwin]
     cmds:
-      - sh scripts/multi-major.sh
+      # 不按平台分叉。原先用任务级 platforms 跳过 Windows，理由是「依赖 POSIX shell」
+      # ——实测本机 `sh scripts/multi-major.sh` 直接跑通并输出报告，理由是假的。
+      # 这不是闸门（desc 明说不作闸门），所以它红/绿都不拦人，但「跑不跑」必须是真的。
+      - cmd: sh scripts/multi-major.sh
 
   build:
     desc: 编译核心模块全部包（根 + cli；不含 _example，见 example-bald-vet）
