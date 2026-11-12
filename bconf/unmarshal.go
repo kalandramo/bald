@@ -279,9 +279,12 @@ func clearPresentLists(dst, src protoreflect.Message) {
 			// loki.labels）都会让 UnmarshalMap 崩溃。
 			dst.Clear(fd)
 		case fd.Kind() == protoreflect.MessageKind:
-			// 递归处理嵌套消息（如 http.tls 下的 list 字段）。
-			// Mutable 会确保 dst 侧存在该子消息，缺失时创建。
-			clearPresentLists(dst.Mutable(fd).Message(), src.Get(fd).Message())
+			// 递归处理嵌套消息（如 http.tls 下的 list 字段）。dst 缺该子消息时
+			// 其嵌套 list/map 必为空、清理是 no-op，Mutable 的兜底创建纯属白付
+			// 一次分配，直接跳过；Merge 会按 src 把子消息整体填出来。
+			if dst.Has(fd) {
+				clearPresentLists(dst.Mutable(fd).Message(), src.Get(fd).Message())
+			}
 		}
 	}
 }
