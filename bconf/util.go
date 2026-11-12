@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -96,11 +97,13 @@ func parseFloat64(s string) (float64, error) {
 }
 
 // hostname 返回当前主机名；失败时返回 "unknown"。
-// 供 NewBootstrap 填 App.Id 默认值。
-func hostname() string {
+// 供 NewBootstrap 填 App.Id 默认值。主机名进程生命周期内不变，故进程内记忆化：
+// NewBootstrap 在配置装载热路径上每 op 构造一次默认契约，不缓存则每次都付
+// os.Hostname 的 syscall 与中间分配（Sysctl/nametomib/ByteSliceFromString）。
+var hostname = sync.OnceValue(func() string {
 	h, err := os.Hostname()
 	if err != nil {
 		return "unknown" //cov:excl os.Hostname 在 darwin/linux 读 uname，进程内不失败，错误分支无法注入
 	}
 	return h
-}
+})
