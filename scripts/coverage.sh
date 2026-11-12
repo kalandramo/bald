@@ -74,58 +74,10 @@ fi
 # 并集语义（关键）：同一 block（file:行范围）可能同时出现在 short 腿与 integration 腿
 # 的 profile 里——必须按 block 取「命中次数的最大值」（任一腿命中即算覆盖），而不是把
 # 语句数累加。naive `sum` 会让同时出现在两腿的包分母翻倍、覆盖率失真。disjoint 模块
-# （每包只在一腿）下 max==once，与旧求和逐字节等价，故本地全量基线数字不变。
-cat "$PDIR"/*.out 2>/dev/null | awk -v gate="$GATE" '
-/^mode:/ {next}
-{
-  if (NF<3) next
-  loc=$1; numstmt=$2+0; cnt=$3+0
-  if (!((loc) in bcnt) || cnt > bcnt[loc]) { bcnt[loc]=cnt; bnum[loc]=numstmt }
-}
-# is_excl：把 import-path 文件映射回 ROOT 相对路径（所有模块路径都以
-# github.com/kalandramo/bald/ 开头，剥前缀即磁盘路径），按文件缓存行内容，
-# block 覆盖的行范围内出现 cov:excl 即判豁免。
-function is_excl(file, sl, el,   rel, i, n, line) {
-  rel = file
-  sub(/^github\.com\/kalandramo\/bald\//, "", rel)
-  if (!(rel in lcount)) {
-    n = 0
-    while ((getline line < rel) > 0) { lbuf[rel, n + 1] = line; n++ }
-    close(rel)
-    lcount[rel] = n
-  }
-  n = lcount[rel]
-  for (i = sl; i <= el && i <= n; i++) {
-    if (lbuf[rel, i] ~ /cov:excl/) return 1
-  }
-  return 0
-}
-END {
-  printf "%-64s %8s %8s %7s\n", "package", "stmts", "cov", "%"
-  for (loc in bcnt) {
-    n=split(loc, a, ":"); if (n<2) continue
-    file=a[1]
-    base=file; sub(/.*\//,"",base)
-    if (base ~ /\.pb\.go$/ || base ~ /\.pb\.gw\.go$/ || base ~ /_grpc\.pb\.go$/ ||
-        base ~ /\.pb\.validate\.go$/ || base ~ /\.gen\.go$/ || base=="main.go" ||
-        file ~ /\/mocks?\//) continue
-    split(a[2], r2, ",")
-    sl=r2[1]; sub(/\..*/,"",sl); sl+=0
-    el=r2[2]; sub(/\..*/,"",el); el+=0
-    if (is_excl(file, sl, el)) continue
-    pkg=file; sub(/\/[^\/]*\.go$/, "", pkg)
-    T[pkg]+=bnum[loc]; if (bcnt[loc]>0) C[pkg]+=bnum[loc]
-    GT+=bnum[loc]; if (bcnt[loc]>0) GC+=bnum[loc]
-  }
-  for (k in T) {
-    pc=(T[k]?C[k]*100/T[k]:100)
-    printf "%-64s %8d %8d %6.1f%%\n", k, T[k], C[k], pc
-  }
-  printf "\nAGGREGATE(hand-written, excl. generated/main): %d/%d = %.2f%%\n", GC, GT, (GT?GC*100/GT:0)
-  if (gate!="") {
-    bad=0
-    for (k in T){ pc=(T[k]?C[k]*100/T[k]:100); if (pc < gate+0){ bad++; printf "BELOW %s%%: %s (%.1f%%)\n", gate, k, pc } }
-    if (bad>0){ printf "\nGATE FAIL: %d packages below %s%%\n", bad, gate; exit 1 }
-    printf "\nGATE PASS: all packages >= %s%%\n", gate
-  }
-}'
+# 合并 + 聚合由 tools/coverage-merge（Go，ADR-7）承担：块级 max 并集、
+# 生成物/入口排除、//cov:excl 行内豁免、逐包统计与 --gate 判定——语义与
+# 原 awk 版逐条一致（同输入对照验证），输出按包名排序（awk 哈希序的
+# 确定性改进）。go run 首次编译约 2s，其后走构建缓存。
+gate_flag=""
+[ -n "$GATE" ] && gate_flag="--gate $GATE"
+go run "$ROOT/tools/coverage-merge" $gate_flag "$PDIR"

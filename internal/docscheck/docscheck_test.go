@@ -572,7 +572,7 @@ func TestModulePackageSets(t *testing.T) {
 		t.Fatalf("只归集到 %d 个 module 的包，明显低于仓库实际数量——遍历失效，本闸门已空转", len(pkgs))
 	}
 	wantPkgs := map[string][]string{
-		".":   {"internal/docscheck"},
+		".":   {"internal/docscheck", "tools/coverage-merge"},
 		"cli": {"cli/cmd/bald", "cli/internal/codegen", "cli/internal/convention", "cli/internal/ide", "cli/internal/prd", "cli/internal/release"},
 	}
 	for mod, want := range wantPkgs {
