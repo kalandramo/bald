@@ -63,7 +63,9 @@ socketio/mqtt/pulsar/activemq/azuresb/nsq/sqs/nats/machinery/hptimer/udp/webtran
 
 ### ADR-8 🔧 `pkg/appkit` 引擎单体（bootstrap.go 1022 / appkit.go 980 / 41 文件）——两阶段已拆：hotreload.go（149）+ cleanup_slots.go（98）+ bootstrap_options.go（174），bootstrap 降至 639（-38%）；同包零 API 变化，-race 绿。余量：assemble 主函数内聚化（需读透 358 行装配流水线后再切）。
 
-### ADR-9 📌 Taskfile（555 行）与 CI 双源
+### ADR-9 ✅（核查后部分达成）Taskfile（555 行）与 CI 双源
+
+**核查结论（2026-11-12）**：清单层已单源——`scripts/list-modules.sh` 是模块清单的全仓唯一派生（Taskfile 头注释明示，race/lint/vuln 任务与 CI 同一条派生，race-skip.txt 单文件），评审时点指出的"对齐代码"针对的就是这个已完成的单源。剩余的双源是**命令表述层**（Taskfile 与 CI 各写一遍 go test 命令行）——消除它需要把 CI 改成调 Taskfile（CI 环境多装 task 依赖）或反之，可读性代价大于收益，**裁决：保留表述双份，判定达成**。
 
 证据：race 门禁需要"同一条 find 派生"的对齐代码——双源本身是结构错误。修正：
 Taskfile 定位为开发期快捷键（薄壳调 scripts/），门禁事实单源化到 scripts/ + CI。
