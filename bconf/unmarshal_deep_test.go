@@ -3,9 +3,9 @@
 // license that can be found in the LICENSE file.
 
 // unmarshal_deep_test.go 补齐 unmarshal.go 里「不依赖外部 infra、纯靠描述符 + map
-// 即可驱动」的分支：lookupField/foldPath/lookupKeyFold 的折叠下钻、coerceValue 的
-// repeated/map/message 容器分支，以及 UnmarshalMap 的各错误出口。容器字段全部从
-// 真实描述符树里动态取（不硬编码字段名），契约改名时测试随描述符自动跟随。
+// 即可驱动」的分支：lookupCanonical/foldPathRead/lookupKeyFold 的折叠下钻、
+// canonicalValue 的 repeated/map/message 容器分支，以及 UnmarshalMap 的各错误出口。
+// 容器字段全部从真实描述符树里动态取（不硬编码字段名），契约改名时测试随描述符自动跟随。
 
 package bconf
 
@@ -64,33 +64,55 @@ func findContainers(m proto.Message) containerFds {
 	return res
 }
 
-// TestLookupFieldFold 覆盖折叠匹配的三种结局：大小写/连字符命中、嵌套链完整命中后
-// 搬移+回删、中间段非 map 失败、首段查无失败。
+// TestLookupFieldFold 覆盖折叠匹配的三种结局：大小写/连字符命中、嵌套链完整命中
+// （只读：不搬移不回删，消费情况由 matched/chainUsed 承载）、中间段非 map 失败、
+// 首段查无失败。
 func TestLookupFieldFold(t *testing.T) {
-	// 大小写 + 连字符折叠命中（ReplaceAll 后 EqualFold）。
-	if v, ok := lookupField(map[string]any{"Foo-Bar": 1}, "foo_bar"); !ok || v != 1 {
-		t.Errorf("lookupField 折叠大小写/连字符 = (%v, %v), want (1,true)", v, ok)
+	// 大小写 + 连字符折叠命中（折叠形相等）。
+	{
+		m := map[string]any{"Foo-Bar": 1}
+		matched := make([]bool, 1)
+		var chainUsed map[string]struct{}
+		if v, ok := lookupCanonical(m, matched, 0, &chainUsed, "foo_bar"); !ok || v != 1 {
+			t.Errorf("lookupCanonical 折叠大小写/连字符 = (%v, %v), want (1,true)", v, ok)
+		}
 	}
 
-	// 两段嵌套完整命中：server_addrs → {server:{addrs:...}}，命中后搬平级并回删原链。
+	// 两段嵌套完整命中：server_addrs → {server:{addrs:...}}；输入必须只读，
+	// 消费情况记入 chainUsed（canonicalize 据此不回拷这些键）。
 	m := map[string]any{"server": map[string]any{"addrs": "x:1"}}
-	if v, ok := lookupField(m, "server_addrs"); !ok || v != "x:1" {
-		t.Fatalf("lookupField 两段折叠 = (%v, %v), want (\"x:1\",true)", v, ok)
+	matched := make([]bool, 1)
+	var chainUsed map[string]struct{}
+	if v, ok := lookupCanonical(m, matched, 0, &chainUsed, "server_addrs"); !ok || v != "x:1" {
+		t.Fatalf("lookupCanonical 两段折叠 = (%v, %v), want (\"x:1\",true)", v, ok)
 	}
-	if m["server_addrs"] != "x:1" {
-		t.Errorf("折叠命中后应把值搬到平级键 server_addrs: %v", m)
+	if len(m) != 1 {
+		t.Errorf("lookupCanonical 必须只读，输入不应增删键: %v", m)
 	}
-	if _, present := m["server"]; present {
-		t.Errorf("折叠命中后应回删原嵌套链 server 段: %v", m)
+	if _, consumed := chainUsed["server"]; !consumed {
+		t.Errorf("折叠命中后链上键应记入 chainUsed: %v", chainUsed)
+	}
+	if _, consumed := chainUsed["addrs"]; !consumed {
+		t.Errorf("折叠命中后链尾键应记入 chainUsed: %v", chainUsed)
+	}
+
+	// 平级精确命中：matched 记位、chainUsed 不动。
+	matched = make([]bool, 1)
+	chainUsed = nil
+	if v, ok := lookupCanonical(map[string]any{"addrs": "x:1"}, matched, 0, &chainUsed, "addrs"); !ok || v != "x:1" {
+		t.Errorf("lookupCanonical 平级精确 = (%v, %v), want (\"x:1\",true)", v, ok)
+	}
+	if !matched[0] || chainUsed != nil {
+		t.Errorf("平级命中应记 matched 不建 chainUsed: matched=%v chainUsed=%v", matched, chainUsed)
 	}
 
 	// 中间段存在但不是 map → 折叠失败。
-	if v, ok := lookupField(map[string]any{"server": 5}, "server_addrs"); ok || v != nil {
+	if v, ok := lookupCanonical(map[string]any{"server": 5}, make([]bool, 1), 0, &chainUsed, "server_addrs"); ok || v != nil {
 		t.Errorf("折叠中间段非 map = (%v, %v), want (nil,false)", v, ok)
 	}
 
-	// 首段查无 → 折叠失败。
-	if v, ok := lookupField(map[string]any{"other": 1}, "server_addrs"); ok || v != nil {
+	// 首段查无 → 折叠失败（首段精确预检即排除，免 Split）。
+	if v, ok := lookupCanonical(map[string]any{"other": 1}, make([]bool, 1), 0, &chainUsed, "server_addrs"); ok || v != nil {
 		t.Errorf("折叠首段查无 = (%v, %v), want (nil,false)", v, ok)
 	}
 }
@@ -108,7 +130,7 @@ func TestLookupKeyFold(t *testing.T) {
 	}
 }
 
-// TestCoerceValueContainers 用真实容器字段描述符驱动 coerceValue 的 list/map/message
+// TestCoerceValueContainers 用真实容器字段描述符驱动 canonicalValue 的 list/map/message
 // 三形态，并覆盖各自的报错分支。
 func TestCoerceValueContainers(t *testing.T) {
 	c := findContainers(NewBootstrap())
@@ -117,30 +139,30 @@ func TestCoerceValueContainers(t *testing.T) {
 	}
 
 	// list：元素强转失败 → 带下标的错误。
-	if _, err := coerceValue(c.list, []any{map[string]any{"nested": 1}}); err == nil {
-		t.Error("coerceValue list←非法元素 应报错")
+	if _, err := canonicalValue(c.list, []any{map[string]any{"nested": 1}}); err == nil {
+		t.Error("canonicalValue list←非法元素 应报错")
 	}
 
 	// map：raw 非 map[string]any → 报错。
-	if _, err := coerceValue(c.kv, "not-a-map"); err == nil {
-		t.Error("coerceValue map←非 map 应报错")
+	if _, err := canonicalValue(c.kv, "not-a-map"); err == nil {
+		t.Error("canonicalValue map←非 map 应报错")
 	}
 	// map：某个 value 强转失败 → 带键名的错误。
-	if _, err := coerceValue(c.kv, map[string]any{"k": map[string]any{"x": 1}}); err == nil {
-		t.Error("coerceValue map←非法 value 应报错")
+	if _, err := canonicalValue(c.kv, map[string]any{"k": map[string]any{"x": 1}}); err == nil {
+		t.Error("canonicalValue map←非法 value 应报错")
 	}
 
 	// message：raw 非 map → 报错。
-	if _, err := coerceValue(c.sub, 12345); err == nil {
-		t.Error("coerceValue message←非 map 应报错")
+	if _, err := canonicalValue(c.sub, 12345); err == nil {
+		t.Error("canonicalValue message←非 map 应报错")
 	}
 	// message：递归子字段强转失败 → 透传子错误。
 	subScalar := firstScalarField(c.sub.Message())
 	if subScalar == nil {
 		t.Fatal("子消息应含标量字段用于递归报错测试")
 	}
-	if _, err := coerceValue(c.sub, map[string]any{subScalar.JSONName(): map[string]any{}}); err == nil {
-		t.Error("coerceValue message←子字段非法 应报错")
+	if _, err := canonicalValue(c.sub, map[string]any{subScalar.JSONName(): map[string]any{}}); err == nil {
+		t.Error("canonicalValue message←子字段非法 应报错")
 	}
 }
 

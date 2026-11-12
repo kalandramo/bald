@@ -12,6 +12,27 @@ import (
 
 // TestUnmarshalMapDoesNotMutateInput：类型规范化会改名与搬键，但必须只作用于
 // 内部副本——调用方常把同一份快照先后反序列化到契约与业务两个消息。
+// snapshotTree 测试内深拷贝：钉住 UnmarshalMap 输入不可变这一契约时的基线快照。
+
+func snapshotTree(v any) any {
+	switch x := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(x))
+		for k, vv := range x {
+			out[k] = snapshotTree(vv)
+		}
+		return out
+	case []any:
+		out := make([]any, len(x))
+		for i, vv := range x {
+			out[i] = snapshotTree(vv)
+		}
+		return out
+	default:
+		return v
+	}
+}
+
 func TestUnmarshalMapDoesNotMutateInput(t *testing.T) {
 	m := map[string]any{
 		"server": map[string]any{
@@ -23,7 +44,7 @@ func TestUnmarshalMapDoesNotMutateInput(t *testing.T) {
 			},
 		},
 	}
-	before := cloneTree(m)
+	before := snapshotTree(m)
 
 	if err := UnmarshalMap(m, NewBootstrap()); err != nil {
 		t.Fatalf("unmarshal: %v", err)

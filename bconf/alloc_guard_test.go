@@ -26,14 +26,14 @@ func TestAllocGuard_FindUnknownKeys_StrictScan(t *testing.T) {
 
 func TestAllocGuard_UnmarshalMap_FullContract(t *testing.T) {
 	res := testing.Benchmark(BenchmarkUnmarshalMap_FullContract)
-	// 非 race 实测 45,680 B/op / 929 allocs/op；-race 51,337 B / 961 allocs。
-	// UnmarshalMap 先深拷贝入参再规范化（写回 JSON name、折叠键都不碰调用方
-	// map），整棵树的 map/slice 副本都进剖面，成本比「原地规范化」高一截——
-	// 这是语义正确付的价，不是回归。阈值 57,344 B（=56KiB，×1.26 非 race /
-	// ×1.12 -race）+ 1,200 allocs（×1.29 / ×1.25）：15 段全树 coerce 是本包分配
-	// 大头，回归等比例放大，headroom 收到两成半就够拦住；字节再往下收会被
-	// -race 那档（51,337）顶穿，那就成了跑 -race 的假报警。
-	guardAllocs(t, "UnmarshalMap_FullContract", res, 57_344, 1_200)
+	// 非 race 实测 36,282 B/op / 752 allocs/op；-race 42,089 B / 784 allocs。
+	// canonicalize 构建规范树（输入只读）：深拷贝的容器副本只剩规范树本身，
+	// 另有每节点 matched 位集与折叠命中的 chainUsed 小对象。阈值 47,104 B
+	// （=46KiB，×1.30 非 race / ×1.12 -race）+ 960 allocs（×1.28 / ×1.22）：
+	// 15 段全树规范化仍是本包分配大头，回归等比例放大，headroom 收到两成多
+	// 就够拦住；字节再往下收会被 -race 那档（42,089）顶穿，那就成了跑 -race
+	// 的假报警。
+	guardAllocs(t, "UnmarshalMap_FullContract", res, 47_104, 960)
 }
 
 // guardAllocs 断言基准结果的字节数/次数上界（本文件守卫共用的最小断言器）。

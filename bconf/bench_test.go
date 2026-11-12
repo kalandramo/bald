@@ -8,8 +8,8 @@ import "testing"
 // 口径纪律：
 //   - fixture 构造全部在计时外（b.Loop 之前）；
 //   - 热路径无 fmt/日志；
-//   - 契约树以 JSON name 规范形书写。UnmarshalMap 会把输入树写回规范形
-//     （coerceMessage/foldPath），首轮迭代后为稳态，后续轮次口径一致。
+//   - 契约树以 JSON name 规范形书写。UnmarshalMap 只读输入树（canonicalize
+//     构建新规范树），各轮口径一致。
 
 // benchFullContractTree 构造全 15 段契约树（bootstrap.proto 顶层段：app/server/
 // config/registry/logger/tracer/metrics/broker/storage/ai/workflow/cache/script/

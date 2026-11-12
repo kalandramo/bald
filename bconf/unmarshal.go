@@ -64,6 +64,9 @@ var fieldLookupCache sync.Map // protoreflect.MessageDescriptor → *fieldLookup
 
 type fieldLookup struct {
 	byName map[string]protoreflect.FieldDescriptor
+	// protoIdx 记录 proto 原名（精确形态，非折叠）→ 字段下标，供 canonicalize
+	// 的未知键回拷判定「该键是已匹配字段的平级 proto 名」使用。
+	protoIdx map[string]int32
 }
 
 // lookupFields 返回 md 的查找表，首次访问时构建。遍历顺序与键覆盖规则：
@@ -74,12 +77,14 @@ func lookupFields(md protoreflect.MessageDescriptor) *fieldLookup {
 	}
 	fields := md.Fields()
 	byName := make(map[string]protoreflect.FieldDescriptor, fields.Len()*2)
+	protoIdx := make(map[string]int32, fields.Len())
 	for i := 0; i < fields.Len(); i++ {
 		fd := fields.Get(i)
 		byName[strings.ToLower(string(fd.Name()))] = fd
 		byName[strings.ToLower(fd.JSONName())] = fd
+		protoIdx[string(fd.Name())] = int32(i)
 	}
-	v := &fieldLookup{byName: byName}
+	v := &fieldLookup{byName: byName, protoIdx: protoIdx}
 	if actual, loaded := fieldLookupCache.LoadOrStore(md, v); loaded {
 		return actual.(*fieldLookup) //cov:excl 并发首建「他人抢先入表」分支依赖调度，非确定性可达；行为已由 TestLookupFieldsConcurrentFirstBuild 覆盖
 	}
@@ -136,7 +141,7 @@ func findUnknown(md protoreflect.MessageDescriptor, m map[string]any, path strin
 // 由此获得编译期可查的字段名与类型，而不是依赖 mapstructure tag 的字符串匹配
 // （写错键名会静默落到零值）。
 //
-// 流程：map → coerce 类型规范化 → json.Marshal → protojson.Unmarshal（解析到空消息）→ clearPresentLists → proto.Merge（合并进带默认值的 msg）。
+// 流程：map → canonicalize 类型规范化（构建规范树，输入只读）→ json.Marshal → protojson.Unmarshal（解析到空消息）→ clearPresentLists → proto.Merge（合并进带默认值的 msg）。
 // 注意 coerce 在 json.Marshal 之前——protojson 是严格模式，须先把 env/flag
 // 来的字符串/数值规范化为 proto 可接受形态，否则反序列化报错。
 //
@@ -156,24 +161,19 @@ func findUnknown(md protoreflect.MessageDescriptor, m map[string]any, path strin
 // 空字符串并不会覆盖它——这是 proto3 的固有行为，不是本函数的缺陷。确实需要
 // 三态语义时，请在 proto 中用 optional 关键字启用 field presence。
 //
-// 不修改入参：类型规范化会改名（snake_case → JSON name）、搬移折叠键，
-// 若直接作用于调用方的 map，热更新回调里对同一快照的多次反序列化
-// （契约 + 业务各一次）会互相破坏。故先深拷贝再规范化。
+// 不修改入参：canonicalize 按 msg 的字段描述符构建一棵新的规范树，输入只读。
+// 热更新回调里对同一快照的多次反序列化（契约 + 业务各一次）互不影响。
 func UnmarshalMap(m map[string]any, msg proto.Message) error {
 	if msg == nil {
 		return fmt.Errorf("bconf: proto message is nil")
-	}
-
-	settings, _ := cloneTree(m).(map[string]any)
-	if settings == nil {
-		settings = map[string]any{} //cov:excl m 静态类型即 map[string]any，cloneTree 恒返回非空 map，settings 不可能为 nil
 	}
 
 	// 关键：先按 msg 的字段描述符做类型规范化，再交给 protojson。
 	// 原因是 env（AutomaticEnv）与 flag（pflag 的 *Var 系列）的值在 viper 里
 	// 可能是字符串或整数，而 protojson 是严格模式——"8080" 不会自动转成 int32，
 	// 纳秒整数也不会自动转成 Duration 的 "10s" 字符串，直接反序列化会报错。
-	if err := coerceMessage(msg.ProtoReflect().Descriptor(), settings); err != nil {
+	settings, err := canonicalize(msg.ProtoReflect().Descriptor(), m)
+	if err != nil {
 		return fmt.Errorf("bconf: coerce: %w", err)
 	}
 
@@ -204,25 +204,56 @@ func UnmarshalMap(m map[string]any, msg proto.Message) error {
 	return nil
 }
 
-// cloneTree 深拷贝配置树中会被规范化改写的容器（map / slice）。
-// 标量按值返回：coerce 只替换键值，不会原地修改标量。
-func cloneTree(v any) any {
-	switch x := v.(type) {
-	case map[string]any:
-		out := make(map[string]any, len(x))
-		for k, vv := range x {
-			out[k] = cloneTree(vv)
+// canonicalize 按 md 的字段描述符把 m 规范化为一棵新树（输入只读）：已知字段的值
+// 经类型规范化后落在 JSON name 规范键下；未知键原样保留——protojson 的
+// DiscardUnknown 对它们同样静默丢弃，但保留维持了「marshal 输入 = 全量树」的
+// 既有口径（未知键携带不可序列化值时仍在 marshal 出口报错）。
+//
+// 为什么是「构建新树」而非「深拷贝后原地改写」：原地形态须先对整棵树做每节点
+// 分配的深拷贝，再在字段循环里 delete+回写规范键、折叠命中时搬移+回删嵌套链，
+// 每次改名/搬移都是一次 map rehash；且源树被改写后，「候选键不存在」只能靠全键
+// EqualFold 扫描证明。构建形态下输入只读，缺失候选的排除降为一次首段精确查找
+// （见 lookupCanonical），深拷贝的容器副本只剩规范树本身这一份。
+//
+// 折叠匹配依赖的描述符形状前提（同层折叠键不重合、段序列不互为严格前缀）由
+// TestContractFoldShapeInvariant 钉死。
+func canonicalize(md protoreflect.MessageDescriptor, m map[string]any) (map[string]any, error) {
+	out := make(map[string]any, len(m))
+	fields := md.Fields()
+	matched := make([]bool, fields.Len()) // 平级已消费：proto 名命中即记（等价旧 delete）
+	var chainUsed map[string]struct{}     // 折叠链键，折叠命中才建（等价旧回删链）
+	for i := 0; i < fields.Len(); i++ {
+		fd := fields.Get(i)
+		raw, ok := lookupCanonical(m, matched, i, &chainUsed, string(fd.Name()), fd.JSONName())
+		if !ok || raw == nil {
+			continue
 		}
-		return out
-	case []any:
-		out := make([]any, len(x))
-		for i, vv := range x {
-			out[i] = cloneTree(vv)
+		cv, err := canonicalValue(fd, raw)
+		if err != nil {
+			return nil, fmt.Errorf("field %q: %w", fd.Name(), err)
 		}
-		return out
-	default:
-		return v
+		out[fd.JSONName()] = cv
+		matched[i] = true
 	}
+	// 未被任何字段消费的键原样回拷（等价于旧「clone 后残留」形态）：已消费键
+	// 不回拷，规范形写入不受源树同形键覆盖；out 已有的键也不覆盖，保持「平级
+	// 匹配到的值胜出」的既有语义。proto 名集合来自 lookupFields 的描述符缓存，
+	// 稳态零分配。
+	protoIdx := lookupFields(md).protoIdx
+	for k, v := range m {
+		if i, ok := protoIdx[k]; ok && matched[i] {
+			continue
+		}
+		if chainUsed != nil {
+			if _, hit := chainUsed[k]; hit {
+				continue
+			}
+		}
+		if _, exists := out[k]; !exists {
+			out[k] = v
+		}
+	}
+	return out, nil
 }
 
 // clearPresentLists 对 src 中显式出现（长度 > 0）的 repeated 与 map 字段，
@@ -255,104 +286,84 @@ func clearPresentLists(dst, src protoreflect.Message) {
 	}
 }
 
-// coerceMessage 按 message 描述符，把 map 中的值转换成 protojson 能接受的类型。
-// 只处理 map 中已存在的 key，缺失 key 不动（交给 proto 的零值/默认值体系）。
-// 参数是描述符而非消息实例：类型规范化只需要字段元信息，传 MessageDescriptor
-// 免去每层 message 字段构造 dynamicpb 消息只为取 Descriptor 的分配。
-func coerceMessage(md protoreflect.MessageDescriptor, m map[string]any) error {
-	fields := md.Fields()
-	for i := 0; i < fields.Len(); i++ {
-		fd := fields.Get(i)
-
-		// protojson 同时接受 json_name（camelCase）与 proto 原名（snake_case）。
-		raw, ok := lookupField(m, string(fd.Name()), fd.JSONName())
-		if !ok || raw == nil {
-			continue
-		}
-
-		coerced, err := coerceValue(fd, raw)
-		if err != nil {
-			return fmt.Errorf("field %q: %w", fd.Name(), err)
-		}
-
-		// 规范化后的值写回规范键（JSON name），protojson 一定能识别。
-		delete(m, string(fd.Name()))
-		m[fd.JSONName()] = coerced
-	}
-	return nil
-}
-
-// lookupField 按候选键名在 map 中查找（不区分 "-" 与 "_" 的差异）。
+// lookupCanonical 按候选键名在 map 中查找（不区分 "-" 与 "_" 的差异）。只读：
+// 不改 m、不搬移折叠键——canonicalize 构建新树，消费情况记入 matched/chainUsed。
 //
-// 折叠匹配（fold fallback）：候选字段名含下划线（server_addrs）而配置树把它写
-// 成了嵌套形状 {server:{addrs:...}} 时，平级匹配必然失败。故平级匹配全试过之后，
-// 把「候选名的下划线段」当嵌套路径逐层下钻再试一次
-// （server_addrs → m["server"]["addrs"]）。
+// 三层查找顺序与语义（逐层对应旧实现的平级 → 平级折叠 → 下钻折叠）：
+//  1. 平级精确匹配（proto 原名 → JSON name）；
+//  2. 平级折叠匹配：忽略大小写与 '-'/'_' 差异（kebab-case 常见，如
+//     output-paths），全键扫描；
+//  3. 折叠下钻：候选名含下划线（server_addrs）而配置树把它写成了嵌套形状
+//     {server:{addrs:...}} 时，把「候选名的下划线段」当嵌套路径逐层下钻；
+//     先精确查首段（零分配快路径），首段不存在则整链必败、免 Split 与逐层扫描。
 //
-// env 层不再依赖这条：bootstrap/config 在合树之前就用 [FoldEnvKeys] 按契约把
-// 下划线切出的嵌套链折回规范键（§7.7）——env 与文件由此落在同一个键上，分层
-// 优先级才成立，严格门禁看到的也是契约规范名。本兜底留给另外两类输入：直接把
-// 嵌套形状喂给 UnmarshalMap 的调用方（bconf 是独立库，不经 config.Store），
-// 以及没开 StrictContract 的文件/远程层里手写的嵌套契约键。
+// 下钻兜底留给两类输入：直接把嵌套形状喂给 UnmarshalMap 的调用方（bconf 是
+// 独立库，不经 config.Store），以及没开 StrictContract 的文件/远程层里手写的
+// 嵌套契约键。env 层不依赖这条：bootstrap/config 在合树之前就用 [FoldEnvKeys]
+// 按契约把下划线切出的嵌套链折回规范键（§7.7）。
 //
-// 命中时把值**搬移到平级键**并删除原嵌套链：env 路径下会残留 {server:{addrs:...}}，
-// 而 Nacos 消息并无 server 字段——残留键会被下游判为未知键（严格模式下即报错），
-// 故必须清理，不能只读不搬。
-//
-// 安全前提（已核验，见 bconf 测试）：全契约无「a_b 标量 与 a 子消息」同层共存
-// 的情形（179 个下划线字段分布在 62 个 message），故折叠不引入歧义；且平级匹配
-// 优先于折叠，真嵌套键不会被折叠抢走。
-func lookupField(m map[string]any, names ...string) (any, bool) {
+// 平级匹配优先于下钻，真嵌套键不会被折叠抢走；折叠不引入歧义的描述符形状前提
+// （同层折叠键不重合、段序列不互为严格前缀）由 TestContractFoldShapeInvariant
+// 钉死（旧散文前提「a_b 标量 与 a 子消息不得同层共存」是其中段的严格前缀特例）。
+func lookupCanonical(m map[string]any, matched []bool, idx int, chainUsed *map[string]struct{}, names ...string) (any, bool) {
 	for _, n := range names {
 		if v, ok := m[n]; ok {
+			matched[idx] = true
 			return v, true
 		}
 	}
-	// 兼容 snake_case 与 kebab-case（配置文件里两种都常见，如 output-paths）。
-	for key, v := range m {
-		for _, n := range names {
+	// 平级折叠匹配。
+	for _, n := range names {
+		for key, v := range m {
 			if strings.EqualFold(strings.ReplaceAll(key, "-", "_"), strings.ReplaceAll(n, "-", "_")) {
+				matched[idx] = true
 				return v, true
 			}
 		}
 	}
-	// 折叠匹配：候选名含下划线时，按段下钻。
+	// 折叠下钻：候选名含下划线时按段下探；首段精确查无则整链必败。
 	for _, n := range names {
 		if !strings.Contains(n, "_") {
 			continue
 		}
-		if v, ok := foldPath(m, n); ok {
+		if i := strings.IndexByte(n, '_'); i >= 0 {
+			if _, ok := m[n[:i]]; !ok {
+				continue
+			}
+		}
+		if v, ok := foldPathRead(m, n, chainUsed); ok {
+			matched[idx] = true
 			return v, true
 		}
 	}
 	return nil, false
 }
 
-// foldPath 把下划线候选名当嵌套路径下钻；命中则把值搬到平级键 n 并清理原链。
+// foldPathRead 把下划线候选名当嵌套路径**只读**下钻，命中返回该值并把链上键记入
+// *chainUsed（canonicalize 据此不回拷这些键，等价于旧实现的「回删嵌套链」；
+// 失败路径不记——旧实现失败也不删）。
 //
 // 要求**完整消费**全部段（max_open_connections → m[max][open][connections]），
 // 中途任一段不是 map 或不存在即失败——避免把部分匹配误当命中。
-func foldPath(m map[string]any, n string) (any, bool) {
+func foldPathRead(m map[string]any, n string, chainUsed *map[string]struct{}) (any, bool) {
 	parts := strings.Split(n, "_")
 
-	// 逐层下钻，记录路径以便命中后回删。
-	type hop struct {
-		parent map[string]any
-		key    string
-	}
-	var chain []hop
+	// 逐层下钻，记录路径以便命中后记入已消费集。
+	hops := make([]string, 0, len(parts))
 	cur := m
 	for i, p := range parts {
 		k, v, ok := lookupKeyFold(cur, p)
 		if !ok {
 			return nil, false
 		}
-		chain = append(chain, hop{parent: cur, key: k})
+		hops = append(hops, k)
 		if i == len(parts)-1 {
-			// 完整命中：搬到平级键，再回删整条嵌套链。
-			m[n] = v
-			for _, h := range chain {
-				delete(h.parent, h.key)
+			// 完整命中：链上键全部记入已消费集。
+			if *chainUsed == nil {
+				*chainUsed = make(map[string]struct{}, len(parts))
+			}
+			for _, hk := range hops {
+				(*chainUsed)[hk] = struct{}{}
 			}
 			return v, true
 		}
@@ -378,8 +389,8 @@ func lookupKeyFold(m map[string]any, key string) (string, any, bool) {
 	return "", nil, false
 }
 
-// coerceValue 按字段描述符把单个值转换成 protojson 可接受的类型。
-func coerceValue(fd protoreflect.FieldDescriptor, raw any) (any, error) {
+// canonicalValue 按字段描述符把单个值转换成 protojson 可接受的类型。
+func canonicalValue(fd protoreflect.FieldDescriptor, raw any) (any, error) {
 	// repeated 字段：逐元素转换。
 	if fd.IsList() && !fd.IsMap() {
 		items, ok := toSlice(raw)
@@ -415,7 +426,7 @@ func coerceValue(fd protoreflect.FieldDescriptor, raw any) (any, error) {
 		return out, nil
 	}
 
-	// 消息字段：Duration 需要特殊处理，其余递归。
+	// 消息字段：Duration 需要特殊处理，其余递归构建规范子树。
 	if fd.Kind() == protoreflect.MessageKind {
 		if isDuration(fd.Message()) {
 			return coerceDuration(raw)
@@ -424,10 +435,7 @@ func coerceValue(fd protoreflect.FieldDescriptor, raw any) (any, error) {
 		if !ok {
 			return nil, fmt.Errorf("expect object for message field, got %T", raw)
 		}
-		if err := coerceMessage(fd.Message(), sub); err != nil {
-			return nil, err
-		}
-		return sub, nil
+		return canonicalize(fd.Message(), sub)
 	}
 
 	return coerceScalar(fd, raw)
