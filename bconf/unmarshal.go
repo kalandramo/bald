@@ -315,10 +315,13 @@ func lookupCanonical(m map[string]any, matched []bool, idx int, chainUsed *map[s
 			return v, true
 		}
 	}
-	// 平级折叠匹配。
-	for _, n := range names {
-		for key, v := range m {
-			if strings.EqualFold(strings.ReplaceAll(key, "-", "_"), strings.ReplaceAll(n, "-", "_")) {
+	// 平级折叠匹配。源键外层、候选内层：ReplaceAll(源键) 只算一次。任一源键
+	// 至多折叠匹配一个候选名（跨字段折叠键不重合由 TestContractFoldShapeInvariant
+	// 钉死；同字段两候选折叠形相同仅当候选串本身相同），遍历顺序不改变命中结果。
+	for key, v := range m {
+		folded := strings.ReplaceAll(key, "-", "_")
+		for _, n := range names {
+			if strings.EqualFold(folded, strings.ReplaceAll(n, "-", "_")) {
 				matched[idx] = true
 				return v, true
 			}
