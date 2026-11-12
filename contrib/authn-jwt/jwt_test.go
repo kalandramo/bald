@@ -24,9 +24,19 @@ func sampleClaims() authn.AuthClaims {
 	}
 }
 
+// testSecret 是满足 minHMACSecretLen（32 字节）的测试密钥。
+var testSecret = []byte("0123456789abcdef0123456789abcdef")
+
+// newAuth 构造认证器，构造失败直接终止测试。
+func newAuth(t *testing.T, opts ...Option) *Authenticator {
+	t.Helper()
+	a, err := NewAuthenticator(opts...)
+	require.NoError(t, err)
+	return a
+}
+
 func TestRoundTrip_HMAC(t *testing.T) {
-	secret := []byte("test-secret-not-leaked")
-	a := NewAuthenticator(WithHMACSecret(secret))
+	a := newAuth(t, WithHMACSecret(testSecret))
 
 	c := sampleClaims()
 	tok, err := a.IssueToken(c, time.Hour)
@@ -48,8 +58,7 @@ func TestRoundTrip_HMAC(t *testing.T) {
 }
 
 func TestExpiredToken(t *testing.T) {
-	secret := []byte("s")
-	a := NewAuthenticator(WithHMACSecret(secret))
+	a := newAuth(t, WithHMACSecret(testSecret))
 	tok, err := a.IssueToken(authn.AuthClaims{Subject: "u"}, -time.Hour)
 	require.NoError(t, err)
 	_, err = a.AuthenticateToken(tok)
@@ -58,16 +67,55 @@ func TestExpiredToken(t *testing.T) {
 
 func TestAlgorithmNoneRejected(t *testing.T) {
 	noneTok := "eyJhbGciOiJub25lIn0.eyJzdWIiOiJ1In0."
-	a := NewAuthenticator(WithHMACSecret([]byte("secret")))
+	a := newAuth(t, WithHMACSecret(testSecret))
 	_, err := a.AuthenticateToken(noneTok)
 	assert.Error(t, err)
+}
+
+// TestNewAuthenticator_RejectsEmptyHMACSecret —— 空密钥必须构造期失败。
+//
+// 这是 fail-open 而非"弱口令"：旧实现用 `hmacSecret != nil` 判断"是否已配置"，
+// 而 []byte("") 不是 nil。环境变量漏配 → 读到空串 → 服务正常启动，
+// 且用空密钥自签的任意 token（如 sub=admin）验签通过。
+func TestNewAuthenticator_RejectsEmptyHMACSecret(t *testing.T) {
+	a, err := NewAuthenticator(WithHMACSecret([]byte("")))
+	assert.Nil(t, a, "配置非法时不得返回可用认证器")
+	assert.ErrorIs(t, err, ErrWeakHMACSecret)
+}
+
+// TestNewAuthenticator_RejectsShortHMACSecret —— 短于 32 字节（RFC 7518 §3.2）同样拒绝。
+func TestNewAuthenticator_RejectsShortHMACSecret(t *testing.T) {
+	a, err := NewAuthenticator(WithHMACSecret([]byte("secret")))
+	assert.Nil(t, a)
+	assert.ErrorIs(t, err, ErrWeakHMACSecret)
+}
+
+// TestNewAuthenticator_RejectsNoKey —— 未注入任何密钥必须构造期失败。
+func TestNewAuthenticator_RejectsNoKey(t *testing.T) {
+	a, err := NewAuthenticator()
+	assert.Nil(t, a)
+	assert.ErrorIs(t, err, ErrNoKey)
+}
+
+// TestTokenSignedWithEmptyKeyRejected —— 端到端锁定：空密钥自签的 token 必须被拒。
+//
+// 绕过构造器直接调 jwt 库，模拟攻击者视角：不需要任何真实密钥即可伪造 admin。
+func TestTokenSignedWithEmptyKeyRejected(t *testing.T) {
+	jc := jwtClaims{Subject: "admin"}
+	jc.ExpiresAt = jwt.NewNumericDate(time.Now().Add(time.Hour))
+	forged, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jc).SignedString([]byte(""))
+	require.NoError(t, err)
+
+	a := newAuth(t, WithHMACSecret(testSecret))
+	_, err = a.AuthenticateToken(forged)
+	assert.Error(t, err, "空密钥签发的 token 不得通过正确配置的认证器")
 }
 
 func TestVerifyOnlyCannotSign(t *testing.T) {
 	// 仅注入公钥的验签方不应能签发。
 	priv, err := GenerateRSA(2048)
 	require.NoError(t, err)
-	verifier := NewAuthenticator(WithRSAKeys(nil, &priv.PublicKey))
+	verifier := newAuth(t, WithRSAKeys(nil, &priv.PublicKey))
 	_, err = verifier.IssueToken(sampleClaims(), time.Hour)
 	assert.Error(t, err)
 }
@@ -77,8 +125,8 @@ func TestRoundTrip_RSA(t *testing.T) {
 	require.NoError(t, err)
 
 	// 签发方持私钥，验签方只持公钥——密钥解耦是核心收益。
-	signer := NewAuthenticator(WithRSAKeys(priv, &priv.PublicKey))
-	verifier := NewAuthenticator(WithRSAKeys(nil, &priv.PublicKey))
+	signer := newAuth(t, WithRSAKeys(priv, &priv.PublicKey))
+	verifier := newAuth(t, WithRSAKeys(nil, &priv.PublicKey))
 
 	tok, err := signer.IssueToken(sampleClaims(), time.Hour)
 	require.NoError(t, err)
@@ -95,8 +143,8 @@ func TestRSA_ForgedByOtherKeyRejected(t *testing.T) {
 	privB, err := GenerateRSA(2048)
 	require.NoError(t, err)
 
-	signer := NewAuthenticator(WithRSAKeys(privA, &privA.PublicKey))
-	evilVerifier := NewAuthenticator(WithRSAKeys(nil, &privB.PublicKey)) // 错误公钥
+	signer := newAuth(t, WithRSAKeys(privA, &privA.PublicKey))
+	evilVerifier := newAuth(t, WithRSAKeys(nil, &privB.PublicKey)) // 错误公钥
 
 	tok, err := signer.IssueToken(sampleClaims(), time.Hour)
 	require.NoError(t, err)
@@ -109,8 +157,8 @@ func TestRoundTrip_ECDSA(t *testing.T) {
 	priv, err := GenerateECDSA(nil)
 	require.NoError(t, err)
 
-	signer := NewAuthenticator(WithECDSAKeys(priv, &priv.PublicKey))
-	verifier := NewAuthenticator(WithECDSAKeys(nil, &priv.PublicKey))
+	signer := newAuth(t, WithECDSAKeys(priv, &priv.PublicKey))
+	verifier := newAuth(t, WithECDSAKeys(nil, &priv.PublicKey))
 
 	tok, err := signer.IssueToken(sampleClaims(), time.Hour)
 	require.NoError(t, err)
@@ -133,7 +181,7 @@ func TestRoundTrip_ECDSA(t *testing.T) {
 //
 // 因此 toJWT 填 ID = uuid.NewString()。
 func TestIssueToken_UniqueJTI(t *testing.T) {
-	a := NewAuthenticator(WithHMACSecret([]byte("s")))
+	a := newAuth(t, WithHMACSecret(testSecret))
 
 	// 同一 claims 连续签发两次（同一秒内——测试执行远快于 1 秒）。
 	c := sampleClaims()
@@ -175,7 +223,7 @@ func TestIssueToken_UniqueJTI(t *testing.T) {
 // 本测试同时是**加字段纪律**的回归门：jwtClaims 是 AuthClaims 的全量镜像，
 // 核心侧新增字段必须在此同步映射。
 func TestJWTClaims_PlatformRoundTrip(t *testing.T) {
-	a := NewAuthenticator(WithHMACSecret([]byte("test-secret-not-leaked")))
+	a := newAuth(t, WithHMACSecret(testSecret))
 
 	// 1) Platform=true 必须往返保真。
 	c := sampleClaims()
@@ -208,7 +256,7 @@ func TestJWTClaims_PlatformRoundTrip(t *testing.T) {
 // （Go 无字段级反射对比），但下方的字段清单注释提示维护者补断言。
 // 当前覆盖：Subject / Name / TenantID / Platform / Scopes / Roles / Issuer。
 func TestJWTClaims_AllCoreFieldsRoundTrip(t *testing.T) {
-	a := NewAuthenticator(WithHMACSecret([]byte("test-secret-not-leaked")))
+	a := newAuth(t, WithHMACSecret(testSecret))
 	c := authn.AuthClaims{
 		Subject:  "u-all",
 		Name:     "AllFields",

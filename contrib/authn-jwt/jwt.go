@@ -33,6 +33,23 @@ import (
 // defaultTTL 默认 token 有效期。
 const defaultTTL = 2 * time.Hour
 
+// minHMACSecretLen HMAC 密钥最小长度（字节）。
+//
+// RFC 7518 §3.2 要求 HS256 的密钥长度不短于哈希输出（256 bit = 32 字节）。
+// 这里把它做成构造期硬校验，因为空密钥的后果不是"弱"，而是"无认证"：
+// `[]byte("")` 不是 nil，旧实现用 `hmacSecret != nil` 判断"是否已配置"，
+// 于是环境变量漏配读成空串时，服务正常启动，且用空密钥自签的任意 token
+// （如 sub=admin）验签通过。这是 fail-open，不是弱口令。
+const minHMACSecretLen = 32
+
+var (
+	// ErrNoKey 未注入任何密钥（HMAC / RSA / ECDSA 三者皆空）。
+	ErrNoKey = errors.New("authn-jwt: no key configured, need HMAC secret or RSA/ECDSA key")
+
+	// ErrWeakHMACSecret HMAC 密钥为空或过短（< minHMACSecretLen）。
+	ErrWeakHMACSecret = errors.New("authn-jwt: HMAC secret is empty or shorter than 32 bytes")
+)
+
 // Options 控制 Authenticator 的密钥与算法。
 // 至少提供一组密钥（HMAC 或 非对称），否则 NewAuthenticator 返回错误。
 type Options struct {
@@ -127,7 +144,15 @@ type Authenticator struct {
 // 必填：一组密钥（HMAC 或非对称）。算法按注入自动推断，可用 Option 覆盖。
 // 返回具体类型 *Authenticator（同时实现 authn.Authenticator 与 Signer）；
 // 拦截器注入用 authn.Authenticator，业务签发用 Signer。
-func NewAuthenticator(opts ...Option) *Authenticator {
+//
+// **构造期即校验密钥**（fail-fast，对齐 J7/J8）：
+//   - 未注入任何密钥 → ErrNoKey
+//   - HMAC 密钥为空或短于 32 字节 → ErrWeakHMACSecret
+//
+// 之所以不再"返回零值认证器由调用方自己保证"，是因为零值认证器的失败
+// 只发生在第一次验签时——配置错误的服务会正常启动、正常接流量，
+// 直到某个请求进来才暴露。构造期报错把问题挡在启动阶段。
+func NewAuthenticator(opts ...Option) (*Authenticator, error) {
 	o := Options{}
 	for _, opt := range opts {
 		opt(&o)
@@ -140,6 +165,10 @@ func NewAuthenticator(opts ...Option) *Authenticator {
 	allowed := o.allowedAlgs
 	switch {
 	case o.hmacSecret != nil:
+		// 空密钥 / 过短密钥直接拒绝，不允许退化成"任意 token 可通过"。
+		if len(o.hmacSecret) < minHMACSecretLen {
+			return nil, ErrWeakHMACSecret
+		}
 		if signAlg == "" {
 			signAlg = "HS256"
 		}
@@ -171,13 +200,13 @@ func NewAuthenticator(opts ...Option) *Authenticator {
 			allowed = []string{"ES256", "ES384", "ES512"}
 		}
 	default:
-		// 无密钥无法工作；返回零值认证器（Parse 必失败），由调用方确保注入。
-		a.parser = jwt.NewParser(jwt.WithValidMethods([]string{}))
-		return a
+		// 无密钥无法工作。旧实现返回零值认证器（Parse 必失败），把"配置错误"
+		// 推迟到第一次验签才暴露；这里改为构造期报错（J7 fail-fast）。
+		return nil, ErrNoKey
 	}
 
 	a.parser = jwt.NewParser(jwt.WithValidMethods(allowed), jwt.WithLeeway(o.leeway))
-	return a
+	return a, nil
 }
 
 // keyfunc 根据 token 头 alg 选择对应公钥，防止 alg=none / 密钥错位混淆。
