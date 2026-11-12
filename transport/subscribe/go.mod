@@ -2,7 +2,7 @@ module github.com/kalandramo/bald/transport/subscribe
 
 go 1.27.1
 
-require github.com/kalandramo/bald/broker v0.1.0
+require github.com/kalandramo/bald/broker v0.3.1
 
 require github.com/kalandramo/bald/encoding v0.1.0 // indirect
 
