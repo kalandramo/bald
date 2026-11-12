@@ -12,12 +12,14 @@
 //	repo := store.NewStore[User](provider)
 //
 // 字段映射：Where.Filters 的 Field 优先按 Go 字段名解析（识别
-// gorm:"column:..." 自定义列名），也接受直接传入的数据库列名；未命中
-// 时才按默认 snake_case 约定翻译。
+// gorm:"column:..." 自定义列名），也接受已登记的数据库列名；**两者都未命中
+// 即返回 ErrUnknownField**，不做"按约定猜列名"的回退——列名会直接拼进 SQL
+// 标识符位置，放行任意字符串等于把注入原语交给调用方。
 package baldgorm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -182,16 +184,33 @@ type columnField struct {
 	column string
 }
 
-// column 解析过滤/排序字段名：先按 Go 字段名查（识别 gorm column tag），
-// 未命中时把入参视作列名/字段名按 snake_case 约定翻译。
-func (m *modelMeta) column(field string) string {
+// ErrUnknownField 过滤/排序字段名不在实体字段白名单内。
+//
+// 为什么必须报错而不是回退：列名会被**直接拼进 SQL 标识符位置**
+// （`col + " = ?"`、`Order(col + " " + dir)`），值侧虽有占位符保护，
+// 标识符侧没有。旧实现未命中元数据时把入参交给 toColumn 原样翻译，
+// 而 toColumn 只做大写转小写与加下划线，**不剥离引号/括号/注释符**——
+// 于是 `field="id) OR 1=1 --"` 会原样进入 SQL，构成注入原语。
+// 白名单是这类拼接的唯一可靠防线。
+var ErrUnknownField = errors.New("store-gorm: field not in entity whitelist")
+
+// column 解析过滤/排序字段名为列名，只接受**元数据中登记过**的 Go 字段名
+// 或列名；未命中即返回 ErrUnknownField（字段白名单，见上方说明）。
+func (m *modelMeta) column(field string) (string, error) {
 	if field == "" || m == nil {
-		return toColumn(field)
+		return "", fmt.Errorf("%w: empty field name", ErrUnknownField)
 	}
+	// 1) 按 Go 字段名（识别 gorm:"column:..." tag）。
 	if f, ok := m.columns[field]; ok {
-		return f.column
+		return f.column, nil
 	}
-	return toColumn(field)
+	// 2) 按列名（snake_case / 自定义列名）精确匹配已登记字段。
+	for _, f := range m.fields {
+		if f.column == field {
+			return f.column, nil
+		}
+	}
+	return "", fmt.Errorf("%w: %q", ErrUnknownField, field)
 }
 
 var metaCache sync.Map // reflect.Type -> *modelMeta
@@ -379,7 +398,11 @@ func (q *gormQuery[T]) applyWhere(where *store.Where) *gorm.DB {
 		tx = q.applyFilter(tx, c)
 	}
 	if fe := where.Expr; fe != nil {
-		sql, args := q.buildExpr(fe)
+		sql, args, err := q.buildExpr(fe)
+		if err != nil {
+			tx.AddError(err)
+			return tx
+		}
 		tx = tx.Where("("+sql+")", args...)
 	}
 	return tx
@@ -388,31 +411,37 @@ func (q *gormQuery[T]) applyWhere(where *store.Where) *gorm.DB {
 // buildExpr 递归把 FilterExpr 布尔树翻译为参数化 SQL 片段（AND/OR 嵌套）。
 // 空 AND 节点恒真（1 = 1），空 OR 节点恒假（1 = 0）——布尔代数语义，
 // 与 inmemory 后端一致；恒假用于「禁止访问」类数据范围。
-func (q *gormQuery[T]) buildExpr(fe *storev1.FilterExpr) (string, []any) {
+func (q *gormQuery[T]) buildExpr(fe *storev1.FilterExpr) (string, []any, error) {
 	isOr := fe.GetType() == storev1.ExprType_OR
 	parts := make([]string, 0, len(fe.GetConditions())+len(fe.GetGroups()))
 	var args []any
 	for _, c := range fe.GetConditions() {
-		sql, cargs := condSQL(q.meta, c)
+		sql, cargs, err := condSQL(q.meta, c)
+		if err != nil {
+			return "", nil, err
+		}
 		parts = append(parts, sql)
 		args = append(args, cargs...)
 	}
 	for _, g := range fe.GetGroups() {
-		sql, gargs := q.buildExpr(g)
+		sql, gargs, err := q.buildExpr(g)
+		if err != nil {
+			return "", nil, err
+		}
 		parts = append(parts, "("+sql+")")
 		args = append(args, gargs...)
 	}
 	if len(parts) == 0 {
 		if isOr {
-			return "1 = 0", nil
+			return "1 = 0", nil, nil
 		}
-		return "1 = 1", nil
+		return "1 = 1", nil, nil
 	}
 	sep := " AND "
 	if isOr {
 		sep = " OR "
 	}
-	return strings.Join(parts, sep), args
+	return strings.Join(parts, sep), args, nil
 }
 
 // condArg 返回条件的绑定值：优先 json_value（任意 JSON 类型按驱动绑定），
@@ -425,63 +454,67 @@ func condArg(c *storev1.FilterCondition) any {
 }
 
 // condSQL 翻译单条过滤条件为 SQL 片段（占位符参数化，杜绝字符串拼接值）。
-func condSQL(meta *modelMeta, c *storev1.FilterCondition) (string, []any) {
-	col := meta.column(c.GetField())
+// 字段名经元数据白名单解析，未命中即返回 ErrUnknownField。
+func condSQL(meta *modelMeta, c *storev1.FilterCondition) (string, []any, error) {
+	col, err := meta.column(c.GetField())
+	if err != nil {
+		return "", nil, err
+	}
 	v := condArg(c)
 	switch c.GetOp() {
 	case storev1.Operator_EQ, storev1.Operator_EXACT:
-		return col + " = ?", []any{v}
+		return col + " = ?", []any{v}, nil
 	case storev1.Operator_NEQ:
-		return col + " <> ?", []any{v}
+		return col + " <> ?", []any{v}, nil
 	case storev1.Operator_GT:
-		return col + " > ?", []any{v}
+		return col + " > ?", []any{v}, nil
 	case storev1.Operator_GTE:
-		return col + " >= ?", []any{v}
+		return col + " >= ?", []any{v}, nil
 	case storev1.Operator_LT:
-		return col + " < ?", []any{v}
+		return col + " < ?", []any{v}, nil
 	case storev1.Operator_LTE:
-		return col + " <= ?", []any{v}
+		return col + " <= ?", []any{v}, nil
 	case storev1.Operator_LIKE:
-		return col + " LIKE ?", []any{v}
+		return col + " LIKE ?", []any{v}, nil
 	case storev1.Operator_ILIKE:
 		// 仅对字符串类型列安全；非字符串列的 ILIKE 由调用方自行保证。
 		// 优先用数据库原生不区分大小写匹配（MySQL 8 / PG 支持），
 		// 退化为 lower() 仅作 SQLite 兼容兜底。
-		return "LOWER(" + col + ") LIKE LOWER(?)", []any{v}
+		return "LOWER(" + col + ") LIKE LOWER(?)", []any{v}, nil
 	case storev1.Operator_NOT_LIKE:
-		return col + " NOT LIKE ?", []any{v}
+		return col + " NOT LIKE ?", []any{v}, nil
 	case storev1.Operator_IN:
-		return col + " IN ?", []any{c.GetValues()}
+		return col + " IN ?", []any{c.GetValues()}, nil
 	case storev1.Operator_NIN:
-		return col + " NOT IN ?", []any{c.GetValues()}
+		return col + " NOT IN ?", []any{c.GetValues()}, nil
 	case storev1.Operator_IS_NULL:
-		return col + " IS NULL", nil
+		return col + " IS NULL", nil, nil
 	case storev1.Operator_IS_NOT_NULL:
-		return col + " IS NOT NULL", nil
+		return col + " IS NOT NULL", nil, nil
 	case storev1.Operator_CONTAINS:
-		return col + " LIKE ?", []any{"%" + c.GetValue() + "%"}
+		return col + " LIKE ?", []any{"%" + c.GetValue() + "%"}, nil
 	case storev1.Operator_STARTS_WITH:
-		return col + " LIKE ?", []any{c.GetValue() + "%"}
+		return col + " LIKE ?", []any{c.GetValue() + "%"}, nil
 	case storev1.Operator_ENDS_WITH:
-		return col + " LIKE ?", []any{"%" + c.GetValue()}
+		return col + " LIKE ?", []any{"%" + c.GetValue()}, nil
 	case storev1.Operator_ICONTAINS:
-		return "LOWER(" + col + ") LIKE LOWER(?)", []any{"%" + c.GetValue() + "%"}
+		return "LOWER(" + col + ") LIKE LOWER(?)", []any{"%" + c.GetValue() + "%"}, nil
 	case storev1.Operator_ISTARTS_WITH:
-		return "LOWER(" + col + ") LIKE LOWER(?)", []any{c.GetValue() + "%"}
+		return "LOWER(" + col + ") LIKE LOWER(?)", []any{c.GetValue() + "%"}, nil
 	case storev1.Operator_IENDS_WITH:
-		return "LOWER(" + col + ") LIKE LOWER(?)", []any{"%" + c.GetValue()}
+		return "LOWER(" + col + ") LIKE LOWER(?)", []any{"%" + c.GetValue()}, nil
 	case storev1.Operator_IEXACT:
-		return "LOWER(" + col + ") = LOWER(?)", []any{v}
+		return "LOWER(" + col + ") = LOWER(?)", []any{v}, nil
 	case storev1.Operator_BETWEEN:
 		vals := c.GetValues()
 		if len(vals) == 2 {
-			return col + " BETWEEN ? AND ?", []any{vals[0], vals[1]}
+			return col + " BETWEEN ? AND ?", []any{vals[0], vals[1]}, nil
 		}
-		return "1 = 1", nil
+		return "1 = 1", nil, nil
 	case storev1.Operator_REGEXP, storev1.Operator_IREGEXP:
 		// 依赖驱动方言：MySQL 原生 REGEXP（默认大小写不敏感）；
 		// PostgreSQL 需 pg_trgm/正则扩展；SQLite 不支持（会报错，属预期）。
-		return col + " REGEXP ?", []any{v}
+		return col + " REGEXP ?", []any{v}, nil
 	// JSON_CONTAINS / ARRAY_CONTAINS / EXISTS / SEARCH 依赖引擎方言，通用桥接
 	// 不做猜测式翻译（安全忽略，恒真）。
 	//
@@ -494,23 +527,33 @@ func condSQL(meta *modelMeta, c *storev1.FilterCondition) (string, []any) {
 	// ——成本/收益不成立。store-mongo 因 MongoDB 有原生能力（数组等值/点号路径/$exists）
 	// 故单独补了三个。SEARCH 三后端均不补：$text 需预建索引否则报错。
 	default:
-		return "1 = 1", nil
+		return "1 = 1", nil, nil
 	}
 }
 
 // applyFilter 翻译单条过滤条件（扁平 AND 路径复用 condSQL）。
+// 字段名未命中白名单时把错误挂到 gorm 链上，由最终 .Error 上浮。
 func (q *gormQuery[T]) applyFilter(tx *gorm.DB, c *storev1.FilterCondition) *gorm.DB {
-	sql, args := condSQL(q.meta, c)
+	sql, args, err := condSQL(q.meta, c)
+	if err != nil {
+		tx.AddError(err)
+		return tx
+	}
 	if len(args) == 0 {
 		return tx.Where(sql)
 	}
 	return tx.Where(sql, args...)
 }
 
-// applySorting 翻译排序规则。
+// applySorting 翻译排序规则。字段名同样走白名单——排序片段
+// （`Order(col + " " + dir)`）连参数化都没有，裸拼标识符，风险高于过滤值。
 func (q *gormQuery[T]) applySorting(tx *gorm.DB, sorting []*storev1.Sorting) *gorm.DB {
 	for _, s := range sorting {
-		col := q.meta.column(s.GetField())
+		col, err := q.meta.column(s.GetField())
+		if err != nil {
+			tx.AddError(err)
+			return tx
+		}
 		dir := "ASC"
 		if s.GetDirection() == storev1.Sorting_DESC {
 			dir = "DESC"

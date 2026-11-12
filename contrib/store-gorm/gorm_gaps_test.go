@@ -166,11 +166,25 @@ func TestModelMeta_Edges(t *testing.T) {
 	}
 
 	var nilMeta *modelMeta
-	if got := nilMeta.column("UserName"); got != "user_name" {
-		t.Errorf("nil meta column = %q, want user_name", got)
+	if _, err := nilMeta.column("UserName"); !errors.Is(err, ErrUnknownField) {
+		t.Errorf("nil meta 必须拒绝任意字段名，got err=%v", err)
 	}
-	if got := m.column(""); got != "" {
-		t.Errorf("空字段名 column = %q, want \"\"", got)
+	if _, err := m.column(""); !errors.Is(err, ErrUnknownField) {
+		t.Errorf("空字段名必须报错，got err=%v", err)
+	}
+	// 未登记的字段名不得"按约定猜列名"——那是 SQL 注入原语的入口。
+	if _, err := m.column("1=1) OR (1=1"); !errors.Is(err, ErrUnknownField) {
+		t.Errorf("未登记字段名必须报 ErrUnknownField，got err=%v", err)
+	}
+	// 已登记的 Go 字段名与列名都要能解析。
+	if got, err := m.column("PtrName"); err != nil || got != "ptr_name" {
+		t.Errorf("column(PtrName) = %q, %v", got, err)
+	}
+	if got, err := m.column("ptr_name"); err != nil || got != "ptr_name" {
+		t.Errorf("按列名 column(ptr_name) = %q, %v", got, err)
+	}
+	if got, err := m.column("org_code"); err != nil || got != "org_code" {
+		t.Errorf("按列名 column(org_code) = %q, %v", got, err)
 	}
 	if got := toColumn(""); got != "" {
 		t.Errorf("toColumn(\"\") = %q", got)
@@ -320,7 +334,8 @@ func TestCondSQL_AllOperators(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			sqlText, args := condSQL(meta, c.cond)
+			sqlText, args, err := condSQL(meta, c.cond)
+			require.NoError(t, err)
 			assert.Equal(t, c.wantSQL, sqlText)
 			assert.Len(t, args, c.wantArgs)
 		})
@@ -336,10 +351,45 @@ func TestCondArg_JSONValue(t *testing.T) {
 			JsonValue: structpb.NewNumberValue(3),
 		},
 	}
-	sqlText, args := condSQL(modelMetaOf[User](), c)
+	sqlText, args, err := condSQL(modelMetaOf[User](), c)
+	require.NoError(t, err)
 	assert.Equal(t, "age = ?", sqlText)
 	require.Len(t, args, 1)
 	assert.Equal(t, 3.0, args[0])
+}
+
+// TestFieldWhitelist_RejectsInjectionShape —— 注入形状的字段名必须在**查询期**被拒。
+//
+// 只测 column() 不够：列名会被拼进 SQL 标识符位置（`col + " = ?"`、
+// `Order(col + " " + dir)`），必须证明错误能沿 gorm 链上浮到调用方，
+// 而不是被吞掉后拼出一条畸形 SQL 去执行。
+func TestFieldWhitelist_RejectsInjectionShape(t *testing.T) {
+	q := &gormQuery[User]{db: NewTestDB(t), meta: modelMetaOf[User]()}
+
+	evil := []string{
+		"id) OR 1=1 --",
+		"age; DROP TABLE users",
+		"1=1",
+		"password", // 不是该实体的字段
+	}
+	for _, f := range evil {
+		f := f
+		t.Run("filter/"+f, func(t *testing.T) {
+			tx := q.applyFilter(q.db.Session(&gorm.Session{DryRun: true}),
+				&storev1.FilterCondition{Field: f, Op: storev1.Operator_IS_NULL})
+			require.ErrorIs(t, tx.Error, ErrUnknownField)
+		})
+		t.Run("sort/"+f, func(t *testing.T) {
+			tx := q.applySorting(q.db.Session(&gorm.Session{DryRun: true}),
+				[]*storev1.Sorting{{Field: f, Direction: storev1.Sorting_ASC}})
+			require.ErrorIs(t, tx.Error, ErrUnknownField)
+		})
+	}
+
+	// 正常字段仍须可用（白名单不能误伤）。
+	tx := q.applyFilter(q.db.Session(&gorm.Session{DryRun: true}),
+		&storev1.FilterCondition{Field: "Age", Op: storev1.Operator_IS_NULL})
+	require.NoError(t, tx.Error)
 }
 
 // TestWhereHelpers_NilAndEmpty 覆盖 where==nil、空布尔树、无参过滤与分页边角。
@@ -350,10 +400,14 @@ func TestWhereHelpers_NilAndEmpty(t *testing.T) {
 		t.Error("applyWhere(nil) 应原样返回 db")
 	}
 
-	if sqlText, args := q.buildExpr(&storev1.FilterExpr{}); sqlText != "1 = 1" || args != nil {
+	sqlText, args, err := q.buildExpr(&storev1.FilterExpr{})
+	require.NoError(t, err)
+	if sqlText != "1 = 1" || args != nil {
 		t.Errorf("空 AND = %q %v, want 1 = 1", sqlText, args)
 	}
-	if sqlText, _ := q.buildExpr(&storev1.FilterExpr{Type: storev1.ExprType_OR}); sqlText != "1 = 0" {
+	sqlText, _, err = q.buildExpr(&storev1.FilterExpr{Type: storev1.ExprType_OR})
+	require.NoError(t, err)
+	if sqlText != "1 = 0" {
 		t.Errorf("空 OR = %q, want 1 = 0", sqlText)
 	}
 

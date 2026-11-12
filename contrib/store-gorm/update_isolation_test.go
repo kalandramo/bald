@@ -26,9 +26,6 @@ type tenantUser struct {
 // TestGorm_UpdateIsolation 锁定：Update 的隔离谓词与主键条件 AND 连接——
 // 更新他租户记录影响 0 行且数据不变。
 func TestGorm_UpdateIsolation(t *testing.T) {
-	store.RegisterTenant("tenant_id", store.DefaultTenantFunc)
-	t.Cleanup(func() { store.UnregisterTenant("tenant_id") })
-
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "test.db")), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
@@ -40,16 +37,21 @@ func TestGorm_UpdateIsolation(t *testing.T) {
 
 	repo := store.NewStore[tenantUser](NewGormProvider[tenantUser](db, func(u *tenantUser) string { return u.ID }))
 	bg := context.Background()
+	// 先播种（未注册维度时 Create 不做租户注入），再开启隔离。
 	require.NoError(t, repo.Create(bg, &tenantUser{ID: "1", TenantID: "t-1", Name: "a"}))
 	require.NoError(t, repo.Create(bg, &tenantUser{ID: "2", TenantID: "t-2", Name: "b"}))
 
+	store.RegisterTenant("tenant_id", store.DefaultTenantFunc)
+	t.Cleanup(func() { store.UnregisterTenant("tenant_id") })
+
 	t1 := contextx.WithTenantID(bg, "t-1")
+	t2 := contextx.WithTenantID(bg, "t-2")
 
 	rows, err := repo.Update(t1, &tenantUser{ID: "2", Name: "hijacked"})
 	require.NoError(t, err)
 	assert.Zero(t, rows, "跨租户 Update 应影响 0 行")
 
-	got, err := repo.Get(bg, &store.Where{Filters: []*storev1.FilterCondition{store.Eq("id", "2")}})
+	got, err := repo.Get(t2, &store.Where{Filters: []*storev1.FilterCondition{store.Eq("id", "2")}})
 	require.NoError(t, err)
 	assert.Equal(t, "b", got.Name, "他租户记录不得被改写")
 	assert.Equal(t, "t-2", got.TenantID, "他租户记录归属不得被迁移")
@@ -58,7 +60,7 @@ func TestGorm_UpdateIsolation(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), rows)
 
-	got, err = repo.Get(bg, &store.Where{Filters: []*storev1.FilterCondition{store.Eq("id", "1")}})
+	got, err = repo.Get(t1, &store.Where{Filters: []*storev1.FilterCondition{store.Eq("id", "1")}})
 	require.NoError(t, err)
 	assert.Equal(t, "a2", got.Name)
 	assert.Equal(t, "t-1", got.TenantID)
@@ -67,9 +69,6 @@ func TestGorm_UpdateIsolation(t *testing.T) {
 // TestGorm_UpdateDataScopeIsolation 锁定：数据范围策略与租户谓词一同进入
 // Update 的 WHERE——同租户但越出范围的记录影响 0 行；写路径仍覆写实体租户。
 func TestGorm_UpdateDataScopeIsolation(t *testing.T) {
-	store.RegisterTenant("tenant_id", store.DefaultTenantFunc)
-	t.Cleanup(func() { store.UnregisterTenant("tenant_id") })
-
 	// SELF 范围：只允许访问 id 等于当前主体标识的行。
 	dispose := store.RegisterDataScopeWithDisposer(
 		func(_ context.Context, claims *authn.AuthClaims) []*storev1.FilterCondition {
@@ -91,16 +90,21 @@ func TestGorm_UpdateDataScopeIsolation(t *testing.T) {
 
 	repo := store.NewStore[tenantUser](NewGormProvider[tenantUser](db, func(u *tenantUser) string { return u.ID }))
 	bg := context.Background()
+	// 先播种（未注册维度时 Create 不做租户注入），再开启隔离。
 	require.NoError(t, repo.Create(bg, &tenantUser{ID: "1", TenantID: "t-1", Name: "a"}))
 	require.NoError(t, repo.Create(bg, &tenantUser{ID: "2", TenantID: "t-1", Name: "b"}))
 
+	store.RegisterTenant("tenant_id", store.DefaultTenantFunc)
+	t.Cleanup(func() { store.UnregisterTenant("tenant_id") })
+
 	self := authn.ContextWithAuthClaims(bg, &authn.AuthClaims{Subject: "1", TenantID: "t-1"})
+	t1 := contextx.WithTenantID(bg, "t-1")
 
 	rows, err := repo.Update(self, &tenantUser{ID: "2", Name: "hijacked"})
 	require.NoError(t, err)
 	assert.Zero(t, rows, "越出数据范围的 Update 应影响 0 行")
 
-	got, err := repo.Get(bg, &store.Where{Filters: []*storev1.FilterCondition{store.Eq("id", "2")}})
+	got, err := repo.Get(t1, &store.Where{Filters: []*storev1.FilterCondition{store.Eq("id", "2")}})
 	require.NoError(t, err)
 	assert.Equal(t, "b", got.Name, "范围外记录不得被改写")
 
@@ -113,7 +117,7 @@ func TestGorm_UpdateDataScopeIsolation(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), rows)
 
-	got, err = repo.Get(bg, &store.Where{Filters: []*storev1.FilterCondition{store.Eq("id", "1")}})
+	got, err = repo.Get(t1, &store.Where{Filters: []*storev1.FilterCondition{store.Eq("id", "1")}})
 	require.NoError(t, err)
 	assert.Equal(t, "a3", got.Name)
 	assert.Equal(t, "t-1", got.TenantID)
