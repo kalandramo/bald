@@ -470,6 +470,8 @@ func canonicalValue(fd protoreflect.FieldDescriptor, raw any) (any, error) {
 }
 
 // coerceScalar 转换标量：解决 env / flag 值与 proto 类型不匹配的问题。
+// 检查通过且无需类型变换时返回 raw 原箱（源树已装箱，拆开重装是一次纯浪费
+// 的分配；同值同动态类型下 json.Marshal 输出逐字节相同）。
 func coerceScalar(fd protoreflect.FieldDescriptor, raw any) (any, error) {
 	if fd.Kind() == protoreflect.EnumKind {
 		return coerceEnum(fd, raw)
@@ -481,7 +483,7 @@ func coerceScalar(fd protoreflect.FieldDescriptor, raw any) (any, error) {
 		// 数字/布尔转字符串，兼容 flag 与 env 的写法。
 		switch v := raw.(type) {
 		case string:
-			return v, nil
+			return raw, nil
 		case bool:
 			return strconv.FormatBool(v), nil
 		case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
@@ -494,7 +496,7 @@ func coerceScalar(fd protoreflect.FieldDescriptor, raw any) (any, error) {
 	case protoreflect.BoolKind:
 		switch v := raw.(type) {
 		case bool:
-			return v, nil
+			return raw, nil
 		case string:
 			b, err := strconv.ParseBool(v)
 			if err != nil {
@@ -514,8 +516,10 @@ func coerceScalar(fd protoreflect.FieldDescriptor, raw any) (any, error) {
 
 	case protoreflect.FloatKind, protoreflect.DoubleKind:
 		switch v := raw.(type) {
-		case float32, float64:
-			return toFloat(v), nil
+		case float64:
+			return raw, nil
+		case float32:
+			return toFloat(v), nil // float32→float64 变换，须重装箱
 		case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
 			n, err := anyToInt64(v)
 			if err != nil {
@@ -556,7 +560,7 @@ func coerceInt(raw any, kind protoreflect.Kind) (any, error) {
 		if bits == 32 && (n > math.MaxInt32 || n < math.MinInt32) {
 			return nil, fmt.Errorf("value %d overflows int32", n)
 		}
-		return n, nil
+		return n, nil // 整型家族统一产出 int64 规范型（protoreflect 规范语义，测试钉住）
 	case float32, float64:
 		f := toFloat(v)
 		if f != math.Trunc(f) {
@@ -593,7 +597,7 @@ func coerceUint(raw any) (any, error) {
 		if n < 0 {
 			return nil, fmt.Errorf("expect unsigned integer, got %d", n)
 		}
-		return uint64(n), nil
+		return uint64(n), nil // uint 家族统一产出 uint64 规范型（protoreflect 规范语义，测试钉住）
 	case string:
 		n, err := strconv.ParseUint(v, 10, 64)
 		if err != nil {
@@ -626,7 +630,7 @@ func coerceEnum(fd protoreflect.FieldDescriptor, raw any) (any, error) {
 	case string:
 		// 已是合法枚举名则直接返回（大小写不敏感由 protojson 处理）。
 		if values.ByName(protoreflect.Name(v)) != nil {
-			return v, nil
+			return raw, nil
 		}
 		// 数字字符串按编号解析。
 		if n, err := strconv.ParseInt(v, 10, 32); err == nil {
