@@ -158,9 +158,8 @@ func benchFullContractTree() map[string]any {
 // 完整成本：coerce 类型规范化 → json.Marshal → protojson.Unmarshal →
 // clearPresentLists → proto.Merge 进带默认值的契约，即配置装载的出口成本。
 //
-// 每 op 经 NewBootstrap() 取带默认值的空契约（含 os.Hostname 取默认 App.Id——
-// 与真实装配路径一致）；契约树构造在计时外，重用同一棵（首轮写回规范形后为
-// 稳态）。
+// 每 op 经 NewBootstrap() 取带默认值的空契约（含 os.Hostname 取默认 App.Id，
+// 进程内记忆化——与真实装配路径一致）；契约树构造在计时外，重用同一棵。
 func BenchmarkUnmarshalMap_FullContract(b *testing.B) {
 	tree := benchFullContractTree()
 	// 计时外自检：15 段必须全部落位。字段名写错会被 protojson 的

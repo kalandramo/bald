@@ -26,14 +26,14 @@ func TestAllocGuard_FindUnknownKeys_StrictScan(t *testing.T) {
 
 func TestAllocGuard_UnmarshalMap_FullContract(t *testing.T) {
 	res := testing.Benchmark(BenchmarkUnmarshalMap_FullContract)
-	// 非 race 实测 33,632 B/op / 751 allocs/op；-race 40,667 B / 784 allocs。
-	// canonicalize 构建规范树（输入只读），marshal 缓冲池化后稳态零增长：
-	// 深拷贝的容器副本只剩规范树本身，另有每节点 matched 位集与折叠命中的
-	// chainUsed 小对象。阈值 46,080 B（=45KiB，×1.37 非 race / ×1.13 -race）
-	// + 960 allocs（×1.28 / ×1.22）：15 段全树规范化仍是本包分配大头，回归
-	// 等比例放大，headroom 收到两成多就够拦住；字节再往下收会被 -race 那档
-	// （40,667）顶穿，那就成了跑 -race 的假报警。
-	guardAllocs(t, "UnmarshalMap_FullContract", res, 46_080, 960)
+	// 非 race 实测 32,583 B/op / 689 allocs/op；-race 39,748 B / 722 allocs。
+	// canonicalize 构建规范树（输入只读），marshal 缓冲池化后稳态零增长，
+	// 同型标量零重装箱、message 列表整列透传、hostname 记忆化：分配集中在
+	// 规范树容器本身与每节点 matched 位集。阈值 44,544 B（=43.5KiB，×1.37
+	// 非 race / ×1.12 -race）+ 880 allocs（×1.28 / ×1.22）：15 段全树规范化
+	// 仍是本包分配大头，回归等比例放大；字节再往下收会被 -race 那档（39,748）
+	// 顶穿，那就成了跑 -race 的假报警。
+	guardAllocs(t, "UnmarshalMap_FullContract", res, 44_544, 880)
 }
 
 // guardAllocs 断言基准结果的字节数/次数上界（本文件守卫共用的最小断言器）。
