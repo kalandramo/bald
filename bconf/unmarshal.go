@@ -271,7 +271,8 @@ func canonicalize(md protoreflect.MessageDescriptor, m map[string]any) (map[stri
 // clearPresentLists 对 src 中显式出现（长度 > 0）的 repeated 与 map 字段，
 // 清空 dst 的同名字段，使随后的 proto.Merge 表现为「替换」而非「追加/逐条合并」。
 //
-// src 中未出现的 list/map 字段不动，其默认值得以保留。嵌套 message 递归处理。
+// src 中未出现的 list/map 字段不动，其默认值得以保留。嵌套 message 递归处理；
+// 子树不含任何容器字段的递归整段跳过（见 subtreeHasContainer）。
 func clearPresentLists(dst, src protoreflect.Message) {
 	fields := src.Descriptor().Fields()
 	for i := 0; i < fields.Len(); i++ {
@@ -293,12 +294,48 @@ func clearPresentLists(dst, src protoreflect.Message) {
 		case fd.Kind() == protoreflect.MessageKind:
 			// 递归处理嵌套消息（如 http.tls 下的 list 字段）。dst 缺该子消息时
 			// 其嵌套 list/map 必为空、清理是 no-op，Mutable 的兜底创建纯属白付
-			// 一次分配，直接跳过；Merge 会按 src 把子消息整体填出来。
-			if dst.Has(fd) {
+			// 一次分配，直接跳过；Merge 会按 src 把子消息整体填出来。子树不含
+			// 容器字段时递归同样必是 no-op，一并跳过。
+			if dst.Has(fd) && subtreeHasContainer(fd.Message()) {
 				clearPresentLists(dst.Mutable(fd).Message(), src.Get(fd).Message())
 			}
 		}
 	}
+}
+
+// subtreeContainerCache 缓存「描述符子树内是否存在 repeated/map 字段」。
+// proto 描述符进程内不可变，结果由描述符唯一决定，无需失效机制（与
+// fieldLookupCache 同款前提）。
+var subtreeContainerCache sync.Map // protoreflect.MessageDescriptor → bool
+
+// subtreeHasContainer 判断 md 子树内（含自身层级）是否存在 repeated/map 字段。
+// 递归清理清的只有容器字段，纯标量子树的递归是确定性 no-op，整段免走。
+// 自环/环上的重入按 false 截断：环上节点若有容器字段，必在某层的直接迭代中
+// 被检查到，重入截断不漏判。
+func subtreeHasContainer(md protoreflect.MessageDescriptor) bool {
+	if v, ok := subtreeContainerCache.Load(md); ok {
+		return v.(bool)
+	}
+	res := computeSubtreeHasContainer(md, map[protoreflect.MessageDescriptor]bool{md: true})
+	subtreeContainerCache.Store(md, res)
+	return res
+}
+
+func computeSubtreeHasContainer(md protoreflect.MessageDescriptor, inProgress map[protoreflect.MessageDescriptor]bool) bool {
+	fields := md.Fields()
+	for i := 0; i < fields.Len(); i++ {
+		fd := fields.Get(i)
+		if fd.IsList() || fd.IsMap() {
+			return true
+		}
+		if fd.Kind() == protoreflect.MessageKind && !inProgress[fd.Message()] {
+			inProgress[fd.Message()] = true
+			if computeSubtreeHasContainer(fd.Message(), inProgress) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // lookupCanonical 按候选键名在 map 中查找（不区分 "-" 与 "_" 的差异）。只读：
