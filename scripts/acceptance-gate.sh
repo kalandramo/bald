@@ -272,17 +272,23 @@ while IFS=$(printf '\t') read -r in_ci dir pkg regex tags; do
   tagargs=()
   [ -n "${tags:-}" ] && tagargs=(-tags "$tags")
 
+  # 清理一律 `rm -f -- "$log" 2>/dev/null || true`：本脚本是 `set -euo pipefail`，
+  # 任何一次清理失败都会**当场终止整轮验收**，报出来的却是一条与判据无关的 rm 错误
+  # ——这就是「假红」。成因：Git Bash 的 mktemp 返回 `C:\Users\...\Temp/tmp.xxx` 这种
+  # 带盘符的混合路径，被包装过的 rm（CI 沙箱的 safe-delete shim）以
+  # `embedded drive prefix is not allowed` 拒绝（2026-11-12 门禁核查时复现）。
+  # 临时文件删不掉不影响判据结论，所以不该由它决定整轮验收的成败。
   log=$(mktemp)
   # 1) 清单：正则当前命中哪些顶层测试。空清单 = 名字漂了，闸门必须响。
   if ! (cd "$dir" && go test -list "$regex" ${tagargs[@]+"${tagargs[@]}"} "$pkg") >"$log" 2>&1; then
     echo "::error::go test -list 失败（$dir ${pkg}）"
     cat "$log"
     fail=$((fail + 1))
-    rm -f "$log"
+    rm -f -- "$log" 2>/dev/null || true
     continue
   fi
   names=$(grep -E '^Test[A-Za-z0-9_]+$' "$log" | sort -u || true)
-  rm -f "$log"
+  rm -f -- "$log" 2>/dev/null || true
   if [ -z "$names" ]; then
     echo "::error::-run 正则在 $dir $pkg 命中 0 个测试——用例改名或被删时 -run 照样返回 0，这正是本闸门存在的理由"
     fail=$((fail + 1))
@@ -297,7 +303,7 @@ while IFS=$(printf '\t') read -r in_ci dir pkg regex tags; do
     # 打原文而不是挑行：t.Fatalf 的清单缩进在两空格，按 `^--- ` 过滤会把根因整段吞掉。
     tail -40 "$log"
     fail=$((fail + 1))
-    rm -f "$log"
+    rm -f -- "$log" 2>/dev/null || true
     continue
   fi
   for name in $names; do
@@ -310,7 +316,7 @@ while IFS=$(printf '\t') read -r in_ci dir pkg regex tags; do
       fail=$((fail + 1))
     fi
   done
-  rm -f "$log"
+  rm -f -- "$log" 2>/dev/null || true
 done <<EOF
 $(rows)
 EOF

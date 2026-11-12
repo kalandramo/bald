@@ -14,7 +14,15 @@ set -e
 root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$root"
 
-list=$(find . -name go.mod -not -path "./.git/*" -not -path "./_example*" | xargs -n1 dirname | sort)
+# 派生失败必须响：`find | xargs | sort` 的退出码取的是管道最后一个命令（sort），
+# xargs 半途死掉（本机实测过 `xargs: cannot fork: Resource temporarily unavailable`）
+# 时清单会**静默变短**，而下游闸门只判「非空」——覆盖率缩水仍然全绿。
+# 所以把 xargs 放在管道末尾（其退出码即整个替换的退出码），sort 单独一步。
+raw=$(find . -name go.mod -not -path "./.git/*" -not -path "./_example*" | xargs -n1 dirname) || {
+  echo "list-modules: find/xargs 失败——清单可能被截断，下游会按缩水的覆盖跑绿" >&2
+  exit 1
+}
+list=$(printf '%s\n' "$raw" | sort)
 
 if [ -z "$list" ]; then
   echo "list-modules: 在 $root 下未派生出任何 module，清单不可用" >&2
