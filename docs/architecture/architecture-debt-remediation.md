@@ -61,10 +61,7 @@ socketio/mqtt/pulsar/activemq/azuresb/nsq/sqs/nats/machinery/hptimer/udp/webtran
 证据：bash 内实现带缓存的逐行读源文件（is_excl），三模式交织。修正：抽 Go 工具
 （tools/coverage-merge），可测试、docscheck 同款基建。代价：0.5–1 人日。挂账。
 
-### ADR-8 📌 `pkg/appkit` 引擎单体（bootstrap.go 1022 / appkit.go 980 / 41 文件）
-
-修正：四域拆分（装配计划 / 运行引擎 / 段覆盖 / 诊断），从 segment_coverage 与 doctor
-出血最少处起步。代价：3–5 人日。立项。
+### ADR-8 🔧 `pkg/appkit` 引擎单体（bootstrap.go 1022 / appkit.go 980 / 41 文件）——第一阶段已拆（hotreload.go 149 行 + cleanup_slots.go 98 行，bootstrap 降至 801；同包零 API 变化，-race 绿）。余量：assemble 主函数（358 行）与 Run 引擎拆分，独立时间块继续。
 
 ### ADR-9 📌 Taskfile（555 行）与 CI 双源
 
