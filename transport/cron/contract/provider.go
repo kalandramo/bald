@@ -74,10 +74,3 @@ func (p appProvider) Build(ctx context.Context, s appkit.ApplyScope, _ appkit.No
 	}
 	return srv, appkit.CleanupFrom(cleanup), nil
 }
-
-func appkit.CleanupFrom(cleanup func()) appkit.Cleanup {
-	if cleanup == nil {
-		return nil
-	}
-	return func(context.Context) error { cleanup(); return nil }
-}
