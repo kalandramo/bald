@@ -400,7 +400,7 @@ func (q *gormQuery[T]) applyWhere(where *store.Where) *gorm.DB {
 	if fe := where.Expr; fe != nil {
 		sql, args, err := q.buildExpr(fe)
 		if err != nil {
-			tx.AddError(err)
+			_ = tx.AddError(err)
 			return tx
 		}
 		tx = tx.Where("("+sql+")", args...)
@@ -536,7 +536,7 @@ func condSQL(meta *modelMeta, c *storev1.FilterCondition) (string, []any, error)
 func (q *gormQuery[T]) applyFilter(tx *gorm.DB, c *storev1.FilterCondition) *gorm.DB {
 	sql, args, err := condSQL(q.meta, c)
 	if err != nil {
-		tx.AddError(err)
+		_ = tx.AddError(err)
 		return tx
 	}
 	if len(args) == 0 {
@@ -551,7 +551,7 @@ func (q *gormQuery[T]) applySorting(tx *gorm.DB, sorting []*storev1.Sorting) *go
 	for _, s := range sorting {
 		col, err := q.meta.column(s.GetField())
 		if err != nil {
-			tx.AddError(err)
+			_ = tx.AddError(err)
 			return tx
 		}
 		dir := "ASC"
