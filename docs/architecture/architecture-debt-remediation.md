@@ -56,7 +56,7 @@ socketio/mqtt/pulsar/activemq/azuresb/nsq/sqs/nats/machinery/hptimer/udp/webtran
 （reserved 不复用，bconf-r02）——breaking，留给下一个大版本。代价：近期 1 人日 /
 远期 0.5 人日 + 发版一轮。
 
-### ADR-7 📌 `coverage.sh` 的 awk 合并器（getline 文件读取器）
+### ADR-7 ✅ `coverage.sh` 的 awk 合并器（getline 文件读取器）——已修（tools/coverage-merge，同输入对照一致，CLI 接口不变）
 
 证据：bash 内实现带缓存的逐行读源文件（is_excl），三模式交织。修正：抽 Go 工具
 （tools/coverage-merge），可测试、docscheck 同款基建。代价：0.5–1 人日。挂账。
@@ -117,6 +117,10 @@ DX-21 只修了安装节。修正：guide 全量走查一次（正文命令流 +
 - `pkg/` 模块无名之实：改名是全仓 import 地震，**永久挂账不修**（代价 >> 收益），
   判据卡里加一行"pkg 是历史名，新聚合勿再入内"。
 
+> **race 挂死破案（2026-11-12，已修）**：mcp/tcp/webrtc 整包 -race 超时的根因是
+> "blocks on signal" 型手工测试只有 `testing.Short()` 单门——非 -short 全量跑必撞
+> 常驻监听。已升级双门（`BALD_MANUAL_TESTS=1` 才跑），三包 -race 全绿。
+>
 > **批 2/4 实施记录（2026-11-12）**：ADR-6 近期段、ADR-10/11/13/14、ADR-16、ADR-18
 > 全部落地。**保持立项**：ADR-7（coverage.sh Go 化）、ADR-8（appkit 四域拆分）、
 > ADR-9（Taskfile-CI 双源）、ADR-15（devel 过程叙事下沉）——多人日大项，独立会话
