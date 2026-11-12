@@ -315,13 +315,23 @@ func lookupCanonical(m map[string]any, matched []bool, idx int, chainUsed *map[s
 			return v, true
 		}
 	}
-	// 平级折叠匹配。源键外层、候选内层：ReplaceAll(源键) 只算一次。任一源键
-	// 至多折叠匹配一个候选名（跨字段折叠键不重合由 TestContractFoldShapeInvariant
-	// 钉死；同字段两候选折叠形相同仅当候选串本身相同），遍历顺序不改变命中结果。
+	// 平级折叠匹配。源键外层、候选内层，两侧 '-' 折叠各算一次（候选名折叠形
+	// 对本调用不变，提到键循环外；定长栈缓冲承接变参候选，不逃逸零分配）。
+	// 任一源键至多折叠匹配一个候选名（跨字段折叠键不重合由
+	// TestContractFoldShapeInvariant 钉死；同字段两候选折叠形相同仅当候选串
+	// 本身相同），遍历顺序不改变命中结果。
+	var fnBuf [4]string
+	foldedNames := fnBuf[:0]
+	if len(names) > len(fnBuf) {
+		foldedNames = make([]string, 0, len(names)) //cov:excl 调用点恒传 2 个候选（proto 名 + JSON name），超长分支不可达，防御性保留
+	}
+	for _, n := range names {
+		foldedNames = append(foldedNames, strings.ReplaceAll(n, "-", "_"))
+	}
 	for key, v := range m {
 		folded := strings.ReplaceAll(key, "-", "_")
-		for _, n := range names {
-			if strings.EqualFold(folded, strings.ReplaceAll(n, "-", "_")) {
+		for _, n := range foldedNames {
+			if strings.EqualFold(folded, n) {
 				matched[idx] = true
 				return v, true
 			}
