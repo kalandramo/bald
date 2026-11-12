@@ -4,13 +4,14 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
-	"log"
+	"fmt"
 	"net"
 	"net/url"
 	"sync"
 	"time"
 
 	"github.com/kalandramo/bald/encoding"
+	"github.com/kalandramo/bald/log"
 	"github.com/kalandramo/bald/metrics"
 
 	"go.opentelemetry.io/otel/trace"
@@ -76,11 +77,11 @@ func (c *Client) Connect() error {
 		return errors.New("endpoint is nil")
 	}
 
-	log.Printf("[tcp] connecting to %s", c.endpoint.String())
+	log.Info(context.Background(), "tcp connecting", "endpoint", c.endpoint.String())
 
 	conn, err := net.Dial("tcp", c.endpoint.String())
 	if err != nil {
-		log.Printf("[tcp] cant connect to server: %s", err)
+		log.Error(context.Background(), "tcp connect to server failed", "error", err)
 		return err
 	}
 
@@ -114,7 +115,7 @@ func (c *Client) Disconnect() {
 		return
 	}
 	if err := conn.Close(); err != nil {
-		log.Printf("[tcp] disconnect error: %s", err)
+		log.Error(context.Background(), "tcp disconnect failed", "error", err)
 	}
 }
 
@@ -133,7 +134,7 @@ func RegisterClientMessageHandler[T any](cli *Client, messageType NetMessageType
 			case *T:
 				return handler(t)
 			default:
-				log.Printf("[tcp] invalid payload struct type: %T", t)
+				log.Error(context.Background(), "tcp invalid payload struct type", "type", fmt.Sprintf("%T", t))
 				return errors.New("invalid payload struct type")
 			}
 		},
@@ -208,7 +209,7 @@ func (c *Client) run(conn net.Conn) {
 	defer func() {
 		if c.release(conn) {
 			if err := conn.Close(); err != nil {
-				log.Printf("[tcp] disconnect error: %s", err)
+				log.Error(context.Background(), "tcp disconnect failed", "error", err)
 			}
 		}
 	}()
@@ -218,20 +219,20 @@ func (c *Client) run(conn net.Conn) {
 	for {
 		readLen, err := conn.Read(buf)
 		if err != nil {
-			log.Printf("[tcp] read message error: %v", err)
+			log.Error(context.Background(), "tcp read message failed", "error", err)
 			return
 		}
 
 		if c.rawMessageHandler != nil {
 			if err := c.rawMessageHandler(buf[:readLen]); err != nil {
-				log.Printf("[tcp] raw data handler exception: %s", err)
+				log.Error(context.Background(), "tcp raw data handler exception", "error", err)
 				continue
 			}
 			continue
 		}
 
 		if err = c.messageHandler(buf[:readLen]); err != nil {
-			log.Printf("[tcp] process message error: %v", err)
+			log.Error(context.Background(), "tcp process message failed", "error", err)
 		}
 
 		if c.m != nil {
@@ -246,13 +247,13 @@ func (c *Client) messageHandler(buf []byte) error {
 	var msg NetPacket
 	msg.Order = c.byteOrder
 	if err := msg.Unmarshal(buf); err != nil {
-		log.Printf("[tcp] decode message exception: %s", err)
+		log.Error(context.Background(), "tcp decode message exception", "error", err)
 		return err
 	}
 
 	handlerData, ok := c.messageHandlers[msg.Type]
 	if !ok {
-		log.Printf("[tcp] message type not found: %d", msg.Type)
+		log.Warn(context.Background(), "tcp message type not found", "type", msg.Type)
 		return errors.New("message handler not found")
 	}
 
@@ -265,7 +266,7 @@ func (c *Client) messageHandler(buf []byte) error {
 			return errors.New("codec is nil (nothing registered); register one via encoding.MustRegister, e.g. encoding.MustRegister(json.New())")
 		}
 		if err := c.codec.Unmarshal(msg.Payload, payload); err != nil {
-			log.Printf("[tcp] unmarshal message exception: %s", err)
+			log.Error(context.Background(), "tcp unmarshal message exception", "error", err)
 			return err
 		}
 	} else {
@@ -273,7 +274,7 @@ func (c *Client) messageHandler(buf []byte) error {
 	}
 
 	if err := handlerData.Handler(payload); err != nil {
-		log.Printf("[tcp] message handler exception: %s", err)
+		log.Error(context.Background(), "tcp message handler exception", "error", err)
 		return err
 	}
 

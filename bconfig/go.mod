@@ -7,6 +7,7 @@ require (
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/hashicorp/consul/api v1.34.4
 	github.com/hashicorp/vault/api v1.23.0
+	github.com/kalandramo/bald/log v0.6.0
 	github.com/nacos-group/nacos-sdk-go/v2 v2.3.5
 	go.etcd.io/etcd/client/v3 v3.7.1
 	k8s.io/api v0.37.0

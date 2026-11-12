@@ -34,7 +34,6 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	"log"
 	"net"
 	"net/http"
 	"sync"
@@ -42,6 +41,7 @@ import (
 	ws "github.com/gorilla/websocket"
 
 	"github.com/kalandramo/bald/encoding"
+	"github.com/kalandramo/bald/log"
 	"github.com/kalandramo/bald/transport"
 )
 
@@ -327,7 +327,7 @@ func (s *Server) SendMessage(sessionId SessionID, messageType NetMessageType, me
 func (s *Server) Broadcast(messageType NetMessageType, message MessagePayload) {
 	buf, err := s.marshalMessage(messageType, message)
 	if err != nil {
-		log.Printf("[websocket] broadcast marshal error: %v", err)
+		log.Error(context.Background(), "websocket broadcast marshal failed", "error", err)
 		return
 	}
 
@@ -389,7 +389,7 @@ func (s *Server) wsHandler(res http.ResponseWriter, req *http.Request) {
 
 	conn, err := upgrader.Upgrade(res, req, nil)
 	if err != nil {
-		log.Printf("[websocket] upgrade exception: %v", err)
+		log.Error(context.Background(), "websocket upgrade exception", "error", err)
 		return
 	}
 

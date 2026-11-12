@@ -36,7 +36,6 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	"log"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -44,6 +43,7 @@ import (
 	"github.com/hibiken/asynq"
 
 	"github.com/kalandramo/bald/encoding"
+	"github.com/kalandramo/bald/log"
 	"github.com/kalandramo/bald/transport"
 )
 
@@ -161,12 +161,12 @@ func defaultErrorHandler(_ context.Context, task *asynq.Task, err error) {
 	}
 	if errors.Is(err, asynq.ErrHandlerNotFound) {
 		// 最高价值的告警：注册了任务却无人消费（错误可排查性最低的场景）。
-		log.Printf("[asynq] WARN: no handler registered for task type %q — the task will NOT be processed "+
-			"(register one via RegisterSubscriber / RegisterSubscriberWithCtx)", typeName)
+		log.Warn(context.Background(), "asynq no handler registered for task type, task will NOT be processed",
+			"type", typeName, "hint", "register one via RegisterSubscriber / RegisterSubscriberWithCtx")
 		return
 	}
 	if err != nil {
-		log.Printf("[asynq] task %q processing error: %v", typeName, err)
+		log.Error(context.Background(), "asynq task processing failed", "error", err, "type", typeName)
 	}
 }
 
@@ -178,13 +178,13 @@ func (s *Server) init(opts ...Option) {
 	s.applyRedisOptions()
 
 	if err := s.createAsynqServer(); err != nil {
-		log.Printf("[asynq] create server failed: %v", err)
+		log.Error(context.Background(), "asynq create server failed", "error", err)
 	}
 	if err := s.createAsynqClient(); err != nil {
-		log.Printf("[asynq] create client failed: %v", err)
+		log.Error(context.Background(), "asynq create client failed", "error", err)
 	}
 	if err := s.createAsynqScheduler(); err != nil {
-		log.Printf("[asynq] create scheduler failed: %v", err)
+		log.Error(context.Background(), "asynq create scheduler failed", "error", err)
 	}
 }
 
@@ -355,7 +355,7 @@ func (s *Server) Start(ctx context.Context) error {
 			s.mu.Unlock()
 			return fmt.Errorf("asynq scheduler start failed: %w", err)
 		}
-		log.Println("[asynq] scheduler started")
+		log.Info(ctx, "asynq scheduler started")
 	}
 
 	// 启动消费者服务器（非阻塞 goroutine）
@@ -363,11 +363,11 @@ func (s *Server) Start(ctx context.Context) error {
 		go func() {
 			if err := s.server.Run(s.mux); err != nil {
 				if s.started.Load() {
-					log.Printf("[asynq] server run error: %v", err)
+					log.Error(ctx, "asynq server run failed", "error", err)
 				}
 			}
 		}()
-		log.Println("[asynq] server started")
+		log.Info(ctx, "asynq server started")
 	}
 	s.mu.Unlock()
 
@@ -444,9 +444,9 @@ func (s *Server) stopInternal(ctx context.Context) error {
 		}()
 		select {
 		case <-done:
-			log.Println("[asynq] scheduler stopped")
+			log.Info(ctx, "asynq scheduler stopped")
 		case <-ctx.Done():
-			log.Println("[asynq] scheduler shutdown timeout, abandoned")
+			log.Warn(ctx, "asynq scheduler shutdown timeout, abandoned")
 		}
 	}
 
@@ -460,21 +460,21 @@ func (s *Server) stopInternal(ctx context.Context) error {
 			}()
 			select {
 			case <-done:
-				log.Println("[asynq] server gracefully stopped")
+				log.Info(ctx, "asynq server gracefully stopped")
 			case <-ctx.Done():
-				log.Println("[asynq] graceful shutdown timeout, force stopping")
+				log.Warn(ctx, "asynq graceful shutdown timeout, force stopping")
 				s.server.Stop()
 			}
 		} else {
 			s.server.Stop()
-			log.Println("[asynq] server force stopped")
+			log.Info(ctx, "asynq server force stopped")
 		}
 	}
 
 	// 4. 关闭客户端
 	if s.client != nil {
 		if err := s.client.Close(); err != nil {
-			log.Printf("[asynq] client close failed: %v", err)
+			log.Error(ctx, "asynq client close failed", "error", err)
 			stopErr = err
 		}
 	}
@@ -482,7 +482,7 @@ func (s *Server) stopInternal(ctx context.Context) error {
 	// 5. 关闭巡检器
 	if s.inspector != nil {
 		if err := s.inspector.Close(); err != nil {
-			log.Printf("[asynq] inspector close failed: %v", err)
+			log.Error(ctx, "asynq inspector close failed", "error", err)
 			stopErr = err
 		}
 	}
@@ -530,7 +530,7 @@ func (s *Server) RegisterSubscriber(taskType string, handler MessageHandler, cre
 				return errors.New("codec is nil (nothing registered); register one via encoding.MustRegister, e.g. encoding.MustRegister(json.New())")
 			}
 			if err := s.codec.Unmarshal(task.Payload(), payload); err != nil {
-				log.Printf("[asynq] unmarshal payload failed: %v", err)
+				log.Error(ctx, "asynq unmarshal payload failed", "error", err)
 				return err
 			}
 		} else {
@@ -538,7 +538,7 @@ func (s *Server) RegisterSubscriber(taskType string, handler MessageHandler, cre
 		}
 
 		if err := handler(task.Type(), payload); err != nil {
-			log.Printf("[asynq] handler error: %v", err)
+			log.Error(ctx, "asynq handler failed", "error", err)
 			return err
 		}
 		return nil
@@ -586,7 +586,7 @@ func (s *Server) RegisterSubscriberWithCtx(
 				return errors.New("codec is nil (nothing registered); register one via encoding.MustRegister, e.g. encoding.MustRegister(json.New())")
 			}
 			if err := s.codec.Unmarshal(task.Payload(), payload); err != nil {
-				log.Printf("[asynq] unmarshal payload failed: %v", err)
+				log.Error(ctx, "asynq unmarshal payload failed", "error", err)
 				return err
 			}
 		} else {
@@ -594,7 +594,7 @@ func (s *Server) RegisterSubscriberWithCtx(
 		}
 
 		if err := handler(ctx, task.Type(), payload); err != nil {
-			log.Printf("[asynq] handler error: %v", err)
+			log.Error(ctx, "asynq handler failed", "error", err)
 			return err
 		}
 		return nil
@@ -681,7 +681,7 @@ func (s *Server) NewTask(typeName string, msg any, opts ...asynq.Option) error {
 		return fmt.Errorf("[%s] enqueue failed: %w", typeName, err)
 	}
 
-	log.Printf("[asynq] [%s] enqueued task: id=%s queue=%s", typeName, taskInfo.ID, taskInfo.Queue)
+	log.Info(context.Background(), "asynq task enqueued", "type", typeName, "id", taskInfo.ID, "queue", taskInfo.Queue)
 	return nil
 }
 
@@ -732,7 +732,7 @@ func (s *Server) NewWaitResultTaskWithContext(ctx context.Context, typeName stri
 		return fmt.Errorf("[%s] wait result failed: %w", typeName, err)
 	}
 
-	log.Printf("[asynq] [%s] task completed: id=%s queue=%s", typeName, taskInfo.ID, taskInfo.Queue)
+	log.Info(ctx, "asynq task completed", "type", typeName, "id", taskInfo.ID, "queue", taskInfo.Queue)
 	return nil
 }
 
@@ -776,7 +776,7 @@ func (s *Server) NewPeriodicTask(cronSpec, typeName string, msg any, opts ...asy
 	}
 
 	s.addPeriodicTaskEntryID(typeName, entryID)
-	log.Printf("[asynq] [%s] registered periodic entry: id=%q", typeName, entryID)
+	log.Info(context.Background(), "asynq periodic entry registered", "type", typeName, "id", entryID)
 
 	return entryID, nil
 }
@@ -836,7 +836,7 @@ func (s *Server) removeAllPeriodicTaskInternal(ctx context.Context) {
 
 	for _, v := range ids {
 		if ctx.Err() != nil {
-			log.Println("[asynq] periodic task cleanup aborted: context done")
+			log.Warn(ctx, "asynq periodic task cleanup aborted, context done")
 			return
 		}
 		_ = s.unregisterPeriodicTask(v)

@@ -1,8 +1,10 @@
 package apollo
 
 import (
-	"log"
+	"context"
 	"strings"
+
+	"github.com/kalandramo/bald/log"
 )
 
 const (
@@ -55,7 +57,7 @@ func resolve(key string, value any, target map[string]any) {
 
 		// 已存在且非 map：重复键冲突，保留先到者。
 		if cursor, ok = v.(map[string]any); !ok {
-			log.Printf("apollo: duplicate key: %v", strings.Join(keys[:i+1], "."))
+			log.Warn(context.Background(), "apollo duplicate key, keeping first", "key", strings.Join(keys[:i+1], "."))
 			break
 		}
 	}

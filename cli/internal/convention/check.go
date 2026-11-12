@@ -98,7 +98,9 @@ var slogCalls = []string{"slog.Info(", "slog.Warn(", "slog.Error(", "slog.Debug(
 // loggingExemptPrefixes 是 logging-stdlib 的职责豁免目录：log/ 是契约层的
 // 实现本体（import slog/log 是本职），cobramcp/ 是独立零依赖 CLI 库（不依赖
 // bald/log，其日志面由自身治理）。
-var loggingExemptPrefixes = []string{"log/", "cobramcp/"}
+// contrib/observability-otlp 也在豁免表——它是可观测后端实现（对外暴露
+// slog Handler 适配面，与 log/ 实现层同职责）。
+var loggingExemptPrefixes = []string{"log/", "cobramcp/", "contrib/observability-otlp/"}
 
 // checkLoggingStdlib 钉 logging-r01 的可判定面：业务代码的**日志调用**走
 // bald/log 契约层（包级函数 log.Info/Warn/Error(ctx, msg, kv...)），标准库

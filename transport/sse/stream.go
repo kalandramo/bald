@@ -1,11 +1,13 @@
 package sse
 
 import (
-	"log"
+	"context"
 	"net/http"
 	"net/url"
 	"sync"
 	"sync/atomic"
+
+	"github.com/kalandramo/bald/log"
 )
 
 // StreamID uniquely identifies an SSE stream.
@@ -112,7 +114,7 @@ func (s *Stream) dispatch(event *Event) {
 			i++
 			continue
 		}
-		log.Printf("[sse] stream %q: disconnect slow subscriber (send buffer full)", s.id)
+		log.Warn(context.Background(), "sse disconnect slow subscriber, send buffer full", "stream", s.id)
 		s.removeSubscriber(i)
 		if s.onUnsubscribe != nil {
 			go s.onUnsubscribe(s.id, sub)
@@ -124,14 +126,14 @@ func (s *Stream) dispatch(event *Event) {
 // 避免回放期间卡住事件循环。
 func (s *Stream) replay(sub *Subscriber) {
 	if s.eventLog.TruncatedBefore(sub.eventId) {
-		log.Printf("[sse] stream %q: replay gap, Last-Event-ID %q predates retained events (oldest %q)",
-			s.id, sub.eventId, string(s.eventLog[0].ID))
+		log.Warn(context.Background(), "sse replay gap, Last-Event-ID predates retained events",
+			"stream", s.id, "last_event_id", sub.eventId, "oldest", string(s.eventLog[0].ID))
 	}
 	for _, ev := range s.eventLog.Since(sub.eventId) {
 		if s.trySend(sub, ev) {
 			continue
 		}
-		log.Printf("[sse] stream %q: disconnect slow subscriber during replay (send buffer full)", s.id)
+		log.Warn(context.Background(), "sse disconnect slow subscriber during replay, send buffer full", "stream", s.id)
 		if i := s.getSubIndex(sub); i != -1 {
 			s.removeSubscriber(i)
 		}

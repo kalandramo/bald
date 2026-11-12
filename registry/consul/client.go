@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"log"
 
+	"github.com/kalandramo/bald/log"
 	registry "github.com/kalandramo/bald/registry"
 
 	"github.com/hashicorp/consul/api"
@@ -216,7 +216,7 @@ func (c *Client) Register(_ context.Context, svc *registry.ServiceInstance, enab
 			case <-time.After(time.Second):
 			}
 			if herr := c.cli.Agent().UpdateTTL("service:"+svc.ID, "pass", "pass"); herr != nil {
-				log.Printf("[Consul] update ttl heartbeat to consul failed! err=%v", herr)
+				log.Error(context.Background(), "consul ttl heartbeat failed", "error", herr)
 			}
 
 			ticker := time.NewTicker(time.Second * time.Duration(c.healthcheckInterval))
@@ -231,7 +231,7 @@ func (c *Client) Register(_ context.Context, svc *registry.ServiceInstance, enab
 					if herr == nil {
 						continue
 					}
-					log.Printf("[Consul] update ttl heartbeat to consul failed! err=%v", herr)
+					log.Error(context.Background(), "consul ttl heartbeat failed", "error", herr)
 					// when the previous report fails, try to re register the service
 					select {
 					case <-hbCtx.Done():
@@ -240,9 +240,9 @@ func (c *Client) Register(_ context.Context, svc *registry.ServiceInstance, enab
 					case <-time.After(time.Duration(rand.Intn(5)) * time.Second):
 					}
 					if rerr := c.cli.Agent().ServiceRegister(asr); rerr != nil {
-						log.Printf("[Consul] re registry service failed! err=%v", rerr)
+						log.Error(context.Background(), "consul re-registry service failed", "error", rerr)
 					} else {
-						log.Printf("[Consul] re registry of service occurred success")
+						log.Info(context.Background(), "consul service re-registered")
 					}
 				}
 			}

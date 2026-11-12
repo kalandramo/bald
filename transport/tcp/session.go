@@ -1,10 +1,11 @@
 package tcp
 
 import (
-	"log"
+	"context"
 	"net"
 	"sync"
 
+	"github.com/kalandramo/bald/log"
 	"github.com/kalandramo/bald/pkg/id"
 )
 
@@ -101,7 +102,7 @@ func (s *Session) closeConnect() {
 
 	if conn != nil {
 		if err := conn.Close(); err != nil {
-			log.Printf("[tcp] disconnect error: %s", err)
+			log.Error(context.Background(), "tcp disconnect failed", "error", err)
 		}
 	}
 }
@@ -126,7 +127,7 @@ func (s *Session) writePump() {
 					return
 				default:
 				}
-				log.Printf("[tcp] write message error: %v", err)
+				log.Error(context.Background(), "tcp write message failed", "error", err)
 				return
 			}
 		}
@@ -158,7 +159,7 @@ func (s *Session) readPump() {
 				return
 			default:
 			}
-			log.Printf("[tcp] read message error: %v", err)
+			log.Error(context.Background(), "tcp read message failed", "error", err)
 			return
 		}
 
@@ -167,7 +168,7 @@ func (s *Session) readPump() {
 		}
 
 		if err = s.hooks.handleSocketRawData(s.SessionID(), buf[:readLen]); err != nil {
-			log.Printf("[tcp] process message error: %v", err)
+			log.Error(context.Background(), "tcp process message failed", "error", err)
 		}
 	}
 }

@@ -3,13 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"net/url"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"github.com/kalandramo/bald/log"
 	"github.com/kalandramo/bald/transport/webrtc"
 	pionwebrtc "github.com/pion/webrtc/v4"
 )
@@ -50,7 +50,7 @@ func main() {
 		},
 		PayloadType: 96,
 	}, pionwebrtc.RTPCodecTypeVideo); err != nil {
-		log.Printf("register H264 codec error: %s", err)
+		log.Error(context.Background(), "register H264 codec failed", "error", err)
 	}
 
 	if err := mediaEngine.RegisterCodec(pionwebrtc.RTPCodecParameters{
@@ -63,7 +63,7 @@ func main() {
 		},
 		PayloadType: 96,
 	}, pionwebrtc.RTPCodecTypeVideo); err != nil {
-		log.Printf("register VP8 codec error: %s", err)
+		log.Error(context.Background(), "register VP8 codec failed", "error", err)
 	}
 
 	// 注册音频编解码器
@@ -77,7 +77,7 @@ func main() {
 		},
 		PayloadType: 111,
 	}, pionwebrtc.RTPCodecTypeAudio); err != nil {
-		log.Printf("register Opus codec error: %s", err)
+		log.Error(context.Background(), "register Opus codec failed", "error", err)
 	}
 
 	api := pionwebrtc.NewAPI(
@@ -95,20 +95,21 @@ func main() {
 		webrtc.WithAllowAnyDataChannelLabel(true),
 		webrtc.WithSocketConnectHandler(func(sessionId webrtc.SessionID, queries url.Values, connect bool) {
 			if connect {
-				log.Printf("Client connected: %s", sessionId)
+				log.Info(context.Background(), "webrtc client connected", "session", sessionId)
 			} else {
-				log.Printf("Client disconnected: %s", sessionId)
+				log.Info(context.Background(), "webrtc client disconnected", "session", sessionId)
 			}
 		}),
 	)
 
 	if server == nil {
-		log.Fatal("failed to create server")
+		log.Error(context.Background(), "failed to create server")
+		os.Exit(1)
 	}
 
 	// 注册消息处理器（用于数据通道信令）
 	webrtc.RegisterServerMessageHandler(server, 1, func(sessionId webrtc.SessionID, msg *TestMessage) error {
-		log.Printf("Received message from %s: %+v", sessionId, msg)
+		log.Info(context.Background(), "webrtc message received", "session", sessionId, "msg", msg)
 
 		// 广播消息给所有客户端
 		server.Broadcast(1, msg)
@@ -122,30 +123,31 @@ func main() {
 
 	go func() {
 		if err := server.Start(ctx); err != nil {
-			log.Fatalf("server error: %s", err)
+			log.Error(context.Background(), "webrtc server error", "error", err)
+			os.Exit(1)
 		}
 	}()
 
-	log.Println("WebRTC SFU server started on :9999")
-	log.Println("Signal endpoint: http://localhost:9999/signal")
-	log.Println("Press Ctrl+C to stop")
+	log.Info(context.Background(), "webrtc SFU server started", "addr", ":9999")
+	log.Info(context.Background(), "webrtc signal endpoint", "url", "http://localhost:9999/signal")
+	log.Info(context.Background(), "press Ctrl+C to stop")
 
 	// 等待中断信号
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	<-sigChan
 
-	log.Println("Shutting down server...")
+	log.Info(context.Background(), "webrtc server shutting down")
 
 	// 优雅关闭
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer shutdownCancel()
 
 	if err := server.Stop(shutdownCtx); err != nil {
-		log.Printf("server stop error: %s", err)
+		log.Error(context.Background(), "webrtc server stop failed", "error", err)
 	}
 
-	log.Println("Server stopped")
+	log.Info(context.Background(), "webrtc server stopped")
 }
 
 // TestMessage 测试消息结构

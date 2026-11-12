@@ -23,15 +23,27 @@ package cron
 import (
 	"context"
 	"fmt"
-	"log"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/robfig/cron/v3"
 
+	"github.com/kalandramo/bald/log"
 	"github.com/kalandramo/bald/transport"
 )
+
+// cronLogger 把 robfig/cron 的 Logger 接口桥接到 bald/log 契约层——cron 库的
+// Recover/跳过日志经它统一进契约通道（第三方库日志接口适配，非 stdlib 直打）。
+type cronLogger struct{}
+
+func (cronLogger) Info(msg string, keysAndValues ...interface{}) {
+	log.Info(context.Background(), "cron "+msg, keysAndValues...)
+}
+
+func (cronLogger) Error(err error, msg string, keysAndValues ...interface{}) {
+	log.Error(context.Background(), "cron "+msg, append([]interface{}{"error", err}, keysAndValues...)...)
+}
 
 // KindCron 是 Cron 传输类型标识。
 const KindCron = "cron"
@@ -85,7 +97,7 @@ func NewServer(opts ...Option) *Server {
 	schedulerOpts := []cron.Option{
 		cron.WithParser(buildParser(o.seconds)),
 		cron.WithChain(
-			cron.Recover(cron.PrintfLogger(log.New(log.Writer(), "[cron] ", log.LstdFlags))),
+			cron.Recover(cronLogger{}),
 		),
 	}
 	if o.location != nil {
@@ -128,11 +140,11 @@ func (s *Server) Start(ctx context.Context) error {
 	default:
 	}
 
-	log.Println("[cron] scheduler starting...")
+	log.Info(ctx, "cron scheduler starting")
 	s.cronScheduler.Start()
 	s.started.Store(true)
 	s.mu.Unlock()
-	log.Printf("[cron] scheduler started, %d job(s) registered", s.GetJobCount())
+	log.Info(ctx, "cron scheduler started", "jobs", s.GetJobCount())
 
 	// 阻塞等待 ctx 取消
 	<-ctx.Done()
@@ -177,20 +189,20 @@ func (s *Server) stopInternal(ctx context.Context) error {
 		close(done)
 	}()
 
-	log.Println("[cron] scheduler stopping...")
+	log.Info(ctx, "cron scheduler stopping")
 
 	// Stop 会立即停止调度，并返回一个在运行中任务全部结束后取消的 ctx。
 	stopped := s.cronScheduler.Stop()
 	if !s.gracefullyShutdown {
-		log.Println("[cron] not waiting for running jobs")
+		log.Info(ctx, "cron not waiting for running jobs")
 		return nil
 	}
 
 	select {
 	case <-stopped.Done():
-		log.Println("[cron] all jobs stopped gracefully")
+		log.Info(ctx, "cron all jobs stopped gracefully")
 	case <-ctx.Done():
-		log.Println("[cron] shutdown timeout, running jobs abandoned")
+		log.Warn(ctx, "cron shutdown timeout, running jobs abandoned")
 	}
 
 	return nil
@@ -228,7 +240,7 @@ func (s *Server) NewTimerJob(spec string, cmd func()) (cron.EntryID, error) {
 	}
 
 	s.entryIDs.Store(entryID, spec)
-	log.Printf("[cron] job added: id=%d, spec=%s", entryID, spec)
+	log.Info(context.Background(), "cron job added", "id", entryID, "spec", spec)
 	return entryID, nil
 }
 
@@ -239,7 +251,7 @@ func (s *Server) RemoveTimerJob(entryID cron.EntryID) {
 
 	s.cronScheduler.Remove(entryID)
 	if spec, ok := s.entryIDs.LoadAndDelete(entryID); ok {
-		log.Printf("[cron] job removed: id=%d, spec=%s", entryID, spec)
+		log.Info(context.Background(), "cron job removed", "id", entryID, "spec", spec)
 	}
 }
 
@@ -258,7 +270,7 @@ func (s *Server) RemoveAllJobs() {
 	})
 
 	s.entryIDs = sync.Map{}
-	log.Printf("[cron] all jobs removed, total: %d", count)
+	log.Info(context.Background(), "cron all jobs removed", "total", count)
 }
 
 // GetJobCount 获取当前注册的任务数量。

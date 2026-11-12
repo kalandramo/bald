@@ -29,12 +29,12 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"log"
 	"net"
 	"sync"
 	"time"
 
 	"github.com/kalandramo/bald/encoding"
+	"github.com/kalandramo/bald/log"
 	"github.com/kalandramo/bald/metrics"
 	"github.com/kalandramo/bald/transport"
 
@@ -141,7 +141,7 @@ func (s *Server) Start(ctx context.Context) error {
 	s.running = true
 	s.stateMu.Unlock()
 
-	log.Printf("[tcp] server listening on: %s", lis.Addr().String())
+	log.Info(context.Background(), "tcp server listening", "addr", lis.Addr().String())
 
 	go s.doAccept()
 
@@ -160,7 +160,7 @@ func (s *Server) Start(ctx context.Context) error {
 	// 关闭全部已建会话：否则空闲连接（readPump 阻塞在 conn.Read）的
 	// goroutine 与 socket 在 Stop 后继续存活。
 	s.sessionManager.CloseAll()
-	log.Println("[tcp] server stopped")
+	log.Info(context.Background(), "tcp server stopped")
 	return nil
 }
 
@@ -181,7 +181,7 @@ func (s *Server) Stop(_ context.Context) error {
 	}
 	// 关闭全部已建会话（见 Start 内注释；与 Start 的退出路径对称）。
 	s.sessionManager.CloseAll()
-	log.Println("[tcp] server stopped")
+	log.Info(context.Background(), "tcp server stopped")
 	return err
 }
 
@@ -230,7 +230,7 @@ func RegisterServerMessageHandler[T any](srv *Server, messageType NetMessageType
 			case *T:
 				return handler(sessionId, t)
 			default:
-				log.Printf("[tcp] invalid payload struct type: %T", t)
+				log.Error(context.Background(), "tcp invalid payload struct type", "type", fmt.Sprintf("%T", t))
 				return errors.New("invalid payload struct type")
 			}
 		},
@@ -299,7 +299,7 @@ func (s *Server) SendMessage(sessionId SessionID, messageType NetMessageType, me
 func (s *Server) Broadcast(messageType NetMessageType, message NetMessagePayload) {
 	buf, err := s.marshalNetPacket(messageType, message)
 	if err != nil {
-		log.Printf("[tcp] marshal message exception: %v", err)
+		log.Error(context.Background(), "tcp marshal message exception", "error", err)
 		return
 	}
 
@@ -337,7 +337,7 @@ func (s *Server) defaultUnmarshalNetPacket(buf []byte) (handler *MessageHandlerD
 	var msg NetPacket
 	msg.Order = s.byteOrder
 	if err = msg.Unmarshal(buf); err != nil {
-		log.Printf("[tcp] decode message exception: %s", err)
+		log.Error(context.Background(), "tcp decode message exception", "error", err)
 		return
 	}
 
@@ -352,7 +352,7 @@ func (s *Server) defaultUnmarshalNetPacket(buf []byte) (handler *MessageHandlerD
 			return nil, nil, errors.New("codec is nil (nothing registered); register one via encoding.MustRegister, e.g. encoding.MustRegister(json.New())")
 		}
 		if err = s.codec.Unmarshal(msg.Payload, payload); err != nil {
-			log.Printf("[tcp] unmarshal message exception: %s", err)
+			log.Error(context.Background(), "tcp unmarshal message exception", "error", err)
 			return
 		}
 	}
@@ -380,7 +380,7 @@ func (s *Server) defaultHandleSocketRawData(sessionId SessionID, buf []byte) err
 
 	handler, payload, err := s.unmarshalNetPacket(buf)
 	if err != nil {
-		log.Printf("[tcp] unmarshal message failed: %s", err)
+		log.Error(context.Background(), "tcp unmarshal message failed", "error", err)
 		if span != nil {
 			span.SetStatus(codes.Error, err.Error())
 		}
@@ -391,7 +391,7 @@ func (s *Server) defaultHandleSocketRawData(sessionId SessionID, buf []byte) err
 	}
 
 	if err = handler.Handler(sessionId, payload); err != nil {
-		log.Printf("[tcp] message handler failed: %s", err)
+		log.Error(context.Background(), "tcp message handler failed", "error", err)
 		if span != nil {
 			span.SetStatus(codes.Error, err.Error())
 		}
@@ -432,7 +432,7 @@ func (s *Server) doAccept() {
 				return
 			}
 
-			log.Printf("[tcp] accept connection failed: %s", err)
+			log.Error(context.Background(), "tcp accept connection failed", "error", err)
 			continue
 		}
 

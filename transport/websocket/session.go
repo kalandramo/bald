@@ -1,7 +1,7 @@
 package websocket
 
 import (
-	"log"
+	"context"
 	"net/url"
 	"sync"
 	"time"
@@ -9,6 +9,7 @@ import (
 	ws "github.com/gorilla/websocket"
 
 	"github.com/google/uuid"
+	"github.com/kalandramo/bald/log"
 )
 
 // channelBufSize 是每个 session 发送通道的默认缓冲大小。
@@ -124,7 +125,7 @@ func (s *Session) closeConnect() {
 
 	if conn != nil {
 		if err := conn.Close(); err != nil {
-			log.Printf("[websocket] disconnect error: %s", err.Error())
+			log.Error(context.Background(), "websocket disconnect failed", "error", err.Error())
 		}
 	}
 }
@@ -175,13 +176,13 @@ func (s *Session) writePump() {
 			switch s.hooks.getPayloadType() {
 			case PayloadTypeBinary:
 				if err = s.sendBinaryMessage(msg); err != nil {
-					log.Printf("[websocket] write binary message error: %v", err)
+					log.Error(context.Background(), "websocket write binary message failed", "error", err)
 					return
 				}
 
 			case PayloadTypeText:
 				if err = s.sendTextMessage(string(msg)); err != nil {
-					log.Printf("[websocket] write text message error: %v", err)
+					log.Error(context.Background(), "websocket write text message failed", "error", err)
 					return
 				}
 			}
@@ -208,7 +209,7 @@ func (s *Session) readPump() {
 		messageType, data, err := conn.ReadMessage()
 		if err != nil {
 			if ws.IsUnexpectedCloseError(err, ws.CloseNormalClosure, ws.CloseGoingAway, ws.CloseAbnormalClosure) {
-				log.Printf("[websocket] read message error: %v", err)
+				log.Error(context.Background(), "websocket read message failed", "error", err)
 			}
 			return
 		}
@@ -227,7 +228,7 @@ func (s *Session) readPump() {
 
 		case ws.PingMessage: //cov:excl 同上，Ping 控制帧由库自动回 Pong，ReadMessage 永不返回 PingMessage
 			if err = s.sendPongMessage(""); err != nil { //cov:excl ping case 不可达
-				log.Printf("[websocket] write pong message error: %v", err) //cov:excl ping case 不可达
+				log.Error(context.Background(), "websocket write pong message failed", "error", err) //cov:excl ping case 不可达
 				return
 			}
 
