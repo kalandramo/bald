@@ -13,7 +13,6 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
-	"google.golang.org/protobuf/types/dynamicpb"
 )
 
 // durationName 与 durationFullName 用于识别 google.protobuf.Duration 字段。
@@ -174,7 +173,7 @@ func UnmarshalMap(m map[string]any, msg proto.Message) error {
 	// 原因是 env（AutomaticEnv）与 flag（pflag 的 *Var 系列）的值在 viper 里
 	// 可能是字符串或整数，而 protojson 是严格模式——"8080" 不会自动转成 int32，
 	// 纳秒整数也不会自动转成 Duration 的 "10s" 字符串，直接反序列化会报错。
-	if err := coerceMessage(msg.ProtoReflect(), settings); err != nil {
+	if err := coerceMessage(msg.ProtoReflect().Descriptor(), settings); err != nil {
 		return fmt.Errorf("bconf: coerce: %w", err)
 	}
 
@@ -256,10 +255,12 @@ func clearPresentLists(dst, src protoreflect.Message) {
 	}
 }
 
-// coerceMessage 按 msg 的字段描述符，把 map 中的值转换成 protojson 能接受的类型。
+// coerceMessage 按 message 描述符，把 map 中的值转换成 protojson 能接受的类型。
 // 只处理 map 中已存在的 key，缺失 key 不动（交给 proto 的零值/默认值体系）。
-func coerceMessage(msg protoreflect.Message, m map[string]any) error {
-	fields := msg.Descriptor().Fields()
+// 参数是描述符而非消息实例：类型规范化只需要字段元信息，传 MessageDescriptor
+// 免去每层 message 字段构造 dynamicpb 消息只为取 Descriptor 的分配。
+func coerceMessage(md protoreflect.MessageDescriptor, m map[string]any) error {
+	fields := md.Fields()
 	for i := 0; i < fields.Len(); i++ {
 		fd := fields.Get(i)
 
@@ -423,8 +424,7 @@ func coerceValue(fd protoreflect.FieldDescriptor, raw any) (any, error) {
 		if !ok {
 			return nil, fmt.Errorf("expect object for message field, got %T", raw)
 		}
-		// 用动态消息拿描述符即可，coerceMessage 只需要字段描述符做类型判断。
-		if err := coerceMessage(dynamicpb.NewMessage(fd.Message()), sub); err != nil {
+		if err := coerceMessage(fd.Message(), sub); err != nil {
 			return nil, err
 		}
 		return sub, nil
