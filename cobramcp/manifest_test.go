@@ -237,8 +237,8 @@ func TestRegisterManifestResource_Contract(t *testing.T) {
 	require.Equal(t, "list", entries[0].Name)
 }
 
-// startSSEClient 用模型自己的启动入口起服务，并连上一个已初始化的客户端。
-func startSSEClient(t *testing.T, start func(context.Context) error, endpoint func() string) (*client.Client, context.Context) {
+// startStreamableClient 用模型自己的启动入口起服务，并连上一个已初始化的客户端。
+func startStreamableClient(t *testing.T, start func(context.Context) error, endpoint func() string) (*client.Client, context.Context) {
 	t.Helper()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -254,10 +254,10 @@ func startSSEClient(t *testing.T, start func(context.Context) error, endpoint fu
 	}, 5*time.Second, 10*time.Millisecond, "Start 应同步绑定端口")
 	require.NotContains(t, addr, ":0")
 
-	sseTransport, err := clienttransport.NewSSE(addr + "/sse")
+	streamableTransport, err := clienttransport.NewStreamableHTTP(addr + "/mcp")
 	require.NoError(t, err)
 
-	mcpClient := client.NewClient(sseTransport)
+	mcpClient := client.NewClient(streamableTransport)
 	t.Cleanup(func() { _ = mcpClient.Close() })
 
 	require.NoError(t, mcpClient.Start(ctx))
@@ -361,7 +361,7 @@ func TestMCPServer_ManifestResourceOverTransport(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, srv.Tools(), 2)
 
-	mcpClient, ctx := startSSEClient(t, srv.Start, srv.Endpoint)
+	mcpClient, ctx := startStreamableClient(t, srv.Start, srv.Endpoint)
 
 	manifest := readManifest(t, ctx, mcpClient)
 
@@ -375,10 +375,10 @@ func TestMCPServer_ManifestResourceOverTransport(t *testing.T) {
 func TestConfig_ManifestResourceOverTransport(t *testing.T) {
 	c := &Config{}
 
-	transportSrv, err := c.newTransportServer(manifestTree("demo"), mcptransport.ServerTypeSSE, "127.0.0.1:0")
+	transportSrv, err := c.newTransportServer(manifestTree("demo"), mcptransport.ServerTypeHTTP, "127.0.0.1:0")
 	require.NoError(t, err)
 
-	mcpClient, ctx := startSSEClient(t, transportSrv.Start, transportSrv.Endpoint)
+	mcpClient, ctx := startStreamableClient(t, transportSrv.Start, transportSrv.Endpoint)
 
 	manifest := readManifest(t, ctx, mcpClient)
 
@@ -399,11 +399,11 @@ func TestManifestResource_IdenticalAcrossExecutionModels(t *testing.T) {
 
 	subprocess := &Config{}
 
-	subprocessSrv, err := subprocess.newTransportServer(manifestTree(""), mcptransport.ServerTypeSSE, "127.0.0.1:0")
+	subprocessSrv, err := subprocess.newTransportServer(manifestTree(""), mcptransport.ServerTypeHTTP, "127.0.0.1:0")
 	require.NoError(t, err)
 
-	inProcessClient, inProcessCtx := startSSEClient(t, inProcess.Start, inProcess.Endpoint)
-	subprocessClient, subprocessCtx := startSSEClient(t, subprocessSrv.Start, subprocessSrv.Endpoint)
+	inProcessClient, inProcessCtx := startStreamableClient(t, inProcess.Start, inProcess.Endpoint)
+	subprocessClient, subprocessCtx := startStreamableClient(t, subprocessSrv.Start, subprocessSrv.Endpoint)
 
 	inProcessManifest := readManifest(t, inProcessCtx, inProcessClient)
 	subprocessManifest := readManifest(t, subprocessCtx, subprocessClient)

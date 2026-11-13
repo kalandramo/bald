@@ -196,7 +196,7 @@ func TestServeStdio_RegisterError(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// serveHTTP（config.go:148）：SSE 传输，ctx 取消即返回
+// serveHTTP（config.go:148）：Streamable HTTP 传输，ctx 取消即返回
 // ---------------------------------------------------------------------------
 
 func TestServeHTTP_CancelReturns(t *testing.T) {
@@ -353,7 +353,7 @@ func TestServeREST_ListenError(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// serveHTTP 配置分支 + 父命令上溯：一次带全量配置的 SSE 启停
+// serveHTTP 配置分支 + 父命令上溯：一次带全量配置的 Streamable HTTP 启停
 // ---------------------------------------------------------------------------
 
 func TestServeHTTP_FullConfigBranches(t *testing.T) {
@@ -366,9 +366,8 @@ func TestServeHTTP_FullConfigBranches(t *testing.T) {
 	child.SetContext(ctx)
 	defer cancel()
 
-	// BaseURL(SSE) + ServerDescription + AuthToken(中间件) + OAuth(SSE) 四个可选分支同时开启。
+	// ServerDescription + AuthToken(中间件) + OAuth(HTTP) 三个可选分支同时开启。
 	c := &Config{
-		BaseURL:                "http://base.example.com",
 		ServerDescription:      "a described server",
 		AuthToken:              "tok",
 		OAuthProtectedResource: &mcpserver.ProtectedResourceMetadataConfig{Resource: "https://res.example.com"},
@@ -389,7 +388,7 @@ func TestServeHTTP_FullConfigBranches(t *testing.T) {
 }
 
 func TestServeHTTP_StartBindError(t *testing.T) {
-	// 预先占住一个端口并持有，令 serveHTTP 的 SSE Start 同步绑定失败 → 走返回错误分支。
+	// 预先占住一个端口并持有，令 serveHTTP 的 Streamable HTTP Start 同步绑定失败 → 走返回错误分支。
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	defer ln.Close()
@@ -405,11 +404,11 @@ func TestServeHTTP_StartBindError(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// newTransportServer 工具处理闭包（config.go:216-221）：经真实 SSE 客户端调用
+// newTransportServer 工具处理闭包（config.go:216-221）：经真实 Streamable HTTP 客户端调用
 // 子进程传输模型把闭包注册进服务端；只有 MCP 客户端 CallTool 才会执行闭包体。
 // ---------------------------------------------------------------------------
 
-func TestServeHTTP_ToolCallOverSSE(t *testing.T) {
+func TestServeHTTP_ToolCallOverStreamableHTTP(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("依赖 /bin/sh，windows 跳过")
 	}
@@ -433,9 +432,9 @@ func TestServeHTTP_ToolCallOverSSE(t *testing.T) {
 	cctx, ccancel := context.WithCancel(context.Background())
 	defer ccancel()
 
-	sse, err := transport.NewSSE("http://" + addr + "/sse")
+	streamable, err := transport.NewStreamableHTTP("http://" + addr + "/mcp")
 	require.NoError(t, err)
-	cli := client.NewClient(sse)
+	cli := client.NewClient(streamable)
 	defer func() { _ = cli.Close() }()
 	require.NoError(t, cli.Start(cctx))
 

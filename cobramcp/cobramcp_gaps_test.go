@@ -126,9 +126,8 @@ func TestNewMCPServer_FactoryValidation(t *testing.T) {
 }
 
 func TestNewMCPServer_FullOptions(t *testing.T) {
-	// BaseURL / OAuth publicPaths / AuthToken 中间件 / OAuth 元数据四个可选分支。
+	// OAuth publicPaths / AuthToken 中间件 / OAuth 元数据三个可选分支。
 	srv, err := NewMCPServer(MCPOptions{
-		BaseURL:                "http://base.example.com",
 		AuthToken:              "tok",
 		OAuthProtectedResource: &mcpserver.ProtectedResourceMetadataConfig{Resource: "https://res.example.com"},
 	}, newDemoFactory())
@@ -217,7 +216,7 @@ func TestMakeInProcessHandler_PanicRecovered(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// server.go：注册闭包的 err/result 分支——经真实 SSE 客户端调用 middleware
+// server.go：注册闭包的 err/result 分支——经真实 Streamable HTTP 客户端调用 middleware
 // ---------------------------------------------------------------------------
 
 func TestMCPServer_ToolHandlerMiddlewareBranches(t *testing.T) {
@@ -244,9 +243,9 @@ func TestMCPServer_ToolHandlerMiddlewareBranches(t *testing.T) {
 		return endpoint != ""
 	}, 5*time.Second, 10*time.Millisecond)
 
-	sse, err := transport.NewSSE(endpoint + "/sse")
+	streamable, err := transport.NewStreamableHTTP(endpoint + "/mcp")
 	require.NoError(t, err)
-	cli := client.NewClient(sse)
+	cli := client.NewClient(streamable)
 	t.Cleanup(func() { _ = cli.Close() })
 	require.NoError(t, cli.Start(ctx))
 	_, err = cli.Initialize(ctx, mcp.InitializeRequest{

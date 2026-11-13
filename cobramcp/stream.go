@@ -21,8 +21,8 @@ func streamCommand(config *Config) *cobra.Command {
 	f := &streamCommandFlags{}
 	cmd := &cobra.Command{
 		Use:   "stream",
-		Short: "Stream the MCP server over HTTP",
-		Long:  `Start HTTP server to expose CLI commands to AI assistants`,
+		Short: "Stream the MCP server over Streamable HTTP",
+		Long:  `Start a Streamable HTTP server (the current MCP standard transport) to expose CLI commands to AI assistants`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if config == nil {
 				config = &Config{}

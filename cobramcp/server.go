@@ -33,13 +33,7 @@ type MCPOptions struct {
 	// Version is the MCP server version advertised to clients.
 	Version string `json:"version" mapstructure:"version"`
 
-	// BaseURL is the publicly reachable base URL for the SSE server
-	// (e.g. "http://localhost:8090"). It is passed to the underlying SSE
-	// transport so that the message endpoint advertised to clients is correct
-	// when the server sits behind a proxy. If empty, the listen address is used.
-	BaseURL string `json:"baseURL" mapstructure:"baseURL"`
-
-	// AuthMiddleware 是 HTTP 认证中间件（作用于 SSE 形态）。
+	// AuthMiddleware 是 HTTP 认证中间件（作用于 Streamable HTTP 形态）。
 	// 认证失败时应返回 401/403 并中断请求。nil 时不启用认证。
 	// 函数类型无法序列化，故不参与配置绑定（json:"-"）。
 	// 若同时配置 OAuthProtectedResource，中间件必须放行其 well-known 路径。
@@ -49,7 +43,7 @@ type MCPOptions struct {
 	// 非空时自动构造校验 Authorization: Bearer <token> 的中间件。
 	AuthToken string `json:"authToken" mapstructure:"authToken"`
 
-	// OAuthProtectedResource 配置 RFC 9728 OAuth 资源元数据端点（SSE 形态）。
+	// OAuthProtectedResource 配置 RFC 9728 OAuth 资源元数据端点（HTTP 形态）。
 	// nil 时不暴露该端点；配置后其 well-known 路径始终免认证。
 	OAuthProtectedResource *mcpserver.ProtectedResourceMetadataConfig `json:"oauthProtectedResource" mapstructure:"oauthProtectedResource"`
 }
@@ -162,11 +156,9 @@ func NewMCPServer(opts MCPOptions, cmdFactory func() *cobra.Command, serverOpts 
 	transportOpts := []mcptransport.ServerOption{
 		mcptransport.WithServerName(name),
 		mcptransport.WithServerVersion(opts.Version),
-		mcptransport.WithMCPServeType(mcptransport.ServerTypeSSE),
+		// MCP 最新标准传输：Streamable HTTP（HTTP+SSE 自 2025-06-18 规范起已移除）。
+		mcptransport.WithMCPServeType(mcptransport.ServerTypeHTTP),
 		mcptransport.WithMCPServeAddress(opts.Addr),
-	}
-	if opts.BaseURL != "" {
-		transportOpts = append(transportOpts, mcptransport.WithSSEOptions(mcpserver.WithBaseURL(opts.BaseURL)))
 	}
 
 	// 认证：与 Config 路径一致（AuthMiddleware 外层 + AuthToken 内层），
@@ -181,7 +173,7 @@ func NewMCPServer(opts MCPOptions, cmdFactory func() *cobra.Command, serverOpts 
 	}
 	if opts.OAuthProtectedResource != nil {
 		transportOpts = append(transportOpts,
-			mcptransport.WithSSEProtectedResourceMetadata(*opts.OAuthProtectedResource))
+			mcptransport.WithProtectedResourceMetadata(*opts.OAuthProtectedResource))
 	}
 
 	srv := &MCPServer{
@@ -228,8 +220,9 @@ func (s *MCPServer) Transport() *mcptransport.Server {
 	return s.transport
 }
 
-// Start begins serving the MCP server over SSE on opts.Addr and blocks until the
-// context is cancelled, matching the bald transport.Server contract.
+// Start begins serving the MCP server over Streamable HTTP on opts.Addr and
+// blocks until the context is cancelled, matching the bald transport.Server
+// contract.
 //
 // 进程信号（SIGINT/SIGTERM）与优雅停机由宿主负责（appkit 会在 ctx 取消后调用
 // Stop），本包不再自行捕获信号。

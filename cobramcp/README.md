@@ -52,7 +52,7 @@ Your CLI commands are now available as MCP tools!
 
 ### Stream over HTTP
 
-Expose your MCP server over HTTP for remote access:
+Expose your MCP server over Streamable HTTP (the current MCP standard transport) for remote access:
 
 ```bash
 ./my-cli mcp stream --host localhost --port 8080
@@ -65,7 +65,7 @@ The `cobramcp.Command(nil)` adds these subcommands to your CLI (the default comm
 ```
 mcp
 ├── start            # Start MCP server on stdio
-├── stream           # Stream MCP server over HTTP
+├── stream           # Stream MCP server over Streamable HTTP
 ├── tools            # Export available MCP tools as JSON
 ├── vscode
 │   ├── enable       # Add server to VSCode config

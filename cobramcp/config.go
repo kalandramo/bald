@@ -65,12 +65,7 @@ type Config struct {
 	// If empty, the root command name is used as-is.
 	ToolNamePrefix string
 
-	// BaseURL is the base URL advertised by the SSE server (e.g. "http://localhost:8080").
-	// Used by the stream command when the server sits behind a proxy; if empty,
-	// the listen address is used.
-	BaseURL string
-
-	// AuthMiddleware 是 HTTP 认证中间件，作用于 SSE（mcp stream）与 REST（mcp rest）。
+	// AuthMiddleware 是 HTTP 认证中间件，作用于 Streamable HTTP（mcp stream）与 REST（mcp rest）。
 	// 认证失败时中间件应返回 401/403 并中断请求（不调用 next）。
 	// nil 时不启用认证（保持当前行为）。
 	//
@@ -87,7 +82,7 @@ type Config struct {
 	AuthToken string
 
 	// OAuthProtectedResource 配置 RFC 9728 OAuth 2.0 资源元数据端点
-	// （仅 SSE/REST 形态生效；stdio 无 HTTP 层）。nil 时不暴露该端点。
+	// （仅 Streamable HTTP/REST 形态生效；stdio 无 HTTP 层）。nil 时不暴露该端点。
 	// 端点路径由 ProtectedResourceMetadataPath(Resource) 派生，且该路径
 	// 始终免认证（公开发现端点）。
 	OAuthProtectedResource *mcpserver.ProtectedResourceMetadataConfig
@@ -144,9 +139,10 @@ func (c *Config) serveStdio(cmd *cobra.Command) error {
 	return srv.Stop(shutdownCtx)
 }
 
-// serveHTTP 以 SSE 传输暴露 CLI 命令，直到 ctx 取消。
+// serveHTTP 以 Streamable HTTP 传输暴露 CLI 命令，直到 ctx 取消
+// （MCP 最新标准传输；旧版 HTTP+SSE 不再提供）。
 func (c *Config) serveHTTP(cmd *cobra.Command, addr string) error {
-	srv, err := c.newTransportServer(cmd, mcptransport.ServerTypeSSE, addr)
+	srv, err := c.newTransportServer(cmd, mcptransport.ServerTypeHTTP, addr)
 	if err != nil {
 		return err
 	}
@@ -155,8 +151,8 @@ func (c *Config) serveHTTP(cmd *cobra.Command, addr string) error {
 		return err
 	}
 
-	cmd.Printf("MCP SSE server listening on address %q\n", addr)
-	baldlog.Info(cmd.Context(), "MCP SSE server listening", "addr", addr, "endpoint", srv.Endpoint())
+	cmd.Printf("MCP Streamable HTTP server listening on address %q (endpoint %s)\n", addr, srv.Endpoint())
+	baldlog.Info(cmd.Context(), "MCP Streamable HTTP server listening", "addr", addr, "endpoint", srv.Endpoint())
 
 	<-cmd.Context().Done()
 
@@ -186,9 +182,6 @@ func (c *Config) newTransportServer(cmd *cobra.Command, serverType mcptransport.
 		mcptransport.WithMCPServeType(serverType),
 		mcptransport.WithMCPServeAddress(addr),
 	}
-	if c.BaseURL != "" && serverType == mcptransport.ServerTypeSSE {
-		opts = append(opts, mcptransport.WithSSEOptions(mcpserver.WithBaseURL(c.BaseURL)))
-	}
 	if c.ServerDescription != "" {
 		opts = append(opts, mcptransport.WithMCPServerOptions(mcpserver.WithDescription(c.ServerDescription)))
 	}
@@ -199,9 +192,10 @@ func (c *Config) newTransportServer(cmd *cobra.Command, serverType mcptransport.
 	if mw := buildAuthMiddleware(c.AuthMiddleware, c.AuthToken, publicPaths...); mw != nil {
 		opts = append(opts, mcptransport.WithMiddleware(mw))
 	}
-	// OAuth 资源元数据端点（仅 SSE 形态，由 mcp-go SSEServer 内部按路径分发）。
-	if c.OAuthProtectedResource != nil && serverType == mcptransport.ServerTypeSSE {
-		opts = append(opts, mcptransport.WithSSEProtectedResourceMetadata(*c.OAuthProtectedResource))
+	// OAuth 资源元数据端点（仅 Streamable HTTP 形态，由 mcp-go 传输服务内部
+	// 按路径分发；stdio 无 HTTP 层）。
+	if c.OAuthProtectedResource != nil && serverType == mcptransport.ServerTypeHTTP {
+		opts = append(opts, mcptransport.WithProtectedResourceMetadata(*c.OAuthProtectedResource))
 	}
 
 	srv := mcptransport.NewServer(opts...)

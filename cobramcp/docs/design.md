@@ -69,7 +69,7 @@ cobramcp/
 ├── config.go           Config（子进程模型）+ serveStdio/serveHTTP/newTransportServer
 ├── server.go           MCPServer（进程内模型）+ MCPOptions
 ├── start.go            mcp start   → stdio
-├── stream.go           mcp stream  → SSE
+├── stream.go           mcp stream  → Streamable HTTP
 ├── restcmd.go / rest.go  mcp rest  → 纯 REST
 ├── tools.go            mcp tools   → 导出工具清单 JSON
 ├── manifest.go         工具清单 Resource（tools://manifest）
@@ -123,7 +123,7 @@ cobramcp 支持两种执行模型，差别在**一次工具调用如何执行**�
 | --- | --- | --- |
 | 接入 | `AddCommand(cobramcp.Command(cfg))` | `NewMCPServer(opts, factory)` |
 | 一次调用怎么执行 | 还原参数 → 重新执行自身二进制 | 当前进程内执行（每次新建命令树） |
-| 传输 | stdio / SSE / REST | SSE |
+| 传输 | stdio / Streamable HTTP / REST | Streamable HTTP |
 | 生命周期 | 自带 `mcp start/stream/rest` 自行管理 | 交宿主，满足 `transport.Server` 契约 |
 | 日志后端 | CLI 子命令自动装 stderr 后端 | 不装，由宿主经 `bald/log` 决定 |
 
@@ -330,9 +330,11 @@ REST 形态不走这两个轨道：它直接把 `ToolOutput` 序列化成响应�
 | 形态 | 命令 / API | 传输 | 场景 |
 | --- | --- | --- | --- |
 | stdio | `mcp start`（`start.go`） | `ServeStdio` | 编辑器拉起的本地子进程 |
-| SSE | `mcp stream`（`stream.go`） | mcp-go SSEServer | 远程 / 容器接入 |
+| Streamable HTTP | `mcp stream`（`stream.go`） | mcp-go StreamableHTTPServer（`POST/GET/DELETE /mcp`） | 远程 / 容器接入 |
 | REST | `mcp rest`（`restcmd.go` / `rest.go`） | 原生 `http.ServeMux` | 非 MCP 消费方（curl、CI、脚本） |
-| 进程内 SSE | `NewMCPServer().Start()`（`server.go`） | SSE | 嵌入长驻应用 |
+| 进程内 Streamable HTTP | `NewMCPServer().Start()`（`server.go`） | Streamable HTTP | 嵌入长驻应用 |
+
+HTTP 形态统一走 **Streamable HTTP**（MCP 最新标准传输）：HTTP+SSE 自 2025-03-26 规范起弃用、2025-06-18 起移除，本包不再提供 SSE 服务端。端点固定为 `/mcp`，initialize 响应携带 `Mcp-Session-Id`，有状态会话由 mcp-go 管理。
 
 ### 7.1 REST 接口
 
@@ -370,12 +372,12 @@ REST 复用与 MCP 相同的参数还原与子进程执行路径（`restToolHand
 ### 7.3 停机
 
 - stdio：客户端断开（stdin EOF）即结束，`serveStdio` 用 `select { <-ctx.Done(); <-srv.Done() }` 感知；
-- SSE：等待 ctx 取消后优雅停机；
+- Streamable HTTP：等待 ctx 取消后优雅停机（transport 层先 `CloseSessions` 解开 GET 长连接，再 `Shutdown`）；
 - 停机等待上限 5 秒（`shutdownTimeout`，`config.go`）。
 
 ## 8. 认证
 
-认证作用于 HTTP 暴露的形态（SSE / REST）；stdio 无网络面，由宿主/OS 进程隔离负责。
+认证作用于 HTTP 暴露的形态（Streamable HTTP / REST）；stdio 无网络面，由宿主/OS 进程隔离负责。
 
 **为什么在 HTTP 中间件层**：mcp-go 的 `SSEContextFunc` / `HTTPContextFunc` 只返回 `context.Context`，**无 error 返回位**，无法拒绝请求；hooks 同样无返回值。唯一能拒绝请求的位置是包在传输 handler 外层的 `http.Handler` 中间件。`transport/mcp` 为此提供 `Middleware` 类型与 `WithMiddleware` 选项。
 
@@ -389,7 +391,7 @@ cobramcp 提供三层能力：
 
 **安全不变量**：well-known 发现端点必须**免认证**——客户端在未持 token 时也要能取，否则 OAuth 发现流程死锁。内置静态 token 中间件自动放行（`Config.publicAuthPaths`）；自定义 `AuthMiddleware` 需自行放行。
 
-**SSE 流式注意点**：自定义中间件若包装 `http.ResponseWriter`，必须透传 `http.Flusher`（SSE 依赖 `Flush()`）。内置中间件不包装 ResponseWriter，故安全。
+**流式注意点**：自定义中间件若包装 `http.ResponseWriter`，必须透传 `http.Flusher`（Streamable HTTP 的 GET 通知流以 SSE 帧写出，依赖 `Flush()`）。内置中间件不包装 ResponseWriter，故安全。
 
 ## 9. 编辑器配置管理（internal/cfgmgr）
 
@@ -450,8 +452,7 @@ type Manager[S Server, C Config[S]] struct { configPath string; config C }
 | `Selectors` | 工具暴露规则（见 §4.2）；空则全暴露 |
 | `DefaultEnv` | `enable` 写入编辑器配置时的默认环境变量（典型：捕获 PATH） |
 | `ToolNamePrefix` | 替换工具名中的根命令名段 |
-| `BaseURL` | SSE 对外可见基址（在代理后面时用） |
-| `AuthMiddleware` | HTTP 认证中间件（SSE / REST） |
+| `AuthMiddleware` | HTTP 认证中间件（Streamable HTTP / REST） |
 | `AuthToken` | 内置静态 Bearer token 校验 |
 | `OAuthProtectedResource` | RFC 9728 OAuth 资源元数据端点配置 |
 
@@ -462,7 +463,6 @@ type Manager[S Server, C Config[S]] struct { configPath string; config C }
 | `Enabled` | false 时 `Start` 直接返回，不绑端口（特性开关） |
 | `Addr` | 监听地址；`Enabled=true` 时必填，否则 `Start` 立即报错 |
 | `Name` / `Version` | 服务端对外标识 |
-| `BaseURL` | SSE 对外可见基址 |
 | `AuthMiddleware` / `AuthToken` / `OAuthProtectedResource` | 同 Config（`AuthMiddleware` 为函数类型，不参与配置绑定） |
 
 ### 10.3 CLI 子命令
@@ -472,7 +472,7 @@ type Manager[S Server, C Config[S]] struct { configPath string; config C }
 ```
 mcp
 ├── start            # stdio 服务端
-├── stream           # SSE 服务端
+├── stream           # Streamable HTTP 服务端
 ├── rest             # 纯 REST 服务端
 ├── tools            # 导出工具清单为 ./mcp-tools.json
 ├── vscode           # enable / disable / list

@@ -33,7 +33,7 @@ func newDemoFactory() func() *cobra.Command {
 }
 
 // TestMCPServer_ServesCobraToolsOverTransport 覆盖完整链路：
-// Cobra 命令树 → 工具注册到 bald/transport/mcp → SSE 服务端 → MCP 客户端可见并可调用。
+// Cobra 命令树 → 工具注册到 bald/transport/mcp → Streamable HTTP 服务端 → MCP 客户端可见并可调用。
 func TestMCPServer_ServesCobraToolsOverTransport(t *testing.T) {
 	srv, err := NewMCPServer(MCPOptions{
 		Enabled: true,
@@ -60,10 +60,10 @@ func TestMCPServer_ServesCobraToolsOverTransport(t *testing.T) {
 	}, 5*time.Second, 10*time.Millisecond, "Start 应同步绑定并解析出真实端口")
 	require.NotContains(t, endpoint, ":0")
 
-	sseTransport, err := transport.NewSSE(endpoint + "/sse")
+	streamableTransport, err := transport.NewStreamableHTTP(endpoint + "/mcp")
 	require.NoError(t, err)
 
-	mcpClient := client.NewClient(sseTransport)
+	mcpClient := client.NewClient(streamableTransport)
 	t.Cleanup(func() { _ = mcpClient.Close() })
 
 	require.NoError(t, mcpClient.Start(ctx))

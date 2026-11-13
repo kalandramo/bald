@@ -336,10 +336,10 @@ func TestMCPServer_StructuredContentOverTransport(t *testing.T) {
 	}, 5*time.Second, 10*time.Millisecond, "Start should bind and expose the resolved address")
 	require.NotContains(t, endpoint, ":0")
 
-	sseTransport, err := clienttransport.NewSSE(endpoint + "/sse")
+	streamableTransport, err := clienttransport.NewStreamableHTTP(endpoint + "/mcp")
 	require.NoError(t, err)
 
-	mcpClient := client.NewClient(sseTransport)
+	mcpClient := client.NewClient(streamableTransport)
 	t.Cleanup(func() { _ = mcpClient.Close() })
 
 	require.NoError(t, mcpClient.Start(ctx))
