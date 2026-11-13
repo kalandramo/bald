@@ -8,7 +8,7 @@ require (
 	github.com/99designs/gqlgen v0.17.89
 	github.com/kalandramo/bald/bconf v0.28.0
 	github.com/kalandramo/bald/pkg v0.16.0
-	github.com/kalandramo/bald/transport v0.4.0
+	github.com/kalandramo/bald/transport v0.5.0
 	github.com/spf13/pflag v1.0.10
 )
 

@@ -8,7 +8,7 @@ replace github.com/kalandramo/bald/transport => ..
 
 require (
 	github.com/kalandramo/bald/bconf v0.28.0
-	github.com/kalandramo/bald/transport v0.2.1
+	github.com/kalandramo/bald/transport v0.5.0
 	google.golang.org/grpc v1.83.2
 )
 

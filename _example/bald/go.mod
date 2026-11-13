@@ -11,8 +11,8 @@ require (
 	github.com/kalandramo/bald/bconfig v0.2.4
 	github.com/kalandramo/bald/berrors v0.1.2
 	github.com/kalandramo/bald/bootstrap v0.13.8
-	github.com/kalandramo/bald/broker v0.3.1
-	github.com/kalandramo/bald/broker/redis v0.4.3
+	github.com/kalandramo/bald/broker v0.4.0
+	github.com/kalandramo/bald/broker/redis v0.5.0
 	github.com/kalandramo/bald/contrib/store-gorm v0.4.2
 	github.com/kalandramo/bald/health v0.1.1
 	github.com/kalandramo/bald/log v0.6.0
@@ -24,7 +24,7 @@ require (
 	github.com/kalandramo/bald/transport/client v0.2.1
 	github.com/kalandramo/bald/transport/cron v0.6.4
 	github.com/kalandramo/bald/transport/gateway v0.5.3
-	github.com/kalandramo/bald/transport/mcp v0.5.3
+	github.com/kalandramo/bald/transport/mcp v0.6.0
 	github.com/kalandramo/bald/transport/web v0.2.2
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
@@ -144,7 +144,7 @@ require (
 	github.com/kalandramo/bald/ratelimit v0.1.0 // indirect
 	github.com/kalandramo/bald/ratelimit/tokenbucket v0.2.0 // indirect
 	github.com/kalandramo/bald/retry v0.3.1 // indirect
-	github.com/kalandramo/bald/transport v0.4.0 // indirect
+	github.com/kalandramo/bald/transport v0.5.0 // indirect
 	github.com/kalandramo/bald/transport/grpc v0.2.0 // indirect
 	github.com/kalandramo/bald/transport/http v0.2.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect

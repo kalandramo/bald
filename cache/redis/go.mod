@@ -94,7 +94,7 @@ require (
 	github.com/kalandramo/bald/health v0.1.1 // indirect
 	github.com/kalandramo/bald/log v0.6.0 // indirect
 	github.com/kalandramo/bald/registry v0.5.0 // indirect
-	github.com/kalandramo/bald/transport v0.4.0 // indirect
+	github.com/kalandramo/bald/transport v0.5.0 // indirect
 	github.com/kalandramo/bald/transport/grpc v0.2.0 // indirect
 	github.com/kalandramo/bald/transport/http v0.2.0 // indirect
 	github.com/magiconair/properties v1.8.5 // indirect

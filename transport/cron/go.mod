@@ -28,7 +28,7 @@ require (
 	github.com/kalandramo/bald/bconf v0.28.0
 	github.com/kalandramo/bald/log v0.6.0
 	github.com/kalandramo/bald/pkg v0.16.0
-	github.com/kalandramo/bald/transport v0.4.0
+	github.com/kalandramo/bald/transport v0.5.0
 	github.com/robfig/cron/v3 v3.0.1
 )
 

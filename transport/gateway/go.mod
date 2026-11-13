@@ -27,7 +27,7 @@ require (
 	github.com/kalandramo/bald/health v0.1.1
 	github.com/kalandramo/bald/pkg v0.16.0
 	github.com/kalandramo/bald/registry v0.5.0
-	github.com/kalandramo/bald/transport v0.4.0
+	github.com/kalandramo/bald/transport v0.5.0
 	github.com/kalandramo/bald/transport/http v0.2.0
 	google.golang.org/grpc v1.83.2
 )

@@ -22,7 +22,7 @@ require (
 	github.com/kalandramo/bald/metrics v0.2.0
 	github.com/kalandramo/bald/metrics/prometheus v0.2.2
 	github.com/kalandramo/bald/pkg v0.16.0
-	github.com/kalandramo/bald/transport v0.4.0
+	github.com/kalandramo/bald/transport v0.5.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/spf13/pflag v1.0.10
 	go.opentelemetry.io/otel v1.46.0
