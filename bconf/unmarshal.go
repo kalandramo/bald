@@ -578,8 +578,12 @@ func coerceScalar(fd protoreflect.FieldDescriptor, raw any) (any, error) {
 			return strconv.FormatBool(v), nil
 		case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
 			return fmt.Sprint(v), nil
-		case float32, float64:
-			return strconv.FormatFloat(toFloat(v), 'f', -1, 64), nil
+		case float32:
+			// bitSize 32 报告源型精度：float32(0.1) 加宽到 float64 后按 64 位
+			// 格式化会拖出二进制尾差（"0.10000000149011612"），按源型格式化得 "0.1"。
+			return strconv.FormatFloat(float64(v), 'f', -1, 32), nil
+		case float64:
+			return strconv.FormatFloat(v, 'f', -1, 64), nil
 		}
 		return nil, fmt.Errorf("expect string, got %T", raw)
 
@@ -642,7 +646,14 @@ func coerceInt(raw any, kind protoreflect.Kind) (any, error) {
 		bits = 32
 	}
 	switch v := raw.(type) {
-	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
+	// 无符号源型先做值域守卫：uint/uint64 的值可超出 int64 上限，
+	// anyToInt64 的 int64(v) 会静默回绕成负数（uint64(2^63) → 负值），
+	// 显式拒绝让错误在配置装载出口可见（fail-closed，J4）。
+	case uint64:
+		return coerceIntFromUnsigned(v, bits)
+	case uint:
+		return coerceIntFromUnsigned(uint64(v), bits)
+	case int, int8, int16, int32, int64, uint8, uint16, uint32:
 		n, err := anyToInt64(v)
 		if err != nil {
 			return nil, err //cov:excl v 已由 case 标签限定为整型，anyToInt64 对整型恒不报错
@@ -672,6 +683,19 @@ func coerceInt(raw any, kind protoreflect.Kind) (any, error) {
 		return int64(v), nil
 	}
 	return nil, fmt.Errorf("expect integer, got %T", raw)
+}
+
+// coerceIntFromUnsigned 把无符号源值落进有符号整数家族（bits==32 时再验
+// int32 值域）。超 int64 上限一律显式拒绝：uint/uint64 高位超出时
+// int64(v) 会静默回绕成负数，那是静默错值不是报错（fail-closed，J4）。
+func coerceIntFromUnsigned(u uint64, bits int) (any, error) {
+	if u > math.MaxInt64 {
+		return nil, fmt.Errorf("value %d overflows int64", u)
+	}
+	if bits == 32 && u > math.MaxInt32 {
+		return nil, fmt.Errorf("value %d overflows int32", u)
+	}
+	return int64(u), nil // 整型家族统一产出 int64 规范型（protoreflect 规范语义，测试钉住）
 }
 
 // coerceUint 转换成无符号整数。

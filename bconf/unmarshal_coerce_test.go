@@ -139,6 +139,17 @@ func TestCoerceInt(t *testing.T) {
 	if _, err := coerceInt(int64(math.MaxInt32)+1, protoreflect.Int32Kind); err == nil {
 		t.Error("coerceInt 超 int32 应报错")
 	}
+	// 无符号源型超 int64 上限显式拒绝：int64(v) 回绕成负数是静默错值。
+	if _, err := coerceInt(uint64(math.MaxInt64)+1, protoreflect.Int64Kind); err == nil {
+		t.Error("coerceInt(uint64 超 int64) 应报错")
+	}
+	if _, err := coerceInt(uint64(math.MaxInt32)+1, protoreflect.Int32Kind); err == nil {
+		t.Error("coerceInt(uint64 超 int32) 应报错")
+	}
+	// 边界值放行：uint64(math.MaxInt64) 恰好落进 int64 值域。
+	if v, err := coerceInt(uint64(math.MaxInt64), protoreflect.Int64Kind); err != nil || v != int64(math.MaxInt64) {
+		t.Errorf("coerceInt(uint64 MaxInt64) = (%v, %v)", v, err)
+	}
 	// 整值 float 放行，非整值拒绝，越界拒绝。
 	if v, err := coerceInt(float64(5), protoreflect.Int64Kind); err != nil || v != int64(5) {
 		t.Errorf("coerceInt(float=5) = (%v, %v)", v, err)
@@ -227,6 +238,14 @@ func TestCoerceScalarBranches(t *testing.T) {
 		}
 		if v, err := coerceScalar(fd, 1.5); err != nil || v != "1.5" {
 			t.Errorf("string←float = (%v, %v)", v, err)
+		}
+		// float32 源按源型精度格式化：加宽到 float64 再按 64 位格式化会拖出
+		// 二进制尾差（"0.10000000149011612"）。
+		if v, err := coerceScalar(fd, float32(0.1)); err != nil || v != "0.1" {
+			t.Errorf("string←float32 = (%v, %v)", v, err)
+		}
+		if v, err := coerceScalar(fd, float64(0.1)); err != nil || v != "0.1" {
+			t.Errorf("string←float64 = (%v, %v)", v, err)
 		}
 		if _, err := coerceScalar(fd, []string{"x"}); err == nil {
 			t.Error("string←切片 应报错")
