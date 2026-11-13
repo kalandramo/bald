@@ -17,11 +17,13 @@ import "testing"
 
 func TestAllocGuard_FindUnknownKeys_StrictScan(t *testing.T) {
 	res := testing.Benchmark(BenchmarkFindUnknownKeys_StrictScan)
-	// 非 race 实测 1,630–1,646 B/op / 95 allocs/op；-race 1,824 B / 95 allocs
-	// （分配次数不变，只有字节数上移）。阈值 8,192 B（×5.0 非 race / ×4.5
-	// -race）+ 200 allocs（×2.1）：字节数受 map/切片增长的空间布局影响更大，
-	// headroom 放大；分配次数是代码路径的直接信号，收紧一档。
-	guardAllocs(t, "FindUnknownKeys_StrictScan", res, 8_192, 200)
+	// 2026-11-13 扫描提速批次（精确形入表 + 组件栈惰性拼接 + joinPath 单分配
+	// 出线）后重测：非 race 248 B/op / 10 allocs/op；-race 259 B / 10 allocs
+	// （分配次数不变，只有字节数上移）。阈值 1,024 B（×4.1 非 race / ×4.0
+	// -race）+ 24 allocs（×2.4）：字节数受 map/切片增长的空间布局影响更大，
+	// headroom 放大；分配次数是代码路径的直接信号，收紧一档。剩余分配均为
+	// 语义必需：出线键路径串、列表融合组件、组件栈缓冲、未知键大小写归一。
+	guardAllocs(t, "FindUnknownKeys_StrictScan", res, 1_024, 24)
 }
 
 func TestAllocGuard_UnmarshalMap_FullContract(t *testing.T) {
