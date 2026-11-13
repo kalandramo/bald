@@ -50,7 +50,11 @@ func FindUnknownKeys(m map[string]any, msg proto.Message, allowTop ...string) []
 		allowed[strings.ToLower(s)] = true
 	}
 	var out []string
-	findUnknown(msg.ProtoReflect().Descriptor(), m, "", allowed, true, &out)
+	// 组件栈容量按常见契约嵌套深度预分配：findUnknown 内的栈延长是
+	// append 线程式写法，容量内延长纯切片操作零分配；超深树的延长退化为
+	// 该处一次扩容（正确性不受影响），不为 pathological 深度做特判。
+	stack := make([]string, 0, 16)
+	findUnknown(msg.ProtoReflect().Descriptor(), m, allowed, true, &out, stack)
 	sort.Strings(out)
 	return out
 }
@@ -107,8 +111,15 @@ func lookupFields(md protoreflect.MessageDescriptor) *fieldLookup {
 // isTop 为 true 时，未知键先查白名单——命中则整棵子树跳过（业务段）。
 // 参数是描述符而非消息实例：扫描只需要字段元信息，传 MessageDescriptor
 // 免去每层递归构造 dynamicpb 消息只为取 Descriptor 的分配。
-func findUnknown(md protoreflect.MessageDescriptor, m map[string]any, path string,
-	allowed map[string]bool, isTop bool, out *[]string) {
+//
+// stack 是「本节点到根」的原始键组件栈（顶层在前；列表元素下钻时把
+// "k[i]" 融合为单组件），路径串只在未知键出线时拼接一次
+// ("."+Join(stack,".")，等价旧实现逐层 path+"."+k 的产物，逐字节相同)。
+// 递归用 append 传栈：延长写入的是本调用不读取的容量区，兄弟分支复用
+// 同一底层数组，DFS 顺序下无别名读取；容量由调用方按常见深度预分配
+// （见 FindUnknownKeys），容量内延长零分配。
+func findUnknown(md protoreflect.MessageDescriptor, m map[string]any,
+	allowed map[string]bool, isTop bool, out *[]string, stack []string) {
 
 	byName := lookupFields(md).byName
 
@@ -124,21 +135,20 @@ func findUnknown(md protoreflect.MessageDescriptor, m map[string]any, path strin
 				if isTop && allowed[lk] {
 					continue // 业务自持段，整棵子树放行
 				}
-				*out = append(*out, path+"."+k)
+				*out = append(*out, "."+strings.Join(append(stack, k), "."))
 				continue
 			}
 		}
-		// 路径串推迟到实际使用处拼接（未知键收集或下钻递归）：已知标量
-		// 叶键上该值从不被读取，提前拼接等于用一次分配换一个没人读的串，
-		// 且两种写法产出的路径串逐字节相同。
+		// 已知标量叶键上路径串从不被读取，栈延长是纯切片操作零分配——
+		// 拼接成本只在真正出线的未知键上支付。
 		switch {
 		case fd.IsList():
 			if child := fd.Message(); child != nil {
 				if items, ok := v.([]any); ok {
 					for i, it := range items {
 						if im, ok := it.(map[string]any); ok {
-							findUnknown(child, im,
-								path+"."+k+"["+strconv.Itoa(i)+"]", allowed, false, out)
+							findUnknown(child, im, allowed, false, out,
+								append(stack, k+"["+strconv.Itoa(i)+"]"))
 						}
 					}
 				}
@@ -147,7 +157,7 @@ func findUnknown(md protoreflect.MessageDescriptor, m map[string]any, path strin
 			// map 的值形状由用户自定义，不递归。
 		case fd.Kind() == protoreflect.MessageKind:
 			if sub, ok := v.(map[string]any); ok {
-				findUnknown(fd.Message(), sub, path+"."+k, allowed, false, out)
+				findUnknown(fd.Message(), sub, allowed, false, out, append(stack, k))
 			}
 		}
 	}
