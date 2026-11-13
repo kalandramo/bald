@@ -392,8 +392,6 @@ github.com/jstemmer/go-junit-report v0.0.0-20190106144839-af01ea7f8024/go.mod h1
 github.com/jstemmer/go-junit-report v0.9.1/go.mod h1:Brl9GWCQeLvo8nXZwPNNblvFj/XSXhF0NWZEnDohbsk=
 github.com/jtolds/gls v4.20.0+incompatible/go.mod h1:QJZ7F/aHp+rZTRtaJ1ow/lLfFfVYBRgL+9YlvaHOwJU=
 github.com/julienschmidt/httprouter v1.2.0/go.mod h1:SYymIcj16QtmaHHD7aYtjjsJG7VTCxuUUipMqKk8s4w=
-github.com/kalandramo/bald/bconfig v0.2.3 h1:4DSOSDAvmKSAQimaW35PS0Zlyz6/shMITFS4Vzz9p5c=
-github.com/kalandramo/bald/bconfig v0.2.3/go.mod h1:JnyYHH31P6YaQPaqkCnJKM6rn5D8XLGumsEfhDEvgxY=
 github.com/kalandramo/bald/health v0.1.1 h1:Q0sySYkf4XZ6BcSQ3P/Sk1T8FFF3NzKOcu3Q2wsDpUM=
 github.com/kalandramo/bald/health v0.1.1/go.mod h1:+f+lE2uNtgeXlJ6YoqPg7PoDIUZ+VvhJZI9RP+oHNd0=
 github.com/kalandramo/bald/registry v0.5.0 h1:evoEUBpR8RkcrJVHJTY/SEZBSmV3orxGehejmKnqI2g=

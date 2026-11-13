@@ -201,3 +201,5 @@ require (
 replace github.com/gogap/errors => github.com/gogap/errors v0.0.0-20210818113853-edfbba0ddea9
 
 replace github.com/kalandramo/bald/bootstrap => ../../bootstrap
+
+replace github.com/kalandramo/bald/bconfig => ../../bconfig

@@ -189,3 +189,5 @@ require (
 )
 
 replace github.com/kalandramo/bald/bootstrap => ../../bootstrap
+
+replace github.com/kalandramo/bald/bconfig => ../../bconfig

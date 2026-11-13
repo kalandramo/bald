@@ -184,3 +184,5 @@ replace github.com/kalandramo/bald/bconf => ../../bconf
 replace github.com/kalandramo/bald/metrics/prometheus => ../../metrics/prometheus
 
 replace github.com/kalandramo/bald/bootstrap => ../../bootstrap
+
+replace github.com/kalandramo/bald/bconfig => ../../bconfig
