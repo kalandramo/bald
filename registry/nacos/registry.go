@@ -115,13 +115,28 @@ func (r *Registry) Close() error {
 	return nil
 }
 
-// Register 注册一个实例：按 endpoint 逐个注册（服务名带协议后缀 name.scheme）。
+// Register 注册一个实例：endpoint 按 scheme 分组落 `<name>.<scheme>` 服务。
+//
+// v2 gRPC 模式下，同一 service 的多实例必须一次 BatchRegisterInstance 提交：
+// 顺序逐个 RegisterInstance 在服务端是「后者整体替换前者」（本连接上该 service
+// 的实例记录只有一份），SDK 的 redo 缓存也按 service 单键覆盖
+// （CacheInstanceForRedo，nacos-sdk-go v2.3.5 connection_event_listener.go）——
+// 「http 面 + mcp 面」双 http-scheme endpoint 的应用此前只剩最后一个 endpoint
+// 的实例，example 的 nacos 装配 E2E 钉的就是它。每 service 一次提交；单实例
+// 仍走 RegisterInstance（少一层 batch 语义）。
 func (r *Registry) Register(_ context.Context, si *registry.ServiceInstance) error {
 	// Register 首行经契约层 ServiceInstance.Validate 前置校验（单一真相源）：
 	// 缺 Name/ID 直接报错，避免注册到 `<ns>//<id>` 这类畸形 key。
 	if err := si.Validate(); err != nil {
 		return err
 	}
+	type svcInstances struct {
+		service   string
+		instances []v2vo.RegisterInstanceParam
+	}
+	// 分组保持 endpoint 声明序（map 只做索引，遍历走 order）。
+	grouped := map[string]*svcInstances{}
+	order := []string{}
 	for _, endpoint := range si.Endpoints {
 		u, err := url.Parse(endpoint)
 		if err != nil {
@@ -156,20 +171,46 @@ func (r *Registry) Register(_ context.Context, si *registry.ServiceInstance) err
 				}
 			}
 		}
-		_, e := r.cli.RegisterInstance(v2vo.RegisterInstanceParam{
+		svc := si.Name + "." + u.Scheme
+		g, ok := grouped[svc]
+		if !ok {
+			g = &svcInstances{service: svc}
+			grouped[svc] = g
+			order = append(order, svc)
+		}
+		g.instances = append(g.instances, v2vo.RegisterInstanceParam{
 			Ip:          host,
 			Port:        uint64(p),
-			ServiceName: si.Name + "." + u.Scheme,
 			Weight:      weight,
 			Enable:      true,
 			Healthy:     true,
 			Ephemeral:   true,
 			Metadata:    rmd,
 			ClusterName: r.opts.cluster,
+			ServiceName: svc,
 			GroupName:   r.opts.group,
 		})
+	}
+	for _, svc := range order {
+		g := grouped[svc]
+		var (
+			ok bool
+			e  error
+		)
+		if len(g.instances) == 1 {
+			ok, e = r.cli.RegisterInstance(g.instances[0])
+		} else {
+			ok, e = r.cli.BatchRegisterInstance(v2vo.BatchRegisterInstanceParam{
+				ServiceName: svc,
+				GroupName:   r.opts.group,
+				Instances:   g.instances,
+			})
+		}
 		if e != nil {
-			return fmt.Errorf("nacos: RegisterInstance %s failed: %w", endpoint, e)
+			return fmt.Errorf("nacos: register %s failed: %w", svc, e)
+		}
+		if !ok {
+			return fmt.Errorf("nacos: register %s rejected by server", svc)
 		}
 	}
 	return nil
