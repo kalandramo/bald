@@ -396,8 +396,6 @@ github.com/kalandramo/bald/log v0.6.0 h1:Gr2aKSfIJRHJHDaeowLxhFmft1WDZnWqGPlzeoZ
 github.com/kalandramo/bald/log v0.6.0/go.mod h1:xEw5nXpW1rJM1WYKsR78k4v8urd934jc7rTic26f9LI=
 github.com/kalandramo/bald/registry v0.5.0 h1:evoEUBpR8RkcrJVHJTY/SEZBSmV3orxGehejmKnqI2g=
 github.com/kalandramo/bald/registry v0.5.0/go.mod h1:Qr3Syc/9TEW6SOonGsYLO0FBsMADszFtDgyn2/5yWhE=
-github.com/kalandramo/bald/transport v0.4.0 h1:dNyxlMD2QE80KBICefHWg6DJHvHrWWozPIPSm5wAa+M=
-github.com/kalandramo/bald/transport v0.4.0/go.mod h1:9NY+2osYepZbxauKAMPhMx29SJjVaH65lBn8SARAVHg=
 github.com/kalandramo/bald/transport/grpc v0.2.0 h1:jzMQTt8zGgq3QBr4IqtVR04Ux4emx5UeSMnZo4om+XE=
 github.com/kalandramo/bald/transport/grpc v0.2.0/go.mod h1:11iOFg+TPQGoMX3Q/vHf6BNB7M+PC+vbemIM8G7reRo=
 github.com/kalandramo/bald/transport/http v0.2.0 h1:Wx6Bcfmk8+iRf8047b9VnqTMOWhLbv45k1s9ikyuuq8=
