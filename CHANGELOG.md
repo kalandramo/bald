@@ -8,6 +8,7 @@
 
 ### bald v0.55.0
 
+- `accea5fc` chore(release): 发布 48 个模块——bconf v0.28.0 / broker v0.4.0 / pkg v0.16.0 / transport v0.5.0 / 根 v0.55.0
 - `32647dfe` chore(release): 清除 d33afa8 批次写入的 47 条未打 tag CHANGELOG 条目
 - `af150349` fix(ci,transport): 修四类 CI 旧病——redis 注入、go.sum 漂移、TestMongo J4 合规、mcp serve 竞态
 - `75929b57` refactor(broker)!: 删除 rocketmq 后端（broker + transport 双 module 与双契约段） **(breaking)**
@@ -68,6 +69,7 @@
 
 ### bootstrap v0.13.8
 
+- `accea5fc` chore(release): 发布 48 个模块——bconf v0.28.0 / broker v0.4.0 / pkg v0.16.0 / transport v0.5.0 / 根 v0.55.0
 - `d33afa87` chore(release): 发布 47 个模块——bconf v0.28.0 / pkg v0.16.0 / cli v0.13.0 / 根 v0.55.0
 - `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
 - `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
@@ -119,6 +121,7 @@
 
 ### broker/kafka v0.3.0
 
+- `accea5fc` chore(release): 发布 48 个模块——bconf v0.28.0 / broker v0.4.0 / pkg v0.16.0 / transport v0.5.0 / 根 v0.55.0
 - `75929b57` refactor(broker)!: 删除 rocketmq 后端（broker + transport 双 module 与双契约段） **(breaking)**
 - `d33afa87` chore(release): 发布 47 个模块——bconf v0.28.0 / pkg v0.16.0 / cli v0.13.0 / 根 v0.55.0
 - `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
@@ -139,6 +142,7 @@
 
 ### broker/rabbitmq v0.2.2
 
+- `accea5fc` chore(release): 发布 48 个模块——bconf v0.28.0 / broker v0.4.0 / pkg v0.16.0 / transport v0.5.0 / 根 v0.55.0
 - `d33afa87` chore(release): 发布 47 个模块——bconf v0.28.0 / pkg v0.16.0 / cli v0.13.0 / 根 v0.55.0
 - `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
 - `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
@@ -166,6 +170,7 @@
 
 ### broker/redis v0.5.0
 
+- `accea5fc` chore(release): 发布 48 个模块——bconf v0.28.0 / broker v0.4.0 / pkg v0.16.0 / transport v0.5.0 / 根 v0.55.0
 - `75929b57` refactor(broker)!: 删除 rocketmq 后端（broker + transport 双 module 与双契约段） **(breaking)**
 - `d33afa87` chore(release): 发布 47 个模块——bconf v0.28.0 / pkg v0.16.0 / cli v0.13.0 / 根 v0.55.0
 - `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
@@ -203,6 +208,7 @@
 
 ### cache/redis v0.4.2
 
+- `accea5fc` chore(release): 发布 48 个模块——bconf v0.28.0 / broker v0.4.0 / pkg v0.16.0 / transport v0.5.0 / 根 v0.55.0
 - `d33afa87` chore(release): 发布 47 个模块——bconf v0.28.0 / pkg v0.16.0 / cli v0.13.0 / 根 v0.55.0
 - `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
 - `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
@@ -247,12 +253,14 @@
 
 ### cobramcp v0.4.0
 
+- `accea5fc` chore(release): 发布 48 个模块——bconf v0.28.0 / broker v0.4.0 / pkg v0.16.0 / transport v0.5.0 / 根 v0.55.0
 - `d33afa87` chore(release): 发布 47 个模块——bconf v0.28.0 / pkg v0.16.0 / cli v0.13.0 / 根 v0.55.0
 - `aaca280c` feat(cobramcp): 服务暴露切 Streamable HTTP（MCP 最新标准），弃用旧版 HTTP+SSE
 - `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
 
 ### contrib/audit-gorm v0.2.4
 
+- `accea5fc` chore(release): 发布 48 个模块——bconf v0.28.0 / broker v0.4.0 / pkg v0.16.0 / transport v0.5.0 / 根 v0.55.0
 - `d33afa87` chore(release): 发布 47 个模块——bconf v0.28.0 / pkg v0.16.0 / cli v0.13.0 / 根 v0.55.0
 - `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
 - `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
@@ -285,6 +293,7 @@
 
 ### contrib/audit-stream v0.4.3
 
+- `accea5fc` chore(release): 发布 48 个模块——bconf v0.28.0 / broker v0.4.0 / pkg v0.16.0 / transport v0.5.0 / 根 v0.55.0
 - `d33afa87` chore(release): 发布 47 个模块——bconf v0.28.0 / pkg v0.16.0 / cli v0.13.0 / 根 v0.55.0
 - `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
 - `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
@@ -366,6 +375,7 @@
 
 ### contrib/config-nacos v0.1.2
 
+- `accea5fc` chore(release): 发布 48 个模块——bconf v0.28.0 / broker v0.4.0 / pkg v0.16.0 / transport v0.5.0 / 根 v0.55.0
 - `d33afa87` chore(release): 发布 47 个模块——bconf v0.28.0 / pkg v0.16.0 / cli v0.13.0 / 根 v0.55.0
 - `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
 - `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
@@ -404,6 +414,7 @@
 
 ### contrib/observability-otlp v0.4.3
 
+- `accea5fc` chore(release): 发布 48 个模块——bconf v0.28.0 / broker v0.4.0 / pkg v0.16.0 / transport v0.5.0 / 根 v0.55.0
 - `d33afa87` chore(release): 发布 47 个模块——bconf v0.28.0 / pkg v0.16.0 / cli v0.13.0 / 根 v0.55.0
 - `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
 - `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
@@ -420,6 +431,7 @@
 
 ### contrib/store-gorm v0.4.2
 
+- `accea5fc` chore(release): 发布 48 个模块——bconf v0.28.0 / broker v0.4.0 / pkg v0.16.0 / transport v0.5.0 / 根 v0.55.0
 - `d33afa87` chore(release): 发布 47 个模块——bconf v0.28.0 / pkg v0.16.0 / cli v0.13.0 / 根 v0.55.0
 - `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
 - `0b7cd242` fix(store-gorm): errcheck 三处挂链调用补显式忽略
@@ -488,6 +500,7 @@
 
 ### metrics/datadog v0.2.2
 
+- `0425e3f2` chore(deps): metrics 三模块 go.sum 清掉 transport v0.4.0 陈旧条目（叠加层 III 补齐）
 - `79ba6936` chore(deps): metrics 三模块补 transport 目录 replace（发布叠加层 III）
 - `d33afa87` chore(release): 发布 47 个模块——bconf v0.28.0 / pkg v0.16.0 / cli v0.13.0 / 根 v0.55.0
 - `7498ac44` chore(deps): 13 个 replace-pkg 模块补 bconfig 目录 replace（发布叠加层 II）
@@ -519,6 +532,7 @@
 
 ### metrics/otel v0.2.2
 
+- `0425e3f2` chore(deps): metrics 三模块 go.sum 清掉 transport v0.4.0 陈旧条目（叠加层 III 补齐）
 - `79ba6936` chore(deps): metrics 三模块补 transport 目录 replace（发布叠加层 III）
 - `d33afa87` chore(release): 发布 47 个模块——bconf v0.28.0 / pkg v0.16.0 / cli v0.13.0 / 根 v0.55.0
 - `7498ac44` chore(deps): 13 个 replace-pkg 模块补 bconfig 目录 replace（发布叠加层 II）
@@ -552,6 +566,7 @@
 
 ### metrics/prometheus v0.2.2
 
+- `0425e3f2` chore(deps): metrics 三模块 go.sum 清掉 transport v0.4.0 陈旧条目（叠加层 III 补齐）
 - `79ba6936` chore(deps): metrics 三模块补 transport 目录 replace（发布叠加层 III）
 - `d33afa87` chore(release): 发布 47 个模块——bconf v0.28.0 / pkg v0.16.0 / cli v0.13.0 / 根 v0.55.0
 - `7498ac44` chore(deps): 13 个 replace-pkg 模块补 bconfig 目录 replace（发布叠加层 II）
@@ -583,6 +598,7 @@
 
 ### oss/minio v0.3.3
 
+- `accea5fc` chore(release): 发布 48 个模块——bconf v0.28.0 / broker v0.4.0 / pkg v0.16.0 / transport v0.5.0 / 根 v0.55.0
 - `d33afa87` chore(release): 发布 47 个模块——bconf v0.28.0 / pkg v0.16.0 / cli v0.13.0 / 根 v0.55.0
 - `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
 - `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
@@ -616,6 +632,7 @@
 
 ### oss/s3 v0.3.3
 
+- `accea5fc` chore(release): 发布 48 个模块——bconf v0.28.0 / broker v0.4.0 / pkg v0.16.0 / transport v0.5.0 / 根 v0.55.0
 - `d33afa87` chore(release): 发布 47 个模块——bconf v0.28.0 / pkg v0.16.0 / cli v0.13.0 / 根 v0.55.0
 - `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
 - `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
@@ -649,6 +666,7 @@
 
 ### pkg v0.16.0
 
+- `accea5fc` chore(release): 发布 48 个模块——bconf v0.28.0 / broker v0.4.0 / pkg v0.16.0 / transport v0.5.0 / 根 v0.55.0
 - `d33afa87` chore(release): 发布 47 个模块——bconf v0.28.0 / pkg v0.16.0 / cli v0.13.0 / 根 v0.55.0
 - `39b1a8b7` refactor(ai)!: 删除 ai 模块及其全部接线 **(breaking)**
 - `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
@@ -663,6 +681,7 @@
 
 ### registry/consul v0.1.7
 
+- `accea5fc` chore(release): 发布 48 个模块——bconf v0.28.0 / broker v0.4.0 / pkg v0.16.0 / transport v0.5.0 / 根 v0.55.0
 - `d33afa87` chore(release): 发布 47 个模块——bconf v0.28.0 / pkg v0.16.0 / cli v0.13.0 / 根 v0.55.0
 - `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
 - `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
@@ -692,6 +711,7 @@
 
 ### registry/etcd v0.4.2
 
+- `accea5fc` chore(release): 发布 48 个模块——bconf v0.28.0 / broker v0.4.0 / pkg v0.16.0 / transport v0.5.0 / 根 v0.55.0
 - `d33afa87` chore(release): 发布 47 个模块——bconf v0.28.0 / pkg v0.16.0 / cli v0.13.0 / 根 v0.55.0
 - `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
 - `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
@@ -720,6 +740,7 @@
 
 ### registry/kubernetes v0.1.7
 
+- `accea5fc` chore(release): 发布 48 个模块——bconf v0.28.0 / broker v0.4.0 / pkg v0.16.0 / transport v0.5.0 / 根 v0.55.0
 - `d33afa87` chore(release): 发布 47 个模块——bconf v0.28.0 / pkg v0.16.0 / cli v0.13.0 / 根 v0.55.0
 - `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
 - `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
@@ -749,6 +770,7 @@
 
 ### registry/nacos v0.3.4
 
+- `accea5fc` chore(release): 发布 48 个模块——bconf v0.28.0 / broker v0.4.0 / pkg v0.16.0 / transport v0.5.0 / 根 v0.55.0
 - `81726d05` fix(nacos): 同 service 多实例必须一次 BatchRegister 提交——修复「后者整体替换前者」
 - `d33afa87` chore(release): 发布 47 个模块——bconf v0.28.0 / pkg v0.16.0 / cli v0.13.0 / 根 v0.55.0
 - `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
@@ -819,6 +841,7 @@
 
 ### transport/asynq v0.6.4
 
+- `accea5fc` chore(release): 发布 48 个模块——bconf v0.28.0 / broker v0.4.0 / pkg v0.16.0 / transport v0.5.0 / 根 v0.55.0
 - `d33afa87` chore(release): 发布 47 个模块——bconf v0.28.0 / pkg v0.16.0 / cli v0.13.0 / 根 v0.55.0
 - `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
 - `d71c2c94` fix(transport,contracts): 清理 ADR-1 残留半截函数（跨设备收口推送）
@@ -848,6 +871,7 @@
 
 ### transport/client v0.2.1
 
+- `accea5fc` chore(release): 发布 48 个模块——bconf v0.28.0 / broker v0.4.0 / pkg v0.16.0 / transport v0.5.0 / 根 v0.55.0
 - `d33afa87` chore(release): 发布 47 个模块——bconf v0.28.0 / pkg v0.16.0 / cli v0.13.0 / 根 v0.55.0
 - `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
 - `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
@@ -861,6 +885,7 @@
 
 ### transport/cron v0.6.4
 
+- `accea5fc` chore(release): 发布 48 个模块——bconf v0.28.0 / broker v0.4.0 / pkg v0.16.0 / transport v0.5.0 / 根 v0.55.0
 - `d33afa87` chore(release): 发布 47 个模块——bconf v0.28.0 / pkg v0.16.0 / cli v0.13.0 / 根 v0.55.0
 - `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
 - `d71c2c94` fix(transport,contracts): 清理 ADR-1 残留半截函数（跨设备收口推送）
@@ -896,6 +921,7 @@
 
 ### transport/gateway v0.5.3
 
+- `accea5fc` chore(release): 发布 48 个模块——bconf v0.28.0 / broker v0.4.0 / pkg v0.16.0 / transport v0.5.0 / 根 v0.55.0
 - `d33afa87` chore(release): 发布 47 个模块——bconf v0.28.0 / pkg v0.16.0 / cli v0.13.0 / 根 v0.55.0
 - `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
 - `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
@@ -922,6 +948,7 @@
 
 ### transport/graphql v0.2.2
 
+- `accea5fc` chore(release): 发布 48 个模块——bconf v0.28.0 / broker v0.4.0 / pkg v0.16.0 / transport v0.5.0 / 根 v0.55.0
 - `d33afa87` chore(release): 发布 47 个模块——bconf v0.28.0 / pkg v0.16.0 / cli v0.13.0 / 根 v0.55.0
 - `7498ac44` chore(deps): 13 个 replace-pkg 模块补 bconfig 目录 replace（发布叠加层 II）
 - `42c7ac3d` chore(deps): 13 个 replace-pkg 模块补 bootstrap 目录 replace（发布叠加层）
@@ -953,6 +980,7 @@
 
 ### transport/http3 v0.3.3
 
+- `accea5fc` chore(release): 发布 48 个模块——bconf v0.28.0 / broker v0.4.0 / pkg v0.16.0 / transport v0.5.0 / 根 v0.55.0
 - `d33afa87` chore(release): 发布 47 个模块——bconf v0.28.0 / pkg v0.16.0 / cli v0.13.0 / 根 v0.55.0
 - `7498ac44` chore(deps): 13 个 replace-pkg 模块补 bconfig 目录 replace（发布叠加层 II）
 - `42c7ac3d` chore(deps): 13 个 replace-pkg 模块补 bootstrap 目录 replace（发布叠加层）
@@ -969,6 +997,7 @@
 
 ### transport/kafka v0.3.2
 
+- `accea5fc` chore(release): 发布 48 个模块——bconf v0.28.0 / broker v0.4.0 / pkg v0.16.0 / transport v0.5.0 / 根 v0.55.0
 - `d33afa87` chore(release): 发布 47 个模块——bconf v0.28.0 / pkg v0.16.0 / cli v0.13.0 / 根 v0.55.0
 - `7498ac44` chore(deps): 13 个 replace-pkg 模块补 bconfig 目录 replace（发布叠加层 II）
 - `42c7ac3d` chore(deps): 13 个 replace-pkg 模块补 bootstrap 目录 replace（发布叠加层）
@@ -1000,6 +1029,7 @@
 
 ### transport/mcp v0.6.0
 
+- `accea5fc` chore(release): 发布 48 个模块——bconf v0.28.0 / broker v0.4.0 / pkg v0.16.0 / transport v0.5.0 / 根 v0.55.0
 - `75929b57` refactor(broker)!: 删除 rocketmq 后端（broker + transport 双 module 与双契约段） **(breaking)**
 - `d33afa87` chore(release): 发布 47 个模块——bconf v0.28.0 / pkg v0.16.0 / cli v0.13.0 / 根 v0.55.0
 - `7498ac44` chore(deps): 13 个 replace-pkg 模块补 bconfig 目录 replace（发布叠加层 II）
@@ -1009,6 +1039,7 @@
 
 ### transport/rabbitmq v0.4.0
 
+- `accea5fc` chore(release): 发布 48 个模块——bconf v0.28.0 / broker v0.4.0 / pkg v0.16.0 / transport v0.5.0 / 根 v0.55.0
 - `75929b57` refactor(broker)!: 删除 rocketmq 后端（broker + transport 双 module 与双契约段） **(breaking)**
 - `d33afa87` chore(release): 发布 47 个模块——bconf v0.28.0 / pkg v0.16.0 / cli v0.13.0 / 根 v0.55.0
 - `7498ac44` chore(deps): 13 个 replace-pkg 模块补 bconfig 目录 replace（发布叠加层 II）
@@ -1039,6 +1070,7 @@
 
 ### transport/redis v0.3.2
 
+- `accea5fc` chore(release): 发布 48 个模块——bconf v0.28.0 / broker v0.4.0 / pkg v0.16.0 / transport v0.5.0 / 根 v0.55.0
 - `d33afa87` chore(release): 发布 47 个模块——bconf v0.28.0 / pkg v0.16.0 / cli v0.13.0 / 根 v0.55.0
 - `7498ac44` chore(deps): 13 个 replace-pkg 模块补 bconfig 目录 replace（发布叠加层 II）
 - `42c7ac3d` chore(deps): 13 个 replace-pkg 模块补 bootstrap 目录 replace（发布叠加层）
@@ -1068,6 +1100,7 @@
 
 ### transport/sse v0.6.1
 
+- `accea5fc` chore(release): 发布 48 个模块——bconf v0.28.0 / broker v0.4.0 / pkg v0.16.0 / transport v0.5.0 / 根 v0.55.0
 - `d33afa87` chore(release): 发布 47 个模块——bconf v0.28.0 / pkg v0.16.0 / cli v0.13.0 / 根 v0.55.0
 - `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
 - `d71c2c94` fix(transport,contracts): 清理 ADR-1 残留半截函数（跨设备收口推送）
@@ -1097,6 +1130,7 @@
 
 ### transport/subscribe v0.1.1
 
+- `accea5fc` chore(release): 发布 48 个模块——bconf v0.28.0 / broker v0.4.0 / pkg v0.16.0 / transport v0.5.0 / 根 v0.55.0
 - `d33afa87` chore(release): 发布 47 个模块——bconf v0.28.0 / pkg v0.16.0 / cli v0.13.0 / 根 v0.55.0
 - `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
 - `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
@@ -1104,6 +1138,7 @@
 
 ### transport/tcp v0.3.1
 
+- `accea5fc` chore(release): 发布 48 个模块——bconf v0.28.0 / broker v0.4.0 / pkg v0.16.0 / transport v0.5.0 / 根 v0.55.0
 - `d33afa87` chore(release): 发布 47 个模块——bconf v0.28.0 / pkg v0.16.0 / cli v0.13.0 / 根 v0.55.0
 - `7498ac44` chore(deps): 13 个 replace-pkg 模块补 bconfig 目录 replace（发布叠加层 II）
 - `42c7ac3d` chore(deps): 13 个 replace-pkg 模块补 bootstrap 目录 replace（发布叠加层）
@@ -1151,6 +1186,7 @@
 
 ### transport/webrtc v0.3.2
 
+- `accea5fc` chore(release): 发布 48 个模块——bconf v0.28.0 / broker v0.4.0 / pkg v0.16.0 / transport v0.5.0 / 根 v0.55.0
 - `d33afa87` chore(release): 发布 47 个模块——bconf v0.28.0 / pkg v0.16.0 / cli v0.13.0 / 根 v0.55.0
 - `7498ac44` chore(deps): 13 个 replace-pkg 模块补 bconfig 目录 replace（发布叠加层 II）
 - `42c7ac3d` chore(deps): 13 个 replace-pkg 模块补 bootstrap 目录 replace（发布叠加层）
@@ -1182,6 +1218,7 @@
 
 ### transport/websocket v0.2.2
 
+- `accea5fc` chore(release): 发布 48 个模块——bconf v0.28.0 / broker v0.4.0 / pkg v0.16.0 / transport v0.5.0 / 根 v0.55.0
 - `d33afa87` chore(release): 发布 47 个模块——bconf v0.28.0 / pkg v0.16.0 / cli v0.13.0 / 根 v0.55.0
 - `7498ac44` chore(deps): 13 个 replace-pkg 模块补 bconfig 目录 replace（发布叠加层 II）
 - `42c7ac3d` chore(deps): 13 个 replace-pkg 模块补 bootstrap 目录 replace（发布叠加层）
