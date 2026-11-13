@@ -8,6 +8,7 @@
 
 ### bald v0.55.0
 
+- `56e0c198` chore(release): 发布 48 个模块——bconf v0.28.0 / broker v0.4.0 / pkg v0.16.0 / transport v0.5.0 / 根 v0.55.0
 - `67b0e53d` chore(release): 发布 48 个模块——bconf v0.28.0 / broker v0.4.0 / pkg v0.16.0 / transport v0.5.0 / 根 v0.55.0
 - `accea5fc` chore(release): 发布 48 个模块——bconf v0.28.0 / broker v0.4.0 / pkg v0.16.0 / transport v0.5.0 / 根 v0.55.0
 - `32647dfe` chore(release): 清除 d33afa8 批次写入的 47 条未打 tag CHANGELOG 条目
@@ -1140,6 +1141,7 @@
 
 ### transport/tcp v0.3.1
 
+- `dba2a8d8` fix(tcp): 缓冲尺寸改实例快照与会话传参——修包级全局 Option 写与残留 session goroutine 读的数据竞争
 - `accea5fc` chore(release): 发布 48 个模块——bconf v0.28.0 / broker v0.4.0 / pkg v0.16.0 / transport v0.5.0 / 根 v0.55.0
 - `d33afa87` chore(release): 发布 47 个模块——bconf v0.28.0 / pkg v0.16.0 / cli v0.13.0 / 根 v0.55.0
 - `7498ac44` chore(deps): 13 个 replace-pkg 模块补 bconfig 目录 replace（发布叠加层 II）
