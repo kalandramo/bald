@@ -793,7 +793,7 @@ func TestServer_SessionCallbacksAndNilManager(t *testing.T) {
 	)
 	// nil 会话不触发连接回调。
 	srv.OnSessionAdded(nil)
-	session := NewSession(newFakeConn(), nil)
+	session := NewSession(newFakeConn(), nil, channelBufSize, recvBufferSize)
 	srv.OnSessionAdded(session)
 	srv.OnSessionRemoved(session)
 	if len(events) != 2 || !events[0] || events[1] {
@@ -813,7 +813,7 @@ func TestServer_SessionCallbacksAndNilManager(t *testing.T) {
 func TestServer_SendAndBroadcastWithSession(t *testing.T) {
 	ensureJSON(t)
 	srv := NewServer()
-	session := NewSession(newFakeConn(), nil)
+	session := NewSession(newFakeConn(), nil, channelBufSize, recvBufferSize)
 	srv.sessionManager.addSession(session)
 	if err := srv.SendRawData(session.SessionID(), []byte("x")); err != nil {
 		t.Fatalf("send raw: %v", err)
@@ -834,12 +834,12 @@ func TestSession_NilConnPanics(t *testing.T) {
 			t.Fatal("NewSession(nil) must panic")
 		}
 	}()
-	NewSession(nil, nil)
+	NewSession(nil, nil, channelBufSize, recvBufferSize)
 }
 
 func TestSession_SendAfterCloseAndHooks(t *testing.T) {
 	rec := &sessionRecorder{}
-	s := NewSession(newFakeConn(), rec)
+	s := NewSession(newFakeConn(), rec, channelBufSize, recvBufferSize)
 	if s.Conn() == nil || s.SessionID() == "" {
 		t.Fatal("session accessors must return live values")
 	}
@@ -861,7 +861,7 @@ func TestSession_SendAfterCloseAndHooks(t *testing.T) {
 }
 
 func TestSession_CloseConnectError(t *testing.T) {
-	s := NewSession(&scriptedConn{closed: make(chan struct{}), closeErr: errors.New("close failed")}, nil)
+	s := NewSession(&scriptedConn{closed: make(chan struct{}), closeErr: errors.New("close failed")}, nil, channelBufSize, recvBufferSize)
 	s.Close() // Close 报错仅记日志
 	if s.conn != nil {
 		t.Fatal("conn must be cleared even when Close errors")
@@ -869,7 +869,7 @@ func TestSession_CloseConnectError(t *testing.T) {
 }
 
 func TestSession_ListenAndWait(t *testing.T) {
-	s := NewSession(newFakeConn(), nil)
+	s := NewSession(newFakeConn(), nil, channelBufSize, recvBufferSize)
 	s.Listen()
 	s.Listen() // listenOnce 幂等
 	s.Close()
@@ -884,7 +884,7 @@ func TestSession_ListenAndWait(t *testing.T) {
 
 func TestSession_WritePumpBranches(t *testing.T) {
 	// conn 为 nil：丢弃消息并退出。
-	s := &Session{conn: nil, done: make(chan struct{}), send: make(chan []byte, 1)}
+	s := &Session{conn: nil, done: make(chan struct{}), send: make(chan []byte, 1), recvBuf: recvBufferSize}
 	s.wg.Add(1)
 	s.send <- []byte("x")
 	s.writePump()
@@ -893,7 +893,7 @@ func TestSession_WritePumpBranches(t *testing.T) {
 	// 写失败且已关闭 → 走 done 分支（不记错误日志）。
 	var inner *Session
 	conn := &callbackConn{scriptedConn: newScriptedConn(), onWrite: func() { inner.Close() }}
-	s2 := &Session{conn: conn, done: make(chan struct{}), send: make(chan []byte, 1)}
+	s2 := &Session{conn: conn, done: make(chan struct{}), send: make(chan []byte, 1), recvBuf: recvBufferSize}
 	inner = s2
 	s2.wg.Add(1)
 	s2.send <- []byte("x")
@@ -902,7 +902,7 @@ func TestSession_WritePumpBranches(t *testing.T) {
 
 	// 写失败但未关闭 → 记录日志后退出。
 	s3 := &Session{conn: &scriptedConn{closed: make(chan struct{}), writeErr: errors.New("w")},
-		done: make(chan struct{}), send: make(chan []byte, 1)}
+		done: make(chan struct{}), send: make(chan []byte, 1), recvBuf: recvBufferSize}
 	s3.wg.Add(1)
 	s3.send <- []byte("x")
 	s3.writePump()
@@ -911,7 +911,7 @@ func TestSession_WritePumpBranches(t *testing.T) {
 
 func TestSession_ReadPumpBranches(t *testing.T) {
 	// conn 为 nil：直接退出。
-	s := &Session{conn: nil, done: make(chan struct{})}
+	s := &Session{conn: nil, done: make(chan struct{}), recvBuf: recvBufferSize}
 	s.wg.Add(1)
 	s.readPump()
 	s.wg.Wait()
@@ -920,7 +920,7 @@ func TestSession_ReadPumpBranches(t *testing.T) {
 	sc := newScriptedConn()
 	sc.reads = [][]byte{[]byte("ignored")}
 	sc.readErr = errors.New("eof")
-	s2 := &Session{conn: sc, done: make(chan struct{})}
+	s2 := &Session{conn: sc, done: make(chan struct{}), recvBuf: recvBufferSize}
 	s2.wg.Add(1)
 	s2.readPump()
 	s2.wg.Wait()
@@ -930,7 +930,7 @@ func TestSession_ReadPumpBranches(t *testing.T) {
 	sc2 := newScriptedConn()
 	sc2.reads = [][]byte{[]byte("payload")}
 	sc2.readErr = errors.New("eof")
-	s3 := &Session{conn: sc2, done: make(chan struct{}), hooks: rec}
+	s3 := &Session{conn: sc2, done: make(chan struct{}), hooks: rec, recvBuf: recvBufferSize}
 	s3.wg.Add(1)
 	s3.readPump()
 	s3.wg.Wait()
@@ -944,7 +944,7 @@ func TestSession_ReadPumpBranches(t *testing.T) {
 	// 读失败且已关闭 → done 分支退出。
 	var inner *Session
 	cc := &callbackConn{scriptedConn: newScriptedConn(), onRead: func() { inner.Close() }}
-	s4 := &Session{conn: cc, done: make(chan struct{})}
+	s4 := &Session{conn: cc, done: make(chan struct{}), recvBuf: recvBufferSize}
 	inner = s4
 	s4.wg.Add(1)
 	s4.readPump()
@@ -955,12 +955,12 @@ func TestSessionManager_EdgeInputs(t *testing.T) {
 	sm := NewSessionManager(nil)
 	sm.addSession(nil)
 	sm.removeSession(nil)
-	sm.addSession(NewSession(newFakeConn(), nil))
+	sm.addSession(NewSession(newFakeConn(), nil, channelBufSize, recvBufferSize))
 	sm.Clean()
 	if got := sm.count(); got != 0 {
 		t.Fatalf("count after Clean = %d, want 0", got)
 	}
-	s := NewSession(newFakeConn(), nil)
+	s := NewSession(newFakeConn(), nil, channelBufSize, recvBufferSize)
 	sm.removeSession(s) // 不存在：不通知、不 panic
 	if sm.getSession("missing") != nil {
 		t.Fatal("unknown session should be nil")

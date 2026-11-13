@@ -22,6 +22,10 @@ type Session struct {
 
 	send chan []byte
 
+	// recvBuf 是读缓冲尺寸：构造期由 Server 快照传入（见 server.go init）——
+	// readPump goroutine 只读本字段，不读包级全局（避免与后续 Option 写全局竞态）。
+	recvBuf int
+
 	connMu     sync.RWMutex
 	done       chan struct{}
 	listenOnce sync.Once
@@ -35,17 +39,18 @@ type SessionHooks interface {
 	handleSocketRawData(SessionID, []byte) error
 }
 
-func NewSession(conn net.Conn, hooks SessionHooks) *Session {
+func NewSession(conn net.Conn, hooks SessionHooks, channelBuf, recvBuf int) *Session {
 	if conn == nil {
 		panic("conn cannot be nil")
 	}
 
 	c := &Session{
-		id:    SessionID(id.NewGUIDv4(false)),
-		conn:  conn,
-		done:  make(chan struct{}),
-		send:  make(chan []byte, channelBufSize),
-		hooks: hooks,
+		id:      SessionID(id.NewGUIDv4(false)),
+		conn:    conn,
+		done:    make(chan struct{}),
+		send:    make(chan []byte, channelBuf),
+		recvBuf: recvBuf,
+		hooks:   hooks,
 	}
 
 	return c
@@ -138,7 +143,7 @@ func (s *Session) readPump() {
 	defer s.wg.Done()
 	defer s.Close()
 
-	buf := make([]byte, recvBufferSize)
+	buf := make([]byte, s.recvBuf)
 
 	for {
 		select {

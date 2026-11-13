@@ -72,6 +72,13 @@ type Server struct {
 	netPacketMarshaler   NetPacketMarshaler
 	netPacketUnmarshaler NetPacketUnmarshaler
 
+	// channelBufSize / recvBufSize 是包级默认（session.go）在本实例 init() 时的
+	// 快照：session 的 send 通道与读缓冲在构造期读这两个字段而不是包级全局——
+	// Option 写全局与上一个 Server 残留的 session goroutine 读全局是真数据竞争
+	//（CI race 作业间歇判红即此），快照后 goroutine 只读本实例字段。
+	channelBufSize int
+	recvBufSize    int
+
 	sessionManager *SessionManager
 
 	tracer trace.Tracer
@@ -104,6 +111,11 @@ func (s *Server) init(opts ...Option) {
 	for _, o := range opts {
 		o(s)
 	}
+
+	// 包级默认的实例级快照（同步发生在应用 Option 的同一 goroutine，此后
+	// session goroutine 只读字段，不再与后续 Option 的全局写入竞态）。
+	s.channelBufSize = channelBufSize
+	s.recvBufSize = recvBufferSize
 
 	if s.netPacketMarshaler == nil {
 		s.netPacketMarshaler = s.defaultMarshalNetPacket
@@ -440,7 +452,7 @@ func (s *Server) doAccept() {
 			s.m.GaugeAdd(context.Background(), "tcp_connections_in_flight", 1, map[string]string{})
 		}
 
-		session := NewSession(conn, s)
+		session := NewSession(conn, s, s.channelBufSize, s.recvBufSize)
 		s.sessionManager.addSession(session)
 		session.Listen()
 	}

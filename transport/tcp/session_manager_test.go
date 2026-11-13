@@ -40,7 +40,7 @@ func (o *recordObserver) OnSessionRemoved(*Session) {}
 func TestRangeSessions_RespectsReturnValue(t *testing.T) {
 	sm := NewSessionManager(nil)
 	for i := 0; i < 3; i++ {
-		sm.addSession(NewSession(newFakeConn(), nil))
+		sm.addSession(NewSession(newFakeConn(), nil, channelBufSize, recvBufferSize))
 	}
 
 	t.Run("return true continues through all sessions", func(t *testing.T) {
@@ -84,7 +84,7 @@ func TestSessionManager_ObserverConcurrentSafety(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			s := NewSession(newFakeConn(), nil)
+			s := NewSession(newFakeConn(), nil, channelBufSize, recvBufferSize)
 			sm.addSession(s)
 			sm.removeSession(s)
 		}()
@@ -97,7 +97,7 @@ func TestSessionManager_ObserverConcurrentSafety(t *testing.T) {
 func TestSessionManager_AddIsIdempotent(t *testing.T) {
 	obs := &recordObserver{}
 	sm := NewSessionManager(obs)
-	s := NewSession(newFakeConn(), nil)
+	s := NewSession(newFakeConn(), nil, channelBufSize, recvBufferSize)
 
 	sm.addSession(s)
 	sm.addSession(s)

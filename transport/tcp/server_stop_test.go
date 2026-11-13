@@ -95,7 +95,7 @@ func waitEndpoint(t *testing.T, srv *Server) string {
 func TestSessionManager_CloseAllClosesSessions(t *testing.T) {
 	sm := NewSessionManager(nil)
 	conns := make([]*fakeConn, 3)
-	for i, s := range []*Session{NewSession(newFakeConn(), nil), NewSession(newFakeConn(), nil), NewSession(newFakeConn(), nil)} {
+	for i, s := range []*Session{NewSession(newFakeConn(), nil, channelBufSize, recvBufferSize), NewSession(newFakeConn(), nil, channelBufSize, recvBufferSize), NewSession(newFakeConn(), nil, channelBufSize, recvBufferSize)} {
 		conns[i] = s.conn.(*fakeConn)
 		sm.addSession(s)
 	}
