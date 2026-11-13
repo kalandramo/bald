@@ -8,6 +8,7 @@
 
 ### bald v0.55.0
 
+- `67b0e53d` chore(release): 发布 48 个模块——bconf v0.28.0 / broker v0.4.0 / pkg v0.16.0 / transport v0.5.0 / 根 v0.55.0
 - `accea5fc` chore(release): 发布 48 个模块——bconf v0.28.0 / broker v0.4.0 / pkg v0.16.0 / transport v0.5.0 / 根 v0.55.0
 - `32647dfe` chore(release): 清除 d33afa8 批次写入的 47 条未打 tag CHANGELOG 条目
 - `af150349` fix(ci,transport): 修四类 CI 旧病——redis 注入、go.sum 漂移、TestMongo J4 合规、mcp serve 竞态
@@ -666,6 +667,7 @@
 
 ### pkg v0.16.0
 
+- `20cd88e1` test(appkit): reconcile 测试件对 nil 快照免疫——修 TestReconcile_PartialFailureThenConverges 间歇红
 - `accea5fc` chore(release): 发布 48 个模块——bconf v0.28.0 / broker v0.4.0 / pkg v0.16.0 / transport v0.5.0 / 根 v0.55.0
 - `d33afa87` chore(release): 发布 47 个模块——bconf v0.28.0 / pkg v0.16.0 / cli v0.13.0 / 根 v0.55.0
 - `39b1a8b7` refactor(ai)!: 删除 ai 模块及其全部接线 **(breaking)**
