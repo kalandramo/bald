@@ -96,7 +96,6 @@ func benchResourceApp() *App {
 		"cache.local":         "local-cache",
 		"storage.minio":       "minio-client",
 		"storage.s3":          "s3-client",
-		"ai.openai":           "openai-client",
 		"workflow.temporal":   "temporal-client",
 		"broker.kafka":        "kafka-client",
 	}}

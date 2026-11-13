@@ -32,7 +32,7 @@ bald 是一个 **SPI + 适配器 + 声明式装配** 的 Go 多模块框架：�
 | 组合层 | `pkg/appkit`（`pkg` module 内） | v2 Provider `Plan`/`Build`/`Segments`、`Run`/`stopAll` 生命周期、`std` 标准装配、`mech`/`appcli`/`Domain` | `pkg/appkit/provider.go:1-24`、`pkg/appkit/appkit.go:561-703` |
 | 横切层 | `pkg/middleware`（统一契约 + 三桥 + `{bundle,gin,grpc}`） | 统一 `Handler`/`Middleware` 契约经三桥（GinHandler/Unary/StreamServerInterceptor）服务双协议，内置件一份实现（含 Observability）；gin/grpc 子包委托统一件，`bundle.Gin()`/`GRPCInterceptors()` 为 deprecated 兼容门面（方案 S） | `pkg/middleware/handler.go:13-16`、`pkg/middleware/bundle/bundle.go` |
 | SPI | `transport` `broker` `cache` `metrics` `registry` `ratelimit` `circuitbreaker` `retry` `encoding` `log` `health` `berrors` | 只有接口与少量通用工具 | `transport/server.go:14-22`、`broker/broker.go:9-33`、`cache/cache.go:28-69`、`registry/registry.go:62-75` |
-| 适配器 | `transport/*`(19) `broker/*`(4) `cache/*`(3) `registry/*`(4) `log/*`(5) `metrics/*`(3) `encoding/*`(12) `ratelimit/*`(3) `circuitbreaker/*`(4) `oss/{minio,s3}` `ai/*`(3) `workflow/argo` `cobramcp` | 每个后端一个 module | 各 `*/go.mod` |
+| 适配器 | `transport/*`(19) `broker/*`(4) `cache/*`(3) `registry/*`(4) `log/*`(5) `metrics/*`(3) `encoding/*`(12) `ratelimit/*`(3) `circuitbreaker/*`(4) `oss/{minio,s3}` `workflow/argo` `cobramcp` | 每个后端一个 module | 各 `*/go.mod` |
 | 接入子包 | `*/contract`（44 个目录，`find . -type d -name contract` 可复跑） | 把适配器注册成 appkit v2 Provider —— **这是适配器与装配层唯一的接缝** | `transport/gateway/contract/provider.go:32`、`registry/etcd/contract/provider.go:16`、`oss/minio/contract/provider.go:17` |
 | 扩展 | `contrib/*`（8 个独立 module） | store-gorm/mongo、audit-*、authn-jwt、authz-casbin、config-nacos、observability-otlp；`contrib/database` 只是目录（无 `.go` 也无 `go.mod`） | `contrib/*/go.mod` |
 | 代码生成 + 发布工具 | `github.com/kalandramo/bald/cli`（`cli/cmd/bald` + `cli/internal/{codegen,release}`） | `gen app/domain/proto/store` 从 `appspec.json` 产出 owned/seeded 文件树；`release plan/sync/changelog/tag` 驱动多模块发布。该 module 的 `go.mod` **零 `replace`**、按 tag 消费 `bconf`——这是它区别于仓库根的唯一目的（风险评审 §3.4） | `cli/go.mod`、`cli/internal/codegen/appspec_tmpl_*.go` |
@@ -41,7 +41,7 @@ bald 是一个 **SPI + 适配器 + 声明式装配** 的 Go 多模块框架：�
 `transport/` 与 `transport/grpc` 的区别是理解本仓库的钥匙：前者是 **接口**（`Server`：`Start(ctx)/Stop(ctx)/Endpoint()`），后者是 **一个实现**。`transport/gateway` 是复合体——它内嵌 `*httpserver.HTTPServer` 再加 grpc→REST 反向代理（`transport/gateway/gateway_server.go:25`），`transport/mcp` 则直接包装 `mark3labs/mcp-go`，但同样实现了 `Start/Stop/Endpoint`（`transport/mcp/server.go:106,186,233`）。
 
 <details>
-<summary>完整 module 清单（95 个，与 <code>scripts/list-modules.sh</code> 同源）</summary>
+<summary>完整 module 清单（92 个，与 <code>scripts/list-modules.sh</code> 同源）</summary>
 
 下面这块是**机器校验的**：`internal/docscheck` 的 `TestModuleListMatchesDerivation`
 把它逐行与 `scripts/list-modules.sh` 的派生结果比对（同一条谓词：仓库内含 `go.mod`
@@ -50,9 +50,6 @@ bald 是一个 **SPI + 适配器 + 声明式装配** 的 Go 多模块框架：�
 
 ```module-list
 .
-ai/eino
-ai/langchaingo
-ai/openai
 bconf
 bconfig
 berrors
@@ -253,7 +250,7 @@ find . -name '*.go' ! -name '*_test.go' -not -path './.git/*' -not -path './<pkg
 ```
 
 - `circuitbreaker/{vegas,sres,sentinel}` —— 契约接口 `circuitbreaker` 与其 `hystrix` 实现**已接线**（见本节末），这三个后端仍只被自己的测试驱动，换算法属代码级注入（`bundle.CircuitBreaker` 接受任意 `circuitbreaker.CircuitBreaker`）。判据同上，按 `circuitbreaker/<后端>` 逐个 grep。
-- `workflow/argo`、`ai/{openai,eino,langchaingo}`、`oss/{s3,minio}` —— 有 `*/contract` Provider，仓内零消费者、零示例。
+- `workflow/argo`、`oss/{s3,minio}` —— 有 `*/contract` Provider，仓内零消费者、零示例。
 - 四个 broker 型 transport 后端（`transport/{kafka,rabbitmq,redis,rocketmq}`）**仍是「仓内零消费者」，但缺席的原因已换**：装配面（服务器面的 `contract` 工厂）已随 §7.28 方向②第三批补齐（2026-11-06，见本节末去向条），所以业务侧现在「一行 `AppProvider` + 一段 YAML」就能起这台服务器，剩下的只是本仓没有这样的业务进程。`transport/{graphql,webrtc,mcp}`、`transport/{tcp,websocket,http3}` 同在此列（第二、第一批）。
 - 中间件依赖未注入即整层省略：`bundle.New()` 不给 `Authn` 时链中静默无认证层（风险 §6.1）。现已要求显式表态——`bundle.Public()` 声明有意公开，否则 `Bundle.Verify()` 报错、出链时告警（`pkg/middleware/bundle/bundle.go` 的 `Verify`）；生成脚手架默认写出 `bundle.Public()` 并留 TODO。
 - 中间件链上仍未接线的只有 **stream 面的形状**：`GRPCStreamInterceptors()` 出的链是 `Error → RateLimit`——超时按口径不默认挂（unary 的 `default_timeout_ms` 套在流上会静默变成「流的最大存活时长」），认证/授权/审计只有 unary 形态。`server.grpc.middleware` 的 `recovery`/`logging`/`tracing`/`validate` 四段是空 message，`FromGRPCMiddleware` **不翻译**它们（写了不改变任何行为，别当配置面）。契约侧也没有 `authn` 段：认证姿态是业务代码里的一行显式声明（`bundle.Public()` 或 `bundle.Authn(...)`），见 §6.1 与《Bald 中间件设计》。

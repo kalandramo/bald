@@ -228,7 +228,7 @@ func TestAssemble_ServerSubSegmentWithCoProvider(t *testing.T) {
 // 推其余）：遮蔽来源各不相同（映射包零注册 / 方向① 未实现），同一分支不等于
 // 同一行为。active 对照保留：撤掉唯一的该族 Provider，同一份 cfg 在顶层就判
 // 红——证明子段判红不是顶层闸门的副作用。
-// factory 用 stub 镜像契约包的声明形状（oss/ai/workflow 的构造函数不是
+// factory 用 stub 镜像契约包的声明形状（oss/workflow 的构造函数不是
 // Provider，真实装配由用户 Provider 复用），本用例只钉闸门判据。
 func TestAssemble_SiblingSubSegmentWithoutProviderErrors(t *testing.T) {
 	old := log.GetLogger()
@@ -322,22 +322,6 @@ func TestAssemble_SiblingSubSegmentWithoutProviderErrors(t *testing.T) {
 			factory: stubDomainProvider("workflow.argo", "argo",
 				func(c *bootstrapv1.BootstrapConfig) bool { return c.GetWorkflow().GetArgo() != nil },
 				"workflow", nil),
-		},
-		{
-			family: "ai",
-			shadow: "eino",
-			newCfg: func() *bootstrapv1.BootstrapConfig {
-				cfg := bconf.NewBootstrap()
-				dynamicAddr(cfg)
-				cfg.Ai = &bootstrapv1.Ai{
-					Openai: &bootstrapv1.Ai_Openai{ModelName: "gpt-4o-mini"},
-					Eino:   &bootstrapv1.Ai_Eino{ModelName: "gpt-4o-mini"},
-				}
-				return cfg
-			},
-			factory: stubDomainProvider("ai.openai", "openai",
-				func(c *bootstrapv1.BootstrapConfig) bool { return c.GetAi().GetOpenai() != nil },
-				"ai", nil),
 		},
 	}
 

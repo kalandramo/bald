@@ -150,7 +150,7 @@ type Provider interface {
 	// Plan 返回本 Provider 的资源节点（恰好一个）。
 	Plan(ctx context.Context, s PlanScope) ([]Node, error)
 	// Build 构建节点产物。产物形状按顶层段约定（见 storeProduct）：registry
-	// 段为 registry.Registrar，六资源域为 map[string]any（键=子段名），
+	// 段为 registry.Registrar，资源域为 map[string]any（键=子段名），
 	// audit 段为 audit.Auditor，server 段为 []transport.Server，config 段为
 	// []config.Layer；无产物可返回 nil。
 	Build(ctx context.Context, s ApplyScope, n Node) (any, Cleanup, error)
@@ -182,7 +182,6 @@ const (
 	PriorityCache    = 60
 	PriorityStorage  = 70
 	PriorityAudit    = 80 // 审计依赖 database/cache/storage 客户端就绪
-	PriorityAI       = 90
 	PriorityWorkflow = 100
 	PriorityBroker   = 110
 )

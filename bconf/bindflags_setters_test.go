@@ -45,7 +45,7 @@ func TestBindFlagsSetterSurface(t *testing.T) {
 		&bootstrapv1.Backoff{},
 		&bootstrapv1.Server_Http{},
 		&bootstrapv1.Server_Http_Middleware_CircuitBreaker{}, // int64 (open_duration_ms)
-		&bootstrapv1.Ai_Openai{},
+		&bootstrapv1.Server_Kcp{}, // int32 (data_shards/parity_shards)
 		&storev1.PagingRequest{},
 	}
 	for i, msg := range targets {

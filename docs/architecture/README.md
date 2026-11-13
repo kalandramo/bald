@@ -115,4 +115,4 @@ dot -Tsvg /tmp/c4out/modules_view.dot -o docs/architecture/render/c4-modules_vie
 
 - 运行时/部署拓扑（仓内无 IaC，无 trace/日志样本）
 - bald-admin 侧的消费真实情况（另一仓库）
-- `transport/mcp` + `cobramcp` 的工具调用回合、`workflow/argo`、`ai/*`、`transport/graphql`（仓内零消费者）
+- `transport/mcp` + `cobramcp` 的工具调用回合、`workflow/argo`、`transport/graphql`（仓内零消费者）

@@ -78,8 +78,6 @@ func testSegmentPriority(top string) int {
 		return PriorityStorage
 	case "audit":
 		return PriorityAudit
-	case "ai":
-		return PriorityAI
 	case "workflow":
 		return PriorityWorkflow
 	case "broker":
@@ -89,7 +87,7 @@ func testSegmentPriority(top string) int {
 	}
 }
 
-// stubDomainProvider 构造单子段的域 Provider（database/cache/storage/ai/
+// stubDomainProvider 构造单子段的域 Provider（database/cache/storage/
 // workflow/broker/registry）：契约段存在时产出 map[string]any{子段名: 实例}，
 // 段缺失返回 nil（无产物，引擎跳过该节点产物）。cleanup 在停机时回放。
 func stubDomainProvider(seg, sub string, present func(*bootstrapv1.BootstrapConfig) bool, product any, cleanup func()) segProvider {

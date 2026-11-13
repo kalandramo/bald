@@ -185,7 +185,7 @@ b, ok := appkit.NewKey[broker.Broker]("broker.redis").Resource(app)
 
 每个后端在 `contract/` 子包导出段驱动 Provider（当前 `broker/redis` 已具备 `AppProvider()`；kafka/rabbitmq/rocketmq 的既有 `contract.Provider` 可被用户 Provider 包装成同一形状）。**broker 是 optional 段集合**——多个 `broker.<backend>` 段可并存，「事件总线与任务队列分别落在不同 broker 上」是装配语义的一部分；段存在而无 Provider → L3 覆盖检查启动期报错，不静默跳过。
 
-停机位次：broker 节点用 `PriorityBroker`，cleanup 在停机逆序回放时**先于** workflow/ai/storage/cache/database 释放——in-flight 消息先排干，服务器 drain 最先。broker 段不支持热更新（`ReloadRestart`，与 database 段同理）。
+停机位次：broker 节点用 `PriorityBroker`，cleanup 在停机逆序回放时**先于** workflow/storage/cache/database 释放——in-flight 消息先排干，服务器 drain 最先。broker 段不支持热更新（`ReloadRestart`，与 database 段同理）。
 
 ### contract 子包：实现包零契约依赖
 

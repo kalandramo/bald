@@ -23,7 +23,7 @@ type Provider interface {
 - **Option 同款 Apply**：Provider 嵌入 Option——与 `std.Standard()`、业务域声明值并列传入 MustServe（[新增业务域](./新增业务域%20-%20Domain%20与%20gen%20domain.md) §3 同一手法）。`appkit.Providers(ps ...Provider)` 可把多个 Provider 打包为一个 Option。
 - **Plan 必须纯**：只读契约与声明，不写文件、不发网络、不改全局、不构造实例；返回的节点须带 `Key`/`Phase`（`Segments` 缺省取 `Segments()`，`Kind`/`Origin`/`Reload`/`EffectName` 由引擎补齐）。M1 起每个 Provider 恰好一个节点；`Priority` 用 `appkit.Priority*` 常量声明同阶段次序。
 - **Build 输入 ApplyScope**：Config（阶段 B / server 阶段为已装载定型的完整契约；config 段构造期与 logger 阶段 A 可为 nil）、Decl（只读约定）、App（阶段 B 起非 nil，**前序段产物已填充**——audit 后端经 `storegorm.SQL.Resource(app)` 取连接即依赖此序）、Node（正在应用的节点）。
-- **Build 产物形状按顶层段约定**：registry 段为 registry.Registrar；六资源域（database/cache/storage/ai/workflow/broker）与 instrumentation 段为 map[string]any（键=子段名，instrumentation 的键即后端名 prometheus/otlp/datadog，落 `instrumentation.<后端>`）；audit 段为 audit.Auditor；server 段为 []transport.Server；config 段为 []config.Layer；表外段同构（client 段的键是 `<面>.<名字>`，落 `client.grpc.<名字>` / `client.http.<名字>`，消费侧经 `appkit.NewKey` 句柄按名字取）；无产物可返回 nil。
+- **Build 产物形状按顶层段约定**：registry 段为 registry.Registrar；资源域（database/cache/storage/workflow/broker）与 instrumentation 段为 map[string]any（键=子段名，instrumentation 的键即后端名 prometheus/otlp/datadog，落 `instrumentation.<后端>`）；audit 段为 audit.Auditor；server 段为 []transport.Server；config 段为 []config.Layer；表外段同构（client 段的键是 `<面>.<名字>`，落 `client.grpc.<名字>` / `client.http.<名字>`，消费侧经 `appkit.NewKey` 句柄按名字取）；无产物可返回 nil。
 
 ## 2. 三种接入粒度
 
@@ -146,11 +146,10 @@ server:
 
 ### 2.2 非服务器后端：工厂在函数里，注册要显式
 
-`std.Standard()` 与 §2.1 的 `*contract.AppProvider` 覆盖 **server 面**，以及日志/指标/追踪/注册中心/对象存储这些标准装配。下面 16 个 `contract` 包**不在默认集里**：它们导出的是「段 → 构造」的映射函数，必须由你的 app 在声明里包一层 Provider 才会生效。不注册不会崩（段没有消费者时按「无消费者」处理），所以**漏接的表现通常是「配置写了但后端不存在」**。
+`std.Standard()` 与 §2.1 的 `*contract.AppProvider` 覆盖 **server 面**，以及日志/指标/追踪/注册中心/对象存储这些标准装配。下面 13 个 `contract` 包**不在默认集里**：它们导出的是「段 → 构造」的映射函数，必须由你的 app 在声明里包一层 Provider 才会生效。不注册不会崩（段没有消费者时按「无消费者」处理），所以**漏接的表现通常是「配置写了但后端不存在」**。
 
 | 契约段 | 包 | 导出 | 形状 |
 |---|---|---|---|
-| `ai.openai` / `ai.eino` / `ai.langchaingo` | `ai/{openai,eino,langchaingo}/contract` | `Provider` | `func(ctx, *bootstrapv1.Ai) (any, func(), error)` |
 | `cache.local` | `cache/local/contract` | `Provider` | `func(ctx, *bootstrapv1.Cache) (any, func(), error)` |
 | `database.mongodb` | `contrib/database/mongodb/contract` | `Provider` | `func(ctx, *bootstrapv1.Database) (any, func(), error)` |
 | `workflow.argo` | `workflow/argo/contract` | `Provider` | `func(ctx, *bootstrapv1.Workflow) (any, func(), error)` |
@@ -180,7 +179,7 @@ func (p kafkaProvider) Build(ctx context.Context, s appkit.ApplyScope, _ appkit.
 
 审计两行的姿势见 `bald-admin` 的 `cmd/bald-admin/app/audit_wiring.go`：`audit.NamedBackend` 的 `New` 闭包里调用 provider——`NewStreamProvider(rdb)` 的入参取自资源面（`storegorm.SQL.Resource(app)` / Redis 契约客户端），返回的 `appkit.AuditProvider` 再用 `p(ctx, acfg, app)` 构造后端。
 
-**同族子段漏接现在会报错**：`pkg/appkit` 的 `familySubSegmentProblems` 把「同族只点亮一个子段、其余子段静默」的判据从 `server` 推广到了全部非 server 族（`broker`/`cache`/`database`/`ai`/`workflow`/`audit`/`config`/`log` 等）。例如只注册 `broker.redis` 却写了 `broker.kafka:`，计划期就会点名 `broker.kafka is configured but has no implementation`。确实尚未实现的子段，用 `appkit.WithUnimplementedSegments("broker.nats", …)` 显式声明豁免，别靠「反正会被忽略」活着。
+**同族子段漏接现在会报错**：`pkg/appkit` 的 `familySubSegmentProblems` 把「同族只点亮一个子段、其余子段静默」的判据从 `server` 推广到了全部非 server 族（`broker`/`cache`/`database`/`workflow`/`audit`/`config`/`log` 等）。例如只注册 `broker.redis` 却写了 `broker.kafka:`，计划期就会点名 `broker.kafka is configured but has no implementation`。确实尚未实现的子段，用 `appkit.WithUnimplementedSegments("broker.nats", …)` 显式声明豁免，别靠「反正会被忽略」活着。
 
 ### 2.3 整段自持：自己实现 Provider
 
@@ -220,7 +219,7 @@ Provider 的 Build 里要组装多个后端时，用 `audit.Compose`（`pkg/audi
 
 - **同段末者胜**：引擎按精确段路径解析声明，后声明的 Provider 接管同一路径（std 默认后端由此可被覆盖）；不同路径并存（server.http 与 server.asynq 可由不同 Provider 同时供给）。
 - **缺段 = skip**：Build 仅在至少一条声明路径实际出现于契约时被调用——段缺失是合法语义（不产半成品）；段在而 Build 失败 = fail-fast，启动中止。config 段例外：无条件构建（其源可独立于契约 config 段存在，如本地文件）。
-- **构建时机按顶层段归类**：config 段构造期；server 段迟后阶段（业务 BeforeStart 之后——服务器构造消费业务建好的运行期资源）；logger 段走专用通道（不在 Provider 循环里——两阶段重建 + 热更协议，见 §6）；其余段在阶段 B 框架钩子内按计划序执行，同阶段次序由各 Provider `Plan` 声明的 `Priority` 给出（内置约定：logger → registry → tracer → metrics → database → cache → storage → audit → ai → workflow → broker）。
+- **构建时机按顶层段归类**：config 段构造期；server 段迟后阶段（业务 BeforeStart 之后——服务器构造消费业务建好的运行期资源）；logger 段走专用通道（不在 Provider 循环里——两阶段重建 + 热更协议，见 §6）；其余段在阶段 B 框架钩子内按计划序执行，同阶段次序由各 Provider `Plan` 声明的 `Priority` 给出（内置约定：logger → registry → tracer → metrics → database → cache → storage → audit → workflow → broker）。
 - **声明无消费者 = L3 fail-fast**：契约里实际出现的顶层段若没有任何 Provider 消费，启动期直接报错（检查实现在 `pkg/appkit/segment_coverage.go`）：
 
 ```text
@@ -259,7 +258,7 @@ appkit: bootstrap config declares sections with no consumer:
 | StandardAuditProvider | audit | audit.backends 的 "log" 项：结构化日志审计后端，核心包零依赖开箱即用 |
 | StandardLoggerProvider | logger | bslog（标准库 slog）——阶段 A 引导 logger 的持有者；两阶段重建 + 热更协议仍在引擎 |
 
-其余各段（registry/database/cache/storage/ai/workflow/broker/tracer/metrics/config）无默认接线：段存在而无 Provider = L3 启动期报错（§3）。
+其余各段（registry/database/cache/storage/workflow/broker/tracer/metrics/config）无默认接线：段存在而无 Provider = L3 启动期报错（§3）。
 
 **顶替方式即末者胜**：声明同段路径的 Provider 写在 std.Standard() 之后即整体接管——audit 段被用户 audit Provider 接管后，store/stream 等第三方后端按自己的语义装配；logger 段特殊：不在 Provider 循环里、由引擎按两阶段 + 热更协议调用，但覆盖仍是同一条末者胜规则（§2.3 的 loggerProvider 即范本——阶段 A 引导日志也带你的装饰）。server.http/server.grpc 按能力声明装配，行为细节见各能力使用页。
 

@@ -22,6 +22,6 @@ checks: []
 - [catalog-r08] [建议] 韧性：ratelimit（bbr/sentinel/tokenbucket）、circuitbreaker（hystrix/sentinel/sres/vegas）、retry；出站组合用 transport/client/resiliency（retry+熔断接成 gRPC 拦截器/HTTP RoundTripper，按命名条目绑定）。
 - [catalog-r09] [建议] 可观测：metrics（prometheus/otel/datadog）、health（healthz + readiness + checkers）、contrib/observability-otlp、pkg/metricshttp。
 - [catalog-r10] [建议] 基础设施：cache（local/redis/loadable）、encoding（12 种编解码）、oss（minio/s3）。
-- [catalog-r11] [建议] MCP/LLM：cobramcp（任意 Cobra CLI → MCP server）、transport/mcp（应用侧 MCP）、ai/{openai,langchaingo,eino}。
+- [catalog-r11] [建议] MCP/LLM：cobramcp（任意 Cobra CLI → MCP server）、transport/mcp（应用侧 MCP）。
 - [catalog-r12] [建议] 横切件：pkg/middleware（bundle 门面）、pkg/validation（命令式校验分发）、pkg/fieldmaskutil、pkg/contextx（Trace ID/Logger 上下文）。
 - [catalog-r13] [建议] 节点选择：selector（round_robin/random/weighted/p2c+EWMA）、selector/balancer（gRPC balancer 适配）、selector/circuitbreaker（按节点熔断硬排除，桥接 circuitbreaker）。

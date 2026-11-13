@@ -46,23 +46,23 @@ func TestResource_SegmentPath(t *testing.T) {
 // 已取出的快照。
 func TestResource_SnapshotIsCopy(t *testing.T) {
 	a := NewApp(effectOpt("noop", func(context.Context) error { return nil }))
-	a.setResources("ai", map[string]any{"openai": "V1"})
+	a.setResources("storage", map[string]any{"minio": "V1"})
 
-	snap := resourceMap(t, a, "ai")
-	if len(snap) != 1 || snap["openai"] != "V1" {
-		t.Fatalf("snapshot = %v, want map with openai=V1", snap)
+	snap := resourceMap(t, a, "storage")
+	if len(snap) != 1 || snap["minio"] != "V1" {
+		t.Fatalf("snapshot = %v, want map with minio=V1", snap)
 	}
 
 	// 快照改写不影响内部。
-	snap["openai"] = "MUTATED"
-	delete(snap, "openai")
-	if v, _ := a.lookup("ai.openai"); v != "V1" {
+	snap["minio"] = "MUTATED"
+	delete(snap, "minio")
+	if v, _ := a.lookup("storage.minio"); v != "V1" {
 		t.Fatalf("internal mutated through snapshot: got %v, want V1", v)
 	}
 
 	// 内部后续写入不影响已取出的快照。
-	a.setResources("ai", map[string]any{"openai": "V2"})
-	if v, _ := a.lookup("ai.openai"); v != "V2" {
+	a.setResources("storage", map[string]any{"minio": "V2"})
+	if v, _ := a.lookup("storage.minio"); v != "V2" {
 		t.Fatalf("internal update invisible: got %v, want V2", v)
 	}
 	if len(snap) != 0 {

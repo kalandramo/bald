@@ -44,8 +44,6 @@ type BootstrapConfig struct {
 	Broker *Broker `protobuf:"bytes,8,opt,name=broker,proto3" json:"broker,omitempty"`
 	// 对象存储，支持 MinIO / S3。
 	Storage *Storage `protobuf:"bytes,9,opt,name=storage,proto3" json:"storage,omitempty"`
-	// AI 模型客户端，支持 OpenAI / LangChainGo / Eino。
-	Ai *Ai `protobuf:"bytes,10,opt,name=ai,proto3" json:"ai,omitempty"`
 	// 工作流引擎，支持 Temporal / Argo / Conductor / GoWorkflows。
 	Workflow *Workflow `protobuf:"bytes,11,opt,name=workflow,proto3" json:"workflow,omitempty"`
 	// 缓存，支持 Local（内存）/ Redis。
@@ -160,13 +158,6 @@ func (x *BootstrapConfig) GetStorage() *Storage {
 	return nil
 }
 
-func (x *BootstrapConfig) GetAi() *Ai {
-	if x != nil {
-		return x.Ai
-	}
-	return nil
-}
-
 func (x *BootstrapConfig) GetWorkflow() *Workflow {
 	if x != nil {
 		return x.Workflow
@@ -220,7 +211,7 @@ var File_bootstrap_v1_bootstrap_proto protoreflect.FileDescriptor
 
 const file_bootstrap_v1_bootstrap_proto_rawDesc = "" +
 	"\n" +
-	"\x1cbootstrap/v1/bootstrap.proto\x12\fbootstrap.v1\x1a\x16bootstrap/v1/app.proto\x1a\x19bootstrap/v1/server.proto\x1a\x19bootstrap/v1/config.proto\x1a\x1bbootstrap/v1/registry.proto\x1a\x16bootstrap/v1/log.proto\x1a\x19bootstrap/v1/tracer.proto\x1a\x1abootstrap/v1/metrics.proto\x1a\x19bootstrap/v1/broker.proto\x1a\x1abootstrap/v1/storage.proto\x1a\x15bootstrap/v1/ai.proto\x1a\x1bbootstrap/v1/workflow.proto\x1a\x18bootstrap/v1/cache.proto\x1a\x19bootstrap/v1/script.proto\x1a\x1bbootstrap/v1/database.proto\x1a\x18bootstrap/v1/audit.proto\x1a\"bootstrap/v1/instrumentation.proto\x1a\x19bootstrap/v1/client.proto\"\xb7\x06\n" +
+	"\x1cbootstrap/v1/bootstrap.proto\x12\fbootstrap.v1\x1a\x16bootstrap/v1/app.proto\x1a\x19bootstrap/v1/server.proto\x1a\x19bootstrap/v1/config.proto\x1a\x1bbootstrap/v1/registry.proto\x1a\x16bootstrap/v1/log.proto\x1a\x19bootstrap/v1/tracer.proto\x1a\x1abootstrap/v1/metrics.proto\x1a\x19bootstrap/v1/broker.proto\x1a\x1abootstrap/v1/storage.proto\x1a\x1bbootstrap/v1/workflow.proto\x1a\x18bootstrap/v1/cache.proto\x1a\x19bootstrap/v1/script.proto\x1a\x1bbootstrap/v1/database.proto\x1a\x18bootstrap/v1/audit.proto\x1a\"bootstrap/v1/instrumentation.proto\x1a\x19bootstrap/v1/client.proto\"\x9f\x06\n" +
 	"\x0fBootstrapConfig\x12#\n" +
 	"\x03app\x18\x01 \x01(\v2\x11.bootstrap.v1.AppR\x03app\x12,\n" +
 	"\x06server\x18\x02 \x01(\v2\x14.bootstrap.v1.ServerR\x06server\x12,\n" +
@@ -230,16 +221,15 @@ const file_bootstrap_v1_bootstrap_proto_rawDesc = "" +
 	"\x06tracer\x18\x06 \x01(\v2\x14.bootstrap.v1.TracerR\x06tracer\x12/\n" +
 	"\ametrics\x18\a \x01(\v2\x15.bootstrap.v1.MetricsR\ametrics\x12,\n" +
 	"\x06broker\x18\b \x01(\v2\x14.bootstrap.v1.BrokerR\x06broker\x12/\n" +
-	"\astorage\x18\t \x01(\v2\x15.bootstrap.v1.StorageR\astorage\x12 \n" +
-	"\x02ai\x18\n" +
-	" \x01(\v2\x10.bootstrap.v1.AiR\x02ai\x122\n" +
+	"\astorage\x18\t \x01(\v2\x15.bootstrap.v1.StorageR\astorage\x122\n" +
 	"\bworkflow\x18\v \x01(\v2\x16.bootstrap.v1.WorkflowR\bworkflow\x12)\n" +
 	"\x05cache\x18\f \x01(\v2\x13.bootstrap.v1.CacheR\x05cache\x12,\n" +
 	"\x06script\x18\r \x01(\v2\x14.bootstrap.v1.ScriptR\x06script\x122\n" +
 	"\bdatabase\x18\x0e \x01(\v2\x16.bootstrap.v1.DatabaseR\bdatabase\x12)\n" +
 	"\x05audit\x18\x0f \x01(\v2\x13.bootstrap.v1.AuditR\x05audit\x12G\n" +
 	"\x0finstrumentation\x18\x10 \x01(\v2\x1d.bootstrap.v1.InstrumentationR\x0finstrumentation\x12,\n" +
-	"\x06client\x18\x11 \x01(\v2\x14.bootstrap.v1.ClientR\x06clientB\xb5\x01\n" +
+	"\x06client\x18\x11 \x01(\v2\x14.bootstrap.v1.ClientR\x06clientJ\x04\b\n" +
+	"\x10\vR\x02aiB\xb5\x01\n" +
 	"\x10com.bootstrap.v1B\x0eBootstrapProtoP\x01Z@github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1;bootstrapv1\xa2\x02\x03BXX\xaa\x02\fBootstrap.V1\xca\x02\fBootstrap\\V1\xe2\x02\x18Bootstrap\\V1\\GPBMetadata\xea\x02\rBootstrap::V1b\x06proto3"
 
 var (
@@ -266,14 +256,13 @@ var file_bootstrap_v1_bootstrap_proto_goTypes = []any{
 	(*Metrics)(nil),         // 7: bootstrap.v1.Metrics
 	(*Broker)(nil),          // 8: bootstrap.v1.Broker
 	(*Storage)(nil),         // 9: bootstrap.v1.Storage
-	(*Ai)(nil),              // 10: bootstrap.v1.Ai
-	(*Workflow)(nil),        // 11: bootstrap.v1.Workflow
-	(*Cache)(nil),           // 12: bootstrap.v1.Cache
-	(*Script)(nil),          // 13: bootstrap.v1.Script
-	(*Database)(nil),        // 14: bootstrap.v1.Database
-	(*Audit)(nil),           // 15: bootstrap.v1.Audit
-	(*Instrumentation)(nil), // 16: bootstrap.v1.Instrumentation
-	(*Client)(nil),          // 17: bootstrap.v1.Client
+	(*Workflow)(nil),        // 10: bootstrap.v1.Workflow
+	(*Cache)(nil),           // 11: bootstrap.v1.Cache
+	(*Script)(nil),          // 12: bootstrap.v1.Script
+	(*Database)(nil),        // 13: bootstrap.v1.Database
+	(*Audit)(nil),           // 14: bootstrap.v1.Audit
+	(*Instrumentation)(nil), // 15: bootstrap.v1.Instrumentation
+	(*Client)(nil),          // 16: bootstrap.v1.Client
 }
 var file_bootstrap_v1_bootstrap_proto_depIdxs = []int32{
 	1,  // 0: bootstrap.v1.BootstrapConfig.app:type_name -> bootstrap.v1.App
@@ -285,19 +274,18 @@ var file_bootstrap_v1_bootstrap_proto_depIdxs = []int32{
 	7,  // 6: bootstrap.v1.BootstrapConfig.metrics:type_name -> bootstrap.v1.Metrics
 	8,  // 7: bootstrap.v1.BootstrapConfig.broker:type_name -> bootstrap.v1.Broker
 	9,  // 8: bootstrap.v1.BootstrapConfig.storage:type_name -> bootstrap.v1.Storage
-	10, // 9: bootstrap.v1.BootstrapConfig.ai:type_name -> bootstrap.v1.Ai
-	11, // 10: bootstrap.v1.BootstrapConfig.workflow:type_name -> bootstrap.v1.Workflow
-	12, // 11: bootstrap.v1.BootstrapConfig.cache:type_name -> bootstrap.v1.Cache
-	13, // 12: bootstrap.v1.BootstrapConfig.script:type_name -> bootstrap.v1.Script
-	14, // 13: bootstrap.v1.BootstrapConfig.database:type_name -> bootstrap.v1.Database
-	15, // 14: bootstrap.v1.BootstrapConfig.audit:type_name -> bootstrap.v1.Audit
-	16, // 15: bootstrap.v1.BootstrapConfig.instrumentation:type_name -> bootstrap.v1.Instrumentation
-	17, // 16: bootstrap.v1.BootstrapConfig.client:type_name -> bootstrap.v1.Client
-	17, // [17:17] is the sub-list for method output_type
-	17, // [17:17] is the sub-list for method input_type
-	17, // [17:17] is the sub-list for extension type_name
-	17, // [17:17] is the sub-list for extension extendee
-	0,  // [0:17] is the sub-list for field type_name
+	10, // 9: bootstrap.v1.BootstrapConfig.workflow:type_name -> bootstrap.v1.Workflow
+	11, // 10: bootstrap.v1.BootstrapConfig.cache:type_name -> bootstrap.v1.Cache
+	12, // 11: bootstrap.v1.BootstrapConfig.script:type_name -> bootstrap.v1.Script
+	13, // 12: bootstrap.v1.BootstrapConfig.database:type_name -> bootstrap.v1.Database
+	14, // 13: bootstrap.v1.BootstrapConfig.audit:type_name -> bootstrap.v1.Audit
+	15, // 14: bootstrap.v1.BootstrapConfig.instrumentation:type_name -> bootstrap.v1.Instrumentation
+	16, // 15: bootstrap.v1.BootstrapConfig.client:type_name -> bootstrap.v1.Client
+	16, // [16:16] is the sub-list for method output_type
+	16, // [16:16] is the sub-list for method input_type
+	16, // [16:16] is the sub-list for extension type_name
+	16, // [16:16] is the sub-list for extension extendee
+	0,  // [0:16] is the sub-list for field type_name
 }
 
 func init() { file_bootstrap_v1_bootstrap_proto_init() }
@@ -314,7 +302,6 @@ func file_bootstrap_v1_bootstrap_proto_init() {
 	file_bootstrap_v1_metrics_proto_init()
 	file_bootstrap_v1_broker_proto_init()
 	file_bootstrap_v1_storage_proto_init()
-	file_bootstrap_v1_ai_proto_init()
 	file_bootstrap_v1_workflow_proto_init()
 	file_bootstrap_v1_cache_proto_init()
 	file_bootstrap_v1_script_proto_init()

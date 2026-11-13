@@ -131,6 +131,6 @@
 | 项 | 原因 |
 |---|---|
 | `transport/mcp` + `cobramcp` 的工具调用回合 | 本次只确认其依赖形态（包装 `mark3labs/mcp-go`，`transport/mcp/server.go:62,106,186`），未追完整调用流 |
-| `workflow/argo`、`ai/*`、`oss/*`、`transport/graphql` | 仓内**零消费者**（见 `risk-review.md` §2），无真实流程可追 |
+| `workflow/argo`、`oss/*`、`transport/graphql` | 仓内**零消费者**（见 `risk-review.md` §2），无真实流程可追 |
 | 变体（Variant）effects 在 plan 期的合并细节 | 属装配语义而非运行流，见 `docs/devel/zh-CN/Bald 声明式装配设计.md` §5/§8.3 |
 | bald-admin 端到端业务流 | 在另一仓库，本次范围外 |

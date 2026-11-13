@@ -57,7 +57,7 @@ bald/bconf/                       module github.com/kalandramo/bald/bconf
 ├── bootstrap.go / unmarshal.go / bindflags.go / util.go
 ├── proto/bootstrap/v1/           框架级契约 19 个（package bootstrap.v1）
 │   ├── bootstrap.proto 顶层 BootstrapConfig + app/server/config/registry/
-│   │   log/tracer/metrics/broker/storage/ai/workflow/cache/script/database/audit/client
+│   │   log/tracer/metrics/broker/storage/workflow/cache/script/database/audit/client
 │   └── common.proto    跨域策略段：Backoff（曲线 + 抖动），首个表面 registry.etcd.backoff
 ├── proto/bald/
 │   ├── store/v1/store.proto      分页/过滤/排序契约（pkg/store 消费）

@@ -52,7 +52,7 @@ digraph bald_modules {
         r_ad [label="registry/{nacos,consul,etcd,kubernetes}"];
         x_ad [label="log/* metrics/* encoding/*\nratelimit/* circuitbreaker/*"];
         oss_ad [label="oss/{s3,minio}"];
-        y_ad [label="ai/* workflow/argo cobramcp\n（无根回边）", color="#9aa7b8"];
+        y_ad [label="workflow/argo cobramcp\n（无根回边）", color="#9aa7b8"];
         contract [label="*/contract × 30\nappkit v2 Provider 注册包", fillcolor="#e8f0e0"];
         contrib [label="contrib/*", fillcolor="#e8f0e0"];
         codegen [label="cli/cmd/bald + cli/internal/{codegen,release}\n（独立 module github.com/kalandramo/bald/cli，零 replace）", fillcolor="#e8f0e0"];

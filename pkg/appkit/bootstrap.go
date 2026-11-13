@@ -506,7 +506,7 @@ func storeProductWith(a *App, r buildResult, put func(ResourceKey, Cleanup)) err
 		a.SetRegistrar(reg)
 		a.setResources(top, reg)
 		put(r.node.Key, r.cleanup)
-	case "database", "cache", "storage", "ai", "workflow", "broker":
+	case "database", "cache", "storage", "workflow", "broker":
 		m, err := productStringMap(r)
 		if err != nil {
 			return err
@@ -567,7 +567,7 @@ func storeProductWith(a *App, r buildResult, put func(ResourceKey, Cleanup)) err
 }
 
 // setResources 把段产物落进统一资源面：map[string]any 产物按
-// "<top>.<子段>" 逐键展开（与六域产物的段路径约定同构，nil 值跳过），
+// "<top>.<子段>" 逐键展开（与域产物的段路径约定同构，nil 值跳过），
 // 其余产物整体落 "<top>"。写入点有两处：BeforeStart（阶段 B）与运行期
 // 配置协调（storeProductReplacing），因此以 resourcesMu 保护。
 func (a *App) setResources(top string, product any) {
@@ -588,7 +588,7 @@ func (a *App) setResources(top string, product any) {
 	a.resources[top] = product
 }
 
-// productStringMap 归一六资源域产物：map[string]any（键=子段名；nil 视为空）。
+// productStringMap 归一资源域产物：map[string]any（键=子段名；nil 视为空）。
 func productStringMap(r buildResult) (map[string]any, error) {
 	if r.product == nil {
 		return map[string]any{}, nil

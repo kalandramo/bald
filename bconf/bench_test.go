@@ -11,8 +11,8 @@ import "testing"
 //   - 契约树以 JSON name 规范形书写。UnmarshalMap 只读输入树（canonicalize
 //     构建新规范树），各轮口径一致。
 
-// benchFullContractTree 构造全 15 段契约树（bootstrap.proto 顶层段：app/server/
-// config/registry/logger/tracer/metrics/broker/storage/ai/workflow/cache/script/
+// benchFullContractTree 构造全 14 段契约树（bootstrap.proto 顶层段：app/server/
+// config/registry/logger/tracer/metrics/broker/storage/workflow/cache/script/
 // database/audit），每段取 1-2 个代表性子段，覆盖标量/duration/enum/repeated/
 // 嵌套消息 coerce 分支。键统一 JSON name（protojson 规范形）。
 //
@@ -106,14 +106,6 @@ func benchFullContractTree() map[string]any {
 				"useSsl":    false,
 			},
 		},
-		"ai": map[string]any{
-			"openai": map[string]any{
-				"modelType":      1,
-				"modelName":      "gpt-bench",
-				"timeoutSeconds": 30,
-				"cloud":          map[string]any{"apiKey": "sk-bench", "baseUrl": "http://127.0.0.1:8000/v1"},
-			},
-		},
 		"workflow": map[string]any{
 			"temporal": map[string]any{"hostPort": "127.0.0.1:7233", "namespace": "bench"},
 		},
@@ -162,7 +154,7 @@ func benchFullContractTree() map[string]any {
 // 进程内记忆化——与真实装配路径一致）；契约树构造在计时外，重用同一棵。
 func BenchmarkUnmarshalMap_FullContract(b *testing.B) {
 	tree := benchFullContractTree()
-	// 计时外自检：15 段必须全部落位。字段名写错会被 protojson 的
+	// 计时外自检：14 段必须全部落位。字段名写错会被 protojson 的
 	// DiscardUnknown 静默丢弃——这里 fail-fast，防止基准悄悄缩水导致
 	// 数字失真。
 	{
@@ -173,7 +165,7 @@ func BenchmarkUnmarshalMap_FullContract(b *testing.B) {
 		for i, seg := range []any{
 			probe.GetApp(), probe.GetServer(), probe.GetConfig(), probe.GetRegistry(),
 			probe.GetLogger(), probe.GetTracer(), probe.GetMetrics(), probe.GetBroker(),
-			probe.GetStorage(), probe.GetAi(), probe.GetWorkflow(), probe.GetCache(),
+			probe.GetStorage(), probe.GetWorkflow(), probe.GetCache(),
 			probe.GetScript(), probe.GetDatabase(), probe.GetAudit(),
 		} {
 			if seg == nil {

@@ -61,7 +61,6 @@
 - [Bald 消息代理设计](./Bald%20消息代理设计.md)：`Message.Body` 装任意类型、`Binder` 负责落地、三层类型化糖；四个后端独立 module、双装配路径（transport Server 包装 / `broker.<backend>` 段 Provider）。
 - [Bald 注册中心设计](./Bald%20注册中心设计.md)：契约零依赖的 Registrar/Discovery/Watcher、后端独立 module、单选的 `registry.type` 与各后端 `AppProvider`；注册/反注册生命周期时序。
 - [Bald 工作流设计](./Bald%20工作流设计.md)：`workflow/argo` 手写 REST 客户端与生命周期方法；四段声明只实现 argo，未实现段由 L3 覆盖检查 fail-closed。
-- [Bald 智能模型设计](./Bald%20智能模型设计.md)：openai/langchaingo/eino 三个独立 module，能力面刻意不统一；契约段三声明 = 三实现。
 - [Bald Cobra MCP 桥接设计](./Bald%20Cobra%20MCP%20桥接设计.md)：`cobramcp`（工具从哪来）与 `transport/mcp`（工具怎么对外）的分层、进程内/子进程双模型、宿主装配入口 `appkit.WithExtraServerFunc`。
 - [示例前后端契约同步设计](./示例前后端契约同步设计.md)：proto 单一真相源 + buf 按消费者扇出（Go/TS/OpenAPI），消灭契约双写。
 

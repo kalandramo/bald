@@ -4,19 +4,19 @@
 //
 // 分工（契约段 → 实例的构造归 Provider，运行期编排归 appkit）：
 //   - Provider（范本：contrib/store-gorm 的 Provider）：按契约子段构建；
-//   - 引擎（storeProduct）：产物按段路径落库（六域 map 按 "<顶层段>.<子段>"
+//   - 引擎（storeProduct）：产物按段路径落库（域段 map 按 "<顶层段>.<子段>"
 //     展开，registry/audit 等整产物落 "<顶层段>"，表外段同构，见
 //     bootstrap.go storeProduct）；
 //   - appkit：lookup 供 Key[T] 与 deprecated Resource 取用；cleanup 挂停机
-//     Effect——六域注册序在 servers 之前，逆序回放保证「服务器先 drain、
-//     数据库连接最后关」。database/cache/storage/ai/workflow/broker 段不
+//     Effect——域段注册序在 servers 之前，逆序回放保证「服务器先 drain、
+//     数据库连接最后关」。database/cache/storage/workflow/broker 段不
 //     支持热更新。
 //
 // 用法（Provider 导出 Key，消费侧依赖 Key 而非字符串）：
 //
 //	appkit.MustServe(ctx, std.Standard(), storegorm.AppProvider(), ...)
 //	cli, ok := storegorm.SQL.Resource(app) // *gorm.DB
-//	// 集合遍历（副本快照，取代原 Databases()/Ais() 的副本语义）：
+//	// 集合遍历（副本快照，取代原 Databases() 的副本语义）：
 //	all, ok := appkit.NewKey[map[string]any]("database").Resource(app)
 package appkit
 
@@ -26,7 +26,7 @@ import "strings"
 // 装配构造期尚未装载契约，恒 (nil, false)）。segment 为段路径：
 //   - 子段精确路径（"database.sql"）→ 该实例本身；
 //   - 顶层段（"database"）→ map[string]any 副本快照（键=子段名）——副本
-//     语义沿用原 Databases()/Ais() 的既有取舍（调用方可安全遍历/留存，
+//     语义沿用原 Databases() 的既有取舍（调用方可安全遍历/留存，
 //     不暴露内部 map）；registry/audit 等整产物段返回产物本身；
 //   - 表外（第三方）段：map 产物按 "<顶层段>.<子段>" 展开、非 map 产物落
 //     "<顶层段>"（引擎 storeProduct 的统一约定）。
