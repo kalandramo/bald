@@ -225,7 +225,7 @@ jobs:
   # 由本作业的 `services:` 注入，第三个要真 apiserver，独立成 `integration-kubernetes`，
   # 理由见那个作业的注释）。
   #
-  # 为什么不是把 test 作业改成非 -short：`transport/{redis,kafka,rabbitmq,rocketmq,tcp,webrtc}`
+  # 为什么不是把 test 作业改成非 -short：`transport/{redis,kafka,rabbitmq,tcp,webrtc}`
   # 的 `TestServer`/`TestClient` 是等信号的手动用例（非 -short 会挂到 timeout），主循环必须
   # 留在 -short。这里按套件点名跑，清单外的包一概不碰。
   #
@@ -628,6 +628,13 @@ jobs:
           NACOS_AUTH_ENABLE: "false"
           JVM_XMS: 256m
           JVM_XMX: 512m
+      redis:
+        # 生成树把 appspec 的 broker.redis 全局段接进**每个角色**的 assemble
+        # （P1-5 收口），E2E 起 api 进程就真连 127.0.0.1:6379——不注入就是
+        # 十几条用例全在「gRPC server not ready」上超时。镜像与 integration
+        # 作业同源（redis:7-alpine）。
+        image: redis:7-alpine
+        ports: ["6379:6379"]
     steps:
       - uses: actions/checkout@v4
 
@@ -674,6 +681,7 @@ jobs:
           }
           wait_tcp 127.0.0.1 2379 etcd
           wait_tcp 127.0.0.1 8848 nacos 90
+          wait_tcp 127.0.0.1 6379 redis
           # 9848 单独判一次：nacos v2 SDK 的 naming 走 gRPC（8848+1000）。这一条是
           # 「半死的 nacos」唯一的线索——8848 活着而 9848 不通时，注册静默失败。
           wait_tcp 127.0.0.1 9848 nacos-grpc

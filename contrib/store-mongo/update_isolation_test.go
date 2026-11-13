@@ -20,6 +20,9 @@ type tenantUser struct {
 
 // TestMongo_UpdateIsolation 锁定：Update 的隔离谓词与主键条件 AND 连接——
 // 更新他租户文档匹配 0 个且数据不变。
+//
+// 全程带租户 ctx（J4 fail-closed：租户维度已注册时，写/读路径对无租户身份的
+// ctx 一律 ErrMissingTenant——夹具播种也不例外，各行走各自租户）。
 func TestMongo_UpdateIsolation(t *testing.T) {
 	store.RegisterTenant("tenant_id", store.DefaultTenantFunc)
 	t.Cleanup(func() { store.UnregisterTenant("tenant_id") })
@@ -29,16 +32,16 @@ func TestMongo_UpdateIsolation(t *testing.T) {
 	require.NoError(t, p.Migrate(context.Background()))
 	repo := store.NewStore[tenantUser](p)
 	bg := context.Background()
-	require.NoError(t, repo.Create(bg, &tenantUser{ID: "1", TenantID: "t-1", Name: "a"}))
-	require.NoError(t, repo.Create(bg, &tenantUser{ID: "2", TenantID: "t-2", Name: "b"}))
-
 	t1 := contextx.WithTenantID(bg, "t-1")
+	t2 := contextx.WithTenantID(bg, "t-2")
+	require.NoError(t, repo.Create(t1, &tenantUser{ID: "1", TenantID: "t-1", Name: "a"}))
+	require.NoError(t, repo.Create(t2, &tenantUser{ID: "2", TenantID: "t-2", Name: "b"}))
 
 	rows, err := repo.Update(t1, &tenantUser{ID: "2", Name: "hijacked"})
 	require.NoError(t, err)
 	assert.Zero(t, rows, "跨租户 Update 应匹配 0 个")
 
-	got, err := repo.Get(bg, &store.Where{Filters: []*storev1.FilterCondition{store.Eq("id", "2")}})
+	got, err := repo.Get(t2, &store.Where{Filters: []*storev1.FilterCondition{store.Eq("id", "2")}})
 	require.NoError(t, err)
 	assert.Equal(t, "b", got.Name, "他租户文档不得被改写")
 	assert.Equal(t, "t-2", got.TenantID, "他租户文档归属不得被迁移")
@@ -47,7 +50,7 @@ func TestMongo_UpdateIsolation(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), rows)
 
-	got, err = repo.Get(bg, &store.Where{Filters: []*storev1.FilterCondition{store.Eq("id", "1")}})
+	got, err = repo.Get(t1, &store.Where{Filters: []*storev1.FilterCondition{store.Eq("id", "1")}})
 	require.NoError(t, err)
 	assert.Equal(t, "a2", got.Name)
 	assert.Equal(t, "t-1", got.TenantID)
