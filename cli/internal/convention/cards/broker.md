@@ -9,7 +9,7 @@ checks: []
 ---
 # 消息代理
 
-broker 契约 + 四后端（kafka/rabbitmq/redis/rocketmq）。幂等纪律（状态流转/去重/失败留痕）见 errors/logging 卡与母文档。
+broker 契约 + 三后端（kafka/rabbitmq/redis）。幂等纪律（状态流转/去重/失败留痕）见 errors/logging 卡与母文档。
 
 - [broker-r01] [强制] 业务只 import broker 契约 + 所选后端 module；换后端只改构造行，Publish/Subscribe 调用点不动；broker 根 module 只依赖 encoding。
 - [broker-r02] [强制] broker.Message.Headers 只放随消息走线的 string 值；进程内元数据放 Metadata——把要跨进程序传的数据放 Metadata，订阅端永远读不到。

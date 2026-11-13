@@ -17,7 +17,7 @@ checks: []
 - [catalog-r03] [建议] 配置：契约层 bconf（proto 单一真相源）+ 配置源层 bconfig、bootstrap/config（层模型装载器）。
 - [catalog-r04] [建议] 数据访问：pkg/store（泛型、零引擎依赖，where/paging 构建器）；引擎桥接 contrib/store-gorm 等。
 - [catalog-r05] [建议] 认证/授权/审计：pkg/authn、pkg/authz、pkg/audit；实现桥接 contrib/authn-jwt、authz-casbin、audit-gorm、audit-stream。
-- [catalog-r06] [建议] 消息：broker（kafka/rabbitmq/redis/rocketmq 四实现，契约 + 实现分离）。
+- [catalog-r06] [建议] 消息：broker（kafka/rabbitmq/redis 三实现，契约 + 实现分离）。
 - [catalog-r07] [建议] 注册发现：registry（inmemory 内置；etcd/consul/nacos/kubernetes 直连 SDK）。
 - [catalog-r08] [建议] 韧性：ratelimit（bbr/sentinel/tokenbucket）、circuitbreaker（hystrix/sentinel/sres/vegas）、retry；出站组合用 transport/client/resiliency（retry+熔断接成 gRPC 拦截器/HTTP RoundTripper，按命名条目绑定）。
 - [catalog-r09] [建议] 可观测：metrics（prometheus/otel/datadog）、health（healthz + readiness + checkers）、contrib/observability-otlp、pkg/metricshttp。

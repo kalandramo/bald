@@ -32,7 +32,7 @@ type Message struct {
 	// Body message body
 	Body any
 
-	// Key message key (Kafka Key / RocketMQ Key / RabbitMQ RoutingKey...)
+	// Key message key (Kafka Key / RabbitMQ RoutingKey...)
 	Key string
 
 	// Metadata can hold additional metadata about the message

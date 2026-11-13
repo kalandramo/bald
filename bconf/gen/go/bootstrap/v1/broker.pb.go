@@ -34,7 +34,6 @@ type Broker struct {
 	Azuresb       *Broker_Azuresb        `protobuf:"bytes,7,opt,name=azuresb,proto3,oneof" json:"azuresb,omitempty"`
 	Gcpubsub      *Broker_Gcpubsub       `protobuf:"bytes,8,opt,name=gcpubsub,proto3,oneof" json:"gcpubsub,omitempty"`
 	Nsq           *Broker_Nsq            `protobuf:"bytes,9,opt,name=nsq,proto3,oneof" json:"nsq,omitempty"`
-	Rocketmq      *Broker_Rocketmq       `protobuf:"bytes,10,opt,name=rocketmq,proto3,oneof" json:"rocketmq,omitempty"`
 	Sqs           *Broker_Sqs            `protobuf:"bytes,11,opt,name=sqs,proto3,oneof" json:"sqs,omitempty"`
 	Stomp         *Broker_Stomp          `protobuf:"bytes,12,opt,name=stomp,proto3,oneof" json:"stomp,omitempty"`
 	Activemq      *Broker_Activemq       `protobuf:"bytes,13,opt,name=activemq,proto3,oneof" json:"activemq,omitempty"`
@@ -131,13 +130,6 @@ func (x *Broker) GetGcpubsub() *Broker_Gcpubsub {
 func (x *Broker) GetNsq() *Broker_Nsq {
 	if x != nil {
 		return x.Nsq
-	}
-	return nil
-}
-
-func (x *Broker) GetRocketmq() *Broker_Rocketmq {
-	if x != nil {
-		return x.Rocketmq
 	}
 	return nil
 }
@@ -773,127 +765,6 @@ func (x *Broker_Nsq) GetLookupdAddrs() []string {
 	return nil
 }
 
-// Apache RocketMQ 消息代理（5.x 客户端）。
-type Broker_Rocketmq struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// NameServer 地址列表。
-	NameServers []string `protobuf:"bytes,1,rep,name=name_servers,json=nameServers,proto3" json:"name_servers,omitempty"`
-	// NameServer 域名。
-	NameServerUrl string `protobuf:"bytes,2,opt,name=name_server_url,json=nameServerUrl,proto3" json:"name_server_url,omitempty"`
-	AccessKey     string `protobuf:"bytes,3,opt,name=access_key,json=accessKey,proto3" json:"access_key,omitempty"`
-	SecretKey     string `protobuf:"bytes,4,opt,name=secret_key,json=secretKey,proto3" json:"secret_key,omitempty"`
-	SecurityToken string `protobuf:"bytes,5,opt,name=security_token,json=securityToken,proto3" json:"security_token,omitempty"`
-	GroupName     string `protobuf:"bytes,6,opt,name=group_name,json=groupName,proto3" json:"group_name,omitempty"`
-	Namespace     string `protobuf:"bytes,7,opt,name=namespace,proto3" json:"namespace,omitempty"`
-	InstanceName  string `protobuf:"bytes,8,opt,name=instance_name,json=instanceName,proto3" json:"instance_name,omitempty"`
-	// 消费者组名称。
-	Topic string `protobuf:"bytes,9,opt,name=topic,proto3" json:"topic,omitempty"`
-	// 重试次数。
-	RetryCount    int32 `protobuf:"varint,10,opt,name=retry_count,json=retryCount,proto3" json:"retry_count,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *Broker_Rocketmq) Reset() {
-	*x = Broker_Rocketmq{}
-	mi := &file_bootstrap_v1_broker_proto_msgTypes[10]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *Broker_Rocketmq) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*Broker_Rocketmq) ProtoMessage() {}
-
-func (x *Broker_Rocketmq) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_broker_proto_msgTypes[10]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use Broker_Rocketmq.ProtoReflect.Descriptor instead.
-func (*Broker_Rocketmq) Descriptor() ([]byte, []int) {
-	return file_bootstrap_v1_broker_proto_rawDescGZIP(), []int{0, 9}
-}
-
-func (x *Broker_Rocketmq) GetNameServers() []string {
-	if x != nil {
-		return x.NameServers
-	}
-	return nil
-}
-
-func (x *Broker_Rocketmq) GetNameServerUrl() string {
-	if x != nil {
-		return x.NameServerUrl
-	}
-	return ""
-}
-
-func (x *Broker_Rocketmq) GetAccessKey() string {
-	if x != nil {
-		return x.AccessKey
-	}
-	return ""
-}
-
-func (x *Broker_Rocketmq) GetSecretKey() string {
-	if x != nil {
-		return x.SecretKey
-	}
-	return ""
-}
-
-func (x *Broker_Rocketmq) GetSecurityToken() string {
-	if x != nil {
-		return x.SecurityToken
-	}
-	return ""
-}
-
-func (x *Broker_Rocketmq) GetGroupName() string {
-	if x != nil {
-		return x.GroupName
-	}
-	return ""
-}
-
-func (x *Broker_Rocketmq) GetNamespace() string {
-	if x != nil {
-		return x.Namespace
-	}
-	return ""
-}
-
-func (x *Broker_Rocketmq) GetInstanceName() string {
-	if x != nil {
-		return x.InstanceName
-	}
-	return ""
-}
-
-func (x *Broker_Rocketmq) GetTopic() string {
-	if x != nil {
-		return x.Topic
-	}
-	return ""
-}
-
-func (x *Broker_Rocketmq) GetRetryCount() int32 {
-	if x != nil {
-		return x.RetryCount
-	}
-	return 0
-}
-
 // AWS SQS 消息代理。
 type Broker_Sqs struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -909,7 +780,7 @@ type Broker_Sqs struct {
 
 func (x *Broker_Sqs) Reset() {
 	*x = Broker_Sqs{}
-	mi := &file_bootstrap_v1_broker_proto_msgTypes[11]
+	mi := &file_bootstrap_v1_broker_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -921,7 +792,7 @@ func (x *Broker_Sqs) String() string {
 func (*Broker_Sqs) ProtoMessage() {}
 
 func (x *Broker_Sqs) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_broker_proto_msgTypes[11]
+	mi := &file_bootstrap_v1_broker_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -934,7 +805,7 @@ func (x *Broker_Sqs) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Broker_Sqs.ProtoReflect.Descriptor instead.
 func (*Broker_Sqs) Descriptor() ([]byte, []int) {
-	return file_bootstrap_v1_broker_proto_rawDescGZIP(), []int{0, 10}
+	return file_bootstrap_v1_broker_proto_rawDescGZIP(), []int{0, 9}
 }
 
 func (x *Broker_Sqs) GetRegion() string {
@@ -973,7 +844,7 @@ type Broker_Stomp struct {
 
 func (x *Broker_Stomp) Reset() {
 	*x = Broker_Stomp{}
-	mi := &file_bootstrap_v1_broker_proto_msgTypes[12]
+	mi := &file_bootstrap_v1_broker_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -985,7 +856,7 @@ func (x *Broker_Stomp) String() string {
 func (*Broker_Stomp) ProtoMessage() {}
 
 func (x *Broker_Stomp) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_broker_proto_msgTypes[12]
+	mi := &file_bootstrap_v1_broker_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -998,7 +869,7 @@ func (x *Broker_Stomp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Broker_Stomp.ProtoReflect.Descriptor instead.
 func (*Broker_Stomp) Descriptor() ([]byte, []int) {
-	return file_bootstrap_v1_broker_proto_rawDescGZIP(), []int{0, 11}
+	return file_bootstrap_v1_broker_proto_rawDescGZIP(), []int{0, 10}
 }
 
 func (x *Broker_Stomp) GetAddress() string {
@@ -1042,7 +913,7 @@ type Broker_Activemq struct {
 
 func (x *Broker_Activemq) Reset() {
 	*x = Broker_Activemq{}
-	mi := &file_bootstrap_v1_broker_proto_msgTypes[13]
+	mi := &file_bootstrap_v1_broker_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1054,7 +925,7 @@ func (x *Broker_Activemq) String() string {
 func (*Broker_Activemq) ProtoMessage() {}
 
 func (x *Broker_Activemq) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_broker_proto_msgTypes[13]
+	mi := &file_bootstrap_v1_broker_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1067,7 +938,7 @@ func (x *Broker_Activemq) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Broker_Activemq.ProtoReflect.Descriptor instead.
 func (*Broker_Activemq) Descriptor() ([]byte, []int) {
-	return file_bootstrap_v1_broker_proto_rawDescGZIP(), []int{0, 12}
+	return file_bootstrap_v1_broker_proto_rawDescGZIP(), []int{0, 11}
 }
 
 func (x *Broker_Activemq) GetAddress() string {
@@ -1095,7 +966,7 @@ var File_bootstrap_v1_broker_proto protoreflect.FileDescriptor
 
 const file_bootstrap_v1_broker_proto_rawDesc = "" +
 	"\n" +
-	"\x19bootstrap/v1/broker.proto\x12\fbootstrap.v1\"\xc8\x13\n" +
+	"\x19bootstrap/v1/broker.proto\x12\fbootstrap.v1\"\xb5\x10\n" +
 	"\x06Broker\x125\n" +
 	"\x05kafka\x18\x01 \x01(\v2\x1a.bootstrap.v1.Broker.KafkaH\x00R\x05kafka\x88\x01\x01\x12>\n" +
 	"\brabbitmq\x18\x02 \x01(\v2\x1d.bootstrap.v1.Broker.RabbitMQH\x01R\brabbitmq\x88\x01\x01\x125\n" +
@@ -1105,13 +976,11 @@ const file_bootstrap_v1_broker_proto_rawDesc = "" +
 	"\x06pulsar\x18\x06 \x01(\v2\x1b.bootstrap.v1.Broker.PulsarH\x05R\x06pulsar\x88\x01\x01\x12;\n" +
 	"\aazuresb\x18\a \x01(\v2\x1c.bootstrap.v1.Broker.AzuresbH\x06R\aazuresb\x88\x01\x01\x12>\n" +
 	"\bgcpubsub\x18\b \x01(\v2\x1d.bootstrap.v1.Broker.GcpubsubH\aR\bgcpubsub\x88\x01\x01\x12/\n" +
-	"\x03nsq\x18\t \x01(\v2\x18.bootstrap.v1.Broker.NsqH\bR\x03nsq\x88\x01\x01\x12>\n" +
-	"\brocketmq\x18\n" +
-	" \x01(\v2\x1d.bootstrap.v1.Broker.RocketmqH\tR\brocketmq\x88\x01\x01\x12/\n" +
-	"\x03sqs\x18\v \x01(\v2\x18.bootstrap.v1.Broker.SqsH\n" +
-	"R\x03sqs\x88\x01\x01\x125\n" +
-	"\x05stomp\x18\f \x01(\v2\x1a.bootstrap.v1.Broker.StompH\vR\x05stomp\x88\x01\x01\x12>\n" +
-	"\bactivemq\x18\r \x01(\v2\x1d.bootstrap.v1.Broker.ActivemqH\fR\bactivemq\x88\x01\x01\x1a\x91\x01\n" +
+	"\x03nsq\x18\t \x01(\v2\x18.bootstrap.v1.Broker.NsqH\bR\x03nsq\x88\x01\x01\x12/\n" +
+	"\x03sqs\x18\v \x01(\v2\x18.bootstrap.v1.Broker.SqsH\tR\x03sqs\x88\x01\x01\x125\n" +
+	"\x05stomp\x18\f \x01(\v2\x1a.bootstrap.v1.Broker.StompH\n" +
+	"R\x05stomp\x88\x01\x01\x12>\n" +
+	"\bactivemq\x18\r \x01(\v2\x1d.bootstrap.v1.Broker.ActivemqH\vR\bactivemq\x88\x01\x01\x1a\x91\x01\n" +
 	"\x05Kafka\x12\x18\n" +
 	"\abrokers\x18\x01 \x03(\tR\abrokers\x12\x19\n" +
 	"\bgroup_id\x18\x02 \x01(\tR\agroupId\x12\x1b\n" +
@@ -1154,23 +1023,7 @@ const file_bootstrap_v1_broker_proto_rawDesc = "" +
 	"\bendpoint\x18\x03 \x01(\tR\bendpoint\x1a@\n" +
 	"\x03Nsq\x12\x14\n" +
 	"\x05addrs\x18\x01 \x03(\tR\x05addrs\x12#\n" +
-	"\rlookupd_addrs\x18\x02 \x03(\tR\flookupdAddrs\x1a\xd3\x02\n" +
-	"\bRocketmq\x12!\n" +
-	"\fname_servers\x18\x01 \x03(\tR\vnameServers\x12&\n" +
-	"\x0fname_server_url\x18\x02 \x01(\tR\rnameServerUrl\x12\x1d\n" +
-	"\n" +
-	"access_key\x18\x03 \x01(\tR\taccessKey\x12\x1d\n" +
-	"\n" +
-	"secret_key\x18\x04 \x01(\tR\tsecretKey\x12%\n" +
-	"\x0esecurity_token\x18\x05 \x01(\tR\rsecurityToken\x12\x1d\n" +
-	"\n" +
-	"group_name\x18\x06 \x01(\tR\tgroupName\x12\x1c\n" +
-	"\tnamespace\x18\a \x01(\tR\tnamespace\x12#\n" +
-	"\rinstance_name\x18\b \x01(\tR\finstanceName\x12\x14\n" +
-	"\x05topic\x18\t \x01(\tR\x05topic\x12\x1f\n" +
-	"\vretry_count\x18\n" +
-	" \x01(\x05R\n" +
-	"retryCount\x1aV\n" +
+	"\rlookupd_addrs\x18\x02 \x03(\tR\flookupdAddrs\x1aV\n" +
 	"\x03Sqs\x12\x16\n" +
 	"\x06region\x18\x01 \x01(\tR\x06region\x12\x1a\n" +
 	"\bendpoint\x18\x02 \x01(\tR\bendpoint\x12\x1b\n" +
@@ -1193,11 +1046,11 @@ const file_bootstrap_v1_broker_proto_rawDesc = "" +
 	"\n" +
 	"\b_azuresbB\v\n" +
 	"\t_gcpubsubB\x06\n" +
-	"\x04_nsqB\v\n" +
-	"\t_rocketmqB\x06\n" +
+	"\x04_nsqB\x06\n" +
 	"\x04_sqsB\b\n" +
 	"\x06_stompB\v\n" +
-	"\t_activemqB\xb2\x01\n" +
+	"\t_activemqJ\x04\b\n" +
+	"\x10\vR\brocketmqB\xb2\x01\n" +
 	"\x10com.bootstrap.v1B\vBrokerProtoP\x01Z@github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1;bootstrapv1\xa2\x02\x03BXX\xaa\x02\fBootstrap.V1\xca\x02\fBootstrap\\V1\xe2\x02\x18Bootstrap\\V1\\GPBMetadata\xea\x02\rBootstrap::V1b\x06proto3"
 
 var (
@@ -1212,7 +1065,7 @@ func file_bootstrap_v1_broker_proto_rawDescGZIP() []byte {
 	return file_bootstrap_v1_broker_proto_rawDescData
 }
 
-var file_bootstrap_v1_broker_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
+var file_bootstrap_v1_broker_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_bootstrap_v1_broker_proto_goTypes = []any{
 	(*Broker)(nil),          // 0: bootstrap.v1.Broker
 	(*Broker_Kafka)(nil),    // 1: bootstrap.v1.Broker.Kafka
@@ -1224,10 +1077,9 @@ var file_bootstrap_v1_broker_proto_goTypes = []any{
 	(*Broker_Azuresb)(nil),  // 7: bootstrap.v1.Broker.Azuresb
 	(*Broker_Gcpubsub)(nil), // 8: bootstrap.v1.Broker.Gcpubsub
 	(*Broker_Nsq)(nil),      // 9: bootstrap.v1.Broker.Nsq
-	(*Broker_Rocketmq)(nil), // 10: bootstrap.v1.Broker.Rocketmq
-	(*Broker_Sqs)(nil),      // 11: bootstrap.v1.Broker.Sqs
-	(*Broker_Stomp)(nil),    // 12: bootstrap.v1.Broker.Stomp
-	(*Broker_Activemq)(nil), // 13: bootstrap.v1.Broker.Activemq
+	(*Broker_Sqs)(nil),      // 10: bootstrap.v1.Broker.Sqs
+	(*Broker_Stomp)(nil),    // 11: bootstrap.v1.Broker.Stomp
+	(*Broker_Activemq)(nil), // 12: bootstrap.v1.Broker.Activemq
 }
 var file_bootstrap_v1_broker_proto_depIdxs = []int32{
 	1,  // 0: bootstrap.v1.Broker.kafka:type_name -> bootstrap.v1.Broker.Kafka
@@ -1239,15 +1091,14 @@ var file_bootstrap_v1_broker_proto_depIdxs = []int32{
 	7,  // 6: bootstrap.v1.Broker.azuresb:type_name -> bootstrap.v1.Broker.Azuresb
 	8,  // 7: bootstrap.v1.Broker.gcpubsub:type_name -> bootstrap.v1.Broker.Gcpubsub
 	9,  // 8: bootstrap.v1.Broker.nsq:type_name -> bootstrap.v1.Broker.Nsq
-	10, // 9: bootstrap.v1.Broker.rocketmq:type_name -> bootstrap.v1.Broker.Rocketmq
-	11, // 10: bootstrap.v1.Broker.sqs:type_name -> bootstrap.v1.Broker.Sqs
-	12, // 11: bootstrap.v1.Broker.stomp:type_name -> bootstrap.v1.Broker.Stomp
-	13, // 12: bootstrap.v1.Broker.activemq:type_name -> bootstrap.v1.Broker.Activemq
-	13, // [13:13] is the sub-list for method output_type
-	13, // [13:13] is the sub-list for method input_type
-	13, // [13:13] is the sub-list for extension type_name
-	13, // [13:13] is the sub-list for extension extendee
-	0,  // [0:13] is the sub-list for field type_name
+	10, // 9: bootstrap.v1.Broker.sqs:type_name -> bootstrap.v1.Broker.Sqs
+	11, // 10: bootstrap.v1.Broker.stomp:type_name -> bootstrap.v1.Broker.Stomp
+	12, // 11: bootstrap.v1.Broker.activemq:type_name -> bootstrap.v1.Broker.Activemq
+	12, // [12:12] is the sub-list for method output_type
+	12, // [12:12] is the sub-list for method input_type
+	12, // [12:12] is the sub-list for extension type_name
+	12, // [12:12] is the sub-list for extension extendee
+	0,  // [0:12] is the sub-list for field type_name
 }
 
 func init() { file_bootstrap_v1_broker_proto_init() }
@@ -1262,7 +1113,7 @@ func file_bootstrap_v1_broker_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bootstrap_v1_broker_proto_rawDesc), len(file_bootstrap_v1_broker_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   14,
+			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

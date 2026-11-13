@@ -47,7 +47,7 @@ digraph bald_modules {
         label="适配器层（各自独立 module）";
         style=rounded; color="#9aa7b8";
         t_ad [label="transport/{grpc,http,http3,ws,webrtc,sse,\ngraphql,tcp,cron,asynq,mcp,gateway,subscribe,web}"];
-        b_ad [label="broker/{kafka,rabbitmq,redis,rocketmq}"];
+        b_ad [label="broker/{kafka,rabbitmq,redis}"];
         c_ad [label="cache/{local,redis,loadable}"];
         r_ad [label="registry/{nacos,consul,etcd,kubernetes}"];
         x_ad [label="log/* metrics/* encoding/*\nratelimit/* circuitbreaker/*"];
@@ -58,7 +58,7 @@ digraph bald_modules {
         codegen [label="cli/cmd/bald + cli/internal/{codegen,release}\n（独立 module github.com/kalandramo/bald/cli，零 replace）", fillcolor="#e8f0e0"];
     }
 
-    ext_mq [label="Kafka/RabbitMQ/RocketMQ/Redis", shape=cylinder, fillcolor="#fff"];
+    ext_mq [label="Kafka/RabbitMQ/Redis", shape=cylinder, fillcolor="#fff"];
     ext_sr [label="etcd/consul/nacos/k8s", shape=cylinder, fillcolor="#fff"];
     root [label="根 module github.com/kalandramo/bald\n= internal/docscheck（本仓文档闸门）\n19 条本地 replace、0 条 require，已无人 require 它", fillcolor="#fdf6e3"];
     pkgmod [label="module github.com/kalandramo/bald/pkg\n= pkg/*（含 pkg/metricshttp，原 observability/）\n13 条本地 replace", fillcolor="#fdf6e3"];
@@ -106,7 +106,7 @@ digraph bald_modules {
     bconfig -> ext_sr [style=dashed, label="watch 配置"];
     r_ad -> ext_sr [label="注册"];
     b_ad -> ext_mq;
-    t_ad -> ext_mq [style=dashed, label="transport/{kafka,rabbitmq,rocketmq,redis}"];
+    t_ad -> ext_mq [style=dashed, label="transport/{kafka,rabbitmq,redis}"];
 
     // ---- pkg module 的下行 + 适配器上行（回边目标是 pkg，不再是聚合根） ----
     pkgmod -> bootstrap [color="#006400"];

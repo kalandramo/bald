@@ -30,7 +30,7 @@ type pubsubBroker struct {
 // **生命周期约定**：构造后必须依次调用 `Init()`（解析 addr）与 `Connect()`
 // （建连）才能收发消息——直接 `Connect()` 会因 addr 为空而报
 // `invalid redis URL scheme:`（错误信息具误导性：scheme 明明给了，实际是
-// addr 未初始化）。这与框架内其他 broker（kafka/rabbitmq/rocketmq）一致，
+// addr 未初始化）。这与框架内其他 broker（kafka/rabbitmq）一致，
 // 各 contract 的 Provider 都是 NewBroker → Init → Connect 三步。
 func NewBroker(opts ...broker.Option) broker.Broker {
 	commonOpts := &redisOption.CommonOptions{

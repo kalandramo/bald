@@ -334,7 +334,7 @@ func newConnectedBroker(t *testing.T) *kafkaBroker {
 // 这是有理由的选择，不是「先留着」：
 //   - 注册表按 topic 键且 `Add` 是覆盖式——致命退出的那个订阅者无从判断「表里这条还是
 //     不是我」，自摘会在调用方已经为重订阅换上新订阅者时把新的误摘掉；
-//   - kafka / rabbitmq / redis pubsub / redis stream / rocketmq 五个 broker 都是同一
+//   - kafka / rabbitmq / redis pubsub / redis stream 各 broker 都是同一
 //     形态，只改 kafka 等于让「谁负责摘」在不同后端给出不同答案；
 //   - 残留条目对清理路径无害：`Disconnect` → `Clear` → `Unsubscribe(false)`，而 close
 //     已幂等（`TestSubscriberClose_Idempotent`）。

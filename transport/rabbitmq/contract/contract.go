@@ -2,7 +2,7 @@
 // rabbitmq 段 → rabbitmq.NewServer + 构造 func（供 server.rabbitmq 段
 // Provider 的 Build 复用）。
 //
-// 单独成包的原因（与 transport/{tcp,graphql,kafka,redis,rocketmq}/contract 同惯例）：
+// 单独成包的原因（与 transport/{tcp,graphql,kafka,redis}/contract 同惯例）：
 // transport/rabbitmq 保持零契约依赖（核心不 import bconf），只有本包 import
 // bconf——业务按需 import，依赖图全程可见。
 //

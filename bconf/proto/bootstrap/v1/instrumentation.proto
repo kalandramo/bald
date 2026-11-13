@@ -10,7 +10,7 @@ option go_package = "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1";
 // 与 metrics 段的分工（两套体系，不是一条链的两层）：
 //   - metrics 段 = 请求级 Recorder，维度固定（OTel semconv + 审计三元组），
 //     由 HTTP/gRPC 中间件自动 emit，配了它就得到双通道暴露；
-//   - 本段 = 传输级埋点，服务 TCP 会话与 Kafka/RabbitMQ/Redis/RocketMQ/WebRTC
+//   - 本段 = 传输级埋点，服务 TCP 会话与 Kafka/RabbitMQ/Redis/WebRTC
 //     这些**没有「请求」概念**的路径，维度是 status/topic/queue 这类自由标签。
 //
 // 判别规则：有「请求」的走 metrics 段，没有的走本段。两者可共存于一个进程，

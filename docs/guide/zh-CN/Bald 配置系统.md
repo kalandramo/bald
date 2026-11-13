@@ -556,7 +556,7 @@ proto 契约只约束**框架级**配置，业务自定义段允许自由键，�
 | `registry` | 服务注册发现 |
 | `logger` | 日志（`backends` 清单，每项 type + 参数段） |
 | `tracer` / `metrics` | 链路追踪 / 指标 |
-| `broker` | 消息代理（kafka / rabbitmq / redis / rocketmq 等） |
+| `broker` | 消息代理（kafka / rabbitmq / redis 等） |
 | `storage` | 对象存储（minio / s3） |
 | `ai` | AI 客户端（openai / langchaingo / eino） |
 | `workflow` | 工作流引擎 |

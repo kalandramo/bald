@@ -244,7 +244,7 @@ p, _ := prometheus.New(prometheus.WithNamespace("myapp"))
 srv := tcp.NewServer(
     tcp.WithAddress(":9000"),
     tcp.WithSocketRawDataHandler(handler),
-    tcp.WithMetrics(p),          // kafka/rabbitmq/redis/rocketmq 同名 ServerOption
+    tcp.WithMetrics(p),          // kafka/rabbitmq/redis 同名 ServerOption
 )
 ```
 
@@ -265,13 +265,13 @@ webrtc 侧是 `WithClientMetrics(m)`（ClientOption，注入客户端）。
 | webrtc（client） | `webrtc_client_messages_errors_total` | Counter | rpc_system, error |
 | webrtc（client） | `webrtc_client_message_send_duration_seconds` | Histogram | rpc_system |
 | webrtc（client） | `webrtc_client_messages_received_total` | Counter | rpc_system |
-| kafka/rabbitmq/redis/rocketmq | `broker_messages_received_total` | Counter | broker, topic |
+| kafka/rabbitmq/redis | `broker_messages_received_total` | Counter | broker, topic |
 | 同上 | `broker_message_duration_seconds` | Histogram | broker, topic |
 | 同上 | `broker_messages_errors_total` | Counter | broker, topic, error |
 
 命名已统一为 Prometheus 惯例（下划线 + `_total`/`_seconds` 后缀，
 label key 无点号）——任何后端下都可正常抓取/解析。broker 系四个传输
-共用一组指标名，`broker` label（kafka/rabbitmq/redis/rocketmq）区分传输。
+共用一组指标名，`broker` label（kafka/rabbitmq/redis）区分传输。
 
 ## 5. 业务自定义埋点
 

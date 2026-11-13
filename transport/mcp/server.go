@@ -55,6 +55,13 @@ type Server struct {
 	streamableServer *server.StreamableHTTPServer
 	ln               net.Listener
 
+	// lnClosedByStop 标记本次 listener Close 是否出自 Stop 的 listen-only 路径：
+	// Serve 收到的 accept「use of closed network connection」是预期停机形状，
+	// 不记入 s.err（外部对 listener 的关闭仍照记——TestServer_HTTPServeError 钉住）。
+	// 不用区分的话，Stop 读 s.err 与 serve goroutine 的 setErr 存在调度竞态，
+	// TestServer_StopClosesListenOnly 在 CI 上间歇判红即此。
+	lnClosedByStop atomic.Bool
+
 	// done 在服务实际结束（stdio 退出）或 Stop 完成后关闭，
 	// 供上层在 CLI 场景判断"客户端已断开、可以退出进程"。
 	done     chan struct{}
@@ -176,7 +183,12 @@ func (s *Server) Start(ctx context.Context) error {
 		s.mu.Unlock()
 
 		go func() {
-			if serveErr := httpSrv.Serve(ln); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+			// ErrServerClosed：Shutdown 自己触发，预期停机；net.ErrClosed 仅在
+			// lnClosedByStop（Stop 的 listen-only 路径自己关的）时同为预期——
+			// 外部关闭 listener 的 accept 错误照记（TestServer_HTTPServeError）。
+			if serveErr := httpSrv.Serve(ln); serveErr != nil &&
+				!errors.Is(serveErr, http.ErrServerClosed) &&
+				!(errors.Is(serveErr, net.ErrClosed) && s.lnClosedByStop.Load()) {
 				s.setErr(fmt.Errorf("serve MCP %s server: %w", s.serverType, serveErr))
 			}
 		}()
@@ -228,6 +240,10 @@ func (s *Server) Stop(ctx context.Context) error {
 			s.setErr(fmt.Errorf("shutdown MCP server: %w", shutdownErr))
 		}
 	} else if ln != nil {
+		// listen-only：Stop 自己关 listener——Serve 的 accept 关闭错误由
+		// lnClosedByStop 标记豁免（见 Start 的 serve goroutine），Stop 此处
+		// 因此确定性返回 s.err 的既有值，不与 goroutine 调度赛跑。
+		s.lnClosedByStop.Store(true)
 		_ = ln.Close()
 	}
 

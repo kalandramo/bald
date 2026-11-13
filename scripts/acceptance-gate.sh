@@ -74,18 +74,6 @@ esac
 # 服务点名，不进本表；timeout_seconds 一行**只有** `contract_test.go` 的长度判据——上游把
 # 每个操作的截止期写死成 10s，恰好掩掉契约值，运行期两侧都判不到（理由写在该包
 # mapping_backend_test.go 文件头）。
-# broker/rocketmq 那条（§7.24）的离线桩也是进程内的：v2 客户端把每个请求都发成本机监听
-# 端口上的明文 JSON 帧，所以八行（name_servers/name_server_url/access_key/secret_key/
-# security_token/group_name/namespace/instance_name/retry_count/topic）**全部**能在不打
-# 真后端的情况下读出——路由查询（105）的 extFields.topic、心跳（34）body 的 clientID、
-# 发送（10）的 producerGroup、ACL 签名逐条值判。停机两条腿（Unsubscribe/Disconnect 关掉
-# consumer）判的是同一根线上的「停机前流水计数已 ≥2（正向对照）+ 停机后睡满 4s 窗口新增为
-# 0（absence）+ 假 broker 侧连接归零」，所以窗口不是固定 sleep 蒙过去，而是有对照实证的
-# 「确实在长 → 停之后确实停了」。没有要真后端的腿，所以本包不需要进 ci.yml 的 integration
-# 点名。`./v2 TestLoggerLevel` 那一条是本模块第五处生产修复（SDK 日志全局只注入一次、级别
-# 改原子）的确定性腿：它判「级别仍然生效，而且生效在被注入的那一个对象上」，不需要 -race
-# 就判得动；同包另一条 TestLoggerConcurrent 只有 -race 才判得动，而本模块因上游 `close`
-# 竞争在 .github/race-skip.txt 里，把它写进本表只会得到一条永不判红的腿。
 # log/aliyun 那两条（§7.25）的离线桩也是进程内的：SDK 的 producer 把每条日志 POST 到
 # `<scheme>://<project>.<endpoint host>/logstores/<logstore>`，而它的 Transport 是
 # http.DefaultTransport 的 Clone()，换掉进程默认值就能把任意 project 域名拨到本机监听——
@@ -170,29 +158,24 @@ esac
 #     STDIO 的判别形状（契约强制 HTTP：STDIO 不绑端口，写了 address 就必须听得见）。
 # 三族都有 TestAppProviderEndToEnd_（契约 yaml → appkit.Serve → 段命中 → 真进程往返 +
 # StrictContract 拼写反证），与 tcp 同口径进表；骨架腿仍由 CI 的 test 作业整包跑。
-# transport/{kafka,redis,rocketmq,rabbitmq}/contract 四条腿（§7.28 方向二·第三批）同判
-# 「契约有 MQ 段、装配无门」首次开门，但四族的离线可判面**互不相同**，不能互相类推：
+# transport/{kafka,redis,rabbitmq}/contract 三条腿（§7.28 方向二·第三批）同判
+# 「契约有 MQ 段、装配无门」首次开门，但三族的离线可判面**互不相同**，不能互相类推：
 #   - kafka：broker 的 Connect 只翻标志位，因此 Start 离线就绿；订阅 flush 是「懒成功」
 #     （生产者协程后台重试），所以订阅者两腿判的是登记与 live 路径不报错；
 #   - redis：pubsub 的 Connect 是真拨号 + PING 探针，绿 Start 必须有个会回话的对端——
 #     进程内起了个只回 PING/SUBSCRIBE/UNSUBSCRIBE 的最小 RESP 应答器（线格式仍由 redigo
 #     自己解析，不伪造协议以外的东西）。端点剥凭证那条同时钉住「URL 里的 user:pass 不许
 #     泄进就绪面」；另配一条拒连端口腿，判探针红时端点保持空；
-#   - rocketmq：Connect 也只翻标志位 ⇒ 无订阅者的 Start 离线绿；但订阅 flush 走 SDK
-#     PushConsumer 的同步启动（拉路由要真 NameServer），离线必红——两条订阅腿因此判的是
-#     **失败形状**（订阅确实递进了 SDK、失败后 started 不落真）。driver_type 的 proto
-#     注释「默认 v5」与实现（恒 v2）是真漂移，收口成 fail-fast + Broker.Name()=="rocketmqV2"
-#     守卫腿，而不是把注释改绿；
 #   - rabbitmq：Connect 是完整 AMQP 0-9-1 握手，进程内假后端不可信（伪造帧序只会把
 #     「握手过没过」变成自证），所以四行映射的运行期判据是拒连端口上的**拨号目标**——
 #     错误文案里必须出现契约那个 host:port（同时判 Init 的 amqp:// 规范化真写回了
 #     options.Addrs、以及 addrs[1:] 在该后端是惰的）。端点的 started 闸门与 guest:guest
 #     脱敏在包内注入 started 判（表里单独一行 transport/rabbitmq .），因为离线跑不到
 #     Start 成功；「Start 后端点变描述性」「订阅真挂上队列」属真集群判据，本轮不拿假握手冒充。
-# 四族都有 TestAppProviderEndToEnd_（契约 yaml → Serve → 段命中 + StrictContract 拼写反证
-# rmq/rds/kfk/rbmq）；redis/kafka/rocketmq 的真进程腿读到「Start 后的描述性端点」，
+# 三族都有 TestAppProviderEndToEnd_（契约 yaml → Serve → 段命中 + StrictContract 拼写反证
+# rmq/rds/kfk）；redis/kafka 的真进程腿读到「Start 后的描述性端点」，
 # rabbitmq 那条读到的是「Build 的 fail-fast 一路掀掉 Serve」——差别就是上面那条离线边界。
-# 四族骨架腿（Segments/Apply/Plan/Build/三态跳过）仍由 CI 的 test 作业整包跑，不重复点名。
+# 三族骨架腿（Segments/Apply/Plan/Build/三态跳过）仍由 CI 的 test 作业整包跑，不重复点名。
 # cli ./internal/release 那条（§7.32）判的是发布四步里的**过期计划闸门**：`sync` 与
 # `changelog` 的写入全由 release-plan.json 派生，而计划绑一个 HEAD；拿旧计划跑这两步，
 # 原先会打印「依赖已是最新，无需归位。」/「没有待发布模块，变更日志不变。」然后 exit 0，
@@ -227,8 +210,6 @@ rows() {
     $'ci\tcontrib/database/gorm\t./contract\tTestMapping_|TestAllowedDriversTableShape\t' \
     $'ci\tregistry/nacos\t./contract\tTestMappingOffline_\t' \
     $'ci\tcontrib/database/mongodb\t./contract\tTestMappingOffline_\t' \
-    $'ci\tbroker/rocketmq\t./contract\tTestMappingOffline_\t' \
-    $'ci\tbroker/rocketmq\t./v2\tTestLoggerLevelReachesInjectedLogger\t' \
     $'ci\tlog/aliyun\t./contract\tTestMappingOffline_\t' \
     $'ci\tlog/aliyun\t.\tTestNewAliyunLogger_RejectsIncompleteOptions|TestDefaultOptionsHasNoPlaceholderTarget\t' \
     $'ci\tlog/tencent\t./contract\tTestMappingOffline_|TestSdkAssumption_\t' \
@@ -246,7 +227,6 @@ rows() {
     $'ci\ttransport/mcp\t./contract\tTestMappingOffline_|TestAppProviderEndToEnd_\t' \
     $'ci\ttransport/kafka\t./contract\tTestMappingOffline_|TestAppProviderEndToEnd_\t' \
     $'ci\ttransport/redis\t./contract\tTestMappingOffline_|TestAppProviderEndToEnd_\t' \
-    $'ci\ttransport/rocketmq\t./contract\tTestMappingOffline_|TestAppProviderEndToEnd_\t' \
     $'ci\ttransport/rabbitmq\t./contract\tTestMappingOffline_|TestAppProviderEndToEnd_\t' \
     $'ci\ttransport/rabbitmq\t.\tTestEndpointAfterStartStripsCredentials|TestSanitizeEndpoint\t' \
     $'ci\tbconf\t.\tTestUnmarshalNestedBackoffSection|TestUnmarshalAbsentBackoffStaysNil|TestUnmarshalDurationSpellings|TestCoerceDurationFormat\t' \

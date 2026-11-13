@@ -194,7 +194,7 @@ var implementedServerFaces = map[string]bool{
 	"http": true, "http3": true, "grpc": true, "graphql": true, "sse": true,
 	"websocket": true, "tcp": true, "cron": true, "mcp": true, "asynq": true,
 	"gateway": true, "kafka": true, "rabbitmq": true, "redis_server": true,
-	"rocketmq": true, "webrtc": true,
+	"webrtc": true,
 }
 
 // declaredServerFaces 枚举 server 下实际出现的（消息型、非列表）子段名。

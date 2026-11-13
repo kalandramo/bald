@@ -1,14 +1,14 @@
-# Bald 消息代理设计：Body 装任意类型、Binder 负责落地，四个后端各自独立 module
+# Bald 消息代理设计：Body 装任意类型、Binder 负责落地，三个后端各自独立 module
 
 > Author(s): bald 团队
 >
-> Discussion at: 源码 `broker/`（契约根 module）与 `broker/{kafka,rabbitmq,redis,rocketmq}/`（后端 module，各带 `contract/` 子包）；契约 `bconf/proto/bootstrap/v1/broker.proto`；装配面 `pkg/appkit`（`broker.<backend>` 段 Provider）
+> Discussion at: 源码 `broker/`（契约根 module）与 `broker/{kafka,rabbitmq,redis}/`（后端 module，各带 `contract/` 子包）；契约 `bconf/proto/bootstrap/v1/broker.proto`；装配面 `pkg/appkit`（`broker.<backend>` 段 Provider）
 >
 > Status: Accepted
 
 ## 摘要
 
-`broker` 是 bald 的消息代理契约包。它定义一件事：**消息怎么进出**。`Message.Body` 是 `any`——发布时装什么类型由业务决定，订阅时怎么落地成具体类型由 `Binder` 决定；`TypedHandler[T]` 泛型层让业务直接拿到 `*T`。四个后端（kafka、rabbitmq、redis、rocketmq）各自住在独立 module 里，每个后端再带一个 `contract/` 子包对接 bconf 契约段。
+`broker` 是 bald 的消息代理契约包。它定义一件事：**消息怎么进出**。`Message.Body` 是 `any`——发布时装什么类型由业务决定，订阅时怎么落地成具体类型由 `Binder` 决定；`TypedHandler[T]` 泛型层让业务直接拿到 `*T`。三个后端（kafka、rabbitmq、redis）各自住在独立 module 里，每个后端再带一个 `contract/` 子包对接 bconf 契约段。
 
 我们做了三个承诺：
 
@@ -18,14 +18,13 @@
 
 ## 背景与动机
 
-### 四个后端的共同约定
+### 三个后端的共同约定
 
-`broker` 与 `transport/{kafka,rabbitmq,redis,rocketmq}` 四件套各自独立 module，遵守同一组约定：
+`broker` 与 `transport/{kafka,rabbitmq,redis}` 各自独立 module，遵守同一组约定：
 
 1. **不织入 tracer**。可观测走 `contrib/observability-otlp` 装配层，broker 契约不背 SDK。
 2. **Init→Connect 统一**。契约装配（`contract.Provider`）一律先 `Init()` 再 `Connect()`，与 database/cache 域同一节奏。
 3. **`derefAnyPointer` 先解一层**。这是类型化订阅能工作的关键，见「设计」。
-4. **rocketmq 的 SDK 间接依赖按伪版本钉住**（上游无 tag）。
 
 ### 痛点：消息体类型化，是消息代理的第一道坎
 
@@ -59,7 +58,7 @@ sub, _ := broker.Subscribe(b, "orders",
 
 ### 一句话定性
 
-**契约形状完整、四后端可用、两条装配路已通**：transport Server 包装适合消息驱动进程，段驱动 Provider 适合与其它能力同进程装配。
+**契约形状完整、三后端可用、两条装配路已通**：transport Server 包装适合消息驱动进程，段驱动 Provider 适合与其它能力同进程装配。
 
 ## 设计
 
@@ -80,7 +79,7 @@ type Broker interface {
 
 日常用到的只有 `Publish` 和 `Subscribe`。`Init`/`Connect`/`Disconnect` 是生命周期（装配层调），`Name`/`Options`/`Address` 是诊断面。
 
-契约里**没有 `Request`**：请求-响应语义无法用四个后端共有的能力干净实现（rocketmq/rabbitmq 需要额外队列或回执 topic，redis pubsub 根本没有），留一个四后端全是 `not implemented` 的方法，等于邀请业务写出运行时才炸的调用。将来真需要时，redis stream（请求写 stream、回执走 reply topic）是天然入口，届时按需增量引入。
+契约里**没有 `Request`**：请求-响应语义无法用三个后端共有的能力干净实现（rabbitmq 需要额外队列或回执 topic，redis pubsub 根本没有），留一个后端全是 `not implemented` 的方法，等于邀请业务写出运行时才炸的调用。将来真需要时，redis stream（请求写 stream、回执走 reply topic）是天然入口，届时按需增量引入。
 
 ### Message：Body 是 any，Key/Partition/Offset 是 Kafka 形状的字段
 
@@ -89,7 +88,7 @@ type Message struct {
 	ID        string
 	Headers   Headers          // map[string]string，随消息传输
 	Body      any              // 消息体：发布时装什么，订阅时由 Binder 落地
-	Key       string           // Kafka Key / RocketMQ Key / RabbitMQ RoutingKey
+	Key       string           // Kafka Key / RabbitMQ RoutingKey
 	Metadata  Metadata         // map[string]any，进程内元数据，不随消息传输
 	Partition int
 	Offset    int64
@@ -150,19 +149,19 @@ type PublishMiddleware func(PublishHandler) PublishHandler
 
 ### SubscriberSyncMap：后端共享的订阅簿
 
-四个后端都要记账「我有哪些订阅者、停机时怎么清」，契约直接提供线程安全的簿：`Remove`（移除并退订）、`RemoveOnly`（只移除）、`Clear`/`ForceClear`（批量退订/不退订）、`RemoveWithTimeout`/`ClearWithTimeout`（限时版，防退订卡死停机）、`Foreach`（快照遍历，不在锁内回调）。
+三个后端都要记账「我有哪些订阅者、停机时怎么清」，契约直接提供线程安全的簿：`Remove`（移除并退订）、`RemoveOnly`（只移除）、`Clear`/`ForceClear`（批量退订/不退订）、`RemoveWithTimeout`/`ClearWithTimeout`（限时版，防退订卡死停机）、`Foreach`（快照遍历，不在锁内回调）。
 
 限时版的存在理由：`Unsubscribe` 要关网络连接，可能卡住。停机路径（`Disconnect` → `subscribers.Clear()`）不能被一个坏连接拖死整个进程退出。
 
-### 四后端形状对照
+### 三后端形状对照
 
-| | kafka | rabbitmq | redis | rocketmq |
-|---|---|---|---|---|
-| 构造 | `NewBroker(opts...)` | `NewBroker(opts...)` | `NewBroker(driverType, opts...)` | `NewBroker(opts...)` |
-| SDK | segmentio/kafka-go | amqp091-go | redigo | rocketmq-client-go/v2 |
-| 驱动 | 单一 | 单一 | **pubsub / stream 双驱动** | v2 客户端 |
-| `Name()` | `"kafka"` | `"rabbitmq"` | 按驱动 | `"rocketmqV2"` |
-| 测试 | 编译验证 | 编译验证 | 契约回环（miniredis） | 编译验证 |
+| | kafka | rabbitmq | redis |
+|---|---|---|---|
+| 构造 | `NewBroker(opts...)` | `NewBroker(opts...)` | `NewBroker(driverType, opts...)` |
+| SDK | segmentio/kafka-go | amqp091-go | redigo |
+| 驱动 | 单一 | 单一 | **pubsub / stream 双驱动** |
+| `Name()` | `"kafka"` | `"rabbitmq"` | 按驱动 |
+| 测试 | 编译验证 | 编译验证 | 契约回环（miniredis） |
 
 redis 的双驱动值得说明：Pub/Sub 是 fire-and-forget（掉线期间消息丢失），Stream 是持久化消费（有 ACK、有消费组）。`NewBroker(DriverTypeStream, ...)` 显式选择；契约装配默认走 pubsub——契约段形状（address/password/db）只够建连接，消费组与 ACK 策略属于能力层参数。
 
@@ -170,7 +169,7 @@ kafka 后端两个非显然的默认：**一 topic 一 writer**（默认开，wr
 
 ### 装配：两条路
 
-**路一：transport Server 包装**。`transport/{kafka,rabbitmq,redis,rocketmq}` 把后端 broker 包成 `transport.Server`（Start 里 Init→Connect），订阅参数经 `transport/subscribe.SubscribeOptionMap` 延迟声明、Start 时统一挂。适合「消息驱动型服务」——整个进程就是消费者。
+**路一：transport Server 包装**。`transport/{kafka,rabbitmq,redis}` 把后端 broker 包成 `transport.Server`（Start 里 Init→Connect），订阅参数经 `transport/subscribe.SubscribeOptionMap` 延迟声明、Start 时统一挂。适合「消息驱动型服务」——整个进程就是消费者。
 
 **路二：`broker.<backend>` 段 Provider**。配置驱动，按段存在性装配：
 
@@ -183,7 +182,7 @@ appkit.MustServe(ctx, std.Standard(),
 b, ok := appkit.NewKey[broker.Broker]("broker.redis").Resource(app)
 ```
 
-每个后端在 `contract/` 子包导出段驱动 Provider（当前 `broker/redis` 已具备 `AppProvider()`；kafka/rabbitmq/rocketmq 的既有 `contract.Provider` 可被用户 Provider 包装成同一形状）。**broker 是 optional 段集合**——多个 `broker.<backend>` 段可并存，「事件总线与任务队列分别落在不同 broker 上」是装配语义的一部分；段存在而无 Provider → L3 覆盖检查启动期报错，不静默跳过。
+每个后端在 `contract/` 子包导出段驱动 Provider（当前 `broker/redis` 已具备 `AppProvider()`；kafka/rabbitmq 的既有 `contract.Provider` 可被用户 Provider 包装成同一形状）。**broker 是 optional 段集合**——多个 `broker.<backend>` 段可并存，「事件总线与任务队列分别落在不同 broker 上」是装配语义的一部分；段存在而无 Provider → L3 覆盖检查启动期报错，不静默跳过。
 
 停机位次：broker 节点用 `PriorityBroker`，cleanup 在停机逆序回放时**先于** workflow/storage/cache/database 释放——in-flight 消息先排干，服务器 drain 最先。broker 段不支持热更新（`ReloadRestart`，与 database 段同理）。
 
@@ -214,7 +213,7 @@ func Provider(ctx context.Context, cfg *bootstrapv1.Broker) (any, func(), error)
 
 ### 我们没在核心 Options 里开后端特有字段
 
-kafka 的 batch/linger、rabbitmq 的 prefetch、rocketmq 的 nameServer——这些全走 `Options.Context` + 类型化 key。核心 `Options` 只有八个通用字段。
+kafka 的 batch/linger、rabbitmq 的 prefetch——这些全走 `Options.Context` + 类型化 key。核心 `Options` 只有八个通用字段。
 
 好处：加后端不动契约。代价：**不可发现**——`WithBatchSize` 之类的 Option 散在后端包里，读核心 Options 看不到 kafka 有哪些旋钮。这个代价我们认，因为另一面更贵：核心 Options 变成所有后端字段的并集，每加一个后端都是全仓编译。
 
@@ -222,9 +221,9 @@ kafka 的 batch/linger、rabbitmq 的 prefetch、rocketmq 的 nameServer——�
 
 `encoding` 包的纪律是显式注册（`encoding.MustRegister(jsoncodec.New())`），不用 init() 自注册——注册顺序可见、依赖图可审计。broker 顺这条纪律：不 import 具体 codec 包、不做包级 `GetCodec` 求值，默认 codec 在 `NewOptions()` 时才查表，缺失即 fail-fast（见「编解码」）。
 
-### 我们没把 13 个契约段都实现
+### 我们没把 12 个契约段都实现
 
-bconf 的 `Broker` 消息声明了 13 个后端段：kafka、rabbitmq、redis、nats、mqtt、pulsar、azuresb、gcpubsub、nsq、rocketmq、sqs、stomp、activemq；实现的是 4 个。bconf 是超集契约（先声明、后实现），这个方向本身没问题。
+bconf 的 `Broker` 消息声明了 12 个后端段：kafka、rabbitmq、redis、nats、mqtt、pulsar、azuresb、gcpubsub、nsq、sqs、stomp、activemq；实现的是 3 个。bconf 是超集契约（先声明、后实现），这个方向本身没问题。
 
 边界由装配层兜住：**段存在而无 Provider → L3 覆盖检查启动期报错**。配了 `broker.nats` 却没有对应 Provider 的应用不会跑起来，而不是「以为接上了、实际什么都没发生」。
 
@@ -240,9 +239,9 @@ kafka 后端的 `LogInfof` 系列全部 `log.Info(nil, ...)`——ctx 传 nil。
 
 ## 实现与验证
 
-模块布局：`broker/` 根 module 只放契约（接口、Message/Headers、中间件、类型化糖、编码）；四个后端各自独立 module，`<backend>/contract/` 子包把 bconf 段映射为 Broker 实例——根 module 的依赖图不因增加后端而增长。
+模块布局：`broker/` 根 module 只放契约（接口、Message/Headers、中间件、类型化糖、编码）；三个后端各自独立 module，`<backend>/contract/` 子包把 bconf 段映射为 Broker 实例——根 module 的依赖图不因增加后端而增长。
 
-测试现状：根 module 为主（message 族：Creator、Headers/Metadata、Clone、BodyBytes、ctx 注入、Ack；subscriber 族：SyncMap 全部操作；typed_handler 族：nil 防御、指针/值分派、不支持类型；event 与 publish 中间件链序），`redis/contract` 用 miniredis 跑通契约回环（dial URL 组装、pubsub 回环、段缺失报错）。**kafka/rabbitmq/rocketmq 只有编译验证**——三者都需要真实 broker，成本取舍见「开放问题」第 2 条。
+测试现状：根 module 为主（message 族：Creator、Headers/Metadata、Clone、BodyBytes、ctx 注入、Ack；subscriber 族：SyncMap 全部操作；typed_handler 族：nil 防御、指针/值分派、不支持类型；event 与 publish 中间件链序），`redis/contract` 用 miniredis 跑通契约回环（dial URL 组装、pubsub 回环、段缺失报错）。**kafka/rabbitmq 只有编译验证**——两者都需要真实 broker，成本取舍见「开放问题」第 2 条。
 
 验证命令：
 
@@ -280,15 +279,15 @@ task broker-verify
 
 **`AutoAck` 默认开，什么时候该关？** handler 处理失败时想控制重试/死信语义时关掉，在 handler 里显式 `event.Ack()`。kafka 后端的 Ack 是 commit offset——关掉 AutoAck 意味着处理失败的消息会在 rebalance 后重投。
 
-**`Queue` 字段在不同后端是什么？** kafka 是 GroupID（`WithSubscribeGroupID` 是别名）、rabbitmq 是 queue 名、rocketmq 是 consumer group。契约用 `Queue` 一个词装三种语义，代价是文档负担——这里如实记录。
+**`Queue` 字段在不同后端是什么？** kafka 是 GroupID（`WithSubscribeGroupID` 是别名）、rabbitmq 是 queue 名。契约用 `Queue` 一个词装两种语义，代价是文档负担——这里如实记录。
 
-**为什么 `Message.Key` 是 string？** 三家后端的 key/routing key 都是字符串语义（kafka 按 key 哈希分区、rabbitmq 按 routing key 路由）。要字节级 key 用 `Msg` 装原始消息。
+**为什么 `Message.Key` 是 string？** 各家后端的 key/routing key 都是字符串语义（kafka 按 key 哈希分区、rabbitmq 按 routing key 路由）。要字节级 key 用 `Msg` 装原始消息。
 
 **redis 契约为什么默认 pubsub 而不是 stream？** 契约段形状（address/password/db）只够建连接；stream 需要消费组、ACK 策略等额外参数，属于能力层——业务要持久化消费就显式 `redis.NewBroker(option.DriverTypeStream, ...)`。
 
-**`SetDelay` 为什么是 metadata 而不是字段？** 延迟级别是 rocketmq 特有概念（18 个 level），放 metadata 避免契约背 rocketmq 形状——与 Partition/Offset 的处理相反，因为延迟没有跨后端的通用语义。
+**`SetDelay` 为什么是 metadata 而不是字段？** 延迟投递没有跨后端的通用语义（级别数组、延时时长各家形状不同），放 metadata 让契约不为单一后端背形状——与 Partition/Offset 的处理相反。该助手原为 RocketMQ 形状（级别字符串）而设；rocketmq 后端下线后仓内暂无消费者，保留为通用 metadata 面，接延迟投递后端时按需消费。
 
 ### 开放问题
 
 1. **后端特有 Option 的可发现性要不要补？** `Options.Context` + 类型化 key 的代价是不可发现。候选：各后端导出一份「key 清单」文档注释，或 `Init` 里对未知 key 报 warning。不动也成立——kafka 的 Option 本身就是导出函数，godoc 可查。
-2. **kafka/rabbitmq/rocketmq 的测试从哪起步？** redis 用 miniredis（进程内、零外部依赖）跑通了契约回环；kafka 没有等价的进程内实现，候选是 testcontainers（CI 需要 Docker）或 CI service container（GitHub Actions 的 kafka service）。rabbitmq/rocketmq 同理。裁定前，三后端维持「编译验证 + 契约层测试」的现状。
+2. **kafka/rabbitmq 的测试从哪起步？** redis 用 miniredis（进程内、零外部依赖）跑通了契约回环；kafka 没有等价的进程内实现，候选是 testcontainers（CI 需要 Docker）或 CI service container（GitHub Actions 的 kafka service）。rabbitmq 同理。裁定前，两后端维持「编译验证 + 契约层测试」的现状。

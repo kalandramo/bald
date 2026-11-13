@@ -15,7 +15,7 @@
 bald 的指标域是**两套并存的体系**，回答两类不同的问题：
 
 - **请求级 Recorder**（`pkg/metrics`）：HTTP/gRPC 中间件自动 emit，协议指标对齐 OTel semconv v1.43.0（`http.server.request.duration` 等），业务维度走正交的 `bald_audit_events_total`（与审计三元组同源）。
-- **传输级三原语**（`metrics/`）：TCP/Kafka/RabbitMQ/Redis/RocketMQ/WebRTC 六个消息服务器的手工埋点契约（Counter/Histogram/Gauge），名字与标签由埋点方决定。
+- **传输级三原语**（`metrics/`）：TCP/Kafka/RabbitMQ/Redis/WebRTC 五个消息服务器的手工埋点契约（Counter/Histogram/Gauge），名字与标签由埋点方决定。
 
 一句话判断：**有「请求」的走 Recorder（中间件自动），没有「请求」的走三原语（手工埋点）**。两套体系可共存于一个进程；仅当传输级选择 otel 后端时，才与请求级 Recorder 互斥抢占 otel 全局 `MeterProvider` 单例位（见「兼容性」）。
 
@@ -267,11 +267,11 @@ metrics/                  module github.com/kalandramo/bald/metrics          （
 | webrtc（client） | `webrtc_client_messages_errors_total` | Counter | rpc_system, error |
 | webrtc（client） | `webrtc_client_message_send_duration_seconds` | Histogram | rpc_system |
 | webrtc（client） | `webrtc_client_messages_received_total` | Counter | rpc_system |
-| kafka/rabbitmq/redis/rocketmq | `broker_messages_received_total` | Counter | broker, topic |
+| kafka/rabbitmq/redis | `broker_messages_received_total` | Counter | broker, topic |
 | 同上 | `broker_message_duration_seconds` | Histogram | broker, topic |
 | 同上 | `broker_messages_errors_total` | Counter | broker, topic, error |
 
-命名统一为 Prometheus 惯例：小写下划线、Counter 带 `_total`、延迟带 `_seconds`、label key 不含点号（`rpc.system`→`rpc_system`）。broker 系四个传输共用一组指标名，`broker` label（取值 kafka/rabbitmq/redis/rocketmq）区分传输。
+命名统一为 Prometheus 惯例：小写下划线、Counter 带 `_total`、延迟带 `_seconds`、label key 不含点号（`rpc.system`→`rpc_system`）。broker 系三个传输共用一组指标名，`broker` label（取值 kafka/rabbitmq/redis）区分传输。
 
 #### 与契约装配链的关系：独立顶层段 `instrumentation`
 

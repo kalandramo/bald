@@ -37,10 +37,10 @@ flowchart TB
         E["transport.Extract(hostPort, ln)<br/>通配符 → 可达 IP"]
     end
 
-    subgraph backends["18 个子 module"]
+    subgraph backends["17 个子 module"]
         HTTP["http / grpc<br/>（基准实现）"]
         WS["websocket / sse / tcp<br/>/ webrtc / graphql"]
-        MQ["kafka / rabbitmq / redis<br/>/ rocketmq（broker 家族）"]
+        MQ["kafka / rabbitmq / redis<br/>（broker 家族）"]
         OTHER["asynq / cron / gateway<br/>/ http3 / mcp / web / subscribe"]
     end
 
@@ -79,11 +79,10 @@ flowchart TB
 | `kafka` | Kafka | ❌ | 返回 `""` | broker 家族 |
 | `rabbitmq` | RabbitMQ | ❌ | 返回 `""` | broker 家族 |
 | `redis` | Redis | ❌ | 返回 `""` | broker 家族 |
-| `rocketmq` | RocketMQ | ❌ | 返回 `""` | broker 家族 |
 | `web` | gin 请求流水线 | — | — | **非 Server**，是 handler 层 |
 | `subscribe` | 订阅类型 | — | — | **非 Server**，是纯类型 |
 
-> **断言缺口**：18 个后端中仅 6 个有 `var _ transport.Server` 编译期断言。缺断言的 12 个（含 http/grpc 两个基准实现、整个 broker 家族）靠结构化满足，编译器不保证。这是已知缺口，见「实现与验证」。
+> **断言缺口**：17 个后端中仅 6 个有 `var _ transport.Server` 编译期断言。缺断言的 11 个（含 http/grpc 两个基准实现、整个 broker 家族）靠结构化满足，编译器不保证。这是已知缺口，见「实现与验证」。
 
 ### `Extract` 语义
 
@@ -102,7 +101,7 @@ func Extract(hostPort string, ln net.Listener) (string, error)
 
 ## 理由与取舍
 
-### 为什么 broker 家族（kafka/rabbitmq/redis/rocketmq）`Endpoint()` 返回 `""`
+### 为什么 broker 家族（kafka/rabbitmq/redis）`Endpoint()` 返回 `""`
 
 它们不是网络**监听**服务——是消息中间件的**客户端**。没有"本进程监听的地址"这个概念。返回 `""` 是诚实的表达，`appkit.waitForEndpoints` 会跳过空 endpoint。
 
@@ -135,8 +134,8 @@ func Extract(hostPort string, ln net.Listener) (string, error)
 
 ### 2. broker 家族的同构复制与守卫不一致
 
-- `kafka`/`rocketmq`/`redis` 的 `server.go` 逐函数同构；`logger.go` 四份复制（仅 `logKey` 常量不同）。
-- **ctx nil 守卫不一致**：`rocketmq`/`rabbitmq` 在 `RegisterSubscriber` 内做 nil 判断并回落 `baseCtx`，`kafka`/`redis` 无此守卫。
+- `kafka`/`redis` 的 `server.go` 逐函数同构；`logger.go` 三份复制（仅 `logKey` 常量不同）。
+- **ctx nil 守卫不一致**：`rabbitmq` 在 `RegisterSubscriber` 内做 nil 判断并回落 `baseCtx`，`kafka`/`redis` 无此守卫。
 - `doRegisterSubscriberMap` 在 `Start` 中无条件清空 deferred 订阅队列后返回 `errors.Join`——部分注册失败会导致订阅者永久丢失（非 fail-closed）。
 
 这是同构复制的系统性风险。下沉共享基座是独立的重构主线。
@@ -168,7 +167,7 @@ func Extract(hostPort string, ln net.Listener) (string, error)
 | 文档 | 关系 |
 |------|------|
 | [框架契约总览](./框架契约总览.md) | `transport.Server` 的契约登记 |
-| [Bald 消息代理设计](./Bald%20消息代理设计.md) | broker 家族四个后端（kafka/rabbitmq/redis/rocketmq）的详细设计 |
+| [Bald 消息代理设计](./Bald%20消息代理设计.md) | broker 家族三个后端（kafka/rabbitmq/redis）的详细设计 |
 | [Bald 编解码设计](./Bald%20编解码设计.md) | transport 各后端的 `WithCodec` 消费面 |
 | [Bald 健康检查设计](./Bald%20健康检查设计.md) §探针与就绪的归属 | transport 的 `NewHTTPServer`/`NewGRPCServer` 签名 |
 | [设计判据](./设计判据.md) J6 | 「协议实现只承诺协议形状」的判据来源 |

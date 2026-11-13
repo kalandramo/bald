@@ -27,24 +27,3 @@
 # 假线自身的同步（http.DefaultTransport 换装、wire 收集器）在 -race 下没有额外块。
 # 排除只挡住这一对；有人把 bald 侧竞争引进来时，块数会超过 1+1，那时该修的是 bald。
 ./log/aliyun
-
-# 上游 rocketmq-client-go v2.1.2 的 rmqClient `close bool` 自带数据竞争，且落在
-# **消费者存活的必经路径**上：internal/client.go:555 在 Shutdown 里写 `c.close = true`，
-# :576 在 InvokeSync 里读 `if c.close`；写它的是调用方线程，读它的是 pushConsumer.Start
-# 起的 rebalance 线程（push_consumer.go:247 → RebalanceImmediately → doBalance →
-# findConsumerList → InvokeSync），该线程**没有退出通道**。所以「一次 Subscribe + 一次
-# Disconnect」这一对本身就跑不干净。这一处 bald 侧没有可修点：bald 只能转调 SDK 的
-# Shutdown，插不进 SDK 内部的串行化。
-#
-# 本模块曾一并排除的另一类（rlog 全局 `rLog` 与 bald `logger.level` plain 字段）是
-# **bald 自己的**写法，已按文件头那条规矩修掉、从这里删掉：改成进程内共用一个转发器、只在
-# 第一次 Init 时注入一次（v2/rocketmq.go 的 sdkLogger/publishLogger），级别改成原子读写
-# （v2/logger.go）；闸门在 v2/logger_test.go。
-# 实测（本机，完整包级 -race，一轮）：
-#   修前 v2 5 块 + contract 23 块 = 28 块，其中 24 块落在 bald 侧那两处；
-#   修后 v2 0 块（exit 0，本包已完全 race-clean）+ contract 3 块，3 块全在上面那一对
-#   :555/:576 上。contract 那 3 块是检测器判红（race detected），不是断言判红。
-# 保留排除的原因就是这 3 块：要让它们消失只能不 Shutdown consumer，而那是本轮 §7.24 修掉的
-# 第四处缺陷（线程与连接泄漏）——为了 race 绿而把能力删回去是不可接受的。
-# v2 包已 race-clean，可单独验证 logger 闸门：go test -race -run TestLogger ./v2/
-./broker/rocketmq

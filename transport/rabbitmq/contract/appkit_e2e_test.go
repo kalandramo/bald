@@ -13,7 +13,7 @@ package contract
 // 里**不依赖后端**的两段：契约门真在跑（段名写错即失败）+ provider 真进了计划并且
 // Build 的 fail-fast 一路穿透 Serve（配了段却缺 addrs）。
 //
-// 「Serve 到端点就绪」的真集群腿归 CI 服务集成（与 §7.24 rocketmq 同口径），不在
+// 「Serve 到端点就绪」的真集群腿归 CI 服务集成（与 §7.24 确立的口径一致），不在
 // 这里用假握手冒充。
 
 // 入口必须是 appkit.Serve——assemble（Provider 计划与 server 段构建）只挂在

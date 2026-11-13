@@ -541,16 +541,6 @@ message Server {
     string codec = 3;
   }
 
-  // RocketMQ 消息队列 Server。
-  message Rocketmq {
-    // NameServer 地址列表。
-    repeated string name_server_addrs = 1;
-    // 编解码器：json / proto。
-    string codec = 2;
-    // 驱动类型：v2 / v5 / aliyun。默认 v5。
-    string driver_type = 3;
-  }
-
   // SQS 消息队列 Server。
   message Sqs {
     // AWS 区域。
@@ -572,7 +562,12 @@ message Server {
   optional Activemq activemq = 27;
   optional Azuresb azuresb = 28;
   optional Nsq nsq = 29;
-  optional Rocketmq rocketmq = 30;
+
+  // server.rocketmq 段已随 transport/rocketmq 模块整体下线（2026-11）。
+  // 字段号 30 与段名保留，禁止复用——历史配置里的 server.rocketmq 段不得被新字段静默解释。
+  reserved 30;
+  reserved "rocketmq";
+
   optional Sqs sqs = 31;
 
   // grpc-gateway REST 转码面（独立端口）。

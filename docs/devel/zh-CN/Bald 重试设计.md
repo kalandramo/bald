@@ -38,7 +38,6 @@
 
 | 位置 | message | 字段 |
 |---|---|---|
-| `bconf/proto/bootstrap/v1/broker.proto` | `Broker.Rocketmq` | `int32 retry_count` |
 | `bconf/proto/bootstrap/v1/registry.proto` | `Registry.Etcd` | `int32 max_retry` |
 
 **没有任何一个字段能表达退避曲线**——初始值、倍数、上限、抖动策略，一个都写不出来。于是每个后端只能把曲线硬编码在自己代码里，配置文件能调的永远只有「几次」。

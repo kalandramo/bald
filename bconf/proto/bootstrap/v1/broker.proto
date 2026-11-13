@@ -89,24 +89,6 @@ message Broker {
     repeated string lookupd_addrs = 2;
   }
 
-  // Apache RocketMQ 消息代理（5.x 客户端）。
-  message Rocketmq {
-    // NameServer 地址列表。
-    repeated string name_servers = 1;
-    // NameServer 域名。
-    string name_server_url = 2;
-    string access_key = 3;
-    string secret_key = 4;
-    string security_token = 5;
-    string group_name = 6;
-    string namespace = 7;
-    string instance_name = 8;
-    // 消费者组名称。
-    string topic = 9;
-    // 重试次数。
-    int32 retry_count = 10;
-  }
-
   // AWS SQS 消息代理。
   message Sqs {
     // AWS 区域。
@@ -144,7 +126,12 @@ message Broker {
   optional Azuresb azuresb = 7;
   optional Gcpubsub gcpubsub = 8;
   optional Nsq nsq = 9;
-  optional Rocketmq rocketmq = 10;
+
+  // rocketmq 段已随 broker/rocketmq + transport/rocketmq 模块整体下线（2026-11）。
+  // 字段号 10 与段名保留，禁止复用——历史配置里的 rocketmq 段不得被新字段静默解释。
+  reserved 10;
+  reserved "rocketmq";
+
   optional Sqs sqs = 11;
   optional Stomp stomp = 12;
   optional Activemq activemq = 13;
