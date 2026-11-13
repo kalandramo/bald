@@ -74,19 +74,26 @@ type fieldLookup struct {
 }
 
 // lookupFields 返回 md 的查找表，首次访问时构建。遍历顺序与键覆盖规则：
-// 同序遍历字段、先小写 proto 名后小写 JSON 名，同名键后写覆盖。
+// 同序遍历字段、每个字段先精确形后小写形（proto 名与 JSON 名各一对），
+// 同名键后写覆盖。精确形与对应小写形映射到同一字段：扫描侧对规范形键
+// （文件层的 JSON name 原样形态）可直接精确命中，免每键一次 ToLower 的
+// 扫描与分配；大小写非规范的用户键走小写形兜底，语义不变。
 func lookupFields(md protoreflect.MessageDescriptor) *fieldLookup {
 	if v, ok := fieldLookupCache.Load(md); ok {
 		return v.(*fieldLookup)
 	}
 	fields := md.Fields()
-	byName := make(map[string]protoreflect.FieldDescriptor, fields.Len()*2)
+	byName := make(map[string]protoreflect.FieldDescriptor, fields.Len()*4)
 	protoIdx := make(map[string]int32, fields.Len())
 	for i := 0; i < fields.Len(); i++ {
 		fd := fields.Get(i)
-		byName[strings.ToLower(string(fd.Name()))] = fd
-		byName[strings.ToLower(fd.JSONName())] = fd
-		protoIdx[string(fd.Name())] = int32(i)
+		protoName := string(fd.Name())
+		jsonName := fd.JSONName()
+		byName[protoName] = fd
+		byName[jsonName] = fd
+		byName[strings.ToLower(protoName)] = fd
+		byName[strings.ToLower(jsonName)] = fd
+		protoIdx[protoName] = int32(i)
 	}
 	v := &fieldLookup{byName: byName, protoIdx: protoIdx}
 	if actual, loaded := fieldLookupCache.LoadOrStore(md, v); loaded {
@@ -106,14 +113,20 @@ func findUnknown(md protoreflect.MessageDescriptor, m map[string]any, path strin
 	byName := lookupFields(md).byName
 
 	for k, v := range m {
-		lk := strings.ToLower(k)
-		fd, ok := byName[lk]
+		// 精确命中快路径：规范形键（JSON name / proto 原名原样，文件层主形态）
+		// 直取描述符，免 ToLower 的扫描与分配；非规范键（大小写随意的 env/用户
+		// 键）落小写形兜底，语义与逐键 ToLower 完全一致。
+		fd, ok := byName[k]
 		if !ok {
-			if isTop && allowed[lk] {
-				continue // 业务自持段，整棵子树放行
+			lk := strings.ToLower(k)
+			fd, ok = byName[lk]
+			if !ok {
+				if isTop && allowed[lk] {
+					continue // 业务自持段，整棵子树放行
+				}
+				*out = append(*out, path+"."+k)
+				continue
 			}
-			*out = append(*out, path+"."+k)
-			continue
 		}
 		// 路径串推迟到实际使用处拼接（未知键收集或下钻递归）：已知标量
 		// 叶键上该值从不被读取，提前拼接等于用一次分配换一个没人读的串，
