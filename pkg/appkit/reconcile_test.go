@@ -96,6 +96,13 @@ func diffStrings(want, have []string) (add, remove []string) {
 // 工厂按名构造组件（failOn 指定哪个名字构造出的组件 Start 必然失败）。
 func convergeFn(failOn string, comps *map[string]*reconComp) ReconcileFunc {
 	return func(ctx context.Context, r *ReconcileCtx) error {
+		// Run 启动序列自带一次初始协调（无配置源 → settings=nil）；它与本测试的
+		// 手动协调异步交错时，空 want 会把手动挂载的组件整批卸掉——CI 上
+		// TestReconcile_PartialFailureThenConverges 间歇判红即此。nil 快照 =
+		// 本仓未表达期望态，协调器不动作。
+		if r.Settings == nil {
+			return nil
+		}
 		want := r.StringSlice("audit.backends")
 		add, remove := diffStrings(want, r.Mounted())
 		for _, name := range add {
