@@ -113,8 +113,8 @@ func lookupFields(md protoreflect.MessageDescriptor) *fieldLookup {
 // 免去每层递归构造 dynamicpb 消息只为取 Descriptor 的分配。
 //
 // stack 是「本节点到根」的原始键组件栈（顶层在前；列表元素下钻时把
-// "k[i]" 融合为单组件），路径串只在未知键出线时拼接一次
-// ("."+Join(stack,".")，等价旧实现逐层 path+"."+k 的产物，逐字节相同)。
+// "k[i]" 融合为单组件），路径串只在未知键出线时由 joinPath 拼一次
+// （等价旧实现逐层 path+"."+k 的产物，逐字节相同）。
 // 递归用 append 传栈：延长写入的是本调用不读取的容量区，兄弟分支复用
 // 同一底层数组，DFS 顺序下无别名读取；容量由调用方按常见深度预分配
 // （见 FindUnknownKeys），容量内延长零分配。
@@ -135,7 +135,7 @@ func findUnknown(md protoreflect.MessageDescriptor, m map[string]any,
 				if isTop && allowed[lk] {
 					continue // 业务自持段，整棵子树放行
 				}
-				*out = append(*out, "."+strings.Join(append(stack, k), "."))
+				*out = append(*out, joinPath(append(stack, k)))
 				continue
 			}
 		}
@@ -161,6 +161,29 @@ func findUnknown(md protoreflect.MessageDescriptor, m map[string]any,
 			}
 		}
 	}
+}
+
+// joinPath 把栈组件拼成路径串（顶层前导点：".a.b[0].c"），单分配：Grow 一次
+// 预留，String 直接移交底层缓冲。等价 "."+strings.Join(components, ".") 的
+// 产物，逐字节相同；省掉 Join 的中间串，出线键的路径串从双分配降为单分配。
+func joinPath(components []string) string {
+	total := 1 // 前导点
+	for i, c := range components {
+		total += len(c)
+		if i > 0 {
+			total++ // 分隔点
+		}
+	}
+	var b strings.Builder
+	b.Grow(total)
+	b.WriteByte('.')
+	for i, c := range components {
+		if i > 0 {
+			b.WriteByte('.')
+		}
+		b.WriteString(c)
+	}
+	return b.String()
 }
 
 // UnmarshalMap 把合并后的配置树（map 形态，键为 proto 字段名）反序列化为
