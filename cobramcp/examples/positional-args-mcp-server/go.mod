@@ -10,7 +10,7 @@ replace github.com/kalandramo/bald/transport/mcp => ../../../transport/mcp
 
 require (
 	github.com/google/jsonschema-go v0.4.2
-	github.com/kalandramo/bald/cobramcp v0.3.5
+	github.com/kalandramo/bald/cobramcp v0.4.0
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.12.1
 )
@@ -19,7 +19,7 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/kalandramo/bald/log v0.6.0 // indirect
-	github.com/kalandramo/bald/transport/mcp v0.5.2 // indirect
+	github.com/kalandramo/bald/transport/mcp v0.5.3 // indirect
 	github.com/mark3labs/mcp-go v1.1.0 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2 // indirect
 	github.com/spf13/cast v1.10.0 // indirect

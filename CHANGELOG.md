@@ -4,6 +4,1121 @@
 条目取自该版本区间内的提交标题（Conventional Commits），不要手工调整顺序。
 发布流程见 [多模块发布与变更日志](docs/devel/zh-CN/多模块发布与变更日志.md)。
 
+## 2026-11-13
+
+### bald v0.55.0
+
+- `abe529da` chore(release): 清除 29 条未发布批次的孤儿 CHANGELOG 条目
+- `39b1a8b7` refactor(ai)!: 删除 ai 模块及其全部接线 **(breaking)**
+- `99550d88` chore: gitignore 增加 .zcode/ 本地会话目录
+- `3d78c95c` chore(bconf): 移除误入版本库的实验产物并补 gitignore
+- `bf9c5316` test(bconf): 同步分配剖面守卫与性能基准数字（实验批次收尾）
+- `82e3f307` experiment: 假设8（同型零重装箱）：string/bool/float64 检查通过即返回源箱；整型家族重装箱被测试钉住的 protoreflect 规范型契约阻止，保持原样；75718→74551（-1.5%），allocs 751→694（-7.6%）
+- `dfbfa732` experiment: 假设7（marshal 缓冲池化）：ns -0.2%（噪声级）但字节 -7.3%（36280→33632，确定性）——方向性 keep；guard 与性能基准文档已同步 -race 重测（40667B/784 allocs）
+- `4b1d5159` experiment: 假设3（canonicalize 熔合规范化）：构建规范树替代「深拷贝+原地改写」，输入只读+折叠索引预检，ns -3.4%、字节 -21%、分配 -20%；折叠形状前提转为闸门测试；alloc_guard/性能基准文档同步
+- `f104eeb9` ci: Go 工具链 pin 对齐到 1.27.4（与本地一致）
+- `c3c7b3d7` fix(scripts): 清理失败不再终止验收，模块清单禁止静默截断
+- `fd2c2760` fix(task): 消除门禁静默跳过与假红，补平台/语法防回归闸门
+- `1272af96` docs(architecture): ADR-9 核查后判定达成（清单层已单源，表述双份为可读性取舍）
+- `f2f20c11` docs(architecture): ADR-8 第二阶段回填（bootstrap 累计 -38%）
+- `54d0d59e` docs(architecture): ADR-8 第一阶段回填（两域拆出）
+- `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
+- `6c127b73` docs(architecture): ADR-7 落地 + race 挂死破案回填
+- `81a0ae9e` refactor(scripts): coverage 合并器 awk → Go（ADR-7 批 2）
+- `bae26bfe` docs(architecture): ADR 排期终态回填——16/18 落地，4 项保持立项
+- `bf86814c` docs(devel/guide): 模块边界判据 + 记录纪律 + 命名口径成文（ADR-10/11/13/14 批 2/4）
+- `ca4c9ba8` docs(architecture): ADR 批 1 实施回填——五项已修 + race 挂死归属注记
+- `a30101f1` docs(architecture): 架构债修正排期（ADR-1…18）——评审发现全部结构化
+
+### bconf v0.28.0
+
+- `39b1a8b7` refactor(ai)!: 删除 ai 模块及其全部接线 **(breaking)**
+- `3d78c95c` chore(bconf): 移除误入版本库的实验产物并补 gitignore
+- `5c3ee672` experiment: 假设11（子树容器字段缓存）：clearPresentLists 递归只为清容器，纯标量子树确定性 no-op——subtreeHasContainer 描述符级缓存（环重入按 false 截断不漏判）整段跳过；73570→71343（-3.0%）
+- `bf9c5316` test(bconf): 同步分配剖面守卫与性能基准数字（实验批次收尾）
+- `4384c899` experiment: 假设10（hostname 记忆化重访，revisits_run:2）：discard#1 只否定了 ns 大头假设；alloc 剖面实锤每 op ~5 allocs（Sysctl/nametomib/ByteSliceFromString）。73877→73570（-0.4%），allocs 692→689
+- `20fc557b` experiment: 假设9（message 元素列表整列透传）：元素本就透传，整列复用源切片免重建；74551→73877（-0.9%），allocs 694→692
+- `82e3f307` experiment: 假设8（同型零重装箱）：string/bool/float64 检查通过即返回源箱；整型家族重装箱被测试钉住的 protoreflect 规范型契约阻止，保持原样；75718→74551（-1.5%），allocs 751→694（-7.6%）
+- `dfbfa732` experiment: 假设7（marshal 缓冲池化）：ns -0.2%（噪声级）但字节 -7.3%（36280→33632，确定性）——方向性 keep；guard 与性能基准文档已同步 -race 重测（40667B/784 allocs）
+- `31d2322a` experiment: 假设6（候选名折叠外提）：ReplaceAll(候选名) 提到键循环外（定长栈缓冲零分配）；78314→75898（-3.1%，vs 基线累计 -20.5%）
+- `a17a089a` experiment: 假设5（branch2 折叠扫描单遍化）：源键外层、候选内层，ReplaceAll(key) 只算一次；单遍保证由不变量1（跨字段折叠键不重合）支撑；86738→78314（-9.7%，vs 基线累计 -18%）
+- `936c878c` experiment: 假设4（clearPresentLists 加 dst.Has 守卫）：dst 缺子消息时清理必为 no-op，跳过 Mutable 创建与空递归；ClearMerge 段 15.3→6.1µs，总 92316→86738（-6.1%，vs 基线 -9.2%）
+- `4b1d5159` experiment: 假设3（canonicalize 熔合规范化）：构建规范树替代「深拷贝+原地改写」，输入只读+折叠索引预检，ns -3.4%、字节 -21%、分配 -20%；折叠形状前提转为闸门测试；alloc_guard/性能基准文档同步
+- `f0f0c0df` experiment: 假设2（coerceMessage 改收描述符，免建 dynamicpb）：分配 -132/op（938→806）、字节 -15%，ns 小幅向好（-0.8%，方向性）
+
+### bconfig v0.2.4
+
+- `0e8ce63e` fix(transport,bconfig,registry): logging-r01 存量清偿——框架库日志调用全部收敛 bald/log 契约层
+- `639d2add` test(coverage): 批6 bconfig/vault 82.3%→99.1%（注入模式/键覆盖/secret 缺失/轮询容错与去重/extractValue 边界；初始派发取消分支登记）
+- `8562f8e0` test(coverage): 批6 bconfig/http 85.7%→99.3%（注入模式/键覆盖/传输与读体错误/URL 脱敏/无 ETag 轮询去重；初始派发取消分支登记）
+- `ee5e2023` test(coverage): 批6 bconfig/nacos 73.3%→100%（建连接缝脚本化：地址解析/client 失败透传/Listen 失败/消费端消失丢弃分支）
+- `f5054ce0` test(coverage): 批6 bconfig/kubernetes 20.7%→100%（伪 clientset 注入：init 三分支/Load 取值/Watch 过滤与终止全分支；client 收敛为 kubernetes.Interface）
+- `06788841` test(coverage): 批6 bconfig/file 73.5%→96.6%（落定读取接缝脚本化：事件过滤/重读/取消窗/空确认全分支）
+
+### bootstrap v0.13.8
+
+- `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
+- `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
+- `f4b57d94` chore(release): bconf v0.27.0 / pkg v0.13.0 / v0.50.0 依赖归位 + 变更日志
+- `d3133b4f` chore(release): 2 模块整批发布——bconf v0.26.0 / cli v0.7.0
+- `d2980540` test(coverage): 批6 bootstrap/config 78.4%→99.2%（重连/错误路径/标量转换；Linux CI 补 233）
+- `880405c5` chore(release): 6 模块整批发布——根 v0.46.0 / bconf v0.24.1 / cli v0.5.0 / selector/circuitbreaker v0.1.0 / transport/client v0.2.0 / transport/client/resiliency v0.1.0
+- `53f337d9` chore(release): 回退 610dfe4 发布提交
+- `610dfe4b` chore(release): 6 模块整批发布——selector/circuitbreaker 与出站 resiliency 首发
+- `1bc52b57` chore(release): 8 模块整批发布——方案 S 收口与 otelslog 自有化
+- `56acd87a` chore(release): CHANGELOG 登记 bconf v0.24.0 / pkg v0.10.0 与依赖归位
+- `c5be85bb` chore: 发布 3 个模块（bconf v0.23.0 / pkg v0.6.0 / 根 v0.42.0）
+- `39f986eb` chore: 发布 3 个模块（bconf v0.22.0 / transport/sse v0.6.0 / 根 v0.41.0）
+- `73b105f2` chore: 发布 18 个模块（bconf v0.21.0 / pkg v0.5.0 / transport/client v0.1.0 等）
+
+### broker v0.3.1
+
+- `b05e3a9b` refactor(broker): 删除与链式方法同名的 MessageOption（ADR-2 批 1）
+- `e8efcc48` test(broker): 修 SA1029——ctx key 换自定义类型（批6 覆盖率战役带入）
+- `c04dd5f6` test(coverage): webrtc 45.6%→（+9 函数）与 broker 51.1%→69.2% 函数口径（-short 纯逻辑面）
+- `b910c0f6` docs(comments): 清理 Go 注释与测试名中的缺陷编号和历史叙事
+- `fd1a864c` chore(ci): 引入 golangci-lint 与 govulncheck 全模块门禁
+
+### broker/kafka v0.2.6
+
+- `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
+- `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
+- `f4b57d94` chore(release): bconf v0.27.0 / pkg v0.13.0 / v0.50.0 依赖归位 + 变更日志
+- `d3133b4f` chore(release): 2 模块整批发布——bconf v0.26.0 / cli v0.7.0
+- `095195a1` test(coverage): 落地 //cov:excl 结构性豁免机制，ide/tlstest/kafka 收口 100%
+- `2116c28f` test(coverage): 批2 broker option 补满 100%，contract/tlstest 覆盖可达分支
+- `880405c5` chore(release): 6 模块整批发布——根 v0.46.0 / bconf v0.24.1 / cli v0.5.0 / selector/circuitbreaker v0.1.0 / transport/client v0.2.0 / transport/client/resiliency v0.1.0
+- `53f337d9` chore(release): 回退 610dfe4 发布提交
+- `610dfe4b` chore(release): 6 模块整批发布——selector/circuitbreaker 与出站 resiliency 首发
+- `1bc52b57` chore(release): 8 模块整批发布——方案 S 收口与 otelslog 自有化
+- `56acd87a` chore(release): CHANGELOG 登记 bconf v0.24.0 / pkg v0.10.0 与依赖归位
+- `e7e9c14d` chore(release): CHANGELOG 登记 registry v0.5.0 / retry v0.3.0 / selector v0.1.0 / balancer v0.1.0 与依赖归位
+- `c5be85bb` chore: 发布 3 个模块（bconf v0.23.0 / pkg v0.6.0 / 根 v0.42.0）
+- `39f986eb` chore: 发布 3 个模块（bconf v0.22.0 / transport/sse v0.6.0 / 根 v0.41.0）
+- `73b105f2` chore: 发布 18 个模块（bconf v0.21.0 / pkg v0.5.0 / transport/client v0.1.0 等）
+
+### broker/rabbitmq v0.2.2
+
+- `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
+- `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
+- `f4b57d94` chore(release): bconf v0.27.0 / pkg v0.13.0 / v0.50.0 依赖归位 + 变更日志
+- `d3133b4f` chore(release): 2 模块整批发布——bconf v0.26.0 / cli v0.7.0
+- `095195a1` test(coverage): 落地 //cov:excl 结构性豁免机制，ide/tlstest/kafka 收口 100%
+- `2116c28f` test(coverage): 批2 broker option 补满 100%，contract/tlstest 覆盖可达分支
+- `880405c5` chore(release): 6 模块整批发布——根 v0.46.0 / bconf v0.24.1 / cli v0.5.0 / selector/circuitbreaker v0.1.0 / transport/client v0.2.0 / transport/client/resiliency v0.1.0
+- `53f337d9` chore(release): 回退 610dfe4 发布提交
+- `610dfe4b` chore(release): 6 模块整批发布——selector/circuitbreaker 与出站 resiliency 首发
+- `1bc52b57` chore(release): 8 模块整批发布——方案 S 收口与 otelslog 自有化
+- `56acd87a` chore(release): CHANGELOG 登记 bconf v0.24.0 / pkg v0.10.0 与依赖归位
+- `c5be85bb` chore: 发布 3 个模块（bconf v0.23.0 / pkg v0.6.0 / 根 v0.42.0）
+- `39f986eb` chore: 发布 3 个模块（bconf v0.22.0 / transport/sse v0.6.0 / 根 v0.41.0）
+- `73b105f2` chore: 发布 18 个模块（bconf v0.21.0 / pkg v0.5.0 / transport/client v0.1.0 等）
+- `6c761301` chore: 发布 27 个模块
+- `a2c6e431` chore: 发布 4 个模块（bconf v0.19.0、registry/etcd v0.4.0、broker/kafka v0.2.4、transport/kafka v0.2.1）
+- `8d277c47` chore: 发布 20 个模块（含根 v0.38.0）
+- `63f2cecf` chore: 发布 5 个模块（bconf v0.17.0、berrors v0.1.2、bootstrap v0.13.6、pkg v0.2.0、根 v0.37.0）
+- `9cf17db1` chore: 发布 30 个模块（含根 v0.35.0）
+- `148511e9` test(broker/rabbitmq): 补最小可跑测试面（此前 11 个文件零测试）
+- `dd75622e` chore: 发布 bald v0.34.1 等 6 个模块
+- `875755c3` chore: 发布 bald v0.34.0 等 13 个模块
+- `07904069` style: 清理全仓 gofmt 漂移
+
+### broker/redis v0.4.3
+
+- `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
+- `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
+- `eeeb05bb` refactor(broker,release): RedisKey 标准键导出 + release 守卫命名统一（ADR-16/18 批 1）
+- `64da6e59` refactor(appkit): CleanupFrom 收拢 25 份 adaptCleanup 复制（ADR-1 批 1）
+- `a6092206` chore(release): cli v0.10.0 / pkg v0.15.0 / v0.52.0 依赖归位 + 变更日志
+- `007b077d` chore(release): pkg v0.14.0 / cli v0.9.0 / v0.51.0 依赖归位 + 变更日志
+- `f4b57d94` chore(release): bconf v0.27.0 / pkg v0.13.0 / v0.50.0 依赖归位 + 变更日志
+- `20279ed7` chore(release): pkg v0.12.0 / v0.49.0 依赖归位 + 变更日志
+- `1aaf8844` chore(release): pkg v0.11.1 / cli v0.8.0 / v0.48.0 依赖归位 + 变更日志
+- `d3133b4f` chore(release): 2 模块整批发布——bconf v0.26.0 / cli v0.7.0
+- `5cbefee7` test(coverage): 批4 broker/redis + ai/{openai,langchaingo} 根包 0%→100%
+- `2116c28f` test(coverage): 批2 broker option 补满 100%，contract/tlstest 覆盖可达分支
+- `ec2b025f` chore(release): 2 模块整批发布——pkg v0.11.0 / selector/balancer v0.2.0
+- `880405c5` chore(release): 6 模块整批发布——根 v0.46.0 / bconf v0.24.1 / cli v0.5.0 / selector/circuitbreaker v0.1.0 / transport/client v0.2.0 / transport/client/resiliency v0.1.0
+- `53f337d9` chore(release): 回退 610dfe4 发布提交
+- `610dfe4b` chore(release): 6 模块整批发布——selector/circuitbreaker 与出站 resiliency 首发
+- `1bc52b57` chore(release): 8 模块整批发布——方案 S 收口与 otelslog 自有化
+- `a9b2afc6` chore(deps): 依赖树归位——x/sync v0.24.0 级联与示例 go.sum 预热
+- `56acd87a` chore(release): CHANGELOG 登记 bconf v0.24.0 / pkg v0.10.0 与依赖归位
+- `3883406f` chore(release): CHANGELOG 登记 pkg v0.9.0（统一策略面六件）
+- `236b9be0` chore(release): CHANGELOG 登记 pkg v0.8.0
+- `6f1d405a` chore(release): CHANGELOG 登记 pkg v0.7.0 与依赖归位
+- `e7e9c14d` chore(release): CHANGELOG 登记 registry v0.5.0 / retry v0.3.0 / selector v0.1.0 / balancer v0.1.0 与依赖归位
+- `c5be85bb` chore: 发布 3 个模块（bconf v0.23.0 / pkg v0.6.0 / 根 v0.42.0）
+- `39f986eb` chore: 发布 3 个模块（bconf v0.22.0 / transport/sse v0.6.0 / 根 v0.41.0）
+- `73b105f2` chore: 发布 18 个模块（bconf v0.21.0 / pkg v0.5.0 / transport/client v0.1.0 等）
+- `6c761301` chore: 发布 27 个模块
+- `a2c6e431` chore: 发布 4 个模块（bconf v0.19.0、registry/etcd v0.4.0、broker/kafka v0.2.4、transport/kafka v0.2.1）
+- `8d277c47` chore: 发布 20 个模块（含根 v0.38.0）
+- `6f9a3104` chore: 发布 3 个模块（bald v0.37.2、cli v0.1.1、pkg v0.2.2）
+- `d4396185` chore: 发布 3 个模块（bald v0.37.1、cli v0.1.0、pkg v0.2.1）
+- `63f2cecf` chore: 发布 5 个模块（bconf v0.17.0、berrors v0.1.2、bootstrap v0.13.6、pkg v0.2.0、根 v0.37.0）
+
+### broker/rocketmq v0.2.3
+
+- `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
+- `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
+- `f4b57d94` chore(release): bconf v0.27.0 / pkg v0.13.0 / v0.50.0 依赖归位 + 变更日志
+- `d3133b4f` chore(release): 2 模块整批发布——bconf v0.26.0 / cli v0.7.0
+- `2116c28f` test(coverage): 批2 broker option 补满 100%，contract/tlstest 覆盖可达分支
+- `880405c5` chore(release): 6 模块整批发布——根 v0.46.0 / bconf v0.24.1 / cli v0.5.0 / selector/circuitbreaker v0.1.0 / transport/client v0.2.0 / transport/client/resiliency v0.1.0
+- `53f337d9` chore(release): 回退 610dfe4 发布提交
+- `610dfe4b` chore(release): 6 模块整批发布——selector/circuitbreaker 与出站 resiliency 首发
+- `1bc52b57` chore(release): 8 模块整批发布——方案 S 收口与 otelslog 自有化
+- `56acd87a` chore(release): CHANGELOG 登记 bconf v0.24.0 / pkg v0.10.0 与依赖归位
+- `c5be85bb` chore: 发布 3 个模块（bconf v0.23.0 / pkg v0.6.0 / 根 v0.42.0）
+- `39f986eb` chore: 发布 3 个模块（bconf v0.22.0 / transport/sse v0.6.0 / 根 v0.41.0）
+- `73b105f2` chore: 发布 18 个模块（bconf v0.21.0 / pkg v0.5.0 / transport/client v0.1.0 等）
+
+### cache/redis v0.4.2
+
+- `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
+- `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
+- `64da6e59` refactor(appkit): CleanupFrom 收拢 25 份 adaptCleanup 复制（ADR-1 批 1）
+- `a6092206` chore(release): cli v0.10.0 / pkg v0.15.0 / v0.52.0 依赖归位 + 变更日志
+- `007b077d` chore(release): pkg v0.14.0 / cli v0.9.0 / v0.51.0 依赖归位 + 变更日志
+- `f4b57d94` chore(release): bconf v0.27.0 / pkg v0.13.0 / v0.50.0 依赖归位 + 变更日志
+- `20279ed7` chore(release): pkg v0.12.0 / v0.49.0 依赖归位 + 变更日志
+- `1aaf8844` chore(release): pkg v0.11.1 / cli v0.8.0 / v0.48.0 依赖归位 + 变更日志
+- `d3133b4f` chore(release): 2 模块整批发布——bconf v0.26.0 / cli v0.7.0
+- `ec2b025f` chore(release): 2 模块整批发布——pkg v0.11.0 / selector/balancer v0.2.0
+- `880405c5` chore(release): 6 模块整批发布——根 v0.46.0 / bconf v0.24.1 / cli v0.5.0 / selector/circuitbreaker v0.1.0 / transport/client v0.2.0 / transport/client/resiliency v0.1.0
+- `53f337d9` chore(release): 回退 610dfe4 发布提交
+- `610dfe4b` chore(release): 6 模块整批发布——selector/circuitbreaker 与出站 resiliency 首发
+- `1bc52b57` chore(release): 8 模块整批发布——方案 S 收口与 otelslog 自有化
+- `a9b2afc6` chore(deps): 依赖树归位——x/sync v0.24.0 级联与示例 go.sum 预热
+- `56acd87a` chore(release): CHANGELOG 登记 bconf v0.24.0 / pkg v0.10.0 与依赖归位
+- `3883406f` chore(release): CHANGELOG 登记 pkg v0.9.0（统一策略面六件）
+- `236b9be0` chore(release): CHANGELOG 登记 pkg v0.8.0
+- `6f1d405a` chore(release): CHANGELOG 登记 pkg v0.7.0 与依赖归位
+- `e7e9c14d` chore(release): CHANGELOG 登记 registry v0.5.0 / retry v0.3.0 / selector v0.1.0 / balancer v0.1.0 与依赖归位
+- `c5be85bb` chore: 发布 3 个模块（bconf v0.23.0 / pkg v0.6.0 / 根 v0.42.0）
+- `39f986eb` chore: 发布 3 个模块（bconf v0.22.0 / transport/sse v0.6.0 / 根 v0.41.0）
+- `73b105f2` chore: 发布 18 个模块（bconf v0.21.0 / pkg v0.5.0 / transport/client v0.1.0 等）
+- `6c761301` chore: 发布 27 个模块
+- `a2c6e431` chore: 发布 4 个模块（bconf v0.19.0、registry/etcd v0.4.0、broker/kafka v0.2.4、transport/kafka v0.2.1）
+- `8d277c47` chore: 发布 20 个模块（含根 v0.38.0）
+- `6f9a3104` chore: 发布 3 个模块（bald v0.37.2、cli v0.1.1、pkg v0.2.2）
+- `d4396185` chore: 发布 3 个模块（bald v0.37.1、cli v0.1.0、pkg v0.2.1）
+- `63f2cecf` chore: 发布 5 个模块（bconf v0.17.0、berrors v0.1.2、bootstrap v0.13.6、pkg v0.2.0、根 v0.37.0）
+
+### cli v0.13.0
+
+- `39b1a8b7` refactor(ai)!: 删除 ai 模块及其全部接线 **(breaking)**
+- `5f79978a` fix(cli): go.sum 补齐 transport/mcp 与 x/sync 校验和
+- `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
+- `0e8ce63e` fix(transport,bconfig,registry): logging-r01 存量清偿——框架库日志调用全部收敛 bald/log 契约层
+- `eeeb05bb` refactor(broker,release): RedisKey 标准键导出 + release 守卫命名统一（ADR-16/18 批 1）
+- `68668447` feat(codegen): Gate2 增加已实现面白名单（ADR-6 近期段）
+- `638bf879` fix(cli): checker 效果验证修正——logging-stdlib 调用级检测 + no-panic AST 版（豁免矩阵）
+
+### cobramcp v0.4.0
+
+- `aaca280c` feat(cobramcp): 服务暴露切 Streamable HTTP（MCP 最新标准），弃用旧版 HTTP+SSE
+- `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
+
+### contrib/audit-gorm v0.2.4
+
+- `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
+- `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
+- `a6092206` chore(release): cli v0.10.0 / pkg v0.15.0 / v0.52.0 依赖归位 + 变更日志
+- `007b077d` chore(release): pkg v0.14.0 / cli v0.9.0 / v0.51.0 依赖归位 + 变更日志
+- `f4b57d94` chore(release): bconf v0.27.0 / pkg v0.13.0 / v0.50.0 依赖归位 + 变更日志
+- `20279ed7` chore(release): pkg v0.12.0 / v0.49.0 依赖归位 + 变更日志
+- `1aaf8844` chore(release): pkg v0.11.1 / cli v0.8.0 / v0.48.0 依赖归位 + 变更日志
+- `d3133b4f` chore(release): 2 模块整批发布——bconf v0.26.0 / cli v0.7.0
+- `ec2b025f` chore(release): 2 模块整批发布——pkg v0.11.0 / selector/balancer v0.2.0
+- `880405c5` chore(release): 6 模块整批发布——根 v0.46.0 / bconf v0.24.1 / cli v0.5.0 / selector/circuitbreaker v0.1.0 / transport/client v0.2.0 / transport/client/resiliency v0.1.0
+- `53f337d9` chore(release): 回退 610dfe4 发布提交
+- `610dfe4b` chore(release): 6 模块整批发布——selector/circuitbreaker 与出站 resiliency 首发
+- `1bc52b57` chore(release): 8 模块整批发布——方案 S 收口与 otelslog 自有化
+- `a9b2afc6` chore(deps): 依赖树归位——x/sync v0.24.0 级联与示例 go.sum 预热
+- `56acd87a` chore(release): CHANGELOG 登记 bconf v0.24.0 / pkg v0.10.0 与依赖归位
+- `3883406f` chore(release): CHANGELOG 登记 pkg v0.9.0（统一策略面六件）
+- `236b9be0` chore(release): CHANGELOG 登记 pkg v0.8.0
+- `6f1d405a` chore(release): CHANGELOG 登记 pkg v0.7.0 与依赖归位
+- `e7e9c14d` chore(release): CHANGELOG 登记 registry v0.5.0 / retry v0.3.0 / selector v0.1.0 / balancer v0.1.0 与依赖归位
+- `c5be85bb` chore: 发布 3 个模块（bconf v0.23.0 / pkg v0.6.0 / 根 v0.42.0）
+- `39f986eb` chore: 发布 3 个模块（bconf v0.22.0 / transport/sse v0.6.0 / 根 v0.41.0）
+- `73b105f2` chore: 发布 18 个模块（bconf v0.21.0 / pkg v0.5.0 / transport/client v0.1.0 等）
+- `6c761301` chore: 发布 27 个模块
+- `a2c6e431` chore: 发布 4 个模块（bconf v0.19.0、registry/etcd v0.4.0、broker/kafka v0.2.4、transport/kafka v0.2.1）
+- `8d277c47` chore: 发布 20 个模块（含根 v0.38.0）
+- `6f9a3104` chore: 发布 3 个模块（bald v0.37.2、cli v0.1.1、pkg v0.2.2）
+- `d4396185` chore: 发布 3 个模块（bald v0.37.1、cli v0.1.0、pkg v0.2.1）
+- `63f2cecf` chore: 发布 5 个模块（bconf v0.17.0、berrors v0.1.2、bootstrap v0.13.6、pkg v0.2.0、根 v0.37.0）
+
+### contrib/audit-stream v0.4.3
+
+- `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
+- `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
+- `a6092206` chore(release): cli v0.10.0 / pkg v0.15.0 / v0.52.0 依赖归位 + 变更日志
+- `007b077d` chore(release): pkg v0.14.0 / cli v0.9.0 / v0.51.0 依赖归位 + 变更日志
+- `f4b57d94` chore(release): bconf v0.27.0 / pkg v0.13.0 / v0.50.0 依赖归位 + 变更日志
+- `20279ed7` chore(release): pkg v0.12.0 / v0.49.0 依赖归位 + 变更日志
+- `1aaf8844` chore(release): pkg v0.11.1 / cli v0.8.0 / v0.48.0 依赖归位 + 变更日志
+- `d3133b4f` chore(release): 2 模块整批发布——bconf v0.26.0 / cli v0.7.0
+- `ec2b025f` chore(release): 2 模块整批发布——pkg v0.11.0 / selector/balancer v0.2.0
+- `880405c5` chore(release): 6 模块整批发布——根 v0.46.0 / bconf v0.24.1 / cli v0.5.0 / selector/circuitbreaker v0.1.0 / transport/client v0.2.0 / transport/client/resiliency v0.1.0
+- `53f337d9` chore(release): 回退 610dfe4 发布提交
+- `610dfe4b` chore(release): 6 模块整批发布——selector/circuitbreaker 与出站 resiliency 首发
+- `1bc52b57` chore(release): 8 模块整批发布——方案 S 收口与 otelslog 自有化
+- `a9b2afc6` chore(deps): 依赖树归位——x/sync v0.24.0 级联与示例 go.sum 预热
+- `56acd87a` chore(release): CHANGELOG 登记 bconf v0.24.0 / pkg v0.10.0 与依赖归位
+- `3883406f` chore(release): CHANGELOG 登记 pkg v0.9.0（统一策略面六件）
+- `236b9be0` chore(release): CHANGELOG 登记 pkg v0.8.0
+- `6f1d405a` chore(release): CHANGELOG 登记 pkg v0.7.0 与依赖归位
+- `e7e9c14d` chore(release): CHANGELOG 登记 registry v0.5.0 / retry v0.3.0 / selector v0.1.0 / balancer v0.1.0 与依赖归位
+- `c5be85bb` chore: 发布 3 个模块（bconf v0.23.0 / pkg v0.6.0 / 根 v0.42.0）
+- `39f986eb` chore: 发布 3 个模块（bconf v0.22.0 / transport/sse v0.6.0 / 根 v0.41.0）
+- `73b105f2` chore: 发布 18 个模块（bconf v0.21.0 / pkg v0.5.0 / transport/client v0.1.0 等）
+- `6c761301` chore: 发布 27 个模块
+- `a2c6e431` chore: 发布 4 个模块（bconf v0.19.0、registry/etcd v0.4.0、broker/kafka v0.2.4、transport/kafka v0.2.1）
+- `8d277c47` chore: 发布 20 个模块（含根 v0.38.0）
+- `6f9a3104` chore: 发布 3 个模块（bald v0.37.2、cli v0.1.1、pkg v0.2.2）
+- `d4396185` chore: 发布 3 个模块（bald v0.37.1、cli v0.1.0、pkg v0.2.1）
+- `63f2cecf` chore: 发布 5 个模块（bconf v0.17.0、berrors v0.1.2、bootstrap v0.13.6、pkg v0.2.0、根 v0.37.0）
+
+### contrib/authn-jwt v0.3.2
+
+- `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
+- `347535c5` fix(authn-jwt): 拒绝空/过短 HMAC 密钥与无密钥配置
+- `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
+- `a6092206` chore(release): cli v0.10.0 / pkg v0.15.0 / v0.52.0 依赖归位 + 变更日志
+- `007b077d` chore(release): pkg v0.14.0 / cli v0.9.0 / v0.51.0 依赖归位 + 变更日志
+- `f4b57d94` chore(release): bconf v0.27.0 / pkg v0.13.0 / v0.50.0 依赖归位 + 变更日志
+- `20279ed7` chore(release): pkg v0.12.0 / v0.49.0 依赖归位 + 变更日志
+- `1aaf8844` chore(release): pkg v0.11.1 / cli v0.8.0 / v0.48.0 依赖归位 + 变更日志
+- `ec2b025f` chore(release): 2 模块整批发布——pkg v0.11.0 / selector/balancer v0.2.0
+- `1bc52b57` chore(release): 8 模块整批发布——方案 S 收口与 otelslog 自有化
+- `56acd87a` chore(release): CHANGELOG 登记 bconf v0.24.0 / pkg v0.10.0 与依赖归位
+- `3883406f` chore(release): CHANGELOG 登记 pkg v0.9.0（统一策略面六件）
+- `236b9be0` chore(release): CHANGELOG 登记 pkg v0.8.0
+- `6f1d405a` chore(release): CHANGELOG 登记 pkg v0.7.0 与依赖归位
+- `c5be85bb` chore: 发布 3 个模块（bconf v0.23.0 / pkg v0.6.0 / 根 v0.42.0）
+- `73b105f2` chore: 发布 18 个模块（bconf v0.21.0 / pkg v0.5.0 / transport/client v0.1.0 等）
+- `6c761301` chore: 发布 27 个模块
+- `8d277c47` chore: 发布 20 个模块（含根 v0.38.0）
+- `6f9a3104` chore: 发布 3 个模块（bald v0.37.2、cli v0.1.1、pkg v0.2.2）
+- `d4396185` chore: 发布 3 个模块（bald v0.37.1、cli v0.1.0、pkg v0.2.1）
+- `63f2cecf` chore: 发布 5 个模块（bconf v0.17.0、berrors v0.1.2、bootstrap v0.13.6、pkg v0.2.0、根 v0.37.0）
+
+### contrib/authz-casbin v0.2.4
+
+- `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
+- `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
+- `a6092206` chore(release): cli v0.10.0 / pkg v0.15.0 / v0.52.0 依赖归位 + 变更日志
+- `007b077d` chore(release): pkg v0.14.0 / cli v0.9.0 / v0.51.0 依赖归位 + 变更日志
+- `f4b57d94` chore(release): bconf v0.27.0 / pkg v0.13.0 / v0.50.0 依赖归位 + 变更日志
+- `20279ed7` chore(release): pkg v0.12.0 / v0.49.0 依赖归位 + 变更日志
+- `1aaf8844` chore(release): pkg v0.11.1 / cli v0.8.0 / v0.48.0 依赖归位 + 变更日志
+- `ec2b025f` chore(release): 2 模块整批发布——pkg v0.11.0 / selector/balancer v0.2.0
+- `1bc52b57` chore(release): 8 模块整批发布——方案 S 收口与 otelslog 自有化
+- `56acd87a` chore(release): CHANGELOG 登记 bconf v0.24.0 / pkg v0.10.0 与依赖归位
+- `3883406f` chore(release): CHANGELOG 登记 pkg v0.9.0（统一策略面六件）
+- `236b9be0` chore(release): CHANGELOG 登记 pkg v0.8.0
+- `6f1d405a` chore(release): CHANGELOG 登记 pkg v0.7.0 与依赖归位
+- `c5be85bb` chore: 发布 3 个模块（bconf v0.23.0 / pkg v0.6.0 / 根 v0.42.0）
+- `73b105f2` chore: 发布 18 个模块（bconf v0.21.0 / pkg v0.5.0 / transport/client v0.1.0 等）
+- `6c761301` chore: 发布 27 个模块
+- `8d277c47` chore: 发布 20 个模块（含根 v0.38.0）
+- `6f9a3104` chore: 发布 3 个模块（bald v0.37.2、cli v0.1.1、pkg v0.2.2）
+- `d4396185` chore: 发布 3 个模块（bald v0.37.1、cli v0.1.0、pkg v0.2.1）
+- `63f2cecf` chore: 发布 5 个模块（bconf v0.17.0、berrors v0.1.2、bootstrap v0.13.6、pkg v0.2.0、根 v0.37.0）
+
+### contrib/config-nacos v0.1.2
+
+- `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
+- `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
+- `a6092206` chore(release): cli v0.10.0 / pkg v0.15.0 / v0.52.0 依赖归位 + 变更日志
+- `007b077d` chore(release): pkg v0.14.0 / cli v0.9.0 / v0.51.0 依赖归位 + 变更日志
+- `f4b57d94` chore(release): bconf v0.27.0 / pkg v0.13.0 / v0.50.0 依赖归位 + 变更日志
+- `20279ed7` chore(release): pkg v0.12.0 / v0.49.0 依赖归位 + 变更日志
+- `1aaf8844` chore(release): pkg v0.11.1 / cli v0.8.0 / v0.48.0 依赖归位 + 变更日志
+- `d3133b4f` chore(release): 2 模块整批发布——bconf v0.26.0 / cli v0.7.0
+- `ec2b025f` chore(release): 2 模块整批发布——pkg v0.11.0 / selector/balancer v0.2.0
+- `880405c5` chore(release): 6 模块整批发布——根 v0.46.0 / bconf v0.24.1 / cli v0.5.0 / selector/circuitbreaker v0.1.0 / transport/client v0.2.0 / transport/client/resiliency v0.1.0
+- `53f337d9` chore(release): 回退 610dfe4 发布提交
+- `610dfe4b` chore(release): 6 模块整批发布——selector/circuitbreaker 与出站 resiliency 首发
+- `1bc52b57` chore(release): 8 模块整批发布——方案 S 收口与 otelslog 自有化
+- `a9b2afc6` chore(deps): 依赖树归位——x/sync v0.24.0 级联与示例 go.sum 预热
+- `56acd87a` chore(release): CHANGELOG 登记 bconf v0.24.0 / pkg v0.10.0 与依赖归位
+- `3883406f` chore(release): CHANGELOG 登记 pkg v0.9.0（统一策略面六件）
+- `236b9be0` chore(release): CHANGELOG 登记 pkg v0.8.0
+- `6f1d405a` chore(release): CHANGELOG 登记 pkg v0.7.0 与依赖归位
+- `e7e9c14d` chore(release): CHANGELOG 登记 registry v0.5.0 / retry v0.3.0 / selector v0.1.0 / balancer v0.1.0 与依赖归位
+- `c5be85bb` chore: 发布 3 个模块（bconf v0.23.0 / pkg v0.6.0 / 根 v0.42.0）
+- `39f986eb` chore: 发布 3 个模块（bconf v0.22.0 / transport/sse v0.6.0 / 根 v0.41.0）
+- `73b105f2` chore: 发布 18 个模块（bconf v0.21.0 / pkg v0.5.0 / transport/client v0.1.0 等）
+- `6c761301` chore: 发布 27 个模块
+- `a2c6e431` chore: 发布 4 个模块（bconf v0.19.0、registry/etcd v0.4.0、broker/kafka v0.2.4、transport/kafka v0.2.1）
+- `8d277c47` chore: 发布 20 个模块（含根 v0.38.0）
+- `6f9a3104` chore: 发布 3 个模块（bald v0.37.2、cli v0.1.1、pkg v0.2.2）
+- `d4396185` chore: 发布 3 个模块（bald v0.37.1、cli v0.1.0、pkg v0.2.1）
+- `63f2cecf` chore: 发布 5 个模块（bconf v0.17.0、berrors v0.1.2、bootstrap v0.13.6、pkg v0.2.0、根 v0.37.0）
+
+### contrib/observability-otlp v0.4.3
+
+- `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
+- `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
+- `a6092206` chore(release): cli v0.10.0 / pkg v0.15.0 / v0.52.0 依赖归位 + 变更日志
+- `007b077d` chore(release): pkg v0.14.0 / cli v0.9.0 / v0.51.0 依赖归位 + 变更日志
+- `f4b57d94` chore(release): bconf v0.27.0 / pkg v0.13.0 / v0.50.0 依赖归位 + 变更日志
+- `20279ed7` chore(release): pkg v0.12.0 / v0.49.0 依赖归位 + 变更日志
+- `1aaf8844` chore(release): pkg v0.11.1 / cli v0.8.0 / v0.48.0 依赖归位 + 变更日志
+- `d3133b4f` chore(release): 2 模块整批发布——bconf v0.26.0 / cli v0.7.0
+- `ec2b025f` chore(release): 2 模块整批发布——pkg v0.11.0 / selector/balancer v0.2.0
+- `880405c5` chore(release): 6 模块整批发布——根 v0.46.0 / bconf v0.24.1 / cli v0.5.0 / selector/circuitbreaker v0.1.0 / transport/client v0.2.0 / transport/client/resiliency v0.1.0
+- `53f337d9` chore(release): 回退 610dfe4 发布提交
+- `610dfe4b` chore(release): 6 模块整批发布——selector/circuitbreaker 与出站 resiliency 首发
+
+### contrib/store-gorm v0.4.2
+
+- `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
+- `0b7cd242` fix(store-gorm): errcheck 三处挂链调用补显式忽略
+- `4d9e5d98` fix(store-gorm): 字段名强制走实体白名单，删除猜名兜底
+- `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
+- `a6092206` chore(release): cli v0.10.0 / pkg v0.15.0 / v0.52.0 依赖归位 + 变更日志
+- `007b077d` chore(release): pkg v0.14.0 / cli v0.9.0 / v0.51.0 依赖归位 + 变更日志
+- `f4b57d94` chore(release): bconf v0.27.0 / pkg v0.13.0 / v0.50.0 依赖归位 + 变更日志
+- `20279ed7` chore(release): pkg v0.12.0 / v0.49.0 依赖归位 + 变更日志
+- `1aaf8844` chore(release): pkg v0.11.1 / cli v0.8.0 / v0.48.0 依赖归位 + 变更日志
+- `1122ce72` chore(deps): store-gorm protobuf 提直接依赖 + http3 升 bconf v0.26.0
+- `d3133b4f` chore(release): 2 模块整批发布——bconf v0.26.0 / cli v0.7.0
+- `7b165dae` test(coverage): 批6 contrib/store-gorm 82.6%→99.7%（操作符/元数据/段驱动全分支）
+- `ec2b025f` chore(release): 2 模块整批发布——pkg v0.11.0 / selector/balancer v0.2.0
+- `880405c5` chore(release): 6 模块整批发布——根 v0.46.0 / bconf v0.24.1 / cli v0.5.0 / selector/circuitbreaker v0.1.0 / transport/client v0.2.0 / transport/client/resiliency v0.1.0
+- `53f337d9` chore(release): 回退 610dfe4 发布提交
+- `610dfe4b` chore(release): 6 模块整批发布——selector/circuitbreaker 与出站 resiliency 首发
+- `1bc52b57` chore(release): 8 模块整批发布——方案 S 收口与 otelslog 自有化
+- `a9b2afc6` chore(deps): 依赖树归位——x/sync v0.24.0 级联与示例 go.sum 预热
+- `56acd87a` chore(release): CHANGELOG 登记 bconf v0.24.0 / pkg v0.10.0 与依赖归位
+- `3883406f` chore(release): CHANGELOG 登记 pkg v0.9.0（统一策略面六件）
+- `236b9be0` chore(release): CHANGELOG 登记 pkg v0.8.0
+- `6f1d405a` chore(release): CHANGELOG 登记 pkg v0.7.0 与依赖归位
+- `e7e9c14d` chore(release): CHANGELOG 登记 registry v0.5.0 / retry v0.3.0 / selector v0.1.0 / balancer v0.1.0 与依赖归位
+- `c5be85bb` chore: 发布 3 个模块（bconf v0.23.0 / pkg v0.6.0 / 根 v0.42.0）
+- `39f986eb` chore: 发布 3 个模块（bconf v0.22.0 / transport/sse v0.6.0 / 根 v0.41.0）
+- `73b105f2` chore: 发布 18 个模块（bconf v0.21.0 / pkg v0.5.0 / transport/client v0.1.0 等）
+- `6c761301` chore: 发布 27 个模块
+- `a2c6e431` chore: 发布 4 个模块（bconf v0.19.0、registry/etcd v0.4.0、broker/kafka v0.2.4、transport/kafka v0.2.1）
+- `8d277c47` chore: 发布 20 个模块（含根 v0.38.0）
+- `6f9a3104` chore: 发布 3 个模块（bald v0.37.2、cli v0.1.1、pkg v0.2.2）
+- `d4396185` chore: 发布 3 个模块（bald v0.37.1、cli v0.1.0、pkg v0.2.1）
+- `63f2cecf` chore: 发布 5 个模块（bconf v0.17.0、berrors v0.1.2、bootstrap v0.13.6、pkg v0.2.0、根 v0.37.0）
+
+### contrib/store-mongo v0.2.3
+
+- `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
+- `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
+- `a6092206` chore(release): cli v0.10.0 / pkg v0.15.0 / v0.52.0 依赖归位 + 变更日志
+- `007b077d` chore(release): pkg v0.14.0 / cli v0.9.0 / v0.51.0 依赖归位 + 变更日志
+- `f4b57d94` chore(release): bconf v0.27.0 / pkg v0.13.0 / v0.50.0 依赖归位 + 变更日志
+- `20279ed7` chore(release): pkg v0.12.0 / v0.49.0 依赖归位 + 变更日志
+- `1aaf8844` chore(release): pkg v0.11.1 / cli v0.8.0 / v0.48.0 依赖归位 + 变更日志
+- `d3133b4f` chore(release): 2 模块整批发布——bconf v0.26.0 / cli v0.7.0
+- `ec2b025f` chore(release): 2 模块整批发布——pkg v0.11.0 / selector/balancer v0.2.0
+- `880405c5` chore(release): 6 模块整批发布——根 v0.46.0 / bconf v0.24.1 / cli v0.5.0 / selector/circuitbreaker v0.1.0 / transport/client v0.2.0 / transport/client/resiliency v0.1.0
+- `53f337d9` chore(release): 回退 610dfe4 发布提交
+- `610dfe4b` chore(release): 6 模块整批发布——selector/circuitbreaker 与出站 resiliency 首发
+- `1bc52b57` chore(release): 8 模块整批发布——方案 S 收口与 otelslog 自有化
+- `a9b2afc6` chore(deps): 依赖树归位——x/sync v0.24.0 级联与示例 go.sum 预热
+- `56acd87a` chore(release): CHANGELOG 登记 bconf v0.24.0 / pkg v0.10.0 与依赖归位
+- `3883406f` chore(release): CHANGELOG 登记 pkg v0.9.0（统一策略面六件）
+- `236b9be0` chore(release): CHANGELOG 登记 pkg v0.8.0
+- `6f1d405a` chore(release): CHANGELOG 登记 pkg v0.7.0 与依赖归位
+- `c5be85bb` chore: 发布 3 个模块（bconf v0.23.0 / pkg v0.6.0 / 根 v0.42.0）
+- `39f986eb` chore: 发布 3 个模块（bconf v0.22.0 / transport/sse v0.6.0 / 根 v0.41.0）
+- `73b105f2` chore: 发布 18 个模块（bconf v0.21.0 / pkg v0.5.0 / transport/client v0.1.0 等）
+
+### metrics/datadog v0.2.2
+
+- `7498ac44` chore(deps): 13 个 replace-pkg 模块补 bconfig 目录 replace（发布叠加层 II）
+- `42c7ac3d` chore(deps): 13 个 replace-pkg 模块补 bootstrap 目录 replace（发布叠加层）
+- `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
+- `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
+- `64da6e59` refactor(appkit): CleanupFrom 收拢 25 份 adaptCleanup 复制（ADR-1 批 1）
+- `a6092206` chore(release): cli v0.10.0 / pkg v0.15.0 / v0.52.0 依赖归位 + 变更日志
+- `007b077d` chore(release): pkg v0.14.0 / cli v0.9.0 / v0.51.0 依赖归位 + 变更日志
+- `f4b57d94` chore(release): bconf v0.27.0 / pkg v0.13.0 / v0.50.0 依赖归位 + 变更日志
+- `20279ed7` chore(release): pkg v0.12.0 / v0.49.0 依赖归位 + 变更日志
+- `1aaf8844` chore(release): pkg v0.11.1 / cli v0.8.0 / v0.48.0 依赖归位 + 变更日志
+- `d3133b4f` chore(release): 2 模块整批发布——bconf v0.26.0 / cli v0.7.0
+- `ec2b025f` chore(release): 2 模块整批发布——pkg v0.11.0 / selector/balancer v0.2.0
+- `880405c5` chore(release): 6 模块整批发布——根 v0.46.0 / bconf v0.24.1 / cli v0.5.0 / selector/circuitbreaker v0.1.0 / transport/client v0.2.0 / transport/client/resiliency v0.1.0
+- `53f337d9` chore(release): 回退 610dfe4 发布提交
+- `610dfe4b` chore(release): 6 模块整批发布——selector/circuitbreaker 与出站 resiliency 首发
+- `3694198f` chore(deps): 发版后归位——撤回六条发布窗口 replace，cli log 顶 v0.6.0
+- `1bc52b57` chore(release): 8 模块整批发布——方案 S 收口与 otelslog 自有化
+- `f20fade5` chore(deps): 发布窗口叠加层——六消费者补 log/retry 本地 replace（tag 后撤回）
+- `a9b2afc6` chore(deps): 依赖树归位——x/sync v0.24.0 级联与示例 go.sum 预热
+- `56acd87a` chore(release): CHANGELOG 登记 bconf v0.24.0 / pkg v0.10.0 与依赖归位
+- `3883406f` chore(release): CHANGELOG 登记 pkg v0.9.0（统一策略面六件）
+- `236b9be0` chore(release): CHANGELOG 登记 pkg v0.8.0
+- `6f1d405a` chore(release): CHANGELOG 登记 pkg v0.7.0 与依赖归位
+- `e7e9c14d` chore(release): CHANGELOG 登记 registry v0.5.0 / retry v0.3.0 / selector v0.1.0 / balancer v0.1.0 与依赖归位
+- `c5be85bb` chore: 发布 3 个模块（bconf v0.23.0 / pkg v0.6.0 / 根 v0.42.0）
+- `39f986eb` chore: 发布 3 个模块（bconf v0.22.0 / transport/sse v0.6.0 / 根 v0.41.0）
+
+### metrics/otel v0.2.2
+
+- `7498ac44` chore(deps): 13 个 replace-pkg 模块补 bconfig 目录 replace（发布叠加层 II）
+- `42c7ac3d` chore(deps): 13 个 replace-pkg 模块补 bootstrap 目录 replace（发布叠加层）
+- `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
+- `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
+- `64da6e59` refactor(appkit): CleanupFrom 收拢 25 份 adaptCleanup 复制（ADR-1 批 1）
+- `a6092206` chore(release): cli v0.10.0 / pkg v0.15.0 / v0.52.0 依赖归位 + 变更日志
+- `007b077d` chore(release): pkg v0.14.0 / cli v0.9.0 / v0.51.0 依赖归位 + 变更日志
+- `f4b57d94` chore(release): bconf v0.27.0 / pkg v0.13.0 / v0.50.0 依赖归位 + 变更日志
+- `20279ed7` chore(release): pkg v0.12.0 / v0.49.0 依赖归位 + 变更日志
+- `1aaf8844` chore(release): pkg v0.11.1 / cli v0.8.0 / v0.48.0 依赖归位 + 变更日志
+- `d3133b4f` chore(release): 2 模块整批发布——bconf v0.26.0 / cli v0.7.0
+- `b0341043` test(coverage): 批6 metrics/otel 99.1%（resource 构造错误出口登记结构性零覆盖）
+- `c7f32511` test(coverage): 批6 metrics/otel 71.6%→99.1%（选项映射/导出失败/周期导出真推 OTLP）
+- `ec2b025f` chore(release): 2 模块整批发布——pkg v0.11.0 / selector/balancer v0.2.0
+- `880405c5` chore(release): 6 模块整批发布——根 v0.46.0 / bconf v0.24.1 / cli v0.5.0 / selector/circuitbreaker v0.1.0 / transport/client v0.2.0 / transport/client/resiliency v0.1.0
+- `53f337d9` chore(release): 回退 610dfe4 发布提交
+- `610dfe4b` chore(release): 6 模块整批发布——selector/circuitbreaker 与出站 resiliency 首发
+- `3694198f` chore(deps): 发版后归位——撤回六条发布窗口 replace，cli log 顶 v0.6.0
+- `1bc52b57` chore(release): 8 模块整批发布——方案 S 收口与 otelslog 自有化
+- `f20fade5` chore(deps): 发布窗口叠加层——六消费者补 log/retry 本地 replace（tag 后撤回）
+- `a9b2afc6` chore(deps): 依赖树归位——x/sync v0.24.0 级联与示例 go.sum 预热
+- `56acd87a` chore(release): CHANGELOG 登记 bconf v0.24.0 / pkg v0.10.0 与依赖归位
+- `3883406f` chore(release): CHANGELOG 登记 pkg v0.9.0（统一策略面六件）
+- `236b9be0` chore(release): CHANGELOG 登记 pkg v0.8.0
+- `6f1d405a` chore(release): CHANGELOG 登记 pkg v0.7.0 与依赖归位
+- `e7e9c14d` chore(release): CHANGELOG 登记 registry v0.5.0 / retry v0.3.0 / selector v0.1.0 / balancer v0.1.0 与依赖归位
+- `c5be85bb` chore: 发布 3 个模块（bconf v0.23.0 / pkg v0.6.0 / 根 v0.42.0）
+- `39f986eb` chore: 发布 3 个模块（bconf v0.22.0 / transport/sse v0.6.0 / 根 v0.41.0）
+
+### metrics/prometheus v0.2.2
+
+- `7498ac44` chore(deps): 13 个 replace-pkg 模块补 bconfig 目录 replace（发布叠加层 II）
+- `42c7ac3d` chore(deps): 13 个 replace-pkg 模块补 bootstrap 目录 replace（发布叠加层）
+- `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
+- `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
+- `64da6e59` refactor(appkit): CleanupFrom 收拢 25 份 adaptCleanup 复制（ADR-1 批 1）
+- `a6092206` chore(release): cli v0.10.0 / pkg v0.15.0 / v0.52.0 依赖归位 + 变更日志
+- `007b077d` chore(release): pkg v0.14.0 / cli v0.9.0 / v0.51.0 依赖归位 + 变更日志
+- `f4b57d94` chore(release): bconf v0.27.0 / pkg v0.13.0 / v0.50.0 依赖归位 + 变更日志
+- `20279ed7` chore(release): pkg v0.12.0 / v0.49.0 依赖归位 + 变更日志
+- `1aaf8844` chore(release): pkg v0.11.1 / cli v0.8.0 / v0.48.0 依赖归位 + 变更日志
+- `d3133b4f` chore(release): 2 模块整批发布——bconf v0.26.0 / cli v0.7.0
+- `ec2b025f` chore(release): 2 模块整批发布——pkg v0.11.0 / selector/balancer v0.2.0
+- `880405c5` chore(release): 6 模块整批发布——根 v0.46.0 / bconf v0.24.1 / cli v0.5.0 / selector/circuitbreaker v0.1.0 / transport/client v0.2.0 / transport/client/resiliency v0.1.0
+- `53f337d9` chore(release): 回退 610dfe4 发布提交
+- `610dfe4b` chore(release): 6 模块整批发布——selector/circuitbreaker 与出站 resiliency 首发
+- `3694198f` chore(deps): 发版后归位——撤回六条发布窗口 replace，cli log 顶 v0.6.0
+- `1bc52b57` chore(release): 8 模块整批发布——方案 S 收口与 otelslog 自有化
+- `f20fade5` chore(deps): 发布窗口叠加层——六消费者补 log/retry 本地 replace（tag 后撤回）
+- `a9b2afc6` chore(deps): 依赖树归位——x/sync v0.24.0 级联与示例 go.sum 预热
+- `56acd87a` chore(release): CHANGELOG 登记 bconf v0.24.0 / pkg v0.10.0 与依赖归位
+- `3883406f` chore(release): CHANGELOG 登记 pkg v0.9.0（统一策略面六件）
+- `236b9be0` chore(release): CHANGELOG 登记 pkg v0.8.0
+- `6f1d405a` chore(release): CHANGELOG 登记 pkg v0.7.0 与依赖归位
+- `e7e9c14d` chore(release): CHANGELOG 登记 registry v0.5.0 / retry v0.3.0 / selector v0.1.0 / balancer v0.1.0 与依赖归位
+- `c5be85bb` chore: 发布 3 个模块（bconf v0.23.0 / pkg v0.6.0 / 根 v0.42.0）
+- `39f986eb` chore: 发布 3 个模块（bconf v0.22.0 / transport/sse v0.6.0 / 根 v0.41.0）
+
+### oss/minio v0.3.3
+
+- `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
+- `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
+- `64da6e59` refactor(appkit): CleanupFrom 收拢 25 份 adaptCleanup 复制（ADR-1 批 1）
+- `a6092206` chore(release): cli v0.10.0 / pkg v0.15.0 / v0.52.0 依赖归位 + 变更日志
+- `007b077d` chore(release): pkg v0.14.0 / cli v0.9.0 / v0.51.0 依赖归位 + 变更日志
+- `f4b57d94` chore(release): bconf v0.27.0 / pkg v0.13.0 / v0.50.0 依赖归位 + 变更日志
+- `20279ed7` chore(release): pkg v0.12.0 / v0.49.0 依赖归位 + 变更日志
+- `1aaf8844` chore(release): pkg v0.11.1 / cli v0.8.0 / v0.48.0 依赖归位 + 变更日志
+- `d3133b4f` chore(release): 2 模块整批发布——bconf v0.26.0 / cli v0.7.0
+- `ec2b025f` chore(release): 2 模块整批发布——pkg v0.11.0 / selector/balancer v0.2.0
+- `880405c5` chore(release): 6 模块整批发布——根 v0.46.0 / bconf v0.24.1 / cli v0.5.0 / selector/circuitbreaker v0.1.0 / transport/client v0.2.0 / transport/client/resiliency v0.1.0
+- `53f337d9` chore(release): 回退 610dfe4 发布提交
+- `610dfe4b` chore(release): 6 模块整批发布——selector/circuitbreaker 与出站 resiliency 首发
+- `1bc52b57` chore(release): 8 模块整批发布——方案 S 收口与 otelslog 自有化
+- `a9b2afc6` chore(deps): 依赖树归位——x/sync v0.24.0 级联与示例 go.sum 预热
+- `56acd87a` chore(release): CHANGELOG 登记 bconf v0.24.0 / pkg v0.10.0 与依赖归位
+- `3883406f` chore(release): CHANGELOG 登记 pkg v0.9.0（统一策略面六件）
+- `236b9be0` chore(release): CHANGELOG 登记 pkg v0.8.0
+- `6f1d405a` chore(release): CHANGELOG 登记 pkg v0.7.0 与依赖归位
+- `e7e9c14d` chore(release): CHANGELOG 登记 registry v0.5.0 / retry v0.3.0 / selector v0.1.0 / balancer v0.1.0 与依赖归位
+- `c5be85bb` chore: 发布 3 个模块（bconf v0.23.0 / pkg v0.6.0 / 根 v0.42.0）
+- `39f986eb` chore: 发布 3 个模块（bconf v0.22.0 / transport/sse v0.6.0 / 根 v0.41.0）
+- `73b105f2` chore: 发布 18 个模块（bconf v0.21.0 / pkg v0.5.0 / transport/client v0.1.0 等）
+- `6c761301` chore: 发布 27 个模块
+- `a2c6e431` chore: 发布 4 个模块（bconf v0.19.0、registry/etcd v0.4.0、broker/kafka v0.2.4、transport/kafka v0.2.1）
+- `8d277c47` chore: 发布 20 个模块（含根 v0.38.0）
+- `6f9a3104` chore: 发布 3 个模块（bald v0.37.2、cli v0.1.1、pkg v0.2.2）
+- `d4396185` chore: 发布 3 个模块（bald v0.37.1、cli v0.1.0、pkg v0.2.1）
+- `63f2cecf` chore: 发布 5 个模块（bconf v0.17.0、berrors v0.1.2、bootstrap v0.13.6、pkg v0.2.0、根 v0.37.0）
+
+### oss/s3 v0.3.3
+
+- `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
+- `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
+- `64da6e59` refactor(appkit): CleanupFrom 收拢 25 份 adaptCleanup 复制（ADR-1 批 1）
+- `a6092206` chore(release): cli v0.10.0 / pkg v0.15.0 / v0.52.0 依赖归位 + 变更日志
+- `007b077d` chore(release): pkg v0.14.0 / cli v0.9.0 / v0.51.0 依赖归位 + 变更日志
+- `f4b57d94` chore(release): bconf v0.27.0 / pkg v0.13.0 / v0.50.0 依赖归位 + 变更日志
+- `20279ed7` chore(release): pkg v0.12.0 / v0.49.0 依赖归位 + 变更日志
+- `1aaf8844` chore(release): pkg v0.11.1 / cli v0.8.0 / v0.48.0 依赖归位 + 变更日志
+- `d3133b4f` chore(release): 2 模块整批发布——bconf v0.26.0 / cli v0.7.0
+- `ec2b025f` chore(release): 2 模块整批发布——pkg v0.11.0 / selector/balancer v0.2.0
+- `880405c5` chore(release): 6 模块整批发布——根 v0.46.0 / bconf v0.24.1 / cli v0.5.0 / selector/circuitbreaker v0.1.0 / transport/client v0.2.0 / transport/client/resiliency v0.1.0
+- `53f337d9` chore(release): 回退 610dfe4 发布提交
+- `610dfe4b` chore(release): 6 模块整批发布——selector/circuitbreaker 与出站 resiliency 首发
+- `1bc52b57` chore(release): 8 模块整批发布——方案 S 收口与 otelslog 自有化
+- `a9b2afc6` chore(deps): 依赖树归位——x/sync v0.24.0 级联与示例 go.sum 预热
+- `56acd87a` chore(release): CHANGELOG 登记 bconf v0.24.0 / pkg v0.10.0 与依赖归位
+- `3883406f` chore(release): CHANGELOG 登记 pkg v0.9.0（统一策略面六件）
+- `236b9be0` chore(release): CHANGELOG 登记 pkg v0.8.0
+- `6f1d405a` chore(release): CHANGELOG 登记 pkg v0.7.0 与依赖归位
+- `e7e9c14d` chore(release): CHANGELOG 登记 registry v0.5.0 / retry v0.3.0 / selector v0.1.0 / balancer v0.1.0 与依赖归位
+- `c5be85bb` chore: 发布 3 个模块（bconf v0.23.0 / pkg v0.6.0 / 根 v0.42.0）
+- `39f986eb` chore: 发布 3 个模块（bconf v0.22.0 / transport/sse v0.6.0 / 根 v0.41.0）
+- `73b105f2` chore: 发布 18 个模块（bconf v0.21.0 / pkg v0.5.0 / transport/client v0.1.0 等）
+- `6c761301` chore: 发布 27 个模块
+- `a2c6e431` chore: 发布 4 个模块（bconf v0.19.0、registry/etcd v0.4.0、broker/kafka v0.2.4、transport/kafka v0.2.1）
+- `8d277c47` chore: 发布 20 个模块（含根 v0.38.0）
+- `6f9a3104` chore: 发布 3 个模块（bald v0.37.2、cli v0.1.1、pkg v0.2.2）
+- `d4396185` chore: 发布 3 个模块（bald v0.37.1、cli v0.1.0、pkg v0.2.1）
+- `63f2cecf` chore: 发布 5 个模块（bconf v0.17.0、berrors v0.1.2、bootstrap v0.13.6、pkg v0.2.0、根 v0.37.0）
+
+### pkg v0.16.0
+
+- `39b1a8b7` refactor(ai)!: 删除 ai 模块及其全部接线 **(breaking)**
+- `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
+- `49ae6aa6` test(middleware): 租户断言落地，注释不再暗示 authn 强制租户
+- `bf3a8139` fix(store): 多租户隔离读写两侧 fail-open 收口，身份缺租户改为报错
+- `5be2751f` refactor(appkit): 传输面 Option 构造器域拆出（ADR-8 第二阶段）
+- `d88002b7` refactor(appkit): 热更新与清理槽位两域拆出 bootstrap.go（ADR-8 第一阶段）
+- `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
+- `780ad7f8` refactor(middleware): httpStatusErrors 改按命中惰性缓存（ADR-4 批 1）
+- `aa06e3d2` refactor(appkit): providerHints 收敛为例外表 + 指路分句统一中文（ADR-3/5 批 1）
+- `64da6e59` refactor(appkit): CleanupFrom 收拢 25 份 adaptCleanup 复制（ADR-1 批 1）
+
+### registry/consul v0.1.7
+
+- `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
+- `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
+- `0e8ce63e` fix(transport,bconfig,registry): logging-r01 存量清偿——框架库日志调用全部收敛 bald/log 契约层
+- `64da6e59` refactor(appkit): CleanupFrom 收拢 25 份 adaptCleanup 复制（ADR-1 批 1）
+- `a6092206` chore(release): cli v0.10.0 / pkg v0.15.0 / v0.52.0 依赖归位 + 变更日志
+- `007b077d` chore(release): pkg v0.14.0 / cli v0.9.0 / v0.51.0 依赖归位 + 变更日志
+- `f4b57d94` chore(release): bconf v0.27.0 / pkg v0.13.0 / v0.50.0 依赖归位 + 变更日志
+- `20279ed7` chore(release): pkg v0.12.0 / v0.49.0 依赖归位 + 变更日志
+- `1aaf8844` chore(release): pkg v0.11.1 / cli v0.8.0 / v0.48.0 依赖归位 + 变更日志
+- `d3133b4f` chore(release): 2 模块整批发布——bconf v0.26.0 / cli v0.7.0
+- `ec2b025f` chore(release): 2 模块整批发布——pkg v0.11.0 / selector/balancer v0.2.0
+- `880405c5` chore(release): 6 模块整批发布——根 v0.46.0 / bconf v0.24.1 / cli v0.5.0 / selector/circuitbreaker v0.1.0 / transport/client v0.2.0 / transport/client/resiliency v0.1.0
+- `53f337d9` chore(release): 回退 610dfe4 发布提交
+- `610dfe4b` chore(release): 6 模块整批发布——selector/circuitbreaker 与出站 resiliency 首发
+- `1bc52b57` chore(release): 8 模块整批发布——方案 S 收口与 otelslog 自有化
+- `a9b2afc6` chore(deps): 依赖树归位——x/sync v0.24.0 级联与示例 go.sum 预热
+- `56acd87a` chore(release): CHANGELOG 登记 bconf v0.24.0 / pkg v0.10.0 与依赖归位
+- `3883406f` chore(release): CHANGELOG 登记 pkg v0.9.0（统一策略面六件）
+- `236b9be0` chore(release): CHANGELOG 登记 pkg v0.8.0
+- `6f1d405a` chore(release): CHANGELOG 登记 pkg v0.7.0 与依赖归位
+- `e7e9c14d` chore(release): CHANGELOG 登记 registry v0.5.0 / retry v0.3.0 / selector v0.1.0 / balancer v0.1.0 与依赖归位
+- `c5be85bb` chore: 发布 3 个模块（bconf v0.23.0 / pkg v0.6.0 / 根 v0.42.0）
+- `39f986eb` chore: 发布 3 个模块（bconf v0.22.0 / transport/sse v0.6.0 / 根 v0.41.0）
+- `73b105f2` chore: 发布 18 个模块（bconf v0.21.0 / pkg v0.5.0 / transport/client v0.1.0 等）
+- `6c761301` chore: 发布 27 个模块
+
+### registry/etcd v0.4.2
+
+- `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
+- `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
+- `64da6e59` refactor(appkit): CleanupFrom 收拢 25 份 adaptCleanup 复制（ADR-1 批 1）
+- `a6092206` chore(release): cli v0.10.0 / pkg v0.15.0 / v0.52.0 依赖归位 + 变更日志
+- `007b077d` chore(release): pkg v0.14.0 / cli v0.9.0 / v0.51.0 依赖归位 + 变更日志
+- `f4b57d94` chore(release): bconf v0.27.0 / pkg v0.13.0 / v0.50.0 依赖归位 + 变更日志
+- `20279ed7` chore(release): pkg v0.12.0 / v0.49.0 依赖归位 + 变更日志
+- `1aaf8844` chore(release): pkg v0.11.1 / cli v0.8.0 / v0.48.0 依赖归位 + 变更日志
+- `d3133b4f` chore(release): 2 模块整批发布——bconf v0.26.0 / cli v0.7.0
+- `ec2b025f` chore(release): 2 模块整批发布——pkg v0.11.0 / selector/balancer v0.2.0
+- `880405c5` chore(release): 6 模块整批发布——根 v0.46.0 / bconf v0.24.1 / cli v0.5.0 / selector/circuitbreaker v0.1.0 / transport/client v0.2.0 / transport/client/resiliency v0.1.0
+- `53f337d9` chore(release): 回退 610dfe4 发布提交
+- `610dfe4b` chore(release): 6 模块整批发布——selector/circuitbreaker 与出站 resiliency 首发
+- `1bc52b57` chore(release): 8 模块整批发布——方案 S 收口与 otelslog 自有化
+- `a9b2afc6` chore(deps): 依赖树归位——x/sync v0.24.0 级联与示例 go.sum 预热
+- `56acd87a` chore(release): CHANGELOG 登记 bconf v0.24.0 / pkg v0.10.0 与依赖归位
+- `3883406f` chore(release): CHANGELOG 登记 pkg v0.9.0（统一策略面六件）
+- `236b9be0` chore(release): CHANGELOG 登记 pkg v0.8.0
+- `6f1d405a` chore(release): CHANGELOG 登记 pkg v0.7.0 与依赖归位
+- `e7e9c14d` chore(release): CHANGELOG 登记 registry v0.5.0 / retry v0.3.0 / selector v0.1.0 / balancer v0.1.0 与依赖归位
+- `c5be85bb` chore: 发布 3 个模块（bconf v0.23.0 / pkg v0.6.0 / 根 v0.42.0）
+- `39f986eb` chore: 发布 3 个模块（bconf v0.22.0 / transport/sse v0.6.0 / 根 v0.41.0）
+- `73b105f2` chore: 发布 18 个模块（bconf v0.21.0 / pkg v0.5.0 / transport/client v0.1.0 等）
+- `6c761301` chore: 发布 27 个模块
+
+### registry/kubernetes v0.1.7
+
+- `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
+- `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
+- `64da6e59` refactor(appkit): CleanupFrom 收拢 25 份 adaptCleanup 复制（ADR-1 批 1）
+- `a6092206` chore(release): cli v0.10.0 / pkg v0.15.0 / v0.52.0 依赖归位 + 变更日志
+- `007b077d` chore(release): pkg v0.14.0 / cli v0.9.0 / v0.51.0 依赖归位 + 变更日志
+- `f4b57d94` chore(release): bconf v0.27.0 / pkg v0.13.0 / v0.50.0 依赖归位 + 变更日志
+- `20279ed7` chore(release): pkg v0.12.0 / v0.49.0 依赖归位 + 变更日志
+- `1aaf8844` chore(release): pkg v0.11.1 / cli v0.8.0 / v0.48.0 依赖归位 + 变更日志
+- `d3133b4f` chore(release): 2 模块整批发布——bconf v0.26.0 / cli v0.7.0
+- `ec2b025f` chore(release): 2 模块整批发布——pkg v0.11.0 / selector/balancer v0.2.0
+- `880405c5` chore(release): 6 模块整批发布——根 v0.46.0 / bconf v0.24.1 / cli v0.5.0 / selector/circuitbreaker v0.1.0 / transport/client v0.2.0 / transport/client/resiliency v0.1.0
+- `53f337d9` chore(release): 回退 610dfe4 发布提交
+- `610dfe4b` chore(release): 6 模块整批发布——selector/circuitbreaker 与出站 resiliency 首发
+- `1bc52b57` chore(release): 8 模块整批发布——方案 S 收口与 otelslog 自有化
+- `a9b2afc6` chore(deps): 依赖树归位——x/sync v0.24.0 级联与示例 go.sum 预热
+- `56acd87a` chore(release): CHANGELOG 登记 bconf v0.24.0 / pkg v0.10.0 与依赖归位
+- `3883406f` chore(release): CHANGELOG 登记 pkg v0.9.0（统一策略面六件）
+- `236b9be0` chore(release): CHANGELOG 登记 pkg v0.8.0
+- `6f1d405a` chore(release): CHANGELOG 登记 pkg v0.7.0 与依赖归位
+- `e7e9c14d` chore(release): CHANGELOG 登记 registry v0.5.0 / retry v0.3.0 / selector v0.1.0 / balancer v0.1.0 与依赖归位
+- `c5be85bb` chore: 发布 3 个模块（bconf v0.23.0 / pkg v0.6.0 / 根 v0.42.0）
+- `39f986eb` chore: 发布 3 个模块（bconf v0.22.0 / transport/sse v0.6.0 / 根 v0.41.0）
+- `73b105f2` chore: 发布 18 个模块（bconf v0.21.0 / pkg v0.5.0 / transport/client v0.1.0 等）
+- `6c761301` chore: 发布 27 个模块
+- `a2c6e431` chore: 发布 4 个模块（bconf v0.19.0、registry/etcd v0.4.0、broker/kafka v0.2.4、transport/kafka v0.2.1）
+
+### registry/nacos v0.3.4
+
+- `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
+- `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
+- `64da6e59` refactor(appkit): CleanupFrom 收拢 25 份 adaptCleanup 复制（ADR-1 批 1）
+- `a6092206` chore(release): cli v0.10.0 / pkg v0.15.0 / v0.52.0 依赖归位 + 变更日志
+- `007b077d` chore(release): pkg v0.14.0 / cli v0.9.0 / v0.51.0 依赖归位 + 变更日志
+- `f4b57d94` chore(release): bconf v0.27.0 / pkg v0.13.0 / v0.50.0 依赖归位 + 变更日志
+- `20279ed7` chore(release): pkg v0.12.0 / v0.49.0 依赖归位 + 变更日志
+- `1aaf8844` chore(release): pkg v0.11.1 / cli v0.8.0 / v0.48.0 依赖归位 + 变更日志
+- `d3133b4f` chore(release): 2 模块整批发布——bconf v0.26.0 / cli v0.7.0
+- `ec2b025f` chore(release): 2 模块整批发布——pkg v0.11.0 / selector/balancer v0.2.0
+- `880405c5` chore(release): 6 模块整批发布——根 v0.46.0 / bconf v0.24.1 / cli v0.5.0 / selector/circuitbreaker v0.1.0 / transport/client v0.2.0 / transport/client/resiliency v0.1.0
+- `53f337d9` chore(release): 回退 610dfe4 发布提交
+- `610dfe4b` chore(release): 6 模块整批发布——selector/circuitbreaker 与出站 resiliency 首发
+- `1bc52b57` chore(release): 8 模块整批发布——方案 S 收口与 otelslog 自有化
+- `a9b2afc6` chore(deps): 依赖树归位——x/sync v0.24.0 级联与示例 go.sum 预热
+- `56acd87a` chore(release): CHANGELOG 登记 bconf v0.24.0 / pkg v0.10.0 与依赖归位
+- `3883406f` chore(release): CHANGELOG 登记 pkg v0.9.0（统一策略面六件）
+- `236b9be0` chore(release): CHANGELOG 登记 pkg v0.8.0
+- `6f1d405a` chore(release): CHANGELOG 登记 pkg v0.7.0 与依赖归位
+- `e7e9c14d` chore(release): CHANGELOG 登记 registry v0.5.0 / retry v0.3.0 / selector v0.1.0 / balancer v0.1.0 与依赖归位
+- `c5be85bb` chore: 发布 3 个模块（bconf v0.23.0 / pkg v0.6.0 / 根 v0.42.0）
+- `39f986eb` chore: 发布 3 个模块（bconf v0.22.0 / transport/sse v0.6.0 / 根 v0.41.0）
+- `73b105f2` chore: 发布 18 个模块（bconf v0.21.0 / pkg v0.5.0 / transport/client v0.1.0 等）
+- `6c761301` chore: 发布 27 个模块
+- `52549cbc` test(nacos): 映射层九行的运行期闸门——构造期登录桩 + v1 后端读回（§7.22）
+- `a2c6e431` chore: 发布 4 个模块（bconf v0.19.0、registry/etcd v0.4.0、broker/kafka v0.2.4、transport/kafka v0.2.1）
+
+### transport/asynq v0.6.4
+
+- `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
+- `d71c2c94` fix(transport,contracts): 清理 ADR-1 残留半截函数（跨设备收口推送）
+- `7ceaf985` chore(release): 存量清偿批依赖归位
+- `0e8ce63e` fix(transport,bconfig,registry): logging-r01 存量清偿——框架库日志调用全部收敛 bald/log 契约层
+- `64da6e59` refactor(appkit): CleanupFrom 收拢 25 份 adaptCleanup 复制（ADR-1 批 1）
+- `a6092206` chore(release): cli v0.10.0 / pkg v0.15.0 / v0.52.0 依赖归位 + 变更日志
+- `007b077d` chore(release): pkg v0.14.0 / cli v0.9.0 / v0.51.0 依赖归位 + 变更日志
+- `f4b57d94` chore(release): bconf v0.27.0 / pkg v0.13.0 / v0.50.0 依赖归位 + 变更日志
+- `20279ed7` chore(release): pkg v0.12.0 / v0.49.0 依赖归位 + 变更日志
+- `1aaf8844` chore(release): pkg v0.11.1 / cli v0.8.0 / v0.48.0 依赖归位 + 变更日志
+- `d3133b4f` chore(release): 2 模块整批发布——bconf v0.26.0 / cli v0.7.0
+- `ec2b025f` chore(release): 2 模块整批发布——pkg v0.11.0 / selector/balancer v0.2.0
+- `880405c5` chore(release): 6 模块整批发布——根 v0.46.0 / bconf v0.24.1 / cli v0.5.0 / selector/circuitbreaker v0.1.0 / transport/client v0.2.0 / transport/client/resiliency v0.1.0
+- `53f337d9` chore(release): 回退 610dfe4 发布提交
+- `610dfe4b` chore(release): 6 模块整批发布——selector/circuitbreaker 与出站 resiliency 首发
+- `1bc52b57` chore(release): 8 模块整批发布——方案 S 收口与 otelslog 自有化
+- `a9b2afc6` chore(deps): 依赖树归位——x/sync v0.24.0 级联与示例 go.sum 预热
+- `56acd87a` chore(release): CHANGELOG 登记 bconf v0.24.0 / pkg v0.10.0 与依赖归位
+- `3883406f` chore(release): CHANGELOG 登记 pkg v0.9.0（统一策略面六件）
+- `236b9be0` chore(release): CHANGELOG 登记 pkg v0.8.0
+- `6f1d405a` chore(release): CHANGELOG 登记 pkg v0.7.0 与依赖归位
+- `e7e9c14d` chore(release): CHANGELOG 登记 registry v0.5.0 / retry v0.3.0 / selector v0.1.0 / balancer v0.1.0 与依赖归位
+- `c5be85bb` chore: 发布 3 个模块（bconf v0.23.0 / pkg v0.6.0 / 根 v0.42.0）
+- `39f986eb` chore: 发布 3 个模块（bconf v0.22.0 / transport/sse v0.6.0 / 根 v0.41.0）
+- `73b105f2` chore: 发布 18 个模块（bconf v0.21.0 / pkg v0.5.0 / transport/client v0.1.0 等）
+
+### transport/client v0.2.1
+
+- `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
+- `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
+- `a6092206` chore(release): cli v0.10.0 / pkg v0.15.0 / v0.52.0 依赖归位 + 变更日志
+- `007b077d` chore(release): pkg v0.14.0 / cli v0.9.0 / v0.51.0 依赖归位 + 变更日志
+- `f4b57d94` chore(release): bconf v0.27.0 / pkg v0.13.0 / v0.50.0 依赖归位 + 变更日志
+- `20279ed7` chore(release): pkg v0.12.0 / v0.49.0 依赖归位 + 变更日志
+- `1aaf8844` chore(release): pkg v0.11.1 / cli v0.8.0 / v0.48.0 依赖归位 + 变更日志
+- `d3133b4f` chore(release): 2 模块整批发布——bconf v0.26.0 / cli v0.7.0
+- `ec2b025f` chore(release): 2 模块整批发布——pkg v0.11.0 / selector/balancer v0.2.0
+
+### transport/cron v0.6.4
+
+- `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
+- `d71c2c94` fix(transport,contracts): 清理 ADR-1 残留半截函数（跨设备收口推送）
+- `7ceaf985` chore(release): 存量清偿批依赖归位
+- `0e8ce63e` fix(transport,bconfig,registry): logging-r01 存量清偿——框架库日志调用全部收敛 bald/log 契约层
+- `64da6e59` refactor(appkit): CleanupFrom 收拢 25 份 adaptCleanup 复制（ADR-1 批 1）
+- `a6092206` chore(release): cli v0.10.0 / pkg v0.15.0 / v0.52.0 依赖归位 + 变更日志
+- `007b077d` chore(release): pkg v0.14.0 / cli v0.9.0 / v0.51.0 依赖归位 + 变更日志
+- `f4b57d94` chore(release): bconf v0.27.0 / pkg v0.13.0 / v0.50.0 依赖归位 + 变更日志
+- `20279ed7` chore(release): pkg v0.12.0 / v0.49.0 依赖归位 + 变更日志
+- `1aaf8844` chore(release): pkg v0.11.1 / cli v0.8.0 / v0.48.0 依赖归位 + 变更日志
+- `d3133b4f` chore(release): 2 模块整批发布——bconf v0.26.0 / cli v0.7.0
+- `ec2b025f` chore(release): 2 模块整批发布——pkg v0.11.0 / selector/balancer v0.2.0
+- `880405c5` chore(release): 6 模块整批发布——根 v0.46.0 / bconf v0.24.1 / cli v0.5.0 / selector/circuitbreaker v0.1.0 / transport/client v0.2.0 / transport/client/resiliency v0.1.0
+- `53f337d9` chore(release): 回退 610dfe4 发布提交
+- `610dfe4b` chore(release): 6 模块整批发布——selector/circuitbreaker 与出站 resiliency 首发
+- `1bc52b57` chore(release): 8 模块整批发布——方案 S 收口与 otelslog 自有化
+- `a9b2afc6` chore(deps): 依赖树归位——x/sync v0.24.0 级联与示例 go.sum 预热
+- `56acd87a` chore(release): CHANGELOG 登记 bconf v0.24.0 / pkg v0.10.0 与依赖归位
+- `3883406f` chore(release): CHANGELOG 登记 pkg v0.9.0（统一策略面六件）
+- `236b9be0` chore(release): CHANGELOG 登记 pkg v0.8.0
+- `6f1d405a` chore(release): CHANGELOG 登记 pkg v0.7.0 与依赖归位
+- `e7e9c14d` chore(release): CHANGELOG 登记 registry v0.5.0 / retry v0.3.0 / selector v0.1.0 / balancer v0.1.0 与依赖归位
+- `c5be85bb` chore: 发布 3 个模块（bconf v0.23.0 / pkg v0.6.0 / 根 v0.42.0）
+- `39f986eb` chore: 发布 3 个模块（bconf v0.22.0 / transport/sse v0.6.0 / 根 v0.41.0）
+- `73b105f2` chore: 发布 18 个模块（bconf v0.21.0 / pkg v0.5.0 / transport/client v0.1.0 等）
+- `6c761301` chore: 发布 27 个模块
+- `a2c6e431` chore: 发布 4 个模块（bconf v0.19.0、registry/etcd v0.4.0、broker/kafka v0.2.4、transport/kafka v0.2.1）
+- `8d277c47` chore: 发布 20 个模块（含根 v0.38.0）
+- `6f9a3104` chore: 发布 3 个模块（bald v0.37.2、cli v0.1.1、pkg v0.2.2）
+- `d4396185` chore: 发布 3 个模块（bald v0.37.1、cli v0.1.0、pkg v0.2.1）
+- `63f2cecf` chore: 发布 5 个模块（bconf v0.17.0、berrors v0.1.2、bootstrap v0.13.6、pkg v0.2.0、根 v0.37.0）
+
+### transport/gateway v0.5.3
+
+- `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
+- `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
+- `64da6e59` refactor(appkit): CleanupFrom 收拢 25 份 adaptCleanup 复制（ADR-1 批 1）
+- `a6092206` chore(release): cli v0.10.0 / pkg v0.15.0 / v0.52.0 依赖归位 + 变更日志
+- `007b077d` chore(release): pkg v0.14.0 / cli v0.9.0 / v0.51.0 依赖归位 + 变更日志
+- `f4b57d94` chore(release): bconf v0.27.0 / pkg v0.13.0 / v0.50.0 依赖归位 + 变更日志
+- `20279ed7` chore(release): pkg v0.12.0 / v0.49.0 依赖归位 + 变更日志
+- `1aaf8844` chore(release): pkg v0.11.1 / cli v0.8.0 / v0.48.0 依赖归位 + 变更日志
+- `d3133b4f` chore(release): 2 模块整批发布——bconf v0.26.0 / cli v0.7.0
+- `ec2b025f` chore(release): 2 模块整批发布——pkg v0.11.0 / selector/balancer v0.2.0
+- `880405c5` chore(release): 6 模块整批发布——根 v0.46.0 / bconf v0.24.1 / cli v0.5.0 / selector/circuitbreaker v0.1.0 / transport/client v0.2.0 / transport/client/resiliency v0.1.0
+- `53f337d9` chore(release): 回退 610dfe4 发布提交
+- `610dfe4b` chore(release): 6 模块整批发布——selector/circuitbreaker 与出站 resiliency 首发
+- `1bc52b57` chore(release): 8 模块整批发布——方案 S 收口与 otelslog 自有化
+- `a9b2afc6` chore(deps): 依赖树归位——x/sync v0.24.0 级联与示例 go.sum 预热
+- `56acd87a` chore(release): CHANGELOG 登记 bconf v0.24.0 / pkg v0.10.0 与依赖归位
+- `3883406f` chore(release): CHANGELOG 登记 pkg v0.9.0（统一策略面六件）
+- `236b9be0` chore(release): CHANGELOG 登记 pkg v0.8.0
+- `6f1d405a` chore(release): CHANGELOG 登记 pkg v0.7.0 与依赖归位
+- `e7e9c14d` chore(release): CHANGELOG 登记 registry v0.5.0 / retry v0.3.0 / selector v0.1.0 / balancer v0.1.0 与依赖归位
+- `c5be85bb` chore: 发布 3 个模块（bconf v0.23.0 / pkg v0.6.0 / 根 v0.42.0）
+- `39f986eb` chore: 发布 3 个模块（bconf v0.22.0 / transport/sse v0.6.0 / 根 v0.41.0）
+
+### transport/graphql v0.2.2
+
+- `7498ac44` chore(deps): 13 个 replace-pkg 模块补 bconfig 目录 replace（发布叠加层 II）
+- `42c7ac3d` chore(deps): 13 个 replace-pkg 模块补 bootstrap 目录 replace（发布叠加层）
+- `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
+- `d71c2c94` fix(transport,contracts): 清理 ADR-1 残留半截函数（跨设备收口推送）
+- `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
+- `64da6e59` refactor(appkit): CleanupFrom 收拢 25 份 adaptCleanup 复制（ADR-1 批 1）
+- `a6092206` chore(release): cli v0.10.0 / pkg v0.15.0 / v0.52.0 依赖归位 + 变更日志
+- `007b077d` chore(release): pkg v0.14.0 / cli v0.9.0 / v0.51.0 依赖归位 + 变更日志
+- `f4b57d94` chore(release): bconf v0.27.0 / pkg v0.13.0 / v0.50.0 依赖归位 + 变更日志
+- `20279ed7` chore(release): pkg v0.12.0 / v0.49.0 依赖归位 + 变更日志
+- `1aaf8844` chore(release): pkg v0.11.1 / cli v0.8.0 / v0.48.0 依赖归位 + 变更日志
+- `d3133b4f` chore(release): 2 模块整批发布——bconf v0.26.0 / cli v0.7.0
+- `ec2b025f` chore(release): 2 模块整批发布——pkg v0.11.0 / selector/balancer v0.2.0
+- `880405c5` chore(release): 6 模块整批发布——根 v0.46.0 / bconf v0.24.1 / cli v0.5.0 / selector/circuitbreaker v0.1.0 / transport/client v0.2.0 / transport/client/resiliency v0.1.0
+- `53f337d9` chore(release): 回退 610dfe4 发布提交
+- `610dfe4b` chore(release): 6 模块整批发布——selector/circuitbreaker 与出站 resiliency 首发
+- `3694198f` chore(deps): 发版后归位——撤回六条发布窗口 replace，cli log 顶 v0.6.0
+- `1bc52b57` chore(release): 8 模块整批发布——方案 S 收口与 otelslog 自有化
+- `f20fade5` chore(deps): 发布窗口叠加层——六消费者补 log/retry 本地 replace（tag 后撤回）
+- `a9b2afc6` chore(deps): 依赖树归位——x/sync v0.24.0 级联与示例 go.sum 预热
+- `56acd87a` chore(release): CHANGELOG 登记 bconf v0.24.0 / pkg v0.10.0 与依赖归位
+- `3883406f` chore(release): CHANGELOG 登记 pkg v0.9.0（统一策略面六件）
+- `236b9be0` chore(release): CHANGELOG 登记 pkg v0.8.0
+- `6f1d405a` chore(release): CHANGELOG 登记 pkg v0.7.0 与依赖归位
+- `e7e9c14d` chore(release): CHANGELOG 登记 registry v0.5.0 / retry v0.3.0 / selector v0.1.0 / balancer v0.1.0 与依赖归位
+- `c5be85bb` chore: 发布 3 个模块（bconf v0.23.0 / pkg v0.6.0 / 根 v0.42.0）
+- `39f986eb` chore: 发布 3 个模块（bconf v0.22.0 / transport/sse v0.6.0 / 根 v0.41.0）
+
+### transport/http3 v0.3.3
+
+- `7498ac44` chore(deps): 13 个 replace-pkg 模块补 bconfig 目录 replace（发布叠加层 II）
+- `42c7ac3d` chore(deps): 13 个 replace-pkg 模块补 bootstrap 目录 replace（发布叠加层）
+- `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
+- `d71c2c94` fix(transport,contracts): 清理 ADR-1 残留半截函数（跨设备收口推送）
+- `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
+- `64da6e59` refactor(appkit): CleanupFrom 收拢 25 份 adaptCleanup 复制（ADR-1 批 1）
+- `a6092206` chore(release): cli v0.10.0 / pkg v0.15.0 / v0.52.0 依赖归位 + 变更日志
+- `007b077d` chore(release): pkg v0.14.0 / cli v0.9.0 / v0.51.0 依赖归位 + 变更日志
+- `f4b57d94` chore(release): bconf v0.27.0 / pkg v0.13.0 / v0.50.0 依赖归位 + 变更日志
+- `20279ed7` chore(release): pkg v0.12.0 / v0.49.0 依赖归位 + 变更日志
+- `1aaf8844` chore(release): pkg v0.11.1 / cli v0.8.0 / v0.48.0 依赖归位 + 变更日志
+- `1122ce72` chore(deps): store-gorm protobuf 提直接依赖 + http3 升 bconf v0.26.0
+
+### transport/kafka v0.3.2
+
+- `7498ac44` chore(deps): 13 个 replace-pkg 模块补 bconfig 目录 replace（发布叠加层 II）
+- `42c7ac3d` chore(deps): 13 个 replace-pkg 模块补 bootstrap 目录 replace（发布叠加层）
+- `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
+- `d71c2c94` fix(transport,contracts): 清理 ADR-1 残留半截函数（跨设备收口推送）
+- `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
+- `64da6e59` refactor(appkit): CleanupFrom 收拢 25 份 adaptCleanup 复制（ADR-1 批 1）
+- `a6092206` chore(release): cli v0.10.0 / pkg v0.15.0 / v0.52.0 依赖归位 + 变更日志
+- `007b077d` chore(release): pkg v0.14.0 / cli v0.9.0 / v0.51.0 依赖归位 + 变更日志
+- `f4b57d94` chore(release): bconf v0.27.0 / pkg v0.13.0 / v0.50.0 依赖归位 + 变更日志
+- `20279ed7` chore(release): pkg v0.12.0 / v0.49.0 依赖归位 + 变更日志
+- `1aaf8844` chore(release): pkg v0.11.1 / cli v0.8.0 / v0.48.0 依赖归位 + 变更日志
+- `d3133b4f` chore(release): 2 模块整批发布——bconf v0.26.0 / cli v0.7.0
+- `ec2b025f` chore(release): 2 模块整批发布——pkg v0.11.0 / selector/balancer v0.2.0
+- `880405c5` chore(release): 6 模块整批发布——根 v0.46.0 / bconf v0.24.1 / cli v0.5.0 / selector/circuitbreaker v0.1.0 / transport/client v0.2.0 / transport/client/resiliency v0.1.0
+- `53f337d9` chore(release): 回退 610dfe4 发布提交
+- `610dfe4b` chore(release): 6 模块整批发布——selector/circuitbreaker 与出站 resiliency 首发
+- `3694198f` chore(deps): 发版后归位——撤回六条发布窗口 replace，cli log 顶 v0.6.0
+- `1bc52b57` chore(release): 8 模块整批发布——方案 S 收口与 otelslog 自有化
+- `f20fade5` chore(deps): 发布窗口叠加层——六消费者补 log/retry 本地 replace（tag 后撤回）
+- `a9b2afc6` chore(deps): 依赖树归位——x/sync v0.24.0 级联与示例 go.sum 预热
+- `56acd87a` chore(release): CHANGELOG 登记 bconf v0.24.0 / pkg v0.10.0 与依赖归位
+- `3883406f` chore(release): CHANGELOG 登记 pkg v0.9.0（统一策略面六件）
+- `236b9be0` chore(release): CHANGELOG 登记 pkg v0.8.0
+- `6f1d405a` chore(release): CHANGELOG 登记 pkg v0.7.0 与依赖归位
+- `e7e9c14d` chore(release): CHANGELOG 登记 registry v0.5.0 / retry v0.3.0 / selector v0.1.0 / balancer v0.1.0 与依赖归位
+- `c5be85bb` chore: 发布 3 个模块（bconf v0.23.0 / pkg v0.6.0 / 根 v0.42.0）
+- `39f986eb` chore: 发布 3 个模块（bconf v0.22.0 / transport/sse v0.6.0 / 根 v0.41.0）
+
+### transport/mcp v0.5.3
+
+- `7498ac44` chore(deps): 13 个 replace-pkg 模块补 bconfig 目录 replace（发布叠加层 II）
+- `42c7ac3d` chore(deps): 13 个 replace-pkg 模块补 bootstrap 目录 replace（发布叠加层）
+- `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
+- `d71c2c94` fix(transport,contracts): 清理 ADR-1 残留半截函数（跨设备收口推送）
+
+### transport/rabbitmq v0.3.2
+
+- `7498ac44` chore(deps): 13 个 replace-pkg 模块补 bconfig 目录 replace（发布叠加层 II）
+- `42c7ac3d` chore(deps): 13 个 replace-pkg 模块补 bootstrap 目录 replace（发布叠加层）
+- `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
+- `d71c2c94` fix(transport,contracts): 清理 ADR-1 残留半截函数（跨设备收口推送）
+- `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
+- `64da6e59` refactor(appkit): CleanupFrom 收拢 25 份 adaptCleanup 复制（ADR-1 批 1）
+- `a6092206` chore(release): cli v0.10.0 / pkg v0.15.0 / v0.52.0 依赖归位 + 变更日志
+- `007b077d` chore(release): pkg v0.14.0 / cli v0.9.0 / v0.51.0 依赖归位 + 变更日志
+- `f4b57d94` chore(release): bconf v0.27.0 / pkg v0.13.0 / v0.50.0 依赖归位 + 变更日志
+- `20279ed7` chore(release): pkg v0.12.0 / v0.49.0 依赖归位 + 变更日志
+- `1aaf8844` chore(release): pkg v0.11.1 / cli v0.8.0 / v0.48.0 依赖归位 + 变更日志
+- `d3133b4f` chore(release): 2 模块整批发布——bconf v0.26.0 / cli v0.7.0
+- `ec2b025f` chore(release): 2 模块整批发布——pkg v0.11.0 / selector/balancer v0.2.0
+- `880405c5` chore(release): 6 模块整批发布——根 v0.46.0 / bconf v0.24.1 / cli v0.5.0 / selector/circuitbreaker v0.1.0 / transport/client v0.2.0 / transport/client/resiliency v0.1.0
+- `53f337d9` chore(release): 回退 610dfe4 发布提交
+- `610dfe4b` chore(release): 6 模块整批发布——selector/circuitbreaker 与出站 resiliency 首发
+- `1bc52b57` chore(release): 8 模块整批发布——方案 S 收口与 otelslog 自有化
+- `a9b2afc6` chore(deps): 依赖树归位——x/sync v0.24.0 级联与示例 go.sum 预热
+- `56acd87a` chore(release): CHANGELOG 登记 bconf v0.24.0 / pkg v0.10.0 与依赖归位
+- `3883406f` chore(release): CHANGELOG 登记 pkg v0.9.0（统一策略面六件）
+- `236b9be0` chore(release): CHANGELOG 登记 pkg v0.8.0
+- `6f1d405a` chore(release): CHANGELOG 登记 pkg v0.7.0 与依赖归位
+- `e7e9c14d` chore(release): CHANGELOG 登记 registry v0.5.0 / retry v0.3.0 / selector v0.1.0 / balancer v0.1.0 与依赖归位
+- `c5be85bb` chore: 发布 3 个模块（bconf v0.23.0 / pkg v0.6.0 / 根 v0.42.0）
+- `39f986eb` chore: 发布 3 个模块（bconf v0.22.0 / transport/sse v0.6.0 / 根 v0.41.0）
+
+### transport/redis v0.3.2
+
+- `7498ac44` chore(deps): 13 个 replace-pkg 模块补 bconfig 目录 replace（发布叠加层 II）
+- `42c7ac3d` chore(deps): 13 个 replace-pkg 模块补 bootstrap 目录 replace（发布叠加层）
+- `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
+- `d71c2c94` fix(transport,contracts): 清理 ADR-1 残留半截函数（跨设备收口推送）
+- `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
+- `64da6e59` refactor(appkit): CleanupFrom 收拢 25 份 adaptCleanup 复制（ADR-1 批 1）
+- `a6092206` chore(release): cli v0.10.0 / pkg v0.15.0 / v0.52.0 依赖归位 + 变更日志
+- `007b077d` chore(release): pkg v0.14.0 / cli v0.9.0 / v0.51.0 依赖归位 + 变更日志
+- `f4b57d94` chore(release): bconf v0.27.0 / pkg v0.13.0 / v0.50.0 依赖归位 + 变更日志
+- `20279ed7` chore(release): pkg v0.12.0 / v0.49.0 依赖归位 + 变更日志
+- `1aaf8844` chore(release): pkg v0.11.1 / cli v0.8.0 / v0.48.0 依赖归位 + 变更日志
+- `d3133b4f` chore(release): 2 模块整批发布——bconf v0.26.0 / cli v0.7.0
+- `ec2b025f` chore(release): 2 模块整批发布——pkg v0.11.0 / selector/balancer v0.2.0
+- `880405c5` chore(release): 6 模块整批发布——根 v0.46.0 / bconf v0.24.1 / cli v0.5.0 / selector/circuitbreaker v0.1.0 / transport/client v0.2.0 / transport/client/resiliency v0.1.0
+- `53f337d9` chore(release): 回退 610dfe4 发布提交
+- `610dfe4b` chore(release): 6 模块整批发布——selector/circuitbreaker 与出站 resiliency 首发
+- `1bc52b57` chore(release): 8 模块整批发布——方案 S 收口与 otelslog 自有化
+- `a9b2afc6` chore(deps): 依赖树归位——x/sync v0.24.0 级联与示例 go.sum 预热
+- `56acd87a` chore(release): CHANGELOG 登记 bconf v0.24.0 / pkg v0.10.0 与依赖归位
+- `3883406f` chore(release): CHANGELOG 登记 pkg v0.9.0（统一策略面六件）
+- `236b9be0` chore(release): CHANGELOG 登记 pkg v0.8.0
+- `6f1d405a` chore(release): CHANGELOG 登记 pkg v0.7.0 与依赖归位
+- `e7e9c14d` chore(release): CHANGELOG 登记 registry v0.5.0 / retry v0.3.0 / selector v0.1.0 / balancer v0.1.0 与依赖归位
+- `c5be85bb` chore: 发布 3 个模块（bconf v0.23.0 / pkg v0.6.0 / 根 v0.42.0）
+- `39f986eb` chore: 发布 3 个模块（bconf v0.22.0 / transport/sse v0.6.0 / 根 v0.41.0）
+
+### transport/rocketmq v0.3.2
+
+- `7498ac44` chore(deps): 13 个 replace-pkg 模块补 bconfig 目录 replace（发布叠加层 II）
+- `42c7ac3d` chore(deps): 13 个 replace-pkg 模块补 bootstrap 目录 replace（发布叠加层）
+- `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
+- `d71c2c94` fix(transport,contracts): 清理 ADR-1 残留半截函数（跨设备收口推送）
+- `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
+- `64da6e59` refactor(appkit): CleanupFrom 收拢 25 份 adaptCleanup 复制（ADR-1 批 1）
+- `a6092206` chore(release): cli v0.10.0 / pkg v0.15.0 / v0.52.0 依赖归位 + 变更日志
+- `007b077d` chore(release): pkg v0.14.0 / cli v0.9.0 / v0.51.0 依赖归位 + 变更日志
+- `f4b57d94` chore(release): bconf v0.27.0 / pkg v0.13.0 / v0.50.0 依赖归位 + 变更日志
+- `20279ed7` chore(release): pkg v0.12.0 / v0.49.0 依赖归位 + 变更日志
+- `1aaf8844` chore(release): pkg v0.11.1 / cli v0.8.0 / v0.48.0 依赖归位 + 变更日志
+- `d3133b4f` chore(release): 2 模块整批发布——bconf v0.26.0 / cli v0.7.0
+- `ec2b025f` chore(release): 2 模块整批发布——pkg v0.11.0 / selector/balancer v0.2.0
+- `880405c5` chore(release): 6 模块整批发布——根 v0.46.0 / bconf v0.24.1 / cli v0.5.0 / selector/circuitbreaker v0.1.0 / transport/client v0.2.0 / transport/client/resiliency v0.1.0
+- `53f337d9` chore(release): 回退 610dfe4 发布提交
+- `610dfe4b` chore(release): 6 模块整批发布——selector/circuitbreaker 与出站 resiliency 首发
+- `1bc52b57` chore(release): 8 模块整批发布——方案 S 收口与 otelslog 自有化
+- `a9b2afc6` chore(deps): 依赖树归位——x/sync v0.24.0 级联与示例 go.sum 预热
+- `56acd87a` chore(release): CHANGELOG 登记 bconf v0.24.0 / pkg v0.10.0 与依赖归位
+- `3883406f` chore(release): CHANGELOG 登记 pkg v0.9.0（统一策略面六件）
+- `236b9be0` chore(release): CHANGELOG 登记 pkg v0.8.0
+- `6f1d405a` chore(release): CHANGELOG 登记 pkg v0.7.0 与依赖归位
+- `e7e9c14d` chore(release): CHANGELOG 登记 registry v0.5.0 / retry v0.3.0 / selector v0.1.0 / balancer v0.1.0 与依赖归位
+- `c5be85bb` chore: 发布 3 个模块（bconf v0.23.0 / pkg v0.6.0 / 根 v0.42.0）
+- `39f986eb` chore: 发布 3 个模块（bconf v0.22.0 / transport/sse v0.6.0 / 根 v0.41.0）
+
+### transport/sse v0.6.1
+
+- `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
+- `d71c2c94` fix(transport,contracts): 清理 ADR-1 残留半截函数（跨设备收口推送）
+- `7ceaf985` chore(release): 存量清偿批依赖归位
+- `0e8ce63e` fix(transport,bconfig,registry): logging-r01 存量清偿——框架库日志调用全部收敛 bald/log 契约层
+- `64da6e59` refactor(appkit): CleanupFrom 收拢 25 份 adaptCleanup 复制（ADR-1 批 1）
+- `a6092206` chore(release): cli v0.10.0 / pkg v0.15.0 / v0.52.0 依赖归位 + 变更日志
+- `007b077d` chore(release): pkg v0.14.0 / cli v0.9.0 / v0.51.0 依赖归位 + 变更日志
+- `f4b57d94` chore(release): bconf v0.27.0 / pkg v0.13.0 / v0.50.0 依赖归位 + 变更日志
+- `20279ed7` chore(release): pkg v0.12.0 / v0.49.0 依赖归位 + 变更日志
+- `1aaf8844` chore(release): pkg v0.11.1 / cli v0.8.0 / v0.48.0 依赖归位 + 变更日志
+- `d3133b4f` chore(release): 2 模块整批发布——bconf v0.26.0 / cli v0.7.0
+- `ce4c097c` test(coverage): 批6 transport/sse contract 92.5%→100%（Plan 节点声明/adaptCleanup 两分支）
+- `fa40a2af` test(coverage): 批5i transport/sse 离线分支 76.9%→100%
+- `ec2b025f` chore(release): 2 模块整批发布——pkg v0.11.0 / selector/balancer v0.2.0
+- `880405c5` chore(release): 6 模块整批发布——根 v0.46.0 / bconf v0.24.1 / cli v0.5.0 / selector/circuitbreaker v0.1.0 / transport/client v0.2.0 / transport/client/resiliency v0.1.0
+- `53f337d9` chore(release): 回退 610dfe4 发布提交
+- `610dfe4b` chore(release): 6 模块整批发布——selector/circuitbreaker 与出站 resiliency 首发
+- `1bc52b57` chore(release): 8 模块整批发布——方案 S 收口与 otelslog 自有化
+- `a9b2afc6` chore(deps): 依赖树归位——x/sync v0.24.0 级联与示例 go.sum 预热
+- `56acd87a` chore(release): CHANGELOG 登记 bconf v0.24.0 / pkg v0.10.0 与依赖归位
+- `3883406f` chore(release): CHANGELOG 登记 pkg v0.9.0（统一策略面六件）
+- `236b9be0` chore(release): CHANGELOG 登记 pkg v0.8.0
+- `6f1d405a` chore(release): CHANGELOG 登记 pkg v0.7.0 与依赖归位
+- `e7e9c14d` chore(release): CHANGELOG 登记 registry v0.5.0 / retry v0.3.0 / selector v0.1.0 / balancer v0.1.0 与依赖归位
+- `c5be85bb` chore: 发布 3 个模块（bconf v0.23.0 / pkg v0.6.0 / 根 v0.42.0）
+
+### transport/subscribe v0.1.1
+
+- `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
+- `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
+- `90eb0dde` chore: W1 卫生波——非导出死代码清零 + internal/ 免费改名 + 依赖面 tidy 修复 + CI tidy 闸门
+
+### transport/tcp v0.3.1
+
+- `7498ac44` chore(deps): 13 个 replace-pkg 模块补 bconfig 目录 replace（发布叠加层 II）
+- `42c7ac3d` chore(deps): 13 个 replace-pkg 模块补 bootstrap 目录 replace（发布叠加层）
+- `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
+- `d71c2c94` fix(transport,contracts): 清理 ADR-1 残留半截函数（跨设备收口推送）
+- `7ceaf985` chore(release): 存量清偿批依赖归位
+- `0e8ce63e` fix(transport,bconfig,registry): logging-r01 存量清偿——框架库日志调用全部收敛 bald/log 契约层
+- `5df92326` fix(transport): 手工测试双门（BALD_MANUAL_TESTS）——挂死破案（ADR 批 2 附带）
+- `64da6e59` refactor(appkit): CleanupFrom 收拢 25 份 adaptCleanup 复制（ADR-1 批 1）
+- `a6092206` chore(release): cli v0.10.0 / pkg v0.15.0 / v0.52.0 依赖归位 + 变更日志
+- `007b077d` chore(release): pkg v0.14.0 / cli v0.9.0 / v0.51.0 依赖归位 + 变更日志
+- `f4b57d94` chore(release): bconf v0.27.0 / pkg v0.13.0 / v0.50.0 依赖归位 + 变更日志
+- `20279ed7` chore(release): pkg v0.12.0 / v0.49.0 依赖归位 + 变更日志
+- `1aaf8844` chore(release): pkg v0.11.1 / cli v0.8.0 / v0.48.0 依赖归位 + 变更日志
+- `d3133b4f` chore(release): 2 模块整批发布——bconf v0.26.0 / cli v0.7.0
+- `c7fa4764` test(coverage): 批6 transport/tcp 99.7%（bytes.Buffer 上 binary.Write 不可达错误出口登记）
+- `79cb88c9` test(coverage): 批6 transport/tcp 75.6%→99.7%（客户端收发/服务端分发/Session 生命周期）+ contract 89.3%→100%
+- `ec2b025f` chore(release): 2 模块整批发布——pkg v0.11.0 / selector/balancer v0.2.0
+- `880405c5` chore(release): 6 模块整批发布——根 v0.46.0 / bconf v0.24.1 / cli v0.5.0 / selector/circuitbreaker v0.1.0 / transport/client v0.2.0 / transport/client/resiliency v0.1.0
+- `53f337d9` chore(release): 回退 610dfe4 发布提交
+- `610dfe4b` chore(release): 6 模块整批发布——selector/circuitbreaker 与出站 resiliency 首发
+- `1bc52b57` chore(release): 8 模块整批发布——方案 S 收口与 otelslog 自有化
+- `a9b2afc6` chore(deps): 依赖树归位——x/sync v0.24.0 级联与示例 go.sum 预热
+- `56acd87a` chore(release): CHANGELOG 登记 bconf v0.24.0 / pkg v0.10.0 与依赖归位
+- `3883406f` chore(release): CHANGELOG 登记 pkg v0.9.0（统一策略面六件）
+- `236b9be0` chore(release): CHANGELOG 登记 pkg v0.8.0
+- `6f1d405a` chore(release): CHANGELOG 登记 pkg v0.7.0 与依赖归位
+- `e7e9c14d` chore(release): CHANGELOG 登记 registry v0.5.0 / retry v0.3.0 / selector v0.1.0 / balancer v0.1.0 与依赖归位
+- `c5be85bb` chore: 发布 3 个模块（bconf v0.23.0 / pkg v0.6.0 / 根 v0.42.0）
+- `39f986eb` chore: 发布 3 个模块（bconf v0.22.0 / transport/sse v0.6.0 / 根 v0.41.0）
+
+### transport/web v0.2.2
+
+- `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
+- `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
+- `a6092206` chore(release): cli v0.10.0 / pkg v0.15.0 / v0.52.0 依赖归位 + 变更日志
+- `007b077d` chore(release): pkg v0.14.0 / cli v0.9.0 / v0.51.0 依赖归位 + 变更日志
+- `f4b57d94` chore(release): bconf v0.27.0 / pkg v0.13.0 / v0.50.0 依赖归位 + 变更日志
+- `20279ed7` chore(release): pkg v0.12.0 / v0.49.0 依赖归位 + 变更日志
+- `1aaf8844` chore(release): pkg v0.11.1 / cli v0.8.0 / v0.48.0 依赖归位 + 变更日志
+- `26610c1a` test(transport/web): 修 SA4006 死赋值（批6 覆盖率战役带入）
+- `b5eb0236` test(coverage): 批5h transport/web 离线可达分支 51.2%→100%
+- `ec2b025f` chore(release): 2 模块整批发布——pkg v0.11.0 / selector/balancer v0.2.0
+
+### transport/webrtc v0.3.2
+
+- `7498ac44` chore(deps): 13 个 replace-pkg 模块补 bconfig 目录 replace（发布叠加层 II）
+- `42c7ac3d` chore(deps): 13 个 replace-pkg 模块补 bootstrap 目录 replace（发布叠加层）
+- `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
+- `d71c2c94` fix(transport,contracts): 清理 ADR-1 残留半截函数（跨设备收口推送）
+- `7ceaf985` chore(release): 存量清偿批依赖归位
+- `0e8ce63e` fix(transport,bconfig,registry): logging-r01 存量清偿——框架库日志调用全部收敛 bald/log 契约层
+- `64da6e59` refactor(appkit): CleanupFrom 收拢 25 份 adaptCleanup 复制（ADR-1 批 1）
+- `a6092206` chore(release): cli v0.10.0 / pkg v0.15.0 / v0.52.0 依赖归位 + 变更日志
+- `007b077d` chore(release): pkg v0.14.0 / cli v0.9.0 / v0.51.0 依赖归位 + 变更日志
+- `f4b57d94` chore(release): bconf v0.27.0 / pkg v0.13.0 / v0.50.0 依赖归位 + 变更日志
+- `20279ed7` chore(release): pkg v0.12.0 / v0.49.0 依赖归位 + 变更日志
+- `1aaf8844` chore(release): pkg v0.11.1 / cli v0.8.0 / v0.48.0 依赖归位 + 变更日志
+- `c04dd5f6` test(coverage): webrtc 45.6%→（+9 函数）与 broker 51.1%→69.2% 函数口径（-short 纯逻辑面）
+- `d3133b4f` chore(release): 2 模块整批发布——bconf v0.26.0 / cli v0.7.0
+- `ec2b025f` chore(release): 2 模块整批发布——pkg v0.11.0 / selector/balancer v0.2.0
+- `880405c5` chore(release): 6 模块整批发布——根 v0.46.0 / bconf v0.24.1 / cli v0.5.0 / selector/circuitbreaker v0.1.0 / transport/client v0.2.0 / transport/client/resiliency v0.1.0
+- `53f337d9` chore(release): 回退 610dfe4 发布提交
+- `610dfe4b` chore(release): 6 模块整批发布——selector/circuitbreaker 与出站 resiliency 首发
+- `1bc52b57` chore(release): 8 模块整批发布——方案 S 收口与 otelslog 自有化
+- `a9b2afc6` chore(deps): 依赖树归位——x/sync v0.24.0 级联与示例 go.sum 预热
+- `56acd87a` chore(release): CHANGELOG 登记 bconf v0.24.0 / pkg v0.10.0 与依赖归位
+- `3883406f` chore(release): CHANGELOG 登记 pkg v0.9.0（统一策略面六件）
+- `236b9be0` chore(release): CHANGELOG 登记 pkg v0.8.0
+- `6f1d405a` chore(release): CHANGELOG 登记 pkg v0.7.0 与依赖归位
+- `e7e9c14d` chore(release): CHANGELOG 登记 registry v0.5.0 / retry v0.3.0 / selector v0.1.0 / balancer v0.1.0 与依赖归位
+- `c5be85bb` chore: 发布 3 个模块（bconf v0.23.0 / pkg v0.6.0 / 根 v0.42.0）
+- `39f986eb` chore: 发布 3 个模块（bconf v0.22.0 / transport/sse v0.6.0 / 根 v0.41.0）
+
+### transport/websocket v0.2.2
+
+- `7498ac44` chore(deps): 13 个 replace-pkg 模块补 bconfig 目录 replace（发布叠加层 II）
+- `42c7ac3d` chore(deps): 13 个 replace-pkg 模块补 bootstrap 目录 replace（发布叠加层）
+- `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
+- `d71c2c94` fix(transport,contracts): 清理 ADR-1 残留半截函数（跨设备收口推送）
+- `7ceaf985` chore(release): 存量清偿批依赖归位
+- `0e8ce63e` fix(transport,bconfig,registry): logging-r01 存量清偿——框架库日志调用全部收敛 bald/log 契约层
+- `64da6e59` refactor(appkit): CleanupFrom 收拢 25 份 adaptCleanup 复制（ADR-1 批 1）
+- `a6092206` chore(release): cli v0.10.0 / pkg v0.15.0 / v0.52.0 依赖归位 + 变更日志
+- `007b077d` chore(release): pkg v0.14.0 / cli v0.9.0 / v0.51.0 依赖归位 + 变更日志
+- `f4b57d94` chore(release): bconf v0.27.0 / pkg v0.13.0 / v0.50.0 依赖归位 + 变更日志
+- `20279ed7` chore(release): pkg v0.12.0 / v0.49.0 依赖归位 + 变更日志
+- `1aaf8844` chore(release): pkg v0.11.1 / cli v0.8.0 / v0.48.0 依赖归位 + 变更日志
+- `d3133b4f` chore(release): 2 模块整批发布——bconf v0.26.0 / cli v0.7.0
+- `76e4e2c4` test(coverage): 批5j transport/websocket 离线分支 72.6%→100%
+- `ec2b025f` chore(release): 2 模块整批发布——pkg v0.11.0 / selector/balancer v0.2.0
+- `880405c5` chore(release): 6 模块整批发布——根 v0.46.0 / bconf v0.24.1 / cli v0.5.0 / selector/circuitbreaker v0.1.0 / transport/client v0.2.0 / transport/client/resiliency v0.1.0
+- `53f337d9` chore(release): 回退 610dfe4 发布提交
+- `610dfe4b` chore(release): 6 模块整批发布——selector/circuitbreaker 与出站 resiliency 首发
+- `3694198f` chore(deps): 发版后归位——撤回六条发布窗口 replace，cli log 顶 v0.6.0
+- `1bc52b57` chore(release): 8 模块整批发布——方案 S 收口与 otelslog 自有化
+- `f20fade5` chore(deps): 发布窗口叠加层——六消费者补 log/retry 本地 replace（tag 后撤回）
+- `a9b2afc6` chore(deps): 依赖树归位——x/sync v0.24.0 级联与示例 go.sum 预热
+- `56acd87a` chore(release): CHANGELOG 登记 bconf v0.24.0 / pkg v0.10.0 与依赖归位
+- `3883406f` chore(release): CHANGELOG 登记 pkg v0.9.0（统一策略面六件）
+- `236b9be0` chore(release): CHANGELOG 登记 pkg v0.8.0
+- `6f1d405a` chore(release): CHANGELOG 登记 pkg v0.7.0 与依赖归位
+- `e7e9c14d` chore(release): CHANGELOG 登记 registry v0.5.0 / retry v0.3.0 / selector v0.1.0 / balancer v0.1.0 与依赖归位
+- `c5be85bb` chore: 发布 3 个模块（bconf v0.23.0 / pkg v0.6.0 / 根 v0.42.0）
+- `39f986eb` chore: 发布 3 个模块（bconf v0.22.0 / transport/sse v0.6.0 / 根 v0.41.0）
+
 ## 2026-11-12
 
 ### transport/mcp v0.5.2

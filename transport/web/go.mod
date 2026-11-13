@@ -9,7 +9,7 @@ replace github.com/kalandramo/bald/pkg => ../../pkg
 require (
 	github.com/gin-gonic/gin v1.12.0
 	github.com/kalandramo/bald/berrors v0.1.2
-	github.com/kalandramo/bald/pkg v0.15.0
+	github.com/kalandramo/bald/pkg v0.16.0
 	google.golang.org/protobuf v1.36.12
 )
 

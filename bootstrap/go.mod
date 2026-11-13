@@ -26,8 +26,8 @@ replace github.com/kalandramo/bald/transport/web => ../transport/web
 
 require (
 	github.com/go-kratos/kratos/v3 v3.0.0
-	github.com/kalandramo/bald/bconf v0.27.0
-	github.com/kalandramo/bald/bconfig v0.2.3
+	github.com/kalandramo/bald/bconf v0.28.0
+	github.com/kalandramo/bald/bconfig v0.2.4
 	github.com/kalandramo/bald/health v0.1.1
 	github.com/kalandramo/bald/log v0.6.0
 	github.com/kalandramo/bald/transport v0.4.0
