@@ -52,3 +52,6 @@ _example/bald/*.db
 # go test 编译产物与本地实验看板（autoresearch 会话产物，可再生）
 *.test
 autoresearch-dashboard.html
+
+# 本地 AI 会话工作目录（各会话私有的任务状态）
+.zcode/
