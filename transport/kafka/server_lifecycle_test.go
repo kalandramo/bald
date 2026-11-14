@@ -33,17 +33,26 @@ type stubKafkaBroker struct {
 
 	mu         sync.Mutex
 	subscribed []string
+	captured   map[string]broker.Handler // topic → wrapHandler 包装后的 handler（供测试合成事件直驱）
+}
+
+func newStubKafkaBroker() *stubKafkaBroker {
+	return &stubKafkaBroker{failTopics: map[string]bool{}, captured: map[string]broker.Handler{}}
 }
 
 func (b *stubKafkaBroker) Init(...broker.Option) error { return b.initErr }
 func (b *stubKafkaBroker) Connect() error              { return b.connectErr }
-func (b *stubKafkaBroker) Subscribe(topic string, _ broker.Handler, _ broker.Binder, _ ...broker.SubscribeOption) (broker.Subscriber, error) {
+func (b *stubKafkaBroker) Address() string             { return "stub:9092" }
+func (b *stubKafkaBroker) Subscribe(topic string, handler broker.Handler, _ broker.Binder, _ ...broker.SubscribeOption) (broker.Subscriber, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.failTopics[topic] {
 		return nil, fmt.Errorf("stub: subscribe %s forced failure", topic)
 	}
 	b.subscribed = append(b.subscribed, topic)
+	if b.captured != nil {
+		b.captured[topic] = handler
+	}
 	return &stubKafkaSubscriber{}, nil
 }
 
@@ -200,13 +209,13 @@ func (m *recordingKafkaMetrics) Histogram(_ context.Context, name string, _ floa
 func (m *recordingKafkaMetrics) Gauge(context.Context, string, float64, map[string]string)    {}
 func (m *recordingKafkaMetrics) GaugeAdd(context.Context, string, float64, map[string]string) {}
 
-type stubKafkaEvent struct{}
+type stubKafkaEvent struct{ msg *broker.Message }
 
-func (stubKafkaEvent) Topic() string            { return "topic.m" }
-func (stubKafkaEvent) Message() *broker.Message { return broker.NewMessage("x") }
-func (stubKafkaEvent) RawMessage() any          { return nil }
-func (stubKafkaEvent) Ack() error               { return nil }
-func (stubKafkaEvent) Error() error             { return nil }
+func (e stubKafkaEvent) Topic() string            { return "topic.m" }
+func (e stubKafkaEvent) Message() *broker.Message { return e.msg }
+func (e stubKafkaEvent) RawMessage() any          { return nil }
+func (e stubKafkaEvent) Ack() error               { return nil }
+func (e stubKafkaEvent) Error() error             { return nil }
 
 func TestServer_WrapHandlerMetrics(t *testing.T) {
 	m := &recordingKafkaMetrics{counters: map[string]float64{}}
@@ -217,7 +226,7 @@ func TestServer_WrapHandlerMetrics(t *testing.T) {
 		return handlerErr
 	})
 
-	err := wrapped(context.Background(), stubKafkaEvent{})
+	err := wrapped(context.Background(), stubKafkaEvent{msg: broker.NewMessage("x")})
 	require.ErrorIs(t, err, handlerErr, "handler 错误应透传")
 	assert.Positive(t, m.counters["broker_messages_received_total"], "received 计数必须亮")
 	assert.NotEmpty(t, m.histos, "duration 直方图必须记录")
@@ -298,4 +307,47 @@ func TestServer_WithTLSConfigNonNil(t *testing.T) {
 
 func TestServer_LogErrorDirect(t *testing.T) {
 	logError("unit", "driven") // 语句覆盖；输出进测试日志无妨
+}
+
+// ---- 泛型 wrapper 两个分支：桩捕获 wrapped handler，合成事件直驱（离线无投递） ----
+
+func TestServer_GenericWrapperBranches(t *testing.T) {
+	b := newStubKafkaBroker()
+	srv := NewServer(WithBrokerOptions()) // captured 生效需经 stub——直接换桩
+	srv.Broker = b
+	srv.subscribers = make(broker.SubscriberMap)
+	srv.subscriberOpts = make(subscribe.SubscribeOptionMap)
+
+	type payload struct {
+		Value string `json:"value"`
+	}
+	typedHits := 0
+	require.NoError(t, RegisterSubscriber(srv, context.Background(), "topic.gen", "g1", false,
+		func(_ context.Context, _ string, _ broker.Headers, p *payload) error {
+			typedHits++
+			return nil
+		}))
+
+	// Start flush deferred → stub 捕获 wrapped handler。
+	require.NoError(t, srv.Start(context.Background()))
+	wrapped, ok := b.captured["topic.gen"]
+	require.True(t, ok, "stub 应捕获到包装后的 handler")
+
+	// case *T 分支：Body 为 *payload → typed handler 驱动。
+	require.NoError(t, wrapped(context.Background(), stubKafkaEvent{msg: broker.NewMessage(&payload{Value: "v"})}))
+	assert.Equal(t, 1, typedHits, "typed handler 应被驱动一次")
+
+	// default 分支：Body 非 *T → "unsupported type" 错误透传。
+	err := wrapped(context.Background(), stubKafkaEvent{msg: broker.NewMessage("wrong-type")})
+	require.ErrorContains(t, err, "unsupported type: string")
+	assert.Equal(t, 1, typedHits, "default 分支不驱动 typed handler")
+}
+
+// ---- double Start：幂等早退分支 ----
+
+func TestServer_DoubleStartIdempotent(t *testing.T) {
+	srv := NewServer()
+	require.NoError(t, srv.Start(context.Background()))
+	require.NoError(t, srv.Start(context.Background()), "started 后重复 Start 应幂等返回 nil")
+	require.NoError(t, srv.Stop(context.Background()))
 }
