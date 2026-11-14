@@ -163,8 +163,11 @@ func (s *Server) doRegisterSubscriber(routingKey string, handler broker.Handler,
 		return err
 	}
 
-	if _, exists := s.subscribers[routingKey]; exists {
+	if old, exists := s.subscribers[routingKey]; exists {
 		logWarnf("subscriber for routingKey '%s' already exists, overwriting", routingKey)
+		// 旧订阅必须先摘除：只覆写映射的话，旧订阅还挂在 broker 上——
+		// 消息双份投递且旧订阅 goroutine 泄漏（家族同构缺陷，段 2/3 已修）。
+		_ = old.Unsubscribe(false)
 	}
 	s.subscribers[routingKey] = sub
 	return nil
@@ -176,9 +179,13 @@ func (s *Server) doRegisterSubscriberMap() error {
 		if err := s.doRegisterSubscriber(topic, opt.Handler, opt.Binder, opt.SubscribeOptions...); err != nil {
 			logErrorf("register subscriber failed, topic: %s, error: %s", topic, err.Error())
 			errs = append(errs, err)
+			// 失败条目留在 subscriberOpts，下次 Start 重试（收敛语义）——此前
+			// 无条件清空整批 deferred 队列：Start 失败后重试找不到待注册项，
+			// 订阅静默丢失（家族同构缺陷，段 2 redis / 段 3 kafka 已修）。
+			continue
 		}
+		delete(s.subscriberOpts, topic)
 	}
-	s.subscriberOpts = make(subscribe.SubscribeOptionMap)
 	return errors.Join(errs...)
 }
 
