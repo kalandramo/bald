@@ -176,3 +176,91 @@ func TestPubSub_UnsubscribeStopsDelivery(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 	assert.Equal(t, 0, hits, "退订后发布不得投递")
 }
+
+// ---- 迭代 2：中间件链、Marshal 错误分支、诊断面访问器、重连退避 ----
+
+func TestPubSub_MiddlewareChain(t *testing.T) {
+	mr := miniredis.RunT(t)
+
+	seenSub := 0
+	b := newTestBroker(t, mr,
+		broker.WithSubscriberMiddlewares(func(next broker.Handler) broker.Handler {
+			return func(ctx context.Context, evt broker.Event) error {
+				seenSub++
+				return next(ctx, evt)
+			}
+		}),
+		broker.WithPublishMiddlewares(func(next broker.PublishHandler) broker.PublishHandler {
+			return func(ctx context.Context, topic string, msg *broker.Message, opts ...broker.PublishOption) error {
+				assert.Equal(t, "topic.mw", topic, "发布中间件应拿到 topic")
+				return next(ctx, topic, msg, opts...)
+			}
+		}),
+	)
+
+	got := make(chan []byte, 1)
+	_, err := b.Subscribe("topic.mw", func(_ context.Context, evt broker.Event) error {
+		got <- evt.Message().Body.([]byte)
+		return nil
+	}, nil)
+	require.NoError(t, err)
+	time.Sleep(100 * time.Millisecond)
+	require.NoError(t, b.Publish(context.Background(), "topic.mw", &broker.Message{Body: "mw"}))
+
+	select {
+	case v := <-got:
+		assert.Equal(t, []byte(`"mw"`), v)
+	case <-time.After(3 * time.Second):
+		t.Fatal("中间件链后订阅未收到消息")
+	}
+	assert.Equal(t, 1, seenSub, "订阅中间件应被驱动")
+}
+
+func TestPubSub_MarshalErrorBranch(t *testing.T) {
+	mr := miniredis.RunT(t)
+	b := newTestBroker(t, mr)
+
+	// channel/func 无法被 json codec 编码 → Marshal 失败分支。
+	err := b.Publish(context.Background(), "t", &broker.Message{Body: make(chan int)})
+	require.Error(t, err)
+}
+
+func TestPubSub_DiagnosticAccessors(t *testing.T) {
+	mr := miniredis.RunT(t)
+	b := newTestBroker(t, mr)
+
+	assert.Equal(t, "redis", b.Name())
+	assert.NotNil(t, b.Options())
+
+	sub, err := b.Subscribe("topic.acc", func(context.Context, broker.Event) error { return nil }, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "topic.acc", sub.Topic())
+	assert.NotNil(t, sub.Options())
+}
+
+// TestPubSub_ReconnectBackoffAfterServerClose miniredis 关停 → receiveLoop 报错 →
+// reconnect 失败 → 退避重试 → Unsubscribe 终结循环（有界时长内完成）。
+func TestPubSub_ReconnectBackoffAfterServerClose(t *testing.T) {
+	mr := miniredis.RunT(t)
+	b := newTestBroker(t, mr)
+
+	exited := make(chan struct{})
+	sub, err := b.Subscribe("topic.dead", func(context.Context, broker.Event) error { return nil }, nil)
+	require.NoError(t, err)
+	watchSub := sub.(*subscriber)
+	go func() {
+		// recv 循环在错误后进入退避；closed 置位后下一次循环退出。
+		time.Sleep(500 * time.Millisecond)
+		_ = watchSub.Unsubscribe(true)
+		close(exited)
+	}()
+
+	time.Sleep(200 * time.Millisecond)
+	mr.Close() // 服务端消失 → 连接报错 → 退避重试路径
+
+	select {
+	case <-exited:
+	case <-time.After(5 * time.Second):
+		t.Fatal("退订后 recv 循环未在退避窗口内退出")
+	}
+}

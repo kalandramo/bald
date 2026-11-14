@@ -251,3 +251,66 @@ func TestStream_UnsubscribeStopsDelivery(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 	assert.Equal(t, 0, hits, "退订后发布不得投递")
 }
+
+// ---- 迭代 2：诊断面访问器、Ack 边界、Init 选项贯通、发布中间件 ----
+
+func TestStream_DiagnosticAccessors(t *testing.T) {
+	mr := miniredis.RunT(t)
+	b := newTestBroker(t, mr)
+
+	assert.Equal(t, "redis-stream", b.Name())
+	assert.NotNil(t, b.Options())
+	assert.Equal(t, "redis://"+mr.Addr(), b.Address())
+
+	sub, err := b.Subscribe("topic.acc", func(context.Context, broker.Event) error { return nil }, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "topic.acc", sub.Topic())
+	assert.NotNil(t, sub.Options())
+}
+
+func TestStream_PublicationAckBranches(t *testing.T) {
+	// 已 acked → 幂等 nil；pool nil → 无处 ack 返回 nil。
+	p := &publication{acked: true}
+	require.NoError(t, p.Ack())
+
+	p2 := &publication{pool: nil}
+	require.NoError(t, p2.Ack())
+
+	// Error 访问器透传。
+	p3 := &publication{err: assert.AnError, message: &broker.Message{}}
+	require.ErrorIs(t, p3.Error(), assert.AnError)
+	assert.NotNil(t, p3.Message())
+	assert.NotNil(t, p3.RawMessage())
+}
+
+func TestStream_InitOptionPassthrough(t *testing.T) {
+	b := NewBroker(redisOption.WithMaxIdle(3), redisOption.WithMaxActive(7))
+	bb := b.(*streamBroker)
+	require.NoError(t, bb.Init())
+	// Init(opts...) 应用后 commonOpts 从 Context 取回贯通值。
+	assert.Equal(t, 3, bb.commonOpts.MaxIdle)
+	assert.Equal(t, 7, bb.commonOpts.MaxActive)
+}
+
+func TestStream_MarshalErrorBranch(t *testing.T) {
+	mr := miniredis.RunT(t)
+	b := newTestBroker(t, mr)
+
+	err := b.Publish(context.Background(), "t", &broker.Message{Body: make(chan int)})
+	require.Error(t, err)
+}
+
+func TestStream_PublishMiddlewareChain(t *testing.T) {
+	mr := miniredis.RunT(t)
+	seen := 0
+	b := newTestBroker(t, mr,
+		broker.WithPublishMiddlewares(func(next broker.PublishHandler) broker.PublishHandler {
+			return func(ctx context.Context, topic string, msg *broker.Message, opts ...broker.PublishOption) error {
+				seen++
+				return next(ctx, topic, msg, opts...)
+			}
+		}),
+	)
+	require.NoError(t, b.Publish(context.Background(), "topic.mw", &broker.Message{Body: "x"}))
+	assert.Equal(t, 1, seen, "发布中间件应被驱动")
+}
