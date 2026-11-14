@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gomodule/redigo/redis"
@@ -17,6 +18,10 @@ const (
 )
 
 type streamBroker struct {
+	// mu 守护 pool 的读写：Disconnect（停机 goroutine）写 nil 与订阅 recv
+	// goroutine 读 pool 并发——race detector 实锤（段 5），加锁前停机路径
+	// 必然与在途订阅循环竞态。
+	mu         sync.RWMutex
 	addr       string
 	pool       *redis.Pool
 	options    broker.Options
@@ -89,6 +94,8 @@ func (b *streamBroker) Init(opts ...broker.Option) error {
 }
 
 func (b *streamBroker) Connect() error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	if b.pool != nil {
 		return nil
 	}
@@ -129,6 +136,8 @@ func (b *streamBroker) Connect() error {
 }
 
 func (b *streamBroker) Disconnect() error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	if b.pool == nil {
 		return nil
 	}
@@ -139,6 +148,14 @@ func (b *streamBroker) Disconnect() error {
 	b.subscribers.Clear()
 
 	return err
+}
+
+// getPool 是 pool 的并发安全读取口：订阅 recv goroutine 与 Disconnect 并发，
+// 直读字段会被 race detector 判红（段 5 实测）。
+func (b *streamBroker) getPool() *redis.Pool {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.pool
 }
 
 func (b *streamBroker) Publish(ctx context.Context, topic string, msg *broker.Message, opts ...broker.PublishOption) error {
@@ -174,11 +191,11 @@ func (b *streamBroker) publish(_ context.Context, stream string, msg *broker.Mes
 
 	// pool 为 nil 时 `(*Pool)(nil).Get()` 会 panic。三种情况会置 nil：
 	// 未 Connect、Connect 探活失败、已 Disconnect。须前置防护。
-	if b.pool == nil {
+	if b.getPool() == nil {
 		return errors.New("redis-stream: not connected, call Connect first")
 	}
 
-	conn := b.pool.Get()
+	conn := b.getPool().Get()
 	defer func() { _ = conn.Close() }()
 
 	args := []any{stream}
@@ -205,9 +222,10 @@ func (b *streamBroker) publish(_ context.Context, stream string, msg *broker.Mes
 }
 
 func (b *streamBroker) Subscribe(topic string, handler broker.Handler, binder broker.Binder, opts ...broker.SubscribeOption) (broker.Subscriber, error) {
-	subOpts := broker.SubscribeOptions{
-		Context: context.Background(),
-	}
+	// 标准构造器（AutoAck 默认 true 等）——裸字面量会让 AutoAck 落零值 false，
+	// 消息投递后永不 XACK、PEL 永久滞留（段 5 实测钉住的缺陷）。
+	subOpts := broker.NewSubscribeOptions()
+	subOpts.Context = context.Background()
 	for _, o := range opts {
 		o(&subOpts)
 	}
@@ -218,7 +236,7 @@ func (b *streamBroker) Subscribe(topic string, handler broker.Handler, binder br
 
 	// pool 为 nil 时 `(*Pool)(nil).Get()` 会 panic（见 publish 注释）。
 	// 此处前置防护，同时覆盖后续的 ensureGroup 与 conn 获取。
-	if b.pool == nil {
+	if b.getPool() == nil {
 		return nil, errors.New("redis-stream: not connected, call Connect first")
 	}
 
@@ -269,7 +287,11 @@ func (b *streamBroker) Subscribe(topic string, handler broker.Handler, binder br
 
 // ensureGroup 确保消费组存在，不存在则创建
 func (b *streamBroker) ensureGroup(stream, group string) error {
-	conn := b.pool.Get()
+	pool := b.getPool()
+	if pool == nil {
+		return errors.New("redis-stream: broker disconnected, cannot ensure group")
+	}
+	conn := pool.Get()
 	defer func() { _ = conn.Close() }()
 
 	// XGROUP CREATE stream group $ MKSTREAM

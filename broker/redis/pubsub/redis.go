@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gomodule/redigo/redis"
@@ -17,6 +18,9 @@ const (
 )
 
 type pubsubBroker struct {
+	// mu 守护 pool 的读写（Disconnect 写 nil 与订阅 recv/reconnect goroutine
+	// 读 pool 并发——race 同源，stream 段 5 实测）。
+	mu         sync.RWMutex
 	addr       string
 	pool       *redis.Pool
 	options    broker.Options
@@ -64,6 +68,8 @@ func (b *pubsubBroker) Address() string {
 }
 
 func (b *pubsubBroker) Init(opts ...broker.Option) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	if b.pool != nil {
 		return errors.New("redis: cannot init while connected")
 	}
@@ -92,6 +98,8 @@ func (b *pubsubBroker) Init(opts ...broker.Option) error {
 }
 
 func (b *pubsubBroker) Connect() error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	if b.pool != nil {
 		return nil
 	}
@@ -138,6 +146,8 @@ func (b *pubsubBroker) Connect() error {
 // pool 为 nil 时直接返回：Connect 探活失败会丢弃 pool（`b.pool = nil`），
 // 调用方随后清理时不能触发 `(*Pool)(nil).Close()` panic。stream driver 同此约定。
 func (b *pubsubBroker) Disconnect() error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	if b.pool == nil {
 		return nil
 	}
@@ -148,6 +158,13 @@ func (b *pubsubBroker) Disconnect() error {
 	b.subscribers.Clear()
 
 	return err
+}
+
+// getPool 是 pool 的并发安全读取口（与 stream 驱动同约定）。
+func (b *pubsubBroker) getPool() *redis.Pool {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.pool
 }
 
 func (b *pubsubBroker) Publish(ctx context.Context, topic string, msg *broker.Message, opts ...broker.PublishOption) error {
@@ -175,19 +192,20 @@ func (b *pubsubBroker) internalPublish(ctx context.Context, topic string, msg *b
 func (b *pubsubBroker) publish(_ context.Context, topic string, msg *broker.Message, _ ...broker.PublishOption) error {
 	// pool 为 nil 时 `(*Pool)(nil).Get()` 会 panic。三种情况会置 nil：
 	// 未 Connect、Connect 探活失败、已 Disconnect。须前置防护。
-	if b.pool == nil {
+	if b.getPool() == nil {
 		return errors.New("redis: not connected, call Connect first")
 	}
-	conn := b.pool.Get()
+	conn := b.getPool().Get()
 	_, err := redis.Int(conn.Do("PUBLISH", topic, msg.BodyBytes()))
 	_ = conn.Close()
 	return err
 }
 
 func (b *pubsubBroker) Subscribe(topic string, handler broker.Handler, binder broker.Binder, opts ...broker.SubscribeOption) (broker.Subscriber, error) {
-	options := broker.SubscribeOptions{
-		Context: context.Background(),
-	}
+	// 标准构造器（AutoAck 默认 true 等）——裸字面量会静默绕过默认值
+	// （publication.Ack 语义失效）。
+	options := broker.NewSubscribeOptions()
+	options.Context = context.Background()
 	for _, o := range opts {
 		o(&options)
 	}
@@ -197,13 +215,13 @@ func (b *pubsubBroker) Subscribe(topic string, handler broker.Handler, binder br
 	}
 
 	// pool 为 nil 时 `(*Pool)(nil).Get()` 会 panic（见 publish 注释）。
-	if b.pool == nil {
+	if b.getPool() == nil {
 		return nil, errors.New("redis: not connected, call Connect first")
 	}
 
 	sub := &subscriber{
 		b:       b,
-		conn:    &redis.PubSubConn{Conn: b.pool.Get()},
+		conn:    &redis.PubSubConn{Conn: b.getPool().Get()},
 		topic:   topic,
 		handler: handler,
 		binder:  binder,

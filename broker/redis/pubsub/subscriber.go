@@ -186,11 +186,11 @@ func (s *subscriber) reconnect() bool {
 	s.Lock()
 	defer s.Unlock()
 
-	if s.b.pool == nil {
+	if s.b.getPool() == nil {
 		return false
 	}
 
-	conn := &redis.PubSubConn{Conn: s.b.pool.Get()}
+	conn := &redis.PubSubConn{Conn: s.b.getPool().Get()}
 	if conn.Conn == nil {
 		redisOption.LogError("failed to get connection from pool")
 		return false

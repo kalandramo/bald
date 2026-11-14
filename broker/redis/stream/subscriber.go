@@ -1,6 +1,7 @@
 package stream
 
 import (
+	"errors"
 	"sync"
 	"time"
 
@@ -46,7 +47,7 @@ func (s *subscriber) onMessage(msgID string, data []byte) error {
 		group:   s.group,
 		msgID:   msgID,
 		message: &m,
-		pool:    s.b.pool,
+		pool:    s.b.getPool(),
 	}
 
 	if p.err = s.handler(s.options.Context, &p); p.err != nil {
@@ -74,6 +75,12 @@ func (s *subscriber) recv() {
 		err := s.receiveLoop()
 
 		if err == nil || s.IsClosed() {
+			return
+		}
+
+		// broker 已 Disconnect（pool=nil）→ 订阅生命周期终结：
+		// 继续重试只会在 ensureGroup/receiveLoop 里撞 nil pool panic。
+		if s.b.getPool() == nil {
 			return
 		}
 
@@ -110,7 +117,12 @@ func (s *subscriber) receiveLoop() error {
 		}
 
 		// XREADGROUP GROUP group consumer BLOCK timeout COUNT count STREAMS stream >
-		conn := s.b.pool.Get()
+		pool := s.b.getPool()
+		if pool == nil {
+			// broker 已 Disconnect：终结本订阅（继续循环只会撞 nil pool）。
+			return errors.New("redis-stream: broker disconnected")
+		}
+		conn := pool.Get()
 
 		reply, err := conn.Do("XREADGROUP",
 			"GROUP", s.group, s.consumer,
@@ -158,7 +170,18 @@ func (s *subscriber) receiveLoop() error {
 					continue
 				}
 
-				msgID, _ := msgData[0].(string)
+				// 消息 ID 的类型鲁棒提取：redigo 对 bulk string 默认转
+				// []byte，`(string)` 单一断言会吞掉类型差 → msgID 恒空串 →
+				// XACK 报 invalid stream ID → 消息永久滞留 PEL（任何后端）。
+				var msgID string
+				switch id := msgData[0].(type) {
+				case string:
+					msgID = id
+				case []byte:
+					msgID = string(id)
+				default:
+					continue
+				}
 				fields, _ := msgData[1].([]any)
 
 				// 提取 body 字段
