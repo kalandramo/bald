@@ -314,3 +314,37 @@ func TestStream_PublishMiddlewareChain(t *testing.T) {
 	require.NoError(t, b.Publish(context.Background(), "topic.mw", &broker.Message{Body: "x"}))
 	assert.Equal(t, 1, seen, "发布中间件应被驱动")
 }
+
+// ---- 迭代 3：binder 解码错误、publication 访问器、Init 默认地址 ----
+
+func TestStream_OnMessageBinderError(t *testing.T) {
+	mr := miniredis.RunT(t)
+	b := newTestBroker(t, mr)
+
+	s := &subscriber{
+		b:       b,
+		handler: func(context.Context, broker.Event) error { return nil },
+		binder: func() any {
+			return new(struct {
+				Value string `json:"value"`
+			})
+		},
+		options: broker.SubscribeOptions{Context: context.Background()},
+	}
+	// 非法 json → binder Unmarshal 失败分支。
+	err := s.onMessage("id-1", []byte("{invalid"))
+	require.Error(t, err)
+}
+
+func TestStream_PublicationTopicAccessor(t *testing.T) {
+	p := &publication{topic: "rk", message: &broker.Message{}}
+	assert.Equal(t, "rk", p.Topic())
+}
+
+func TestStream_InitDefaultAddrFallback(t *testing.T) {
+	bb := NewBroker().(*streamBroker) // 无地址 → Init 落默认
+	require.NoError(t, bb.Init())
+	assert.NotEmpty(t, bb.addr, "无地址 Init 应落默认地址")
+	// 默认 127.0.0.1:6379 拒连（本机无 redis）→ Connect 探活失败。
+	require.Error(t, bb.Connect())
+}

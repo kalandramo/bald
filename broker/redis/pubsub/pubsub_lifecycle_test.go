@@ -264,3 +264,54 @@ func TestPubSub_ReconnectBackoffAfterServerClose(t *testing.T) {
 		t.Fatal("退订后 recv 循环未在退避窗口内退出")
 	}
 }
+
+// ---- 迭代 3：reconnect 双分支直驱、binder 解码错误、publication 访问器 ----
+
+func TestPubSub_ReconnectBranches(t *testing.T) {
+	mr := miniredis.RunT(t)
+	b := newTestBroker(t, mr)
+
+	sub, err := b.Subscribe("topic.re", func(context.Context, broker.Event) error { return nil }, nil)
+	require.NoError(t, err)
+	s := sub.(*subscriber)
+
+	// 成功分支：活 pool 重连并重新订阅（reconnect 只重挂 conn，不进订阅簿）。
+	require.True(t, s.reconnect(), "活 pool 重连应成功")
+	require.NotNil(t, s.conn, "重连后应持有新 PubSubConn")
+
+	// 失败分支：miniredis 关停后 pool 拨号失败。
+	mr.Close()
+	require.False(t, s.reconnect(), "死 pool 重连应失败")
+
+	// pool nil 分支：直接 nil。
+	s.b.pool = nil
+	require.False(t, s.reconnect())
+}
+
+func TestPubSub_OnMessageBinderError(t *testing.T) {
+	mr := miniredis.RunT(t)
+	b := newTestBroker(t, mr)
+
+	s := &subscriber{
+		b:       b,
+		handler: func(context.Context, broker.Event) error { return nil },
+		binder: func() any {
+			return new(struct {
+				Value string `json:"value"`
+			})
+		},
+		options: broker.SubscribeOptions{Context: context.Background()},
+	}
+	// 非法 json → binder Unmarshal 失败分支。
+	err := s.onMessage("ch", []byte("{invalid"))
+	require.Error(t, err)
+}
+
+func TestPubSub_PublicationAccessors(t *testing.T) {
+	p := &publication{topic: "t", message: &broker.Message{Body: "x"}, err: assert.AnError}
+	assert.Equal(t, "t", p.Topic())
+	require.NotNil(t, p.Message())
+	require.NotNil(t, p.RawMessage())
+	require.ErrorIs(t, p.Error(), assert.AnError)
+	require.NoError(t, p.Ack(), "pubsub publication 的 Ack 恒 nil（无 pending 概念）")
+}
