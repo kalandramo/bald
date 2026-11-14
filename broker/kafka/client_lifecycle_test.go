@@ -3,6 +3,8 @@ package kafka
 import (
 	"context"
 	"errors"
+	"fmt"
+	"hash/fnv"
 	"testing"
 	"time"
 
@@ -143,4 +145,119 @@ func TestBroker_DiagnosticAccessors(t *testing.T) {
 	assert.Equal(t, "kafka", b.Name())
 	assert.NotEmpty(t, b.Address(), "Init/Connect 后应有地址")
 	assert.NotNil(t, b.Options())
+}
+
+// ---- 迭代 2：balancer 六分支直驱 initPublishOption、批量处理、诊断面 ----
+
+func TestBroker_InitPublishOptionBalancers(t *testing.T) {
+	cases := []struct {
+		name    string
+		opt     broker.PublishOption
+		balType string
+	}{
+		{"least-bytes", WithLeastBytesBalancer(), "*kafka.LeastBytes"},
+		{"round-robin", WithRoundRobinBalancer(), "*kafka.RoundRobin"},
+		{"hash", WithHashBalancer(fnv.New32a()), "*kafka.Hash"},
+		{"reference-hash", WithReferenceHashBalancer(fnv.New32a()), "*kafka.ReferenceHash"},
+		{"crc32", WithCrc32Balancer(true), "*kafka.CRC32Balancer"},
+		{"murmur2", WithMurmur2Balancer(true), "*kafka.Murmur2Balancer"},
+	}
+	for _, tc := range cases {
+		w := &kafkaGo.Writer{}
+		opts := broker.PublishOptions{Context: context.Background()}
+		tc.opt(&opts)
+		b := &kafkaBroker{}
+		b.initPublishOption(w, opts)
+		assert.Contains(t, fmt.Sprintf("%T", w.Balancer), tc.balType, tc.name)
+	}
+
+	// 未知 balancer（default 分支）：Balancer 保持 nil 不 panic。
+	w := &kafkaGo.Writer{}
+	opts := broker.PublishOptions{Context: context.Background()}
+	b := &kafkaBroker{}
+	b.initPublishOption(w, opts)
+	assert.Nil(t, w.Balancer)
+}
+
+func TestBroker_PublishMiddlewareChain(t *testing.T) {
+	mr := refusedAddr(t)
+	seen := 0
+	b := newTestBroker(t, mr,
+		broker.WithPublishMiddlewares(func(next broker.PublishHandler) broker.PublishHandler {
+			return func(ctx context.Context, topic string, msg *broker.Message, opts ...broker.PublishOption) error {
+				seen++
+				return next(ctx, topic, msg, opts...)
+			}
+		}),
+	)
+	require.NoError(t, b.Init())
+	require.NoError(t, b.Connect())
+	// 拒连 + 1 次尝试：错误快速返回，但中间件分支已驱动。
+	require.Error(t, b.Publish(context.Background(), "topic.mw", &broker.Message{Body: "x"}))
+	assert.Equal(t, 1, seen, "发布中间件应被驱动")
+}
+
+func TestSubscriber_HandleBatchMessage(t *testing.T) {
+	mr := refusedAddr(t)
+	b := newTestBroker(t, mr)
+
+	hits := 0
+	sub, err := b.Subscribe("topic.batch", func(context.Context, broker.Event) error { return nil }, nil)
+	require.NoError(t, err)
+	s := sub.(*subscriber)
+	s.options.AutoAck = false // CommitMessages 对拒连地址无限重试会挂死测试
+	s.handler = func(context.Context, broker.Event) error { hits++; return nil }
+
+	msgs := []kafkaGo.Message{
+		mkMsg("topic.batch", []byte("one")),
+		mkMsg("topic.batch", []byte("two")),
+	}
+	s.handleBatchMessage(msgs)
+	assert.Equal(t, 2, hits, "两条消息应全部驱动 handler")
+}
+
+func TestSubscriber_BinderFailureInBatch(t *testing.T) {
+	mr := refusedAddr(t)
+	b := newTestBroker(t, mr)
+
+	sub, err := b.Subscribe("topic.batch.bad", func(context.Context, broker.Event) error { return nil }, func() any { return new(map[string]any) })
+	require.NoError(t, err)
+	s := sub.(*subscriber)
+	s.options.AutoAck = false // 同上：commit 重试会挂死
+
+	s.handleBatchMessage([]kafkaGo.Message{mkMsg("topic.batch.bad", []byte("{invalid"))}) // 解码失败 → done 记日志继续，不 panic
+}
+
+func TestSubscriber_DiagnosticAccessors(t *testing.T) {
+	mr := refusedAddr(t)
+	b := newTestBroker(t, mr)
+
+	sub, err := b.Subscribe("topic.acc", func(context.Context, broker.Event) error { return nil }, nil)
+	require.NoError(t, err)
+	s := sub.(*subscriber)
+	assert.Equal(t, "topic.acc", s.Topic())
+	assert.NotNil(t, s.Options())
+}
+
+func TestBroker_AddressDefault(t *testing.T) {
+	b := NewBroker()
+	bb := b.(*kafkaBroker)
+	// Addrs 未设置时 Address 落 defaultAddr（Init 才会写 options.Addrs）。
+	assert.Equal(t, "127.0.0.1:9092", bb.Address())
+}
+
+func TestBroker_LoggerPrintf(t *testing.T) {
+	Logger{}.Printf("unit %s", "driven")
+	ErrorLogger{}.Printf("unit %s", "driven")
+}
+
+func TestBroker_ScramDialerWiring(t *testing.T) {
+	mr := refusedAddr(t)
+	b := newTestBroker(t, mr,
+		WithScramMechanism("SHA256", "user", "pass"),
+		WithReaderConfig(kafkaGo.ReaderConfig{Brokers: []string{mr}}), // 裸配置：Brokers 保留断言（缺陷 #8 回归）
+	)
+	require.NoError(t, b.Init())
+	require.NoError(t, b.Connect())
+	assert.Equal(t, []string{mr}, b.readerConfig.Brokers, "WithReaderConfig 替换不得抹掉 addrs 单一真相源")
 }
