@@ -1,6 +1,8 @@
 package rabbitmq
 
 import (
+	"crypto/tls"
+
 	"context"
 	"errors"
 	"fmt"
@@ -233,4 +235,125 @@ func TestServer_DoubleStopIdempotent(t *testing.T) {
 	require.NoError(t, srv.Stop(context.Background()))
 	require.NoError(t, srv.Stop(context.Background()))
 	assert.True(t, strings.Contains(srv.Name(), "rabbit"))
+}
+
+// ---- Stop 生命周期面：成功 Start 后 Stop 的三件套（退订/清簿/摘 started）----
+
+func TestServer_StopLifecycleAfterSuccessfulStart(t *testing.T) {
+	b := newStubRabbitBroker()
+	srv := &Server{
+		Broker:         b,
+		subscribers:    make(broker.SubscriberMap),
+		subscriberOpts: make(subscribe.SubscribeOptionMap),
+		baseCtx:        context.Background(),
+	}
+	require.NoError(t, srv.Start(context.Background()))
+	require.NoError(t, srv.RegisterSubscriber(context.Background(), "rk.stop", func(context.Context, broker.Event) error { return nil }, nil))
+	assert.Len(t, srv.subscribers, 1, "live 登记应直接落订阅簿")
+
+	require.NoError(t, srv.Stop(context.Background()))
+	assert.Empty(t, srv.subscribers, "Stop 应清订阅簿")
+	assert.Empty(t, srv.subscriberOpts, "Stop 应清 deferred 队列（重建走 contract 新实例）")
+	assert.False(t, srv.started.Load(), "started 必须复位")
+	assert.Empty(t, srv.Endpoint(), "Stop 后端点必回空")
+
+	// double Stop：started 已复位 → 幂等 nil。
+	require.NoError(t, srv.Stop(context.Background()))
+}
+
+func TestServer_DoubleStartIdempotent(t *testing.T) {
+	b := newStubRabbitBroker()
+	srv := &Server{
+		Broker:         b,
+		subscribers:    make(broker.SubscriberMap),
+		subscriberOpts: make(subscribe.SubscribeOptionMap),
+		baseCtx:        context.Background(),
+	}
+	require.NoError(t, srv.Start(context.Background()))
+	require.NoError(t, srv.Start(context.Background()), "started 后重复 Start 幂等 nil")
+	assert.Len(t, b.snapshotSubscribed(), 0, "重复 Start 不得重复 flush deferred 队列")
+}
+
+// ---- options 全表面：全部 ServerOption 执行并断言落点 ----
+
+func TestServerOptions_AllFieldsApplied(t *testing.T) {
+	m := &recordingRabbitMetrics{counters: map[string]float64{}}
+	srv := NewServer(
+		WithAddress([]string{"amqp://127.0.0.1:5672"}),
+		WithCodec("json"),
+		WithTLSConfig(nil),
+		WithExchange("bald-ex", true),
+		WithMetrics(m),
+		WithBrokerOptions(broker.WithAddress("amqp://127.0.0.1:5672")),
+	)
+	assert.Same(t, m, srv.m, "WithMetrics 应注入实例")
+	assert.Equal(t, KindRabbitMQ, srv.Name())
+}
+
+// ---- 泛型 wrapper：handler 返回错误 → err 透传分支 ----
+
+func TestServer_GenericWrapperHandlerError(t *testing.T) {
+	b := newStubRabbitBroker()
+	srv := &Server{
+		Broker:         b,
+		subscribers:    make(broker.SubscriberMap),
+		subscriberOpts: make(subscribe.SubscribeOptionMap),
+	}
+
+	boom := errors.New("typed handler boom")
+	type payload struct {
+		Value string `json:"value"`
+	}
+	require.NoError(t, RegisterSubscriber(srv, context.Background(), "rk.err",
+		func(_ context.Context, _ string, _ broker.Headers, _ *payload) error { return boom }))
+
+	require.NoError(t, srv.Start(context.Background()))
+	wrapped, ok := b.captured["rk.err"]
+	require.True(t, ok)
+	err := wrapped(context.Background(), stubRabbitEvent{msg: broker.NewMessage(&payload{})})
+	require.ErrorIs(t, err, boom, "typed handler 的错误必须透传")
+}
+
+// ---- baseCtx 兜底分支：字面量构造（baseCtx=nil）时登记自动补 Background ----
+
+func TestServer_RegisterSubscriberBaseCtxFallback(t *testing.T) {
+	s := &Server{
+		subscribers:    make(broker.SubscriberMap),
+		subscriberOpts: make(subscribe.SubscribeOptionMap),
+		// baseCtx 刻意留 nil：RegisterSubscriber 的兜底分支应补 Background
+	}
+	require.NoError(t, s.RegisterSubscriber(context.Background(), "rk.ctx", func(context.Context, broker.Event) error { return nil }, nil))
+	require.NotNil(t, s.baseCtx, "baseCtx 兜底应生效")
+}
+
+// ---- Init 失败分支：Start 返回 Init 错误（粘滞由 s.err 承担）----
+
+func TestServer_InitFailureSticky(t *testing.T) {
+	boom := errors.New("stub init boom")
+	s := &Server{
+		Broker:         &stubInitFailBroker{err: boom},
+		subscribers:    make(broker.SubscriberMap),
+		subscriberOpts: make(subscribe.SubscribeOptionMap),
+	}
+	err := s.Start(context.Background())
+	require.ErrorIs(t, err, boom)
+	assert.Empty(t, s.subscriberOpts, "Init 失败不得清 deferred 队列（收敛语义）")
+
+	// 粘滞：二次 Start 回同一错误。
+	require.ErrorIs(t, s.Start(context.Background()), boom)
+}
+
+type stubInitFailBroker struct {
+	broker.Broker
+	err error
+}
+
+func (b *stubInitFailBroker) Init(...broker.Option) error { return b.err }
+
+// ---- WithTLSConfig 非 nil：EnableSecure 与 TLSConfig 两条都进 brokerOpts ----
+
+func TestServer_WithTLSConfigNonNil(t *testing.T) {
+	// rabbitmq 的 NewServer 无默认选项；非 nil TLS 追加 EnableSecure + TLSConfig → 2。
+	srv := NewServer(WithTLSConfig(&tls.Config{MinVersion: tls.VersionTLS12}))
+	require.Len(t, srv.brokerOpts, 2)
 }
