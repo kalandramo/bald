@@ -1,6 +1,7 @@
 package kafka
 
 import (
+	"fmt"
 	"hash"
 	"time"
 
@@ -76,6 +77,11 @@ func WithPlainMechanism(username, password string) broker.Option {
 }
 
 // WithScramMechanism SCRAM认证信息
+//
+// 未知算法名在 option 构造期即 fail-fast（panic 点名非法值）：透传给
+// xdg-go/scram 会在库内部 nil-deref panic（"sha256" 小写自然笔误即触发，
+// 栈指向库而不是配置错误点）。transport/kafka 的同名守卫只挡 transport
+// 路径，broker 原点此处是唯一收口。
 func WithScramMechanism(algoName ScramAlgorithm, username, password string) broker.Option {
 	var algo scram.Algorithm
 	switch algoName {
@@ -83,6 +89,8 @@ func WithScramMechanism(algoName ScramAlgorithm, username, password string) brok
 		algo = scram.SHA256
 	case ScramAlgorithmSHA512:
 		algo = scram.SHA512
+	default:
+		panic(fmt.Sprintf("kafka: unknown SCRAM algorithm %q (want SHA256 or SHA512; the value is case-sensitive)", algoName))
 	}
 
 	mechanism, err := scram.Mechanism(algo, username, password)

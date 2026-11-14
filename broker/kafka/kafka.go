@@ -120,24 +120,27 @@ func (b *kafkaBroker) Init(opts ...broker.Option) error {
 	}
 
 	if value, ok := b.options.Context.Value(readerConfigKey{}).(kafkaGo.ReaderConfig); ok {
+		// Brokers 单一真相源在 addrs（WithAddress/契约段），裸配置整体替换时
+		// 必须保留——否则 Subscribe 时 NewReader 空 brokers panic（段 6 实测）。
+		brokers := b.readerConfig.Brokers
 		b.readerConfig = value
+		b.readerConfig.Brokers = brokers
 	}
 
+	// Dialer 次序：nil 先落默认；有 SASL mechanism 时必须挂上——旧实现先填默认
+	// 再判 nil，第二个 if 恒假，WithReaderConfig 与 SASL 同用时 mechanism 被静默
+	// 丢弃（连接裸奔连集群）。
 	if b.readerConfig.Dialer == nil {
-		b.readerConfig.Dialer = kafkaGo.DefaultDialer
-	}
-
-	if b.saslMechanism != nil {
-		if b.readerConfig.Dialer == nil {
-			dialer := &kafkaGo.Dialer{
-				Timeout:       defaultDialTimeout,
-				DualStack:     true,
-				SASLMechanism: b.saslMechanism,
-			}
-			b.readerConfig.Dialer = dialer
-		} else {
-			b.readerConfig.Dialer.SASLMechanism = b.saslMechanism
+		dialer := &kafkaGo.Dialer{
+			Timeout:   defaultDialTimeout,
+			DualStack: true,
 		}
+		if b.saslMechanism != nil {
+			dialer.SASLMechanism = b.saslMechanism
+		}
+		b.readerConfig.Dialer = dialer
+	} else if b.saslMechanism != nil {
+		b.readerConfig.Dialer.SASLMechanism = b.saslMechanism
 	}
 
 	if b.options.Secure && b.options.TLSConfig != nil {
