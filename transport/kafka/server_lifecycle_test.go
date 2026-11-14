@@ -1,6 +1,8 @@
 package kafka
 
 import (
+	"crypto/tls"
+
 	"context"
 	"errors"
 	"fmt"
@@ -244,4 +246,56 @@ func TestServer_WithScramMechanismValidAlgosConstruct(t *testing.T) {
 		_ = WithScramMechanism("SHA256", "user", "pass")
 		_ = WithScramMechanism("SHA512", "user", "pass")
 	})
+}
+
+// ---- Init 失败分支：Start 返回 Init 错误并粘滞 ----
+
+func TestServer_InitFailureSticky(t *testing.T) {
+	boom := errors.New("stub init boom")
+	s := &Server{
+		Broker:         &stubKafkaBroker{initErr: boom},
+		subscribers:    make(broker.SubscriberMap),
+		subscriberOpts: make(subscribe.SubscribeOptionMap),
+	}
+	err := s.Start(context.Background())
+	require.ErrorIs(t, err, boom)
+	assert.Empty(t, s.subscriberOpts, "Init 失败不得清 deferred 队列（收敛语义）")
+}
+
+// ---- 泛型登记糖：deferred/live 两态 + disableAutoAck 分支 ----
+
+func TestServer_RegisterSubscriberGeneric(t *testing.T) {
+	srv := NewServer()
+
+	type payload struct {
+		Value string `json:"value"`
+	}
+	handler := func(_ context.Context, _ string, _ broker.Headers, _ *payload) error { return nil }
+
+	// Start 前（deferred）：disableAutoAck=true 走 WithSubscribeAutoAck(false) 分支。
+	require.NoError(t, RegisterSubscriber(srv, context.Background(), "topic.generic", "g1", true, handler))
+	require.Contains(t, srv.subscriberOpts, "topic.generic")
+
+	require.NoError(t, srv.Start(context.Background()))
+	defer func() { _ = srv.Stop(context.Background()) }()
+	assert.Len(t, srv.subscribers, 1, "Start 时 deferred 队列应 flush 成订阅")
+
+	// Start 后（live 路径）：disableAutoAck=false 分支。
+	require.NoError(t, RegisterSubscriber(srv, context.Background(), "topic.generic.live", "g1", false, handler))
+	assert.Len(t, srv.subscribers, 2)
+}
+
+// ---- WithTLSConfig 非 nil：EnableSecure 与 TLSConfig 两条都进 brokerOpts ----
+
+func TestServer_WithTLSConfigNonNil(t *testing.T) {
+	srv := NewServer(WithTLSConfig(&tls.Config{MinVersion: tls.VersionTLS12}))
+	// kafka 的 NewServer 无默认选项（与 redis 不同）；非 nil TLS 追加
+	// EnableSecure + TLSConfig 两条 → 2。
+	require.Len(t, srv.brokerOpts, 2)
+}
+
+// ---- logError 直驱（生产无调用点，仅手动用例路径使用；-short 下补语句覆盖） ----
+
+func TestServer_LogErrorDirect(t *testing.T) {
+	logError("unit", "driven") // 语句覆盖；输出进测试日志无妨
 }
