@@ -170,9 +170,13 @@ func (s *Server) doRegisterSubscriberMap() error {
 		if err := s.doRegisterSubscriber(topic, opt.Handler, opt.Binder, opt.SubscribeOptions...); err != nil {
 			logErrorf("register subscriber failed, topic: %s, error: %s", topic, err.Error())
 			errs = append(errs, err)
+			// 失败条目留在 subscriberOpts，下次 Start 重试（收敛语义）——此前
+			// 无条件清空整批 deferred 队列：Start 失败后重试再也找不到待注册
+			// 项，订阅静默丢失（传输层设计 §已知缺口 #2，家族同构缺陷）。
+			continue
 		}
+		delete(s.subscriberOpts, topic)
 	}
-	s.subscriberOpts = make(subscribe.SubscribeOptionMap)
 	return errors.Join(errs...)
 }
 
