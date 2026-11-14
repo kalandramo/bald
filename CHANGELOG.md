@@ -4,6 +4,28 @@
 条目取自该版本区间内的提交标题（Conventional Commits），不要手工调整顺序。
 发布流程见 [多模块发布与变更日志](docs/devel/zh-CN/多模块发布与变更日志.md)。
 
+## 2026-11-14
+
+### transport/kafka v0.3.3
+
+- `4fba4187` experiment: 假设4（冲收段线）：泛型 wrapper 两分支（桩捕获 wrapped handler 合成事件直驱——case *T 与 default/unsupported type）、double Start 幂等。96.3% 过 95% 收段线。     hyp: wrapper 体离线不可投递但可桩捕获直驱；剩余为 Publish 真投递（真集群才可测）     next: 收段——95% 线已过，剩余为真集群路径（integration 范围）     rollback: 测试独立成文件；桩捕获机制无产品改动
+- `2722fdcd` experiment: 假设3（补齐碎片：Init 失败粘滞分支、泛型登记糖 deferred/live 双态 + disableAutoAck 分支、WithTLSConfig 非 nil、logError 直驱）；途中揭出第四个缺陷——WithScramMechanism 未知算法名（"sha256" 小写自然笔误）透传 xdg-go/scram 内部 nil-deref panic，transport 层构造期 fail-fast 点名非法值与合法值域。84.1→91.6%。     hyp: 剩余未覆盖集中在 Start Init 分支、泛型糖与 TLS 变体，全部离线可驱动     next: 剩 8.4% = Publish 真投递路径（真集群才可测）+ doAccept goroutine 细节——95% 线需评估离线可达性上限     rollback: Scram 守卫独立成行（transport options.go）；测试零产品行为改动
+- `c768fffb` experiment: 假设1+2（段2 修复平移 + kafka 适配测试族）：两个家族缺陷逐字平移（deferred 收敛语义、覆盖先摘旧订阅）+ 生命周期/桩/粘滞/options 全表面/wrapHandler 单元驱动（kafka Connect 翻标志位，全部离线绿）；途中揭出第三个缺陷——WithScramMechanism 未知算法名透传给 xdg-go/scram 内部 nil-deref panic（"sha256" 小写自然笔误即触发），transport 层构造期 fail-fast 点名非法值。38.8→84.1%。     hyp: 段2 的测试族与修复可直接平移（家族逐字同构），kafka 离线语义使收益率更高     next: 剩 15.9%：wrapHandler 的 s.m==nil 直通分支已覆盖、Publish 路径（真集群才投递）、Endpoint 细节——收段线 95% 需再一轮补 Endpoint/options 碎点     rollback: 两个缺陷修复各一处（doRegisterSubscriberMap / doRegisterSubscriber），Scram 守卫在 transport 层独立成行
+- `e5a0a70c` chore(deps): 撤回发布叠加层——dropreplace 临时 bootstrap/bconfig/transport 目录 replace
+
+### transport/rabbitmq v0.4.1
+
+- `5e68ca06` experiment: 假设2+3（Stop 生命周期面、options 全表面、泛型 wrapper 错误透传、baseCtx 兜底、Init 失败粘滞、TLS 非 nil）：成功 Start 后 Stop 三件套钉住（退订/清簿/摘 started + double Stop 幂等）、九项 ServerOption 全执行、typed handler 错误透传分支、baseCtx=nil 兜底补 Background。71.8→97.3%，过 95% 收段线。     hyp: 剩余未覆盖集中在 Stop started-true 面、options 闭包与 Init 失败分支，全部桩可驱     next: 收段——95% 线已过；剩余 2.7% = 真 AMQP 握手内部（broker 层集成范围）     rollback: 测试独立成文件；零产品行为改动（缺陷修复已在 #1）
+- `c8855b0d` experiment: 假设1（两个家族缺陷平移 + 测试族落地）：deferred 收敛语义、覆盖先摘旧订阅逐字平移；桩驱生命周期族（部分失败保留/重试收敛、覆盖摘旧、拒连粘滞+端点空、nil ctx 守卫钉住、泛型 wrapper 两分支桩捕获直驱、wrapHandler 计量、double Stop 幂等）。19.4→71.8%。     hyp: server 面整桩可驱（真 AMQP 握手只在 broker 内部），段 2/3 的族直接落地     next: 剩余未覆盖：options 面（WithExchange/WithTLSConfig 等）、Stop 清 deferred 语义、粘滞二次 Start 分支、logger 面     rollback: 两个缺陷修复各一处（doRegisterSubscriberMap / doRegisterSubscriber），测试独立成文件
+- `e5a0a70c` chore(deps): 撤回发布叠加层——dropreplace 临时 bootstrap/bconfig/transport 目录 replace
+
+### transport/redis v0.3.3
+
+- `f71c1a18` experiment: 假设3（覆盖路径真缺陷：同 topic 覆盖时旧订阅者从不 Unsubscribe——双份投递 + 订阅 goroutine 泄漏到连接关闭）修复 + 回归测试（一条消息只投一次）；WithTLSConfig 两分支、post-Start 重复登记（logWarnf 路径）补齐。91.5→96.6%。     hyp: 剩余碎点里藏着家族同构的第三个行为缺陷（覆盖即泄漏），修法对齐收敛语义     next: 剩 3.4%：Start 的 Init 失败分支（离线不可构造）、粘滞/幂等已覆盖——收段线 95% 已过，评估收段     rollback: 缺陷修复一处（doRegisterSubscriber 的 old.Unsubscribe），回归测试钉死行为
+- `30120cf8` experiment: 假设2（options 全表面 + wrapHandler 计量 + 端点语义 + 重入幂等）：九个 ServerOption 全执行并断言落点；WithMetrics 注入驱动 wrapHandler 三路（received/duration histogram/error counter）；凭证端点脱敏（miniredis RequireAuth + userinfo URL）；url.Parse 失败回退原值；double Start/Stop 幂等与 Stop 清 deferred 的有意语义钉住；同 topic 重复登记覆盖路径。67.8→91.5%。     hyp: 剩余未覆盖集中在 options 闭包面与 wrapHandler 计量分支，全部可用 miniredis/桩离线驱动     next: 剩 8.5%：Start 的 err 粘滞早退分支、Endpoint 的 started 双分支细节、logger 常量面——多为 1-2 语句碎点，收益递减；下一步评估是否够到 95% 收段线     rollback: 测试独立成文件，零产品改动
+- `6073fc43` experiment: 假设1（deferred 订阅丢失修复 + 首批生命周期测试族）：doRegisterSubscriberMap 部分失败改为「成功才摘条目」（旧实现无条件清空 deferred 队列——Start 失败后重试订阅静默丢失，家族同构缺陷）；新增 server_lifecycle_test.go 五族——桩验证收敛语义、miniredis 生命周期（Start/Stop/端点）、deferred 与 live 双路注册回环、粘滞错误。17.9→67.8%。     hyp: 服务器面 80% 语句从未被任何测试执行（-short 下），修复+生命周期族一步到位     next: 剩余未覆盖面：Stop 后再 Start 的重入语义、wrapHandler（metrics 注入）、WithServerOptions 追加序、Start 失败各分支（Init/Connect）、kind/logger 常量面     rollback: 修复收敛语义独立可回滚（doRegisterSubscriberMap 一处）；测试族独立成文件
+- `e5a0a70c` chore(deps): 撤回发布叠加层——dropreplace 临时 bootstrap/bconfig/transport 目录 replace
+
 ## 2026-11-13
 
 ### bald v0.55.0
