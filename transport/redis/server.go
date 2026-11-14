@@ -157,8 +157,12 @@ func (s *Server) doRegisterSubscriber(topic string, handler broker.Handler, bind
 		return err
 	}
 
-	if _, exists := s.subscribers[topic]; exists {
+	if old, exists := s.subscribers[topic]; exists {
 		logWarnf("subscriber for topic '%s' already exists, overwriting", topic)
+		// 旧订阅必须先摘除：只覆写映射的话，旧 pubsub 订阅还挂在连接上——
+		// 消息双份投递（新旧 handler 各收一次）且旧订阅 goroutine 泄漏到
+		// 连接关闭为止。
+		_ = old.Unsubscribe(false)
 	}
 	s.subscribers[topic] = sub
 	return nil

@@ -2,6 +2,7 @@ package redis
 
 import (
 	"context"
+	"crypto/tls"
 	"sync"
 	"testing"
 	"time"
@@ -154,4 +155,59 @@ func TestServer_RegisterDuplicateTopicOverwrites(t *testing.T) {
 		"同 topic 重复登记应走覆盖路径而非报错")
 	require.NoError(t, srv.Start(context.Background()))
 	assert.Len(t, srv.subscribers, 1, "重复登记只保留一个订阅者")
+}
+
+// ---- 覆盖路径的产品缺陷回归：旧订阅必须摘除（防双份投递 + goroutine 泄漏） ----
+
+func TestServer_RegisterDuplicateAfterStartUnsubscribesOld(t *testing.T) {
+	mr := miniredis.RunT(t)
+	srv := newLiveServer(t, mr)
+	require.NoError(t, srv.Start(context.Background()))
+
+	type payload struct {
+		Value string `json:"value"`
+	}
+	var mu sync.Mutex
+	hits := 0
+
+	h1 := make(chan string, 4)
+	require.NoError(t, RegisterSubscriber(srv, "topic.overwrite",
+		func(_ context.Context, _ string, _ broker.Headers, p *payload) error {
+			mu.Lock()
+			hits++
+			mu.Unlock()
+			h1 <- p.Value
+			return nil
+		}))
+	// 同 topic 二次登记 → 旧订阅应被摘除，消息只投给覆盖后的订阅者。
+	require.NoError(t, RegisterSubscriber(srv, "topic.overwrite",
+		func(_ context.Context, _ string, _ broker.Headers, p *payload) error {
+			mu.Lock()
+			hits++
+			mu.Unlock()
+			h1 <- p.Value
+			return nil
+		}))
+
+	time.Sleep(200 * time.Millisecond)
+	require.NoError(t, srv.Publish(context.Background(), "topic.overwrite",
+		&broker.Message{Body: payload{Value: "once"}}))
+	time.Sleep(300 * time.Millisecond)
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, 1, hits, "一条消息只应投递给覆盖后的那一个订阅者（旧订阅必须摘除）")
+	_ = h1
+}
+
+// ---- WithTLSConfig：nil 与非 nil 两条路径都执行且不破坏构造 ----
+
+func TestServer_WithTLSConfigVariants(t *testing.T) {
+	// NewServer 自带 Read/Idle 两条默认；nil TLS 只追加 EnableSecure（1 条）→ 3。
+	srvNil := NewServer(WithTLSConfig(nil))
+	require.Len(t, srvNil.brokerOpts, 3, "nil TLS: 默认两条 + EnableSecure 一条")
+
+	// 非 nil TLS 追加 EnableSecure + TLSConfig（2 条）→ 4。
+	srvTLS := NewServer(WithTLSConfig(&tls.Config{MinVersion: tls.VersionTLS12}))
+	require.Len(t, srvTLS.brokerOpts, 4, "非 nil TLS 应追加 EnableSecure + TLSConfig 两条")
 }
