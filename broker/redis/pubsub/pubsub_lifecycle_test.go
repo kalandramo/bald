@@ -2,9 +2,11 @@ package pubsub
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
+	"github.com/gomodule/redigo/redis"
 	"github.com/kalandramo/bald/broker"
 	"github.com/kalandramo/bald/encoding"
 	jsoncodec "github.com/kalandramo/bald/encoding/json"
@@ -276,8 +278,8 @@ func TestPubSub_ReconnectBranches(t *testing.T) {
 	s := sub.(*subscriber)
 
 	// 成功分支：活 pool 重连并重新订阅（reconnect 只重挂 conn，不进订阅簿）。
+	// 断言只用返回值——s.conn 的读写有锁，测试侧直读会与 recv goroutine 竞态。
 	require.True(t, s.reconnect(), "活 pool 重连应成功")
-	require.NotNil(t, s.conn, "重连后应持有新 PubSubConn")
 
 	// 失败分支：miniredis 关停后 pool 拨号失败。
 	mr.Close()
@@ -314,4 +316,67 @@ func TestPubSub_PublicationAccessors(t *testing.T) {
 	require.NotNil(t, p.RawMessage())
 	require.ErrorIs(t, p.Error(), assert.AnError)
 	require.NoError(t, p.Ack(), "pubsub publication 的 Ack 恒 nil（无 pending 概念）")
+}
+
+// ---- 迭代 4：脚本化 Conn 直驱 receiveLoop 全分支（Pong/Subscription/error）----
+
+type scriptedPubsubConn struct {
+	replies []any // 依次返回的 Receive 结果
+	i       int
+}
+
+func (c *scriptedPubsubConn) Close() error                   { return nil }
+func (c *scriptedPubsubConn) Do(string, ...any) (any, error) { return nil, nil }
+func (c *scriptedPubsubConn) Send(string, ...any) error      { return nil }
+func (c *scriptedPubsubConn) Flush() error                   { return nil }
+func (c *scriptedPubsubConn) Err() error                     { return nil }
+func (c *scriptedPubsubConn) Receive() (any, error) {
+	if c.i >= len(c.replies) {
+		return nil, errors.New("script exhausted")
+	}
+	r := c.replies[c.i]
+	c.i++
+	return r, nil
+}
+
+func TestPubSub_ReceiveLoopBranches(t *testing.T) {
+	mr := miniredis.RunT(t)
+	b := newTestBroker(t, mr)
+
+	hits := 0
+	s := &subscriber{
+		b:       b,
+		topic:   "topic.branches",
+		handler: func(context.Context, broker.Event) error { hits++; return nil },
+		options: broker.SubscribeOptions{Context: context.Background()},
+		conn:    &redis.PubSubConn{Conn: &scriptedPubsubConn{}},
+	}
+
+	// 分支序列（线上原始形：PubSubConn.receive 会自行转换成 Pong/Message）：
+	// Pong → Message（驱动 handler）→ error 退出。
+	s.conn = &redis.PubSubConn{Conn: &scriptedPubsubConn{replies: []any{
+		[]any{[]byte("pong"), []byte("")},
+		[]any{[]byte("message"), []byte("topic.branches"), []byte(`"x"`)},
+		errors.New("conn broken"),
+	}}}
+	err := s.receiveLoop()
+	require.Error(t, err)
+	assert.Equal(t, 1, hits, "Message 分支应驱动 handler")
+
+	// Subscription count>0 → 继续；count==0 → 正常退出（err==nil）。
+	s2 := &subscriber{
+		b:       b,
+		topic:   "topic.branches",
+		handler: func(context.Context, broker.Event) error { return nil },
+		options: broker.SubscribeOptions{Context: context.Background()},
+	}
+	s2.conn = &redis.PubSubConn{Conn: &scriptedPubsubConn{replies: []any{
+		[]any{[]byte("subscribe"), []byte("topic.branches"), []byte("2")},
+		[]any{[]byte("unsubscribe"), []byte("topic.branches"), []byte("0")},
+	}}}
+	require.NoError(t, s2.receiveLoop(), "count==0 应正常退出")
+
+	// conn nil → error 退出分支。
+	s3 := &subscriber{b: b, options: broker.SubscribeOptions{Context: context.Background()}}
+	require.Error(t, s3.receiveLoop())
 }

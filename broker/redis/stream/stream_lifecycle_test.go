@@ -2,6 +2,9 @@ package stream
 
 import (
 	"context"
+	"errors"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -348,3 +351,131 @@ func TestStream_InitDefaultAddrFallback(t *testing.T) {
 	// 默认 127.0.0.1:6379 拒连（本机无 redis）→ Connect 探活失败。
 	require.Error(t, bb.Connect())
 }
+
+// ---- 迭代 4：脚本化 pool 直驱 receiveLoop 解析全分支 ----
+
+type scriptedStreamConn struct {
+	mu      sync.Mutex
+	replies []any // 依次返回的 Do(XREADGROUP) 结果（赋值方与消费方跨 goroutine）
+	i       int
+}
+
+func (c *scriptedStreamConn) Close() error { return nil }
+func (c *scriptedStreamConn) Do(cmd string, args ...any) (any, error) {
+	switch cmd {
+	case "XREADGROUP":
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		if c.i >= len(c.replies) {
+			return nil, nil // 空轮
+		}
+		r := c.replies[c.i]
+		c.i++
+		return r, nil
+	case "XGROUP":
+		return "OK", nil // ensureGroup 容忍
+	case "PING":
+		return "PONG", nil
+	case "XACK":
+		return 1, nil
+	}
+	return nil, nil
+}
+func (c *scriptedStreamConn) Send(string, ...any) error { return nil }
+func (c *scriptedStreamConn) Flush() error              { return nil }
+func (c *scriptedStreamConn) Receive() (any, error)     { return nil, nil }
+func (c *scriptedStreamConn) Err() error                { return nil }
+
+// TestStream_ReceiveLoopParseBranches 驱动解析全分支：
+// 正常消息（typed handler 驱动）、无 body 字段跳过、字段类型不符跳过、空 reply 轮。
+func TestStream_ReceiveLoopParseBranches(t *testing.T) {
+	mr := miniredis.RunT(t)
+	bb := NewBroker(broker.WithAddress(mr.Addr())).(*streamBroker)
+	require.NoError(t, bb.Init())
+	script := &scriptedStreamConn{}
+	bb.mu.Lock()
+	bb.pool = &redis.Pool{Dial: func() (redis.Conn, error) { return script, nil }}
+	bb.mu.Unlock()
+	t.Cleanup(func() { _ = bb.Disconnect() })
+
+	type payload struct {
+		Value string `json:"value"`
+	}
+	typedHits := 0
+	_, err := bb.Subscribe("topic.parse", func(_ context.Context, _ broker.Event) error {
+		typedHits++
+		return nil
+	}, func() any { return new(payload) })
+	require.NoError(t, err)
+
+	// 线上形：正常消息 / 无 body / 字段类型不符 / 空 reply 轮。
+	script.replies = []any{
+		[]any{[]any{[]byte("topic.parse"), []any{
+			[]any{[]byte("id-ok"), []any{[]byte("body"), []byte(`{"value":"v"}`)}},
+		}}},
+		nil,
+		[]any{[]any{[]byte("topic.parse"), []any{
+			[]any{[]byte("id-nobody"), []any{[]byte("other"), []byte("x")}},
+		}}},
+		[]any{[]any{[]byte("topic.parse"), []any{
+			[]any{[]byte("id-badtype"), []any{[]byte("body"), 42}},
+		}}},
+	}
+
+	// 等脚本被消费完（recv goroutine 持锁读，轮询其消费进度）。
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		script.mu.Lock()
+		consumed := script.i >= len(script.replies)
+		script.mu.Unlock()
+		if consumed {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	time.Sleep(200 * time.Millisecond)
+
+	assert.Equal(t, 1, typedHits, "正常消息应驱动 typed handler 一次")
+}
+
+// TestStream_ReceiveLoopConnError Do 报错 → receiveLoop 返回错误 → recv 重连路径。
+func TestStream_ReceiveLoopConnError(t *testing.T) {
+	mr := miniredis.RunT(t)
+	bb := NewBroker(broker.WithAddress(mr.Addr())).(*streamBroker)
+	require.NoError(t, bb.Init())
+	boom := &scriptedStreamConn{}
+	boomErr := atomic.Bool{}
+	boomErr.Store(true)
+	bb.mu.Lock()
+	bb.pool = &redis.Pool{Dial: func() (redis.Conn, error) {
+		return &errorOnceConn{script: boom, fail: &boomErr}, nil
+	}}
+	bb.mu.Unlock()
+	t.Cleanup(func() { _ = bb.Disconnect() })
+
+	_, serr := bb.Subscribe("topic.err", func(context.Context, broker.Event) error { return nil }, func() any { return new(struct{}) })
+	require.NoError(t, serr)
+
+	time.Sleep(500 * time.Millisecond)
+	boomErr.Store(false)
+}
+
+type errorOnceConn struct {
+	script *scriptedStreamConn
+	fail   *atomic.Bool
+}
+
+func (c *errorOnceConn) Close() error { return nil }
+func (c *errorOnceConn) Do(cmd string, args ...any) (any, error) {
+	if cmd == "XREADGROUP" && c.fail.Load() {
+		return nil, errors.New("scripted conn error")
+	}
+	if cmd == "XGROUP" {
+		return "OK", nil
+	}
+	return c.script.Do(cmd, args...)
+}
+func (c *errorOnceConn) Send(string, ...any) error { return nil }
+func (c *errorOnceConn) Flush() error              { return nil }
+func (c *errorOnceConn) Receive() (any, error)     { return nil, nil }
+func (c *errorOnceConn) Err() error                { return nil }
