@@ -5,6 +5,7 @@ modules:
 deps:
   - buf.build/googleapis/googleapis
   - buf.build/bufbuild/protovalidate
+  - buf.build/kalandramo/bald-bconf
 lint:
   use:
     - STANDARD

@@ -578,8 +578,11 @@ func TestTree_Layout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("gen: %v", err)
 	}
-	if n := strings.Count(out.String(), "generated:"); n != 14 {
-		t.Errorf("first run must generate 14 files, got %d:\n%s", n, out.String())
+	// 14 条原有落盘项 + build/docker/<app>/Dockerfile（交付面）+ .dockerignore
+	// （构建上下文过滤）：交付面是 G5 补的，数量变化本身是「新增产物要过清单
+	// 闸门」的信号，测试据此要求同步 appspec_budget_test.go 的预算清单。
+	if n := strings.Count(out.String(), "generated:"); n != 16 {
+		t.Errorf("first run must generate 16 files, got %d:\n%s", n, out.String())
 	}
 	owned := []string{
 		filepath.Join("cmd", "demoapp", "main.go"),
@@ -671,9 +674,10 @@ func TestTree_OwnershipAcrossRegenerations(t *testing.T) {
 	}
 	// seed.go、seed/policies.go、apiserver.go、bootstrap/custom.go 与
 	// cmd/<app>/app/custom.go（自定义接线钩子，播种后归用户）、api/buf.yaml 与
-	// api/buf.gen.yaml（buf 流水线配置，播种后归用户）。
-	if kept := strings.Count(out.String(), "kept:"); kept != 7 {
-		t.Errorf("adopt regen must report kept: for 7 seeded files, got %d:\n%s", kept, out.String())
+	// api/buf.gen.yaml（buf 流水线配置，播种后归用户）、build/docker/<app>/Dockerfile
+	// 与 .dockerignore（交付面，基础镜像与忽略清单因团队而异，播种后归用户）。
+	if kept := strings.Count(out.String(), "kept:"); kept != 9 {
+		t.Errorf("adopt regen must report kept: for 9 seeded files, got %d:\n%s", kept, out.String())
 	}
 	if got, _ := os.ReadFile(seedPath); string(got) != handEdit {
 		t.Errorf("seeded file must survive --adopt regen, got: %q", got)

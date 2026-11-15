@@ -30,8 +30,8 @@ type protoMethod struct {
 	Verb      string     // 主注解动词（get/post/put/delete/patch）；无注解为空
 	Path      string     // 主注解路径（如 /v1/greet/{name}）
 	Body      string     // 主注解 body（"*" 或字段掩码）；GET/DELETE 缺省无 body
-	Request   string     // 请求消息类型（去 proto package 前缀；嵌套类型以 "_" 连接）
-	Response  string     // 响应消息类型（同上）
+	Request   string     // 请求消息类型（去 proto package 前缀；嵌套以 "_" 连接；知名类型保留全名）
+	Response  string     // 响应消息类型（同 Request 口径）
 	Streaming bool       // 任一方向流式（proto 的 stream 关键字）
 	Rules     []httpRule // 全部 google.api.http 规则：主规则在前，additional_bindings 依次追加
 	// Unsupported 是注解里出现、但绑定生成未实现的字段（custom 动词、
@@ -141,8 +141,8 @@ func scanProto(relPath string, src []byte) (*protoFile, error) {
 		for _, r := range reProtoRPC.FindAllStringSubmatchIndex(block, -1) {
 			m := protoMethod{
 				Name:      block[r[2]:r[3]],
-				Request:   normalizeProtoType(f.Package, block[r[4]:r[5]]),
-				Response:  normalizeProtoType(f.Package, block[r[6]:r[7]]),
+				Request:   protoTypeRef(f.Package, block[r[4]:r[5]]),
+				Response:  protoTypeRef(f.Package, block[r[6]:r[7]]),
 				Streaming: reProtoStream.MatchString(block[r[0]:r[1]]),
 			}
 			// 方法段 = 本 rpc 起点到下一 rpc（或 service 块尾）。
@@ -395,6 +395,18 @@ func domainDir(module, goPackage string) (string, error) {
 		return filepath.FromSlash(strings.TrimPrefix(gp, module+"/")), nil
 	}
 	return "", fmt.Errorf("go_package %q is not under module %q (cannot locate the domain package directory)", goPackage, module)
+}
+
+// protoTypeRef 归一化 rpc 签名里的消息类型名，但**保留知名类型的全名**。
+//
+// 知名类型（google.protobuf.Empty 等）不在域包里，绑定生成要据此选另一个 Go 包
+// （emptypb.Empty）；一旦在扫描期就抹成 google_protobuf_Empty，那份信息就没了，
+// 下游只能拼出 <域包>.google_protobuf_Empty 这种不存在的标识符。
+func protoTypeRef(pkg, t string) string {
+	if _, ok := wellKnownTypes[t]; ok {
+		return t
+	}
+	return normalizeProtoType(pkg, t)
 }
 
 // normalizeProtoType 把 proto 里的消息类型名折算为 Go 类型名：去 proto package

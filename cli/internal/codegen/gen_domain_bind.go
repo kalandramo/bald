@@ -71,9 +71,27 @@ func bindNames(fullService string) (iface, binder string) {
 func bindViewOf(name string, d *appspecv1.DomainSpec, svcs []protoService) (*bindView, error) {
 	v := &bindView{Name: name, Domain: d.GetName()}
 	imports := map[string]string{} // path -> alias
+	// addImport 登记一条 import（按路径去重；同路径不同别名即冲突）。
+	addImport := func(imp bindImport) error {
+		if prev, ok := imports[imp.Path]; ok {
+			if prev != imp.Alias {
+				return fmt.Errorf("domain %q: Go package %q is imported with aliases %q and %q (align the go_package aliases)", d.GetName(), imp.Path, prev, imp.Alias)
+			}
+			return nil
+		}
+		imports[imp.Path] = imp.Alias
+		v.Imports = append(v.Imports, imp)
+		return nil
+	}
 	seenBinder := map[string]string{}
 	seenRoute := map[string]string{}
 	for _, svc := range svcs {
+		// proto 包别名要在构造类型表达式前就位：请求/响应类型要么在域包里
+		// （<alias>.X），要么是知名类型（emptypb.Empty 等，见 well_known_types.go）。
+		var protoAlias string
+		if svc.GoPackage != "" {
+			_, protoAlias = parseProtoGoPackage(svc.GoPackage)
+		}
 		var routes []bindRouteView
 		var methods []bindMethodView
 		seenRPC := map[string]bool{}
@@ -93,6 +111,18 @@ func bindViewOf(name string, d *appspecv1.DomainSpec, svcs []protoService) (*bin
 				// 流式 RPC 上是 proto 侧的错配，生成期直接报。
 				return nil, fmt.Errorf("domain %q: rpc %s is streaming but carries google.api.http annotations; streaming cannot be transcoded to REST", d.GetName(), m.Name)
 			}
+			// 每个 RPC 的请求/响应类型只算一次：签名与路由共用同一对表达式
+			// （知名类型走自己的 Go 包并把 import 登记进来）。
+			reqExpr, reqImp := goTypeExpr(svc.Package, protoAlias, m.Request)
+			respExpr, respImp := goTypeExpr(svc.Package, protoAlias, m.Response)
+			for _, imp := range []*bindImport{reqImp, respImp} {
+				if imp == nil {
+					continue
+				}
+				if err := addImport(*imp); err != nil {
+					return nil, err
+				}
+			}
 			for _, r := range rules {
 				ginPath, vars, err := ginPathOf(r.Path)
 				if err != nil {
@@ -108,13 +138,13 @@ func bindViewOf(name string, d *appspecv1.DomainSpec, svcs []protoService) (*bin
 				}
 				seenRoute[key] = method
 				routes = append(routes, bindRouteView{
-					RPC: m.Name, Request: m.Request, Verb: strings.ToUpper(r.Verb),
+					RPC: m.Name, Request: reqExpr, Verb: strings.ToUpper(r.Verb),
 					GinPath: ginPath, Body: r.Body, PathVarsExpr: pathVarsExpr(vars),
 				})
 			}
 			if !seenRPC[m.Name] {
 				seenRPC[m.Name] = true
-				methods = append(methods, bindMethodView{RPC: m.Name, Request: m.Request, Response: m.Response})
+				methods = append(methods, bindMethodView{RPC: m.Name, Request: reqExpr, Response: respExpr})
 			}
 		}
 		if len(routes) == 0 {
@@ -124,12 +154,8 @@ func bindViewOf(name string, d *appspecv1.DomainSpec, svcs []protoService) (*bin
 			return nil, fmt.Errorf("domain %q: proto service %q has no option go_package; bindings need it to import the generated Go message types", d.GetName(), svc.Package+"."+svc.Name)
 		}
 		protoPath, alias := parseProtoGoPackage(svc.GoPackage)
-		if prev, ok := imports[protoPath]; ok && prev != alias {
-			return nil, fmt.Errorf("domain %q: proto package %q is imported with aliases %q and %q (split the domain or align the go_package aliases)", d.GetName(), protoPath, prev, alias)
-		}
-		if _, ok := imports[protoPath]; !ok {
-			imports[protoPath] = alias
-			v.Imports = append(v.Imports, bindImport{Alias: alias, Path: protoPath})
+		if err := addImport(bindImport{Alias: alias, Path: protoPath}); err != nil {
+			return nil, err
 		}
 		iface, binder := bindNames(svc.Package + "." + svc.Name)
 		if prev, ok := seenBinder[binder]; ok {

@@ -237,7 +237,7 @@ func TestContract_Gate2_RealMapField(t *testing.T) {
 // Gate2 生成期即报（点名 ADR-6），不再 gen 庆祝、启动期报丧。
 func TestGate2RejectsUnimplementedFaces(t *testing.T) {
 	as := &appspecv1.AppSpec{
-		Meta:      &appspecv1.AppMeta{Name: "x", Module: "example.com/x"},
+		Meta: &appspecv1.AppMeta{Name: "x", Module: "example.com/x"},
 		Bootstrap: &bootstrapv1.BootstrapConfig{Server: &bootstrapv1.Server{
 			Mqtt: &bootstrapv1.Server_Mqtt{},
 		}},

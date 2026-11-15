@@ -38,6 +38,13 @@ func buildTree(v *treeView, cfgs map[string][]byte) ([]genFile, error) {
 		if err := addIn(&rv, filepath.Join("cmd", rv.CmdName, "app", "custom.go"), appCustomTmpl, Seeded, true); err != nil {
 			return nil, err
 		}
+		// 交付面：每角色一份多阶段 Dockerfile。seeded 而非 owned——基础镜像与
+		// 构建参数是团队环境取值，改写是正常用法（与 api/buf.*.yaml 同款）。
+		// Makefile 刻意不生成：构建入口已经是 taskfile.yml，再给一份就是双轨
+		// 构建（判据 J2 的重复税），onexai 的 make 目标在这里由 task 承接。
+		if err := addIn(&rv, filepath.Join("build", "docker", rv.CmdName, "Dockerfile"), dockerfileTmpl, Seeded, false); err != nil {
+			return nil, err
+		}
 	}
 	if err := add(filepath.Join("internal", "bootstrap", "assemble.gen.go"), assembleTmpl, owned, true); err != nil {
 		return nil, err
@@ -90,6 +97,11 @@ func buildTree(v *treeView, cfgs map[string][]byte) ([]genFile, error) {
 		return nil, err
 	}
 	if err := add("taskfile.yml", taskfileTmpl, owned, false); err != nil {
+		return nil, err
+	}
+	// 构建上下文过滤：没有它 .git/ 会被打包进 build context（层不变、构建变慢、
+	// 历史可能进中间层）。seeded——忽略清单因团队而异。
+	if err := add(".dockerignore", dockerignoreTmpl, Seeded, false); err != nil {
 		return nil, err
 	}
 	// 每角色一份契约：runner 的 configs 里没有 server 段，

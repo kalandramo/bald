@@ -22,7 +22,9 @@ import (
 type appOptions struct {
 	OutRoot string // --out：产出根目录（不可命名 Out，避免遮蔽 ioStreams.Out）
 	Spec    string // --spec：AppSpec JSON 路径（protojson）
-	Preset  string // --preset：预置声明模板名（与 --spec 互斥；落一份 appspec.json 后由用户编辑）
+	Preset  string // --preset：预置声明模板名（与 --spec 互斥；落 appspec.json）
+	AppName string // --name：预设的 meta.name 覆盖（省去手改声明）
+	Module  string // --module：预设的 meta.module 覆盖
 	Adopt   bool   // --adopt：覆盖 owned 生成物并更新清单
 	Check   bool   // --check：只校验不落盘（有差异即失败）
 
@@ -34,15 +36,17 @@ func (o *appOptions) Validate() error {
 	if o.Spec == "" && o.Preset == "" {
 		// DX-7：cwd 自动发现——应用目录里跑 `bald gen app` 不该每次都带 --spec。
 		// 只认精确的 appspec.json（不猜 *.json 通配：多候选时猜错比报错更糟）。
-		if _, err := os.Stat("appspec.json"); err == nil {
-			o.Spec = "appspec.json"
-			fmt.Fprintln(o.Out, "using appspec.json from current directory")
-		} else {
+		if !discoverSpec(&o.Spec, o.Out) {
 			return fmt.Errorf("--spec <AppSpec.json> is required (or --preset <name> to start from a template)")
 		}
 	}
 	if o.Spec != "" && o.Preset != "" {
 		return fmt.Errorf("--spec and --preset are mutually exclusive")
+	}
+	// --name/--module 只作用于预设：它们是「预设占位符的覆盖值」，手写声明该
+	// 直接改 appspec.json——两个入口同时改同一字段会出现「谁赢」的隐式规则。
+	if o.Preset == "" && (o.AppName != "" || o.Module != "") {
+		return fmt.Errorf("--name/--module only apply to --preset (edit appspec.json directly when using --spec)")
 	}
 	if o.Adopt && o.Check {
 		return fmt.Errorf("--adopt and --check are mutually exclusive")
@@ -51,19 +55,37 @@ func (o *appOptions) Validate() error {
 }
 
 // Run 纯执行：--preset 先落声明文件（Seeded 语义），否则读取 AppSpec 生成目录树。
+//
+// 预设带 --name/--module 时**一条命令走完**：写声明后立即生成目录树。这两个
+// flag 的存在本身就是「我要一个新项目」的意图声明，再要求用户跑第二条命令只是
+// 把 onexai 的一条 create 拆成两步（DX 上的净损失）。
 func (o *appOptions) Run() error {
 	if o.Preset != "" {
-		return runPreset(o.Preset, o.OutRoot, o.ioStreams)
+		return runPreset(o.Preset, o.OutRoot, o.AppName, o.Module, o.ioStreams)
 	}
 	return runGenAppSpec(o.Spec, o.OutRoot, o.Adopt, o.Check, o.ioStreams)
 }
 
 // runPreset 把预置声明写到产出根的 appspec.json：不存在才写（声明是 user 文件，
-// 覆盖别人的声明越权）；已存在即拒绝并指引。写完给下一步指令（改 meta → gen app）。
-func runPreset(name, outRoot string, streams ioStreams) error {
+// 覆盖别人的声明越权）；已存在即拒绝并指引。
+//
+// 带 appName/module 时覆盖预设占位符并**立即生成**——这是「一步起项目」的形态：
+//
+//	bald gen app --preset webserver --name blog-api --module github.com/you/blog-api --out ./blog-api
+//
+// 不带覆盖值时保持原语义（只落模板 + 打印下一步），因为那时用户还没决定名字，
+// 生成一份 name=my-api 的树只是垃圾。
+func runPreset(name, outRoot, appName, module string, streams ioStreams) error {
 	raw, err := presetSpec(name)
 	if err != nil {
 		return err
+	}
+	overridden := appName != "" || module != ""
+	if overridden {
+		raw, err = applyPresetOverrides(raw, appName, module)
+		if err != nil {
+			return err
+		}
 	}
 	root := outRoot
 	if root == "" {
@@ -82,8 +104,42 @@ func runPreset(name, outRoot string, streams ioStreams) error {
 		return err
 	}
 	fmt.Fprintln(streams.Out, "generated:", specPath, "(preset "+name+")")
+	if overridden {
+		// 覆盖值即「要新项目」的意图：接着生成，不再要求第二条命令。
+		fmt.Fprintln(streams.Out, "next: generating tree from the preset declaration")
+		if err := runGenAppSpec(specPath, outRoot, false, false, streams); err != nil {
+			return err
+		}
+		return nil
+	}
 	fmt.Fprintln(streams.Out, "next: edit meta.name/module (and addrs) in appspec.json, then run `bald gen app --spec appspec.json`")
 	return nil
+}
+
+// applyPresetOverrides 用 protojson 回写预设声明里的 meta.name / meta.module。
+//
+// 直接改 JSON 文本是错的（preset 里有多个 "name" 字段：role 名、backend 名，
+// 按字符串替换会改错地方）；反序列化到 AppSpec 再序列化，覆盖的是**契约字段**，
+// 其余形状原样保留。预设是声明起点，覆盖值也要过后续三道门，不存在绕过。
+func applyPresetOverrides(raw []byte, appName, module string) ([]byte, error) {
+	as := &appspecv1.AppSpec{}
+	if err := protojson.Unmarshal(raw, as); err != nil {
+		return nil, fmt.Errorf("parse preset declaration: %w", err)
+	}
+	if as.Meta == nil {
+		return nil, fmt.Errorf("preset declaration has no meta section")
+	}
+	if appName != "" {
+		as.Meta.Name = appName
+	}
+	if module != "" {
+		as.Meta.Module = module
+	}
+	out, err := protojson.MarshalOptions{Multiline: true, Indent: "  "}.Marshal(as)
+	if err != nil {
+		return nil, fmt.Errorf("marshal preset declaration: %w", err)
+	}
+	return append(out, '\n'), nil
 }
 
 // CheckAppSpec 是 gen app --check 的程序化入口（零写入校验生成树与清单和声明
@@ -136,7 +192,9 @@ user 文件生成器永不读写。`,
 	}
 	cmd.Flags().StringVar(&o.OutRoot, "out", "", "产出根目录（缺省取 AppSpec.layout.root，再缺省为当前目录）")
 	cmd.Flags().StringVar(&o.Spec, "spec", "", "AppSpec JSON 路径（protojson）")
-	cmd.Flags().StringVar(&o.Preset, "preset", "", "从预置声明模板起步（"+strings.Join(PresetNames(), "/")+"），落 appspec.json 后编辑再 gen app")
+	cmd.Flags().StringVar(&o.Preset, "preset", "", "从预置声明模板起步（"+strings.Join(PresetNames(), "/")+"）")
+	cmd.Flags().StringVar(&o.AppName, "name", "", "覆盖预设的 meta.name（配 --preset 使用；给了就顺带生成目录树）")
+	cmd.Flags().StringVar(&o.Module, "module", "", "覆盖预设的 meta.module（配 --preset 使用；给了就顺带生成目录树）")
 	cmd.Flags().BoolVar(&o.Adopt, "adopt", false, "覆盖 owned 生成物并更新清单（默认拒绝）")
 	cmd.Flags().BoolVar(&o.Check, "check", false, "只校验生成物与清单是否与声明一致（零写入，有差异即失败）")
 	cmd.SetErr(streams.ErrOut)

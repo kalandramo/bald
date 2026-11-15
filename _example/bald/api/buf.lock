@@ -7,3 +7,6 @@ deps:
   - name: buf.build/googleapis/googleapis
     commit: 8ac61b9e502343289c8c42b17aa5b245
     digest: b5:0318e73c2dec49c5742f0c119642a5cb7fcd9e2d5200a2b478bc1efd93f7aaa06d5431f5e1e5713095101fc990b026a806fa429af80432ec8d1ceefbe07bb817
+  - name: buf.build/kalandramo/bald-bconf
+    commit: e3d714a695924cf9b28bf830d8f6396a
+    digest: b5:3c9629bf28a6953603f09809ff9a5fc0dba724bb48251cdd7770cc3f1f0c0aee54485dab7de735718eb3fcde1e35ddfacb565203d0a29e575899d2370754d265

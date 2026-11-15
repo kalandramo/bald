@@ -74,9 +74,25 @@ func (o *domainOptions) Complete() error {
 		o.Manifest = filepath.Join("internal", "bootstrap", "domains.gen.go")
 	}
 	if o.ProtoCmd == "" {
-		o.ProtoCmd = defaultProtoCmd
+		o.ProtoCmd = defaultProtoCmdFor(o.OutDir)
 	}
 	return nil
+}
+
+// defaultProtoCmdFor 按产出根的 buf 布局挑命令。
+//
+// gen app 生成的树把 buf 配置放在 api/（api/buf.yaml + api/buf.gen.yaml），模块
+// 路径相对 api/ 解析——所以在产出根上直接 `buf generate` 会报
+// "read buf.gen.yaml: file does not exist"。默认值按实际布局选，不把这条知识
+// 留给每个用户去查（显式 --proto-cmd 仍然优先）。
+func defaultProtoCmdFor(outDir string) string {
+	for _, dir := range []string{"api", filepath.Join("api", "proto"), "proto"} {
+		gen := filepath.Join(outDir, dir, "buf.gen.yaml")
+		if _, err := os.Stat(gen); err == nil {
+			return "cd " + filepath.ToSlash(dir) + " && " + defaultProtoCmd
+		}
+	}
+	return defaultProtoCmd
 }
 
 func (o *domainOptions) Validate() error {

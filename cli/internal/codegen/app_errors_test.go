@@ -62,7 +62,7 @@ func TestRunPreset_OutRootErrors(t *testing.T) {
 		t.Fatalf("write blocker: %v", err)
 	}
 	streams, _ := testStreams()
-	err := runPreset("webserver", filepath.Join(blocker, "sub"), streams)
+	err := runPreset("webserver", filepath.Join(blocker, "sub"), "", "", streams)
 	if err == nil || !strings.Contains(err.Error(), "stat ") {
 		t.Fatalf("path through a regular file must fail at stat, got: %v", err)
 	}
@@ -71,7 +71,7 @@ func TestRunPreset_OutRootErrors(t *testing.T) {
 	if err := os.Symlink("missing-target", link); err != nil {
 		t.Fatalf("symlink: %v", err)
 	}
-	err = runPreset("webserver", link, streams)
+	err = runPreset("webserver", link, "", "", streams)
 	if err == nil || !strings.Contains(err.Error(), "mkdir") {
 		t.Fatalf("dangling symlink out root must fail at mkdir, got: %v", err)
 	}
@@ -86,7 +86,7 @@ func TestRunPreset_WriteError(t *testing.T) {
 		t.Fatalf("symlink: %v", err)
 	}
 	streams, _ := testStreams()
-	if err := runPreset("webserver", dir, streams); err == nil {
+	if err := runPreset("webserver", dir, "", "", streams); err == nil {
 		t.Fatal("write through a symlink to a missing directory must fail")
 	}
 }

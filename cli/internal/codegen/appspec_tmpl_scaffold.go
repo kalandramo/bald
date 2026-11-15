@@ -254,6 +254,12 @@ var Rows = []PolicyRow{
 `
 
 // bufYamlTmpl / bufGenYamlTmpl 是 api/ 的 buf 扇出配置（生成物）。
+//
+// deps 三项对应 gen proto / gen resource 的契约模板实际 import 的东西：
+// googleapis（google.api.http 注解）、bufbuild/protovalidate（buf.validate 约束）、
+// kalandramo/bald-bconf（bald/store/v1 分页与过滤契约）。缺任一项，`buf generate`
+// 就报 `import "…": file does not exist`——那是生成器自己的模板造成的依赖，不该
+// 留给用户去猜。
 var bufYamlTmpl = `# 生成一次（bald gen app 播种；此后归你维护）：模块名/依赖模块/lint 是树的
 # 属性，不是生成器的推导结果。--check 只判存在性。
 version: v2
@@ -263,8 +269,16 @@ modules:
     lint:
       use:
         - STANDARD
+# 契约模板 import 的三个模块。首次 buf generate 会拉取并写入 buf.lock（入库）。
+deps:
+  - buf.build/googleapis/googleapis
+  - buf.build/bufbuild/protovalidate
+  - buf.build/kalandramo/bald-bconf
 `
 
+// bufGenYamlTmpl 同时声明 disable：这三个模块的 Go 代码由官方包提供，本地再生成
+// 一份会与运行时注册冲突（`panic: file already registered`），而且会把手写域包
+// 的 import 指向树内副本（`api/gen/bald/store/v1`）——那个包永远不会被 go.mod 认识。
 var bufGenYamlTmpl = `# 生成一次（bald gen app 播种；此后归你维护）：插件集合与输出路径是树的属性
 # （grpc / grpc-gateway / 校验器等插件按需加）。--check 只判存在性。
 version: v2
@@ -273,6 +287,12 @@ managed:
   override:
     - file_option: go_package_prefix
       value: {{ .Module }}/api/gen/go
+  # 依赖模块的 Go 包由官方 module 提供（google.golang.org/genproto、
+  # github.com/kalandramo/bald/bconf/…）。本地再生成会重复注册 proto 文件。
+  disable:
+    - module: buf.build/googleapis/googleapis
+    - module: buf.build/bufbuild/protovalidate
+    - module: buf.build/kalandramo/bald-bconf
 plugins:
   - remote: buf.build/protocolbuffers/go
     out: gen/go
@@ -308,4 +328,56 @@ tasks:
       - go build ./...
       - go vet ./...
       - go test ./...
+{{- if .MultiRole}}
+{{- range .Roles}}
+  image-{{ .Name }}:
+    desc: 构建角色 {{ .Name }} 的容器镜像（多阶段 + distroless，产物见 build/docker/{{ .CmdName }}/Dockerfile）
+    cmds:
+      - docker build -f build/docker/{{ .CmdName }}/Dockerfile -t {{ .CmdName }}:dev .
+{{- end}}
+{{- else}}
+  image:
+    desc: 构建容器镜像（多阶段 + distroless，产物见 build/docker/{{ .CmdName }}/Dockerfile）
+    cmds:
+      - docker build -f build/docker/{{ .CmdName }}/Dockerfile -t {{ .CmdName }}:dev .
+{{- end}}
+`
+
+// dockerfileTmpl 是每角色一份的多阶段 Dockerfile（build/ 下的交付面）。
+//
+// 为什么是 seeded 而不是 owned：基础镜像、构建参数、CGO、时区、私有 registry
+// 都是团队环境相关的取值，生成器只给一个能跑的起点；改写是正常用法，不该被
+// --check 判脏（与 api/buf.*.yaml 同款理由）。
+//
+// 为什么是 distroless/static + CGO_ENABLED=0：生成树的运行期依赖只有标准库与
+// 纯 Go 库（sqlite 走纯 Go 驱动），静态链接后不需要 libc，镜像里不留 shell——
+// 这是「可交付」而非「能跑」的差别。
+var dockerfileTmpl = `# 由 bald gen app 生成（seeded：可按团队环境改写，生成器不再覆盖）。
+# 构建：docker build -f build/docker/{{ .CmdName }}/Dockerfile -t {{ .CmdName }}:dev .
+# 或：task image
+FROM golang:{{ .GoVersion }} AS build
+WORKDIR /src
+# go.sum 在首次 go mod tidy 之前可能不存在：用通配让它可选。
+COPY go.mod go.sum* ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/app ./cmd/{{ .CmdName }}
+
+FROM gcr.io/distroless/static-debian12:nonroot
+# WORKDIR 与 configs 一起落到 /app：appkit.ConfigFile 的 "configs/<name>.yaml"
+# 是相对工作目录解析的，镜像里必须保持同样的相对位置。
+WORKDIR /app
+COPY --from=build /out/app /app/app
+COPY --from=build /src/configs /app/configs
+USER nonroot:nonroot
+ENTRYPOINT ["/app/app"]
+`
+
+// dockerignoreTmpl 是构建上下文过滤（seeded）。没有它 .git/ 与本地二进制会
+// 进 build context，镜像层不变但构建变慢、且历史可能被带进中间层。
+var dockerignoreTmpl = `.git
+.gitignore
+*.md
+bin/
+dist/
 `

@@ -85,7 +85,7 @@ import (
 // 后传入 {{ .Binder }}。
 type {{ .Interface }} interface {
 {{- range .Methods }}
-	{{ .RPC }}(ctx context.Context, req *{{ $svc.Alias }}.{{ .Request }}) (*{{ $svc.Alias }}.{{ .Response }}, error)
+	{{ .RPC }}(ctx context.Context, req *{{ .Request }}) (*{{ .Response }}, error)
 {{- end }}
 }
 
@@ -95,7 +95,7 @@ type {{ .Interface }} interface {
 func {{ .Binder }}(r gin.IRouter, svc {{ .Interface }}) {
 {{- range .Routes }}
 	r.{{ .Verb }}("{{ .GinPath }}", func(c *gin.Context) {
-		req := &{{ $svc.Alias }}.{{ .Request }}{}
+		req := &{{ .Request }}{}
 		if err := web.BindProtoRequest(c, req, {{ q .Body }}, {{ .PathVarsExpr }}); err != nil {
 			web.ErrorResponse(c, err)
 			return

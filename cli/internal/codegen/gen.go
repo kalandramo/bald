@@ -36,7 +36,7 @@ import (
 // buf managed mode 的 except 口径）。
 var protoTmpl = `syntax = "proto3";
 
-package {{.Name}}.v1;
+package {{.ProtoPackage}};
 
 import "google/api/annotations.proto";
 import "google/protobuf/empty.proto";
@@ -155,12 +155,13 @@ func KeyOf{{.Name | title}}(u *{{.Name | title}}) string { return u.ID }
 func NewCommand(streams ioStreams) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:              "gen [command]",
-		Short:            "轻量代码生成脚手架（proto / store / app / domain）",
+		Short:            "轻量代码生成脚手架（proto / store / app / domain / resource / verify）",
 		TraverseChildren: true,
 		SilenceUsage:     true,
 		RunE:             func(cmd *cobra.Command, _ []string) error { return cmd.Help() },
 	}
-	cmd.AddCommand(genProtoCmd(streams), genStoreCmd(streams), genAppCmd(streams), genDomainCmd(streams))
+	cmd.AddCommand(genProtoCmd(streams), genStoreCmd(streams), genAppCmd(streams), genDomainCmd(streams),
+		genResourceCmd(streams), genVerifyCmd(streams))
 	// cobra 的 "Error: ..." 打到 ErrOrStderr——与 ioStreams 解耦；接上后错误
 	// 随 streams.ErrOut 走（生产 = os.Stderr 行为不变；测试注入弃流即不把
 	// 预期负例错误漏进 CI 日志）。
@@ -197,7 +198,12 @@ func (o *protoOptions) Complete(args []string) error {
 		o.OutDir = filepath.Join("api", "proto", o.Name, "v1")
 	}
 	if o.GoPackage == "" && o.Module != "" {
-		o.GoPackage = o.Module + "/api/gen/go/" + o.Name + "/v1;" + o.Name + "v1"
+		// 优先沿用树的 buf managed 前缀（两代布局见 buf_layout.go），退回模板
+		// 约定 <module>/api/gen/go/<name>/v1。
+		protoRoot := filepath.Dir(filepath.Dir(o.OutDir)) // api/proto/<name>/v1 → api/proto
+		if gp, err := protoGoPackage(".", protoRoot, o.Module, o.Name); err == nil {
+			o.GoPackage = gp
+		}
 	}
 	return nil
 }
@@ -214,6 +220,9 @@ func (o *protoOptions) Validate() error {
 func (o *protoOptions) Run() error {
 	content, err := renderTmpl("proto", protoTmpl, map[string]string{
 		"Name": o.Name, "Plural": o.Plural, "GoPackage": o.GoPackage,
+		// 单资源命令的包名即 <name>.v1；gen resource 复用同一模板但传域级包名
+		// （同一域下的多个资源共用一个 proto 包），模板本体只有一份。
+		"ProtoPackage": o.Name + ".v1",
 	})
 	if err != nil {
 		return err

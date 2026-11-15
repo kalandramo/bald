@@ -21,3 +21,11 @@ tasks:
       - go build ./...
       - go vet ./...
       - go test ./...
+  image-api:
+    desc: 构建角色 api 的容器镜像（多阶段 + distroless，产物见 build/docker/bald-demo-api/Dockerfile）
+    cmds:
+      - docker build -f build/docker/bald-demo-api/Dockerfile -t bald-demo-api:dev .
+  image-worker:
+    desc: 构建角色 worker 的容器镜像（多阶段 + distroless，产物见 build/docker/bald-demo-worker/Dockerfile）
+    cmds:
+      - docker build -f build/docker/bald-demo-worker/Dockerfile -t bald-demo-worker:dev .

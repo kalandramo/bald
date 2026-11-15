@@ -4,12 +4,27 @@
   "spec": "80faa5e5a47021c519943333301d483efbb1b62ab56341b014c636678fb7c575",
   "files": [
     {
+      "path": ".dockerignore",
+      "ownership": "seeded",
+      "hash": "seeded"
+    },
+    {
       "path": "api/buf.gen.yaml",
       "ownership": "seeded",
       "hash": "seeded"
     },
     {
       "path": "api/buf.yaml",
+      "ownership": "seeded",
+      "hash": "seeded"
+    },
+    {
+      "path": "build/docker/bald-demo-api/Dockerfile",
+      "ownership": "seeded",
+      "hash": "seeded"
+    },
+    {
+      "path": "build/docker/bald-demo-worker/Dockerfile",
       "ownership": "seeded",
       "hash": "seeded"
     },
@@ -106,7 +121,7 @@
     {
       "path": "taskfile.yml",
       "ownership": "owned",
-      "hash": "98b65823e6a4f4ab5702c21e09676dfe4583493dfb37ebfe0a95856fdacb40c7"
+      "hash": "f07a0d63b4e4d7b4c1bc1805532d3445b00cf78ff8396033675403739edaa5b2"
     }
   ]
 }

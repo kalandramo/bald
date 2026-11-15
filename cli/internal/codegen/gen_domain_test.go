@@ -381,17 +381,18 @@ func TestGenProto_CRUD_BufBuild(t *testing.T) {
 		t.Fatalf("gen proto: %v", err)
 	}
 	// buf 模块根 = api/proto：buf.yaml 声明注解依赖（与 _example/bald/api 同款
-	// 依赖，buf.lock 复用其已解析 commit——本机模块缓存命中）；bald/store/v1 契约
-	// 从本仓 bconf/proto 复制进模块（消费项目的既有依赖形态）。
+	// 依赖，buf.lock 复用其已解析 commit——本机模块缓存命中）。bald/store/v1 契约
+	// 由 BSR 上的 buf.build/kalandramo/bald-bconf 提供（与 gen app 播种的
+	// api/buf.yaml 同源）——不再往模块里复制一份 store.proto：同一文件既在 BSR
+	// 模块里又在本地模块里，buf 会直接拒（contained in multiple modules）。
 	//
 	// buf.yaml 必须是 **v2**：复用的那份 lock 自 691929c 起是 v2 格式，而 buf 对
 	// 「v1 buf.yaml + v2 buf.lock」直接拒绝（`got a v2 buf.lock file for a v1
 	// buf.yaml`，实测 buf 1.50.0 与 1.57.2 都拒——与工具链版本无关）。这条腿在 CI
 	// 里因无 buf 而 Skip，所以 config 版本漂移只会红在本机装了 buf 的人身上。
 	writeAll(t, map[string]string{
-		"api/proto/buf.yaml":                  "version: v2\nmodules:\n  - path: .\n    name: buf.build/kalandramo/genproto-check\ndeps:\n  - buf.build/googleapis/googleapis\n  - buf.build/bufbuild/protovalidate\nlint:\n  use:\n    - STANDARD\n",
-		"api/proto/buf.lock":                  readRepoFile(t, "_example/bald/api/buf.lock"),
-		"api/proto/bald/store/v1/store.proto": readRepoFile(t, "bconf/proto/bald/store/v1/store.proto"),
+		"api/proto/buf.yaml": "version: v2\nmodules:\n  - path: .\n    name: buf.build/kalandramo/genproto-check\ndeps:\n  - buf.build/googleapis/googleapis\n  - buf.build/bufbuild/protovalidate\n  - buf.build/kalandramo/bald-bconf\nlint:\n  use:\n    - STANDARD\n",
+		"api/proto/buf.lock": readRepoFile(t, "_example/bald/api/buf.lock"),
 	})
 	build := exec.Command("buf", "build", "-o", "image.pb")
 	build.Dir = filepath.Join(dir, "api", "proto")

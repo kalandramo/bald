@@ -4,11 +4,13 @@ managed:
   override:
     - file_option: go_package_prefix
       value: github.com/kalandramo/bald/example/bald/api/gen
-  # 官方 Go 包提供这两个 BSR 模块的代码；本地再生成一份会与运行时注册
-  # 冲突（panic: file already registered）。
+  # 这三个 BSR 模块的 Go 代码由官方包提供（google.golang.org/genproto、
+  # github.com/kalandramo/bald/bconf/…）；本地再生成一份会与运行时注册冲突
+  # （panic: file already registered），也会把手写域包的 import 指向树内副本。
   disable:
     - module: buf.build/googleapis/googleapis
     - module: buf.build/bufbuild/protovalidate
+    - module: buf.build/kalandramo/bald-bconf
 plugins:
   - remote: buf.build/protocolbuffers/go
     out: gen
