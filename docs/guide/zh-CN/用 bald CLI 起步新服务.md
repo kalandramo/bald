@@ -22,9 +22,11 @@ bald --help   # 验证安装
 
 - 要**钉住生成器行为**，把 `@latest` 换成具体 tag（如 `@v0.7.2`）。
 - **不装二进制**、在既有工程里直接跑：`go run github.com/kalandramo/bald/cli/cmd/bald@<tag> gen …`。
-- CLI 提供 4 个生成子命令：`gen app`（装配骨架目录树）、`gen domain`（域驱动生成物）、
-  `gen proto`（CRUD proto 骨架）、`gen store`（实体骨架）。gen 之外还有 `convention`
-  （查规范，AI 会话的规范通道）与 `ide init`（生成 AI 工具的引导物）。
+- CLI 提供 6 个生成子命令：`gen app`（装配骨架目录树）、`gen domain`（域驱动生成物）、
+  `gen proto`（CRUD proto 骨架）、`gen store`（实体骨架）、`gen resource`（一条命令加资源
+  链路，见 §6.1）、`gen verify`（只读校验生成树与声明一致，见 §4.3）。gen 之外还有
+  `convention`（查规范，AI 会话的规范通道）、`compose`（本地集成依赖，README 有速查）、
+  `prd`（会话翻译提示词）与 `ide init`（生成 AI 工具的引导物）。
 
 <details>
 <summary>背景与坑：为什么 CLI 独立 module / 代理滞后的假失败 / 既有工程钉版本 / 校验和延迟</summary>
@@ -137,7 +139,9 @@ my-service/
 ├─ internal/apiserver/layering_invariant_test.go   # 生成物：biz 层不 import 装配层的守卫测试
 ├─ api/buf.yaml / api/buf.gen.yaml                 # 生成一次：buf 模块与生成配置
 ├─ configs/my-service.yaml                         # 生成物：契约配置（由 AppSpec 派生）
-└─ taskfile.yml                                    # 生成物：task run / verify / proto
+├─ build/docker/<cmd>/Dockerfile                   # 生成一次：多阶段构建（distroless nonroot）
+├─ .dockerignore                                   # 生成一次
+└─ taskfile.yml                                    # 生成物：task run / verify / proto / image
 ```
 
 入口链只有三跳：`main.go`（≤25 行硬预算，预算表见 `cli/internal/codegen/appspec_budget_test.go`）→ `app.Execute()`（cobra 根）→ `appkit.MustServe(context.Background(), bootstrap.Options()...)`。装配知识全部在 `internal/bootstrap/assemble.gen.go` 的 `Options()`：`std.Standard()`（server/audit/logger 三类框架自有后端的段驱动 Provider）+ `ConfigFile`/`WatchConfigFile` + `appkit.StrictContract()` + 传输面能力声明（`WithGRPC` 注册服务、`WithHTTPContract(apiserver.NewRouter)` 出 HTTP 面，按声明裁剪）+ `WithHealth`（双探针 + gRPC health 联动）+ `mech.Provides/Requires`（能力）+ `mech.Components`（组件）+ `domainOptions(role)`（域清单变参直传）。
@@ -232,7 +236,7 @@ bald gen domain --spec appspec.json --adopt # 重写域清单、授权投影与 
 | `internal/apiserver/routes/<d>.gen.go` | 同批注解的 `appkit.Route` 清单（域引用 `RouteTable: routes.<Name>` 即获计划可见性） |
 | `<go_package>/domain.gen.go` | 域声明值骨架（**生成一次**：域包已有导出 `Domain` 时跳过——既有域包如 `_example/bald/greetv1` 不会被覆盖） |
 
-绑定生成（Q5 D1，默认开启）：`gen domain` 需要 proto 的 Go 类型（bind 文件 import 其 `go_package`）与 `transport/web` 依赖。Go 类型缺失时先按 `--proto-cmd`（默认 `buf generate`）在 `--out` 根执行 proto 阶段并复查产物；命令失败或仍无产物即硬错误。`--check` 零写入、不执行外部命令。`--no-bind` 跳过绑定与路由清单（REST 面完全手写），`--no-routes` 只跳过清单（域保留手写 `RouteTable`）；`--rest-bind` 是已退役的兼容开关（等价于不给）。
+绑定生成（Q5 D1，默认开启）：`gen domain` 需要 proto 的 Go 类型（bind 文件 import 其 `go_package`）与 `transport/web` 依赖。Go 类型缺失时先按 `--proto-cmd` 执行 proto 阶段并复查产物——缺省值**按产出根的 buf 布局选**：树里有 `api/buf.gen.yaml`（gen app 播种的布局）时为 `cd api && buf generate`，否则裸 `buf generate`；命令失败或仍无产物即硬错误。`--check` 零写入、不执行外部命令。`--no-bind` 跳过绑定与路由清单（REST 面完全手写），`--no-routes` 只跳过清单（域保留手写 `RouteTable`）；`--rest-bind` 是已退役的兼容开关（等价于不给）。
 
 rerun 语义：新增域 = 手写 proto + 域包 + 改 `domains[]` + 上面两条命令——装配文件改动为 0（域清单存在的意义）。Gate1 会校验 `domains[].service` 与产出根下实际 proto 匹配（扫描 `api/proto`、`api/protos`、`proto`），失配报错指明哪个域、哪个 proto 文件、实际声明了什么。详细展开见[新增业务域 - Domain 与 gen domain](新增业务域%20-%20Domain%20与%20gen%20domain.md)。
 
@@ -241,10 +245,15 @@ rerun 语义：新增域 = 手写 proto + 域包 + 改 `domains[]` + 上面两�
 想给已有域（或新域）加一条 CRUD 资源，不必手写 proto + 实体 + 声明再跑两遍生成：
 
 ```bash
-bald gen resource --domain post --kind post            # 只落契约与实体，打印 domains[] 片段
+bald gen resource --domain post --kind post            # 单角色树：只落契约与实体，打印 domains[] 片段
 bald gen resource --domain post --kind post,comment \
     --apply-decl --role api                             # 回写声明并立刻重派生
 ```
+
+**多角色树**（`meta.roles` 有多个角色）从第一条命令起就要带 `--role`——「哪个角色服务这个域」
+是业务判断，生成器不猜，缺了直接报 `--role <name> is required`（示例树 `_example/bald` 就是
+api+worker 两角色）。已落过契约再重跑时，加 `--force` 放行覆盖（拒绝重写的提示只列了
+`--adopt/--force`，本命令认 `--force`）。
 
 它做四件事，顺序固定：
 
