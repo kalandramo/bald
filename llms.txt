@@ -10,17 +10,21 @@
 - [框架契约总览](docs/devel/zh-CN/框架契约总览.md): API surface 能力地图（appkit/transport/berrors/log/...）
 - [风险登记册](docs/architecture/risk-review.md): 风险、严重度、消解条件、动手顺序
 - [开发者体验体检](docs/architecture/developer-experience-review.md): 用户视角摩擦点清单（DX-1…17）与快赢排期
-- [onexai 差距评审](docs/architecture/onexai-gap-review.md): bald AI 化设计（规范蒸馏卡 §5 / CLI 通道 §6）
+- [onexai 差距评审](docs/architecture/onexai-gap-review.md): bald AI 化设计（规范蒸馏卡 §5 / CLI 通道 §6 / CLI 缺口复核 §7；G1–G6 落地记录 §7.6）
 - [onexai 工具输出存档](docs/architecture/onex-ai.md): OneX Harness AI Coding 的对照证据（逐字）
+- [onexai 实战走查存档](docs/architecture/onexai-harness-walkthrough.md): 一次真跑通的闭环（create → 加资源 → 接 IDE → check），§7 复核的证据源
 - [用户手册](docs/guide/zh-CN/): quickstart 起的使用文档集合
 - [开发手册](docs/devel/zh-CN/): 框架设计文档（Bootstrap/配置/日志/存储/传输/...）
 
 ## CLI
 
 - `bald gen proto|store|app|domain`: 代码生成（AppSpec 声明驱动，--check 零差异门禁）
-- `bald convention overview|list|get|check`: 工程规范蒸馏卡查询与确定性检查（AI 规范通道）
+- `bald gen resource --domain post --kind post --apply-decl`: 给域加一条资源链路（契约 + 实体 + 域声明 + 重派生）
+- `bald gen verify`: 只读校验生成树与声明一致（app 树 + 域产物，零写入；MCP 只读工具）
+- `bald compose list|config|up|status|stop|down`: 本地集成依赖（etcd/consul/redis/mongo/nacos，与 CI integration 作业同源）
+- `bald convention overview|list|get|check`: 工程规范蒸馏卡查询与确定性检查（AI 规范通道；check 报覆盖率，CI 用 --min-coverage 设下限）
 - `bald ide init --ide=claude`: 初始化 AI 会话引导物（AGENTS.md/.mcp.json/.claude）
-- `bald mcp start|stream|tools`: 把 CLI 子命令暴露为 MCP server（cobramcp；工具面只含 convention）
+- `bald mcp start|stream|tools`: 把 CLI 子命令暴露为 MCP server（cobramcp；工具面只含 convention、gen app 的只读形态与 gen verify）
 - `bald release plan|sync|changelog|tag`: 维护者发布工具（从 git 历史推导 semver）
 
 ## Conventions

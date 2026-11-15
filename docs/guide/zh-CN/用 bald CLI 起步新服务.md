@@ -157,6 +157,15 @@ vim appspec.json
 bald gen app --spec appspec.json --adopt   # owned 重写；seeded 输出 kept: 跳过；用户物不动
 ```
 
+只想知道「改完之后树还对不对」时用 `bald gen verify`（缺 `--spec` 时自动取当前目录的 `appspec.json`）：
+
+```bash
+bald gen verify      # 只读：app 树 + 域产物逐字节对照声明，有差异即失败并列出文件
+```
+
+它把 `gen app --check` 与 `gen domain --check` 串成一次校验，**零写入、不执行外部命令**，所以也能安全地
+交给 AI 会话（MCP 侧以只读工具暴露）。
+
 ### 4.4 从旧版 `NewRouter() *gin.Engine` 迁移
 
 链脚手架改成契约驱动后（《代码生成工具设计》§8），重跑 `bald gen app --adopt` 会让旧 seeded 文件编译失败——`assemble.gen.go` 现在按 `appkit.WithHTTPContract(apiserver.NewRouter)` 消费它，而 `WithHTTPContract` 要求钩子收契约段。改三处即可，业务路由本身不动：
@@ -227,6 +236,36 @@ bald gen domain --spec appspec.json --adopt # 重写域清单、授权投影与 
 
 rerun 语义：新增域 = 手写 proto + 域包 + 改 `domains[]` + 上面两条命令——装配文件改动为 0（域清单存在的意义）。Gate1 会校验 `domains[].service` 与产出根下实际 proto 匹配（扫描 `api/proto`、`api/protos`、`proto`），失配报错指明哪个域、哪个 proto 文件、实际声明了什么。详细展开见[新增业务域 - Domain 与 gen domain](新增业务域%20-%20Domain%20与%20gen%20domain.md)。
 
+### 6.1 一条命令加资源：`gen resource`
+
+想给已有域（或新域）加一条 CRUD 资源，不必手写 proto + 实体 + 声明再跑两遍生成：
+
+```bash
+bald gen resource --domain post --kind post            # 只落契约与实体，打印 domains[] 片段
+bald gen resource --domain post --kind post,comment \
+    --apply-decl --role api                             # 回写声明并立刻重派生
+```
+
+它做四件事，顺序固定：
+
+1. **契约** `api/proto/<domain>/v1/<kind>.proto`——复用 `gen proto` 的 CRUD 六件套模板（`google.api.http` 注解 + buf.validate + paging/filter）；
+2. **实体** `<go_package>/<kind>.go`——复用 `gen store` 的 gorm 模型骨架；
+3. **声明** 追加/补全 `domains[]`（`services[]` 复数形态）；**默认不写** `appspec.json`，`--apply-decl` 才回写；
+4. **重派生** 走完整的 `gen domain`（绑定/路由/授权/清单一个不漏），并刷新 app 清单。
+
+几条刻意的边界：
+
+- **角色归属**：AppSpec 要求 `meta.roles[].domains` 的并集等于 `domains[]` 全集（缺域 = 该域无人服务）。
+  单角色树自动挂；多角色树必须 `--role <name>`——「哪个角色服务这个域」是业务判断，生成器不猜。
+  写回前声明会再过一遍 Gate1，生成器写出的声明必须自己合法。
+- **不提供 `--no-bind`**：在 `gen domain` 里它的语义是「这棵树不该有绑定」，配合 `--adopt` 会把别的域
+  已生成的 bind/routes 当陈旧产物删掉。缺 proto 的 Go 类型时会自动执行 `--proto-cmd`（默认按树布局
+  选 `cd api && buf generate`）。
+- **go_package 从树里读**：同一框架的两代布局都真实存在（`<module>/api/gen/go` 与 `<module>/api/gen`），
+  所以先生成器探测 `api/buf.gen.yaml` 的 managed 前缀再写 `option go_package`；同包已有 proto 时直接
+  沿用它的目录与 go_package。
+- **`--check`** 只校验契约与实体是否与声明一致（零写入）；整树一致性交给 `gen verify`。
+
 ## 7. gen proto / gen store：契约骨架
 
 ```bash
@@ -236,7 +275,7 @@ bald gen store greet   # → ./greet.go（gorm tag + keyOf）
 
 `gen proto` 产出 **CRUD 六件套**：service + List/Get/Create/Update/Delete 五个 RPC，每个 RPC 带 `google.api.http` 注解（同一个 RPC 同时暴露 gRPC 与 REST/JSON），`buf.validate` 字段校验规则，List 请求带 `bald.store.v1` 的分页与结构化过滤（`PagingRequest`/`FilterExpr`）。proto 包名用 `<name>.v1`，与 `domains[].protoPackage` 的声明口径一致（`gen domain` 的 service 校验以此对账）。常用 flag：`--out`（默认 `api/proto/<name>/v1`）、`--plural`（REST 资源段，默认 `<name>s`）、`--go-package`（缺省由 `--module` 派生）、`--module`、`--force`。
 
-生成后把 proto 纳入 buf 模块跑 `buf generate` 得到 Go 代码（`api/buf.yaml`/`api/buf.gen.yaml` 已由 gen app 生成；deps 需 googleapis、protovalidate 与 bald store 模块）——`taskfile.yml` 的 `task proto` 就是这一步。全部生成命令遵守**不静默覆盖**：目标已存在时拒绝并提示——单文件生成器（`gen proto`/`gen store`）用 `--force` 放行，树生成器（`gen app`/`gen domain`）用 `--adopt` 收敛。
+生成后把 proto 纳入 buf 模块跑 `buf generate` 得到 Go 代码（`api/buf.yaml`/`api/buf.gen.yaml` 已由 gen app 生成，**deps 与 disable 都已声明**：googleapis、protovalidate、`buf.build/kalandramo/bald-bconf`——disable 是必须的，否则 buf 会把这三个模块的 Go 代码也生成进树，与运行时注册冲突）——`taskfile.yml` 的 `task proto` 就是这一步。老树没有这三行时 `buf generate` 会报 `import "…": file does not exist`，按此补齐即可。全部生成命令遵守**不静默覆盖**：目标已存在时拒绝并提示——单文件生成器（`gen proto`/`gen store`）用 `--force` 放行，树生成器（`gen app`/`gen domain`）用 `--adopt` 收敛。
 
 ## 8. 授权接线（生成物数据 + 一个桥）
 
@@ -295,6 +334,9 @@ router.Use(bundle.New(
 | 输出 `kept:` 但文件没更新 | 该文件是生成一次（`seed/`、`apiserver.go`、域骨架）——`--force` 也不覆盖，直接手改 |
 | `Gate1 (domains.service vs proto): service "..." not found ...` | `domains[].service` / `services[]` 与实际 proto 失配；按报错对齐声明或 proto（§6） |
 | `service and services are mutually exclusive` / `declare service or services, or set http_only ...` | 域声明形态三选一写错：`service`、`services`、`httpOnly` 只能选一种；纯 HTTP 域设 `httpOnly: true`（§6） |
+| `buf generate` 报 `import "bald/store/v1/store.proto": file does not exist` | 树的 `api/buf.yaml` 缺 deps；补 `buf.build/kalandramo/bald-bconf`（外加 googleapis、protovalidate）后 `buf dep update`（§7） |
+| `panic: file already registered` 或 import 指向 `api/gen/bald/store/v1` | `api/buf.gen.yaml` 缺 `disable:`，buf 把依赖模块的 Go 代码生成进树了；补 disable 三项并删除树内副本（§7） |
+| `--role <name> is required: meta.roles has N roles …` | 多角色树加域必须说明归谁服务（Gate1 要求 roles 的 domains 并集 == domains 全集）；`--role api` 之类（§6.1） |
 | `go: ... verifying module: ... 404 Not Found` | 按 tag 消费（`go get` 与 `go install …@tag` 同一条路径）时新 tag 的校验和收录有延迟，数小时后重试，或临时换代理；源码检出安装不走这条路（§2） |
 
 ## 10. 下一步

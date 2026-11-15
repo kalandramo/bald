@@ -186,6 +186,9 @@
 > | P2-9…15 工程配套 | ⏳ | 未做（部署模板/compose/pprof/workerpool/分发/protolint/CI AI review） |
 >
 > §4.1–§4.3 原文保留作问题定义；§4.4′/§4.4″ 是 Phase 1/2 的验收记录。
+>
+> **2026-11-15 增补**：按一篇实战走查复核 CLI 面，结论见 **§7**。上表六项状态不变，但新增一条比 P1-6…8
+> 更靠前的缺口——**checker 覆盖率 5/205（2.4%）**，它决定 §6.1 那道 CI 门是不是真的门。优先级见 §7.4。
 
 ### 4.1 P0：Harness 效果的直接前提（AI「看不见」bald 的约束）
 
@@ -475,6 +478,209 @@ Taskfile 统一入口照抄 onexai 的 `convention:` target 形态：`bald conve
   （contract 类别入列），每条带母文档锚点；规则提炼自《Go标准化开发体系课》同款方法论（问题清单→【强制】→反模式）。
 - **CI 接闸**：test 作业加 `convention check --fail-on-findings` 步（`task ci-workflow-lint` 过，actionlint
   v1.7.12 经 goproxy.cn 装到 pin 版）。
+
+---
+
+## 7. 2026-11-15 复核：从一篇实战走查看 CLI 的真缺口
+
+> 证据源：[onexai-harness-walkthrough.md](onexai-harness-walkthrough.md)（作者用真实命令跑完 create → 加资源 →
+> 接 IDE → check 的闭环）。它与 §2 依赖的课程 PDF 不同：课程材料讲「提供了什么」，这篇是「跑起来什么样」，
+> 因此能看见课程看不见的三件事——真实文件数、真实输出格式、真实失手点。
+>
+> 本节只核对 **CLI 面**（§4 的 P0-1 / P0-2 / P1-5 已落地部分），不重开库层面的评审；§1–§6 原文不动。
+
+### 7.1 已对齐：不必再投
+
+2026-11-15 对 `main` @ `285ea779` 实测，逐项对照：
+
+| 能力 | onexai（走查所见） | bald 实测 | 判定 |
+|---|---|---|---|
+| 规范查询通道 | `harness convention <topic>` + MCP `convention_<topic>` | `bald convention overview/list/get` + 4 个 MCP 工具 | 对齐 |
+| 规则 ID 与分级 | `<topic>-rNN`，强制/建议/参考 | `<卡id>-rNN`，25 卡 / 205 条（167 强制 + 32 建议 + 6 参考） | 对齐，粒度更细 |
+| check 的 JSON 契约 | `rule_id/level/file/line/message/suggestion` | `Finding` 结构逐字对齐（`check.go` 注释自陈对齐 onexai） | 对齐 |
+| 退出码语义 | 默认 0，`--fail-on-findings` 转非零 | 同 | 对齐 |
+| IDE 引导物 | `ide init` 写 `.mcp.json`(merge) + `/harness` + commit/review 命令 + skill，1 个 IDE | `ide init` 写 AGENTS.md + `.mcp.json`(merge) + `/bald` + `bald-commit` + `bald-review` + SKILL，5 个 IDE | 对齐，覆盖面更宽 |
+| 预设骨架 | `create webserver` 一条命令定型 | `gen app --preset`（7 预设） | 半对齐，差一步（G4） |
+
+结论：§4 的 P0-1 / P0-2 / P1-5 判定成立，无需返工。**差距不在「通道」，全在「生成」与「检查」两端**——
+通道层已经够用，再往这条线上投入的边际收益很低。
+
+### 7.2 缺口（按「能拦住 AI 写歪」的效力排序）
+
+#### G1　checker 覆盖率 5/205 = 2.4%（最硬的一条）
+
+- **事实**：`cli/internal/convention/check.go` 的注册表有 5 个 checker（`gen-app-drift` / `logging-stdlib` /
+  `no-panic` / `prd-prompt-seam` / `prd-structure`），各绑 1 条规则；全库只有 4 张卡声明了 `checks:`
+  （codegen / logging / prd / testing）。其中两个 prd checker 查的是 PRD 文档结构、不是 Go 代码。
+  **真正对代码生效的只有 3 条规则**：生成树漂移、标准库 `log`、裸 `panic`。
+- **后果**：AI 写完业务代码跑 `bald convention check`，大概率是绿的。而绿的语义是「这 5 条没问题」，
+  不是「符合 167 条强制」。§6.1 早写过「check 通过 ≠ 符合规范」，现在这句话有了数字：**2.4%**。
+  对 CI 更是隐患——`--fail-on-findings` 挂在 test 作业里，绿得多、拦得少，等于给合规发了一张空头证书。
+- **onexai 对照**：走查里 `logging-r06`、`error-return-r11` 都是 AST 规则，规则行内嵌 `check: go_ast:<id>`
+  声明。它的 check 是产品主卖点，不是附属品。
+- **建议**：不追卡数，追「可判定子集」的覆盖。先做三族（onexai 有现成原型，bald 侧已有 layering AST 守卫
+  可复用，不必新写框架）：
+  1. **import 纪律**——标准库 `log`、具体日志库、业务层 import 装配层（后者正是判据③的守卫，卡在生成物里）；
+  2. **错误处理**——err 丢弃、未包裹、裸 `panic`（`no-panic` 已有，可扩成族）；
+  3. **装配纪律**——生成树手工改动之外的契约段误用（配了不消费的段等，可复用 Gate3 的判定）。
+- **配套（比补 checker 更便宜、收益更大）**：check 输出加一行覆盖率，如
+  `covered: 5/205 rules (2.4%)`，并在 CI 里给覆盖率设下限。没有这行，绿是歧义的；有了这行，
+  「绿」才是一个可解释的结论。
+
+#### G2　「加一个域」没有生成器（产品级最大差距）
+
+- **事实**：`gen domain` 只确定性重写域驱动生成物（域清单 + 授权动作投影 + 绑定），`gen store` 只产**一个**
+  entity 文件（gorm tag + `keyOf`），`gen proto` 产 proto 骨架。所以给已有服务加一个业务域时，AI 仍要自己
+  写 handler / biz / store / validation / conversion / errno 六件套，并记得注册进接口。
+- **onexai 对照**：`create api --kinds post` 一条命令 = 9 个新文件 + 2 个自动更新（含 `IStore`/`IBiz` 注册），
+  「把胶水写完了，业务留给你」。这正是走查里那句「让 AI 写业务，前提是先有一个它不会写歪的地方」的落地形态。
+- **口径纠正**：判据①「新增域 3 个手写文件」讲的是**人**（proto + 域包 + 域声明）。对 AI 而言，那 3 个文件里
+  的「域包」是一张白纸——`create api` 把白纸变成了填空题，bald 目前还是白纸。格子有了，填空题纸没印。
+- **建议**：`gen domain --spec <AppSpec> --kinds post,comment` 按 Domain 三槽位产域包骨架（Routes /
+  Services / Wire 三段 + store/validation/conversion 空壳），复用现有 AppSpec → 生成树管线与三态归属，
+  **不新写模板引擎**。这与 P1-5 的预设不同：预设是「起项目」，这个是「起域」。
+
+#### G3　MCP 写面缺席，AI 只能读不能造
+
+- **事实**：`cli/cmd/bald/main.go` 的 selector 只放两类——`convention`（天然只读）与 `gen app`（排掉
+  `adopt`/`preset` 后是纯只读校验形态）。`gen domain/proto/store` 不进工具面。
+- **后果**：走查里「你只需要描述需求，然后 Review 业务逻辑」这句话在 bald 不成立——加域必须人切到终端跑 CLI，
+  闭环断在最后一米。
+- **判断**：这是深思熟虑的安全选择（§6.2 明确写了 gen 放 Phase 2），不是疏忽。但 G2 落地后可以更敢一点：
+  单独放 `gen domain` 一个工具，用 `AnnotationDestructiveHint` + owned 清单三态兜底（产物可重生成、
+  误改可 `git checkout` 还原）。**这恰是 bald 有、onexai 没有的安全垫**——走查里 onexai 只能靠「人别乱动」，
+  所以它的 create 敢直接挂 MCP；bald 有三态清单，理论上可以比它更敢放写动作。
+
+#### G4　起项目要两步 + 手改 JSON
+
+- **事实**：`presets.go` 注释自陈「用户改 meta.name/module 后再跑 gen app」——`--preset` 只落一份
+  `appspec.json`，改完再生成一次。onexai 是 8 个 flag 一次成型（`--binary-name` / `--module-path` /
+  `--web-framework` / `--storage-type` / `--deployment-method` / `--makefile-mode` / `--with-healthz` /
+  `--with-user`）。
+- **对 AI 加倍**：模型得先读懂 AppSpec 的 protojson 结构才改得对；用户得先读文档才知道要改哪两行。
+- **建议**：`gen app --preset webserver --name blog-api --module github.com/x/blog-api --out ./blog-api`，
+  把 preset 里的占位符做成可覆盖变量。零新生成器，纯粹 DX，是这一堆缺口里性价比最高的一条。
+
+#### G5　生成物缺交付面
+
+- 走查里 121 个文件含多阶段 `Dockerfile`、`Makefile` + `scripts/make-rules`、`build/docker/`、中英 `docs/` 骨架；
+  bald 的 `gen app` 产入口 / 装配 / 契约，不含这些（= §4.3 的 P2-9，仍未做）。
+- 后果：「新服务 30 分钟可跑」成立，「可交付」不成立；AI 每个项目都要重新发明一遍 Dockerfile。
+- 建议：进生成树（三态归属现成），按 distroless 分档。
+
+#### G6　无 compose（= P2-10，仍未做）
+
+走查里 `harness compose` 是独立命令组（「Manage the local OneX backend services」）；bald 起集成依赖靠
+README 里那几条手写 `docker run`（etcd / nacos / redis）。AI 会话里要跑集成验证仍得人肉起容器。
+
+#### G7　规范主题面窄（判定：不追）
+
+onexai 46 主题含 web-frontend（React 19）/ crd / operator / viper / grpc / testify 等；bald 25 张卡偏自有机制。
+**不追的理由是 §5.2 的单一真相源问题**：卡是蒸馏不是转抄，硬凑 46 张只会稀释「一处声明」。真正缺的是 G1 的
+checker 深度，不是卡的数量。
+
+### 7.3 反向发现：bald 该守住的两件事
+
+**R1　生成器与检查器必须互锁。** 走查最有价值的一句不是功能，是失手：onexai 自家脚手架生成的项目跑
+`convention check` 报了 4 条 `error-return-r11`（生成代码里的 `panic`），作者评「检查器没有给自家脚手架开后门」。
+这说明它的 create 与 check 是两条独立演进的线。bald 侧的互锁是 `TestPresetsPassGates`（7 预设 gen → check
+自动覆盖）与 docscheck 的「卡的 `checks:` 声明 ⊆ 注册表且绑定规则存在」。**扩 checker 的顺序必须是
+「先让预设生成树跑绿，再合入」**，否则会复刻同一个尴尬：规范是工程约束，不是「官方代码一定正确」的背书。
+
+**R2　工具面克制是优势，别在扩面时丢掉。** onexai 把 46 个 convention 全量挂成 MCP 工具，路由靠模型自己判断
+（走查：「模型通常会先调用 `create_api`，需要时查 `convention_*`」）；bald 是 4+1 个工具 + `overview` 显式索引，
+省 context 且可审计（`bald mcp tools` 能进 CI 防漂移）。G2/G3 扩面时，新工具必须进 `overview` 索引，
+否则就是又一个「46 选 1、模型猜名字」。
+
+### 7.4 优先级（按单位工作量换来的拦截力）
+
+| 序 | 项 | 性质 | 依赖 | 状态 |
+|---|---|---|---|---|
+| **P0-1** | G1-a 补三族 AST checker，5 → ≥12 | 让 check 可信 | 无（`no-panic` 的 AST 写法可复用） | ✅ 17 个 |
+| **P0-2** | G1-b check 输出覆盖率 + CI 设下限 | 让「绿」可解释 | P0-1 同批 | ✅ 6% 下限 |
+| **P1-1** | G4 preset 变量覆盖（一步起项目） | DX，一天级 | 无 | ✅ `--name/--module` |
+| **P1-2** | G2 `gen domain --kinds`（印填空题纸） | 产品级 | 无（复用现有管线） | ✅ 落成 `gen resource` |
+| **P1-3** | G5 Dockerfile / Makefile 进生成树 | 交付面 | 无（三态归属现成） | ✅ Dockerfile（不产 Makefile） |
+| **P2-1** | G3 `gen domain` 进 MCP 工具面 | 闭环最后一米 | P1-2 | ✅ 改投放只读 `gen verify` |
+| **P2-2** | G6 compose | 本地环境 | 无 | ✅ `bald compose` |
+
+落地细节与「照文档跑一遍才现形」的六个真 bug 见 §7.6。
+
+P0 两项合计不改任何产品面（只加 checker 与一行输出），却决定了「CI 里那道门」是不是真的门——先做这两项。
+
+### 7.6 落地记录（2026-11-15 同批完成，G1–G6 全清）
+
+六项全部落地，逐项口径如下（判据是「能不能拦住/能不能真跑通」，不是「有没有加命令」）：
+
+| 缺口 | 落地形态 | 关键证据 |
+|---|---|---|
+| **G1-a** | checker 5 → **17** 个，绑 17 条规则；新增三族（import 纪律 / 错误处理 / 装配与传输纪律）+ 上下文与验证签名 | `cli/internal/convention/checkers.go`；仓库全量自检 **0 finding、13/205 (6.3%)** |
+| **G1-b** | `check` 输出 `covered: N/M rules (x.x%)`；`--min-coverage` 下限；Taskfile 与 CI 都设 **6%** | 覆盖率没达标即红——「绿」从此是可解释的结论，不再是「这 N 条没问题」的歧义 |
+| **G2** | **`gen resource --domain post --kind post[,comment] --apply-decl`**：契约（proto CRUD 六件套）+ 实体 + 域声明 + 重派生，一条命令 | `cli/internal/codegen/gen_resource.go`；测试断言产物后整树 `gen verify` 干净 |
+| **G3** | 不放 `gen domain`（写面），改为新增 **`gen verify`**：只读聚合校验（app 树 + 域产物），标 `readOnlyHint`/`idempotentHint` | `gen_verify.go`；`cmd/bald/main_test.go` 遍历真实命令树钉住 MCP 边界 |
+| **G4** | `gen app --preset webserver --name blog-api --module github.com/x/blog-api` 一步起项目 | 覆盖值经 protojson 回写（改契约字段，不做文本替换），生成完立刻落树 |
+| **G5** | 多阶段 `Dockerfile`（distroless 静态）+ `.dockerignore` + taskfile `image` 任务进生成树（Seeded） | 显式**不产 Makefile**：与 taskfile.yml 双轨是重复税（J2） |
+| **G6** | **`bald compose list\|config\|up\|status\|stop\|down`**，目录与 CI `integration` 作业的 services 块逐项同源 | `cli/internal/compose`；`--dry-run` 打印 docker argv，无 docker 也能验装配 |
+
+#### 落地过程中暴露的六个真 bug（都是「照文档跑一遍」才现形的）
+
+这一节比上表重要：下面每一条都不在 §7.2 的缺口清单里，是**按缺口修完、在真实树上跑一遍**才
+冒出来的。它们共同说明一件事——生成器与检查器的互锁（R1）不能只在单元测试里成立。
+
+1. **`gen proto` 的 CRUD 契约在真实树上根本编译不过**。Delete 返回 `google.protobuf.Empty`，
+   而绑定生成把 rpc 签名里的类型名一律折算成「域包内类型」（`normalizeProtoType` 只去 proto
+   包前缀），于是产出 `postv1.google_protobuf_Empty` —— 一个不存在的标识符。
+   修法：扫描期**保留知名类型全名**（`protoTypeRef`），绑定期按 `well_known_types.go` 折到
+   `emptypb.Empty` 并登记自己的 import。主流的「生成一个域 → 派生绑定」路径此前是必炸的。
+2. **`gen resource` 只改 `domains[]` 会让新域无人服务**。Gate1 有一条「`meta.roles[].domains`
+   的并集 == `domains[]` 全集」的约束；补上后要决定「哪个角色服务这个域」——单角色自动挂，
+   多角色必须显式 `--role`（业务判断不猜）。写回前声明**再过一遍 Gate1**，生成器写出的声明
+   必须自己合法。
+3. **`--no-bind` 是个陷阱**。在 `gen domain` 里它的语义是「这棵树不该有绑定」，配合 `--adopt`
+   会把**别的域**已经生成好的 bind/routes 当陈旧产物删掉。所以 `gen resource` **不提供**
+   这个开关：派生一条不漏；缺 proto Go 类型时自动执行 `--proto-cmd`。
+4. **默认 `--proto-cmd` 在 gen app 的树上必然失败**。树的 buf 配置在 `api/`（`api/buf.yaml` +
+   `api/buf.gen.yaml`），在产出根直接 `buf generate` 报 `read buf.gen.yaml: file does not exist`。
+   修法：`defaultProtoCmdFor` 按实际布局选命令（探测到 `api/buf.gen.yaml` 就 `cd api && buf generate`）。
+5. **播种的 `api/buf.yaml` 缺 deps，`api/buf.gen.yaml` 缺 disable**。契约模板 import 了
+   googleapis / protovalidate / bald store 三个模块，新树不声明 deps 就 `import: file does not exist`；
+   不 disable 则 buf 把这三个模块的 Go 代码也生成到树里（`api/gen/bald/store/v1`）——既与运行时
+   注册冲突（`panic: file already registered`），又把手写域包的 import 指向树内副本。两处都补，
+   并同步修正 `_example/bald/api`（含 `buf.lock`）。
+6. **go_package 前缀有两代布局，猜错必炸**。模板是 `<module>/api/gen/go`（插件 `out: gen/go`），
+   `_example/bald` 是 `<module>/api/gen`（`out: gen`）。`gen resource` 要给**别人的树**补契约，
+   所以先读树的 `buf.gen.yaml` managed 前缀再决定写什么 `option go_package`（见 `buf_layout.go`）；
+   读不到才退回模板约定。猜错的后果不是「多一个 go 段」，而是 buf 在 A 处产出、绑定在 B 处
+   import 一个不存在的包。
+
+验收方式（可复现）：把 `_example/bald` 复制到仓内兄弟目录 → `bald gen resource --domain post
+--kind post --apply-decl --role api` → `go build ./...` 通过 → `bald gen verify` 零差异。
+这条链路是「G2 真的可用」的唯一判据——前面四个 bug 全部在这条链路上现形。
+
+#### 两处口径修正（相对 §7.2 的原始判断）
+
+- **G3 不按原建议做**。§7.2 写的是「单独放 `gen domain` 一个工具 + `AnnotationDestructiveHint`」。
+  实测 `cobramcp` 的 flag 选择器只能**排除** flag、不能**钉住** `--check`，所以放它进工具面等于
+  把「重写域产物」交给 AI，`destructiveHint` 只让客户端弹个确认框、责任仍在调用方。改为投放
+  一个**从构造上只读**的 `gen verify`（两条腿都是各自的 `--check` 分支）：AI 拿到的是「改完声明，
+  树还对得上吗」的答案，而不是「能改树」的权力。工具面因此仍是 **4 + 2** 个（convention 4、gen app
+  的只读形态、gen verify），且由 `main_test.go` 遍历真实命令树钉住——新增写命令默认不进。
+- **G5 不产 Makefile**。走查里 onexai 是 `Makefile` + `scripts/make-rules`；bald 已有 `taskfile.yml`
+  作为唯一构建入口，再生成一份 Makefile 是同一件事写两遍（判据 J2）。交付面补的是 Dockerfile 与
+  `.dockerignore`——那才是「可交付」缺的那一块。
+
+### 7.5 口径与边界
+
+- 本文数字为 2026-11-15 对 `main` @ `285ea779` 的实测（**修复前快照**）：25 张卡 / 205 条规则
+  （167 强制 + 32 建议 + 6 参考）/ 4 张卡声明 `checks:` / 5 个 checker 绑 5 条规则；
+  `cli/cmd/bald/main.go` 的 MCP selector 两处。复核方式：`grep` 卡库与 `check.go` 的
+  `checkerRule` / `registry` 两张表，逐项对上，非抽样。
+  修复后的对照见 §7.6（17 个 checker / 13 条规则可判 / 6.3% 覆盖 / selector 三处）。
+- onexai 侧数字（121 文件、9+2、46 主题、20 命令）出自走查与 [onex-ai.md](onex-ai.md)，未独立复现。
+- **不拿命令数对比**：onexai 20 个 create 里 6 个是声明式平台（crd / controller-manager / controller /
+  operator / operator-api / declserver），bald 的定位（服务装配框架）本就不覆盖 K8s controller 面（属兄弟仓）。
+  可比的是 webserver / jobserver / mqserver / mcpserver / clitool 五类（bald 7 预设已覆盖）+ `api`（= G2）。
+- 本节不重估 §4 的 P1-6…8 / P2-11…15：那些与 CLI 面无关，状态不动。
 
 ---
 

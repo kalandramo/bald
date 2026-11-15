@@ -7,7 +7,8 @@
 | 这个仓库现在是什么结构 | [current-architecture.md](current-architecture.md) |
 | 哪里有风险、消解条件与动手顺序 | [risk-review.md](risk-review.md) |
 | 请求/消息/生命周期怎么流 | [flows.md](flows.md) |
-| bald 与 onexai（AI 化）的差距与落地设计 | [onexai-gap-review.md](onexai-gap-review.md) §4 状态总览 |
+| bald 与 onexai（AI 化）的差距与落地设计 | [onexai-gap-review.md](onexai-gap-review.md) §4 状态总览、§7 CLI 缺口复核 |
+| onexai 用起来是什么样、bald CLI 还缺什么 | [onexai-harness-walkthrough.md](onexai-harness-walkthrough.md)（走查原文）→ [onexai-gap-review.md](onexai-gap-review.md) §7 |
 | onexmesh 移植了什么、裁决理由 | [onexmesh-comparison.md](onexmesh-comparison.md) §6 完成度 |
 | 传输统一（方案 S）的取舍依据 | [transport-unification-assessment.md](transport-unification-assessment.md) |
 | 框架哪里对用户不友好、快赢排期 | [developer-experience-review.md](developer-experience-review.md) |
@@ -54,8 +55,9 @@
 | `flows.md` | 请求/消息/生命周期/发现/缓存/可观测/WebRTC 怎么流；哪些真接线 | 现状，引用已逐条核对 |
 | `flows.dot` | 上述三条主流程的图源 | **已渲染**：`dot -Tsvg` 退出码 0、stderr 为空（40 节点 / 39 边） |
 | `risk-review.md` | 哪里有风险、严重度、消解条件、动手顺序 | 含自评局限一节（§9） |
-| `onexai-gap-review.md` | 对照 OneX Harness AI Coding（onexai）的六层依赖清单，bald 有什么、缺什么；含规范蒸馏卡目录（§5）与 `bald convention` CLI + cobramcp 挂载落地设计（§6） | 2026-11-07 首版；P0 与 P1-4/5 已落地（§4 状态总览），P1-6…8 与 P2 未做 |
+| `onexai-gap-review.md` | 对照 OneX Harness AI Coding（onexai）的六层依赖清单，bald 有什么、缺什么；含规范蒸馏卡目录（§5）与 `bald convention` CLI + cobramcp 挂载落地设计（§6）、实战走查复核的 CLI 缺口清单（§7） | 2026-11-07 首版；P0 与 P1-4/5 已落地（§4 状态总览），P1-6…8 与 P2 未做；§7 复核于 2026-11-15 |
 | `onex-ai.md` | onexai 工具输出的逐字存档（46 convention 描述 / overview 完整输出 / 20 create 命令），补 PDF 文本解析的截断 | 源材料，保持原样不做编辑 |
+| `onexai-harness-walkthrough.md` | onexai 实战走查的逐字存档：一条命令起 121 文件骨架、加资源 9+2 文件、`ide init` 接 Claude Code、`convention check` 的输出与退出码、三处失手点 | 源材料，仅做 HTML→Markdown 格式转换；抓取于 2026-11-15 |
 | `onexmesh-comparison.md` | 对照 `../onexmesh`（运行时微服务框架）的设计盘点与路线分歧分析：三条深层观察、双向借鉴清单、关系判断、移植评估（§6 决策表） | 2026-11-08 首版；三批移植全部落地（§6 完成度已回填） |
 | `transport-unification-assessment.md` | 传输统一抽象重构评估：痛点拆解（handler/错误已统一，真缺口是中间件双链/手写路由双轨/无路由级中间件）、S/M/L 三档方案与代价、四批迁移路径 | 2026-11-08 首版；**方案 S 已全部落地**（§3 实施进展），旧链保留至下一 major |
 | `handoff-session-20261108.md` | 会话成果记录（onexmesh 吸收 × 方案 S 批次 1–3、九 tag）+ 避坑清单（网络工具链/契约生成/运行时陷阱/断言口径） | 交接已闭环（2026-11-10）；时效性章节（阻塞/待办/闸门现状）已移除，避坑清单长期有效 |

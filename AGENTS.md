@@ -4,7 +4,7 @@
 规范全文走 `bald convention`（本仓自己的蒸馏卡就住在 `cli/internal/convention/cards/`）：
 
 ```bash
-bald convention overview        # 先看有哪些规范卡（22 张，覆盖装配/契约/门禁/运维）
+bald convention overview        # 先看有哪些规范卡（25 张 / 205 条规则，覆盖装配/契约/门禁/运维）
 bald convention get <卡id>      # 卡全文；项目自定义卡放 .bald/conventions/ 自动并入
 ```
 
@@ -15,6 +15,9 @@ bald convention get <卡id>      # 卡全文；项目自定义卡放 .bald/conve
   同仓库只能以已发布 tag 依赖（如 `bconf v0.23.0`），**禁止给 cli 加 replace**（那是它存在的意义）。
 - **生成树是声明的函数**：`_example/bald` 的 owned 产物（`appspec.manifest.json` 清单内 DO NOT EDIT 文件）
   禁止手改，改 `appspec.json` 后 `bald gen app --adopt` 重新生成，`--check` 必须零差异。
+- **加业务域的入口是 `bald gen resource --domain <d> --kind <k>`**（契约 + 实体 + 域声明 + 重派生一条命令）；
+  它默认不写 `appspec.json`，`--apply-decl` 才回写并自动重派生。多角色树要用 `--role` 说明新域归谁服务
+  （Gate1 要求 `meta.roles[].domains` 并集 == `domains[]` 全集）。
 
 ## 硬门禁（提交前全过）
 
@@ -26,6 +29,7 @@ bald convention get <卡id>      # 卡全文；项目自定义卡放 .bald/conve
 | 文档 | `go test ./internal/docscheck/` | 改了 docs/ 或架构制品 |
 | workflow | `task ci-workflow-lint` | 改了 `.github/workflows/*.yml` |
 | 生成物 | `task example-bald-vet` / `task acceptance` | 改了生成器或 AppSpec |
+| 生成树自证 | `bald gen verify`（只读：app 树 + 域产物是否与声明一致） | 改完 appspec.json 后、提交前 |
 | 规范卡 | `task convention` | 改了 `cli/internal/convention/` |
 
 ## 设计判据（J1–J9）
