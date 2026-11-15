@@ -139,20 +139,42 @@ func (b *Breaker) Allow() error {
 // MarkSuccess implements [windcb.CircuitBreaker].
 // It closes the Sentinel entry opened by the preceding Allow() call,
 // recording the request as successful.
+//
+// 「结果汇」形态（[windcb.CircuitBreaker] 允许的实现自由度）：调用方不经
+// Allow 门控、只反馈结果（selector/circuitbreaker 的按节点反馈即此形态）时
+// 没有待处理 entry——合成一次完整调用（开 entry 随即归还，记一次成功），
+// 语义与旧 hystrix 的「Mark* 独立计数」对齐。被 sentinel 拒掉的合成调用
+// （开态、半开探针位被占）丢弃——没有放行就没有可统计的调用。
 func (b *Breaker) MarkSuccess() {
 	if e := b.takeEntry(); e != nil {
 		e.Exit()
+		return
 	}
+	e, blockErr := b.enter()
+	if blockErr != nil || e == nil {
+		return
+	}
+	e.Exit()
 }
 
 // MarkFailure implements [windcb.CircuitBreaker].
 // It records the error on the Sentinel entry and closes it, allowing
 // Sentinel's circuit-breaker slot to evaluate the failure.
+//
+// 结果汇形态见 [Breaker.MarkSuccess]：没有待处理 entry 时合成一次完整调用
+// 并记失败。合成调用本身被 sentinel 拒掉时丢弃（开态下多一条失败也无从统计）。
 func (b *Breaker) MarkFailure() {
 	if e := b.takeEntry(); e != nil {
 		sentinelapi.TraceError(e, windcb.ErrCircuitOpen)
 		e.Exit()
+		return
 	}
+	e, blockErr := b.enter()
+	if blockErr != nil || e == nil {
+		return
+	}
+	sentinelapi.TraceError(e, windcb.ErrCircuitOpen)
+	e.Exit()
 }
 
 // Execute implements [windcb.CircuitBreaker].

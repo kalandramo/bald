@@ -237,8 +237,8 @@ func GRPCRateLimit(l ratelimit.Limiter, wait bool) Option {
 //     「handler 都成功返回」——而「handler 总是超时」正是熔断该抓的形状。
 //
 // 生命周期：Bundle 不持有 cb 的关闭职责（与 [RateLimit] 同）——调用方在停机时
-// 调 cb.Close()（幂等）。注意 hystrix 的 Close 之后本层对**所有**请求回开态
-// 状态码，所以 closer 只在服务已停止接收流量之后才有意义。
+// 调 cb.Close()（幂等）。sentinel 的 Close 是幂等 no-op，调用时机不再有行为
+// 后果（旧 hystrix 的「Close 即永久拒绝」纪律随底层换掉而消解）。
 //
 // 与 [GRPCCircuitBreaker] 的关系同 [RateLimit]：不给后者时，gRPC unary 从同一个
 // 熔断器进出（HTTP 面的 5xx 与 gRPC 面的服务侧错误一起计入那份滑窗）。
@@ -428,7 +428,7 @@ func (b *Bundle) Gin() []gin.HandlerFunc {
 		chain = append(chain, middleware.GinHandler(middleware.Chain(face[0], face[1:]...)))
 	}
 	// 熔断已随面段进统一件桥（ginFace 内，限流之后——方案 S 收官换血），
-	// 不再单独挂留守 Handler，避免两层共享同一 hystrix 实例、失败双重计数。
+	// 不再单独挂留守 Handler，避免两层共享同一熔断器实例、失败双重计数。
 	if b.timeoutCfg != nil {
 		// 超时在最内层（业务 handler 之前）：只计业务处理耗时，不把上层中间件
 		// 的开销算进超时预算。
@@ -473,7 +473,7 @@ func (b *Bundle) ginFace() []middleware.Middleware {
 	return face
 }
 
-// unifiedBreaker 从留守构造产物组装统一熔断件：底层 hystrix 实例经 Breaker()
+// unifiedBreaker 从留守构造产物组装统一熔断件：底层 sentinel 熔断器经 Breaker()
 // 复用，配置的 status_code（HTTP 专属字段）经 HTTPToCode 逆映射成统一件
 // openCode（503→Unavailable、500→Internal 等价保真），契约字段语义不变。
 func (b *Bundle) unifiedBreaker(cb *ginmw.CircuitBreaker) middleware.Middleware {

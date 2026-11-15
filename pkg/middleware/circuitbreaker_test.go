@@ -150,8 +150,8 @@ func TestCircuitBreaker_NilPassesThrough(t *testing.T) {
 }
 
 // TestCircuitBreaker_PanicReportsFailureAndRethrows 上报义务的牙：panic 路径
-// 必须在 defer 里记失败后原样抛出——hystrix 半开态的在途探针标记只有 Mark*
-// 会复位，漏掉一次上报是熔断从此永久拒绝。
+// 必须在 defer 里记失败后原样抛出——半开的探针 entry 只有 Mark* 会归还，
+// 漏掉一次上报是探针位从此占死。
 func TestCircuitBreaker_PanicReportsFailureAndRethrows(t *testing.T) {
 	rb := &recordingBreaker{}
 	next := func(context.Context, interface{}) (interface{}, error) { panic("boom") }

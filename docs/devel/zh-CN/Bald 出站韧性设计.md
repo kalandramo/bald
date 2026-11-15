@@ -74,7 +74,7 @@ func (p Policy) guard(ctx, failed, call) (err error) {
 
 ### panic 路径必须上报失败
 
-`guard` 的 defer 里 `recover` 到 panic 时先 `MarkFailure` 再原样抛出。漏掉这一次上报不是少统计一条——hystrix 的 `halfOpenIn` 只由 `Allow` 置位、只由 `Mark*` 复位，半开探针悬着会让熔断从此永久拒绝（与入站中间件、《[Bald 熔断设计](./Bald%20熔断设计.md)》「边界与不变量」同一不变量）。
+`guard` 的 defer 里 `recover` 到 panic 时先 `MarkFailure` 再原样抛出。漏掉这一次上报不是少统计一条——半开的探针 entry 只由 `Mark*` 归还，探针悬着会让半开愈合不再发生（与入站中间件、《[Bald 熔断设计](./Bald%20熔断设计.md)》「边界与不变量」同一不变量）。
 
 ### 失败口径：只算下游的错
 
@@ -121,17 +121,17 @@ clientcontract.AppProvider(
 
 ## 边界与不变量
 
-- **Allow/Mark* 配对**：`Allow` 返回 nil 即欠恰好一次 `Mark*`（含 panic 路径）；`Allow` 返回 `ErrCircuitOpen` 即不欠 `Mark*`、不进重试。违反配对会让 hystrix 半开探针悬死。
+- **Allow/Mark* 配对**：`Allow` 返回 nil 即欠恰好一次 `Mark*`（含 panic 路径）；`Allow` 返回 `ErrCircuitOpen` 即不欠 `Mark*`、不进重试。违反配对会让半开探针悬死。
 - **熔断器不跨条目共享**：每个命名条目一个实例，自适应状态隔离。共享会让一个下游的故障替另一个下游开窗。
 - **reference-only 落地**：本包是薄桥接件，消费者是契约绑定钩子 + `_example` 出站 e2e。三库本身（retry/circuitbreaker）契约零改动，删改前先对照《[设计判据](./设计判据.md)》J1（零调用不是删除依据）。
 
 ## 实现与验证
 
-`transport/client/resiliency/` 独立 module（require circuitbreaker + circuitbreaker/hystrix + retry + grpc，本地 replace 跟踪同仓兄弟）。测试覆盖：
+`transport/client/resiliency/` 独立 module（require circuitbreaker + circuitbreaker/sentinel + retry + grpc，本地 replace 跟踪同仓兄弟；hystrix 退役后集成腿换 sentinel）。测试覆盖：
 
 - 确定性 fake 熔断器 + fake invoker：成功记一次成功、服务侧失败记失败、客户端错误码与 `ResourceExhausted` 记成功、开态跳过 invoker、重试后成功记一次成功、重试耗尽记一次失败、不可重试立即返回、panic 记失败并重抛、零值 Policy 直通、`DefaultGRPCFailure` 走 `errors.Join` 树。
 - HTTP `httptest`：成功记成功、单次 503 原样交还响应（哨兵不泄）、重试耗尽交还末次响应、重试后成功、429 可重试但不算失败、404 不重试不算失败、传输错误耗尽记失败、开态跳过请求、POST 请求体重放、panic 记失败并重抛。
-- 真 hystrix + 真 TCP gRPC 集成：喂 `Unavailable` 跳闸 → `ErrCircuitOpen` 快速失败 → 翻转为成功 + 过睡窗 → 半开探针 → Closed。
+- 真 sentinel + 真 TCP gRPC 集成（错误计数规则喂确定性跳闸）：喂 `Unavailable` 跳闸 → `ErrCircuitOpen` 快速失败 → 翻转为成功 + 过睡窗 → 半开探针 → Closed。
 - 契约钩子（`transport/client/contract`）：条目绑定只落命名条目、追加在全局之后、拼错 fail-fast、同名两面各落其面。
 
 ### 验证方式

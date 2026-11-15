@@ -79,9 +79,9 @@ bald/
 
 质量门禁：`task lint` / `task vuln` / `task race` 与 CI 共用同一条模块派生（`scripts/list-modules.sh`），新增 module 不用顺手改清单；每个 module 跑 `golangci-lint`（根 `.golangci.yml`）与 `govulncheck`（只拦代码可达漏洞）。主循环跑 `go test -short`，**非 `-short` 的集成用例由 CI 的 `integration` 作业注入真 etcd/consul/redis/mongo 跑，registry 的 kubernetes 后端另由 `integration-kubernetes` 作业起真 kind 集群跑**（registry / store / 队列三条接缝），并先探活、后逐条断言判据真的 `--- PASS`——服务没起来是作业失败，不是二十几条 Skip。改 `.github/workflows/*.yml` 后先跑 `task ci-workflow-lint`（CI 侧是同内容的 `workflow-lint` 作业）：GitHub 在编译期解析作业文件，一个未登记的键（比如 `services` 下的 `args`）会让整个文件被拒，只留「workflow file issue」和 0 个 job，本地 YAML 解析器看不出任何问题。
 
-**未接线能力（reference-only）**：`circuitbreaker` 的 `sentinel` 后端、`workflow/argo` 在仓内没有消费方。它们照常随仓库发布、按 reference-only 保留——不删除，也不在文档里假装已接线。清单与可复现判据见[当前架构 §6](docs/architecture/current-architecture.md)。**2026-11 精简**：一批 reference-only 件已整体下线——`transport/{graphql,http3,tcp,webrtc}`、`encoding/{avro,bson,cbor,flatbuffers,gob,msgpack,thrift,toml,xml}`、`metrics/datadog`、`registry/{consul,kubernetes}`、`circuitbreaker/{vegas,sres}`、`ratelimit/bbr`、`log/{charm,sentry}`、`oss/minio`（S3 兼容面由 `oss/s3` 以自定义 endpoint 覆盖）、`broker/redis`（保留 kafka/rabbitmq，段驱动接线改走 `broker/kafka/contract.AppProvider`）、`contrib/{store-mongo,database/mongodb}`（MongoDB 段与 OSS minio 段等契约字段已 reserved 退役）；`log/charm` 以 `bslog.WithHandler` 注入任意 slog.Handler 的方式覆盖。`retry` 已不在这份清单里：它的退避原语（`retry.ExponentialBackoff` + `EqualJitter`/`FullJitter`）由 `broker/kafka` 的订阅退避与 `registry/etcd` 的重注册退避消费，而 etcd 那条曲线现在也能写进配置——契约段 `registry.etcd.backoff`（`bootstrap.v1.Backoff`：`initial`/`factor`/`step`/`max` + `curve` + `jitter`，缺段即沿用默认），但 `retry.Retrier` 的重试循环仍未接线。
+**未接线能力（reference-only）**：`workflow/argo` 在仓内没有消费方。它们照常随仓库发布、按 reference-only 保留——不删除，也不在文档里假装已接线。清单与可复现判据见[当前架构 §6](docs/architecture/current-architecture.md)。**2026-11 精简**：一批 reference-only 件已整体下线——`transport/{graphql,http3,tcp,webrtc}`、`encoding/{avro,bson,cbor,flatbuffers,gob,msgpack,thrift,toml,xml}`、`metrics/datadog`、`registry/{consul,kubernetes}`、`circuitbreaker/{vegas,sres}`、`ratelimit/bbr`、`log/{charm,sentry}`、`oss/minio`（S3 兼容面由 `oss/s3` 以自定义 endpoint 覆盖）、`broker/redis`（保留 kafka/rabbitmq，段驱动接线改走 `broker/kafka/contract.AppProvider`）、`contrib/{store-mongo,database/mongodb}`（MongoDB 段与 OSS minio 段等契约字段已 reserved 退役）；`log/charm` 以 `bslog.WithHandler` 注入任意 slog.Handler 的方式覆盖。`retry` 已不在这份清单里：它的退避原语（`retry.ExponentialBackoff` + `EqualJitter`/`FullJitter`）由 `broker/kafka` 的订阅退避与 `registry/etcd` 的重注册退避消费，而 etcd 那条曲线现在也能写进配置——契约段 `registry.etcd.backoff`（`bootstrap.v1.Backoff`：`initial`/`factor`/`step`/`max` + `curve` + `jitter`，缺段即沿用默认），但 `retry.Retrier` 的重试循环仍未接线。
 
-**熔断已接进入口链**：`server.http.middleware.circuit_breaker` / `server.grpc.middleware.circuit_breaker` 写上一段，两面就各挂一层 hystrix 熔断（HTTP 拒绝回 503、gRPC 回 `UNAVAILABLE` + `Reason=CIRCUIT_OPEN`），缺段即不挂这一层。链序固定在授权之后、限流之内、超时之外——由 `pkg/middleware/bundle` 构造，不靠业务遵守文档。gRPC 的 stream 面刻意不挂（一条流的「失败」没有一致答案）。最小写法：
+**熔断已接进入口链**：`server.http.middleware.circuit_breaker` / `server.grpc.middleware.circuit_breaker` 写上一段，两面就各挂一层熔断（底层 `circuitbreaker/sentinel`——sentinel-golang 错误比例策略，按实例派生唯一资源名注册进进程级规则表；HTTP 拒绝回 503、gRPC 回 `UNAVAILABLE` + `Reason=CIRCUIT_OPEN`），缺段即不挂这一层。链序固定在授权之后、限流之内、超时之外——由 `pkg/middleware/bundle` 构造，不靠业务遵守文档。gRPC 的 stream 面刻意不挂（一条流的「失败」没有一致答案）。最小写法：
 
 ```yaml
 server:
@@ -91,16 +91,16 @@ server:
         error_threshold: 0.5   # 窗内失败率过此值开窗
         min_requests: 20       # 窗内样本不足时不开窗（地板保护）
         open_duration_ms: 5000 # 开窗后的休眠时长，到期转半开放一个探针
-        window_ms: 10000       # 滑窗时长（hystrix 按绝对格点分桶推进）
+        window_ms: 10000       # 失败率统计滑窗时长
   grpc:
     middleware:
       circuit_breaker:         # 字段同上，没有 status_code——gRPC 的拒绝码是协议的一部分
         error_threshold: 0.5
 ```
 
-上面四个值是 hystrix 的默认值，写出来只为示意字段；段内任何字段留 0 都读作「用默认」（proto3 分不出「写了 0」和「没写」），只有负值、`error_threshold > 1`、`status_code` 非 5xx 才是配置错误——启动期直接失败，不静默降级。
+上面四个值是底层默认值，写出来只为示意字段；段内任何字段留 0 都读作「用默认」（proto3 分不出「写了 0」和「没写」），只有负值、`error_threshold > 1`、`status_code` 非 5xx 才是配置错误——启动期直接失败，不静默降级。
 
-`vegas`（按 RTT 膨胀）/`sres`（概率判据）/`sentinel`（规则中心）三个后端没有契约段，换算法经 `bundle.CircuitBreaker(hystrix-替代品)` 代码级注入——它们没段不是缺陷：sres 无请求量下限、vegas 在入口面没有「下游」可测、sentinel 要引第三方规则中心，各有各的不可声明理由。
+换算法仍属代码级注入：`bundle.CircuitBreaker` 接受任意 `circuitbreaker.CircuitBreaker` 实现。仓内熔断后端已收敛为 sentinel 一个——`circuitbreaker/hystrix`（自研滑窗）随 2026-11 的后端精简退役，其契约四字段与 sentinel 错误比例策略一一映射，契约段零改动。
 
 **服务发现已接线**：`registry.Discovery` 不再是「只注册不解析」——gRPC 反向代理的后端地址写成 `discovery:///<服务名>` 即由注册中心解析端点（写 `host:port` 仍走直连），段驱动装配会自动取装配好的注册中心，消费方只改一行配置。服务名按后端的真实命名写：内存与 etcd 用注册时的 `Name`，nacos 用 `<名>.grpc`。示例可当场跑：
 

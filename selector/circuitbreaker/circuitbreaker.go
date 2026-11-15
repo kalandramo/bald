@@ -67,10 +67,13 @@ func (r *Registry) Get(addr string) cb.CircuitBreaker {
 // 尚未构造熔断器的地址视为健康——新节点乐观放行，选中后才经 Get 构造，
 // 避免为从不被选中的节点空建熔断器。
 //
-// State() 语义因实现而异（见《Bald 熔断设计》）：hystrix/sres 的 Open
-// 对应错误率跳闸，适合按节点硬排除；sentinel 的 State() 每次发探针 Entry
-// 会污染统计，不宜驱动本过滤。hystrix 的 State() 带懒转移（Open 过睡窗
-// 自动转 HalfOpen），故恢复由本查询自身驱动——睡窗一过节点重新可选。
+// State() 语义因实现而异（见《Bald 熔断设计》）：错误率/错误数型实现的 Open
+// 对应跳闸，适合按节点硬排除。仓内现存的 sentinel 适配器 State() 是探针式——
+// 每次查询发一个 Entry 计入统计、稀释失败率——高流量下可忽略，低流量下会
+// 推迟跳闸；对探针敏感的场合经 Factory 注入 State() 零污染的实现即可（契约
+// 任意实现都可驱动本层，hystrix 退役后仓内不再有自研的 State() 友好实现）。
+// Open 过睡窗转 HalfOpen 的恢复同样由本查询自身驱动——探针经成功放行即愈合，
+// 节点重新可选。
 func (r *Registry) Healthy(addr string) bool {
 	r.mu.RLock()
 	b, ok := r.breakers[addr]
@@ -122,8 +125,9 @@ func (r *Registry) Close() error {
 // 被排除时返回 cb.ErrCircuitOpen。
 //
 // 不走 Allow 门控：在负载均衡反馈语境里每个调用都是探针，Mark* 直接驱动
-// hystrix 的半开 heal/reopen；而 halfOpenIn 只由 Allow 置位——不调 Allow
-// 即无「探针悬着永久锁死」的风险。详见设计文档「为什么不走 Allow」。
+// 底层实现的三态机（跳闸/愈合都经结果反馈完成），不存在「探针悬着」的
+// 状态——只要实现遵守「Allow 放行才欠 Mark*」的契约，没有放行就没有欠账。
+// 详见设计文档「为什么不走 Allow」。
 func WithCircuitBreaker(inner selector.Selector, reg *Registry) selector.Selector {
 	return &cbSelector{inner: inner, reg: reg}
 }

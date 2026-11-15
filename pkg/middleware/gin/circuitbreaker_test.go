@@ -2,6 +2,7 @@ package gin
 
 import (
 	"context"
+	"math"
 	"strings"
 	"testing"
 
@@ -15,12 +16,14 @@ import (
 //
 // 两类判据分开写：
 //   - 用**记录型假熔断器**钉「上报配对」这条契约义务（哪个响应码该记什么、
-//     被本层拒掉的不能上报）——这些断言必须与底层算法无关，且能精确指出漏上报；
-//   - 用**真 hystrix** 钉可观察形状（打满失败率后拒绝、4xx 不开窗、超时之外、
-//     panic 之后探针不锁死）——只有真实现才会暴露半开锁死这类失效点。
+//     被本层拒掉的不能上报）——这些断言必须与底层算法无关，且能精确指出漏上报
+//     （在 pkg/middleware 的统一件测试里，统一件是唯一实现）；
+//   - 用**真 sentinel** 钉可观察形状（打满失败率后拒绝、Close 幂等 no-op）——
+//     只有真实现才会暴露规则映射与资源派生的失效点。
 //
-// 时间参数：窗口一律取 10s（测试期间不旋转桶），sleepWindow 只在需要过半开时
-// 用 50ms 并**轮询**而不是定长 sleep（CI 与 -race 下的调度抖动不该判红）。
+// 时间参数：窗口一律取 10s（测试期间不旋转桶），开窗取 60s（测试期间恒开）。
+// 半开恢复的时序形状由 circuitbreaker/sentinel 的自带测试与 resiliency 集成
+// 测试覆盖，这里不重复钉。
 // ---------------------------------------------------------------------------
 
 // --- 配置校验（启动期 fail-fast）---
@@ -34,6 +37,7 @@ func TestCircuitBreakerConfig_Validate(t *testing.T) {
 		{"threshold boundary 1", CircuitBreakerConfig{ErrorThreshold: 1}},
 		{"500 status", CircuitBreakerConfig{StatusCode: 500}},
 		{"599 status", CircuitBreakerConfig{StatusCode: 599}},
+		{"uint32 max window", CircuitBreakerConfig{WindowMs: math.MaxUint32}},
 	}
 	for _, tc := range okCases {
 		if err := tc.cfg.Validate(); err != nil {
@@ -51,6 +55,8 @@ func TestCircuitBreakerConfig_Validate(t *testing.T) {
 		{"negative min_requests", CircuitBreakerConfig{MinRequests: -1}, "min_requests"},
 		{"negative open_duration_ms", CircuitBreakerConfig{OpenDurationMs: -1}, "open_duration_ms"},
 		{"negative window_ms", CircuitBreakerConfig{WindowMs: -1}, "window_ms"},
+		{"window_ms over uint32", CircuitBreakerConfig{WindowMs: math.MaxUint32 + 1}, "window_ms"},
+		{"open_duration_ms over uint32", CircuitBreakerConfig{OpenDurationMs: math.MaxUint32 + 1}, "open_duration_ms"},
 		{"4xx status_code", CircuitBreakerConfig{StatusCode: 404}, "status_code"},
 		{"sub-500 status_code", CircuitBreakerConfig{StatusCode: 42}, "status_code"},
 	}
@@ -81,13 +87,7 @@ func TestNewCircuitBreaker_InvalidConfigFailsFast(t *testing.T) {
 	}
 }
 
-// --- 上报配对义务（假熔断器，与算法无关）---
-
-
-
-
-
-// --- 真 hystrix 的可观察形状 ---
+// --- 真 sentinel 的可观察形状 ---
 
 // tripCfg 是测试用的极值：样本量 2、阈值默认 0.5、滑窗 10s（桶不旋转）、
 // 开窗 60s（测试期间恒开）。
@@ -95,14 +95,39 @@ func tripCfg() CircuitBreakerConfig {
 	return CircuitBreakerConfig{MinRequests: 2, OpenDurationMs: 60_000, WindowMs: 10_000}
 }
 
+// TestCircuitBreaker_TripsAfterThreshold 构造面到 sentinel 的整条映射真的生效：
+// 两次 5xx 打满样本量与失败率后，第三次被统一件拒成 UNAVAILABLE。
+func TestCircuitBreaker_TripsAfterThreshold(t *testing.T) {
+	c, err := NewCircuitBreaker(tripCfg())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	mw := middleware.CircuitBreaker(c.Breaker())
+	ok := func(context.Context, interface{}) (interface{}, error) { return nil, nil }
+	boom := func(context.Context, interface{}) (interface{}, error) {
+		return nil, berrors.Internal("boom")
+	}
 
+	// 前两发进 handler 并记失败（min_requests=2 之前不开窗）。
+	for i := 0; i < 2; i++ {
+		if _, err := mw(boom)(context.Background(), nil); err == nil {
+			t.Fatalf("第 %d 发应把业务错误透传上去", i+1)
+		}
+	}
+	_, err = mw(ok)(context.Background(), nil)
+	if err == nil {
+		t.Fatal("打满失败率后应被拒")
+	}
+	if e, ok := berrors.FromError(err); !ok || e.Code != berrors.CodeUnavailable {
+		t.Errorf("拒绝码 = %v, want UNAVAILABLE", err)
+	}
+}
 
-
-
-// TestCircuitBreaker_CloseRejectsEverything hystrix 的 Close 之后永久拒绝。
-// 记进测试是为了让「closer 只能在停止接流量之后调」这条纪律有可观察后果。
-// 拒绝行为经统一件观察（本类型不再自带 gin 中间件——J2 裁撤后统一件是唯一实现）。
-func TestCircuitBreaker_CloseRejectsEverything(t *testing.T) {
+// TestCircuitBreaker_CloseIsIdempotentNoOp sentinel 的 Close 是幂等 no-op：
+// 关闭后熔断器继续工作（不像旧 hystrix 那样打成永久拒绝）。「closer 只能在
+// 停止接流量之后调」的旧纪律随底层换掉而消解——关不关都不改变行为。
+func TestCircuitBreaker_CloseIsIdempotentNoOp(t *testing.T) {
 	c, err := NewCircuitBreaker(tripCfg())
 	if err != nil {
 		t.Fatal(err)
@@ -119,11 +144,7 @@ func TestCircuitBreaker_CloseRejectsEverything(t *testing.T) {
 	if err := c.Close(); err != nil {
 		t.Errorf("Close 应幂等，第二次 got %v", err)
 	}
-	_, err = mw(next)(context.Background(), nil)
-	if err == nil {
-		t.Fatal("Close 后应拒绝")
-	}
-	if e, ok := berrors.FromError(err); !ok || e.Code != berrors.CodeUnavailable {
-		t.Errorf("Close 后拒绝码 = %v, want UNAVAILABLE", err)
+	if _, err := mw(next)(context.Background(), nil); err != nil {
+		t.Fatalf("Close 是 no-op，之后应继续放行，got %v", err)
 	}
 }

@@ -3,6 +3,7 @@ package resiliency
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"sync/atomic"
 	"testing"
@@ -15,14 +16,20 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 
 	"github.com/kalandramo/bald/circuitbreaker"
-	"github.com/kalandramo/bald/circuitbreaker/hystrix"
+	"github.com/kalandramo/bald/circuitbreaker/sentinel"
+
+	sentinelapi "github.com/alibaba/sentinel-golang/api"
+	scb "github.com/alibaba/sentinel-golang/core/circuitbreaker"
 )
 
-// 真实 gRPC 服务 + 真实 hystrix：证明 GRPCDialOption 真的挂进 Dial 链，且
-// 跳闸后快速失败（不打服务端）、睡窗后半开探针经成功调用愈合。服务用
+// 真实 gRPC 服务 + 真实 sentinel 熔断器：证明 GRPCDialOption 真的挂进 Dial 链，
+// 且跳闸后快速失败（不打服务端）、睡窗后半开探针经成功调用愈合。服务用
 // ServiceDesc 直接注册（不生成桩），与 transport/client 测试同款。
 
 const integrationService = "resiliency.test.Echo"
+
+// resSeq 派生唯一资源名：sentinel 规则表进程级共享，每个实例独占一个资源。
+var resSeq atomic.Uint32
 
 type echoSvc interface {
 	Echo(context.Context, *emptypb.Empty) (*emptypb.Empty, error)
@@ -63,18 +70,28 @@ func startEcho(t *testing.T, impl echoSvc) string {
 	return lis.Addr().String()
 }
 
-func TestGRPCDialOptionHystrixTripAndRecover(t *testing.T) {
+func TestGRPCDialOptionSentinelTripAndRecover(t *testing.T) {
+	if err := sentinelapi.InitDefault(); err != nil {
+		t.Fatalf("sentinelapi.InitDefault: %v", err)
+	}
+	resource := fmt.Sprintf("resiliency.test.cb.%d", resSeq.Add(1))
+	if _, err := scb.LoadRules([]*scb.Rule{{
+		Resource:         resource,
+		Strategy:         scb.ErrorCount,
+		Threshold:        2,
+		MinRequestAmount: 2,
+		RetryTimeoutMs:   50,
+		StatIntervalMs:   10000,
+	}}); err != nil {
+		t.Fatalf("LoadRules: %v", err)
+	}
+
 	impl := &echoImpl{}
 	impl.failing.Store(true)
 	addr := startEcho(t, impl)
 
-	breaker := hystrix.New(
-		hystrix.WithErrorThreshold(0.5),
-		hystrix.WithRequestVolumeThreshold(2),
-		hystrix.WithSleepWindow(30*time.Millisecond),
-		hystrix.WithWindow(time.Second),
-	)
-	defer breaker.Close()
+	breaker := sentinel.New(resource)
+	defer func() { _ = breaker.Close() }()
 
 	conn, err := grpc.NewClient(addr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -115,9 +132,10 @@ func TestGRPCDialOptionHystrixTripAndRecover(t *testing.T) {
 		t.Fatalf("open-state call err=%v, want ErrCircuitOpen", err)
 	}
 
-	// 下游愈合 + 睡窗过期：半开探针经成功调用回到 Closed。
+	// 下游愈合 + 睡窗过期：半开探针经成功调用回到 Closed。RetryTimeoutMs=50ms，
+	// 留 100ms 余量再轮询，避免 CI 调度抖动判红。
 	impl.failing.Store(false)
-	time.Sleep(40 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 	if err := call(); err != nil {
 		t.Fatalf("half-open probe after heal: %v", err)
 	}

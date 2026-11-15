@@ -7,16 +7,56 @@ package circuitbreaker
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	cb "github.com/kalandramo/bald/circuitbreaker"
-	"github.com/kalandramo/bald/circuitbreaker/hystrix"
+	wbsentinel "github.com/kalandramo/bald/circuitbreaker/sentinel"
 	"github.com/kalandramo/bald/selector"
 	"github.com/kalandramo/bald/selector/roundrobin"
+
+	sentinelapi "github.com/alibaba/sentinel-golang/api"
+	scb "github.com/alibaba/sentinel-golang/core/circuitbreaker"
 )
+
+// sentinelOnce 保证 sentinel 运行时只初始化一次（initSentinel 无幂等保护）。
+// 资源名按序号派生：sentinel 规则表进程级共享，每个熔断器实例独占一个资源。
+var (
+	sentinelOnce sync.Once
+	sentinelErr  error
+	cbResSeq     atomic.Uint32
+)
+
+func ensureSentinel(t *testing.T) {
+	t.Helper()
+	sentinelOnce.Do(func() { sentinelErr = sentinelapi.InitDefault() })
+	if sentinelErr != nil {
+		t.Fatalf("sentinelapi.InitDefault: %v", sentinelErr)
+	}
+}
+
+// newSentinelBreaker 造一个挂了错误计数规则的 sentinel 熔断器（每个实例独立
+// 资源、独立失败率）。ErrorCount 判据完全由错误数驱动，State() 探针只加
+// totalCount 不加错误数，对判定零稀释——测试确定性最好。
+func newSentinelBreaker(t *testing.T, errs uint64) cb.CircuitBreaker {
+	t.Helper()
+	ensureSentinel(t)
+	resource := fmt.Sprintf("selector-cb.test.%d", cbResSeq.Add(1))
+	if _, err := scb.LoadRules([]*scb.Rule{{
+		Resource:         resource,
+		Strategy:         scb.ErrorCount,
+		Threshold:        float64(errs),
+		MinRequestAmount: errs,
+		RetryTimeoutMs:   50,
+		StatIntervalMs:   10000,
+	}}); err != nil {
+		t.Fatalf("LoadRules(%s): %v", resource, err)
+	}
+	return wbsentinel.New(resource)
+}
 
 // fakeBreaker 是状态可控、上报可计数的契约实现，供确定性断言用。
 type fakeBreaker struct {
@@ -222,7 +262,7 @@ func TestWithCircuitBreakerRecoveryViaStateQuery(t *testing.T) {
 	if _, _, err := sel.Select(context.Background(), nodes); !errors.Is(err, cb.ErrCircuitOpen) {
 		t.Fatalf("Open 态应被排除，got %v", err)
 	}
-	// 模拟睡窗已过：State 转 HalfOpen（hystrix 的懒转移即此形状）。
+	// 模拟睡窗已过：State 转 HalfOpen（真实现过睡窗后探针放行即此形状）。
 	fb.setState(cb.StateHalfOpen)
 	n, _, err := sel.Select(context.Background(), nodes)
 	if err != nil {
@@ -287,23 +327,18 @@ func TestRegistryCloseReleasesAll(t *testing.T) {
 	}
 }
 
-// TestWithCircuitBreakerHystrixIntegration 用真 hystrix 证明 State/Mark*
-// 契约端到端可用：喂失败跳闸 → 硬排除 → 睡窗后恢复。
-func TestWithCircuitBreakerHystrixIntegration(t *testing.T) {
+// TestWithCircuitBreakerSentinelIntegration 用真 sentinel 证明 State/Mark*
+// 契约端到端可用：喂失败跳闸 → 硬排除 → 睡窗后探针恢复。
+func TestWithCircuitBreakerSentinelIntegration(t *testing.T) {
 	r := NewRegistry(func() cb.CircuitBreaker {
-		return hystrix.New(
-			hystrix.WithErrorThreshold(0.5),
-			hystrix.WithRequestVolumeThreshold(2),
-			hystrix.WithSleepWindow(30*time.Millisecond),
-			hystrix.WithWindow(time.Second),
-		)
+		return newSentinelBreaker(t, 2)
 	})
 	defer r.Close()
 	sel := WithCircuitBreaker(firstSelector{}, r)
 	bad := node("bad")
 	good := node("good")
 
-	// 只喂 bad 单节点：内层总选它，done 反馈失败直到 hystrix 跳闸；
+	// 只喂 bad 单节点：内层总选它，done 反馈失败直到 sentinel 跳闸；
 	// 一旦跳闸 Select 即回 ErrCircuitOpen（bad 被硬排除），据此停手。
 	for i := 0; i < 8; i++ {
 		_, done, err := sel.Select(context.Background(), []selector.Node{bad})
@@ -329,18 +364,27 @@ func TestWithCircuitBreakerHystrixIntegration(t *testing.T) {
 	}
 	done(context.Background(), selector.DoneInfo{})
 
-	// 睡窗过后 hystrix 懒转移到 HalfOpen，bad 重新可选。
-	time.Sleep(40 * time.Millisecond)
+	// 睡窗过后 sentinel 的探针 Entry 经成功放行愈合（HalfOpen→Closed），bad
+	// 重新可选。探针本身计一次成功样本、不加错误数，对恢复判定无干扰。
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if r.Healthy("bad") {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 	if !r.Healthy("bad") {
-		t.Fatal("睡窗过后 bad 应恢复到 HalfOpen（重新可选）")
+		t.Fatal("睡窗过后 bad 应恢复（探针愈合，重新可选）")
 	}
 }
 
 // TestWithCircuitBreakerConcurrent 在 -race 下跑并发 Select+done，钉住
-// Registry 与装饰器的并发安全。
+// Registry 与装饰器的并发安全。无规则 sentinel 熔断器恒 Closed（State() 对
+// 无规则资源直接短路，不发探针），把并发压力集中在 Registry/装饰器本身。
 func TestWithCircuitBreakerConcurrent(t *testing.T) {
+	ensureSentinel(t)
 	r := NewRegistry(func() cb.CircuitBreaker {
-		return hystrix.New(hystrix.WithRequestVolumeThreshold(1000))
+		return wbsentinel.New(fmt.Sprintf("selector-cb.concurrent.%d", cbResSeq.Add(1)))
 	})
 	defer r.Close()
 	sel := WithCircuitBreaker(roundrobin.New(), r)

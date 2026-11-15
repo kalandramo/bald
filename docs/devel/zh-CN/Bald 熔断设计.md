@@ -2,9 +2,9 @@
 
 > Author(s): bald 团队
 >
-> Discussion at: 源码 `circuitbreaker/{circuitbreaker.go,circuitbreaker_test.go}` 与四个实现 `circuitbreaker/{hystrix,sentinel,sres,vegas}/`；对照 `retry/retry.go`（组合位置）、`ratelimit/ratelimit.go`（姊妹契约的接口拆分先例）
+> Discussion at: 源码 `circuitbreaker/{circuitbreaker.go,circuitbreaker_test.go,circuitbreaker/sentinel/}`（2026-11 后端精简后唯一在仓实现；`hystrix`/`sres`/`vegas` 已退役，其章节保留为设计沿革）；对照 `retry/retry.go`（组合位置）、`ratelimit/ratelimit.go`（姊妹契约的接口拆分先例）
 >
-> Status: Accepted（契约与四实现已落地；`hystrix` 已接进服务端入口链——契约段 `server.http.middleware.circuit_breaker` / `server.grpc.middleware.circuit_breaker`（见「接线」），其余三个实现仍是 reference-only。三个行为边界的正确形态——`hystrix` 半开转移、`vegas` 开态经接口恢复、`sentinel` entry 并发释放——见「边界与不变量」）
+> Status: Accepted（2026-11 更新：后端收敛为 `sentinel` 一个且为服务端入口链唯一底层——契约段 `server.http.middleware.circuit_breaker` / `server.grpc.middleware.circuit_breaker` 经四字段→`ErrorRatio` 规则映射驱动，见「接线」；`hystrix`/`sres`/`vegas` 已退役。`sentinel` 的两个关键实现语义——entry 并发释放、Mark* 结果汇合成调用——见「边界与不变量」）
 
 ## 摘要
 
@@ -14,10 +14,9 @@
 
 | 实现 | 定位 | 依赖 | 测试 |
 |---|---|---|---|
-| `circuitbreaker/sres` | Google SRE 概率式放行，**平滑降级** | 零第三方 | 24 |
-| `circuitbreaker/vegas` | 按 RTT 膨胀提前侦测退化 | 零第三方 | 20 |
-| `circuitbreaker/hystrix` | Netflix Hystrix 式阈值 + 睡窗，**入口链的默认实现** | 零第三方 | 18 |
-| `circuitbreaker/sentinel` | Alibaba Sentinel 桥接，规则交给 Sentinel | `sentinel-golang v1.0.4` | 11 |
+| `circuitbreaker/sentinel` | Alibaba Sentinel 桥接（`ErrorRatio` 策略），**入口链的唯一底层** | `sentinel-golang v1.0.4` | 12 |
+
+> 2026-11：`sres`（24 测试）、`vegas`（20）、`hystrix`（18）三个后端已随「每模块 1–3 后端」精简整体退役；下文三节保留为判决依据与设计沿革。
 
 我们做了三个承诺：
 
@@ -25,7 +24,7 @@
 2. **算法可插拔且互不感知**。`sres` 不知道 `vegas` 存在，`vegas` 也不 import 任何熔断库；换算法只改构造那一行。
 3. **「放行即欠一次上报」是契约写明的义务**。`Allow()` 成功返回后，调用方**必须**恰好调用一次 `MarkSuccess` 或 `MarkFailure`——这条义务是四个实现共同的正确性前提，也是它们共同的失效点（见「兼容性」）。入口链把它落在中间件的 `defer` 里（含 panic 路径），见「接线」。
 
-`hystrix` 经 `pkg/middleware/{gin,grpc}` 的熔断层被服务端入口链消费（见「接线」）；`sres`/`vegas`/`sentinel` 仍是 reference-only——接口、默认值与测试齐备，但没有生产调用点。Taskfile 任务、根 README 登记与设计文档齐备；契约包注释使用 `bald`。
+`sentinel` 经 `pkg/middleware/gin` 的熔断构造面被服务端入口链消费（见「接线」）：契约四字段映射为 `ErrorRatio` 规则、按实例派生唯一资源名经 `LoadRulesOfResource` 注册进进程级规则表。Taskfile 任务、根 README 登记与设计文档齐备。
 
 ## 背景与动机
 
@@ -125,7 +124,7 @@ func (b *Breaker) Execute(ctx context.Context, fn func() error) error {
 
 **为什么不在契约层统一**：三态是**能力上限**而非**义务**。`sres` 的概率模型本质上是连续的，硬塞进三态只能取阈值近似（它已经这么做了）；`sentinel` 的状态在别人手里，读不到就是读不到。契约给的是「你能表达多少」，不是「你必须表达全部」。调用方依赖 `State() == StateHalfOpen` 做判断是不可移植的——这条要写进使用须知。
 
-### 实现一：`sres`——概率式平滑降级（零依赖，24 测试）
+### 实现一：`sres`（已退役）——概率式平滑降级（零依赖，24 测试）
 
 ```go
 cb := sres.New(sres.WithK(2), sres.WithWindow(10*time.Second))
@@ -148,7 +147,7 @@ accept = max(0, (requests - K * errors) / (requests + 1))
 
 **滑窗按绝对格点推进**：`sres` 与 `hystrix` 各自持有「窗长 / 桶数」的分桶数组，桶下标 = `UnixNano()/桶长 % 桶数`（同一时刻在任何实例上都落到同一格）。清桶的基准必须是**绝对格号差**，不能是「距上一次旋转的时长 / 桶长」——后者把锚点放在格内任意位置，与绝对格点会错开一格，方向还不固定（见 `hystrix` 那节）。`sres` 侧的判据不经过 `accept` 公式与 `rand`，直接断言窗内聚合：`TestSlidingWindow_SameBucketSamplesAreNotLost`（同桶两发必须都算数）、`TestSlidingWindow_LapOldSampleIsReplaced`（走满一圈后总数封顶在桶数，既不许滞留也不许过清）。
 
-### 实现二：`vegas`——按 RTT 膨胀提前侦测（零依赖，20 测试）
+### 实现二：`vegas`（已退役）——按 RTT 膨胀提前侦测（零依赖，20 测试）
 
 ```go
 cb := vegas.New(vegas.WithAlpha(0.5), vegas.WithBeta(0.3))
@@ -170,7 +169,7 @@ err := cb.Execute(ctx, func() error {
 2. `minRTT`/`maxRTT`（1ms / 30s）是**写死的常量**，没有 Option（`vegas.go`）——想调离群边界改不了。
 3. Open/HalfOpen 放行**单个探针**（`probeInFlight`），探针的延迟样本驱动恢复——经接口调用也能自愈，不依赖调用方持有具体类型去调 `RecordLatency`。
 
-### 实现三：`hystrix`——阈值 + 睡窗（零依赖，18 测试）
+### 实现三：`hystrix`——阈值 + 睡窗（已退役，原零依赖 18 测试）
 
 ```go
 cb := hystrix.New(hystrix.WithErrorThreshold(0.5), hystrix.WithSleepWindow(5*time.Second))
@@ -207,8 +206,9 @@ cb := sentinel.New("my-api")
 
 1. `Close()` 是 no-op（`sentinel.go`）——Sentinel 全局单例，适配器无可释放之物。
 2. **`Allow()` 与 `Mark*` 支持并发**——entry 存在**待处理 entry 栈**（`pending []*base.SentinelEntry`）里：每次 `Allow` 入栈、每次 `Mark*` 出栈，「每个 Entry 恰好 Exit 一次」在任意交错下成立（计数与顺序无关）。`TestEntryPairing_NoLeakUnderConcurrency`（200 并发配对后栈必须为空）钉住该不变量。
-3. `State()` 的探针 Entry 会**污染统计**——每次调 `State()` 都发一次真实 Entry 再 Exit，计入 Sentinel 的统计窗口。
-4. 测试 11 个，含规则装载后跳闸、entry 配对不变量、`Close` no-op 语义。依赖面：`sentinel-golang v1.0.4` + 18 个 indirect（含 2021 年的 `gopsutil/v3 v3.21.6`）。
+3. `State()` 的探针 Entry 会**污染统计**——每次调 `State()` 都发一次真实 Entry 再 Exit，计入 Sentinel 的统计窗口（错误计数策略不受稀释：探针只加 totalCount 不加错误数）。
+4. **Mark* 支持「结果汇」形态**——不经 `Allow`、只反馈结果的调用方（selector/circuitbreaker 的按节点反馈）没有待处理 entry，此时合成一次完整调用（开 entry、按结果记成功/错误、随即归还），与旧 hystrix「Mark* 独立计数」对齐；合成调用被 sentinel 拒掉（开态/半开探针位被占）时丢弃。
+5. 测试 12 个，含规则装载后跳闸、entry 配对不变量、结果汇跳闸、`Close` no-op 语义。依赖面：`sentinel-golang v1.0.4` + 18 个 indirect。
 
 ### 四实现对照表
 
@@ -224,19 +224,19 @@ cb := sentinel.New("my-api")
 | 额外方法 | — | `RecordLatency`/`BaseRTT`/`CurrentRTT`/`Inflation` | — | 无（entry 只在内部） |
 | 并发安全 | ✅ | ✅ | ✅ | ✅（`Allow`/`Mark*` 经 mutex + 待处理 entry 栈；代价是 `State()` 每次发一次真实 Entry） |
 | 第三方依赖 | 无 | 无 | 无 | `sentinel-golang v1.0.4` |
-| 测试 | 24 | 20 | 18 | 11 |
+| 测试 | 24 | 20 | 18 | 12 |
 
 这张表是本文档存在的主要理由之一：**同一份契约下的四个实现，判决依据、并发保证、可观测面各不相同，而这些差异必须写在类型与文档上而不是藏在注释里。**
 
 ### 接线：契约段 → 两面中间件 → bundle → appkit
 
-`hystrix` 是入口链的默认实现，通路与其他容错层（`rate_limit`、`timeout`）逐条同形：
+`sentinel`（错误比例策略）是入口链的默认实现，通路与其他容错层（`rate_limit`、`timeout`）逐条同形：
 
 ```
 bconf 段 server.{http,grpc}.middleware.circuit_breaker
   → bundle.CircuitBreakerFromMiddleware / GRPCCircuitBreakerFromMiddleware
       （字段翻译成 ginmw.CircuitBreakerConfig，Config.Validate() 启动期 fail-fast）
-  → ginmw.NewCircuitBreaker（持有 hystrix 实例 + gin 中间件 / gRPC 拦截器）
+  → ginmw.NewCircuitBreaker（四字段映射成 sentinel `ErrorRatio` 规则，经 `LoadRulesOfResource` 注册到实例独占的资源名，持有 sentinel 熔断器）
   → bundle.CircuitBreaker(cb) / GRPCCircuitBreaker(cb)
   → appkit.WithHTTPContract / WithGRPCOptionsContract 消费；closer 由调用方在停流量后调
 ```
@@ -248,11 +248,11 @@ bconf 段 server.{http,grpc}.middleware.circuit_breaker
 | opt-in | 缺 `circuit_breaker` 段 → 不挂这一层（默认开会允许一次 5xx 在没人要求的场合变成整站拒绝） | `TestE2E_HTTPCircuitBreakerAbsentDoesNotTrip`：缺段时 4 发全是 504，一次 503 都没有 |
 | 链序 | 授权之后、限流之内、超时之外。更外则匿名流量替所有人开窗；更内（限流之前）则两层拒绝互相喂养；更内（超时之内）则内层 Timeout 写出的 503 在这一层之下，熔断只看见「handler 都成功返回」——而「handler 总是超时」正是该抓的形状 | `TestE2E_HTTPContractCircuitBreaker`：超时改 504、熔断留默认 503，第三发读到 503 才同时证明「接线」与「顺序」（503 只能来自熔断器，且发生在 Timeout 之前） |
 | 失败口径 | HTTP：状态码 ≥500 记失败，4xx 不记（一个坏客户端不该替全体用户开窗）。gRPC：`Internal`/`Unknown`/`Unavailable`/`DeadlineExceeded`/`DataLoss` 记失败，`ResourceExhausted`（限流的码）与 `Canceled`（调用方主动取消）不记；`*berrors.Error` 不实现 `GRPCStatus()`，所以先认 `berrors` 的 Code，再退到 `status.FromError`，最后退到 ctx 哨兵 | `TestCircuitBreaker_ClientErrorsNeverTrip`、`TestIsFailureStatus_CoversBothErrorShapes` |
-| 上报义务 | `Allow` 放行即欠一次 `Mark*`，半开探针的 `halfOpenIn` 只有 `Mark*` 会复位——所以 panic 路径也在 `defer` 里上报后再原样抛出。漏这一次不是「少统计一条」，是**熔断永久拒绝**：探针悬着 ⇒ 之后每个请求都被判成「已有探针在途」 | `TestCircuitBreaker_PanicDoesNotLockHalfOpen`（两轮开窗两轮探针）、`TestCircuitBreakerInterceptor_PanicReportsFailureAndRethrows` |
+| 上报义务 | `Allow` 放行即欠一次 `Mark*`，半开的探针 entry 只有 `Mark*` 会归还——所以 panic 路径也在 `defer` 里上报后再原样抛出。漏这一次不是「少统计一条」，是探针位悬死、半开愈合不再发生 | `TestCircuitBreaker_PanicDoesNotLockHalfOpen`（两轮开窗两轮探针）、`TestCircuitBreakerInterceptor_PanicReportsFailureAndRethrows` |
 
 被本层自己拒掉的请求发生在 `Allow` 之前，按契约不欠上报，也就**不能**上报——否则拒绝在喂养自己的失败率（`TestCircuitBreakerMiddleware_RejectedRequestReportsNothing`）。
 
-字段口径：proto3 没有字段存在性，「显式写 0」与「没写」不可区分，所以 0 一律读成「未设置」、由 `hystrix` 取自己的默认（阈值 0.5、样本量 20、睡窗 5s、滑窗 10s、状态码 503），默认值只有底层一个来源；负值与越界值才是错误。`status_code` 是 HTTP 专属，gRPC 段的拒绝码固定 `UNAVAILABLE`。env 覆盖同样能驱动这一段（`TestE2E_EnvOverridesContractCircuitBreaker`）。
+字段口径：proto3 没有字段存在性，「显式写 0」与「没写」不可区分，所以 0 一律读成「未设置」、取构造面声明的默认（阈值 0.5、样本量 20、开窗 5s、滑窗 10s、状态码 503——`pkg/middleware/gin/circuitbreaker.go` 的 `default*` 常量，唯一来源）；负值与越界值才是错误。`status_code` 是 HTTP 专属，gRPC 段的拒绝码固定 `UNAVAILABLE`。env 覆盖同样能驱动这一段（`TestE2E_EnvOverridesContractCircuitBreaker`）。
 
 gRPC **stream 面不挂熔断**，且不是漏掉：一条流的「失败」没有一致答案——按建流算则开窗与真实退化无关，按流终态算则一条长流会长期占住半开探针、把其它流全拒。
 
@@ -317,13 +317,13 @@ gRPC **stream 面不挂熔断**，且不是漏掉：一条流的「失败」没�
 
 ## 实现与验证
 
-`circuitbreaker/` 根 module（契约 + 测试）+ 四实现 module，共 5 个 module。测试 76 个：契约 3 + `sres` 24 + `vegas` 20 + `hystrix` 18 + `sentinel` 11。`sentinel` 测试用 `sync.Once` 初始化 + 独立资源名隔离。
+`circuitbreaker/` 根 module（契约 + 测试）+ `circuitbreaker/sentinel` module，共 2 个 module。测试 15 个：契约 3 + `sentinel` 12（`sync.Once` 初始化 + 独立资源名隔离；含结果汇形态的跳闸回归）。
 
 登记完整：`Taskfile.yml` 的 `circuitbreaker-verify` 逐 module 挂入 `verify`；根 `README.md` 与本文索引均已收录。嵌套 module 不在根 `go build ./...` 范围内，CI 用 `find . -name go.mod` 自动发现全部 module。
 
-接线侧的判据分布在三处：实现层（`circuitbreaker/hystrix/hystrix_test.go` 的滑窗四条、半开四条）、中间件层（`pkg/middleware/{gin,grpc}/circuitbreaker_test.go` 的上报配对与失败口径）、端到端（`_example/bald/internal/bootstrap/middleware_e2e_test.go` 的四条契约驱动用例，已按条登记进 `.github/workflows/ci.yml` 的示例作业判据清单——Skip 不算通过）。
+接线侧的判据分布在三处：实现层（`circuitbreaker/sentinel/sentinel_test.go` 的契约形状、配对不泄漏、结果汇跳闸）、中间件层（`pkg/middleware/{gin,grpc}/circuitbreaker_test.go` 与 `pkg/middleware/bundle/circuitbreaker_test.go` 的上报配对、失败口径与真 sentinel 开窗）、端到端（`_example/bald/internal/bootstrap/middleware_e2e_test.go` 的四条契约驱动用例，已按条登记进 `.github/workflows/ci.yml` 的示例作业判据清单——Skip 不算通过）。
 
-**尚未做**：`retry` 尚未接进契约段（服务端重试会重复执行有副作用的 handler，故不进入口链）；它作为**退避原语**已替换掉仓内两处手写退避（`broker/kafka` 的订阅 fetch、`registry/etcd` 的断链重注册），第三处 `bconfig/apollo` 刻意不接，理由见《Bald 重试设计》「接入现状」；`sres`/`vegas`/`sentinel` 尚无生产调用点，选实现的那一步留给契约（当前契约段只驱动 `hystrix`）。
+**尚未做**：`retry` 尚未接进契约段（服务端重试会重复执行有副作用的 handler，故不进入口链）；它作为**退避原语**已替换掉仓内两处手写退避（`broker/kafka` 的订阅 fetch、`registry/etcd` 的断链重注册），第三处 `bconfig/apollo` 刻意不接，理由见《Bald 重试设计》「接入现状」；熔断后端已收敛为 sentinel 一个并接入契约段；出站按节点熔断（selector/circuitbreaker）仍无仓内生产接线，其 State() 语义约束见《Bald 节点熔断设计》。
 
 **节点级熔断（出站 LB 面）**：入口链的熔断保护的是「下游整体值不值得试」；按节点硬排除是另一面——`selector/circuitbreaker` 把本契约接成 selector 的过滤层（`Registry.Healthy` 由 `State()` 派生，`WithCircuitBreaker` 装饰器反馈 `Mark*`），熔断打开的节点直接不进候选集。它不走 `Allow` 门控（每个调用都是探针，`Mark*` 直接驱动半开 heal/reopen），契约本身零改动。见《[Bald 节点熔断设计](./Bald%20节点熔断设计.md)》。
 
@@ -335,7 +335,7 @@ task circuitbreaker-verify    # 五 module：build + vet + test（推荐）
 cd circuitbreaker && go vet ./... && go test -count=1 ./...          # 契约 3
 cd circuitbreaker/sres && go vet ./... && go test -count=1 ./...    # 24
 cd circuitbreaker/vegas && go vet ./... && go test -count=1 ./...   # 20
-cd circuitbreaker/hystrix && go vet ./... && go test -count=1 ./... # 18
+cd circuitbreaker/sentinel && go vet ./... && go test -count=1 ./... # 12
 cd circuitbreaker/sentinel && go vet ./... && go test -count=1 ./... # 11
 ```
 

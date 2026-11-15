@@ -80,8 +80,8 @@ func isFailureError(err error) bool {
 // 失败口径见 [IsFailureCode]：next 返回的错误按 berrors Code 分类（统一链上
 // 的错误都是 *berrors.Error——桥面 5xx 以 httpStatusError 哨兵到达、recovery 以
 // Internal 到达）。上报义务与面段熔断同一条契约：「Allow 放行即欠一次 Mark*」，
-// panic 路径必须在 defer 里记失败后原样抛出——hystrix 半开态的在途探针标记
-// 只有 Mark* 会复位，漏掉一次上报是熔断从此永久拒绝，不是少统计一条。被本层
+// panic 路径必须在 defer 里记失败后原样抛出——半开的探针 entry 只有 Mark*
+// 会归还，漏掉一次上报是探针位从此占死、半开愈合不再发生，不是少统计一条。被本层
 // 自己拒掉的请求不欠上报（Allow 已返回错误，再调 Mark* 会让拒绝喂养自己的失败率）。
 //
 // cb 为 nil 时退化为透传（等同未装配，零开销）。

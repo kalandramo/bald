@@ -62,7 +62,7 @@ type Policy struct {
 //
 // Allow 返回 ErrCircuitOpen 时直接返回、不进重试也不上报（契约：闸门没开
 // 不欠 Mark*）。panic 路径记失败后原样抛出——漏掉这一次上报不是少统计一条，
-// 是 hystrix 半开探针悬着、熔断从此永久拒绝（与入站中间件同一不变量）。
+// 是半开的探针 entry 悬着不归还、熔断的探针位从此占死（与入站中间件同一不变量）。
 func (p Policy) guard(ctx context.Context, failed func(error) bool, call func(context.Context) error) (err error) {
 	if p.Breaker != nil {
 		if allowErr := p.Breaker.Allow(); allowErr != nil {

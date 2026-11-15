@@ -3139,11 +3139,12 @@ func (x *Server_Http_Middleware_Timeout) GetStatusCode() int32 {
 // CircuitBreaker 熔断中间件（服务端入口的自我防护，**opt-in**：本段缺在
 // 那里就等于不挂这一层，现有部署行为不变）。
 //
-// 算法：`circuitbreaker/hystrix`——滑窗失败率 + 最小样本量 + 固定休眠窗，
-// 字段与本段一一对应。sres/vegas/sentinel 三种没有各自的契约段：sres 无
-// 请求量下限（单次失败就开始概率性拒流，低流量服务不可用）、vegas 按出站
-// RTT 膨胀判定（入口面没有「下游」可测）、sentinel 要引第三方规则中心。
-// 它们照常发布，换算法属代码级注入（见《Bald 熔断设计》的接线节）。
+// 算法：`circuitbreaker/sentinel`（sentinel-golang 错误比例策略）——滑窗
+// 失败率 + 最小样本量 + 固定休眠窗，字段与本段一一映射（error_threshold
+// →Threshold、min_requests→MinRequestAmount、window_ms→StatIntervalMs、
+// open_duration_ms→RetryTimeoutMs）。熔断器按实例派生唯一资源名注册进
+// sentinel 的进程级规则表；换算法仍属代码级注入（bundle.CircuitBreaker
+// 接受任意 circuitbreaker.CircuitBreaker，见《Bald 熔断设计》的接线节）。
 //
 // 链序：限流之后、超时之前。三个判据决定它不能更外也不能更内：
 //   - 必须在认证/授权之后：否则匿名流量就能把失败率打满、替所有人开窗；
@@ -3155,8 +3156,8 @@ func (x *Server_Http_Middleware_Timeout) GetStatusCode() int32 {
 // 拒掉的 503）记成功或不上报。4xx 是调用方的错，计入会让一个坏客户端替全体
 // 用户开窗；本层自己的拒绝发生在 Allow 之前，按契约不欠上报。
 // handler panic 也记失败：上报在 defer 里，panic 沿链向外层 Recovery 传播时
-// 仍然完成上报——少了那次上报，半开态的「在途探针」标记永不复位，熔断会
-// 永久拒绝（契约里「放行即欠一次上报」这条义务的失效点）。
+// 仍然完成上报——少了那次上报，半开的探针 entry 永不归还，熔断的探针位
+// 悬死（契约里「放行即欠一次上报」这条义务的失效点）。
 // 0 的读法（proto3 没有字段存在性，「写 0」与「没写」不可区分）：一律
 // 按「未设置」取下面注明的默认值。因此本段可以只写一两个字段、其余留
 // 默认；负值、error_threshold > 1、status_code 非 5xx 才是配置错误，
@@ -4269,7 +4270,7 @@ func (*Server_UnifiedMiddleware_Audit) Descriptor() ([]byte, []int) {
 }
 
 // CircuitBreaker 策略参数（字段与两面 circuit_breaker 段同口径；0 = 底层
-// hystrix 默认，负值/超界在链构建期 fail-fast）。
+// 默认，负值/超界在链构建期 fail-fast）。
 type Server_UnifiedMiddleware_CircuitBreaker struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// 开窗的失败率阈值，取值 (0,1]。0 → 默认 0.5。

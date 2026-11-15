@@ -168,7 +168,9 @@ func TestEntryPairing_NoLeakUnderConcurrency(t *testing.T) {
 	}
 }
 
-// Mark* 在没有待处理 entry 时必须是安全的 no-op（不能 panic、不能误关别人的 entry）。
+// Mark* 在没有待处理 entry 时必须安全：不 panic、不误关别人的 entry、不留
+// 待处理栈。语义是「结果汇」——合成一次完整调用记入统计（见 MarkSuccess
+// 注释），pending 仍然为空。
 func TestMark_WithoutAllowIsSafe(t *testing.T) {
 	ensureInit(t)
 	b := New("mark-without-allow")
@@ -182,6 +184,32 @@ func TestMark_WithoutAllowIsSafe(t *testing.T) {
 	b.mu.Unlock()
 	if n != 0 {
 		t.Fatalf("Mark* without Allow must not fabricate pending entries, got %d", n)
+	}
+}
+
+// TestMarkWithoutAllow_TripsCircuit 结果汇契约：不经 Allow、只反馈结果的调用方
+// （selector/circuitbreaker 的按节点反馈即此形态）也能把熔断喂跳——这是旧
+// hystrix「Mark* 独立计数」语义的对齐点，断了它 selector 桥就废了。
+func TestMarkWithoutAllow_TripsCircuit(t *testing.T) {
+	ensureInit(t)
+	const resource = "sink-resource"
+	if _, err := scb.LoadRules([]*scb.Rule{{
+		Resource:         resource,
+		Strategy:         scb.ErrorCount,
+		Threshold:        2,
+		MinRequestAmount: 2,
+		RetryTimeoutMs:   1000,
+		StatIntervalMs:   10000,
+	}}); err != nil {
+		t.Fatalf("LoadRules: %v", err)
+	}
+	b := New(resource)
+	defer b.Close()
+
+	b.MarkFailure()
+	b.MarkFailure()
+	if b.State() != windcb.StateOpen {
+		t.Fatalf("两次无 Allow 的 MarkFailure 后应跳闸，State = %v", b.State())
 	}
 }
 

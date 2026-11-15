@@ -96,7 +96,7 @@ func TestCircuitBreakerFromMiddleware_StatusFieldIsConsumed(t *testing.T) {
 }
 
 // TestCircuitBreakerFromMiddleware_ZeroMeansDefaults 段存在但字段全留空（proto3
-// 里 0 与「没写」不可区分）→ 取 hystrix 默认，而不是 fail-fast。
+// 里 0 与「没写」不可区分）→ 取底层默认，而不是 fail-fast。
 func TestCircuitBreakerFromMiddleware_ZeroMeansDefaults(t *testing.T) {
 	opts, closeFn, err := FromMiddleware(mustMiddleware(t, `{"circuitBreaker":{}}`))
 	if err != nil {
@@ -109,9 +109,10 @@ func TestCircuitBreakerFromMiddleware_ZeroMeansDefaults(t *testing.T) {
 	r.Use(New(opts...).Gin()...)
 	r.GET("/x", func(c *gf.Context) { hits++; c.Status(http.StatusInternalServerError) })
 
-	// 默认 min_requests=20，且判定发生在**上报之后**（hystrix.evaluateLocked 在
-	// MarkFailure 里）：第 20 发仍进 handler、它那一次上报才把窗打开，被拒从第 21
-	// 发起。上面 min_requests=2 那组是同一个形状（两发 500，第三发 503）。
+	// 默认 min_requests=20，且判定发生在**上报之后**（sentinel 的
+	// OnRequestComplete 在 entry 归还时结算）：第 20 发仍进 handler、它那一次
+	// 上报才把窗打开，被拒从第 21 发起。上面 min_requests=2 那组是同一个形状
+	// （两发 500，第三发 503）。
 	for i := 0; i < 20; i++ {
 		if w := serveBreakered(r); w.Code != http.StatusInternalServerError {
 			t.Fatalf("第 %d 次应仍 500（默认样本量 20），got %d", i+1, w.Code)
@@ -175,8 +176,9 @@ func TestFromMiddleware_NoCircuitBreakerSegmentMeansNoLayer(t *testing.T) {
 	}
 }
 
-// TestFromMiddleware_CloseClosesBreaker 桥返回的 close 真的关掉熔断器。
-// hystrix 的 Close = 永久开态，所以这条同时钉住「closer 只能在停止接流量后调」。
+// TestFromMiddleware_CloseClosesBreaker 桥返回的 close 真的走完生命周期契约
+// （幂等、无错）。sentinel 的 Close 是 no-op——关闭后请求照常放行，这条同时
+// 钉住「换后端不许悄悄把 Close 变成有行为后果的操作」。
 func TestFromMiddleware_CloseClosesBreaker(t *testing.T) {
 	opts, closeFn, err := FromMiddleware(mustMiddleware(t,
 		`{"circuitBreaker":{"minRequests":2,"openDurationMs":60000}}`))
@@ -195,11 +197,14 @@ func TestFromMiddleware_CloseClosesBreaker(t *testing.T) {
 	if err := closeFn(); err != nil {
 		t.Fatalf("close: %v", err)
 	}
-	if w := serveBreakered(r); w.Code != http.StatusServiceUnavailable {
-		t.Errorf("close 后应拒绝，got %d", w.Code)
+	if err := closeFn(); err != nil {
+		t.Errorf("close 应幂等，第二次 got %v", err)
 	}
-	if hits != 1 {
-		t.Errorf("close 后不该再进 handler，命中 = %d, want 1", hits)
+	if w := serveBreakered(r); w.Code != http.StatusOK {
+		t.Errorf("Close 是 no-op，关闭后应照常放行，got %d", w.Code)
+	}
+	if hits != 2 {
+		t.Errorf("handler 命中 = %d, want 2", hits)
 	}
 }
 

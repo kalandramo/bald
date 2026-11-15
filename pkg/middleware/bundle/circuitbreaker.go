@@ -20,8 +20,9 @@ import (
 //     [ginmw.CircuitBreakerConfig]）；
 //   - 非法值（阈值越界、负数、状态码非 5xx）→ 错误，启动期 fail-fast。
 //
-// 生命周期：返回的 *ginmw.CircuitBreaker 由调用方持有，停机时须 Close。Close
-// 之后 hystrix 永久拒绝，所以只在服务停止接收流量之后调它。
+// 生命周期：返回的 *ginmw.CircuitBreaker 由调用方持有，停机时须 Close。
+// sentinel 的 Close 是幂等 no-op（进程级规则表无实例资源可释放），什么时候调
+// 都不改变行为——保留这个调用点是为了给未来的实现留同一份生命周期契约。
 //
 // 典型装配（与限流同款：构造期读契约、经 bundle 挂链）：
 //

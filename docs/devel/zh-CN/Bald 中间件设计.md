@@ -275,7 +275,7 @@ gin/grpc 的共享收口通过类型别名 + 常量别名实现，两侧既有�
 | 包 | 测试数 | 覆盖重点 |
 |---|---|---|
 | `bundle` | 62 | **链序契约**（allow/deny 双路径）、Authn→Authz subject 传递、审计对 deny/error 的捕获、Error 最外层 berrors→status 收口、未开归一化时的原始语义兼容、`FromMiddleware` 八段翻译与 `FromGRPCMiddleware` 三段翻译（gRPC 段只作用 gRPC、覆盖关系、fail-fast）、限流/熔断/超时在两条链上的挂载与零开销省略、stream 面的每流一令牌与真 `grpc.NewServer` 端到端 |
-| `grpc` | 53 | 各拦截器 + Error 收口 + Observability SpanKind + Validator 不绑库 + `RateLimitInterceptor`（拒绝码/Reason/排队 ctx）+ `CircuitBreakerInterceptor`（失败口径两类错误形状、拒绝形状、panic 上报配对、真 hystrix 开窗）+ `TimeoutInterceptor`（补 deadline、绝不缩短调用方预算、非正值放过、cancel 不泄漏）+ 三个 stream 对偶（每流一令牌、与 unary 同桶、流 ctx 替换与取消不泄漏） |
+| `grpc` | 53 | 各拦截器 + Error 收口 + Observability SpanKind + Validator 不绑库 + `RateLimitInterceptor`（拒绝码/Reason/排队 ctx）+ `CircuitBreakerInterceptor`（失败口径两类错误形状、拒绝形状、panic 上报配对、真 sentinel 开窗）+ `TimeoutInterceptor`（补 deadline、绝不缩短调用方预算、非正值放过、cancel 不泄漏）+ 三个 stream 对偶（每流一令牌、与 unary 同桶、流 ctx 替换与取消不泄漏） |
 | `gin` | 37 | 各中间件 + authz deny + `RateLimit`（429、wait 模式）+ `CircuitBreaker`（上报配对、被拒不回报、开态状态码、客户端错误不喂窗、panic 不锁死半开、内层 Timeout 的 503 计入失败）+ `Timeout`（缓冲 writer、超时后写入静默丢弃） |
 | `shared` | 4 | `InjectTrace` 四模式 × 采样位 × 自定义 header × 无效 spanCtx；`MatchWildcard` 通配矩阵 |
 | 顶层 | 2 | `LogTraceIDs` |

@@ -172,10 +172,9 @@ func TestE2E_HTTPContractCircuitBreaker(t *testing.T) {
 		setContractMiddleware(t, doc, "http", map[string]any{
 			"timeout": map[string]any{"default_timeout_ms": 50, "status_code": 504},
 			// window_ms=60000 而不是默认 10000：这一条要的是「两次失败攒够样本」，
-			// 不测滑窗老化。窗 10s 时 hystrix 的桶是 1s 一格，而每条失败请求要占满
-			// 600ms 的 handler——样本间隔与桶长同量级，落点相位决定上一发样本会不会
-			// 被旋转抹掉，实测三轮里红过一次（第三发仍是 504）。桶 6s 后这条用例的
-			// 时间尺度远小于任何旋转，判据只由接线决定；滑窗本身另有单测覆盖。
+			// 不测滑窗老化。每条失败请求占满 600ms 的 handler，底层 sentinel 的
+			// 统计窗按时间分桶推进——把窗放大到 60s 后这条用例的时间尺度远小于
+			// 任何桶旋转与窗结算，判据只由接线决定；滑窗本身另有单测覆盖。
 			"circuit_breaker": map[string]any{"min_requests": 2, "open_duration_ms": 60000, "window_ms": 60000},
 		})
 		setBizGreetDelay(t, doc, "600ms")

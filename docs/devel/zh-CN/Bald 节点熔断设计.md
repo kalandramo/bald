@@ -4,7 +4,7 @@
 >
 > Discussion at: 源码 `selector/circuitbreaker/{circuitbreaker.go,circuitbreaker_test.go}`；对照 `selector/p2c/p2c.go`（概率性降权的既有形态）、`circuitbreaker/circuitbreaker.go`（契约）、`selector/balancer/balancer.go`（桥接子 module 先例）
 >
-> Status: Accepted（桥接件已落地；selector 核心与 circuitbreaker 契约零改动）
+> Status: Accepted（桥接件已落地；selector 核心与 circuitbreaker 契约零改动。2026-11 注：`hystrix`/`sres`/`vegas` 退役后仓内只剩 `sentinel` 一个真实后端——其探针式 State() 见下表，State() 友好实现需外接）
 
 ## 摘要
 
@@ -93,25 +93,24 @@ selector.MustRegister("p2c_cb", func() selector.Selector {
 
 | 实现 | 适合驱动本过滤？ | 原因 |
 |---|---|---|
-| `hystrix` | ✅ 首选 | 真三态 + 睡窗；State 带懒转移（Open 过睡窗自动转 HalfOpen），**恢复由 Healthy 查询自身驱动** |
-| `sres` | ✅ | Open 对应接受率 ≤0（错误率跳闸）；平滑降级 |
-| `vegas` | ⚠️ 需喂 RecordLatency | 看延迟不看错误；MarkSuccess 喂零延迟被 minRTT 过滤，须显式 RecordLatency |
-| `sentinel` | ❌ 不宜 | State() 每次发探针 Entry 会污染 Sentinel 统计窗 |
+| `sentinel`（仓内唯一） | ⚠️ 可用有价 | State() 探针 Entry 计一次成功样本：高流量下稀释可忽略，低流量下推迟跳闸；错误计数策略不受稀释（探针不加错误数） |
+
+> hystrix（真三态 + 睡窗懒转移，State 零污染，原首选）、sres（平滑降级）、vegas（需喂 RecordLatency）三实现已退役，保留为选型沿革。仓内没有 State() 零污染的实现时，对探针敏感的场合经 Factory 注入外接实现即可——契约任意实现都可驱动本层。
 
 ### 恢复经接口可达
 
-hystrix 的 `State()` 在 Open 过睡窗时懒转移到 HalfOpen——`Healthy` 查询本身就把恢复后的节点重新放进候选集，不需要调用方持有具体类型。半开节点的 Mark* 直接 heal/reopen，槽位不泄漏（因为根本没用 Allow 置槽）。
+sentinel 的 `State()` 在 Open 过睡窗后由探针 Entry 驱动 `Open→HalfOpen` 转移、探针成功即愈合——`Healthy` 查询本身就把恢复后的节点重新放进候选集。半开节点的 Mark*（结果汇形态，适配器合成完整调用）继续喂失败/成功，槽位不泄漏（因为根本没用 Allow 置槽）。
 
 ### 剪枝与在途 done
 
-`Prune` 只清理**不在当前候选集**中的地址。被剪枝的熔断器经 Close 释放；若其地址仍有上一轮 Select 的在途 done 未触发，该 done 持有熔断器指针（不会被 GC），Mark* 落在已 Close 的熔断器上是无害的（hystrix/sres 的 closed 标志只影响 Allow，Mark* 照常计数）。
+`Prune` 只清理**不在当前候选集**中的地址。被剪枝的熔断器经 Close 释放；若其地址仍有上一轮 Select 的在途 done 未触发，该 done 持有熔断器指针（不会被 GC），Mark* 落在已 Close 的熔断器上是无害的（sentinel 的 Close 是 no-op，Mark* 照常以结果汇形态计数）。
 
 ## 实现与验证
 
-`selector/circuitbreaker/` 独立 module（require selector + circuitbreaker + circuitbreaker/hystrix，三条本地 replace 跟踪同仓兄弟，与 selector/balancer 同款）。测试 13 个：
+`selector/circuitbreaker/` 独立 module（require selector + circuitbreaker + circuitbreaker/sentinel，三条本地 replace 跟踪同仓兄弟，与 selector/balancer 同款）。测试 13 个：
 
 - 确定性 fake 熔断器：nil 工厂 panic、Healthy 未知即健康且不空建、Get 懒构造单例、**硬排除 100%**（round_robin 内层跑 100 次不选坏节点——区别于 p2c 降权的宽界断言）、全 Open 回 ErrCircuitOpen、空候选回 ErrCircuitOpen、done 反馈计数、State 查询驱动恢复、Prune 释放陈旧、稳态剪枝不误删、Close 释放所有。
-- 真 hystrix 集成：done→MarkFailure 喂失败跳闸 → 硬排除选 good → 睡窗后恢复 HalfOpen 重新可选。
+- 真 sentinel 集成（错误计数规则、轮询等待恢复）：done→MarkFailure 喂失败跳闸 → 硬排除选 good → 睡窗后探针愈合重新可选。
 - 并发：16 goroutine × 200 次 Select+done，`-race` 下钉住 Registry 与装饰器并发安全。
 
 ### 验证方式

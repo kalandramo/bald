@@ -12,7 +12,7 @@ replace github.com/kalandramo/bald/berrors => ../berrors
 
 replace github.com/kalandramo/bald/circuitbreaker => ../circuitbreaker
 
-replace github.com/kalandramo/bald/circuitbreaker/hystrix => ../circuitbreaker/hystrix
+replace github.com/kalandramo/bald/circuitbreaker/sentinel => ../circuitbreaker/sentinel
 
 replace github.com/kalandramo/bald/health => ../health
 
@@ -31,6 +31,7 @@ replace github.com/kalandramo/bald/ratelimit => ../ratelimit
 replace github.com/kalandramo/bald/ratelimit/tokenbucket => ../ratelimit/tokenbucket
 
 require (
+	github.com/alibaba/sentinel-golang v1.0.4
 	github.com/gin-gonic/gin v1.12.0
 	github.com/google/uuid v1.6.0
 	github.com/kalandramo/bald-crud/viewer v0.3.0
@@ -38,7 +39,7 @@ require (
 	github.com/kalandramo/bald/berrors v0.1.2
 	github.com/kalandramo/bald/bootstrap v0.13.8
 	github.com/kalandramo/bald/circuitbreaker v0.2.0
-	github.com/kalandramo/bald/circuitbreaker/hystrix v0.1.1
+	github.com/kalandramo/bald/circuitbreaker/sentinel v0.1.0
 	github.com/kalandramo/bald/health v0.1.1
 	github.com/kalandramo/bald/log v0.6.0
 	github.com/kalandramo/bald/ratelimit v0.1.0
@@ -61,6 +62,7 @@ require (
 )
 
 require (
+	github.com/StackExchange/wmi v0.0.0-20190523213315-cbe66965904d // indirect
 	github.com/alibabacloud-go/alibabacloud-gateway-pop v0.0.6 // indirect
 	github.com/alibabacloud-go/alibabacloud-gateway-spi v0.0.5 // indirect
 	github.com/alibabacloud-go/darabonba-array v0.1.0 // indirect
@@ -107,6 +109,7 @@ require (
 	github.com/go-kratos/kratos/v3 v3.0.0 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
+	github.com/go-ole/go-ole v1.2.4 // indirect
 	github.com/go-openapi/jsonpointer v1.0.0 // indirect
 	github.com/go-openapi/jsonreference v1.0.0 // indirect
 	github.com/go-openapi/swag v0.27.1 // indirect
@@ -174,12 +177,15 @@ require (
 	github.com/quic-go/qpack v0.6.0 // indirect
 	github.com/quic-go/quic-go v0.59.1 // indirect
 	github.com/ryanuber/go-glob v1.0.0 // indirect
+	github.com/shirou/gopsutil/v3 v3.21.6 // indirect
 	github.com/spf13/afero v1.6.0 // indirect
 	github.com/spf13/cast v1.3.1 // indirect
 	github.com/spf13/jwalterweatherman v1.1.0 // indirect
 	github.com/spf13/viper v1.8.1 // indirect
 	github.com/subosito/gotenv v1.2.0 // indirect
 	github.com/tjfoc/gmsm v1.4.1 // indirect
+	github.com/tklauser/go-sysconf v0.3.6 // indirect
+	github.com/tklauser/numcpus v0.2.2 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.3.1 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
