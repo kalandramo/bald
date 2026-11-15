@@ -47,6 +47,25 @@ func TestCheckerRuleRegistryMatchesCLI(t *testing.T) {
 		t.Fatalf("checkerRule has %d entries, want >= 17", len(parsed))
 	}
 
+	// 「条目必须有实现」对账（adv-checkers G3 的防稀释关）：checkerRule 里每个
+	// 名字必须在 registry 里有函数、registry 里每个实现必须绑了规则。没有这道
+	// 对账，「删真 checker + 凑假条目」保持 len>=17 且 coverage 不变——门禁的
+	// 数量线就是空头支票。cli 侧运行时守卫（runCheck 开头）同源。
+	impls, err := parseRegistryMap(string(raw))
+	if err != nil {
+		t.Fatalf("parse registry: %v", err)
+	}
+	for name := range parsed {
+		if !impls[name] {
+			t.Errorf("checkerRule has %q but registry has no implementation — pad entry (deletes nothing, adds nothing)", name)
+		}
+	}
+	for name := range impls {
+		if _, ok := parsed[name]; !ok {
+			t.Errorf("registry has implementation %q but checkerRule does not bind it to a rule", name)
+		}
+	}
+
 	for name, rule := range parsed {
 		mirrored, ok := checkerRuleRegistry[name]
 		if !ok {
@@ -87,6 +106,38 @@ func parseCheckerRuleMap(src string) (map[string]string, error) {
 	}
 	if len(out) == 0 {
 		return nil, errAnchorMissing
+	}
+	return out, nil
+}
+
+// registryAnchor / registryEntryRe 解析 check.go 的 registry（checker 名 → 实现
+// 函数）表：值必须是 check 开头的标识符，借形状把注释与字符串值天然挡掉。
+const registryAnchor = "var registry = map[string]checker{"
+
+var registryEntryRe = regexp.MustCompile(`"([^"]+)"\s*:\s*(check\w+)`)
+
+// parseRegistryMap 抽出 registry 的 map 字面量并逐条解析。
+func parseRegistryMap(src string) (map[string]bool, error) {
+	start := strings.Index(src, registryAnchor)
+	if start < 0 {
+		return nil, errors.New(registryAnchor + " not found in " + cliCheckerRulePath)
+	}
+	rest := src[start+len(registryAnchor):]
+	end := strings.Index(rest, "\n}")
+	if end < 0 {
+		return nil, errors.New(registryAnchor + " closing brace not found")
+	}
+	out := map[string]bool{}
+	for _, line := range strings.Split(rest[:end], "\n") {
+		if i := strings.Index(line, "//"); i >= 0 {
+			line = line[:i]
+		}
+		for _, m := range registryEntryRe.FindAllStringSubmatch(line, -1) {
+			out[m[1]] = true
+		}
+	}
+	if len(out) == 0 {
+		return nil, errors.New(registryAnchor + " parsed empty")
 	}
 	return out, nil
 }

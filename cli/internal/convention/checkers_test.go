@@ -146,11 +146,12 @@ func f(ctx context.Context) context.Context {
 
 import "context"
 
-type Req struct{}
+type CreateRequest struct{}
 
 type v struct{}
 
-func (v) ValidateCreate(ctx context.Context) error { return nil }
+// 名字是请求校验器形态（有 *XxxRequest 参数）但签名不符约定 → 报。
+func (v) ValidateCreate(req *CreateRequest) error { return nil }
 `,
 		})
 		if got := runChecker(t, checkValidateSignature, hit); len(got) != 1 || got[0].RuleID != "validation-r02" {
@@ -169,6 +170,9 @@ type v struct{}
 func (v) ValidateCreate(ctx context.Context, req *CreateRequest) error { return nil }
 
 func (v) Validate() error { return nil }
+
+// 领域校验器与生成代码不判：无 *XxxRequest 参数（validation-r02 辖的是请求校验）。
+func (v) ValidateEmail(addr string) bool { return addr != "" }
 `,
 		})
 		if got := runChecker(t, checkValidateSignature, miss); len(got) != 0 {
@@ -201,6 +205,9 @@ func init() {
 import (
 	"context"
 	"os"
+	"time"
+
+	"github.com/kalandramo/bald/pkg/appkit"
 )
 
 type provider struct{}
@@ -209,13 +216,16 @@ func (provider) Plan(ctx context.Context) ([]string, error) {
 	if os.Getenv("X") != "" {
 		return nil, nil
 	}
+	_ = time.Now() // doctor-r07 点名的确定性破坏源（M2 补漏后纳入判定）
 	return nil, nil
 }
 `,
 		})
-		if got := runChecker(t, checkAssemblyPlanImpure, hit); len(got) != 1 || got[0].RuleID != "assembly-r01" {
-			t.Fatalf("findings=%v, want 1 assembly-r01", got)
+		got := runChecker(t, checkAssemblyPlanImpure, hit)
+		if len(got) != 2 || got[0].RuleID != "assembly-r01" || got[1].RuleID != "assembly-r01" {
+			t.Fatalf("findings=%v, want 2 assembly-r01（os.Getenv + time.Now）", got)
 		}
+		// FP8 豁免：不 import 装配层的自家 Planner 与装配无关，方法名撞了不判。
 		miss := writeTree(t, map[string]string{
 			"go.mod": goMod,
 			"p.go": `package p
@@ -230,9 +240,25 @@ func (provider) Plan(ctx context.Context) ([]string, error) {
 
 func build() { _ = context.Background() }
 `,
+			"planner.go": `package p
+
+import (
+	"os"
+	"time"
+)
+
+// 自家调度器，与装配无关。
+type RoutePlanner struct{}
+
+func (p *RoutePlanner) Plan(routes []string) []string {
+	_ = os.Getenv("REGION")
+	_ = time.Now()
+	return routes
+}
+`,
 		})
 		if got := runChecker(t, checkAssemblyPlanImpure, miss); len(got) != 0 {
-			t.Fatalf("findings=%v, want clean（副作用在 Plan 之外）", got)
+			t.Fatalf("findings=%v, want clean（副作用在 Plan 之外 / 无装配 import 不判）", got)
 		}
 	})
 

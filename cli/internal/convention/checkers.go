@@ -148,11 +148,20 @@ func isBaldPkg(p, sub string) bool {
 	return strings.HasSuffix(p, "/"+sub) || strings.Contains(p, "/"+sub+"/")
 }
 
+// layerNames 是生成树的内部层名集合。
+var layerNames = map[string]bool{"biz": true, "store": true, "model": true, "handler": true}
+
 // isInternalLayer 报告相对路径是否落在生成树的内部分层目录
 // internal/<app>/<layer>（layer 取 biz|store|model|handler）。
 //
 // 只认 internal/ 之下：库本体 pkg/store、contrib/store-gorm 不是「业务层」，
 // 它们的 import 由各自模块治理——这是本判定的职责豁免。
+//
+// 层名匹配只认**第一个**层名段：internal/handler/store/x.go 是 handler 的投影
+// 子包（主题子包），不是业务层——曾经继续往后扫把深层 "store" 也判成业务层，
+// 让投影边界 import httperr 被误报（adv-checkers FP2）。第一个层名段若是
+// internal 的直接子段（缺应用名，如 internal/biz/x.go）则整个文件不判，避免
+// 误伤非生成树的自由布局。
 func isInternalLayer(rel, layer string) bool {
 	segs := strings.Split(rel, "/")
 	inInternal := false
@@ -163,10 +172,8 @@ func isInternalLayer(rel, layer string) bool {
 			}
 			continue
 		}
-		// i>1 保证 internal/ 后面确实有一层应用名（internal/biz/x.go 这种
-		// 缺应用名的形态不判，避免误伤非生成树的自由布局）。
-		if i > 1 && s == layer {
-			return true
+		if layerNames[s] {
+			return i > 1 && s == layer
 		}
 	}
 	return false
@@ -180,17 +187,74 @@ func isBusinessLayer(rel string) bool {
 // checkBerrorsWithDiscard 钉 errors-r03：With* 是不可变 builder，必须接住返回值
 // 链式派生；就地调用丢弃返回值 = sentinel 污染（跨请求串数据的真实 bug 源）。
 //
-// 形态判定：**语句级**（ExprStmt）调用且最外层选择子以 With 开头。链式
-// `x.WithLabelValues(...).Add(...)` 的最外层是 Add、`f(WithX(...))` 是实参——
-// 都不报（prometheus/protobuf 的 builder 链天然长这样）。
+// 形态判定：**语句级**（ExprStmt）调用且最外层选择子以 With 开头，且接收链的
+// 根确实是 berrors 包（直接 `berrors.New(...).With...` 或根变量由 berrors 链赋值）。
+// 曾按「文件 import 了 berrors」对全文件任何 .With* 开火——自有可变 builder
+// （就地改字段返回 self）只因同文件恰好 import berrors 就被误报（adv-checkers FP3）。
+// 链根追踪是单文件内的语法判定，不做跨文件数据流。
 func checkBerrorsWithDiscard(dir string) ([]Finding, string, error) {
 	return checkAST(dir, astWalk{}, astRule{
 		ruleID:  checkerRule["berrors-with-discard"],
 		suggest: "接住返回值（e = e.WithDetails(...)）或直接链式传给调用方；丢弃返回值会让已构造的错误实例被后续请求复用",
 	}, func(s *goSource, add func(token.Pos, string)) {
-		if _, _, ok := importHit(s.file, func(p string) bool { return isBaldPkg(p, "bald/berrors") }); !ok {
-			return
+		alias := ""
+		for _, spec := range s.file.Imports {
+			p := strings.Trim(spec.Path.Value, `"`)
+			if strings.HasSuffix(p, "/bald/berrors") || p == "github.com/kalandramo/bald/berrors" {
+				// 默认包名 = 路径末段（go import 语义）；显式别名优先。
+				alias = p[strings.LastIndexByte(p, '/')+1:]
+				if spec.Name != nil {
+					alias = spec.Name.Name
+				}
+				break
+			}
 		}
+		if alias == "" {
+			return // 只认 berrors 根包本身；httperr/grpcerr 桥接子包归 errors-r01 管
+		}
+		// 第一遍：收集「根是 berrors 链」的变量（e := berrors.New(...)）。
+		berrorsVars := map[string]bool{}
+		// 链根是 berrors 包名本身（berrors.New(...) 的链根是 Ident(berrors)）。
+		rootIsBerrors := func(expr ast.Expr) bool {
+			root := chainRoot(expr)
+			id, ok := root.(*ast.Ident)
+			return ok && id.Name == alias
+		}
+		collect := func(lhs []ast.Expr, rhs ast.Expr) {
+			if len(lhs) != 1 {
+				return
+			}
+			id, ok := lhs[0].(*ast.Ident)
+			if !ok || id.Name == "_" {
+				return
+			}
+			if rootIsBerrors(rhs) {
+				berrorsVars[id.Name] = true
+			}
+		}
+		ast.Inspect(s.file, func(n ast.Node) bool {
+			switch node := n.(type) {
+			case *ast.AssignStmt:
+				if len(node.Rhs) == 1 {
+					collect(node.Lhs, node.Rhs[0])
+				}
+			case *ast.GenDecl:
+				if node.Tok != token.VAR {
+					return true
+				}
+				for _, spec := range node.Specs {
+					vs, ok := spec.(*ast.ValueSpec)
+					if !ok || len(vs.Values) != 1 || len(vs.Names) != 1 {
+						continue
+					}
+					if rootIsBerrors(vs.Values[0]) {
+						berrorsVars[vs.Names[0].Name] = true
+					}
+				}
+			}
+			return true
+		})
+		// 第二遍：语句级 With* 调用且链根是 berrors（直接或经收集的变量）。
 		ast.Inspect(s.file, func(n ast.Node) bool {
 			es, ok := n.(*ast.ExprStmt)
 			if !ok {
@@ -204,10 +268,32 @@ func checkBerrorsWithDiscard(dir string) ([]Finding, string, error) {
 			if !ok || !strings.HasPrefix(sel.Sel.Name, "With") || sel.Sel.Name == "With" {
 				return true
 			}
-			add(call.Pos(), sel.Sel.Name+" 的返回值被丢弃（errors-r03：With* 是不可变 builder）")
+			root := chainRoot(call.Fun)
+			berrors := false
+			if id, ok := root.(*ast.Ident); ok {
+				berrors = id.Name == alias || berrorsVars[id.Name]
+			}
+			if berrors {
+				add(call.Pos(), sel.Sel.Name+" 的返回值被丢弃（errors-r03：With* 是不可变 builder）")
+			}
 			return true
 		})
 	})
+}
+
+// chainRoot 沿调用/选择子链上溯到根表达式（berrors.New(...).WithX(...) 的根是
+// berrors）。
+func chainRoot(expr ast.Expr) ast.Expr {
+	for {
+		switch e := expr.(type) {
+		case *ast.CallExpr:
+			expr = e.Fun
+		case *ast.SelectorExpr:
+			expr = e.X
+		default:
+			return expr
+		}
+	}
 }
 
 // checkErrorsBridgeImport 钉 errors-r01 的 import 面：产生（biz 构造）与匹配
@@ -253,15 +339,38 @@ func checkAssemblyImportInBusiness(dir string) ([]Finding, string, error) {
 	})
 }
 
-// checkCtxStringKey 钉 context-r01 最硬的一档：context.WithValue 用**字符串
-// 字面量**做键——跨包撞键的经典来源。类型键（ctxKey{}）是 Go 官方推荐写法，
-// 但 bald 的统一面是 pkg/contextx 的五个标准键，类型键这一档交评审（无法从语法
-// 判断它是否绕开了 contextx）；测试文件不判（用例要构造私有键模拟外部上下文）。
+// checkCtxStringKey 钉 context-r01 最硬的一档：context.WithValue 用**字符串**
+// 做键——跨包撞键的经典来源。类型键（ctxKey{}）是 Go 官方推荐写法，但 bald 的
+// 统一面是 pkg/contextx 的五个标准键，类型键这一档交评审（无法从语法判断它是否
+// 绕开了 contextx）；测试文件不判（用例要构造私有键模拟外部上下文）。
+//
+// 字符串形态收两档（adv-checkers M1 补漏）：字面量，以及**未类型化**的字符串
+// 常量键（const reqIDKey = "acme/request-id" 后用作键——撞键风险与字面量同等，
+// 曾只判字面量形态让它整条漏掉）。带类型声明的常量（const k ctxKey = "..."）
+// 是类型键写法，不判。
 func checkCtxStringKey(dir string) ([]Finding, string, error) {
 	return checkAST(dir, astWalk{}, astRule{
 		ruleID:  checkerRule["ctx-string-key"],
 		suggest: "用 pkg/contextx 的 With/From 对（user/username/trace_id/request_id/tenant_id）；自有数据不要塞 context",
 	}, func(s *goSource, add func(token.Pos, string)) {
+		// 收集未类型化的字符串常量名：const x = "..."（无类型声明）。
+		strConsts := map[string]bool{}
+		ast.Inspect(s.file, func(n ast.Node) bool {
+			gd, ok := n.(*ast.GenDecl)
+			if !ok || gd.Tok != token.CONST {
+				return true
+			}
+			for _, spec := range gd.Specs {
+				vs, ok := spec.(*ast.ValueSpec)
+				if !ok || vs.Type != nil || len(vs.Names) != 1 || len(vs.Values) != 1 {
+					continue
+				}
+				if lit, ok := vs.Values[0].(*ast.BasicLit); ok && lit.Kind == token.STRING {
+					strConsts[vs.Names[0].Name] = true
+				}
+			}
+			return true
+		})
 		ast.Inspect(s.file, func(n ast.Node) bool {
 			call, ok := n.(*ast.CallExpr)
 			if !ok || len(call.Args) < 2 {
@@ -275,11 +384,17 @@ func checkCtxStringKey(dir string) ([]Finding, string, error) {
 			if !ok || x.Name != "context" {
 				return true
 			}
-			lit, ok := call.Args[1].(*ast.BasicLit)
-			if !ok || lit.Kind != token.STRING {
-				return true
+			switch key := call.Args[1].(type) {
+			case *ast.BasicLit:
+				if key.Kind != token.STRING {
+					return true
+				}
+				add(call.Pos(), "context.WithValue 用字符串字面量 "+key.Value+" 做键（context-r01：禁止私有 context 键）")
+			case *ast.Ident:
+				if strConsts[key.Name] {
+					add(call.Pos(), "context.WithValue 用未类型化字符串常量 "+key.Name+" 做键（context-r01：禁止私有 context 键）")
+				}
 			}
-			add(call.Pos(), "context.WithValue 用字符串字面量 "+lit.Value+" 做键（context-r01：禁止私有 context 键）")
 			return true
 		})
 	})
@@ -288,14 +403,26 @@ func checkCtxStringKey(dir string) ([]Finding, string, error) {
 // checkValidateSignature 钉 validation-r02 的方法名约定：Validate* 必须是
 // func(recv T, ctx context.Context, req *XxxRequest) error。
 //
-// 豁免：裸 Validate()（protoc-gen-validate / protovalidate 的生成形态）不属于
-// 本约定的管辖范围——名字约定要求「Validate + 请求类型名」，裸 Validate 无类型名
-// 可校验，且是第三方生成器的固定形态，判它只会逼人生成器打补丁。
+// 豁免（adv-checkers FP5）：
+//   - 生成文件（*.pb.go / *.pb.validate.go / *.gen.go / *.pb.gw.go）——
+//     protoc-gen-validate 的 ValidateAll 是每个生成文件都有的零参方法，判它
+//     等于逼人生成器打补丁；
+//   - 没有任何 *XxxRequest 形态参数的方法——领域校验器（ValidateEmail(string)
+//     这类常见命名）与「请求校验」是两回事，名字撞了但约定辖不到它。
+//     裸 Validate() 同理不判。
+//
+// 报告条件因此收窄为：ValidateXxx + 方法参数里存在 *XxxRequest + 签名不符约定。
 func checkValidateSignature(dir string) ([]Finding, string, error) {
 	return checkAST(dir, astWalk{}, astRule{
 		ruleID:  checkerRule["validate-signature"],
 		suggest: "改成 func (r T) ValidateXxx(ctx context.Context, req *XxxRequest) error；签名不符必须显式报错，不许静默跳过",
 	}, func(s *goSource, add func(token.Pos, string)) {
+		base := filepath.Base(s.rel)
+		for _, suffix := range []string{".pb.go", ".pb.validate.go", ".pb.gw.go", ".gen.go"} {
+			if strings.HasSuffix(base, suffix) {
+				return
+			}
+		}
 		ast.Inspect(s.file, func(n ast.Node) bool {
 			fn, ok := n.(*ast.FuncDecl)
 			if !ok || fn.Recv == nil || fn.Type == nil {
@@ -305,6 +432,9 @@ func checkValidateSignature(dir string) ([]Finding, string, error) {
 			if !strings.HasPrefix(name, "Validate") || name == "Validate" {
 				return true
 			}
+			if !hasRequestPointerParam(fn.Type) {
+				return true
+			}
 			if validateSignatureOK(fn.Type) {
 				return true
 			}
@@ -312,6 +442,24 @@ func checkValidateSignature(dir string) ([]Finding, string, error) {
 			return true
 		})
 	})
+}
+
+// hasRequestPointerParam 报告参数表里是否有 *XxxRequest 形态的参数（识别
+// 「请求校验器」的语法特征）。
+func hasRequestPointerParam(t *ast.FuncType) bool {
+	if t.Params == nil {
+		return false
+	}
+	for _, fld := range t.Params.List {
+		star, ok := fld.Type.(*ast.StarExpr)
+		if !ok {
+			continue
+		}
+		if id, ok := star.X.(*ast.Ident); ok && strings.HasSuffix(id.Name, "Request") {
+			return true
+		}
+	}
+	return false
 }
 
 // validateSignatureOK 判定 (ctx context.Context, req *T) error 形态。
@@ -344,11 +492,20 @@ func validateSignatureOK(t *ast.FuncType) bool {
 // checkStoreTenantInit 钉 store-r02：多租户隔离必须显式注册，禁止 init()
 // 隐式注册——init 里的注册顺序不可见、不可测、无法在装配计划里表达（判据 J5
 // 「显式声明不推断」）。
+//
+// 职责豁免（adv-checkers FP6）：只判 import 了 bald store 的文件——
+// init() 里调自家 SaaS 配置表的 cfg.RegisterTenant(...) 与 pkg/store 无关，
+// 「方法恰好叫 RegisterTenant」不构成管辖依据。
 func checkStoreTenantInit(dir string) ([]Finding, string, error) {
 	return checkAST(dir, astWalk{}, astRule{
 		ruleID:  checkerRule["store-tenant-init"],
 		suggest: "移到装配层显式调用 store.RegisterTenant(\"tenant_id\", store.DefaultTenantFunc)；注册时机要能被 plan/doctor 看见",
 	}, func(s *goSource, add func(token.Pos, string)) {
+		if _, _, ok := importHit(s.file, func(p string) bool {
+			return isBaldPkg(p, "bald/pkg/store") || isBaldPkg(p, "bald/contrib/store")
+		}); !ok {
+			return
+		}
 		ast.Inspect(s.file, func(n ast.Node) bool {
 			fn, ok := n.(*ast.FuncDecl)
 			if !ok || fn.Recv != nil || fn.Name.Name != "init" || fn.Body == nil {
@@ -372,17 +529,29 @@ func checkStoreTenantInit(dir string) ([]Finding, string, error) {
 // checkAssemblyPlanImpure 钉 assembly-r01：Plan 必须是纯函数（不写文件、不发
 // 网络、不改全局、不读环境），Build 是唯一允许副作用的入口。
 //
-// 只判四类动静：os 的环境读取与文件写入、net.Dial*、http 请求。日志调用不判——
+// 只判五类动静：os 的环境读取与文件写入、net.Dial*、http 请求、time 的时间读取、
+// rand 的随机数——后两类是 doctor-r07 点名的确定性破坏源（plan hash 每次不同，
+// doctor-r06 把 plan hash 当 CI 稳定判据；adv-checkers M2）。日志调用不判——
 // Plan 里 Debug 一行不改变装配拓扑，判它会把可观测性逼成违禁品。
+//
+// 职责豁免（adv-checkers FP8）：只判 import 了装配层的文件——Provider.Plan 的
+// 实现方必然 import appkit/bootstrap；自家 RoutePlanner 的 Plan 方法与装配无关，
+// 「方法恰好叫 Plan」不构成管辖依据。
 func checkAssemblyPlanImpure(dir string) ([]Finding, string, error) {
 	osEnv := map[string]bool{"Getenv": true, "LookupEnv": true, "Setenv": true, "Unsetenv": true, "Environ": true}
 	osWrite := map[string]bool{"WriteFile": true, "Create": true, "OpenFile": true, "Mkdir": true, "MkdirAll": true, "Remove": true, "RemoveAll": true, "Rename": true, "Chmod": true}
 	netCalls := map[string]bool{"Dial": true, "DialTimeout": true, "DialContext": true}
 	httpCalls := map[string]bool{"Get": true, "Post": true, "PostForm": true, "Head": true, "Do": true}
+	timeCalls := map[string]bool{"Now": true, "Since": true, "Until": true, "After": true, "NewTicker": true, "NewTimer": true, "Tick": true, "Date": true}
 	return checkAST(dir, astWalk{}, astRule{
 		ruleID:  checkerRule["assembly-plan-impure"],
 		suggest: "把副作用搬进同一节点的 Build（唯一的副作用入口）；Plan 只算拓扑，返回值必须与运行环境无关",
 	}, func(s *goSource, add func(token.Pos, string)) {
+		if _, _, ok := importHit(s.file, func(p string) bool {
+			return isBaldPkg(p, "bald/pkg/appkit") || isBaldPkg(p, "bald/bootstrap")
+		}); !ok {
+			return
+		}
 		ast.Inspect(s.file, func(n ast.Node) bool {
 			fn, ok := n.(*ast.FuncDecl)
 			if !ok || fn.Recv == nil || fn.Name.Name != "Plan" || fn.Body == nil {
@@ -411,6 +580,10 @@ func checkAssemblyPlanImpure(dir string) ([]Finding, string, error) {
 					kind = "发网络"
 				case pkg.Name == "http" && httpCalls[sel.Sel.Name]:
 					kind = "发网络"
+				case pkg.Name == "time" && timeCalls[sel.Sel.Name]:
+					kind = "读时间"
+				case pkg.Name == "rand":
+					kind = "读随机数"
 				}
 				if kind != "" {
 					add(call.Pos(), "Plan 里 "+pkg.Name+"."+sel.Sel.Name+"（assembly-r01：Plan "+kind+"，不是纯函数）")
@@ -427,11 +600,66 @@ func checkAssemblyPlanImpure(dir string) ([]Finding, string, error) {
 //
 // 正确的 StatusBody 是 code/message/details（google.rpc.Status 形状），键集不同，
 // 天然不命中——这条规则因此可以机械判，不会误伤正确实现。
+//
+// 豁免（adv-checkers FP4）：同文件里作为 json.Unmarshal 解码目标出现的同名类型
+// ——那是**外部契约的镜像**（第三方支付/开放平台的响应 wire 形状就是
+// {code,data,message}，解析它必须同形），不是自家响应面。按用法区分 producer/
+// consumer 是这条规则唯一能落地的口径：定义处本身无法区分。
 func checkHTTPEnvelopeShape(dir string) ([]Finding, string, error) {
 	return checkAST(dir, astWalk{}, astRule{
 		ruleID:  checkerRule["http-envelope-shape"],
 		suggest: "错误响应体用 transport/web 的 StatusBody/StatusOf（google.rpc.Status JSON，三面一份契约），HTTP 状态码承载成败而非 body",
 	}, func(s *goSource, add func(token.Pos, string)) {
+		// 先收集同文件变量的声明类型（var r thirdPartyResp / r := &T{...}）。
+		varTypes := map[string]string{}
+		ast.Inspect(s.file, func(n ast.Node) bool {
+			gd, ok := n.(*ast.GenDecl)
+			if !ok || gd.Tok != token.VAR {
+				return true
+			}
+			for _, spec := range gd.Specs {
+				vs, ok := spec.(*ast.ValueSpec)
+				if !ok {
+					continue
+				}
+				for i, name := range vs.Names {
+					if vs.Type != nil && i == 0 {
+						varTypes[name.Name] = exprTypeName(vs.Type)
+					}
+				}
+			}
+			return true
+		})
+		// 收集同文件 json.Unmarshal 调用实参里出现的标识符名及其声明类型
+		// （解码目标：&r 的类型是 thirdPartyResp）。
+		decoded := map[string]bool{}
+		ast.Inspect(s.file, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			sel, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok || sel.Sel.Name != "Unmarshal" {
+				return true
+			}
+			if x, ok := sel.X.(*ast.Ident); !ok || x.Name != "json" {
+				return true
+			}
+			for _, arg := range call.Args {
+				ast.Inspect(arg, func(m ast.Node) bool {
+					id, ok := m.(*ast.Ident)
+					if !ok {
+						return true
+					}
+					decoded[id.Name] = true
+					if t := varTypes[id.Name]; t != "" {
+						decoded[t] = true
+					}
+					return true
+				})
+			}
+			return true
+		})
 		ast.Inspect(s.file, func(n ast.Node) bool {
 			ts, ok := n.(*ast.TypeSpec)
 			if !ok {
@@ -450,7 +678,7 @@ func checkHTTPEnvelopeShape(dir string) ([]Finding, string, error) {
 					tags[name] = true
 				}
 			}
-			if tags["code"] && tags["data"] && tags["message"] {
+			if tags["code"] && tags["data"] && tags["message"] && !decoded[ts.Name.Name] {
 				add(ts.Name.Pos(), ts.Name.Name+" 是 {code,data,message} 全 200 信封（errors-r08）")
 			}
 			return true
@@ -459,6 +687,19 @@ func checkHTTPEnvelopeShape(dir string) ([]Finding, string, error) {
 }
 
 var jsonTagRe = regexp.MustCompile(`json:"([^",]+)`)
+
+// exprTypeName 取类型表达式的名字（Ident 直取，SelectorExpr 取 Sel）。
+func exprTypeName(e ast.Expr) string {
+	switch t := e.(type) {
+	case *ast.Ident:
+		return t.Name
+	case *ast.SelectorExpr:
+		return t.Sel.Name
+	case *ast.StarExpr:
+		return exprTypeName(t.X)
+	}
+	return ""
+}
 
 // jsonTagName 取结构体字段 tag 里的 json 名。
 func jsonTagName(tag string) (string, bool) {
@@ -472,8 +713,12 @@ func jsonTagName(tag string) (string, bool) {
 // checkTransportStopBackground 钉 transport-r06：Stop(ctx) 必须使用调用方传入的
 // ctx（含超时），禁止用 context.Background() 调 Shutdown 丢弃超时。
 //
-// 只在同一个 Stop 函数体里**同时**出现 Shutdown 与 Background/TODO 时报：Stop
-// 里用 Background 打一行退出日志不违规，那种写法不该被这条规则拦住。
+// 判定收窄到**实参**：只报「传给 Shutdown 的实参子树里出现 context.Background()/
+// TODO()」的形态——包括直接传与 WithTimeout(Background) 包一层（后者同样丢弃了
+// 调用方超时）。Stop 里用 Background 做与 Shutdown 无关的兜底清理（标准最佳实践）
+// 不再命中：曾按「同一函数体同时出现 Shutdown 与 Background」判，正好把注释承诺
+// 豁免的形态判了（adv-checkers FP1）。变量中转（b := context.Background()）判不到，
+// 属漏报——可接受（误报比漏报贵）。
 func checkTransportStopBackground(dir string) ([]Finding, string, error) {
 	return checkAST(dir, astWalk{}, astRule{
 		ruleID:  checkerRule["transport-stop-background"],
@@ -484,34 +729,47 @@ func checkTransportStopBackground(dir string) ([]Finding, string, error) {
 			if !ok || fn.Recv == nil || fn.Name.Name != "Stop" || fn.Body == nil {
 				return true
 			}
-			var shutdownPos, bgPos token.Pos
-			bgKind := ""
 			ast.Inspect(fn.Body, func(m ast.Node) bool {
 				call, ok := m.(*ast.CallExpr)
 				if !ok {
 					return true
 				}
 				sel, ok := call.Fun.(*ast.SelectorExpr)
-				if !ok {
+				if !ok || sel.Sel.Name != "Shutdown" {
 					return true
 				}
-				if sel.Sel.Name == "Shutdown" && !shutdownPos.IsValid() {
-					shutdownPos = call.Pos()
-				}
-				if (sel.Sel.Name == "Background" || sel.Sel.Name == "TODO") && !bgPos.IsValid() {
-					if x, ok := sel.X.(*ast.Ident); ok && x.Name == "context" {
-						bgPos = call.Pos()
-						bgKind = sel.Sel.Name
+				for _, arg := range call.Args {
+					if ctxIdentArg(arg) {
+						add(arg.Pos(), "Stop 用 context.Background/TODO 调 Shutdown（transport-r06：丢弃调用方超时）")
+						break
 					}
 				}
 				return true
 			})
-			if shutdownPos.IsValid() && bgPos.IsValid() {
-				add(bgPos, "Stop 用 context."+bgKind+"() 调 Shutdown（transport-r06：丢弃调用方超时）")
-			}
 			return true
 		})
 	})
+}
+
+// ctxIdentArg 报告表达式子树里是否出现 context.Background()/context.TODO()。
+func ctxIdentArg(expr ast.Expr) bool {
+	hit := false
+	ast.Inspect(expr, func(n ast.Node) bool {
+		if hit {
+			return false
+		}
+		sel, ok := n.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		if x, ok := sel.X.(*ast.Ident); ok && x.Name == "context" &&
+			(sel.Sel.Name == "Background" || sel.Sel.Name == "TODO") {
+			hit = true
+			return false
+		}
+		return true
+	})
+	return hit
 }
 
 // bareAddrRe 匹配裸端口地址字面量（":8080"），127.0.0.1:8080 不命中。
@@ -529,7 +787,10 @@ var listenCallees = map[string]bool{
 // checkTestingBareAddr 钉 testing-r03：测试监听/拨号地址必须带 127.0.0.1 前缀。
 // 裸 :port 会被 gRPC 客户端解析成 IPv6 导致 connection refused（本仓踩过的坑）。
 //
-// 判定只认两类位置：监听/拨号调用的实参，以及 *Server 字面量的 Addr 字段。
+// 判定只认一类位置：监听/拨号调用的实参。曾经还判 *Server 字面量的 Addr 字段，
+// 但「配置样例里的 addr: \":8080\" 是声明值……判它就是误报」正是注释承诺的豁免，
+// 字面量判定位恰好判了它（adv-checkers FP9）——自有 Server 配置结构的形状断言
+// 从不监听不拨号。按注释承诺删掉该判定位。
 // 豁免 ":0"：端口由内核分配，客户端必然回读实际地址，不存在解析成 IPv6 的坑
 // ——这一档判它会把「先 Listen 再取 Addr」的标准写法整体判红。
 func checkTestingBareAddr(dir string) ([]Finding, string, error) {
@@ -552,27 +813,12 @@ func checkTestingBareAddr(dir string) ([]Finding, string, error) {
 			add(lit.Pos(), "测试监听地址用裸端口 "+lit.Value+"（testing-r03：缺 127.0.0.1 前缀会被解析成 IPv6）")
 		}
 		ast.Inspect(s.file, func(n ast.Node) bool {
-			switch node := n.(type) {
-			case *ast.CallExpr:
-				if !isListenCallee(node.Fun) {
-					return true
-				}
-				for _, arg := range node.Args {
-					report(arg)
-				}
-			case *ast.CompositeLit:
-				if !strings.HasSuffix(compositeTypeName(node), "Server") {
-					return true
-				}
-				for _, elt := range node.Elts {
-					kv, ok := elt.(*ast.KeyValueExpr)
-					if !ok {
-						continue
-					}
-					if key, ok := kv.Key.(*ast.Ident); ok && key.Name == "Addr" {
-						report(kv.Value)
-					}
-				}
+			call, ok := n.(*ast.CallExpr)
+			if !ok || !isListenCallee(call.Fun) {
+				return true
+			}
+			for _, arg := range call.Args {
+				report(arg)
 			}
 			return true
 		})
@@ -608,6 +854,12 @@ func compositeTypeName(cl *ast.CompositeLit) string {
 //
 // 只判 biz/handler（业务与投影层）：store 与 model 层的 tenant 赋值是持久化实现
 // 的分内事，判它们等于禁掉 injectWriteTenant 本身。
+//
+// 读路径豁免（adv-checkers FP7）：对**同文件声明为 *Query/*Filter/*List/*Params**
+// 类型变量的 .TenantID 赋值是查询条件构造（平台管理员按租户查询是合法读路径），
+// 不是写路径租户归属——injectWriteTenant 覆写的是写路径实体，规则辖不到读路径。
+// 类型来源限于同文件的 :=/var 声明（单文件语法判定）；接收者/参数上的赋值类型
+// 不可知，仍报告（宁漏勿误的边界在这里倾向少报）。
 func checkStoreHandwrittenTenant(dir string) ([]Finding, string, error) {
 	return checkAST(dir, astWalk{}, astRule{
 		ruleID:  checkerRule["store-handwritten-tenant"],
@@ -616,6 +868,45 @@ func checkStoreHandwrittenTenant(dir string) ([]Finding, string, error) {
 		if !isInternalLayer(s.rel, "biz") && !isInternalLayer(s.rel, "handler") {
 			return
 		}
+		// 第一遍：收集同文件变量的声明类型（x := &pkg.Type{...} / var x pkg.Type）。
+		varTypes := map[string]string{}
+		collect := func(id *ast.Ident, rhs ast.Expr) {
+			var typeName string
+			switch v := rhs.(type) {
+			case *ast.UnaryExpr:
+				if cl, ok := v.X.(*ast.CompositeLit); ok {
+					typeName = compositeTypeName(cl)
+				}
+			case *ast.CompositeLit:
+				typeName = compositeTypeName(v)
+			}
+			if typeName != "" {
+				varTypes[id.Name] = typeName
+			}
+		}
+		ast.Inspect(s.file, func(n ast.Node) bool {
+			switch node := n.(type) {
+			case *ast.AssignStmt:
+				if node.Tok == token.DEFINE && len(node.Lhs) == 1 && len(node.Rhs) == 1 {
+					if id, ok := node.Lhs[0].(*ast.Ident); ok && id.Name != "_" {
+						collect(id, node.Rhs[0])
+					}
+				}
+			case *ast.GenDecl:
+				if node.Tok != token.VAR {
+					return true
+				}
+				for _, spec := range node.Specs {
+					vs, ok := spec.(*ast.ValueSpec)
+					if !ok || len(vs.Values) != 1 || len(vs.Names) != 1 {
+						continue
+					}
+					collect(vs.Names[0], vs.Values[0])
+				}
+			}
+			return true
+		})
+		// 第二遍：判 .TenantID 赋值，读路径豁免。
 		ast.Inspect(s.file, func(n ast.Node) bool {
 			as, ok := n.(*ast.AssignStmt)
 			if !ok {
@@ -626,11 +917,29 @@ func checkStoreHandwrittenTenant(dir string) ([]Finding, string, error) {
 				if !ok || sel.Sel.Name != "TenantID" {
 					continue
 				}
+				// 沿链找根变量，查它的声明类型是否是查询 DTO。
+				root := chainRoot(lhs)
+				if id, ok := root.(*ast.Ident); ok && isQueryDTOType(varTypes[id.Name]) {
+					continue
+				}
 				add(as.Pos(), "业务层手工写 TenantID（store-r10：租户归属由 injectWriteTenant 覆写）")
 			}
 			return true
 		})
 	})
+}
+
+// isQueryDTOType 报告类型名是否查询 DTO 的命名形态（*Query/*Filter/*List/*Params）。
+func isQueryDTOType(name string) bool {
+	if name == "" {
+		return false
+	}
+	for _, suffix := range []string{"Query", "Filter", "List", "Params", "Selector"} {
+		if strings.HasSuffix(name, suffix) {
+			return true
+		}
+	}
+	return false
 }
 
 // modulePath 读 go.mod 的 module 行。
@@ -655,6 +964,11 @@ func modulePath(gomod string) (string, error) {
 // 自身就是 bald 仓库时整条 skip（96 个 module 都在该路径下，那是本仓结构而非
 // 复制），这种 skip 与 gen-app-drift「没有 appspec 就不判」同源：规则管辖的是
 // 消费者项目。
+//
+// 已知局限（adv-checkers M3，语法判定的边界，声明不修复）：真实 vendor 手法
+// 会改写或删除 module 行（module acme-vendor/pkg/store）——这类副本本判定探测
+// 不到。守这道门的主力是 code review 与「代码溯源」的评审习惯，本 checker 只拦
+// 最粗的形态（module 行原样保留的整仓复制）。
 func checkReuseVendoredBald(dir string) ([]Finding, string, error) {
 	root := filepath.Join(dir, "go.mod")
 	mod, err := modulePath(root)

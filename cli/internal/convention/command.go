@@ -177,6 +177,14 @@ check 通过不代表代码一定符合规范——它只是机械化的底线�
 			if o.MinCoverage > 0 && total > 0 {
 				pct := float64(covered) * 100 / float64(total)
 				if pct < o.MinCoverage {
+					if covered == 0 {
+						// 全 skip 环境（无 go.mod、无 Go 源文件）一个 checker 都
+						// 没跑成——0 findings 是「没跑」不是「干净」，绿必须可
+						// 解释，所以保持红，但把原因说清（adv-checkers G2）。
+						return fmt.Errorf("no checker produced a verdict (all skipped or no sources in %s); "+
+							"coverage %s is below --min-coverage %.1f%% — run this on the project root",
+							o.Dir, coverageText(covered, total), o.MinCoverage)
+					}
 					return fmt.Errorf("checker coverage %s is below --min-coverage %.1f%%",
 						coverageText(covered, total), o.MinCoverage)
 				}
@@ -197,8 +205,15 @@ check 通过不代表代码一定符合规范——它只是机械化的底线�
 	var rulesRaw string
 	cmd.Flags().StringVar(&rulesRaw, "rules", "", "只跑绑定这些规则 ID 的 checker（逗号分隔，如 codegen-r03）")
 	// --rules 在执行前切分进 opts.Rules（PreRunE 在 Validate/RunE 之前跑）。
+	// --rules 与 --min-coverage 互斥（adv-checkers G1）：覆盖率分母是全库规则
+	// 数，--rules 收缩分子后任何组合都过不了下限——静默允许只会产出一个必然
+	// 红的组合，提前拒绝并说明原因。
 	cmd.PreRunE = func(_ *cobra.Command, _ []string) error {
 		if rulesRaw != "" {
+			if o.MinCoverage > 0 {
+				return fmt.Errorf(`--rules and --min-coverage are mutually exclusive: coverage's denominator is the full rule set, ` +
+					`so a --rules subset can never satisfy the floor (run them separately)`)
+			}
 			o.Rules = strings.Split(rulesRaw, ",")
 		}
 		return nil
