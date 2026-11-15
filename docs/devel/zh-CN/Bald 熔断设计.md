@@ -323,7 +323,7 @@ gRPC **stream 面不挂熔断**，且不是漏掉：一条流的「失败」没�
 
 接线侧的判据分布在三处：实现层（`circuitbreaker/sentinel/sentinel_test.go` 的契约形状、配对不泄漏、结果汇跳闸）、中间件层（`pkg/middleware/{gin,grpc}/circuitbreaker_test.go` 与 `pkg/middleware/bundle/circuitbreaker_test.go` 的上报配对、失败口径与真 sentinel 开窗）、端到端（`_example/bald/internal/bootstrap/middleware_e2e_test.go` 的四条契约驱动用例，已按条登记进 `.github/workflows/ci.yml` 的示例作业判据清单——Skip 不算通过）。
 
-**尚未做**：`retry` 尚未接进契约段（服务端重试会重复执行有副作用的 handler，故不进入口链）；它作为**退避原语**已替换掉仓内两处手写退避（`broker/kafka` 的订阅 fetch、`registry/etcd` 的断链重注册），第三处 `bconfig/apollo` 刻意不接，理由见《Bald 重试设计》「接入现状」；熔断后端已收敛为 sentinel 一个并接入契约段；出站按节点熔断（selector/circuitbreaker）的接线口已开——`selector/balancer.UseDecorator` 在 picker 装配点套装饰器、Done 反馈进 Mark* 结果汇形态，消费口是调用侧组合（仓内业务进程尚无 discovery 出站场景，实证在 `balancer_decorator_test.go` 与 selector/circuitbreaker 集成测试），State() 语义约束见《Bald 节点熔断设计》。
+**尚未做**：`retry` 尚未接进契约段（服务端重试会重复执行有副作用的 handler，故不进入口链）；它作为**退避原语**已替换掉仓内两处手写退避（`broker/kafka` 的订阅 fetch、`registry/etcd` 的断链重注册），第三处 `bconfig/apollo` 刻意不接，理由见《Bald 重试设计》「接入现状」；熔断后端已收敛为 sentinel 一个并接入契约段；出站按节点熔断（selector/circuitbreaker）已接线——`selector/balancer.UseDecorator` 在 picker 装配点套装饰器、Done 反馈进 Mark* 结果汇形态，生产消费点在 `_example/bald/internal/bootstrap/outbound.go`（client 段出站挂 bald_selector + sentinel 错误计数，端到端实证 `outbound_e2e_test.go`：跳闸 → 服务端健康但客户端快速失败 → 过开窗愈合），State() 语义约束见《Bald 节点熔断设计》。
 
 **节点级熔断（出站 LB 面）**：入口链的熔断保护的是「下游整体值不值得试」；按节点硬排除是另一面——`selector/circuitbreaker` 把本契约接成 selector 的过滤层（`Registry.Healthy` 由 `State()` 派生，`WithCircuitBreaker` 装饰器反馈 `Mark*`），熔断打开的节点直接不进候选集。它不走 `Allow` 门控（每个调用都是探针，`Mark*` 直接驱动半开 heal/reopen），契约本身零改动。见《[Bald 节点熔断设计](./Bald%20节点熔断设计.md)》。
 

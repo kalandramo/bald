@@ -4,7 +4,7 @@
 >
 > Discussion at: 源码 `selector/circuitbreaker/{circuitbreaker.go,circuitbreaker_test.go}`；对照 `selector/p2c/p2c.go`（概率性降权的既有形态）、`circuitbreaker/circuitbreaker.go`（契约）、`selector/balancer/balancer.go`（桥接子 module 先例）
 >
-> Status: Accepted（桥接件已落地；selector 核心与 circuitbreaker 契约零改动。2026-11 注：`hystrix`/`sres`/`vegas` 退役后仓内只剩 `sentinel` 一个真实后端——其探针式 State() 见下表，State() 友好实现需外接。同月接线口已开：`selector/balancer.UseDecorator` 在 picker 的 (策略, 服务名) 缓存填充点套装饰器，Done 反馈天然进 Mark* 结果汇形态——消费口是调用侧组合，见 `selector/balancer/balancer.go` 的 `UseDecorator` 文档与 `balancer_decorator_test.go` 的真 gRPC 实证）
+> Status: Accepted（桥接件已落地；selector 核心与 circuitbreaker 契约零改动。2026-11 注：`hystrix`/`sres`/`vegas` 退役后仓内只剩 `sentinel` 一个真实后端——其探针式 State() 见下表，State() 友好实现需外接。同月接线：`selector/balancer.UseDecorator` 在 picker 的 (策略, 服务名) 缓存填充点套装饰器，Done 反馈天然进 Mark* 结果汇形态——生产消费点在 `_example/bald/internal/bootstrap/outbound.go`（真应用端到端 `outbound_e2e_test.go`：跳闸/排除/愈合全循环），装配语义与进程级槽的隔离纪律见 `UseDecorator` 文档）
 
 ## 摘要
 

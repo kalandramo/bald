@@ -5,6 +5,7 @@ go 1.27.1
 require (
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.12-20260825204119-511051f7f437.1
 	buf.build/go/protovalidate v1.4.0
+	github.com/alibaba/sentinel-golang v1.0.4
 	github.com/gin-gonic/gin v1.12.0
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.29.0
 	github.com/kalandramo/bald/bconf v0.28.0
@@ -13,6 +14,8 @@ require (
 	github.com/kalandramo/bald/bootstrap v0.13.8
 	github.com/kalandramo/bald/broker v0.4.0
 	github.com/kalandramo/bald/broker/kafka v0.1.0
+	github.com/kalandramo/bald/circuitbreaker v0.2.0
+	github.com/kalandramo/bald/circuitbreaker/sentinel v0.1.0
 	github.com/kalandramo/bald/contrib/store-gorm v0.4.2
 	github.com/kalandramo/bald/health v0.1.1
 	github.com/kalandramo/bald/log v0.6.0
@@ -20,6 +23,9 @@ require (
 	github.com/kalandramo/bald/registry v0.5.0
 	github.com/kalandramo/bald/registry/etcd v0.4.2
 	github.com/kalandramo/bald/registry/nacos v0.3.4
+	github.com/kalandramo/bald/selector v0.1.1
+	github.com/kalandramo/bald/selector/balancer v0.1.0
+	github.com/kalandramo/bald/selector/circuitbreaker v0.1.0
 	github.com/kalandramo/bald/transport/asynq v0.6.4
 	github.com/kalandramo/bald/transport/client v0.2.1
 	github.com/kalandramo/bald/transport/cron v0.6.4
@@ -40,7 +46,6 @@ require (
 	cel.dev/cel-go v0.32.0 // indirect
 	cel.dev/expr v0.25.3 // indirect
 	github.com/StackExchange/wmi v0.0.0-20190523213315-cbe66965904d // indirect
-	github.com/alibaba/sentinel-golang v1.0.4 // indirect
 	github.com/alibabacloud-go/alibabacloud-gateway-pop v0.0.6 // indirect
 	github.com/alibabacloud-go/alibabacloud-gateway-spi v0.0.5 // indirect
 	github.com/alibabacloud-go/darabonba-array v0.1.0 // indirect
@@ -140,8 +145,6 @@ require (
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/kalandramo/bald-crud/viewer v0.3.0 // indirect
-	github.com/kalandramo/bald/circuitbreaker v0.2.0 // indirect
-	github.com/kalandramo/bald/circuitbreaker/sentinel v0.1.0 // indirect
 	github.com/kalandramo/bald/encoding v0.1.0 // indirect
 	github.com/kalandramo/bald/ratelimit v0.1.0 // indirect
 	github.com/kalandramo/bald/ratelimit/tokenbucket v0.2.0 // indirect
@@ -276,6 +279,12 @@ replace github.com/kalandramo/bald/registry/nacos => ../../registry/nacos
 replace github.com/kalandramo/bald/registry/etcd => ../../registry/etcd
 
 replace github.com/kalandramo/bald/pkg => ../../pkg
+
+replace github.com/kalandramo/bald/selector => ../../selector
+
+replace github.com/kalandramo/bald/selector/balancer => ../../selector/balancer
+
+replace github.com/kalandramo/bald/selector/circuitbreaker => ../../selector/circuitbreaker
 
 replace github.com/kalandramo/bald/ratelimit/tokenbucket => ../../ratelimit/tokenbucket
 

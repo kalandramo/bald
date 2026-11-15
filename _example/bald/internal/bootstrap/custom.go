@@ -23,8 +23,9 @@ func customOptions(role string) []appkit.Option {
 		// database.sql 段 → GORM 连接池（资源容器取用，停机释放）。
 		storegorm.AppProvider(),
 		// client 段 → 出站连接（client.<面>.<名字> 资源容器，停机释放）。
-		// 段缺席即无产物，两个角色的既有契约都不含该段。
-		clientcontract.AppProvider(),
+		// 段缺席即无产物，两个角色的既有契约都不含该段。grpc 出站挂
+		// bald_selector + 按节点熔断，见 outbound.go。
+		clientcontract.AppProvider(outboundClientOptions()...),
 		// broker.redis 段的接线已由生成器从声明派生（assemble.gen.go 公共区，
 		// 资源键 broker.redis.redis）——J2 清偿：同一不变量不再手写第二份。
 	}
