@@ -23,6 +23,10 @@
 //	bald gen store <name>                              # 生成实体骨架（gorm tag + keyOf）
 //	bald gen app --spec <AppSpec.json>                 # 按 AppSpec 生成应用装配目录树
 //	bald gen domain --spec <AppSpec.json>              # 按域声明生成域产物（gen app 之后）
+//	bald gen resource --spec <AppSpec.json> --domain post --kind post
+//	                                                   # 给域加资源链路（契约+实体+声明+重派生）
+//	bald gen verify --spec <AppSpec.json>              # 只读校验生成树与声明一致（零写入）
+//	bald compose up [etcd redis]                       # 起本地集成依赖（etcd/consul/redis/mongo/nacos）
 //	bald convention overview                           # 规范卡索引（AI 的入口）
 //	bald convention get <卡id>                         # 取卡全文（--format json 供工具消费）
 //	bald convention check [--fail-on-findings]         # 卡完整性 + 确定性检查器（CI 用 fail-on-findings）
@@ -42,6 +46,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/kalandramo/bald/cli/internal/codegen"
+	"github.com/kalandramo/bald/cli/internal/compose"
 	"github.com/kalandramo/bald/cli/internal/convention"
 	"github.com/kalandramo/bald/cli/internal/ide"
 	"github.com/kalandramo/bald/cli/internal/prd"
@@ -49,14 +54,43 @@ import (
 )
 
 func main() {
+	codegen.CheckErr(newRootCommand().Execute())
+}
+
+// mcpSelectors 是 MCP 工具面的唯一真相源（装配与测试共用，不出现第二份口径）。
+//
+// MCP 面：只读动作进，写动作挡（渐进式放行见 docs/architecture/
+// onexai-gap-review.md §6.2 与 developer-experience-review.md DX-16）。
+//   - convention：查规范，天然只读；
+//   - gen app：**排除 adopt/preset 两个写 flag 后是纯只读校验**（--check 零
+//     写入验证生成树与声明一致）——AI 可以自证声明一致性，但不能改树；
+//   - gen verify：**从构造上只读**（内部两条腿都是各自的 --check 分支），
+//     覆盖 app 树 + 域产物；标注 readOnly/idempotent，客户端无需确认框。
+//
+// gen 的其它子命令（domain/proto/store/resource）是写动作，不进——不靠
+// destructiveHint 让客户端提醒，而是根本不给工具面。留空的选择器只会让工具面
+// 随命令新增而被动扩大，所以这条边界由 cmd/bald/main_test.go 钉住。
+func mcpSelectors() []cobramcp.Selector {
+	return []cobramcp.Selector{
+		{CmdSelector: cobramcp.AllowCmdsContaining("convention")},
+		{
+			CmdSelector:       cobramcp.AllowCmdsContaining("gen app"),
+			LocalFlagSelector: cobramcp.ExcludeFlags("adopt", "preset"),
+		},
+		{CmdSelector: cobramcp.AllowCmdsContaining("gen verify")},
+	}
+}
+
+// newRootCommand 组装整棵命令树（main 与测试共用：MCP 面断言要遍历真实树）。
+func newRootCommand() *cobra.Command {
 	root := &cobra.Command{
 		Use:   "bald",
 		Short: "bald 服务框架官方 CLI：代码生成、规范查询与会话引导工具",
 		Long: `bald 是 Go 服务框架（库）；本 CLI 提供配套的开发工具。
 
-代码生成脚手架 gen 输出可编译骨架（proto / store / app / domain），作为 bald
-生态的 starter：模板质量以 _example/bald 消费者模块的端到端编译/运行测试固化
-为防线。
+代码生成脚手架 gen 输出可编译骨架（proto / store / app / domain / resource），
+作为 bald 生态的 starter：模板质量以 _example/bald 消费者模块的端到端编译/运行
+测试固化为防线。
 
 convention 把工程规范做成可查询、可检查的蒸馏卡：overview 先看索引，get 按
 需取卡（MCP 工具 bald_convention_get 供 AI 用），check 跑确定性检查器（CI 用
@@ -68,24 +102,11 @@ release 面向框架维护者：从 git 提交历史推导待发布模块与版�
 		SilenceErrors: true, // 错误统一由 CheckErr 出口打印
 	}
 	root.AddCommand(codegen.NewCommand(codegen.NewDefaultIOStreams()))
+	root.AddCommand(compose.NewCommand(compose.NewDefaultStreams()))
 	root.AddCommand(convention.NewCommand(convention.NewDefaultStreams()))
 	root.AddCommand(ide.NewCommand())
 	root.AddCommand(prd.NewCommand())
 	root.AddCommand(release.NewCommand(release.NewDefaultIOStreams()))
-	// MCP 面：只读动作进，写动作挡（渐进式放行见 docs/architecture/
-	// onexai-gap-review.md §6.2 与 developer-experience-review.md DX-16）。
-	// - convention：查规范，天然只读；
-	// - gen app：**排除 adopt/preset 两个写 flag 后是纯只读校验**（--check 零
-	//   写入验证生成树与声明一致）——AI 可以自证声明一致性，但不能改树。
-	//   gen 的其它子命令（domain/proto/store）与 release 是写/外向动作，不进。
-	root.AddCommand(cobramcp.Command(&cobramcp.Config{
-		Selectors: []cobramcp.Selector{
-			{CmdSelector: cobramcp.AllowCmdsContaining("convention")},
-			{
-				CmdSelector:       cobramcp.AllowCmdsContaining("gen app"),
-				LocalFlagSelector: cobramcp.ExcludeFlags("adopt", "preset"),
-			},
-		},
-	}))
-	codegen.CheckErr(root.Execute())
+	root.AddCommand(cobramcp.Command(&cobramcp.Config{Selectors: mcpSelectors()}))
+	return root
 }
