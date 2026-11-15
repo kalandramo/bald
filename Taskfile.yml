@@ -330,11 +330,34 @@ tasks:
   # （MCP 语义：把结果交给调用方判），但任务名叫 convention、在 CI 里也是当闸门用
   # （ci.yml:169 就是这么调的）。不带这个标志时，本任务**永远 exit 0**——有 finding
   # 也绿，是纯装饰。要「只报告不拦截」请直接跑 `go run ./cmd/bald convention check`。
+  #
+  # --min-coverage 是第二道闸：红/绿只回答「已判的规则有没有违规」，不回答「判了
+  # 几条」。下限 6% 对应 205 条规则里至少 13 条有机器判据；新增卡规则而不补
+  # checker 会让这个百分比下降，本任务随即失败——「覆盖率悄悄退步」不是绿。
   convention:
-    desc: 跑规范蒸馏卡完整性与确定性检查器（bald convention check，有 finding 即非零退出）
+    desc: 跑规范蒸馏卡完整性与确定性检查器（有 finding 或覆盖率低于下限即非零退出）
     dir: cli
     cmds:
-      - go run ./cmd/bald convention check --fail-on-findings
+      - go run ./cmd/bald convention check --fail-on-findings --min-coverage 6
+
+  # 本地集成依赖（etcd/consul/redis/mongo/nacos）：镜像/端口/env 与 CI 的
+  # integration 作业 services 块同源，所以本地红与 CI 红说的是同一件事。
+  # 起停是环境副作用，不挂在 verify/acceptance 上——要跑非 -short 集成用例时手动起。
+  infra-up:
+    desc: 起本地集成依赖（缺省全起；SVC=etcd,redis 只起这些）
+    dir: cli
+    cmds:
+      - go run ./cmd/bald compose up {{.SVC}}
+  infra-status:
+    desc: 本地集成依赖的容器状态（docker compose ps）
+    dir: cli
+    cmds:
+      - go run ./cmd/bald compose status
+  infra-down:
+    desc: 删除本地集成依赖（项目名 bald-infra，不碰用户自己的容器）
+    dir: cli
+    cmds:
+      - go run ./cmd/bald compose down
 
   # 静态检查与漏洞扫描：范围 = scripts/list-modules.sh 派生的全部 module，与 CI 的
   # lint/vuln 作业逐模块同口径（原来只跑核心 module，是 §1.2 的假绿来源之一）。

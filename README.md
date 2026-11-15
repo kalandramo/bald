@@ -111,14 +111,18 @@ cd _example/bald
 go test ./internal/bootstrap/ -run TestGatewayBackendViaDiscovery -v
 
 # 真注册中心（opt-in，起容器后可跑；不可达即 Skip，不算失败）
-docker run -d --name etcd -p 127.0.0.1:2379:2379 quay.io/coreos/etcd:v3.5.14 /usr/local/bin/etcd \
-  --advertise-client-urls http://127.0.0.1:2379 --listen-client-urls http://0.0.0.0:2379
+bald compose up etcd        # 镜像/端口/env 与 CI integration 作业同源，不用手抄 docker run
 go test ./internal/bootstrap/ -run TestGatewayDiscoveryEtcd -v
 
-docker run -d --name nacos -p 127.0.0.1:8848:8848 -p 127.0.0.1:9848:9848 \
-  -e MODE=standalone -e NACOS_AUTH_ENABLE=false --platform linux/amd64 nacos/nacos-server:v2.3.2
+bald compose up nacos       # 9848 一起映射（SDK v2 的 naming 走 gRPC，漏了会静默注册不上）
 go test ./internal/bootstrap/ -run 'TestGatewayDiscoveryNacos|TestNacosDiscovery' -v
+
+bald compose status         # docker compose ps；down 删除整个 bald-infra 项目
 ```
+
+`bald compose list` 给出全部可起服务与本地地址（etcd / consul / redis / mongo / nacos），
+`bald compose config` 打印 compose 定义（`--out` 落盘定制，再 `--file` 指回去），
+`--dry-run` 只打印 docker argv——审计与无 docker 环境下的命令装配验证都靠它。
 
 见[当前架构 §6](docs/architecture/current-architecture.md) 与[流程快照 §③](docs/architecture/flows.md)。
 
