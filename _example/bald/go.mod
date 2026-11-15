@@ -12,7 +12,7 @@ require (
 	github.com/kalandramo/bald/berrors v0.1.2
 	github.com/kalandramo/bald/bootstrap v0.13.8
 	github.com/kalandramo/bald/broker v0.4.0
-	github.com/kalandramo/bald/broker/redis v0.5.0
+	github.com/kalandramo/bald/broker/kafka v0.1.0
 	github.com/kalandramo/bald/contrib/store-gorm v0.4.2
 	github.com/kalandramo/bald/health v0.1.1
 	github.com/kalandramo/bald/log v0.6.0
@@ -111,7 +111,6 @@ require (
 	github.com/goccy/go-yaml v1.19.2 // indirect
 	github.com/golang/mock v1.6.0 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
-	github.com/gomodule/redigo v1.9.2 // indirect
 	github.com/google/gnostic-models v0.7.0 // indirect
 	github.com/google/jsonschema-go v0.4.2 // indirect
 	github.com/google/uuid v1.6.0 // indirect
@@ -147,6 +146,7 @@ require (
 	github.com/kalandramo/bald/transport v0.5.0 // indirect
 	github.com/kalandramo/bald/transport/grpc v0.2.0 // indirect
 	github.com/kalandramo/bald/transport/http v0.2.0 // indirect
+	github.com/klauspost/compress v1.20.2 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/magiconair/properties v1.8.5 // indirect
@@ -164,6 +164,7 @@ require (
 	github.com/orcaman/concurrent-map v1.0.0 // indirect
 	github.com/pelletier/go-toml v1.9.3 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
+	github.com/pierrec/lz4/v4 v4.1.21 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/prometheus/client_golang v1.23.2 // indirect
 	github.com/prometheus/client_model v0.6.2 // indirect
@@ -176,6 +177,7 @@ require (
 	github.com/robfig/cron/v3 v3.0.1 // indirect
 	github.com/ryanuber/go-glob v1.0.0 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2 // indirect
+	github.com/segmentio/kafka-go v0.4.49 // indirect
 	github.com/spf13/afero v1.6.0 // indirect
 	github.com/spf13/cast v1.10.0 // indirect
 	github.com/spf13/jwalterweatherman v1.1.0 // indirect
@@ -185,6 +187,9 @@ require (
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.3.1 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
+	github.com/xdg-go/pbkdf2 v1.0.0 // indirect
+	github.com/xdg-go/scram v1.2.0 // indirect
+	github.com/xdg-go/stringprep v1.0.4 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	go.etcd.io/etcd/api/v3 v3.7.1 // indirect
 	go.etcd.io/etcd/client/pkg/v3 v3.7.1 // indirect
@@ -278,6 +283,6 @@ replace github.com/kalandramo/bald/retry => ../../retry
 
 replace github.com/kalandramo/bald/broker => ../../broker
 
-replace github.com/kalandramo/bald/broker/redis => ../../broker/redis
+replace github.com/kalandramo/bald/broker/kafka => ../../broker/kafka
 
 replace github.com/kalandramo/bald/transport/mcp => ../../transport/mcp

@@ -27,13 +27,6 @@ message Broker {
     string password = 5;
   }
 
-  // Redis 消息代理（基于 Pub/Sub）。
-  message Redis {
-    string address = 1;
-    string password = 2;
-    int32 db = 3;
-  }
-
   // NATS 消息代理。
   message Nats {
     // 连接地址，如 nats://127.0.0.1:4222。
@@ -119,7 +112,12 @@ message Broker {
 
   optional Kafka kafka = 1;
   optional RabbitMQ rabbitmq = 2;
-  optional Redis redis = 3;
+
+  // redis 段已随 broker/redis 模块整体下线（2026-11 精简：Kafka/RabbitMQ 为
+  // 保留后端）。字段号 3 与段名保留，禁止复用——历史配置里的 redis 段不得被
+  // 新字段静默解释。
+  reserved 3;
+  reserved "redis";
   optional Nats nats = 4;
   optional Mqtt mqtt = 5;
   optional Pulsar pulsar = 6;

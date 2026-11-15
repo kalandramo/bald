@@ -1846,7 +1846,7 @@ func TestEnvironmentVariableRoutesAreRegistered(t *testing.T) {
 }
 
 // envRouteExceptions 是 §7.38 的登记表：键＝包目录，值＝为什么允许它存在。
-// 五条理由都实测过，不是按包名猜的；其中 contrib/store-gorm 与 registry/kubernetes
+// 四条理由都实测过，不是按包名猜的；其中 contrib/store-gorm
 // 两条是**在役**的链外 env 输入，属未裁决的口径问题，不是无害豁免。
 var envRouteExceptions = map[string]string{
 	// 正路本身：键名由 BootstrapConfig 描述符派生（§7.7），三层合并链的一环。
@@ -1858,13 +1858,9 @@ var envRouteExceptions = map[string]string{
 	// 不参与 bald 的取值链；grep 实测两处分别在 *_darwin/*_linux/*_windows.go 里拼路径。
 	"cobramcp/internal/cfgmgr/manager/cursor": "拼 IDE 配置文件路径（$USER/$USERPROFILE），不读配置值",
 	"cobramcp/internal/cfgmgr/manager/vscode": "同上，VSCode 侧",
-	// 测试夹具（非 _test.go 文件名所以进不了编译豁免）：CI 用它注入真后端地址。
-	"contrib/store-mongo": "testutil.go 是集成测试夹具（BALD_MONGO_URI），不在装配路径",
 	// ↓ 两条是在役的链外输入，§7.38 登记为待 owner 裁决，不是「已豁免即已解决」。
 	"contrib/store-gorm": "已知旁路：WithEnv(任意名) 覆盖 database.sql.source 且优先级高于契约段，" +
 		"bald-admin 生产代码在用（backend/internal/bootstrap/bootstrap.go:874）；§7.38",
-	"registry/kubernetes": "已知旁路：GetPodName() 读 HOSTNAME 且在役（registry.go:170,209 的注销 Patch 目标），" +
-		"契约无对应字段；§7.38",
 }
 
 func sortedKeys(m map[string]bool) []string {

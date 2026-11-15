@@ -25,7 +25,6 @@ const (
 type Database struct {
 	state         protoimpl.MessageState  `protogen:"open.v1"`
 	Sql           *Database_SQL           `protobuf:"bytes,1,opt,name=sql,proto3,oneof" json:"sql,omitempty"`
-	Mongodb       *Database_MongoDB       `protobuf:"bytes,2,opt,name=mongodb,proto3,oneof" json:"mongodb,omitempty"`
 	Clickhouse    *Database_ClickHouse    `protobuf:"bytes,3,opt,name=clickhouse,proto3,oneof" json:"clickhouse,omitempty"`
 	Doris         *Database_Doris         `protobuf:"bytes,4,opt,name=doris,proto3,oneof" json:"doris,omitempty"`
 	Elasticsearch *Database_Elasticsearch `protobuf:"bytes,5,opt,name=elasticsearch,proto3,oneof" json:"elasticsearch,omitempty"`
@@ -69,13 +68,6 @@ func (*Database) Descriptor() ([]byte, []int) {
 func (x *Database) GetSql() *Database_SQL {
 	if x != nil {
 		return x.Sql
-	}
-	return nil
-}
-
-func (x *Database) GetMongodb() *Database_MongoDB {
-	if x != nil {
-		return x.Mongodb
 	}
 	return nil
 }
@@ -223,115 +215,6 @@ func (x *Database_SQL) GetConnectionMaxLifetimeSeconds() int32 {
 	return 0
 }
 
-// MongoDB 配置。
-type Database_MongoDB struct {
-	state                         protoimpl.MessageState `protogen:"open.v1"`
-	Uri                           string                 `protobuf:"bytes,1,opt,name=uri,proto3" json:"uri,omitempty"`                                                                                               // 连接 URI
-	Database                      string                 `protobuf:"bytes,2,opt,name=database,proto3" json:"database,omitempty"`                                                                                     // 数据库名
-	Username                      string                 `protobuf:"bytes,3,opt,name=username,proto3" json:"username,omitempty"`                                                                                     // 用户名
-	Password                      string                 `protobuf:"bytes,4,opt,name=password,proto3" json:"password,omitempty"`                                                                                     // 密码
-	TimeoutSeconds                int32                  `protobuf:"varint,5,opt,name=timeout_seconds,json=timeoutSeconds,proto3" json:"timeout_seconds,omitempty"`                                                  // 操作超时（秒）
-	ConnectTimeoutSeconds         int32                  `protobuf:"varint,6,opt,name=connect_timeout_seconds,json=connectTimeoutSeconds,proto3" json:"connect_timeout_seconds,omitempty"`                           // 连接超时（秒）
-	ServerSelectionTimeoutSeconds int32                  `protobuf:"varint,7,opt,name=server_selection_timeout_seconds,json=serverSelectionTimeoutSeconds,proto3" json:"server_selection_timeout_seconds,omitempty"` // 服务器选择超时（秒）
-	HeartbeatIntervalSeconds      int32                  `protobuf:"varint,8,opt,name=heartbeat_interval_seconds,json=heartbeatIntervalSeconds,proto3" json:"heartbeat_interval_seconds,omitempty"`                  // 心跳间隔（秒）
-	MaxConnIdleTimeSeconds        int32                  `protobuf:"varint,9,opt,name=max_conn_idle_time_seconds,json=maxConnIdleTimeSeconds,proto3" json:"max_conn_idle_time_seconds,omitempty"`                    // 最大空闲时间（秒）
-	unknownFields                 protoimpl.UnknownFields
-	sizeCache                     protoimpl.SizeCache
-}
-
-func (x *Database_MongoDB) Reset() {
-	*x = Database_MongoDB{}
-	mi := &file_bootstrap_v1_database_proto_msgTypes[2]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *Database_MongoDB) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*Database_MongoDB) ProtoMessage() {}
-
-func (x *Database_MongoDB) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_database_proto_msgTypes[2]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use Database_MongoDB.ProtoReflect.Descriptor instead.
-func (*Database_MongoDB) Descriptor() ([]byte, []int) {
-	return file_bootstrap_v1_database_proto_rawDescGZIP(), []int{0, 1}
-}
-
-func (x *Database_MongoDB) GetUri() string {
-	if x != nil {
-		return x.Uri
-	}
-	return ""
-}
-
-func (x *Database_MongoDB) GetDatabase() string {
-	if x != nil {
-		return x.Database
-	}
-	return ""
-}
-
-func (x *Database_MongoDB) GetUsername() string {
-	if x != nil {
-		return x.Username
-	}
-	return ""
-}
-
-func (x *Database_MongoDB) GetPassword() string {
-	if x != nil {
-		return x.Password
-	}
-	return ""
-}
-
-func (x *Database_MongoDB) GetTimeoutSeconds() int32 {
-	if x != nil {
-		return x.TimeoutSeconds
-	}
-	return 0
-}
-
-func (x *Database_MongoDB) GetConnectTimeoutSeconds() int32 {
-	if x != nil {
-		return x.ConnectTimeoutSeconds
-	}
-	return 0
-}
-
-func (x *Database_MongoDB) GetServerSelectionTimeoutSeconds() int32 {
-	if x != nil {
-		return x.ServerSelectionTimeoutSeconds
-	}
-	return 0
-}
-
-func (x *Database_MongoDB) GetHeartbeatIntervalSeconds() int32 {
-	if x != nil {
-		return x.HeartbeatIntervalSeconds
-	}
-	return 0
-}
-
-func (x *Database_MongoDB) GetMaxConnIdleTimeSeconds() int32 {
-	if x != nil {
-		return x.MaxConnIdleTimeSeconds
-	}
-	return 0
-}
-
 // ClickHouse 配置。
 type Database_ClickHouse struct {
 	state                  protoimpl.MessageState `protogen:"open.v1"`
@@ -354,7 +237,7 @@ type Database_ClickHouse struct {
 
 func (x *Database_ClickHouse) Reset() {
 	*x = Database_ClickHouse{}
-	mi := &file_bootstrap_v1_database_proto_msgTypes[3]
+	mi := &file_bootstrap_v1_database_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -366,7 +249,7 @@ func (x *Database_ClickHouse) String() string {
 func (*Database_ClickHouse) ProtoMessage() {}
 
 func (x *Database_ClickHouse) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_database_proto_msgTypes[3]
+	mi := &file_bootstrap_v1_database_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -379,7 +262,7 @@ func (x *Database_ClickHouse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Database_ClickHouse.ProtoReflect.Descriptor instead.
 func (*Database_ClickHouse) Descriptor() ([]byte, []int) {
-	return file_bootstrap_v1_database_proto_rawDescGZIP(), []int{0, 2}
+	return file_bootstrap_v1_database_proto_rawDescGZIP(), []int{0, 1}
 }
 
 func (x *Database_ClickHouse) GetDsn() string {
@@ -492,7 +375,7 @@ type Database_Doris struct {
 
 func (x *Database_Doris) Reset() {
 	*x = Database_Doris{}
-	mi := &file_bootstrap_v1_database_proto_msgTypes[4]
+	mi := &file_bootstrap_v1_database_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -504,7 +387,7 @@ func (x *Database_Doris) String() string {
 func (*Database_Doris) ProtoMessage() {}
 
 func (x *Database_Doris) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_database_proto_msgTypes[4]
+	mi := &file_bootstrap_v1_database_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -517,7 +400,7 @@ func (x *Database_Doris) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Database_Doris.ProtoReflect.Descriptor instead.
 func (*Database_Doris) Descriptor() ([]byte, []int) {
-	return file_bootstrap_v1_database_proto_rawDescGZIP(), []int{0, 3}
+	return file_bootstrap_v1_database_proto_rawDescGZIP(), []int{0, 2}
 }
 
 func (x *Database_Doris) GetDsn() string {
@@ -605,7 +488,7 @@ type Database_Elasticsearch struct {
 
 func (x *Database_Elasticsearch) Reset() {
 	*x = Database_Elasticsearch{}
-	mi := &file_bootstrap_v1_database_proto_msgTypes[5]
+	mi := &file_bootstrap_v1_database_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -617,7 +500,7 @@ func (x *Database_Elasticsearch) String() string {
 func (*Database_Elasticsearch) ProtoMessage() {}
 
 func (x *Database_Elasticsearch) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_database_proto_msgTypes[5]
+	mi := &file_bootstrap_v1_database_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -630,7 +513,7 @@ func (x *Database_Elasticsearch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Database_Elasticsearch.ProtoReflect.Descriptor instead.
 func (*Database_Elasticsearch) Descriptor() ([]byte, []int) {
-	return file_bootstrap_v1_database_proto_rawDescGZIP(), []int{0, 4}
+	return file_bootstrap_v1_database_proto_rawDescGZIP(), []int{0, 3}
 }
 
 func (x *Database_Elasticsearch) GetAddresses() []string {
@@ -742,7 +625,7 @@ type Database_OpenSearch struct {
 
 func (x *Database_OpenSearch) Reset() {
 	*x = Database_OpenSearch{}
-	mi := &file_bootstrap_v1_database_proto_msgTypes[6]
+	mi := &file_bootstrap_v1_database_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -754,7 +637,7 @@ func (x *Database_OpenSearch) String() string {
 func (*Database_OpenSearch) ProtoMessage() {}
 
 func (x *Database_OpenSearch) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_database_proto_msgTypes[6]
+	mi := &file_bootstrap_v1_database_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -767,7 +650,7 @@ func (x *Database_OpenSearch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Database_OpenSearch.ProtoReflect.Descriptor instead.
 func (*Database_OpenSearch) Descriptor() ([]byte, []int) {
-	return file_bootstrap_v1_database_proto_rawDescGZIP(), []int{0, 5}
+	return file_bootstrap_v1_database_proto_rawDescGZIP(), []int{0, 4}
 }
 
 func (x *Database_OpenSearch) GetAddresses() []string {
@@ -851,7 +734,7 @@ type Database_InfluxDB struct {
 
 func (x *Database_InfluxDB) Reset() {
 	*x = Database_InfluxDB{}
-	mi := &file_bootstrap_v1_database_proto_msgTypes[7]
+	mi := &file_bootstrap_v1_database_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -863,7 +746,7 @@ func (x *Database_InfluxDB) String() string {
 func (*Database_InfluxDB) ProtoMessage() {}
 
 func (x *Database_InfluxDB) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_database_proto_msgTypes[7]
+	mi := &file_bootstrap_v1_database_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -876,7 +759,7 @@ func (x *Database_InfluxDB) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Database_InfluxDB.ProtoReflect.Descriptor instead.
 func (*Database_InfluxDB) Descriptor() ([]byte, []int) {
-	return file_bootstrap_v1_database_proto_rawDescGZIP(), []int{0, 6}
+	return file_bootstrap_v1_database_proto_rawDescGZIP(), []int{0, 5}
 }
 
 func (x *Database_InfluxDB) GetHost() string {
@@ -959,7 +842,7 @@ type Database_Cassandra struct {
 
 func (x *Database_Cassandra) Reset() {
 	*x = Database_Cassandra{}
-	mi := &file_bootstrap_v1_database_proto_msgTypes[8]
+	mi := &file_bootstrap_v1_database_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -971,7 +854,7 @@ func (x *Database_Cassandra) String() string {
 func (*Database_Cassandra) ProtoMessage() {}
 
 func (x *Database_Cassandra) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_database_proto_msgTypes[8]
+	mi := &file_bootstrap_v1_database_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -984,7 +867,7 @@ func (x *Database_Cassandra) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Database_Cassandra.ProtoReflect.Descriptor instead.
 func (*Database_Cassandra) Descriptor() ([]byte, []int) {
-	return file_bootstrap_v1_database_proto_rawDescGZIP(), []int{0, 7}
+	return file_bootstrap_v1_database_proto_rawDescGZIP(), []int{0, 6}
 }
 
 func (x *Database_Cassandra) GetAddress() string {
@@ -1047,20 +930,19 @@ var File_bootstrap_v1_database_proto protoreflect.FileDescriptor
 
 const file_bootstrap_v1_database_proto_rawDesc = "" +
 	"\n" +
-	"\x1bbootstrap/v1/database.proto\x12\fbootstrap.v1\"\xf2\x1e\n" +
+	"\x1bbootstrap/v1/database.proto\x12\fbootstrap.v1\"\xa0\x1b\n" +
 	"\bDatabase\x121\n" +
-	"\x03sql\x18\x01 \x01(\v2\x1a.bootstrap.v1.Database.SQLH\x00R\x03sql\x88\x01\x01\x12=\n" +
-	"\amongodb\x18\x02 \x01(\v2\x1e.bootstrap.v1.Database.MongoDBH\x01R\amongodb\x88\x01\x01\x12F\n" +
+	"\x03sql\x18\x01 \x01(\v2\x1a.bootstrap.v1.Database.SQLH\x00R\x03sql\x88\x01\x01\x12F\n" +
 	"\n" +
-	"clickhouse\x18\x03 \x01(\v2!.bootstrap.v1.Database.ClickHouseH\x02R\n" +
+	"clickhouse\x18\x03 \x01(\v2!.bootstrap.v1.Database.ClickHouseH\x01R\n" +
 	"clickhouse\x88\x01\x01\x127\n" +
-	"\x05doris\x18\x04 \x01(\v2\x1c.bootstrap.v1.Database.DorisH\x03R\x05doris\x88\x01\x01\x12O\n" +
-	"\relasticsearch\x18\x05 \x01(\v2$.bootstrap.v1.Database.ElasticsearchH\x04R\relasticsearch\x88\x01\x01\x12F\n" +
+	"\x05doris\x18\x04 \x01(\v2\x1c.bootstrap.v1.Database.DorisH\x02R\x05doris\x88\x01\x01\x12O\n" +
+	"\relasticsearch\x18\x05 \x01(\v2$.bootstrap.v1.Database.ElasticsearchH\x03R\relasticsearch\x88\x01\x01\x12F\n" +
 	"\n" +
-	"opensearch\x18\x06 \x01(\v2!.bootstrap.v1.Database.OpenSearchH\x05R\n" +
+	"opensearch\x18\x06 \x01(\v2!.bootstrap.v1.Database.OpenSearchH\x04R\n" +
 	"opensearch\x88\x01\x01\x12@\n" +
-	"\binfluxdb\x18\a \x01(\v2\x1f.bootstrap.v1.Database.InfluxDBH\x06R\binfluxdb\x88\x01\x01\x12C\n" +
-	"\tcassandra\x18\b \x01(\v2 .bootstrap.v1.Database.CassandraH\aR\tcassandra\x88\x01\x01\x1a\xc4\x02\n" +
+	"\binfluxdb\x18\a \x01(\v2\x1f.bootstrap.v1.Database.InfluxDBH\x05R\binfluxdb\x88\x01\x01\x12C\n" +
+	"\tcassandra\x18\b \x01(\v2 .bootstrap.v1.Database.CassandraH\x06R\tcassandra\x88\x01\x01\x1a\xc4\x02\n" +
 	"\x03SQL\x12\x16\n" +
 	"\x06driver\x18\x01 \x01(\tR\x06driver\x12\x16\n" +
 	"\x06source\x18\x02 \x01(\tR\x06source\x12\x18\n" +
@@ -1069,17 +951,7 @@ const file_bootstrap_v1_database_proto_rawDesc = "" +
 	"\x0eenable_metrics\x18\x05 \x01(\bR\renableMetrics\x120\n" +
 	"\x14max_idle_connections\x18\x06 \x01(\x05R\x12maxIdleConnections\x120\n" +
 	"\x14max_open_connections\x18\a \x01(\x05R\x12maxOpenConnections\x12E\n" +
-	"\x1fconnection_max_lifetime_seconds\x18\b \x01(\x05R\x1cconnectionMaxLifetimeSeconds\x1a\x93\x03\n" +
-	"\aMongoDB\x12\x10\n" +
-	"\x03uri\x18\x01 \x01(\tR\x03uri\x12\x1a\n" +
-	"\bdatabase\x18\x02 \x01(\tR\bdatabase\x12\x1a\n" +
-	"\busername\x18\x03 \x01(\tR\busername\x12\x1a\n" +
-	"\bpassword\x18\x04 \x01(\tR\bpassword\x12'\n" +
-	"\x0ftimeout_seconds\x18\x05 \x01(\x05R\x0etimeoutSeconds\x126\n" +
-	"\x17connect_timeout_seconds\x18\x06 \x01(\x05R\x15connectTimeoutSeconds\x12G\n" +
-	" server_selection_timeout_seconds\x18\a \x01(\x05R\x1dserverSelectionTimeoutSeconds\x12<\n" +
-	"\x1aheartbeat_interval_seconds\x18\b \x01(\x05R\x18heartbeatIntervalSeconds\x12:\n" +
-	"\x1amax_conn_idle_time_seconds\x18\t \x01(\x05R\x16maxConnIdleTimeSeconds\x1a\xd8\x03\n" +
+	"\x1fconnection_max_lifetime_seconds\x18\b \x01(\x05R\x1cconnectionMaxLifetimeSeconds\x1a\xd8\x03\n" +
 	"\n" +
 	"ClickHouse\x12\x10\n" +
 	"\x03dsn\x18\x01 \x01(\tR\x03dsn\x12\x1c\n" +
@@ -1154,16 +1026,14 @@ const file_bootstrap_v1_database_proto_rawDesc = "" +
 	"\x17connect_timeout_seconds\x18\x06 \x01(\x05R\x15connectTimeoutSeconds\x12'\n" +
 	"\x0ftimeout_seconds\x18\a \x01(\x05R\x0etimeoutSeconds\x12=\n" +
 	"\x1bdisable_initial_host_lookup\x18\b \x01(\bR\x18disableInitialHostLookupB\x06\n" +
-	"\x04_sqlB\n" +
-	"\n" +
-	"\b_mongodbB\r\n" +
+	"\x04_sqlB\r\n" +
 	"\v_clickhouseB\b\n" +
 	"\x06_dorisB\x10\n" +
 	"\x0e_elasticsearchB\r\n" +
 	"\v_opensearchB\v\n" +
 	"\t_influxdbB\f\n" +
 	"\n" +
-	"_cassandraB\xb4\x01\n" +
+	"_cassandraJ\x04\b\x02\x10\x03R\amongodbB\xb4\x01\n" +
 	"\x10com.bootstrap.v1B\rDatabaseProtoP\x01Z@github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1;bootstrapv1\xa2\x02\x03BXX\xaa\x02\fBootstrap.V1\xca\x02\fBootstrap\\V1\xe2\x02\x18Bootstrap\\V1\\GPBMetadata\xea\x02\rBootstrap::V1b\x06proto3"
 
 var (
@@ -1178,32 +1048,30 @@ func file_bootstrap_v1_database_proto_rawDescGZIP() []byte {
 	return file_bootstrap_v1_database_proto_rawDescData
 }
 
-var file_bootstrap_v1_database_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_bootstrap_v1_database_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
 var file_bootstrap_v1_database_proto_goTypes = []any{
 	(*Database)(nil),               // 0: bootstrap.v1.Database
 	(*Database_SQL)(nil),           // 1: bootstrap.v1.Database.SQL
-	(*Database_MongoDB)(nil),       // 2: bootstrap.v1.Database.MongoDB
-	(*Database_ClickHouse)(nil),    // 3: bootstrap.v1.Database.ClickHouse
-	(*Database_Doris)(nil),         // 4: bootstrap.v1.Database.Doris
-	(*Database_Elasticsearch)(nil), // 5: bootstrap.v1.Database.Elasticsearch
-	(*Database_OpenSearch)(nil),    // 6: bootstrap.v1.Database.OpenSearch
-	(*Database_InfluxDB)(nil),      // 7: bootstrap.v1.Database.InfluxDB
-	(*Database_Cassandra)(nil),     // 8: bootstrap.v1.Database.Cassandra
+	(*Database_ClickHouse)(nil),    // 2: bootstrap.v1.Database.ClickHouse
+	(*Database_Doris)(nil),         // 3: bootstrap.v1.Database.Doris
+	(*Database_Elasticsearch)(nil), // 4: bootstrap.v1.Database.Elasticsearch
+	(*Database_OpenSearch)(nil),    // 5: bootstrap.v1.Database.OpenSearch
+	(*Database_InfluxDB)(nil),      // 6: bootstrap.v1.Database.InfluxDB
+	(*Database_Cassandra)(nil),     // 7: bootstrap.v1.Database.Cassandra
 }
 var file_bootstrap_v1_database_proto_depIdxs = []int32{
 	1, // 0: bootstrap.v1.Database.sql:type_name -> bootstrap.v1.Database.SQL
-	2, // 1: bootstrap.v1.Database.mongodb:type_name -> bootstrap.v1.Database.MongoDB
-	3, // 2: bootstrap.v1.Database.clickhouse:type_name -> bootstrap.v1.Database.ClickHouse
-	4, // 3: bootstrap.v1.Database.doris:type_name -> bootstrap.v1.Database.Doris
-	5, // 4: bootstrap.v1.Database.elasticsearch:type_name -> bootstrap.v1.Database.Elasticsearch
-	6, // 5: bootstrap.v1.Database.opensearch:type_name -> bootstrap.v1.Database.OpenSearch
-	7, // 6: bootstrap.v1.Database.influxdb:type_name -> bootstrap.v1.Database.InfluxDB
-	8, // 7: bootstrap.v1.Database.cassandra:type_name -> bootstrap.v1.Database.Cassandra
-	8, // [8:8] is the sub-list for method output_type
-	8, // [8:8] is the sub-list for method input_type
-	8, // [8:8] is the sub-list for extension type_name
-	8, // [8:8] is the sub-list for extension extendee
-	0, // [0:8] is the sub-list for field type_name
+	2, // 1: bootstrap.v1.Database.clickhouse:type_name -> bootstrap.v1.Database.ClickHouse
+	3, // 2: bootstrap.v1.Database.doris:type_name -> bootstrap.v1.Database.Doris
+	4, // 3: bootstrap.v1.Database.elasticsearch:type_name -> bootstrap.v1.Database.Elasticsearch
+	5, // 4: bootstrap.v1.Database.opensearch:type_name -> bootstrap.v1.Database.OpenSearch
+	6, // 5: bootstrap.v1.Database.influxdb:type_name -> bootstrap.v1.Database.InfluxDB
+	7, // 6: bootstrap.v1.Database.cassandra:type_name -> bootstrap.v1.Database.Cassandra
+	7, // [7:7] is the sub-list for method output_type
+	7, // [7:7] is the sub-list for method input_type
+	7, // [7:7] is the sub-list for extension type_name
+	7, // [7:7] is the sub-list for extension extendee
+	0, // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_bootstrap_v1_database_proto_init() }
@@ -1218,7 +1086,7 @@ func file_bootstrap_v1_database_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bootstrap_v1_database_proto_rawDesc), len(file_bootstrap_v1_database_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   9,
+			NumMessages:   8,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

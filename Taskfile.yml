@@ -340,7 +340,7 @@ tasks:
     cmds:
       - go run ./cmd/bald convention check --fail-on-findings --min-coverage 6
 
-  # 本地集成依赖（etcd/consul/redis/mongo/nacos）：镜像/端口/env 与 CI 的
+  # 本地集成依赖（etcd/consul/redis/nacos）：镜像/端口/env 与 CI 的
   # integration 作业 services 块同源，所以本地红与 CI 红说的是同一件事。
   # 起停是环境副作用，不挂在 verify/acceptance 上——要跑非 -short 集成用例时手动起。
   infra-up:

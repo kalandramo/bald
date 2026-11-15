@@ -1,3 +1,4 @@
+> **2026-11 精简注记**：`registry/{consul,kubernetes}` 已整体下线（现役 etcd/nacos + inmemory），契约 `registry.consul`/`registry.kubernetes` 段 reserved 退役，`integration-kubernetes` CI 作业随之移除。文中的模块拆分叙事（consul/kubernetes 行）保留为设计记录。
 # Bald 注册中心设计：契约零依赖、后端各自独立 module、装配只认显式注册
 
 > Author(s): bald 团队

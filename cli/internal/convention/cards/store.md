@@ -13,7 +13,7 @@ checks:
 
 pkg/store 泛型数据访问（零引擎依赖）。完整设计与跨后端语义见母文档《Bald 存储设计》。
 
-- [store-r01] [强制] 核心零引擎依赖：只经 store.NewStore[T](provider) + store.DBProvider[T] 使用；GORM/Mongo 桥是独立 module（contrib/store-gorm、contrib/store-mongo）按需 go get，pkg/store 不 import 任何引擎。
+- [store-r01] [强制] 核心零引擎依赖：只经 store.NewStore[T](provider) + store.DBProvider[T] 使用；GORM 桥是独立 module（contrib/store-gorm）按需 go get（MongoDB 桥已随 2026-11 精简下线），pkg/store 不 import 任何引擎。
 - [store-r02] [强制] 多租户隔离必须显式 store.RegisterTenant("tenant_id", store.DefaultTenantFunc) 开启，禁止 init() 隐式注册。
 - [store-r03] [强制] 模型无 TenantID 字段的表必须在构造时显式 WithPlatformLevel() 声明豁免；豁免是 Store 实例级，禁止用空租户值推断（判据 J5）。
 - [store-r04] [强制] 身份级平台视图只能经 AuthClaims.Platform → contextx.WithPlatform(ctx) 显式声明（默认 fail-closed），且平台身份仍受数据范围约束——二者正交不可互替。

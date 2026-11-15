@@ -7,19 +7,6 @@ option go_package = "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1";
 // Storage 描述对象存储配置。
 message Storage {
   // MinIO 对象存储。
-  message Minio {
-    // 服务端点，如 "play.min.io:9000"。
-    string endpoint = 1;
-    // 访问密钥 ID。
-    string access_key = 2;
-    // 访问密钥。
-    string secret_key = 3;
-    // 安全令牌（可选）。
-    string token = 4;
-    // 是否使用 SSL。
-    bool use_ssl = 5;
-  }
-
   // S3 兼容对象存储（AWS S3 / Ceph / MinIO 等）。
   message S3 {
     // 自定义端点（留空则使用 AWS 默认端点）。
@@ -40,6 +27,11 @@ message Storage {
     string bucket = 8;
   }
 
-  optional Minio minio = 1;
+  // minio 段已随 oss/minio 模块整体下线（2026-11 精简：oss/s3 基于
+  // aws-sdk-go-v2，通过自定义 endpoint 覆盖 MinIO/COS/Ceph 等 S3 兼容面）。
+  // 字段号 1 与段名保留，禁止复用。
+  reserved 1;
+  reserved "minio";
+
   optional S3 s3 = 2;
 }

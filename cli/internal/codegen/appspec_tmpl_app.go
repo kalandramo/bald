@@ -117,8 +117,8 @@ import (
 {{- if .HasMcp}}
 	mcpcontract "github.com/kalandramo/bald/transport/mcp/contract"
 {{- end}}
-{{- if .HasBrokerRedis}}
-	brokerrediscontract "github.com/kalandramo/bald/broker/redis/contract"
+{{- if .HasBrokerKafka}}
+	brokerkafkacontract "github.com/kalandramo/bald/broker/kafka/contract"
 {{- end}}
 {{- if .AnyFace}}
 	"github.com/kalandramo/bald/health"
@@ -173,11 +173,11 @@ func Options() []appkit.Option {
 	// 声明且 driver 留空会在启动期 fail-fast，显式写 driver 才算声明了取舍。
 	opts = append(opts, gatewaycontract.HTTPProvider(registerGateway))
 {{- end}}
-{{- if .HasBrokerRedis}}
-	// 消息代理资源（契约 broker.redis 段）：段名即后端（无选型分支），生成器
-	// 从声明派生接线——产物落资源容器（键 broker.redis.redis），业务经
+{{- if .HasBrokerKafka}}
+	// 消息代理资源（契约 broker.kafka 段）：段名即后端（无选型分支），生成器
+	// 从声明派生接线——产物落资源容器（键 broker.kafka.kafka），业务经
 	// Key[T].Resource 取用订阅/发布；停机断连。段缺席即无产物。
-	opts = append(opts, brokerrediscontract.AppProvider())
+	opts = append(opts, brokerkafkacontract.AppProvider())
 {{- end}}
 {{- if .HasCron}}
 	// 定时任务面（契约 server.cron 段）：cronJobs 在装配期（NewServer 后、
@@ -222,10 +222,10 @@ func Options() []appkit.Option {
 	}
 	opts = append(opts, mech.Components(comps...))
 {{- end}}
-{{- if .HasBrokerRedis}}
-	// 消息代理资源（契约 broker.redis 段）：全局段随 bootstrap 原样继承进每个
+{{- if .HasBrokerKafka}}
+	// 消息代理资源（契约 broker.kafka 段）：全局段随 bootstrap 原样继承进每个
 	// 角色的契约 YAML——L3 段覆盖要求消费，接线在公共区（不分角色）。
-	opts = append(opts, brokerrediscontract.AppProvider())
+	opts = append(opts, brokerkafkacontract.AppProvider())
 {{- end}}
 {{- if .MultiRole}}
 	// 角色进计划与计划缓存键：doctor 的报告与基线对比按角色分核。

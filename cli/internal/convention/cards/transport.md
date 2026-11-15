@@ -21,4 +21,4 @@ transport.Server 契约 + 19 个后端 module（一后端一 module，用哪个�
 - [transport-r07] [强制] 不复制已知缺陷：Endpoint() 原样返回配置地址不解析 :0、订阅簿部分失败不回滚——这两类形状新代码禁止同构复制。
 - [transport-r08] [建议] 同协议独立实现 SessionManager 可接受，但必须满足不变量：observer 读写有锁、add/remove 幂等、rangeSessions 以 true=继续为语义。
 - [transport-r09] [建议] gateway 用法：transport/gateway/contract.HTTPProvider 是 server.http 段的另一个 Provider（同段只跑一个面、段路径末者胜），准入判据在转码面构造期报错。
-- [transport-r10] [参考] 6 个后端（tcp/websocket/graphql/sse/webrtc/mcp）Endpoint 映射 localhost 的语义尚未统一，属待设计项，评审不据此打回。
+- [transport-r10] [参考] 3 个后端（websocket/sse/mcp）Endpoint 映射 localhost 的语义尚未统一（tcp/graphql/webrtc 已随 2026-11 精简下线），属待设计项，评审不据此打回。

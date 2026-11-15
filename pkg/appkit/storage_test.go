@@ -20,18 +20,18 @@ func TestAssemble_ContractStorageLifecycle(t *testing.T) {
 
 	type stubStorage struct{ name string }
 	cleaned := false
-	prov := stubDomainProvider("storage", "minio",
-		func(c *bootstrapv1.BootstrapConfig) bool { return c.GetStorage().GetMinio() != nil },
-		&stubStorage{name: "minio"}, func() { cleaned = true })
+	prov := stubDomainProvider("storage", "s3",
+		func(c *bootstrapv1.BootstrapConfig) bool { return c.GetStorage().GetS3() != nil },
+		&stubStorage{name: "s3"}, func() { cleaned = true })
 
 	cfg := bconf.NewBootstrap()
 	dynamicAddr(cfg)
 	cfg.Storage = &bootstrapv1.Storage{
-		Minio: &bootstrapv1.Storage_Minio{Endpoint: "127.0.0.1:9000"},
+		S3: &bootstrapv1.Storage_S3{Region: "us-east-1"},
 	}
 
 	a := assembleForTest(t, cfg, WithHTTP(new(http.ServeMux)), prov)
-	if _, ok := a.lookup("storage.minio"); ok {
+	if _, ok := a.lookup("storage.s3"); ok {
 		t.Fatal("Storage should be empty before Run (phase B not reached)")
 	}
 
@@ -40,11 +40,11 @@ func TestAssemble_ContractStorageLifecycle(t *testing.T) {
 	go func() { done <- a.Run(ctx) }()
 	time.Sleep(300 * time.Millisecond)
 
-	cli, ok := a.lookup("storage.minio")
+	cli, ok := a.lookup("storage.s3")
 	if !ok {
 		t.Fatal("storage instance not built from contract")
 	}
-	if s, ok := cli.(*stubStorage); !ok || s.name != "minio" {
+	if s, ok := cli.(*stubStorage); !ok || s.name != "s3" {
 		t.Fatalf("instance type mismatch: %T", cli)
 	}
 	if all := resourceMap(t, a, "storage"); len(all) != 1 {
@@ -73,7 +73,7 @@ func TestAssemble_StorageSectionWithoutTable(t *testing.T) {
 	cfg := bconf.NewBootstrap()
 	dynamicAddr(cfg)
 	cfg.Storage = &bootstrapv1.Storage{
-		Minio: &bootstrapv1.Storage_Minio{Endpoint: "127.0.0.1:9000"},
+		S3: &bootstrapv1.Storage_S3{Region: "us-east-1"},
 	}
 
 	a := assembleForTest(t, cfg, WithHTTP(new(http.ServeMux)))

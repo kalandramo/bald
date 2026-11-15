@@ -20,18 +20,18 @@ func TestAssemble_ContractBrokerLifecycle(t *testing.T) {
 
 	type stubBroker struct{ name string }
 	cleaned := false
-	prov := stubDomainProvider("broker", "redis",
-		func(c *bootstrapv1.BootstrapConfig) bool { return c.GetBroker().GetRedis() != nil },
-		&stubBroker{name: "redis"}, func() { cleaned = true })
+	prov := stubDomainProvider("broker", "kafka",
+		func(c *bootstrapv1.BootstrapConfig) bool { return c.GetBroker().GetKafka() != nil },
+		&stubBroker{name: "kafka"}, func() { cleaned = true })
 
 	cfg := bconf.NewBootstrap()
 	dynamicAddr(cfg)
 	cfg.Broker = &bootstrapv1.Broker{
-		Redis: &bootstrapv1.Broker_Redis{Address: "127.0.0.1:6379"},
+		Kafka: &bootstrapv1.Broker_Kafka{Brokers: []string{"127.0.0.1:9092"}},
 	}
 
 	a := assembleForTest(t, cfg, WithHTTP(new(http.ServeMux)), prov)
-	if _, ok := a.lookup("broker.redis"); ok {
+	if _, ok := a.lookup("broker.kafka"); ok {
 		t.Fatal("Broker should be empty before Run (phase B not reached)")
 	}
 
@@ -40,11 +40,11 @@ func TestAssemble_ContractBrokerLifecycle(t *testing.T) {
 	go func() { done <- a.Run(ctx) }()
 	time.Sleep(300 * time.Millisecond)
 
-	b, ok := a.lookup("broker.redis")
+	b, ok := a.lookup("broker.kafka")
 	if !ok {
 		t.Fatal("broker instance not built from contract")
 	}
-	if c, ok := b.(*stubBroker); !ok || c.name != "redis" {
+	if c, ok := b.(*stubBroker); !ok || c.name != "kafka" {
 		t.Fatalf("instance type mismatch: %T", b)
 	}
 	if all := resourceMap(t, a, "broker"); len(all) != 1 {
@@ -73,7 +73,7 @@ func TestAssemble_BrokerSectionWithoutTable(t *testing.T) {
 	cfg := bconf.NewBootstrap()
 	dynamicAddr(cfg)
 	cfg.Broker = &bootstrapv1.Broker{
-		Redis: &bootstrapv1.Broker_Redis{Address: "127.0.0.1:6379"},
+		Kafka: &bootstrapv1.Broker_Kafka{Brokers: []string{"127.0.0.1:9092"}},
 	}
 
 	a := assembleForTest(t, cfg, WithHTTP(new(http.ServeMux)))

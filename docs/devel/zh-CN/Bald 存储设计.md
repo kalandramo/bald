@@ -1,3 +1,4 @@
+> **2026-11 精简注记**：`contrib/store-mongo` 与 `contrib/database/mongodb` 已整体下线（现役 SQL/GORM 一条后端链），契约 `database.mongodb` 段 reserved 退役。文中的操作符支持对照表与「为什么 store-mongo 补了三个」等 mongo 段落保留为设计记录。
 # Bald 存储设计：契约层零引擎依赖，隔离与分页下沉 DAL
 
 > Author(s): bald 团队

@@ -1,3 +1,4 @@
+> **2026-11 精简注记**：`oss/minio` 已整体下线——`oss/s3`（aws-sdk-go-v2）经自定义 endpoint 覆盖 MinIO/COS/Ceph 等 S3 兼容实现，成为唯一对象存储后端；契约 `storage.minio` 段 reserved 退役。本文中 minio 侧的设计对照（双后端不抽公共接口的取舍等）保留为设计记录。
 # Bald 对象存储设计：门面 + SDK 双出口，契约映射单独成包
 
 > Author(s): bald 团队

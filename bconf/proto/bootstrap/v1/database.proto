@@ -18,19 +18,6 @@ message Database {
     int32 connection_max_lifetime_seconds = 8; // 连接最大生命周期（秒）
   }
 
-  // MongoDB 配置。
-  message MongoDB {
-    string uri = 1;                 // 连接 URI
-    string database = 2;            // 数据库名
-    string username = 3;            // 用户名
-    string password = 4;            // 密码
-    int32 timeout_seconds = 5;               // 操作超时（秒）
-    int32 connect_timeout_seconds = 6;       // 连接超时（秒）
-    int32 server_selection_timeout_seconds = 7; // 服务器选择超时（秒）
-    int32 heartbeat_interval_seconds = 8;    // 心跳间隔（秒）
-    int32 max_conn_idle_time_seconds = 9;    // 最大空闲时间（秒）
-  }
-
   // ClickHouse 配置。
   message ClickHouse {
     string dsn = 1;                 // DSN 连接串
@@ -118,7 +105,12 @@ message Database {
   }
 
   optional SQL sql = 1;
-  optional MongoDB mongodb = 2;
+
+  // mongodb 段已随 contrib/database/mongodb + contrib/store-mongo 模块整体
+  // 下线（2026-11 精简：SQL/GORM 为保留后端）。字段号 2 与段名保留，禁止
+  // 复用——历史配置里的 mongodb 段不得被新字段静默解释。
+  reserved 2;
+  reserved "mongodb";
   optional ClickHouse clickhouse = 3;
   optional Doris doris = 4;
   optional Elasticsearch elasticsearch = 5;

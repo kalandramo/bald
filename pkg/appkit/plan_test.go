@@ -401,10 +401,10 @@ func TestPlan_RegistrarTakeoverVisible(t *testing.T) {
 func TestPlan_MultipleRegistryProvidersFailFast(t *testing.T) {
 	cfgPath := writePlanConfig(t, "plan-registry-multi",
 		"registry:\n  type: \"etcd\"\n  etcd:\n    endpoints: [\"127.0.0.1:2379\"]\n"+
-			"  consul:\n    address: \"127.0.0.1:8500\"\n")
+			"  nacos:\n    server_addrs: [\"127.0.0.1:8848\"]\n")
 	_, err := Compile(context.Background(), ConfigFile(cfgPath),
 		planCountingProvider{segs: []string{"registry.etcd"}, calls: new(int32)},
-		planCountingProvider{segs: []string{"registry.consul"}, calls: new(int32)},
+		planCountingProvider{segs: []string{"registry.nacos"}, calls: new(int32)},
 	)
 	if err == nil || !strings.Contains(err.Error(), "registry is single-select") {
 		t.Fatalf("err = %v, want single-select error", err)
@@ -453,9 +453,9 @@ func TestPlan_GlobalMeterProviderGatedBySegment(t *testing.T) {
 // instrumentation.prometheus/datadog 用自己的 Registry/statsd，不碰全局位，与
 // metrics 段同时出现时必须放行（把这两行也塞进表里会判红，即误伤合法组合）。
 func TestPlan_GlobalMeterProviderIgnoresNonOTelBackends(t *testing.T) {
+	// datadog 段已随 metrics/datadog 退役（2026-11），只保留 prometheus 一条。
 	yamlOf := map[string]string{
 		"prometheus": "instrumentation:\n  prometheus:\n    namespace: \"svc\"\n",
-		"datadog":    "instrumentation:\n  datadog:\n    address: \"127.0.0.1:8125\"\n",
 	}
 	for sub, instrYAML := range yamlOf {
 		cfgPath := writePlanConfig(t, "plan-global-meter-"+sub,

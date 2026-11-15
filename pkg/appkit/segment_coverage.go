@@ -111,14 +111,11 @@ var providerHints = map[string]string{
 	// contract 包」规则派生的段（database/cache/oss/metrics 的实现不在同名
 	// 一级目录）。规则路径走 providerHint 的前缀派生，不入表。
 	"database.sql":       "contrib/database/gorm/contract",
-	"database.mongodb":   "contrib/database/mongodb/contract",
 	"cache.local":        "cache/local/contract",
 	"cache.redis":        "cache/redis/contract",
 	"oss.s3":             "oss/s3/contract",
-	"oss.minio":          "oss/minio/contract",
 	"metrics.prometheus": "metrics/prometheus/contract",
 	"metrics.otel":       "metrics/otel/contract",
-	"metrics.datadog":    "metrics/datadog/contract",
 }
 
 // providerHint 返回段路径的佐证性提示（最长前缀命中；无匹配返回空串）。

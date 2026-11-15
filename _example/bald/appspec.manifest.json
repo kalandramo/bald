@@ -1,7 +1,7 @@
 {
   "version": 1,
   "tool": "bald gen app",
-  "spec": "80faa5e5a47021c519943333301d483efbb1b62ab56341b014c636678fb7c575",
+  "spec": "03de16c1b111ad1c350ce458bee57c25d197278f6b8e9cf949985e7ab7c3551a",
   "files": [
     {
       "path": ".dockerignore",
@@ -61,12 +61,12 @@
     {
       "path": "configs/bald-demo-api.yaml",
       "ownership": "owned",
-      "hash": "a84b8583f1ee62a632919771b221f1b14bd16df7c66efa8da9b102de8eb29bee"
+      "hash": "ac53515d606dd08470a9a94ce5fb254702460233e97959ae0b976c9784693ec3"
     },
     {
       "path": "configs/bald-demo-worker.yaml",
       "ownership": "owned",
-      "hash": "8bec3b0386bee635b78412ffc2031624ccc0c70849fd789b775c85afef15ecd2"
+      "hash": "34041d4cc51725529e4c1a880c6a7f285fd49b0407bdfef5d8cb8d54a7e70c32"
     },
     {
       "path": "internal/apiserver/apiserver.go",
@@ -81,7 +81,7 @@
     {
       "path": "internal/bootstrap/assemble.gen.go",
       "ownership": "owned",
-      "hash": "fceffe93bcd678e8b5b36c98f88def550008854eb0e7daafcfbaf39f7dc90f21"
+      "hash": "b0f667373e9e51b7e965bd7c0a1fa8dd245cabbe64b2f79e154b80c0d9b0d273"
     },
     {
       "path": "internal/bootstrap/custom.go",

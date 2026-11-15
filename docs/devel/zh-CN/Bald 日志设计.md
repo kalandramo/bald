@@ -1,3 +1,4 @@
+> **2026-11 精简注记**：`log/sentry` 与 `log/charm` 已整体下线（现役远端后端 loki/aliyun/tencent + otelslog；charm 的终端彩色场景经 `bslog.WithHandler` 注入任意 slog.Handler 覆盖，无需仓内适配器）。文中「五个后端」清单与 sentry/charm 行描述精简前状态。
 # Bald 日志设计：一个瘦契约、nop 默认、装配期注入后端的日志体系
 
 > Author(s): bald 团队

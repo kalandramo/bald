@@ -1,3 +1,4 @@
+> **2026-11 精简注记**：`transport/{tcp,http3,graphql,webrtc}` 四个后端已整体下线（`transport/subscribe` 是三个 MQ 面的共享助手，保留）。本文的后端表与 Endpoint 映射段落中涉及这四行的内容描述精简前状态。
 # Bald 传输层设计：统一 Server 契约，18 个后端各自独立 module
 
 > Author(s): bald 团队

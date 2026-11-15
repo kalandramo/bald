@@ -10,8 +10,8 @@
 #   注释），MessageState 含 Mutex 属 vet 误报区。
 # - go test -short + -timeout 5m：-short 跳过集成测试（各模块
 #   testing.Short() 惯例）；超时防挂死测试拖垮整个 job。
-#   「-short 之外」不是没人管：integration 作业按套件点名注入 etcd/consul/redis/mongo
-#   跑非 -short 用例，integration-kubernetes 作业另起真 kind 集群跑 registry 的第三条
+#   「-short 之外」不是没人管：integration 作业按套件点名注入 etcd/consul/redis/nacos
+#   跑非 -short 用例（2026-11 精简：mongo/registry-kubernetes 腿随模块下线而移除）
 #   后端腿，example 作业注入 etcd/nacos 跑示例 module 那批要真后端的判据，三处都以
 #   「判据必须出现 PASS」兜住不可达即 Skip 的静默失效（见各 job 注释）。
 # - 基准冒烟：每模块追加 go test -bench . -benchtime=1x -run '^$'——编译
@@ -223,19 +223,17 @@ jobs:
           fi
 
   # 集成作业（风险 §7.1）：注入真服务，跑「非 -short」的那批用例——registry / store /
-  # 队列三条接缝各至少一条（registry 现为 etcd + consul + kubernetes 三个后端；前两个
-  # 由本作业的 `services:` 注入，第三个要真 apiserver，独立成 `integration-kubernetes`，
-  # 理由见那个作业的注释）。
+  # 队列三条接缝各至少一条（registry 为 etcd + consul；2026-11 精简：kubernetes 后端
+  # 与 integration-kubernetes 作业随 registry/kubernetes 模块下线而移除）。
   #
-  # 为什么不是把 test 作业改成非 -short：`transport/{redis,kafka,rabbitmq,tcp,webrtc}`
+  # 为什么不是把 test 作业改成非 -short：`transport/{redis,kafka,rabbitmq}`
   # 的 `TestServer`/`TestClient` 是等信号的手动用例（非 -short 会挂到 timeout），主循环必须
   # 留在 -short。这里按套件点名跑，清单外的包一概不碰。
   #
   # 本作业也不含 `_example/bald`，但**不是没人管**：那里的 etcd/nacos 服务发现端到端与三态构建
-  # 由专职的 `example` 作业判（风险 §7.1 已因此收口）。拆成两条的理由与上面
-  # `integration-kubernetes` 同一条：示例要先装 buf 并生成 gitignore 的 `api/gen` 才编译得了，
-  # 那条失败面（BSR 拉不到 / 插件版本漂）与本作业四条服务腿无关，混在一起等于让平台抖动
-  # 定期作废本作业的取证。
+  # 由专职的 `example` 作业判（风险 §7.1 已因此收口）。拆成两条的理由：示例要先装 buf 并生成
+  # gitignore 的 `api/gen` 才编译得了，那条失败面（BSR 拉不到 / 插件版本漂）与本作业服务腿
+  # 无关，混在一起等于让平台抖动定期作废本作业的取证。
   #
   # 这个「刻意不含」曾经是真的：原先第一条阻塞（go.mod 把两个 kratos contrib 模块 replace 到
   # **仓库外**的同级检出，干净检出连模块图都装载不出来）在 2026-11-04 撤除——示例现在只用仓内
@@ -259,11 +257,9 @@ jobs:
     timeout-minutes: 30
     env:
       GOPROXY: "https://goproxy.io|https://proxy.golang.org,direct"
-      # 四个后端的地址都显式给：测试里的默认值恰好也是这些，但作业不靠默认值成立
+      # 各后端的地址都显式给：测试里的默认值恰好也是这些，但作业不靠默认值成立
       BALD_E2E_ETCD_ADDR: "127.0.0.1:2379"
-      BALD_E2E_CONSUL_ADDR: "127.0.0.1:8500"
       BALD_TEST_REDIS_URI: "redis://127.0.0.1:6379"
-      BALD_MONGO_URI: "mongodb://127.0.0.1:27017"
       BALD_E2E_NACOS_ADDR: "127.0.0.1:8848"
     services:
       etcd:
@@ -276,19 +272,9 @@ jobs:
         env:
           ETCD_LISTEN_CLIENT_URLS: http://0.0.0.0:2379
           ETCD_ADVERTISE_CLIENT_URLS: http://127.0.0.1:2379
-      consul:
-        # 镜像默认 CMD 已经是 `agent -dev -client 0.0.0.0`（本地
-        # `docker image inspect hashicorp/consul:1.19.2` 实测 CMD/ENTRYPOINT），
-        # 所以这里不需要 args/options——dev agent 自带单节点集群，8500 直接可查。
-        # 版本 pin 到 1.19.2 与本地取证用的那一个一致。
-        image: hashicorp/consul:1.19.2
-        ports: ["8500:8500"]
       redis:
         image: redis:7-alpine
         ports: ["6379:6379"]
-      mongo:
-        image: mongo:7
-        ports: ["27017:27017"]
       nacos:
         # 注册中心的第四个后端。版本与本地取证那台一致（v2.3.2）。
         #
@@ -311,8 +297,6 @@ jobs:
         with:
           go-version: "1.27.4"
 
-      # kubernetes 后端不是「服务容器」能表达的形状（要真 apiserver + kubelet），那条腿
-      # 独立成下面的 `integration-kubernetes` 作业；不在这里起集群的理由见那个作业的头注释。
       - name: 服务探活（探不到即失败，不放行成 Skip）
         run: |
           set -e
@@ -330,9 +314,7 @@ jobs:
             return 1
           }
           wait_tcp 127.0.0.1 2379 etcd
-          wait_tcp 127.0.0.1 8500 consul
           wait_tcp 127.0.0.1 6379 redis
-          wait_tcp 127.0.0.1 27017 mongo
           # nacos 是 Java 起的，比另外四个慢一个量级；探不到照样判红（这批用例的写法
           # 是「不可达即 Skip」，不探活就等于白加一个服务）。
           wait_tcp 127.0.0.1 8848 nacos 90
@@ -342,15 +324,11 @@ jobs:
           set -e
           mkdir -p /tmp/int
           mkdir -p /tmp/int-cov
-          # 两个 registry/*/contract（etcd、consul）都不是独立 module（无自己的
-          # go.mod），各自父模块的 ./... 已把它们带上；kubernetes 那个 contract 同理由
-          # `integration-kubernetes` 作业的 ./... 带上
+          # registry 的两个 contract（etcd）不是独立 module（无自己的 go.mod），
+          # 父模块的 ./... 已把它们带上；nacos 是独立 module。
           (cd registry/etcd       && go mod download && go test -count=1 -timeout 10m -covermode=atomic -coverprofile=/tmp/int-cov/registry-etcd.out -v ./... > /tmp/int/registry-etcd.log 2>&1) || { cat /tmp/int/registry-etcd.log; exit 1; }
-          (cd registry/consul     && go mod download && go test -count=1 -timeout 10m -covermode=atomic -coverprofile=/tmp/int-cov/registry-consul.out -v ./... > /tmp/int/registry-consul.log 2>&1) || { cat /tmp/int/registry-consul.log; exit 1; }
-          (cd contrib/store-mongo && go mod download && go test -count=1 -timeout 10m -covermode=atomic -coverprofile=/tmp/int-cov/store-mongo.out -v ./... > /tmp/int/store-mongo.log 2>&1) || { cat /tmp/int/store-mongo.log; exit 1; }
           (cd transport/asynq     && go mod download && go test -count=1 -timeout 10m -covermode=atomic -coverprofile=/tmp/int-cov/asynq.out -v ./... > /tmp/int/asynq.log 2>&1) || { cat /tmp/int/asynq.log; exit 1; }
           (cd registry/nacos      && go mod download && go test -count=1 -timeout 10m -covermode=atomic -coverprofile=/tmp/int-cov/registry-nacos.out -v ./... > /tmp/int/registry-nacos.log 2>&1) || { cat /tmp/int/registry-nacos.log; exit 1; }
-          (cd contrib/database/mongodb && go mod download && go test -count=1 -timeout 10m -covermode=atomic -coverprofile=/tmp/int-cov/contrib-database-mongodb.out -v ./... > /tmp/int/contrib-database-mongodb.log 2>&1) || { cat /tmp/int/contrib-database-mongodb.log; exit 1; }
           cat /tmp/int/*.log
 
       - name: 判据必须真的跑过（Skip 不算通过）
@@ -368,12 +346,6 @@ jobs:
           /tmp/int/registry-etcd.log|TestNamespacePrefix
           /tmp/int/registry-etcd.log|TestWatch_ReceivesChanges
           /tmp/int/registry-etcd.log|TestProvider_BuildsUsableRegistrar
-          /tmp/int/registry-consul.log|TestRegisterDiscoverDeregister
-          /tmp/int/registry-consul.log|TestWatch_ReceivesChanges
-          /tmp/int/registry-consul.log|TestHeartbeat_DeregisterKeepsOtherInstances
-          /tmp/int/registry-consul.log|TestGetService_HealthCheckFiltersNonPassing
-          /tmp/int/registry-consul.log|TestProvider_BuildsUsableRegistrar
-          /tmp/int/store-mongo.log|TestMongoCRUD
           /tmp/int/asynq.log|TestTaskSubscribe
           /tmp/int/registry-nacos.log|TestNacosDeregisterRemovesInstanceWithClientOpen
           /tmp/int/registry-nacos.log|TestNacosContractCleanupClosesClient
@@ -383,15 +355,7 @@ jobs:
           /tmp/int/registry-nacos.log|TestMappingBackend_ZeroWeightFallsBackToDefault
           /tmp/int/registry-nacos.log|TestMappingBackend_NamespaceIsolatesInstance
           /tmp/int/registry-nacos.log|TestMappingBackend_DefaultKindLandsInEndpointScheme
-          /tmp/int/contrib-database-mongodb.log|TestMappingBackend_DatabaseSelectsNamespace
-          /tmp/int/contrib-database-mongodb.log|TestMappingBackend_CredentialsReachAuthHandshake
-          /tmp/int/contrib-database-mongodb.log|TestMappingBackend_UsernameWithoutPasswordIsNoAuth
-          /tmp/int/contrib-database-mongodb.log|TestMappingBackend_HeartbeatIntervalDrivesMonitorTraffic
-          /tmp/int/contrib-database-mongodb.log|TestMappingBackend_MaxConnIdleTimeReapsIdleConnections
           "
-          # consul 那五条里，后两条是 consul 后端独有的语义，只有真 agent 能判：
-          # 心跳按实例隔离（注销一个不该带走其余实例）与「发现只返回 passing 实例」。
-          #
           # etcd 那七条：这个套件按 `go test ./...`（非 -short）整包跑，所以四条
           # 「-short 下跳过」的用例（Missing*IsRejected / GetService_NotFound /
           # NamespacePrefix）以前只是顺带跑过了，没有判据盯着。docscheck 的
@@ -433,166 +397,7 @@ jobs:
           path: /tmp/int-cov/
           if-no-files-found: warn
 
-  # kubernetes 注册中心真机腿（风险 §7.1）。四个 registry 后端里，etcd/consul 由
-  # `integration` 作业的真服务判，kubernetes 要真 apiserver + kubelet 所以独立成这条；
-  # nacos 的服务容器已经进 `integration`（判注销与 cleanup 两条机制）。
-  #
-  # 为什么不并进 `integration`：本作业要下载并启动真 kube-apiserver + kubelet（kind），
-  # 失败面是「Docker Hub 拉不到 kindest/node」「runner 上集群起不来」这类平台问题，
-  # 与四条服务腿无关。两种失败面放进同一个作业，第一次平台抖动就让整个作业的结论
-  # 作废，etcd/consul/redis/mongo 那四条腿得重跑一遍才能取证——而这种「不是我们的
-  # 代码坏了」的红最难维护：下一个接手人加的是 `continue-on-error`，不是修集群。
-  # 拆开后两边的判据都还是硬门，谁红查谁。
-  #
-  # 为什么非真集群不可（fake clientset 判不出这三条）：
-  #   1. `Deregister` 靠 strategic merge patch 的「值为 null 即删键」摘标签，
-  #      fake 的 fixture tracker 不实现这套合并语义——键删不掉，但测试照样绿。
-  #   2. 发现侧只列 `Phase == Running` 的 Pod；phase 是 kubelet 写回的状态，
-  #      fake 里由测试自己 set，判不出「真跑起来的才可发现」。
-  #   3. `Watch` 依赖真 watch 的事件序列（informer 缓存不与已存在的对象重放）。
-  # 这三条正是这个后端的产品语义，所以证据只能来自真 apiserver。
-  integration-kubernetes:
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    env:
-      GOPROXY: "https://goproxy.io|https://proxy.golang.org,direct"
-      # 版本与本机取证一致（kind v0.27.0 + kindest/node:v1.31.0）。该组合下
-      # registry/kubernetes 三条真机判据全绿，且五条变异各自把对应判据打红。
-      KIND_VERSION: "v0.27.0"
-      K8S_NODE_IMAGE: "kindest/node:v1.31.0"
-      K8S_CLUSTER: "bald-e2e"
-    steps:
-      - uses: actions/checkout@v4
 
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.27.4"
-
-      - name: 起 kind 集群（kubernetes 后端要真 apiserver + kubelet）
-        run: |
-          set -e
-          bindir="${RUNNER_TEMP}/bin"
-          mkdir -p "$bindir"
-          curl -fsSL -o "${bindir}/kind" \
-            "https://github.com/kubernetes-sigs/kind/releases/download/${KIND_VERSION}/kind-linux-amd64"
-          chmod +x "${bindir}/kind"
-          echo "$bindir" >> "$GITHUB_PATH"
-          # --wait 180s 等控制面就绪；失败时打出控制面容器日志再退出——集群没起来
-          # 时这是唯一线索，否则只能看到「kind create failed」一句话。
-          if ! "${bindir}/kind" create cluster --name "${K8S_CLUSTER}" \
-              --image "${K8S_NODE_IMAGE}" --wait 180s; then
-            echo "--- 控制面容器日志（集群没起来时唯一的线索）---"
-            docker logs "${K8S_CLUSTER}-control-plane" 2>&1 | tail -40
-            exit 1
-          fi
-          "${bindir}/kind" get kubeconfig --name "${K8S_CLUSTER}" > "${RUNNER_TEMP}/kubeconfig"
-          echo "KUBECONFIG=${RUNNER_TEMP}/kubeconfig" >> "$GITHUB_ENV"
-
-      - name: API 探活（探不到即失败，不放行成 Skip）
-        run: |
-          set -e
-          # kubernetes 没有明文 TCP 端口可探：apiserver 是 HTTPS 且自签证书。
-          # /version 允许匿名读（本机 kind 实测），拿它当就绪探针正好——kind --wait
-          # 已等过 Ready，这一条防的是「集群起来了但 API 打不通」那类半死状态。
-          # 这一条不能省：测试的形状是「连不上即 Skip」，没有它整个作业会在
-          # 零证据的情况下变绿。
-          k8s_api=$(kind get kubeconfig --name "${K8S_CLUSTER}" | sed -n 's/.*server: //p' | head -1)
-          tries=60
-          while [ "$tries" -gt 0 ]; do
-            if curl -fsSk --max-time 3 "${k8s_api}/version" >/dev/null; then
-              echo "READY kubernetes (${k8s_api})"
-              break
-            fi
-            tries=$((tries - 1))
-            sleep 2
-          done
-          if [ "$tries" = 0 ]; then
-            echo "::error::kubernetes 未就绪（${k8s_api}）"
-            exit 1
-          fi
-
-      - name: 集成套件（非 -short，逐条判据留档）
-        run: |
-          set -e
-          mkdir -p /tmp/int
-          mkdir -p /tmp/int-cov
-          # registry/kubernetes/contract 不是独立 module（无自己的 go.mod），
-          # 父模块的 ./... 已把它带上
-          (cd registry/kubernetes && go mod download && go test -count=1 -timeout 10m -covermode=atomic -coverprofile=/tmp/int-cov/registry-kubernetes.out -v ./... > /tmp/int/registry-kubernetes.log 2>&1) || { cat /tmp/int/registry-kubernetes.log; exit 1; }
-          cat /tmp/int/registry-kubernetes.log
-
-      - name: 判据必须真的跑过（Skip 不算通过）
-        run: |
-          set -e
-          # 每条格式 <日志>|<测试名>；名字来自上一步的 -v 输出。同 §7.1 的
-          # integration 作业：**这个字符串里只能放判据行**，注释写在外面。
-          EXPECTED="
-          /tmp/int/registry-kubernetes.log|TestRegister_WritesPodIdentityAndDiscovery
-          /tmp/int/registry-kubernetes.log|TestDeregister_RemovesPodFromDiscovery
-          /tmp/int/registry-kubernetes.log|TestGetService_ExcludesNonRunningPod
-          "
-          # 三条各钉一件只有真 apiserver 能判的事：
-          #   Register → 标签/注解/端点往返 + Watch 收到（注册方向）
-          #   Deregister → 标签与注解真的被删掉、发现侧随后列不到（注销方向；
-          #     这条是 §7.1 那个「自校验闸门类起就没生效过」缺陷的回归）
-          #   非 Running Pod 被 phase 过滤（不依赖测试自己伪造的 phase 也要成立）
-          miss=0
-          for row in $EXPECTED; do
-            [ "$row" = "" ] && continue
-            case "$row" in
-              *"|"*) ;;
-              *)
-                echo "::error::EXPECTED 里有非 <日志>|<测试名> 的项：「$row」——注释别写进这个字符串"
-                miss=$((miss + 1))
-                continue
-                ;;
-            esac
-            log=${row%%|*}
-            name=${row##*|}
-            if grep -q -- "--- PASS: $name" "$log"; then
-              echo "PASS  $name  ($log)"
-            else
-              echo "::error::判据 $name 没有 PASS 记录（Skip / 改名 / 未编译都会落到这里）"
-              miss=$((miss + 1))
-            fi
-          done
-          if [ "$miss" != 0 ]; then
-            echo "--- 留档输出（便于看是 Skip 还是没跑）---"
-            grep -E '^(--- (SKIP|FAIL|PASS)|ok|FAIL)' /tmp/int/*.log | tail -60
-            exit 1
-          fi
-
-      - name: 上传 kubernetes 集成腿覆盖率 profile
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: cov-integration-kubernetes
-          path: /tmp/int-cov/
-          if-no-files-found: warn
-
-  # 示例应用的端到端腿（风险登记册 §7.1 里最后一条「只在本地跑」的判据）。
-  # `integration` 作业的头注释原先写的是「要做就是独立一个 `example` 作业」，理由当时有两条，
-  # 现在都还成立：
-  #   1. 失败面不同。这一条要先装 buf、再 `buf generate` 出 gitignore 的 `_example/bald/api/gen`
-  #      才编译得了——红的时候是「BSR 拉不到 / 插件版本漂」，与核心模块的代码红是两件事。
-  #      混进 `integration` 就等于让平台抖动定期作废 etcd/consul/redis/mongo 那四条腿的取证。
-  #   2. 覆盖面上它是空白。`_example` 以下划线开头且是独立 module，Go 工具链不发现它，
-  #      `scripts/list-modules.sh`（test/race/lint/vuln 四条主循环的唯一清单出处）也按设计排除它，
-  #      所以这个 module 此前**一条远端证据都没有**——`task example-e2e` 只在作者本机跑。
-  #
-  # buf 从哪来：与 `proto-contract` 作业同一把、同一个脚本（版本读 `bconf/buf.version`、
-  # 摘要读 `bconf/buf.sha256`）。装两次内联逻辑时「一处改了摘要另一处没改」不会报错，
-  # 只会让某条作业在错误的二进制上跑绿。
-  #
-  # 为什么 `buf generate` 前面不加 `buf dep update`（Taskfile 的 proto-example 有）：`dep update`
-  # 是给本地「刚改 buf.yaml 想立刻重解析」用的，它会重写受版本管理的 `buf.lock`。CI 要的是
-  # 「按已锁定的依赖生成」，而 buf.lock 已入库，所以只跑 generate；紧接着判一条
-  # `git diff --quiet -- _example/bald/api`——生成这步若动到任何受管理文件（第一个可能就是
-  # buf.lock），说明 pin 在没人决定的情况下漂了，先响在这里而不是响在后面某条用例的错误里。
-  #
-  # 三态构建与各自的判据（本机实测 2026-11-04，名字取自各步 `-v` 原文）：
-  #   默认态    13 条（两个角色的 e2e + etcd/nacos 服务发现 + 契约限流/超时 + env 覆盖）
-  #   grpcgw    10 条（转码面那一套：register_grpcgw.go 只在带这个 tag 时参与编译）
   #   nacos      1 条（装配真机判据，见下面那条单独的注释）
   # `internal/apiserver` 的 `TestBizLayerImportsAreBusinessOnly` **不进 EXPECTED**：它的 Skip
   # 条件是「`internal/apiserver/biz` 目录不存在」（gen domain 才会种它），与服务和工具链无关，
@@ -983,9 +788,9 @@ jobs:
           fi
 
   # 覆盖率并集（advisory——100% 计划的闸门地基，本阶段不阻断）。
-  # 把 test(-short) / integration / integration-kubernetes 三处各腿的 coverprofile
-  # 合并成「全腿并集」，逐包出表 + 聚合（口径同 scripts/coverage.sh：手写代码，排除
-  # 生成物/main/mocks；同一 block 跨腿取命中最大值，不是求和）。
+  # 把 test(-short) / integration 两处各腿的 coverprofile 合并成「全腿并集」，逐包出表
+  # + 聚合（口径同 scripts/coverage.sh：手写代码，排除生成物/main/mocks；同一 block
+  # 跨腿取命中最大值，不是求和）。
   # 为什么本地测不出这个数：多数集成强相关包要真后端才跑用例，且 transport/* 那批
   # 非 -short 是等信号手动例会（本地去掉 -short 会挂）——所以「100%」的真相只能在
   # CI 的多腿并集里读。
@@ -993,7 +798,7 @@ jobs:
   # coverage.sh 的调用加上 `--gate 100` 翻成硬门（届时 remove continue-on-error）。
   # checkout 之外的步全设 continue-on-error——下载/artifact 缺失属平台面，不该把 main 弄红。
   coverage:
-    needs: [test, integration, integration-kubernetes]
+    needs: [test, integration]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

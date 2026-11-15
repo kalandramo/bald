@@ -1,3 +1,4 @@
+> **2026-11 精简注记**：`metrics/datadog` 已整体下线（国内主流面 prometheus + otel 保留），契约 `instrumentation.datadog` 段 reserved 退役。文中「三个后端」与 datadog 相关行为段落描述精简前状态。
 # Bald 指标设计：请求级 Recorder 与传输级三原语
 
 > Title: 指标域统一设计——pkg/metrics Recorder（semconv v1.43.0）+ metrics/ 三原语

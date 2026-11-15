@@ -1,3 +1,4 @@
+> **2026-11 精简注记**：`broker/redis` 已整体下线（现役 kafka/rabbitmq）；kafka/rabbitmq 现各自有段驱动 `contract.AppProvider()`（原「kafka/rabbitmq 需用户包装」的限制已解除），契约 `broker.redis` 段 reserved 退役。示例 mqdemo 已迁 kafka。
 # Bald 消息代理设计：Body 装任意类型、Binder 负责落地，三个后端各自独立 module
 
 > Author(s): bald 团队

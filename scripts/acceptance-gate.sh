@@ -67,13 +67,6 @@ esac
 # SDK 构造期**同步发出**的那个登录请求（server_addrs/username/password 三行的直读口），
 # 所以也不需要服务容器；同一个包另外六条 `TestMappingBackend_*` 要真后端，不进本表，
 # 由 ci.yml 的 integration 作业点名（docscheck 认那条路径）。
-# contrib/database/mongodb 那条（§7.23）的离线桩同样是进程内的——`net.Listen` 出来的
-# 「接受 TCP 但永不回 MongoDB 握手」的假线。八行里 uri / server_selection_timeout /
-# connect_timeout 三行，加上 database 的「缺席语义」，共四条腿能离线读；database 取值、
-# credentials 两态、heartbeat、max_conn_idle 共五条腿要真后端，走 ci.yml 里 mongo:7
-# 服务点名，不进本表；timeout_seconds 一行**只有** `contract_test.go` 的长度判据——上游把
-# 每个操作的截止期写死成 10s，恰好掩掉契约值，运行期两侧都判不到（理由写在该包
-# mapping_backend_test.go 文件头）。
 # log/aliyun 那两条（§7.25）的离线桩也是进程内的：SDK 的 producer 把每条日志 POST 到
 # `<scheme>://<project>.<endpoint host>/logstores/<logstore>`，而它的 Transport 是
 # http.DefaultTransport 的 Clone()，换掉进程默认值就能把任意 project 域名拨到本机监听——
@@ -205,28 +198,20 @@ rows() {
     $'ci\tcli\t./internal/release\tTestSyncAndChangelog_\t' \
     $'ci\tregistry/etcd\t.\tTestRetreatDelay_|TestRetreatPolicy_|TestHeartBeatRetreat\t' \
     $'ci\tregistry/etcd\t./contract\tTestRetreat_|TestProvider_BackoffSection|TestProvider_ContractSections|TestProvider_MaxRetrySection|TestProvider_AuthSection\t' \
-    $'ci\tregistry/consul\t./contract\tTestProvider_RegisterBody|TestProvider_CheckFlags|TestProvider_AbsentBools|TestProvider_AbsentIntervals|TestProvider_SchemeSection|TestProvider_DatacenterSection\t' \
     $'ci\ttransport/asynq\t./contract\tTestMapping_\t' \
     $'ci\tcontrib/database/gorm\t./contract\tTestMapping_|TestAllowedDriversTableShape\t' \
     $'ci\tregistry/nacos\t./contract\tTestMappingOffline_\t' \
-    $'ci\tcontrib/database/mongodb\t./contract\tTestMappingOffline_\t' \
     $'ci\tlog/aliyun\t./contract\tTestMappingOffline_\t' \
     $'ci\tlog/aliyun\t.\tTestNewAliyunLogger_RejectsIncompleteOptions|TestDefaultOptionsHasNoPlaceholderTarget\t' \
     $'ci\tlog/tencent\t./contract\tTestMappingOffline_|TestSdkAssumption_\t' \
     $'ci\tlog/tencent\t.\tTestNewTencentLoggerRejectsIncompleteOptions|TestDefaultOptionsHasNoDefaults\t' \
     $'ci\tmetrics/prometheus\t./contract\tTestMappingOffline_|TestProvider_RejectsNilSection\t' \
     $'ci\tmetrics/otel\t./contract\tTestMappingOffline_\t' \
-    $'ci\tmetrics/datadog\t./contract\tTestMappingOffline_\t' \
-    $'ci\ttransport/tcp\t./contract\tTestMappingOffline_|TestAppProviderEndToEnd_\t' \
     $'ci\ttransport/client\t./contract\tTestMappingOffline_\t' \
     $'ci\ttransport/websocket\t./contract\tTestMappingOffline_\t' \
     $'ci\ttransport/sse\t./contract\tTestBuildOpts_BoolPresenceSemantics|TestProvider_AutoStreamRuntime|TestProvider_AutoReplayRuntime\t' \
-    $'ci\ttransport/http3\t./contract\tTestMappingOffline_\t' \
-    $'ci\ttransport/graphql\t./contract\tTestMappingOffline_|TestAppProviderEndToEnd_\t' \
-    $'ci\ttransport/webrtc\t./contract\tTestMappingOffline_|TestAppProviderEndToEnd_\t' \
     $'ci\ttransport/mcp\t./contract\tTestMappingOffline_|TestAppProviderEndToEnd_\t' \
     $'ci\ttransport/kafka\t./contract\tTestMappingOffline_|TestAppProviderEndToEnd_\t' \
-    $'ci\ttransport/redis\t./contract\tTestMappingOffline_|TestAppProviderEndToEnd_\t' \
     $'ci\ttransport/rabbitmq\t./contract\tTestMappingOffline_|TestAppProviderEndToEnd_\t' \
     $'ci\ttransport/rabbitmq\t.\tTestEndpointAfterStartStripsCredentials|TestSanitizeEndpoint\t' \
     $'ci\tbconf\t.\tTestUnmarshalNestedBackoffSection|TestUnmarshalAbsentBackoffStaysNil|TestUnmarshalDurationSpellings|TestCoerceDurationFormat\t' \

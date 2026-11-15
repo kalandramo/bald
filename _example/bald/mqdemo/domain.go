@@ -1,8 +1,8 @@
-// Package mqdemo 是 mq 业务域：演示 bootstrap.broker.redis 段的消费者面。
+// Package mqdemo 是 mq 业务域：演示 bootstrap.broker.kafka 段的消费者面。
 //
-// 装配链路：AppSpec.bootstrap.broker.redis 段 → broker/redis/contract 的
-// AppProvider（custom.go 接线）在阶段 B 构造并连接 Redis Broker，产物落
-// 资源容器（键 broker.redis.redis）；本域在 Wire 阶段取用并订阅演示主题。
+// 装配链路：AppSpec.bootstrap.broker.kafka 段 → broker/kafka/contract 的
+// AppProvider（custom.go 接线）在阶段 B 构造并连接 Kafka Broker，产物落
+// 资源容器（键 broker.kafka.kafka）；本域在 Wire 阶段取用并订阅演示主题。
 //
 // 本域不进 AppSpec.domains——域声明三选一（service|services|http_only）
 // 都要求 proto 契约，纯消费域无从派生；它由 custom.go 按角色手工接线
@@ -13,16 +13,16 @@ import (
 	"context"
 	"fmt"
 
-	brokerrediscontract "github.com/kalandramo/bald/broker/redis/contract"
+	brokerkafkacontract "github.com/kalandramo/bald/broker/kafka/contract"
 
 	"github.com/kalandramo/bald/broker"
 	"github.com/kalandramo/bald/log"
 	"github.com/kalandramo/bald/pkg/appkit"
 )
 
-// RedisBroker 是 broker.redis 段产物的资源键（ADR-16：标准键由
-// broker/redis/contract.RedisKey 导出，消费者不再手写魔法串）。
-var RedisBroker = brokerrediscontract.RedisKey
+// KafkaBroker 是 broker.kafka 段产物的资源键（ADR-16：标准键由
+// broker/kafka/contract.KafkaKey 导出，消费者不再手写魔法串）。
+var KafkaBroker = brokerkafkacontract.KafkaKey
 
 // Topic 是演示主题（pub/sub：发布即广播，worker 角色的订阅者收到后记日志）。
 const Topic = "bald.demo.events"
@@ -41,12 +41,12 @@ var Domain = appkit.Domain{
 	Reconcile: reconcileNode,
 }
 
-// declare 声明域拓扑：订阅节点挂在 broker.redis 段上——段缺席（未来裁剪）
+// declare 声明域拓扑：订阅节点挂在 broker.kafka 段上——段缺席（未来裁剪）
 // 计划期即无此节点，消费面随声明走，不靠运行期猜测。
 func declare(_ context.Context, _ appkit.PlanScope) ([]appkit.Node, error) {
 	return []appkit.Node{{
 		Key:      "domain.mqdemo.sub",
-		Segments: []string{"broker.redis"},
+		Segments: []string{"broker.kafka"},
 		Phase:    appkit.PhaseWire,
 		Priority: 10,
 	}}, nil
@@ -71,7 +71,7 @@ func reconcileNode(ctx context.Context, app *appkit.App, node appkit.Node) error
 // wire 取用阶段 B 产物并订阅。资源缺席时域保持惰性——订阅面是可选能力，
 // 段驱动 Provider 只在段存在时装配，这里同样不硬性要求。
 func wire(ctx context.Context, app *appkit.App) error {
-	b, ok := RedisBroker.Resource(app)
+	b, ok := KafkaBroker.Resource(app)
 	if !ok {
 		log.Info(ctx, "mqdemo: broker resource absent, subscription skipped")
 		return nil

@@ -33,7 +33,7 @@ bald 是一个 **SPI + 适配器 + 声明式装配** 的 Go 多模块框架：�
 | 横切层 | `pkg/middleware`（统一契约 + 三桥 + `{bundle,gin,grpc}`） | 统一 `Handler`/`Middleware` 契约经三桥（GinHandler/Unary/StreamServerInterceptor）服务双协议，内置件一份实现（含 Observability）；gin/grpc 子包委托统一件，`bundle.Gin()`/`GRPCInterceptors()` 为 deprecated 兼容门面（方案 S） | `pkg/middleware/handler.go:13-16`、`pkg/middleware/bundle/bundle.go` |
 | SPI | `transport` `broker` `cache` `metrics` `registry` `ratelimit` `circuitbreaker` `retry` `encoding` `log` `health` `berrors` | 只有接口与少量通用工具 | `transport/server.go:14-22`、`broker/broker.go:9-33`、`cache/cache.go:28-69`、`registry/registry.go:62-75` |
 | 适配器 | `transport/*`(19) `broker/*`(4) `cache/*`(3) `registry/*`(4) `log/*`(5) `metrics/*`(3) `encoding/*`(12) `ratelimit/*`(3) `circuitbreaker/*`(4) `oss/{minio,s3}` `workflow/argo` `cobramcp` | 每个后端一个 module | 各 `*/go.mod` |
-| 接入子包 | `*/contract`（44 个目录，`find . -type d -name contract` 可复跑） | 把适配器注册成 appkit v2 Provider —— **这是适配器与装配层唯一的接缝** | `transport/gateway/contract/provider.go:32`、`registry/etcd/contract/provider.go:16`、`oss/minio/contract/provider.go:17` |
+| 接入子包 | `*/contract`（`find . -type d -name contract` 可复跑；2026-11 精简后数量见实跑输出） | 把适配器注册成 appkit v2 Provider —— **这是适配器与装配层唯一的接缝** | `transport/gateway/contract/provider.go:32`、`registry/etcd/contract/provider.go:16` |
 | 扩展 | `contrib/*`（8 个独立 module） | store-gorm/mongo、audit-*、authn-jwt、authz-casbin、config-nacos、observability-otlp；`contrib/database` 只是目录（无 `.go` 也无 `go.mod`） | `contrib/*/go.mod` |
 | 代码生成 + 发布工具 | `github.com/kalandramo/bald/cli`（`cli/cmd/bald` + `cli/internal/{codegen,release}`） | `gen app/domain/proto/store` 从 `appspec.json` 产出 owned/seeded 文件树；`release plan/sync/changelog/tag` 驱动多模块发布。该 module 的 `go.mod` **零 `replace`**、按 tag 消费 `bconf`——这是它区别于仓库根的唯一目的（风险评审 §3.4） | `cli/go.mod`、`cli/internal/codegen/appspec_tmpl_*.go` |
 | 样例 | `_example/bald` | 已迁入生成树的真实消费方 | `_example/bald/internal/bootstrap/assemble.gen.go:1-7,42-47` |
@@ -57,7 +57,6 @@ bootstrap
 broker
 broker/kafka
 broker/rabbitmq
-broker/redis
 cache
 cache/loadable
 cache/local
@@ -65,8 +64,6 @@ cache/redis
 circuitbreaker
 circuitbreaker/hystrix
 circuitbreaker/sentinel
-circuitbreaker/sres
-circuitbreaker/vegas
 cli
 cobramcp
 cobramcp/examples/positional-args
@@ -78,46 +75,28 @@ contrib/authn-jwt
 contrib/authz-casbin
 contrib/config-nacos
 contrib/database/gorm
-contrib/database/mongodb
 contrib/observability-otlp
 contrib/store-gorm
-contrib/store-mongo
 encoding
-encoding/avro
-encoding/bson
-encoding/cbor
-encoding/flatbuffers
-encoding/gob
 encoding/json
-encoding/msgpack
 encoding/proto
-encoding/thrift
-encoding/toml
-encoding/xml
 encoding/yaml
 health
 log
 log/aliyun
-log/charm
 log/loki
 log/otelslog
-log/sentry
 log/tencent
 metrics
-metrics/datadog
 metrics/otel
 metrics/prometheus
-oss/minio
 oss/s3
 pkg
 ratelimit
-ratelimit/bbr
 ratelimit/sentinel
 ratelimit/tokenbucket
 registry
-registry/consul
 registry/etcd
-registry/kubernetes
 registry/nacos
 retry
 selector
@@ -129,19 +108,14 @@ transport/client
 transport/client/resiliency
 transport/cron
 transport/gateway
-transport/graphql
 transport/grpc
 transport/http
-transport/http3
 transport/kafka
 transport/mcp
 transport/rabbitmq
-transport/redis
 transport/sse
 transport/subscribe
-transport/tcp
 transport/web
-transport/webrtc
 transport/websocket
 workflow/argo
 ```
@@ -208,7 +182,7 @@ pkg module 侧（require 13 个兄弟 module）
 CLI 拆分（风险评审 §3.4 走 B）在这张表之上又动了一次，2026-11-03 实测：`go.mod` 总数 94 → **95**、派生 module 93 → **94**（新增 `cli`）；根 module 内的包 4 → **1**（只剩 `internal/docscheck`）；根自己 require 的同仓 module 1（`bconf`）→ **0**（`bconf`/cobra/protobuf/yaml 四条 require 随 CLI 迁进 `cli/go.mod`）；全仓 `replace` **仍是 423**——根那 19 条一条没动，`cli` 新增的是 0 条。唯一变的是消费姿势：`cli` 是本仓第一个**没有目录 `replace` 兜底**的同仓消费者，它按 tag 拉 `bconf`。`cli/v0.1.0` 已于同日随根 `v0.37.1`、`pkg/v0.2.1` 一起发出（`d4396185`），零 `replace` 夹具里 `go install github.com/kalandramo/bald/cli/cmd/bald@v0.1.0` 实测装得上且生成的骨架能起进程——§3.4 那条缺陷到此闭环。
 
 require `bald/pkg` 的模块（**33 个非示例模块** + `_example/bald`，可复跑判据：`for g in $(find . -name go.mod -not -path './.git/*' -not -path './_example*'); do grep -q 'kalandramo/bald/pkg ' "$g" && echo "$g"; done`）：
-`transport/*`(13)（除 `http`/`grpc`/`web`/`subscribe` 之外的全部适配器——`{sse,asynq,gateway,cron,tcp,websocket,http3,graphql,webrtc,mcp,kafka,rabbitmq,redis}`，后八个是各 `*/contract` 工厂包把 `appkit` 带进来的）、`registry/*`(4)、`contrib/*`(8)、`metrics/*`(3，§7.27 的 instrumentation 三族)、`oss/{s3,minio}`、`cache/redis`、`broker/redis`。
+`transport/*`(9)（除 `http`/`grpc`/`web`/`subscribe` 之外的全部适配器——`{sse,asynq,gateway,cron,websocket,mcp,kafka,rabbitmq,redis}`，2026-11 精简移除了 tcp/http3/graphql/webrtc；各 `*/contract` 工厂包把 `appkit` 带进来）、`registry/*`(2：etcd/nacos)、`contrib/*`(7)、`metrics/*`(2：prometheus/otel)、`oss/s3`、`cache/redis`。
 **只有** `transport`（根 SPI 模块）与 `transport/{http,grpc,web,subscribe}` 不依赖 `pkg`，即只依赖 `transport`/`encoding`/`broker`/`berrors`/`log` 这些叶子契约模块。上面那张表是 2026-11-03 那次 pkg 拆分的一次性快照，「现」列不含此后各批 `*/contract` 工厂的 require 增长——要当前数取本节判据，不要读那张表。
 
 扇入的代价换了对象，没有消掉：

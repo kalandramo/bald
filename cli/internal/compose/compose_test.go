@@ -25,14 +25,12 @@ func runCmd(t *testing.T, args ...string) (string, error) {
 	return out.String(), err
 }
 
-// TestCatalogCoversIntegrationDeps 目录必须覆盖 CI integration 作业的五个后端：
+// TestCatalogCoversIntegrationDeps 目录必须覆盖 CI integration 作业的后端：
 // 本地与 CI 用同一批镜像，才能保证「本地绿」与「CI 绿」说的是同一件事。
 func TestCatalogCoversIntegrationDeps(t *testing.T) {
 	want := map[string]string{
 		"etcd":   "quay.io/coreos/etcd:v3.5.14",
-		"consul": "hashicorp/consul:1.19.2",
 		"redis":  "redis:7-alpine",
-		"mongo":  "mongo:7",
 		"nacos":  "nacos/nacos-server:v2.3.2",
 	}
 	got := map[string]string{}
@@ -176,11 +174,11 @@ func TestStatusDryRun(t *testing.T) {
 	if !strings.Contains(out, "-p bald-infra ps") {
 		t.Errorf("status argv must be `ps` without names: %s", out)
 	}
-	out, err = runCmd(t, "status", "mongo", "--dry-run")
+	out, err = runCmd(t, "status", "nacos", "--dry-run")
 	if err != nil {
-		t.Fatalf("status mongo --dry-run: %v", err)
+		t.Fatalf("status nacos --dry-run: %v", err)
 	}
-	if !strings.Contains(out, "ps mongo") {
+	if !strings.Contains(out, "ps nacos") {
 		t.Errorf("status argv must pass the selected service: %s", out)
 	}
 }

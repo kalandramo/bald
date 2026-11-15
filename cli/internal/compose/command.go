@@ -114,7 +114,7 @@ func (o *commonOptions) filePath(services []service) (string, func(), error) {
 func NewCommand(streams Streams) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "compose [command]",
-		Short: "本地集成依赖的 compose 定义与生命周期（etcd / consul / redis / mongo / nacos）",
+		Short: "本地集成依赖的 compose 定义与生命周期（etcd / redis / nacos）",
 		Long: `把本地集成依赖收敛成一份 compose 定义，并代为调用 docker compose。
 
 可起的服务（与 CI integration 作业的 services 块逐项同源：镜像 tag、端口映射、
@@ -123,7 +123,6 @@ env 一致）：
   etcd     quay.io/coreos/etcd:v3.5.14      127.0.0.1:2379
   consul   hashicorp/consul:1.19.2          127.0.0.1:8500
   redis    redis:7-alpine                   127.0.0.1:6379
-  mongo    mongo:7                          127.0.0.1:27017
   nacos    nacos/nacos-server:v2.3.2        127.0.0.1:8848 (+9848 gRPC)
 
 端口只绑 127.0.0.1（不对外暴露），项目名固定为 ` + "`" + projectName + "`" + `（down 一次清干净，

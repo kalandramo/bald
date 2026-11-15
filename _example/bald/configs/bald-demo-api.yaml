@@ -3,8 +3,9 @@ app:
     stop_timeout: 15s
     version: v0.1.0
 broker:
-    redis:
-        address: 127.0.0.1:6379
+    kafka:
+        brokers:
+            - 127.0.0.1:9092
 database:
     sql:
         driver: sqlite

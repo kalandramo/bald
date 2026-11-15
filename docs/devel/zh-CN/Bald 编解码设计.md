@@ -1,3 +1,4 @@
+> **2026-11 精简注记**：`encoding/{xml,toml,msgpack,bson,cbor,gob,thrift,avro,flatbuffers}` 九个格式子包已整体下线，现役格式为 `encoding/{json,yaml,proto}`（mongo 随下线后 bson 无消费面）。本文中的格式清单、对照表与「12 个子包」计数描述的是精简前状态，机制设计（注册期 fail-fast / 取用期 fail-closed）仍然成立。
 # Bald 编解码设计：名字取用、代码装配，13 个 module 各自独立
 
 > Author(s): bald 团队

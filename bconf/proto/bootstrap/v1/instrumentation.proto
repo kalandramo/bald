@@ -52,27 +52,11 @@ message Instrumentation {
   }
 
   // Datadog DogStatsD 埋点后端（UDP）。
-  message Datadog {
-    // DogStatsD agent 地址（host:port）。必填：留空会静默 UDP 到库默认的
-    // 127.0.0.1:8125，agent 不在时没有任何同步错误可读到。
-    string address = 1;
-    // 指标名前缀（后端会自动补一个 "." 分隔符，所以不要自带尾点）。
-    // 留空 = 名字原样上线；v0.33.x 之前留空会产出 ".name:1|c" 这种前导点名字。
-    string namespace = 2;
-    // 单个 UDP 报文最多合包多少条指标。0 = 用库默认（实测会自然合到 2–3 行）。
-    // 是真上界：配 1  ⇒ 每报文恰好 1 行；配 2 ⇒ 出现 2 行但绝不出现 3 行。
-    int32 buffer_size = 3;
-    // 客户端聚合节拍（毫秒）：Gauge/Counter 在这个窗口内合并成一条。
-    // 0 = 用库默认 2s，故「比库默认更快」必须显式给值。非正数判红。
-    int32 flush_period_millis = 4;
-    // 采样率 (0, 1]。0 = 全量。
-    // **只对 Histogram 生效**：Counter/Gauge/GaugeAdd 走客户端聚合，聚合器在
-    // flush 时把 rate 硬编成 1（datadog-go v5.8.2 metrics.go 的
-    // countMetric/gaugeMetric flushUnsafe），因此这三条路径的报文不带 |@ 标记。
-    double sample_rate = 5;
-  }
-
   optional Prometheus prometheus = 1;
   optional Otlp otlp = 2;
-  optional Datadog datadog = 3;
+
+  // datadog 段已随 metrics/datadog 模块整体下线（2026-11 精简：保留
+  // prometheus/otel）。字段号 3 与段名保留，禁止复用。
+  reserved 3;
+  reserved "datadog";
 }

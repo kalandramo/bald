@@ -4,7 +4,7 @@
 
 `s3` 包基于 [aws-sdk-go-v2](https://github.com/aws/aws-sdk-go-v2) 封装，提供 S3 客户端创建与轻量上传/下载能力。
 
-除 AWS S3 外，也兼容所有实现 S3 API 的对象存储（MinIO、Ceph RGW、LocalStack、RustFS、Garage、SeaweedFS、Wasabi、Backblaze B2、Cloudflare R2、腾讯云 COS 等），通过配置自定义 `endpoint` 即可接入。
+除 AWS S3 外，也兼容所有实现 S3 API 的对象存储（MinIO、Ceph RGW、LocalStack、RustFS、Garage、SeaweedFS、Wasabi、Backblaze B2、Cloudflare R2、腾讯云 COS、阿里云 OSS 的 S3 兼容端点等），通过配置自定义 `endpoint` 即可接入。**2026-11 起本包是 bald 唯一的对象存储后端**：原 `oss/minio`（minio-go 封装）已下线，MinIO 场景经本包的自定义 endpoint 覆盖。
 
 ## 安装
 

@@ -39,10 +39,10 @@ const (
 // instrumentation.<后端> 段路径上，消费侧按类型化句柄取用后用各 transport
 // server 的 WithMetrics 注入。
 type Instrumentation struct {
-	state         protoimpl.MessageState      `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Datadog DogStatsD 埋点后端（UDP）。
 	Prometheus    *Instrumentation_Prometheus `protobuf:"bytes,1,opt,name=prometheus,proto3,oneof" json:"prometheus,omitempty"`
 	Otlp          *Instrumentation_Otlp       `protobuf:"bytes,2,opt,name=otlp,proto3,oneof" json:"otlp,omitempty"`
-	Datadog       *Instrumentation_Datadog    `protobuf:"bytes,3,opt,name=datadog,proto3,oneof" json:"datadog,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -87,13 +87,6 @@ func (x *Instrumentation) GetPrometheus() *Instrumentation_Prometheus {
 func (x *Instrumentation) GetOtlp() *Instrumentation_Otlp {
 	if x != nil {
 		return x.Otlp
-	}
-	return nil
-}
-
-func (x *Instrumentation) GetDatadog() *Instrumentation_Datadog {
-	if x != nil {
-		return x.Datadog
 	}
 	return nil
 }
@@ -256,106 +249,16 @@ func (x *Instrumentation_Otlp) GetExportIntervalSeconds() int32 {
 	return 0
 }
 
-// Datadog DogStatsD 埋点后端（UDP）。
-type Instrumentation_Datadog struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// DogStatsD agent 地址（host:port）。必填：留空会静默 UDP 到库默认的
-	// 127.0.0.1:8125，agent 不在时没有任何同步错误可读到。
-	Address string `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`
-	// 指标名前缀（后端会自动补一个 "." 分隔符，所以不要自带尾点）。
-	// 留空 = 名字原样上线；v0.33.x 之前留空会产出 ".name:1|c" 这种前导点名字。
-	Namespace string `protobuf:"bytes,2,opt,name=namespace,proto3" json:"namespace,omitempty"`
-	// 单个 UDP 报文最多合包多少条指标。0 = 用库默认（实测会自然合到 2–3 行）。
-	// 是真上界：配 1  ⇒ 每报文恰好 1 行；配 2 ⇒ 出现 2 行但绝不出现 3 行。
-	BufferSize int32 `protobuf:"varint,3,opt,name=buffer_size,json=bufferSize,proto3" json:"buffer_size,omitempty"`
-	// 客户端聚合节拍（毫秒）：Gauge/Counter 在这个窗口内合并成一条。
-	// 0 = 用库默认 2s，故「比库默认更快」必须显式给值。非正数判红。
-	FlushPeriodMillis int32 `protobuf:"varint,4,opt,name=flush_period_millis,json=flushPeriodMillis,proto3" json:"flush_period_millis,omitempty"`
-	// 采样率 (0, 1]。0 = 全量。
-	// **只对 Histogram 生效**：Counter/Gauge/GaugeAdd 走客户端聚合，聚合器在
-	// flush 时把 rate 硬编成 1（datadog-go v5.8.2 metrics.go 的
-	// countMetric/gaugeMetric flushUnsafe），因此这三条路径的报文不带 |@ 标记。
-	SampleRate    float64 `protobuf:"fixed64,5,opt,name=sample_rate,json=sampleRate,proto3" json:"sample_rate,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *Instrumentation_Datadog) Reset() {
-	*x = Instrumentation_Datadog{}
-	mi := &file_bootstrap_v1_instrumentation_proto_msgTypes[3]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *Instrumentation_Datadog) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*Instrumentation_Datadog) ProtoMessage() {}
-
-func (x *Instrumentation_Datadog) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_instrumentation_proto_msgTypes[3]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use Instrumentation_Datadog.ProtoReflect.Descriptor instead.
-func (*Instrumentation_Datadog) Descriptor() ([]byte, []int) {
-	return file_bootstrap_v1_instrumentation_proto_rawDescGZIP(), []int{0, 2}
-}
-
-func (x *Instrumentation_Datadog) GetAddress() string {
-	if x != nil {
-		return x.Address
-	}
-	return ""
-}
-
-func (x *Instrumentation_Datadog) GetNamespace() string {
-	if x != nil {
-		return x.Namespace
-	}
-	return ""
-}
-
-func (x *Instrumentation_Datadog) GetBufferSize() int32 {
-	if x != nil {
-		return x.BufferSize
-	}
-	return 0
-}
-
-func (x *Instrumentation_Datadog) GetFlushPeriodMillis() int32 {
-	if x != nil {
-		return x.FlushPeriodMillis
-	}
-	return 0
-}
-
-func (x *Instrumentation_Datadog) GetSampleRate() float64 {
-	if x != nil {
-		return x.SampleRate
-	}
-	return 0
-}
-
 var File_bootstrap_v1_instrumentation_proto protoreflect.FileDescriptor
 
 const file_bootstrap_v1_instrumentation_proto_rawDesc = "" +
 	"\n" +
-	"\"bootstrap/v1/instrumentation.proto\x12\fbootstrap.v1\"\x99\x06\n" +
+	"\"bootstrap/v1/instrumentation.proto\x12\fbootstrap.v1\"\xa0\x04\n" +
 	"\x0fInstrumentation\x12M\n" +
 	"\n" +
 	"prometheus\x18\x01 \x01(\v2(.bootstrap.v1.Instrumentation.PrometheusH\x00R\n" +
 	"prometheus\x88\x01\x01\x12;\n" +
-	"\x04otlp\x18\x02 \x01(\v2\".bootstrap.v1.Instrumentation.OtlpH\x01R\x04otlp\x88\x01\x01\x12D\n" +
-	"\adatadog\x18\x03 \x01(\v2%.bootstrap.v1.Instrumentation.DatadogH\x02R\adatadog\x88\x01\x01\x1az\n" +
+	"\x04otlp\x18\x02 \x01(\v2\".bootstrap.v1.Instrumentation.OtlpH\x01R\x04otlp\x88\x01\x01\x1az\n" +
 	"\n" +
 	"Prometheus\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x1c\n" +
@@ -367,19 +270,9 @@ const file_bootstrap_v1_instrumentation_proto_rawDesc = "" +
 	"\x0fservice_version\x18\x03 \x01(\tR\x0eserviceVersion\x12\x1a\n" +
 	"\binsecure\x18\x04 \x01(\bR\binsecure\x12\x19\n" +
 	"\buse_http\x18\x05 \x01(\bR\auseHttp\x126\n" +
-	"\x17export_interval_seconds\x18\x06 \x01(\x05R\x15exportIntervalSeconds\x1a\xb3\x01\n" +
-	"\aDatadog\x12\x18\n" +
-	"\aaddress\x18\x01 \x01(\tR\aaddress\x12\x1c\n" +
-	"\tnamespace\x18\x02 \x01(\tR\tnamespace\x12\x1f\n" +
-	"\vbuffer_size\x18\x03 \x01(\x05R\n" +
-	"bufferSize\x12.\n" +
-	"\x13flush_period_millis\x18\x04 \x01(\x05R\x11flushPeriodMillis\x12\x1f\n" +
-	"\vsample_rate\x18\x05 \x01(\x01R\n" +
-	"sampleRateB\r\n" +
+	"\x17export_interval_seconds\x18\x06 \x01(\x05R\x15exportIntervalSecondsB\r\n" +
 	"\v_prometheusB\a\n" +
-	"\x05_otlpB\n" +
-	"\n" +
-	"\b_datadogB\xbb\x01\n" +
+	"\x05_otlpJ\x04\b\x03\x10\x04R\adatadogB\xbb\x01\n" +
 	"\x10com.bootstrap.v1B\x14InstrumentationProtoP\x01Z@github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1;bootstrapv1\xa2\x02\x03BXX\xaa\x02\fBootstrap.V1\xca\x02\fBootstrap\\V1\xe2\x02\x18Bootstrap\\V1\\GPBMetadata\xea\x02\rBootstrap::V1b\x06proto3"
 
 var (
@@ -394,22 +287,20 @@ func file_bootstrap_v1_instrumentation_proto_rawDescGZIP() []byte {
 	return file_bootstrap_v1_instrumentation_proto_rawDescData
 }
 
-var file_bootstrap_v1_instrumentation_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_bootstrap_v1_instrumentation_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
 var file_bootstrap_v1_instrumentation_proto_goTypes = []any{
 	(*Instrumentation)(nil),            // 0: bootstrap.v1.Instrumentation
 	(*Instrumentation_Prometheus)(nil), // 1: bootstrap.v1.Instrumentation.Prometheus
 	(*Instrumentation_Otlp)(nil),       // 2: bootstrap.v1.Instrumentation.Otlp
-	(*Instrumentation_Datadog)(nil),    // 3: bootstrap.v1.Instrumentation.Datadog
 }
 var file_bootstrap_v1_instrumentation_proto_depIdxs = []int32{
 	1, // 0: bootstrap.v1.Instrumentation.prometheus:type_name -> bootstrap.v1.Instrumentation.Prometheus
 	2, // 1: bootstrap.v1.Instrumentation.otlp:type_name -> bootstrap.v1.Instrumentation.Otlp
-	3, // 2: bootstrap.v1.Instrumentation.datadog:type_name -> bootstrap.v1.Instrumentation.Datadog
-	3, // [3:3] is the sub-list for method output_type
-	3, // [3:3] is the sub-list for method input_type
-	3, // [3:3] is the sub-list for extension type_name
-	3, // [3:3] is the sub-list for extension extendee
-	0, // [0:3] is the sub-list for field type_name
+	2, // [2:2] is the sub-list for method output_type
+	2, // [2:2] is the sub-list for method input_type
+	2, // [2:2] is the sub-list for extension type_name
+	2, // [2:2] is the sub-list for extension extendee
+	0, // [0:2] is the sub-list for field type_name
 }
 
 func init() { file_bootstrap_v1_instrumentation_proto_init() }
@@ -424,7 +315,7 @@ func file_bootstrap_v1_instrumentation_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bootstrap_v1_instrumentation_proto_rawDesc), len(file_bootstrap_v1_instrumentation_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   4,
+			NumMessages:   3,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

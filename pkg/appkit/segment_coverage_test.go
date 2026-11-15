@@ -245,18 +245,18 @@ func TestAssemble_SiblingSubSegmentWithoutProviderErrors(t *testing.T) {
 	}{
 		{
 			family: "broker",
-			shadow: "kafka",
+			shadow: "rabbitmq",
 			newCfg: func() *bootstrapv1.BootstrapConfig {
 				cfg := bconf.NewBootstrap()
 				dynamicAddr(cfg)
 				cfg.Broker = &bootstrapv1.Broker{
-					Redis: &bootstrapv1.Broker_Redis{Address: "127.0.0.1:6379"},
-					Kafka: &bootstrapv1.Broker_Kafka{Brokers: []string{"127.0.0.1:9092"}},
+					Kafka:    &bootstrapv1.Broker_Kafka{Brokers: []string{"127.0.0.1:9092"}},
+					Rabbitmq: &bootstrapv1.Broker_RabbitMQ{Url: "amqp://127.0.0.1:5672/"},
 				}
 				return cfg
 			},
-			factory: stubDomainProvider("broker.redis", "redis",
-				func(c *bootstrapv1.BootstrapConfig) bool { return c.GetBroker().GetRedis() != nil },
+			factory: stubDomainProvider("broker.kafka", "kafka",
+				func(c *bootstrapv1.BootstrapConfig) bool { return c.GetBroker().GetKafka() != nil },
 				"broker", nil),
 		},
 		{
@@ -277,35 +277,19 @@ func TestAssemble_SiblingSubSegmentWithoutProviderErrors(t *testing.T) {
 		},
 		{
 			family: "database",
-			shadow: "mongodb",
+			shadow: "clickhouse",
 			newCfg: func() *bootstrapv1.BootstrapConfig {
 				cfg := bconf.NewBootstrap()
 				dynamicAddr(cfg)
 				cfg.Database = &bootstrapv1.Database{
-					Sql:     &bootstrapv1.Database_SQL{Driver: "sqlite", Source: ":memory:"},
-					Mongodb: &bootstrapv1.Database_MongoDB{Uri: "mongodb://127.0.0.1:27017"},
+					Sql:        &bootstrapv1.Database_SQL{Driver: "sqlite", Source: ":memory:"},
+					Clickhouse: &bootstrapv1.Database_ClickHouse{Dsn: "clickhouse://127.0.0.1:9000"},
 				}
 				return cfg
 			},
 			factory: stubDomainProvider("database.sql", "sql",
 				func(c *bootstrapv1.BootstrapConfig) bool { return c.GetDatabase().GetSql() != nil },
 				"db", nil),
-		},
-		{
-			family: "storage",
-			shadow: "s3",
-			newCfg: func() *bootstrapv1.BootstrapConfig {
-				cfg := bconf.NewBootstrap()
-				dynamicAddr(cfg)
-				cfg.Storage = &bootstrapv1.Storage{
-					Minio: &bootstrapv1.Storage_Minio{Endpoint: "127.0.0.1:9000"},
-					S3:    &bootstrapv1.Storage_S3{Region: "us-east-1"},
-				}
-				return cfg
-			},
-			factory: stubDomainProvider("storage.minio", "minio",
-				func(c *bootstrapv1.BootstrapConfig) bool { return c.GetStorage().GetMinio() != nil },
-				"storage", nil),
 		},
 		{
 			family: "workflow",
@@ -353,11 +337,11 @@ func TestAssemble_TopLevelOwnerCoversFamilyChildren(t *testing.T) {
 	cfg := bconf.NewBootstrap()
 	dynamicAddr(cfg)
 	cfg.Broker = &bootstrapv1.Broker{
-		Redis: &bootstrapv1.Broker_Redis{Address: "127.0.0.1:6379"},
-		Kafka: &bootstrapv1.Broker_Kafka{Brokers: []string{"127.0.0.1:9092"}},
+		Kafka:    &bootstrapv1.Broker_Kafka{Brokers: []string{"127.0.0.1:9092"}},
+		Rabbitmq: &bootstrapv1.Broker_RabbitMQ{Url: "amqp://127.0.0.1:5672/"},
 	}
 	owner := segProvider{segs: []string{"broker"}, build: func(context.Context, ApplyScope) (any, Cleanup, error) {
-		return map[string]any{"redis": "broker"}, nil, nil
+		return map[string]any{"kafka": "broker"}, nil, nil
 	}}
 
 	a := assembleForTest(t, cfg,
@@ -411,12 +395,11 @@ func TestAssemble_WhitelistedChildIsNarrow(t *testing.T) {
 	cfg := bconf.NewBootstrap()
 	dynamicAddr(cfg)
 	cfg.Broker = &bootstrapv1.Broker{
-		Redis:    &bootstrapv1.Broker_Redis{Address: "127.0.0.1:6379"},
 		Kafka:    &bootstrapv1.Broker_Kafka{Brokers: []string{"127.0.0.1:9092"}},
-		Rabbitmq: &bootstrapv1.Broker_RabbitMQ{},
+		Rabbitmq: &bootstrapv1.Broker_RabbitMQ{Url: "amqp://127.0.0.1:5672/"},
 	}
-	prov := stubDomainProvider("broker.redis", "redis",
-		func(c *bootstrapv1.BootstrapConfig) bool { return c.GetBroker().GetRedis() != nil },
+	prov := stubDomainProvider("broker.kafka", "kafka",
+		func(c *bootstrapv1.BootstrapConfig) bool { return c.GetBroker().GetKafka() != nil },
 		"broker", nil)
 
 	a := assembleForTest(t, cfg,

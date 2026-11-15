@@ -23,23 +23,6 @@ message Registry {
     reserved "ZOOKEEPER", "POLARIS", "EUREKA", "SERVICE_COMB";
   }
 
-  message Consul {
-    string address = 1;
-    string scheme = 2;
-    string token = 3;
-    // 健康检查间隔（秒）。
-    int32 health_check_interval = 4;
-    // 健康检查超时（秒）。
-    int32 health_check_timeout = 5;
-    // 是否启用健康检查。
-    bool enable_health_check = 6;
-    // 是否启用心跳。
-    bool heartbeat = 7;
-    // 服务注销临界时间（秒）。
-    int32 deregister_critical_service_after = 8;
-    string datacenter = 9;
-  }
-
   message Etcd {
     repeated string endpoints = 1;
     string username = 2;
@@ -71,16 +54,16 @@ message Registry {
     string password = 9;
   }
 
-  message Kubernetes {
-    string namespace = 1;
-  }
-
   string type = 1;
 
-  optional Consul consul = 2;
   optional Etcd etcd = 3;
   optional Nacos nacos = 4;
-  optional Kubernetes kubernetes = 8;
+
+  // 2026-11 精简：consul/kubernetes 注册中心实现随 registry/consul、
+  // registry/kubernetes 模块整体下线（保留 etcd/nacos）。字段号 2、8 与段名
+  // reserved 防复用——历史配置里的 consul/kubernetes 段不得被新字段静默解释。
+  reserved 2, 8;
+  reserved "consul", "kubernetes";
 
   // 2026-09-17 瘦身：zookeeper/polaris/eureka/service_comb 四段是契约预留
   // 但无任何实现（枚举里也无对应 provider），删除；字段号与名字 reserved

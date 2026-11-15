@@ -1,5 +1,5 @@
 // Package compose 提供 `bald compose`：把本地集成依赖（etcd / consul / redis /
-// mongo / nacos）收敛成一份可复现的 compose 定义，并代为调用 docker compose。
+// etcd/redis/nacos）收敛成一份可复现的 compose 定义，并代为调用 docker compose。
 //
 // 为什么需要它：README 里起集成依赖是三段手写 `docker run`（还带 `--platform`
 // 与 `-e MODE=standalone` 这类容易抄错的参数），CI 的 integration 作业里是另一份
@@ -69,23 +69,10 @@ var catalog = []service{
 		Note:  "etcd 的 ETCD_* 环境变量与命令行 flag 等价，镜像 entrypoint 直接读",
 	},
 	{
-		Name:  "consul",
-		Image: "hashicorp/consul:1.19.2",
-		Ports: []string{"127.0.0.1:8500:8500"},
-		Addr:  "127.0.0.1:8500",
-		Note:  "镜像默认 CMD 已是 agent -dev -client 0.0.0.0，dev agent 自带单节点集群",
-	},
-	{
 		Name:  "redis",
 		Image: "redis:7-alpine",
 		Ports: []string{"127.0.0.1:6379:6379"},
 		Addr:  "redis://127.0.0.1:6379",
-	},
-	{
-		Name:  "mongo",
-		Image: "mongo:7",
-		Ports: []string{"127.0.0.1:27017:27017"},
-		Addr:  "mongodb://127.0.0.1:27017",
 	},
 	{
 		Name:     "nacos",

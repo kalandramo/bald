@@ -80,10 +80,8 @@ func (Registry_Type) EnumDescriptor() ([]byte, []int) {
 type Registry struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Type          string                 `protobuf:"bytes,1,opt,name=type,proto3" json:"type,omitempty"`
-	Consul        *Registry_Consul       `protobuf:"bytes,2,opt,name=consul,proto3,oneof" json:"consul,omitempty"`
 	Etcd          *Registry_Etcd         `protobuf:"bytes,3,opt,name=etcd,proto3,oneof" json:"etcd,omitempty"`
 	Nacos         *Registry_Nacos        `protobuf:"bytes,4,opt,name=nacos,proto3,oneof" json:"nacos,omitempty"`
-	Kubernetes    *Registry_Kubernetes   `protobuf:"bytes,8,opt,name=kubernetes,proto3,oneof" json:"kubernetes,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -125,13 +123,6 @@ func (x *Registry) GetType() string {
 	return ""
 }
 
-func (x *Registry) GetConsul() *Registry_Consul {
-	if x != nil {
-		return x.Consul
-	}
-	return nil
-}
-
 func (x *Registry) GetEtcd() *Registry_Etcd {
 	if x != nil {
 		return x.Etcd
@@ -144,126 +135,6 @@ func (x *Registry) GetNacos() *Registry_Nacos {
 		return x.Nacos
 	}
 	return nil
-}
-
-func (x *Registry) GetKubernetes() *Registry_Kubernetes {
-	if x != nil {
-		return x.Kubernetes
-	}
-	return nil
-}
-
-type Registry_Consul struct {
-	state   protoimpl.MessageState `protogen:"open.v1"`
-	Address string                 `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`
-	Scheme  string                 `protobuf:"bytes,2,opt,name=scheme,proto3" json:"scheme,omitempty"`
-	Token   string                 `protobuf:"bytes,3,opt,name=token,proto3" json:"token,omitempty"`
-	// 健康检查间隔（秒）。
-	HealthCheckInterval int32 `protobuf:"varint,4,opt,name=health_check_interval,json=healthCheckInterval,proto3" json:"health_check_interval,omitempty"`
-	// 健康检查超时（秒）。
-	HealthCheckTimeout int32 `protobuf:"varint,5,opt,name=health_check_timeout,json=healthCheckTimeout,proto3" json:"health_check_timeout,omitempty"`
-	// 是否启用健康检查。
-	EnableHealthCheck bool `protobuf:"varint,6,opt,name=enable_health_check,json=enableHealthCheck,proto3" json:"enable_health_check,omitempty"`
-	// 是否启用心跳。
-	Heartbeat bool `protobuf:"varint,7,opt,name=heartbeat,proto3" json:"heartbeat,omitempty"`
-	// 服务注销临界时间（秒）。
-	DeregisterCriticalServiceAfter int32  `protobuf:"varint,8,opt,name=deregister_critical_service_after,json=deregisterCriticalServiceAfter,proto3" json:"deregister_critical_service_after,omitempty"`
-	Datacenter                     string `protobuf:"bytes,9,opt,name=datacenter,proto3" json:"datacenter,omitempty"`
-	unknownFields                  protoimpl.UnknownFields
-	sizeCache                      protoimpl.SizeCache
-}
-
-func (x *Registry_Consul) Reset() {
-	*x = Registry_Consul{}
-	mi := &file_bootstrap_v1_registry_proto_msgTypes[1]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *Registry_Consul) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*Registry_Consul) ProtoMessage() {}
-
-func (x *Registry_Consul) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_registry_proto_msgTypes[1]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use Registry_Consul.ProtoReflect.Descriptor instead.
-func (*Registry_Consul) Descriptor() ([]byte, []int) {
-	return file_bootstrap_v1_registry_proto_rawDescGZIP(), []int{0, 0}
-}
-
-func (x *Registry_Consul) GetAddress() string {
-	if x != nil {
-		return x.Address
-	}
-	return ""
-}
-
-func (x *Registry_Consul) GetScheme() string {
-	if x != nil {
-		return x.Scheme
-	}
-	return ""
-}
-
-func (x *Registry_Consul) GetToken() string {
-	if x != nil {
-		return x.Token
-	}
-	return ""
-}
-
-func (x *Registry_Consul) GetHealthCheckInterval() int32 {
-	if x != nil {
-		return x.HealthCheckInterval
-	}
-	return 0
-}
-
-func (x *Registry_Consul) GetHealthCheckTimeout() int32 {
-	if x != nil {
-		return x.HealthCheckTimeout
-	}
-	return 0
-}
-
-func (x *Registry_Consul) GetEnableHealthCheck() bool {
-	if x != nil {
-		return x.EnableHealthCheck
-	}
-	return false
-}
-
-func (x *Registry_Consul) GetHeartbeat() bool {
-	if x != nil {
-		return x.Heartbeat
-	}
-	return false
-}
-
-func (x *Registry_Consul) GetDeregisterCriticalServiceAfter() int32 {
-	if x != nil {
-		return x.DeregisterCriticalServiceAfter
-	}
-	return 0
-}
-
-func (x *Registry_Consul) GetDatacenter() string {
-	if x != nil {
-		return x.Datacenter
-	}
-	return ""
 }
 
 type Registry_Etcd struct {
@@ -286,7 +157,7 @@ type Registry_Etcd struct {
 
 func (x *Registry_Etcd) Reset() {
 	*x = Registry_Etcd{}
-	mi := &file_bootstrap_v1_registry_proto_msgTypes[2]
+	mi := &file_bootstrap_v1_registry_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -298,7 +169,7 @@ func (x *Registry_Etcd) String() string {
 func (*Registry_Etcd) ProtoMessage() {}
 
 func (x *Registry_Etcd) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_registry_proto_msgTypes[2]
+	mi := &file_bootstrap_v1_registry_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -311,7 +182,7 @@ func (x *Registry_Etcd) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Registry_Etcd.ProtoReflect.Descriptor instead.
 func (*Registry_Etcd) Descriptor() ([]byte, []int) {
-	return file_bootstrap_v1_registry_proto_rawDescGZIP(), []int{0, 1}
+	return file_bootstrap_v1_registry_proto_rawDescGZIP(), []int{0, 0}
 }
 
 func (x *Registry_Etcd) GetEndpoints() []string {
@@ -384,7 +255,7 @@ type Registry_Nacos struct {
 
 func (x *Registry_Nacos) Reset() {
 	*x = Registry_Nacos{}
-	mi := &file_bootstrap_v1_registry_proto_msgTypes[3]
+	mi := &file_bootstrap_v1_registry_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -396,7 +267,7 @@ func (x *Registry_Nacos) String() string {
 func (*Registry_Nacos) ProtoMessage() {}
 
 func (x *Registry_Nacos) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_registry_proto_msgTypes[3]
+	mi := &file_bootstrap_v1_registry_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -409,7 +280,7 @@ func (x *Registry_Nacos) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Registry_Nacos.ProtoReflect.Descriptor instead.
 func (*Registry_Nacos) Descriptor() ([]byte, []int) {
-	return file_bootstrap_v1_registry_proto_rawDescGZIP(), []int{0, 2}
+	return file_bootstrap_v1_registry_proto_rawDescGZIP(), []int{0, 1}
 }
 
 func (x *Registry_Nacos) GetServerAddrs() []string {
@@ -475,75 +346,15 @@ func (x *Registry_Nacos) GetPassword() string {
 	return ""
 }
 
-type Registry_Kubernetes struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Namespace     string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *Registry_Kubernetes) Reset() {
-	*x = Registry_Kubernetes{}
-	mi := &file_bootstrap_v1_registry_proto_msgTypes[4]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *Registry_Kubernetes) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*Registry_Kubernetes) ProtoMessage() {}
-
-func (x *Registry_Kubernetes) ProtoReflect() protoreflect.Message {
-	mi := &file_bootstrap_v1_registry_proto_msgTypes[4]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use Registry_Kubernetes.ProtoReflect.Descriptor instead.
-func (*Registry_Kubernetes) Descriptor() ([]byte, []int) {
-	return file_bootstrap_v1_registry_proto_rawDescGZIP(), []int{0, 3}
-}
-
-func (x *Registry_Kubernetes) GetNamespace() string {
-	if x != nil {
-		return x.Namespace
-	}
-	return ""
-}
-
 var File_bootstrap_v1_registry_proto protoreflect.FileDescriptor
 
 const file_bootstrap_v1_registry_proto_rawDesc = "" +
 	"\n" +
-	"\x1bbootstrap/v1/registry.proto\x12\fbootstrap.v1\x1a\x19bootstrap/v1/common.proto\"\xa7\v\n" +
+	"\x1bbootstrap/v1/registry.proto\x12\fbootstrap.v1\x1a\x19bootstrap/v1/common.proto\"\x8b\a\n" +
 	"\bRegistry\x12\x12\n" +
-	"\x04type\x18\x01 \x01(\tR\x04type\x12:\n" +
-	"\x06consul\x18\x02 \x01(\v2\x1d.bootstrap.v1.Registry.ConsulH\x00R\x06consul\x88\x01\x01\x124\n" +
-	"\x04etcd\x18\x03 \x01(\v2\x1b.bootstrap.v1.Registry.EtcdH\x01R\x04etcd\x88\x01\x01\x127\n" +
-	"\x05nacos\x18\x04 \x01(\v2\x1c.bootstrap.v1.Registry.NacosH\x02R\x05nacos\x88\x01\x01\x12F\n" +
-	"\n" +
-	"kubernetes\x18\b \x01(\v2!.bootstrap.v1.Registry.KubernetesH\x03R\n" +
-	"kubernetes\x88\x01\x01\x1a\xef\x02\n" +
-	"\x06Consul\x12\x18\n" +
-	"\aaddress\x18\x01 \x01(\tR\aaddress\x12\x16\n" +
-	"\x06scheme\x18\x02 \x01(\tR\x06scheme\x12\x14\n" +
-	"\x05token\x18\x03 \x01(\tR\x05token\x122\n" +
-	"\x15health_check_interval\x18\x04 \x01(\x05R\x13healthCheckInterval\x120\n" +
-	"\x14health_check_timeout\x18\x05 \x01(\x05R\x12healthCheckTimeout\x12.\n" +
-	"\x13enable_health_check\x18\x06 \x01(\bR\x11enableHealthCheck\x12\x1c\n" +
-	"\theartbeat\x18\a \x01(\bR\theartbeat\x12I\n" +
-	"!deregister_critical_service_after\x18\b \x01(\x05R\x1ederegisterCriticalServiceAfter\x12\x1e\n" +
-	"\n" +
-	"datacenter\x18\t \x01(\tR\n" +
-	"datacenter\x1a\xe5\x01\n" +
+	"\x04type\x18\x01 \x01(\tR\x04type\x124\n" +
+	"\x04etcd\x18\x03 \x01(\v2\x1b.bootstrap.v1.Registry.EtcdH\x00R\x04etcd\x88\x01\x01\x127\n" +
+	"\x05nacos\x18\x04 \x01(\v2\x1c.bootstrap.v1.Registry.NacosH\x01R\x05nacos\x88\x01\x01\x1a\xe5\x01\n" +
 	"\x04Etcd\x12\x1c\n" +
 	"\tendpoints\x18\x01 \x03(\tR\tendpoints\x12\x1a\n" +
 	"\busername\x18\x02 \x01(\tR\busername\x12\x1a\n" +
@@ -563,10 +374,7 @@ const file_bootstrap_v1_registry_proto_rawDesc = "" +
 	"\x06prefix\x18\x06 \x01(\tR\x06prefix\x12!\n" +
 	"\fdefault_kind\x18\a \x01(\tR\vdefaultKind\x12\x1a\n" +
 	"\busername\x18\b \x01(\tR\busername\x12\x1a\n" +
-	"\bpassword\x18\t \x01(\tR\bpassword\x1a*\n" +
-	"\n" +
-	"Kubernetes\x12\x1c\n" +
-	"\tnamespace\x18\x01 \x01(\tR\tnamespace\"\x8f\x01\n" +
+	"\bpassword\x18\t \x01(\tR\bpassword\"\x8f\x01\n" +
 	"\x04Type\x12\x14\n" +
 	"\x10TYPE_UNSPECIFIED\x10\x00\x12\n" +
 	"\n" +
@@ -574,12 +382,11 @@ const file_bootstrap_v1_registry_proto_rawDesc = "" +
 	"\x04ETCD\x10\x02\x12\t\n" +
 	"\x05NACOS\x10\x03\x12\x0e\n" +
 	"\n" +
-	"KUBERNETES\x10\a\"\x04\b\x04\x10\x04\"\x04\b\x05\x10\x05\"\x04\b\x06\x10\x06\"\x04\b\b\x10\b*\tZOOKEEPER*\aPOLARIS*\x06EUREKA*\fSERVICE_COMBB\t\n" +
-	"\a_consulB\a\n" +
+	"KUBERNETES\x10\a\"\x04\b\x04\x10\x04\"\x04\b\x05\x10\x05\"\x04\b\x06\x10\x06\"\x04\b\b\x10\b*\tZOOKEEPER*\aPOLARIS*\x06EUREKA*\fSERVICE_COMBB\a\n" +
 	"\x05_etcdB\b\n" +
-	"\x06_nacosB\r\n" +
-	"\v_kubernetesJ\x04\b\x05\x10\x06J\x04\b\x06\x10\aJ\x04\b\a\x10\bJ\x04\b\t\x10\n" +
-	"R\tzookeeperR\apolarisR\x06eurekaR\fservice_combB\xb4\x01\n" +
+	"\x06_nacosJ\x04\b\x02\x10\x03J\x04\b\b\x10\tJ\x04\b\x05\x10\x06J\x04\b\x06\x10\aJ\x04\b\a\x10\bJ\x04\b\t\x10\n" +
+	"R\x06consulR\n" +
+	"kubernetesR\tzookeeperR\apolarisR\x06eurekaR\fservice_combB\xb4\x01\n" +
 	"\x10com.bootstrap.v1B\rRegistryProtoP\x01Z@github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1;bootstrapv1\xa2\x02\x03BXX\xaa\x02\fBootstrap.V1\xca\x02\fBootstrap\\V1\xe2\x02\x18Bootstrap\\V1\\GPBMetadata\xea\x02\rBootstrap::V1b\x06proto3"
 
 var (
@@ -595,27 +402,23 @@ func file_bootstrap_v1_registry_proto_rawDescGZIP() []byte {
 }
 
 var file_bootstrap_v1_registry_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_bootstrap_v1_registry_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_bootstrap_v1_registry_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
 var file_bootstrap_v1_registry_proto_goTypes = []any{
-	(Registry_Type)(0),          // 0: bootstrap.v1.Registry.Type
-	(*Registry)(nil),            // 1: bootstrap.v1.Registry
-	(*Registry_Consul)(nil),     // 2: bootstrap.v1.Registry.Consul
-	(*Registry_Etcd)(nil),       // 3: bootstrap.v1.Registry.Etcd
-	(*Registry_Nacos)(nil),      // 4: bootstrap.v1.Registry.Nacos
-	(*Registry_Kubernetes)(nil), // 5: bootstrap.v1.Registry.Kubernetes
-	(*Backoff)(nil),             // 6: bootstrap.v1.Backoff
+	(Registry_Type)(0),     // 0: bootstrap.v1.Registry.Type
+	(*Registry)(nil),       // 1: bootstrap.v1.Registry
+	(*Registry_Etcd)(nil),  // 2: bootstrap.v1.Registry.Etcd
+	(*Registry_Nacos)(nil), // 3: bootstrap.v1.Registry.Nacos
+	(*Backoff)(nil),        // 4: bootstrap.v1.Backoff
 }
 var file_bootstrap_v1_registry_proto_depIdxs = []int32{
-	2, // 0: bootstrap.v1.Registry.consul:type_name -> bootstrap.v1.Registry.Consul
-	3, // 1: bootstrap.v1.Registry.etcd:type_name -> bootstrap.v1.Registry.Etcd
-	4, // 2: bootstrap.v1.Registry.nacos:type_name -> bootstrap.v1.Registry.Nacos
-	5, // 3: bootstrap.v1.Registry.kubernetes:type_name -> bootstrap.v1.Registry.Kubernetes
-	6, // 4: bootstrap.v1.Registry.Etcd.backoff:type_name -> bootstrap.v1.Backoff
-	5, // [5:5] is the sub-list for method output_type
-	5, // [5:5] is the sub-list for method input_type
-	5, // [5:5] is the sub-list for extension type_name
-	5, // [5:5] is the sub-list for extension extendee
-	0, // [0:5] is the sub-list for field type_name
+	2, // 0: bootstrap.v1.Registry.etcd:type_name -> bootstrap.v1.Registry.Etcd
+	3, // 1: bootstrap.v1.Registry.nacos:type_name -> bootstrap.v1.Registry.Nacos
+	4, // 2: bootstrap.v1.Registry.Etcd.backoff:type_name -> bootstrap.v1.Backoff
+	3, // [3:3] is the sub-list for method output_type
+	3, // [3:3] is the sub-list for method input_type
+	3, // [3:3] is the sub-list for extension type_name
+	3, // [3:3] is the sub-list for extension extendee
+	0, // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_bootstrap_v1_registry_proto_init() }
@@ -625,14 +428,14 @@ func file_bootstrap_v1_registry_proto_init() {
 	}
 	file_bootstrap_v1_common_proto_init()
 	file_bootstrap_v1_registry_proto_msgTypes[0].OneofWrappers = []any{}
-	file_bootstrap_v1_registry_proto_msgTypes[2].OneofWrappers = []any{}
+	file_bootstrap_v1_registry_proto_msgTypes[1].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bootstrap_v1_registry_proto_rawDesc), len(file_bootstrap_v1_registry_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   5,
+			NumMessages:   3,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

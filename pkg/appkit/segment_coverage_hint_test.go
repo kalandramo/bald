@@ -11,10 +11,9 @@ func TestProviderHint(t *testing.T) {
 	for path, want := range map[string]string{
 		"database.sql":       "contrib/database/gorm/contract",
 		"cache.redis":        "cache/redis/contract",
-		"oss.minio":          "oss/minio/contract",
 		"server.kafka":       "transport/kafka/contract",
-		"server.webrtc":      "transport/webrtc/contract",
-		"broker.redis":       "broker/redis/contract",
+		"server.websocket":   "transport/websocket/contract",
+		"broker.kafka":       "broker/kafka/contract",
 		"broker.rabbitmq":    "broker/rabbitmq/contract",
 		"client.http.x":      "transport/client/contract",
 		"log.loki":           "log/loki/contract",
@@ -30,7 +29,7 @@ func TestProviderHint(t *testing.T) {
 			t.Errorf("providerHint(%q) = %q, want empty", path, got)
 		}
 	}
-	if got := hintSuffix("broker.redis"); !strings.Contains(got, "broker/redis/contract") {
+	if got := hintSuffix("broker.kafka"); !strings.Contains(got, "broker/kafka/contract") {
 		t.Fatalf("hintSuffix = %q", got)
 	}
 	if got := hintSuffix("registry.nacos"); got != "" {

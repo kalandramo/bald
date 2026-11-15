@@ -21,7 +21,7 @@
 - `bald gen proto|store|app|domain`: 代码生成（AppSpec 声明驱动，--check 零差异门禁）
 - `bald gen resource --domain post --kind post --apply-decl`: 给域加一条资源链路（契约 + 实体 + 域声明 + 重派生）
 - `bald gen verify`: 只读校验生成树与声明一致（app 树 + 域产物，零写入；MCP 只读工具）
-- `bald compose list|config|up|status|stop|down`: 本地集成依赖（etcd/consul/redis/mongo/nacos，与 CI integration 作业同源）
+- `bald compose list|config|up|status|stop|down`: 本地集成依赖（etcd/consul/redis/nacos，与 CI integration 作业同源）
 - `bald convention overview|list|get|check`: 工程规范蒸馏卡查询与确定性检查（AI 规范通道；check 报覆盖率，CI 用 --min-coverage 设下限）
 - `bald ide init --ide=claude`: 初始化 AI 会话引导物（AGENTS.md/.mcp.json/.claude）
 - `bald mcp start|stream|tools`: 把 CLI 子命令暴露为 MCP server（cobramcp；工具面只含 convention、gen app 的只读形态与 gen verify）
