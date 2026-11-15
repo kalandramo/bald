@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"strconv"
 	"sync"
+	"sync/atomic"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/balancer"
@@ -105,6 +106,49 @@ func DialOption() grpc.DialOption {
 	return grpc.WithDefaultServiceConfig(DefaultServiceConfig)
 }
 
+// Decorator 是 selector 装饰函数：picker 为某个 (策略, 服务名) 首次装配
+// selector 时套上，装饰后的实例进缓存（自适应状态跨 picker 重建存活的正是
+// 装饰后的那一份）。典型装饰是 selector/circuitbreaker 的按节点熔断——
+// picker 的 Done 回调把 RPC 结果喂进装饰层，跳闸节点被硬排除出候选集：
+//
+//	reg := circuitbreaker.NewRegistry(func(addr string) cb.CircuitBreaker {
+//		res := "bald.client.cb." + addr // 资源名按节点派生，规则表不互相覆盖
+//		scb.LoadRulesOfResource(res, []*scb.Rule{{Resource: res, Strategy: scb.ErrorRatio}})
+//		return sentinel.New(res)
+//	})
+//	balancer.UseDecorator(func(sel selector.Selector) selector.Selector {
+//		return circuitbreaker.WithCircuitBreaker(sel, reg)
+//	})
+//	defer reg.Close() // 停机时由持有方释放
+//
+// Decorator 本包不依赖任何具体装饰实现——只约定形状，谁装饰、装饰什么
+// 由调用方组合；这样 balancer module 的依赖树保持只有 selector 核心与
+// 内置策略，熔断等横切面留在调用侧。
+type Decorator func(selector.Selector) selector.Selector
+
+// decoratorSlot 是进程级装饰器槽。gRPC 的 balancer builder 走全局注册表
+// （Name 固定），装饰器只能跟 builder 同级：进程内一个槽、首次拨号前设置。
+// 槽在 UseDecorator 之前为 nil，picker 原样装配不装饰。
+var decoratorSlot atomic.Pointer[Decorator]
+
+// UseDecorator 设置进程级 selector 装饰器。须在首次 DialOption() 之前调用
+// （ DialOption 会 Activate 注册 builder，之后 builder 可能已经开始装配
+// selector）；重复调用以最后一次为准。传 nil 清除装饰。
+//
+// 装饰是有状态对象的持有契约在调用方：如上例的 Registry——picker 只持
+// 装饰后的 selector 引用，Registry.Close 的时机由创建者决定。
+func UseDecorator(d Decorator) {
+	decoratorSlot.Store(&d)
+}
+
+// currentDecorator 读当前装饰器，未设置时返回 nil。
+func currentDecorator() Decorator {
+	if p := decoratorSlot.Load(); p != nil {
+		return *p
+	}
+	return nil
+}
+
 // pickerBuilder 构建委托给 selector.Selector 的 Picker。selector 实例按
 // (策略, 服务名) 缓存——自适应状态跨 picker 重建存活。
 type pickerBuilder struct {
@@ -141,8 +185,14 @@ func (b *pickerBuilder) Build(info base.PickerBuildInfo) balancer.Picker {
 	key := strategy + "\x00" + service
 	sel, ok := b.sel.Load(key)
 	if !ok {
-		sel = newSelector(strategy)
-		sel, _ = b.sel.LoadOrStore(key, sel)
+		raw := newSelector(strategy)
+		// 装饰必须在入缓存之前：缓存存活的是装饰后的实例，否则装饰只在
+		// 首个 picker 生效、重建即丢失。并发首建时 LoadOrStore 保证只有
+		// 一份进缓存，落选的 raw 直接丢弃。
+		if dec := currentDecorator(); dec != nil {
+			raw = dec(raw)
+		}
+		sel, _ = b.sel.LoadOrStore(key, raw)
 	}
 	if sel == nil {
 		return base.NewErrPicker(fmt.Errorf("balancer: no selector for strategy %q", strategy))

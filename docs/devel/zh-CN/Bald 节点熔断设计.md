@@ -4,7 +4,7 @@
 >
 > Discussion at: 源码 `selector/circuitbreaker/{circuitbreaker.go,circuitbreaker_test.go}`；对照 `selector/p2c/p2c.go`（概率性降权的既有形态）、`circuitbreaker/circuitbreaker.go`（契约）、`selector/balancer/balancer.go`（桥接子 module 先例）
 >
-> Status: Accepted（桥接件已落地；selector 核心与 circuitbreaker 契约零改动。2026-11 注：`hystrix`/`sres`/`vegas` 退役后仓内只剩 `sentinel` 一个真实后端——其探针式 State() 见下表，State() 友好实现需外接）
+> Status: Accepted（桥接件已落地；selector 核心与 circuitbreaker 契约零改动。2026-11 注：`hystrix`/`sres`/`vegas` 退役后仓内只剩 `sentinel` 一个真实后端——其探针式 State() 见下表，State() 友好实现需外接。同月接线：`selector/balancer.UseDecorator` 在 picker 的 (策略, 服务名) 缓存填充点套装饰器，Done 反馈天然进 Mark* 结果汇形态——生产消费点在 `_example/bald/internal/bootstrap/outbound.go`（真应用端到端 `outbound_e2e_test.go`：跳闸/排除/愈合全循环），装配语义与进程级槽的隔离纪律见 `UseDecorator` 文档）
 
 ## 摘要
 
@@ -38,9 +38,9 @@ onexmesh 的 selector 熔断件依赖其 resilience 的 `BreakerRegistry`（按�
 ### Registry：按地址懒构造 + State 派生 Healthy
 
 ```go
-type Factory func() cb.CircuitBreaker
+type Factory func(addr string) cb.CircuitBreaker
 
-func NewRegistry(factory Factory) *Registry   // factory nil → panic（装配期 fail-fast）
+func NewRegistry(factory Factory) *Registry   // factory nil → panic（装配期 fail-fast）；按 addr 各构造一次，sentinel 资源名可按地址派生
 func (r *Registry) Get(addr string) cb.CircuitBreaker  // 懒构造，热路径读锁
 func (r *Registry) Healthy(addr string) bool           // State()!=StateOpen；未构造视为健康
 func (r *Registry) Prune(nodes []selector.Node)        // 清理 churn 走的地址（经 Close）
@@ -66,7 +66,9 @@ func WithCircuitBreaker(inner selector.Selector, reg *Registry) selector.Selecto
 装饰器实现 `selector.Selector`，可包裹任意内层策略（p2c/round_robin/weighted/random），也可经 `selector.MustRegister` 注册成命名策略：
 
 ```go
-reg := circuitbreaker.NewRegistry(func() cb.CircuitBreaker { return hystrix.New() })
+reg := circuitbreaker.NewRegistry(func(addr string) cb.CircuitBreaker {
+    return sentinel.New("bald.client.cb." + addr) // 资源名按节点派生
+})
 selector.MustRegister("p2c_cb", func() selector.Selector {
     return circuitbreaker.WithCircuitBreaker(p2c.New(), reg)
 })

@@ -23,9 +23,12 @@ import (
 	"github.com/kalandramo/bald/selector"
 )
 
-// Factory 构造一个熔断器实例。Registry 按节点地址各持一个，故工厂每次
-// 调用须返回独立实例——自适应状态不得跨节点共享（对齐 selector.Factory）。
-type Factory func() cb.CircuitBreaker
+// Factory 为节点 addr 构造一个熔断器实例。Registry 按节点地址各持一个，
+// 故工厂对同一 addr 只会调用一次、对不同 addr 须返回相互独立的实例——
+// 自适应状态不得跨节点共享（对齐 selector.Factory）。addr 参数用于把节点
+// 身份带进底层实现：如 sentinel 的资源名按地址派生（`bald.client.cb.<addr>`），
+// 规则表才不会跨节点互相覆盖。
+type Factory func(addr string) cb.CircuitBreaker
 
 // Registry 按节点地址懒构造并持有熔断器，并发安全。
 type Registry struct {
@@ -58,7 +61,7 @@ func (r *Registry) Get(addr string) cb.CircuitBreaker {
 	if b, ok := r.breakers[addr]; ok {
 		return b
 	}
-	b = r.factory()
+	b = r.factory(addr)
 	r.breakers[addr] = b
 	return b
 }
