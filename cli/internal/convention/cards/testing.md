@@ -8,6 +8,7 @@ sources:
   - README.md
 checks:
   - no-panic
+  - testing-bare-addr
 ---
 # 测试
 

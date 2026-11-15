@@ -6,7 +6,9 @@ category: core
 sources:
   - README.md
   - docs/devel/zh-CN/框架契约总览.md
-checks: []
+checks:
+  - assembly-import-in-biz
+  - reuse-vendored-bald
 ---
 # 复用优先
 

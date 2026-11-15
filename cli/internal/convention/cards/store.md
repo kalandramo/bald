@@ -5,7 +5,9 @@ level: 强制
 category: contract
 sources:
   - docs/devel/zh-CN/Bald 存储设计.md
-checks: []
+checks:
+  - store-tenant-init
+  - store-handwritten-tenant
 ---
 # 存储
 

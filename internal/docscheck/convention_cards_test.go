@@ -23,13 +23,28 @@ import (
 // 本闸门按更严格的口径判红。
 //
 // checkerRuleRegistry 必须与 cli/internal/convention/check.go 的 checkerRule
-// 保持一致：名字清单 + 绑定规则。改动任一侧时同步另一侧（本注释同时钉两边）。
+// 保持一致：名字清单 + 绑定规则。改动任一侧时同步另一侧（本注释同时钉两边）——
+// 而 TestCheckerRuleRegistryMatchesCLI 会把这条约定变成机器判定：解析 check.go
+// 的 map 字面量逐项对账，谁忘了同步谁红，不再靠人记。
 var checkerRuleRegistry = map[string]string{
 	"gen-app-drift":   "codegen-r03",
 	"logging-stdlib":  "logging-r01",
 	"no-panic":        "testing-r07",
 	"prd-prompt-seam": "prd-r06",
 	"prd-structure":   "prd-r03",
+
+	"berrors-with-discard":      "errors-r03",
+	"errors-bridge-import":      "errors-r01",
+	"http-envelope-shape":       "errors-r08",
+	"assembly-import-in-biz":    "reuse-r03",
+	"reuse-vendored-bald":       "reuse-r02",
+	"ctx-string-key":            "context-r01",
+	"validate-signature":        "validation-r02",
+	"store-tenant-init":         "store-r02",
+	"store-handwritten-tenant":  "store-r10",
+	"assembly-plan-impure":      "assembly-r01",
+	"transport-stop-background": "transport-r06",
+	"testing-bare-addr":         "testing-r03",
 }
 
 var (

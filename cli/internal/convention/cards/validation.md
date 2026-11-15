@@ -5,7 +5,8 @@ level: 强制
 category: contract
 sources:
   - docs/devel/zh-CN/校验设计.md
-checks: []
+checks:
+  - validate-signature
 ---
 # 校验
 

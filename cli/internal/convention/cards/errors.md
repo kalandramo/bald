@@ -5,7 +5,10 @@ level: 强制
 category: contract
 sources:
   - docs/devel/zh-CN/Bald 错误模型设计.md
-checks: []
+checks:
+  - berrors-with-discard
+  - errors-bridge-import
+  - http-envelope-shape
 ---
 # 错误模型
 

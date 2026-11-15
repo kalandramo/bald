@@ -5,7 +5,8 @@ level: 强制
 category: contract
 sources:
   - docs/devel/zh-CN/上下文契约设计.md
-checks: []
+checks:
+  - ctx-string-key
 ---
 # 上下文契约
 

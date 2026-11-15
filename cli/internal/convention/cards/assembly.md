@@ -5,7 +5,8 @@ level: 强制
 category: core
 sources:
   - docs/devel/zh-CN/Bald 声明式装配设计.md
-checks: []
+checks:
+  - assembly-plan-impure
 ---
 # 装配纪律
 

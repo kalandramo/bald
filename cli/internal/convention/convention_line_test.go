@@ -207,9 +207,15 @@ func TestRunCheck_CheckerPaths(t *testing.T) {
 	}
 
 	// 干净树 → OK 汇总；漂移树 → Found 汇总。
+	//
+	// OK 计数 = 注册表 17 个 checker 减去在此 fixture 上不可判的 2 个 prd checker
+	// （fixture 没有 docs/prd）。这个数字同时是「生成器 ↔ 检查器互锁」的断言：
+	// gen app 产出的骨架必须零 finding 通过全部 checker——onexai 的脚手架过不了
+	// 自家 check（4 条 error-return-r11），bald 不允许复刻那种形态。新增 checker
+	// 时这个数字要跟着改，改不动就说明新 checker 在自家生成物上不干净。
 	clean := genAppTree(t)
 	res, err := runCheck(checkOptions{Dir: clean, MinLevel: "mandatory"})
-	if err != nil || len(res.OK) != 3 || len(res.Found) != 0 {
+	if err != nil || len(res.OK) != 15 || len(res.Found) != 0 {
 		t.Fatalf("clean runCheck: ran=%v found=%v err=%v", res.OK, res.Found, err)
 	}
 	if err := os.Remove(filepath.Join(clean, "cmd", "conv-demo", "main.go")); err != nil {

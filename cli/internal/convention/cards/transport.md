@@ -5,7 +5,8 @@ level: 强制
 category: contract
 sources:
   - docs/devel/zh-CN/Bald 传输层设计.md
-checks: []
+checks:
+  - transport-stop-background
 ---
 # 传输层
 

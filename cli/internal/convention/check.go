@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 
@@ -42,17 +43,45 @@ var checkerRule = map[string]string{
 	"no-panic":        "testing-r07",
 	"prd-prompt-seam": "prd-r06",
 	"prd-structure":   "prd-r03",
+	// 第二批（checkers.go）：把「语法即可判定」的规则族从文档约束升级为机器
+	// 门禁。覆盖率由此从 5 条到 17 条——bald-convention-1 的判据是「check 绿
+	// 要能解释」，不是「卡够多」。
+	"berrors-with-discard":      "errors-r03",
+	"errors-bridge-import":      "errors-r01",
+	"http-envelope-shape":       "errors-r08",
+	"assembly-import-in-biz":    "reuse-r03",
+	"reuse-vendored-bald":       "reuse-r02",
+	"ctx-string-key":            "context-r01",
+	"validate-signature":        "validation-r02",
+	"store-tenant-init":         "store-r02",
+	"store-handwritten-tenant":  "store-r10",
+	"assembly-plan-impure":      "assembly-r01",
+	"transport-stop-background": "transport-r06",
+	"testing-bare-addr":         "testing-r03",
 }
 
-// registry 是确定性检查器注册表。Phase 1 只收 gen-app-drift（薄封装 gen app
-// --check 这道既有零差异门）；其余卡规则暂无 checker（卡里以级别语义约束，
-// 靠评审落实），后续按需收编。
+// registry 是确定性检查器注册表。每条 checker 都必须有卡声明它才会被跑到
+// （runCheck 遍历 cards → 卡的 checks 列表），因此「注册了但没人声明」的
+// checker 是死代码，docscheck 的卡闸门会把它暴露成声明与注册表的漂移。
 var registry = map[string]checker{
 	"gen-app-drift":   checkGenAppDrift,
 	"logging-stdlib":  checkLoggingStdlib,
 	"no-panic":        checkNoPanic,
 	"prd-prompt-seam": checkPRDPromptSeam,
 	"prd-structure":   checkPRDStructure,
+
+	"berrors-with-discard":      checkBerrorsWithDiscard,
+	"errors-bridge-import":      checkErrorsBridgeImport,
+	"http-envelope-shape":       checkHTTPEnvelopeShape,
+	"assembly-import-in-biz":    checkAssemblyImportInBusiness,
+	"reuse-vendored-bald":       checkReuseVendoredBald,
+	"ctx-string-key":            checkCtxStringKey,
+	"validate-signature":        checkValidateSignature,
+	"store-tenant-init":         checkStoreTenantInit,
+	"store-handwritten-tenant":  checkStoreHandwrittenTenant,
+	"assembly-plan-impure":      checkAssemblyPlanImpure,
+	"transport-stop-background": checkTransportStopBackground,
+	"testing-bare-addr":         checkTestingBareAddr,
 }
 
 // checkGenAppDrift 复用 gen app 的零差异门（checkTree）：spec 不存在视为
@@ -416,6 +445,31 @@ func missingFields(section string, fields []string) []string {
 	return missing
 }
 
+// registryNames 返回注册表里的 checker 名（稳定排序，供报错与覆盖口径用）。
+func registryNames() []string {
+	names := make([]string, 0, len(registry))
+	for k := range registry {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// coverage 返回本次实际跑到的 checker 所绑定的**不同规则**数与卡库总规则数。
+//
+// 口径刻意取「跑了哪几条」而不是「注册了几条」：--rules / --min-level 过滤掉
+// 的 checker 没跑，它的规则这一轮就没被机器判过，不该算进覆盖。这也是「绿」
+// 能被解释的前提——覆盖 8% 的绿和覆盖 100% 的绿不是一个结论。
+func coverage(res *checkResult) (covered, total int) {
+	seen := map[string]bool{}
+	for _, name := range res.OK {
+		if rule, ok := checkerRule[name]; ok {
+			seen[rule] = true
+		}
+	}
+	return len(seen), res.Rules
+}
+
 // levelRank 把级别映射为可比较的序（强制 0 < 建议 1 < 参考 2）。
 func levelRank(level string) int {
 	switch level {
@@ -442,6 +496,7 @@ type checkOptions struct {
 	MinLevel       string   // --min-level：mandatory|recommended|reference（flag 值）
 	Format         string   // --format：text | json
 	FailOnFindings bool     // --fail-on-findings：有 finding 时非零退出（CI 拦截用）
+	MinCoverage    float64  // --min-coverage：覆盖率下限（百分比），0 表示不设限
 }
 
 // checkResult 是一次 check 的汇总（命令层据此打印与决定退出码）。
@@ -478,7 +533,8 @@ func runCheck(opts checkOptions) (*checkResult, error) {
 		for _, name := range c.Checks {
 			bound, ok := checkerRule[name]
 			if !ok {
-				return nil, fmt.Errorf("card %s declares unknown checker %q (known: gen-app-drift)", c.ID, name)
+				return nil, fmt.Errorf("card %s declares unknown checker %q (known: %s)",
+					c.ID, name, strings.Join(registryNames(), ", "))
 			}
 			if len(onlyRules) > 0 && !onlyRules[bound] {
 				res.Skipped = append(res.Skipped, name+" (--rules filter)")
@@ -506,6 +562,7 @@ func runCheck(opts checkOptions) (*checkResult, error) {
 // printCheck 按 format 输出结果。text：全部进 Out；json：findings 数组进 Out
 // （结构化消费方只看 stdout），状态摘要进 ErrOut。返回是否应以非零码退出。
 func printCheck(res *checkResult, opts checkOptions, streams Streams) (fail bool) {
+	covered, total := coverage(res)
 	if opts.Format == "json" {
 		found := res.Found
 		if found == nil {
@@ -515,8 +572,8 @@ func printCheck(res *checkResult, opts checkOptions, streams Streams) (fail bool
 		if err == nil {
 			fmt.Fprintln(streams.Out, string(raw))
 		}
-		fmt.Fprintf(streams.ErrOut, "cards: %d rules: %d ok: %v skipped: %v findings: %d\n",
-			res.Cards, res.Rules, res.OK, res.Skipped, len(res.Found))
+		fmt.Fprintf(streams.ErrOut, "cards: %d rules: %d ok: %v skipped: %v findings: %d coverage: %s\n",
+			res.Cards, res.Rules, res.OK, res.Skipped, len(res.Found), coverageText(covered, total))
 	} else {
 		fmt.Fprintf(streams.Out, "checked: cards integrity (%d cards, %d rules)\n", res.Cards, res.Rules)
 		for _, name := range res.OK {
@@ -532,6 +589,17 @@ func printCheck(res *checkResult, opts checkOptions, streams Streams) (fail bool
 			fmt.Fprintf(streams.Out, "  suggestion: %s\n", f.Suggestion)
 		}
 		fmt.Fprintf(streams.Out, "findings: %d\n", len(res.Found))
+		// 覆盖行必须紧跟 findings：读的人先看到「几条问题」，再看到「这轮到底
+		// 判了几条规则」——没有后者，findings: 0 会被读成「代码合规」。
+		fmt.Fprintf(streams.Out, "covered: %s\n", coverageText(covered, total))
 	}
 	return opts.FailOnFindings && len(res.Found) > 0
+}
+
+// coverageText 是覆盖率的单行表述（percentage 保留一位小数）。
+func coverageText(covered, total int) string {
+	if total <= 0 {
+		return "0/0 rules"
+	}
+	return fmt.Sprintf("%d/%d rules (%.1f%%)", covered, total, float64(covered)*100/float64(total))
 }

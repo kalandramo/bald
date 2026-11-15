@@ -158,7 +158,10 @@ func checkCmd(streams Streams) *cobra.Command {
 		Long: `规范文档解决「怎么做」，check 解决「有没有做到」。
 
 只跑能被程序稳定判断的检查：卡集完整性（规则 ID 唯一合法）与卡声明的
-确定性检查器（当前注册表：gen-app-drift，即 gen app --check 的零差异门）。
+确定性检查器（注册表见 bald convention overview 的 checks 列）。输出末尾的
+covered 行是「这轮实际判了几条规则 / 卡库总规则数」——没有它，findings: 0
+会被读成「代码合规」，而实际只判了一小部分。--min-coverage 让 CI 可以要求
+这个比例不低于某值，防止「加了规则却没人写 checker」静默稀释门禁。
 check 通过不代表代码一定符合规范——它只是机械化的底线，代码评审不可替代。
 
 退出码语义（onexai 口径）：默认发现问题时仍为 0，让 MCP 客户端拿到完整
@@ -169,6 +172,14 @@ check 通过不代表代码一定符合规范——它只是机械化的底线�
 			res, err := runCheck(*o)
 			if err != nil {
 				return err
+			}
+			covered, total := coverage(res)
+			if o.MinCoverage > 0 && total > 0 {
+				pct := float64(covered) * 100 / float64(total)
+				if pct < o.MinCoverage {
+					return fmt.Errorf("checker coverage %s is below --min-coverage %.1f%%",
+						coverageText(covered, total), o.MinCoverage)
+				}
 			}
 			if printCheck(res, *o, streams) {
 				// 与 CheckErr 的码 1 区分开不必要——这里就是「有 finding 且
@@ -182,6 +193,7 @@ check 通过不代表代码一定符合规范——它只是机械化的底线�
 	cmd.Flags().StringVar(&o.MinLevel, "min-level", "mandatory", "最低检查级别：mandatory | recommended | reference")
 	cmd.Flags().StringVar(&o.Format, "format", "text", "输出格式：text | json")
 	cmd.Flags().BoolVar(&o.FailOnFindings, "fail-on-findings", false, "发现问题时以非零码退出（CI 拦截用；默认 0 以便 MCP 拿完整结果）")
+	cmd.Flags().Float64Var(&o.MinCoverage, "min-coverage", 0, "覆盖率下限（百分比，如 8）；低于此值直接失败，0 表示不设限")
 	var rulesRaw string
 	cmd.Flags().StringVar(&rulesRaw, "rules", "", "只跑绑定这些规则 ID 的 checker（逗号分隔，如 codegen-r03）")
 	// --rules 在执行前切分进 opts.Rules（PreRunE 在 Validate/RunE 之前跑）。
