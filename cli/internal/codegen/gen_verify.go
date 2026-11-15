@@ -18,10 +18,14 @@ package codegen
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
+	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/kalandramo/bald/cobramcp"
+
+	appspecv1 "github.com/kalandramo/bald/bconf/gen/go/bald/appspec/v1"
 )
 
 // verifyOptions 是 gen verify 叶子命令的领域配置。
@@ -52,6 +56,23 @@ func (o *verifyOptions) Run() error {
 	fmt.Fprintln(o.Out, "verify: app tree")
 	if err := runGenAppSpec(o.Spec, o.OutRoot, false, true, o.ioStreams); err != nil {
 		return fmt.Errorf("app tree: %w", err)
+	}
+	// 域腿只在声明了域时才有「产物」可言：gen app 刚播的新树（domains 为空）
+	// 还没有 alias.gen.go / domains.manifest.json 这类产物，拿「缺文件」判它
+	// 会让 verify 对自己刚生成的树必红，而 gen app --check 是绿的——两个只读
+	// 口径打架。空声明时跳过域腿，口径与 app 腿统一。
+	specRaw, err := os.ReadFile(o.Spec)
+	if err != nil {
+		return fmt.Errorf("read spec: %w", err)
+	}
+	as := &appspecv1.AppSpec{}
+	if err := protojson.Unmarshal(specRaw, as); err != nil {
+		return fmt.Errorf("parse AppSpec (protojson): %w", err)
+	}
+	if len(as.GetDomains()) == 0 {
+		fmt.Fprintln(o.Out, "skip: domain artifacts (spec declares no domains)")
+		fmt.Fprintln(o.Out, "verified:", o.Spec, "(app tree matches the declaration)")
+		return nil
 	}
 	fmt.Fprintln(o.Out, "verify: domain artifacts")
 	dom := &domainOptions{Spec: o.Spec, OutDir: o.OutRoot, Check: true, NoBind: o.NoBind, ioStreams: o.ioStreams}

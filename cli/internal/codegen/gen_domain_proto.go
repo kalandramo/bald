@@ -410,10 +410,61 @@ func protoTypeRef(pkg, t string) string {
 }
 
 // normalizeProtoType 把 proto 里的消息类型名折算为 Go 类型名：去 proto package
-// 前缀，嵌套类型的分隔点换 "_"（protoc-gen-go 的命名规则）。
+// 前缀后按 protoc-gen-go 的 GoCamelCase 规则命名。
+//
+// 规则必须与 protoc-gen-go 完全一致（protobuf@v1.36 的
+// internal/strs.GoCamelCase）：'.' 换 '_'，'_' 后跟小写字母则删 '_' 并大写该
+// 字母，连续 '_' 只消费一个——`post__x` 生成 `Post_X` 而不是 `Post__x`。
+// 曾经只做「前缀剥离 + 点换下划线」，连续下划线原样保留，绑定量是
+// Post__xListRequest 而 pb.go 里是 Post_XListRequest，同一份契约派生出两套
+// 互不相识的命名（对抗审查 adv-codegen Bug1：树必编译失败）。
 func normalizeProtoType(pkg, t string) string {
 	t = strings.TrimPrefix(t, pkg+".")
-	return strings.ReplaceAll(t, ".", "_")
+	// 嵌套消息的 Go 名是「父 Go 名 + "_" + 每级 GoCamelCase」（protogen 逐级拼），
+	// 所以先按 '.' 分级、每级单独折叠，再用 '_' 连接——整串处理会把
+	// Parent.child 折成 ParentChild（丢了层级分隔）。
+	segs := strings.Split(t, ".")
+	for i := range segs {
+		segs[i] = goCamelCase(segs[i])
+	}
+	return strings.Join(segs, "_")
+}
+
+// goCamelCase 与 google.golang.org/protobuf/internal/strs.GoCamelCase 同规则
+// （internal 包不可导入，这里照实现誊抄，测试用真实 pb.go 的产物对账）。
+func goCamelCase(s string) string {
+	var b []byte
+	isASCIILower := func(c byte) bool { return 'a' <= c && c <= 'z' }
+	isASCIIDigit := func(c byte) bool { return '0' <= c && c <= '9' }
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c == '.' && i+1 < len(s) && isASCIILower(s[i+1]):
+			// Skip over '.' in ".{{lowercase}}".
+		case c == '.':
+			b = append(b, '_') // convert '.' to '_'
+		case c == '_' && (i == 0 || s[i-1] == '.'):
+			// Convert initial '_' to ensure we start with a capital letter.
+			// Do the same for '_' after '.' to match historic behavior.
+			b = append(b, 'X') // convert '_' to 'X'
+		case c == '_' && i+1 < len(s) && isASCIILower(s[i+1]):
+			// Skip over '_' in "_{{lowercase}}".
+		case isASCIIDigit(c):
+			b = append(b, c)
+		default:
+			// Assume we have a letter now - if not, it's a bogus identifier.
+			if isASCIILower(c) {
+				c -= 'a' - 'A' // convert lowercase to uppercase
+			}
+			b = append(b, c)
+
+			// Accept lower case sequence that follows.
+			for ; i+1 < len(s) && isASCIILower(s[i+1]); i++ {
+				b = append(b, s[i+1])
+			}
+		}
+	}
+	return string(b)
 }
 
 // parseProtoGoPackage 拆 proto 的 option go_package（"path;alias" 或 "path"）：

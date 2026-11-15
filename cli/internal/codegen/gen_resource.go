@@ -380,7 +380,13 @@ func declWithServices(as *appspecv1.AppSpec, name, protoPkg, goPkg string, servi
 func assignDomainToRole(as *appspecv1.AppSpec, domain, role string) error {
 	roles := as.GetMeta().GetRoles()
 	if len(roles) == 0 {
-		return nil // 空 roles = 单角色形态，Gate1 不校验归属
+		// 空 roles = 单角色形态，Gate1 不校验归属——但**显式点名**的角色仍然
+		// 要校验：静默接受一个不存在的角色（adv-codegen 观察 C）与多角色树上
+		// 报 unknown role 的口径自相矛盾，且让调用方误以为挂载生效了。
+		if role != "" {
+			return fmt.Errorf("unknown role %q (meta.roles is empty)", role)
+		}
+		return nil
 	}
 	names := make([]string, 0, len(roles))
 	for _, r := range roles {

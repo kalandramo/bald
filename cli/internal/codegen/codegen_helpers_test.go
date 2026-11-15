@@ -225,6 +225,17 @@ func TestHelpers_NormalizeProtoType(t *testing.T) {
 		{"greet.v1", "greet.v1.Msg", "Msg"},
 		{"greet.v1", "Msg.Nested", "Msg_Nested"},
 		{"", "X", "X"},
+		// 下划线折叠必须与 protoc-gen-go 的 GoCamelCase 一致（protobuf@v1.36
+		// internal/strs）：连续 '_' 只消费一个。adv-codegen 审查的真实事故：
+		// kind post__x 生成的 proto message 叫 Post__x，pb.go 里的 Go 类型是
+		// Post_X（real /tmp/adv-codegen/_tmpbuild/b3/api/gen/solo/v1/post__x.pb.go），
+		// 旧的「只换点不折叠」让绑定引用 Post__x* → 10 个 undefined。
+		{"solo.v1", "solo.v1.post__x", "Post_X"},
+		{"solo.v1", "solo.v1.post_x", "PostX"},
+		{"solo.v1", "solo.v1.post_", "Post_"},
+		// 嵌套消息逐级折叠、'_' 连接（protogen 逐级拼 GoName）；本级内部的
+		// 连续下划线仍按 GoCamelCase 折叠（child__deep → Child_Deep）。
+		{"solo.v1", "solo.v1.Parent.child__deep", "Parent_Child_Deep"},
 	}
 	for _, c := range cases {
 		if got := normalizeProtoType(c.pkg, c.in); got != c.want {

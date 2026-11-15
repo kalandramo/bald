@@ -19,6 +19,8 @@ type wellKnownType struct {
 
 // wellKnownTypes 覆盖 google/protobuf 下会被业务契约直接引用的那批类型。
 // 未列出的知名类型不猜：落到域包前缀上，编译期立刻暴露（比默默生成错名好）。
+// wrapperspb 家族是完整的八个——漏一个就生成 `域包.google_protobuf_Int32Value`
+// 这种双重非法的未导出标识符（对抗审查 adv-codegen Bug2 实测 Int32Value）。
 var wellKnownTypes = map[string]wellKnownType{
 	"google.protobuf.Empty":       {Import: "google.golang.org/protobuf/types/known/emptypb", Alias: "emptypb", Type: "Empty"},
 	"google.protobuf.Timestamp":   {Import: "google.golang.org/protobuf/types/known/timestamppb", Alias: "timestamppb", Type: "Timestamp"},
@@ -29,9 +31,15 @@ var wellKnownTypes = map[string]wellKnownType{
 	"google.protobuf.Value":       {Import: "google.golang.org/protobuf/types/known/structpb", Alias: "structpb", Type: "Value"},
 	"google.protobuf.ListValue":   {Import: "google.golang.org/protobuf/types/known/structpb", Alias: "structpb", Type: "ListValue"},
 	"google.protobuf.NullValue":   {Import: "google.golang.org/protobuf/types/known/structpb", Alias: "structpb", Type: "NullValue"},
-	"google.protobuf.StringValue": {Import: "google.golang.org/protobuf/types/known/wrapperspb", Alias: "wrapperspb", Type: "StringValue"},
+	"google.protobuf.DoubleValue": {Import: "google.golang.org/protobuf/types/known/wrapperspb", Alias: "wrapperspb", Type: "DoubleValue"},
+	"google.protobuf.FloatValue":  {Import: "google.golang.org/protobuf/types/known/wrapperspb", Alias: "wrapperspb", Type: "FloatValue"},
 	"google.protobuf.Int64Value":  {Import: "google.golang.org/protobuf/types/known/wrapperspb", Alias: "wrapperspb", Type: "Int64Value"},
+	"google.protobuf.UInt64Value": {Import: "google.golang.org/protobuf/types/known/wrapperspb", Alias: "wrapperspb", Type: "UInt64Value"},
+	"google.protobuf.Int32Value":  {Import: "google.golang.org/protobuf/types/known/wrapperspb", Alias: "wrapperspb", Type: "Int32Value"},
+	"google.protobuf.UInt32Value": {Import: "google.golang.org/protobuf/types/known/wrapperspb", Alias: "wrapperspb", Type: "UInt32Value"},
 	"google.protobuf.BoolValue":   {Import: "google.golang.org/protobuf/types/known/wrapperspb", Alias: "wrapperspb", Type: "BoolValue"},
+	"google.protobuf.StringValue": {Import: "google.golang.org/protobuf/types/known/wrapperspb", Alias: "wrapperspb", Type: "StringValue"},
+	"google.protobuf.BytesValue":  {Import: "google.golang.org/protobuf/types/known/wrapperspb", Alias: "wrapperspb", Type: "BytesValue"},
 }
 
 // goTypeExpr 把 proto 类型名折算成生成代码里的类型表达式，并返回需要的额外

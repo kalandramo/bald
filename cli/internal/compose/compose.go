@@ -123,23 +123,29 @@ func lookup(name string) (service, error) {
 }
 
 // selectServices 把位置参数解析成服务集合：空 = 全量；名字保序去重；未知名报错。
+//
+// 逗号分隔的整串（"etcd,redis"）按多服务拆分——Taskfile 的 SVC=etcd,redis 会把
+// 逗号串原样传进来（`compose up {{.SVC}}`），按单个未知名报错等于文档照抄即错
+// （adv-surface 发现 3）。--service flag 的逗号语义与此一致。
 func selectServices(names []string) ([]service, error) {
 	if len(names) == 0 {
 		return catalog, nil
 	}
 	seen := map[string]bool{}
-	out := make([]service, 0, len(names))
+	var out []service
 	for _, raw := range names {
-		name := strings.TrimSpace(raw)
-		if name == "" || seen[name] {
-			continue
+		for _, name := range strings.Split(raw, ",") {
+			name = strings.TrimSpace(name)
+			if name == "" || seen[name] {
+				continue
+			}
+			seen[name] = true
+			s, err := lookup(name)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, s)
 		}
-		seen[name] = true
-		s, err := lookup(name)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, s)
 	}
 	if len(out) == 0 {
 		return nil, fmt.Errorf("no service selected (available: %s)", strings.Join(Services(), ", "))

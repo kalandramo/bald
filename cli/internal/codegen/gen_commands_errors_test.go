@@ -77,7 +77,12 @@ func TestGenProtoStore_EmptyNameRejected(t *testing.T) {
 }
 
 // TestDomainOptions_CompleteDefaults 缺省值：产出根 "."、清单 internal/bootstrap、
-// proto 命令 buf generate。
+// proto 命令按 buf 布局选——无 buf.gen.yaml 时回落裸 `buf generate`，有
+// api/buf.gen.yaml（gen app 的树）时选 `cd api && buf generate`。
+//
+// 第二个分支是防回归的关键：--proto-cmd 的 flag 默认值必须是**空串**，布局探测
+// 在 Complete 里才生效。曾有人把 defaultProtoCmd 写进 flag 默认值，探测死代码化，
+// gen domain 在 gen app 的树上必报 "read buf.gen.yaml: file does not exist"。
 func TestDomainOptions_CompleteDefaults(t *testing.T) {
 	o := &domainOptions{}
 	if err := o.Complete(); err != nil {
@@ -91,6 +96,23 @@ func TestDomainOptions_CompleteDefaults(t *testing.T) {
 	}
 	if o.ProtoCmd != defaultProtoCmd {
 		t.Errorf("ProtoCmd = %q, want %q", o.ProtoCmd, defaultProtoCmd)
+	}
+
+	// gen app 的树：api/buf.gen.yaml 存在 → 命令必须 cd 进 api/。
+	t.Chdir(t.TempDir())
+	if err := os.MkdirAll(filepath.Join("api"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join("api", "buf.gen.yaml"), []byte("version: v2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	o2 := &domainOptions{}
+	if err := o2.Complete(); err != nil {
+		t.Fatalf("Complete (api layout): %v", err)
+	}
+	want := "cd api && " + defaultProtoCmd
+	if o2.ProtoCmd != want {
+		t.Errorf("ProtoCmd = %q, want %q (buf config lives under api/)", o2.ProtoCmd, want)
 	}
 }
 

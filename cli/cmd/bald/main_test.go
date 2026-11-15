@@ -4,9 +4,9 @@ package main
 //
 // 工具面每扩一格，AI 就多一份能改用户仓库的能力。边界靠三件事守住：
 //
-//  1. 写命令不进（gen domain/proto/store/resource、release、ide init）
-//  2. 进的那条要么天然只读（convention），要么排掉了写 flag（gen app 无
-//     adopt/preset），要么构造上只读（gen verify 两条腿都是 --check）
+//  1. 写命令不进（gen app/domain/proto/store/resource、release、ide init、prd）
+//  2. 进的那条要么天然只读（convention），要么构造上只读（gen verify 两条腿
+//     都是 --check）
 //  3. 新增命令默认不进——空选择器会让工具面被动扩大，所以这里遍历真实命令树
 //     逐个判，而不是维护一份允许清单
 
@@ -66,9 +66,15 @@ func TestMCPSurface_OnlyReadOnlyCommands(t *testing.T) {
 	sels := mcpSelectors()
 
 	// 明确不进工具面的写/外向命令（新增写命令时这条断言逼你表态）。
+	//   - gen app 整体不进：它的 schema 里 --check 是可选布尔，客户端不传时
+	//     执行的就是写树路径——排除个别 flag 钉不住只读承诺（cobramcp 没有
+	//     「钉住取值」的原语），自证统一走 gen verify。
+	//   - release changelog 写 CHANGELOG.md，prd translate 写翻译提示词文件，
+	//     都是真实写路径，与 plan/sync/tag 同罪。
 	mustBeExcluded := []string{
-		"gen proto", "gen store", "gen domain", "gen resource",
-		"ide init", "release plan", "release sync", "release tag",
+		"gen app", "gen proto", "gen store", "gen domain", "gen resource",
+		"ide init", "release plan", "release sync", "release changelog", "release tag",
+		"prd translate",
 		// compose 整组不进：起停本机容器是不可回滚的环境副作用；只读的那三个
 		// （list/config/status）也不进——本机环境归人管，信息在 `compose list` 里。
 		"compose up", "compose stop", "compose down", "compose status",
@@ -99,32 +105,6 @@ func TestMCPSurface_OnlyReadOnlyCommands(t *testing.T) {
 	verify := leaves["gen verify"]
 	if got := verify.Annotations[cobramcp.AnnotationReadOnly]; got != "true" {
 		t.Errorf("gen verify must be annotated readOnlyHint=true (it is read-only by construction), got %q", got)
-	}
-
-	// gen app：进，但写 flag 必须排掉——adopt 会覆盖 owned 文件，preset 会写
-	// appspec.json，两者都是「改用户仓库」。
-	app, ok := leaves["gen app"]
-	if !ok {
-		t.Fatal("gen app must exist")
-	}
-	sel := selectorFor(app, sels)
-	if sel == nil {
-		t.Fatal("gen app must be exposed over MCP (read-only --check form)")
-	}
-	if sel.LocalFlagSelector == nil {
-		t.Fatal("gen app selector must filter flags (adopt/preset write to the tree)")
-	}
-	for _, name := range []string{"adopt", "preset"} {
-		flag := app.Flags().Lookup(name)
-		if flag == nil {
-			t.Fatalf("gen app must declare --%s", name)
-		}
-		if sel.LocalFlagSelector(flag) {
-			t.Errorf("--%s must be excluded from the MCP tool schema", name)
-		}
-	}
-	if sel.LocalFlagSelector(app.Flags().Lookup("check")) == false {
-		t.Error("--check must stay available over MCP (it is the read-only entry)")
 	}
 
 	// convention：只读查询面，flags 不设限。

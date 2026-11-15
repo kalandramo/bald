@@ -482,3 +482,20 @@ func TestGenResource_DiscoversSpec(t *testing.T) {
 		t.Errorf("discovery path must generate the same tree: %v", err)
 	}
 }
+
+// TestGenResource_UnknownRoleOnEmptyRoles 空 roles 树（单角色形态）上显式点名
+// 一个不存在的角色必须报错——静默接受与多角色树的 unknown role 口径自相矛盾，
+// 且让调用方误以为挂载生效（adv-codegen 观察 C）。
+func TestGenResource_UnknownRoleOnEmptyRoles(t *testing.T) {
+	dir := t.TempDir()
+	scaffoldModule(t, dir, "demo.example/app")
+	specPath := writeSpecJSON(t, dir, resourceFixture()) // meta.roles 为空
+
+	_, err := runGenResource(t, dir, specPath, "--domain", "post", "--kind", "post", "--apply-decl", "--role", "ghost")
+	if err == nil {
+		t.Fatal("explicit --role ghost on an empty-roles tree must be refused")
+	}
+	if !strings.Contains(err.Error(), "unknown role") {
+		t.Errorf("error must say unknown role, got: %v", err)
+	}
+}

@@ -218,6 +218,21 @@ func TestUnknownService(t *testing.T) {
 	}
 }
 
+// TestUpCommaSeparatedServices 位置参数支持逗号串（Taskfile 的
+// `compose up {{.SVC}}` 会把 SVC=etcd,redis 原样传成一个参数）——
+// 曾按单个未知名报错，文档照抄即错（adv-surface 发现 3）。
+func TestUpCommaSeparatedServices(t *testing.T) {
+	out, err := runCmd(t, "up", "etcd,redis", "--dry-run")
+	if err != nil {
+		t.Fatalf("comma-separated services must be accepted: %v", err)
+	}
+	for _, want := range []string{"up -d etcd redis", "-p bald-infra"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("argv must contain %q, got:\n%s", want, out)
+		}
+	}
+}
+
 // TestList 目录输出含名字/镜像/地址，且声明序稳定。
 func TestList(t *testing.T) {
 	out, err := runCmd(t, "list")

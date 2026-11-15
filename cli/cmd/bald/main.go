@@ -62,21 +62,21 @@ func main() {
 // MCP 面：只读动作进，写动作挡（渐进式放行见 docs/architecture/
 // onexai-gap-review.md §6.2 与 developer-experience-review.md DX-16）。
 //   - convention：查规范，天然只读；
-//   - gen app：**排除 adopt/preset 两个写 flag 后是纯只读校验**（--check 零
-//     写入验证生成树与声明一致）——AI 可以自证声明一致性，但不能改树；
 //   - gen verify：**从构造上只读**（内部两条腿都是各自的 --check 分支），
 //     覆盖 app 树 + 域产物；标注 readOnly/idempotent，客户端无需确认框。
 //
-// gen 的其它子命令（domain/proto/store/resource）是写动作，不进——不靠
-// destructiveHint 让客户端提醒，而是根本不给工具面。留空的选择器只会让工具面
-// 随命令新增而被动扩大，所以这条边界由 cmd/bald/main_test.go 钉住。
+// gen app 曾经以「排除 adopt/preset 两个写 flag」的形态进面，已撤出：它的
+// schema 里 --check 是可选布尔，客户端不传时执行的就是写树路径——readOnlyHint
+// 与实际行为矛盾（cobramcp 没有「钉住取值」的原语，排除 flag 不够）。自证统一
+// 走 gen verify，能力无损失（app 树那条腿就是 gen app --check 的同一份实现）。
+//
+// gen 的其它子命令（domain/proto/store/resource）与 release/compose 是写/外向
+// 动作，不进——不靠 destructiveHint 让客户端提醒，而是根本不给工具面。留空的
+// 选择器只会让工具面随命令新增而被动扩大，所以这条边界由 cmd/bald/main_test.go
+// 钉住。
 func mcpSelectors() []cobramcp.Selector {
 	return []cobramcp.Selector{
 		{CmdSelector: cobramcp.AllowCmdsContaining("convention")},
-		{
-			CmdSelector:       cobramcp.AllowCmdsContaining("gen app"),
-			LocalFlagSelector: cobramcp.ExcludeFlags("adopt", "preset"),
-		},
 		{CmdSelector: cobramcp.AllowCmdsContaining("gen verify")},
 	}
 }

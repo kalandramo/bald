@@ -17,7 +17,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 )
 
@@ -25,13 +24,6 @@ import (
 // 缺席，任何猜测都会产出 import 不到自己的树。
 var errNoGoPackageSource = errors.New("cannot derive option go_package: no buf managed-mode go_package_prefix found " +
 	"and meta.module is empty (set meta.module, or declare the domain with an explicit proto_package)")
-
-// reGoPackagePrefix 抓 buf managed mode 里 go_package_prefix 的取值：
-//
-//	override:
-//	  - file_option: go_package_prefix
-//	    value: example.com/mod/api/gen
-var reGoPackagePrefix = regexp.MustCompile(`(?m)file_option:\s*go_package_prefix\s*(?:\n|\r)*\s*value:\s*["']?([^\s"']+)`)
 
 // bufGoPackagePrefix 返回树的 managed-mode go 包前缀（读不到时返回空串）。
 //
@@ -47,8 +39,50 @@ func bufGoPackagePrefix(outRoot, protoRoot string) string {
 		if err != nil {
 			continue
 		}
-		if m := reGoPackagePrefix.FindStringSubmatch(string(raw)); m != nil {
-			return strings.TrimSuffix(strings.TrimSpace(m[1]), "/")
+		if v := firstUnqualifiedGoPackagePrefix(string(raw)); v != "" {
+			return strings.TrimSuffix(strings.TrimSpace(v), "/")
+		}
+	}
+	return ""
+}
+
+// firstUnqualifiedGoPackagePrefix 扫 buf.gen.yaml 的 managed.override，返回第一个
+// **不带 path 限定**的 go_package_prefix 条目取值；没有则返回空串。
+//
+// 为什么不能一条正则「抓第一个 go_package_prefix」：buf 生态常见的写法是第一条
+// 带 path 限定（如把 google/protobuf 的包改到 gofeaturepb），真正的前缀在后面的
+// 无限定条目里——抓第一个会把新 proto 的 go_package 写进第三方包路径，绑定
+// import 一个不存在的包（adv-codegen Bug3，b4 repro 实测）。
+func firstUnqualifiedGoPackagePrefix(src string) string {
+	lines := strings.Split(src, "\n")
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "- ") ||
+			!strings.Contains(trimmed, "file_option:") ||
+			!strings.Contains(trimmed, "go_package_prefix") {
+			continue
+		}
+		entryIndent := len(line) - len(strings.TrimLeft(line, " \t"))
+		value, hasPath := "", false
+		for j := i + 1; j < len(lines); j++ {
+			l := lines[j]
+			if strings.TrimSpace(l) == "" {
+				continue
+			}
+			ind := len(l) - len(strings.TrimLeft(l, " \t"))
+			t := strings.TrimSpace(l)
+			if ind <= entryIndent || strings.HasPrefix(t, "- ") {
+				break // 本条目结束
+			}
+			if strings.HasPrefix(t, "value:") {
+				value = strings.Trim(strings.TrimPrefix(t, "value:"), " \t\"'")
+			}
+			if strings.HasPrefix(t, "path:") {
+				hasPath = true
+			}
+		}
+		if value != "" && !hasPath {
+			return value
 		}
 	}
 	return ""
