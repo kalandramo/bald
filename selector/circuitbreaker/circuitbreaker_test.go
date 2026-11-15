@@ -150,7 +150,7 @@ func TestNewRegistryNilFactoryPanics(t *testing.T) {
 }
 
 func TestRegistryHealthyUnknownIsHealthy(t *testing.T) {
-	r := NewRegistry(func() cb.CircuitBreaker { return &fakeBreaker{} })
+	r := NewRegistry(func(string) cb.CircuitBreaker { return &fakeBreaker{} })
 	if !r.Healthy("never-seen") {
 		t.Fatal("未构造熔断器的地址应视为健康（新节点乐观放行）")
 	}
@@ -165,7 +165,7 @@ func TestRegistryHealthyUnknownIsHealthy(t *testing.T) {
 
 func TestRegistryGetLazyAndSingleton(t *testing.T) {
 	var calls atomic.Int64
-	r := NewRegistry(func() cb.CircuitBreaker {
+	r := NewRegistry(func(string) cb.CircuitBreaker {
 		calls.Add(1)
 		return &fakeBreaker{}
 	})
@@ -185,7 +185,7 @@ func TestRegistryGetLazyAndSingleton(t *testing.T) {
 func TestWithCircuitBreakerHardExcludesOpenNode(t *testing.T) {
 	bad := &fakeBreaker{}
 	bad.setState(cb.StateOpen)
-	r := NewRegistry(func() cb.CircuitBreaker { return &fakeBreaker{} })
+	r := NewRegistry(func(string) cb.CircuitBreaker { return &fakeBreaker{} })
 	r.breakers["bad"] = bad
 
 	// 内层用 round_robin：若硬排除失效，坏节点会按轮询周期性地被选中。
@@ -204,7 +204,7 @@ func TestWithCircuitBreakerHardExcludesOpenNode(t *testing.T) {
 }
 
 func TestWithCircuitBreakerAllOpenReturnsErrCircuitOpen(t *testing.T) {
-	r := NewRegistry(func() cb.CircuitBreaker {
+	r := NewRegistry(func(string) cb.CircuitBreaker {
 		b := &fakeBreaker{}
 		b.setState(cb.StateOpen)
 		return b
@@ -221,7 +221,7 @@ func TestWithCircuitBreakerAllOpenReturnsErrCircuitOpen(t *testing.T) {
 }
 
 func TestWithCircuitBreakerEmptyNodesReturnsErrCircuitOpen(t *testing.T) {
-	r := NewRegistry(func() cb.CircuitBreaker { return &fakeBreaker{} })
+	r := NewRegistry(func(string) cb.CircuitBreaker { return &fakeBreaker{} })
 	sel := WithCircuitBreaker(firstSelector{}, r)
 	_, _, err := sel.Select(context.Background(), nil)
 	if !errors.Is(err, cb.ErrCircuitOpen) {
@@ -231,7 +231,7 @@ func TestWithCircuitBreakerEmptyNodesReturnsErrCircuitOpen(t *testing.T) {
 
 func TestWithCircuitBreakerFeedbackMarks(t *testing.T) {
 	fb := &fakeBreaker{}
-	r := NewRegistry(func() cb.CircuitBreaker { return fb })
+	r := NewRegistry(func(string) cb.CircuitBreaker { return fb })
 	sel := WithCircuitBreaker(firstSelector{}, r)
 
 	_, done, err := sel.Select(context.Background(), []selector.Node{node("a")})
@@ -254,7 +254,7 @@ func TestWithCircuitBreakerFeedbackMarks(t *testing.T) {
 func TestWithCircuitBreakerRecoveryViaStateQuery(t *testing.T) {
 	fb := &fakeBreaker{}
 	fb.setState(cb.StateOpen)
-	r := NewRegistry(func() cb.CircuitBreaker { return fb })
+	r := NewRegistry(func(string) cb.CircuitBreaker { return fb })
 	r.Get("a")
 	sel := WithCircuitBreaker(firstSelector{}, r)
 	nodes := []selector.Node{node("a")}
@@ -275,7 +275,7 @@ func TestWithCircuitBreakerRecoveryViaStateQuery(t *testing.T) {
 
 func TestRegistryPruneClosesStale(t *testing.T) {
 	stale := &fakeBreaker{}
-	r := NewRegistry(func() cb.CircuitBreaker { return &fakeBreaker{} })
+	r := NewRegistry(func(string) cb.CircuitBreaker { return &fakeBreaker{} })
 	r.Get("a")
 	r.breakers["stale"] = stale
 
@@ -297,7 +297,7 @@ func TestRegistryPruneClosesStale(t *testing.T) {
 }
 
 func TestRegistryPruneSteadyStateKeepsAll(t *testing.T) {
-	r := NewRegistry(func() cb.CircuitBreaker { return &fakeBreaker{} })
+	r := NewRegistry(func(string) cb.CircuitBreaker { return &fakeBreaker{} })
 	r.Get("a")
 	r.Get("b")
 	r.Prune([]selector.Node{node("a"), node("b")})
@@ -310,7 +310,7 @@ func TestRegistryPruneSteadyStateKeepsAll(t *testing.T) {
 }
 
 func TestRegistryCloseReleasesAll(t *testing.T) {
-	r := NewRegistry(func() cb.CircuitBreaker { return &fakeBreaker{} })
+	r := NewRegistry(func(string) cb.CircuitBreaker { return &fakeBreaker{} })
 	b1 := r.Get("a").(*fakeBreaker)
 	b2 := r.Get("b").(*fakeBreaker)
 	if err := r.Close(); err != nil {
@@ -330,7 +330,7 @@ func TestRegistryCloseReleasesAll(t *testing.T) {
 // TestWithCircuitBreakerSentinelIntegration 用真 sentinel 证明 State/Mark*
 // 契约端到端可用：喂失败跳闸 → 硬排除 → 睡窗后探针恢复。
 func TestWithCircuitBreakerSentinelIntegration(t *testing.T) {
-	r := NewRegistry(func() cb.CircuitBreaker {
+	r := NewRegistry(func(string) cb.CircuitBreaker {
 		return newSentinelBreaker(t, 2)
 	})
 	defer r.Close()
@@ -383,7 +383,7 @@ func TestWithCircuitBreakerSentinelIntegration(t *testing.T) {
 // 无规则资源直接短路，不发探针），把并发压力集中在 Registry/装饰器本身。
 func TestWithCircuitBreakerConcurrent(t *testing.T) {
 	ensureSentinel(t)
-	r := NewRegistry(func() cb.CircuitBreaker {
+	r := NewRegistry(func(string) cb.CircuitBreaker {
 		return wbsentinel.New(fmt.Sprintf("selector-cb.concurrent.%d", cbResSeq.Add(1)))
 	})
 	defer r.Close()
