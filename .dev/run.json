@@ -5,16 +5,54 @@
   "base_branch": "main",
   "branch": "dev/outbound-per-node-cb",
   "rounds_max": 3,
-  "rounds_done": 0,
-  "phase": "criteria",
+  "rounds_done": 2,
+  "phase": "done",
   "metric": {},
   "criteria": [
-    { "id": "C1", "text": "selector/circuitbreaker.Factory 带地址参数（func(addr string) cb.CircuitBreaker），工厂可派生每节点唯一 sentinel 资源名；现有测试迁移到新签名", "verify": "cd selector/circuitbreaker && go test ./...", "done": false },
-    { "id": "C2", "text": "selector/balancer 新增装饰注入口（进程级 set-once），pickerBuilder 缓存 selector 时套装饰器；balancer module 不新增跨 module 依赖", "verify": "cd selector/balancer && go test -run Decorator ./...", "done": false },
-    { "id": "C3", "text": "行为测试：两节点 + 真 sentinel（错误计数规则），done 反馈失败跳闸一个节点 → picker 硬排除该节点选另一个；过窗探针愈合后恢复可选", "verify": "cd selector/balancer && go test -run CircuitBreaker ./...", "done": false },
-    { "id": "C4", "text": "受影响 module（selector、selector/circuitbreaker、selector/balancer、circuitbreaker、circuitbreaker/sentinel）go-gate 全绿", "verify": "bash go-gate gate.sh --root . --json（或逐 module go test）", "done": false },
-    { "id": "C5", "text": "文档同步：README、flows、出站韧性设计、节点熔断设计、grpcdiscovery 注释——把「无生产接线」改写为已接线 + 用法示例；docscheck/acceptance-gate 绿", "verify": "go test ./internal/docscheck/... && bash scripts/acceptance-gate.sh", "done": false }
+    {
+      "id": "C1",
+      "text": "selector/circuitbreaker.Factory 带地址参数（func(addr string) cb.CircuitBreaker），工厂可派生每节点唯一 sentinel 资源名；现有测试迁移到新签名",
+      "verify": "cd selector/circuitbreaker && go test ./...",
+      "done": true
+    },
+    {
+      "id": "C2",
+      "text": "selector/balancer 新增装饰注入口（进程级 set-once），pickerBuilder 缓存 selector 时套装饰器；balancer module 不新增跨 module 依赖",
+      "verify": "cd selector/balancer && go test -run Decorator ./...",
+      "done": true
+    },
+    {
+      "id": "C3",
+      "text": "行为测试：两节点 + 真 sentinel（错误计数规则），done 反馈失败跳闸一个节点 → picker 硬排除该节点选另一个；过窗探针愈合后恢复可选",
+      "verify": "cd selector/balancer && go test -run CircuitBreaker ./...",
+      "done": true
+    },
+    {
+      "id": "C4",
+      "text": "受影响 module（selector、selector/circuitbreaker、selector/balancer、circuitbreaker、circuitbreaker/sentinel）go-gate 全绿",
+      "verify": "bash go-gate gate.sh --root . --json（或逐 module go test）",
+      "done": true
+    },
+    {
+      "id": "C5",
+      "text": "文档同步：README、flows、出站韧性设计、节点熔断设计、grpcdiscovery 注释——把「无生产接线」改写为已接线 + 用法示例；docscheck/acceptance-gate 绿",
+      "verify": "go test ./internal/docscheck/... && bash scripts/acceptance-gate.sh",
+      "done": true
+    }
   ],
-  "history": [],
-  "updated_at": "2026-11-15T22:40:00+08:00"
+  "history": [
+    {
+      "round": 1,
+      "goal": "feature",
+      "verdict": "keep",
+      "commit": "71b135fc"
+    },
+    {
+      "round": 2,
+      "goal": "feature",
+      "verdict": "keep",
+      "commit": "8ba4aaed"
+    }
+  ],
+  "updated_at": "2026-11-15T23:20:00+08:00"
 }
