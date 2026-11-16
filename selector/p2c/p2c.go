@@ -139,8 +139,17 @@ func (s *p2cSelector) node(addr string) *node {
 }
 
 // prune 清理不再出现在候选集中的地址状态，防止实例churn时 map 无界增长。
-// 稳态下是廉价空操作。
+// 稳态下是廉价空操作。空操作快检走读锁：Select 每 pick 都调一次本函数，
+// 无条件写锁会把所有并发选取互相串行化；写锁只在确认 map 超编后才拿，
+// 锁内双检兜住快检与加锁之间的并发插入。
 func (s *p2cSelector) prune(nodes []selector.Node) {
+	s.mu.RLock()
+	steady := len(s.state) <= len(nodes)
+	s.mu.RUnlock()
+	if steady {
+		return
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if len(s.state) <= len(nodes) {
