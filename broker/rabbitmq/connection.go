@@ -166,11 +166,45 @@ func (r *rabbitConnection) connect(secure bool, config *amqp.Config) error {
 	r.Lock()
 	r.connected = true
 	r.ExchangeChannel = nil
+	r.signalConnectedLocked()
 	r.Unlock()
-	close(r.waitConnection)
 
 	go r.reconnect(secure, config)
 	return nil
+}
+
+// signalConnectedLocked 广播「连接已就绪」。waitConnection 是电平锁存而非边沿
+// 广播：connected 期间通道保持关闭，晚到的等待方（正常 Start 之后才起
+// resubscribe 的订阅者）必须立即放行——只唤醒「当下正阻塞者」的边沿语义会让
+// 它们阻塞到下一次断线重连，连接健康期间零消费。close 用 select-default 判重：
+// 并发 Connect 的第二次 signal、或上一轮遗留的关闭态直接跳过（修复前这里
+// 裸 close，Connect→Close→Connect 是 close of closed channel panic）。
+// 调用方必须已持有 r.Lock。
+func (r *rabbitConnection) signalConnectedLocked() {
+	select {
+	case <-r.waitConnection:
+		// 已是关闭态（锁存中）：无需重复 close。
+	default:
+		close(r.waitConnection)
+	}
+}
+
+// waitChan 返回等待通道的快照。字段会被 connect/reconnect/Close 持锁置换，
+// 等待方解锁后直接读字段与写端构成数据竞争；select 前必须经这里取快照。
+func (r *rabbitConnection) waitChan() <-chan struct{} {
+	r.Lock()
+	ch := r.waitConnection
+	r.Unlock()
+	return ch
+}
+
+// isConnected 读连接就绪标志。connected 的写端在 connection 内部持锁，
+// 跨锁裸读（此前订阅者借 broker 的 mtx 读它）构成数据竞争。
+func (r *rabbitConnection) isConnected() bool {
+	r.Lock()
+	connected := r.connected
+	r.Unlock()
+	return connected
 }
 
 func (r *rabbitConnection) reconnect(secure bool, config *amqp.Config) {
@@ -191,13 +225,20 @@ func (r *rabbitConnection) reconnect(secure bool, config *amqp.Config) {
 			r.Lock()
 			r.connected = true
 			r.ExchangeChannel = nil
+			r.signalConnectedLocked()
 			r.Unlock()
-			close(r.waitConnection)
 		}
 
 		connect = true
 		notifyClose := make(chan *amqp.Error)
-		r.Connection.NotifyClose(notifyClose)
+		// 持锁快照连接再注册断线通知：并发 Connect 的 tryConnect 落锁换新
+		// 连接时，这里不能无锁读字段。
+		r.Lock()
+		conn := r.Connection
+		r.Unlock()
+		if conn != nil {
+			conn.NotifyClose(notifyClose)
+		}
 
 		select {
 		case err := <-notifyClose:
@@ -242,6 +283,9 @@ func (r *rabbitConnection) Close() error {
 	default:
 		close(r.close)
 		r.connected = false
+		// waitConnection 保持原样（与既有语义一致）：连接期间它是锁存的关闭态，
+		// 被唤醒的等待方经 isConnected 复核；断线窗口里 notifyClose 已置换成
+		// 开启态通道。下一次 Connect 的 signalConnectedLocked 以判重兼容两种状态。
 	}
 
 	if r.Connection == nil {
@@ -253,7 +297,10 @@ func (r *rabbitConnection) Close() error {
 
 func (r *rabbitConnection) tryConnect(secure bool, config *amqp.Config) error {
 	if config == nil {
-		config = &DefaultAmqpConfig
+		// 拷贝再改：TLS 分支会往 config 里写 TLSClientConfig，直接引用包级
+		// DefaultAmqpConfig 会把 InsecureSkipVerify 永久写进全局默认值。
+		cfgCopy := DefaultAmqpConfig
+		config = &cfgCopy
 	}
 
 	url := r.url
@@ -269,27 +316,48 @@ func (r *rabbitConnection) tryConnect(secure bool, config *amqp.Config) error {
 	}
 
 	var err error
-	r.Connection, err = amqp.DialConfig(url, *config)
+	conn, err := amqp.DialConfig(url, *config)
 	if err != nil {
 		return err
 	}
 
-	if r.Channel, err = newRabbitChannel(r.Connection, r.qos); err != nil {
-		return err
+	ch, chErr := newRabbitChannel(conn, r.qos)
+
+	// 拨号/建通道是 I/O，不持锁进行；字段在此一次性落锁写入——此前
+	// r.Connection/r.Channel 在锁外裸写，与 Consume、lazyInitPublishChannel
+	// 的持锁读构成数据竞争（重连风暴窗口内尤其明显）。
+	r.Lock()
+	r.Connection = conn
+	r.Channel = ch // 建通道失败时为 nil——与原实现一致，由错误返回方处理
+	r.Unlock()
+
+	if chErr != nil {
+		return chErr
 	}
 
 	// declare all registered exchanges
 	for _, ex := range r.exchanges {
-		if err := r.Channel.DeclareExchange(ex.Name, ex.Type, ex.Durable, false); err != nil {
+		if err := ch.DeclareExchange(ex.Name, ex.Type, ex.Durable, false); err != nil {
 			logErrorf("declare exchange '%s' failed: %v", ex.Name, err)
 		}
 	}
 
 	if !EnableLazyInitPublishChannel {
-		r.ExchangeChannel, err = newRabbitChannel(r.Connection, r.qos)
+		pubCh, pubErr := newRabbitChannel(conn, r.qos)
+		if pubErr != nil {
+			// 与既有语义对齐：失败时归 nil，下一次 lazyInit/重连重建，
+			// 而不是留下指向旧连接的死通道。
+			r.Lock()
+			r.ExchangeChannel = nil
+			r.Unlock()
+			return pubErr
+		}
+		r.Lock()
+		r.ExchangeChannel = pubCh
+		r.Unlock()
 	}
 
-	return err
+	return nil
 }
 
 func (r *rabbitConnection) GetExchange(name string) (*Exchange, error) {
@@ -309,7 +377,11 @@ func (r *rabbitConnection) Consume(exchangeName, queueName, routingKey string, b
 		return nil, nil, err
 	}
 
-	consumerChannel, err := newRabbitChannel(r.Connection, r.qos)
+	r.Lock()
+	conn := r.Connection
+	r.Unlock()
+
+	consumerChannel, err := newRabbitChannel(conn, r.qos)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -339,20 +411,25 @@ func (r *rabbitConnection) DeclarePublishQueue(exchangeName, queueName, routingK
 		return err
 	}
 
+	// ExchangeChannel 会被 reconnect 置 nil，字段读取必须持锁快照后使用。
+	r.Lock()
+	pubCh := r.ExchangeChannel
+	r.Unlock()
+
 	ex, err := r.GetExchange(exchangeName)
 	if err != nil {
 		return err
 	}
 
-	if err := r.ExchangeChannel.DeclareExchange(ex.Name, ex.Type, ex.Durable, false); err != nil {
+	if err := pubCh.DeclareExchange(ex.Name, ex.Type, ex.Durable, false); err != nil {
 		return err
 	}
 
-	if err := r.ExchangeChannel.DeclareQueue(queueName, queueArgs, durableQueue, autoDel); err != nil {
+	if err := pubCh.DeclareQueue(queueName, queueArgs, durableQueue, autoDel); err != nil {
 		return err
 	}
 
-	if err := r.ExchangeChannel.BindQueue(queueName, routingKey, ex.Name, bindArgs); err != nil {
+	if err := pubCh.BindQueue(queueName, routingKey, ex.Name, bindArgs); err != nil {
 		return err
 	}
 
@@ -365,7 +442,12 @@ func (r *rabbitConnection) Publish(ctx context.Context, exchangeName, routingKey
 		return err
 	}
 
-	return r.ExchangeChannel.Publish(ctx, exchangeName, routingKey, mandatory, msg)
+	// ExchangeChannel 会被 reconnect 置 nil，字段读取必须持锁快照后使用。
+	r.Lock()
+	pubCh := r.ExchangeChannel
+	r.Unlock()
+
+	return pubCh.Publish(ctx, exchangeName, routingKey, mandatory, msg)
 }
 
 func (r *rabbitConnection) lazyInitPublishChannel() error {

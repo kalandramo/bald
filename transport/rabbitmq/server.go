@@ -83,7 +83,9 @@ func (s *Server) Start(ctx context.Context) error {
 		return s.err
 	}
 
+	s.Lock()
 	s.baseCtx = ctx
+	s.Unlock()
 	s.started.Store(true)
 
 	return nil
@@ -96,13 +98,27 @@ func (s *Server) Stop(ctx context.Context) error {
 
 	logInfo("server stopping...")
 
+	// 映射突变必须持锁：RegisterSubscriber 持 s.Lock() 写同一批映射，
+	// 无锁遍历+重建在并发下是 concurrent map read/write fatal
+	// （家族同构缺陷，transport/kafka 同源同修）。退订是订阅者自己的锁，
+	// 放到锁外做，停机路径不为退订 I/O 长时间持有服务器锁。
+	s.Lock()
+	subs := make([]broker.Subscriber, 0, len(s.subscribers))
 	for _, v := range s.subscribers {
-		_ = v.Unsubscribe(false)
+		subs = append(subs, v)
 	}
 	s.subscribers = make(broker.SubscriberMap)
 	s.subscriberOpts = make(subscribe.SubscribeOptionMap)
-
+	// started 复位与映射清空同临界区完成：否则中间窗口里抢到锁的
+	// RegisterSubscriber 会按 started=true 注册出既不在退订快照里、
+	// 又被随后 Disconnect 甩下的孤儿订阅。
 	s.started.Store(false)
+	s.Unlock()
+
+	for _, v := range subs {
+		_ = v.Unsubscribe(false)
+	}
+
 	err := s.Disconnect()
 	s.err = nil
 
@@ -174,6 +190,13 @@ func (s *Server) doRegisterSubscriber(routingKey string, handler broker.Handler,
 }
 
 func (s *Server) doRegisterSubscriberMap() error {
+	// Start 阶段的延迟注册与并发的 RegisterSubscriber 写同一批映射：
+	// 遍历+删除同样要持锁（started 路径的 RegisterSubscriber 本就持锁调
+	// doRegisterSubscriber，此处与其对齐；订阅者的 Unsubscribe 不碰服务器锁，
+	// 无重入风险）。
+	s.Lock()
+	defer s.Unlock()
+
 	var errs []error
 	for topic, opt := range s.subscriberOpts {
 		if err := s.doRegisterSubscriber(topic, opt.Handler, opt.Binder, opt.SubscribeOptions...); err != nil {

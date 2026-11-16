@@ -75,11 +75,11 @@ func (s *subscriber) resubscribe() {
 		select {
 		case <-s.r.conn.close:
 			return
-		case <-s.r.conn.waitConnection:
+		case <-s.r.conn.waitChan():
 		}
 
 		s.r.mtx.Lock()
-		if !s.r.conn.connected {
+		if !s.r.conn.isConnected() {
 			s.r.mtx.Unlock()
 			continue
 		}

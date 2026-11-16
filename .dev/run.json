@@ -1,58 +1,52 @@
 {
   "version": 1,
-  "requirement": "selector/circuitbreaker（按节点熔断桥）仓内无生产接线：全栈接线——bald_selector picker 装配 selector 时支持装饰注入口，典型装饰为 selector/circuitbreaker 按节点熔断（sentinel 后端）",
+  "requirement": "分析bald项目整体架构，进行设计优化、性能优化、bug修复",
   "carrier": "local",
   "base_branch": "main",
-  "branch": "dev/outbound-per-node-cb",
-  "rounds_max": 3,
-  "rounds_done": 2,
-  "phase": "done",
-  "metric": {},
+  "branch": "dev/arch-optimize",
+  "rounds_max": 5,
+  "rounds_done": 0,
+  "phase": "criteria",
+  "metric": {
+    "name": "ns_per_op",
+    "direction": "lower",
+    "baseline": null,
+    "best": null,
+    "target": null,
+    "epsilon_pct": 1.0
+  },
   "criteria": [
     {
       "id": "C1",
-      "text": "selector/circuitbreaker.Factory 带地址参数（func(addr string) cb.CircuitBreaker），工厂可派生每节点唯一 sentinel 资源名；现有测试迁移到新签名",
-      "verify": "cd selector/circuitbreaker && go test ./...",
-      "done": true
+      "text": "产出 .dev/smell.md 整体架构诊断报告：按严重度排序、每条带 file:line 证据、含不可在本需求内修的项清单",
+      "verify": "test -f .dev/smell.md && grep -q '严重度' .dev/smell.md",
+      "done": false
     },
     {
       "id": "C2",
-      "text": "selector/balancer 新增装饰注入口（进程级 set-once），pickerBuilder 缓存 selector 时套装饰器；balancer module 不新增跨 module 依赖",
-      "verify": "cd selector/balancer && go test -run Decorator ./...",
-      "done": true
+      "text": "至少修复 1 个经证实的 bug：先有复现测试（红），修复后转绿",
+      "verify": "go test -run <复现用例> ./<所在module>/...",
+      "done": false
     },
     {
       "id": "C3",
-      "text": "行为测试：两节点 + 真 sentinel（错误计数规则），done 反馈失败跳闸一个节点 → picker 硬排除该节点选另一个；过窗探针愈合后恢复可选",
-      "verify": "cd selector/balancer && go test -run CircuitBreaker ./...",
-      "done": true
+      "text": "至少完成 1 项有 bench 证据的性能优化（ns_per_op 相对基线改善 ≥ epsilon），或以数据论证诊断出的热点不构成可优化项（此时在报告中给测量证据并关闭该标准）",
+      "verify": "go-gate --bench 输出 JSON 中 bench 段",
+      "done": false
     },
     {
       "id": "C4",
-      "text": "受影响 module（selector、selector/circuitbreaker、selector/balancer、circuitbreaker、circuitbreaker/sentinel）go-gate 全绿",
-      "verify": "bash go-gate gate.sh --root . --json（或逐 module go test）",
-      "done": true
+      "text": "至少完成 1 项行为不变的设计收敛（refactor 轮）：测试全绿且 bench 指标不退化",
+      "verify": "go-gate（test+bench）全绿",
+      "done": false
     },
     {
       "id": "C5",
-      "text": "文档同步：README、flows、出站韧性设计、节点熔断设计、grpcdiscovery 注释——把「无生产接线」改写为已接线 + 用法示例；docscheck/acceptance-gate 绿",
-      "verify": "go test ./internal/docscheck/... && bash scripts/acceptance-gate.sh",
-      "done": true
+      "text": "仓库硬门禁全过：task lint / task race / task vuln，改动涉及的生成物门禁（example-bald-vet / acceptance）如被波及也必须绿",
+      "verify": "task lint && task race && task vuln",
+      "done": false
     }
   ],
-  "history": [
-    {
-      "round": 1,
-      "goal": "feature",
-      "verdict": "keep",
-      "commit": "71b135fc"
-    },
-    {
-      "round": 2,
-      "goal": "feature",
-      "verdict": "keep",
-      "commit": "8ba4aaed"
-    }
-  ],
-  "updated_at": "2026-11-15T23:20:00+08:00"
+  "history": [],
+  "updated_at": "2026-11-16T00:00:00+08:00"
 }

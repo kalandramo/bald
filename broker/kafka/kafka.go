@@ -3,6 +3,7 @@ package kafka
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -480,46 +481,51 @@ func (b *kafkaBroker) publishOneWriter(ctx context.Context, topic string, msg *b
 
 	var cached bool
 	b.Lock()
-	if b.writer.Writer == nil {
-		b.writer.Writer = b.writer.CreateProducer(b.writerConfig, b.saslMechanism, b.options.TLSConfig)
-		b.initPublishOption(b.writer.Writer, options)
+	writer := b.writer.Writer
+	if writer == nil {
+		writer = b.writer.CreateProducer(b.writerConfig, b.saslMechanism, b.options.TLSConfig)
+		b.initPublishOption(writer, options)
+		b.writer.Writer = writer
 	} else {
 		cached = true
 	}
 	b.Unlock()
 
+	// 写入与错误恢复全程只用锁内捕获的局部 writer：b.writer.Writer 在错误路径
+	// 会被并发的发布者置 nil（锁内），解锁后裸读字段就是 nil 解引用或撕裂读
+	// （家族同构缺陷，publishMultipleWriter 路径已按同一范式修过）。
 	var err error
-	err = b.writer.Writer.WriteMessages(options.Context, kMsg)
+	err = writer.WriteMessages(options.Context, kMsg)
 	if err != nil {
 		logErrorf("WriteMessages error: %s", err.Error())
 		switch cached {
 		case false:
 			if shouldRetryFreshWriter(err) {
 				time.Sleep(200 * time.Millisecond)
-				err = b.writer.Writer.WriteMessages(options.Context, kMsg)
+				err = writer.WriteMessages(options.Context, kMsg)
 			}
 
 		case true:
 			b.Lock()
-			if cerr := b.writer.Writer.Close(); cerr != nil {
+			if cerr := writer.Close(); cerr != nil {
 				logErrorf("close broken writer error: %s", cerr.Error())
 			}
 			b.writer.Writer = nil
 			b.Unlock()
 
-			newWriter := b.writer.CreateProducer(b.writerConfig, b.saslMechanism, b.options.TLSConfig)
-			b.initPublishOption(newWriter, options)
+			writer = b.writer.CreateProducer(b.writerConfig, b.saslMechanism, b.options.TLSConfig)
+			b.initPublishOption(writer, options)
 			for i := 0; i < b.retriesCount; i++ {
-				if err = newWriter.WriteMessages(options.Context, kMsg); err == nil {
+				if err = writer.WriteMessages(options.Context, kMsg); err == nil {
 					b.Lock()
-					b.writer.Writer = newWriter
+					b.writer.Writer = writer
 					b.Unlock()
 					break
 				}
 			}
 			// If all retries failed, close the orphaned writer
 			if err != nil {
-				_ = newWriter.Close()
+				_ = writer.Close()
 			}
 		}
 	}
@@ -633,6 +639,23 @@ func (b *kafkaBroker) Subscribe(
 	}
 	if value, ok := options.Context.Value(subscribeBatchIntervalKey{}).(time.Duration); ok {
 		sub.batchInterval = value
+	}
+	// 批量订阅的两个参数必须成对声明（J5 显式声明不推断，不猜默认值）：
+	// 只给 batchSize 时 batchInterval==0，processBatchMessage 的
+	// time.NewTicker(0) 直接 panic（非正周期，后台 goroutine 崩全进程）；
+	// 只给 interval 时 batchSize==0，缓冲区每收一条就清空，interval 形同虚设。
+	// 负值一律拒绝：cap 为负的 make 会 panic，且「负的批量大小」语义不明。
+	if sub.batchSize < 0 || sub.batchInterval < 0 {
+		return nil, fmt.Errorf(
+			"kafka batch subscribe options must be positive, got batchSize=%d batchInterval=%s",
+			sub.batchSize, sub.batchInterval)
+	}
+	if sub.batchSize > 0 || sub.batchInterval > 0 {
+		if sub.batchSize <= 0 || sub.batchInterval <= 0 {
+			return nil, fmt.Errorf(
+				"kafka batch subscribe requires both WithSubscribeBatchSize(>0) and WithSubscribeBatchInterval(>0), got batchSize=%d batchInterval=%s",
+				sub.batchSize, sub.batchInterval)
+		}
 	}
 
 	go func() {
