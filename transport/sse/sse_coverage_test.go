@@ -563,13 +563,17 @@ func TestServeHTTP_ColonPrefixedData(t *testing.T) {
 }
 
 func TestServeHTTP_TTLSkipsExpired(t *testing.T) {
-	// 关闭回放让事件保留零时间戳；正 TTL 下 now > 零值+TTL → 跳过写体。
+	// 关闭回放让事件保留零时间戳：零值 = 没有「投递时刻」这一信息，
+	// TTL 无法对它判定过期——事件必须照常投递（此前按零值过滤，
+	// WithEventTTL+autoReplay=false 会把整个 SSE 流静默清空）。
+	// 「带真实时间戳且确实过期必须被过滤」由 event_ttl_test.go 的
+	// TestEventTTLStillFiltersExpired 以负 TTL 确定性覆盖。
 	srv := NewServer(":0", WithAutoReplay(false), WithEventTTL(time.Second))
 	body := serveAndDrain(t, srv, "ttl", func(stream *Stream) {
-		srv.Publish(context.Background(), stream.StreamID(), &Event{Data: []byte("should-be-skipped")})
+		srv.Publish(context.Background(), stream.StreamID(), &Event{Data: []byte("no-timestamp-passes")})
 	})
-	if strings.Contains(body, "should-be-skipped") {
-		t.Errorf("expired event (zero timestamp) should be skipped by TTL:\n%s", body)
+	if !strings.Contains(body, "no-timestamp-passes") {
+		t.Errorf("zero-timestamp event must not be TTL-filtered:\n%s", body)
 	}
 }
 

@@ -348,6 +348,18 @@ func (s *Server) Start(ctx context.Context) error {
 
 	s.started.Store(true)
 
+	// 起任何组件前先对 Redis 探活：asynq 的 Run 对「连不上 Redis」不报错
+	// （后台处理器只在运行期记错误），不探活就是进程假启动——自报已启动，
+	// 任务却进了死消费者。探活必须先于调度器/消费者启动：失败路径此刻
+	// 还没有任何后台组件，无需停机清理，零泄漏。
+	if s.serverEnabled && s.server != nil {
+		if err := s.server.Ping(); err != nil {
+			s.started.Store(false)
+			s.mu.Unlock()
+			return fmt.Errorf("asynq: redis ping failed: %w", err)
+		}
+	}
+
 	// 启动调度器
 	if s.schedulerEnabled && s.scheduler != nil {
 		if err := s.scheduler.Start(); err != nil {
@@ -358,18 +370,41 @@ func (s *Server) Start(ctx context.Context) error {
 		log.Info(ctx, "asynq scheduler started")
 	}
 
-	// 启动消费者服务器（非阻塞 goroutine）
+	// 启动消费者服务器（非阻塞 goroutine）。
+	// Run 的启动期错误必须回到调用方：此前只进日志，Start 继续阻塞。
+	var runErr chan error
 	if s.serverEnabled && s.server != nil {
+		runErr = make(chan error, 1)
 		go func() {
 			if err := s.server.Run(s.mux); err != nil {
-				if s.started.Load() {
-					log.Error(ctx, "asynq server run failed", "error", err)
-				}
+				runErr <- err
 			}
 		}()
 		log.Info(ctx, "asynq server started")
 	}
 	s.mu.Unlock()
+
+	if runErr != nil {
+		select {
+		case err := <-runErr:
+			s.started.Store(false)
+			log.Error(ctx, "asynq server run failed", "error", err)
+			// 有界窗口收掉已起组件（调度器等）；停机错误并入返回，不掩盖起因。
+			stopCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), s.shutdownTimeout())
+			defer cancel()
+			if serr := s.shutdown(stopCtx); serr != nil {
+				return fmt.Errorf("asynq server run failed: %w; shutdown: %w", err, serr)
+			}
+			return fmt.Errorf("asynq server run failed: %w", err)
+		case <-ctx.Done():
+			// 与取消同时到达的 Run 错误不丢：取出记录，保留起因归因。
+			select {
+			case err := <-runErr:
+				log.Error(ctx, "asynq server run failed during shutdown", "error", err)
+			default:
+			}
+		}
+	}
 
 	// 阻塞等待 ctx 取消
 	<-ctx.Done()
