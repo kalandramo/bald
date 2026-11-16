@@ -481,20 +481,20 @@ func (s *Server) defaultUnmarshalNetPacket(buf []byte) (*MessageHandlerData, Mes
 }
 
 func (s *Server) defaultHandleSocketRawData(sessionId SessionID, buf []byte) error {
-	_, payload, err := s.defaultUnmarshalNetPacket(buf)
+	// defaultUnmarshalNetPacket 已返回命中 handler——此前这里把第一个返回值
+	// 丢掉，再用 extractMessageType 把同一 buf 整包重新 unmarshal 一遍、
+	// 重新查一次 handler 表，纯粹为重推导已知信息（每消息 2 次解析 2 次查找）。
+	handler, payload, err := s.defaultUnmarshalNetPacket(buf)
 	if err != nil {
 		return err
-	}
-
-	handler := s.GetMessageHandler(extractMessageType(buf, s.payloadType))
-	if handler == nil {
-		return errors.New("message handler not found") //cov:excl defaultUnmarshalNetPacket 用同 buf 同 payloadType 已命中 handler，成功返回后此处二次判空恒不触发
 	}
 
 	return handler.Handler(sessionId, payload)
 }
 
-// extractMessageType 从原始数据中提取消息类型（用于 defaultHandleSocketRawData）。
+// extractMessageType 从原始数据中提取消息类型。入站热路径已改用
+// defaultUnmarshalNetPacket 单次解析返回的 handler（避免同包二次解析），
+// 本函数现仅由覆盖测试引用（J1：保留不删），勿重新接回热路径。
 func extractMessageType(buf []byte, payloadType PayloadType) NetMessageType {
 	switch payloadType {
 	case PayloadTypeBinary:
