@@ -120,7 +120,7 @@ go test ./internal/bootstrap/ -run 'TestGatewayDiscoveryNacos|TestNacosDiscovery
 bald compose status         # docker compose ps；down 删除整个 bald-infra 项目
 ```
 
-`bald compose list` 给出全部可起服务与本地地址（etcd / consul / redis / mongo / nacos），
+`bald compose list` 给出全部可起服务与本地地址（etcd / redis / nacos，逐项对齐 CI integration 作业），
 `bald compose config` 打印 compose 定义（`--out` 落盘定制，再 `--file` 指回去），
 `--dry-run` 只打印 docker argv——审计与无 docker 环境下的命令装配验证都靠它。
 

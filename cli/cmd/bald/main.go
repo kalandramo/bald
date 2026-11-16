@@ -26,7 +26,7 @@
 //	bald gen resource --spec <AppSpec.json> --domain post --kind post
 //	                                                   # 给域加资源链路（契约+实体+声明+重派生）
 //	bald gen verify --spec <AppSpec.json>              # 只读校验生成树与声明一致（零写入）
-//	bald compose up [etcd redis]                       # 起本地集成依赖（etcd/consul/redis/mongo/nacos）
+//	bald compose up [etcd redis]                       # 起本地集成依赖（etcd/redis/nacos，逐项对齐 CI services）
 //	bald convention overview                           # 规范卡索引（AI 的入口）
 //	bald convention get <卡id>                         # 取卡全文（--format json 供工具消费）
 //	bald convention check [--fail-on-findings]         # 卡完整性 + 确定性检查器（CI 用 fail-on-findings）

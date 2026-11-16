@@ -1,5 +1,5 @@
-// Package compose 提供 `bald compose`：把本地集成依赖（etcd / consul / redis /
-// etcd/redis/nacos）收敛成一份可复现的 compose 定义，并代为调用 docker compose。
+// Package compose 提供 `bald compose`：把本地集成依赖（etcd / redis / nacos）
+// 收敛成一份可复现的 compose 定义，并代为调用 docker compose。
 //
 // 为什么需要它：README 里起集成依赖是三段手写 `docker run`（还带 `--platform`
 // 与 `-e MODE=standalone` 这类容易抄错的参数），CI 的 integration 作业里是另一份
