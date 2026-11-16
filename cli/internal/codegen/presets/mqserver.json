@@ -2,7 +2,7 @@
   "meta": {
     "name": "my-mqserver",
     "module": "example.com/my-mqserver",
-    "desc": "mqserver 预设：单 worker 角色（gRPC 健康面 + broker.redis 消息代理消费）。订阅/发布经 Key[broker.Broker](\"broker.redis.redis\") 取用；改 meta.name/module 后，运行 bald gen app --spec appspec.json",
+    "desc": "mqserver 预设：单 worker 角色（gRPC 健康面 + broker.kafka 消息代理消费）。订阅/发布经 Key[broker.Broker](\"broker.kafka.kafka\") 取用；改 meta.name/module 后，运行 bald gen app --spec appspec.json",
     "roles": [
       {
         "name": "worker",
@@ -32,8 +32,10 @@
       ]
     },
     "broker": {
-      "redis": {
-        "address": "127.0.0.1:6379"
+      "kafka": {
+        "brokers": ["127.0.0.1:9092"],
+        "groupId": "my-mqserver",
+        "authType": "none"
       }
     }
   },
