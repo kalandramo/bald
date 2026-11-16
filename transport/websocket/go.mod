@@ -11,12 +11,12 @@ replace github.com/kalandramo/bald/encoding/json => ../../encoding/json
 require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
-	github.com/kalandramo/bald/bconf v0.28.0
-	github.com/kalandramo/bald/encoding v0.1.0
+	github.com/kalandramo/bald/bconf v0.28.1
+	github.com/kalandramo/bald/encoding v0.2.1
 	github.com/kalandramo/bald/encoding/json v0.1.1
-	github.com/kalandramo/bald/log v0.6.0
-	github.com/kalandramo/bald/pkg v0.16.0
-	github.com/kalandramo/bald/transport v0.5.0
+	github.com/kalandramo/bald/log v0.6.1
+	github.com/kalandramo/bald/pkg v0.16.1
+	github.com/kalandramo/bald/transport v0.5.1
 )
 
 require (
@@ -99,7 +99,7 @@ require (
 	github.com/kalandramo/bald/bconfig v0.2.4 // indirect
 	github.com/kalandramo/bald/bootstrap v0.13.8 // indirect
 	github.com/kalandramo/bald/health v0.1.1 // indirect
-	github.com/kalandramo/bald/registry v0.5.0 // indirect
+	github.com/kalandramo/bald/registry v0.5.1 // indirect
 	github.com/kalandramo/bald/transport/grpc v0.2.0 // indirect
 	github.com/kalandramo/bald/transport/http v0.2.0 // indirect
 	github.com/magiconair/properties v1.8.5 // indirect
@@ -168,3 +168,7 @@ require (
 replace github.com/kalandramo/bald/bconf => ../../bconf
 
 replace github.com/kalandramo/bald/pkg => ../../pkg
+
+replace github.com/kalandramo/bald/log => ../../log
+
+replace github.com/kalandramo/bald/registry => ../../registry

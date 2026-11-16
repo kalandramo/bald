@@ -35,17 +35,17 @@ require (
 	github.com/gin-gonic/gin v1.12.0
 	github.com/google/uuid v1.6.0
 	github.com/kalandramo/bald-crud/viewer v0.3.0
-	github.com/kalandramo/bald/bconf v0.28.0
+	github.com/kalandramo/bald/bconf v0.28.1
 	github.com/kalandramo/bald/berrors v0.1.2
 	github.com/kalandramo/bald/bootstrap v0.13.8
-	github.com/kalandramo/bald/circuitbreaker v0.2.0
-	github.com/kalandramo/bald/circuitbreaker/sentinel v0.1.0
+	github.com/kalandramo/bald/circuitbreaker v0.2.1
+	github.com/kalandramo/bald/circuitbreaker/sentinel v0.1.1
 	github.com/kalandramo/bald/health v0.1.1
-	github.com/kalandramo/bald/log v0.6.0
-	github.com/kalandramo/bald/ratelimit v0.1.0
+	github.com/kalandramo/bald/log v0.6.1
+	github.com/kalandramo/bald/ratelimit v0.2.1
 	github.com/kalandramo/bald/ratelimit/tokenbucket v0.2.0
-	github.com/kalandramo/bald/registry v0.5.0
-	github.com/kalandramo/bald/transport v0.5.0
+	github.com/kalandramo/bald/registry v0.5.1
+	github.com/kalandramo/bald/transport v0.5.1
 	github.com/kalandramo/bald/transport/grpc v0.2.0
 	github.com/kalandramo/bald/transport/http v0.2.0
 	github.com/spf13/cobra v1.10.2

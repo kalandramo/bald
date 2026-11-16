@@ -3,9 +3,9 @@ module github.com/kalandramo/bald/metrics/otel
 go 1.27.1
 
 require (
-	github.com/kalandramo/bald/bconf v0.28.0
-	github.com/kalandramo/bald/metrics v0.2.0
-	github.com/kalandramo/bald/pkg v0.16.0
+	github.com/kalandramo/bald/bconf v0.28.1
+	github.com/kalandramo/bald/metrics v0.2.1
+	github.com/kalandramo/bald/pkg v0.16.1
 	go.opentelemetry.io/otel v1.46.0
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc v1.46.0
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp v1.46.0
@@ -99,9 +99,9 @@ require (
 	github.com/kalandramo/bald/bconfig v0.2.4 // indirect
 	github.com/kalandramo/bald/bootstrap v0.13.8 // indirect
 	github.com/kalandramo/bald/health v0.1.1 // indirect
-	github.com/kalandramo/bald/log v0.6.0 // indirect
-	github.com/kalandramo/bald/registry v0.5.0 // indirect
-	github.com/kalandramo/bald/transport v0.5.0 // indirect
+	github.com/kalandramo/bald/log v0.6.1 // indirect
+	github.com/kalandramo/bald/registry v0.5.1 // indirect
+	github.com/kalandramo/bald/transport v0.5.1 // indirect
 	github.com/kalandramo/bald/transport/grpc v0.2.0 // indirect
 	github.com/kalandramo/bald/transport/http v0.2.0 // indirect
 	github.com/magiconair/properties v1.8.5 // indirect
@@ -173,3 +173,9 @@ replace github.com/kalandramo/bald/metrics => ..
 replace github.com/kalandramo/bald/bconf => ../../bconf
 
 replace github.com/kalandramo/bald/pkg => ../../pkg
+
+replace github.com/kalandramo/bald/log => ../../log
+
+replace github.com/kalandramo/bald/registry => ../../registry
+
+replace github.com/kalandramo/bald/transport => ../../transport

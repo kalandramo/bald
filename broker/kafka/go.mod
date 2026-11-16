@@ -4,11 +4,11 @@ go 1.27.1
 
 require (
 	github.com/google/uuid v1.6.0
-	github.com/kalandramo/bald/bconf v0.28.0
-	github.com/kalandramo/bald/broker v0.4.0
-	github.com/kalandramo/bald/encoding v0.1.0
-	github.com/kalandramo/bald/log v0.6.0
-	github.com/kalandramo/bald/pkg v0.16.0
+	github.com/kalandramo/bald/bconf v0.28.1
+	github.com/kalandramo/bald/broker v0.4.1
+	github.com/kalandramo/bald/encoding v0.2.1
+	github.com/kalandramo/bald/log v0.6.1
+	github.com/kalandramo/bald/pkg v0.16.1
 	github.com/kalandramo/bald/retry v0.3.1
 	github.com/segmentio/kafka-go v0.4.49
 	github.com/stretchr/testify v1.12.1
@@ -94,8 +94,8 @@ require (
 	github.com/kalandramo/bald/bconfig v0.2.4 // indirect
 	github.com/kalandramo/bald/bootstrap v0.13.8 // indirect
 	github.com/kalandramo/bald/health v0.1.1 // indirect
-	github.com/kalandramo/bald/registry v0.5.0 // indirect
-	github.com/kalandramo/bald/transport v0.5.0 // indirect
+	github.com/kalandramo/bald/registry v0.5.1 // indirect
+	github.com/kalandramo/bald/transport v0.5.1 // indirect
 	github.com/kalandramo/bald/transport/grpc v0.2.0 // indirect
 	github.com/kalandramo/bald/transport/http v0.2.0 // indirect
 	github.com/klauspost/compress v1.20.2 // indirect
@@ -115,6 +115,7 @@ require (
 	github.com/prometheus/client_golang v1.23.2 // indirect
 	github.com/prometheus/client_model v0.6.2 // indirect
 	github.com/prometheus/common v0.67.5 // indirect
+	github.com/prometheus/procfs v0.16.1 // indirect
 	github.com/ryanuber/go-glob v1.0.0 // indirect
 	github.com/spf13/afero v1.6.0 // indirect
 	github.com/spf13/cast v1.3.1 // indirect
@@ -182,3 +183,7 @@ replace github.com/kalandramo/bald/encoding/proto => ../../encoding/proto
 replace github.com/kalandramo/bald/retry => ../../retry
 
 replace github.com/kalandramo/bald/pkg => ../../pkg
+
+replace github.com/kalandramo/bald/registry => ../../registry
+
+replace github.com/kalandramo/bald/transport => ../../transport

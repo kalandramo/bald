@@ -2,6 +2,6 @@ module github.com/kalandramo/bald/encoding/json
 
 go 1.27.1
 
-require github.com/kalandramo/bald/encoding v0.1.0
+require github.com/kalandramo/bald/encoding v0.2.1
 
 replace github.com/kalandramo/bald/encoding => ..

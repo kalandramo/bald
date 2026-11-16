@@ -4,6 +4,190 @@
 条目取自该版本区间内的提交标题（Conventional Commits），不要手工调整顺序。
 发布流程见 [多模块发布与变更日志](docs/devel/zh-CN/多模块发布与变更日志.md)。
 
+## 2026-11-16
+
+### bald v0.56.0
+
+- `f89b1383` docs: 修正 compose 服务清单漂移注释（consul/mongo → 实际 etcd/redis/nacos）+ cli go.mod pflag 收直
+- `4d9a50c1` chore(dev): round 2 收尾账本（REPORT/run.json 判据全闭合）
+- `8ba4aaed` dev(round 2): example 补 discovery 出站 + 按节点熔断真消费 [ns_per_op=NA]
+- `71b135fc` dev(round 1): picker 缓存填充点套装饰器 + Factory 补地址参数，按节点熔断在 done 反馈管道上激活 [ns_per_op=NA]
+- `4c105822` refactor(circuitbreaker): 退役自研 hystrix 后端，入口链熔断收敛到 sentinel
+- `dc22ec49` refactor: 精简后端实现面——按国内业界常用度收敛到每模块 1–3 个后端
+- `7aa0112a` docs(guide): 同步对抗审查暴露的四处文档失真
+- `37f7391a` fix(cli/convention): 修 9 类 checker 误报、2 类漏报与门禁的三个行为洞
+- `8402ac88` docs(architecture): 存档 onexai 实战走查，并把 §7 六项缺口的落地与六个真 bug 写进复核
+- `448cf898` feat(cli/compose): 本地集成依赖收敛为 compose 命令组（与 CI integration 作业同源）
+- `2de3e815` feat(cli/convention): check 注册表 5 → 17 个 checker，输出覆盖率并支持 --min-coverage
+- `a699b286` chore(release): 发布 3 个模块——transport/{kafka v0.3.3,rabbitmq v0.4.1,redis v0.3.3}
+
+### bconf v0.28.1
+
+- `4c105822` refactor(circuitbreaker): 退役自研 hystrix 后端，入口链熔断收敛到 sentinel
+- `dc22ec49` refactor: 精简后端实现面——按国内业界常用度收敛到每模块 1–3 个后端
+
+### broker v0.4.1
+
+- `dc22ec49` refactor: 精简后端实现面——按国内业界常用度收敛到每模块 1–3 个后端
+- `851a0c80` experiment: 假设4（receiveLoop 解析全分支 + Do 错误重连路径）：脚本化 pool/conn 直驱——正常消息驱动 typed handler、无 body 跳过、字段类型不符跳过、空 reply 轮、XREADGROUP Do 报错走 recv 重连路径；测试件自身三处跨 goroutine 竞态修正（scripted conn 加锁、boomErr atomic、s.conn 直读移除）。87.1%。     hyp: 剩余大头=receiveLoop 解析与 Do 错误分支，脚本化 pool 可直驱     next: 评估收段——95% 线未到（87.1%）；剩余=recv 退避重连成功编排（需真实断连编排，miniredis 不支持同端口重启）+ ensureGroup 非 BUSYGROUP 错误分支（离线不可构造）；判离线天花板已到，按 95%→87% 口径收段     rollback: 零产品改动（缺陷修复已在 #1），测试族独立成文件
+- `3e914c42` experiment: 假设3（reconnect 双分支直驱、binder 解码错误分支、publication 访问器、Init 默认地址拒连）：活 pool 重连成功/死 pool 失败/pool nil 三态，binder Unmarshal 失败分支，pubsub publication 访问器族（Ack 恒 nil=无 pending 概念），stream 无地址 Init 落默认后拒连。81.3→84.8%。     hyp: reconnect/binder/访问器碎点全部可直驱，无需真实断连编排     next: 收段评估——95% 线未到（84.8%），剩余大头=receiveLoop 逐分支（Pong/Subscription.count==0/中间件nil）与 recv 退避重连成功路径；再一轮冲 90%+ 后按离线可达性收段     rollback: 零产品改动，纯测试增量
+- `c03751e4` experiment: 假设2（中间件链、Marshal 错误分支、诊断面访问器、Ack 边界、Init 选项贯通、重连退避）：pubsub/stream 双侧 WithSubscriber/WithPublish 中间件链驱动、channel 类 Body Marshal 失败分支、publication Ack 幂等/pool-nil/Error 访问器、Init 的 CommonOptions Context 贯通、miniredis 关停驱 recv 退避循环有界退出。74.5→81.3%。     hyp: 剩余未覆盖=访问器/中间件/Marshal 错误分支，全部可离线直驱     next: 剩余大头=recv/receiveLoop 重连成功路径与 stream onMessage 错误计数——可用 miniredis 重启编排驱动；评估是否够 95%     rollback: 本轮零产品改动（纯测试），独立成文件
+- `a051d6aa` experiment: 假设1（双驱动生命周期测试族 + 三个真缺陷修复）：pubsub/stream 全套 miniredis 测试落地（回环/typed binder/AutoAck 语义三态/拒连探针/地址归一化/未连接防护/退订停投递/流 option 透传/extractField）。修复：#5 Subscribe 裸字面量绕过 NewSubscribeOptions → AutoAck 落零值 false、消息永不 XACK、PEL 永久滞留（stream+pubsub 双实体）；#6 Disconnect 写 pool 与 recv goroutine 读 pool 的数据竞争（两驱动 pool 加 mu + getPool 读取口）；#7 Disconnect 后 recv 循环撞 nil pool panic（receiveLoop/ensureGroup 守卫 + 断连即终结订阅）。20.4→74.5%。     hyp: 双驱动全命令面 miniredis 可测（PUBLISH/XADD/XREADGROUP/XACK/XPENDING）；race 面随并发测试族暴露     next: 剩余未覆盖：recv 重连退避循环细节、publish 中间件链、stream MAXLEN 分支已测但 XAUTOCLAIM 未实现（能力层）、publication 错误面     rollback: 三个缺陷修复各一处独立可回滚（Subscribe options 构造 / pool mu+getPool / nil pool 守卫）；测试族独立成文件
+
+### broker/kafka v0.3.1
+
+- `dc22ec49` refactor: 精简后端实现面——按国内业界常用度收敛到每模块 1–3 个后端
+- `285ea779` experiment: 假设2（balancer 六分支直驱 initPublishOption + 批量处理 + 诊断面 + logger + Scram Dialer 贯通回归）：六种 balancer 的 initPublishOption 分支与 default nil 分支、WithReaderConfig 裸配置下 Brokers 保留回归（缺陷 #8）、Publish 中间件链、handleBatchMessage 直驱（AutoAck 关——CommitMessages 对拒连地址 kafka-go 无限重试会挂死测试）、logError 直驱。66.5→71.7%。     hyp: options/balancer/批量面全部同包直驱，无需真集群     next: 剩余未覆盖=订阅 run 循环的退避细节与双 writer publish 碎分支；71.7% 接近离线可达上限（真集群投递路径归 integration），评估收段     rollback: 零新增产品改动（#8/#9 修复已在 #1），测试族独立成文件
+- `5543fe30` experiment: 假设1（broker 原点 Scram 守卫 + options 全表面 + 订阅者消息链直驱）：WithScramMechanism 未知算法名 broker 原点 fail-fast（transport 守卫只挡 transport 路径，此处唯一收口）；二十项 Option 全执行；handleMessage 四分支直驱（binder nil/合法 json/非法 json/handler 出错）；publication 访问器族。途中揭出**第五个真缺陷**——Init 里 WithReaderConfig 整体替换 readerConfig 抹掉 Brokers（Subscribe 空 brokers panic）且填默认 Dialer 使 SASL mechanism 分支恒假静默裸奔；改为 Brokers 保留 + Dialer nil 才落默认并挂 SASL。48.4→66.5%。     hyp: 家族方法论（options 面+消息链直驱+守卫）可直接平移 broker 层     next: 剩余未覆盖=订阅 run 循环/双 writer publish 细节/Close；写侧已有既有族，评估补 Close 与 publish 错误分支后收段     rollback: Scram 守卫与 readerConfig 修复各一处独立可回滚；测试族独立成文件
+
+### broker/rabbitmq v0.2.3
+
+- `dc22ec49` refactor: 精简后端实现面——按国内业界常用度收敛到每模块 1–3 个后端
+
+### circuitbreaker v0.2.1
+
+- `4c105822` refactor(circuitbreaker): 退役自研 hystrix 后端，入口链熔断收敛到 sentinel
+- `dc22ec49` refactor: 精简后端实现面——按国内业界常用度收敛到每模块 1–3 个后端
+- `993a6b0d` fix(circuitbreaker/sres): 同一处滑窗错格，并把 State() 也接到旋转上
+- `73dd8ff7` fix(circuitbreaker/hystrix): 滑窗清桶不再错格——同桶样本不再被抹掉
+- `2f4e3405` test(circuitbreaker/sres): 冷窗口放行判据扩样本到 500，堵住 race 作业的 8.4e-5 尾巴
+- `29d053e9` test(circuitbreaker/sres): 并发放行数不再是无界的断言（§7.4）
+- `b910c0f6` docs(comments): 清理 Go 注释与测试名中的缺陷编号和历史叙事
+- `76dddabc` refactor: 清理死代码与冗余适配层，Provider 收敛到 v2 单一形态
+
+### circuitbreaker/sentinel v0.1.1
+
+- `4c105822` refactor(circuitbreaker): 退役自研 hystrix 后端，入口链熔断收敛到 sentinel
+- `fd1a864c` chore(ci): 引入 golangci-lint 与 govulncheck 全模块门禁
+
+### cli v0.14.0
+
+- `f89b1383` docs: 修正 compose 服务清单漂移注释（consul/mongo → 实际 etcd/redis/nacos）+ cli go.mod pflag 收直
+- `dc22ec49` refactor: 精简后端实现面——按国内业界常用度收敛到每模块 1–3 个后端
+- `37f7391a` fix(cli/convention): 修 9 类 checker 误报、2 类漏报与门禁的三个行为洞
+- `524f4e53` fix(cli): 关闭对抗审查发现的安全承诺破口与三个主链路缺陷
+- `448cf898` feat(cli/compose): 本地集成依赖收敛为 compose 命令组（与 CI integration 作业同源）
+- `6f646245` feat(cli): MCP 工具面投放只读 gen verify，并用「遍历真实命令树」钉住边界
+- `46ec8114` feat(cli/codegen): gen resource 加资源链路、gen verify 只读自证、交付面与三处契约派生修正
+- `2de3e815` feat(cli/convention): check 注册表 5 → 17 个 checker，输出覆盖率并支持 --min-coverage
+- `c495ac97` chore(deps): cli 归位到 bconf v0.28.0 / cobramcp v0.4.0 / transport/mcp v0.6.0
+
+### encoding v0.2.1
+
+- `dc22ec49` refactor: 精简后端实现面——按国内业界常用度收敛到每模块 1–3 个后端
+- `04811a8f` test(coverage): 批6 encoding/gob+toml 补 Marshal 编码错误半边→100%
+- `f6287b26` test(coverage): 批6 encoding/avro 56.2%→90.6%（null schema 回退/目标类型矩阵，两个不可达防御分支登记）
+
+### log v0.6.1
+
+- `dc22ec49` refactor: 精简后端实现面——按国内业界常用度收敛到每模块 1–3 个后端
+- `d33afa87` chore(release): 发布 47 个模块——bconf v0.28.0 / pkg v0.16.0 / cli v0.13.0 / 根 v0.55.0
+- `f4b57d94` chore(release): bconf v0.27.0 / pkg v0.13.0 / v0.50.0 依赖归位 + 变更日志
+- `d3133b4f` chore(release): 2 模块整批发布——bconf v0.26.0 / cli v0.7.0
+- `08edd676` test(coverage): 批6 log 96.1%→100%、bslog 62.6%→100%（脱敏各级/多目标写入/flag 与校验全分支）
+- `880405c5` chore(release): 6 模块整批发布——根 v0.46.0 / bconf v0.24.1 / cli v0.5.0 / selector/circuitbreaker v0.1.0 / transport/client v0.2.0 / transport/client/resiliency v0.1.0
+- `53f337d9` chore(release): 回退 610dfe4 发布提交
+- `610dfe4b` chore(release): 6 模块整批发布——selector/circuitbreaker 与出站 resiliency 首发
+
+### metrics v0.2.1
+
+- `dc22ec49` refactor: 精简后端实现面——按国内业界常用度收敛到每模块 1–3 个后端
+- `e5a0a70c` chore(deps): 撤回发布叠加层——dropreplace 临时 bootstrap/bconfig/transport 目录 replace
+- `0425e3f2` chore(deps): metrics 三模块 go.sum 清掉 transport v0.4.0 陈旧条目（叠加层 III 补齐）
+- `79ba6936` chore(deps): metrics 三模块补 transport 目录 replace（发布叠加层 III）
+- `d33afa87` chore(release): 发布 47 个模块——bconf v0.28.0 / pkg v0.16.0 / cli v0.13.0 / 根 v0.55.0
+- `7498ac44` chore(deps): 13 个 replace-pkg 模块补 bconfig 目录 replace（发布叠加层 II）
+- `42c7ac3d` chore(deps): 13 个 replace-pkg 模块补 bootstrap 目录 replace（发布叠加层）
+- `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
+- `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
+- `64da6e59` refactor(appkit): CleanupFrom 收拢 25 份 adaptCleanup 复制（ADR-1 批 1）
+- `a6092206` chore(release): cli v0.10.0 / pkg v0.15.0 / v0.52.0 依赖归位 + 变更日志
+- `007b077d` chore(release): pkg v0.14.0 / cli v0.9.0 / v0.51.0 依赖归位 + 变更日志
+- `f4b57d94` chore(release): bconf v0.27.0 / pkg v0.13.0 / v0.50.0 依赖归位 + 变更日志
+- `20279ed7` chore(release): pkg v0.12.0 / v0.49.0 依赖归位 + 变更日志
+- `1aaf8844` chore(release): pkg v0.11.1 / cli v0.8.0 / v0.48.0 依赖归位 + 变更日志
+- `d3133b4f` chore(release): 2 模块整批发布——bconf v0.26.0 / cli v0.7.0
+- `ec2b025f` chore(release): 2 模块整批发布——pkg v0.11.0 / selector/balancer v0.2.0
+- `880405c5` chore(release): 6 模块整批发布——根 v0.46.0 / bconf v0.24.1 / cli v0.5.0 / selector/circuitbreaker v0.1.0 / transport/client v0.2.0 / transport/client/resiliency v0.1.0
+- `53f337d9` chore(release): 回退 610dfe4 发布提交
+- `610dfe4b` chore(release): 6 模块整批发布——selector/circuitbreaker 与出站 resiliency 首发
+- `3694198f` chore(deps): 发版后归位——撤回六条发布窗口 replace，cli log 顶 v0.6.0
+- `1bc52b57` chore(release): 8 模块整批发布——方案 S 收口与 otelslog 自有化
+- `f20fade5` chore(deps): 发布窗口叠加层——六消费者补 log/retry 本地 replace（tag 后撤回）
+- `a9b2afc6` chore(deps): 依赖树归位——x/sync v0.24.0 级联与示例 go.sum 预热
+- `56acd87a` chore(release): CHANGELOG 登记 bconf v0.24.0 / pkg v0.10.0 与依赖归位
+- `3883406f` chore(release): CHANGELOG 登记 pkg v0.9.0（统一策略面六件）
+- `236b9be0` chore(release): CHANGELOG 登记 pkg v0.8.0
+- `6f1d405a` chore(release): CHANGELOG 登记 pkg v0.7.0 与依赖归位
+- `e7e9c14d` chore(release): CHANGELOG 登记 registry v0.5.0 / retry v0.3.0 / selector v0.1.0 / balancer v0.1.0 与依赖归位
+- `c5be85bb` chore: 发布 3 个模块（bconf v0.23.0 / pkg v0.6.0 / 根 v0.42.0）
+- `39f986eb` chore: 发布 3 个模块（bconf v0.22.0 / transport/sse v0.6.0 / 根 v0.41.0）
+- `73b105f2` chore: 发布 18 个模块（bconf v0.21.0 / pkg v0.5.0 / transport/client v0.1.0 等）
+- `75d100d3` revert(release): 撤回发布窗口叠加层，改回「本地 pkg + 已发布 bootstrap」
+
+### oss/s3 v0.3.4
+
+- `dc22ec49` refactor: 精简后端实现面——按国内业界常用度收敛到每模块 1–3 个后端
+
+### pkg v0.16.1
+
+- `4c105822` refactor(circuitbreaker): 退役自研 hystrix 后端，入口链熔断收敛到 sentinel
+- `dc22ec49` refactor: 精简后端实现面——按国内业界常用度收敛到每模块 1–3 个后端
+
+### ratelimit v0.2.1
+
+- `dc22ec49` refactor: 精简后端实现面——按国内业界常用度收敛到每模块 1–3 个后端
+- `daedfa79` test(coverage): 批6 ratelimit/bbr 86.2%→100%（CPUThreshold/MinQPS 选项合法与非法、关闭后 Allow、Wait ctx 取消、部分桶旋转环形回绕、估算 minQPS 下限与 maxPass 封顶）
+- `76dddabc` refactor: 清理死代码与冗余适配层，Provider 收敛到 v2 单一形态
+
+### registry v0.5.1
+
+- `dc22ec49` refactor: 精简后端实现面——按国内业界常用度收敛到每模块 1–3 个后端
+- `accea5fc` chore(release): 发布 48 个模块——bconf v0.28.0 / broker v0.4.0 / pkg v0.16.0 / transport v0.5.0 / 根 v0.55.0
+- `d33afa87` chore(release): 发布 47 个模块——bconf v0.28.0 / pkg v0.16.0 / cli v0.13.0 / 根 v0.55.0
+- `977aa92f` fix(deps): 清理 11 处幻影版本记录（引用了从未发布的 tag）
+- `70d65b7e` chore(release): cli/v0.13.0 / bconf 链依赖归位 + CHANGELOG（30 模块 patch/minor）
+- `0e8ce63e` fix(transport,bconfig,registry): logging-r01 存量清偿——框架库日志调用全部收敛 bald/log 契约层
+- `64da6e59` refactor(appkit): CleanupFrom 收拢 25 份 adaptCleanup 复制（ADR-1 批 1）
+- `a6092206` chore(release): cli v0.10.0 / pkg v0.15.0 / v0.52.0 依赖归位 + 变更日志
+- `007b077d` chore(release): pkg v0.14.0 / cli v0.9.0 / v0.51.0 依赖归位 + 变更日志
+- `f4b57d94` chore(release): bconf v0.27.0 / pkg v0.13.0 / v0.50.0 依赖归位 + 变更日志
+- `20279ed7` chore(release): pkg v0.12.0 / v0.49.0 依赖归位 + 变更日志
+- `1aaf8844` chore(release): pkg v0.11.1 / cli v0.8.0 / v0.48.0 依赖归位 + 变更日志
+- `d3133b4f` chore(release): 2 模块整批发布——bconf v0.26.0 / cli v0.7.0
+- `ec2b025f` chore(release): 2 模块整批发布——pkg v0.11.0 / selector/balancer v0.2.0
+- `880405c5` chore(release): 6 模块整批发布——根 v0.46.0 / bconf v0.24.1 / cli v0.5.0 / selector/circuitbreaker v0.1.0 / transport/client v0.2.0 / transport/client/resiliency v0.1.0
+- `53f337d9` chore(release): 回退 610dfe4 发布提交
+- `610dfe4b` chore(release): 6 模块整批发布——selector/circuitbreaker 与出站 resiliency 首发
+- `1bc52b57` chore(release): 8 模块整批发布——方案 S 收口与 otelslog 自有化
+- `a9b2afc6` chore(deps): 依赖树归位——x/sync v0.24.0 级联与示例 go.sum 预热
+- `56acd87a` chore(release): CHANGELOG 登记 bconf v0.24.0 / pkg v0.10.0 与依赖归位
+- `3883406f` chore(release): CHANGELOG 登记 pkg v0.9.0（统一策略面六件）
+- `236b9be0` chore(release): CHANGELOG 登记 pkg v0.8.0
+- `6f1d405a` chore(release): CHANGELOG 登记 pkg v0.7.0 与依赖归位
+
+### selector/balancer v0.2.1
+
+- `71b135fc` dev(round 1): picker 缓存填充点套装饰器 + Factory 补地址参数，按节点熔断在 done 反馈管道上激活 [ns_per_op=NA]
+- `92cbdd92` test(coverage): 批6 selector/balancer 42.0%→100%（bufconn 真拨号 Build/Pick 全分支）
+
+### selector/circuitbreaker v0.1.1
+
+- `71b135fc` dev(round 1): picker 缓存填充点套装饰器 + Factory 补地址参数，按节点熔断在 done 反馈管道上激活 [ns_per_op=NA]
+- `4c105822` refactor(circuitbreaker): 退役自研 hystrix 后端，入口链熔断收敛到 sentinel
+
+### transport v0.5.1
+
+- `dc22ec49` refactor: 精简后端实现面——按国内业界常用度收敛到每模块 1–3 个后端
+- `f71c1a18` experiment: 假设3（覆盖路径真缺陷：同 topic 覆盖时旧订阅者从不 Unsubscribe——双份投递 + 订阅 goroutine 泄漏到连接关闭）修复 + 回归测试（一条消息只投一次）；WithTLSConfig 两分支、post-Start 重复登记（logWarnf 路径）补齐。91.5→96.6%。     hyp: 剩余碎点里藏着家族同构的第三个行为缺陷（覆盖即泄漏），修法对齐收敛语义     next: 剩 3.4%：Start 的 Init 失败分支（离线不可构造）、粘滞/幂等已覆盖——收段线 95% 已过，评估收段     rollback: 缺陷修复一处（doRegisterSubscriber 的 old.Unsubscribe），回归测试钉死行为
+- `30120cf8` experiment: 假设2（options 全表面 + wrapHandler 计量 + 端点语义 + 重入幂等）：九个 ServerOption 全执行并断言落点；WithMetrics 注入驱动 wrapHandler 三路（received/duration histogram/error counter）；凭证端点脱敏（miniredis RequireAuth + userinfo URL）；url.Parse 失败回退原值；double Start/Stop 幂等与 Stop 清 deferred 的有意语义钉住；同 topic 重复登记覆盖路径。67.8→91.5%。     hyp: 剩余未覆盖集中在 options 闭包面与 wrapHandler 计量分支，全部可用 miniredis/桩离线驱动     next: 剩 8.5%：Start 的 err 粘滞早退分支、Endpoint 的 started 双分支细节、logger 常量面——多为 1-2 语句碎点，收益递减；下一步评估是否够到 95% 收段线     rollback: 测试独立成文件，零产品改动
+- `6073fc43` experiment: 假设1（deferred 订阅丢失修复 + 首批生命周期测试族）：doRegisterSubscriberMap 部分失败改为「成功才摘条目」（旧实现无条件清空 deferred 队列——Start 失败后重试订阅静默丢失，家族同构缺陷）；新增 server_lifecycle_test.go 五族——桩验证收敛语义、miniredis 生命周期（Start/Stop/端点）、deferred 与 live 双路注册回环、粘滞错误。17.9→67.8%。     hyp: 服务器面 80% 语句从未被任何测试执行（-short 下），修复+生命周期族一步到位     next: 剩余未覆盖面：Stop 后再 Start 的重入语义、wrapHandler（metrics 注入）、WithServerOptions 追加序、Start 失败各分支（Init/Connect）、kind/logger 常量面     rollback: 修复收敛语义独立可回滚（doRegisterSubscriberMap 一处）；测试族独立成文件
+- `e5a0a70c` chore(deps): 撤回发布叠加层——dropreplace 临时 bootstrap/bconfig/transport 目录 replace
+
+### transport/client/resiliency v0.1.1
+
+- `4c105822` refactor(circuitbreaker): 退役自研 hystrix 后端，入口链熔断收敛到 sentinel
+
 ## 2026-11-14
 
 ### transport/kafka v0.3.3

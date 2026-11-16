@@ -58,8 +58,9 @@ func benchFullContractTree() map[string]any {
 			"nacos": map[string]any{"serverAddrs": []any{"127.0.0.1:8848"}, "namespace": "bench", "dataId": "bench.yaml", "format": "yaml"},
 		},
 		"registry": map[string]any{
-			"type":   "consul",
-			"consul": map[string]any{"address": "127.0.0.1:8500", "scheme": "http", "healthCheckInterval": 5},
+			// type 枚举仍含 CONSUL（reserved 只挡了 consul 子消息字段）；
+			// 子段 2026-11 已随 registry/consul 下线，不得再出现在 fixture。
+			"type": "consul",
 		},
 		"logger": map[string]any{
 			"backends": []any{
@@ -99,11 +100,15 @@ func benchFullContractTree() map[string]any {
 			},
 		},
 		"storage": map[string]any{
-			"minio": map[string]any{
-				"endpoint":  "127.0.0.1:9000",
-				"accessKey": "bench",
-				"secretKey": "bench-secret",
-				"useSsl":    false,
+			// minio 段已下线（reserved），S3 兼容面统一走 s3 子段。
+			"s3": map[string]any{
+				"endpoint":       "http://127.0.0.1:9000",
+				"region":         "us-east-1",
+				"accessKey":      "bench",
+				"secretKey":      "bench-secret",
+				"useSsl":         false,
+				"forcePathStyle": true,
+				"bucket":         "bench",
 			},
 		},
 		"workflow": map[string]any{
@@ -136,7 +141,7 @@ func benchFullContractTree() map[string]any {
 				"maxOpenConnections":           16,
 				"connectionMaxLifetimeSeconds": 3600,
 			},
-			"mongodb": map[string]any{"uri": "mongodb://127.0.0.1:27017/bench", "database": "bench", "timeoutSeconds": 5},
+			// mongodb 段已下线（reserved），fixture 不得再携带。
 		},
 		"audit": map[string]any{
 			"backends": []any{"log"},

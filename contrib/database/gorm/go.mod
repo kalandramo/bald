@@ -4,7 +4,7 @@ go 1.27.1
 
 require (
 	github.com/kalandramo/bald-crud/gorm v0.3.0
-	github.com/kalandramo/bald/bconf v0.28.0
+	github.com/kalandramo/bald/bconf v0.28.1
 	go.opentelemetry.io/otel/sdk v1.45.0
 	gorm.io/gorm v1.31.2
 	gorm.io/plugin/opentelemetry v0.1.16
@@ -55,9 +55,9 @@ require (
 	github.com/kalandramo/bald-crud/viewer v0.3.0 // indirect
 	github.com/kalandramo/bald-utils v0.1.0 // indirect
 	github.com/kalandramo/bald-utils/mapper v0.1.0 // indirect
-	github.com/kalandramo/bald/encoding v0.1.0 // indirect
+	github.com/kalandramo/bald/encoding v0.2.1 // indirect
 	github.com/kalandramo/bald/encoding/json v0.1.1 // indirect
-	github.com/kalandramo/bald/log v0.6.0 // indirect
+	github.com/kalandramo/bald/log v0.6.1 // indirect
 	github.com/klauspost/compress v1.20.2 // indirect
 	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect

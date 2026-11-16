@@ -541,12 +541,8 @@ github.com/julienschmidt/httprouter v1.3.0/go.mod h1:JR6WtHb+2LUe8TCKY3cZOxFyyO8
 github.com/jung-kurt/gofpdf v1.0.3-0.20190309125859-24315acbbda5/go.mod h1:7Id9E/uU8ce6rXgefFLlgrJj/GYY22cpxn+r32jIOes=
 github.com/kalandramo/bald-crud/viewer v0.3.0 h1:qzFgCqZxxYks6qmtpTnTNYZ0+yM+AvQsnMVdZB+j55g=
 github.com/kalandramo/bald-crud/viewer v0.3.0/go.mod h1:GOiEuYYRKRgOr4bp4Oww+1d6A9n4McTq9ObPTNjBe5g=
-github.com/kalandramo/bald/encoding v0.1.0 h1:oQZwHnjBD/rSG6QHvhv7Myx8GI+9T3V2lxiWzcBPUUY=
-github.com/kalandramo/bald/encoding v0.1.0/go.mod h1:RWT+lGgXHZJElSVwSri1AVaImHK6Ju0vohD4iZxn6QA=
 github.com/kalandramo/bald/encoding/json v0.1.1 h1:PVZFFF583qhtYtJK5QZ9YFQihFkbz7U4nDk7FsSE9ko=
 github.com/kalandramo/bald/encoding/json v0.1.1/go.mod h1:j4reA7Hr3C2xjPCKMSqPXnH8VOxMoNX6g5kbiw4WldM=
-github.com/kalandramo/bald/ratelimit v0.1.0 h1:RO0fTqlXhN2vlOUfGPp/xb7fkBviuRCQnwpGzZjm/Yc=
-github.com/kalandramo/bald/ratelimit v0.1.0/go.mod h1:f6OdCLURzCq332om3MKvHTE0Q5/5I+pK1c5WFzMGRk8=
 github.com/kisielk/errcheck v1.1.0/go.mod h1:EZBBE59ingxPouuu3KfxchcWSUPOHkagtvWXihfKN4Q=
 github.com/kisielk/errcheck v1.5.0/go.mod h1:pFxgyoBC7bSaBwPgfKdkLd5X25qrDl4LWUI2bnpBCr8=
 github.com/kisielk/gotool v1.0.0/go.mod h1:XhKaO+MFFWcvkIS/tQcRk01m1F5IRFswLeQ+oQHNcck=

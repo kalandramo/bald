@@ -7,13 +7,17 @@ require (
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/hashicorp/consul/api v1.34.4
 	github.com/hashicorp/vault/api v1.23.0
-	github.com/kalandramo/bald/log v0.6.0
+	github.com/kalandramo/bald/log v0.6.1
 	github.com/nacos-group/nacos-sdk-go/v2 v2.3.5
 	go.etcd.io/etcd/client/v3 v3.7.1
 	k8s.io/api v0.37.0
 	k8s.io/apimachinery v0.37.0
 	k8s.io/client-go v0.37.0
 )
+
+// 发布叠加层：sync 把 require 顶到本轮计划版本，tag 落地前代理上不存在，
+// 仓内自洽靠目录 replace（版本行不动，发布物不受影响）。
+replace github.com/kalandramo/bald/log => ../log
 
 require (
 	github.com/alibabacloud-go/alibabacloud-gateway-pop v0.0.6 // indirect
