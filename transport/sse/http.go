@@ -108,7 +108,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 
-		if s.eventTTL != 0 && time.Now().After(ev.timestamp.Add(s.eventTTL)) {
+		// TTL 只对带投递时间戳的事件有意义：timestamp 由 EventLog.Add 在
+		// autoReplay 开启时写入。autoReplay 关闭时事件时间戳是零值，
+		// zero.Add(ttl) 恒早于现在——按零值过滤会把整个 SSE 流静默清空。
+		// 无时间戳 = 不参与过期判定。
+		if s.eventTTL != 0 && !ev.timestamp.IsZero() && time.Now().After(ev.timestamp.Add(s.eventTTL)) {
 			continue
 		}
 

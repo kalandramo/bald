@@ -5,7 +5,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -280,8 +279,10 @@ func runGenAppSpec(spec, out string, adopt, check bool, streams ioStreams) error
 // seedGoMod 在生成树缺 go.mod 时补一份骨架（module + go 两行）。它**不进
 // manifest**：go.mod 落盘即归用户维护（加依赖、改版本都是用户的日常），
 // --check 与 adopt 都不追踪它——gen 只在缺失时补这一次（os.Stat 缺席才写）。
-// go 版本取 runtime.Version()：编译出这把 cli 的 Go 必然 ≥ bald 模块要求的
-// 版本（cli go.mod 的 go 指令是下界），用户的工具链不会低于它。
+// go 版本取 goMinorVersion()（编译 cli 的 Go 的主次版本，1.NN 形式）：编译出
+// 这把 cli 的 Go 必然 ≥ bald 模块要求的版本（cli go.mod 的 go 指令是下界），
+// 用户的工具链不会低于它；go 指令只写下界即可，且必须可解析——
+// runtime.Version() 的 "go1.NN.Patch" 原文不是合法的版本指令。
 func seedGoMod(root, module string, streams ioStreams) (bool, error) {
 	p := filepath.Join(root, "go.mod")
 	if _, err := os.Stat(p); err == nil {
@@ -289,7 +290,10 @@ func seedGoMod(root, module string, streams ioStreams) (bool, error) {
 	} else if !os.IsNotExist(err) {
 		return false, fmt.Errorf("stat %s: %w", p, err)
 	}
-	content := fmt.Sprintf("module %s\n\ngo %s\n", module, runtime.Version())
+	// go 指令必须是 1.NN 形式：runtime.Version() 带 "go" 前缀（go1.27.4），
+	// 原样拼进 go 指令每个新生成树的第一次 `go mod tidy` 都会失败。
+	// goMinorVersion 是同一语义的既有实现（剥前缀、取主次版本）。
+	content := fmt.Sprintf("module %s\n\ngo %s\n", module, goMinorVersion())
 	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
 		return false, err
 	}

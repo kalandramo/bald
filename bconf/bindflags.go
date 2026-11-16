@@ -71,28 +71,6 @@ func bindMessageFlags(fs *pflag.FlagSet, m protoreflect.Message, prefix string) 
 	}
 }
 
-// bindScalarFlag 把单个标量字段注册为 flag，默认值取 message 当前值（已含 proto 注解注入）。
-func bindScalarFlag(fs *pflag.FlagSet, m protoreflect.Message, fd protoreflect.FieldDescriptor, key string) {
-	switch fd.Kind() {
-	case protoreflect.StringKind:
-		fs.Var(&bindStringSetter{m, fd}, key, usageOf(fd))
-	case protoreflect.BoolKind:
-		fs.Var(&bindBoolSetter{m, fd}, key, usageOf(fd))
-	case protoreflect.Int32Kind:
-		fs.Var(&bindIntSetter{m, fd}, key, usageOf(fd))
-	case protoreflect.Int64Kind:
-		fs.Var(&bindInt64Setter{m, fd}, key, usageOf(fd))
-	case protoreflect.Uint32Kind:
-		fs.Var(&bindUintSetter{m, fd}, key, usageOf(fd))
-	case protoreflect.Uint64Kind:
-		fs.Var(&bindUint64Setter{m, fd}, key, usageOf(fd))
-	case protoreflect.FloatKind:
-		fs.Var(&bindFloat32Setter{m, fd}, key, usageOf(fd)) //cov:excl 本仓契约树无 float32 字段，该 Kind 分支恒不可达
-	case protoreflect.DoubleKind:
-		fs.Var(&bindFloat64Setter{m, fd}, key, usageOf(fd))
-	}
-}
-
 // usageOf 返回字段的简短用途说明（取自 proto 注释，运行时不易获取，统一用字段名）。
 func usageOf(fd protoreflect.FieldDescriptor) string {
 	return fmt.Sprintf("config field %s", fd.Name())
@@ -167,131 +145,68 @@ func durationOf(m protoreflect.Message, fd protoreflect.FieldDescriptor) *durati
 }
 
 // --- flag 值写入器：把 flag 解析结果回写到 proto message ---
+//
+// 七种标量 Kind 共享一个泛型 setter：解析函数、装箱函数、Type 名与 String
+// 格式化由 bindScalarFlag 按 Kind 配置（J2 重复税：错误即拒绝、成功即回写
+// 这同一不变量不养第二份实现——此前的 7 份复制类型正是 enum/bytes 分支
+// 漏注册这类漂移的温床）。Duration 是 message kind，走独立的 bindDurationSetter。
 
-type bindStringSetter struct {
-	m  protoreflect.Message
-	fd protoreflect.FieldDescriptor
+// scalarSetter 把「解析→装箱→回写」的通用流程参数化。
+type scalarSetter[T any] struct {
+	m      protoreflect.Message
+	fd     protoreflect.FieldDescriptor
+	parse  func(string) (T, error)
+	box    func(T) protoreflect.Value
+	typ    string
+	format func(protoreflect.Value) string
 }
 
-func (s *bindStringSetter) Set(val string) error {
-	s.m.Set(s.fd, protoreflect.ValueOfString(val))
-	return nil
-}
-func (s *bindStringSetter) Type() string   { return "string" }
-func (s *bindStringSetter) String() string { return s.m.Get(s.fd).String() }
-
-type bindBoolSetter struct {
-	m  protoreflect.Message
-	fd protoreflect.FieldDescriptor
-}
-
-func (s *bindBoolSetter) Set(val string) error {
-	b, err := parseBool(val)
+func (s *scalarSetter[T]) Set(val string) error {
+	v, err := s.parse(val)
 	if err != nil {
 		return err
 	}
-	s.m.Set(s.fd, protoreflect.ValueOfBool(b))
+	s.m.Set(s.fd, s.box(v))
 	return nil
 }
-func (s *bindBoolSetter) Type() string   { return "bool" }
-func (s *bindBoolSetter) String() string { return fmt.Sprintf("%v", s.m.Get(s.fd).Bool()) }
-
-type bindIntSetter struct {
-	m  protoreflect.Message
-	fd protoreflect.FieldDescriptor
+func (s *scalarSetter[T]) Type() string { return s.typ }
+func (s *scalarSetter[T]) String() string {
+	return s.format(s.m.Get(s.fd))
 }
 
-func (s *bindIntSetter) Set(val string) error {
-	n, err := parseInt32(val)
-	if err != nil {
-		return err
+// identityParse 是 string 字段的解析函数：flag 侧字符串无需转换。
+func identityParse(s string) (string, error) { return s, nil }
+
+// 各 Kind 的 String() 格式化与旧 setter 逐字节一致（旧实现即
+// fmt.Sprintf("%v", m.Get(fd).Bool()/Int()/Uint()/Float())）。
+func boolFormat(v protoreflect.Value) string   { return fmt.Sprintf("%v", v.Bool()) }
+func intFormat(v protoreflect.Value) string    { return fmt.Sprintf("%v", v.Int()) }
+func uintFormat(v protoreflect.Value) string   { return fmt.Sprintf("%v", v.Uint()) }
+func floatFormat(v protoreflect.Value) string  { return fmt.Sprintf("%v", v.Float()) }
+func stringFormat(v protoreflect.Value) string { return v.String() }
+
+// bindScalarFlag 把单个标量字段注册为 flag，默认值取 message 当前值（已含 proto 注解注入）。
+// FloatKind 分支在本仓契约树上不可达（无 float32 字段），单行 //cov:excl 即可
+// 整块豁免（块级判定见 tools/coverage-merge/main.go 的 isExcl：block 内任意行
+// 携带标记即排除）；配置与其它 Kind 同质——将来出现 float32 契约字段即自动生效，
+// 届时注意 String() 经 protoreflect 一律按 float64 宽化显示（与旧 setter 一致）。
+func bindScalarFlag(fs *pflag.FlagSet, m protoreflect.Message, fd protoreflect.FieldDescriptor, key string) {
+	switch fd.Kind() {
+	case protoreflect.StringKind:
+		fs.Var(&scalarSetter[string]{m: m, fd: fd, parse: identityParse, box: protoreflect.ValueOfString, typ: "string", format: stringFormat}, key, usageOf(fd))
+	case protoreflect.BoolKind:
+		fs.Var(&scalarSetter[bool]{m: m, fd: fd, parse: parseBool, box: protoreflect.ValueOfBool, typ: "bool", format: boolFormat}, key, usageOf(fd))
+	case protoreflect.Int32Kind:
+		fs.Var(&scalarSetter[int32]{m: m, fd: fd, parse: parseInt32, box: protoreflect.ValueOfInt32, typ: "int", format: intFormat}, key, usageOf(fd))
+	case protoreflect.Int64Kind:
+		fs.Var(&scalarSetter[int64]{m: m, fd: fd, parse: parseInt64, box: protoreflect.ValueOfInt64, typ: "int64", format: intFormat}, key, usageOf(fd))
+	case protoreflect.Uint32Kind:
+		fs.Var(&scalarSetter[uint32]{m: m, fd: fd, parse: parseUint32, box: protoreflect.ValueOfUint32, typ: "uint", format: uintFormat}, key, usageOf(fd))
+	case protoreflect.Uint64Kind:
+		fs.Var(&scalarSetter[uint64]{m: m, fd: fd, parse: parseUint64, box: protoreflect.ValueOfUint64, typ: "uint64", format: uintFormat}, key, usageOf(fd))
+	case protoreflect.FloatKind:
+		fs.Var(&scalarSetter[float32]{m: m, fd: fd, parse: parseFloat32, box: protoreflect.ValueOfFloat32, typ: "float", format: floatFormat}, key, usageOf(fd)) //cov:excl 本仓契约树无 float32 字段
+	case protoreflect.DoubleKind:
+		fs.Var(&scalarSetter[float64]{m: m, fd: fd, parse: parseFloat64, box: protoreflect.ValueOfFloat64, typ: "float", format: floatFormat}, key, usageOf(fd))
 	}
-	s.m.Set(s.fd, protoreflect.ValueOfInt32(n))
-	return nil
 }
-func (s *bindIntSetter) Type() string   { return "int" }
-func (s *bindIntSetter) String() string { return fmt.Sprintf("%v", s.m.Get(s.fd).Int()) }
-
-type bindInt64Setter struct {
-	m  protoreflect.Message
-	fd protoreflect.FieldDescriptor
-}
-
-func (s *bindInt64Setter) Set(val string) error {
-	n, err := parseInt64(val)
-	if err != nil {
-		return err
-	}
-	s.m.Set(s.fd, protoreflect.ValueOfInt64(n))
-	return nil
-}
-func (s *bindInt64Setter) Type() string   { return "int64" }
-func (s *bindInt64Setter) String() string { return fmt.Sprintf("%v", s.m.Get(s.fd).Int()) }
-
-type bindUintSetter struct {
-	m  protoreflect.Message
-	fd protoreflect.FieldDescriptor
-}
-
-func (s *bindUintSetter) Set(val string) error {
-	n, err := parseUint32(val)
-	if err != nil {
-		return err
-	}
-	s.m.Set(s.fd, protoreflect.ValueOfUint32(n))
-	return nil
-}
-func (s *bindUintSetter) Type() string   { return "uint" }
-func (s *bindUintSetter) String() string { return fmt.Sprintf("%v", s.m.Get(s.fd).Uint()) }
-
-type bindUint64Setter struct {
-	m  protoreflect.Message
-	fd protoreflect.FieldDescriptor
-}
-
-func (s *bindUint64Setter) Set(val string) error {
-	n, err := parseUint64(val)
-	if err != nil {
-		return err
-	}
-	s.m.Set(s.fd, protoreflect.ValueOfUint64(n))
-	return nil
-}
-func (s *bindUint64Setter) Type() string   { return "uint64" }
-func (s *bindUint64Setter) String() string { return fmt.Sprintf("%v", s.m.Get(s.fd).Uint()) }
-
-type bindFloat32Setter struct {
-	m  protoreflect.Message
-	fd protoreflect.FieldDescriptor
-}
-
-// bindFloat32Setter 处理 protoreflect.FloatKind。本仓契约树上没有任何 float32
-// 字段，故绑定路径（bindScalarFlag）与以下三个方法都无法用真实 message 构造驱动
-// ——属结构性不可测，逐语句 //cov:excl。若将来出现 float32 契约字段，删除豁免即
-// 由 BindFlags 通用遍历自动覆盖。
-func (s *bindFloat32Setter) Set(val string) error {
-	f, err := parseFloat32(val) //cov:excl bindFloat32Setter 无真实 float32 fd 可构造
-	if err != nil {
-		return err //cov:excl bindFloat32Setter 无真实 float32 fd 可构造
-	}
-	s.m.Set(s.fd, protoreflect.ValueOfFloat32(f)) //cov:excl bindFloat32Setter 无真实 float32 fd 可构造
-	return nil
-}
-func (s *bindFloat32Setter) Type() string   { return "float" }                                  //cov:excl bindFloat32Setter 无真实 float32 fd 可构造
-func (s *bindFloat32Setter) String() string { return fmt.Sprintf("%v", s.m.Get(s.fd).Float()) } //cov:excl bindFloat32Setter 无真实 float32 fd 可构造
-
-type bindFloat64Setter struct {
-	m  protoreflect.Message
-	fd protoreflect.FieldDescriptor
-}
-
-func (s *bindFloat64Setter) Set(val string) error {
-	f, err := parseFloat64(val)
-	if err != nil {
-		return err
-	}
-	s.m.Set(s.fd, protoreflect.ValueOfFloat64(f))
-	return nil
-}
-func (s *bindFloat64Setter) Type() string   { return "float" }
-func (s *bindFloat64Setter) String() string { return fmt.Sprintf("%v", s.m.Get(s.fd).Float()) }

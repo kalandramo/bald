@@ -89,7 +89,16 @@ func (r *Registry) Healthy(addr string) bool {
 
 // Prune 清理不再出现在候选集中的地址熔断器（经 Close 释放），防止实例
 // churn 时 map 无界增长（与 p2c.prune 同款）。稳态下是廉价空操作。
+// 空操作快检走读锁（Select 每 pick 调一次，无条件写锁会把并发选取串行化）；
+// 写锁只在确认 map 超编后拿，锁内双检兜住快检与加锁之间的并发构造。
 func (r *Registry) Prune(nodes []selector.Node) {
+	r.mu.RLock()
+	steady := len(r.breakers) <= len(nodes)
+	r.mu.RUnlock()
+	if steady {
+		return
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if len(r.breakers) <= len(nodes) {

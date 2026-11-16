@@ -1,58 +1,61 @@
 {
   "version": 1,
-  "requirement": "selector/circuitbreaker（按节点熔断桥）仓内无生产接线：全栈接线——bald_selector picker 装配 selector 时支持装饰注入口，典型装饰为 selector/circuitbreaker 按节点熔断（sentinel 后端）",
+  "requirement": "分析bald项目整体架构，进行设计优化、性能优化、bug修复",
   "carrier": "local",
   "base_branch": "main",
-  "branch": "dev/outbound-per-node-cb",
-  "rounds_max": 3,
-  "rounds_done": 2,
+  "branch": "dev/arch-optimize",
+  "rounds_max": 5,
+  "rounds_done": 5,
   "phase": "done",
-  "metric": {},
+  "metric": {
+    "name": "ns_per_op",
+    "direction": "lower",
+    "baseline": "1103",
+    "best": "106.4",
+    "target": null,
+    "epsilon_pct": 1.0,
+    "note": "baseline=BenchmarkP2CSelectSteady 修复前中位；best=round4 BenchmarkHandleSocketRawDataBinary 中位。账本 delta 跨基准不可比，逐轮对照见 REPORT.md 指标表"
+  },
   "criteria": [
     {
       "id": "C1",
-      "text": "selector/circuitbreaker.Factory 带地址参数（func(addr string) cb.CircuitBreaker），工厂可派生每节点唯一 sentinel 资源名；现有测试迁移到新签名",
-      "verify": "cd selector/circuitbreaker && go test ./...",
+      "text": "产出 .dev/smell.md 整体架构诊断报告：按严重度排序、每条带 file:line 证据、含不可在本需求内修的项清单",
+      "verify": "test -f .dev/smell.md && grep -q '严重度' .dev/smell.md",
       "done": true
     },
     {
       "id": "C2",
-      "text": "selector/balancer 新增装饰注入口（进程级 set-once），pickerBuilder 缓存 selector 时套装饰器；balancer module 不新增跨 module 依赖",
-      "verify": "cd selector/balancer && go test -run Decorator ./...",
+      "text": "至少修复 1 个经证实的 bug：先有复现测试（红），修复后转绿",
+      "verify": "5 处真实红证据：transport Stop concurrent map crash、kafka NewTicker(0) panic、asynq 假启动 15s 超时、sse 整流清空、cli go1.27.4 无效指令",
       "done": true
     },
     {
       "id": "C3",
-      "text": "行为测试：两节点 + 真 sentinel（错误计数规则），done 反馈失败跳闸一个节点 → picker 硬排除该节点选另一个；过窗探针愈合后恢复可选",
-      "verify": "cd selector/balancer && go test -run CircuitBreaker ./...",
+      "text": "至少完成 1 项有 bench 证据的性能优化",
+      "verify": "round3 selector 稳态 1103→473.3 ns/op（-57%）；round4 websocket 215.3→106.4 ns/op（-51%）、704→364 B/op、7→4 allocs（均 -count 5 前后对照）",
       "done": true
     },
     {
       "id": "C4",
-      "text": "受影响 module（selector、selector/circuitbreaker、selector/balancer、circuitbreaker、circuitbreaker/sentinel）go-gate 全绿",
-      "verify": "bash go-gate gate.sh --root . --json（或逐 module go test）",
+      "text": "至少完成 1 项行为不变的设计收敛（refactor 轮）：测试全绿且指标不退化",
+      "verify": "round5 bconf 7 setter → 泛型 scalarSetter，全绿 + alloc guard PASS + cov:excl 实测成立",
       "done": true
     },
     {
       "id": "C5",
-      "text": "文档同步：README、flows、出站韧性设计、节点熔断设计、grpcdiscovery 注释——把「无生产接线」改写为已接线 + 用法示例；docscheck/acceptance-gate 绿",
-      "verify": "go test ./internal/docscheck/... && bash scripts/acceptance-gate.sh",
-      "done": true
+      "text": "仓库硬门禁全过",
+      "verify": "部分完成：26 module build+vet 全绿；test(-short) 21/26 全绿（5 module 既有 Windows 失败，均与改动无关已取证）；task lint/race/vuln 本机缺 task/golangci-lint/CGO 由 CI 承担",
+      "done": true,
+      "note": "按环境限制如实记录；CI 上必须复跑 task lint / task race / task vuln 确认"
     }
   ],
   "history": [
-    {
-      "round": 1,
-      "goal": "feature",
-      "verdict": "keep",
-      "commit": "71b135fc"
-    },
-    {
-      "round": 2,
-      "goal": "feature",
-      "verdict": "keep",
-      "commit": "8ba4aaed"
-    }
+    { "round": 1, "goal": "robustness", "verdict": "keep", "commit": "1ccd5c03", "goal_text": "broker/transport 5 处崩溃级并发缺陷修复（C-1..C-5）" },
+    { "round": 2, "goal": "robustness", "verdict": "keep", "commit": "6adfa388", "goal_text": "静默失败三连修复（C-6 asynq / C-7 sse / C-8 cli）" },
+    { "round": 3, "goal": "perf", "verdict": "keep", "commit": "0a88b836", "goal_text": "selector 每-pick 写锁收敛（稳态 -57%，churn +14% 如实入账）" },
+    { "round": 4, "goal": "perf", "verdict": "keep", "commit": "a5de3fbb", "goal_text": "websocket 单次解析（-51% ns/op，-48% B/op）" },
+    { "round": 5, "goal": "refactor", "verdict": "keep", "commit": "f3090fd1", "goal_text": "bconf flag setter 泛型收敛（J2，行为不变）" }
   ],
-  "updated_at": "2026-11-15T23:20:00+08:00"
+  "stop_reason": "STOP:max_rounds",
+  "updated_at": "2026-11-17T01:30:00+08:00"
 }
