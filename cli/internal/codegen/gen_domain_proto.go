@@ -352,6 +352,19 @@ func validateDomainServices(as *appspecv1.AppSpec, scan *protoScan, roots []stri
 // domainValuePresent 报告 dir 下非测试 .go 文件是否已声明导出值 Domain
 // （go/parser 结构判定——域包已自带声明值时 gen domain 消费不覆盖）。
 func domainValuePresent(dir string) (bool, error) {
+	// 先判型再 ReadDir：Windows 的 os.ReadDir 对普通文件返回 (空, nil)——
+	// 不判型会把「路径被文件占用」静默当成「未声明」走过去（Unix 上是
+	// ENOTDIR 报错）。两平台统一为显式报错。
+	fi, err := os.Stat(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	if !fi.IsDir() {
+		return false, fmt.Errorf("not a directory: %s", dir)
+	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -386,13 +399,16 @@ func domainValuePresent(dir string) (bool, error) {
 }
 
 // domainDir 把域的 go_package import 路径折算为产出根下的包目录。
+// 返回值恒为 slash 语义（go_package 是 import 路径，slash 是它的本征分隔符；
+// Windows 上 FromSlash 会产反斜杠，与 manifest 的 slash 归一口径漂移）。
+// 消费方一律 filepath.Join/Base，对 slash 输入天然正确。
 func domainDir(module, goPackage string) (string, error) {
 	gp := goPackage
-	if i := strings.IndexByte(gp, ';'); i >= 0 {
+	if i := strings.IndexByte(gp, ';') ; i >= 0 {
 		gp = gp[:i]
 	}
 	if module != "" && strings.HasPrefix(gp, module+"/") {
-		return filepath.FromSlash(strings.TrimPrefix(gp, module+"/")), nil
+		return strings.TrimPrefix(gp, module+"/"), nil
 	}
 	return "", fmt.Errorf("go_package %q is not under module %q (cannot locate the domain package directory)", goPackage, module)
 }

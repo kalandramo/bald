@@ -11,8 +11,9 @@ import (
 	"testing"
 )
 
-// TestWriteGuarded_StatErrors Seeded / owned 两态在 stat 失败（非 ENOENT）
-// 时上报：父级是普通文件 → ENOTDIR，不能按「未存在」继续写。
+// TestWriteGuarded_StatErrors Seeded / owned 两态在「父级是普通文件」时必须
+// 失败且不得写穿：Unix 在 stat 即报 ENOTDIR；Windows 的 os.Stat 穿过普通文件
+// 返回 ErrNotExist，失败点后移到 mkdir。不变量是任一阶段失败且目标未落盘。
 func TestWriteGuarded_StatErrors(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "blocker"), []byte("x"), 0o644); err != nil {
@@ -22,8 +23,11 @@ func TestWriteGuarded_StatErrors(t *testing.T) {
 	for _, own := range []ownership{Seeded, owned} {
 		streams, _ := testStreams()
 		err := writeGuarded(target, []byte("package x\n"), own, false, streams)
-		if err == nil || !strings.Contains(err.Error(), "stat") {
-			t.Fatalf("ownership %d: stat error must surface, got: %v", own, err)
+		if err == nil || (!strings.Contains(err.Error(), "stat") && !strings.Contains(err.Error(), "mkdir")) {
+			t.Fatalf("ownership %d: must fail before writing through a regular file, got: %v", own, err)
+		}
+		if _, statErr := os.Stat(target); !os.IsNotExist(statErr) {
+			t.Fatalf("ownership %d: 目标不得被写入（父级是普通文件）", own)
 		}
 	}
 }

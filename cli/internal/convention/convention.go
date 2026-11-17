@@ -96,6 +96,18 @@ func LoadAll(projectDir string) ([]Card, error) {
 		return nil, err
 	}
 	local := filepath.Join(projectDir, ProjectCardsDir)
+	// 先判型再 ReadDir：Windows 的 os.ReadDir 对普通文件返回 (空, nil)，
+	// 不判型会把「.bald/conventions 被文件占用」静默当成无项目卡走下去。
+	fi, err := os.Stat(local)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return base, nil
+		}
+		return nil, fmt.Errorf("read %s: %w", local, err)
+	}
+	if !fi.IsDir() {
+		return nil, fmt.Errorf("read %s: not a directory", local)
+	}
 	entries, err := os.ReadDir(local)
 	if err != nil {
 		if os.IsNotExist(err) {
