@@ -18,6 +18,7 @@
 package ide
 
 import (
+	"github.com/kalandramo/bald/cli/internal/fsatomic"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -228,7 +229,7 @@ func seed(path, tmpl, comment string, force bool) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err //cov:excl root 绕过权限，MkdirAll 不会失败
 	}
-	if err := os.WriteFile(path, content, 0o644); err != nil {
+	if err := fsatomic.WriteFile(path, content, 0o644); err != nil {
 		return err //cov:excl root 绕过权限，WriteFile 不会失败
 	}
 	fmt.Println("generated:", path, "("+comment+")")
@@ -289,7 +290,7 @@ func mergeMCPJSON(path, shape string, entry map[string]any) error {
 	if err != nil {
 		return err //cov:excl root 由合法 JSON 解码而来，Marshal 必然成功
 	}
-	if err := os.WriteFile(path, append(raw, '\n'), 0o644); err != nil {
+	if err := fsatomic.WriteFile(path, append(raw, '\n'), 0o644); err != nil {
 		return err //cov:excl root 绕过权限，WriteFile 不会失败
 	}
 	fmt.Println("updated:", path, "(merged bald entry)")

@@ -13,6 +13,7 @@ package compose
 // 面克制，不靠 destructiveHint 让客户端兜底。
 
 import (
+	"github.com/kalandramo/bald/cli/internal/fsatomic"
 	"fmt"
 	"io"
 	"os"
@@ -191,7 +192,7 @@ func newConfigCmd(streams Streams) *cobra.Command {
 			} else if !os.IsNotExist(err) {
 				return fmt.Errorf("stat %s: %w", out, err)
 			}
-			if err := os.WriteFile(out, []byte(text), 0o644); err != nil {
+			if err := fsatomic.WriteFile(out, []byte(text), 0o644); err != nil {
 				return fmt.Errorf("write %s: %w", out, err)
 			}
 			fmt.Fprintln(streams.Out, "generated:", out)

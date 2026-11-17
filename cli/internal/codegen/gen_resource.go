@@ -21,6 +21,7 @@ package codegen
 // 且写入走 protojson 回写（覆盖的是契约字段，不是文本替换）。
 
 import (
+	"github.com/kalandramo/bald/cli/internal/fsatomic"
 	"bytes"
 	"fmt"
 	"os"
@@ -209,7 +210,7 @@ func (o *resourceOptions) Run() error {
 		fmt.Fprintln(o.Out, "next: add the snippet, then run `bald gen domain --spec "+o.Spec+"` to derive bindings/routes/authz")
 		return nil
 	}
-	if err := os.WriteFile(o.Spec, nextSpec, 0o644); err != nil {
+	if err := fsatomic.WriteFile(o.Spec, nextSpec, 0o644); err != nil {
 		return fmt.Errorf("write spec: %w", err)
 	}
 	fmt.Fprintln(o.Out, "updated:", o.Spec, "(domains[] extended with "+o.Domain+")")

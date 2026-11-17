@@ -1,6 +1,7 @@
 package release
 
 import (
+	"github.com/kalandramo/bald/cli/internal/fsatomic"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -492,7 +493,7 @@ func WritePlan(path string, plan *Plan) error {
 			return err
 		}
 	}
-	return os.WriteFile(path, data, 0o644)
+	return fsatomic.WriteFile(path, data, 0o644)
 }
 
 // ReadPlan 读取并校验计划文件。
