@@ -1,7 +1,8 @@
 // Package retry provides a composable retry mechanism for transient failures.
 //
 // It implements configurable retry with:
-//   - Exponential backoff with optional jitter (full or equal jitter).
+//   - Exponential backoff with jitter enabled by default (full or equal jitter
+//     available; pass WithJitter(NoJitter) to opt out for deterministic timing).
 //   - Maximum retry count and total timeout.
 //   - Custom retry predicates (decide which errors are retryable).
 //   - Context-aware cancellation.
@@ -97,7 +98,12 @@ func WithBackoff(b Backoff) Option {
 // WithJitter sets the jitter strategy to randomise backoff intervals and
 // prevent thundering-herd effects. A nil strategy is ignored, keeping the
 // default.
-// Default: [NoJitter].
+//
+// Default: [FullJitter] — random(0, delay). This is the strategy AWS recommends
+// in "Exponential Backoff and Jitter" and uses as the SDK default: it spreads
+// retries across the whole backoff window and minimises total client work.
+// Pass [NoJitter] only when deterministic timing is required (e.g. a test that
+// asserts an exact sleep), accepting that a fleet will retry in lockstep.
 func WithJitter(j Jitter) Option {
 	return func(r *Retrier) {
 		if j != nil {
@@ -158,7 +164,7 @@ func New(opts ...Option) *Retrier {
 			Factor:  2,
 			Max:     10 * time.Second,
 		},
-		jitter:     NoJitter,
+		jitter:     FullJitter,
 		classifier: RetryAny,
 		timer:      time.Now,
 	}

@@ -223,11 +223,19 @@ if errors.Is(err, retry.ErrMaxAttempts) && errors.Is(err, syscall.ECONNRESET) {
 
 **代价**：`errors.Join` 的 `Error()` 用换行符连接，文本是两行。直接塞进单行日志会断行。要单行就自己 `strings.ReplaceAll(err.Error(), "\n", "; ")`。我们接受这个代价，换 `errors.Is` 的干净。
 
-### 默认是 `NoJitter`，而不是 AWS 推荐的 `FullJitter`
+### 默认是 `FullJitter`（2026-11-17 决策，原为 `NoJitter`）
 
-这一条是有争议的取舍，写清楚：**AWS 的建议针对的是「大量客户端同时重试」的惊群场景**；而作为**库的默认值**，随机化会让「为什么这次等 1.2s、下次等 0.3s」变得难以复现，也让基于计时的测试变脆。
+这一条改过一次，把两次的理由都留下，免得后人只看到结论不知道代价。
 
-所以我们把决定权交给调用方，默认保持确定性。**如果你在写面向公网的重试，应该显式 `WithJitter(FullJitter)`。**
+**原决策（已废弃）**：默认 `NoJitter`，理由是「库的默认值应可复现，随机化让计时测试变脆；惊群是调用方的场景，应由调用方显式 `WithJitter(FullJitter)`」。
+
+**为什么翻转**：这个理由把「单个调用方可复现」当成了主要目标，但重试的失效模式恰恰是**集群级**的——同一个故障让 N 个客户端在同一时刻失败，无抖动的指数退避会让它们在每一轮的同一时刻再次撞上。AWS 的原始模拟（`Exponential Backoff and Jitter`，Marc Brooker 2015；2023 年官方注明仍是其客户端库的支柱）结论很直接：`NoJitter` 是 **the clear loser**——客户端总工作量更多、完成时间更长；带抖动的方案里 `EqualJitter` 也略逊于 `FullJitter`（工作量相近、耗时明显更长）。gRPC/etcd/kafka 各自选 `FullJitter` 或 `EqualJitter` 都是同一判断的局部应用。仓库自己早已在 `registry/etcd` 默认 `FullJitter`（注释：「恢复瞬间成百上千个实例一起重连，正是要靠 FullJitter 打散的那种同步风暴」）、`broker/kafka` 用 `EqualJitter`——唯独通用 `retry.New()` 默认不抖，等于默认踩在论文判定的输家上。
+
+**新的取舍**：默认 `FullJitter`，把集群安全性作为库的默认；需要确定性计时的场景用 `WithJitter(NoJitter)` 显式退出。这个退出是**有意的窄口**——`retry_test.go` 里三条依赖精确等待的用例（`TestDo_ContextCanceled`、`TestDo_MaxTotalWait`、`TestWithClock_DeterministicTimeout`）都已显式钉住 `NoJitter`，测试意图与全局默认值解耦；`TestNew_DefaultJitterIsFullJitter` 用 rng=0/0.5/1 三点钉住默认值，防止再次漂回。
+
+**承认的代价**：`FullJitter` 在 rng→0 时会给出接近 0 的等待（第二次重试几乎立刻发生）。这与 AWS SDK 的默认行为一致（它靠 50ms base 与 20s cap 兜底），本包靠 `maxAttempts` 与 `WithMaxTotalWait` 控总量。对延迟敏感且不能接受即刻重试的调用方，用 `WithJitter(EqualJitter)`（保证至少等 delay/2）——`broker/kafka` 就是这么选的。
+
+**行为变更面**：实测 `retry.New()` 在生产代码里没有调用方（仅测试与文档示例使用），所以这次默认值变更对运行时行为零影响，纯粹是修正「下一个用 `retry.New()` 的人默认踩坑」。
 
 ### 不做泛型返回值 `Do[T]`
 
@@ -364,7 +372,7 @@ bash scripts/acceptance-gate.sh ci
 | 构造 | `New(opts ...Option) *Retrier` | — |
 | 配置 | `WithMaxAttempts(int)` | `3` |
 | | `WithBackoff(Backoff)` | `ExponentialBackoff{200ms, 2, 10s}` |
-| | `WithJitter(Jitter)` | `NoJitter` |
+| | `WithJitter(Jitter)` | `FullJitter` |
 | | `WithClassifier(Classifier)` | `RetryAny` |
 | | `WithMaxTotalWait(time.Duration)` | `0`（不限） |
 | | `WithRNG(*rand.Rand)` | 全局 `rand.Float64` |
@@ -391,4 +399,4 @@ bash scripts/acceptance-gate.sh ci
 
 1. **要不要再加一层 `WithSleeper`，让睡眠也可跳过？** 当前 `WithClock` 只影响 elapsed 计算（见「边界与约束」§4）。加 `WithSleeper` 能让超时测试完全脱离真实计时器，但目前没有第二个消费者，暂不做。
 2. 要不要支持 HTTP `Retry-After`（429/503）？这需要一个「让分类器返回建议等待时长」的扩展点，**会动 `Classifier` 的签名**，属于破坏性变更，需要单独决策。
-3. 默认抖动是否从 `NoJitter` 改为 `FullJitter`？这是行为变更，影响所有未显式配置的调用方，需要单独决策。
+3. ~~默认抖动是否从 `NoJitter` 改为 `FullJitter`？~~ **已决策（2026-11-17）：改为 `FullJitter`**，理由与代价见「理由与取舍」同名小节。生产代码无 `retry.New()` 调用方，行为变更面为零。

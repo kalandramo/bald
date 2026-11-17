@@ -99,6 +99,27 @@ func TestNoJitter(t *testing.T) {
 	}
 }
 
+// 默认抖动必须是 FullJitter：OCC/限流等惊群场景下 NoJitter 是 AWS 论文里的
+// "clear loser"（work 更多、耗时更长），EqualJitter 在带抖动的方案里也略逊。
+// 用 rng=0/0.5/1 三点把三种策略区分开——只断言非 nil 抓不到「默认值漂回
+// NoJitter/EqualJitter」。nil 策略忽略的回归另见 TestNew_NilStrategiesIgnored。
+func TestNew_DefaultJitterIsFullJitter(t *testing.T) {
+	d := 200 * time.Millisecond
+	r := New()
+	for _, tt := range []struct {
+		rng  float64
+		want time.Duration
+	}{
+		{0, 0},
+		{0.5, 100 * time.Millisecond},
+		{0.999, 199800 * time.Microsecond},
+	} {
+		if got := r.jitter(d, func() float64 { return tt.rng }); got != tt.want {
+			t.Errorf("default jitter(rng=%v) = %v, want %v (FullJitter)", tt.rng, got, tt.want)
+		}
+	}
+}
+
 func TestFullJitter(t *testing.T) {
 	d := 200 * time.Millisecond
 	// rng = 0 → 0ms
@@ -241,6 +262,9 @@ func TestDo_ContextCanceled(t *testing.T) {
 	r := New(
 		WithMaxAttempts(10),
 		WithBackoff(FixedBackoff(100*time.Millisecond)),
+		// 这条测的是取消语义，不是抖动；显式钉住不抖动，避免默认 FullJitter
+		// 把 100ms 退避随机成任意值而让「10ms 后必然还在等」的前提失效。
+		WithJitter(NoJitter),
 	)
 	ctx, cancel := context.WithCancel(context.Background())
 	calls := 0
@@ -269,6 +293,9 @@ func TestDo_MaxTotalWait(t *testing.T) {
 		WithMaxAttempts(100),
 		WithBackoff(FixedBackoff(50*time.Millisecond)),
 		WithMaxTotalWait(100*time.Millisecond),
+		// 预算边界依赖精确的 50ms 退避；默认 FullJitter 会随机缩短等待，
+		// 让「两次重试就撞预算」的假设不再确定。
+		WithJitter(NoJitter),
 	)
 	start := time.Now()
 	err := r.Do(context.Background(), func(_ context.Context) error {
@@ -460,6 +487,9 @@ func TestWithClock_DeterministicTimeout(t *testing.T) {
 		WithMaxAttempts(100),
 		// Long enough that any real sleep would be obvious.
 		WithBackoff(FixedBackoff(30*time.Second)),
+		// 预算由假时钟推进触发，与退避长度无关；显式 NoJitter 让这条断言
+		// 不受默认抖动策略变动的影响。
+		WithJitter(NoJitter),
 		WithMaxTotalWait(100*time.Millisecond),
 		// Every read jumps 1s ahead, so the budget is already blown when the
 		// first backoff is computed.
