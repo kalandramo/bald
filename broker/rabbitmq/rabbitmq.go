@@ -11,6 +11,12 @@ import (
 	"github.com/kalandramo/bald/broker"
 )
 
+// ErrNotConnected 表示 broker 没有可用的底层 AMQP 连接：可能是从未 Connect，
+// 也可能是 Connect 拨号失败后残留的半连接态（b.conn wrapper 已建但底层
+// amqp.Connection 为 nil）。发布/订阅入口据此 fail-fast，避免对 nil 底层连接
+// 解引用而 panic。调用方可用标准库 errors.Is 匹配该哨兵。
+var ErrNotConnected = errors.New("not connected: no usable AMQP connection")
+
 type rabbitBroker struct {
 	mtx sync.Mutex
 	wg  sync.WaitGroup
@@ -221,7 +227,7 @@ func (b *rabbitBroker) publish(ctx context.Context, routingKey string, msg *brok
 
 func (b *rabbitBroker) Subscribe(routingKey string, handler broker.Handler, binder broker.Binder, opts ...broker.SubscribeOption) (broker.Subscriber, error) {
 	if b.conn == nil {
-		return nil, errors.New("not connected")
+		return nil, ErrNotConnected
 	}
 
 	if routingKey == "" {

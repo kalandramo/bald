@@ -3,6 +3,7 @@ package rabbitmq
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -14,6 +15,12 @@ type rabbitChannel struct {
 }
 
 func newRabbitChannel(conn *amqp.Connection, qos Qos) (*rabbitChannel, error) {
+	// 所有 newRabbitChannel 调用点（Publish/Consume/lazyInit/tryConnect）
+	// 的公共兜底：nil 底层连接上直接 Channel() 会 nil 解引用 panic。
+	// 半连接态在此统一 fail-fast，返回调用方可 errors.Is 的连接类错误。
+	if conn == nil {
+		return nil, fmt.Errorf("%w: cannot open channel on a nil AMQP connection", ErrNotConnected)
+	}
 	rabbitCh := &rabbitChannel{
 		uuid:       generateUUID(),
 		connection: conn,

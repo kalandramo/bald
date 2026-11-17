@@ -2,6 +2,7 @@ package rabbitmq
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -83,6 +84,33 @@ func TestPublishConcurrentWithReconnectWrite(t *testing.T) {
 	}
 }
 
+// TestPublishMiddlewareChainAndMessageHeaders 覆盖 Publish 的两条真实功能路径：
+// broker 级 PublishMiddlewares 链，以及 broker.Message.Headers 向 amqp.Publishing
+// 的透传。使用 offlineBroker（无底层连接），发布最终在源头 nil 守卫处以
+// ErrNotConnected 收尾；中间件仍应被调用一次，证明它被接入了发布链。
+func TestPublishMiddlewareChainAndMessageHeaders(t *testing.T) {
+	called := 0
+	b := offlineBroker(t, broker.WithPublishMiddlewares(
+		func(next broker.PublishHandler) broker.PublishHandler {
+			return func(ctx context.Context, topic string, msg *broker.Message, opts ...broker.PublishOption) error {
+				called++
+				return next(ctx, topic, msg, opts...)
+			}
+		},
+	))
+
+	err := b.Publish(context.Background(), "rk.mw", &broker.Message{
+		Body:    "payload",
+		Headers: broker.Headers{"h1": "v1", "h2": "v2"},
+	})
+	if !errors.Is(err, ErrNotConnected) {
+		t.Fatalf("Publish = %v, want errors.Is(_, ErrNotConnected)", err)
+	}
+	if called != 1 {
+		t.Fatalf("Publish 中间件调用次数 = %d, want 1", called)
+	}
+}
+
 // ---- DeclarePublishQueue：GetExchange 错误分支（空壳下安全）----
 
 func TestDeclarePublishQueueUnknownExchange(t *testing.T) {
@@ -124,12 +152,10 @@ func TestRabbitChannelNilGuards(t *testing.T) {
 	}
 }
 
-// TestUnconnectedBrokerPublishPanics_KnownDefect 复现并钉住一个已知产品缺陷
-// （本次不修，仅记录证据）：broker.Connect 拨号失败后 b.conn 已非 nil 但底层
-// Connection 为 nil；此后 Publish 经 lazyInitPublishChannel → newRabbitChannel(nil)
-// → (*amqp.Connection).Channel() nil 解引用 panic。若将来修复，请把本测试改为
-// 断言「如实返回错误而非 panic」。
-func TestUnconnectedBrokerPublishPanics_KnownDefect(t *testing.T) {
+// TestUnconnectedBrokerPublishReturnsNotConnected 是原 KnownDefect 假门禁的正向
+// 回归：同一复现步骤（拒连地址 → Init → Connect 失败 → Publish）现在必须得到
+// 明确的 ErrNotConnected，而不是把 panic 钉成期望值。
+func TestUnconnectedBrokerPublishReturnsNotConnected(t *testing.T) {
 	b, ok := NewBroker(broker.WithAddress(refusedAddr(t))).(*rabbitBroker)
 	if !ok {
 		t.Fatal("NewBroker 返回非 *rabbitBroker")
@@ -140,17 +166,52 @@ func TestUnconnectedBrokerPublishPanics_KnownDefect(t *testing.T) {
 	if err := b.Connect(); err == nil {
 		t.Fatal("拒连地址 Connect 应失败（本测试依赖连接失败后的半连接态）")
 	}
-	defer func() {
-		if r := recover(); r == nil {
-			t.Fatal("当前实现下未连接 Publish 应 panic（已知缺陷）；若已修复请更新本测试")
-		}
-	}()
-	_ = b.Publish(context.Background(), "rk.defect", &broker.Message{Body: "x"})
+	// 前置条件钉住半连接态：wrapper 存在、底层连接未建立、connected 未置真。
+	if b.conn == nil {
+		t.Fatal("Connect 失败后 conn wrapper 应已创建")
+	}
+	if b.conn.isConnected() {
+		t.Fatal("Connect 失败后不应处于已连接态")
+	}
+
+	err := b.Publish(context.Background(), "rk.defect", &broker.Message{Body: "x"})
+	if !errors.Is(err, ErrNotConnected) {
+		t.Fatalf("半连接态 Publish = %v, want errors.Is(_, ErrNotConnected)", err)
+	}
 }
 
-// ---- newRabbitChannel：nil 连接会 panic，离线不可达，显式跳过并说明 ----
+// TestUnconnectedBrokerConsumeReturnsNotConnected 是消费侧的对偶回归：同一
+// 半连接态下 Consume 不得在 newRabbitChannel(nil) 处 panic，须如实返回
+// ErrNotConnected。
+func TestUnconnectedBrokerConsumeReturnsNotConnected(t *testing.T) {
+	b, ok := NewBroker(broker.WithAddress(refusedAddr(t))).(*rabbitBroker)
+	if !ok {
+		t.Fatal("NewBroker 返回非 *rabbitBroker")
+	}
+	if err := b.Init(); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	if err := b.Connect(); err == nil {
+		t.Fatal("拒连地址 Connect 应失败（本测试依赖连接失败后的半连接态）")
+	}
 
-func TestNewRabbitChannelRequiresRealConnection(t *testing.T) {
-	t.Skip("newRabbitChannel 内部调用 conn.Channel()，nil 零值连接会 panic；" +
-		"真实握手属集成测试范围，同仓 transport/rabbitmq 已确立『假后端不可信』的判断")
+	// amq.topic 是默认注册的 exchange，GetExchange 能过；下一道关卡正是
+	// 半连接态下 nil 底层连接的 fail-fast。
+	_, _, err := b.conn.Consume("amq.topic", "q.defect", "rk.defect", nil, nil, true, true, false)
+	if !errors.Is(err, ErrNotConnected) {
+		t.Fatalf("半连接态 Consume = %v, want errors.Is(_, ErrNotConnected)", err)
+	}
+}
+
+// TestNewRabbitChannelNilConnection 钉住 newRabbitChannel 源头的 nil 守卫：
+// 所有调用点的半连接态都汇集到此处，必须在 (*amqp.Connection).Channel()
+// 解引用之前 fail-fast，返回可 errors.Is 匹配的 ErrNotConnected。
+func TestNewRabbitChannelNilConnection(t *testing.T) {
+	ch, err := newRabbitChannel(nil, DefaultQos)
+	if ch != nil {
+		t.Fatalf("nil 连接应返回 nil channel, got %v", ch)
+	}
+	if !errors.Is(err, ErrNotConnected) {
+		t.Fatalf("nil 连接错误 = %v, want errors.Is(_, ErrNotConnected)", err)
+	}
 }

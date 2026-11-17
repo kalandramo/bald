@@ -145,6 +145,22 @@ func TestSubscriberUnsubscribe(t *testing.T) {
 	}
 }
 
+// TestSubscriberUnsubscribeClosesChannel 覆盖 Unsubscribe 中 s.ch != nil 的分支：
+// 注入一个内层 channel 为 nil 的 shell，Close 会命中 "channel is nil" 守卫，
+// 在不触碰真实 AMQP 连接的前提下验证退订会转发关闭错误。
+func TestSubscriberUnsubscribeClosesChannel(t *testing.T) {
+	b := offlineBroker(t)
+	sub, err := b.Subscribe("rk.unsub.ch", func(context.Context, broker.Event) error { return nil }, nil)
+	if err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+	s := sub.(*subscriber)
+	s.ch = &rabbitChannel{}
+	if err := s.Unsubscribe(false); err == nil {
+		t.Fatal("带 channel 的 Unsubscribe 应转发 ch.Close() 错误")
+	}
+}
+
 // ---- SubscribeMiddleware 贯通 ----
 
 func TestSubscribeMiddlewareWired(t *testing.T) {

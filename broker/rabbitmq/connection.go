@@ -381,6 +381,14 @@ func (r *rabbitConnection) Consume(exchangeName, queueName, routingKey string, b
 	conn := r.Connection
 	r.Unlock()
 
+	// 与 lazyInitPublishChannel 同源的根因：半连接态（Connect 拨号失败后
+	// wrapper 已建但底层 amqp.Connection 为 nil）下 conn 为 nil，若直接
+	// newRabbitChannel(nil) 会在 (*amqp.Connection).Channel() 处 panic。
+	// 发布侧已 fail-fast，这里对消费侧做对偶收口。
+	if conn == nil {
+		return nil, nil, fmt.Errorf("%w: underlying AMQP connection is nil (Connect failed or never established)", ErrNotConnected)
+	}
+
 	consumerChannel, err := newRabbitChannel(conn, r.qos)
 	if err != nil {
 		return nil, nil, err
@@ -454,6 +462,12 @@ func (r *rabbitConnection) lazyInitPublishChannel() error {
 	r.Lock()
 	defer r.Unlock()
 	if r.ExchangeChannel == nil {
+		// 半连接态 fail-fast：Connect 拨号失败后 wrapper 已建但底层
+		// amqp.Connection 仍为 nil。若不拦截，newRabbitChannel(nil) 会在
+		// (*amqp.Connection).Channel() 处 nil 解引用 panic。
+		if r.Connection == nil {
+			return fmt.Errorf("%w: underlying AMQP connection is nil (Connect failed or never established)", ErrNotConnected)
+		}
 		var err error
 		// lazy init publish channel
 		r.ExchangeChannel, err = newRabbitChannel(r.Connection, r.qos)
