@@ -190,3 +190,59 @@ func TestOnKeyChange_MultiUpdate(t *testing.T) {
 		t.Fatalf("second event = %+v, want old=:9090 new=:7070", evs[1])
 	}
 }
+
+// TestKeyWatchDispatch_ReentrantSubscriptionNoDeadlock 回调重入订阅面不得死锁：
+// dispatchKeyWatch 此前持 keyWatchMu 调 fn——回调里触碰任何持同一把锁的订阅面
+// （armKeyWatchers）就在 Unlock 上自死锁，config 变更分发链永久挂起。修复后
+// 状态提交在锁内完成、分发在锁外进行。
+func TestKeyWatchDispatch_ReentrantSubscriptionNoDeadlock(t *testing.T) {
+	src := newKWSource("http:\n  addr: \":8080\"\n")
+	var app *App
+	reentered := make(chan struct{}, 1)
+	app = NewApp(
+		RemoteConfig(src),
+		onKeyChangeOpt("http.addr", func(old, new string) {
+			app.armKeyWatchers() // 重入订阅面（修复前与 dispatchKeyWatch 的锁自死锁）
+			select {
+			case reentered <- struct{}{}:
+			default:
+			}
+		}),
+	)
+	if err := app.loadConfig(); err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+
+	src.update("http:\n  addr: \":9090\"\n")
+	select {
+	case <-reentered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("回调未在 2s 内返回（重入死锁）")
+	}
+}
+
+// TestKeyWatchDispatch_ReArmMidDispatch_NoDupNoMiss per-fire 复核语义：回调里
+// 重入 armKeyWatchers 后再来的变更要恰好触发一次（重置基线不丢触发、不双触发）。
+func TestKeyWatchDispatch_ReArmMidDispatch_NoDupNoMiss(t *testing.T) {
+	src := newKWSource("http:\n  addr: \":8080\"\n")
+	col := &kwCollector{}
+	var app *App
+	app = NewApp(
+		RemoteConfig(src),
+		onKeyChangeOpt("http.addr", func(old, new string) {
+			app.armKeyWatchers() // 重入：基线重置为当前值（== 本次 new，notifyMu 串行下收敛）
+			col.record(old, new)
+		}),
+	)
+	if err := app.loadConfig(); err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+
+	src.update("http:\n  addr: \":9090\"\n")
+	col.waitN(t, 1, 2*time.Second)
+	src.update("http:\n  addr: \":7070\"\n")
+	evs := col.waitN(t, 2, 2*time.Second)
+	if len(evs) != 2 || evs[0].old != ":8080" || evs[0].new != ":9090" || evs[1].old != ":9090" || evs[1].new != ":7070" {
+		t.Fatalf("events = %+v, want [{:8080 :9090} {:9090 :7070}]（恰好一次、无陈旧）", evs)
+	}
+}
