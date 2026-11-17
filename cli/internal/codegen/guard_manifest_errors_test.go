@@ -26,7 +26,11 @@ func TestWriteGuarded_StatErrors(t *testing.T) {
 		if err == nil || (!strings.Contains(err.Error(), "stat") && !strings.Contains(err.Error(), "mkdir")) {
 			t.Fatalf("ownership %d: must fail before writing through a regular file, got: %v", own, err)
 		}
-		if _, statErr := os.Stat(target); !os.IsNotExist(statErr) {
+		// 不变量只是「目标没有落盘」：父级被普通文件占用时，Unix 的 Stat 报
+		// ENOTDIR（IsNotExist 为 false——0b36b04d 曾在此用 IsNotExist 断言，
+		// Windows 的 ErrNotExist 语义过、Linux 必红，即 CI #644 起 cli 判红
+		// 的出处），Windows 报 ErrNotExist——stat 任一失败均满足不变量。
+		if _, statErr := os.Stat(target); statErr == nil {
 			t.Fatalf("ownership %d: 目标不得被写入（父级是普通文件）", own)
 		}
 	}
