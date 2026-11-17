@@ -6,7 +6,9 @@
 # （bconf/gen_repro_test.go）不校验来源——本机怎么装 buf（Homebrew / 源码 / 官方发行）
 # 不该被一条字节判据绑死，进产物字节的是编译 protoc-gen-go 用的那把 Go，不是 buf 来源。
 #
-# 值从哪来：v1.57.2 官方 GitHub release 资产的 SHA-256（release API 的 digest 字段）。
-# Linux-x86_64 一行另经 CI install-buf.sh 实下载打印的「实得」摘要交叉核对一致。
-Linux-x86_64 644e6fa4a62afc2b0d425d3ac9538d2f512947c0f2e82fc95c41a5eab6729414
-Linux-aarch64 9b8e90e96b9cfa3ec6c556a70bb28b378d92f15ab4139541a58bf2a0bcae1a21
+# 值从哪来：v1.72.0 官方 GitHub release 资产的 SHA-256（release API 的 digest 字段，
+# 即 GitHub 对该 asset 字节自身计算的摘要——CI 从同一 URL 下载到的就是这些字节）。
+# 升级 pin 时改 buf.version 的同一提交必须同步换掉下面两行哈希（漏改 = CI
+# proto-contract/example 两作业在摘要校验处必红，a41c961e 实证）。
+Linux-x86_64 8720830e26a733da55bb89bcd3cb44849c0965fc0c44fb5d691cccdc64dca5af
+Linux-aarch64 bdbb275fb9624104ef4d8513d269cc410a153138646e67136cb3f8cc185be289
