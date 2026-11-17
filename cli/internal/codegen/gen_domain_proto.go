@@ -404,7 +404,7 @@ func domainValuePresent(dir string) (bool, error) {
 // 消费方一律 filepath.Join/Base，对 slash 输入天然正确。
 func domainDir(module, goPackage string) (string, error) {
 	gp := goPackage
-	if i := strings.IndexByte(gp, ';') ; i >= 0 {
+	if i := strings.IndexByte(gp, ';'); i >= 0 {
 		gp = gp[:i]
 	}
 	if module != "" && strings.HasPrefix(gp, module+"/") {
