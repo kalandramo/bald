@@ -4,6 +4,7 @@
 package prd
 
 import (
+	"github.com/kalandramo/bald/cli/internal/fsatomic"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -85,7 +86,7 @@ func runTranslate(input, out, name string) error {
 		return fmt.Errorf("mkdir %s: %w", filepath.Dir(out), err)
 	}
 	doc := translatePrompt(name, input, string(raw))
-	if err := os.WriteFile(out, []byte(doc), 0o644); err != nil {
+	if err := fsatomic.WriteFile(out, []byte(doc), 0o644); err != nil {
 		return fmt.Errorf("write %s: %w", out, err)
 	}
 	fmt.Println("generated:", out)

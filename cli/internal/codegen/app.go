@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"google.golang.org/protobuf/encoding/protojson"
 
+	"github.com/kalandramo/bald/cli/internal/fsatomic"
 	"github.com/kalandramo/bald/cobramcp"
 	"google.golang.org/protobuf/proto"
 
@@ -99,7 +100,7 @@ func runPreset(name, outRoot, appName, module string, streams ioStreams) error {
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return err
 	}
-	if err := os.WriteFile(specPath, raw, 0o644); err != nil {
+	if err := fsatomic.WriteFile(specPath, raw, 0o644); err != nil {
 		return err
 	}
 	fmt.Fprintln(streams.Out, "generated:", specPath, "(preset "+name+")")
@@ -294,7 +295,7 @@ func seedGoMod(root, module string, streams ioStreams) (bool, error) {
 	// 原样拼进 go 指令每个新生成树的第一次 `go mod tidy` 都会失败。
 	// goMinorVersion 是同一语义的既有实现（剥前缀、取主次版本）。
 	content := fmt.Sprintf("module %s\n\ngo %s\n", module, goMinorVersion())
-	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+	if err := fsatomic.WriteFile(p, []byte(content), 0o644); err != nil {
 		return false, err
 	}
 	fmt.Fprintln(streams.Out, "generated:", p, "(skeleton)")

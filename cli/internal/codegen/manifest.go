@@ -16,6 +16,7 @@ package codegen
 // 单独比对。
 
 import (
+	"github.com/kalandramo/bald/cli/internal/fsatomic"
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
@@ -229,7 +230,7 @@ func writeManifest(root, name string, raw []byte, streams ioStreams) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	if err := os.WriteFile(path, raw, 0o644); err != nil {
+	if err := fsatomic.WriteFile(path, raw, 0o644); err != nil {
 		return fmt.Errorf("write manifest: %w", err)
 	}
 	fmt.Fprintln(streams.Out, "manifest:", path)

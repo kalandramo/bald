@@ -1,6 +1,7 @@
 package codegen
 
 import (
+	"github.com/kalandramo/bald/cli/internal/fsatomic"
 	"fmt"
 	"io"
 	"os"
@@ -80,7 +81,7 @@ func writeGuarded(path string, content []byte, own ownership, force bool, stream
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	if err := os.WriteFile(path, content, 0o644); err != nil {
+	if err := fsatomic.WriteFile(path, content, 0o644); err != nil {
 		return err
 	}
 	fmt.Fprintln(streams.Out, "generated:", path)
@@ -96,7 +97,7 @@ func writeFileFormatted(path string, raw []byte, own ownership, force bool, stre
 	if err != nil {
 		rej := path + ".rej"
 		if mkErr := os.MkdirAll(filepath.Dir(rej), 0o755); mkErr == nil {
-			if wErr := os.WriteFile(rej, raw, 0o644); wErr == nil {
+			if wErr := fsatomic.WriteFile(rej, raw, 0o644); wErr == nil {
 				err = fmt.Errorf("gofmt generated file: %w (raw template output saved to %s; target not touched)", err, rej)
 			}
 		}

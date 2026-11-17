@@ -1,6 +1,7 @@
 package release
 
 import (
+	"github.com/kalandramo/bald/cli/internal/fsatomic"
 	"fmt"
 	"io"
 	"os"
@@ -47,7 +48,7 @@ func WriteChangelog(root string, plan *Plan, write bool, out io.Writer) error {
 		_, _ = fmt.Fprintf(out, "would write %s（%d 个版本）：\n\n%s", changelogFile, len(plan.Changes), sections)
 		return nil
 	}
-	if err := os.WriteFile(path, []byte(merged), 0o644); err != nil {
+	if err := fsatomic.WriteFile(path, []byte(merged), 0o644); err != nil {
 		return err
 	}
 	_, _ = fmt.Fprintf(out, "更新 %s（%d 个版本）\n", changelogFile, len(plan.Changes))

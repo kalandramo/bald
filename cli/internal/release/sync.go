@@ -1,6 +1,7 @@
 package release
 
 import (
+	"github.com/kalandramo/bald/cli/internal/fsatomic"
 	"fmt"
 	"io"
 	"os"
@@ -121,7 +122,7 @@ func syncGoMod(root, rel string, requires []RequireUpdate, write bool, out io.Wr
 		return false, nil
 	}
 	if write {
-		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		if err := fsatomic.WriteFile(path, []byte(content), 0o644); err != nil {
 			return false, fmt.Errorf("%s: %w", rel, err)
 		}
 	}
