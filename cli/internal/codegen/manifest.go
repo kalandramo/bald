@@ -16,12 +16,12 @@ package codegen
 // 单独比对。
 
 import (
-	"github.com/kalandramo/bald/cli/internal/fsatomic"
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/kalandramo/bald/cli/internal/fsatomic"
 	"go/format"
 	"os"
 	"path/filepath"

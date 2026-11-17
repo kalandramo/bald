@@ -18,10 +18,10 @@
 package ide
 
 import (
-	"github.com/kalandramo/bald/cli/internal/fsatomic"
 	"embed"
 	"encoding/json"
 	"fmt"
+	"github.com/kalandramo/bald/cli/internal/fsatomic"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -243,7 +243,7 @@ func seed(path, tmpl, comment string, force bool) error {
 //   - shapeZcode：嵌套 mcp.servers（.zcode/config.json，zcode schema）。
 //
 // 文件不存在则新建（父目录一并创建）；存在则解析、只补 bald 一项、原样写回
-//（缩进统一两空格）。bald 条目已存在且内容一致时输出 ok: 不落盘。
+// （缩进统一两空格）。bald 条目已存在且内容一致时输出 ok: 不落盘。
 func mergeMCPJSON(path, shape string, entry map[string]any) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err //cov:excl root 绕过权限，MkdirAll 不会失败

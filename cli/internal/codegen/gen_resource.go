@@ -21,9 +21,9 @@ package codegen
 // 且写入走 protojson 回写（覆盖的是契约字段，不是文本替换）。
 
 import (
-	"github.com/kalandramo/bald/cli/internal/fsatomic"
 	"bytes"
 	"fmt"
+	"github.com/kalandramo/bald/cli/internal/fsatomic"
 	"os"
 	"path/filepath"
 	"strings"
