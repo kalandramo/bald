@@ -125,6 +125,19 @@ func WithMessageUnmarshaler(m NetPacketUnmarshaler) Option {
 	}
 }
 
+// WithSendTimeout 设置慢客户端发送超时：发送缓冲满且写泵在该窗口内未消化
+// （TCP 背压）时，该会话被按慢客户端关闭并从服务器注销——一个卡死的客户端
+// 不再能把 Broadcast 与调用方 goroutine 挂死。默认 10s；d<=0 构造期 panic
+// （与 WithTLS 的构造期 fail-fast 同款）。
+func WithSendTimeout(d time.Duration) Option {
+	return func(s *Server) {
+		if d <= 0 {
+			panic("websocket: send timeout must be positive")
+		}
+		s.sendTimeout = d
+	}
+}
+
 // WithSocketConnectHandler 设置连接建立/断开时的回调函数。
 func WithSocketConnectHandler(h SocketConnectHandler) Option {
 	return func(s *Server) {

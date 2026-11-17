@@ -37,6 +37,7 @@ import (
 	"net"
 	"net/http"
 	"sync"
+	"time"
 
 	ws "github.com/gorilla/websocket"
 
@@ -88,6 +89,9 @@ type Server struct {
 
 	payloadType PayloadType
 
+	// sendTimeout 是慢客户端发送超时（WithSendTimeout 覆盖；<=0 用会话默认）。
+	sendTimeout time.Duration
+
 	messageHandlers NetMessageHandlerMap
 
 	codec encoding.Codec
@@ -121,6 +125,8 @@ func NewServer(addr string, opts ...Option) *Server {
 		},
 
 		payloadType: PayloadTypeBinary,
+
+		sendTimeout: defaultSendTimeout,
 
 		mux: http.NewServeMux(),
 	}
@@ -323,7 +329,10 @@ func (s *Server) SendMessage(sessionId SessionID, messageType NetMessageType, me
 	return s.SendRawMessage(sessionId, buf)
 }
 
-// Broadcast 向所有活跃会话广播消息。
+// Broadcast 向所有活跃会话广播消息。逐会话投递有界：慢客户端在
+// WithSendTimeout 窗口内被踢除注销（不拖死本次广播与其余会话）；健康的
+// 缓冲有空位路径零开销直达。串行遍历的最坏耗时 = 卡死会话数 × 超时窗口，
+// 且被踢除的会话不再参与后续广播。
 func (s *Server) Broadcast(messageType NetMessageType, message MessagePayload) {
 	buf, err := s.marshalMessage(messageType, message)
 	if err != nil {
@@ -400,6 +409,7 @@ func (s *Server) wsHandler(res http.ResponseWriter, req *http.Request) {
 	}
 
 	session := NewSession(s, conn, vars)
+	session.sendTimeout = s.sendTimeout
 	s.sessionManager.AddSession(session)
 	session.Listen()
 }
