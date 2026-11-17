@@ -63,8 +63,11 @@ func TestRunPreset_OutRootErrors(t *testing.T) {
 	}
 	streams, _ := testStreams()
 	err := runPreset("webserver", filepath.Join(blocker, "sub"), "", "", streams)
-	if err == nil || !strings.Contains(err.Error(), "stat ") {
-		t.Fatalf("path through a regular file must fail at stat, got: %v", err)
+	// 不变量是「写盘前失败」：Unix 在 stat 即报 ENOTDIR；Windows 的 os.Stat
+	// 穿过普通文件返回 ErrNotExist（被视为可创建），失败点后移到 mkdir。
+	// 两处都在任何写盘之前，对意图等价。
+	if err == nil || (!strings.Contains(err.Error(), "stat ") && !strings.Contains(err.Error(), "mkdir")) {
+		t.Fatalf("path through a regular file must fail before any write (stat or mkdir), got: %v", err)
 	}
 
 	link := filepath.Join(base, "dangling")

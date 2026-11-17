@@ -7,6 +7,7 @@ package codegen
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -102,10 +103,14 @@ func TestScanProtoRoots_SkipsGenAndNonProto(t *testing.T) {
 }
 
 // TestScanProtoRoots_UnreadableDir 不可读子目录让扫描直接失败（半份结果不能
-// 往下走）。root 下无权限差异，跳过。
+// 往下走）。root 下无权限差异，跳过；Windows 的目录 0o000 不拒绝读取
+// （读权限由 ACL 管辖，os.Chmod 只影响只读属性），分支同样不可复现，跳过。
 func TestScanProtoRoots_UnreadableDir(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root ignores directory permissions")
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("windows directory permissions are ACL-based; 0o000 does not block reads")
 	}
 	dir := t.TempDir()
 	locked := filepath.Join(dir, "api", "proto", "locked")

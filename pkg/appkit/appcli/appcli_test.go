@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -225,12 +226,18 @@ func TestGlobalVersionFallback(t *testing.T) {
 }
 
 func TestRealPluginExec(t *testing.T) {
-	// 不替换 runPlugin，让默认闭包真实 exec 一个进程（/bin/echo），
+	// 不替换 runPlugin，让默认闭包真实 exec 一个进程，
 	// 覆盖 lookPath→runPlugin 的真实转发体（exec.Command/Run）。
+	// 可执行文件用工具链自带的 go（三平台与 CI 都必有；/bin/echo 是 Unix
+	// 专属路径），插件参数用其零退出子命令 version。
+	goPath, err := exec.LookPath("go")
+	if err != nil {
+		t.Skipf("go 不在 PATH，本测试需要真实可执行文件: %v", err)
+	}
 	oldArgs, oldLook := os.Args, lookPath
 	defer func() { os.Args, lookPath = oldArgs, oldLook }()
-	lookPath = func(string) (string, error) { return "/bin/echo", nil }
-	os.Args = []string{"demo", "plug", "hi"}
+	lookPath = func(string) (string, error) { return goPath, nil }
+	os.Args = []string{"demo", "plug", "version"}
 	if err := Main("demo", "d", noopRunE, WithPlugins()); err != nil {
 		t.Fatalf("真实插件 exec 应成功: %v", err)
 	}

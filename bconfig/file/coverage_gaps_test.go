@@ -63,7 +63,9 @@ func TestNew_AbsError(t *testing.T) {
 	defer func() { _ = os.Chdir(old) }()
 
 	if err := os.RemoveAll(dir); err != nil {
-		t.Fatalf("删除工作目录失败：%v", err)
+		// Windows 禁止删除任何进程（含本进程）占用的 CWD——分支不可复现，
+		// 按结构性跳过（与下方 darwin「cwd 仍可解析」的跳过同哲学）。
+		t.Skipf("删除工作目录失败（平台禁止删除占用中的 cwd）：%v", err)
 	}
 	if _, err := os.Getwd(); err == nil {
 		t.Skip("目录删除后仍能解析 cwd，绝对路径失败分支不可复现")

@@ -71,8 +71,10 @@ func TestConfigPath_WorkspaceFallback(t *testing.T) {
 		t.Fatalf("chdir: %v", err)
 	}
 	if err := os.RemoveAll(dir); err != nil {
+		// Windows 禁止删除自身占用的 CWD——分支不可复现，按结构性跳过
+		//（与下方「cwd 仍可解析」的跳过同哲学）。
 		_ = os.Chdir(orig)
-		t.Fatalf("remove cwd: %v", err)
+		t.Skipf("remove cwd: %v（平台禁止删除占用中的 cwd，分支不可复现）", err)
 	}
 	t.Cleanup(func() { _ = os.Chdir(orig) })
 

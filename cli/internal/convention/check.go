@@ -88,6 +88,14 @@ var registry = map[string]checker{
 // 环境不可判（skip），有差异产出一条绑定 codegen-r03 的 finding。诊断流走
 // io.Discard——差异明细已随 error 进入 finding 的 message。
 func checkGenAppDrift(dir string) ([]Finding, string, error) {
+	// 先判 dir 本身：Windows 的 os.Stat 穿过普通文件返回 ErrNotExist，
+	// 不判型会把「目录被文件占用」静默当成「无 appspec.json」跳过检查
+	// （gen-app-drift 是强制级闸门，静默跳过等于闸门失效）。
+	if fi, err := os.Stat(dir); err != nil {
+		return nil, "", fmt.Errorf("stat %s: %w", dir, err)
+	} else if !fi.IsDir() {
+		return nil, "", fmt.Errorf("stat %s: not a directory", dir)
+	}
 	spec := filepath.Join(dir, "appspec.json")
 	if _, err := os.Stat(spec); err != nil {
 		if os.IsNotExist(err) {
@@ -168,6 +176,7 @@ func checkLoggingStdlib(dir string) ([]Finding, string, error) {
 		}
 		scanned++
 		rel, _ := filepath.Rel(root, path)
+		rel = filepath.ToSlash(rel) // 豁免前缀按 slash 口径匹配（与 walkAST 一致；Windows 的 Rel 产反斜杠会让豁免永不命中）
 		for _, prefix := range loggingExemptPrefixes {
 			if strings.HasPrefix(rel, prefix) {
 				return nil
@@ -294,6 +303,7 @@ func checkNoPanic(dir string) ([]Finding, string, error) {
 		}
 		scanned++
 		rel, _ := filepath.Rel(root, path)
+		rel = filepath.ToSlash(rel) // 前缀豁免按 slash 口径匹配（与 walkAST 一致；Windows 的 Rel 产反斜杠会让 cmd/ 豁免永不命中）
 		if strings.HasPrefix(rel, "cobramcp/") {
 			return nil // 独立零依赖 CLI 库，panic/日志面由自身治理（与 logging 豁免同源）
 		}
