@@ -481,10 +481,12 @@ func (s *Server) defaultUnmarshalNetPacket(buf []byte) (*MessageHandlerData, Mes
 }
 
 func (s *Server) defaultHandleSocketRawData(sessionId SessionID, buf []byte) error {
-	// defaultUnmarshalNetPacket 已返回命中 handler——此前这里把第一个返回值
-	// 丢掉，再用 extractMessageType 把同一 buf 整包重新 unmarshal 一遍、
-	// 重新查一次 handler 表，纯粹为重推导已知信息（每消息 2 次解析 2 次查找）。
-	handler, payload, err := s.defaultUnmarshalNetPacket(buf)
+	// 走 s.netPacketUnmarshaler（默认即 defaultUnmarshalNetPacket）：此前这里
+	// 直呼 default 实现，WithMessageUnmarshaler 设置的自定义反序列化被静默
+	// 绕过（字段全仓零读取——marshal 侧 server.go:412 是走字段的，两侧不对称）。
+	// defaultUnmarshalNetPacket 已返回命中 handler（round 4 前此处把第一个返回值
+	// 丢掉，再用 extractMessageType 同 buf 二次解析、重复查 handler 表）。
+	handler, payload, err := s.netPacketUnmarshaler(buf)
 	if err != nil {
 		return err
 	}
