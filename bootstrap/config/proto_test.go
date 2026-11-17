@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -43,8 +44,9 @@ func TestUnmarshal_FromFile(t *testing.T) {
 
 // TestUnmarshal_DurationFromFlag 验证 pflag.DurationVar 产生的 time.Duration
 // 能被正确规范化为 protojson 可接受的 duration 串。
-// 关键坑：map 里 Duration 可能是 time.Duration 或纳秒整数，
-// protojson 只接受 "10s" 形式的字符串。
+// 可接受面：带单位字符串与程序化构造的 time.Duration（单位由类型承载，无歧义）。
+// 裸数字按 bconf 的 fail-closed 契约拒绝，拒绝面另钉在
+// TestUnmarshal_DurationBareNumberRejected。
 func TestUnmarshal_DurationFromFlag(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -52,7 +54,6 @@ func TestUnmarshal_DurationFromFlag(t *testing.T) {
 		want  time.Duration
 	}{
 		{"time.Duration", 10 * time.Second, 10 * time.Second},
-		{"纳秒整数", int64(10 * time.Second), 10 * time.Second},
 		{"字符串", "10s", 10 * time.Second},
 		// 回归：time.Duration.String() 会给出 "1m30s"，protojson 不接受，
 		// 必须格式化成 "90s"。
@@ -71,6 +72,35 @@ func TestUnmarshal_DurationFromFlag(t *testing.T) {
 			}
 			if got := cfg.GetApp().GetStopTimeout().AsDuration(); got != tc.want {
 				t.Errorf("app.stop_timeout = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestUnmarshal_DurationBareNumberRejected 钉住 bconf 的 fail-closed 契约
+// （J5：显式声明不推断——裸数字会被静默解释成纳秒，此前 stop_timeout:30
+// 静默落 30ns，重试退避/健康轮询整段塌到零且无诊断）。旧测试曾把「纳秒整数
+// 可接受」钉进接受表，契约落地后改钉拒绝面：报错且带显式写法指引。
+func TestUnmarshal_DurationBareNumberRejected(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		value any
+	}{
+		{"int64 纳秒", int64(10 * time.Second)},
+		{"int 裸数", 30},
+		{"float 裸数", 1.5},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			settings := map[string]any{
+				"app": map[string]any{"stop_timeout": tc.value},
+			}
+			cfg := &bootstrapv1.BootstrapConfig{}
+			err := Unmarshal(settings, cfg)
+			if err == nil {
+				t.Fatal("裸数字时长应被 fail-closed 拒绝（J5：显式声明不推断）")
+			}
+			if !strings.Contains(err.Error(), "duration string like") {
+				t.Fatalf("错误应带显式写法指引，got: %v", err)
 			}
 		})
 	}
