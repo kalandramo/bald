@@ -20,7 +20,11 @@ import (
 // 声明了 WithPlanCache 时，报告追加一段与基线的只读对比（缓存不可读只提示，不报错）。
 func Doctor(ctx context.Context, opts ...Option) error {
 	d := newDecl(opts...)
-	d.ConfigFile = parseConfigFlag(d.ConfigFile)
+	cfgFile, err := parseConfigFlag(d.ConfigFile, os.Args[1:])
+	if err != nil {
+		return err
+	}
+	d.ConfigFile = cfgFile
 	p, err := compileDecl(ctx, d)
 	if err != nil {
 		return err

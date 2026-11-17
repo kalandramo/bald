@@ -56,12 +56,20 @@ func Serve(ctx context.Context, opts ...Option) error {
 
 	// --config 解析：内化业务侧手写 pflag 扫描（见文件头）。解析结果写回
 	// ConfigFile，使 Run 期 loadConfig 的 --config 注册与预装载同源。
-	d.ConfigFile = parseConfigFlag(d.ConfigFile)
+	cfgFile, err := parseConfigFlag(d.ConfigFile, os.Args[1:])
+	if err != nil {
+		return err
+	}
+	d.ConfigFile = cfgFile
 
 	// --plan：在任何副作用（阶段 A Logger、Provider Build、钩子）之前打印
 	// 装配计划并返回 nil（MustServe 路径据此以 0 退出）。编译复用 compileDecl
 	// ——与真实启动同一份声明/契约，预检错误在启动前暴露。
-	if out := parsePlanFlag(); out.enabled {
+	out, err := parsePlanFlag(os.Args[1:])
+	if err != nil {
+		return err
+	}
+	if out.enabled {
 		p, err := compileDecl(ctx, d)
 		if err != nil {
 			return err
@@ -110,17 +118,38 @@ func reportServeFailure(ctx context.Context, err error) {
 	}
 }
 
-// parseConfigFlag 扫描 os.Args 解析 --config（与 loadConfig 的 --config
-// 注册同款容错）：ContinueOnError +
-// 未知 flag 白名单 + 解析错误忽略（下划线赋值丢弃）——未知/写错的 flag 不阻断
-// 启动，由各自的消费方（业务 flag、cobra）负责报错。
-func parseConfigFlag(defaultPath string) string {
+// parseTolerantArgs 用「宽容 FlagSet」解析 args：调用方须先给 fs 打开
+// ParseErrorsAllowlist.UnknownFlags，未知 flag 会在 pflag 解析阶段被静默跳过
+// （Parse 返回 nil，见 pflag parseLongArg），因此这里拿到的非 nil 错误只可能是
+// 畸形值（InvalidValueError）、缺值（ValueRequiredError）或语法错
+// （InvalidSyntaxError）——不存在「靠字符串匹配区分 unknown 与畸形值」的必要。
+//
+// 分类口径（W-4 / J4/J5）：未知 flag 类与 help 请求是既有刻意容忍的语义，返回
+// nil 放行；其余一律包装成可行动错误交调用方 fail-fast（Serve/Doctor 把错误
+// 返回给 MustServe，由它 reportServeFailure + os.Exit(1)）。NotExistError 的
+// 显式放行是防御性兜底，确保「未知 flag 容忍」不会因将来 allowlist 配置变动
+// 而被本校验链改坏。
+func parseTolerantArgs(fs *pflag.FlagSet, args []string) error {
+	err := fs.Parse(args)
+	if err == nil {
+		return nil
+	}
+	var unknown *pflag.NotExistError
+	if errors.As(err, &unknown) || errors.Is(err, pflag.ErrHelp) {
+		return nil
+	}
+	return fmt.Errorf("appkit: invalid command-line flag: %w", err)
+}
+
+// parseConfigFlag 解析 --config：ContinueOnError + 未知 flag 白名单，未知/写错
+// 的 flag 不阻断启动（由各自消费方负责报错），但畸形值必须 fail-fast（W-4）。
+// args 由生产入口传 os.Args[1:]，测试直接传同型切片，二者走同一段代码。
+func parseConfigFlag(defaultPath string, args []string) (string, error) {
 	fs := pflag.NewFlagSet("bald", pflag.ContinueOnError)
 	fs.ParseErrorsAllowlist.UnknownFlags = true
 	var cfgFile string
 	fs.StringVar(&cfgFile, "config", defaultPath, "config file")
-	_ = fs.Parse(os.Args[1:])
-	return cfgFile
+	return cfgFile, parseTolerantArgs(fs, args)
 }
 
 // planFlagOutput 是 --plan 的解析结果（enabled=false 时 Serve 走正常装配）。
@@ -129,16 +158,15 @@ type planFlagOutput struct {
 	format  string
 }
 
-// parsePlanFlag 扫描 os.Args 解析 --plan / --plan-format（与 --config 同款
-// pflag 容错：ContinueOnError + 未知 flag 白名单 + 解析错误忽略）。
-func parsePlanFlag() planFlagOutput {
+// parsePlanFlag 解析 --plan / --plan-format：与 --config 同款 pflag 容错
+// （未知 flag 容忍、畸形值 fail-fast）。
+func parsePlanFlag(args []string) (planFlagOutput, error) {
 	fs := pflag.NewFlagSet("bald", pflag.ContinueOnError)
 	fs.ParseErrorsAllowlist.UnknownFlags = true
 	out := planFlagOutput{format: "text"}
 	fs.BoolVar(&out.enabled, "plan", false, "print the assembly plan and exit")
 	fs.StringVar(&out.format, "plan-format", out.format, "plan output format: text or json")
-	_ = fs.Parse(os.Args[1:])
-	return out
+	return out, parseTolerantArgs(fs, args)
 }
 
 // preloadContract 两遍预装载配置进契约并返回派生的配置命名空间与合并快照：

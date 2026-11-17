@@ -549,8 +549,12 @@ func (a *App) loadConfig() error {
 		}
 	})
 
-	_ = fs.Parse(os.Args[1:])
-	_ = cfgFS.Parse(os.Args[1:])
+	if err := parseTolerantArgs(fs, os.Args[1:]); err != nil {
+		return err
+	}
+	if err := parseTolerantArgs(cfgFS, os.Args[1:]); err != nil {
+		return err
+	}
 	// flagSet 保留**全量**解析结果（含摘出合并树的 log.*）：不进树的 flag
 	// 由它提供 Changed 状态与取值，见 ApplyLogFlagOverrides。
 	a.cfg.flagSet = fs

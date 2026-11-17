@@ -346,21 +346,29 @@ func hasNode(p *Plan, key ResourceKey) bool {
 }
 
 // TestParsePlanFlag 钉住 --plan/--plan-format 的 pflag 容错路径（未知 flag
-// 不阻断、默认 text）。
+// 不阻断、默认 text；畸形值 fail-fast 另见 flag_failfast_test.go）。
 func TestParsePlanFlag(t *testing.T) {
-	old := os.Args
-	defer func() { os.Args = old }()
-
-	os.Args = []string{"app", "--plan"}
-	if out := parsePlanFlag(); !out.enabled || out.format != "text" {
+	out, err := parsePlanFlag([]string{"--plan"})
+	if err != nil {
+		t.Fatalf("parsePlanFlag --plan: %v", err)
+	}
+	if !out.enabled || out.format != "text" {
 		t.Fatalf("--plan parse = %+v, want enabled text", out)
 	}
-	os.Args = []string{"app", "--plan", "--plan-format=json", "--unknown=1"}
-	if out := parsePlanFlag(); !out.enabled || out.format != "json" {
+
+	out, err = parsePlanFlag([]string{"--plan", "--plan-format=json", "--unknown=1"})
+	if err != nil {
+		t.Fatalf("parsePlanFlag --plan-format: %v", err)
+	}
+	if !out.enabled || out.format != "json" {
 		t.Fatalf("--plan-format parse = %+v, want enabled json", out)
 	}
-	os.Args = []string{"app"}
-	if out := parsePlanFlag(); out.enabled {
+
+	out, err = parsePlanFlag(nil)
+	if err != nil {
+		t.Fatalf("parsePlanFlag no args: %v", err)
+	}
+	if out.enabled {
 		t.Fatalf("--plan parse without flag = %+v, want disabled", out)
 	}
 }
