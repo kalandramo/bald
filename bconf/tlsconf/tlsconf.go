@@ -93,7 +93,12 @@ type material struct {
 }
 
 // read 按 file / config 二选一取出 PEM 材料（两者都没有则三项皆空）。
+// 同设即报错（J4/J7）：此前按 switch 顺序静默取 file——运营者挂了 Secret
+// （config 内联 PEM）又留下过期的 cert_path 时，磁盘上的旧材料会无声生效。
 func read(cfg *bootstrapv1.Server_TLS) (material, error) {
+	if cfg.GetFile() != nil && cfg.GetConfig() != nil {
+		return material{}, fmt.Errorf("tls: file and config are mutually exclusive; set exactly one PEM source")
+	}
 	switch {
 	case cfg.GetFile() != nil:
 		f := cfg.GetFile()

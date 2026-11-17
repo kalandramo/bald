@@ -509,12 +509,25 @@ func canonicalValue(fd protoreflect.FieldDescriptor, raw any) (any, error) {
 			// 标量单值也接受（如 output-paths: stdout），包成单元素切片。
 			items = []any{raw}
 		}
-		// message 元素列表（含 repeated Duration）：元素本就按 protojson 期望形态
-		// 原样透传（coerceScalar 对 MessageKind 不做变换），整列复用源切片——
-		// 规范树是本调用的暂存物，只读喂给 json.Marshal，与源树共享子树安全；
-		// 免一次切片重建 + 逐元素空转。
-		if fd.Kind() == protoreflect.MessageKind && ok {
-			return raw, nil
+		// message 元素列表：Duration 元素与单数路径（canonicalize 的 isDuration 分支）
+		// 同款 coercion——"1500ms"/裸数字这类形态 protojson 不认，整列透传会把
+		// singular 已修过的 bug 在 repeated 路径复活。其余 message 元素按 protojson
+		// 期望的对象形态原样透传（复用源切片，见旧注释）。
+		if fd.Kind() == protoreflect.MessageKind {
+			if isDuration(fd.Message()) {
+				out := make([]any, 0, len(items))
+				for i, it := range items {
+					v, err := coerceDuration(it)
+					if err != nil {
+						return nil, fmt.Errorf("[%d]: %w", i, err)
+					}
+					out = append(out, v)
+				}
+				return out, nil
+			}
+			if ok {
+				return raw, nil
+			}
 		}
 		out := make([]any, 0, len(items))
 		for i, it := range items {
@@ -772,10 +785,15 @@ func coerceEnum(fd protoreflect.FieldDescriptor, raw any) (any, error) {
 
 // coerceDuration 把配置值转成 protojson 能接受的 Duration 字符串。
 //
-// 三种来源形态：
-//  1. 本地 yaml/json 文件："10s"、"1.5s"、"1500ms"、"1m30s"；
-//  2. env（AutomaticEnv）：同上的字符串；
-//  3. flag（pflag.DurationVar）：time.Duration 或纳秒整数。
+// 接受两种形态：
+//  1. 带单位字符串："10s"、"1.5s"、"1500ms"、"1m30s"（本地 yaml/json、env、
+//     flag 三条通道最终都以此形态到达——flag 经 flattenFlags 的
+//     f.Value.String() 序列化，是字符串不是数值）；
+//  2. 程序化构造的 time.Duration 类型值（单位由类型承载，无歧义）。
+//
+// 裸数字（int/float）一律拒绝（J5 显式声明不推断）：文件里写 `stop_timeout: 30`
+// 没有单位，此前静默解释为 30ns——重试退避、健康轮询整段塌到零且无诊断。
+// flag 通道不产数值，所以拒绝不影响命令行。
 //
 // 字符串分支同样要过 formatDuration：protojson 的 Duration 只接受以 s 结尾的
 // 十进制秒数，"1500ms" 与 "1m30s" 是合法 Go 时长串却不是合法 protojson 值。早先
@@ -793,14 +811,9 @@ func coerceDuration(raw any) (any, error) {
 		return formatDuration(d), nil
 	case time.Duration:
 		return formatDuration(v), nil
-	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
-		n, err := anyToInt64(v)
-		if err != nil {
-			return nil, err //cov:excl v 已由 case 标签限定为整型，anyToInt64 对整型恒不报错
-		}
-		return formatDuration(time.Duration(n)), nil
-	case float32, float64:
-		return formatDuration(time.Duration(toFloat(v))), nil
+	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
+		return nil, fmt.Errorf(
+			"invalid duration %v: bare number would be silently interpreted as nanoseconds; write a duration string like %q instead", v, "30s")
 	}
 	return nil, fmt.Errorf("expect duration (e.g. \"10s\"), got %T", raw)
 }

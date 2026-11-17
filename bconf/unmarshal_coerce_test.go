@@ -9,12 +9,16 @@ package bconf
 
 import (
 	"math"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protodesc"
 	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/reflect/protoregistry"
+	"google.golang.org/protobuf/types/descriptorpb"
 
 	storev1 "github.com/kalandramo/bald/bconf/gen/go/bald/store/v1"
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
@@ -110,17 +114,21 @@ func TestCoerceDuration(t *testing.T) {
 	if _, err := coerceDuration("bogus"); err == nil {
 		t.Error("coerceDuration(非法串) 应报错")
 	}
-	// time.Duration 直接串化。
+	// time.Duration 直接串化（单位由类型承载，无歧义）。
 	if v, err := coerceDuration(2 * time.Second); err != nil || v != "2s" {
 		t.Errorf("coerceDuration(Duration) = (%v, %v)", v, err)
 	}
-	// 纳秒整数（flag 常见）。
-	if v, err := coerceDuration(int64(3_000_000_000)); err != nil || v != "3s" {
-		t.Errorf("coerceDuration(nanos int) = (%v, %v)", v, err)
-	}
-	// 浮点纳秒。
-	if v, err := coerceDuration(float64(4_000_000_000)); err != nil || v != "4s" {
-		t.Errorf("coerceDuration(nanos float) = (%v, %v)", v, err)
+	// 裸数字一律拒绝（J5）：文件里写 30 没有单位，此前静默解释为 30ns——
+	// 重试退避/健康轮询整段塌到零且无诊断。flag 通道以字符串形态进合并树
+	// （flattenFlags 的 f.Value.String()），不受此拒绝影响。
+	for _, bare := range []any{int64(3_000_000_000), 30, float64(4_000_000_000), 1.5} {
+		err := func() (err error) {
+			_, err = coerceDuration(bare)
+			return
+		}()
+		if err == nil || !strings.Contains(err.Error(), "bare number") {
+			t.Errorf("coerceDuration(裸数字 %v) = %v, want bare-number 错误", bare, err)
+		}
 	}
 	if _, err := coerceDuration(true); err == nil {
 		t.Error("coerceDuration(bool) 应报错")
@@ -341,5 +349,47 @@ func TestCoerceEnum(t *testing.T) {
 	// 异型（float）→ 默认分支报错。
 	if _, err := coerceEnum(fd, 1.5); err == nil {
 		t.Error("enum←float 应报错")
+	}
+}
+
+// TestCanonicalValue_RepeatedDurationCoerced 钉住 repeated Duration 的 coercion：
+// 元素必须与单数路径（canonicalize 的 isDuration 分支）同款转换——"1500ms" 这类
+// 合法 Go 时长串 protojson 不认，此前 message 列表整列透传把 singular 已修过的
+// bug 在 repeated 路径复活（裸数字拒绝也必须覆盖 repeated 元素）。
+// fixture 用 protodesc 动态构造（仓内契约树无 repeated Duration 字段）。
+func TestCanonicalValue_RepeatedDurationCoerced(t *testing.T) {
+	fdp := &descriptorpb.FileDescriptorProto{
+		Name:       proto.String("bconf_test_repeat.proto"),
+		Package:    proto.String("bconf.test"),
+		Dependency: []string{"google/protobuf/duration.proto"},
+		MessageType: []*descriptorpb.DescriptorProto{{
+			Name: proto.String("Repeat"),
+			Field: []*descriptorpb.FieldDescriptorProto{{
+				Name:     proto.String("timeouts"),
+				Number:   proto.Int32(1),
+				Label:    descriptorpb.FieldDescriptorProto_LABEL_REPEATED.Enum(),
+				Type:     descriptorpb.FieldDescriptorProto_TYPE_MESSAGE.Enum(),
+				TypeName: proto.String(".google.protobuf.Duration"),
+			}},
+		}},
+	}
+	dfd, err := protodesc.NewFile(fdp, protoregistry.GlobalFiles)
+	if err != nil {
+		t.Fatalf("NewFile: %v", err)
+	}
+	fd := dfd.Messages().Get(0).Fields().Get(0)
+
+	got, err := canonicalValue(fd, []any{"1500ms", "1m30s"})
+	if err != nil {
+		t.Fatalf("canonicalValue: %v", err)
+	}
+	want := []any{"1.5s", "90s"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("canonicalValue(repeated Duration) = %v, want %v", got, want)
+	}
+
+	// 裸数字在 repeated 路径同样拒绝（与单数同判）。
+	if _, err := canonicalValue(fd, []any{30}); err == nil {
+		t.Error("canonicalValue(repeated Duration 裸数字) 应报错")
 	}
 }
