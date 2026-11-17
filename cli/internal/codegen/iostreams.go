@@ -1,8 +1,8 @@
 package codegen
 
 import (
-	"github.com/kalandramo/bald/cli/internal/fsatomic"
 	"fmt"
+	"github.com/kalandramo/bald/cli/internal/fsatomic"
 	"io"
 	"os"
 	"path/filepath"
