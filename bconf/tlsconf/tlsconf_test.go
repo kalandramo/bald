@@ -279,3 +279,16 @@ func serveTLS(t *testing.T, serverCfg *tls.Config) (net.Listener, <-chan error) 
 	})
 	return ln, handshakes
 }
+
+// TestServerFileAndConfigMutuallyExclusive file 与 config 同设必须报错：
+// 此前按 switch 顺序静默取 file——运营者挂了 Secret（config 内联 PEM）又
+// 留下过期 cert_path 时，磁盘上的旧材料会无声生效（J4/J7 fail-closed）。
+func TestServerFileAndConfigMutuallyExclusive(t *testing.T) {
+	c := mustCerts(t)
+	cfg := fileTLS(t, c)
+	cfg.Config = c.ServerTLS().Config // 同设：file + config
+
+	if _, err := Server(cfg); err == nil {
+		t.Fatal("file 与 config 同设应报错（此前静默取 file）")
+	}
+}
