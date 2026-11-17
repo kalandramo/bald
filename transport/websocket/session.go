@@ -15,6 +15,10 @@ import (
 // channelBufSize 是每个 session 发送通道的默认缓冲大小。
 var channelBufSize = 256
 
+// defaultSendTimeout 是慢客户端发送超时的默认值：缓冲满且写泵在该窗口内未
+// 消化（TCP 背压），会话按慢客户端踢除。健康客户端写入是微秒级，不受影响。
+const defaultSendTimeout = 10 * time.Second
+
 // SessionID 唯一标识一个 WebSocket 会话。
 type SessionID string
 
@@ -38,6 +42,10 @@ type Session struct {
 	send chan []byte
 
 	hooks SessionHooks
+
+	// sendTimeout 是慢客户端发送超时：由 Server 装配（WithSendTimeout），
+	// 会话创建后由 wsHandler 注入。<=0 视为使用 defaultSendTimeout。
+	sendTimeout time.Duration
 
 	lastReadMessageTime  time.Time
 	lastWriteMessageTime time.Time
@@ -82,12 +90,34 @@ func (s *Session) SessionID() SessionID {
 	return s.id
 }
 
-// SendMessage 将消息加入发送队列。
+// SendMessage 将消息加入发送队列。缓冲有空位时零开销直达；缓冲满（慢客户端
+// TCP 背压卡住写泵）时进入发送超时路径——sendTimeout 内仍未入队即按慢客户端
+// 关闭会话并从服务器注销。此前这里是 select{done,send} 无界阻塞：一个卡死的
+// 客户端会把 Broadcast 与调用方 goroutine 一起挂死（sse 的 trySend 踢除范式
+// 的 websocket 对应实现）。
 func (s *Session) SendMessage(message []byte) {
 	select {
 	case <-s.done:
 		return
 	case s.send <- message:
+		return
+	default:
+	}
+
+	timeout := s.sendTimeout
+	if timeout <= 0 {
+		timeout = defaultSendTimeout
+	}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-s.done:
+		return
+	case s.send <- message:
+	case <-timer.C:
+		log.Warn(context.Background(), "websocket slow client kicked",
+			"session", string(s.id), "timeout", timeout.String())
+		s.Close()
 	}
 }
 
