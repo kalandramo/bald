@@ -573,7 +573,7 @@ func TestModulePackageSets(t *testing.T) {
 	}
 	wantPkgs := map[string][]string{
 		".":   {"internal/docscheck", "tools/coverage-merge"},
-		"cli": {"cli/cmd/bald", "cli/internal/codegen", "cli/internal/compose", "cli/internal/convention", "cli/internal/ide", "cli/internal/prd", "cli/internal/release"},
+		"cli": {"cli/cmd/bald", "cli/internal/codegen", "cli/internal/compose", "cli/internal/convention", "cli/internal/fsatomic", "cli/internal/ide", "cli/internal/prd", "cli/internal/release"},
 	}
 	for mod, want := range wantPkgs {
 		if !slices.Contains(mods, mod) {
