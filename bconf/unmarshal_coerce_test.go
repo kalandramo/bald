@@ -121,7 +121,7 @@ func TestCoerceDuration(t *testing.T) {
 	// 裸数字一律拒绝（J5）：文件里写 30 没有单位，此前静默解释为 30ns——
 	// 重试退避/健康轮询整段塌到零且无诊断。flag 通道以字符串形态进合并树
 	// （flattenFlags 的 f.Value.String()），不受此拒绝影响。
-	for _, bare := range []any{int64(3_000_000_000), 30, float64(4_000_000_000), 1.5} {
+	for _, bare := range []any{int64(3_000_000_000), 30, uint(7), float64(4_000_000_000), float32(1.5), 1.5} {
 		err := func() (err error) {
 			_, err = coerceDuration(bare)
 			return
