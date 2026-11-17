@@ -16,7 +16,6 @@ import (
 	"errors"
 	"fmt"
 	"go/ast"
-	"go/parser"
 	"go/token"
 	"os"
 	"path/filepath"
@@ -26,8 +25,11 @@ import (
 )
 
 // goSource 是一个已解析的源文件（rel 相对被检根，用于 finding 的 file 字段）。
+// raw 是原文（文本类 checker 用）；file 为 nil 表示解析失败（非法 Go 归
+// go build 管，AST 类不判、文本类按 raw 继续判）。
 type goSource struct {
 	rel  string
+	raw  string
 	file *ast.File
 	fset *token.FileSet
 }
@@ -35,62 +37,10 @@ type goSource struct {
 // line 把 token 位置翻成行号。
 func (s *goSource) line(p token.Pos) int { return s.fset.Position(p).Line }
 
-// astWalk 是遍历形态的参数。
+// astWalk 是遍历形态的参数（消费方口径，见 goTree.selectFiles）。
 type astWalk struct {
 	includeTests bool     // 是否纳入 _test.go（testing-* 规则要，其余不要）
 	exempt       []string // 相对路径前缀豁免：命中即不交回调（仍计入 scanned）
-}
-
-// walkAST 遍历 dir 下可判的 Go 文件。跳过目录与既有 checkLoggingStdlib /
-// checkNoPanic 一致（vendor/.git/node_modules/_example/testdata）；解析失败的文件
-// 不判（非法 Go 归 go build 管，不归规范检查器）。
-func walkAST(dir string, w astWalk, fn func(*goSource)) (int, error) {
-	fset := token.NewFileSet()
-	scanned := 0
-	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		name := d.Name()
-		if d.IsDir() {
-			switch name {
-			case "vendor", ".git", "node_modules", "_example", "testdata":
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if !strings.HasSuffix(name, ".go") {
-			return nil
-		}
-		if !w.includeTests && strings.HasSuffix(name, "_test.go") {
-			return nil
-		}
-		raw, err := os.ReadFile(path)
-		if err != nil {
-			return nil
-		}
-		f, perr := parser.ParseFile(fset, path, raw, 0)
-		if perr != nil {
-			return nil
-		}
-		scanned++
-		rel, relErr := filepath.Rel(dir, path)
-		if relErr != nil {
-			rel = path
-		}
-		rel = filepath.ToSlash(rel)
-		for _, p := range w.exempt {
-			if strings.HasPrefix(rel, p) {
-				return nil
-			}
-		}
-		fn(&goSource{rel: rel, file: f, fset: fset})
-		return nil
-	})
-	if err != nil {
-		return scanned, fmt.Errorf("walk %s: %w", dir, err)
-	}
-	return scanned, nil
 }
 
 // astRule 是一条 checker 的输出版式（ruleID 来自 checkerRule 的绑定）。
@@ -102,15 +52,19 @@ type astRule struct {
 // checkAST 是 AST 检查器的共用外壳：go.mod 缺失（含 dir 本身是文件）与服务
 // 里没有 Go 源文件这两种情况都视为「环境不可判」——与 gen-app-drift 的 skip
 // 语义同款：不是违规，也不是通过。
+// 解析走 treeFor 共享缓存：全部 AST 类 checker 共享一次全树 walk+parse
+// （此前每个 checker 独立遍历，一次检查 ≈ O(checkers × files) 次解析）。
 func checkAST(dir string, w astWalk, r astRule, fn func(*goSource, func(token.Pos, string))) ([]Finding, string, error) {
-	if _, err := os.Stat(filepath.Join(dir, "go.mod")); err != nil {
-		if os.IsNotExist(err) || errors.Is(err, syscall.ENOTDIR) {
-			return nil, "no go.mod in " + dir, nil
-		}
-		return nil, "", fmt.Errorf("stat %s: %w", dir, err)
+	tree, err := treeFor(dir)
+	if err != nil {
+		return nil, "", err
 	}
+	if !tree.hasGoMod {
+		return nil, "no go.mod in " + dir, nil
+	}
+	files := tree.selectFiles(w.includeTests, w.exempt)
 	var findings []Finding
-	scanned, err := walkAST(dir, w, func(s *goSource) {
+	for _, s := range files {
 		fn(s, func(pos token.Pos, msg string) {
 			findings = append(findings, Finding{
 				RuleID:     r.ruleID,
@@ -121,11 +75,8 @@ func checkAST(dir string, w astWalk, r astRule, fn func(*goSource, func(token.Po
 				Suggestion: r.suggest,
 			})
 		})
-	})
-	if err != nil {
-		return nil, "", err
 	}
-	if scanned == 0 {
+	if len(files) == 0 {
 		return nil, "no go source files in " + dir, nil
 	}
 	return findings, "", nil

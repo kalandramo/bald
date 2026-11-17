@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"go/ast"
-	"go/parser"
 	"go/token"
 	"io"
 	"os"
@@ -146,47 +145,26 @@ var loggingExemptPrefixes = []string{"log/", "cobramcp/", "contrib/observability
 // import 而不调用（如类型引用）同样不报。职责豁免见 loggingExemptPrefixes。
 // 项目里没有 Go 源文件时视为环境不可判（skip）。
 func checkLoggingStdlib(dir string) ([]Finding, string, error) {
-	root := dir
-	if _, err := os.Stat(filepath.Join(root, "go.mod")); err != nil {
-		if os.IsNotExist(err) || errors.Is(err, syscall.ENOTDIR) {
-			return nil, "no go.mod in " + dir, nil
-		}
-		return nil, "", fmt.Errorf("stat %s: %w", dir, err)
+	tree, err := treeFor(dir)
+	if err != nil {
+		return nil, "", err
+	}
+	if !tree.hasGoMod {
+		return nil, "no go.mod in " + dir, nil
 	}
 	var findings []Finding
 	var scanned int
-	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		name := d.Name()
-		if d.IsDir() {
-			switch name {
-			case "vendor", ".git", "node_modules", "_example", "testdata":
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-			return nil
-		}
-		raw, err := os.ReadFile(path)
-		if err != nil {
-			return nil
+	for _, s := range tree.files {
+		// 文本类口径：scanned 含解析失败文件（raw 可读即算，与旧实现一致）。
+		if strings.HasSuffix(s.rel, "_test.go") || hasPrefixAny(s.rel, loggingExemptPrefixes) {
+			continue
 		}
 		scanned++
-		rel, _ := filepath.Rel(root, path)
-		rel = filepath.ToSlash(rel) // 豁免前缀按 slash 口径匹配（与 walkAST 一致；Windows 的 Rel 产反斜杠会让豁免永不命中）
-		for _, prefix := range loggingExemptPrefixes {
-			if strings.HasPrefix(rel, prefix) {
-				return nil
-			}
-		}
-		src := string(raw)
+		src := s.raw
 		hasLog := importsOf(src, "log")
 		hasSlog := importsOf(src, "log/slog")
 		if !hasLog && !hasSlog {
-			return nil
+			continue
 		}
 		for i, line := range strings.Split(src, "\n") {
 			trimmed := strings.TrimSpace(line)
@@ -214,16 +192,12 @@ func checkLoggingStdlib(dir string) ([]Finding, string, error) {
 			findings = append(findings, Finding{
 				RuleID:     checkerRule["logging-stdlib"],
 				Level:      LevelMandatory,
-				File:       rel,
+				File:       s.rel,
 				Line:       i + 1,
 				Message:    "日志直打 " + hit + "（logging-r01：打日志走 bald/log 契约层 log.Info/Warn/Error(ctx, msg, kv...)）",
 				Suggestion: "改用 github.com/kalandramo/bald/log 的包级函数；标准库 log/slog 是 log 包内部适配面",
 			})
 		}
-		return nil
-	})
-	if err != nil {
-		return nil, "", fmt.Errorf("walk %s: %w", dir, err)
 	}
 	if scanned == 0 {
 		return nil, "no go source files in " + dir, nil
@@ -268,48 +242,23 @@ func importsOf(src, pkg string) bool {
 //
 // cmd/ 入口豁免（统一出口形态）。项目里没有 Go 源文件时 skip。
 func checkNoPanic(dir string) ([]Finding, string, error) {
-	root := dir
-	if _, err := os.Stat(filepath.Join(root, "go.mod")); err != nil {
-		if os.IsNotExist(err) || errors.Is(err, syscall.ENOTDIR) {
-			return nil, "no go.mod in " + dir, nil
-		}
-		return nil, "", fmt.Errorf("stat %s: %w", dir, err)
+	tree, err := treeFor(dir)
+	if err != nil {
+		return nil, "", err
+	}
+	if !tree.hasGoMod {
+		return nil, "no go.mod in " + dir, nil
 	}
 	var findings []Finding
 	var scanned int
-	fset := token.NewFileSet()
-	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		name := d.Name()
-		if d.IsDir() {
-			switch name {
-			case "vendor", ".git", "node_modules", "_example", "testdata":
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-			return nil
-		}
-		raw, err := os.ReadFile(path)
-		if err != nil {
-			return nil
-		}
-		f, err := parser.ParseFile(fset, path, raw, 0)
-		if err != nil {
-			return nil // 解析失败的非合法 Go 文件不判
-		}
+	for _, s := range tree.selectFiles(false, nil) {
 		scanned++
-		rel, _ := filepath.Rel(root, path)
-		rel = filepath.ToSlash(rel) // 前缀豁免按 slash 口径匹配（与 walkAST 一致；Windows 的 Rel 产反斜杠会让 cmd/ 豁免永不命中）
-		if strings.HasPrefix(rel, "cobramcp/") {
-			return nil // 独立零依赖 CLI 库，panic/日志面由自身治理（与 logging 豁免同源）
+		if strings.HasPrefix(s.rel, "cobramcp/") {
+			continue // 独立零依赖 CLI 库，panic/日志面由自身治理（与 logging 豁免同源）
 		}
-		inCmdEntry := strings.HasPrefix(rel, "cmd/")
+		inCmdEntry := strings.HasPrefix(s.rel, "cmd/")
 		curFn := ""
-		ast.Inspect(f, func(n ast.Node) bool {
+		ast.Inspect(s.file, func(n ast.Node) bool {
 			switch node := n.(type) {
 			case *ast.FuncDecl:
 				curFn = node.Name.Name
@@ -342,18 +291,14 @@ func checkNoPanic(dir string) ([]Finding, string, error) {
 				findings = append(findings, Finding{
 					RuleID:     checkerRule["no-panic"],
 					Level:      LevelMandatory,
-					File:       rel,
-					Line:       fset.Position(node.Pos()).Line,
+					File:       s.rel,
+					Line:       s.line(node.Pos()),
 					Message:    "运行期路径 panic——testing-r07：可预期失败返回 error（业务语义用 berrors 构造），panic 让调用方的 error 流失效",
 					Suggestion: "返回 error 让调用方决定；构造期不变量用 Must 防御形态（panic(\"pkg: reason\"))，不可恢复故障在 cmd 入口统一退出",
 				})
 			}
 			return true
 		})
-		return nil
-	})
-	if err != nil {
-		return nil, "", fmt.Errorf("walk %s: %w", dir, err)
 	}
 	if scanned == 0 {
 		return nil, "no go source files in " + dir, nil
@@ -524,6 +469,10 @@ func runCheck(opts checkOptions) (*checkResult, error) {
 	if err != nil {
 		return nil, err // 卡集本身坏了：闸门级故障，直接红
 	}
+	// 一次 check 会话一棵新鲜树：入口失效缓存，会话内的全部 checker 共享同一次
+	// walk+parse（此前 14 个 AST 类 checker 各自全树遍历 ≈ 14k 次解析/次检查）。
+	// 会话内被检目录不会被自身修改；「改树后重跑」的下一次 runCheck 会重建。
+	invalidateTree(opts.Dir)
 	res := &checkResult{Cards: len(cards)}
 	for _, c := range cards {
 		res.Rules += len(c.Rules)
