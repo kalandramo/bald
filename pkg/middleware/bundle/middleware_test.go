@@ -168,6 +168,57 @@ func TestFromMiddleware_TimeoutEnforcedAndFailsFast(t *testing.T) {
 	}
 }
 
+// TestFromMiddleware_TimeoutMaxBufferBytesBridged 验证契约 timeout.max_buffer_bytes
+// 真的影响 gin 中间件的缓冲上限，而不是只做了「字段赋值但没人读」的假接线。
+//
+// 判据用可观察行为区分两条路径：handler 写 32 字节（大于契约上限 16、远小于
+// 默认 64 KiB）后 sleep 到超时。
+//   - 字段透传：超限立即切流式，状态码已上线 → 超时只能断流，响应保持 200+32B；
+//   - 字段漏传：回落到 64 KiB 默认上限，全缓冲 → 超时改写 504，body 为空。
+//
+// 若删除 proto 字段，mustMiddleware 的 protojson.Unmarshal 会因未知字段报错；
+// 若删除翻译层赋值，第二个分支会拿到 504 而不是 200。两条缺口都会红。
+func TestFromMiddleware_TimeoutMaxBufferBytesBridged(t *testing.T) {
+	run := func(t *testing.T, cfg string) (int, int) {
+		t.Helper()
+		opts, closeFn, err := FromMiddleware(mustMiddleware(t, cfg))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = closeFn() }()
+
+		r := gf.New()
+		r.Use(New(opts...).Gin()...)
+		r.GET("/slow", func(c *gf.Context) {
+			c.String(http.StatusOK, strings.Repeat("x", 32))
+			time.Sleep(200 * time.Millisecond)
+		})
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/slow", nil))
+		return w.Code, w.Body.Len()
+	}
+
+	t.Run("explicit_limit_switches_to_streaming", func(t *testing.T) {
+		code, bodyLen := run(t, `{"timeout":{"defaultTimeoutMs":30,"statusCode":504,"maxBufferBytes":16}}`)
+		if code != http.StatusOK {
+			t.Errorf("max_buffer_bytes=16 时 32B 响应应已流式提交，状态保持 200，got %d", code)
+		}
+		if bodyLen != 32 {
+			t.Errorf("流式提交应保留完整 32B body，got %d", bodyLen)
+		}
+	})
+
+	t.Run("absent_field_keeps_64KiB_default", func(t *testing.T) {
+		code, bodyLen := run(t, `{"timeout":{"defaultTimeoutMs":30,"statusCode":504}}`)
+		if code != http.StatusGatewayTimeout {
+			t.Errorf("未配 max_buffer_bytes 时 32B 应仍在 64KiB 缓冲内，超时改写 504，got %d", code)
+		}
+		if bodyLen != 0 {
+			t.Errorf("超时改写 504 时不应回放已缓冲 body，got %d bytes", bodyLen)
+		}
+	})
+}
+
 // TestFromMiddleware_RateLimitEnforced rate_limit 段 → 超限 429
 // （此处验证经统一桥仍生效）。
 func TestFromMiddleware_RateLimitEnforced(t *testing.T) {

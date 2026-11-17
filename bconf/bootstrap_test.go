@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"google.golang.org/protobuf/reflect/protoreflect"
+
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
 )
 
@@ -423,5 +425,47 @@ func TestValidateLoggerBackendSections(t *testing.T) {
 		if !strings.Contains(err.Error(), tc.want) {
 			t.Fatalf("%s: 错误 %v 应含 %q 定位", tc.name, err, tc.want)
 		}
+	}
+}
+
+// TestTimeoutMaxBufferBytesContract 钉住 W-12 的契约字段：它必须同时存在于
+// 生成 descriptor（字段号/类型）和 snake_case 配置装载路径上。
+//
+// 为什么需要这条，而不能只靠 TestGeneratedMatchesProto：后者只保证 proto 与
+// gen/go 字节一致——两边同时删掉 max_buffer_bytes 时它依然绿。这里直接从
+// descriptor 读字段，并经 UnmarshalMap 走真实的四源装载路径，把「契约字段被
+// 静默移除/改号/改名后仍绿」这条路封住。下游 bundle 的桥接测试再钉住装配层。
+func TestTimeoutMaxBufferBytesContract(t *testing.T) {
+	md := (&bootstrapv1.Server_Http_Middleware_Timeout{}).ProtoReflect().Descriptor()
+	fd := md.Fields().ByName("max_buffer_bytes")
+	if fd == nil {
+		t.Fatal("Timeout.max_buffer_bytes 不在生成 descriptor 中——契约字段被删或改名")
+	}
+	if got := fd.Number(); got != 3 {
+		t.Errorf("max_buffer_bytes 字段号 = %d，契约钉住为 3（改号会破坏线兼容）", got)
+	}
+	if got := fd.Kind(); got != protoreflect.Int64Kind {
+		t.Errorf("max_buffer_bytes 类型 = %s，契约钉住为 int64", got)
+	}
+
+	cfg := NewBootstrap()
+	m := map[string]any{
+		"server": map[string]any{
+			"http": map[string]any{
+				"middleware": map[string]any{
+					"timeout": map[string]any{
+						"default_timeout_ms": 1000,
+						"max_buffer_bytes":   16,
+					},
+				},
+			},
+		},
+	}
+	if err := UnmarshalMap(m, cfg); err != nil {
+		t.Fatalf("装载 max_buffer_bytes 失败: %v", err)
+	}
+	got := cfg.GetServer().GetHttp().GetMiddleware().GetTimeout().GetMaxBufferBytes()
+	if got != 16 {
+		t.Fatalf("server.http.middleware.timeout.max_buffer_bytes = %d，want 16", got)
 	}
 }

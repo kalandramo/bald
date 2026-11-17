@@ -82,6 +82,11 @@ message Server {
         int64 default_timeout_ms = 1;
         // 超时后返回的 HTTP 状态码，默认 503。
         int32 status_code = 2;
+        // 响应缓冲上限（字节），默认 65536（64 KiB）。超限或 handler 主动
+        // Flush 时切流式直出——此后状态码已上线，超时不再改写为 status_code，
+        // 只断流。0/负值按默认值处理（proto3 不区分「未写」与「写 0」）。
+        // 上限的意义是给每请求内存驻留封顶（否则大响应 ≈ 2× 响应体常驻）。
+        int64 max_buffer_bytes = 3;
       }
 
       // CircuitBreaker 熔断中间件（服务端入口的自我防护，**opt-in**：本段缺在

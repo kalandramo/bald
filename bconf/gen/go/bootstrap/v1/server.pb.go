@@ -3087,9 +3087,14 @@ type Server_Http_Middleware_Timeout struct {
 	// 默认超时时间（毫秒）。
 	DefaultTimeoutMs int64 `protobuf:"varint,1,opt,name=default_timeout_ms,json=defaultTimeoutMs,proto3" json:"default_timeout_ms,omitempty"`
 	// 超时后返回的 HTTP 状态码，默认 503。
-	StatusCode    int32 `protobuf:"varint,2,opt,name=status_code,json=statusCode,proto3" json:"status_code,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	StatusCode int32 `protobuf:"varint,2,opt,name=status_code,json=statusCode,proto3" json:"status_code,omitempty"`
+	// 响应缓冲上限（字节），默认 65536（64 KiB）。超限或 handler 主动
+	// Flush 时切流式直出——此后状态码已上线，超时不再改写为 status_code，
+	// 只断流。0/负值按默认值处理（proto3 不区分「未写」与「写 0」）。
+	// 上限的意义是给每请求内存驻留封顶（否则大响应 ≈ 2× 响应体常驻）。
+	MaxBufferBytes int64 `protobuf:"varint,3,opt,name=max_buffer_bytes,json=maxBufferBytes,proto3" json:"max_buffer_bytes,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *Server_Http_Middleware_Timeout) Reset() {
@@ -3132,6 +3137,13 @@ func (x *Server_Http_Middleware_Timeout) GetDefaultTimeoutMs() int64 {
 func (x *Server_Http_Middleware_Timeout) GetStatusCode() int32 {
 	if x != nil {
 		return x.StatusCode
+	}
+	return 0
+}
+
+func (x *Server_Http_Middleware_Timeout) GetMaxBufferBytes() int64 {
+	if x != nil {
+		return x.MaxBufferBytes
 	}
 	return 0
 }
@@ -4359,7 +4371,7 @@ var File_bootstrap_v1_server_proto protoreflect.FileDescriptor
 
 const file_bootstrap_v1_server_proto_rawDesc = "" +
 	"\n" +
-	"\x19bootstrap/v1/server.proto\x12\fbootstrap.v1\"\xe1O\n" +
+	"\x19bootstrap/v1/server.proto\x12\fbootstrap.v1\"\x8cP\n" +
 	"\x06Server\x122\n" +
 	"\x04http\x18\x01 \x01(\v2\x19.bootstrap.v1.Server.HttpH\x00R\x04http\x88\x01\x01\x125\n" +
 	"\x05http3\x18\x02 \x01(\v2\x1a.bootstrap.v1.Server.Http3H\x01R\x05http3\x88\x01\x01\x122\n" +
@@ -4417,14 +4429,14 @@ const file_bootstrap_v1_server_proto_rawDesc = "" +
 	"\b_key_pemB\t\n" +
 	"\a_ca_pemB\a\n" +
 	"\x05_fileB\t\n" +
-	"\a_config\x1a\xbe\r\n" +
+	"\a_config\x1a\xe9\r\n" +
 	"\x04Http\x12\x12\n" +
 	"\x04addr\x18\x01 \x01(\tR\x04addr\x12\x16\n" +
 	"\x06driver\x18\x02 \x01(\tR\x06driver\x12*\n" +
 	"\x03tls\x18\x03 \x01(\v2\x18.bootstrap.v1.Server.TLSR\x03tls\x12D\n" +
 	"\n" +
 	"middleware\x18\x04 \x01(\v2$.bootstrap.v1.Server.Http.MiddlewareR\n" +
-	"middleware\x1a\x97\f\n" +
+	"middleware\x1a\xc2\f\n" +
 	"\n" +
 	"Middleware\x12N\n" +
 	"\brecovery\x18\x01 \x01(\v2-.bootstrap.v1.Server.Http.Middleware.RecoveryH\x00R\brecovery\x88\x01\x01\x12B\n" +
@@ -4459,11 +4471,12 @@ const file_bootstrap_v1_server_proto_rawDesc = "" +
 	"\tRateLimit\x12\x12\n" +
 	"\x04rate\x18\x01 \x01(\x01R\x04rate\x12\x14\n" +
 	"\x05burst\x18\x02 \x01(\x05R\x05burst\x12\x12\n" +
-	"\x04wait\x18\x03 \x01(\bR\x04wait\x1aX\n" +
+	"\x04wait\x18\x03 \x01(\bR\x04wait\x1a\x82\x01\n" +
 	"\aTimeout\x12,\n" +
 	"\x12default_timeout_ms\x18\x01 \x01(\x03R\x10defaultTimeoutMs\x12\x1f\n" +
 	"\vstatus_code\x18\x02 \x01(\x05R\n" +
-	"statusCode\x1a\xc4\x01\n" +
+	"statusCode\x12(\n" +
+	"\x10max_buffer_bytes\x18\x03 \x01(\x03R\x0emaxBufferBytes\x1a\xc4\x01\n" +
 	"\x0eCircuitBreaker\x12'\n" +
 	"\x0ferror_threshold\x18\x01 \x01(\x01R\x0eerrorThreshold\x12!\n" +
 	"\fmin_requests\x18\x02 \x01(\x05R\vminRequests\x12(\n" +

@@ -249,5 +249,6 @@ func timeoutConfigFrom(t *bootstrapv1.Server_Http_Middleware_Timeout) (*ginmw.Ti
 	return &ginmw.TimeoutConfig{
 		DefaultTimeoutMs: ms,
 		StatusCode:       int(t.GetStatusCode()),
+		MaxBufferBytes:   int(t.GetMaxBufferBytes()),
 	}, nil
 }

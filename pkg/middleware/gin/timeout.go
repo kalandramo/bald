@@ -22,8 +22,9 @@ type TimeoutConfig struct {
 	// MaxBufferBytes 是响应体缓冲上限（字节）。<=0 时取 DefaultMaxBufferBytes。
 	// 一旦「已缓冲 + 本次写入」超过上限，中间件切到流式透传：本次及后续写入
 	// 直接落到真实 writer，从此**永久放弃**「超时改写 503」的能力（状态码
-	// 只能写一次，首字节上线后无法改）。注意：本字段当前只在此中间件生效，
-	// bundle 翻译层尚未透传该契约字段（另行处理）。
+	// 只能写一次，首字节上线后无法改）。bundle 翻译层已把契约字段
+	// server.http.middleware.timeout.max_buffer_bytes 透传到本字段；未配置
+	// 该字段时走 64 KiB 默认上限。
 	MaxBufferBytes int
 }
 
