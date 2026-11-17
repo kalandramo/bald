@@ -12,6 +12,7 @@ package store
 
 import (
 	"context"
+	"math"
 	"reflect"
 	"strings"
 
@@ -546,8 +547,16 @@ func fillTotal(meta *storev1.PaginationResponseMeta, total int64, currentSize in
 		meta.CurrentSize = uint32p(uint32(currentSize))
 	}
 	if meta.TotalPages == nil && meta.PageSize != nil && *meta.PageSize > 0 {
-		pages := (uint32(total) + *meta.PageSize - 1) / *meta.PageSize
-		meta.TotalPages = uint32Ptr(pages)
+		// W-10：total 为 int64，先在 uint64 域算页数，避免旧的 uint32(total) 在
+		// total > MaxUint32 时回绕，把 TotalPages 算成 0 或错值（J4 fail-closed）。
+		// " + PageSize - 1" 同样在 uint64 域完成，否则先回绕再转等于白改。
+		pageSize := uint64(*meta.PageSize)
+		pages := (uint64(total) + pageSize - 1) / pageSize
+		// TotalPages 字段真实类型为 uint32（wrapperspb.UInt32Value），按该类型 clamp。
+		if pages > math.MaxUint32 {
+			pages = math.MaxUint32
+		}
+		meta.TotalPages = uint32Ptr(uint32(pages))
 	}
 	// 仅当确实还有下一页时才下发 token，避免最后一页产生空翻页死循环。
 	hasMore := where.Limit > 0 && total > int64(where.Offset)+int64(where.Limit)

@@ -11,6 +11,7 @@ package store
 
 import (
 	"encoding/base64"
+	"math"
 	"strconv"
 
 	storev1 "github.com/kalandramo/bald/bconf/gen/go/bald/store/v1"
@@ -66,7 +67,13 @@ func (offsetPaginator) Resolve(req *storev1.PagingRequest, defaultSize, maxSize 
 	if req.Limit == nil {
 		limit = defaultSize // 仅给 Offset 时按默认页大小限制
 	}
-	return int(req.GetOffset()), limit, nil
+	// W-10：Offset 为 uint64，转 int 前显式守卫；超出平台 int 值域一律拒绝，
+	// 避免静默回绕成负数/错值导致跨后端行为不一致（J4 fail-closed）。
+	off := req.GetOffset()
+	if off > uint64(math.MaxInt) {
+		return 0, 0, ErrInvalidToken
+	}
+	return int(off), limit, nil
 }
 
 // tokenPaginator 游标分页：Token 为偏移游标（base64 或直接十进制）。
@@ -92,6 +99,10 @@ func (tokenPaginator) Resolve(req *storev1.PagingRequest, defaultSize, maxSize i
 	}
 	if off < 0 {
 		off = 0
+	}
+	// W-10：int(off) 前守卫；32 位平台 int 窄于 int64，超大偏移须拒绝而非静默截断。
+	if off > int64(math.MaxInt) {
+		return 0, 0, ErrInvalidToken
 	}
 	return int(off), limit, nil
 }
