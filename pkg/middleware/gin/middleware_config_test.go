@@ -50,9 +50,7 @@ func TestRecovery_StackTraceConfig(t *testing.T) {
 
 // --- request_id.header_name ---
 
-
 // --- logging.skip_paths ---
-
 
 // --- timeout ---
 
@@ -85,6 +83,27 @@ func TestTimeout_ConfigurableStatusAndDuration(t *testing.T) {
 	code, body := run(TimeoutConfig{DefaultTimeoutMs: 5000}, 0)
 	if code != 200 || body != "done" {
 		t.Fatalf("未超时应正常返回 200/done，got %d/%q", code, body)
+	}
+}
+
+// TestTimeout_MaxBufferBytesConfig 触达 TimeoutConfig.MaxBufferBytes：显式小上限
+// 让响应转流式，但 body 必须完整不截断（超时改写能力随即放弃，属预期代价）。
+func TestTimeout_MaxBufferBytesConfig(t *testing.T) {
+	r := gf.New()
+	r.Use(Timeout(TimeoutConfig{DefaultTimeoutMs: 5000, MaxBufferBytes: 16}))
+	payload := strings.Repeat("z", 128)
+	r.GET("/big", func(c *gf.Context) {
+		_, _ = c.Writer.WriteString(payload)
+	})
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/big", nil))
+
+	if w.Code != http.StatusOK || w.Body.String() != payload {
+		t.Fatalf("MaxBufferBytes 超限转流式后 body 应完整: code=%d len=%d want=%d",
+			w.Code, w.Body.Len(), len(payload))
+	}
+	if DefaultMaxBufferBytes != 64*1024 {
+		t.Fatalf("DefaultMaxBufferBytes 应为 64KiB，got %d", DefaultMaxBufferBytes)
 	}
 }
 
