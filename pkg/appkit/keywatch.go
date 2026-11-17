@@ -73,10 +73,25 @@ func (a *App) wrapKeyWatch(user func(map[string]any)) func(map[string]any) {
 }
 
 // dispatchKeyWatch 逐 key 比对新值，仅对确实变化的订阅触发 fn。
-// 锁内串行分发：保证同一 watcher 的 fn 不并发、观测顺序与变更顺序一致。
+// 状态比对与 last 提交在锁内完成（与 armKeyWatchers 互斥，并发 dispatch 不会
+// 双触发）；fn 在锁外分发——回调里触碰任何持同一把锁的订阅面（armKeyWatchers
+// 等）此前就是 Unlock 自死锁，config 变更分发链会永久挂起。
+//
+// 分发串行性的真正上游不变量：bootstrap/config 的 apply 持 notifyMu **跨越**
+// 用户回调（remerge→snapshot→onChange 全程），本函数只被 onChange 链调用——
+// 因此锁外 fire 期间不会有下一次 remerge 进来，fire 天然互斥且按变更序。若
+// config.go 未来改成「先放 notifyMu 再调 onChange」，两次 dispatch 可能并发：
+// per-fire 复核（w.last != f.new 则丢弃）兜住 armKeyWatchers 插队导致的过期
+// 触发，但同 watcher 并发 fire 仍可能——那时需要把串行化显式搬回本层。
 func (a *App) dispatchKeyWatch() {
+	type keyFire struct {
+		key string
+		fn  func(old, new string)
+		old string
+		new string
+	}
 	a.keyWatchMu.Lock()
-	defer a.keyWatchMu.Unlock()
+	var fires []keyFire
 	for i := range a.keyWatchers {
 		w := &a.keyWatchers[i]
 		if !w.armed {
@@ -86,8 +101,26 @@ func (a *App) dispatchKeyWatch() {
 		if cur == w.last {
 			continue
 		}
-		old := w.last
+		fires = append(fires, keyFire{key: w.key, fn: w.fn, old: w.last, new: cur})
 		w.last = cur
-		w.fn(old, cur)
+	}
+	a.keyWatchMu.Unlock()
+
+	for _, f := range fires {
+		// per-fire 复核：fire 间隙里若有 armKeyWatchers（重入回调）重置了
+		// 基线且当前值已离开 f.new，这条触发视为过期直接丢弃（防陈旧）。
+		a.keyWatchMu.Lock()
+		skip := false
+		for i := range a.keyWatchers {
+			if a.keyWatchers[i].key == f.key && a.keyWatchers[i].armed {
+				skip = a.keyWatchers[i].last != f.new
+				break
+			}
+		}
+		a.keyWatchMu.Unlock()
+		if skip {
+			continue
+		}
+		f.fn(f.old, f.new)
 	}
 }
