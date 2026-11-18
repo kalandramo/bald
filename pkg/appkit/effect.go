@@ -33,9 +33,13 @@ import (
 )
 
 // effectEntry 是账本中的一条可逆效应：name 用于日志定位，undo 是逆操作。
+// deferred 标记分层（AR-1）：false = 全局写入撤销（stopAll 阶段 0，先于
+// BeforeStop）；true = 资源回收类（stopAll 阶段 5，Dispose 之后——server
+// 排空与钩子期间组件依赖的资源必须仍然可用）。
 type effectEntry struct {
-	name string
-	undo func(ctx context.Context) error
+	name     string
+	undo     func(ctx context.Context) error
+	deferred bool
 }
 
 // effectOpt 登记一条可逆效应（mech.Effect 的引擎内部写入面，
@@ -48,6 +52,16 @@ type effectEntry struct {
 //   - 回放幂等：执行后账本清空，重复调用无副作用。
 func effectOpt(name string, undo func(ctx context.Context) error) Option {
 	return optionFunc(func(d *Decl) { d.Effects = append(d.Effects, EffectDecl{Name: name, Undo: undo}) })
+}
+
+// deferredEffectOpt 登记一条**资源回收类**效应（AR-1 分层）：它在 stopAll
+// 阶段 5（Dispose 之后、logger 恢复收尾）逆序回放，而不是阶段 0——provider
+// 的 DB/缓存/注册中心 cleanup 若在阶段 0 兑现，排空中的请求与 BeforeStop
+// 钩子拿到的就是已关闭的资源。回放超时/panic 隔离与 effectOpt 相同。
+func deferredEffectOpt(name string, undo func(ctx context.Context) error) Option {
+	return optionFunc(func(d *Decl) {
+		d.Effects = append(d.Effects, EffectDecl{Name: name, Undo: undo, Deferred: true})
+	})
 }
 
 // effectTimeoutOpt 设置效应撤销阶段的独立超时（每条 undo 各享此超时）。
@@ -67,20 +81,48 @@ func (a *App) addEffect(name string, undo func(ctx context.Context) error) {
 	a.effectsMu.Unlock()
 }
 
-// UndoEffects 立即逆序回放全部已登记效应，并清空账本（幂等）。
-// 正常路径无需手动调用（Run 停机时会自动回放）；主要供 e2e 测试隔离使用：
+// UndoEffects 立即逆序回放全部已登记效应（含资源回收类），并清空账本（幂等）。
+// 正常路径无需手动调用（Run 停机会按层自动回放）；主要供启动失败回滚与 e2e
+// 测试隔离使用——这两类场景要的是「恢复到装配前」的完整回滚，不分层：
 //
 //	t.Cleanup(func() { app.UndoEffects(context.Background()) })
 //
 // 单条 undo 超时或 panic 仅记日志，不中断其余回放（旁路语义，与审计一致）。
 func (a *App) UndoEffects(parent context.Context) {
+	a.undoEffectsWhere(parent, false)
+	a.undoEffectsWhere(parent, true)
+}
+
+// undoGlobalEffects 只回放全局写入类效应（stopAll 阶段 0，AR-1 分层）：
+// config-layers / middleware-chain / 用户 Effect。资源回收类留在账本，
+// 由 stopAll 阶段 5（undoDeferredEffects）在 Dispose 之后兑现。
+func (a *App) undoGlobalEffects(parent context.Context) {
+	a.undoEffectsWhere(parent, false)
+}
+
+// undoDeferredEffects 只回放资源回收类效应（stopAll 阶段 5，AR-1 分层）。
+func (a *App) undoDeferredEffects(parent context.Context) {
+	a.undoEffectsWhere(parent, true)
+}
+
+// undoEffectsWhere 回放账本中 deferred 标记匹配的条目（逆序），其余保留。
+// 分区回放保持各层内部相对顺序不变（与旧单层全量回放的同层顺序一致）。
+func (a *App) undoEffectsWhere(parent context.Context, deferred bool) {
 	a.effectsMu.Lock()
-	entries := a.effects
-	a.effects = nil
+	var run []effectEntry
+	kept := a.effects[:0]
+	for _, e := range a.effects {
+		if e.deferred == deferred {
+			run = append(run, e)
+		} else {
+			kept = append(kept, e)
+		}
+	}
+	a.effects = kept
 	a.effectsMu.Unlock()
 
-	for i := len(entries) - 1; i >= 0; i-- {
-		e := entries[i]
+	for i := len(run) - 1; i >= 0; i-- {
+		e := run[i]
 		if e.undo == nil {
 			continue
 		}

@@ -184,6 +184,10 @@ type Decl struct {
 type EffectDecl struct {
 	Name string
 	Undo func(context.Context) error
+	// Deferred 标记分层（AR-1）：false = 全局写入撤销（stopAll 阶段 0，先于
+	// BeforeStop）；true = 资源回收类（stopAll 阶段 5，Dispose 之后——server
+	// 排空与钩子期间组件依赖的资源必须仍然可用，logger 恢复收尾）。
+	Deferred bool
 }
 
 // RequireDecl 是组件能力依赖声明（mech.Requires 的
@@ -275,7 +279,7 @@ func newFromDecl(d Decl) *App {
 	if len(d.Effects) > 0 {
 		a.effects = make([]effectEntry, len(d.Effects))
 		for i, e := range d.Effects {
-			a.effects[i] = effectEntry{name: e.Name, undo: e.Undo}
+			a.effects[i] = effectEntry{name: e.Name, undo: e.Undo, deferred: e.Deferred}
 		}
 	}
 	if len(d.Requires) > 0 {

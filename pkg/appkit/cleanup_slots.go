@@ -63,13 +63,18 @@ func (s *cleanupSlots) fill(key ResourceKey, c Cleanup) {
 // effects 生成停机 Effect：按停机序逆序注册，回放即停机序（I5）。logger
 // 槽位特供 bootstrap-logger——恢复装配前全局 Logger 并兑现最新后端 cleanup
 // （热更重建原子换槽的钩子在此收口）。
+//
+// AR-1 分层：全部槽位（provider 资源回收 + logger 恢复）登记为 deferred——
+// 它们在 stopAll 阶段 5（Dispose 之后）回放，而非阶段 0。此前整槽位进阶段 0，
+// server 排空与钩子期间拿到的是已关闭的资源；logger 恢复后 stop/Dispose 的
+// 失败日志全部落进恢复前的静默 logger。分区回放保持槽位间相对顺序不变。
 func (s *cleanupSlots) effects(oldLogger log.Logger, curCleanup *atomic.Pointer[func()]) []Option {
 	opts := make([]Option, 0, len(s.order))
 	for i := len(s.order) - 1; i >= 0; i-- {
 		key := s.order[i]
 		name := s.name[key]
 		if key == s.loggerKey {
-			opts = append(opts, effectOpt(name, func(context.Context) error {
+			opts = append(opts, deferredEffectOpt(name, func(context.Context) error {
 				log.SetLogger(oldLogger)
 				if c := curCleanup.Load(); c != nil {
 					(*c)()
@@ -79,7 +84,7 @@ func (s *cleanupSlots) effects(oldLogger log.Logger, curCleanup *atomic.Pointer[
 			continue
 		}
 		slot := s.cleanups[key]
-		opts = append(opts, effectOpt(name, func(ctx context.Context) error {
+		opts = append(opts, deferredEffectOpt(name, func(ctx context.Context) error {
 			if c := *slot; c != nil {
 				return c(ctx)
 			}

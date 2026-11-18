@@ -378,6 +378,11 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig, settings map[string]
 		kitOpts = append(kitOpts, auditorOpt(spec.Auditor))
 	}
 	for _, e := range spec.Effects {
+		// Deferred 分层随声明透传（AR-1）：资源回收类在阶段 5 回放，不回阶段 0。
+		if e.Deferred {
+			kitOpts = append(kitOpts, deferredEffectOpt(e.Name, e.Undo))
+			continue
+		}
 		kitOpts = append(kitOpts, effectOpt(e.Name, e.Undo))
 	}
 	for _, r := range spec.Reconciles {

@@ -187,6 +187,7 @@ type appConfig struct {
 func (c *appConfig) closeStore() {
 	if c.store != nil {
 		_ = c.store.Close()
+		c.store = nil // 幂等：Run 主体在停机前显式关店（AR-25），末尾 defer 是失败路径安全网
 	}
 }
 
@@ -731,6 +732,7 @@ func (a *App) Run(ctx context.Context) error {
 			deregCtx, cancelDereg := context.WithTimeout(context.Background(), phaseBudgetFor(a.stopTimeout))
 			logDeregister(ctx, a.deregister(deregCtx))
 			cancelDereg()
+			a.cfg.closeStore() // AR-25：停机前关配置监听（同主停机路径）
 			a.stopAll(context.Background())
 			if abort := a.abortStartup(callerCtx, g, err); abort != nil {
 				log.Error(ctx, "appkit afterStart hook failed", "error", abort)
@@ -758,6 +760,11 @@ func (a *App) Run(ctx context.Context) error {
 		log.Info(ctx, "appkit received signal, shutting down", "signal", s.String())
 		cancel() // 收到信号，主动取消
 	}
+
+	// AR-25：先关配置监听再停机——closeStore 是 defer 的话会晚于 stopAll 执行，
+	// 停机窗口内的配置热更会在 logger 恢复后重建 logger（新后端泄漏 + 全局
+	// logger 被改写）。closeStore 幂等，末尾 defer 仍兜住早期失败路径。
+	a.cfg.closeStore()
 
 	// 先反注册（避免流量打到已停服务），再优雅停机。deregister 有界（AR-2）：
 	// 预算沿用停机阶段口径（stopTimeout/2），注册中心不可达时到点放弃，
@@ -820,12 +827,16 @@ func (a *App) startupOutcome(callerCtx context.Context, stepErr error) error {
 	return stepErr
 }
 
-// stopAll 分五阶段优雅停机：
-//  0. 效应账本逆序回放（撤销装配期全局写入，先于一切停机钩子）
+// stopAll 分六阶段优雅停机：
+//  0. 效应账本回放——仅全局写入类（撤销装配期全局写入，先于一切停机钩子；
+//     AR-1 分层：provider 资源回收与 logger 恢复移到阶段 5，排空与钩子期间
+//     组件依赖的资源必须仍然可用）
 //  1. BeforeStop 钩子（独立超时 = 阶段预算，panic 安全不拖垮整机）
 //  2. 各 Server.Stop 并发（独立超时 stopTimeout）
 //  3. AfterStop 钩子（独立超时 = 阶段预算，panic 安全）
-//  4. 组件 Dispose 逆序（AfterStop 之后——钩子期间组件仍可用，最后收尾）
+//  4. 组件 Dispose 逆序（AfterStop 之后——钩子期间组件仍可用）
+//  5. 资源回收类效应逆序回放（provider cleanup；logger 恢复收尾——此后才是
+//     真正的进程尾声，晚于一切要落日志的阶段）
 //
 // 每个阶段使用各自独立的 WithTimeout ctx，互不影响；parent 取消会级联缩短各阶段。
 // 阶段预算 = phaseBudgetFor(stopTimeout)，即停机总预算的一半，随契约
@@ -835,8 +846,8 @@ func (a *App) startupOutcome(callerCtx context.Context, stepErr error) error {
 func (a *App) stopAll(parent context.Context) {
 	budget := phaseBudgetFor(a.stopTimeout)
 
-	// 阶段 0：效应账本逆序回放（幂等，已回放过则无操作）。
-	a.UndoEffects(parent)
+	// 阶段 0：全局写入类效应逆序回放（幂等，已回放过则无操作）。
+	a.undoGlobalEffects(parent)
 
 	// 阶段 1：BeforeStop 钩子。
 	for _, fn := range a.beforeStop {
@@ -869,6 +880,12 @@ func (a *App) stopAll(parent context.Context) {
 
 	// 阶段 4：组件 Dispose（逆序、幂等；AfterStop 之后——钩子期间组件仍可用）。
 	a.disposeComponents(parent)
+
+	// 阶段 5：资源回收类效应逆序回放（AR-1）：provider cleanup（DB/缓存/
+	// 注册中心等）在一切使用者（请求排空、钩子、Dispose）结束之后兑现；
+	// logger 恢复收尾——本阶段自己的失败日志仍落在契约 logger 上，此后
+	// 全局 Logger 恢复为装配前状态。
+	a.undoDeferredEffects(parent)
 }
 
 // runHook 在独立超时 ctx 中执行生命周期钩子，并 recover 防止单个钩子 panic 拖垮整机。
