@@ -6,6 +6,7 @@
 |---|---|
 | 这个仓库现在是什么结构 | [current-architecture.md](current-architecture.md) |
 | 哪里有风险、消解条件与动手顺序 | [risk-review.md](risk-review.md) |
+| 最新一轮整体架构评审发现了哪些新缺陷 | [architecture-review-20261118.md](architecture-review-20261118.md)（AR-1…31，含修复批次） |
 | 请求/消息/生命周期怎么流 | [flows.md](flows.md) |
 | bald 与 onexai（AI 化）的差距与落地设计 | [onexai-gap-review.md](onexai-gap-review.md) §4 状态总览、§7 CLI 缺口复核 |
 | onexai 用起来是什么样、bald CLI 还缺什么 | [onexai-harness-walkthrough.md](onexai-harness-walkthrough.md)（走查原文）→ [onexai-gap-review.md](onexai-gap-review.md) §7 |
@@ -62,6 +63,7 @@
 | `transport-unification-assessment.md` | 传输统一抽象重构评估：痛点拆解（handler/错误已统一，真缺口是中间件双链/手写路由双轨/无路由级中间件）、S/M/L 三档方案与代价、四批迁移路径 | 2026-11-08 首版；**方案 S 已全部落地**（§3 实施进展），旧链保留至下一 major |
 | `handoff-session-20261108.md` | 会话成果记录（onexmesh 吸收 × 方案 S 批次 1–3、九 tag）+ 避坑清单（网络工具链/契约生成/运行时陷阱/断言口径） | 交接已闭环（2026-11-10）；时效性章节（阻塞/待办/闸门现状）已移除，避坑清单长期有效 |
 | `developer-experience-review.md` | 用户视角的框架体检：四类用户旅程（新手/业务开发/维护者/AI 会话）的摩擦点清单（DX-1…17，实证采集），含快赢清单（7 项按性价比排序） | 2026-11-11 首版；留待优化，修复时逐条勾销 |
+| `architecture-review-20261118.md` | 全仓五切片并行评审（`main` @ `984a9655`）：31 条新缺陷（高 11 / 中 13 / 低 7），按已复现 / 读码确证 / 疑似分级，已对既有登记册去重，附修复批次与排除清单 | 2026-11-18 首版；未修，修复时逐条回填状态 |
 | `render/*.svg` | 上面两份 `.dot` 与 `.dsl` 三张视图的渲染快照 | 由 graphviz 16.1.0 生成，改源后需重跑（见「校验工具与命令」） |
 
 > 「引用已逐条核对」= 用脚本把制品里的每个 `路径:行号` 抽出来（行内省略文件名的简写按就近文件解析），逐条打开源文件回读该行内容并人工比对叙述；不是抽样。最新一次重跑（§3.1 收口后，脚本原始输出）：**`checked cites: 324, problems: 12, bare-resolved: 65, bare-unresolved: 0`**（比上一轮少一条引用：评审快照里那条 go.mod 的行号在两轮改动后已不对应任何事实，改成了不带行号的快照描述）。
