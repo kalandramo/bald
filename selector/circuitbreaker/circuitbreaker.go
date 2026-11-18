@@ -19,6 +19,9 @@ import (
 	"errors"
 	"sync"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	cb "github.com/kalandramo/bald/circuitbreaker"
 	"github.com/kalandramo/bald/selector"
 )
@@ -30,7 +33,24 @@ import (
 // 规则表才不会跨节点互相覆盖。
 type Factory func(addr string) cb.CircuitBreaker
 
+// isFailureDoneErr 判定 balancer DoneInfo 的错误是否算服务侧失败。
+// gRPC 线上形态（*status.Error）按其 gRPC code 直传契约判定（berrors 码值
+// 与 codes.Code 一一对应，见 berrors/code.go 头注）；非 status 形态回落契约的
+// IsFailureError（berrors 主形态与 context 哨兵）。
+func isFailureDoneErr(err error) bool {
+	if st, ok := status.FromError(err); ok && st.Code() != codes.OK {
+		return cb.IsFailureCode(uint32(st.Code()))
+	}
+	return cb.IsFailureError(err)
+}
+
 // Registry 按节点地址懒构造并持有熔断器，并发安全。
+//
+// ⚠️ 归属契约（AR-7）：一个 Registry 服务**一个** (策略, 服务) 选择器——
+// 装饰器闭包内就地构造（见 _example/bald/internal/bootstrap/outbound.go），
+// 不要在多个选择器间共享。Prune 按「本次候选集」清理：共享时 A 服务的
+// Select 会把 B 服务全部节点的熔断器 Close 并删除，计数反复清零，熔断永不
+// 跳闸。
 type Registry struct {
 	mu       sync.RWMutex
 	factory  Factory
@@ -172,7 +192,17 @@ func (s *cbSelector) Select(ctx context.Context, nodes []selector.Node) (selecto
 		if done != nil {
 			done(ctx, di)
 		}
-		if di.Err != nil {
+		// AR-18：失败口径取契约单一来源（cb.IsFailureCode/IsFailureError）——
+		// 此前任何错误（含 4xx/Canceled）都记失败，健康节点会被业务 4xx 硬排除。
+		// 非失败类错误（客户端撤单、调用方参数错）按「完成」记 MarkSuccess：
+		// 统计窗要求每次 Allow 放行恰有一次 Mark* 归还。
+		//
+		// 线上形态：balancer 的 DoneInfo.Err 是 gRPC 的 *status.Error（grpc-go
+		// 对全部路径做 toRPCErr 包装，无 Unwrap）——berrors 契约分类器解不了它，
+		// 会全部兜成 Unknown 记失败（探针实测）。berrors 码值与 gRPC codes.Code
+		// 一一对应（berrors/code.go 头注），先按 status code 直传契约判定；
+		// 非 status 形态（进程内直调）回落 IsFailureError。
+		if di.Err != nil && isFailureDoneErr(di.Err) {
 			breaker.MarkFailure()
 		} else {
 			breaker.MarkSuccess()

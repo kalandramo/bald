@@ -13,6 +13,7 @@ package cache
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -91,16 +92,39 @@ func New(d registry.Discovery, opts ...Option) registry.Discovery {
 }
 
 // GetService 返回 name 的缓存实例：并发调用去重，注册中心故障时降级到最近快照。
+// 等待期受调用方 ctx 约束（AR-17）： WithoutCancel 只作用于后台拉取本身（短命
+// 或已取消的首调者不应连坐失败所有并发等待者），调用方自己的 deadline/取消
+// 仍然生效——到点放弃等待返回 ctx.Err()，拉取继续为其他等待者供数。
 func (c *cache) GetService(ctx context.Context, name string) ([]*registry.ServiceInstance, error) {
-	// WithoutCancel 剥掉首调者的 deadline/cancellation——短命或已取消的首调者
-	// 不应连坐失败所有并发等待者；拉取仍携带调用方的 values（trace id 等）。
-	v, err, _ := c.sg.Do(name, func() (any, error) {
-		return c.fetch(context.WithoutCancel(ctx), name)
-	})
-	if err != nil {
-		return nil, err
+	type result struct {
+		v   any
+		err error
 	}
-	return v.([]*registry.ServiceInstance), nil
+	ch := make(chan result, 1) // 带缓冲：调用方放弃等待后 goroutine 的发送不泄漏
+	go func() {
+		// 拉取 goroutine 独立栈：panic 必须 recover 转错误回传——此前 panic
+		// 经 singleflight 传播到调用方栈（调用侧 recover 可接），goroutine 化
+		// 后不接就是进程崩溃（与 AR-4 同型）。
+		defer func() {
+			if r := recover(); r != nil {
+				ch <- result{err: fmt.Errorf("registry cache: discovery panicked: %v", r)}
+			}
+		}()
+		v, err, _ := c.sg.Do(name, func() (any, error) {
+			return c.fetch(context.WithoutCancel(ctx), name)
+		})
+		ch <- result{v: v, err: err}
+	}()
+
+	select {
+	case r := <-ch:
+		if r.err != nil {
+			return nil, r.err
+		}
+		return r.v.([]*registry.ServiceInstance), nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
 // fetch 执行读穿逻辑。调用方不得持锁。
@@ -108,15 +132,27 @@ func (c *cache) fetch(ctx context.Context, name string) ([]*registry.ServiceInst
 	c.mu.Lock()
 	if c.isValidLocked(name) {
 		insts := c.pruneExpiredNodesLocked(name)
-		c.mu.Unlock()
-		return insts, nil
+		// AR-6：节点级剪枝剪空 ≠ 服务真的无实例——服务级快照仍新鲜、只是
+		// 全部节点过了节点级 TTL。此前直接返回空列表（下次调用 nttls 已空
+		// 又返回全量，空/满抖动）；视为服务级失效回源重拉。
+		if len(insts) > 0 || len(c.cache[name]) == 0 {
+			c.mu.Unlock()
+			return insts, nil
+		}
 	}
 	// 限流刷新尝试：重试间隔内如有旧数据则先给旧数据——冷注册中心不会被
 	// 一波相同的查询打爆。
 	if c.isThrottledLocked(name) {
 		insts := c.pruneExpiredNodesLocked(name)
+		// AR-6 同判：剪空不返回空。限流窗口内不能回源，退而返回剪枝前的
+		// 全量快照（stale-while-error 语义：宁给旧数据不给空数据）。
+		if len(insts) > 0 {
+			c.mu.Unlock()
+			return insts, nil
+		}
+		full := cloneInstances(c.cache[name])
 		c.mu.Unlock()
-		return insts, nil
+		return full, nil
 	}
 	c.mu.Unlock()
 

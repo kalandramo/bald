@@ -48,26 +48,34 @@ func outboundClientOptions() []clientcontract.Option {
 			retryMs = uint32(n)
 		}
 	}
-	reg := selectorcb.NewRegistry(func(addr string) windcb.CircuitBreaker {
-		res := "bald.client.cb." + addr // 资源名按节点派生：规则表不跨节点互相覆盖
-		if _, err := scb.LoadRulesOfResource(res, []*scb.Rule{{
-			Resource:         res,
-			Strategy:         scb.ErrorCount,
-			Threshold:        3,
-			MinRequestAmount: 1,
-			StatIntervalMs:   10000,
-			RetryTimeoutMs:   retryMs,
-		}}); err != nil {
-			// 规则装载失败=这个节点的熔断器没有判据（永不开窗），不是可以
-			// 带病上路的形态——演示装配直接 panic，真实服务换成返回错误。
-			panic(fmt.Sprintf("outbound: load circuit breaker rules for %s: %v", res, err))
-		}
-		return sentinel.New(res)
-	})
+	// makeRegistry 构造一份节点熔断 Registry。AR-7：**每次装饰调用各建一份**，
+	// 不在闭包外共享——picker 缓存键是 (策略, 服务)，共享 Registry 时 A 服务的
+	// Prune 会把 B 服务所有节点的熔断器 Close 并删除，计数反复清零，熔断永不
+	// 跳闸。按服务隔离后：Prune 只见本服务候选集；同一下游地址在两个服务各自
+	// 的 Registry 里是两个熔断器实例，但 sentinel 资源名按地址派生（全局资源
+	// 表），底层失败统计仍按端点共享——簿记隔离、判据一致。
+	makeRegistry := func() *selectorcb.Registry {
+		return selectorcb.NewRegistry(func(addr string) windcb.CircuitBreaker {
+			res := "bald.client.cb." + addr // 资源名按节点派生：规则表不跨节点互相覆盖
+			if _, err := scb.LoadRulesOfResource(res, []*scb.Rule{{
+				Resource:         res,
+				Strategy:         scb.ErrorCount,
+				Threshold:        3,
+				MinRequestAmount: 1,
+				StatIntervalMs:   10000,
+				RetryTimeoutMs:   retryMs,
+			}}); err != nil {
+				// 规则装载失败=这个节点的熔断器没有判据（永不开窗），不是可以
+				// 带病上路的形态——演示装配直接 panic，真实服务换成返回错误。
+				panic(fmt.Sprintf("outbound: load circuit breaker rules for %s: %v", res, err))
+			}
+			return sentinel.New(res)
+		})
+	}
 	// 进程级装饰槽：UseDecorator 之后所有 bald_selector picker 的 selector
 	// 都经按节点硬排除——跳闸节点直接不进候选集，Done 反馈进 Mark* 结果汇。
 	balancer.UseDecorator(func(sel selector.Selector) selector.Selector {
-		return selectorcb.WithCircuitBreaker(sel, reg)
+		return selectorcb.WithCircuitBreaker(sel, makeRegistry())
 	})
 	return []clientcontract.Option{
 		// 全部 grpc 出站条目走 bald_selector（策略/权重经实例 Metadata 透传，

@@ -111,15 +111,17 @@ func DialOption() grpc.DialOption {
 // 装饰后的那一份）。典型装饰是 selector/circuitbreaker 的按节点熔断——
 // picker 的 Done 回调把 RPC 结果喂进装饰层，跳闸节点被硬排除出候选集：
 //
-//	reg := circuitbreaker.NewRegistry(func(addr string) cb.CircuitBreaker {
-//		res := "bald.client.cb." + addr // 资源名按节点派生，规则表不互相覆盖
-//		scb.LoadRulesOfResource(res, []*scb.Rule{{Resource: res, Strategy: scb.ErrorRatio}})
-//		return sentinel.New(res)
-//	})
 //	balancer.UseDecorator(func(sel selector.Selector) selector.Selector {
+//		// AR-7：Registry 在装饰器闭包内就地构造——装饰器每个 (策略, 服务)
+//		// 调用一次，Registry 即按服务隔离。跨选择器共享会让 A 服务的 Prune
+//		// 清掉 B 服务全部节点的熔断器（熔断永不跳闸）。
+//		reg := circuitbreaker.NewRegistry(func(addr string) cb.CircuitBreaker {
+//			res := "bald.client.cb." + addr // 资源名按节点派生，规则表不互相覆盖
+//			scb.LoadRulesOfResource(res, []*scb.Rule{{Resource: res, Strategy: scb.ErrorRatio}})
+//			return sentinel.New(res)
+//		})
 //		return circuitbreaker.WithCircuitBreaker(sel, reg)
 //	})
-//	defer reg.Close() // 停机时由持有方释放
 //
 // Decorator 本包不依赖任何具体装饰实现——只约定形状，谁装饰、装饰什么
 // 由调用方组合；这样 balancer module 的依赖树保持只有 selector 核心与

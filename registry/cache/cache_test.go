@@ -190,3 +190,91 @@ func TestCacheSnapshotIsDeepCopy(t *testing.T) {
 		t.Fatalf("cached snapshot was mutated through returned reference: %+v", second[0])
 	}
 }
+
+// TestCache_PruneToEmptyFallsThroughToRefresh 复现 AR-6：默认 TTL(1m)/NodeTTL(30s)
+// 组合下，第 30–60s 服务级快照仍新鲜但全部节点过期——此前直接返回空列表
+// （下次调用 nttls 已空又返回全量，空/满抖动）。修复后剪空即视为服务级失效
+// 回源重拉。
+func TestCache_PruneToEmptyFallsThroughToRefresh(t *testing.T) {
+	fc := newFakeClock()
+	m := &mockDiscovery{handler: func(context.Context, string) ([]*registry.ServiceInstance, error) {
+		return sampleInstances(), nil
+	}}
+	c := New(m, WithNow(fc.Now), WithTTL(time.Minute), WithNodeTTL(30*time.Second))
+
+	ctx := context.Background()
+	if _, err := c.GetService(ctx, "svc"); err != nil {
+		t.Fatalf("warm: %v", err)
+	}
+	if n := m.calls.Load(); n != 1 {
+		t.Fatalf("warm calls = %d, want 1", n)
+	}
+
+	// 35s：服务级快照仍新鲜（TTL 1m），节点级全部过期（NodeTTL 30s）。
+	fc.Advance(35 * time.Second)
+	insts, err := c.GetService(ctx, "svc")
+	if err != nil {
+		t.Fatalf("get after 35s: %v", err)
+	}
+	if len(insts) == 0 {
+		t.Fatal("剪空不得返回空列表（AR-6：回源重拉）")
+	}
+	if n := m.calls.Load(); n != 2 {
+		t.Fatalf("calls = %d, want 2（剪空必须回源）", n)
+	}
+}
+
+// TestCache_ThrottledPruneToEmptyReturnsStale 复现 AR-6 的限流分支：限流窗口内
+// 被剪空时返回剪枝前全量快照（stale-while-error），不返回空。
+func TestCache_ThrottledPruneToEmptyReturnsStale(t *testing.T) {
+	fc := newFakeClock()
+	m := &mockDiscovery{handler: func(context.Context, string) ([]*registry.ServiceInstance, error) {
+		return sampleInstances(), nil
+	}}
+	// MinRetryInterval 大于推进量（35s）：第二次查询落在限流窗口内。
+	c := New(m, WithNow(fc.Now), WithTTL(time.Minute), WithNodeTTL(30*time.Second), WithMinRetryInterval(time.Minute))
+
+	ctx := context.Background()
+	if _, err := c.GetService(ctx, "svc"); err != nil {
+		t.Fatalf("warm: %v", err)
+	}
+
+	fc.Advance(35 * time.Second)
+	insts, err := c.GetService(ctx, "svc")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if len(insts) == 0 {
+		t.Fatal("限流窗口内被剪空必须退回全量快照（stale 语义），不得返回空")
+	}
+	if n := m.calls.Load(); n != 1 {
+		t.Fatalf("calls = %d, want 1（限流窗口内不回源）", n)
+	}
+}
+
+// TestGetService_CallerDeadlineBoundsWait 复现 AR-17：等待 singleflight 结果
+// 此前不看调用方 ctx——deadline=100ms 的调用方实测 1s 后才拿到结果。
+// 修复后到点返回 ctx.Err()，拉取继续为其他等待者供数。
+func TestGetService_CallerDeadlineBoundsWait(t *testing.T) {
+	release := make(chan struct{})
+	m := &mockDiscovery{handler: func(ctx context.Context, name string) ([]*registry.ServiceInstance, error) {
+		<-release // 阻塞拉取直到测试放行
+		return sampleInstances(), nil
+	}}
+	c := New(m)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	_, err := c.GetService(ctx, "svc")
+	elapsed := time.Since(start)
+
+	close(release) // 放行后台拉取，避免 goroutine 泄漏
+
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err = %v, want DeadlineExceeded（AR-17：等待受调用方 deadline 约束）", err)
+	}
+	if elapsed > 500*time.Millisecond {
+		t.Fatalf("等待无界：%v 才返回（AR-17）", elapsed)
+	}
+}

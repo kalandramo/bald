@@ -4,9 +4,11 @@ go 1.27.1
 
 require (
 	github.com/alibaba/sentinel-golang v1.0.4
+	github.com/kalandramo/bald/berrors v0.1.2
 	github.com/kalandramo/bald/circuitbreaker v0.2.1
 	github.com/kalandramo/bald/circuitbreaker/sentinel v0.1.1
 	github.com/kalandramo/bald/selector v0.1.1
+	google.golang.org/grpc v1.83.2
 )
 
 require (
@@ -14,7 +16,7 @@ require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/go-ole/go-ole v1.2.4 // indirect
-	github.com/google/uuid v1.1.1 // indirect
+	github.com/google/uuid v1.6.0 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/prometheus/client_golang v1.23.2 // indirect
@@ -25,8 +27,9 @@ require (
 	github.com/tklauser/go-sysconf v0.3.6 // indirect
 	github.com/tklauser/numcpus v0.2.2 // indirect
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
-	golang.org/x/sys v0.35.0 // indirect
-	google.golang.org/protobuf v1.36.8 // indirect
+	golang.org/x/sys v0.47.0 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260904194346-d0f1323225a4 // indirect
+	google.golang.org/protobuf v1.36.12 // indirect
 	gopkg.in/yaml.v2 v2.3.0 // indirect
 )
 
@@ -37,3 +40,5 @@ replace github.com/kalandramo/bald/circuitbreaker => ../../circuitbreaker
 replace github.com/kalandramo/bald/circuitbreaker/sentinel => ../../circuitbreaker/sentinel
 
 replace github.com/kalandramo/bald/selector => ../
+
+replace github.com/kalandramo/bald/berrors => ../../berrors
