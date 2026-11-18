@@ -27,7 +27,7 @@
 //     Authn/Audit/Authz、RateLimit、gRPC 面的 Recovery/Timeout、限流。
 //   - **HTTP 专属语义件**（留守 ginmw，统一链刻意不收——语义只对 HTTP 有意义，
 //     见 transport 卡 r05）：Recovery（响应体带栈）、Timeout（goroutine 硬切断
-//     + 503，与统一件的 ctx-deadline 语义不同，绝不静默合并）、Tracing（span-only）、
+//   - 503，与统一件的 ctx-deadline 语义不同，绝不静默合并）、Tracing（span-only）、
 //     CORS/Secure（浏览器面）。Observability 壳是统一件经桥的 Option 翻译层。
 //   - **gRPC 留守**：Error 拦截器（业务 handler 的 *berrors.Error → status 收口
 //     ——统一桥只收口统一链自己的错误，业务 handler 在桥外）、CircuitBreaker
@@ -621,9 +621,10 @@ func (b *Bundle) grpcBreaker() *ginmw.CircuitBreaker {
 // GRPCStreamInterceptors 返回 stream 面的拦截器链（外→内），与
 // [Bundle.GRPCInterceptors] 共用同一份依赖：
 //
-//	Error → RateLimit（仅当 gRPC 面有限流器：RateLimit 或 GRPCRateLimit）
+//	Recovery → [统一段(opt-in)] → Error → RateLimit（仅当 gRPC 面有限流器）
 //
-// 只有这两层，且这是刻意的口径，三条都得知道：
+// Recovery 基线无条件挂链头（AR-5：panic 兜底是流面硬底线，与 unary 面对齐）。
+// 其余各层，且这是刻意的口径，三条都得知道：
 //   - **Error 在最外层不是可选的**：*berrors.Error 没实现 `GRPCStatus()`，
 //     grpc-go 对流返回的 error 做 `status.Convert` 会把 Code/Reason 全丢成
 //     `Unknown`。少了它，被限流的调用方看不出自己是「被限流」而不是「服务坏了」。
@@ -643,8 +644,10 @@ func (b *Bundle) grpcBreaker() *ginmw.CircuitBreaker {
 //     一致答案（见 grpcmw.CircuitBreakerInterceptor），而限流按「建流一次」计费
 //     至少还有个明确形状。
 //
-// 返回空 slice 表示没有任何 stream 层需要挂，[Bundle.GRPCChain] 据此省略
-// ChainStreamInterceptor 这个 ServerOption，保持零配置时的选项数不变。
+// 返回链恒非空：Recovery 基线（AR-5）无条件在链头——panic 兜底是流面的硬
+// 底线，与 unary 面（grpcFace 链头 Recovery）对齐。统一段 opt-in 且规则命中
+// 时其内层 recovery 先行恢复，外层基线自然空转，无重复行为。
+// [Bundle.GRPCChain] 因此总是附带 ChainStreamInterceptor。
 func (b *Bundle) GRPCStreamInterceptors() []grpc.StreamServerInterceptor {
 	// 统一段（方案 S）：流面链头也预置统一链（opt-in）——流上的 recovery/
 	// request_id 等经 wrapped stream ctx 生效；rate_limit 按「建流一次」计费。
@@ -666,7 +669,13 @@ func (b *Bundle) GRPCStreamInterceptors() []grpc.StreamServerInterceptor {
 			middleware.StreamServerInterceptor(middleware.RateLimit(rl.limiter, rl.wait)),
 		)
 	}
-	return chain
+
+	// AR-5：Recovery 基线插到最外层。统一段/限流/未来新增层都在它内侧，
+	// handler 与内层中间件的 panic 一律被兜住转成 Internal status（经 Stream
+	// 桥的 grpcerr 收口保全 Code/Reason），不再让进程随 stream handler 崩溃。
+	return append([]grpc.StreamServerInterceptor{
+		middleware.StreamServerInterceptor(middleware.Recovery()),
+	}, chain...)
 }
 
 // GRPCChain 返回可直接传给 server.NewGRPCServerWithRegister 的 []grpc.ServerOption

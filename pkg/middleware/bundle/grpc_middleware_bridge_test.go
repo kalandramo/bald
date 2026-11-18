@@ -117,8 +117,8 @@ func TestFromGRPCMiddleware_RateLimitAppliesToGRPCOnly(t *testing.T) {
 		t.Fatalf("gRPC 段不应给 gin 链加层：%d vs 基线 %d", got, want)
 	}
 	// 但 gRPC 的两面都要有：stream 链同样吃这个段（否则「配了 gRPC 限流，流却
-	// 随便建」是半个漏风的口子）。
-	if got, want := len(b.GRPCStreamInterceptors()), 2; got != want {
+	// 随便建」是半个漏风的口子）。Recovery 基线（AR-5）恒在链头，加限流后共 3 层。
+	if got, want := len(b.GRPCStreamInterceptors()), 3; got != want {
 		t.Fatalf("gRPC 段的限流必须同时覆盖 stream 面：len=%d want %d", got, want)
 	}
 	r := gin.New()
