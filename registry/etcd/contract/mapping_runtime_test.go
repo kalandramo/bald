@@ -262,8 +262,9 @@ func TestProvider_ContractSectionsReachRuntime(t *testing.T) {
 // 默认 maxRetry=5 与契约 max_retry=2 在 FIXED 50ms 下分别是 ~200ms 和 ~50ms 的
 // 节奏，两条曲线不会互相掩盖。
 //
-// 断言是「恰好 2 次」而不是「≥2 次」：重试耗尽后 heartBeat 直接退出（见 registry.go
-// 的 `if kac == nil` / `_, ok := <-kac` 两支），所以窗口末尾还在增长就是没接上。
+// AR-8 之后断言是「窗口末尾仍在增长」：重试耗尽后 heartBeat 不再退出，而是
+// 记日志 + 退避后重开一个 max_retry 周期（无限重注册）——每周期恰好 2 次
+// 尝试的节奏不变，仍在增长证明重注册循环接上了。
 func TestProvider_MaxRetrySectionReachesAttemptCount(t *testing.T) {
 	addr, f := startFakeEtcd(t)
 
@@ -299,12 +300,20 @@ func TestProvider_MaxRetrySectionReachesAttemptCount(t *testing.T) {
 
 	f.breakLink()
 
-	// 收尾窗口：错误实现（默认 5 次）在第 5 次尝试前 ~200ms 就到齐了，
-	// 1.5s 足以让它长满，而正确实现在第 2 次后就退出心跳循环。
+	// AR-8 双观测点：500ms 与 1500ms。重试耗尽后 heartBeat 不再退出——
+	// 尝试数必须持续增长（旧契约「耗尽即退出」会在 2 次后封顶，增长判据判红，
+	// 同时证明契约 registry.etcd.max_retry 落到了 maxRetry 上：前 500ms 内
+	// max_retry=2 的节奏恰好完成第一周期）；每对尝试间隔 50ms 证明
+	// FIXED backoff 落到重注册节奏上。
 	time.Sleep(1500 * time.Millisecond)
-	got := f.postAttempts()
-	if len(got) != 2 {
-		t.Errorf("断链后观测到 %d 次重注册尝试, want 恰好 2：契约 registry.etcd.max_retry 没落到 maxRetry 上（默认是 5）", len(got))
+	first := len(f.postAttempts())
+	time.Sleep(1500 * time.Millisecond)
+	second := len(f.postAttempts())
+	if second <= first {
+		t.Errorf("重注册尝试未持续增长（%d → %d）：耗尽后应无限重注册（AR-8）", first, second)
+	}
+	if first < 2 {
+		t.Errorf("1.5s 只观测到 %d 次尝试, want ≥2：契约 registry.etcd.max_retry 没落到 maxRetry 上（默认是 5）", first)
 	}
 }
 

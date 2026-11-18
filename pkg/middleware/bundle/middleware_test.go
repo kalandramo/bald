@@ -70,11 +70,24 @@ func TestFromMiddleware_CORSEnforced(t *testing.T) {
 	r.Use(New(opts...).Gin()...)
 	r.GET("/x", func(c *gf.Context) { c.Status(200) })
 
+	// AR-14：多源按请求 Origin 匹配白名单后回显**单个**源（拼接式多源被
+	// 浏览器整体拒绝）；不在白名单的源不回写。
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/x", nil))
+	req := httptest.NewRequest(http.MethodGet, "/x", nil)
+	req.Header.Set("Origin", "https://a.example")
+	r.ServeHTTP(w, req)
 
-	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "https://a.example, https://b.example" {
-		t.Errorf("cors.allowed_origins 未生效，got %q", got)
+	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "https://a.example" {
+		t.Errorf("cors.allowed_origins 未生效（应回显请求 Origin），got %q", got)
+	}
+
+	// 白名单外的源不回写 ACAO。
+	w2 := httptest.NewRecorder()
+	req2 := httptest.NewRequest(http.MethodGet, "/x", nil)
+	req2.Header.Set("Origin", "https://evil.example")
+	r.ServeHTTP(w2, req2)
+	if got := w2.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Errorf("白名单外的源不得回写 ACAO，got %q", got)
 	}
 	if got := w.Header().Get("Access-Control-Allow-Methods"); !strings.Contains(got, "GET") {
 		t.Errorf("cors.allowed_methods 未生效，got %q", got)
