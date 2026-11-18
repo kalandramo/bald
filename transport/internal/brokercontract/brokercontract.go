@@ -60,7 +60,7 @@ func (f Factory[OPT]) Build(ctx context.Context, cfg *bootstrapv1.Server, server
 	}
 	addrs := sec.GetAddrs()
 	if len(addrs) == 0 {
-		return nil, nil, fmt.Errorf("%s: %s.addrs is required (remove the %s section to disable)", f.Kind, f.Key, f.Key)
+		return nil, nil, fmt.Errorf("%s: %s.addrs is required (remove the %s section to disable)", f.Kind, f.Key, f.Kind)
 	}
 	for i, a := range addrs {
 		if a == "" {

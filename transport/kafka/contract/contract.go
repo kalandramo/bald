@@ -92,7 +92,6 @@ func Provider(opts ...Option) func(context.Context, *bootstrapv1.Server) (transp
 	// 断言恒成立（adapter 的 afterBuild 通道是统一形状）。
 	afterBuild := make([]func(context.Context, transport.Server) error, 0, len(c.afterBuild))
 	for _, fn := range c.afterBuild {
-		fn := fn
 		afterBuild = append(afterBuild, func(ctx context.Context, srv transport.Server) error {
 			return fn(ctx, srv.(*kafka.Server))
 		})

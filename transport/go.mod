@@ -19,7 +19,6 @@ replace github.com/kalandramo/bald/bconf => ../bconf
 
 replace github.com/kalandramo/bald/encoding => ../encoding
 
-replace github.com/kalandramo/bald/encoding/json => ../encoding/json
 
 require (
 	github.com/kalandramo/bald/bconf v0.28.1
