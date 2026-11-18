@@ -75,6 +75,10 @@ type Options struct {
 
 	// leeway 验签时钟漂移容忍（默认 0）。
 	leeway time.Duration
+	// audience 是期望的 aud 声明（AR-23）：配置后验签要求 token 的 aud 包含
+	// 该值——同一密钥签给别的服务的 token 被拒绝（J4：身份不完整 fail-closed）。
+	// 缺省不校验 aud（单服务自签自验的场景无需配置）。
+	audience string
 }
 
 // Option 配置函数。
@@ -121,6 +125,12 @@ func WithIssuer(issuer string) Option {
 // WithLeeway 设置验签时钟漂移容忍（默认 0）。
 func WithLeeway(d time.Duration) Option {
 	return func(o *Options) { o.leeway = d }
+}
+
+// WithAudience 设置期望的 aud 声明（AR-23）：配置后验签要求 token 的 aud
+// 包含该值，拒绝签给其他服务的 token（J4 身份不完整 fail-closed）。
+func WithAudience(aud string) Option {
+	return func(o *Options) { o.audience = aud }
 }
 
 // Signer 签发能力接口（auth biz 依赖它，而非裸密钥）。
@@ -205,7 +215,33 @@ func NewAuthenticator(opts ...Option) (*Authenticator, error) {
 		return nil, ErrNoKey
 	}
 
-	a.parser = jwt.NewParser(jwt.WithValidMethods(allowed), jwt.WithLeeway(o.leeway))
+	// AR-23：签名方法构造期校验——GetSigningMethod 对未知 alg 返回 nil，
+	// 此前 nil 直塞 signMethod，首次 IssueToken nil pointer panic（J7：
+	// 配置错误在装配期报，不在请求期崩）；且签名方法必须 ∈ 验签白名单，
+	// 否则自签的 token 过不了自己的 ValidMethods（自签自验自相矛盾）。
+	if a.signMethod == nil {
+		return nil, fmt.Errorf("authn-jwt: unknown signing algorithm %q (构造期 fail-fast，J7)", signAlg)
+	}
+	if allowed[0] != signAlg {
+		found := false
+		for _, a2 := range allowed {
+			if a2 == signAlg {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, fmt.Errorf("authn-jwt: signing algorithm %q is not in the verification allowlist %v (自签自验会失败)", signAlg, allowed)
+		}
+	}
+
+	// AR-23：验签默认要求 exp（无 exp 的 token 永久有效），配置了 audience
+	// 时同时校验 aud。
+	parserOpts := []jwt.ParserOption{jwt.WithValidMethods(allowed), jwt.WithLeeway(o.leeway), jwt.WithExpirationRequired()}
+	if o.audience != "" {
+		parserOpts = append(parserOpts, jwt.WithAudience(o.audience))
+	}
+	a.parser = jwt.NewParser(parserOpts...)
 	return a, nil
 }
 
@@ -359,6 +395,11 @@ func (a *Authenticator) IssueToken(claims authn.AuthClaims, ttl time.Duration) (
 	jc := toJWT(claims)
 	if a.opts.issuer != "" {
 		jc.Issuer = a.opts.issuer
+	}
+	// AR-23：配置了 audience 时签进 aud——否则 WithAudience 的验签连自签
+	// token 都拒绝，选项自相矛盾。
+	if a.opts.audience != "" {
+		jc.Audience = jwt.ClaimStrings{a.opts.audience}
 	}
 	now := time.Now()
 	jc.IssuedAt = jwt.NewNumericDate(now)

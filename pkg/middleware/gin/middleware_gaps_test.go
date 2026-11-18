@@ -10,12 +10,14 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/kalandramo/bald/log"
 )
+
 // TestCORS_HeadersAndPreflight CORS 响应头、可选暴露头/凭证头与 OPTIONS 预检。
 func TestCORS_HeadersAndPreflight(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -152,7 +154,6 @@ func TestObservability_WithLoggerAndMatchPath(t *testing.T) {
 	}
 }
 
-
 // nopLogger 是 WithLogger 注入用的最小 log.Logger。
 type nopLogger struct{}
 
@@ -163,11 +164,53 @@ func (nopLogger) Error(context.Context, string, ...any) {}
 func (nopLogger) Enabled(log.Level) bool                { return false }
 func (l nopLogger) With(...any) log.Logger              { return l }
 
-
-
-
 // ---------------------------------------------------------------------------
 // 结构性零覆盖（登记备查）：
 //   - ratelimit.go:71 —— NewRateLimit 先经 Validate 拦 rate/burst <= 0，而
 //     tokenbucket.New 的失败判据是同一谓词，构造失败不可达（双层校验的防御分支）。
 // ---------------------------------------------------------------------------
+
+// TestCORS_MultiOriginEchoesRequestOrigin 复现 AR-14：多源拼进单个响应头
+// （"a, b"）被浏览器整体拒绝——修复后按请求 Origin 匹配白名单回显单值，
+// 始终写 Vary: Origin；不在白名单的源不回写 ACAO。
+func TestCORS_MultiOriginEchoesRequestOrigin(t *testing.T) {
+	r := gin.New()
+	r.Use(CORS(&CORSConfig{
+		AllowOrigin:  "https://a.example, https://b.example",
+		AllowMethods: "GET",
+	}))
+	r.GET("/x", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	for _, tc := range []struct {
+		origin string
+		want   string // 期望的 ACAO 值；"" = 不回写
+	}{
+		{"https://a.example", "https://a.example"},
+		{"https://b.example", "https://b.example"},
+		{"https://evil.example", ""},
+	} {
+		req := httptest.NewRequest(http.MethodGet, "/x", nil)
+		req.Header.Set("Origin", tc.origin)
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+
+		got := rec.Header().Get("Access-Control-Allow-Origin")
+		if got != tc.want {
+			t.Errorf("Origin %q: ACAO = %q, want %q", tc.origin, got, tc.want)
+		}
+		if got != "" {
+			if v := rec.Header().Get("Vary"); !strings.Contains(v, "Origin") {
+				t.Errorf("Origin %q: 响应应携带 Vary: Origin（got %q）", tc.origin, v)
+			}
+		}
+	}
+}
+
+// TestCORS_ValidateRejectsWildcardMixedWithExplicit 复现 AR-14 的 Validate
+// 扩展：多源列表混入 "*" 是浏览器拒绝的形态（fetch 规范只接受单值或 "*"）。
+func TestCORS_ValidateRejectsWildcardMixedWithExplicit(t *testing.T) {
+	err := (&CORSConfig{AllowOrigin: "*, https://a.example"}).Validate()
+	if err == nil {
+		t.Fatal("多源列表混入 * 应被 Validate 拒绝")
+	}
+}

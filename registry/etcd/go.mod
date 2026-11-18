@@ -4,6 +4,7 @@ go 1.27.1
 
 require (
 	github.com/kalandramo/bald/bconf v0.28.1
+	github.com/kalandramo/bald/log v0.6.1
 	github.com/kalandramo/bald/pkg v0.16.1
 	github.com/kalandramo/bald/registry v0.5.1
 	github.com/kalandramo/bald/retry v0.3.1
@@ -94,7 +95,6 @@ require (
 	github.com/kalandramo/bald/bconfig v0.2.4 // indirect
 	github.com/kalandramo/bald/bootstrap v0.13.8 // indirect
 	github.com/kalandramo/bald/health v0.1.1 // indirect
-	github.com/kalandramo/bald/log v0.6.1 // indirect
 	github.com/kalandramo/bald/transport v0.5.1 // indirect
 	github.com/kalandramo/bald/transport/grpc v0.2.0 // indirect
 	github.com/kalandramo/bald/transport/http v0.2.0 // indirect

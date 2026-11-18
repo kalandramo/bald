@@ -24,6 +24,7 @@ import (
 
 	clientv3 "go.etcd.io/etcd/client/v3"
 
+	"github.com/kalandramo/bald/log"
 	registry "github.com/kalandramo/bald/registry"
 	"github.com/kalandramo/bald/retry"
 )
@@ -256,6 +257,7 @@ func (r *Registry) heartBeat(ctx context.Context, leaseID clientv3.LeaseID, key 
 		curLeaseID = 0
 	}
 
+registerLoop:
 	for {
 		if curLeaseID == 0 {
 			// try to registerWithKV
@@ -305,12 +307,35 @@ func (r *Registry) heartBeat(ctx context.Context, leaseID clientv3.LeaseID, key 
 				}
 			}
 			if kac == nil {
-				// 重试耗尽：KeepAlive 出错时返回 nil channel，直接接收会永久阻塞。
-				return
+				// AR-8：重试耗尽不再静默退出——实例会被永久摘除而进程不自知。
+				// 记错误后按退避曲线无限重注册（外层循环重走 registerWithKV）；
+				// etcd 恢复后自动回到正常心跳，Close/ctx 取消仍即时退出。
+				log.Error(ctx, "etcd keepalive retry exhausted: lease will expire, re-registering with backoff",
+					"namespace", r.opts.namespace, "max_retry", r.opts.maxRetry)
+				select {
+				case <-ctx.Done():
+					return
+				case <-r.stopCtx.Done():
+					return
+				case <-time.After(r.opts.retreat.delay(lastRetry, rand.Float64)):
+				}
+				curLeaseID = 0
+				continue registerLoop
 			}
 			if _, ok := <-kac; !ok {
-				// retry failed
-				return
+				// AR-8：新 KeepAlive 流立即关闭——同上，记日志后重注册，
+				// 不静默退出（实例已在租约过期后被摘除，必须重建）。
+				log.Error(ctx, "etcd keepalive channel closed immediately: re-registering with backoff",
+					"namespace", r.opts.namespace)
+				select {
+				case <-ctx.Done():
+					return
+				case <-r.stopCtx.Done():
+					return
+				case <-time.After(r.opts.retreat.delay(lastRetry, rand.Float64)):
+				}
+				curLeaseID = 0
+				continue registerLoop
 			}
 		}
 

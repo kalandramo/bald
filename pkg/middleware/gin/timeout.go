@@ -2,6 +2,7 @@ package gin
 
 import (
 	"bytes"
+	"context"
 	"net/http"
 	"sync"
 	"time"
@@ -85,6 +86,15 @@ func Timeout(cfg TimeoutConfig) gin.HandlerFunc {
 			maxBufferBytes: limit,
 		}
 		c.Writer = bw
+
+		// AR-13（安全半版）：handler 的 ctx 带超时 deadline——能感知 ctx 的
+		// handler 在超时点自行返回，响应随之中结（此前 ctx 永不取消，超时完全
+		// 依赖本中间件的重写 503）。「503 后立即返回」的另一半需要 goroutine
+		// 安全的 gin.Context 克隆（gin 复用池与超时后仍在跑的 handler 竞争同一
+		// 份 Context），涉及响应生命周期重构，见 AR-13 遗留注记。
+		timeoutCtx, cancelTimeoutCtx := context.WithTimeout(c.Request.Context(), timeout)
+		defer cancelTimeoutCtx()
+		c.Request = c.Request.WithContext(timeoutCtx)
 
 		done := make(chan struct{})
 		var panicked any

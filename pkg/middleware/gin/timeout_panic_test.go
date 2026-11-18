@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -62,4 +63,35 @@ func runTimeoutPanicChild() {
 	}
 	// 存活标记：走到这里说明进程没有被 panic 杀死。
 	print("SURVIVED\n")
+}
+
+// TestTimeout_HandlerCtxCanceledAtDeadline 复现 AR-13（安全半版）：handler 的
+// ctx 此前永不取消——感知 ctx 的 handler 无法在超时点自行返回。修复后 ctx 带
+// 超时 deadline，ctx-aware handler 在超时点收口（响应整体耗时 ≈ 超时窗，而非
+// handler 的自然时长）。
+func TestTimeout_HandlerCtxCanceledAtDeadline(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(Timeout(TimeoutConfig{DefaultTimeoutMs: 200}))
+	r.GET("/ctx-aware", func(c *gin.Context) {
+		select {
+		case <-c.Request.Context().Done():
+			return // ctx 感知：超时点收口
+		case <-time.After(1500 * time.Millisecond):
+			return // ctx 无感知时的自然时长（修复前的响应耗时）
+		}
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/ctx-aware", nil)
+	rec := httptest.NewRecorder()
+	start := time.Now()
+	r.ServeHTTP(rec, req)
+	elapsed := time.Since(start)
+
+	if rec.Code != 503 {
+		t.Fatalf("status = %d, want 503", rec.Code)
+	}
+	if elapsed > 600*time.Millisecond {
+		t.Fatalf("响应耗时 %s——handler 的 ctx 未在超时点取消（AR-13）", elapsed.Round(time.Millisecond))
+	}
 }

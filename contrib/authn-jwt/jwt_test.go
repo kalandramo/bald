@@ -381,3 +381,40 @@ var jwtStandardOnly = map[string]bool{
 	"IssuedAt":  true, // iat：同上
 	"ID":        true, // jti：toJWT 内部生成，非业务字段
 }
+
+// TestNewAuthenticator_RejectsUnknownSigningAlg 复现 AR-23：GetSigningMethod
+// 对未知 alg 返回 nil，此前 nil 直塞 signMethod——首次 IssueToken nil pointer
+// panic（J7：配置错误应在构造期报，不在请求期崩）。
+func TestNewAuthenticator_RejectsUnknownSigningAlg(t *testing.T) {
+	_, err := NewAuthenticator(WithHMACSecret(testSecret), WithSigningAlg("HS999"))
+	if err == nil {
+		t.Fatal("未知签名算法应构造期报错（修复前构造成功，首次 IssueToken panic）")
+	}
+}
+
+// TestNewAuthenticator_RejectsAlgOutsideAllowlist 复现 AR-23：显式白名单与
+// 签名算法错位（自签的 token 过不了自己的 ValidMethods）——构造期就该报。
+func TestNewAuthenticator_RejectsAlgOutsideAllowlist(t *testing.T) {
+	_, err := NewAuthenticator(
+		WithHMACSecret(testSecret),
+		WithSigningAlg("HS256"),
+		WithAllowedAlgs("RS256", "RS384", "RS512"), // 白名单不含 HS256
+	)
+	if err == nil {
+		t.Fatal("签名算法不在白名单应构造期报错（自签自验自相矛盾）")
+	}
+}
+
+// TestExpiredTokenRequired 复现 AR-23：parser 未开 WithExpirationRequired，
+// 不带 exp 的 token 永久有效（J4：身份不完整 fail-closed）。
+func TestExpiredTokenRequired(t *testing.T) {
+	a := newAuth(t, WithHMACSecret(testSecret))
+	// 手工签一个不带 exp 的 token（IssueToken 恒带 exp，绕开它）。
+	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"sub": "u-1"})
+	signed, err := tok.SignedString(testSecret)
+	require.NoError(t, err)
+
+	if _, err := a.AuthenticateToken(signed); err == nil {
+		t.Fatal("无 exp 的 token 应被拒绝（修复前永久有效）")
+	}
+}

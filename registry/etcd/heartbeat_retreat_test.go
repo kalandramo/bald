@@ -54,41 +54,42 @@ func refusedAddr(t *testing.T) string {
 	return addr
 }
 
-// runHeartBeat 驱动一次心跳并在 budget 内等它退出。
-// 不退出即判红——这既是判据，也避免整包因为一个不退出的 goroutine 挂死。
-func runHeartBeat(t *testing.T, r *Registry, leaseID clientv3.LeaseID, budget time.Duration) time.Duration {
+// runHeartBeat 驱动心跳直到 spy 被询问满 minAsks 次，然后取消 ctx 并断言
+// heartBeat 随取消退出。AR-8 之后 heartBeat 在断链场景**不再退出**（无限
+// 退避重注册——实例被摘除后必须重建）——退出语义改为「随 ctx/stop 收口」，
+// 重试行为用 spy 的询问次数与次序断言。
+func runHeartBeat(t *testing.T, r *Registry, leaseID clientv3.LeaseID, spy *retreatSpy, minAsks int) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), budget)
-	t.Cleanup(cancel)
-
-	start := time.Now()
+	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
 		r.heartBeat(ctx, leaseID, "/microservices/retreat/1", "{}")
 	}()
+
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if strings.Count(spy.seen(), " ") >= minAsks-1 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	cancel()
 	select {
 	case <-done:
-		return time.Since(start)
-	case <-time.After(budget):
-		t.Fatalf("heartBeat 未在 %s 内退出（重注册循环或等待没有随 ctx 收口）", budget)
-		return budget
+	case <-time.After(3 * time.Second):
+		t.Fatal("cancel 后 heartBeat 未随 ctx 收口退出")
 	}
 }
 
-// TestHeartBeatRetreatsBetweenFailedAttempts 钉「断链重注册真的按退避等待」这件事。
+// TestHeartBeatRetreatsBetweenFailedAttempts 钉两条不变量：
 //
-// 缺陷形态（2026-11-05 实测）：原先只有「重注册成功但 KeepAlive 建流失败」那一支
-// 会等待，而这三支——单次尝试被 3s 上限掐掉、尝试自己返回错误、建流失败——里前两支
-// 直接 continue。把曲线配好之后直调 heartBeat 跑满 maxRetry=3，策略被问到的次数是
-// 0 次：契约的 registry.etcd.backoff 落进的是一个几乎走不到的分支。
-//
-// 这里的失败原因是 lease 尚未建立（registerWithKV 立刻返回 errNoLease），不是网络
-// 错误——刻意选它：它走的是循环里同一条「失败 → 退避 → 下一次」的码，却不需要
-// 真 etcd、也不需要 3s 上限，因此判据与调度无关。真后端那一半由
-// [TestHeartBeatRetreatsWithUnreachableBackend] 补。
-//
-// 期望的次序是 [0 1] 而不是 [0 1 2]：末次尝试之后没有下一次，不该再等。
+//  1. 轮内退避：maxRetry=3 的失败周期里策略被问 [0 1]（尝试间两次等待，
+//     末次不再等）——2026-11-05 缺陷的回归锁。
+//  2. AR-8 无限重注册：重试耗尽后不再静默退出，而是记日志 + 退避后重开
+//     一个完整周期（spy 被继续询问，模式 [0 1 2] 重复）——此前耗尽即
+//     return，实例被永久摘除而进程不自知。
 func TestHeartBeatRetreatsBetweenFailedAttempts(t *testing.T) {
 	spy := &retreatSpy{perGap: 20 * time.Millisecond}
 
@@ -103,14 +104,13 @@ func TestHeartBeatRetreatsBetweenFailedAttempts(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = r.Close() })
 
-	elapsed := runHeartBeat(t, r, clientv3.LeaseID(0x1), 15*time.Second)
+	// 等到 ≥7 次询问 = 至少两个完整周期（周期形态 [0 1 2]：尝试间 [0 1] +
+	// 耗尽后的轮间退避 [2]），证明重试耗尽后循环仍在继续。
+	runHeartBeat(t, r, clientv3.LeaseID(0x1), spy, 7)
 
-	if got := spy.seen(); got != "[0 1]" {
-		t.Errorf("退避被问到 %s, want [0 1]（三次尝试之间两次等待，末次不再等）；整轮耗时 %s", got, elapsed.Round(time.Millisecond))
-	}
-	// 两次等待至少 40ms：只在「等待被跳过」时有牙齿，慢机器上恒成立。
-	if elapsed < 2*spy.perGap {
-		t.Errorf("整轮 %s < 两次等待之和 %s：等待没有真的发生在尝试之间", elapsed, 2*spy.perGap)
+	got := spy.seen()
+	if !strings.HasPrefix(got, "[0 1 2 0 1 2") {
+		t.Fatalf("退避被问到 %s, want [0 1 2] 重复（轮内 [0 1] + 轮间耗尽退避 [2]）", got)
 	}
 }
 
@@ -132,9 +132,11 @@ func TestHeartBeatRetreatsWithUnreachableBackend(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = r.Close() })
 
-	elapsed := runHeartBeat(t, r, clientv3.LeaseID(0x1), 30*time.Second)
+	// AR-8：耗尽后无限重注册——spy 被持续询问（模式 [0 1] 重复），cancel 后退出。
+	runHeartBeat(t, r, clientv3.LeaseID(0x1), spy, 4)
 
-	if got := spy.seen(); got != "[0]" {
-		t.Errorf("不可达后端下退避被问到 %s, want [0]（两次尝试之间一次等待）；整轮耗时 %s", got, elapsed.Round(time.Millisecond))
+	got := spy.seen()
+	if !strings.HasPrefix(got, "[0 1 0 1") {
+		t.Fatalf("退避被问到 %s, want [0 1] 重复（maxRetry=2 的周期形态）", got)
 	}
 }

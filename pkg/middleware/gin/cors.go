@@ -3,6 +3,7 @@ package gin
 import (
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -42,13 +43,62 @@ func (c *CORSConfig) Validate() error {
 		return fmt.Errorf("gin: cors: allowed_origins [\"*\"] with allow_credentials=true is rejected by browsers " +
 			"(fetch spec forbids wildcard origin with credentials); list explicit origins instead")
 	}
+	// AR-14：多源列表里混入 "*" 同样是浏览器拒绝的形态——fetch 规范只接受
+	// 单个源或 "*"，通配符与具体源互斥。
+	origins := splitOrigins(c.AllowOrigin)
+	if len(origins) > 1 {
+		for _, o := range origins {
+			if o == "*" {
+				return fmt.Errorf("gin: cors: allowed_origins mixes \"*\" with explicit origins " +
+					"(fetch spec accepts a single origin or \"*\", never both); pick one form")
+			}
+		}
+	}
 	return nil
 }
 
+// splitOrigins 把 AllowOrigin 拆成源列表（逗号分隔、去空白、去空项）。
+// 单值（"*" 或具体源）返回单元素列表。
+func splitOrigins(v string) []string {
+	parts := strings.Split(v, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if t := strings.TrimSpace(p); t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
 // CORS 是 gin 跨域中间件。OPTIONS 预检直接返回 204，普通请求写入响应头。
+//
+// 多源语义（AR-14）：AllowOrigin 含多个源时按请求 Origin 匹配白名单后回显
+// **单个**源（fetch 规范只接受单值或 "*"——把多源拼进一个响应头会被浏览器
+// 整体拒绝，配置静默失效），并始终写 `Vary: Origin`（响应随 Origin 变化，
+// 缓存不得跨源复用）。单值语义不变。
 func CORS(config *CORSConfig) gin.HandlerFunc {
+	allowed := splitOrigins(config.AllowOrigin)
+	multi := len(allowed) > 1
 	return func(c *gin.Context) {
-		c.Header("Access-Control-Allow-Origin", config.AllowOrigin)
+		origin := config.AllowOrigin
+		if multi {
+			reqOrigin := c.GetHeader("Origin")
+			matched := false
+			for _, o := range allowed {
+				if o == reqOrigin {
+					matched = true
+					origin = o
+					break
+				}
+			}
+			if !matched {
+				origin = ""
+			}
+			c.Header("Vary", "Origin")
+		}
+		if origin != "" {
+			c.Header("Access-Control-Allow-Origin", origin)
+		}
 		c.Header("Access-Control-Allow-Methods", config.AllowMethods)
 		c.Header("Access-Control-Allow-Headers", config.AllowHeaders)
 		if config.ExposedHeaders != "" {
