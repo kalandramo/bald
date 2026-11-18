@@ -75,8 +75,34 @@ func TestTryConnectFailureBranches(t *testing.T) {
 		if err := r.tryConnect(true, &cfg); err == nil {
 			t.Fatal("拒连地址 secure tryConnect 应失败")
 		}
-		if cfg.TLSClientConfig == nil || !cfg.TLSClientConfig.InsecureSkipVerify {
-			t.Fatal("secure 分支应写入 InsecureSkipVerify TLS 配置")
+		// AR-9：nil TLSClientConfig 必须走标准证书校验（SNI 取 URL host），
+		// 不再默认 InsecureSkipVerify——跳过校验应由契约显式声明。
+		if cfg.TLSClientConfig == nil {
+			t.Fatal("secure 分支应写入 TLS 配置")
+		}
+		if cfg.TLSClientConfig.InsecureSkipVerify {
+			t.Fatal("nil TLSClientConfig 不得默认跳过证书校验（AR-9）")
+		}
+		if cfg.TLSClientConfig.ServerName != "127.0.0.1" {
+			t.Fatalf("SNI 应取 URL host，got %q", cfg.TLSClientConfig.ServerName)
+		}
+	})
+
+	t.Run("amqps_url_defaults_to_verified_tls", func(t *testing.T) {
+		// amqps:// 是 AR-9 的主触发面：用户以为开了 TLS，实际此前对端未被验证。
+		r := newRabbitMQConnection(broker.NewOptionsAndApply(broker.WithAddress("amqps://user:pass@rabbit.internal:5671/vhost")))
+		cfg := DefaultAmqpConfig
+		if err := r.tryConnect(false, &cfg); err == nil {
+			t.Fatal("拒连地址 amqps tryConnect 应失败")
+		}
+		if cfg.TLSClientConfig == nil {
+			t.Fatal("amqps:// 应自动启用 TLS")
+		}
+		if cfg.TLSClientConfig.InsecureSkipVerify {
+			t.Fatal("amqps:// 不得默认跳过证书校验（AR-9）")
+		}
+		if cfg.TLSClientConfig.ServerName != "rabbit.internal" {
+			t.Fatalf("SNI 应取 URL host（不含端口/凭证/vhost），got %q", cfg.TLSClientConfig.ServerName)
 		}
 	})
 

@@ -5,6 +5,8 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"net"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -295,6 +297,19 @@ func (r *rabbitConnection) Close() error {
 	return r.Connection.Close()
 }
 
+// hostOf 从 AMQP URL 提取 host（TLS SNI 用）。解析失败返回空串
+// （crypto/tls 在 ServerName 为空时按连接地址推导，仍走标准校验）。
+func hostOf(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	if host, _, err := net.SplitHostPort(u.Host); err == nil {
+		return host
+	}
+	return u.Host
+}
+
 func (r *rabbitConnection) tryConnect(secure bool, config *amqp.Config) error {
 	if config == nil {
 		// 拷贝再改：TLS 分支会往 config 里写 TLSClientConfig，直接引用包级
@@ -307,9 +322,11 @@ func (r *rabbitConnection) tryConnect(secure bool, config *amqp.Config) error {
 
 	if secure || config.TLSClientConfig != nil || strings.HasPrefix(r.url, "amqps://") {
 		if config.TLSClientConfig == nil {
-			config.TLSClientConfig = &tls.Config{
-				InsecureSkipVerify: true,
-			}
+			// AR-9：默认走标准证书校验——此前 InsecureSkipVerify: true 让
+			// amqps:// 沦为明文级防护（中间人可截获契约注入 URL 的凭证与
+			// 消息正文）。SNI 取 URL host；跳过校验等应由契约显式声明
+			// （broker.rabbitmq 的 tls 段，见 architecture-review-20261118 AR-9）。
+			config.TLSClientConfig = &tls.Config{ServerName: hostOf(r.url)}
 		}
 
 		url = strings.Replace(r.url, "amqp://", "amqps://", 1)
