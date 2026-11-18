@@ -149,6 +149,7 @@ type Store struct {
 	watchCancel context.CancelFunc // 取消所有层 watcher（Close 调用）
 	watchWG     sync.WaitGroup     // 转发 goroutine 生命周期
 	selfClosers []io.Closer        // Store 自建源（本地文件 watch 源），Close 释放
+	localFile   string             // discoverLocalFile 解析出的本地文件（AR-3：两遍装载同源）
 }
 
 // Load 加载配置：远程桥 + 契约源层 + 本地文件 + env + flag 合并，并可选地监听热更新。
@@ -227,6 +228,7 @@ func Load(opts Options) (*Store, error) {
 
 	// 3) 本地文件层（运维显式覆盖，高于全部声明式源）。
 	localPath := discoverLocalFile(opts)
+	s.localFile = localPath // AR-3：两遍装载经 Store.LocalFile() 同源复用
 	if localPath != "" {
 		src, err := file.New(file.WithPath(localPath))
 		if err != nil {
@@ -446,6 +448,16 @@ func (s *Store) Close() error {
 
 // Settings 返回合并后的配置快照（深拷贝，只读使用）。
 // 供 bconf.UnmarshalMap / baldconfig.Unmarshal 填充契约。
+// LocalFile 返回 discoverLocalFile 解析出的本地配置文件路径（未发现时为空）。
+// AR-3：预装载（探针）与正式装载必须读同一个文件——调用方把这里返回的路径
+// 作为正式装载的显式 ConfigFile 传入，两遍即同源。
+func (s *Store) LocalFile() string {
+	if s == nil {
+		return ""
+	}
+	return s.localFile
+}
+
 func (s *Store) Settings() map[string]any {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -486,8 +498,10 @@ func (s *Store) Unmarshal(msg proto.Message) error {
 }
 
 // discoverLocalFile 按规则查找本地配置文件。
-// 查找顺序：显式 ConfigFile > Name-Env.yaml/json > Name.yaml/json；
-// 搜索目录：. / ./configs / $HOME/.config/Name（对齐旧 viper AddConfigPath 语义）。
+// 查找顺序：显式 ConfigFile > Name-Env.yaml/json > Name.yaml/json（AR-3：
+// Env 非空时此前只试 Name-Env，注释承诺的 Name 回退缺失——预装载按 Name
+// 找到的文件，正式装载会找不到，运行期配置为空且不受 watch）；搜索目录：
+// . / ./configs / $HOME/.config/Name（对齐旧 viper AddConfigPath 语义）。
 // 找不到返回空串（不报错：允许纯远程/纯 flag 配置）。
 func discoverLocalFile(opts Options) string {
 	if opts.ConfigFile != "" {
@@ -498,15 +512,19 @@ func discoverLocalFile(opts Options) string {
 	if home != "" {
 		dirs = append(dirs, filepath.Join(home, ".config", opts.Name))
 	}
-	name := opts.Name
+	names := []string{opts.Name}
 	if opts.Env != "" {
-		name = opts.Name + "-" + opts.Env
+		// 环境专属优先，基础名兜底——两遍装载（预装载按 Name 探针）才不会
+		// 与正式装载找到不同的文件。
+		names = append([]string{opts.Name + "-" + opts.Env}, opts.Name)
 	}
-	for _, ext := range []string{"yaml", "yml", "json"} {
-		for _, dir := range dirs {
-			p := filepath.Join(dir, name+"."+ext)
-			if st, err := os.Stat(p); err == nil && !st.IsDir() {
-				return p
+	for _, name := range names {
+		for _, ext := range []string{"yaml", "yml", "json"} {
+			for _, dir := range dirs {
+				p := filepath.Join(dir, name+"."+ext)
+				if st, err := os.Stat(p); err == nil && !st.IsDir() {
+					return p
+				}
 			}
 		}
 	}

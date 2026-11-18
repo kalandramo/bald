@@ -56,7 +56,7 @@ func newLogFlagHarness(t *testing.T, args []string) *logFlagHarness {
 	log.SetLogger(lg)
 	h.cc.Store(&cleanup)
 
-	if err := syncBootstrap(h.a, h.cfg, h.spec, h.src, &h.cc); err != nil {
+	if err := syncBootstrap(h.a, h.cfg, h.spec, h.src, &h.cc, true); err != nil {
 		t.Fatalf("syncBootstrap: %v", err)
 	}
 	return h

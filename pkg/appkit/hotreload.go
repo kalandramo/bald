@@ -19,7 +19,7 @@ import (
 // syncBootstrap 装载配置快照进契约、校验并重建 Logger（阶段 B 前置框架步骤
 // ——必须在校验后重建，构造用的契约值已含文件/env 覆盖；registry 段的注册
 // 中心构造已 Provider 化，在阶段 B 循环按 canonical 序进行）。
-func syncBootstrap(a *App, cfg *bootstrapv1.BootstrapConfig, spec *Decl, logSrc loggerSource, curCleanup *atomic.Pointer[func()]) error {
+func syncBootstrap(a *App, cfg *bootstrapv1.BootstrapConfig, spec *Decl, logSrc loggerSource, curCleanup *atomic.Pointer[func()], refreshIdentity bool) error {
 	m := a.Settings()
 	if m == nil {
 		return errors.New("appkit: settings snapshot is nil")
@@ -34,6 +34,14 @@ func syncBootstrap(a *App, cfg *bootstrapv1.BootstrapConfig, spec *Decl, logSrc 
 	// 按 Changed 写进 logger 段。必须在 compilePlan 与 Logger 重建之前——计划摘要与实建
 	// 后端都得反映终值。
 	ApplyLogFlagOverrides(cfg, a.cfg.flagSet)
+	// AR-12：身份与停机预算从最终契约刷新——预装载契约没有 env/flag/remote 层，
+	// assemble 期从预装载值构造的 id/version/env/stop_timeout 会冻结在旧值
+	// （注册中心的实例 version、停机预算忽略远程层与 flag，违反 J9）。仅在
+	// BeforeStart 的首次同步刷新（Run 串行，寄存器在此之后读取，无并发窗口）；
+	// 热更路径不刷新——身份字段的运行期改写与 Run goroutine 的读取无同步。
+	if refreshIdentity {
+		a.refreshIdentityFromContract(cfg)
+	}
 	// 以合并后的契约（文件/env/flag/层）重算并安装计划：配置变更 diff 的
 	// 基线必须是真实生效的契约，而非装配前的预装载形态。
 	next, err := compilePlan(context.Background(), spec, cfg, m)

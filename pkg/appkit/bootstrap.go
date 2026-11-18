@@ -237,7 +237,7 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig, settings map[string]
 			// 阶段 B 前置框架步骤：装载配置快照进契约 + 校验 + 按契约重建
 			// Logger（必须在校验后重建——构造用的契约值已含文件/env 覆盖；
 			// registry 段的注册中心构造已 Provider 化，在下方循环进行）。
-			if err := syncBootstrap(a, cfg, spec, logSrc, &curCleanup); err != nil {
+			if err := syncBootstrap(a, cfg, spec, logSrc, &curCleanup, true); err != nil {
 				return err
 			}
 			// 阶段 B Provider 循环：计划序（阶段内 Kahn 拓扑 + (Priority,

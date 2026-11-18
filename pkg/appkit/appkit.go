@@ -38,6 +38,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	bconf "github.com/kalandramo/bald/bconf"
+	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
 	"github.com/kalandramo/bald/bootstrap/config"
 	"github.com/kalandramo/bald/log"
 	"github.com/kalandramo/bald/pkg/audit"
@@ -892,6 +893,23 @@ func (a *App) stopAll(parent context.Context) {
 	// 未动，audit 等仍排在其后）——排在 logger 恢复之后的条目，其失败日志
 	// 落在恢复前的 logger 上（与旧实现层内行为一致）。
 	a.undoDeferredEffects(parent)
+}
+
+// refreshIdentityFromContract 用最终契约刷新身份与停机预算（AR-12）：
+// 预装载契约没有 env/flag/remote 层，assemble 期从预装载值构造的字段会冻结；
+// 空值不覆盖（保留显式 Option 的语义，与 assemble 的 orDefault 一致）。
+// 调用方必须在 Run 主 goroutine 上（BeforeStart 的首次同步），寄存器/协调器
+// 晚于本步骤读取，无并发窗口。
+func (a *App) refreshIdentityFromContract(cfg *bootstrapv1.BootstrapConfig) {
+	if id := cfg.GetApp().GetId(); id != "" {
+		a.id = id
+	}
+	if v := cfg.GetApp().GetVersion(); v != "" {
+		a.version = v
+	}
+	if st := cfg.GetApp().GetStopTimeout().AsDuration(); st > 0 {
+		a.stopTimeout = st
+	}
 }
 
 // runHook 在独立超时 ctx 中执行生命周期钩子，并 recover 防止单个钩子 panic 拖垮整机。

@@ -22,7 +22,7 @@ func Compile(ctx context.Context, opts ...Option) (*Plan, error) {
 // compileDecl 装载契约并编译计划（Serve 与 Compile 共用的唯一计划入口）。
 func compileDecl(ctx context.Context, d *Decl) (*Plan, error) {
 	cfg := bconf.NewBootstrap()
-	ns, settings, err := preloadContract(cfg, d.Name, d.ConfigFile)
+	ns, _, settings, err := preloadContract(cfg, d.Name, d.ConfigFile)
 	if err != nil {
 		return nil, err
 	}
