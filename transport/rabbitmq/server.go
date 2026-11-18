@@ -2,229 +2,36 @@ package rabbitmq
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/url"
-	"sync"
-	"sync/atomic"
-	"time"
 
 	"github.com/kalandramo/bald/broker"
 	"github.com/kalandramo/bald/broker/rabbitmq"
-	"github.com/kalandramo/bald/metrics"
 
-	"github.com/kalandramo/bald/transport/subscribe"
+	"github.com/kalandramo/bald/transport/internal/brokertype"
 )
 
+// Server 是 rabbitmq 家族的传输服务器：生命周期、订阅簿（deferred + live
+// 双态）、metrics 包装与家族日志全部住在 transport/internal/brokertype 共享
+// kernel（J2 单一闸门——此前两份 ~84% 复制的 server.go 使 Stop 无锁遍历等
+// 家族同构缺陷必然双发）。本壳只保留家族参数化点（Family：Kind/routingKey
+// 名词/NewBroker 工厂/剥凭证端点）与公共 API 形状。
 type Server struct {
-	broker.Broker
-	brokerOpts []broker.Option
-	m          metrics.Metrics
-
-	subscribers    broker.SubscriberMap
-	subscriberOpts subscribe.SubscribeOptionMap
-
-	sync.RWMutex
-	started atomic.Bool
-
-	baseCtx context.Context
-	err     error
+	*brokertype.Server
 }
 
-func NewServer(opts ...ServerOption) *Server {
-	srv := &Server{
-		baseCtx:        context.Background(),
-		subscribers:    make(broker.SubscriberMap),
-		subscriberOpts: make(subscribe.SubscribeOptionMap),
-		brokerOpts:     []broker.Option{},
-		started:        atomic.Bool{},
-	}
-
-	srv.init(opts...)
-
-	return srv
-}
-
-func (s *Server) init(opts ...ServerOption) {
-	for _, o := range opts {
-		o(s)
-	}
-
-	s.Broker = rabbitmq.NewBroker(s.brokerOpts...)
-
-}
-
-func (s *Server) Name() string {
-	return KindRabbitMQ
-}
-
-func (s *Server) Start(ctx context.Context) error {
-	if s.err != nil {
-		return s.err
-	}
-
-	if s.started.Load() {
-		return nil
-	}
-
-	if s.err = s.Init(); s.err != nil {
-		logErrorf("init broker failed: [%s]", s.err.Error())
-		return s.err
-	}
-
-	if s.err = s.Connect(); s.err != nil {
-		logErrorf("connect broker failed: [%s]", s.err.Error())
-		return s.err
-	}
-
-	logInfof("server listening on: %s", s.Address())
-
-	if s.err = s.doRegisterSubscriberMap(); s.err != nil {
-		return s.err
-	}
-
-	s.Lock()
-	s.baseCtx = ctx
-	s.Unlock()
-	s.started.Store(true)
-
-	return nil
-}
-
-func (s *Server) Stop(ctx context.Context) error {
-	if !s.started.Load() {
-		return nil
-	}
-
-	logInfo("server stopping...")
-
-	// 映射突变必须持锁：RegisterSubscriber 持 s.Lock() 写同一批映射，
-	// 无锁遍历+重建在并发下是 concurrent map read/write fatal
-	// （家族同构缺陷，transport/kafka 同源同修）。退订是订阅者自己的锁，
-	// 放到锁外做，停机路径不为退订 I/O 长时间持有服务器锁。
-	s.Lock()
-	subs := make([]broker.Subscriber, 0, len(s.subscribers))
-	for _, v := range s.subscribers {
-		subs = append(subs, v)
-	}
-	s.subscribers = make(broker.SubscriberMap)
-	s.subscriberOpts = make(subscribe.SubscribeOptionMap)
-	// started 复位与映射清空同临界区完成：否则中间窗口里抢到锁的
-	// RegisterSubscriber 会按 started=true 注册出既不在退订快照里、
-	// 又被随后 Disconnect 甩下的孤儿订阅。
-	s.started.Store(false)
-	s.Unlock()
-
-	for _, v := range subs {
-		_ = v.Unsubscribe(false)
-	}
-
-	err := s.Disconnect()
-	s.err = nil
-
-	logInfo("server stopped.")
-
-	return err
-}
-
-func (s *Server) RegisterSubscriber(ctx context.Context, routingKey string, handler broker.Handler, binder broker.Binder, opts ...broker.SubscribeOption) error {
-	s.Lock()
-	defer s.Unlock()
-
-	if s.baseCtx == nil {
-		s.baseCtx = context.Background()
-	}
-	if ctx == nil {
-		ctx = s.baseCtx
-	}
-
-	// context必须要插入到头部，否则后续传入的配置会被覆盖掉。
-	opts = append([]broker.SubscribeOption{broker.WithSubscribeContext(ctx)}, opts...)
-
-	if s.started.Load() {
-		return s.doRegisterSubscriber(routingKey, handler, binder, opts...)
-	} else {
-		s.subscriberOpts[routingKey] = &subscribe.SubscribeOption{Handler: handler, Binder: binder, SubscribeOptions: opts}
-	}
-	return nil
-}
-
-func RegisterSubscriber[T any](srv *Server, ctx context.Context, topic string, handler func(context.Context, string, broker.Headers, *T) error, opts ...broker.SubscribeOption) error {
-	return srv.RegisterSubscriber(ctx,
-		topic,
-		func(ctx context.Context, event broker.Event) error {
-			switch t := event.Message().Body.(type) {
-			case *T:
-				if err := handler(ctx, event.Topic(), event.Message().Headers, t); err != nil {
-					return err
-				}
-			default:
-				return fmt.Errorf("unsupported type: %T", t)
-			}
-			return nil
-		},
-		func() any {
-			var t T
-			return &t
-		},
-		opts...,
-	)
-}
-
-func (s *Server) doRegisterSubscriber(routingKey string, handler broker.Handler, binder broker.Binder, opts ...broker.SubscribeOption) error {
-	handler = s.wrapHandler(routingKey, handler)
-
-	sub, err := s.Subscribe(routingKey, handler, binder, opts...)
-	if err != nil {
-		return err
-	}
-
-	if old, exists := s.subscribers[routingKey]; exists {
-		logWarnf("subscriber for routingKey '%s' already exists, overwriting", routingKey)
-		// 旧订阅必须先摘除：只覆写映射的话，旧订阅还挂在 broker 上——
-		// 消息双份投递且旧订阅 goroutine 泄漏（家族同构缺陷，段 2/3 已修）。
-		_ = old.Unsubscribe(false)
-	}
-	s.subscribers[routingKey] = sub
-	return nil
-}
-
-func (s *Server) doRegisterSubscriberMap() error {
-	// Start 阶段的延迟注册与并发的 RegisterSubscriber 写同一批映射：
-	// 遍历+删除同样要持锁（started 路径的 RegisterSubscriber 本就持锁调
-	// doRegisterSubscriber，此处与其对齐；订阅者的 Unsubscribe 不碰服务器锁，
-	// 无重入风险）。
-	s.Lock()
-	defer s.Unlock()
-
-	var errs []error
-	for topic, opt := range s.subscriberOpts {
-		if err := s.doRegisterSubscriber(topic, opt.Handler, opt.Binder, opt.SubscribeOptions...); err != nil {
-			logErrorf("register subscriber failed, topic: %s, error: %s", topic, err.Error())
-			errs = append(errs, err)
-			// 失败条目留在 subscriberOpts，下次 Start 重试（收敛语义）——此前
-			// 无条件清空整批 deferred 队列：Start 失败后重试找不到待注册项，
-			// 订阅静默丢失（家族同构缺陷，段 2 redis / 段 3 kafka 已修）。
-			continue
-		}
-		delete(s.subscriberOpts, topic)
-	}
-	return errors.Join(errs...)
-}
-
-// Endpoint 是描述性端点（amqp://host:port）——代理型传输不监听本地端口，
-// 地址只在建连成功后才有意义：rabbitmq broker 的 Address() 读的是
-// options.Addrs[0]，Init 会把裸 host:port 规范化成 amqp:// URL。started 未置真
-// 即返回空串，appkit 的端点闸门（waitForEndpoints）据此判「未就绪」——
-// Start 失败（拨号被拒）时 started 不落真，端点保持空。
-// AMQP URL 常内嵌用户名/密码（DefaultRabbitURL 即 guest:guest），端点会进日志
-// 与服务注册面，凭证必须剥掉。
+// Family 是 rabbitmq 家族的参数化点（kernel 装配用）。
+// 端点是描述性的 amqp://host:port——代理型传输不监听本地端口；AMQP URL 常内嵌
+// 用户名/密码（DefaultRabbitURL 即 guest:guest），端点会进日志与服务注册面，
+// 凭证必须剥掉。
 // （先例：transport/asynq 的 asynq:// 端点、pkg/registrableEndpoint 过滤 scheme 端点。）
-func (s *Server) Endpoint() string {
-	if !s.started.Load() {
-		return ""
+func Family() brokertype.Family {
+	return brokertype.Family{
+		Kind:      KindRabbitMQ,
+		KeyNoun:   "routingKey",
+		NewBroker: rabbitmq.NewBroker,
+		Endpoint:  sanitizeEndpoint,
 	}
-	return sanitizeEndpoint(s.Address())
 }
 
 // sanitizeEndpoint 剥掉 URL 的用户信息段；解析不了或本就无凭证时原样返回。
@@ -237,30 +44,34 @@ func sanitizeEndpoint(addr string) string {
 	return u.String()
 }
 
-func (s *Server) wrapHandler(topic string, handler broker.Handler) broker.Handler {
-	if s.m == nil {
-		return handler
+func NewServer(opts ...ServerOption) *Server {
+	s := &Server{Server: brokertype.NewServer(Family())}
+	for _, o := range opts {
+		o(s)
 	}
-	return func(ctx context.Context, event broker.Event) error {
-		startTime := time.Now()
-		labels := map[string]string{
-			"broker": s.Name(),
-			"topic":  topic,
+	s.BuildBroker()
+
+	return s
+}
+
+// RegisterSubscriber 注册一个订阅者（routingKey 维度）。
+func (s *Server) RegisterSubscriber(ctx context.Context, routingKey string, handler broker.Handler, binder broker.Binder, opts ...broker.SubscribeOption) error {
+	return s.Register(ctx, routingKey, handler, binder, opts...)
+}
+
+func RegisterSubscriber[T any](srv *Server, ctx context.Context, topic string, handler func(context.Context, string, broker.Headers, *T) error, opts ...broker.SubscribeOption) error {
+	return srv.RegisterSubscriber(ctx, topic, func(ctx context.Context, event broker.Event) error {
+		switch t := event.Message().Body.(type) {
+		case *T:
+			if err := handler(ctx, event.Topic(), event.Message().Headers, t); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("unsupported type: %T", t)
 		}
-
-		s.m.Counter(ctx, "broker_messages_received_total", 1, labels)
-
-		err := handler(ctx, event)
-		s.m.Histogram(ctx, "broker_message_duration_seconds", time.Since(startTime).Seconds(), labels)
-
-		if err != nil {
-			s.m.Counter(ctx, "broker_messages_errors_total", 1, map[string]string{
-				"broker": s.Name(),
-				"topic":  topic,
-				"error":  "true",
-			})
-		}
-
-		return err
-	}
+		return nil
+	}, func() any {
+		var t T
+		return &t
+	}, opts...)
 }

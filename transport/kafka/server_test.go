@@ -16,6 +16,7 @@ import (
 
 	"github.com/kalandramo/bald/broker"
 	"github.com/kalandramo/bald/broker/kafka"
+	"github.com/kalandramo/bald/log"
 )
 
 const (
@@ -25,7 +26,7 @@ const (
 )
 
 func handleHygrothermograph(_ context.Context, topic string, headers broker.Headers, msg *api.Hygrothermograph) error {
-	logInfof("Topic %s, Headers: %+v, Payload: %+v\n", topic, headers, msg)
+	log.Info(nil, fmt.Sprintf("[kafka] Topic %s, Headers: %+v, Payload: %+v\n", topic, headers, msg))
 	return nil
 }
 
@@ -33,7 +34,7 @@ func loggingMiddlerware(next broker.Handler) broker.Handler {
 	return func(ctx context.Context, evt broker.Event) error {
 		err := next(ctx, evt)
 		if err != nil {
-			logErrorf("err is %+v", err)
+			log.Error(nil, fmt.Sprintf("[kafka] err is %+v", err))
 		}
 		return nil
 	}
@@ -43,10 +44,10 @@ func recoveryMiddlerware(next broker.Handler) broker.Handler {
 	return func(ctx context.Context, evt broker.Event) error {
 		defer func() {
 			if rerr := recover(); rerr != nil {
-				logError(rerr)
+				log.Error(nil, fmt.Sprint(rerr))
 			}
 		}()
-		logInfo("recover middleware")
+		log.Info(nil, "[kafka] recover middleware")
 		return next(ctx, evt)
 	}
 }
