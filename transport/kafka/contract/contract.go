@@ -26,7 +26,6 @@ import (
 	"context"
 	"fmt"
 
-
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
 
 	"github.com/kalandramo/bald/transport"
