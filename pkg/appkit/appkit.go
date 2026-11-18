@@ -726,7 +726,11 @@ func (a *App) Run(ctx context.Context) error {
 	for _, fn := range a.afterStart {
 		if err := fn(gctx); err != nil {
 			cancel()
-			logDeregister(ctx, a.deregister(context.Background()))
+			// deregister 必须有界（AR-2）：注册中心不可达时 etcd Delete 会一直
+			// 等到连接就绪，无预算就是永久挂死，stop_timeout 形同虚设。
+			deregCtx, cancelDereg := context.WithTimeout(context.Background(), phaseBudgetFor(a.stopTimeout))
+			logDeregister(ctx, a.deregister(deregCtx))
+			cancelDereg()
 			a.stopAll(context.Background())
 			if abort := a.abortStartup(callerCtx, g, err); abort != nil {
 				log.Error(ctx, "appkit afterStart hook failed", "error", abort)
@@ -755,11 +759,15 @@ func (a *App) Run(ctx context.Context) error {
 		cancel() // 收到信号，主动取消
 	}
 
-	// 先反注册（避免流量打到已停服务），再优雅停机。
+	// 先反注册（避免流量打到已停服务），再优雅停机。deregister 有界（AR-2）：
+	// 预算沿用停机阶段口径（stopTimeout/2），注册中心不可达时到点放弃，
+	// 让停机流程继续走到 stopAll——永久挂死只能等编排系统 SIGKILL。
 	if a.registrarValue() != nil {
 		log.Info(ctx, "appkit deregistering", "name", a.name, "id", a.id)
 	}
-	logDeregister(ctx, a.deregister(context.Background()))
+	deregCtx, cancelDereg := context.WithTimeout(context.Background(), phaseBudgetFor(a.stopTimeout))
+	logDeregister(ctx, a.deregister(deregCtx))
+	cancelDereg()
 
 	// 优雅停机：传入未取消的新 ctx（带 stopTimeout），否则取消信号会让停机立即放弃等待。
 	a.stopAll(context.Background())

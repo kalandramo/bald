@@ -368,16 +368,23 @@ func TestCircuitBreaker_GRPCChainPosition(t *testing.T) {
 
 // TestGRPCCircuitBreaker_NotOnStreamChain stream 面刻意不挂熔断（一条流的失败
 // 没有一致答案）。这条断言守的是「别哪天顺手把它挪到 stream 链上」。
+// 链不再为空（AR-5：Recovery 基线无条件在链头），缺席断言按层名判。
 func TestGRPCCircuitBreaker_NotOnStreamChain(t *testing.T) {
 	br := mustBreaker(t)
 	defer func() { _ = br.Close() }()
 
-	if stream := New(CircuitBreaker(br), Public()).GRPCStreamInterceptors(); len(stream) != 0 {
-		t.Errorf("只给熔断段时 stream 链应为空，got %d 层", len(stream))
+	stream := New(CircuitBreaker(br), Public()).GRPCStreamInterceptors()
+	if len(stream) == 0 {
+		t.Fatal("stream 链应至少有 Recovery 基线（AR-5）")
+	}
+	for _, f := range stream {
+		if name := funcTag(f); strings.Contains(name, "CircuitBreaker") {
+			t.Error("熔断不该出现在 stream 链上")
+		}
 	}
 	rl := mustRateLimiter(t)
 	defer func() { _ = rl.Close() }()
-	stream := New(CircuitBreaker(br), RateLimit(rl, false), Public()).GRPCStreamInterceptors()
+	stream = New(CircuitBreaker(br), RateLimit(rl, false), Public()).GRPCStreamInterceptors()
 	for _, f := range stream {
 		if name := funcTag(f); strings.Contains(name, "CircuitBreaker") {
 			t.Error("熔断不该出现在 stream 链上")
@@ -503,7 +510,6 @@ func funcTag(f any) string {
 	}
 	return parts[0]
 }
-
 
 func ginIndexByName(chain []gf.HandlerFunc, name string) int {
 	for i, f := range chain {

@@ -59,8 +59,9 @@ func TestGRPCStreamChain_RateLimitRejectIsReadable(t *testing.T) {
 
 	b := New(Public(), RateLimit(rl, false))
 	ics := b.GRPCStreamInterceptors()
-	if len(ics) != 2 {
-		t.Fatalf("stream 链应为 Error+RateLimit 两层，len=%d", len(ics))
+	// AR-5：Recovery 基线恒在链头，限流场景共 3 层（Recovery → Error → RateLimit）。
+	if len(ics) != 3 {
+		t.Fatalf("stream 链应为 Recovery+Error+RateLimit 三层，len=%d", len(ics))
 	}
 
 	var hits int
@@ -128,15 +129,15 @@ func TestGRPCStreamChain_ShareBucketWithUnary(t *testing.T) {
 	}
 }
 
-// TestGRPCChain_StreamOptionAppearsOnlyWithRateLimit 零配置时 GRPCChain 的选项数
-// 必须与收口②之前完全一致（现有部署二进制兼容）；给了 RateLimit 才多一个
-// ChainStreamInterceptor。
+// TestGRPCChain_StreamOptionAppearsOnlyWithRateLimit AR-5 之后的口径：stream 链
+// 恒非空（Recovery 基线），GRPCChain 未配置时就是 unary+stream 两个选项；给了
+// RateLimit 不再额外增加选项数（stream 选项本就存在）。
 func TestGRPCChain_StreamOptionAppearsOnlyWithRateLimit(t *testing.T) {
-	if got := len(New(Public()).GRPCChain()); got != 1 {
-		t.Fatalf("未配置时 GRPCChain 应只有 1 个选项，got %d", got)
+	if got := len(New(Public()).GRPCChain()); got != 2 {
+		t.Fatalf("未配置时 GRPCChain 应有 unary+stream 两个选项（AR-5 基线），got %d", got)
 	}
-	if ics := New(Public(), Timeout(&ginmw.TimeoutConfig{DefaultTimeoutMs: 40})).GRPCStreamInterceptors(); len(ics) != 0 {
-		t.Fatalf("没给 RateLimit 时不该出 stream 链，len=%d", len(ics))
+	if ics := New(Public(), Timeout(&ginmw.TimeoutConfig{DefaultTimeoutMs: 40})).GRPCStreamInterceptors(); len(ics) != 1 {
+		t.Fatalf("没给 RateLimit 时 stream 链应只有 Recovery 基线一层，len=%d", len(ics))
 	}
 
 	rl, _, err := RateLimitFromMiddleware(mwWithRateLimit(0.0001, 5, false))
@@ -145,7 +146,7 @@ func TestGRPCChain_StreamOptionAppearsOnlyWithRateLimit(t *testing.T) {
 	}
 	defer func() { _ = rl.Close() }()
 	if got := len(New(Public(), RateLimit(rl, false)).GRPCChain()); got != 2 {
-		t.Fatalf("给了 RateLimit 应有 2 个选项（unary + stream），got %d", got)
+		t.Fatalf("给了 RateLimit 仍是 2 个选项（unary + stream，基线不叠加选项），got %d", got)
 	}
 }
 

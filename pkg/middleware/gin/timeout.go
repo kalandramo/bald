@@ -87,8 +87,18 @@ func Timeout(cfg TimeoutConfig) gin.HandlerFunc {
 		c.Writer = bw
 
 		done := make(chan struct{})
+		var panicked any
 		go func() {
-			defer close(done)
+			defer func() {
+				// handler panic 必须带回主 goroutine 重抛：外层 Recovery 的
+				// defer 在另一条 goroutine 上接不到这里逃逸的 panic，不重抛
+				// 就是进程崩溃（AR-4）。写入先于 close(done)，主 goroutine
+				// 在 <-done 之后读取，通道关闭建立 happens-before。
+				if r := recover(); r != nil {
+					panicked = r
+				}
+				close(done)
+			}()
 			c.Next()
 		}()
 
@@ -101,6 +111,9 @@ func Timeout(cfg TimeoutConfig) gin.HandlerFunc {
 			// （否则重复 WriteHeader 且 body 已被清空）；否则原样刷出缓冲。
 			if bw.IsStreaming() {
 				c.Writer = original
+				if panicked != nil {
+					panic(panicked) // 交还外层 Recovery（本 goroutine 的 defer 链）
+				}
 				return
 			}
 			code, hdr, body := bw.snapshot()
@@ -115,12 +128,20 @@ func Timeout(cfg TimeoutConfig) gin.HandlerFunc {
 			if len(body) > 0 {
 				_, _ = original.Write(body)
 			}
+			if panicked != nil {
+				panic(panicked)
+			}
 		case <-timer.C:
 			// 超时：流式时状态码已上线，协议上无法改写 503 —— 只断流。
 			// 未流式则在 mu 下写超时响应，与 handler 的流式提交串行。
 			bw.timeoutResponse(status)
 			<-done
 			c.Writer = original
+			// 超时分支里 handler 的 panic 同样交还外层 Recovery：响应已以
+			// 503 结束，Recovery 按 gin 语义跳过重复写响应，只做日志与链终止。
+			if panicked != nil {
+				panic(panicked)
+			}
 		}
 	}
 }
