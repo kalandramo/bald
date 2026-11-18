@@ -11,7 +11,6 @@ package middleware
 
 import (
 	"context"
-	"errors"
 
 	"github.com/kalandramo/bald/berrors"
 	"github.com/kalandramo/bald/circuitbreaker"
@@ -41,12 +40,7 @@ func WithOpenCode(code uint32) CircuitBreakerOption {
 // 那是本服务限流层自己给出的答案，计入失败等于让熔断消费自己的拒流——配额
 // 打满时熔断跟着开窗，两层从互补变成互相放大。
 func IsFailureCode(code uint32) bool {
-	switch code {
-	case berrors.CodeInternal, berrors.CodeUnknown, berrors.CodeUnavailable,
-		berrors.CodeDeadlineExceeded, berrors.CodeDataLoss:
-		return true
-	}
-	return false
+	return circuitbreaker.IsFailureCode(code)
 }
 
 // isFailureError 是熔断失败口径的完整分类（分类顺序对齐 grpcerr.ToStatus——
@@ -57,16 +51,7 @@ func IsFailureCode(code uint32) bool {
 //     DeadlineExceeded 是服务没在预算内回来（算失败）；
 //  3. 其余原生错误 → 与 grpc-go 一样兜成 Unknown，算失败。
 func isFailureError(err error) bool {
-	if err == nil {
-		return false
-	}
-	if e, ok := berrors.FromError(err); ok {
-		return IsFailureCode(e.Code)
-	}
-	if errors.Is(err, context.Canceled) {
-		return false
-	}
-	return true
+	return circuitbreaker.IsFailureError(err)
 }
 
 // CircuitBreaker 用注入的熔断器保护统一链上的后续处理。

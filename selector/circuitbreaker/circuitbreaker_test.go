@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kalandramo/bald/berrors"
 	cb "github.com/kalandramo/bald/circuitbreaker"
 	wbsentinel "github.com/kalandramo/bald/circuitbreaker/sentinel"
 	"github.com/kalandramo/bald/selector"
@@ -406,4 +407,41 @@ func TestWithCircuitBreakerConcurrent(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+// TestWithCircuitBreaker_FailureClassification 复现 AR-18：DoneInfo 的失败
+// 判定取契约单一来源（cb.IsFailureError）——此前任何错误都记 MarkFailure，
+// 健康节点会被业务 4xx / 客户端撤单硬排除。非失败类错误按「完成」记
+// MarkSuccess（统计窗要求每次放行恰有一次 Mark* 归还）。
+func TestWithCircuitBreaker_FailureClassification(t *testing.T) {
+	for _, c := range []struct {
+		name        string
+		err         error
+		wantFailure bool
+	}{
+		{"原生未知错误（服务侧）", errors.New("boom"), true},
+		{"berrors Unavailable", berrors.New(berrors.CodeUnavailable, "R"), true},
+		{"context.Canceled（客户端撤单）", context.Canceled, false},
+		{"berrors NotFound（4xx 不算失败）", berrors.New(berrors.CodeNotFound, "R"), false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			fb := &fakeBreaker{}
+			r := NewRegistry(func(string) cb.CircuitBreaker { return fb })
+			sel := WithCircuitBreaker(firstSelector{}, r)
+
+			_, done, err := sel.Select(context.Background(), []selector.Node{node("a")})
+			if err != nil {
+				t.Fatal(err)
+			}
+			done(context.Background(), selector.DoneInfo{Err: c.err})
+
+			success, failure := fb.counts()
+			if c.wantFailure && failure != 1 {
+				t.Fatalf("failure = %d, want 1（服务侧失败必须记失败）", failure)
+			}
+			if !c.wantFailure && (failure != 0 || success != 1) {
+				t.Fatalf("success=%d failure=%d, want 1/0（非失败类按完成记）", success, failure)
+			}
+		})
+	}
 }
