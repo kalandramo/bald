@@ -624,7 +624,10 @@ func storeServerProduct(a *App, r buildResult) error {
 	a.servers = append(a.servers, servers...)
 	if r.cleanup != nil {
 		c := r.cleanup
-		a.addEffect("appkit:servers", func(ctx context.Context) error { return c(ctx) })
+		// AR-1 分层：server 段 Provider 的资源回收属阶段 5（Dispose 之后），
+		// 不进阶段 0 的全局撤销层——否则第三方 server Provider 的 cleanup
+		// 会在排空前关闭共享客户端（AR-1 残余类）。
+		a.addDeferredEffect("appkit:servers", func(ctx context.Context) error { return c(ctx) })
 	}
 	return nil
 }

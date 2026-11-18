@@ -175,6 +175,8 @@ type appConfig struct {
 	onChange  func(map[string]any)
 	bindings  []BindDecl
 	store     *config.Store
+	// storeClosed 是 AR-25 的幂等标记：watcher 已停但快照读仍可用（见 closeStore）。
+	storeClosed bool
 	// strictContract / businessSections 透传到 config.Options（见 StrictContract）。
 	strictContract   bool
 	businessSections []string
@@ -185,9 +187,11 @@ type appConfig struct {
 
 // closeStore 释放配置仓库的监听资源（fsnotify watcher）；未加载时 no-op。
 func (c *appConfig) closeStore() {
-	if c.store != nil {
+	if c.store != nil && !c.storeClosed {
 		_ = c.store.Close()
-		c.store = nil // 幂等：Run 主体在停机前显式关店（AR-25），末尾 defer 是失败路径安全网
+		c.storeClosed = true // 幂等标记：watcher 已停。**不置 nil**——closed Store 的
+		// 快照读（Settings/GetString）仍然可用，停机钩子与 Dispose 读到的还是
+		// 最终配置快照而不是 nil（AR-25 审阅 A4）。
 	}
 }
 
@@ -732,7 +736,6 @@ func (a *App) Run(ctx context.Context) error {
 			deregCtx, cancelDereg := context.WithTimeout(context.Background(), phaseBudgetFor(a.stopTimeout))
 			logDeregister(ctx, a.deregister(deregCtx))
 			cancelDereg()
-			a.cfg.closeStore() // AR-25：停机前关配置监听（同主停机路径）
 			a.stopAll(context.Background())
 			if abort := a.abortStartup(callerCtx, g, err); abort != nil {
 				log.Error(ctx, "appkit afterStart hook failed", "error", abort)
@@ -760,11 +763,6 @@ func (a *App) Run(ctx context.Context) error {
 		log.Info(ctx, "appkit received signal, shutting down", "signal", s.String())
 		cancel() // 收到信号，主动取消
 	}
-
-	// AR-25：先关配置监听再停机——closeStore 是 defer 的话会晚于 stopAll 执行，
-	// 停机窗口内的配置热更会在 logger 恢复后重建 logger（新后端泄漏 + 全局
-	// logger 被改写）。closeStore 幂等，末尾 defer 仍兜住早期失败路径。
-	a.cfg.closeStore()
 
 	// 先反注册（避免流量打到已停服务），再优雅停机。deregister 有界（AR-2）：
 	// 预算沿用停机阶段口径（stopTimeout/2），注册中心不可达时到点放弃，
@@ -846,6 +844,13 @@ func (a *App) startupOutcome(callerCtx context.Context, stepErr error) error {
 func (a *App) stopAll(parent context.Context) {
 	budget := phaseBudgetFor(a.stopTimeout)
 
+	// AR-25：关店上收到 stopAll 入口——覆盖全部 5 个调用点（主停机、
+	// afterStart/组件启动/端点等待/注册失败回滚）。停机窗口内的配置热更会在
+	// logger 恢复后重建 logger（新后端泄漏 + 全局 logger 被改写）。Close 语义：
+	// 取消 watch ctx 并等 watcher goroutine 退出（在途回调先完成），快照读
+	// 仍然可用；末尾 defer closeStore 兜住未到 stopAll 的早期失败路径。
+	a.cfg.closeStore()
+
 	// 阶段 0：全局写入类效应逆序回放（幂等，已回放过则无操作）。
 	a.undoGlobalEffects(parent)
 
@@ -882,9 +887,10 @@ func (a *App) stopAll(parent context.Context) {
 	a.disposeComponents(parent)
 
 	// 阶段 5：资源回收类效应逆序回放（AR-1）：provider cleanup（DB/缓存/
-	// 注册中心等）在一切使用者（请求排空、钩子、Dispose）结束之后兑现；
-	// logger 恢复收尾——本阶段自己的失败日志仍落在契约 logger 上，此后
-	// 全局 Logger 恢复为装配前状态。
+	// 注册中心等）在一切使用者（请求排空、钩子、Dispose）结束之后兑现。
+	// logger 恢复的槽位按 plan.teardown 约束序排在层内（TeardownAfter 机制
+	// 未动，audit 等仍排在其后）——排在 logger 恢复之后的条目，其失败日志
+	// 落在恢复前的 logger 上（与旧实现层内行为一致）。
 	a.undoDeferredEffects(parent)
 }
 

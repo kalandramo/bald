@@ -105,14 +105,20 @@ func TestRun_ConfigWatcherClosedBeforeStop(t *testing.T) {
 	cfg.Logger = nil
 	dynamicAddr(cfg)
 
-	var sawNilStore bool
+	var sawClosed bool
 	var a *App
 	a = assembleForTest(t, cfg,
 		WithHTTP(new(http.ServeMux)),
 		stubRegistrarProvider(&failingDeregistrar{}, nil),
 		BeforeStop(func(context.Context) error {
-			a.cfg.closeStore() // 幂等性对照：重复关不 panic（与停机路径同 goroutine，串行安全）
-			sawNilStore = a.cfg.store == nil
+			// A1 修正：断言「钩子入口时已关」——先读状态再探针，避免钩子自己
+			// 的 closeStore 把断言变成自我满足。断言对象是 storeClosed 标记
+			// （watcher 已停），快照读在停机窗口仍可用（AR-25 审阅 A4）。
+			sawClosed = a.cfg.storeClosed
+			a.cfg.closeStore() // 幂等性对照：重复关不 panic（同 goroutine，串行安全）
+			if !a.cfg.storeClosed {
+				t.Error("closeStore 幂等性破坏")
+			}
 			return nil
 		}),
 		bufferLogger(&bytes.Buffer{}),
@@ -134,7 +140,7 @@ func TestRun_ConfigWatcherClosedBeforeStop(t *testing.T) {
 	cancel()
 	<-done
 
-	if !sawNilStore {
-		t.Fatal("BeforeStop 时配置 store 仍未关闭（AR-25：watcher 在停机期间仍活跃）")
+	if !sawClosed {
+		t.Fatal("BeforeStop 入口时 watcher 仍未关闭（AR-25：停机窗口热更会于 logger 恢复后重建 logger）")
 	}
 }

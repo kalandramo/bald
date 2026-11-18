@@ -81,16 +81,40 @@ func (a *App) addEffect(name string, undo func(ctx context.Context) error) {
 	a.effectsMu.Unlock()
 }
 
-// UndoEffects 立即逆序回放全部已登记效应（含资源回收类），并清空账本（幂等）。
-// 正常路径无需手动调用（Run 停机会按层自动回放）；主要供启动失败回滚与 e2e
-// 测试隔离使用——这两类场景要的是「恢复到装配前」的完整回滚，不分层：
+// UndoEffects 立即逆序回放全部已登记效应（跨层保持账本序——依赖对称的
+// 完整回滚），并清空账本（幂等）。正常路径无需手动调用（Run 停机会按层
+// 自动回放）；供启动失败回滚与 e2e 测试隔离使用：
 //
 //	t.Cleanup(func() { app.UndoEffects(context.Background()) })
 //
 // 单条 undo 超时或 panic 仅记日志，不中断其余回放（旁路语义，与审计一致）。
+// 注意与 stopAll 的分层回放（undoGlobalEffects/undoDeferredEffects）不同：
+// 完整回滚不分区——若用户经导出字段声明跨层交错的 Deferred 效应，分区回放
+// 会颠倒依赖对称序，全量回滚必须保持账本原序。
 func (a *App) UndoEffects(parent context.Context) {
-	a.undoEffectsWhere(parent, false)
-	a.undoEffectsWhere(parent, true)
+	a.effectsMu.Lock()
+	entries := a.effects
+	a.effects = nil
+	a.effectsMu.Unlock()
+
+	for i := len(entries) - 1; i >= 0; i-- {
+		e := entries[i]
+		if e.undo == nil {
+			continue
+		}
+		if err := a.runHook(parent, a.effectTimeout, "effect:"+e.name, e.undo); err != nil {
+			log.Error(parent, "appkit effect undo failed", "effect", e.name, "error", err)
+		}
+	}
+}
+
+// addDeferredEffect 运行期登记一条资源回收类效应（AR-1 分层的运行期写入面）：
+// 典型场景是 server 段 Provider 在建流/连接后登记 cleanup——它属于阶段 5 的
+// 资源回收，不能进阶段 0 的全局撤销层。
+func (a *App) addDeferredEffect(name string, undo func(ctx context.Context) error) {
+	a.effectsMu.Lock()
+	a.effects = append(a.effects, effectEntry{name: name, undo: undo, deferred: true})
+	a.effectsMu.Unlock()
 }
 
 // undoGlobalEffects 只回放全局写入类效应（stopAll 阶段 0，AR-1 分层）：
