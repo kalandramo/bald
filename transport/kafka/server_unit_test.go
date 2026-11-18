@@ -17,7 +17,7 @@ func TestNewServer(t *testing.T) {
 	)
 	assert.NotNil(t, srv)
 	assert.Equal(t, "kafka", srv.Name())
-	assert.False(t, srv.started.Load())
+	assert.Empty(t, srv.Endpoint())
 }
 
 func TestEndpoint(t *testing.T) {

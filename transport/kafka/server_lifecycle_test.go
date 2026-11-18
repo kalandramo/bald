@@ -1,18 +1,15 @@
 package kafka
 
 import (
-	"crypto/tls"
-
 	"context"
-	"errors"
-	"fmt"
+	"crypto/tls"
 	"sync"
 	"testing"
 
 	"github.com/kalandramo/bald/broker"
 	"github.com/kalandramo/bald/encoding"
 	jsoncodec "github.com/kalandramo/bald/encoding/json"
-	"github.com/kalandramo/bald/transport/subscribe"
+	"github.com/kalandramo/bald/transport/internal/brokertype"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -23,215 +20,157 @@ func init() {
 	encoding.MustRegister(jsoncodec.New())
 }
 
-// ---- 桩：offline 验证 doRegisterSubscriberMap 的收敛语义与覆盖摘除 ----
+// ---- 桩：行为见证用（生命周期/订阅簿语义的家族无关测试已上收 kernel 本包）----
+// 与 kernel 桩同形，但经导出面驱动：换 Broker、读 captured/snapshot，
+// 不直捅 kernel 未导出字段。
 
-type stubKafkaBroker struct {
-	broker.Broker // 只被 Subscribe 走到，其余方法不触碰
-	failTopics    map[string]bool
-	initErr       error
-	connectErr    error
-
-	mu         sync.Mutex
-	subscribed []string
-	captured   map[string]broker.Handler // topic → wrapHandler 包装后的 handler（供测试合成事件直驱）
+type stubBroker struct {
+	broker.Broker
+	mu          sync.Mutex
+	subscribed  []string
+	captured    map[string]broker.Handler
+	capturedOpt map[string][]broker.SubscribeOption // key → Subscribe 时收到的选项
 }
 
-func newStubKafkaBroker() *stubKafkaBroker {
-	return &stubKafkaBroker{failTopics: map[string]bool{}, captured: map[string]broker.Handler{}}
+func newStubBroker() *stubBroker {
+	return &stubBroker{captured: map[string]broker.Handler{}, capturedOpt: map[string][]broker.SubscribeOption{}}
 }
 
-func (b *stubKafkaBroker) Init(...broker.Option) error { return b.initErr }
-func (b *stubKafkaBroker) Connect() error              { return b.connectErr }
-func (b *stubKafkaBroker) Address() string             { return "stub:9092" }
-func (b *stubKafkaBroker) Subscribe(topic string, handler broker.Handler, _ broker.Binder, _ ...broker.SubscribeOption) (broker.Subscriber, error) {
+func (b *stubBroker) Init(...broker.Option) error { return nil }
+func (b *stubBroker) Connect() error              { return nil }
+func (b *stubBroker) Disconnect() error           { return nil }
+func (b *stubBroker) Address() string             { return "stub:9092" }
+func (b *stubBroker) Subscribe(topic string, handler broker.Handler, _ broker.Binder, opts ...broker.SubscribeOption) (broker.Subscriber, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if b.failTopics[topic] {
-		return nil, fmt.Errorf("stub: subscribe %s forced failure", topic)
-	}
 	b.subscribed = append(b.subscribed, topic)
-	if b.captured != nil {
-		b.captured[topic] = handler
-	}
-	return &stubKafkaSubscriber{}, nil
+	b.captured[topic] = handler
+	b.capturedOpt[topic] = opts
+	return &stubSubscriber{}, nil
 }
 
-func (b *stubKafkaBroker) snapshotSubscribed() []string {
+func (b *stubBroker) snapshotSubscribed() []string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return append([]string(nil), b.subscribed...)
 }
 
-type stubKafkaSubscriber struct {
-	unsubscribed bool
-}
+type stubSubscriber struct{}
 
-func (s *stubKafkaSubscriber) Options() broker.SubscribeOptions { return broker.SubscribeOptions{} }
-func (s *stubKafkaSubscriber) Topic() string                    { return "" }
-func (s *stubKafkaSubscriber) Unsubscribe(bool) error {
-	s.unsubscribed = true
-	return nil
-}
+func (s *stubSubscriber) Options() broker.SubscribeOptions { return broker.SubscribeOptions{} }
+func (s *stubSubscriber) Topic() string                    { return "" }
+func (s *stubSubscriber) Unsubscribe(bool) error           { return nil }
 
-// TestServer_PartialRegistrationFailureKeepsDeferred 锁定收敛语义（段2 假设1 的 kafka 平移）：
-// doRegisterSubscriberMap 部分失败时，失败条目留在 subscriberOpts 供下次 Start 重试，
-// 成功条目才摘除——旧实现无条件清空整批 deferred 队列（家族同构缺陷）。
-func TestServer_PartialRegistrationFailureKeepsDeferred(t *testing.T) {
-	b := &stubKafkaBroker{failTopics: map[string]bool{"bad": true}}
-	s := &Server{
-		Broker:         b,
-		subscribers:    make(broker.SubscriberMap),
-		subscriberOpts: make(subscribe.SubscribeOptionMap),
-	}
-	s.subscriberOpts["good"] = &subscribe.SubscribeOption{Handler: func(context.Context, broker.Event) error { return nil }}
-	s.subscriberOpts["bad"] = &subscribe.SubscribeOption{Handler: func(context.Context, broker.Event) error { return nil }}
+type stubEvent struct{ msg *broker.Message }
 
-	err := s.doRegisterSubscriberMap()
-	require.Error(t, err, "部分失败应上抛")
-	assert.Contains(t, err.Error(), "bad")
-
-	if _, ok := s.subscriberOpts["good"]; ok {
-		t.Fatal("成功条目应从 deferred 队列摘除")
-	}
-	require.Contains(t, s.subscriberOpts, "bad", "失败条目必须保留待重试")
-	assert.Contains(t, b.snapshotSubscribed(), "good")
-	assert.NotContains(t, b.snapshotSubscribed(), "bad")
-
-	// 修复缺陷后重试：bad 收敛补齐。
-	b2 := &stubKafkaBroker{}
-	s.Broker = b2
-	require.NoError(t, s.doRegisterSubscriberMap())
-	assert.Contains(t, b2.snapshotSubscribed(), "bad")
-	if _, ok := s.subscriberOpts["bad"]; ok {
-		t.Fatal("重试成功后 deferred 队列应清空")
-	}
-}
-
-// TestServer_RegisterDuplicateOverwriteUnsubscribesOld 锁定覆盖语义（段2 假设3 的 kafka 平移）：
-// 同 topic 覆盖必须先摘旧订阅——只覆写映射的话消息双份投递且订阅 goroutine 泄漏。
-func TestServer_RegisterDuplicateOverwriteUnsubscribesOld(t *testing.T) {
-	b := &stubKafkaBroker{}
-	s := &Server{
-		Broker:         b,
-		subscribers:    make(broker.SubscriberMap),
-		subscriberOpts: make(subscribe.SubscribeOptionMap),
-	}
-
-	old := &stubKafkaSubscriber{}
-	s.subscribers["topic.dup"] = old
-
-	require.NoError(t, s.doRegisterSubscriber("topic.dup", func(context.Context, broker.Event) error { return nil }, nil))
-	assert.True(t, old.unsubscribed, "覆盖前必须摘除旧订阅")
-	assert.Len(t, s.subscribers, 1, "仍只有一个订阅者条目")
-}
+func (e stubEvent) Topic() string            { return "topic.m" }
+func (e stubEvent) Message() *broker.Message { return e.msg }
+func (e stubEvent) RawMessage() any          { return nil }
+func (e stubEvent) Ack() error               { return nil }
+func (e stubEvent) Error() error             { return nil }
 
 // ---- 离线生命周期：kafka 的 Connect 只翻标志位，无集群 Start 也绿 ----
+// started/订阅簿的字段面 witnesses 改走公共观测点：Endpoint 非空 ⟺ started，
+// stub 的 snapshot ⟺ 订阅簿，stub 收到 Unsubscribe ⟺ 退订发生。
 
 func TestServer_OfflineLifecycle(t *testing.T) {
 	srv := NewServer() // 不配地址：Connect 翻标志位，离线绿
 
 	require.NoError(t, srv.Start(context.Background()))
-	assert.True(t, srv.started.Load())
 	require.NotEmpty(t, srv.Endpoint())
-	assert.True(t, stringsHasPrefix(srv.Endpoint(), "kafka://"), "端点应带 scheme: %q", srv.Endpoint())
+	assert.True(t, hasPrefix(srv.Endpoint(), "kafka://"), "端点应带 scheme: %q", srv.Endpoint())
 
 	// deferred 登记（Start 后走直连路径）。
+	b := newStubBroker()
+	srv.Broker = b
 	require.NoError(t, srv.RegisterSubscriber(context.Background(), "topic.live", "g1", false, func(context.Context, broker.Event) error { return nil }, nil))
-	assert.Len(t, srv.subscribers, 1, "Start 后登记应立即落订阅簿")
+	assert.Contains(t, b.snapshotSubscribed(), "topic.live", "Start 后登记应立即落订阅簿")
 
 	require.NoError(t, srv.Stop(context.Background()))
 	assert.Empty(t, srv.Endpoint(), "Stop 后端点必回空")
-	assert.Empty(t, srv.subscribers)
-	assert.Empty(t, srv.subscriberOpts, "Stop 清 deferred 是有意语义：重建走 contract 新实例")
 
 	require.NoError(t, srv.Stop(context.Background()), "重复 Stop 幂等")
 }
 
-func stringsHasPrefix(s, prefix string) bool {
+func hasPrefix(s, prefix string) bool {
 	return len(s) >= len(prefix) && s[:len(prefix)] == prefix
 }
 
-// ---- 失败粘滞：Init/Connect 失败后 s.err 粘滞，二次 Start 回同一错误 ----
+// TestServer_StopClearsDeferredQueue 锁定 Stop 清 deferred 的有意语义：
+// Start 前登记的条目在 Start 时 flush；Stop 后重建不再 flush 旧条目
+// （重建走 contract 新实例）。
+func TestServer_StopClearsDeferredQueue(t *testing.T) {
+	srv := NewServer()
+	b := newStubBroker()
+	srv.Broker = b
 
-func TestServer_StartFailureSticky(t *testing.T) {
-	boom := errors.New("stub connect boom")
-	s := &Server{
-		Broker:         &stubKafkaBroker{connectErr: boom},
-		subscribers:    make(broker.SubscriberMap),
-		subscriberOpts: make(subscribe.SubscribeOptionMap),
+	require.NoError(t, srv.RegisterSubscriber(context.Background(), "topic.deferred", "g1", false, func(context.Context, broker.Event) error { return nil }, nil))
+	require.NoError(t, srv.Start(context.Background()))
+	assert.Contains(t, b.snapshotSubscribed(), "topic.deferred", "Start 时 deferred 队列应 flush")
+
+	require.NoError(t, srv.Stop(context.Background()))
+	require.NoError(t, srv.Start(context.Background()))
+	assert.Contains(t, b.snapshotSubscribed(), "topic.deferred", "第二次 Start 只有显式登记的条目")
+
+	deferredCount := 0
+	for _, key := range b.snapshotSubscribed() {
+		if key == "topic.deferred" {
+			deferredCount++
+		}
 	}
+	assert.Equal(t, 1, deferredCount, "Stop 清 deferred：重建不得重复 flush 旧条目")
 
-	err := s.Start(context.Background())
-	require.ErrorIs(t, err, boom)
-
-	err2 := s.Start(context.Background())
-	require.Equal(t, err.Error(), err2.Error(), "粘滞错误应一致")
+	defer func() { _ = srv.Stop(context.Background()) }()
 }
 
 // ---- options 全表面：全部 ServerOption 执行且离线 Start 绿 ----
 
 func TestServerOptions_AllFieldsApplied(t *testing.T) {
-	m := &recordingKafkaMetrics{counters: map[string]float64{}}
 	srv := NewServer(
 		WithAddress([]string{"127.0.0.1:9092"}),
 		WithCodec("json"),
 		WithTLSConfig(nil),
 		WithPlainMechanism("user", "pass"),
 		WithScramMechanism("SHA256", "user", "pass"),
-		WithMetrics(m),
+		WithMetrics(&recordingMetrics{counters: map[string]float64{}}),
 		WithBrokerOptions(broker.WithAddress("127.0.0.1:9092")),
 	)
-	assert.Same(t, m, srv.m, "WithMetrics 应注入实例")
+	assert.Equal(t, KindKafka, srv.Name(), "Name 来自家族参数化点")
 
 	require.NoError(t, srv.Start(context.Background()), "全选项构造后离线 Start 应绿")
 	defer func() { _ = srv.Stop(context.Background()) }()
 }
 
-// ---- wrapHandler：metrics 注入后的三路计数（直接单元驱动，无需真集群投递） ----
-
-type recordingKafkaMetrics struct {
+// recordingMetrics 本地计量桩（见证 WithMetrics 注入链；完整三路计数断言在
+// kernel 本包的 WrapHandlerMetrics）。
+type recordingMetrics struct {
 	counters map[string]float64
-	histos   []string
-	errored  bool
 }
 
-func (m *recordingKafkaMetrics) Counter(_ context.Context, name string, value float64, _ map[string]string) {
+func (m *recordingMetrics) Counter(_ context.Context, name string, value float64, _ map[string]string) {
 	m.counters[name] += value
-	if name == "broker_messages_errors_total" {
-		m.errored = true
-	}
 }
 
-func (m *recordingKafkaMetrics) Histogram(_ context.Context, name string, _ float64, _ map[string]string) {
-	m.histos = append(m.histos, name)
-}
+func (m *recordingMetrics) Histogram(context.Context, string, float64, map[string]string) {}
+func (m *recordingMetrics) Gauge(context.Context, string, float64, map[string]string)     {}
+func (m *recordingMetrics) GaugeAdd(context.Context, string, float64, map[string]string)  {}
 
-func (m *recordingKafkaMetrics) Gauge(context.Context, string, float64, map[string]string)    {}
-func (m *recordingKafkaMetrics) GaugeAdd(context.Context, string, float64, map[string]string) {}
+// TestServer_MetricsOptionWired 经行为见证 WithMetrics 的注入链：
+// 选项 → kernel 计量面 → wrapHandler 三路计数（桩捕获 wrapped handler 直驱）。
+func TestServer_MetricsOptionWired(t *testing.T) {
+	m := &recordingMetrics{counters: map[string]float64{}}
+	srv := NewServer(WithMetrics(m))
+	b := newStubBroker()
+	srv.Broker = b
 
-type stubKafkaEvent struct{ msg *broker.Message }
+	require.NoError(t, srv.RegisterSubscriber(context.Background(), "topic.m", "g1", false, func(context.Context, broker.Event) error { return nil }, nil))
+	require.NoError(t, srv.Start(context.Background()))
+	defer func() { _ = srv.Stop(context.Background()) }()
 
-func (e stubKafkaEvent) Topic() string            { return "topic.m" }
-func (e stubKafkaEvent) Message() *broker.Message { return e.msg }
-func (e stubKafkaEvent) RawMessage() any          { return nil }
-func (e stubKafkaEvent) Ack() error               { return nil }
-func (e stubKafkaEvent) Error() error             { return nil }
-
-func TestServer_WrapHandlerMetrics(t *testing.T) {
-	m := &recordingKafkaMetrics{counters: map[string]float64{}}
-	s := &Server{m: m}
-
-	handlerErr := errors.New("handler boom")
-	wrapped := s.wrapHandler("topic.m", func(context.Context, broker.Event) error {
-		return handlerErr
-	})
-
-	err := wrapped(context.Background(), stubKafkaEvent{msg: broker.NewMessage("x")})
-	require.ErrorIs(t, err, handlerErr, "handler 错误应透传")
-	assert.Positive(t, m.counters["broker_messages_received_total"], "received 计数必须亮")
-	assert.NotEmpty(t, m.histos, "duration 直方图必须记录")
-	assert.True(t, m.errored, "handler 错误必须进 error 计数")
-	assert.Equal(t, KindKafka, s.Name())
+	wrapped, ok := b.captured["topic.m"]
+	require.True(t, ok, "桩应捕获到包装后的 handler")
+	_ = wrapped(context.Background(), stubEvent{msg: broker.NewMessage("x")})
+	assert.Positive(t, m.counters["broker_messages_received_total"], "received 计数必须亮（WithMetrics 注入链生效）")
 }
 
 // ---- WithScramMechanism 未知算法名 fail-fast（构造期点名非法值，不透传给
@@ -257,24 +196,12 @@ func TestServer_WithScramMechanismValidAlgosConstruct(t *testing.T) {
 	})
 }
 
-// ---- Init 失败分支：Start 返回 Init 错误并粘滞 ----
-
-func TestServer_InitFailureSticky(t *testing.T) {
-	boom := errors.New("stub init boom")
-	s := &Server{
-		Broker:         &stubKafkaBroker{initErr: boom},
-		subscribers:    make(broker.SubscriberMap),
-		subscriberOpts: make(subscribe.SubscribeOptionMap),
-	}
-	err := s.Start(context.Background())
-	require.ErrorIs(t, err, boom)
-	assert.Empty(t, s.subscriberOpts, "Init 失败不得清 deferred 队列（收敛语义）")
-}
-
-// ---- 泛型登记糖：deferred/live 两态 + disableAutoAck 分支 ----
+// ---- 泛型登记糖：deferred/live 两态 + disableAutoAck 分支（经桩 witness）----
 
 func TestServer_RegisterSubscriberGeneric(t *testing.T) {
 	srv := NewServer()
+	b := newStubBroker()
+	srv.Broker = b
 
 	type payload struct {
 		Value string `json:"value"`
@@ -283,40 +210,48 @@ func TestServer_RegisterSubscriberGeneric(t *testing.T) {
 
 	// Start 前（deferred）：disableAutoAck=true 走 WithSubscribeAutoAck(false) 分支。
 	require.NoError(t, RegisterSubscriber(srv, context.Background(), "topic.generic", "g1", true, handler))
-	require.Contains(t, srv.subscriberOpts, "topic.generic")
-
 	require.NoError(t, srv.Start(context.Background()))
 	defer func() { _ = srv.Stop(context.Background()) }()
-	assert.Len(t, srv.subscribers, 1, "Start 时 deferred 队列应 flush 成订阅")
 
-	// Start 后（live 路径）：disableAutoAck=false 分支。
+	assert.Contains(t, b.snapshotSubscribed(), "topic.generic", "Start 时 deferred 队列应 flush 成订阅")
+	var opts broker.SubscribeOptions
+	opts.Apply(b.capturedOpt["topic.generic"]...)
+	assert.Equal(t, "g1", opts.Queue, "queue 必须落进 Subscribe 选项")
+	// 选项数见证 disableAutoAck 分支：ctx 头插 1 + queue 1 + AutoAck(false) 1 = 3。
+	require.Len(t, b.capturedOpt["topic.generic"], 3, "disableAutoAck=true 必须追加 AutoAck(false)")
+
+	// Start 后（live 路径）：disableAutoAck=false 分支（不追加 AutoAck(false)）。
 	require.NoError(t, RegisterSubscriber(srv, context.Background(), "topic.generic.live", "g1", false, handler))
-	assert.Len(t, srv.subscribers, 2)
+	var liveOpts broker.SubscribeOptions
+	liveOpts.Apply(b.capturedOpt["topic.generic.live"]...)
+	assert.Equal(t, "g1", liveOpts.Queue, "queue 仍必须落进 Subscribe 选项")
+	require.Len(t, b.capturedOpt["topic.generic.live"], 2, "disableAutoAck=false 不得追加 AutoAck(false)（ctx+queue）")
 }
 
-// ---- WithTLSConfig 非 nil：EnableSecure 与 TLSConfig 两条都进 brokerOpts ----
+// ---- WithTLSConfig 非 nil：EnableSecure 与 TLSConfig 两条都进 broker 构造面
+// （经捕参家族见证——brokerOpts 收集面在 kernel，计数看 NewBroker 收到的实参）----
 
 func TestServer_WithTLSConfigNonNil(t *testing.T) {
-	srv := NewServer(WithTLSConfig(&tls.Config{MinVersion: tls.VersionTLS12}))
+	fam := Family()
+	var captured []broker.Option
+	fam.NewBroker = func(opts ...broker.Option) broker.Broker {
+		captured = opts
+		return newStubBroker()
+	}
+	s := &Server{Server: brokertype.NewServer(fam)}
+	WithTLSConfig(&tls.Config{MinVersion: tls.VersionTLS12})(s)
+	s.BuildBroker()
 	// kafka 的 NewServer 无默认选项（与 redis 不同）；非 nil TLS 追加
 	// EnableSecure + TLSConfig 两条 → 2。
-	require.Len(t, srv.brokerOpts, 2)
+	require.Len(t, captured, 2)
 }
 
-// ---- logError 直驱（生产无调用点，仅手动用例路径使用；-short 下补语句覆盖） ----
-
-func TestServer_LogErrorDirect(t *testing.T) {
-	logError("unit", "driven") // 语句覆盖；输出进测试日志无妨
-}
-
-// ---- 泛型 wrapper 两个分支：桩捕获 wrapped handler，合成事件直驱（离线无投递） ----
+// ---- 泛型 wrapper 两个分支：桩捕获 wrapped handler，合成事件直驱（离线无投递）----
 
 func TestServer_GenericWrapperBranches(t *testing.T) {
-	b := newStubKafkaBroker()
-	srv := NewServer(WithBrokerOptions()) // captured 生效需经 stub——直接换桩
+	b := newStubBroker()
+	srv := NewServer()
 	srv.Broker = b
-	srv.subscribers = make(broker.SubscriberMap)
-	srv.subscriberOpts = make(subscribe.SubscribeOptionMap)
 
 	type payload struct {
 		Value string `json:"value"`
@@ -334,20 +269,11 @@ func TestServer_GenericWrapperBranches(t *testing.T) {
 	require.True(t, ok, "stub 应捕获到包装后的 handler")
 
 	// case *T 分支：Body 为 *payload → typed handler 驱动。
-	require.NoError(t, wrapped(context.Background(), stubKafkaEvent{msg: broker.NewMessage(&payload{Value: "v"})}))
+	require.NoError(t, wrapped(context.Background(), stubEvent{msg: broker.NewMessage(&payload{Value: "v"})}))
 	assert.Equal(t, 1, typedHits, "typed handler 应被驱动一次")
 
 	// default 分支：Body 非 *T → "unsupported type" 错误透传。
-	err := wrapped(context.Background(), stubKafkaEvent{msg: broker.NewMessage("wrong-type")})
+	err := wrapped(context.Background(), stubEvent{msg: broker.NewMessage("wrong-type")})
 	require.ErrorContains(t, err, "unsupported type: string")
 	assert.Equal(t, 1, typedHits, "default 分支不驱动 typed handler")
-}
-
-// ---- double Start：幂等早退分支 ----
-
-func TestServer_DoubleStartIdempotent(t *testing.T) {
-	srv := NewServer()
-	require.NoError(t, srv.Start(context.Background()))
-	require.NoError(t, srv.Start(context.Background()), "started 后重复 Start 应幂等返回 nil")
-	require.NoError(t, srv.Stop(context.Background()))
 }
