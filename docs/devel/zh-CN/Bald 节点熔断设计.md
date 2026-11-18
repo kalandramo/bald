@@ -50,6 +50,7 @@ func (r *Registry) Close() error                       // 释放所有
 - **懒构造**：`Healthy` 查询不空建熔断器——尚未构造的地址视为健康（新节点乐观放行），只有被选中的节点才经 `Get` 构造。这避免为从不被选中的节点空建状态。
 - **单例**：同地址返回同一实例（双重检查锁，与 `p2c.node` 同款），自适应状态不跨节点共享。
 - **剪枝**：`Prune` 清理不再出现在候选集中的地址（经 `Close` 释放），防实例 churn 时 map 无界增长（与 `p2c.prune` 同款）。
+- **归属（AR-7）**：一个 `Registry` 服务**一个** (策略, 服务) 选择器——在装饰器闭包内就地构造（见 `_example/bald/internal/bootstrap/outbound.go`）。跨选择器共享会让 A 服务的 `Prune` 清掉 B 服务全部节点的熔断器（计数反复清零，熔断永不跳闸）。同一下游地址在两个服务的 Registry 里是两个熔断器实例，但 sentinel 资源名按地址派生（全局资源表），底层失败统计仍按端点共享——簿记隔离、判据一致。
 
 ### 装饰器：过滤 → 内层选 → 反馈
 
@@ -61,15 +62,17 @@ func WithCircuitBreaker(inner selector.Selector, reg *Registry) selector.Selecto
 
 1. 用 `reg.Healthy` 过滤出健康子集；子集为空 → 返回 `cb.ErrCircuitOpen`。
 2. 委托 `inner.Select(ctx, healthy)` 从健康子集选一个节点。
-3. `reg.Get` 取选中节点的熔断器，包裹内层 `DoneFunc`：先调内层 done（释放 inflight、更新 EWMA），再按 `DoneInfo.Err` 记 `MarkFailure`/`MarkSuccess`。
+3. `reg.Get` 取选中节点的熔断器，包裹内层 `DoneFunc`：先调内层 done（释放 inflight、更新 EWMA），再按 `DoneInfo.Err` 记 `MarkFailure`/`MarkSuccess`。失败口径取熔断契约的单一来源（`circuitbreaker.IsFailureError`，AR-18）——线上形态是 gRPC 的 `*status.Error`，按其 code 直传判定（berrors 码值与 codes.Code 一一对应）；4xx 与 Canceled 按「完成」记 `MarkSuccess`，健康节点不因业务 4xx 被硬排除。
 
 装饰器实现 `selector.Selector`，可包裹任意内层策略（p2c/round_robin/weighted/random），也可经 `selector.MustRegister` 注册成命名策略：
 
 ```go
-reg := circuitbreaker.NewRegistry(func(addr string) cb.CircuitBreaker {
-    return sentinel.New("bald.client.cb." + addr) // 资源名按节点派生
-})
 selector.MustRegister("p2c_cb", func() selector.Selector {
+    // AR-7：Registry 在装饰器闭包内就地构造——每个 (策略, 服务) 选择器
+    // 各持一份，Prune 不跨服务互相清除。
+    reg := circuitbreaker.NewRegistry(func(addr string) cb.CircuitBreaker {
+        return sentinel.New("bald.client.cb." + addr) // 资源名按节点派生
+    })
     return circuitbreaker.WithCircuitBreaker(p2c.New(), reg)
 })
 ```
