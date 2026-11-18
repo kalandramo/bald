@@ -43,6 +43,12 @@ func supportedComponentKinds() string {
 // 里的字符串字面量，限定为小写标识符形状，避免诊断/文件口径随命名漂移。
 var variantNameRe = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
+// nameShapeRe 限定直接拼进文件系统路径的名字（AR-11）：meta.name 驱动
+// cmd/<name>/ 与 configs/<name>.yaml，roles[].name 驱动 cmd/<name>-<role>/，
+// domains[].name 是域目录/包名。只判非空时 `../../escaped` 这类值会让 gen app
+// 写出 --out，且 manifest 对 .. 路径永不回收——任意目录写入面（J7 fail-fast）。
+var nameShapeRe = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
+
 // variantTagRe 限定单个 build tag 的形状（Go 构建约束允许字母、数字、下划线
 // 与点）。逗号、空格与 ! / && / || 都是表达式语法：生成物按「列表包含该项」
 // 判定命中，这类写法永远不命中且不报错——必须在生成期拒绝。
@@ -88,6 +94,8 @@ func validateAppSpec(as *appspecv1.AppSpec) []error {
 
 	if as.GetMeta().GetName() == "" {
 		add("meta.name is required (drives cmd/<name>/ and configs/<name>.yaml)")
+	} else if !nameShapeRe.MatchString(as.GetMeta().GetName()) {
+		add("meta.name %q is not a valid name (must match ^[a-z][a-z0-9-]*$; it is joined into filesystem paths like cmd/<name>/)", as.GetMeta().GetName())
 	}
 	if as.GetMeta().GetModule() == "" {
 		add("meta.module is required (generated files import <module>/internal/...)")
@@ -127,6 +135,10 @@ func validateAppSpec(as *appspecv1.AppSpec) []error {
 	for i, d := range as.GetDomains() {
 		if d.GetName() == "" {
 			add("domains[%d].name is required (field domains.name)", i)
+			continue
+		}
+		if !nameShapeRe.MatchString(d.GetName()) {
+			add("domains[%d].name %q is not a valid name (must match ^[a-z][a-z0-9-]*$; it is joined into domain directory paths)", i, d.GetName())
 			continue
 		}
 		if prev, dup := seenDomain[d.GetName()]; dup {
@@ -199,6 +211,8 @@ func validateAppSpec(as *appspecv1.AppSpec) []error {
 			name := r.GetName()
 			if name == "" {
 				add("meta.roles[%d].name 不能为空（字段 meta.roles.name：api | runner，决定 cmd/<meta.name>-<role>/ 目录名）", i)
+			} else if !nameShapeRe.MatchString(name) {
+				add("meta.roles[%d].name %q 不是合法名字（须匹配 ^[a-z][a-z0-9-]*$；它直接拼进 cmd/<meta.name>-<role>/ 路径）", i, name)
 			} else if prev, dup := seenRole[name]; dup {
 				add("meta.roles[%d].name %q 与 meta.roles[%d].name 重复（字段 meta.roles.name 必须全应用唯一）", i, name, prev)
 			} else {
