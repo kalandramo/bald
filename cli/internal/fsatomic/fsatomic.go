@@ -44,6 +44,12 @@ func WriteFile(path string, data []byte, perm os.FileMode) error {
 		}
 		path = real
 	}
+	// AR-22：覆盖已有文件时保留原 mode——Chmod(perm &^ umask) 是绝对置位，
+	// 会把用户 chmod 600 的配置（ide mcp.json 含 API key）放宽成 0644 与
+	// os.WriteFile 的覆盖行为相悖。新文件仍用传入 perm（过 umask）。
+	if fi, err := os.Stat(path); err == nil && !fi.IsDir() {
+		perm = fi.Mode().Perm()
+	}
 	dir, base := filepath.Split(path)
 	if dir == "" {
 		dir = "."
