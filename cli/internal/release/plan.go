@@ -1,9 +1,9 @@
 package release
 
 import (
-	"github.com/kalandramo/bald/cli/internal/fsatomic"
 	"encoding/json"
 	"fmt"
+	"github.com/kalandramo/bald/cli/internal/fsatomic"
 	"io"
 	"os"
 	"path/filepath"
@@ -206,8 +206,16 @@ func bumpVersion(version, bump string) string {
 	}
 }
 
+// parseVersion 解析 vX.Y.Z 为三段数字。AR-10：子目录 module 的 tag 形如
+// "pkg/v1.2.3"——latestTag 返回的是完整 tag，剥掉目录前缀再剥 "v"，否则
+// "pkg/v1" 段 Atoi 失败按 0 处理，feat 提交会算出 v0.3.0 的降级版本。
+// 无法解析的段按 0 兜底（与既有行为一致）。
 func parseVersion(version string) (major, minor, patch int) {
-	parts := strings.Split(strings.TrimPrefix(version, "v"), ".")
+	v := version
+	if i := strings.LastIndex(v, "/"); i >= 0 {
+		v = v[i+1:]
+	}
+	parts := strings.Split(strings.TrimPrefix(v, "v"), ".")
 	nums := make([]int, 3)
 	for i := 0; i < len(parts) && i < 3; i++ {
 		n, _ := strconv.Atoi(parts[i])
