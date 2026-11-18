@@ -276,3 +276,38 @@ func TestGenApp_InlineTLSBytes(t *testing.T) {
 //     为 well-known 消息时生成代码的值类型恒为 *durationpb.Duration /
 //     *timestamppb.Timestamp。
 // ---------------------------------------------------------------------------
+
+// TestValidateAppSpec_NameShapeRejectsTraversal 复现 AR-11：meta.name /
+// roles[].name / domains[].name 直接拼进文件系统路径，只判非空时
+// `../../escaped` 会让 gen app 写出 --out 且永不回收（任意目录写入面）。
+// 修复后三个位置都必须匹配 ^[a-z][a-z0-9-]*$（J7 fail-fast）。
+func TestValidateAppSpec_NameShapeRejectsTraversal(t *testing.T) {
+	traversal := []string{"../../escaped", "../escape", "Foo", "with space", "a/b", "."}
+	for _, bad := range traversal {
+		as := guardFixture()
+		as.Meta.Name = bad
+		errs := validateAppSpec(as)
+		if len(errs) == 0 || !strings.Contains(joinErrs(errs), "meta.name") {
+			t.Fatalf("meta.name %q 应被形状白名单拒绝，got: %v", bad, errs)
+		}
+	}
+
+	// roles[].name 同判。
+	as := guardFixture()
+	as.Meta.Roles = append(as.Meta.Roles, &appspecv1.RoleSpec{Name: "../escape", Domains: []string{"greet"}})
+	if errs := validateAppSpec(as); !strings.Contains(joinErrs(errs), "roles[0].name") {
+		t.Fatalf("roles[].name 穿越/形状非法应被拒绝，got: %v", errs)
+	}
+
+	// domains[].name 同判。
+	as2 := guardFixture()
+	as2.Domains = append(as2.Domains, &appspecv1.DomainSpec{Name: "../../escape"})
+	if errs := validateAppSpec(as2); !strings.Contains(joinErrs(errs), "domains[1].name") {
+		t.Fatalf("domains[].name 穿越/形状非法应被拒绝，got: %v", errs)
+	}
+
+	// 合法名字不误伤（fixture 自身通过 Gate1 即正证）。
+	if errs := validateAppSpec(guardFixture()); len(errs) != 0 {
+		t.Fatalf("合法 fixture 不得被形状白名单误伤:\n%s", joinErrs(errs))
+	}
+}
