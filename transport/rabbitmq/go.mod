@@ -36,7 +36,6 @@ require (
 	github.com/kalandramo/bald/metrics v0.2.1
 	github.com/kalandramo/bald/pkg v0.16.1
 	github.com/kalandramo/bald/transport v0.5.1
-	github.com/kalandramo/bald/transport/subscribe v0.1.1
 	github.com/spf13/pflag v1.0.10
 	github.com/stretchr/testify v1.12.1
 )
@@ -125,6 +124,7 @@ require (
 	github.com/kalandramo/bald/registry v0.5.1 // indirect
 	github.com/kalandramo/bald/transport/grpc v0.2.0 // indirect
 	github.com/kalandramo/bald/transport/http v0.2.0 // indirect
+	github.com/kalandramo/bald/transport/subscribe v0.1.1 // indirect
 	github.com/magiconair/properties v1.8.5 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect
 	github.com/mattn/go-isatty v0.0.22 // indirect

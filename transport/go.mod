@@ -19,7 +19,6 @@ replace github.com/kalandramo/bald/bconf => ../bconf
 
 replace github.com/kalandramo/bald/encoding => ../encoding
 
-
 require (
 	github.com/kalandramo/bald/bconf v0.28.1
 	github.com/kalandramo/bald/broker v0.4.1

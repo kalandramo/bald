@@ -16,9 +16,7 @@ replace github.com/kalandramo/bald/log => ./log
 
 replace github.com/kalandramo/bald/log/aliyun => ./log/aliyun
 
-
 replace github.com/kalandramo/bald/log/loki => ./log/loki
-
 
 replace github.com/kalandramo/bald/log/tencent => ./log/tencent
 
@@ -33,6 +31,5 @@ replace github.com/kalandramo/bald/transport/grpc => ./transport/grpc
 replace github.com/kalandramo/bald/transport/http => ./transport/http
 
 replace github.com/kalandramo/bald/transport/web => ./transport/web
-
 
 replace github.com/kalandramo/bald/ratelimit/tokenbucket => ./ratelimit/tokenbucket

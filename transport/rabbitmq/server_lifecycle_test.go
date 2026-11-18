@@ -50,12 +50,6 @@ func (b *stubBroker) Subscribe(routingKey string, handler broker.Handler, _ brok
 	return &stubSubscriber{}, nil
 }
 
-func (b *stubBroker) snapshotSubscribed() []string {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return append([]string(nil), b.subscribed...)
-}
-
 type stubSubscriber struct{}
 
 func (s *stubSubscriber) Options() broker.SubscribeOptions { return broker.SubscribeOptions{} }
