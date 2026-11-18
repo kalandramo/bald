@@ -162,8 +162,6 @@ replace github.com/kalandramo/bald/bconfig => ../../bconfig
 
 replace github.com/kalandramo/bald/berrors => ../../berrors
 
-replace github.com/kalandramo/bald/bootstrap => ../../bootstrap
-
 replace github.com/kalandramo/bald/health => ../../health
 
 replace github.com/kalandramo/bald/log => ../../log
@@ -179,3 +177,5 @@ replace github.com/kalandramo/bald/transport/grpc => ../../transport/grpc
 replace github.com/kalandramo/bald/transport/http => ../../transport/http
 
 replace github.com/kalandramo/bald/pkg => ../../pkg
+
+replace github.com/kalandramo/bald/bootstrap => ../../bootstrap

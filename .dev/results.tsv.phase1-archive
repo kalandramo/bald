@@ -1,0 +1,9 @@
+iter	verdict	metric	delta_pct	gate	goal	note	ts	asi	commit
+0	baseline	NA	0.00	PASS	baseline	baseline	2026-11-17T01:06:09
+1	keep	NA	-	PASS	robustness	broker/transport 崩溃级并发缺陷修复：kafka 解锁裸读 writer、批量订阅 NewTicker(0) panic、rabbitmq waitConnection 双重 close 与无锁字段写、transport Stop 无锁改订阅映射（真实 crash 复现后修复）	2026-11-17T00:47:44	hyp=5 处已证实的崩溃级并发缺陷可一次修复且复现测试红转绿|next=Round 2：静默失败缺陷（asynq 假启动/sse 全丢弃/cli 坏 go directive）	1ccd5c03
+2	keep	NA	-	PASS	robustness	静默失败三连修复：asynq Start 前置 Redis 探活+Run 错误上抛（假启动）、sse eventTTL 零值时间戳不再清空整个流、cli seedGoMod 复用 goMinorVersion 修复 go go1.NN.Patch 无效指令（三处复现测试红转绿）	2026-11-17T01:06:14	hyp=三个已证实的静默失败缺陷一次修复且复现测试红转绿|next=Round 3：selector 每-pick 写锁性能轮（bench 证据）	6adfa388
+3	keep	473.3	-	PASS	perf	selector 每-pick 写锁收敛为读锁快检+双检写锁：p2c/circuitbreaker 稳态 Select 从 1103→473 ns/op（-57%），代价是 churn 真实清理路径 +14%（罕见场景，可接受并如实记录）	2026-11-17T01:08:53	hyp=prune 的无条件写锁是每请求串行化点，读锁快检可降稳态 ns/op ≥epsilon|next=Round 4：websocket 双重 unmarshal 消除	0a88b836
+4	keep	106.4	-77.52	PASS	perf	websocket 入站消息路径单次解析：去掉二次整包 unmarshal 与重复 handler 查找，215→106 ns/op（-51%）、704→364 B/op、7→4 allocs	2026-11-17T01:15:25	hyp=第二份 unmarshal 与重复查找是纯浪费，消除后每消息 ns/op 降 ≥epsilon|next=Round 5：bconf 7 份 flag setter 收敛（J2 重复税，refactor 轮）	a5de3fbb
+5	keep	NA	-	PASS	refactor	bconf 7 份复制 flag setter 收敛为单一泛型 scalarSetter（J2）：行为逐字节不变（Type/String/Set 全走 pflag Value 接口回归），alloc guard 基线不退化，cov:excl 整块豁免语义经 coverage-merge 实测成立	2026-11-17T01:21:00	hyp=7 份复制类型是漂移温床，泛型收敛可行为不变地删重|next=阶段 7：全仓硬门禁 + REPORT	f3090fd1
+0	baseline	NA	0.00	PASS	baseline	baseline	2026-11-18T08:24:59
+0	baseline	320	0.00	PASS	baseline	baseline	2026-11-18T08:25:14

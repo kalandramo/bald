@@ -35,10 +35,9 @@ require (
 
 // 与 selector/balancer 同款：同仓兄弟模块用本地源码路径跟踪（replace 只在
 // 本 module 作为主模块时生效，消费者不受影响）。发布随 selector tag 之后走。
-replace github.com/kalandramo/bald/circuitbreaker => ../../circuitbreaker
-
-replace github.com/kalandramo/bald/circuitbreaker/sentinel => ../../circuitbreaker/sentinel
 
 replace github.com/kalandramo/bald/selector => ../
 
 replace github.com/kalandramo/bald/berrors => ../../berrors
+
+replace github.com/kalandramo/bald/circuitbreaker => ../../circuitbreaker

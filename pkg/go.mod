@@ -6,13 +6,7 @@ replace github.com/kalandramo/bald/bconf => ../bconf
 
 replace github.com/kalandramo/bald/bconfig => ../bconfig
 
-replace github.com/kalandramo/bald/bootstrap => ../bootstrap
-
 replace github.com/kalandramo/bald/berrors => ../berrors
-
-replace github.com/kalandramo/bald/circuitbreaker => ../circuitbreaker
-
-replace github.com/kalandramo/bald/circuitbreaker/sentinel => ../circuitbreaker/sentinel
 
 replace github.com/kalandramo/bald/health => ../health
 
@@ -29,6 +23,10 @@ replace github.com/kalandramo/bald/transport/http => ../transport/http
 replace github.com/kalandramo/bald/ratelimit => ../ratelimit
 
 replace github.com/kalandramo/bald/ratelimit/tokenbucket => ../ratelimit/tokenbucket
+
+replace github.com/kalandramo/bald/bootstrap => ../bootstrap
+
+replace github.com/kalandramo/bald/circuitbreaker => ../circuitbreaker
 
 require (
 	github.com/alibaba/sentinel-golang v1.0.4
