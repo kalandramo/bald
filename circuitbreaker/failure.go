@@ -18,6 +18,11 @@ import (
 // 客户端替全体用户开窗。ResourceExhausted 也**不在**集合里，尽管字面像
 // 「服务满了」：那是限流层自己给出的答案，计入失败等于让熔断消费自己的拒流
 // ——配额打满时熔断跟着开窗，两层从互补变成互相放大。
+//
+// 节点熔断层的后果注记：下游节点自身过载应答 ResourceExhausted/429 时，该
+// 节点熔断器记 MarkSuccess——硬排除层对下游饱和暂时失明。这是单一来源的
+// 刻意取舍（稀释方向与 State() 探针一致；InflightLimiter/实例摘除才是下游
+// 饱和的正确治理面）。
 func IsFailureCode(code uint32) bool {
 	switch code {
 	case berrors.CodeInternal, berrors.CodeUnknown, berrors.CodeUnavailable,

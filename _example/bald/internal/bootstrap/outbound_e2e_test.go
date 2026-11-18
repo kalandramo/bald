@@ -4,9 +4,11 @@
 // selector/circuitbreaker 装饰（sentinel 错误计数）后，熔断真的在调用侧
 // 生效——喂失败跳闸 → 服务端健康但客户端快速失败 → 过开窗探针愈合。
 //
-// 失败源用「调用不存在的方法」：Unimplemented 发生在 pick 之后、同一
-// subconn 上，Done 回调带着错误进 Mark*——刻意避开 TCP 层故障，那个层面
-// gRPC 原生的 TRANSIENT_FAILURE 会先于熔断把节点摘掉，测不到 CB 这一层。
+// 失败源用「调用方 deadline < biz.greet.delay」：服务端等不到 handler 完成即
+// 回 DEADLINE_EXCEEDED（服务侧失败，AR-18 失败口径下记 MarkFailure），发生在
+// pick 之后、同一 subconn 上，Done 回调带着错误进 Mark*——刻意避开 TCP 层故障，
+// 那个层面 gRPC 原生的 TRANSIENT_FAILURE 会先于熔断把节点摘掉，测不到 CB 层。
+// 不能用 Unimplemented/4xx 喂：AR-18 之后客户端侧错误按「完成」记 MarkSuccess。
 //
 //	cd _example/bald && go test ./internal/bootstrap/ -run TestOutboundCircuitBreaker -v
 package bootstrap
@@ -22,7 +24,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/emptypb"
 
 	"github.com/kalandramo/bald/pkg/appkit"
 	"github.com/kalandramo/bald/registry"
@@ -45,6 +46,9 @@ func TestOutboundCircuitBreakerTripsAndHeals(t *testing.T) {
 	grpcAddr := freeAddr(t)
 	t.Setenv("BALD_DEMO_SERVER_GRPC_ADDR", grpcAddr)
 	t.Setenv("BALD_DEMO_BIZ_GREET_GREETING", "hello")
+	// delay 2s：调用方 500ms deadline 必先到 → 服务侧 DEADLINE_EXCEEDED（喂失败源）；
+	// 愈合腿用 3s deadline（delay 内完成，探针放行即成功）。
+	t.Setenv("BALD_DEMO_BIZ_GREET_DELAY", "2s")
 
 	// 单实例登记：这条腿断的是「装配 → 出站 → 熔断」的纵向链路，按节点
 	// 分流的形状（多实例硬排除）由 selector/balancer 的测试钉住。
@@ -103,27 +107,21 @@ func TestOutboundCircuitBreakerTripsAndHeals(t *testing.T) {
 		t.Fatal("client.grpc.self 未落资源面——client 段没有走到 App 产物")
 	}
 
-	cli := baldv1.NewGreetServiceClient(conn)
-	greet := func() error {
-		c, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer cancel()
-		_, err := cli.Greet(c, &baldv1.GreetRequest{Name: "cb"})
-		return err
-	}
+	greet := func() error { return greetWithDeadline(conn, 3*time.Second) }
+	greetFail := func() error { return greetWithDeadline(conn, 500*time.Millisecond) }
 
 	// 第一腿：经 bald_selector 的出站先证明是通的（discovery 解析 + picker 选点）。
 	if err := greet(); err != nil {
 		t.Fatalf("Greet through bald_selector before any failure: %v", err)
 	}
 
-	// 第二腿：喂 3 次 Unimplemented（阈值 = 3，错误发生在 pick 之后的同一
-	// subconn 上，Done → MarkFailure）。第 3 发的上报让错误计数到线。
+	// 第二腿：喂 3 次服务侧失败（500ms deadline < 2s delay → 服务端回
+	// DEADLINE_EXCEEDED，阈值 = 3，错误发生在 pick 之后的同一 subconn 上，
+	// Done → MarkFailure）。第 3 发的上报让错误计数到线。
 	for i := 0; i < 3; i++ {
-		c, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		err := conn.Invoke(c, "/bogus.Service/Nope", &emptypb.Empty{}, &emptypb.Empty{})
-		cancel()
-		if status.Code(err) != codes.Unimplemented {
-			t.Fatalf("bogus call %d: code=%v, want Unimplemented", i, status.Code(err))
+		err := greetFail()
+		if status.Code(err) != codes.DeadlineExceeded {
+			t.Fatalf("trip call %d: code=%v, want DeadlineExceeded（喂失败源）", i, status.Code(err))
 		}
 	}
 
@@ -163,4 +161,12 @@ func TestOutboundCircuitBreakerTripsAndHeals(t *testing.T) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
+}
+
+// greetWithDeadline 以给定截止期经 bald_selector 出站调一次 Greet。
+func greetWithDeadline(conn *grpc.ClientConn, d time.Duration) error {
+	c, cancel := context.WithTimeout(context.Background(), d)
+	defer cancel()
+	_, err := baldv1.NewGreetServiceClient(conn).Greet(c, &baldv1.GreetRequest{Name: "cb"})
+	return err
 }

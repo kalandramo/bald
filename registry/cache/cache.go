@@ -13,6 +13,7 @@ package cache
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -101,6 +102,14 @@ func (c *cache) GetService(ctx context.Context, name string) ([]*registry.Servic
 	}
 	ch := make(chan result, 1) // 带缓冲：调用方放弃等待后 goroutine 的发送不泄漏
 	go func() {
+		// 拉取 goroutine 独立栈：panic 必须 recover 转错误回传——此前 panic
+		// 经 singleflight 传播到调用方栈（调用侧 recover 可接），goroutine 化
+		// 后不接就是进程崩溃（与 AR-4 同型）。
+		defer func() {
+			if r := recover(); r != nil {
+				ch <- result{err: fmt.Errorf("registry cache: discovery panicked: %v", r)}
+			}
+		}()
 		v, err, _ := c.sg.Do(name, func() (any, error) {
 			return c.fetch(context.WithoutCancel(ctx), name)
 		})
