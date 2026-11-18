@@ -4,7 +4,10 @@ import (
 	"context"
 	"testing"
 
+	"github.com/kalandramo/bald/broker"
+
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestKind(t *testing.T) {
@@ -17,7 +20,7 @@ func TestNewServer(t *testing.T) {
 	)
 	assert.NotNil(t, srv)
 	assert.Equal(t, "rabbitmq", srv.Name())
-	assert.False(t, srv.started.Load())
+	assert.Empty(t, srv.Endpoint(), "started 未置真端点为空")
 }
 
 func TestEndpoint(t *testing.T) {
@@ -35,16 +38,30 @@ func TestStopBeforeStart(t *testing.T) {
 	assert.Nil(t, err)
 }
 
+// credentialedStubBroker 端点脱敏见证用：Address 返回带凭证的 AMQP URL，
+// Init/Connect 零错误让 Start 走真实路径置 started（离线无需真握手）。
+type credentialedStubBroker struct {
+	broker.Broker
+}
+
+func (b *credentialedStubBroker) Init(...broker.Option) error { return nil }
+func (b *credentialedStubBroker) Connect() error              { return nil }
+func (b *credentialedStubBroker) Disconnect() error           { return nil }
+func (b *credentialedStubBroker) Address() string             { return "amqp://user:hunter2@127.0.0.1:15672" }
+
 // TestEndpointAfterStartStripsCredentials 端点是 appkit 就绪闸门读的面：Start 之
 // 后必须变描述性，且 AMQP URL 里的 guest:guest（或自建凭证）不能跟着泄进日志/
-// 诊断面。这里直接翻 started 标志——离线的 Connect 是完整 AMQP 握手、真 Start
-// 必红（假后端不可信，见 contract/mapping_offline_test.go 文件头），所以闸门与
-// 脱敏只能在包内注入状态判；「真 Start 之后」那一半归真集群集成。
+// 诊断面。started 经真实 Start 路径置真（凭证桩的 Connect 零错误，离线绿）；
+// 「真 AMQP 握手之后」那一半归真集群集成（假后端不可信，见
+// contract/mapping_offline_test.go 文件头）。
 func TestEndpointAfterStartStripsCredentials(t *testing.T) {
 	srv := NewServer(WithAddress([]string{"amqp://user:hunter2@127.0.0.1:15672"}))
 	assert.Equal(t, "", srv.Endpoint(), "started 落真前端点必须为空（假就绪）")
 
-	srv.started.Store(true)
+	srv.Broker = &credentialedStubBroker{}
+	require.NoError(t, srv.Start(context.Background()))
+	defer func() { _ = srv.Stop(context.Background()) }()
+
 	assert.Equal(t, "amqp://127.0.0.1:15672", srv.Endpoint())
 	assert.NotContains(t, srv.Endpoint(), "hunter2")
 	assert.NotContains(t, srv.Endpoint(), "user:")

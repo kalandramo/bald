@@ -47,7 +47,7 @@ func TestStopConcurrentRegisterSubscriber(t *testing.T) {
 	<-lifecycleDone
 
 	// 收尾：回到已启动态交给 Stop 清场；未注册成功的订阅由 Stop 统一退订。
-	if !srv.started.Load() {
+	if srv.Endpoint() == "" {
 		_ = srv.Start(context.Background())
 	}
 	if err := srv.Stop(context.Background()); err != nil {
