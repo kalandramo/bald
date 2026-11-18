@@ -227,7 +227,7 @@ func Load(opts Options) (*Store, error) {
 	}
 
 	// 3) 本地文件层（运维显式覆盖，高于全部声明式源）。
-	localPath := discoverLocalFile(opts)
+	localPath := DiscoverLocalFile(opts)
 	s.localFile = localPath // AR-3：两遍装载经 Store.LocalFile() 同源复用
 	if localPath != "" {
 		src, err := file.New(file.WithPath(localPath))
@@ -448,9 +448,9 @@ func (s *Store) Close() error {
 
 // Settings 返回合并后的配置快照（深拷贝，只读使用）。
 // 供 bconf.UnmarshalMap / baldconfig.Unmarshal 填充契约。
-// LocalFile 返回 discoverLocalFile 解析出的本地配置文件路径（未发现时为空）。
-// AR-3：预装载（探针）与正式装载必须读同一个文件——调用方把这里返回的路径
-// 作为正式装载的显式 ConfigFile 传入，两遍即同源。
+// LocalFile 返回 discoverLocalFile→DiscoverLocalFile 解析出的本地配置文件
+// 路径（未发现时为空）。AR-3：预装载（探针）与正式装载必须读同一个文件——
+// 调用方把这里返回的路径作为正式装载的显式 ConfigFile 传入，两遍即同源。
 func (s *Store) LocalFile() string {
 	if s == nil {
 		return ""
@@ -458,6 +458,7 @@ func (s *Store) LocalFile() string {
 	return s.localFile
 }
 
+// Settings 返回合并后的配置快照。
 func (s *Store) Settings() map[string]any {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -497,13 +498,14 @@ func (s *Store) Unmarshal(msg proto.Message) error {
 	return Unmarshal(s.Settings(), msg)
 }
 
-// discoverLocalFile 按规则查找本地配置文件。
+// DiscoverLocalFile 按规则查找本地配置文件。
 // 查找顺序：显式 ConfigFile > Name-Env.yaml/json > Name.yaml/json（AR-3：
 // Env 非空时此前只试 Name-Env，注释承诺的 Name 回退缺失——预装载按 Name
 // 找到的文件，正式装载会找不到，运行期配置为空且不受 watch）；搜索目录：
 // . / ./configs / $HOME/.config/Name（对齐旧 viper AddConfigPath 语义）。
-// 找不到返回空串（不报错：允许纯远程/纯 flag 配置）。
-func discoverLocalFile(opts Options) string {
+// 轴序说明：名字轴（Name-Env > Name）最优先且全局生效；同名字内扩展名轴
+// 先于目录轴。找不到返回空串（不报错：允许纯远程/纯 flag 配置）。
+func DiscoverLocalFile(opts Options) string {
 	if opts.ConfigFile != "" {
 		return opts.ConfigFile
 	}

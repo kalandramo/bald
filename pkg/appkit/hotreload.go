@@ -35,10 +35,16 @@ func syncBootstrap(a *App, cfg *bootstrapv1.BootstrapConfig, spec *Decl, logSrc 
 	// 后端都得反映终值。
 	ApplyLogFlagOverrides(cfg, a.cfg.flagSet)
 	// AR-12：身份与停机预算从最终契约刷新——预装载契约没有 env/flag/remote 层，
-	// assemble 期从预装载值构造的 id/version/env/stop_timeout 会冻结在旧值
+	// assemble 期从预装载值构造的 id/version/stop_timeout 会冻结在旧值
 	// （注册中心的实例 version、停机预算忽略远程层与 flag，违反 J9）。仅在
 	// BeforeStart 的首次同步刷新（Run 串行，寄存器在此之后读取，无并发窗口）；
 	// 热更路径不刷新——身份字段的运行期改写与 Run goroutine 的读取无同步。
+	// 负载不变量：hotReload/applyPlanChange 及协调器不得读取
+	// a.id/a.version/a.stopTimeout（写方在 Run goroutine，热更在 watch
+	// goroutine，无同步）——未来要在热更路径读这些字段需先加同步。
+	// 遗留冻结（AR-12 审阅 A1）：effectTimeout/componentTimeout 由
+	// phaseBudgetFor(预装载 stopTimeout) 在 newFromDecl 派生，未随刷新重算
+	// ——stop_timeout 只经远程/flag 层到达时，Dispose 与效应撤销仍用旧预算。
 	if refreshIdentity {
 		a.refreshIdentityFromContract(cfg)
 	}

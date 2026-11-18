@@ -88,12 +88,19 @@ func Serve(ctx context.Context, opts ...Option) error {
 		return err
 	}
 	d.configNamespace = ns
-	// AR-3：正式装载复用预装载解析出的文件路径——此前两遍各自发现（正式
-	// 装载在 Env 非空时只找 Name-Env 文件且无回退），app.env 或 name 与 Option
-	// 不同时两遍读到不同文件：启动正常（预装载契约已合并），运行期 Settings()
-	// 为空且文件不在 watch 里，第一次热更静默丢光文件契约值。
+	// AR-3：两遍装载同源。pin 仅在「正式装载按自己的规则发现不到文件」时
+	// 生效（name ≠ 命名空间的场景——探针读到 bald-app.yaml，正式按 mybiz
+	// 什么都找不到）；Name-Env 多环境文件布局（bald-app.yaml + bald-app-prod.yaml）
+	// 的发现路由保持原样，prod 覆盖照常生效。审阅 B1：无条件 pin 会把该布局
+	// 静默关掉（prod 文件不再加载也不在 watch 里）。
 	if d.ConfigFile == "" && localFile != "" {
-		d.ConfigFile = localFile
+		if baldconfig.DiscoverLocalFile(baldconfig.Options{
+			Name:       ns,
+			Env:        cfg.GetApp().GetEnv(),
+			ConfigFile: d.ConfigFile,
+		}) == "" {
+			d.ConfigFile = localFile
+		}
 	}
 
 	a, err := assemble(d, cfg, settings)

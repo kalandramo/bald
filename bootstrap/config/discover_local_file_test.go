@@ -15,7 +15,7 @@ func TestDiscoverLocalFile_EnvFallsBackToBase(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := discoverLocalFile(Options{Name: "mybiz", Env: "prod"})
+	got := DiscoverLocalFile(Options{Name: "mybiz", Env: "prod"})
 	if got != "mybiz.yaml" {
 		t.Fatalf("Env=prod 且只有基础文件时应回退到 Name.yaml，got %q", got)
 	}
@@ -24,7 +24,7 @@ func TestDiscoverLocalFile_EnvFallsBackToBase(t *testing.T) {
 	if err := os.WriteFile("mybiz-prod.yaml", []byte("app:\n  name: mybiz\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := discoverLocalFile(Options{Name: "mybiz", Env: "prod"}); got != "mybiz-prod.yaml" {
+	if got := DiscoverLocalFile(Options{Name: "mybiz", Env: "prod"}); got != "mybiz-prod.yaml" {
 		t.Fatalf("环境专属文件存在时应优先，got %q", got)
 	}
 }

@@ -22,6 +22,10 @@ func Compile(ctx context.Context, opts ...Option) (*Plan, error) {
 // compileDecl 装载契约并编译计划（Serve 与 Compile 共用的唯一计划入口）。
 func compileDecl(ctx context.Context, d *Decl) (*Plan, error) {
 	cfg := bconf.NewBootstrap()
+	// 两遍装载口径（AR-3）：doctor/plan-cache 路径的探针契约与 Serve 的
+	// 正式装载各自独立发现文件——Name-Env 布局下二者可能读到不同文件，
+	// 计划输出因此可能有差（预期内：doctor 描述的是「按当前发现规则会装配
+	// 什么」）。需要严格同源时经 Serve 路径。
 	ns, _, settings, err := preloadContract(cfg, d.Name, d.ConfigFile)
 	if err != nil {
 		return nil, err
