@@ -211,10 +211,3 @@ func indexOf(s, sub string) int {
 	}
 	return -1
 }
-
-// stubSub 是 RemoveOnly 身份校验用的最小 Subscriber 桩。
-type stubSub struct{ topic string }
-
-func (s *stubSub) Topic() string                            { return s.topic }
-func (s *stubSub) Options() SubscribeOptions              { return SubscribeOptions{} }
-func (s *stubSub) Unsubscribe(removeFromManager bool) error { return nil }

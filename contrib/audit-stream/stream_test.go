@@ -115,20 +115,23 @@ func TestStreamAuditor_ZeroTimeBackfillsNow(t *testing.T) {
 }
 
 // TestStreamAuditor_BufferFullFallsBack 契约：缓冲满时 Record 降级 fallback（不阻塞、不丢事件）。
+// AR-31 更新：Close 后 Record 直接走 fallback（此前事件进无人消费的 channel 静默丢失）——
+// Close 后的两次 Record 全部经 fallback 保留（不丢事件）。
 func TestStreamAuditor_BufferFullFallsBack(t *testing.T) {
 	_, rdb := newTestRedis(t)
 	fb := &memAuditor{}
-	// buffer=1 + 先 Close（后台退出、drain 空缓冲）→ 后续 Record 只入队不消费。
+	// buffer=1 + 先 Close（后台退出、drain 空缓冲）→ 后续 Record 全走 fallback。
 	a := New(rdb, WithBuffer(1), WithFallback(fb))
 	if err := a.Close(); err != nil {
 		t.Fatalf("close: %v", err)
 	}
 
-	a.Record(context.Background(), audit.AuditEvent{Subject: "e1"}) // 入队（占满）
-	a.Record(context.Background(), audit.AuditEvent{Subject: "e2"}) // 满→fallback
+	a.Record(context.Background(), audit.AuditEvent{Subject: "e1"}) // Close 后直接 fallback
+	a.Record(context.Background(), audit.AuditEvent{Subject: "e2"}) // fallback
 
-	if got := fb.all(); len(got) != 1 || got[0].Subject != "e2" {
-		t.Fatalf("fallback events = %+v, want 1x e2", got)
+	got := fb.all()
+	if len(got) != 2 || got[0].Subject != "e1" || got[1].Subject != "e2" {
+		t.Fatalf("fallback events = %+v, want [e1 e2]（AR-31：Close 后事件不静默丢）", got)
 	}
 }
 
