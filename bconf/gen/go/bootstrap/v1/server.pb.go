@@ -9,6 +9,7 @@ package bootstrapv1
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	durationpb "google.golang.org/protobuf/types/known/durationpb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -438,7 +439,16 @@ type Server_Http struct {
 	Driver string      `protobuf:"bytes,2,opt,name=driver,proto3" json:"driver,omitempty"`
 	Tls    *Server_TLS `protobuf:"bytes,3,opt,name=tls,proto3" json:"tls,omitempty"`
 	// 中间件配置，按字段顺序注册。
-	Middleware    *Server_Http_Middleware `protobuf:"bytes,4,opt,name=middleware,proto3" json:"middleware,omitempty"`
+	Middleware *Server_Http_Middleware `protobuf:"bytes,4,opt,name=middleware,proto3" json:"middleware,omitempty"`
+	// 读请求头的超时（AR-16）：slowloris（逐字节发请求头）不再能无限占用
+	// goroutine 与 fd。0 → 默认 10s。
+	ReadHeaderTimeout *durationpb.Duration `protobuf:"bytes,5,opt,name=read_header_timeout,json=readHeaderTimeout,proto3" json:"read_header_timeout,omitempty"`
+	// 空闲 keep-alive 连接的关闭时长。0 → 默认 120s。
+	IdleTimeout *durationpb.Duration `protobuf:"bytes,6,opt,name=idle_timeout,json=idleTimeout,proto3" json:"idle_timeout,omitempty"`
+	// 请求体上限（字节）；0 → 不设上限（保持既有行为）。设置后超限请求
+	// 返回 413。0 的读法沿用「写 0 与没写不可区分」的 proto3 口径——
+	// 不设上限是显式的既有行为，需要限制的部署写正数即可。
+	MaxBodyBytes  uint64 `protobuf:"varint,7,opt,name=max_body_bytes,json=maxBodyBytes,proto3" json:"max_body_bytes,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -499,6 +509,27 @@ func (x *Server_Http) GetMiddleware() *Server_Http_Middleware {
 		return x.Middleware
 	}
 	return nil
+}
+
+func (x *Server_Http) GetReadHeaderTimeout() *durationpb.Duration {
+	if x != nil {
+		return x.ReadHeaderTimeout
+	}
+	return nil
+}
+
+func (x *Server_Http) GetIdleTimeout() *durationpb.Duration {
+	if x != nil {
+		return x.IdleTimeout
+	}
+	return nil
+}
+
+func (x *Server_Http) GetMaxBodyBytes() uint64 {
+	if x != nil {
+		return x.MaxBodyBytes
+	}
+	return 0
 }
 
 // HTTP/3 (QUIC) 传输层。
@@ -4371,7 +4402,7 @@ var File_bootstrap_v1_server_proto protoreflect.FileDescriptor
 
 const file_bootstrap_v1_server_proto_rawDesc = "" +
 	"\n" +
-	"\x19bootstrap/v1/server.proto\x12\fbootstrap.v1\"\x8cP\n" +
+	"\x19bootstrap/v1/server.proto\x12\fbootstrap.v1\x1a\x1egoogle/protobuf/duration.proto\"\xbbQ\n" +
 	"\x06Server\x122\n" +
 	"\x04http\x18\x01 \x01(\v2\x19.bootstrap.v1.Server.HttpH\x00R\x04http\x88\x01\x01\x125\n" +
 	"\x05http3\x18\x02 \x01(\v2\x1a.bootstrap.v1.Server.Http3H\x01R\x05http3\x88\x01\x01\x122\n" +
@@ -4429,14 +4460,17 @@ const file_bootstrap_v1_server_proto_rawDesc = "" +
 	"\b_key_pemB\t\n" +
 	"\a_ca_pemB\a\n" +
 	"\x05_fileB\t\n" +
-	"\a_config\x1a\xe9\r\n" +
+	"\a_config\x1a\x98\x0f\n" +
 	"\x04Http\x12\x12\n" +
 	"\x04addr\x18\x01 \x01(\tR\x04addr\x12\x16\n" +
 	"\x06driver\x18\x02 \x01(\tR\x06driver\x12*\n" +
 	"\x03tls\x18\x03 \x01(\v2\x18.bootstrap.v1.Server.TLSR\x03tls\x12D\n" +
 	"\n" +
 	"middleware\x18\x04 \x01(\v2$.bootstrap.v1.Server.Http.MiddlewareR\n" +
-	"middleware\x1a\xc2\f\n" +
+	"middleware\x12I\n" +
+	"\x13read_header_timeout\x18\x05 \x01(\v2\x19.google.protobuf.DurationR\x11readHeaderTimeout\x12<\n" +
+	"\fidle_timeout\x18\x06 \x01(\v2\x19.google.protobuf.DurationR\vidleTimeout\x12$\n" +
+	"\x0emax_body_bytes\x18\a \x01(\x04R\fmaxBodyBytes\x1a\xc2\f\n" +
 	"\n" +
 	"Middleware\x12N\n" +
 	"\brecovery\x18\x01 \x01(\v2-.bootstrap.v1.Server.Http.Middleware.RecoveryH\x00R\brecovery\x88\x01\x01\x12B\n" +
@@ -4843,6 +4877,7 @@ var file_bootstrap_v1_server_proto_goTypes = []any{
 	(*Server_UnifiedMiddleware_Authz)(nil),          // 61: bootstrap.v1.Server.UnifiedMiddleware.Authz
 	(*Server_UnifiedMiddleware_Audit)(nil),          // 62: bootstrap.v1.Server.UnifiedMiddleware.Audit
 	(*Server_UnifiedMiddleware_CircuitBreaker)(nil), // 63: bootstrap.v1.Server.UnifiedMiddleware.CircuitBreaker
+	(*durationpb.Duration)(nil),                     // 64: google.protobuf.Duration
 }
 var file_bootstrap_v1_server_proto_depIdxs = []int32{
 	3,  // 0: bootstrap.v1.Server.http:type_name -> bootstrap.v1.Server.Http
@@ -4881,50 +4916,52 @@ var file_bootstrap_v1_server_proto_depIdxs = []int32{
 	36, // 33: bootstrap.v1.Server.TLS.config:type_name -> bootstrap.v1.Server.TLS.Config
 	2,  // 34: bootstrap.v1.Server.Http.tls:type_name -> bootstrap.v1.Server.TLS
 	37, // 35: bootstrap.v1.Server.Http.middleware:type_name -> bootstrap.v1.Server.Http.Middleware
-	2,  // 36: bootstrap.v1.Server.Http3.tls:type_name -> bootstrap.v1.Server.TLS
-	2,  // 37: bootstrap.v1.Server.Grpc.tls:type_name -> bootstrap.v1.Server.TLS
-	46, // 38: bootstrap.v1.Server.Grpc.middleware:type_name -> bootstrap.v1.Server.Grpc.Middleware
-	2,  // 39: bootstrap.v1.Server.Graphql.tls:type_name -> bootstrap.v1.Server.TLS
-	2,  // 40: bootstrap.v1.Server.Sse.tls:type_name -> bootstrap.v1.Server.TLS
-	2,  // 41: bootstrap.v1.Server.Websocket.tls:type_name -> bootstrap.v1.Server.TLS
-	2,  // 42: bootstrap.v1.Server.Tcp.tls:type_name -> bootstrap.v1.Server.TLS
-	0,  // 43: bootstrap.v1.Server.Tcp.byte_order:type_name -> bootstrap.v1.Server.Tcp.ByteOrder
-	2,  // 44: bootstrap.v1.Server.Thrift.tls:type_name -> bootstrap.v1.Server.TLS
-	2,  // 45: bootstrap.v1.Server.Webtransport.tls:type_name -> bootstrap.v1.Server.TLS
-	2,  // 46: bootstrap.v1.Server.Signalr.tls:type_name -> bootstrap.v1.Server.TLS
-	2,  // 47: bootstrap.v1.Server.Socketio.tls:type_name -> bootstrap.v1.Server.TLS
-	2,  // 48: bootstrap.v1.Server.Webrtc.tls:type_name -> bootstrap.v1.Server.TLS
-	2,  // 49: bootstrap.v1.Server.Gateway.tls:type_name -> bootstrap.v1.Server.TLS
-	54, // 50: bootstrap.v1.Server.UnifiedMiddleware.rules:type_name -> bootstrap.v1.Server.UnifiedMiddleware.Rule
-	38, // 51: bootstrap.v1.Server.Http.Middleware.recovery:type_name -> bootstrap.v1.Server.Http.Middleware.Recovery
-	39, // 52: bootstrap.v1.Server.Http.Middleware.cors:type_name -> bootstrap.v1.Server.Http.Middleware.Cors
-	40, // 53: bootstrap.v1.Server.Http.Middleware.logging:type_name -> bootstrap.v1.Server.Http.Middleware.Logging
-	41, // 54: bootstrap.v1.Server.Http.Middleware.request_id:type_name -> bootstrap.v1.Server.Http.Middleware.RequestId
-	42, // 55: bootstrap.v1.Server.Http.Middleware.tracing:type_name -> bootstrap.v1.Server.Http.Middleware.Tracing
-	43, // 56: bootstrap.v1.Server.Http.Middleware.rate_limit:type_name -> bootstrap.v1.Server.Http.Middleware.RateLimit
-	44, // 57: bootstrap.v1.Server.Http.Middleware.timeout:type_name -> bootstrap.v1.Server.Http.Middleware.Timeout
-	45, // 58: bootstrap.v1.Server.Http.Middleware.circuit_breaker:type_name -> bootstrap.v1.Server.Http.Middleware.CircuitBreaker
-	47, // 59: bootstrap.v1.Server.Grpc.Middleware.recovery:type_name -> bootstrap.v1.Server.Grpc.Middleware.Recovery
-	48, // 60: bootstrap.v1.Server.Grpc.Middleware.logging:type_name -> bootstrap.v1.Server.Grpc.Middleware.Logging
-	49, // 61: bootstrap.v1.Server.Grpc.Middleware.tracing:type_name -> bootstrap.v1.Server.Grpc.Middleware.Tracing
-	50, // 62: bootstrap.v1.Server.Grpc.Middleware.validate:type_name -> bootstrap.v1.Server.Grpc.Middleware.Validate
-	51, // 63: bootstrap.v1.Server.Grpc.Middleware.rate_limit:type_name -> bootstrap.v1.Server.Grpc.Middleware.RateLimit
-	52, // 64: bootstrap.v1.Server.Grpc.Middleware.timeout:type_name -> bootstrap.v1.Server.Grpc.Middleware.Timeout
-	53, // 65: bootstrap.v1.Server.Grpc.Middleware.circuit_breaker:type_name -> bootstrap.v1.Server.Grpc.Middleware.CircuitBreaker
-	55, // 66: bootstrap.v1.Server.UnifiedMiddleware.Rule.recovery:type_name -> bootstrap.v1.Server.UnifiedMiddleware.Recovery
-	56, // 67: bootstrap.v1.Server.UnifiedMiddleware.Rule.request_id:type_name -> bootstrap.v1.Server.UnifiedMiddleware.RequestId
-	57, // 68: bootstrap.v1.Server.UnifiedMiddleware.Rule.rate_limit:type_name -> bootstrap.v1.Server.UnifiedMiddleware.RateLimit
-	58, // 69: bootstrap.v1.Server.UnifiedMiddleware.Rule.timeout:type_name -> bootstrap.v1.Server.UnifiedMiddleware.TimeoutCtx
-	59, // 70: bootstrap.v1.Server.UnifiedMiddleware.Rule.validate:type_name -> bootstrap.v1.Server.UnifiedMiddleware.Validate
-	60, // 71: bootstrap.v1.Server.UnifiedMiddleware.Rule.authn:type_name -> bootstrap.v1.Server.UnifiedMiddleware.Authn
-	61, // 72: bootstrap.v1.Server.UnifiedMiddleware.Rule.authz:type_name -> bootstrap.v1.Server.UnifiedMiddleware.Authz
-	62, // 73: bootstrap.v1.Server.UnifiedMiddleware.Rule.audit:type_name -> bootstrap.v1.Server.UnifiedMiddleware.Audit
-	63, // 74: bootstrap.v1.Server.UnifiedMiddleware.Rule.circuit_breaker:type_name -> bootstrap.v1.Server.UnifiedMiddleware.CircuitBreaker
-	75, // [75:75] is the sub-list for method output_type
-	75, // [75:75] is the sub-list for method input_type
-	75, // [75:75] is the sub-list for extension type_name
-	75, // [75:75] is the sub-list for extension extendee
-	0,  // [0:75] is the sub-list for field type_name
+	64, // 36: bootstrap.v1.Server.Http.read_header_timeout:type_name -> google.protobuf.Duration
+	64, // 37: bootstrap.v1.Server.Http.idle_timeout:type_name -> google.protobuf.Duration
+	2,  // 38: bootstrap.v1.Server.Http3.tls:type_name -> bootstrap.v1.Server.TLS
+	2,  // 39: bootstrap.v1.Server.Grpc.tls:type_name -> bootstrap.v1.Server.TLS
+	46, // 40: bootstrap.v1.Server.Grpc.middleware:type_name -> bootstrap.v1.Server.Grpc.Middleware
+	2,  // 41: bootstrap.v1.Server.Graphql.tls:type_name -> bootstrap.v1.Server.TLS
+	2,  // 42: bootstrap.v1.Server.Sse.tls:type_name -> bootstrap.v1.Server.TLS
+	2,  // 43: bootstrap.v1.Server.Websocket.tls:type_name -> bootstrap.v1.Server.TLS
+	2,  // 44: bootstrap.v1.Server.Tcp.tls:type_name -> bootstrap.v1.Server.TLS
+	0,  // 45: bootstrap.v1.Server.Tcp.byte_order:type_name -> bootstrap.v1.Server.Tcp.ByteOrder
+	2,  // 46: bootstrap.v1.Server.Thrift.tls:type_name -> bootstrap.v1.Server.TLS
+	2,  // 47: bootstrap.v1.Server.Webtransport.tls:type_name -> bootstrap.v1.Server.TLS
+	2,  // 48: bootstrap.v1.Server.Signalr.tls:type_name -> bootstrap.v1.Server.TLS
+	2,  // 49: bootstrap.v1.Server.Socketio.tls:type_name -> bootstrap.v1.Server.TLS
+	2,  // 50: bootstrap.v1.Server.Webrtc.tls:type_name -> bootstrap.v1.Server.TLS
+	2,  // 51: bootstrap.v1.Server.Gateway.tls:type_name -> bootstrap.v1.Server.TLS
+	54, // 52: bootstrap.v1.Server.UnifiedMiddleware.rules:type_name -> bootstrap.v1.Server.UnifiedMiddleware.Rule
+	38, // 53: bootstrap.v1.Server.Http.Middleware.recovery:type_name -> bootstrap.v1.Server.Http.Middleware.Recovery
+	39, // 54: bootstrap.v1.Server.Http.Middleware.cors:type_name -> bootstrap.v1.Server.Http.Middleware.Cors
+	40, // 55: bootstrap.v1.Server.Http.Middleware.logging:type_name -> bootstrap.v1.Server.Http.Middleware.Logging
+	41, // 56: bootstrap.v1.Server.Http.Middleware.request_id:type_name -> bootstrap.v1.Server.Http.Middleware.RequestId
+	42, // 57: bootstrap.v1.Server.Http.Middleware.tracing:type_name -> bootstrap.v1.Server.Http.Middleware.Tracing
+	43, // 58: bootstrap.v1.Server.Http.Middleware.rate_limit:type_name -> bootstrap.v1.Server.Http.Middleware.RateLimit
+	44, // 59: bootstrap.v1.Server.Http.Middleware.timeout:type_name -> bootstrap.v1.Server.Http.Middleware.Timeout
+	45, // 60: bootstrap.v1.Server.Http.Middleware.circuit_breaker:type_name -> bootstrap.v1.Server.Http.Middleware.CircuitBreaker
+	47, // 61: bootstrap.v1.Server.Grpc.Middleware.recovery:type_name -> bootstrap.v1.Server.Grpc.Middleware.Recovery
+	48, // 62: bootstrap.v1.Server.Grpc.Middleware.logging:type_name -> bootstrap.v1.Server.Grpc.Middleware.Logging
+	49, // 63: bootstrap.v1.Server.Grpc.Middleware.tracing:type_name -> bootstrap.v1.Server.Grpc.Middleware.Tracing
+	50, // 64: bootstrap.v1.Server.Grpc.Middleware.validate:type_name -> bootstrap.v1.Server.Grpc.Middleware.Validate
+	51, // 65: bootstrap.v1.Server.Grpc.Middleware.rate_limit:type_name -> bootstrap.v1.Server.Grpc.Middleware.RateLimit
+	52, // 66: bootstrap.v1.Server.Grpc.Middleware.timeout:type_name -> bootstrap.v1.Server.Grpc.Middleware.Timeout
+	53, // 67: bootstrap.v1.Server.Grpc.Middleware.circuit_breaker:type_name -> bootstrap.v1.Server.Grpc.Middleware.CircuitBreaker
+	55, // 68: bootstrap.v1.Server.UnifiedMiddleware.Rule.recovery:type_name -> bootstrap.v1.Server.UnifiedMiddleware.Recovery
+	56, // 69: bootstrap.v1.Server.UnifiedMiddleware.Rule.request_id:type_name -> bootstrap.v1.Server.UnifiedMiddleware.RequestId
+	57, // 70: bootstrap.v1.Server.UnifiedMiddleware.Rule.rate_limit:type_name -> bootstrap.v1.Server.UnifiedMiddleware.RateLimit
+	58, // 71: bootstrap.v1.Server.UnifiedMiddleware.Rule.timeout:type_name -> bootstrap.v1.Server.UnifiedMiddleware.TimeoutCtx
+	59, // 72: bootstrap.v1.Server.UnifiedMiddleware.Rule.validate:type_name -> bootstrap.v1.Server.UnifiedMiddleware.Validate
+	60, // 73: bootstrap.v1.Server.UnifiedMiddleware.Rule.authn:type_name -> bootstrap.v1.Server.UnifiedMiddleware.Authn
+	61, // 74: bootstrap.v1.Server.UnifiedMiddleware.Rule.authz:type_name -> bootstrap.v1.Server.UnifiedMiddleware.Authz
+	62, // 75: bootstrap.v1.Server.UnifiedMiddleware.Rule.audit:type_name -> bootstrap.v1.Server.UnifiedMiddleware.Audit
+	63, // 76: bootstrap.v1.Server.UnifiedMiddleware.Rule.circuit_breaker:type_name -> bootstrap.v1.Server.UnifiedMiddleware.CircuitBreaker
+	77, // [77:77] is the sub-list for method output_type
+	77, // [77:77] is the sub-list for method input_type
+	77, // [77:77] is the sub-list for extension type_name
+	77, // [77:77] is the sub-list for extension extendee
+	0,  // [0:77] is the sub-list for field type_name
 }
 
 func init() { file_bootstrap_v1_server_proto_init() }

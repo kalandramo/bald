@@ -97,7 +97,9 @@ type Client_Entry struct {
 	// 不是漏配的默认。
 	Tls *Server_TLS `protobuf:"bytes,3,opt,name=tls,proto3" json:"tls,omitempty"`
 	// 单次调用的默认超时：grpc 由拦截器落到每次 RPC 的 context，http 落到
-	// http.Client.Timeout。0 表示不设默认，交给调用方 ctx 控制。
+	// http.Client.Timeout。未配置（缺字段）→ 框架默认 30s（AR-15/J3：出站
+	// 调用必须有默认超时，对端不响应不能无限挂）；显式写 0 → 不设默认，
+	// 交给调用方 ctx 控制。
 	Timeout       *durationpb.Duration `protobuf:"bytes,4,opt,name=timeout,proto3" json:"timeout,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

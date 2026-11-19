@@ -4,6 +4,8 @@ package bootstrap.v1;
 
 option go_package = "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1";
 
+import "google/protobuf/duration.proto";
+
 // Server 描述一个传输层实例，对应 wind.WithServer。
 // 同一 Server 消息中可同时包含多种传输层配置，bootstrap 会分别创建对应的实例。
 message Server {
@@ -147,6 +149,16 @@ message Server {
     TLS tls = 3;
     // 中间件配置，按字段顺序注册。
     Middleware middleware = 4;
+
+    // 读请求头的超时（AR-16）：slowloris（逐字节发请求头）不再能无限占用
+    // goroutine 与 fd。0 → 默认 10s。
+    google.protobuf.Duration read_header_timeout = 5;
+    // 空闲 keep-alive 连接的关闭时长。0 → 默认 120s。
+    google.protobuf.Duration idle_timeout = 6;
+    // 请求体上限（字节）；0 → 不设上限（保持既有行为）。设置后超限请求
+    // 返回 413。0 的读法沿用「写 0 与没写不可区分」的 proto3 口径——
+    // 不设上限是显式的既有行为，需要限制的部署写正数即可。
+    uint64 max_body_bytes = 7;
   }
 
   // HTTP/3 (QUIC) 传输层。

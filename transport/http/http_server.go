@@ -30,6 +30,9 @@ type HTTPServer struct {
 	*http.Server
 	cfg *bootstrapv1.Server_Http
 
+	// maxBytes 是请求体上限（AR-16 契约字段 max_body_bytes；0 = 不设上限）。
+	maxBytes uint64
+
 	mu sync.RWMutex
 	ln net.Listener // 实际监听器，用于解析 Endpoint（支持 :0 动态端口）
 }
@@ -41,17 +44,40 @@ func NewHTTPServer(cfg *bootstrapv1.Server_Http, handler http.Handler) *HTTPServ
 	if handler == nil {
 		handler = http.NotFoundHandler()
 	}
-	// AR-16：构造期默认读头/空闲超时——slowloris（逐字节发请求头）与空闲
-	// keep-alive 连接此前可无限占用 goroutine 与 fd（gin Timeout 只管 handler
-	// 阶段，管不到读头）。10s 读头 / 120s 空闲是 nginx 系默认量级。
+	// 请求体上限（AR-16）：契约 max_body_bytes > 0 时，把每个入站请求的
+	// Body 包成 http.MaxBytesReader——超限返回 413 且连接不再读取（防大
+	// payload 打满内存）。0 = 不设上限（既有行为）。
+	if mb := cfg.GetMaxBodyBytes(); mb > 0 {
+		inner := handler
+		handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Body != nil {
+				r.Body = http.MaxBytesReader(w, r.Body, int64(mb))
+			}
+			inner.ServeHTTP(w, r)
+		})
+	}
+
+	// AR-16：读头/空闲超时优先取契约字段（AR-16 契约扩展），未配置走
+	// 构造期默认——slowloris（逐字节发请求头）与空闲 keep-alive 连接此前
+	// 可无限占用 goroutine 与 fd（gin Timeout 只管 handler 阶段，管不到
+	// 读头）。10s 读头 / 120s 空闲是 nginx 系默认量级。
+	readHeaderTimeout := 10 * time.Second
+	if d := cfg.GetReadHeaderTimeout().AsDuration(); d > 0 {
+		readHeaderTimeout = d
+	}
+	idleTimeout := 120 * time.Second
+	if d := cfg.GetIdleTimeout().AsDuration(); d > 0 {
+		idleTimeout = d
+	}
 	return &HTTPServer{
 		Server: &http.Server{
 			Addr:              cfg.GetAddr(),
 			Handler:           handler,
-			ReadHeaderTimeout: 10 * time.Second,
-			IdleTimeout:       120 * time.Second,
+			ReadHeaderTimeout: readHeaderTimeout,
+			IdleTimeout:       idleTimeout,
 		},
-		cfg: cfg,
+		cfg:      cfg,
+		maxBytes: cfg.GetMaxBodyBytes(),
 	}
 }
 
