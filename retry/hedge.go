@@ -7,6 +7,7 @@ package retry
 import (
 	"context"
 	"fmt"
+	"math/rand/v2"
 	"sync/atomic"
 	"time"
 )
@@ -88,11 +89,14 @@ func (h *Hedger) Do(ctx context.Context, fn func(ctx context.Context) error) err
 	}
 
 	// 自适应节流：备份请求大多在失败时退避。
+	// AR-19：此前「比率达标即永久不发备份」——统计不再更新，比率永远停在
+	// 阈值之上，一次抖动就让对冲永久失效。改为：节流期仍按 1/8 概率发探针
+	// 备份（统计持续回流，比率回落即恢复对冲）。
 	if h.cfg.backupErrRate > 0 {
 		if total := h.backupTotalCount.Load(); total > 0 {
 			errRate := float64(total-h.backupSuccessCount.Load()) / float64(total)
-			if errRate >= h.cfg.backupErrRate {
-				return <-primary
+			if errRate >= h.cfg.backupErrRate && rand.IntN(8) != 0 {
+				return <-primary // 节流：7/8 概率跳过备份，1/8 作为探针放行
 			}
 		}
 	}

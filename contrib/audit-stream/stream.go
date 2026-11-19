@@ -136,6 +136,14 @@ func (a *StreamAuditor) Record(ctx context.Context, ev audit.AuditEvent) {
 	if ev.Time.IsZero() {
 		ev.Time = time.Now()
 	}
+	// AR-31：Close 后 stop 已关、消费 goroutine 已退出——事件进无人消费的
+	// channel 就是静默丢失，直接走 fallback。
+	select {
+	case <-a.stop:
+		a.recordFallback(ctx, ev)
+		return
+	default:
+	}
 	select {
 	case a.ch <- ev:
 	default:

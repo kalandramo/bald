@@ -88,8 +88,8 @@ func TestSubscriberSyncMap_BasicOperations(t *testing.T) {
 		t.Fatalf("modifying GetAll copy affected original map")
 	}
 
-	// RemoveOnly
-	ok := sm.RemoveOnly("a")
+	// RemoveOnly（身份匹配才删——AR-30）
+	ok := sm.RemoveOnly("a", s1)
 	if !ok {
 		t.Fatalf("RemoveOnly(a) should return true")
 	}

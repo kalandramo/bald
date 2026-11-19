@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"sync"
@@ -35,6 +36,9 @@ type GatewayServer struct {
 	conn            *grpc.ClientConn // 到后端 gRPC 的连接，Stop 时关闭
 	closeOnce       sync.Once
 	mu              sync.Mutex
+	// stopped 是 AR-27 的停机先行标志：置位后 Start 直接拒绝——Stop 先于
+	// Start（启动失败回滚窗口）时，连接与 resolver 建了没人关，泄漏。
+	stopped bool
 }
 
 // Option 是 GatewayServer 的构造选项。未设置的项一律保持「配置地址直连」的
@@ -150,6 +154,12 @@ func (s *GatewayServer) resolveDiscovery() (registry.Discovery, error) {
 // Start 在真正启动前建立到后端 gRPC 的连接并注册 handler（延迟解析地址）。
 func (s *GatewayServer) Start(ctx context.Context) error {
 	s.mu.Lock()
+	if s.stopped {
+		// AR-27：Stop 先于 Start（启动失败回滚窗口）时，连接与 resolver
+		// 建了也没人关——直接拒绝二次启动，泄漏面为空。
+		s.mu.Unlock()
+		return errors.New("gateway: already stopped; create a new server to restart")
+	}
 	if s.conn != nil {
 		s.mu.Unlock()
 		return s.HTTPServer.Start(ctx)
@@ -185,6 +195,11 @@ func (s *GatewayServer) Start(ctx context.Context) error {
 		}
 	}
 	s.conn = conn
+	if s.stopped {
+		// Start 期间（无锁窗口）Stop 已跑过：把刚建的连接当场关掉，
+		// 不留给 HTTPServer.Start。
+		_ = conn.Close()
+	}
 	s.HTTPServer.AttachHandler(handler)
 	// 建立阶段结束，先释放锁再进入阻塞的 Serve：
 	// 否则 Stop 需要同把锁才能调 Shutdown，会形成「Stop 等 Start 释放锁、
@@ -194,9 +209,12 @@ func (s *GatewayServer) Start(ctx context.Context) error {
 }
 
 // Stop 停止网关时同时关闭到后端 gRPC 的连接。
+// AR-27：置 stopped 标志——Stop 先于 Start 时，后续 Start 直接拒绝
+// （连接与 resolver 建了没人关，泄漏）。
 func (s *GatewayServer) Stop(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.stopped = true
 	if s.conn != nil {
 		defer s.closeOnce.Do(func() { _ = s.conn.Close() })
 	}

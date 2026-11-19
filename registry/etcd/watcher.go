@@ -2,6 +2,7 @@ package etcd
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	clientv3 "go.etcd.io/etcd/client/v3"
@@ -13,6 +14,7 @@ var _ registry.Watcher = (*watcher)(nil)
 
 // watcher 订阅 etcd 前缀变更：首次 Next 全量拉取，此后阻塞至事件。
 type watcher struct {
+	mu          sync.Mutex // 保护 watcher/watchChan 的置换（Close 与 reWatch 并发）
 	key         string
 	ctx         context.Context
 	cancel      context.CancelFunc
@@ -92,7 +94,12 @@ func (w *watcher) getInstance() ([]*registry.ServiceInstance, error) {
 	return items, nil
 }
 
+// reWatch 重建 watcher 与 watchChan。消费侧（grpcdiscovery 的 Next）与
+// 本方法在同 goroutine 串行调用，字段置换无并发——但 Close 侧（watcher.Close
+// 走 w.watcher.Close）可能并发，加 mu 防止 Close 摸到已被置换的新实例。
 func (w *watcher) reWatch() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	_ = w.watcher.Close()
 	w.watcher = clientv3.NewWatcher(w.client)
 	w.watchChan = w.watcher.Watch(w.ctx, w.key, clientv3.WithPrefix(), clientv3.WithRev(0), clientv3.WithKeysOnly())

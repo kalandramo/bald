@@ -53,7 +53,7 @@ func (s *subscriber) Unsubscribe(removeFromManager bool) error {
 	}
 
 	if s.r != nil && s.r.subscribers != nil && removeFromManager {
-		_ = s.r.subscribers.RemoveOnly(s.topic)
+		_ = s.r.subscribers.RemoveOnly(s.topic, s)
 	}
 
 	return err

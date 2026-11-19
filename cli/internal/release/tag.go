@@ -3,7 +3,9 @@ package release
 import (
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -37,6 +39,13 @@ func Tag(root string, plan *Plan, apply, push bool, out io.Writer) error {
 		if exists {
 			return fmt.Errorf("tag %s 已存在；计划已应用过或版本重复", c.Tag)
 		}
+	}
+
+	// AR-10：major ≥ 2 的模块路径必须带 /vN 后缀（Go module 规范），否则
+	// 代理判 tag 非法——root 升 major 时 go.mod 路径不变，打出的 v2.0.0
+	// 装不了。在打 tag 前挡下（fail-fast），此时还没写 CHANGELOG。
+	if err := checkModulePathForMajor(root, plan); err != nil {
+		return err
 	}
 
 	if err := checkZipPaths(root, plan); err != nil {
@@ -168,6 +177,38 @@ func checkZipPaths(root string, plan *Plan) error {
 	}
 	return fmt.Errorf("%d 条文件路径进不了模块 zip（ASCII 仅字母数字与 %q，非 ASCII 须是字母）：\n  %s",
 		total, zipFilePunct, strings.Join(offenders, "\n  "))
+}
+
+// checkModulePathForMajor 校验 major ≥ 2 的待发布模块：go.mod 的 module 路径
+// 必须以 /vN 结尾（Go module 规范，major ≥ 2 的路径必须带版本后缀）。
+// root 升 major 时路径不变——打出 v2.0.0 会被代理判非法，必须在计划期挡下。
+func checkModulePathForMajor(root string, plan *Plan) error {
+	for _, c := range plan.Changes {
+		maj, _, _ := parseVersion(c.Tag)
+		if maj < 2 {
+			continue
+		}
+		gomod := "go.mod"
+		if c.Dir != "." {
+			gomod = filepath.Join(c.Dir, "go.mod")
+		}
+		data, err := os.ReadFile(filepath.Join(root, gomod))
+		if err != nil {
+			return fmt.Errorf("read %s: %w", gomod, err)
+		}
+		for _, line := range strings.Split(string(data), "\n") {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "module ") {
+				mod := strings.Trim(strings.TrimPrefix(line, "module "), `"`)
+				if !strings.HasSuffix(mod, "/v"+strconv.Itoa(maj)) {
+					return fmt.Errorf("模块 %s 升 major 到 v%d，但 %s 的 module 路径 %q 未带 /v%d 后缀（Go module 规范要求）——先迁移路径再发布 major",
+						c.Dir, maj, gomod, mod, maj)
+				}
+				break
+			}
+		}
+	}
+	return nil
 }
 
 func (r *Repo) tagExists(tag string) (bool, error) {

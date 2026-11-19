@@ -1,11 +1,14 @@
 package gin
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"runtime/debug"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/kalandramo/bald/log"
 )
 
 // RecoveryConfig 配置 panic 恢复中间件，对应契约 recovery 段。
@@ -28,6 +31,10 @@ func Recovery(cfg ...RecoveryConfig) gin.HandlerFunc {
 		c = cfg[0]
 	}
 	return gin.RecoveryWithWriter(io.Discard, func(gc *gin.Context, err any) {
+		// AR-26：panic 不留日志就是静默吞（此前 io.Discard + 回调不记）——
+		// 操作/栈/panic 值落契约层，与统一 Recovery 的行为对齐。
+		log.Error(context.Background(), "gin handler panicked",
+			"panic", err, "path", gc.FullPath(), "stack", string(debug.Stack()))
 		body := gin.H{
 			"error": gin.H{
 				"code":    "Internal",

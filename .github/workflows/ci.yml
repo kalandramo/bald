@@ -493,6 +493,18 @@ jobs:
           # 「半死的 nacos」唯一的线索——8848 活着而 9848 不通时，注册静默失败。
           wait_tcp 127.0.0.1 9848 nacos-grpc
 
+      - name: lint（golangci-lint，与全仓 lint 作业同 pin；AR-24：示例是用户照抄的模板，缺陷必须被 CI 拦住）
+        run: |
+          set -e
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b "$RUNNER_TEMP/bin" v2.15.0
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+          (cd _example/bald && golangci-lint run ./...)
+
+      - name: govulncheck（示例 module；AR-24 与 lint 同步覆盖）
+        run: |
+          set -e
+          go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./_example/bald/...
+
       - name: 示例套件（三态构建，逐条判据留档）
         run: |
           set -e

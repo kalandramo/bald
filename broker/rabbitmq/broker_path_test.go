@@ -83,16 +83,17 @@ func TestSubscribeOptionsApplied(t *testing.T) {
 
 func TestSubscribeFnDeliveryBranches(t *testing.T) {
 	cases := []struct {
-		name       string
-		binder     broker.Binder
-		handlerErr error
-		opts       []broker.SubscribeOption
+		name          string
+		binder        broker.Binder
+		handlerErr    error
+		opts          []broker.SubscribeOption
+		wantHandlerOK bool // 解码失败（AR-21）时 handler 不被驱动，其余都驱动
 	}{
-		{"binder_nil", nil, nil, nil},
-		{"binder_unmarshal_fail", func() any { return new(map[string]any) }, nil, nil},
-		{"handler_error_noack", nil, errBoom, nil},
-		{"ack_on_success", nil, nil, []broker.SubscribeOption{WithAckOnSuccess()}},
-		{"nack_on_error", nil, errBoom, []broker.SubscribeOption{WithAckOnSuccess(), WithRequeueOnError()}},
+		{"binder_nil", nil, nil, nil, true},
+		{"binder_unmarshal_fail", func() any { return new(map[string]any) }, nil, nil, false},
+		{"handler_error_noack", nil, errBoom, nil, true},
+		{"ack_on_success", nil, nil, []broker.SubscribeOption{WithAckOnSuccess()}, true},
+		{"nack_on_error", nil, errBoom, []broker.SubscribeOption{WithAckOnSuccess(), WithRequeueOnError()}, true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -108,8 +109,8 @@ func TestSubscribeFnDeliveryBranches(t *testing.T) {
 			s := sub.(*subscriber)
 			// Acknowledger 为 nil 时 Ack/Nack 返回 ErrClosed，不 panic。
 			s.fn(amqp.Delivery{RoutingKey: "rk.fn", Body: []byte(`{"k":"v"}`)})
-			if !called {
-				t.Fatal("handler 未被驱动")
+			if called != c.wantHandlerOK {
+				t.Fatalf("handler driven = %v, want %v（AR-21：解码失败不调 handler，毒消息不静默吞）", called, c.wantHandlerOK)
 			}
 			if s.IsClosed() {
 				t.Fatal("未 Unsubscribe 时 IsClosed 应为 false")

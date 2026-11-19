@@ -217,7 +217,12 @@ func (r *rabbitConnection) reconnect(secure bool, config *amqp.Config) {
 	for {
 		if connect {
 			if err := r.tryConnect(secure, config); err != nil {
-				time.Sleep(reconnectDelay)
+				// AR-30：退避等待随 close 中断——Close 后不再无限重拨。
+				select {
+				case <-r.close:
+					return
+				case <-time.After(reconnectDelay):
+				}
 				if reconnectDelay < maxReconnectDelay {
 					reconnectDelay *= 2
 				}

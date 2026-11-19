@@ -1,3 +1,5 @@
+//go:build nacos
+
 // nacos 后端实例清单的**独立**读口：走 nacos 的 HTTP 查询口，不用注册用的 SDK。
 //
 // 为什么要有这个文件：用 SDK 读 SDK 写只能证明 SDK 自洽（本地缓存、订阅推送、

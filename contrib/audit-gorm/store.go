@@ -89,7 +89,10 @@ func DefaultModel() any { return &AuditRecord{} }
 func (a *StoreAuditor) Record(ctx context.Context, ev audit.AuditEvent) {
 	defer func() {
 		if r := recover(); r != nil {
+			// AR-31：mapper panic 的事件不能静默丢——降级 fallback（与
+			// db.Create 失败路径同语义）。
 			log.Warn(ctx, "audit-gorm: record panicked", "panic", r)
+			a.recordFallback(ctx, ev)
 		}
 	}()
 	if ev.Time.IsZero() {

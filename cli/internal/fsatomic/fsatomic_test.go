@@ -136,3 +136,28 @@ func TestWriteFile_TrailingSeparator(t *testing.T) {
 		t.Fatal("尾随分隔符（目标是目录本身）应报错")
 	}
 }
+
+// TestWriteFile_PreservesExistingMode 复现 AR-22：覆盖已有文件不得放宽权限
+// ——os.WriteFile 的覆盖写保留原 mode，temp+rename 的 Chmod 是绝对置位，
+// 会把 chmod 600 的文件（mcp.json 含 API key）放宽成 0644。
+func TestWriteFile_PreservesExistingMode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("windows chmod 只影响只读位，模式保留语义不可区分")
+	}
+	dir := t.TempDir()
+	p := filepath.Join(dir, "cfg.json")
+	if err := os.WriteFile(p, []byte("v1"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := WriteFile(p, []byte("v2"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Stat(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm() != 0o600 {
+		t.Fatalf("覆盖后 mode = %v, want 0600（不得放宽既有文件权限）", fi.Mode().Perm())
+	}
+}
