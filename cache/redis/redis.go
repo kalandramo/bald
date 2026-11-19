@@ -17,6 +17,7 @@ package redis
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	goredis "github.com/redis/go-redis/v9"
@@ -99,35 +100,113 @@ func (c *Cache) GetMulti(ctx context.Context, keys []string) ([][]byte, error) {
 		prefixed[i] = c.prefix(k)
 	}
 
-	results, err := c.client.MGet(ctx, prefixed...).Result()
-	if err != nil {
-		return nil, err
-	}
-
+	// AR-20：cluster 模式下 MGET 按「首个 key 的 slot」整条路由，跨 slot 直接
+	// 报 CROSSSLOT——设计文档承诺按 slot 拆分但实现没拆（J8）。对齐方式：
+	// 按前置判断走单机 MGET；cluster（分片）形态按 hash tag 分组并发取回合并。
+	// 单机/主从形态行为不变。
 	out := make([][]byte, len(keys))
-	hasMissing := false
-	for i, r := range results {
-		if r == nil {
-			out[i] = nil
-			hasMissing = true
-			continue
+	if c.isCluster() {
+		results, err := c.mgetCluster(ctx, prefixed)
+		if err != nil {
+			return nil, err
 		}
-		// MGET returns values as string or []byte depending on the value type
-		switch v := r.(type) {
-		case string:
-			out[i] = []byte(v)
-		case []byte:
-			out[i] = v
-		default:
-			out[i] = nil
-			hasMissing = true
+		copy(out, results)
+	} else {
+		results, err := c.client.MGet(ctx, prefixed...).Result()
+		if err != nil {
+			return nil, err
+		}
+		for i, r := range results {
+			out[i] = redisValueToBytes(r)
 		}
 	}
 
+	hasMissing := false
+	for _, v := range out {
+		if v == nil {
+			hasMissing = true
+			break
+		}
+	}
 	if hasMissing {
 		return out, cache.ErrNotFound
 	}
 	return out, nil
+}
+
+// isCluster 报告底层 client 是否为 cluster 形态（ClusterClient / 带
+// ClusterOptions 的 UniversalClient）。
+func (c *Cache) isCluster() bool {
+	// NewClusterClient 返回 *ClusterClient（实现 UniversalClient）；主从/单机
+	// 形态的 NewClient 返回 *Client。对 *ClusterClient 的断言即可区分两种形态
+	// ——cluster 下 MGET 按 hash tag 分组（AR-20），单机保持原 MGET。
+	_, ok := c.client.(*goredis.ClusterClient)
+	return ok
+}
+
+// mgetCluster 把 key 按 hash tag 分组、每组一条 MGET 并发取回后按原序合并。
+// 同 hash tag 的 key 天然同 slot（Redis Cluster 规范），组内 MGET 不跨 slot；
+// 无 hash tag 的 key 各自成组（每 key 一条 MGET——cluster 下这是无 tag 场景
+// 唯一不跨 slot 的安全形态）。
+func (c *Cache) mgetCluster(ctx context.Context, prefixed []string) ([][]byte, error) {
+	groups := make(map[string][]int)
+	for i, k := range prefixed {
+		groups[clusterKeyTag(k)] = append(groups[clusterKeyTag(k)], i)
+	}
+
+	type groupResult struct {
+		idxs []int
+		vals []interface{}
+		err  error
+	}
+	ch := make(chan groupResult, len(groups))
+	for _, idxs := range groups {
+		go func(idxs []int) {
+			keys := make([]string, len(idxs))
+			for j, i := range idxs {
+				keys[j] = prefixed[i]
+			}
+			vals, err := c.client.MGet(ctx, keys...).Result()
+			ch <- groupResult{idxs: idxs, vals: vals, err: err}
+		}(idxs)
+	}
+
+	out := make([][]byte, len(prefixed))
+	for range groups {
+		g := <-ch
+		if g.err != nil {
+			return nil, g.err
+		}
+		for j, i := range g.idxs {
+			out[i] = redisValueToBytes(g.vals[j])
+		}
+	}
+	return out, nil
+}
+
+// clusterKeyTag 提取 key 的 hash tag（{...} 内的部分，Redis Cluster 规范）；
+// 无 tag 时返回整个 key（每个 key 独立 slot）。
+func clusterKeyTag(key string) string {
+	if a := strings.Index(key, "{"); a >= 0 {
+		if b := strings.Index(key[a+1:], "}"); b >= 0 {
+			return key[a+1 : a+1+b]
+		}
+	}
+	return key
+}
+
+func redisValueToBytes(r interface{}) []byte {
+	if r == nil {
+		return nil
+	}
+	switch v := r.(type) {
+	case string:
+		return []byte(v)
+	case []byte:
+		return v
+	default:
+		return nil
+	}
 }
 
 // SetMulti implements [cache.Cache].

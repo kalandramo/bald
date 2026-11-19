@@ -88,7 +88,10 @@ func (p Policy) guard(ctx context.Context, failed func(error) bool, call func(co
 
 // UnaryClientInterceptor 把 Policy 接成 gRPC 一元客户端拦截器。经
 // grpc.WithChainUnaryInterceptor 挂进 DialOption；与契约 client 段的默认
-// 超时拦截器叠加时，超时在最外层（每个 attempt 拿完整超时窗）。
+// 超时拦截器叠加时，超时在链的最外层——它是**全部重试共享的总预算**，
+// 不是每个 attempt 一窗（AR-28：首试耗尽后，后续重试立即以
+// deadline exceeded 失败，重试对超时类故障无效）。要「每个 attempt 一窗」
+// 的语义，把超时拦截器挪到重试内层（ChainUnaryInterceptor 的次序决定）。
 //
 // 流面刻意不接：一条流的「失败」没有一致答案（与入站熔断拦截器同一取舍）。
 func UnaryClientInterceptor(p Policy) grpc.UnaryClientInterceptor {

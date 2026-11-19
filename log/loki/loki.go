@@ -160,6 +160,8 @@ func (l *lokiLog) post(ctx context.Context, level, msg string, keyvals []any) {
 
 // flush 将共享缓冲区中的日志批量推送到 Loki。
 // 所有派生实例共享缓冲，任一实例调用 flush 都会冲刷全部待发日志。
+// AR-29：推送失败不再整批丢弃——entries 有界回填到缓冲头部（保留时间序，
+// 超出容量上限的旧日志丢弃防无界增长），下一次 flush 重试。
 func (l *lokiLog) flush() error {
 	s := l.s
 	s.mu.Lock()
@@ -171,6 +173,22 @@ func (l *lokiLog) flush() error {
 	s.buffer = nil
 	s.mu.Unlock()
 
+	if err := l.push(entries); err != nil {
+		// 有界回填：batchSize 容量上限内的旧日志放回头部重试（flush 期间
+		// 新写入的日志排在其后），容量不足时丢弃最旧的，防缓冲无界增长。
+		s.mu.Lock()
+		if len(entries) > s.batchSize {
+			entries = entries[len(entries)-s.batchSize:]
+		}
+		s.buffer = append(append([]logEntry{}, entries...), s.buffer...)
+		s.mu.Unlock()
+		return err
+	}
+	return nil
+}
+
+// push 构建并推送一批日志到 Loki。
+func (l *lokiLog) push(entries []logEntry) error {
 	// 构建 Loki push payload
 	// {"streams":[{"stream":{"label":"value"},"values":[["ts","line"], ...]}]}
 	values := make([][]string, len(entries))
@@ -181,7 +199,7 @@ func (l *lokiLog) flush() error {
 	payload := map[string]any{
 		"streams": []map[string]any{
 			{
-				"stream": s.labels,
+				"stream": l.s.labels,
 				"values": values,
 			},
 		},
@@ -192,16 +210,16 @@ func (l *lokiLog) flush() error {
 		return fmt.Errorf("loki: marshal payload: %w", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), s.flushTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), l.s.flushTimeout)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.endpoint, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, l.s.endpoint, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("loki: create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := s.client.Do(req)
+	resp, err := l.s.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("loki: push: %w", err)
 	}

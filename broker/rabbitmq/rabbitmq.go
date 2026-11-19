@@ -275,8 +275,15 @@ func (b *rabbitBroker) Subscribe(routingKey string, handler broker.Handler, bind
 		if binder != nil {
 			m.Body = binder()
 
+			// AR-21：解码失败不调 handler（对齐 kafka 侧口径）——零值载荷
+			// 交给业务 handler 是毒消息静默吞掉，且 AutoAck=false 时还会被
+			// ack。记错误后 nack/requeue，由重试/死信策略接管。
 			if p.err = broker.Unmarshal(b.options.Codec, msg.Body, &m.Body); p.err != nil {
 				logErrorf("unmarshal message failed: %v", p.err)
+				if !options.AutoAck {
+					_ = msg.Nack(false, requeueOnError)
+				}
+				return
 			}
 		} else {
 			m.Body = msg.Body
