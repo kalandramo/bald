@@ -314,6 +314,20 @@ func RegisterTypedSubscriber[T any](srv *Server, ctx context.Context, topic, que
 	)...)
 }
 
+// RegisterRabbitTypedSubscriber 是 rabbitmq 家族的泛型订阅糖上收（原糖无
+// queue/disableAutoAck 参数——routingKey 维度，queue 走 opts）。类型断言包装
+// 此前在两家族各一份（片 3 上收单份）。
+func RegisterRabbitTypedSubscriber[T any](srv *Server, ctx context.Context, topic string, handler func(context.Context, string, broker.Headers, *T) error, opts ...broker.SubscribeOption) error {
+	return srv.Register(ctx, topic, broker.Handler(func(ctx context.Context, event broker.Event) error {
+		switch t := event.Message().Body.(type) {
+		case *T:
+			return handler(ctx, event.Topic(), event.Message().Headers, t)
+		default:
+			return fmt.Errorf("unsupported type: %T", t)
+		}
+	}), nil, opts...)
+}
+
 // RegisterUntypedSubscriber 是非泛型形态的上收：disableAutoAck 时关自动确认。
 func RegisterUntypedSubscriber(srv *Server, ctx context.Context, topic, queue string, disableAutoAck bool, handler broker.Handler, binder broker.Binder, opts ...broker.SubscribeOption) error {
 	if disableAutoAck {
