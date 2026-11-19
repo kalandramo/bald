@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 
 	mcpserver "github.com/mark3labs/mcp-go/server"
 	"github.com/spf13/cobra"
@@ -105,8 +106,10 @@ func (c *Config) serveREST(cmd *cobra.Command, addr, baseURL string) error {
 	}
 
 	srv := &http.Server{
-		Addr:    addr,
-		Handler: handler,
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	// Graceful shutdown when the cobra command context is cancelled.

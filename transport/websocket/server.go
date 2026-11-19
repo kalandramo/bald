@@ -172,7 +172,7 @@ func (s *Server) Start(ctx context.Context) error {
 		h = s.middlewares[i](h)
 	}
 
-	httpSrv := &http.Server{Handler: h}
+	httpSrv := &http.Server{Handler: h, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 120 * time.Second}
 	httpSrv.BaseContext = func(net.Listener) context.Context { return ctx }
 
 	s.stateMu.Lock()

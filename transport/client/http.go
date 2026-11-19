@@ -20,15 +20,20 @@ type HTTPClient struct {
 // HTTPOption 配置 NewHTTP 的行为。
 type HTTPOption func(*httpConfig)
 
+// defaultHTTPTimeout 是出站 HTTP 的框架默认超时（AR-15/J3）。
+const defaultHTTPTimeout = 30 * time.Second
+
 type httpConfig struct {
-	timeout   time.Duration
-	transport http.RoundTripper
+	timeout time.Duration
+	// timeoutSet 区分「显式配 0」（尊重，不设超时）与「未配置」（走默认）。
+	timeoutSet bool
+	transport  http.RoundTripper
 }
 
 // WithClientTimeout 设置单次请求（连接 + 重定向 + 读完响应体）的上限。
 // 0 表示不设置。
 func WithClientTimeout(d time.Duration) HTTPOption {
-	return func(c *httpConfig) { c.timeout = d }
+	return func(c *httpConfig) { c.timeout = d; c.timeoutSet = true }
 }
 
 // WithTransport 替换底层 RoundTripper（TLS、代理、测试桩都走这条线）。
@@ -65,8 +70,13 @@ func NewHTTP(baseURL string, opts ...HTTPOption) (*HTTPClient, error) {
 	if c.transport != nil {
 		hc.Transport = c.transport
 	}
+	// AR-15（J3）：出站客户端必须有默认超时——对端不响应就一直挂住的出站
+	// 调用没有任何治理面兜底。契约未配置 timeout 时给 30s 框架默认；显式
+	// 配置（含显式 0）仍按契约值走。
 	if c.timeout > 0 {
 		hc.Timeout = c.timeout
+	} else if !c.timeoutSet {
+		hc.Timeout = defaultHTTPTimeout
 	}
 	return &HTTPClient{Client: hc, BaseURL: strings.TrimSuffix(baseURL, "/")}, nil
 }

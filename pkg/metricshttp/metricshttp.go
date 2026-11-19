@@ -13,6 +13,7 @@ package metricshttp
 import (
 	"context"
 	"net/http"
+	"time"
 
 	log "github.com/kalandramo/bald/log"
 )
@@ -42,7 +43,7 @@ func Start(addr, path string, h http.Handler) *Server {
 	}
 	mux := http.NewServeMux()
 	mux.Handle(path, h)
-	srv := &http.Server{Addr: addr, Handler: mux}
+	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 120 * time.Second}
 	s := &Server{srv: srv}
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {

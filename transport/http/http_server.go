@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"sync"
+	"time"
 
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
 	"github.com/kalandramo/bald/bconf/tlsconf"
@@ -40,9 +41,17 @@ func NewHTTPServer(cfg *bootstrapv1.Server_Http, handler http.Handler) *HTTPServ
 	if handler == nil {
 		handler = http.NotFoundHandler()
 	}
+	// AR-16：构造期默认读头/空闲超时——slowloris（逐字节发请求头）与空闲
+	// keep-alive 连接此前可无限占用 goroutine 与 fd（gin Timeout 只管 handler
+	// 阶段，管不到读头）。10s 读头 / 120s 空闲是 nginx 系默认量级。
 	return &HTTPServer{
-		Server: &http.Server{Addr: cfg.GetAddr(), Handler: handler},
-		cfg:    cfg,
+		Server: &http.Server{
+			Addr:              cfg.GetAddr(),
+			Handler:           handler,
+			ReadHeaderTimeout: 10 * time.Second,
+			IdleTimeout:       120 * time.Second,
+		},
+		cfg: cfg,
 	}
 }
 

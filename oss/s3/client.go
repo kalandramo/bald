@@ -5,8 +5,10 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/http"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
@@ -50,6 +52,9 @@ func NewClient(cfg *Config) *awss3.Client {
 		if endpoint != "" {
 			o.BaseEndpoint = aws.String(endpoint)
 		}
+		// AR-15（J3）：S3 出站客户端默认 30s 超时——SDK 默认无超时，对端
+		// 不响应时GetObject/PutObject 挂满调用方 ctx（往往没有显式 deadline）。
+		o.HTTPClient = &http.Client{Timeout: 30 * time.Second}
 	})
 }
 

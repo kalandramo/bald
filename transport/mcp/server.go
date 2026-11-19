@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 
@@ -172,7 +173,7 @@ func (s *Server) Start(ctx context.Context) error {
 			handler = s.middlewares[i](handler)
 		}
 
-		httpSrv := &http.Server{Handler: handler}
+		httpSrv := &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 120 * time.Second}
 
 		s.mu.Lock()
 		s.ln = ln
