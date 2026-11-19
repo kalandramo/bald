@@ -500,10 +500,10 @@ jobs:
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
           (cd _example/bald && golangci-lint run ./...)
 
-      - name: govulncheck（示例 module；AR-24 与 lint 同步覆盖）
+      - name: govulncheck（示例 module；AR-24 与 lint 同步覆盖。注意 _example/bald 是独立 module，必须在 module 内跑——仓库根视角的 pattern 会报 directory prefix 错误）
         run: |
           set -e
-          go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./_example/bald/...
+          (cd _example/bald && go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...)
 
       - name: 示例套件（三态构建，逐条判据留档）
         run: |
