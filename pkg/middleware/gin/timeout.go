@@ -87,11 +87,13 @@ func Timeout(cfg TimeoutConfig) gin.HandlerFunc {
 		}
 		c.Writer = bw
 
-		// AR-13（安全半版）：handler 的 ctx 带超时 deadline——能感知 ctx 的
-		// handler 在超时点自行返回，响应随之中结（此前 ctx 永不取消，超时完全
-		// 依赖本中间件的重写 503）。「503 后立即返回」的另一半需要 goroutine
-		// 安全的 gin.Context 克隆（gin 复用池与超时后仍在跑的 handler 竞争同一
-		// 份 Context），涉及响应生命周期重构，见 AR-13 遗留注记。
+		// AR-13：handler 的 ctx 带超时 deadline——能感知 ctx 的 handler 在
+		// 超时点自行返回，响应随之中结（此前 ctx 永不取消，超时完全依赖本
+		// 中间件的重写 503）。「503 后立即返回」的早返回半版经评审正式关闭
+		// （gin v1.12 Copy() 置空 handlers+ResponseWriter，副本不能跑 handler
+		// 链；gin 池化复用与超时后仍在跑的 handler 竞争同一份 Context——gin
+		// 架构约束，无安全实现）。不感知 ctx 的 handler 拖长响应体关闭是
+		// 已知残留，影响是时延而非正确性。
 		timeoutCtx, cancelTimeoutCtx := context.WithTimeout(c.Request.Context(), timeout)
 		defer cancelTimeoutCtx()
 		c.Request = c.Request.WithContext(timeoutCtx)
