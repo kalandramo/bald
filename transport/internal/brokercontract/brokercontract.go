@@ -98,3 +98,56 @@ func (f Factory[OPT]) buildOpts(sec Segment) ([]OPT, error) {
 	}
 	return opts, nil
 }
+
+// Contract 是家族 contract 包的泛型骨架（片 3）：把 Option/providerConfig/
+// WithServerOptions/WithAfterBuild/Provider 五件套上收为单份——两家族只剩
+// Type 常量、骨架实例与一行薄包装。SRV 是家族 Server 具体类型（*kafka.Server），
+// OPT 是家族 ServerOption 类型。
+type Contract[SRV any, OPT any] struct {
+	Factory Factory[OPT]
+	// Kind2 是段路径名词（"server.kafka" / "server.rabbitmq"），与 Factory.Key 同值。
+	// Factory.Key 是错误消息前缀（不带 server. 前缀）。
+	SegmentPath string
+}
+
+// Option 是骨架化的家族契约选项（WithServerOptions/WithAfterBuild 的共同底座）。
+type Option[SRV any, OPT any] func(*contractConfig[SRV, OPT])
+
+type contractConfig[SRV any, OPT any] struct {
+	serverOpts []OPT
+	afterBuild []func(context.Context, SRV) error
+}
+
+// WithServerOptions 追加家族 ServerOption（契约段表达不了的能力）。
+func (c Contract[SRV, OPT]) WithServerOptions(opts ...OPT) Option[SRV, OPT] {
+	return func(cc *contractConfig[SRV, OPT]) { cc.serverOpts = append(cc.serverOpts, opts...) }
+}
+
+// WithAfterBuild 注册「server 构造后」的回调（早于 appkit 的 Start）。
+func (c Contract[SRV, OPT]) WithAfterBuild(fn func(context.Context, SRV) error) Option[SRV, OPT] {
+	return func(cc *contractConfig[SRV, OPT]) { cc.afterBuild = append(cc.afterBuild, fn) }
+}
+
+// Provider 返回契约驱动的工厂函数（家族 contract 包的 Provider 薄壳委派到此）：
+// opts 依次作用于闭包内 config，家族强类型 afterBuild 经 SRV 断言适配为
+// transport.Server 面后委派 Factory.Build（序列本体见上）。
+func (c Contract[SRV, OPT]) Provider(opts ...Option[SRV, OPT]) func(context.Context, *bootstrapv1.Server) (transport.Server, func(), error) {
+	return func(ctx context.Context, cfg *bootstrapv1.Server) (transport.Server, func(), error) {
+		cc := &contractConfig[SRV, OPT]{}
+		for _, o := range opts {
+			o(cc)
+		}
+		afterBuild := make([]func(context.Context, transport.Server) error, 0, len(cc.afterBuild))
+		for _, fn := range cc.afterBuild {
+			fn := fn
+			afterBuild = append(afterBuild, func(ctx context.Context, ts transport.Server) error {
+				srv, ok := ts.(SRV)
+				if !ok {
+					return fmt.Errorf("%s: after-build got %T, want %T", c.Factory.Kind, ts, srv)
+				}
+				return fn(ctx, srv)
+			})
+		}
+		return c.Factory.Build(ctx, cfg, cc.serverOpts, afterBuild)
+	}
+}

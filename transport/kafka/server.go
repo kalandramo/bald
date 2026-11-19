@@ -2,7 +2,6 @@ package kafka
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/kalandramo/bald/broker"
 	"github.com/kalandramo/bald/broker/kafka"
@@ -48,15 +47,10 @@ func NewServer(opts ...ServerOption) *Server {
 // @param queue 订阅的分组
 // @param handler 订阅者的处理函数
 func (s *Server) RegisterSubscriber(ctx context.Context, topic, queue string, disableAutoAck bool, handler broker.Handler, binder broker.Binder, opts ...broker.SubscribeOption) error {
-	//var subscribeOptions []broker.SubscribeOption
-	opts = append(opts, broker.WithSubscribeQueueName(queue))
-	if disableAutoAck {
-		opts = append(opts, broker.WithSubscribeAutoAck(false))
-	}
-
-	return s.Register(ctx, topic, handler, binder, opts...)
+	return brokertype.RegisterUntypedSubscriber(s.Server, ctx, topic, queue, disableAutoAck, handler, binder, opts...)
 }
 
+// RegisterSubscriber 泛型糖：类型断言包装已上收 brokertype（片 3），家族壳保留一行委托。
 func RegisterSubscriber[T any](
 	srv *Server,
 	ctx context.Context,
@@ -65,25 +59,5 @@ func RegisterSubscriber[T any](
 	handler broker.TypedHandler[T],
 	opts ...broker.SubscribeOption,
 ) error {
-	return srv.RegisterSubscriber(ctx,
-		topic,
-		queue,
-		disableAutoAck,
-		func(ctx context.Context, event broker.Event) error {
-			switch t := event.Message().Body.(type) {
-			case *T:
-				if err := handler(ctx, event.Topic(), event.Message().Headers, t); err != nil {
-					return err
-				}
-			default:
-				return fmt.Errorf("unsupported type: %T", t)
-			}
-			return nil
-		},
-		func() any {
-			var t T
-			return &t
-		},
-		opts...,
-	)
+	return brokertype.RegisterTypedSubscriber(srv.Server, ctx, topic, queue, disableAutoAck, handler, opts...)
 }

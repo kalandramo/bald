@@ -291,3 +291,33 @@ func (s *Server) logWarnf(format string, args ...any) {
 func (s *Server) logErrorf(format string, args ...any) {
 	log.Error(nil, fmt.Sprintf("[%s] %s", s.fam.Kind, fmt.Sprintf(format, args...)))
 }
+
+// RegisterTypedSubscriber 是两家族壳的泛型订阅糖上收（片 3）：此前
+// RegisterSubscriber[T] 的类型断言包装在 kafka/rabbitmq 各一份逐行克隆。
+// 家族壳保留一行委托（保持各自 API 形状），逻辑单份住这里。
+func RegisterTypedSubscriber[T any](srv *Server, ctx context.Context, topic, queue string, disableAutoAck bool, handler broker.TypedHandler[T], opts ...broker.SubscribeOption) error {
+	if disableAutoAck {
+		opts = append(opts, broker.WithSubscribeAutoAck(false))
+	}
+	return srv.Register(ctx, topic, broker.Handler(func(ctx context.Context, event broker.Event) error {
+		switch t := event.Message().Body.(type) {
+		case *T:
+			return handler(ctx, event.Topic(), event.Message().Headers, t)
+		default:
+			return fmt.Errorf("unsupported type: %T", t)
+		}
+	}), func() any {
+		var t T
+		return &t
+	}, append(opts,
+		broker.WithSubscribeQueueName(queue),
+	)...)
+}
+
+// RegisterUntypedSubscriber 是非泛型形态的上收：disableAutoAck 时关自动确认。
+func RegisterUntypedSubscriber(srv *Server, ctx context.Context, topic, queue string, disableAutoAck bool, handler broker.Handler, binder broker.Binder, opts ...broker.SubscribeOption) error {
+	if disableAutoAck {
+		opts = append(opts, broker.WithSubscribeAutoAck(false))
+	}
+	return srv.Register(ctx, topic, handler, binder, opts...)
+}

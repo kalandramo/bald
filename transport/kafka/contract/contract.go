@@ -37,15 +37,9 @@ import (
 const Type = "kafka"
 
 // Option 配置本 Provider 的行为（非 Kafka 服务器的 Option——那是 kafka.ServerOption）。
-type Option func(*providerConfig)
-
-type providerConfig struct {
-	// serverOpts 是「server 构造前」应用的 kafka.ServerOption（如 TLS、SASL、metrics、自定义 Broker）。
-	serverOpts []kafka.ServerOption
-	// afterBuild 是「server 构造后」执行的回调（如业务侧接线：注册消息处理器）。
-	// 返回 error 则装配失败并短路。
-	afterBuild []func(context.Context, *kafka.Server) error
-}
+// 片 3：类型别名指向 kernel 泛型骨架——Option/providerConfig/Provider 五件套
+// 此前与 rabbitmq 逐行克隆（度量口径 125 归一化重复行），已上收单份。
+type Option = brokercontract.Option[*kafka.Server, kafka.ServerOption]
 
 // WithServerOptions 追加 kafka.ServerOption——覆盖契约段表达不了的能力。
 //
@@ -53,7 +47,7 @@ type providerConfig struct {
 // metrics、自定义 Broker 等）。追加项在契约字段**之后**应用，故可覆盖契约值
 // ——broker.Options.Apply 末者胜，所以业务 WithAddress 会顶掉契约 addrs。
 func WithServerOptions(opts ...kafka.ServerOption) Option {
-	return func(c *providerConfig) { c.serverOpts = append(c.serverOpts, opts...) }
+	return contractSkeleton().WithServerOptions(opts...)
 }
 
 // WithAfterBuild 注册「server 构造后」的回调，用于业务侧接线。
@@ -63,13 +57,11 @@ func WithServerOptions(opts ...kafka.ServerOption) Option {
 // Start 之后（RegisterSubscriber 走 live Subscribe 通道）；这里执行只保证
 // 「段存在 → 消费者的确登记上了」。
 func WithAfterBuild(fn func(context.Context, *kafka.Server) error) Option {
-	return func(c *providerConfig) { c.afterBuild = append(c.afterBuild, fn) }
+	return contractSkeleton().WithAfterBuild(fn)
 }
 
-// Provider 返回契约驱动的 Kafka 工厂函数。
-//
-// 返回**未命名函数类型**——调用方在 server.kafka 段 Provider 的 Build 中直接
-// 调用，无需显式类型转换，本包也不必 import bootstrap。
+// Provider 返回契约驱动的 Kafka 工厂函数（返回**未命名函数类型**，调用方在
+// server.kafka 段 Provider 的 Build 中直接调用）。
 //
 // **addrs 必填且每一项非空**：段存在但 addrs 为空或含空串时 fail-fast——
 // broker/kafka 的 Init 会把两者都归一成 `defaultAddr = "127.0.0.1:9092"`
@@ -84,20 +76,14 @@ func WithAfterBuild(fn func(context.Context, *kafka.Server) error) Option {
 // 的服务器段不同）。TLS 与 SASL 只能经 WithServerOptions 注入——这与契约形状一致，
 // 不是缺口（见风险评审 §7.28 第三批条）。
 func Provider(opts ...Option) func(context.Context, *bootstrapv1.Server) (transport.Server, func(), error) {
-	c := &providerConfig{}
-	for _, o := range opts {
-		o(c)
-	}
-	// 家族类型面 → kernel 的 transport.Server 面：NewServer 产物即 *kafka.Server，
-	// 断言恒成立（adapter 的 afterBuild 通道是统一形状）。
-	afterBuild := make([]func(context.Context, transport.Server) error, 0, len(c.afterBuild))
-	for _, fn := range c.afterBuild {
-		afterBuild = append(afterBuild, func(ctx context.Context, srv transport.Server) error {
-			return fn(ctx, srv.(*kafka.Server))
-		})
-	}
-	return func(ctx context.Context, cfg *bootstrapv1.Server) (transport.Server, func(), error) {
-		return factory().Build(ctx, cfg, c.serverOpts, afterBuild)
+	return contractSkeleton().Provider(opts...)
+}
+
+// contractSkeleton 是本家族的 kernel 骨架实例（Factory 与段路径在此定点）。
+func contractSkeleton() brokercontract.Contract[*kafka.Server, kafka.ServerOption] {
+	return brokercontract.Contract[*kafka.Server, kafka.ServerOption]{
+		Factory:     factory(),
+		SegmentPath: "server.kafka",
 	}
 }
 

@@ -2,7 +2,6 @@ package rabbitmq
 
 import (
 	"context"
-	"fmt"
 	"net/url"
 
 	"github.com/kalandramo/bald/broker"
@@ -55,23 +54,18 @@ func NewServer(opts ...ServerOption) *Server {
 }
 
 // RegisterSubscriber 注册一个订阅者（routingKey 维度）。
-func (s *Server) RegisterSubscriber(ctx context.Context, routingKey string, handler broker.Handler, binder broker.Binder, opts ...broker.SubscribeOption) error {
-	return s.Register(ctx, routingKey, handler, binder, opts...)
+func (s *Server) RegisterSubscriber(ctx context.Context, topic, queue string, disableAutoAck bool, handler broker.Handler, binder broker.Binder, opts ...broker.SubscribeOption) error {
+	return brokertype.RegisterUntypedSubscriber(s.Server, ctx, topic, queue, disableAutoAck, handler, binder, opts...)
 }
 
-func RegisterSubscriber[T any](srv *Server, ctx context.Context, topic string, handler func(context.Context, string, broker.Headers, *T) error, opts ...broker.SubscribeOption) error {
-	return srv.RegisterSubscriber(ctx, topic, func(ctx context.Context, event broker.Event) error {
-		switch t := event.Message().Body.(type) {
-		case *T:
-			if err := handler(ctx, event.Topic(), event.Message().Headers, t); err != nil {
-				return err
-			}
-		default:
-			return fmt.Errorf("unsupported type: %T", t)
-		}
-		return nil
-	}, func() any {
-		var t T
-		return &t
-	}, opts...)
+// RegisterSubscriber 泛型糖：类型断言包装已上收 brokertype（片 3），家族壳保留一行委托。
+func RegisterSubscriber[T any](
+	srv *Server,
+	ctx context.Context,
+	topic, queue string,
+	disableAutoAck bool,
+	handler broker.TypedHandler[T],
+	opts ...broker.SubscribeOption,
+) error {
+	return brokertype.RegisterTypedSubscriber(srv.Server, ctx, topic, queue, disableAutoAck, handler, opts...)
 }

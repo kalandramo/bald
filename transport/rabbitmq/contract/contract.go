@@ -39,17 +39,9 @@ import (
 const Type = "rabbitmq"
 
 // Option 配置本 Provider 的行为（非 RabbitMQ 服务器的 Option——那是
-// rabbitmq.ServerOption）。
-type Option func(*providerConfig)
-
-type providerConfig struct {
-	// serverOpts 是「server 构造前」应用的 rabbitmq.ServerOption（如 exchange、
-	// TLS、外部鉴权、metrics）。
-	serverOpts []rabbitmq.ServerOption
-	// afterBuild 是「server 构造后」执行的回调（如业务侧接线：注册消息处理器）。
-	// 返回 error 则装配失败并短路。
-	afterBuild []func(context.Context, *rabbitmq.Server) error
-}
+// rabbitmq.ServerOption）。片 3：类型别名指向 kernel 泛型骨架（与 kafka 侧
+// 同款上收，125 归一化重复行消解）。
+type Option = brokercontract.Option[*rabbitmq.Server, rabbitmq.ServerOption]
 
 // WithServerOptions 追加 rabbitmq.ServerOption——覆盖契约段表达不了的能力。
 //
@@ -57,7 +49,7 @@ type providerConfig struct {
 // TLS、metrics 等）。追加项在契约字段**之后**应用，故可覆盖契约值——
 // broker.Options.Apply 末者胜，业务 WithAddress 会顶掉契约 addrs。
 func WithServerOptions(opts ...rabbitmq.ServerOption) Option {
-	return func(c *providerConfig) { c.serverOpts = append(c.serverOpts, opts...) }
+	return contractSkeleton().WithServerOptions(opts...)
 }
 
 // WithAfterBuild 注册「server 构造后」的回调，用于业务侧接线。
@@ -67,13 +59,11 @@ func WithServerOptions(opts ...rabbitmq.ServerOption) Option {
 // Start 的 flush，而 flush 排在 Connect 之后——离线（Connect 握手必红）时
 // deferred map 不会被消费，「登记的订阅递进 SDK」属真集群判据。
 func WithAfterBuild(fn func(context.Context, *rabbitmq.Server) error) Option {
-	return func(c *providerConfig) { c.afterBuild = append(c.afterBuild, fn) }
+	return contractSkeleton().WithAfterBuild(fn)
 }
 
-// Provider 返回契约驱动的 RabbitMQ 工厂函数。
-//
-// 返回**未命名函数类型**——调用方在 server.rabbitmq 段 Provider 的 Build 中
-// 直接调用，无需显式类型转换，本包也不必 import bootstrap。
+// Provider 返回契约驱动的 RabbitMQ 工厂函数（返回**未命名函数类型**，调用方在
+// server.rabbitmq 段 Provider 的 Build 中直接调用）。
 //
 // **addrs 必填**：段存在而地址为空（或全部为空串元素）时 fail-fast——
 // broker 的 Init 会丢弃空元素并整体兜底到内置默认 amqp://guest:guest@
@@ -83,20 +73,14 @@ func WithAfterBuild(fn func(context.Context, *rabbitmq.Server) error) Option {
 // **codec 未注册即报错**：broker.WithCodec 对未注册的名字静默置 nil，首条
 // marshal 才炸 errNoCodec；契约字段非空即查注册表，装配期报错比首包诚实。
 func Provider(opts ...Option) func(context.Context, *bootstrapv1.Server) (transport.Server, func(), error) {
-	c := &providerConfig{}
-	for _, o := range opts {
-		o(c)
-	}
-	// 家族类型面 → kernel 的 transport.Server 面：NewServer 产物即
-	// *rabbitmq.Server，断言恒成立（adapter 的 afterBuild 通道是统一形状）。
-	afterBuild := make([]func(context.Context, transport.Server) error, 0, len(c.afterBuild))
-	for _, fn := range c.afterBuild {
-		afterBuild = append(afterBuild, func(ctx context.Context, srv transport.Server) error {
-			return fn(ctx, srv.(*rabbitmq.Server))
-		})
-	}
-	return func(ctx context.Context, cfg *bootstrapv1.Server) (transport.Server, func(), error) {
-		return factory().Build(ctx, cfg, c.serverOpts, afterBuild)
+	return contractSkeleton().Provider(opts...)
+}
+
+// contractSkeleton 是本家族的 kernel 骨架实例（Factory 与段路径在此定点）。
+func contractSkeleton() brokercontract.Contract[*rabbitmq.Server, rabbitmq.ServerOption] {
+	return brokercontract.Contract[*rabbitmq.Server, rabbitmq.ServerOption]{
+		Factory:     factory(),
+		SegmentPath: "server.rabbitmq",
 	}
 }
 
