@@ -103,17 +103,18 @@ func (sm *SubscriberSyncMap) Remove(topic string) error {
 	return sub.Unsubscribe(true)
 }
 
-// RemoveOnly removes a Subscriber from the map without unsubscribing it
-func (sm *SubscriberSyncMap) RemoveOnly(topic string) bool {
+// RemoveOnly removes a Subscriber from the map without unsubscribing it.
+// AR-30：按 topic+身份双重校验——旧订阅者的迟到 Unsubscribe 不得删除
+// 后来者新注册的同 topic 条目（churn 场景的覆盖竞争）。
+func (sm *SubscriberSyncMap) RemoveOnly(topic string, sub Subscriber) bool {
 	sm.Lock()
 	defer sm.Unlock()
 
-	if _, ok := sm.m[topic]; ok {
+	if cur, ok := sm.m[topic]; ok && cur == sub {
 		delete(sm.m, topic)
 		return true
-	} else {
-		return false
 	}
+	return false
 }
 
 // Clear clears all Subscribers from the map and unsubscribes them

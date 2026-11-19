@@ -88,8 +88,8 @@ func TestSubscriberSyncMap_BasicOperations(t *testing.T) {
 		t.Fatalf("modifying GetAll copy affected original map")
 	}
 
-	// RemoveOnly
-	ok := sm.RemoveOnly("a")
+	// RemoveOnly（身份匹配才删——AR-30）
+	ok := sm.RemoveOnly("a", s1)
 	if !ok {
 		t.Fatalf("RemoveOnly(a) should return true")
 	}
@@ -211,3 +211,10 @@ func indexOf(s, sub string) int {
 	}
 	return -1
 }
+
+// stubSub 是 RemoveOnly 身份校验用的最小 Subscriber 桩。
+type stubSub struct{ topic string }
+
+func (s *stubSub) Topic() string                            { return s.topic }
+func (s *stubSub) Options() SubscribeOptions              { return SubscribeOptions{} }
+func (s *stubSub) Unsubscribe(removeFromManager bool) error { return nil }

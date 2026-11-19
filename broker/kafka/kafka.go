@@ -413,7 +413,13 @@ func (b *kafkaBroker) publishMultipleWriter(ctx context.Context, topic string, m
 		switch cached {
 		case false:
 			if shouldRetryFreshWriter(err) {
-				time.Sleep(200 * time.Millisecond)
+				// AR-30：退避等待随 ctx 取消中断（此前 time.Sleep 不看 ctx，
+				// 停机时发布卡 200ms）。
+				select {
+				case <-time.After(200 * time.Millisecond):
+				case <-options.Context.Done():
+					return options.Context.Err()
+				}
 				err = writer.WriteMessages(options.Context, kMsg)
 			}
 		case true:
@@ -501,7 +507,11 @@ func (b *kafkaBroker) publishOneWriter(ctx context.Context, topic string, msg *b
 		switch cached {
 		case false:
 			if shouldRetryFreshWriter(err) {
-				time.Sleep(200 * time.Millisecond)
+				select {
+				case <-time.After(200 * time.Millisecond):
+				case <-options.Context.Done():
+					return options.Context.Err()
+				}
 				err = writer.WriteMessages(options.Context, kMsg)
 			}
 
@@ -610,8 +620,12 @@ func (b *kafkaBroker) Subscribe(
 		readerConfig.Dialer = value
 	}
 	if value, ok := b.options.Context.Value(dialerTimeoutKey{}).(time.Duration); ok {
+		// AR-30：克隆 Dialer 再改 Timeout——此前改写的是共享 Dialer 实例，
+		// 多个订阅各自设置互相覆盖。
 		if readerConfig.Dialer != nil {
-			readerConfig.Dialer.Timeout = value
+			d := *readerConfig.Dialer
+			d.Timeout = value
+			readerConfig.Dialer = &d
 		}
 	}
 
