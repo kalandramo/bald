@@ -168,4 +168,5 @@ replace github.com/kalandramo/bald/log => ../../log
 replace github.com/kalandramo/bald/registry => ../../registry
 
 replace github.com/kalandramo/bald/transport => ../../transport
+
 replace github.com/kalandramo/bald/bootstrap => ../../bootstrap
