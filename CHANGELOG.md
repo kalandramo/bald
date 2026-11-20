@@ -4,6 +4,360 @@
 条目取自该版本区间内的提交标题（Conventional Commits），不要手工调整顺序。
 发布流程见 [多模块发布与变更日志](docs/devel/zh-CN/多模块发布与变更日志.md)。
 
+## 2026-11-20
+
+### bald v0.56.1
+
+- `da90f78c` docs(ar): dup-clone 目标 130→290（用户决策，与分层边界数学冲突的结构下限）+ AR-13 早返回半版正式关闭登记（gin Copy 架构约束）
+- `23431c3c` fix(ci): example govulncheck 改在 _example/bald module 内跑——仓库根视角的 pattern 对独立 module 报 directory prefix 错误（CI example job 失败根因之二）
+- `a24cd888` test(ar-batch5): audit-stream BufferFullFallsBack 改钉 AR-31 后语义——Close 后 Record 全走 fallback（不丢事件），两事件按序保留
+- `cce4a735` fix(go.mod): 下游 module 补 sibling replace 修模块图断裂（批次 4 副作用）——pkg/appkit 对 bootstrap/config 新增导出（LocalFile/DiscoverLocalFile）后，require published v0.13.8 的 16 个下游构建图里新 API 缺失，GOWORK=off 的发布形态门禁（task lint/race/vuln 与 CI lint）必然判红。按仓库 372 条相对路径 replace 惯例补齐：require bootstrap 的 16 module + circuitbreaker 的 2 module（批次 3 cb.IsFailureError 同因），深度逐 module 校正（1/2/3 级目录）。发版后由 bald release 统一收口
+- `92605e7b` docs: 节点熔断设计.md 补 AR-7/AR-18 口径——Registry 归属契约与 DoneInfo 分类（批次 3 审阅 B2 遗留的未提交部分）
+- `65341f61` chore: 全仓 re-tidy 对齐 transport kernel 依赖图 + 删 rabbitmq 测试桩 unused 方法（CI #651 test/lint 闸门收尾）
+- `11075cbf` chore(dev): 项 1 判据与度量落账——dup-clone 指标定义（归一化重复行，基线 496→片1 后 320，目标 130）
+- `49f3b4ad` docs(architecture): 补提交 architecture-review-20261118 评审文档本体——README 索引已挂链接而文件未入库，docscheck 死链判红（AR 批次收尾）
+- `6398e861` docs: architecture-review-20261118 挂入 README 索引（AR-1…31 评审首版）
+- `b14c53e7` fix(retry): 默认抖动改为 FullJitter，修正文档承诺与默认行为的分裂
+- `22c91c3c` fix(docscheck): 包集合判据补上 cli/internal/fsatomic（上游 79b899a5 遗留）
+- `d2a47530` chore(deps): 清理根 module 惰性 replace——log/charm、log/sentry 目录不存在，ratelimit 指向机器特定绝对路径；三者均无 require 对应，pkg 自带相对 replace 不受影响
+- `4662bed0` chore(dev): 架构分析 5 轮收尾账本（REPORT/smell/run.json 判据全闭合）
+- `1ccd5c03` dev(round 1): broker/transport 崩溃级并发缺陷修复：kafka 解锁裸读 writer、批量订阅 NewTicker(0) panic、rabbitmq waitConnection 双重 close 与无锁字段写、transport Stop 无锁改订阅映射（真实 crash 复现后修复） [ns_per_op=NA]
+
+### bconf v0.29.0
+
+- `8fb78569` feat(ar-16): server.proto Http 段扩展 read_header_timeout/idle_timeout/max_body_bytes 契约字段 + transport/http 接线（未配置走构造期默认 10s/120s/不设上限）——buf 本地插件重派生，契约与实现单一来源；client.proto timeout 注释同步 AR-15 默认语义
+- `0c26e3e1` fix(bconf): buf.sha256 表补齐 v1.72.0 资产哈希——a41c961e 升级 pin 漏改本表
+- `5416f5bd` test: 时长契约两面钉全——bootstrap 对齐拒绝面 + bconf 穷举补盲
+- `f13309eb` feat(middleware): 接线 timeout.max_buffer_bytes 契约并钉住防漂移
+- `a41c961e` chore(bconf): buf pin 1.57.2 → 1.72.0（生成物字节零漂移）
+- `6b6952b8` fix(bconf): 契约装载 fail-closed 收口三连——裸数字时长拒绝（J5，此前 stop_timeout:30 静默落 30ns）、tlsconf file+config 同设报错（此前按 switch 顺序静默取 file）、repeated Duration 列表元素与单数同款 coercion（此前整列透传复活 singular 已修 bug）；复现测试红转绿
+- `f3090fd1` dev(round 5): bconf 7 份复制 flag setter 收敛为单一泛型 scalarSetter（J2）：行为逐字节不变（Type/String/Set 全走 pflag Value 接口回归），alloc guard 基线不退化，cov:excl 整块豁免语义经 coverage-merge 实测成立 [ns_per_op=NA]
+
+### bconfig v0.2.5
+
+- `0b36b04d` fix(windows): 跨平台路径语义收口——domainDir 恒定 slash、ReadDir/Stat 前置判型（Windows 静默空不再吞错）、no-panic/logging 豁免前缀 ToSlash（Windows 假阳性）、插件 exec 用 go 替代 /bin/echo、CWD 删除类测试按平台能力跳过
+- `45f58eb3` chore(release): 发布 19 个模块——bald v0.56.0 / cli v0.14.0 / bconf v0.28.1 / pkg v0.16.1 等
+
+### bootstrap v0.13.9
+
+- `588a796e` review(ar-batch4): blocking 落地——AR-3 的 pin 改条件式（仅当正式装载按自身规则发现不到文件时才复用预装载路径），Name-Env 多环境文件布局的发现路由恢复原状（无条件 pin 会把 prod 覆盖静默关掉）；LocalFile/Settings 文档块拆分；发现轴序说明；AR-12 负载不变量与遗留冻结（effect/component 预算）注记；compileDecl 两遍口径注记
+- `78f397ee` fix(appkit): 配置两遍装载同源 + 身份字段解冻（AR-3/AR-12）——discoverLocalFile 补注释承诺的 Name.yaml 回退（此前 Env 非空时只找 Name-Env，预装载按 Name 找到的文件正式装载找不到，运行期 Settings() 为空且不受 watch）；Store.LocalFile() 暴露发现路径，预装载透传给正式装载（两遍同源）；身份 id/version/stop_timeout 在 BeforeStart 首次同步后从最终契约刷新（预装载无 env/flag/remote 层，注册中心实例 version 与停机预算此前冻结在旧值，J9）。发现规则与刷新语义测试钉住
+- `65341f61` chore: 全仓 re-tidy 对齐 transport kernel 依赖图 + 删 rabbitmq 测试桩 unused 方法（CI #651 test/lint 闸门收尾）
+- `5416f5bd` test: 时长契约两面钉全——bootstrap 对齐拒绝面 + bconf 穷举补盲
+- `0b36b04d` fix(windows): 跨平台路径语义收口——domainDir 恒定 slash、ReadDir/Stat 前置判型（Windows 静默空不再吞错）、no-panic/logging 豁免前缀 ToSlash（Windows 假阳性）、插件 exec 用 go 替代 /bin/echo、CWD 删除类测试按平台能力跳过
+- `45f58eb3` chore(release): 发布 19 个模块——bald v0.56.0 / cli v0.14.0 / bconf v0.28.1 / pkg v0.16.1 等
+
+### broker v0.4.2
+
+- `a24cd888` test(ar-batch5): audit-stream BufferFullFallsBack 改钉 AR-31 后语义——Close 后 Record 全走 fallback（不丢事件），两事件按序保留
+- `870a8e71` fix(broker): AR-30 缺陷群——SubscriberSyncMap.RemoveOnly 按 topic+身份双校验（旧订阅者迟到 Unsubscribe 不删新条目，broker+rabbitmq+kafka 三调用方同改）；kafka 退避 Sleep 随 ctx 取消（两处发布路径）、Subscribe 克隆 Dialer 再改 Timeout（不再互相覆盖共享实例）；rabbitmq 重连退避随 close 中断（Close 后不再无限重拨）；etcd watcher reWatch 加 mu 防置换竞争
+
+### broker/kafka v0.3.2
+
+- `870a8e71` fix(broker): AR-30 缺陷群——SubscriberSyncMap.RemoveOnly 按 topic+身份双校验（旧订阅者迟到 Unsubscribe 不删新条目，broker+rabbitmq+kafka 三调用方同改）；kafka 退避 Sleep 随 ctx 取消（两处发布路径）、Subscribe 克隆 Dialer 再改 Timeout（不再互相覆盖共享实例）；rabbitmq 重连退避随 close 中断（Close 后不再无限重拨）；etcd watcher reWatch 加 mu 防置换竞争
+- `cce4a735` fix(go.mod): 下游 module 补 sibling replace 修模块图断裂（批次 4 副作用）——pkg/appkit 对 bootstrap/config 新增导出（LocalFile/DiscoverLocalFile）后，require published v0.13.8 的 16 个下游构建图里新 API 缺失，GOWORK=off 的发布形态门禁（task lint/race/vuln 与 CI lint）必然判红。按仓库 372 条相对路径 replace 惯例补齐：require bootstrap 的 16 module + circuitbreaker 的 2 module（批次 3 cb.IsFailureError 同因），深度逐 module 校正（1/2/3 级目录）。发版后由 bald release 统一收口
+- `1ccd5c03` dev(round 1): broker/transport 崩溃级并发缺陷修复：kafka 解锁裸读 writer、批量订阅 NewTicker(0) panic、rabbitmq waitConnection 双重 close 与无锁字段写、transport Stop 无锁改订阅映射（真实 crash 复现后修复） [ns_per_op=NA]
+
+### broker/rabbitmq v0.2.4
+
+- `870a8e71` fix(broker): AR-30 缺陷群——SubscriberSyncMap.RemoveOnly 按 topic+身份双校验（旧订阅者迟到 Unsubscribe 不删新条目，broker+rabbitmq+kafka 三调用方同改）；kafka 退避 Sleep 随 ctx 取消（两处发布路径）、Subscribe 克隆 Dialer 再改 Timeout（不再互相覆盖共享实例）；rabbitmq 重连退避随 close 中断（Close 后不再无限重拨）；etcd watcher reWatch 加 mu 防置换竞争
+- `7cf1428a` fix(batch7): AR-19/20/21/26/27/28/29/31——hedge 节流期 1/8 探针防永久失效；rabbitmq 解码失败不调 handler + nack（AR-21 毒消息对齐 kafka 口径，测试改钉）；gin Recovery panic 落契约日志（AR-26）；gateway stopped 标志防 Stop 先于 Start 泄漏（AR-27）；resiliency 超时注释对齐总预算语义（AR-28）；loki flush 失败有界回填重试（AR-29）；audit-gorm recover 补 fallback + audit-stream Close 后 Record 走 fallback（AR-31）。redis cluster GetMulti 按 hash tag 分组并发 MGET（AR-20，J8 文档承诺对齐）
+- `cce4a735` fix(go.mod): 下游 module 补 sibling replace 修模块图断裂（批次 4 副作用）——pkg/appkit 对 bootstrap/config 新增导出（LocalFile/DiscoverLocalFile）后，require published v0.13.8 的 16 个下游构建图里新 API 缺失，GOWORK=off 的发布形态门禁（task lint/race/vuln 与 CI lint）必然判红。按仓库 372 条相对路径 replace 惯例补齐：require bootstrap 的 16 module + circuitbreaker 的 2 module（批次 3 cb.IsFailureError 同因），深度逐 module 校正（1/2/3 级目录）。发版后由 bald release 统一收口
+- `65341f61` chore: 全仓 re-tidy 对齐 transport kernel 依赖图 + 删 rabbitmq 测试桩 unused 方法（CI #651 test/lint 闸门收尾）
+- `862ae2ab` fix(rabbitmq): amqps:// 未配 TLSClientConfig 时不再默认 InsecureSkipVerify（AR-9）——SNI 取 URL host 走标准证书校验，跳过校验待契约 tls 段显式声明（后续批次）；钉住不安全默认值的测试翻转 + 新增 amqps 子测试
+- `85dc03d1` fix(broker/rabbitmq): 半连接态 Publish/Consume 改为 fail-fast，消除 panic 假门禁
+- `105ebec9` test(broker/rabbitmq): 补生命周期/重连/并发路径测试，覆盖率 21%→75%
+- `1ccd5c03` dev(round 1): broker/transport 崩溃级并发缺陷修复：kafka 解锁裸读 writer、批量订阅 NewTicker(0) panic、rabbitmq waitConnection 双重 close 与无锁字段写、transport Stop 无锁改订阅映射（真实 crash 复现后修复） [ns_per_op=NA]
+
+### cache/redis v0.4.3
+
+- `7cf1428a` fix(batch7): AR-19/20/21/26/27/28/29/31——hedge 节流期 1/8 探针防永久失效；rabbitmq 解码失败不调 handler + nack（AR-21 毒消息对齐 kafka 口径，测试改钉）；gin Recovery panic 落契约日志（AR-26）；gateway stopped 标志防 Stop 先于 Start 泄漏（AR-27）；resiliency 超时注释对齐总预算语义（AR-28）；loki flush 失败有界回填重试（AR-29）；audit-gorm recover 补 fallback + audit-stream Close 后 Record 走 fallback（AR-31）。redis cluster GetMulti 按 hash tag 分组并发 MGET（AR-20，J8 文档承诺对齐）
+- `cce4a735` fix(go.mod): 下游 module 补 sibling replace 修模块图断裂（批次 4 副作用）——pkg/appkit 对 bootstrap/config 新增导出（LocalFile/DiscoverLocalFile）后，require published v0.13.8 的 16 个下游构建图里新 API 缺失，GOWORK=off 的发布形态门禁（task lint/race/vuln 与 CI lint）必然判红。按仓库 372 条相对路径 replace 惯例补齐：require bootstrap 的 16 module + circuitbreaker 的 2 module（批次 3 cb.IsFailureError 同因），深度逐 module 校正（1/2/3 级目录）。发版后由 bald release 统一收口
+- `65341f61` chore: 全仓 re-tidy 对齐 transport kernel 依赖图 + 删 rabbitmq 测试桩 unused 方法（CI #651 test/lint 闸门收尾）
+- `45f58eb3` chore(release): 发布 19 个模块——bald v0.56.0 / cli v0.14.0 / bconf v0.28.1 / pkg v0.16.1 等
+
+### circuitbreaker v0.2.2
+
+- `55bc445f` review(ar-batch3): blocking 双条落地——AR-18 线上形态补齐（balancer DoneInfo.Err 是 gRPC *status.Error，berrors 分类器解不了会全兜 Unknown；berrors 码值与 codes.Code 一一对应，按 status code 直传契约判定）+ AR-7 权威示例与设计文档同步（balancer.go 文档示例、节点熔断设计.md 改装饰器内就地构造）。advisory：cache 拉取 goroutine recover（AR-4 同型）、selector berrors replace 补齐、AR-17 测试口径、failure.go 节点层 ResourceExhausted 后果注记。e2e 失败源改服务侧 deadline 错（Unimplemented 属客户端侧，AR-18 后不再计数）
+- `879890c7` fix(batch3): 服务发现与熔断正确性四连（AR-6/7/17/18）——cache 节点剪空视为服务级失效回源（默认 TTL 组合下 30-60s 空/满抖动）、限流窗口内剪空退回全量快照；等待 singleflight 受调用方 ctx 约束（deadline 100ms 实测 3s 返回）；失败口径归一 cb 契约 IsFailureError（节点熔断不再把 4xx/Canceled 记失败，统一链与节点装饰共用单一来源）；示例熔断 Registry 每装饰实例一份（跨服务共享时 Prune 互相清除致熔断永不跳闸）+ Registry 归属契约文档
+
+### cli v0.15.0
+
+- `10a4b90d` fix(cli): release 版本解析剥 dir 前缀 + major≥2 路径校验（AR-10）；fsatomic 覆盖写保留原 mode（AR-22，Windows skip 由 Unix CI 验证）。测试红转绿
+- `5d8f5f3f` fix(release): 子目录 module 版本解析剥 dir 前缀（AR-10）——pkg/v1.2.3 此前被解析成 (0,2,3)，feat 提交算出 pkg/v0.3.0 的降级版本（go get 永远选不到）；并新增打 tag 前 major≥2 模块路径 /vN 后缀校验（root 升 major 打出的 v2.0.0 会被代理判非法，J7 fail-fast）。测试红转绿
+- `c5d1fe95` fix(codegen): meta.name/roles[].name/domains[].name 形状白名单 ^[a-z][a-z0-9-]*$（AR-11）——只判非空时 ../../escaped 会写出 --out 且 manifest 永不回收（任意目录写入面，J7 fail-fast）；三位置拒绝测试红转绿
+- `d7edaafc` test(codegen): writeGuarded 写穿断言改平台无关不变量——IsNotExist 在 Linux 必红
+- `dcb39e6b` perf(convention): 全部 14 个 checker 收敛到单次 walk+parse（架构诊断未解决项 5）
+- `cb6e0222` style: fsatomic import 按字母序归位（gofmt）
+- `79b899a5` feat(cli): 全部 13 处文件写入改原子写（temp+rename）——写盘中断不再留下半截的 appspec.json / IDE mcp.json / CHANGELOG；fsatomic 保留 os.WriteFile 的符号链接穿透语义、权限过 umask（审阅抓出 Chmod 绝对置位会放宽 umask 077 用户的 0600 文件），悬空链接与 Windows 共享冲突按 fail-closed 记录
+- `3514799d` style: 修正 domainDir 排版（分号前多余空格）
+- `0b36b04d` fix(windows): 跨平台路径语义收口——domainDir 恒定 slash、ReadDir/Stat 前置判型（Windows 静默空不再吞错）、no-panic/logging 豁免前缀 ToSlash（Windows 假阳性）、插件 exec 用 go 替代 /bin/echo、CWD 删除类测试按平台能力跳过
+- `6adfa388` dev(round 2): 静默失败三连修复：asynq Start 前置 Redis 探活+Run 错误上抛（假启动）、sse eventTTL 零值时间戳不再清空整个流、cli seedGoMod 复用 goMinorVersion 修复 go go1.NN.Patch 无效指令（三处复现测试红转绿） [ns_per_op=NA]
+- `b1475399` chore(deps): cli 归位——bconf v0.28.1 / log v0.6.1（发版后归位）
+
+### cobramcp v0.4.1
+
+- `9c458a4f` fix(batch-final): AR-15/16——出站 HTTP/S3 客户端默认 30s 超时（契约未配置时，J3；显式配 0 仍尊重）；全部 6 处入站 http.Server 构造期默认 ReadHeaderTimeout 10s / IdleTimeout 120s（slowloris 与空闲 keep-alive 不再无限占 fd；契约字段扩展与 max_body_bytes 随 buf 可用环境重派生补齐）
+- `0b36b04d` fix(windows): 跨平台路径语义收口——domainDir 恒定 slash、ReadDir/Stat 前置判型（Windows 静默空不再吞错）、no-panic/logging 豁免前缀 ToSlash（Windows 假阳性）、插件 exec 用 go 替代 /bin/echo、CWD 删除类测试按平台能力跳过
+- `45f58eb3` chore(release): 发布 19 个模块——bald v0.56.0 / cli v0.14.0 / bconf v0.28.1 / pkg v0.16.1 等
+
+### contrib/audit-gorm v0.2.5
+
+- `7cf1428a` fix(batch7): AR-19/20/21/26/27/28/29/31——hedge 节流期 1/8 探针防永久失效；rabbitmq 解码失败不调 handler + nack（AR-21 毒消息对齐 kafka 口径，测试改钉）；gin Recovery panic 落契约日志（AR-26）；gateway stopped 标志防 Stop 先于 Start 泄漏（AR-27）；resiliency 超时注释对齐总预算语义（AR-28）；loki flush 失败有界回填重试（AR-29）；audit-gorm recover 补 fallback + audit-stream Close 后 Record 走 fallback（AR-31）。redis cluster GetMulti 按 hash tag 分组并发 MGET（AR-20，J8 文档承诺对齐）
+- `cce4a735` fix(go.mod): 下游 module 补 sibling replace 修模块图断裂（批次 4 副作用）——pkg/appkit 对 bootstrap/config 新增导出（LocalFile/DiscoverLocalFile）后，require published v0.13.8 的 16 个下游构建图里新 API 缺失，GOWORK=off 的发布形态门禁（task lint/race/vuln 与 CI lint）必然判红。按仓库 372 条相对路径 replace 惯例补齐：require bootstrap 的 16 module + circuitbreaker 的 2 module（批次 3 cb.IsFailureError 同因），深度逐 module 校正（1/2/3 级目录）。发版后由 bald release 统一收口
+- `65341f61` chore: 全仓 re-tidy 对齐 transport kernel 依赖图 + 删 rabbitmq 测试桩 unused 方法（CI #651 test/lint 闸门收尾）
+- `45f58eb3` chore(release): 发布 19 个模块——bald v0.56.0 / cli v0.14.0 / bconf v0.28.1 / pkg v0.16.1 等
+
+### contrib/audit-stream v0.4.4
+
+- `a24cd888` test(ar-batch5): audit-stream BufferFullFallsBack 改钉 AR-31 后语义——Close 后 Record 全走 fallback（不丢事件），两事件按序保留
+- `7cf1428a` fix(batch7): AR-19/20/21/26/27/28/29/31——hedge 节流期 1/8 探针防永久失效；rabbitmq 解码失败不调 handler + nack（AR-21 毒消息对齐 kafka 口径，测试改钉）；gin Recovery panic 落契约日志（AR-26）；gateway stopped 标志防 Stop 先于 Start 泄漏（AR-27）；resiliency 超时注释对齐总预算语义（AR-28）；loki flush 失败有界回填重试（AR-29）；audit-gorm recover 补 fallback + audit-stream Close 后 Record 走 fallback（AR-31）。redis cluster GetMulti 按 hash tag 分组并发 MGET（AR-20，J8 文档承诺对齐）
+- `cce4a735` fix(go.mod): 下游 module 补 sibling replace 修模块图断裂（批次 4 副作用）——pkg/appkit 对 bootstrap/config 新增导出（LocalFile/DiscoverLocalFile）后，require published v0.13.8 的 16 个下游构建图里新 API 缺失，GOWORK=off 的发布形态门禁（task lint/race/vuln 与 CI lint）必然判红。按仓库 372 条相对路径 replace 惯例补齐：require bootstrap 的 16 module + circuitbreaker 的 2 module（批次 3 cb.IsFailureError 同因），深度逐 module 校正（1/2/3 级目录）。发版后由 bald release 统一收口
+- `65341f61` chore: 全仓 re-tidy 对齐 transport kernel 依赖图 + 删 rabbitmq 测试桩 unused 方法（CI #651 test/lint 闸门收尾）
+- `45f58eb3` chore(release): 发布 19 个模块——bald v0.56.0 / cli v0.14.0 / bconf v0.28.1 / pkg v0.16.1 等
+
+### contrib/authn-jwt v0.3.3
+
+- `033ea372` fix(batch5): AR-8/13/14/23——etcd 心跳耗尽不再静默退出（记日志 + 退避无限重注册，实例摘除后重建；测试改钉无限重注册契约）；gin Timeout 的 handler ctx 带超时 deadline（安全半版：感知 ctx 的 handler 超时点收口，早返回半版需 goroutine 安全的 Context 克隆留 AR-13 遗留）；CORS 多源按请求 Origin 回显单值 + Vary: Origin + Validate 拒绝 * 混入具体源（拼接式多源被浏览器整体拒绝）；authn-jwt 构造期校验签名算法非 nil 且在白名单、parser 要求 exp、WithAudience 验签 + 签发补 aud。全部红→绿取证
+- `45f58eb3` chore(release): 发布 19 个模块——bald v0.56.0 / cli v0.14.0 / bconf v0.28.1 / pkg v0.16.1 等
+
+### contrib/config-nacos v0.1.3
+
+- `cce4a735` fix(go.mod): 下游 module 补 sibling replace 修模块图断裂（批次 4 副作用）——pkg/appkit 对 bootstrap/config 新增导出（LocalFile/DiscoverLocalFile）后，require published v0.13.8 的 16 个下游构建图里新 API 缺失，GOWORK=off 的发布形态门禁（task lint/race/vuln 与 CI lint）必然判红。按仓库 372 条相对路径 replace 惯例补齐：require bootstrap 的 16 module + circuitbreaker 的 2 module（批次 3 cb.IsFailureError 同因），深度逐 module 校正（1/2/3 级目录）。发版后由 bald release 统一收口
+- `65341f61` chore: 全仓 re-tidy 对齐 transport kernel 依赖图 + 删 rabbitmq 测试桩 unused 方法（CI #651 test/lint 闸门收尾）
+- `45f58eb3` chore(release): 发布 19 个模块——bald v0.56.0 / cli v0.14.0 / bconf v0.28.1 / pkg v0.16.1 等
+
+### contrib/observability-otlp v0.4.4
+
+- `cce4a735` fix(go.mod): 下游 module 补 sibling replace 修模块图断裂（批次 4 副作用）——pkg/appkit 对 bootstrap/config 新增导出（LocalFile/DiscoverLocalFile）后，require published v0.13.8 的 16 个下游构建图里新 API 缺失，GOWORK=off 的发布形态门禁（task lint/race/vuln 与 CI lint）必然判红。按仓库 372 条相对路径 replace 惯例补齐：require bootstrap 的 16 module + circuitbreaker 的 2 module（批次 3 cb.IsFailureError 同因），深度逐 module 校正（1/2/3 级目录）。发版后由 bald release 统一收口
+- `45f58eb3` chore(release): 发布 19 个模块——bald v0.56.0 / cli v0.14.0 / bconf v0.28.1 / pkg v0.16.1 等
+
+### contrib/store-gorm v0.4.3
+
+- `cce4a735` fix(go.mod): 下游 module 补 sibling replace 修模块图断裂（批次 4 副作用）——pkg/appkit 对 bootstrap/config 新增导出（LocalFile/DiscoverLocalFile）后，require published v0.13.8 的 16 个下游构建图里新 API 缺失，GOWORK=off 的发布形态门禁（task lint/race/vuln 与 CI lint）必然判红。按仓库 372 条相对路径 replace 惯例补齐：require bootstrap 的 16 module + circuitbreaker 的 2 module（批次 3 cb.IsFailureError 同因），深度逐 module 校正（1/2/3 级目录）。发版后由 bald release 统一收口
+- `45f58eb3` chore(release): 发布 19 个模块——bald v0.56.0 / cli v0.14.0 / bconf v0.28.1 / pkg v0.16.1 等
+
+### log/loki v0.3.1
+
+- `7cf1428a` fix(batch7): AR-19/20/21/26/27/28/29/31——hedge 节流期 1/8 探针防永久失效；rabbitmq 解码失败不调 handler + nack（AR-21 毒消息对齐 kafka 口径，测试改钉）；gin Recovery panic 落契约日志（AR-26）；gateway stopped 标志防 Stop 先于 Start 泄漏（AR-27）；resiliency 超时注释对齐总预算语义（AR-28）；loki flush 失败有界回填重试（AR-29）；audit-gorm recover 补 fallback + audit-stream Close 后 Record 走 fallback（AR-31）。redis cluster GetMulti 按 hash tag 分组并发 MGET（AR-20，J8 文档承诺对齐）
+- `45f58eb3` chore(release): 发布 19 个模块——bald v0.56.0 / cli v0.14.0 / bconf v0.28.1 / pkg v0.16.1 等
+- `d33afa87` chore(release): 发布 47 个模块——bconf v0.28.0 / pkg v0.16.0 / cli v0.13.0 / 根 v0.55.0
+- `f4b57d94` chore(release): bconf v0.27.0 / pkg v0.13.0 / v0.50.0 依赖归位 + 变更日志
+- `d3133b4f` chore(release): 2 模块整批发布——bconf v0.26.0 / cli v0.7.0
+- `3ad3b627` test(coverage): 批6 log/loki 72.1%→99.3%（flush 失败分支/全类型 toString/批量阈值）、contract 94.7% 登记结构零
+- `880405c5` chore(release): 6 模块整批发布——根 v0.46.0 / bconf v0.24.1 / cli v0.5.0 / selector/circuitbreaker v0.1.0 / transport/client v0.2.0 / transport/client/resiliency v0.1.0
+- `53f337d9` chore(release): 回退 610dfe4 发布提交
+- `610dfe4b` chore(release): 6 模块整批发布——selector/circuitbreaker 与出站 resiliency 首发
+- `1bc52b57` chore(release): 8 模块整批发布——方案 S 收口与 otelslog 自有化
+- `56acd87a` chore(release): CHANGELOG 登记 bconf v0.24.0 / pkg v0.10.0 与依赖归位
+- `c5be85bb` chore: 发布 3 个模块（bconf v0.23.0 / pkg v0.6.0 / 根 v0.42.0）
+- `39f986eb` chore: 发布 3 个模块（bconf v0.22.0 / transport/sse v0.6.0 / 根 v0.41.0）
+- `73b105f2` chore: 发布 18 个模块（bconf v0.21.0 / pkg v0.5.0 / transport/client v0.1.0 等）
+- `6c761301` chore: 发布 27 个模块
+- `a2c6e431` chore: 发布 4 个模块（bconf v0.19.0、registry/etcd v0.4.0、broker/kafka v0.2.4、transport/kafka v0.2.1）
+
+### metrics/otel v0.2.3
+
+- `cce4a735` fix(go.mod): 下游 module 补 sibling replace 修模块图断裂（批次 4 副作用）——pkg/appkit 对 bootstrap/config 新增导出（LocalFile/DiscoverLocalFile）后，require published v0.13.8 的 16 个下游构建图里新 API 缺失，GOWORK=off 的发布形态门禁（task lint/race/vuln 与 CI lint）必然判红。按仓库 372 条相对路径 replace 惯例补齐：require bootstrap 的 16 module + circuitbreaker 的 2 module（批次 3 cb.IsFailureError 同因），深度逐 module 校正（1/2/3 级目录）。发版后由 bald release 统一收口
+- `45f58eb3` chore(release): 发布 19 个模块——bald v0.56.0 / cli v0.14.0 / bconf v0.28.1 / pkg v0.16.1 等
+- `e5a0a70c` chore(deps): 撤回发布叠加层——dropreplace 临时 bootstrap/bconfig/transport 目录 replace
+
+### metrics/prometheus v0.2.3
+
+- `7a48f62a` chore(deps): metrics/prometheus go.mod/go.sum tidy——bootstrap replace 后 published 条目移除（AR-3 sibling replace 收尾）
+- `cce4a735` fix(go.mod): 下游 module 补 sibling replace 修模块图断裂（批次 4 副作用）——pkg/appkit 对 bootstrap/config 新增导出（LocalFile/DiscoverLocalFile）后，require published v0.13.8 的 16 个下游构建图里新 API 缺失，GOWORK=off 的发布形态门禁（task lint/race/vuln 与 CI lint）必然判红。按仓库 372 条相对路径 replace 惯例补齐：require bootstrap 的 16 module + circuitbreaker 的 2 module（批次 3 cb.IsFailureError 同因），深度逐 module 校正（1/2/3 级目录）。发版后由 bald release 统一收口
+- `65341f61` chore: 全仓 re-tidy 对齐 transport kernel 依赖图 + 删 rabbitmq 测试桩 unused 方法（CI #651 test/lint 闸门收尾）
+- `45f58eb3` chore(release): 发布 19 个模块——bald v0.56.0 / cli v0.14.0 / bconf v0.28.1 / pkg v0.16.1 等
+- `e5a0a70c` chore(deps): 撤回发布叠加层——dropreplace 临时 bootstrap/bconfig/transport 目录 replace
+
+### oss/s3 v0.3.5
+
+- `9c458a4f` fix(batch-final): AR-15/16——出站 HTTP/S3 客户端默认 30s 超时（契约未配置时，J3；显式配 0 仍尊重）；全部 6 处入站 http.Server 构造期默认 ReadHeaderTimeout 10s / IdleTimeout 120s（slowloris 与空闲 keep-alive 不再无限占 fd；契约字段扩展与 max_body_bytes 随 buf 可用环境重派生补齐）
+- `cce4a735` fix(go.mod): 下游 module 补 sibling replace 修模块图断裂（批次 4 副作用）——pkg/appkit 对 bootstrap/config 新增导出（LocalFile/DiscoverLocalFile）后，require published v0.13.8 的 16 个下游构建图里新 API 缺失，GOWORK=off 的发布形态门禁（task lint/race/vuln 与 CI lint）必然判红。按仓库 372 条相对路径 replace 惯例补齐：require bootstrap 的 16 module + circuitbreaker 的 2 module（批次 3 cb.IsFailureError 同因），深度逐 module 校正（1/2/3 级目录）。发版后由 bald release 统一收口
+- `65341f61` chore: 全仓 re-tidy 对齐 transport kernel 依赖图 + 删 rabbitmq 测试桩 unused 方法（CI #651 test/lint 闸门收尾）
+
+### pkg v0.17.0
+
+- `da90f78c` docs(ar): dup-clone 目标 130→290（用户决策，与分层边界数学冲突的结构下限）+ AR-13 早返回半版正式关闭登记（gin Copy 架构约束）
+- `9c458a4f` fix(batch-final): AR-15/16——出站 HTTP/S3 客户端默认 30s 超时（契约未配置时，J3；显式配 0 仍尊重）；全部 6 处入站 http.Server 构造期默认 ReadHeaderTimeout 10s / IdleTimeout 120s（slowloris 与空闲 keep-alive 不再无限占 fd；契约字段扩展与 max_body_bytes 随 buf 可用环境重派生补齐）
+- `7cf1428a` fix(batch7): AR-19/20/21/26/27/28/29/31——hedge 节流期 1/8 探针防永久失效；rabbitmq 解码失败不调 handler + nack（AR-21 毒消息对齐 kafka 口径，测试改钉）；gin Recovery panic 落契约日志（AR-26）；gateway stopped 标志防 Stop 先于 Start 泄漏（AR-27）；resiliency 超时注释对齐总预算语义（AR-28）；loki flush 失败有界回填重试（AR-29）；audit-gorm recover 补 fallback + audit-stream Close 后 Record 走 fallback（AR-31）。redis cluster GetMulti 按 hash tag 分组并发 MGET（AR-20，J8 文档承诺对齐）
+- `cce4a735` fix(go.mod): 下游 module 补 sibling replace 修模块图断裂（批次 4 副作用）——pkg/appkit 对 bootstrap/config 新增导出（LocalFile/DiscoverLocalFile）后，require published v0.13.8 的 16 个下游构建图里新 API 缺失，GOWORK=off 的发布形态门禁（task lint/race/vuln 与 CI lint）必然判红。按仓库 372 条相对路径 replace 惯例补齐：require bootstrap 的 16 module + circuitbreaker 的 2 module（批次 3 cb.IsFailureError 同因），深度逐 module 校正（1/2/3 级目录）。发版后由 bald release 统一收口
+- `c55422a3` test(ar-batch5): 两处契约测试改钉 AR-8 后语义——etcd 映射测试断言重注册尝试持续增长（耗尽即退出的旧契约已废）+ 每周期节奏与 max_retry 落地；bundle CORS 测试改钉多源回显语义（按请求 Origin 单值 + 白名单外不回写）
+- `033ea372` fix(batch5): AR-8/13/14/23——etcd 心跳耗尽不再静默退出（记日志 + 退避无限重注册，实例摘除后重建；测试改钉无限重注册契约）；gin Timeout 的 handler ctx 带超时 deadline（安全半版：感知 ctx 的 handler 超时点收口，早返回半版需 goroutine 安全的 Context 克隆留 AR-13 遗留）；CORS 多源按请求 Origin 回显单值 + Vary: Origin + Validate 拒绝 * 混入具体源（拼接式多源被浏览器整体拒绝）；authn-jwt 构造期校验签名算法非 nil 且在白名单、parser 要求 exp、WithAudience 验签 + 签发补 aud。全部红→绿取证
+- `588a796e` review(ar-batch4): blocking 落地——AR-3 的 pin 改条件式（仅当正式装载按自身规则发现不到文件时才复用预装载路径），Name-Env 多环境文件布局的发现路由恢复原状（无条件 pin 会把 prod 覆盖静默关掉）；LocalFile/Settings 文档块拆分；发现轴序说明；AR-12 负载不变量与遗留冻结（effect/component 预算）注记；compileDecl 两遍口径注记
+- `78f397ee` fix(appkit): 配置两遍装载同源 + 身份字段解冻（AR-3/AR-12）——discoverLocalFile 补注释承诺的 Name.yaml 回退（此前 Env 非空时只找 Name-Env，预装载按 Name 找到的文件正式装载找不到，运行期 Settings() 为空且不受 watch）；Store.LocalFile() 暴露发现路径，预装载透传给正式装载（两遍同源）；身份 id/version/stop_timeout 在 BeforeStart 首次同步后从最终契约刷新（预装载无 env/flag/remote 层，注册中心实例 version 与停机预算此前冻结在旧值，J9）。发现规则与刷新语义测试钉住
+- `879890c7` fix(batch3): 服务发现与熔断正确性四连（AR-6/7/17/18）——cache 节点剪空视为服务级失效回源（默认 TTL 组合下 30-60s 空/满抖动）、限流窗口内剪空退回全量快照；等待 singleflight 受调用方 ctx 约束（deadline 100ms 实测 3s 返回）；失败口径归一 cb 契约 IsFailureError（节点熔断不再把 4xx/Canceled 记失败，统一链与节点装饰共用单一来源）；示例熔断 Registry 每装饰实例一份（跨服务共享时 Prune 互相清除致熔断永不跳闸）+ Registry 归属契约文档
+- `962f76e4` review(ar-batch2): 审阅七条 advisory 落地——AR-25 测试改钩子入口态捕获（原断言自我满足，删真修复仍绿）；UndoEffects 回归单次全量快照（跨层保持账本序，分区仅限 stopAll）；closeStore 上收 stopAll 入口覆盖全部 5 个调用点；store 不再置 nil（快照读停机窗口仍可用）；server 段 Provider cleanup 改登记 deferred 层；阶段 5 注释按 TeardownAfter 约束序收口
+- `c529cf0f` fix(appkit): 停机序分层与 watcher 生命周期（AR-1/AR-25）——效应账本按 Deferred 标记分区：provider 资源回收 + logger 恢复移到阶段 5（Dispose 之后），阶段 0 只回放全局写入类，排空与钩子期间组件依赖的资源不再被提前关闭；closeStore 幂等并在停机前显式关店，停机窗口的热更不再于 logger 恢复后重建 logger。停机序断言测试红转绿（cleanup 先于钩子 → 晚于 AfterStop）
+- `55aa2613` chore(pkg): go.mod re-tidy——transport kernel 新增 testify 依赖经 MVS 抬版 v1.11.1→v1.12.1（项 1 片1 下游波及，审阅 BLOCKING-1 收尾）
+- `15b3045a` fix(middleware): 崩溃隔离两洞——gin Timeout goroutine 内 recover 并把 panic 带回主 goroutine 重抛给外层 Recovery（AR-4）；gRPC stream 链头无条件挂统一 Recovery 基线，与 unary 面对齐（AR-5）。子进程/链执行测试红转绿，三处链形测试改钉新口径（含 gofmt 归位）
+- `f13309eb` feat(middleware): 接线 timeout.max_buffer_bytes 契约并钉住防漂移
+- `7c1bad28` feat(middleware): Timeout 缓冲上限 64KiB + Flush 透传 + buffer 池化
+- `633748af` fix(store): 分页计数与 offset 转换补整数溢出守卫
+- `b517b277` fix(appkit): 畸形 flag 值改为 fail-fast，保留未知 flag 容忍
+- `1751cdbe` fix(appkit): keywatch 回调移出锁外分发——回调触碰订阅面（armKeyWatchers）此前 Unlock 自死锁挂起整条变更分发链；状态提交锁内+per-fire 复核，重入回归测试红转绿
+- `0b36b04d` fix(windows): 跨平台路径语义收口——domainDir 恒定 slash、ReadDir/Stat 前置判型（Windows 静默空不再吞错）、no-panic/logging 豁免前缀 ToSlash（Windows 假阳性）、插件 exec 用 go 替代 /bin/echo、CWD 删除类测试按平台能力跳过
+
+### registry v0.5.2
+
+- `55bc445f` review(ar-batch3): blocking 双条落地——AR-18 线上形态补齐（balancer DoneInfo.Err 是 gRPC *status.Error，berrors 分类器解不了会全兜 Unknown；berrors 码值与 codes.Code 一一对应，按 status code 直传契约判定）+ AR-7 权威示例与设计文档同步（balancer.go 文档示例、节点熔断设计.md 改装饰器内就地构造）。advisory：cache 拉取 goroutine recover（AR-4 同型）、selector berrors replace 补齐、AR-17 测试口径、failure.go 节点层 ResourceExhausted 后果注记。e2e 失败源改服务侧 deadline 错（Unimplemented 属客户端侧，AR-18 后不再计数）
+- `879890c7` fix(batch3): 服务发现与熔断正确性四连（AR-6/7/17/18）——cache 节点剪空视为服务级失效回源（默认 TTL 组合下 30-60s 空/满抖动）、限流窗口内剪空退回全量快照；等待 singleflight 受调用方 ctx 约束（deadline 100ms 实测 3s 返回）；失败口径归一 cb 契约 IsFailureError（节点熔断不再把 4xx/Canceled 记失败，统一链与节点装饰共用单一来源）；示例熔断 Registry 每装饰实例一份（跨服务共享时 Prune 互相清除致熔断永不跳闸）+ Registry 归属契约文档
+
+### registry/etcd v0.4.3
+
+- `870a8e71` fix(broker): AR-30 缺陷群——SubscriberSyncMap.RemoveOnly 按 topic+身份双校验（旧订阅者迟到 Unsubscribe 不删新条目，broker+rabbitmq+kafka 三调用方同改）；kafka 退避 Sleep 随 ctx 取消（两处发布路径）、Subscribe 克隆 Dialer 再改 Timeout（不再互相覆盖共享实例）；rabbitmq 重连退避随 close 中断（Close 后不再无限重拨）；etcd watcher reWatch 加 mu 防置换竞争
+- `cce4a735` fix(go.mod): 下游 module 补 sibling replace 修模块图断裂（批次 4 副作用）——pkg/appkit 对 bootstrap/config 新增导出（LocalFile/DiscoverLocalFile）后，require published v0.13.8 的 16 个下游构建图里新 API 缺失，GOWORK=off 的发布形态门禁（task lint/race/vuln 与 CI lint）必然判红。按仓库 372 条相对路径 replace 惯例补齐：require bootstrap 的 16 module + circuitbreaker 的 2 module（批次 3 cb.IsFailureError 同因），深度逐 module 校正（1/2/3 级目录）。发版后由 bald release 统一收口
+- `c55422a3` test(ar-batch5): 两处契约测试改钉 AR-8 后语义——etcd 映射测试断言重注册尝试持续增长（耗尽即退出的旧契约已废）+ 每周期节奏与 max_retry 落地；bundle CORS 测试改钉多源回显语义（按请求 Origin 单值 + 白名单外不回写）
+- `033ea372` fix(batch5): AR-8/13/14/23——etcd 心跳耗尽不再静默退出（记日志 + 退避无限重注册，实例摘除后重建；测试改钉无限重注册契约）；gin Timeout 的 handler ctx 带超时 deadline（安全半版：感知 ctx 的 handler 超时点收口，早返回半版需 goroutine 安全的 Context 克隆留 AR-13 遗留）；CORS 多源按请求 Origin 回显单值 + Vary: Origin + Validate 拒绝 * 混入具体源（拼接式多源被浏览器整体拒绝）；authn-jwt 构造期校验签名算法非 nil 且在白名单、parser 要求 exp、WithAudience 验签 + 签发补 aud。全部红→绿取证
+- `65341f61` chore: 全仓 re-tidy 对齐 transport kernel 依赖图 + 删 rabbitmq 测试桩 unused 方法（CI #651 test/lint 闸门收尾）
+- `45f58eb3` chore(release): 发布 19 个模块——bald v0.56.0 / cli v0.14.0 / bconf v0.28.1 / pkg v0.16.1 等
+
+### registry/nacos v0.3.5
+
+- `cce4a735` fix(go.mod): 下游 module 补 sibling replace 修模块图断裂（批次 4 副作用）——pkg/appkit 对 bootstrap/config 新增导出（LocalFile/DiscoverLocalFile）后，require published v0.13.8 的 16 个下游构建图里新 API 缺失，GOWORK=off 的发布形态门禁（task lint/race/vuln 与 CI lint）必然判红。按仓库 372 条相对路径 replace 惯例补齐：require bootstrap 的 16 module + circuitbreaker 的 2 module（批次 3 cb.IsFailureError 同因），深度逐 module 校正（1/2/3 级目录）。发版后由 bald release 统一收口
+- `65341f61` chore: 全仓 re-tidy 对齐 transport kernel 依赖图 + 删 rabbitmq 测试桩 unused 方法（CI #651 test/lint 闸门收尾）
+- `45f58eb3` chore(release): 发布 19 个模块——bald v0.56.0 / cli v0.14.0 / bconf v0.28.1 / pkg v0.16.1 等
+
+### retry v0.3.2
+
+- `7cf1428a` fix(batch7): AR-19/20/21/26/27/28/29/31——hedge 节流期 1/8 探针防永久失效；rabbitmq 解码失败不调 handler + nack（AR-21 毒消息对齐 kafka 口径，测试改钉）；gin Recovery panic 落契约日志（AR-26）；gateway stopped 标志防 Stop 先于 Start 泄漏（AR-27）；resiliency 超时注释对齐总预算语义（AR-28）；loki flush 失败有界回填重试（AR-29）；audit-gorm recover 补 fallback + audit-stream Close 后 Record 走 fallback（AR-31）。redis cluster GetMulti 按 hash tag 分组并发 MGET（AR-20，J8 文档承诺对齐）
+- `b14c53e7` fix(retry): 默认抖动改为 FullJitter，修正文档承诺与默认行为的分裂
+
+### selector v0.1.2
+
+- `0a88b836` dev(round 3): selector 每-pick 写锁收敛为读锁快检+双检写锁：p2c/circuitbreaker 稳态 Select 从 1103→473 ns/op（-57%），代价是 churn 真实清理路径 +14%（罕见场景，可接受并如实记录） [ns_per_op=473.3]
+- `9d044171` test(coverage): 批6 selector 64.0%→100%、p2c 88.6%→99.0%（注册面/负载交换/prune/EWMA 钳制）
+- `6e893053` test(coverage): 批1 零覆盖小包补齐至 100%
+
+### selector/balancer v0.2.2
+
+- `55bc445f` review(ar-batch3): blocking 双条落地——AR-18 线上形态补齐（balancer DoneInfo.Err 是 gRPC *status.Error，berrors 分类器解不了会全兜 Unknown；berrors 码值与 codes.Code 一一对应，按 status code 直传契约判定）+ AR-7 权威示例与设计文档同步（balancer.go 文档示例、节点熔断设计.md 改装饰器内就地构造）。advisory：cache 拉取 goroutine recover（AR-4 同型）、selector berrors replace 补齐、AR-17 测试口径、failure.go 节点层 ResourceExhausted 后果注记。e2e 失败源改服务侧 deadline 错（Unimplemented 属客户端侧，AR-18 后不再计数）
+
+### selector/circuitbreaker v0.1.2
+
+- `cce4a735` fix(go.mod): 下游 module 补 sibling replace 修模块图断裂（批次 4 副作用）——pkg/appkit 对 bootstrap/config 新增导出（LocalFile/DiscoverLocalFile）后，require published v0.13.8 的 16 个下游构建图里新 API 缺失，GOWORK=off 的发布形态门禁（task lint/race/vuln 与 CI lint）必然判红。按仓库 372 条相对路径 replace 惯例补齐：require bootstrap 的 16 module + circuitbreaker 的 2 module（批次 3 cb.IsFailureError 同因），深度逐 module 校正（1/2/3 级目录）。发版后由 bald release 统一收口
+- `55bc445f` review(ar-batch3): blocking 双条落地——AR-18 线上形态补齐（balancer DoneInfo.Err 是 gRPC *status.Error，berrors 分类器解不了会全兜 Unknown；berrors 码值与 codes.Code 一一对应，按 status code 直传契约判定）+ AR-7 权威示例与设计文档同步（balancer.go 文档示例、节点熔断设计.md 改装饰器内就地构造）。advisory：cache 拉取 goroutine recover（AR-4 同型）、selector berrors replace 补齐、AR-17 测试口径、failure.go 节点层 ResourceExhausted 后果注记。e2e 失败源改服务侧 deadline 错（Unimplemented 属客户端侧，AR-18 后不再计数）
+- `879890c7` fix(batch3): 服务发现与熔断正确性四连（AR-6/7/17/18）——cache 节点剪空视为服务级失效回源（默认 TTL 组合下 30-60s 空/满抖动）、限流窗口内剪空退回全量快照；等待 singleflight 受调用方 ctx 约束（deadline 100ms 实测 3s 返回）；失败口径归一 cb 契约 IsFailureError（节点熔断不再把 4xx/Canceled 记失败，统一链与节点装饰共用单一来源）；示例熔断 Registry 每装饰实例一份（跨服务共享时 Prune 互相清除致熔断永不跳闸）+ Registry 归属契约文档
+- `0a88b836` dev(round 3): selector 每-pick 写锁收敛为读锁快检+双检写锁：p2c/circuitbreaker 稳态 Select 从 1103→473 ns/op（-57%），代价是 churn 真实清理路径 +14%（罕见场景，可接受并如实记录） [ns_per_op=473.3]
+
+### transport v0.5.2
+
+- `1f0f5ac1` fix(片 3 收尾): rabbitmq RegisterSubscriber 签名恢复 routingKey 维度 5 参原状（片 3 重写时误套 kafka 的 6 参形状，破坏家族 API）——泛型糖走 kernel 的 rabbit 专版（opts 原样透传）；dup-clone 维持 294
+- `f2715b06` refactor(transport): 片 3——contract 双份五件套上收 kernel 泛型 Contract（Option/WithServerOptions/WithAfterBuild/Provider 委派骨架），RegisterSubscriber 泛型糖上收 brokertype（补 disableAutoAck 分支），家族壳保留一行委托；dup-clone 311→294（-17）。130 目标与分层边界冲突：provider.go(67) 是 appkit.Provider 壳（刻意留家族包）、options.go(55) 是家族类型面——数学下限 ~290，130 需放宽分层才可达
+- `65341f61` chore: 全仓 re-tidy 对齐 transport kernel 依赖图 + 删 rabbitmq 测试桩 unused 方法（CI #651 test/lint 闸门收尾）
+- `2b7c3620` fix(transport): 片2 审阅收尾——addrs 文案第三动词 Key→Kind 恢复原文 + brokercontract 直测表 + 惰性 replace 删除
+- `a0efd836` refactor(transport): 契约装配序列上收 brokercontract kernel——server.<家族> 段的校验/构造/afterBuild 单份化（项 1 片2）
+- `00058ba7` refactor(transport): broker 型传输家族统一——生命周期/订阅簿/计量/日志上收共享 kernel（架构诊断未解决项 1 片1）
+
+### transport/asynq v0.6.5
+
+- `cce4a735` fix(go.mod): 下游 module 补 sibling replace 修模块图断裂（批次 4 副作用）——pkg/appkit 对 bootstrap/config 新增导出（LocalFile/DiscoverLocalFile）后，require published v0.13.8 的 16 个下游构建图里新 API 缺失，GOWORK=off 的发布形态门禁（task lint/race/vuln 与 CI lint）必然判红。按仓库 372 条相对路径 replace 惯例补齐：require bootstrap 的 16 module + circuitbreaker 的 2 module（批次 3 cb.IsFailureError 同因），深度逐 module 校正（1/2/3 级目录）。发版后由 bald release 统一收口
+- `6adfa388` dev(round 2): 静默失败三连修复：asynq Start 前置 Redis 探活+Run 错误上抛（假启动）、sse eventTTL 零值时间戳不再清空整个流、cli seedGoMod 复用 goMinorVersion 修复 go go1.NN.Patch 无效指令（三处复现测试红转绿） [ns_per_op=NA]
+- `45f58eb3` chore(release): 发布 19 个模块——bald v0.56.0 / cli v0.14.0 / bconf v0.28.1 / pkg v0.16.1 等
+
+### transport/client v0.2.2
+
+- `9c458a4f` fix(batch-final): AR-15/16——出站 HTTP/S3 客户端默认 30s 超时（契约未配置时，J3；显式配 0 仍尊重）；全部 6 处入站 http.Server 构造期默认 ReadHeaderTimeout 10s / IdleTimeout 120s（slowloris 与空闲 keep-alive 不再无限占 fd；契约字段扩展与 max_body_bytes 随 buf 可用环境重派生补齐）
+- `cce4a735` fix(go.mod): 下游 module 补 sibling replace 修模块图断裂（批次 4 副作用）——pkg/appkit 对 bootstrap/config 新增导出（LocalFile/DiscoverLocalFile）后，require published v0.13.8 的 16 个下游构建图里新 API 缺失，GOWORK=off 的发布形态门禁（task lint/race/vuln 与 CI lint）必然判红。按仓库 372 条相对路径 replace 惯例补齐：require bootstrap 的 16 module + circuitbreaker 的 2 module（批次 3 cb.IsFailureError 同因），深度逐 module 校正（1/2/3 级目录）。发版后由 bald release 统一收口
+- `65341f61` chore: 全仓 re-tidy 对齐 transport kernel 依赖图 + 删 rabbitmq 测试桩 unused 方法（CI #651 test/lint 闸门收尾）
+- `45f58eb3` chore(release): 发布 19 个模块——bald v0.56.0 / cli v0.14.0 / bconf v0.28.1 / pkg v0.16.1 等
+
+### transport/client/resiliency v0.1.2
+
+- `7cf1428a` fix(batch7): AR-19/20/21/26/27/28/29/31——hedge 节流期 1/8 探针防永久失效；rabbitmq 解码失败不调 handler + nack（AR-21 毒消息对齐 kafka 口径，测试改钉）；gin Recovery panic 落契约日志（AR-26）；gateway stopped 标志防 Stop 先于 Start 泄漏（AR-27）；resiliency 超时注释对齐总预算语义（AR-28）；loki flush 失败有界回填重试（AR-29）；audit-gorm recover 补 fallback + audit-stream Close 后 Record 走 fallback（AR-31）。redis cluster GetMulti 按 hash tag 分组并发 MGET（AR-20，J8 文档承诺对齐）
+- `cce4a735` fix(go.mod): 下游 module 补 sibling replace 修模块图断裂（批次 4 副作用）——pkg/appkit 对 bootstrap/config 新增导出（LocalFile/DiscoverLocalFile）后，require published v0.13.8 的 16 个下游构建图里新 API 缺失，GOWORK=off 的发布形态门禁（task lint/race/vuln 与 CI lint）必然判红。按仓库 372 条相对路径 replace 惯例补齐：require bootstrap 的 16 module + circuitbreaker 的 2 module（批次 3 cb.IsFailureError 同因），深度逐 module 校正（1/2/3 级目录）。发版后由 bald release 统一收口
+
+### transport/cron v0.6.5
+
+- `cce4a735` fix(go.mod): 下游 module 补 sibling replace 修模块图断裂（批次 4 副作用）——pkg/appkit 对 bootstrap/config 新增导出（LocalFile/DiscoverLocalFile）后，require published v0.13.8 的 16 个下游构建图里新 API 缺失，GOWORK=off 的发布形态门禁（task lint/race/vuln 与 CI lint）必然判红。按仓库 372 条相对路径 replace 惯例补齐：require bootstrap 的 16 module + circuitbreaker 的 2 module（批次 3 cb.IsFailureError 同因），深度逐 module 校正（1/2/3 级目录）。发版后由 bald release 统一收口
+- `65341f61` chore: 全仓 re-tidy 对齐 transport kernel 依赖图 + 删 rabbitmq 测试桩 unused 方法（CI #651 test/lint 闸门收尾）
+- `45f58eb3` chore(release): 发布 19 个模块——bald v0.56.0 / cli v0.14.0 / bconf v0.28.1 / pkg v0.16.1 等
+
+### transport/gateway v0.5.4
+
+- `7cf1428a` fix(batch7): AR-19/20/21/26/27/28/29/31——hedge 节流期 1/8 探针防永久失效；rabbitmq 解码失败不调 handler + nack（AR-21 毒消息对齐 kafka 口径，测试改钉）；gin Recovery panic 落契约日志（AR-26）；gateway stopped 标志防 Stop 先于 Start 泄漏（AR-27）；resiliency 超时注释对齐总预算语义（AR-28）；loki flush 失败有界回填重试（AR-29）；audit-gorm recover 补 fallback + audit-stream Close 后 Record 走 fallback（AR-31）。redis cluster GetMulti 按 hash tag 分组并发 MGET（AR-20，J8 文档承诺对齐）
+- `cce4a735` fix(go.mod): 下游 module 补 sibling replace 修模块图断裂（批次 4 副作用）——pkg/appkit 对 bootstrap/config 新增导出（LocalFile/DiscoverLocalFile）后，require published v0.13.8 的 16 个下游构建图里新 API 缺失，GOWORK=off 的发布形态门禁（task lint/race/vuln 与 CI lint）必然判红。按仓库 372 条相对路径 replace 惯例补齐：require bootstrap 的 16 module + circuitbreaker 的 2 module（批次 3 cb.IsFailureError 同因），深度逐 module 校正（1/2/3 级目录）。发版后由 bald release 统一收口
+- `65341f61` chore: 全仓 re-tidy 对齐 transport kernel 依赖图 + 删 rabbitmq 测试桩 unused 方法（CI #651 test/lint 闸门收尾）
+- `45f58eb3` chore(release): 发布 19 个模块——bald v0.56.0 / cli v0.14.0 / bconf v0.28.1 / pkg v0.16.1 等
+
+### transport/http v0.3.0
+
+- `7aea76b5` test(ar-16): max_body 测试轮询改持锁读 ln——race gate 下的正确观察姿势（CI race job 红的根因之一，本地 -race 复现同址）
+- `1131d280` test(ar-16): max_body_bytes 契约字段接线测试——超限 413（handler 读 body 报错形态，对齐真实业务 bind 层）+ 未配置不设上限对照
+- `8fb78569` feat(ar-16): server.proto Http 段扩展 read_header_timeout/idle_timeout/max_body_bytes 契约字段 + transport/http 接线（未配置走构造期默认 10s/120s/不设上限）——buf 本地插件重派生，契约与实现单一来源；client.proto timeout 注释同步 AR-15 默认语义
+- `9c458a4f` fix(batch-final): AR-15/16——出站 HTTP/S3 客户端默认 30s 超时（契约未配置时，J3；显式配 0 仍尊重）；全部 6 处入站 http.Server 构造期默认 ReadHeaderTimeout 10s / IdleTimeout 120s（slowloris 与空闲 keep-alive 不再无限占 fd；契约字段扩展与 max_body_bytes 随 buf 可用环境重派生补齐）
+- `45f58eb3` chore(release): 发布 19 个模块——bald v0.56.0 / cli v0.14.0 / bconf v0.28.1 / pkg v0.16.1 等
+- `accea5fc` chore(release): 发布 48 个模块——bconf v0.28.0 / broker v0.4.0 / pkg v0.16.0 / transport v0.5.0 / 根 v0.55.0
+- `d33afa87` chore(release): 发布 47 个模块——bconf v0.28.0 / pkg v0.16.0 / cli v0.13.0 / 根 v0.55.0
+- `f4b57d94` chore(release): bconf v0.27.0 / pkg v0.13.0 / v0.50.0 依赖归位 + 变更日志
+- `d3133b4f` chore(release): 2 模块整批发布——bconf v0.26.0 / cli v0.7.0
+- `880405c5` chore(release): 6 模块整批发布——根 v0.46.0 / bconf v0.24.1 / cli v0.5.0 / selector/circuitbreaker v0.1.0 / transport/client v0.2.0 / transport/client/resiliency v0.1.0
+- `53f337d9` chore(release): 回退 610dfe4 发布提交
+- `610dfe4b` chore(release): 6 模块整批发布——selector/circuitbreaker 与出站 resiliency 首发
+- `56acd87a` chore(release): CHANGELOG 登记 bconf v0.24.0 / pkg v0.10.0 与依赖归位
+- `c5be85bb` chore: 发布 3 个模块（bconf v0.23.0 / pkg v0.6.0 / 根 v0.42.0）
+- `39f986eb` chore: 发布 3 个模块（bconf v0.22.0 / transport/sse v0.6.0 / 根 v0.41.0）
+- `73b105f2` chore: 发布 18 个模块（bconf v0.21.0 / pkg v0.5.0 / transport/client v0.1.0 等）
+- `6c761301` chore: 发布 27 个模块
+- `a2c6e431` chore: 发布 4 个模块（bconf v0.19.0、registry/etcd v0.4.0、broker/kafka v0.2.4、transport/kafka v0.2.1）
+
+### transport/kafka v0.3.4
+
+- `f2715b06` refactor(transport): 片 3——contract 双份五件套上收 kernel 泛型 Contract（Option/WithServerOptions/WithAfterBuild/Provider 委派骨架），RegisterSubscriber 泛型糖上收 brokertype（补 disableAutoAck 分支），家族壳保留一行委托；dup-clone 311→294（-17）。130 目标与分层边界冲突：provider.go(67) 是 appkit.Provider 壳（刻意留家族包）、options.go(55) 是家族类型面——数学下限 ~290，130 需放宽分层才可达
+- `cce4a735` fix(go.mod): 下游 module 补 sibling replace 修模块图断裂（批次 4 副作用）——pkg/appkit 对 bootstrap/config 新增导出（LocalFile/DiscoverLocalFile）后，require published v0.13.8 的 16 个下游构建图里新 API 缺失，GOWORK=off 的发布形态门禁（task lint/race/vuln 与 CI lint）必然判红。按仓库 372 条相对路径 replace 惯例补齐：require bootstrap 的 16 module + circuitbreaker 的 2 module（批次 3 cb.IsFailureError 同因），深度逐 module 校正（1/2/3 级目录）。发版后由 bald release 统一收口
+- `65341f61` chore: 全仓 re-tidy 对齐 transport kernel 依赖图 + 删 rabbitmq 测试桩 unused 方法（CI #651 test/lint 闸门收尾）
+- `2b7c3620` fix(transport): 片2 审阅收尾——addrs 文案第三动词 Key→Kind 恢复原文 + brokercontract 直测表 + 惰性 replace 删除
+- `cd3e04ed` style: contract.go gofmt（片2 收尾）
+- `a0efd836` refactor(transport): 契约装配序列上收 brokercontract kernel——server.<家族> 段的校验/构造/afterBuild 单份化（项 1 片2）
+- `69f1ffb5` refactor(transport): 删除两 shell 的 logger.go——cherry-pick 基于 logger 已删的父提交，未携带删除；89794545 在 main 恢复的两份 logger 是零调用的第二实现（唯一调用面已上收 kernel 实例级日志），J2 重复税本体
+- `00058ba7` refactor(transport): broker 型传输家族统一——生命周期/订阅簿/计量/日志上收共享 kernel（架构诊断未解决项 1 片1）
+- `89794545` revert(transport): 恢复 logger.go——cherry-pick 批次 1 时卷入了并发会话 项1 kernel 的中间态删除（dev/transport-broker-kernel 分支上有完整配套），main 上单删会破坏 transport/kafka、transport/rabbitmq 构建
+- `15b3045a` fix(middleware): 崩溃隔离两洞——gin Timeout goroutine 内 recover 并把 panic 带回主 goroutine 重抛给外层 Recovery（AR-4）；gRPC stream 链头无条件挂统一 Recovery 基线，与 unary 面对齐（AR-5）。子进程/链执行测试红转绿，三处链形测试改钉新口径（含 gofmt 归位）
+- `1ccd5c03` dev(round 1): broker/transport 崩溃级并发缺陷修复：kafka 解锁裸读 writer、批量订阅 NewTicker(0) panic、rabbitmq waitConnection 双重 close 与无锁字段写、transport Stop 无锁改订阅映射（真实 crash 复现后修复） [ns_per_op=NA]
+- `45f58eb3` chore(release): 发布 19 个模块——bald v0.56.0 / cli v0.14.0 / bconf v0.28.1 / pkg v0.16.1 等
+
+### transport/mcp v0.6.1
+
+- `9c458a4f` fix(batch-final): AR-15/16——出站 HTTP/S3 客户端默认 30s 超时（契约未配置时，J3；显式配 0 仍尊重）；全部 6 处入站 http.Server 构造期默认 ReadHeaderTimeout 10s / IdleTimeout 120s（slowloris 与空闲 keep-alive 不再无限占 fd；契约字段扩展与 max_body_bytes 随 buf 可用环境重派生补齐）
+- `cce4a735` fix(go.mod): 下游 module 补 sibling replace 修模块图断裂（批次 4 副作用）——pkg/appkit 对 bootstrap/config 新增导出（LocalFile/DiscoverLocalFile）后，require published v0.13.8 的 16 个下游构建图里新 API 缺失，GOWORK=off 的发布形态门禁（task lint/race/vuln 与 CI lint）必然判红。按仓库 372 条相对路径 replace 惯例补齐：require bootstrap 的 16 module + circuitbreaker 的 2 module（批次 3 cb.IsFailureError 同因），深度逐 module 校正（1/2/3 级目录）。发版后由 bald release 统一收口
+- `45f58eb3` chore(release): 发布 19 个模块——bald v0.56.0 / cli v0.14.0 / bconf v0.28.1 / pkg v0.16.1 等
+- `e5a0a70c` chore(deps): 撤回发布叠加层——dropreplace 临时 bootstrap/bconfig/transport 目录 replace
+
+### transport/rabbitmq v0.4.2
+
+- `1f0f5ac1` fix(片 3 收尾): rabbitmq RegisterSubscriber 签名恢复 routingKey 维度 5 参原状（片 3 重写时误套 kafka 的 6 参形状，破坏家族 API）——泛型糖走 kernel 的 rabbit 专版（opts 原样透传）；dup-clone 维持 294
+- `f2715b06` refactor(transport): 片 3——contract 双份五件套上收 kernel 泛型 Contract（Option/WithServerOptions/WithAfterBuild/Provider 委派骨架），RegisterSubscriber 泛型糖上收 brokertype（补 disableAutoAck 分支），家族壳保留一行委托；dup-clone 311→294（-17）。130 目标与分层边界冲突：provider.go(67) 是 appkit.Provider 壳（刻意留家族包）、options.go(55) 是家族类型面——数学下限 ~290，130 需放宽分层才可达
+- `cce4a735` fix(go.mod): 下游 module 补 sibling replace 修模块图断裂（批次 4 副作用）——pkg/appkit 对 bootstrap/config 新增导出（LocalFile/DiscoverLocalFile）后，require published v0.13.8 的 16 个下游构建图里新 API 缺失，GOWORK=off 的发布形态门禁（task lint/race/vuln 与 CI lint）必然判红。按仓库 372 条相对路径 replace 惯例补齐：require bootstrap 的 16 module + circuitbreaker 的 2 module（批次 3 cb.IsFailureError 同因），深度逐 module 校正（1/2/3 级目录）。发版后由 bald release 统一收口
+- `65341f61` chore: 全仓 re-tidy 对齐 transport kernel 依赖图 + 删 rabbitmq 测试桩 unused 方法（CI #651 test/lint 闸门收尾）
+- `2b7c3620` fix(transport): 片2 审阅收尾——addrs 文案第三动词 Key→Kind 恢复原文 + brokercontract 直测表 + 惰性 replace 删除
+- `cd3e04ed` style: contract.go gofmt（片2 收尾）
+- `a0efd836` refactor(transport): 契约装配序列上收 brokercontract kernel——server.<家族> 段的校验/构造/afterBuild 单份化（项 1 片2）
+- `69f1ffb5` refactor(transport): 删除两 shell 的 logger.go——cherry-pick 基于 logger 已删的父提交，未携带删除；89794545 在 main 恢复的两份 logger 是零调用的第二实现（唯一调用面已上收 kernel 实例级日志），J2 重复税本体
+- `00058ba7` refactor(transport): broker 型传输家族统一——生命周期/订阅簿/计量/日志上收共享 kernel（架构诊断未解决项 1 片1）
+- `89794545` revert(transport): 恢复 logger.go——cherry-pick 批次 1 时卷入了并发会话 项1 kernel 的中间态删除（dev/transport-broker-kernel 分支上有完整配套），main 上单删会破坏 transport/kafka、transport/rabbitmq 构建
+- `15b3045a` fix(middleware): 崩溃隔离两洞——gin Timeout goroutine 内 recover 并把 panic 带回主 goroutine 重抛给外层 Recovery（AR-4）；gRPC stream 链头无条件挂统一 Recovery 基线，与 unary 面对齐（AR-5）。子进程/链执行测试红转绿，三处链形测试改钉新口径（含 gofmt 归位）
+- `1ccd5c03` dev(round 1): broker/transport 崩溃级并发缺陷修复：kafka 解锁裸读 writer、批量订阅 NewTicker(0) panic、rabbitmq waitConnection 双重 close 与无锁字段写、transport Stop 无锁改订阅映射（真实 crash 复现后修复） [ns_per_op=NA]
+- `45f58eb3` chore(release): 发布 19 个模块——bald v0.56.0 / cli v0.14.0 / bconf v0.28.1 / pkg v0.16.1 等
+
+### transport/sse v0.6.2
+
+- `9c458a4f` fix(batch-final): AR-15/16——出站 HTTP/S3 客户端默认 30s 超时（契约未配置时，J3；显式配 0 仍尊重）；全部 6 处入站 http.Server 构造期默认 ReadHeaderTimeout 10s / IdleTimeout 120s（slowloris 与空闲 keep-alive 不再无限占 fd；契约字段扩展与 max_body_bytes 随 buf 可用环境重派生补齐）
+- `cce4a735` fix(go.mod): 下游 module 补 sibling replace 修模块图断裂（批次 4 副作用）——pkg/appkit 对 bootstrap/config 新增导出（LocalFile/DiscoverLocalFile）后，require published v0.13.8 的 16 个下游构建图里新 API 缺失，GOWORK=off 的发布形态门禁（task lint/race/vuln 与 CI lint）必然判红。按仓库 372 条相对路径 replace 惯例补齐：require bootstrap 的 16 module + circuitbreaker 的 2 module（批次 3 cb.IsFailureError 同因），深度逐 module 校正（1/2/3 级目录）。发版后由 bald release 统一收口
+- `65341f61` chore: 全仓 re-tidy 对齐 transport kernel 依赖图 + 删 rabbitmq 测试桩 unused 方法（CI #651 test/lint 闸门收尾）
+- `6adfa388` dev(round 2): 静默失败三连修复：asynq Start 前置 Redis 探活+Run 错误上抛（假启动）、sse eventTTL 零值时间戳不再清空整个流、cli seedGoMod 复用 goMinorVersion 修复 go go1.NN.Patch 无效指令（三处复现测试红转绿） [ns_per_op=NA]
+- `45f58eb3` chore(release): 发布 19 个模块——bald v0.56.0 / cli v0.14.0 / bconf v0.28.1 / pkg v0.16.1 等
+
+### transport/websocket v0.2.3
+
+- `9c458a4f` fix(batch-final): AR-15/16——出站 HTTP/S3 客户端默认 30s 超时（契约未配置时，J3；显式配 0 仍尊重）；全部 6 处入站 http.Server 构造期默认 ReadHeaderTimeout 10s / IdleTimeout 120s（slowloris 与空闲 keep-alive 不再无限占 fd；契约字段扩展与 max_body_bytes 随 buf 可用环境重派生补齐）
+- `cce4a735` fix(go.mod): 下游 module 补 sibling replace 修模块图断裂（批次 4 副作用）——pkg/appkit 对 bootstrap/config 新增导出（LocalFile/DiscoverLocalFile）后，require published v0.13.8 的 16 个下游构建图里新 API 缺失，GOWORK=off 的发布形态门禁（task lint/race/vuln 与 CI lint）必然判红。按仓库 372 条相对路径 replace 惯例补齐：require bootstrap 的 16 module + circuitbreaker 的 2 module（批次 3 cb.IsFailureError 同因），深度逐 module 校正（1/2/3 级目录）。发版后由 bald release 统一收口
+- `65341f61` chore: 全仓 re-tidy 对齐 transport kernel 依赖图 + 删 rabbitmq 测试桩 unused 方法（CI #651 test/lint 闸门收尾）
+- `05eaae5a` fix(websocket): 慢客户端发送超时踢除——SendMessage 缓冲满时进入 WithSendTimeout 窗口（默认 10s），超时关闭并注销该会话；此前 select{done,send} 无界阻塞会把 Broadcast 与调用方 goroutine 一起挂死（sse trySend 范式的 websocket 实现，健康客户端零开销直达）
+- `2d27d0e9` fix(websocket): 入站路径接入 WithMessageUnmarshaler——此前 netPacketUnmarshaler 字段全仓零读取（marshal 侧走字段、unmarshal 侧直呼 default），自定义包格式静默失效；复现测试红转绿
+- `a5de3fbb` dev(round 4): websocket 入站消息路径单次解析：去掉二次整包 unmarshal 与重复 handler 查找，215→106 ns/op（-51%）、704→364 B/op、7→4 allocs [ns_per_op=106.4]
+- `45f58eb3` chore(release): 发布 19 个模块——bald v0.56.0 / cli v0.14.0 / bconf v0.28.1 / pkg v0.16.1 等
+- `e5a0a70c` chore(deps): 撤回发布叠加层——dropreplace 临时 bootstrap/bconfig/transport 目录 replace
+
 ## 2026-11-16
 
 ### bald v0.56.0

@@ -5,9 +5,9 @@ go 1.27.1
 require (
 	github.com/alibaba/sentinel-golang v1.0.4
 	github.com/kalandramo/bald/berrors v0.1.2
-	github.com/kalandramo/bald/circuitbreaker v0.2.1
+	github.com/kalandramo/bald/circuitbreaker v0.2.2
 	github.com/kalandramo/bald/circuitbreaker/sentinel v0.1.1
-	github.com/kalandramo/bald/selector v0.1.1
+	github.com/kalandramo/bald/selector v0.1.2
 	google.golang.org/grpc v1.83.2
 )
 

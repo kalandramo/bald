@@ -8,29 +8,29 @@ require (
 	github.com/alibaba/sentinel-golang v1.0.4
 	github.com/gin-gonic/gin v1.12.0
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.29.0
-	github.com/kalandramo/bald/bconf v0.28.1
-	github.com/kalandramo/bald/bconfig v0.2.4
+	github.com/kalandramo/bald/bconf v0.29.0
+	github.com/kalandramo/bald/bconfig v0.2.5
 	github.com/kalandramo/bald/berrors v0.1.2
-	github.com/kalandramo/bald/bootstrap v0.13.8
-	github.com/kalandramo/bald/broker v0.4.1
-	github.com/kalandramo/bald/broker/kafka v0.3.1
-	github.com/kalandramo/bald/circuitbreaker v0.2.1
+	github.com/kalandramo/bald/bootstrap v0.13.9
+	github.com/kalandramo/bald/broker v0.4.2
+	github.com/kalandramo/bald/broker/kafka v0.3.2
+	github.com/kalandramo/bald/circuitbreaker v0.2.2
 	github.com/kalandramo/bald/circuitbreaker/sentinel v0.1.1
-	github.com/kalandramo/bald/contrib/store-gorm v0.4.2
+	github.com/kalandramo/bald/contrib/store-gorm v0.4.3
 	github.com/kalandramo/bald/health v0.1.1
 	github.com/kalandramo/bald/log v0.6.1
-	github.com/kalandramo/bald/pkg v0.16.1
-	github.com/kalandramo/bald/registry v0.5.1
-	github.com/kalandramo/bald/registry/etcd v0.4.2
-	github.com/kalandramo/bald/registry/nacos v0.3.4
-	github.com/kalandramo/bald/selector v0.1.1
-	github.com/kalandramo/bald/selector/balancer v0.2.1
-	github.com/kalandramo/bald/selector/circuitbreaker v0.1.1
-	github.com/kalandramo/bald/transport/asynq v0.6.4
-	github.com/kalandramo/bald/transport/client v0.2.1
-	github.com/kalandramo/bald/transport/cron v0.6.4
-	github.com/kalandramo/bald/transport/gateway v0.5.3
-	github.com/kalandramo/bald/transport/mcp v0.6.0
+	github.com/kalandramo/bald/pkg v0.17.0
+	github.com/kalandramo/bald/registry v0.5.2
+	github.com/kalandramo/bald/registry/etcd v0.4.3
+	github.com/kalandramo/bald/registry/nacos v0.3.5
+	github.com/kalandramo/bald/selector v0.1.2
+	github.com/kalandramo/bald/selector/balancer v0.2.2
+	github.com/kalandramo/bald/selector/circuitbreaker v0.1.2
+	github.com/kalandramo/bald/transport/asynq v0.6.5
+	github.com/kalandramo/bald/transport/client v0.2.2
+	github.com/kalandramo/bald/transport/cron v0.6.5
+	github.com/kalandramo/bald/transport/gateway v0.5.4
+	github.com/kalandramo/bald/transport/mcp v0.6.1
 	github.com/kalandramo/bald/transport/web v0.2.2
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
@@ -148,10 +148,10 @@ require (
 	github.com/kalandramo/bald/encoding v0.2.1 // indirect
 	github.com/kalandramo/bald/ratelimit v0.2.1 // indirect
 	github.com/kalandramo/bald/ratelimit/tokenbucket v0.2.0 // indirect
-	github.com/kalandramo/bald/retry v0.3.1 // indirect
-	github.com/kalandramo/bald/transport v0.5.1 // indirect
+	github.com/kalandramo/bald/retry v0.3.2 // indirect
+	github.com/kalandramo/bald/transport v0.5.2 // indirect
 	github.com/kalandramo/bald/transport/grpc v0.2.0 // indirect
-	github.com/kalandramo/bald/transport/http v0.2.0 // indirect
+	github.com/kalandramo/bald/transport/http v0.3.0 // indirect
 	github.com/klauspost/compress v1.20.2 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect

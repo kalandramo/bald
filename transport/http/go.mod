@@ -7,8 +7,8 @@ replace github.com/kalandramo/bald/bconf => ../../bconf
 replace github.com/kalandramo/bald/transport => ..
 
 require (
-	github.com/kalandramo/bald/bconf v0.28.1
-	github.com/kalandramo/bald/transport v0.5.1
+	github.com/kalandramo/bald/bconf v0.29.0
+	github.com/kalandramo/bald/transport v0.5.2
 )
 
 require google.golang.org/protobuf v1.36.12 // indirect

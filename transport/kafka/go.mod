@@ -27,15 +27,15 @@ replace github.com/kalandramo/bald/transport => ..
 replace github.com/kalandramo/bald/transport/subscribe => ../subscribe
 
 require (
-	github.com/kalandramo/bald/bconf v0.28.1
-	github.com/kalandramo/bald/broker v0.4.1
-	github.com/kalandramo/bald/broker/kafka v0.3.1
+	github.com/kalandramo/bald/bconf v0.29.0
+	github.com/kalandramo/bald/broker v0.4.2
+	github.com/kalandramo/bald/broker/kafka v0.3.2
 	github.com/kalandramo/bald/encoding v0.2.1
 	github.com/kalandramo/bald/encoding/json v0.1.1-00010101000000-000000000000
 	github.com/kalandramo/bald/log v0.6.1
 	github.com/kalandramo/bald/metrics v0.2.1
-	github.com/kalandramo/bald/pkg v0.16.1
-	github.com/kalandramo/bald/transport v0.5.1
+	github.com/kalandramo/bald/pkg v0.17.0
+	github.com/kalandramo/bald/transport v0.5.2
 	github.com/spf13/pflag v1.0.10
 	github.com/stretchr/testify v1.12.1
 )
@@ -118,13 +118,13 @@ require (
 	github.com/hashicorp/vault/api v1.23.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
-	github.com/kalandramo/bald/bconfig v0.2.4 // indirect
-	github.com/kalandramo/bald/bootstrap v0.13.8 // indirect
+	github.com/kalandramo/bald/bconfig v0.2.5 // indirect
+	github.com/kalandramo/bald/bootstrap v0.13.9 // indirect
 	github.com/kalandramo/bald/health v0.1.1 // indirect
-	github.com/kalandramo/bald/registry v0.5.1 // indirect
-	github.com/kalandramo/bald/retry v0.3.1 // indirect
+	github.com/kalandramo/bald/registry v0.5.2 // indirect
+	github.com/kalandramo/bald/retry v0.3.2 // indirect
 	github.com/kalandramo/bald/transport/grpc v0.2.0 // indirect
-	github.com/kalandramo/bald/transport/http v0.2.0 // indirect
+	github.com/kalandramo/bald/transport/http v0.3.0 // indirect
 	github.com/kalandramo/bald/transport/subscribe v0.1.1 // indirect
 	github.com/klauspost/compress v1.20.2 // indirect
 	github.com/magiconair/properties v1.8.5 // indirect

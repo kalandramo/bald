@@ -3,7 +3,7 @@ module github.com/kalandramo/bald/selector/balancer
 go 1.27.1
 
 require (
-	github.com/kalandramo/bald/selector v0.1.1
+	github.com/kalandramo/bald/selector v0.1.2
 	google.golang.org/grpc v1.83.2
 )
 

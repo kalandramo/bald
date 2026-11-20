@@ -4,10 +4,10 @@ go 1.27.1
 
 require (
 	github.com/google/uuid v1.6.0
-	github.com/kalandramo/bald/bconf v0.28.1
-	github.com/kalandramo/bald/broker v0.4.1
+	github.com/kalandramo/bald/bconf v0.29.0
+	github.com/kalandramo/bald/broker v0.4.2
 	github.com/kalandramo/bald/log v0.6.1
-	github.com/kalandramo/bald/pkg v0.16.1
+	github.com/kalandramo/bald/pkg v0.17.0
 	github.com/rabbitmq/amqp091-go v1.14.0
 )
 
@@ -88,14 +88,14 @@ require (
 	github.com/hashicorp/vault/api v1.23.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
-	github.com/kalandramo/bald/bconfig v0.2.4 // indirect
-	github.com/kalandramo/bald/bootstrap v0.13.8 // indirect
+	github.com/kalandramo/bald/bconfig v0.2.5 // indirect
+	github.com/kalandramo/bald/bootstrap v0.13.9 // indirect
 	github.com/kalandramo/bald/encoding v0.2.1 // indirect
 	github.com/kalandramo/bald/health v0.1.1 // indirect
-	github.com/kalandramo/bald/registry v0.5.1 // indirect
-	github.com/kalandramo/bald/transport v0.5.1 // indirect
+	github.com/kalandramo/bald/registry v0.5.2 // indirect
+	github.com/kalandramo/bald/transport v0.5.2 // indirect
 	github.com/kalandramo/bald/transport/grpc v0.2.0 // indirect
-	github.com/kalandramo/bald/transport/http v0.2.0 // indirect
+	github.com/kalandramo/bald/transport/http v0.3.0 // indirect
 	github.com/magiconair/properties v1.8.5 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect
 	github.com/mattn/go-isatty v0.0.22 // indirect
