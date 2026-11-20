@@ -23,8 +23,12 @@ func startTestServer(t *testing.T, cfg *bootstrapv1.Server_Http, handler http.Ha
 	deadline := time.Now().Add(5 * time.Second)
 	base := ""
 	for time.Now().Before(deadline) {
-		if srv.ln != nil {
-			base = "http://" + srv.ln.Addr().String()
+		// 持锁读 ln（与 Start 的持锁写互斥）——race gate 下的正确观察姿势。
+		srv.mu.RLock()
+		ln := srv.ln
+		srv.mu.RUnlock()
+		if ln != nil {
+			base = "http://" + ln.Addr().String()
 			break
 		}
 		time.Sleep(5 * time.Millisecond)
