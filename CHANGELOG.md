@@ -4,27 +4,6 @@
 条目取自该版本区间内的提交标题（Conventional Commits），不要手工调整顺序。
 发布流程见 [多模块发布与变更日志](docs/devel/zh-CN/多模块发布与变更日志.md)。
 
-## 2026-11-22
-
-### bconf v0.30.0
-
-- `81284a29` feat(bconf): AppSpec.domains[] 新增 deps 声明域依赖接线
-
-### contrib/validation-protovalidate v0.1.0
-
-- `a03fd42b` feat(contrib/validation-protovalidate): protovalidate → berrors 官方桥
-
-### pkg v0.18.0
-
-- `4c356af2` feat(pkg): storeerr 哨兵桥 + appkit.DynamicAuditor
-
-### transport/web v0.3.0
-
-- `bfcb5c0a` feat(transport/web): protojson 选项与响应状态码可配
-- `709b8a14` chore(release): 依赖归位与 CHANGELOG——41 个模块升版（bald v0.56.1 / cli v0.15.0 / bconf v0.29.0 / pkg v0.17.0 / transport/http v0.3.0 等）
-- `65341f61` chore: 全仓 re-tidy 对齐 transport kernel 依赖图 + 删 rabbitmq 测试桩 unused 方法（CI #651 test/lint 闸门收尾）
-- `45f58eb3` chore(release): 发布 19 个模块——bald v0.56.0 / cli v0.14.0 / bconf v0.28.1 / pkg v0.16.1 等
-
 ## 2026-11-20
 
 ### bald v0.56.1
