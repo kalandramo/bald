@@ -141,6 +141,50 @@ message DomainSpec {
   // 按「声明面不允许无消费者字段」移除。
   reserved 4;
   reserved "model";
+
+  // 该域的装配依赖清单：Deps 结构体字段名 → 稳定依赖 ID（顺序 = 生成代码
+  // 字段顺序）。生成器据此在 domains.gen.go 产出 setupDeclaredDomainDeps，
+  // 使新增业务域真正「装配改动 0、装配不随域增长」。声明是可选为空的——
+  // 没有外部依赖的域不写 deps，生成器跳过其 Setup 接线。
+  repeated DomainDep deps = 8;
+
+  // gRPC service 骨架的 biz 接线（`gen domain --grpc-skeleton` 消费）。
+  // 二者任一为空则不生成骨架——生成器不猜应用特定的 biz 包/类型命名。
+  // 生成物是 seeded：struct + 构造 + 方法签名 + notFoundOr 模板，业务
+  // 转换（proto↔biz）手写填充，重构不覆盖。
+  string grpc_biz_package = 9;
+  string grpc_biz_type = 10;
+}
+
+// DomainDep 声明域装配需要的一项外部依赖。
+message DomainDep {
+  // 域 Deps 结构体字段名（合法 Go 标识符，如 TypeStore / Authn），域内唯一。
+  string field = 1;
+  // 稳定依赖 ID（appspec 可读标识 + Gate1 去重校验；不参与代码生成，
+  // 故生成器不绑定任何应用特定的 model 命名，保持框架通用）。
+  // 形如 store.DictType / authn / authz / cache.biz / storage.object 等。
+  string id = 2;
+  // 生成进 setupDeclaredDomainDeps 的完整 Go 闭包表达式，基于固定入参 src
+  //（DomainDepSources 类型由装配层提供，字段类型即此处返回类型，编译期校验）。
+  // 例：func() *store.Store[authmodel.Tenant] { return src.Store().Tenant }。
+  // 生成器只做文本搬运——类型与 getter 知识留在应用声明面，不进框架。
+  string expr = 3;
+  // expr 引用到的 import（生成物去重汇总后进 domains.gen.go 的 import 块）。
+  // 声明面显式给出，生成器不做 import 推断（AST 反推脆弱且需解析非本仓包）。
+  repeated DomainDepImport imports = 4;
+}
+
+// DomainDepImport 是 expr 引用到的一个 import。带别名是因为 Go 的包名
+// 未必等于路径末段——应用侧普遍存在 s3→s3oss、model→authmodel、
+// redis→goredis 这类可读性别名，也可能有同名包需要消歧（两个 model）。
+// 声明面给出别名，生成器照搬，不猜。
+message DomainDepImport {
+  // import 路径，如 "github.com/kalandramo/bald/pkg/store"。
+  string path = 1;
+  // 可选别名。为空表示用包自身名字（路径末段即包名时）；expr 里以别名
+  // 引用类型时必填。同一 path 在全部 deps 里声明的别名必须一致——一个
+  // 生成文件的 import 块里同一 path 只能出现一次。
+  string alias = 2;
 }
 
 // AppMeta 生成代码的标识信息。
