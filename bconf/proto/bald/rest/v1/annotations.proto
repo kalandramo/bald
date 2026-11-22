@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package bald.rest.v1;
+
+import "google/protobuf/descriptor.proto";
+
+option go_package = "github.com/kalandramo/bald/bconf/gen/go/bald/rest/v1";
+
+// ---------------------------------------------------------------------------
+// REST 注解契约：google.api.http 之外的 REST 语义补充（单一真相源）。
+//
+// google.api.http 只描述路由与绑定（动词/路径/body），不携带成功状态码等
+// REST 语义；gen domain 的绑定生成默认一律 200。需要非 200 成功状态码的
+// RPC（如 POST 创建 → 201）用本文件的选项在 proto 里显式声明——注解是
+// 唯一真相源，改 proto 后重新生成，绑定产物与声明零漂移。
+//
+// 消费方式：业务 proto import 本文件后逐 RPC 声明：
+//
+//   import "bald/rest/v1/annotations.proto";
+//
+//   rpc CreateItem(CreateItemRequest) returns (CreateItemResponse) {
+//     option (google.api.http) = { post: "/v1/items" body: "*" };
+//     option (bald.rest.v1.response_status) = 201;
+//   }
+//
+// 未声明的 RPC 保持默认 200。扫描器只认独立成行的声明（与 google.api.http
+// 同款解析方式），值域校验（100-599）在 gen domain 的 Gate1。
+// ---------------------------------------------------------------------------
+
+extend google.protobuf.MethodOptions {
+  // response_status 声明该 RPC REST 面的成功状态码（默认 200）。
+  // 典型用法：POST 创建 → 201。错误状态码不由它控制——错误面统一走
+  // berrors → gRPC → HTTP 的映射，这里只管成功语义。
+  uint32 response_status = 71080;
+}
