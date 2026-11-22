@@ -6,6 +6,11 @@
 
 ## 2026-11-22
 
+### cli v0.16.0
+
+- `40e05ea8` feat(cli): 域依赖接线由 appspec 声明派生 + gen domain 补 gRPC 契约守卫
+- `219947ec` chore(deps): 9 模块 go.sum 归位（bconfig v0.2.5 / transport/http v0.3.0 批）
+
 ### bconf v0.30.0
 
 - `81284a29` feat(bconf): AppSpec.domains[] 新增 deps 声明域依赖接线
