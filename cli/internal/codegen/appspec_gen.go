@@ -19,6 +19,8 @@ import (
 	"fmt"
 	"regexp"
 	"runtime"
+	"sort"
+	"strconv"
 	"strings"
 	"text/template"
 
@@ -86,6 +88,31 @@ type treeView struct {
 	// GoVersion 是生成树 go.mod 里 go 指令的主次版本（1.27），Dockerfile 的
 	// 构建镜像 tag 取它——镜像工具链与 go.mod 要求同源，不各写一份。
 	GoVersion string
+
+	// HasDomainDeps 表示任一域声明了 deps（domains[].deps）：为 true 时
+	// domains.gen.go 渲染 setupDeclaredDomainDeps，把域依赖接线从手写装配层
+	// 收进生成物——新增域只要在 appspec 写 deps，装配文件零改动（判据①②）。
+	HasDomainDeps bool
+	// DomainDepImports 是全部 deps.expr 引用到的 import（去重、按路径稳定排序），
+	// 供 domains.gen.go 的 import 块使用；生成器不做 import 推断。带别名是因为
+	// 包名未必等于路径末段（s3→s3oss、model→authmodel、redis→goredis），且同名
+	// 包需要消歧——别名由声明面给，生成器照搬。
+	DomainDepImports []domainDepImport
+}
+
+// domainDepImport 是 domains.gen.go import 块的一行（模板视图）。
+type domainDepImport struct {
+	Path  string
+	Alias string
+}
+
+// Spec 渲染成 import 块里的一行（不含缩进）：有别名时 "alias \"path\""，
+// 否则就是 "\"path\""（用包自身名字）。
+func (i domainDepImport) Spec() string {
+	if i.Alias == "" {
+		return strconv.Quote(i.Path)
+	}
+	return i.Alias + " " + strconv.Quote(i.Path)
 }
 
 // goMinorVersion 把 runtime.Version()（go1.27.1）折算成镜像 tag 用的主次版本
@@ -168,7 +195,34 @@ func buildTreeView(as *appspecv1.AppSpec, bs *bootstrapv1.BootstrapConfig) *tree
 			v.HasComponents = true
 		}
 	}
+	v.buildDomainDeps(as)
 	return v
+}
+
+// buildDomainDeps 汇总 domains[].deps：HasDomainDeps 供模板决定是否渲染
+// setupDeclaredDomainDeps，DomainDepImports 是按路径去重排序后的 import 清单。
+// 同一 path 的别名一致性由 Gate1（validateAppSpec）保证，这里取首个声明。
+func (v *treeView) buildDomainDeps(as *appspecv1.AppSpec) {
+	seen := map[string]bool{}
+	for _, d := range as.GetDomains() {
+		for _, dep := range d.GetDeps() {
+			v.HasDomainDeps = true
+			for _, imp := range dep.GetImports() {
+				path := strings.TrimSpace(imp.GetPath())
+				if path == "" || seen[path] {
+					continue
+				}
+				seen[path] = true
+				v.DomainDepImports = append(v.DomainDepImports, domainDepImport{
+					Path:  path,
+					Alias: strings.TrimSpace(imp.GetAlias()),
+				})
+			}
+		}
+	}
+	sort.Slice(v.DomainDepImports, func(i, j int) bool {
+		return v.DomainDepImports[i].Path < v.DomainDepImports[j].Path
+	})
 }
 
 // buildVariants 把 AppSpec.variants 派生为模板视图：when 与 build_tags 归一

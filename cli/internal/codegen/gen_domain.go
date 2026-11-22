@@ -60,6 +60,16 @@ type domainOptions struct {
 	// ProtoCmd 是绑定前置（proto 的 Go 类型）缺失时执行的 proto 生成命令，
 	// 在 --out 根以 shell 语义执行。默认 "buf generate"。
 	ProtoCmd string
+	// GRPCSkeleton 为声明了 grpc_biz_package + grpc_biz_type 的域生成 gRPC
+	// service 骨架（seeded：struct + 构造 + 方法签名 + notFoundOr 模板）——
+	// 消除每个域手写 New*Server 与错误归一化样板。默认关闭（显式 opt-in）。
+	GRPCSkeleton bool
+	// NoGRPCContract 关闭 gRPC 契约断言（--no-grpc-contract）。契约**默认生成**
+	// （与绑定默认生成同一姿态：能机械派生的守卫不该靠人记得开），为声明了
+	// grpc_biz_package 的域产出 owned 的「逐 RPC 方法集 + var _ 断言」——
+	// proto 增删改 RPC 后重新生成即编译失败，把「嵌入 Unimplemented 静默吞掉
+	// 漂移」提前成构建失败。与 GRPCSkeleton 互补：后者一次性起骨架，契约常态守漂移。
+	NoGRPCContract bool
 
 	ioStreams
 }
@@ -188,6 +198,12 @@ func (o *domainOptions) Run() error {
 	// apiserver 侧扇出（"-" 跳过——非标准目录树的宿主，如 _example）。
 	if o.APIServerDir != "-" {
 		if err := o.emitAPIServerSide(v, scan, &files); err != nil {
+			return err
+		}
+		if err := o.emitGRPCSkeletons(v, scan, &files); err != nil {
+			return err
+		}
+		if err := o.emitGRPCContracts(v, scan, &files); err != nil {
 			return err
 		}
 	}

@@ -134,6 +134,12 @@ import (
 
 	{{ alias .GoPackage }} "{{ .GoPackage }}"
 {{- end}}
+{{- if .HasDomainDeps}}
+{{- range .DomainDepImports}}
+
+	{{ .Spec }}
+{{- end}}
+{{- end}}
 )
 
 {{- if .MultiRole}}
@@ -168,6 +174,27 @@ var domainOptions = []appkit.Option{
 	{{ alias .GoPackage }}.Domain,
 {{- else}}
 	// （AppSpec.domains 为空：暂无业务域；gen domain seed 域包后在此登记。）
+{{- end}}
+}
+{{- end}}
+{{- if .HasDomainDeps}}
+
+// DomainDepSources 由装配层提供（固定字段集，不随域增长）：deps.expr 里的
+// getter（如 src.Store().Tenant）经它的字段取得真实实例。类型定义在装配层，
+// 生成物只按 appspec 的 deps 声明拼装 Setup 接线——新增域只改声明与生成物，
+// 装配文件零改动（判据①②）。
+//
+// setupDeclaredDomainDeps 由 appspec.json domains[].deps 派生：逐域 Setup。
+func setupDeclaredDomainDeps(src DomainDepSources) {
+{{- range .Spec.Domains}}
+{{- $d := . }}
+{{- if .GetDeps}}
+	{{ alias .GoPackage }}.Setup({{ alias .GoPackage }}.Deps{
+{{- range .GetDeps}}
+		{{ .GetField }}: {{ .GetExpr }},
+{{- end}}
+	})
+{{- end}}
 {{- end}}
 }
 {{- end}}

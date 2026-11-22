@@ -1128,3 +1128,192 @@ func TestBindViewOf_RejectsUnsupportedAnnotationFields(t *testing.T) {
 		t.Fatalf("err = %v, want rejection naming custom", err)
 	}
 }
+
+// TestGenDomain_GRPCSkeleton 覆盖 --grpc-skeleton：为声明了 grpc_biz_package +
+// grpc_biz_type 的域产出 seeded 骨架（struct + 构造 + 每 RPC 方法签名 +
+// notFoundOr 模板），且缺这两个声明时跳过。
+func TestGenDomain_GRPCSkeleton(t *testing.T) {
+	dir := t.TempDir()
+	as := guardFixture()
+	as.Domains[0].GrpcBizPackage = "demo.example/app/internal/apiserver/biz/v1/greet"
+	as.Domains[0].GrpcBizType = "Biz"
+	scaffoldModule(t, dir, as.GetMeta().GetModule())
+	specPath := writeSpecJSON(t, dir, as)
+	writeFixtureProto(t, dir)
+	runGenDomain(t, dir, specPath, "--adopt", "--no-bind", "--grpc-skeleton")
+
+	raw, err := os.ReadFile(filepath.Join(dir, "internal", "apiserver", "handler", "grpc", "greet.grpc.gen.go"))
+	if err != nil {
+		t.Fatalf("read grpc skeleton: %v", err)
+	}
+	skeleton := string(raw)
+	// 逐项断言（结构体名 = service 短名的 lowerCamel：greetService；构造器名
+	// 去掉冗余的 Service 后缀：NewGreetServer。与 --grpc-contract 共用同一派生）。
+	for _, want := range []string{
+		"now maintained by you",
+		"type greetService struct {",
+		"greetv1.UnimplementedGreetServiceServer",
+		"biz *greet.Biz",
+		"func NewGreetServer(biz *greet.Biz) greetv1.GreetServiceServer {",
+		"func (s *greetService) Greet(ctx context.Context, req *greetv1.GreetRequest) (*greetv1.GreetResponse, error) {",
+		"func (s *greetService) GreetGet(ctx context.Context, req *greetv1.GreetGetRequest) (*greetv1.GreetResponse, error) {",
+		`berrors.Unimplemented("greet/Greet")`,
+		`notFoundOr(err, "greet/not_found"`,
+	} {
+		if !strings.Contains(skeleton, want) {
+			t.Errorf("grpc skeleton missing %q:\n%s", want, skeleton)
+		}
+	}
+}
+
+// TestGenDomain_GRPCSkeleton_SkippedWithoutBiz 缺 grpc_biz_* 声明时不产骨架。
+func TestGenDomain_GRPCSkeleton_SkippedWithoutBiz(t *testing.T) {
+	dir := t.TempDir()
+	as := guardFixture()
+	scaffoldModule(t, dir, as.GetMeta().GetModule())
+	specPath := writeSpecJSON(t, dir, as)
+	writeFixtureProto(t, dir)
+	runGenDomain(t, dir, specPath, "--adopt", "--no-bind", "--grpc-skeleton")
+	if _, err := os.Stat(filepath.Join(dir, "internal", "apiserver", "handler", "grpc", "greet.grpc.gen.go")); !os.IsNotExist(err) {
+		t.Fatalf("skeleton must be skipped without grpc_biz_* declarations, stat err=%v", err)
+	}
+}
+
+// TestGenDomain_GRPCContract 覆盖默认生成的 gRPC 契约：为声明了
+// grpc_biz_package 的域产出**编译期契约**——逐 RPC 方法集 + var _ 断言。
+//
+// 与 --grpc-skeleton 的关键差别：契约是 owned（每次重生成、--check 可发现
+// 漂移），骨架是 seeded（一次性）。断言必须落在「去掉 Unimplemented 兜底后」
+// 的方法集上，否则嵌入兜底会把 proto 漂移静默吸收。
+func TestGenDomain_GRPCContract(t *testing.T) {
+	dir := t.TempDir()
+	as := guardFixture()
+	as.Domains[0].GrpcBizPackage = "demo.example/app/internal/apiserver/biz/v1/greet"
+	as.Domains[0].GrpcBizType = "Biz"
+	scaffoldModule(t, dir, as.GetMeta().GetModule())
+	specPath := writeSpecJSON(t, dir, as)
+	writeFixtureProto(t, dir)
+	runGenDomain(t, dir, specPath, "--adopt", "--no-bind")
+
+	raw, err := os.ReadFile(filepath.Join(dir, "internal", "apiserver", "handler", "grpc", "greet.grpc_contract.gen.go"))
+	if err != nil {
+		t.Fatalf("read grpc contract: %v", err)
+	}
+	contract := string(raw)
+	for _, want := range []string{
+		"DO NOT EDIT",
+		"type greetServiceContract interface {",
+		"Greet(ctx context.Context, req *greetv1.GreetRequest) (*greetv1.GreetResponse, error)",
+		"GreetGet(ctx context.Context, req *greetv1.GreetGetRequest) (*greetv1.GreetResponse, error)",
+		"var _ greetServiceContract = (*greetService)(nil)",
+	} {
+		if !strings.Contains(contract, want) {
+			t.Errorf("grpc contract missing %q:\n%s", want, contract)
+		}
+	}
+	// 只覆盖 domains[].service 声明的 service：GreetAdminService 未声明，不得入契约。
+	if strings.Contains(contract, "greetAdminServiceContract") {
+		t.Errorf("contract must only cover declared services:\n%s", contract)
+	}
+}
+
+// TestGenDomain_GRPCContract_SkippedWithoutBiz 缺 grpc_biz_package 时不产契约
+// （没有手写实现就没有可断言的对象，生成契约只会引入 undefined 编译错误）。
+func TestGenDomain_GRPCContract_SkippedWithoutBiz(t *testing.T) {
+	dir := t.TempDir()
+	as := guardFixture()
+	scaffoldModule(t, dir, as.GetMeta().GetModule())
+	specPath := writeSpecJSON(t, dir, as)
+	writeFixtureProto(t, dir)
+	runGenDomain(t, dir, specPath, "--adopt", "--no-bind")
+	if _, err := os.Stat(filepath.Join(dir, "internal", "apiserver", "handler", "grpc", "greet.grpc_contract.gen.go")); !os.IsNotExist(err) {
+		t.Fatalf("contract must be skipped without grpc_biz_package, stat err=%v", err)
+	}
+}
+
+// writeStreamProto 写入一个含三种流式方向的 service（契约签名按方向派生）。
+func writeStreamProto(t *testing.T, dir string) {
+	t.Helper()
+	path := filepath.Join(dir, "api", "proto", "greet", "v1", "greet.proto")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir proto dir: %v", err)
+	}
+	src := `syntax = "proto3";
+
+package greet.v1;
+
+option go_package = "demo.example/app/api/gen/go/greet/v1;greetv1";
+
+service GreetService {
+  rpc Greet(GreetRequest) returns (GreetResponse);
+  rpc GreetStream(GreetRequest) returns (stream GreetResponse);
+  rpc GreetUpload(stream GreetRequest) returns (GreetResponse);
+  rpc GreetChat(stream GreetRequest) returns (stream GreetResponse);
+}
+
+message GreetRequest {
+  string name = 1;
+}
+
+message GreetResponse {
+  string greeting = 1;
+}
+`
+	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+		t.Fatalf("write stream proto: %v", err)
+	}
+}
+
+// TestGenDomain_GRPCContract_StreamingSignatures 覆盖流式 RPC 的签名派生：
+// 只看「有没有 stream」不够，方向决定形参（server 流带 req，client 流不带）
+// 与返回值（流式只有 error）。
+func TestGenDomain_GRPCContract_StreamingSignatures(t *testing.T) {
+	dir := t.TempDir()
+	as := guardFixture()
+	as.Domains[0].GrpcBizPackage = "demo.example/app/internal/apiserver/biz/v1/greet"
+	as.Domains[0].GrpcBizType = "Biz"
+	scaffoldModule(t, dir, as.GetMeta().GetModule())
+	specPath := writeSpecJSON(t, dir, as)
+	writeStreamProto(t, dir)
+	runGenDomain(t, dir, specPath, "--adopt", "--no-bind")
+
+	raw, err := os.ReadFile(filepath.Join(dir, "internal", "apiserver", "handler", "grpc", "greet.grpc_contract.gen.go"))
+	if err != nil {
+		t.Fatalf("read grpc contract: %v", err)
+	}
+	contract := string(raw)
+	for _, want := range []string{
+		// 一元
+		"Greet(ctx context.Context, req *greetv1.GreetRequest) (*greetv1.GreetResponse, error)",
+		// server streaming：带 req，返回 error，流类型 <Svc>_<RPC>Server
+		"GreetStream(req *greetv1.GreetRequest, stream greetv1.GreetService_GreetStreamServer) error",
+		// client streaming：不带 req
+		"GreetUpload(stream greetv1.GreetService_GreetUploadServer) error",
+		// bidi：同 client streaming 形态
+		"GreetChat(stream greetv1.GreetService_GreetChatServer) error",
+	} {
+		if !strings.Contains(contract, want) {
+			t.Errorf("streaming contract missing %q:\n%s", want, contract)
+		}
+	}
+	// 流式方法不得出现「响应消息 + error」的伪一元签名。
+	if strings.Contains(contract, "GreetStream(ctx context.Context") {
+		t.Errorf("server streaming must not be derived as unary:\n%s", contract)
+	}
+}
+
+// TestGenDomain_GRPCContract_DisabledByFlag 覆盖逃生口 --no-grpc-contract：
+// 声明了 grpc_biz_package 也不产契约（REST/gRPC 面完全手写、尚未落实现时用）。
+func TestGenDomain_GRPCContract_DisabledByFlag(t *testing.T) {
+	dir := t.TempDir()
+	as := guardFixture()
+	as.Domains[0].GrpcBizPackage = "demo.example/app/internal/apiserver/biz/v1/greet"
+	as.Domains[0].GrpcBizType = "Biz"
+	scaffoldModule(t, dir, as.GetMeta().GetModule())
+	specPath := writeSpecJSON(t, dir, as)
+	writeFixtureProto(t, dir)
+	runGenDomain(t, dir, specPath, "--adopt", "--no-bind", "--no-grpc-contract")
+	if _, err := os.Stat(filepath.Join(dir, "internal", "apiserver", "handler", "grpc", "greet.grpc_contract.gen.go")); !os.IsNotExist(err) {
+		t.Fatalf("--no-grpc-contract must skip contract generation, stat err=%v", err)
+	}
+}

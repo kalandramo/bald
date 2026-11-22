@@ -40,7 +40,17 @@ proto Go 类型缺失时先在 --out 根执行 --proto-cmd（默认 buf generate
 失败或仍无产物即硬错误。--check 只读，不执行外部命令，缺失时直接给出修法。
 --no-bind 是显式逃生口：跳过注解派生绑定与路由清单（REST 面完全手写）。
 --no-routes 与绑定生成连用：只产 bind 文件，不产路由清单（域保留手写
-RouteTable）。`,
+RouteTable）。
+
+gRPC 面两个产物（互补，别混用）：
+  （默认）         已有实现防漂移：owned 契约（逐 RPC 方法集 + var _ 断言），
+                   为声明了 grpc_biz_package 的域生成。嵌入 Unimplemented<T>Server
+                   会把「proto 新增 RPC」与「签名改动」都静默吸收（运行时才
+                   Unimplemented），断言 service 接口守不住；断言去掉兜底后的
+                   方法集，proto 漂移即编译失败。默认生成与绑定默认生成同一姿态，
+                   --no-grpc-contract 关闭（关闭后已存在的契约文件会被判 stale）。
+  --grpc-skeleton  新域从零起实现：seeded 骨架（struct + 构造 + 方法签名 +
+                   Unimplemented 方法体），生成一次后归你维护。`,
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 		RunE: func(*cobra.Command, []string) error {
@@ -68,6 +78,8 @@ RouteTable）。`,
 	// 生成的树 buf 配置在 api/，在产出根上裸跑 `buf generate` 必然
 	// "read buf.gen.yaml: file does not exist"（对抗审查 adv-docs #1）。
 	cmd.Flags().StringVar(&o.ProtoCmd, "proto-cmd", "", "绑定前置缺失时执行的 proto 生成命令（缺省按产出根的 buf 布局选：有 api/buf.gen.yaml 时为 cd api && buf generate）")
+	cmd.Flags().BoolVar(&o.GRPCSkeleton, "grpc-skeleton", false, "为声明了 grpc_biz_package + grpc_biz_type 的域生成 gRPC service 骨架（seeded：struct + 构造 + 方法签名 + notFoundOr 模板）")
+	cmd.Flags().BoolVar(&o.NoGRPCContract, "no-grpc-contract", false, "跳过 gRPC 编译期契约断言（默认生成：为声明了 grpc_biz_package 的域产 owned 的逐 RPC 方法集 + var _ 断言，proto 漂移即编译失败）")
 	_ = cmd.MarkFlagFilename("spec", ".json")
 	cmd.SetErr(streams.ErrOut)
 	return cmd

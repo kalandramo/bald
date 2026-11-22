@@ -26,14 +26,16 @@ var protoRoots = []string{"api/proto", "api/protos", "proto"}
 // protoMethod 是从 proto 源码解析出的一个 rpc 方法（含 google.api.http 注解
 // 与请求/响应消息类型——绑定生成需要后两者）。
 type protoMethod struct {
-	Name      string
-	Verb      string     // 主注解动词（get/post/put/delete/patch）；无注解为空
-	Path      string     // 主注解路径（如 /v1/greet/{name}）
-	Body      string     // 主注解 body（"*" 或字段掩码）；GET/DELETE 缺省无 body
-	Request   string     // 请求消息类型（去 proto package 前缀；嵌套以 "_" 连接；知名类型保留全名）
-	Response  string     // 响应消息类型（同 Request 口径）
-	Streaming bool       // 任一方向流式（proto 的 stream 关键字）
-	Rules     []httpRule // 全部 google.api.http 规则：主规则在前，additional_bindings 依次追加
+	Name         string
+	Verb         string     // 主注解动词（get/post/put/delete/patch）；无注解为空
+	Path         string     // 主注解路径（如 /v1/greet/{name}）
+	Body         string     // 主注解 body（"*" 或字段掩码）；GET/DELETE 缺省无 body
+	Request      string     // 请求消息类型（去 proto package 前缀；嵌套以 "_" 连接；知名类型保留全名）
+	Response     string     // 响应消息类型（同 Request 口径）
+	ClientStream bool       // 请求侧流式（rpc (...) 里的左侧 stream）
+	ServerStream bool       // 响应侧流式（returns (...) 里的 stream）
+	Streaming    bool       // 任一方向流式（= ClientStream || ServerStream）
+	Rules        []httpRule // 全部 google.api.http 规则：主规则在前，additional_bindings 依次追加
 	// Unsupported 是注解里出现、但绑定生成未实现的字段（custom 动词、
 	// response_body），去重后按字母序。生成期据此报错，避免生成的 REST 面
 	// 与注解契约静默不一致。
@@ -73,9 +75,9 @@ type protoScan struct {
 var (
 	reProtoPackage = regexp.MustCompile(`(?m)^\s*package\s+([A-Za-z_][A-Za-z0-9_.]*)\s*;`)
 	reProtoService = regexp.MustCompile(`(?m)^\s*service\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{`)
-	reProtoRPC     = regexp.MustCompile(`\brpc\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*(?:stream\s+)?([A-Za-z_][A-Za-z0-9_.]*)\s*\)\s*returns\s*\(\s*(?:stream\s+)?([A-Za-z_][A-Za-z0-9_.]*)\s*\)`)
-	// reProtoStream 识别 rpc 签名里的 stream 关键字（任一方向）。
-	reProtoStream    = regexp.MustCompile(`\bstream\s+[A-Za-z_]`)
+	// reProtoRPC 的两个 stream 段各成一个捕获组：流式方向决定 Go 方法签名
+	// （--grpc-contract 要按方向出签名，只知「有 stream」不够）。
+	reProtoRPC       = regexp.MustCompile(`\brpc\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*(stream\s+)?([A-Za-z_][A-Za-z0-9_.]*)\s*\)\s*returns\s*\(\s*(stream\s+)?([A-Za-z_][A-Za-z0-9_.]*)\s*\)`)
 	reProtoHTTPVerb  = regexp.MustCompile(`\b(get|post|put|delete|patch)\s*:\s*"([^"]*)"`)
 	reProtoHTTPBody  = regexp.MustCompile(`\bbody\s*:\s*"([^"]*)"`)
 	reProtoHTTPDot   = regexp.MustCompile(`\(google\.api\.http\)\.(get|post|put|delete|patch)\s*=\s*"([^"]*)"`)
@@ -140,10 +142,12 @@ func scanProto(relPath string, src []byte) (*protoFile, error) {
 		block, _ := braceBlock(text, loc[1]-1) // loc[1] 指向 '{' 之后，回退一格
 		for _, r := range reProtoRPC.FindAllStringSubmatchIndex(block, -1) {
 			m := protoMethod{
-				Name:      block[r[2]:r[3]],
-				Request:   protoTypeRef(f.Package, block[r[4]:r[5]]),
-				Response:  protoTypeRef(f.Package, block[r[6]:r[7]]),
-				Streaming: reProtoStream.MatchString(block[r[0]:r[1]]),
+				Name:         block[r[2]:r[3]],
+				Request:      protoTypeRef(f.Package, block[r[6]:r[7]]),
+				Response:     protoTypeRef(f.Package, block[r[10]:r[11]]),
+				ClientStream: r[4] >= 0,
+				ServerStream: r[8] >= 0,
+				Streaming:    r[4] >= 0 || r[8] >= 0,
 			}
 			// 方法段 = 本 rpc 起点到下一 rpc（或 service 块尾）。
 			end := len(block)

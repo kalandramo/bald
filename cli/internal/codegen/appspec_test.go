@@ -497,6 +497,104 @@ func TestMachineGuard_AllFieldsConsumed(t *testing.T) {
 	}
 }
 
+// TestTree_DomainDepsGolden 正向覆盖 domains[].deps 的消费：声明 deps 时
+// domains.gen.go 必须产出 setupDeclaredDomainDeps（逐域 Setup + 逐项闭包），
+// 且 deps.imports 进 import 块——deps 被登记为 builderConsumed（条件性落
+// 文本，守卫夹具无 deps），故由本测试钉住其真实渲染。
+func TestTree_DomainDepsGolden(t *testing.T) {
+	as := guardFixture()
+	as.Domains[0].Deps = []*appspecv1.DomainDep{{
+		Field: "Store",
+		Id:    "greet.store",
+		Expr:  "func() *store.Store[greetmodel.Greeting] { return src.Store().Greeting }",
+		Imports: []*appspecv1.DomainDepImport{
+			// 无别名：包名即路径末段。
+			{Path: "github.com/kalandramo/bald/pkg/store"},
+			// 有别名：包名不等于路径末段（greetmodel 包的实际路径是 .../model）。
+			{Path: "example.com/app/internal/apiserver/model", Alias: "greetmodel"},
+		},
+	}}
+	rendered := renderSpecForGuard(t, as)
+	for _, want := range []string{
+		"func setupDeclaredDomainDeps(src DomainDepSources) {",
+		"greetv1.Setup(greetv1.Deps{",
+		"Store: func() *store.Store[greetmodel.Greeting] { return src.Store().Greeting },",
+		`	"github.com/kalandramo/bald/pkg/store"`,
+		`	greetmodel "example.com/app/internal/apiserver/model"`,
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("domain deps output missing %q", want)
+		}
+	}
+}
+
+// TestTree_DomainDepsImportDedup 正向覆盖 deps.imports 的去重与排序：多个域
+// 引用同一 import 时，domains.gen.go 的 import 块只出现一次（重复 import 会
+// 直接破编译），且按路径稳定排序使 --check 字节稳定。
+func TestTree_DomainDepsImportDedup(t *testing.T) {
+	as := guardFixture()
+	dep := func(field, id, expr string) *appspecv1.DomainDep {
+		return &appspecv1.DomainDep{
+			Field: field, Id: id, Expr: expr,
+			Imports: []*appspecv1.DomainDepImport{
+				{Path: "github.com/kalandramo/bald/pkg/authn"},
+				{Path: "github.com/kalandramo/bald/pkg/authz"},
+			},
+		}
+	}
+	as.Domains[0].Deps = []*appspecv1.DomainDep{
+		dep("Authn", "authn", "func() authn.Authenticator { return src.Authn() }"),
+		dep("Authz", "authz", "func() authz.Authorizer { return src.Authz() }"),
+	}
+	rendered := renderSpecForGuard(t, as)
+	for _, path := range []string{"pkg/authn", "pkg/authz"} {
+		if got := strings.Count(rendered, `"github.com/kalandramo/bald/`+path+`"`); got != 1 {
+			t.Fatalf("import %q must appear exactly once in the generated tree, got %d", path, got)
+		}
+	}
+	if strings.Index(rendered, "pkg/authn\"") > strings.Index(rendered, "pkg/authz\"") {
+		t.Fatal("deps imports must be sorted by path (stable --check bytes)")
+	}
+}
+
+// TestValidate_DomainDepImportAliasConsistent 负例（红）：同一 import path 在
+// 不同域声明了不同别名——一个生成文件的 import 块里同一 path 只能出现一次，
+// 别名冲突必然产出不可编译的重复 import，必须在 Gate1 拒。
+func TestValidate_DomainDepImportAliasConsistent(t *testing.T) {
+	as := guardFixture()
+	as.Domains[0].Deps = []*appspecv1.DomainDep{{
+		Field: "Store", Id: "s", Expr: "func() int { return 0 }",
+		Imports: []*appspecv1.DomainDepImport{{Path: "example.com/m", Alias: "a"}},
+	}}
+	// 第二个域（http_only：不需要 proto service）声明同一 path 的另一个别名。
+	as.Domains = append(as.Domains, &appspecv1.DomainSpec{
+		Name:      "greet-two",
+		HttpOnly:  true,
+		GoPackage: "example.com/app/internal/apiserver/domains/greettwod",
+		Deps: []*appspecv1.DomainDep{{
+			Field: "Store", Id: "s", Expr: "func() int { return 0 }",
+			Imports: []*appspecv1.DomainDepImport{{Path: "example.com/m", Alias: "b"}},
+		}},
+	})
+
+	errs := validateAppSpec(as)
+	if len(errs) == 0 {
+		t.Fatal("conflicting aliases for one import path must be rejected (test must be red)")
+	}
+	if !strings.Contains(joinErrs(errs), "conflicts with earlier alias") {
+		t.Fatalf("unexpected report: %s", joinErrs(errs))
+	}
+}
+
+// TestTree_NoDomainDepsNoSetup 负向覆盖：域未声明 deps 时不得渲染
+// setupDeclaredDomainDeps（否则引用不存在的 DomainDepSources 会破编译）。
+func TestTree_NoDomainDepsNoSetup(t *testing.T) {
+	rendered := renderSpecForGuard(t, guardFixture())
+	if strings.Contains(rendered, "setupDeclaredDomainDeps(") {
+		t.Fatal("no deps declared, but setupDeclaredDomainDeps was rendered")
+	}
+}
+
 // TestMachineGuard_UnconsumedFieldRed 负例（红）：从守卫表摘除一个消费者登记，
 // 守卫必须报「declared but has no consumer」——死声明从此不可能再上线
 // （新增字段忘接消费者 = 测试红）。

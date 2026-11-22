@@ -49,6 +49,13 @@ var variantNameRe = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 // 写出 --out，且 manifest 对 .. 路径永不回收——任意目录写入面（J7 fail-fast）。
 var nameShapeRe = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 
+// depFieldRe 匹配域 Deps 结构体字段名：导出 Go 标识符（大写开头，驼峰/下划线）。
+var depFieldRe = regexp.MustCompile(`^[A-Z][A-Za-z0-9_]*$`)
+
+// depImportAliasRe 匹配 deps 依赖项的 import 别名：Go 标识符（小写开头的
+// 包名习惯，但只判标识符形状——下划线开头的别名虽可用，不做额外放行）。
+var depImportAliasRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
 // variantTagRe 限定单个 build tag 的形状（Go 构建约束允许字母、数字、下划线
 // 与点）。逗号、空格与 ! / && / || 都是表达式语法：生成物按「列表包含该项」
 // 判定命中，这类写法永远不命中且不报错——必须在生成期拒绝。
@@ -132,6 +139,9 @@ func validateAppSpec(as *appspecv1.AppSpec) []error {
 	// ---- domains：name 非空且唯一 + 声明形态三选一 + go_package 必填 + 别名不冲突 ----
 	seenDomain := map[string]int{}
 	seenAlias := map[string]int{}
+	// seenDepImport 记 path → 别名（跨域全局）：domains.gen.go 是一个文件，同一
+	// path 只能 import 一次，故别名必须全场一致。
+	seenDepImport := map[string]string{}
 	for i, d := range as.GetDomains() {
 		if d.GetName() == "" {
 			add("domains[%d].name is required (field domains.name)", i)
@@ -197,6 +207,58 @@ func validateAppSpec(as *appspecv1.AppSpec) []error {
 				i, d.GetName(), alias, prev, as.GetDomains()[prev].GetName())
 		} else {
 			seenAlias[alias] = i
+		}
+		// deps：每项装配依赖的字段名（合法标识符 + 域内唯一）、稳定 id、闭包
+		// 表达式与 import 清单都必须齐备，否则生成的 Setup 接线不可编译。
+		seenDepField := map[string]int{}
+		for j, dep := range d.GetDeps() {
+			f := strings.TrimSpace(dep.GetField())
+			if f == "" {
+				add("domains[%d].deps[%d].field is required (the Deps struct field name to wire)", i, j)
+			} else if !depFieldRe.MatchString(f) {
+				add("domains[%d].deps[%d].field %q is not a valid exported Go identifier (field domains.deps.field)", i, j, f)
+			}
+			if prev, dup := seenDepField[f]; dup && f != "" {
+				add("domains[%d].deps[%d].field %q duplicates domains[%d].deps[%d].field (field domains.deps.field must be unique within a domain)", i, j, f, i, prev)
+			} else if f != "" {
+				seenDepField[f] = j
+			}
+			if strings.TrimSpace(dep.GetId()) == "" {
+				add("domains[%d].deps[%d].id is required (a stable dependency id, e.g. store.Tenant or authn)", i, j)
+			}
+			if strings.TrimSpace(dep.GetExpr()) == "" {
+				add("domains[%d].deps[%d].expr is required (the Go closure expression, e.g. func() *store.Store[T] { return src.Store().T })", i, j)
+			}
+			for k, imp := range dep.GetImports() {
+				path := strings.TrimSpace(imp.GetPath())
+				alias := strings.TrimSpace(imp.GetAlias())
+				if path == "" {
+					add("domains[%d].deps[%d].imports[%d].path is required (the import path referenced by expr)", i, j, k)
+					continue
+				}
+				if strings.ContainsAny(path, " \t\"'") {
+					add("domains[%d].deps[%d].imports[%d].path %q contains whitespace or quotes (put the alias in imports[].alias, not in path)", i, j, k, path)
+				}
+				if alias != "" && !depImportAliasRe.MatchString(alias) {
+					add("domains[%d].deps[%d].imports[%d].alias %q is not a valid Go identifier", i, j, k, alias)
+				}
+				// 同一 path 在一个生成文件的 import 块里只能出现一次，别名必须
+				// 处处一致——不同域给不同别名会产出不可编译的重复 import。
+				if prev, dup := seenDepImport[path]; dup {
+					if prev != alias {
+						add("domains[%d].deps[%d].imports[%d]: import %q declared with alias %q conflicts with earlier alias %q "+
+							"(one import block cannot import the same path twice under different names)", i, j, k, path, alias, prev)
+					}
+				} else {
+					seenDepImport[path] = alias
+				}
+			}
+		}
+		// grpc_biz_package / grpc_biz_type 必须成对：只给一半说明骨架接线不可
+		// 编译（生成器不猜另一半），生成期即报。
+		if (d.GetGrpcBizPackage() == "") != (d.GetGrpcBizType() == "") {
+			add("domains[%d] (%s): grpc_biz_package and grpc_biz_type must be set together "+
+				"(the skeleton needs both the biz import path and its type name)", i, d.GetName())
 		}
 	}
 
@@ -480,6 +542,21 @@ var builderConsumed = map[string]bool{
 	// variants.build_tags：消费 = buildVariants 归一为 when（&& 连接），不落
 	// 独立文本标记——与 when 共用同一生成形态。
 	"bald.appspec.v1.AppSpec.variants.build_tags": true,
+	// domains.deps.*：消费 = buildDomainDeps 汇总（HasDomainDeps / import 去重）
+	// + 模板条件渲染 setupDeclaredDomainDeps。是**条件性**消费——只有域声明
+	// 了 deps 才落文本，故不适合固定标记（守卫夹具默认无 deps）；正向覆盖由
+	// TestTree_DomainDepsGolden 钉住（声明 deps 时生成物含逐项 Setup 接线）。
+	"bald.appspec.v1.AppSpec.domains.deps.field": true,
+	"bald.appspec.v1.AppSpec.domains.deps.id":    true,
+	"bald.appspec.v1.AppSpec.domains.deps.expr":  true,
+	// imports.path / imports.alias：消费同 deps.*（buildDomainDeps 汇总成
+	// import 块的一行，path 定序、alias 定渲染形态）。条件性，同上。
+	"bald.appspec.v1.AppSpec.domains.deps.imports.path":  true,
+	"bald.appspec.v1.AppSpec.domains.deps.imports.alias": true,
+	// domains.grpc_biz_*：消费 = emitGRPCSkeletons（仅 --grpc-skeleton 且二
+	// 者齐备时落骨架文本，条件性；正向覆盖由 TestGenDomain_GRPCSkeleton 钉住）。
+	"bald.appspec.v1.AppSpec.domains.grpc_biz_package": true,
+	"bald.appspec.v1.AppSpec.domains.grpc_biz_type":    true,
 }
 
 // appspecLocal 报告消息是否属于 appspec 本地声明面（守卫只遍历 AppSpec
