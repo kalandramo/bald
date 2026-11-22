@@ -45,6 +45,8 @@ var Domain = appkit.Domain{
 
 greet 域是 bald 仓里的可运行范本（`_example/bald/greetv1/`，e2e 护航），逐文件摘编对账。
 
+**口径先说清**：「3 个手写文件」是**最小演示域**的计数（proto + 域声明 + 域包实现）。真实业务域会在 3 之外按需增加文件——model、store、handler 按 gin/gRPC 双面拆分等，都属正常形态；判据守的是「装配改动 0」与「清单由生成物承载」，不是文件数恰好 3。
+
 **文件一：`api/proto/<域>/v1/<域>.proto`（契约）**——package / go_package、service、google.api.http 注解、buf.validate 规则。骨架可先由 `bald gen proto <域>` 生成（见 [用 bald CLI 起步新服务](./用%20bald%20CLI%20起步新服务.md) §8），注解随后手写维护。greet 的范本（`_example/bald/api/proto/greet.proto`）摘编：
 
 ```proto
