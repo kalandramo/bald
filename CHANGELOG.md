@@ -6,6 +6,16 @@
 
 ## 2026-11-22
 
+### bconf v0.31.0
+
+- `59a64db4` feat(bconf): bald.rest.v1 注解——REST 成功状态码进 proto 契约
+- `4234c647` style: 25 个文件按 gofmt 1.27.4 归一（中文注释空格）
+
+### cli v0.17.0
+
+- `dc678ab7` feat(cli): gen domain 派生 response_status → 绑定产物透传 WithStatusCode
+- `4234c647` style: 25 个文件按 gofmt 1.27.4 归一（中文注释空格）
+
 ### cli v0.16.0
 
 - `40e05ea8` feat(cli): 域依赖接线由 appspec 声明派生 + gen domain 补 gRPC 契约守卫
