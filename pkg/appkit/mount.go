@@ -142,9 +142,18 @@ func (a *App) auditorValue() audit.Auditor {
 
 // installContractAuditor 写入契约 audit 段产物：显式注入（auditorFromContract
 // 为 false）优先，协调替换只在现有 sink 来自契约或尚未注入时生效。
+//
+// 例外：显式注入的是 *DynamicAuditor 时，代理本身是长期存活的句柄，契约产物的
+// 刷新应落到其当前目标（Store）而非替换指针——否则已构造期快照该代理的中间件
+// 会继续持有旧句柄，审计段热切换失效。保留 auditorFromContract=false 标记，
+// 维持「显式注入优先」的语义（被刷新的只是代理目标，不是代理本身）。
 func (a *App) installContractAuditor(aud audit.Auditor) {
 	a.auditorMu.Lock()
 	defer a.auditorMu.Unlock()
+	if dyn, ok := a.auditor.(*DynamicAuditor); ok {
+		dyn.Store(aud)
+		return
+	}
 	if a.auditor == nil || a.auditorFromContract {
 		a.auditor = aud
 		a.auditorFromContract = true
