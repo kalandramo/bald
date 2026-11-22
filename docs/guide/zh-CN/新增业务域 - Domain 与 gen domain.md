@@ -125,13 +125,78 @@ var domainOptions = []appkit.Option{
 
 清单显式可 grep：import 树里有什么，这里就列什么。新增域只改 appspec.json 的 domains[] 并重跑生成器（§4），装配零改动。
 
+### 3.1 域依赖接线也归生成器：`domains[].deps`
+
+清单归生成器只解决了「域值谁来引用」。域**依赖**（`Deps` 结构体那一组 getter）过去仍要在装配层逐域手写 `xxxd.Setup(xxxd.Deps{...})`——新增一个域就要动装配文件，§3 的「装配零改动」在这半边并不成立。
+
+`appspec.json` 的 `domains[].deps` 把这段接线也搬进声明面：装配层只提供一个**固定字段集**的取值源 `DomainDepSources`，生成物 `domains.gen.go` 里的 `setupDeclaredDomainDeps` 按声明逐域拼装 `Setup`。
+
+```json
+{
+  "name": "tenant",
+  "goPackage": "example.com/app/internal/apiserver/domains/tenantd",
+  "deps": [
+    {
+      "field": "Store",
+      "id": "store.Tenant",
+      "expr": "func() *store.Store[authmodel.Tenant] { return src.Store().Tenant }",
+      "imports": [
+        { "path": "github.com/kalandramo/bald/pkg/store" },
+        { "path": "example.com/app/internal/apiserver/model", "alias": "authmodel" }
+      ]
+    },
+    {
+      "field": "Authn",
+      "id": "authn",
+      "expr": "func() authn.Authenticator { return src.Authn() }",
+      "imports": [{ "path": "github.com/kalandramo/bald/pkg/authn" }]
+    }
+  ]
+}
+```
+
+四个字段的分工：
+
+| 字段 | 作用 | 生成器行为 |
+| --- | --- | --- |
+| `field` | 域 `Deps` 的结构体字段名 | 原样进 `Setup`；域内唯一，Gate1 校验导出标识符形状 |
+| `id` | 稳定依赖标识（`store.Tenant` / `authn` / `authz`） | **不参与生成**——可读性与去重审计用；生成器因此不绑定任何应用特定的 model 命名 |
+| `expr` | 完整 Go 闭包表达式，入参固定为 `src` | 纯文本搬运；类型由 `DomainDepSources` 字段类型在编译期校验 |
+| `imports` | `expr` 引用到的 import（`path` + 可选 `alias`） | 去重、按 path 排序后进 import 块；同一 path 的 `alias` 必须全场一致——一个文件不能重复 import 同一 path |
+
+`alias` 不是可选项里的锦上添花：Go 的包名未必等于路径末段（`oss/s3`→`s3oss`、`.../model`→`authmodel`、`redis/go-redis/v9`→`goredis`），也可能有同名包需要消歧。别名由声明面给，生成器只照搬。
+
+装配层这边是一次性的、**与域数量无关**的固定形态：
+
+```go
+// internal/bootstrap/domain_dep_sources.go（手写；字段集固定，不随域增长）
+type DomainDepSources struct {
+    Store func() *Repositories
+    Authn func() authn.Authenticator
+    // …应用自己的取值源
+}
+
+// internal/bootstrap/assembly.go——全应用唯一的域接线调用
+setupDeclaredDomainDeps(DomainDepSources{
+    Store: func() *Repositories { return repos },
+    Authn: func() authn.Authenticator { return authenticator },
+})
+```
+
+三条纪律：
+
+1. 全部字段是**迟到取值函数**而非实例：真实实例在 `BeforeStart` 里才构造，域 `Wire` 晚于它执行，届时读到已就绪实例。闭包内赋值必须用 `=`（`:=` 会新建局部变量，外层仍是 nil）。
+2. `DomainDepSources` 的字段集不随域增长：新域复用已有取值源就只改 `appspec.json`；真出现新取值源才加一个字段——一次，之后所有域都能用。
+3. 装配层必须**填满**：某域声明了某依赖而字段为 nil 不会编译失败，要到该域 `Wire` 时 nil 解引用才炸，堆栈还指向生成物。下游项目应加一条源码扫描守卫（`bald-admin` 的 `TestDomainWiring_SourcesFullyProvided` 是范本，同时用 `TestDomainWiring_IsDeclarationDriven` 守住「装配层不出现按域接线」）。
+4. `deps` 与 `http_only` 正交：没有 proto service 的手写域（如登录域）声明 `http_only: true` 后一样能进清单、一样由 `setupDeclaredDomainDeps` 接线——这是把所有域都收进声明面的关键，否则总会剩下几个留在装配层手写。
+
 ## 4. gen domain：重写域驱动生成物
 
 ```bash
 bald gen domain --spec appspec.json [--adopt] [--proto-cmd "buf generate"]
 ```
 
-`--spec` 必填（AppSpec.domains 是域清单唯一真相源）；`--out` 产出根（默认 `.`）；`--manifest` 清单路径（默认 `internal/bootstrap/domains.gen.go`，_example 根级形态传 `domains.gen.go`）；`--apiserver-dir` 默认取 layout.apiserver_dir 否则 apiserver，传 `-` 跳过 apiserver 侧产物；`--adopt` 放行覆盖 owned 产物；`--proto-cmd` 是绑定前置（proto 的 Go 类型）缺失时执行的 proto 生成命令（默认 `buf generate`，在 `--out` 根以 shell 语义执行）；`--no-bind` 跳过注解派生的绑定与路由清单；`--no-routes` 只跳过路由清单；`--rest-bind` 是已退役的兼容开关（等价于不给）。
+`--spec` 必填（AppSpec.domains 是域清单唯一真相源）；`--out` 产出根（默认 `.`）；`--manifest` 清单路径（默认 `internal/bootstrap/domains.gen.go`，_example 根级形态传 `domains.gen.go`）；`--apiserver-dir` 默认取 layout.apiserver_dir 否则 apiserver，传 `-` 跳过 apiserver 侧产物；`--adopt` 放行覆盖 owned 产物；`--proto-cmd` 是绑定前置（proto 的 Go 类型）缺失时执行的 proto 生成命令（默认 `buf generate`，在 `--out` 根以 shell 语义执行）；`--no-bind` 跳过注解派生的绑定与路由清单；`--no-routes` 只跳过路由清单；`--rest-bind` 是已退役的兼容开关（等价于不给）；`--grpc-skeleton` 为新域起 gRPC 骨架（seeded，一次）；gRPC 契约断言**默认生成**（声明了 `grpcBizPackage` 即产，owned，每次重生成，§4.1），`--no-grpc-contract` 关闭。
 
 **产物清单**（命令定义见 `cli/internal/codegen/gen_domain.go`）：
 
@@ -143,6 +208,8 @@ bald gen domain --spec appspec.json [--adopt] [--proto-cmd "buf generate"]
 | `internal/<apiserver_dir>/handler/convert/<域>.gen.go` | owned | 逐 RPC 授权动作投影，按域聚合（与 pkg/authz 默认规则同源） |
 | `internal/<apiserver_dir>/authz/alias.gen.go` | owned | 授权别名表（仅列 gRPC/HTTP 两侧归一化不一致的域）+ 默认动作聚合；http_only 域不在表内（`DefaultActions` 保持空表） |
 | `<go_package>/domain.gen.go` | seeded | 域声明值骨架：生成一次；域包已导出 Domain 时跳过（kept:），既有域包（如 greetv1）消费不覆盖 |
+| `internal/<apiserver_dir>/handler/grpc/<域>.grpc.gen.go` | seeded | gRPC service 骨架（`--grpc-skeleton`，需 `grpcBizPackage` + `grpcBizType`）：struct + 构造 + 每个 RPC 的方法签名 + `notFoundOr` 模板，方法体返回 `Unimplemented` 逼你逐个填；生成一次后归你 |
+| `internal/<apiserver_dir>/handler/grpc/<域>.grpc_contract.gen.go` | owned | 编译期契约（**默认生成**，需 `grpcBizPackage`；`--no-grpc-contract` 关闭）：逐 RPC 方法集 + `var _ <impl>Contract = (*<impl>)(nil)`；proto 漂移即构建失败（§4.1） |
 
 **绑定生成的前置（Q5 D1，默认开启）**：bind 文件 import proto 的 `go_package` 与 `github.com/kalandramo/bald/transport/web`。`go_package` 目录无 Go 文件时，生成器先在 `--out` 根执行 `--proto-cmd` 并复查产物——命令失败或仍无产物即生成期硬错误，错误点名命令、缺失包与 `--proto-cmd`/`--no-bind` 两条修法。`--check` 零写入，不执行外部命令，缺失时直接报修法。`transport/web` 缺失给 `go get` 修法（生成器不改消费方 `go.mod`）。绑定内容只由注解与 rpc 签名决定，与 proto 生成物内容无关：是否在本机跑过 buf 不改变生成字节。
 
@@ -184,6 +251,51 @@ AppSpec.domains 字段参考（protojson 字段名；范本 `_example/bald/appsp
 {"name": "dashboard", "httpOnly": true, "goPackage": "<module>/internal/apiserver/dashboardv1"}
 ```
 
+### 4.1 gRPC 面：骨架起一次，契约守到底
+
+两个 flag 解决的是**不同阶段**的问题，别混用：
+
+| | `--grpc-skeleton`（seeded） | 契约（owned，默认生成） |
+| --- | --- | --- |
+| 时机 | 新域从零起实现 | 已有实现长期防漂移 |
+| 产物 | struct + 构造 + 方法签名 + `Unimplemented` 方法体 | 逐 RPC 方法集接口 + `var _ 契约 = (*实现)(nil)` |
+| 重生成 | 不覆盖（此后归你） | 每次 `--adopt` 重写，`--check` 报差异 |
+| 声明前置 | `grpcBizPackage` + `grpcBizType` | `grpcBizPackage` |
+
+为什么需要契约这一层：handler 都嵌入 `Unimplemented<T>Server`（`require_unimplemented_servers` 的默认形态），于是
+
+- proto **新增** RPC → 调用落到 embed 的兜底实现，**运行时**才 Unimplemented，编译不报错；
+- proto **改动** RPC 签名 → 旧方法成为无人调用的死方法，新签名由 embed 满足，同样编译通过。
+
+两种情况 `var _ <T>Server = (*impl)(nil)` 都成立。实测：只实现 5 个 RPC 中 1 个、其余全靠嵌入兜底的探针结构体，编译零错误。所以断言 service 接口守不住任何漂移——契约必须逐 RPC 列出**去掉兜底后**的方法集。
+
+契约的方法集直接取 proto 扫描结果，不用绑定派生视图（后者只保留带 `google.api.http` 注解的 RPC，整域零路由时还会返回 nil——拿它当契约来源会静默漏掉未注解的 RPC，恰好是漂移最爱藏的地方）。流式按方向出签名：
+
+```go
+Greet(ctx context.Context, req *greetv1.GreetRequest) (*greetv1.GreetResponse, error)             // unary
+GreetStream(req *greetv1.GreetRequest, stream greetv1.GreetService_GreetStreamServer) error      // server stream
+GreetUpload(stream greetv1.GreetService_GreetUploadServer) error                                 // client stream / bidi
+```
+
+**实现命名约定**（无法从 proto 派生，故约定而非猜测）：实现结构体在 `handler/grpc` 包内、私有、名称为 service 短名的 lowerCamel（`TenantService` → `tenantService`）；`--grpc-skeleton` 生成的骨架同名，构造器为 `New<T>` 去冗余后缀（`TenantService` → `NewTenantServer`）。违例时编译报 `undefined: xxxService`，错误自解释。
+
+漂移真的发生时的读数（把 `rpc ProbeDrift(...)` 加进已声明的 service，重跑 `--adopt` 重生成契约）：
+
+```
+tenant.grpc_contract.gen.go:26:31: cannot use (*tenantService)(nil) (value of type *tenantService)
+  as tenantServiceContract value in variable declaration: *tenantService does not implement
+  tenantServiceContract (missing method ProbeDrift)
+```
+
+默认生成的理由与绑定同一条：能机械派生的守卫不该靠人记得开——而且**漏开会误判**：
+不带该能力跑 `--check`，已有契约文件会被报 `stale`（`--adopt` 会删掉它们）。
+逃生口是 `--no-grpc-contract`（面完全手写、实现尚未落地时用）。
+
+```bash
+# 提交门禁（默认口径即可，无需额外 flag）
+bald gen domain --spec appspec.json --no-bind --check
+```
+
 ## 5. 报错速查
 
 **生成期（Gate1 强化：domains.service/services ↔ 实际 proto，`gen_domain.go`）**——扫描根为 api/proto、api/protos、proto（存在即扫，gen/ 生成目录跳过）；`httpOnly` 域没有 proto 契约，跳过本项对账：
@@ -215,7 +327,9 @@ AppSpec.domains 字段参考（protojson 字段名；范本 `_example/bald/appsp
 ## FAQ
 
 - **新增域要动 main.go 吗？** 不。域清单是生成文件，声明值变参直传；main 装配面的域相关增量只有一次性的形态迁移（批 3 实测两行）。
+- **域的依赖（store/缓存/认证器）要在装配层手写吗？** 不用。写进 `appspec.json` 的 `domains[].deps`（§3.1），生成物直接产出 `Setup` 接线；装配层只填一次 `DomainDepSources`，字段集与域数量无关。
 - **域包已有 Domain 声明，gen domain 会覆盖吗？** 不会——骨架是 seeded 且仅当域包尚无导出 Domain 时落盘；greetv1 这类既有域包消费不覆盖。
 - **域的 REST 路由挂在哪？** 挂上 HTTP 面的业务 handler——`WithHTTP` 直接给的，或 `WithHTTPContract` 按 `server.http.middleware` 段求值出的（生成脚手架走后者，见[用 bald CLI 起步新服务](用%20bald%20CLI%20起步新服务.md) §4.2）；gateway 转码面占用 server.http 端口时 Routes 整体让位（REST 走转码，同端口单面语义）。
+- **proto 加了 RPC，handler 忘了实现，构建能发现吗？** 单靠嵌入 `Unimplemented<T>Server` 发现不了（运行时才 Unimplemented）。声明 `grpcBizPackage` 后契约**默认生成**，把它放进 check 门禁即可：proto 增删改 RPC 后重新生成，`var _ 契约 = (*实现)(nil)` 立刻编译失败（§4.1）。
 - **三个槽位必须全实现吗？** 不。三槽全可选，nil 即不声明该面；但声明了 Routes 需应用有 HTTP 面、声明了 Services 需契约 server.grpc 段（§1）。
 
