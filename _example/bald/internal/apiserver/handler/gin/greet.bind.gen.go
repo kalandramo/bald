@@ -44,8 +44,11 @@ func BindGreet(r gin.IRouter, svc GreetService, opts ...web.ProtoJSONOption) {
 			return
 		}
 		resp, err := svc.Greet(c.Request.Context(), req)
-		// 成功状态码：RPC 声明了 bald.rest.v1.response_status 则透传（如创建
-		// → 201），未声明走 WriteProtoResponse 默认 200。
+		// 成功状态码：RPC 声明了 bald.rest.v1.response_status 则合入选项（如
+		// 创建 → 201），未声明走 WriteProtoResponse 默认 200。状态码经 append
+		// 进 opts 末位（声明的状态码权威，覆盖调用方误传）——spread 调用的
+		// 固定参数之后不能再夹散实参（Go 语义：spread 前的实参恰好填满固定
+		// 形参），只能整体进 slice。
 		web.WriteProtoResponse(c, resp, err, opts...)
 	})
 	r.GET("/v1/greet/:name", func(c *gin.Context) {
@@ -55,8 +58,11 @@ func BindGreet(r gin.IRouter, svc GreetService, opts ...web.ProtoJSONOption) {
 			return
 		}
 		resp, err := svc.GreetGet(c.Request.Context(), req)
-		// 成功状态码：RPC 声明了 bald.rest.v1.response_status 则透传（如创建
-		// → 201），未声明走 WriteProtoResponse 默认 200。
+		// 成功状态码：RPC 声明了 bald.rest.v1.response_status 则合入选项（如
+		// 创建 → 201），未声明走 WriteProtoResponse 默认 200。状态码经 append
+		// 进 opts 末位（声明的状态码权威，覆盖调用方误传）——spread 调用的
+		// 固定参数之后不能再夹散实参（Go 语义：spread 前的实参恰好填满固定
+		// 形参），只能整体进 slice。
 		web.WriteProtoResponse(c, resp, err, opts...)
 	})
 }

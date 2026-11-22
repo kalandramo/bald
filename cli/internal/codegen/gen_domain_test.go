@@ -700,7 +700,7 @@ service GreetService {
 	src := string(raw)
 	for _, want := range []string{
 		`r.POST("/v1/greets", func(c *gin.Context) {`,
-		`web.WriteProtoResponse(c, resp, err, web.WithStatusCode(201), opts...)`,
+		`web.WriteProtoResponse(c, resp, err, append(opts, web.WithStatusCode(201))...)`,
 	} {
 		if !strings.Contains(src, want) {
 			t.Errorf("bind file missing %q:\n%s", want, src)

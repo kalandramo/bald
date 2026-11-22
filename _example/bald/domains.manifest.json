@@ -16,7 +16,7 @@
     {
       "path": "internal/apiserver/handler/gin/greet.bind.gen.go",
       "ownership": "owned",
-      "hash": "d40df79bbf4c38dec3ed4634c9b4a7a36c4396ba46b22bed8441a94af1195454"
+      "hash": "26bac764bac7698c248295921068b1a7bfd77cffabd76b48afb60667dbe22651"
     },
     {
       "path": "internal/apiserver/routes/greet.gen.go",

@@ -103,9 +103,12 @@ func {{ .Binder }}(r gin.IRouter, svc {{ .Interface }}, opts ...web.ProtoJSONOpt
 			return
 		}
 		resp, err := svc.{{ .RPC }}(c.Request.Context(), req)
-		// 成功状态码：RPC 声明了 bald.rest.v1.response_status 则透传（如创建
-		// → 201），未声明走 WriteProtoResponse 默认 200。
-		web.WriteProtoResponse(c, resp, err{{ if .Status }}, web.WithStatusCode({{ .Status }}){{ end }}, opts...)
+		// 成功状态码：RPC 声明了 bald.rest.v1.response_status 则合入选项（如
+		// 创建 → 201），未声明走 WriteProtoResponse 默认 200。状态码经 append
+		// 进 opts 末位（声明的状态码权威，覆盖调用方误传）——spread 调用的
+		// 固定参数之后不能再夹散实参（Go 语义：spread 前的实参恰好填满固定
+		// 形参），只能整体进 slice。
+		web.WriteProtoResponse(c, resp, err, {{ if .Status }}append(opts, web.WithStatusCode({{ .Status }}))...{{ else }}opts...{{ end }})
 	})
 {{- end }}
 }
