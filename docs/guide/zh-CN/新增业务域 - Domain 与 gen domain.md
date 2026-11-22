@@ -62,6 +62,19 @@ service GreetService {
 
 注解是生成器的派生源：gen domain 从这里派生 REST 路由表与授权动作（§4）。
 
+**成功状态码**（可选）：`google.api.http` 不携带成功状态码，绑定默认一律 200。创建类语义（POST → 201）在 RPC 里显式声明，绑定产物按声明透传 `web.WithStatusCode`：
+
+```proto
+import "bald/rest/v1/annotations.proto";
+
+rpc CreateDictType(...) {
+  option (google.api.http) = { post: "/v1/dict_type" body: "*" };
+  option (bald.rest.v1.response_status) = 201;
+}
+```
+
+不在生成器里按动词猜（POST 批量建返回 200 是刻意保留的反例）；值域 [100,599] 在 Gate1 校验，出界生成期报错。
+
 **文件二：域包 `<域>v1/<域>.go`（biz/model + 传输适配）**——域配置读取、能力构造、gRPC 与 REST 两面共用同一 biz（`greetv1/greet.go` 摘编）：
 
 ```go
