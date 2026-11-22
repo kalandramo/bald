@@ -51,6 +51,9 @@ type bindMethodView struct {
 // bindRouteView 是 gin 路由登记的一项（一条 google.api.http 注解）。
 type bindRouteView struct {
 	RPC, Request, Verb, GinPath, Body, PathVarsExpr string
+	// Status 是 bald.rest.v1.response_status 声明的成功状态码；0 = 默认 200，
+	// 模板据它决定是否给 web.WriteProtoResponse 追加 WithStatusCode。
+	Status int
 }
 
 // bindNames 派生 service 的 Go 命名：接口 = service 短名；绑定函数 =
@@ -106,6 +109,12 @@ func bindViewOf(name string, d *appspecv1.DomainSpec, svcs []protoService) (*bin
 			if len(rules) == 0 {
 				continue
 			}
+			// response_status 值域门：声明了就必须是合法 HTTP 状态码（含信息/
+			// 成功/重定向/客户端与服务端错误段——错误语义由调用方自行声明，
+			// 生成器不越俎代庖）。0 = 未声明走默认 200。
+			if m.StatusCode != 0 && (m.StatusCode < 100 || m.StatusCode > 599) {
+				return nil, fmt.Errorf("domain %q: rpc %s: response_status %d out of HTTP range [100, 599]", d.GetName(), m.Name, m.StatusCode)
+			}
 			if m.Streaming {
 				// grpc-gateway 不支持流式转码，gin 绑定同样无法承载——注解加在
 				// 流式 RPC 上是 proto 侧的错配，生成期直接报。
@@ -140,6 +149,7 @@ func bindViewOf(name string, d *appspecv1.DomainSpec, svcs []protoService) (*bin
 				routes = append(routes, bindRouteView{
 					RPC: m.Name, Request: reqExpr, Verb: strings.ToUpper(r.Verb),
 					GinPath: ginPath, Body: r.Body, PathVarsExpr: pathVarsExpr(vars),
+					Status: m.StatusCode,
 				})
 			}
 			if !seenRPC[m.Name] {

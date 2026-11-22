@@ -101,7 +101,9 @@ func {{ .Binder }}(r gin.IRouter, svc {{ .Interface }}) {
 			return
 		}
 		resp, err := svc.{{ .RPC }}(c.Request.Context(), req)
-		web.WriteProtoResponse(c, resp, err)
+		// 成功状态码：RPC 声明了 bald.rest.v1.response_status 则透传（如创建
+		// → 201），未声明走 WriteProtoResponse 默认 200。
+		web.WriteProtoResponse(c, resp, err{{ if .Status }}, web.WithStatusCode({{ .Status }}){{ end }})
 	})
 {{- end }}
 }

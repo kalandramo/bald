@@ -600,6 +600,125 @@ func TestGenDomain_BindingsDefaultOn(t *testing.T) {
 	}
 }
 
+// TestScanProto_ResponseStatus 钉住 bald.rest.v1.response_status 的扫描：
+// 声明了的 RPC 带状态码，未声明的为 0（绑定产物走默认 200）。扫描只认
+// 独立成行的全限定声明，与 google.api.http 同款解析方式。
+func TestScanProto_ResponseStatus(t *testing.T) {
+	src := `syntax = "proto3";
+
+package greet.v1;
+
+option go_package = "demo.example/app/api/gen/go/greet/v1;greetv1";
+
+service GreetService {
+  rpc Create(CreateRequest) returns (CreateResponse) {
+    option (google.api.http) = {
+      post: "/v1/greets"
+      body: "*"
+    };
+    option (bald.rest.v1.response_status) = 201;
+  }
+
+  rpc Get(GetRequest) returns (GetResponse) {
+    option (google.api.http) = {
+      get: "/v1/greets/{name}"
+    };
+  }
+}
+`
+	f, err := scanProto("greet.proto", []byte(src))
+	if err != nil {
+		t.Fatalf("scanProto: %v", err)
+	}
+	methods := f.Services[0].Methods
+	if len(methods) != 2 {
+		t.Fatalf("methods = %d, want 2", len(methods))
+	}
+	if methods[0].StatusCode != 201 {
+		t.Errorf("Create StatusCode = %d, want 201", methods[0].StatusCode)
+	}
+	if methods[1].StatusCode != 0 {
+		t.Errorf("Get StatusCode = %d, want 0 (unset → default 200)", methods[1].StatusCode)
+	}
+}
+
+// TestGenDomain_Bind_ResponseStatus 端到端：response_status 声明的路由在
+// 绑定产物里透传 web.WithStatusCode，未声明的保持默认形态；值域出界的
+// 声明在生成期报错（不静默产非法 HTTP 状态码）。
+func TestGenDomain_Bind_ResponseStatus(t *testing.T) {
+	dir, specPath := runGenAppInTemp(t, guardFixture())
+	bindPath := filepath.Join(dir, "internal", "apiserver", "handler", "gin", "greet.bind.gen.go")
+
+	// 覆写夹具 proto：POST 路由声明 201（创建语义），GET 保持默认。
+	protoPath := filepath.Join(dir, "api", "proto", "greet", "v1", "greet.proto")
+	protoSrc := `syntax = "proto3";
+
+package greet.v1;
+
+import "google/api/annotations.proto";
+
+option go_package = "demo.example/app/api/gen/go/greet/v1;greetv1";
+
+service GreetService {
+  rpc Greet(GreetRequest) returns (GreetResponse) {
+    option (google.api.http) = {
+      post: "/v1/greets"
+      body: "*"
+    };
+    option (bald.rest.v1.response_status) = 201;
+  }
+
+  rpc GreetGet(GreetGetRequest) returns (GreetResponse) {
+    option (google.api.http) = {
+      get: "/v1/greets/{name}"
+    };
+  }
+}
+`
+	if err := os.WriteFile(protoPath, []byte(protoSrc), 0o644); err != nil {
+		t.Fatalf("write proto: %v", err)
+	}
+	runGenDomain(t, dir, specPath, "--adopt")
+
+	raw, err := os.ReadFile(bindPath)
+	if err != nil {
+		t.Fatalf("read bind file: %v", err)
+	}
+	src := string(raw)
+	for _, want := range []string{
+		`r.POST("/v1/greets", func(c *gin.Context) {`,
+		`web.WriteProtoResponse(c, resp, err, web.WithStatusCode(201))`,
+	} {
+		if !strings.Contains(src, want) {
+			t.Errorf("bind file missing %q:\n%s", want, src)
+		}
+	}
+	// GET 路由（GreetGet）未声明状态码：保持默认形态（找不到 201 透传的
+	// 第二处调用即视为通过——精确形态由默认用例钉住）。
+	if n := strings.Count(src, "web.WithStatusCode"); n != 1 {
+		t.Errorf("WithStatusCode emitted %d times, want 1 (only the declared POST):\n%s", n, src)
+	}
+	if _, err := parser.ParseFile(token.NewFileSet(), bindPath, raw, 0); err != nil {
+		t.Fatalf("bind file is not valid Go: %v", err)
+	}
+
+	// 值域门：出界声明生成期报错。
+	badSrc := strings.Replace(protoSrc, "response_status) = 201;", "response_status) = 42;", 1)
+	if err := os.WriteFile(protoPath, []byte(badSrc), 0o644); err != nil {
+		t.Fatalf("write bad proto: %v", err)
+	}
+	streams, out := testStreams()
+	cmd := genDomainCmd(streams)
+	cmd.SetArgs([]string{"--spec", specPath, "--out", dir})
+	err = cmd.Execute()
+	if err == nil {
+		t.Fatal("out-of-range response_status must be rejected at generation time")
+	}
+	if got := err.Error() + out.String(); !strings.Contains(got, "out of HTTP range") {
+		t.Errorf("error missing range message: %s\n%s", err.Error(), out.String())
+	}
+}
+
 // TestGenDomain_NoRoutes --no-routes 是逃逸面：绑定照常生成，但不产
 // appkit.Route 清单（域保留手写 RouteTable）；与 --no-bind 连用是空操作，
 // 必须拒绝而不是静默。

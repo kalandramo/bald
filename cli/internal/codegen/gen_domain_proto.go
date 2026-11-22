@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	appspecv1 "github.com/kalandramo/bald/bconf/gen/go/bald/appspec/v1"
@@ -40,6 +41,9 @@ type protoMethod struct {
 	// response_body），去重后按字母序。生成期据此报错，避免生成的 REST 面
 	// 与注解契约静默不一致。
 	Unsupported []string
+	// StatusCode 是 bald.rest.v1.response_status 声明的 REST 成功状态码；
+	// 0 = 未声明（绑定产物按 web.WriteProtoResponse 默认 200）。
+	StatusCode int
 }
 
 // httpRule 是一条 google.api.http 映射（主规则或 additional_bindings 条目）。
@@ -94,6 +98,11 @@ var (
 	// reProtoHTTPDotField 匹配点式注解的字段名：(google.api.http).<field>。
 	// 只用于补采未实现字段（custom / response_body），动词由 reProtoHTTPDot 处理。
 	reProtoHTTPDotField = regexp.MustCompile(`\(google\.api\.http\)\.([A-Za-z_][A-Za-z0-9_]*)`)
+	// reProtoResponseStatus 匹配 bald.rest.v1.response_status 声明（独立成行、
+	// 全限定名，与 google.api.http 同款解析方式）。状态码是 REST 成功语义
+	// 的一部分，注解是唯一真相源——不在生成器里按动词猜（POST 批量建返回
+	// 200 的反例否决了动词派生）。
+	reProtoResponseStatus = regexp.MustCompile(`\(bald\.rest\.v1\.response_status\)\s*=\s*(\d+)`)
 )
 
 // unsupportedAnnotationFields 返回注解块里绑定生成未实现的字段名（去重
@@ -180,6 +189,15 @@ func scanProto(relPath string, src []byte) (*protoFile, error) {
 				if mm[1] == "custom" || mm[1] == "response_body" {
 					m.Unsupported = append(m.Unsupported, mm[1])
 				}
+			}
+			// bald.rest.v1.response_status：REST 成功状态码声明（默认 200）。
+			// 值域校验放 bindViewOf——那里有域名上下文，报错可定位。
+			if mm := reProtoResponseStatus.FindStringSubmatch(seg); mm != nil {
+				n, err := strconv.Atoi(mm[1])
+				if err != nil {
+					return nil, fmt.Errorf("%s: rpc %s: bad response_status %q: %w", relPath, m.Name, mm[1], err)
+				}
+				m.StatusCode = n
 			}
 			m.Unsupported = dedupeSorted(m.Unsupported)
 			svc.Methods = append(svc.Methods, m)
