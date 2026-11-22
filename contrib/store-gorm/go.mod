@@ -4,8 +4,8 @@ go 1.27.1
 
 require (
 	github.com/glebarez/sqlite v1.11.0
-	github.com/kalandramo/bald/bconf v0.29.0
-	github.com/kalandramo/bald/pkg v0.17.0
+	github.com/kalandramo/bald/bconf v0.30.0
+	github.com/kalandramo/bald/pkg v0.18.0
 	github.com/stretchr/testify v1.12.1
 	google.golang.org/protobuf v1.36.12
 	gorm.io/gorm v1.25.12

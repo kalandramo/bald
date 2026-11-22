@@ -23,8 +23,8 @@ replace github.com/kalandramo/bald/transport/http => ../../transport/http
 replace github.com/kalandramo/bald/bootstrap => ../../bootstrap
 
 require (
-	github.com/kalandramo/bald/bconf v0.29.0
-	github.com/kalandramo/bald/pkg v0.17.0
+	github.com/kalandramo/bald/bconf v0.30.0
+	github.com/kalandramo/bald/pkg v0.18.0
 	github.com/kalandramo/bald/registry v0.5.2
 	google.golang.org/grpc v1.83.2
 	google.golang.org/protobuf v1.36.12

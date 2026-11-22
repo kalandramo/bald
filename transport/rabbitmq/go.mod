@@ -27,14 +27,14 @@ replace github.com/kalandramo/bald/transport => ..
 replace github.com/kalandramo/bald/transport/subscribe => ../subscribe
 
 require (
-	github.com/kalandramo/bald/bconf v0.29.0
+	github.com/kalandramo/bald/bconf v0.30.0
 	github.com/kalandramo/bald/broker v0.4.2
 	github.com/kalandramo/bald/broker/rabbitmq v0.2.4
 	github.com/kalandramo/bald/encoding v0.2.1
 	github.com/kalandramo/bald/encoding/json v0.1.1-00010101000000-000000000000
 	github.com/kalandramo/bald/log v0.6.1
 	github.com/kalandramo/bald/metrics v0.2.1
-	github.com/kalandramo/bald/pkg v0.17.0
+	github.com/kalandramo/bald/pkg v0.18.0
 	github.com/kalandramo/bald/transport v0.5.2
 	github.com/spf13/pflag v1.0.10
 	github.com/stretchr/testify v1.12.1

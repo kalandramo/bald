@@ -3,8 +3,8 @@ module github.com/kalandramo/bald/registry/nacos
 go 1.27.1
 
 require (
-	github.com/kalandramo/bald/bconf v0.29.0
-	github.com/kalandramo/bald/pkg v0.17.0
+	github.com/kalandramo/bald/bconf v0.30.0
+	github.com/kalandramo/bald/pkg v0.18.0
 	github.com/kalandramo/bald/registry v0.5.2
 	github.com/nacos-group/nacos-sdk-go/v2 v2.3.5
 )

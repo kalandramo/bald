@@ -3,7 +3,7 @@ module github.com/kalandramo/bald/workflow/argo
 go 1.27.1
 
 require (
-	github.com/kalandramo/bald/bconf v0.29.0
+	github.com/kalandramo/bald/bconf v0.30.0
 	github.com/kalandramo/bald/log v0.6.1
 )
 
