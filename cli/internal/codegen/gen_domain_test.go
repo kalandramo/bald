@@ -151,8 +151,8 @@ func TestGenDomain_MultiService(t *testing.T) {
 	for _, want := range []string{
 		"type GreetService interface {",
 		"type GreetAdminService interface {",
-		"func BindGreet(r gin.IRouter, svc GreetService) {",
-		"func BindGreetAdmin(r gin.IRouter, svc GreetAdminService) {",
+		"func BindGreet(r gin.IRouter, svc GreetService, opts ...web.ProtoJSONOption) {",
+		"func BindGreetAdmin(r gin.IRouter, svc GreetAdminService, opts ...web.ProtoJSONOption) {",
 	} {
 		if !strings.Contains(bind, want) {
 			t.Errorf("bind file missing %q:\n%s", want, bind)
@@ -539,11 +539,12 @@ func TestGenDomain_BindingsDefaultOn(t *testing.T) {
 		`GreetGet(ctx context.Context, req *greetv1.GreetGetRequest) (*greetv1.GreetResponse, error)`,
 		`greetv1 "demo.example/app/api/gen/go/greet/v1"`,
 		`r.POST("/v1/greets", func(c *gin.Context) {`,
-		`web.BindProtoRequest(c, req, "*", nil)`,
+		`web.BindProtoRequest(c, req, "*", nil, opts...)`,
 		`r.GET("/v1/greets/:name", func(c *gin.Context) {`,
-		`web.BindProtoRequest(c, req, "", map[string]string{"name": c.Param("name")})`,
+		`web.BindProtoRequest(c, req, "", map[string]string{"name": c.Param("name")}, opts...)`,
 		`resp, err := svc.GreetGet(c.Request.Context(), req)`,
-		`web.WriteProtoResponse(c, resp, err)`,
+		`web.WriteProtoResponse(c, resp, err, opts...)`,
+		`func BindGreet(r gin.IRouter, svc GreetService, opts ...web.ProtoJSONOption) {`,
 	} {
 		if !strings.Contains(src, want) {
 			t.Errorf("bind file missing %q:\n%s", want, src)
@@ -687,7 +688,7 @@ service GreetService {
 	src := string(raw)
 	for _, want := range []string{
 		`r.POST("/v1/greets", func(c *gin.Context) {`,
-		`web.WriteProtoResponse(c, resp, err, web.WithStatusCode(201))`,
+		`web.WriteProtoResponse(c, resp, err, web.WithStatusCode(201), opts...)`,
 	} {
 		if !strings.Contains(src, want) {
 			t.Errorf("bind file missing %q:\n%s", want, src)

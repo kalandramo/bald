@@ -33,24 +33,30 @@ type GreetService interface {
 
 // BindGreet 把 bald.v1.GreetService 的 REST 面挂到 r 上：路径/查询/body 按
 // google.api.http 注解绑定（web.BindProtoRequest），响应按 protojson 编码
-// （web.WriteProtoResponse，与 grpc-gateway 同形）。
-func BindGreet(r gin.IRouter, svc GreetService) {
+// （web.WriteProtoResponse，与 grpc-gateway 同形）。opts 透传给绑定与写出
+// 两侧——应用的 protojson 全仓约定（DiscardUnknown / UseProtoNames /
+// Content-Type）在注册点一次性注入，生成物不绑定应用侧选项。
+func BindGreet(r gin.IRouter, svc GreetService, opts ...web.ProtoJSONOption) {
 	r.POST("/v1/greet", func(c *gin.Context) {
 		req := &baldv1.GreetRequest{}
-		if err := web.BindProtoRequest(c, req, "*", nil); err != nil {
+		if err := web.BindProtoRequest(c, req, "*", nil, opts...); err != nil {
 			web.ErrorResponse(c, err)
 			return
 		}
 		resp, err := svc.Greet(c.Request.Context(), req)
-		web.WriteProtoResponse(c, resp, err)
+		// 成功状态码：RPC 声明了 bald.rest.v1.response_status 则透传（如创建
+		// → 201），未声明走 WriteProtoResponse 默认 200。
+		web.WriteProtoResponse(c, resp, err, opts...)
 	})
 	r.GET("/v1/greet/:name", func(c *gin.Context) {
 		req := &baldv1.GreetGetRequest{}
-		if err := web.BindProtoRequest(c, req, "", map[string]string{"name": c.Param("name")}); err != nil {
+		if err := web.BindProtoRequest(c, req, "", map[string]string{"name": c.Param("name")}, opts...); err != nil {
 			web.ErrorResponse(c, err)
 			return
 		}
 		resp, err := svc.GreetGet(c.Request.Context(), req)
-		web.WriteProtoResponse(c, resp, err)
+		// 成功状态码：RPC 声明了 bald.rest.v1.response_status 则透传（如创建
+		// → 201），未声明走 WriteProtoResponse 默认 200。
+		web.WriteProtoResponse(c, resp, err, opts...)
 	})
 }
