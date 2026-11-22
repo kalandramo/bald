@@ -98,11 +98,13 @@ var (
 	// reProtoHTTPDotField 匹配点式注解的字段名：(google.api.http).<field>。
 	// 只用于补采未实现字段（custom / response_body），动词由 reProtoHTTPDot 处理。
 	reProtoHTTPDotField = regexp.MustCompile(`\(google\.api\.http\)\.([A-Za-z_][A-Za-z0-9_]*)`)
-	// reProtoResponseStatus 匹配 bald.rest.v1.response_status 声明（独立成行、
-	// 全限定名，与 google.api.http 同款解析方式）。状态码是 REST 成功语义
-	// 的一部分，注解是唯一真相源——不在生成器里按动词猜（POST 批量建返回
-	// 200 的反例否决了动词派生）。
-	reProtoResponseStatus = regexp.MustCompile(`\(bald\.rest\.v1\.response_status\)\s*=\s*(\d+)`)
+	// reProtoResponseStatus 匹配 bald.rest.v1.response_status 声明（独立成行，
+	// 与 google.api.http 同款解析方式；前导点全限定写法兼容——本地包名含
+	// bald 组件（如 go.bald.admin.*）会按 C++ 作用域规则遮蔽 bald.* 命名空间，
+	// 必须用 (.bald.rest.v1.response_status) 才能解析，扫描器两种都认）。
+	// 状态码是 REST 成功语义的一部分，注解是唯一真相源——不在生成器里按
+	// 动词猜（POST 批量建返回 200 的反例否决了动词派生）。
+	reProtoResponseStatus = regexp.MustCompile(`\(\.?bald\.rest\.v1\.response_status\)\s*=\s*(\d+)`)
 )
 
 // unsupportedAnnotationFields 返回注解块里绑定生成未实现的字段名（去重

@@ -625,6 +625,13 @@ service GreetService {
       get: "/v1/greets/{name}"
     };
   }
+
+  rpc Patch(PatchRequest) returns (PatchResponse) {
+    option (google.api.http) = {
+      put: "/v1/greets/{name}"
+    };
+    option (.bald.rest.v1.response_status) = 204;
+  }
 }
 `
 	f, err := scanProto("greet.proto", []byte(src))
@@ -632,14 +639,19 @@ service GreetService {
 		t.Fatalf("scanProto: %v", err)
 	}
 	methods := f.Services[0].Methods
-	if len(methods) != 2 {
-		t.Fatalf("methods = %d, want 2", len(methods))
+	if len(methods) != 3 {
+		t.Fatalf("methods = %d, want 3", len(methods))
 	}
 	if methods[0].StatusCode != 201 {
 		t.Errorf("Create StatusCode = %d, want 201", methods[0].StatusCode)
 	}
 	if methods[1].StatusCode != 0 {
 		t.Errorf("Get StatusCode = %d, want 0 (unset → default 200)", methods[1].StatusCode)
+	}
+	// 前导点全限定写法：本地包名含 bald 组件会遮蔽 bald.* 命名空间，
+	// 该写法是规避手段，扫描器必须与普通形式等价识别。
+	if methods[2].StatusCode != 204 {
+		t.Errorf("Patch StatusCode = %d, want 204 (leading-dot form)", methods[2].StatusCode)
 	}
 }
 
