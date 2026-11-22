@@ -35,9 +35,14 @@ import (
 func TestOutboundCircuitBreakerTripsAndHeals(t *testing.T) {
 	t.Chdir("../..")
 
-	// 开窗压到 300ms，让「跳闸 → 愈合」两腿都落在亚秒窗口内；统计窗与
-	// 错误阈值用接线默认（10s / 3 次）。
-	t.Setenv("OUTBOUND_CB_RETRY_MS", "300")
+	// 开窗 3s：窗口必须宽到「第 3 次失败返回 → 第三腿断言」之间不被越过。
+	//
+	// 原先压 300ms，本地够用，CI runner 的调度抖动（GC/多核争抢）却能把这几行
+	// 拉过 300ms——熔断器于是进 half-open 并放行探针，而探针走的是**合法**
+	// Greet（服务端 delay 2s、调用方 deadline 3s），结果是成功，把「已跳闸」
+	// 读成「没跳闸」（2026-11-22 CI 实测：duration=2.0004s 的 code=OK）。
+	// 统计窗与错误阈值仍用接线默认（10s / 3 次）。
+	t.Setenv("OUTBOUND_CB_RETRY_MS", "3000")
 
 	oldFlags := pflag.CommandLine
 	pflag.CommandLine = pflag.NewFlagSet("e2e", pflag.ContinueOnError)
@@ -148,7 +153,9 @@ func TestOutboundCircuitBreakerTripsAndHeals(t *testing.T) {
 		t.Fatalf("direct Greet (server must stay healthy): %v", derr)
 	}
 
-	// 第四腿：过开窗（300ms）后探针愈合——合法 Greet 恢复成功。
+	// 第四腿：过开窗（3s）后探针愈合——合法 Greet 恢复成功。上面的直连问候
+	// 本身耗时 2s（服务端 delay），sleep 500ms 后仍在窗内，由下面的轮询越过
+	// 剩余窗口；轮询上限 5s 覆盖 3s 开窗。
 	time.Sleep(500 * time.Millisecond)
 	healDeadline := time.Now().Add(5 * time.Second)
 	for {
