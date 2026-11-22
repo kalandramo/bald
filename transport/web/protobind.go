@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
 	"sort"
 	"strconv"
 	"strings"
@@ -30,7 +29,8 @@ import (
 // 64 位整数都按 proto JSON 规则）；path/query 的字符串按字段声明类型转换。
 // 未知查询参数忽略（与 grpc-gateway 一致，客户端常带缓存穿透参数）；已知
 // 字段转换失败返回 berrors.BadRequest。
-func BindProtoRequest(c *gin.Context, msg proto.Message, body string, pathVars map[string]string) error {
+func BindProtoRequest(c *gin.Context, msg proto.Message, body string, pathVars map[string]string, opts ...ProtoJSONOption) error {
+	cfg := newProtoJSONConfig(opts)
 	if msg == nil {
 		return berrors.BadRequest("").WithMessage("nil request message")
 	}
@@ -45,7 +45,7 @@ func BindProtoRequest(c *gin.Context, msg proto.Message, body string, pathVars m
 			if body != "*" {
 				payload = wrapBodyField(body, raw)
 			}
-			if err := protojson.Unmarshal(payload, msg); err != nil {
+			if err := cfg.unmarshal.Unmarshal(payload, msg); err != nil {
 				return berrors.BadRequest("").WithMessage("decode request body: %s", err)
 			}
 		}
@@ -79,21 +79,22 @@ func BindProtoRequest(c *gin.Context, msg proto.Message, body string, pathVars m
 
 // WriteProtoResponse 把 proto 响应写成 REST JSON：err 非 nil 时走统一错误体，
 // 否则用 protojson 编码（与 grpc-gateway 输出同形）。空响应只置 200。
-func WriteProtoResponse(c *gin.Context, resp proto.Message, err error) {
+func WriteProtoResponse(c *gin.Context, resp proto.Message, err error, opts ...ProtoJSONOption) {
+	cfg := newProtoJSONConfig(opts)
 	if err != nil {
 		ErrorResponse(c, err)
 		return
 	}
 	if resp == nil || !resp.ProtoReflect().IsValid() {
-		c.Status(http.StatusOK)
+		c.Status(cfg.statusCode)
 		return
 	}
-	data, mErr := protojson.Marshal(resp)
+	data, mErr := cfg.marshal.Marshal(resp)
 	if mErr != nil {
 		ErrorResponse(c, berrors.Internal("").WithMessage("encode response: %s", mErr))
 		return
 	}
-	c.Data(http.StatusOK, "application/json; charset=utf-8", data)
+	c.Data(cfg.statusCode, cfg.contentType, data)
 }
 
 // errUnknownField 表示路径/查询参数没有对应的请求字段（查询侧忽略）。
