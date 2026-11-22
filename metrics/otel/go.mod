@@ -3,7 +3,7 @@ module github.com/kalandramo/bald/metrics/otel
 go 1.27.1
 
 require (
-	github.com/kalandramo/bald/bconf v0.30.0
+	github.com/kalandramo/bald/bconf v0.31.1
 	github.com/kalandramo/bald/metrics v0.2.1
 	github.com/kalandramo/bald/pkg v0.18.0
 	go.opentelemetry.io/otel v1.46.0

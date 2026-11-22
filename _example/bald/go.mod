@@ -8,7 +8,7 @@ require (
 	github.com/alibaba/sentinel-golang v1.0.4
 	github.com/gin-gonic/gin v1.12.0
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.29.0
-	github.com/kalandramo/bald/bconf v0.30.0
+	github.com/kalandramo/bald/bconf v0.31.1
 	github.com/kalandramo/bald/bconfig v0.2.5
 	github.com/kalandramo/bald/berrors v0.1.2
 	github.com/kalandramo/bald/bootstrap v0.13.9

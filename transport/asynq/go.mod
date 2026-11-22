@@ -31,7 +31,7 @@ replace github.com/kalandramo/bald/transport/http => ../../transport/http
 require (
 	github.com/alicebob/miniredis/v2 v2.39.0
 	github.com/hibiken/asynq v0.26.0
-	github.com/kalandramo/bald/bconf v0.30.0
+	github.com/kalandramo/bald/bconf v0.31.1
 	github.com/kalandramo/bald/encoding v0.2.1
 	github.com/kalandramo/bald/encoding/json v0.1.1
 	github.com/kalandramo/bald/log v0.6.1

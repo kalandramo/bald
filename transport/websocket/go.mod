@@ -11,7 +11,7 @@ replace github.com/kalandramo/bald/encoding/json => ../../encoding/json
 require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
-	github.com/kalandramo/bald/bconf v0.30.0
+	github.com/kalandramo/bald/bconf v0.31.1
 	github.com/kalandramo/bald/encoding v0.2.1
 	github.com/kalandramo/bald/encoding/json v0.1.1
 	github.com/kalandramo/bald/log v0.6.1
