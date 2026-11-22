@@ -19,10 +19,6 @@ func (nilLogger) Error(context.Context, string, ...any) {}
 func (nilLogger) Enabled(log.Level) bool                { return false }
 func (nilLogger) With(...any) log.Logger                { return nilLogger{} }
 
-
-
-
-
 func TestObservability_OptionsAndSkipMatcher(t *testing.T) {
 	// WithLogger(nil) 不得覆盖默认；显式 logger 走注入分支。
 	un := UnaryObservability(WithLogger(nil), WithLogger(nilLogger{}))
@@ -58,7 +54,6 @@ func TestObservability_OptionsAndSkipMatcher(t *testing.T) {
 		t.Error("empty skip list must not skip")
 	}
 }
-
 
 // ---------------------------------------------------------------------------
 // 结构性零覆盖（登记备查）：

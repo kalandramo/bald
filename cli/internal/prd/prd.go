@@ -4,8 +4,8 @@
 package prd
 
 import (
-	"github.com/kalandramo/bald/cli/internal/fsatomic"
 	"fmt"
+	"github.com/kalandramo/bald/cli/internal/fsatomic"
 	"os"
 	"path/filepath"
 	"strings"
@@ -61,7 +61,7 @@ bald 是本地 CLI、没有 LLM 面——「翻译」本身由 AI 会话完成�
 }
 
 // runTranslate 读取需求描述，组装会话提示词并写盘。输出文件已存在时 kept
-//（Seeded 语义：不覆盖既有工作流文件，人工删除或换名重跑）。
+// （Seeded 语义：不覆盖既有工作流文件，人工删除或换名重跑）。
 func runTranslate(input, out, name string) error {
 	raw, err := os.ReadFile(input)
 	if err != nil {

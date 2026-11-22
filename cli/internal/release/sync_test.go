@@ -5,7 +5,6 @@ import (
 	"testing"
 )
 
-
 // DX-14：孤儿归位守卫——归位目标的 To 版本所属模块不在 plan.Changes 里
 // （计划被裁剪）即拒绝，杜绝把 go.mod 推到没人打 tag 的版本。
 func TestSyncGuardOrphanBumps(t *testing.T) {

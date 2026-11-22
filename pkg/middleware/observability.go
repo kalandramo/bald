@@ -41,7 +41,7 @@ type observabilityOptions struct {
 	customTraceHeader string
 	logger            log.Logger
 	disableBodyLog    bool
-	stream            bool                  // gRPC 流式：不记 body、完成日志措辞不同
+	stream            bool                   // gRPC 流式：不记 body、完成日志措辞不同
 	skip              func(Transporter) bool // 跳过判定由协议侧注入（gin 路径+动词 / gRPC 方法）
 }
 
@@ -148,14 +148,14 @@ func Observability(opts ...ObservabilityOption) Middleware {
 
 			logger := cfg.resolveLogger()
 			st := obsState{
-				tr:            tr,
-				span:          span,
-				spanCtx:       spanCtx,
-				cfg:           cfg,
-				logger:        logger,
-				isDebugLevel:  logger.Enabled(log.LevelDebug),
-				logTraceID:    logTraceID,
-				start:         start,
+				tr:           tr,
+				span:         span,
+				spanCtx:      spanCtx,
+				cfg:          cfg,
+				logger:       logger,
+				isDebugLevel: logger.Enabled(log.LevelDebug),
+				logTraceID:   logTraceID,
+				start:        start,
 			}
 			st.shouldLogBody = st.isDebugLevel && !cfg.disableBodyLog
 

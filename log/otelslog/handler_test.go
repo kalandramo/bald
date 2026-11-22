@@ -375,12 +375,12 @@ func TestEnabledDelegatesToLogger(t *testing.T) {
 
 func TestLevelStringOption(t *testing.T) {
 	cases := map[string]slog.Level{
-		"debug": slog.LevelDebug,
-		"INFO":  slog.LevelInfo,
-		" warn": slog.LevelWarn,
-		"ERROR": slog.LevelError,
+		"debug":   slog.LevelDebug,
+		"INFO":    slog.LevelInfo,
+		" warn":   slog.LevelWarn,
+		"ERROR":   slog.LevelError,
 		"WARNING": slog.LevelWarn,
-		"junk":  slog.LevelInfo,
+		"junk":    slog.LevelInfo,
 	}
 	for in, want := range cases {
 		if got := parseLevelString(in); got != want {

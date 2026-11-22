@@ -1,8 +1,8 @@
 package release
 
 import (
-	"github.com/kalandramo/bald/cli/internal/fsatomic"
 	"fmt"
+	"github.com/kalandramo/bald/cli/internal/fsatomic"
 	"io"
 	"os"
 	"path/filepath"
@@ -58,7 +58,6 @@ func Sync(root string, plan *Plan, write bool, out io.Writer) error {
 	}
 	return nil
 }
-
 
 // guardOrphanBumps 拦截「裁剪计划」造成的孤儿归位（DX-14）：归位目标的每一
 // 条 To 版本，其模块必须在本计划 Changes 里（同批打 tag）——sync 的依赖归位

@@ -164,7 +164,6 @@ func TestUnifiedRateLimitWaitRule(t *testing.T) {
 	}
 }
 
-
 // TestUnifiedAuthnAuthzAuditMissingFailsFast 段声明 authn/authz/audit 策略而
 // 未注入对应依赖 → 链构建 fail-fast（J7 同形：声明了却静默不生效是最坏结果）。
 func TestUnifiedAuthnAuthzAuditMissingFailsFast(t *testing.T) {

@@ -136,7 +136,10 @@ func main() {
 	}
 
 	total, covered := 0, 0
-	type row struct{ pkg string; stmts, cov int }
+	type row struct {
+		pkg        string
+		stmts, cov int
+	}
 	perPkg := map[string]*row{}
 	for loc, b := range blocks {
 		file := loc

@@ -23,8 +23,8 @@ import (
 	"google.golang.org/grpc"
 
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
-	"github.com/kalandramo/bald/pkg/authz"
 	berrorshttperr "github.com/kalandramo/bald/berrors/httperr"
+	"github.com/kalandramo/bald/pkg/authz"
 	"github.com/kalandramo/bald/pkg/middleware"
 	mwmatcher "github.com/kalandramo/bald/pkg/middleware/matcher"
 	"github.com/kalandramo/bald/ratelimit/tokenbucket"

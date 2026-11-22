@@ -5,7 +5,6 @@ package broker
 import (
 	"context"
 	"testing"
-
 )
 
 func TestMessageChainedSetters(t *testing.T) {

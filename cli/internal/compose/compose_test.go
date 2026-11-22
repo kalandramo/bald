@@ -29,9 +29,9 @@ func runCmd(t *testing.T, args ...string) (string, error) {
 // 本地与 CI 用同一批镜像，才能保证「本地绿」与「CI 绿」说的是同一件事。
 func TestCatalogCoversIntegrationDeps(t *testing.T) {
 	want := map[string]string{
-		"etcd":   "quay.io/coreos/etcd:v3.5.14",
-		"redis":  "redis:7-alpine",
-		"nacos":  "nacos/nacos-server:v2.3.2",
+		"etcd":  "quay.io/coreos/etcd:v3.5.14",
+		"redis": "redis:7-alpine",
+		"nacos": "nacos/nacos-server:v2.3.2",
 	}
 	got := map[string]string{}
 	for _, s := range catalog {

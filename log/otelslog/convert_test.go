@@ -11,8 +11,8 @@ import (
 
 func TestConvertValuePrimitives(t *testing.T) {
 	cases := []struct {
-		in   any
-		want attribute.Type
+		in    any
+		want  attribute.Type
 		check func(attribute.Value) bool
 	}{
 		{true, attribute.BOOL, func(v attribute.Value) bool { return v.AsBool() }},

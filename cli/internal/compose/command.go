@@ -13,8 +13,8 @@ package compose
 // 面克制，不靠 destructiveHint 让客户端兜底。
 
 import (
-	"github.com/kalandramo/bald/cli/internal/fsatomic"
 	"fmt"
+	"github.com/kalandramo/bald/cli/internal/fsatomic"
 	"io"
 	"os"
 	"os/exec"
