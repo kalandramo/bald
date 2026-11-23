@@ -4,6 +4,12 @@
 条目取自该版本区间内的提交标题（Conventional Commits），不要手工调整顺序。
 发布流程见 [多模块发布与变更日志](docs/devel/zh-CN/多模块发布与变更日志.md)。
 
+## 2026-11-23
+
+### cli v0.18.1
+
+- `97825c09` fix(cli): response_status 合入 opts 的正确形态——append 进 slice 再 spread
+
 ## 2026-11-22
 
 ### bconf v0.31.0
