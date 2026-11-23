@@ -112,6 +112,8 @@ func registerRoutes(h http.Handler) error {
 
 `BindGreet` 与路由清单 `routes.Greet` 同源于注解：不想要绑定就传 `--no-bind` 手写整个 REST 面；只想要手写清单就传 `--no-routes`。
 
+**生产参考（bald-admin 12 域定型范式）**：`Bind*` 的变参 `opts ...web.ProtoJSONOption` 透传给绑定与写出两侧——应用的 protojson 全仓约定（如 `DiscardUnknown` / `UseProtoNames` snake_case）在注册点一次性注入，生成物不绑定应用侧选项；创建类语义（POST → 201）在 proto 里声明 `.bald.rest.v1.response_status`（见 §2 注解段）。组级三件套中间件（authn → audit → authz）与 opts 注入收敛在挂载助手一处，见 bald-admin 的 `handler/gin/mount.go`（`AuthedGroup` / `PBJSONOpts`）——域声明包一行 `hgin.BindX(g, svc, hgin.PBJSONOpts()...)` 即完成 REST 装配。
+
 **文件三：域包 `<域>v1/domain.go`（域声明值）**——全文就一个值。这是 bald-admin 域化（tenantd/userd 等样板域）定型的模板语义，_example 的 greetv1 是 bald 仓范本（`greetv1/domain.go`）：
 
 ```go
