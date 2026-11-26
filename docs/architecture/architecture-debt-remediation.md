@@ -134,3 +134,16 @@ DX-21 只修了安装节。修正：guide 全量走查一次（正文命令流 +
 
 批 1 全部（本会话）→ 批 2 的 ADR-6 近期段（本会话）→ ADR-10/11 判据成文（本会话）
 → 批 3/4 与 📌 项挂账给后续会话；ADR-6 远期段与 ADR-16 的 pkg 改名随大版本。
+
+## 状态复核（2026-11-26）
+
+> 口径：只复核「仍挂账 / 仍有余量」的条目；已标 ✅ 且无后续动作的不重复展开。本轮未重跑门禁。
+
+| 条目 | 复核状态 | 说明 |
+|---|---|---|
+| ADR-6 远期段 | ⏳ 待做（随大版本） | 近期 Gate1 白名单已落地；proto 声明面裁剪 + reserved 不复用仍未做。关联：bald-admin A 类存量 4 处响应命名违规仍在 `buf.yaml lint.except` 豁免中 |
+| ADR-8 | 🔧 余量未做 | 两阶段拆分已完成（`hotreload.go` / `cleanup_slots.go` / `bootstrap_options.go`）；`assemble` 358 行装配流水线的内聚化仍未动 |
+| ADR-12 | ⏳ 待做 | guide 密度整改未做（DX-21 仅修安装节） |
+| ADR-15 | ⏳ 待做 | devel 43 篇约 1/3 过程性叙事未下沉 |
+| ADR-16 | 部分挂账 | `RedisKey` 已导出；`BeforeStart/AfterStart` 与 `Domain.Wire` 共存债待旧链移除时裁决；`pkg/` 改名维持「永久挂账不修」 |
+| ADR-7 / ADR-9 | 达成（原状态保留） | ADR-7 已由 `tools/coverage-merge` 收口；ADR-9 裁决为保留 Taskfile 与 CI 的命令表述双份，清单层已单源 |
