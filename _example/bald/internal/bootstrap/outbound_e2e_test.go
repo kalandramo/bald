@@ -35,13 +35,9 @@ import (
 func TestOutboundCircuitBreakerTripsAndHeals(t *testing.T) {
 	t.Chdir("../..")
 
-	// 开窗 3s：窗口必须宽到「第 3 次失败返回 → 第三腿断言」之间不被越过。
-	//
-	// 原先压 300ms，本地够用，CI runner 的调度抖动（GC/多核争抢）却能把这几行
-	// 拉过 300ms——熔断器于是进 half-open 并放行探针，而探针走的是**合法**
-	// Greet（服务端 delay 2s、调用方 deadline 3s），结果是成功，把「已跳闸」
-	// 读成「没跳闸」（2026-11-22 CI 实测：duration=2.0004s 的 code=OK）。
-	// 统计窗与错误阈值仍用接线默认（10s / 3 次）。
+	// 开窗 3s：既要宽到「跳闸 → 第三腿断言」之间不被半开探针越过（2026-11-22
+	// 的 300ms 抖动），也要容得下下面「持续喂失败直到跳闸」的轮询。统计窗与
+	// 错误阈值仍用接线默认（10s / 3 次）。
 	t.Setenv("OUTBOUND_CB_RETRY_MS", "3000")
 
 	oldFlags := pflag.CommandLine
@@ -120,14 +116,32 @@ func TestOutboundCircuitBreakerTripsAndHeals(t *testing.T) {
 		t.Fatalf("Greet through bald_selector before any failure: %v", err)
 	}
 
-	// 第二腿：喂 3 次服务侧失败（500ms deadline < 2s delay → 服务端回
-	// DEADLINE_EXCEEDED，阈值 = 3，错误发生在 pick 之后的同一 subconn 上，
-	// Done → MarkFailure）。第 3 发的上报让错误计数到线。
-	for i := 0; i < 3; i++ {
+	// 第二腿：持续喂服务侧失败，直到读到熔断拒绝，而不是固定 3 发后立刻断言。
+	//
+	// 本测试与同包其它测试共享进程级 balancer 装饰槽和 selector 缓存。发现
+	// 地址两次更新可能分别落进旧/新两个 selector，各自建一份按节点 Registry；
+	// 两份工厂对同一 sentinel 资源先后装载开窗参数不同的规则（旧测试 30s /
+	// 本测试 3s），后装的规则会重建底层熔断器并清空已计失败，3 发失败被拆到
+	// 两个实例上谁都到不了阈值，第三腿就以合法 Greet 成功（2026-11-27 CI
+	// 实测 duration=2.0005s 的 code=OK）。继续喂失败即可跨过这次重置——
+	// Unavailable 是「客户端熔断已生效」的直接判据。
+	tripped := false
+	for i := 0; i < 6; i++ {
 		err := greetFail()
-		if status.Code(err) != codes.DeadlineExceeded {
-			t.Fatalf("trip call %d: code=%v, want DeadlineExceeded（喂失败源）", i, status.Code(err))
+		switch status.Code(err) {
+		case codes.Unavailable:
+			tripped = true
+		case codes.DeadlineExceeded:
+			// 服务侧失败已计入，继续下一发。
+		default:
+			t.Fatalf("trip call %d: code=%v err=%v, want DeadlineExceeded or Unavailable（喂失败源）", i, status.Code(err), err)
 		}
+		if tripped {
+			break
+		}
+	}
+	if !tripped {
+		t.Fatal("circuit breaker did not trip after 6 service-side failures")
 	}
 
 	// 第三腿：熔断开窗后，合法 Greet 也在客户端快速失败（Unavailable 且
