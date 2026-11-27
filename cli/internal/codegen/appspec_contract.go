@@ -187,14 +187,20 @@ func scalarToConfig(fd protoreflect.FieldDescriptor, v protoreflect.Value) (any,
 // 描述符的键路径都会在此爆红。返回 configs/<app>.yaml 的落盘内容。
 
 // implementedServerFaces 是 transport/ 已落地的 server 面白名单（ADR-6 近期段）：
-// 契约（server.proto 33 面）承诺多于实现（J8 反例的止血面）——声明了白名单外的
+// 契约（server.proto 32 面）承诺多于实现（J8 反例的止血面）——声明了白名单外的
 // 面在 Gate2 生成期即报（而不是 gen 庆祝、启动期 L3 才报丧）。清单与 transport/
-// 目录同源核对；实现落地一个面就补一个名字，远期随 proto 裁剪（reserved）退役。
+// 目录同源核对；实现落地一个面就补一个名字，实现下线时同步摘除。
+//
+// 2026-11-27 止血：摘除 http3/graphql/tcp/redis_server/webrtc 五项——它们的
+// transport/ 实现已于 dc22ec49（2026-11-15）下线，白名单却停在 68668447，
+// 导致这五个面在 Gate2 被当作已实现放行。TestImplementedServerFacesHaveTransportModules
+// 钉住「白名单每一项都有同名 transport/ 模块」，防止再次漂移。
+// 其余 21 个「声明有、实现无」的面仍由本表在 Gate2 拒绝；真正的 proto 裁剪
+// （reserved 退役）是 breaking 变更，按 ADR-6 随大版本执行，见
+// architecture-debt-remediation.md 的 ADR-6 段。
 var implementedServerFaces = map[string]bool{
-	"http": true, "http3": true, "grpc": true, "graphql": true, "sse": true,
-	"websocket": true, "tcp": true, "cron": true, "mcp": true, "asynq": true,
-	"gateway": true, "kafka": true, "rabbitmq": true, "redis_server": true,
-	"webrtc": true,
+	"http": true, "grpc": true, "sse": true, "websocket": true, "cron": true,
+	"mcp": true, "asynq": true, "gateway": true, "kafka": true, "rabbitmq": true,
 }
 
 // declaredServerFaces 枚举 server 下实际出现的（消息型、非列表）子段名。

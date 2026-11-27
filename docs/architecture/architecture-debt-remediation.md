@@ -46,14 +46,20 @@ customOptions)" 夹在中文报错流里。修正：错误文案统一语言（�
 
 ## 批 2（契约 / 流程演进）
 
-### ADR-6 ✅（近期段已修）契约面 33 个、实现约 19 个（J8 自我违反）——Gate2 已实现面白名单落地（实测 mqtt 声明被拒），远期 proto 裁剪随大版本
+### ADR-6 ✅（近期段已修）契约面 32 个、已实现 10 个（J8 自我违反）——Gate2 已实现面白名单落地（实测 mqtt 声明被拒），远期 proto 裁剪随大版本
 
-证据：`server.proto` 33 个 optional 面；transport/ 实际约 19。kcp/thrift/trpc/signalr/
-socketio/mqtt/pulsar/activemq/azuresb/nsq/sqs/nats/machinery/hptimer/udp/webtransport
-契约有、实现无——用户声明后 Gate2 放行、gen 庆祝、启动期才报丧。
-修正（两段）：**近期**＝Gate1 增加已实现面白名单，未实现段的声明生成期即报
-（错误文案点名"契约保留、实现未落地"，不误导）；**远期**＝proto 裁剪到与实现对齐
-（reserved 不复用，bconf-r02）——breaking，留给下一个大版本。代价：近期 1 人日 /
+证据（2026-11-27 复核）：`server.proto` 32 个 optional 面；transport/ 已实现 10
+（http/grpc/sse/websocket/cron/mcp/asynq/gateway/kafka/rabbitmq），21 个契约有、
+实现无（其中 5 个的实现已于 `dc22ec49` 下线）。历史上本段记的是「33 面 / 约 19
+实现」——那是 2026-11-15 下线前的读数，现按实测更正；21 个待裁面的字段号清单
+见本文件「ADR-6 大版本裁剪规格」。原问题不变：kcp/thrift/trpc/signalr/socketio/
+mqtt/pulsar/activemq/azuresb/nsq/sqs/nats/machinery/hptimer/udp/webtransport
+这类面契约有、实现无——用户声明后 Gate2 放行、gen 庆祝、启动期才报丧。
+修正（两段）：**近期**＝Gate2 已实现面白名单，未实现段的声明生成期即报
+（错误文案点名"契约保留、实现未落地"，不误导）；2026-11-27 止血剔除 5 个已
+下线面，并加 `TestImplementedServerFacesHaveTransportModules` 防再次漂移。
+**远期**＝proto 裁剪到与实现对齐（reserved 不复用，bconf-r02）——breaking，
+留给下一个大版本，可执行规格已冻结于本文件。代价：近期 1 人日 /
 远期 0.5 人日 + 发版一轮。
 
 ### ADR-7 ✅ `coverage.sh` 的 awk 合并器（getline 文件读取器）——已修（tools/coverage-merge，同输入对照一致，CLI 接口不变）
@@ -141,15 +147,32 @@ DX-21 只修了安装节。修正：guide 全量走查一次（正文命令流 +
 
 | 条目 | 复核状态 | 说明 |
 |---|---|---|
-| ADR-6 远期段 | ⏳ 待做（随大版本） | 近期 Gate1 白名单已落地；proto 声明面裁剪 + reserved 不复用仍未做。关联：bald-admin A 类存量 4 处响应命名违规仍在 `buf.yaml lint.except` 豁免中 |
-| ADR-8 | 📌 独立会话（本轮不动） | 两阶段拆分已完成（`hotreload.go` / `cleanup_slots.go` / `bootstrap_options.go`）；余量 `assemble` 358 行的内聚化**不是纯函数拆分**——前向捕获闭包（`a` / `domainPlan` / `domainReconcileKeys`）、注册序即执行序、命名返回值 defer 回滚与共享 `curCleanup` 要求保持同一控制流。60 个 `TestAssemble_*` 覆盖充分，但改动等价于「保持顺序的状态 container 重构」，风险超出本轮，见 2026-11-27 裁决 |
+| ADR-6 近期段 | ✅ 本轮止血 | 白名单剔除 http3/graphql/tcp/redis_server/webrtc 五项（transport 实现已于 `dc22ec49` 下线，白名单停在 `68668447`）；新增 `TestImplementedServerFacesHaveTransportModules` 钉住「白名单每项都有同名 transport/ 模块」，防再次漂移。当前 21 个「声明有、实现无」面在 Gate2 被拒。关联：bald-admin A 类存量 4 处响应命名违规仍在 `buf.yaml lint.except` 豁免中 |
+| ADR-8 | ✅ 本轮落地 | `assemble` 358 → 214 行：`installBootLogger` / `buildConfigLayers` / `appendFrameworkTailOptions` / `appendBusinessTailOptions` / `finalizeAssembly` 五块提取到新文件 `bootstrap_assemble.go`，前向捕获变量、注册序、命名返回值 defer 回滚与 `curCleanup` 指针均按原语义保留；60+ 顺序/生命周期断言与 appkit 全量 test 绿。留下的 214 行是必须同一控制流的核心序列，非遗漏 |
 | ADR-12 | ✅ 本轮落地（部分） | 2026-11-27 把 guide 三篇典型正文考证下沉 `<details>`（Bald 错误处理 / Bald 配置系统 / 用 bald CLI 起步新服务）。全量 18 篇走查中命中 7 篇，其余考证密度低或已在 details；未逐篇强改 |
-| ADR-15 | 📌 3 人日立项（本轮不动） | devel 实为 42 篇，约 1/3 含过程性叙事；须人工区分「历史决策说明（保留，如各文件『被放弃的方案』小节）」与「取证流水账（下沉 architecture）」——后者典型如 Bald 注册中心设计 §169、Bald 重试设计 §335。机械 grep 替换会误伤决策依据，见 2026-11-27 裁决 |
-| ADR-16 | 部分挂账（本轮复核） | `RedisKey` 已导出；`BeforeStart/AfterStart` 与 `Domain.Wire` 的迁移期语义已在 `domain.go:77-81` + guide + devel 三处声明齐备，真正裁决随旧链移除（批次 4）；`pkg/` 改名维持「永久挂账不修」 |
-| ADR-6 远期 | 📌 随大版本（本轮不动） | proto 面裁剪（16 个声明无实现 face）+ `reserved` 退役是 breaking 变更；近期 Gate2 白名单（`appspec_contract.go:189` `implementedServerFaces`）已落地并实测 mqtt 被拒 |
+| ADR-15 | ✅ 本轮落地（典型批） | devel 实为 42 篇；8 处典型过程叙事下沉 `<details>`（注册中心 §169、重试 §335/§320、配置契约 §78-79、多模块发布 §65/§76、缓存 §100）。「被放弃的方案」等历史决策依据仍在正文，未机械 grep 替换；其余零散单句「实测」属可复现判据，按 ADR-12 口径保留 |
+| ADR-16 | ✅ 裁决收口 | `RedisKey` 已导出；`BeforeStart/AfterStart` 与 `Domain.Wire` 执行链已合一（Wire 经 BeforeStart 注册），裁决为「两套声明面长期互补共存」——通用时机回调 vs 带域名上下文/*App 句柄/互斥校验的域专用声明面，已写入 `domain.go` 的 `Declare` 注释，不再随「旧链移除」挂账；`pkg/` 改名维持「永久挂账不修」，承诺的判据卡一行已补（`judgments-r10`） |
+| ADR-6 远期 | 📌 随大版本（本轮规格化） | proto 面裁剪（实测 **21** 个声明无实现 face，非旧记录的 16）+ `reserved` 退役是 breaking 变更，无 `deprecated` 选项或 alias 过渡层；本轮完成清单与影响面的可执行规格（见下「ADR-6 大版本裁剪规格」），下一个大版本第一动作执行 |
 | ADR-7 / ADR-9 | 达成（原状态保留） | ADR-7 已由 `tools/coverage-merge` 收口；ADR-9 裁决为保留 Taskfile 与 CI 的命令表述双份，清单层已单源 |
 
-**2026-11-27 余量裁决**：ADR 批的剩余项按「风险 × 可逆性」分三类——
-① 纯文档且可局部落地（ADR-12 三篇典型下沉）本轮做；
-② 高风险重构（ADR-8 `assemble` 内聚化）与人日级整理（ADR-15 devel 过程叙事）需独立会话，避免与 DX 批改动的同一批文件叠加回归面；
-③ breaking 契约变更（ADR-6 远期 proto 裁剪）、永久挂账（ADR-16 `pkg/` 改名）与依赖旧链移除的裁决（ADR-16 共存债）维持原口径，不因本轮复核改判。
+**2026-11-27 余量裁决（第二轮更新）**：ADR 批的剩余项按「风险 × 可逆性」分三类——
+① 纯文档且可局部落地（ADR-12 三篇典型下沉）已在第一轮完成；
+② 高风险重构（ADR-8 `assemble` 五块提取）与人日级整理（ADR-15 devel 八处典型下沉）本轮完成——前者用显式传参保留前向捕获与回滚语义，后者只下沉取证流水账、保留历史决策依据；
+③ breaking 契约变更（ADR-6 远期 proto 裁剪）与永久挂账（ADR-16 `pkg/` 改名）维持大版本/长期口径，本轮不越线：ADR-6 完成可执行规格冻结（下节），ADR-6 近期段白名单漂移已止血；ADR-16 共存债以「两套声明面长期互补共存」裁决收口（执行链本已合一），`pkg/` 改名补上判据卡承诺的一行，均不删任何 API。
+
+### ADR-6 大版本裁剪规格（2026-11-27 冻结，不随本轮执行）
+
+**现状快照**：`server.proto` 32 个消息型字段 = 10 个已实现 + 21 个「声明有、实现无」+ 1 个特判放行（`unified_middleware`）+ 已 `reserved` 的 `rocketmq`(30)。21 个待裁面及字段号：http3(2)、graphql(4)、tcp(7)、udp(8)、kcp(9)、thrift(10)、trpc(11)、webtransport(12)、hptimer(14)、signalr(16)、socketio(17)、webrtc(18)、machinery(20)、redis_server(23)、nats(24)、mqtt(25)、pulsar(26)、activemq(27)、azuresb(28)、nsq(29)、sqs(31)。其中 5 个（http3/graphql/tcp/webrtc/redis_server）的 transport 实现已于 `dc22ec49` 下线。
+
+**为什么本轮不裁**：proto 字段一删，生成 symbol（`Server_X` / `GetX()`）消失是编译期 breaking，配置键变未知是运行期 breaking；仓内没有 `deprecated` 选项、没有 alias 兼容层，唯一退役手段是 `reserved`（bconf-r02）。`risk-review.md:1442` 记载 owner 于 2026-11-07 拍板方向①「留」（契约前瞻保留），ADR-6 本身也把裁剪定义为「随大版本」。在没有版本升级窗口时执行，收益只是账面收窄、能力面不变，代价是仓外消费者编译/启动破裂。
+
+**大版本执行清单（按序）**：
+1. `server.proto` 删上述 21 个字段与对应嵌套 message，字段号与名字一并 `reserved`（遵守 bconf-r02 不复用）；
+2. 按 `bconf/buf.version` + `protoc-gen-go.goversion` 重出 `bconf/gen/go/**`，跑 `TestGeneratedMatchesProto` 字节一致；
+3. `bconf` 非 patch 抬版，CLI 的 require 在下一轮归位（避免 tag 未落地时 CI 红）；
+4. CLI 白名单 `implementedServerFaces` 复核（本轮已止血为 10 项，裁剪后不变）；
+5. `TestGate2RejectsUnimplementedFaces` 当前用 `Server_Mqtt` 作被拒样本——裁剪后该字段不存在，须改为直接测 `checkImplementedFaces` 的未知面分支；
+6. 同步文档数字：本文件、`risk-review.md` ADR-6 段、`current-architecture.md` 拓扑、`框架契约总览.md` 后端清单、Provider 接入 guide 中 tcp/http3/graphql/webrtc/redis_server 取用说明；
+7. 发版说明写清 breaking：旧配置里的这些段会变未知键，删除后才能启动。
+
+**仓内影响**：`_example/bald/appspec.json` 只声明 http/grpc/mcp/cron/asynq，未用任何待裁面——仓内零迁移成本；仓外无法在本轮验证。

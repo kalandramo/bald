@@ -317,7 +317,14 @@ err := r.Do(ctx, func(ctx context.Context) error {
 
 **翻译层的归属**：本轮只有 1 个消费者，所以 `retreat()` 放在 `registry/etcd/contract`，没有先抽共享包。第二个表面接入时再升格，升格时边方向定为 `retry ← 桥`，不给 `bconf` 加依赖：`bconf → retry` 是侵入性最强的一条边（`bconf` 是只依赖 `pflag` + `protobuf` 的图底，加一条边波及全仓 module 与 `bald release sync` 的涟漪）；`retry → bconf` 则便宜得多，因为能挂契约段的消费者（`registry/etcd`、`broker/kafka`）本来就 require `bconf`。另一条相关约束：`registry/etcd` 根包保持**零契约依赖**，所以 `retreatPolicy` 只能持 `retry.Backoff` / `retry.Jitter`，不能持 bconf 枚举。
 
-**契约变更的涟漪**（本批实测）：`registry/etcd` 与 `broker/kafka` 因为新 require `retry`，把反向依赖推给了 `transport/kafka` 与 `_example/bald`——两处 `go.mod` 缺 `// indirect` 行、`go.sum` 缺条目，CI 的 `test`/`example` 作业直接判红。修法是逐模块 `go mod tidy`，判据本身不动；改完 `find . -name go.mod` 全量 `go mod tidy -diff` 复扫归零。
+**契约变更的涟漪**：新增 require 会把反向依赖推给上游消费者，`go.mod`/`go.sum` 必须同步；修法是逐模块 `go mod tidy`，判据本身不动，收尾判据是 `find . -name go.mod` 全量 `go mod tidy -diff` 归零。
+
+<details>
+<summary>本批实例：retry 新 require 推给 transport/kafka 与示例 module</summary>
+
+`registry/etcd` 与 `broker/kafka` 新 require `retry` 后，`transport/kafka` 与 `_example/bald` 的 `go.mod` 缺 `// indirect` 行、`go.sum` 缺条目，CI 的 `test`/`example` 作业判红。属叠加层补齐，不是闸门放宽。
+
+</details>
 
 **证据链（四层，各测一件事）**：
 
@@ -332,7 +339,16 @@ err := r.Do(ctx, func(ctx context.Context) error {
 
 顺带修掉一个**既有产品缺陷**（不止影响新字段）：`bconf` 的 `coerceDuration` 字符串分支原先「只校验合法、不重排格式」，于是 `1500ms`、`5m` 这类合法的 Go duration 写法会被 protojson 拒掉（`invalid google.protobuf.Duration value "1500ms"`）。所有走契约的 `Duration` 字段都受影响，`app.stop_timeout` 是同一条路径上的先例。修法是解析后再 `formatDuration` 输出十进制秒串，`TestUnmarshalDurationSpellings` 把四种写法钉住。
 
-**装配那一格已闭合（2026-11-05），并且它是靠换观测方向闭合的**：`Provider` 里把契约段接进 options 的那七行 `append` 原先**没有判据**——变异验活确认删掉 `opts = append(opts, etcd.WithRetreat(b, j))` 后 `registry/etcd/contract` 全部测试仍绿（一条**存活变异**）。当时的判断是「要么需要真实 etcd，要么需要给 `Registry` 加只读 accessor 污染公开 API」，两个都不接受，于是把它挂成后续批次。实际收口既没等真 etcd 也没加 accessor：`mapping_runtime_test.go` 在测试进程里起一个假 etcd gRPC 服务（只实现 `LeaseGrant`/`Put`/`LeaseKeepAlive`/`Authenticate`，其余由 `Unimplemented*Server` 兜住），再让 `LeaseKeepAlive` 响应 `TTL=0` —— clientv3 见 TTL≤0 就关闭用户续约通道（`client/v3/lease.go` 的 handleResponse），于是**断链成了确定事件**，而重注册尝试的次数与到达时刻都由服务端记录。七行字段各有落点：`endpoints`（不接则 `etcd.New` 直接报错）、`prefix`（`Put` 的 key）、`ttl`（`Grant` 的 TTL）、`username`+`password`（`Authenticate` 的请求体）、`max_retry`（断链后恰好几次 `Grant`）、`backoff`（相邻两次 `Grant` 的间隔）。十条变异逐条判红，明细见风险评审 §7.14。
+**装配那一格已闭合（2026-11-05）**：`Provider` 里把契约段接进 options 的七行 `append` 现有判据钉住，各字段落点逐一可观测；十条变异逐条判红。收口方式是换观测方向——在测试进程里起假 etcd 服务制造确定断链，而不是引入真实 etcd 或给 `Registry` 加只读 accessor。
+
+<details>
+<summary>取证过程：存活变异、被否的两条路、假 etcd 服务的搭法</summary>
+
+原先那七行 `append` 没有判据：变异验活确认删掉 `opts = append(opts, etcd.WithRetreat(b, j))` 后 `registry/etcd/contract` 全部测试仍绿（一条**存活变异**）。当时的判断是「要么需要真实 etcd，要么需要给 `Registry` 加只读 accessor 污染公开 API」，两个都不接受，于是挂成后续批次。
+
+实际收口：`mapping_runtime_test.go` 在测试进程里起一个假 etcd gRPC 服务（只实现 `LeaseGrant`/`Put`/`LeaseKeepAlive`/`Authenticate`，其余由 `Unimplemented*Server` 兜住），再让 `LeaseKeepAlive` 响应 `TTL=0`——clientv3 见 TTL≤0 就关闭用户续约通道（`client/v3/lease.go` 的 handleResponse），于是**断链成了确定事件**，重注册尝试的次数与到达时刻都由服务端记录。七行字段落点：`endpoints`（不接则 `etcd.New` 直接报错）、`prefix`（`Put` 的 key）、`ttl`（`Grant` 的 TTL）、`username`+`password`（`Authenticate` 的请求体）、`max_retry`（断链后恰好几次 `Grant`）、`backoff`（相邻两次 `Grant` 的间隔）。变异明细见风险评审 §7.14。
+
+</details>
 
 两条口径值得单独记住，因为它们都是**判据设计**的错，不是阈值的错：
 

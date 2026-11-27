@@ -32,8 +32,9 @@ func TestLoadEmbeddedCards(t *testing.T) {
 		}
 	}
 	j := byID["judgments"]
-	if len(j.Rules) != 9 {
-		t.Errorf("judgments: expected 9 rules (J1–J9), got %d", len(j.Rules))
+	// J1–J9 加 ADR-16 下沉的命名债规则 judgments-r10（pkg/ 历史名，新聚合勿入）。
+	if len(j.Rules) != 10 {
+		t.Errorf("judgments: expected 10 rules (J1–J9 + r10), got %d", len(j.Rules))
 	}
 	for _, r := range j.Rules {
 		if r.Level != LevelMandatory {

@@ -41,7 +41,6 @@ import (
 
 	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
 	baldbootstrap "github.com/kalandramo/bald/bootstrap"
-	baldconfig "github.com/kalandramo/bald/bootstrap/config"
 	log "github.com/kalandramo/bald/log"
 	"github.com/kalandramo/bald/pkg/audit"
 	"github.com/kalandramo/bald/registry"
@@ -141,62 +140,17 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig, settings map[string]
 	// Decl 的装饰器）。解析结果不落入 Decl（非用户声明），经参数传递。
 	logSrc := resolveLoggerSource(spec, plan)
 
-	// 阶段 A：默认 Logger，保证契约装载前的启动日志可见。失败路径回滚。
-	oldLogger := log.GetLogger()
-	bootLogger, bootCleanup, err := logSrc.bootstrapLogger(context.Background())
+	// 阶段 A（默认 Logger + 计划期诊断）与构造期 config 层：两块逻辑已收拢到
+	// bootstrap_assemble.go。错误文案、失败回滚与 layersCleanup 链序逐字保留；
+	// 两块只搬「输入/输出闭合」的部分，不触碰下方的前向捕获变量。
+	oldLogger, bootCleanup, err := installBootLogger(logSrc, plan.warnings)
 	if err != nil {
-		return nil, fmt.Errorf("appkit: bootstrap logger: %w", err)
+		return nil, err
 	}
-	// cleanup 归一化：阶段 A 工厂可返回 nil（bslog 无资源），后续错误回滚、
-	// rebuildLogger 兑现旧钩子、停机 Effect 释放均直接调用，不逐处判 nil。
-	if bootCleanup == nil {
-		bootCleanup = func() {}
+	layers, layersCleanup, err := buildConfigLayers(cfg, spec, plan.construct, oldLogger, bootCleanup)
+	if err != nil {
+		return nil, err
 	}
-	log.SetLogger(bootLogger)
-
-	// 计划期诊断（同 Key 覆盖等逃逸舱）在引导 logger 就绪后可见——与 --plan
-	// 输出同源（I10）。
-	for _, w := range plan.warnings {
-		log.Warn(context.Background(), "appkit: provider plan warning",
-			"code", w.Code, "subject", w.Subject, "message", w.Message)
-	}
-
-	// 构造期阶段：config 段 Provider 产出配置层（声明序=层优先级，首元素
-	// 最高）。scope.App 为 nil——App 尚未构造。失败回滚阶段 A。
-	var layers []baldconfig.Layer
-	var layersCleanup func()
-	if len(plan.construct) > 0 {
-		built, err := runProviderNodes(context.Background(), plan.construct,
-			ApplyScope{Config: cfg, Decl: spec, Role: spec.Role}, nil)
-		if err != nil {
-			log.SetLogger(oldLogger)
-			bootCleanup()
-			return nil, fmt.Errorf("appkit: config layers: %w", err)
-		}
-		for _, r := range built {
-			ls, ok := r.product.([]baldconfig.Layer)
-			if !ok {
-				rollbackBuilds(built, context.Background())
-				log.SetLogger(oldLogger)
-				bootCleanup()
-				return nil, fmt.Errorf("appkit: config provider %v returned %T, want []config.Layer", r.node.Segments, r.product)
-			}
-			layers = append(layers, ls...)
-			if c := noopCleanupFn(r.cleanup); c != nil {
-				prev := layersCleanup
-				layersCleanup = func() {
-					if prev != nil {
-						prev()
-					}
-					c()
-				}
-			}
-		}
-	}
-	// 显式 ConfigLayers 声明与契约源层合流：契约源层（config 段 Provider 产出）
-	// 居首——契约是装配的权威来源；显式层追加在后（同列表内首元素最高，见
-	// ConfigLayers）。不合并即 Serve 路径静默丢声明。
-	layers = append(layers, spec.ConfigLayers...)
 
 	// curCleanup 跟踪当前生效 Logger 的后端释放钩子：阶段 B 与热更新重建时
 	// 原子替换（替换前旧钩子被同步兑现——带缓冲后端的尾批不因热切换丢失，
@@ -262,45 +216,10 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig, settings map[string]
 			spec.OnConfigChange,
 		)),
 	}
-	// 框架停机 Effect：按计划推导的停机序逆序注册（I5）——回放即停机序
-	//（audit-restore 由 TeardownAfter ["*"] 排到最后：stream 尾批审计事件在
-	// 指标/span flush 之后收集；无「恢复装配前全局」步骤——全局审计器
-	// 已删除）。
-	kitOpts = append(kitOpts, slots.effects(oldLogger, &curCleanup)...)
-	if httpCfg != nil {
-		kitOpts = append(kitOpts, Bind("server.http", httpCfg))
-	}
-	if grpcCfg != nil {
-		kitOpts = append(kitOpts, Bind("server.grpc", grpcCfg))
-	}
-	if spec.Registrar != nil {
-		kitOpts = append(kitOpts, Registrar(spec.Registrar))
-	}
-	if spec.RemoteConfig != nil {
-		kitOpts = append(kitOpts, RemoteConfig(spec.RemoteConfig))
-	}
-	for _, fn := range spec.AfterStart {
-		kitOpts = append(kitOpts, AfterStart(fn))
-	}
-	if spec.ConfigFile != "" {
-		kitOpts = append(kitOpts, ConfigFile(spec.ConfigFile))
-	}
-	if spec.WatchConfigFile {
-		kitOpts = append(kitOpts, WatchConfigFile(true))
-	}
-	if layersCleanup != nil {
-		kitOpts = append(kitOpts, effectOpt("appkit:config-layers", func(context.Context) error {
-			layersCleanup()
-			return nil
-		}))
-	}
-	// 契约钩子建的资源（桥新建的限流器等）：登记为框架 Effect——不进 spec.Effects
-	// （那是用户声明面，计划据此投影；框架自有 Effect 与 config-layers 同列）。
-	if faces.close != nil {
-		kitOpts = append(kitOpts, effectOpt("appkit:middleware-chain", func(context.Context) error {
-			return faces.close()
-		}))
-	}
+	// 框架停机 Effect 与 Option 序列已收拢到 bootstrap_assemble.go：
+	// curCleanup 按地址传入、块内注册序未换位（停机回放序依赖它）。
+	kitOpts = append(kitOpts, appendFrameworkTailOptions(spec, cfg, slots, oldLogger,
+		&curCleanup, httpCfg, grpcCfg, layersCleanup, faces)...)
 
 	// 业务透传：钩子/协调器/能力声明/订阅/效果——追加在框架装配之后
 	//（beforeStart 在内部装载链后执行，可读契约终值；Effect 逆序回放先于
@@ -356,89 +275,25 @@ func assemble(spec *Decl, cfg *bootstrapv1.BootstrapConfig, settings map[string]
 			return nil
 		}))
 	}
-	for _, fn := range spec.BeforeStop {
-		kitOpts = append(kitOpts, BeforeStop(fn))
-	}
-	for _, fn := range spec.AfterStop {
-		kitOpts = append(kitOpts, AfterStop(fn))
-	}
-	// 机制超时与身份/审计端口同为 Decl 声明面：kitOpts 重建时逐项透传，
-	// 漏传即 Serve 路径静默丢声明（与 OnConfigChange 同类）。零值表示未声明，
-	// 保留 defaultDecl 的默认超时。
-	if spec.EffectTimeout > 0 {
-		kitOpts = append(kitOpts, effectTimeoutOpt(spec.EffectTimeout))
-	}
-	if spec.ComponentTimeout > 0 {
-		kitOpts = append(kitOpts, componentTimeoutOpt(spec.ComponentTimeout))
-	}
-	if spec.Identity != nil {
-		kitOpts = append(kitOpts, Identity(spec.Identity))
-	}
-	if spec.Auditor != nil {
-		kitOpts = append(kitOpts, auditorOpt(spec.Auditor))
-	}
-	for _, e := range spec.Effects {
-		// Deferred 分层随声明透传（AR-1）：资源回收类在阶段 5 回放，不回阶段 0。
-		if e.Deferred {
-			kitOpts = append(kitOpts, deferredEffectOpt(e.Name, e.Undo))
-			continue
-		}
-		kitOpts = append(kitOpts, effectOpt(e.Name, e.Undo))
-	}
-	for _, r := range spec.Reconciles {
-		kitOpts = append(kitOpts, reconcileOpt(r.Name, r.Fn))
-	}
-	for _, k := range spec.KeyWatches {
-		kitOpts = append(kitOpts, onKeyChangeOpt(k.Key, k.Fn))
-	}
-	if len(spec.Provides) > 0 {
-		kitOpts = append(kitOpts, providesOpt(spec.Provides...))
-	}
-	for _, r := range spec.Requires {
-		kitOpts = append(kitOpts, requiresOpt(r.Component, r.Caps...))
-	}
-	if len(spec.Components) > 0 {
-		kitOpts = append(kitOpts, componentsOpt(spec.Components...))
-	}
-	// 业务配置 flag 绑定：与框架自身的 server.http/server.grpc 绑定同层，
-	// 使业务 flag 进入装载 FlagSet 的 flag 层（最高优先级）。
-	for _, b := range spec.Binds {
-		kitOpts = append(kitOpts, Bind(b.Prefix, b.Opt))
-	}
-	// 严格契约校验（opt-in，见 StrictContract）：业务段白名单原样透传。
-	if spec.StrictContract {
-		kitOpts = append(kitOpts, StrictContract(spec.BusinessSections...))
-	}
+	// 业务声明面的尾部 Option（停机钩子、超时、身份/审计、Effects、协调器、
+	// flag 绑定、严格校验）已收拢到 bootstrap_assemble.go：它纯读 spec、零
+	// 前向捕获，块内 append 顺序仍是行为的一部分（见函数注释）。
+	kitOpts = append(kitOpts, appendBusinessTailOptions(spec)...)
 
 	a = NewApp(kitOpts...) // BeforeStart 闭包引用 a，执行时已赋值（Run 期才回调）
 	// kitOpts 不含业务能力声明（HTTP handler 只进 spec，见 WithHTTP 的消费面），
 	// 故 ApplyNode 域的路由挂载入口在此补上——与 provider 看同一份 spec。
 	a.httpHandler = spec.HTTPHandler
 
-	// 计划快照 + 节点协调器：计划是配置变更 diff 的基线；可协调的 Provider
-	// 节点（audit 等）在配置变更时按同一 Provider 重建产物并替换 cleanup 槽位。
-	fullPlan, err := planFrom(context.Background(), spec, cfg, settings, plan, vp)
+	// 计划快照 + 节点协调器（含域协调键）已收拢到 bootstrap_assemble.go：
+	// a 此时已构造完成，按值传入的仍是同一指针；闭包读 domainPlan /
+	// domainReconcileKeys 发生在 Run 期，故末期两个回填仍留在本体。
+	fullPlan, reconcileKeys, err := finalizeAssembly(a, spec, cfg, settings, plan, vp, slots)
 	if err != nil {
 		return nil, err
 	}
 	domainPlan = fullPlan
-	a.installPlan(fullPlan)
-	for _, e := range plan.stageB {
-		if e.node.Reload != ReloadReconcile {
-			continue
-		}
-		prov, node := e.prov, e.node
-		a.nodeReconcilers[node.Key] = func(ctx context.Context, _ *Plan) error {
-			product, cleanup, err := prov.Build(ctx, ApplyScope{Config: cfg, Decl: spec, Role: spec.Role, App: a}, node)
-			if err != nil {
-				return fmt.Errorf("appkit: reconcile provider %v: %w", node.Segments, err)
-			}
-			return storeProductReplacing(ctx, a, buildResult{prov: prov, node: node, product: product, cleanup: cleanup}, slots)
-		}
-	}
-	// 声明域的可协调节点：协调钩子归域自持（Domain.Reconcile），与 Provider
-	// 节点共用同一 NodeReconciler 面——配置变更按同一 Key diff 分发。
-	domainReconcileKeys = registerDomainReconcilers(a, plan, fullPlan)
+	domainReconcileKeys = reconcileKeys
 	return a, nil
 }
 

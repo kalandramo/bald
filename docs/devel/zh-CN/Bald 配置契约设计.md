@@ -75,8 +75,14 @@ cd bconf && bin=$(mktemp -d) \
   && PATH="$bin:$PATH" buf generate --template buf.gen.local.yaml
 ```
 
-另一份 `buf.gen.yaml`（BSR 远端插件）只作对照，不能拿来重出提交：实测（2026-11-04）同版本号 v1.36.12 的远端插件会在中文注释的 `//` 后补一个空格，与 `gen/go/bootstrap/v1/log.pb.go` 差一处排版——那是工具差异，不是契约变更。
-那一处空格的成因是**编译 `protoc-gen-go` 用的那把 Go**，不是 buf：插件走 protobuf 的 `compiler/protogen`，`(*GeneratedFile).Content()` 用 stdlib `go/parser` + `go/printer` 重排产物，注释排版口味跟着编译它的工具链换代走。实测（2026-11-04）同一版插件 v1.36.12——由 go1.26.5 编译会给中文注释的 `//` 补一个空格，由 go1.27.1 或 go1.27.3 编译则与入库产物零差异；BSR 远端插件补空格是同一件事（容器里编译它用的 Go 更旧）。反过来，把 Go 钉住只换插件版本才叫插件换代：v1.36.10 与 v1.36.12 差在**全部 18 个 `.pb.go`**（含头部版本行），而注释那一行不变。buf 的版本号对这一处空格是中性（1.50.0 与 1.57.2 配同一把插件都零差异），但注释文本由 buf 读 proto 后以 `source_code_info` 投递给插件，换代仍可能改它，所以仍然 pin 住。
+另一份 `buf.gen.yaml`（BSR 远端插件）只作对照，不能拿来重出提交：同版本号插件也会在中文注释的 `//` 后补一个空格，与入库产物差一处排版——那是**编译插件的 Go 工具链差异**，不是契约变更。成因与排查数据在下表后折叠；结论是 `buf`、插件版本、编译插件的 Go 三把都要 pin 住（见下段 `proto-contract-check`）。
+
+<details>
+<summary>取证过程：一处空格的工具链归因</summary>
+
+插件走 protobuf 的 `compiler/protogen`，`(*GeneratedFile).Content()` 用 stdlib `go/parser` + `go/printer` 重排产物，注释排版口味跟着编译它的工具链换代走。2026-11-04 实测同一版插件 v1.36.12：由 go1.26.5 编译会给中文注释的 `//` 补一个空格，由 go1.27.1 或 go1.27.3 编译则与入库产物零差异；BSR 远端插件补空格是同一件事（容器里编译它用的 Go 更旧）。反过来，把 Go 钉住只换插件版本才叫插件换代：v1.36.10 与 v1.36.12 差在**全部 18 个 `.pb.go`**（含头部版本行），而注释那一行不变。buf 的版本号对这一处空格是中性（1.50.0 与 1.57.2 配同一把插件都零差异），但注释文本由 buf 读 proto 后以 `source_code_info` 投递给插件，换代仍可能改它，所以仍然 pin 住。
+
+</details>
 
 `task proto-contract-check`（`TestGeneratedMatchesProto`，`buf` 或 `go` 缺席时自动跳过）在字节比对之前先核对三把版本 pin：`buf` 驱动器对 `bconf/buf.version`——这是这条腿**唯一还读 PATH** 的一轴；插件不再从 PATH 拿，测试在 `bconf` module 里 `go build google.golang.org/protobuf/cmd/protoc-gen-go` **现编**一把，于是另外两轴的出处全在仓内：module 版本由 `bconf/go.mod` 的 protobuf 决定、须等于产物头部自己声明的版本行；**编译该插件用的 Go（major.minor）**由跑这条测试的工具链决定、须等于 `bconf/protoc-gen-go.goversion`（取自 `go version -m` 的构建信息——插件自己的 `--version` 看不见这一轴）。红了会先指名是哪把工具不符；三把都对上才轮到逐字节判据，报出具体文件。补齐姿势因此分两件事：第二轴不符是 `bconf/go.mod` 与入库产物不同步（要么升 require 到产物声明的那版，要么用那版重生成产物并提交）；第三轴不符只换工具链——`GOTOOLCHAIN=go1.27 go test -run TestGeneratedMatchesProto -count=1 .`。这一改动同时撤掉了旧口径「读 PATH 上那把已安装插件」：那种读法下，**仓内 go.mod 与产物头部不一致也能绿**（PATH 恰好装着符合产物的那把就是绿），而「本机 PATH 里那把是哪年装的」能冒充判据通过或判红。
 

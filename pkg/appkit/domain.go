@@ -74,10 +74,16 @@ type Domain struct {
 	// 至少声明一个段（期望态摘要取自段内容：框架段取 proto 序列化，biz 段取
 	// Settings 快照的子树 JSON）。
 	//
-	// 迁移期语义：Wire/Routes/Services 仍是实际接线点；声明了 Declare 时
-	// 引擎不再逐个合成它们的 Opaque 节点，而是塌缩成一个
-	// Key("domain.<name>.wire") 的 Opaque 节点——构造仍不透明，拓扑声明已
-	// 可检视。省略 Declare 的域保持既有逐槽位投影（domain.go 头注释）。
+	// 长期语义（ADR-16 裁决，2026-11-27）：Wire/Routes/Services 仍是实际接线
+	// 点；声明了 Declare 时引擎不再逐个合成它们的 Opaque 节点，而是塌缩成
+	// 一个 Key("domain.<name>.wire") 的 Opaque 节点——构造仍不透明，拓扑声明
+	// 已可检视。省略 Declare 的域保持既有逐槽位投影（domain.go 头注释）。
+	//
+	// 与 BeforeStart/AfterStart 的关系：执行链已合一（wireDomains 由
+	// assemble 注册进 BeforeStart，见 bootstrap.go），两套并存的是**声明面**
+	// 而非执行链——BeforeStart 是通用时机回调（框架自身也用），Wire 是带
+	// 域名上下文、*App 句柄、与 Declare/ApplyNode 互斥校验的域专用声明面。
+	// 二者互补，长期保留，不随「旧链移除」删除任一套 API。
 	Declare func(ctx context.Context, s PlanScope) ([]Node, error)
 
 	// Wire 域自我接线（装配期执行一次）：读自己的配置段（app.Settings()）、

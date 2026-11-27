@@ -97,7 +97,14 @@ type Cache interface {
 
 `cache/local` 基于 freecache：预分配环形缓冲带来零 GC 开销，segment 级锁支撑高并发，容量耗尽时 LRU 淘汰。`WithSize` 控制预分配大小（默认 256MB），`WithDefaultTTL` 兜底 `Set(ttl=0)` 的语义。另暴露 `HitCount`/`MissCount`/`EvacuateCount` 等指标方法，供业务接指标系统。
 
-`cache/redis` 适配 go-redis v9：`MGET` 单次网络往返实现 `GetMulti`，`Pipeline` 批量实现 `SetMulti`；`WithKeyPrefix` 做命名空间隔离。契约装配支持三种部署模式（互斥，fail-fast）：`redis.cluster` 段 → `NewClusterClient`（种子节点自动发现，不支持 db）、`redis.sentinel` 段 → `NewFailoverClient`（经哨兵发现主节点）、均缺 → 单节点 `NewClient`；cluster 模式下 MGET/Pipeline 由 go-redis 按 slot 拆分组执行，「单次往返」退化为按 slot 分组的若干次。两个边界要如实说明。其一，`New(client)` 注入 client，`Close()` **不关闭**底层 client——连接池、TLS、生命周期归调用方管理。其二，local 的 `SetNX` 是进程内 check-then-set，两次调用之间存在竞态窗口——**严格互斥场景必须用 redis 后端**（原生 `SET NX` 原子命令）。这个窗口不是理论的：探针实测 200 goroutine 并发 `SetNX` 同一 key，5 轮中 1 轮出现 **4 个 goroutine 同时返回 true**（正确实现应恒为 1）。
+`cache/redis` 适配 go-redis v9：`MGET` 单次网络往返实现 `GetMulti`，`Pipeline` 批量实现 `SetMulti`；`WithKeyPrefix` 做命名空间隔离。契约装配支持三种部署模式（互斥，fail-fast）：`redis.cluster` 段 → `NewClusterClient`（种子节点自动发现，不支持 db）、`redis.sentinel` 段 → `NewFailoverClient`（经哨兵发现主节点）、均缺 → 单节点 `NewClient`；cluster 模式下 MGET/Pipeline 由 go-redis 按 slot 拆分组执行，「单次往返」退化为按 slot 分组的若干次。两个边界要如实说明。其一，`New(client)` 注入 client，`Close()` **不关闭**底层 client——连接池、TLS、生命周期归调用方管理。其二，local 的 `SetNX` 是进程内 check-then-set，两次调用之间存在竞态窗口——**严格互斥场景必须用 redis 后端**（原生 `SET NX` 原子命令）。
+
+<details>
+<summary>验证证据：local SetNX 竞态窗口的并发探针</summary>
+
+200 goroutine 并发 `SetNX` 同一 key，5 轮中 1 轮出现 **4 个 goroutine 同时返回 true**（正确实现应恒为 1）。这是取数快照，不是接口承诺——local 后端的定位从来不是严格互斥。
+
+</details>
 
 ### 组合层：loadable 用 singleflight 合并并发回源（cache/loadable/loadable.go）
 
