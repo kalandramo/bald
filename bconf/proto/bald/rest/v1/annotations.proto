@@ -30,9 +30,31 @@ option go_package = "github.com/kalandramo/bald/bconf/gen/go/bald/rest/v1";
 // 值域校验（100-599）在 gen domain 的 Gate1。
 // ---------------------------------------------------------------------------
 
+// AuthPolicy 声明 RPC 在 REST 面的认证/授权挂载档位。框架不预设业务系统
+// 的鉴权实现，只给生成层一个可机读的策略标签：真正的 group（裸 e /
+// AuthnGroup / AuthedGroup 等）由业务在域装配里按标签决定。
+//
+// 设计意图（替代「按认证级别拆 service」的临时妥协）：当一个 service 内
+// 混合了公开与受保护 RPC 时，不必再拆成两个 service 才能分别挂中间件——
+// 每 RPC 一个 policy 标签即可。当前阶段生成层只**扫描 + 校验**该标签
+// （缺省 = 现状，产物字节不变），不据它改 Bind 签名或挂载点；完整
+// per-RPC 挂载是独立框架升级项（见 bald-admin B 类迁移方案 D1）。
+enum AuthPolicy {
+  AUTH_POLICY_UNSPECIFIED = 0; // 未声明：保持现有挂载行为（默认继承 service 的 group）
+  AUTH_POLICY_PUBLIC = 1;      // 公开端点：裸 e（可叠加 ClientInfo 注入，不含 authn/authz/audit）
+  AUTH_POLICY_AUTHN = 2;       // 仅认证：AuthnGroup（如 logout——认证后即跳过 authz/audit）
+  AUTH_POLICY_AUTHED = 3;      // 认证 + 授权 + 审计：AuthedGroup（默认档位）
+}
+
 extend google.protobuf.MethodOptions {
   // response_status 声明该 RPC REST 面的成功状态码（默认 200）。
   // 典型用法：POST 创建 → 201。错误状态码不由它控制——错误面统一走
   // berrors → gRPC → HTTP 的映射，这里只管成功语义。
   uint32 response_status = 71080;
+
+  // auth_policy 声明该 RPC 的认证挂载档位（默认 AUTH_POLICY_UNSPECIFIED =
+  // 现状）。声明须独立成行，扫描器识别前导点全限定写法，与 response_status
+  // 同口径。约束：同一 service 内混挂时业务需在域装配按标签分组——本阶段
+  // 生成层不改 Bind 签名，标签仅作为可机读契约与校验依据。
+  AuthPolicy auth_policy = 71081;
 }

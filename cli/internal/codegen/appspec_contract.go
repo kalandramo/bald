@@ -237,14 +237,14 @@ func checkImplementedFaces(bs *bootstrapv1.BootstrapConfig) error {
 
 func contractGate(as *appspecv1.AppSpec, bs *bootstrapv1.BootstrapConfig) ([]byte, error) {
 	if err := checkImplementedFaces(bs); err != nil {
-		return nil, fmt.Errorf("Gate2 (implemented faces): %w", err)
+		return nil, fmt.Errorf("Gate2 (implemented faces): %w; %s", err, docsHintGate)
 	}
 	tree, err := contractTree(as, bs)
 	if err != nil {
-		return nil, fmt.Errorf("Gate2 (derive contract tree): %w", err)
+		return nil, fmt.Errorf("Gate2 (derive contract tree): %w; %s", err, docsHintGate)
 	}
 	if err := checkContractKeys(tree); err != nil {
-		return nil, fmt.Errorf("Gate2 (contract keys on AppSpec.bootstrap): %w", err)
+		return nil, fmt.Errorf("Gate2 (contract keys on AppSpec.bootstrap): %w; %s", err, docsHintSpec)
 	}
 	cfgYAML, err := contractYAML(tree)
 	if err != nil {
@@ -252,10 +252,10 @@ func contractGate(as *appspecv1.AppSpec, bs *bootstrapv1.BootstrapConfig) ([]byt
 	}
 	var round map[string]any
 	if err := yaml.Unmarshal(cfgYAML, &round); err != nil {
-		return nil, fmt.Errorf("Gate2 (round-trip generated config): %w", err)
+		return nil, fmt.Errorf("Gate2 (round-trip generated config): %w; %s", err, docsHintGate)
 	}
 	if err := checkContractKeys(round); err != nil {
-		return nil, fmt.Errorf("Gate2 (contract keys on generated config): %w", err)
+		return nil, fmt.Errorf("Gate2 (contract keys on generated config): %w; %s", err, docsHintSpec)
 	}
 	return cfgYAML, nil
 }

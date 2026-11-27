@@ -263,7 +263,7 @@ func Load(opts Options) (*Store, error) {
 		if unknown := bconf.FindUnknownKeys(s.merged, bconf.NewBootstrap(),
 			opts.AllowBusinessSections...); len(unknown) > 0 {
 			_ = s.Close()
-			return nil, fmt.Errorf("config: unknown contract keys (typo? or declare in AllowBusinessSections): %s",
+			return nil, fmt.Errorf("config: unknown contract keys (typo? or pass them to appkit.StrictContract as business sections): %s; see: docs/guide/zh-CN/Bald 配置系统.md#71-未知键防护strictcontract-让键名笔误响亮失败",
 				strings.Join(unknown, ", "))
 		}
 	}

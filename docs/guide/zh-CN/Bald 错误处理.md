@@ -15,9 +15,16 @@
 
 biz 构造、补偿/降级分支的匹配、DAL 包装、CLI 与测试断言——全部只
 `import berrors`；投影段已由框架收口（HTTP 侧 `web.ErrorResponse`、gRPC 侧
-`ErrorInterceptor`），**业务代码几乎不需要碰桥接子包**。下游 bald-admin
-全仓 38 个 `.go` 文件 import 根包、0 处 import `grpcerr`/`httperr`，即此结构的
-实证（计数谓词：`find . -name '*.go' | xargs grep -l '"github.com/kalandramo/bald/berrors"'`）。
+`ErrorInterceptor`），**业务代码几乎不需要碰桥接子包**。
+
+<details>
+<summary>背景与取证：消费者仓库的 import 分布</summary>
+
+下游 bald-admin 全仓 38 个 `.go` 文件 import 根包、0 处 import `grpcerr`/`httperr`。
+复跑谓词：`find . -name '*.go' | xargs grep -l '"github.com/kalandramo/bald/berrors"'`。
+这是取数快照，不是结构承诺——新增反向 import 不违反本页口径。
+
+</details>
 
 ## 0. 引依赖
 

@@ -44,6 +44,10 @@ type protoMethod struct {
 	// StatusCode 是 bald.rest.v1.response_status 声明的 REST 成功状态码；
 	// 0 = 未声明（绑定产物按 web.WriteProtoResponse 默认 200）。
 	StatusCode int
+	// AuthPolicy 是 bald.rest.v1.auth_policy 声明的认证挂载档位字符串
+	// （PUBLIC / AUTHN / AUTHE）；空串 = 未声明 = 现状挂载。
+	// 本阶段只做可机读契约与值域校验，不改 Bind 签名/路由字节。
+	AuthPolicy string
 }
 
 // httpRule 是一条 google.api.http 映射（主规则或 additional_bindings 条目）。
@@ -105,6 +109,19 @@ var (
 	// 状态码是 REST 成功语义的一部分，注解是唯一真相源——不在生成器里按
 	// 动词猜（POST 批量建返回 200 的反例否决了动词派生）。
 	reProtoResponseStatus = regexp.MustCompile(`\(\.?bald\.rest\.v1\.response_status\)\s*=\s*(\d+)`)
+	// reProtoAuthPolicy 匹配 bald.rest.v1.auth_policy 声明（与 response_status
+	// 同款：前导点全限定、独立成行）。enum 值形如 AUTH_POLICY_PUBLIC；
+	// 走白名单校验（authPolicyValues），不匹配时正则捕获为空——此时需要
+	// 单独判「声明了但值异常」并报错，而不是静默退化为缺省。
+	reProtoAuthPolicy = regexp.MustCompile(`\(\.?bald\.rest\.v1\.auth_policy\)\s*=\s*([A-Za-z_][A-Za-z0-9_]*)`)
+	reAuthPolicyDecl  = regexp.MustCompile(`\(\.?bald\.rest\.v1\.auth_policy\)\s*=`)
+	// authPolicyValues 是 AuthPolicy enum 的非缺省档位（与 annotations.proto
+	// 同步；AUTH_POLICY_UNSPECIFIED 显式声明等价于未声明，不进白名单）。
+	authPolicyValues = map[string]bool{
+		"AUTH_POLICY_PUBLIC": true,
+		"AUTH_POLICY_AUTHN":  true,
+		"AUTH_POLICY_AUTHED": true,
+	}
 )
 
 // unsupportedAnnotationFields 返回注解块里绑定生成未实现的字段名（去重
@@ -200,6 +217,22 @@ func scanProto(relPath string, src []byte) (*protoFile, error) {
 					return nil, fmt.Errorf("%s: rpc %s: bad response_status %q: %w", relPath, m.Name, mm[1], err)
 				}
 				m.StatusCode = n
+			}
+			// bald.rest.v1.auth_policy：认证挂载档位声明。当前阶段只做
+			// 值域校验并登记到 protoMethod（供后续 per-RPC 挂载与清单元数据
+			// 使用），不改 Bind 签名/路由字节——缺省（含显式 UNSPECIFIED）
+			// 等于现状，产物字节逐字不变。
+			if mm := reProtoAuthPolicy.FindStringSubmatch(seg); mm != nil {
+				switch {
+				case mm[1] == "AUTH_POLICY_UNSPECIFIED":
+					// 显式缺省等价于未声明。
+				case authPolicyValues[mm[1]]:
+					m.AuthPolicy = mm[1]
+				default:
+					return nil, fmt.Errorf("%s: rpc %s: unknown auth_policy %q (want AUTH_POLICY_PUBLIC/AUTHN/AUTHED)", relPath, m.Name, mm[1])
+				}
+			} else if reAuthPolicyDecl.MatchString(seg) {
+				return nil, fmt.Errorf("%s: rpc %s: auth_policy declared without a recognizable enum value", relPath, m.Name)
 			}
 			m.Unsupported = dedupeSorted(m.Unsupported)
 			svc.Methods = append(svc.Methods, m)

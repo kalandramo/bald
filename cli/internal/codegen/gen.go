@@ -155,13 +155,13 @@ func KeyOf{{.Name | title}}(u *{{.Name | title}}) string { return u.ID }
 func NewCommand(streams ioStreams) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:              "gen [command]",
-		Short:            "轻量代码生成脚手架（proto / store / app / domain / resource / verify）",
+		Short:            "轻量代码生成脚手架（proto / store / app / domain / resource / verify / schema）",
 		TraverseChildren: true,
 		SilenceUsage:     true,
 		RunE:             func(cmd *cobra.Command, _ []string) error { return cmd.Help() },
 	}
 	cmd.AddCommand(genProtoCmd(streams), genStoreCmd(streams), genAppCmd(streams), genDomainCmd(streams),
-		genResourceCmd(streams), genVerifyCmd(streams))
+		genResourceCmd(streams), genVerifyCmd(streams), genSchemaCmd(streams))
 	// cobra 的 "Error: ..." 打到 ErrOrStderr——与 ioStreams 解耦；接上后错误
 	// 随 streams.ErrOut 走（生产 = os.Stderr 行为不变；测试注入弃流即不把
 	// 预期负例错误漏进 CI 日志）。

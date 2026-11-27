@@ -11,6 +11,7 @@ import (
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	descriptorpb "google.golang.org/protobuf/types/descriptorpb"
 	reflect "reflect"
+	sync "sync"
 	unsafe "unsafe"
 )
 
@@ -21,6 +22,67 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// AuthPolicy 声明 RPC 在 REST 面的认证/授权挂载档位。框架不预设业务系统
+// 的鉴权实现，只给生成层一个可机读的策略标签：真正的 group（裸 e /
+// AuthnGroup / AuthedGroup 等）由业务在域装配里按标签决定。
+//
+// 设计意图（替代「按认证级别拆 service」的临时妥协）：当一个 service 内
+// 混合了公开与受保护 RPC 时，不必再拆成两个 service 才能分别挂中间件——
+// 每 RPC 一个 policy 标签即可。当前阶段生成层只**扫描 + 校验**该标签
+// （缺省 = 现状，产物字节不变），不据它改 Bind 签名或挂载点；完整
+// per-RPC 挂载是独立框架升级项（见 bald-admin B 类迁移方案 D1）。
+type AuthPolicy int32
+
+const (
+	AuthPolicy_AUTH_POLICY_UNSPECIFIED AuthPolicy = 0 // 未声明：保持现有挂载行为（默认继承 service 的 group）
+	AuthPolicy_AUTH_POLICY_PUBLIC      AuthPolicy = 1 // 公开端点：裸 e（可叠加 ClientInfo 注入，不含 authn/authz/audit）
+	AuthPolicy_AUTH_POLICY_AUTHN       AuthPolicy = 2 // 仅认证：AuthnGroup（如 logout——认证后即跳过 authz/audit）
+	AuthPolicy_AUTH_POLICY_AUTHED      AuthPolicy = 3 // 认证 + 授权 + 审计：AuthedGroup（默认档位）
+)
+
+// Enum value maps for AuthPolicy.
+var (
+	AuthPolicy_name = map[int32]string{
+		0: "AUTH_POLICY_UNSPECIFIED",
+		1: "AUTH_POLICY_PUBLIC",
+		2: "AUTH_POLICY_AUTHN",
+		3: "AUTH_POLICY_AUTHED",
+	}
+	AuthPolicy_value = map[string]int32{
+		"AUTH_POLICY_UNSPECIFIED": 0,
+		"AUTH_POLICY_PUBLIC":      1,
+		"AUTH_POLICY_AUTHN":       2,
+		"AUTH_POLICY_AUTHED":      3,
+	}
+)
+
+func (x AuthPolicy) Enum() *AuthPolicy {
+	p := new(AuthPolicy)
+	*p = x
+	return p
+}
+
+func (x AuthPolicy) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (AuthPolicy) Descriptor() protoreflect.EnumDescriptor {
+	return file_bald_rest_v1_annotations_proto_enumTypes[0].Descriptor()
+}
+
+func (AuthPolicy) Type() protoreflect.EnumType {
+	return &file_bald_rest_v1_annotations_proto_enumTypes[0]
+}
+
+func (x AuthPolicy) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use AuthPolicy.Descriptor instead.
+func (AuthPolicy) EnumDescriptor() ([]byte, []int) {
+	return file_bald_rest_v1_annotations_proto_rawDescGZIP(), []int{0}
+}
+
 var file_bald_rest_v1_annotations_proto_extTypes = []protoimpl.ExtensionInfo{
 	{
 		ExtendedType:  (*descriptorpb.MethodOptions)(nil),
@@ -28,6 +90,14 @@ var file_bald_rest_v1_annotations_proto_extTypes = []protoimpl.ExtensionInfo{
 		Field:         71080,
 		Name:          "bald.rest.v1.response_status",
 		Tag:           "varint,71080,opt,name=response_status",
+		Filename:      "bald/rest/v1/annotations.proto",
+	},
+	{
+		ExtendedType:  (*descriptorpb.MethodOptions)(nil),
+		ExtensionType: (*AuthPolicy)(nil),
+		Field:         71081,
+		Name:          "bald.rest.v1.auth_policy",
+		Tag:           "varint,71081,opt,name=auth_policy,enum=bald.rest.v1.AuthPolicy",
 		Filename:      "bald/rest/v1/annotations.proto",
 	},
 }
@@ -40,25 +110,56 @@ var (
 	//
 	// optional uint32 response_status = 71080;
 	E_ResponseStatus = &file_bald_rest_v1_annotations_proto_extTypes[0]
+	// auth_policy 声明该 RPC 的认证挂载档位（默认 AUTH_POLICY_UNSPECIFIED =
+	// 现状）。声明须独立成行，扫描器识别前导点全限定写法，与 response_status
+	// 同口径。约束：同一 service 内混挂时业务需在域装配按标签分组——本阶段
+	// 生成层不改 Bind 签名，标签仅作为可机读契约与校验依据。
+	//
+	// optional bald.rest.v1.AuthPolicy auth_policy = 71081;
+	E_AuthPolicy = &file_bald_rest_v1_annotations_proto_extTypes[1]
 )
 
 var File_bald_rest_v1_annotations_proto protoreflect.FileDescriptor
 
 const file_bald_rest_v1_annotations_proto_rawDesc = "" +
 	"\n" +
-	"\x1ebald/rest/v1/annotations.proto\x12\fbald.rest.v1\x1a google/protobuf/descriptor.proto:I\n" +
-	"\x0fresponse_status\x12\x1e.google.protobuf.MethodOptions\x18\xa8\xab\x04 \x01(\rR\x0eresponseStatusB\xb3\x01\n" +
+	"\x1ebald/rest/v1/annotations.proto\x12\fbald.rest.v1\x1a google/protobuf/descriptor.proto*p\n" +
+	"\n" +
+	"AuthPolicy\x12\x1b\n" +
+	"\x17AUTH_POLICY_UNSPECIFIED\x10\x00\x12\x16\n" +
+	"\x12AUTH_POLICY_PUBLIC\x10\x01\x12\x15\n" +
+	"\x11AUTH_POLICY_AUTHN\x10\x02\x12\x16\n" +
+	"\x12AUTH_POLICY_AUTHED\x10\x03:I\n" +
+	"\x0fresponse_status\x12\x1e.google.protobuf.MethodOptions\x18\xa8\xab\x04 \x01(\rR\x0eresponseStatus:[\n" +
+	"\vauth_policy\x12\x1e.google.protobuf.MethodOptions\x18\xa9\xab\x04 \x01(\x0e2\x18.bald.rest.v1.AuthPolicyR\n" +
+	"authPolicyB\xb3\x01\n" +
 	"\x10com.bald.rest.v1B\x10AnnotationsProtoP\x01Z;github.com/kalandramo/bald/bconf/gen/go/bald/rest/v1;restv1\xa2\x02\x03BRX\xaa\x02\fBald.Rest.V1\xca\x02\fBald\\Rest\\V1\xe2\x02\x18Bald\\Rest\\V1\\GPBMetadata\xea\x02\x0eBald::Rest::V1b\x06proto3"
 
+var (
+	file_bald_rest_v1_annotations_proto_rawDescOnce sync.Once
+	file_bald_rest_v1_annotations_proto_rawDescData []byte
+)
+
+func file_bald_rest_v1_annotations_proto_rawDescGZIP() []byte {
+	file_bald_rest_v1_annotations_proto_rawDescOnce.Do(func() {
+		file_bald_rest_v1_annotations_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_bald_rest_v1_annotations_proto_rawDesc), len(file_bald_rest_v1_annotations_proto_rawDesc)))
+	})
+	return file_bald_rest_v1_annotations_proto_rawDescData
+}
+
+var file_bald_rest_v1_annotations_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
 var file_bald_rest_v1_annotations_proto_goTypes = []any{
-	(*descriptorpb.MethodOptions)(nil), // 0: google.protobuf.MethodOptions
+	(AuthPolicy)(0),                    // 0: bald.rest.v1.AuthPolicy
+	(*descriptorpb.MethodOptions)(nil), // 1: google.protobuf.MethodOptions
 }
 var file_bald_rest_v1_annotations_proto_depIdxs = []int32{
-	0, // 0: bald.rest.v1.response_status:extendee -> google.protobuf.MethodOptions
-	1, // [1:1] is the sub-list for method output_type
-	1, // [1:1] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	0, // [0:1] is the sub-list for extension extendee
+	1, // 0: bald.rest.v1.response_status:extendee -> google.protobuf.MethodOptions
+	1, // 1: bald.rest.v1.auth_policy:extendee -> google.protobuf.MethodOptions
+	0, // 2: bald.rest.v1.auth_policy:type_name -> bald.rest.v1.AuthPolicy
+	3, // [3:3] is the sub-list for method output_type
+	3, // [3:3] is the sub-list for method input_type
+	2, // [2:3] is the sub-list for extension type_name
+	0, // [0:2] is the sub-list for extension extendee
 	0, // [0:0] is the sub-list for field type_name
 }
 
@@ -72,13 +173,14 @@ func file_bald_rest_v1_annotations_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bald_rest_v1_annotations_proto_rawDesc), len(file_bald_rest_v1_annotations_proto_rawDesc)),
-			NumEnums:      0,
+			NumEnums:      1,
 			NumMessages:   0,
-			NumExtensions: 1,
+			NumExtensions: 2,
 			NumServices:   0,
 		},
 		GoTypes:           file_bald_rest_v1_annotations_proto_goTypes,
 		DependencyIndexes: file_bald_rest_v1_annotations_proto_depIdxs,
+		EnumInfos:         file_bald_rest_v1_annotations_proto_enumTypes,
 		ExtensionInfos:    file_bald_rest_v1_annotations_proto_extTypes,
 	}.Build()
 	File_bald_rest_v1_annotations_proto = out.File

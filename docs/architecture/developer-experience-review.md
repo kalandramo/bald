@@ -18,6 +18,24 @@
 > **状态复核（2026-11-26）**：以上六项仍挂账，未发现对应修复提交。DX-4 目前只有 convention
 > 蒸馏卡 / checker 这条机器通道（`onexai-gap-review.md` §7 G1–G6 已落地），
 > **appspec JSON Schema 本身仍未提供**；其余 DX 快赢项状态不变。
+>
+> **落地（2026-11-27，DX 快赢批全清）**：
+> - **DX-2**：`pkg/appkit/appcli` 的 `version` 子命令追加二进制绝对路径 + module 路径 +
+>   VCS revision/time/dirty（本地可核的 provenance）；「与远端 tag 差距」不进只读 version
+>   命令（J3 出站有界 / doctor 不联网），远端差距由 CHANGELOG / release plan 承担。
+> - **DX-4**：`bald gen schema` 从 AppSpec 的 protoreflect 描述符派生 JSON Schema 草稿
+>   2020-12（顶层字段 / 嵌套 / enum / well-known 类型 / 64 位数字|字符串双形态），
+>   `--out` 落盘（owned + `--force`）、缺省 stdout；字段真相源仍是 proto，不复制清单。
+> - **DX-6**：Gate3 未知契约键、L3 段覆盖（顶层 + server 子段）、doctor unconsumed hint、
+>   Gate1/Gate2 报错尾统一挂 `see:` 文档锚点（DX-13 的 contract 包建议保留，二者并列）。
+>   顺带修正 Gate3 文案里与实际 API 不符的 `AllowBusinessSections`→`appkit.StrictContract`。
+> - **DX-11**：`bald release changelog` 从本批计划的依赖归位数据（`Change.Requires`）
+>   产出「本批版本配套」表；gen app 出口提示引导按 CHANGELOG 配套表核对 cli ↔ 框架库版本。
+>   （原设想「生成树 require 与本机 version 比对」不成立：当前 `seedGoMod` 不写 require，
+>   require 由 `go mod tidy` 从各 module tag 解析。）
+> - **DX-18 后半**：`docs/architecture/README.md` 索引表与修订史分离，历次重核归档到文末
+>   「修订记录」节（DX-20 的分流表此前已前置）。
+> - **DX-25**：quickstart §3 重排为「预设起步 → 字段参考 → 从预设到手写的演进」三段式。
 方法：沿「新用户 → 业务开发者 → 框架维护者 → AI 会话」四类真实用户
 > 的旅程逐步走查，实证采集 CLI 真实输出与报错（标注【实证】的条目都有当次运行的原始输出
 > 或一手踩坑记录佐证）；与 [risk-review.md](risk-review.md) 不重叠——那里记框架内部风险，

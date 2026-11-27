@@ -67,7 +67,8 @@ func checkSegmentCoverage(cfg *bootstrapv1.BootstrapConfig, spec *Decl, plan *pr
 	if len(uncovered) > 0 {
 		problems = append(problems, fmt.Sprintf(
 			"top-level sections with no consumer: %s\n"+
-				"  hint: 该段无消费者，配置不会生效；引入对应 Provider、经 appkit.WithUnimplementedSegments 显式豁免，或从契约移除该段",
+				"  hint: 该段无消费者，配置不会生效；引入对应 Provider、经 appkit.WithUnimplementedSegments 显式豁免，或从契约移除该段\n"+
+				"  "+docsHintL3,
 			strings.Join(uncovered, ", ")))
 	}
 
@@ -145,10 +146,21 @@ func providerHint(path string) string {
 	return ""
 }
 
+// docsHint 是运行期/生成期报错尾部统一的文档出口（DX-6）：概念名词
+// （L3 / Gate / 三态 / J1–J9）在报错里首次出现处挂锚点，用户不必搜索。
+// 路径相对仓库根，锚点按标题 slug，docscheck 只检查文件存在（锚点不校验）。
+const docsHintL3 = "see: docs/devel/zh-CN/应用框架设计.md#24-l3-段覆盖检查"
+
 // hintSuffix 组装报错尾部的指路分句（有建议才返回）。
+// 契约包建议 + 文档锚点并列：前者告诉「接哪个 Provider」，后者告诉
+// 「这个概念在哪篇文档定义」（DX-13 + DX-6，互不替代）。
 func hintSuffix(path string) string {
+	var out string
 	if h := providerHint(path); h != "" {
-		return fmt.Sprintf("——框架自带契约包 %s（在 customOptions 里接它的 AppProvider）", h)
+		out = fmt.Sprintf("——框架自带契约包 %s（在 customOptions 里接它的 AppProvider）", h)
+	}
+	if out != "" {
+		return out + "; " + docsHintL3
 	}
 	return ""
 }

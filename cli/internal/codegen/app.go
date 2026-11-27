@@ -218,7 +218,7 @@ func runGenAppSpec(spec, out string, adopt, check bool, streams ioStreams) error
 		return fmt.Errorf("parse AppSpec (protojson): %w", err)
 	}
 	if err := guardErrs(validateAppSpec(as)); err != nil {
-		return fmt.Errorf("Gate1 (spec schema): %w", err)
+		return fmt.Errorf("Gate1 (spec schema): %w; %s", err, docsHintGate)
 	}
 	bs := contractBootstrap(as)
 	cfgYAML, err := contractGate(as, bs)
@@ -269,6 +269,7 @@ func runGenAppSpec(spec, out string, adopt, check bool, streams ioStreams) error
 		// module/go 两行，require 由 go mod tidy 从 import 集推导（权威且免
 		// 维护版本映射）。
 		fmt.Fprintln(streams.Out, `next: run "go mod tidy" to resolve module requirements (needs network), then "go build ./..."`)
+		fmt.Fprintln(streams.Out, `next: requirements follow each module's published tag; cross-check cli vs bald libs against the "本批版本配套" table in CHANGELOG.md (DX-11)`)
 	}
 	// scaffold 卡（scaffold-r02/r03）的落地：生成后必做步骤显式打印——生成树
 	// 「能编译」不等于「已就绪」，规范通道与门禁接线都在这几步。

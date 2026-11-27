@@ -14,8 +14,10 @@ package appcli
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime/debug"
 	"strings"
 
@@ -108,6 +110,7 @@ func BuildRoot(use, short string, runE func(*cobra.Command, []string) error, opt
 			Args:  cobra.NoArgs,
 			Run: func(cmd *cobra.Command, _ []string) {
 				fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", use, v)
+				writeBuildInfo(cmd.OutOrStdout())
 			},
 		})
 	}
@@ -148,6 +151,50 @@ func resolveVersion(c *config) string {
 		return bi.Main.Version //cov:excl go test 二进制里 buildinfo 恒为 (devel)，仅 go install 真构建可达
 	}
 	return ""
+}
+
+// writeBuildInfo 打印本地可核的构建 provenance（DX-2）：二进制路径 +
+// Go module 路径 + VCS revision/time/dirty。用于回答「PATH 命中的是哪一个
+// 二进制、它从哪个提交构建」——真实 GOPATH 下两个同名二进制并存时是
+// 第一诊断项。checklist 中的「与远端最新 tag 差距」不在这里做：框架
+// 二进制不应在只读的 version 命令里联网（J3 出站有界 + doctor 不联网），
+// 远端 tag 由发布流程（CHANGELOG / release plan）负责，本命令只给可核事实。
+func writeBuildInfo(w io.Writer) {
+	exe, err := os.Executable()
+	if err != nil {
+		exe = "(unknown)"
+	}
+	abs, err := filepath.Abs(exe)
+	if err == nil {
+		exe = abs
+	}
+	fmt.Fprintf(w, "binary: %s\n", exe)
+
+	bi, ok := debug.ReadBuildInfo()
+	if !ok {
+		return
+	}
+	fmt.Fprintf(w, "module: %s\n", bi.Main.Path)
+	var revision, commitTime, modified string
+	for _, s := range bi.Settings {
+		switch s.Key {
+		case "vcs.revision":
+			revision = s.Value
+		case "vcs.time":
+			commitTime = s.Value
+		case "vcs.modified":
+			modified = s.Value
+		}
+	}
+	if revision != "" {
+		fmt.Fprintf(w, "vcs.revision: %s\n", revision)
+	}
+	if commitTime != "" {
+		fmt.Fprintf(w, "vcs.time: %s\n", commitTime)
+	}
+	if modified != "" {
+		fmt.Fprintf(w, "vcs.modified: %s\n", modified)
+	}
 }
 
 func pluginPrefix(c *config, use string) string {

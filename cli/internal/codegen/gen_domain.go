@@ -134,7 +134,7 @@ func (o *domainOptions) Run() error {
 		return fmt.Errorf("parse AppSpec (protojson): %w", err)
 	}
 	if err := guardErrs(validateAppSpec(as)); err != nil {
-		return fmt.Errorf("Gate1 (spec schema): %w", err)
+		return fmt.Errorf("Gate1 (spec schema): %w; %s", err, docsHintGate)
 	}
 	scan, roots, err := scanProtoRoots(o.OutDir)
 	if err != nil {

@@ -56,9 +56,26 @@ bald --help   # 验证安装
 
 </details>
 
-## 3. AppSpec：装配的单一真相源
+## 3. AppSpec：从预设起步，到手写演进
 
 AppSpec 用一份 JSON 声明应用的装配形态——开通哪些 server、挂哪些组件、声明哪些能力依赖、带哪些业务域。它是**唯一真相源**：改装配先改 AppSpec 再重新生成，不要手改生成文件。
+
+本节分三段：**预设起步**（一条命令定型）→ **手写字段参考**（要改什么查哪里）→ **预设到手写的演进**（何时脱离预设、怎么平滑过渡）。
+
+### 3.0 预设起步（推荐）
+
+不想从空白 JSON 开始时，用内置预设一条命令定型（DX-25）：
+
+```bash
+bald gen app --preset webserver --name my-service --module example.com/my-service --out ./my-service
+cd my-service && go mod tidy && go build ./...
+```
+
+- 七个预设：`webserver` / `worker` / `jobserver` / `mqserver` / `mcpserver` / `clitool` / `fullstack`；`--name` / `--module` 覆盖预设占位符，经 protojson 回写进 `appspec.json`（不是文本替换）。
+- 预设只落声明起点（AppSpec），生成树仍需 `go mod tidy` 解析依赖（见 §4 出口提示）。
+- 预设产物由 `TestPresetsPassGates` 在 CI 里逐套 gen → `--check` 覆盖，改生成器不会让预设静默漂移。
+
+什么时候**不要**直接用预设：需要多角色（api + worker）、自定义变体、或已有 AppSpec 要演进——这几类从 §3.1 的字段参考手写更直接。
 
 ### 3.1 字段参考（JSON 字段名即 protojson 形式）
 
@@ -103,6 +120,16 @@ AppSpec 用一份 JSON 声明应用的装配形态——开通哪些 server、�
 ```
 
 带组件/能力/审计的完整形态见 `_example/bald/_scratch/appspec.sample.json`；带业务域的声明见 `_example/bald/appspec.json`（greet 域）。
+
+### 3.3 从预设到手写的演进
+
+预设生成的 `appspec.json` 就是普通 AppSpec，手写与预设没有第二套格式——演进分三步：
+
+1. **改声明**：直接编辑 `appspec.json` 的对应字段（如给 `bootstrap.server` 加 `grpc`、往 `domains[]` 加域）。
+2. **重新派生**：`bald gen app --spec appspec.json --check` 先看差异，确认后 `--adopt` 重写 owned 生成物；seeded 文件（含 `go.mod`）保留，user 文件不碰。
+3. **扩面**：新增业务域用 `bald gen resource --spec appspec.json --domain <域> --kind <资源>`（§6.1），一条命令补契约/实体/声明并派生绑定。
+
+预设是起点不是轨道：一旦字段超出预设覆盖面，就按手写声明维护，不必回退到预设重来。改名/换 module 用 `--name` / `--module` 重跑预设会覆盖现有 `appspec.json`，已有手写改动时请改用直接编辑字段。
 
 ## 4. gen app：生成目标目录树
 
@@ -328,7 +355,14 @@ router.Use(bundle.New(
 ).Gin()...)
 ```
 
-端到端三态实测（`TestTree_AuthzClosedLoop`）：`POST /v1/greets` 无 token **401**（authn 层拒绝）→ viewer **403**（策略行只有 get/list）→ admin **200**（六元组含 post）；403→200 的放行必经别名反查，三态全部由「生成物数据 + contrib 行为」产生，handler 无权限判断。语义要点：只装 p 行不装 g 行恒拒绝（默认拒绝语义，非错误）。更多细节见[Bald 授权使用](Bald%20授权使用.md)。
+语义要点：只装 p 行不装 g 行恒拒绝（默认拒绝语义，非错误）。三态全部由「生成物数据 + contrib 行为」产生，handler 无权限判断。更多细节见[Bald 授权使用](Bald%20授权使用.md)。
+
+<details>
+<summary>验证证据：端到端三态闭环</summary>
+
+`TestTree_AuthzClosedLoop` 实测：`POST /v1/greets` 无 token **401**（authn 层拒绝）→ viewer **403**（策略行只有 get/list）→ admin **200**（六元组含 post）。403→200 的放行必经别名反查。
+
+</details>
 
 ## 9. 故障排查
 

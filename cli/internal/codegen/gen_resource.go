@@ -132,7 +132,7 @@ func (o *resourceOptions) Run() error {
 		return fmt.Errorf("parse AppSpec (protojson): %w", err)
 	}
 	if err := guardErrs(validateAppSpec(as)); err != nil {
-		return fmt.Errorf("Gate1 (spec schema): %w", err)
+		return fmt.Errorf("Gate1 (spec schema): %w; %s", err, docsHintGate)
 	}
 	kinds, err := o.kinds()
 	if err != nil {

@@ -69,7 +69,48 @@ func renderSections(root string, plan *Plan) string {
 		}
 		b.WriteString("\n")
 	}
+	// DX-11：版本配套矩阵。数据全取本批 plan 的真实依赖归位（Change.Requires），
+	// 不臆造 tag——「tag 同批即同组」，列的是本批发版模块与其被归位到的内部依赖版本。
+	// 未发生依赖归位的批次不产出空表，避免无信息噪音。
+	if table := renderCompatibilityTable(plan); table != "" {
+		b.WriteString(table)
+	}
 	return strings.TrimRight(b.String(), "\n") + "\n"
+}
+
+// renderCompatibilityTable 从本批依赖归位数据渲染版本配套表。
+// 每行 = 一个发生了内部依赖归位的发布模块 + 它归位到的依赖版本清单。
+// 模块名取 go.mod 路径的最后一段（cli/bconf/pkg/… 的读者口径）。
+func renderCompatibilityTable(plan *Plan) string {
+	var rows []string
+	for _, c := range plan.Changes {
+		if len(c.Requires) == 0 {
+			continue
+		}
+		deps := make([]string, 0, len(c.Requires))
+		for _, r := range c.Requires {
+			deps = append(deps, fmt.Sprintf("`%s` → `%s`", shortModule(r.Module), r.To))
+		}
+		rows = append(rows, fmt.Sprintf("| `%s` | `%s` | %s |",
+			shortModule(c.Module), c.Next, strings.Join(deps, ", ")))
+	}
+	if len(rows) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("#### 本批版本配套（cli ↔ bconf / pkg 等内部依赖）\n\n")
+	b.WriteString("| 模块 | 本批版本 | 归位依赖 |\n|---|---|---|\n")
+	b.WriteString(strings.Join(rows, "\n"))
+	b.WriteString("\n\n本表取自本批计划的依赖归位清单；未列模块沿用其最近正式 tag。" +
+		"业务项目升级时用 `go mod tidy` 从各 module tag 解析，按此表核对 cli 与框架库的版本组合。\n\n")
+	return b.String()
+}
+
+func shortModule(path string) string {
+	if i := strings.LastIndex(path, "/"); i >= 0 {
+		return path[i+1:]
+	}
+	return path
 }
 
 // planDate 取计划生成日期（RFC3339 的前 10 位）。

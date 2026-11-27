@@ -175,6 +175,7 @@ func writeDoctor(w io.Writer, p *Plan, tags []string, cache *planCacheBaseline, 
 	printSegments(w, "unconsumed", unconsumed)
 	if len(unconsumed) > 0 {
 		fmt.Fprintln(w, "  hint: unconsumed segments fail startup (L3); provide a Provider or whitelist explicitly")
+		fmt.Fprintln(w, "  "+docsHintL3)
 	}
 
 	if len(tags) > 0 {

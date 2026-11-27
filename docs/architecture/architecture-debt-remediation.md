@@ -142,8 +142,14 @@ DX-21 只修了安装节。修正：guide 全量走查一次（正文命令流 +
 | 条目 | 复核状态 | 说明 |
 |---|---|---|
 | ADR-6 远期段 | ⏳ 待做（随大版本） | 近期 Gate1 白名单已落地；proto 声明面裁剪 + reserved 不复用仍未做。关联：bald-admin A 类存量 4 处响应命名违规仍在 `buf.yaml lint.except` 豁免中 |
-| ADR-8 | 🔧 余量未做 | 两阶段拆分已完成（`hotreload.go` / `cleanup_slots.go` / `bootstrap_options.go`）；`assemble` 358 行装配流水线的内聚化仍未动 |
-| ADR-12 | ⏳ 待做 | guide 密度整改未做（DX-21 仅修安装节） |
-| ADR-15 | ⏳ 待做 | devel 43 篇约 1/3 过程性叙事未下沉 |
-| ADR-16 | 部分挂账 | `RedisKey` 已导出；`BeforeStart/AfterStart` 与 `Domain.Wire` 共存债待旧链移除时裁决；`pkg/` 改名维持「永久挂账不修」 |
+| ADR-8 | 📌 独立会话（本轮不动） | 两阶段拆分已完成（`hotreload.go` / `cleanup_slots.go` / `bootstrap_options.go`）；余量 `assemble` 358 行的内聚化**不是纯函数拆分**——前向捕获闭包（`a` / `domainPlan` / `domainReconcileKeys`）、注册序即执行序、命名返回值 defer 回滚与共享 `curCleanup` 要求保持同一控制流。60 个 `TestAssemble_*` 覆盖充分，但改动等价于「保持顺序的状态 container 重构」，风险超出本轮，见 2026-11-27 裁决 |
+| ADR-12 | ✅ 本轮落地（部分） | 2026-11-27 把 guide 三篇典型正文考证下沉 `<details>`（Bald 错误处理 / Bald 配置系统 / 用 bald CLI 起步新服务）。全量 18 篇走查中命中 7 篇，其余考证密度低或已在 details；未逐篇强改 |
+| ADR-15 | 📌 3 人日立项（本轮不动） | devel 实为 42 篇，约 1/3 含过程性叙事；须人工区分「历史决策说明（保留，如各文件『被放弃的方案』小节）」与「取证流水账（下沉 architecture）」——后者典型如 Bald 注册中心设计 §169、Bald 重试设计 §335。机械 grep 替换会误伤决策依据，见 2026-11-27 裁决 |
+| ADR-16 | 部分挂账（本轮复核） | `RedisKey` 已导出；`BeforeStart/AfterStart` 与 `Domain.Wire` 的迁移期语义已在 `domain.go:77-81` + guide + devel 三处声明齐备，真正裁决随旧链移除（批次 4）；`pkg/` 改名维持「永久挂账不修」 |
+| ADR-6 远期 | 📌 随大版本（本轮不动） | proto 面裁剪（16 个声明无实现 face）+ `reserved` 退役是 breaking 变更；近期 Gate2 白名单（`appspec_contract.go:189` `implementedServerFaces`）已落地并实测 mqtt 被拒 |
 | ADR-7 / ADR-9 | 达成（原状态保留） | ADR-7 已由 `tools/coverage-merge` 收口；ADR-9 裁决为保留 Taskfile 与 CI 的命令表述双份，清单层已单源 |
+
+**2026-11-27 余量裁决**：ADR 批的剩余项按「风险 × 可逆性」分三类——
+① 纯文档且可局部落地（ADR-12 三篇典型下沉）本轮做；
+② 高风险重构（ADR-8 `assemble` 内聚化）与人日级整理（ADR-15 devel 过程叙事）需独立会话，避免与 DX 批改动的同一批文件叠加回归面；
+③ breaking 契约变更（ADR-6 远期 proto 裁剪）、永久挂账（ADR-16 `pkg/` 改名）与依赖旧链移除的裁决（ADR-16 共存债）维持原口径，不因本轮复核改判。

@@ -15,38 +15,7 @@
 | 框架哪里对用户不友好、快赢排期 | [developer-experience-review.md](developer-experience-review.md) |
 | 历史会话成果与避坑清单 | [handoff-session-20261108.md](handoff-session-20261108.md) §2 |
 
-生成日期 **2026-11-01**（`main` @ `ca981b1`），由架构可视化插件的 `system-modeler` / `flow-visualizer` / `risk-quality-reviewer` 三条场景技能产出，格式源使用 `c4model`（Structurizr DSL）与 `graphviz`（DOT）。
-
-**2026-11-02 修订**：§3.1 的模块环已断（删掉 `bootstrap`/`pkg/appkit` 里与 `transport/gateway/contract` 重复的转码面机制），
-三份制品的拓扑叙述、`render/` 快照与全部行号引用已按新代码重核；`bald-c4.dsl` 重新机器校验（0 problems）。
-
-**2026-11-02 二次重核**（`main` @ `5f771e0`，该提交清掉 16 个模块里陈旧的 `transport/gateway // indirect`）：
-三份 `.md` 的断言逐条回读代码后仍然成立——22 个非示例模块直接 require 根 module 的清单、93 个 `go.mod`、30 个 `*/contract`、
-18 个 `transport/*`、§3.2 的多 major 分组（21 / 20 / 3）与「内部依赖图是 DAG」均实测复现（独立脚本：0 环）。
-`module-deps.dot` 补上了此前漏画的根扇入：`oss/{s3,minio}` 两个节点及其 SPI/回边、`contrib → 根 module` 回边，
-使图上 22 条根回边与 `current-architecture.md` §4 的叙述一致；版本串 `v0.34.0` 更正为 `v0.34.1`，快照已重渲染。
-
-**2026-11-02 三次重核**（§1.1 race 门禁去人工化）：CI 的 race 作业与 `task race` 改成同一条
-`find` 派生（按 CI 谓词 92 个 module）+ 单份 `.github/race-skip.txt`；全量 `-race` 实测 90 通过 /
-2 失败，失败之一的 `transport/graphql` 是本轮新覆盖到的真实竞争（`Start` 写、`Stop`/`Endpoint` 读，
-无同步），已修；另一条 `log/aliyun` 的竞争在上游 SDK 内部，进排除清单。依赖图与拓扑叙述不变
-（修复只加 `sync` 导入），行号引用重核后 `checked cites: 317, problems: 0`。
-
-**2026-11-02 四次重核**（§1.3 补测试）：`broker/kafka`、`broker/rabbitmq` 不再是零测试模块，
-补测试当场揪出并修掉 4 个生产缺陷（nil map 复位、重建路径吞掉写失败、`closeLocked` 事后改写 `done`
-与 `run()` 的无锁读并发命中、致命错误退出不 close），`risk-review.md` §1.3 逐条记了修法与验活。
-依赖图与拓扑叙述不变，但 `flows.md` §④ 与 `flows.dot` 里 kafka 发布/订阅的行号引用因这些改动整体位移，
-已按新行号重核并重渲染 `render/flows.svg`；`check_cites.py` 输出 `checked cites: 335, problems: 0, bare-resolved: 68`。
-
-**2026-11-02 五次重核**（§3.1 收口：`pkg/` 独立成 module `github.com/kalandramo/bald/pkg`）：
-`current-architecture.md` §2/§4 的枢纽叙述改指 `pkg`，`module-deps.dot` 的 22 条红边目标随之重画并重渲染，
-`flows.md` 与 `Bald 指标设计.md` 里 `observability/metricshttp` 的旧路径更新为 `pkg/metricshttp`；
-`risk-review.md` §3.1 加了「收口」一节，按 `git archive main` 快照与工作树各跑一遍同一段 Tarjan 脚本，
-把 require 根的适配器 22→0、`replace` 410→423（**不降反升，当年那句「收益是 replace 数量下降」已撤回**）
-写成可复现数字。拆分本身由 `internal/docscheck` 新增的三条闸门守住（`TestNoModuleRequiresAggregateRoot` /
-`TestPkgModuleIsLeaf` / `TestModuleOfImport`），五条变异实测与四道闸门（`verify` / `race` / `lint` / `vuln`）的
-本机结果——含 `task lint` 首跑红在我自己新增的测试代码上、`task vuln` 本机红在 go1.27.1 标准库这两件不体面的事——
-都记在 `risk-review.md` §3.1「验活」。
+生成日期 **2026-11-01**（`main` @ `ca981b1`），由架构可视化插件的 `system-modeler` / `flow-visualizer` / `risk-quality-reviewer` 三条场景技能产出，格式源使用 `c4model`（Structurizr DSL）与 `graphviz`（DOT）。历次重核的修订注记收敛在文末「修订记录」，不占导航位。
 
 | 文件 | 回答的问题 | 状态 |
 |---|---|---|
@@ -104,11 +73,6 @@ dot -Tsvg /tmp/c4out/modules_view.dot -o docs/architecture/render/c4-modules_vie
 
 本轮实测环境：graphviz 16.1.0、Temurin JDK 21.0.13+9、Maven 3.9.16、`structurizr-dsl`/`structurizr-export` 6.2.4。
 
-**2026-11-06 增量（声明式装配方向②前两批，代码已改、本目录只动文字）**：`*/contract` 从 30 涨到 **39**（`find . -type d -name contract` 复跑即得；第一批 `transport/{tcp,websocket,http3}`、第二批 `transport/{graphql,webrtc,mcp}`，判据与变异见 `risk-review.md` §7.28 两节）。
-**未重渲染**：`module-deps.dot` 的「回边（30 个子包）」是 2026-11-03 谓词下的聚合标签（当时数的是图上 require `pkg` 的 contract 子包，本轮实测该谓词为 24——两者都已旧），`bald-c4.dsl` 与 `render/*.svg` 同批未动；这三份图源要按「校验工具与命令」整轮重核才有意义，**零散改标签会造出「数字新、边旧」的第三种不一致**。`current-architecture.md` 的 §2/§5/§6 文字已同步（目录计数 39 并带 `find` 判据、方向②剩余清单 7→4）。
-
-**2026-11-10 梳理（文档噪音清理，只动过程性文档）**：`handoff-session-20261108.md` 交接闭环——阻塞/待办/闸门现状/检查清单四节时效内容移除，保留成果总览与避坑清单；`onexmesh-comparison.md` §6/§6.3 的 ⏳ 项（semconv/otelslog/circuitbreaker/resiliency/client SDK）回填 ✅（第三批落地，resiliency/client SDK 形态与预估不同，理由见完成度注记）；`transport-unification-assessment.md` 头部加完成态（方案 S 四批全落地）；`onexai-gap-review.md` §4 增状态总览（P0 与 P1-4/5 落地，P1-6…8 与 P2 未做，mqserver/clitool 预设的阻塞条件写明）。`onex-ai.md` 逐字存档维持不动。
-
 ## 重新生成
 
 三份 `.md` 是人工整理的证据结论，不自动重生成。两个 `.dot` 与 `.dsl` 是文本源，改动后按上一节「校验工具与命令」重跑 1)–4)。
@@ -120,3 +84,18 @@ dot -Tsvg /tmp/c4out/modules_view.dot -o docs/architecture/render/c4-modules_vie
 - 运行时/部署拓扑（仓内无 IaC，无 trace/日志样本）
 - bald-admin 侧的消费真实情况（另一仓库）
 - `transport/mcp` + `cobramcp` 的工具调用回合、`workflow/argo`、`transport/graphql`（仓内零消费者）
+
+## 修订记录
+
+> 索引入口只留「哪份文档回答什么问题」与校验命令。历次重核的过程性注记归档于此，
+> 避免把导航位挤掉（DX-18）。结论性状态以各文档文首的「状态回填/完成度」节为准。
+
+- **2026-11-01**：首版，`main` @ `ca981b1`，三条场景技能产出。
+- **2026-11-02 修订**：§3.1 的模块环已断（删掉 `bootstrap`/`pkg/appkit` 里与 `transport/gateway/contract` 重复的转码面机制），三份制品的拓扑叙述、`render/` 快照与全部行号引用已按新代码重核；`bald-c4.dsl` 重新机器校验（0 problems）。
+- **2026-11-02 二次重核**（`main` @ `5f771e0`，清掉 16 个模块里陈旧的 `transport/gateway // indirect`）：三份 `.md` 的断言逐条回读代码后仍成立——22 个非示例模块直接 require 根 module、93 个 `go.mod`、30 个 `*/contract`、18 个 `transport/*`、多 major 分组（21/20/3）与「内部依赖图是 DAG」均实测复现（独立脚本 0 环）。`module-deps.dot` 补上根扇入：`oss/{s3,minio}` 与 `contrib → 根 module` 回边，图上 22 条根回边与 `current-architecture.md` §4 一致；版本串 `v0.34.0` 更正为 `v0.34.1`，快照重渲染。
+- **2026-11-02 三次重核**（§1.1 race 门禁去人工化）：CI race 作业与 `task race` 改成同一条 `find` 派生 + 单份 `.github/race-skip.txt`；全量 `-race` 90 通过 / 2 失败——`transport/graphql` 的真实竞争（`Start` 写、`Stop`/`Endpoint` 读无同步）已修，`log/aliyun` 上游 SDK 竞争进排除清单。行号重核 `checked cites: 317, problems: 0`。
+- **2026-11-02 四次重核**（§1.3 补测试）：`broker/kafka`、`broker/rabbitmq` 不再是零测试模块，补测试揪出并修掉 4 个生产缺陷（nil map 复位、重建吞写失败、`closeLocked` 事后改写 `done`、`run()` 无锁读并发），`risk-review.md` §1.3 逐条记了修法。`flows.md` §④ / `flows.dot` 行号重核并重渲染，`check_cites.py` 输出 `checked cites: 335, problems: 0, bare-resolved: 68`。
+- **2026-11-02 五次重核**（§3.1 收口：`pkg/` 独立成 module）：`current-architecture.md` §2/§4 枢纽叙述改指 `pkg`，`module-deps.dot` 22 条红边重画，`observability/metricshttp` 旧路径更新为 `pkg/metricshttp`。按 `git archive main` 与工作树各跑一遍 Tarjan：require 根适配器 22→0、`replace` 410→423（**不降反升，当年「收益是 replace 数量下降」已撤回**），记在 `risk-review.md` §3.1「验活」。
+- **2026-11-06 增量**（声明式装配方向②前两批）：`*/contract` 30→**39**（第一批 `transport/{tcp,websocket,http3}`、第二批 `transport/{graphql,webrtc,mcp}`，判据见 `risk-review.md` §7.28）。**未重渲染**：`module-deps.dot` 的「回边（30 个子包）」与 `bald-c4.dsl` / `render/*.svg` 同批未动；零散改标签会造出「数字新、边旧」的第三种不一致，要整轮重核。
+- **2026-11-10 梳理**：`handoff-session-20261108.md` 交接闭环（时效章节移除、避坑清单保留）；`onexmesh-comparison.md` §6/§6.3 ⏳ 项回填 ✅；`transport-unification-assessment.md` 头部加完成态；`onexai-gap-review.md` §4 增状态总览。`onex-ai.md` 逐字存档不动。
+- **2026-11-26**：DX-18 后半落地，索引表与修订史分离；各文档状态回填见文首「状态回填」节。

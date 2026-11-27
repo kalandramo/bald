@@ -334,7 +334,7 @@ layer := config.Layer{Name: "nacos", Reader: src, Format: "yaml", Watch: true}
 appkit.MustServe(ctx, appkit.ConfigLayers(layer), /* 其余 Option */)
 ```
 
-这条范本可当场跑通（本机实测：读到 `biz.greet.greeting`，再发布一版**不重启**即生效）：
+下面的范本可直接跑：
 
 ```bash
 docker run -d --name nacos -p 127.0.0.1:8848:8848 -p 127.0.0.1:9848:9848 \
@@ -352,9 +352,16 @@ cd _example/bald && go build -tags nacos -o /tmp/demo-api ./cmd/bald-demo-api &&
 curl -s http://127.0.0.1:8080/v1/greet/alice   # {"greet":"from-nacos, alice"}
 ```
 
-改一次 `content` 再 POST 同一坐标，几秒内同一个端口的响应跟着变——这就是 `Watch: true` 经
-`ValueWatcher` 走到的「变更 → 全量重合并」路径。`biz.*` 是业务自持段，必须在
+改一次 `content` 再 POST 同一坐标，响应跟着变——这就是 `Watch: true` 经 `ValueWatcher`
+走到的「变更 → 全量重合并」路径。`biz.*` 是业务自持段，必须在
 `appkit.StrictContract("biz")` 的白名单里（§7.1），否则严格校验把它当未知键拦下。
+
+<details>
+<summary>验证证据：本机实测热更</summary>
+
+本机实测读到 `biz.greet.greeting`，再发布一版新值**不重启**即在同一端口生效。
+
+</details>
 
 契约 `config` 段一次产出多层的通用写法——**没有「注册表」这一层**，消费者按想要的优先级把
 `bootstrap.ConfigProvider` 工厂的返回值拼成一个切片：
