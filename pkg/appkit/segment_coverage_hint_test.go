@@ -29,6 +29,13 @@ func TestProviderHint(t *testing.T) {
 			t.Errorf("providerHint(%q) = %q, want empty", path, got)
 		}
 	}
+	// 内置面判据按名单派生（S3）：builtinServerSegments 是唯一真相源，
+	// providerHint 里不许再藏第二份 http/grpc 特判。
+	for face := range builtinServerSegments {
+		if got := providerHint("server." + face); got != "" {
+			t.Errorf("内置面 server.%s 不该出 contract 提示（名单派生失效），got %q", face, got)
+		}
+	}
 	if got := hintSuffix("broker.kafka"); !strings.Contains(got, "broker/kafka/contract") {
 		t.Fatalf("hintSuffix = %q", got)
 	}

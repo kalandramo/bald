@@ -266,41 +266,26 @@ func (s *MCPServer) Endpoint() string {
 // every eligible command as an MCP tool on the underlying transport server.
 // It returns an error if any command cannot be represented as an MCP tool.
 func (s *MCPServer) registerToolsRecursive(cmd *cobra.Command) error {
-	// Recurse into sub-commands first so the tool list is ordered leaf-first.
-	for _, sub := range cmd.Commands() {
-		if err := s.registerToolsRecursive(sub); err != nil {
-			return err
-		}
-	}
+	// Traversal shape (leaf-first recursion, filters, selector order) is shared
+	// with the Config engine via walkToolCmds (see toolwalk.go).
+	return walkToolCmds(cmd, s.cmdFilter, s.selectors, func(cmd *cobra.Command, sel Selector, i int) (bool, error) {
+		// Build the cobra sub-command path for this command: the full CommandPath()
+		// minus the root command name. Stored in toolPaths so that runInProcess can
+		// pass the exact segments to the fresh root command without having to
+		// reverse-engineer them from the tool name (which would break when the root
+		// command name contains characters illegal in MCP tool names, e.g. "/").
+		cmdPath := cmdSubPath(cmd)
 
-	// Apply built-in safety filters.
-	if s.cmdFilter(cmd) {
-		return nil
-	}
-
-	// Build the cobra sub-command path for this command: the full CommandPath()
-	// minus the root command name. Stored in toolPaths so that runInProcess can
-	// pass the exact segments to the fresh root command without having to
-	// reverse-engineer them from the tool name (which would break when the root
-	// command name contains characters illegal in MCP tool names, e.g. "/").
-	cmdPath := cmdSubPath(cmd)
-
-	// Use an empty tool name prefix so the tool name is derived purely from the
-	// sub-command path. The root command name is intentionally excluded because
-	// it may contain characters that are illegal in MCP tool names (e.g. "/").
-	toolNamePrefix := ""
-
-	// Evaluate selectors in order; the first matching selector wins.
-	for i, sel := range s.selectors {
-		if sel.CmdSelector != nil && !sel.CmdSelector(cmd) {
-			continue
-		}
+		// Use an empty tool name prefix so the tool name is derived purely from the
+		// sub-command path. The root command name is intentionally excluded because
+		// it may contain characters that are illegal in MCP tool names (e.g. "/").
+		toolNamePrefix := ""
 
 		// Create the MCP tool definition (flat schema, name, description) and
 		// the per-tool metadata (flag names + arg specs).
 		tool, meta, err := sel.createToolFromCmd(cmd, toolNamePrefix)
 		if err != nil {
-			return err
+			return false, err
 		}
 
 		// Store the metadata keyed by tool name for use at call time.
@@ -324,7 +309,9 @@ func (s *MCPServer) registerToolsRecursive(cmd *cobra.Command) error {
 			return toolOutputToResult(output, toolMeta), nil
 		}); err != nil {
 			baldlog.Error(nil, "register in-process tool failed", "tool", tool.Name, "error", err) //cov:excl RegisterHandler 仅 mcpServer 为 nil 报错，构造期恒非 nil（config.go:223 同判）
-			continue
+			// Original semantics preserved: a failed handler registration lets a
+			// later selector still claim this command.
+			return false, nil
 		}
 
 		baldlog.Debug(nil, "registered in-process tool", "tool_name", tool.Name, "selector_index", i)
@@ -332,10 +319,8 @@ func (s *MCPServer) registerToolsRecursive(cmd *cobra.Command) error {
 		s.tools = append(s.tools, tool)
 
 		// Only the first matching selector is used.
-		break
-	}
-
-	return nil
+		return true, nil
+	})
 }
 
 // cmdFilter returns true when cmd should be excluded from tool registration.
@@ -343,11 +328,7 @@ func (s *MCPServer) registerToolsRecursive(cmd *cobra.Command) error {
 // Commands are excluded when they are hidden, deprecated, lack a runnable
 // function, or belong to the built-in help/completion groups.
 func (s *MCPServer) cmdFilter(cmd *cobra.Command) bool {
-	if cmd.Hidden || cmd.Deprecated != "" {
-		return true
-	}
-
-	if cmd.Run == nil && cmd.RunE == nil && cmd.PreRun == nil && cmd.PreRunE == nil {
+	if cmdFilterBase(cmd) {
 		return true
 	}
 

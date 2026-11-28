@@ -216,24 +216,26 @@ type PlainBinder interface {
 // 正是为补上这条链而存在。
 //
 // 两种 opt：
-//  1. proto.Message（全栈 proto 驱动推荐）：Bind("http", &bootstrap.Http)。
-//     bconf.BindFlags 会遍历 proto 字段描述符生成带前缀的 flag（--http.addr 等），
-//     与配置键路径（http.addr）、环境变量（NAME_HTTP_ADDR）、配置文件一致。
+//  1. proto.Message（全栈 proto 驱动推荐）：Bind("biz.notify", &notify.Conf)。
+//     bconf.BindFlags 会遍历 proto 字段描述符生成带前缀的 flag（--biz.notify.addr 等），
+//     与配置键路径（biz.notify.addr）、环境变量（NAME_BIZ_NOTIFY_ADDR）、配置文件一致。
+//     契约自带的 server.http / server.grpc 段引擎装配时已代为 Bind（bootstrap_assemble.go），
+//     业务无需也不应重复登记这两个段。
 //  2. PlainBinder：opt 自行注册无前缀 flag（键前缀由实现体内置，如 log.Options
 //     的 --log.*），此时 prefix 必须传空字符串。
 //
-// prefix 是配置键前缀（不带末尾点，如 "http"），最终 flag 名为 --http.addr，
-// 配置键为 http.addr，环境变量为 NAME_HTTP_ADDR，配置文件为：
+// prefix 是配置键前缀（不带末尾点，如 "biz.notify"），最终 flag 名为 --biz.notify.addr，
+// 配置键为 biz.notify.addr，环境变量为 NAME_BIZ_NOTIFY_ADDR，配置文件为：
 //
-//	http:
-//	  addr: ":8080"
+//	biz:
+//	  notify:
+//	    addr: ":8080"
 //
 // 四者键路径一致，这是 flag 能压过文件与远程的前提。
 //
 // 用法：
 //
-//	appkit.Bind("http", &bootstrap.Http),
-//	appkit.Bind("grpc", &bootstrap.Grpc),
+//	appkit.Bind("biz.notify", &notify.Conf), // 业务配置段接入 flag 优先级链
 //	appkit.Bind("", logOpts), // 内置 --log.* 前缀
 //
 // 注意：用了 Bind 之后不要再自行 AddFlags 到 pflag.CommandLine，否则同一配置

@@ -273,20 +273,23 @@ func (o *domainOptions) emitAPIServerSide(v *treeView, scan *protoScan, files *[
 			"Domains": domains, "HasDomains": len(domains) > 0})
 }
 
-// ensureBindDeps 保证绑定产物的两条流水线前置：bind 文件 import transport/web
-// （独立 module）与 proto 的 Go 类型包（proto 阶段产物）。transport/web 缺失
-// 只能由作者补依赖（给出 go get 修法）；proto 类型缺失则由本命令按 --proto-cmd
-// 编排 proto 阶段，编排失败或仍无产物都是生成期硬错误——不给「生成成功、构建
-// 失败」留缝隙。--check 零写入，不执行外部命令，只报可执行修法。
+// ensureBindDeps 保证绑定产物的两条流水线前置：bind 文件 import 的 transport/web
+// 有 module 提供，与 proto 的 Go 类型包（proto 阶段产物）。S2 扁平化后
+// transport/web 由聚合根 module（github.com/kalandramo/bald）提供；旧的兄弟
+// module require 形态在途消费者仍有效，两种形态共存期都算满足前置。
+// transport/web 缺失只能由作者补依赖（给出 go get 修法）；proto 类型缺失则由
+// 本命令按 --proto-cmd 编排 proto 阶段，编排失败或仍无产物都是生成期硬错误——
+// 不给「生成成功、构建失败」留缝隙。--check 零写入，不执行外部命令，只报可执行修法。
 func (o *domainOptions) ensureBindDeps(protoPkg string) error {
 	const transportWeb = "github.com/kalandramo/bald/transport/web"
+	const flatProvider = "github.com/kalandramo/bald"
 	gomod := filepath.Join(o.OutDir, "go.mod")
 	raw, err := os.ReadFile(gomod)
 	if err != nil {
 		return fmt.Errorf("bindings import %s, but reading %s failed: %w (add the dependency or pass --no-bind)", transportWeb, gomod, err)
 	}
-	if !strings.Contains(string(raw), transportWeb) {
-		return fmt.Errorf("bindings import %s, but %s does not require it; run `go get %s` and regenerate (or pass --no-bind to skip annotation-derived bindings)", transportWeb, gomod, transportWeb)
+	if !goModRequires(string(raw), transportWeb) && !goModRequires(string(raw), flatProvider) {
+		return fmt.Errorf("bindings import %s, but %s does not require it (flat form: require %s; the legacy sibling module form also satisfies); run `go get %s` and regenerate (or pass --no-bind to skip annotation-derived bindings)", transportWeb, gomod, flatProvider, flatProvider)
 	}
 	if o.protoPkgReady(string(raw), protoPkg) {
 		return nil
@@ -302,6 +305,25 @@ func (o *domainOptions) ensureBindDeps(protoPkg string) error {
 		return fmt.Errorf("proto stage `%s` finished but proto Go package %q still has no generated Go files; check the proto/buf config in %s (or pass --no-bind to skip annotation-derived bindings)", o.ProtoCmd, protoPkg, o.OutDir)
 	}
 	return nil
+}
+
+// goModRequires 判定 go.mod 是否 require 了 module 路径恰为 path 的依赖：
+// 单行 `require path v...` 与 require 块内 `path v...` 都算（`// indirect`
+// 同样命中——它在构建图里）。按字段精确匹配而非子串包含：聚合根
+// github.com/kalandramo/bald 是所有 bald 系路径的前缀，Contains 会把它
+// 对任何兄弟 require 都误判为命中；`path => dir` 的 replace 行因第二段
+// 不是版本串而天然落空。
+func goModRequires(raw, path string) bool {
+	for _, line := range strings.Split(raw, "\n") {
+		f := strings.Fields(line)
+		switch {
+		case len(f) >= 3 && f[0] == "require" && f[1] == path && strings.HasPrefix(f[2], "v"):
+			return true
+		case len(f) >= 2 && f[0] == path && strings.HasPrefix(f[1], "v"):
+			return true
+		}
+	}
+	return false
 }
 
 // protoPkgReady 报告 go_package 的 Go 产物是否就位。包不在本 module 下时归

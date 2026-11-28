@@ -31,7 +31,7 @@ func TestAppProvider_ProductExposesNativeClient(t *testing.T) {
 			Redis: &bootstrapv1.Cache_Redis{Addr: mr.Addr()},
 		},
 	}}
-	product, cleanup, err := appProvider{}.Build(context.Background(), scope, appkit.Node{})
+	product, cleanup, err := AppProvider().Build(context.Background(), scope, appkit.Node{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}

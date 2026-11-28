@@ -43,7 +43,6 @@ func TestTree_AuthzClosedLoop(t *testing.T) {
 	}
 
 	// 1. gen app + gen domain（参考夹具；端口换空闲值，避免并发会话冲突）。
-	baldRoot := repoRoot(t) // Chdir 前取仓库根（Chdir 后 Getwd 是临时产出根）
 	tplDir := filepath.Join(pkgSourceDir(t), "testdata", "authz")
 	as := guardFixture()
 	port := freePort(t)
@@ -51,9 +50,12 @@ func TestTree_AuthzClosedLoop(t *testing.T) {
 	dir, _ := runGenAppInTemp(t, as)
 
 	// 2. 用户槽位接线（testdata 模板落盘；{{MODULE}} 换成生成 module 名）。
-	writeAuthzGlue(t, dir, tplDir, baldRoot, as.GetMeta().GetModule())
+	writeAuthzGlue(t, dir, tplDir, as.GetMeta().GetModule())
 
-	// 3. go mod tidy（contrib/authz-casbin 的 require+replace 已由 glue 落入）。
+	// 3. go mod tidy。S2 扁平化后 contrib/authz-casbin 住在聚合根 module 里，
+	// 夹具 go.mod（_example 逐行改写）已 require 根 + replace 仓库目录，
+	// authz import 直接命中，不再需要兄弟 require+replace 注入——注入了反而
+	// 触发 ambiguous import（同一路径两个 module 提供）。
 	tidy := exec.Command("go", "mod", "tidy")
 	tidy.Dir = dir
 	var tidyOut bytes.Buffer
@@ -153,9 +155,10 @@ func requestStatus(method, url, token string) (int, error) {
 }
 
 // writeAuthzGlue 把 testdata/authz 的四处接线源文落进生成树（{{MODULE}}
-// 换成生成 module 名），并向 go.mod 追加 contrib/authz-casbin 的
-// require+replace（_example 同款占位版本 + 本地路径指向，离线可构建）。
-func writeAuthzGlue(t *testing.T, dir, tplDir, baldRoot, module string) {
+// 换成生成 module 名）。S2 扁平化后 contrib/authz-casbin 由聚合根 module
+// 提供，夹具（_example go.mod 逐行改写）自带的根 require+replace 已覆盖，
+// 无需再注入兄弟 require+replace——那种注入在扁平形态下触发 ambiguous import。
+func writeAuthzGlue(t *testing.T, dir, tplDir, module string) {
 	t.Helper()
 	plant := func(rel, tmplName string) {
 		t.Helper()
@@ -176,17 +179,4 @@ func writeAuthzGlue(t *testing.T, dir, tplDir, baldRoot, module string) {
 	plant(filepath.Join("internal", "apiserver", "demo_authn.go"), "demo_authn.go.tmpl")
 	plant(filepath.Join("internal", "apiserver", "apiserver.go"), "apiserver.go.tmpl")
 	plant(filepath.Join("internal", "apiserver", "greetv1", "greets_routes.go"), "greets_routes.go.tmpl")
-
-	gomod := filepath.Join(dir, "go.mod")
-	content, err := os.ReadFile(gomod)
-	if err != nil {
-		t.Fatalf("read generated go.mod: %v", err)
-	}
-	// replace 目标 ToSlash：go.mod 的本地路径统一正斜杠（POSIX 原生形态；
-	// Windows 的 go 命令两种分隔符都收，生成内容不掺平台分隔符）。
-	line := "\nrequire github.com/kalandramo/bald/contrib/authz-casbin v0.0.0-00010101000000-000000000000\n\n" +
-		"replace github.com/kalandramo/bald/contrib/authz-casbin => " + filepath.ToSlash(filepath.Join(baldRoot, "contrib", "authz-casbin")) + "\n"
-	if err := os.WriteFile(gomod, append(content, []byte(line)...), 0o644); err != nil {
-		t.Fatalf("append go.mod: %v", err)
-	}
 }

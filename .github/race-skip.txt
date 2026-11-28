@@ -1,9 +1,10 @@
-# race 作业的模块排除清单（唯一真相源：.github/workflows/ci.yml 的 race job 与
-# Taskfile.yml 的 `task race` 用同一条 find 派生流水线消费本文件）。
+# race 作业的**包前缀**排除清单（唯一消费方：`scripts/race.sh`——`task race` 与
+# CI race 作业都走该脚本，两侧不可能漂移）。
 #
-# 格式：一行一个模块路径，与 `find . -name go.mod -not -path "./.git/*" -not -path
-# "./_example*" | xargs -n1 dirname` 的输出逐字一致（含前导 ./）。过滤用
-# `grep -vxF -f`（整行精确匹配），所以以 # 开头的注释行与空行不可能命中真实路径。
+# 格式（S2 扁平化起）：一行一个仓库根相对包目录前缀（含前导 ./）。race.sh 对每个
+# module `go list ./...` 后，把「等于该前缀或落在该前缀之下」的包剔除。之所以不再
+# 按 module 整行过滤：后端 module 已并入聚合根，skip 对象（如 ./log/aliyun）只是
+# 根模块里的一个包目录，整行过滤无从命中。
 #
 # 每条排除都必须写清「为什么不能进 race」，且理由只能是 race detector 之外无法
 # 解决的东西（上游库自带竞争、平台无 cgo 等）。bald 自己的竞争要修，不进这里。

@@ -9,6 +9,7 @@ import (
 	"github.com/kalandramo/bald/bconfig/nacos"
 	"github.com/kalandramo/bald/bootstrap/config"
 	"github.com/kalandramo/bald/pkg/appkit"
+	"github.com/kalandramo/bald/pkg/appkit/segment"
 
 	nacoscontract "github.com/kalandramo/bald/registry/nacos/contract"
 )
@@ -37,27 +38,11 @@ func init() {
 
 // nacosRegistrarProvider 是 registry 段的 nacos 后端 Provider；显式 Registrar
 // 实例接管时引擎在计划期跳过本 Provider。
-type nacosRegistrarProvider struct{}
-
-func (nacosRegistrarProvider) Segments() []string { return []string{"registry"} }
-
-func (nacosRegistrarProvider) Apply(d *appkit.Decl) {
-	d.Providers = append(d.Providers, nacosRegistrarProvider{})
-}
-
-func (nacosRegistrarProvider) Plan(context.Context, appkit.PlanScope) ([]appkit.Node, error) {
-	return []appkit.Node{{
-		Key:        "registry",
-		Kind:       "registry",
-		Segments:   []string{"registry"},
-		Phase:      appkit.PhaseBootstrap,
-		Priority:   appkit.PriorityRegistry,
-		Reload:     appkit.ReloadRestart,
-		EffectName: "appkit:registrar-client",
-	}}, nil
-}
-
-func (nacosRegistrarProvider) Build(ctx context.Context, s appkit.ApplyScope, _ appkit.Node) (any, appkit.Cleanup, error) {
+//
+// 节点形状（registry 族：Bootstrap/PriorityRegistry/ReloadRestart/effect
+// appkit:registrar-client）由段族表派生，与迁移前手写四件套逐字段一致；
+// Kind 是本项目计划断言的既有标注，显式保留。
+var nacosRegistrarProvider = segment.New("registry", func(ctx context.Context, s appkit.ApplyScope, _ appkit.Node) (any, appkit.Cleanup, error) {
 	rcfg := s.Config.GetRegistry()
 	if rcfg == nil {
 		return nil, nil, nil
@@ -75,7 +60,7 @@ func (nacosRegistrarProvider) Build(ctx context.Context, s appkit.ApplyScope, _ 
 		}
 		return nil
 	}, nil
-}
+}, segment.Kind("registry"))
 
 // nacosConfigLayer 构造配置中心的整文档源层（仓内 bconfig/nacos，自建 client
 // 惰性建连；nacos-sdk-go/v2 无显式关闭接口，层不需要 cleanup）。
@@ -107,7 +92,7 @@ func nacosConfigLayer() config.Layer {
 
 func nacosBootstrapOptions() []appkit.Option {
 	return []appkit.Option{
-		nacosRegistrarProvider{},
+		nacosRegistrarProvider,
 		appkit.ConfigLayers(nacosConfigLayer()),
 	}
 }

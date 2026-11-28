@@ -1,5 +1,5 @@
-// providers_test.go 回归 loggerProvider：slog.Attr 形态的 password/token 被
-// 掩码，service.name 固定属性随行。
+// providers_test.go 回归 newLoggerProvider（装饰后的 StandardLoggerProvider）：
+// slog.Attr 形态的 password/token 被掩码，service.name 固定属性随行。
 package bootstrap
 
 import (
@@ -24,7 +24,7 @@ func TestLoggerProviderMasksAttrAndTagsServiceName(t *testing.T) {
 		}},
 	}}
 
-	p := newLoggerProvider().(loggerProvider)
+	p := newLoggerProvider()
 	product, cleanup, err := p.Build(context.Background(), appkit.ApplyScope{Config: cfg, Decl: &appkit.Decl{}}, appkit.Node{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)

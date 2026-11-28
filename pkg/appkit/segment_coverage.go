@@ -42,6 +42,11 @@ import (
 
 // builtinServerSegments 是框架内置协议子段（std server Provider 的管辖面）。
 // 其余子段的合法性由「是否有 Provider 以 server.X 路径接管」判定。
+//
+// 「内置」说的是**谁来装配**（std 按能力声明装配，段存在而无 WithHTTP 不算缺
+// 实现），不是**工厂住哪**：http/grpc 的契约段映射与其它面同一形状，收在
+// transport/{http,grpc}/contract（评审 N-1）。本表是「内置面」的唯一真相源——
+// L3 子段跳过与 providerHint 指路都从这里读，不再各写一份名单。
 var builtinServerSegments = map[string]bool{"http": true, "grpc": true}
 
 // presentTopLevelSegments 用 protobuf 反射枚举 cfg 中实际出现的顶层段
@@ -105,8 +110,9 @@ func checkSegmentCoverage(cfg *bootstrapv1.BootstrapConfig, spec *Decl, plan *pr
 // 供 L3 报错指路（DX-13）：报错说 "provide a Provider"，新手下一个问题是
 // "哪个包"。规则路径（server.<face>/broker.<backend>/client.*/log.<x>）由
 // providerHint 前缀派生，不入表；registry 走 Registrar 接管、logger/audit
-// 由 std 装配，同样不入表。表的完备性不承诺（新增例外段记得回填）——它是
-// 提示不是契约。
+// 由 std 装配，同样不入表；server.http/server.grpc 的内置性由
+// builtinServerSegments 给出（名单不在这里重复）。表的完备性不承诺（新增例外段
+// 记得回填）——它是提示不是契约。
 var providerHints = map[string]string{
 	// 例外表：仅收录**不能**按「server.<face>/broker.<backend>/log.<x> → 对应
 	// contract 包」规则派生的段（database/cache/oss/metrics 的实现不在同名
@@ -129,8 +135,8 @@ func providerHint(path string) string {
 	// transport/<face> 的 contract 包与 face 同名成对（见仓库 contract 清单）。
 	if strings.HasPrefix(path, "server.") {
 		face := strings.TrimPrefix(path, "server.")
-		if face == "http" || face == "grpc" {
-			return "" // 内置面，不缺实现
+		if builtinServerSegments[face] {
+			return "" // 内置面（std 按能力声明装配），不缺实现
 		}
 		return "transport/" + face + "/contract"
 	}

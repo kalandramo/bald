@@ -13,7 +13,8 @@
 //
 // 放置说明（与 store-gorm 的结构差异）：本模块的契约映射逻辑在 contract
 // 包（redis 包保持零契约依赖），root 包反向 import 本包——段驱动导出只能
-// 落在这里，复用既有 Provider 而非复制映射。
+// 落在这里，复用既有 Provider 而非复制映射。段驱动接入面经
+// pkg/appkit/segment 构造：节点形状由段族表派生，人只写 Build 主体。
 package contract
 
 import (
@@ -24,6 +25,7 @@ import (
 
 	rediscache "github.com/kalandramo/bald/cache/redis"
 	"github.com/kalandramo/bald/pkg/appkit"
+	"github.com/kalandramo/bald/pkg/appkit/segment"
 )
 
 // Redis 是 cache.redis 资源的类型化句柄（消费侧经 Redis.Resource(app) 取
@@ -31,7 +33,7 @@ import (
 var Redis = appkit.NewKey[*rediscache.Cache]("cache.redis")
 
 // Option 定制 AppProvider 的构造行为。
-type Option func(*appProvider)
+type Option func(*appConfig)
 
 // WithClient 注入既有 go-redis client：Provider 不再按契约段 dial/Ping，
 // 契约 cache.redis 段只保留 key_prefix 语义（addr/password/cluster/sentinel
@@ -40,7 +42,7 @@ type Option func(*appProvider)
 // 所有权不转移：cleanup 不关闭注入的 client，连接生命周期归调用方。用于
 // 调用方已自建 client 的场景（多消费方共享、降级语义自持、测试注入）。
 func WithClient(client goredis.UniversalClient) Option {
-	return func(p *appProvider) { p.client = client }
+	return func(a *appConfig) { a.client = client }
 }
 
 // AppProvider 返回消费契约 cache.redis 段的 appkit.Provider（段路径
@@ -55,54 +57,34 @@ func WithClient(client goredis.UniversalClient) Option {
 // 连接池（停机逆序回放：缓存先关、数据库最后关）。WithClient 注入时跳过
 // 建连，产物同形、cleanup 为空。
 func AppProvider(opts ...Option) appkit.Provider {
-	p := appProvider{}
+	var a appConfig
 	for _, opt := range opts {
-		opt(&p)
+		opt(&a)
 	}
-	return p
-}
-
-// appProvider 消费 cache.redis 段。
-type appProvider struct{ client goredis.UniversalClient }
-
-func (appProvider) Segments() []string { return []string{"cache.redis"} }
-
-// Apply 把自身追加进声明（Provider 即 Option，可直接作为 MustServe 变参项）。
-func (p appProvider) Apply(d *appkit.Decl) { d.Providers = append(d.Providers, p) }
-
-// Plan 声明段节点（cache.redis；阶段由段族决定）。
-func (appProvider) Plan(context.Context, appkit.PlanScope) ([]appkit.Node, error) {
-	return []appkit.Node{{
-		Key:        "cache.redis",
-		Segments:   []string{"cache.redis"},
-		Phase:      appkit.PhaseBootstrap,
-		Priority:   appkit.PriorityCache,
-		Reload:     appkit.ReloadRestart,
-		EffectName: "appkit:cache-clients",
-	}}, nil
-}
-
-// Build 复用既有 Provider 构造 Redis 缓存并落资源容器；注入 client 时只
-// 应用契约的 key_prefix。
-func (p appProvider) Build(ctx context.Context, s appkit.ApplyScope, _ appkit.Node) (any, appkit.Cleanup, error) {
-	cacheSec := s.Config.GetCache()
-	if cacheSec == nil {
-		return nil, nil, fmt.Errorf("cache/redis: cache section is missing " +
-			"(provider matched by segment path; report this as a bug)")
-	}
-	if p.client != nil {
-		var opts []rediscache.Option
-		if kp := cacheSec.GetRedis().GetKeyPrefix(); kp != "" {
-			opts = append(opts, rediscache.WithKeyPrefix(kp))
+	// 节点形状（cache 族：Bootstrap/PriorityCache/ReloadRestart/
+	// effect appkit:cache-clients）由段族表派生，与迁移前手写四件套逐字段
+	// 一致；停机家族键不变，热更/关池语义原样。
+	return segment.New("cache.redis", func(ctx context.Context, s appkit.ApplyScope, _ appkit.Node) (any, appkit.Cleanup, error) {
+		cacheSec := s.Config.GetCache()
+		if cacheSec == nil {
+			return nil, nil, fmt.Errorf("cache/redis: cache section is missing " +
+				"(provider matched by segment path; report this as a bug)")
 		}
-		return map[string]any{"redis": rediscache.New(p.client, opts...)}, nil, nil
-	}
-	cli, cleanup, err := Provider(ctx, cacheSec)
-	if err != nil {
-		return nil, nil, err
-	}
-	return map[string]any{"redis": cli}, appkit.CleanupFrom(cleanup), nil
+		if a.client != nil {
+			var opts []rediscache.Option
+			if kp := cacheSec.GetRedis().GetKeyPrefix(); kp != "" {
+				opts = append(opts, rediscache.WithKeyPrefix(kp))
+			}
+			return map[string]any{"redis": rediscache.New(a.client, opts...)}, nil, nil
+		}
+		cli, cleanup, err := Provider(ctx, cacheSec)
+		if err != nil {
+			return nil, nil, err
+		}
+		return map[string]any{"redis": cli}, appkit.CleanupFrom(cleanup), nil
+	})
 }
 
-// 编译期断言：appProvider 满足 appkit.Provider（含 Option 嵌入面）。
-var _ appkit.Provider = appProvider{}
+// appConfig 是段驱动 Provider 的构造配置（原私有类型 appProvider 的选项
+// 载体；段驱动 Provider 本体已改由 pkg/appkit/segment 构造）。
+type appConfig struct{ client goredis.UniversalClient }

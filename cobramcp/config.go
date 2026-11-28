@@ -275,29 +275,13 @@ func (c *Config) registerTools(cmd *cobra.Command) error {
 
 // registerToolsRecursive explores a cmd tree, making tools recursively out of the provided cmd and its children.
 // It returns an error if any command in the tree cannot be represented as an MCP tool.
+// Traversal shape is shared with the in-process engine via walkToolCmds (see toolwalk.go).
 func (c *Config) registerToolsRecursive(cmd *cobra.Command) error {
-	// register all subcommands
-	for _, subCmd := range cmd.Commands() {
-		if err := c.registerToolsRecursive(subCmd); err != nil {
-			return err
-		}
-	}
-
-	// apply basic filters
-	if c.cmdFilter(cmd) {
-		return nil
-	}
-
-	// cycle through selectors until one matches the cmd
-	for i, s := range c.Selectors {
-		if s.CmdSelector != nil && !s.CmdSelector(cmd) {
-			continue
-		}
-
+	return walkToolCmds(cmd, c.cmdFilter, c.Selectors, func(cmd *cobra.Command, s Selector, i int) (bool, error) {
 		// create tool from cmd — returns flat schema and per-tool metadata
 		tool, meta, err := s.createToolFromCmd(cmd, c.toolNamePrefix)
 		if err != nil {
-			return err
+			return false, err
 		}
 		baldlog.Debug(nil, "created tool", "tool_name", tool.Name, "selector_index", i)
 
@@ -309,21 +293,15 @@ func (c *Config) registerToolsRecursive(cmd *cobra.Command) error {
 		c.toolSelectors[tool.Name] = s
 
 		// only the first matching selector is used
-		break
-	}
-
-	return nil
+		return true, nil
+	})
 }
 
 // cmdFilter returns true if cmd should be filtered out.
 // It uses the configured CommandName (defaulting to "mcp") to exclude
 // the cobramcp command group from being exposed as MCP tools.
 func (c *Config) cmdFilter(cmd *cobra.Command) bool {
-	if cmd.Hidden || cmd.Deprecated != "" {
-		return true
-	}
-
-	if cmd.Run == nil && cmd.RunE == nil && cmd.PreRun == nil && cmd.PreRunE == nil {
+	if cmdFilterBase(cmd) {
 		return true
 	}
 

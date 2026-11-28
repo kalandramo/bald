@@ -44,7 +44,7 @@ func TestAppProvider_BuildConstructsRegistrar(t *testing.T) {
 			},
 		},
 	}}
-	product, cleanup, err := appProvider{}.Build(context.Background(), scope, appkit.Node{})
+	product, cleanup, err := AppProvider().Build(context.Background(), scope, appkit.Node{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -67,7 +67,7 @@ func TestAppProvider_BuildConstructsRegistrar(t *testing.T) {
 
 func TestAppProvider_TopSectionMissingIsBug(t *testing.T) {
 	scope := appkit.ApplyScope{Config: &bootstrapv1.BootstrapConfig{}}
-	_, _, err := appProvider{}.Build(context.Background(), scope, appkit.Node{})
+	_, _, err := AppProvider().Build(context.Background(), scope, appkit.Node{})
 	if err == nil || !strings.Contains(err.Error(), "report this as a bug") {
 		t.Fatalf("err = %v, want bug report (engine gates by exact path)", err)
 	}
@@ -77,7 +77,7 @@ func TestAppProvider_SubSectionMissingFailsFast(t *testing.T) {
 	scope := appkit.ApplyScope{Config: &bootstrapv1.BootstrapConfig{
 		Registry: &bootstrapv1.Registry{},
 	}}
-	_, _, err := appProvider{}.Build(context.Background(), scope, appkit.Node{})
+	_, _, err := AppProvider().Build(context.Background(), scope, appkit.Node{})
 	if err == nil || !strings.Contains(err.Error(), "etcd section is missing") {
 		t.Fatalf("err = %v, want etcd section missing", err)
 	}
@@ -87,7 +87,7 @@ func TestAppProvider_EndpointsRequiredFailsFast(t *testing.T) {
 	scope := appkit.ApplyScope{Config: &bootstrapv1.BootstrapConfig{
 		Registry: &bootstrapv1.Registry{Etcd: &bootstrapv1.Registry_Etcd{}},
 	}}
-	_, _, err := appProvider{}.Build(context.Background(), scope, appkit.Node{})
+	_, _, err := AppProvider().Build(context.Background(), scope, appkit.Node{})
 	if err == nil || !strings.Contains(err.Error(), "endpoints is required") {
 		t.Fatalf("err = %v, want endpoints required", err)
 	}

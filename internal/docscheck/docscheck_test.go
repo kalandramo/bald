@@ -389,13 +389,19 @@ func documentedModules(t *testing.T, root string) map[string]string {
 	return doc
 }
 
+// minReleaseUnits 是 S2 扁平化（2026-11-28）后的模块数下限：发布单元恰为
+// . / bconf / cobramcp / cli 四个。各闸门的「防空转」守卫原阈值 50 是给
+// 多模块形态定的，扁平后失去含义；4 是新的判别线——清单谓词被改坏只会让
+// 派生**缩水**（find 失效、目录改名漏统计），低于 4 即谓词已死。
+const minReleaseUnits = 4
+
 // TestModuleListMatchesDerivation 把文档里的 module 清单钉在真实派生结果上：
 // 「新增模块没进文档」这类漂移光靠链接检查测不出来，此处逐条比对两个方向。
 func TestModuleListMatchesDerivation(t *testing.T) {
 	root := repoRoot(t)
 	mods := derivedModules(root)
-	if len(mods) < 50 {
-		t.Fatalf("派生到 %d 个 module，明显低于仓库实际数量——谓词失效，本闸门已空转", len(mods))
+	if len(mods) < minReleaseUnits {
+		t.Fatalf("派生到 %d 个 module，连扁平形态的 4 个发布单元都不全——谓词失效，本闸门已空转", len(mods))
 	}
 	doc := documentedModules(t, root)
 	if len(doc) == 0 {
@@ -558,9 +564,12 @@ func diffPkgs(got map[string]bool, want []string) (extra, missing []string) {
 	return extra, missing
 }
 
-// TestModulePackageSets 钉住 risk-review.md §3.1 与 §3.4 的收口形态：聚合根只剩
-// 本仓工具包，CLI 住在自己的 module 里。包集合是逐字比对的——挪走或新增包都会红，
-// 因为「根只剩工具」这句话只有在根真的没有别人时才成立。
+// TestModulePackageSets 钉住 S2 扁平化（2026-11-28）后的归属契约：
+// 聚合根 = 框架全部（contract/kernel/kit/adapter + 本仓工具包），独立单元只剩
+// bconf / cobramcp / cli，CLI 继续住自己的 module（§3.4 不变）。形态判据从
+// 「根只剩工具」的逐字全集比对改为三面：cli 包集合仍逐字钉死（它的边界就是
+// 零 replace 的发布承诺）；根模块必须承接代表抽样包（absorb 没做全当场红）；
+// 目录归属必须落进 4 单元（吸收目录若还派生出独立 module，扁平化即失败）。
 func TestModulePackageSets(t *testing.T) {
 	root := repoRoot(t)
 	mods := derivedModules(root)
@@ -568,11 +577,14 @@ func TestModulePackageSets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("scan packages: %v", err)
 	}
-	if len(pkgs) < 50 {
-		t.Fatalf("只归集到 %d 个 module 的包，明显低于仓库实际数量——遍历失效，本闸门已空转", len(pkgs))
+	totalPkgs := 0
+	for _, set := range pkgs {
+		totalPkgs += len(set)
+	}
+	if totalPkgs < 100 {
+		t.Fatalf("只归集到 %d 个包目录，明显低于仓库实际数量——遍历失效，本闸门已空转", totalPkgs)
 	}
 	wantPkgs := map[string][]string{
-		".":   {"internal/docscheck", "tools/coverage-merge"},
 		"cli": {"cli/cmd/bald", "cli/internal/codegen", "cli/internal/compose", "cli/internal/convention", "cli/internal/fsatomic", "cli/internal/ide", "cli/internal/prd", "cli/internal/release"},
 	}
 	for mod, want := range wantPkgs {
@@ -587,19 +599,44 @@ func TestModulePackageSets(t *testing.T) {
 			t.Errorf("module %s 里预期的包不见了 %v：判据已过期，请核对 §3.1/§3.4 后更新本清单", mod, missing)
 		}
 	}
+	// 聚合根承接抽样：contract（pkg/appkit）、kit（bootstrap）、adapter
+	// （transport/http、cache/redis、registry/etcd、transport/cron/contract）、
+	// 源适配（bconfig/nacos）、工具（internal/docscheck、tools/coverage-merge）。
+	for _, p := range []string{
+		"pkg/appkit", "bootstrap", "transport/http", "cache/redis",
+		"registry/etcd", "transport/cron/contract", "bconfig/nacos",
+		"internal/docscheck", "tools/coverage-merge",
+	} {
+		if !pkgs["."][p] {
+			t.Errorf("包 %s 未归属聚合根（根包数=%d）：S2「合并后 import 路径逐字不变」的形态被破坏", p, len(pkgs["."]))
+		}
+	}
+	// 独立单元抽样 + 被吸收目录必须仍归根（出现独立 module 即回潮）。
+	for dir, wantMod := range map[string]string{
+		"bconf":                  "bconf",
+		"bconf/tlsconf":          "bconf",
+		"cobramcp":               "cobramcp",
+		"cobramcp/examples/task": "cobramcp",
+		"cli/cmd/bald":           "cli",
+		"transport/http":         ".",
+		"contrib/store-gorm":     ".",
+		"workflow/argo":          ".",
+	} {
+		if got := moduleOfDir(dir, mods); got != wantMod {
+			t.Errorf("目录 %s 应归属 module %q，实际归属 %q", dir, wantMod, got)
+		}
+	}
 }
 
-// TestPkgModuleIsLeaf 钉住 §3.1 的第二个条件：`pkg` module 不 import 任何归根
-// module 的包。本地 `replace` 让违反它的代码照样能编译，扇入复辟在 CI 上是静默的
-// ——只有发版时才炸，所以必须在此断言。
-func TestPkgModuleIsLeaf(t *testing.T) {
+// TestPkgDoesNotImportRepoTools 是 TestPkgModuleIsLeaf 的扁平化对偶：旧的
+// 「pkg module 不 import 聚合根」在 pkg 并入聚合根后失去主语句式，但其真实
+// 语义不变——**契约/内核层（pkg/**）不得依赖本仓工具层**（internal/、tools/
+// 曾是聚合根的全部内容）。工具包仍住在独立的包子树里，方向判据原样保留；
+// kernel 对 adapter 的方向由 .arch.json 分层规则接管（A5 判据，S3 起变异测试
+// 复跑）。同层/向上的业务包（bootstrap、transport 等）历史上就不在本判据
+// 范围内，口径不收紧也不放松。
+func TestPkgDoesNotImportRepoTools(t *testing.T) {
 	root := repoRoot(t)
-	mods := derivedModules(root)
-	if !slices.Contains(mods, "pkg") {
-		t.Fatal("pkg 不是独立 module：派生清单里没有 pkg/")
-	}
-
-	// pkg 不得 import 根 module 的包。
 	hits := 0
 	pkgDir := filepath.Join(root, "pkg")
 	err := filepath.WalkDir(pkgDir, func(path string, d os.DirEntry, err error) error {
@@ -622,8 +659,8 @@ func TestPkgModuleIsLeaf(t *testing.T) {
 		hits++
 		rel, _ := filepath.Rel(root, path)
 		for _, imp := range importPathsFromGoSource(string(src)) {
-			if moduleOfImport(imp, mods) == "." {
-				t.Errorf("%s imports %s：pkg module 反向依赖聚合根，扇入复辟", filepath.ToSlash(rel), imp)
+			if strings.HasPrefix(imp, rootModulePath+"/internal/") || strings.HasPrefix(imp, rootModulePath+"/tools/") {
+				t.Errorf("%s imports %s：pkg（契约/内核层）反向依赖本仓工具层，扇入复辟", filepath.ToSlash(rel), imp)
 			}
 		}
 		return nil
@@ -694,11 +731,15 @@ func requiresModulePath(raw []byte, mod string) bool {
 	return false
 }
 
-// TestNoModuleRequiresAggregateRoot 钉住 risk-review.md §3.1 的消解条件：任何
-// 非示例模块都不再 require 聚合根。这条必须硬失败——本地 `replace` 让违反它的
-// 代码照样编译通过，CI 的 build/vet/test 全绿，扇入复辟只有到发版才显现。
-func TestNoModuleRequiresAggregateRoot(t *testing.T) {
+// TestAggregateRootRequiresAreIntentional 钉住 S2 扁平化后的入边契约：聚合根是
+// 框架唯一发布单元，目标拓扑刻意只留一条入边——cobramcp → 根（它 import 的
+// log 与 transport/mcp 已并入根）。bconf 是根的下层（require 即成环）；cli 依赖
+// 瘦身要求它对框架面只经 cobramcp 传递、不直接 require 根。这条必须硬失败——
+// 本地 `replace` 让违反它的代码照样编译通过，CI 的 build/vet/test 全绿，
+// 拓扑回潮只有到发版才显现。
+func TestAggregateRootRequiresAreIntentional(t *testing.T) {
 	root := repoRoot(t)
+	allowed := map[string]bool{"cobramcp": true}
 	checked := 0
 	for _, m := range derivedModules(root) {
 		if m == "." {
@@ -709,13 +750,13 @@ func TestNoModuleRequiresAggregateRoot(t *testing.T) {
 			t.Fatalf("read %s/go.mod: %v", m, err)
 		}
 		checked++
-		if requiresModulePath(raw, rootModulePath) {
-			t.Errorf("module %s require 了聚合根 %s：应改 require %s/pkg（risk-review.md §3.1）",
-				m, rootModulePath, rootModulePath)
+		if requiresModulePath(raw, rootModulePath) && !allowed[m] {
+			t.Errorf("module %s require 了聚合根 %s：S2 目标拓扑里对根的合法入边只有 cobramcp（risk-review.md §3.1 四单元口径）",
+				m, rootModulePath)
 		}
 	}
-	if checked < 50 {
-		t.Fatalf("只检查了 %d 个非根 module，明显低于仓库实际数量——派生已空转", checked)
+	if checked < minReleaseUnits-1 {
+		t.Fatalf("只检查了 %d 个非根 module，扁平形态的 3 个独立单元都不全——派生已空转", checked)
 	}
 }
 
@@ -1180,8 +1221,8 @@ func topLevelFuncBodies(root string, files []string) (int, error) {
 func TestModulesWithLogicHaveTests(t *testing.T) {
 	root := repoRoot(t)
 	mods := derivedModules(root)
-	if len(mods) < 50 {
-		t.Fatalf("派生到 %d 个 module，明显低于仓库实际数量——谓词失效，本闸门已空转", len(mods))
+	if len(mods) < minReleaseUnits {
+		t.Fatalf("派生到 %d 个 module，连扁平形态的 4 个发布单元都不全——谓词失效，本闸门已空转", len(mods))
 	}
 	set := make(map[string]bool, len(mods))
 	for _, m := range mods {
@@ -1216,11 +1257,12 @@ func TestModulesWithLogicHaveTests(t *testing.T) {
 		}
 	}
 	// 防空转：两面判据各自都要有量，否则「零违规」只是遍历没落到文件上。
-	if withLogic < 50 {
-		t.Fatalf("只识别到 %d 个有逻辑的 module，明显低于仓库实际数量——函数体统计失效，本闸门已空转", withLogic)
+	// S2 扁平后基数是 4 个 module（有逻辑的恰是这 4 个），下限取 3 防「全灰」。
+	if withLogic < 3 {
+		t.Fatalf("只识别到 %d 个有逻辑的 module，低于 4 单元形态的下限——函数体统计失效，本闸门已空转", withLogic)
 	}
-	if tested < 50 {
-		t.Fatalf("只识别到 %d 个含测试文件的 module，明显低于仓库实际数量——测试文件发现失效，本闸门已空转", tested)
+	if tested < 3 {
+		t.Fatalf("只识别到 %d 个含测试文件的 module，低于 4 单元形态的下限——测试文件发现失效，本闸门已空转", tested)
 	}
 	t.Logf("有逻辑的 module=%d，含测试的 module=%d，总 module=%d", withLogic, tested, len(mods))
 }
@@ -1559,8 +1601,8 @@ func globalMeterGateKeys(t *testing.T, root string) map[string]bool {
 func globalSymbolWriterDirs(t *testing.T, root, importPath, symbol string, wantCall bool) map[string]bool {
 	t.Helper()
 	mods := derivedModules(root)
-	if len(mods) < 50 {
-		t.Fatalf("派生到 %d 个 module，明显低于仓库实际数量——谓词失效，本闸门已空转", len(mods))
+	if len(mods) < minReleaseUnits {
+		t.Fatalf("派生到 %d 个 module，连扁平形态的 4 个发布单元都不全——谓词失效，本闸门已空转", len(mods))
 	}
 	all := make(map[string]bool, len(mods))
 	for _, m := range mods {

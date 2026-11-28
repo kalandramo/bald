@@ -1,0 +1,118 @@
+{
+  "_note": "S3 六层互斥切分：层前缀按目录子树对齐（check-arch 的多命中判据要求层间不相交，族根与其子包不可分属两层，见 architecture-review-20261128 N-1/S3）。bconf 是独立 module，不在本模块包图内，其纯度由 forbid leaf 显式覆盖。",
+  "layers": {
+    "kernel": [
+      "bootstrap"
+    ],
+    "engine": [
+      "pkg/appkit"
+    ],
+    "kit": [
+      "pkg/audit",
+      "pkg/authn",
+      "pkg/authz",
+      "pkg/contextx",
+      "pkg/crudbridge",
+      "pkg/fieldmaskutil",
+      "pkg/grpcdiscovery",
+      "pkg/id",
+      "pkg/metrics",
+      "pkg/metricshttp",
+      "pkg/middleware",
+      "pkg/semconv",
+      "pkg/store",
+      "pkg/storeerr",
+      "pkg/stringcase",
+      "pkg/testkit",
+      "pkg/validation"
+    ],
+    "families": [
+      "transport",
+      "broker",
+      "cache",
+      "registry",
+      "metrics",
+      "log",
+      "ratelimit",
+      "circuitbreaker",
+      "retry",
+      "selector",
+      "oss",
+      "workflow",
+      "contrib",
+      "health",
+      "encoding",
+      "bconfig"
+    ],
+    "leaf": [
+      "berrors"
+    ],
+    "tooling": [
+      "tools",
+      "internal"
+    ]
+  },
+  "forbid": [
+    {
+      "from": "kernel",
+      "to": [
+        "github.com/kalandramo/bald/transport/http*",
+        "github.com/kalandramo/bald/transport/grpc*"
+      ],
+      "reason": "N-1 主判据（architecture-review-20261128）：bootstrap 是装配内核，不得认识具体协议服务器实现；S3 已把服务器工厂归位 transport/{http,grpc}/contract，本条现值 0 命中，触发能力由 internal/archgate 变异测试（注入 bootstrap→transport/http 合成边判红并点名本规则）钉住，防再倒挂"
+    },
+    {
+      "from": "github.com/kalandramo/bald/pkg",
+      "to": [
+        "github.com/kalandramo/bald/contrib*"
+      ],
+      "reason": "装配引擎（pkg/appkit）与基础库（pkg/*）不得反向依赖 contrib 扩展适配；现值 0 命中，预防位"
+    },
+    {
+      "from": "leaf",
+      "to": [
+        "github.com/kalandramo/bald/bootstrap*",
+        "github.com/kalandramo/bald/pkg*",
+        "github.com/kalandramo/bald/transport*",
+        "github.com/kalandramo/bald/contrib*",
+        "github.com/kalandramo/bald/bconf*"
+      ],
+      "reason": "berrors 是纯错误叶（leaf），不得认识 kernel/engine/kit/协议族，也不得拉入独立模块 bconf 的 proto 类型；bconf 不在本模块包图内，allow 矩阵够不着，只能在本条显式列出。bconfig 不再归 leaf：它是配置 SPI 族根（含 apollo/etcd 等实现），与 transport 各族同权"
+    }
+  ],
+  "allow": {
+    "kernel": [
+      "families",
+      "leaf"
+    ],
+    "engine": [
+      "kernel",
+      "kit",
+      "families",
+      "leaf"
+    ],
+    "kit": [
+      "families",
+      "leaf"
+    ],
+    "families": [
+      "kernel",
+      "engine",
+      "kit",
+      "leaf"
+    ],
+    "leaf": [],
+    "tooling": [
+      "kernel",
+      "engine",
+      "kit",
+      "families",
+      "leaf"
+    ]
+  },
+  "strict": {
+    "require_layer_under": [
+      "github.com/kalandramo/bald"
+    ]
+  }
+}

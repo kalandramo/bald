@@ -1,8 +1,9 @@
 // provider.go —— 段驱动装配的加法式 Provider 导出（生态接入，
 // 范本 contrib/store-gorm 的 AppProvider）。既有构造逻辑（Provider 契约
-// 工厂，段字段 → cron.Option 映射 + 任务挂载）保留不动；本文件只**新增**
-// 对 pkg/appkit 段驱动装配的接入面：AppProvider() 消费契约 server.cron 段，
-// 产物为 transport.Server 进服务器列表。
+// 工厂，段字段 → cron.Option 映射 + 任务挂载）保留不动；本文件把段驱动
+// 接入面收敛到 pkg/appkit/segment：AppProvider() 消费契约 server.cron 段，
+// 节点形状由段族表派生，人只写 Build 主体，产物为 transport.Server 进
+// 服务器列表。
 //
 // server 段 co-provider：与 std 的 http/grpc 并存（不同段路径并存是引擎
 // 的既有语义）；server 段在业务 BeforeStart 钩子之后构建
@@ -20,10 +21,8 @@ import (
 	"context"
 	"fmt"
 
-	bootstrapv1 "github.com/kalandramo/bald/bconf/gen/go/bootstrap/v1"
-
 	"github.com/kalandramo/bald/pkg/appkit"
-	"github.com/kalandramo/bald/transport"
+	"github.com/kalandramo/bald/pkg/appkit/segment"
 )
 
 // AppProvider 返回消费契约 server.cron 段的 appkit.Provider（段路径
@@ -37,40 +36,18 @@ import (
 // transport.Server 落服务器列表 → cleanup 透传（cron 无外部资源，nil 合法）。
 func AppProvider(opts ...Option) appkit.Provider {
 	factory := Provider(opts...)
-	return appProvider{factory: factory}
-}
-
-// appProvider 消费 server.cron 段。
-type appProvider struct {
-	factory func(context.Context, *bootstrapv1.Server) (transport.Server, func(), error)
-}
-
-func (appProvider) Segments() []string { return []string{"server.cron"} }
-
-// Apply 把自身追加进声明（Provider 即 Option，可直接作为 MustServe 变参项）。
-// 追加的是携带 factory 的接收者本身——工厂经 AppProvider 变参构造，落声明
-// 时不能丢。
-func (p appProvider) Apply(d *appkit.Decl) { d.Providers = append(d.Providers, p) }
-
-// Plan 声明段节点（server.cron；阶段由段族决定）。
-func (appProvider) Plan(context.Context, appkit.PlanScope) ([]appkit.Node, error) {
-	return []appkit.Node{{
-		Key:      "server.cron",
-		Segments: []string{"server.cron"},
-		Phase:    appkit.PhaseServe,
-	}}, nil
-}
-
-// Build 复用既有工厂构造 cron 服务器。
-func (p appProvider) Build(ctx context.Context, s appkit.ApplyScope, _ appkit.Node) (any, appkit.Cleanup, error) {
-	serverSec := s.Config.GetServer()
-	if serverSec == nil {
-		return nil, nil, fmt.Errorf("transport/cron: server section is missing " +
-			"(provider matched by segment path; report this as a bug)")
-	}
-	srv, cleanup, err := p.factory(ctx, serverSec)
-	if err != nil {
-		return nil, nil, err
-	}
-	return srv, appkit.CleanupFrom(cleanup), nil
+	// 节点形状由段族表派生（server 族：PhaseServe，其余零值）——与迁移前
+	// 本包手写四件套逐字段一致；人只保留 Build 主体。
+	return segment.New("server.cron", func(ctx context.Context, s appkit.ApplyScope, _ appkit.Node) (any, appkit.Cleanup, error) {
+		serverSec := s.Config.GetServer()
+		if serverSec == nil {
+			return nil, nil, fmt.Errorf("transport/cron: server section is missing " +
+				"(provider matched by segment path; report this as a bug)")
+		}
+		srv, cleanup, err := factory(ctx, serverSec)
+		if err != nil {
+			return nil, nil, err
+		}
+		return srv, appkit.CleanupFrom(cleanup), nil
+	})
 }

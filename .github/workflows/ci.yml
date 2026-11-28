@@ -175,6 +175,8 @@ jobs:
   # 「-race 可检出」不是保险）。
   # 范围 = `scripts/list-modules.sh` 派生的全部 module 减去 .github/race-skip.txt，
   # 与 test / lint / vuln 作业同源、与本地 `task race` 同一条派生 + 同一份排除清单。
+  # S2 扁平化后排除在 `scripts/race.sh` 内按**包前缀**执行（skip 对象已并入根
+  # 模块，整行滤不掉），作业这里只保留「下载瞬断与竞争缺陷分开记账」的重试环。
   # 默认值是「跑」而不是「不跑」：新增 module 无需改这里，也不再维护第二份清单。
   # 零测试文件的 module 只多付一次竞态化构建的成本（go test 打 no test files）。
   race:
@@ -196,7 +198,7 @@ jobs:
           # 派生为空即失败（find 谓词或排除清单被改坏 → 零个模块 + exit 0 = 静默绿）。
           failed=""
           failed_count=0
-          mods=$(sh scripts/list-modules.sh | grep -vxF -f .github/race-skip.txt)
+          mods=$(sh scripts/list-modules.sh)
           if [ -z "$mods" ]; then echo "::error::race 清单派生为空，闸门未覆盖任何 module"; exit 1; fi
           for mod in $mods; do
             echo "=== race: $mod ==="
@@ -211,7 +213,7 @@ jobs:
               sleep 15
             done
             if [ "$downloaded" -ne 1 ]; then failed="$failed $mod:download"; failed_count=$((failed_count+1)); continue; fi
-            if ! (cd "$mod" && go test -short -race -timeout 10m ./...); then
+            if ! sh scripts/race.sh "$mod"; then
               failed="$failed $mod:race"; failed_count=$((failed_count+1))
             fi
           done

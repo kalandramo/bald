@@ -9,8 +9,10 @@
 // 成员清单（框架内置默认，不多不少）：
 //   - StandardHTTPProvider / StandardGRPCProvider：server.http 与 server.grpc
 //     各一个节点——能力声明在代码（WithHTTP/WithGRPC），契约段驱动地址/TLS；
-//     分两个 Provider 是为了让第三方转码面能只接管 server.http 而不挤掉 gRPC
-//     面（见 stdHTTPProvider 上方注释）；
+//     「契约段 → 具体实现」的构造工厂不在本文件也不在 bootstrap，而在
+//     transport/http/contract 与 transport/grpc/contract（与其它 14 个能力面同一
+//     形状，评审 N-1）；分两个 Provider 是为了让第三方转码面能只接管 server.http
+//     而不挤掉 gRPC 面（见 stdHTTPProvider 上方注释）；
 //   - StandardAuditProvider：audit.backends 的 "log" 项——核心 LoggerAuditor
 //     零依赖开箱即用；
 //   - StandardLoggerProvider：logger 段——bslog（标准库 slog）后端，阶段 A
@@ -29,6 +31,8 @@ import (
 	"github.com/kalandramo/bald/log/bslog"
 	"github.com/kalandramo/bald/pkg/audit"
 	"github.com/kalandramo/bald/transport"
+	grpccontract "github.com/kalandramo/bald/transport/grpc/contract"
+	httpcontract "github.com/kalandramo/bald/transport/http/contract"
 )
 
 // StandardAuditProvider 返回框架内置审计 Provider（audit 段 "log" 后端；
@@ -174,8 +178,9 @@ func (stdHTTPProvider) Build(ctx context.Context, s ApplyScope, _ Node) (any, Cl
 	if d.Health != nil {
 		handler = withProbes(handler, d.Health, d.ProbeLivePath, d.ProbeReadyPath)
 	}
-	srv, closer, err := baldbootstrap.HttpServerProvider(
-		baldbootstrap.WithHTTPHandler(handler))(ctx, s.Config.GetServer())
+	// 探针包装留在装配层（本文件），契约段→实现的映射在 transport/http/contract。
+	srv, closer, err := httpcontract.Provider(
+		httpcontract.WithHandler(handler))(ctx, s.Config.GetServer())
 	if err != nil {
 		return nil, nil, err
 	}
@@ -217,18 +222,18 @@ func (stdGRPCProvider) Build(ctx context.Context, s ApplyScope, _ Node) (any, Cl
 	if d.GRPCRegister == nil {
 		return nil, nil, nil // 无 gRPC 能力声明：跳过构造
 	}
-	grpcOpts := []baldbootstrap.GRPCServerOption{
-		baldbootstrap.WithGRPCRegister(d.GRPCRegister),
+	grpcOpts := []grpccontract.Option{
+		grpccontract.WithRegister(d.GRPCRegister),
 	}
-	// 工厂在 server 构造时逐个求值（见 bootstrap.GrpcServerProvider），彼时
+	// 工厂在 server 构造时逐个求值（见 grpccontract.Provider），彼时
 	// 业务 beforeStart 已建好认证器；登记顺序即最终链序。
 	for _, fn := range d.GRPCOptionFuncs {
-		grpcOpts = append(grpcOpts, baldbootstrap.WithGRPCUnaryFunc(fn))
+		grpcOpts = append(grpcOpts, grpccontract.WithUnaryFunc(fn))
 	}
 	if d.Health != nil {
-		grpcOpts = append(grpcOpts, baldbootstrap.WithGRPCHealth(d.Health, d.HealthInterval))
+		grpcOpts = append(grpcOpts, grpccontract.WithHealth(d.Health, d.HealthInterval))
 	}
-	srv, closer, err := baldbootstrap.GrpcServerProvider(grpcOpts...)(ctx, s.Config.GetServer())
+	srv, closer, err := grpccontract.Provider(grpcOpts...)(ctx, s.Config.GetServer())
 	if err != nil {
 		return nil, nil, err
 	}

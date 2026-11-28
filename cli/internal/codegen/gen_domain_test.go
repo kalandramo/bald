@@ -810,9 +810,9 @@ func TestGenDomain_Bind_RequiresGoPackage(t *testing.T) {
 	runGenDomain(t, dir, specPath, "--adopt", "--no-bind")
 }
 
-// TestGenDomain_Bind_RequiresTransportWeb 绑定文件 import transport/web
-// （独立 module）：消费者 go.mod 没声明时生成期就拒绝，并给出 go get 修法，
-// 而不是产出一棵编译不过的树。
+// TestGenDomain_Bind_RequiresTransportWeb 绑定文件 import transport/web：
+// 消费者 go.mod 既无兄弟 module require（旧形态）也无聚合根 require（S2 扁平
+// 形态）时，生成期就拒绝，并给出 go get 修法，而不是产出一棵编译不过的树。
 func TestGenDomain_Bind_RequiresTransportWeb(t *testing.T) {
 	dir, specPath := runGenAppInTemp(t, guardFixture())
 	gomodPath := filepath.Join(dir, "go.mod")
@@ -822,7 +822,12 @@ func TestGenDomain_Bind_RequiresTransportWeb(t *testing.T) {
 	}
 	var kept []string
 	for _, line := range strings.Split(string(raw), "\n") {
-		if strings.Contains(line, "github.com/kalandramo/bald/transport/web") {
+		f := strings.Fields(line)
+		// 双形态剔除：旧兄弟 require 与扁平根 require 都不留，负例才测到
+		// 「两条供给路都断」。字段精确匹配，bconf/cobramcp 等兄弟不误伤。
+		if (len(f) >= 2 && f[0] == "github.com/kalandramo/bald/transport/web" && strings.HasPrefix(f[1], "v")) ||
+			(len(f) >= 2 && f[0] == "github.com/kalandramo/bald" && strings.HasPrefix(f[1], "v")) ||
+			(len(f) >= 3 && f[0] == "require" && (f[1] == "github.com/kalandramo/bald/transport/web" || f[1] == "github.com/kalandramo/bald")) {
 			continue
 		}
 		kept = append(kept, line)
@@ -846,6 +851,42 @@ func TestGenDomain_Bind_RequiresTransportWeb(t *testing.T) {
 
 	// --no-bind 是逃生口：不生成绑定就不用依赖 transport/web。
 	runGenDomain(t, dir, specPath, "--adopt", "--no-bind")
+}
+
+// TestGenDomain_Bind_FlatRootRequireSatisfies 是 S2 扁平化的对偶判据：
+// 夹具（_example go.mod 逐行改写）只 require 聚合根 github.com/kalandramo/bald
+// （transport/web 已并入其中）时，bind 前置必须满足——兄弟路径的 require
+// 缺失不再是硬条件；同时反向钉住夹具里没有残留的兄弟形态。
+func TestGenDomain_Bind_FlatRootRequireSatisfies(t *testing.T) {
+	dir, specPath := runGenAppInTemp(t, guardFixture())
+	gomodPath := filepath.Join(dir, "go.mod")
+	raw, err := os.ReadFile(gomodPath)
+	if err != nil {
+		t.Fatalf("read go.mod: %v", err)
+	}
+	var hasFlat, hasSibling bool
+	for _, line := range strings.Split(string(raw), "\n") {
+		f := strings.Fields(line)
+		if len(f) < 2 || !strings.HasPrefix(f[len(f)-1], "v") {
+			continue
+		}
+		if f[0] == "require" {
+			switch f[1] {
+			case "github.com/kalandramo/bald":
+				hasFlat = true
+			case "github.com/kalandramo/bald/transport/web":
+				hasSibling = true
+			}
+		} else if f[0] == "github.com/kalandramo/bald" {
+			hasFlat = true // require 块内形态
+		} else if f[0] == "github.com/kalandramo/bald/transport/web" {
+			hasSibling = true
+		}
+	}
+	if !hasFlat || hasSibling {
+		t.Fatalf("夹具 go.mod 形态不符合 S2 预期: hasFlat=%v hasSibling=%v（应只有聚合根 require）", hasFlat, hasSibling)
+	}
+	runGenDomain(t, dir, specPath, "--adopt")
 }
 
 // TestGenDomain_ProtoStageOrchestrated 绑定前置（proto Go 类型）缺失时，

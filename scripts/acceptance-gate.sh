@@ -186,6 +186,13 @@ esac
 # 那条 I1）、以及探针路径与轮询间隔在**真进程**里生效（HTTP 探针走契约路径、
 # gRPC 健康状态按契约间隔翻转）。其中 EnvRoute 那条经真实 Serve 走 env 层，
 # 因此同时是 §7.43 那把折叠的产品级实证。
+# transport/{http,grpc}/contract 两条（S3，architecture-review N-1 归位）判的是
+# 服务器工厂从 bootstrap 搬回契约包后的形状：两族都监听 127.0.0.1 自己，离线可判、
+# 不需要服务容器。http 三条腿——plain handler 构造成可拨通的服务器、段未配置
+# fail-fast、gateway 驱动段不串门（Provider 的 opts 只吃 WithHandler 的形状守卫）；
+# grpc 三条腿——health 同步在真进程里翻状态、Option 按注册序生效（deferred/skipped
+# 两条同族）、契约 TLS 生效与空证书段 fail-fast。归位本身（kernel 不再 import
+# 具体 transport）由 internal/archgate 的变异测试判，本表两腿钉的是搬完之后的行为。
 rows() {
   printf '%s\n' \
     $'ci\tpkg\t./appkit\tTestPlan_(NoSideEffects|OrderInvariant|SegmentCoverage|Conflict|DomainRoutes|CustomRoutesWarning|GlobalMeterProvider)|TestRouteShapeConflict\t' \
@@ -216,6 +223,8 @@ rows() {
     $'ci\ttransport/rabbitmq\t.\tTestEndpointAfterStartStripsCredentials|TestSanitizeEndpoint\t' \
     $'ci\tbconf\t.\tTestUnmarshalNestedBackoffSection|TestUnmarshalAbsentBackoffStaysNil|TestUnmarshalDurationSpellings|TestCoerceDurationFormat\t' \
     $'ci\tbconf\t.\tTestFoldEnvKeys_\t' \
+    $'ci\ttransport/http\t./contract\tTestProvider_(PlainHandler|IgnoresGatewayDriver)\t' \
+    $'ci\ttransport/grpc\t./contract\tTestProvider_(HealthSync|OptionOrderIsRegistrationOrder|ContractTLSTakesEffect)\t' \
     $'no\tbconf\t.\tTestGeneratedMatchesProto\t' \
     $'no\t_example/bald\t./internal/bootstrap\tTestPlan_ReferenceProject\t' \
     $'no\t_example/bald\t./internal/bootstrap\tTestPlan_ReferenceProject\tgrpcgw'
