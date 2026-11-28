@@ -103,6 +103,11 @@
   "history": [
     {
       "ts": "2026-11-29",
+      "phase": "release",
+      "note": "发布全流程收口(用户授权代办):bald 侧 6 提交两批四步流——批一 v0.57.0+bconf/v0.32.0+cobramcp/v0.5.0(d4569c7a,CI 9 作业绿,publish-bconf BSR 成功);批二 cli/v0.19.0(b415b693,CI 9 作业绿),同批延期机制实证:tag 后重跑 plan 宿主自然进批并归位,全程 go run 免绕行。消费者 admin 三提交(四件套迁 segment.New+repo/seeddata 拆包;replace 归零纯 tag 消费 v0.57.0/v0.32.0;cli 钉版升 v0.19.0 认 flat bind 形态+清 11-27 起既有的 ineffassign 红),gen domain 71 clean、build/vet/test/lint 全绿。代理观察:root v0.57.0 goproxy.cn 首查 404 约 20 分钟追平(文档口径复现),负缓存期间用 goproxy.io 主通道完成归位。"
+    },
+    {
+      "ts": "2026-11-29",
       "phase": "gate",
       "note": "#57 修后收口门禁全绿:release plan(Deferred 段实跑文案正确)→sync --write 免绕行(cli/go.mod 不触)→五 module GOPROXY=off -mod=readonly list 零红→changelog --write(两段+bald 行配套表,cli 不在批)→tag dry 两 tag 不落真;cli release 测试(含新增两测)/docscheck/archgate/segment/lint 0 issues×4/gofmt 净/convention 0 findings/acceptance 33 腿 232 判据/gen app --check 24 clean/admin build+vet 全过"
     },
