@@ -4,6 +4,51 @@
 条目取自该版本区间内的提交标题（Conventional Commits），不要手工调整顺序。
 发布流程见 [多模块发布与变更日志](docs/devel/zh-CN/多模块发布与变更日志.md)。
 
+## 2026-11-28
+
+### bald v0.57.0
+
+- `75235f1a` docs(architecture): 4 模块口径同步——README/AGENTS/发布文档/规范卡/拓扑图与引用清账
+- `642ffcdd` feat(architecture): dx-flatten 收口——95+ 模块折叠为 4 发布单元，四件套生成化，N-1 归位与 archgate 原生门禁
+- `6a8333a4` fix(deps): tidy transitive modules after otel v1.47.0 upgrade
+- `13816044` fix(deps): upgrade OpenTelemetry to v1.47.0 to clear GO-2026-6974
+- `cab7a653` refactor(architecture): clearing remaining ADR backlog
+- `c2eae816` feat: clearing DX/ADR backlog and adding auth_policy proto option
+- `75f46710` docs(architecture): 回填 AR/ADR/DX/OneX 遗留状态——修复证据与挂账项分离
+- `56cba369` docs(guide): gen domain 挂载段补生产参考——bald-admin 12 域定型范式
+- `92cc2776` chore(release): 发布 cli v0.18.1
+- `53253d7f` chore(release): 发布 bconf v0.31.1 / cli v0.18.0
+- `52533e49` chore(release): 发布 bconf v0.31.0 / cli v0.17.0
+- `9e63b409` docs(guide): gen domain 补 response_status 的声明方式与设计理由
+- `e1eab54a` docs: 判据①「3 个手写文件」补最小演示域口径限定
+- `4234c647` style: 25 个文件按 gofmt 1.27.4 归一（中文注释空格）
+- `9d1e7bec` chore(release): 发布 cli v0.16.0
+- `531118ea` docs(guide): 补 gRPC 骨架与契约的分工、流式签名与命名约定
+- `e0dc88fa` chore(release): 发布 bconf v0.30.0 / pkg v0.18.0 / transport/web v0.3.0 / validation-protovalidate v0.1.0
+- `30091fbb` docs: 修模块清单口径——补 validation-protovalidate、规模 92→69
+- `48013407` chore(release): 发布 bconf v0.30.0 / pkg v0.18.0 / transport/web v0.3.0 / validation-protovalidate v0.1.0
+- `a03fd42b` feat(contrib/validation-protovalidate): protovalidate → berrors 官方桥
+- `bfcb5c0a` feat(transport/web): protojson 选项与响应状态码可配
+- `4c356af2` feat(pkg): storeerr 哨兵桥 + appkit.DynamicAuditor
+- `219947ec` chore(deps): 9 模块 go.sum 归位（bconfig v0.2.5 / transport/http v0.3.0 批）
+
+### bconf v0.32.0
+
+- `c2eae816` feat: clearing DX/ADR backlog and adding auth_policy proto option
+
+### cobramcp v0.5.0
+
+- `642ffcdd` feat(architecture): dx-flatten 收口——95+ 模块折叠为 4 发布单元，四件套生成化，N-1 归位与 archgate 原生门禁
+
+#### 本批版本配套（cli ↔ bconf / pkg 等内部依赖）
+
+| 模块 | 本批版本 | 归位依赖 |
+|---|---|---|
+| `bald` | `v0.57.0` | `bconf` → `v0.32.0` |
+| `cobramcp` | `v0.5.0` | `bald` → `v0.57.0` |
+
+本表取自本批计划的依赖归位清单；未列模块沿用其最近正式 tag。业务项目升级时用 `go mod tidy` 从各 module tag 解析，按此表核对 cli 与框架库的版本组合。
+
 ## 2026-11-23
 
 ### cli v0.18.1

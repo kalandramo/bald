@@ -4,7 +4,7 @@ go 1.27.1
 
 require (
 	github.com/google/jsonschema-go v0.4.2
-	github.com/kalandramo/bald v0.56.1
+	github.com/kalandramo/bald v0.57.0
 	github.com/mark3labs/mcp-go v1.1.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10

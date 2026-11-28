@@ -8,8 +8,8 @@ require (
 	github.com/alibaba/sentinel-golang v1.0.4
 	github.com/gin-gonic/gin v1.12.0
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.30.0
-	github.com/kalandramo/bald v0.56.1
-	github.com/kalandramo/bald/bconf v0.31.1
+	github.com/kalandramo/bald v0.57.0
+	github.com/kalandramo/bald/bconf v0.32.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
 	google.golang.org/genproto/googleapis/api v0.0.0-20260928230214-8a89bd6388cc

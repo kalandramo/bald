@@ -27,7 +27,7 @@ require (
 	github.com/hibiken/asynq v0.26.0
 	github.com/kalandramo/bald-crud/gorm v0.3.0
 	github.com/kalandramo/bald-crud/viewer v0.3.0
-	github.com/kalandramo/bald/bconf v0.31.1
+	github.com/kalandramo/bald/bconf v0.32.0
 	github.com/mark3labs/mcp-go v1.1.0
 	github.com/nacos-group/nacos-sdk-go/v2 v2.3.5
 	github.com/pierrec/lz4 v2.6.1+incompatible
