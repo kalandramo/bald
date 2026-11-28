@@ -680,3 +680,92 @@ func readFile(t *testing.T, root, rel string) string {
 	}
 	return string(data)
 }
+
+// TestBuildPlan_DefersToolHostSelfLock —— risk-review #57 的计划期固化：
+// 工具宿主（cli）零 replace 且 require 同批未发版本时，整模块延期出批；
+// 依赖 tag 落地后重跑 plan，它自然归批。
+func TestBuildPlan_DefersToolHostSelfLock(t *testing.T) {
+	root := newRepo(t)
+	writeFile(t, root, "cli/go.mod", `module example.com/m/cli
+
+go 1.22
+
+require example.com/m/sub v0.1.0
+`)
+	writeFile(t, root, "cli/main.go", "package main\n")
+	commit(t, root, "feat: tool host", "")
+	runGit(t, root, "tag", "cli/v0.1.0")
+
+	// 一轮改动：sub 与 cli 各有一个 feat——同批即自锁。
+	writeFile(t, root, "sub/sub.go", "package sub\n\nconst V = 2\n")
+	commit(t, root, "feat: sub api", "")
+	writeFile(t, root, "cli/main.go", "package main\n\nfunc main() {}\n")
+	commit(t, root, "feat: tool uses sub api", "")
+
+	plan := planFor(t, root)
+	for _, c := range plan.Changes {
+		if c.Dir == "cli" {
+			t.Fatalf("cli must be deferred, got in Changes: %+v", c)
+		}
+	}
+	if len(plan.Deferred) != 1 || plan.Deferred[0].Dir != "cli" {
+		t.Fatalf("want one deferred cli, got %+v", plan.Deferred)
+	}
+	d := plan.Deferred[0]
+	if d.Next != "v0.2.0" || len(d.Blocks) != 1 || d.Blocks[0].To != "v0.2.0" {
+		t.Fatalf("deferred entry mismatch: %+v", d)
+	}
+	for _, c := range plan.Consumers {
+		if c.Dir == "cli" {
+			t.Fatalf("deferred module must not be a consumer: %+v", c)
+		}
+	}
+	// sub 照常进批；root 对 sub 的归位不受影响（root 非工具宿主）。
+	if changeByDir(t, plan, "sub").Next != "v0.2.0" {
+		t.Fatal("sub should still be in this batch")
+	}
+
+	// 二阶段：sub 的新 tag 落地后，重跑 plan——cli 应正常进批。
+	runGit(t, root, "tag", "sub/v0.2.0")
+	plan2 := planFor(t, root)
+	found := false
+	for _, c := range plan2.Changes {
+		if c.Dir == "cli" {
+			found = true
+		}
+	}
+	if found != true {
+		t.Fatalf("after sub tag exists, cli should re-enter Changes: %+v (deferred %+v)", plan2.Changes, plan2.Deferred)
+	}
+	if len(plan2.Deferred) != 0 {
+		t.Fatalf("no deferral expected now, got %+v", plan2.Deferred)
+	}
+}
+
+// TestParseReplaces —— replace 行各种形态的左侧集合。
+func TestParseReplaces(t *testing.T) {
+	src := `module example.com/m
+
+go 1.22
+
+require example.com/m/bconf v0.31.0
+
+replace example.com/m/bconf => ./bconf
+
+require (
+	example.com/other v1.0.0
+)
+
+replace (
+	example.com/a v1.0.0 => example.com/a-fork v1.1.0
+	example.com/b => ../b
+)
+`
+	got := parseReplaces(src)
+	if !got["example.com/m/bconf"] || !got["example.com/a"] || !got["example.com/b"] {
+		t.Fatalf("parseReplaces = %v", got)
+	}
+	if len(got) != 3 {
+		t.Fatalf("want exactly 3 replace lefts, got %v", got)
+	}
+}

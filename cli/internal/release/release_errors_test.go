@@ -242,12 +242,12 @@ func TestCommitBodies_GitError(t *testing.T) {
 }
 
 // TestConsumerUpdates_ReadError 消费者模块目录缺 go.mod ⇒ requireUpdatesFor 的
-// ReadFile 失败上抛（plan.go:354 → 382）。
+// ReadFile 失败上抛（consumerUpdates → requireUpdatesFor）。
 func TestConsumerUpdates_ReadError(t *testing.T) {
 	r := &Repo{Root: t.TempDir(), Modules: []*Module{
 		{Dir: "missing", Path: "example.com/missing", Releasable: true},
 	}}
-	if _, err := r.consumerUpdates(map[string]*Change{}); err == nil {
+	if _, err := r.consumerUpdates(map[string]*Change{}, nil); err == nil {
 		t.Fatal("consumerUpdates with missing go.mod must error")
 	}
 }

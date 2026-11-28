@@ -16,7 +16,8 @@ import (
 )
 
 // PlanVersion 是计划文件的 schema 版本；字段结构变化时递增，旧计划会被拒绝。
-const PlanVersion = 2
+// v3：新增 Deferred（发布自锁延期，见 toolHostDir 与 resolveToolHostLock）。
+const PlanVersion = 3
 
 // Plan 是一次发布计算的结果。Head 记录计算时的提交，tag 阶段用它判断
 // HEAD 是否只多了「发布提交」（go.mod 归位 + CHANGELOG）以外的改动。
@@ -26,7 +27,32 @@ type Plan struct {
 	GeneratedAt string           `json:"generated_at"`
 	Changes     []Change         `json:"changes"`
 	Consumers   []ConsumerUpdate `json:"consumers,omitempty"`
+	// Deferred 是因「发布自锁」被推迟到下一批的模块（见 DeferredModule）。
+	Deferred []DeferredModule `json:"deferred,omitempty"`
 }
+
+// DeferredModule 是有发版提交、但被自动推迟出本批的模块。
+//
+// 触发条件（发布自锁，risk-review #57）：发布工具住在 cli module 里，四步流的
+// 后两步（changelog/tag）仍要 `cd cli && go run ./cmd/bald` 执行。cli 按
+// 零 replace 不变量（风险评审 §3.4）不能引用未发布版本——若 cli 与它依赖的
+// 同批模块一起进批，sync 会把 cli 的 go.mod 升到「尚未打 tag」的版本，
+// go.sum 随即缺哈希，后续每一步 go run 都编译失败，发布流程自锁。
+// 历史先例（2026-11-07 批）是人工执行「bconf tag 落地后 cli 单独归位再发」；
+// 本类型把该做法固化为计划期的自动延期：deferred 模块不进 Changes，
+// sync/tag/changelog 都不动它；依赖的 tag 推送后重跑 plan，它自然进批。
+type DeferredModule struct {
+	Module  string          `json:"module"`
+	Dir     string          `json:"dir"`
+	Current string          `json:"current"`
+	Next    string          `json:"next"`
+	Tag     string          `json:"tag"`
+	Blocks  []RequireUpdate `json:"blocks,omitempty"`
+}
+
+// toolHostDir 是发布工具的宿主 module（Taskfile 的四条 release-* 任务都在这里
+// `go run`）。AGENTS.md 的硬约束：该目录的 go.mod 永远零 replace。
+const toolHostDir = "cli"
 
 // Change 是一个待发布模块：当前版本、下一版本与触发它的提交。
 type Change struct {
@@ -120,12 +146,115 @@ func (r *Repo) BuildPlan(now time.Time) (*Plan, error) {
 		}
 		plan.Changes[i].Requires = updates
 	}
-	consumers, err := r.consumerUpdates(byPath)
+	// 发布自锁检测（#57）：工具宿主模块与「同批未发布的依赖」不能同批进发布——
+	// sync 会把它的 go.mod 推到未 tag 版本，后续 changelog/tag 步的 go run 因
+	// go.sum 缺哈希编译失败。命中即整模块延期，本批其余模块对它的归位随之取消。
+	if deferred, hit := r.toolHostSelfLock(plan, byPath); hit {
+		delete(byPath, deferred.Module)
+		kept := make([]Change, 0, len(plan.Changes))
+		for _, c := range plan.Changes {
+			if c.Module == deferred.Module {
+				continue
+			}
+			kept = append(kept, c)
+		}
+		plan.Changes = kept
+		for i := range plan.Changes {
+			updates, err := r.requireUpdates(&plan.Changes[i], byPath)
+			if err != nil {
+				return nil, err
+			}
+			plan.Changes[i].Requires = updates
+		}
+		plan.Deferred = append(plan.Deferred, *deferred)
+	}
+	deferredDirs := make(map[string]bool, len(plan.Deferred))
+	for _, d := range plan.Deferred {
+		deferredDirs[d.Dir] = true
+	}
+	consumers, err := r.consumerUpdates(byPath, deferredDirs)
 	if err != nil {
 		return nil, err
 	}
 	plan.Consumers = consumers
 	return plan, nil
+}
+
+// toolHostSelfLock 判定工具宿主（toolHostDir）本轮进批是否锁死发布流程：
+// 它的 go.mod require 了某个「同批待发模块的下一版本」，且该依赖没有指向
+// 本地目录的 replace 兜底。命中时返回延期条目（Blocks 记录锁源依赖）。
+func (r *Repo) toolHostSelfLock(plan *Plan, byPath map[string]*Change) (*DeferredModule, bool) {
+	for _, c := range plan.Changes {
+		if c.Dir != toolHostDir {
+			continue
+		}
+		replaces, err := r.replaceTargets(toolHostDir)
+		if err != nil {
+			return nil, false // 读不了清单就不挡（宁可放行也不误延期）
+		}
+		var blocks []RequireUpdate
+		for _, u := range c.Requires {
+			if _, inBatch := byPath[u.Module]; inBatch && !replaces[u.Module] {
+				blocks = append(blocks, u)
+			}
+		}
+		if len(blocks) == 0 {
+			return nil, false
+		}
+		return &DeferredModule{
+			Module:  c.Module,
+			Dir:     c.Dir,
+			Current: c.Current,
+			Next:    c.Next,
+			Tag:     c.Tag,
+			Blocks:  blocks,
+		}, true
+	}
+	return nil, false
+}
+
+// replaceTargets 返回 dir 下 go.mod 所有 replace 左侧的 module 路径集合。
+func (r *Repo) replaceTargets(dir string) (map[string]bool, error) {
+	data, err := os.ReadFile(filepath.Join(r.Root, dir, "go.mod"))
+	if err != nil {
+		return nil, err
+	}
+	return parseReplaces(string(data)), nil
+}
+
+// parseReplaces 宽松行解析，覆盖单行 `replace A => B`、块内 `A => B` 与
+// 带版本的 `A v1 => B v2`；只取左侧路径（是否有本地兜底按路径判断）。
+func parseReplaces(src string) map[string]bool {
+	out := map[string]bool{}
+	inBlock := false
+	for _, line := range strings.Split(src, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "//") {
+			continue
+		}
+		if !inBlock && trimmed == "replace (" {
+			inBlock = true
+			continue
+		}
+		if inBlock && trimmed == ")" {
+			inBlock = false
+			continue
+		}
+		if strings.HasPrefix(trimmed, "replace ") {
+			trimmed = strings.TrimPrefix(trimmed, "replace ")
+		} else if !inBlock {
+			continue
+		}
+		i := strings.Index(trimmed, "=>")
+		if i <= 0 {
+			continue
+		}
+		left := strings.Fields(trimmed[:i])
+		if len(left) >= 1 {
+			out[left[0]] = true
+		}
+	}
+	return out
 }
 
 func (m *Module) tagFor(version string) string {
@@ -380,10 +509,16 @@ func (r *Repo) requireUpdatesFor(dir, modulePath string, byPath map[string]*Chan
 // （_example / examples，无 tag）与本次不发布的可发布模块。后者同样要归位
 // 对计划内模块的 require，否则其 go.mod 会停在旧版本、CI 的
 // `go mod tidy -diff` 闸门报漂移。
-func (r *Repo) consumerUpdates(byPath map[string]*Change) ([]ConsumerUpdate, error) {
+//
+// skip 是被延期出本批的模块目录：它们保持原 require 不动——下一批 plan 会把
+// 它们连同归位一起算进来。
+func (r *Repo) consumerUpdates(byPath map[string]*Change, skip map[string]bool) ([]ConsumerUpdate, error) {
 	var consumers []ConsumerUpdate
 	for _, m := range r.Modules {
 		if _, releasing := byPath[m.Path]; releasing {
+			continue
+		}
+		if skip[m.Dir] {
 			continue
 		}
 		updates, err := r.requireUpdatesFor(m.Dir, m.Path, byPath)
@@ -477,6 +612,18 @@ func PrintPlan(w io.Writer, plan *Plan, root string) error {
 				anyConsumers = true
 			}
 			_, _ = fmt.Fprintf(w, "  %s: require %s %s -> %s\n", goModPath(c.Dir), u.Module, u.From, u.To)
+		}
+	}
+	if len(plan.Deferred) > 0 {
+		_, _ = fmt.Fprintln(w, "\n发布自锁延期（risk-review #57，不进本批）：")
+		for _, d := range plan.Deferred {
+			deps := make([]string, 0, len(d.Blocks))
+			for _, b := range d.Blocks {
+				deps = append(deps, fmt.Sprintf("%s→%s", b.Module, b.To))
+			}
+			_, _ = fmt.Fprintf(w, "  %s（%s→%s）：零 replace 宿主 require 同批未发版 %s\n",
+				d.Dir, versionOf(Change{Dir: d.Dir}, d.Current), d.Next, strings.Join(deps, ", "))
+			_, _ = fmt.Fprintln(w, "    处置：本批 tag 推送后重跑 plan，该模块自然进批并归位（历史先例 2026-11-07）")
 		}
 	}
 	return nil
