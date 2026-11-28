@@ -3,8 +3,8 @@ module github.com/kalandramo/bald/cli
 go 1.27.1
 
 require (
-	github.com/kalandramo/bald/bconf v0.30.0
-	github.com/kalandramo/bald/cobramcp v0.4.1
+	github.com/kalandramo/bald/bconf v0.32.0
+	github.com/kalandramo/bald/cobramcp v0.5.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
 	google.golang.org/protobuf v1.36.12
