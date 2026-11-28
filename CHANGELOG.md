@@ -6,6 +6,15 @@
 
 ## 2026-11-28
 
+### cli v0.19.0
+
+- `9101509f` chore(deps): cli 归位 bconf v0.32.0 / cobramcp v0.5.0
+- `75235f1a` docs(architecture): 4 模块口径同步——README/AGENTS/发布文档/规范卡/拓扑图与引用清账
+- `eff62cb4` fix(release): 计划期自锁延期——工具宿主 require 同批未发版本时整模块出批（risk-review #57）
+- `642ffcdd` feat(architecture): dx-flatten 收口——95+ 模块折叠为 4 发布单元，四件套生成化，N-1 归位与 archgate 原生门禁
+- `cab7a653` refactor(architecture): clearing remaining ADR backlog
+- `c2eae816` feat: clearing DX/ADR backlog and adding auth_policy proto option
+
 ### bald v0.57.0
 
 - `75235f1a` docs(architecture): 4 模块口径同步——README/AGENTS/发布文档/规范卡/拓扑图与引用清账
