@@ -16,4 +16,4 @@ checks: []
 - [commit-r03] [建议] subject 用中文直述改了什么，现在时，结尾不加句号；正文说明「为什么改」和「改前改后有什么不同」。
 - [commit-r04] [强制] 不相关的改动不混在一个提交里；AppSpec 声明变更与其生成物是同一逻辑变更，一起提交。
 - [commit-r05] [强制] 发布走 `bald release plan → sync --write → changelog → tag`（从 git 提交历史推导待发布模块与下一版本），不手工打 tag、不手写 CHANGELOG 条目。
-- [commit-r06] [建议] 多 module 仓按模块独立 tag 发布；主版本策略见 scripts/multi-major.sh 与母文档《多模块发布与变更日志》。
+- [commit-r06] [建议] 仓库现为 4 module（根 + bconf/cli/cobramcp），按模块独立 tag 发布、根为主线；版本策略见母文档《多模块发布与变更日志》（multi-major 只读报告脚本已随模块精简退役，2026-11）。

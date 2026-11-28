@@ -12,7 +12,7 @@ digraph bald_flows {
 
         client [label="客户端请求", shape=ellipse, fillcolor="#fff"];
         listen [label="HTTPServer.Start\nnet.Listen + Serve\n transport/http/http_server.go:62-89"];
-        build [label="stdHTTPProvider.Build\n取 Decl.HTTPHandler（*gin.Engine）\nwithProbes 包装\n pkg/appkit/standard.go:168-188\n pkg/appkit/health.go:72-80\n → bootstrap.HttpServerProvider\n bootstrap/server.go:137-149"];
+        build [label="stdHTTPProvider.Build\n取 Decl.HTTPHandler（*gin.Engine）\nwithProbes 包装\n pkg/appkit/standard.go:172\n pkg/appkit/health.go:72-80\n → httpcontract.Provider\n transport/http/contract/contract.go:55"];
         rec [label="Recovery\n pkg/middleware/bundle/bundle.go:177"];
         rid [label="RequestID\n pkg/middleware/bundle/bundle.go:177"];
         trc [label="Tracing（仅 b.tracing）\n span = tracer.Start\n pkg/middleware/gin/observability.go:154"];
@@ -20,15 +20,15 @@ digraph bald_flows {
         cors [label="CORS（仅 corsCfg≠nil）\n pkg/middleware/bundle/bundle.go:184-186"];
         sec [label="Secure（仅 b.secure）\n pkg/middleware/bundle/bundle.go:187-189"];
         authn [label="Authn（仅 authenticator≠nil）\n pkg/middleware/bundle/bundle.go:190-192\n 未注入 ⇒ 链中无认证层"];
-        audit [label="Audit + metrics 发射\n pkg/middleware/gin/audit.go:138\n pkg/middleware/bundle/bundle.go:193-195"];
+        audit [label="Audit + metrics 发射\n pkg/middleware/bundle/bundle.go:698（unifiedAudit）\n pkg/middleware/bundle/unified.go"];
         authz [label="Authz（仅 authorizer≠nil）\n pkg/middleware/bundle/bundle.go:196-198"];
-        rl [label="RateLimit（仅 rateLimiter≠nil）\n r.Handler()\n pkg/middleware/gin/ratelimit.go:81\n 位于 Authz 之后\n pkg/middleware/bundle/bundle.go:199-204"];
+        rl [label="RateLimit（仅 rateLimiter≠nil）\n r.Handler()\n pkg/middleware/bundle/bundle.go:190（RateLimit Option）\n 位于 Authz 之后"];
         to [label="Timeout（仅 timeoutCfg≠nil）\n最内层，只计业务耗时\n pkg/middleware/bundle/bundle.go:205-209"];
         hdl [label="transport/web 泛型绑定\nbind → validators → handler(ctx,&req)\n transport/web/handler.go:37-51"];
         resp [label="WriteResponse / ErrorResponse\nberrors → HTTP code 映射\n transport/web/handler.go:50\n transport/web/response.go:56-93"];
 
-        retry_box [label="retry\n零 importer\n（唯一提及 ratelimit/bbr/bbr.go:68 注释）", color="#c33", fontcolor="#c33", fillcolor="#fff"];
-        cb_box [label="circuitbreaker\n无 transport / middleware 消费方", color="#c33", fontcolor="#c33", fillcolor="#fff"];
+        retry_box [label="retry\n原语已接（broker/kafka 订阅退避、\nregistry/etcd 重注册退避）\nRetrier 循环未接", color="#c33", fontcolor="#c33", fillcolor="#fff"];
+        cb_box [label="circuitbreaker\nsentinel 已接进入口链\n（server.{http,grpc}.middleware.\ncircuit_breaker 段驱动）", color="#c33", fontcolor="#c33", fillcolor="#fff"];
         grpc_tls [label="gRPC 分支同样契约驱动\nserver.grpc.tls → bconf/tlsconf.Server\n transport/grpc/grpc_server.go:88-97\n网关出站按同一段选凭据\n transport/gateway/gateway_server.go:70-79\n（§6.5 已修：协议两侧对称）", shape=note, color="#3a7", fontcolor="#2a6", fillcolor="#eef8f1"];
 
         client -> listen -> build -> rec;

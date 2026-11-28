@@ -27,7 +27,7 @@ health 是 bald 的健康检查 module：一个接口、三态状态机、两层
 ### 模块边界
 
 本 module 是独立 module，`github.com/kalandramo/bald/health`：tag 已发（消费方引 `health/v0.1.1`）；
-探针与就绪的装配由 `bootstrap`/`appkit` 承担（协议层不含健康检查域），见本文「探针与就绪的归属」。
+探针与就绪的装配由 `transport/grpc/contract`/`appkit` 承担（`transport/grpc` 协议实现本身不含健康检查域），见本文「探针与就绪的归属」。
 
 ## 设计
 
@@ -225,8 +225,8 @@ mux.Handle("/readyz", health.NewHandler(h))
 |---|---|---|
 | 生命周期（`Start`/`Stop`/`Endpoint`） | `transport.Server` | 不含健康语义 |
 | gRPC 标准健康服务注册 | `transport/grpc` | 只注册不判断（`grpc.health.v1` 是生态标配，见《设计判据》J6） |
-| 状态推送（`health.Check` → `SetServingStatus`） | `bootstrap` 组合服务器 | 需要 import grpc，故不进 `health` |
-| gRPC reflection 注册 | `bootstrap` | 按契约 `Server.Grpc.reflection` 注册，业务勿重复注册 |
+| 状态推送（`health.Check` → `SetServingStatus`） | `transport/grpc/contract` 的 `NewHealthServer` 叠加器（S3 起，此前住 `bootstrap` 组合服务器） | 需要 import grpc，故不进 `health` |
+| gRPC reflection 注册 | `transport/grpc/contract` | 按契约 `Server.Grpc.reflection` 注册，业务勿重复注册 |
 | HTTP 双探针路由 | `appkit.WithHealth` 或业务 | 用 `ServeMux` 包住业务 handler |
 | 探针/聚合/明细 | `health` | 本文前述能力 + `Health.Readiness(ctx) error` 适配 |
 
@@ -255,7 +255,7 @@ router.GET("/readyz",  gin.WrapH(health.NewHandler(h)))
 
 ### gRPC：标准服务在位，状态由外部推
 
-`transport/grpc` 注册 `health.NewServer()` 并暴露只读访问器 `HealthServer() *health.Server`；状态推送由 `bootstrap.NewGRPCHealthServer(srv, h, interval)` 承担——启动后立即探一次并按间隔同步，判据与 HTTP `/readyz` 同源（`StatusDown` → `NOT_SERVING`，否则 `SERVING`）。`Serve` 返回即停止轮询，不泄漏 goroutine。
+`transport/grpc` 注册 `health.NewServer()` 并暴露只读访问器 `HealthServer() *health.Server`；状态推送由 `transport/grpc/contract.NewHealthServer(srv, h, interval)` 承担（S3 起；旧名 `bootstrap.NewGRPCHealthServer` 已删除，不留转发——admin 与 cli 模板实测零消费）——启动后立即探一次并按间隔同步，判据与 HTTP `/readyz` 同源（`StatusDown` → `NOT_SERVING`，否则 `SERVING`）。`Serve` 返回即停止轮询，不泄漏 goroutine。
 
 ### 一行装配
 

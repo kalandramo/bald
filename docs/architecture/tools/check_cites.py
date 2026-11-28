@@ -19,7 +19,8 @@ FILES = [
 ]
 EXT = r'(?:go|proto|yml|yaml|json|mod|md|dot|dsl|sum)'
 # a file path; optionally followed by :line spec
-PATH = re.compile(r'(?<![A-Za-z0-9_./-])([A-Za-z0-9_.][A-Za-z0-9_./-]*\.' + EXT + r')((?::\d+(?:-\d+)?)(?:,\d+(?:-\d+)?)*)?(?![.\w-])')
+# the lookbehind also rejects '*' so shell globs ('*_test.go' in commands) never count as citations
+PATH = re.compile(r'(?<![A-Za-z0-9_./-])(?<!\*)([A-Za-z0-9_.][A-Za-z0-9_./-]*\.' + EXT + r')((?::\d+(?:-\d+)?)(?:,\d+(?:-\d+)?)*)?(?![.\w-])')
 BARE = re.compile(r'(?<![A-Za-z0-9_./-]):(\d+)(?:-(\d+))?')
 
 all_files = []

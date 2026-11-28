@@ -44,6 +44,7 @@ type Provider interface {
 | transport/{graphql,webrtc,mcp} | `contract.AppProvider(opts ...Option)` | server.graphql / server.webrtc / server.mcp |
 | transport/{kafka,rabbitmq,redis} | `contract.AppProvider(opts ...Option)` | server.kafka / server.rabbitmq / server.redis_server |
 | transport/gateway | `contract.AppProvider(register RegisterFunc)` | server.gateway |
+| transport/{http,grpc} | `contract.Provider(opts ...Option)`（std 内置接线；S3 起工厂在此，bootstrap 不再内置） | server.http / server.grpc |
 | oss/{s3,minio} | `contract.AppProvider()` | storage.s3 / storage.minio |
 | metrics/{prometheus,otel,datadog} | `<后端>contract.AppProvider()` | instrumentation.prometheus / instrumentation.otlp / instrumentation.datadog |
 
@@ -250,13 +251,13 @@ appkit: bootstrap config declares sections with no consumer:
 
 | 内置 | 段路径 | 说明 |
 | --- | --- | --- |
-| StandardHTTPProvider / StandardGRPCProvider | server.http / server.grpc（各一个 Provider） | 能力声明在代码（`WithHTTP`/`WithHTTPContract` 与 `WithGRPC` + `WithGRPCOptions`/`WithGRPCOptionsContract`——钩子形态与直给形态写进同一个 `Decl` 字段，Provider 看不出区别），契约段驱动地址/TLS；迟后阶段构建。分成两个是为了让第三方按段接管其中一面——转码面即 `transport/gateway/contract` 的 `HTTPProvider` 接管 `server.http`，gRPC 面不受影响 |
+| StandardHTTPProvider / StandardGRPCProvider | server.http / server.grpc（各一个 Provider） | 能力声明在代码（`WithHTTP`/`WithHTTPContract` 与 `WithGRPC` + `WithGRPCOptions`/`WithGRPCOptionsContract`——钩子形态与直给形态写进同一个 `Decl` 字段，Provider 看不出区别），契约段驱动地址/TLS；迟后阶段构建。底层工厂与其余协议族同形，住在 `transport/{http,grpc}/contract` 的 `Provider(...)`（S3 归位，此前是 bootstrap 内置的两个例外工厂）。分成两个是为了让第三方按段接管其中一面——转码面即 `transport/gateway/contract` 的 `HTTPProvider` 接管 `server.http`，gRPC 面不受影响 |
 | StandardAuditProvider | audit | audit.backends 的 "log" 项：结构化日志审计后端，核心包零依赖开箱即用 |
 | StandardLoggerProvider | logger | bslog（标准库 slog）——阶段 A 引导 logger 的持有者；两阶段重建 + 热更协议仍在引擎 |
 
 其余各段（registry/database/cache/storage/workflow/broker/tracer/metrics/config）无默认接线：段存在而无 Provider = L3 启动期报错（§3）。
 
-**顶替方式即末者胜**：声明同段路径的 Provider 写在 std.Standard() 之后即整体接管——audit 段被用户 audit Provider 接管后，store/stream 等第三方后端按自己的语义装配；logger 段特殊：不在 Provider 循环里、由引擎按两阶段 + 热更协议调用，但覆盖仍是同一条末者胜规则（§2.3 的 loggerProvider 即范本——阶段 A 引导日志也带你的装饰）。server.http/server.grpc 按能力声明装配，行为细节见各能力使用页。
+**顶替方式即末者胜**：声明同段路径的 Provider 写在 std.Standard() 之后即整体接管——audit 段被用户 audit Provider 接管后，store/stream 等第三方后端按自己的语义装配；logger 段特殊：不在 Provider 循环里、由引擎按两阶段 + 热更协议调用，但覆盖仍是同一条末者胜规则（§2.3 的 loggerProvider 即范本——阶段 A 引导日志也带你的装饰）。server.http/server.grpc 按能力声明装配（单轨口径自 S3 起对全部协议族成立：段工厂一律在各族 `contract` 包，bootstrap 不含任何服务器构造），行为细节见各能力使用页。
 
 ## 报错速查
 

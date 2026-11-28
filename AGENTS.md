@@ -4,13 +4,14 @@
 规范全文走 `bald convention`（本仓自己的蒸馏卡就住在 `cli/internal/convention/cards/`）：
 
 ```bash
-bald convention overview        # 先看有哪些规范卡（25 张 / 205 条规则，覆盖装配/契约/门禁/运维）
+bald convention overview        # 先看有哪些规范卡（25 张 / 206 条规则，覆盖装配/契约/门禁/运维）
 bald convention get <卡id>      # 卡全文；项目自定义卡放 .bald/conventions/ 自动并入
 ```
 
 ## 仓库事实（动手前必读）
 
-- **多 module 仓**：每个 `go.mod` 是独立 module，`go test ./...` 必须在各 module 目录内跑；根模块无可导入包。
+- **4 module 仓**（根 + `bconf`/`cli`/`cobramcp`，2026-11 扁平化后）：库面全部住根模块
+  （`go get github.com/kalandramo/bald@vX.Y.Z` 单一依赖面），`go test ./...` 仍须在每个 `go.mod` 目录内跑。
 - **CLI 是零 replace 独立 module**（`cli/`）：`go install github.com/kalandramo/bald/cli/cmd/bald@latest` 可装；
   同仓库只能以已发布 tag 依赖（如 `bconf v0.23.0`），**禁止给 cli 加 replace**（那是它存在的意义）。
 - **生成树是声明的函数**：`_example/bald` 的 owned 产物（`appspec.manifest.json` 清单内 DO NOT EDIT 文件）

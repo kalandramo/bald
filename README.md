@@ -49,30 +49,31 @@ go mod tidy && go run ./cmd/demo-svc
 
 把 `@latest` 换成 `@v0.1.0` 就钉住生成器行为。只有要改生成器本身、或你用的代理还没索引到新 tag 时才需要源码检出：`git clone https://github.com/kalandramo/bald.git && cd bald/cli && go install ./cmd/bald`——注意 `cli/` 目录只在拆分之后的 ref 上存在。
 
-`go mod tidy` 拉的是库模块，按各自的 tag 锁版本，例如 `go get github.com/kalandramo/bald/pkg@v0.2.1`（appkit 装配编排与能力包都住这里）。仓库根模块只提供本仓工具，没有可导入的包，别把它当依赖。
+`go mod tidy` 拉的是库模块，按各自的 tag 锁版本。2026-11 起库面已收敛进**根模块**：`go get github.com/kalandramo/bald@v0.57.0` 一条 require 即可导入全部能力包（appkit/store/authn/transport/contrib/…）；仅 `bconf`（契约 proto）与 `cobramcp`（MCP 桥接）仍需单独 require——它们与 `cli` 是仓内其余的独立 module（全仓共 4 个）。`cli` 是工具 module，不是库依赖。
 
 一条命令生成整套可编译骨架，`curl :8080/healthz` 即验证探针。审计、组件、能力、业务域等更完整的声明见[快速入门](docs/guide/zh-CN/quickstart/README.md)与[用 bald CLI 起步新服务](docs/guide/zh-CN/用%20bald%20CLI%20起步新服务.md)。
 
 ## 仓库结构
 
 ```
-bald/
-├── transport/                # 协议层：Server 契约 + grpc/http/gateway 实现子包 + web 流水线（强绑定 gin）；mcp 独立 module
-├── cobramcp/                 # Cobra → MCP 工具桥接（独立 module）
-├── bconf/  bconfig/          # 契约（proto 单一真相源）与配置源 provider（独立 module）
-├── bootstrap/                # 装配期载体与配置装载内核（config/ 子包：层模型装载器）
-├── registry/                 # 注册/发现契约（inmemory 内置；etcd/consul/nacos/kubernetes 直连 SDK）
-├── retry/  ratelimit/  broker/  circuitbreaker/   # 契约 + 多实现，各自独立 module
-├── pkg/                      # 独立 module（github.com/kalandramo/bald/pkg）：appkit 装配编排
-│                             #   （MustServe + 段驱动 Provider + Domain + mech）与 store/authn/
-│                             #   authz/audit/metrics/middleware 等能力包；适配器都 require 它而非根
-├── contrib/                  # 独立 module 桥接（authn-jwt / store-gorm / authz-casbin / audit-gorm /
-│                             #   audit-stream / observability-otlp / database）
-├── cli/                      # 官方 CLI 独立 module（github.com/kalandramo/bald/cli）：cmd/bald
-│                             #   （gen proto / store / app / domain + release）与 internal/{codegen,release}；
-│                             #   go.mod 零 replace，这是它区别于仓库根的唯一目的（风险评审 §3.4）
-├── internal/docscheck/       # 仓库根只剩这一包：文档与架构制品的机器闸门（不构成对外 API）
-└── _example/bald/            # 最小示例（MustServe + std + 域声明，HTTP/gRPC 双协议）
+bald/                                # 根模块 github.com/kalandramo/bald（v0.57.0 起单一依赖面）
+├── pkg/appkit/                     # 装配编排（MustServe + 段驱动 Provider + Domain + mech + segment）
+│                                   #   与 store/authn/authz/audit/metrics/middleware 等能力包
+├── transport/                      # 协议层：Server 契约 + grpc/http/gateway 实现子包 + web 流水线（强绑定 gin）+ mcp
+├── registry/                       # 注册/发现契约（inmemory 内置；etcd/nacos 直连 SDK）
+├── retry/  ratelimit/  broker/  circuitbreaker/   # 契约 + 多实现
+├── bootstrap/                      # 装配期载体与配置装载内核（config/ 子包：层模型装载器；
+│                                   #   服务器工厂已迁 transport/{http,grpc}/contract）
+├── bconfig/                        # 配置源 provider（apollo/consul/env/etcd/file/…）
+├── contrib/                        # 第三方桥接（authn-jwt / store-gorm / authz-casbin / audit-gorm /
+│                                   #   audit-stream / observability-otlp / database）
+├── bconf/                          # 独立 module（github.com/kalandramo/bald/bconf）：契约 proto 单一真相源
+├── cobramcp/                       # 独立 module（github.com/kalandramo/bald/cobramcp）：Cobra → MCP 工具桥接
+├── cli/                            # 官方 CLI 独立 module（github.com/kalandramo/bald/cli）：cmd/bald
+│                                   #   （gen proto / store / app / domain + release）与 internal/{codegen,release}；
+│                                   #   go.mod 零 replace，这是它区别于仓库根的唯一目的（风险评审 §3.4）
+├── internal/docscheck/             # 文档与架构制品的机器闸门（不构成对外 API）
+└── _example/bald/                  # 最小示例（MustServe + std + 域声明，HTTP/gRPC 双协议）
 ```
 
 多 module 仓库：在每个 `go.mod` 所在目录内 `go test ./...`。

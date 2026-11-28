@@ -14,7 +14,7 @@
 
 | 类别 | 内容 |
 |---|---|
-| 契约段 → 组件构造器 | 九个配置源工厂（`ConfigProvider`）、协议服务器工厂（`ServerProvider`）、日志 Options 映射、gRPC health 叠加器 |
+| 契约段 → 组件构造器 | 九个配置源工厂（`ConfigProvider`）、日志 Options 映射（协议服务器工厂与 gRPC health 叠加器已于 S3 归位 `transport/{http,grpc}/contract`） |
 | 配置装载内核 | `bootstrap/config` 子包的命名层模型（`Layer` / `Load` / `Store`），负责层优先级、热更新与快照隔离 |
 | 契约 → 后端 Option 的薄适配 | 让 `bconfig/*`、`log/bslog` 等后端包保持**零契约依赖** |
 
@@ -79,32 +79,36 @@ vault/http 的轮询模拟 watch 也是正经的 `ValueWatcher` 实现，只是�
 
 `LogOptions(b *bootstrapv1.Logger_Backend) *bslog.Options`（`log.go`）把契约的单后端声明映射为 bslog 选项：多输出优先（`output_paths` 非空优先，否则单值 `output_path`）、轮转零值回退默认（100MB / 7 份 / 30 天 / gzip）。后端实例由 `appkit.StandardLoggerProvider` 构造（见《[AppKit 日志装配设计](./AppKit%20日志装配设计.md)》）。
 
-### 协议服务器：能力声明在代码，参数在契约
+### 协议服务器：工厂已归位 transport 契约包（S3，N-1）
+
+`server.http`/`server.grpc` 的段构造不在本包。工厂归位到对应协议族的 contract 包，与其余 transport 族同形：
 
 ```go
-type ServerProvider func(ctx context.Context, cfg *bootstrapv1.Server) (transport.Server, func(), error)
-
-bootstrap.GrpcServerProvider(
-	bootstrap.WithGRPCRegister(registerGRPCService),
-	bootstrap.WithGRPCUnaryFunc(newGRPCChain), // 选项工厂：Run 期 server 构造点求值
-	bootstrap.WithGRPCHealth(h, interval),
+// transport/http/contract（WithHandler 给 Plain HTTP 面）
+httpcontract.Provider(httpcontract.WithHandler(handler))
+// transport/grpc/contract（WithRegister / WithUnaryFunc / WithHealth）
+grpccontract.Provider(
+	grpccontract.WithRegister(registerGRPCService),
+	grpccontract.WithUnaryFunc(newGRPCChain), // 选项工厂：Run 期 server 构造点求值
+	grpccontract.WithHealth(h, interval),
 )
-bootstrap.HttpServerProvider(
-	bootstrap.WithHTTPHandler(handler),
-)
+// 两族导出同一种段工厂形状（与 gateway/cron/asynq 一致）：
+// func(ctx context.Context, cfg *bootstrapv1.Server) (transport.Server, func(), error)
 ```
 
-分工：**地址 / TLS / 超时 / driver 来自契约，路由 / 拦截器 / service 注册 / 探针来自代码**。契约里配了 grpc 段但代码没有 `WithGRPC`，服务器缺失是明确的配置错误，不会静默启动一个空端口。
+分工不变：**地址 / TLS / 超时 / driver 来自契约，路由 / 拦截器 / service 注册 / 探针来自代码**。契约里配了 grpc 段但代码没有 `WithGRPC`，服务器缺失是明确的配置错误，不会静默启动一个空端口。
 
-**gateway 是 `server.http` 段的另一个 Provider，不是本包的分支**：`HttpServerProvider` 只按 handler 构 Plain HTTP 面；REST→gRPC 转码由 `transport/gateway/contract` 的 `HTTPProvider` 承载（同一个 `server.http` 段只跑一个面，段路径末者胜）。准入判据（driver 非 `grpc-gateway` 的显式值、register 为 nil）在转码面自己的构造期报错（显式 > 隐式）——bootstrap 因此不 import 任何转码实现。
+**gateway 是 `server.http` 段的另一个 Provider，不是任何包的分支**：Plain HTTP 面由 `transport/http/contract` 承载；REST→gRPC 转码由 `transport/gateway/contract` 的 `HTTPProvider` 承载（同一个 `server.http` 段只跑一个面，段路径末者胜）。准入判据（driver 非 `grpc-gateway` 的显式值、register 为 nil）在转码面自己的构造期报错（显式 > 隐式）。
 
-`GrpcServerProvider` 还负责 reflection 的契约注册（`server.grpc.reflection=true` 时框架注册，业务勿重复注册）。
+`transport/grpc/contract` 还负责 reflection 的契约注册（`server.grpc.reflection=true` 时框架注册，业务勿重复注册）。
 
-### health：就绪推送叠加器
+**归位为什么可行**：工厂旧住 bootstrap 时，kernel 被迫 import 具体 transport（评审 N-1 倒挂），http/grpc 也因此成为「server 族里仅有的两个不走 contract 模式的面」。S2 扁平化后各家族契约包与 appkit 同 module，「契约包引 appkit 会成 import 环」的前提消失（包环由编译器直接判，分层由 `.arch.json` + `internal/archgate` 判）。bootstrap 现已零 transport import，`forbid kernel ↛ transport/{http,grpc}*` 是回归锁（变异测试注入合成边判红，不是静默空转）。
 
-`NewGRPCHealthServer(srv, h, interval)` 在 `GRPCServer` 之上叠加「就绪状态推送」：后台轮询 `health.Health` 并 `SetServingStatus`（`""` = 整体服务），使 K8s gRPC 探针与 HTTP `/readyz` 同源。
+### health：就绪推送叠加器（随工厂住在 transport/grpc/contract）
 
-分层理由：gRPC health 是拉模型，必须由服务端推状态，但「判断业务就绪」不属于协议实现。标准健康服务注册留在 `transport/grpc`，推送留在装配层——详见《[Bald 健康检查设计](./Bald%20健康检查设计.md)》§探针与就绪的归属。
+`NewHealthServer(srv, h, interval)`（`transport/grpc/contract/health.go`，S3 随工厂从 bootstrap 搬入）在 `GRPCServer` 之上叠加「就绪状态推送」：后台轮询 `health.Health` 并 `SetServingStatus`（`""` = 整体服务），使 K8s gRPC 探针与 HTTP `/readyz` 同源。
+
+分层理由：gRPC health 是拉模型，必须由服务端推状态，但「判断业务就绪」不属于协议实现。标准健康服务注册留在 `transport/grpc`，推送叠加器住在该族的 contract 装配包，就绪判定口径仍在 `health`/`appkit`——详见《[Bald 健康检查设计](./Bald%20健康检查设计.md)》§探针与就绪的归属。
 
 `interval <= 0` 回退 2s；`Serve` 返回即取消轮询，不残留 goroutine。
 

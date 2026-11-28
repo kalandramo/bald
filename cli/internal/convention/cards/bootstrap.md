@@ -20,5 +20,5 @@ bootstrap/config 层模型 + bconfig 多源的装载纪律。契约形状见 bco
 - [bootstrap-r06] [强制] StrictContract 开启后未知键报错（捕获 server.htpp 这类笔误）；业务自持键必须经 AllowBusinessSections 声明独立顶层段——禁止让框架猜。
 - [bootstrap-r07] [强制] 热更新全量重合并（结构上保证上层覆盖不污染底层基准）；Store.Settings() 返回深拷贝；解码失败保留旧层缓存但仍触发 OnChange——坏状态可观测而非静默。
 - [bootstrap-r08] [强制] 资源释放「谁构造谁释放」：契约源 reader 归 ConfigProvider 返回的 cleanup，Store.Close 只停自建源，禁止重复关闭。
-- [bootstrap-r09] [强制] 契约字段→provider Option 的翻译收口在 bootstrap 适配器；bconfig/* 源包零契约依赖（不 import bconf），禁止把适配器下沉进源包。
+- [bootstrap-r09] [强制] 契约字段→实现 Option 的翻译每类只有一处收口：配置源收口 bootstrap 适配器（bconfig/* 源包零契约依赖，不 import bconf，禁止把适配器下沉进源包），协议/能力面收口 <family>/<impl>/contract；bootstrap 不得 import 具体 transport 实现（.arch.json forbid kernel↛transport/{http,grpc}*，internal/archgate 变异测试判）。
 - [bootstrap-r10] [建议] map→proto 桥接唯一入口 bconf.UnmarshalMap（bconf-r04/r05）；单层装配超时 DefaultLoadTimeout = 10s（远端不可达快速失败）；协议服务器分工「地址/TLS/超时来自契约，路由/拦截器/探针来自代码」——契约配了 grpc 段而代码无 WithGRPC 是配置错误，不静默启动空端口。

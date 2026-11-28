@@ -3,7 +3,7 @@
 
 > Author(s): bald 团队
 >
-> Discussion at: 源码 `transport/{server,endpoint}.go` 与 18 个子 module；装配面 `pkg/appkit/bootstrap.go`（servers 启动 + Endpoint 轮询）、`bootstrap/server.go`；契约 `bconf/proto/bootstrap/v1/server.proto`
+> Discussion at: 源码 `transport/{server,endpoint}.go` 与各实现子包（S2 扁平化后同属主模块）；装配面 `pkg/appkit/bootstrap.go`（servers 启动 + Endpoint 轮询），服务器段工厂在各族 `transport/<proto>/contract`（`http`/`grpc` 于 S3 从 bootstrap 归位）；契约 `bconf/proto/bootstrap/v1/server.proto`
 >
 > Status: Accepted（契约与 18 后端已落地；Endpoint 语义统一待单独设计，见「边界与已知缺口」第 1 条）
 

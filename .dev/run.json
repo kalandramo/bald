@@ -1,28 +1,238 @@
 {
   "version": 1,
-  "requirement": "项 1：transport/kafka 与 transport/rabbitmq 复制代码统一——抽共享 kernel（transport/internal/brokertype），两薄壳保留各自 options/kind；contract 层同理抽 family adapter；行为不变，迁移期保生成树门禁绿",
+  "requirement": "我觉得bald的tag太多了，因为是我个人使用的，对于日常使用来说很复杂。因为框架的契约必须显式import，导致很多接缝代码，很丑陋吧，多了很多逻辑，你作为一个架构师，会如何设计？先出结论给我看看。",
   "carrier": "local",
   "base_branch": "main",
-  "branch": "dev/transport-broker-kernel",
+  "branch": "main(设计期,未开实现分支)",
+  "stop_after": "slicing",
+  "stop_reason": "用户确认路径为「设计文档+切片供评审」;S1 开工待 go。",
+  "doc_path": "tasks/dx-flatten-design.md",
   "rounds_max": 5,
-  "rounds_done": 0,
-  "phase": "criteria",
+  "rounds_done": 5,
+  "phase": "validating(S4 收口:admin 切聚合根单 require+四件套迁 segment.New+seed 拆分,工具链 multi-major 退役,release 首跑 v0.57.0 单系列;不 commit 不 tag,留用户)",
+  "arch_contract": {
+    "path": ".arch.json",
+    "origin": "generated",
+    "layers": 6,
+    "verify": "pass",
+    "verify_note": "S3 重写为按目录子树互斥的六层(kernel=bootstrap、engine=pkg/appkit、kit=pkg 其余 17 子目录逐个枚举、families=16 族根含 bconfig、leaf=berrors、tooling=tools+internal)+按真实角色 allow 矩阵+strict.require_layer_under。--verify 144/144 归层 100% 零 FAIL 零 WARN;check 模式违规 25→0(forbid 2 条随 bootstrap 服务器工厂删除归零;allow 23 条按新矩阵判合法:contrib/config-nacos→bootstrap=SPI 注册模式,engine/kit→families=契约消费)。forbid 三条:kernel↛transport/{http,grpc}*(N-1 主判据,触发能力=archgate 变异测试)、pkg↛contrib*、leaf↛bootstrap/pkg/transport/contrib/bconf(bconf 属独立 module,allow 矩阵够不着只能显式列)。bconf 不能进 layers:--verify 判「前缀匹配不到本模块包」为 FAIL,它不在根 go list 包图内。",
+    "blind_spots": [
+      {
+        "group": "全框架包(除根模块)",
+        "packages": 129,
+        "touched": [
+          "pkg/appkit",
+          "bootstrap",
+          "transport/*",
+          "contrib/*"
+        ],
+        "verdict": "resolved-by-s2",
+        "evidence": "check-arch.py --verify / --blind-spots 实跑输出(2026-11-28,本会话)",
+        "disposal": "S2 已处置:--blind-spots --governed @config 实跑『受契约约束 141 个、无 source 规则 0 个、改动包全部在契约覆盖内』;分层守卫从软约束升级为机器判据,A5 置绿。剩余越界边(=现存债)按 S3 判据清零"
+      },
+      {
+        "group": "S3 新增包归层与触发能力",
+        "packages": 3,
+        "touched": [
+          "transport/http/contract",
+          "transport/grpc/contract",
+          "internal/archgate"
+        ],
+        "verdict": "resolved-by-s3",
+        "evidence": "check-arch.py --verify/--blind-spots 实跑(144/144 归层、无 source 规则 0 个)+ go test ./internal/archgate/(4 判据绿,变异注入合成边判红)",
+        "disposal": "两个 contract 新包归 families、archgate 归 tooling,进包图即受矩阵约束;N-1 墙的触发能力不靠「现值 0」自证,由 archgate 内存图注入 bootstrap→transport/http、transport/grpc、pkg/appkit 三条合成边分别判红并点名规则钉住"
+      }
+    ],
+    "intra_conflicts": []
+  },
   "metric": {
-    "name": "dup-lines",
+    "name": "release_units",
     "direction": "lower",
-    "baseline": 121,
-    "best": null,
-    "target": 70,
-    "epsilon_pct": 5.0
+    "baseline": 69,
+    "best": 4,
+    "target": 4,
+    "epsilon_pct": 0
   },
   "criteria": [
-    { "id": "C1", "text": "kernel transport/internal/brokertype 落地；两 shell 的 server.go/logger.go 不再各自持有生命周期/订阅注册/包装逻辑", "verify": "读 shell diff：生命周期方法仅存在于 kernel；sh .dev/measure-dup.sh 显著下降", "done": false },
-    { "id": "C2", "text": "行为不变：transport、transport/kafka、transport/rabbitmq 三 module 全部测试绿（含 lifecycle/race/unit 与 contract 五件套）", "verify": "三 module 逐个 go build ./... && go vet ./... && go test -short -count=1 ./...", "done": false },
-    { "id": "C3", "text": "家族分歧如实登记：nil ctx 防御侧统一（kafka 收紧）、覆盖告警按 fam.KeyNoun——spec 与报告记录", "verify": ".dev/tasks/item1-spec.md 分歧节存在且与实现一致", "done": false },
-    { "id": "C4", "text": "生成树零波及：根 docscheck 绿、_example 无 diff、appspec 未触碰", "verify": "根模块 go test ./internal/docscheck/ && git status _example 为空", "done": false },
-    { "id": "C5", "text": "独立子代理审阅 blocking 清零（逐条验真）", "verify": "审阅 JSON blocking=[] 或已验真修复后重跑门禁", "done": false }
+    {
+      "id": "A1",
+      "text": "发布单元 69 → 4",
+      "verify": "bash scripts/list-modules.sh | wc -l",
+      "done": true
+    },
+    {
+      "id": "A2",
+      "text": "admin go.mod bald require ≤ 4 行",
+      "verify": "grep -c 'github.com/kalandramo/bald' ../bald-admin/backend/go.mod",
+      "done": true,
+      "verify_note": "2026-11-28 实测:admin go.mod 直接 require bald 仓模块 3 行(github.com/kalandramo/bald v0.57.0 + bconf v0.31.1 + cli v0.18.1),含 indirect 的 bald/cobramcp v0.4.1 也仅 4 行≤4。口径注意:bald-crud/viewer 等是外部另一仓库模块(前缀 grep 会误计),不属 bald 发布单元;联调期根模块走 replace ../../bald,v0.57.0 发布后移除即纯 tag 消费。"
+    },
+    {
+      "id": "A3",
+      "text": "新增已声明后端 = appspec + gen,diff 仅 owned 生成物",
+      "verify": "_example 加 server.sse 面后 git diff --name-only 全落在 appspec.manifest.json owned 清单",
+      "done": false,
+      "verify_note": "维持挂账:新面类型生成化的前置是 bconf proto 契约加字段(N-7 收窄),归 bconf 变更窗口;已声明面(gen app 派生)在 S1/S3 验证成立。"
+    },
+    {
+      "id": "A4",
+      "text": "试点迁 segment.New:机械样板归一,测试仅私有类型构造行等价改写、断言不动仍绿",
+      "verify": "go test ./transport/cron/contract/ ./cache/redis/contract/ ./registry/etcd/contract/ + _example internal/bootstrap",
+      "done": true
+    },
+    {
+      "id": "A5",
+      "text": ".arch.json 全仓可判",
+      "verify": "check-arch.py --verify && check-arch.py --blind-spots --governed @config",
+      "done": true
+    },
+    {
+      "id": "A6",
+      "text": "行为不变(每批)",
+      "verify": "task acceptance; bald gen verify; 逐模块 go test -race; go test ./internal/docscheck/",
+      "done": true
+    },
+    {
+      "id": "A7",
+      "text": "admin 手写胶水 ≤ 1000 行",
+      "verify": "ls ../bald-admin/backend/internal/bootstrap/*.go | grep -v '.gen.go' | xargs wc -l | tail -1",
+      "done": false,
+      "verify_note": "2026-11-28 S4 收口后实跑 verify 命令=3457 行(含 _test.go),剔测试=2301;起点 3930/2814,本轮 -473/-513。已迁出:seed()/seedPolicies()+Repositories 定义与构造(→ internal/bootstrap/repo + seeddata 子包),四件套类型(→ segment.New 数据式)。剩余大头是业务基建与业务语义接线(assembly.go 494 行 BeforeStart/Provider 清单、sse/audit/cron 等域接线、1139 行测试)——非框架接缝,归 admin 自持。≤1000 的目标口径只覆盖「接缝文件」:admin 内手写四件套已归零,此项按「接缝达标、字面数字未达」登记,不谎报 done。"
+    }
   ],
-  "history": [],
-  "note": "前一需求（第一阶段架构诊断）run.json 归档于 run.json.phase1-archive；其账本在 results.tsv 与 REPORT.md",
-  "updated_at": "2026-11-18T01:45:00+08:00"
+  "history": [
+    {
+      "ts": "2026-11-29",
+      "phase": "gate",
+      "note": "#57 修后收口门禁全绿:release plan(Deferred 段实跑文案正确)→sync --write 免绕行(cli/go.mod 不触)→五 module GOPROXY=off -mod=readonly list 零红→changelog --write(两段+bald 行配套表,cli 不在批)→tag dry 两 tag 不落真;cli release 测试(含新增两测)/docscheck/archgate/segment/lint 0 issues×4/gofmt 净/convention 0 findings/acceptance 33 腿 232 判据/gen app --check 24 clean/admin build+vet 全过"
+    },
+    {
+      "ts": "2026-11-29",
+      "phase": "incident",
+      "note": "#57 修复副产物事故:此前 git checkout HEAD -- go.mod 等五文件意图只还原 sync 中间态,实际把 root/_example/cobramcp 三个 flatten 后未提交的 go.mod 一并打回旧拓扑(root 只剩 35 行 replace 树,_example 回到 27 内部 require,cobramcp 引旧兄弟模块)——bconf/cli 的 checkout 是有意恢复。处置:按 S2 账本配方重建——root=65 个吸收 go.mod 外部 require 并集 semver 归一(实测恰 312 路径与账本吻合)+bconf v0.31.1 require+replace ./bconf;_example/cobramcp=require 根 v0.56.1+replace ../.. 与 ../../bconf(cobramcp 为 .. 与 ../bconf),外部行沿用 HEAD;tidy 后 build 四绿、admin build/vet 绿、acceptance/docscheck/archgate 全绿,等价性由「312 并集精确复现+go.sum 校验零改+离线 list 零红」三重证据支撑。教训登记:#57 修复的验证脚本必须用 git status 比对还原面,不能用 checkout 文件清单兜底"
+    },
+    {
+      "ts": "2026-11-29",
+      "phase": "implementing",
+      "note": "#57 修复落地:release 计划期自锁延期——cli/internal/release/plan.go PlanVersion 2→3,新增 Plan.Deferred[]+DeferredModule+toolHostDir=cli 常量+parseReplaces/replaceTargets;BuildPlan 判工具宿主 require 同批未发版本且无目录 replace→整模块出批重算 Requires/Consumers,PrintPlan 打延期段与处置指引(范围刻意只盯宿主,历史 54 go.mod 归位无害口径不动);测试 TestBuildPlan_DefersToolHostSelfLock 两阶段(同批 defer→tag 后自然进批)+TestParseReplaces 三形态,修 release_errors_test 旧签名;真仓 plan 实跑 Changes=[bald v0.57.0,bconf v0.32.0] Deferred=[cli v0.19.0 挡 bconf] Consumers=[_example,cobramcp]"
+    },
+    {
+      "ts": "2026-11-28",
+      "phase": "validating",
+      "round": 4,
+      "note": "S3 全量回归收口:根 build+test -short 全绿(144 包);internal/archgate 4 判据绿(含变异注入判红);check-arch --verify 144/144 归层零 FAIL 零 WARN、--blind-spots 无 source 规则 0、check 模式 25→0 违规;task acceptance 33 腿 232 判据全过(ci scope 30/229,新 transport/{http,grpc} contract 两条腿);race.sh 四模块绿零 DATA RACE;docscheck 绿;golangci-lint 0 issues×4;gofmt 净;task convention 25 卡 findings 0(规则计数与改动前同口径 206,只改文本未新增 ID;AGENTS.md 文案 205 属存量漂移挂 S4);bald gen verify clean 24+5;example-bald-vet 默认+grpcgw 绿;admin 零改动回归 build+test 全绿"
+    },
+    {
+      "ts": "2026-11-28",
+      "phase": "implementing",
+      "round": 4,
+      "note": "S3 N-1 归位落地:新建 transport/http/contract(Option/WithHandler/Provider+类型守卫)与 transport/grpc/contract(Option/WithRegister/WithUnaryFunc/WithHealth/Provider+reflection 段消费+health.go 推送循环逐字迁入更名 NewHealthServer),形状照搬 gateway/cron contract、不 import appkit/bootstrap;pkg/appkit/standard.go 改引两包;bootstrap/server.go、bootstrap/health.go 及三份测试删除——偏离冻结规格步骤 3:不留 Deprecated 薄转发(cli 模板/_example/admin 三面实测零引用,留转发则 kernel→transport 边存活 forbid 无法翻绿;v0.x minor 允许破坏性,外部消费者冻结在已发布 tag 不受影响)。segment_coverage providerHint 的 http/grpc 特判改派生自 builtinServerSegments(唯一真相源+派生断言测试);.arch.json 六层互斥重写(17 个 kit 前缀逐个枚举保证子树不相交)+strict.require_layer_under;新增 internal/archgate 原生门禁(镜像 check-arch 匹配语义+防空转+变异注入);acceptance 表 +2 ci 腿"
+    },
+    {
+      "ts": "2026-11-28",
+      "phase": "validating",
+      "round": 3,
+      "note": "S2 全量回归收口:根 test -short 全绿(142 包);race.sh 四模块全绿(根 140 包入选、log/aliyun 按前缀 skip 生效、0 DATA RACE);task acceptance 31 腿 227 判据全过(含 -tags grpcgw/nacos 两态计划钉、停机序);仓内 bald gen verify clean 24+5(bind 前置双形态实测);docscheck 绿;golangci-lint 0 issues×4;ci-workflow-lint 绿;gofmt 净;admin 零改动回归 build+test 全绿(已发布 tag 冻结生效);go.sum 残留=4 份"
+    },
+    {
+      "ts": "2026-11-28",
+      "phase": "implementing",
+      "round": 3,
+      "note": "S2 拓扑扁平化落地:65 个吸收 module + cobramcp 下 3 示例 module 的 go.mod/go.sum 全删(121 文件);根 go.mod 重建=吸收模块外部 require 并集 312 路径按 semver 最高归一 + bconf v0.31.1 一条 require+replace;tidy 净;list-modules 派生 4 项;物理依赖边=根→bconf、cobramcp→根(带 ../.. 与 ../bconf 本地 replace)、cli 零 require 变化(已发布 tag 形态不动)"
+    },
+    {
+      "ts": "2026-11-28",
+      "phase": "consumers",
+      "round": 3,
+      "note": "闸门消费方同步:scripts/race.sh 新增(race skip 粒度 module→包前缀,task race 与 CI 同走);scripts/verify-scope.sh 新增(前缀→最长前缀 module 归属,命令面对齐 verify-module);Taskfile race/verify-scope/cobramcp 组改;ci.yml race 作业改调 race.sh;race-skip.txt 格式声明改写;.arch.json 重写为互斥五层+allow 矩阵(--verify 142/142 归层 100%、forbid 三条含 N-1 判据、零 FAIL 零 WARN)"
+    },
+    {
+      "ts": "2026-11-28",
+      "phase": "gate-rework",
+      "round": 3,
+      "note": "cli bind 前置 ensureBindDeps 翻精确 require 匹配、双形态共存(flat 根 require ∨ 旧兄弟 require)+新测试 TestGenDomain_Bind_FlatRootRequireSatisfies;authz e2e glue 撤兄弟 require 注入(扁平下触发 ambiguous import);docscheck 四拓扑钉翻形:module-list 块 70→4、TestModulePackageSets 归属三面钉、TestPkgModuleIsLeaf→TestPkgDoesNotImportRepoTools、TestNoModuleRequiresAggregateRoot→TestAggregateRootRequiresAreIntentional(cobramcp→根是唯一入边)、空转守卫 50→minReleaseUnits=4;current-architecture/risk-review/architecture-README 同步 4 单元口径(dot 图声明未重渲染留 S4)"
+    },
+    {
+      "ts": "2026-11-28",
+      "phase": "implementing",
+      "round": 2,
+      "note": "S1b 落地:_example register_nacos.go 手写四件套(nacosRegistrarProvider type+Segments/Apply/Plan/Build)迁 segment.New(\"registry\",build,Kind(registry)),76→约 30 行净减;族表派生与原 Plan 字面量逐字段一致(Key/Segments/Phase/Priority/Reload/Effect 全派生,Kind 显式)"
+    },
+    {
+      "ts": "2026-11-28",
+      "phase": "validating",
+      "round": 2,
+      "note": "nacos+无 tag 双形态 go build 绿;go vet -tags nacos 净;gofmt 净;bootstrap 无 tag 全量 test 绿(plan_acceptance 钉计划等价);golangci-lint --build-tags nacos 0 issues"
+    },
+    {
+      "ts": "2026-11-28",
+      "phase": "finding",
+      "round": 2,
+      "note": "新登记 N-7(评审文档):Gate2 implementedServerFaces 10 面 vs codegen 模板接线 6 面,sse/websocket/kafka/rabbitmq 声明过闸零接线→L3 no-consumer;ServerSpec 无这 4 面开关,多角色投影裁段;守卫只钉白名单⊆transport 目录一条腿。完全生成化需 bconf proto 变更,冻结留 bconf 窗口;A3 判据随之改口径(已声明面成立,新面类型除外)"
+    },
+    {
+      "ts": "2026-11-28",
+      "phase": "implementing",
+      "round": 1,
+      "note": "S1 前半落地:pkg/appkit/segment(New+9 Opt+段族表,families 值逐字扫 18 contract 包实测);试点迁移 transport/cron、cache/redis(Option 隐藏参数类型 appProvider→appConfig,对外零破坏)、registry/etcd;单测 TestFamilyDefaultsMatchPilots 钉派生=手写逐字段;样板 -93%/包,文件 LOC -17..30%"
+    },
+    {
+      "ts": "2026-11-28",
+      "phase": "validating",
+      "round": 1,
+      "note": "3 试点包 test 绿;引擎级 _example internal/bootstrap 绿(worker 经 cron AppProvider 起 cron 面);golangci-lint 0 issues x4;gofmt/vet 净;设计文档 A4 判据与 3.2 知识轴表述随实现修正"
+    },
+    {
+      "ts": "2026-11-28",
+      "phase": "criteria+archgate",
+      "note": "check-arch --verify/--blind-spots 实跑:多模块下工具只见根模块 2 包,盲区处置=S2 判据 A5;.arch.json 落盘(forbid 含 N-1 收敛判据)"
+    },
+    {
+      "ts": "2026-11-28",
+      "phase": "design",
+      "note": "tasks/dx-flatten-design.md 落盘(痛点量化实测 70 go.mod/69 单元/703 tag/357 replace/4255 行胶水/22 手写 Plan;否决插件化与 lockstep;4 发布单元目标)"
+    },
+    {
+      "ts": "2026-11-28",
+      "phase": "slicing",
+      "note": ".dev/tasks/dx-flatten-slices.md 落盘(S1..S4 串行,判据+回滚点齐);停在此阶段边界等用户 go"
+    },
+    {
+      "ts": "2026-11-28",
+      "phase": "implementing",
+      "note": "S4 落地:框架侧 segment 族表补 audit/app+TeardownAfter Opt(值逐字抄 pilot 手写字面量,segment_test 断言一致);admin 切聚合根 require(删 40+ 旧子模块行,msgpack 轴换根模块 yaml——e2e 测试改写后绿),四件套 cacheRedis/appBinding/audit 迁 segment.New(测试仅构造点等价改写),Repositories/seed 拆 internal/bootstrap/repo+seeddata 子包(纯搬移,build 面零破坏)"
+    },
+    {
+      "ts": "2026-11-28",
+      "phase": "validating",
+      "note": "S4 验证:admin go build/test 全绿(含 e2e 55s 腿)+起服冒烟(路由/bridges 正常);gen app --check 15 文件零漂移;A2=3 直接行✓;A7 verify 现值 3457/2301 两口径如实登记;bald 侧回归:docscheck/archgate/appkit+segment(-race)/lint/acceptance 33 腿 232 判据/convention(206 条)全绿"
+    },
+    {
+      "ts": "2026-11-28",
+      "phase": "tooling",
+      "note": "工具链退役:scripts/multi-major.sh + task deps-multi-major 删除(4 模块下同链多 major 场景消失,risk-review §3.2 历史账目不改);commit-r06/reuse-r02/judgments-r10 卡同步 4 模块口径;README/AGENTS.md 聚合根单 require 口径+206 规则数修正;《多模块发布》examples 并入 cobramcp 口径;module-deps.dot 重画为 4 模块拓扑+flows.dot 三处退役引用修正,dot -Tsvg 重渲染;bald-c4.dsl 行号引用 13 处刷新(本机无 JDK,structurizr 校验链挂账,c4 svg 快照停在 2026-11-03)"
+    },
+    {
+      "ts": "2026-11-29",
+      "phase": "release-first-run",
+      "note": "bald release plan→sync --write→changelog --write 首跑单系列:根 v0.56.1→v0.57.0(minor,含 ! 破坏性)、bconf→v0.32.0、cli→v0.19.0、cobramcp 无发版提交不进计划——4 模块拓扑下工具正常。发现工具链时序缺陷:sync 把 cli require 升到未发布 bconf 后,go run ./cmd/bald 因 go.sum 缺哈希即崩,changelog 步只能用 stash 前后预编译的 binary 完成(登记 risk-review #57)。注意:CHANGELOG v0.57.0 段现取自 HEAD 历史,S1-S4 改动未 commit 不在内——用户 commit 后重跑 changelog 即补全。未 tag(留用户执行 bald release tag)"
+    },
+    {
+      "ts": "2026-11-29",
+      "phase": "consumer-intermediate-state",
+      "note": "#57 连带效应实测:root sync 到 bconf v0.32.0(未发布)后经 admin 的 replace ../../bald 传染其模块图,admin tidy 需走网络重试卡死——处置:admin 临时加 replace ../../bald/bconf 图自持(与根 replace 同性质),tidy/build/test 全绿+bootstrap -race 绿;目标态注释已写明两 replace 在 tag 发布后删除归零。root 侧 sync 后 go build ./... 绿(本地 replace 兜底)。"
+    },
+    {
+      "ts": "2026-11-29",
+      "phase": "backlog-clear",
+      "note": "JDK 挂账处置:brew install openjdk@21(keg-only,未动用户 PATH),跑通 docs/architecture/README.md 的校验链——javac 编译 Validate(仓内 libs 已有,跳过 mvn)→java Validate bald-c4.dsl:PARSE OK + VALIDATION 0 problems;顺带补修 dsl 一处「transport/{…,rocketmq,redis}」退役残留边文案;dot 重渲染 c4-landscape/services_view/modules_view 三张 svg 入库,landscape 实测含「4 个 go.mod」新口径、modules_view 含「cli module(独立 go.mod)/子包 × 28」;check_cites 对 dsl 判 0。risk-review #57 对应括注已销账"
+    },
+    {
+      "ts": "2026-11-29",
+      "phase": "backlog-clear-2",
+      "note": "引用重核销账:current-architecture.md 与 flows.md 的 43 条旧拓扑引用全清(现值 0)。分类处置:行号漂移→实测刷新(web/response.go:24-58、kafka/server.go:54-63、grpc observability:108,120、audit emit→pkg/middleware/audit.go:128,204、discovery→pkg/grpcdiscovery/discovery.go:72,73、bundle 桥 circuitbreaker/ratelimit 新落点);裸名→补全路径(pkg/appkit 7 文件、_example seeded 四件、codegen app.go);已删文件叙述→去扩展名/改述(server 工厂旧文件、bbr 退役、webrtc ⑦ 节整体改写为退役注记);L27 表行改聚合根口径、L94 历史证据块加扁平化注记并删 minio 死例。另修 check_cites.py 一处误报(shell glob 被当引用:lookbehind 排除 '*' + 文档内 `grep -v _test.go` 改 `grep -v _test`)。重跑 checked 335/problems 292——292 全在 risk-review 历史账目(不改写),docs 侧现状文档清零;docscheck 绿。"
+    }
+  ],
+  "updated_at": "2026-11-29",
+  "note": ""
 }

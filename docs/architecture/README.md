@@ -6,7 +6,7 @@
 |---|---|
 | 这个仓库现在是什么结构 | [current-architecture.md](current-architecture.md) |
 | 哪里有风险、消解条件与动手顺序 | [risk-review.md](risk-review.md) |
-| 最新一轮整体架构评审发现了哪些新缺陷 | [architecture-review-20261118.md](architecture-review-20261118.md)（AR-1…31，含修复批次） |
+| 最新一轮整体架构评审发现了哪些新缺陷 | [architecture-review-20261128.md](architecture-review-20261128.md)（增量评审 N-1…N-6：新登 1 条结构性缺陷 + 执行登记存量核销；N-1 附冻结规格）；上一轮 [architecture-review-20261118.md](architecture-review-20261118.md)（AR-1…31，已全量回填） |
 | 请求/消息/生命周期怎么流 | [flows.md](flows.md) |
 | bald 与 onexai（AI 化）的差距与落地设计 | [onexai-gap-review.md](onexai-gap-review.md) §4 状态总览、§7 CLI 缺口复核 |
 | onexai 用起来是什么样、bald CLI 还缺什么 | [onexai-harness-walkthrough.md](onexai-harness-walkthrough.md)（走查原文）→ [onexai-gap-review.md](onexai-gap-review.md) §7 |
@@ -33,11 +33,13 @@
 | `handoff-session-20261108.md` | 会话成果记录（onexmesh 吸收 × 方案 S 批次 1–3、九 tag）+ 避坑清单（网络工具链/契约生成/运行时陷阱/断言口径） | 交接已闭环（2026-11-10）；时效性章节（阻塞/待办/闸门现状）已移除，避坑清单长期有效 |
 | `developer-experience-review.md` | 用户视角的框架体检：四类用户旅程（新手/业务开发/维护者/AI 会话）的摩擦点清单（DX-1…17，实证采集），含快赢清单（7 项按性价比排序） | 2026-11-11 首版；留待优化，修复时逐条勾销 |
 | `architecture-review-20261118.md` | 全仓五切片并行评审（`main` @ `984a9655`）：31 条新缺陷（高 11 / 中 13 / 低 7），按已复现 / 读码确证 / 疑似分级，已对既有登记册去重，附修复批次与排除清单 | 2026-11-18 首版；2026-11-26 状态已回填（31 条全部有修复提交，AR-13 范围关闭、AR-9 留有契约 tls 残余，详见文首「状态回填」） |
+| `architecture-review-20261128.md` | 增量评审（`main` @ `058f4756`，参照消费者 `bald-admin`）：新登 N-1 http/grpc 装配缝双轨与 bootstrap→transport 倒挂（附冻结收敛规格）；执行 N-2 `_example` logger 示范收口、N-3 Bind 注释失真修正、N-4 cobramcp 双引擎遍历收敛；核销 N-5 cli 原子写、降级 N-6 bconf 双折叠 | 2026-11-28 首版；N-1 已随 dx-flatten S3 执行（风险登记 #56），N-7 登记冻结归 bconf 窗口；S4 收口见风险登记 #57（2026-11-29） |
 | `render/*.svg` | 上面两份 `.dot` 与 `.dsl` 三张视图的渲染快照 | 由 graphviz 16.1.0 生成，改源后需重跑（见「校验工具与命令」） |
 
 > 「引用已逐条核对」= 用脚本把制品里的每个 `路径:行号` 抽出来（行内省略文件名的简写按就近文件解析），逐条打开源文件回读该行内容并人工比对叙述；不是抽样。最新一次重跑（§3.1 收口后，脚本原始输出）：**`checked cites: 324, problems: 12, bare-resolved: 65, bare-unresolved: 0`**（比上一轮少一条引用：评审快照里那条 go.mod 的行号在两轮改动后已不对应任何事实，改成了不带行号的快照描述）。
 > 这 12 条不是本轮引入：与拆分前的 `main` 逐条比对，同一集合：多包同名的裸文件名（测试文件、中间件里的超时与限流实现）与只写了裸文件名的 workflow 作业文件，本轮新增 0 条；
 > 上面那句 `problems: 0` 是 §7.5 Windows 那轮之前的状态，之后写进风险登记册的若干裸文件名引用把它带成了 12，此前没人重跑这条校验。
+> **2026-11-29 扁平化后重跑**（dx-flatten S4 收口，openjdk@21 已装、c4 三视图重渲染入库）：现状文档 `current-architecture.md` 与 `flows.md` 的全部旧拓扑引用已清账（34→0 条），脚本输出 **`checked cites: 335, problems: 292, bare-resolved: 59, bare-unresolved: 22`**——292 条全部位于 `risk-review.md` 历史账目（引用已删除文件与已退役后端属当时事实，按「账目只追加不改写」原则保留）。同轮修了脚本一处误报：shell 命令里的 glob 与测试过滤参数（`grep -v '*_test.go'` 一类）不再被当作引用（lookbehind 加 `*` 排除；本仓文档命令里的裸测试过滤也已改成不带后缀的 `_test` 形态）。
 >
 > 这个检查的边界：它只能证明「被写成引用的那些行号」对得上，**不能证明叙述本身正确**——没有行号的定性判断（如「零 importer」「性能更好」）仍需人工复核。同理，渲染/解析通过只证明图源语法与视图装配合法，不证明建模判断正确。
 
@@ -99,3 +101,4 @@ dot -Tsvg /tmp/c4out/modules_view.dot -o docs/architecture/render/c4-modules_vie
 - **2026-11-06 增量**（声明式装配方向②前两批）：`*/contract` 30→**39**（第一批 `transport/{tcp,websocket,http3}`、第二批 `transport/{graphql,webrtc,mcp}`，判据见 `risk-review.md` §7.28）。**未重渲染**：`module-deps.dot` 的「回边（30 个子包）」与 `bald-c4.dsl` / `render/*.svg` 同批未动；零散改标签会造出「数字新、边旧」的第三种不一致，要整轮重核。
 - **2026-11-10 梳理**：`handoff-session-20261108.md` 交接闭环（时效章节移除、避坑清单保留）；`onexmesh-comparison.md` §6/§6.3 ⏳ 项回填 ✅；`transport-unification-assessment.md` 头部加完成态；`onexai-gap-review.md` §4 增状态总览。`onex-ai.md` 逐字存档不动。
 - **2026-11-26**：DX-18 后半落地，索引表与修订史分离；各文档状态回填见文首「状态回填」节。
+- **2026-11-28 增量（S2 拓扑扁平化落地）**：`scripts/list-modules.sh` 派生的发布单元 70→**4**（`.` / `bconf` / `cobramcp` / `cli`；`_example/bald` 与 `cobramcp/examples/*` 分别为独立消费者/已并入 cobramcp，不在计数内）。模块级拓扑收敛为 `cli → {bconf, cobramcp}`、`cobramcp → 聚合根`、`聚合根 → bconf` 四条边（判据与实施记录见 `tasks/dx-flatten-design.md` 与评审 N-1/A5 条目）。**未重渲染**：`module-deps.dot` 的「95 个 go.mod」分层图与 `bald-c4.dsl` / `render/*.svg` 是同批历史形态——包级分层语义仍在（`check-arch.py --verify` 142/142 归层、100%），但 module 级图要整轮重核，随 S4 文档同步批一起做；零散改标签造「数字新、边旧」的老教训（2026-11-06）继续适用。

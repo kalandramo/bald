@@ -21,4 +21,4 @@ bald 跨模块复用的裁决原则：设计文档做「保留 / 删除 / 收敛
 - [judgments-r07] [强制] 未实现配置段 fail-fast：契约声明了却无实现的段直接报错，不静默丢弃；逃生舱是显式白名单（WithUnimplementedSegments）。
 - [judgments-r08] [强制] 契约只为已实现的东西承诺形状：proto 契约字段必须有真实消费者，不预留「将来也许」的字段。
 - [judgments-r09] [强制] 配置取值只有契约一条通道：链外输入（环境变量、手写 flag）必须接进契约或登记理由，不许静默存在——docscheck 与 bootstrap 的对账闸门会判红未登记路由。
-- [judgments-r10] [强制] `pkg/` 是历史模块名，新聚合勿再入内（ADR-16）：改名是全仓 import 地震，代价 >> 收益，永久挂账不修；新能力建独立 module 或归入已有具名聚合，不往 `pkg/` 里加新包。
+- [judgments-r10] [强制] `pkg/` 是历史目录名，新聚合勿再入内（ADR-16；2026-11 扁平化后它是根 module 内包组，不再独立发布）：改名是全仓 import 地震，代价 >> 收益，永久挂账不修；新能力归入已有具名聚合（transport/cache/registry/contrib…），不往 `pkg/` 里加新包。
